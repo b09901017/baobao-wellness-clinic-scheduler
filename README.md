@@ -89,7 +89,9 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 2. `.firebaserc` 填專案 ID
 3. 開 Google 登入，然後在 Firestore 手動新增一份空文件 `allowedUsers/{你的 uid}` —— 沒有這步，登入了也讀不到任何資料
 
-自動部署需要兩個 repository secret：`FIREBASE_SERVICE_ACCOUNT`（服務帳號 JSON 全文）與 `FIREBASE_PROJECT_ID`。push 到 main 就會跑測試並上線。
+自動部署需要一個 repository secret：`FIREBASE_SERVICE_ACCOUNT`（服務帳號 JSON 全文）。push 到 main 就會跑測試並上線。
+
+那個服務帳號還需要在 Google Cloud IAM 加上 **Firebase Rules Admin** 與 **Cloud Datastore Index Admin** 兩個角色，否則 Rules 與索引會部署失敗（預設角色只夠讀寫資料）。
 
 ## 開發狀態
 

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # 不是密鑰，與 .firebaserc 同一個值
+  FIREBASE_PROJECT_ID: wellness-clinic-scheduler
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,16 +30,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 需要兩個 repository secret：
-      #   FIREBASE_SERVICE_ACCOUNT  服務帳號 JSON 全文
-      #   FIREBASE_PROJECT_ID       專案 ID
+      # 只需要一個 repository secret：FIREBASE_SERVICE_ACCOUNT（服務帳號 JSON 全文）。
       # 服務帳號金鑰絕對不能 commit，只能放 secrets。
+      #
+      # 專案 ID 不是密鑰（.firebaserc 和 firebase-config.js 裡本來就有），
+      # 放進 secrets 只會讓 Actions 日誌把它遮成 ***，出事時反而看不懂。
       - name: 部署 Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+          projectId: ${{ env.FIREBASE_PROJECT_ID }}
           channelId: live
 
       # 上面那個 action 只部署 Hosting。Rules 是真正的安全防線，
@@ -47,7 +52,6 @@ jobs:
       - name: 部署 Firestore Rules 與索引
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
           echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
