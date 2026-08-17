@@ -1,0 +1,58 @@
+name: 部署到 Firebase Hosting
+
+# push 到 main 就上線。維護者多用手機開發，不能依賴本機跑 firebase deploy。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # 沒有相依套件，不需要 npm install
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 需要兩個 repository secret：
+      #   FIREBASE_SERVICE_ACCOUNT  服務帳號 JSON 全文
+      #   FIREBASE_PROJECT_ID       專案 ID
+      # 服務帳號金鑰絕對不能 commit，只能放 secrets。
+      - name: 部署 Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+          channelId: live
+
+      # 上面那個 action 只部署 Hosting。Rules 是真正的安全防線，
+      # 必須跟著程式一起上線，不能靠人記得手動部署。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 部署 Firestore Rules 與索引
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@13 deploy \
+            --only firestore:rules,firestore:indexes \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

@@ -74,16 +74,33 @@
 
 程式碼分三層：`/data`（只有這裡碰 Firestore）、`/domain`（純函式業務規則）、`/ui`。規則不寫在事件處理器裡。
 
+## 開始開發
+
+沒有 build 步驟，也沒有相依套件。
+
+```
+npm test                    # 跑 domain 純函式測試與分層守衛
+npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
+```
+
+第一次要做三件事，都在 Firebase Console：
+
+1. 建專案，把前端 config 填進 `public/js/firebase-config.js`（那串不是密鑰，可以 commit）
+2. `.firebaserc` 填專案 ID
+3. 開 Google 登入，然後在 Firestore 手動新增一份空文件 `allowedUsers/{你的 uid}` —— 沒有這步，登入了也讀不到任何資料
+
+自動部署需要兩個 repository secret：`FIREBASE_SERVICE_ACCOUNT`（服務帳號 JSON 全文）與 `FIREBASE_PROJECT_ID`。push 到 main 就會跑測試並上線。
+
 ## 開發狀態
 
 不趕時間。目標是做完整、好維護，做到約 70–80% 再開始實際使用並依回饋迭代。
 
 | # | | |
 |---|---|---|
-| 1 | 骨架 / Auth / Rules / 分層 | ☐ |
+| 1 | 骨架 / Auth / Rules / 分層 | ☑ |
 | 2 | 主檔設定 | ☐ |
 | 3 | 客戶 + 額度池 | ☐ |
-| 4 | 來訪 + 狀態機 + 衝突檢查 | ☐ |
+| 4 | 來訪 + 狀態機 + 禁忌檢查 | ☐ |
 | 5 | 任務產生 + TODO 中心 ← 交付試用 | ☐ |
 | 6 | 可用性收集 | ☐ |
 | 7 | 壓表模式 | ☐ |

@@ -1,0 +1,69 @@
+/* 設計變數。改顏色、間距、字級都只改這裡。 */
+
+:root {
+  /* 觸控優先：最小點擊區 44px，input 字級 16px 起跳
+     （iOS 上小於 16px 的 input 會觸發自動放大，畫面會亂跳） */
+  --tap-min: 44px;
+  --font-base: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
+    'Microsoft JhengHei', sans-serif;
+
+  --text-xs: 13px;
+  --text-sm: 15px;
+  --text-md: 16px;
+  --text-lg: 19px;
+  --text-xl: 24px;
+
+  /* 淺色 */
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f0f0f2;
+  --border: #dcdce0;
+  --text: #1a1a1c;
+  --text-dim: #6a6a72;
+
+  --accent: #3d6ce0;
+  --accent-text: #ffffff;
+
+  /* 狀態色。逾期紅、今明黃、其餘灰 —— SPEC 8.1 */
+  --overdue: #c0392b;
+  --overdue-bg: #fbeae8;
+  --soon: #9a6700;
+  --soon-bg: #fdf6e3;
+  --ok: #1f7a45;
+  --ok-bg: #e9f6ee;
+  --danger: #c0392b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131316;
+    --surface: #1c1c20;
+    --surface-2: #26262b;
+    --border: #35353c;
+    --text: #ececf0;
+    --text-dim: #9a9aa4;
+
+    --accent: #6f9bff;
+    --accent-text: #10101a;
+
+    --overdue: #ff8b7d;
+    --overdue-bg: #3a1f1c;
+    --soon: #ffcf6b;
+    --soon-bg: #3a3220;
+    --ok: #74d69c;
+    --ok-bg: #1a3327;
+    --danger: #ff8b7d;
+  }
+}

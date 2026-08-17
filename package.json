@@ -1,0 +1,9 @@
+{
+  "name": "baobao-wellness-clinic-scheduler",
+  "private": true,
+  "type": "module",
+  "description": "健康管理師排課系統。刻意沒有相依套件，也沒有 build 步驟。",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  }
+}

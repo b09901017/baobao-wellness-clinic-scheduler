@@ -1,0 +1,102 @@
+rules_version = '2';
+
+// 這是真正的安全防線。前端可以被繞過，這裡不行。
+// 判準只有一條：沒登入、不在白名單的人，查不到任何一筆資料。
+//
+// 白名單怎麼加：在 Firebase Console 的 Firestore 手動新增一份文件
+//   allowedUsers/{你的 uid}   內容可以是空的 {}
+// uid 在 Authentication 分頁找得到。沒有這一步，登入了也讀不到東西。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- 共用判斷 ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function allowed() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/allowedUsers/$(request.auth.uid));
+    }
+
+    // 永不硬刪除：刪除只能是寫入 deletedAt 時間戳。
+    // 這條規則存在的意義是「就算程式寫錯了也刪不掉」。
+    function keepsExistingId() {
+      return request.resource.data.keys().hasAll(['updatedAt']);
+    }
+
+    // ---------- 白名單本身 ----------
+    // 只能讀自己那一筆（規則裡的 exists() 不受這條限制）。
+    // 新增與移除一律走 Firebase Console，程式不能改。
+    match /allowedUsers/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // ---------- 稽核紀錄 ----------
+    // append-only：寫得進去，改不了也刪不掉。
+    // 這是出事時唯一能回溯的東西，所以它必須比其他資料更難動。
+    match /audit/{eventId} {
+      allow read:   if allowed();
+      allow create: if allowed()
+                    && request.resource.data.actor == request.auth.uid
+                    && request.resource.data.keys().hasAll(['at', 'actor', 'action', 'targetPath']);
+      allow update, delete: if false;
+    }
+
+    // ---------- 主檔 ----------
+    match /config/{docId=**} {
+      allow read:   if allowed();
+      allow create, update: if allowed() && keepsExistingId();
+      allow delete: if false;
+    }
+
+    // ---------- 客戶與其子集合 ----------
+    match /customers/{customerId} {
+      allow read:   if allowed();
+      allow create, update: if allowed() && keepsExistingId();
+      allow delete: if false;
+
+      match /{sub=**} {
+        allow read:   if allowed();
+        allow create, update: if allowed();
+        allow delete: if false;
+      }
+    }
+
+    // ---------- 來訪 ----------
+    match /visits/{visitId} {
+      allow read:   if allowed();
+      allow create: if allowed()
+                    && request.resource.data.status in
+                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+      allow update: if allowed()
+                    && request.resource.data.status in
+                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+      allow delete: if false;
+    }
+
+    // ---------- 任務 ----------
+    match /tasks/{taskId} {
+      allow read:   if allowed();
+      allow create, update: if allowed();
+      allow delete: if false;
+    }
+
+    // ---------- 壓表批次 ----------
+    match /batches/{batchId} {
+      allow read:   if allowed();
+      allow create, update: if allowed();
+      allow delete: if false;
+    }
+
+    // ---------- 其餘一律拒絕 ----------
+    // 沒有明確允許的路徑就是不能碰。新增集合時要回來這裡開洞，
+    // 這是刻意的：忘記開規則會壞掉，但不會外洩。
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
