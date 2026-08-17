@@ -39,6 +39,7 @@ function main() {
       return renderGate(root, {
         state: 'notAllowed',
         email: user.email,
+        uid: user.uid,
         onSignOut: handleSignOut,
       });
     }
