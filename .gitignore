@@ -1,0 +1,33 @@
+# === 絕對不能進版控（SPEC.md 第 10 節）===
+# Service account 金鑰是萬能鑰匙，會繞過所有 Security Rules
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+*serviceAccount*.json
+
+# 含真實客戶健康資訊的匯出檔與備份
+/backups/
+/exports/
+
+# 環境變數（Firebase 前端 config 不是密鑰，可以直接 commit，不需要放這裡）
+.env*
+
+# === Firebase 工具產物 ===
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+database-debug.log*
+pubsub-debug.log*
+ui-debug.log*
+firestore-export/
+
+# === 一般 ===
+node_modules/
+.DS_Store
+Thumbs.db
+*.swp
+
+# === 刻意「不」忽略的東西，不要加進來 ===
+# .claude/    → agent skills，必須進版控（手機開 session 靠這個）
+# .scratch/   → 本專案的 issue tracker（見 docs/agents/issue-tracker.md）
+# .firebaserc → 專案設定，不是密鑰
+# firebase.json / firestore.rules / firestore.indexes.json → 必須進版控

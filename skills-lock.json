@@ -1,11 +1,11 @@
 {
   "version": 1,
   "skills": {
-    "code-review": {
+    "domain-modeling": {
       "source": "mattpocock/skills",
       "sourceType": "github",
-      "skillPath": "skills/engineering/code-review/SKILL.md",
-      "computedHash": "f3b4a7f337455dc365ba8e3923930b067a362c9662779137170ea700cb4328cb"
+      "skillPath": "skills/engineering/domain-modeling/SKILL.md",
+      "computedHash": "683744795bdc9fbfb6c0c2122c4b8119c950e2fe5bcbbf44237dd28aaea34b67"
     },
     "frontend-design": {
       "source": "anthropics/skills",
@@ -18,6 +18,18 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
       "computedHash": "35e62aa423aaeab6a414bcac273f56dfb17802ef2334b41b6a3b00f28196c8cf"
+    },
+    "grilling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grilling/SKILL.md",
+      "computedHash": "a16b2f661db6caf310d7e02dd0d069e597cb888873e210e66f641eae715c5f23"
+    },
+    "matt-code-review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/code-review/SKILL.md",
+      "computedHash": "f3b4a7f337455dc365ba8e3923930b067a362c9662779137170ea700cb4328cb"
     },
     "setup-matt-pocock-skills": {
       "source": "mattpocock/skills",
