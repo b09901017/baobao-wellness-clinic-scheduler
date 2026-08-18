@@ -1,0 +1,191 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ef; color: #1b1917; font-size: 16px; line-height: 1.55;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .sec { font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.06em; }
+    .card { background: #fffdfb; border: 1px solid #e0dad2; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+    .task { display: flex; align-items: center; gap: 12px; padding: 11px 14px; min-height: 60px; }
+    .box { width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid #c9c1b7; background: #fffdfb; flex-shrink: 0; }
+    .boxon { width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid #17605d; background: #17605d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .chip { height: 44px; display: inline-flex; align-items: center; padding: 0 13px; border-radius: 999px; border: 1px solid #e0dad2; background: #fffdfb; font-size: 14px; font-weight: 600; }
+    .rail { flex: 0 0 auto; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d; }
+  </style>
+</helmet>
+
+<div style="width: 1080px; height: 810px; display: flex; background: #f4f2ef; overflow: hidden">
+
+  <div style="width: 88px; flex-shrink: 0; background: #fffdfb; border-right: 1px solid #e0dad2; display: flex; flex-direction: column; padding-top: 14px; gap: 4px">
+    <div class="rail" style="color: #17605d; background: #e2eeec; margin: 0 8px; border-radius: 10px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      <span style="font-size: 12px; font-weight: 650">待辦</span>
+    </div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18.2 14.8c1.8.6 2.8 1.9 2.8 4.2"/></svg><span style="font-size: 12px">客戶</span></div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2.4"/><path d="M8.5 3v3"/><path d="M15.5 3v3"/><path d="M8.5 11h7"/><path d="M8.5 15.5h4.5"/></svg><span style="font-size: 12px">壓表</span></div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg><span style="font-size: 12px">日曆</span></div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10"/><path d="M18 7h2"/><path d="M4 12h4"/><path d="M12 12h8"/><path d="M4 17h9"/><path d="M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg><span style="font-size: 12px">設定</span></div>
+  </div>
+
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+
+    <div style="flex-shrink: 0; height: 68px; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: #fffdfb; border-bottom: 1px solid #e0dad2">
+      <span style="font-size: 20px; font-weight: 700">待辦</span>
+      <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f7e4e0; color: #a53228"><span class="num">2</span> 筆逾期</span>
+      <span style="flex-grow: 1"></span>
+      <span style="display: flex; align-items: center; gap: 9px; padding: 8px 14px; border-radius: 10px; background: #f8eeda; color: #8a5a10">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
+        <span style="font-size: 14px; font-weight: 650">資料健檢：<span class="num">3</span> 項對不起來</span>
+      </span>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: 460px minmax(0, 1fr); gap: 18px; padding: 16px 20px">
+
+      <!-- 左：待辦清單 -->
+      <div style="display: flex; flex-direction: column; gap: 10px; min-height: 0">
+        <div style="display: flex; gap: 7px; flex-wrap: wrap">
+          <span class="chip" style="background: #17605d; border-color: #17605d; color: #fffdfb">全部 <span class="num" style="padding-left: 4px">8</span></span>
+          <span class="chip">打電話 <span class="num" style="padding-left: 4px">2</span></span>
+          <span class="chip">Abovee <span class="num" style="padding-left: 4px">3</span></span>
+          <span class="chip">Examine <span class="num" style="padding-left: 4px">2</span></span>
+          <span class="chip">耀聖 <span class="num" style="padding-left: 4px">1</span></span>
+        </div>
+
+        <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 14px; overflow: hidden">
+          <div class="task" style="border-left: 3px solid #a53228; background: #f4f2ef">
+            <span class="boxon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fffdfb" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span style="flex-grow: 1; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 8px"><b style="font-size: 16px">客戶甲</b>
+                <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">Abovee</span></span>
+              <span style="display: block; font-size: 13px; color: #6b655d"><span class="num">9/3</span>（三）<span class="num">14:00</span> 復能</span>
+            </span>
+            <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f7e4e0; color: #a53228">逾期 <span class="num">2</span> 天</span>
+          </div>
+          <div class="task" style="border-left: 3px solid #a53228; border-top: 1px solid #ece8e2">
+            <span class="box"></span>
+            <span style="flex-grow: 1; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 8px"><b style="font-size: 16px">客戶乙</b>
+                <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">Examine</span></span>
+              <span style="display: block; font-size: 13px; color: #6b655d"><span class="num">9/4</span>（四）<span class="num">10:30</span> 健檢</span>
+            </span>
+            <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f7e4e0; color: #a53228">逾期 <span class="num">1</span> 天</span>
+          </div>
+          <div class="task" style="border-left: 3px solid #8a5a10; border-top: 1px solid #ece8e2">
+            <span class="boxon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fffdfb" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span style="flex-grow: 1; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 8px"><b style="font-size: 16px">客戶丙</b>
+                <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">耀聖</span></span>
+              <span style="display: block; font-size: 13px; color: #6b655d"><span class="num">9/5</span>（五）<span class="num">15:45</span> 營養點滴</span>
+            </span>
+            <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f8eeda; color: #8a5a10">今天</span>
+          </div>
+          <div class="task" style="border-top: 1px solid #ece8e2">
+            <span class="box"></span>
+            <span style="flex-grow: 1; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 8px"><b style="font-size: 16px">客戶丁</b>
+                <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">打電話</span></span>
+              <span style="display: block; font-size: 13px; color: #6b655d"><span class="num">9/8</span>（一）<span class="num">09:00</span> 二返</span>
+            </span>
+            <span style="font-size: 13px; color: #6b655d"><span class="num">9/7</span> 還有 <span class="num">3</span> 天</span>
+          </div>
+          <div class="task" style="border-top: 1px solid #ece8e2">
+            <span class="box"></span>
+            <span style="flex-grow: 1; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 8px"><b style="font-size: 16px">客戶己</b>
+                <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">Abovee</span></span>
+              <span style="display: block; font-size: 13px; color: #6b655d"><span class="num">9/9</span>（二）<span class="num">11:00</span> 靜脈</span>
+            </span>
+            <span style="font-size: 13px; color: #6b655d"><span class="num">9/8</span> 還有 <span class="num">4</span> 天</span>
+          </div>
+        </div>
+
+        <div style="height: 48px; border-radius: 10px; background: #17605d; color: #fffdfb; font-size: 16px; font-weight: 650; display: flex; align-items: center; justify-content: center">把勾起來的 <span class="num" style="padding: 0 4px">2</span> 筆標成完成</div>
+      </div>
+
+      <!-- 右：選中的那一筆 + 其他三區 -->
+      <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 22px; font-weight: 700">客戶甲</span>
+            <span style="font-size: 14px; font-weight: 650; color: #a8552b">★★★</span>
+            <span style="font-size: 12px; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: #f7e4e0; color: #a53228">體內金屬</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f8eeda; color: #8a5a10">等回覆 · 已等 <span class="num">3</span> 天</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 11px 14px; border-radius: 10px; background: #f4f2ef">
+            <span class="num" style="font-size: 20px; font-weight: 600">9/3</span>
+            <span style="font-size: 14px; color: #6b655d">（三）</span>
+            <span class="num" style="font-size: 20px; font-weight: 600">14:00–15:00</span>
+            <span style="font-size: 15px">復能 · 騰崴 · INDIBA</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 14px; font-weight: 650; color: #17605d">開啟來訪 ›</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; font-size: 14px; color: #6b655d">
+            <span>這一筆還沒做的登記</span>
+            <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #f7e4e0; color: #a53228">Abovee · 逾期 2 天</span>
+          </div>
+        </div>
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span class="sec">今天壓了誰</span>
+            <span class="num" style="font-size: 15px; font-weight: 650">2</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 13px; color: #6b655d">依客戶分組，每組一顆複製確認訊息</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 10px 13px; border-radius: 10px; background: #f4f2ef">
+            <b style="font-size: 16px">客戶戊</b>
+            <span class="num" style="font-size: 14px; color: #6b655d">9/3、9/10、9/17</span>
+            <span style="flex-grow: 1"></span>
+            <span style="height: 44px; padding: 0 14px; border-radius: 9px; border: 1px solid #c9c1b7; background: #fffdfb; font-size: 14px; font-weight: 650; color: #17605d; display: inline-flex; align-items: center; gap: 7px">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5A1.5 1.5 0 0 0 13.5 4H6a2 2 0 0 0-2 2v7.5A1.5 1.5 0 0 0 5.5 15"/></svg>
+              複製確認訊息
+            </span>
+          </div>
+          <div style="font-size: 14px; line-height: 1.6; padding: 11px 13px; border-radius: 10px; background: #f4f2ef; color: #4a453e">客戶戊您好，9 月為您安排了 9/3（三）14:00、9/10（三）14:00、9/17（三）14:00，請問可以嗎？</div>
+        </div>
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span class="sec">等回覆</span>
+            <span class="num" style="font-size: 15px; font-weight: 650">4</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #f7e4e0; color: #a53228"><span class="num">1</span> 筆超過 3 天</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px">
+            <b style="font-size: 15px; width: 76px">客戶甲</b>
+            <span class="num" style="font-size: 14px; color: #6b655d">9/3</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #f7e4e0; color: #a53228">已等 <span class="num">4</span> 天</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px">
+            <b style="font-size: 15px; width: 76px">客戶庚</b>
+            <span class="num" style="font-size: 14px; color: #6b655d">9/1</span>
+            <span style="flex-grow: 1"></span>
+            <span style="font-size: 13px; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">已等 <span class="num">2</span> 天</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1080,"height":810}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

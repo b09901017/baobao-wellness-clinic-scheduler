@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ef; color: #1b1917; font-size: 16px; line-height: 1.55;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .sec { font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.06em; }
+    .card { background: #fffdfb; border: 1px solid #e0dad2; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+    .field { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; border: 1px solid #e0dad2; border-radius: 10px; background: #fffdfb; font-size: 16px; }
+    .rail { flex: 0 0 auto; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d; }
+  </style>
+</helmet>
+
+<div style="width: 1080px; height: 810px; display: flex; background: #f4f2ef; overflow: hidden">
+
+  <div style="width: 88px; flex-shrink: 0; background: #fffdfb; border-right: 1px solid #e0dad2; display: flex; flex-direction: column; padding-top: 14px; gap: 4px">
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span style="font-size: 12px">待辦</span></div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18.2 14.8c1.8.6 2.8 1.9 2.8 4.2"/></svg><span style="font-size: 12px">客戶</span></div>
+    <div class="rail" style="color: #17605d; background: #e2eeec; margin: 0 8px; border-radius: 10px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2.4"/><path d="M8.5 3v3"/><path d="M15.5 3v3"/><path d="M8.5 11h7"/><path d="M8.5 15.5h4.5"/></svg>
+      <span style="font-size: 12px; font-weight: 650">壓表</span>
+    </div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg><span style="font-size: 12px">日曆</span></div>
+    <div class="rail"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10"/><path d="M18 7h2"/><path d="M4 12h4"/><path d="M12 12h8"/><path d="M4 17h9"/><path d="M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg><span style="font-size: 12px">設定</span></div>
+  </div>
+
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+
+    <div style="flex-shrink: 0; height: 68px; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: #fffdfb; border-bottom: 1px solid #e0dad2">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#17605d" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+      <span style="font-size: 20px; font-weight: 700">時段反查</span>
+      <span style="font-size: 14px; color: #6b655d">臨時空出一格時，誰可以補 —— 要問誰還是你決定</span>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; display: grid; grid-template-columns: 348px minmax(0, 1fr); gap: 18px; padding: 16px 20px">
+
+      <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+        <div class="card">
+          <div style="display: flex; gap: 10px">
+            <div style="flex-grow: 1">
+              <div class="sec" style="margin-bottom: 6px">日期</div>
+              <div class="field"><span class="num" style="flex-grow: 1">9/4</span><span style="font-size: 13px; color: #6b655d">四</span></div>
+            </div>
+            <div style="width: 120px">
+              <div class="sec" style="margin-bottom: 6px">開始時間</div>
+              <div class="field"><span class="num" style="flex-grow: 1">14:00</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="sec" style="margin-bottom: 6px">課程</div>
+            <div class="field"><span style="flex-grow: 1">復能</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b655d" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div style="font-size: 13px; color: #6b655d; margin-top: 5px">依課程時長算到 <span class="num">15:00</span></div>
+          </div>
+          <div style="height: 48px; border-radius: 10px; background: #17605d; color: #fffdfb; font-size: 16px; font-weight: 650; display: flex; align-items: center; justify-content: center">查誰可以補</div>
+        </div>
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span class="sec">沒列進來的</span>
+            <span class="num" style="font-size: 15px; font-weight: 650">5</span>
+          </div>
+          <div style="font-size: 13px; color: #6b655d">有買這個課程、但這一格輪不到他的人。「還沒問這輪的時間」不算排除的理由。</div>
+          <div style="display: flex; align-items: baseline; gap: 10px; font-size: 14px"><b style="width: 62px">客戶乙</b><span style="color: #6b655d">那天他說不行</span></div>
+          <div style="display: flex; align-items: baseline; gap: 10px; font-size: 14px"><b style="width: 62px">客戶丙</b><span style="color: #6b655d">沒有剩餘次數</span></div>
+          <div style="display: flex; align-items: baseline; gap: 10px; font-size: 14px"><b style="width: 62px">客戶丁</b><span style="color: #6b655d">那個時間已經有另一筆來訪</span></div>
+          <div style="display: flex; align-items: baseline; gap: 10px; font-size: 14px"><b style="width: 62px">客戶壬</b><span style="color: #6b655d">體內金屬把池裡的器材全鎖死</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+        <div style="display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid #d9d2c9; padding-bottom: 10px">
+          <span class="num" style="font-size: 22px; font-weight: 600">9/4 14:00–15:00</span>
+          <span style="font-size: 18px; font-weight: 650">復能</span>
+          <span style="flex-grow: 1"></span>
+          <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #e6f0e8; color: #1f6b45"><span class="num">3</span> 位可以補</span>
+          <span style="font-size: 13px; color: #6b655d">依壓表同一套優先序排</span>
+        </div>
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 20px; font-weight: 700">客戶甲</span>
+            <span style="font-size: 14px; font-weight: 650; color: #a8552b">★★★</span>
+            <span style="font-size: 12px; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: #f7e4e0; color: #a53228">體內金屬</span>
+            <span style="font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; background: #e2eeec; color: #17605d">可用 <span class="num">6</span> 天 · 最少</span>
+            <span style="flex-grow: 1"></span>
+            <span><span class="num" style="font-size: 24px; font-weight: 600">12</span><span class="num" style="font-size: 14px; color: #6b655d"> / 20</span></span>
+          </div>
+          <div style="font-size: 15px; color: #4a453e">他自己說 9/4 方便 · 那天他本來就要來（<span class="num">11:00</span> 靜脈）</div>
+          <div style="font-size: 14px; line-height: 1.6; padding: 11px 13px; border-radius: 10px; background: #f4f2ef; color: #4a453e">客戶甲您好，9/4（四）14:00–15:00 臨時空出一個復能時段，請問您方便過來嗎？</div>
+          <div style="display: flex; gap: 10px">
+            <span style="height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid #c9c1b7; background: #fffdfb; font-size: 15px; font-weight: 650; color: #17605d; display: inline-flex; align-items: center; gap: 8px">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5A1.5 1.5 0 0 0 13.5 4H6a2 2 0 0 0-2 2v7.5A1.5 1.5 0 0 0 5.5 15"/></svg>
+              複製邀約訊息
+            </span>
+            <span style="height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid #c9c1b7; background: #fffdfb; font-size: 15px; font-weight: 650; display: inline-flex; align-items: center">看這位客戶</span>
+          </div>
+        </div>
+
+        <div class="card" style="gap: 10px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 20px; font-weight: 700">客戶庚</span>
+            <span style="font-size: 14px; font-weight: 650; color: #a8552b">★★</span>
+            <span style="font-size: 13px; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">距上次 <span class="num">28</span> 天</span>
+            <span style="flex-grow: 1"></span>
+            <span><span class="num" style="font-size: 24px; font-weight: 600">9</span><span class="num" style="font-size: 14px; color: #6b655d"> / 12</span></span>
+          </div>
+          <div style="font-size: 15px; color: #4a453e">還沒問這輪的時間 —— 不知道他那天行不行，但沒問過不等於不能來</div>
+          <div style="display: flex; gap: 10px">
+            <span style="height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid #c9c1b7; background: #fffdfb; font-size: 15px; font-weight: 650; color: #17605d; display: inline-flex; align-items: center; gap: 8px">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5A1.5 1.5 0 0 0 13.5 4H6a2 2 0 0 0-2 2v7.5A1.5 1.5 0 0 0 5.5 15"/></svg>
+              複製邀約訊息
+            </span>
+            <span style="height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid #c9c1b7; background: #fffdfb; font-size: 15px; font-weight: 650; display: inline-flex; align-items: center">看這位客戶</span>
+          </div>
+        </div>
+
+        <div class="card" style="gap: 8px; opacity: 0.9">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 20px; font-weight: 700">客戶辛</span>
+            <span style="font-size: 13px; padding: 2px 9px; border-radius: 999px; background: #ece8e2; color: #4a453e">可用 <span class="num">14</span> 天</span>
+            <span style="flex-grow: 1"></span>
+            <span><span class="num" style="font-size: 24px; font-weight: 600">5</span><span class="num" style="font-size: 14px; color: #6b655d"> / 20</span></span>
+          </div>
+          <div style="font-size: 15px; color: #4a453e">他說 9 月下旬都可以</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1080,"height":810}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

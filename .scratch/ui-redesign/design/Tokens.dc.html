@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #f4f2ef; color: #1b1917; font-size: 16px; line-height: 1.55;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="padding: 40px 44px; display: flex; flex-direction: column; gap: 34px">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #c9c1b7; padding-bottom: 18px">
+    <div>
+      <div style="font-size: 28px; font-weight: 700; letter-spacing: -0.01em">排課系統 · 設計語言</div>
+      <div style="font-size: 15px; color: #6b655d; margin-top: 6px">一手拿裝置讀，一手在公司電腦上壓表。這一頁決定「一眼能不能讀出來」。</div>
+    </div>
+    <div class="num" style="font-size: 13px; color: #6b655d; text-align: right; line-height: 1.8">
+      觸控最小 44px<br>輸入字級 16px 起<br>斷點 600 / 900
+    </div>
+  </div>
+
+  <!-- 顏色 -->
+  <div style="display: flex; flex-direction: column; gap: 14px">
+    <div style="font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.08em">顏色 · 淺色</div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #f4f2ef"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">底</div><div class="num" style="font-size: 12px; color: #6b655d">#f4f2ef</div></div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #fffdfb; border-bottom: 1px solid #e0dad2"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">卡片</div><div class="num" style="font-size: 12px; color: #6b655d">#fffdfb</div></div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #ece8e2"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">次表面</div><div class="num" style="font-size: 12px; color: #6b655d">#ece8e2</div></div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #17605d"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">強調</div><div class="num" style="font-size: 12px; color: #6b655d">#17605d</div></div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #a8552b"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">喜好</div><div class="num" style="font-size: 12px; color: #6b655d">#a8552b</div></div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; overflow: hidden; background: #fffdfb">
+        <div style="height: 62px; background: #1b1917"></div>
+        <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 650">文字</div><div class="num" style="font-size: 12px; color: #6b655d">#1b1917</div></div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; padding: 12px 14px; background: #f7e4e0">
+        <div style="font-size: 15px; font-weight: 650; color: #a53228">逾期 · 醫療禁忌</div>
+        <div class="num" style="font-size: 12px; color: #a53228">#a53228 on #f7e4e0</div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; padding: 12px 14px; background: #f8eeda">
+        <div style="font-size: 15px; font-weight: 650; color: #8a5a10">今明 · 等回覆</div>
+        <div class="num" style="font-size: 12px; color: #8a5a10">#8a5a10 on #f8eeda</div>
+      </div>
+      <div style="border: 1px solid #e0dad2; border-radius: 10px; padding: 12px 14px; background: #e6f0e8">
+        <div style="font-size: 15px; font-weight: 650; color: #1f6b45">已完成 · 沒問題</div>
+        <div class="num" style="font-size: 12px; color: #1f6b45">#1f6b45 on #e6f0e8</div>
+      </div>
+    </div>
+
+    <div style="font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.08em; margin-top: 6px">顏色 · 深色（同樣的角色，換一組值）</div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #17150f"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#17150f</div></div>
+      </div>
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #201d18"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#201d18</div></div>
+      </div>
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #2b2721"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#2b2721</div></div>
+      </div>
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #6fb5ad"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#6fb5ad</div></div>
+      </div>
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #e2a97e"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#e2a97e</div></div>
+      </div>
+      <div style="border: 1px solid #35322d; border-radius: 10px; overflow: hidden; background: #17150f">
+        <div style="height: 46px; background: #f0ebe4"></div>
+        <div style="padding: 8px 10px"><div class="num" style="font-size: 12px; color: #a49c92">#f0ebe4</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文字 -->
+  <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.08em">文字</div>
+      <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span class="num" style="font-size: 30px; font-weight: 500">12 / 20</span>
+          <span style="font-size: 13px; color: #6b655d">30px 等寬 · 剩餘次數、時間、天數</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span style="font-size: 19px; font-weight: 650">客戶甲</span>
+          <span style="font-size: 13px; color: #6b655d">19px/650 · 主角的名字</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span style="font-size: 16px">內文一律 16px 起跳</span>
+          <span style="font-size: 13px; color: #6b655d">16px · iOS 上更小會被自動放大</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px">
+          <span style="font-size: 13px; color: #6b655d">附註與理由標籤</span>
+          <span style="font-size: 13px; color: #6b655d">13px · 只放不影響判斷的字</span>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #6b655d">中文用系統字（PingFang TC / Noto Sans TC），數字另外自帶一支等寬字：時間與次數要對得齊，而且 1 和 7 不能長得像。</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.08em">三段式次數</div>
+      <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: baseline; justify-content: space-between">
+          <span style="font-size: 16px; font-weight: 650">復能</span>
+          <span><span class="num" style="font-size: 30px; font-weight: 500">12</span><span style="font-size: 15px; color: #6b655d"> / 20 剩餘</span></span>
+        </div>
+        <div style="display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: #ece8e2">
+          <div style="width: 30%; background: #1f6b45"></div>
+          <div style="width: 10%; background: #17605d"></div>
+        </div>
+        <div style="display: flex; gap: 16px; font-size: 13px; color: #6b655d">
+          <span>已完成 <b class="num" style="color: #1b1917">6</b></span>
+          <span>已排未上 <b class="num" style="color: #1b1917">2</b></span>
+          <span>剩餘 <b class="num" style="color: #1b1917">12</b></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 元件 -->
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 13px; font-weight: 650; color: #6b655d; letter-spacing: 0.08em">元件</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+
+      <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+        <div style="font-size: 13px; color: #6b655d">標籤</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f7e4e0; color: #a53228">逾期 2 天</span>
+          <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #f8eeda; color: #8a5a10">明天</span>
+          <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #e6f0e8; color: #1f6b45">已壓表</span>
+          <span style="font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 999px; background: #ece8e2; color: #4a453e">Abovee</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px; background: #f7e4e0; color: #a53228">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
+          <span style="font-size: 14px; font-weight: 650">體內金屬 · 超磁場與高能量雷射不可使用</span>
+        </div>
+        <div style="font-size: 13px; color: #6b655d">禁忌永遠是一整條，跟著名字走，不摺疊。</div>
+      </div>
+
+      <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+        <div style="font-size: 13px; color: #6b655d">按鈕與選項（高度 48px）</div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <button style="height: 48px; padding: 0 20px; border: 1px solid #17605d; border-radius: 10px; background: #17605d; color: #fffdfb; font: inherit; font-size: 16px; font-weight: 650">已壓表</button>
+          <button style="height: 48px; padding: 0 20px; border: 1px solid #c9c1b7; border-radius: 10px; background: #fffdfb; color: #1b1917; font: inherit; font-size: 16px; font-weight: 650">跳過</button>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <span class="num" style="height: 44px; min-width: 52px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 10px; border-radius: 10px; border: 1px solid #17605d; background: #e2eeec; color: #17605d; font-size: 17px; font-weight: 600">3<span style="font-size: 11px; font-weight: 500">三</span></span>
+          <span class="num" style="height: 44px; min-width: 52px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 10px; border-radius: 10px; border: 1px solid #e0dad2; background: #fffdfb; color: #1b1917; font-size: 17px; font-weight: 600">4<span style="font-size: 11px; font-weight: 500">四</span></span>
+          <span class="num" style="height: 44px; min-width: 52px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 10px; border-radius: 10px; border: 1px solid #e0dad2; background: #fffdfb; color: #1b1917; font-size: 17px; font-weight: 600">9<span style="font-size: 11px; font-weight: 500">二</span></span>
+          <span style="height: 44px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 999px; border: 1px solid #e0dad2; background: #fffdfb; font-size: 15px; font-weight: 600">全部</span>
+        </div>
+        <div style="font-size: 13px; color: #6b655d">可用日在手機上是 chip，不是 31 格日期條。</div>
+      </div>
+
+      <div style="background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+        <div style="font-size: 13px; color: #6b655d">導覽（emoji 換成線性圖示）</div>
+        <div style="display: flex; gap: 4px; background: #fffdfb; border: 1px solid #e0dad2; border-radius: 12px; padding: 6px">
+          <div style="flex: 1; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 9px; background: #e2eeec; color: #17605d">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <span style="font-size: 12px; font-weight: 650">待辦</span>
+          </div>
+          <div style="flex: 1; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18.2 14.8c1.8.6 2.8 1.9 2.8 4.2"/></svg>
+            <span style="font-size: 12px">客戶</span>
+          </div>
+          <div style="flex: 1; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2.4"/><path d="M8.5 3v3"/><path d="M15.5 3v3"/><path d="M8.5 11h7"/><path d="M8.5 15.5h4.5"/></svg>
+            <span style="font-size: 12px">壓表</span>
+          </div>
+          <div style="flex: 1; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>
+            <span style="font-size: 12px">日曆</span>
+          </div>
+          <div style="flex: 1; height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #6b655d">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10"/><path d="M18 7h2"/><path d="M4 12h4"/><path d="M12 12h8"/><path d="M4 17h9"/><path d="M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg>
+            <span style="font-size: 12px">設定</span>
+          </div>
+        </div>
+        <div style="font-size: 13px; color: #6b655d">emoji 在 Android 與 iPad 上長得不一樣，而這是她每天看最多次的五個東西。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 鐵則 -->
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; border-top: 1px solid #c9c1b7; padding-top: 20px">
+    <div><div style="font-size: 15px; font-weight: 650">數字先被看到</div><div style="font-size: 13px; color: #6b655d; margin-top: 4px">剩幾次、哪一天、幾點，是她真正在找的東西。其餘一律降級。</div></div>
+    <div><div style="font-size: 15px; font-weight: 650">卡片只包物件</div><div style="font-size: 13px; color: #6b655d; margin-top: 4px">一位客戶、一個時段才是一張卡。區塊用留白與細線分，不再白卡疊白卡。</div></div>
+    <div><div style="font-size: 15px; font-weight: 650">狀態色只講狀態</div><div style="font-size: 13px; color: #6b655d; margin-top: 4px">紅只給逾期與禁忌，黃只給今明與等回覆。平常整頁是安靜的。</div></div>
+    <div><div style="font-size: 15px; font-weight: 650">不出建議時段</div><div style="font-size: 13px; color: #6b655d; margin-top: 4px">版面把資訊攤開，判斷仍然是她的（ADR-0002）。</div></div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1200,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

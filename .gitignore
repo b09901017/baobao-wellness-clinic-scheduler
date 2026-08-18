@@ -34,3 +34,8 @@ Thumbs.db
 
 # Python
 __pycache__/
+
+# 設計 canvas 的產出檔（2.4MB，內含編輯器程式碼）。原始稿是 .dc.html 與 canvas.json，
+# 要重建就用 /design skill 的 seed-canvas.mjs 重新產生一份。
+.scratch/*/design/*.html
+!.scratch/*/design/*.dc.html
