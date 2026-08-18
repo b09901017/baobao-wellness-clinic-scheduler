@@ -302,6 +302,21 @@ textarea {
   min-width: 0;
 }
 
+/* 清單列右側的動作。窄螢幕上兩顆按鈕會擠在一起，改成上下疊，
+   每一顆都留得住 44px 的點擊區（SPEC 第 8.0 節）。 */
+.row__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+@media (min-width: 600px) {
+  .row__actions {
+    flex-direction: row;
+  }
+}
+
 .row__title {
   font-weight: 650;
   display: flex;
@@ -425,6 +440,29 @@ textarea {
 .errors ul {
   margin: 0;
   padding-left: var(--space-5);
+}
+
+/* 匯入前的注意事項。排在報告上面，因為報告有三百行，
+   捲到最底才按得到那顆按鈕的話，中間看過的東西早就忘了。 */
+.attention {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.attention li {
+  line-height: 1.6;
+}
+
+.attention__danger {
+  color: var(--overdue);
+  font-weight: 650;
+}
+
+.attention__info {
+  color: var(--text-dim);
 }
 
 /* ---------- 破壞性操作區 ---------- */

@@ -9,6 +9,7 @@ import * as data from '../../data/customers.js';
 import {
   parseAvailability, describeRule, collectionState, currentCollection,
   validateCollection, availableDates,
+  manualRule, mergeRules, validateRule,
 } from '../../domain/availability.js';
 import { todayISO, addMonths, lastDayOf, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
@@ -177,7 +178,9 @@ function paintForm(ctx, record, draft = null) {
     const fresh = parseAvailability(next.rawText, {
       year: Number((next.validFrom ?? today).slice(0, 4)),
     });
-    paintForm(ctx, record, { ...next, rules: fresh.rules });
+    // 自己加的那幾條本來就不在原文的解析結果裡（那正是她手動加的原因），
+    // 整份取代等於每次重新解析都清掉一次，而且不會有任何訊息。
+    paintForm(ctx, record, { ...next, rules: mergeRules(rules, fresh.rules) });
   });
 
   el.querySelectorAll('[data-drop-rule]').forEach((btn) =>
@@ -190,7 +193,38 @@ function paintForm(ctx, record, draft = null) {
 
   el.querySelector('[data-take-parsed]')?.addEventListener('click', () => {
     const next = read();
-    paintForm(ctx, record, { ...next, rules: parsed.rules });
+    paintForm(ctx, record, { ...next, rules: mergeRules(rules, parsed.rules) });
+  });
+
+  // 自己加一條。解析器一定會漏，漏了的時候原本唯一的辦法是改寫原文，
+  // 而原文照抄是 SPEC 第 4.3 節的硬性要求。
+  el.querySelector('[data-add-rule]')?.addEventListener('click', () => {
+    const next = read();
+    const box = el.querySelector('[data-new-rule]');
+    const rule = manualRule({
+      kind: box.querySelector('[name="ruleKind"]').value,
+      weekday: box.querySelector('[name="ruleWeekday"]').value,
+      date: box.querySelector('[name="ruleDate"]').value || null,
+      from: box.querySelector('[name="ruleFrom"]').value || null,
+      to: box.querySelector('[name="ruleTo"]').value || null,
+      partOfDay: box.querySelector('[name="rulePart"]').value,
+    });
+
+    const errors = validateRule(rule ?? {});
+    if (errors.length) {
+      f.showErrors(el, errors.map((why) => `自己加的那一條：${why}`));
+      return;
+    }
+    f.showErrors(el, []);
+    paintForm(ctx, record, { ...next, rules: [...rules, rule] });
+  });
+
+  // 種類換了要換欄位（星期／單日／區間各要填的不一樣），不重畫整張表單，
+  // 免得她上面打到一半的原文被清掉。
+  el.querySelector('[name="ruleKind"]')?.addEventListener('change', (e) => {
+    for (const box of el.querySelectorAll('[data-for-kind]')) {
+      box.hidden = !box.dataset.forKind.split(' ').includes(e.target.value);
+    }
   });
 
   form.addEventListener('submit', (e) => {
@@ -228,8 +262,12 @@ function rulesBlock(rules, parsed, c) {
             .map(
               (r, i) => `
           <div class="row">
-            <span class="row__main">${esc(describeRule(r))}</span>
-            <button class="btn" type="button" data-drop-rule="${i}">讀錯了，刪掉</button>
+            <span class="row__main">${esc(describeRule(r))}${
+              r.manual ? '<span class="badge">自己加的</span>' : ''
+            }</span>
+            <button class="btn" type="button" data-drop-rule="${i}">${
+              r.manual ? '刪掉' : '讀錯了，刪掉'
+            }</button>
           </div>`,
             )
             .join('')
@@ -246,11 +284,71 @@ function rulesBlock(rules, parsed, c) {
            <p><button class="btn" type="button" data-take-parsed>改用解析結果</button></p>`
         : ''}
 
+      ${newRuleBox()}
+
       ${rules.length && c.validFrom && c.validTo
         ? `<p class="muted">${esc(shortDate(c.validFrom))} 到 ${esc(shortDate(c.validTo))}
              這段期間可用 ${availableDates(rules, c.validFrom, c.validTo).length} 天。</p>`
         : ''}
     </fieldset>`;
+}
+
+/**
+ * 「自己加一條」。
+ *
+ * 解析器漏掉一句時，原本唯一的辦法是把原文改寫成它認得的講法 —— 而 SPEC 第 4.3 節
+ * 要求原文照抄、永遠保留。這一區是那條路的替代品：**補在規則上，原文一個字都不動。**
+ *
+ * 四種規則要填的欄位不一樣，用 hidden 切換而不是重畫整張表單 ——
+ * 重畫會把她上面打到一半的原文洗掉。
+ */
+function newRuleBox() {
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+    .map((name, i) => ({ value: String(i), label: `禮拜${name}` }));
+
+  return `
+    <details class="field" data-new-rule>
+      <summary>自己加一條（解析器漏掉的時候用，原文不會被改動）</summary>
+
+      ${f.select({
+        name: 'ruleKind', label: '種類', value: 'exclude_weekday',
+        options: [
+          { value: 'exclude_weekday', label: '每個禮拜某天不行' },
+          { value: 'exclude_date', label: '某一天不行' },
+          { value: 'exclude_range', label: '某段期間不行' },
+          { value: 'prefer', label: '某天方便（喜好）' },
+        ],
+      })}
+
+      <div data-for-kind="exclude_weekday prefer">
+        ${f.select({ name: 'ruleWeekday', label: '星期', value: '1', options: weekdays })}
+      </div>
+
+      <div data-for-kind="exclude_date prefer" hidden>
+        ${f.date({
+          name: 'ruleDate', label: '日期',
+          hint: '「某天方便」填了日期就以日期為準，不填就用上面的星期。',
+        })}
+      </div>
+
+      <div data-for-kind="exclude_range" hidden>
+        ${f.date({ name: 'ruleFrom', label: '從' })}
+        ${f.date({ name: 'ruleTo', label: '到' })}
+      </div>
+
+      <div data-for-kind="exclude_weekday exclude_date prefer">
+        ${f.select({
+          name: 'rulePart', label: '整天還是半天', value: '',
+          options: [
+            { value: '', label: '整天' },
+            { value: 'am', label: '只有上午' },
+            { value: 'pm', label: '只有下午' },
+          ],
+        })}
+      </div>
+
+      <p><button class="btn" type="button" data-add-rule>加進去</button></p>
+    </details>`;
 }
 
 async function submit(ctx, record, next) {

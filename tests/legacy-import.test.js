@@ -15,6 +15,8 @@ import {
   planForSheet,
   summarize,
   reportText,
+  parseWorkbook,
+  attentionPoints,
 } from '../public/js/domain/legacyImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
@@ -272,7 +274,7 @@ test('比對報告講得出總計、每一位建了什麼、以及每一個要�
 
   assert.ok(text.includes('還沒有寫入任何東西'));
   assert.ok(text.includes('會建立 1 位客戶、11 筆額度、3 筆來訪（5 個時段）'));
-  assert.ok(text.includes('沒寫年份的日期一律當成：2026 年'));
+  assert.ok(text.includes('一律當成 2026 年'));
   assert.ok(text.includes('0.75萬健檢'), '對帳表要列出每一列的療程名稱');
   assert.ok(text.includes('拆成 護肝排毒 11 次、雪顏亮彩 22 次'), '拆成幾筆額度要講');
   assert.ok(text.includes('整張跳過'));
@@ -547,9 +549,14 @@ test('報告與總計都把醫療禁忌講出來，而且擺在捲不掉的位�
   const text = reportText([metalPlan()], { year: 2026 });
   const head = text.split('── ')[0];
 
-  assert.match(head, /‼ 有 1 位客戶的文字裡出現醫療禁忌的字眼/);
+  assert.match(head, /1 位客戶的文字裡提到醫療禁忌/);
   assert.match(head, /體內金屬/);
   assert.match(head, /不會自動設定永久限制/);
+  assert.match(head, /按下「開始匯入」之前/, '要注意的事擺在最上面，不是埋在報告裡');
+  assert.ok(
+    head.indexOf('醫療禁忌') < head.indexOf('總計'),
+    '醫療禁忌要排在總計前面 —— 那是唯一會造成實際傷害的一條',
+  );
   assert.match(text, /‼ B2 購買名稱.*「超磁場、高能量雷射」不會被擋下來/);
   assert.deepEqual(
     summarize([metalPlan()]).contraindications,
@@ -572,4 +579,80 @@ test('金額填好的健檢不會被當成沒填', () => {
     plan().problems.some((x) => x.why.includes('金額等級還沒填')),
     false,
   );
+});
+
+// ---------- 一次貼很多張 ----------
+
+test('一份匯出檔切得出每一張工作表，分頁名跟著走', () => {
+  const text = [
+    '##### SHEET 客戶A',
+    '客戶名稱\t購買名稱\t療程內容',
+    '客戶A\t0522 顧客會-8\tInbody',
+    '##### SHEET 客戶B',
+    '客戶名稱\t購買名稱\t療程內容',
+    '客戶B\t0514 顧客會-8\tInbody',
+  ].join('\n');
+
+  const sheets = parseWorkbook(text);
+  assert.equal(sheets.length, 2);
+  assert.deepEqual(sheets.map((x) => x.sheetName), ['客戶A', '客戶B']);
+  assert.ok(sheets[0].text.startsWith('客戶名稱'));
+  assert.ok(sheets[1].text.includes('客戶B'));
+});
+
+test('沒有分隔線就整份當成一張 —— 從畫面單獨複製一張的那條路不能壞掉', () => {
+  const sheets = parseWorkbook(SHEET);
+  assert.equal(sheets.length, 1);
+  assert.equal(sheets[0].sheetName, '');
+  assert.equal(sheets[0].text, SHEET);
+});
+
+test('空白的貼上不會產生工作表', () => {
+  assert.deepEqual(parseWorkbook('   \n  '), []);
+  assert.deepEqual(parseWorkbook(''), []);
+  assert.deepEqual(parseWorkbook('##### SHEET 客戶A\n\n'), [], '只有標題沒有內容不算一張');
+});
+
+test('切開來的每一張都解析得出來', () => {
+  const text = `##### SHEET 客戶A\n${SHEET}`;
+  const [sheet] = parseWorkbook(text);
+  const p = planForSheet(parseSheet(sheet.text, { sheetName: sheet.sheetName }), CTX);
+  assert.equal(p.customerName, '客戶A');
+  assert.equal(p.sheetName, '客戶A');
+  assert.ok(p.entitlements.length > 0);
+});
+
+// ---------- 按下去之前要注意什麼 ----------
+
+test('要注意的事依「不處理的後果多嚴重」排序，醫療禁忌永遠第一', () => {
+  const points = attentionPoints([metalPlan()], { year: 2026 });
+  assert.equal(points[0].level, 'danger');
+  assert.match(points[0].text, /醫療禁忌/);
+  assert.match(points[0].text, /不會自動設定永久限制/);
+});
+
+test('對不到課程的列會被列成要注意 —— 那是真的掉了資料', () => {
+  const sheet = SHEET.replace(',,EECP,3,0', ',,火星療法,3,0');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶X' }), CTX);
+  const points = attentionPoints([p], { year: 2026 });
+
+  const hit = points.find((x) => x.text.includes('對不到課程'));
+  assert.ok(hit, '整列沒匯入這件事一定要講在最上面');
+  assert.equal(hit.level, 'danger');
+  assert.match(hit.text, /火星療法/);
+});
+
+test('沒有任何危險的時候，清單只剩下該知道的事', () => {
+  const points = attentionPoints([plan()], { year: 2026 });
+  assert.equal(points.some((x) => x.level === 'danger'), false);
+  assert.ok(points.some((x) => x.text.includes('一律當成 2026 年')));
+  assert.ok(points.some((x) => x.text.includes('時間不詳')));
+});
+
+test('整張跳過的要講出來，否則她會以為那位進去了', () => {
+  const points = attentionPoints(
+    [plan({ existingCustomers: [{ id: 'c1', name: '客戶A' }] })],
+    { year: 2026 },
+  );
+  assert.ok(points.some((x) => x.text.includes('整張跳過')));
 });

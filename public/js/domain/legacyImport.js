@@ -175,6 +175,44 @@ function detectDelimiter(src) {
   return tabs > commas ? '\t' : ',';
 }
 
+// ---------- 一次貼很多張 ----------
+
+/**
+ * 分頁之間的分隔線。`sheets/export-legacy.gs` 寫出來的就是這一行，兩邊要一模一樣。
+ * 開頭那五個井號在真的舊表上不可能出現。
+ */
+const SHEET_MARKER = '##### SHEET ';
+
+/**
+ * 一份文字裡有幾張工作表。
+ *
+ * Google 試算表的剪貼簿一次只能複製一張分頁，所以 21 位客戶原本就是貼 21 次。
+ * `sheets/export-legacy.gs` 在舊試算表那邊跑一次，把全部分頁串成一份文字，
+ * 她複製一次貼進來，這裡切開。**還是貼上，只是貼一次**（ADR-0012 沒有變）。
+ *
+ * 沒有分隔線就整份當成一張 —— 她從畫面上單獨複製一張分頁貼進來的那條路
+ * 不能因為多了這個功能就壞掉。
+ *
+ * @param {string} text
+ * @returns {{sheetName: string, text: string}[]}
+ */
+export function parseWorkbook(text) {
+  const src = String(text ?? '');
+  if (!src.includes(SHEET_MARKER)) {
+    return src.trim() ? [{ sheetName: '', text: src }] : [];
+  }
+
+  const out = [];
+  for (const chunk of src.split(SHEET_MARKER)) {
+    if (!chunk.trim()) continue;
+    const cut = chunk.indexOf('\n');
+    const sheetName = (cut === -1 ? chunk : chunk.slice(0, cut)).trim();
+    const body = cut === -1 ? '' : chunk.slice(cut + 1);
+    if (body.trim()) out.push({ sheetName, text: body });
+  }
+  return out;
+}
+
 // ---------- 日期 ----------
 
 const DATE_RE = /^(?:(\d{4})[-/.])?(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?$/;
@@ -1000,6 +1038,95 @@ function groupByReason(skippedRows) {
 }
 
 /**
+ * 「按下去之前你要注意什麼」。
+ *
+ * 報告本身已經把每一件事都寫出來了，但那是**三百行**——她要捲到最後才按得到
+ * 「開始匯入」，中間看過的東西早就忘了。所以把「真的需要她做什麼」抽出來，
+ * 用她會採取的行動排序，放在最上面。
+ *
+ * 排序的判準是「不處理的後果多嚴重」：會造成實際傷害的第一（醫療禁忌），
+ * 資料真的掉了的第二，之後才是要補的資料與純資訊。
+ *
+ * @param {ReturnType<typeof planForSheet>[]} plans
+ * @param {{year?: number|null}} [options]
+ * @returns {{level: 'danger'|'warn'|'info', text: string}[]}
+ */
+export function attentionPoints(plans, { year = null } = {}) {
+  const s = summarize(plans);
+  const out = [];
+
+  if (s.contraindications.length) {
+    out.push({
+      level: 'danger',
+      text: `${s.contraindications.length} 位客戶的文字裡提到醫療禁忌（`
+        + `${s.contraindications.map((x) => `${x.customerName || x.sheetName}：${x.terms.join('、')}`).join('；')}）。`
+        + '匯入不會自動設定永久限制 —— 匯完請到這幾位的客戶詳情頁設定，'
+        + '沒設的話對應的器材不會被擋下來。',
+    });
+  }
+
+  // 對不到課程 = 那一列的額度與勾選真的沒有進來，而且事後很難發現
+  const unmatched = plans.flatMap((p) => p.problems.filter((x) => x.why.includes('對不到任何課程'))
+    .map((x) => `${p.customerName || p.sheetName} ${x.raw}`));
+  if (unmatched.length) {
+    out.push({
+      level: 'danger',
+      text: `${unmatched.length} 列對不到課程，整列沒有匯入：${unmatched.join('、')}。`
+        + '先去主檔把課程建起來，再匯一次會比較完整。',
+    });
+  }
+
+  if (s.skipped.length) {
+    out.push({
+      level: 'warn',
+      text: `${s.skipped.length} 張整張跳過：`
+        + `${s.skipped.map((x) => `${x.customerName || x.sheetName}（${x.why}）`).join('；')}`,
+    });
+  }
+
+  const dropped = s.checks - s.slots;
+  if (dropped > 0) {
+    out.push({
+      level: 'warn',
+      text: `舊表勾了 ${s.checks} 格，其中 ${dropped} 格沒有變成時段。`
+        + '每一位的對帳表上標了 ←，逐一看過再按。',
+    });
+  }
+
+  const pending = plans.flatMap((p) => p.problems.filter((x) => x.why.includes('金額等級還沒填'))
+    .map(() => p.customerName || p.sheetName));
+  if (pending.length) {
+    out.push({
+      level: 'warn',
+      text: `${pending.length} 位客戶的健檢金額等級還沒填（${pending.join('、')}），`
+        + '額度會叫「x萬健檢」。匯完記得改成實際的等級。',
+    });
+  }
+
+  if (year) {
+    out.push({
+      level: 'info',
+      text: `舊表的日期沒有年份，一律當成 ${year} 年。年份挑錯，那一整批來訪就會落到別的地方去。`,
+    });
+  }
+
+  if (s.leftovers) {
+    out.push({
+      level: 'info',
+      text: `${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（每一位底下標 ＋）。`,
+    });
+  }
+
+  out.push({
+    level: 'info',
+    text: '匯入的來訪只有日期與課程 —— 時間、器材、診間、治療師舊表沒有記過，'
+      + '畫面上會顯示「時間不詳」。也不會產生任何待辦任務。',
+  });
+
+  return out;
+}
+
+/**
  * 比對報告的純文字版。她要在按下「開始匯入」之前把它看完，
  * 也要能存一份下來 —— 匯完之後回頭查「那天到底跳過了什麼」只剩這一份。
  *
@@ -1011,10 +1138,20 @@ function groupByReason(skippedRows) {
  */
 export function reportText(plans, { generatedAt = '', year = null } = {}) {
   const s = summarize(plans);
+  const points = attentionPoints(plans, { year });
+  const MARK = { danger: '‼', warn: '⚠', info: '·' };
+
   const lines = [
     '舊資料匯入 — 比對報告（dry-run，還沒有寫入任何東西）',
     generatedAt ? `產生時間：${generatedAt}` : '',
-    year ? `沒寫年份的日期一律當成：${year} 年` : '',
+    '',
+    '━━━ 按下「開始匯入」之前，你要注意這幾件事 ━━━',
+    '',
+    // 報告本身有三百行，她要捲到最後才按得到那顆按鈕 ——
+    // 真的需要她做什麼，講在最上面。
+    ...points.map((x, i) => `${String(i + 1).padStart(2)}. ${MARK[x.level]} ${x.text}`),
+    '',
+    '━━━ 總計 ━━━',
     '',
     `${s.sheets} 張工作表 → 會建立 ${s.customers} 位客戶、`
       + `${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
@@ -1022,18 +1159,10 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
       + (s.checks - s.slots
         ? `其中 ${s.checks - s.slots} 格沒有變成時段（每一張的對帳表上標了 ←）`
         : '全部都變成時段了'),
-    s.leftovers ? `另外有 ${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（標 ＋）` : '',
     `要看一下的地方：${s.problems} 處`,
     '',
-    ...(s.contraindications.length ? [
-      `‼ 有 ${s.contraindications.length} 位客戶的文字裡出現醫療禁忌的字眼：`,
-      ...s.contraindications.map(
-        (x) => `   ${x.customerName || x.sheetName}（${x.terms.join('、')}）`,
-      ),
-      '  匯入不會自動設定永久限制 —— 那句話是不是禁忌只有你看得出來。',
-      '  匯完之後請到這幾位的客戶詳情頁把永久限制設起來，否則對應的器材不會被擋下來。',
-      '',
-    ] : []),
+    '━━━ 一位一位看 ━━━',
+    '',
   ];
 
   for (const p of plans) {

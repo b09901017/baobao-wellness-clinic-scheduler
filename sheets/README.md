@@ -1,7 +1,21 @@
 # 試算表這一側
 
-`readonly-report.gs` 是貼進 Google 試算表的 Apps Script。它是**收件口 + 排版工**，
-不是資料來源，也不算任何數字。
+兩支 Apps Script，用途完全不同：
+
+| 檔案 | 貼進哪一份試算表 | 什麼時候用 |
+|---|---|---|
+| `readonly-report.gs` | **新的**唯讀報表 | 長期。收 app 推過來的資料並排版上鎖 |
+| `export-legacy.gs` | **舊的**那份 | 一次性。把 21 張分頁串成一份文字，匯入時貼一次 |
+
+`readonly-report.gs` 有測試（`tests/sheet-script.test.js` 用替身把 Apps Script 的 API
+做出來，讓那 400 多行真的跑一遍）。抓得到邏輯錯與 API 用錯，抓不到 Google 那一側的
+行為差異 —— 第一次部署如果炸了，是預期內的。
+
+---
+
+## `readonly-report.gs`
+
+它是**收件口 + 排版工**，不是資料來源，也不算任何數字。
 
 ## 資料怎麼過來
 
@@ -47,3 +61,20 @@ Apps Script 這一側**沒有任何 Google 或 Firebase 憑證**，它拿不到�
   時間、器材、品項、診間、治療師 —— 舊表從來記不住的那些。
 
 再加一張「總表」，每位客戶一列，剩餘為 0 的整列標紅。
+
+---
+
+## `export-legacy.gs`（一次性）
+
+匯入舊資料時用一次，之後可以整份刪掉。
+
+Google 試算表的剪貼簿一次只能複製一張分頁，21 位客戶就是貼 21 次。這支把全部分頁
+串成一份文字（分頁之間插一行 `##### SHEET 名字`），複製一次貼進 app，
+`domain/legacyImport.js` 的 `parseWorkbook()` 自己切開。
+
+**還是「貼上」，只是貼一次** —— 它不碰 Firestore、不需要任何憑證，
+所以 `../docs/adr/0012-legacy-import-is-a-paste-not-an-integration.md` 的結論沒有變。
+
+每一格照畫面上顯示的樣子讀（`getDisplayValues`）：日期在畫面上是「6月15日」，
+底層卻是完整的日期值。她平常複製貼上得到的是顯示值，匯入器也是照那個寫的 ——
+換了一條路不能送不一樣的東西過去。

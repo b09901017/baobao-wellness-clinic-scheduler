@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
   planItem, BLANK_PLAN_ITEM,
+  copyPlan,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import { describeCategory, tasksForCategory, CATEGORY_OPTIONS } from '../public/js/domain/taskRules.js';
@@ -322,4 +323,87 @@ describe('方案項目的形狀', () => {
     assert.ok(errors.some((e) => e.startsWith('第 2 個項目')), errors.join(' / '));
     assert.ok(!errors.some((e) => e.startsWith('第 1 個項目')), errors.join(' / '));
   });
+});
+
+// ---------- 方案範本的複製 ----------
+//
+// ADR-0003 的立論是「不做版本、改用複製」，所以複製沒做等於那支 ADR 只實現了一半。
+// 驗收條件見 .scratch/plan-template-copy/issues/01。
+
+const SOURCE_PLAN = {
+  id: 'plan-jingu',
+  name: '筋骨強身',
+  membershipMonths: 12,
+  note: '總價 288,000，限本人',
+  active: false,
+  createdAt: 'x',
+  createdBy: 'me',
+  updatedAt: 'y',
+  deletedAt: null,
+  items: [
+    { type: 'single', courseId: 'course-rehab', label: '復健科醫師門診', qty: 6, durationMin: 30 },
+    {
+      type: 'pool', label: '復能', qty: 12, durationMin: 60,
+      optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'],
+    },
+  ],
+};
+
+test('複製出來的名字有後綴，否則同名檢查會擋下來而她不知道為什麼', () => {
+  assert.equal(copyPlan(SOURCE_PLAN).name, '筋骨強身（複本）');
+});
+
+test('複製帶過去會籍、備註與全部項目', () => {
+  const copy = copyPlan(SOURCE_PLAN);
+  assert.equal(copy.membershipMonths, 12);
+  assert.equal(copy.note, '總價 288,000，限本人');
+  assert.equal(copy.items.length, 2);
+  assert.deepEqual(copy.items[1].optionEquipmentIds, ['eq-laser', 'eq-sis', 'eq-indiba']);
+});
+
+test('項目是深拷貝，改了新的不會連原本那張一起變', () => {
+  // 淺拷貝的災難要等到某位客戶的額度展開錯了才會被發現，那時已經來不及。
+  const copy = copyPlan(SOURCE_PLAN);
+  copy.items[1].qty = 99;
+  copy.items[1].optionEquipmentIds.push('eq-new');
+
+  assert.equal(SOURCE_PLAN.items[1].qty, 12);
+  assert.deepEqual(SOURCE_PLAN.items[1].optionEquipmentIds, ['eq-laser', 'eq-sis', 'eq-indiba']);
+});
+
+test('從停用的範本複製，新的那張是啟用的', () => {
+  assert.equal(SOURCE_PLAN.active, false);
+  assert.equal(copyPlan(SOURCE_PLAN).active, true);
+});
+
+test('複製出來的不帶 id 與任何指回原本那張的欄位', () => {
+  // ADR-0003：範本沒有版本。「5 月的範本」與「8 月的範本」是兩個各自有名字的範本，
+  // 不是同一個範本的兩個版本 —— 留一個 copiedFromId 就等於偷偷做了版本。
+  const keys = Object.keys(copyPlan(SOURCE_PLAN));
+  for (const forbidden of [
+    'id', 'version', 'copiedFromId', 'sourcePlanId',
+    'createdAt', 'createdBy', 'updatedAt', 'deletedAt',
+  ]) {
+    assert.equal(keys.includes(forbidden), false, `不可以帶 ${forbidden}`);
+  }
+});
+
+test('複製出來的內容通得過既有的驗證', () => {
+  const copy = copyPlan(SOURCE_PLAN);
+  const errors = validate('plans', copy, {
+    existing: [SOURCE_PLAN],
+    courses: SEED.courses,
+    equipment: SEED.equipment,
+  });
+  assert.deepEqual(errors, []);
+});
+
+test('沒改名就儲存會被同名檢查擋下來，不會無聲蓋掉', () => {
+  const copy = { ...copyPlan(SOURCE_PLAN), name: SOURCE_PLAN.name };
+  const errors = validate('plans', copy, {
+    existing: [SOURCE_PLAN],
+    courses: SEED.courses,
+    equipment: SEED.equipment,
+  });
+  assert.ok(errors.length > 0);
 });

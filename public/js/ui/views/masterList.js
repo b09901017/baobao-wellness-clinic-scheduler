@@ -7,6 +7,7 @@ import * as config from '../../data/config.js';
 import {
   MASTER_LABELS, ROOM_TYPES, STAFF_ROLES, ASSIGNS, ASSIGN_LABELS, validate,
   planItem, BLANK_PLAN_ITEM,
+  copyPlan,
 } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import * as f from '../components/form.js';
@@ -392,7 +393,12 @@ function paintList(el, type, all) {
           <div class="muted">${esc(ed.summary(r))}</div>
           ${ed.note ? ed.note(r, all) : ''}
         </div>
-        <button class="btn" type="button" data-edit="${esc(r.id)}">編輯</button>
+        <div class="row__actions">
+          <button class="btn" type="button" data-edit="${esc(r.id)}">編輯</button>
+          ${type === 'plans'
+            ? `<button class="btn" type="button" data-copy="${esc(r.id)}">複製一份</button>`
+            : ''}
+        </div>
       </section>`,
       )
       .join('')}`;
@@ -403,6 +409,13 @@ function paintList(el, type, all) {
   el.querySelectorAll('[data-edit]').forEach((btn) =>
     btn.addEventListener('click', () =>
       paintForm(el, type, all, rows.find((r) => r.id === btn.dataset.edit)),
+    ),
+  );
+  // 複製是「開一張帶著內容的新表單」，不是直接寫一筆進去 ——
+  // 按了儲存才算數，跟現有的新增流程一致（ADR-0003 的複製，見那張 issue）。
+  el.querySelectorAll('[data-copy]').forEach((btn) =>
+    btn.addEventListener('click', () =>
+      paintForm(el, type, all, null, copyPlan(rows.find((r) => r.id === btn.dataset.copy))),
     ),
   );
 }
@@ -430,6 +443,9 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
           <button class="btn" type="button" data-cancel>取消</button>
+          ${!isNew && type === 'plans'
+            ? '<button class="btn" type="button" data-copy>複製一份</button>'
+            : ''}
         </div>
       </form>
     </section>
@@ -441,6 +457,11 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
     back();
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
+  // 帶著這一張的內容開一張新表單。畫面上還沒存的修改不帶過去 ——
+  // 複製的是「已經存下來的那一張」，那是她按下去時看到的東西。
+  el.querySelector('[data-copy]')?.addEventListener('click', () =>
+    paintForm(el, type, all, null, copyPlan(record)),
+  );
 
   const form = el.querySelector('[data-form]');
 

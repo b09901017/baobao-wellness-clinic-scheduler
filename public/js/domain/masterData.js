@@ -192,6 +192,40 @@ export function planItem(raw = {}) {
   return item;
 }
 
+/**
+ * 從一張方案範本複製出一張新的。
+ *
+ * ADR-0003 的立論就是「不做版本、改用複製」—— 複製沒做等於那支 ADR 只實現了一半。
+ * 「9 月的方案跟 8 月的只差兩個項目」現在不必從零手打一次。
+ *
+ * 回傳的是**要填進表單的草稿**，不是要寫進資料庫的東西。按了儲存才算數 ——
+ * 直接建立會在清單上長出一筆還沒改名的「（複本）」，而方案範本是拿來展開額度的，
+ * 半成品混在裡面很危險。
+ *
+ * 三件不可以做的事：
+ * - **不留任何指回原本那張的欄位**（version / copiedFromId / sourcePlanId）。
+ *   使用者口中「5 月的範本」與「8 月的範本」是兩個各自有名字的範本，
+ *   不是同一個範本的兩個版本（ADR-0003）。
+ * - **items 要深拷貝。** 淺拷貝會讓兩張範本共用同一批項目物件，
+ *   改了新的連舊的一起變 —— 而那要等到某位客戶的額度展開錯了才會被發現。
+ * - **名字一定要加後綴。** 同名檢查會擋下來（duplicateName()），
+ *   不加的話她一按複製就看到「已經有同名的」而不知道為什麼。
+ *
+ * @param {object} plan 要複製的範本
+ * @param {string} [suffix]
+ * @returns {object} 表單草稿
+ */
+export function copyPlan(plan, suffix = '（複本）') {
+  return {
+    name: `${String(plan?.name ?? '').trim()}${suffix}`,
+    membershipMonths: plan?.membershipMonths ?? null,
+    note: plan?.note ?? '',
+    items: (plan?.items ?? []).map((item) => planItem(structuredClone(item))),
+    // 從停用的範本複製一份出來，本意就是要用它
+    active: true,
+  };
+}
+
 export function validate(type, record, context = {}) {
   const fn = validators[type];
   if (!fn) return [`未知的主檔類型：${type}`];

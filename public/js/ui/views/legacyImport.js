@@ -10,7 +10,9 @@
 // 這一層只負責收文字、畫報告、把結果講清楚。
 
 import * as importer from '../../data/legacyImport.js';
-import { parseSheet, planForSheet, summarize, reportText } from '../../domain/legacyImport.js';
+import {
+  parseSheet, planForSheet, summarize, reportText, parseWorkbook, attentionPoints,
+} from '../../domain/legacyImport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import { saveText, dated } from '../components/download.js';
@@ -64,7 +66,10 @@ function paint(el, ctx) {
     <section class="card">
       <h2 class="card__title">舊資料匯入</h2>
       <p class="muted">在試算表裡打開一位客戶的工作表，全選複製，貼進下面的框。
-        一次貼一張，貼完看報告，確認了才會真的寫進去。</p>
+        貼完看報告，確認了才會真的寫進去。</p>
+      <p class="muted"><b>21 張不想貼 21 次？</b> 把 <code>sheets/export-legacy.gs</code>
+        貼進舊試算表的 Apps Script，跑一次「匯出全部分頁給 app」，
+        得到的那份文字貼進來就是全部 —— 這裡會自己切開。</p>
       <p class="muted">貼進來的東西只留在這個畫面上，重新整理就沒了 ——
         裡面是客戶的姓名與療程紀錄，不會存進這台裝置。</p>
 
@@ -90,7 +95,7 @@ function paint(el, ctx) {
     </section>
 
     ${pasted.length ? sheetsCard(plans) : ''}
-    ${pasted.length ? contraindicationCard(s) : ''}
+    ${pasted.length ? attentionCard(plans) : ''}
     ${pasted.length ? reportCard(plans, s) : ''}`;
 
   el.querySelector('[data-add]')?.addEventListener('click', () => add(el, ctx));
@@ -123,8 +128,19 @@ function add(el, ctx) {
     toast.info('框裡沒有東西');
     return;
   }
-  const sheetName = el.querySelector('[data-name]').value.trim();
-  pasted.push({ sheetName, text });
+
+  // 貼進來的可能是一張（從畫面上複製的），也可能是整本
+  // （sheets/export-legacy.gs 匯出的）。兩種都要能接。
+  const sheets = parseWorkbook(text);
+  const typed = el.querySelector('[data-name]').value.trim();
+
+  pasted.push(...sheets.map((sheet, i) => ({
+    // 匯出檔自己帶了分頁名，那個比她手打的準；只有一張時才用她填的
+    sheetName: sheet.sheetName || (sheets.length === 1 ? typed : `第 ${i + 1} 張`),
+    text: sheet.text,
+  })));
+
+  if (sheets.length > 1) toast.info(`讀到 ${sheets.length} 張工作表`);
   paint(el, ctx);
 }
 
@@ -155,31 +171,29 @@ function sheetsCard(plans) {
 }
 
 /**
- * 舊表沒有「永久限制」這個欄位，那些話寫在購買名稱與空白處。匯進來之後
- * `customer.flags` 是空的，而醫療禁忌的阻擋是拿 flags 去比對的 ——
- * **沒有設定，那幾台器材就不會被擋下來**，而那是唯一會造成實際傷害的一條。
+ * 「按下去之前你要注意什麼」。
  *
- * 所以這張卡片獨立出來擺在報告上面：報告裡的 ‼ 會被其他行捲走，這張不會。
- * 但它只提醒，不代填 —— 「手有金屬」是禁忌，「金屬已取出」不是，
- * 兩句話都含有「金屬」（ADR-0002）。
+ * 比對報告有三百行，她要捲到最底才按得到「開始匯入」——中間看過的東西早就忘了。
+ * 所以真的需要她做什麼，用同一份清單（domain 的 attentionPoints()）講在最上面，
+ * 而且擺在報告**上面**，不是裡面。
+ *
+ * 排序的判準是「不處理的後果多嚴重」：醫療禁忌第一，資料真的掉了第二，
+ * 之後才是要補的資料與純資訊。
  */
-function contraindicationCard(s) {
-  if (!s.contraindications.length) return '';
+function attentionCard(plans) {
+  const points = attentionPoints(plans, { year: baseYear });
+  const worst = points.some((x) => x.level === 'danger') ? ' danger' : '';
+  const MARK = { danger: '‼', warn: '⚠', info: '·' };
 
   return `
-    <section class="card danger">
-      <h2 class="card__title">‼ 有 ${s.contraindications.length} 位客戶的文字裡提到醫療禁忌</h2>
-      <ul class="link-list">
-        ${s.contraindications
-          .map((x) => `<li><div class="row"><div class="row__main">
-              <div class="row__title">${esc(x.customerName || x.sheetName)}</div>
-              <div class="muted">${esc(x.terms.join('、'))}</div>
-            </div></div></li>`)
+    <section class="card${worst}">
+      <h2 class="card__title">按下「開始匯入」之前，你要注意這幾件事</h2>
+      <ol class="attention">
+        ${points
+          .map((x) => `<li class="attention__${x.level}">
+            <b>${MARK[x.level]}</b> ${esc(x.text)}</li>`)
           .join('')}
-      </ul>
-      <p>匯入<b>不會</b>自動設定永久限制 —— 那句話是不是禁忌只有你看得出來。
-        原文會照抄進備註，但<b>匯完之後請到這幾位的客戶詳情頁把永久限制設起來</b>，
-        沒設的話對應的器材不會被擋下來。</p>
+      </ol>
     </section>`;
 }
 
@@ -261,8 +275,8 @@ async function run(el, ctx, plans, s) {
   }
 
   // 成功的從待匯入清單裡拿掉，剩下的就是還要處理的那幾張。
-  const ok2 = new Set(results.filter((r) => r.ok).map((r) => `${r.sheetName} ${r.customerName}`));
-  pasted = pasted.filter((sheet, i) => !ok2.has(`${sheet.sheetName} ${plans[i].customerName}`));
+  const ok2 = new Set(results.filter((r) => r.ok).map((r) => `${r.sheetName}\x00${r.customerName}`));
+  pasted = pasted.filter((sheet, i) => !ok2.has(`${sheet.sheetName}\x00${plans[i].customerName}`));
 
   await render(el);
 }
