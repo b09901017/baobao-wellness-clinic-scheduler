@@ -5,6 +5,7 @@
 
 import * as config from '../../data/config.js';
 import * as customers from '../../data/customers.js';
+import * as visits from '../../data/visits.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -76,7 +77,7 @@ export async function render(el) {
 }
 
 async function loadGroups() {
-  const [master, deletedCustomers, deletedEnts, aliveCustomers] = await Promise.all([
+  const [master, deletedCustomers, deletedEnts, aliveCustomers, deletedVisits] = await Promise.all([
     Promise.all(
       MASTER_TYPES.map(async (type) => ({
         label: MASTER_LABELS[type],
@@ -92,6 +93,7 @@ async function loadGroups() {
     customers.listDeleted(),
     customers.listDeletedEntitlements(),
     customers.list(),
+    visits.listDeleted(),
   ]);
 
   const nameOf = new Map(
@@ -106,6 +108,17 @@ async function loadGroups() {
         name: c.name,
         deletedAt: c.deletedAt,
         restore: () => customers.restore(c.id),
+      })),
+    },
+    {
+      label: '來訪',
+      rows: deletedVisits.map((v) => ({
+        name: `${v.date} ${v.customerName ?? ''}`.trim(),
+        note: `${(v.slots ?? []).length} 個時段`,
+        deletedAt: v.deletedAt,
+        // 還原會把次數也還原回去，所以要先知道這位客戶現在有哪些來訪
+        restore: async () =>
+          visits.restore(v, await visits.listByCustomer(v.customerId)),
       })),
     },
     {

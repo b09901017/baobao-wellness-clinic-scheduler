@@ -89,14 +89,23 @@ service cloud.firestore {
     }
 
     // ---------- 來訪 ----------
+    // 沒有 draft：app 裡不存在還沒壓表的來訪（SPEC 第 4.1 節）。
+    // 狀態機的合法轉移在前端擋（domain/visits.js）—— 這裡只擋「根本不是一筆來訪」的東西，
+    // 因為 Rules 讀 resource.data 判斷轉移會讓每次寫入多一次讀取，代價不划算。
+    function validVisit() {
+      let d = request.resource.data;
+      return d.customerId is string
+        && d.customerId.size() > 0
+        && d.date is string
+        && d.date.size() == 10
+        && d.slots is list
+        && d.slots.size() > 0
+        && d.status in ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+    }
+
     match /visits/{visitId} {
       allow read:   if allowed();
-      allow create: if allowed()
-                    && request.resource.data.status in
-                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
-      allow update: if allowed()
-                    && request.resource.data.status in
-                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+      allow create, update: if allowed() && keepsExistingId() && validVisit();
       allow delete: if false;
     }
 

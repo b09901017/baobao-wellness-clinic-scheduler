@@ -7,6 +7,7 @@ import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
 import * as customers from './views/customers.js';
 import * as customerDetail from './views/customerDetail.js';
+import * as visitEditor from './views/visitEditor.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 function placeholder(title, step, points) {
@@ -54,6 +55,14 @@ register('/customers/new', { title: '新增客戶', nav: false, render: customer
 register('/customers/:id', {
   title: '客戶詳情', nav: false,
   render: (el, id) => customerDetail.render(el, id),
+});
+register('/visits/new/:customerId', {
+  title: '記錄來訪', nav: false,
+  render: (el, customerId) => visitEditor.renderNew(el, customerId),
+});
+register('/visits/:id', {
+  title: '來訪', nav: false,
+  render: (el, id) => visitEditor.renderEdit(el, id),
 });
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });

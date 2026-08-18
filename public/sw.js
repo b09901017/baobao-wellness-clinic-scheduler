@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -49,6 +49,7 @@ const SHELL = [
   '/js/domain/visits.js',
   '/js/ui/views/customers.js',
   '/js/ui/views/customerDetail.js',
+  '/js/ui/views/visitEditor.js',
 ];
 
 self.addEventListener('install', (event) => {

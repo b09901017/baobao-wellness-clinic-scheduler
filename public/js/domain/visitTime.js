@@ -5,6 +5,13 @@
 
 export const DEFAULT_GAP_MIN = 15;
 
+/** 'HH:MM'，而且真的是一個時間。'25:00' 與 '9:5' 都不算。 */
+export function isValidTime(hhmm) {
+  if (typeof hhmm !== 'string' || !/^\d{2}:\d{2}$/.test(hhmm)) return false;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h >= 0 && h < 24 && m >= 0 && m < 60;
+}
+
 /** 'HH:MM' → 從當日零時起算的分鐘數 */
 export function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);

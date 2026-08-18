@@ -101,9 +101,10 @@ export const SEED = {
       requiresEquipment: false, frequencyRule: null,
     },
     {
+      // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）
       id: 'course-iv-drip', name: '營養點滴', category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
-      requiresEquipment: false, frequencyRule: null,
+      requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,
     },
 
     // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----

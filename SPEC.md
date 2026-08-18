@@ -264,6 +264,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   allowedRoomTypes,      // ['治療室'] 之類。assigns==='room' 時的預設可選範圍
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
+  requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
   frequencyRule,         // 例：'每季一次'，只提示不擋
   active, deletedAt
 }
@@ -339,8 +340,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 {
   customerId, customerName,   // 冗餘存名字，避免清單頁 N+1 讀取
   date,                       // 'YYYY-MM-DD'
-  status,                     // 'draft' | 'pending_confirm' | 'confirmed'
+  status,                     // 'pending_confirm' | 'confirmed'
                               // | 'done' | 'no_show' | 'cancelled'
+                              // 沒有 draft：app 裡不存在還沒壓表的來訪（第 4.1 節）
   confirmedAt, cancelledAt, cancelReason,
   released,                   // 取消後時段是否已釋出供遞補
   slots: [

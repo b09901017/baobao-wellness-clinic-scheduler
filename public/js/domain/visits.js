@@ -1,11 +1,19 @@
-// 來訪的詞彙與規則。純函式。
+// 來訪的狀態機與送出前的檢查。純函式。
 //
-// 第 4 步才會長出狀態機、時段與衝突檢查。現在只有狀態的中文說法，
-// 因為客戶詳情頁已經要顯示來訪了，而畫面上不該出現 'pending_confirm'。
+// 只有兩種結果：errors 擋下儲存，warnings 顯示在旁邊但存得下去。
+// 除了醫療禁忌與「欄位根本沒填」之外，一律是 warnings ——
+// 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
+// app 看不到同事在 Abovee 上壓的東西，用不完整的資料去擋一個看得到完整畫面的人，
+// 只會擋錯。
 
-/** SPEC 第 4.1 節的狀態機。順序就是它們在流程上的先後。 */
+import { overlaps, isValidTime, toMinutes } from './visitTime.js';
+import { validateSlots as contraindicationErrors } from './contraindications.js';
+import { counts } from './entitlements.js';
+import { isValidDate, daysBetween } from './dates.js';
+import { roomsForCourse } from './masterData.js';
+
+/** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
 export const VISIT_STATUSES = [
-  'draft',
   'pending_confirm',
   'confirmed',
   'done',
@@ -13,8 +21,10 @@ export const VISIT_STATUSES = [
   'cancelled',
 ];
 
+/** 來訪的起點。SPEC 第 4.1 節。 */
+export const INITIAL_STATUS = 'pending_confirm';
+
 const LABELS = {
-  draft: '草稿',
   pending_confirm: '已壓表，等客戶回覆',
   confirmed: '客戶已確認',
   done: '已完成',
@@ -22,7 +32,336 @@ const LABELS = {
   cancelled: '已取消',
 };
 
+// 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 9），所以 cancelled 是終點。
+// done 也是終點，要改必須走更正流程（SPEC 第 6.4 節）。
+const TRANSITIONS = {
+  pending_confirm: ['confirmed', 'done', 'no_show', 'cancelled'],
+  confirmed: ['done', 'no_show', 'cancelled'],
+  no_show: ['confirmed', 'cancelled'],
+  done: [],
+  cancelled: [],
+};
+
 /** 不認得的狀態原樣顯示，不要吞掉 —— 那代表資料有問題，要看得見。 */
 export function describeStatus(status) {
   return LABELS[status] ?? String(status ?? '（沒有狀態）');
+}
+
+export function nextStatuses(from) {
+  return TRANSITIONS[from] ?? [];
+}
+
+export function canTransition(from, to) {
+  return nextStatuses(from).includes(to);
+}
+
+/** 已完成的來訪是唯讀鎖定區，要改必須填理由走更正流程。SPEC 第 6.4 節。 */
+export function isLocked(status) {
+  return status === 'done';
+}
+
+/** 這筆來訪還算不算佔著次數。取消的不算，時段已經還回去了。 */
+export function isActive(visit) {
+  return !visit?.deletedAt && visit?.status !== 'cancelled';
+}
+
+/**
+ * 這筆額度可以排哪些課程。
+ *
+ * single 的額度自己記著課程，一對一。
+ * 擇一池換的是器材不是課程（SPEC 第 4.5 節），所以池上沒有 courseId ——
+ * 但時段一定要記課程，因為任務是綁在課程的類別上（SPEC 第 5.5 節）。
+ * 這裡用「需要選器材的課程」把它接回去，見
+ * docs/adr/0005-pool-slots-get-their-course-from-requires-equipment.md
+ *
+ * @returns {object[]} 可選的課程，只有一個時 UI 應該直接帶入
+ */
+export function coursesForEntitlement(entitlement, courses = []) {
+  const alive = courses.filter((c) => !c.deletedAt);
+  if (entitlement?.type === 'pool') return alive.filter((c) => c.requiresEquipment);
+  return alive.filter((c) => c.id === entitlement?.courseId);
+}
+
+// ---------- 檢查 ----------
+
+const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
+
+/**
+ * 送出前的完整檢查。
+ *
+ * @param {object} visit 要存的來訪（可以還沒有 id）
+ * @param {object} ctx
+ * @param {object} ctx.customer
+ * @param {object[]} ctx.courses
+ * @param {object[]} ctx.equipment
+ * @param {object[]} ctx.entitlements 這位客戶的額度
+ * @param {object[]} [ctx.rooms]
+ * @param {object[]} [ctx.ivProducts]
+ * @param {object[]} [ctx.sameDayVisits] 同一天她自己排的其他來訪（不含這一筆）
+ * @param {object[]} [ctx.customerVisits] 這位客戶的其他來訪，看頻率限制用
+ * @returns {{errors: string[], warnings: string[]}}
+ */
+export function validateVisit(visit, ctx) {
+  return {
+    errors: visitErrors(visit, ctx),
+    warnings: visitWarnings(visit, ctx),
+  };
+}
+
+function visitErrors(visit, { customer, courses = [], equipment = [], entitlements = [], ivProducts = [] }) {
+  const errors = [];
+  const coursesById = byId(courses);
+  const entsById = byId(entitlements);
+  const equipById = byId(equipment);
+  const ivById = byId(ivProducts);
+
+  if (!visit.customerId) errors.push('沒有指定客戶');
+  if (!isValidDate(visit.date)) errors.push('來訪日期不合法');
+  if (!VISIT_STATUSES.includes(visit.status)) errors.push('來訪狀態不合法');
+
+  const slots = visit.slots ?? [];
+  if (!slots.length) errors.push('一次來訪至少要有一個時段');
+
+  slots.forEach((slot, i) => {
+    const at = `第 ${i + 1} 個時段`;
+
+    const ent = entsById[slot.entitlementId];
+    if (!slot.entitlementId) errors.push(`${at}：要選一個額度`);
+    else if (!ent) errors.push(`${at}：指定的額度不存在或已刪除`);
+
+    const course = coursesById[slot.courseId];
+    if (!slot.courseId) errors.push(`${at}：要選一個課程`);
+    else if (!course) errors.push(`${at}：指定的課程不存在或已刪除`);
+
+    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) {
+      errors.push(`${at}：時間格式不對`);
+    } else if (toMinutes(slot.endsAt) <= toMinutes(slot.startsAt)) {
+      errors.push(`${at}：結束時間要晚於開始時間`);
+    }
+
+    if (course?.requiresEquipment && !slot.equipmentId) {
+      errors.push(`${at}：${course.name} 每次都要記錄用了哪一種器材`);
+    }
+    if (course?.requiresIvProduct && !slot.ivProductId) {
+      errors.push(`${at}：${course.name} 每次都要記錄施打的品項`);
+    }
+    if (slot.equipmentId && !equipById[slot.equipmentId]) {
+      errors.push(`${at}：指定的器材不存在或已刪除`);
+    }
+    if (slot.ivProductId && !ivById[slot.ivProductId]) {
+      errors.push(`${at}：指定的品項不存在或已刪除`);
+    }
+
+    // 擇一池的次數是共用的，選了池外的器材就會扣到不屬於它的東西上
+    if (ent?.type === 'pool' && slot.equipmentId
+        && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
+      errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
+    }
+  });
+
+  // 醫療禁忌：整個系統唯一的硬性阻擋
+  for (const err of contraindicationErrors(customer, slots, equipById)) {
+    errors.push(`第 ${err.slotIndex + 1} 個時段：${err.message}`);
+  }
+
+  return errors;
+}
+
+function visitWarnings(visit, ctx) {
+  return [
+    ...overlapWarnings(visit),
+    ...entitlementWarnings(visit, ctx),
+    ...assignmentWarnings(visit, ctx),
+    ...conflictWarnings(visit, ctx),
+    ...frequencyWarnings(visit, ctx),
+  ];
+}
+
+/** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
+function overlapWarnings(visit) {
+  const out = [];
+  const slots = (visit.slots ?? []).filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt));
+  for (let i = 0; i < slots.length; i += 1) {
+    for (let j = i + 1; j < slots.length; j += 1) {
+      if (overlaps(slots[i], slots[j])) {
+        out.push(`第 ${i + 1} 與第 ${j + 1} 個時段時間重疊`);
+      }
+    }
+  }
+  return out;
+}
+
+function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) {
+  const out = [];
+  const entsById = byId(entitlements);
+
+  // 把這一筆算進去，才知道存下去之後會不會超用
+  const withThis = [...customerVisits.filter((v) => v.id !== visit.id), visit];
+  const used = new Set();
+
+  for (const slot of visit.slots ?? []) {
+    const ent = entsById[slot.entitlementId];
+    if (!ent || used.has(ent.id)) continue;
+    used.add(ent.id);
+
+    const c = counts(ent, withThis, ent.id);
+    if (c.done + c.booked > c.total) {
+      out.push(`「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`);
+    }
+
+    if (ent.expiresAt && isValidDate(ent.expiresAt) && isValidDate(visit.date)
+        && daysBetween(ent.expiresAt, visit.date) > 0) {
+      out.push(`「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`);
+    }
+  }
+
+  return out;
+}
+
+/** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
+function assignmentWarnings(visit, { courses = [], rooms = [] }) {
+  const out = [];
+  const coursesById = byId(courses);
+
+  (visit.slots ?? []).forEach((slot, i) => {
+    const course = coursesById[slot.courseId];
+    if (!course) return;
+    const at = `第 ${i + 1} 個時段`;
+
+    if (course.assigns === 'room') {
+      if (!slot.roomId) out.push(`${at}：${course.name} 還沒選診間`);
+      else {
+        const allowed = roomsForCourse(course, rooms);
+        if (allowed.length && !allowed.some((r) => r.id === slot.roomId)) {
+          out.push(
+            `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
+          );
+        }
+      }
+      if (slot.therapistId) out.push(`${at}：${course.name} 不需要指派治療師`);
+    }
+
+    if (course.assigns === 'therapist') {
+      if (!slot.therapistId) out.push(`${at}：${course.name} 還沒選治療師`);
+      if (slot.roomId) out.push(`${at}：${course.name} 不佔診間`);
+    }
+
+    if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
+      out.push(`${at}：${course.name} 不需要診間也不需要治療師`);
+    }
+  });
+
+  return out;
+}
+
+/**
+ * 跟她自己當天排的其他人撞在一起。一天壓十幾個人，自撞很常見。
+ * 跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節）。
+ */
+function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] }) {
+  const out = [];
+  const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
+  const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
+
+  for (const [i, slot] of (visit.slots ?? []).entries()) {
+    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
+    const at = `第 ${i + 1} 個時段`;
+
+    for (const other of sameDayVisits) {
+      if (other.id === visit.id || !isActive(other)) continue;
+
+      for (const theirs of other.slots ?? []) {
+        if (!isValidTime(theirs.startsAt) || !isValidTime(theirs.endsAt)) continue;
+        if (!overlaps(slot, theirs)) continue;
+
+        const sameRoom = slot.roomId && slot.roomId === theirs.roomId
+          && (slot.bed ?? null) === (theirs.bed ?? null);
+        const sameTherapist = slot.therapistId && slot.therapistId === theirs.therapistId;
+
+        const who = other.customerId === visit.customerId
+          ? `${other.customerName ?? '這位客戶'}自己的另一筆來訪`
+          : (other.customerName ?? '另一位客戶');
+
+        if (sameRoom) {
+          out.push(
+            `${at}：${roomName(slot.roomId)}${slot.bed ?? ''} ${theirs.startsAt}–${theirs.endsAt} `
+            + `已經排了 ${who}`,
+          );
+        }
+        if (sameTherapist) {
+          out.push(
+            `${at}：${staffName(slot.therapistId)} ${theirs.startsAt}–${theirs.endsAt} `
+            + `已經排了 ${who}`,
+          );
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
+/** 每季一次那種限制。只說「上次是什麼時候、距今幾天」，不換算季度也不阻擋。 */
+function frequencyWarnings(visit, { courses = [], entitlements = [], customerVisits = [] }) {
+  const out = [];
+  const coursesById = byId(courses);
+  const entsById = byId(entitlements);
+  if (!isValidDate(visit.date)) return out;
+
+  const seen = new Set();
+
+  for (const slot of visit.slots ?? []) {
+    const course = coursesById[slot.courseId];
+    const ent = entsById[slot.entitlementId];
+    const rule = ent?.frequencyRule ?? course?.frequencyRule;
+    if (!rule || !course || seen.has(course.id)) continue;
+    seen.add(course.id);
+
+    const previous = customerVisits
+      .filter((v) => v.id !== visit.id && isActive(v) && isValidDate(v.date) && v.date < visit.date)
+      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id))
+      .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+    if (!previous) continue;
+    out.push(
+      `${course.name} 有「${rule}」的限制，上次是 ${previous.date}，`
+      + `距這次 ${daysBetween(previous.date, visit.date)} 天`,
+    );
+  }
+
+  return out;
+}
+
+// ---------- 計數欄位 ----------
+
+/**
+ * 這幾筆來訪動到哪些額度。改一筆來訪時，舊版本與新版本碰到的都要重算。
+ * @param {...object} visits
+ * @returns {string[]}
+ */
+export function touchedEntitlementIds(...visits) {
+  const ids = new Set();
+  for (const visit of visits) {
+    for (const slot of visit?.slots ?? []) {
+      if (slot.entitlementId) ids.add(slot.entitlementId);
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * 重算指定額度的計數欄位。計數欄位只能由這裡算出來，
+ * 不可以在畫面上手動加減 —— 它跟著來訪的狀態走（SPEC 第 4.2、6.4 節）。
+ *
+ * @param {string[]} entitlementIds
+ * @param {object[]} visits 這位客戶的全部來訪（含要存的那一筆的新版本）
+ * @returns {Record<string, {doneCount:number, bookedCount:number}>}
+ */
+export function recount(entitlementIds, visits) {
+  const out = {};
+  for (const id of entitlementIds) {
+    const c = counts({ totalQty: 0 }, visits, id);
+    out[id] = { doneCount: c.done, bookedCount: c.booked };
+  }
+  return out;
 }

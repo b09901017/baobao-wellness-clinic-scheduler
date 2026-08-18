@@ -89,8 +89,9 @@ function paint(ctx) {
     <section class="card">
       <h2 class="card__title">來訪<span class="muted"> ${visits.length}</span></h2>
       ${visits.length === 0
-        ? '<p class="muted">還沒有來訪紀錄。建立來訪是第 4 步的事，做好之後這裡會有時間軸，上面的次數也會跟著動。</p>'
+        ? '<p class="muted">還沒有來訪紀錄。</p>'
         : `<ul class="link-list">${visits.map(visitRow).join('')}</ul>`}
+      <p><button class="btn btn--primary" type="button" data-add-visit>記錄一次來訪</button></p>
     </section>
 
     ${dangerZone(customer)}`;
@@ -101,6 +102,9 @@ function paint(ctx) {
   });
   el.querySelector('[data-edit]').addEventListener('click', () => paintEdit(ctx));
   el.querySelector('[data-add-ent]').addEventListener('click', () => paintEntitlement(ctx, null));
+  el.querySelector('[data-add-visit]').addEventListener('click', () =>
+    go(`/visits/new/${ctx.id}`),
+  );
 
   el.querySelectorAll('[data-ent]').forEach((btn) =>
     btn.addEventListener('click', () =>
@@ -193,8 +197,20 @@ function kindText(e, ctx) {
 }
 
 function visitRow(v) {
-  return `<li><span class="link-list__label">${esc(v.date)}</span>
-    <span class="muted">${esc(describeStatus(v.status))} · ${(v.slots ?? []).length} 個時段</span></li>`;
+  const courses = [...new Set((v.slots ?? []).map((s) => s.courseName).filter(Boolean))];
+  return `
+    <li><a href="#/visits/${esc(v.id)}">
+      <span class="link-list__label">${esc(v.date)}
+        <span class="muted">${esc(courses.join('、') || `${(v.slots ?? []).length} 個時段`)}</span>
+      </span>
+      <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
+    </a></li>`;
+}
+
+function statusClass(status) {
+  if (status === 'pending_confirm') return 'badge--soon';
+  if (status === 'cancelled' || status === 'no_show') return 'badge--overdue';
+  return 'badge--ok';
 }
 
 async function fixCounts(ctx, entId) {
