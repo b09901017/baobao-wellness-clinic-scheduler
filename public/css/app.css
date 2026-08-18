@@ -442,6 +442,29 @@ textarea {
   padding-left: var(--space-5);
 }
 
+/* 匯入前的注意事項。排在報告上面，因為報告有三百行，
+   捲到最底才按得到那顆按鈕的話，中間看過的東西早就忘了。 */
+.attention {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.attention li {
+  line-height: 1.6;
+}
+
+.attention__danger {
+  color: var(--overdue);
+  font-weight: 650;
+}
+
+.attention__info {
+  color: var(--text-dim);
+}
+
 /* ---------- 破壞性操作區 ---------- */
 
 /* 刻意放在畫面最下方，不放在卡片右上角那種容易誤按的位置 */

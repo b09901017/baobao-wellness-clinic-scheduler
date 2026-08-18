@@ -118,6 +118,10 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 | 11 | 舊資料匯入 | ☑ |
 | 12 | 多帳號 | ☐ |
 
+第 1–11 步的已知缺口都補完了（`.scratch/` 底下的票全部 done）。試算表那一側的
+`sheets/readonly-report.gs` 有測試但**還沒真的部署過** —— 第一次部署如果報錯，
+是預期內的。
+
 ## 文件
 
 完整的需求背景、資料模型、業務規則、名詞表都在 **[`SPEC.md`](./SPEC.md)**。
