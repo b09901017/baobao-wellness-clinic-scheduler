@@ -499,3 +499,77 @@ test('對帳表把舊表的數字跟匯進去的並排，空白的模板列不�
   // 沒買的項目（D、E、勾選都是 0）不佔版面
   assert.equal(text.includes('第  9 列 x萬健檢'), false);
 });
+
+// ---------- 醫療禁忌與沒填完的健檢等級 ----------
+//
+// 舊表沒有「永久限制」這個欄位，那句話寫在購買名稱裡。匯進來之後 flags 是空的，
+// 而醫療禁忌的阻擋是拿 flags 去比對的（domain/contraindications.js）——
+// 沒有設定，超磁場與高能量雷射就不會被擋下來，而那是唯一會造成實際傷害的一條。
+//
+// 注意：`docs/legacy/samples/` 測不到這一段，那些樣本裡的禁忌字眼已經被
+// 去識別化抹掉了。所以這裡的 fixture 才是這條路唯一的守門員。
+
+const METAL_SHEET = SHEET.replace(
+  '客戶A,0522 顧客會-8',
+  '客戶A,0604 顧客會-手有金屬，只能INDIBA',
+);
+const metalPlan = () => planForSheet(parseSheet(METAL_SHEET, { sheetName: '客戶M' }), CTX);
+
+test('購買名稱裡的醫療禁忌字眼會被認出來，並說得出沒設定會漏擋哪幾台', () => {
+  const hit = metalPlan().contraindications;
+  assert.equal(hit.length, 1);
+  assert.equal(hit[0].where, 'B2 購買名稱');
+  assert.equal(hit[0].term, '體內金屬');
+  assert.deepEqual(hit[0].blocks.sort(), ['超磁場', '高能量雷射']);
+});
+
+test('要找的字從主檔的器材推出來，不寫死在匯入器裡', () => {
+  // 她之後新增一台有別的禁忌的器材，這裡要自動就會找那個字。
+  const equipment = [
+    ...SEED.equipment,
+    { id: 'eq-x', name: '震波', contraindications: ['懷孕'] },
+  ];
+  const sheet = SHEET.replace('客戶A,0522 顧客會-8', '客戶A,0522 顧客會-懷孕中先不要排');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶P' }), { ...CTX, equipment });
+
+  assert.equal(p.contraindications.length, 1);
+  assert.equal(p.contraindications[0].term, '懷孕');
+  assert.deepEqual(p.contraindications[0].blocks, ['震波']);
+});
+
+test('認出禁忌字眼也不會自動設定永久限制', () => {
+  // 「手有金屬」是禁忌，「金屬已取出」不是，兩句話都含有「金屬」。
+  // 那是她的判斷，不是匯入器的（ADR-0002）。
+  assert.deepEqual(metalPlan().customer.flags, []);
+});
+
+test('報告與總計都把醫療禁忌講出來，而且擺在捲不掉的位置', () => {
+  const text = reportText([metalPlan()], { year: 2026 });
+  const head = text.split('── ')[0];
+
+  assert.match(head, /‼ 有 1 位客戶的文字裡出現醫療禁忌的字眼/);
+  assert.match(head, /體內金屬/);
+  assert.match(head, /不會自動設定永久限制/);
+  assert.match(text, /‼ B2 購買名稱.*「超磁場、高能量雷射」不會被擋下來/);
+  assert.deepEqual(
+    summarize([metalPlan()]).contraindications,
+    [{ customerName: '客戶A', sheetName: '客戶M', terms: ['體內金屬'] }],
+  );
+});
+
+test('金額等級還沒填的健檢照樣建額度，但要講一聲', () => {
+  // `x萬健檢` 的 x 是還沒決定的等級，不是打錯字。不講的話她會在客戶詳情頁
+  // 看到一筆叫「x萬健檢」的額度，那看起來像系統壞掉。
+  const sheet = SHEET.replace('0.75萬健檢,1,0', 'x萬健檢,1,0');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶Q' }), CTX);
+
+  assert.ok(p.entitlements.some((e) => e.doc.label === 'x萬健檢'), '額度照建，名稱原文照抄');
+  assert.ok(p.problems.some((x) => x.why.includes('健檢的金額等級還沒填')));
+});
+
+test('金額填好的健檢不會被當成沒填', () => {
+  assert.equal(
+    plan().problems.some((x) => x.why.includes('金額等級還沒填')),
+    false,
+  );
+});

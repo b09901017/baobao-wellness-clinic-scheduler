@@ -90,6 +90,7 @@ function paint(el, ctx) {
     </section>
 
     ${pasted.length ? sheetsCard(plans) : ''}
+    ${pasted.length ? contraindicationCard(s) : ''}
     ${pasted.length ? reportCard(plans, s) : ''}`;
 
   el.querySelector('[data-add]')?.addEventListener('click', () => add(el, ctx));
@@ -153,6 +154,35 @@ function sheetsCard(plans) {
     </section>`;
 }
 
+/**
+ * 舊表沒有「永久限制」這個欄位，那些話寫在購買名稱與空白處。匯進來之後
+ * `customer.flags` 是空的，而醫療禁忌的阻擋是拿 flags 去比對的 ——
+ * **沒有設定，那幾台器材就不會被擋下來**，而那是唯一會造成實際傷害的一條。
+ *
+ * 所以這張卡片獨立出來擺在報告上面：報告裡的 ‼ 會被其他行捲走，這張不會。
+ * 但它只提醒，不代填 —— 「手有金屬」是禁忌，「金屬已取出」不是，
+ * 兩句話都含有「金屬」（ADR-0002）。
+ */
+function contraindicationCard(s) {
+  if (!s.contraindications.length) return '';
+
+  return `
+    <section class="card danger">
+      <h2 class="card__title">‼ 有 ${s.contraindications.length} 位客戶的文字裡提到醫療禁忌</h2>
+      <ul class="link-list">
+        ${s.contraindications
+          .map((x) => `<li><div class="row"><div class="row__main">
+              <div class="row__title">${esc(x.customerName || x.sheetName)}</div>
+              <div class="muted">${esc(x.terms.join('、'))}</div>
+            </div></div></li>`)
+          .join('')}
+      </ul>
+      <p>匯入<b>不會</b>自動設定永久限制 —— 那句話是不是禁忌只有你看得出來。
+        原文會照抄進備註，但<b>匯完之後請到這幾位的客戶詳情頁把永久限制設起來</b>，
+        沒設的話對應的器材不會被擋下來。</p>
+    </section>`;
+}
+
 function reportCard(plans, s) {
   return `
     <section class="card">
@@ -176,6 +206,7 @@ function reportCard(plans, s) {
       <p class="${s.problems ? '' : 'muted'}">要看一下的地方：<b>${s.problems}</b> 處。
         這些不會擋下匯入，但匯進去之後那幾筆會少東西。</p>
 
+
       <pre class="report">${esc(currentReport(plans))}</pre>
 
       <p class="form__actions">
@@ -196,6 +227,10 @@ async function run(el, ctx, plans, s) {
       '來訪一律是已完成，時間、器材、診間、治療師都不詳（舊表沒有記過）',
       '不會產生任何待辦任務 —— 那些掛號在舊系統早就做完了',
       s.problems ? `報告上有 ${s.problems} 處沒讀懂，那幾筆會少東西` : '報告上沒有讀不懂的地方',
+      ...(s.contraindications.length
+        ? [`${s.contraindications.length} 位客戶的文字裡提到醫療禁忌，`
+          + '匯完要自己去設定永久限制，系統不會自動填']
+        : []),
       '每位客戶各自寫入，一位失敗不影響其他人',
     ],
     confirmLabel: '匯入',
