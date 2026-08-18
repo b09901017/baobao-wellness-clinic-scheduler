@@ -4,9 +4,12 @@
 // 資料完全不碰：Firestore 自己有離線快取，讀取走它的，寫入由它排隊重送。
 // SW 去插手資料只會製造兩份互相矛盾的快取。
 //
+// 策略：自己的檔案網路優先（逾時 3 秒退回快取），Firebase SDK 快取優先。
+// 網路優先是為了「部署完打開就是最新的」——快取優先會讓每次改版都慢一輪。
+//
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -62,37 +65,61 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+  const sameOrigin = url.origin === self.location.origin;
+  const isFirebaseSdk =
+    url.origin === 'https://www.gstatic.com' && url.pathname.includes('/firebasejs/');
 
-  // 同源以外的東西一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行。
-  // 唯一例外是 firebase SDK 本身，那是 app 殼的一部分。
-  const isFirebaseSdk = url.origin === 'https://www.gstatic.com' && url.pathname.includes('/firebasejs/');
-  if (url.origin !== self.location.origin && !isFirebaseSdk) return;
+  // 其他跨網域一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行。
+  if (!sameOrigin && !isFirebaseSdk) return;
 
-  // 導覽請求：先走網路，失敗才用快取的殼。這樣改版能即時生效。
-  if (request.mode === 'navigate') {
+  // Firebase SDK 的網址帶版本號，同一個網址的內容永遠不變，可以放心快取優先。
+  if (isFirebaseSdk) {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/index.html').then((r) => r ?? Response.error())),
+      caches.match(request).then((cached) => cached ?? fetchAndCache(request)),
     );
     return;
   }
 
-  // 靜態資源：先用快取（開得快），背景同時更新。
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached ?? Response.error());
-      return cached ?? network;
-    }),
-  );
+  // 自己的檔案一律網路優先。
+  //
+  // 之前用快取優先，結果每次部署後她都會先看到舊版，要再重新整理一次才會更新
+  // —— 那是會天天發生的困惑。app 的檔案總共才幾十 KB，網路優先的代價很小，
+  // 但「打開就是最新的」這件事很重要。
+  //
+  // 網路慢的時候不能一直等，超過 3 秒就先用快取，畫面照樣打得開。
+  event.respondWith(networkFirst(request));
 });
+
+const NETWORK_TIMEOUT_MS = 3000;
+
+function fetchAndCache(request) {
+  return fetch(request).then((response) => {
+    if (response.ok) {
+      const copy = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(request, copy));
+    }
+    return response;
+  });
+}
+
+async function networkFirst(request) {
+  const cached = await caches.match(request);
+
+  try {
+    const response = await Promise.race([
+      fetchAndCache(request),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('network-timeout')), NETWORK_TIMEOUT_MS),
+      ),
+    ]);
+    return response;
+  } catch {
+    // 逾時或離線。有快取就用快取，沒有就讓瀏覽器自己報錯
+    // （index.html 的保險絲會把它變成看得見的訊息）。
+    if (cached) return cached;
+    return fetch(request);
+  }
+}
