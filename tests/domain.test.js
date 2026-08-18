@@ -9,7 +9,7 @@ import {
   validateSlots,
 } from '../public/js/domain/contraindications.js';
 import { counts, isOverused, reconcile, expandPlan } from '../public/js/domain/entitlements.js';
-import { endOf, nextStart, layOutSlots, overlaps } from '../public/js/domain/visitTime.js';
+import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
 describe('任務規則', () => {
   test('A 類四個任務、B 類兩個、C 類只有 Abovee', () => {
@@ -221,6 +221,14 @@ describe('來訪時間', () => {
       { startsAt: '09:15', endsAt: '10:15' },
       { startsAt: '10:30', endsAt: '11:30' },
     ]);
+  });
+
+  test('沒有時間的時段寫成「時間不詳」，不是空白也不是 null–null', () => {
+    // 匯入的舊來訪就是這樣（ADR-0011）
+    assert.equal(timeLabel({ startsAt: '09:15', endsAt: '10:15' }), '09:15–10:15');
+    assert.equal(timeLabel({ startsAt: null, endsAt: null }), '時間不詳');
+    assert.equal(timeLabel({}), '時間不詳');
+    assert.equal(timeLabel({ startsAt: '09:15', endsAt: null }), '09:15');
   });
 
   test('重疊判斷：相接不算重疊', () => {

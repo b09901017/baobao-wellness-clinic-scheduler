@@ -367,7 +367,8 @@ textarea {
 
 .field input[type='text'],
 .field input[type='number'],
-.field select {
+.field select,
+.field textarea {
   width: 100%;
 }
 
@@ -842,4 +843,21 @@ summary {
 .sheet th {
   background: var(--surface-2);
   font-weight: 650;
+}
+
+/* 匯入的比對報告。她要在按下「開始匯入」之前把它讀完，所以寬的內容
+   自己捲，不要把整頁往旁邊推。 */
+.report {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  max-height: 24rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }

@@ -137,7 +137,7 @@ function slotRow(row) {
   return `
     <li><a href="#/visits/${esc(row.visitId)}">
       <span class="link-list__label">
-        <b>${esc(row.startsAt)}${row.endsAt ? `–${esc(row.endsAt)}` : ''}</b>
+        <b>${esc(row.timeLabel)}</b>
         ${esc(row.customerName)}
         <span class="muted">${esc([row.courseName, where].filter(Boolean).join('・'))}</span>
         ${row.clashes.length
@@ -190,7 +190,7 @@ function compactRow(row) {
   return `
     <li><a href="#/visits/${esc(row.visitId)}">
       <span class="link-list__label">
-        <b>${esc(row.startsAt)}</b> ${esc(row.customerName)}
+        <b>${esc(row.timeLabel)}</b> ${esc(row.customerName)}
         <span class="muted">${esc(row.courseName)}</span>
         ${row.clashes.length ? '<span class="badge badge--overdue">撞到</span>' : ''}
       </span>

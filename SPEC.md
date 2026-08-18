@@ -308,6 +308,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   priority,                  // 喜好程度 0–5，排序加權用（0 = 還沒評）
   flags,                     // 永久限制，例：['體內金屬']
   notes,                     // 特殊狀況，例：'重大疾病治療中'
+  importedFrom,              // 從舊試算表匯進來的才有，形狀同 visits
   active, deletedAt
 }
 
@@ -322,7 +323,8 @@ audit/{eventId}                   // append-only 稽核紀錄
   purchasedAt, expiresAt,
   frequencyRule,
   doneCount, bookedCount,    // 交易維護，可從 visits 重算驗證
-  lastReconciledAt
+  lastReconciledAt,
+  importedFrom               // 從舊試算表匯進來的才有，形狀同 visits
 }
 
 // customers/{id}/availability/{id}
@@ -354,6 +356,12 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // 沒有 draft：app 裡不存在還沒壓表的來訪（第 4.1 節）
   confirmedAt, cancelledAt, cancelReason,
   released,                   // 取消後時段是否已釋出供遞補
+  importedFrom,               // 從舊試算表匯進來的才有，例：
+                              //   { source:'legacy-sheet', sheetName, importedAt }
+                              // 有這個欄位的來訪，時段的 startsAt / endsAt /
+                              // equipmentId / ivProductId / roomId / therapistId
+                              // 一律是 null —— 舊表沒有記過那些，見
+                              // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
     { entitlementId, courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
@@ -513,6 +521,15 @@ audit/{eventId}                   // append-only 稽核紀錄
 - 先跑 **dry-run**，產出比對報告（會建立幾位客戶、幾筆額度、幾筆來訪，有哪幾筆解析不了）
 - 人工確認後才真正寫入
 - 匯入的資料標記 `importedFrom` 來源，方便日後追查
+- 一位客戶是一個原子單位（客戶＋額度＋來訪同一次寫入），一位失敗不影響其他人
+- 同名的客戶整張跳過，所以重複貼同一張不會建出第二份
+- **不產生任務** —— 那些掛號在舊系統早就做完了
+
+舊表的結構與已知陷阱（購買數量是反推的、`0.75萬健檢` 會被舊正則讀成 75）在
+`docs/legacy/README.md`。兩個實作上的決定：資料怎麼進來見
+`docs/adr/0012-legacy-import-is-a-paste-not-an-integration.md`，
+匯進來的來訪為什麼缺欄位見
+`docs/adr/0011-imported-visits-are-incomplete-on-purpose.md`。
 
 ---
 

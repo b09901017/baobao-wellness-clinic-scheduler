@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   VISIT_STATUSES, INITIAL_STATUS, describeStatus, nextStatuses, canTransition,
-  isLocked, isActive, coursesForEntitlement, validateVisit,
+  isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
 } from '../public/js/domain/visits.js';
 
@@ -299,5 +299,64 @@ describe('計數欄位重算', () => {
       e1: { doneCount: 1, bookedCount: 1 },
       e2: { doneCount: 1, bookedCount: 0 },
     });
+  });
+});
+
+
+describe('匯入的舊來訪（ADR-0011）', () => {
+  const IMPORTED = { source: 'legacy-sheet', sheetName: '客戶甲', importedAt: '2026-08-18' };
+  const noTime = (over = {}) => visit({
+    status: 'done',
+    importedFrom: IMPORTED,
+    slots: [{
+      entitlementId: 'e-pool', courseId: 'c-recovery', courseName: '復能',
+      equipmentId: null, ivProductId: null,
+      startsAt: null, endsAt: null, roomId: null, bed: null, therapistId: null, attended: true,
+    }],
+    ...over,
+  });
+
+  test('認得出哪一筆是匯進來的', () => {
+    assert.equal(isImported(noTime()), true);
+    assert.equal(isImported(visit()), false);
+  });
+
+  test('時間、器材、診間、治療師都不詳也存得起來 —— 舊表就是沒有那些', () => {
+    assert.deepEqual(validateVisit(noTime(), ctx()).errors, []);
+  });
+
+  test('營養點滴的品項不詳也放行', () => {
+    const v = noTime({
+      slots: [{
+        entitlementId: 'e-pool', courseId: 'c-iv', courseName: '營養點滴',
+        ivProductId: null, startsAt: null, endsAt: null, attended: true,
+      }],
+    });
+    assert.deepEqual(validateVisit(v, ctx()).errors, []);
+  });
+
+  test('時間只填一半仍然是錯的 —— 那是打到一半，不是舊表沒有', () => {
+    const v = noTime();
+    v.slots[0].startsAt = '09:00';
+    assert.ok(validateVisit(v, ctx()).errors.some((e) => e.includes('時間格式不對')));
+  });
+
+  test('放寬的只有那幾個欄位，客戶、日期、額度、課程照樣要有', () => {
+    const v = noTime({ date: '不是日期' });
+    v.slots[0].entitlementId = '';
+    const { errors } = validateVisit(v, ctx());
+    assert.ok(errors.some((e) => e.includes('日期不合法')));
+    assert.ok(errors.some((e) => e.includes('要選一個額度')));
+  });
+
+  test('醫療禁忌照樣硬性阻擋，匯入不是例外', () => {
+    const v = noTime();
+    v.slots[0].equipmentId = 'eq-sis';
+    const { errors } = validateVisit(v, ctx({ customer: { ...CUSTOMER, flags: ['體內金屬'] } }));
+    assert.ok(errors.some((e) => e.includes('體內金屬')));
+  });
+
+  test('匯入的來訪是已完成，所以落在唯讀鎖定區', () => {
+    assert.equal(isLocked(noTime().status), true);
   });
 });
