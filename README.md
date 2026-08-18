@@ -115,7 +115,7 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 | 8 | 資料健檢 / 稽核 / 備份 | ☑ |
 | 9 | 時段反查 + LINE 訊息產生器 | ☑ |
 | 10 | 日曆 + 試算表報表 | ☑ |
-| 11 | 舊資料匯入 | ☐ |
+| 11 | 舊資料匯入 | ☑ |
 | 12 | 多帳號 | ☐ |
 
 ## 文件

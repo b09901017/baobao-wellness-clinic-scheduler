@@ -57,6 +57,19 @@ export function layOutSlots(firstStart, durations, gapMin = DEFAULT_GAP_MIN) {
   return out;
 }
 
+/**
+ * 一個時段的時間要怎麼寫在畫面上。
+ *
+ * 匯入的舊來訪沒有時間（ADR-0011），直接內插會變成「null–null」。
+ * 空字串也不行 —— 那看起來像是畫面壞了，而不是「這件事沒人記過」。
+ */
+export function timeLabel(slot) {
+  const { startsAt, endsAt } = slot ?? {};
+  if (isValidTime(startsAt) && isValidTime(endsAt)) return `${startsAt}–${endsAt}`;
+  if (isValidTime(startsAt)) return startsAt;
+  return '時間不詳';
+}
+
 /** 兩個時段有沒有時間重疊。 */
 export function overlaps(a, b) {
   return toMinutes(a.startsAt) < toMinutes(b.endsAt) && toMinutes(b.startsAt) < toMinutes(a.endsAt);

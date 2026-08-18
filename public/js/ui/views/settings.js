@@ -60,6 +60,9 @@ export async function render(el) {
         <li><a href="#/settings/audit">
           <span class="link-list__label">稽核紀錄</span>
           <span class="muted">誰改了什麼</span></a></li>
+        <li><a href="#/settings/import">
+          <span class="link-list__label">舊資料匯入</span>
+          <span class="muted">從試算表貼進來</span></a></li>
         <li><a href="#/settings/trash">
           <span class="link-list__label">已刪除項目</span></a></li>
       </ul>

@@ -21,7 +21,7 @@ import { dayStatus } from '../../domain/availability.js';
 import { INITIAL_STATUS, validateVisit, isActive } from '../../domain/visits.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
-import { endOf, isValidTime } from '../../domain/visitTime.js';
+import { endOf, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { todayISO, addMonths, shortDate, weekdayLabel, addDays } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -352,7 +352,7 @@ function scheduledVisits(ctx, row) {
       if (s.courseId !== ctx.course.id) continue;
       const who = ctx.all.staff.find((x) => x.id === s.therapistId)?.name
         ?? ctx.all.rooms.find((x) => x.id === s.roomId)?.name ?? '';
-      out.push({ visitId: v.id, label: `${shortDate(v.date)} ${s.startsAt}–${s.endsAt} ${who}`.trim() });
+      out.push({ visitId: v.id, label: `${shortDate(v.date)} ${timeLabel(s)} ${who}`.trim() });
     }
   }
   return out;

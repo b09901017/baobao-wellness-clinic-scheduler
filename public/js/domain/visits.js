@@ -60,6 +60,19 @@ export function isLocked(status) {
   return status === 'done';
 }
 
+/**
+ * 這筆來訪是從舊試算表匯進來的。
+ *
+ * 舊表的勾選只有日期 —— 沒有時間、沒有器材、沒有診間、沒有治療師，
+ * 那些資訊在舊系統裡從來沒有被記下來過。所以匯入的來訪只保證三件事：
+ * 哪一天、上了哪個課程、扣哪一份額度。其餘欄位一律是 null，驗證要放它過。
+ *
+ * 見 docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
+ */
+export function isImported(visit) {
+  return Boolean(visit?.importedFrom);
+}
+
 /** 這筆來訪還算不算佔著次數。取消的不算，時段已經還回去了。 */
 export function isActive(visit) {
   return !visit?.deletedAt && visit?.status !== 'cancelled';
@@ -110,6 +123,8 @@ export function validateVisit(visit, ctx) {
 
 function visitErrors(visit, { customer, courses = [], equipment = [], entitlements = [], ivProducts = [] }) {
   const errors = [];
+  // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
+  const imported = isImported(visit);
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
   const equipById = byId(equipment);
@@ -133,16 +148,21 @@ function visitErrors(visit, { customer, courses = [], equipment = [], entitlemen
     if (!slot.courseId) errors.push(`${at}：要選一個課程`);
     else if (!course) errors.push(`${at}：指定的課程不存在或已刪除`);
 
-    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) {
-      errors.push(`${at}：時間格式不對`);
-    } else if (toMinutes(slot.endsAt) <= toMinutes(slot.startsAt)) {
-      errors.push(`${at}：結束時間要晚於開始時間`);
+    // 匯入的來訪允許整個時間不詳（兩邊都 null）。只填一半仍然是錯的 ——
+    // 那是打字打到一半，不是「舊表就沒有」。
+    const timeUnknown = imported && slot.startsAt == null && slot.endsAt == null;
+    if (!timeUnknown) {
+      if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) {
+        errors.push(`${at}：時間格式不對`);
+      } else if (toMinutes(slot.endsAt) <= toMinutes(slot.startsAt)) {
+        errors.push(`${at}：結束時間要晚於開始時間`);
+      }
     }
 
-    if (course?.requiresEquipment && !slot.equipmentId) {
+    if (!imported && course?.requiresEquipment && !slot.equipmentId) {
       errors.push(`${at}：${course.name} 每次都要記錄用了哪一種器材`);
     }
-    if (course?.requiresIvProduct && !slot.ivProductId) {
+    if (!imported && course?.requiresIvProduct && !slot.ivProductId) {
       errors.push(`${at}：${course.name} 每次都要記錄施打的品項`);
     }
     if (slot.equipmentId && !equipById[slot.equipmentId]) {

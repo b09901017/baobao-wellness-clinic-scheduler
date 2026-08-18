@@ -12,7 +12,7 @@
 // 講的是同一件事，三個地方各算一次遲早會不一致。
 
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
-import { overlaps, toMinutes, isValidTime } from './visitTime.js';
+import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { isActive } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
@@ -113,6 +113,9 @@ export function agendaFor(visits, date, { roomsById = {}, staffById = {} } = {})
         status: visit.status,
         slotIndex: index,
         startsAt: slot.startsAt ?? '',
+        // 匯入的舊來訪沒有時間（ADR-0011）。顯示交給 timeLabel()，
+        // startsAt / endsAt 留原樣給排序與撞期判斷用。
+        timeLabel: timeLabel(slot),
         endsAt: slot.endsAt ?? '',
         courseName: slot.courseName ?? '',
         room: roomsById[slot.roomId]?.name ?? null,

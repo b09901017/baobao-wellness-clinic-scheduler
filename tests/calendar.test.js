@@ -115,6 +115,18 @@ describe('一整天的時段', () => {
     assert.ok(rows.every((r) => r.visitId === 'v1'));
   });
 
+  test('匯入的舊來訪沒有時間，排在當天最後並標「時間不詳」', () => {
+    const rows = agendaFor([
+      visit({ id: 'v1', slots: [{ startsAt: null, endsAt: null, courseName: '復能' }] }),
+      visit({ id: 'v2', slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '靜脈' }] }),
+    ], '2026-09-18', CTX);
+
+    assert.deepEqual(rows.map((r) => r.courseName), ['靜脈', '復能']);
+    assert.deepEqual(rows.map((r) => r.timeLabel), ['14:00–15:00', '時間不詳']);
+    // 不知道時間就談不上時間衝突
+    assert.ok(rows.every((r) => r.clashes.length === 0));
+  });
+
   test('別天的、取消的、刪除的都不出現', () => {
     const rows = agendaFor([
       visit({ id: 'v1', date: '2026-09-17' }),

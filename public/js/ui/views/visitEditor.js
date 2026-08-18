@@ -15,7 +15,7 @@ import {
 import { counts } from '../../domain/entitlements.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
-import { endOf, nextStart, isValidTime, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
+import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -264,7 +264,7 @@ function slotCard(ctx, draft, slot, i) {
     <section class="card">
       <div class="pool__head">
         <span>第 ${i + 1} 個時段</span>
-        <span class="muted">${esc(slot.startsAt ?? '')}–${esc(slot.endsAt ?? '')}</span>
+        <span class="muted">${esc(timeLabel(slot))}</span>
       </div>
 
       ${f.select({
@@ -468,7 +468,7 @@ function slotSummary(slot, all) {
   const room = all.rooms.find((r) => r.id === slot.roomId);
   const staff = all.staff.find((s) => s.id === slot.therapistId);
   const where = room ? `${room.name}${slot.bed ?? ''}` : staff?.name ?? '';
-  return `${slot.startsAt}–${slot.endsAt} ${course?.name ?? ''}${where ? ` ${where}` : ''}`;
+  return `${timeLabel(slot)} ${course?.name ?? ''}${where ? ` ${where}` : ''}`;
 }
 
 // ---------- 狀態 ----------
