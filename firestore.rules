@@ -54,14 +54,36 @@ service cloud.firestore {
     }
 
     // ---------- 客戶與其子集合 ----------
+    // 前端擋一次、這裡再擋一次（SPEC 第 6.7 節）。前端可以被繞過，這裡不行。
+    //
+    // 子集合刻意逐個列出而不用 /{sub=**}：萬用比對會與底下的具體規則
+    // 「或」在一起，讓嚴格的那條形同虛設。第 6 步的 availability 要用時，
+    // 回來這裡再開一個 match。
+    function validCustomer() {
+      let d = request.resource.data;
+      return d.name is string
+        && d.name.size() > 0
+        && (!d.keys().hasAny(['priority'])
+            || (d.priority is int && d.priority >= 0 && d.priority <= 5));
+    }
+
+    function validEntitlement() {
+      let d = request.resource.data;
+      return d.label is string
+        && d.label.size() > 0
+        && d.type in ['single', 'pool']
+        && d.totalQty is int
+        && d.totalQty > 0;
+    }
+
     match /customers/{customerId} {
       allow read:   if allowed();
-      allow create, update: if allowed() && keepsExistingId();
+      allow create, update: if allowed() && keepsExistingId() && validCustomer();
       allow delete: if false;
 
-      match /{sub=**} {
+      match /entitlements/{entitlementId} {
         allow read:   if allowed();
-        allow create, update: if allowed();
+        allow create, update: if allowed() && keepsExistingId() && validEntitlement();
         allow delete: if false;
       }
     }

@@ -5,6 +5,8 @@ import * as settings from './views/settings.js';
 import * as masterList from './views/masterList.js';
 import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
+import * as customers from './views/customers.js';
+import * as customerDetail from './views/customerDetail.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 function placeholder(title, step, points) {
@@ -28,14 +30,7 @@ register('/', {
   ]),
 });
 
-register('/customers', {
-  title: '客戶', icon: '👥',
-  render: placeholder('客戶總覽', 3, [
-    '可搜尋清單，顯示各額度進度與限制標籤',
-    '醫療禁忌永遠跟著名字顯示，不可摺疊',
-    '詳情頁有時間軸、額度明細、可用性原文、變更紀錄',
-  ]),
-});
+register('/customers', { title: '客戶', icon: '👥', render: customers.render });
 
 register('/schedule', {
   title: '壓表', icon: '📋',
@@ -55,6 +50,11 @@ register('/calendar', {
 register('/settings', { title: '設定', icon: '⚙️', render: settings.render });
 
 // 子頁，不進導覽列
+register('/customers/new', { title: '新增客戶', nav: false, render: customers.renderNew });
+register('/customers/:id', {
+  title: '客戶詳情', nav: false,
+  render: (el, id) => customerDetail.render(el, id),
+});
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/:type', {

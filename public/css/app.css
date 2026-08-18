@@ -476,3 +476,120 @@ textarea {
   gap: var(--space-3);
   justify-content: flex-end;
 }
+
+/* ---------- 客戶 ---------- */
+
+/* 整列可點。手機上目標越大越好，不要只有右邊一顆小箭頭。 */
+.row-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.row-link::after {
+  content: '›';
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+}
+
+/* 篩選用的橫向 chip 列。可用日也用同一組樣式（SPEC 8.2：不用 31 格日曆條）。 */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 三段式次數：已完成 / 已排未上 / 剩餘。底色就是剩餘。 */
+.meter {
+  display: flex;
+  height: 10px;
+  margin: var(--space-2) 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.meter__done {
+  background: var(--ok);
+}
+
+.meter__booked {
+  background: var(--accent);
+}
+
+.meter--over {
+  outline: 2px solid var(--overdue);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.legend b {
+  color: var(--text);
+}
+
+/* 算出來的值，長得像欄位但不能編輯 */
+.field__static {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* 額度卡片：手機單欄堆疊，600px 以上兩欄 */
+.pools {
+  display: grid;
+  gap: var(--space-3);
+}
+
+@media (min-width: 600px) {
+  .pools {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+.pool {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pool__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-weight: 650;
+}

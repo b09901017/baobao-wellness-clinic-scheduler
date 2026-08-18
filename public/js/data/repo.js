@@ -6,6 +6,7 @@
 
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -79,6 +80,71 @@ export async function create(path, data, id = null) {
   });
   await batch.commit();
   return ref.id;
+}
+
+/**
+ * 先拿一個還沒被使用的 id。
+ * 用途是「客戶」與它底下的「額度」要能在同一個 batch 裡建立 ——
+ * 子集合的路徑需要父文件的 id，所以 id 必須先於寫入存在。
+ */
+export function newId(path) {
+  return doc(collection(getDb(), path)).id;
+}
+
+/**
+ * 一次建立多筆資料（各自附稽核），全部在同一個 writeBatch 裡。
+ *
+ * 建客戶 + 展開方案的七筆額度必須全有或全無：出現「客戶建好了但額度只寫進去三筆」
+ * 比整個失敗還糟，因為沒有人會發現。
+ *
+ * @param {{path:string, data:object, id?:string}[]} entries
+ * @returns {Promise<string[]>} 依序回傳每一筆的 id
+ */
+export async function createMany(entries) {
+  // Firestore 一個 batch 上限 500 個操作，每筆資料佔兩個（本體 + 稽核）。
+  if (entries.length * 2 > 500) throw new Error('一次寫太多筆了，請分批');
+
+  const batch = writeBatch(getDb());
+  const ids = [];
+
+  for (const { path, data, id = null } of entries) {
+    const ref = id ? doc(getDb(), path, id) : doc(collection(getDb(), path));
+    batch.set(ref, {
+      ...data,
+      deletedAt: null,
+      createdBy: actorId(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(newAuditRef(), {
+      at: serverTimestamp(),
+      actor: actorId(),
+      action: `${path}.create`,
+      targetPath: ref.path,
+      before: null,
+      after: data,
+    });
+    ids.push(ref.id);
+  }
+
+  await batch.commit();
+  return ids;
+}
+
+/**
+ * 跨所有父文件查同名子集合。客戶總覽要一次拿到全部客戶的額度，
+ * 否則就是二十幾次往返。
+ *
+ * 刻意不加 where(deletedAt == null)：collection group 查詢帶條件要另外開索引，
+ * 而這裡的量（二十幾位客戶 × 各七筆額度）在 client 濾掉便宜得多。
+ *
+ * @returns {Promise<object[]>} 每筆多一個 parentId 欄位
+ */
+export async function listGroup(collectionId, { includeDeleted = false } = {}) {
+  const snap = await getDocs(collectionGroup(getDb(), collectionId));
+  return snap.docs
+    .map((d) => ({ id: d.id, parentId: d.ref.parent.parent?.id ?? null, ...d.data() }))
+    .filter((r) => includeDeleted || !r.deletedAt);
 }
 
 /**

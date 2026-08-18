@@ -141,3 +141,14 @@ pool 至少兩種器材且都存在，而且錯誤訊息會指出「第 N 個項
 - 課程主檔本身的欄位
 
 ## Comments
+
+**2026-08-18** —— 做第 3 步（客戶 + 額度池）時順手把上面「根因」列的第 2 個地雷修掉了：
+
+- `f.checkboxes()` 產生的 input 現在帶 `data-many`，`readForm()` 依標記判斷是不是群組，
+  不再數同名元素有幾個。器材只剩一筆時不會再回傳 boolean。
+- 同時多了三個欄位可以用：`f.date()`、`f.textarea()`、`f.readonly()`（唯讀的算出來的值）。
+
+**第 1 個地雷（`paintForm()` 沒有重畫機制）還在**，那才是這張 issue 的主要工作。
+不過客戶詳情頁的額度編輯器（`public/js/ui/views/customerDetail.js` 的 `paintEntitlement()`）
+已經用「讀回表單 → 合併成草稿 → 重畫」處理了同一個問題，可以直接照抄那個作法 ——
+它處理的正是 single/pool 換型態要換欄位、而且不能把填到一半的值清掉。

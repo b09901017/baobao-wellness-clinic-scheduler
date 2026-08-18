@@ -302,7 +302,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   name, phone, lineId,
   source,                    // 購買名稱，例：'0522 顧客會-8'
   purchasedAt, membershipExpiresAt,
-  priority,                  // 喜好程度，排序加權用
+  priority,                  // 喜好程度 0–5，排序加權用（0 = 還沒評）
   flags,                     // 永久限制，例：['體內金屬']
   notes,                     // 特殊狀況，例：'重大疾病治療中'
   active, deletedAt
@@ -313,7 +313,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   type,                      // 'single' | 'pool'
   label, totalQty, durationMin,
   courseId, optionEquipmentIds,   // pool 型態：擇一池換的是器材
-  sourcePlanId,              // null = 單項加購
+  sourcePlanName,            // 展開當下的方案名稱文字快照；null = 單項加購
+                             // 不存 sourcePlanId —— 額度不指回範本，範本會被就地改。
+                             // 見 docs/adr/0003-plan-templates-have-no-version.md
   purchasedAt, expiresAt,
   frequencyRule,
   doneCount, bookedCount,    // 交易維護，可從 visits 重算驗證

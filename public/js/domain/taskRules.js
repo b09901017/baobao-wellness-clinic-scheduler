@@ -4,6 +4,8 @@
 // 舊的 Apps Script 是用課程名稱做字串包含比對，療程一改名就靜默失效，
 // 而且 C 類還多給了「打電話」。這裡不照抄，見 docs/legacy/README.md。
 
+import { addDays } from './dates.js';
+
 /** @typedef {'A'|'B'|'C'|null} Category */
 
 export const TASK_KINDS = ['打電話', 'Abovee', 'Examine', '耀聖'];
@@ -87,11 +89,4 @@ export function tasksForVisit(visit, coursesById) {
 export function urgency(dueDate, today) {
   if (dueDate < today) return 'overdue';
   return dueDate <= dueDateFor(addDays(today, 2)) ? 'soon' : 'later';
-}
-
-function addDays(isoDate, n) {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return dt.toISOString().slice(0, 10);
 }

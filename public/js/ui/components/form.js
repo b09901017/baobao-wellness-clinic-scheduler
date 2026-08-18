@@ -28,6 +28,34 @@ export function number({ name, label, value = '', min = 0, step = 1, hint = '' }
     </label>`;
 }
 
+export function date({ name, label, value = '', hint = '' }) {
+  return `
+    <label class="field">
+      <span class="field__label">${esc(label)}</span>
+      <input type="date" name="${name}" value="${esc(value ?? '')}" />
+      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
+    </label>`;
+}
+
+export function textarea({ name, label, value = '', placeholder = '', rows = 3, hint = '' }) {
+  return `
+    <label class="field">
+      <span class="field__label">${esc(label)}</span>
+      <textarea name="${name}" rows="${rows}" placeholder="${esc(placeholder)}">${esc(value ?? '')}</textarea>
+      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
+    </label>`;
+}
+
+/** 唯讀的一行說明，長得像欄位但不進 readForm。算出來的值用這個顯示。 */
+export function readonly({ label, value, hint = '' }) {
+  return `
+    <div class="field">
+      <span class="field__label">${esc(label)}</span>
+      <div class="field__static">${esc(value)}</div>
+      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
+    </div>`;
+}
+
 export function select({ name, label, value, options, hint = '' }) {
   const opts = options
     .map((o) => {
@@ -54,7 +82,7 @@ export function checkboxes({ name, label, values = [], options, hint = '' }) {
       const on = values.includes(v) ? ' checked' : '';
       return `
         <label class="choice">
-          <input type="checkbox" name="${name}" value="${esc(v)}"${on} />
+          <input type="checkbox" name="${name}" value="${esc(v)}"${on} data-many />
           <span>${esc(l)}</span>
         </label>`;
     })
@@ -87,8 +115,9 @@ export function readForm(form) {
   for (const el of form.elements) {
     if (!el.name) continue;
     if (el.type === 'checkbox') {
-      const many = form.querySelectorAll(`[name="${el.name}"]`).length > 1;
-      if (many) {
+      // 用標記而不是數「同名的有幾個」：選項剛好只剩一個時，
+      // 數量判斷會把整組勾選變成單一開關，回傳 boolean 而不是陣列。
+      if (el.dataset.many !== undefined) {
         out[el.name] ??= [];
         if (el.checked) out[el.name].push(el.value);
       } else {
