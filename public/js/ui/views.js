@@ -12,6 +12,7 @@ import * as customerDetail from './views/customerDetail.js';
 import * as visitEditor from './views/visitEditor.js';
 import * as health from './views/health.js';
 import * as audit from './views/audit.js';
+import * as backfill from './views/backfill.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 function placeholder(title, step, points) {
@@ -52,6 +53,8 @@ register('/visits/:id', {
   title: '來訪', nav: false,
   render: (el, id) => visitEditor.renderEdit(el, id),
 });
+register('/schedule/backfill', { title: '時段反查', nav: false, render: backfill.render });
+
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/health', { title: '資料健檢', nav: false, render: health.render });
 register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.render });

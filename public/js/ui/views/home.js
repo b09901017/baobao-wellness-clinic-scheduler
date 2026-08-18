@@ -15,6 +15,7 @@ import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage } from '../../domain/messages.js';
 import { todayISO, shortDate, daysBetween } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import * as message from '../components/message.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -195,7 +196,7 @@ function todaySection(visits) {
   return [...byCustomer.entries()]
     .map(([customerId, rows]) => {
       const name = rows[0].customerName ?? '（沒有名字）';
-      const message = confirmMessage({ name }, rows);
+      const text = confirmMessage({ name }, rows);
       return `
         <div class="pool">
           <div class="pool__head"><span>${esc(name)}</span>
@@ -203,12 +204,12 @@ function todaySection(visits) {
           <ul class="link-list">
             ${rows.map((v) => `<li><a href="#/visits/${esc(v.id)}">${esc(visitLine(v))}</a></li>`).join('')}
           </ul>
-          <details>
-            <summary class="muted">先看一下訊息</summary>
-            <textarea class="msg" readonly rows="3"
-                      data-msg="${esc(customerId)}">${esc(message)}</textarea>
-          </details>
-          <p><button class="btn" type="button" data-copy="${esc(customerId)}">複製確認訊息</button></p>
+          ${message.box({
+            id: customerId,
+            text,
+            collapsed: true,
+            buttonLabel: '複製確認訊息',
+          })}
         </div>`;
     })
     .join('');
@@ -296,9 +297,7 @@ function wire(ctx) {
     btn.addEventListener('click', () => go(`/visits/${btn.dataset.visit}`)),
   );
 
-  el.querySelectorAll('[data-copy]').forEach((btn) =>
-    btn.addEventListener('click', () => copyMessage(el, btn)),
-  );
+  message.wire(el, toast.info);
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
@@ -325,22 +324,6 @@ async function markDone(ctx) {
     await render(ctx.el);
   } catch {
     /* withSaveState 已顯示錯誤與重試 */
-  }
-}
-
-async function copyMessage(el, btn) {
-  const area = el.querySelector(`[data-msg="${CSS.escape(btn.dataset.copy)}"]`);
-  const text = area?.value ?? '';
-  if (!text) return;
-
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.info('已複製，貼到 LINE 就可以送出');
-  } catch {
-    // iOS 在非安全情境或沒有使用者手勢時會擋剪貼簿。退而求其次選起來讓她長按複製。
-    area.closest('details').open = true;
-    area.select();
-    toast.info('複製被瀏覽器擋下來了，訊息已經選起來，長按複製');
   }
 }
 

@@ -15,7 +15,9 @@ import * as rules from '../../domain/customers.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
 import { describeStatus } from '../../domain/visits.js';
 import { todayISO } from '../../domain/dates.js';
+import { messagesFor } from '../../domain/messages.js';
 import * as f from '../components/form.js';
+import * as message from '../components/message.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
@@ -107,6 +109,8 @@ function paint(ctx) {
       <p><button class="btn btn--primary" type="button" data-add-visit>記錄一次來訪</button></p>
     </section>
 
+    ${messageSection(ctx, today)}
+
     ${availability.sectionHtml(ctx.availability, today)}
 
     ${taskSection(tasks)}
@@ -135,6 +139,7 @@ function paint(ctx) {
     btn.addEventListener('click', () => fixCounts(ctx, btn.dataset.fix)),
   );
 
+  message.wire(el, toast.info);
   availability.wireSection(ctx);
   // 只帶最近幾十筆來訪的 id 去查稽核：in 查詢要分批，全部帶等於一直往回翻，
   // 而她在這裡要看的是「最近這筆資料被改成什麼」。
@@ -142,6 +147,28 @@ function paint(ctx) {
     auditData.listForCustomer(ctx.id, visits.slice(0, AUDIT_VISIT_LIMIT).map((v) => v.id)),
   );
   wireDangerZone(ctx);
+}
+
+/**
+ * 要貼到 LINE 的訊息。SPEC 第 8.1 節的「複製確認訊息」在首頁，這裡是同一組的其餘幾則。
+ *
+ * 她被客戶臨時問完之後，下一個動作往往就是回一句話 —— 詳情頁是她當下已經打開的畫面，
+ * 不該再讓她切回首頁去找按鈕。
+ *
+ * 只列現在用得到的：沒有待確認的來訪就不出現「問壓好的時間可不可以」，
+ * 產生一則裡面沒有日期的空話比不產生更糟。
+ */
+function messageSection(ctx, today) {
+  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today });
+
+  return `
+    <details class="card">
+      <summary class="card__title">LINE 訊息<span class="muted"> ${list.length}</span></summary>
+      <p class="muted">產生的是草稿，複製之前可以直接改。</p>
+      ${list
+        .map((m) => message.box({ id: `msg-${m.id}`, text: m.text, label: m.label }))
+        .join('')}
+    </details>`;
 }
 
 function contactLine(c) {
