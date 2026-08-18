@@ -1,6 +1,6 @@
 # 方案範本無法新增項目，導致「新增方案」是死路
 
-Status: ready-for-agent
+Status: done
 回報者：使用者實測，2026-08-18
 動工前先讀：`SPEC.md` 第 4.5、6.5、6.7、8.0 節與 `docs/adr/0003-plan-templates-have-no-version.md`
 
@@ -152,3 +152,29 @@ pool 至少兩種器材且都存在，而且錯誤訊息會指出「第 N 個項
 不過客戶詳情頁的額度編輯器（`public/js/ui/views/customerDetail.js` 的 `paintEntitlement()`）
 已經用「讀回表單 → 合併成草稿 → 重畫」處理了同一個問題，可以直接照抄那個作法 ——
 它處理的正是 single/pool 換型態要換欄位、而且不能把填到一半的值清掉。
+
+**2026-08-18** —— 做完了。
+
+- `domain/masterData.js` 多了 `planItem()`：依型態組出乾淨的項目。
+  pool 不塞 `courseId`、single 不塞 `optionEquipmentIds`、`frequencyRule` 留空就整個欄位不出現。
+  項目的形狀是規則不是畫面，所以放 domain，也才測得到 —— 驗收第 2 項現在是一支測試：
+  種子的兩個方案逐項餵過 `planItem()` 之後與原本逐欄相同。
+- `masterList.js` 的 `paintForm()` 補上重畫機制：多收 `draft` 與 `focusItem` 兩個參數，
+  重畫前先「讀回表單 → 合併成草稿」，所以新增／刪除／上下移動／換型態都不會清掉
+  其他還沒儲存的欄位。`isNew` 也照這張 issue 說的改成看 `record?.id`。
+- 重畫只有方案需要，所以是編輯器自己宣告的 `wireForm` 掛鉤，
+  其他 editors（rooms / staff / equipment / ivProducts / products / courses）一行沒動。
+- 項目編輯器：一項一張卡單欄堆疊、上下移動按鈕（不做拖拉）、新增後捲到新項目、
+  移動後停留在被移動的那一項。
+- 選了課程會帶入該課程的時長、頻率與名稱，但**只在還沒填、或填的正好是上一個課程的
+  預設值時才覆蓋** —— 她自己打過的數字不能被無聲蓋掉。
+- 已停用的課程與器材仍然選得到，只標「已停用」；指向已刪除的 id 原樣保留並顯示
+  「（已刪除）」，交給 `validate()` 報錯，不在 render 時改成第一個選項。
+- 驗證全部走既有的 `validate(type, candidate, { existing, courses, equipment })`，
+  UI 層沒有另寫一套。錯誤發生時不重畫表單，所以已填的名稱與備註不會被清掉（驗收第 4 項）。
+
+第 1 個地雷（`paintForm()` 沒有重畫機制）解決了；第 2 個地雷（`readForm` 的 checkbox
+群組判斷）在第 3 步就修掉了，所以驗收第 6 項本來就已經成立。
+
+不在範圍內的兩項仍然沒做：客戶的額度編輯（第 3 步已有）、方案「複製一份改名」（ADR-0003
+提到的作法，值得另開一張）。

@@ -6,6 +6,7 @@
 import * as config from '../../data/config.js';
 import {
   MASTER_LABELS, ROOM_TYPES, STAFF_ROLES, ASSIGNS, ASSIGN_LABELS, validate,
+  planItem, BLANK_PLAN_ITEM,
 } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import * as f from '../components/form.js';
@@ -133,17 +134,19 @@ const editors = {
   plans: {
     blank: { name: '', membershipMonths: 12, note: '', items: [] },
     summary: (r) => `${r.items?.length ?? 0} 個項目 · 會籍 ${r.membershipMonths ?? '?'} 個月`,
-    fields: (r) => [
+    fields: (r, all) => [
       f.text({ name: 'name', label: '方案名稱', value: r.name, placeholder: '筋骨強身' }),
       f.number({ name: 'membershipMonths', label: '會籍（月）', value: r.membershipMonths, min: 1 }),
       f.text({ name: 'note', label: '備註', value: r.note ?? '', placeholder: '總價 288,000，限本人' }),
+      itemsField(r.items ?? [], all),
     ],
-    parse: (v, prev) => ({
+    parse: (v) => ({
       name: v.name.trim(),
       membershipMonths: v.membershipMonths,
       note: v.note?.trim() || null,
-      items: prev?.items ?? [],
+      items: readItems(v),
     }),
+    wireForm: wirePlanItems,
     note: (r, all) => {
       if (!r.items?.length) return '<p class="muted">還沒有項目。</p>';
       const rows = r.items.map((it) => {
@@ -159,6 +162,194 @@ const editors = {
     },
   },
 };
+
+// ---------- 方案的項目編輯器 ----------
+//
+// 方案是唯一有巢狀資料的主檔。項目的欄位隨型態而變，所以這一段需要
+// 「讀回表單 → 合併成草稿 → 重畫」，不能像其他主檔那樣 render 一次就結束。
+//
+// 排序用上下移動按鈕，不做拖拉（SPEC 第 8.0 節：無 hover、無拖拉、
+// 最小點擊區 44px）。種子資料就有 7 個項目，實際只會更多，所以一項一張卡單欄堆疊。
+//
+// 驗證一律呼叫 domain 的 validate()，這裡不另寫一套 —— SPEC 第 6.7 節的雙層是
+// 「前端一次、Rules 一次」，不是「UI 一次、domain 一次」。
+
+function itemsField(items, all) {
+  return `
+    <fieldset class="field">
+      <legend class="field__label">項目<span class="muted"> ${items.length}</span></legend>
+      ${items.length
+        ? items.map((it, i) => itemCard(it, i, items.length, all)).join('')
+        : '<p class="muted">還沒有項目。方案至少要有一個項目才存得進去。</p>'}
+      <p><button class="btn" type="button" data-add-item>＋ 新增項目</button></p>
+    </fieldset>`;
+}
+
+function itemCard(it, i, total, all) {
+  const isPool = it.type === 'pool';
+
+  return `
+    <div class="pool" data-item="${i}">
+      <div class="pool__head">
+        <span>第 ${i + 1} 個項目</span>
+        <span class="pool__actions">
+          <button class="btn" type="button" data-move="${i}:-1"
+                  ${i === 0 ? 'disabled' : ''} aria-label="上移">↑</button>
+          <button class="btn" type="button" data-move="${i}:1"
+                  ${i === total - 1 ? 'disabled' : ''} aria-label="下移">↓</button>
+        </span>
+      </div>
+
+      ${f.select({
+        name: `item-${i}-type`, label: '型態', value: it.type ?? 'single',
+        options: [
+          { value: 'single', label: '單一課程（固定療程）' },
+          { value: 'pool', label: '擇一池（每次選一種器材）' },
+        ],
+        hint: '換型態會換掉下面要填的欄位，已經填的名稱與次數不會被清掉。',
+      })}
+
+      ${f.text({ name: `item-${i}-label`, label: '顯示名稱', value: it.label ?? '', placeholder: '復能' })}
+      ${f.number({ name: `item-${i}-qty`, label: '次數', value: it.qty ?? '', min: 1 })}
+
+      ${isPool
+        ? f.checkboxes({
+            name: `item-${i}-equip`, label: '可選的器材',
+            values: it.optionEquipmentIds ?? [],
+            options: equipmentOptions(all.equipment, it.optionEquipmentIds ?? []),
+            hint: '至少兩種。擇一池換的是器材，不是課程。',
+          })
+        : f.select({
+            name: `item-${i}-course`, label: '課程', value: it.courseId ?? null,
+            options: [
+              { value: null, label: '（請選擇）' },
+              ...courseOptions(all.courses, it.courseId),
+            ],
+          })}
+
+      ${f.number({
+        name: `item-${i}-duration`, label: '時長（分鐘）', value: it.durationMin ?? '',
+        min: 1, step: 5,
+        hint: isPool ? '擇一池沒有課程可以帶，要自己填。' : '選課程時會帶入該課程的時長，可以改。',
+      })}
+
+      ${f.text({
+        name: `item-${i}-freq`, label: '頻率限制', value: it.frequencyRule ?? '',
+        placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
+      })}
+
+      <p><button class="btn" type="button" data-del-item="${i}">移除這個項目</button></p>
+    </div>`;
+}
+
+// 已停用的仍然選得到，只標出來 —— validate 只擋已刪除、不擋停用，UI 不要比 domain 嚴。
+// 指向已刪除課程的舊資料要原樣留著顯示，絕對不能在重畫時改成第一個選項：
+// 那是無聲改資料，違反 SPEC 第 6 節的整個精神。讓 validate 去報錯。
+function courseOptions(courses, currentId) {
+  const opts = courses.map((c) => ({
+    value: c.id,
+    label: c.active === false ? `${c.name}（已停用）` : c.name,
+  }));
+  if (currentId && !courses.some((c) => c.id === currentId)) {
+    opts.unshift({ value: currentId, label: '（課程已刪除）' });
+  }
+  return opts;
+}
+
+function equipmentOptions(equipment, currentIds) {
+  const opts = equipment.map((e) => ({
+    value: e.id,
+    label: e.active === false ? `${e.name}（已停用）` : e.name,
+  }));
+  for (const id of currentIds) {
+    if (!equipment.some((e) => e.id === id)) opts.push({ value: id, label: '（器材已刪除）' });
+  }
+  return opts;
+}
+
+/**
+ * 從扁平的表單值組回項目陣列。
+ * readForm 讀出來是一層物件，所以每個項目的欄位各自帶了 index 當名字。
+ */
+function readItems(v) {
+  const items = [];
+  for (let i = 0; `item-${i}-type` in v; i += 1) {
+    items.push(
+      planItem({
+        type: v[`item-${i}-type`],
+        label: v[`item-${i}-label`],
+        qty: v[`item-${i}-qty`],
+        durationMin: v[`item-${i}-duration`],
+        courseId: v[`item-${i}-course`],
+        optionEquipmentIds: v[`item-${i}-equip`],
+        frequencyRule: v[`item-${i}-freq`],
+      }),
+    );
+  }
+  return items;
+}
+
+function wirePlanItems({ form, all, data, readDraft, repaint }) {
+  form.querySelector('[data-add-item]')?.addEventListener('click', () => {
+    const next = readDraft();
+    next.items = [...next.items, planItem({ ...BLANK_PLAN_ITEM })];
+    repaint(next, next.items.length - 1);
+  });
+
+  form.querySelectorAll('[data-del-item]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const next = readDraft();
+      next.items = next.items.filter((_, i) => i !== Number(btn.dataset.delItem));
+      repaint(next);
+    }),
+  );
+
+  form.querySelectorAll('[data-move]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [from, step] = btn.dataset.move.split(':').map(Number);
+      const to = from + step;
+      const next = readDraft();
+      if (to < 0 || to >= next.items.length) return;
+      const items = [...next.items];
+      [items[from], items[to]] = [items[to], items[from]];
+      next.items = items;
+      // 停留在被移動的那一項，不是停在原本的位置
+      repaint({ ...next }, to);
+    }),
+  );
+
+  // 換型態要換欄位、換課程要帶預設值，兩者都得重畫。
+  form.addEventListener('change', (ev) => {
+    const m = /^item-(\d+)-(type|course)$/.exec(ev.target.name ?? '');
+    if (!m) return;
+    const i = Number(m[1]);
+    const next = readDraft();
+    if (m[2] === 'course') fillFromCourse(next.items[i], data.items?.[i], all.courses);
+    repaint(next, i);
+  });
+}
+
+/**
+ * 選了課程就把時長、頻率、名稱帶進來。
+ *
+ * 只在「還沒填」或「填的正好是上一個課程的預設值」時覆蓋 ——
+ * 她自己打過的數字不能被無聲蓋掉。
+ */
+function fillFromCourse(item, previous, courses) {
+  const course = courses.find((c) => c.id === item?.courseId);
+  if (!course) return;
+  const was = courses.find((c) => c.id === previous?.courseId);
+
+  if (item.durationMin == null || item.durationMin === was?.durationMin) {
+    item.durationMin = course.durationMin ?? null;
+  }
+  if (!item.label || item.label === was?.name) item.label = course.name;
+
+  if (!item.frequencyRule || item.frequencyRule === was?.frequencyRule) {
+    if (course.frequencyRule) item.frequencyRule = course.frequencyRule;
+    else delete item.frequencyRule;
+  }
+}
 
 export async function render(el, type) {
   if (!editors[type]) {
@@ -216,10 +407,18 @@ function paintList(el, type, all) {
   );
 }
 
-function paintForm(el, type, all, record) {
+/**
+ * @param {object|null} record 已存在的紀錄，新增時是 null
+ * @param {object|null} draft 填到一半的內容。表單要重畫（例如方案加了一個項目）時，
+ *   先把畫面上的值讀回來當草稿再重畫，否則其他欄位會被清空。
+ * @param {number|null} focusItem 重畫後要捲到第幾個項目
+ */
+function paintForm(el, type, all, record, draft = null, focusItem = null) {
   const ed = editors[type];
-  const isNew = !record;
-  const data = record ?? { ...ed.blank };
+  // 看有沒有 id，不是看有沒有 record —— 帶著草稿重畫時 record 還是那一筆，
+  // 但草稿本身沒有 id，用 !record 判斷會把「新增中」誤判成「編輯既有」。
+  const isNew = !record?.id;
+  const data = draft ?? record ?? { ...ed.blank };
 
   el.innerHTML = `
     <p><a href="#/settings/${type}" data-back>← ${MASTER_LABELS[type]}</a></p>
@@ -227,14 +426,14 @@ function paintForm(el, type, all, record) {
       <h2 class="card__title">${isNew ? `新增${MASTER_LABELS[type]}` : esc(data.name)}</h2>
       <div class="errors" data-errors hidden></div>
       <form data-form>
-        ${ed.fields(data).join('')}
+        ${ed.fields(data, all).join('')}
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
           <button class="btn" type="button" data-cancel>取消</button>
         </div>
       </form>
     </section>
-    ${isNew ? '' : dangerZone(data)}`;
+    ${isNew ? '' : dangerZone(record)}`;
 
   const back = () => render(el, type);
   el.querySelector('[data-back]').addEventListener('click', (e) => {
@@ -243,7 +442,26 @@ function paintForm(el, type, all, record) {
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
 
-  el.querySelector('[data-form]').addEventListener('submit', async (e) => {
+  const form = el.querySelector('[data-form]');
+
+  // 需要換欄位的編輯器（目前只有方案的項目）用這個重畫，草稿由它自己準備。
+  if (ed.wireForm) {
+    ed.wireForm({
+      form,
+      all,
+      data,
+      readDraft: () => ({ ...data, ...ed.parse(f.readForm(form), data) }),
+      repaint: (next, focus = null) => paintForm(el, type, all, record, next, focus),
+    });
+  }
+
+  if (focusItem !== null) {
+    const card = el.querySelector(`[data-item="${focusItem}"]`);
+    card?.scrollIntoView({ block: 'center' });
+    card?.querySelector('input')?.focus({ preventScroll: true });
+  }
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const values = f.readForm(e.target);
     const parsed = ed.parse(values, record);
@@ -273,7 +491,7 @@ function paintForm(el, type, all, record) {
     }
   });
 
-  if (!isNew) wireDangerZone(el, type, data, back);
+  if (!isNew) wireDangerZone(el, type, record, back);
 }
 
 // ---------- 破壞性操作 ----------

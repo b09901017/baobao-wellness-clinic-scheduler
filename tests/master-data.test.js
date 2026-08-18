@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
+  planItem, BLANK_PLAN_ITEM,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import { describeCategory, tasksForCategory, CATEGORY_OPTIONS } from '../public/js/domain/taskRules.js';
@@ -254,5 +255,71 @@ describe('類別說明', () => {
 
   test('四個選項涵蓋所有合法類別', () => {
     assert.deepEqual(CATEGORY_OPTIONS.map((o) => o.value), ['A', 'B', 'C', null]);
+  });
+});
+
+describe('方案項目的形狀', () => {
+  test('single 沒有 optionEquipmentIds，pool 沒有 courseId', () => {
+    const single = planItem({ type: 'single', label: '靜脈', qty: 20, durationMin: 60, courseId: 'c1' });
+    assert.deepEqual(single, {
+      type: 'single', label: '靜脈', qty: 20, durationMin: 60, courseId: 'c1',
+    });
+    assert.ok(!('optionEquipmentIds' in single));
+
+    const pool = planItem({
+      type: 'pool', label: '復能', qty: 12, durationMin: 60,
+      optionEquipmentIds: ['eq-a', 'eq-b'], courseId: 'c1',
+    });
+    assert.deepEqual(pool, {
+      type: 'pool', label: '復能', qty: 12, durationMin: 60,
+      optionEquipmentIds: ['eq-a', 'eq-b'],
+    });
+    assert.ok(!('courseId' in pool), '擇一池換的是器材，不是課程');
+  });
+
+  test('頻率限制留空就整個欄位不要出現，不要塞 null', () => {
+    const withRule = planItem({ type: 'single', label: 'Inbody', qty: 4, frequencyRule: ' 每季一次 ' });
+    assert.equal(withRule.frequencyRule, '每季一次');
+
+    for (const blank of ['', '   ', null, undefined]) {
+      assert.ok(!('frequencyRule' in planItem({ type: 'single', label: 'x', qty: 1, frequencyRule: blank })));
+    }
+  });
+
+  test('認不得的型態當成 single，不要讓壞資料原樣存進去', () => {
+    assert.equal(planItem({ type: 'weird', label: 'x', qty: 1 }).type, 'single');
+  });
+
+  test('用表單值重建種子方案，逐欄與 seed.js 那份相同', () => {
+    // 驗收條件：用 UI 從零重建「筋骨強身」，存下來的 items 要與種子完全一樣
+    for (const plan of SEED.plans) {
+      const rebuilt = plan.items.map((it) => planItem(it));
+      assert.deepEqual(rebuilt, plan.items, `${plan.name} 重建後與種子不同`);
+    }
+  });
+
+  test('新項目的起點是合法的 single', () => {
+    const item = planItem({ ...BLANK_PLAN_ITEM });
+    assert.equal(item.type, 'single');
+    assert.equal(item.courseId, null);
+    assert.ok(!('optionEquipmentIds' in item));
+  });
+
+  test('項目全刪光仍然擋得下來，而且錯誤指得出是第幾個', () => {
+    assert.ok(validate('plans', { name: '新方案', items: [] }).includes('方案至少要有一個項目'));
+
+    const errors = validate(
+      'plans',
+      {
+        name: '新方案',
+        items: [
+          planItem({ type: 'single', label: '復健', qty: 6, courseId: 'course-rehab' }),
+          planItem({ type: 'pool', label: '復能', qty: 12, optionEquipmentIds: ['eq-indiba'] }),
+        ],
+      },
+      { courses: [{ id: 'course-rehab' }], equipment: [{ id: 'eq-indiba' }] },
+    );
+    assert.ok(errors.some((e) => e.startsWith('第 2 個項目')), errors.join(' / '));
+    assert.ok(!errors.some((e) => e.startsWith('第 1 個項目')), errors.join(' / '));
   });
 });

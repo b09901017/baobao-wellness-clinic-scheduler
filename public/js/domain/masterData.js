@@ -156,6 +156,42 @@ const validators = {
  * @param {{existing?: object[], courses?: object[], equipment?: object[]}} [context]
  * @returns {string[]} 錯誤訊息，空陣列代表通過
  */
+/** 一個方案項目的空白起點。新增項目時用。 */
+export const BLANK_PLAN_ITEM = Object.freeze({
+  type: 'single', label: '', qty: 1, durationMin: null, courseId: null,
+});
+
+/**
+ * 組出一個乾淨的方案項目。
+ *
+ * 兩種型態的欄位是不重疊的：擇一池換的是器材不是課程，所以沒有 courseId；
+ * single 沒有 optionEquipmentIds。不要為了欄位對齊互相塞 null ——
+ * `expandPlan()` 會把缺的補成 null，這裡多塞的反而會存進 Firestore。
+ *
+ * frequencyRule 是選填，沒有就整個欄位不要出現。
+ *
+ * @param {object} raw 表單上收到的值
+ * @returns {object} 可以直接存進 plan.items 的項目
+ */
+export function planItem(raw = {}) {
+  const type = raw.type === 'pool' ? 'pool' : 'single';
+
+  const item = {
+    type,
+    label: String(raw.label ?? '').trim(),
+    qty: raw.qty ?? null,
+    durationMin: raw.durationMin ?? null,
+  };
+
+  if (type === 'pool') item.optionEquipmentIds = raw.optionEquipmentIds ?? [];
+  else item.courseId = raw.courseId ?? null;
+
+  const freq = String(raw.frequencyRule ?? '').trim();
+  if (freq) item.frequencyRule = freq;
+
+  return item;
+}
+
 export function validate(type, record, context = {}) {
   const fn = validators[type];
   if (!fn) return [`未知的主檔類型：${type}`];
