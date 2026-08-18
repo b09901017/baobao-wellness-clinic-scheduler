@@ -246,7 +246,7 @@ test('來訪紀錄把 id 換成名字，匯入的來訪顯示成時間不詳', (
     today: '2026-08-10',
     master: {
       rooms: [{ id: 'room-t3', name: '治3' }],
-      therapists: [{ id: 'staff-zn', name: '芝寧' }],
+      staff: [{ id: 'staff-zn', name: '芝寧' }],
       equipment: [{ id: 'eq-indiba', name: 'INDIBA' }],
     },
   });

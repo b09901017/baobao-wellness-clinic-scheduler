@@ -188,7 +188,7 @@ export const SYNC_FORMAT = 1;
  * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
  * @param {Record<string, object[]>} ctx.visitsBy       客戶 id → 來訪
  * @param {string} ctx.today
- * @param {object} [ctx.master] rooms / therapists / ivProducts / equipment，用來把 id 換成名字
+ * @param {object} [ctx.master] config.loadAll() 的結果，用來把 id 換成名字（治療師在 staff 底下）
  * @param {string} [ctx.generatedAt]
  */
 export function syncBundle({
@@ -250,7 +250,7 @@ export function syncBundle({
             ivProduct: nameOf('ivProducts', slot.ivProductId),
             room: nameOf('rooms', slot.roomId),
             bed: slot.bed ?? null,
-            therapist: nameOf('therapists', slot.therapistId),
+            therapist: nameOf('staff', slot.therapistId),
           }))),
       })).filter((d) => d.items.length),
     };
