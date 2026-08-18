@@ -1,6 +1,6 @@
 # 比對報告被「沒有次數也沒有勾選」洗版，真正要看的埋在裡面
 
-Status: ready-for-agent
+Status: done
 回報者：拿到真的 `.xlsx` 跑 dry-run，2026-08-18
 動工前先讀：`SPEC.md` 第 6.10 節、`docs/legacy/samples/dry-run-report.txt`
 

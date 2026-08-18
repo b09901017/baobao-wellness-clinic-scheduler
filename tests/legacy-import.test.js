@@ -286,3 +286,132 @@ test('勾得比買的還多照樣匯進去，但先講一聲資料健檢會報�
   assert.equal(p.visits.reduce((n, v) => n + v.slots.filter((s) => s.courseName === '身體組成分析').length, 0), 3);
   assert.ok(why(p).some((w) => w.includes('額度超用')));
 });
+
+// ---------- 拿真的舊表跑過之後補的 ----------
+//
+// 下面這些是 2026-08-18 拿到真檔案（21 位客戶）跑 dry-run 才發現的落差。
+// 每一條都對應 docs/legacy/README.md 第 6 節裡的一項，以及
+// .scratch/legacy-import/issues/01-real-sheet-parse-gaps.md。
+//
+// fixture 一樣全部是編的。真實的樣本在 docs/legacy/samples/，那份已經去識別化。
+
+/** 沒有第 11、12 列的表：TODO 區塊直接接在第 10 列後面，落在第 13 列。 */
+const SHORT_SHEET = [
+  '客戶名稱,購買名稱,療程內容,應有次數,實際次數,8/1,8/11',
+  '客戶B,0522 顧客會-8,Inbody,4,0,FALSE,FALSE',
+  ',,復健門診,2,0,FALSE,FALSE',
+  ',,物理諮詢,4,0,FALSE,FALSE',
+  ',,營養諮詢,4,0,FALSE,FALSE',
+  ',,體適能分析,4,0,FALSE,FALSE',
+  ',,復能(1小時),20,1,TRUE,FALSE',
+  ',,ILIB 60mins,12,0,FALSE,FALSE',
+  ',,x萬健檢,0,0,FALSE,FALSE',
+  ',,EECP,0,0,FALSE,FALSE',
+  ',,,,,,',
+  ',,,,,,',
+  'TODO,,,,,,,,,,FINISH',
+  '8/1復能(1小時),Abovee,FALSE,打電話,FALSE',
+].join('\n');
+
+const shortPlan = () => planForSheet(parseSheet(SHORT_SHEET, { sheetName: '客戶B' }), CTX);
+
+test('TODO 區塊落在第 13 列時不會被當成二返註記寫進備註', () => {
+  // 21 張真表裡有 14 張是這樣。備註欄長出「TODO FINISH」六個字，
+  // 而那不是她寫的任何東西。
+  assert.equal(shortPlan().customer.notes.includes('TODO'), false);
+  assert.equal(shortPlan().customer.notes.includes('FINISH'), false);
+});
+
+test('TODO 區塊裡的任務列不會被當成療程列', () => {
+  const labels = shortPlan().entitlements.map((e) => e.doc.label);
+  assert.equal(labels.some((l) => l.includes('Abovee')), false);
+  assert.deepEqual(labels,
+    ['Inbody', '復健門診', '物理諮詢', '營養諮詢', '體適能分析', '復能(1小時)', 'ILIB 60mins']);
+});
+
+test('健檢後面再接項目也對得到課程，名稱照樣原文照抄', () => {
+  // 真表寫的是 `5萬健檢(心臟)`、`5萬健檢(腸道)` —— 「健檢」不在結尾，
+  // 用 endsWith 判斷會把整列丟掉，那位客戶的健檢就不見了。
+  const sheet = SHEET.replace('0.75萬健檢,1,0', '5萬健檢(心臟),1,0');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶C' }), CTX);
+  const found = p.entitlements.find((e) => e.doc.label === '5萬健檢(心臟)');
+  assert.ok(found, '5萬健檢(心臟) 應該要建出額度');
+  assert.equal(found.doc.courseId, 'course-checkup');
+  assert.equal(p.problems.some((x) => x.why.includes('對不到任何課程')), false);
+});
+
+test('營養點滴後面再接項目也對得到課程', () => {
+  const sheet = SHEET.replace(',護肝排毒x11+雪顏亮彩x22,營養點滴,33,1', ',,營養點滴（腸道）,0,1');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶D' }), CTX);
+  const found = p.entitlements.find((e) => e.doc.label === '營養點滴（腸道）');
+  assert.ok(found, '營養點滴（腸道） 應該要建出額度');
+  assert.equal(found.doc.courseId, 'course-iv-drip');
+});
+
+test('營養點滴的 D 欄是 0 時退回勾選數，不是整列丟掉', () => {
+  // 真表上「營養點滴（腸道）」就是 D 欄留 0、日期欄勾了五格。
+  const sheet = SHEET.replace(',護肝排毒x11+雪顏亮彩x22,營養點滴,33,1', ',,營養點滴,0,1');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶D' }), CTX);
+  const found = p.entitlements.find((e) => e.doc.label === '營養點滴');
+  assert.equal(found.doc.totalQty, 1);
+  assert.ok(p.problems.some((x) => x.why.includes('D 欄沒有次數')));
+});
+
+test('第 11 列拿來放別的加購時照對照表對課程', () => {
+  const sheet = SHEET.replace(',護肝排毒x11+雪顏亮彩x22,營養點滴,33,1', ',,心臟門診,2,1');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶E' }), CTX);
+  const found = p.entitlements.find((e) => e.doc.label === '心臟門診');
+  assert.ok(found, '心臟門診 應該對到主檔的「心臟科評估」');
+  assert.equal(found.doc.courseId, 'course-cardio');
+});
+
+test('同一天有兩個日期欄時合併成一筆來訪，並在報告上講一聲', () => {
+  // 格子不夠寫就再開一欄，這在真表上有兩位。一欄一筆會讓那天長出兩筆來訪，
+  // 而那等於說她那天來了兩趟 —— 舊表沒說過這件事。
+  const sheet = [
+    '客戶名稱,購買名稱,療程內容,應有次數,實際次數,8/1,8/1',
+    '客戶F,0522 顧客會-8,Inbody,4,0,FALSE,FALSE',
+    ',,復健門診,2,0,FALSE,FALSE',
+    ',,物理諮詢,4,0,FALSE,FALSE',
+    ',,營養諮詢,4,0,FALSE,FALSE',
+    ',,體適能分析,4,0,FALSE,FALSE',
+    ',,復能(1小時),20,2,TRUE,TRUE',
+    ',,ILIB 60mins,12,1,TRUE,FALSE',
+  ].join('\n');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶F' }), CTX);
+
+  assert.equal(p.visits.length, 1);
+  assert.equal(p.visits[0].date, '2026-08-01');
+  assert.equal(p.visits[0].slots.length, 3, '復能兩次 + 靜脈一次');
+  assert.ok(p.problems.some((x) => x.why.includes('合併成一筆來訪')));
+});
+
+test('姓名格裡的編號與括號註記另外解析進備註，但名字原文不動', () => {
+  // 真表的 A2 是「名字3157」或「名字\n(高能/sis)3157」——
+  // 拆錯名字比留著多餘的字嚴重，所以名字照抄，多的另外記一份。
+  const sheet = SHEET.replace('客戶A,0522', '客戶A (高能/sis)3157,0522');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶G' }), CTX);
+
+  assert.equal(p.customer.name, '客戶A (高能/sis)3157');
+  assert.ok(p.customer.notes.includes('姓名欄的編號：3157'));
+  assert.ok(p.customer.notes.includes('姓名欄的註記：高能/sis'));
+});
+
+test('報告把同一個理由的空白列收成一行', () => {
+  // 只買健檢的客戶會有九列空白的模板列。一列一行會把真正要看的 ⚠ 淹掉，
+  // 而她是照著這份決定要不要按下去的。
+  const text = reportText([shortPlan()], { year: 2026 });
+  const skipped = text.split('\n').filter((l) => l.includes('沒有次數也沒有勾選'));
+  assert.equal(skipped.length, 1);
+  assert.match(skipped[0], /第 9、10 列/);
+});
+
+test('營養品的勾選不會在每一個日期再報一次「沒有建出額度」', () => {
+  const sheet = SHEET.replace(
+    ',夜態美+速膳淨,營養品(12000),1,0,FALSE,FALSE,FALSE',
+    ',夜態美+速膳淨,營養品(12000),1,0,TRUE,TRUE,TRUE',
+  );
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶H' }), CTX);
+  assert.equal(p.problems.filter((x) => x.why.includes('沒有建出額度')).length, 0);
+  assert.equal(p.problems.filter((x) => x.why.includes('營養品不排班')).length, 1);
+});
