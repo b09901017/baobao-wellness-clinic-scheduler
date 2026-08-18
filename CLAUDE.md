@@ -10,9 +10,9 @@
 |---|---|
 | `SPEC.md` | 需求、資料模型、業務規則、畫面規劃 |
 | `CONTEXT.md` | 詞彙表。定義詞是什麼，不放實作 |
-| `docs/adr/` | 為什麼這樣決定。一支一個決定，1–3 句 |
+| `docs/adr/` | 為什麼這樣決定。一支一個決定，寫理由不寫作法。慣例見 `docs/agents/domain.md` |
 | `docs/legacy/` | 舊系統的結構，唯讀參考 |
-| `.scratch/` | 待辦的 issue。動工前先看有沒有相關的 |
+| `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
 寫新文件前先確認這件事還沒被寫過。`docs/legacy/` 與 `docs/adr/` 不放任何真實客戶姓名或健康資訊。
 
@@ -24,15 +24,6 @@
 | `public/` 底下任何檔案 | `public/sw.js` 的 `SHELL` 清單與 `VERSION`（測試只盯清單，不盯版號） |
 | 做完一個開發步驟 | `README.md` 開發狀態表打勾 |
 | 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
-| 次數的算法 | `counts()`（現算）與 `summarize()`（讀快取）要一起改，見 ADR-0004 |
+| 次數的算法 | `domain/entitlements.js` 的 `counts()`（現算）、`summarize()`（讀快取）、`reconcile()`（對帳）要一起改，見 ADR-0004 |
+| 任何「先看誰」的排序或推薦名單 | 用 `domain/scheduling.js` 的同一組計分，不要另寫一套 —— 同一位客戶在兩個畫面排名不同，她不會知道哪個算數 |
 | UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |
-
-## Agent skills
-
-### Issue tracker
-
-Issues 以 markdown 檔存在本 repo 的 `.scratch/<feature-slug>/`，不使用 GitHub Issues。See `docs/agents/issue-tracker.md`.
-
-### Domain docs
-
-Single-context：根目錄 `CONTEXT.md` + `docs/adr/`。See `docs/agents/domain.md`.

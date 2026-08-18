@@ -8,6 +8,7 @@ import * as backup from '../../data/backup.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { esc } from '../components/form.js';
+import { saveText, dated } from '../components/download.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -53,6 +54,9 @@ export async function render(el) {
         <li><a href="#/settings/health">
           <span class="link-list__label">資料健檢</span>
           <span class="muted">對帳與異常</span></a></li>
+        <li><a href="#/settings/report">
+          <span class="link-list__label">試算表報表</span>
+          <span class="muted">貼回試算表</span></a></li>
         <li><a href="#/settings/audit">
           <span class="link-list__label">稽核紀錄</span>
           <span class="muted">誰改了什麼</span></a></li>
@@ -117,13 +121,7 @@ async function runExport(includeAudit) {
   toast.info('匯出中…');
   try {
     const data = await backup.exportAll({ includeAudit });
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `排課系統備份-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    saveText(dated('排課系統備份', 'json'), JSON.stringify(data, null, 2), 'application/json');
     // 匯出完要說清楚拿到了什麼。只說「已匯出」的話，檔案漏了一半也看不出來。
     toast.info(`已匯出 ${backup.describeCounts(data.counts)}。建議存一份到雲端硬碟。`);
   } catch (err) {

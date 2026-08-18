@@ -1,4 +1,4 @@
-// 路由註冊。實作中的頁面接上真的模組，還沒做的維持骨架並標明在第幾步。
+// 路由註冊。導覽列上的五個分頁現在都接上真的模組，沒有骨架了。
 
 import { register } from './router.js';
 import * as settings from './views/settings.js';
@@ -13,18 +13,9 @@ import * as visitEditor from './views/visitEditor.js';
 import * as health from './views/health.js';
 import * as audit from './views/audit.js';
 import * as backfill from './views/backfill.js';
+import * as calendar from './views/calendar.js';
+import * as report from './views/report.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
-
-function placeholder(title, step, points) {
-  return (el) => {
-    el.innerHTML = `
-      <section class="card">
-        <h2 class="card__title">${title}</h2>
-        <p class="muted">第 ${step} 步實作。目前是骨架。</p>
-        <ul class="muted">${points.map((p) => `<li>${p}</li>`).join('')}</ul>
-      </section>`;
-  };
-}
 
 register('/', { title: '待辦', icon: '✅', render: home.render });
 
@@ -32,10 +23,7 @@ register('/customers', { title: '客戶', icon: '👥', render: customers.render
 
 register('/schedule', { title: '壓表', icon: '📋', render: schedule.render });
 
-register('/calendar', {
-  title: '日曆', icon: '📅',
-  render: placeholder('日曆', 10, ['手機用日／週檢視', 'iPad 橫式才開放月檢視']),
-});
+register('/calendar', { title: '日曆', icon: '📅', render: calendar.render });
 
 register('/settings', { title: '設定', icon: '⚙️', render: settings.render });
 
@@ -57,6 +45,7 @@ register('/schedule/backfill', { title: '時段反查', nav: false, render: back
 
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/health', { title: '資料健檢', nav: false, render: health.render });
+register('/settings/report', { title: '試算表報表', nav: false, render: report.render });
 register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/:type', {
