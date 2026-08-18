@@ -73,7 +73,8 @@ const editors = {
   courses: {
     blank: {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
-      allowedRoomTypes: ['治療室'], allowedRoomIds: [], requiresEquipment: false, frequencyRule: null,
+      allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      requiresEquipment: false, requiresIvProduct: false, frequencyRule: null,
     },
     summary: (r) =>
       `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`,
@@ -99,6 +100,11 @@ const editors = {
         name: 'requiresEquipment', label: '來訪時要選器材（擇一池）',
         value: !!r.requiresEquipment,
       }),
+      f.toggle({
+        name: 'requiresIvProduct', label: '來訪時要選營養點滴品項',
+        value: !!r.requiresIvProduct,
+        hint: '每次施打的品項可能不同，勾了之後來訪編輯器才會出現品項選單。',
+      }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -113,6 +119,7 @@ const editors = {
       // 指定診間是例外覆寫，這個表單不動它，保留原值
       allowedRoomIds: v.assigns === 'room' ? (prev?.allowedRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
+      requiresIvProduct: !!v.requiresIvProduct,
       frequencyRule: v.frequencyRule?.trim() || null,
     }),
     note: (r, all) => {

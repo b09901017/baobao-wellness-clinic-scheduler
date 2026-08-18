@@ -54,27 +54,58 @@ service cloud.firestore {
     }
 
     // ---------- 客戶與其子集合 ----------
+    // 前端擋一次、這裡再擋一次（SPEC 第 6.7 節）。前端可以被繞過，這裡不行。
+    //
+    // 子集合刻意逐個列出而不用 /{sub=**}：萬用比對會與底下的具體規則
+    // 「或」在一起，讓嚴格的那條形同虛設。第 6 步的 availability 要用時，
+    // 回來這裡再開一個 match。
+    function validCustomer() {
+      let d = request.resource.data;
+      return d.name is string
+        && d.name.size() > 0
+        && (!d.keys().hasAny(['priority'])
+            || (d.priority is int && d.priority >= 0 && d.priority <= 5));
+    }
+
+    function validEntitlement() {
+      let d = request.resource.data;
+      return d.label is string
+        && d.label.size() > 0
+        && d.type in ['single', 'pool']
+        && d.totalQty is int
+        && d.totalQty > 0;
+    }
+
     match /customers/{customerId} {
       allow read:   if allowed();
-      allow create, update: if allowed() && keepsExistingId();
+      allow create, update: if allowed() && keepsExistingId() && validCustomer();
       allow delete: if false;
 
-      match /{sub=**} {
+      match /entitlements/{entitlementId} {
         allow read:   if allowed();
-        allow create, update: if allowed();
+        allow create, update: if allowed() && keepsExistingId() && validEntitlement();
         allow delete: if false;
       }
     }
 
     // ---------- 來訪 ----------
+    // 沒有 draft：app 裡不存在還沒壓表的來訪（SPEC 第 4.1 節）。
+    // 狀態機的合法轉移在前端擋（domain/visits.js）—— 這裡只擋「根本不是一筆來訪」的東西，
+    // 因為 Rules 讀 resource.data 判斷轉移會讓每次寫入多一次讀取，代價不划算。
+    function validVisit() {
+      let d = request.resource.data;
+      return d.customerId is string
+        && d.customerId.size() > 0
+        && d.date is string
+        && d.date.size() == 10
+        && d.slots is list
+        && d.slots.size() > 0
+        && d.status in ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+    }
+
     match /visits/{visitId} {
       allow read:   if allowed();
-      allow create: if allowed()
-                    && request.resource.data.status in
-                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
-      allow update: if allowed()
-                    && request.resource.data.status in
-                       ['pending_confirm', 'confirmed', 'done', 'no_show', 'cancelled'];
+      allow create, update: if allowed() && keepsExistingId() && validVisit();
       allow delete: if false;
     }
 

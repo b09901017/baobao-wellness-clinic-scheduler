@@ -264,6 +264,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   allowedRoomTypes,      // ['治療室'] 之類。assigns==='room' 時的預設可選範圍
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
+  requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
   frequencyRule,         // 例：'每季一次'，只提示不擋
   active, deletedAt
 }
@@ -302,7 +303,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   name, phone, lineId,
   source,                    // 購買名稱，例：'0522 顧客會-8'
   purchasedAt, membershipExpiresAt,
-  priority,                  // 喜好程度，排序加權用
+  priority,                  // 喜好程度 0–5，排序加權用（0 = 還沒評）
   flags,                     // 永久限制，例：['體內金屬']
   notes,                     // 特殊狀況，例：'重大疾病治療中'
   active, deletedAt
@@ -313,7 +314,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   type,                      // 'single' | 'pool'
   label, totalQty, durationMin,
   courseId, optionEquipmentIds,   // pool 型態：擇一池換的是器材
-  sourcePlanId,              // null = 單項加購
+  sourcePlanName,            // 展開當下的方案名稱文字快照；null = 單項加購
+                             // 不存 sourcePlanId —— 額度不指回範本，範本會被就地改。
+                             // 見 docs/adr/0003-plan-templates-have-no-version.md
   purchasedAt, expiresAt,
   frequencyRule,
   doneCount, bookedCount,    // 交易維護，可從 visits 重算驗證
@@ -337,8 +340,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 {
   customerId, customerName,   // 冗餘存名字，避免清單頁 N+1 讀取
   date,                       // 'YYYY-MM-DD'
-  status,                     // 'draft' | 'pending_confirm' | 'confirmed'
+  status,                     // 'pending_confirm' | 'confirmed'
                               // | 'done' | 'no_show' | 'cancelled'
+                              // 沒有 draft：app 裡不存在還沒壓表的來訪（第 4.1 節）
   confirmedAt, cancelledAt, cancelReason,
   released,                   // 取消後時段是否已釋出供遞補
   slots: [

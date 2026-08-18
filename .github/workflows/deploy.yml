@@ -1,9 +1,13 @@
-name: 部署到 Firebase Hosting
+name: 測試與部署
 
 # push 到 main 就上線。維護者多用手機開發，不能依賴本機跑 firebase deploy。
+#
+# PR 也跑，但只跑測試那一段 —— 測試結果要在合併之前看得到，
+# 不是合併之後才發現紅的。部署由下面的 if 擋掉。
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -26,6 +30,8 @@ jobs:
 
   deploy:
     needs: test
+    # PR 只驗證，不上線。
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

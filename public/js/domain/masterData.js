@@ -112,6 +112,9 @@ const validators = {
     if (r.assigns !== 'therapist' && r.requiresEquipment) {
       errors.push('要選器材的課程必須同時指派治療師');
     }
+    if (r.requiresEquipment && r.requiresIvProduct) {
+      errors.push('一個課程不會同時要選器材又要選點滴品項');
+    }
     return errors;
   },
 
