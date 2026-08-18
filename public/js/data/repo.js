@@ -19,6 +19,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import { getDb, getAuthInstance } from './firebase.js';
+import { inverseOps } from '../domain/undo.js';
 
 function actorId() {
   return getAuthInstance().currentUser?.uid ?? 'unknown';
@@ -26,6 +27,40 @@ function actorId() {
 
 function newAuditRef() {
   return doc(collection(getDb(), 'audit'));
+}
+
+// ---------- 復原 ----------
+//
+// SPEC 第 6.3 節要求寫入後有 5–10 秒的復原按鈕。反向操作只有這一層算得出來，
+// 因為只有這裡讀得到寫入前的內容。收集在這裡，由 ui/toast.js 的 withSaveState 取用。
+
+/** @type {object[][]|null} 目前這個動作已經送出去的每一批寫入的反向操作 */
+let capture = null;
+
+/**
+ * 包住一個「使用者按了一下」的完整寫入動作，順便把復原準備好。
+ *
+ * 只有剛好一次 commit 的動作給得出復原：一個動作寫了好幾批時（例如載入種子資料），
+ * 復原只還原得了其中一批，那比沒有復原還危險 —— 她會以為都退回去了。
+ *
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<{result: T, undo: (() => Promise<void>)|null}>}
+ * @template T
+ */
+export async function withUndo(fn) {
+  // 已經有人在收集了（巢狀或兩個動作重疊）。不搶 —— 搶了就可能把別人的寫入
+  // 當成自己的，那會給出一個「復原成別的東西」的按鈕，比沒有復原糟得多。
+  if (capture) return { result: await fn(), undo: null };
+
+  capture = [];
+  try {
+    const result = await fn();
+    const batches = capture;
+    const undo = batches.length === 1 && batches[0] ? () => commit(batches[0]) : null;
+    return { result, undo };
+  } finally {
+    capture = null;
+  }
 }
 
 /** 清單查詢一律排除已刪除的資料。呼叫端不需要自己記得加。 */
@@ -114,10 +149,21 @@ export async function commit(ops) {
       targetPath: ref.path,
       before: o.op === 'create' ? null : before.data(),
       after,
+      note: o.note ?? null,
     });
   });
 
   await batch.commit();
+
+  if (capture) {
+    capture.push(
+      inverseOps(
+        ops.map((o, i) => ({ ...o, id: refs[i].id })),
+        befores.map((b) => (b ? b.data() : null)),
+      ),
+    );
+  }
+
   return refs.map((r) => r.id);
 }
 

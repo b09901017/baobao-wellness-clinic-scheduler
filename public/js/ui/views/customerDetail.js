@@ -152,7 +152,9 @@ function poolCard(e, visits, ctx, today) {
       </div>
 
       <div class="meter ${over ? 'meter--over' : ''}"
-           role="img" aria-label="共 ${c.total} 次，已完成 ${c.done}，已排未上 ${c.booked}，剩餘 ${c.remaining}">
+           role="img" aria-label="共 ${c.total} 次，已完成 ${c.done}，已排未上 ${c.booked}，剩餘 ${c.remaining}${
+             c.noShow ? `，未到 ${c.noShow}` : ''
+           }">
         <span class="meter__done" style="width:${pct(c.done)}%"></span>
         <span class="meter__booked" style="width:${pct(c.booked)}%"></span>
       </div>
@@ -162,7 +164,9 @@ function poolCard(e, visits, ctx, today) {
         <span>已排未上 <b>${c.booked}</b></span>
         <span>剩餘 <b>${c.remaining}</b></span>
         <span>共 <b>${c.total}</b></span>
+        ${c.noShow ? `<span>未到 <b>${c.noShow}</b></span>` : ''}
       </div>
+      ${c.noShow ? '<p class="muted">未到不扣次數，那幾次已經還回去了。</p>' : ''}
 
       ${over ? '<p class="muted">⚠ 已排 + 已完成超過總次數。只是提醒，沒有擋任何東西。</p>' : ''}
       ${e.expiresAt ? `<p class="muted">${esc(e.expiresAt)} 到期${
@@ -576,12 +580,8 @@ function wireDangerZone(ctx) {
     if (!ok) return;
 
     try {
+      // 復原按鈕由 withSaveState 自己接上（SPEC 第 6.3 節）
       await toast.withSaveState(() => data.remove(ctx.id), { success: '已刪除' });
-      toast.failed('已刪除。要還原嗎？', async () => {
-        await data.restore(ctx.id);
-        toast.saved('已還原');
-        go(`/customers/${ctx.id}`);
-      });
       go('/customers');
     } catch {
       /* 已處理 */

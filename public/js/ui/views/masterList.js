@@ -342,12 +342,8 @@ function wireDangerZone(el, type, r, back) {
     if (!ok) return;
 
     try {
+      // 復原按鈕由 withSaveState 自己接上（SPEC 第 6.3 節）
       await toast.withSaveState(() => config.remove(type, r.id), { success: '已刪除' });
-      toast.failed('已刪除。要還原嗎？', async () => {
-        await config.restore(type, r.id);
-        toast.saved('已還原');
-        back();
-      });
       back();
     } catch {
       /* 已處理 */
