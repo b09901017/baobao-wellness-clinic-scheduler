@@ -81,6 +81,20 @@ export const removeAvailability = (customerId, id, reason) =>
   repo.softDelete(availPath(customerId), id, reason);
 export const restoreAvailability = (customerId, id) => repo.restore(availPath(customerId), id);
 
+/**
+ * 一次拿到所有客戶的可用性收集，回傳 { customerId: 收集[] }。
+ * 壓表綜覽要算每個人的可用天數，逐位查就是二十幾次往返。
+ */
+export async function availabilityByCustomer() {
+  const rows = await repo.listGroup('availability');
+  const out = {};
+  for (const row of rows) {
+    if (!row.parentId) continue;
+    (out[row.parentId] ??= []).push(row);
+  }
+  return out;
+}
+
 /** 已刪除的可用性收集，含它屬於哪位客戶。設定頁的「已刪除項目」用。 */
 export async function listDeletedAvailability() {
   const rows = await repo.listGroup('availability', { includeDeleted: true });

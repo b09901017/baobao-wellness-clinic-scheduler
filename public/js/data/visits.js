@@ -43,6 +43,18 @@ export function listByStatus(status) {
   });
 }
 
+/**
+ * 一段期間內的全部來訪。壓表模式要用：一次算出「這個月誰還沒排」
+ * 與「上次來是多久以前」，不要每位客戶各查一次。
+ * 用的是 (deletedAt, date) 複合索引。
+ */
+export function listBetween(from, to) {
+  return repo.list(PATH, {
+    wheres: [where('date', '>=', from), where('date', '<=', to)],
+    order: ['date', 'asc'],
+  });
+}
+
 /** 某一天她自己排的全部來訪。診間與治療師的自撞提示要用。 */
 export function listByDate(date) {
   return repo.list(PATH, { wheres: [where('date', '==', date)] });

@@ -6,6 +6,7 @@ import * as masterList from './views/masterList.js';
 import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
 import * as home from './views/home.js';
+import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as visitEditor from './views/visitEditor.js';
@@ -26,15 +27,7 @@ register('/', { title: '待辦', icon: '✅', render: home.render });
 
 register('/customers', { title: '客戶', icon: '👥', render: customers.render });
 
-register('/schedule', {
-  title: '壓表', icon: '📋',
-  render: placeholder('壓表模式', 7, [
-    '先選課程，整頁只顯示該課程的資訊',
-    '一位一位把客戶狀況攤開：可用日、剩餘次數、喜好、限制原文',
-    '不出建議時段 —— 判斷由使用者做，見 ADR-0002',
-    '在 Abovee 填完後回來快速記錄',
-  ]),
-});
+register('/schedule', { title: '壓表', icon: '📋', render: schedule.render });
 
 register('/calendar', {
   title: '日曆', icon: '📅',

@@ -624,3 +624,69 @@ summary {
   opacity: 0.65;
   background: var(--surface-2);
 }
+
+/* ---------- 壓表模式 ---------- */
+
+/* 綜覽與工單：< 900px 是兩個畫面（選了人就只看工單），
+   ≥ 900px 用 .split 並存。純 CSS 切換，不偵測裝置型號。 */
+.split--focused > .split__list {
+  display: none;
+}
+
+.queue-row {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.queue-row--on {
+  border-color: var(--accent, currentColor);
+}
+
+.queue-row .row__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+/* 可用日：手機用 chip 列表，31 格日期條每格只有 9px 看不清，
+   所以只在 iPad 橫式出現（SPEC 第 8.2 節）。 */
+.daygrid {
+  display: none;
+}
+
+.day {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.day--off {
+  opacity: 0.35;
+}
+
+.day--free {
+  font-weight: 700;
+}
+
+@media (min-width: 900px) {
+  .split--focused > .split__list {
+    display: block;
+  }
+
+  .daychips {
+    display: none;
+  }
+
+  .daygrid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-2);
+  }
+}

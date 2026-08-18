@@ -1,0 +1,259 @@
+// 壓表佇列。SPEC 第 9 節、ADR-0001、ADR-0002。
+//
+// 這一支盯的是兩件容易做錯的事：
+// 1. 「待壓表」是推導出來的，不是存的欄位
+// 2. 排序的每一項都要說得出人話理由，不可以只有一個分數
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  monthRange, entitlementCovers, pendingFor, buildQueue, strongestReason,
+  newBatch, progressOf, markInQueue, nextPending, DEFAULT_WEIGHTS,
+} from '../public/js/domain/scheduling.js';
+
+const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
+const IV = { id: 'course-iv', name: '靜脈' };
+
+const ent = (over = {}) => ({
+  id: 'e1', type: 'pool', label: '復能', totalQty: 12,
+  doneCount: 0, bookedCount: 0, optionEquipmentIds: ['eq-a', 'eq-b'],
+  ...over,
+});
+
+const visit = (over = {}) => ({
+  id: 'v1', status: 'confirmed', date: '2026-09-10',
+  slots: [{ courseId: COURSE.id, entitlementId: 'e1' }],
+  ...over,
+});
+
+describe('月份範圍', () => {
+  test('算得出整月，閏年也對', () => {
+    assert.deepEqual(monthRange('2026-09'), { from: '2026-09-01', to: '2026-09-30' });
+    assert.deepEqual(monthRange('2028-02'), { from: '2028-02-01', to: '2028-02-29' });
+  });
+
+  test('亂寫回 null，不要組出壞範圍', () => {
+    for (const bad of ['', '2026-13', 'x', null]) assert.equal(monthRange(bad), null);
+  });
+});
+
+describe('額度對得上哪個課程', () => {
+  test('single 看 courseId', () => {
+    assert.ok(entitlementCovers(ent({ type: 'single', courseId: IV.id }), IV));
+    assert.ok(!entitlementCovers(ent({ type: 'single', courseId: IV.id }), COURSE));
+  });
+
+  test('擇一池沒有 courseId，看課程要不要選器材（ADR-0005）', () => {
+    assert.ok(entitlementCovers(ent(), COURSE));
+    assert.ok(!entitlementCovers(ent(), IV));
+  });
+
+  test('已刪除的額度不算', () => {
+    assert.ok(!entitlementCovers(ent({ deletedAt: 'x' }), COURSE));
+  });
+});
+
+describe('待壓表是推導出來的（ADR-0001）', () => {
+  const base = { course: COURSE, entitlements: [ent()], targetMonth: '2026-09' };
+
+  test('有剩餘次數而且該月沒有這個課程的來訪 = 待壓表', () => {
+    const r = pendingFor({ ...base, visits: [] });
+    assert.equal(r.pending, true);
+    assert.equal(r.remaining, 12);
+  });
+
+  test('該月已經排過就不是待壓表', () => {
+    assert.equal(pendingFor({ ...base, visits: [visit()] }).pending, false);
+  });
+
+  test('取消的來訪不算排過 —— 時段已經還回去了', () => {
+    assert.equal(pendingFor({ ...base, visits: [visit({ status: 'cancelled' })] }).pending, true);
+  });
+
+  test('別的月份排過不影響這個月', () => {
+    assert.equal(pendingFor({ ...base, visits: [visit({ date: '2026-08-10' })] }).pending, true);
+  });
+
+  test('別的課程排過不影響這個課程', () => {
+    const other = visit({ slots: [{ courseId: IV.id, entitlementId: 'e2' }] });
+    assert.equal(pendingFor({ ...base, visits: [other] }).pending, true);
+  });
+
+  test('次數用完就不是待壓表', () => {
+    const used = ent({ doneCount: 8, bookedCount: 4 });
+    assert.equal(pendingFor({ ...base, entitlements: [used], visits: [] }).pending, false);
+  });
+
+  test('沒有這個課程的額度就不在佇列裡', () => {
+    const only = ent({ type: 'single', courseId: IV.id });
+    assert.equal(pendingFor({ ...base, entitlements: [only], visits: [] }).pending, false);
+  });
+});
+
+describe('佇列排序', () => {
+  const today = '2026-08-28';
+  const targetMonth = '2026-09';
+
+  const customers = [
+    { id: 'c1', name: '客戶甲', priority: 5, active: true },
+    { id: 'c2', name: '客戶乙', priority: 0, active: true },
+    { id: 'c3', name: '客戶丙', priority: 0, active: true },
+  ];
+  const entitlementsBy = { c1: [ent()], c2: [ent({ id: 'e2' })], c3: [ent({ id: 'e3' })] };
+
+  const build = (over = {}) =>
+    buildQueue({
+      course: COURSE, customers, entitlementsBy,
+      visitsBy: {}, availabilityBy: {}, targetMonth, today,
+      weights: DEFAULT_WEIGHTS, ...over,
+    });
+
+  test('只放待壓表的人', () => {
+    const rows = build({ visitsBy: { c2: [visit()] } });
+    assert.deepEqual(rows.map((r) => r.customerId).sort(), ['c1', 'c3']);
+  });
+
+  test('停用與已刪除的客戶不進佇列', () => {
+    const rows = build({
+      customers: [...customers, { id: 'c4', name: '客戶丁', active: false },
+        { id: 'c5', name: '客戶戊', deletedAt: 'x' }],
+    });
+    assert.ok(!rows.some((r) => ['c4', 'c5'].includes(r.customerId)));
+  });
+
+  test('可用天數越少排越前面', () => {
+    const rows = build({
+      customers: [customers[1], customers[2]],
+      availabilityBy: {
+        c2: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today,
+               rules: [{ kind: 'exclude_range', from: '2026-09-01', to: '2026-09-25' }] }],
+        c3: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today, rules: [] }],
+      },
+    });
+    assert.equal(rows[0].customerId, 'c2');
+    assert.equal(rows[0].availableDays, 5);
+    assert.equal(rows[1].availableDays, 30);
+  });
+
+  test('每一項的貢獻都要有人話標籤，不可以只有分數', () => {
+    const rows = build({
+      availabilityBy: {
+        c1: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today, rules: [] }],
+      },
+    });
+    const row = rows.find((r) => r.customerId === 'c1');
+
+    const labels = row.reasons.map((x) => x.label);
+    assert.ok(labels.some((l) => l.includes('可用 30 天')), labels.join(' / '));
+    assert.ok(labels.some((l) => l.includes('喜好 ★5')), labels.join(' / '));
+    assert.ok(labels.some((l) => l.includes('還沒上過課')), labels.join(' / '));
+    assert.ok(row.reasons.every((x) => typeof x.contribution === 'number'));
+  });
+
+  test('「最少」只標在真的最少的那一位身上', () => {
+    const rows = build({
+      customers: [customers[1], customers[2]],
+      availabilityBy: {
+        c2: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today,
+               rules: [{ kind: 'exclude_weekday', weekday: 1 }] }],
+        c3: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today, rules: [] }],
+      },
+    });
+    const labelOf = (id) => rows.find((r) => r.customerId === id).reasons
+      .find((x) => x.key === 'available').label;
+
+    assert.match(labelOf('c2'), /最少/);
+    assert.doesNotMatch(labelOf('c3'), /最少/);
+  });
+
+  test('還沒問過時間的要標出來，而且不假裝他限制很多', () => {
+    const row = build().find((r) => r.customerId === 'c1');
+    assert.equal(row.needsAvailability, true);
+    assert.equal(row.availableDays, null);
+    assert.ok(row.reasons.some((x) => x.key === 'ask'));
+    assert.ok(!row.reasons.some((x) => x.key === 'available'));
+  });
+
+  test('手機只放得下一個標籤，要拿貢獻最大的', () => {
+    const rows = build({
+      availabilityBy: {
+        c1: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today,
+               rules: [{ kind: 'exclude_range', from: '2026-09-02', to: '2026-09-30' }] }],
+      },
+    });
+    const row = rows.find((r) => r.customerId === 'c1');
+    assert.equal(strongestReason(row).key, 'available');
+  });
+
+  test('權重可以調，調了順序就會變', () => {
+    const availabilityBy = {
+      c1: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today, rules: [] }],
+      c2: [{ validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: today,
+             rules: [{ kind: 'exclude_range', from: '2026-09-02', to: '2026-09-30' }] }],
+    };
+    const byTightness = build({ customers: [customers[0], customers[1]], availabilityBy,
+      weights: { w1: 1, w2: 0, w3: 0, w4: 0 } });
+    const byLiking = build({ customers: [customers[0], customers[1]], availabilityBy,
+      weights: { w1: 0, w2: 1, w3: 0, w4: 0 } });
+
+    assert.equal(byTightness[0].customerId, 'c2', '限制最多的優先');
+    assert.equal(byLiking[0].customerId, 'c1', '喜好最高的優先');
+  });
+
+  test('同分時照姓名排，每次算出來都一樣', () => {
+    const a = build().map((r) => r.customerId);
+    const b = build().map((r) => r.customerId);
+    assert.deepEqual(a, b);
+  });
+});
+
+describe('批次', () => {
+  const rows = [
+    { customerId: 'c1', customerName: '客戶甲' },
+    { customerId: 'c2', customerName: '客戶乙' },
+    { customerId: 'c3', customerName: '客戶丙' },
+  ];
+  const batch = newBatch({ course: COURSE, targetMonth: '2026-09', rows });
+
+  test('建立時就把順序凍結起來（ADR-0001 的 Consequences）', () => {
+    assert.deepEqual(batch.queue.map((q) => q.customerId), ['c1', 'c2', 'c3']);
+    assert.ok(batch.queue.every((q) => q.state === 'pending'));
+    assert.equal(batch.cursor, null);
+    assert.equal(batch.status, 'active');
+  });
+
+  test('進度由每一筆的 state 推導，不從 cursor 推', () => {
+    const worked = {
+      ...batch,
+      cursor: 'c1',
+      queue: markInQueue({ queue: markInQueue(batch, 'c1', 'done') }, 'c3', 'skipped', '客人沒回'),
+    };
+    assert.deepEqual(progressOf(worked), {
+      total: 3, done: 1, skipped: 1, handled: 2, pending: 1,
+    });
+  });
+
+  test('跳過要記得為什麼；改回待處理就把理由清掉', () => {
+    const skipped = markInQueue(batch, 'c2', 'skipped', '客人沒回');
+    assert.equal(skipped[1].skippedReason, '客人沒回');
+
+    const back = markInQueue({ queue: skipped }, 'c2', 'pending');
+    assert.equal(back[1].skippedReason, null);
+  });
+
+  test('下一位是還沒處理的，處理完的跳過去', () => {
+    const worked = { ...batch, queue: markInQueue(batch, 'c2', 'done') };
+    assert.equal(nextPending(worked, 'c1').customerId, 'c3');
+  });
+
+  test('後面沒有了就從頭找，全部處理完才回 null', () => {
+    const almost = { ...batch, queue: markInQueue({ queue: markAll(batch, 'done') }, 'c1', 'pending') };
+    assert.equal(nextPending(almost, 'c3').customerId, 'c1');
+    assert.equal(nextPending({ ...batch, queue: markAll(batch, 'done') }), null);
+  });
+});
+
+function markAll(batch, state) {
+  return batch.queue.map((q) => ({ ...q, state }));
+}

@@ -166,9 +166,21 @@ service cloud.firestore {
     }
 
     // ---------- 壓表批次 ----------
+    // queue 的順序在建立當下凍結，之後只會改每一筆的 state 與 cursor。
+    // 這裡不驗證順序沒被動過 —— Rules 讀不到「之前是什麼順序」而不多做一次讀取，
+    // 而順序跳掉的後果是她要重新找位置，不是資料錯誤。
+    function validBatch() {
+      let d = request.resource.data;
+      return d.courseId is string
+        && d.targetMonth is string
+        && d.targetMonth.size() == 7
+        && d.queue is list
+        && d.status in ['active', 'finished', 'abandoned'];
+    }
+
     match /batches/{batchId} {
       allow read:   if allowed();
-      allow create, update: if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validBatch();
       allow delete: if false;
     }
 
