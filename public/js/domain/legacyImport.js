@@ -533,6 +533,14 @@ export function planForSheet(parsed, {
       }
     }
 
+    // `x萬健檢` 的 x 是還沒決定的金額等級，不是打錯字。額度照建（名稱原文照抄），
+    // 但要講一聲 —— 不講的話她會在客戶詳情頁看到一筆叫「x萬健檢」的額度，
+    // 而那看起來像系統壞掉，不像「這裡還沒填」。
+    if (item.label.includes(CHECKUP_WORD) && /[xX]\s*萬/.test(item.label)) {
+      problem(`第 ${item.row} 列`, item.label,
+        '健檢的金額等級還沒填，額度會照這個名字建起來，記得回客戶詳情頁改成實際的等級');
+    }
+
     if (actual != null && actual !== checks) {
       problem(`第 ${item.row} 列`, item.label,
         `E 欄的實際次數是 ${actual}，但勾起來的日期有 ${checks} 個。以勾選為準（次數的真相是來訪）`);
@@ -710,6 +718,12 @@ export function planForSheet(parsed, {
     problems,
     skippedRows,
     leftovers: parsed.leftovers,
+    contraindications: contraindicationHints([
+      { where: 'B2 購買名稱', text: parsed.source },
+      { where: 'A2 姓名欄', text: parsed.customerName },
+      { where: '二返註記', text: parsed.followupNote },
+      ...parsed.leftovers.map((x) => ({ where: x.cell, text: x.text })),
+    ], equipment),
     // 一列一行的對帳：舊表的 D／E／勾選數，跟匯進去的額度與來訪並排。
     // 她要能一眼看完一位客戶，而不是自己回試算表一格一格核對。
     rows: parsed.items.map((item) => {
@@ -741,6 +755,42 @@ export function planForSheet(parsed, {
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
     },
   };
+}
+
+/**
+ * 文字裡有沒有出現主檔登記的醫療禁忌。
+ *
+ * 舊表沒有「永久限制」這個欄位，所以那些話寫在購買名稱裡（`0604 顧客會-手有金屬，
+ * 只能INDIBA`）或空白處。匯進來之後 `customer.flags` 是空的，而
+ * `domain/contraindications.js` 是拿 flags 去比對的 —— **沒有那個標記，
+ * 超磁場與高能量雷射就不會被擋下來**，而那是整個系統唯一會造成實際傷害的一條。
+ *
+ * 要找的字不寫死在這裡，從主檔的器材上推出來（CLAUDE.md：醫療禁忌記在器材上）。
+ * 她之後新增一台有別的禁忌的器材，這裡自動就會找那個字。
+ *
+ * **只提示，不自動填 flags。** 「手有金屬」是禁忌，但「金屬已取出」不是，
+ * 而兩句話都含有「金屬」—— 那是她的判斷（ADR-0002）。
+ *
+ * @returns {{where: string, text: string, term: string, blocks: string[]}[]}
+ */
+function contraindicationHints(sources, equipment) {
+  const alive = equipment.filter((e) => !e.deletedAt);
+  const terms = [...new Set(alive.flatMap((e) => e.contraindications ?? []))];
+  const hints = [];
+
+  for (const term of terms) {
+    // 「體內金屬」寫在舊表上可能是「手有金屬」。前面的限定詞拿掉再找一次。
+    const needles = [...new Set([term, term.replace(/^(體內|身上|身體|有)/, '')])]
+      .filter((n) => n.length >= 2);
+    const blocks = alive.filter((e) => (e.contraindications ?? []).includes(term))
+      .map((e) => e.name);
+
+    for (const { where, text } of sources) {
+      if (!text || !needles.some((n) => text.includes(n))) continue;
+      hints.push({ where, text, term, blocks });
+    }
+  }
+  return hints;
 }
 
 /**
@@ -842,6 +892,7 @@ function emptyPlan(parsed, { skip = null, problems = [] } = {}) {
     problems,
     skippedRows: [],
     leftovers: [],
+    contraindications: [],
     rows: [],
     quantityHint: null,
     counts: { entitlements: 0, visits: 0, slots: 0 },
@@ -874,6 +925,15 @@ export function summarize(plans) {
     // 沒有它，她要確認這件事只能回試算表一格一格數。
     checks: willImport.reduce((n, p) => n + p.rows.reduce((m, r) => m + r.checks, 0), 0),
     leftovers: willImport.reduce((n, p) => n + p.leftovers.length, 0),
+    // 文字裡出現醫療禁忌字眼的客戶。匯完之後一定要去設定永久限制，
+    // 否則那幾台器材不會被擋下來（domain/contraindications.js 是拿 flags 比對的）。
+    contraindications: willImport
+      .filter((p) => p.contraindications.length)
+      .map((p) => ({
+        customerName: p.customerName,
+        sheetName: p.sheetName,
+        terms: [...new Set(p.contraindications.map((x) => x.term))],
+      })),
   };
 }
 
@@ -965,6 +1025,15 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
     s.leftovers ? `另外有 ${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（標 ＋）` : '',
     `要看一下的地方：${s.problems} 處`,
     '',
+    ...(s.contraindications.length ? [
+      `‼ 有 ${s.contraindications.length} 位客戶的文字裡出現醫療禁忌的字眼：`,
+      ...s.contraindications.map(
+        (x) => `   ${x.customerName || x.sheetName}（${x.terms.join('、')}）`,
+      ),
+      '  匯入不會自動設定永久限制 —— 那句話是不是禁忌只有你看得出來。',
+      '  匯完之後請到這幾位的客戶詳情頁把永久限制設起來，否則對應的器材不會被擋下來。',
+      '',
+    ] : []),
   ];
 
   for (const p of plans) {
@@ -972,6 +1041,10 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
     if (p.skip) {
       lines.push(`   整張跳過：${p.skip}`, '');
       continue;
+    }
+    for (const x of p.contraindications) {
+      lines.push(`   ‼ ${x.where}｜${x.text}｜看起來提到「${x.term}」。`
+        + `永久限制沒有自動設定，沒設的話「${x.blocks.join('、')}」不會被擋下來`);
     }
     if (p.quantityHint) lines.push(`   ${p.quantityHint}`);
 

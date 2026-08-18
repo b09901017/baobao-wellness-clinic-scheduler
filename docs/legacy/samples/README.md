@@ -33,6 +33,15 @@ node scripts/legacy-dry-run.mjs docs/legacy/samples 2026 > docs/legacy/samples/d
 主檔用 `domain/seed.js` 的種子資料，所以報告講的是「用種子主檔會怎樣」，
 不是「在她自己的資料庫裡會怎樣」。
 
+## 這批樣本測不到的一件事
+
+去識別化把手寫註記與購買名稱裡的自由文字抹掉了，而**醫療禁忌的字眼就寫在那裡面**
+（真的舊表上有一位的 B2 是 `0604 顧客會-手有金屬，只能INDIBA`）。所以拿這批樣本
+跑 dry-run，`‼ 醫療禁忌` 那一段永遠不會亮。
+
+守著那條路的是 `tests/legacy-import.test.js` 裡自己編的 fixture，不是這批樣本。
+改到 `contraindicationHints()` 的時候不要拿樣本的輸出當通過標準。
+
 ## 從真檔案學到、`../README.md` 沒寫到的事
 
 見 `../README.md` 的「與實際檔案的出入」一節。
