@@ -159,6 +159,15 @@ function reportCard(plans, s) {
       <h2 class="card__title">比對報告</h2>
       <p>會建立 <b>${s.customers}</b> 位客戶、<b>${s.entitlements}</b> 筆額度、
         <b>${s.visits}</b> 筆來訪（${s.slots} 個時段）。</p>
+      <p class="${s.checks === s.slots ? 'muted' : ''}">舊表一共勾了 <b>${s.checks}</b> 格，${
+        s.checks === s.slots
+          ? '全部都變成時段了。'
+          : `其中 <b>${s.checks - s.slots}</b> 格沒有變成時段 —— 下面的對帳表上標了 ←。`
+      }${
+        s.leftovers
+          ? `另外有 <b>${s.leftovers}</b> 格手寫註記沒有對應的欄位，原文收進了備註（標 ＋）。`
+          : ''
+      }</p>
       ${s.skipped.length
         ? `<p class="muted">整張跳過 ${s.skipped.length} 張：${
             s.skipped.map((x) => esc(x.customerName || x.sheetName)).join('、')

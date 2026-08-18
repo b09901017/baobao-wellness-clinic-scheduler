@@ -273,8 +273,8 @@ test('比對報告講得出總計、每一位建了什麼、以及每一個要�
   assert.ok(text.includes('還沒有寫入任何東西'));
   assert.ok(text.includes('會建立 1 位客戶、11 筆額度、3 筆來訪（5 個時段）'));
   assert.ok(text.includes('沒寫年份的日期一律當成：2026 年'));
-  assert.ok(text.includes('0.75萬健檢 1 次'));
-  assert.ok(text.includes('營養點滴 - 護肝排毒 11 次'));
+  assert.ok(text.includes('0.75萬健檢'), '對帳表要列出每一列的療程名稱');
+  assert.ok(text.includes('拆成 護肝排毒 11 次、雪顏亮彩 22 次'), '拆成幾筆額度要講');
   assert.ok(text.includes('整張跳過'));
   assert.ok(text.includes('雪顏亮彩'));
 });
@@ -414,4 +414,88 @@ test('營養品的勾選不會在每一個日期再報一次「沒有建出額�
   const p = planForSheet(parseSheet(sheet, { sheetName: '客戶H' }), CTX);
   assert.equal(p.problems.filter((x) => x.why.includes('沒有建出額度')).length, 0);
   assert.equal(p.problems.filter((x) => x.why.includes('營養品不排班')).length, 1);
+});
+
+// ---------- 手寫註記與對帳 ----------
+//
+// 使用者實測時抓到的兩件事（.scratch/legacy-import/issues/03）：
+// A11 的「目前只要SIS」這類手寫註記整格被丟掉，而且**丟掉了也看不出來** ——
+// 要確認一張表讀得對不對，只能回試算表一格一格核對，二十幾位客戶沒有人做得到。
+
+/** 手寫註記散在 A11、B14、A15，全部不在匯入器認得的欄位上。 */
+const NOTE_SHEET = [
+  '客戶名稱,購買名稱,療程內容,應有次數,實際次數,8/1,8/11',
+  '客戶N,0522 顧客會-8,Inbody,4,0,FALSE,FALSE',
+  ',,復健門診,2,0,FALSE,FALSE',
+  ',,物理諮詢,4,0,FALSE,FALSE',
+  ',,營養諮詢,4,0,FALSE,FALSE',
+  ',,體適能分析,4,0,FALSE,FALSE',
+  ',,復能(1小時),20,1,TRUE,FALSE',
+  ',,ILIB 60mins,12,0,FALSE,FALSE',
+  ',,x萬健檢,0,0,FALSE,FALSE',
+  ',,EECP,0,0,FALSE,FALSE',
+  '目前只要SIS,,,,,,',
+  ',,,,,FALSE,FALSE',
+  ',,,,,,7/17 二返(夏)',
+  ',寄紙本報告,,,,,',
+  '和妻同一天賦能,,,,,,',
+  'TODO,,,,,,,,,,FINISH',
+  '8/1復能(1小時),Abovee,FALSE,打電話,FALSE',
+].join('\n');
+
+const notePlan = () => planForSheet(parseSheet(NOTE_SHEET, { sheetName: '客戶N' }), CTX);
+
+test('沒有欄位可放的手寫註記原文收進備註，一個字都不改寫', () => {
+  const notes = notePlan().customer.notes;
+  assert.ok(notes.includes('目前只要SIS'), 'A11 的器材偏好');
+  assert.ok(notes.includes('寄紙本報告'), 'B14 的待辦');
+  assert.ok(notes.includes('和妻同一天賦能'), 'A15 的排班習慣');
+});
+
+test('報告一格一格列出這些註記，並且說得出它們原本寫在哪一格', () => {
+  const text = reportText([notePlan()], { year: 2026 });
+  assert.match(text, /＋ A11｜目前只要SIS/);
+  assert.match(text, /＋ B14｜寄紙本報告/);
+  assert.match(text, /＋ A15｜和妻同一天賦能/);
+});
+
+test('看起來像限制或喜好的註記多提醒一句，但不自動寫進任何欄位', () => {
+  // 「只要SIS」是器材偏好，但「五不行」到底是禮拜五還是五號，app 看不出來，
+  // 那是她的判斷（ADR-0002）。所以只提醒，不代填。
+  const p = notePlan();
+  const text = reportText([p], { year: 2026 });
+  assert.match(text, /A11.*記得去客戶詳情頁設定/);
+  assert.deepEqual(p.customer.flags, [], '永久限制不可以自動填');
+});
+
+test('排在日期欄外面的空勾選框與 TODO 區塊不算手寫註記', () => {
+  const cells = notePlan().leftovers.map((x) => x.cell);
+  assert.deepEqual(cells, ['A11', 'B14', 'A15']);
+});
+
+test('報告用一個數字回答「舊表上的東西有沒有全部進來」', () => {
+  const text = reportText([notePlan()], { year: 2026 });
+  assert.match(text, /舊表一共勾了 1 格，全部都變成時段了/);
+  assert.match(text, /3 格手寫註記沒有對應的欄位/);
+});
+
+test('營養品那一列勾了但刻意不匯入，對帳表要標出來', () => {
+  const sheet = SHEET.replace(
+    ',夜態美+速膳淨,營養品(12000),1,0,FALSE,FALSE,FALSE',
+    ',夜態美+速膳淨,營養品(12000),1,0,TRUE,FALSE,FALSE',
+  );
+  const text = reportText(
+    [planForSheet(parseSheet(sheet, { sheetName: '客戶O' }), CTX)],
+    { year: 2026 },
+  );
+  assert.match(text, /其中 1 格沒有變成時段/);
+  assert.match(text, /第 12 列 營養品\(12000\).*沒有.*←/);
+});
+
+test('對帳表把舊表的數字跟匯進去的並排，空白的模板列不進表', () => {
+  const text = reportText([notePlan()], { year: 2026 });
+  // 第 7 列：應有 20、實際 1、勾選 1 → 額度 20、來訪 1
+  assert.match(text, /第\s+7 列 復能\(1小時\)\s+20\s+1\s+1\s+｜\s+20\s+1/);
+  // 沒買的項目（D、E、勾選都是 0）不佔版面
+  assert.equal(text.includes('第  9 列 x萬健檢'), false);
 });
