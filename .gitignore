@@ -31,3 +31,6 @@ Thumbs.db
 # .scratch/   → 本專案的 issue tracker（見 docs/agents/issue-tracker.md）
 # .firebaserc → 專案設定，不是密鑰
 # firebase.json / firestore.rules / firestore.indexes.json → 必須進版控
+
+# Python
+__pycache__/

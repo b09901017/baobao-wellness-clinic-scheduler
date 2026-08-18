@@ -12,6 +12,8 @@
 
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
+import * as configData from '../../data/config.js';
+import * as sheetSync from '../../data/sheetSync.js';
 import { customerReport, overviewReport, toTSV, toCSV } from '../../domain/sheetReport.js';
 import { todayISO, addDays } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
@@ -43,16 +45,17 @@ export async function render(el) {
 
 async function load() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits] = await Promise.all([
+  const [customers, entitlementsBy, visits, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    configData.getSettings(),
   ]);
 
   const visitsBy = {};
   for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
 
-  return { today, customers, entitlementsBy, visitsBy };
+  return { today, customers, entitlementsBy, visitsBy, settings };
 }
 
 function paint(el, data) {
@@ -96,6 +99,8 @@ function paint(el, data) {
       buttonLabel: '複製，貼到試算表',
     })}
 
+    ${syncCard(data)}
+
     <section class="card">
       <h3 class="card__title">預覽</h3>
       <div class="tablewrap">${previewHtml(report)}</div>
@@ -111,7 +116,83 @@ function paint(el, data) {
     toast.info('已下載。試算表可以直接匯入這個檔。');
   });
 
+  el.querySelector('[data-sync-save]')?.addEventListener('click', () => saveSync(el, data));
+  el.querySelector('[data-sync-now]')?.addEventListener('click', () => pushNow(el, data));
+
   message.wire(el, toast.info);
+}
+
+/**
+ * 自動同步。上面那一段是「複製貼上」的手動路線，這一段是自動的。
+ *
+ * 兩條並存不是重複：自動的那條需要試算表那邊裝好指令碼，沒裝好、或她只是想
+ * 臨時貼一份到別的地方時，手動那條照樣要能用。
+ */
+function syncCard({ settings }) {
+  const sync = settings.sheetSync ?? { url: '', token: '' };
+  const on = Boolean(sync.url && sync.token);
+  const last = sheetSync.lastSyncedAt();
+
+  return `
+    <section class="card">
+      <h3 class="card__title">自動同步到試算表</h3>
+      <p class="muted">設定好之後，每次存檔安靜幾秒就會自己推一份過去，不用再手動貼。
+        單向 —— 試算表上改的東西不會回到 app，下次同步就會被蓋掉。</p>
+      <p class="${on ? 'muted' : ''}">
+        ${on
+          ? `目前：<b>開著</b>。上次同步 ${last ? esc(new Date(last).toLocaleString('zh-TW')) : '還沒推過'}${
+            sheetSync.isDirty() ? '，<b>有資料還沒推上去</b>' : ''}`
+          : '目前：<b>沒有開</b>。兩個欄位都填了才會開始推。'}
+      </p>
+
+      <label class="field">
+        <span class="field__label">網頁應用程式網址</span>
+        <input type="url" data-sync-url value="${esc(sync.url ?? '')}"
+          placeholder="https://script.google.com/macros/s/…/exec">
+        <span class="field__hint">試算表 → 擴充功能 → Apps Script，貼上
+          <code>sheets/readonly-report.gs</code> 後部署成網頁應用程式，把網址貼來這裡。</span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">密鑰</span>
+        <input type="password" data-sync-token value="${esc(sync.token ?? '')}"
+          autocomplete="off">
+        <span class="field__hint">要跟指令碼屬性裡那組 <code>SYNC_TOKEN</code> 一模一樣。
+          那個網址是公開的，擋住不速之客的就是這一串。</span>
+      </label>
+
+      <p class="form__actions">
+        <button class="btn" type="button" data-sync-save>儲存設定</button>
+        <button class="btn btn--primary" type="button" data-sync-now
+          ${on ? '' : 'disabled'}>立刻推一次</button>
+      </p>
+    </section>`;
+}
+
+async function saveSync(el, data) {
+  const url = el.querySelector('[data-sync-url]').value.trim();
+  const token = el.querySelector('[data-sync-token]').value.trim();
+
+  toast.saving('儲存中…');
+  try {
+    await configData.saveSettings({ sheetSync: { url, token } });
+  } catch (err) {
+    toast.failed(`儲存失敗：${err.message}`);
+    return;
+  }
+  toast.info(url && token ? '設定好了。下次存檔就會自己推一份過去。' : '已清掉，自動同步關了。');
+  data.settings = { ...data.settings, sheetSync: { url, token } };
+  paint(el, data);
+}
+
+async function pushNow(el, data) {
+  toast.saving('推送中…');
+  const result = await sheetSync.push();
+
+  if (result.ok) toast.info(`推好了，試算表更新了 ${result.sheets ?? ''} 張分頁`);
+  else toast.failed(result.error ?? result.skipped ?? '推不出去');
+
+  paint(el, data);
 }
 
 function buildReport(data) {

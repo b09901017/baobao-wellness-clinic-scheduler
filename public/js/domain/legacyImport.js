@@ -33,7 +33,7 @@ const FIRST_DATE_COL = 5;
 /** A2 客戶名稱、B2 購買名稱 */
 const NAME_CELL = [1, 0];
 const SOURCE_CELL = [1, 1];
-/** 療程列：第 2–12 列，C 欄療程、D 欄應有次數、E 欄實際次數、B 欄品項明細 */
+/** 療程列：最多到第 12 列，C 欄療程、D 欄應有次數、E 欄實際次數、B 欄品項明細 */
 const FIRST_ITEM_ROW = 1;
 const LAST_ITEM_ROW = 11;
 const COL_DETAIL = 1;
@@ -43,6 +43,24 @@ const COL_ACTUAL = 4;
 /** 第 13 列二返註記、第 14 列當日營養點滴品項簡寫 */
 const FOLLOWUP_ROW = 12;
 const IV_SHORTHAND_ROW = 13;
+
+/**
+ * TODO／FINISH 區塊的標題。**療程列到這裡為止。**
+ *
+ * 文件說療程列固定是第 2–12 列、第 13 列是二返註記，但真的檔案不是這樣：
+ * 第 11、12 列（營養點滴、營養品）只有三分之一的表有，所以 TODO 區塊浮動在
+ * 第 13 到第 18 列之間。照著寫死的列號讀，剛好停在第 13 列的那些表會把
+ * 「TODO」「FINISH」兩個字當成二返註記寫進客戶備註（docs/legacy/README.md 第 6 節）。
+ */
+const TASK_BLOCK_HEADERS = new Set(['TODO', 'FINISH']);
+
+/** 第一個 TODO／FINISH 出現在哪一列（0-based）。沒有就回 Infinity。 */
+function taskBlockRow(grid) {
+  for (let r = FIRST_ITEM_ROW; r < grid.length; r += 1) {
+    if ((grid[r] ?? []).some((c) => TASK_BLOCK_HEADERS.has(normalize(c)))) return r;
+  }
+  return Infinity;
+}
 
 // ---------- 名稱對照 ----------
 
@@ -60,13 +78,23 @@ export const SHEET_COURSE_ALIASES = Object.freeze({
   ILIB: '靜脈',
   EECP: 'EECP',
   營養點滴: '營養點滴',
+  // 第 11 列不是營養點滴專用的，也拿來放別的加購。舊表寫「心臟門診」，
+  // 主檔那個課程叫「心臟科評估」。
+  心臟門診: '心臟科評估',
 });
 
 /** 這一列是擇一池，不是單一課程。舊表寫「復能(1小時)」。 */
 const POOL_LABELS = ['復能(1小時)', '復能（1小時）', '復能'];
 
-/** 第 9 列的健檢，名稱裡混著金額等級，例：`0.75萬健檢`、`x萬健檢`（未定）。 */
-const CHECKUP_SUFFIX = '健檢';
+/**
+ * 第 9 列的健檢。名稱裡混著金額等級，後面還可能再接項目：
+ * `0.75萬健檢`、`x萬健檢`（金額未定）、`5萬健檢(心臟)`、`5萬健檢(腸道)`。
+ * 所以是「含有」不是「結尾是」—— 用 endsWith 會把後面帶括號的兩種整列丟掉。
+ */
+const CHECKUP_WORD = '健檢';
+
+/** 第 11 列的營養點滴，後面可能接項目：`營養點滴（腸道）`。 */
+const IV_DRIP_PREFIX = '營養點滴';
 
 /** 第 12 列，例：`營養品(12000)`。不佔時段、不排班、不產生額度。 */
 const PRODUCT_PREFIX = '營養品';
@@ -217,6 +245,7 @@ export function parseIvBreakdown(raw) {
 export function parseSheet(text, { sheetName = '' } = {}) {
   const grid = parseDelimited(text);
   const cell = (r, c) => normalize(grid[r]?.[c]);
+  const blockRow = taskBlockRow(grid);
 
   const dateColumns = [];
   const header = grid[HEADER_ROW] ?? [];
@@ -226,7 +255,8 @@ export function parseSheet(text, { sheetName = '' } = {}) {
   }
 
   const items = [];
-  for (let r = FIRST_ITEM_ROW; r <= LAST_ITEM_ROW && r < grid.length; r += 1) {
+  const lastItemRow = Math.min(LAST_ITEM_ROW, blockRow - 1);
+  for (let r = FIRST_ITEM_ROW; r <= lastItemRow && r < grid.length; r += 1) {
     const label = cell(r, COL_LABEL);
     if (!label) continue;
     items.push({
@@ -239,12 +269,17 @@ export function parseSheet(text, { sheetName = '' } = {}) {
     });
   }
 
-  // 第 13、14 列：二返註記與當日品項簡寫。整列收下來，別自作聰明只挑一格。
-  const followupCells = (grid[FOLLOWUP_ROW] ?? []).map(normalize).filter(Boolean);
+  // 第 13、14 列：二返註記與當日品項簡寫。整列收下來，別自作聰明只挑一格 ——
+  // 但兩列都可能已經被 TODO 區塊佔走，那時候這裡什麼都不該讀。
+  const followupCells = FOLLOWUP_ROW < blockRow
+    ? (grid[FOLLOWUP_ROW] ?? []).map(normalize).filter(Boolean)
+    : [];
   const ivShorthand = {};
-  for (const { col } of dateColumns) {
-    const v = cell(IV_SHORTHAND_ROW, col);
-    if (v) ivShorthand[col] = v;
+  if (IV_SHORTHAND_ROW < blockRow) {
+    for (const { col } of dateColumns) {
+      const v = cell(IV_SHORTHAND_ROW, col);
+      if (v) ivShorthand[col] = v;
+    }
   }
 
   return {
@@ -313,6 +348,8 @@ export function planForSheet(parsed, {
   const problems = [];
   const notes = [];
   const skippedRows = [];
+  /** 刻意不建額度的列（營養品）。日期迴圈碰到它們要安靜跳過。 */
+  const deliberate = new Set();
   const stamp = stampOf(parsed.sheetName, importedAt);
   const problem = (where, raw, why) => problems.push({ where, raw: raw || '', why });
 
@@ -329,6 +366,12 @@ export function planForSheet(parsed, {
       skip: `系統裡已經有「${parsed.customerName}」，整張跳過以免建出第二份`,
     });
   }
+
+  // 姓名格裡不只有名字：`名字3157`、`名字\n(高能/sis)3157` 兩種都有，數字是
+  // 病歷編號、括號是器材偏好。名字本身照 SPEC 第 4.3 節原文照抄，一個字都不動 ——
+  // 拆錯名字比留著多餘的字嚴重得多。但那些多出來的東西是有用的，
+  // 所以另外解析一份放進備註，客戶詳情頁看得到。
+  notes.push(...nameExtras(parsed.customerName));
 
   // ---------- 額度 ----------
 
@@ -347,12 +390,15 @@ export function planForSheet(parsed, {
       const line = [item.label, item.detail].filter(Boolean).join('：');
       notes.push(line);
       if (checks) problem(`第 ${item.row} 列`, item.label, `勾了 ${checks} 次，但營養品不排班，沒有匯入成來訪`);
+      // 這一列不會有額度，而且那是刻意的。記下來，免得下面每個勾起來的日期
+      // 再各報一次「這一列沒有建出額度」—— 同一件事講六遍就沒有人在看了。
+      deliberate.add(item.row);
       continue;
     }
 
     // 第 11 列的營養點滴：B 欄拆成每個品項各一筆額度（各自計次，不合併）
-    if (SHEET_COURSE_ALIASES[item.label] === '營養點滴' || item.label === '營養點滴') {
-      const course = resolveCourse(item.label, courses);
+    if (item.label.startsWith(IV_DRIP_PREFIX)) {
+      const course = resolveCourse(IV_DRIP_PREFIX, courses);
       if (!course) {
         problem(`第 ${item.row} 列`, item.label, '對不到任何課程，這一列沒有匯入');
         continue;
@@ -380,8 +426,10 @@ export function planForSheet(parsed, {
       }
 
       if (!made.length) {
-        // B 欄沒有明細（或全部沒次數），退回一筆合計的額度，總比丟掉好
-        const qty = expected ?? checks;
+        // B 欄沒有明細（或全部沒次數），退回一筆合計的額度，總比丟掉好。
+        // D 欄是 0 也要退回勾選數 —— 真實的舊表上「營養點滴（腸道）」就是
+        // D 欄留 0、E 欄寫 5、日期欄勾了五格，不接住就整列掉了。
+        const qty = expected && expected > 0 ? expected : checks;
         if (qty > 0) {
           const key = keyOf(item.row);
           entitlements.push({
@@ -412,7 +460,7 @@ export function planForSheet(parsed, {
     // 第 7 列的復能：擇一池，換的是器材不是課程
     const isPool = POOL_LABELS.includes(item.label);
     const course = resolveCourse(isPool ? '復能' : item.label, courses)
-      ?? (item.label.endsWith(CHECKUP_SUFFIX) ? resolveCourse(CHECKUP_SUFFIX, courses) : null);
+      ?? (item.label.includes(CHECKUP_WORD) ? resolveCourse(CHECKUP_WORD, courses) : null);
 
     if (!course) {
       problem(`第 ${item.row} 列`, item.label,
@@ -465,6 +513,14 @@ export function planForSheet(parsed, {
   const visits = [];
   const assumedYears = new Set();
 
+  // 先一欄一欄讀出「這一欄是哪一天、勾了哪幾列」，再依日期歸戶。
+  //
+  // 同一天出現在兩個相鄰欄位是有的（格子不夠寫就再開一欄）。一欄一筆來訪會讓
+  // 那天長出兩筆，但 CONTEXT.md 的來訪是「客戶某一天到院一次，含 2–3 個連續
+  // 時段」—— 分成兩筆就等於說她那天來了兩趟，而舊表根本沒說這件事。
+  /** @type {Map<string, {raw: string[], cols: {col: number, raw: string, items: object[]}[]}>} */
+  const byDate = new Map();
+
   for (const { col, raw } of parsed.dateColumns) {
     const { date, hadYear } = parseSheetDate(raw, year);
     const checkedRows = parsed.items.filter((item) => {
@@ -483,11 +539,30 @@ export function planForSheet(parsed, {
     if (!hadYear) assumedYears.add(raw);
     if (!checkedRows.length) continue;
 
+    const group = byDate.get(date) ?? { raw: [], cols: [] };
+    group.raw.push(raw);
+    group.cols.push({ col, raw, items: checkedRows });
+    byDate.set(date, group);
+  }
+
+  for (const [date, group] of [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (group.cols.length > 1) {
+      problem('表頭', group.raw.join('、'),
+        `同一天有 ${group.cols.length} 欄，已經合併成一筆來訪。`
+        + '舊表沒有記時間，看不出這是一天來兩趟還是格子不夠寫');
+    }
+
     const slots = [];
-    for (const item of checkedRows) {
+    const checks = group.cols.flatMap(
+      ({ col, raw, items }) => items.map((item) => ({ col, raw, item })),
+    );
+
+    for (const { col, raw, item } of checks) {
       const made = byRow.get(item.row);
       if (!made) {
-        problem(`第 ${item.row} 列 ${raw}`, item.label, '這一列沒有建出額度，這一格的勾選沒有匯入');
+        if (!deliberate.has(item.row)) {
+          problem(`第 ${item.row} 列 ${raw}`, item.label, '這一列沒有建出額度，這一格的勾選沒有匯入');
+        }
         continue;
       }
 
@@ -506,8 +581,10 @@ export function planForSheet(parsed, {
         }
         entitlementKey = picked.key;
         ivProductId = picked.productId;
-        if (!picked.productId) {
-          problem(`第 ${item.row} 列 ${raw}`, picked.productName ?? '',
+        // 品項留空有兩種：B 欄根本沒寫明細（退回一筆合計額度，上面已經講過了），
+        // 以及寫了但主檔裡沒有。只有後者要在每一天再提醒一次。
+        if (!picked.productId && picked.productName) {
+          problem(`第 ${item.row} 列 ${raw}`, picked.productName,
             '主檔裡沒有這個品項，這一次的品項留空');
         }
       }
@@ -582,6 +659,24 @@ export function planForSheet(parsed, {
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
     },
   };
+}
+
+/**
+ * 姓名格裡除了名字以外的東西。
+ *
+ * 刻意不講「這串數字是病歷號」——舊表沒有標題，那只是我們的推測，
+ * 而備註是給人看的：講清楚它寫在哪裡就夠了，別替她認定它是什麼。
+ *
+ * `黃惠燕 (高能/sis)3157` → ['姓名欄的編號：3157', '姓名欄的註記：高能/sis']
+ */
+function nameExtras(name) {
+  const text = String(name ?? '');
+  const out = (text.match(/\d{3,}/g) ?? []).map((d) => `姓名欄的編號：${d}`);
+  for (const m of text.matchAll(/[(（]([^)）]*)[)）]/g)) {
+    const inner = normalize(m[1]);
+    if (inner) out.push(`姓名欄的註記：${inner}`);
+  }
+  return out;
 }
 
 function entitlementDoc({ label, course, totalQty, stamp, poolEquipmentIds = null }) {
@@ -694,6 +789,13 @@ export function summarize(plans) {
   };
 }
 
+/** 跳過的列依理由歸成一組，順序照第一次出現的理由。 */
+function groupByReason(skippedRows) {
+  const byReason = new Map();
+  for (const x of skippedRows) byReason.set(x.why, [...(byReason.get(x.why) ?? []), x.row]);
+  return byReason;
+}
+
 /**
  * 比對報告的純文字版。她要在按下「開始匯入」之前把它看完，
  * 也要能存一份下來 —— 匯完之後回頭查「那天到底跳過了什麼」只剩這一份。
@@ -727,7 +829,11 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
     lines.push(`   額度 ${p.counts.entitlements}、來訪 ${p.counts.visits}、時段 ${p.counts.slots}`);
     for (const e of p.entitlements) lines.push(`     · ${e.doc.label} ${e.doc.totalQty} 次`);
     for (const x of p.problems) lines.push(`   ⚠ ${x.where}｜${x.raw}｜${x.why}`);
-    for (const x of p.skippedRows) lines.push(`   － 第 ${x.row} 列 ${x.label}：${x.why}`);
+    // 沒買的項目在舊表上是空白的模板列，一位客戶動輒九列 —— 一列一行會把真正
+    // 要看的 ⚠ 淹掉，而她是照著這份決定要不要按下去的。同一個理由收成一行。
+    for (const [why, rows] of groupByReason(p.skippedRows)) {
+      lines.push(`   － 第 ${rows.join('、')} 列${why}，沒有匯入`);
+    }
     lines.push('');
   }
 

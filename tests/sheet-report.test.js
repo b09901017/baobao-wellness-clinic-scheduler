@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  customerReport, overviewReport, toTSV, toCSV, READONLY_NOTICE,
+  customerReport, overviewReport, toTSV, toCSV, READONLY_NOTICE, syncBundle,
 } from '../public/js/domain/sheetReport.js';
 
 const TODAY = '2026-09-18';
@@ -169,4 +169,110 @@ describe('貼上與下載的格式', () => {
   test('列數不同長也不會爆', () => {
     assert.equal(toTSV({ rows: [['a'], ['b', 'c']] }), 'a\nb\tc');
   });
+});
+
+// ---------- 推給 Apps Script 的整包資料 ----------
+//
+// 排版在 sheets/readonly-report.gs，但**數字一個都不在那裡算**。
+// 這裡測的就是「送過去的數字是對的」—— 那支 .gs 沒有測試，
+// 所以它拿到什麼就得是最終答案。
+
+test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A', source: '0522 顧客會-8', flags: ['體內金屬'] }],
+    entitlementsBy: {
+      c1: [{ id: 'e1', label: '復能', totalQty: 12 }],
+    },
+    visitsBy: {
+      c1: [
+        { id: 'v1', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e1' }] },
+        { id: 'v2', date: '2026-08-20', status: 'confirmed', slots: [{ entitlementId: 'e1' }] },
+      ],
+    },
+    today: '2026-08-10',
+    generatedAt: '2026/8/10',
+  });
+
+  assert.equal(bundle.format, 1);
+  assert.equal(bundle.sheets.length, 1);
+
+  const sheet = bundle.sheets[0];
+  assert.deepEqual(sheet.dates, ['2026-08-01', '2026-08-20']);
+  assert.deepEqual(sheet.rows[0].marks, ['✓', '✓']);
+  assert.equal(sheet.rows[0].done, 1);
+  assert.equal(sheet.rows[0].booked, 1);
+  assert.equal(sheet.rows[0].remaining, 10);
+  assert.deepEqual(sheet.totals, { total: 12, done: 1, booked: 1, remaining: 10 });
+});
+
+test('總表每位客戶一列，算得出上次來訪與下次預約', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 2 }] },
+    visitsBy: {
+      c1: [
+        { id: 'v1', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e1' }] },
+        { id: 'v2', date: '2026-08-20', status: 'confirmed', slots: [{ entitlementId: 'e1' }] },
+      ],
+    },
+    today: '2026-08-10',
+  });
+
+  assert.equal(bundle.overview[0].lastVisit, '2026-08-01');
+  assert.equal(bundle.overview[0].nextVisit, '2026-08-20');
+  assert.equal(bundle.overview[0].remaining, 0);
+});
+
+test('來訪紀錄把 id 換成名字，匯入的來訪顯示成時間不詳', () => {
+  // 匯入的來訪沒有時間、器材、診間、治療師（ADR-0011）。
+  // 那些欄位在試算表上要寫「時間不詳」而不是留白 —— 留白看起來像壞掉。
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 2 }] },
+    visitsBy: {
+      c1: [{
+        id: 'v1',
+        date: '2026-08-01',
+        status: 'done',
+        slots: [
+          {
+            entitlementId: 'e1', courseName: '復能', startsAt: '09:15', endsAt: '10:15',
+            roomId: 'room-t3', therapistId: 'staff-zn', equipmentId: 'eq-indiba',
+          },
+          { entitlementId: 'e1', courseName: '復能', startsAt: null, endsAt: null },
+        ],
+      }],
+    },
+    today: '2026-08-10',
+    master: {
+      rooms: [{ id: 'room-t3', name: '治3' }],
+      staff: [{ id: 'staff-zn', name: '芝寧' }],
+      equipment: [{ id: 'eq-indiba', name: 'INDIBA' }],
+    },
+  });
+
+  const day = bundle.sheets[0].log[0];
+  assert.equal(day.items[0].room, '治3');
+  assert.equal(day.items[0].therapist, '芝寧');
+  assert.equal(day.items[0].equipment, 'INDIBA');
+  assert.equal(day.items[0].time, '09:15–10:15');
+  assert.equal(day.items[1].time, '時間不詳');
+});
+
+test('取消與軟刪除的來訪不進整包資料', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }, { id: 'c2', name: '客戶B', deletedAt: 'x' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 5 }] },
+    visitsBy: {
+      c1: [
+        { id: 'v1', date: '2026-08-01', status: 'cancelled', slots: [{ entitlementId: 'e1' }] },
+        { id: 'v2', date: '2026-08-02', status: 'done', deletedAt: 'x', slots: [{ entitlementId: 'e1' }] },
+      ],
+    },
+    today: '2026-08-10',
+  });
+
+  assert.equal(bundle.sheets.length, 1, '刪掉的客戶不該出現');
+  assert.deepEqual(bundle.sheets[0].dates, []);
+  assert.deepEqual(bundle.sheets[0].log, []);
 });

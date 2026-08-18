@@ -162,6 +162,7 @@ export async function commit(ops) {
   });
 
   await batch.commit();
+  announceCommitted(ops);
 
   if (capture) {
     capture.push(
@@ -173,6 +174,32 @@ export async function commit(ops) {
   }
 
   return refs.map((r) => r.id);
+}
+
+// ---------- 寫入完成的通知 ----------
+//
+// 試算表同步要知道「資料剛剛變了」，但 repo 不可以反過來認識它 ——
+// repo 是最底層，誰都可以用它，它不該知道有誰在用。所以這裡只發通知。
+//
+// 通知的處理一律吞掉例外：**訂閱者壞掉不可以害寫入看起來失敗**。
+// 寫入這時候已經成功了，往回報錯只會讓她以為資料沒進去而再存一次。
+
+const committedListeners = new Set();
+
+/** @param {(ops: object[]) => void} fn @returns {() => void} 取消訂閱 */
+export function onCommitted(fn) {
+  committedListeners.add(fn);
+  return () => committedListeners.delete(fn);
+}
+
+function announceCommitted(ops) {
+  for (const fn of committedListeners) {
+    try {
+      fn(ops);
+    } catch {
+      // 故意吞掉，理由見上面
+    }
+  }
 }
 
 /** 建立一筆資料，同時寫一筆稽核。 */
