@@ -4,9 +4,27 @@
 // 舊的 Apps Script 是用課程名稱做字串包含比對，療程一改名就靜默失效，
 // 而且 C 類還多給了「打電話」。這裡不照抄，見 docs/legacy/README.md。
 
-/** @typedef {'A'|'B'|'C'} Category */
+/** @typedef {'A'|'B'|'C'|null} Category */
 
 export const TASK_KINDS = ['打電話', 'Abovee', 'Examine', '耀聖'];
+
+// null 是明確的「不產生任務」，不是漏填。Inbody、物理諮詢、營養諮詢、
+// 體適能分析都屬於這一類，它們不需要掛號。設定頁必須把這件事顯示出來，
+// 而不是讓使用者看到一片空白自己猜。
+export const CATEGORY_OPTIONS = [
+  { value: 'A', label: 'A · 三系統＋電話', hint: '復健科、心臟科、二返' },
+  { value: 'B', label: 'B · 單系統＋電話', hint: '健檢' },
+  { value: 'C', label: 'C · 單系統', hint: '復能、靜脈、EECP、營養點滴' },
+  { value: null, label: '不產生任務', hint: 'Inbody、諮詢類、體適能分析' },
+];
+
+/** 給 UI 用的一句話說明。 */
+export function describeCategory(category) {
+  const opt = CATEGORY_OPTIONS.find((o) => o.value === (category ?? null));
+  if (!opt) return `未知類別（${category}）`;
+  const tasks = tasksForCategory(category);
+  return tasks.length ? `${opt.label} — ${tasks.join('、')}` : opt.label;
+}
 
 export const RULES = Object.freeze({
   A: Object.freeze(['打電話', 'Abovee', 'Examine', '耀聖']),

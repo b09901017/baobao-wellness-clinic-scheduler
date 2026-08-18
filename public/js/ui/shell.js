@@ -1,7 +1,7 @@
-import { routeList, current, start } from './router.js';
+import { navRoutes, activeNavPath, start } from './router.js';
 
 function navHtml(activePath) {
-  return routeList()
+  return navRoutes()
     .map(
       (r) => `
         <a href="#${r.path}" ${r.path === activePath ? 'aria-current="page"' : ''}>
@@ -57,7 +57,7 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
 /** 登入且在白名單內時的主畫面。 */
 export function renderShell(root, { onSignOut }) {
   root.innerHTML = `
-    <nav class="app__nav" aria-label="主選單">${navHtml(current())}</nav>
+    <nav class="app__nav" aria-label="主選單"></nav>
     <div class="app__body">
       <header class="app__header">
         <h1 class="app__title" data-title>排課系統</h1>
@@ -72,14 +72,18 @@ export function renderShell(root, { onSignOut }) {
 
   const view = root.querySelector('#view');
   const titleEl = root.querySelector('[data-title]');
+  const navEl = root.querySelector('.app__nav');
 
-  start((path) => {
-    const route = routeList().find((r) => r.path === path);
+  start(({ path, route, params }) => {
     if (!route) return;
-    titleEl.textContent = route.title;
-    document.title = `${route.title} · 排課系統`;
+    const title = route.titleFor ? route.titleFor(...params) : route.title;
+    titleEl.textContent = title;
+    document.title = `${title} · 排課系統`;
     view.scrollTop = 0;
-    route.render(view);
-    root.querySelector('.app__nav').innerHTML = navHtml(path);
+    navEl.innerHTML = navHtml(activeNavPath(path));
+    // render 可能是 async，錯誤要看得見，不能靜默失敗
+    Promise.resolve(route.render(view, ...params)).catch((err) => {
+      view.innerHTML = `<div class="card"><p>這一頁出錯了：${err.message}</p></div>`;
+    });
   });
 }

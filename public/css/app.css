@@ -288,3 +288,191 @@ textarea {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ---------- 清單列 ---------- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.row__title {
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.link-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.link-list li:first-child {
+  border-top: none;
+}
+
+.link-list a {
+  flex: 1;
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.link-list__label {
+  flex: 1;
+}
+
+.link-list a::after {
+  content: '›';
+  margin-left: var(--space-3);
+  padding-left: var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+}
+
+/* ---------- 表單 ---------- */
+
+.field {
+  display: block;
+  margin-bottom: var(--space-4);
+  border: none;
+  padding: 0;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.field input[type='text'],
+.field input[type='number'],
+.field select {
+  width: 100%;
+}
+
+.field__hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.choice--row {
+  width: 100%;
+  margin-bottom: var(--space-4);
+}
+
+.choice input {
+  min-height: auto;
+  width: 22px;
+  height: 22px;
+}
+
+.form__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.errors {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-radius: var(--radius-sm);
+}
+
+.errors ul {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+/* ---------- 破壞性操作區 ---------- */
+
+/* 刻意放在畫面最下方，不放在卡片右上角那種容易誤按的位置 */
+.card.danger {
+  border-color: var(--overdue);
+}
+
+.btn--danger {
+  color: var(--overdue);
+  border-color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+/* ---------- 對話框 ---------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 45%);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 440px;
+  max-height: 80dvh;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.dialog__list {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-5);
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+
+.dialog__list li {
+  margin-bottom: var(--space-2);
+}
+
+.dialog__actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}

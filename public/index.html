@@ -26,6 +26,25 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+    <script>
+      // app.js 是 module，它的 import 一旦失敗（訊號差、CDN 連不上、
+      // 檔案沒部署完整），整支就不會執行，畫面會永遠停在「載入中…」。
+      // 沈默失敗違反 SPEC 第 6.9 節，所以這裡用逾時把它變成看得見的訊息。
+      // 這段刻意寫成不用 module、不依賴任何其他檔案，它必須在最壞情況下還能跑。
+      setTimeout(function () {
+        if (window.__appBooted) return;
+        var root = document.getElementById('root');
+        if (!root) return;
+        root.innerHTML =
+          '<div class="gate"><div class="card gate__box">' +
+          '<h2 class="card__title">載入失敗</h2>' +
+          '<p class="muted">程式檔案沒有下載完成，通常是網路不穩。' +
+          '資料都在雲端，沒有任何東西會因此遺失。</p>' +
+          '<p><button class="btn btn--primary" type="button" ' +
+          'onclick="location.reload()">重新載入</button></p>' +
+          '</div></div>';
+      }, 12000);
+    </script>
     <script type="module" src="/js/app.js"></script>
   </body>
 </html>

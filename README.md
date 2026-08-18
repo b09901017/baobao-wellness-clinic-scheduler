@@ -100,7 +100,7 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 | # | | |
 |---|---|---|
 | 1 | 骨架 / Auth / Rules / 分層 | ☑ |
-| 2 | 主檔設定 | ☐ |
+| 2 | 主檔設定 | ☑ |
 | 3 | 客戶 + 額度池 | ☐ |
 | 4 | 來訪 + 狀態機 + 禁忌檢查 | ☐ |
 | 5 | 任務產生 + TODO 中心 ← 交付試用 | ☐ |

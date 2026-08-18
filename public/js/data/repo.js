@@ -37,6 +37,15 @@ export async function list(path, { wheres = [], order = null, limit = null } = {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+/**
+ * 含已刪除的全部資料。只有「已刪除項目還原」與匯出備份該用這個，
+ * 一般清單一律用 list()。
+ */
+export async function listWithDeleted(path) {
+  const snap = await getDocs(collection(getDb(), path));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 export async function getOne(path, id) {
   const snap = await getDoc(doc(getDb(), path, id));
   if (!snap.exists()) return null;

@@ -6,7 +6,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v3';
+const VERSION = 'v7';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -23,6 +23,8 @@ const SHELL = [
   '/js/data/auth.js',
   '/js/data/repo.js',
   '/js/domain/taskRules.js',
+  '/js/domain/masterData.js',
+  '/js/domain/seed.js',
   '/js/domain/contraindications.js',
   '/js/domain/entitlements.js',
   '/js/domain/visitTime.js',
@@ -30,6 +32,13 @@ const SHELL = [
   '/js/ui/router.js',
   '/js/ui/views.js',
   '/js/ui/toast.js',
+  '/js/ui/components/dialog.js',
+  '/js/ui/components/form.js',
+  '/js/ui/views/settings.js',
+  '/js/ui/views/masterList.js',
+  '/js/ui/views/trash.js',
+  '/js/ui/views/preferences.js',
+  '/js/data/config.js',
 ];
 
 self.addEventListener('install', (event) => {

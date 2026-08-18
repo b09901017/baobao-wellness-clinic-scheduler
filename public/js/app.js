@@ -7,6 +7,9 @@ import { renderGate, renderShell } from './ui/shell.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
 
+// 告訴 index.html 的逾時保險絲：module 有成功載入，不用顯示載入失敗。
+window.__appBooted = true;
+
 const root = document.getElementById('root');
 
 async function handleSignIn() {
