@@ -690,3 +690,42 @@ summary {
     gap: var(--space-2);
   }
 }
+
+/* ---------- 稽核紀錄與資料健檢 ---------- */
+
+/* 差異是拿來掃的：每一列自己一塊，欄位變動縮排在下面。
+   不用 table —— 手機上表格不是橫向捲就是擠成一團，兩種都不能看。 */
+.audit__row {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+
+.audit__row:first-child {
+  border-top: none;
+}
+
+.audit__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.audit__what {
+  font-weight: 650;
+}
+
+.audit__fields {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.audit__fields li {
+  margin-bottom: var(--space-1);
+}
+
+.audit__field {
+  font-weight: 650;
+  margin-right: var(--space-2);
+}

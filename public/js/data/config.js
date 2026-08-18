@@ -91,15 +91,4 @@ export async function loadSeed() {
   return { created, skipped, byType };
 }
 
-/** 設定頁的「匯出全部資料」。SPEC 第 6.8 節。 */
-export async function exportAll() {
-  const data = {};
-  for (const type of MASTER_TYPES) {
-    data[type] = await repo.listWithDeleted(pathFor(type));
-  }
-  return {
-    exportedAt: new Date().toISOString(),
-    settings: await getSettings(),
-    config: data,
-  };
-}
+// 匯出備份在 data/backup.js —— 它要的不只是主檔，而是全部集合（SPEC 第 6.8 節）。

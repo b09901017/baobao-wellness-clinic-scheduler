@@ -4,6 +4,7 @@
 // 這一層只負責畫面與把值傳過去。
 
 import * as config from '../../data/config.js';
+import * as backup from '../../data/backup.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { esc } from '../components/form.js';
@@ -49,14 +50,34 @@ export async function render(el) {
       <ul class="link-list">
         <li><a href="#/settings/preferences">
           <span class="link-list__label">排序權重與時段間隔</span></a></li>
+        <li><a href="#/settings/health">
+          <span class="link-list__label">資料健檢</span>
+          <span class="muted">對帳與異常</span></a></li>
+        <li><a href="#/settings/audit">
+          <span class="link-list__label">稽核紀錄</span>
+          <span class="muted">誰改了什麼</span></a></li>
         <li><a href="#/settings/trash">
           <span class="link-list__label">已刪除項目</span></a></li>
       </ul>
-      <p><button class="btn" type="button" data-export>匯出全部資料為 JSON</button></p>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">匯出備份</h2>
+      <p class="muted">匯出全部資料為一個 JSON 檔，含已刪除的資料 ——
+        備份漏掉軟刪除的東西就救不回誤刪。建議每個月存一份到雲端硬碟。</p>
+      <label class="choice choice--row">
+        <input type="checkbox" data-with-audit />
+        <span>含稽核紀錄</span>
+      </label>
+      <p class="muted">稽核紀錄是每一次寫入的完整 before / after，
+        累積起來可能比其他資料加起來還大，手機下載會等比較久。</p>
+      <p><button class="btn" type="button" data-export>匯出</button></p>
     </section>`;
 
   el.querySelector('[data-seed]')?.addEventListener('click', () => runSeed(el));
-  el.querySelector('[data-export]')?.addEventListener('click', runExport);
+  el.querySelector('[data-export]')?.addEventListener('click', () =>
+    runExport(el.querySelector('[data-with-audit]')?.checked ?? false),
+  );
 }
 
 function seedCard() {
@@ -92,9 +113,10 @@ async function runSeed(el) {
   }
 }
 
-async function runExport() {
+async function runExport(includeAudit) {
+  toast.info('匯出中…');
   try {
-    const data = await config.exportAll();
+    const data = await backup.exportAll({ includeAudit });
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -102,7 +124,8 @@ async function runExport() {
     a.download = `排課系統備份-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.info('已匯出。建議存一份到雲端硬碟。');
+    // 匯出完要說清楚拿到了什麼。只說「已匯出」的話，檔案漏了一半也看不出來。
+    toast.info(`已匯出 ${backup.describeCounts(data.counts)}。建議存一份到雲端硬碟。`);
   } catch (err) {
     toast.failed(`匯出失敗：${err.message}`);
   }

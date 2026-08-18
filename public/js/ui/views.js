@@ -10,6 +10,8 @@ import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as visitEditor from './views/visitEditor.js';
+import * as health from './views/health.js';
+import * as audit from './views/audit.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 function placeholder(title, step, points) {
@@ -51,6 +53,8 @@ register('/visits/:id', {
   render: (el, id) => visitEditor.renderEdit(el, id),
 });
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
+register('/settings/health', { title: '資料健檢', nav: false, render: health.render });
+register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/:type', {
   title: '主檔', nav: false,
