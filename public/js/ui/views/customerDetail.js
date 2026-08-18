@@ -7,6 +7,7 @@
 import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as tasksData from '../../data/tasks.js';
+import * as availability from './availability.js';
 import * as config from '../../data/config.js';
 import * as rules from '../../domain/customers.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
@@ -24,15 +25,20 @@ export async function render(el, id) {
 
   let ctx;
   try {
-    const [customer, entitlements, visits, tasks, courses, equipment] = await Promise.all([
+    const [customer, entitlements, visits, tasks, avail, courses, equipment] = await Promise.all([
       data.get(id),
       data.listEntitlements(id),
       visitsData.listByCustomer(id),
       tasksData.listByCustomer(id),
+      data.listAvailability(id),
       config.listAll('courses'),
       config.listAll('equipment'),
     ]);
-    ctx = { el, id, customer, entitlements, visits, tasks, courses, equipment };
+    ctx = {
+      el, id, customer, entitlements, visits, tasks, courses, equipment,
+      availability: avail,
+      back: () => reload(ctx),
+    };
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
@@ -96,6 +102,8 @@ function paint(ctx) {
       <p><button class="btn btn--primary" type="button" data-add-visit>記錄一次來訪</button></p>
     </section>
 
+    ${availability.sectionHtml(ctx.availability, today)}
+
     ${taskSection(tasks)}
 
     ${dangerZone(customer)}`;
@@ -120,6 +128,7 @@ function paint(ctx) {
     btn.addEventListener('click', () => fixCounts(ctx, btn.dataset.fix)),
   );
 
+  availability.wireSection(ctx);
   wireDangerZone(ctx);
 }
 

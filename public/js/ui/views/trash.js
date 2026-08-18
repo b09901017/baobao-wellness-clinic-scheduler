@@ -77,7 +77,8 @@ export async function render(el) {
 }
 
 async function loadGroups() {
-  const [master, deletedCustomers, deletedEnts, aliveCustomers, deletedVisits] = await Promise.all([
+  const [master, deletedCustomers, deletedEnts, aliveCustomers, deletedVisits, deletedAvail] =
+    await Promise.all([
     Promise.all(
       MASTER_TYPES.map(async (type) => ({
         label: MASTER_LABELS[type],
@@ -94,6 +95,7 @@ async function loadGroups() {
     customers.listDeletedEntitlements(),
     customers.list(),
     visits.listDeleted(),
+    customers.listDeletedAvailability(),
   ]);
 
   const nameOf = new Map(
@@ -128,6 +130,16 @@ async function loadGroups() {
         note: nameOf.get(e.parentId) ?? '（客戶已刪除）',
         deletedAt: e.deletedAt,
         restore: () => customers.restoreEntitlement(e.parentId, e.id),
+      })),
+    },
+    {
+      label: '本輪可用性',
+      rows: deletedAvail.map((a) => ({
+        // 原文就是這筆資料的身分，列表上直接顯示，不用再點進去才看得到
+        name: a.rawText ?? '（沒有原文）',
+        note: `${nameOf.get(a.parentId) ?? '（客戶已刪除）'}・${a.validFrom ?? '?'} 到 ${a.validTo ?? '?'}`,
+        deletedAt: a.deletedAt,
+        restore: () => customers.restoreAvailability(a.parentId, a.id),
       })),
     },
   ];

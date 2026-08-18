@@ -63,6 +63,30 @@ export async function listDeletedEntitlements() {
   return rows.filter((r) => r.deletedAt && r.parentId);
 }
 
+// ---------- 本輪可用性 ----------
+//
+// 一位客戶會有很多份收集，一個月問一次。收集日期新的在前 ——
+// 她要看的永遠是最近問到的那一份，舊的是歷史。
+
+const availPath = (customerId) => `${PATH}/${customerId}/availability`;
+
+export function listAvailability(customerId) {
+  return repo.list(availPath(customerId), { order: ['collectedAt', 'desc'] });
+}
+
+export const createAvailability = (customerId, data) => repo.create(availPath(customerId), data);
+export const updateAvailability = (customerId, id, changes) =>
+  repo.update(availPath(customerId), id, changes);
+export const removeAvailability = (customerId, id, reason) =>
+  repo.softDelete(availPath(customerId), id, reason);
+export const restoreAvailability = (customerId, id) => repo.restore(availPath(customerId), id);
+
+/** 已刪除的可用性收集，含它屬於哪位客戶。設定頁的「已刪除項目」用。 */
+export async function listDeletedAvailability() {
+  const rows = await repo.listGroup('availability', { includeDeleted: true });
+  return rows.filter((r) => r.deletedAt && r.parentId);
+}
+
 // ---------- 建立 ----------
 
 /**

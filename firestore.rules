@@ -57,14 +57,25 @@ service cloud.firestore {
     // 前端擋一次、這裡再擋一次（SPEC 第 6.7 節）。前端可以被繞過，這裡不行。
     //
     // 子集合刻意逐個列出而不用 /{sub=**}：萬用比對會與底下的具體規則
-    // 「或」在一起，讓嚴格的那條形同虛設。第 6 步的 availability 要用時，
-    // 回來這裡再開一個 match。
+    // 「或」在一起，讓嚴格的那條形同虛設。
     function validCustomer() {
       let d = request.resource.data;
       return d.name is string
         && d.name.size() > 0
         && (!d.keys().hasAny(['priority'])
             || (d.priority is int && d.priority >= 0 && d.priority <= 5));
+    }
+
+    // 原文是最終依據（SPEC 第 4.3 節），所以它不可以是空的 ——
+    // 解析出來的 rules 錯了還有原文可以看，原文沒了就什麼都不剩。
+    function validAvailability() {
+      let d = request.resource.data;
+      return d.rawText is string
+        && d.rawText.size() > 0
+        && d.validFrom is string
+        && d.validTo is string
+        && d.validTo >= d.validFrom
+        && d.rules is list;
     }
 
     function validEntitlement() {
@@ -86,6 +97,18 @@ service cloud.firestore {
         allow create, update: if allowed() && keepsExistingId() && validEntitlement();
         allow delete: if false;
       }
+
+      match /availability/{collectionId} {
+        allow read:   if allowed();
+        allow create, update: if allowed() && keepsExistingId() && validAvailability();
+        allow delete: if false;
+      }
+    }
+
+    // 「已刪除項目」要跨客戶找回被刪掉的收集，那是 collection group 查詢，
+    // 跟 entitlements 一樣要另外開一條，只開 read。
+    match /{path=**}/availability/{collectionId} {
+      allow read: if allowed();
     }
 
     // 客戶總覽要一次拿到全部客戶的額度，用的是 collection group 查詢
