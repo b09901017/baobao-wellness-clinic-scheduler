@@ -4,6 +4,7 @@
 import { initFirebase, isConfigured } from './data/firebase.js';
 import { watchAuth, signIn, signOut } from './data/auth.js';
 import { renderGate, renderShell } from './ui/shell.js';
+import * as sheetSync from './data/sheetSync.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
 
@@ -50,6 +51,9 @@ function main() {
     if (!shellMounted) {
       shellMounted = true;
       renderShell(root, { onSignOut: handleSignOut });
+      // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
+      // 資料的真相在 Firestore（SPEC 第 4.8 節）。
+      sheetSync.wire();
     }
   });
 }

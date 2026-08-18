@@ -14,6 +14,7 @@
 import { counts } from './entitlements.js';
 import { isActive } from './visits.js';
 import { shortDate, isValidDate } from './dates.js';
+import { timeLabel } from './visitTime.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
@@ -161,4 +162,114 @@ export function toCSV({ rows }) {
 function csvCell(value) {
   const text = String(value ?? '');
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// ---------- 給 Apps Script 用的整包資料 ----------
+//
+// 上面那幾支排的是「貼進去就是一張表」的格子；這一支排的是**資料**，
+// 由 `sheets/readonly-report.gs` 拿去排版（合併儲存格、欄寬、上鎖）。
+//
+// 為什麼分兩份而不是把 rows 直接送過去：`.gs` 那邊要合併儲存格、要把備註
+// 塞進舊表 TODO 區塊的位置、要依剩餘次數上色 —— 那些需要知道「這一格是什麼」，
+// 而不只是「這一格印什麼字」。次數照樣在這裡算完（ADR-0004：不能錯的地方現算），
+// `.gs` 一個數字都不重算。
+//
+// 見 docs/adr/0013-sheet-sync-is-a-push-not-a-pull.md。
+
+/** 這包資料的格式版本。`.gs` 收到看不懂的版本要拒絕，不要半套渲染。 */
+export const SYNC_FORMAT = 1;
+
+/**
+ * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
+ * 漏推一次下一次會補回來，不需要在兩邊維護「哪些變了」。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.customers
+ * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
+ * @param {Record<string, object[]>} ctx.visitsBy       客戶 id → 來訪
+ * @param {string} ctx.today
+ * @param {object} [ctx.master] rooms / therapists / ivProducts / equipment，用來把 id 換成名字
+ * @param {string} [ctx.generatedAt]
+ */
+export function syncBundle({
+  customers = [], entitlementsBy = {}, visitsBy = {}, today,
+  master = {}, generatedAt = '',
+}) {
+  const nameOf = (type, id) =>
+    (master[type] ?? []).find((x) => x.id === id)?.name ?? null;
+
+  const sorted = customers
+    .filter((c) => !c.deletedAt)
+    .slice()
+    .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-TW'));
+
+  const sheets = sorted.map((customer) => {
+    const visits = (visitsBy[customer.id] ?? [])
+      .filter((v) => isActive(v) && isValidDate(v.date));
+    const alive = (entitlementsBy[customer.id] ?? []).filter((e) => !e.deletedAt);
+    const dates = [...new Set(visits.map((v) => v.date))].sort();
+
+    const rows = alive.map((e) => {
+      const c = counts(e, visits, e.id);
+      return {
+        label: e.label ?? '',
+        total: c.total,
+        done: c.done,
+        booked: c.booked,
+        remaining: c.remaining,
+        marks: dates.map((date) => mark(visits, e.id, date)),
+      };
+    });
+
+    return {
+      name: customer.name ?? '',
+      source: customer.source ?? '',
+      membershipExpiresAt: customer.membershipExpiresAt ?? '',
+      flags: customer.flags ?? [],
+      notes: customer.notes ?? '',
+      dates,
+      dateLabels: dates.map(shortDate),
+      rows,
+      totals: rows.reduce((t, r) => ({
+        total: t.total + r.total,
+        done: t.done + r.done,
+        booked: t.booked + r.booked,
+        remaining: t.remaining + r.remaining,
+      }), { total: 0, done: 0, booked: 0, remaining: 0 }),
+      // 舊表 TODO 區塊的位置改放這些 —— 那些掛號早就做完了，
+      // 但「那天到底做了什麼、誰做的、在哪一間」是舊表從來記不住的東西。
+      log: dates.map((date) => ({
+        date,
+        label: shortDate(date),
+        items: visits
+          .filter((v) => v.date === date)
+          .flatMap((v) => (v.slots ?? []).map((slot) => ({
+            course: slot.courseName ?? nameOf('courses', slot.courseId) ?? '',
+            time: timeLabel(slot),
+            equipment: nameOf('equipment', slot.equipmentId),
+            ivProduct: nameOf('ivProducts', slot.ivProductId),
+            room: nameOf('rooms', slot.roomId),
+            bed: slot.bed ?? null,
+            therapist: nameOf('therapists', slot.therapistId),
+          }))),
+      })).filter((d) => d.items.length),
+    };
+  });
+
+  return {
+    format: SYNC_FORMAT,
+    generatedAt,
+    today,
+    notice: READONLY_NOTICE,
+    overview: sheets.map((s) => ({
+      name: s.name,
+      source: s.source,
+      membershipExpiresAt: s.membershipExpiresAt,
+      flags: s.flags,
+      ...s.totals,
+      lastVisit: s.dates.filter((d) => d <= today).slice(-1)[0] ?? '',
+      nextVisit: s.dates.find((d) => d > today) ?? '',
+    })),
+    sheets,
+  };
 }

@@ -169,4 +169,8 @@ export const DEFAULT_SETTINGS = {
   sortWeights: { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 },
   slotGapMin: 15,
   noReplyDays: 3,
+  // 試算表同步。兩個都填了才會開始推（見 data/sheetSync.js）。
+  // 密鑰放在這裡而不是寫進前端程式碼：部署出去的 JS 人人看得到，
+  // 這份文件則被 firestore.rules 的白名單守著。
+  sheetSync: { url: '', token: '' },
 };
