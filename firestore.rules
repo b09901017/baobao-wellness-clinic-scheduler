@@ -112,9 +112,21 @@ service cloud.firestore {
     }
 
     // ---------- 任務 ----------
+    // 任務幾乎都是來訪存檔時連帶產生的，但她也可以手動加一筆獨立待辦，
+    // 所以 visitId 允許是 null。
+    function validTask() {
+      let d = request.resource.data;
+      return d.customerId is string
+        && d.kind is string
+        && d.kind.size() > 0
+        && d.dueDate is string
+        && d.dueDate.size() == 10
+        && d.done is bool;
+    }
+
     match /tasks/{taskId} {
       allow read:   if allowed();
-      allow create, update: if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validTask();
       allow delete: if false;
     }
 

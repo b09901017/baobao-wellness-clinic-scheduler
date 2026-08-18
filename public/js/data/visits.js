@@ -1,15 +1,21 @@
 // 來訪的存取。
 //
-// 寫入一律經過 save()：一筆來訪動到的額度計數必須跟它同進同出。
+// 寫入一律經過 save()：一筆來訪動到的額度計數與它該產生的任務，必須跟它同進同出。
 // 計數欄位是快取，真相是來訪本身（見 docs/adr/0004），但快取寫歪了
-// 清單頁就會騙人，所以兩者放在同一個 batch 裡。
+// 清單頁就會騙人；任務漏產生更糟，那是使用者最主要的痛點。
+// 三件事放在同一個 batch 裡，不會只寫進去一半，也不用靠呼叫端記得。
 
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import * as repo from './repo.js';
+import * as config from './config.js';
+import * as tasksData from './tasks.js';
 import { touchedEntitlementIds, recount } from '../domain/visits.js';
+import { syncTasksForVisit } from '../domain/taskRules.js';
+import { todayISO } from '../domain/dates.js';
 
 const PATH = 'visits';
+const TASK_PATH = 'tasks';
 const entPath = (customerId) => `customers/${customerId}/entitlements`;
 
 export const get = (id) => repo.getOne(PATH, id);
@@ -22,6 +28,18 @@ export function listByCustomer(customerId) {
   return repo.list(PATH, {
     wheres: [where('customerId', '==', customerId)],
     order: ['date', 'desc'],
+  });
+}
+
+/**
+ * 某個狀態的全部來訪，日期近的在前。
+ * 待辦中心用它抓「已壓表、還在等客戶回覆」的那些。
+ * 需要 (deletedAt, status, date asc) 複合索引，已列在 firestore.indexes.json。
+ */
+export function listByStatus(status) {
+  return repo.list(PATH, {
+    wheres: [where('status', '==', status)],
+    order: ['date', 'asc'],
   });
 }
 
@@ -61,18 +79,20 @@ export async function save(visit, customerVisits = []) {
       ...customerVisits.filter((v) => v.id !== id),
       next,
     ]),
+    ...(await taskOps(next, { isNew: !previous })),
   ];
 
   await repo.commit(ops);
   return id;
 }
 
-/** 軟刪除一筆來訪。次數要跟著還回去，所以也要重算。 */
+/** 軟刪除一筆來訪。次數要跟著還回去，任務也要跟著收掉。 */
 export async function remove(visit, customerVisits = [], reason = null) {
   const rest = customerVisits.filter((v) => v.id !== visit.id);
   await repo.commit([
     { op: 'softDelete', path: PATH, id: visit.id, reason },
     ...countOps(visit.customerId, [visit], rest),
+    ...(await taskOps({ ...visit, deletedAt: 'pending' })),
   ]);
 }
 
@@ -81,7 +101,32 @@ export async function restore(visit, customerVisits = []) {
   await repo.commit([
     { op: 'update', path: PATH, id: visit.id, changes: { deletedAt: null } },
     ...countOps(visit.customerId, [visit], [...customerVisits.filter((v) => v.id !== visit.id), next]),
+    ...(await taskOps(next)),
   ]);
+}
+
+/**
+ * 這筆來訪存下去之後，任務要跟著怎麼動。
+ *
+ * 課程刻意連已刪除的一起讀：主檔把課程刪掉，不代表已經排出去的來訪就不用去掛號了。
+ * 少讀那一筆的代價是任務被靜默移除，那正是這個 app 要解決的問題。
+ */
+async function taskOps(visit, { isNew = false } = {}) {
+  const [existing, courses] = await Promise.all([
+    isNew ? [] : tasksData.listByVisit(visit.id),
+    config.listAll('courses', { includeDeleted: true }),
+  ]);
+
+  const { create, update, remove: gone } = syncTasksForVisit(visit, existing, {
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    today: todayISO(),
+  });
+
+  return [
+    ...create.map((data) => ({ op: 'create', path: TASK_PATH, data })),
+    ...update.map((u) => ({ op: 'update', path: TASK_PATH, id: u.id, changes: u.changes })),
+    ...gone.map((r) => ({ op: 'softDelete', path: TASK_PATH, id: r.id, reason: r.reason })),
+  ];
 }
 
 function countOps(customerId, touched, visitsAfter) {

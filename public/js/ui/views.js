@@ -5,6 +5,7 @@ import * as settings from './views/settings.js';
 import * as masterList from './views/masterList.js';
 import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
+import * as home from './views/home.js';
 import * as customers from './views/customers.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as visitEditor from './views/visitEditor.js';
@@ -21,15 +22,7 @@ function placeholder(title, step, points) {
   };
 }
 
-register('/', {
-  title: '待辦', icon: '✅',
-  render: placeholder('待辦中心', 5, [
-    '待辦依死線排序，逾期紅、今明黃、其餘灰',
-    '今天壓了誰，含複製 LINE 確認訊息',
-    '等回覆／需再確認',
-    '改時間／取消，需回頭取消舊系統登記',
-  ]),
-});
+register('/', { title: '待辦', icon: '✅', render: home.render });
 
 register('/customers', { title: '客戶', icon: '👥', render: customers.render });
 

@@ -6,6 +6,7 @@
 
 import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
+import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
 import * as rules from '../../domain/customers.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
@@ -23,14 +24,15 @@ export async function render(el, id) {
 
   let ctx;
   try {
-    const [customer, entitlements, visits, courses, equipment] = await Promise.all([
+    const [customer, entitlements, visits, tasks, courses, equipment] = await Promise.all([
       data.get(id),
       data.listEntitlements(id),
       visitsData.listByCustomer(id),
+      tasksData.listByCustomer(id),
       config.listAll('courses'),
       config.listAll('equipment'),
     ]);
-    ctx = { el, id, customer, entitlements, visits, courses, equipment };
+    ctx = { el, id, customer, entitlements, visits, tasks, courses, equipment };
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
@@ -54,7 +56,7 @@ function reload(ctx) {
 // ---------- 主畫面 ----------
 
 function paint(ctx) {
-  const { el, customer, entitlements, visits, equipment } = ctx;
+  const { el, customer, entitlements, visits, tasks, equipment } = ctx;
   const today = todayISO();
   const flags = rules.splitFlags(customer, equipment);
   const ms = rules.membershipState(customer.membershipExpiresAt, today);
@@ -93,6 +95,8 @@ function paint(ctx) {
         : `<ul class="link-list">${visits.map(visitRow).join('')}</ul>`}
       <p><button class="btn btn--primary" type="button" data-add-visit>記錄一次來訪</button></p>
     </section>
+
+    ${taskSection(tasks)}
 
     ${dangerZone(customer)}`;
 
@@ -179,6 +183,45 @@ function poolCard(e, visits, ctx, today) {
 
       <p><button class="btn" type="button" data-ent="${esc(e.id)}">調整</button></p>
     </div>`;
+}
+
+/**
+ * 任務歷史。SPEC 第 8.5 節。
+ *
+ * 這裡只看，不勾 —— 勾完成在待辦中心做，那裡才有批次。
+ * 一個東西兩個地方可以改，遲早會出現「我剛剛不是勾過了嗎」。
+ */
+function taskSection(tasks) {
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+
+  return `
+    <details class="card" ${open.length ? 'open' : ''}>
+      <summary class="card__title">
+        任務<span class="muted"> ${tasks.length}</span>
+        ${open.length ? `<span class="badge badge--soon">${open.length} 筆未完成</span>` : ''}
+      </summary>
+      ${tasks.length === 0
+        ? '<p class="muted">還沒有任務。記錄來訪之後，該做的系統登記會自動產生。</p>'
+        : `<ul class="link-list">
+            ${[...open, ...done].map(taskRow).join('')}
+          </ul>
+          <p class="muted">要勾完成請到待辦中心，那裡可以一次勾一批。</p>`}
+    </details>`;
+}
+
+function taskRow(t) {
+  const label = `${t.done ? '✓ ' : ''}${esc(t.kind)}`;
+  const badge = `<span class="link-list__label">
+      <span class="badge ${t.done ? 'badge--ok' : ''}">${
+        t.done ? '已完成' : `死線 ${esc(t.dueDate)}`
+      }</span>
+    </span>`;
+
+  // 手動加的獨立待辦沒有來訪可以點進去
+  return t.visitId
+    ? `<li><a href="#/visits/${esc(t.visitId)}">${label}${badge}</a></li>`
+    : `<li><span class="row__main">${label}${badge}</span></li>`;
 }
 
 function reconcileWarning(e, rec) {

@@ -593,3 +593,21 @@ textarea {
   gap: var(--space-2);
   font-weight: 650;
 }
+
+/* ---------- 待辦中心 ---------- */
+
+/* 可收合的區塊。點擊區要夠大，手機上是單手在按的。 */
+summary {
+  cursor: pointer;
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* 要貼到 LINE 的訊息。整段可選取，複製被擋下來時才長按得到。 */
+.msg {
+  width: 100%;
+  margin-bottom: var(--space-3);
+}

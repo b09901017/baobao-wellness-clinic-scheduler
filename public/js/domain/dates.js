@@ -37,6 +37,25 @@ export function addMonths(iso, months) {
   return `${ny}-${pad(nm)}-${pad(Math.min(d, lastDayOf(ny, nm)))}`;
 }
 
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 星期幾，0 是星期日。 */
+export function weekdayOf(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/** 給人看的星期，例：'三'。她的可用性條件全部是用星期講的。 */
+export function weekdayLabel(iso) {
+  return WEEKDAYS[weekdayOf(iso)];
+}
+
+/** 'M/D(週)'，例：'9/3(三)'。LINE 訊息與清單都用這個格式。 */
+export function shortDate(iso) {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${m}/${d}(${weekdayLabel(iso)})`;
+}
+
 /** to - from，單位是天。to 比較早就是負的。 */
 export function daysBetween(from, to) {
   const [fy, fm, fd] = from.split('-').map(Number);
