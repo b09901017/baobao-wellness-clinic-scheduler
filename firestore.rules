@@ -90,8 +90,10 @@ service cloud.firestore {
 
     // ---------- 來訪 ----------
     // 沒有 draft：app 裡不存在還沒壓表的來訪（SPEC 第 4.1 節）。
-    // 狀態機的合法轉移在前端擋（domain/visits.js）—— 這裡只擋「根本不是一筆來訪」的東西，
-    // 因為 Rules 讀 resource.data 判斷轉移會讓每次寫入多一次讀取，代價不划算。
+    // 這裡只擋「根本不是一筆來訪」的東西。狀態機的合法轉移刻意不在這裡擋 ——
+    // 復原（SPEC 第 6.3 節）就是把舊值寫回去，那必然是一次反向轉移，
+    // 擋了反向轉移就等於擋掉復原。見
+    // docs/adr/0006-status-transitions-are-not-enforced-in-rules.md
     function validVisit() {
       let d = request.resource.data;
       return d.customerId is string
@@ -110,9 +112,21 @@ service cloud.firestore {
     }
 
     // ---------- 任務 ----------
+    // 任務幾乎都是來訪存檔時連帶產生的，但她也可以手動加一筆獨立待辦，
+    // 所以 visitId 允許是 null。
+    function validTask() {
+      let d = request.resource.data;
+      return d.customerId is string
+        && d.kind is string
+        && d.kind.size() > 0
+        && d.dueDate is string
+        && d.dueDate.size() == 10
+        && d.done is bool;
+    }
+
     match /tasks/{taskId} {
       allow read:   if allowed();
-      allow create, update: if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validTask();
       allow delete: if false;
     }
 

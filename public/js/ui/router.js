@@ -59,7 +59,18 @@ export function go(path) {
   location.hash = path;
 }
 
+let repaint = null;
+
 export function start(onChange) {
+  repaint = onChange;
   window.addEventListener('hashchange', () => onChange(resolve()));
   onChange(resolve());
+}
+
+/**
+ * 重畫目前這一頁。復原之後畫面上的資料就過期了 ——
+ * 讓她看著已經被還原掉的東西是最糟的，那會讓人以為復原沒生效。
+ */
+export function reload() {
+  repaint?.(resolve());
 }

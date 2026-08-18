@@ -9,7 +9,7 @@
 // （集合與文件必須交替出現）。這裡是最接近原意的合法寫法，
 // firestore.rules 的 match /config/{docId=**} 已經涵蓋。
 
-import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import { getDb } from './firebase.js';
 import * as repo from './repo.js';
@@ -43,12 +43,17 @@ export async function getSettings() {
   return { ...DEFAULT_SETTINGS, ...(snap.exists() ? snap.data() : {}) };
 }
 
+/**
+ * 設定值也走 repo，才會有稽核與復原 —— 排序權重被改掉而不知道是什麼時候改的，
+ * 跟資料被改掉一樣難查。
+ */
 export async function saveSettings(changes) {
-  await setDoc(
-    doc(getDb(), 'config', 'app'),
-    { ...changes, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  const exists = (await getDoc(doc(getDb(), 'config', 'app'))).exists();
+  await repo.commit([
+    exists
+      ? { op: 'update', path: 'config', id: 'app', changes }
+      : { op: 'create', path: 'config', id: 'app', data: changes },
+  ]);
 }
 
 // ---------- 種子資料 ----------

@@ -16,6 +16,17 @@
 
 寫新文件前先確認這件事還沒被寫過。`docs/legacy/` 與 `docs/adr/` 不放任何真實客戶姓名或健康資訊。
 
+## 容易漏掉的連動
+
+| 改了這個 | 一定要一起檢查 |
+|---|---|
+| `/domain` 的業務規則 | `SPEC.md` 對應章節。推翻既有決定就補一支 ADR，不要改掉舊的 |
+| `public/` 底下任何檔案 | `public/sw.js` 的 `SHELL` 清單與 `VERSION`（測試只盯清單，不盯版號） |
+| 做完一個開發步驟 | `README.md` 開發狀態表打勾 |
+| 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
+| 次數的算法 | `counts()`（現算）與 `summarize()`（讀快取）要一起改，見 ADR-0004 |
+| UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |
+
 ## Agent skills
 
 ### Issue tracker
