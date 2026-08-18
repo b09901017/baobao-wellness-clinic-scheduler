@@ -1,6 +1,6 @@
 # 方案範本沒辦法「複製一份改名成新範本」
 
-Status: ready-for-agent
+Status: done
 回報者：ADR-0003 寫進去時就講好的作法，但一直沒開票，2026-08-18
 動工前先讀：`docs/adr/0003-plan-templates-have-no-version.md` 與 `SPEC.md` 第 4.5、5.3、6.4 節
 

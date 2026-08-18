@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   parseAvailability, dayStatus, availableDates, describeRule,
   collectionState, currentCollection, validateCollection, summarize,
+  manualRule, mergeRules, validateRule,
 } from '../public/js/domain/availability.js';
 
 const parse = (text) => parseAvailability(text, { year: 2026 });
@@ -244,5 +245,92 @@ describe('驗證', () => {
   test('摘要說得出可用幾天', () => {
     assert.match(summarize(good, '2026-09-01'), /可用 26 天/);
     assert.match(summarize({ ...good, rules: [] }, '2026-09-01'), /看原文/);
+  });
+});
+
+// ---------- 自己加一條規則 ----------
+//
+// 解析器一定會漏，而它的正確目標本來就是「常見的認得，其餘老實說看不懂」。
+// 漏掉的時候原本唯一的辦法是把原文改寫成它認得的講法 —— 而 SPEC 第 4.3 節
+// 要求原文照抄、永遠保留。見 .scratch/availability/issues/01。
+
+describe('手動加的規則', () => {
+  test('四種規則都建得出來，而且都標得出是自己加的', () => {
+    assert.deepEqual(
+      manualRule({ kind: 'exclude_weekday', weekday: '5' }),
+      { kind: 'exclude_weekday', weekday: 5, manual: true },
+    );
+    assert.deepEqual(
+      manualRule({ kind: 'exclude_date', date: '2026-09-17', partOfDay: 'am' }),
+      { kind: 'exclude_date', date: '2026-09-17', partOfDay: 'am', manual: true },
+    );
+    assert.deepEqual(
+      manualRule({ kind: 'exclude_range', from: '2026-09-22', to: '2026-09-24' }),
+      { kind: 'exclude_range', from: '2026-09-22', to: '2026-09-24', manual: true },
+    );
+    assert.deepEqual(
+      manualRule({ kind: 'prefer', weekday: '3', partOfDay: 'pm' }),
+      { kind: 'prefer', weekday: 3, partOfDay: 'pm', manual: true },
+    );
+  });
+
+  test('喜好填了日期就以日期為準，不填就用星期', () => {
+    assert.equal(manualRule({ kind: 'prefer', weekday: '3', date: '2026-09-17' }).date, '2026-09-17');
+    assert.equal(manualRule({ kind: 'prefer', weekday: '3' }).weekday, 3);
+  });
+
+  test('不認得的種類回 null，不要編一條出來', () => {
+    assert.equal(manualRule({ kind: '亂寫' }), null);
+  });
+
+  test('手動加的規則跟解析出來的一樣會被套用', () => {
+    const rules = [manualRule({ kind: 'exclude_weekday', weekday: 5 })];
+    assert.equal(dayStatus(rules, '2026-09-18').available, false, '2026-09-18 是禮拜五');
+    assert.equal(dayStatus(rules, '2026-09-17').available, true);
+  });
+
+  test('重新解析原文時，自己加的那幾條要留著', () => {
+    // 那幾條本來就不在原文的解析結果裡 —— 那正是她手動加的原因。
+    // 整份取代等於每次重新解析都清掉一次，而且不會有任何訊息。
+    const manual = manualRule({ kind: 'exclude_weekday', weekday: 5 });
+    const before = [{ kind: 'exclude_date', date: '2026-09-01' }, manual];
+    const parsed = [{ kind: 'exclude_date', date: '2026-09-02' }];
+
+    const merged = mergeRules(before, parsed);
+    assert.deepEqual(merged, [{ kind: 'exclude_date', date: '2026-09-02' }, manual]);
+  });
+
+  test('重新解析不會把解析出來的舊規則留下來', () => {
+    const before = [{ kind: 'exclude_date', date: '2026-09-01' }];
+    assert.deepEqual(mergeRules(before, []), []);
+  });
+
+  test('一條規則的驗證只有一份實作，收集與手動新增共用', () => {
+    assert.deepEqual(validateRule({ kind: 'exclude_weekday', weekday: 3 }), []);
+    assert.deepEqual(validateRule({ kind: 'exclude_weekday', weekday: 9 }), ['星期不合法']);
+    assert.deepEqual(validateRule({ kind: 'exclude_date', date: '亂寫' }), ['日期不合法']);
+    assert.deepEqual(
+      validateRule({ kind: 'exclude_range', from: '2026-09-24', to: '2026-09-22' }),
+      ['結束日不能早於開始日'],
+    );
+    assert.deepEqual(validateRule({ kind: '亂寫' }), ['不認得的種類']);
+
+    // 整份收集的驗證要講得出是第幾條
+    const errors = validateCollection({
+      rawText: '有字', collectedAt: '2026-09-01', validFrom: '2026-09-01', validTo: '2026-09-30',
+      rules: [{ kind: 'exclude_weekday', weekday: 9 }],
+    });
+    assert.deepEqual(errors, ['第 1 條規則：星期不合法']);
+  });
+
+  test('手動加的規則存得進去，不會被驗證擋下來', () => {
+    const errors = validateCollection({
+      rawText: '月底那幾天盡量不要',
+      collectedAt: '2026-09-01',
+      validFrom: '2026-09-01',
+      validTo: '2026-09-30',
+      rules: [manualRule({ kind: 'exclude_range', from: '2026-09-28', to: '2026-09-30' })],
+    });
+    assert.deepEqual(errors, []);
   });
 });

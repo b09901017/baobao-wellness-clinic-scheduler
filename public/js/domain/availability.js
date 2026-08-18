@@ -348,6 +348,73 @@ export function currentCollection(collections, today) {
 
 // ---------- 驗證 ----------
 
+/**
+ * 手動加的一條規則。
+ *
+ * 解析器一定會漏 —— 它的正確目標是「常見的認得，其餘老實說看不懂」。
+ * 漏掉的時候原本唯一的辦法是把原文改寫成它認得的講法，而那違反 SPEC 第 4.3 節的
+ * 「原文照抄、永遠保留」。所以改成**補在 rules 上，原文一個字都不動**。
+ *
+ * 標上 `manual` 是為了讓「用原文重新解析」認得出它們 —— 重新解析是整份取代，
+ * 沒有這個標記，她自己加的那幾條會被無聲蓋掉。
+ *
+ * @param {{kind: string, weekday?: number|string, date?: string,
+ *          from?: string, to?: string, partOfDay?: string}} raw
+ * @returns {object|null} 不認得的種類回 null
+ */
+export function manualRule(raw = {}) {
+  const part = raw.partOfDay === 'am' || raw.partOfDay === 'pm' ? { partOfDay: raw.partOfDay } : {};
+  const weekday = Number(raw.weekday);
+  const base = { manual: true };
+
+  switch (raw.kind) {
+    case 'exclude_weekday':
+      return { kind: 'exclude_weekday', weekday, ...part, ...base };
+    case 'exclude_date':
+      return { kind: 'exclude_date', date: raw.date ?? null, ...part, ...base };
+    case 'exclude_range':
+      return { kind: 'exclude_range', from: raw.from ?? null, to: raw.to ?? null, ...base };
+    case 'prefer':
+      // 喜好可以綁星期也可以綁某一天。填了日期就以日期為準。
+      return raw.date
+        ? { kind: 'prefer', date: raw.date, ...part, ...base }
+        : { kind: 'prefer', weekday, ...part, ...base };
+    default:
+      return null;
+  }
+}
+
+/**
+ * 重新解析原文時，手動加的規則要留著。
+ *
+ * 「用原文重新解析」是整份取代，這很合理 —— 原文才是最終依據。但手動加的那幾條
+ * **本來就不在原文的解析結果裡**（那正是她要手動加的原因），整份取代等於每次
+ * 重新解析都把它們清掉一次，而且不會有任何訊息。
+ *
+ * @param {object[]} existing 目前這一份的規則
+ * @param {object[]} parsed 剛從原文解析出來的
+ */
+export function mergeRules(existing = [], parsed = []) {
+  return [...parsed, ...existing.filter((r) => r?.manual)];
+}
+
+/** 一條規則對不對。validateCollection() 與 UI 的「自己加一條」共用這一份。 */
+export function validateRule(rule) {
+  if (!RULE_KINDS.includes(rule?.kind)) return ['不認得的種類'];
+
+  const errors = [];
+  if (rule.kind === 'exclude_date' && !isValidDate(rule.date)) errors.push('日期不合法');
+  if (rule.kind === 'exclude_range') {
+    if (!isValidDate(rule.from) || !isValidDate(rule.to)) errors.push('日期不合法');
+    else if (rule.to < rule.from) errors.push('結束日不能早於開始日');
+  }
+  if ((rule.kind === 'exclude_weekday' || (rule.kind === 'prefer' && !rule.date))
+      && !(rule.weekday >= 0 && rule.weekday <= 6)) {
+    errors.push('星期不合法');
+  }
+  return errors;
+}
+
 export function validateCollection(record) {
   const errors = [];
 
@@ -363,22 +430,7 @@ export function validateCollection(record) {
   }
 
   (record?.rules ?? []).forEach((rule, i) => {
-    const at = `第 ${i + 1} 條規則`;
-    if (!RULE_KINDS.includes(rule.kind)) {
-      errors.push(`${at}：不認得的種類`);
-      return;
-    }
-    if (rule.kind === 'exclude_date' && !isValidDate(rule.date)) {
-      errors.push(`${at}：日期不合法`);
-    }
-    if (rule.kind === 'exclude_range') {
-      if (!isValidDate(rule.from) || !isValidDate(rule.to)) errors.push(`${at}：日期不合法`);
-      else if (rule.to < rule.from) errors.push(`${at}：結束日不能早於開始日`);
-    }
-    if ((rule.kind === 'exclude_weekday' || (rule.kind === 'prefer' && !rule.date))
-        && !(rule.weekday >= 0 && rule.weekday <= 6)) {
-      errors.push(`${at}：星期不合法`);
-    }
+    for (const why of validateRule(rule)) errors.push(`第 ${i + 1} 條規則：${why}`);
   });
 
   return errors;

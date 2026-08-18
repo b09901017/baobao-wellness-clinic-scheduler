@@ -1,6 +1,6 @@
 # 可用性的規則只能刪不能加，解析漏掉的條件補不回來
 
-Status: ready-for-agent
+Status: done
 回報者：第 6 步實作時自己留下的缺口，2026-08-18
 動工前先讀：`SPEC.md` 第 4.3 節與 `public/js/domain/availability.js` 的檔頭
 
