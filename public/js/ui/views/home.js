@@ -8,6 +8,7 @@
 // 免得某個區塊被收起來之後就再也沒被看到。
 
 import * as tasksData from '../../data/tasks.js';
+import * as health from './health.js';
 import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
@@ -59,6 +60,7 @@ function paint(ctx) {
   const noReplyDays = settings.noReplyDays ?? 3;
 
   el.innerHTML = `
+    <div data-health>${healthCard(health.lastBadge())}</div>
     ${section('待辦', tasks.length, overdue ? `${overdue} 筆逾期` : '', taskSection(ctx))}
     ${section('今天壓了誰', createdToday.length, '', todaySection(createdToday))}
     ${section('等回覆', pending.length, waitingNote(pending, today, noReplyDays),
@@ -66,6 +68,34 @@ function paint(ctx) {
     ${section('改時間／取消', cancels.length, '', cancelSection(cancels, today))}`;
 
   wire(ctx);
+  scanHealth(el);
+}
+
+/**
+ * 資料健檢的摘要。SPEC 第 6.6 節要求 app 啟動時也在背景跑一次，
+ * 而她一打開 app 就是這一頁，所以掛在這裡而不是進入點 ——
+ * 掃描本身每天最多跑一次，細節見 views/health.js。
+ *
+ * 沒問題時整張卡不出現：沒事還佔一格，下次真的有事時她也不會注意到。
+ */
+function healthCard(badge) {
+  if (!badge) return '';
+  return `
+    <section class="card">
+      <h2 class="card__title">資料健檢
+        <span class="badge badge--overdue">${esc(badge)}</span></h2>
+      <p class="muted">背景掃描發現的差異。只是提醒，沒有動到任何資料。</p>
+      <p><a class="btn" href="#/settings/health">去看</a></p>
+    </section>`;
+}
+
+/** 掃完才把卡片補上，不擋首頁的第一次繪製 —— 她開 app 是為了勾待辦，不是為了等資料健檢。 */
+async function scanHealth(el) {
+  const result = await health.runIfDue();
+  if (!result) return;
+  // 掃描期間她可能已經換頁了，元素不在就算了
+  const slot = el.querySelector('[data-health]');
+  if (slot) slot.innerHTML = healthCard(health.lastBadge());
 }
 
 function section(title, count, note, body) {

@@ -74,11 +74,19 @@ export async function list(path, { wheres = [], order = null, limit = null } = {
 }
 
 /**
- * 含已刪除的全部資料。只有「已刪除項目還原」與匯出備份該用這個，
- * 一般清單一律用 list()。
+ * 不過濾 deletedAt 的查詢。三種情況會用到，一般清單一律用 list()：
+ *
+ * 1. 「已刪除項目」還原 —— 要找的就是被濾掉的那些
+ * 2. 匯出備份 —— 備份漏掉已刪除的資料，那份備份就救不回誤刪
+ * 3. 讀 audit —— 稽核紀錄根本沒有 deletedAt 這個欄位（它不能被刪），
+ *    用 list() 讀等於 where('deletedAt','==',null) 對上不存在的欄位，一筆都不會回來
  */
-export async function listWithDeleted(path) {
-  const snap = await getDocs(collection(getDb(), path));
+export async function listWithDeleted(path, { wheres = [], order = null, limit = null } = {}) {
+  const clauses = [...wheres];
+  if (order) clauses.push(orderBy(order[0], order[1] ?? 'asc'));
+  if (limit) clauses.push(fsLimit(limit));
+
+  const snap = await getDocs(query(collection(getDb(), path), ...clauses));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 

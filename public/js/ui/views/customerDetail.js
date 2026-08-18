@@ -8,6 +8,8 @@ import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as tasksData from '../../data/tasks.js';
 import * as availability from './availability.js';
+import * as auditView from './audit.js';
+import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
 import * as rules from '../../domain/customers.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
@@ -19,6 +21,9 @@ import * as toast from '../toast.js';
 import { go } from '../router.js';
 
 const esc = f.esc;
+
+/** 變更紀錄往回查幾筆來訪。listByCustomer 是新的在前，所以這是「最近的 N 筆」。 */
+const AUDIT_VISIT_LIMIT = 30;
 
 export async function render(el, id) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -106,6 +111,8 @@ function paint(ctx) {
 
     ${taskSection(tasks)}
 
+    ${auditView.sectionHtml()}
+
     ${dangerZone(customer)}`;
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
@@ -129,6 +136,11 @@ function paint(ctx) {
   );
 
   availability.wireSection(ctx);
+  // 只帶最近幾十筆來訪的 id 去查稽核：in 查詢要分批，全部帶等於一直往回翻，
+  // 而她在這裡要看的是「最近這筆資料被改成什麼」。
+  auditView.wireSection(el, () =>
+    auditData.listForCustomer(ctx.id, visits.slice(0, AUDIT_VISIT_LIMIT).map((v) => v.id)),
+  );
   wireDangerZone(ctx);
 }
 

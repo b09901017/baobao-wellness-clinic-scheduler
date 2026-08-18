@@ -1,0 +1,459 @@
+// 資料健檢。SPEC 第 6.6 節的七項對帳，全部是純函式。
+//
+// 這一支不新增任何一條規則 —— 七項檢查全部是把 /domain 既有的判斷拿去全庫跑一遍：
+// 次數對帳與額度超用用 entitlements.js 的 reconcile() / counts() / isOverused()，
+// 逾期任務用 taskRules.js 的 urgency()，可用性過期用 availability.js 的
+// currentCollection()，衝突殘留用 visitTime.js 的 overlaps()。
+// 同一件事有第二套算法就會出現「詳情頁說對、資料健檢說錯」，那比不做這一頁還糟。
+//
+// 只算不寫：這裡回傳的是差異，不是修好的資料。要不要改是她的決定
+//（docs/adr/0002-app-records-decisions-it-does-not-make-them.md），
+// 而唯一有明確正解的修正是計數欄位重算，見 docs/adr/0007-health-check-reads-only.md。
+
+import { counts, reconcile, isOverused } from './entitlements.js';
+import { urgency } from './taskRules.js';
+import { currentCollection } from './availability.js';
+import { overlaps, isValidTime } from './visitTime.js';
+import { VISIT_STATUSES, isActive } from './visits.js';
+
+/**
+ * 七項檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
+ * id 會出現在網址與稽核訊息裡，不要改。
+ */
+export const CHECKS = [
+  {
+    id: 'counts',
+    label: '次數對帳',
+    hint: 'entitlement 的計數欄位是不是等於從來訪重算的值',
+  },
+  {
+    id: 'orphans',
+    label: '孤兒資料',
+    hint: '指向不存在的客戶、額度、課程、診間、器材的來訪或任務',
+  },
+  {
+    id: 'visitStatus',
+    label: '狀態異常',
+    hint: '日期已過但還沒結案的來訪，以及不在合法清單內的狀態',
+  },
+  {
+    id: 'overused',
+    label: '額度超用',
+    hint: '已排 + 已完成超過總次數',
+  },
+  {
+    id: 'conflicts',
+    label: '衝突殘留',
+    hint: '她自己排的來訪之間，同診間床位或同治療師撞在一起',
+  },
+  {
+    id: 'overdueTasks',
+    label: '逾期任務',
+    hint: '死線已過但還沒勾完成',
+  },
+  {
+    id: 'staleAvailability',
+    label: '資料過期',
+    hint: '本輪可用性已過有效期，排序會失真',
+  },
+];
+
+/** 嚴重度只有兩級。'mismatch' 是資料自己對不起來，'attention' 是要她去處理一件事。 */
+export const SEVERITIES = ['mismatch', 'attention'];
+
+const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
+const alive = (rows) => (rows ?? []).filter((r) => !r.deletedAt);
+
+/**
+ * 全庫掃一次。
+ *
+ * @param {object} snapshot
+ * @param {object[]} snapshot.customers  含已刪除 —— 要分得出「指向已刪除的客戶」與「指向不存在的客戶」
+ * @param {object[]} snapshot.entitlements 含已刪除，每筆帶 customerId
+ * @param {object[]} snapshot.visits     未刪除
+ * @param {object[]} snapshot.tasks      未刪除，含已完成的
+ * @param {object[]} snapshot.availability 未刪除，每筆帶 customerId
+ * @param {object} snapshot.master       { courses, rooms, staff, equipment, ivProducts }，含已刪除
+ * @param {string} today 'YYYY-MM-DD'
+ * @returns {{today:string, checks:object[], totals:{findings:number, mismatch:number, attention:number}}}
+ */
+export function runHealthCheck(snapshot, today) {
+  const ctx = prepare(snapshot, today);
+
+  const checks = CHECKS.map((check) => {
+    const findings = RUNNERS[check.id](ctx);
+    return {
+      ...check,
+      findings,
+      count: findings.length,
+      fixable: findings.filter((f) => f.fix).length,
+    };
+  });
+
+  return { today, checks, totals: totalsOf(checks) };
+}
+
+/** 首頁徽章要的一句話。沒有問題時回 null —— 沒事就不要在畫面上佔位置。 */
+export function healthBadge(result) {
+  const t = result?.totals;
+  if (!t?.findings) return null;
+  const parts = [];
+  if (t.mismatch) parts.push(`${t.mismatch} 筆資料對不起來`);
+  if (t.attention) parts.push(`${t.attention} 筆要處理`);
+  return parts.join('・');
+}
+
+function totalsOf(checks) {
+  const all = checks.flatMap((c) => c.findings);
+  return {
+    findings: all.length,
+    mismatch: all.filter((f) => f.severity === 'mismatch').length,
+    attention: all.filter((f) => f.severity === 'attention').length,
+    fixable: all.filter((f) => f.fix).length,
+  };
+}
+
+// ---------- 共用的前置整理 ----------
+//
+// 七項檢查有一半以上都要「這位客戶的來訪」與「這筆額度屬於誰」，
+// 各自再算一次就是七次全表掃描。整理一次，大家共用。
+
+function prepare(snapshot, today) {
+  const customers = snapshot.customers ?? [];
+  const entitlements = snapshot.entitlements ?? [];
+  const visits = alive(snapshot.visits);
+  const tasks = alive(snapshot.tasks);
+  const availability = alive(snapshot.availability);
+  const master = snapshot.master ?? {};
+
+  const visitsByCustomer = {};
+  for (const v of visits) (visitsByCustomer[v.customerId] ??= []).push(v);
+
+  const availByCustomer = {};
+  for (const a of availability) (availByCustomer[a.customerId] ??= []).push(a);
+
+  const entsByCustomer = {};
+  for (const e of entitlements) (entsByCustomer[e.customerId] ??= []).push(e);
+
+  return {
+    today,
+    customers,
+    customersById: byId(customers),
+    entitlements,
+    entsByCustomer,
+    entitlementsById: byId(entitlements),
+    visits,
+    visitsById: byId(visits),
+    visitsByCustomer,
+    tasks,
+    availByCustomer,
+    coursesById: byId(master.courses),
+    roomsById: byId(master.rooms),
+    staffById: byId(master.staff),
+    equipmentById: byId(master.equipment),
+    ivProductsById: byId(master.ivProducts),
+  };
+}
+
+/** 客戶的顯示名。已刪除的也要看得到名字，不然差異報告讀不懂。 */
+function nameOf(ctx, customerId) {
+  return ctx.customersById[customerId]?.name ?? '（找不到這位客戶）';
+}
+
+// ---------- 一、次數對帳 ----------
+
+function checkCounts(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    const visits = ctx.visitsByCustomer[customer.id] ?? [];
+
+    for (const e of alive(ctx.entsByCustomer[customer.id] ?? [])) {
+      const rec = reconcile(e, visits, e.id);
+      if (rec.ok) continue;
+
+      out.push({
+        severity: 'mismatch',
+        title: `${customer.name}・${e.label}`,
+        detail:
+          `計數欄位是 已完成 ${rec.stored.done}、已排未上 ${rec.stored.booked}，`
+          + `從來訪重算是 已完成 ${rec.actual.done}、已排未上 ${rec.actual.booked}`,
+        link: `#/customers/${customer.id}`,
+        // 真相永遠是 visits（ADR-0004），所以這一項有明確正解，可以一鍵修正。
+        fix: {
+          kind: 'recount',
+          customerId: customer.id,
+          entitlementId: e.id,
+          label: `${customer.name}・${e.label}`,
+          from: { done: rec.stored.done, booked: rec.stored.booked },
+          to: { done: rec.actual.done, booked: rec.actual.booked },
+        },
+      });
+    }
+  }
+
+  return out;
+}
+
+// ---------- 二、孤兒資料 ----------
+//
+// 「指向已刪除的」與「指向根本不存在的」要分開講：前者通常是她自己刪的主檔，
+// 後者代表資料真的少了一塊。兩種的處理方式不一樣，混在一起她會分不出哪筆要緊。
+
+function checkOrphans(ctx) {
+  const out = [];
+
+  const refState = (id, table) => {
+    if (!id) return 'none';
+    const row = table[id];
+    if (!row) return 'missing';
+    return row.deletedAt ? 'deleted' : 'ok';
+  };
+
+  const push = (state, { title, what, link }) => {
+    if (state === 'ok' || state === 'none') return;
+    out.push({
+      severity: state === 'missing' ? 'mismatch' : 'attention',
+      title,
+      detail: state === 'missing' ? `${what}不存在` : `${what}已被刪除`,
+      link,
+      fix: null,
+    });
+  };
+
+  for (const visit of ctx.visits) {
+    const link = `#/visits/${visit.id}`;
+    const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+    const head = `來訪 ${visit.date}・${who}`;
+
+    push(refState(visit.customerId, ctx.customersById), {
+      title: head, what: '這筆來訪指向的客戶', link,
+    });
+
+    (visit.slots ?? []).forEach((slot, i) => {
+      const at = `${head}・第 ${i + 1} 個時段`;
+      push(refState(slot.entitlementId, ctx.entitlementsById), {
+        title: at, what: '這個時段指向的額度', link,
+      });
+      push(refState(slot.courseId, ctx.coursesById), {
+        title: at, what: '這個時段指向的課程', link,
+      });
+      push(refState(slot.roomId, ctx.roomsById), {
+        title: at, what: '這個時段指向的診間', link,
+      });
+      push(refState(slot.therapistId, ctx.staffById), {
+        title: at, what: '這個時段指向的治療師', link,
+      });
+      push(refState(slot.equipmentId, ctx.equipmentById), {
+        title: at, what: '這個時段指向的器材', link,
+      });
+      push(refState(slot.ivProductId, ctx.ivProductsById), {
+        title: at, what: '這個時段指向的營養點滴品項', link,
+      });
+    });
+  }
+
+  for (const task of ctx.tasks) {
+    const who = task.customerName ?? nameOf(ctx, task.customerId);
+    const head = `任務 ${task.kind}・${who}`;
+    const link = task.visitId ? `#/visits/${task.visitId}` : null;
+
+    push(refState(task.customerId, ctx.customersById), {
+      title: head, what: '這筆任務指向的客戶', link,
+    });
+
+    // visitId 是 null 代表手動加的獨立待辦，那是正常的，不是孤兒。
+    if (task.visitId && !ctx.visitsById[task.visitId]) {
+      out.push({
+        severity: 'mismatch',
+        title: head,
+        detail: '這筆任務指向的來訪不存在或已刪除，但任務還開著',
+        link: null,
+        fix: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+// ---------- 三、狀態異常 ----------
+
+function checkVisitStatus(ctx) {
+  const out = [];
+
+  for (const visit of ctx.visits) {
+    const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+
+    // 繞過前端寫進來的狀態。Rules 只驗形狀不驗轉移（ADR-0006），
+    // 所以這一項是它唯一會被看見的地方。
+    if (!VISIT_STATUSES.includes(visit.status)) {
+      out.push({
+        severity: 'mismatch',
+        title: `來訪 ${visit.date}・${who}`,
+        detail: `狀態「${visit.status ?? '（空的）'}」不在合法清單內`,
+        link: `#/visits/${visit.id}`,
+        fix: null,
+      });
+      continue;
+    }
+
+    if (visit.date < ctx.today
+        && (visit.status === 'confirmed' || visit.status === 'pending_confirm')) {
+      out.push({
+        severity: 'attention',
+        title: `來訪 ${visit.date}・${who}`,
+        detail: visit.status === 'confirmed'
+          ? '日期已過但還是「客戶已確認」，該標已完成或未到了'
+          : '日期已過但還在等客戶回覆，該結案了',
+        link: `#/visits/${visit.id}`,
+        fix: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+// ---------- 四、額度超用 ----------
+
+function checkOverused(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    const visits = ctx.visitsByCustomer[customer.id] ?? [];
+
+    for (const e of alive(ctx.entsByCustomer[customer.id] ?? [])) {
+      // 刻意用重算值而不是計數欄位：欄位可能正好是歪的那一個，
+      // 拿它判斷超用會同時漏掉真的超用、又冤枉沒超用的。
+      const c = counts(e, visits, e.id);
+      if (!isOverused(c)) continue;
+
+      out.push({
+        severity: 'attention',
+        title: `${customer.name}・${e.label}`,
+        detail: `共 ${c.total} 次，已完成 ${c.done}、已排未上 ${c.booked}，超出 ${
+          c.done + c.booked - c.total
+        } 次`,
+        link: `#/customers/${customer.id}`,
+        fix: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+// ---------- 五、衝突殘留 ----------
+//
+// 只看她自己排的來訪彼此之間。跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節），
+// 所以這裡找到的一定是她自己重複排的 —— 那是真的要處理的東西。
+
+function checkConflicts(ctx) {
+  const out = [];
+  const byDate = {};
+  for (const v of ctx.visits) {
+    if (!isActive(v)) continue;
+    (byDate[v.date] ??= []).push(v);
+  }
+
+  for (const [date, visits] of Object.entries(byDate)) {
+    // 攤平成時段清單再兩兩比，避免四層迴圈讀不懂
+    const slots = visits.flatMap((visit) =>
+      (visit.slots ?? [])
+        .filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt))
+        .map((slot) => ({ visit, slot })),
+    );
+
+    for (let i = 0; i < slots.length; i += 1) {
+      for (let j = i + 1; j < slots.length; j += 1) {
+        const a = slots[i];
+        const b = slots[j];
+        if (a.visit.id === b.visit.id) continue;
+        if (!overlaps(a.slot, b.slot)) continue;
+
+        const sameRoom = a.slot.roomId && a.slot.roomId === b.slot.roomId
+          && (a.slot.bed ?? null) === (b.slot.bed ?? null);
+        const sameTherapist = a.slot.therapistId && a.slot.therapistId === b.slot.therapistId;
+        if (!sameRoom && !sameTherapist) continue;
+
+        const what = sameRoom
+          ? `${ctx.roomsById[a.slot.roomId]?.name ?? '某診間'}${a.slot.bed ?? ''}`
+          : `${ctx.staffById[a.slot.therapistId]?.name ?? '某治療師'}`;
+
+        out.push({
+          severity: 'attention',
+          title: `${date} ${what}`,
+          detail:
+            `${a.slot.startsAt}–${a.slot.endsAt} ${a.visit.customerName ?? nameOf(ctx, a.visit.customerId)}`
+            + ` 與 ${b.slot.startsAt}–${b.slot.endsAt} ${b.visit.customerName ?? nameOf(ctx, b.visit.customerId)}`
+            + ' 撞在一起',
+          link: `#/visits/${a.visit.id}`,
+          fix: null,
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+// ---------- 六、逾期任務 ----------
+
+function checkOverdueTasks(ctx) {
+  return ctx.tasks
+    .filter((t) => !t.done && urgency(t.dueDate, ctx.today) === 'overdue')
+    .map((t) => ({
+      severity: 'attention',
+      title: `${t.kind}・${t.customerName ?? nameOf(ctx, t.customerId)}`,
+      detail: `死線 ${t.dueDate} 已經過了`,
+      link: t.visitId ? `#/visits/${t.visitId}` : '#/',
+      fix: null,
+    }));
+}
+
+// ---------- 七、資料過期 ----------
+//
+// 過期的可用性不會擋任何事，但會讓壓表的排序失真 ——
+// 「可用天數最少的優先」建立在那份資料還有效的前提上。
+
+function checkStaleAvailability(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    if (customer.active === false) continue;
+
+    const collections = ctx.availByCustomer[customer.id] ?? [];
+    const current = currentCollection(collections, ctx.today);
+    if (current) continue;
+
+    // 還有剩餘次數才要緊 —— 沒有次數可排的人不需要被問時間。
+    const remaining = alive(ctx.entsByCustomer[customer.id] ?? []).reduce((sum, e) => {
+      const c = counts(e, ctx.visitsByCustomer[customer.id] ?? [], e.id);
+      return sum + Math.max(0, c.remaining);
+    }, 0);
+    if (remaining <= 0) continue;
+
+    out.push({
+      severity: 'attention',
+      title: customer.name,
+      detail: collections.length
+        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排`
+        : `從來沒收集過可用性，還有 ${remaining} 次沒排`,
+      link: `#/customers/${customer.id}`,
+      fix: null,
+    });
+  }
+
+  return out;
+}
+
+const RUNNERS = {
+  counts: checkCounts,
+  orphans: checkOrphans,
+  visitStatus: checkVisitStatus,
+  overused: checkOverused,
+  conflicts: checkConflicts,
+  overdueTasks: checkOverdueTasks,
+  staleAvailability: checkStaleAvailability,
+};
