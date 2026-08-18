@@ -54,6 +54,17 @@ const IV_SHORTHAND_ROW = 13;
  */
 const TASK_BLOCK_HEADERS = new Set(['TODO', 'FINISH']);
 
+/** 0-based 欄號 → 試算表的欄名。她講的是「A11」，報告就要講 A11。 */
+function colLetter(col) {
+  let n = col;
+  let out = '';
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return out;
+}
+
 /** 第一個 TODO／FINISH 出現在哪一列（0-based）。沒有就回 Infinity。 */
 function taskBlockRow(grid) {
   for (let r = FIRST_ITEM_ROW; r < grid.length; r += 1) {
@@ -290,7 +301,46 @@ export function parseSheet(text, { sheetName = '' } = {}) {
     items,
     followupNote: followupCells.join(' '),
     ivShorthand,
+    leftovers: leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }),
   };
+}
+
+/**
+ * 有字、但上面每一段都沒有讀到的格子。
+ *
+ * 舊表的手寫註記沒有固定的位置：A11 寫「目前只要SIS」、B14 寫「寄紙本報告」、
+ * A15 寫「和妻同一天賦能」—— 那些是器材偏好、永久限制、待辦，全部是有用的東西。
+ * 這個檔案開頭的第二條原則說「不確定就不要猜，但也不要安靜地丟掉」，
+ * 而在補上這一段之前，這些格子就是被安靜丟掉的那一種。
+ *
+ * 所以改成反過來：**沒有被任何一段讀走的字，一律撿起來。**
+ * 撿到什麼由 planForSheet() 原文收進備註，並且在報告上一格一格列出來 ——
+ * 她要能一眼看出「這張表上的字有沒有全部進去」，而不是自己一格一格對。
+ */
+function leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }) {
+  const dateCols = new Set(dateColumns.map((d) => d.col));
+
+  const wasRead = (r, c) => {
+    if (r === HEADER_ROW) return true;
+    if (r === NAME_CELL[0] && (c === NAME_CELL[1] || c === SOURCE_CELL[1])) return true;
+    if (r === FOLLOWUP_ROW) return true;
+    if (r === IV_SHORTHAND_ROW) return dateCols.has(c);
+    if (r >= FIRST_ITEM_ROW && r <= lastItemRow) {
+      return (c >= COL_DETAIL && c <= COL_ACTUAL) || dateCols.has(c);
+    }
+    return false;
+  };
+
+  const out = [];
+  for (let r = 0; r < grid.length && r < blockRow; r += 1) {
+    for (let c = 0; c < (grid[r] ?? []).length; c += 1) {
+      const text = cell(r, c);
+      // 沒被讀到的勾選框不是註記，是排在日期欄外面的空框。撿起來只會洗版。
+      if (!text || wasRead(r, c) || readCheckbox(text) !== null) continue;
+      out.push({ cell: `${colLetter(c)}${r + 1}`, text });
+    }
+  }
+  return out;
 }
 
 // ---------- 一張工作表 → 要寫進去的東西 ----------
@@ -372,6 +422,10 @@ export function planForSheet(parsed, {
   // 拆錯名字比留著多餘的字嚴重得多。但那些多出來的東西是有用的，
   // 所以另外解析一份放進備註，客戶詳情頁看得到。
   notes.push(...nameExtras(parsed.customerName));
+
+  // 沒有欄位可放的手寫註記（A11 的器材偏好、B14 的待辦、A15 的排班習慣…）。
+  // 原文照抄，一個字都不改寫 —— 讀不懂不是丟掉的理由（SPEC 第 4.3 節）。
+  notes.push(...parsed.leftovers.map((x) => x.text));
 
   // ---------- 額度 ----------
 
@@ -512,6 +566,8 @@ export function planForSheet(parsed, {
 
   const visits = [];
   const assumedYears = new Set();
+  /** 第幾列的勾選變成了幾個時段。報告要拿它跟舊表的數字並排。 */
+  const importedByRow = new Map();
 
   // 先一欄一欄讀出「這一欄是哪一天、勾了哪幾列」，再依日期歸戶。
   //
@@ -589,6 +645,7 @@ export function planForSheet(parsed, {
         }
       }
 
+      importedByRow.set(item.row, (importedByRow.get(item.row) ?? 0) + 1);
       slots.push({
         entitlementKey,
         courseId: made.course.id,
@@ -652,6 +709,31 @@ export function planForSheet(parsed, {
     visits,
     problems,
     skippedRows,
+    leftovers: parsed.leftovers,
+    // 一列一行的對帳：舊表的 D／E／勾選數，跟匯進去的額度與來訪並排。
+    // 她要能一眼看完一位客戶，而不是自己回試算表一格一格核對。
+    rows: parsed.items.map((item) => {
+      const made = byRow.get(item.row);
+      const keys = made?.keys ?? [];
+      return {
+        row: item.row,
+        label: item.label,
+        expected: toQty(item.expected),
+        actual: toQty(item.actual),
+        checks: item.checks.filter((c) => readCheckbox(c.value) === true).length,
+        qty: keys.length
+          ? entitlements.filter((e) => keys.includes(e.key))
+            .reduce((n, e) => n + e.doc.totalQty, 0)
+          : null,
+        // 一列拆成好幾筆額度的只有營養點滴（品項各自計次，不合併）。
+        // 表格上那一列只看得到加總，拆成什麼要另外講一次。
+        parts: keys.length > 1
+          ? entitlements.filter((e) => keys.includes(e.key))
+            .map((e) => `${e.productName ?? e.doc.label} ${e.doc.totalQty} 次`)
+          : [],
+        visits: importedByRow.get(item.row) ?? 0,
+      };
+    }),
     quantityHint: quantityHint(parsed, plans),
     counts: {
       entitlements: entitlements.length,
@@ -759,6 +841,8 @@ function emptyPlan(parsed, { skip = null, problems = [] } = {}) {
     visits: [],
     problems,
     skippedRows: [],
+    leftovers: [],
+    rows: [],
     quantityHint: null,
     counts: { entitlements: 0, visits: 0, slots: 0 },
   };
@@ -786,7 +870,66 @@ export function summarize(plans) {
     visits: willImport.reduce((n, p) => n + p.counts.visits, 0),
     slots: willImport.reduce((n, p) => n + p.counts.slots, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
+    // 「舊表上的東西有沒有全部進來」只需要一個數字就答得完。
+    // 沒有它，她要確認這件事只能回試算表一格一格數。
+    checks: willImport.reduce((n, p) => n + p.rows.reduce((m, r) => m + r.checks, 0), 0),
+    leftovers: willImport.reduce((n, p) => n + p.leftovers.length, 0),
   };
+}
+
+/**
+ * 中文字在等寬字型裡佔兩格。用 String.length 對齊，表格會歪掉 ——
+ * 而歪掉的對帳表她就不會拿來對帳了。
+ */
+function width(text) {
+  let n = 0;
+  for (const ch of String(text)) n += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1;
+  return n;
+}
+
+const padEnd = (text, to) => `${text}${' '.repeat(Math.max(to - width(text), 0))}`;
+const padStart = (text, to) => `${' '.repeat(Math.max(to - width(text), 0))}${text}`;
+
+/**
+ * 一位客戶的對帳表：**舊表寫什麼，匯進去變成什麼，並排放。**
+ *
+ * 沒有這張表的時候，要確認一張工作表有沒有讀對，只能回試算表一格一格看 ——
+ * 二十幾位客戶沒有人做得到，所以實際上就是不會有人檢查。
+ */
+function rowTable(plan) {
+  // 舊表整列都是空的（沒買這個項目）不進表。那是模板留下來的空列，
+  // 一位客戶動輒九列，全印出來就換她自己在雜訊裡找那一列有問題的。
+  const rows = plan.rows.filter(
+    (r) => r.qty !== null || r.checks > 0 || (r.expected ?? 0) > 0 || (r.actual ?? 0) > 0,
+  );
+  if (!rows.length) return [];
+
+  const labelWidth = Math.max(10, ...rows.map((r) => width(r.label)));
+  const lines = [`     ${padEnd('舊表的療程列', labelWidth + 8)}`
+    + `${padStart('應有', 6)}${padStart('實際', 6)}${padStart('勾選', 6)}`
+    + `  ｜${padStart('額度', 6)}${padStart('來訪', 6)}`];
+
+  for (const r of rows) {
+    const missed = r.qty === null;
+    // ← 只標「舊表有、但沒有全部進來」的列。標太多等於沒標。
+    const lost = missed || r.checks !== r.visits;
+    lines.push(`     ${padEnd(`第 ${String(r.row).padStart(2)} 列 ${r.label}`, labelWidth + 8)}`
+      + `${padStart(r.expected ?? '－', 6)}${padStart(r.actual ?? '－', 6)}${padStart(r.checks, 6)}`
+      + `  ｜${padStart(missed ? '沒有' : r.qty, 6)}${padStart(missed ? '－' : r.visits, 6)}`
+      + (lost ? '  ←' : ''));
+    if (r.parts.length) lines.push(`       └ 拆成 ${r.parts.join('、')}`);
+  }
+  return lines;
+}
+
+/**
+ * 這句手寫的話看起來像不像永久限制或喜好。
+ *
+ * **只用來在報告上提醒一句，不會自動寫進任何欄位。** 「五不行」到底是
+ * 禮拜五不行還是五號不行，app 看不出來 —— 那是她的判斷（ADR-0002）。
+ */
+function looksLikeConstraint(text) {
+  return /金屬|不行|不能|只要|只能|不可|喜歡|偏好|禁|過敏|only|Only|ONLY/.test(String(text));
 }
 
 /** 跳過的列依理由歸成一組，順序照第一次出現的理由。 */
@@ -815,6 +958,11 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
     '',
     `${s.sheets} 張工作表 → 會建立 ${s.customers} 位客戶、`
       + `${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
+    `舊表一共勾了 ${s.checks} 格，`
+      + (s.checks - s.slots
+        ? `其中 ${s.checks - s.slots} 格沒有變成時段（每一張的對帳表上標了 ←）`
+        : '全部都變成時段了'),
+    s.leftovers ? `另外有 ${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（標 ＋）` : '',
     `要看一下的地方：${s.problems} 處`,
     '',
   ];
@@ -826,9 +974,21 @@ export function reportText(plans, { generatedAt = '', year = null } = {}) {
       continue;
     }
     if (p.quantityHint) lines.push(`   ${p.quantityHint}`);
-    lines.push(`   額度 ${p.counts.entitlements}、來訪 ${p.counts.visits}、時段 ${p.counts.slots}`);
-    for (const e of p.entitlements) lines.push(`     · ${e.doc.label} ${e.doc.totalQty} 次`);
+
+    const checked = p.rows.reduce((n, r) => n + r.checks, 0);
+    const dropped = checked - p.counts.slots;
+    lines.push(`   額度 ${p.counts.entitlements}、來訪 ${p.counts.visits}、時段 ${p.counts.slots}`
+      + `　·　舊表勾了 ${checked} 格`
+      + (dropped ? `，其中 ${dropped} 格沒有進來（下面標 ← 的那幾列）` : '，全部都進來了'));
+    lines.push(...rowTable(p));
+
     for (const x of p.problems) lines.push(`   ⚠ ${x.where}｜${x.raw}｜${x.why}`);
+    // 手寫註記沒有固定欄位，讀不進任何一格，但一個字都不能掉。
+    // 一格一格列出來，她才看得出「這張表上的字有沒有全部進去」。
+    for (const x of p.leftovers) {
+      lines.push(`   ＋ ${x.cell}｜${x.text}｜沒有對應的欄位，原文收進備註`
+        + (looksLikeConstraint(x.text) ? '（看起來是限制或喜好，匯完記得去客戶詳情頁設定）' : ''));
+    }
     // 沒買的項目在舊表上是空白的模板列，一位客戶動輒九列 —— 一列一行會把真正
     // 要看的 ⚠ 淹掉，而她是照著這份決定要不要按下去的。同一個理由收成一行。
     for (const [why, rows] of groupByReason(p.skippedRows)) {
