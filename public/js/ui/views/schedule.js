@@ -72,6 +72,13 @@ async function paintStart(el) {
       </form>
     </section>
 
+    <section class="card">
+      <h2 class="card__title">臨時空出一格？</h2>
+      <p class="muted">輸入日期、時間與課程，把補得上的人列出來 ——
+        有人取消、或 Abovee 上突然空一格時用。</p>
+      <p><a class="btn" href="#/schedule/backfill">時段反查</a></p>
+    </section>
+
     ${active.length
       ? `<section class="card">
            <h2 class="card__title">還沒壓完的<span class="muted"> ${active.length}</span></h2>
@@ -228,7 +235,10 @@ function paint(ctx) {
           </div>
           <div class="muted">排序只是預設順序，可以跳著點。判斷是你的，這一頁不出建議時段。</div>
         </div>
-        <button class="btn" type="button" data-close>結束這批</button>
+        <div class="pool__actions">
+          <a class="btn" href="#/schedule/backfill">時段反查</a>
+          <button class="btn" type="button" data-close>結束這批</button>
+        </div>
       </div>
     </section>
 

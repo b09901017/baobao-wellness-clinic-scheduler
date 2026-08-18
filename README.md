@@ -107,7 +107,7 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 | 6 | 可用性收集 | ☑ |
 | 7 | 壓表模式 | ☑ |
 | 8 | 資料健檢 / 稽核 / 備份 | ☑ |
-| 9 | 時段反查 + LINE 訊息產生器 | ☐ |
+| 9 | 時段反查 + LINE 訊息產生器 | ☑ |
 | 10 | 日曆 + 試算表同步 | ☐ |
 | 11 | 舊資料匯入 | ☐ |
 | 12 | 多帳號 | ☐ |

@@ -12,8 +12,10 @@
 // 所以每一項的貢獻都要攤成人話標籤，讓她看得懂為什麼這人排第一，不同意就跳過去。
 
 import { counts } from './entitlements.js';
-import { availableDates, currentCollection } from './availability.js';
+import { availableDates, currentCollection, dayStatus } from './availability.js';
 import { isActive } from './visits.js';
+import { annotateOptions } from './contraindications.js';
+import { overlaps, toMinutes } from './visitTime.js';
 import { daysBetween, isValidDate, lastDayOf } from './dates.js';
 
 export const DEFAULT_WEIGHTS = { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 };
@@ -286,4 +288,151 @@ export function nextPending(batch, afterCustomerId = null) {
     ?? queue.find((q) => q.state === 'pending')
     ?? null
   );
+}
+
+// ---------- 時段反查 ----------
+//
+// SPEC 第 8.4 節：Abovee 上臨時空出一格、或有人取消釋出時段時，誰可以補。
+//
+// 刻意跟壓表佇列共用同一組 rowFor() / scoreRow()：兩個畫面問的是同一個問題
+// （「這些人裡面先找誰」），只是範圍不一樣。分成兩套公式的話，同一位客戶
+// 在壓表排第一、在反查排第五，而她沒有辦法知道哪一個才算數。
+//
+// 這裡仍然不做決定（ADR-0002）：排除掉的只有「那天他自己說不行」與醫療禁忌，
+// 其餘一律列出來並附上理由，由她自己挑。
+
+/** 一段時間碰到上午還是下午。中午 12 點以後算下午。 */
+export function partsOfDay(startsAt, endsAt) {
+  const start = toMinutes(startsAt);
+  const end = toMinutes(endsAt ?? startsAt);
+  const noon = 12 * 60;
+  const parts = [];
+  if (start < noon) parts.push('am');
+  if (Math.max(end, start + 1) > noon) parts.push('pm');
+  return parts;
+}
+
+/**
+ * 誰可以補這一格。
+ *
+ * @param {object} ctx
+ * @param {object} ctx.course 空出來的是哪個課程
+ * @param {string} ctx.date 'YYYY-MM-DD'
+ * @param {string} ctx.startsAt 'HH:MM'
+ * @param {string} [ctx.endsAt]
+ * @param {object[]} ctx.customers
+ * @param {Record<string, object[]>} ctx.entitlementsBy
+ * @param {Record<string, object[]>} ctx.visitsBy
+ * @param {Record<string, object[]>} ctx.availabilityBy
+ * @param {object[]} [ctx.equipment] 擇一池要看禁忌有沒有把器材全鎖死
+ * @param {string} ctx.today
+ * @param {object} [ctx.weights]
+ * @returns {{candidates: object[], excluded: object[]}}
+ *   excluded 也要回傳並顯示 —— 「他為什麼不在名單上」跟「誰在名單上」一樣重要，
+ *   不然她會以為系統漏了人而不敢用。
+ */
+export function candidatesFor({
+  course, date, startsAt, endsAt = null, customers = [], entitlementsBy = {},
+  visitsBy = {}, availabilityBy = {}, equipment = [], today, weights = DEFAULT_WEIGHTS,
+}) {
+  const range = monthRange(String(date ?? '').slice(0, 7));
+  if (!course || !isValidDate(date) || !range) return { candidates: [], excluded: [] };
+
+  const parts = partsOfDay(startsAt, endsAt);
+  const rows = [];
+  const excluded = [];
+  const drop = (customer, why) => excluded.push({ customerId: customer.id, customerName: customer.name, why });
+
+  for (const customer of customers) {
+    if (customer.active === false || customer.deletedAt) continue;
+
+    const entitlements = entitlementsBy[customer.id] ?? [];
+    const visits = visitsBy[customer.id] ?? [];
+    const state = pendingFor({ course, entitlements, visits, targetMonth: range.from.slice(0, 7) });
+
+    if (!state.entitlement) continue; // 根本沒買這個課程，不是「被排除」
+    if (state.remaining <= 0) {
+      drop(customer, `「${state.entitlement.label}」沒有剩餘次數了`);
+      continue;
+    }
+
+    // 醫療禁忌是整個系統唯一的硬性阻擋（ADR-0002）。
+    // 擇一池的器材被禁忌全部鎖死時，這個人真的不能來上這堂課。
+    if (course.requiresEquipment && allEquipmentBlocked(customer, state.entitlement, equipment)) {
+      drop(customer, '醫療禁忌把這個池裡的器材全部鎖住了');
+      continue;
+    }
+
+    const clash = sameTimeVisit(visits, date, startsAt, endsAt);
+    if (clash) {
+      drop(customer, `${date} 這個時間他已經有來訪了`);
+      continue;
+    }
+
+    const collection = currentCollection(availabilityBy[customer.id] ?? [], today);
+    const day = collection ? dayStatus(collection.rules ?? [], date) : null;
+
+    if (day && !day.available) {
+      drop(customer, `他說${date}不行：${day.reasons.join('、') || '這天不行'}`);
+      continue;
+    }
+    if (day?.blockedPart && parts.includes(day.blockedPart)) {
+      drop(customer, `他說${date}${day.blockedPart === 'am' ? '上午' : '下午'}不行`);
+      continue;
+    }
+
+    const row = rowFor({
+      customer, state, visits,
+      availability: availabilityBy[customer.id] ?? [],
+      range, today,
+    });
+
+    rows.push({
+      ...row,
+      // 這一格專屬的理由，跟排序理由分開放：她要先知道「這個人那天到底行不行」，
+      // 再看「為什麼他排在前面」。
+      fitNotes: fitNotes({ collection, day, visits, date }),
+      sameDayVisit: sameDayVisit(visits, date),
+    });
+  }
+
+  const fewest = Math.min(...rows.map((r) => r.availableDays ?? Infinity));
+  const candidates = rows
+    .map((row) => scoreRow(row, weights, range, fewest))
+    .sort((a, b) => b.score - a.score || String(a.customerName).localeCompare(String(b.customerName), 'zh-TW'));
+
+  return { candidates, excluded };
+}
+
+function fitNotes({ collection, day, visits, date }) {
+  const notes = [];
+  if (!collection) notes.push('還沒問這輪的時間，不知道他那天行不行');
+  else if (day?.preferred) notes.push('他說這天方便');
+  else notes.push('這輪問到的條件沒有擋掉這天');
+
+  if (sameDayVisit(visits, date)) notes.push('那天他本來就要來');
+  return notes;
+}
+
+/** 那天他本來就有來訪。已經要來的人多排一個時段，比為了一格專程跑一趟容易答應。 */
+function sameDayVisit(visits, date) {
+  return (visits ?? []).find((v) => isActive(v) && v.date === date) ?? null;
+}
+
+/** 那個時間他人已經在別的療程上了。同一個人不可能同時在兩個地方。 */
+function sameTimeVisit(visits, date, startsAt, endsAt) {
+  const want = { startsAt, endsAt: endsAt ?? startsAt };
+  return (visits ?? [])
+    .filter((v) => isActive(v) && v.date === date)
+    .find((v) => (v.slots ?? []).some((s) => overlaps(s, want))) ?? null;
+}
+
+function allEquipmentBlocked(customer, entitlement, equipment) {
+  const ids = entitlement?.optionEquipmentIds ?? [];
+  if (!ids.length) return false;
+  const options = ids
+    .map((id) => equipment.find((e) => e.id === id))
+    .filter(Boolean);
+  if (!options.length) return false;
+  return annotateOptions(customer, options).every((o) => o.blocked);
 }
