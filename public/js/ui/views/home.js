@@ -609,7 +609,7 @@ function wireConfirm(ctx) {
   // 這一張是自己畫的（它要跟著整頁重畫），沒走 openSheet，
   // 但手勢要跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了。
   const box = el.querySelector('.drawer');
-  if (box) wireDrag(box, close);
+  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
 
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyConfirm(ctx));
 }

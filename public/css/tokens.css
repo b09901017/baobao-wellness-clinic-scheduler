@@ -28,6 +28,12 @@
   /* 頁面左右留白。橫向捲動的那幾列要用它做負邊界，才捲得到螢幕邊緣。 */
   --gutter: 14px;
 
+  /* 底部面板的兩格。抽屜拖到哪一格全靠 transform，這兩個值決定「停在哪」。
+     peek 是貼著內容的那一格（內容再長也不超過這個高度），full 是拉到頂 ——
+     上面留一條縫，看得出底下還有一頁在。 */
+  --sheet-peek-max: 84dvh;
+  --sheet-full: 94dvh;
+
   --radius-sm: 10px;
   --radius: 14px;
   --radius-lg: 18px;
