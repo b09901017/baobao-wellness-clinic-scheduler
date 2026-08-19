@@ -261,7 +261,9 @@ test('報告數得出會建立幾位客戶、幾筆額度、幾筆來訪', () =>
 
   assert.equal(report.sheets, 2);
   assert.equal(report.customers, 1);
-  assert.equal(report.entitlements, 11);
+  // 11 筆讀自舊表，加上系統替健檢配的那一筆二返（issue #15）
+  assert.equal(report.entitlements, 12);
+  assert.equal(report.followups, 1);
   assert.equal(report.visits, 3);
   assert.equal(report.slots, 5);
   assert.equal(report.skipped.length, 1);
@@ -275,7 +277,8 @@ test('比對報告講得出總計、每一位建了什麼、以及每一個要�
   });
 
   assert.ok(text.includes('還沒有寫入任何東西'));
-  assert.ok(text.includes('會建立 1 位客戶、11 筆額度、3 筆來訪（5 個時段）'));
+  assert.ok(text.includes('會建立 1 位客戶、12 筆額度、3 筆來訪（5 個時段）'));
+  assert.ok(text.includes('另外配了 1 筆二返額度'), '舊表沒有二返這一列，配出來的要講一聲');
   assert.ok(text.includes('一律當成 2026 年'));
   assert.ok(text.includes('0.75萬健檢'), '對帳表要列出每一列的療程名稱');
   assert.ok(text.includes('拆成 護肝排毒 11 次、雪顏亮彩 22 次'), '拆成幾筆額度要講');

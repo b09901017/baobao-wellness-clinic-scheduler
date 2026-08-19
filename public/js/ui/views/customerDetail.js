@@ -29,6 +29,7 @@ import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
+import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { todayISO, shortDate } from '../../domain/dates.js';
@@ -217,6 +218,10 @@ function wire(ctx, { today, marks }) {
 
   el.querySelectorAll('[data-fix]').forEach((btn) =>
     btn.addEventListener('click', () => fixCounts(ctx, btn.dataset.fix)),
+  );
+
+  el.querySelectorAll('[data-add-followup]').forEach((btn) =>
+    btn.addEventListener('click', () => addFollowup(ctx, btn.dataset.addFollowup)),
   );
 
   el.querySelectorAll('[data-note]').forEach((btn) =>
@@ -501,8 +506,61 @@ function poolCard(e, visits, ctx, today) {
       ${e.sourcePlanName
         ? `<p class="muted dim" style="font-size: var(--text-2xs)">來自方案「${esc(e.sourcePlanName)}」的展開，已與範本脫鉤</p>`
         : '<p class="muted dim" style="font-size: var(--text-2xs)">單項加購</p>'}
+      ${followupLine(e, ctx, visits)}
       ${rec.ok ? '' : reconcileWarning(e, rec)}
     </div>`;
+}
+
+/**
+ * 健檢那張卡片底下那一句「健檢做完 3 次，二返還欠 2 次」。
+ *
+ * 這一句只講事實，不講該怎麼辦 —— 什麼時候去約是她跟客戶談出來的（ADR-0002）。
+ * 真的要她動手的只有一種情況：這位客戶身上根本沒有二返額度。那是 2026-08 以前
+ * 建立的客戶（含舊表匯進來的那 21 位）的共同狀態，額度展開之後跟範本脫鉤
+ * （ADR-0003），所以只能一筆一筆補。見 GitHub issue #15 與 ADR-0022。
+ */
+function followupLine(e, ctx, visits) {
+  const coursesById = Object.fromEntries(ctx.courses.map((c) => [c.id, c]));
+  const pair = pairsOf(ctx.entitlements, coursesById).find((p) => p.source.id === e.id);
+  if (!pair) return '';
+
+  if (!pair.followup) {
+    return `
+      <p class="muted">⚠ 這筆健檢還沒有對應的二返額度。沒有額度，二返記不進來，
+        「約二返」的待辦也不會長出來。</p>
+      <p style="margin-bottom: 0"><button class="btn btn--sm" type="button"
+        data-add-followup="${esc(e.id)}">補一筆二返額度</button></p>`;
+  }
+
+  const line = describePair(pair, visits);
+  return line ? `<p class="muted">${esc(line.text)}</p>` : '';
+}
+
+async function addFollowup(ctx, entId) {
+  const coursesById = Object.fromEntries(ctx.courses.map((c) => [c.id, c]));
+  const miss = missingPairs(ctx.entitlements, coursesById).find((m) => m.source.id === entId);
+  if (!miss) return;
+
+  const ok = await confirmAction({
+    title: `替「${miss.source.label}」補一筆二返額度？`,
+    consequences: [
+      `會新增「${miss.draft.label}」${miss.draft.totalQty} 次`,
+      '次數跟健檢一樣多 —— 買幾次健檢就有幾次二返',
+      '補了之後，健檢標成已完成才會長出「約二返」的待辦',
+      '這次新增會留在稽核紀錄裡，也可以復原',
+    ],
+    confirmLabel: '補上',
+  });
+  if (!ok) return;
+
+  try {
+    await toast.withSaveState(() => data.createEntitlement(ctx.id, miss.draft), {
+      success: '已補上二返額度',
+    });
+    reload(ctx);
+  } catch {
+    /* 已處理 */
+  }
 }
 
 function reconcileWarning(e, rec) {

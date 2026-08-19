@@ -6,6 +6,8 @@
 // SPEC 第 13 節仍列為資料缺口的部分（完整診間清單、各點滴室床位數、
 // 完整治療師名單）就照目前已知的填，之後在設定頁補。
 
+import { DEFAULT_FOLLOWUP_DUE_DAYS } from './followups.js';
+
 export const SEED = {
   rooms: [
     { id: 'room-t2', name: '治2', type: '治療室', beds: [] },
@@ -87,9 +89,12 @@ export const SEED = {
 
     // ---- B 類：單系統＋電話 ----
     {
+      // 健檢做完要再約一次二返聽報告（SPEC 第 7 節規則 8）。配對記在這裡而不是
+      // 寫死在程式碼裡：課程是她自己在主檔建的，id 猜不得。見 ADR-0022。
       id: 'course-checkup', name: '健檢', category: 'B', durationMin: 120,
       assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
+      followupCourseId: 'course-followup',
     },
 
     // ---- C 類：只有 Abovee ----
@@ -180,6 +185,9 @@ export const DEFAULT_SETTINGS = {
   sortWeights: { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 },
   slotGapMin: 15,
   noReplyDays: 3,
+  // 健檢做完之後幾天內要把二返約好。SPEC 第 13 節本來就把這個間隔列在
+  // 待確認清單裡，所以它是可調的預設值，不是寫死的規則（ADR-0022）。
+  followupDueDays: DEFAULT_FOLLOWUP_DUE_DAYS,
   // 試算表同步。兩個都填了才會開始推（見 data/sheetSync.js）。
   // 密鑰放在這裡而不是寫進前端程式碼：部署出去的 JS 人人看得到，
   // 這份文件則被 firestore.rules 的白名單守著。

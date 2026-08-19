@@ -20,6 +20,7 @@
 
 import { isValidDate, lastDayOf } from './dates.js';
 import { contraindicationTerms } from './contraindications.js';
+import { followupPlanEntries } from './followups.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -609,6 +610,15 @@ export function planForSheet(parsed, {
     byRow.set(item.row, { keys: [key], course, kind: isPool ? 'pool' : 'single' });
   }
 
+  // 健檢配二返。舊表的 C 欄只有 11 個固定療程列，二返不在裡面（它是第 13 列的
+  // 一句自由文字），所以匯進來的客戶身上不會有二返額度 —— 而她行事曆上記了十筆
+  // 左右的二返，沒有額度可扣就補不進來。見 GitHub issue #15 與 ADR-0022。
+  //
+  // 不歸任何一列管，所以不進 byRow：報告上那張逐列對帳表講的是舊表的每一列
+  // 讀出了什麼，而二返在舊表上沒有列。
+  const paired = followupPlanEntries(entitlements, courses, { importedFrom: stamp });
+  entitlements.push(...paired);
+
   // ---------- 來訪 ----------
 
   const visits = [];
@@ -790,6 +800,9 @@ export function planForSheet(parsed, {
     quantityHint: quantityHint(parsed, plans),
     counts: {
       entitlements: entitlements.length,
+      // 舊表上沒有二返這一列，所以這幾筆是系統配出來的，不是讀出來的。
+      // 報告要分開講一次，見 attentionPoints()。
+      followups: paired.length,
       visits: visits.length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
     },
@@ -935,7 +948,7 @@ function emptyPlan(parsed, { skip = null, problems = [] } = {}) {
     contraindications: [],
     rows: [],
     quantityHint: null,
-    counts: { entitlements: 0, visits: 0, slots: 0 },
+    counts: { entitlements: 0, followups: 0, visits: 0, slots: 0 },
   };
 }
 
@@ -958,6 +971,7 @@ export function summarize(plans) {
       why: p.skip,
     })),
     entitlements: willImport.reduce((n, p) => n + p.counts.entitlements, 0),
+    followups: willImport.reduce((n, p) => n + (p.counts.followups ?? 0), 0),
     visits: willImport.reduce((n, p) => n + p.counts.visits, 0),
     slots: willImport.reduce((n, p) => n + p.counts.slots, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
@@ -1116,6 +1130,15 @@ export function attentionPoints(plans, { year = null } = {}) {
     out.push({
       level: 'info',
       text: `${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（每一位底下標 ＋）。`,
+    });
+  }
+
+  if (s.followups) {
+    out.push({
+      level: 'info',
+      text: `另外配了 ${s.followups} 筆二返額度（買幾次健檢就有幾次二返）。`
+        + '舊表上沒有二返這一列，所以那是系統配出來的，不是從表上讀出來的 ——'
+        + '次數不對就到客戶詳情頁改。',
     });
   }
 

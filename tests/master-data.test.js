@@ -77,6 +77,42 @@ describe('課程驗證', () => {
   test('category 為 null 是合法的「不產生任務」，不是漏填', () => {
     assert.deepEqual(validate('courses', { ...base, category: null }), []);
   });
+
+  // 健檢 → 二返（ADR-0022）。指歪了不會有任何畫面提示 ——
+  // 額度就是配不出來，而那長得跟「這位客戶沒買健檢」一模一樣。
+  test('後續課程要指到真的存在的課程', () => {
+    const existing = [{ id: 'c-followup', name: '二返' }];
+    assert.deepEqual(
+      validate('courses', { ...base, id: 'c-checkup', followupCourseId: 'c-followup' }, { existing }),
+      [],
+    );
+    assert.ok(
+      validate('courses', { ...base, id: 'c-checkup', followupCourseId: 'nope' }, { existing })
+        .some((e) => e.includes('後續課程不存在')),
+    );
+  });
+
+  test('後續課程不可以是它自己', () => {
+    const errors = validate(
+      'courses',
+      { ...base, id: 'c-checkup', followupCourseId: 'c-checkup' },
+      { existing: [{ id: 'c-checkup', name: 'x' }] },
+    );
+    assert.ok(errors.some((e) => e.includes('它自己')));
+  });
+
+  test('已刪除的課程不能當後續課程', () => {
+    const existing = [{ id: 'c-followup', name: '二返', deletedAt: '2026-08-01' }];
+    assert.ok(
+      validate('courses', { ...base, id: 'c-checkup', followupCourseId: 'c-followup' }, { existing })
+        .some((e) => e.includes('後續課程不存在')),
+    );
+  });
+
+  test('沒設後續課程是常態，不是漏填', () => {
+    assert.deepEqual(validate('courses', { ...base, followupCourseId: null }), []);
+    assert.deepEqual(validate('courses', { ...base }), []);
+  });
 });
 
 describe('方案驗證', () => {

@@ -146,6 +146,8 @@ function summaryCard(s, plans, extraProblems) {
       <h2 class="card__title">會寫進去什麼</h2>
       <p><b>${s.customers}</b> 位客戶　<b>${s.entitlements}</b> 筆額度　<b>${s.visits}</b> 筆來訪　<b>${s.slots}</b> 個時段</p>
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
+      ${s.followups ? `<p class="muted">額度裡有 <b>${s.followups}</b> 筆二返是系統配的
+        —— 買幾次健檢就有幾次二返，合併檔上沒有這一項。次數不對就到客戶詳情頁改。</p>` : ''}
       ${span.length ? `<p class="muted">行事曆涵蓋 ${esc(span[0] ?? '')} ～ ${esc(span[1] ?? '')}，
         更早的來訪本來就補不到時間。</p>` : ''}
       ${s.skipped.length ? `<p class="muted">${s.skipped.length} 位整位跳過：
@@ -242,6 +244,7 @@ async function run(el, ctx, plans, s) {
     consequences: [
       `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
       `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
+      ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
       events.length ? `建立 ${events.length} 筆個人行程` : '沒有勾任何個人行程',
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',

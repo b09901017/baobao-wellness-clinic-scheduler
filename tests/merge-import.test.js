@@ -230,3 +230,64 @@ test('摘要的數字要跟報告對得起來', () => {
   assert.equal(s.slots, 2);
   assert.equal(s.timed, 2);
 });
+
+// ---------- 二返（GitHub issue #15） ----------
+//
+// 行事曆上有、試算表沒有的 27 筆來訪裡，15 筆補不進來，訊息是
+// 「這位客戶沒有這個課程的額度」，大半就是二返。舊表的療程列裡沒有二返，
+// 所以合併檔的 entitlements 裡也不會有。健檢的額度一展開就配一筆二返，
+// 那些時段才有得扣。
+
+const WITH_CHECKUP = () => ({
+  ...CUSTOMER(),
+  entitlements: [
+    ...CUSTOMER().entitlements,
+    {
+      key: 'r9', type: 'single', label: '0.75萬健檢', totalQty: 2, courseName: '健檢',
+      optionEquipmentNames: [], productName: null,
+    },
+  ],
+});
+
+test('有健檢就配一筆同次數的二返額度', () => {
+  const p = plan(WITH_CHECKUP());
+  const followup = p.entitlements.find((e) => e.doc.courseId === 'course-followup');
+
+  assert.ok(followup, '健檢那一筆要配出二返額度');
+  assert.equal(followup.doc.totalQty, 2, '買 2 次健檢就有 2 次二返');
+  assert.equal(followup.doc.followupForEntitlementKey, 'r9', '要指得回是哪一筆健檢配的');
+  assert.equal(p.counts.followups, 1);
+  assert.equal(summarize([p]).followups, 1);
+});
+
+test('沒買健檢就不會憑空多出二返額度', () => {
+  const p = plan();
+  assert.equal(p.entitlements.some((e) => e.doc.courseId === 'course-followup'), false);
+  assert.equal(p.counts.followups, 0);
+});
+
+test('行事曆上那筆二返補得進來了 —— 這一支的重點', () => {
+  const p = plan(WITH_CHECKUP());
+  const problems = addExtraVisits(
+    [p],
+    [{ customerName: '客戶A', date: '2026-08-19', courseName: '二返', startsAt: '10:00', status: 'done' }],
+    CTX,
+  );
+
+  assert.deepEqual(problems, [], '不該再出現「這位客戶沒有這個課程的額度」');
+  const added = p.visits.find((v) => v.date === '2026-08-19');
+  assert.ok(added);
+  assert.equal(added.slots[0].courseId, 'course-followup');
+  assert.equal(added.slots[0].startsAt, '10:00');
+});
+
+test('沒買健檢的人，行事曆上的二返照樣補不進來，而且要講清楚為什麼', () => {
+  const p = plan();
+  const problems = addExtraVisits(
+    [p],
+    [{ customerName: '客戶A', date: '2026-08-19', courseName: '二返', startsAt: '10:00', status: 'done' }],
+    CTX,
+  );
+  assert.equal(problems.length, 1);
+  assert.match(problems[0].why, /沒有這個課程的額度/);
+});

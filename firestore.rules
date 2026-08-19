@@ -81,13 +81,20 @@ service cloud.firestore {
         && d.rules is list;
     }
 
+    // 二返額度指回它是哪一筆健檢配出來的（followupForEntitlementId）。
+    // 只驗形狀：指到一筆不存在的額度要靠 get() 才驗得出來，而那是每次寫入
+    // 多一次讀取；指歪了的後果是配對比對失敗，資料健檢的「二返額度」那一項
+    // 會把它列成還沒配對，不是資料外洩。見 ADR-0022。
     function validEntitlement() {
       let d = request.resource.data;
       return d.label is string
         && d.label.size() > 0
         && d.type in ['single', 'pool']
         && d.totalQty is int
-        && d.totalQty > 0;
+        && d.totalQty > 0
+        && (!d.keys().hasAny(['followupForEntitlementId'])
+            || d.followupForEntitlementId == null
+            || d.followupForEntitlementId is string);
     }
 
     match /customers/{customerId} {

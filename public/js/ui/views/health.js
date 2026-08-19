@@ -2,10 +2,12 @@
 //
 // 主力裝置是 iPad（差異比對是表格），手機看得到摘要也修得動每一筆。
 //
-// 這一頁只算不寫，唯一會寫入的是「次數對帳」的一鍵修正 ——
-// 計數欄位是快取、真相在來訪（ADR-0004），所以那一項有明確正解。
-// 其餘六項只顯示差異並提供跳過去的連結，要怎麼處理是她的決定（ADR-0002）。
-// 見 docs/adr/0007-health-check-reads-only.md。
+// 這一頁只算不寫，會寫入的只有兩種一鍵修正：「次數對帳」（計數欄位是快取、
+// 真相在來訪，ADR-0004）與「補上缺的二返額度」（次數就是健檢的次數）。
+// 只有這兩項有不需要判斷的正解 —— 其餘只顯示差異並提供跳過去的連結，
+// 要怎麼處理是她的決定（ADR-0002）。見
+// docs/adr/0007-health-check-reads-only.md 與
+// docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
 
 import * as healthData from '../../data/health.js';
 import { healthBadge } from '../../domain/health.js';
@@ -54,7 +56,8 @@ function paint(el, result) {
           ? `<span class="badge badge--overdue">${esc(badge)}</span>`
           : '<span class="badge badge--ok">全部對得起來</span>'}
       </div>
-      <p class="page__lead">發現的問題只會顯示出來，除了計數欄位重算之外不會自動改任何資料。</p>
+      <p class="page__lead">發現的問題只會顯示出來。只有計數欄位重算與補二返額度這兩件事
+        有「修正」可以按，其餘一律不會自動改任何資料。</p>
     </div>
 
     <div class="checks" style="margin-bottom: var(--space-5)">
@@ -118,7 +121,8 @@ function findingsHtml(check) {
   return `
     ${check.fixable > 1
       ? `<p><button class="btn btn--primary" type="button" data-fix-all="${esc(check.id)}">
-           一次修正這 ${check.fixable} 筆</button></p>`
+           ${esc(FIX_COPY[check.id]?.all?.(check.fixable) ?? `一次修正這 ${check.fixable} 筆`)}
+         </button></p>`
       : ''}
     <div class="audit">
       ${check.findings.map(findingHtml).join('')}
@@ -140,7 +144,8 @@ function findingHtml(finding) {
       <p>
         ${finding.link ? `<a class="btn" href="${esc(finding.link)}">看這一筆</a>` : ''}
         ${finding.fix && index !== null
-          ? `<button class="btn btn--primary" type="button" data-fix="${index}">改成重算值</button>`
+          ? `<button class="btn btn--primary" type="button" data-fix="${index}">
+               ${esc(buttonLabel(finding.fix))}</button>`
           : ''}
       </p>
     </div>`;
@@ -164,17 +169,60 @@ function indexFixes(result) {
   fixesOf(result).forEach((f, i) => FIX_INDEX.set(f, i));
 }
 
+/**
+ * 兩種修正的文案。**確認框上一定要寫這一次會發生什麼**，不是只有「確定嗎？」
+ * （SPEC 第 6.5 節）—— 兩種修正動的是不同的東西，用同一段字就等於沒講。
+ */
+const FIX_COPY = {
+  counts: {
+    button: () => '改成重算值',
+    all: (n) => `一次修正這 ${n} 筆`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的計數欄位改成重算值？`,
+      lines: [
+        `已完成 ${fix.from.done} → ${fix.to.done}`,
+        `已排未上 ${fix.from.booked} → ${fix.to.booked}`,
+        '重算值是從來訪推導出來的，那才是真相',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 筆的計數欄位都改成重算值？`,
+      lines: fixes.map(
+        (fix) => `${fix.label}：已完成 ${fix.from.done} → ${fix.to.done}、`
+          + `已排未上 ${fix.from.booked} → ${fix.to.booked}`,
+      ),
+    }),
+  },
+  followups: {
+    button: () => '補上二返額度',
+    all: (n) => `一次補這 ${n} 筆`,
+    one: (fix) => ({
+      title: `替「${fix.label}」補一筆二返額度？`,
+      lines: [
+        `會新增「${fix.draft.label}」${fix.qty} 次`,
+        '次數跟健檢一樣多。買幾次健檢就有幾次二返',
+        '補了之後，她行事曆上的二返才記得進來',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `替這 ${fixes.length} 筆健檢各補一筆二返額度？`,
+      lines: fixes.map((fix) => `${fix.label} → ${fix.draft.label} ${fix.qty} 次`),
+    }),
+  },
+};
+
+const KIND_TO_CHECK = { recount: 'counts', addFollowup: 'followups' };
+const copyFor = (fix) => FIX_COPY[KIND_TO_CHECK[fix?.kind]] ?? FIX_COPY.counts;
+const buttonLabel = (fix) => copyFor(fix).button();
+
 async function fixOne(el, result, index) {
   const finding = fixesOf(result)[index];
   if (!finding) return;
+
+  const { title, lines } = copyFor(finding.fix).one(finding.fix);
   await applyAndReload(el, [finding.fix], {
-    title: `把「${finding.fix.label}」的計數欄位改成重算值？`,
-    consequences: [
-      `已完成 ${finding.fix.from.done} → ${finding.fix.to.done}`,
-      `已排未上 ${finding.fix.from.booked} → ${finding.fix.to.booked}`,
-      '重算值是從來訪推導出來的，那才是真相',
-      '這次修正會留在稽核紀錄裡，也可以復原',
-    ],
+    title,
+    consequences: [...lines, '這次修正會留在稽核紀錄裡，也可以復原'],
   });
 }
 
@@ -182,14 +230,12 @@ async function fixAll(el, result, checkId) {
   const fixes = fixesOf(result, checkId).map((f) => f.fix);
   if (!fixes.length) return;
 
+  const { title, lines } = copyFor(fixes[0]).many(fixes);
   await applyAndReload(el, fixes, {
-    title: `把這 ${fixes.length} 筆的計數欄位都改成重算值？`,
+    title,
     consequences: [
-      ...fixes.slice(0, 5).map(
-        (fix) => `${fix.label}：已完成 ${fix.from.done} → ${fix.to.done}、`
-          + `已排未上 ${fix.from.booked} → ${fix.to.booked}`,
-      ),
-      ...(fixes.length > 5 ? [`還有 ${fixes.length - 5} 筆`] : []),
+      ...lines.slice(0, 5),
+      ...(lines.length > 5 ? [`還有 ${lines.length - 5} 筆`] : []),
       '每一筆都會留一則稽核紀錄，整批可以一起復原',
     ],
   });

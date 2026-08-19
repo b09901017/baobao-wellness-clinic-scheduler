@@ -10,8 +10,10 @@ import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firest
 import * as repo from './repo.js';
 import * as config from './config.js';
 import * as tasksData from './tasks.js';
+import * as customersData from './customers.js';
 import { touchedEntitlementIds, recount } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
+import { syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS } from '../domain/followups.js';
 import { todayISO } from '../domain/dates.js';
 
 const PATH = 'visits';
@@ -82,16 +84,14 @@ export async function save(visit, customerVisits = []) {
   const id = visit.id ?? repo.newId(PATH);
   const previous = customerVisits.find((v) => v.id === id) ?? null;
   const next = { ...visit, id };
+  const after = [...customerVisits.filter((v) => v.id !== id), next];
 
   const ops = [
     previous
       ? { op: 'update', path: PATH, id, changes: payloadOf(next) }
       : { op: 'create', path: PATH, id, data: payloadOf(next) },
-    ...countOps(visit.customerId, [previous, next], [
-      ...customerVisits.filter((v) => v.id !== id),
-      next,
-    ]),
-    ...(await taskOps(next, { isNew: !previous })),
+    ...countOps(visit.customerId, [previous, next], after),
+    ...(await taskOps(next, { isNew: !previous, visitsAfter: after })),
   ];
 
   await repo.commit(ops);
@@ -104,16 +104,17 @@ export async function remove(visit, customerVisits = [], reason = null) {
   await repo.commit([
     { op: 'softDelete', path: PATH, id: visit.id, reason },
     ...countOps(visit.customerId, [visit], rest),
-    ...(await taskOps({ ...visit, deletedAt: 'pending' })),
+    ...(await taskOps({ ...visit, deletedAt: 'pending' }, { visitsAfter: rest })),
   ]);
 }
 
 export async function restore(visit, customerVisits = []) {
   const next = { ...visit, deletedAt: null };
+  const after = [...customerVisits.filter((v) => v.id !== visit.id), next];
   await repo.commit([
     { op: 'update', path: PATH, id: visit.id, changes: { deletedAt: null } },
-    ...countOps(visit.customerId, [visit], [...customerVisits.filter((v) => v.id !== visit.id), next]),
-    ...(await taskOps(next)),
+    ...countOps(visit.customerId, [visit], after),
+    ...(await taskOps(next, { visitsAfter: after })),
   ]);
 }
 
@@ -123,21 +124,67 @@ export async function restore(visit, customerVisits = []) {
  * 課程刻意連已刪除的一起讀：主檔把課程刪掉，不代表已經排出去的來訪就不用去掛號了。
  * 少讀那一筆的代價是任務被靜默移除，那正是這個 app 要解決的問題。
  */
-async function taskOps(visit, { isNew = false } = {}) {
+async function taskOps(visit, { isNew = false, visitsAfter = null } = {}) {
   const [existing, courses] = await Promise.all([
     isNew ? [] : tasksData.listByVisit(visit.id),
     config.listAll('courses', { includeDeleted: true }),
   ]);
 
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+
   const { create, update, remove: gone } = syncTasksForVisit(visit, existing, {
-    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    coursesById,
     today: todayISO(),
   });
 
   return [
+    ...toOps({ create, update, remove: gone }),
+    ...(visitsAfter ? await followupOps(visit, visitsAfter, coursesById) : []),
+  ];
+}
+
+/**
+ * 「約二返」的待辦。跟上面那一段分開，因為它的視野不一樣。
+ *
+ * 掛號類的任務只看這一筆來訪：這次來訪有哪些課程，就該有哪些任務。
+ * 「約二返」看的是整位客戶：買了 3 次健檢就有 3 次二返，做完第二次健檢時
+ * 該不該長出待辦，取決於前面兩次的二返約掉了沒 —— 那是一筆來訪答不出來的問題。
+ *
+ * 所以這裡多讀三樣東西（這位客戶的額度、這位客戶的任務、設定裡的間隔），
+ * 而且**每次存來訪都跑**，不是只在健檢那一筆上跑 —— 二返被約走的時候，
+ * 要被收掉的待辦掛在另一筆來訪上（那次健檢），只看眼前這一筆看不到它。
+ *
+ * 規則本身一條都不在這裡，全部在 domain/followups.js。
+ */
+async function followupOps(visit, visitsAfter, coursesById) {
+  // 主檔裡沒有任何課程設了「做完還要再約一次」就直接跳過，省下三次讀取。
+  // 這是唯一安全的提前結束：沒有配對規則就不可能有配對，也就不可能有待辦。
+  const hasPairing = Object.values(coursesById).some((c) => c?.followupCourseId);
+  if (!hasPairing) return [];
+
+  const [entitlements, tasks, settings] = await Promise.all([
+    customersData.listEntitlements(visit.customerId),
+    tasksData.listByCustomer(visit.customerId),
+    config.getSettings(),
+  ]);
+
+  return toOps(
+    syncFollowupTasks({
+      customer: { id: visit.customerId, name: visit.customerName ?? null },
+      entitlements,
+      visits: visitsAfter,
+      tasks,
+      coursesById,
+      dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+    }),
+  );
+}
+
+function toOps({ create = [], update = [], remove = [] }) {
+  return [
     ...create.map((data) => ({ op: 'create', path: TASK_PATH, data })),
     ...update.map((u) => ({ op: 'update', path: TASK_PATH, id: u.id, changes: u.changes })),
-    ...gone.map((r) => ({ op: 'softDelete', path: TASK_PATH, id: r.id, reason: r.reason })),
+    ...remove.map((r) => ({ op: 'softDelete', path: TASK_PATH, id: r.id, reason: r.reason })),
   ];
 }
 

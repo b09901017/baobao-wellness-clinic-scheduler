@@ -73,7 +73,7 @@ export async function importPlan(plan) {
       op: 'create',
       path: entPath(customerId),
       id: idByKey.get(e.key),
-      data: { ...e.doc, ...counts[idByKey.get(e.key)] },
+      data: { ...withFollowupId(e.doc, idByKey), ...counts[idByKey.get(e.key)] },
     })),
     ...visits.map(({ id, ...data }) => ({ op: 'create', path: VISITS, id, data })),
   ];
@@ -87,6 +87,19 @@ export async function importPlan(plan) {
 
   await repo.commit(ops);
   return { customerId, entitlements: plan.entitlements.length, visits: visits.length };
+}
+
+/**
+ * 二返額度指回它是哪一筆健檢配出來的。
+ *
+ * 計畫裡指的是 key，因為額度的 id 要等這一次寫入才給得出來（子集合的路徑需要
+ * 父文件的 id）。指不到的一律寫 null 而不是留著 key —— 存一個換不回 id 的字串，
+ * 之後每一次配對比對都會安靜地失敗。
+ */
+function withFollowupId(doc, idByKey) {
+  const { followupForEntitlementKey, ...rest } = doc;
+  if (followupForEntitlementKey === undefined) return rest;
+  return { ...rest, followupForEntitlementId: idByKey.get(followupForEntitlementKey) ?? null };
 }
 
 /**

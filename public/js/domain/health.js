@@ -1,23 +1,27 @@
-// 資料健檢。SPEC 第 6.6 節的七項對帳，全部是純函式。
+// 資料健檢。SPEC 第 6.6 節的對帳，全部是純函式。
 //
-// 這一支不新增任何一條規則 —— 七項檢查全部是把 /domain 既有的判斷拿去全庫跑一遍：
+// 這一支不新增任何一條規則 —— 每一項檢查都是把 /domain 既有的判斷拿去全庫跑一遍：
 // 次數對帳與額度超用用 entitlements.js 的 reconcile() / counts() / isOverused()，
+// 二返額度用 followups.js 的 missingPairs() / countMismatches()，
 // 逾期任務用 taskRules.js 的 urgency()，可用性過期用 availability.js 的
 // currentCollection()，衝突殘留用 visitTime.js 的 overlaps()。
 // 同一件事有第二套算法就會出現「詳情頁說對、資料健檢說錯」，那比不做這一頁還糟。
 //
 // 只算不寫：這裡回傳的是差異，不是修好的資料。要不要改是她的決定
-//（docs/adr/0002-app-records-decisions-it-does-not-make-them.md），
-// 而唯一有明確正解的修正是計數欄位重算，見 docs/adr/0007-health-check-reads-only.md。
+//（docs/adr/0002-app-records-decisions-it-does-not-make-them.md）。
+// 只有兩項給得出一鍵修正，因為只有它們的正解不需要判斷：計數欄位重算
+//（docs/adr/0007-health-check-reads-only.md）與補上缺的二返額度
+//（docs/adr/0023-health-check-can-also-create-the-missing-followup.md）。
 
 import { counts, reconcile, isOverused } from './entitlements.js';
+import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { currentCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
 import { VISIT_STATUSES, isActive } from './visits.js';
 
 /**
- * 七項檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
+ * 八項檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
  * id 會出現在網址與稽核訊息裡，不要改。
  */
 export const CHECKS = [
@@ -25,6 +29,11 @@ export const CHECKS = [
     id: 'counts',
     label: '次數對帳',
     hint: 'entitlement 的計數欄位是不是等於從來訪重算的值',
+  },
+  {
+    id: 'followups',
+    label: '二返額度',
+    hint: '買了健檢卻還沒配到二返額度的客戶（沒有額度，二返就記不進來）',
   },
   {
     id: 'orphans',
@@ -115,7 +124,7 @@ function totalsOf(checks) {
 
 // ---------- 共用的前置整理 ----------
 //
-// 七項檢查有一半以上都要「這位客戶的來訪」與「這筆額度屬於誰」，
+// 一半以上的檢查都要「這位客戶的來訪」與「這筆額度屬於誰」，
 // 各自再算一次就是七次全表掃描。整理一次，大家共用。
 
 function prepare(snapshot, today) {
@@ -195,7 +204,59 @@ function checkCounts(ctx) {
   return out;
 }
 
-// ---------- 二、孤兒資料 ----------
+// ---------- 二、二返額度 ----------
+//
+// 「買了 N 次健檢就有 N 次二返」這條規則是 2026-08 才做進系統的（GitHub issue #15），
+// 而額度一旦展開就跟範本脫鉤了（ADR-0003）—— 所以在那之前建立的客戶身上不會有
+// 二返額度，包括從舊試算表匯進來的那 21 位。沒有額度，她行事曆上那十筆二返就
+// 記不進系統。這一項把那些人列出來。
+//
+// 這是資料健檢的第二個會寫入的動作（ADR-0007 原本只給計數對帳一個），
+// 理由見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
+
+function checkFollowups(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    if (customer.active === false) continue;
+    const ents = alive(ctx.entsByCustomer[customer.id] ?? []);
+
+    for (const miss of missingPairs(ents, ctx.coursesById)) {
+      out.push({
+        severity: 'mismatch',
+        title: `${customer.name}・${miss.source.label}`,
+        detail: `健檢有 ${miss.source.totalQty ?? 0} 次，但身上沒有對應的二返額度 ——`
+          + '二返記不進來，「約二返」的待辦也不會長出來',
+        link: `#/customers/${customer.id}`,
+        // 次數就是健檢的次數，不需要任何判斷，所以這一項可以一鍵補。
+        fix: {
+          kind: 'addFollowup',
+          customerId: customer.id,
+          label: `${customer.name}・${miss.source.label}`,
+          draft: miss.draft,
+          qty: miss.draft.totalQty,
+        },
+      });
+    }
+
+    // 次數對不上**不給一鍵修正**：她可能是故意的（其中一次的報告用電話講完了）。
+    // 只有「完全沒有」才存在不需要判斷的正解。
+    for (const bad of countMismatches(ents, ctx.coursesById)) {
+      out.push({
+        severity: 'attention',
+        title: `${customer.name}・${bad.followup.label}`,
+        detail: `健檢是 ${bad.expected} 次，二返卻是 ${bad.actual} 次。`
+          + '故意給的就不用管，不是的話到客戶詳情頁改二返那一筆的總次數',
+        link: `#/customers/${customer.id}`,
+        fix: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+// ---------- 三、孤兒資料 ----------
 //
 // 「指向已刪除的」與「指向根本不存在的」要分開講：前者通常是她自己刪的主檔，
 // 後者代表資料真的少了一塊。兩種的處理方式不一樣，混在一起她會分不出哪筆要緊。
@@ -277,7 +338,7 @@ function checkOrphans(ctx) {
   return out;
 }
 
-// ---------- 三、狀態異常 ----------
+// ---------- 四、狀態異常 ----------
 
 function checkVisitStatus(ctx) {
   const out = [];
@@ -315,7 +376,7 @@ function checkVisitStatus(ctx) {
   return out;
 }
 
-// ---------- 四、額度超用 ----------
+// ---------- 五、額度超用 ----------
 
 function checkOverused(ctx) {
   const out = [];
@@ -344,7 +405,7 @@ function checkOverused(ctx) {
   return out;
 }
 
-// ---------- 五、衝突殘留 ----------
+// ---------- 六、衝突殘留 ----------
 //
 // 只看她自己排的來訪彼此之間。跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節），
 // 所以這裡找到的一定是她自己重複排的 —— 那是真的要處理的東西。
@@ -398,7 +459,7 @@ function checkConflicts(ctx) {
   return out;
 }
 
-// ---------- 六、逾期任務 ----------
+// ---------- 七、逾期任務 ----------
 
 function checkOverdueTasks(ctx) {
   return ctx.tasks
@@ -412,7 +473,7 @@ function checkOverdueTasks(ctx) {
     }));
 }
 
-// ---------- 七、資料過期 ----------
+// ---------- 八、資料過期 ----------
 //
 // 過期的可用性不會擋任何事，但會讓壓表的排序失真 ——
 // 「可用天數最少的優先」建立在那份資料還有效的前提上。
@@ -450,6 +511,7 @@ function checkStaleAvailability(ctx) {
 
 const RUNNERS = {
   counts: checkCounts,
+  followups: checkFollowups,
   orphans: checkOrphans,
   visitStatus: checkVisitStatus,
   overused: checkOverused,
