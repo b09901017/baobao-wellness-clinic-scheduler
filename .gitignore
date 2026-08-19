@@ -34,3 +34,9 @@ Thumbs.db
 
 # Python
 __pycache__/
+
+# === 設計稿 ===
+# .scratch/ui-redesign/canvas/*.dc.html 與 canvas.json 是原始檔，要進版控。
+# 下面這個是把它們封進 Claude Design 編輯器之後的產出物（約 2.4MB，其中
+# 絕大部分是編輯器本身的程式碼），改了原始檔重跑 seed 就會重新產生一份。
+.scratch/ui-redesign/canvas/scheduler-ui-redesign.html

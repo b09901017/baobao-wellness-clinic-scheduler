@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 940px; background: #FAF7F2; display: flex; flex-direction: column; position: relative;">
+
+  <div style="padding: 22px 20px 14px;">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <span class="num" style="font-size: 14px; font-weight: 500; color: #9A9086; letter-spacing: 0.04em;">8月19日 週三</span>
+      <div style="display: flex; align-items: center; gap: 6px; height: 44px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+      </div>
+    </div>
+    <h1 class="ser" style="font-size: 29px; font-weight: 700; line-height: 1.35; margin-top: 2px;">今天有 5 件<br>其中 2 件逾期了</h1>
+  </div>
+
+  <div style="padding: 0 20px;">
+    <div style="display: flex; background: #EFE9E0; border-radius: 999px; padding: 4px; gap: 4px;">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2">
+        <div onClick="{{t.pick}}" style="flex-grow: 1; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 999px; font-size: 15px; font-weight: 700; background: {{t.bg}}; color: {{t.fg}};">{{t.label}}</div>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{isAll}}" hint-placeholder-val="{{true}}">
+    <div style="padding: 16px 20px 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+      <sc-for list="{{triage}}" as="b" hint-placeholder-count="3">
+        <div style="min-height: 84px; border-radius: 18px; background: {{b.bg}}; border: 1px solid {{b.line}}; padding: 12px 10px; display: flex; flex-direction: column; justify-content: space-between;">
+          <span class="num ser" style="font-size: 30px; font-weight: 700; line-height: 1; color: {{b.fg}};">{{b.n}}</span>
+          <span style="font-size: 13px; font-weight: 700; color: {{b.fg}};">{{b.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="padding: 20px 20px 0;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;">
+        <h2 class="ser" style="font-size: 19px; font-weight: 600;">分類</h2>
+        <span style="font-size: 13px; color: #9A9086;">點進去看完整內容</span>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; overflow: hidden;">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="6">
+          <div style="display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 16px; border-top: 1px solid {{g.sep}}; background: {{g.bg}};">
+            <span style="width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; background: {{g.dot}};"></span>
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="font-size: 16px; font-weight: 700; color: {{g.fg}};">{{g.label}}</div>
+              <div style="font-size: 13px; color: #9A9086;">{{g.note}}</div>
+            </div>
+            <span class="num" style="font-size: 19px; font-weight: 700; color: {{g.fg}};">{{g.n}}</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C4BBAE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isByCustomer}}" hint-placeholder-val="{{true}}">
+    <div style="padding: 16px 20px 0; display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{byCustomer}}" as="c" hint-placeholder-count="4">
+        <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; padding: 14px 16px; display: flex; align-items: center; gap: 12px;">
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="ser" style="font-size: 19px; font-weight: 600;">{{c.name}}</span>
+              <sc-if value="{{c.flag}}" hint-placeholder-val="{{true}}">
+                <span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 7px; background: #F7E4E0; color: #A63A2A; font-size: 12px; font-weight: 700;">{{c.flag}}</span>
+              </sc-if>
+            </div>
+            <div style="font-size: 14px; color: #6B6157; margin-top: 2px;">{{c.what}}</div>
+          </div>
+          <span class="num" style="display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; padding: 0 9px; border-radius: 999px; font-size: 15px; font-weight: 700; background: {{c.bg}}; color: {{c.fg}};">{{c.n}}</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C4BBAE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="padding: 22px 20px 0;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;">
+      <h2 class="ser" style="font-size: 19px; font-weight: 600;">隨手記</h2>
+      <span style="font-size: 13px; color: #9A9086;">客人的零碎小要求</span>
+    </div>
+
+    <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; overflow: hidden;">
+      <sc-for list="{{notes}}" as="n" hint-placeholder-count="4">
+        <div onClick="{{n.toggle}}" style="display: flex; align-items: flex-start; gap: 12px; min-height: 52px; padding: 13px 16px; border-top: 1px solid {{n.sep}};">
+          <span style="width: 22px; height: 22px; border-radius: 7px; flex-shrink: 0; margin-top: 1px; border: 2px solid {{n.boxLine}}; background: {{n.boxBg}}; display: flex; align-items: center; justify-content: center;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{{n.tick}}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+          </span>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="font-size: 15px; line-height: 1.5; color: {{n.fg}}; text-decoration: {{n.strike}};">{{n.text}}</div>
+            <sc-if value="{{n.who}}" hint-placeholder-val="{{true}}">
+              <span style="display: inline-flex; align-items: center; height: 22px; padding: 0 9px; margin-top: 5px; border-radius: 999px; background: #F3EFE8; color: #6B6157; font-size: 12px; font-weight: 700;">{{n.who}}</span>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border-top: 1px solid #EFE9E0; background: #FCFAF7;">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span style="font-size: 15px; font-weight: 700; color: #2F5D4C;">記一筆</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div style="position: absolute; right: 18px; bottom: 84px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
+    <div style="width: 60px; height: 60px; border-radius: 999px; background: #2F5D4C; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(47, 93, 76, 0.34);">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </div>
+  </div>
+
+    <div style="margin-top: auto; display: flex; align-items: stretch; background: #FFFFFF; border-top: 1px solid #E3DCD1; padding: 4px 4px 10px;">
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+        <span style="font-size: 11px; font-weight: 700; color: #2F5D4C;">待辦</span>
+        <span style="width:5px;height:5px;border-radius:999px;background:#2F5D4C;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">壓表</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">日曆</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">客戶</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">設定</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+    </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'all', done: { n4: true } };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const tab = st.tab || 'all';
+    const done = st.done || {};
+
+    const tabs = [
+      { id: 'all', label: '總覽' },
+      { id: 'byCustomer', label: '依客戶' },
+    ].map((t) => ({
+      ...t,
+      bg: t.id === tab ? '#FFFFFF' : 'transparent',
+      fg: t.id === tab ? '#241F1A' : '#8C8377',
+      pick: () => this.setState({ tab: t.id }),
+    }));
+
+    const rawNotes = [
+      { id: 'n1', text: '王小姐指定 LuLu，不要排騰崴', who: '王小姐' },
+      { id: 'n2', text: '陳先生下次記得帶健保卡', who: '陳先生' },
+      { id: 'n3', text: '問黃太太二返可不可以排週六', who: '黃太太' },
+      { id: 'n4', text: '林小姐要改成下午', who: '林小姐' },
+    ];
+
+    const notes = rawNotes.map((n, i) => {
+      const isDone = !!done[n.id];
+      return {
+        ...n,
+        sep: i === 0 ? 'transparent' : '#EFE9E0',
+        boxLine: isDone ? '#2F5D4C' : '#CFC6B8',
+        boxBg: isDone ? '#2F5D4C' : '#FFFFFF',
+        tick: isDone ? '#FFFFFF' : 'transparent',
+        fg: isDone ? '#A79D91' : '#241F1A',
+        strike: isDone ? 'line-through' : 'none',
+        toggle: () => this.setState({ done: { ...done, [n.id]: !isDone } }),
+      };
+    });
+
+    return {
+      tabs,
+      isAll: tab === 'all',
+      isByCustomer: tab === 'byCustomer',
+      triage: [
+        { n: 2, label: '逾期', bg: '#F7E4E0', line: '#EDD2CC', fg: '#A63A2A' },
+        { n: 5, label: '今天', bg: '#F8EED8', line: '#EDDFC0', fg: '#8A6410' },
+        { n: 4, label: '明天', bg: '#FFFFFF', line: '#E3DCD1', fg: '#6B6157' },
+      ],
+      groups: [
+        { label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: 3, dot: '#2F5D4C', bg: '#F2F7F4', fg: '#2F5D4C', sep: 'transparent' },
+        { label: '打電話', note: '來訪前一天提醒', n: 2, dot: '#A4703C', bg: '#FFFFFF', fg: '#241F1A', sep: '#EFE9E0' },
+        { label: 'Abovee', note: '壓表登記', n: 4, dot: '#A4703C', bg: '#FFFFFF', fg: '#241F1A', sep: '#EFE9E0' },
+        { label: 'Examine', note: '預約作業 → 查核 → 已報到', n: 1, dot: '#A4703C', bg: '#FFFFFF', fg: '#241F1A', sep: '#EFE9E0' },
+        { label: '耀聖', note: '右下角 → 未報到 → V', n: 1, dot: '#A4703C', bg: '#FFFFFF', fg: '#241F1A', sep: '#EFE9E0' },
+        { label: '改時間／取消', note: '要回頭取消舊登記', n: 1, dot: '#A63A2A', bg: '#FFFFFF', fg: '#A63A2A', sep: '#EFE9E0' },
+      ],
+      byCustomer: [
+        { name: '王小姐', flag: '', what: 'Abovee・Examine・打電話', n: 3, bg: '#F7E4E0', fg: '#A63A2A' },
+        { name: '陳先生', flag: '體內金屬', what: '跟客人確認時間・Abovee', n: 2, bg: '#F8EED8', fg: '#8A6410' },
+        { name: '黃太太', flag: '', what: '跟客人確認時間', n: 1, bg: '#E4EDE8', fg: '#2F5D4C' },
+        { name: '林小姐', flag: '', what: '取消 Abovee・取消 耀聖', n: 2, bg: '#F7E4E0', fg: '#A63A2A' },
+      ],
+      notes,
+    };
+  }
+}
+</script>
+</body>
+</html>

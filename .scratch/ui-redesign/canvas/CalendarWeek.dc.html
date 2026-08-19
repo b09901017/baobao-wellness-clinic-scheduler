@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 1060px; background: #FAF7F2; display: flex; flex-direction: column; position: relative;">
+
+  <div style="background: #FFFFFF; border-bottom: 1px solid #E3DCD1; padding: 16px 18px 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div>
+        <h1 class="ser num" style="font-size: 23px; font-weight: 700; line-height: 1.2;">8/24 – 8/30</h1>
+        <span style="font-size: 13px; font-weight: 500; color: #9A9086;">這一週 11 筆來訪</span>
+      </div>
+      <span style="flex-grow: 1;"></span>
+      <div style="display: flex; background: #EFE9E0; border-radius: 999px; padding: 3px; gap: 3px;">
+        <sc-for list="{{views}}" as="v" hint-placeholder-count="3">
+          <div onClick="{{v.pick}}" style="min-width: 40px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{v.bg}}; color: {{v.fg}};">{{v.label}}</div>
+        </sc-for>
+      </div>
+    </div>
+    <p style="margin: 9px 0 0; font-size: 13px; color: #6B6157;">一週是真正在規劃的單位。iPad 橫式會攤成七欄並排。</p>
+  </div>
+
+  <div style="padding: 12px 18px 0; display: flex; flex-direction: column; gap: 10px;">
+    <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+      <div style="background: {{d.cardBg}}; border: 1px solid {{d.cardLine}}; border-radius: 18px; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: {{d.headBg}};">
+          <span class="num" style="min-width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: {{d.pillBg}}; color: {{d.pillFg}};">{{d.n}}</span>
+          <span style="font-size: 14px; font-weight: 700; color: {{d.wdFg}};">{{d.wd}}</span>
+          <span style="flex-grow: 1;"></span>
+          <span class="num" style="font-size: 13px; font-weight: 700; color: #9A9086;">{{d.count}}</span>
+        </div>
+
+        <sc-for list="{{d.items}}" as="it" hint-placeholder-count="2">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid #EFE9E0;">
+            <span style="width: 3px; height: 26px; border-radius: 999px; background: {{it.color}}; flex-shrink: 0;"></span>
+            <span class="num" style="font-size: 13px; font-weight: 700; color: #4A4239; width: 42px; flex-shrink: 0;">{{it.time}}</span>
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{it.title}}</div>
+              <div style="font-size: 12px; color: #9A9086; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{it.sub}}</div>
+            </div>
+            <span style="width: 7px; height: 7px; border-radius: 999px; background: {{it.dot}}; flex-shrink: 0;"></span>
+          </div>
+        </sc-for>
+
+        <sc-if value="{{d.empty}}" hint-placeholder-val="{{true}}">
+          <div style="padding: 12px 14px; border-top: 1px solid #EFE9E0; font-size: 13px; color: #B5ABA0;">沒有排東西</div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div style="position: absolute; right: 18px; bottom: 84px; width: 60px; height: 60px; border-radius: 999px; background: #2F5D4C; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(47, 93, 76, 0.34);">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </div>
+
+    <div style="margin-top: auto; display: flex; align-items: stretch; background: #FFFFFF; border-top: 1px solid #E3DCD1; padding: 4px 4px 10px;">
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">待辦</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">壓表</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span style="font-size: 11px; font-weight: 700; color: #2F5D4C;">日曆</span>
+        <span style="width:5px;height:5px;border-radius:999px;background:#2F5D4C;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">客戶</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">設定</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+    </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1060}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { view: '週' };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const cur = st.view || '週';
+    const views = ['日', '週', '月'].map((label) => ({
+      label,
+      bg: label === cur ? '#FFFFFF' : 'transparent',
+      fg: label === cur ? '#241F1A' : '#8C8377',
+      pick: () => this.setState({ view: label }),
+    }));
+
+    const V = '#2F5D4C';
+    const P = '#A4703C';
+    const okDot = '#2F5D4C';
+    const waitDot = '#D9A63C';
+
+    const raw = [
+      { n: 24, wd: '一', items: [
+        { time: '14:00', title: '林小姐', sub: '復能・INDIBA・芝寧', color: V, dot: okDot },
+      ] },
+      { n: 25, wd: '二', items: [
+        { time: '10:30', title: '陳先生', sub: 'EECP・治5', color: V, dot: okDot },
+        { time: '13:30', title: '黃太太', sub: '營養點滴・雪顏亮彩・點滴8 B', color: V, dot: waitDot },
+      ] },
+      { n: 26, wd: '三', items: [
+        { time: '整天', title: '公出', sub: '個人行程・跨到明天', color: P, dot: P },
+      ] },
+      { n: 27, wd: '四', items: [
+        { time: '10:30', title: '陳先生', sub: '復健科醫師門診・治2', color: V, dot: waitDot },
+        { time: '14:00', title: '王小姐', sub: '復能・INDIBA・騰崴', color: V, dot: okDot },
+        { time: '16:30', title: '黃太太', sub: '二返・治3', color: V, dot: waitDot },
+      ] },
+      { n: 28, wd: '五', items: [
+        { time: '11:00', title: '林小姐', sub: '靜脈・ILIB4', color: V, dot: okDot },
+      ] },
+      { n: 29, wd: '六', items: [] },
+      { n: 30, wd: '日', items: [] },
+    ];
+
+    const days = raw.map((d) => {
+      const isToday = false;
+      const weekend = d.wd === '六' || d.wd === '日';
+      return {
+        n: String(d.n),
+        wd: '週' + d.wd,
+        count: d.items.length ? d.items.length + ' 筆' : '',
+        items: d.items,
+        empty: d.items.length === 0,
+        cardBg: '#FFFFFF',
+        cardLine: '#E3DCD1',
+        headBg: weekend ? '#FCFAF7' : '#FFFFFF',
+        pillBg: isToday ? '#2F5D4C' : 'transparent',
+        pillFg: isToday ? '#FFFFFF' : weekend ? '#A4703C' : '#241F1A',
+        wdFg: weekend ? '#A4703C' : '#6B6157',
+      };
+    });
+
+    return { views, days };
+  }
+}
+</script>
+</body>
+</html>

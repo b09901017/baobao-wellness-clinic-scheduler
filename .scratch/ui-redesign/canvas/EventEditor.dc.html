@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 1160px; background: #FAF7F2; display: flex; flex-direction: column;">
+
+  <div style="background: #FFFFFF; border-bottom: 1px solid #E3DCD1; padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B6157" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    <span class="ser" style="font-size: 18px; font-weight: 600; flex-grow: 1;">記一筆來訪</span>
+    <span style="display: inline-flex; align-items: center; height: 38px; padding: 0 18px; border-radius: 999px; background: #2F5D4C; color: #FFFFFF; font-size: 15px; font-weight: 700;">儲存</span>
+  </div>
+
+  <div style="padding: 16px 18px 0;">
+    <div style="display: flex; gap: 7px;">
+      <sc-for list="{{kinds}}" as="k" hint-placeholder-count="3">
+        <div onClick="{{k.pick}}" style="flex-grow: 1; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 7px; background: {{k.bg}}; border: 1.5px solid {{k.line}};">
+          <span style="width: 10px; height: 10px; border-radius: 999px; background: {{k.dot}};"></span>
+          <span style="font-size: 14px; font-weight: 700; color: {{k.fg}};">{{k.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="padding: 14px 18px 0;">
+    <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 15px;">
+        <span style="font-size: 14px; font-weight: 700; color: #6B6157; width: 62px; flex-shrink: 0;">客戶</span>
+        <div style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span class="ser" style="font-size: 19px; font-weight: 600;">陳先生</span>
+          <span style="display: inline-flex; align-items: center; height: 23px; padding: 0 9px; border-radius: 7px; background: #F7E4E0; color: #A63A2A; font-size: 12px; font-weight: 700;">體內金屬</span>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C4BBAE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 15px; border-top: 1px solid #EFE9E0;">
+        <span style="font-size: 14px; font-weight: 700; color: #6B6157; width: 62px; flex-shrink: 0;">整天</span>
+        <span style="flex-grow: 1;"></span>
+        <div onClick="{{toggleAllDay}}" style="width: 54px; height: 32px; border-radius: 999px; background: {{allDayBg}}; padding: 3px; display: flex; justify-content: {{allDayJustify}};">
+          <span style="width: 26px; height: 26px; border-radius: 999px; background: #FFFFFF; box-shadow: 0 1px 4px rgba(36, 31, 26, 0.22);"></span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 15px; border-top: 1px solid #EFE9E0;">
+        <span style="font-size: 14px; font-weight: 700; color: #6B6157; width: 62px; flex-shrink: 0;">開始</span>
+        <span class="num" style="flex-grow: 1; font-size: 16px; font-weight: 500;">2026年8月27日 週四</span>
+        <span class="num" style="display: inline-flex; align-items: center; height: 38px; padding: 0 13px; border-radius: 11px; background: #F3EFE8; font-size: 16px; font-weight: 700;">{{startTime}}</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 15px; border-top: 1px solid #EFE9E0;">
+        <span style="font-size: 14px; font-weight: 700; color: #6B6157; width: 62px; flex-shrink: 0;">結束</span>
+        <span class="num" style="flex-grow: 1; font-size: 16px; font-weight: 500;">2026年8月27日 週四</span>
+        <span class="num" style="display: inline-flex; align-items: center; height: 38px; padding: 0 13px; border-radius: 11px; background: #F3EFE8; font-size: 16px; font-weight: 700;">{{endTime}}</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 15px; border-top: 1px solid #EFE9E0;">
+        <span style="font-size: 14px; font-weight: 700; color: #6B6157; width: 62px; flex-shrink: 0;">顏色</span>
+        <div style="flex-grow: 1; display: flex; gap: 9px;">
+          <sc-for list="{{colors}}" as="c" hint-placeholder-count="5">
+            <span style="width: 30px; height: 30px; border-radius: 999px; background: {{c.hex}}; border: 2.5px solid {{c.ring}};"></span>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <p style="margin: 8px 0 0; font-size: 12px; color: #9A9086; line-height: 1.5;">結束日期可以跟開始不同 —— 跨天的行程在月檢視上會拉成一條橫的。</p>
+  </div>
+
+  <div style="padding: 16px 18px 0;">
+    <div style="display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border-radius: 15px; background: #F7E4E0; border: 1px solid #EDD2CC;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A63A2A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 1px; flex-shrink: 0;"><path d="M12 3.5l8.5 15.5h-17z"/><path d="M12 9.5v4M12 16.5h.01"/></svg>
+      <div>
+        <div style="font-size: 14px; font-weight: 700; color: #A63A2A;">超磁場、高能量雷射已停用</div>
+        <div style="font-size: 13px; color: #A63A2A; opacity: 0.85; line-height: 1.5; margin-top: 2px;">體內金屬禁忌。這是唯一會直接鎖住選項的檢查。</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding: 16px 18px 0;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;">
+      <h2 class="ser" style="font-size: 19px; font-weight: 600;">這天的時段</h2>
+      <span style="font-size: 13px; color: #9A9086;">一次來訪可以有 2–3 段</span>
+    </div>
+
+    <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; padding: 15px; margin-bottom: 9px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <span class="num" style="font-size: 17px; font-weight: 700;">10:30–11:00</span>
+        <span class="num" style="font-size: 14px; color: #6B6157;">復健科　剩 <b style="color: #2F5D4C;">2</b>/6</span>
+      </div>
+      <sc-for list="{{slotFields}}" as="f" hint-placeholder-count="3">
+        <div style="margin-bottom: 11px;">
+          <div style="font-size: 12px; font-weight: 700; color: #9A9086; margin-bottom: 6px;">{{f.label}}</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <sc-for list="{{f.options}}" as="o" hint-placeholder-count="3">
+              <div onClick="{{o.pick}}" style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 999px; font-size: 14px; font-weight: {{o.weight}}; background: {{o.bg}}; border: 1px solid {{o.line}}; color: {{o.fg}}; text-decoration: {{o.deco}};">{{o.label}}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 18px; padding: 14px 15px; display: flex; align-items: center; gap: 10px; margin-bottom: 9px;">
+      <span style="width: 3px; height: 34px; border-radius: 999px; background: #2F5D4C;"></span>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div class="num" style="font-size: 16px; font-weight: 700;">11:15–12:15</div>
+        <div style="font-size: 13px; color: #6B6157;">營養點滴・護肝排毒・點滴8 A</div>
+      </div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C4BBAE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+    </div>
+
+    <div style="height: 48px; border-radius: 15px; border: 1.5px dashed #CFC6B8; display: flex; align-items: center; justify-content: center; gap: 8px; background: #FCFAF7;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span style="font-size: 15px; font-weight: 700; color: #2F5D4C;">再加一個時段</span>
+    </div>
+    <p style="margin: 8px 0 0; font-size: 12px; color: #9A9086;">中間預設空 15 分鐘，可以改。</p>
+  </div>
+
+  <div style="padding: 16px 18px 0;">
+    <div style="display: flex; flex-wrap: wrap; gap: 7px;">
+      <sc-for list="{{extras}}" as="e" hint-placeholder-count="5">
+        <div style="display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E3DCD1;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6B6157" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span style="font-size: 14px; font-weight: 700; color: #4A4239;">{{e}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="padding: 16px 18px 24px;">
+    <div style="border-radius: 16px; background: #F2F7F4; border: 1px solid #DCE8E2; padding: 14px 15px;">
+      <div style="font-size: 13px; font-weight: 700; color: #2F5D4C; margin-bottom: 8px;">存下去會自動產生</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        <sc-for list="{{tasks}}" as="t" hint-placeholder-count="4">
+          <span style="display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 8px; background: #FFFFFF; color: #2F5D4C; font-size: 13px; font-weight: 700;">{{t}}</span>
+        </sc-for>
+      </div>
+      <div class="num" style="margin-top: 9px; font-size: 12px; color: #6B6157;">死線 8/26（來訪前一天）・可以提早做</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1160}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { kind: 'visit', allDay: false, course: '復健科醫師門診', room: '治2', equip: 'INDIBA' };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const kind = st.kind || 'visit';
+    const allDay = !!st.allDay;
+
+    const KINDS = [
+      { id: 'visit', label: '來訪', color: '#2F5D4C', soft: '#E4EDE8' },
+      { id: 'personal', label: '個人行程', color: '#A4703C', soft: '#F5E9DC' },
+      { id: 'leave', label: '休假', color: '#5B7A8C', soft: '#E6EDF1' },
+    ];
+
+    const kinds = KINDS.map((k) => {
+      const on = k.id === kind;
+      return {
+        label: k.label,
+        dot: k.color,
+        bg: on ? k.soft : '#FFFFFF',
+        line: on ? k.color : '#E3DCD1',
+        fg: on ? k.color : '#6B6157',
+        pick: () => this.setState({ kind: k.id }),
+      };
+    });
+
+    const chipSet = (key, options) => options.map((o) => {
+      const on = (st[key] || '') === o.label;
+      return {
+        label: o.label,
+        bg: o.off ? '#F3EFE8' : on ? '#2F5D4C' : '#FFFFFF',
+        line: o.off ? '#F3EFE8' : on ? '#2F5D4C' : '#E3DCD1',
+        fg: o.off ? '#BDB3A6' : on ? '#FFFFFF' : '#241F1A',
+        weight: on ? '700' : '500',
+        deco: o.off ? 'line-through' : 'none',
+        pick: () => { if (!o.off) this.setState({ [key]: o.label }); },
+      };
+    });
+
+    const active = KINDS.find((k) => k.id === kind) || KINDS[0];
+
+    return {
+      kinds,
+      allDayBg: allDay ? '#2F5D4C' : '#DDD4C6',
+      allDayJustify: allDay ? 'flex-end' : 'flex-start',
+      toggleAllDay: () => this.setState({ allDay: !allDay }),
+      startTime: allDay ? '整天' : '10:30',
+      endTime: allDay ? '整天' : '12:15',
+      colors: ['#2F5D4C', '#A4703C', '#5B7A8C', '#A63A2A', '#7A6A94'].map((hex) => ({
+        hex, ring: hex === active.color ? '#241F1A' : 'transparent',
+      })),
+      slotFields: [
+        { label: '課程', options: chipSet('course', [
+          { label: '復健科醫師門診' }, { label: '復能' }, { label: '靜脈' }, { label: 'EECP' },
+        ]) },
+        { label: '器材　體內金屬鎖掉兩項', options: chipSet('equip', [
+          { label: 'INDIBA' }, { label: '超磁場', off: true }, { label: '高能量雷射', off: true },
+        ]) },
+        { label: '診間', options: chipSet('room', [
+          { label: '治2' }, { label: '治3' }, { label: '治7' }, { label: '治9' },
+        ]) },
+      ],
+      extras: ['重複', '地點', '備註', '待辦清單', '提醒'],
+      tasks: ['打電話', 'Abovee', 'Examine', '耀聖'],
+    };
+  }
+}
+</script>
+</body>
+</html>
