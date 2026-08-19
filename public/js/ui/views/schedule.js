@@ -4,7 +4,9 @@
 // 看到空的就搶，而且習慣把一個客人的所有課程壓完再換下一個人。
 //
 // 兩層：**客戶卡片牆**（一次看到多位，自己決定先處理誰）→ **記錄**（挑日子、記下來）。
-// `< 900px` 是兩個畫面，`≥ 900px` 用 .split 並存。純 CSS 切換，不偵測裝置型號。
+// 記錄不是另一個畫面，是疊在牆上面的一張置中卡片，左右滑就是下一位 ——
+// 見 docs/adr/0017-recording-happens-in-a-card-deck.md。三個斷點共用同一份，
+// 寬螢幕只是卡片更寬、旁邊多露一點，不是另一套版型。
 //
 // 這一頁**不出建議時段**（ADR-0002）。它的工作是把判斷所需的資訊攤開、
 // 把結果記下來。排序只是預設順序，她隨時可以跳著點。
@@ -30,6 +32,7 @@ import { todayISO, addMonths, addDays, shortDate, weekdayLabel, lastDayOf } from
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { chip as markChip } from '../components/marks.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -84,7 +87,7 @@ async function paintStart(el) {
 
     <section class="card">
       <h2 class="card__title">要壓哪個月</h2>
-      <p class="card__note">開始之後會照「限制多的、快到期的先看」排好，但那只是預設順序 ——
+      <p class="card__note">開始之後會照「限制多的先看」排好，但那只是預設順序 ——
         想先弄誰就點誰。</p>
       <div class="chips" role="group">
         ${months.map((m, i) => `
@@ -250,11 +253,16 @@ async function paintBatch(el) {
   paint({ el, batch, rows, ...data });
 }
 
+/**
+ * 卡片牆上的篩選。刻意很少。
+ *
+ * 原本有一個「快到期」—— 拿掉了。它講的是會籍，而實務上沒有會籍這件事
+ *（ADR-0019）；額度自己的到期日仍然是排序分數的一部分，只是不再自成一個分類。
+ */
 const FILTERS = [
   { id: 'all', label: '全部', match: () => true },
   { id: 'todo', label: '還沒壓', match: (r) => r.state !== 'done' && r.scheduledThisMonth === 0 },
   { id: 'noask', label: '沒問過時間', match: (r) => r.needsAvailability },
-  { id: 'expiring', label: '快到期', match: (r) => r.daysToExpiry !== null && r.daysToExpiry <= 60 },
 ];
 
 function paint(ctx) {
@@ -263,52 +271,154 @@ function paint(ctx) {
   ctx.selected = rows.find((r) => r.customerId === view.customerId) ?? null;
   const selected = ctx.selected;
   const p = progressOf(batch);
-  const filter = FILTERS.find((x) => x.id === view.filter) ?? FILTERS[1];
-  const shown = rows.filter(filter.match);
+  const filter = FILTERS.find((x) => x.id === view.filter) ?? FILTERS[0];
+  // 選中的那位一定留在卡片組裡，就算她剛剛把篩選切成別的 ——
+  // 正在處理的人從畫面上消失是最難懂的一種畫面
+  const shown = rows.filter((r) => filter.match(r) || r.customerId === view.customerId);
+  ctx.shown = shown;
 
   el.innerHTML = `
     <div class="page">
-      <div class="page__row">
-        <div>
-          <h1 class="page__title">壓表</h1>
-          <p class="page__lead num">${esc(batch.targetMonth)}・一個人壓完再換下一個</p>
-        </div>
-        <button class="btn" type="button" data-close>結束這批</button>
+      <h1 class="page__title">壓表</h1>
+      <p class="page__lead num">${esc(batch.targetMonth)}・已壓 ${p.handled} / ${p.total} 位</p>
+      <div class="meter" style="margin-top: var(--space-2)">
+        <span class="meter__done" style="width: ${pct(p.handled, p.total)}"></span>
       </div>
     </div>
 
-    <section class="card card--flat">
-      <div class="row">
-        <span class="row__main" style="font-size: var(--text-sm); font-weight: 700; color: var(--text-dim)">
-          這個月已壓
-        </span>
-        <span class="num ser" style="font-size: var(--text-lg); font-weight: 700">
-          ${p.handled} <span class="dim" style="font-weight: 500">/ ${p.total} 位</span>
-        </span>
-      </div>
-      <div class="meter"><span class="meter__done" style="width: ${pct(p.handled, p.total)}"></span></div>
-    </section>
+    <div class="chiprow noscroll-bar" role="group" aria-label="先看誰">
+      ${FILTERS.map((x) => `
+        <button class="chip chip--sm" type="button" aria-pressed="${x.id === view.filter}"
+                data-filter="${x.id}">${esc(x.label)}
+          <span class="num dim">${rows.filter(x.match).length}</span></button>`).join('')}
+    </div>
 
-    <div class="split ${selected ? 'split--focused' : ''}">
-      <div class="split__list">
-        <div class="chips" style="margin-bottom: var(--space-3)">
-          ${FILTERS.map((x) => `
-            <button class="chip" type="button" aria-pressed="${x.id === view.filter}"
-                    data-filter="${x.id}">${esc(x.label)}
-              <span class="num">&nbsp;${rows.filter(x.match).length}</span></button>`).join('')}
-        </div>
-        <p class="muted" style="margin: 0 0 var(--space-3)">
-          順序是算出來的預設值 —— 限制多的、快到期的排前面。想先弄誰就點誰。</p>
-        ${shown.length
-          ? shown.map((r) => custCard(r, r.customerId === view.customerId)).join('')
-          : '<p class="muted">這個篩選底下沒有人。點上面的「全部」看整批。</p>'}
-      </div>
-      <div class="split__detail">
-        ${selected ? recordPanel(ctx, selected) : '<p class="muted">選一位開始。</p>'}
-      </div>
-    </div>`;
+    <p class="muted" style="margin: 0 0 var(--space-3)">
+      順序是算出來的預設值 —— 限制多的排前面。想先弄誰就點誰。</p>
+
+    <div class="cardgrid">
+      ${shown.length
+        ? shown.map((r) => custCard(r, r.customerId === view.customerId)).join('')
+        : '<p class="muted">這個篩選底下沒有人。點上面的「全部」看整批。</p>'}
+    </div>
+
+    <div class="footlinks">
+      <button class="footlink" type="button" data-close>結束這一批</button>
+    </div>
+
+    ${selected ? deckHtml(ctx, shown, selected) : ''}`;
 
   wire(ctx);
+  if (selected) centerDeck(el);
+}
+
+// ---------- 置中的客戶卡片組 ----------
+
+/**
+ * 點一位客戶不換頁，而是把她疊在卡片牆上面，左右滑就是下一位（ADR-0017）。
+ *
+ * 左右滑交給 CSS 的 scroll-snap，不自己接 touch 事件 —— 自己接會失去慣性、
+ * 邊緣回彈與跨裝置的手感，滑起來就會「怪」，而這是她整晚都在做的動作。
+ *
+ * 旁邊那幾張只畫認得出是誰的資訊。全部都畫完整的記錄面板，
+ * 二十三位客戶就是二十三份小日曆。
+ */
+function deckHtml(ctx, shown, selected) {
+  const i = shown.findIndex((r) => r.customerId === selected.customerId);
+
+  return `
+    <div class="deck" data-deck role="dialog" aria-modal="true"
+         aria-label="${esc(selected.customerName ?? '')}的壓表記錄">
+      <div class="deck__head">
+        <button class="deck__btn" type="button" data-step="-1" aria-label="上一位"
+                ${i <= 0 ? 'disabled' : ''}>${icon('left', { size: 17, width: 2 })}</button>
+        <span class="deck__who">${esc(selected.customerName ?? '?')}
+          <span class="deck__count">${i + 1} / ${shown.length}</span></span>
+        <button class="deck__btn" type="button" data-step="1" aria-label="下一位"
+                ${i >= shown.length - 1 ? 'disabled' : ''}>${icon('right', { size: 17, width: 2 })}</button>
+        <button class="deck__btn" type="button" data-deck-close aria-label="回卡片牆">
+          ${icon('close', { size: 17, width: 2 })}</button>
+      </div>
+      <div class="deck__track noscroll-bar" data-track>
+        ${shown.map((r) => (r.customerId === selected.customerId
+          ? `<div class="deck__card" data-card="${esc(r.customerId)}">${recordPanel(ctx, r)}</div>`
+          : `<button class="deck__card deck__card--peek" type="button"
+                     data-card="${esc(r.customerId)}" data-goto="${esc(r.customerId)}">
+              ${peekCard(r)}</button>`)).join('')}
+      </div>
+    </div>`;
+}
+
+function peekCard(row) {
+  return `
+    <span class="row__title" style="justify-content: center">${esc(row.customerName ?? '?')}</span>
+    <span class="poolchips" style="justify-content: center">
+      ${(row.pools ?? []).slice(0, 4).map(poolChip).join('')}</span>`;
+}
+
+/** 把選中的那張推到正中間。重畫之後要復位，否則每點一顆泡泡畫面就跳回第一張。 */
+function centerDeck(el) {
+  const track = el.querySelector('[data-track]');
+  const card = track?.querySelector('.deck__card:not(.deck__card--peek)');
+  if (!track || !card) return;
+  track.scrollLeft = card.offsetLeft - (track.clientWidth - card.offsetWidth) / 2;
+}
+
+/** 滑停之後看正中間是誰。scrollend 是新的，沒有就用去抖動的 scroll 頂替。 */
+function wireDeck(ctx) {
+  const track = ctx.el.querySelector('[data-track]');
+  if (!track) return;
+
+  const settle = () => {
+    const mid = track.scrollLeft + track.clientWidth / 2;
+    let best = null;
+    let bestGap = Infinity;
+    for (const card of track.querySelectorAll('[data-card]')) {
+      const gap = Math.abs(card.offsetLeft + card.offsetWidth / 2 - mid);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = card;
+      }
+    }
+    const id = best?.dataset.card;
+    if (!id || id === view.customerId) return;
+    goTo(ctx, id);
+  };
+
+  if ('onscrollend' in window) {
+    track.addEventListener('scrollend', settle);
+  } else {
+    let timer = null;
+    track.addEventListener('scroll', () => {
+      clearTimeout(timer);
+      timer = setTimeout(settle, 140);
+    });
+  }
+
+  ctx.el.querySelectorAll('[data-goto]').forEach((btn) =>
+    btn.addEventListener('click', () => goTo(ctx, btn.dataset.goto)),
+  );
+
+  ctx.el.querySelectorAll('[data-step]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const i = ctx.shown.findIndex((r) => r.customerId === view.customerId);
+      const next = ctx.shown[i + Number(btn.dataset.step)];
+      if (next) goTo(ctx, next.customerId);
+    }),
+  );
+
+  ctx.el.querySelector('[data-deck-close]')?.addEventListener('click', () => {
+    view.customerId = null;
+    resetPicks();
+    paint(ctx);
+  });
+}
+
+/** 換人一律把記錄面板的暫存選擇清掉 —— 帶著上一位的選擇進來太容易記錯。 */
+function goTo(ctx, customerId) {
+  view.customerId = customerId;
+  resetPicks();
+  paint(ctx);
 }
 
 const pct = (n, total) => `${total ? Math.round((n / total) * 100) : 0}%`;
@@ -356,11 +466,13 @@ function custCard(row, isSelected) {
           row.daysSinceLast === null ? '・還沒上過課' : `・距上次 ${row.daysSinceLast} 天`}</span>
       </span>
 
-      ${row.selfNote ? `
-        <span class="selfnote">
-          ${icon('alert', { size: 16 })}
-          <span>${esc(row.selfNote)}</span>
-        </span>` : ''}
+      ${(row.marks ?? []).length
+        ? `<span class="marks" style="margin-top: var(--space-2)">
+            ${row.marks.slice(0, 3).map(markChip).join('')}
+            ${row.marks.length > 3
+              ? `<span class="mark mark--empty">還有 ${row.marks.length - 3} 則</span>` : ''}
+          </span>`
+        : ''}
     </button>`;
 }
 
@@ -375,14 +487,16 @@ function banBlock(row) {
       </span>`;
   }
 
-  const chips = (row.rules ?? [])
-    .filter((r) => r.kind !== 'prefer')
-    .map((r) => `<span class="ban__chip">${esc(describeShort(r))}</span>`)
-    .join('');
+  const rules = (row.rules ?? []).filter((r) => r.kind !== 'prefer');
+  const chips = rules.map((r) => `<span class="ban__chip">${esc(describeShort(r))}</span>`).join('');
+
+  // 問過了、而且她沒說哪天不行 —— 那是好消息，不要用紅色講出來。
+  // 紅色在這一頁的意思是「有東西擋著」，沒有限制卻紅著會讓她每次都停下來確認。
+  const none = rules.length === 0;
 
   return `
-    <span class="ban" style="display: block">
-      <span class="ban__head"><span>不能的時間</span>
+    <span class="ban ${none ? 'ban--none' : ''}" style="display: block">
+      <span class="ban__head"><span>${none ? '沒有說哪天不行' : '不能的時間'}</span>
         <span class="ban__when">${row.collectedAt ? `${esc(row.collectedAt)} 收集` : ''}</span></span>
       ${chips ? `<span class="ban__chips">${chips}</span>` : ''}
       ${row.rawText ? `<span class="ban__raw">「${esc(row.rawText)}」</span>` : ''}
@@ -427,11 +541,13 @@ function recordPanel(ctx, row) {
         </div>
         <span class="badge badge--ok">已記 ${recorded.length} 筆</span>
       </div>
-      ${row.rawText
-        ? `<p class="card__note" style="margin-top: var(--space-2)">「${esc(row.rawText)}」<span class="dim">・${esc(row.collectedAt ?? '')} 收集</span></p>`
-        : `<p class="card__note" style="margin-top: var(--space-2)">還沒問過這輪的時間。
-            <button class="btn" type="button" data-ask="${esc(row.customerId)}"
-                    style="min-height: 36px; margin-left: var(--space-2)">去記一次</button></p>`}
+      ${banBlock(row)}
+      ${row.rawText ? '' : `<p class="card__note" style="margin: var(--space-2) 0 0">
+          <button class="btn btn--sm" type="button"
+                  data-ask="${esc(row.customerId)}">去記一次詢問結果</button></p>`}
+      <div class="poolchips">
+        ${(row.pools ?? []).map(poolChip).join('') || '<span class="muted">沒有剩餘次數了</span>'}
+      </div>
       ${blockedNote(ctx, row)}
     </section>
 
@@ -455,10 +571,7 @@ function recordPanel(ctx, row) {
       <div class="stack">
         <button class="btn btn--dark btn--wide" type="button" data-done>
           ${entry?.state === 'done' ? '下一位 →' : '這位壓完了，下一位 →'}</button>
-        <div class="form__actions">
-          <button class="btn" type="button" data-skip>跳過</button>
-          <button class="btn" type="button" data-back-list>回卡片牆</button>
-        </div>
+        <button class="btn btn--wide" type="button" data-skip>跳過</button>
       </div>
       <p class="card__note" style="margin: var(--space-3) 0 0">
         按下去之後，${esc(row.customerName)} 會出現在待辦的「跟客人確認時間」。</p>
@@ -602,9 +715,9 @@ function dayPanel(ctx, row) {
       ${course ? `
         <div class="fieldgroup">
           <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
-          <div class="chips">
+          <div class="chiprow noscroll-bar">
             ${timeChoices().map((t) => `
-              <button class="chip" type="button" aria-pressed="${t === view.startsAt}"
+              <button class="chip chip--sm" type="button" aria-pressed="${t === view.startsAt}"
                       data-time="${t}"><span class="num">${t}</span></button>`).join('')}
           </div>
           <label class="field" style="margin: var(--space-3) 0 0">
@@ -756,19 +869,10 @@ function wire(ctx) {
   );
 
   el.querySelectorAll('[data-pick]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      view.customerId = btn.dataset.pick;
-      resetPicks();
-      paint(ctx);
-      el.querySelector('.split__detail')?.scrollIntoView({ block: 'start' });
-    }),
+    btn.addEventListener('click', () => goTo(ctx, btn.dataset.pick)),
   );
 
-  el.querySelector('[data-back-list]')?.addEventListener('click', () => {
-    view.customerId = null;
-    resetPicks();
-    paint(ctx);
-  });
+  wireDeck(ctx);
 
   el.querySelector('[data-ask]')?.addEventListener('click', (e) =>
     go(`/customers/${e.currentTarget.dataset.ask}`),

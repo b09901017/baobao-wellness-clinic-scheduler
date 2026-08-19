@@ -13,6 +13,7 @@ import {
 } from '../../domain/availability.js';
 import { todayISO, addMonths, lastDayOf, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -33,27 +34,26 @@ export function sectionHtml(collections, today) {
   const others = collections.filter((c) => c.id !== current?.id);
 
   return `
-    <section class="card">
-      <h2 class="card__title">
-        本輪可用性<span class="muted"> ${collections.length}</span>
-        ${current ? '' : '<span class="badge badge--overdue">該重問了</span>'}
-      </h2>
-
+    <div class="section">
+      <h2 class="section__title">不能的時間</h2>
       ${current
-        ? collectionCard(current, today, true)
-        : `<p class="muted">${collections.length
-            ? '收集到的都已經過期了。過期的條件不能拿來排班，要重新問一次。'
-            : '還沒問過這位客戶哪幾天方便。'}</p>`}
+        ? ''
+        : '<span class="badge badge--overdue">該重問了</span>'}
+      <button class="section__more" type="button" data-add-avail>記一次</button>
+    </div>
 
-      <p><button class="btn btn--primary" type="button" data-add-avail>記一次詢問結果</button></p>
+    ${current
+      ? collectionCard(current, today, true)
+      : `<p class="muted" style="margin: 0">${collections.length
+          ? '收集到的都已經過期了。過期的條件不能拿來排班，要重新問一次。'
+          : '還沒問過這位客戶哪幾天方便。'}</p>`}
 
-      ${others.length
-        ? `<details>
-             <summary class="muted">以前問過的 ${others.length} 次</summary>
-             ${others.map((c) => collectionCard(c, today, false)).join('')}
-           </details>`
-        : ''}
-    </section>`;
+    ${others.length
+      ? `<details style="margin-top: var(--space-2)">
+           <summary class="muted">以前問過的 ${others.length} 次</summary>
+           ${others.map((c) => collectionCard(c, today, false)).join('')}
+         </details>`
+      : ''}`;
 }
 
 function collectionCard(record, today, isCurrent) {
@@ -73,20 +73,26 @@ function collectionCard(record, today, isCurrent) {
         }</span>
       </div>
 
-      <p>${esc(record.rawText ?? '')}</p>
-      <p class="muted">${esc(record.collectedAt ?? '?')} 問的${
-        free === null ? '' : `・這段期間可用 ${free} 天`
-      }</p>
+      <p class="ban__raw" style="margin-top: var(--space-2)">${esc(record.rawText ?? '')}</p>
+      <p class="muted dim" style="margin: var(--space-1) 0 0; font-size: var(--text-2xs)">
+        ${esc(record.collectedAt ?? '?')} 問的${
+          free === null ? '' : `・這段期間可用 ${free} 天`
+        }</p>
 
       ${rules.length
-        ? `<p class="muted">系統讀成：</p>
-           <ul class="muted">${rules.map((r) => `<li>${esc(describeRule(r))}</li>`).join('')}</ul>`
-        : '<p class="muted">沒有解析出任何規則，以上面的原文為準。</p>'}
+        ? `<ul class="muted" style="margin: var(--space-2) 0 0; padding-left: var(--space-4)">
+             ${rules.map((r) => `<li>${esc(describeRule(r))}</li>`).join('')}</ul>
+           <p class="muted dim" style="margin: var(--space-1) 0 0; font-size: var(--text-2xs)">
+             上面那幾條是系統從原文讀出來的。讀錯了以原文為準。</p>`
+        : `<p class="muted dim" style="margin: var(--space-1) 0 0; font-size: var(--text-2xs)">
+             沒有解析出任何規則，以上面的原文為準。</p>`}
 
       ${record.followupNote ? `<p class="muted">追蹤：${esc(record.followupNote)}</p>` : ''}
 
       ${isCurrent || state !== 'expired'
-        ? `<p><button class="btn" type="button" data-edit-avail="${esc(record.id)}">編輯</button></p>`
+        ? `<p style="margin: var(--space-2) 0 0">
+             <button class="btn btn--sm" type="button"
+                     data-edit-avail="${esc(record.id)}">編輯</button></p>`
         : ''}
     </div>`;
 }
@@ -128,7 +134,7 @@ function paintForm(ctx, record, draft = null) {
   const rules = c.rules ?? [];
 
   el.innerHTML = `
-    <p><a href="#" data-back>← ${esc(customer.name)}</a></p>
+    <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
     <section class="card">
       <h2 class="card__title">${isNew ? '記一次詢問結果' : '編輯這次的詢問結果'}</h2>
       <div class="errors" data-errors hidden></div>

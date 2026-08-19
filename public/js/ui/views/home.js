@@ -258,11 +258,11 @@ async function scanHealth(el) {
       ? `<a class="card" href="#/settings/health" style="display: block; text-decoration: none; color: inherit; border-color: var(--soon)">
            <div class="row">
              <span class="row__main">
-               <span class="card__title" style="margin: 0">資料健檢
-                 <span class="badge badge--soon">${esc(badge)}</span></span>
-               <span class="muted">背景掃描發現的差異。只是提醒，沒有動到任何資料。</span>
+               <span class="card__title" style="margin: 0; display: block">資料健檢</span>
+               <span class="badge badge--soon" style="margin: 3px 0">${esc(badge)}</span>
+               <span class="muted" style="display: block">背景掃描發現的差異。只是提醒，沒有動到任何資料。</span>
              </span>
-             ${icon('right', { size: 18 })}
+             ${icon('right', { size: 16 })}
            </div>
          </a>`
       : '';
@@ -542,10 +542,13 @@ function drawerHtml(ctx) {
   return `
     <div class="drawer-backdrop" data-backdrop>
       <div class="drawer" role="dialog" aria-modal="true" aria-label="確認 ${esc(name)} 的時段">
-        <div class="drawer__grip"></div>
-        <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段</h2>
+        <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
+        <div class="drawer__head">
+          <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段</h2>
+        </div>
         <p class="card__note">確認之後會自動排進日曆，並且產生該做的登記。</p>
 
+        <div class="drawer__body">
         ${rows.map((r) => {
           const no = drawer.rejected.has(r.key);
           return `
@@ -561,6 +564,7 @@ function drawerHtml(ctx) {
 
         <p class="card__note" style="margin-top: var(--space-3)">
           哪一段客人說不行就點它一下，其餘的照樣成立。</p>
+        </div>
 
         <div class="drawer__actions">
           <button class="btn btn--primary" type="button" data-apply>
@@ -596,7 +600,7 @@ function wireConfirm(ctx) {
     drawer = null;
     paintConfirm(ctx);
   };
-  el.querySelector('[data-close-drawer]')?.addEventListener('click', close);
+  el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));
   el.querySelector('[data-backdrop]')?.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) close();
   });

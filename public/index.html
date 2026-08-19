@@ -14,6 +14,24 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="排課" />
 
+    <!-- 字體。刻意用 media="print" + onload 換成 all：這樣它永遠不會擋住第一次繪製，
+         訊號差或離線時畫面照樣立刻出來，只是先用系統內建的字（見 tokens.css
+         的 fallback 堆疊與 ADR-0016）。沒有 JS 的情況下 <noscript> 補一份。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Sans+TC:wght@300;400;500;700&amp;family=Noto+Serif+TC:wght@500;600;700&amp;display=swap"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Sans+TC:wght@300;400;500;700&amp;family=Noto+Serif+TC:wght@500;600;700&amp;display=swap"
+      />
+    </noscript>
+
     <link rel="stylesheet" href="/css/tokens.css" />
     <link rel="stylesheet" href="/css/app.css" />
   </head>

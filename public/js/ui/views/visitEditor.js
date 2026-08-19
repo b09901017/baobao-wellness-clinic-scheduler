@@ -13,6 +13,7 @@ import {
   coursesForEntitlement,
 } from '../../domain/visits.js';
 import { counts } from '../../domain/entitlements.js';
+import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
@@ -50,7 +51,7 @@ async function boot(el, { customerId = null, visitId = null, date = null }) {
     const existing = visitId ? await visitsData.get(visitId) : null;
     if (visitId && !existing) {
       el.innerHTML = `
-        <p><a href="#/customers">← 客戶</a></p>
+        <a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>
         <div class="card"><p>找不到這筆來訪，可能已經被刪除。</p></div>`;
       return;
     }
@@ -66,7 +67,7 @@ async function boot(el, { customerId = null, visitId = null, date = null }) {
 
     if (!customer) {
       el.innerHTML = `
-        <p><a href="#/customers">← 客戶</a></p>
+        <a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>
         <div class="card"><p>找不到這位客戶。</p></div>`;
       return;
     }
@@ -140,7 +141,7 @@ function paint(ctx, draft) {
   });
 
   el.innerHTML = `
-    <p><a href="#/customers/${esc(customer.id)}" data-back>← ${esc(customer.name)}</a></p>
+    <a class="backlink" href="#/customers/${esc(customer.id)}" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
 
     <section class="card">
       <div class="row__title">
@@ -239,12 +240,20 @@ function statusClass(status) {
   return 'badge--ok';
 }
 
+/**
+ * 醫療禁忌是唯一會直接鎖住選項的檢查（ADR-0002），所以它不能長得像一句備註 ——
+ * 壓表那一頁用的是同一組樣式，兩邊看起來要一樣重。
+ */
 function blockedNote(customer, equipment) {
   const blocked = annotateOptions(customer, equipment).filter((eq) => eq.blocked);
   if (!blocked.length) return '';
-  return `<p class="muted">${blocked
-    .map((eq) => `${esc(eq.name)} 已停用 —— ${esc(eq.reasons.join('、'))}禁忌`)
-    .join('；')}</p>`;
+  return `
+    <div class="warn warn--hard">
+      ${icon('alert', { size: 16 })}
+      <span>${blocked
+        .map((eq) => `${esc(eq.name)}不可使用 —— ${esc(eq.reasons.join('、'))}禁忌`)
+        .join('；')}。這是唯一會直接鎖住選項的檢查。</span>
+    </div>`;
 }
 
 function warningsHtml(warnings) {

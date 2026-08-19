@@ -58,12 +58,15 @@ service cloud.firestore {
     //
     // 子集合刻意逐個列出而不用 /{sub=**}：萬用比對會與底下的具體規則
     // 「或」在一起，讓嚴格的那條形同虛設。
+    // 備註（marks）只驗形狀。長度與重複由 domain/customerMarks.js 擋在寫進去之前 ——
+    // 那是「畫面掃不完」的問題，不是資料正確性問題。見 ADR-0019。
     function validCustomer() {
       let d = request.resource.data;
       return d.name is string
         && d.name.size() > 0
         && (!d.keys().hasAny(['priority'])
-            || (d.priority is int && d.priority >= 0 && d.priority <= 5));
+            || (d.priority is int && d.priority >= 0 && d.priority <= 5))
+        && (!d.keys().hasAny(['marks']) || d.marks is list);
     }
 
     // 原文是最終依據（SPEC 第 4.3 節），所以它不可以是空的 ——

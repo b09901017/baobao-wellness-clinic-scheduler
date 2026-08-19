@@ -1,43 +1,66 @@
 // 客戶總覽與新增。SPEC 第 8.5 節。
 //
 // 業務規則不寫在這裡：欄位驗證在 domain/customers.js，次數計算在
-// domain/entitlements.js，寫入在 data/customers.js。這一層只負責畫面。
+// domain/entitlements.js，備註在 domain/customerMarks.js，寫入在 data/customers.js。
+// 這一層只負責畫面。
+//
+// 上面那一排丸子是**排序**不是篩選：她心裡的問題是「先看誰」，不是
+// 「把誰藏起來」。原本的「剩餘快用完 / 會籍快到期」兩個篩選拿掉了 ——
+// 會籍這件事實務上不存在（ADR-0019），而「快用完」是排序理由不是分類。
+// 丸子一律橫向滑，不換行往下堆，否則它會把底下的客戶一路往下推。
 
 import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
+import * as visitsData from '../../data/visits.js';
 import * as rules from '../../domain/customers.js';
-import { summarize, lowRemaining, expandPlan } from '../../domain/entitlements.js';
+import { summarize, expandPlan } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
+import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
-import { todayISO } from '../../domain/dates.js';
+import { todayISO, addDays, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import * as marksUi from '../components/marks.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
 const esc = f.esc;
 
-const FILTERS = [
-  { key: 'all', label: '全部' },
-  { key: 'low', label: '剩餘快用完' },
-  { key: 'expiring', label: '會籍快到期' },
-  { key: 'inactive', label: '已停用' },
+/**
+ * 排序丸。全部都是「先看誰」的不同答案，沒有一個會把人藏起來。
+ *
+ * 課程丸另外一組（由實際存在的額度算出來），點了才會收窄名單 ——
+ * 那是唯一會少人的丸子，所以它跟排序丸中間隔一條線。
+ */
+const SORTS = [
+  { id: 'recent', label: '最近來過' },
+  { id: 'stale', label: '最久沒來' },
+  { id: 'added', label: '新加入的' },
+  { id: 'priority', label: '喜好程度' },
+  { id: 'name', label: '姓名' },
 ];
 
-// 搜尋字與篩選留在模組層：從詳情頁按上一頁回來時，她想看到剛剛那份清單，
-// 不是被重設成全部。
-const view = { search: '', filter: 'all' };
+// 搜尋字與排序留在模組層：從詳情頁按上一頁回來時，她想看到剛剛那份清單。
+const view = { search: '', sort: 'recent', course: null, showInactive: false };
+
+/** 上次來訪往回看多久。超過就一律算「很久沒來」，不必把整個資料庫拉下來。 */
+const LOOKBACK_DAYS = 180;
+const LOOKAHEAD_DAYS = 120;
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
 
+  const today = todayISO();
   let rows;
   let entsBy;
   let equipment;
+  let visits;
   try {
-    [rows, entsBy, equipment] = await Promise.all([
+    [rows, entsBy, equipment, visits] = await Promise.all([
       data.list(),
       data.entitlementsByCustomer(),
       config.listAll('equipment'),
+      visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKAHEAD_DAYS)),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
@@ -45,37 +68,41 @@ export async function render(el) {
     return;
   }
 
+  const ctx = { rows, entsBy, equipment, today, visitsBy: byCustomer(visits, today) };
+
   el.innerHTML = `
     <div class="page">
       <div class="page__row">
         <h1 class="page__title">客戶</h1>
-        <span class="muted num" style="padding-bottom: 5px">${rows.length} 位</span>
+        <button class="footlink" type="button" data-inactive
+                aria-pressed="${view.showInactive}">
+          ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
       </div>
     </div>
 
-    <label class="field">
+    <label class="field" style="margin-bottom: var(--space-2)">
       <span class="visually-hidden">搜尋客戶</span>
       <input type="text" data-search value="${esc(view.search)}" style="width: 100%"
              placeholder="找人：姓名、電話、LINE、購買通路" />
     </label>
 
-    <div class="chips" style="margin-bottom: var(--space-4)">
-      ${FILTERS.map(
-        (x) => `<button class="chip" type="button" data-filter="${x.key}"
-                  aria-pressed="${x.key === view.filter}">${x.label}</button>`,
-      ).join('')}
+    <div class="chiprow noscroll-bar" role="group" aria-label="先看誰">
+      ${SORTS.map((s) => `
+        <button class="chip chip--sm" type="button" data-sort="${s.id}"
+                aria-pressed="${s.id === view.sort && !view.course}">${s.label}</button>`).join('')}
+      ${courseChips(ctx)}
     </div>
 
     <div data-rows></div>
 
     <div class="fab">
       <button class="fab__main" type="button" data-new aria-label="新增客戶">
-        ${icon('plus', { size: 26, width: 2.2 })}
+        ${icon('plus', { size: 24, width: 2.2 })}
       </button>
     </div>`;
 
   const rowsEl = el.querySelector('[data-rows]');
-  const repaint = () => paintRows(rowsEl, rows, entsBy, equipment);
+  const repaint = () => paintRows(rowsEl, ctx);
   repaint();
 
   el.querySelector('[data-search]').addEventListener('input', (e) => {
@@ -83,12 +110,34 @@ export async function render(el) {
     repaint();
   });
 
-  el.querySelectorAll('[data-filter]').forEach((btn) =>
+  el.querySelector('[data-inactive]').addEventListener('click', () => {
+    view.showInactive = !view.showInactive;
+    render(el);
+  });
+
+  const pressSort = () => {
+    el.querySelectorAll('[data-sort]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.sort === view.sort && !view.course)),
+    );
+    el.querySelectorAll('[data-course]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.course === view.course)),
+    );
+  };
+
+  el.querySelectorAll('[data-sort]').forEach((btn) =>
     btn.addEventListener('click', () => {
-      view.filter = btn.dataset.filter;
-      el.querySelectorAll('[data-filter]').forEach((b) =>
-        b.setAttribute('aria-pressed', String(b.dataset.filter === view.filter)),
-      );
+      view.sort = btn.dataset.sort;
+      view.course = null;
+      pressSort();
+      repaint();
+    }),
+  );
+
+  el.querySelectorAll('[data-course]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      // 再點一次同一顆就取消，回到原本的排序 —— 不要逼她去找「全部」在哪
+      view.course = view.course === btn.dataset.course ? null : btn.dataset.course;
+      pressSort();
       repaint();
     }),
   );
@@ -96,7 +145,46 @@ export async function render(el) {
   el.querySelector('[data-new]').addEventListener('click', () => go('/customers/new'));
 }
 
-function matches(customer, ents, today) {
+/** 課程丸：實際上有人還有剩餘次數的那幾種，多的排前面。 */
+function courseChips(ctx) {
+  const tally = new Map();
+  for (const c of ctx.rows) {
+    if (c.active === false || c.deletedAt) continue;
+    for (const p of customerPools({ entitlements: ctx.entsBy[c.id] ?? [] }).pools) {
+      if (p.remaining > 0) tally.set(p.label, (tally.get(p.label) ?? 0) + 1);
+    }
+  }
+  if (!tally.size) return '';
+
+  const labels = [...tally.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'zh-TW'))
+    .slice(0, 10);
+
+  return `<span class="chiprow__sep" aria-hidden="true"></span>
+    ${labels.map(([label, n]) => `
+      <button class="chip chip--sm" type="button" data-course="${esc(label)}"
+              aria-pressed="${label === view.course}">${esc(label)}
+        <span class="num dim">${n}</span></button>`).join('')}`;
+}
+
+/** 只留這位客戶在時間窗內的來訪，並算出上次與下次。 */
+function byCustomer(visits, today) {
+  const out = {};
+  for (const v of visits) {
+    if (!isActive(v)) continue;
+    (out[v.customerId] ??= []).push(v);
+  }
+  for (const [id, list] of Object.entries(out)) {
+    const dates = list.map((v) => v.date).sort();
+    out[id] = {
+      last: [...dates].reverse().find((d) => d <= today) ?? null,
+      next: dates.find((d) => d > today) ?? null,
+    };
+  }
+  return out;
+}
+
+function matches(customer, ctx) {
   const q = view.search.trim();
   if (q) {
     const hay = [customer.name, customer.phone, customer.lineId, customer.source]
@@ -105,101 +193,143 @@ function matches(customer, ents, today) {
     if (!hay.includes(q)) return false;
   }
 
-  if (view.filter === 'inactive') return customer.active === false;
-  if (customer.active === false) return false; // 停用的只在自己的篩選裡出現
-  if (view.filter === 'low') return lowRemaining(ents);
-  if (view.filter === 'expiring') {
-    return rules.membershipState(customer.membershipExpiresAt, today).state === 'soon';
+  if (view.showInactive) return customer.active === false;
+  if (customer.active === false) return false;
+
+  if (view.course) {
+    const { pools } = customerPools({ entitlements: ctx.entsBy[customer.id] ?? [] });
+    return pools.some((p) => p.label === view.course && p.remaining > 0);
   }
   return true;
 }
 
-function paintRows(el, rows, entsBy, equipment) {
-  const today = todayISO();
-  const visible = rows.filter((c) => matches(c, entsBy[c.id] ?? [], today));
+/** Firestore 的 Timestamp、Date、字串都可能出現，一律換成毫秒才比得了。 */
+function millis(v) {
+  if (!v) return 0;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  if (v instanceof Date) return v.getTime();
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function sortRows(list, ctx) {
+  const name = (c) => String(c.name ?? '');
+  const byName = (a, b) => name(a).localeCompare(name(b), 'zh-TW');
+  const last = (c) => ctx.visitsBy[c.id]?.last ?? '';
+  const remainingOf = (c) =>
+    customerPools({ entitlements: ctx.entsBy[c.id] ?? [] }).pools
+      .find((p) => p.label === view.course)?.remaining ?? 0;
+
+  // 點了課程丸就照那個課程還剩幾次排 —— 那一刻她問的是「這個還有誰要排」
+  if (view.course) {
+    return [...list].sort((a, b) => remainingOf(b) - remainingOf(a) || byName(a, b));
+  }
+
+  const sorters = {
+    // 沒來過的沉到最後：這一排要回答「誰最近有動靜」
+    recent: (a, b) => (last(b) || '').localeCompare(last(a) || '') || byName(a, b),
+    // 反過來，沒來過的浮到最前 —— 那正是「最久沒來」要找的人
+    stale: (a, b) => (last(a) || '0').localeCompare(last(b) || '0') || byName(a, b),
+    added: (a, b) => millis(b.createdAt) - millis(a.createdAt) || byName(a, b),
+    priority: (a, b) => (b.priority ?? 0) - (a.priority ?? 0) || byName(a, b),
+    name: byName,
+  };
+  return [...list].sort(sorters[view.sort] ?? byName);
+}
+
+function paintRows(el, ctx) {
+  const visible = sortRows(ctx.rows.filter((c) => matches(c, ctx)), ctx);
 
   if (!visible.length) {
     el.innerHTML = `<p class="muted">${
-      rows.length ? '沒有符合的客戶。' : '還沒有客戶。按上面的「新增客戶」開始。'
+      ctx.rows.length ? '沒有符合的客戶。' : '還沒有客戶。按右下角的加號開始。'
     }</p>`;
     return;
   }
 
-  el.innerHTML = `<div class="stack">${visible
-    .map((c) => {
-      const ents = entsBy[c.id] ?? [];
-      const sum = summarize(ents);
-      const flags = rules.splitFlags(c, equipment);
-      const ms = rules.membershipState(c.membershipExpiresAt, today);
-      const { pools } = customerPools({ entitlements: ents });
+  el.innerHTML = `
+    <p class="muted" style="margin: 0 0 var(--space-3)">
+      ${visible.length} 位${view.course ? `・還有「${esc(view.course)}」可以排` : ''}</p>
+    <div class="cardgrid">${visible.map((c) => card(c, ctx)).join('')}</div>`;
+}
 
-      return `
-        <a class="card" href="#/customers/${esc(c.id)}"
-           style="display: block; margin: 0; text-decoration: none; color: inherit">
-          <div class="row" style="align-items: flex-start">
-            <div class="row__main">
-              <div class="row__title">
-                ${esc(c.name)}
-                ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
-                ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
-                ${c.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
-              </div>
-              <div class="muted num">${esc(metaLine(c, ms))}</div>
-            </div>
-            ${icon('right', { size: 18 })}
+function card(c, ctx) {
+  const ents = ctx.entsBy[c.id] ?? [];
+  const sum = summarize(ents);
+  const flags = rules.splitFlags(c, ctx.equipment);
+  const marks = readMarks(c);
+  let { pools } = customerPools({ entitlements: ents });
+
+  // 點了課程丸就把那一項提到最上面 —— 她現在問的就是它
+  if (view.course) {
+    pools = [...pools].sort((a, b) => (b.label === view.course) - (a.label === view.course));
+  }
+  const shown = pools.filter((p) => p.total > 0).slice(0, 4);
+
+  return `
+    <a class="card" href="#/customers/${esc(c.id)}"
+       style="display: block; text-decoration: none; color: inherit">
+      <div class="row" style="align-items: flex-start">
+        <div class="row__main">
+          <div class="row__title">
+            ${esc(c.name)}
+            ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
+            ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+            ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
+          <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
+        </div>
+        ${icon('right', { size: 16 })}
+      </div>
 
-          ${pools.length ? `
-            <div class="stack" style="margin-top: var(--space-3); gap: var(--space-3)">
-              ${pools.slice(0, 4).map(poolMeter).join('')}
-            </div>
-            ${pools.length > 4 ? `<p class="muted dim" style="margin: var(--space-2) 0 0">還有 ${pools.length - 4} 種，點進去看</p>` : ''}`
-            : '<p class="muted" style="margin: var(--space-3) 0 0">還沒有額度。</p>'}
+      ${marks.length
+        ? `<div style="margin-top: var(--space-2)">${marksUi.row(marks, { max: 3 })}</div>`
+        : ''}
 
-          ${flags.others.length || sum.overused ? `
-            <div class="chips" style="margin-top: var(--space-3)">
-              ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
-              ${sum.overused ? '<span class="badge badge--overdue">有額度超用</span>' : ''}
-            </div>` : ''}
-        </a>`;
-    })
-    .join('')}</div>`;
+      ${shown.length
+        ? `<div class="stack" style="margin-top: var(--space-3); gap: 6px">
+            ${shown.map((p) => poolLine(p)).join('')}
+            ${pools.length > shown.length
+              ? `<p class="muted dim" style="margin: 0; font-size: var(--text-2xs)">
+                  還有 ${pools.length - shown.length} 種，點進去看</p>`
+              : ''}
+          </div>`
+        : '<p class="muted" style="margin: var(--space-2) 0 0">還沒有額度。</p>'}
+
+      ${flags.others.length || sum.overused ? `
+        <div class="chips" style="margin-top: var(--space-3); row-gap: 6px">
+          ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
+          ${sum.overused ? '<span class="badge badge--overdue">有額度超用</span>' : ''}
+        </div>` : ''}
+    </a>`;
 }
 
 /**
- * 三段式次數。SPEC 第 4.2 節：已完成 / 已排未上 / 剩餘，底色就是剩餘。
- *
- * 這一頁最重要的資訊就是「各課程上了多少」，所以每一份額度各自一條，
- * 不是把全部加總成一個數字 —— 加總看不出是哪一種快用完了。
+ * 一行一個課程。三段式次數在詳情頁完整呈現，這裡只給細條與剩餘數字 ——
+ * 一位客戶四種課程，用詳情頁那種高度會直接吃掉半個螢幕。
  */
-function poolMeter(p) {
-  const w = (n) => `${p.total ? Math.round((n / p.total) * 100) : 0}%`;
+function poolLine(p) {
+  const w = (n) => `${p.total ? Math.min(100, Math.round((n / p.total) * 100)) : 0}%`;
   return `
-    <div>
-      <div class="row" style="align-items: baseline; gap: var(--space-2)">
-        <span class="row__main" style="font-size: var(--text-sm); font-weight: 700">${esc(p.label)}</span>
-        <span class="num muted">${p.done} 上過・${p.booked} 已排・<b style="font-size: var(--text-md); color: ${
-          p.remaining <= 2 ? 'var(--overdue)' : 'var(--accent)'}">${p.remaining}</b> 剩</span>
-      </div>
-      <div class="meter">
+    <div class="poolline ${p.remaining <= 2 ? 'poolline--low' : ''}">
+      <span class="poolline__label">${esc(p.label)}</span>
+      <span class="meter meter--thin"
+            role="img" aria-label="共 ${p.total} 次，已完成 ${p.done}，已排未上 ${p.booked}">
         <span class="meter__done" style="width: ${w(p.done)}"></span>
         <span class="meter__booked" style="width: ${w(p.booked)}"></span>
-      </div>
+      </span>
+      <span class="poolline__n">${p.remaining}</span>
     </div>`;
 }
 
-function metaLine(c, ms) {
+/** 上次來訪、下次預約、購買通路。SPEC 第 8.5 節要求的那幾欄。 */
+function metaLine(c, ctx) {
+  const seen = ctx.visitsBy[c.id] ?? {};
   const parts = [];
+  parts.push(seen.last ? `上次 ${shortDate(seen.last)}` : `${LOOKBACK_DAYS} 天內沒來過`);
+  if (seen.next) parts.push(`下次 ${shortDate(seen.next)}`);
   if (c.source) parts.push(c.source);
-  parts.push(membershipText(ms));
   return parts.join('・');
-}
-
-function membershipText(ms) {
-  if (ms.state === 'none') return '沒有會籍日期';
-  if (ms.state === 'expired') return `會籍已過期 ${-ms.days} 天`;
-  if (ms.state === 'soon') return `會籍剩 ${ms.days} 天`;
-  return `會籍剩 ${ms.days} 天`;
 }
 
 // ---------- 新增客戶 ----------
@@ -224,10 +354,9 @@ export async function renderNew(el) {
     lineId: '',
     source: '',
     purchasedAt: todayISO(),
-    membershipExpiresAt: '',
     priority: 0,
     flags: '',
-    notes: '',
+    marks: [],
     planId: null,
     quantity: 1,
   };
@@ -235,16 +364,16 @@ export async function renderNew(el) {
   paintNew(el, draft, usable, existing);
 }
 
-// 這幾個欄位一動，畫面上算出來的東西（到期日、展開預覽、提示）就變了，
-// 所以要重畫。重畫一律先把表單現況讀回 draft，沒存的字不會不見。
-const RECOMPUTE_ON = ['planId', 'quantity', 'purchasedAt', 'name'];
+// 這幾個欄位一動，畫面上算出來的東西（展開預覽、提示）就變了，所以要重畫。
+// 重畫一律先把表單現況讀回 draft，沒存的字不會不見。
+const RECOMPUTE_ON = ['planId', 'quantity', 'name'];
 
 function paintNew(el, draft, plans, existing) {
   const plan = plans.find((p) => p.id === draft.planId) ?? null;
   const preview = expandPlan(plan, Number(draft.quantity) || 1);
 
   el.innerHTML = `
-    <p><a href="#/customers" data-back>← 客戶</a></p>
+    <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
     <section class="card">
       <h2 class="card__title">新增客戶</h2>
       <div class="errors" data-errors hidden></div>
@@ -256,6 +385,7 @@ function paintNew(el, draft, plans, existing) {
           name: 'source', label: '購買通路', value: draft.source,
           placeholder: '0522 顧客會-8', hint: '試算表 B2 那一欄的購買名稱。',
         })}
+        ${f.date({ name: 'purchasedAt', label: '購買日', value: draft.purchasedAt })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(draft.priority),
           options: priorityOptions(),
@@ -266,12 +396,13 @@ function paintNew(el, draft, plans, existing) {
           placeholder: '體內金屬、固定禮拜五不行',
           hint: '用頓號分隔。與器材禁忌同名的會變成硬性阻擋，其餘只是提醒。',
         })}
-        ${f.textarea({
-          name: 'notes', label: '特殊狀況', value: draft.notes,
-          placeholder: '重大疾病治療中，食慾還可以',
-        })}
 
-        <h3 class="card__title">買了什麼</h3>
+        <div class="fieldgroup">
+          <span class="fieldgroup__label">備註　客戶臨時提的小事，顏色自己分</span>
+          <div data-marks></div>
+        </div>
+
+        <h3 class="card__title" style="margin-top: var(--space-5)">買了什麼</h3>
         ${f.select({
           name: 'planId', label: '方案範本', value: draft.planId,
           options: [{ value: null, label: '不選方案（之後單項加購）' },
@@ -279,13 +410,6 @@ function paintNew(el, draft, plans, existing) {
           hint: '展開後與範本完全脫鉤，之後改範本不會動到這位客戶。',
         })}
         ${f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 1 })}
-        ${f.date({ name: 'purchasedAt', label: '購買日', value: draft.purchasedAt })}
-        ${f.date({
-          name: 'membershipExpiresAt', label: '會籍到期日', value: draft.membershipExpiresAt,
-          hint: plan
-            ? `選了方案就依「購買日 + ${plan.membershipMonths ?? '?'} 個月」自動算好，可以改。`
-            : '沒選方案就自己填，或之後在詳情頁補。',
-        })}
 
         ${previewHtml(plan, preview)}
         ${warningsHtml(draftToCustomer(draft), existing)}
@@ -306,17 +430,16 @@ function paintNew(el, draft, plans, existing) {
 
   const form = el.querySelector('[data-form]');
 
+  marksUi.mount(el.querySelector('[data-marks]'), {
+    marks: draft.marks,
+    onChange: (list) => {
+      draft.marks = list;
+    },
+  });
+
   form.addEventListener('change', (e) => {
     if (!RECOMPUTE_ON.includes(e.target.name)) return;
-    const next = { ...draft, ...f.readForm(form) };
-
-    // 選了方案又填了購買日，到期日就自動算 —— 她仍然可以自己改掉。
-    const chosen = plans.find((p) => p.id === next.planId) ?? null;
-    if (['planId', 'purchasedAt'].includes(e.target.name) && chosen) {
-      next.membershipExpiresAt =
-        rules.membershipExpiry(next.purchasedAt, chosen.membershipMonths) ?? '';
-    }
-    paintNew(el, next, plans, existing);
+    paintNew(el, { ...draft, ...f.readForm(form) }, plans, existing);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -324,7 +447,7 @@ function paintNew(el, draft, plans, existing) {
     const values = { ...draft, ...f.readForm(form) };
     const customer = draftToCustomer(values);
 
-    const errors = rules.validate(customer);
+    const errors = [...rules.validate(customer), ...validateMarks(values.marks)];
     f.showErrors(el, errors);
     if (errors.length) return;
 
@@ -348,6 +471,10 @@ function priorityOptions() {
   }));
 }
 
+/**
+ * 會籍到期日刻意不在這張表單裡（ADR-0019）—— 實務上沒有會籍這件事。
+ * 欄位本身留在資料上，舊資料照樣讀得到，只是不再有人填它。
+ */
 function draftToCustomer(d) {
   return {
     name: String(d.name ?? '').trim(),
@@ -355,10 +482,11 @@ function draftToCustomer(d) {
     lineId: String(d.lineId ?? '').trim() || null,
     source: String(d.source ?? '').trim() || null,
     purchasedAt: d.purchasedAt || null,
-    membershipExpiresAt: d.membershipExpiresAt || null,
+    membershipExpiresAt: null,
     priority: Number(d.priority) || 0,
     flags: f.parseList(d.flags),
-    notes: String(d.notes ?? '').trim() || null,
+    // marks 與 notes 永遠一起寫，不要有只改到一邊的路徑
+    ...toCustomerFields(d.marks),
   };
 }
 
@@ -371,14 +499,14 @@ function previewHtml(plan, preview) {
       建立後這位客戶會是零額度。先去設定 → 方案範本 補齊項目。</p>`;
   }
   return `
-    <div class="card">
+    <div class="card card--flat">
       <h3 class="card__title">會展開這些額度</h3>
       <ul class="muted">
         ${preview
           .map((e) => `<li>${esc(e.label)} <b>${e.totalQty}</b> 次</li>`)
           .join('')}
       </ul>
-      <p class="muted">建立後與範本脫鉤，可以個別加減。</p>
+      <p class="muted" style="margin-bottom: 0">建立後與範本脫鉤，可以個別加減。</p>
     </div>`;
 }
 
@@ -386,9 +514,9 @@ function warningsHtml(customer, existing) {
   const list = rules.warnings(customer, existing);
   if (!list.length) return '';
   return `
-    <div class="card">
+    <div class="card card--flat">
       <h3 class="card__title">提醒</h3>
       <ul class="muted">${list.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
-      <p class="muted">這些只是提醒，不會擋著不讓你存。</p>
+      <p class="muted" style="margin-bottom: 0">這些只是提醒，不會擋著不讓你存。</p>
     </div>`;
 }
