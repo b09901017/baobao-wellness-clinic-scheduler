@@ -214,7 +214,9 @@ function notesCard(notes) {
       <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
         <h2 class="card__title row__main" style="margin: 0">隨手記
           <span class="muted"> ${openCount(notes)}</span></h2>
-        <a class="muted" href="#/todo/notes">全部 ${icon('right', { size: 14 })}</a>
+        <a class="muted" href="#/todo/notes"
+           style="display: inline-flex; align-items: center; gap: 2px; white-space: nowrap">
+          全部${icon('right', { size: 14 })}</a>
       </div>
 
       <div class="groups">
@@ -395,8 +397,7 @@ function paintTasks(ctx) {
 }
 
 function backLink() {
-  return `<a class="row-link" href="#/" style="margin: 0 0 var(--space-2); max-width: 8rem">
-    ${icon('left', { size: 20 })}<span style="font-weight: 700; color: var(--text-dim)">待辦</span></a>`;
+  return `<a class="backlink" href="#/">${icon('left', { size: 19 })}待辦</a>`;
 }
 
 function taskRow(t, today) {

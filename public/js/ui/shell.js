@@ -1,5 +1,6 @@
 import { navRoutes, activeNavPath, start } from './router.js';
 import { icon } from './icons.js';
+import { setSignOut } from './session.js';
 
 function navHtml(activePath) {
   return navRoutes()
@@ -56,30 +57,28 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
   });
 }
 
-/** 登入且在白名單內時的主畫面。 */
+/**
+ * 登入且在白名單內時的主畫面。
+ *
+ * 沒有頂端橫幅：每一頁自己有大標，再放一條寫著同一個詞的橫幅是白白吃掉
+ * 手機上的一整列。登出搬進設定頁（見 ui/session.js）。
+ */
 export function renderShell(root, { onSignOut }) {
+  setSignOut(onSignOut);
+
   root.innerHTML = `
     <nav class="app__nav" aria-label="主選單"></nav>
     <div class="app__body">
-      <header class="app__header">
-        <h1 class="app__title" data-title>排課系統</h1>
-        <span class="app__spacer"></span>
-        <button class="btn" type="button" data-signout>登出</button>
-      </header>
       <main class="app__main" id="view" tabindex="-1"></main>
     </div>
   `;
 
-  root.querySelector('[data-signout]').addEventListener('click', onSignOut);
-
   const view = root.querySelector('#view');
-  const titleEl = root.querySelector('[data-title]');
   const navEl = root.querySelector('.app__nav');
 
   start(({ path, route, params }) => {
     if (!route) return;
     const title = route.titleFor ? route.titleFor(...params) : route.title;
-    titleEl.textContent = title;
     document.title = `${title} · 排課系統`;
     view.scrollTop = 0;
     navEl.innerHTML = navHtml(activeNavPath(path));

@@ -11,6 +11,7 @@ import * as healthData from '../../data/health.js';
 import { healthBadge } from '../../domain/health.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
+import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -25,7 +26,7 @@ export async function render(el) {
     result = await healthData.run(todayISO());
   } catch (err) {
     el.innerHTML = `
-      <p><a href="#/settings">← 設定</a></p>
+      <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
       <div class="card"><p>掃描失敗：${esc(err.message)}</p>
       <p class="muted">資料健檢要把整個資料庫讀一次，訊號不好時容易中斷，可以再試一次。</p>
       <p><button class="btn" type="button" data-retry>重新掃描</button></p></div>`;
@@ -44,17 +45,27 @@ function paint(el, result) {
   indexFixes(result);
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
-    <section class="card">
-      <h2 class="card__title">資料健檢</h2>
-      ${badge
-        ? `<p><span class="badge badge--overdue">${esc(badge)}</span></p>`
-        : '<p><span class="badge badge--ok">全部對得起來</span></p>'}
-      <p class="muted">掃描時間 ${new Date().toLocaleString('zh-TW')}・
-        發現的問題只會顯示出來，除了計數欄位重算之外不會自動改任何資料。</p>
-      <p><button class="btn" type="button" data-rescan>重新掃描</button></p>
-    </section>
+    <div class="page">
+      <div class="page__row">
+        <h1 class="page__title">資料健檢</h1>
+        ${badge
+          ? `<span class="badge badge--overdue">${esc(badge)}</span>`
+          : '<span class="badge badge--ok">全部對得起來</span>'}
+      </div>
+      <p class="page__lead">發現的問題只會顯示出來，除了計數欄位重算之外不會自動改任何資料。</p>
+    </div>
+
+    <div class="checks" style="margin-bottom: var(--space-5)">
+      ${result.checks.map(checkTile).join('')}
+    </div>
+
+    <p style="margin-bottom: var(--space-5)">
+      <button class="btn" type="button" data-rescan>重新掃描</button>
+      <span class="muted" style="margin-left: var(--space-3)">
+        掃描於 ${new Date().toLocaleString('zh-TW')}</span>
+    </p>
 
     ${result.checks.map(checkCard).join('')}`;
 
@@ -67,6 +78,24 @@ function paint(el, result) {
   el.querySelectorAll('[data-fix]').forEach((btn) =>
     btn.addEventListener('click', () => fixOne(el, result, Number(btn.dataset.fix))),
   );
+}
+
+/**
+ * 一眼看完的那一排。差異的數字要大 —— 她開這一頁是為了知道「有沒有事」，
+ * 細節在底下的展開區。
+ */
+function checkTile(check) {
+  const clean = check.count === 0;
+  // 嚴重度記在每一筆 finding 上，不是整組檢查上。有任何一筆是「資料自己對不起來」
+  // 就算紅的；全部只是「該去處理一件事」就算黃的。
+  const hard = check.findings.some((x) => x.severity === 'mismatch');
+  const cls = clean ? '' : hard ? 'check--bad' : 'check--warn';
+  return `
+    <div class="check ${cls}">
+      <div class="check__n">${check.count}</div>
+      <div class="check__label">${esc(check.label)}</div>
+      <div class="check__note">${esc(check.hint)}</div>
+    </div>`;
 }
 
 function checkCard(check) {

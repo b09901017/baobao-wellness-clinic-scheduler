@@ -19,6 +19,7 @@ import { offerSlotMessage } from '../../domain/messages.js';
 import { endOf, isValidTime } from '../../domain/visitTime.js';
 import { todayISO, addDays, shortDate, isValidDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import { icon } from '../icons.js';
 import * as message from '../components/message.js';
 import * as toast from '../toast.js';
 
@@ -41,7 +42,7 @@ export async function render(el) {
   const courses = all.courses.filter((c) => c.active !== false);
   if (!courses.length) {
     el.innerHTML = `
-      <p><a href="#/schedule">← 壓表</a></p>
+      <a class="backlink" href="#/schedule">${icon('left', { size: 19 })}壓表</a>
       <div class="card"><p>還沒有課程主檔，沒有東西可以查。</p>
       <p><a href="#/settings/courses">去新增課程</a></p></div>`;
     return;
@@ -65,13 +66,15 @@ function paintForm(el, ctx, result = null) {
   const endsAt = endOfSlot(course);
 
   el.innerHTML = `
-    <p><a href="#/schedule">← 壓表</a></p>
+    <a class="backlink" href="#/schedule">${icon('left', { size: 19 })}壓表</a>
+
+    <div class="page">
+      <h1 class="page__title">時段反查</h1>
+      <p class="page__lead">臨時空出一格時，誰可以補。用的是跟壓表同一套順序 ——
+        不會兩個畫面給你兩種答案。</p>
+    </div>
 
     <section class="card">
-      <h2 class="card__title">時段反查</h2>
-      <p class="muted">臨時空出一格時，誰可以補。填空出來的那一格，
-        系統把還有次數、那天沒說不行的人列出來 —— 要問誰還是你決定。</p>
-
       <form data-form>
         ${f.date({ name: 'date', label: '日期', value: form.date, hint: hintFor(form.date, today) })}
         ${f.time({ name: 'startsAt', label: '開始時間', value: form.startsAt })}

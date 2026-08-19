@@ -18,6 +18,7 @@ import { esc } from '../components/form.js';
 import { saveText, dated } from '../components/download.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { icon } from '../icons.js';
 
 /**
  * 貼進來的工作表。**只放在記憶體裡**，重新整理就沒了 ——
@@ -38,7 +39,7 @@ export async function render(el) {
     ctx = await importer.loadContext();
   } catch (err) {
     el.innerHTML = `
-      <p><a href="#/settings">← 設定</a></p>
+      <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
       <div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
   }
@@ -61,7 +62,7 @@ function paint(el, ctx) {
   const s = summarize(plans);
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <section class="card">
       <h2 class="card__title">舊資料匯入</h2>

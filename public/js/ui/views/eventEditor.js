@@ -52,8 +52,7 @@ function paint(el, event, { isNew }) {
 
 function html(e, { isNew }) {
   return `
-    <a class="row-link" href="#/calendar" style="margin: 0 0 var(--space-2); max-width: 8rem">
-      ${icon('left', { size: 20 })}<span style="font-weight: 700; color: var(--text-dim)">日曆</span></a>
+    <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
 
     <div class="page">
       <h1 class="page__title">${isNew ? '新增個人行程' : '個人行程'}</h1>

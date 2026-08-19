@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v24';
+const VERSION = 'v25';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -40,6 +40,7 @@ const SHELL = [
   '/js/ui/views.js',
   '/js/ui/toast.js',
   '/js/ui/icons.js',
+  '/js/ui/session.js',
   '/js/ui/components/dialog.js',
   '/js/ui/components/form.js',
   '/js/ui/views/settings.js',

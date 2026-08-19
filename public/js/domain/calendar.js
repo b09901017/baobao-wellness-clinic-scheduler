@@ -77,10 +77,15 @@ export function moveBy(view, date, steps) {
   return addMonths(date, steps);
 }
 
-/** 標頭那一行字。 */
+/**
+ * 標頭那一行字。
+ *
+ * 日檢視不放年份 —— 390px 上「2026 年 8/19(三)」會斷成兩行，而年份是她
+ * 最不需要確認的一項（她永遠知道今年是哪一年）。要跨年時月份本身就講清楚了。
+ */
 export function titleOf(view, date) {
   if (!isValidDate(date)) return '';
-  if (view === 'day') return `${date.slice(0, 4)} 年 ${shortDate(date)}`;
+  if (view === 'day') return shortDate(date);
   if (view === 'week') {
     const days = weekDays(date);
     return `${shortDate(days[0])} – ${shortDate(days[6])}`;

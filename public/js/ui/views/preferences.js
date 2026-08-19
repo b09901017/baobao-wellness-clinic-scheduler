@@ -6,6 +6,7 @@ import * as config from '../../data/config.js';
 import { DEFAULT_SETTINGS } from '../../domain/seed.js';
 import * as f from '../components/form.js';
 import * as toast from '../toast.js';
+import { icon } from '../icons.js';
 
 const WEIGHTS = [
   { key: 'w1', label: 'w1 · 限制越多越優先', hint: '可用天數越少排越前面' },
@@ -26,7 +27,7 @@ export async function render(el) {
   }
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
       <h2 class="card__title">待排佇列的排序權重</h2>
       <p class="muted">

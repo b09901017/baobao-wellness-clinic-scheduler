@@ -7,6 +7,8 @@ import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import * as rules from '../../domain/customers.js';
 import { summarize, lowRemaining, expandPlan } from '../../domain/entitlements.js';
+import { customerPools } from '../../domain/scheduling.js';
+import { icon } from '../icons.js';
 import { todayISO } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as toast from '../toast.js';
@@ -44,22 +46,33 @@ export async function render(el) {
   }
 
   el.innerHTML = `
-    <section class="card">
-      <h2 class="card__title">客戶<span class="muted"> ${rows.length}</span></h2>
-      <label class="field">
-        <span class="visually-hidden">搜尋客戶</span>
-        <input type="text" data-search value="${esc(view.search)}"
-               placeholder="搜尋姓名、電話、LINE、購買通路" />
-      </label>
-      <div class="chips">
-        ${FILTERS.map(
-          (x) => `<button class="chip" type="button" data-filter="${x.key}"
-                    aria-pressed="${x.key === view.filter}">${x.label}</button>`,
-        ).join('')}
+    <div class="page">
+      <div class="page__row">
+        <h1 class="page__title">客戶</h1>
+        <span class="muted num" style="padding-bottom: 5px">${rows.length} 位</span>
       </div>
-      <p><button class="btn btn--primary" type="button" data-new>新增客戶</button></p>
-    </section>
-    <div data-rows></div>`;
+    </div>
+
+    <label class="field">
+      <span class="visually-hidden">搜尋客戶</span>
+      <input type="text" data-search value="${esc(view.search)}" style="width: 100%"
+             placeholder="找人：姓名、電話、LINE、購買通路" />
+    </label>
+
+    <div class="chips" style="margin-bottom: var(--space-4)">
+      ${FILTERS.map(
+        (x) => `<button class="chip" type="button" data-filter="${x.key}"
+                  aria-pressed="${x.key === view.filter}">${x.label}</button>`,
+      ).join('')}
+    </div>
+
+    <div data-rows></div>
+
+    <div class="fab">
+      <button class="fab__main" type="button" data-new aria-label="新增客戶">
+        ${icon('plus', { size: 26, width: 2.2 })}
+      </button>
+    </div>`;
 
   const rowsEl = el.querySelector('[data-rows]');
   const repaint = () => paintRows(rowsEl, rows, entsBy, equipment);
@@ -112,36 +125,72 @@ function paintRows(el, rows, entsBy, equipment) {
     return;
   }
 
-  el.innerHTML = visible
+  el.innerHTML = `<div class="stack">${visible
     .map((c) => {
       const ents = entsBy[c.id] ?? [];
       const sum = summarize(ents);
       const flags = rules.splitFlags(c, equipment);
       const ms = rules.membershipState(c.membershipExpiresAt, today);
+      const { pools } = customerPools({ entitlements: ents });
 
       return `
-        <section class="card row">
-          <a class="row-link" href="#/customers/${esc(c.id)}">
+        <a class="card" href="#/customers/${esc(c.id)}"
+           style="display: block; margin: 0; text-decoration: none; color: inherit">
+          <div class="row" style="align-items: flex-start">
             <div class="row__main">
               <div class="row__title">
                 ${esc(c.name)}
-                ${c.priority ? `<span class="badge badge--ok">★ ${c.priority}</span>` : ''}
+                ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
                 ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
-                ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
                 ${c.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
               </div>
-              <div class="muted">${esc(summaryLine(sum, ms))}</div>
+              <div class="muted num">${esc(metaLine(c, ms))}</div>
             </div>
-          </a>
-        </section>`;
+            ${icon('right', { size: 18 })}
+          </div>
+
+          ${pools.length ? `
+            <div class="stack" style="margin-top: var(--space-3); gap: var(--space-3)">
+              ${pools.slice(0, 4).map(poolMeter).join('')}
+            </div>
+            ${pools.length > 4 ? `<p class="muted dim" style="margin: var(--space-2) 0 0">還有 ${pools.length - 4} 種，點進去看</p>` : ''}`
+            : '<p class="muted" style="margin: var(--space-3) 0 0">還沒有額度。</p>'}
+
+          ${flags.others.length || sum.overused ? `
+            <div class="chips" style="margin-top: var(--space-3)">
+              ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
+              ${sum.overused ? '<span class="badge badge--overdue">有額度超用</span>' : ''}
+            </div>` : ''}
+        </a>`;
     })
-    .join('');
+    .join('')}</div>`;
 }
 
-function summaryLine(sum, ms) {
+/**
+ * 三段式次數。SPEC 第 4.2 節：已完成 / 已排未上 / 剩餘，底色就是剩餘。
+ *
+ * 這一頁最重要的資訊就是「各課程上了多少」，所以每一份額度各自一條，
+ * 不是把全部加總成一個數字 —— 加總看不出是哪一種快用完了。
+ */
+function poolMeter(p) {
+  const w = (n) => `${p.total ? Math.round((n / p.total) * 100) : 0}%`;
+  return `
+    <div>
+      <div class="row" style="align-items: baseline; gap: var(--space-2)">
+        <span class="row__main" style="font-size: var(--text-sm); font-weight: 700">${esc(p.label)}</span>
+        <span class="num muted">${p.done} 上過・${p.booked} 已排・<b style="font-size: var(--text-md); color: ${
+          p.remaining <= 2 ? 'var(--overdue)' : 'var(--accent)'}">${p.remaining}</b> 剩</span>
+      </div>
+      <div class="meter">
+        <span class="meter__done" style="width: ${w(p.done)}"></span>
+        <span class="meter__booked" style="width: ${w(p.booked)}"></span>
+      </div>
+    </div>`;
+}
+
+function metaLine(c, ms) {
   const parts = [];
-  parts.push(sum.pools ? `剩 ${sum.remaining} 次 · ${sum.pools} 個額度` : '還沒有額度');
-  if (sum.overused) parts.push('有額度超用');
+  if (c.source) parts.push(c.source);
   parts.push(membershipText(ms));
   return parts.join('・');
 }

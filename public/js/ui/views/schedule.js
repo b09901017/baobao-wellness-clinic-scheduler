@@ -40,7 +40,9 @@ const esc = f.esc;
 const view = {
   batchId: null,
   customerId: null,
-  filter: 'todo',
+  // 預設看全部。「還沒壓」是她最常要的視角，但月中打開時多半是 0 位，
+  // 一進來就看到「這個篩選底下沒有人」是死路 —— 篩選要是主動收窄，不是預設收窄。
+  filter: 'all',
   // 記錄面板的暫存選擇。換人就清掉 —— 帶著上一位的選擇進來太容易記錯。
   day: null,
   entitlementId: null,
@@ -210,6 +212,23 @@ async function paintBatch(el) {
     return render(el);
   }
 
+  // 批次的月份壞掉就走不下去了。與其吐一句 null 的錯誤訊息，不如講清楚
+  // 發生什麼事並給一條回頭路 —— 她手上這台是唯一看得到進度的裝置。
+  if (!monthRange(batch.targetMonth)) {
+    el.innerHTML = `
+      <div class="card">
+        <h2 class="card__title">這一批的月份壞掉了</h2>
+        <p class="card__note">批次上的月份是「${esc(String(batch.targetMonth ?? '空的'))}」，
+          讀不出是哪一個月，所以算不出佇列。已經記下的來訪與任務都不受影響。</p>
+        <button class="btn" type="button" data-back>回壓表</button>
+      </div>`;
+    el.querySelector('[data-back]').addEventListener('click', () => {
+      view.batchId = null;
+      render(el);
+    });
+    return;
+  }
+
   const data = await loadAll(batch.targetMonth);
 
   // 順序凍結：照 batch.queue 的順序排，不重新排序。即時資訊照樣現算。
@@ -232,8 +251,8 @@ async function paintBatch(el) {
 }
 
 const FILTERS = [
-  { id: 'todo', label: '還沒壓', match: (r) => r.state !== 'done' && r.scheduledThisMonth === 0 },
   { id: 'all', label: '全部', match: () => true },
+  { id: 'todo', label: '還沒壓', match: (r) => r.state !== 'done' && r.scheduledThisMonth === 0 },
   { id: 'noask', label: '沒問過時間', match: (r) => r.needsAvailability },
   { id: 'expiring', label: '快到期', match: (r) => r.daysToExpiry !== null && r.daysToExpiry <= 60 },
 ];
@@ -282,7 +301,7 @@ function paint(ctx) {
           順序是算出來的預設值 —— 限制多的、快到期的排前面。想先弄誰就點誰。</p>
         ${shown.length
           ? shown.map((r) => custCard(r, r.customerId === view.customerId)).join('')
-          : '<p class="muted">這個篩選底下沒有人。</p>'}
+          : '<p class="muted">這個篩選底下沒有人。點上面的「全部」看整批。</p>'}
       </div>
       <div class="split__detail">
         ${selected ? recordPanel(ctx, selected) : '<p class="muted">選一位開始。</p>'}
@@ -333,7 +352,7 @@ function custCard(row, isSelected) {
       </span>
 
       <span class="custcard__meta">
-        <span>這個月 ${row.scheduledThisMonth} 次・上個月 ${row.visitsPrevMonth} 次${
+        <span>這個月排 ${row.scheduledThisMonth} 次・上個月 ${row.visitsPrevMonth} 次${
           row.daysSinceLast === null ? '・還沒上過課' : `・距上次 ${row.daysSinceLast} 天`}</span>
       </span>
 

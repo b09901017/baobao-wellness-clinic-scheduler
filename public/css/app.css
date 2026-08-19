@@ -54,25 +54,16 @@ svg {
   min-height: 0;
 }
 
-.app__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  padding-top: max(var(--space-3), env(safe-area-inset-top));
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.app__title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: var(--text-lg);
-  font-weight: 700;
-}
-
 .app__spacer {
   flex: 1;
+}
+
+.app__body {
+  order: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .app__main {
@@ -81,12 +72,21 @@ svg {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--space-4);
-  /* 底下要讓得出懸浮鈕與導覽列的位置，否則最後一張卡永遠被蓋住 */
-  padding-bottom: calc(var(--space-6) * 3);
+  padding-top: max(var(--space-4), env(safe-area-inset-top));
+  /* 底下要讓得出導覽列的位置，否則最後一張卡永遠被蓋住 */
+  padding-bottom: calc(var(--space-6) * 2);
 }
 
-/* 底部導覽：手機在下方（拇指構得到），iPad 橫式移到側邊 */
+/* 有懸浮鈕的那幾頁還要再讓出鈕本身的高度。用 :has() 只讓需要的頁付這個代價 ——
+   沒有懸浮鈕的頁面不該在底部留一大塊空白。 */
+.app__main:has(.fab) {
+  padding-bottom: 160px;
+}
+
+/* 底部導覽：手機在下方（拇指構得到），iPad 橫式移到側邊。
+   DOM 上導覽排在內容前面（讀螢幕的人先聽到選單），視覺上用 order 推到底下。 */
 .app__nav {
+  order: 2;
   display: flex;
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -144,6 +144,7 @@ svg {
   }
 
   .app__nav {
+    order: 0;
     flex-direction: column;
     justify-content: flex-start;
     gap: var(--space-2);
@@ -175,6 +176,15 @@ svg {
     min-width: 0;
   }
 
+  /* 側邊導覽時內容不用再讓出底部那一條 */
+  .app__main {
+    padding-bottom: var(--space-6);
+  }
+
+  .app__main:has(.fab) {
+    padding-bottom: calc(var(--space-5) + 60px + var(--space-4));
+  }
+
   .split {
     display: grid;
     grid-template-columns: minmax(300px, 396px) 1fr;
@@ -185,7 +195,8 @@ svg {
 
 /* ---------- 頁首 ---------- */
 
-/* 每一頁自己的大標。比 app__header 那條窄橫幅重要得多 —— 那條只是回頭路。 */
+/* 每一頁自己的大標。這裡沒有頂端橫幅 —— 再放一條寫著同一個詞的橫幅，
+   在手機上就是白白吃掉一整列（見 ui/shell.js）。 */
 .page {
   margin-bottom: var(--space-4);
 }
@@ -1079,7 +1090,7 @@ textarea {
   grid-auto-rows: min-content;
   gap: 2px;
   align-content: start;
-  min-height: 92px;
+  min-height: 84px;
   padding-bottom: var(--space-1);
   margin-bottom: var(--space-1);
   border-bottom: 1px solid var(--border-soft);
@@ -1112,6 +1123,11 @@ textarea {
 }
 
 /* 鄰月的日子照樣畫出來 —— 留白會讓她以為那幾天沒事（SPEC 8.6） */
+.monthweek__day:first-child .monthweek__n:not(.monthweek__n--today),
+.monthweek__day:nth-child(7) .monthweek__n:not(.monthweek__n--today) {
+  color: var(--tea);
+}
+
 .monthweek__n--adj {
   color: var(--text-mute);
   opacity: 0.6;
@@ -1128,6 +1144,12 @@ textarea {
   display: flex;
   align-items: center;
   padding: 0 5px;
+  /* 它是 <button>，不重設的話瀏覽器會給一圈預設邊框 —— 那會讓色條看起來像框 */
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
   border-radius: 5px;
   background: var(--kind-bg);
   color: var(--kind-fg);
@@ -1563,6 +1585,19 @@ textarea {
   content: '›';
   color: var(--text-mute);
   font-size: var(--text-lg);
+}
+
+/* 回上一頁。跟 .row-link 長得像，但不可以帶那個往前的箭頭 —— 方向要是對的。 */
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+  text-decoration: none;
 }
 
 /* ---------- 表單 ---------- */
