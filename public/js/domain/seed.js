@@ -19,6 +19,7 @@ export const SEED = {
     { id: 'room-iv3', name: '點滴3', type: '點滴室', beds: [] },
     { id: 'room-iv5', name: '點滴5', type: '點滴室', beds: [] },
     { id: 'room-iv6', name: '點滴6', type: '點滴室', beds: [] },
+    { id: 'room-iv7', name: '點滴7', type: '點滴室', beds: [] },
     // 公司系統畫面上看到「點滴室8 / 床A」分兩行，所以這間確定有床位。
     // 其餘幾間有沒有床位待確認，先留空。
     { id: 'room-iv8', name: '點滴8', type: '點滴室', beds: ['A', 'B'] },
@@ -27,10 +28,19 @@ export const SEED = {
     { id: 'room-ilib4', name: 'ILIB4', type: 'ILIB室', beds: [] },
   ],
 
+  // 2026-08-19 從她的行事曆與口述補齊。醫師（夏、許、李）刻意不放進來：
+  // 他們不會被指派到時段上，只出現在她的速記裡，認得那幾個字是
+  // .claude/skills/calendar-sheet-merge 的事，不是主檔的事。
   staff: [
     { id: 'staff-tw', name: '騰崴', role: '物理治療師' },
     { id: 'staff-zn', name: '芝寧', role: '物理治療師' },
     { id: 'staff-lulu', name: 'LuLu', role: '物理治療師' },
+    { id: 'staff-xy', name: '欣穎', role: '物理治療師' },
+    { id: 'staff-gy', name: '耕宇', role: '物理治療師' },
+    { id: 'staff-zx', name: '姿璇', role: '物理治療師' },
+    { id: 'staff-yt', name: '怡婷', role: '物理治療師' },
+    { id: 'staff-py', name: '珮喩', role: '物理治療師' },
+    { id: 'staff-wt', name: '王婷', role: '物理治療師' },
   ],
 
   equipment: [
@@ -46,6 +56,7 @@ export const SEED = {
     { id: 'iv-sulic', name: '速利清' },
     { id: 'iv-mengjian', name: '猛健樂' },
     { id: 'iv-nac', name: 'NAC 愛咳痰' },
+    { id: 'iv-snow', name: '雪顏亮彩' },
   ],
 
   products: [

@@ -135,10 +135,12 @@ test('營養點滴依品項拆成各自計次的額度，並跟 D 欄的加總�
 });
 
 test('主檔沒有的品項照樣建額度，但要講出來', () => {
-  // 種子資料裡沒有「雪顏亮彩」
-  const p = plan();
-  assert.ok(labels(p).includes('營養點滴 - 雪顏亮彩'));
-  assert.ok(why(p).some((w) => w.includes('雪顏亮彩') && w.includes('主檔裡沒有')));
+  // 她在 B 欄寫的品項不一定建過主檔。額度照建（原文照抄），但要在報告上講一聲，
+  // 否則每次來訪的品項會靜靜地留空。用一個確定不在種子資料裡的名字測。
+  const sheet = SHEET.replace('護肝排毒x11+雪顏亮彩x22', '護肝排毒x11+還沒建的品項x22');
+  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶A' }), CTX);
+  assert.ok(labels(p).includes('營養點滴 - 還沒建的品項'));
+  assert.ok(why(p).some((w) => w.includes('還沒建的品項') && w.includes('主檔裡沒有')));
 });
 
 test('復能是擇一池，換的是器材不是課程', () => {

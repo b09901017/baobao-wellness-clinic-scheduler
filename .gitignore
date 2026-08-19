@@ -40,3 +40,8 @@ __pycache__/
 # 下面這個是把它們封進 Claude Design 編輯器之後的產出物（約 2.4MB，其中
 # 絕大部分是編輯器本身的程式碼），改了原始檔重跑 seed 就會重新產生一份。
 .scratch/ui-redesign/canvas/scheduler-ui-redesign.html
+
+# === 舊資料合併用的本機檔案（.claude/skills/calendar-sheet-merge）===
+# 別名表裡是真實客戶姓名，跟匯出的 TSV、報告一樣不進版控。
+# 遠端容器會被回收，所以每次跑完要把 .local/ 裡的東西交還給使用者自己留著。
+/.local/
