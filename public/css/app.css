@@ -2077,7 +2077,14 @@ button.mark::after {
 /* ---------- 底部抽屜 ---------- */
 
 /* 從底下推上來，拇指構得到。確認動線、日曆的某一天、備註編輯都走這個。
-   ≥900px 改成置中的對話框 —— iPad 橫式上底部抽屜要跨過整個螢幕才關得掉。 */
+   ≥900px 改成置中的對話框 —— iPad 橫式上底部抽屜要跨過整個螢幕才關得掉。
+
+   **會動的只有 transform，不動 height。** 上一版用 height 做過場，
+   每一幀都要重新排版一次裡面所有的東西 —— 看起來就是「斷一下才跳上去」，
+   而且往上拖的時候面板根本沒跟著手指。改成：拖的當下先把面板換成滿高
+   （瞬間換，同時用 translateY 補回去，看起來完全沒動），之後純粹靠
+   translateY 跟手。下面的內容早就排好在那裡了，拉多少就露多少。
+   見 docs/adr/0021-the-sheet-is-dragged-by-transform.md */
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -2086,11 +2093,16 @@ button.mark::after {
   flex-direction: column;
   justify-content: flex-end;
   background: rgb(36 31 26 / 55%);
-  animation: deck-in 0.16s ease-out;
+  transition: background 0.26s ease;
+}
+
+/* 收起來的時候灰底跟著淡出，不要面板還在滑、背景就整片消失。 */
+.drawer-backdrop--out {
+  background: rgb(36 31 26 / 0%);
 }
 
 .drawer {
-  max-height: 86dvh;
+  max-height: var(--sheet-peek-max);
   display: flex;
   flex-direction: column;
   /* 沒有用 .drawer__body 包起來的面板（例如首頁的確認動線）靠這一條捲。
@@ -2101,30 +2113,21 @@ button.mark::after {
   background: var(--bg);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow: var(--shadow-drawer);
-  animation: drawer-up 0.2s cubic-bezier(0.22, 0.8, 0.3, 1);
-  /* 放開手之後彈回去或彈上去。拖的當下這條會被 .drawer--dragging 關掉，
-     否則面板會慢半拍跟在手指後面。 */
-  transition: height 0.22s cubic-bezier(0.22, 0.8, 0.3, 1),
-    max-height 0.22s cubic-bezier(0.22, 0.8, 0.3, 1),
-    transform 0.22s cubic-bezier(0.22, 0.8, 0.3, 1);
+  transform: translateY(var(--sheet-y, 0px));
+  /* 只有這一條會動。GPU 合成，不碰排版。 */
+  will-change: transform;
 }
 
-/* 抓著上面那條橫桿往上拖到頂就釘在那裡。用 height 而不是只放寬 max-height：
-   內容短的時候放寬上限看起來完全沒動，而她剛剛明明做了一個手勢。 */
-.drawer--full {
-  height: 96dvh;
-  max-height: 96dvh;
+/* 滿高。拖的當下一律套上去 —— 手指往上拉時要有東西可以露出來，
+   而那些東西必須「已經在那裡」，不是拉到一半才長出來。 */
+.drawer--tall {
+  height: var(--sheet-full);
+  max-height: var(--sheet-full);
 }
 
-/* 拖的當下不要有過場 —— 面板要黏在手指上，慢一點都會覺得鈍。 */
-.drawer--dragging {
-  transition: none;
-}
-
-@keyframes drawer-up {
-  from {
-    transform: translateY(14%);
-  }
+/* 放開手之後彈到最近的那一格。拖的當下不加這個 class，面板才黏得住手指。 */
+.drawer--anim {
+  transition: transform 0.3s cubic-bezier(0.22, 0.85, 0.3, 1);
 }
 
 /* 把手本身就是關閉鈕 —— 手機上要關掉抽屜時拇指第一個碰到的就是它。
@@ -2140,8 +2143,6 @@ button.mark::after {
   background: var(--border);
   flex-shrink: 0;
   cursor: grab;
-  /* pan-y 會被瀏覽器拿去捲頁面，拖不動面板 */
-  touch-action: none;
 }
 
 .drawer__grip::after {
@@ -2150,14 +2151,14 @@ button.mark::after {
   inset: -14px -60px;
 }
 
-/* 抬頭跟著把手一起當拖曳區 —— 把手只有 38px 寬，拇指常常落在標題上。 */
+/* 整張面板都拖得動，不是只有那條橫桿 —— 拇指落在哪裡都算數。
+   會捲的那一塊（.drawer__body）自己吃 pan-y，捲到頭了才把手勢交回給面板。 */
 .drawer__head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
   flex-shrink: 0;
-  touch-action: none;
 }
 
 .drawer__title {
@@ -2204,21 +2205,29 @@ button.mark::after {
   display: none;
 }
 
-/* 抽屜裡的內容自己捲，標題與底下的按鈕釘住 —— 一長串來訪不該把「關閉」推出畫面。 */
+/* 抽屜裡的內容自己捲，標題與底下的按鈕釘住 —— 一長串來訪不該把「關閉」推出畫面。
+   pan-y 讓瀏覽器照樣負責捲動（慣性與邊緣回彈只有它給得出來）；捲到頭之後
+   由 sheet.js 把同一個手勢接過去改拖面板。contain 是為了不要把整頁一起帶著捲。 */
 .drawer__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   margin: 0 calc(var(--gutter) * -1);
   padding: 0 var(--gutter);
 }
 
+/* 底部那排按鈕。面板被拖高的時候它要黏在螢幕底 —— 面板整個變滿高之後，
+   它本來會待在滿高的那個底部，也就是螢幕外面。反向位移把它拉回來。
+   min() 是為了往下拖過頭時：那時候它要跟著面板一起走，不能自己浮在灰底上。 */
 .drawer__actions {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-3);
   flex-shrink: 0;
+  transform: translateY(calc(-1 * min(var(--sheet-y, 0px), var(--sheet-peek, 0px))));
 }
 
 /* display: flex 會蓋掉 hidden 屬性自己的 display: none —— 沒有按鈕的面板
@@ -2237,17 +2246,17 @@ button.mark::after {
     align-items: center;
   }
 
+  :root {
+    /* 置中的對話框留多一點邊 */
+    --sheet-peek-max: 78dvh;
+    --sheet-full: 88dvh;
+  }
+
   .drawer {
     width: 100%;
     max-width: 520px;
-    max-height: 82dvh;
+    max-height: var(--sheet-peek-max);
     border-radius: var(--radius-lg);
-    animation: deck-in 0.16s ease-out;
-  }
-
-  .drawer--full {
-    height: 92dvh;
-    max-height: 92dvh;
   }
 }
 

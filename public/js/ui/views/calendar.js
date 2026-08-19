@@ -573,7 +573,7 @@ function mountEditor(el, data, sheet, spec) {
   sheet.setActions('');
   sheet.update('<div data-editor></div>');
   // 表單比一天的清單長得多，直接撐到頂 —— 不必她自己再拖一次
-  sheet.el.classList.add('drawer--full');
+  sheet.expand();
 
   const host = sheet.el.querySelector('[data-editor]');
   const opts = {
