@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #faf8f5; color: #1c1a17; font-size: 16px; line-height: 1.5;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .card { background: #ffffff; border-radius: 22px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 1px 2px rgba(28,25,23,.04), 0 10px 28px rgba(28,25,23,.06); }
+    .cell { flex: 1; min-width: 0; height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 12px; font-size: 15px; font-weight: 600; }
+    .off { color: #d6cfc6; text-decoration: line-through; }
+    .pip { width: 5px; height: 5px; border-radius: 999px; background: #17605d; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #faf8f5; overflow: hidden">
+
+  <div style="flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 12px 18px 8px">
+    <span style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; margin-left: -8px">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+    </span>
+    <span style="font-size: 22px; font-weight: 700">客戶甲</span>
+    <span style="font-size: 13px; font-weight: 650; color: #a8552b">★★★</span>
+    <span style="flex-grow: 1"></span>
+    <span class="num" style="font-size: 15px; color: #78716a">9 月</span>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; padding: 4px 18px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+
+    <div style="display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border-radius: 16px; background: #f8f0ec">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#a03b2c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 3px" aria-hidden="true"><path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
+      <span style="font-size: 14px; line-height: 1.55; color: #7d3225">「9 月禮拜一不行，9/17、9/18、9/22–24 不行，盡量排下午」<span style="color: #a06655"> · 8/28 問的</span></span>
+    </div>
+
+    <!-- 小日曆：不能的日子直接劃掉，點一天就選一天 -->
+    <div class="card" style="gap: 8px">
+      <div style="display: flex; gap: 1px">
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #b3382c">日</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #a09890">一</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #a09890">二</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #a09890">三</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #a09890">四</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #a09890">五</span>
+        <span style="flex: 1; text-align: center; font-size: 11px; color: #2563a8">六</span>
+      </div>
+      <div style="display: flex; gap: 2px">
+        <span class="cell off">30</span><span class="cell off">31</span>
+        <span class="cell">1</span><span class="cell">2</span>
+        <span class="cell" style="background: #17605d; color: #ffffff">3<span class="pip" style="background: #ffffff"></span></span>
+        <span class="cell off">4</span><span class="cell off">5</span>
+      </div>
+      <div style="display: flex; gap: 2px">
+        <span class="cell off">6</span><span class="cell off">7</span>
+        <span class="cell">8</span><span class="cell">9</span>
+        <span class="cell" style="background: #e4efec; color: #0d4b48">10<span class="pip"></span></span>
+        <span class="cell off">11</span><span class="cell off">12</span>
+      </div>
+      <div style="display: flex; gap: 2px">
+        <span class="cell off">13</span><span class="cell off">14</span>
+        <span class="cell">15</span><span class="cell">16</span>
+        <span class="cell off">17</span><span class="cell off">18</span><span class="cell off">19</span>
+      </div>
+      <div style="display: flex; gap: 2px">
+        <span class="cell off">20</span><span class="cell off">21</span>
+        <span class="cell off">22</span><span class="cell off">23</span><span class="cell off">24</span>
+        <span class="cell">25</span><span class="cell off">26</span>
+      </div>
+      <div style="display: flex; gap: 2px">
+        <span class="cell off">27</span><span class="cell off">28</span>
+        <span class="cell">29</span><span class="cell">30</span>
+        <span class="cell off">1</span><span class="cell off">2</span><span class="cell off">3</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; font-size: 12px; color: #a09890; padding-top: 2px">
+        <span style="display: inline-flex; align-items: center; gap: 5px"><span style="width: 12px; height: 12px; border-radius: 4px; background: #17605d"></span>選的那天</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px"><span class="pip"></span>已經記了</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px"><span class="off">15</span>他說不行</span>
+      </div>
+    </div>
+
+    <!-- 已記的時段，一天一組 -->
+    <div class="card" style="gap: 10px">
+      <div style="display: flex; align-items: baseline; gap: 8px">
+        <span class="num" style="font-size: 19px; font-weight: 600">9/3</span>
+        <span style="font-size: 14px; color: #78716a">星期三</span>
+        <span style="flex-grow: 1"></span>
+        <span style="font-size: 13px; color: #a09890"><span class="num">2</span> 個時段</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 14px; background: #f6f2ec">
+        <span class="num" style="font-size: 17px; font-weight: 600; width: 48px">14:00</span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; font-weight: 650">復能</span>
+          <span style="display: block; font-size: 13px; color: #78716a">騰崴 · INDIBA</span>
+        </span>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#a09890" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 14px; background: #f6f2ec">
+        <span class="num" style="font-size: 17px; font-weight: 600; width: 48px">15:15</span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; font-weight: 650">靜脈</span>
+          <span style="display: block; font-size: 13px; color: #78716a">治2</span>
+        </span>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#a09890" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 48px; border-radius: 14px; border: 1.5px dashed #ddd5ca; color: #17605d; font-size: 15px; font-weight: 650">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        9/3 再加一個時段
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 13px; color: #a09890">
+      <span>另外還記了</span>
+      <span class="num" style="font-size: 14px; font-weight: 650; color: #1c1a17">9/10</span>
+      <span>復能 · 騰崴</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink: 0; display: flex; gap: 10px; padding: 12px 18px 22px; background: #ffffff; border-top: 1px solid #f0ebe3">
+    <span style="height: 50px; padding: 0 18px; border-radius: 14px; background: #f4efe8; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center">先跳過</span>
+    <span style="flex-grow: 1; height: 50px; border-radius: 14px; background: #17605d; color: #ffffff; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center; gap: 8px">
+      這位壓完了，下一位
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="m12 5 7 7-7 7"/></svg>
+    </span>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

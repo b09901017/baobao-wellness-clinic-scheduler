@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #faf8f5; color: #1c1a17; font-size: 16px; line-height: 1.5;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .lbl { font-size: 13px; font-weight: 650; color: #a09890; margin-bottom: 8px; }
+    .opt { height: 44px; display: inline-flex; align-items: center; padding: 0 15px; border-radius: 13px; background: #ffffff; font-size: 15px; font-weight: 650; box-shadow: 0 1px 2px rgba(28,25,23,.05); }
+    .on { background: #17605d; color: #ffffff; box-shadow: 0 2px 8px rgba(23,96,93,.24); }
+    .memo { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 18px; background: #ffffff; box-shadow: 0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05); }
+    .box { width: 26px; height: 26px; border-radius: 9px; border: 1.8px solid #ddd5ca; flex-shrink: 0; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #faf8f5; overflow: hidden">
+
+  <div style="flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 12px 18px 6px">
+    <span style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; margin-left: -8px">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+    </span>
+    <span style="font-size: 22px; font-weight: 700">隨手記</span>
+    <span style="flex-grow: 1"></span>
+    <span style="font-size: 14px; color: #78716a">未完成 <b class="num" style="color: #1c1a17">4</b></span>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; padding: 6px 18px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+
+    <!-- 寫一句就好，其餘全用點的 -->
+    <div style="background: #ffffff; border-radius: 22px; padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 1px 2px rgba(28,25,23,.04), 0 10px 28px rgba(28,25,23,.06)">
+      <div style="font-size: 18px; color: #c9c0b6; border-bottom: 2px solid #f0ebe3; padding-bottom: 12px">她說了什麼？</div>
+
+      <div>
+        <div class="lbl">關於誰 · 選填</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span class="opt on">客戶甲</span>
+          <span class="opt">客戶乙</span>
+          <span class="opt">客戶丙</span>
+          <span class="opt" style="color: #78716a">找人…</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="lbl">什麼時候要做 · 選填</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span class="opt">今天</span>
+          <span class="opt on">明天</span>
+          <span class="opt">這禮拜</span>
+          <span class="opt">不設</span>
+        </div>
+      </div>
+
+      <span style="height: 52px; border-radius: 15px; background: #17605d; color: #ffffff; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center">記下來</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="memo">
+        <span class="box"></span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; line-height: 1.5">下次幫客戶甲問營養品有沒有現貨</span>
+          <span style="display: block; font-size: 13px; color: #a09890; margin-top: 2px">關於 客戶甲 · 明天</span>
+        </span>
+      </div>
+      <div class="memo">
+        <span class="box"></span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; line-height: 1.5">客戶庚想改成早上的時段，下個月開始</span>
+          <span style="display: block; font-size: 13px; color: #a09890; margin-top: 2px">關於 客戶庚</span>
+        </span>
+      </div>
+      <div class="memo">
+        <span class="box"></span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; line-height: 1.5">補訂點滴室的耗材</span>
+          <span style="display: block; font-size: 13px; color: #a09890; margin-top: 2px">這禮拜</span>
+        </span>
+      </div>
+      <div class="memo" style="opacity: 0.5">
+        <span style="width: 26px; height: 26px; border-radius: 9px; background: #17605d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        </span>
+        <span style="flex-grow: 1; min-width: 0">
+          <span style="display: block; font-size: 16px; line-height: 1.5; text-decoration: line-through">幫客戶丙查二返的報告好了沒</span>
+          <span style="display: block; font-size: 13px; color: #a09890; margin-top: 2px">關於 客戶丙 · 今天做掉</span>
+        </span>
+      </div>
+    </div>
+
+    <div style="font-size: 13px; color: #a09890; padding: 0 4px; line-height: 1.6">
+      掛到某位客戶身上的隨手記，在他的客戶頁也看得到；做完打勾就沉到下面，不會消失。
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #efece7; color: #1c1a17; font-size: 16px; line-height: 1.5;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .slot { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 15px; background: #f6f2ec; }
+    .tick { width: 26px; height: 26px; border-radius: 999px; background: #17605d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #efece7; overflow: hidden">
+
+  <div style="flex-grow: 1"></div>
+
+  <div style="background: #ffffff; border-radius: 28px 28px 0 0; box-shadow: 0 -12px 40px rgba(28,25,23,.14); display: flex; flex-direction: column">
+
+    <div style="flex-shrink: 0; display: flex; justify-content: center; padding: 10px 0 2px">
+      <span style="width: 40px; height: 4px; border-radius: 999px; background: #e2dbd2"></span>
+    </div>
+
+    <div style="padding: 14px 22px 0">
+      <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.01em">客戶甲 說可以嗎？</div>
+      <div style="font-size: 14px; color: #78716a; margin-top: 4px">按下去之前先確認一次，日期打錯就是白跑一趟</div>
+    </div>
+
+    <div style="padding: 16px 22px 0; display: flex; flex-direction: column; gap: 14px">
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: baseline; gap: 8px">
+          <span class="num" style="font-size: 19px; font-weight: 600">9/3</span>
+          <span style="font-size: 14px; color: #78716a">星期三</span>
+        </div>
+        <div class="slot">
+          <span class="num" style="font-size: 17px; font-weight: 600; width: 96px">14:00–15:00</span>
+          <span style="flex-grow: 1; min-width: 0">
+            <span style="display: block; font-size: 16px; font-weight: 650">復能</span>
+            <span style="display: block; font-size: 13px; color: #78716a">騰崴 · INDIBA</span>
+          </span>
+        </div>
+        <div class="slot">
+          <span class="num" style="font-size: 17px; font-weight: 600; width: 96px">15:15–16:15</span>
+          <span style="flex-grow: 1; min-width: 0">
+            <span style="display: block; font-size: 16px; font-weight: 650">靜脈</span>
+            <span style="display: block; font-size: 13px; color: #78716a">治2</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: baseline; gap: 8px">
+          <span class="num" style="font-size: 19px; font-weight: 600">9/10</span>
+          <span style="font-size: 14px; color: #78716a">星期三</span>
+        </div>
+        <div class="slot">
+          <span class="num" style="font-size: 17px; font-weight: 600; width: 96px">14:00–15:00</span>
+          <span style="flex-grow: 1; min-width: 0">
+            <span style="display: block; font-size: 16px; font-weight: 650">復能</span>
+            <span style="display: block; font-size: 13px; color: #78716a">騰崴 · INDIBA</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="font-size: 14px; color: #78716a; padding: 12px 14px; border-radius: 14px; background: #f8f4ee; line-height: 1.55">
+        <b style="color: #1c1a17">你的備註</b>：她說這次想順便問營養品<br>
+        <span style="color: #a03b2c">體內金屬 · 超磁場與高能量雷射不可使用</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 14px; color: #2f7d78; padding: 0 2px">
+        <span class="tick"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+        按「他說可以」之後：自動進日曆、產生 Abovee 與掛號的待辦
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 18px 22px 26px">
+      <span style="height: 54px; border-radius: 16px; background: #17605d; color: #ffffff; font-size: 17px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">他說可以</span>
+      <div style="display: flex; gap: 10px">
+        <span style="flex-grow: 1; height: 50px; border-radius: 15px; background: #f8f0ec; color: #a03b2c; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center">有時段不行</span>
+        <span style="height: 50px; padding: 0 20px; border-radius: 15px; background: #f4efe8; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center">等一下再說</span>
+      </div>
+      <div style="font-size: 13px; color: #a09890; text-align: center">「有時段不行」會讓你挑哪幾筆要改，其餘照樣確認</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #efece7; color: #1c1a17; font-size: 16px; line-height: 1.5;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .lbl { font-size: 13px; font-weight: 650; color: #a09890; margin-bottom: 8px; }
+    .opt { height: 46px; display: inline-flex; align-items: center; gap: 7px; padding: 0 15px; border-radius: 14px; background: #f6f2ec; font-size: 16px; font-weight: 650; }
+    .on { background: #17605d; color: #ffffff; }
+    .no { color: #c9c0b6; }
+    .t { height: 46px; min-width: 68px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: #f6f2ec; font-size: 16px; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #efece7; overflow: hidden">
+
+  <div style="flex-grow: 1"></div>
+
+  <div style="background: #ffffff; border-radius: 28px 28px 0 0; box-shadow: 0 -12px 40px rgba(28,25,23,.14); display: flex; flex-direction: column; max-height: 780px">
+
+    <div style="flex-shrink: 0; display: flex; justify-content: center; padding: 10px 0 2px">
+      <span style="width: 40px; height: 4px; border-radius: 999px; background: #e2dbd2"></span>
+    </div>
+
+    <div style="flex-shrink: 0; display: flex; align-items: baseline; gap: 10px; padding: 10px 22px 14px">
+      <span class="num" style="font-size: 24px; font-weight: 600">9/3</span>
+      <span style="font-size: 15px; color: #78716a">星期三 · 客戶甲</span>
+      <span style="flex-grow: 1"></span>
+      <span style="font-size: 14px; color: #a09890">全部用點的</span>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; padding: 0 22px; display: flex; flex-direction: column; gap: 18px; overflow: hidden">
+
+      <div>
+        <div class="lbl">做什麼 · 括號是剩餘次數</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span class="opt on">復能 <span class="num" style="font-size: 13px; opacity: .85">12</span></span>
+          <span class="opt">靜脈 <span class="num" style="font-size: 13px; color: #a09890">17</span></span>
+          <span class="opt">營養點滴 <span class="num" style="font-size: 13px; color: #a09890">3</span></span>
+          <span class="opt">健檢 <span class="num" style="font-size: 13px; color: #a09890">1</span></span>
+          <span class="opt no">二返 <span class="num" style="font-size: 13px">0</span></span>
+        </div>
+      </div>
+
+      <div>
+        <div class="lbl">幾點開始 · 結束時間依課程時長自動算</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span class="t">09:00</span>
+          <span class="t">10:30</span>
+          <span class="t">11:45</span>
+          <span class="t on" style="background: #17605d; color: #ffffff">14:00</span>
+          <span class="t">15:15</span>
+          <span class="t">16:30</span>
+          <span class="t" style="width: 46px; min-width: 46px">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4.5l3 1.8"/></svg>
+          </span>
+        </div>
+        <div style="font-size: 13px; color: #a09890; margin-top: 8px">14:00 – 15:00 · 復能 60 分鐘</div>
+      </div>
+
+      <div>
+        <div class="lbl">器材</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <span class="opt on">INDIBA</span>
+          <span class="opt" style="background: #f8f0ec; color: #b8776b; text-decoration: line-through">超磁場</span>
+          <span class="opt" style="background: #f8f0ec; color: #b8776b; text-decoration: line-through">高能量雷射</span>
+        </div>
+        <div style="font-size: 13px; color: #a03b2c; margin-top: 8px">體內金屬禁忌，這兩項鎖住</div>
+      </div>
+
+      <div>
+        <div class="lbl">治療師</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span class="opt on">騰崴</span>
+          <span class="opt">芝寧</span>
+          <span class="opt">LuLu</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="lbl">備註 · 選填</div>
+        <div style="min-height: 52px; border-radius: 14px; background: #f6f2ec; padding: 14px 16px; font-size: 15px; color: #a09890">她說這次想順便問營養品</div>
+      </div>
+    </div>
+
+    <div style="flex-shrink: 0; display: flex; gap: 10px; padding: 14px 22px 26px">
+      <span style="height: 52px; padding: 0 20px; border-radius: 15px; background: #f4efe8; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center">取消</span>
+      <span style="flex-grow: 1; height: 52px; border-radius: 15px; background: #17605d; color: #ffffff; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center">加進 9/3</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

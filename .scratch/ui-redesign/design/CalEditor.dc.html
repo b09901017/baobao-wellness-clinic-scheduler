@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #faf8f5; color: #1c1a17; font-size: 16px; line-height: 1.5;
+      font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, sans-serif; }
+    a { color: #17605d; } a:hover { color: #0f4644; }
+    .num { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .lbl { font-size: 13px; font-weight: 650; color: #a09890; }
+    .val { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border-radius: 14px; background: #ffffff; font-size: 16px; }
+    .grp { background: #ffffff; border-radius: 20px; padding: 6px 16px; box-shadow: 0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05); }
+    .line { display: flex; align-items: center; gap: 12px; min-height: 56px; border-top: 1px solid #f4efe8; }
+    .dot { width: 26px; height: 26px; border-radius: 999px; flex-shrink: 0; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #faf8f5; overflow: hidden">
+
+  <div style="flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 18px">
+    <span style="width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 18 18 6"/><path d="M6 6l12 12"/></svg>
+    </span>
+    <span style="flex-grow: 1"></span>
+    <span style="height: 44px; padding: 0 22px; border-radius: 999px; background: #17605d; color: #ffffff; font-size: 16px; font-weight: 650; display: inline-flex; align-items: center">儲存</span>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; padding: 4px 18px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+
+    <!-- 兩種東西共用同一張表，只有下半部不一樣 -->
+    <div style="display: flex; background: #f0ebe3; border-radius: 999px; padding: 4px">
+      <span style="flex: 1; height: 44px; border-radius: 999px; background: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; box-shadow: 0 1px 3px rgba(28,25,23,.08)">行程</span>
+      <span style="flex: 1; height: 44px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 650; color: #78716a">來訪</span>
+    </div>
+
+    <div style="font-size: 26px; font-weight: 700; letter-spacing: -0.01em; padding: 0 4px">顧客會</div>
+
+    <div class="grp">
+      <div class="line" style="border-top: none">
+        <span class="lbl" style="width: 62px">分類</span>
+        <span style="display: flex; gap: 8px; align-items: center">
+          <span class="dot" style="background: #17605d; box-shadow: 0 0 0 3px #d5e9e6"></span>
+          <span class="dot" style="background: #5b3f93"></span>
+          <span class="dot" style="background: #2563a8"></span>
+          <span class="dot" style="background: #b45309"></span>
+          <span class="dot" style="background: #b3382c"></span>
+        </span>
+        <span style="flex-grow: 1"></span>
+        <span style="font-size: 15px; font-weight: 650; color: #0d4b48">工作</span>
+      </div>
+
+      <div class="line">
+        <span class="lbl" style="width: 62px">全天</span>
+        <span style="flex-grow: 1"></span>
+        <span style="width: 50px; height: 30px; border-radius: 999px; background: #e2dbd2; display: inline-flex; align-items: center; padding: 3px">
+          <span style="width: 24px; height: 24px; border-radius: 999px; background: #ffffff; box-shadow: 0 1px 3px rgba(28,25,23,.2)"></span>
+        </span>
+      </div>
+
+      <div class="line">
+        <span class="lbl" style="width: 62px">開始</span>
+        <span class="num" style="font-size: 17px; font-weight: 600">2026/8/18</span>
+        <span style="flex-grow: 1"></span>
+        <span class="num" style="font-size: 17px; font-weight: 600; padding: 4px 12px; border-radius: 10px; background: #f4efe8">14:00</span>
+      </div>
+
+      <div class="line">
+        <span class="lbl" style="width: 62px">結束</span>
+        <span class="num" style="font-size: 17px; font-weight: 600">2026/8/18</span>
+        <span style="flex-grow: 1"></span>
+        <span class="num" style="font-size: 17px; font-weight: 600; padding: 4px 12px; border-radius: 10px; background: #f4efe8">15:00</span>
+      </div>
+
+      <div class="line">
+        <span class="lbl" style="width: 62px">跨天</span>
+        <span style="font-size: 14px; color: #a09890">結束日往後挑就是跨天，月檢視上會變成一條橫的</span>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="line" style="border-top: none">
+        <span class="lbl" style="width: 62px">關於誰</span>
+        <span style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 999px; background: #f4efe8; font-size: 15px; font-weight: 650">客戶甲
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 18 18 6"/><path d="M6 6l12 12"/></svg>
+        </span>
+        <span style="flex-grow: 1"></span>
+        <span style="font-size: 14px; color: #a09890">選填</span>
+      </div>
+      <div class="line">
+        <span class="lbl" style="width: 62px">地點</span>
+        <span style="font-size: 16px">三樓會議室</span>
+      </div>
+      <div class="line" style="align-items: flex-start; padding: 14px 0">
+        <span class="lbl" style="width: 62px; padding-top: 2px">備註</span>
+        <span style="font-size: 16px; flex-grow: 1; line-height: 1.6">先問客戶甲要不要一起，他上次說想聽</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <span style="height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 999px; background: #ffffff; font-size: 15px; font-weight: 650; box-shadow: 0 1px 2px rgba(28,25,23,.05)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4.5l3 1.8"/></svg>
+        提醒
+      </span>
+      <span style="height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 999px; background: #ffffff; font-size: 15px; font-weight: 650; box-shadow: 0 1px 2px rgba(28,25,23,.05)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5h3"/><path d="M20 16v3h-3"/><path d="M4.5 12a7.5 7.5 0 0 1 13-5"/><path d="M19.5 12a7.5 7.5 0 0 1-13 5"/></svg>
+        重複
+      </span>
+      <span style="height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 999px; background: #ffffff; font-size: 15px; font-weight: 650; box-shadow: 0 1px 2px rgba(28,25,23,.05)">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#78716a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        待辦清單
+      </span>
+    </div>
+
+    <div style="font-size: 13px; color: #a09890; padding: 0 4px; line-height: 1.6">
+      切到「來訪」時下半部換成額度、課程、器材、診間與治療師，存下去會扣次數、產生系統登記的待辦；行程不會。
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
