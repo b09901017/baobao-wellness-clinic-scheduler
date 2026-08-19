@@ -111,6 +111,33 @@ export function residualNames(summary, therapists = []) {
     .trim();
 }
 
+/**
+ * 這句話裡提到的治療師。名單從主檔（config/staff）來，不從文字猜 ——
+ * 括號裡也可能是別的東西（`（要生日`、`（療程單`），猜錯會把一句備註掛成治療師。
+ * 行事曆上的寫法與主檔不一定一樣（騰威／騰崴、新穎／欣穎），所以先過 normVariant，
+ * 再讓對照表補剩下的。
+ */
+export function therapistOf(summary, staff = []) {
+  const s = normVariant(summary);
+  for (const t of staff) {
+    const norm = normVariant(t.name);
+    if (s.includes(norm) || (t.aka ?? []).some((a) => s.includes(normVariant(a)))) return t.name;
+  }
+  return null;
+}
+
+/** 營養點滴當天用的品項。她寫簡寫（雪顏、護肝、腸道），主檔是全名。 */
+export function ivProductOf(summary, products = []) {
+  const s = normVariant(summary);
+  for (const p of products) {
+    const name = normVariant(p.name);
+    for (let n = 2; n <= name.length; n += 1) {
+      if (s.includes(name.slice(0, n))) return p.name;
+    }
+  }
+  return null;
+}
+
 /** `治3` = 治療室3；`IL.9`、`IL 9` = 點滴9（使用者確認過：IL 後面的數字是點滴室）。 */
 export function roomOf(summary) {
   const s = String(summary).replace(/\s+/g, '');
@@ -201,7 +228,7 @@ const DEFAULT_SLOT_MIN = 60;
  * 回傳每個時段配到什麼（`high` 三方同意／`low` 要她確認／`null` 配不到），
  * 以及這一天剩下沒用到的線索。
  */
-export function matchDay(visit, forms, dayEvents, othersForms = [], therapists = []) {
+export function matchDay(visit, forms, dayEvents, othersForms = [], therapists = [], master = {}) {
   const surnames = [...new Set(forms.filter((f) => f.length >= 2).map((f) => f[0]))];
 
   const scored = dayEvents.map((e) => {
@@ -243,6 +270,8 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
         startsAt: hit.start,
         room: roomOf(hit.e.summary),
         equipmentName: hit.courses.find((x) => SAME(x.course, slot.courseName))?.equip ?? null,
+        therapistName: therapistOf(hit.e.summary, master.staff ?? []),
+        ivProductName: /點滴/.test(slot.courseName) ? ivProductOf(hit.e.summary, master.ivProducts ?? []) : null,
         evidence: hit.e.summary,
         clock: hit.e.clock,
         part: hit.part ? `${hit.part}/${hit.of}` : null,
@@ -297,7 +326,7 @@ const addMin = (hhmm, min) => {
 
 // ---------- 整批 ----------
 
-export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], today = null }) {
+export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], doctors = [], noise = [], today = null }) {
   const ctx = {
     courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts,
     plans: SEED.plans, existingCustomers: [], year, importedAt: null,
@@ -317,16 +346,24 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
       events.reduce((a, e) => (e.date > a ? e.date : a), events[0].date)]
     : [null, null];
 
+  // 主檔的治療師名單 ＋ 對照表補的別名。認得這些字，`residualNames()` 才不會把
+  // 「9.30 IN 姿璇」判成「寫了別人的名字」而放棄那一筆。
+  const staff = [
+    ...SEED.staff.map((x) => ({ name: x.name, aka: [] })),
+    ...therapists.filter((t) => !SEED.staff.some((x) => normVariant(x.name) === normVariant(t)))
+      .map((t) => ({ name: t, aka: [] })),
+  ];
+  const therapistWords = [...staff.map((x) => x.name), ...therapists, ...(doctors ?? []), ...(noise ?? [])];
+
   const usedSummaries = new Set();
   const customers = [];
-  const therapistNames = therapists;
   for (const p of plans) {
     if (p.skip) { customers.push({ ...p, days: [], forms: [] }); continue; }
     const forms = nameForms(p.customerName, aliases);
     const others = plans.filter((q) => q !== p && !q.skip)
       .flatMap((q) => nameForms(q.customerName, aliases));
     const days = p.visits.map((v) => {
-      const r = matchDay(v, forms, byDate.get(v.date) ?? [], others, therapists);
+      const r = matchDay(v, forms, byDate.get(v.date) ?? [], others, therapistWords, { staff, ivProducts: SEED.ivProducts });
       for (const s of r.usedUids) usedSummaries.add(`${v.date}|${s}`);
       return { date: v.date, ...r };
     });
@@ -376,9 +413,89 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
   return { plans: customers, events, span, leftover, ambiguous, year };
 }
 
+// ---------- 給 app 的合併檔 ----------
+
+/**
+ * **名字不是 id** —— id 是她自己在主檔建的，這支腳本看不到她的 Firestore
+ * （也不該看得到）。app 那一側拿名字去對自己的主檔，對不到就報出來，不要猜
+ * （同一個判準見 `domain/legacyImport.js` 的 `resolveCourse()`）。
+ *
+ * 每個時段都帶 `confidence` 與 `evidence`：低信心的那幾筆長得跟高信心的一模一樣，
+ * 沒有這兩個欄位，她在 app 裡分不出哪幾筆是推測來的。
+ *
+ * 三份候選清單（未來的預約、行事曆有試算表沒勾、對不到客戶的）**一律 `include: false`**。
+ * 那是她說的：全部列出來，她一筆一筆決定。預設匯入等於替她做了決定，
+ * 而錯的那幾筆會在日曆上長出她沒有的事。
+ */
+export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '' } = {}) {
+  const courseByName = new Map(SEED.courses.map((c) => [c.name, c]));
+  const endOf = (start, courseName) => (start
+    ? addMin(start, courseByName.get(courseName)?.durationMin ?? 60)
+    : null);
+  const timeOf = (e) => timeInSummary(e.summary)?.start ?? e.clock ?? null;
+
+  return {
+    format: 'baobao-merge/v1',
+    generatedAt,
+    year: r.year,
+    calendar: { file: calendar, span: r.span, events: r.events.length },
+    customers: r.plans.filter((p) => !p.skip).map((p) => ({
+      sheetName: p.sheetName,
+      name: p.customer?.name ?? p.customerName,
+      source: p.customer?.source ?? null,
+      notes: p.customer?.notes ?? '',
+      entitlements: p.entitlements.map((e) => ({
+        key: e.key,
+        type: e.doc.type,
+        label: e.doc.label,
+        totalQty: e.doc.totalQty,
+        courseName: SEED.courses.find((c) => c.id === e.doc.courseId)?.name ?? null,
+        optionEquipmentNames: (e.doc.optionEquipmentIds ?? [])
+          .map((id) => SEED.equipment.find((x) => x.id === id)?.name ?? id),
+        productName: e.productName,
+      })),
+      visits: p.days.map((d) => ({
+        date: d.date,
+        status: 'done',
+        slots: d.filled.map((f) => ({
+          entitlementKey: f.slot.entitlementKey,
+          courseName: f.slot.courseName,
+          startsAt: f.match?.startsAt ?? null,
+          endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName),
+          roomName: f.match?.room ?? null,
+          therapistName: f.match?.therapistName ?? null,
+          equipmentName: f.match?.equipmentName ?? null,
+          ivProductName: f.match?.ivProductName ?? null,
+          confidence: f.match?.confidence ?? null,
+          evidence: f.match?.evidence ?? null,
+        })),
+      })),
+    })),
+    // 已確認、還沒來 —— 所以是 confirmed 不是 done，會算進「已排未上」
+    futureVisits: r.leftover.future.map((x) => ({
+      customerName: x.customer, date: x.event.date, status: 'confirmed',
+      courseName: x.course, startsAt: timeOf(x.event),
+      evidence: x.event.summary, include: false,
+    })),
+    missingFromSheet: r.leftover.calendarOnly.map((x) => ({
+      customerName: x.customer, date: x.event.date, courseName: x.course,
+      startsAt: timeOf(x.event), evidence: x.event.summary,
+      sheetHasThatDay: x.sheetHasThatDay, include: false,
+    })),
+    eventCandidates: r.leftover.personal.map((e) => ({
+      title: e.summary,
+      startDate: e.date, endDate: e.date,
+      startTime: timeOf(e), endTime: null,
+      category: 'personal', repeats: e.repeats, include: false,
+    })),
+    ambiguous: r.ambiguous,
+  };
+}
+
 // ---------- 報告 ----------
 
 const width = (t) => [...String(t)].reduce((n, ch) => n + (/[⺀-꓏가-힣豈-﫿︰-﹏＀-｠]/.test(ch) ? 2 : 1), 0);
+const padStart = (t, to) => `${' '.repeat(Math.max(to - width(t), 0))}${t}`;
 const pad = (t, to) => `${t}${' '.repeat(Math.max(to - width(t), 0))}`;
 
 export function reportText(r) {
@@ -479,9 +596,27 @@ export function reportText(r) {
     }
     L.push('');
   }
-  L.push('━━━ ⑤ 剩下的行事曆事件 ━━━', '');
-  L.push(`   未來的預約 ${r.leftover.future.length} 筆、對不到客戶的 ${r.leftover.personal.length} 筆`);
-  L.push('   後者多半是個人行程與雜事，要一批一批看過再決定進不進 app。');
+  L.push('━━━ ⑤ 未來的預約 ━━━');
+  L.push('   對得到客戶與療程、日期在今天之後。這幾筆是「已確認、還沒來」，會算進已排未上。', '');
+  if (!r.leftover.future.length) L.push('   （沒有）');
+  for (const x of r.leftover.future) {
+    L.push(`   ${x.event.date} ${timeInSummary(x.event.summary)?.start ?? x.event.clock}`
+      + ` ${short(x.customer)}｜${x.course}｜「${x.event.summary}」`);
+  }
+  L.push('');
+
+  L.push(`━━━ ⑥ 對不到客戶的 ${r.leftover.personal.length} 筆，全部列在這裡 ━━━`);
+  L.push('   個人行程、公司的事、待辦全部混在一起，而且顏色分不出來。');
+  L.push('   一律**預設不匯入**，由她一筆一筆決定 —— 猜錯會在日曆上長出她沒有的事。', '');
+  let month = '';
+  for (const e of [...r.leftover.personal].sort((a, b) => (a.date + a.summary).localeCompare(b.date + b.summary))) {
+    if (e.date.slice(0, 7) !== month) {
+      month = e.date.slice(0, 7);
+      L.push(`   ── ${month}`);
+    }
+    L.push(`   ${e.date} ${padStart(timeInSummary(e.summary)?.start ?? e.clock ?? '', 5)}  ${e.summary}`
+      + (e.repeats ? '　（重複事件）' : ''));
+  }
   return L.join('\n');
 }
 
@@ -506,6 +641,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     sheetsDir, icsPath, year: Number(arg('year', new Date().getFullYear())),
     aliases: aliases.nicknames ?? aliases,
     therapists: aliases.therapists ?? [],
+    doctors: aliases.doctors ?? [],
+    noise: aliases.noise ?? [],
     today: arg('today', new Date().toISOString().slice(0, 10)),
   });
   const text = reportText(r);
@@ -513,23 +650,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (out) {
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'report.txt'), `${text}\n`);
-    writeFileSync(join(out, 'merged.json'), JSON.stringify(r.plans.map((p) => ({
-      customerName: p.customerName,
-      sheetName: p.sheetName,
-      visits: p.days?.map((d) => ({
-        date: d.date,
-        slots: d.filled.map((f) => ({
-          courseName: f.slot.courseName,
-          entitlementKey: f.slot.entitlementKey,
-          startsAt: f.match?.startsAt ?? null,
-          room: f.match?.room ?? null,
-          equipmentName: f.match?.equipmentName ?? null,
-          confidence: f.match?.confidence ?? null,
-          evidence: f.match?.evidence ?? null,
-        })),
-      })) ?? [],
-    })), null, 2));
-    console.error(`寫到 ${out}/report.txt 與 merged.json`);
+    writeFileSync(join(out, 'import.json'),
+      `${JSON.stringify(importJson(r, { calendar: icsPath.split('/').pop() }), null, 2)}\n`);
+    console.error(`寫到 ${out}/report.txt 與 import.json`);
   }
   console.log(text);
 }

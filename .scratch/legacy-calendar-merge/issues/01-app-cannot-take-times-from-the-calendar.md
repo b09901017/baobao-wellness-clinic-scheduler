@@ -17,14 +17,27 @@ Status: todo
 
 ## 想要的樣子
 
-1. `domain/icsImport.js`：`.ics` → 事件；比對規則從 skill 的 `scripts/merge.mjs` 搬過來，
-   **要有測試**（那支腳本沒有）。三個護欄一個都不能少，理由見
-   `references/findings.md` 的「比對規則上踩過的坑」。
-2. `planForSheet()` 多吃一個選填的行事曆索引，對得上就把時段的 `startsAt` / `roomId` /
-   `equipmentId` / `therapistId` 填起來，對不上照舊 `null`。
-3. 匯入頁多一個選檔案的入口（`.ics` 有四千多行，在 iPad 上貼上是災難），
-   比對報告上一段一段列出補到什麼、哪幾筆要她確認。
-4. 別名表要有地方存 —— 目前在 `.local/aliases.json`，容器一收就沒了。
+使用者指定的分工（2026-08-19）：**比對與判斷在對話裡做完，app 只負責吃結果。**
+
+> 我給你 ics+xlsx，你向我確認一些事，我回答完，你確定都理解完後，給我一份 json 檔，
+> 讓我可以貼入 app，所以 app 要有的功能是解析你 skill 給我的 json 並寫入 app 的能力
+
+所以 app 這一側**不解析 `.ics`、不做比對**，只做四件事：驗證、對照主檔、給她看、寫進去。
+`.ics` 的解析與比對留在 skill 裡（`scripts/merge.mjs`），那裡改一次就好。
+
+1. `domain/mergeImport.js`（純函式，要有測試）
+   - 驗證 `format: 'baobao-merge/v1'` 與必填欄位，壞掉的檔要講清楚壞在哪一段
+   - 把檔案裡的**名字**對到她自己主檔的 **id**（課程、器材、診間、治療師、營養點滴品項）。
+     對不到就進 problems，**不要猜** —— 同一個判準見 `domain/legacyImport.js` 的 `resolveCourse()`
+   - 產出跟 `planForSheet()` 一樣形狀的計畫，這樣 `data/legacyImport.js` 的 `importPlan()`
+     可以原封不動拿來寫（一位客戶一個 commit、有稽核、不產生任務）
+2. 匯入頁多一段「貼上合併檔」：貼上 → 摘要與問題 → 確認 → 寫入。
+   低信心的時段要標出來（JSON 裡有 `confidence` 與 `evidence`）。
+3. 三份候選清單（未來的預約、行事曆有試算表沒勾、對不到客戶的個人行程）
+   一律**預設不勾**，她一筆一筆勾要匯的。個人行程寫進 `events`，不是 `visits`。
+
+格式的完整定義在 `.claude/skills/calendar-sheet-merge/SKILL.md` 的「合併檔」一節。
+**改欄位就是改契約，兩邊要一起改。**
 
 ## 為什麼要在匯入的同一次寫入就填
 

@@ -3,7 +3,7 @@ name: calendar-sheet-merge
 description: >
   把 TimeTree 匯出的行事曆（.ics）跟舊 Google 試算表（.xlsx）合起來：補齊只有日期、沒有時間的來訪，
   逐筆對帳抓出兩邊對不起來的地方（行事曆記了卻忘記回試算表打勾是最常見也最嚴重的一種），
-  並算出可以匯進 app 的合併結果。使用者丟來 .ics 或 .xlsx、提到 TimeTree、行事曆、試算表、
+  並產出一份可以貼進 app 的合併 JSON。使用者丟來 .ics 或 .xlsx、提到 TimeTree、行事曆、試算表、
   舊資料匯入、「幫我比對」「幫我合併」「抓出怪怪的地方」「忘記記到試算表」「次數對不起來」時，
   一定要用這個 skill —— 就算她只給了其中一個檔案、或只是問「這兩邊有沒有對不上」也一樣。
   不要自己從頭寫解析或比對，這裡的腳本已經踩過所有坑。
@@ -85,7 +85,8 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
   --aliases .local/aliases.json --today <今天> --out <暫存區>/out
 ```
 
-產出 `report.txt`（給她看的）與 `merged.json`（合併後的來訪，給匯入用）。
+產出兩個檔：`report.txt`（給她看的對帳報告）與 `import.json`（貼進 app 的合併檔，
+格式見下面）。兩個都要用 SendUserFile 交給她。
 
 ### 5. 讀報告，把該問的問掉
 
@@ -98,9 +99,17 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 | ③ 試算表有、行事曆沒有 | 沒記行事曆，或**勾錯人** | 看有沒有標 `⇄ 可能勾錯人` |
 | ④ 補到了什麼 | 一位一位、一個時段一個時段列出補到的時間／診間／器材 | 掃過去看有沒有離譜的 |
 | ④b 兩個人都可能 | 沒寫名字、那天兩位都勾了同一個療程 | 指認是誰 |
-| ⑤ 剩下的事件 | 未來的預約、對不到客戶的（多半是個人行程與雜事） | 決定要不要進 app |
+| ⑤ 未來的預約 | 對得到客戶與療程、日期在今天之後 | 決定要不要建成來訪 |
+| ⑥ 對不到客戶的 | **全部列出來**，個人行程、公司的事、待辦混在一起 | 一筆一筆決定 |
 
 報告只講事實，**判斷交給她**。不要在報告上替她決定。
+
+⑥ 那一段動輒兩百筆，**不要為了讓報告短一點而摘要或抽樣** —— 她要的就是全部：
+
+> 可以全部列給我，不用預設計入 app 沒關係，全部列給我我之後一個一個決定要不要匯入
+
+同樣的道理，`import.json` 裡三份候選清單（未來的預約、行事曆有試算表沒勾、
+對不到客戶的）一律 `include: false`。預設匯入等於替她做了決定。
 
 ## 什麼時候要停下來問
 
@@ -114,19 +123,45 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 - **年份**、**跨年的批次**。
 - **她說「這個之後再確認」的**：記下來，不要卡住其他部分。
 
-## 合併結果怎麼進 app
+## 合併檔（`import.json`）
 
-`merged.json` 是**計畫**，不是寫入。真正寫進 Firestore 只能由 app 做（沒有服務帳號金鑰，
-ADR-0010／0012）。目前 app 的匯入頁吃的是貼上的試算表文字，**還沒有吃時間的路**，
-所以合併結果進 app 需要先做那個功能（`domain/icsImport.js` + 匯入頁的一段）。
-待辦在 `.scratch/legacy-calendar-merge/`（沒有就開一支）。
+這是 skill 與 app 之間的契約。她的流程是：**給檔案 → 你問清楚 → 你給 JSON → 她貼進 app**，
+所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
-要動 app 的時候記住兩件事：
+```
+format: 'baobao-merge/v1'
+calendar: { file, span, events }
+customers[]: { sheetName, name, source, notes,
+               entitlements[]: { key, type, label, totalQty, courseName,
+                                 optionEquipmentNames[], productName },
+               visits[]:       { date, status:'done',
+                                 slots[]: { entitlementKey, courseName,
+                                            startsAt, endsAt, roomName, therapistName,
+                                            equipmentName, ivProductName,
+                                            confidence:'high'|'low'|null, evidence } } }
+futureVisits[]:    { customerName, date, status:'confirmed', courseName, startsAt, evidence, include:false }
+missingFromSheet[]:{ customerName, date, courseName, startsAt, evidence, sheetHasThatDay, include:false }
+eventCandidates[]: { title, startDate, endDate, startTime, endTime, category, repeats, include:false }
+ambiguous[]:       { date, evidence, course, who[] }
+```
 
-- **時間要在舊表匯入的同一次寫入就填進去。** 匯完再補的話那些來訪已經是「已完成」的
-  唯讀鎖定區（`SPEC.md` 第 6.4 節），每補一筆都要走更正流程填理由。
-- **ADR-0011 沒有被推翻。** 對不上的時段照樣留 `null`、照樣顯示「時間不詳」。
-  改變的只是「現在多了一份知道時間的資料」，不是「可以編一個時間出來」。
+三個設計上的理由，改的時候不要弄丟：
+
+**帶的是名字不是 id。** id 是她自己在主檔建的，這支腳本看不到她的 Firestore，也不該看得到。
+app 那一側拿名字去對自己的主檔，對不到就報出來 —— 跟 `domain/legacyImport.js` 的
+`resolveCourse()` 同一個判準。
+
+**每個時段都帶 `confidence` 與 `evidence`。** 低信心的那幾筆在畫面上跟高信心的長得一模一樣，
+沒有這兩個欄位她分不出哪幾筆是推測來的。`evidence` 是行事曆上的原文，
+永遠比解析結果有說服力（`SPEC.md` 第 4.3 節）。
+
+**時間在建立來訪的同一次寫入就填進去。** 匯進來的來訪是 `done`，落在唯讀鎖定區
+（`SPEC.md` 第 6.4 節）；匯完再補時間，每一筆都要走更正流程填理由。
+
+**ADR-0011 沒有被推翻。** 對不上的時段照樣 `startsAt: null`、照樣顯示「時間不詳」。
+多了一份知道時間的資料，不等於可以編一個時間出來。
+
+app 那一側的待辦在 `.scratch/legacy-calendar-merge/issues/`。
 
 ## 兩份參考
 
