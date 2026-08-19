@@ -23,6 +23,7 @@ import { icon } from '../icons.js';
  */
 let file = null;
 let fileErrors = [];
+let fileWarnings = [];
 /** 三份候選清單她勾了哪幾筆。預設一筆都不勾 —— 那是她指定的。 */
 let picks = { future: new Set(), missing: new Set(), events: new Set() };
 
@@ -73,6 +74,10 @@ function paint(el, ctx) {
         ${file ? '<button class="btn" type="button" data-clear>清掉</button>' : ''}
       </p>
       ${fileErrors.length ? errorsCard() : ''}
+      ${fileWarnings.length ? `
+        <div class="card" style="margin-top: 12px">
+          <ul class="tight">${fileWarnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
+        </div>` : ''}
     </section>
 
     ${file ? summaryCard(s, plans, extraProblems) : ''}
@@ -84,6 +89,7 @@ function paint(el, ctx) {
   el.querySelector('[data-clear]')?.addEventListener('click', () => {
     file = null;
     fileErrors = [];
+    fileWarnings = [];
     picks = { future: new Set(), missing: new Set(), events: new Set() };
     paint(el, ctx);
   });
@@ -110,11 +116,13 @@ function load(el, ctx) {
   } catch (err) {
     file = null;
     fileErrors = [`讀不出 JSON：${err.message}`, '整份貼，不要只貼一段。'];
+    fileWarnings = [];
     paint(el, ctx);
     return;
   }
-  const { errors } = validateFile(json);
+  const { errors, warnings } = validateFile(json);
   fileErrors = errors;
+  fileWarnings = warnings;
   file = errors.length ? null : json;
   picks = { future: new Set(), missing: new Set(), events: new Set() };
   paint(el, ctx);

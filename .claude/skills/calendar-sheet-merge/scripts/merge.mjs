@@ -180,6 +180,29 @@ export function nameForms(raw, aliases = {}) {
   return [...forms].filter(Boolean);
 }
 
+/**
+ * 匯進 app 要用的客戶名稱。
+ *
+ * 舊表的 A2 把三樣東西擠在一格（`名字`、`名字3157`、`名字\n(器材偏好)3157`），
+ * 而那一格原文照抄之後，app 裡的客戶就叫「林際娟3786」—— 她每天要看的是名字，
+ * 不是病歷號。多出來的東西不會掉：`planForSheet()` 已經把它們收進備註了。
+ *
+ * 拆名字是有風險的（拆錯比留著多餘的字嚴重），所以這裡只做「拿掉數字與括號」
+ * 這一種確定安全的清理，其餘一律走 `renames` 由她指名 ——
+ * 例如一張夫妻共用的分頁，名字要寫成兩個人。
+ */
+export function displayName(raw, { renames = {}, sheetName = '' } = {}) {
+  if (renames[sheetName]) return renames[sheetName];
+  if (renames[raw]) return renames[raw];
+  const cleaned = String(raw)
+    .replace(/\\n/g, ' ')
+    .replace(/[(（][^)）]*[)）]/g, ' ')
+    .replace(/\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || String(raw).trim();
+}
+
 /** 事件文字裡出現了這個名字最長的幾個連續字 */
 export function nameHit(summary, name) {
   let best = 0;
@@ -326,7 +349,7 @@ const addMin = (hhmm, min) => {
 
 // ---------- 整批 ----------
 
-export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], therapistAliases = {}, doctors = [], noise = [], today = null }) {
+export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], therapistAliases = {}, doctors = [], noise = [], renames = {}, today = null }) {
   const ctx = {
     courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts,
     plans: SEED.plans, existingCustomers: [], year, importedAt: null,
@@ -414,7 +437,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     else leftover.calendarOnly.push(row);
   }
 
-  return { plans: customers, events, span, leftover, ambiguous, year };
+  return { plans: customers, events, span, leftover, ambiguous, renames, year };
 }
 
 // ---------- 給 app 的合併檔 ----------
@@ -437,6 +460,11 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     ? addMin(start, courseByName.get(courseName)?.durationMin ?? 60)
     : null);
   const timeOf = (e) => timeInSummary(e.summary)?.start ?? e.clock ?? null;
+  // 候選清單靠名字認人（`addExtraVisits()` 拿它去找那位客戶的計畫），
+  // 所以這裡要跟 customers[].name 用同一套清理 —— 一邊清了一邊沒清，
+  // 27 筆補的來訪會一筆都對不上，而症狀只是「都沒進去」，看不出是名字的問題。
+  const sheetOf = new Map(r.plans.map((p) => [p.customerName, p.sheetName]));
+  const nameOf = (raw) => displayName(raw, { renames: r.renames, sheetName: sheetOf.get(raw) ?? '' });
 
   return {
     format: 'baobao-merge/v1',
@@ -445,7 +473,8 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     calendar: { file: calendar, span: r.span, events: r.events.length },
     customers: r.plans.filter((p) => !p.skip).map((p) => ({
       sheetName: p.sheetName,
-      name: p.customer?.name ?? p.customerName,
+      name: displayName(p.customer?.name ?? p.customerName, { renames: r.renames, sheetName: p.sheetName }),
+      rawName: p.customer?.name ?? p.customerName,
       source: p.customer?.source ?? null,
       notes: p.customer?.notes ?? '',
       entitlements: p.entitlements.map((e) => ({
@@ -477,12 +506,12 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     })),
     // 已確認、還沒來 —— 所以是 confirmed 不是 done，會算進「已排未上」
     futureVisits: r.leftover.future.map((x) => ({
-      customerName: x.customer, date: x.event.date, status: 'confirmed',
+      customerName: nameOf(x.customer), date: x.event.date, status: 'confirmed',
       courseName: x.course, startsAt: timeOf(x.event),
       evidence: x.event.summary, include: false,
     })),
     missingFromSheet: r.leftover.calendarOnly.map((x) => ({
-      customerName: x.customer, date: x.event.date, courseName: x.course,
+      customerName: nameOf(x.customer), date: x.event.date, courseName: x.course,
       startsAt: timeOf(x.event), evidence: x.event.summary,
       sheetHasThatDay: x.sheetHasThatDay, include: false,
     })),
@@ -492,7 +521,7 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
       startTime: timeOf(e), endTime: null,
       category: 'personal', repeats: e.repeats, include: false,
     })),
-    ambiguous: r.ambiguous,
+    ambiguous: r.ambiguous.map((a) => ({ ...a, who: a.who.map(nameOf) })),
   };
 }
 
@@ -532,6 +561,17 @@ export function reportText(r) {
       L.push(`      現在會找的寫法：${p.forms.join('、')}`);
     }
     L.push('   → 問她「行事曆上你都怎麼叫這幾位」，寫進 .local/aliases.json 再跑一次。', '');
+  }
+
+  const renamed = r.plans.filter((p) => !p.skip)
+    .map((p) => [p.customerName, displayName(p.customerName, { renames: r.renames, sheetName: p.sheetName })])
+    .filter(([raw, name]) => raw !== name);
+  if (renamed.length) {
+    L.push('━━━ 匯進 app 的客戶名稱 ━━━');
+    L.push('   舊表的 A2 把名字、病歷號、器材偏好擠在同一格。拿掉的東西沒有掉 ——');
+    L.push('   它們已經收進那位客戶的備註了。', '');
+    for (const [raw, name] of renamed) L.push(`   ${short(raw)}　→　${name}`);
+    L.push('');
   }
 
   L.push('━━━ ① 兩邊講的不是同一件事 ━━━');
@@ -646,6 +686,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     aliases: aliases.nicknames ?? aliases,
     therapists: aliases.therapists ?? [],
     therapistAliases: aliases.therapistAliases ?? {},
+    renames: aliases.renames ?? {},
     doctors: aliases.doctors ?? [],
     noise: aliases.noise ?? [],
     today: arg('today', new Date().toISOString().slice(0, 10)),

@@ -65,6 +65,17 @@ export function validateFile(json) {
     }
   }
 
+  // 三份候選清單靠名字認人。名字跟 customers[] 對不起來時，勾了也補不進去，
+  // 而症狀只是「都沒進去」—— 看不出是名字的問題。先講出來。
+  const known = new Set((json.customers ?? []).map((c) => norm(c?.name)));
+  const orphan = [...(json.futureVisits ?? []), ...(json.missingFromSheet ?? [])]
+    .map((x) => norm(x?.customerName))
+    .filter((n) => n && !known.has(n));
+  if (orphan.length) {
+    warnings.push(`有 ${orphan.length} 筆候選的客戶名字不在這份檔案裡`
+      + `（${[...new Set(orphan)].slice(0, 3).join('、')}…），勾了也補不進去`);
+  }
+
   return { errors, warnings };
 }
 

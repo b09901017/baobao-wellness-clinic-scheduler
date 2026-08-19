@@ -79,6 +79,16 @@ test('格式不對就整份拒絕，不匯入一半', () => {
   assert.deepEqual(validateFile(FILE()).errors, []);
 });
 
+test('候選清單的名字對不上 customers 時要講出來', () => {
+  const f = FILE({
+    missingFromSheet: [{ customerName: '客戶A9001', date: '2026-08-20', courseName: '靜脈', include: false }],
+  });
+  const { errors, warnings } = validateFile(f);
+  // 這不是壞檔案，只是補不進去 —— 擋下來反而讓她連對得上的那些也匯不了
+  assert.deepEqual(errors, []);
+  assert.ok(warnings.some((w) => w.includes('客戶A9001')));
+});
+
 test('時間只填一半是壞掉的資料，整段不詳才是舊表沒記過', () => {
   const half = FILE();
   half.customers[0].visits[0].slots[0].endsAt = null;
