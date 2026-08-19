@@ -17,6 +17,7 @@ import { isActive } from './visits.js';
 import { annotateOptions } from './contraindications.js';
 import { overlaps, toMinutes } from './visitTime.js';
 import { daysBetween, isValidDate, lastDayOf } from './dates.js';
+import { readMarks } from './customerMarks.js';
 
 export const DEFAULT_WEIGHTS = { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 };
 
@@ -217,8 +218,8 @@ export function buildCustomerQueue({
       totalRemaining,
       scheduledThisMonth,
       visitsPrevMonth: prev ? visitCountIn(visits, prev.from, prev.to) : 0,
-      // 她自己寫的特殊狀況。系統算出來的東西不要跟這個混在一起。
-      selfNote: customer.notes ?? null,
+      // 她掛在這位客戶身上的備註。系統算出來的東西不要跟這些混在一起。
+      marks: readMarks(customer),
       pending: scheduledThisMonth === 0,
     });
   }

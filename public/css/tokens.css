@@ -1,48 +1,63 @@
 /* 設計變數。改顏色、間距、字級都只改這裡。
  *
  * 方向是「沉穩診所」：暖白紙底、墨綠與茶色點綴、襯線標題拉開層級。
- * 她低頭看這台、手在打另一台 —— 字寧可大、資訊寧可少，不要為了排版縮小關鍵數字。
+ *
+ * 尺度的原則：**縮小的是包裝，不是資料。**
+ * 外框、標籤、按鈕、說明文字一律收小一級，把省下來的空間讓給留白；
+ * 但客戶姓名、剩餘次數、日期時間這些她真正在掃的東西維持大字。
+ * 她低頭看這台、手在打另一台 —— 要一眼認得出關鍵數字，而不是滿版的框線。
  */
 
 :root {
-  /* 觸控優先：最小點擊區 44px，input 字級 16px 起跳
-     （iOS 上小於 16px 的 input 會觸發自動放大，畫面會亂跳） */
+  /* 觸控優先：最小點擊區 44px。
+     視覺上的高度可以比 44 小，靠 ::after 把感應範圍撐回 44 ——
+     看起來輕、按起來一樣準。input 字級仍然 16px 起跳，
+     iOS 上小於 16px 的 input 會觸發自動放大，畫面會亂跳。 */
   --tap-min: 44px;
-  --font-base: 16px;
+  --font-base: 15px;
 
+  --space-0: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
+  --space-5: 22px;
+  --space-6: 30px;
+  --space-7: 44px;
 
-  --radius-sm: 12px;
-  --radius: 18px;
-  --radius-lg: 22px;
+  /* 頁面左右留白。橫向捲動的那幾列要用它做負邊界，才捲得到螢幕邊緣。 */
+  --gutter: 14px;
+
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 18px;
   --radius-pill: 999px;
 
-  /* 刻意不用 Google Fonts。這是離線可用的 PWA，多一個外部請求就多一個
-     訊號差時打不開的理由 —— 兩台目標裝置的內建中文字體都夠好。
-     iPad：PingFang TC / Songti TC。Android：Noto Sans CJK / Noto Serif CJK。 */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans CJK TC',
-    'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
-  --font-serif: 'Songti TC', 'Noto Serif CJK TC', 'Source Han Serif TC', 'Noto Serif TC',
-    'PingFang TC', serif;
+  /* 字體。線上載入 Google Fonts，離線自動退回系統內建（見 index.html 的
+     非阻塞載入）—— 字體永遠不會是「app 打不開」的理由。
+     Inter 排在最前面只吃拉丁字母與數字（它沒有中文字），中文自然落到
+     Noto Sans TC；兩個都沒載到就退回 PingFang TC / Noto Sans CJK。
+     ADR-0016 說明為什麼改變主意。 */
+  --font-sans: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC',
+    'Noto Sans CJK TC', 'Microsoft JhengHei', sans-serif;
+  --font-serif: 'Noto Serif TC', 'Songti TC', 'Source Han Serif TC', 'Noto Serif CJK TC', serif;
 
-  --text-xs: 13px;
-  --text-sm: 14px;
-  --text-md: 16px;
-  --text-lg: 19px;
-  --text-xl: 24px;
-  --text-2xl: 29px;
+  /* 一級一級收小。--text-md 是內文，--text-lg 起跳的都是「資料」不是「包裝」。 */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
 
   /* ---------- 淺色 ---------- */
 
   --bg: #faf7f2;
   --surface: #ffffff;
   --surface-2: #f3efe8;
-  --border: #e3dcd1;
+  --border: #e6dfd4;
   --border-soft: #efe9e0;
   --text: #241f1a;
   --text-dim: #6b6157;
@@ -71,9 +86,19 @@
   --ok-bg: #e4ede8;
   --danger: #a63a2a;
 
-  --shadow-1: 0 2px 10px rgb(36 31 26 / 5%);
+  /* 備註的顏色小丸。六個就夠了 —— 再多她自己也分不清哪個是哪個。
+     每一個都在淺色與深色下都看得出來，不是隨手挑的色票。 */
+  --mark-grey: #7c7268;
+  --mark-green: #3f7a5f;
+  --mark-tea: #b0763b;
+  --mark-red: #b04434;
+  --mark-blue: #4d7f9c;
+  --mark-violet: #7a6096;
+
+  --shadow-1: 0 1px 3px rgb(36 31 26 / 5%);
   --shadow-2: 0 4px 14px rgb(36 31 26 / 9%);
-  --shadow-fab: 0 10px 24px rgb(47 93 76 / 34%);
+  --shadow-3: 0 18px 44px rgb(36 31 26 / 20%);
+  --shadow-fab: 0 8px 20px rgb(47 93 76 / 30%);
   --shadow-drawer: 0 -8px 30px rgb(36 31 26 / 18%);
 }
 
@@ -109,9 +134,17 @@
     --ok-bg: #1e3229;
     --danger: #e8877a;
 
-    --shadow-1: 0 2px 10px rgb(0 0 0 / 30%);
+    --mark-grey: #a89d90;
+    --mark-green: #7fbba3;
+    --mark-tea: #d8a46a;
+    --mark-red: #e8877a;
+    --mark-blue: #8fb0c2;
+    --mark-violet: #b09ecc;
+
+    --shadow-1: 0 1px 3px rgb(0 0 0 / 30%);
     --shadow-2: 0 4px 14px rgb(0 0 0 / 38%);
-    --shadow-fab: 0 10px 24px rgb(0 0 0 / 50%);
+    --shadow-3: 0 18px 44px rgb(0 0 0 / 55%);
+    --shadow-fab: 0 8px 20px rgb(0 0 0 / 50%);
     --shadow-drawer: 0 -8px 30px rgb(0 0 0 / 55%);
   }
 }

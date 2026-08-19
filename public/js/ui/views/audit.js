@@ -84,7 +84,8 @@ export function wireSection(el, load) {
   });
 }
 
-function listHtml(events) {
+/** 一組稽核列。整頁、客戶詳情底下的「變更紀錄」面板都用它，不要各畫一份。 */
+export function listHtml(events) {
   return `<div class="audit">${events.map(rowHtml).join('')}</div>`;
 }
 

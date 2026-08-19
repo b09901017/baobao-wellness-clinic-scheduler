@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v25';
+const VERSION = 'v26';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -43,6 +43,8 @@ const SHELL = [
   '/js/ui/session.js',
   '/js/ui/components/dialog.js',
   '/js/ui/components/form.js',
+  '/js/ui/components/sheet.js',
+  '/js/ui/components/marks.js',
   '/js/ui/views/settings.js',
   '/js/ui/views/eventEditor.js',
   '/js/ui/views/masterList.js',
@@ -53,6 +55,7 @@ const SHELL = [
   '/js/data/visits.js',
   '/js/domain/dates.js',
   '/js/domain/customers.js',
+  '/js/domain/customerMarks.js',
   '/js/domain/visits.js',
   '/js/domain/undo.js',
   '/js/domain/availability.js',
@@ -113,12 +116,16 @@ self.addEventListener('fetch', (event) => {
   const sameOrigin = url.origin === self.location.origin;
   const isFirebaseSdk =
     url.origin === 'https://www.gstatic.com' && url.pathname.includes('/firebasejs/');
+  // 網頁字體（ADR-0016）。第一次上線時抓下來收好，之後離線也還是那套字 ——
+  // 沒收到就退回系統內建，畫面照樣完整，只是長相回到以前。
+  const isWebFont =
+    url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com';
 
   // 其他跨網域一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行。
-  if (!sameOrigin && !isFirebaseSdk) return;
+  if (!sameOrigin && !isFirebaseSdk && !isWebFont) return;
 
-  // Firebase SDK 的網址帶版本號，同一個網址的內容永遠不變，可以放心快取優先。
-  if (isFirebaseSdk) {
+  // 這兩種的網址都帶著版本或雜湊，同一個網址的內容永遠不變，可以放心快取優先。
+  if (isFirebaseSdk || isWebFont) {
     event.respondWith(
       caches.match(request).then((cached) => cached ?? fetchAndCache(request)),
     );
@@ -139,7 +146,9 @@ const NETWORK_TIMEOUT_MS = 3000;
 
 function fetchAndCache(request) {
   return fetch(request).then((response) => {
-    if (response.ok) {
+    // 跨網域的樣式表回來的是 opaque，status 永遠是 0，用 response.ok 判斷會全部漏掉。
+    // 那種回應照樣存得起來也用得出去，只是我們看不到裡面 —— 字體就是走這條。
+    if (response.ok || response.type === 'opaque') {
       const copy = response.clone();
       caches.open(CACHE).then((cache) => cache.put(request, copy));
     }

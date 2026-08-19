@@ -197,7 +197,7 @@ describe('佇列排序', () => {
     const rows = build({
       customers: [{ ...customers[0], notes: '重大疾病治療中' }],
     });
-    assert.equal(rows[0].selfNote, '重大疾病治療中');
+    assert.deepEqual(rows[0].marks, [{ text: '重大疾病治療中', color: 'grey' }]);
   });
 
   test('停用與已刪除的客戶不進佇列', () => {

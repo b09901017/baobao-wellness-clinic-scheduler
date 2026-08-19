@@ -135,6 +135,19 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 （[ADR-0015](./docs/adr/0015-calendar-is-a-first-class-surface.md)），
 全站換上新的視覺。設計稿與待辦在 `.scratch/ui-redesign/`。
 
+那之後又依實際使用的回饋調過一輪介面，主要是「手機上每樣東西都太大、
+一排標籤會把底下的內容擠掉」：
+
+- 字級與元件整體收小一級，換上網路字體、離線退回系統內建
+  （[ADR-0016](./docs/adr/0016-web-fonts-with-a-system-fallback.md)）
+- 一排丸子改成左右滑不換行；iPad 上放得下兩張卡就放兩張
+- 壓表點一位客戶改成置中浮出、左右滑換下一位
+  （[ADR-0017](./docs/adr/0017-recording-happens-in-a-card-deck.md)）
+- 詳情頁不再是一疊白卡；日曆點一天改成從底部滑出那一天
+  （[ADR-0018](./docs/adr/0018-detail-pages-are-one-page-not-a-stack-of-cards.md)）
+- 客戶的特殊狀況改成多筆彩色備註，會籍退出畫面
+  （[ADR-0019](./docs/adr/0019-customer-notes-become-coloured-marks.md)）
+
 ## 文件
 
 完整的需求背景、資料模型、業務規則、名詞表都在 **[`SPEC.md`](./SPEC.md)**。

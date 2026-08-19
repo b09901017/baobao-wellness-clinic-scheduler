@@ -20,16 +20,18 @@ import {
   VIEWS, VIEW_LABELS, WEEKDAY_HEADERS,
   rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate,
 } from '../../domain/calendar.js';
-import { layoutMonth, dayEvents, countByDate, kindClass, inRange } from '../../domain/events.js';
+import { layoutMonth, dayEvents, countByDate } from '../../domain/events.js';
 import { describeStatus } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { toMinutes, isValidTime } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
+import { openSheet, closeSheet } from '../components/sheet.js';
 import { icon } from '../icons.js';
 import { go } from '../router.js';
 
 // 看到哪一天留在模組層：點進一筆來訪再退回來，她要回到原本那一頁而不是今天。
-const state = { view: 'month', date: null, hidden: new Set(), fab: false, picker: false };
+// day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
+const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false };
 
 /** 頂端那一排可勾選的篩選。一種一個顏色，關掉就不顯示。 */
 const KINDS = [
@@ -71,47 +73,45 @@ export async function render(el) {
 function paint(el, data) {
   const today = todayISO();
 
+  // 控制項全部收成兩列。原本月份切換、日週月、篩選各佔一列，
+  // 三列加起來就把格子推到螢幕外 —— 而她開這一頁是為了看格子。
   el.innerHTML = `
-    <div class="page">
-      <div class="page__row">
-        <div>
-          <h1 class="page__title num">${esc(titleOf(state.view, state.date))}</h1>
-          <p class="page__lead">${countLine(data)}</p>
-        </div>
-        <div class="seg" role="group" style="flex: 0 0 auto">
-          ${VIEWS.map((v) => `
-            <button class="seg__item" type="button" data-view="${v}"
-                    aria-pressed="${v === state.view}"
-                    style="min-width: 44px">${VIEW_LABELS[v]}</button>`).join('')}
-        </div>
+    <div class="calbar">
+      <button class="calbar__nav" type="button" data-move="-1" aria-label="上一頁">
+        ${icon('left', { size: 15 })}</button>
+      <h1 class="calbar__title">${esc(titleOf(state.view, state.date))}</h1>
+      <button class="calbar__nav" type="button" data-move="1" aria-label="下一頁">
+        ${icon('right', { size: 15 })}</button>
+      <div class="seg" role="group" style="flex: 0 0 auto">
+        ${VIEWS.map((v) => `
+          <button class="seg__item" type="button" data-view="${v}"
+                  aria-pressed="${v === state.view}"
+                  style="min-width: 30px">${VIEW_LABELS[v]}</button>`).join('')}
       </div>
     </div>
 
-    <div class="calfilter">
+    <div class="calfilter noscroll-bar">
+      <button class="chip chip--sm" type="button" data-today>今天</button>
+      <span class="chiprow__sep" aria-hidden="true"></span>
       ${KINDS.map((k) => `
         <button class="calfilter__item ${k.cls}" type="button"
                 aria-pressed="${shows(k.id)}" data-kind="${k.id}">
-          <span class="calfilter__box">${icon('check', { size: 11, width: 3.4 })}</span>
+          <span class="calfilter__box">${icon('check', { size: 9, width: 3.6 })}</span>
           <span>${esc(k.label)}</span>
         </button>`).join('')}
     </div>
 
-    <div class="chips" style="margin-bottom: var(--space-4)">
-      <button class="chip" type="button" data-move="-1">${icon('left', { size: 16 })}</button>
-      <button class="chip" type="button" data-today>今天</button>
-      <button class="chip" type="button" data-move="1">${icon('right', { size: 16 })}</button>
-    </div>
+    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data)}</p>
 
     ${bodyHtml(data, today)}
 
     <p class="footnote">
-      ${icon('info', { size: 15 })}
+      ${icon('info', { size: 14 })}
       <span>這裡只有你自己排的。同事在 Abovee 壓的看不到 ——
         空的格子不代表那個時段真的空著。</span>
     </p>
 
-    ${fabHtml()}
-    ${state.picker ? pickerHtml(data) : ''}`;
+    ${fabHtml()}`;
 
   wire(el, data);
 }
@@ -156,7 +156,8 @@ function monthHtml(data, today) {
           ${week.map((day, di) => `
             <div class="monthweek__day" style="grid-column: ${di + 1}">
               <button class="monthweek__n num ${day.date.slice(0, 7) !== month ? 'monthweek__n--adj' : ''}
-                      ${day.date === today ? 'monthweek__n--today' : ''}"
+                      ${day.date === today ? 'monthweek__n--today' : ''}
+                      ${day.date === state.day ? 'monthweek__n--on' : ''}"
                       type="button" data-day="${day.date}">${Number(day.date.slice(8))}</button>
             </div>`).join('')}
           ${rows[wi].bars.map((b) => `
@@ -358,26 +359,105 @@ function fabHtml() {
 }
 
 /**
+ * 點一天，從底部滑出那一天的內容。**月曆整片留在原地**。
+ *
+ * 原本點一天是整頁切到日檢視 —— 那等於把「我在看八月」這個脈絡整個換掉，
+ * 而她點下去只是想知道「這天卡了什麼」。像一般日曆 app 那樣推一個面板上來，
+ * 看完往下滑掉就回到剛剛那個月。見 docs/adr/0018 的日曆那一段。
+ */
+function openDay(el, data, date) {
+  const today = todayISO();
+  const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
+  const { allDay } = dayEvents(data.events.filter((e) => shows(e.category)), date);
+  const n = rows.length + allDay.length;
+
+  const sheet = openSheet({
+    title: esc(shortDate(date)),
+    note: n
+      ? `${n} 件事。點一筆進去改。`
+      : '這天還沒有東西 —— 但同事在 Abovee 壓的看不到，空的不代表真的空著。',
+    body: dayHtml(data, date, today),
+    actions: `
+      <button class="btn" type="button" data-add-event>個人行程</button>
+      <button class="btn btn--primary" type="button" data-add-visit>來訪</button>`,
+  });
+
+  sheet.el.querySelectorAll('[data-open]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [what, id] = btn.dataset.open.split(':');
+      closeSheet();
+      go(what === 'visit' ? `/visits/${id}` : `/events/${id}`);
+    }),
+  );
+
+  sheet.el.querySelector('[data-add-event]').addEventListener('click', () => {
+    closeSheet();
+    go(`/events/new/${date}`);
+  });
+
+  sheet.el.querySelector('[data-add-visit]').addEventListener('click', () =>
+    openPicker(el, date),
+  );
+}
+
+/**
  * 新增來訪要先選人。日曆上她心裡想的是「這一天要幫誰排」，
  * 所以選完人直接帶著日期進來訪編輯器，不要讓她再挑一次日期。
+ *
+ * 客戶清單只在真的要選人的時候才讀 —— 日曆是每天都會開的一頁，
+ * 不要為了它多一次讀取。
  */
-function pickerHtml(data) {
-  return `
-    <div class="drawer-backdrop" data-picker-backdrop>
-      <div class="drawer" role="dialog" aria-modal="true" aria-label="選一位客戶">
-        <div class="drawer__grip"></div>
-        <h2 class="drawer__title">${esc(shortDate(state.date))} 要幫誰排？</h2>
-        <p class="card__note">選完會帶著這一天進來訪編輯器。</p>
-        <label class="field">
-          <span class="field__label">找人</span>
-          <input type="text" data-search placeholder="打名字" />
-        </label>
-        <div class="groups" data-people></div>
-        <div class="drawer__actions">
-          <button class="btn" type="button" data-close-picker>先不要</button>
-        </div>
-      </div>
-    </div>`;
+function openPicker(el, date) {
+  const sheet = openSheet({
+    title: `${esc(shortDate(date))} 要幫誰排？`,
+    note: '選完會帶著這一天進來訪編輯器。',
+    body: `
+      <label class="field">
+        <span class="visually-hidden">找人</span>
+        <input type="text" data-search placeholder="打名字" style="width: 100%" />
+      </label>
+      <div class="groups" data-people><p class="muted" style="padding: var(--space-3); margin: 0">載入中…</p></div>`,
+  });
+
+  const box = sheet.el.querySelector('[data-people]');
+  const search = sheet.el.querySelector('[data-search]');
+
+  customersData
+    .list()
+    .then((customers) => {
+      const paintList = () => {
+        const q = String(search?.value ?? '').trim();
+        const rows = customers
+          .filter((c) => c.active !== false)
+          .filter((c) => !q || String(c.name).includes(q))
+          .slice(0, 40);
+
+        box.innerHTML = rows.length
+          ? rows.map((c) => `
+              <button class="grouprow" type="button" data-pick="${esc(c.id)}">
+                <span class="grouprow__main">
+                  <span class="grouprow__label">${esc(c.name)}</span>
+                  ${(c.flags ?? []).length
+                    ? `<span class="grouprow__note">${esc((c.flags ?? []).join('・'))}</span>` : ''}
+                </span>
+                ${icon('right', { size: 16 })}
+              </button>`).join('')
+          : '<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>';
+
+        box.querySelectorAll('[data-pick]').forEach((btn) =>
+          btn.addEventListener('click', () => {
+            closeSheet();
+            go(`/visits/new/${btn.dataset.pick}/${date}`);
+          }),
+        );
+      };
+
+      paintList();
+      search?.addEventListener('input', paintList);
+    })
+    .catch((err) => {
+      box.innerHTML = `<p class="muted" style="padding: var(--space-3)">讀取失敗：${esc(err.message)}</p>`;
+    });
 }
 
 // ---------- 事件 ----------
@@ -411,12 +491,12 @@ function wire(el, data) {
     }),
   );
 
-  // 點一天跳到那天的日檢視
+  // 點一天：月曆留在原地，那一天的內容從底部滑出來
   el.querySelectorAll('[data-day]').forEach((btn) =>
     btn.addEventListener('click', () => {
-      state.date = btn.dataset.day;
-      state.view = 'day';
-      render(el);
+      state.day = btn.dataset.day;
+      paint(el, data);
+      openDay(el, data, state.day);
     }),
   );
 
@@ -435,60 +515,14 @@ function wire(el, data) {
 
   el.querySelector('[data-new-event]')?.addEventListener('click', () => {
     state.fab = false;
-    go(`/events/new/${state.date}`);
+    go(`/events/new/${state.day ?? state.date}`);
   });
 
   el.querySelector('[data-new-visit]')?.addEventListener('click', () => {
     state.fab = false;
-    state.picker = true;
     paint(el, data);
-    fillPeople(el);
+    // 懸浮鈕上的「新增」沒有指定哪一天，就用她現在看著的那一天
+    openPicker(el, state.day ?? state.date);
   });
-
-  const closePicker = () => {
-    state.picker = false;
-    paint(el, data);
-  };
-  el.querySelector('[data-close-picker]')?.addEventListener('click', closePicker);
-  el.querySelector('[data-picker-backdrop]')?.addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closePicker();
-  });
-
-  if (state.picker) fillPeople(el);
 }
 
-/** 客戶清單只在真的要選人的時候才讀 —— 日曆是每天都會開的一頁，不要為了它多一次讀取。 */
-async function fillPeople(el) {
-  const box = el.querySelector('[data-people]');
-  const search = el.querySelector('[data-search]');
-  if (!box) return;
-
-  box.innerHTML = '<p class="muted" style="padding: var(--space-3)">載入中…</p>';
-  const customers = await customersData.list();
-
-  const paintList = () => {
-    const q = String(search?.value ?? '').trim();
-    const rows = customers.filter((c) => !q || String(c.name).includes(q)).slice(0, 30);
-    box.innerHTML = rows.length
-      ? rows.map((c) => `
-          <button class="grouprow" type="button" data-pick="${esc(c.id)}">
-            <span class="grouprow__main">
-              <span class="grouprow__label">${esc(c.name)}</span>
-              ${(c.flags ?? []).length
-                ? `<span class="grouprow__note">${esc((c.flags ?? []).join('・'))}</span>` : ''}
-            </span>
-            ${icon('right', { size: 18 })}
-          </button>`).join('')
-      : '<p class="muted" style="padding: var(--space-3)">沒有這個人。</p>';
-
-    box.querySelectorAll('[data-pick]').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        state.picker = false;
-        go(`/visits/new/${btn.dataset.pick}/${state.date}`);
-      }),
-    );
-  };
-
-  paintList();
-  search?.addEventListener('input', paintList);
-}

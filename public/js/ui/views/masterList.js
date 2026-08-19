@@ -435,7 +435,7 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
   const data = draft ?? record ?? { ...ed.blank };
 
   el.innerHTML = `
-    <p><a href="#/settings/${type}" data-back>← ${MASTER_LABELS[type]}</a></p>
+    <a class="backlink" href="#/settings/${type}" data-back>${icon('left', { size: 17 })}${MASTER_LABELS[type]}</a>
     <section class="card">
       <h2 class="card__title">${isNew ? `新增${MASTER_LABELS[type]}` : esc(data.name)}</h2>
       <div class="errors" data-errors hidden></div>
