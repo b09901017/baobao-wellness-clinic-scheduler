@@ -24,7 +24,9 @@ import {
 } from '../../domain/scheduling.js';
 import { dayStatus } from '../../domain/availability.js';
 import { blockedDates } from '../../domain/events.js';
-import { INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement } from '../../domain/visits.js';
+import {
+  INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
+} from '../../domain/visits.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
@@ -732,8 +734,8 @@ function dayPanel(ctx, row) {
         ${course.assigns === 'room' ? roomField(all, course) : ''}
 
         <label class="field">
-          <span class="field__label">備註　這一天的</span>
-          <input type="text" data-note maxlength="200"
+          <span class="field__label">這一次記一句</span>
+          <input type="text" data-note maxlength="${NOTE_MAX}"
                  value="${esc(sameDay?.note ?? '')}"
                  placeholder="例：她說下午比較好" />
         </label>

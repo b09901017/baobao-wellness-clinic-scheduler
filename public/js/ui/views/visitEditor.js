@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import {
   INITIAL_STATUS, describeStatus, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement,
+  coursesForEntitlement, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts } from '../../domain/entitlements.js';
 import { icon } from '../icons.js';
@@ -122,6 +122,7 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
     cancelledAt: null,
     cancelReason: null,
     released: null,
+    note: null,
     slots: [],
   };
   const first = entitlements[0];
@@ -191,6 +192,11 @@ function paint(ctx, draft) {
     <form data-form ${locked ? 'inert' : ''}>
       <section class="card ${embedded ? 'card--bare' : ''}">
         ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
+        ${f.text({
+          name: 'note', label: '這一次記一句', value: draft.note ?? '',
+          placeholder: '例：她說下午比較好', maxlength: NOTE_MAX,
+          hint: '跟著這一筆來訪，不是掛在客戶身上 —— 那是備註，在客戶那一頁改。',
+        })}
       </section>
 
       ${draft.slots.map((slot, i) => slotCard(ctx, draft, slot, i)).join('')}
@@ -225,6 +231,12 @@ function paint(ctx, draft) {
   const form = el.querySelector('[data-form]');
 
   form.addEventListener('change', async (e) => {
+    // 這一句話不影響畫面上算出來的任何東西，所以不要為了它重畫。
+    // 重畫會在她打完字、手指正要按下「儲存」的那一刻把那顆按鈕換掉 ——
+    // 按下去與放開落在兩個不同的元素上，那一下就不算數（其餘欄位都是用點的，
+    // 點完本來就會重畫，碰不到這個問題）。
+    if (e.target.name === 'note') return;
+
     const next = readDraft(ctx, form, draft);
     if (e.target.name === 'date' && next.date !== draft.date) {
       try {
@@ -450,7 +462,12 @@ function readDraft(ctx, form, draft) {
     };
   });
 
-  return { ...draft, date: v.date || draft.date, slots };
+  return {
+    ...draft,
+    date: v.date || draft.date,
+    note: String(key(v, 'note', draft.note) ?? '').trim() || null,
+    slots,
+  };
 }
 
 // 沒被畫出來的欄位讀回來是 undefined，那時要保留原值而不是清成 null

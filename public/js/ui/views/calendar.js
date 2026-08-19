@@ -520,7 +520,7 @@ function visitReadHtml(visit, data) {
 
     ${visit.note ? `
       <div class="readrow">
-        <span class="readrow__k">備註</span>
+        <span class="readrow__k">記的話</span>
         <span class="readrow__v">${esc(visit.note)}</span>
       </div>` : ''}
 
