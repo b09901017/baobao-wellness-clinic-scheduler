@@ -211,32 +211,27 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
   };
   const anim = (on) => drawer.classList.toggle('drawer--anim', on);
 
-  /** 這一格（內容自己撐出來的高度）有多高。量之前先把滿高拿掉。 */
-  function measurePeekHeight() {
-    const tall = drawer.classList.contains('drawer--tall');
-    if (tall) drawer.classList.remove('drawer--tall');
-    const h = drawer.offsetHeight;
-    if (tall) drawer.classList.add('drawer--tall');
-    return h;
-  }
-
   /**
    * 換成滿高，同時把它推回原本看得到的位置 —— 這一步之後畫面上完全沒有變化，
    * 但底下的內容已經排好了，接下來拖多少就露多少。
+   *
+   * 補的距離是**量出來的上緣位移**，不是「兩個高度的差」：手機上面板貼著底邊，
+   * 長高時只有上緣往上跑，兩者剛好相等；但 ≥900px 時它是置中的對話框，
+   * 長高是上下各長一半 —— 那裡用高度差會補過頭，一開始拖就跳一下。
    */
   function goTall() {
-    if (drawer.classList.contains('drawer--tall')) {
-      // 已經是滿高了，但內容可能整個換過（選完人之後換成編輯器），
-      // 所以「那一格」有多高要重量一次，不能沿用上一次的值
-      fullH = drawer.offsetHeight;
-      setPeek(Math.max(0, fullH - measurePeekHeight()));
-      return;
-    }
-    const peekH = drawer.offsetHeight;
-    drawer.classList.add('drawer--tall');
+    const tall = drawer.classList.contains('drawer--tall');
+    const before = drawer.getBoundingClientRect().top;
+    if (tall) drawer.classList.remove('drawer--tall');
+    else drawer.classList.add('drawer--tall');
+    const after = drawer.getBoundingClientRect().top;
+    // 量完就換回去：本來是滿高的話這一趟只是為了知道「那一格」在哪裡
+    drawer.classList.toggle('drawer--tall', true);
+
     fullH = drawer.offsetHeight;
-    setPeek(Math.max(0, fullH - peekH));
-    setY(peekY + y);
+    // tall 的話 before 是滿高、after 是那一格；反過來則相反
+    setPeek(Math.max(0, tall ? after - before : before - after));
+    if (!tall) setY(peekY + y);
   }
 
   /** 停在某一格。到 peek 時把滿高拿掉，讓面板回去貼著內容。 */
