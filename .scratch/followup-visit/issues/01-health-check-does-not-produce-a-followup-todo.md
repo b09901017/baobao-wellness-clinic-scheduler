@@ -1,6 +1,8 @@
 # 健檢做完不會長出「約二返」，二返也不在額度裡
 
 Status: todo
+GitHub: https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15
+（使用者指定這一支開成 GitHub issue 給之後的 AI 接手。兩邊講同一件事，改了請一起改。）
 回報者：使用者，2026-08-19（比對舊試算表與行事曆時發現）
 動工前先讀：`SPEC.md` 第 7 節規則 8 與第 5.5 節、`CONTEXT.md` 的「二返」、
 `docs/adr/0002-app-records-decisions-it-does-not-make-them.md`
