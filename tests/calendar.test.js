@@ -95,7 +95,8 @@ describe('翻頁', () => {
 
 describe('標題', () => {
   test('三種檢視各自講得清楚是哪一段', () => {
-    assert.equal(titleOf('day', '2026-09-18'), '2026 年 9/18(五)');
+    // 日檢視不放年份：390px 上會斷成兩行，而年份是最不需要確認的一項
+    assert.equal(titleOf('day', '2026-09-18'), '9/18(五)');
     assert.equal(titleOf('week', '2026-09-18'), '9/13(日) – 9/19(六)');
     assert.equal(titleOf('month', '2026-09-18'), '2026 年 9 月');
   });

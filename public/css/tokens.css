@@ -1,4 +1,8 @@
-/* 設計變數。改顏色、間距、字級都只改這裡。 */
+/* 設計變數。改顏色、間距、字級都只改這裡。
+ *
+ * 方向是「沉穩診所」：暖白紙底、墨綠與茶色點綴、襯線標題拉開層級。
+ * 她低頭看這台、手在打另一台 —— 字寧可大、資訊寧可少，不要為了排版縮小關鍵數字。
+ */
 
 :root {
   /* 觸控優先：最小點擊區 44px，input 字級 16px 起跳
@@ -13,57 +17,101 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --radius: 10px;
-  --radius-sm: 6px;
+  --radius-sm: 12px;
+  --radius: 18px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
-    'Microsoft JhengHei', sans-serif;
+  /* 刻意不用 Google Fonts。這是離線可用的 PWA，多一個外部請求就多一個
+     訊號差時打不開的理由 —— 兩台目標裝置的內建中文字體都夠好。
+     iPad：PingFang TC / Songti TC。Android：Noto Sans CJK / Noto Serif CJK。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans CJK TC',
+    'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  --font-serif: 'Songti TC', 'Noto Serif CJK TC', 'Source Han Serif TC', 'Noto Serif TC',
+    'PingFang TC', serif;
 
   --text-xs: 13px;
-  --text-sm: 15px;
+  --text-sm: 14px;
   --text-md: 16px;
   --text-lg: 19px;
   --text-xl: 24px;
+  --text-2xl: 29px;
 
-  /* 淺色 */
-  --bg: #f7f7f8;
+  /* ---------- 淺色 ---------- */
+
+  --bg: #faf7f2;
   --surface: #ffffff;
-  --surface-2: #f0f0f2;
-  --border: #dcdce0;
-  --text: #1a1a1c;
-  --text-dim: #6a6a72;
+  --surface-2: #f3efe8;
+  --border: #e3dcd1;
+  --border-soft: #efe9e0;
+  --text: #241f1a;
+  --text-dim: #6b6157;
+  --text-mute: #9a9086;
 
-  --accent: #3d6ce0;
+  /* 墨綠：主要動作、已完成 */
+  --accent: #2f5d4c;
   --accent-text: #ffffff;
+  --accent-soft: #e4ede8;
+  --accent-line: #cadcd3;
+
+  /* 茶：已排未上、次要強調 */
+  --tea: #a4703c;
+  --tea-soft: #f5e9dc;
+
+  /* 霧藍：個人行程裡的休假那一類 */
+  --slate: #5b7a8c;
+  --slate-soft: #e6edf1;
 
   /* 狀態色。逾期紅、今明黃、其餘灰 —— SPEC 8.1 */
-  --overdue: #c0392b;
-  --overdue-bg: #fbeae8;
-  --soon: #9a6700;
-  --soon-bg: #fdf6e3;
-  --ok: #1f7a45;
-  --ok-bg: #e9f6ee;
-  --danger: #c0392b;
+  --overdue: #a63a2a;
+  --overdue-bg: #f7e4e0;
+  --soon: #8a6410;
+  --soon-bg: #f8eed8;
+  --ok: #2f5d4c;
+  --ok-bg: #e4ede8;
+  --danger: #a63a2a;
+
+  --shadow-1: 0 2px 10px rgb(36 31 26 / 5%);
+  --shadow-2: 0 4px 14px rgb(36 31 26 / 9%);
+  --shadow-fab: 0 10px 24px rgb(47 93 76 / 34%);
+  --shadow-drawer: 0 -8px 30px rgb(36 31 26 / 18%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #131316;
-    --surface: #1c1c20;
-    --surface-2: #26262b;
-    --border: #35353c;
-    --text: #ececf0;
-    --text-dim: #9a9aa4;
+    /* 紙的暖度留著，墨綠與茶色提亮到看得清為止。
+       狀態色不換位子：紅還是逾期。 */
+    --bg: #1a1714;
+    --surface: #232019;
+    --surface-2: #2e2921;
+    --border: #3b352c;
+    --border-soft: #302b23;
+    --text: #f0ebe3;
+    --text-dim: #a79d91;
+    --text-mute: #7e7568;
 
-    --accent: #6f9bff;
-    --accent-text: #10101a;
+    --accent: #7fbba3;
+    --accent-text: #14231c;
+    --accent-soft: #1e3229;
+    --accent-line: #2c4a3c;
 
-    --overdue: #ff8b7d;
-    --overdue-bg: #3a1f1c;
-    --soon: #ffcf6b;
-    --soon-bg: #3a3220;
-    --ok: #74d69c;
-    --ok-bg: #1a3327;
-    --danger: #ff8b7d;
+    --tea: #d8a46a;
+    --tea-soft: #35291b;
+
+    --slate: #8fb0c2;
+    --slate-soft: #1f2b33;
+
+    --overdue: #e8877a;
+    --overdue-bg: #3a211c;
+    --soon: #dfb55e;
+    --soon-bg: #362c17;
+    --ok: #7fbba3;
+    --ok-bg: #1e3229;
+    --danger: #e8877a;
+
+    --shadow-1: 0 2px 10px rgb(0 0 0 / 30%);
+    --shadow-2: 0 4px 14px rgb(0 0 0 / 38%);
+    --shadow-fab: 0 10px 24px rgb(0 0 0 / 50%);
+    --shadow-drawer: 0 -8px 30px rgb(0 0 0 / 55%);
   }
 }

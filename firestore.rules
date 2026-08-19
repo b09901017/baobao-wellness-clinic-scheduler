@@ -165,14 +165,60 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- 個人行程 ----------
+    // 公出、休假、演講。不綁客戶、不產生任務、不扣次數，而且是唯一可以跨天的
+    // 資料 —— 來訪的定義是「客戶某一天到院一次」，跨天的來訪不存在。
+    // 為什麼不跟 visits 合成一個集合，見
+    // docs/adr/0015-calendar-is-a-first-class-surface.md
+    //
+    // 這裡刻意連 endDate >= startDate 都擋：日曆上一條倒著長的色條會讓整個
+    // 月檢視的排版算錯，而那種資料看畫面看不出是資料壞了還是排版壞了。
+    function validEvent() {
+      let d = request.resource.data;
+      return d.title is string
+        && d.title.size() > 0
+        && d.category in ['personal', 'leave']
+        && d.startDate is string
+        && d.startDate.size() == 10
+        && d.endDate is string
+        && d.endDate.size() == 10
+        && d.endDate >= d.startDate
+        && d.allDay is bool;
+    }
+
+    match /events/{eventId} {
+      allow read:   if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validEvent();
+      allow delete: if false;
+    }
+
+    // ---------- 隨手記 ----------
+    // 客人的零碎小要求。沒有死線，所以它不是任務。
+    // customerId 允許是 null —— 沒掛人的雜事通常是最容易忘的那些。
+    function validNote() {
+      let d = request.resource.data;
+      return d.text is string
+        && d.text.size() > 0
+        && d.text.size() <= 200
+        && d.done is bool;
+    }
+
+    match /notes/{noteId} {
+      allow read:   if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validNote();
+      allow delete: if false;
+    }
+
     // ---------- 壓表批次 ----------
     // queue 的順序在建立當下凍結，之後只會改每一筆的 state 與 cursor。
     // 這裡不驗證順序沒被動過 —— Rules 讀不到「之前是什麼順序」而不多做一次讀取，
     // 而順序跳掉的後果是她要重新找位置，不是資料錯誤。
+    //
+    // 沒有 courseId：一批是一個月的一串客戶，不是一個課程，見
+    // docs/adr/0014-scheduling-is-per-customer-not-per-course.md
     function validBatch() {
       let d = request.resource.data;
-      return d.courseId is string
-        && d.targetMonth is string
+      return d.targetMonth is string
         && d.targetMonth.size() == 7
         && d.queue is list
         && d.status in ['active', 'finished', 'abandoned'];

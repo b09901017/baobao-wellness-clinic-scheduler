@@ -8,6 +8,8 @@ import * as backup from '../../data/backup.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { esc } from '../components/form.js';
+import { icon } from '../icons.js';
+import { signOutNow } from '../session.js';
 import { saveText, dated } from '../components/download.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -26,46 +28,54 @@ export async function render(el) {
   const empty = MASTER_TYPES.every((t) => cache[t].length === 0);
 
   el.innerHTML = `
+    <div class="page">
+      <h1 class="page__title">設定</h1>
+      <p class="page__lead">診間與治療師都在這裡自己加，沒有寫死在程式碼裡。</p>
+    </div>
+
     ${empty ? seedCard() : ''}
-    <section class="card">
+
+    <section class="card card--flat">
       <h2 class="card__title">主檔</h2>
-      <ul class="link-list">
-        ${MASTER_TYPES.map(
-          (t) => `<li><a href="#/settings/${t}">
-                    <span class="link-list__label">${MASTER_LABELS[t]}</span>
-                    <span class="muted">${cache[t].length}</span></a></li>`,
-        ).join('')}
-      </ul>
+      <p class="card__note">這些都能自己加、自己改。</p>
+      <div class="tilegrid">
+        ${MASTER_TYPES.map((t) => tile(
+          `#/settings/${t}`, MASTER_LABELS[t], `${cache[t].length} 筆`,
+        )).join('')}
+      </div>
+    </section>
+
+    <section class="card card--flat">
+      <h2 class="card__title">規則</h2>
+      <p class="card__note">改了會影響之後產生的東西。</p>
+      <div class="tilegrid">
+        ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
+      </div>
+      <details style="margin-top: var(--space-3)">
+        <summary class="muted">任務規則綁在課程的類別上</summary>
+        <ul class="muted" style="margin-top: var(--space-2)">
+          ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
+        </ul>
+        <p class="card__note">不逐課程設定。要改某個課程產生哪些任務，去改它的類別。</p>
+      </details>
+    </section>
+
+    <section class="card card--flat">
+      <h2 class="card__title">資料</h2>
+      <p class="card__note">出事時能回頭看的東西。</p>
+      <div class="tilegrid">
+        ${tile('#/settings/health', '資料健檢', '對帳與異常')}
+        ${tile('#/settings/audit', '稽核紀錄', '每一次寫入的 before / after')}
+        ${tile('#/settings/trash', '已刪除項目', '刪除只是標記，還原得回來')}
+        ${tile('#/settings/report', '試算表報表', '產生後貼回去，或讓它自己推')}
+        ${tile('#/settings/import', '舊資料匯入', '貼上舊試算表，先看比對報告')}
+      </div>
     </section>
 
     <section class="card">
-      <h2 class="card__title">任務規則</h2>
-      <p class="muted">綁在課程的類別上，不逐課程設定。要改某個課程產生哪些任務，去改它的類別。</p>
-      <ul class="muted">
-        ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
-      </ul>
-    </section>
-
-    <section class="card">
-      <h2 class="card__title">其他</h2>
-      <ul class="link-list">
-        <li><a href="#/settings/preferences">
-          <span class="link-list__label">排序權重與時段間隔</span></a></li>
-        <li><a href="#/settings/health">
-          <span class="link-list__label">資料健檢</span>
-          <span class="muted">對帳與異常</span></a></li>
-        <li><a href="#/settings/report">
-          <span class="link-list__label">試算表報表</span>
-          <span class="muted">貼回試算表</span></a></li>
-        <li><a href="#/settings/audit">
-          <span class="link-list__label">稽核紀錄</span>
-          <span class="muted">誰改了什麼</span></a></li>
-        <li><a href="#/settings/import">
-          <span class="link-list__label">舊資料匯入</span>
-          <span class="muted">從試算表貼進來</span></a></li>
-        <li><a href="#/settings/trash">
-          <span class="link-list__label">已刪除項目</span></a></li>
-      </ul>
+      <h2 class="card__title">帳號</h2>
+      <p class="card__note">登出之後資料都還在雲端，重新登入就看得到。</p>
+      <button class="btn" type="button" data-signout>登出</button>
     </section>
 
     <section class="card">
@@ -82,9 +92,18 @@ export async function render(el) {
     </section>`;
 
   el.querySelector('[data-seed]')?.addEventListener('click', () => runSeed(el));
+  el.querySelector('[data-signout]')?.addEventListener('click', () => signOutNow());
   el.querySelector('[data-export]')?.addEventListener('click', () =>
     runExport(el.querySelector('[data-with-audit]')?.checked ?? false),
   );
+}
+
+function tile(href, label, meta) {
+  return `
+    <a class="settile" href="${href}">
+      <span class="settile__label"><span>${esc(label)}</span>${icon('right', { size: 17 })}</span>
+      <span class="settile__meta num">${esc(meta)}</span>
+    </a>`;
 }
 
 function seedCard() {

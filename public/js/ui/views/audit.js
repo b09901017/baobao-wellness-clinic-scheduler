@@ -11,6 +11,7 @@
 import * as auditData from '../../data/audit.js';
 import { describeAction, describeTarget, changedFields, formatValue } from '../../domain/audit.js';
 import { esc } from '../components/form.js';
+import { icon } from '../icons.js';
 
 /** 整頁一次載入幾筆。她要找的通常是剛剛發生的事，不是三個月前的。 */
 const PAGE_SIZE = 100;
@@ -23,14 +24,14 @@ export async function render(el) {
     events = await auditData.listRecent(PAGE_SIZE);
   } catch (err) {
     el.innerHTML = `
-      <p><a href="#/settings">← 設定</a></p>
+      <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
       <div class="card"><p>讀取失敗：${esc(err.message)}</p>
       <p class="muted">如果訊息裡有建立索引的連結，點它建好之後再回來。</p></div>`;
     return;
   }
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
       <h2 class="card__title">稽核紀錄<span class="muted"> 最近 ${events.length} 筆</span></h2>
       <p class="muted">每一次寫入都會留下一筆，改不掉也刪不掉。

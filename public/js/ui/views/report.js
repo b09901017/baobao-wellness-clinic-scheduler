@@ -20,6 +20,7 @@ import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
 import { saveText, dated } from '../components/download.js';
 import * as toast from '../toast.js';
+import { icon } from '../icons.js';
 
 /** 報表往回涵蓋多久的來訪。她的方案會籍是一年，涵蓋一年才看得到整份療程。 */
 const LOOKBACK_DAYS = 400;
@@ -35,7 +36,7 @@ export async function render(el) {
     data = await load();
   } catch (err) {
     el.innerHTML = `
-      <p><a href="#/settings">← 設定</a></p>
+      <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
       <div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
   }
@@ -66,7 +67,7 @@ function paint(el, data) {
   const tsv = toTSV(report);
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <section class="card">
       <h2 class="card__title">試算表報表</h2>

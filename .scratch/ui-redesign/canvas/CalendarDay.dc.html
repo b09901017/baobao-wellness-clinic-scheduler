@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 900px; background: #FAF7F2; display: flex; flex-direction: column; position: relative;">
+
+  <div style="background: #FFFFFF; border-bottom: 1px solid #E3DCD1; padding: 16px 18px 12px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B6157" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: -4px;"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>
+      <div>
+        <h1 class="ser num" style="font-size: 24px; font-weight: 700; line-height: 1.2;">8月27日</h1>
+        <span style="font-size: 13px; font-weight: 500; color: #9A9086;">星期四・6 筆來訪</span>
+      </div>
+      <span style="flex-grow: 1;"></span>
+      <div style="display: flex; background: #EFE9E0; border-radius: 999px; padding: 3px; gap: 3px;">
+        <sc-for list="{{views}}" as="v" hint-placeholder-count="3">
+          <div onClick="{{v.pick}}" style="min-width: 40px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{v.bg}}; color: {{v.fg}};">{{v.label}}</div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding: 12px 18px 0;">
+    <div style="display: flex; align-items: center; gap: 9px; padding: 10px 13px; border-radius: 13px; background: #F5E9DC;">
+      <span style="width: 4px; height: 20px; border-radius: 999px; background: #A4703C;"></span>
+      <span style="font-size: 14px; font-weight: 700; color: #A4703C;">公出</span>
+      <span style="font-size: 13px; color: #A4703C; opacity: 0.75;">整天・8/26–8/27</span>
+    </div>
+  </div>
+
+  <div style="padding: 12px 18px 0; display: flex; flex-direction: column; gap: 3px;">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+      <div style="display: flex; gap: 11px; align-items: stretch;">
+        <div class="num" style="width: 46px; flex-shrink: 0; padding-top: 13px; text-align: right;">
+          <div style="font-size: 14px; font-weight: 700; color: #4A4239;">{{r.from}}</div>
+          <div style="font-size: 12px; color: #B5ABA0;">{{r.to}}</div>
+        </div>
+        <span style="width: 3px; border-radius: 999px; background: {{r.color}}; flex-shrink: 0;"></span>
+        <div style="flex-grow: 1; min-width: 0; background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 15px; padding: 12px 13px; margin-bottom: 3px;">
+          <div style="display: flex; align-items: flex-start; gap: 9px;">
+            <div style="flex-grow: 1; min-width: 0;">
+              <div class="ser" style="font-size: 17px; font-weight: 600;">{{r.title}}</div>
+              <div style="font-size: 13px; color: #6B6157; margin-top: 2px;">{{r.sub}}</div>
+            </div>
+            <span style="display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 7px; background: {{r.tagBg}}; color: {{r.tagFg}}; font-size: 11px; font-weight: 700; flex-shrink: 0;">{{r.tag}}</span>
+          </div>
+          <sc-if value="{{r.warn}}" hint-placeholder-val="{{true}}">
+            <div style="margin-top: 9px; display: flex; align-items: flex-start; gap: 7px; padding: 8px 10px; border-radius: 10px; background: #F8EED8;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8A6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 1px; flex-shrink: 0;"><path d="M12 3.5l8.5 15.5h-17z"/><path d="M12 9.5v4M12 16.5h.01"/></svg>
+              <span style="font-size: 12px; line-height: 1.5; color: #8A6410;">{{r.warn}}</span>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="padding: 14px 18px 0; display: flex; align-items: flex-start; gap: 8px;">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 2px; flex-shrink: 0;"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5M12 16h.01"/></svg>
+    <span style="font-size: 12px; color: #9A9086; line-height: 1.55;">診間與治療師撞到只提示，不擋 —— 這裡看不到同事在 Abovee 上壓了什麼。</span>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+  <div style="position: absolute; right: 18px; bottom: 84px; width: 60px; height: 60px; border-radius: 999px; background: #2F5D4C; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(47, 93, 76, 0.34);">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </div>
+
+    <div style="margin-top: auto; display: flex; align-items: stretch; background: #FFFFFF; border-top: 1px solid #E3DCD1; padding: 4px 4px 10px;">
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">待辦</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">壓表</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span style="font-size: 11px; font-weight: 700; color: #2F5D4C;">日曆</span>
+        <span style="width:5px;height:5px;border-radius:999px;background:#2F5D4C;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">客戶</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">設定</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+    </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { view: '日' };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const cur = st.view || '日';
+    const views = ['日', '週', '月'].map((label) => ({
+      label,
+      bg: label === cur ? '#FFFFFF' : 'transparent',
+      fg: label === cur ? '#241F1A' : '#8C8377',
+      pick: () => this.setState({ view: label }),
+    }));
+
+    const ok = { tag: '已確認', tagBg: '#E4EDE8', tagFg: '#2F5D4C' };
+    const wait = { tag: '等回覆', tagBg: '#F8EED8', tagFg: '#8A6410' };
+
+    return {
+      views,
+      rows: [
+        { from: '10:30', to: '11:00', color: '#2F5D4C', title: '陳先生', sub: '復健科醫師門診・治2', warn: '', ...wait },
+        { from: '11:00', to: '12:00', color: '#2F5D4C', title: '陳先生', sub: '營養點滴・護肝排毒・點滴8 A', warn: '', ...wait },
+        { from: '13:30', to: '14:00', color: '#2F5D4C', title: '林小姐', sub: 'EECP・治5', warn: '', ...ok },
+        { from: '14:00', to: '15:00', color: '#2F5D4C', title: '王小姐', sub: '復能・INDIBA・騰崴', warn: '', ...ok },
+        { from: '15:15', to: '16:15', color: '#2F5D4C', title: '王小姐', sub: '靜脈・治3', warn: '', ...ok },
+        { from: '16:30', to: '17:00', color: '#2F5D4C', title: '黃太太', sub: '二返・治3', warn: '治3 這個時間你也排了王小姐。只是提醒，沒有擋。', ...wait },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

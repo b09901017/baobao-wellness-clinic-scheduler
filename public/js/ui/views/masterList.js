@@ -13,6 +13,7 @@ import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { icon } from '../icons.js';
 
 const esc = f.esc;
 
@@ -375,7 +376,7 @@ function paintList(el, type, all) {
   const rows = all[type];
 
   el.innerHTML = `
-    <p><a href="#/settings">← 設定</a></p>
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
       <h2 class="card__title">${MASTER_LABELS[type]}<span class="muted"> ${rows.length}</span></h2>
       <p><button class="btn btn--primary" type="button" data-new>新增</button></p>

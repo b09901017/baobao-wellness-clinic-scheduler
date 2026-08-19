@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 1080px; min-height: 820px; background: #FAF7F2; display: flex;">
+    <div style="width: 96px; flex-shrink: 0; background: #FFFFFF; border-right: 1px solid #E3DCD1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0;">
+        <div style="width: 68px; min-height: 62px; border-radius: 18px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#8C8377" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+          <span style="font-size: 11px; font-weight: 700; color: #8C8377;">待辦</span>
+        </div>
+        <div style="width: 68px; min-height: 62px; border-radius: 18px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#8C8377" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+          <span style="font-size: 11px; font-weight: 700; color: #8C8377;">壓表</span>
+        </div>
+        <div style="width: 68px; min-height: 62px; border-radius: 18px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#8C8377" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+          <span style="font-size: 11px; font-weight: 700; color: #8C8377;">日曆</span>
+        </div>
+        <div style="width: 68px; min-height: 62px; border-radius: 18px; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#8C8377" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+          <span style="font-size: 11px; font-weight: 700; color: #8C8377;">客戶</span>
+        </div>
+        <div style="width: 68px; min-height: 62px; border-radius: 18px; background: #2F5D4C; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+          <span style="font-size: 11px; font-weight: 700; color: #FFFFFF;">設定</span>
+        </div>
+    </div>
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+
+    <div style="background: #FFFFFF; border-bottom: 1px solid #E3DCD1; padding: 18px 26px;">
+      <h1 class="ser" style="font-size: 24px; font-weight: 700;">設定</h1>
+      <span style="font-size: 13px; color: #9A9086;">診間與治療師都在這裡自己加，沒有寫死在程式碼裡</span>
+    </div>
+
+    <div style="padding: 20px 26px 28px;">
+
+      <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 20px; padding: 18px 20px; margin-bottom: 22px;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+          <h2 class="ser" style="font-size: 20px; font-weight: 600;">資料健檢</h2>
+          <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 8px; background: #F8EED8; color: #8A6410; font-size: 12px; font-weight: 700;">今天掃過・3 項對不起來</span>
+          <span style="flex-grow: 1;"></span>
+          <span style="font-size: 13px; color: #9A9086;">只顯示差異，不自動改</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <sc-for list="{{checks}}" as="c" hint-placeholder-count="4">
+            <div style="border-radius: 16px; background: {{c.bg}}; border: 1px solid {{c.line}}; padding: 14px;">
+              <div class="num ser" style="font-size: 26px; font-weight: 700; color: {{c.fg}}; line-height: 1.1;">{{c.n}}</div>
+              <div style="font-size: 13px; font-weight: 700; color: {{c.fg}}; margin-top: 4px;">{{c.label}}</div>
+              <div style="font-size: 12px; color: #6B6157; margin-top: 3px; line-height: 1.5;">{{c.note}}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <sc-for list="{{sections}}" as="s" hint-placeholder-count="3">
+        <div style="margin-bottom: 22px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px;">
+            <h2 class="ser" style="font-size: 19px; font-weight: 600;">{{s.title}}</h2>
+            <span style="font-size: 13px; color: #9A9086;">{{s.note}}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+            <sc-for list="{{s.tiles}}" as="t" hint-placeholder-count="6">
+              <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 16px; padding: 15px; min-height: 84px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 16px; font-weight: 700; flex-grow: 1;">{{t.label}}</span>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C4BBAE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+                </div>
+                <span class="num" style="font-size: 13px; color: #9A9086; line-height: 1.5;">{{t.meta}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+
+      <div style="border: 1.5px solid #EDD2CC; background: #FDF6F4; border-radius: 20px; padding: 18px 20px;">
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;">
+          <h2 class="ser" style="font-size: 19px; font-weight: 600; color: #A63A2A;">會動到資料的</h2>
+          <span style="font-size: 13px; color: #A63A2A; opacity: 0.8;">刻意放在最下面，全部要二次確認</span>
+        </div>
+        <p style="margin: 0 0 13px; font-size: 13px; color: #6B6157; line-height: 1.6;">這個系統永遠不會真的刪掉東西 —— 刪除只是標記，還原得回來。每一次寫入都留 before / after。</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <sc-for list="{{danger}}" as="d" hint-placeholder-count="3">
+            <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 14px; background: #FFFFFF; border: 1px solid #EDD2CC; color: #A63A2A; font-size: 15px; font-weight: 700;">{{d}}</span>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1080,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const bad = { bg: '#FDF6F4', line: '#EFDCD7', fg: '#A63A2A' };
+    const warn = { bg: '#FCFAF7', line: '#EDDFC0', fg: '#8A6410' };
+    const ok = { bg: '#F2F7F4', line: '#DCE8E2', fg: '#2F5D4C' };
+
+    return {
+      checks: [
+        { n: '2', label: '次數對不起來', note: '額度的計數跟從來訪重算的結果有差', ...bad },
+        { n: '1', label: '孤兒任務', note: '任務指向的來訪已經不在了', ...warn },
+        { n: '0', label: '狀態異常', note: '來訪停在不該停的狀態', ...ok },
+        { n: '0', label: '重複來訪', note: '同一人同一天同一個課程排了兩次', ...ok },
+      ],
+      sections: [
+        {
+          title: '主檔', note: '這些都能自己加、自己改',
+          tiles: [
+            { label: '診間', meta: '15 間・點滴8 有 A / B 兩床' },
+            { label: '治療師', meta: '3 位・騰崴、芝寧、LuLu' },
+            { label: '器材', meta: '3 種・禁忌記在這裡' },
+            { label: '營養點滴品項', meta: '6 種・各自計次' },
+            { label: '課程', meta: '12 種・類別決定產生哪些任務' },
+            { label: '方案範本', meta: '2 份・可複製一份再改' },
+          ],
+        },
+        {
+          title: '規則', note: '改了會影響之後產生的東西',
+          tiles: [
+            { label: '任務規則', meta: 'A 類四種・B 類兩種・C 類只有 Abovee' },
+            { label: '排序權重', meta: '可用天數 1.0・喜好 0.8・急迫 0.6・久沒來 0.3' },
+            { label: '時段間隔', meta: '預設空 15 分鐘' },
+            { label: '幾天沒回覆算久', meta: '3 天' },
+          ],
+        },
+        {
+          title: '資料', note: '出事時能回頭看的東西',
+          tiles: [
+            { label: '稽核紀錄', meta: '每一次寫入的 before / after' },
+            { label: '已刪除項目', meta: '4 筆・可以還原' },
+            { label: '試算表報表', meta: '產生後貼回去，或讓它自己推' },
+            { label: '舊資料匯入', meta: '貼上舊試算表・先看比對報告' },
+          ],
+        },
+      ],
+      danger: ['匯出整份備份', '還原已刪除的項目', '一鍵修正次數差異'],
+    };
+  }
+}
+</script>
+</body>
+</html>

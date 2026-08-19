@@ -11,6 +11,9 @@ import * as availability from './availability.js';
 import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
+import * as notesData from '../../data/notes.js';
+import { sortNotes } from '../../domain/notes.js';
+import { icon } from '../icons.js';
 import * as rules from '../../domain/customers.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
 import { describeStatus } from '../../domain/visits.js';
@@ -32,17 +35,19 @@ export async function render(el, id) {
 
   let ctx;
   try {
-    const [customer, entitlements, visits, tasks, avail, courses, equipment] = await Promise.all([
-      data.get(id),
-      data.listEntitlements(id),
-      visitsData.listByCustomer(id),
-      tasksData.listByCustomer(id),
-      data.listAvailability(id),
-      config.listAll('courses'),
-      config.listAll('equipment'),
-    ]);
+    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes] =
+      await Promise.all([
+        data.get(id),
+        data.listEntitlements(id),
+        visitsData.listByCustomer(id),
+        tasksData.listByCustomer(id),
+        data.listAvailability(id),
+        config.listAll('courses'),
+        config.listAll('equipment'),
+        notesData.listByCustomer(id),
+      ]);
     ctx = {
-      el, id, customer, entitlements, visits, tasks, courses, equipment,
+      el, id, customer, entitlements, visits, tasks, courses, equipment, notes,
       availability: avail,
       back: () => reload(ctx),
     };
@@ -53,7 +58,7 @@ export async function render(el, id) {
 
   if (!ctx.customer) {
     el.innerHTML = `
-      <p><a href="#/customers">← 客戶</a></p>
+      <a class="backlink" href="#/customers">${icon('left', { size: 19 })}客戶</a>
       <div class="card"><p>找不到這位客戶，可能已經被刪除。</p>
       <p class="muted">刪除只是標記，資料還在，可以在設定 → 已刪除項目 還原。</p></div>`;
     return;
@@ -69,26 +74,32 @@ function reload(ctx) {
 // ---------- 主畫面 ----------
 
 function paint(ctx) {
-  const { el, customer, entitlements, visits, tasks, equipment } = ctx;
+  const { el, customer, entitlements, visits, tasks, equipment, notes } = ctx;
   const today = todayISO();
   const flags = rules.splitFlags(customer, equipment);
   const ms = rules.membershipState(customer.membershipExpiresAt, today);
 
   el.innerHTML = `
-    <p><a href="#/customers" data-back>← 客戶</a></p>
+    <a class="backlink" href="#/customers" data-back>${icon('left', { size: 19 })}客戶</a>
+
+    <div class="page">
+      <h1 class="page__title">${esc(customer.name)}
+        ${customer.priority ? `<span class="stars">${'★'.repeat(customer.priority)}</span>` : ''}</h1>
+      <p class="page__lead num">${esc(contactLine(customer))}</p>
+    </div>
 
     <section class="card">
-      <div class="row__title">
-        ${esc(customer.name)}
-        ${customer.priority ? `<span class="badge badge--ok">★ ${customer.priority}</span>` : ''}
+      <div class="chips" style="gap: var(--space-1)">
         ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
         ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
         ${customer.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
+        ${membershipBadge(ms)}
       </div>
-      <p class="muted">${esc(contactLine(customer))}</p>
-      <p>${membershipBadge(ms)}</p>
-      ${customer.notes ? `<p>${esc(customer.notes)}</p>` : ''}
-      <p><button class="btn" type="button" data-edit>編輯基本資料</button></p>
+      ${customer.notes ? `
+        <div class="selfnote" style="margin-top: var(--space-3)">
+          ${icon('alert', { size: 16 })}<span>${esc(customer.notes)}</span>
+        </div>` : ''}
+      <p style="margin-bottom: 0"><button class="btn" type="button" data-edit>編輯基本資料</button></p>
     </section>
 
     <section class="card">
@@ -112,6 +123,8 @@ function paint(ctx) {
     ${messageSection(ctx, today)}
 
     ${availability.sectionHtml(ctx.availability, today)}
+
+    ${notesSection(notes)}
 
     ${taskSection(tasks)}
 
@@ -138,6 +151,15 @@ function paint(ctx) {
   el.querySelectorAll('[data-fix]').forEach((btn) =>
     btn.addEventListener('click', () => fixCounts(ctx, btn.dataset.fix)),
   );
+
+  el.querySelectorAll('[data-note]').forEach((btn) =>
+    btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
+  );
+
+  el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    addNote(ctx, e.target);
+  });
 
   message.wire(el, toast.info);
   availability.wireSection(ctx);
@@ -239,6 +261,65 @@ function poolCard(e, visits, ctx, today) {
  * 這裡只看，不勾 —— 勾完成在待辦中心做，那裡才有批次。
  * 一個東西兩個地方可以改，遲早會出現「我剛剛不是勾過了嗎」。
  */
+/**
+ * 掛在這位客戶身上的隨手記。SPEC 第 8.5 節。
+ *
+ * 跟任務分開放：任務是來訪自動產生的、有死線的；隨手記是她自己打的、沒有死線的。
+ * 混在一起的話「這件事到底會不會有人提醒我」就說不清楚了。
+ */
+function notesSection(notes) {
+  const rows = sortNotes(notes);
+  return `
+    <section class="card">
+      <h2 class="card__title">隨手記<span class="muted"> ${rows.filter((n) => !n.done).length}</span></h2>
+      <p class="card__note">他臨時提的小要求。沒有死線，所以它不是任務。</p>
+      <div class="groups">
+        ${rows.map((n) => `
+          <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
+            <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
+            <span class="note__main"><span class="note__text">${esc(n.text)}</span></span>
+          </button>`).join('')
+          || '<p class="muted" style="padding: var(--space-3)">還沒記過。</p>'}
+      </div>
+      <form data-newnote style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
+        <input type="text" name="text" maxlength="200" style="flex: 1; min-width: 0"
+               placeholder="記一筆…" aria-label="新的隨手記" />
+        <button class="btn btn--primary" type="submit">記</button>
+      </form>
+    </section>`;
+}
+
+async function toggleNote(ctx, id) {
+  const note = ctx.notes.find((n) => n.id === id);
+  if (!note) return;
+  try {
+    await toast.withSaveState(() => notesData.setDone(id, !note.done), {
+      success: note.done ? '拿回來了' : '勾掉了',
+    });
+    await reload(ctx);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+async function addNote(ctx, form) {
+  const text = form.elements.text.value.trim();
+  if (!text) return;
+  try {
+    await toast.withSaveState(
+      () => notesData.create({
+        text,
+        customerId: ctx.id,
+        customerName: ctx.customer.name,
+      }),
+      { success: '記下來了' },
+    );
+    await reload(ctx);
+  } catch {
+    /* 已處理 */
+  }
+}
+
 function taskSection(tasks) {
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);

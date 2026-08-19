@@ -1,0 +1,199 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 1020px; background: #FAF7F2; display: flex; flex-direction: column; position: relative;">
+
+  <div style="padding: 20px 20px 12px;">
+    <div style="display: flex; align-items: center; gap: 10px; height: 40px; margin-left: -6px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B6157" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>
+      <span style="font-size: 15px; font-weight: 700; color: #6B6157;">壓表</span>
+    </div>
+    <h1 class="ser" style="font-size: 27px; font-weight: 700; margin-top: 2px;">時段反查</h1>
+    <p style="margin: 5px 0 0; font-size: 15px; color: #6B6157; line-height: 1.6;">臨時空出一格。輸入時段，把補得上的人列出來。</p>
+  </div>
+
+  <div style="padding: 4px 20px 0;">
+    <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 20px; padding: 16px;">
+      <sc-for list="{{inputs}}" as="f" hint-placeholder-count="3">
+        <div style="margin-bottom: 13px;">
+          <div style="font-size: 13px; font-weight: 700; color: #6B6157; margin-bottom: 7px;">{{f.label}}</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <sc-for list="{{f.options}}" as="o" hint-placeholder-count="4">
+              <div onClick="{{o.pick}}" style="display: inline-flex; align-items: center; height: 42px; padding: 0 15px; border-radius: 999px; font-size: 15px; font-weight: {{o.weight}}; background: {{o.bg}}; border: 1px solid {{o.line}}; color: {{o.fg}};">{{o.label}}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div class="num" style="font-size: 13px; color: #9A9086; margin-bottom: 13px;">結束時間 {{endTime}}　依課程時長算出來的</div>
+      <div style="height: 50px; border-radius: 15px; background: #2F5D4C; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;">找誰補得上</div>
+    </div>
+  </div>
+
+  <div style="padding: 18px 20px 0;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;">
+      <h2 class="ser" style="font-size: 19px; font-weight: 600;">補得上的</h2>
+      <span style="font-size: 13px; color: #9A9086;">4 位・跟壓表同一套順序</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{candidates}}" as="c" hint-placeholder-count="4">
+        <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 20px; padding: 15px;">
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span class="ser" style="font-size: 20px; font-weight: 600;">{{c.name}}</span>
+                <sc-if value="{{c.flag}}" hint-placeholder-val="{{true}}">
+                  <span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 7px; background: #F7E4E0; color: #A63A2A; font-size: 12px; font-weight: 700;">{{c.flag}}</span>
+                </sc-if>
+              </div>
+              <div class="num" style="font-size: 13px; color: #9A9086; margin-top: 2px;">{{c.left}}</div>
+            </div>
+            <span style="display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: #F5E9DC; color: #A4703C; font-size: 13px; font-weight: 700; flex-shrink: 0;">複製邀約</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px;">
+            <sc-for list="{{c.reasons}}" as="r" hint-placeholder-count="2">
+              <span style="display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 8px; background: {{r.bg}}; color: {{r.fg}}; font-size: 12px; font-weight: 700;">{{r.label}}</span>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="padding: 16px 20px 0;">
+    <div style="background: #FCFAF7; border: 1px solid #E7DFD3; border-radius: 20px; padding: 15px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="ser" style="font-size: 17px; font-weight: 600; flex-grow: 1;">沒列進來的 8 位</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+        <sc-for list="{{excluded}}" as="e" hint-placeholder-count="4">
+          <div style="display: flex; align-items: baseline; gap: 10px;">
+            <span class="num" style="font-size: 13px; font-weight: 700; color: #A63A2A; width: 22px; flex-shrink: 0;">{{e.n}}</span>
+            <span style="font-size: 14px; color: #4A4239; line-height: 1.5;">{{e.why}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size: 12px; color: #9A9086; margin-top: 11px; line-height: 1.55;">排除只有這四種依據，全部不是推測。「還沒問這輪的時間」不會被排除，只會標成不知道。</div>
+    </div>
+  </div>
+
+  <div style="height: 110px;"></div>
+
+    <div style="margin-top: auto; display: flex; align-items: stretch; background: #FFFFFF; border-top: 1px solid #E3DCD1; padding: 4px 4px 10px;">
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">待辦</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+        <span style="font-size: 11px; font-weight: 700; color: #2F5D4C;">壓表</span>
+        <span style="width:5px;height:5px;border-radius:999px;background:#2F5D4C;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">日曆</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">客戶</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">設定</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+    </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":1020}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { date: '9/4 五', time: '15:00', course: '復能' };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const chipSet = (key, labels) => labels.map((label) => {
+      const on = (st[key] || '') === label;
+      return {
+        label,
+        bg: on ? '#2F5D4C' : '#FFFFFF',
+        line: on ? '#2F5D4C' : '#E3DCD1',
+        fg: on ? '#FFFFFF' : '#241F1A',
+        weight: on ? '700' : '500',
+        pick: () => this.setState({ [key]: label }),
+      };
+    });
+
+    const DUR = { 復能: 60, 靜脈: 60, EECP: 30, 營養點滴: 60 };
+    const mins = DUR[st.course || '復能'] || 60;
+    const [h, m] = (st.time || '15:00').split(':').map(Number);
+    const total = h * 60 + m + mins;
+    const endTime = String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+
+    const reason = (label, tone) => ({
+      label,
+      bg: tone === 'good' ? '#E4EDE8' : tone === 'unknown' ? '#F8EED8' : '#F3EFE8',
+      fg: tone === 'good' ? '#2F5D4C' : tone === 'unknown' ? '#8A6410' : '#6B6157',
+    });
+
+    return {
+      inputs: [
+        { label: '哪一天', options: chipSet('date', ['9/3 四', '9/4 五', '9/7 一', '9/8 二']) },
+        { label: '幾點開始', options: chipSet('time', ['10:30', '13:30', '15:00', '16:00']) },
+        { label: '什麼課', options: chipSet('course', ['復能', '靜脈', 'EECP', '營養點滴']) },
+      ],
+      endTime,
+      candidates: [
+        { name: '林小姐', flag: '', left: '復能剩 9/12・可用 5 天・最少',
+          reasons: [reason('她說這天方便', 'good'), reason('距上次 24 天')] },
+        { name: '王小姐', flag: '', left: '復能剩 12/20・可用 6 天',
+          reasons: [reason('那天她本來就要來', 'good'), reason('方案 11/30 到期')] },
+        { name: '黃太太', flag: '', left: '復能剩 20/20・還沒上過',
+          reasons: [reason('不知道她那天行不行', 'unknown'), reason('會籍剩 42 天')] },
+        { name: '陳先生', flag: '體內金屬', left: '復能剩 18/40・只能用 INDIBA',
+          reasons: [reason('距上次 46 天'), reason('禮拜五下午不行・這格是 15:00', 'unknown')] },
+      ],
+      excluded: [
+        { n: '3 位', why: '這個課程沒有剩餘次數了' },
+        { n: '2 位', why: '他自己說那天不行' },
+        { n: '2 位', why: '那個時間他已經有另一筆來訪' },
+        { n: '1 位', why: '醫療禁忌把復能的三種器材全鎖死了' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

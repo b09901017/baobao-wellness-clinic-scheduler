@@ -2,7 +2,9 @@
      < 600px    手機、iPad 分割畫面窄側   單欄
      600–899px  iPad 直式                 單欄但更寬
      >= 900px   iPad 橫式                 雙欄
-   全站無 hover 依賴、無拖拉。 */
+   全站無 hover 依賴、無拖拉。
+
+   顏色、字級、間距一律走 tokens.css 的變數，這裡不寫死任何色碼。 */
 
 *,
 *::before,
@@ -29,6 +31,20 @@ body {
   overscroll-behavior-y: contain;
 }
 
+/* 襯線只給標題與人名。內文與所有數字用黑體 —— 她是在掃資訊，不是在讀文章。 */
+.ser {
+  font-family: var(--font-serif);
+}
+
+/* 數字要對齊才掃得快：次數、日期、時間一律等寬 */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+svg {
+  display: block;
+}
+
 /* ---------- 外框 ---------- */
 
 .app {
@@ -38,24 +54,16 @@ body {
   min-height: 0;
 }
 
-.app__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  padding-top: max(var(--space-3), env(safe-area-inset-top));
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.app__title {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 650;
-}
-
 .app__spacer {
   flex: 1;
+}
+
+.app__body {
+  order: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .app__main {
@@ -64,15 +72,26 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--space-4);
-  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  padding-top: max(var(--space-4), env(safe-area-inset-top));
+  /* 底下要讓得出導覽列的位置，否則最後一張卡永遠被蓋住 */
+  padding-bottom: calc(var(--space-6) * 2);
 }
 
-/* 底部導覽：手機在下方（拇指構得到），iPad 橫式移到側邊 */
+/* 有懸浮鈕的那幾頁還要再讓出鈕本身的高度。用 :has() 只讓需要的頁付這個代價 ——
+   沒有懸浮鈕的頁面不該在底部留一大塊空白。 */
+.app__main:has(.fab) {
+  padding-bottom: 160px;
+}
+
+/* 底部導覽：手機在下方（拇指構得到），iPad 橫式移到側邊。
+   DOM 上導覽排在內容前面（讀螢幕的人先聽到選單），視覺上用 order 推到底下。 */
 .app__nav {
+  order: 2;
   display: flex;
   border-top: 1px solid var(--border);
   background: var(--surface);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: var(--space-1) var(--space-1) 0;
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 }
 
 .app__nav a {
@@ -82,21 +101,35 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-dim);
+  gap: 3px;
+  padding: var(--space-2) var(--space-1);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-mute);
   text-decoration: none;
 }
 
 .app__nav a[aria-current='page'] {
   color: var(--accent);
-  font-weight: 650;
+  font-weight: 700;
 }
 
+/* 圖示用 currentColor 的線條，跟著上面那條規則一起變色 */
 .app__nav-icon {
-  font-size: 20px;
-  line-height: 1;
+  display: block;
+  width: 23px;
+  height: 23px;
+}
+
+.app__nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.app__nav a[aria-current='page'] .app__nav-dot {
+  background: currentColor;
 }
 
 /* ---------- 雙欄（>= 900px） ---------- */
@@ -111,16 +144,29 @@ body {
   }
 
   .app__nav {
+    order: 0;
     flex-direction: column;
     justify-content: flex-start;
+    gap: var(--space-2);
     border-top: none;
     border-right: 1px solid var(--border);
     width: 96px;
-    padding-top: var(--space-4);
+    padding: var(--space-5) var(--space-3);
   }
 
   .app__nav a {
     flex: 0 0 auto;
+    min-height: 62px;
+    border-radius: var(--radius);
+  }
+
+  .app__nav a[aria-current='page'] {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+
+  .app__nav a[aria-current='page'] .app__nav-dot {
+    background: transparent;
   }
 
   .app__body {
@@ -130,12 +176,50 @@ body {
     min-width: 0;
   }
 
+  /* 側邊導覽時內容不用再讓出底部那一條 */
+  .app__main {
+    padding-bottom: var(--space-6);
+  }
+
+  .app__main:has(.fab) {
+    padding-bottom: calc(var(--space-5) + 60px + var(--space-4));
+  }
+
   .split {
     display: grid;
-    grid-template-columns: minmax(280px, 360px) 1fr;
+    grid-template-columns: minmax(300px, 396px) 1fr;
     gap: var(--space-5);
     align-items: start;
   }
+}
+
+/* ---------- 頁首 ---------- */
+
+/* 每一頁自己的大標。這裡沒有頂端橫幅 —— 再放一條寫著同一個詞的橫幅，
+   在手機上就是白白吃掉一整列（見 ui/shell.js）。 */
+.page {
+  margin-bottom: var(--space-4);
+}
+
+.page__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.page__lead {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  color: var(--text-dim);
+}
+
+.page__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
 /* ---------- 元件 ---------- */
@@ -143,15 +227,33 @@ body {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-1);
+}
+
+.card--flat {
+  box-shadow: none;
+}
+
+.card--on {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2);
 }
 
 .card__title {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-md);
-  font-weight: 650;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.card__note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  line-height: 1.6;
 }
 
 .muted {
@@ -159,14 +261,29 @@ body {
   font-size: var(--text-sm);
 }
 
+.dim {
+  color: var(--text-mute);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .btn {
-  min-height: var(--tap-min);
+  min-height: 48px;
   min-width: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: 0 var(--space-4);
   font: inherit;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
-  background: var(--surface-2);
+  text-decoration: none;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -179,8 +296,18 @@ body {
   color: var(--accent-text);
 }
 
+.btn--dark {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+.btn--wide {
+  width: 100%;
+}
+
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 /* input 至少 16px，否則 iOS 會自動放大 */
@@ -198,11 +325,15 @@ textarea {
 }
 
 .badge {
-  display: inline-block;
-  padding: 2px var(--space-2);
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
   font-size: var(--text-xs);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .badge--overdue {
@@ -217,16 +348,1081 @@ textarea {
   color: var(--ok);
   background: var(--ok-bg);
 }
+.badge--tea {
+  color: var(--tea);
+  background: var(--tea-soft);
+}
 
 /* 醫療禁忌永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
 .flag {
-  display: inline-block;
-  padding: 2px var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   font-weight: 700;
   color: var(--danger);
   background: var(--overdue-bg);
+}
+
+.stars {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--tea);
+  letter-spacing: 0.1em;
+}
+
+/* ---------- 分段切換 ---------- */
+
+.seg {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.seg__item {
+  flex: 1;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.seg__item[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ---------- 懸浮泡泡 ---------- */
+
+/* 固定在右下角拇指構得到的位置。點一下往上長出這一頁做得到的幾件事。 */
+.fab {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+@media (min-width: 900px) {
+  .fab {
+    bottom: var(--space-5);
+  }
+}
+
+.fab__main {
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-fab);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.fab__main svg {
+  transition: transform 0.15s ease;
+}
+
+.fab[data-open='true'] .fab__main svg {
+  transform: rotate(45deg);
+}
+
+.fab__menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.fab__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+}
+
+/* ---------- 待辦首頁 ---------- */
+
+/* 三顆大數字做分流。逾期／今天／明天，其餘的看分類。 */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.tile {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-2);
+  font: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tile--overdue {
+  background: var(--overdue-bg);
+  border-color: var(--overdue-bg);
+  color: var(--overdue);
+}
+
+.tile--soon {
+  background: var(--soon-bg);
+  border-color: var(--soon-bg);
+  color: var(--soon);
+}
+
+.tile[aria-pressed='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.tile__n {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+/* 分類清單。一列一個數字加一句話，點進去才是完整內容。 */
+.groups {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+
+.grouprow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.grouprow:first-child {
+  border-top: none;
+}
+
+.grouprow--lead {
+  background: var(--accent-soft);
+}
+
+.grouprow--lead .grouprow__label,
+.grouprow--lead .grouprow__n {
+  color: var(--accent);
+}
+
+.grouprow__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--tea);
+  flex-shrink: 0;
+}
+
+.grouprow__dot--danger {
+  background: var(--overdue);
+}
+
+.grouprow__dot--accent {
+  background: var(--accent);
+}
+
+.grouprow__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.grouprow__label {
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.grouprow__note {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.grouprow__n {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 隨手記。沒有死線，所以不是任務 —— 見 CONTEXT.md。 */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-3) var(--space-4);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.note:first-child {
+  border-top: none;
+}
+
+.note__box {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: transparent;
+}
+
+.note--done .note__box {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.note__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.note__text {
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.note--done .note__text {
+  color: var(--text-mute);
+  text-decoration: line-through;
+}
+
+/* ---------- 壓表 ---------- */
+
+/* 卡片上最大的一塊是「不能的時間」 —— 那是她挑格子時唯一要一直對照的東西。 */
+.ban {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--overdue-bg);
+  border: 1px solid var(--overdue-bg);
+}
+
+.ban--unknown {
+  background: var(--soon-bg);
+  border-color: var(--soon-bg);
+}
+
+.ban__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--overdue);
+}
+
+.ban--unknown .ban__head {
+  color: var(--soon);
+}
+
+.ban__when {
+  color: var(--text-mute);
+  font-weight: 500;
+}
+
+.ban__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.ban__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--overdue);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ban--unknown .ban__chip {
+  color: var(--soon);
+}
+
+/* 可用性原文永遠比解析出來的規則大 —— 解析錯了以原文為準（SPEC 4.3） */
+.ban__raw {
+  margin-top: var(--space-3);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* 一個課程一顆泡泡，一列掃得完 */
+.poolchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.poolchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.poolchip b {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.poolchip--low b {
+  color: var(--overdue);
+}
+
+.custcard__meta {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.custcard__meta .btn {
+  margin-left: auto;
+  min-height: 42px;
+}
+
+/* 特殊備註。她自己寫的東西，不要跟系統算出來的混在一起。 */
+.selfnote {
+  margin-top: var(--space-3);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.selfnote svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--tea);
+}
+
+/* ---------- 小日曆 ---------- */
+
+/* 挑日子用的。她說不行的日子劃掉不能點，已經記過的標起來。 */
+.minical__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.minical__month {
+  font-size: var(--text-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.minical__nav {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.minical__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.minical__wd {
+  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-mute);
+  padding-bottom: var(--space-1);
+}
+
+.minical__cell {
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.minical__cell--empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+/* 她說不行的日子。劃掉而不是只變淡 —— 變淡在陽光下看不出來。 */
+.minical__cell--off {
+  background: var(--surface-2);
+  border-color: var(--surface-2);
+  color: var(--text-mute);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.minical__cell--has {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.minical__cell--on {
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.minical__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.minical__cell--has .minical__dot {
+  background: currentColor;
+}
+
+.minical__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.minical__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.minical__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.minical__swatch--has {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.minical__swatch--off {
+  background: var(--surface-2);
+  border-color: var(--surface-2);
+}
+
+/* ---------- 選項泡泡 ---------- */
+
+/* 時間、課程、器材、診間、治療師一律用點的。只有備註要打字。 */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+/* 醫療禁忌鎖掉的選項。這是唯一會直接鎖住的檢查（SPEC 4.5） */
+.chip:disabled,
+.chip[aria-disabled='true'] {
+  background: var(--surface-2);
+  border-color: var(--surface-2);
+  color: var(--text-mute);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.fieldgroup {
+  margin-bottom: var(--space-4);
+}
+
+.fieldgroup__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* ---------- 日曆 ---------- */
+
+/* 頂端一排可勾選的篩選，一種一個顏色，關掉就不顯示。 */
+.calfilter {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  -webkit-overflow-scrolling: touch;
+}
+
+.calfilter__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-mute);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: manipulation;
+}
+
+.calfilter__box {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: transparent;
+}
+
+.calfilter__item[aria-pressed='true'] {
+  color: var(--kind-fg);
+  background: var(--kind-bg);
+  border-color: var(--kind-bg);
+}
+
+.calfilter__item[aria-pressed='true'] .calfilter__box {
+  background: var(--kind-fg);
+  color: var(--kind-bg);
+}
+
+/* 三種東西各自的顏色。來訪墨綠、個人行程茶、休假霧藍。 */
+.kind-visit {
+  --kind-fg: var(--accent);
+  --kind-bg: var(--accent-soft);
+}
+
+.kind-personal {
+  --kind-fg: var(--tea);
+  --kind-bg: var(--tea-soft);
+}
+
+.kind-leave {
+  --kind-fg: var(--slate);
+  --kind-bg: var(--slate-soft);
+}
+
+/* 月檢視。一週一列，跨天的事情用橫跨格子的色條表示，不是圓點 ——
+   看不出從哪天到哪天的話，那條資訊等於沒給。 */
+.monthgrid {
+  display: block;
+}
+
+.monthgrid__wd {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding-bottom: var(--space-2);
+}
+
+.monthgrid__wd span {
+  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-mute);
+}
+
+.monthgrid__wd span:first-child,
+.monthgrid__wd span:last-child {
+  color: var(--tea);
+}
+
+.monthweek {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: min-content;
+  gap: 2px;
+  align-content: start;
+  min-height: 84px;
+  padding-bottom: var(--space-1);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.monthweek__day {
+  grid-row: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-1) 0;
+}
+
+.monthweek__n {
+  min-width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 鄰月的日子照樣畫出來 —— 留白會讓她以為那幾天沒事（SPEC 8.6） */
+.monthweek__day:first-child .monthweek__n:not(.monthweek__n--today),
+.monthweek__day:nth-child(7) .monthweek__n:not(.monthweek__n--today) {
+  color: var(--tea);
+}
+
+.monthweek__n--adj {
+  color: var(--text-mute);
+  opacity: 0.6;
+}
+
+.monthweek__n--today {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.monthbar {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  /* 它是 <button>，不重設的話瀏覽器會給一圈預設邊框 —— 那會讓色條看起來像框 */
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  border-radius: 5px;
+  background: var(--kind-bg);
+  color: var(--kind-fg);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.monthmore {
+  grid-row: 5;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 週：手機是七段直的清單，iPad 橫式才變七欄。 */
+.weekgrid {
+  display: block;
+}
+
+.weekday__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.weekday__n {
+  min-width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekday__n--today {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.weekday--weekend .weekday__head {
+  background: var(--bg);
+}
+
+/* 日：一整天照時間排開，左邊時間、中間內容、右邊狀態。 */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.timerow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.timerow__clock {
+  width: 46px;
+  flex-shrink: 0;
+  padding-top: var(--space-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.timerow__from {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.timerow__to {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.timerow__bar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--kind-fg, var(--accent));
+}
+
+.timerow__body {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 3px;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* 整天的個人行程釘在最上面，不進時間軸 */
+.allday {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  font: inherit;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--kind-bg);
+  color: var(--kind-fg);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.allday__bar {
+  width: 4px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 診間或治療師撞在一起就標出來 —— 只提示，不阻擋（SPEC 4.7） */
+.warn {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--soon-bg);
+  color: var(--soon);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.warn svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.warn--hard {
+  background: var(--overdue-bg);
+  color: var(--overdue);
+}
+
+/* 這一頁只有她自己排的。空格子不等於那個時段真的空著。 */
+.footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--text-mute);
+}
+
+.footnote svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ---------- 底部抽屜 ---------- */
+
+/* 確認畫面走這個。從底下推上來，拇指構得到。 */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgb(36 31 26 / 45%);
+}
+
+.drawer {
+  max-height: 88dvh;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-5);
+  padding-bottom: max(var(--space-5), env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-drawer);
+}
+
+.drawer__grip {
+  width: 42px;
+  height: 5px;
+  margin: 0 auto var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+
+.drawer__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.drawer__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 900px) {
+  .drawer-backdrop {
+    justify-content: center;
+    align-items: center;
+  }
+
+  .drawer {
+    width: 100%;
+    max-width: 520px;
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* 確認畫面裡的一筆時段。點一下切成「客人說不行」，其餘照樣成立。 */
+.slotrow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.slotrow__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.slotrow__when {
+  font-size: var(--text-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.slotrow__what {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.slotrow--no {
+  background: var(--overdue-bg);
+  border-color: var(--overdue-bg);
+}
+
+.slotrow--no .slotrow__when,
+.slotrow--no .slotrow__what {
+  color: var(--overdue);
+  text-decoration: line-through;
 }
 
 /* ---------- 登入 / 設定畫面 ---------- */
@@ -272,8 +1468,8 @@ textarea {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
-  z-index: 10;
+  box-shadow: var(--shadow-2);
+  z-index: 25;
 }
 
 .toast[hidden] {
@@ -318,7 +1514,9 @@ textarea {
 }
 
 .row__title {
-  font-weight: 650;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -335,16 +1533,17 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 
 .link-list li:first-child {
   border-top: none;
 }
 
-.link-list a {
+.link-list a,
+.link-list .row-link {
   flex: 1;
-  min-height: var(--tap-min);
+  min-height: 54px;
   display: flex;
   align-items: center;
   color: var(--text);
@@ -360,8 +1559,45 @@ textarea {
   content: '›';
   margin-left: var(--space-3);
   padding-left: var(--space-3);
-  color: var(--text-dim);
+  color: var(--text-mute);
   font-size: var(--text-lg);
+}
+
+/* 整列可點。手機上目標越大越好，不要只有右邊一顆小箭頭。 */
+.row-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.row-link::after {
+  content: '›';
+  color: var(--text-mute);
+  font-size: var(--text-lg);
+}
+
+/* 回上一頁。跟 .row-link 長得像，但不可以帶那個往前的箭頭 —— 方向要是對的。 */
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+  text-decoration: none;
 }
 
 /* ---------- 表單 ---------- */
@@ -376,12 +1612,15 @@ textarea {
 .field__label {
   display: block;
   margin-bottom: var(--space-1);
-  font-size: var(--text-sm);
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-dim);
 }
 
 .field input[type='text'],
 .field input[type='number'],
+.field input[type='date'],
+.field input[type='time'],
 .field select,
 .field textarea {
   width: 100%;
@@ -392,12 +1631,6 @@ textarea {
   margin-top: var(--space-1);
   font-size: var(--text-sm);
   color: var(--text-dim);
-}
-
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 .choice {
@@ -458,7 +1691,7 @@ textarea {
 
 .attention__danger {
   color: var(--overdue);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .attention__info {
@@ -470,12 +1703,13 @@ textarea {
 /* 刻意放在畫面最下方，不放在卡片右上角那種容易誤按的位置 */
 .card.danger {
   border-color: var(--overdue);
+  background: var(--overdue-bg);
 }
 
 .btn--danger {
   color: var(--overdue);
   border-color: var(--overdue);
-  background: var(--overdue-bg);
+  background: var(--surface);
 }
 
 /* ---------- 對話框 ---------- */
@@ -488,7 +1722,7 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: rgb(0 0 0 / 45%);
+  background: rgb(36 31 26 / 45%);
 }
 
 .dialog {
@@ -516,98 +1750,8 @@ textarea {
   justify-content: flex-end;
 }
 
-/* ---------- 客戶 ---------- */
+/* ---------- 額度 ---------- */
 
-/* 整列可點。手機上目標越大越好，不要只有右邊一顆小箭頭。 */
-.row-link {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: var(--tap-min);
-  color: var(--text);
-  text-decoration: none;
-}
-
-.row-link::after {
-  content: '›';
-  color: var(--text-dim);
-  font-size: var(--text-lg);
-}
-
-/* 篩選用的橫向 chip 列。可用日也用同一組樣式（SPEC 8.2：不用 31 格日曆條）。 */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.chip {
-  min-height: var(--tap-min);
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.chip[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-/* 三段式次數：已完成 / 已排未上 / 剩餘。底色就是剩餘。 */
-.meter {
-  display: flex;
-  height: 10px;
-  margin: var(--space-2) 0;
-  overflow: hidden;
-  background: var(--surface-2);
-  border-radius: 999px;
-}
-
-.meter__done {
-  background: var(--ok);
-}
-
-.meter__booked {
-  background: var(--accent);
-}
-
-.meter--over {
-  outline: 2px solid var(--overdue);
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-dim);
-}
-
-.legend b {
-  color: var(--text);
-}
-
-/* 算出來的值，長得像欄位但不能編輯 */
-.field__static {
-  min-height: var(--tap-min);
-  display: flex;
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-/* 額度卡片：手機單欄堆疊，600px 以上兩欄 */
 .pools {
   display: grid;
   gap: var(--space-3);
@@ -630,12 +1774,77 @@ textarea {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  font-weight: 650;
+  font-weight: 700;
 }
 
-/* ---------- 待辦中心 ---------- */
+/* 方案項目的排序按鈕。不做拖拉，所以上下移動要好按。 */
+.pool__actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
 
-/* 可收合的區塊。點擊區要夠大，手機上是單手在按的。 */
+/* 過期的可用性收集要變灰（SPEC 第 4.3 節），但不能看不見 ——
+   她需要看得出上次是什麼時候問的。 */
+.pool--stale {
+  opacity: 0.7;
+  background: var(--surface-2);
+}
+
+/* 三段式次數：已完成 / 已排未上 / 剩餘。底色就是剩餘。 */
+.meter {
+  display: flex;
+  height: 10px;
+  margin: var(--space-2) 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.meter__done {
+  background: var(--ok);
+}
+
+.meter__booked {
+  background: var(--tea);
+}
+
+.meter--over {
+  outline: 2px solid var(--overdue);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.legend b {
+  color: var(--text);
+}
+
+.legend__swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-pill);
+  margin-right: 5px;
+}
+
+/* 算出來的值，長得像欄位但不能編輯 */
+.field__static {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- 可收合區塊 ---------- */
+
 summary {
   cursor: pointer;
   min-height: var(--tap-min);
@@ -651,22 +1860,9 @@ summary {
   margin-bottom: var(--space-3);
 }
 
-/* 方案項目的排序按鈕。不做拖拉，所以上下移動要好按。 */
-.pool__actions {
-  display: inline-flex;
-  gap: var(--space-2);
-}
+/* ---------- 壓表兩層 ---------- */
 
-/* 過期的可用性收集要變灰（SPEC 第 4.3 節），但不能看不見 ——
-   她需要看得出上次是什麼時候問的。 */
-.pool--stale {
-  opacity: 0.65;
-  background: var(--surface-2);
-}
-
-/* ---------- 壓表模式 ---------- */
-
-/* 綜覽與工單：< 900px 是兩個畫面（選了人就只看工單），
+/* 客戶卡片牆與記錄：< 900px 是兩個畫面（選了人就只看記錄），
    ≥ 900px 用 .split 並存。純 CSS 切換，不偵測裝置型號。 */
 .split--focused > .split__list {
   display: none;
@@ -682,13 +1878,14 @@ summary {
 }
 
 .queue-row--on {
-  border-color: var(--accent, currentColor);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2);
 }
 
 .queue-row .row__main {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1, 4px);
+  gap: var(--space-1);
 }
 
 /* 可用日：手機用 chip 列表，31 格日期條每格只有 9px 看不清，
@@ -714,6 +1911,10 @@ summary {
   font-weight: 700;
 }
 
+.day--today {
+  border-color: var(--accent);
+}
+
 @media (min-width: 900px) {
   .split--focused > .split__list {
     display: block;
@@ -728,6 +1929,28 @@ summary {
     grid-template-columns: repeat(7, 1fr);
     gap: var(--space-2);
   }
+
+  .weekgrid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-2);
+    align-items: start;
+  }
+
+  .weekgrid .card {
+    margin-bottom: 0;
+  }
+}
+
+/* 月檢視在手機上一格 9px，看得到有東西但看不出是誰 —— 那種畫面只會讓她再點一次。 */
+.only-wide {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .only-wide {
+    display: inline-flex;
+  }
 }
 
 /* ---------- 稽核紀錄與資料健檢 ---------- */
@@ -736,7 +1959,7 @@ summary {
    不用 table —— 手機上表格不是橫向捲就是擠成一團，兩種都不能看。 */
 .audit__row {
   padding: var(--space-3) 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
 }
 
 .audit__row:first-child {
@@ -751,7 +1974,7 @@ summary {
 }
 
 .audit__what {
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .audit__fields {
@@ -765,97 +1988,110 @@ summary {
 }
 
 .audit__field {
-  font-weight: 650;
+  font-weight: 700;
   margin-right: var(--space-2);
 }
 
-/* ---------- 日曆 ---------- */
-
-/* 月檢視只在 iPad 橫式出現（SPEC 第 8.6 節）：手機上一格 9px，
-   看得到有東西但看不出是誰，那種畫面只會讓她再點一次。 */
-.only-wide {
-  display: none;
-}
-
-/* 週：手機是七段直的清單，iPad 橫式才變七欄。 */
-.weekgrid {
-  display: block;
-}
-
-.day--today {
-  border-color: var(--accent);
-}
-
-.monthgrid {
+/* 資料健檢的摘要格 */
+.checks {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: var(--space-1);
-}
-
-.monthgrid__head {
-  text-align: center;
-  font-size: var(--text-xs);
-  font-weight: 650;
-  color: var(--text-dim);
-  padding-bottom: var(--space-1);
-}
-
-/* 一格至少要放得下「幾號 + 幾筆 + 前幾個名字」。 */
-.monthgrid__cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 76px;
-  padding: var(--space-2);
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.monthgrid__date {
-  font-weight: 650;
-}
-
-.monthgrid__count {
-  font-size: var(--text-xs);
-  color: var(--text-dim);
-}
-
-/* 名字放不下就截掉，寧可少講也不要把格子撐爛。 */
-.monthgrid__names {
-  font-size: var(--text-xs);
-  color: var(--text-dim);
-  overflow: hidden;
-}
-
-/* 週檢視的日期標題：可以點，但不該長得像按鈕 —— 它只是「看細一點」。 */
-.link-plain {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: none;
-  padding: 0;
-  text-decoration: underline;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
 }
 
 @media (min-width: 900px) {
-  .only-wide {
-    display: inline-flex;
+  .checks {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
 
-  .weekgrid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: var(--space-2);
-    align-items: start;
-  }
+.check {
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--ok-bg);
+  border: 1px solid var(--accent-line);
+  color: var(--ok);
+}
 
-  .weekgrid .card {
-    margin-bottom: 0;
+.check--bad {
+  background: var(--overdue-bg);
+  border-color: var(--overdue-bg);
+  color: var(--overdue);
+}
+
+.check--warn {
+  background: var(--soon-bg);
+  border-color: var(--soon-bg);
+  color: var(--soon);
+}
+
+.check__n {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.check__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  margin-top: var(--space-1);
+}
+
+.check__note {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+/* ---------- 設定 ---------- */
+
+.tilegrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (min-width: 900px) {
+  .tilegrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+.settile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 84px;
+  padding: var(--space-3);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.settile__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.settile__label span {
+  flex: 1;
+}
+
+.settile__meta {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+  line-height: 1.5;
 }
 
 /* ---------- 試算表報表 ---------- */
@@ -880,7 +2116,7 @@ summary {
 
 .sheet th {
   background: var(--surface-2);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 /* 匯入的比對報告。她要在按下「開始匯入」之前把它讀完，所以寬的內容

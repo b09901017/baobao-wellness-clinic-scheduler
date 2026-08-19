@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v22';
+const VERSION = 'v25';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -25,19 +25,26 @@ const SHELL = [
   '/js/data/firebase.js',
   '/js/data/auth.js',
   '/js/data/repo.js',
+  '/js/data/events.js',
+  '/js/data/notes.js',
   '/js/domain/taskRules.js',
   '/js/domain/masterData.js',
   '/js/domain/seed.js',
   '/js/domain/contraindications.js',
   '/js/domain/entitlements.js',
   '/js/domain/visitTime.js',
+  '/js/domain/events.js',
+  '/js/domain/notes.js',
   '/js/ui/shell.js',
   '/js/ui/router.js',
   '/js/ui/views.js',
   '/js/ui/toast.js',
+  '/js/ui/icons.js',
+  '/js/ui/session.js',
   '/js/ui/components/dialog.js',
   '/js/ui/components/form.js',
   '/js/ui/views/settings.js',
+  '/js/ui/views/eventEditor.js',
   '/js/ui/views/masterList.js',
   '/js/ui/views/trash.js',
   '/js/ui/views/preferences.js',

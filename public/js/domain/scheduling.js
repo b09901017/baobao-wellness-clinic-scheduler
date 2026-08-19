@@ -89,12 +89,81 @@ export function pendingFor({ course, entitlements = [], visits = [], targetMonth
 }
 
 /**
- * 建立一個批次的佇列：算出待排的人並排好序。
+ * 一位客戶身上所有還算數的額度，一份一個數字。
+ *
+ * 壓表卡片上「一個課程一顆泡泡」用的就是這個。使用者說過「壓復能的時候只要看到
+ * 復能的剩餘次數就好」，那句話講的是資訊密度不是批次切法（ADR-0014）——
+ * 一列泡泡掃得完，不會變成十二種課程的大表。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.entitlements
+ * @param {object[]} [ctx.visits] cached 為 false 時才需要，用來現算
+ * @param {boolean} [ctx.cached] 清單頁讀計數欄位、詳情現算 —— ADR-0004
+ * @returns {{pools: object[], totalRemaining: number, soonestExpiry: string|null}}
+ */
+export function customerPools({ entitlements = [], visits = [], cached = true }) {
+  const pools = [];
+
+  for (const e of entitlements) {
+    if (!e || e.deletedAt) continue;
+
+    const c = cached
+      ? {
+          done: e.doneCount ?? 0,
+          booked: e.bookedCount ?? 0,
+          remaining: (e.totalQty ?? 0) - (e.doneCount ?? 0) - (e.bookedCount ?? 0),
+        }
+      : counts(e, visits, e.id);
+
+    pools.push({
+      entitlementId: e.id,
+      label: e.label ?? '（沒有名稱）',
+      type: e.type ?? 'single',
+      courseId: e.courseId ?? null,
+      optionEquipmentIds: e.optionEquipmentIds ?? [],
+      total: e.totalQty ?? 0,
+      done: c.done,
+      booked: c.booked,
+      remaining: c.remaining,
+      expiresAt: e.expiresAt ?? null,
+    });
+  }
+
+  // 快用完的排前面 —— 她要先看到「這個只剩一次了」
+  pools.sort((a, b) => a.remaining - b.remaining || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+
+  const withLeft = pools.filter((p) => p.remaining > 0 && isValidDate(p.expiresAt));
+  const soonestExpiry = withLeft.length
+    ? withLeft.map((p) => p.expiresAt).sort()[0]
+    : null;
+
+  return {
+    pools,
+    totalRemaining: pools.reduce((sum, p) => sum + Math.max(0, p.remaining), 0),
+    soonestExpiry,
+  };
+}
+
+/** 某一段期間內她自己排的來訪有幾次。 */
+function visitCountIn(visits, from, to) {
+  return (visits ?? []).filter(
+    (v) => isActive(v) && isValidDate(v.date) && v.date >= from && v.date <= to,
+  ).length;
+}
+
+/**
+ * 建立一個批次的佇列：這個月還壓得動的人有誰，先看誰。
+ *
+ * **一批是一個月的一串客戶，不是一個課程**（ADR-0014）。她面對的是公司系統上
+ * 的一張時段表，看到空的就搶，而且習慣把一個客人的所有課程壓完再換下一個人。
+ *
+ * 只要身上還有任何一份額度有剩就進來 —— 這個月已經排過的**不會**被排除，
+ * 因為客戶一個月本來就會來好幾次。「這個月還沒壓過」是卡片牆上的一個篩選，
+ * 不是進不進佇列的條件。
  *
  * 每一項的貢獻都會出現在 reasons 裡（SPEC 第 9 節：不要只給黑盒分數）。
  *
  * @param {object} ctx
- * @param {object} ctx.course 這批在壓哪個課程
  * @param {object[]} ctx.customers 在服務中的客戶
  * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
  * @param {Record<string, object[]>} ctx.visitsBy 客戶 id → 來訪（近期即可）
@@ -102,34 +171,55 @@ export function pendingFor({ course, entitlements = [], visits = [], targetMonth
  * @param {string} ctx.targetMonth 'YYYY-MM'
  * @param {string} ctx.today
  * @param {object} [ctx.weights]
- * @param {boolean} [ctx.includeNotPending] 連已經排過的也算一份即時資訊。
- *   開著的批次要用：佇列順序是凍結的，已經處理掉的那幾位仍然要看得到目前狀況。
+ * @param {boolean} [ctx.includeUsedUp] 連次數用完的也留著。開著的批次要用：
+ *   佇列順序是凍結的，處理到一半把人弄不見比留著更難懂。
  * @returns {object[]} 依分數由高到低，同分時姓名排序（每次算出來要一樣）
  */
-export function buildQueue({
-  course, customers = [], entitlementsBy = {}, visitsBy = {}, availabilityBy = {},
-  targetMonth, today, weights = DEFAULT_WEIGHTS, includeNotPending = false,
+export function buildCustomerQueue({
+  customers = [], entitlementsBy = {}, visitsBy = {}, availabilityBy = {},
+  targetMonth, today, weights = DEFAULT_WEIGHTS, includeUsedUp = false,
 }) {
   const range = monthRange(targetMonth);
-  if (!course || !range) return [];
+  if (!range) return [];
+
+  const prev = monthRange(prevMonthOf(targetMonth));
 
   const rows = [];
   for (const customer of customers) {
     if (customer.active === false || customer.deletedAt) continue;
 
     const visits = visitsBy[customer.id] ?? [];
-    const state = pendingFor({
-      course,
+    const { pools, totalRemaining, soonestExpiry } = customerPools({
       entitlements: entitlementsBy[customer.id] ?? [],
       visits,
-      targetMonth,
     });
-    if (!state.pending && !includeNotPending) continue;
+
+    if (totalRemaining <= 0 && !includeUsedUp) continue;
+
+    // rowFor 要一份「代表性的額度」來算急迫度。用最快到期的那一份 ——
+    // 會籍在跑而次數沒上完，急的是那一份。
+    const lead = pools.find((p) => p.remaining > 0 && p.expiresAt === soonestExpiry) ?? pools[0] ?? null;
+    const state = {
+      entitlement: lead ? { id: lead.entitlementId, label: lead.label, expiresAt: lead.expiresAt } : null,
+      remaining: totalRemaining,
+      total: pools.reduce((sum, p) => sum + p.total, 0),
+    };
+
+    const scheduledThisMonth = visitCountIn(visits, range.from, range.to);
 
     rows.push({
-      ...rowFor({ customer, state, visits, availability: availabilityBy[customer.id] ?? [], range, today }),
-      pending: state.pending,
-      scheduledThisMonth: state.scheduled,
+      ...rowFor({
+        customer, state, visits,
+        availability: availabilityBy[customer.id] ?? [],
+        range, today,
+      }),
+      pools,
+      totalRemaining,
+      scheduledThisMonth,
+      visitsPrevMonth: prev ? visitCountIn(visits, prev.from, prev.to) : 0,
+      // 她自己寫的特殊狀況。系統算出來的東西不要跟這個混在一起。
+      selfNote: customer.notes ?? null,
+      pending: scheduledThisMonth === 0,
     });
   }
 
@@ -139,6 +229,14 @@ export function buildQueue({
   return rows
     .map((row) => scoreRow(row, weights, range, fewest))
     .sort((a, b) => b.score - a.score || String(a.customerName).localeCompare(String(b.customerName), 'zh-TW'));
+}
+
+/** 'YYYY-MM' 的上一個月。 */
+function prevMonthOf(targetMonth) {
+  const [y, m] = String(targetMonth ?? '').split('-').map(Number);
+  if (!y || !m) return '';
+  const total = y * 12 + (m - 1) - 1;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
 }
 
 function rowFor({ customer, state, visits, availability, range, today }) {
@@ -241,11 +339,13 @@ export function strongestReason(row) {
 
 export const QUEUE_STATES = ['pending', 'done', 'skipped'];
 
-/** 從佇列建一個新批次。順序在這一刻凍結。 */
-export function newBatch({ course, targetMonth, rows }) {
+/**
+ * 從佇列建一個新批次。順序在這一刻凍結。
+ *
+ * 沒有 courseId —— 一批是一個月的一串客戶，不是一個課程（ADR-0014）。
+ */
+export function newBatch({ targetMonth, rows }) {
   return {
-    courseId: course.id,
-    courseName: course.name,
     targetMonth,
     queue: rows.map((r) => ({
       customerId: r.customerId,

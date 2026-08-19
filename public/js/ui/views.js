@@ -10,6 +10,7 @@ import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as visitEditor from './views/visitEditor.js';
+import * as eventEditor from './views/eventEditor.js';
 import * as health from './views/health.js';
 import * as audit from './views/audit.js';
 import * as backfill from './views/backfill.js';
@@ -18,17 +19,23 @@ import * as report from './views/report.js';
 import * as legacyImport from './views/legacyImport.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
-register('/', { title: '待辦', icon: '✅', render: home.render });
+register('/', { title: '待辦', icon: 'todo', render: home.render });
 
-register('/customers', { title: '客戶', icon: '👥', render: customers.render });
+register('/customers', { title: '客戶', icon: 'people', render: customers.render });
 
-register('/schedule', { title: '壓表', icon: '📋', render: schedule.render });
+register('/schedule', { title: '壓表', icon: 'book', render: schedule.render });
 
-register('/calendar', { title: '日曆', icon: '📅', render: calendar.render });
+register('/calendar', { title: '日曆', icon: 'calendar', render: calendar.render });
 
-register('/settings', { title: '設定', icon: '⚙️', render: settings.render });
+register('/settings', { title: '設定', icon: 'gear', render: settings.render });
 
 // 子頁，不進導覽列
+register('/todo/:group', {
+  title: '待辦', nav: false,
+  render: (el, group) => home.renderGroup(el, group),
+  titleFor: (group) => home.groupTitle(group),
+});
+
 register('/customers/new', { title: '新增客戶', nav: false, render: customers.renderNew });
 register('/customers/:id', {
   title: '客戶詳情', nav: false,
@@ -37,6 +44,20 @@ register('/customers/:id', {
 register('/visits/new/:customerId', {
   title: '記錄來訪', nav: false,
   render: (el, customerId) => visitEditor.renderNew(el, customerId),
+});
+// 從日曆上點某一天新增時，把那一天帶進去
+register('/visits/new/:customerId/:date', {
+  title: '記錄來訪', nav: false,
+  render: (el, customerId, date) => visitEditor.renderNew(el, customerId, date),
+});
+
+register('/events/new/:date', {
+  title: '新增個人行程', nav: false,
+  render: (el, date) => eventEditor.renderNew(el, date),
+});
+register('/events/:id', {
+  title: '個人行程', nav: false,
+  render: (el, id) => eventEditor.renderEdit(el, id),
 });
 register('/visits/:id', {
   title: '來訪', nav: false,

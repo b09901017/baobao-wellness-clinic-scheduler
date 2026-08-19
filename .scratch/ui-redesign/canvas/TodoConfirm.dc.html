@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 390px; min-height: 940px; background: #FAF7F2; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="padding: 20px 20px 12px;">
+    <div style="display: flex; align-items: center; gap: 10px; height: 44px; margin-left: -6px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6B6157" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>
+      <span style="font-size: 15px; font-weight: 700; color: #6B6157;">待辦</span>
+    </div>
+    <h1 class="ser" style="font-size: 27px; font-weight: 700; line-height: 1.35; margin-top: 4px;">跟客人確認時間</h1>
+    <p style="margin: 6px 0 0; font-size: 15px; color: #6B6157; line-height: 1.6;">壓好了、還沒問過本人的有 3 位。問完回來按打勾。</p>
+  </div>
+
+  <div style="padding: 6px 20px 0; display: flex; flex-direction: column; gap: 12px;">
+    <sc-for list="{{people}}" as="p" hint-placeholder-count="3">
+      <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 20px; padding: 16px; box-shadow: 0 2px 8px rgba(36, 31, 26, 0.04);">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="ser" style="font-size: 21px; font-weight: 600;">{{p.name}}</span>
+              <sc-if value="{{p.flag}}" hint-placeholder-val="{{true}}">
+                <span style="display: inline-flex; align-items: center; height: 23px; padding: 0 9px; border-radius: 7px; background: #F7E4E0; color: #A63A2A; font-size: 12px; font-weight: 700;">{{p.flag}}</span>
+              </sc-if>
+            </div>
+            <div class="num" style="font-size: 14px; color: #9A9086; margin-top: 2px;">壓了 {{p.count}} 筆・{{p.waited}}</div>
+          </div>
+          <div onClick="{{p.open}}" style="width: 46px; height: 46px; border-radius: 999px; background: #2F5D4C; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 12px rgba(47, 93, 76, 0.28);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+          <sc-for list="{{p.chips}}" as="c" hint-placeholder-count="3">
+            <span class="num" style="display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 999px; background: #F3EFE8; color: #4A4239; font-size: 13px; font-weight: 700;">{{c}}</span>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{p.msg}}" hint-placeholder-val="{{true}}">
+          <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: #FCFAF7; border: 1px dashed #DFD6C8;">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#A4703C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16v11H9l-5 3.5z"/></svg>
+            <span style="font-size: 13px; font-weight: 700; color: #A4703C;">複製 LINE 確認訊息</span>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="height: 100px;"></div>
+
+  <sc-if value="{{sheetOpen}}" hint-placeholder-val="{{true}}">
+    <div style="position: absolute; inset: 0; background: rgba(36, 31, 26, 0.42); display: flex; flex-direction: column; justify-content: flex-end;">
+      <div onClick="{{closeSheet}}" style="flex-grow: 1;"></div>
+      <div style="background: #FAF7F2; border-radius: 26px 26px 0 0; padding: 10px 20px 22px; box-shadow: 0 -8px 30px rgba(36, 31, 26, 0.18);">
+        <div style="width: 42px; height: 5px; border-radius: 999px; background: #DDD4C6; margin: 0 auto 14px;"></div>
+
+        <h2 class="ser" style="font-size: 22px; font-weight: 600;">{{sheet.name}} 的 3 筆</h2>
+        <p style="margin: 4px 0 14px; font-size: 14px; color: #6B6157;">確認之後會自動排進日曆，並且產生該做的登記。</p>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <sc-for list="{{sheet.slots}}" as="s" hint-placeholder-count="3">
+            <div onClick="{{s.toggle}}" style="background: {{s.bg}}; border: 1px solid {{s.line}}; border-radius: 16px; padding: 13px 14px; display: flex; align-items: flex-start; gap: 12px;">
+              <div style="flex-grow: 1; min-width: 0;">
+                <div class="num" style="font-size: 16px; font-weight: 700; color: {{s.fg}}; text-decoration: {{s.strike}};">{{s.when}}</div>
+                <div style="font-size: 14px; color: {{s.sub}}; margin-top: 2px; text-decoration: {{s.strike}};">{{s.what}}</div>
+                <sc-if value="{{s.note}}" hint-placeholder-val="{{true}}">
+                  <div style="font-size: 13px; color: #9A9086; margin-top: 4px;">備註：{{s.note}}</div>
+                </sc-if>
+              </div>
+              <span style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 8px; background: {{s.tagBg}}; color: {{s.tagFg}}; font-size: 12px; font-weight: 700; flex-shrink: 0;">{{s.tag}}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <p style="margin: 12px 0 0; font-size: 13px; color: #9A9086; line-height: 1.6;">哪一筆客人說不行就點它一下，其餘的照樣成立。</p>
+
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="height: 52px; border-radius: 16px; background: #2F5D4C; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; box-shadow: 0 6px 16px rgba(47, 93, 76, 0.28);">{{sheet.cta}}</div>
+          <div onClick="{{closeSheet}}" style="height: 48px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3DCD1; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: #6B6157;">先不要，回去</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+    <div style="margin-top: auto; display: flex; align-items: stretch; background: #FFFFFF; border-top: 1px solid #E3DCD1; padding: 4px 4px 10px;">
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#2F5D4C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/></svg>
+        <span style="font-size: 11px; font-weight: 700; color: #2F5D4C;">待辦</span>
+        <span style="width:5px;height:5px;border-radius:999px;background:#2F5D4C;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9.5 4h5v2.6h-5z"/><path d="M9 12h6M9 16h4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">壓表</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">日曆</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.7-5.8 6-5.8s6 2.6 6 5.8"/><path d="M16.4 5.4a3.2 3.2 0 010 5.6M20.5 20c0-2.3-.9-4-2.2-5.1"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">客戶</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+      <div style="flex-grow: 1; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#9A9086" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg>
+        <span style="font-size: 11px; font-weight: 500; color: #9A9086;">設定</span>
+        <span style="width:5px;height:5px;"></span>
+      </div>
+    </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: 'wang', rejected: {} };
+  }
+
+  renderVals() {
+    const st = this.state || {};
+    const rejected = st.rejected || {};
+
+    const people = [
+      { id: 'wang', name: '王小姐', flag: '', count: 3, waited: '壓好 1 天', chips: ['9/3 三', '9/17 三', '9/24 三'], msg: true },
+      { id: 'chen', name: '陳先生', flag: '體內金屬', count: 2, waited: '壓好 4 天・久了', chips: ['9/5 五', '9/19 五'], msg: true },
+      { id: 'huang', name: '黃太太', flag: '', count: 1, waited: '壓好 1 天', chips: ['9/8 一'], msg: true },
+    ].map((p) => ({ ...p, open: () => this.setState({ open: p.id }) }));
+
+    const rawSlots = [
+      { id: 's1', when: '9/3（三）14:00–15:00', what: '復能・INDIBA・騰崴', note: '' },
+      { id: 's2', when: '9/3（三）15:15–16:15', what: '靜脈・治3', note: '' },
+      { id: 's3', when: '9/17（三）14:00–15:00', what: '復能・INDIBA・芝寧', note: '她說下午比較好' },
+    ];
+
+    const slots = rawSlots.map((s) => {
+      const no = !!rejected[s.id];
+      return {
+        ...s,
+        bg: no ? '#F7E4E0' : '#FFFFFF',
+        line: no ? '#EDD2CC' : '#E3DCD1',
+        fg: no ? '#A63A2A' : '#241F1A',
+        sub: no ? '#B96D5E' : '#6B6157',
+        strike: no ? 'line-through' : 'none',
+        tag: no ? '客人說不行' : '可以',
+        tagBg: no ? '#FFFFFF' : '#E4EDE8',
+        tagFg: no ? '#A63A2A' : '#2F5D4C',
+        toggle: () => this.setState({ rejected: { ...rejected, [s.id]: !no } }),
+      };
+    });
+
+    const okCount = slots.filter((s) => s.tag === '可以').length;
+    const openId = st.open;
+    const person = people.find((p) => p.id === openId);
+
+    return {
+      people,
+      sheetOpen: !!person,
+      closeSheet: () => this.setState({ open: null }),
+      sheet: {
+        name: person ? person.name : '',
+        slots,
+        cta: okCount === 0 ? '3 筆全部退回未確認' : '確認 ' + okCount + ' 筆，加進日曆',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

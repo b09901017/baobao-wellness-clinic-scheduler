@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600;700&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #FAF7F2;
+      color: #241F1A;
+      font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #2F5D4C; text-decoration: none; }
+    a:hover { color: #24493B; }
+    h1, h2, h3 { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; margin: 0; }
+    svg { display: block; }
+    .ser { font-family: 'Noto Serif TC', 'Songti TC', 'PingFang TC', serif; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 1120px; padding: 40px; background: #FAF7F2;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #E3DCD1; padding-bottom: 20px; margin-bottom: 32px;">
+    <div>
+      <h1 class="ser" style="font-size: 34px; font-weight: 700; letter-spacing: 0.01em;">沉穩診所</h1>
+      <p style="margin: 6px 0 0; font-size: 16px; color: #6B6157;">暖白紙底、墨綠與茶色點綴、襯線標題拉開層級。全觸控、無 hover、無拖拉。</p>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <span style="display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: #E4EDE8; color: #2F5D4C; font-size: 13px; font-weight: 700;">點擊區 44px</span>
+      <span style="display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: #F5E9DC; color: #8A5A24; font-size: 13px; font-weight: 700;">輸入 16px 起</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px;">
+
+    <!-- 色 -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <h2 class="ser" style="font-size: 20px; font-weight: 600;">色</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <sc-for list="{{swatches}}" as="s" hint-placeholder-count="5">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="width: 44px; height: 44px; border-radius: 12px; border: 1px solid #E3DCD1; flex-shrink: 0; background: {{s.hex}};"></span>
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="font-size: 15px; font-weight: 700;">{{s.name}}</div>
+              <div class="num" style="font-size: 13px; color: #9A9086; letter-spacing: 0.04em;">{{s.hex}}</div>
+            </div>
+            <div style="font-size: 13px; color: #6B6157; text-align: right; max-width: 120px;">{{s.use}}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="margin-top: 8px; padding: 16px; border-radius: 14px; background: #1C1A17;">
+        <div style="font-size: 13px; font-weight: 700; color: #C9C1B5; margin-bottom: 10px;">深色模式</div>
+        <div style="display: flex; gap: 8px;">
+          <span style="width: 40px; height: 40px; border-radius: 10px; background: #1C1A17; border: 1px solid #35312B;"></span>
+          <span style="width: 40px; height: 40px; border-radius: 10px; background: #26231F;"></span>
+          <span style="width: 40px; height: 40px; border-radius: 10px; background: #7FBBA3;"></span>
+          <span style="width: 40px; height: 40px; border-radius: 10px; background: #D8A46A;"></span>
+          <span style="width: 40px; height: 40px; border-radius: 10px; background: #E8877A;"></span>
+        </div>
+        <p style="margin: 12px 0 0; font-size: 13px; color: #9A9086; line-height: 1.6;">紙的暖度留著，墨綠與茶色提亮到看得清為止。狀態色不換位子：紅還是逾期。</p>
+      </div>
+    </div>
+
+    <!-- 字 -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <h2 class="ser" style="font-size: 20px; font-weight: 600;">字</h2>
+      <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <div style="font-size: 12px; color: #9A9086; font-weight: 700; letter-spacing: 0.08em;">標題 30 / 襯線 700</div>
+          <div class="ser" style="font-size: 30px; font-weight: 700; line-height: 1.3;">今天要做 5 件</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #9A9086; font-weight: 700; letter-spacing: 0.08em;">段標 20 / 襯線 600</div>
+          <div class="ser" style="font-size: 20px; font-weight: 600;">和客人確定預約時間</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #9A9086; font-weight: 700; letter-spacing: 0.08em;">主文 16 / 黑體 400</div>
+          <div style="font-size: 16px;">9月禮拜一不行，9/17、9/18、9/22–24 不行</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #9A9086; font-weight: 700; letter-spacing: 0.08em;">次要 14 / 黑體 500</div>
+          <div style="font-size: 14px; color: #6B6157; font-weight: 500;">8/28 收集・過兩週要重問</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #9A9086; font-weight: 700; letter-spacing: 0.08em;">數字 等寬字距</div>
+          <div class="num" style="font-size: 26px; font-weight: 700; color: #2F5D4C;">12 / 20</div>
+        </div>
+      </div>
+      <p style="margin: 0; font-size: 14px; color: #6B6157; line-height: 1.7;">襯線只給標題與人名。內文與所有數字用黑體 —— 她是在低頭掃資訊，不是在讀文章。</p>
+    </div>
+
+    <!-- 元件 -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <h2 class="ser" style="font-size: 20px; font-weight: 600;">元件</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #9A9086;">泡泡 · 可點</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 999px; background: #2F5D4C; color: #FFFFFF; font-size: 15px; font-weight: 700;">復能</span>
+          <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 999px; background: #FFFFFF; border: 1px solid #E3DCD1; color: #241F1A; font-size: 15px; font-weight: 500;">靜脈</span>
+          <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 999px; background: #F3EFE8; color: #9A9086; font-size: 15px; font-weight: 500; text-decoration: line-through;">超磁場</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #9A9086;">狀態</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: #F7E4E0; color: #A63A2A; font-size: 13px; font-weight: 700;">逾期 2 天</span>
+          <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: #F8EED8; color: #8A6410; font-size: 13px; font-weight: 700;">明天</span>
+          <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: #E4EDE8; color: #2F5D4C; font-size: 13px; font-weight: 700;">已確認</span>
+          <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: #F7E4E0; color: #A63A2A; font-size: 13px; font-weight: 700;">體內金屬</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #9A9086;">三段次數 · 已完成 / 已排未上 / 剩餘</div>
+        <div style="background: #FFFFFF; border: 1px solid #E3DCD1; border-radius: 14px; padding: 14px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 16px; font-weight: 700;">復能</span>
+            <span class="num" style="font-size: 15px; color: #6B6157;">6 上過・2 已排・<b style="color: #2F5D4C;">12 剩</b></span>
+          </div>
+          <div style="display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: #EFE9E0;">
+            <span style="width: 30%; background: #2F5D4C;"></span>
+            <span style="width: 10%; background: #A4703C;"></span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #9A9086;">按鈕 · 高 48</div>
+        <div style="display: flex; gap: 10px;">
+          <span style="display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 22px; border-radius: 14px; background: #2F5D4C; color: #FFFFFF; font-size: 16px; font-weight: 700;">確認，加進日曆</span>
+          <span style="display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 22px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3DCD1; font-size: 16px; font-weight: 700;">跳過</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 14px; margin-top: 4px;">
+        <div style="width: 60px; height: 60px; border-radius: 999px; background: #2F5D4C; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(47, 93, 76, 0.32);">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+        <div style="font-size: 14px; color: #6B6157; line-height: 1.6; flex-grow: 1;">懸浮泡泡固定在右下角拇指構得到的位置，點一下往上長出這一頁做得到的三件事。</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 36px; padding-top: 24px; border-top: 1px solid #E3DCD1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px;">
+    <sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+      <div>
+        <div class="ser" style="font-size: 17px; font-weight: 600; margin-bottom: 4px;">{{r.title}}</div>
+        <div style="font-size: 14px; color: #6B6157; line-height: 1.65;">{{r.body}}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1120,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      swatches: [
+        { name: '紙', hex: '#FAF7F2', use: '整頁的底' },
+        { name: '面', hex: '#FFFFFF', use: '卡片' },
+        { name: '線', hex: '#E3DCD1', use: '分隔' },
+        { name: '墨', hex: '#241F1A', use: '主文字' },
+        { name: '墨綠', hex: '#2F5D4C', use: '主動作、已完成' },
+        { name: '茶', hex: '#A4703C', use: '已排未上、次要強調' },
+        { name: '磚紅', hex: '#A63A2A', use: '逾期、醫療禁忌' },
+        { name: '琥珀', hex: '#8A6410', use: '今明兩天' },
+      ],
+      rules: [
+        { title: '一眼可讀優先', body: '她低頭看這台、手在打另一台。字寧可大、資訊寧可少，不要為了排版縮小關鍵數字。' },
+        { title: '禁忌永遠露在外面', body: '醫療禁忌與永久限制跟著名字走，任何情況都不收進摺疊區。' },
+        { title: '能點就不要打字', body: '時間、診間、治療師、課程一律點選。只有可用性原文與備註需要鍵盤。' },
+        { title: '手機不打折', body: 'iPad 是同樣的東西看得更多，不是多出來的功能。' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
