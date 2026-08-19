@@ -22,6 +22,17 @@ export const VISIT_STATUSES = [
 ];
 
 /** 來訪的起點。SPEC 第 4.1 節。 */
+/**
+ * 來訪身上那一句話的長度上限（SPEC 第 5.3 節的 `note`）。
+ *
+ * 它是**這一天**的，不是某一個時段的 —— 她記的東西通常是「這次來訪」的事。
+ * 跟客戶身上的**備註**是兩回事：備註跟著人一直在，這一句跟著這一筆來訪。
+ *
+ * 放在這裡而不是放在畫面上：壓表與來訪編輯器寫的是同一個欄位，兩邊各寫一個
+ * 數字遲早會變成「在壓表打得下、回來改就被截掉」。
+ */
+export const NOTE_MAX = 200;
+
 export const INITIAL_STATUS = 'pending_confirm';
 
 const LABELS = {

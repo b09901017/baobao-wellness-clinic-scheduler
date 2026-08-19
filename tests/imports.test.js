@@ -64,3 +64,16 @@ test('firebase SDK 版本在所有檔案裡一致', () => {
   }
   assert.equal(versions.size <= 1, true, `firebase SDK 版本不一致：${[...versions].join(', ')}`);
 });
+
+test('壓表與來訪編輯器共用同一個「這一次記一句」的長度上限', () => {
+  // 兩邊寫的是同一個欄位（visits 的 note）。各自寫死一個數字的下場是
+  // 「在壓表打得下，回來改就被截掉」—— 而她不會知道字是在哪一步不見的。
+  const offenders = [];
+  for (const name of ['schedule.js', 'visitEditor.js']) {
+    const src = readFileSync(join(JS_ROOT, 'ui/views', name), 'utf8');
+    if (!/NOTE_MAX/.test(src)) offenders.push(`${name} 沒有用 NOTE_MAX`);
+    // data-note / name="note" 附近不可以出現寫死的 maxlength 數字
+    if (/maxlength="\d/.test(src)) offenders.push(`${name} 有寫死的 maxlength`);
+  }
+  assert.deepEqual(offenders, [], offenders.join('；'));
+});

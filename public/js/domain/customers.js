@@ -5,6 +5,7 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
+import { contraindicationTerms } from './contraindications.js';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -104,6 +105,38 @@ export function warnings(c, existing = []) {
 }
 
 /**
+ * 把永久限制拆成「可以用點的」與「只能自己打」兩份，給編輯表單用。
+ *
+ * 會擋掉器材的那幾個字是有限的一組（`contraindicationTerms()`），所以它們可以
+ * 做成丸子讓她點 —— 那種字打錯一個就完全不會擋，而不會擋的醫療禁忌比沒有
+ * 更危險。其餘的（固定禮拜五不行）是她自己的話，句子長什麼樣只有她知道，
+ * 只能留自由輸入。
+ *
+ * @param {string[]} flags 客戶身上的永久限制
+ * @param {string[]} terms 可以點的那幾個字，由 contraindicationTerms() 給
+ * @returns {{picked: string[], others: string[]}} picked 照 terms 的順序，
+ *          others 照客戶身上的原順序
+ */
+export function splitFlagsForEdit(flags = [], terms = []) {
+  const has = new Set(flags ?? []);
+  return {
+    picked: (terms ?? []).filter((t) => has.has(t)),
+    others: (flags ?? []).filter((f) => !(terms ?? []).includes(f)),
+  };
+}
+
+/**
+ * 拆開的兩份合回一個 flags。丸子排前面 —— 會擋東西的字要先被看到。
+ *
+ * 去重是必要的而不是保險：她可能在自由輸入那一欄又打了一次「體內金屬」，
+ * 而 `validate()` 會因為重複而擋下整張表單，卻沒有任何一個欄位看起來是錯的。
+ */
+export function mergeFlags(picked = [], others = []) {
+  const all = [...(picked ?? []), ...(others ?? [])].map((x) => String(x).trim());
+  return [...new Set(all.filter(Boolean))];
+}
+
+/**
  * 醫療禁忌是永久限制的子集：會讓某個器材完全不能用的那些。
  * 客戶卡片上要把它跟一般限制分開顯示 —— 一般限制是提醒，禁忌是硬性阻擋。
  * @param {object} customer
@@ -111,9 +144,7 @@ export function warnings(c, existing = []) {
  * @returns {{contraindications: string[], others: string[]}}
  */
 export function splitFlags(customer, equipment = []) {
-  const blocking = new Set(
-    equipment.filter((e) => !e.deletedAt).flatMap((e) => e.contraindications ?? []),
-  );
+  const blocking = new Set(contraindicationTerms(equipment));
   const flags = customer?.flags ?? [];
   return {
     contraindications: flags.filter((f) => blocking.has(f)),

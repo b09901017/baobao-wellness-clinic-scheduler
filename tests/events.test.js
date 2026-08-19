@@ -16,6 +16,7 @@ import {
   layoutMonth,
   lengthInDays,
   overlapsRange,
+  spanLabel,
   validateEvent,
 } from '../public/js/domain/events.js';
 import { monthWeeks } from '../public/js/domain/calendar.js';
@@ -234,6 +235,18 @@ test('跨天的顯示成日期區間，單天整天的顯示成整天', () => {
 
   const one = ev();
   assert.equal(dayEvents([one], '2026-08-03').allDay[0].spanLabel, '整天');
+});
+
+test('資訊卡片與日曆格子講的是同一句「什麼時候」', () => {
+  // 兩邊各寫一份的話，同一筆行程會在兩個地方顯示得不一樣，而她會以為那是兩筆
+  const span = ev({ startDate: '2026-08-03', endDate: '2026-08-06' });
+  assert.equal(spanLabel(span), dayEvents([span], '2026-08-03').allDay[0].spanLabel);
+
+  const timed = ev({ allDay: false, startTime: '15:00', endTime: '17:00' });
+  assert.equal(spanLabel(timed), '15:00–17:00');
+  assert.equal(spanLabel(timed), dayEvents([timed], '2026-08-03').timed[0].spanLabel);
+
+  assert.equal(spanLabel(ev()), '整天');
 });
 
 test('第一天與最後一天標得出來', () => {

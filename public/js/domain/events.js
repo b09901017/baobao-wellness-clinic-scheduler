@@ -240,17 +240,24 @@ export function dayEvents(events, date) {
   return { allDay, timed };
 }
 
+/**
+ * 「什麼時候」那一句：跨天的給日期範圍、整天的就寫整天、其餘給起訖時間。
+ *
+ * 日曆的格子與資訊卡片講的是同一件事，所以只有這一份 —— 兩份的下場是
+ * 同一筆行程在兩個地方寫得不一樣，而她會以為那是兩筆。
+ */
+export function spanLabel(event) {
+  const e = event ?? {};
+  if (lengthInDays(e) > 1) return `${shortDate(e.startDate)}–${shortDate(e.endDate)}`;
+  if (e.allDay) return '整天';
+  return `${e.startTime}–${e.endTime}`;
+}
+
 function withSpanLabel(event, date) {
-  const days = lengthInDays(event);
   return {
     ...event,
     kind: kindClass(event.category),
-    spanLabel:
-      days > 1
-        ? `${shortDate(event.startDate)}–${shortDate(event.endDate)}`
-        : event.allDay
-          ? '整天'
-          : `${event.startTime}–${event.endTime}`,
+    spanLabel: spanLabel(event),
     isFirstDay: event.startDate === date,
     isLastDay: event.endDate === date,
   };

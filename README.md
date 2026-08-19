@@ -148,6 +148,17 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 - 客戶的特殊狀況改成多筆彩色備註，會籍退出畫面
   （[ADR-0019](./docs/adr/0019-customer-notes-become-coloured-marks.md)）
 
+再一輪之後，回饋集中在日曆：「不管點什麼都會跳到別的畫面」。第三輪把那一頁的
+換頁全部收掉，順便把抽屜改成拖得動的
+（[ADR-0020](./docs/adr/0020-the-calendar-never-changes-pages.md)），待辦在
+`.scratch/calendar-no-page-change/`：
+
+- 月檢視點的是一整格，不是那顆日期數字；色條不再是連結
+- 點一筆先浮出讀取模式的卡片，按鉛筆才進編輯器，而編輯器就長在同一張面板裡
+- 日曆左右滑換上／下一個月（週檢視換週、日檢視換天）
+- 底部面板抓著橫桿往下拖關掉、往上拖到頂
+- 客戶的永久限制裡，會擋掉器材的那幾個字變成可以點的丸子
+
 ## 文件
 
 完整的需求背景、資料模型、業務規則、名詞表都在 **[`SPEC.md`](./SPEC.md)**。

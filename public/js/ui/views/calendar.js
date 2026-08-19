@@ -1,4 +1,4 @@
-// 日曆。SPEC 第 8.6 節、ADR-0015。取代 TimeTree（第 4.9 節）。
+// 日曆。SPEC 第 8.6 節、ADR-0015、ADR-0020。取代 TimeTree（第 4.9 節）。
 //
 // 這是**可以直接編輯的第一線畫面**，不是唯讀的檢視。上面有兩種各自獨立的東西：
 //
@@ -8,6 +8,11 @@
 // 月檢視上跨天的東西畫成橫跨格子的色條而不是圓點 —— 看不出從哪天到哪天的話，
 // 那條資訊等於沒給。排版計算在 domain/events.js 的 layoutMonth()。
 //
+// **這一頁從頭到尾不換頁**（ADR-0020）：點一天從底部滑出那一天，點裡面一筆
+// 浮出一張讀取模式的卡片，按鉛筆才進編輯器，而編輯器就長在同一張抽屜裡。
+// 左右滑是上一個月／下一個月。她開這一頁是為了「看八月」，任何把八月洗掉的
+// 動作都要有很好的理由。
+//
 // 這一頁只顯示她自己排的來訪。同事在 Abovee 上壓的東西這裡看不到
 //（SPEC 第 4.7 節），所以「空的格子」不代表那個時段真的空著 ——
 // 畫面上要講明這件事，不然她會拿這一頁當可用時段表用。
@@ -16,18 +21,20 @@ import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as customersData from '../../data/customers.js';
+import * as visitEditor from './visitEditor.js';
+import * as eventEditor from './eventEditor.js';
 import {
   VIEWS, VIEW_LABELS, WEEKDAY_HEADERS,
   rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate,
 } from '../../domain/calendar.js';
-import { layoutMonth, dayEvents, countByDate } from '../../domain/events.js';
+import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { describeStatus } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
-import { toMinutes, isValidTime } from '../../domain/visitTime.js';
+import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
+import { openCard, closeCard } from '../components/card.js';
 import { icon } from '../icons.js';
-import { go } from '../router.js';
 
 // 看到哪一天留在模組層：點進一筆來訪再退回來，她要回到原本那一頁而不是今天。
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
@@ -42,32 +49,72 @@ const KINDS = [
 
 const shows = (id) => !state.hidden.has(id);
 
+/** 左右滑的三格：上一頁、這一頁、下一頁。 */
+const PANES = [-1, 0, 1];
+
+/** 換到哪一頁的序號。補讀回來的資料比她的下一次滑還慢時，用它決定要不要丟掉。 */
+let epoch = 0;
+
 export async function render(el) {
+  const mine = ++epoch;
   state.date ??= todayISO();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
-  const range = rangeOf(state.view, state.date);
-  let data;
-  try {
-    const [visits, events, rooms, staff] = await Promise.all([
-      visitsData.listBetween(range.from, range.to),
-      eventsData.listInRange(range.from, range.to),
-      config.listAll('rooms'),
-      config.listAll('staff'),
-    ]);
-    data = {
-      visits,
-      events,
-      roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
-      staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
-    };
-  } catch (err) {
-    el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
+  const result = await load();
+  if (mine !== epoch) return;
+  if (!result.ok) {
+    el.innerHTML = `<div class="card"><p>讀取失敗：${esc(result.error)}</p>
       <p class="muted">如果訊息裡有建立索引的連結，點它建好之後再回來。</p></div>`;
     return;
   }
+  paint(el, result.value);
+}
 
+/**
+ * 讀三格的範圍。左右滑要能立刻畫出隔壁那個月，滑到一半才去讀
+ * 會看到一片空白然後跳一下 —— 那正是「絲滑」的反面。
+ */
+async function load() {
+  const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
+  const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
+  try {
+    const [visits, events, rooms, staff] = await Promise.all([
+      visitsData.listBetween(from.from, to.to),
+      eventsData.listInRange(from.from, to.to),
+      config.listAll('rooms'),
+      config.listAll('staff'),
+    ]);
+    return {
+      ok: true,
+      value: {
+        visits,
+        events,
+        roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
+        staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * 滑到隔壁那一頁之後。
+ *
+ * **先用手上的資料立刻畫，再靜靜補讀一次。** 走 `render()` 會先閃一下「載入中…」，
+ * 那一閃正好落在她剛放開手指的那一刻 —— 手感會從「翻過去了」變成「重新載入了」。
+ * 隔壁那一格本來就已經讀進來了，畫得出來；再隔壁那一格等補讀回來才有東西，
+ * 而那一格她現在看不到。
+ */
+async function slide(el, data, offset) {
+  const mine = ++epoch;
+  state.date = moveBy(state.view, state.date, offset);
   paint(el, data);
+
+  const result = await load();
+  // 她可能在補讀回來之前又滑了一次，那時這份資料講的是別的月份
+  if (!result.ok || mine !== epoch) return;
+  paint(el, result.value);
 }
 
 function paint(el, data) {
@@ -101,9 +148,14 @@ function paint(el, data) {
         </button>`).join('')}
     </div>
 
-    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data)}</p>
+    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}</p>
 
-    ${bodyHtml(data, today)}
+    <div class="swipe noscroll-bar" data-swipe>
+      ${PANES.map((offset) => {
+        const date = moveBy(state.view, state.date, offset);
+        return `<div class="swipe__pane" data-offset="${offset}">${bodyHtml(data, date, today)}</div>`;
+      }).join('')}
+    </div>
 
     <p class="footnote">
       ${icon('info', { size: 14 })}
@@ -116,9 +168,15 @@ function paint(el, data) {
   wire(el, data);
 }
 
-function countLine(data) {
-  const visits = shows('visit') ? data.visits.length : 0;
-  const events = data.events.filter((e) => shows(e.category)).length;
+function countLine(data, date) {
+  const range = rangeOf(state.view, date);
+  const inRange = (d) => d >= range.from && d <= range.to;
+  const visits = shows('visit')
+    ? data.visits.filter((v) => inRange(v.date)).length
+    : 0;
+  const events = data.events.filter(
+    (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
+  ).length;
   const parts = [];
   if (visits) parts.push(`${visits} 筆來訪`);
   if (events) parts.push(`${events} 筆行程`);
@@ -127,10 +185,10 @@ function countLine(data) {
 
 // ---------- 三種檢視 ----------
 
-function bodyHtml(data, today) {
-  if (state.view === 'day') return dayHtml(data, state.date, today);
-  if (state.view === 'week') return weekHtml(data, today);
-  return monthHtml(data, today);
+function bodyHtml(data, date, today) {
+  if (state.view === 'day') return dayHtml(data, date, today);
+  if (state.view === 'week') return weekHtml(data, date, today);
+  return monthHtml(data, date, today);
 }
 
 /**
@@ -138,33 +196,38 @@ function bodyHtml(data, today) {
  *
  * 來訪與個人行程餵進同一次排版計算 —— 分兩次算的話兩種東西會互相蓋住，
  * 而她看月檢視就是為了知道「那一天到底卡了幾件事」。
+ *
+ * **一整欄都是那一天的按鈕**（`.monthweek__hit`，從第一列跨到最後一列）：
+ * 她的手指戳的是那一天，不是那個數字。色條疊在上面但不吃點擊 ——
+ * 點到人名跳去別的畫面是最容易誤觸的一種設計（ADR-0020）。
  */
-function monthHtml(data, today) {
-  const weeks = monthWeeks(state.date.slice(0, 7));
+function monthHtml(data, date, today) {
+  const weeks = monthWeeks(date.slice(0, 7));
   const items = [
     ...(shows('visit') ? data.visits.map(visitAsBar) : []),
     ...data.events.filter((e) => shows(e.category)),
   ];
   const rows = layoutMonth(items, weeks);
-  const month = state.date.slice(0, 7);
+  const month = date.slice(0, 7);
 
   return `
     <div class="monthgrid">
       <div class="monthgrid__wd">${WEEKDAY_HEADERS.map((w) => `<span>${w}</span>`).join('')}</div>
       ${weeks.map((week, wi) => `
         <div class="monthweek">
-          ${week.map((day, di) => `
-            <div class="monthweek__day" style="grid-column: ${di + 1}">
-              <button class="monthweek__n num ${day.date.slice(0, 7) !== month ? 'monthweek__n--adj' : ''}
-                      ${day.date === today ? 'monthweek__n--today' : ''}
-                      ${day.date === state.day ? 'monthweek__n--on' : ''}"
-                      type="button" data-day="${day.date}">${Number(day.date.slice(8))}</button>
-            </div>`).join('')}
+          <div class="monthweek__hits">
+            ${week.map((day) => `
+              <button class="monthweek__hit ${day.date === state.day ? 'monthweek__hit--on' : ''}"
+                      type="button" data-day="${day.date}"
+                      aria-label="${esc(shortDate(day.date))}">
+                <span class="monthweek__n num ${day.date.slice(0, 7) !== month ? 'monthweek__n--adj' : ''}
+                      ${day.date === today ? 'monthweek__n--today' : ''}">${Number(day.date.slice(8))}</span>
+              </button>`).join('')}
+          </div>
           ${rows[wi].bars.map((b) => `
-            <button class="monthbar ${b.kind}" type="button"
-                    data-open="${esc(b.category === 'visit' ? `visit:${b.id}` : `event:${b.id}`)}"
-                    style="grid-column: ${b.col} / span ${b.span}; grid-row: ${b.lane + 2}"
-                    title="${esc(b.title)}">${esc(b.title)}</button>`).join('')}
+            <span class="monthbar ${b.kind}"
+                  style="grid-column: ${b.col} / span ${b.span}; grid-row: ${b.lane + 2}"
+                  title="${esc(b.title)}">${esc(b.title)}</span>`).join('')}
           ${rows[wi].more.map((n, di) => (n
             ? `<span class="monthmore" style="grid-column: ${di + 1}; grid-row: 5">+${n}</span>`
             : '')).join('')}
@@ -187,8 +250,8 @@ function visitAsBar(visit) {
 }
 
 /** 週。手機是七段直的清單，iPad 橫式才變七欄。一週是她真正在規劃的單位。 */
-function weekHtml(data, today) {
-  const days = weekDays(state.date);
+function weekHtml(data, date, today) {
+  const days = weekDays(date);
   const summary = summaryByDate(shows('visit') ? data.visits : []);
   const eventCounts = countByDate(
     data.events.filter((e) => shows(e.category)), days[0], days[6],
@@ -196,26 +259,23 @@ function weekHtml(data, today) {
 
   return `
     <div class="weekgrid">
-      ${days.map((date) => {
-        const day = summary[date];
-        const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
-        const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), date);
-        const total = (day?.visits ?? 0) + (eventCounts[date] ?? 0);
-        const weekend = [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+      ${days.map((d) => {
+        const day = summary[d];
+        const rows = shows('visit') ? agendaFor(data.visits, d, data) : [];
+        const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
+        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0);
+        const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         return `
           <section class="card ${weekend ? 'weekday--weekend' : ''}" style="padding: 0; overflow: hidden">
-            <div class="weekday__head">
-              <button class="weekday__n num ${date === today ? 'weekday__n--today' : ''}"
-                      type="button" data-day="${date}"
-                      style="border: none; background: ${date === today ? 'var(--accent)' : 'transparent'};
-                             color: ${date === today ? 'var(--accent-text)' : 'inherit'}; cursor: pointer">
-                ${Number(date.slice(8))}</button>
+            <button class="weekday__head" type="button" data-day="${d}">
+              <span class="weekday__n num ${d === today ? 'weekday__n--today' : ''}">
+                ${Number(d.slice(8))}</span>
               <span style="font-size: var(--text-sm); font-weight: 700; color: var(--text-dim)">
-                週${weekdayLabel(date)}</span>
+                週${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
-            </div>
+            </button>
 
             ${allDay.map(eventLine).join('')}
             ${timed.map(eventLine).join('')}
@@ -364,60 +424,204 @@ function fabHtml() {
  * 原本點一天是整頁切到日檢視 —— 那等於把「我在看八月」這個脈絡整個換掉，
  * 而她點下去只是想知道「這天卡了什麼」。像一般日曆 app 那樣推一個面板上來，
  * 看完往下滑掉就回到剛剛那個月。見 docs/adr/0018 的日曆那一段。
+ *
+ * 面板裡的每一筆都可以點，點了浮出一張讀取模式的卡片（ADR-0020）——
+ * 抽屜留在底下，看完那一筆關掉還在同一天。
  */
 function openDay(el, data, date) {
   const today = todayISO();
   const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
-  const { allDay } = dayEvents(data.events.filter((e) => shows(e.category)), date);
-  const n = rows.length + allDay.length;
+  const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), date);
+  const n = rows.length + allDay.length + timed.length;
 
   const sheet = openSheet({
-    title: esc(shortDate(date)),
+    title: shortDate(date),
     note: n
-      ? `${n} 件事。點一筆進去改。`
+      ? `${n} 件事。點一筆看細節，要改再按鉛筆。`
       : '這天還沒有東西 —— 但同事在 Abovee 壓的看不到，空的不代表真的空著。',
     body: dayHtml(data, date, today),
     actions: `
       <button class="btn" type="button" data-add-event>個人行程</button>
       <button class="btn btn--primary" type="button" data-add-visit>來訪</button>`,
+    onClose: closeCard,
   });
 
   sheet.el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const [what, id] = btn.dataset.open.split(':');
-      closeSheet();
-      go(what === 'visit' ? `/visits/${id}` : `/events/${id}`);
+      openDetail(el, data, what, id, date);
     }),
   );
 
-  sheet.el.querySelector('[data-add-event]').addEventListener('click', () => {
-    closeSheet();
-    go(`/events/new/${date}`);
-  });
+  sheet.el.querySelector('[data-add-event]').addEventListener('click', () =>
+    mountEditor(el, data, sheet, { kind: 'event', date, backDate: date }),
+  );
 
   sheet.el.querySelector('[data-add-visit]').addEventListener('click', () =>
-    openPicker(el, date),
+    pickCustomer(el, data, sheet, date, date),
   );
+
+  return sheet;
+}
+
+/**
+ * 一筆的讀取模式。**先給看的，不先給改的。**
+ *
+ * 她點一筆的十次有九次只是要確認「那天幾點、誰、做什麼」。直接進表單等於
+ * 每一次都冒著改到東西的風險，而這一站最不能出錯的就是次數（ADR-0020）。
+ */
+function openDetail(el, data, what, id, date) {
+  if (what === 'event') {
+    const event = data.events.find((e) => e.id === id);
+    if (!event) return;
+    openCard({
+      title: event.title,
+      subtitle: `${esc(describeCategory(event.category))}・${esc(spanLabel(event))}`,
+      body: eventReadHtml(event),
+      canEdit: true,
+      onEdit: () => {
+        closeCard();
+        openEditor(el, data, { kind: 'event', id: event.id, backDate: date });
+      },
+    });
+    return;
+  }
+
+  const visit = data.visits.find((v) => v.id === id);
+  if (!visit) return;
+  openCard({
+    title: visit.customerName ?? '（沒有名字）',
+    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
+    body: visitReadHtml(visit, data),
+    canEdit: true,
+    onEdit: () => {
+      closeCard();
+      openEditor(el, data, {
+        kind: 'visit', visitId: visit.id, date: visit.date, backDate: date,
+      });
+    },
+  });
+}
+
+function visitReadHtml(visit, data) {
+  const slots = visit.slots ?? [];
+  return `
+    ${slots.map((s) => {
+      const room = data.roomsById[s.roomId]?.name ?? null;
+      const therapist = data.staffById[s.therapistId]?.name ?? null;
+      const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
+      return `
+        <div class="readslot">
+          <div class="readslot__when num">${esc(timeLabel(s))}</div>
+          <div class="readslot__what">${esc(s.courseName ?? '（沒有課程）')}${
+            where ? `・${esc(where)}` : ''}</div>
+        </div>`;
+    }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
+
+    ${visit.note ? `
+      <div class="readrow">
+        <span class="readrow__k">記的話</span>
+        <span class="readrow__v">${esc(visit.note)}</span>
+      </div>` : ''}
+
+    <p class="muted" style="margin: var(--space-3) 0 0">
+      改時間不是改日期 —— 取消這一筆再重排一筆，舊系統的登記才會長出取消任務。</p>`;
+}
+
+function eventReadHtml(event) {
+  return `
+    <div class="readrow">
+      <span class="readrow__k">哪一種</span>
+      <span class="readrow__v">${esc(describeCategory(event.category))}</span>
+    </div>
+    <div class="readrow">
+      <span class="readrow__k">時間</span>
+      <span class="readrow__v">${esc(spanLabel(event))}</span>
+    </div>
+    ${event.note ? `
+      <div class="readrow">
+        <span class="readrow__k">備註</span>
+        <span class="readrow__v">${esc(event.note)}</span>
+      </div>` : ''}
+    <p class="muted" style="margin: var(--space-3) 0 0">
+      個人行程不綁客戶、不產生任務、不扣次數。</p>`;
+}
+
+// ---------- 就地編輯 ----------
+
+/**
+ * 把編輯器掛進**一張抽屜**，不換頁也不開第二層面板。
+ *
+ * 為什麼不是換頁：她在日曆上排一筆的心裡狀態是「八月三號那天再塞一個」，
+ * 換頁把八月洗掉之後，存完回來還要自己找回那一天（ADR-0020）。
+ *
+ * `backDate` 是「取消的話回哪一天」。從某一天的抽屜點進來就填那一天，
+ * 從懸浮鈕進來就沒有 —— 取消直接關掉。
+ *
+ * @param {object} spec { kind:'visit'|'event', id?, visitId?, customerId?, date?, backDate? }
+ */
+function mountEditor(el, data, sheet, spec) {
+  const { kind, backDate = null } = spec;
+  const isNew = !spec.id && !spec.visitId;
+
+  // 抬頭放日期不放人名：人名連同狀態與醫療禁忌就在編輯器自己的第一列，
+  // 抬頭再寫一次等於用掉一整行講同一件事。她在這裡要確認的是「排到哪一天」。
+  sheet.setTitle(kind === 'event'
+    ? (isNew ? '新增個人行程' : '個人行程')
+    : `${shortDate(spec.date)} ${isNew ? '排一筆' : '的來訪'}`);
+  sheet.setNote('');
+  sheet.setActions('');
+  sheet.update('<div data-editor></div>');
+  // 表單比一天的清單長得多，直接撐到頂 —— 不必她自己再拖一次
+  sheet.el.classList.add('drawer--full');
+
+  const host = sheet.el.querySelector('[data-editor]');
+  const opts = {
+    embedded: true,
+    onDone: () => {
+      closeSheet();
+      render(el);
+    },
+    onCancel: () => {
+      closeSheet();
+      if (backDate) openDay(el, data, backDate);
+    },
+  };
+
+  if (kind === 'event') {
+    if (spec.id) eventEditor.mountEdit(host, { id: spec.id, ...opts });
+    else eventEditor.mountNew(host, { date: spec.date, ...opts });
+  } else if (spec.visitId) {
+    visitEditor.mountEdit(host, { visitId: spec.visitId, ...opts });
+  } else {
+    visitEditor.mountNew(host, { customerId: spec.customerId, date: spec.date, ...opts });
+  }
+}
+
+/** 沒有現成抽屜可以接的時候（懸浮鈕、資訊卡片上的鉛筆）就開一張新的。 */
+function openEditor(el, data, spec) {
+  const sheet = openSheet({ title: '', body: '', onClose: closeCard });
+  mountEditor(el, data, sheet, spec);
 }
 
 /**
  * 新增來訪要先選人。日曆上她心裡想的是「這一天要幫誰排」，
- * 所以選完人直接帶著日期進來訪編輯器，不要讓她再挑一次日期。
+ * 所以選完人直接帶著日期進來訪編輯器 —— 而且是**在同一張抽屜裡**接下去，
+ * 不要選完人畫面就換掉（ADR-0020）。
  *
  * 客戶清單只在真的要選人的時候才讀 —— 日曆是每天都會開的一頁，
  * 不要為了它多一次讀取。
  */
-function openPicker(el, date) {
-  const sheet = openSheet({
-    title: `${esc(shortDate(date))} 要幫誰排？`,
-    note: '選完會帶著這一天進來訪編輯器。',
-    body: `
-      <label class="field">
-        <span class="visually-hidden">找人</span>
-        <input type="text" data-search placeholder="打名字" style="width: 100%" />
-      </label>
-      <div class="groups" data-people><p class="muted" style="padding: var(--space-3); margin: 0">載入中…</p></div>`,
-  });
+function pickCustomer(el, data, sheet, date, backDate = null) {
+  sheet.setTitle(`${shortDate(date)} 要幫誰排？`);
+  sheet.setNote('選完就在這裡接著記，不會換頁。');
+  sheet.setActions('');
+  sheet.update(`
+    <label class="field">
+      <span class="visually-hidden">找人</span>
+      <input type="text" data-search placeholder="打名字" style="width: 100%" />
+    </label>
+    <div class="groups" data-people><p class="muted" style="padding: var(--space-3); margin: 0">載入中…</p></div>`);
 
   const box = sheet.el.querySelector('[data-people]');
   const search = sheet.el.querySelector('[data-search]');
@@ -445,10 +649,11 @@ function openPicker(el, date) {
           : '<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>';
 
         box.querySelectorAll('[data-pick]').forEach((btn) =>
-          btn.addEventListener('click', () => {
-            closeSheet();
-            go(`/visits/new/${btn.dataset.pick}/${date}`);
-          }),
+          btn.addEventListener('click', () =>
+            mountEditor(el, data, sheet, {
+              kind: 'visit', customerId: btn.dataset.pick, date, backDate,
+            }),
+          ),
         );
       };
 
@@ -463,11 +668,9 @@ function openPicker(el, date) {
 // ---------- 事件 ----------
 
 function wire(el, data) {
+  // 箭頭跟左右滑走同一條路 —— 一個閃「載入中」另一個不閃，會像兩個不同的功能
   el.querySelectorAll('[data-move]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      state.date = moveBy(state.view, state.date, Number(btn.dataset.move));
-      render(el);
-    }),
+    btn.addEventListener('click', () => slide(el, data, Number(btn.dataset.move))),
   );
 
   el.querySelector('[data-today]')?.addEventListener('click', () => {
@@ -500,11 +703,12 @@ function wire(el, data) {
     }),
   );
 
+  // 週檢視與日檢視裡的一筆：浮出讀取模式的卡片，不換頁
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const [what, id] = btn.dataset.open.split(':');
-      go(what === 'visit' ? `/visits/${id}` : `/events/${id}`);
+      openDetail(el, data, what, id, null);
     }),
   );
 
@@ -515,14 +719,56 @@ function wire(el, data) {
 
   el.querySelector('[data-new-event]')?.addEventListener('click', () => {
     state.fab = false;
-    go(`/events/new/${state.day ?? state.date}`);
+    paint(el, data);
+    openEditor(el, data, { kind: 'event', date: state.day ?? state.date });
   });
 
   el.querySelector('[data-new-visit]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
     // 懸浮鈕上的「新增」沒有指定哪一天，就用她現在看著的那一天
-    openPicker(el, state.day ?? state.date);
+    const sheet = openSheet({ title: '', body: '', onClose: closeCard });
+    pickCustomer(el, data, sheet, state.day ?? state.date);
   });
+
+  wireSwipe(el, data);
 }
 
+/**
+ * 左右滑換上一個月／下一個月。
+ *
+ * 三格 `scroll-snap`，中間那一格是現在這一頁，滑停之後把 state 往那個方向挪一格
+ * 再重畫、靜靜捲回中間。**不自己接 touch 事件** —— 慣性、邊緣回彈與跨裝置的手感
+ * 只有瀏覽器原生的捲動給得出來，這一點跟壓表的卡片組同一個判斷（ADR-0017）。
+ *
+ * 用捲動停下來判斷而不是 `scrollend`：iOS Safari 到現在都還不一定發那個事件，
+ * 而這一頁一半的時間跑在 iPad 上。
+ */
+function wireSwipe(el, data) {
+  const box = el.querySelector('[data-swipe]');
+  if (!box) return;
+
+  const paneWidth = () => box.clientWidth;
+
+  // 先站到中間那一格。auto 而不是 smooth —— 這不是她做的動作，不該看到它滑。
+  const center = () => box.scrollTo({ left: paneWidth(), behavior: 'auto' });
+  center();
+  // 版面還在算的時候 clientWidth 可能是 0，下一幀再站一次
+  requestAnimationFrame(center);
+
+  let timer = null;
+  let settling = false;
+
+  box.addEventListener('scroll', () => {
+    if (settling) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const w = paneWidth();
+      if (!w) return;
+      const offset = Math.round(box.scrollLeft / w) - 1;
+      if (!offset) return;
+      settling = true;
+      slide(el, data, offset);
+    }, 110);
+  });
+}
