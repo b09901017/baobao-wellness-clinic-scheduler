@@ -66,10 +66,17 @@ python3 .claude/skills/calendar-sheet-merge/scripts/xlsx-to-tsv.py <xlsx> <暫�
 
 ```json
 {
-  "nicknames": { "<客戶全名>": ["<行事曆上的叫法>", "..."] },
-  "therapists": ["<治療師名字>", "..."]
+  "nicknames":        { "<客戶全名>": ["<行事曆上的叫法>", "..."] },
+  "therapists":       ["<行事曆上出現過的治療師寫法>", "..."],
+  "therapistAliases": { "<主檔的正式名字>": ["<行事曆上的寫法>", "..."] },
+  "doctors":          ["<醫師，通常只有一個字>", "..."],
+  "noise":            ["<看起來像名字但不是人的字>", "..."]
 }
 ```
+
+`therapists` 是給「這串字裡有沒有寫別人」用的（少了它，寫著治療師名字的事件會被
+當成別位客戶而整筆放棄）；`therapistAliases` 是給輸出用的 —— **合併檔裡一定要寫主檔的
+正式名字**，送「新穎」「LU」過去，app 對不到主檔，那個欄位就會留空。
 
 放在 `.local/aliases.json`（已經 gitignore）。腳本自己會處理的不用寫進去：
 去姓（陳何淑子→何淑子）、括號裡的配偶名字、異體字（啟↔啓、惠↔慧、崴↔威）。

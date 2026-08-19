@@ -326,7 +326,7 @@ const addMin = (hhmm, min) => {
 
 // ---------- 整批 ----------
 
-export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], doctors = [], noise = [], today = null }) {
+export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], therapistAliases = {}, doctors = [], noise = [], today = null }) {
   const ctx = {
     courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts,
     plans: SEED.plans, existingCustomers: [], year, importedAt: null,
@@ -348,9 +348,13 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
 
   // 主檔的治療師名單 ＋ 對照表補的別名。認得這些字，`residualNames()` 才不會把
   // 「9.30 IN 姿璇」判成「寫了別人的名字」而放棄那一筆。
+  // 主檔的正式名字 ＋ 她在行事曆上的寫法。**輸出的一定是正式名字** ——
+  // app 那一側是拿名字去對主檔的，送「新穎」「LU」過去就對不到，欄位會留空。
   const staff = [
-    ...SEED.staff.map((x) => ({ name: x.name, aka: [] })),
-    ...therapists.filter((t) => !SEED.staff.some((x) => normVariant(x.name) === normVariant(t)))
+    ...SEED.staff.map((x) => ({ name: x.name, aka: therapistAliases[x.name] ?? [] })),
+    ...therapists
+      .filter((t) => !SEED.staff.some((x) => normVariant(x.name) === normVariant(t)
+        || (therapistAliases[x.name] ?? []).some((a) => normVariant(a) === normVariant(t))))
       .map((t) => ({ name: t, aka: [] })),
   ];
   const therapistWords = [...staff.map((x) => x.name), ...therapists, ...(doctors ?? []), ...(noise ?? [])];
@@ -641,6 +645,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     sheetsDir, icsPath, year: Number(arg('year', new Date().getFullYear())),
     aliases: aliases.nicknames ?? aliases,
     therapists: aliases.therapists ?? [],
+    therapistAliases: aliases.therapistAliases ?? {},
     doctors: aliases.doctors ?? [],
     noise: aliases.noise ?? [],
     today: arg('today', new Date().toISOString().slice(0, 10)),

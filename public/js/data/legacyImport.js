@@ -21,6 +21,10 @@ export async function loadContext() {
     equipment: cache.equipment,
     ivProducts: cache.ivProducts,
     plans: cache.plans,
+    // 診間與治療師只有合併檔用得到（舊試算表沒記過那兩樣，ADR-0011），
+    // 但兩條路共用同一份對照資料 —— 兩支各讀一次主檔只會多一趟往返。
+    rooms: cache.rooms,
+    staff: cache.staff,
     existingCustomers,
   };
 }
@@ -83,6 +87,25 @@ export async function importPlan(plan) {
 
   await repo.commit(ops);
   return { customerId, entitlements: plan.entitlements.length, visits: visits.length };
+}
+
+/**
+ * 她從行事曆勾起來的個人行程。
+ *
+ * 跟客戶那一段不一樣，這裡**刻意分批寫**：個人行程彼此獨立（不綁客戶、不扣次數），
+ * 少進去一筆就是少一筆，不會留下半套的資料。客戶那一段之所以拒絕分批，
+ * 是因為「客戶建好了、額度只進去三筆」沒有人看得出來。
+ */
+export async function importEvents(docs, onProgress = null) {
+  const CHUNK = 100; // repo.commit 的上限是 250 個操作（每筆佔兩個：本體 + 稽核）
+  let done = 0;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const slice = docs.slice(i, i + CHUNK);
+    await repo.commit(slice.map((data) => ({ op: 'create', path: 'events', data })));
+    done += slice.length;
+    onProgress?.(done, docs.length);
+  }
+  return done;
 }
 
 /**
