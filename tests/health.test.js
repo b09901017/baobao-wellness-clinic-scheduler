@@ -1,8 +1,9 @@
 // 資料健檢。SPEC 第 6.6 節。
 //
 // 這一支盯的是兩件事：
-// 1. 七項檢查真的各自抓得到它該抓的東西，而且不會互相汙染
-// 2. 只有次數對帳給得出 fix —— 其餘六項一律 fix 為 null（ADR-0007）
+// 1. 每一項檢查真的各自抓得到它該抓的東西，而且不會互相汙染
+// 2. 只有次數對帳與「缺二返額度」給得出 fix，其餘一律 fix 為 null
+//    （ADR-0007、ADR-0023）
 //
 // 檢查本身的算法不在這裡重測（那是 entitlements / taskRules / availability
 // / visitTime 各自的測試），這裡測的是「有沒有正確地把它們接起來」。
@@ -15,7 +16,11 @@ import { runHealthCheck, healthBadge, CHECKS, SEVERITIES } from '../public/js/do
 const TODAY = '2026-09-15';
 
 const MASTER = {
-  courses: [{ id: 'c-recovery', name: '復能', requiresEquipment: true }],
+  courses: [
+    { id: 'c-recovery', name: '復能', requiresEquipment: true },
+    { id: 'c-checkup', name: '健檢', durationMin: 120, followupCourseId: 'c-followup' },
+    { id: 'c-followup', name: '二返', durationMin: 30 },
+  ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
   equipment: [{ id: 'eq-indiba', name: 'INDIBA' }],
@@ -61,9 +66,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('七項檢查都在，順序固定', () => {
+  test('八項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 7);
+    assert.equal(result.checks.length, 8);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -86,8 +91,8 @@ describe('形狀', () => {
     assert.equal(empty.totals.findings, 0);
   });
 
-  test('除了次數對帳，沒有任何一項給得出一鍵修正（ADR-0007）', () => {
-    // 故意做一份七項全中的資料
+  test('只有次數對帳與補二返額度給得出一鍵修正（ADR-0007、ADR-0023）', () => {
+    // 故意做一份每一項都中的資料
     const result = run({
       customers: [customer(), customer({ id: 'cus-2', name: '客戶二' })],
       entitlements: [ent({ doneCount: 9 }), ent({ id: 'e2', customerId: 'cus-2', totalQty: 1 })],
@@ -106,7 +111,11 @@ describe('形狀', () => {
       for (const f of check.findings) {
         assert.ok(SEVERITIES.includes(f.severity), `${check.id} 用了沒定義的嚴重度`);
         if (check.id === 'counts') assert.ok(f.fix, '次數對帳要給得出修正');
-        else assert.equal(f.fix, null, `${check.id} 不該給修正`);
+        // 二返那一項有兩種 finding：缺額度（可以補）與次數對不上（要她判斷）
+        else if (check.id === 'followups') {
+          assert.equal(Boolean(f.fix), f.severity === 'mismatch',
+            '缺的可以一鍵補，次數對不上的不給修正');
+        } else assert.equal(f.fix, null, `${check.id} 不該給修正`);
       }
     }
     assert.equal(result.totals.fixable, findingsOf(result, 'counts').length);
@@ -388,5 +397,62 @@ describe('摘要', () => {
     assert.equal(result.totals.mismatch, 1);
     assert.equal(result.totals.attention, 1);
     assert.equal(healthBadge(result), '1 筆資料對不起來・1 筆要處理');
+  });
+});
+
+// ---------- 二返額度 ----------
+//
+// GitHub issue #15：買了健檢卻沒有二返額度的客戶，行事曆上的二返補不進來。
+// 額度展開之後就跟範本脫鉤（ADR-0003），所以既有客戶只能靠這一項補。
+
+describe('二返額度', () => {
+  const checkupEnt = (over = {}) => ent({
+    id: 'e-checkup', type: 'single', label: '0.75萬健檢', courseId: 'c-checkup',
+    totalQty: 3, ...over,
+  });
+  const followupEnt = (over = {}) => ent({
+    id: 'e-followup', type: 'single', label: '二返（0.75萬健檢）', courseId: 'c-followup',
+    totalQty: 3, followupForEntitlementId: 'e-checkup', ...over,
+  });
+
+  test('買了健檢卻沒有二返額度就報，而且可以一鍵補', () => {
+    const [found, ...rest] = findingsOf(run({ entitlements: [checkupEnt()] }), 'followups');
+    assert.deepEqual(rest, []);
+    assert.equal(found.severity, 'mismatch');
+    assert.equal(found.fix.kind, 'addFollowup');
+    assert.equal(found.fix.customerId, 'cus-1');
+    assert.equal(found.fix.draft.totalQty, 3, '次數就是健檢的次數');
+    assert.equal(found.fix.draft.courseId, 'c-followup');
+    assert.equal(found.fix.draft.followupForEntitlementId, 'e-checkup');
+  });
+
+  test('配好了就不報', () => {
+    const result = run({ entitlements: [checkupEnt(), followupEnt()] });
+    assert.deepEqual(findingsOf(result, 'followups'), []);
+  });
+
+  test('沒有健檢額度的客戶不會被拉進來', () => {
+    assert.deepEqual(findingsOf(run({ entitlements: [ent()] }), 'followups'), []);
+  });
+
+  test('次數對不上只提醒，不給一鍵修正 —— 她可能是故意的', () => {
+    const result = run({ entitlements: [checkupEnt(), followupEnt({ totalQty: 2 })] });
+    const [found] = findingsOf(result, 'followups');
+    assert.equal(found.severity, 'attention');
+    assert.equal(found.fix, null);
+    assert.match(found.detail, /健檢是 3 次，二返卻是 2 次/);
+  });
+
+  test('已刪除的健檢額度不用配', () => {
+    const result = run({ entitlements: [checkupEnt({ deletedAt: '2026-09-01' })] });
+    assert.deepEqual(findingsOf(result, 'followups'), []);
+  });
+
+  test('已停用的客戶不報 —— 她不會再替他排課', () => {
+    const result = run({
+      customers: [customer({ active: false })],
+      entitlements: [checkupEnt()],
+    });
+    assert.deepEqual(findingsOf(result, 'followups'), []);
   });
 });

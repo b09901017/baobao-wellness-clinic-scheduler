@@ -55,6 +55,11 @@ export async function render(el) {
           value: s.noReplyDays ?? DEFAULT_SETTINGS.noReplyDays, min: 1, step: 1,
           hint: '已壓表但客人還沒回，超過這個天數會在待辦中心變紅。',
         })}
+        ${f.number({
+          name: 'followupDueDays', label: '健檢做完幾天內要約好二返',
+          value: s.followupDueDays ?? DEFAULT_SETTINGS.followupDueDays, min: 1, step: 1,
+          hint: '「約二返」那筆待辦的死線 = 健檢日 + 這個天數。逾期一樣會變紅。',
+        })}
 
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
@@ -73,6 +78,7 @@ export async function render(el) {
     }
     if (!(v.slotGapMin >= 0)) errors.push('時段間隔必須是 0 或正數');
     if (!(v.noReplyDays >= 1)) errors.push('未回覆天數至少要 1 天');
+    if (!(v.followupDueDays >= 1)) errors.push('二返的天數至少要 1 天');
     f.showErrors(el, errors);
     if (errors.length) return;
 
@@ -80,6 +86,7 @@ export async function render(el) {
       sortWeights: Object.fromEntries(WEIGHTS.map((w) => [w.key, v[w.key]])),
       slotGapMin: v.slotGapMin,
       noReplyDays: v.noReplyDays,
+      followupDueDays: v.followupDueDays,
     };
     try {
       await toast.withSaveState(() => config.saveSettings(next), { success: '已儲存' });

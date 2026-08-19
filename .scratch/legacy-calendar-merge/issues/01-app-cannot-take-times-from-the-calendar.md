@@ -1,6 +1,6 @@
 # 合併出來的時間進不了 app：匯入頁只吃試算表，不吃行事曆
 
-Status: todo
+Status: done
 回報者：使用者，2026-08-19
 動工前先讀：`.claude/skills/calendar-sheet-merge/SKILL.md` 與它的兩份 references、
 `docs/adr/0011-imported-visits-are-incomplete-on-purpose.md`、
@@ -51,3 +51,11 @@ Status: todo
 - **不要自動採用低信心的配對。** 那幾筆長得跟高信心的一模一樣，錯了她看不出來。
 - **不要在 app 裡重寫一份比對規則。** 搬過去之後 skill 的腳本改成引用 domain，
   同一件事只能有一份實作（`CLAUDE.md`）。
+
+## Comments
+
+**2026-08-19 — 這一支其實在 PR #16 就做完了**（`domain/mergeImport.js`、
+`ui/views/mergeImport.js`、`tests/merge-import.test.js`），只是狀態忘了改。補上。
+
+後續：合併檔補進去時卡住的那 15 筆是另一個問題（客戶身上沒有二返額度），
+處理在 `.scratch/followup-visit/issues/01` 與 GitHub issue #15。

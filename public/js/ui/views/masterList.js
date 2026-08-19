@@ -78,10 +78,11 @@ const editors = {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, frequencyRule: null,
+      followupCourseId: null,
     },
     summary: (r) =>
       `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`,
-    fields: (r) => [
+    fields: (r, all) => [
       f.text({ name: 'name', label: '課程名稱', value: r.name, placeholder: '復能' }),
       f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 5 }),
       f.select({
@@ -112,6 +113,20 @@ const editors = {
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
       }),
+      // 健檢 → 二返。設了之後，買 N 次這個課程就自動有 N 次後續課程的額度，
+      // 而且做完一次就長出一筆「約⋯⋯」的待辦（ADR-0022）。
+      f.select({
+        name: 'followupCourseId', label: '做完之後還要再約一次的課程',
+        value: r.followupCourseId ?? null,
+        options: [
+          { value: null, label: '沒有' },
+          ...(all?.courses ?? [])
+            .filter((c) => !c.deletedAt && c.id !== r.id)
+            .map((c) => ({ value: c.id, label: c.active === false ? `${c.name}（已停用）` : c.name })),
+        ],
+        hint: '目前只有健檢用得到：健檢買幾次，二返就有幾次，'
+          + '而且健檢標成已完成之後會自動長出「約二返」的待辦。',
+      }),
     ],
     parse: (v, prev) => ({
       name: v.name.trim(),
@@ -124,6 +139,7 @@ const editors = {
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
       frequencyRule: v.frequencyRule?.trim() || null,
+      followupCourseId: v.followupCourseId ?? null,
     }),
     note: (r, all) => {
       const ids = r.allowedRoomIds ?? [];

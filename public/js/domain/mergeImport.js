@@ -13,6 +13,7 @@
 
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
+import { followupPlanEntries } from './followups.js';
 
 export const FORMAT = 'baobao-merge/v1';
 
@@ -152,6 +153,13 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       },
     });
   }
+  // 健檢配二返：買幾次健檢就有幾次二返（GitHub issue #15、ADR-0022）。
+  // 這一段就是那 15 筆補不進來的來訪的解法 —— 行事曆上記了二返，但舊表的
+  // 療程列裡沒有這一項，所以合併檔的 entitlements 裡也不會有，
+  // 補進來的時段就「對不到任何一筆額度」。
+  const paired = followupPlanEntries(entitlements, courses, { importedFrom: stamp });
+  entitlements.push(...paired);
+
   const keys = new Set(entitlements.map((e) => e.key));
 
   // ---------- 來訪 ----------
@@ -206,6 +214,7 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     problems,
     counts: {
       entitlements: entitlements.length,
+      followups: paired.length,
       visits: visits.length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
       timed: visits.reduce((n, v) => n + v.slots.filter((s) => s.startsAt).length, 0),
@@ -256,7 +265,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
-    counts: { entitlements: 0, visits: 0, slots: 0, timed: 0, low: 0 },
+    counts: { entitlements: 0, followups: 0, visits: 0, slots: 0, timed: 0, low: 0 },
   };
 }
 
@@ -362,6 +371,8 @@ export function summarize(plans) {
     customers: live.length,
     skipped: plans.filter((p) => p.skip).map((p) => ({ customerName: p.customerName, why: p.skip })),
     entitlements: live.reduce((n, p) => n + p.counts.entitlements, 0),
+    // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。
+    followups: live.reduce((n, p) => n + (p.counts.followups ?? 0), 0),
     visits: live.reduce((n, p) => n + p.counts.visits, 0),
     slots: live.reduce((n, p) => n + p.counts.slots, 0),
     timed: live.reduce((n, p) => n + p.counts.timed, 0),

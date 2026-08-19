@@ -5,7 +5,9 @@
 //   customers/{id}/entitlements/{id}   子集合
 
 import * as repo from './repo.js';
+import * as config from './config.js';
 import { expandPlan } from '../domain/entitlements.js';
+import { missingPairs } from '../domain/followups.js';
 
 const PATH = 'customers';
 const entPath = (customerId) => `${PATH}/${customerId}/entitlements`;
@@ -36,7 +38,29 @@ export async function listDeleted() {
 // ---------- 額度 ----------
 
 export const listEntitlements = (customerId) => repo.list(entPath(customerId));
-export const createEntitlement = (customerId, data) => repo.create(entPath(customerId), data);
+
+/**
+ * 加一筆額度，需要的話連它的二返額度一起建。
+ *
+ * 兩筆寫在同一個 commit 裡：分開寫的話「健檢建好了、二返失敗」會留下一份
+ * 看起來正常、其實少了一半的資料 —— 而少掉的那一半只有在她真的要記一筆二返
+ * 的時候才會被發現，那已經是幾週以後了。同一個 commit 也讓復原退得回兩筆。
+ *
+ * 配對規則本身在 domain/followups.js，這裡只負責寫。見 ADR-0022。
+ */
+export async function createEntitlement(customerId, data) {
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+
+  const id = repo.newId(entPath(customerId));
+  const pairs = missingPairs([{ ...data, id }], coursesById);
+
+  const [created] = await repo.commit([
+    { op: 'create', path: entPath(customerId), id, data },
+    ...pairs.map((p) => ({ op: 'create', path: entPath(customerId), data: p.draft })),
+  ]);
+  return created;
+}
 export const updateEntitlement = (customerId, id, changes) =>
   repo.update(entPath(customerId), id, changes);
 export const removeEntitlement = (customerId, id, reason) =>
@@ -116,14 +140,23 @@ export async function listDeletedAvailability() {
 export async function createWithPlan(customer, { plan = null, quantity = 1 } = {}) {
   const id = repo.newId(PATH);
 
+  // 額度的 id 先拿出來，因為二返那一筆要指回它配的是哪一筆健檢
+  // （`followupForEntitlementId`），而那個 id 必須先於寫入存在。
   const entitlements = expandPlan(plan, quantity, {
     purchasedAt: customer.purchasedAt ?? null,
     expiresAt: customer.membershipExpiresAt ?? null,
-  });
+  }).map((data) => ({ id: repo.newId(entPath(id)), data }));
+
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const pairs = missingPairs(
+    entitlements.map((e) => ({ ...e.data, id: e.id })),
+    Object.fromEntries(courses.map((c) => [c.id, c])),
+  );
 
   await repo.createMany([
     { path: PATH, id, data: { ...customer, active: true } },
-    ...entitlements.map((data) => ({ path: entPath(id), data })),
+    ...entitlements.map((e) => ({ path: entPath(id), id: e.id, data: e.data })),
+    ...pairs.map((p) => ({ path: entPath(id), data: p.draft })),
   ]);
 
   return id;

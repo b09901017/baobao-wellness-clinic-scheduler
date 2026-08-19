@@ -1,6 +1,6 @@
 # 健檢做完不會長出「約二返」，二返也不在額度裡
 
-Status: todo
+Status: done
 GitHub: https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15
 （使用者指定這一支開成 GitHub issue 給之後的 AI 接手。兩邊講同一件事，改了請一起改。）
 回報者：使用者，2026-08-19（比對舊試算表與行事曆時發現）
@@ -49,3 +49,37 @@ GitHub: https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15
 
 - 不要讓系統自動幫她「約」二返。app 是記錄者不是判斷者（ADR-0002）——
   它只負責提醒「這件事還沒做」，時間是她跟客戶談出來的。
+
+## Comments
+
+**2026-08-19 — 做完了。** 三段都接上了，`npm test` 從 519 變成 571 全過。
+
+決定的三件事（使用者 2026-08-19 選的）：
+
+- **二返是一筆真的額度**，不是從健檢推導。推導的話來訪的時段沒有 `entitlementId` 可以掛，
+  等於要在次數的算法裡開特例（ADR-0004 說那只能有一份實作），而且行事曆上那 15 筆
+  照樣補不進來 —— 那正是這一支要解決的問題。
+- **「約二返」的死線 = 健檢日 + 7 天**，做成 `settings.followupDueDays` 可調。
+  `SPEC.md` 第 13 節那一項打勾了。
+- **既有客戶用「資料健檢列出來 + 一鍵補」**，客戶詳情頁那一顆也留著。
+
+實作：
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `domain/followups.js`（新） | 配對、還欠幾次、「約二返」的 sync。這件事只寫在這一支 |
+| `config/courses.followupCourseId` | 健檢 → 二返的配對。記在主檔上，不寫死 id、不靠名字比對 |
+| `entitlements.followupForEntitlementId` | 二返那一筆指回它配的是哪一筆健檢（兩筆健檢時才不會配錯） |
+| `data/visits.js` 的 `followupOps()` | 每次存來訪都掃一次 —— 二返被約走時要收掉的待辦掛在另一筆來訪上 |
+| `domain/health.js` 第二項 | 「二返額度」：缺的可以一鍵補，次數對不上只提醒 |
+| `domain/legacyImport.js`、`domain/mergeImport.js` | 匯入時就配好，那 15 筆才補得進來 |
+
+補了兩支 ADR：[0022](../../../docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md)
+（成對展開，沒有推翻 ADR-0003）與
+[0023](../../../docs/adr/0023-health-check-can-also-create-the-missing-followup.md)
+（資料健檢多一個會寫入的動作，放寬了 ADR-0007 的「只有計數欄位」）。
+
+**還沒驗證的一件事**：那 15 筆到底補不補得進來，要等她拿真的 .ics + .xlsx 重跑一次
+`calendar-sheet-merge` 再貼進 `#/settings/merge` 才知道。程式這一側的路通了
+（`addExtraVisits()` 現在找得到二返額度），但主檔的健檢課程要先設好 `followupCourseId`
+—— 種子資料已經設了，她自己建的那一筆要去設定 → 課程 → 健檢確認一下。

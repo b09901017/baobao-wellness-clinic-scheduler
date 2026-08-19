@@ -45,8 +45,15 @@ export async function run(today) {
 }
 
 /**
- * 套用修正。目前只有計數欄位重算給得出修正，見
- * docs/adr/0007-health-check-reads-only.md。
+ * 套用修正。只有兩種修正做得出來，因為只有它們的正解不需要判斷：
+ *
+ * - `recount`：計數欄位改成從來訪重算的值。真相永遠是 visits（ADR-0004），
+ *   見 docs/adr/0007-health-check-reads-only.md。
+ * - `addFollowup`：補上缺的二返額度。次數就是健檢的次數，
+ *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
+ *
+ * 其餘的檢查一律只顯示差異：過期的來訪該標 done 還是 no_show、撞在一起的
+ * 兩筆該動哪一筆，都是 app 看不到 Abovee 就答不出來的問題（ADR-0002）。
  *
  * 一批寫在同一個 commit 裡，所以復原是把整批一起退回去 —— 一次修 12 筆之後
  * 只退得回其中一筆，比不能復原還危險。
@@ -55,11 +62,21 @@ export async function run(today) {
  * @returns {Promise<number>} 實際寫了幾筆
  */
 export async function applyFixes(fixes) {
-  const ops = (fixes ?? [])
-    .filter((fix) => fix?.kind === 'recount')
-    .map((fix) => ({
+  const ops = (fixes ?? []).map(opFor).filter(Boolean);
+
+  for (let i = 0; i < ops.length; i += FIX_CHUNK) {
+    await repo.commit(ops.slice(i, i + FIX_CHUNK));
+  }
+  return ops.length;
+}
+
+function opFor(fix) {
+  const path = `customers/${fix?.customerId}/entitlements`;
+
+  if (fix?.kind === 'recount') {
+    return {
       op: 'update',
-      path: `customers/${fix.customerId}/entitlements`,
+      path,
       id: fix.entitlementId,
       changes: {
         doneCount: fix.to.done,
@@ -67,12 +84,19 @@ export async function applyFixes(fixes) {
         lastReconciledAt: new Date().toISOString(),
       },
       note: '資料健檢：計數欄位改成從來訪重算的值',
-    }));
-
-  for (let i = 0; i < ops.length; i += FIX_CHUNK) {
-    await repo.commit(ops.slice(i, i + FIX_CHUNK));
+    };
   }
-  return ops.length;
+
+  if (fix?.kind === 'addFollowup') {
+    return {
+      op: 'create',
+      path,
+      data: fix.draft,
+      note: '資料健檢：補上這筆健檢對應的二返額度',
+    };
+  }
+
+  return null;
 }
 
 async function loadMaster() {

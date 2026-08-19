@@ -91,7 +91,7 @@ const validators = {
     return isBlank(r.name) ? ['商品名稱不可空白'] : [];
   },
 
-  courses(r) {
+  courses(r, { existing = [] } = {}) {
     const errors = [];
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
@@ -115,6 +115,18 @@ const validators = {
     if (r.requiresEquipment && r.requiresIvProduct) {
       errors.push('一個課程不會同時要選器材又要選點滴品項');
     }
+
+    // 做完之後要再約一次的那個課程（健檢 → 二返）。指到不存在的課程，
+    // 額度就配不出來，而配不出來在畫面上跟「這位客戶沒買健檢」長得一模一樣。
+    // 見 domain/followups.js 與 ADR-0022。
+    const followupId = r.followupCourseId ?? null;
+    if (followupId != null) {
+      if (followupId === r.id) errors.push('後續課程不可以是它自己');
+      else if (!existing.some((c) => c.id === followupId && !c.deletedAt)) {
+        errors.push('指定的後續課程不存在或已刪除');
+      }
+    }
+
     return errors;
   },
 
