@@ -3,6 +3,10 @@
 // 公出、休假、演講 —— 她自己的行事，不是客戶的來訪。
 // 不綁客戶、不產生任務、不扣次數，所以這一頁完全碰不到額度與任務，
 // 也就不可能扣錯次數。那正是它跟來訪編輯器分開的理由。
+//
+// 兩個進入點、一份實作（ADR-0020）：客戶那條路走路由（`renderNew` / `renderEdit`），
+// 日曆走 `mount()` 掛進抽屜裡。差別只有外框（回上一頁的連結、存完去哪裡），
+// 表單本身與驗證一模一樣 —— 兩份表單遲早會有一份漏掉一個欄位。
 
 import * as eventsData from '../../data/events.js';
 import { CATEGORIES, DEFAULT_CATEGORY, validateEvent, kindClass, isLeave } from '../../domain/events.js';
@@ -16,8 +20,16 @@ import { go } from '../router.js';
 const esc = f.esc;
 
 export async function renderNew(el, date) {
+  mountNew(el, { date });
+}
+
+export async function renderEdit(el, id) {
+  await mountEdit(el, { id });
+}
+
+function blankEvent(date) {
   const start = isValidDate(date) ? date : todayISO();
-  paint(el, {
+  return {
     title: '',
     category: DEFAULT_CATEGORY,
     startDate: start,
@@ -26,40 +38,53 @@ export async function renderNew(el, date) {
     startTime: '09:00',
     endTime: '10:00',
     note: '',
-  }, { isNew: true });
+  };
 }
 
-export async function renderEdit(el, id) {
+/**
+ * 新增一筆。`embedded` 時不畫回上一頁的連結，存完呼叫 `onDone` 而不是換頁 ——
+ * 日曆上按「＋」是在同一張抽屜裡完成的，換頁會把「我在看八月」洗掉。
+ *
+ * @param {HTMLElement} el
+ * @param {{date?: string, embedded?: boolean, onDone?: Function, onCancel?: Function}} opts
+ */
+export function mountNew(el, { date = null, embedded = false, onDone, onCancel } = {}) {
+  paint(el, blankEvent(date), { isNew: true, embedded, onDone, onCancel });
+}
+
+/** 改一筆。讀不到就把原因寫在原地，不要留一個空白面板。 */
+export async function mountEdit(el, { id, embedded = false, onDone, onCancel } = {}) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   const event = await eventsData.get(id);
   if (!event) {
     el.innerHTML = '<div class="card"><p>找不到這筆行程，可能已經被刪掉了。</p></div>';
     return;
   }
-  paint(el, event, { isNew: false });
+  paint(el, event, { isNew: false, embedded, onDone, onCancel });
 }
 
-function paint(el, event, { isNew }) {
+function paint(el, event, opts) {
   // 畫面上的暫存值。存下去之前不寫回資料。
   const draft = { ...event };
 
   const repaint = () => {
-    el.innerHTML = html(draft, { isNew });
-    wire(el, draft, { isNew, id: event.id }, repaint);
+    el.innerHTML = html(draft, opts);
+    wire(el, draft, { ...opts, id: event.id }, repaint);
   };
   repaint();
 }
 
-function html(e, { isNew }) {
+function html(e, { isNew, embedded = false }) {
   return `
-    <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
+    ${embedded ? '' : `
+      <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
 
-    <div class="page">
-      <h1 class="page__title">${isNew ? '新增個人行程' : '個人行程'}</h1>
-      <p class="page__lead">不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。</p>
-    </div>
+      <div class="page">
+        <h1 class="page__title">${isNew ? '新增個人行程' : '個人行程'}</h1>
+        <p class="page__lead">不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。</p>
+      </div>`}
 
-    <section class="card">
+    <section class="card ${embedded ? 'card--bare' : ''}">
       <div class="errors" data-errors hidden></div>
 
       <label class="field">
@@ -112,19 +137,22 @@ function html(e, { isNew }) {
         <input type="text" data-note maxlength="200" value="${esc(e.note ?? '')}" />
       </label>
 
-      <button class="btn btn--primary btn--wide" type="button" data-save>
-        ${isNew ? '加進日曆' : '存起來'}</button>
+      <div class="form__actions">
+        <button class="btn btn--primary" type="button" data-save>
+          ${isNew ? '加進日曆' : '存起來'}</button>
+        ${embedded ? '<button class="btn" type="button" data-cancel>取消</button>' : ''}
+      </div>
     </section>
 
     ${isNew ? '' : `
-      <section class="card danger">
+      <section class="card danger ${embedded ? 'card--bare' : ''}">
         <h2 class="card__title">刪掉這筆</h2>
         <p class="card__note">刪除只是標記，設定 → 已刪除項目裡還原得回來。</p>
         <button class="btn btn--danger" type="button" data-delete>刪掉</button>
       </section>`}`;
 }
 
-function wire(el, draft, { isNew, id }, repaint) {
+function wire(el, draft, { isNew, id, embedded, onDone, onCancel }, repaint) {
   const bind = (sel, key) =>
     el.querySelector(sel)?.addEventListener('input', (ev) => {
       draft[key] = ev.target.value;
@@ -159,11 +187,16 @@ function wire(el, draft, { isNew, id }, repaint) {
     repaint();
   });
 
-  el.querySelector('[data-save]')?.addEventListener('click', () => save(el, draft, { isNew, id }));
-  el.querySelector('[data-delete]')?.addEventListener('click', () => remove(el, draft, id));
+  el.querySelector('[data-save]')?.addEventListener('click', () =>
+    save(el, draft, { isNew, id, onDone }),
+  );
+  el.querySelector('[data-cancel]')?.addEventListener('click', () => onCancel?.());
+  el.querySelector('[data-delete]')?.addEventListener('click', () =>
+    remove(el, draft, id, onDone),
+  );
 }
 
-async function save(el, draft, { isNew, id }) {
+async function save(el, draft, { isNew, id, onDone }) {
   const { errors } = validateEvent(draft);
   const box = el.querySelector('[data-errors]');
   if (box) {
@@ -177,13 +210,14 @@ async function save(el, draft, { isNew, id }) {
       () => (isNew ? eventsData.create(draft) : eventsData.update(id, draft)),
       { success: isNew ? '加好了' : '存好了' },
     );
-    go('/calendar');
+    if (onDone) onDone();
+    else go('/calendar');
   } catch {
     /* 已處理 */
   }
 }
 
-async function remove(el, draft, id) {
+async function remove(el, draft, id, onDone) {
   const ok = await confirmAction({
     title: `刪掉「${draft.title}」？`,
     consequences: [
@@ -197,7 +231,8 @@ async function remove(el, draft, id) {
 
   try {
     await toast.withSaveState(() => eventsData.remove(id, '在日曆上刪掉'), { success: '刪掉了' });
-    go('/calendar');
+    if (onDone) onDone();
+    else go('/calendar');
   } catch {
     /* 已處理 */
   }

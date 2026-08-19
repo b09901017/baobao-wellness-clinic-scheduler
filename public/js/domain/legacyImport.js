@@ -19,6 +19,7 @@
 // 見 docs/adr/0011-imported-visits-are-incomplete-on-purpose.md。
 
 import { isValidDate, lastDayOf } from './dates.js';
+import { contraindicationTerms } from './contraindications.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -813,7 +814,8 @@ export function planForSheet(parsed, {
  */
 function contraindicationHints(sources, equipment) {
   const alive = equipment.filter((e) => !e.deletedAt);
-  const terms = [...new Set(alive.flatMap((e) => e.contraindications ?? []))];
+  // 要找哪些字跟「客戶身上可以點哪些丸子」是同一個問題，共用同一支
+  const terms = contraindicationTerms(equipment);
   const hints = [];
 
   for (const term of terms) {

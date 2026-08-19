@@ -58,3 +58,18 @@ export function validateSlots(customer, slots, equipmentById) {
   }
   return errors;
 }
+
+/**
+ * 目前所有器材宣告的禁忌詞，去重，維持器材主檔上的順序。
+ *
+ * 這是「哪些字會真的擋下器材」的唯一來源 —— 客戶身上的永久限制要變成可以
+ * 點的丸子，選項就得從這裡長出來，不能另外維護一份清單。多一份清單就會
+ * 出現「丸子上有、器材上沒有」的字，點了卻什麼都擋不住。
+ *
+ * @param {{contraindications?: string[], deletedAt?: any}[]} equipment 器材主檔
+ * @returns {string[]}
+ */
+export function contraindicationTerms(equipment = []) {
+  const alive = (equipment ?? []).filter((e) => e && !e.deletedAt);
+  return [...new Set(alive.flatMap((e) => e.contraindications ?? []))];
+}

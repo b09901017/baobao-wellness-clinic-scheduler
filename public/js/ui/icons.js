@@ -27,6 +27,8 @@ const PATHS = {
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5M12 16h.01"/>',
   message: '<path d="M4 6.5h16v11H9l-5 3.5z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.4l3.4 2"/>',
+  // 資訊卡片右上角那一支。讀取模式與編輯模式的界線就是這顆（ADR-0020）
+  pencil: '<path d="M4 20l.9-3.6L15.3 6a2 2 0 012.8 0l1.9 1.9a2 2 0 010 2.8L9.6 21.1 6 22z"/>',
 };
 
 /**

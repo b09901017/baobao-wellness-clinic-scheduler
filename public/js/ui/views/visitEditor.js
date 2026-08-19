@@ -4,6 +4,11 @@
 // 所以這一頁的目標是「快速記錄」：時間自動接、時長自動帶、該指派什麼自動判斷。
 //
 // 檢查全部在 domain/visits.js。這裡只負責把 errors 擋下來、把 warnings 顯示在旁邊。
+//
+// 兩個進入點、一份實作（ADR-0020）：客戶那條路走路由（`renderNew` / `renderEdit`），
+// 日曆走 `mountNew` / `mountEdit` 掛進抽屜裡。差別只有外框（回上一頁的連結、
+// 存完去哪裡），表單、驗證、二次確認、狀態按鈕全部同一份 —— 醫療禁忌的硬性阻擋
+// 只能有一個實作，兩份遲早會有一份忘記擋。
 
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
@@ -43,7 +48,27 @@ export async function renderEdit(el, visitId) {
   await boot(el, { visitId });
 }
 
-async function boot(el, { customerId = null, visitId = null, date = null }) {
+/**
+ * 掛進抽屜裡的新增。`embedded` 拿掉回上一頁的連結，`onDone` 取代換頁 ——
+ * 日曆上排一筆是在同一張抽屜裡完成的（ADR-0020）。
+ *
+ * @param {HTMLElement} el
+ * @param {{customerId: string, date?: string, embedded?: boolean,
+ *          onDone?: Function, onCancel?: Function}} opts
+ */
+export async function mountNew(el, { customerId, date = null, ...rest } = {}) {
+  await boot(el, { customerId, date, ...rest });
+}
+
+/** 掛進抽屜裡的修改。 */
+export async function mountEdit(el, { visitId, ...rest } = {}) {
+  await boot(el, { visitId, ...rest });
+}
+
+async function boot(el, {
+  customerId = null, visitId = null, date = null,
+  embedded = false, onDone = null, onCancel = null,
+}) {
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -51,7 +76,7 @@ async function boot(el, { customerId = null, visitId = null, date = null }) {
     const existing = visitId ? await visitsData.get(visitId) : null;
     if (visitId && !existing) {
       el.innerHTML = `
-        <a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>
+        ${embedded ? '' : `<a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>`}
         <div class="card"><p>找不到這筆來訪，可能已經被刪除。</p></div>`;
       return;
     }
@@ -67,7 +92,7 @@ async function boot(el, { customerId = null, visitId = null, date = null }) {
 
     if (!customer) {
       el.innerHTML = `
-        <a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>
+        ${embedded ? '' : `<a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>`}
         <div class="card"><p>找不到這位客戶。</p></div>`;
       return;
     }
@@ -77,7 +102,7 @@ async function boot(el, { customerId = null, visitId = null, date = null }) {
 
     ctx = {
       el, customer, entitlements, all, settings, customerVisits, sameDayVisits,
-      isNew: !existing, unlockReason: null,
+      isNew: !existing, unlockReason: null, embedded, onDone, onCancel,
     };
     paint(ctx, draft);
   } catch (err) {
@@ -124,8 +149,14 @@ function blankSlot(entitlement, all, settings, startsAt) {
 
 // ---------- 畫面 ----------
 
+/** 存完、取消、刪掉之後回哪裡。抽屜裡是關掉面板，路由那條路是回客戶詳情。 */
+function leave(ctx) {
+  if (ctx.onDone) ctx.onDone();
+  else go(`/customers/${ctx.customer.id}`);
+}
+
 function paint(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew } = ctx;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew, embedded } = ctx;
   const locked = isLocked(draft.status) && !ctx.unlockReason;
 
   const { errors, warnings } = validateVisit(draft, {
@@ -141,9 +172,10 @@ function paint(ctx, draft) {
   });
 
   el.innerHTML = `
-    <a class="backlink" href="#/customers/${esc(customer.id)}" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
+    ${embedded ? '' : `
+      <a class="backlink" href="#/customers/${esc(customer.id)}" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>`}
 
-    <section class="card">
+    <section class="card ${embedded ? 'card--bare' : ''}">
       <div class="row__title">
         ${esc(customer.name)}
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
@@ -151,24 +183,24 @@ function paint(ctx, draft) {
       </div>
       ${blockedNote(customer, all.equipment)}
       <div class="errors" data-errors hidden></div>
-      ${warnings.length ? warningsHtml(warnings) : ''}
+      ${warnings.length ? warningsHtml(warnings, embedded) : ''}
     </section>
 
-    ${locked ? lockedCard() : ''}
+    ${locked ? lockedCard(embedded) : ''}
 
     <form data-form ${locked ? 'inert' : ''}>
-      <section class="card">
+      <section class="card ${embedded ? 'card--bare' : ''}">
         ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
       </section>
 
       ${draft.slots.map((slot, i) => slotCard(ctx, draft, slot, i)).join('')}
 
-      <section class="card">
+      <section class="card ${embedded ? 'card--bare' : ''}">
         <p><button class="btn" type="button" data-add-slot>＋ 新增一個時段</button></p>
         <p class="muted">預設接在上一段結束的 ${ctx.settings.slotGapMin ?? DEFAULT_GAP_MIN} 分鐘後。</p>
       </section>
 
-      <section class="card">
+      <section class="card ${embedded ? 'card--bare' : ''}">
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">${isNew ? '記錄這次來訪' : '儲存'}</button>
           <button class="btn" type="button" data-cancel-edit>取消</button>
@@ -179,15 +211,15 @@ function paint(ctx, draft) {
       </section>
     </form>
 
-    ${isNew ? '' : statusCard(draft)}
-    ${isNew ? '' : dangerZone()}`;
+    ${isNew ? '' : statusCard(draft, embedded)}
+    ${isNew ? '' : dangerZone(embedded)}`;
 
-  el.querySelector('[data-back]').addEventListener('click', (e) => {
+  el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
     go(`/customers/${customer.id}`);
   });
   el.querySelector('[data-cancel-edit]').addEventListener('click', () =>
-    go(`/customers/${customer.id}`),
+    (ctx.onCancel ? ctx.onCancel() : go(`/customers/${customer.id}`)),
   );
 
   const form = el.querySelector('[data-form]');
@@ -256,9 +288,9 @@ function blockedNote(customer, equipment) {
     </div>`;
 }
 
-function warningsHtml(warnings) {
+function warningsHtml(warnings, embedded = false) {
   return `
-    <div class="card">
+    <div class="card ${embedded ? 'card--flat' : ''}">
       <h3 class="card__title">提醒</h3>
       <ul class="muted">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
       <p class="muted">這些都只是提醒，不會擋著不讓你存 —— app 看不到同事在 Abovee 上壓的東西。</p>
@@ -266,13 +298,13 @@ function warningsHtml(warnings) {
 }
 
 function slotCard(ctx, draft, slot, i) {
-  const { entitlements, all, customerVisits, customer } = ctx;
+  const { entitlements, all, customerVisits, customer, embedded } = ctx;
   const ent = entitlements.find((x) => x.id === slot.entitlementId) ?? null;
   const courseChoices = coursesForEntitlement(ent, all.courses);
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
 
   return `
-    <section class="card">
+    <section class="card ${embedded ? 'card--bare' : ''}">
       <div class="pool__head">
         <span>第 ${i + 1} 個時段</span>
         <span class="muted">${esc(timeLabel(slot))}</span>
@@ -467,7 +499,7 @@ async function submit(ctx, draft) {
     const id = await toast.withSaveState(() => visitsData.save(payload, customerVisits), {
       success: isNew ? '已記錄' : '已儲存',
     });
-    go(`/customers/${customer.id}`);
+    leave(ctx);
     return id;
   } catch {
     return null; /* withSaveState 已顯示錯誤與重試 */
@@ -484,18 +516,19 @@ function slotSummary(slot, all) {
 
 // ---------- 狀態 ----------
 
-function statusCard(draft) {
+function statusCard(draft, embedded = false) {
+  const bare = embedded ? 'card--bare' : '';
   const options = nextStatuses(draft.status);
   if (!options.length) {
     return `
-      <section class="card">
+      <section class="card ${bare}">
         <h2 class="card__title">狀態</h2>
         <p class="muted">${esc(describeStatus(draft.status))}。這是終點，不會再往下走。
           要改期就取消後重新排一筆（SPEC 第 7 節規則 9）。</p>
       </section>`;
   }
   return `
-    <section class="card">
+    <section class="card ${bare}">
       <h2 class="card__title">狀態</h2>
       <p class="muted">現在是「${esc(describeStatus(draft.status))}」。</p>
       <p>${options
@@ -544,7 +577,7 @@ function wireStatus(ctx, draft) {
         await toast.withSaveState(() => visitsData.save(next, ctx.customerVisits), {
           success: `已改成「${describeStatus(to)}」`,
         });
-        go(`/customers/${ctx.customer.id}`);
+        leave(ctx);
       } catch {
         /* 已處理 */
       }
@@ -554,9 +587,9 @@ function wireStatus(ctx, draft) {
 
 // ---------- 已完成的更正流程 ----------
 
-function lockedCard() {
+function lockedCard(embedded = false) {
   return `
-    <section class="card">
+    <section class="card ${embedded ? 'card--bare' : ''}">
       <h2 class="card__title">這筆已經完成，是唯讀的</h2>
       <p class="muted">已完成的來訪不能直接改（SPEC 第 6.4 節）。要更正請填理由，
         理由會跟著這次修改一起留在稽核紀錄裡。</p>
@@ -582,9 +615,9 @@ function wireUnlock(ctx, draft) {
 
 // ---------- 刪除 ----------
 
-function dangerZone() {
+function dangerZone(embedded = false) {
   return `
-    <section class="card danger">
+    <section class="card danger ${embedded ? 'card--bare' : ''}">
       <h2 class="card__title">刪除這筆紀錄</h2>
       <p class="muted">誤建才用刪除。客人改時間或不來，請用上面的狀態按鈕，
         那些會留下為什麼。</p>
@@ -611,7 +644,7 @@ function wireDangerZone(ctx, draft) {
       await toast.withSaveState(() => visitsData.remove(draft, ctx.customerVisits), {
         success: '已刪除',
       });
-      go(`/customers/${ctx.customer.id}`);
+      leave(ctx);
     } catch {
       /* 已處理 */
     }

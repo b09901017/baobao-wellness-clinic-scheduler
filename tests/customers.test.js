@@ -8,8 +8,9 @@ import {
 } from '../public/js/domain/dates.js';
 import {
   validate, warnings, membershipExpiry, membershipState, splitFlags,
-  MAX_PRIORITY, EXPIRING_SOON_DAYS,
+  splitFlagsForEdit, mergeFlags, MAX_PRIORITY, EXPIRING_SOON_DAYS,
 } from '../public/js/domain/customers.js';
+import { contraindicationTerms } from '../public/js/domain/contraindications.js';
 import {
   expandPlan, summarize, lowRemaining, validateEntitlement, LOW_REMAINING,
 } from '../public/js/domain/entitlements.js';
@@ -147,6 +148,53 @@ describe('永久限制與醫療禁忌', () => {
     const split = splitFlags({ flags: ['心律調節器'] }, equipment);
     assert.deepEqual(split.contraindications, []);
     assert.deepEqual(split.others, ['心律調節器']);
+  });
+});
+
+describe('永久限制的編輯（丸子 + 自由輸入）', () => {
+  const equipment = [
+    { id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] },
+    { id: 'eq-laser', name: '高能量雷射', contraindications: ['體內金屬'] },
+    { id: 'eq-indiba', name: 'INDIBA', contraindications: [] },
+    { id: 'eq-old', name: '舊機', contraindications: ['心律調節器'], deletedAt: 'x' },
+  ];
+
+  test('可以點的字就是器材上登記的那幾個，去重且不含已刪除的器材', () => {
+    assert.deepEqual(contraindicationTerms(equipment), ['體內金屬']);
+  });
+
+  test('沒有器材就沒有丸子 —— 不要憑空生一個擋不住東西的字', () => {
+    assert.deepEqual(contraindicationTerms([]), []);
+    assert.deepEqual(contraindicationTerms(), []);
+  });
+
+  test('打開表單時，會擋東西的字落在丸子，其餘落在自由輸入', () => {
+    const split = splitFlagsForEdit(
+      ['固定禮拜五不行', '體內金屬'], contraindicationTerms(equipment),
+    );
+    assert.deepEqual(split.picked, ['體內金屬']);
+    assert.deepEqual(split.others, ['固定禮拜五不行']);
+  });
+
+  test('存檔時合回一份，丸子排前面', () => {
+    assert.deepEqual(mergeFlags(['體內金屬'], ['固定禮拜五不行']), ['體內金屬', '固定禮拜五不行']);
+  });
+
+  test('自由輸入又打了一次同一個字不會變成重複 —— 那會讓整張表單存不下去', () => {
+    const flags = mergeFlags(['體內金屬'], ['體內金屬', '固定禮拜五不行']);
+    assert.deepEqual(flags, ['體內金屬', '固定禮拜五不行']);
+    assert.deepEqual(validate({ name: '王小姐', flags }), []);
+  });
+
+  test('空白項目會被丟掉，不會存成一個看不見的限制', () => {
+    assert.deepEqual(mergeFlags([], ['  ', '體內金屬', '']), ['體內金屬']);
+  });
+
+  test('拆開再合回去是同一份', () => {
+    const terms = contraindicationTerms(equipment);
+    const before = ['體內金屬', '固定禮拜五不行'];
+    const { picked, others } = splitFlagsForEdit(before, terms);
+    assert.deepEqual(mergeFlags(picked, others), before);
   });
 });
 

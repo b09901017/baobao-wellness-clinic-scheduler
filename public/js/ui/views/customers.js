@@ -16,11 +16,13 @@ import * as rules from '../../domain/customers.js';
 import { summarize, expandPlan } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { contraindicationTerms } from '../../domain/contraindications.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
 import { todayISO, addDays, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
+import * as flagsUi from '../components/flags.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -339,8 +341,11 @@ export async function renderNew(el) {
 
   let plans;
   let existing;
+  let equipment;
   try {
-    [plans, existing] = await Promise.all([config.listAll('plans'), data.list()]);
+    [plans, existing, equipment] = await Promise.all([
+      config.listAll('plans'), data.list(), config.listAll('equipment'),
+    ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
@@ -355,20 +360,20 @@ export async function renderNew(el) {
     source: '',
     purchasedAt: todayISO(),
     priority: 0,
-    flags: '',
+    flags: [],
     marks: [],
     planId: null,
     quantity: 1,
   };
 
-  paintNew(el, draft, usable, existing);
+  paintNew(el, draft, usable, existing, contraindicationTerms(equipment));
 }
 
 // 這幾個欄位一動，畫面上算出來的東西（展開預覽、提示）就變了，所以要重畫。
 // 重畫一律先把表單現況讀回 draft，沒存的字不會不見。
 const RECOMPUTE_ON = ['planId', 'quantity', 'name'];
 
-function paintNew(el, draft, plans, existing) {
+function paintNew(el, draft, plans, existing, terms) {
   const plan = plans.find((p) => p.id === draft.planId) ?? null;
   const preview = expandPlan(plan, Number(draft.quantity) || 1);
 
@@ -391,11 +396,7 @@ function paintNew(el, draft, plans, existing) {
           options: priorityOptions(),
           hint: '排班佇列的排序權重之一（SPEC 第 9 節）。0 代表還沒評。',
         })}
-        ${f.text({
-          name: 'flags', label: '永久限制', value: draft.flags,
-          placeholder: '體內金屬、固定禮拜五不行',
-          hint: '用頓號分隔。與器材禁忌同名的會變成硬性阻擋，其餘只是提醒。',
-        })}
+        <div data-flags></div>
 
         <div class="fieldgroup">
           <span class="fieldgroup__label">備註　客戶臨時提的小事，顏色自己分</span>
@@ -437,9 +438,17 @@ function paintNew(el, draft, plans, existing) {
     },
   });
 
+  flagsUi.mount(el.querySelector('[data-flags]'), {
+    flags: draft.flags,
+    terms,
+    onChange: (list) => {
+      draft.flags = list;
+    },
+  });
+
   form.addEventListener('change', (e) => {
     if (!RECOMPUTE_ON.includes(e.target.name)) return;
-    paintNew(el, { ...draft, ...f.readForm(form) }, plans, existing);
+    paintNew(el, { ...draft, ...f.readForm(form) }, plans, existing, terms);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -484,7 +493,7 @@ function draftToCustomer(d) {
     purchasedAt: d.purchasedAt || null,
     membershipExpiresAt: null,
     priority: Number(d.priority) || 0,
-    flags: f.parseList(d.flags),
+    flags: d.flags ?? [],
     // marks 與 notes 永遠一起寫，不要有只改到一邊的路徑
     ...toCustomerFields(d.marks),
   };

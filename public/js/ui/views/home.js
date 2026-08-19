@@ -19,6 +19,7 @@ import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage } from '../../domain/messages.js';
 import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
 import { todayISO, shortDate, daysBetween } from '../../domain/dates.js';
+import { wireDrag } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
@@ -546,7 +547,7 @@ function drawerHtml(ctx) {
         <div class="drawer__head">
           <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段</h2>
         </div>
-        <p class="card__note">確認之後會自動排進日曆，並且產生該做的登記。</p>
+        <p class="drawer__note">確認之後會自動排進日曆，並且產生該做的登記。</p>
 
         <div class="drawer__body">
         ${rows.map((r) => {
@@ -604,6 +605,11 @@ function wireConfirm(ctx) {
   el.querySelector('[data-backdrop]')?.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) close();
   });
+
+  // 這一張是自己畫的（它要跟著整頁重畫），沒走 openSheet，
+  // 但手勢要跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了。
+  const box = el.querySelector('.drawer');
+  if (box) wireDrag(box, close);
 
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyConfirm(ctx));
 }

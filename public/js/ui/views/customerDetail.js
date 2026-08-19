@@ -26,6 +26,7 @@ import * as notesData from '../../data/notes.js';
 import { sortNotes } from '../../domain/notes.js';
 import { icon } from '../icons.js';
 import * as rules from '../../domain/customers.js';
+import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
 import { describeStatus, isActive } from '../../domain/visits.js';
@@ -34,6 +35,7 @@ import { todayISO, shortDate } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
+import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
@@ -651,7 +653,8 @@ async function addNote(ctx, form) {
  * 會籍到期日也不在：實務上沒有會籍這件事（ADR-0019）。
  */
 function paintEdit(ctx) {
-  const { el, customer } = ctx;
+  const { el, customer, equipment } = ctx;
+  let flags = customer.flags ?? [];
 
   el.innerHTML = `
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
@@ -669,10 +672,7 @@ function paintEdit(ctx) {
             value: String(i), label: i === 0 ? '0 · 還沒評' : `${i} ${'★'.repeat(i)}`,
           })),
         })}
-        ${f.text({
-          name: 'flags', label: '永久限制', value: (customer.flags ?? []).join('、'),
-          hint: '用頓號分隔。與器材禁忌同名的會變成硬性阻擋，其餘只是提醒。這裡不是備註 —— 備註在上一頁改。',
-        })}
+        <div data-flags></div>
         ${f.date({ name: 'purchasedAt', label: '購買日', value: customer.purchasedAt ?? '' })}
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
@@ -688,6 +688,14 @@ function paintEdit(ctx) {
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
 
+  flagsUi.mount(el.querySelector('[data-flags]'), {
+    flags,
+    terms: contraindicationTerms(equipment),
+    onChange: (list) => {
+      flags = list;
+    },
+  });
+
   el.querySelector('[data-form]').addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = f.readForm(e.target);
@@ -697,7 +705,7 @@ function paintEdit(ctx) {
       lineId: v.lineId.trim() || null,
       source: v.source.trim() || null,
       priority: Number(v.priority) || 0,
-      flags: f.parseList(v.flags),
+      flags,
       purchasedAt: v.purchasedAt || null,
     };
 
