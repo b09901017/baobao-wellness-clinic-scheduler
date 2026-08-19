@@ -1,12 +1,14 @@
 import { navRoutes, activeNavPath, start } from './router.js';
+import { icon } from './icons.js';
 
 function navHtml(activePath) {
   return navRoutes()
     .map(
       (r) => `
         <a href="#${r.path}" ${r.path === activePath ? 'aria-current="page"' : ''}>
-          <span class="app__nav-icon" aria-hidden="true">${r.icon}</span>
+          ${icon(r.icon, { size: 23, cls: 'app__nav-icon', width: 1.7 })}
           <span>${r.title}</span>
+          <span class="app__nav-dot" aria-hidden="true"></span>
         </a>`,
     )
     .join('');

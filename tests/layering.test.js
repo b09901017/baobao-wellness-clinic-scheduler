@@ -6,8 +6,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const JS_ROOT = new URL('../public/js/', import.meta.url).pathname;
 
@@ -61,4 +61,57 @@ test('/domain 不可以碰瀏覽器 API', () => {
     }
   }
   assert.deepEqual(offenders, [], `/domain 不能碰 IO 或 DOM：${offenders.join(', ')}`);
+});
+
+test('每個具名 import 都對得上真的匯出', () => {
+  // 這一類錯誤（改了函式名字但漏改一個 import）測試抓不到、語法檢查也抓不到，
+  // 只有在真的裝置上打開那一頁時整支 module 才會不執行，畫面停在載入中。
+  // 跟 shell-cache 與 rules 那兩支守衛同一個道理：讓它變成會紅的東西。
+  const files = filesUnder(JS_ROOT);
+
+  const exported = new Map();
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    const names = new Set();
+    for (const m of src.matchAll(/^export\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)/gm)) names.add(m[1]);
+    for (const m of src.matchAll(/^export\s+(?:const|let|var|class)\s+([A-Za-z0-9_$]+)/gm)) names.add(m[1]);
+    for (const m of src.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+      for (const part of m[1].split(',')) {
+        const name = part.trim().split(/\s+as\s+/).pop().trim();
+        if (name) names.add(name);
+      }
+    }
+    exported.set(file, names);
+  }
+
+  const missing = [];
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"](\.[^'"]+)['"]/g)) {
+      const target = resolve(dirname(file), m[2]);
+      const have = exported.get(target);
+      // 指不到的檔案由下面那一支測試負責報，這裡只看有檔案的
+      if (!have) continue;
+      for (const part of m[1].split(',')) {
+        const name = part.trim().split(/\s+as\s+/)[0].trim();
+        if (name && !have.has(name)) {
+          missing.push(`${file.slice(JS_ROOT.length)} 想要 ${name}，但 ${m[2]} 沒有匯出`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(missing, [], `這些 import 在瀏覽器裡會讓整支檔案不執行：\n${missing.join('\n')}`);
+});
+
+test('相對 import 都指得到真的檔案', () => {
+  const missing = [];
+  for (const file of filesUnder(JS_ROOT)) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) {
+      const target = resolve(dirname(file), m[1]);
+      if (!existsSync(target)) missing.push(`${file.slice(JS_ROOT.length)} → ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, [], `這些路徑指不到檔案：\n${missing.join('\n')}`);
 });

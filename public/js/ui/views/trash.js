@@ -6,6 +6,8 @@
 import * as config from '../../data/config.js';
 import * as customers from '../../data/customers.js';
 import * as visits from '../../data/visits.js';
+import * as eventsData from '../../data/events.js';
+import * as notesData from '../../data/notes.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -77,8 +79,10 @@ export async function render(el) {
 }
 
 async function loadGroups() {
-  const [master, deletedCustomers, deletedEnts, aliveCustomers, deletedVisits, deletedAvail] =
-    await Promise.all([
+  const [
+    master, deletedCustomers, deletedEnts, aliveCustomers,
+    deletedVisits, deletedAvail, deletedEvents, deletedNotes,
+  ] = await Promise.all([
     Promise.all(
       MASTER_TYPES.map(async (type) => ({
         label: MASTER_LABELS[type],
@@ -96,6 +100,8 @@ async function loadGroups() {
     customers.list(),
     visits.listDeleted(),
     customers.listDeletedAvailability(),
+    eventsData.listDeleted(),
+    notesData.listDeleted(),
   ]);
 
   const nameOf = new Map(
@@ -130,6 +136,24 @@ async function loadGroups() {
         note: nameOf.get(e.parentId) ?? '（客戶已刪除）',
         deletedAt: e.deletedAt,
         restore: () => customers.restoreEntitlement(e.parentId, e.id),
+      })),
+    },
+    {
+      label: '個人行程',
+      rows: deletedEvents.map((e) => ({
+        name: e.title ?? '（沒有名稱）',
+        note: e.startDate === e.endDate ? e.startDate : `${e.startDate} 到 ${e.endDate}`,
+        deletedAt: e.deletedAt,
+        restore: () => eventsData.restore(e.id),
+      })),
+    },
+    {
+      label: '隨手記',
+      rows: deletedNotes.map((n) => ({
+        name: n.text ?? '（空的）',
+        note: n.customerName ?? '沒掛客戶',
+        deletedAt: n.deletedAt,
+        restore: () => notesData.restore(n.id),
       })),
     },
     {

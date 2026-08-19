@@ -16,7 +16,7 @@ import { counts } from '../../domain/entitlements.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
-import { todayISO } from '../../domain/dates.js';
+import { todayISO, isValidDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -34,15 +34,15 @@ function parseRoomKey(key) {
 
 // ---------- 進入點 ----------
 
-export async function renderNew(el, customerId) {
-  await boot(el, { customerId });
+export async function renderNew(el, customerId, date = null) {
+  await boot(el, { customerId, date });
 }
 
 export async function renderEdit(el, visitId) {
   await boot(el, { visitId });
 }
 
-async function boot(el, { customerId = null, visitId = null }) {
+async function boot(el, { customerId = null, visitId = null, date = null }) {
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -71,7 +71,7 @@ async function boot(el, { customerId = null, visitId = null }) {
       return;
     }
 
-    const draft = existing ? { ...existing } : blankVisit(customer, entitlements, all, settings);
+    const draft = existing ? { ...existing } : blankVisit(customer, entitlements, all, settings, date);
     const sameDayVisits = await visitsData.listByDate(draft.date);
 
     ctx = {
@@ -84,11 +84,13 @@ async function boot(el, { customerId = null, visitId = null }) {
   }
 }
 
-function blankVisit(customer, entitlements, all, settings) {
+function blankVisit(customer, entitlements, all, settings, date = null) {
   const visit = {
     customerId: customer.id,
     customerName: customer.name,
-    date: todayISO(),
+    // 從日曆上點某一天新增時要帶著那一天進來 —— 她心裡想的是「這天要幫誰排」，
+    // 不該回到編輯器再挑一次日期。
+    date: isValidDate(date) ? date : todayISO(),
     status: INITIAL_STATUS,
     confirmedAt: null,
     cancelledAt: null,

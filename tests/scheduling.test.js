@@ -8,8 +8,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  monthRange, entitlementCovers, pendingFor, buildQueue, strongestReason,
-  newBatch, progressOf, markInQueue, nextPending, DEFAULT_WEIGHTS,
+  monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
+  strongestReason, newBatch, progressOf, markInQueue, nextPending, DEFAULT_WEIGHTS,
 } from '../public/js/domain/scheduling.js';
 
 const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
@@ -91,6 +91,42 @@ describe('待壓表是推導出來的（ADR-0001）', () => {
   });
 });
 
+describe('一位客戶身上的所有額度', () => {
+  test('清單頁讀計數欄位，詳情頁現算 —— 兩條路要算出同一件事（ADR-0004）', () => {
+    const e = ent({ id: 'e1', totalQty: 12, doneCount: 2, bookedCount: 1 });
+    const visits = [
+      { id: 'a', status: 'done', slots: [{ entitlementId: 'e1' }, { entitlementId: 'e1' }] },
+      { id: 'b', status: 'confirmed', slots: [{ entitlementId: 'e1' }] },
+    ];
+
+    const cached = customerPools({ entitlements: [e], cached: true });
+    const live = customerPools({ entitlements: [e], visits, cached: false });
+
+    assert.equal(cached.pools[0].remaining, 9);
+    assert.equal(live.pools[0].remaining, 9);
+  });
+
+  test('已刪除的額度不算', () => {
+    const out = customerPools({ entitlements: [ent(), ent({ id: 'x', deletedAt: 'x' })] });
+    assert.equal(out.pools.length, 1);
+  });
+
+  test('最快到期的那一份決定急迫度，用完的不算', () => {
+    const out = customerPools({
+      entitlements: [
+        ent({ id: 'a', expiresAt: '2026-12-31' }),
+        ent({ id: 'b', expiresAt: '2026-09-30', doneCount: 12 }),
+        ent({ id: 'c', expiresAt: '2026-10-31' }),
+      ],
+    });
+    assert.equal(out.soonestExpiry, '2026-10-31', '9/30 那份已經用完了，不急');
+  });
+
+  test('都沒有到期日就回 null，不要瞎編一個', () => {
+    assert.equal(customerPools({ entitlements: [ent()] }).soonestExpiry, null);
+  });
+});
+
 describe('佇列排序', () => {
   const today = '2026-08-28';
   const targetMonth = '2026-09';
@@ -103,15 +139,65 @@ describe('佇列排序', () => {
   const entitlementsBy = { c1: [ent()], c2: [ent({ id: 'e2' })], c3: [ent({ id: 'e3' })] };
 
   const build = (over = {}) =>
-    buildQueue({
-      course: COURSE, customers, entitlementsBy,
+    buildCustomerQueue({
+      customers, entitlementsBy,
       visitsBy: {}, availabilityBy: {}, targetMonth, today,
       weights: DEFAULT_WEIGHTS, ...over,
     });
 
-  test('只放待壓表的人', () => {
+  test('這個月排過的人仍然留在牆上（ADR-0014）', () => {
     const rows = build({ visitsBy: { c2: [visit()] } });
-    assert.deepEqual(rows.map((r) => r.customerId).sort(), ['c1', 'c3']);
+    assert.deepEqual(rows.map((r) => r.customerId).sort(), ['c1', 'c2', 'c3']);
+
+    const c2 = rows.find((r) => r.customerId === 'c2');
+    assert.equal(c2.scheduledThisMonth, 1, '排過幾次要看得到');
+    assert.equal(c2.pending, false, '「還沒壓過」變成一個篩選，不是進不進來的條件');
+  });
+
+  test('次數全部用完的就不進來了', () => {
+    const rows = build({ entitlementsBy: { ...entitlementsBy, c2: [ent({ id: 'e2', doneCount: 12 })] } });
+    assert.ok(!rows.some((r) => r.customerId === 'c2'));
+  });
+
+  test('開著的批次要留住次數用完的人 —— 處理到一半把人弄不見更難懂', () => {
+    const rows = build({
+      entitlementsBy: { ...entitlementsBy, c2: [ent({ id: 'e2', doneCount: 12 })] },
+      includeUsedUp: true,
+    });
+    assert.ok(rows.some((r) => r.customerId === 'c2'));
+  });
+
+  test('卡片上一個課程一顆泡泡，快用完的排前面', () => {
+    const rows = build({
+      entitlementsBy: {
+        ...entitlementsBy,
+        c1: [ent({ id: 'a', label: '復能', totalQty: 20, doneCount: 6, bookedCount: 2 }),
+             ent({ id: 'b', type: 'single', courseId: IV.id, label: '靜脈', totalQty: 12, doneCount: 11 })],
+      },
+    });
+    const c1 = rows.find((r) => r.customerId === 'c1');
+    assert.deepEqual(c1.pools.map((p) => p.label), ['靜脈', '復能'], '剩 1 次的要排在剩 12 次的前面');
+    assert.equal(c1.pools[0].remaining, 1);
+    assert.equal(c1.totalRemaining, 13);
+  });
+
+  test('這個月與上個月各來幾次都算得出來', () => {
+    const rows = build({
+      visitsBy: {
+        c1: [visit({ id: 'a', date: '2026-09-03' }), visit({ id: 'b', date: '2026-09-17' }),
+             visit({ id: 'c', date: '2026-08-05' })],
+      },
+    });
+    const c1 = rows.find((r) => r.customerId === 'c1');
+    assert.equal(c1.scheduledThisMonth, 2);
+    assert.equal(c1.visitsPrevMonth, 1);
+  });
+
+  test('她自己寫的特殊狀況原樣帶著走', () => {
+    const rows = build({
+      customers: [{ ...customers[0], notes: '重大疾病治療中' }],
+    });
+    assert.equal(rows[0].selfNote, '重大疾病治療中');
   });
 
   test('停用與已刪除的客戶不進佇列', () => {
@@ -214,7 +300,12 @@ describe('批次', () => {
     { customerId: 'c2', customerName: '客戶乙' },
     { customerId: 'c3', customerName: '客戶丙' },
   ];
-  const batch = newBatch({ course: COURSE, targetMonth: '2026-09', rows });
+  const batch = newBatch({ targetMonth: '2026-09', rows });
+
+  test('批次沒有 courseId —— 一批是一個月的一串客戶（ADR-0014）', () => {
+    assert.equal(batch.courseId, undefined);
+    assert.equal(batch.targetMonth, '2026-09');
+  });
 
   test('建立時就把順序凍結起來（ADR-0001 的 Consequences）', () => {
     assert.deepEqual(batch.queue.map((q) => q.customerId), ['c1', 'c2', 'c3']);
