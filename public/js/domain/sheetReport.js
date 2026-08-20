@@ -37,16 +37,19 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
  * @param {object[]} ctx.visits 這位客戶的來訪
  * @param {object[]} [ctx.tasks] 這位客戶的任務，含已完成的
  * @param {object[]} [ctx.courses] 課程主檔，用來找出健檢配的二返（ADR-0022）
+ * @param {object[]} [ctx.staff] 治療師與醫師，二返註記的括號要靠它換成名字
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
  * @returns {{name:string, rows:string[][]}}
  */
 export function customerReport({
-  customer, entitlements = [], visits = [], tasks = [], courses = [], generatedAt = '',
+  customer, entitlements = [], visits = [], tasks = [], courses = [], staff = [],
+  generatedAt = '',
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
   const dates = [...new Set(used.map((v) => v.date))].sort();
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  const staffById = Object.fromEntries(staff.map((x) => [x.id, x]));
 
   const rows = [
     [READONLY_NOTICE],
@@ -75,7 +78,7 @@ export function customerReport({
   if (!alive.length) rows.push(['（還沒有額度）']);
 
   // 二返：一列，寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的
-  const notes = followupNotes({ alive, visits: used, dates, coursesById });
+  const notes = followupNotes({ alive, visits: used, dates, coursesById, staffById });
   if (notes.length) {
     const line = [];
     for (const note of notes) line[COUNT_COLS + note.dateIndex] = note.text;
@@ -208,6 +211,7 @@ export function syncBundle({
   // 課程刻意連已刪除的一起收：主檔把健檢刪掉，不代表已經做過的那幾次
   // 就不用配二返了。少讀那一筆的代價是註記無聲消失。
   const coursesById = Object.fromEntries((master.courses ?? []).map((c) => [c.id, c]));
+  const staffById = Object.fromEntries((master.staff ?? []).map((x) => [x.id, x]));
 
   const sorted = customers
     .filter((c) => !c.deletedAt)
@@ -249,7 +253,7 @@ export function syncBundle({
       }), { total: 0, done: 0, booked: 0, remaining: 0 }),
       // 二返約在哪天，寫在**那次健檢被勾起來的那一欄**底下 —— 她原本就是這樣記的
       // （docs/legacy/README.md 第 6 節）。
-      followupNotes: followupNotes({ alive, visits, dates, coursesById }),
+      followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById }),
       // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
       // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
       tasks: taskBlocks(tasksBy[customer.id] ?? [], visits),
@@ -267,6 +271,9 @@ export function syncBundle({
             room: nameOf('rooms', slot.roomId),
             bed: slot.bed ?? null,
             therapist: nameOf('staff', slot.therapistId),
+            // 醫師和治療師都住在 staff 底下，但它們是兩種人，各印各的 ——
+            // 二返有醫師沒有治療師，復能反過來（CONTEXT.md）。
+            doctor: nameOf('staff', slot.doctorId),
           }))),
       })).filter((d) => d.items.length),
     };
@@ -291,28 +298,53 @@ export function syncBundle({
  *
  * 健檢做了 N 次就有 N 欄要註記，照日期順序配上二返的日期；
  * 還沒約的印 `二返()` —— 那個空括號是她自己的寫法，意思是「這件事還沒做」。
+ *
+ * 括號裡的醫師是 2026-08-20 補上的。舊表她手寫成 `7/13 二返(夏)`，
+ * 在醫師進 config/staff 之前 app 記不住那個字，只能印一半
+ * （docs/adr/0028-doctors-are-assignable-staff.md）。**沒選醫師就整個括號不印**，
+ * 不要印一個空的 `()` —— 那在她的寫法裡是「還沒約」的意思，會反過來騙人。
  */
-function followupNotes({ alive, visits, dates, coursesById }) {
+function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
   const out = [];
 
   for (const pair of pairsOf(alive, coursesById)) {
     const label = coursesById[pair.followupCourseId]?.name ?? '二返';
-    const followupDates = pair.followup
-      ? dates.filter((d) => usedOn(visits, pair.followup.id, d))
-      : [];
+    const booked = pair.followup ? bookingsOf(visits, pair.followup.id, dates) : [];
 
     dates
       .filter((d) => usedOn(visits, pair.source.id, d))
       .forEach((date, i) => {
-        const booked = followupDates[i] ?? null;
+        const hit = booked[i] ?? null;
+        const doctor = hit?.doctorId ? (staffById[hit.doctorId]?.name ?? null) : null;
         out.push({
           dateIndex: dates.indexOf(date),
-          text: booked ? `${monthDay(booked)} ${label}` : `${label}()`,
+          text: hit
+            ? `${monthDay(hit.date)} ${label}${doctor ? `(${doctor})` : ''}`
+            : `${label}()`,
         });
       });
   }
 
   return out;
+}
+
+/**
+ * 這筆額度被排在哪幾天，以及那天記的是哪位醫師。
+ *
+ * 同一天同一筆額度理論上只會有一段（二返一次一場），真的有兩段時取第一個
+ * 有醫師的 —— 挑一個總比印空的好，而兩段各記不同醫師是資料有問題，
+ * 那要在資料健檢頁被看見，不是在報表上被展開。
+ */
+function bookingsOf(visits, entitlementId, dates) {
+  return dates
+    .filter((d) => usedOn(visits, entitlementId, d))
+    .map((date) => ({
+      date,
+      doctorId: visits
+        .filter((v) => v.date === date)
+        .flatMap((v) => v.slots ?? [])
+        .find((slot) => slot.entitlementId === entitlementId && slot.doctorId)?.doctorId ?? null,
+    }));
 }
 
 /**

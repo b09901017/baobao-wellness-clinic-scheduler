@@ -10,7 +10,7 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { validateSlots as contraindicationErrors } from './contraindications.js';
 import { counts } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse } from './masterData.js';
+import { roomsForCourse, DOCTOR_ROLE } from './masterData.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
 export const VISIT_STATUSES = [
@@ -160,6 +160,7 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
  * @param {object[]} ctx.equipment
  * @param {object[]} ctx.entitlements 這位客戶的額度
  * @param {object[]} [ctx.rooms]
+ * @param {object[]} [ctx.staff] 治療師與醫師，config/staff 全部
  * @param {object[]} [ctx.ivProducts]
  * @param {object[]} [ctx.sameDayVisits] 同一天她自己排的其他來訪（不含這一筆）
  * @param {object[]} [ctx.customerVisits] 這位客戶的其他來訪，看頻率限制用
@@ -172,7 +173,9 @@ export function validateVisit(visit, ctx) {
   };
 }
 
-function visitErrors(visit, { customer, courses = [], equipment = [], entitlements = [], ivProducts = [] }) {
+function visitErrors(visit, {
+  customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
+}) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
   const imported = isImported(visit);
@@ -180,6 +183,7 @@ function visitErrors(visit, { customer, courses = [], equipment = [], entitlemen
   const entsById = byId(entitlements);
   const equipById = byId(equipment);
   const ivById = byId(ivProducts);
+  const staffById = byId(staff);
 
   if (!visit.customerId) errors.push('沒有指定客戶');
   if (!isValidDate(visit.date)) errors.push('來訪日期不合法');
@@ -221,6 +225,18 @@ function visitErrors(visit, { customer, courses = [], equipment = [], entitlemen
     }
     if (slot.ivProductId && !ivById[slot.ivProductId]) {
       errors.push(`${at}：指定的品項不存在或已刪除`);
+    }
+
+    // 醫師沒選是 warning 不是 error（見 assignmentWarnings）——
+    // 她的舊表上寫過 `二返(8/5)`，日期敲定了、哪位醫師還沒定，那是真實情況。
+    // 但**指到一個不存在的人、或指到一位物理治療師**是資料壞了，那要擋。
+    // 治療師與醫師是兩種人，混用會讓復能派到醫師身上（CONTEXT.md）。
+    if (slot.doctorId) {
+      const doctor = staffById[slot.doctorId];
+      if (!doctor) errors.push(`${at}：指定的醫師不存在或已刪除`);
+      else if (doctor.role !== DOCTOR_ROLE) {
+        errors.push(`${at}：${doctor.name} 不是醫師，是${doctor.role ?? '別的角色'}`);
+      }
     }
 
     // 擇一池的次數是共用的，選了池外的器材就會扣到不屬於它的東西上
@@ -299,6 +315,16 @@ function assignmentWarnings(visit, { courses = [], rooms = [] }) {
     if (!course) return;
     const at = `第 ${i + 1} 個時段`;
 
+    // 醫師走的是 requiresEquipment / requiresIvProduct 那條路（課程上一個布林、
+    // 時段上一個 id），不是 assigns —— assigns 是單選的，而二返同時要診間和醫師。
+    // 見 docs/adr/0028-doctors-are-assignable-staff.md
+    if (course.requiresDoctor && !slot.doctorId) {
+      out.push(`${at}：${course.name} 還沒選醫師`);
+    }
+    if (!course.requiresDoctor && slot.doctorId) {
+      out.push(`${at}：${course.name} 不需要指定醫師`);
+    }
+
     if (course.assigns === 'room') {
       if (!slot.roomId) out.push(`${at}：${course.name} 還沒選診間`);
       else {
@@ -328,6 +354,9 @@ function assignmentWarnings(visit, { courses = [], rooms = [] }) {
 /**
  * 跟她自己當天排的其他人撞在一起。一天壓十幾個人，自撞很常見。
  * 跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節）。
+ *
+ * **醫師刻意不比。** 她看不到醫師的班表（那在 Abovee 上），
+ * 用看不到的資料去提示只會提示錯 —— ADR-0002 的同一條判準。
  */
 function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] }) {
   const out = [];

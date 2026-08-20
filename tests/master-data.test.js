@@ -5,6 +5,7 @@ import {
   validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
+  staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import { describeCategory, tasksForCategory, CATEGORY_OPTIONS } from '../public/js/domain/taskRules.js';
@@ -112,6 +113,35 @@ describe('課程驗證', () => {
   test('沒設後續課程是常態，不是漏填', () => {
     assert.deepEqual(validate('courses', { ...base, followupCourseId: null }), []);
     assert.deepEqual(validate('courses', { ...base }), []);
+  });
+});
+
+describe('治療師與醫師（ADR-0028）', () => {
+  const STAFF = [
+    { id: 'a', name: '騰崴', role: THERAPIST_ROLE },
+    { id: 'b', name: '夏', role: DOCTOR_ROLE },
+    { id: 'c', name: '許', role: DOCTOR_ROLE },
+    { id: 'd', name: '離職的', role: THERAPIST_ROLE, active: false },
+    { id: 'e', name: '刪掉的', role: DOCTOR_ROLE, deletedAt: 'x' },
+  ];
+
+  test('兩種角色都收得下', () => {
+    assert.deepEqual(validate('staff', { name: '夏', role: '醫師' }), []);
+    assert.deepEqual(validate('staff', { name: '騰崴', role: '物理治療師' }), []);
+    assert.ok(validate('staff', { name: '某人', role: '護理師' }).length);
+  });
+
+  test('治療師的選單不會跑出醫師來 —— 選錯人是實際傷害', () => {
+    assert.deepEqual(staffWithRole(STAFF, THERAPIST_ROLE).map((s) => s.name), ['騰崴']);
+  });
+
+  test('醫師的選單只有醫師', () => {
+    assert.deepEqual(staffWithRole(STAFF, DOCTOR_ROLE).map((s) => s.name), ['夏', '許']);
+  });
+
+  test('停用與刪除的都不出現在選單裡', () => {
+    const all = STAFF_ROLES.flatMap((role) => staffWithRole(STAFF, role));
+    assert.ok(!all.some((s) => s.active === false || s.deletedAt));
   });
 });
 
@@ -234,6 +264,26 @@ describe('種子資料', () => {
     const ivLaser = SEED.courses.find((c) => c.name === '靜脈');
     assert.equal(ivLaser.assigns, 'room');
     assert.equal(ivLaser.requiresEquipment, false);
+  });
+
+  test('種子資料有夏、許、李三位醫師，而且和治療師分得開', () => {
+    const doctors = SEED.staff.filter((s) => s.role === DOCTOR_ROLE).map((s) => s.name);
+    assert.deepEqual(doctors.sort(), ['夏', '李', '許'].sort());
+    // 治療師那份名單一個醫師都不能混進去 —— 復能三器材要的是物理治療師
+    const therapists = staffWithRole(SEED.staff, THERAPIST_ROLE);
+    assert.ok(therapists.length >= 9);
+    assert.ok(!therapists.some((s) => doctors.includes(s.name)));
+  });
+
+  test('只有二返預設要選醫師，其餘課程她想開再開', () => {
+    const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
+    assert.deepEqual(withDoctor, ['二返']);
+  });
+
+  test('二返同時要診間和醫師 —— 所以醫師不能塞進單選的 assigns', () => {
+    const followup = SEED.courses.find((c) => c.name === '二返');
+    assert.equal(followup.assigns, 'room');
+    assert.equal(followup.requiresDoctor, true);
   });
 
   test('體內金屬只擋超磁場與高能量雷射', () => {

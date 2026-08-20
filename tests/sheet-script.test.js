@@ -35,6 +35,13 @@ const bundle = (overrides = {}) => ({
           ],
         },
         { id: 'v2', date: '2026-08-20', status: 'confirmed', slots: [{ entitlementId: 'e2', courseName: '靜脈' }] },
+        {
+          id: 'v3', date: '2026-08-25', status: 'confirmed',
+          slots: [{
+            entitlementId: 'e3', courseName: '二返', startsAt: '14:00', endsAt: '14:30',
+            roomId: 'r1', doctorId: 'd1',
+          }],
+        },
       ],
     },
     tasksBy: {
@@ -45,7 +52,13 @@ const bundle = (overrides = {}) => ({
     },
     today: '2026-08-10',
     generatedAt: '2026/8/18 下午7:15',
-    master: { rooms: [{ id: 'r1', name: '治3' }], staff: [{ id: 's1', name: '芝寧' }] },
+    master: {
+      rooms: [{ id: 'r1', name: '治3' }],
+      staff: [
+        { id: 's1', name: '芝寧', role: '物理治療師' },
+        { id: 'd1', name: '夏', role: '醫師' },
+      ],
+    },
   }),
   ...overrides,
 });
@@ -130,6 +143,8 @@ describe('渲染', () => {
     assert.match(text, /來訪紀錄/);
     assert.match(text, /治3/);
     assert.match(text, /芝寧/);
+    // 醫師和治療師各印各的：二返有醫師沒有治療師（ADR-0028）
+    assert.match(text, /夏醫師/);
     assert.match(text, /時間不詳/, '匯入的來訪沒有時間，要寫時間不詳不是留白（ADR-0011）');
   });
 

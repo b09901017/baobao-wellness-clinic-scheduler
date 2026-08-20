@@ -280,6 +280,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
   requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
+  requiresDoctor,        // bool。true 時來訪要選醫師（種子資料只有二返）
+                         // 不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
+                         // 沒選只提醒不擋，見 docs/adr/0028-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
   followupCourseId,      // 做完之後還要再約一次的那個課程。目前只有健檢 → 二返。
                          // 設了之後：買 N 次這個課程就自動有 N 次後續課程的額度，
@@ -300,7 +303,11 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 // config/staff/{id}
 { name, role, active, deletedAt }
-//   role: '物理治療師' | '護理師'
+//   role: '物理治療師' | '醫師'
+//   一份清單放兩種人，而 role 不只是標籤，它是分流：復能的治療師選單只列
+//   物理治療師、二返的醫師選單只列醫師。選錯人是實際傷害（CONTEXT.md），
+//   所以拿名單一律走 domain/masterData.js 的 staffWithRole()。
+//   護理師目前不納入排程（營養點滴不需要指定護理師）。見 docs/adr/0028-...
 
 // config/ivProducts/{id}
 { name, active, deletedAt }
@@ -389,7 +396,7 @@ audit/{eventId}                   // append-only 稽核紀錄
                               //   { source:'legacy-sheet', sheetName, importedAt }
                               // 有這個欄位的來訪，時段的 startsAt / endsAt /
                               // equipmentId / ivProductId / roomId / therapistId
-                              // 一律是 null —— 舊表沒有記過那些，見
+                              // / doctorId 一律是 null —— 舊表沒有記過那些，見
                               // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
     { entitlementId, courseId, courseName,
@@ -397,6 +404,8 @@ audit/{eventId}                   // append-only 稽核紀錄
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
       roomId, bed, therapistId,
+      doctorId,               // 這次是哪位醫師。requiresDoctor 的課程才有，
+                              // 目前只有二返。既有的來訪一律是 null，不要猜
       attended }
   ],
   createdBy, createdAt, updatedAt, deletedAt
@@ -1027,11 +1036,15 @@ Inbody 4、復健門診 2、物理諮詢 4、營養諮詢 4、體適能分析 4�
 INDIBA、超磁場（SIS）、高能量雷射。
 **超磁場與高能量雷射對體內金屬有禁忌；INDIBA 沒有。**
 
-### 治療師
+### 治療師與醫師
+
+兩種人共用 `config/staff`，靠 `role` 分開。**不可以互相取代** —— 復能三器材要的是物理治療師（`CONTEXT.md`）。
 
 物理治療師：騰崴（行事曆上寫騰威）、芝寧、LuLu、欣穎（也寫新穎）、耕宇、姿璇、怡婷、珮喩、王婷。
 
-醫師（夏、許、李）**不放進 `config/staff`** —— 他們不會被指派到時段上，只出現在她的速記裡。
+醫師：夏、許、李。姓氏就是她講的全部，名字她沒說。約二返時用選的 —— 課程主檔上開了 `requiresDoctor` 的課程，來訪編輯器才會出現醫師選單，種子資料只開二返。
+
+> 2026-08-20 之前這裡寫的是「醫師不放進 `config/staff`」。她那天決定要記進 app，見 [ADR-0028](./docs/adr/0028-doctors-are-assignable-staff.md)。她的舊試算表本來就手寫著 `7/13 二返(夏)`，括號裡那個字在醫師進 app 之前 app 記不住。
 
 ### 營養點滴品項
 
@@ -1057,7 +1070,7 @@ INDIBA、超磁場（SIS）、高能量雷射。
 - [ ] 「已壓表超過 N 天沒回覆」的 N 值
 - [ ] 舊資料匯入的欄位對應細節
 
-已確認：**營養點滴不需要指定護理師**。`config/staff` 第一版只放物理治療師，角色欄位保留但目前只有一種值。
+已確認：**營養點滴不需要指定護理師**。所以 `config/staff` 的角色只有物理治療師與醫師兩種，沒有護理師。
 
 ---
 

@@ -312,6 +312,7 @@ function renderNotes(sheet, data, top, width) {
         it.ivProduct,
         it.room ? it.room + (it.bed ? ' 床' + it.bed : '') : '',
         it.therapist,
+        it.doctor ? it.doctor + '醫師' : '',
       ].filter(String).join('　'));
     }
     lines.push(day.label + '　' + parts.join('\n' + '　　　'));

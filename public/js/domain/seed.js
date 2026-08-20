@@ -30,9 +30,12 @@ export const SEED = {
     { id: 'room-ilib4', name: 'ILIB4', type: 'ILIB室', beds: [] },
   ],
 
-  // 2026-08-19 從她的行事曆與口述補齊。醫師（夏、許、李）刻意不放進來：
-  // 他們不會被指派到時段上，只出現在她的速記裡，認得那幾個字是
-  // .claude/skills/calendar-sheet-merge 的事，不是主檔的事。
+  // 2026-08-19 從她的行事曆與口述補齊。
+  //
+  // 醫師（夏、許、李）2026-08-20 加進來 —— 約二返時要選醫師，
+  // 所以他們現在也會被指派到時段上。這推翻了 SPEC 第 12 節原本那句
+  // 「醫師不放進 config/staff」，見 docs/adr/0028-doctors-are-assignable-staff.md。
+  // 姓氏就是她講的全部，名字她沒說，不要自己補。
   staff: [
     { id: 'staff-tw', name: '騰崴', role: '物理治療師' },
     { id: 'staff-zn', name: '芝寧', role: '物理治療師' },
@@ -43,6 +46,9 @@ export const SEED = {
     { id: 'staff-yt', name: '怡婷', role: '物理治療師' },
     { id: 'staff-py', name: '珮喩', role: '物理治療師' },
     { id: 'staff-wt', name: '王婷', role: '物理治療師' },
+    { id: 'staff-dr-xia', name: '夏', role: '醫師' },
+    { id: 'staff-dr-xu', name: '許', role: '醫師' },
+    { id: 'staff-dr-li', name: '李', role: '醫師' },
   ],
 
   equipment: [
@@ -82,9 +88,11 @@ export const SEED = {
       requiresEquipment: false, frequencyRule: null,
     },
     {
+      // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
+      // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
       id: 'course-followup', name: '二返', category: 'A', durationMin: 30,
       assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
-      requiresEquipment: false, frequencyRule: null,
+      requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
     },
 
     // ---- B 類：單系統＋電話 ----
