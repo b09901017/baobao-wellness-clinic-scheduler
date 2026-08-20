@@ -17,6 +17,8 @@ import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage } from '../../domain/messages.js';
+import { NOTE_MAX } from '../../domain/visits.js';
+import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
 import { todayISO, shortDate, daysBetween } from '../../domain/dates.js';
 import { wireDrag } from '../components/sheet.js';
@@ -464,6 +466,15 @@ async function markDone(ctx) {
 }
 
 // ---------- 跟客人確認時間 ----------
+//
+// 這一列有三條路，不是兩條：打勾確認、逐段標「客人說不行」，
+// 以及**寫一句「禮拜一再問問」**。第三條是她 2026-08-20 講的 ——
+// 「問了但還沒回」寫不進去的話，下次打開那一列長得跟從來沒問過的一模一樣。
+//
+// 那一句存在來訪上（`followupNote` / `followupAt`），不是任務也不是備註：
+// 任務要有死線（而「再問問」沒有死線），備註跟著人一輩子（而這一句下禮拜一就過期）。
+// 命名對齊 `customers/{id}/availability` 上那一個，小寫的 followup。
+// 見 .scratch/visit-lifecycle/issues/01-confirm-row-cannot-carry-a-note.md
 
 async function renderConfirm(el) {
   const [pending, settings] = await Promise.all([
@@ -498,17 +509,15 @@ function paintConfirm(ctx) {
 
 function confirmCard(customerId, visits, today, noReplyDays) {
   const name = visits[0].customerName ?? '（沒有名字）';
-  const waited = Math.max(...visits.map((v) => waitedDays(v, today) ?? 0));
-  const late = waited >= noReplyDays;
+  const state = waitState(visits, today, noReplyDays);
   const slots = visits.flatMap((v) => v.slots ?? []);
 
   return `
-    <div class="card" style="margin: 0">
+    <div class="card ${state.asked ? 'card--asked' : ''}" style="margin: 0">
       <div class="row" style="align-items: flex-start">
         <div class="row__main">
           <div class="row__title">${esc(name)}</div>
-          <div class="muted num">壓了 ${slots.length} 段・${
-            late ? `已等 ${waited} 天・久了` : `已等 ${waited} 天`}</div>
+          <div class="muted num">壓了 ${slots.length} 段・${esc(state.label)}</div>
         </div>
         <button class="fab__main" type="button" data-open="${esc(customerId)}"
                 style="width: 46px; height: 46px" aria-label="${esc(name)}・確認">
@@ -520,6 +529,8 @@ function confirmCard(customerId, visits, today, noReplyDays) {
         ${visits.map((v) => `<span class="badge num">${esc(shortDate(v.date))}</span>`).join('')}
       </div>
 
+      ${followupForm(customerId, name, state.note)}
+
       ${message.box({
         id: customerId,
         text: confirmMessage({ name }, visits),
@@ -527,6 +538,25 @@ function confirmCard(customerId, visits, today, noReplyDays) {
         buttonLabel: '複製 LINE 確認訊息',
       })}
     </div>`;
+}
+
+/**
+ * 「問過了，在等」那一句。直接是一個輸入框，不是一顆「加備註」按鈕 ——
+ * 她人在 LINE 裡，多一次點擊就會變成「算了等一下再記」，然後就忘了
+ * （同 notesCard() 的理由）。
+ *
+ * 寫完那一列看得出問過了：卡片換一個底、天數改成從問的那天算。
+ * **但它還在清單上** —— 事情還沒完，移走就等於忘記。
+ */
+function followupForm(customerId, name, note) {
+  return `
+    <form data-followup="${esc(customerId)}"
+          style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
+      <input type="text" name="text" maxlength="${NOTE_MAX}" value="${esc(note ?? '')}"
+             style="flex: 1; min-width: 0" placeholder="問了還沒回？記一句…"
+             aria-label="${esc(name)}・問過了要記的一句話" />
+      <button class="btn" type="submit">${note ? '改' : '記'}</button>
+    </form>`;
 }
 
 /**
@@ -542,6 +572,7 @@ function drawerHtml(ctx) {
     (v.slots ?? []).map((s, i) => ({ visit: v, slot: s, key: `${v.id}:${i}` })),
   );
   const okCount = rows.filter((r) => !drawer.rejected.has(r.key)).length;
+  const note = followupNoteOf(visits);
 
   return `
     <div class="drawer-backdrop" data-backdrop>
@@ -550,6 +581,11 @@ function drawerHtml(ctx) {
         <div class="drawer__head">
           <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段</h2>
         </div>
+        ${note
+          // 這張面板蓋住了底下那張卡，她自己寫的那一句要跟著進來，
+          // 否則「上次問到哪」在最需要它的那一刻反而看不到。
+          ? `<p class="card__asked" style="margin-top: 0">上次問過：${esc(note)}</p>`
+          : ''}
         <p class="drawer__note">確認之後會自動排進日曆，並且產生該做的登記。</p>
 
         <div class="drawer__body">
@@ -614,7 +650,38 @@ function wireConfirm(ctx) {
   const box = el.querySelector('.drawer');
   if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
 
+  el.querySelectorAll('[data-followup]').forEach((form) =>
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveFollowupNote(ctx, form.dataset.followup, form.querySelector('[name=text]').value);
+    }),
+  );
+
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyConfirm(ctx));
+}
+
+/**
+ * 記下（或收掉）「問過了，在等」那一句。
+ *
+ * 這位客戶所有還在等的來訪各自帶一份同樣的字，一個 commit 寫完 ——
+ * 分開寫的話復原只退得回其中一筆（見 data/visits.js 的 setFollowupNote）。
+ */
+async function saveFollowupNote(ctx, customerId, text) {
+  const visits = byCustomer(ctx.pending).get(customerId) ?? [];
+  if (!visits.length) return;
+
+  const trimmed = String(text ?? '').trim();
+  if (trimmed === (followupNoteOf(visits) ?? '')) return; // 沒改就不要白寫一筆稽核
+
+  try {
+    await toast.withSaveState(
+      () => visitsData.setFollowupNote(visits.map((v) => v.id), trimmed),
+      { success: trimmed ? '記下了，這一列還留著' : '收掉了' },
+    );
+    await renderConfirm(ctx.el);
+  } catch {
+    /* 已處理 */
+  }
 }
 
 /**
@@ -638,6 +705,8 @@ async function applyConfirm(ctx) {
   const writes = visits.map((v) => {
     const keep = (v.slots ?? []).filter((_, i) => !rejected.has(`${v.id}:${i}`));
 
+    // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
+    // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
     if (!keep.length) {
       return {
         ...v,
@@ -645,6 +714,8 @@ async function applyConfirm(ctx) {
         cancelledAt: at,
         cancelReason: '客人說這個時間不行',
         released: true,
+        followupNote: null,
+        followupAt: null,
       };
     }
     return {
@@ -652,6 +723,8 @@ async function applyConfirm(ctx) {
       slots: keep,
       status: 'confirmed',
       confirmedAt: at,
+      followupNote: null,
+      followupAt: null,
     };
   });
 
@@ -770,19 +843,5 @@ function byCustomer(visits) {
   return out;
 }
 
-/**
- * 等了幾天。null 代表還不知道 —— serverTimestamp 要等伺服器回來才有值，
- * 剛按下「已壓表」的那一筆讀回來會是空的。那時顯示「剛壓」，不要假裝是 0 天。
- */
-function waitedDays(visit, today) {
-  const iso = isoOf(visit.createdAt);
-  return iso ? daysBetween(iso, today) : null;
-}
-
-function isoOf(ts) {
-  if (!ts) return null;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+// 「已等 N 天」「問過了」那一組判斷全部在 domain/confirmations.js ——
+// 進度追蹤頁之後要問同一句話，這裡不留第二份。

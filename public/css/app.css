@@ -339,6 +339,22 @@ svg {
   box-shadow: var(--shadow-2);
 }
 
+/* 「跟客人確認時間」那一列：問過了、還在等回覆。
+   換的是左邊那一條而不是整張的底色 —— 這幾張卡是拿來掃的，
+   一半深一半淺會讓她以為那是兩種不同的東西。 */
+.card--asked {
+  border-left: 3px solid var(--soon);
+}
+
+.card__asked {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--soon-bg);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 .card__title {
   margin: 0 0 var(--space-2);
   font-family: var(--font-serif);

@@ -75,6 +75,7 @@ const FIELD_LABELS = {
   validTo: '有效期迄',
   collectedAt: '收集日期',
   followupNote: '後續備註',
+  followupAt: '問過的時間',
   queue: '佇列',
   cursor: '停留位置',
 };
