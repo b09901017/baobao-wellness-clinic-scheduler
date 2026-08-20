@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 
 import {
   monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
-  strongestReason, newBatch, progressOf, markInQueue, nextPending, DEFAULT_WEIGHTS,
+  strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
+  DEFAULT_WEIGHTS,
 } from '../public/js/domain/scheduling.js';
 
 const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
@@ -291,6 +292,124 @@ describe('佇列排序', () => {
     const a = build().map((r) => r.customerId);
     const b = build().map((r) => r.customerId);
     assert.deepEqual(a, b);
+  });
+});
+
+// 待辦中心的「問這輪的時間」。她的第一步，發生在壓表之前。
+describe('這一輪還沒問到誰', () => {
+  const TODAY = '2026-09-20';
+
+  const person = (id, name) => ({ id, name, active: true });
+
+  // 有效期涵蓋今天 = 已經問到了
+  const coll = (over = {}) => ({
+    id: 'a1', collectedAt: '2026-09-01', validFrom: '2026-09-01', validTo: '2026-09-30',
+    rawText: '一三下午方便', rules: [], ...over,
+  });
+
+  const base = {
+    customers: [person('c1', '客戶甲')],
+    entitlementsBy: { c1: [ent({ totalQty: 12, doneCount: 2, bookedCount: 1 })] },
+    availabilityBy: {},
+    today: TODAY,
+  };
+
+  test('從來沒問過的會列出來，而且看得出是「從來沒問過」', () => {
+    const rows = customersToAsk(base);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].state, 'never');
+    assert.equal(rows[0].lastAskedAt, null);
+    assert.equal(rows[0].daysSinceAsked, null);
+    assert.equal(rows[0].remaining, 9, '剩餘次數走額度上的計數欄位，不必讀來訪');
+  });
+
+  test('問過而且還有效的不列', () => {
+    const rows = customersToAsk({ ...base, availabilityBy: { c1: [coll()] } });
+    assert.deepEqual(rows, []);
+  });
+
+  test('過期的算「該重問了」，不是安靜地繼續用（SPEC 第 4.3 節）', () => {
+    const rows = customersToAsk({
+      ...base,
+      availabilityBy: { c1: [coll({ validTo: '2026-08-31', collectedAt: '2026-08-01' })] },
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].state, 'expired');
+    assert.equal(rows[0].lastAskedAt, '2026-08-01');
+    assert.equal(rows[0].daysSinceAsked, 50);
+  });
+
+  test('次數用完的不問 —— 和壓表佇列同一道濾網', () => {
+    const rows = customersToAsk({
+      ...base,
+      entitlementsBy: { c1: [ent({ totalQty: 12, doneCount: 12, bookedCount: 0 })] },
+    });
+    assert.deepEqual(rows, []);
+  });
+
+  test('停用與軟刪除的客戶不算', () => {
+    for (const over of [{ active: false }, { deletedAt: 'x' }]) {
+      const rows = customersToAsk({ ...base, customers: [{ ...person('c1', '客戶甲'), ...over }] });
+      assert.deepEqual(rows, [], JSON.stringify(over));
+    }
+  });
+
+  test('刪掉的收集不算數 —— 刪掉就是沒問過', () => {
+    const rows = customersToAsk({
+      ...base,
+      availabilityBy: { c1: [coll({ deletedAt: 'x' })] },
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].state, 'never');
+  });
+
+  test('從來沒問過的排最前面，其餘最久沒問的先', () => {
+    const rows = customersToAsk({
+      customers: [person('c1', '客戶甲'), person('c2', '客戶乙'), person('c3', '客戶丙')],
+      entitlementsBy: { c1: [ent()], c2: [ent()], c3: [ent()] },
+      availabilityBy: {
+        c1: [coll({ collectedAt: '2026-08-15', validTo: '2026-08-31' })],
+        c2: [coll({ collectedAt: '2026-06-01', validTo: '2026-06-30' })],
+        // c3 從來沒問過
+      },
+      today: TODAY,
+    });
+
+    assert.deepEqual(rows.map((r) => r.customerName), ['客戶丙', '客戶乙', '客戶甲']);
+  });
+
+  test('同一位問過好幾次，看的是最後那一次', () => {
+    const rows = customersToAsk({
+      ...base,
+      availabilityBy: {
+        c1: [
+          coll({ id: 'a1', collectedAt: '2026-06-01', validTo: '2026-06-30' }),
+          coll({ id: 'a2', collectedAt: '2026-08-01', validTo: '2026-08-31' }),
+        ],
+      },
+    });
+    assert.equal(rows[0].lastAskedAt, '2026-08-01');
+  });
+
+  test('收集日期壞掉不會被當成「今天剛問過」', () => {
+    const rows = customersToAsk({
+      ...base,
+      availabilityBy: { c1: [coll({ collectedAt: 'x', validTo: '2026-08-31' })] },
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].state, 'expired', '有紀錄，只是不知道哪天問的');
+    assert.equal(rows[0].lastAskedAt, null);
+    assert.equal(rows[0].daysSinceAsked, null);
+  });
+
+  test('有效期還沒開始的那份算已經問到了，不要再問一次', () => {
+    const rows = customersToAsk({
+      ...base,
+      availabilityBy: { c1: [coll({ validFrom: '2026-10-01', validTo: '2026-10-31' })] },
+    });
+    assert.deepEqual(rows, []);
   });
 });
 

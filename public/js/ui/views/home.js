@@ -16,13 +16,14 @@ import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
-import { confirmMessage } from '../../domain/messages.js';
+import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
-import { todayISO, shortDate, daysBetween } from '../../domain/dates.js';
+import { customersToAsk } from '../../domain/scheduling.js';
+import { todayISO, shortDate, daysBetween, addMonths } from '../../domain/dates.js';
 import { wireDrag } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
@@ -42,12 +43,16 @@ let tab = 'all';
 // 確認畫面。開著的是哪一位、哪幾段被客人退掉。
 let drawer = null;
 
+// 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
+let askRows = null;
+
 // ---------- 總覽 ----------
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
   drawer = null;
+  askRows = null;
 
   const today = todayISO();
   let tasks;
@@ -70,7 +75,38 @@ export async function render(el) {
     return;
   }
 
-  paint({ el, tasks, pending, unclosed, notes, settings, today });
+  const ctx = { el, tasks, pending, unclosed, notes, settings, today };
+  paint(ctx);
+  loadAsk(ctx);
+}
+
+/**
+ * 「問這輪的時間」那一列的數字。
+ *
+ * 它要多讀三份資料（客戶、額度、可用性），而這一頁她一天開十幾次 ——
+ * 所以照資料健檢那顆徽章的作法（scanHealth）：**先把頁面畫出來，
+ * 這一列等資料回來再補上去**，不要為了它讓整頁多等一輪。
+ *
+ * 額度與可用性都是 collection group query，各一次，不是一位客戶一次。
+ */
+async function loadAsk(ctx) {
+  try {
+    const [customers, entitlementsBy, availabilityBy] = await Promise.all([
+      customersData.list(),
+      customersData.entitlementsByCustomer(),
+      customersData.availabilityByCustomer(),
+    ]);
+    askRows = customersToAsk({ customers, entitlementsBy, availabilityBy, today: ctx.today });
+  } catch {
+    // 讀不到就當這一列不存在。它是提醒，不是這一頁的主體 ——
+    // 為了它把已經畫好的待辦換成一句錯誤訊息，代價比看不到這一列大。
+    askRows = [];
+  }
+
+  // 她可能已經切到「依客戶」那個看法了，那時候沒有這個位置可以填。
+  // 不用補救：切回來會重畫，那時 askRows 已經有了。
+  const slot = ctx.el.querySelector('[data-ask]');
+  if (slot) slot.innerHTML = askGroupRow();
 }
 
 function paint(ctx) {
@@ -139,6 +175,7 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
         href: '#/todo/confirm', lead: true, dot: 'accent',
         label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
       })}
+      <div data-ask>${askGroupRow()}</div>
       ${kinds.map((k) => groupRow({
         href: `#/todo/${encodeURIComponent(k)}`, dot: '',
         label: k, note: kindNote(k), n: tasks.filter((t) => t.kind === k).length,
@@ -148,6 +185,24 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
         label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
       }) : ''}
     </div>`;
+}
+
+/**
+ * 她流程的**第一步**：問客戶下個月哪幾天方便。壓表之前的事。
+ *
+ * 還沒載完（null）與沒有人要問（空）都不畫：一列寫著 0 的提醒，
+ * 在一頁專講「現在有幾件事」的畫面上只是雜訊。
+ */
+function askGroupRow() {
+  if (!askRows?.length) return '';
+  const never = askRows.filter((r) => r.state === 'never').length;
+
+  return groupRow({
+    href: '#/todo/ask', dot: '',
+    label: '問這輪的時間',
+    note: never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了',
+    n: askRows.length,
+  });
 }
 
 const KIND_NOTES = {
@@ -351,6 +406,7 @@ const GROUPS = {
   tomorrow: { title: '明天要做的', lead: '可以提早做。' },
   cancel: { title: '改時間／取消', lead: '來訪取消後，要回去把已經做掉的登記收回來。' },
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
+  ask: { title: '問這輪的時間', lead: '' },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
@@ -366,6 +422,7 @@ export async function renderGroup(el, group) {
   if (group === 'confirm') return renderConfirm(el);
   if (group === 'close') return renderClose(el);
   if (group === 'notes') return renderNotes(el);
+  if (group === 'ask') return renderAsk(el);
 
   const tasks = await tasksData.listOpen();
   const today = todayISO();
@@ -477,6 +534,98 @@ async function markDone(ctx) {
   } catch {
     /* 已處理 */
   }
+}
+
+// ---------- 問這輪的時間 ----------
+//
+// 她流程的第一步，發生在壓表之前。在這一頁之前這件事只看得到一半：
+// buildCustomerQueue() 算得出誰沒問過，但那個結果只出現在壓表卡片牆上，
+// 她得先開一個批次才知道要問誰 —— 而開批次已經是下一步了。
+//
+// 誰該進來、怎麼排，一條規則都不在這裡：全部在 domain/scheduling.js 的
+// customersToAsk()。
+
+async function renderAsk(el) {
+  const [customers, entitlementsBy, availabilityBy] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    customersData.availabilityByCustomer(),
+  ]);
+
+  const today = todayISO();
+  const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
+
+  paintAsk({
+    el, byId,
+    rows: customersToAsk({ customers, entitlementsBy, availabilityBy, today }),
+    // 她問的是下個月的時間 —— askAvailabilityMessage() 的預設也是下個月，
+    // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
+    month: addMonths(today, 1).slice(0, 7),
+  });
+}
+
+function paintAsk(ctx) {
+  const { el, rows, byId, month } = ctx;
+  const never = rows.filter((r) => r.state === 'never');
+  const expired = rows.filter((r) => r.state !== 'never');
+
+  el.innerHTML = `
+    ${backLink()}
+    <div class="page">
+      <h1 class="page__title">問這輪的時間</h1>
+      <p class="page__lead">問 ${Number(month.slice(5))} 月哪幾天方便，問到之後記進客戶頁的「不能的時間」。</p>
+    </div>
+
+    ${rows.length ? `
+      ${askSection('從來沒問過', never, byId, month,
+        '這幾位身上還有次數，但一次都沒問過時間。')}
+      ${askSection('該重問了', expired, byId, month,
+        '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}`
+      : '<p class="muted">都問到了。</p>'}`;
+
+  message.wire(el, toast.info);
+}
+
+function askSection(title, rows, byId, month, lead) {
+  if (!rows.length) return '';
+
+  return `
+    <div class="section">
+      <h2 class="section__title">${esc(title)}</h2>
+      <span class="section__n">${rows.length}</span>
+    </div>
+    <p class="muted" style="margin: 0 0 var(--space-3)">${esc(lead)}</p>
+    <div class="stack">${rows.map((r) => askCard(r, byId[r.customerId], month)).join('')}</div>`;
+}
+
+function askCard(row, customer, month) {
+  const name = row.customerName ?? '（沒有名字）';
+
+  // 「幾天前」講的是最後一次問的那天，不是收集的有效期 ——
+  // 她要判斷的是「這個人我多久沒聯絡了」。
+  const when = row.state === 'never'
+    ? '從來沒問過'
+    : row.lastAskedAt
+      ? `上次 ${shortDate(row.lastAskedAt)} 問的・${row.daysSinceAsked} 天前`
+      : '問過，但不知道是哪天問的';
+
+  return `
+    <div class="card" style="margin: 0">
+      <div class="row" style="align-items: flex-start">
+        <div class="row__main">
+          <div class="row__title">${esc(name)}</div>
+          <div class="muted num">${esc(when)}・還剩 ${row.remaining} 次</div>
+        </div>
+        <a class="footlink" href="#/customers/${esc(row.customerId)}">去記錄</a>
+      </div>
+
+      ${message.box({
+        id: `ask-${row.customerId}`,
+        text: askAvailabilityMessage(customer ?? { name }, { month }),
+        collapsed: true,
+        buttonLabel: '複製 LINE 訊息',
+      })}
+    </div>`;
 }
 
 // ---------- 跟客人確認時間 ----------

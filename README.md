@@ -197,9 +197,10 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
   （[ADR-0027](./docs/adr/0027-registration-tasks-wait-for-the-customer.md)）
 - 新的一頁「進度追蹤」（`#/customers/progress`）：一頁看完每位客戶這個月排了
   哪些時段、每一段各自到哪一步。**唯讀，連鉛筆都沒有**
+- 待辦中心多一列「問這輪的時間」，她的第一步不用再開壓表批次才看得到
+  （[ADR-0028](./docs/adr/0028-asking-for-times-is-a-todo-row-not-a-queue.md)）
 
-這一輪還沒做完的一支：待辦中心看不到「這輪的時間還沒問誰」，要開壓表批次才知道
-（`.scratch/visit-lifecycle/issues/06`）。
+這一輪八支票全部 done。
 
 ## 文件
 
