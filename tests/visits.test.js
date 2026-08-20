@@ -6,10 +6,14 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import {
   VISIT_STATUSES, INITIAL_STATUS, describeStatus, nextStatuses, canTransition,
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
+  statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
+  visitsToClose, visitsToConfirm, closeVisit,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -112,6 +116,209 @@ describe('來訪狀態機', () => {
   test('不認得的狀態原樣顯示，不要吞掉', () => {
     assert.equal(describeStatus('pending_confirm'), '已壓表，等客戶回覆');
     assert.equal(describeStatus('weird'), 'weird');
+  });
+});
+
+describe('一個狀態長什麼樣（只有這一份）', () => {
+  // 日曆、進度追蹤頁、試算表全部讀 STATUS_VIEW。她的原話是
+  // 「前面說的流程，寫程式的時候都要記得同步，這很重要」。
+
+  test('每一個狀態都有符號、class 與短名，不會漏掉某一種', () => {
+    for (const status of VISIT_STATUSES) {
+      assert.ok(statusClass(status), `${status} 沒有 class`);
+      assert.ok(shortStatus(status), `${status} 沒有短名`);
+      assert.ok(describeStatus(status), `${status} 沒有完整說明`);
+      // 取消是唯一沒有符號的：時段已經還回去了，那一格本來就不該有東西
+      if (status !== 'cancelled') assert.ok(markFor(status), `${status} 沒有符號`);
+    }
+    assert.equal(markFor('cancelled'), '');
+  });
+
+  test('使用者選的三個符號沒有被改掉（2026-08-20）', () => {
+    assert.equal(markFor('pending_confirm'), '○');
+    assert.equal(markFor('confirmed'), '△');
+    assert.equal(markFor('done'), '✓');
+  });
+
+  test('同一格混在一起時做完的排前面、未到排最後', () => {
+    assert.deepEqual(MARK_ORDER, ['✓', '△', '○', '✗']);
+  });
+
+  test('圖例跟著符號走，不是手寫的第二份', () => {
+    for (const mark of MARK_ORDER) {
+      assert.ok(MARK_LEGEND.includes(mark), `圖例少了 ${mark}`);
+    }
+  });
+
+  test('認不得的狀態不猜：沒有 class、沒有符號，說明原樣顯示', () => {
+    // 畫成某一種正常狀態最糟 —— 資料壞了要看得出來
+    assert.equal(statusClass('亂寫的'), '');
+    assert.equal(markFor('亂寫的'), '');
+    assert.equal(describeStatus('亂寫的'), '亂寫的');
+    assert.equal(describeStatus(null), '（沒有狀態）');
+  });
+
+  test('圖例的順序是流程的順序，不是字母序', () => {
+    assert.deepEqual(STATUS_VIEW_ORDER,
+      ['pending_confirm', 'confirmed', 'done', 'no_show']);
+  });
+});
+
+describe('狀態的 class 在 CSS 裡真的存在', () => {
+  // JS 說 status-confirmed、CSS 只寫了 status-confirm，畫面上就是「沒有顏色」——
+  // 那不會讓任何測試變紅，但她會看到一片灰。這一條就是那個守門員。
+  const css = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+  const tokens = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8');
+
+  test('每一個狀態的 class 都有對應的 CSS 規則', () => {
+    for (const status of VISIT_STATUSES) {
+      const cls = statusClass(status);
+      assert.ok(css.includes(`.${cls} {`), `app.css 少了 .${cls}`);
+    }
+  });
+
+  test('每一個 class 都設了 --kind-fg 與 --kind-bg', () => {
+    for (const status of VISIT_STATUSES) {
+      const block = css.split(`.${statusClass(status)} {`)[1]?.split('}')[0] ?? '';
+      assert.match(block, /--kind-fg:/, `${statusClass(status)} 沒設 --kind-fg`);
+      assert.match(block, /--kind-bg:/, `${statusClass(status)} 沒設 --kind-bg`);
+    }
+  });
+
+  test('用到的 --visit-* 色票都在 tokens.css 定義過', () => {
+    const used = [...css.matchAll(/var\((--visit-[a-z-]+)\)/g)].map((m) => m[1]);
+    assert.ok(used.length >= 8, `應該有四種狀態各兩個色票，實際找到 ${used.length}`);
+    for (const name of new Set(used)) {
+      assert.ok(tokens.includes(`${name}:`), `tokens.css 少了 ${name}`);
+    }
+  });
+});
+
+describe('收尾：客人來了嗎', () => {
+  const TODAY = '2026-08-20';
+  const visit = (over = {}) => ({
+    id: 'v1', customerName: '客戶A', date: '2026-08-19', status: 'confirmed',
+    slots: [
+      { entitlementId: 'e1', courseName: '復能' },
+      { entitlementId: 'e2', courseName: '靜脈' },
+    ],
+    ...over,
+  });
+
+  describe('哪幾筆要收尾', () => {
+    test('日子過了、還沒結案的才列，未來的不列', () => {
+      const rows = visitsToClose([
+        visit({ id: 'past', date: '2026-08-18' }),
+        visit({ id: 'today', date: TODAY }),
+        visit({ id: 'future', date: '2026-08-25' }),
+      ], TODAY);
+      assert.deepEqual(rows.map((v) => v.id), ['past', 'today']);
+    });
+
+    test('還沒問過客人的也要列 —— 那天過了更需要收尾', () => {
+      const rows = visitsToClose([visit({ status: 'pending_confirm' })], TODAY);
+      assert.equal(rows.length, 1);
+    });
+
+    test('已完成、未到、取消、已刪除的都不列', () => {
+      const rows = visitsToClose([
+        visit({ id: 'a', status: 'done' }),
+        visit({ id: 'b', status: 'no_show' }),
+        visit({ id: 'c', status: 'cancelled' }),
+        visit({ id: 'd', deletedAt: 'x' }),
+      ], TODAY);
+      assert.deepEqual(rows, []);
+    });
+
+    test('拖最久的排最上面', () => {
+      const rows = visitsToClose([
+        visit({ id: 'b', date: '2026-08-19' }),
+        visit({ id: 'a', date: '2026-08-10' }),
+      ], TODAY);
+      assert.deepEqual(rows.map((v) => v.id), ['a', 'b']);
+    });
+
+    test('日期壞掉的不列，也不會爆', () => {
+      assert.deepEqual(visitsToClose([visit({ date: '亂寫的' })], TODAY), []);
+      assert.deepEqual(visitsToClose(undefined, TODAY), []);
+    });
+  });
+
+  describe('要問客人的與要收尾的，一筆不會同時卡在兩邊', () => {
+    test('日子過了就不再問客人 —— 那時只做得到收尾', () => {
+      // 「8/3 那個時間可以嗎」在 8/20 問是沒有意義的
+      const old = visit({ id: 'old', date: '2026-08-03', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([old], TODAY), []);
+      assert.deepEqual(visitsToClose([old], TODAY).map((v) => v.id), ['old']);
+    });
+
+    test('未來的只在「問客人」那一邊', () => {
+      const soon = visit({ id: 'soon', date: '2026-08-25', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([soon], TODAY).map((v) => v.id), ['soon']);
+      assert.deepEqual(visitsToClose([soon], TODAY), []);
+    });
+
+    test('當天兩邊都列 —— 早上問得到、下午收得掉', () => {
+      const now = visit({ id: 'now', date: TODAY, status: 'pending_confirm' });
+      assert.equal(visitsToConfirm([now], TODAY).length, 1);
+      assert.equal(visitsToClose([now], TODAY).length, 1);
+    });
+
+    test('已確認的不會跑到「問客人」那一列', () => {
+      const ok = visit({ date: '2026-08-25', status: 'confirmed' });
+      assert.deepEqual(visitsToConfirm([ok], TODAY), []);
+    });
+
+    test('日期壞掉的留在「問客人」，不要從兩邊一起消失', () => {
+      const broken = visit({ id: 'broken', date: '亂寫的', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([broken], TODAY).map((v) => v.id), ['broken']);
+      assert.deepEqual(visitsToClose([broken], TODAY), []);
+    });
+
+    test('已刪除的兩邊都不列', () => {
+      const gone = visit({ deletedAt: 'x', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([gone], TODAY), []);
+      assert.deepEqual(visitsToClose([gone], TODAY), []);
+    });
+  });
+
+  describe('結案', () => {
+    test('全部做了 → 已完成，每一段都標成有做', () => {
+      const next = closeVisit(visit(), [true, true], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+      assert.equal(next.statusAt, 'T');
+    });
+
+    test('做了一半 → 還是已完成，沒做的那一段標成 false', () => {
+      // 次數只扣做了的那一段，見 domain/entitlements.js 的 slotOutcome()
+      const next = closeVisit(visit(), [true, false], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, false]);
+    });
+
+    test('一段都沒做 → 整筆未到', () => {
+      // 「來了但什麼都沒做」不存在，那就是沒來
+      const next = closeVisit(visit(), [false, false], 'T');
+      assert.equal(next.status, 'no_show');
+    });
+
+    test('少傳的那幾段當成有做，不要無聲扣掉她的次數', () => {
+      const next = closeVisit(visit(), [], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+    });
+
+    test('其餘欄位原封不動，時段的內容也不動', () => {
+      const before = visit({ note: '她說下午比較好' });
+      const next = closeVisit(before, [true, false], 'T');
+      assert.equal(next.note, '她說下午比較好');
+      assert.equal(next.customerName, '客戶A');
+      assert.equal(next.slots[0].courseName, '復能');
+      assert.equal(next.slots[1].entitlementId, 'e2');
+      assert.notEqual(next, before, '要回傳新的，不要就地改');
+      assert.equal(before.slots[0].attended, undefined, '原本那筆不可以被動到');
+    });
   });
 });
 

@@ -43,7 +43,7 @@ export const CHECKS = [
   {
     id: 'visitStatus',
     label: '狀態異常',
-    hint: '日期已過但還沒結案的來訪，以及不在合法清單內的狀態',
+    hint: '日期已過但還沒結案的來訪、標成已完成卻一段都沒做的，以及不在合法清單內的狀態',
   },
   {
     id: 'overused',
@@ -372,6 +372,21 @@ function checkVisitStatus(ctx) {
         detail: visit.status === 'confirmed'
           ? '日期已過但還是「客戶已確認」，該標已完成或未到了'
           : '日期已過但還在等客戶回覆，該結案了',
+        link: `#/visits/${visit.id}`,
+        fix: null,
+      });
+    }
+
+    // 標成已完成、卻一段都沒做。`closeVisit()` 產不出這種東西
+    // （一段都沒做就是整筆未到），所以會出現只有一個原因：有人繞過前端改了資料。
+    // 它會讓次數看起來扣了、實際上一次都沒扣，而畫面上分不出來。
+    // 見 docs/adr/0025-what-happened-is-recorded-per-slot.md
+    const slots = visit.slots ?? [];
+    if (visit.status === 'done' && slots.length && slots.every((sl) => sl.attended === false)) {
+      out.push({
+        severity: 'mismatch',
+        title: `來訪 ${visit.date}・${who}`,
+        detail: '標成「已完成」但每一段都記成沒做，次數一次都沒扣。該標成未到嗎？',
         link: `#/visits/${visit.id}`,
         fix: null,
       });

@@ -248,6 +248,36 @@ describe('狀態異常', () => {
     assert.equal(findingsOf(result, 'visitStatus').length, 0);
   });
 
+  test('標成已完成卻一段都沒做要報 —— 次數看起來扣了，其實一次都沒扣', () => {
+    // closeVisit() 產不出這種東西（一段都沒做就是整筆未到），
+    // 所以出現就代表有人繞過前端改了資料。ADR-0025。
+    const result = run({
+      visits: [visit({
+        date: '2026-09-01', status: 'done',
+        slots: [slot({ attended: false }), slot({ attended: false })],
+      })],
+    });
+    const [f] = findingsOf(result, 'visitStatus');
+    assert.equal(f.severity, 'mismatch');
+    assert.match(f.detail, /一次都沒扣/);
+  });
+
+  test('做了一半是正常的，不要報', () => {
+    // 客人做了一段就走 —— 那是她會遇到的正常情況，不是資料壞了
+    const result = run({
+      visits: [visit({
+        date: '2026-09-01', status: 'done',
+        slots: [slot({ attended: true }), slot({ attended: false })],
+      })],
+    });
+    assert.equal(findingsOf(result, 'visitStatus').length, 0);
+  });
+
+  test('舊資料沒有 attended 也不要報', () => {
+    const result = run({ visits: [visit({ date: '2026-09-01', status: 'done' })] });
+    assert.equal(findingsOf(result, 'visitStatus').length, 0);
+  });
+
   test('繞過前端寫進來的非法狀態是 mismatch（ADR-0006）', () => {
     const result = run({ visits: [visit({ status: '亂寫的' })] });
     const [f] = findingsOf(result, 'visitStatus');
