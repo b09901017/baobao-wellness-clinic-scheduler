@@ -191,6 +191,20 @@ describe('孤兒資料', () => {
     assert.equal(findingsOf(result, 'orphans').length, 0);
   });
 
+  test('指向不存在的醫師也會被抓到 —— 二返有醫師沒有治療師（ADR-0028）', () => {
+    const result = run({
+      entitlements: [ent()],
+      visits: [visit({ slots: [slot({ doctorId: 'st-gone' })] })],
+    });
+    assert.ok(findingsOf(result, 'orphans').some((f) => /醫師/.test(f.what ?? f.detail)));
+
+    const empty = run({
+      entitlements: [ent()],
+      visits: [visit({ slots: [slot({ doctorId: null })] })],
+    });
+    assert.equal(findingsOf(empty, 'orphans').length, 0, '沒填不是孤兒');
+  });
+
   test('指向不存在的額度會被抓到', () => {
     const result = run({
       entitlements: [ent()],

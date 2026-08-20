@@ -280,6 +280,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
   requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
+  requiresDoctor,        // bool。true 時來訪要選醫師（種子資料只有二返）
+                         // 不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
+                         // 沒選只提醒不擋，見 docs/adr/0028-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
   followupCourseId,      // 做完之後還要再約一次的那個課程。目前只有健檢 → 二返。
                          // 設了之後：買 N 次這個課程就自動有 N 次後續課程的額度，
@@ -300,7 +303,11 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 // config/staff/{id}
 { name, role, active, deletedAt }
-//   role: '物理治療師' | '護理師'
+//   role: '物理治療師' | '醫師'
+//   一份清單放兩種人，而 role 不只是標籤，它是分流：復能的治療師選單只列
+//   物理治療師、二返的醫師選單只列醫師。選錯人是實際傷害（CONTEXT.md），
+//   所以拿名單一律走 domain/masterData.js 的 staffWithRole()。
+//   護理師目前不納入排程（營養點滴不需要指定護理師）。見 docs/adr/0028-...
 
 // config/ivProducts/{id}
 { name, active, deletedAt }
@@ -384,12 +391,17 @@ audit/{eventId}                   // append-only 稽核紀錄
   note,                       // 她壓表當下記的一句話，例：'她說下午比較好'
                               // 是這一天的，不是某一個時段的 —— 她記的東西
                               // 通常是「這次來訪」的事，不是「這一段」的事
+  followupNote, followupAt,   // 「問過了、客人還沒回」那一句，例：'禮拜一再問問'
+                              // 只活在 pending_confirm 這一段，確認或取消時清掉。
+                              // 和 note 是兩回事：note 是壓表當下的事實，
+                              // 這一句是「追這件事追到哪了」。轉成已確認之後
+                              // 它就過期了，見第 8.1 節的確認動線
   released,                   // 取消後時段是否已釋出供遞補
   importedFrom,               // 從舊試算表匯進來的才有，例：
                               //   { source:'legacy-sheet', sheetName, importedAt }
                               // 有這個欄位的來訪，時段的 startsAt / endsAt /
                               // equipmentId / ivProductId / roomId / therapistId
-                              // 一律是 null —— 舊表沒有記過那些，見
+                              // / doctorId 一律是 null —— 舊表沒有記過那些，見
                               // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
     { entitlementId, courseId, courseName,
@@ -397,6 +409,8 @@ audit/{eventId}                   // append-only 稽核紀錄
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
       roomId, bed, therapistId,
+      doctorId,               // 這次是哪位醫師。requiresDoctor 的課程才有，
+                              // 目前只有二返。既有的來訪一律是 null，不要猜
       attended }
   ],
   createdBy, createdAt, updatedAt, deletedAt
@@ -683,8 +697,13 @@ audit/{eventId}                   // append-only 稽核紀錄
 3. **跳出確認畫面**，把這個人所有的時段攤開：日期時間、做什麼、器材、治療師或診間、她自己寫的備註。
 4. 客人說可以 → 確認，來訪從 `pending_confirm` 轉 `confirmed`，並且出現在日曆上。
 5. 客人說某幾筆不行 → **逐筆退回**，那幾筆取消（該產生的取消任務照樣產生），其餘照樣成立。
+6. **問了但還沒回** → 在那一列直接寫一句（例：「禮拜一再問問」），存進 `visit.followupNote`。
 
 **不做成整批一次確認。** 客人常常是「這兩天可以、那天不行」，整批只能全對或全錯，等於逼她重壓。
+
+**第 6 條不是第三種結果，是「還沒有結果」。** 寫了那一句之後那一列**還在清單上** —— 事情還沒完，移走就等於忘記。變的是兩件事：那一列看得出「問過了，在等」，而且「已等 N 天」改成從**問的那天**重新算（不然她禮拜五才問過，禮拜六紅字照樣往上加，然後她就不看它了）。判斷全部在 `domain/confirmations.js`，畫面不要自己再算一次。
+
+那一句**不是任務**（任務要有死線，而「再問問」沒有死線），也**不是備註**（備註跟著人一輩子，而這一句下禮拜一就過期）—— 三者的界線見 `CONTEXT.md`。
 
 #### 隨手記
 
@@ -1027,11 +1046,15 @@ Inbody 4、復健門診 2、物理諮詢 4、營養諮詢 4、體適能分析 4�
 INDIBA、超磁場（SIS）、高能量雷射。
 **超磁場與高能量雷射對體內金屬有禁忌；INDIBA 沒有。**
 
-### 治療師
+### 治療師與醫師
+
+兩種人共用 `config/staff`，靠 `role` 分開。**不可以互相取代** —— 復能三器材要的是物理治療師（`CONTEXT.md`）。
 
 物理治療師：騰崴（行事曆上寫騰威）、芝寧、LuLu、欣穎（也寫新穎）、耕宇、姿璇、怡婷、珮喩、王婷。
 
-醫師（夏、許、李）**不放進 `config/staff`** —— 他們不會被指派到時段上，只出現在她的速記裡。
+醫師：夏、許、李。姓氏就是她講的全部，名字她沒說。約二返時用選的 —— 課程主檔上開了 `requiresDoctor` 的課程，來訪編輯器才會出現醫師選單，種子資料只開二返。
+
+> 2026-08-20 之前這裡寫的是「醫師不放進 `config/staff`」。她那天決定要記進 app，見 [ADR-0028](./docs/adr/0028-doctors-are-assignable-staff.md)。她的舊試算表本來就手寫著 `7/13 二返(夏)`，括號裡那個字在醫師進 app 之前 app 記不住。
 
 ### 營養點滴品項
 
@@ -1057,7 +1080,7 @@ INDIBA、超磁場（SIS）、高能量雷射。
 - [ ] 「已壓表超過 N 天沒回覆」的 N 值
 - [ ] 舊資料匯入的欄位對應細節
 
-已確認：**營養點滴不需要指定護理師**。`config/staff` 第一版只放物理治療師，角色欄位保留但目前只有一種值。
+已確認：**營養點滴不需要指定護理師**。所以 `config/staff` 的角色只有物理治療師與醫師兩種，沒有護理師。
 
 ---
 
