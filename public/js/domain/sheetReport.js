@@ -10,31 +10,43 @@
 //
 // 次數一律從 visits 現算，不讀計數欄位 —— 報表會被存到雲端硬碟當備份看，
 // 它必須是對的（ADR-0004：真正不能錯的地方一律現算）。
+//
+// 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
+// 一位客戶一張，就這樣。
 
 import { counts } from './entitlements.js';
-import { isActive } from './visits.js';
+import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
+import { pairsOf } from './followups.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
 
-const CHECK = '✓';
-
 /**
- * 一位客戶一張表：療程項目 × 日期的勾選矩陣。
+ * 一位客戶一張表：療程項目 × 日期的矩陣，底下接二返註記、備註與 TODO / FINISHED。
+ *
+ * 這是**手動貼上**那條路（`#/settings/report`）。自動推送走的是 `syncBundle()`，
+ * 但兩條路必須長一樣 —— 同一份報表因為走哪條路而長得不同，
+ * 她會以為其中一條壞了。所以兩邊共用同一組 `mark()` / `followupNotes()` /
+ * `taskBlocks()`，這裡只負責把它們攤成格子。
  *
  * @param {object} ctx
  * @param {object} ctx.customer
  * @param {object[]} ctx.entitlements 這位客戶的額度
  * @param {object[]} ctx.visits 這位客戶的來訪
+ * @param {object[]} [ctx.tasks] 這位客戶的任務，含已完成的
+ * @param {object[]} [ctx.courses] 課程主檔，用來找出健檢配的二返（ADR-0022）
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
  * @returns {{name:string, rows:string[][]}}
  */
-export function customerReport({ customer, entitlements = [], visits = [], generatedAt = '' }) {
+export function customerReport({
+  customer, entitlements = [], visits = [], tasks = [], courses = [], generatedAt = '',
+}) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
   const dates = [...new Set(used.map((v) => v.date))].sort();
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
 
   const rows = [
     [READONLY_NOTICE],
@@ -43,6 +55,7 @@ export function customerReport({ customer, entitlements = [], visits = [], gener
     ['會籍到期', customer?.membershipExpiresAt ?? ''],
     ['永久限制', (customer?.flags ?? []).join('、')],
     ['產生時間', generatedAt],
+    ['符號', MARK_LEGEND],
     [],
     ['療程項目', '應有', '已完成', '已排未上', '剩餘', ...dates.map(shortDate)],
   ];
@@ -61,83 +74,72 @@ export function customerReport({ customer, entitlements = [], visits = [], gener
 
   if (!alive.length) rows.push(['（還沒有額度）']);
 
+  // 二返：一列，寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的
+  const notes = followupNotes({ alive, visits: used, dates, coursesById });
+  if (notes.length) {
+    const line = [];
+    for (const note of notes) line[COUNT_COLS + note.dateIndex] = note.text;
+    rows.push([...line].map((cell) => cell ?? ''));
+  }
+
+  const blocks = taskBlocks(tasks, used);
+  rows.push([], ['備註', customer?.notes ?? '']);
+  rows.push([], ['TODO（還沒做的）'], ...taskRows(blocks.todo, '死線'));
+  rows.push([], ['FINISHED（做完的）'], ...taskRows(blocks.finished, '完成'));
+
   return { name: customer?.name ?? '（沒有名字）', rows };
 }
 
+/** 矩陣左邊那幾欄（療程項目、應有、已完成、已排未上、剩餘）。日期從第 6 欄起。 */
+const COUNT_COLS = 5;
+
+/** 還沒做的看死線，做完的看完成日 —— 兩邊印同一個日期等於少講一件事。 */
+const taskRows = (items, kind) =>
+  (items.length ? items : [null]).map((t) =>
+    (t ? [t.label, t.kind, kind === '完成' ? (t.doneAt ?? '').slice(0, 10) : (t.dueDate ?? '')]
+       : ['（沒有）']));
+
 /**
- * 那天用掉這筆額度幾次。
+ * 那一天這筆額度長什麼樣。
  *
- * 同一天同一池用兩次是有的（例如上午一次下午一次），所以不是只印一個勾 ——
- * 舊表的勾選格看不出這件事，對帳時就會少一次。
+ * 不是只印一個勾：**符號分得出走到哪一步了**（○ 待確認、△ 已確認、✓ 已完成、
+ * ✗ 未到），符號由 `domain/visits.js` 的 `markFor()` 給，這裡不自己定義一組。
+ *
+ * 同一天同一池用兩次是有的（上午一次下午一次），所以要帶數量 ——
+ * 舊表的勾選格看不出這件事，對帳時就會少一次。兩次的狀態還可能不一樣
+ * （一段做了、一段沒到），所以是逐種符號各自算，不是挑一個代表。
+ *
+ * 之後時段各自帶結果時（見 .scratch/visit-lifecycle/issues/07），
+ * 要改的只有下面那一行 `markFor(v.status)` —— 換成看那一段自己的結果。
  */
 function mark(visits, entitlementId, date) {
-  const hits = visits
-    .filter((v) => v.date === date)
-    .reduce(
-      (n, v) => n + (v.slots ?? []).filter((s) => s.entitlementId === entitlementId).length,
-      0,
-    );
-  if (!hits) return '';
-  return hits === 1 ? CHECK : `${CHECK}${hits}`;
-}
+  const tally = new Map();
 
-/**
- * 總表：一位客戶一列。取代她現在「開二十幾張分頁一張一張看」的動作。
- *
- * @param {object} ctx
- * @param {object[]} ctx.customers
- * @param {Record<string, object[]>} ctx.entitlementsBy
- * @param {Record<string, object[]>} ctx.visitsBy
- * @param {string} ctx.today
- * @param {string} [ctx.generatedAt]
- * @returns {{name:string, rows:string[][]}}
- */
-export function overviewReport({
-  customers = [], entitlementsBy = {}, visitsBy = {}, today, generatedAt = '',
-}) {
-  const rows = [
-    [READONLY_NOTICE],
-    ['產生時間', generatedAt],
-    [],
-    ['姓名', '購買通路', '會籍到期', '應有', '已完成', '已排未上', '剩餘',
-      '上次來訪', '下次預約', '永久限制'],
-  ];
-
-  const sorted = customers
-    .filter((c) => !c.deletedAt)
-    .slice()
-    .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-TW'));
-
-  for (const customer of sorted) {
-    const visits = (visitsBy[customer.id] ?? []).filter((v) => isActive(v) && isValidDate(v.date));
-    const total = { total: 0, done: 0, booked: 0, remaining: 0 };
-
-    for (const e of (entitlementsBy[customer.id] ?? []).filter((x) => !x.deletedAt)) {
-      const c = counts(e, visits, e.id);
-      total.total += c.total;
-      total.done += c.done;
-      total.booked += c.booked;
-      total.remaining += c.remaining;
-    }
-
-    const past = visits.filter((v) => v.date <= today).map((v) => v.date).sort();
-    const future = visits.filter((v) => v.date > today).map((v) => v.date).sort();
-
-    rows.push([
-      customer.name ?? '',
-      customer.source ?? '',
-      customer.membershipExpiresAt ?? '',
-      String(total.total),
-      String(total.done),
-      String(total.booked),
-      String(total.remaining),
-      past[past.length - 1] ?? '',
-      future[0] ?? '',
-      (customer.flags ?? []).join('、'),
-    ]);
+  for (const v of visits) {
+    if (v.date !== date) continue;
+    const symbol = markFor(v.status);
+    if (!symbol) continue;
+    const hits = (v.slots ?? []).filter((s) => s.entitlementId === entitlementId).length;
+    if (hits) tally.set(symbol, (tally.get(symbol) ?? 0) + hits);
   }
 
-  return { name: '總表', rows };
+  return MARK_ORDER
+    .filter((symbol) => tally.has(symbol))
+    .map((symbol) => (tally.get(symbol) === 1 ? symbol : `${symbol}${tally.get(symbol)}`))
+    .join('');
+}
+
+/** 那一天有沒有用到這筆額度。二返註記要靠它找出健檢是哪一欄。 */
+function usedOn(visits, entitlementId, date) {
+  return visits.some(
+    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
+  );
+}
+
+/** `7/13`。舊表的二返註記就是這個格式，沒有星期。 */
+function monthDay(iso) {
+  const [, m, d] = String(iso).split('-').map(Number);
+  return `${m}/${d}`;
 }
 
 /**
@@ -176,8 +178,13 @@ function csvCell(value) {
 //
 // 見 docs/adr/0013-sheet-sync-is-a-push-not-a-pull.md。
 
-/** 這包資料的格式版本。`.gs` 收到看不懂的版本要拒絕，不要半套渲染。 */
-export const SYNC_FORMAT = 1;
+/**
+ * 這包資料的格式版本。`.gs` 收到看不懂的版本要拒絕，不要半套渲染。
+ *
+ * 2 起：拿掉 `overview`（不做總表），勾選格改成四種符號，
+ * 每張表多了 `tasks`（TODO / FINISHED 兩塊）與 `followupNotes`（二返註記）。
+ */
+export const SYNC_FORMAT = 2;
 
 /**
  * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
@@ -192,11 +199,15 @@ export const SYNC_FORMAT = 1;
  * @param {string} [ctx.generatedAt]
  */
 export function syncBundle({
-  customers = [], entitlementsBy = {}, visitsBy = {}, today,
+  customers = [], entitlementsBy = {}, visitsBy = {}, tasksBy = {}, today,
   master = {}, generatedAt = '',
 }) {
   const nameOf = (type, id) =>
     (master[type] ?? []).find((x) => x.id === id)?.name ?? null;
+
+  // 課程刻意連已刪除的一起收：主檔把健檢刪掉，不代表已經做過的那幾次
+  // 就不用配二返了。少讀那一筆的代價是註記無聲消失。
+  const coursesById = Object.fromEntries((master.courses ?? []).map((c) => [c.id, c]));
 
   const sorted = customers
     .filter((c) => !c.deletedAt)
@@ -236,8 +247,13 @@ export function syncBundle({
         booked: t.booked + r.booked,
         remaining: t.remaining + r.remaining,
       }), { total: 0, done: 0, booked: 0, remaining: 0 }),
-      // 舊表 TODO 區塊的位置改放這些 —— 那些掛號早就做完了，
-      // 但「那天到底做了什麼、誰做的、在哪一間」是舊表從來記不住的東西。
+      // 二返約在哪天，寫在**那次健檢被勾起來的那一欄**底下 —— 她原本就是這樣記的
+      // （docs/legacy/README.md 第 6 節）。
+      followupNotes: followupNotes({ alive, visits, dates, coursesById }),
+      // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
+      // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
+      tasks: taskBlocks(tasksBy[customer.id] ?? [], visits),
+      // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
       log: dates.map((date) => ({
         date,
         label: shortDate(date),
@@ -261,15 +277,78 @@ export function syncBundle({
     generatedAt,
     today,
     notice: READONLY_NOTICE,
-    overview: sheets.map((s) => ({
-      name: s.name,
-      source: s.source,
-      membershipExpiresAt: s.membershipExpiresAt,
-      flags: s.flags,
-      ...s.totals,
-      lastVisit: s.dates.filter((d) => d <= today).slice(-1)[0] ?? '',
-      nextVisit: s.dates.find((d) => d > today) ?? '',
-    })),
+    legend: MARK_LEGEND,
     sheets,
   };
 }
+
+/**
+ * 二返註記。一行對到一欄。
+ *
+ * 配對走 `domain/followups.js` 的 `pairsOf()` —— 一位客戶可能買兩筆健檢，
+ * 各自配各自的二返，靠 `followupForEntitlementId` 認（ADR-0022）。
+ * 這裡不用課程比對，理由同那一支。
+ *
+ * 健檢做了 N 次就有 N 欄要註記，照日期順序配上二返的日期；
+ * 還沒約的印 `二返()` —— 那個空括號是她自己的寫法，意思是「這件事還沒做」。
+ */
+function followupNotes({ alive, visits, dates, coursesById }) {
+  const out = [];
+
+  for (const pair of pairsOf(alive, coursesById)) {
+    const label = coursesById[pair.followupCourseId]?.name ?? '二返';
+    const followupDates = pair.followup
+      ? dates.filter((d) => usedOn(visits, pair.followup.id, d))
+      : [];
+
+    dates
+      .filter((d) => usedOn(visits, pair.source.id, d))
+      .forEach((date, i) => {
+        const booked = followupDates[i] ?? null;
+        out.push({
+          dateIndex: dates.indexOf(date),
+          text: booked ? `${monthDay(booked)} ${label}` : `${label}()`,
+        });
+      });
+  }
+
+  return out;
+}
+
+/**
+ * TODO 與 FINISHED 兩塊。
+ *
+ * 一列的寫法照舊表：`{M/D} {療程名}` 加上任務種類。**中間有一個空白** ——
+ * 舊表沒有，所以 `7/6` 加 `0.75萬健檢` 會黏成 `7/60.75萬健檢`，很難讀。
+ *
+ * 日期取的是**來訪那一天**，不是死線 —— 她認的是「哪一天那一場」，
+ * 而死線是它的前一天，兩個差一天最容易看錯人。來訪找不到（獨立待辦、
+ * 來訪被刪了）才退回用死線。
+ */
+function taskBlocks(tasks, visits) {
+  const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));
+  const alive = (tasks ?? []).filter((t) => !t.deletedAt);
+
+  const line = (t) => {
+    const visit = visitById[t.visitId];
+    const when = visit?.date ?? t.dueDate ?? '';
+    const what = visit
+      ? [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))].join('、')
+      : '';
+    return {
+      label: [when ? monthDay(when) : '', what].filter(Boolean).join(' '),
+      kind: t.kind ?? '',
+      dueDate: t.dueDate ?? '',
+      doneAt: t.doneAt ?? '',
+      note: t.note ?? '',
+    };
+  };
+
+  return {
+    todo: alive.filter((t) => !t.done).sort(byDue).map(line),
+    finished: alive.filter((t) => t.done).sort(byDoneDesc).map(line),
+  };
+}
+
+const byDue = (a, b) => String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''));
+const byDoneDesc = (a, b) => String(b.doneAt ?? '').localeCompare(String(a.doneAt ?? ''));

@@ -37,6 +37,12 @@ const bundle = (overrides = {}) => ({
         { id: 'v2', date: '2026-08-20', status: 'confirmed', slots: [{ entitlementId: 'e2', courseName: '靜脈' }] },
       ],
     },
+    tasksBy: {
+      c1: [
+        { id: 't1', customerId: 'c1', visitId: 'v2', kind: 'Abovee', dueDate: '2026-08-19', done: false },
+        { id: 't2', customerId: 'c1', visitId: 'v1', kind: 'Examine', dueDate: '2026-07-31', done: true, doneAt: '2026-07-30T02:00:00.000Z' },
+      ],
+    },
     today: '2026-08-10',
     generatedAt: '2026/8/18 下午7:15',
     master: { rooms: [{ id: 'r1', name: '治3' }], staff: [{ id: 's1', name: '芝寧' }] },
@@ -61,7 +67,7 @@ describe('收件口', () => {
     const { post, ss } = loadAppsScript();
     const reply = post({ token: 'secret', bundle: bundle({ format: 99 }) });
     assert.equal(reply.ok, false);
-    assert.match(reply.error, /只認得 1/);
+    assert.match(reply.error, /只認得 2/);
     assert.equal(ss.getSheets().length, 0);
   });
 
@@ -79,16 +85,15 @@ describe('渲染', () => {
     return app;
   };
 
-  test('一位客戶一張分頁，加一張總表與一張隱藏的原始資料', () => {
+  test('一位客戶一張分頁，沒有總表（2026-08-20）', () => {
     const { ss } = render();
-    assert.deepEqual(ss.getSheets().map((s) => s.getName()).sort(), ['_data', '客戶A', '總表'].sort());
+    assert.deepEqual(ss.getSheets().map((s) => s.getName()).sort(), ['_data', '客戶A'].sort());
     assert.equal(ss.getSheetByName('_data').hidden, true, '原始資料那張要藏起來');
   });
 
   test('每張分頁第一列都是那句提醒', () => {
     const { ss } = render();
     assert.equal(ss.getSheetByName('客戶A').at('A1'), READONLY_NOTICE);
-    assert.equal(ss.getSheetByName('總表').at('A1'), READONLY_NOTICE);
   });
 
   test('矩陣的數字跟 syncBundle 送過去的一模一樣', () => {
@@ -117,7 +122,7 @@ describe('渲染', () => {
     assert.equal(sheet.at('G5'), labels[1]);
   });
 
-  test('舊表 TODO 區塊的位置改放備註與來訪紀錄', () => {
+  test('備註區放回她手寫的那一段，底下接來訪紀錄', () => {
     const { ss } = render();
     const text = [...ss.getSheetByName('客戶A').cells.values()].join('\n');
     assert.match(text, /永久限制：體內金屬/);
@@ -128,21 +133,108 @@ describe('渲染', () => {
     assert.match(text, /時間不詳/, '匯入的來訪沒有時間，要寫時間不詳不是留白（ADR-0011）');
   });
 
-  test('總表每位客戶一列', () => {
-    const { ss } = render();
-    const sheet = ss.getSheetByName('總表');
-    assert.equal(sheet.at('A4'), '姓名');
-    assert.equal(sheet.at('A5'), '客戶A');
-  });
-
   test('表頭與備註區有合併儲存格、有凍結、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
-    assert.ok(sheet.merges.includes('A1:G1'), `第一列要橫跨整張表，實際：${sheet.merges.join(' ')}`);
+    // FINISHED 在 K 欄，所以表至少寬到 M 欄，第一列要橫跨整張
+    assert.ok(sheet.merges.includes('A1:M1'), `第一列要橫跨整張表，實際：${sheet.merges.join(' ')}`);
     assert.equal(sheet.frozenRows, 5);
     assert.equal(sheet.frozenCols, 1);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');
+  });
+
+  test('TODO 與 FINISHED 並排，位置照舊表（A 欄與 K 欄）', () => {
+    const { ss } = render();
+    const sheet = ss.getSheetByName('客戶A');
+    const cells = [...sheet.cells.entries()];
+
+    const todoHead = cells.find(([, v]) => String(v).indexOf('TODO') === 0);
+    const finHead = cells.find(([, v]) => String(v).indexOf('FINISHED') === 0);
+    assert.ok(todoHead, 'TODO 那一塊要在');
+    assert.ok(finHead, 'FINISHED 那一塊要在');
+    assert.match(todoHead[0], /^A/, `TODO 要在 A 欄，實際：${todoHead[0]}`);
+    assert.match(finHead[0], /^K/, `FINISHED 要在 K 欄，實際：${finHead[0]}`);
+    // 同一列並排
+    assert.equal(todoHead[0].slice(1), finHead[0].slice(1));
+
+    const text = [...sheet.cells.values()].join('\n');
+    assert.match(text, /Abovee/, '還沒做的要列出來');
+    assert.match(text, /Examine/, '做完的也要列出來');
+  });
+
+  test('沒有任務時兩塊都寫「沒有」，不要留白', () => {
+    // 留白看起來像表壞了，而她不會知道是「沒有任務」還是「沒推成功」
+    const empty = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 2 }] },
+      visitsBy: { c1: [] },
+      today: '2026-08-10',
+    });
+    const app = loadAppsScript();
+    assert.equal(app.post({ token: 'secret', bundle: empty }).ok, true);
+    const text = [...app.ss.getSheetByName('客戶A').cells.values()].join('\n');
+    assert.match(text, /（沒有）/);
+  });
+
+  test('二返註記落在那次健檢被勾起來的那一欄', () => {
+    const withFollowup = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: {
+        c1: [
+          { id: 'e1', label: '復能', totalQty: 12 },
+          { id: 'e-chk', label: '健檢', courseId: 'course-checkup', totalQty: 1 },
+          { id: 'e-fu', label: '二返', courseId: 'course-followup', followupForEntitlementId: 'e-chk', totalQty: 1 },
+        ],
+      },
+      visitsBy: {
+        c1: [
+          { id: 'v1', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e1' }] },
+          { id: 'v2', date: '2026-08-05', status: 'done', slots: [{ entitlementId: 'e-chk' }] },
+          { id: 'v3', date: '2026-08-12', status: 'confirmed', slots: [{ entitlementId: 'e-fu' }] },
+        ],
+      },
+      today: '2026-08-10',
+      master: {
+        courses: [
+          { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
+          { id: 'course-followup', name: '二返' },
+        ],
+      },
+    });
+
+    const app = loadAppsScript();
+    assert.equal(app.post({ token: 'secret', bundle: withFollowup }).ok, true);
+    const sheet = app.ss.getSheetByName('客戶A');
+
+    // 日期欄 8/1、8/5、8/12 → F、G、H。健檢在 8/5 那一欄，所以註記要在 G 欄。
+    // 用完整字串找，不要用「開頭是二返」—— 矩陣裡本來就有一列叫「二返」。
+    const hit = [...sheet.cells.entries()].find(([, v]) => v === '8/12 二返');
+    assert.ok(hit, `二返註記要寫出來，實際有的：${[...sheet.cells.values()].join('｜')}`);
+    assert.match(hit[0], /^G/, `要落在健檢那一欄（G），實際：${hit[0]}`);
+  });
+
+  test('不是我們產生的同名分頁不清空，而且要回報跳過了誰', () => {
+    // 她的分頁是用客戶名字命名的。網址填到舊試算表時，
+    // 沒有這條檢查就會把她手寫的東西整張清掉。
+    const app = loadAppsScript();
+    const mine = app.ss.insertSheet('客戶A');
+    mine.getRange(1, 1).setValue('這是我自己記的東西');
+
+    const reply = app.post({ token: 'secret', bundle: bundle() });
+    assert.equal(reply.ok, true);
+    assert.deepEqual(reply.skipped, ['客戶A']);
+    assert.equal(mine.at('A1'), '這是我自己記的東西', '一個字都不該被動到');
+    assert.equal(reply.sheets, 0);
+  });
+
+  test('自己產生過的分頁照樣清空重畫', () => {
+    const app = loadAppsScript();
+    assert.equal(app.post({ token: 'secret', bundle: bundle() }).ok, true);
+    const again = app.post({ token: 'secret', bundle: bundle() });
+    assert.equal(again.ok, true);
+    assert.deepEqual(again.skipped, []);
+    assert.equal(again.sheets, 1);
   });
 
   test('日期多到超過預設欄數也寫得進去', () => {

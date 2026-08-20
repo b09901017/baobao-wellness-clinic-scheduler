@@ -33,6 +33,15 @@ export function listByCustomer(customerId) {
   return repo.list(PATH, { wheres: [where('customerId', '==', customerId)] });
 }
 
+/**
+ * 全部任務，含已完成的。試算表報表的 TODO / FINISHED 兩塊用。
+ *
+ * 不逐位客戶查：一次要畫二十幾位，那是二十幾次讀取，而報表本來就要全部。
+ */
+export function listAll() {
+  return repo.list(PATH, {});
+}
+
 export async function listDeleted() {
   return (await repo.listWithDeleted(PATH)).filter((t) => t.deletedAt);
 }

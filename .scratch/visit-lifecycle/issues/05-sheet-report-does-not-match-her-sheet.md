@@ -1,6 +1,6 @@
 # 試算表報表和她原本那張對不起來：多了總表、少了備註與 TODO 區、二返沒有備註
 
-Status: open
+Status: done
 回報者：使用者，2026-08-20（並提供完整 `.xlsx`）
 動工前先讀：`.scratch/visit-lifecycle/spec.md` 第 5 節（那張表的真實結構）、
 `SPEC.md` 第 3 節、第 4.8 節、`docs/legacy/README.md`、
@@ -136,3 +136,38 @@ Status: open
 
 她要記進 app：**夏、許、李**三位，約二返時用選的。見 `issues/08`。
 所以報表那句 `7/13 二返(夏)` 的括號**印得出來**，不用她打字。
+
+
+## Comments
+
+**2026-08-20 — 做完了。** `npm test` 從 579 變成 586 全過。
+
+五件事都做了，加上兩件順手的：
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `domain/visits.js` | `MARKS` / `MARK_ORDER` / `markFor()` / `MARK_LEGEND` —— 符號只有這一份，日曆與進度追蹤頁之後照這裡分 |
+| `domain/sheetReport.js` | `mark()` 改成四種符號帶數量；拿掉 `overviewReport()`；`syncBundle()` 多 `tasks` 與 `followupNotes`，少 `overview`；`SYNC_FORMAT` 1 → 2 |
+| `data/tasks.js` | 多一支 `listAll()`（整包讀，不逐位客戶查） |
+| `data/sheetSync.js`、`ui/views/report.js` | 把任務與課程餵進去 |
+| `sheets/readonly-report.gs` | 拿掉總表；二返註記列；TODO / FINISHED 兩塊；符號各自的底色；`resetSheet()` 的守衛 |
+
+**兩件當初沒寫進這一支、但做了的：**
+
+1. **手動貼上那條路也一起改了。** 原本只打算改自動推的，但那會讓同一份報表因為走哪條路
+   而長得不一樣，她會以為其中一條壞了。`customerReport()` 現在也吐二返註記與
+   TODO / FINISHED，和 `syncBundle()` 共用同一組 helper。
+2. **`resetSheet()` 的守衛做了**（原本降級成「順手做的保險」）。它很便宜，
+   而且防的是「網址填錯指到舊表」那一次就會吃掉她手寫幾年的東西。
+   認不出來的分頁跳過並在回傳的 `skipped` 裡講出來。
+
+補了 [ADR-0024](../../../docs/adr/0024-the-sheet-mirrors-her-old-one.md)：
+沒有總表、四種符號、TODO/FINISHED 由 app 填。ADR-0010 與 ADR-0013 都沒有被推翻。
+
+**她要做的一件事**：`sheets/readonly-report.gs` 貼進那份新試算表的 Apps Script，
+設好 `SYNC_TOKEN`，部署成網頁應用程式，網址與密鑰填進 `#/settings/report`。
+步驟在 `.gs` 的檔頭與 `sheets/README.md`。
+
+**還沒驗證的**：`.gs` 只跑過替身（`tests/helpers/appsScriptStub.js`），
+沒有真的部署過。第一次部署如果炸了是預期內的 —— 替身抓得到邏輯錯，
+抓不到 Google 那一側的行為差異。

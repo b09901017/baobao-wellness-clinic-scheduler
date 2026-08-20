@@ -199,8 +199,12 @@ UI 是「幫某人某天建立一次來訪，裡面加多個時段」，預設�
 
 app 是唯一真相來源。試算表降級成報表。兩條路都在 `#/settings/report`，排版與次數都在 `domain/sheetReport.js`：
 
-- **手動**：app 產生與現行格式同構的表（總表＋逐位客戶），她複製或下載後貼回試算表。
+- **手動**：app 產生與現行格式同構的表（**一位客戶一張，沒有總表**），她複製或下載後貼回試算表。
 - **自動**：app 寫入成功後把整份報表推給試算表的 Apps Script，由它排版並上鎖。實作在 `sheets/readonly-report.gs`。
+
+日期欄不是一個勾，是四種符號（`○` 待確認、`△` 已確認、`✓` 已完成、`✗` 未到），
+TODO / FINISHED 兩塊由 app 填、她不用回來勾，二返寫在那次健檢被勾起來的那一欄底下 ——
+理由見 `docs/adr/0024-the-sheet-mirrors-her-old-one.md`。
 
 **不做 Apps Script 定時抓 Firestore** —— 那需要把服務帳號金鑰放進第三個地方，見 `docs/adr/0010-sheet-sync-is-an-export-not-a-service.md`；自動那條為什麼是反方向、以及它為什麼不需要任何憑證，見 `docs/adr/0013-sheet-sync-is-a-push-not-a-pull.md`。
 

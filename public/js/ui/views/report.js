@@ -13,8 +13,9 @@
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as configData from '../../data/config.js';
+import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
-import { customerReport, overviewReport, toTSV, toCSV } from '../../domain/sheetReport.js';
+import { customerReport, toTSV, toCSV } from '../../domain/sheetReport.js';
 import { todayISO, addDays } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
@@ -26,7 +27,8 @@ import { icon } from '../icons.js';
 const LOOKBACK_DAYS = 400;
 
 // 選了誰留著：她通常是一位一位貼，貼完回來換下一位。
-let picked = 'overview';
+// 沒有總表 —— 她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
+let picked = null;
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -46,22 +48,28 @@ export async function render(el) {
 
 async function load() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits, settings] = await Promise.all([
+  const [customers, entitlementsBy, visits, tasks, courses, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    tasksData.listAll(),
+    // 連已刪除的課程一起讀：主檔把健檢刪掉，不代表做過的那幾次就不用配二返了
+    configData.listAll('courses', { includeDeleted: true }),
     configData.getSettings(),
   ]);
 
   const visitsBy = {};
   for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
 
-  return { today, customers, entitlementsBy, visitsBy, settings };
+  const tasksBy = {};
+  for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
+
+  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, settings };
 }
 
 function paint(el, data) {
   const { customers } = data;
-  if (!customers.some((c) => c.id === picked)) picked = 'overview';
+  if (!customers.some((c) => c.id === picked)) picked = customers[0]?.id ?? null;
 
   const report = buildReport(data);
   const tsv = toTSV(report);
@@ -77,7 +85,6 @@ function paint(el, data) {
       <label class="field">
         <span class="field__label">要哪一份</span>
         <select data-pick>
-          <option value="overview"${picked === 'overview' ? ' selected' : ''}>總表（每位客戶一列）</option>
           ${customers
             .map(
               (c) => `<option value="${esc(c.id)}"${picked === c.id ? ' selected' : ''}>
@@ -198,22 +205,14 @@ async function pushNow(el, data) {
 
 function buildReport(data) {
   const generatedAt = new Date().toLocaleString('zh-TW');
-
-  if (picked === 'overview') {
-    return overviewReport({
-      customers: data.customers,
-      entitlementsBy: data.entitlementsBy,
-      visitsBy: data.visitsBy,
-      today: data.today,
-      generatedAt,
-    });
-  }
-
   const customer = data.customers.find((c) => c.id === picked);
+
   return customerReport({
     customer,
     entitlements: data.entitlementsBy[picked] ?? [],
     visits: data.visitsBy[picked] ?? [],
+    tasks: data.tasksBy[picked] ?? [],
+    courses: data.courses,
     generatedAt,
   });
 }
@@ -234,4 +233,4 @@ function previewHtml({ rows }) {
     </table>`;
 }
 
-const isHeader = (rows, i) => rows[i][0] === '療程項目' || rows[i][0] === '姓名';
+const isHeader = (rows, i) => rows[i][0] === '療程項目';
