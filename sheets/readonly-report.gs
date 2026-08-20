@@ -30,7 +30,7 @@
 var TOKEN_PROPERTY = 'SYNC_TOKEN';
 var DATA_SHEET = '_data';
 /** 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。 */
-var SUPPORTED_FORMAT = 1;
+var SUPPORTED_FORMAT = 2;
 
 // ---------- 版面 ----------
 //
@@ -46,6 +46,16 @@ var COL = {
   REMAINING: 5,  // E 剩餘
   FIRST_DATE: 6, // F 以後每欄一個日期
 };
+
+/**
+ * TODO 與 FINISHED 並排，位置照她舊表：TODO 在 A 欄、FINISHED 在 K 欄。
+ *
+ * 差別是這兩塊由 app 填，她不用回來勾。舊表的 FINISH 區永遠是空的，
+ * 因為那要她手動搬 —— 22 張分頁裡只有 1 筆搬過去
+ * （docs/legacy/README.md 第 6 節）。
+ */
+var TODO_COL = 1;
+var FINISH_COL = 11;
 var HEADER_ROWS = 4;  // 標題、客戶資訊、產生時間、空行
 var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
 
@@ -68,6 +78,8 @@ var COLOR = {
   band: '#F5F7F8',
   done: '#C8E6C9',
   booked: '#FFF2CC',
+  pending: '#E3F2FD',
+  noShow: '#ECEFF1',
   low: '#FFCDD2',      // 剩餘 0
   border: '#B0BEC5',
   noteHeader: '#ECEFF1',
@@ -98,8 +110,13 @@ function doPost(e) {
     if (!lock.tryLock(30000)) return reply({ ok: false, error: '另一份同步還在進行中' });
 
     try {
-      var made = render(SpreadsheetApp.getActiveSpreadsheet(), bundle);
-      return reply({ ok: true, sheets: made });
+      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle);
+      return reply({
+        ok: true,
+        sheets: result.sheets,
+        // 跳過的要講出來，不然她會以為推好了而那幾位其實沒更新
+        skipped: result.skipped,
+      });
     } finally {
       lock.releaseLock();
     }
@@ -119,17 +136,25 @@ function reply(payload) {
 function render(ss, bundle) {
   stashRawData(ss, bundle);
 
-  var keep = { '總表': true };
+  // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
+  var keep = {};
   keep[DATA_SHEET] = true;
 
-  renderOverview(ss, bundle);
+  var made = 0;
+  var skipped = [];
   for (var i = 0; i < bundle.sheets.length; i++) {
-    keep[renderCustomer(ss, bundle.sheets[i], bundle)] = true;
+    var written = renderCustomer(ss, bundle.sheets[i], bundle);
+    if (written === null) {
+      skipped.push(bundle.sheets[i].name);
+      continue;
+    }
+    keep[written] = true;
+    made += 1;
   }
 
   removeStaleSheets(ss, keep);
   protectEverything(ss);
-  return bundle.sheets.length + 1;
+  return { sheets: made, skipped: skipped };
 }
 
 /**
@@ -150,59 +175,25 @@ function stashRawData(ss, bundle) {
   sheet.hideSheet();
 }
 
-function renderOverview(ss, bundle) {
-  var sheet = resetSheet(ss, '總表');
-  var head = ['姓名', '購買名稱', '會籍到期', '應有', '已完成', '已排未上', '剩餘',
-    '上次來訪', '下次預約', '永久限制'];
-
-  ensureSize(sheet, bundle.overview.length + 8, head.length);
-  noticeRow(sheet, head.length, bundle);
-  sheet.getRange(2, 1, 1, head.length).merge()
-    .setValue('客戶總表　·　產生時間 ' + bundle.generatedAt)
-    .setFontSize(STYLE.titleSize).setFontWeight('bold')
-    .setHorizontalAlignment('center').setVerticalAlignment('middle');
-
-  var top = 4;
-  sheet.getRange(top, 1, 1, head.length).setValues([head]);
-  styleHeader(sheet.getRange(top, 1, 1, head.length));
-
-  var rows = bundle.overview.map(function (c) {
-    return [c.name, c.source, c.membershipExpiresAt, c.total, c.done, c.booked,
-      c.remaining, c.lastVisit, c.nextVisit, (c.flags || []).join('、')];
-  });
-  if (rows.length) {
-    var body = sheet.getRange(top + 1, 1, rows.length, head.length);
-    body.setValues(rows).setVerticalAlignment('middle').setWrap(true);
-    sheet.getRange(top + 1, 4, rows.length, 4).setHorizontalAlignment('center');
-    banding(sheet, top + 1, rows.length, head.length);
-    // 剩餘 0 的整列標起來 —— 那是「這個人快沒次數了」，看總表就是為了看這個
-    for (var i = 0; i < rows.length; i++) {
-      if (bundle.overview[i].remaining === 0) {
-        sheet.getRange(top + 1 + i, 1, 1, head.length).setBackground(COLOR.low);
-      }
-    }
-  }
-
-  sheet.setColumnWidth(1, 120);
-  sheet.setColumnWidth(2, 190);
-  sheet.setColumnWidth(3, 96);
-  for (var c = 4; c <= 9; c++) sheet.setColumnWidth(c, 78);
-  sheet.setColumnWidth(10, 200);
-  sheet.setFrozenRows(top);
-  sheet.setFrozenColumns(1);
-  finish(sheet, top, rows.length, head.length);
-}
-
 function renderCustomer(ss, data, bundle) {
   var name = sheetNameFor(data.name);
   var sheet = resetSheet(ss, name);
-  var dateCount = data.dateLabels.length;
-  var width = COL.FIRST_DATE - 1 + Math.max(dateCount, 1);
+  if (!sheet) return null;   // 這張是她自己的，不動它
 
-  ensureSize(sheet, MATRIX_HEADER_ROW + data.rows.length + data.log.length + 12, width);
+  var dateCount = data.dateLabels.length;
+  var matrixWidth = COL.FIRST_DATE - 1 + Math.max(dateCount, 1);
+  // FINISHED 在 K 欄，日期少的時候矩陣還沒那麼寬，但表還是要留到那裡
+  var width = Math.max(matrixWidth, FINISH_COL + 2);
+
+  ensureSize(
+    sheet,
+    MATRIX_HEADER_ROW + data.rows.length + data.log.length
+      + data.tasks.todo.length + data.tasks.finished.length + 20,
+    width,
+  );
   noticeRow(sheet, width, bundle);
 
-  // 第 2 列：名字大字，右邊接購買名稱與會籍
+  // 第 2 列：名字大字，右邊接購買名稱與合計
   sheet.getRange(2, 1, 1, 2).merge().setValue(data.name)
     .setFontSize(STYLE.titleSize).setFontWeight('bold')
     .setVerticalAlignment('middle');
@@ -211,7 +202,8 @@ function renderCustomer(ss, data, bundle) {
     .setVerticalAlignment('middle').setWrap(true);
 
   sheet.getRange(3, 1, 1, width).merge()
-    .setValue('產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app')
+    .setValue('產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app'
+      + '　·　' + bundle.legend)
     .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle');
 
   // 矩陣表頭
@@ -223,8 +215,8 @@ function renderCustomer(ss, data, bundle) {
     return [r.label, r.total, r.done, r.booked, r.remaining].concat(r.marks);
   });
 
+  var top = MATRIX_HEADER_ROW + 1;
   if (rows.length) {
-    var top = MATRIX_HEADER_ROW + 1;
     var body = sheet.getRange(top, 1, rows.length, head.length);
     body.setValues(rows).setVerticalAlignment('middle').setWrap(true);
     sheet.getRange(top, 2, rows.length, head.length - 1).setHorizontalAlignment('center');
@@ -235,16 +227,19 @@ function renderCustomer(ss, data, bundle) {
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
       if (r.remaining === 0) sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
-      // 有勾的格子上色。勾選框看久了會漏看，一片顏色不會。
+      // 有東西的格子上色。符號看久了會漏看，一片顏色不會 ——
+      // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。
       for (var d = 0; d < r.marks.length; d++) {
-        if (r.marks[d]) {
-          sheet.getRange(top + i, COL.FIRST_DATE + d).setBackground(COLOR.done);
-        }
+        var colour = colourForMark(r.marks[d]);
+        if (colour) sheet.getRange(top + i, COL.FIRST_DATE + d).setBackground(colour);
       }
     }
   }
 
-  renderNotes(sheet, data, MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 2, width);
+  var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
+  after = renderFollowupNotes(sheet, data, after, matrixWidth);
+  after = renderNotes(sheet, data, after + 1, width);
+  renderTasks(sheet, data, after, width);
 
   sheet.setColumnWidth(COL.LABEL, STYLE.labelWidth);
   for (var c = COL.TOTAL; c < COL.FIRST_DATE; c++) sheet.setColumnWidth(c, STYLE.countWidth);
@@ -253,20 +248,53 @@ function renderCustomer(ss, data, bundle) {
   }
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
   sheet.setFrozenColumns(1);
-  finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length);
+  // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
+  finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
   return name;
 }
 
+/** 符號決定顏色，不是「有沒有東西」決定顏色。 */
+function colourForMark(mark) {
+  if (!mark) return null;
+  if (mark.indexOf('✓') === 0) return COLOR.done;
+  if (mark.indexOf('△') === 0) return COLOR.booked;
+  if (mark.indexOf('○') === 0) return COLOR.pending;
+  return COLOR.noShow;
+}
+
 /**
- * 備註區。位置就是舊表 TODO 區塊原本待的地方。
+ * 二返註記。緊接在矩陣底下那一列，寫在**那次健檢被勾起來的那一欄**。
  *
- * 那些 TODO 是掛號待辦，現在由 app 的待辦中心管，試算表不需要它們。
- * 空出來的位置改放舊表從來記不住的東西：那天幾點、哪一間、誰做的、用了什麼。
+ * 位置與寫法都照她原本的（docs/legacy/README.md 第 6 節）——
+ * 她看那一格的習慣已經養成了十幾張分頁，不要搬家。
+ */
+function renderFollowupNotes(sheet, data, top, matrixWidth) {
+  var notes = data.followupNotes || [];
+  if (!notes.length) return top;
+
+  for (var i = 0; i < notes.length; i++) {
+    var col = COL.FIRST_DATE + notes[i].dateIndex;
+    if (col > matrixWidth) continue;   // 日期欄不見了就不要寫到表外面去
+    sheet.getRange(top, col).setValue(notes[i].text)
+      .setFontSize(9).setFontColor(COLOR.noticeText)
+      .setVerticalAlignment('middle').setWrap(true);
+  }
+  return top + 1;
+}
+
+/**
+ * 備註區。
+ *
+ * 舊表上這一段是她手寫在 A 欄的：健康狀況、家人、偏好、住哪裡。
+ * 匯入時全進了 `customer.notes`（ADR-0019），這裡放回去 ——
+ * 不放回去她會覺得表變空了。
+ *
+ * 底下再接來訪紀錄：那天幾點、哪一間、誰做的、用了什麼，舊表從來記不住的東西。
  */
 function renderNotes(sheet, data, top, width) {
   var row = top;
 
-  row = noteBlock(sheet, row, width, '這位客戶', [
+  row = noteBlock(sheet, row, width, '備註', [
     data.flags && data.flags.length ? '永久限制：' + data.flags.join('、') : '',
     data.notes || '',
   ].filter(String));
@@ -288,7 +316,60 @@ function renderNotes(sheet, data, top, width) {
     }
     lines.push(day.label + '　' + parts.join('\n' + '　　　'));
   }
-  noteBlock(sheet, row, width, '來訪紀錄', lines);
+  return noteBlock(sheet, row, width, '來訪紀錄', lines);
+}
+
+/**
+ * TODO 與 FINISHED，並排，位置照她舊表（TODO 在 A 欄、FINISHED 在 K 欄）。
+ *
+ * **這兩塊由 app 填，她不用回來勾。** 舊表要她手動搬，結果 22 張分頁裡
+ * FINISH 只有 1 筆、TODO 的框幾乎全是 FALSE —— 她自己的說法是
+ * 「很多 todo 我根本忘記勾」。所以這裡沒有核取方塊，只有現況。
+ */
+function renderTasks(sheet, data, top, width) {
+  var todo = (data.tasks && data.tasks.todo) || [];
+  var finished = (data.tasks && data.tasks.finished) || [];
+
+  blockHead(sheet, top, TODO_COL, 'TODO（還沒做的）');
+  blockHead(sheet, top, FINISH_COL, 'FINISHED（做完的）');
+
+  var body = top + 2;   // 中間空一列，和舊表一樣
+  taskLines(sheet, body, TODO_COL, todo, false);
+  taskLines(sheet, body, FINISH_COL, finished, true);
+
+  if (!todo.length) emptyLine(sheet, body, TODO_COL);
+  if (!finished.length) emptyLine(sheet, body, FINISH_COL);
+
+  return body + Math.max(todo.length, finished.length, 1) + 1;
+}
+
+function blockHead(sheet, row, col, title) {
+  sheet.getRange(row, col, 1, 3).merge().setValue(title)
+    .setFontWeight('bold').setBackground(COLOR.noteHeader)
+    .setVerticalAlignment('middle');
+}
+
+/**
+ * 一列一筆：`{M/D} {療程}`、任務種類、死線或完成時間。
+ *
+ * 日期與療程名中間**有一個空白** —— 舊表沒有，所以 `7/6` 加 `0.75萬健檢`
+ * 會黏成 `7/60.75萬健檢`（docs/legacy/README.md 第 6 節）。
+ */
+function taskLines(sheet, top, col, items, done) {
+  for (var i = 0; i < items.length; i++) {
+    var t = items[i];
+    sheet.getRange(top + i, col, 1, 3).setValues([[
+      t.label,
+      t.kind,
+      done ? (t.doneAt || '').slice(0, 10) : t.dueDate,
+    ]]).setVerticalAlignment('middle').setWrap(true);
+    if (done) sheet.getRange(top + i, col, 1, 3).setFontColor('#78909C');
+  }
+}
+
+function emptyLine(sheet, row, col) {
+  sheet.getRange(row, col, 1, 3).merge().setValue('（沒有）')
+    .setFontColor('#90A4AE').setVerticalAlignment('middle');
 }
 
 function noteBlock(sheet, top, width, title, lines) {
@@ -338,11 +419,16 @@ function banding(sheet, top, rowCount, width) {
   }
 }
 
-function finish(sheet, headerRow, rowCount, width) {
+/**
+ * @param {number} matrixWidth 框線要框的範圍（矩陣）
+ * @param {number} [fullWidth] 字體要蓋的範圍。省略就跟矩陣一樣寬
+ */
+function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
+  var width = fullWidth || matrixWidth;
   var all = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), headerRow), width);
   all.setFontFamily(STYLE.font).setFontSize(STYLE.bodySize);
   if (rowCount) {
-    sheet.getRange(headerRow, 1, rowCount + 1, width)
+    sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
       .setBorder(true, true, true, true, true, true, COLOR.border,
         SpreadsheetApp.BorderStyle.SOLID);
   }
@@ -365,9 +451,23 @@ function ensureSize(sheet, rows, cols) {
   if (sheet.getMaxRows() < rows) sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
 }
 
+/**
+ * 清空重畫。**只清我們自己產生過的分頁。**
+ *
+ * 分頁是用客戶名字命名的，而她可能在同一份試算表裡自己開了一張同名的
+ * （最容易發生的情況：網址不小心填到舊試算表，那裡每一位客戶都有一張）。
+ * 沒有這條檢查的話，第一次同步就會把她手寫的東西整張清掉。
+ *
+ * 判斷方式和 removeStaleSheets() 一樣，靠第一列那句提醒認。
+ * 認不出來就不動它，回傳 null，那位客戶這次不渲染。
+ */
 function resetSheet(ss, name) {
   var sheet = ss.getSheetByName(name);
   if (sheet) {
+    if (sheet.getLastRow() > 0
+        && String(sheet.getRange(1, 1).getValue()).indexOf('系統自動產生') === -1) {
+      return null;
+    }
     unprotect(sheet);
     sheet.clear();
     sheet.clearConditionalFormatRules();

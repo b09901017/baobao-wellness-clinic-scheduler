@@ -11,6 +11,7 @@
 import * as config from './config.js';
 import * as customersData from './customers.js';
 import * as visitsData from './visits.js';
+import * as tasksData from './tasks.js';
 import * as repo from './repo.js';
 import { syncBundle } from '../domain/sheetReport.js';
 import { todayISO, addDays } from '../domain/dates.js';
@@ -64,20 +65,25 @@ export function isConfigured(settings) {
  */
 export async function buildBundle() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits, master] = await Promise.all([
+  const [customers, entitlementsBy, visits, tasks, master] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    tasksData.listAll(),
     config.loadAll(),
   ]);
 
   const visitsBy = {};
   for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
 
+  const tasksBy = {};
+  for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
+
   return syncBundle({
     customers,
     entitlementsBy,
     visitsBy,
+    tasksBy,
     today,
     master,
     generatedAt: new Date().toLocaleString('zh-TW'),

@@ -53,6 +53,46 @@ const TRANSITIONS = {
   cancelled: [],
 };
 
+/**
+ * 每個狀態在試算表上印什麼符號。使用者 2026-08-20 選的三個，外加未到。
+ *
+ * 放在這裡而不是放在 `domain/sheetReport.js`：日曆與進度追蹤頁也要照這一組分，
+ * 而同一位客戶在兩個畫面顯示成不同狀態，她不會知道哪個算數。
+ * 顏色與 CSS class 之後補進來時也放這裡，不要再開第二份。
+ *
+ * 未到給一個自己的符號而不是留白：白的看起來像那天沒排，
+ * 而「這個人常放鴿子」是要看得見的（SPEC 第 4.2 節）。
+ * 取消是空的 —— 時段已經還回去了，那一格本來就不該有東西。
+ */
+const MARKS = {
+  pending_confirm: '○',
+  confirmed: '△',
+  done: '✓',
+  no_show: '✗',
+  cancelled: '',
+};
+
+/** 同一格裡有好幾種時，照這個順序印。做完的排前面，最沒進展的排後面。 */
+export const MARK_ORDER = ['✓', '△', '○', '✗'];
+
+/**
+ * 符號的意思，一行印在表上。她不會記得 △ 是哪一種。
+ *
+ * 從 MARKS 反過來產生，不要手寫第二份 —— 手寫的那份改了符號不會跟著改，
+ * 而圖例對不上的表比沒有圖例更糟。
+ */
+export const MARK_LEGEND = MARK_ORDER
+  .map((symbol) => {
+    const status = Object.keys(MARKS).find((k) => MARKS[k] === symbol);
+    return `${symbol} ${LABELS[status] ?? status}`;
+  })
+  .join('　');
+
+/** 不認得的狀態不給符號 —— 印一個猜的比空白更糟。 */
+export function markFor(status) {
+  return MARKS[status] ?? '';
+}
+
 /** 不認得的狀態原樣顯示，不要吞掉 —— 那代表資料有問題，要看得見。 */
 export function describeStatus(status) {
   return LABELS[status] ?? String(status ?? '（沒有狀態）');
