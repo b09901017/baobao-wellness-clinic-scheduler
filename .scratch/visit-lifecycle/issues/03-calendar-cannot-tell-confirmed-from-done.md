@@ -28,9 +28,20 @@ Status: open
 
 ## 想要的樣子
 
-一個地方決定「這個狀態是什麼顏色」，三種檢視都讀它。建議放
+一個地方決定「這個狀態長什麼樣」，三種檢視都讀它。建議放
 `domain/visits.js`（狀態機本來就在那裡）或另開一支 `domain/visitStatus.js`，
-export 一組 `{ status → { label, cls } }`，CSS 那邊一個狀態一個 class。
+export 一組 `{ status → { label, cls, mark } }`，CSS 那邊一個狀態一個 class。
+
+`mark` 是試算表用的符號（2026-08-20 使用者定的）：
+
+| 狀態 | 日曆 | 試算表符號 |
+|---|---|---|
+| `pending_confirm` | 顏色 A | `○` |
+| `confirmed` | 顏色 B | `△` |
+| `done` | 顏色 C | `✓` |
+
+三個畫面共用這一份：日曆（這一支）、進度追蹤頁（`issues/07`）、
+試算表報表（`issues/05`）。
 
 `no_show` 與 `cancelled` 也要有各自的樣子 —— 現在 `cancelled` 根本不畫
 （`isActive()` 濾掉了，這是對的），`no_show` 混在綠色裡是錯的。
