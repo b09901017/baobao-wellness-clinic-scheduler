@@ -20,7 +20,9 @@ import {
 import { counts } from '../../domain/entitlements.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
-import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
+import {
+  roomSlots, roomsForCourse, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+} from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
@@ -145,6 +147,7 @@ function blankSlot(entitlement, all, settings, startsAt) {
     roomId: null,
     bed: null,
     therapistId: null,
+    doctorId: null,
     attended: null,
   };
 }
@@ -363,11 +366,12 @@ function slotCard(ctx, draft, slot, i) {
             name: `s${i}-staff`, label: '治療師', value: slot.therapistId,
             options: [
               { value: null, label: '（請選擇）' },
-              ...all.staff.filter((s) => s.active !== false)
+              ...staffWithRole(all.staff, THERAPIST_ROLE)
                 .map((s) => ({ value: s.id, label: s.name })),
             ],
           })
         : ''}
+      ${course?.requiresDoctor ? doctorField(all, slot, i) : ''}
 
       ${draft.slots.length > 1
         ? `<p><button class="btn" type="button" data-del-slot="${i}">移除這個時段</button></p>`
@@ -395,6 +399,29 @@ function equipmentField(customer, ent, all, slot, i) {
   return f.select({
     name: `s${i}-equip`, label: '器材', value: slot.equipmentId, options,
     hint: '打叉的是醫療禁忌擋下的，選了會存不進去 —— 這是全系統唯一會擋人的檢查。',
+  });
+}
+
+/**
+ * 二返這一類要選醫師的課程。和器材、品項那兩個選單長一樣，用點的不打字。
+ *
+ * **只列角色是醫師的人。** 混進治療師會讓她在復能之外的地方也點錯人，
+ * 而那兩個詞在 CONTEXT.md 是刻意分開的。
+ *
+ * 沒選不會擋 —— 她的舊表寫過 `二返(8/5)`，時間敲定了、醫師還沒定，
+ * 那是真的會發生的順序。存得下去，旁邊給一句提醒（domain/visits.js）。
+ */
+function doctorField(all, slot, i) {
+  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+  return f.select({
+    name: `s${i}-doc`, label: '醫師', value: slot.doctorId,
+    options: [
+      { value: null, label: '（還沒定）' },
+      ...doctors.map((d) => ({ value: d.id, label: d.name })),
+    ],
+    hint: doctors.length
+      ? '還沒定也存得下去，之後回來補。'
+      : '主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。',
   });
 }
 
@@ -454,6 +481,7 @@ function readDraft(ctx, form, draft) {
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
       therapistId: course?.assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
+      doctorId: course?.requiresDoctor ? (v[`s${i}-doc`] ?? null) : null,
     };
   });
 
@@ -522,8 +550,11 @@ function slotSummary(slot, all) {
   const course = all.courses.find((c) => c.id === slot.courseId);
   const room = all.rooms.find((r) => r.id === slot.roomId);
   const staff = all.staff.find((s) => s.id === slot.therapistId);
+  const doctor = all.staff.find((s) => s.id === slot.doctorId);
   const where = room ? `${room.name}${slot.bed ?? ''}` : staff?.name ?? '';
-  return `${timeLabel(slot)} ${course?.name ?? ''}${where ? ` ${where}` : ''}`;
+  // 醫師接在診間後面而不是取代它：二返同時要診間和醫師，只印一個就少了一半。
+  const who = doctor ? ` ${doctor.name}醫師` : '';
+  return `${timeLabel(slot)} ${course?.name ?? ''}${where ? ` ${where}` : ''}${who}`;
 }
 
 // ---------- 狀態 ----------

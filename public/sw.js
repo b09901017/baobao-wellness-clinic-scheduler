@@ -60,6 +60,7 @@ const SHELL = [
   '/js/domain/customers.js',
   '/js/domain/customerMarks.js',
   '/js/domain/visits.js',
+  '/js/domain/confirmations.js',
   '/js/domain/undo.js',
   '/js/domain/availability.js',
   '/js/domain/scheduling.js',

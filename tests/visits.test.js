@@ -13,7 +13,7 @@ import {
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
-  visitsToClose, closeVisit,
+  visitsToClose, visitsToConfirm, closeVisit,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -25,6 +25,9 @@ const COURSES = [
     allowedRoomTypes: ['點滴室'], allowedRoomIds: [], requiresIvProduct: true, category: 'C' },
   { id: 'c-inbody', name: '身體組成分析', durationMin: 20, assigns: 'room',
     allowedRoomTypes: ['治療室'], allowedRoomIds: [], frequencyRule: '每季一次', category: null },
+  // 二返：同時要診間和醫師，所以 assigns 是 room 而醫師走 requiresDoctor（ADR-0028）
+  { id: 'c-followup', name: '二返', durationMin: 30, assigns: 'room',
+    allowedRoomTypes: ['治療室'], allowedRoomIds: [], requiresDoctor: true, category: 'A' },
 ];
 
 const EQUIPMENT = [
@@ -37,7 +40,10 @@ const ROOMS = [
   { id: 'r-iv8', name: '點滴8', type: '點滴室', beds: ['A', 'B'] },
 ];
 
-const STAFF = [{ id: 'st-tw', name: '騰崴', role: '物理治療師' }];
+const STAFF = [
+  { id: 'st-tw', name: '騰崴', role: '物理治療師' },
+  { id: 'st-dr-xia', name: '夏', role: '醫師' },
+];
 const IV = [{ id: 'iv-liver', name: '護肝排毒' }];
 
 const ENTS = [
@@ -47,6 +53,8 @@ const ENTS = [
     totalQty: 2, durationMin: 60, doneCount: 0, bookedCount: 0 },
   { id: 'e-inbody', type: 'single', label: '身體組成分析', courseId: 'c-inbody',
     totalQty: 4, durationMin: 20, frequencyRule: '每季一次', doneCount: 0, bookedCount: 0 },
+  { id: 'e-followup', type: 'single', label: '二返', courseId: 'c-followup',
+    totalQty: 1, durationMin: 30, doneCount: 0, bookedCount: 0 },
 ];
 
 const CUSTOMER = { id: 'cust-1', name: '客戶甲', flags: [] };
@@ -233,6 +241,44 @@ describe('收尾：客人來了嗎', () => {
     test('日期壞掉的不列，也不會爆', () => {
       assert.deepEqual(visitsToClose([visit({ date: '亂寫的' })], TODAY), []);
       assert.deepEqual(visitsToClose(undefined, TODAY), []);
+    });
+  });
+
+  describe('要問客人的與要收尾的，一筆不會同時卡在兩邊', () => {
+    test('日子過了就不再問客人 —— 那時只做得到收尾', () => {
+      // 「8/3 那個時間可以嗎」在 8/20 問是沒有意義的
+      const old = visit({ id: 'old', date: '2026-08-03', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([old], TODAY), []);
+      assert.deepEqual(visitsToClose([old], TODAY).map((v) => v.id), ['old']);
+    });
+
+    test('未來的只在「問客人」那一邊', () => {
+      const soon = visit({ id: 'soon', date: '2026-08-25', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([soon], TODAY).map((v) => v.id), ['soon']);
+      assert.deepEqual(visitsToClose([soon], TODAY), []);
+    });
+
+    test('當天兩邊都列 —— 早上問得到、下午收得掉', () => {
+      const now = visit({ id: 'now', date: TODAY, status: 'pending_confirm' });
+      assert.equal(visitsToConfirm([now], TODAY).length, 1);
+      assert.equal(visitsToClose([now], TODAY).length, 1);
+    });
+
+    test('已確認的不會跑到「問客人」那一列', () => {
+      const ok = visit({ date: '2026-08-25', status: 'confirmed' });
+      assert.deepEqual(visitsToConfirm([ok], TODAY), []);
+    });
+
+    test('日期壞掉的留在「問客人」，不要從兩邊一起消失', () => {
+      const broken = visit({ id: 'broken', date: '亂寫的', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([broken], TODAY).map((v) => v.id), ['broken']);
+      assert.deepEqual(visitsToClose([broken], TODAY), []);
+    });
+
+    test('已刪除的兩邊都不列', () => {
+      const gone = visit({ deletedAt: 'x', status: 'pending_confirm' });
+      assert.deepEqual(visitsToConfirm([gone], TODAY), []);
+      assert.deepEqual(visitsToClose([gone], TODAY), []);
     });
   });
 
@@ -446,6 +492,69 @@ describe('只提醒不阻擋的（warnings）', () => {
       slots: [{ ...visit().slots[0], entitlementId: 'e-inbody', courseId: 'c-inbody', endsAt: '14:20' }],
     });
     assert.deepEqual(validateVisit(v, ctx()).warnings, []);
+  });
+});
+
+describe('醫師（ADR-0028）', () => {
+  const followup = (over = {}) => visit({
+    slots: [{
+      entitlementId: 'e-followup', courseId: 'c-followup', courseName: '二返',
+      startsAt: '14:00', endsAt: '14:30', roomId: 'r-t3', bed: null,
+      equipmentId: null, ivProductId: null, therapistId: null, doctorId: null,
+      attended: null,
+      ...(over.slot ?? {}),
+    }],
+  });
+
+  test('沒選醫師只提醒，不擋 —— 她的舊表寫過「二返(8/5)」，日期定了醫師還沒定', () => {
+    const { errors, warnings } = validateVisit(followup(), ctx());
+    assert.deepEqual(errors, []);
+    assert.ok(warnings.some((w) => /二返 還沒選醫師/.test(w)));
+  });
+
+  test('選了醫師就不再提醒', () => {
+    const out = validateVisit(followup({ slot: { doctorId: 'st-dr-xia' } }), ctx());
+    assert.deepEqual(out.errors, []);
+    assert.ok(!out.warnings.some((w) => /還沒選醫師/.test(w)));
+  });
+
+  test('指到不存在的人要擋 —— 那是資料壞了，不是還沒決定', () => {
+    const { errors } = validateVisit(followup({ slot: { doctorId: 'st-nobody' } }), ctx());
+    assert.ok(errors.some((e) => /指定的醫師不存在或已刪除/.test(e)));
+  });
+
+  test('把物理治療師填進醫師欄要擋 —— 兩種人不可以混用', () => {
+    const { errors } = validateVisit(followup({ slot: { doctorId: 'st-tw' } }), ctx());
+    assert.ok(errors.some((e) => /騰崴 不是醫師/.test(e)));
+  });
+
+  test('不需要醫師的課程填了醫師只提醒，和「不需要診間」那條一樣', () => {
+    const v = visit({ slots: [{ ...visit().slots[0], doctorId: 'st-dr-xia' }] });
+    const { errors, warnings } = validateVisit(v, ctx());
+    assert.deepEqual(errors, []);
+    assert.ok(warnings.some((w) => /不需要指定醫師/.test(w)));
+  });
+
+  test('醫師不納入自撞提示 —— 她看不到醫師的班表（ADR-0002）', () => {
+    const mine = followup({ slot: { doctorId: 'st-dr-xia' } });
+    const hers = {
+      id: 'v-other', customerId: 'cust-2', customerName: '客戶乙',
+      date: '2026-09-03', status: 'confirmed',
+      slots: [{
+        entitlementId: 'e-x', courseId: 'c-followup', courseName: '二返',
+        startsAt: '14:00', endsAt: '14:30', roomId: 'r-iv8', bed: null,
+        doctorId: 'st-dr-xia', therapistId: null,
+      }],
+    };
+    const { warnings } = validateVisit(mine, ctx({ sameDayVisits: [hers] }));
+    assert.ok(!warnings.some((w) => /夏/.test(w)));
+  });
+
+  test('匯入的舊來訪沒有醫師是常態，不要當成漏填而擋下來', () => {
+    const v = followup({ });
+    v.importedFrom = { source: 'legacy-sheet' };
+    const { errors } = validateVisit(v, ctx());
+    assert.deepEqual(errors, []);
   });
 });
 

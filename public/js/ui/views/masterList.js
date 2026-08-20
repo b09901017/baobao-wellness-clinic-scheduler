@@ -32,12 +32,17 @@ const editors = {
     parse: (v) => ({ name: v.name.trim(), type: v.type, beds: f.parseList(v.beds) }),
   },
 
+  // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
+  // 二返的醫師選單只列醫師（domain/masterData.js 的 staffWithRole）。
   staff: {
     blank: { name: '', role: STAFF_ROLES[0] },
     summary: (r) => r.role,
     fields: (r) => [
       f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
-      f.select({ name: 'role', label: '角色', value: r.role, options: STAFF_ROLES }),
+      f.select({
+        name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
+        hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
+      }),
     ],
     parse: (v) => ({ name: v.name.trim(), role: v.role }),
   },
@@ -77,7 +82,8 @@ const editors = {
     blank: {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
-      requiresEquipment: false, requiresIvProduct: false, frequencyRule: null,
+      requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
+      frequencyRule: null,
       followupCourseId: null,
     },
     summary: (r) =>
@@ -109,6 +115,12 @@ const editors = {
         value: !!r.requiresIvProduct,
         hint: '每次施打的品項可能不同，勾了之後來訪編輯器才會出現品項選單。',
       }),
+      f.toggle({
+        name: 'requiresDoctor', label: '來訪時要選醫師',
+        value: !!r.requiresDoctor,
+        hint: '二返預設開著。復健科醫師門診、心臟科評估也有醫師，想記就勾起來。'
+          + '和上面的診間、治療師不衝突 —— 二返同時要診間和醫師。',
+      }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -138,6 +150,7 @@ const editors = {
       allowedRoomIds: v.assigns === 'room' ? (prev?.allowedRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
+      requiresDoctor: !!v.requiresDoctor,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),

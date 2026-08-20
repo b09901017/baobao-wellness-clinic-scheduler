@@ -122,6 +122,30 @@ export async function save(visit, customerVisits = []) {
   return id;
 }
 
+/**
+ * 「問過了，還在等」那一句（`#/todo/confirm` 那一列上的備註）。
+ *
+ * **不走 save()。** 那一支的存在理由是「次數與任務必須跟著來訪同進同出」，
+ * 而這一句什麼都不動 —— 不改狀態、不扣次數、不產生任務。為了一行字跑一遍
+ * 整條管線，要多讀課程、額度、任務三份資料，還會連帶重算計數欄位。
+ *
+ * 一位客戶好幾天的來訪各自帶一份同樣的字，所以要一次寫完：**一個 commit**
+ * 才給得出復原（見 repo.withUndo），分成好幾筆寫的話她按了復原只會退回其中一筆。
+ *
+ * @param {string[]} visitIds 這位客戶還在等回覆的那幾筆
+ * @param {string|null} note 空字串或 null 代表把那一句收掉
+ */
+export async function setFollowupNote(visitIds, note) {
+  const text = String(note ?? '').trim();
+  // 收掉的時候連時間戳一起清 —— 留著的話「已等 N 天」會從一個
+  // 已經不存在的備註往後算，而畫面上看不出那個數字是打哪來的。
+  const changes = text
+    ? { followupNote: text, followupAt: new Date().toISOString() }
+    : { followupNote: null, followupAt: null };
+
+  await repo.commit(visitIds.map((id) => ({ op: 'update', path: PATH, id, changes })));
+}
+
 /** 軟刪除一筆來訪。次數要跟著還回去，任務也要跟著收掉。 */
 export async function remove(visit, customerVisits = [], reason = null) {
   const rest = customerVisits.filter((v) => v.id !== visit.id);

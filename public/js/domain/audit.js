@@ -61,6 +61,10 @@ const FIELD_LABELS = {
   lastReconciledAt: '上次對帳時間',
   optionEquipmentIds: '擇一池器材',
   courseId: '課程',
+  role: '角色',
+  requiresEquipment: '要選器材',
+  requiresIvProduct: '要選點滴品項',
+  requiresDoctor: '要選醫師',
   kind: '任務種類',
   dueDate: '死線',
   done: '已完成',
@@ -71,6 +75,7 @@ const FIELD_LABELS = {
   validTo: '有效期迄',
   collectedAt: '收集日期',
   followupNote: '後續備註',
+  followupAt: '問過的時間',
   queue: '佇列',
   cursor: '停留位置',
 };

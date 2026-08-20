@@ -120,7 +120,10 @@ describe('手動貼上那條路和自動推的長一樣', () => {
       ],
       visits: [
         visit({ id: 'v1', date: '2026-09-10', status: 'done', slots: [{ entitlementId: 'e-chk' }] }),
-        visit({ id: 'v2', date: '2026-09-24', status: 'confirmed', slots: [{ entitlementId: 'e-fu' }] }),
+        visit({
+          id: 'v2', date: '2026-09-24', status: 'confirmed',
+          slots: [{ entitlementId: 'e-fu', doctorId: 'st-dr-xia' }],
+        }),
       ],
       tasks: [
         { id: 't1', visitId: 'v2', kind: 'Abovee', dueDate: '2026-09-23', done: false },
@@ -130,12 +133,14 @@ describe('手動貼上那條路和自動推的長一樣', () => {
         { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
         { id: 'course-followup', name: '二返' },
       ],
+      staff: [{ id: 'st-dr-xia', name: '夏', role: '醫師' }],
     });
 
     // 日期欄是 9/10 與 9/24，健檢在第一欄 → 註記要落在第 6 格（索引 5）
-    const note = rows.find((r) => r.includes('9/24 二返'));
+    // 括號裡的醫師手動貼上這條路也要印得出來（ADR-0028）
+    const note = rows.find((r) => r.includes('9/24 二返(夏)'));
     assert.ok(note, `二返註記要在，實際：${JSON.stringify(rows)}`);
-    assert.equal(note.indexOf('9/24 二返'), 5, '要對齊健檢被勾的那一欄');
+    assert.equal(note.indexOf('9/24 二返(夏)'), 5, '要對齊健檢被勾的那一欄');
 
     assert.ok(rows.some((r) => r[0] === 'TODO（還沒做的）'));
     assert.ok(rows.some((r) => r[0] === 'FINISHED（做完的）'));
@@ -288,6 +293,70 @@ test('二返註記寫在那次健檢被勾起來的那一欄', () => {
     // 第二次健檢的二返還沒約 —— 空括號是她自己的寫法，意思是「這件事還沒做」
     { dateIndex: 3, text: '二返()' },
   ]);
+});
+
+test('約好的二返記了醫師就印進括號裡，沒記就整個括號不印（ADR-0028）', () => {
+  // 舊表她手寫成 `7/13 二返(夏)`。醫師進 config/staff 之前 app 記不住那個字。
+  const build = (doctorId) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: {
+      c1: [
+        { id: 'e-chk', label: '健檢', courseId: 'course-checkup', totalQty: 1 },
+        { id: 'e-fu', label: '二返', courseId: 'course-followup', followupForEntitlementId: 'e-chk', totalQty: 1 },
+      ],
+    },
+    visitsBy: {
+      c1: [
+        { id: 'v1', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e-chk' }] },
+        { id: 'v2', date: '2026-08-08', status: 'confirmed', slots: [{ entitlementId: 'e-fu', doctorId }] },
+      ],
+    },
+    today: '2026-08-10',
+    master: {
+      courses: [
+        { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
+        { id: 'course-followup', name: '二返' },
+      ],
+      staff: [{ id: 'st-dr-xia', name: '夏', role: '醫師' }],
+    },
+  });
+
+  assert.deepEqual(build('st-dr-xia').sheets[0].followupNotes, [
+    { dateIndex: 0, text: '8/8 二返(夏)' },
+  ]);
+
+  // 沒選醫師時印 `8/8 二返`，**不是** `8/8 二返()` ——
+  // 空括號在她的寫法裡是「還沒約」，印出來會反過來騙人
+  assert.deepEqual(build(null).sheets[0].followupNotes, [
+    { dateIndex: 0, text: '8/8 二返' },
+  ]);
+});
+
+test('來訪紀錄裡醫師和治療師各印各的', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e-fu', label: '二返', courseId: 'course-followup', totalQty: 1 }] },
+    visitsBy: {
+      c1: [{
+        id: 'v1', date: '2026-08-08', status: 'confirmed',
+        slots: [{
+          entitlementId: 'e-fu', courseId: 'course-followup', courseName: '二返',
+          startsAt: '14:00', endsAt: '14:30', roomId: 'r-t3',
+          therapistId: null, doctorId: 'st-dr-xia',
+        }],
+      }],
+    },
+    today: '2026-08-10',
+    master: {
+      courses: [{ id: 'course-followup', name: '二返' }],
+      rooms: [{ id: 'r-t3', name: '治3' }],
+      staff: [{ id: 'st-dr-xia', name: '夏', role: '醫師' }],
+    },
+  });
+
+  const item = bundle.sheets[0].log[0].items[0];
+  assert.equal(item.doctor, '夏');
+  assert.equal(item.therapist, null, '二返沒有治療師，不要拿醫師去補那一格');
 });
 
 test('沒有配對規則就沒有二返註記，不要硬生一句出來', () => {

@@ -5,9 +5,32 @@
 
 export const ROOM_TYPES = ['治療室', '點滴室', 'ILIB室'];
 
-// 護理師目前不納入排程（營養點滴不需要指定護理師），
-// 但角色欄位保留，之後要加不必改資料結構。
-export const STAFF_ROLES = ['物理治療師'];
+/**
+ * `config/staff` 上的角色。
+ *
+ * 護理師目前不納入排程（營養點滴不需要指定護理師），所以只有兩種。
+ *
+ * **醫師和物理治療師是兩種人，不是同一份名單的兩個標籤**（CONTEXT.md）——
+ * 復能三器材要的是物理治療師，選錯人是實際傷害。所以要拿某一種角色的名單時
+ * 一律走 staffWithRole()，不要直接 filter 整份 staff。見
+ * docs/adr/0028-doctors-are-assignable-staff.md
+ */
+export const THERAPIST_ROLE = '物理治療師';
+export const DOCTOR_ROLE = '醫師';
+export const STAFF_ROLES = [THERAPIST_ROLE, DOCTOR_ROLE];
+
+/**
+ * 某一種角色、還在用的人。
+ *
+ * 只有這一支可以決定「哪些人進得了那個選單」—— 治療師的選單跑出三位醫師來，
+ * 她要點到第三個字才會發現點錯人。
+ *
+ * @param {object[]} staff config/staff 全部
+ * @param {string} role THERAPIST_ROLE 或 DOCTOR_ROLE
+ */
+export function staffWithRole(staff = [], role) {
+  return staff.filter((s) => !s.deletedAt && s.active !== false && s.role === role);
+}
 
 // 課程要指派什麼。復能三器材選治療師，其餘含靜脈選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
@@ -30,7 +53,7 @@ export const MASTER_TYPES = [
 
 export const MASTER_LABELS = {
   rooms: '診間',
-  staff: '治療師',
+  staff: '治療師與醫師',
   equipment: '器材',
   ivProducts: '營養點滴品項',
   products: '營養品',
@@ -69,7 +92,8 @@ const validators = {
 
   staff(r) {
     const errors = [];
-    if (isBlank(r.name)) errors.push('治療師姓名不可空白');
+    // 不寫「治療師姓名」—— 這份清單現在也放醫師，而那兩個詞不可以混用。
+    if (isBlank(r.name)) errors.push('姓名不可空白');
     if (!STAFF_ROLES.includes(r.role)) errors.push('請選擇角色');
     return errors;
   },
