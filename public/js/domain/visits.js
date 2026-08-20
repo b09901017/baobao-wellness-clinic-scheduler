@@ -8,7 +8,7 @@
 
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { validateSlots as contraindicationErrors } from './contraindications.js';
-import { counts } from './entitlements.js';
+import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, DOCTOR_ROLE } from './masterData.js';
 
@@ -186,6 +186,27 @@ export function visitsToClose(visits = [], today) {
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date)
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
+}
+
+/**
+ * 這一段在畫面上要顯示成哪一個狀態。
+ *
+ * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答
+ * 「這一段算做了、沒到、還是佔著」，所以待確認與已確認都收斂成 `booked`。
+ * 這一支是**顯示**用的，那兩種必須分得出來 —— 她要看的正是
+ * 「哪幾段還沒問客人、哪幾段已經談定」。
+ *
+ * `attended` 的讀法沒有第二份：這裡先問 `slotOutcome()`，
+ * 只有它答不出結果（也就是還沒發生）時才退回整筆的狀態。
+ * 改 `attended` 的意思時只要改 `slotOutcome()`（ADR-0025）。
+ *
+ * @returns {string|null} VISIT_STATUSES 裡的一個，或 null（已刪除）
+ */
+export function slotStatus(visit, slot) {
+  const outcome = slotOutcome(visit, slot);
+  if (outcome === 'done' || outcome === 'no_show') return outcome;
+  if (visit?.deletedAt) return null;
+  return visit?.status ?? null;
 }
 
 /**

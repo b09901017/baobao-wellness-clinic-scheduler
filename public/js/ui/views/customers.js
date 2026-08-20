@@ -76,9 +76,12 @@ export async function render(el) {
     <div class="page">
       <div class="page__row">
         <h1 class="page__title">客戶</h1>
-        <button class="footlink" type="button" data-inactive
-                aria-pressed="${view.showInactive}">
-          ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
+        <span class="footlinks footlinks--inline">
+          <a class="footlink" href="#/customers/progress">看這個月的進度</a>
+          <button class="footlink" type="button" data-inactive
+                  aria-pressed="${view.showInactive}">
+            ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
+        </span>
       </div>
     </div>
 
