@@ -79,7 +79,7 @@ python3 .claude/skills/calendar-sheet-merge/scripts/xlsx-to-tsv.py <xlsx> <暫�
 正式名字**，送「新穎」「LU」過去，app 對不到主檔，那個欄位就會留空。
 
 放在 `.local/aliases.json`（已經 gitignore）。腳本自己會處理的不用寫進去：
-去姓（陳何淑子→何淑子）、括號裡的配偶名字、異體字（啟↔啓、惠↔慧、崴↔威）。
+去姓（王陳小明→陳小明，假名）、括號裡的配偶名字、異體字（啟↔啓、惠↔慧、崴↔威）。
 
 **這個容器會被回收，所以跑完一定要用 SendUserFile 把 `aliases.json` 交還給她**，
 並告訴她下次連同 .ics/.xlsx 一起給你。她手上有這張表，下次就不用重講一遍。

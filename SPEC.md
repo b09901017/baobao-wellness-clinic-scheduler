@@ -967,7 +967,10 @@ score = w1 × (1 − 可用天數 / 當月天數)        // 限制越多越優�
 
 - **Service account 金鑰**（Admin SDK 的 JSON）—— 這才是萬能鑰匙，繞過所有 Rules
 - 任何含**真實客戶資料**的匯出檔、備份 JSON、截圖
+- **真實客戶姓名**，包含寫在註解、文件、測試裡當例子的。例子一律寫「客戶A」；規則跟名字的字數或結構有關時用假名（王小明）
 - GitHub Actions 用的部署 token → 放 repository secrets
+
+前兩項與第三項都由 `tests/no-secrets.test.js` 盯著：它掃全部被追蹤的檔案，看內容不看檔名（`.gitignore` 換個檔名就漏了）。姓名那一條掃的是「中文字黏著病歷編號」這個形狀，另外在有 `.local/aliases.json` 的機器上會拿真的名單再對一次 —— **測試本身一個真名都不能寫**。
 
 `.gitignore` 至少要有：
 

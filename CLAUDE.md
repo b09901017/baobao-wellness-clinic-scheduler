@@ -14,7 +14,9 @@
 | `docs/legacy/` | 舊系統的結構，唯讀參考 |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
-寫新文件前先確認這件事還沒被寫過。`docs/legacy/` 與 `docs/adr/` 不放任何真實客戶姓名或健康資訊。
+寫新文件前先確認這件事還沒被寫過。
+
+**真實客戶姓名與健康資訊一個字都不能進版控** —— 不只 `docs/`，註解、測試、`.scratch/` 的 issue、`.claude/` 的 skill 全都算。例子一律寫「客戶A」，規則跟名字的字數有關時用假名（王小明）。`tests/no-secrets.test.js` 盯著。
 
 ## 容易漏掉的連動
 
