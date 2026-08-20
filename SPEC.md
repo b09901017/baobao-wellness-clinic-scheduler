@@ -284,7 +284,7 @@ audit/{eventId}                   // append-only 稽核紀錄
   requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
   requiresDoctor,        // bool。true 時來訪要選醫師（種子資料只有二返）
                          // 不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
-                         // 沒選只提醒不擋，見 docs/adr/0028-...
+                         // 沒選只提醒不擋，見 docs/adr/0026-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
   followupCourseId,      // 做完之後還要再約一次的那個課程。目前只有健檢 → 二返。
                          // 設了之後：買 N 次這個課程就自動有 N 次後續課程的額度，
@@ -309,7 +309,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 //   一份清單放兩種人，而 role 不只是標籤，它是分流：復能的治療師選單只列
 //   物理治療師、二返的醫師選單只列醫師。選錯人是實際傷害（CONTEXT.md），
 //   所以拿名單一律走 domain/masterData.js 的 staffWithRole()。
-//   護理師目前不納入排程（營養點滴不需要指定護理師）。見 docs/adr/0028-...
+//   護理師目前不納入排程（營養點滴不需要指定護理師）。見 docs/adr/0026-...
 
 // config/ivProducts/{id}
 { name, active, deletedAt }
@@ -1067,7 +1067,7 @@ INDIBA、超磁場（SIS）、高能量雷射。
 
 醫師：夏、許、李。姓氏就是她講的全部，名字她沒說。約二返時用選的 —— 課程主檔上開了 `requiresDoctor` 的課程，來訪編輯器才會出現醫師選單，種子資料只開二返。
 
-> 2026-08-20 之前這裡寫的是「醫師不放進 `config/staff`」。她那天決定要記進 app，見 [ADR-0028](./docs/adr/0028-doctors-are-assignable-staff.md)。她的舊試算表本來就手寫著 `7/13 二返(夏)`，括號裡那個字在醫師進 app 之前 app 記不住。
+> 2026-08-20 之前這裡寫的是「醫師不放進 `config/staff`」。她那天決定要記進 app，見 [ADR-0026](./docs/adr/0026-doctors-are-assignable-staff.md)。她的舊試算表本來就手寫著 `7/13 二返(夏)`，括號裡那個字在醫師進 app 之前 app 記不住。
 
 ### 營養點滴品項
 

@@ -301,7 +301,7 @@ export function syncBundle({
  *
  * 括號裡的醫師是 2026-08-20 補上的。舊表她手寫成 `7/13 二返(夏)`，
  * 在醫師進 config/staff 之前 app 記不住那個字，只能印一半
- * （docs/adr/0028-doctors-are-assignable-staff.md）。**沒選醫師就整個括號不印**，
+ * （docs/adr/0026-doctors-are-assignable-staff.md）。**沒選醫師就整個括號不印**，
  * 不要印一個空的 `()` —— 那在她的寫法裡是「還沒約」的意思，會反過來騙人。
  */
 function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {

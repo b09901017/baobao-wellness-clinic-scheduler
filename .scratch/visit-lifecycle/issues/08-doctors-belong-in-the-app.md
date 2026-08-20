@@ -92,7 +92,7 @@ Status: done
 | `sheets/readonly-report.gs` | 來訪紀錄那一行印「夏醫師」 |
 | `domain/audit.js` | 認得 `requiresDoctor`（順手補上 `role` 與另外兩個 `requires*`，它們本來也是原文顯示） |
 
-補了 [ADR-0028](../../../docs/adr/0028-doctors-are-assignable-staff.md)，
+補了 [ADR-0026](../../../docs/adr/0026-doctors-are-assignable-staff.md)，
 `SPEC.md` 第 5.3、12、13 節與 `CONTEXT.md` 跟著更新。**ADR-0022 沒有被推翻。**
 
 ### 三個和這一支原本寫的不一樣的決定

@@ -116,7 +116,7 @@ describe('課程驗證', () => {
   });
 });
 
-describe('治療師與醫師（ADR-0028）', () => {
+describe('治療師與醫師（ADR-0026）', () => {
   const STAFF = [
     { id: 'a', name: '騰崴', role: THERAPIST_ROLE },
     { id: 'b', name: '夏', role: DOCTOR_ROLE },

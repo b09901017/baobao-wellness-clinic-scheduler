@@ -452,7 +452,7 @@ function assignmentWarnings(visit, { courses = [], rooms = [] }) {
 
     // 醫師走的是 requiresEquipment / requiresIvProduct 那條路（課程上一個布林、
     // 時段上一個 id），不是 assigns —— assigns 是單選的，而二返同時要診間和醫師。
-    // 見 docs/adr/0028-doctors-are-assignable-staff.md
+    // 見 docs/adr/0026-doctors-are-assignable-staff.md
     if (course.requiresDoctor && !slot.doctorId) {
       out.push(`${at}：${course.name} 還沒選醫師`);
     }

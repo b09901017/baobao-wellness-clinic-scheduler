@@ -34,7 +34,7 @@ export const SEED = {
   //
   // 醫師（夏、許、李）2026-08-20 加進來 —— 約二返時要選醫師，
   // 所以他們現在也會被指派到時段上。這推翻了 SPEC 第 12 節原本那句
-  // 「醫師不放進 config/staff」，見 docs/adr/0028-doctors-are-assignable-staff.md。
+  // 「醫師不放進 config/staff」，見 docs/adr/0026-doctors-are-assignable-staff.md。
   // 姓氏就是她講的全部，名字她沒說，不要自己補。
   staff: [
     { id: 'staff-tw', name: '騰崴', role: '物理治療師' },
