@@ -533,7 +533,17 @@ function openDetail(el, data, what, id, date) {
   });
 }
 
-function visitReadHtml(visit, data) {
+/**
+ * 一筆來訪的讀取模式內容。
+ *
+ * export 出去是因為進度追蹤頁點一筆時要看到**一模一樣**的東西 ——
+ * 兩邊各畫一份，遲早會變成一邊看得到治療師、另一邊看不到
+ * （同樣的理由見 ADR-0018 的 `ui/views/audit.js` 的 `listHtml()`）。
+ *
+ * @param {object} visit
+ * @param {{roomsById:object, staffById:object}} data
+ */
+export function visitReadHtml(visit, data) {
   const slots = visit.slots ?? [];
   return `
     ${slots.map((s) => {

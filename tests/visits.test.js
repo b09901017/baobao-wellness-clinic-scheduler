@@ -13,7 +13,7 @@ import {
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
-  visitsToClose, visitsToConfirm, closeVisit,
+  visitsToClose, visitsToConfirm, closeVisit, slotStatus,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -190,6 +190,47 @@ describe('狀態的 class 在 CSS 裡真的存在', () => {
     assert.ok(used.length >= 8, `應該有四種狀態各兩個色票，實際找到 ${used.length}`);
     for (const name of new Set(used)) {
       assert.ok(tokens.includes(`${name}:`), `tokens.css 少了 ${name}`);
+    }
+  });
+});
+
+describe('一段在畫面上顯示成哪一個狀態', () => {
+  // 和 slotOutcome() 差在：那一支是計數用的，待確認與已確認都收斂成 booked；
+  // 這一支是顯示用的，那兩種必須分得出來 —— 她要看的正是「哪幾段還沒問客人」。
+  const on = { entitlementId: 'e1' };
+
+  test('待確認與已確認分得出來（slotOutcome 分不出來）', () => {
+    assert.equal(slotStatus({ status: 'pending_confirm' }, on), 'pending_confirm');
+    assert.equal(slotStatus({ status: 'confirmed' }, on), 'confirmed');
+  });
+
+  test('已完成的來訪逐段看結果', () => {
+    assert.equal(slotStatus({ status: 'done' }, on), 'done');
+    assert.equal(slotStatus({ status: 'done' }, { ...on, attended: false }), 'no_show');
+  });
+
+  test('整筆未到時每一段都是未到', () => {
+    assert.equal(slotStatus({ status: 'no_show' }, { ...on, attended: true }), 'no_show');
+  });
+
+  test('還沒發生的來訪不看 attended', () => {
+    // 匯入器會在 confirmed 上寫 attended: false，那是「還沒發生」不是「沒做」
+    assert.equal(slotStatus({ status: 'confirmed' }, { ...on, attended: false }), 'confirmed');
+  });
+
+  test('取消的照樣答得出來 —— 要不要畫是呼叫端決定的', () => {
+    assert.equal(slotStatus({ status: 'cancelled' }, on), 'cancelled');
+  });
+
+  test('已刪除的沒有狀態', () => {
+    assert.equal(slotStatus({ status: 'done', deletedAt: 'x' }, on), null);
+    assert.equal(slotStatus(null, on), null);
+  });
+
+  test('回傳的一定是合法狀態或 null，不會冒出第三種東西', () => {
+    for (const status of VISIT_STATUSES) {
+      const got = slotStatus({ status }, on);
+      assert.ok(VISIT_STATUSES.includes(got), `${status} → ${got}`);
     }
   });
 });
