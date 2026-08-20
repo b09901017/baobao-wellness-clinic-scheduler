@@ -306,7 +306,7 @@ function checkOrphans(ctx) {
         title: at, what: '這個時段指向的治療師', link,
       });
       // 醫師和治療師都住在 staff 底下，但各指各的欄位 ——
-      // 二返有醫師沒有治療師（ADR-0028），少查一個就是少一種孤兒
+      // 二返有醫師沒有治療師（ADR-0026），少查一個就是少一種孤兒
       push(refState(slot.doctorId, ctx.staffById), {
         title: at, what: '這個時段指向的醫師', link,
       });

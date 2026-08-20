@@ -25,7 +25,7 @@ const COURSES = [
     allowedRoomTypes: ['點滴室'], allowedRoomIds: [], requiresIvProduct: true, category: 'C' },
   { id: 'c-inbody', name: '身體組成分析', durationMin: 20, assigns: 'room',
     allowedRoomTypes: ['治療室'], allowedRoomIds: [], frequencyRule: '每季一次', category: null },
-  // 二返：同時要診間和醫師，所以 assigns 是 room 而醫師走 requiresDoctor（ADR-0028）
+  // 二返：同時要診間和醫師，所以 assigns 是 room 而醫師走 requiresDoctor（ADR-0026）
   { id: 'c-followup', name: '二返', durationMin: 30, assigns: 'room',
     allowedRoomTypes: ['治療室'], allowedRoomIds: [], requiresDoctor: true, category: 'A' },
 ];
@@ -536,7 +536,7 @@ describe('只提醒不阻擋的（warnings）', () => {
   });
 });
 
-describe('醫師（ADR-0028）', () => {
+describe('醫師（ADR-0026）', () => {
   const followup = (over = {}) => visit({
     slots: [{
       entitlementId: 'e-followup', courseId: 'c-followup', courseName: '二返',

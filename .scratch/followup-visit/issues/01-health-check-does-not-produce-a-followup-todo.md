@@ -24,7 +24,7 @@ GitHub: https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15
 （`docs/legacy/README.md` 第 1 節）。所以：
 
 - 舊表上二返從來沒有被當成一次來訪記錄過，匯入時撈不到它
-- 她的 TimeTree 行事曆上卻記了十筆左右（`8/19 秀端2返`、`8/17 張素珍二返`…）
+- 她的 TimeTree 行事曆上卻記了十筆左右（`8/19 小明2返`、`8/17 王小明二返`…，假名）
 - 換句話說，**二返的唯一紀錄在行事曆上**，而那是外部資料
 
 ## 想要的樣子

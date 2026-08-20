@@ -164,7 +164,7 @@ export function nameForms(raw, aliases = {}) {
   const main = clean.replace(/[(（][^)）]*[)）]/g, '').trim();
   if (main) {
     forms.add(main);
-    if (main.length >= 3) forms.add(main.slice(1)); // 去姓：陳何淑子 → 何淑子
+    if (main.length >= 3) forms.add(main.slice(1)); // 去姓：王陳小明 → 陳小明（假名）
   }
   // A2 有時候把配偶或家屬的名字寫在括號裡，那個人也會出現在行事曆上
   for (const m of clean.matchAll(/[(（]([^)）]*)[)）]/g)) {
@@ -184,7 +184,7 @@ export function nameForms(raw, aliases = {}) {
  * 匯進 app 要用的客戶名稱。
  *
  * 舊表的 A2 把三樣東西擠在一格（`名字`、`名字3157`、`名字\n(器材偏好)3157`），
- * 而那一格原文照抄之後，app 裡的客戶就叫「林際娟3786」—— 她每天要看的是名字，
+ * 而那一格原文照抄之後，app 裡的客戶就叫「王小明3157」（假名）—— 她每天要看的是名字，
  * 不是病歷號。多出來的東西不會掉：`planForSheet()` 已經把它們收進備註了。
  *
  * 拆名字是有風險的（拆錯比留著多餘的字嚴重），所以這裡只做「拿掉數字與括號」
@@ -306,7 +306,7 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
   const openSlots = filled.filter((x) => !x.match);
   const spare = pool.filter((c) => !used.has(c));
 
-  // (1) 她只寫了名字沒寫療程（`8.15胡玉嬌13`），而那天就剩這一筆對得上她
+  // (1) 她只寫了名字沒寫療程（`8.15王小明13`，假名），而那天就剩這一筆對得上她
   const blank = spare.filter((c) => !c.courses.length && c.hit >= 2);
   if (openSlots.length === 1 && blank.length === 1) {
     openSlots[0].match = {

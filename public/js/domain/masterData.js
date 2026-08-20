@@ -13,7 +13,7 @@ export const ROOM_TYPES = ['治療室', '點滴室', 'ILIB室'];
  * **醫師和物理治療師是兩種人，不是同一份名單的兩個標籤**（CONTEXT.md）——
  * 復能三器材要的是物理治療師，選錯人是實際傷害。所以要拿某一種角色的名單時
  * 一律走 staffWithRole()，不要直接 filter 整份 staff。見
- * docs/adr/0028-doctors-are-assignable-staff.md
+ * docs/adr/0026-doctors-are-assignable-staff.md
  */
 export const THERAPIST_ROLE = '物理治療師';
 export const DOCTOR_ROLE = '醫師';

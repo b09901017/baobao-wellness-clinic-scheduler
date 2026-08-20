@@ -53,7 +53,7 @@ _Avoid_: 老師、教練、醫師
 看診或解說報告的醫生，目前有夏、許、李三位。也是排班時要指派的對象，
 但和治療師分開：一個時段可能同時要診間、要醫師，卻不需要治療師（例：二返）。
 和治療師共用 `config/staff`，靠角色分流，見
-`docs/adr/0028-doctors-are-assignable-staff.md`。
+`docs/adr/0026-doctors-are-assignable-staff.md`。
 _Avoid_: 醫生、老師、治療師
 
 ## 課程與器材

@@ -745,7 +745,7 @@ function dayPanel(ctx, row) {
         <p class="card__note" style="margin: var(--space-3) 0 0">
           ${sameDay
             ? '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。'
-            : '存下去會記成「已壓表，等客戶回覆」，並產生該做的系統登記。'}</p>
+            : '存下去會記成「已壓表，等客戶回覆」。系統登記等客人說可以之後才長出來。'}</p>
       ` : ''}
     </section>`;
 }
@@ -997,7 +997,7 @@ async function addSlot(ctx) {
     consequences: [
       `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
       sameDay ? '這一段會併進同一天已經有的來訪裡' : '這會建立一筆新的來訪',
-      '會記成「已壓表，等客戶回覆」，並自動產生該做的系統登記任務',
+      '會記成「已壓表，等客戶回覆」—— 系統登記等客人確認之後才產生',
     ],
     confirmLabel: '已確認，記錄',
   });

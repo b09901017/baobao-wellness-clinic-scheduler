@@ -336,6 +336,77 @@ export function strongestReason(row) {
   return (row?.reasons ?? [])[0] ?? null;
 }
 
+/**
+ * 這一輪的時間還沒問到誰。待辦中心的「問這輪的時間」那一列。
+ *
+ * 在她的流程裡這是**第一步**，發生在壓表之前，所以不能只出現在壓表卡片牆上 ——
+ * 她得先開一個批次才知道要問誰，而那時候已經太晚了。
+ *
+ * 兩道條件都不是新的，都用這一支既有的推導：
+ *
+ * - **值不值得問**：`customerPools()` 的 `totalRemaining > 0`，和
+ *   `buildCustomerQueue()` 用的是同一道濾網。次數用完的人本來就不用排。
+ * - **問到了沒**：`currentCollection()` 是不是 null。它已經把過期的濾掉了，
+ *   所以「從來沒問過」和「問過但過期了」自動一起算進來 —— 過期即失效、
+ *   需重新詢問（SPEC 第 4.3 節），那本來就是同一件待辦。
+ *
+ * **刻意不收 visits，也不算分數。** 這一頁不是「先看誰」而是「先問誰」：
+ * 她是整批問完，不是挑一個。分數要的 `daysSinceLast` 得多讀半年的來訪，
+ * 而沒有那份資料時每個人那一項都會拿滿分，排出來等於沒排 —— 用一個假的順序
+ * 換一次查詢不划算。改成用手上就有的東西排：**從來沒問過的最前面，
+ * 其餘最久沒問的先**。次數也走 `cached`（額度上的計數欄位，ADR-0004），
+ * 同樣不必讀來訪。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.customers
+ * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
+ * @param {Record<string, object[]>} ctx.availabilityBy 客戶 id → 可用性收集
+ * @param {string} ctx.today
+ * @returns {{customerId:string, customerName:string, remaining:number,
+ *            state:'never'|'expired', lastAskedAt:string|null,
+ *            daysSinceAsked:number|null}[]}
+ */
+export function customersToAsk({
+  customers = [], entitlementsBy = {}, availabilityBy = {}, today,
+}) {
+  const rows = [];
+
+  for (const customer of customers) {
+    if (customer.active === false || customer.deletedAt) continue;
+
+    const { totalRemaining } = customerPools({ entitlements: entitlementsBy[customer.id] ?? [] });
+    if (totalRemaining <= 0) continue;
+
+    const collections = (availabilityBy[customer.id] ?? []).filter((c) => !c.deletedAt);
+    if (currentCollection(collections, today)) continue;
+
+    // 最後一次是什麼時候問的。收集日期壞掉的那幾筆跳過 —— 那是「不知道什麼時候」，
+    // 不是「今天」，而編一個日期出來會讓她以為最近問過。
+    const lastAskedAt = collections
+      .map((c) => c.collectedAt)
+      .filter(isValidDate)
+      .sort()
+      .pop() ?? null;
+
+    rows.push({
+      customerId: customer.id,
+      customerName: customer.name,
+      remaining: totalRemaining,
+      // 有紀錄但現在沒有一份有效 = 該重問了；一筆紀錄都沒有 = 從來沒問過。
+      // 兩種是不一樣的問題，畫面上要分得出來。
+      state: collections.length ? 'expired' : 'never',
+      lastAskedAt,
+      daysSinceAsked: lastAskedAt && isValidDate(today) ? daysBetween(lastAskedAt, today) : null,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    if (a.state !== b.state) return a.state === 'never' ? -1 : 1;
+    return String(a.lastAskedAt ?? '').localeCompare(String(b.lastAskedAt ?? ''))
+      || String(a.customerName).localeCompare(String(b.customerName), 'zh-TW');
+  });
+}
+
 // ---------- 批次 ----------
 
 export const QUEUE_STATES = ['pending', 'done', 'skipped'];

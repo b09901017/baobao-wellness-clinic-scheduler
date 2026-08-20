@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   syncTasksForVisit,
+  acceptsNewTasks,
   isCancelKind,
   cancelKindFor,
 } from '../public/js/domain/taskRules.js';
@@ -45,8 +46,10 @@ const task = (over = {}) => ({
 });
 
 describe('來訪存檔時的任務同步', () => {
-  test('新的來訪產生它該有的任務', () => {
-    const { create, update, remove } = syncTasksForVisit(visit({ slots: [{ courseId: 'rehab' }] }), [], ctx);
+  test('客人確認之後產生它該有的任務', () => {
+    const { create, update, remove } = syncTasksForVisit(
+      visit({ status: 'confirmed', slots: [{ courseId: 'rehab' }] }), [], ctx,
+    );
 
     assert.deepEqual(create.map((t) => t.kind).sort(), ['Abovee', 'Examine', '打電話', '耀聖'].sort());
     assert.ok(create.every((t) => t.dueDate === '2026-09-09'));
@@ -77,6 +80,73 @@ describe('來訪存檔時的任務同步', () => {
 
     assert.deepEqual(remove.map((r) => r.id), ['a']);
     assert.equal(create.length, 0);
+  });
+});
+
+// 她的順序是「壓表 → 問客人 → 客人說可以 → 才去登記」。壓完表就長出來的話，
+// 一晚上二十幾位等於立刻多出幾十件還不確定要不要做的待辦。ADR-0027。
+describe('登記任務等客人確認之後才長出來（ADR-0027）', () => {
+  test('壓完表記下去，一件登記都不產生', () => {
+    const { create, update, remove } = syncTasksForVisit(
+      visit({ slots: [{ courseId: 'rehab' }] }), [], ctx,
+    );
+
+    assert.deepEqual([create, update, remove], [[], [], []]);
+  });
+
+  test('確認之後才長出來，死線仍然是來訪日的前一天', () => {
+    const asked = visit({ slots: [{ courseId: 'rehab' }] });
+    assert.equal(syncTasksForVisit(asked, [], ctx).create.length, 0);
+
+    const { create } = syncTasksForVisit({ ...asked, status: 'confirmed' }, [], ctx);
+    assert.deepEqual(create.map((t) => t.kind).sort(), ['Abovee', 'Examine', '打電話', '耀聖'].sort());
+    assert.ok(create.every((t) => t.dueDate === '2026-09-09'));
+  });
+
+  test('補記一筆已經上完的課，不會長出一串死線早就過的登記', () => {
+    // pending_confirm → done，中間沒有經過 confirmed。那天已經過完了，
+    // 掛號沒有東西要補 —— 產生出來只會是四筆一出生就逾期的紅字。
+    const { create, remove } = syncTasksForVisit(
+      visit({ status: 'done', slots: [{ courseId: 'rehab' }] }),
+      [],
+      { ...ctx, today: '2026-09-30' },
+    );
+
+    assert.deepEqual([create, remove], [[], []]);
+  });
+
+  test('來訪結案不會把她還沒做完的登記洗掉', () => {
+    // 反過來的方向：confirmed 時長出來的任務，走到 done 一個都不能少。
+    // 「還沒做完」本身就是要看得見的事。
+    const undone = task({ kind: 'Abovee' });
+    const { create, remove } = syncTasksForVisit(
+      visit({ status: 'done' }), [undone], ctx,
+    );
+
+    assert.deepEqual([create, remove], [[], []]);
+  });
+
+  test('未到也一樣不產生新的登記', () => {
+    const { create } = syncTasksForVisit(
+      visit({ status: 'no_show', slots: [{ courseId: 'rehab' }] }), [], ctx,
+    );
+    assert.equal(create.length, 0);
+  });
+
+  test('擋掉的只有「無中生有」—— 還沒確認的來訪照樣收得掉多餘的任務', () => {
+    // 來訪只剩復能（C 類 → Abovee），Examine 不再需要。
+    // 這一條顧的是「不產生」不可以順手變成「什麼都不做」。
+    const stale = task({ id: 'a', kind: 'Examine' });
+    const { remove } = syncTasksForVisit(visit(), [stale], ctx);
+
+    assert.deepEqual(remove.map((r) => r.id), ['a']);
+  });
+
+  test('acceptsNewTasks() 只認得 confirmed', () => {
+    assert.equal(acceptsNewTasks('confirmed'), true);
+    for (const s of ['pending_confirm', 'done', 'no_show', 'cancelled', undefined]) {
+      assert.equal(acceptsNewTasks(s), false, `${s} 不該產生新任務`);
+    }
   });
 });
 

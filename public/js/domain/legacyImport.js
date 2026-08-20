@@ -852,7 +852,7 @@ function contraindicationHints(sources, equipment) {
  * 刻意不講「這串數字是病歷號」——舊表沒有標題，那只是我們的推測，
  * 而備註是給人看的：講清楚它寫在哪裡就夠了，別替她認定它是什麼。
  *
- * `黃惠燕 (高能/sis)3157` → ['姓名欄的編號：3157', '姓名欄的註記：高能/sis']
+ * `王小明 (高能/sis)3157` → ['姓名欄的編號：3157', '姓名欄的註記：高能/sis']
  */
 function nameExtras(name) {
   const text = String(name ?? '');

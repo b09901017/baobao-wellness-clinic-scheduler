@@ -17,6 +17,29 @@ export const TASK_KINDS = ['打電話', 'Abovee', 'Examine', '耀聖'];
  */
 export const REGISTRATION_KINDS = ['Abovee', 'Examine', '耀聖'];
 
+/**
+ * 來訪走到這個狀態，登記任務才長得出來。
+ *
+ * 她的順序是「壓表 → 問客人 → 客人說可以 → 才去另外那幾個系統登記」。
+ * 存成 pending_confirm 的那一刻客人還沒回，那幾件登記要不要做**還不知道**——
+ * 壓完一晚上二十幾位就立刻多出幾十件待辦，而其中一部分等客人說不行就會被收掉。
+ * 見 docs/adr/0027-registration-tasks-wait-for-the-customer.md
+ *
+ * 這一條只管「產不產生」，不管「留不留」：已經在的任務一個都不會因為狀態
+ * 走到別的地方而被收掉，那是底下依課程比對那一段的事。所以
+ * confirmed → done 不會把她還沒做完的登記洗掉，而
+ * pending_confirm → done（補記一筆已經上完的課）也不會突然長出一串
+ * 死線早就過了的紅字 —— 那天已經過完了，掛號這件事沒有東西要補。
+ */
+// 刻意不 export：要問「現在可不可以產生」一律走 acceptsNewTasks()。
+// 把常數放出去，就會有人在別的地方自己寫一次比對，而那就是第二份實作。
+const TASKS_START_AT = 'confirmed';
+
+/** @param {string} status 來訪狀態 */
+export function acceptsNewTasks(status) {
+  return status === TASKS_START_AT;
+}
+
 export const CANCEL_PREFIX = '取消 ';
 
 export const cancelKindFor = (kind) => `${CANCEL_PREFIX}${kind}`;
@@ -64,7 +87,12 @@ export function dueDateFor(visitDate) {
 }
 
 /**
- * 一筆來訪要產生哪些任務。
+ * 一筆來訪**該有**哪些任務，純粹看它有哪些課程（SPEC 第 5.5 節那張矩陣）。
+ *
+ * 「該有」不等於「現在就產生」—— 什麼時候長出來是 acceptsNewTasks() 的事。
+ * 兩件事分開是刻意的：這一支同時被用來比對現有的任務（哪些還該留著），
+ * 而那個比對不可以跟著狀態變，否則來訪一結案，她還沒做完的登記就會被靜默收掉。
+ *
  * 同一次來訪裡有多個時段時，同名任務只產生一次 —— 她不需要為了同一天
  * 掛兩次 Examine。
  *
@@ -102,6 +130,10 @@ export function tasksForVisit(visit, coursesById) {
  * 它要跟著來訪的狀態走，否則就會回到現在白紙的狀態：東西改了，該做的事沒人記得。
  *
  * 已完成的任務一律不刪 —— 那件事真的做過了，刪掉等於竄改歷史。
+ *
+ * 新的任務只在客人確認之後長出來（acceptsNewTasks()）。這一支照樣每次存檔
+ * 都要跑：pending_confirm 那一段它仍然要負責把該收的收掉、該移的死線移掉，
+ * 只是不會無中生有。
  *
  * @param {object} visit 存檔後的來訪（要有 id）
  * @param {object[]} existingTasks 這筆來訪現有的任務
@@ -160,7 +192,10 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
     if (Object.keys(changes).length) update.push({ id: t.id, changes });
   }
 
-  create.push(...wanted.values());
+  // 還沒問過客人就不產生（acceptsNewTasks()）。上面那一圈照樣跑完，所以
+  // 「課程被移出來訪就把沒做的收掉」「改了日期死線跟著移」都不受影響 ——
+  // 這裡擋掉的只有「無中生有」那一種。
+  if (acceptsNewTasks(visit.status)) create.push(...wanted.values());
   return { create, update, remove };
 }
 

@@ -191,7 +191,7 @@ describe('孤兒資料', () => {
     assert.equal(findingsOf(result, 'orphans').length, 0);
   });
 
-  test('指向不存在的醫師也會被抓到 —— 二返有醫師沒有治療師（ADR-0028）', () => {
+  test('指向不存在的醫師也會被抓到 —— 二返有醫師沒有治療師（ADR-0026）', () => {
     const result = run({
       entitlements: [ent()],
       visits: [visit({ slots: [slot({ doctorId: 'st-gone' })] })],

@@ -184,7 +184,7 @@ function paint(ctx) {
           .slice(0, RECENT_TASKS).map(taskRow).join('')}</ul>
          <p class="muted" style="margin: var(--space-2) 0 0">
            要勾完成請到待辦中心，那裡可以一次勾一批。</p>`
-      : '<p class="muted" style="margin: 0">還沒有任務。記錄來訪之後，該做的系統登記會自動產生。</p>'}
+      : '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'}
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
