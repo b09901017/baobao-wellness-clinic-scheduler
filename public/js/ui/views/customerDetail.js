@@ -30,7 +30,7 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
-import { describeStatus, isActive } from '../../domain/visits.js';
+import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { todayISO, shortDate } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
@@ -294,8 +294,9 @@ function visitStrip(visits, today) {
   }
 
   return `<div class="strip noscroll-bar">${rows.map((v) => {
-    const cls = v.date < today ? 'stripcard--past'
-      : v.status === 'pending_confirm' ? 'stripcard--soon' : '';
+    // 過去的先變淡（她掃的是「接下來什麼時候來」），其餘照狀態上色 ——
+    // 顏色與日曆同一組，兩個畫面說同一件事（domain/visits.js 的 STATUS_VIEW）。
+    const cls = v.date < today ? 'stripcard--past' : statusClass(v.status);
     const slots = (v.slots ?? []).slice(0, 3);
     return `
       <a class="stripcard ${cls}" href="#/visits/${esc(v.id)}">
@@ -625,12 +626,6 @@ function visitRow(v) {
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
     </a></li>`;
-}
-
-function statusClass(status) {
-  if (status === 'pending_confirm') return 'badge--soon';
-  if (status === 'cancelled' || status === 'no_show') return 'badge--overdue';
-  return 'badge--ok';
 }
 
 function taskRow(t) {

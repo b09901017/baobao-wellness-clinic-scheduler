@@ -94,6 +94,22 @@
 
   /* 備註的顏色小丸。六個就夠了 —— 再多她自己也分不清哪個是哪個。
      每一個都在淺色與深色下都看得出來，不是隨手挑的色票。 */
+  /* 來訪狀態。暖 → 冷 → 綠：待確認琥珀、已確認霧藍、已完成墨綠。
+     未到用紅的（不急，但要看得見），取消是灰的。
+     刻意做成別名指到既有的語意色 —— 深色模式那邊已經幫它們換過一輪，
+     這裡再抄一份就會有一份忘了改。哪一個狀態配哪個 class 在
+     domain/visits.js 的 STATUS_VIEW，這裡只管顏色。 */
+  --visit-pending: var(--soon);
+  --visit-pending-bg: var(--soon-bg);
+  --visit-confirmed: var(--slate);
+  --visit-confirmed-bg: var(--slate-soft);
+  --visit-done: var(--accent);
+  --visit-done-bg: var(--accent-soft);
+  --visit-no-show: var(--overdue);
+  --visit-no-show-bg: var(--overdue-bg);
+  --visit-cancelled: var(--text-mute);
+  --visit-cancelled-bg: var(--surface-2);
+
   --mark-grey: #7c7268;
   --mark-green: #3f7a5f;
   --mark-tea: #b0763b;

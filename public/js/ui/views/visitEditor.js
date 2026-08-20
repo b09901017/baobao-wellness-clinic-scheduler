@@ -14,7 +14,7 @@ import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import {
-  INITIAL_STATUS, describeStatus, nextStatuses, isLocked, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
   coursesForEntitlement, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts } from '../../domain/entitlements.js';
@@ -276,12 +276,6 @@ function paint(ctx, draft) {
   if (locked) wireUnlock(ctx, draft);
   if (!isNew && !locked) wireStatus(ctx, draft);
   if (!isNew) wireDangerZone(ctx, draft);
-}
-
-function statusClass(status) {
-  if (status === 'pending_confirm') return 'badge--soon';
-  if (status === 'cancelled' || status === 'no_show') return 'badge--overdue';
-  return 'badge--ok';
 }
 
 /**

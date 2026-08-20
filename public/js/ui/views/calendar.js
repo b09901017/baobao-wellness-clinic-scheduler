@@ -28,7 +28,9 @@ import {
   rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate,
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
-import { describeStatus } from '../../domain/visits.js';
+import {
+  describeStatus, statusClass, shortStatus, STATUS_VIEW_ORDER,
+} from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
@@ -42,7 +44,8 @@ const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: fa
 
 /** 頂端那一排可勾選的篩選。一種一個顏色，關掉就不顯示。 */
 const KINDS = [
-  { id: 'visit', label: '來訪', cls: 'kind-visit' },
+  // 這顆是開關不是狀態，所以用中性色 —— 來訪本身的顏色由狀態決定（見圖例）
+  { id: 'visit', label: '來訪', cls: 'kind-any' },
   { id: 'personal', label: '個人行程', cls: 'kind-personal' },
   { id: 'leave', label: '休假', cls: 'kind-leave' },
 ];
@@ -148,6 +151,8 @@ function paint(el, data) {
         </button>`).join('')}
     </div>
 
+    ${shows('visit') ? legendHtml() : ''}
+
     <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}</p>
 
     <div class="swipe noscroll-bar" data-swipe>
@@ -166,6 +171,24 @@ function paint(el, data) {
     ${fabHtml()}`;
 
   wire(el, data);
+}
+
+/**
+ * 哪個顏色是哪一種。
+ *
+ * 月檢視的色條上放不下狀態兩個字，顏色是唯一的線索 —— 沒有圖例她只能用猜的。
+ * 這是說明不是控制項，所以不佔 SPEC 第 8.6 節那「控制項最多兩列」的額度。
+ * 關掉「來訪」那顆篩選時整條收起來：那時畫面上一條來訪的色條都沒有。
+ */
+function legendHtml() {
+  return `
+    <p class="callegend">
+      ${STATUS_VIEW_ORDER.map((status) => `
+        <span class="callegend__item ${esc(statusClass(status))}">
+          <span class="callegend__swatch" aria-hidden="true"></span>
+          <span>${esc(shortStatus(status))}</span>
+        </span>`).join('')}
+    </p>`;
 }
 
 function countLine(data, date) {
@@ -235,14 +258,19 @@ function monthHtml(data, date, today) {
     </div>`;
 }
 
-/** 一筆來訪在月檢視上就是一格寬的色條。 */
+/**
+ * 一筆來訪在月檢視上就是一格寬的色條。
+ *
+ * 顏色跟著狀態走，不是所有來訪都同一條綠 —— 她要一眼看出這個月哪幾天還沒問客人。
+ * 色條上放不下狀態兩個字，所以顏色就是唯一的線索，頂端要有圖例。
+ */
 function visitAsBar(visit) {
   const courses = [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))];
   return {
     id: visit.id,
     title: `${visit.customerName ?? '?'} ${courses[0] ?? ''}`.trim(),
     category: 'visit',
-    kind: 'kind-visit',
+    kind: statusClass(visit.status) || 'kind-visit',
     startDate: visit.date,
     endDate: visit.date,
     deletedAt: visit.deletedAt ?? null,
@@ -280,8 +308,8 @@ function weekHtml(data, date, today) {
             ${allDay.map(eventLine).join('')}
             ${timed.map(eventLine).join('')}
             ${rows.map((r) => `
-              <button class="note" type="button" data-open="visit:${esc(r.visitId)}"
-                      style="align-items: center">
+              <button class="note ${esc(statusClass(r.status))}" type="button"
+                      data-open="visit:${esc(r.visitId)}" style="align-items: center">
                 <span class="num" style="width: 42px; flex-shrink: 0; font-size: var(--text-xs);
                                          font-weight: 700; color: var(--text-dim)">
                   ${esc(r.timeLabel)}</span>
@@ -293,7 +321,7 @@ function weekHtml(data, date, today) {
                     r.therapist ? `・${esc(r.therapist)}` : ''}</span>
                 </span>
                 <span style="width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0;
-                             background: ${r.status === 'pending_confirm' ? 'var(--soon)' : 'var(--accent)'}"></span>
+                             background: var(--kind-fg, var(--text-mute))"></span>
               </button>`).join('')}
 
             ${!total ? '<div style="padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--text-mute)">沒有排東西</div>' : ''}
@@ -346,8 +374,10 @@ function dayHtml(data, date, today) {
 }
 
 function visitRow(r) {
+  // 狀態 class 掛在整列上：左邊那條色棒（.timerow__bar 讀 --kind-fg）與
+  // 右邊的徽章都從它繼承，不必各自再判斷一次狀態。
   return `
-    <div class="timerow kind-visit">
+    <div class="timerow ${esc(statusClass(r.status)) || 'kind-visit'}">
       <div class="timerow__clock">
         <div class="timerow__from">${esc(r.startsAt || '—')}</div>
         <div class="timerow__to">${esc(r.endsAt || '')}</div>
@@ -362,7 +392,7 @@ function visitRow(r) {
               r.room ? `・${esc(r.room)}${esc(r.bed ?? '')}` : ''}${
               r.therapist ? `・${esc(r.therapist)}` : ''}</span>
           </span>
-          <span class="badge ${r.status === 'pending_confirm' ? 'badge--soon' : 'badge--ok'}">
+          <span class="badge ${esc(statusClass(r.status))}">
             ${esc(describeStatus(r.status))}</span>
         </span>
         ${r.clashes.length ? `

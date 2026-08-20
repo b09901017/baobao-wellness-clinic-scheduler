@@ -6,10 +6,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import {
   VISIT_STATUSES, INITIAL_STATUS, describeStatus, nextStatuses, canTransition,
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
+  statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -104,6 +107,81 @@ describe('來訪狀態機', () => {
   test('不認得的狀態原樣顯示，不要吞掉', () => {
     assert.equal(describeStatus('pending_confirm'), '已壓表，等客戶回覆');
     assert.equal(describeStatus('weird'), 'weird');
+  });
+});
+
+describe('一個狀態長什麼樣（只有這一份）', () => {
+  // 日曆、進度追蹤頁、試算表全部讀 STATUS_VIEW。她的原話是
+  // 「前面說的流程，寫程式的時候都要記得同步，這很重要」。
+
+  test('每一個狀態都有符號、class 與短名，不會漏掉某一種', () => {
+    for (const status of VISIT_STATUSES) {
+      assert.ok(statusClass(status), `${status} 沒有 class`);
+      assert.ok(shortStatus(status), `${status} 沒有短名`);
+      assert.ok(describeStatus(status), `${status} 沒有完整說明`);
+      // 取消是唯一沒有符號的：時段已經還回去了，那一格本來就不該有東西
+      if (status !== 'cancelled') assert.ok(markFor(status), `${status} 沒有符號`);
+    }
+    assert.equal(markFor('cancelled'), '');
+  });
+
+  test('使用者選的三個符號沒有被改掉（2026-08-20）', () => {
+    assert.equal(markFor('pending_confirm'), '○');
+    assert.equal(markFor('confirmed'), '△');
+    assert.equal(markFor('done'), '✓');
+  });
+
+  test('同一格混在一起時做完的排前面、未到排最後', () => {
+    assert.deepEqual(MARK_ORDER, ['✓', '△', '○', '✗']);
+  });
+
+  test('圖例跟著符號走，不是手寫的第二份', () => {
+    for (const mark of MARK_ORDER) {
+      assert.ok(MARK_LEGEND.includes(mark), `圖例少了 ${mark}`);
+    }
+  });
+
+  test('認不得的狀態不猜：沒有 class、沒有符號，說明原樣顯示', () => {
+    // 畫成某一種正常狀態最糟 —— 資料壞了要看得出來
+    assert.equal(statusClass('亂寫的'), '');
+    assert.equal(markFor('亂寫的'), '');
+    assert.equal(describeStatus('亂寫的'), '亂寫的');
+    assert.equal(describeStatus(null), '（沒有狀態）');
+  });
+
+  test('圖例的順序是流程的順序，不是字母序', () => {
+    assert.deepEqual(STATUS_VIEW_ORDER,
+      ['pending_confirm', 'confirmed', 'done', 'no_show']);
+  });
+});
+
+describe('狀態的 class 在 CSS 裡真的存在', () => {
+  // JS 說 status-confirmed、CSS 只寫了 status-confirm，畫面上就是「沒有顏色」——
+  // 那不會讓任何測試變紅，但她會看到一片灰。這一條就是那個守門員。
+  const css = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+  const tokens = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8');
+
+  test('每一個狀態的 class 都有對應的 CSS 規則', () => {
+    for (const status of VISIT_STATUSES) {
+      const cls = statusClass(status);
+      assert.ok(css.includes(`.${cls} {`), `app.css 少了 .${cls}`);
+    }
+  });
+
+  test('每一個 class 都設了 --kind-fg 與 --kind-bg', () => {
+    for (const status of VISIT_STATUSES) {
+      const block = css.split(`.${statusClass(status)} {`)[1]?.split('}')[0] ?? '';
+      assert.match(block, /--kind-fg:/, `${statusClass(status)} 沒設 --kind-fg`);
+      assert.match(block, /--kind-bg:/, `${statusClass(status)} 沒設 --kind-bg`);
+    }
+  });
+
+  test('用到的 --visit-* 色票都在 tokens.css 定義過', () => {
+    const used = [...css.matchAll(/var\((--visit-[a-z-]+)\)/g)].map((m) => m[1]);
+    assert.ok(used.length >= 8, `應該有四種狀態各兩個色票，實際找到 ${used.length}`);
+    for (const name of new Set(used)) {
+      assert.ok(tokens.includes(`${name}:`), `tokens.css 少了 ${name}`);
+    }
   });
 });
 

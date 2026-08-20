@@ -1127,14 +1127,11 @@ button.mark::after {
   text-decoration: none;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  /* 左邊那條跟著狀態走（.status-* 給 --kind-fg），過去的用 .stripcard--past 蓋掉 */
+  border-left: 3px solid var(--kind-fg, var(--accent));
   border-radius: var(--radius);
   cursor: pointer;
   touch-action: manipulation;
-}
-
-.stripcard--soon {
-  border-left-color: var(--soon);
 }
 
 .stripcard--past {
@@ -1697,6 +1694,74 @@ button.mark::after {
 .kind-leave {
   --kind-fg: var(--slate);
   --kind-bg: var(--slate-soft);
+}
+
+/* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
+   拿它當整個類別的顏色會跟正下方的圖例打架。個人行程與休假沒有這個問題，
+   它們的顏色就是它們自己。 */
+.kind-any {
+  --kind-fg: var(--text-dim);
+  --kind-bg: var(--surface-2);
+}
+
+/* 來訪狀態的顏色。日曆的色條、日檢視的狀態丸、客戶詳情的日期卡都走這一組 ——
+   同一位客戶在兩個畫面顯示成不同顏色，她不會知道哪個算數。
+   哪一個狀態配哪一個 class 在 domain/visits.js 的 STATUS_VIEW，這裡只管顏色。 */
+.status-pending {
+  --kind-fg: var(--visit-pending);
+  --kind-bg: var(--visit-pending-bg);
+}
+
+.status-confirmed {
+  --kind-fg: var(--visit-confirmed);
+  --kind-bg: var(--visit-confirmed-bg);
+}
+
+.status-done {
+  --kind-fg: var(--visit-done);
+  --kind-bg: var(--visit-done-bg);
+}
+
+.status-no-show {
+  --kind-fg: var(--visit-no-show);
+  --kind-bg: var(--visit-no-show-bg);
+}
+
+.status-cancelled {
+  --kind-fg: var(--visit-cancelled);
+  --kind-bg: var(--visit-cancelled-bg);
+}
+
+/* 同一組 class 套在徽章上也要有效 —— 兩種畫法一種顏色。
+   認不得的狀態拿不到 class，就落回 .badge 預設的灰：看得出「這個怪怪的」。 */
+.badge[class*='status-'] {
+  color: var(--kind-fg);
+  background: var(--kind-bg);
+}
+
+/* 日曆頂端的圖例。是說明不是控制項，所以不佔 SPEC 第 8.6 節那兩列控制項的額度。 */
+.callegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+}
+
+.callegend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.callegend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--kind-fg);
+  flex: 0 0 auto;
 }
 
 /* ---------- 左右滑換頁 ---------- */
