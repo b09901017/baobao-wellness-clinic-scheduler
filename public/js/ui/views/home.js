@@ -754,7 +754,7 @@ async function applyConfirm(ctx) {
       },
       {
         success: writes.some((v) => v.status === 'cancelled')
-          ? '記好了，退掉的已產生取消登記'
+          ? '記好了，客人說不行的那幾段已經退掉'
           : '確認了，已排進日曆',
         // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）
         undoable: false,

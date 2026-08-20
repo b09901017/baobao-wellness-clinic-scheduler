@@ -484,10 +484,12 @@ describe('「約二返」不歸 syncTasksForVisit 管', () => {
   });
 
   test('健檢照樣產生它自己的 B 類任務', () => {
+    // 狀態是 confirmed 而不是 pending_confirm：登記任務要等客人確認才長出來
+    // （ADR-0027）。這一條測的是「健檢走 B 類」，不是「什麼時候長」。
     const { create } = syncTasksForVisit(
       {
         id: 'v1', customerId: 'c1', customerName: '客戶甲', date: '2026-08-01',
-        status: 'pending_confirm', slots: [{ courseId: 'course-checkup' }],
+        status: 'confirmed', slots: [{ courseId: 'course-checkup' }],
       },
       [],
       { coursesById: COURSES, today: '2026-07-01' },
@@ -499,7 +501,7 @@ describe('「約二返」不歸 syncTasksForVisit 管', () => {
     const { create } = syncTasksForVisit(
       {
         id: 'v9', customerId: 'c1', customerName: '客戶甲', date: '2026-08-20',
-        status: 'pending_confirm',
+        status: 'confirmed',
         slots: [{ courseId: 'course-followup', entitlementId: 'ent-followup' }],
       },
       [],

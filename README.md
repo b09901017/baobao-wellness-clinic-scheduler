@@ -149,7 +149,7 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 - 既有客戶（含舊表匯進來的 21 位）在客戶詳情頁或資料健檢頁補得起來
   （[ADR-0023](./docs/adr/0023-health-check-can-also-create-the-missing-followup.md)）
 
-第 1–11 步的已知缺口都補完了（`.scratch/` 底下的票全部 done）。試算表那一側的
+第 1–11 步的已知缺口都補完了。試算表那一側的
 `sheets/readonly-report.gs` 有測試但**還沒真的部署過** —— 第一次部署如果報錯，
 是預期內的。
 
@@ -183,6 +183,23 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 - 底部面板整張都拖得動：往下收、往上到頂，名單捲到頭才把手勢交給面板
   （[ADR-0021](./docs/adr/0021-the-sheet-is-dragged-by-transform.md)）
 - 客戶的永久限制裡，會擋掉器材的那幾個字變成可以點的丸子
+
+最近一輪梳理的是**整條流程**（從問時間到記進試算表），因為她要的是三個畫面
+（待辦、日曆、進度追蹤）永遠講同一件事。梳理與待辦在 `.scratch/visit-lifecycle/`：
+
+- 試算表照抄她舊表的樣子：沒有總表、日期欄是四種符號、TODO/FINISHED 由 app 填
+  （[ADR-0024](./docs/adr/0024-the-sheet-mirrors-her-old-one.md)）
+- 那天實際做了什麼逐段記，客人做一半就走也算得對
+  （[ADR-0025](./docs/adr/0025-what-happened-is-recorded-per-slot.md)）
+- 醫師進 `config/staff`，約二返時用選的
+  （[ADR-0026](./docs/adr/0026-doctors-are-assignable-staff.md)）
+- 登記任務等客人確認之後才產生，壓表當下只長出「跟客人確認時間」
+  （[ADR-0027](./docs/adr/0027-registration-tasks-wait-for-the-customer.md)）
+- 新的一頁「進度追蹤」（`#/customers/progress`）：一頁看完每位客戶這個月排了
+  哪些時段、每一段各自到哪一步。**唯讀，連鉛筆都沒有**
+
+這一輪還沒做完的一支：待辦中心看不到「這輪的時間還沒問誰」，要開壓表批次才知道
+（`.scratch/visit-lifecycle/issues/06`）。
 
 ## 文件
 
