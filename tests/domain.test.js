@@ -8,7 +8,9 @@ import {
   annotateOptions,
   validateSlots,
 } from '../public/js/domain/contraindications.js';
-import { counts, isOverused, reconcile, expandPlan } from '../public/js/domain/entitlements.js';
+import {
+  counts, isOverused, reconcile, expandPlan, slotOutcome,
+} from '../public/js/domain/entitlements.js';
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
 describe('任務規則', () => {
@@ -166,6 +168,75 @@ describe('額度計算', () => {
 
     const good = reconcile({ totalQty: 20, doneCount: 2, bookedCount: 2 }, visits, 'e1');
     assert.equal(good.ok, true);
+  });
+});
+
+describe('逐段的結果（客人只做一半就走）', () => {
+  // 2026-08-20 使用者確認：不常發生，但是會發生。
+  // 次數只扣真的做了的那幾段 —— 這是這個專案最不能算錯的東西。
+
+  const ent = { totalQty: 10 };
+  const half = {
+    status: 'done',
+    slots: [
+      { entitlementId: 'e1', attended: true },
+      { entitlementId: 'e1', attended: false },
+    ],
+  };
+
+  test('已完成的來訪裡，沒做的那一段不扣次數', () => {
+    const c = counts(ent, [half], 'e1');
+    assert.equal(c.done, 1);
+    assert.equal(c.noShow, 1);
+    assert.equal(c.remaining, 9, '沒做的那一段要還回去');
+  });
+
+  test('attended 沒寫過的舊資料一律當成有做', () => {
+    // 把它們當成沒做，會讓所有人的次數一夜之間全部退回去
+    const legacy = { status: 'done', slots: [{ entitlementId: 'e1' }] };
+    const nulled = { status: 'done', slots: [{ entitlementId: 'e1', attended: null }] };
+    assert.equal(counts(ent, [legacy], 'e1').done, 1);
+    assert.equal(counts(ent, [nulled], 'e1').done, 1);
+  });
+
+  test('還沒發生的來訪不看 attended', () => {
+    // 匯入器會在 confirmed 的來訪上寫 attended: false（domain/mergeImport.js），
+    // 那句話的意思是「還沒發生」，不是「沒做」。看它就會把未來的來訪算成未到。
+    const future = { status: 'confirmed', slots: [{ entitlementId: 'e1', attended: false }] };
+    const c = counts(ent, [future], 'e1');
+    assert.equal(c.booked, 1);
+    assert.equal(c.noShow, 0);
+    assert.equal(c.done, 0);
+  });
+
+  test('整筆未到時，每一段都算未到，不管 attended 寫了什麼', () => {
+    const missed = {
+      status: 'no_show',
+      slots: [{ entitlementId: 'e1', attended: true }, { entitlementId: 'e1' }],
+    };
+    const c = counts(ent, [missed], 'e1');
+    assert.equal(c.noShow, 2);
+    assert.equal(c.done, 0);
+    assert.equal(c.remaining, 10);
+  });
+
+  test('slotOutcome 認得五種狀態，取消與已刪除都不算', () => {
+    const on = { entitlementId: 'e1' };
+    assert.equal(slotOutcome({ status: 'done' }, on), 'done');
+    assert.equal(slotOutcome({ status: 'done' }, { ...on, attended: false }), 'no_show');
+    assert.equal(slotOutcome({ status: 'no_show' }, on), 'no_show');
+    assert.equal(slotOutcome({ status: 'confirmed' }, on), 'booked');
+    assert.equal(slotOutcome({ status: 'pending_confirm' }, on), 'booked');
+    assert.equal(slotOutcome({ status: 'cancelled' }, on), null);
+    assert.equal(slotOutcome({ status: 'done', deletedAt: 'x' }, on), null);
+    assert.equal(slotOutcome(null, on), null);
+  });
+
+  test('對帳跟著逐段算，不會因為改法而永遠對不起來', () => {
+    // reconcile 與 counts 只能有一份實作（ADR-0004）
+    const r = reconcile({ totalQty: 10, doneCount: 2, bookedCount: 0 }, [half], 'e1');
+    assert.equal(r.actual.done, 1);
+    assert.equal(r.ok, false, '快取說 2、實際 1，要看得出來');
   });
 });
 

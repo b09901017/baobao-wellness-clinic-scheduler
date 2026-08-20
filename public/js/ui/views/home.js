@@ -17,6 +17,7 @@ import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage } from '../../domain/messages.js';
+import { visitsToClose, closeVisit, describeStatus } from '../../domain/visits.js';
 import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
 import { todayISO, shortDate, daysBetween } from '../../domain/dates.js';
 import { wireDrag } from '../components/sheet.js';
@@ -45,14 +46,17 @@ export async function render(el) {
   picked = new Set();
   drawer = null;
 
+  const today = todayISO();
   let tasks;
   let pending;
+  let unclosed;
   let notes;
   let settings;
   try {
-    [tasks, pending, notes, settings] = await Promise.all([
+    [tasks, pending, unclosed, notes, settings] = await Promise.all([
       tasksData.listOpen(),
       visitsData.listByStatus('pending_confirm'),
+      visitsData.listUnclosed(today),
       notesData.listOpen(),
       config.getSettings(),
     ]);
@@ -63,23 +67,24 @@ export async function render(el) {
     return;
   }
 
-  paint({ el, tasks, pending, notes, settings, today: todayISO() });
+  paint({ el, tasks, pending, unclosed, notes, settings, today });
 }
 
 function paint(ctx) {
-  const { el, tasks, pending, notes, today } = ctx;
+  const { el, tasks, pending, unclosed, notes, today } = ctx;
 
   const overdue = tasks.filter((t) => urgency(t.dueDate, today) === 'overdue');
   const dueToday = tasks.filter((t) => t.dueDate === today);
   const tomorrow = tasks.filter((t) => daysBetween(today, t.dueDate) === 1);
   const waiting = byCustomer(pending);
+  const toClose = visitsToClose(unclosed ?? [], today);
 
   el.innerHTML = `
     <div class="page">
       <div class="page__row">
         <span class="muted num">${esc(shortDate(today))}</span>
       </div>
-      <h1 class="page__title">${headline(tasks.length, overdue.length, waiting.size)}</h1>
+      <h1 class="page__title">${headline(tasks.length, overdue.length, waiting.size, toClose.length)}</h1>
     </div>
 
     <div data-health></div>
@@ -89,7 +94,7 @@ function paint(ctx) {
       <button class="seg__item" type="button" aria-pressed="${tab === 'who'}" data-tab="who">依客戶</button>
     </div>
 
-    ${tab === 'all' ? overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting })
+    ${tab === 'all' ? overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose })
                     : byCustomerHtml(ctx, waiting)}
 
     ${notesCard(notes)}`;
@@ -99,16 +104,18 @@ function paint(ctx) {
 }
 
 /** 一句話講完現在的狀況。數字很小的時候不要硬講成很急。 */
-function headline(total, overdue, waiting) {
-  if (!total && !waiting) return '今天沒有待辦';
+function headline(total, overdue, waiting, toClose = 0) {
+  if (!total && !waiting && !toClose) return '今天沒有待辦';
   const parts = [];
   if (total) parts.push(`今天有 ${total} 件`);
-  if (overdue) parts.push(`其中 ${overdue} 件逾期了`);
+  // 沒結案的排在最前面 —— 那是唯一會讓剩餘次數失準的一種（SPEC 第 4.2 節）
+  if (toClose) parts.push(`${toClose} 筆還沒結案`);
+  else if (overdue) parts.push(`其中 ${overdue} 件逾期了`);
   else if (waiting) parts.push(`${waiting} 位在等你確認`);
   return parts.join('，');
 }
 
-function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting }) {
+function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
   const { tasks } = ctx;
   const cancels = tasks.filter((t) => isCancelKind(t.kind));
   const kinds = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))];
@@ -121,6 +128,10 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting }) {
     </div>
 
     <div class="groups">
+      ${toClose.length ? groupRow({
+        href: '#/todo/close', lead: true, dot: 'accent',
+        label: '客人來了嗎', note: '簽了療程單就打勾，次數這時才扣', n: toClose.length,
+      }) : ''}
       ${groupRow({
         href: '#/todo/confirm', lead: true, dot: 'accent',
         label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
@@ -331,6 +342,7 @@ async function addNote(ctx, form) {
 
 const GROUPS = {
   confirm: { title: '跟客人確認時間', lead: '壓好了、還沒問過本人。問完回來按打勾。' },
+  close: { title: '客人來了嗎', lead: '客人來了、療程單簽了就打勾。次數是這時候才扣的。' },
   overdue: { title: '逾期的', lead: '死線已經過去了。' },
   today: { title: '今天要做的', lead: '死線是今天。' },
   tomorrow: { title: '明天要做的', lead: '可以提早做。' },
@@ -349,6 +361,7 @@ export async function renderGroup(el, group) {
   drawer = null;
 
   if (group === 'confirm') return renderConfirm(el);
+  if (group === 'close') return renderClose(el);
   if (group === 'notes') return renderNotes(el);
 
   const tasks = await tasksData.listOpen();
@@ -643,6 +656,7 @@ async function applyConfirm(ctx) {
         ...v,
         status: 'cancelled',
         cancelledAt: at,
+        statusAt: at,
         cancelReason: '客人說這個時間不行',
         released: true,
       };
@@ -652,6 +666,7 @@ async function applyConfirm(ctx) {
       slots: keep,
       status: 'confirmed',
       confirmedAt: at,
+      statusAt: at,
     };
   });
 
@@ -672,6 +687,184 @@ async function applyConfirm(ctx) {
     );
     drawer = null;
     await renderConfirm(ctx.el);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+// ---------- 客人來了嗎（收尾） ----------
+//
+// 這一頁是 SPEC 第 4.2 節那句「次數在已完成才扣」的入口。
+// 在這之前它藏在來訪編輯器的狀態卡裡，走動時拿手機要點四層 ——
+// 而這是每天都要做好幾次的動作，漏掉的後果是剩餘次數整個不準。
+//
+// 不是任務，是從來訪推導的（`domain/visits.js` 的 `visitsToClose()`）：
+// 療程單就是「這一次算不算數」的憑據，而那個答案就在來訪的狀態上。
+
+async function renderClose(el) {
+  const today = todayISO();
+  const unclosed = await visitsData.listUnclosed(today);
+  paintClose({ el, rows: visitsToClose(unclosed, today), today });
+}
+
+function paintClose(ctx) {
+  const { el, rows, today } = ctx;
+
+  el.innerHTML = `
+    ${backLink()}
+    <div class="page">
+      <h1 class="page__title">客人來了嗎</h1>
+      <p class="page__lead">${rows.length
+        ? `有 ${rows.length} 筆還沒結案。客人來了、療程單簽了就打勾 —— 次數是這時候才扣的。`
+        : '都結案了。'}</p>
+    </div>
+
+    ${rows.length ? `<div class="stack">${rows.map((v) => closeCard(v, today)).join('')}</div>` : ''}
+
+    ${drawer ? closeDrawerHtml(ctx) : ''}`;
+
+  wireClose(ctx);
+}
+
+function closeCard(visit, today) {
+  const late = daysBetween(visit.date, today);
+  const slots = visit.slots ?? [];
+
+  return `
+    <div class="card" style="margin: 0">
+      <div class="row" style="align-items: flex-start">
+        <div class="row__main">
+          <div class="row__title">${esc(visit.customerName ?? '（沒有名字）')}</div>
+          <div class="muted num">${esc(shortDate(visit.date))}・${slots.length} 段${
+            late > 0 ? `・過了 ${late} 天` : ''}</div>
+        </div>
+        <button class="fab__main" type="button" data-open="${esc(visit.id)}"
+                style="width: 46px; height: 46px"
+                aria-label="${esc(visit.customerName ?? '')}・結案">
+          ${icon('check', { size: 22, width: 2.6 })}
+        </button>
+      </div>
+
+      <div class="chips" style="margin-top: var(--space-3)">
+        ${slots.map((sl) => `<span class="badge num">${esc(timeLabel(sl))}　${
+          esc(sl.courseName ?? '')}</span>`).join('')}
+      </div>
+
+      ${visit.status === 'pending_confirm' ? `
+        <p class="card__note" style="margin-top: var(--space-3)">
+          這一筆到現在還是「${esc(describeStatus(visit.status))}」—— 那天過了，
+          要嘛她來了要嘛沒來，兩種都在下面結掉。</p>` : ''}
+    </div>`;
+}
+
+/**
+ * 收尾畫面。把那一天的時段攤開，逐段勾「這段做了沒」。
+ *
+ * 預設全部打勾 —— 十次有九次是整天照排的做完了。
+ * 客人做了兩段就走的情況會發生（2026-08-20 使用者確認），那時取消勾選那一段，
+ * 它就不扣次數（`domain/entitlements.js` 的 `slotOutcome()`）。
+ */
+function closeDrawerHtml(ctx) {
+  const visit = ctx.rows.find((v) => v.id === drawer.visitId);
+  if (!visit) return '';
+
+  const slots = visit.slots ?? [];
+  const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
+
+  return `
+    <div class="drawer-backdrop" data-backdrop>
+      <div class="drawer" role="dialog" aria-modal="true"
+           aria-label="替 ${esc(visit.customerName ?? '')} 結案">
+        <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
+        <div class="drawer__head">
+          <h2 class="drawer__title">${esc(visit.customerName ?? '')}・${esc(shortDate(visit.date))}</h2>
+        </div>
+        <p class="drawer__note">哪一段沒做就點它一下。次數只扣打勾的那幾段。</p>
+
+        <div class="drawer__body">
+          ${slots.map((sl, i) => {
+            const missed = drawer.missed.has(i);
+            return `
+              <button class="slotrow ${missed ? 'slotrow--no' : ''}" type="button" data-slot="${i}">
+                <span class="slotrow__main">
+                  <span class="slotrow__when">${esc(timeLabel(sl))}</span>
+                  <span class="slotrow__what">${esc(sl.courseName ?? '')}</span>
+                </span>
+                <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
+                  missed ? '沒做' : '做了'}</span>
+              </button>`;
+          }).join('')}
+
+          ${visit.note ? `<p class="card__note" style="margin-top: var(--space-3)">
+            壓表時記的：${esc(visit.note)}</p>` : ''}
+        </div>
+
+        <div class="drawer__actions">
+          <button class="btn btn--primary" type="button" data-apply>
+            ${doneCount ? `這 ${doneCount} 段做了，結案` : '一段都沒做 → 記成未到'}</button>
+          <button class="btn" type="button" data-close-drawer>先不要，回去</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function wireClose(ctx) {
+  const { el } = ctx;
+
+  el.querySelectorAll('[data-open]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      drawer = { visitId: btn.dataset.open, missed: new Set() };
+      paintClose(ctx);
+    }),
+  );
+
+  el.querySelectorAll('[data-slot]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.slot);
+      if (drawer.missed.has(i)) drawer.missed.delete(i);
+      else drawer.missed.add(i);
+      paintClose(ctx);
+    }),
+  );
+
+  const close = () => {
+    drawer = null;
+    paintClose(ctx);
+  };
+  el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));
+  el.querySelector('[data-backdrop]')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) close();
+  });
+
+  // 手勢跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了
+  const box = el.querySelector('.drawer');
+  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
+
+  el.querySelector('[data-apply]')?.addEventListener('click', () => applyClose(ctx));
+}
+
+/**
+ * 結案。一次只動一筆來訪，所以是單一個 commit —— 復原退得回去。
+ *
+ * 規則本身在 `domain/visits.js` 的 `closeVisit()`，這裡只負責把畫面上的
+ * 勾選狀態翻成逐段的布林。來訪編輯器的狀態按鈕走同一支。
+ */
+async function applyClose(ctx) {
+  const visit = ctx.rows.find((v) => v.id === drawer.visitId);
+  if (!visit) return;
+
+  const attended = (visit.slots ?? []).map((_, i) => !drawer.missed.has(i));
+  const next = closeVisit(visit, attended);
+  const customerVisits = await visitsData.listByCustomer(visit.customerId);
+
+  try {
+    await toast.withSaveState(() => visitsData.save(next, customerVisits), {
+      success: next.status === 'done'
+        ? `${visit.customerName ?? ''} 結案了，次數扣掉了`
+        : `記成未到，次數沒有扣`,
+    });
+    drawer = null;
+    await renderClose(ctx.el);
   } catch {
     /* 已處理 */
   }

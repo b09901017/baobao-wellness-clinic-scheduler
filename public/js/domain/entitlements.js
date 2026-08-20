@@ -4,6 +4,37 @@
 // 導致取消改期後數字與現實脫節 —— 這裡不重蹈覆轍。
 
 /**
+ * 這一個時段實際上算哪一種。次數的算法只認這一支。
+ *
+ * 放在這裡而不是 `domain/visits.js`：`visits.js` 已經 import 了這一支的 `counts()`，
+ * 反過來 import 會變成循環。而這條規則本來就是**計數規則** ——
+ * ADR-0004 說計數只能有一份實作，那份實作住在這個檔案。
+ *
+ * **只有已完成的來訪才逐段看結果。** 客人做了兩段、第三段就走了是會發生的
+ * （2026-08-20 使用者確認），那時她在收尾畫面逐段勾，沒勾到的那一段
+ * `attended` 是 `false`，不扣次數。
+ *
+ * `attended` 在別的狀態下沒有意義，一律不看：
+ *
+ * - `confirmed` 的來訪，匯入器會寫 `attended: false`（`domain/mergeImport.js`），
+ *   那句話的意思是「還沒發生」，不是「沒做」。看它就會把還沒到的來訪算成未到。
+ * - `no_show` 是整筆沒來，每一段都算未到。
+ *
+ * **`attended` 沒寫過（`undefined` / `null`）一律當成有做。** 舊資料與匯入的來訪
+ * （ADR-0011）都沒有逐段記過，把它們當成沒做會讓所有人的次數一夜之間全部退回去。
+ * 只有明確的 `false` 才是「這一段沒做」。
+ *
+ * @returns {'done'|'no_show'|'booked'|null} null = 這一段不佔任何次數（取消、已刪除）
+ */
+export function slotOutcome(visit, slot) {
+  if (!visit || visit.deletedAt) return null;
+  if (visit.status === 'done') return slot?.attended === false ? 'no_show' : 'done';
+  if (visit.status === 'no_show') return 'no_show';
+  if (visit.status === 'pending_confirm' || visit.status === 'confirmed') return 'booked';
+  return null; // cancelled：時段已經還回去了
+}
+
+/**
  * 三段式次數。永遠可以從 visits 重算，不依賴任何計數欄位。
  * 這個函式就是對帳的基準：存在 entitlement 上的計數欄位必須等於它。
  *
@@ -17,14 +48,13 @@ export function counts(entitlement, visits, entitlementId) {
   let noShow = 0;
 
   for (const visit of visits ?? []) {
-    if (visit.deletedAt) continue;
-    const hits = (visit.slots ?? []).filter((s) => s.entitlementId === entitlementId).length;
-    if (!hits) continue;
-
-    if (visit.status === 'done') done += hits;
-    else if (visit.status === 'no_show') noShow += hits;
-    else if (visit.status === 'pending_confirm' || visit.status === 'confirmed') booked += hits;
-    // cancelled 不算任何一種：時段已經還回去了
+    for (const slot of visit?.slots ?? []) {
+      if (slot.entitlementId !== entitlementId) continue;
+      const outcome = slotOutcome(visit, slot);
+      if (outcome === 'done') done += 1;
+      else if (outcome === 'no_show') noShow += 1;
+      else if (outcome === 'booked') booked += 1;
+    }
   }
 
   const total = entitlement?.totalQty ?? 0;

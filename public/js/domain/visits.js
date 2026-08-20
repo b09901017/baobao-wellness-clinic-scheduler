@@ -162,6 +162,65 @@ export function isActive(visit) {
   return !visit?.deletedAt && visit?.status !== 'cancelled';
 }
 
+// ---------- 收尾（客人來了沒、療程單簽了沒） ----------
+
+/**
+ * 該結案卻還沒結案的來訪。待辦中心「今天來的」那一列。
+ *
+ * 是**推導**的，不是任務（ADR-0001 的同一個判斷）：療程單就是「這一次算不算數」
+ * 的憑據（`CONTEXT.md`），所以它問的其實是「這筆來訪結案了沒」，
+ * 而那個答案就在來訪的狀態上。另外存一筆任務就多一個會對不起來的地方，
+ * 而對不起來的那天沒有人會發現。
+ *
+ * 日子還沒到的不列 —— 客人還沒來就不可能勾。
+ * `pending_confirm` 也列：那天已經過了卻還沒問過客人，那更需要收尾。
+ *
+ * @returns {object[]} 日期舊的排前面（拖最久的最上面）
+ */
+export function visitsToClose(visits = [], today) {
+  return visits
+    .filter((v) => !v.deletedAt
+      && (v.status === 'confirmed' || v.status === 'pending_confirm')
+      && isValidDate(v.date)
+      && v.date <= today)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date)
+      || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
+}
+
+/**
+ * 收尾：把一筆來訪標成已完成或未到，並逐段記下哪幾段真的做了。
+ *
+ * 純函式，回傳新的來訪 —— 規則不寫在 UI 的事件處理器裡（SPEC 第 10 節）。
+ * 收尾畫面與來訪編輯器的狀態按鈕走同一支，兩邊算出來的東西才會一樣。
+ *
+ * **一段都沒做就是整筆未到。** 她在收尾畫面把每一段都取消勾選時，意思是
+ * 「這個人沒來」，而不是「來了但什麼都沒做」—— 後者不存在。未到不扣次數，
+ * 時段還回去（SPEC 第 4.2 節）。
+ *
+ * 一次來訪一定至少有一個時段（`validateVisit()` 與 `firestore.rules` 兩層都擋），
+ * 所以不會出現「沒有時段可以勾，於是被當成未到」的情況。
+ *
+ * @param {object} visit
+ * @param {boolean[]} attended 逐段：這一段做了沒。長度不足的補成有做 ——
+ *   少傳的那幾段是「畫面上沒問到」，當成沒做會無聲扣掉她的次數。
+ * @param {string} at ISO 時間
+ */
+export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
+  const slots = (visit?.slots ?? []).map((slot, i) => ({
+    ...slot,
+    attended: attended[i] ?? true,
+  }));
+  const anyAttended = slots.some((s) => s.attended);
+
+  return {
+    ...visit,
+    slots,
+    status: anyAttended ? 'done' : 'no_show',
+    statusAt: at,
+  };
+}
+
 /**
  * 這筆額度可以排哪些課程。
  *

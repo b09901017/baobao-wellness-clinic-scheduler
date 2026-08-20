@@ -13,6 +13,7 @@ import {
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
+  visitsToClose, closeVisit,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -182,6 +183,96 @@ describe('狀態的 class 在 CSS 裡真的存在', () => {
     for (const name of new Set(used)) {
       assert.ok(tokens.includes(`${name}:`), `tokens.css 少了 ${name}`);
     }
+  });
+});
+
+describe('收尾：客人來了嗎', () => {
+  const TODAY = '2026-08-20';
+  const visit = (over = {}) => ({
+    id: 'v1', customerName: '客戶A', date: '2026-08-19', status: 'confirmed',
+    slots: [
+      { entitlementId: 'e1', courseName: '復能' },
+      { entitlementId: 'e2', courseName: '靜脈' },
+    ],
+    ...over,
+  });
+
+  describe('哪幾筆要收尾', () => {
+    test('日子過了、還沒結案的才列，未來的不列', () => {
+      const rows = visitsToClose([
+        visit({ id: 'past', date: '2026-08-18' }),
+        visit({ id: 'today', date: TODAY }),
+        visit({ id: 'future', date: '2026-08-25' }),
+      ], TODAY);
+      assert.deepEqual(rows.map((v) => v.id), ['past', 'today']);
+    });
+
+    test('還沒問過客人的也要列 —— 那天過了更需要收尾', () => {
+      const rows = visitsToClose([visit({ status: 'pending_confirm' })], TODAY);
+      assert.equal(rows.length, 1);
+    });
+
+    test('已完成、未到、取消、已刪除的都不列', () => {
+      const rows = visitsToClose([
+        visit({ id: 'a', status: 'done' }),
+        visit({ id: 'b', status: 'no_show' }),
+        visit({ id: 'c', status: 'cancelled' }),
+        visit({ id: 'd', deletedAt: 'x' }),
+      ], TODAY);
+      assert.deepEqual(rows, []);
+    });
+
+    test('拖最久的排最上面', () => {
+      const rows = visitsToClose([
+        visit({ id: 'b', date: '2026-08-19' }),
+        visit({ id: 'a', date: '2026-08-10' }),
+      ], TODAY);
+      assert.deepEqual(rows.map((v) => v.id), ['a', 'b']);
+    });
+
+    test('日期壞掉的不列，也不會爆', () => {
+      assert.deepEqual(visitsToClose([visit({ date: '亂寫的' })], TODAY), []);
+      assert.deepEqual(visitsToClose(undefined, TODAY), []);
+    });
+  });
+
+  describe('結案', () => {
+    test('全部做了 → 已完成，每一段都標成有做', () => {
+      const next = closeVisit(visit(), [true, true], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+      assert.equal(next.statusAt, 'T');
+    });
+
+    test('做了一半 → 還是已完成，沒做的那一段標成 false', () => {
+      // 次數只扣做了的那一段，見 domain/entitlements.js 的 slotOutcome()
+      const next = closeVisit(visit(), [true, false], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, false]);
+    });
+
+    test('一段都沒做 → 整筆未到', () => {
+      // 「來了但什麼都沒做」不存在，那就是沒來
+      const next = closeVisit(visit(), [false, false], 'T');
+      assert.equal(next.status, 'no_show');
+    });
+
+    test('少傳的那幾段當成有做，不要無聲扣掉她的次數', () => {
+      const next = closeVisit(visit(), [], 'T');
+      assert.equal(next.status, 'done');
+      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+    });
+
+    test('其餘欄位原封不動，時段的內容也不動', () => {
+      const before = visit({ note: '她說下午比較好' });
+      const next = closeVisit(before, [true, false], 'T');
+      assert.equal(next.note, '她說下午比較好');
+      assert.equal(next.customerName, '客戶A');
+      assert.equal(next.slots[0].courseName, '復能');
+      assert.equal(next.slots[1].entitlementId, 'e2');
+      assert.notEqual(next, before, '要回傳新的，不要就地改');
+      assert.equal(before.slots[0].attended, undefined, '原本那筆不可以被動到');
+    });
   });
 });
 

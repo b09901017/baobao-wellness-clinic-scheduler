@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, NOTE_MAX,
+  coursesForEntitlement, closeVisit, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts } from '../../domain/entitlements.js';
 import { icon } from '../icons.js';
@@ -120,6 +120,7 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
     status: INITIAL_STATUS,
     confirmedAt: null,
     cancelledAt: null,
+    statusAt: null,
     cancelReason: null,
     released: null,
     note: null,
@@ -573,15 +574,18 @@ function wireStatus(ctx, draft) {
         if (!ok) return;
       }
 
-      const next = { ...draft, status: to };
-      if (to === 'confirmed') next.confirmedAt = new Date().toISOString();
+      const at = new Date().toISOString();
+
+      // 收尾走 domain 那一支，跟待辦中心的「客人來了嗎」同一份規則 ——
+      // 這裡整筆一起標，所以每一段都給同一個結果。要逐段分開記，
+      // 走待辦中心那一頁（`ui/views/home.js` 的收尾畫面）。
+      let next = to === 'done' || to === 'no_show'
+        ? closeVisit(draft, (draft.slots ?? []).map(() => to === 'done'), at)
+        : { ...draft, status: to, statusAt: at };
+
+      if (to === 'confirmed') next.confirmedAt = at;
       if (to === 'cancelled') {
-        next.cancelledAt = new Date().toISOString();
-        next.cancelReason = reason;
-        next.released = false;
-      }
-      if (to === 'done' || to === 'no_show') {
-        next.slots = next.slots.map((s) => ({ ...s, attended: to === 'done' }));
+        next = { ...next, cancelledAt: at, cancelReason: reason, released: false };
       }
 
       try {

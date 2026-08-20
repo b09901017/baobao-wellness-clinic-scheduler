@@ -46,6 +46,30 @@ export function listByStatus(status) {
 }
 
 /**
+ * 日子已經過了、卻還沒結案的來訪。待辦中心的「客人來了嗎」用。
+ *
+ * 刻意**帶上日期上界**：未來的預約一筆都不需要，而她每天開待辦中心十幾次，
+ * 一次抓回整個月的預約等於每次都在為畫不出來的東西付流量
+ * —— 而她常常是在大樓裡用行動網路（SPEC 第 6.9 節）。
+ *
+ * 兩種狀態各查一次而不是用 `in`：吃的是同一個 (deletedAt, status, date asc)
+ * 複合索引，那個索引已經在用了，不必為這件事多開一個。
+ *
+ * 哪幾筆真的要收尾由 `domain/visits.js` 的 `visitsToClose()` 決定，
+ * 這裡只負責把可能的那些撈回來 —— 規則不寫在 /data。
+ */
+export function listUnclosed(today) {
+  return Promise.all(
+    ['confirmed', 'pending_confirm'].map((status) =>
+      repo.list(PATH, {
+        wheres: [where('status', '==', status), where('date', '<=', today)],
+        order: ['date', 'asc'],
+      }),
+    ),
+  ).then((groups) => groups.flat());
+}
+
+/**
  * 一段期間內的全部來訪。壓表模式要用：一次算出「這個月誰還沒排」
  * 與「上次來是多久以前」，不要每位客戶各查一次。
  * 用的是 (deletedAt, date) 複合索引。

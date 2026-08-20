@@ -973,7 +973,7 @@ async function addSlot(ctx) {
         customerName: selected.customerName,
         date: view.day,
         status: INITIAL_STATUS,
-        confirmedAt: null, cancelledAt: null, cancelReason: null, released: null,
+        confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
         note,
         slots: [slot],
       };
