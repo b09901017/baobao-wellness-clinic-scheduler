@@ -1,30 +1,28 @@
 // 客戶自己填這一輪時間的那一頁。`/form.html?t=<token>`
 //
-// **這一頁的使用者不是她，是她的客戶，而客戶全是長輩。** 所以整頁只有一條規則：
+// **這一頁的使用者不是她，是她的客戶，而客戶全是長輩。**
 //
-//   點一下 = 那個時間整天不行。要改成半天，在下面那一列改。
+// 一頁只做一件事，做完按一顆按鈕換下一頁 —— 不要往下捲。第一版把三題疊在
+// 一頁裡往下捲，使用者第一次拿去用的回饋是「有點雜亂，資訊太多，往下滑更亂」，
+// 所以改成兩頁：**點日曆 → 確認並送出**。理由與被推翻的那幾個決定見 ADR-0034。
 //
-// 不做「點第二下變上午、第三下變下午」的三態循環 —— 誤觸看不出來，
-// 而且點錯了要再點三下才回得到原點，長輩到第二下就會放棄。
-// 也不做拖拉：拖拉要關掉那一區的原生捲動，長輩想捲頁時畫面不動會以為當掉了。
-// 連續的日子點兩三下就有了，而且每一下都有回饋。理由見
-// `.scratch/customer-availability-form/spec.md` 第 2 節。
+//   點一個日期 → 底下浮出「整天／只有上午／只有下午」→ 選完就收起來
 //
-// 被選起來的東西一律**複述成一列一列的中文**。那張清單同時做三件事：
-// 讓誤觸看得見、讓取消只要一下、讓長輩看到自己講的話被寫成中文才敢按送出。
+// 選好的東西**不在這一頁複述**，複述整個搬到第二頁 —— 那一頁本來就只有複述，
+// 而日曆上的格子自己會寫著「✕／上午／下午」，第一頁不需要第二份清單。
 //
 // 這一頁**讀不到任何既有資料**：邀請上只有名字與月份，沒有次數、沒有病史、
 // 沒有來訪。連結被轉傳的最壞情況是別人看到「某人 9 月 18 號不行」。
 
 import * as api from '../data/publicForm.js';
 import {
-  monthGrid, weekdayBlock, describePicks, dateLabel, inviteState, FREE_TEXT_MAX,
+  monthGrid, describePicks, inviteState, FREE_TEXT_MAX,
 } from '../domain/availabilityForm.js';
-import { todayISO } from '../domain/dates.js';
+import { todayISO, shortDate } from '../domain/dates.js';
 
-const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 /** 畫面上的順序是一到日，跟她的日曆一樣。 */
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const PART_LABELS = { all: '整天不行', am: '只有上午不行', pm: '只有下午不行' };
 
 // form.html 的保險絲看這一個。**一定要在這裡設，不能寫在 inline script 裡** ——
@@ -40,12 +38,9 @@ const state = {
   token: null,
   invite: null,
   screen: 'loading',
-  weekdays: new Map(),   // weekday(0-6) → 'all' | 'am' | 'pm'
-  dates: new Map(),      // 'YYYY-MM-DD' → 'all' | 'am' | 'pm'
+  dates: new Map(),   // 'YYYY-MM-DD' → 'all' | 'am' | 'pm'
   freeText: '',
-  openWeekday: null,     // 哪一列的三選一被打開了
-  openDate: null,
-  notice: '',
+  sheetDate: null,    // 正在選整天／半天的那一天
   error: '',
   busy: false,
 };
@@ -73,11 +68,13 @@ async function start() {
       return paint();
     }
 
-    if (inviteState(invite, todayISO()) === 'expired') {
+    // 「這條連結還能不能填」是 domain 的事，不要在這裡自己比日期字串 ——
+    // 她那一側的三區也是讀同一支（ADR-0033）。
+    if (inviteState(invite, todayISO()) !== 'open') {
       return fail('這一次的時間已經收完了。如果還有要調整的，直接在 LINE 跟我說就可以。');
     }
 
-    state.screen = 'form';
+    state.screen = 'pick';
     paint();
   } catch {
     fail('連線好像不太順，麻煩您重新整理一次，或直接在 LINE 跟我說。');
@@ -91,18 +88,17 @@ function fail(message) {
 }
 
 function loadFrom(response) {
-  state.weekdays = new Map((response.weekdays ?? []).map((w) => [w.weekday, w.partOfDay ?? 'all']));
   state.dates = new Map((response.dates ?? []).map((d) => [d.date, d.partOfDay ?? 'all']));
   state.freeText = response.freeText ?? '';
 }
 
 /** state 的 Map → domain 認得的形狀。`all` 在 domain 裡就是「沒有 partOfDay」。 */
 function picks() {
-  const part = (v) => (v === 'am' || v === 'pm' ? v : null);
   return {
-    weekdays: [...state.weekdays.entries()].map(([weekday, v]) => ({ weekday, partOfDay: part(v) })),
-    dates: [...state.dates.entries()].map(([date, v]) => ({ date, partOfDay: part(v) })),
-    freeText: state.freeText,
+    dates: [...state.dates.entries()].map(([date, v]) => ({
+      date,
+      partOfDay: v === 'am' || v === 'pm' ? v : null,
+    })),
   };
 }
 
@@ -110,134 +106,53 @@ function picks() {
 
 function paint() {
   const screens = {
-    loading: () => '<p class="wait">載入中…</p>',
+    // 跟 form.html 靜態那一行同一句：JS 接手的瞬間畫面不要閃一下換句話。
+    loading: () => '<p class="wait">點一下這個月不方便的日期就好，大概半分鐘。</p>',
     blocked: blockedHtml,
-    form: formHtml,
+    pick: pickHtml,
     confirm: confirmHtml,
     done: doneHtml,
   };
   root().innerHTML = (screens[state.screen] ?? screens.loading)();
   wire();
-  if (state.screen !== 'form') window.scrollTo(0, 0);
+  // 換頁一定回到最上面。長輩不會自己往上捲，捲軸停在中間他會以為東西不見了。
+  if (state.screen !== 'pick' || !state.sheetDate) window.scrollTo(0, 0);
 }
 
 function blockedHtml() {
-  return `
-    <div class="card card--talk">
-      <p class="talk">${esc(state.error)}</p>
-    </div>`;
+  return `<div class="card card--talk"><p class="talk">${esc(state.error)}</p></div>`;
 }
 
-function formHtml() {
+// ---------- 第一頁：日曆 ----------
+
+function pickHtml() {
   const month = Number(state.invite.month.slice(5));
+  const cells = monthGrid(state.invite.month, { today: todayISO() });
 
   return `
     <header class="head">
       <p class="head__hello">${esc(state.invite.customerName || '您')} 您好</p>
-      <h1 class="head__title">要幫您安排 ${month} 月的課程</h1>
+      <h1 class="head__title">${month} 月哪幾天不方便？</h1>
       <p class="head__lead">
-        麻煩您把 ${month} 月<b>不方便</b>的時間點一點，大概半分鐘就好。
+        點一下不方便的日期就好。整個月都方便的話，直接按下面那顆按鈕。
       </p>
     </header>
 
-    <button class="allok" type="button" data-allok>
-      這個月都可以，沒問題
-    </button>
-
-    ${weekdaySection()}
-    ${dateSection(month)}
-    ${freeSection()}
-
-    ${state.error ? `<p class="err">${esc(state.error)}</p>` : ''}
-
-    <button class="go" type="button" data-next>好了，下一步</button>
-    <p class="foot">送出前還會讓您確認一次。</p>`;
-}
-
-// ---------- ① 固定哪個星期不行 ----------
-
-function weekdaySection() {
-  return `
-    <section class="sec">
-      <h2 class="sec__title"><span class="sec__n">1</span>固定哪個星期不行？</h2>
-      <p class="sec__hint">例如每個禮拜五要回診。沒有的話這一題跳過就好。</p>
-
-      <div class="pills">
-        ${WEEK_ORDER.map((w) => {
-          const on = state.weekdays.has(w);
-          return `
-            <button class="pill ${on ? 'pill--on' : ''}" type="button" data-weekday="${w}"
-                    aria-pressed="${on}">
-              <span class="pill__cap">禮拜</span>${WEEKDAY_NAMES[w]}
-            </button>`;
-        }).join('')}
+    <div class="cal">
+      <div class="cal__week">
+        ${WEEK_ORDER.map((w) => `<span class="cal__wd">${WEEKDAY_NAMES[w]}</span>`).join('')}
       </div>
+      <div class="cal__grid">${cells.map(cellHtml).join('')}</div>
+    </div>
 
-      ${recap(
-        WEEK_ORDER.filter((w) => state.weekdays.has(w)).map((w) => ({
-          key: String(w),
-          what: `每個禮拜${WEEKDAY_NAMES[w]}`,
-          value: state.weekdays.get(w),
-          open: state.openWeekday === w,
-          kind: 'weekday',
-        })),
-        '您說固定不行的',
-      )}
-    </section>`;
+    <button class="go" type="button" data-next>填好了</button>
+    <p class="foot">送出前還會讓您確認一次。</p>
+
+    ${state.sheetDate ? sheetHtml(state.sheetDate) : ''}`;
 }
 
-// ---------- ② 這個月哪幾天不行 ----------
-
-function dateSection(month) {
-  const cells = monthGrid(state.invite.month, { today: todayISO() });
-  // 算一次就好。每一格各自呼叫 picks() 會把整份勾選重建三十次。
-  const blocking = picks().weekdays;
-
-  return `
-    <section class="sec">
-      <h2 class="sec__title"><span class="sec__n">2</span>${month} 月有哪幾天不行？</h2>
-      <p class="sec__hint">點一下就是那天整天不行，再點一下取消。</p>
-
-      ${state.notice ? `
-        <p class="notice">
-          ${esc(state.notice)}
-          <button class="notice__go" type="button" data-toweek>回去改</button>
-        </p>` : ''}
-
-      <div class="cal">
-        <div class="cal__week">
-          ${WEEK_ORDER.map((w) => `<span class="cal__wd">${WEEKDAY_NAMES[w]}</span>`).join('')}
-        </div>
-        <div class="cal__grid">${cells.map((c) => cellHtml(c, blocking)).join('')}</div>
-      </div>
-
-      ${recap(
-        [...state.dates.keys()].sort().map((date) => ({
-          key: date,
-          what: dateLabel(date),
-          value: state.dates.get(date),
-          open: state.openDate === date,
-          kind: 'date',
-        })),
-        '您說不方便的日子',
-      )}
-    </section>`;
-}
-
-function cellHtml(cell, blocking) {
+function cellHtml(cell) {
   if (!cell.date) return '<span class="cell cell--blank"></span>';
-
-  // 已經說過「每個禮拜五不行」就不要再讓他一個一個點禮拜五 —— 白費力氣，
-  // 而且點了會產生兩條互相重複的規則。
-  const blocked = weekdayBlock(blocking, cell.date);
-  if (blocked) {
-    return `
-      <button class="cell cell--byweek" type="button" data-blocked="${cell.weekday}">
-        <span class="cell__d">${cell.day}</span>
-        <span class="cell__tag">${blocked === 'all' ? '不行' : PART_LABELS[blocked].slice(2, 4)}</span>
-      </button>`;
-  }
-
   if (cell.past) {
     return `<span class="cell cell--past"><span class="cell__d">${cell.day}</span></span>`;
   }
@@ -253,60 +168,43 @@ function cellHtml(cell, blocking) {
     </button>`;
 }
 
-// ---------- 複述清單 ----------
-//
-// 它不只是顯示。它是這一頁最重要的元件：誤觸在這裡看得見，取消在這裡只要一下，
-// 而半天在這裡改 —— 那三顆按鈕擠在 44px 的格子裡誰都點不準。
-
-function recap(rows, title) {
-  if (!rows.length) return '';
+/**
+ * 點了一天之後浮出來的三選一。
+ *
+ * 從底下浮出來而不是畫面正中央：拇指構得到，而且不會蓋住日曆上半部 ——
+ * 他要看得到自己剛剛點的是哪一格，才確定沒點錯。
+ */
+function sheetHtml(date) {
+  const current = state.dates.get(date);
 
   return `
-    <div class="recap">
-      <p class="recap__title">${esc(title)}</p>
-      ${rows.map((row) => `
-        <div class="recap__row">
-          <span class="recap__what">${esc(row.what)}</span>
-          <button class="recap__part" type="button"
-                  data-open="${row.kind}:${esc(row.key)}">
-            ${PART_LABELS[row.value] ?? PART_LABELS.all}
-            <span class="recap__caret">▾</span>
-          </button>
-          <button class="recap__x" type="button" data-drop="${row.kind}:${esc(row.key)}"
-                  aria-label="取消這一項">✕</button>
-        </div>
-        ${row.open ? `
-          <div class="choices">
-            ${['all', 'am', 'pm'].map((v) => `
-              <button class="choice ${row.value === v ? 'choice--on' : ''}" type="button"
-                      data-set="${row.kind}:${esc(row.key)}:${v}">${PART_LABELS[v]}</button>`).join('')}
-          </div>` : ''}`).join('')}
+    <div class="sheet-back" data-close>
+      <div class="sheet" role="dialog" aria-modal="true">
+        <p class="sheet__title">${esc(shortDate(date))}</p>
+        ${['all', 'am', 'pm'].map((v) => `
+          <button class="choice ${current === v ? 'choice--on' : ''}" type="button"
+                  data-set="${v}">${PART_LABELS[v]}</button>`).join('')}
+        <button class="sheet__cancel" type="button" data-close>
+          ${current ? '這天其實可以' : '取消'}
+        </button>
+      </div>
     </div>`;
 }
 
-// ---------- ③ 還有什麼要說的 ----------
-
-function freeSection() {
-  return `
-    <section class="sec">
-      <h2 class="sec__title"><span class="sec__n">3</span>還有什麼要跟我說的嗎？</h2>
-      <p class="sec__hint">可以不填。例如這個月要出國、最近的身體狀況。</p>
-      <textarea class="free" rows="3" maxlength="${FREE_TEXT_MAX}"
-                placeholder="例：9/22 要出國八天">${esc(state.freeText)}</textarea>
-    </section>`;
-}
-
-// ---------- 送出前的確認 ----------
-//
-// 長輩填表最大的恐懼是「我不知道自己按了什麼」。這一頁值一半的成本。
+// ---------- 第二頁：確認並送出 ----------
 
 function confirmHtml() {
-  const lines = describePicks(picks());
+  const lines = describePicks(picks(), { month: state.invite.month });
 
   return `
     <div class="card">
       <h1 class="confirm__title">您告訴我的是</h1>
       <ul class="said">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+
+      <p class="ask">還有什麼要跟我說的嗎？<span class="ask__opt">可以不填</span></p>
+      <textarea class="free" rows="3" maxlength="${FREE_TEXT_MAX}"
+                placeholder="例：這個月要出國、最近的身體狀況">${esc(state.freeText)}</textarea>
+
       ${state.error ? `<p class="err">${esc(state.error)}</p>` : ''}
       <button class="go" type="button" data-submit ${state.busy ? 'disabled' : ''}>
         ${state.busy ? '送出中…' : '確定送出'}
@@ -316,13 +214,17 @@ function confirmHtml() {
 }
 
 function doneHtml() {
-  const lines = describePicks(picks());
+  const lines = describePicks(picks(), { month: state.invite.month });
+  const free = String(state.freeText ?? '').trim();
 
   return `
     <div class="card card--talk">
       <p class="done__mark">✓</p>
       <h1 class="confirm__title">收到了，謝謝您</h1>
-      <ul class="said">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+      <ul class="said">
+        ${lines.map((l) => `<li>${esc(l)}</li>`).join('')}
+        ${free ? `<li>${esc(free)}</li>` : ''}
+      </ul>
       <p class="talk">我會照這個幫您安排，排好之後再跟您確認時間。</p>
       <p class="talk talk--dim">如果要修改，直接在 LINE 跟我說就好。</p>
     </div>`;
@@ -333,92 +235,24 @@ function doneHtml() {
 function wire() {
   const el = root();
 
-  el.querySelector('[data-allok]')?.addEventListener('click', () => {
-    state.weekdays.clear();
-    state.dates.clear();
-    state.freeText = '';
-    goConfirm();
-  });
-
-  el.querySelectorAll('[data-weekday]').forEach((btn) => btn.addEventListener('click', () => {
-    const w = Number(btn.dataset.weekday);
-    // 點一下就是整天不行 —— 最常見的答案一下就完成。要改半天去下面那一列。
-    if (state.weekdays.has(w)) {
-      state.weekdays.delete(w);
-      if (state.openWeekday === w) state.openWeekday = null;
-    } else {
-      state.weekdays.set(w, 'all');
-      state.openWeekday = null;
-    }
-    state.notice = '';
-    paint();
-  }));
-
   el.querySelectorAll('[data-date]').forEach((btn) => btn.addEventListener('click', () => {
-    const { date } = btn.dataset;
-    if (state.dates.has(date)) {
-      state.dates.delete(date);
-      if (state.openDate === date) state.openDate = null;
-    } else {
-      state.dates.set(date, 'all');
-      state.openDate = null;
-    }
-    state.notice = '';
-    paint();
-  }));
-
-  el.querySelectorAll('[data-blocked]').forEach((btn) => btn.addEventListener('click', () => {
-    const w = Number(btn.dataset.blocked);
-    const part = state.weekdays.get(w);
-    state.notice = `這一天您已經說過「每個禮拜${WEEKDAY_NAMES[w]}${
-      part === 'all' ? '' : PART_LABELS[part].slice(2, 4)}不行」了。`;
-    paint();
-  }));
-
-  el.querySelector('[data-toweek]')?.addEventListener('click', () => {
-    state.notice = '';
-    paint();
-    root().querySelector('.pills')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-
-  el.querySelectorAll('[data-open]').forEach((btn) => btn.addEventListener('click', () => {
-    const [kind, key] = splitOnce(btn.dataset.open);
-    if (kind === 'weekday') {
-      state.openWeekday = state.openWeekday === Number(key) ? null : Number(key);
-      state.openDate = null;
-    } else {
-      state.openDate = state.openDate === key ? null : key;
-      state.openWeekday = null;
-    }
+    // 點一下不直接標掉，先問整天還是半天 —— 半天在下面另外一張清單裡改，
+    // 是使用者第一次試用時嫌最亂的地方。
+    state.sheetDate = btn.dataset.date;
     paint();
   }));
 
   el.querySelectorAll('[data-set]').forEach((btn) => btn.addEventListener('click', () => {
-    const raw = btn.dataset.set;
-    const kind = raw.slice(0, raw.indexOf(':'));
-    const rest = raw.slice(raw.indexOf(':') + 1);
-    const value = rest.slice(rest.lastIndexOf(':') + 1);
-    const key = rest.slice(0, rest.lastIndexOf(':'));
-
-    if (kind === 'weekday') {
-      state.weekdays.set(Number(key), value);
-      state.openWeekday = null;
-    } else {
-      state.dates.set(key, value);
-      state.openDate = null;
-    }
+    state.dates.set(state.sheetDate, btn.dataset.set);
+    state.sheetDate = null;
     paint();
   }));
 
-  el.querySelectorAll('[data-drop]').forEach((btn) => btn.addEventListener('click', () => {
-    const [kind, key] = splitOnce(btn.dataset.drop);
-    if (kind === 'weekday') {
-      state.weekdays.delete(Number(key));
-      state.openWeekday = null;
-    } else {
-      state.dates.delete(key);
-      state.openDate = null;
-    }
+  // 背景與「取消／這天其實可以」共用：已經標過的就取消掉，沒標過的只是關起來。
+  el.querySelectorAll('[data-close]').forEach((node) => node.addEventListener('click', (e) => {
+    if (e.target !== node) return;   // 點在卡片裡面不算點背景
+    if (node.classList.contains('sheet__cancel')) state.dates.delete(state.sheetDate);
+    state.sheetDate = null;
     paint();
   }));
 
@@ -428,22 +262,17 @@ function wire() {
     state.freeText = e.target.value;
   });
 
-  el.querySelector('[data-next]')?.addEventListener('click', goConfirm);
+  el.querySelector('[data-next]')?.addEventListener('click', () => {
+    state.error = '';
+    state.screen = 'confirm';
+    paint();
+  });
   el.querySelector('[data-back]')?.addEventListener('click', () => {
     state.error = '';
-    state.screen = 'form';
+    state.screen = 'pick';
     paint();
   });
   el.querySelector('[data-submit]')?.addEventListener('click', submit);
-}
-
-const splitOnce = (raw) => [raw.slice(0, raw.indexOf(':')), raw.slice(raw.indexOf(':') + 1)];
-
-function goConfirm() {
-  state.error = '';
-  state.notice = '';
-  state.screen = 'confirm';
-  paint();
 }
 
 async function submit() {
@@ -453,7 +282,7 @@ async function submit() {
   paint();
 
   try {
-    await api.submit(state.invite, picks());
+    await api.submit(state.invite, { ...picks(), freeText: state.freeText });
     state.screen = 'done';
   } catch (err) {
     // 最常見的失敗是「這條連結已經填過了」或「已經過期」，兩種在 Rules 那一側

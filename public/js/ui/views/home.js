@@ -610,7 +610,7 @@ async function markDone(ctx) {
 // 誰該進來、怎麼排，一條規則都不在這裡：全部在 domain/scheduling.js 的
 // customersToAsk()。
 
-async function renderAsk(el) {
+async function renderAsk(el, { focus = null } = {}) {
   const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
@@ -628,6 +628,13 @@ async function renderAsk(el) {
     // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
     month: addMonths(today, 1).slice(0, 7),
   });
+
+  // 產生連結之後整頁重畫，捲軸會停在別的地方 —— 她的下一個動作是「複製那則訊息」，
+  // 所以把剛剛那一位捲回眼前，不要讓她自己找。
+  if (focus) {
+    el.querySelector(`[data-card="${CSS.escape(focus)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 /**
@@ -690,7 +697,7 @@ function askCard(row, { byId, month }) {
         : '問過，但不知道是哪天問的';
 
   return `
-    <div class="card" style="margin: 0">
+    <div class="card" style="margin: 0" data-card="${esc(row.customerId)}">
       <div class="row" style="align-items: flex-start">
         <div class="row__main">
           <div class="row__title">${esc(name)}</div>
@@ -699,20 +706,21 @@ function askCard(row, { byId, month }) {
         <a class="footlink" href="#/customers/${esc(row.customerId)}">去記錄</a>
       </div>
 
-      ${message.box({
-        id: `ask-${row.customerId}`,
-        text: askAvailabilityMessage(customer ?? { name }, { month, link }),
-        collapsed: true,
-        buttonLabel: link ? '複製 LINE 訊息（含連結）' : '複製 LINE 訊息',
-      })}
-
-      <p style="margin: var(--space-1) 0 0">
-        ${link
-          ? `<button class="btn btn--sm" type="button"
-                     data-resend="${esc(row.customerId)}">重發一條新連結</button>`
-          : `<button class="btn btn--sm" type="button"
-                     data-makelink="${esc(row.customerId)}">產生表單連結</button>`}
-      </p>
+      ${link ? `
+        ${message.box({
+          id: `ask-${row.customerId}`,
+          text: askAvailabilityMessage(customer ?? { name }, { month, link }),
+          collapsed: true,
+          buttonLabel: '複製 LINE 訊息',
+        })}
+        <p style="margin: var(--space-1) 0 0">
+          <button class="btn btn--sm" type="button"
+                  data-resend="${esc(row.customerId)}">重發一條新連結</button></p>`
+        // 還沒產生連結就只有這一顆。訊息框要等連結出來才有意義 ——
+        // 先把它畫在上面，她按完「產生」還得往下捲才找得到「複製」。
+        : `<p style="margin: var(--space-3) 0 0">
+             <button class="btn btn--primary btn--wide" type="button"
+                     data-makelink="${esc(row.customerId)}">產生表單連結</button></p>`}
     </div>`;
 }
 
@@ -734,7 +742,7 @@ function wireAsk(ctx) {
         () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
         { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
       );
-      renderAsk(el);
+      renderAsk(el, { focus: customerId });
     }));
 
   el.querySelectorAll('[data-resend]').forEach((btn) =>
@@ -760,7 +768,7 @@ function wireAsk(ctx) {
         },
         { pending: '重發中…', success: '新的連結好了', undoable: false },
       );
-      renderAsk(el);
+      renderAsk(el, { focus: customerId });
     }));
 }
 
