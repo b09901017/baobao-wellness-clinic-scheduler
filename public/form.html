@@ -5,11 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#2f5d4c" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>方便的時間</title>
+    <title>不方便的時間</title>
 
     <!-- 這一頁是給客戶填的，不是 app 的一部分（ADR-0031）：
          沒有 manifest、不註冊 service worker、不載 app.js。
          客戶只是在 LINE 裡點開一個連結，他不該下載一整個排班系統。 -->
+
+    <!-- LINE 貼上連結時會抓這幾個標籤來畫預覽卡。沒有它們的話，LINE 會自己
+         從內文撈一段 —— 第一版就是這樣，預覽卡上寫著「載入中…」，
+         看起來像壞掉的網頁，而客戶要不要點下去就是看這張卡。
+         LINE 的預覽是按網址快取的，但每一條連結的 token 都不一樣，
+         所以改完之後新發的連結就會是新的預覽。 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="不方便的時間" />
+    <meta
+      property="og:description"
+      content="點一下這個月不方便的日期就好，大概半分鐘。"
+    />
+    <meta name="description" content="點一下這個月不方便的日期就好，大概半分鐘。" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,8 +37,11 @@
     <link rel="stylesheet" href="/css/form.css" />
   </head>
   <body>
+    <!-- 這一行在 JS 接手之前只會出現一瞬間，但它同時是 LINE 預覽卡與
+         沒有 JS 的爬蟲看到的內容，所以寫的是「這一頁要做什麼」，
+         不是「載入中」—— 一個看起來像壞掉的字會讓客戶直接關掉。 -->
     <main id="root" class="wrap">
-      <p class="wait">載入中…</p>
+      <p class="wait">點一下這個月不方便的日期就好，大概半分鐘。</p>
     </main>
 
     <script>

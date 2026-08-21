@@ -9,7 +9,7 @@
 
 import * as responsesData from '../../data/formResponses.js';
 import * as invitesData from '../../data/formInvites.js';
-import { describePicks, collectionFrom } from '../../domain/availabilityForm.js';
+import { describeResponse, collectionFrom } from '../../domain/availabilityForm.js';
 import { describeRule } from '../../domain/availability.js';
 import { availabilityReceivedMessage } from '../../domain/messages.js';
 import { todayISO, shortDate } from '../../domain/dates.js';
@@ -56,7 +56,8 @@ function paint(ctx) {
 }
 
 function card(row, invite, today) {
-  const lines = describePicks(row);
+  // 含客戶自己打的那一段 —— 她要看的是他講的全部，不是只有點掉的日期。
+  const lines = describeResponse(row);
   const record = invite ? collectionFrom(row, invite, { today }) : null;
   const month = Number(String(row.month ?? '').slice(5));
 

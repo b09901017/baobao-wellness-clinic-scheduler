@@ -18,7 +18,7 @@
 // 也因為這樣，這裡轉出來的規則**刻意不標 `manual`**：標了會在重新解析時
 // 被 `mergeRules()` 再加一次，同一條變成兩份。
 
-import { addDays, daysBetween, isValidDate, lastDayOf, weekdayOf } from './dates.js';
+import { addDays, daysBetween, isValidDate, lastDayOf, shortDate, weekdayOf } from './dates.js';
 
 /** 客戶勾的半天。null 表示整天。 */
 export const PART_OF_DAY = ['am', 'pm'];
@@ -26,8 +26,8 @@ export const PART_OF_DAY = ['am', 'pm'];
 const PART_LABELS = { am: '上午', pm: '下午' };
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 
-/** 連續幾天以上才併成一條範圍。兩天併成「9/22 到 9/23」比兩列還難讀。 */
-const MERGE_RUN = 3;
+/** 連續幾天以上就併成一條範圍。一天一列是客戶回報「太亂」的主因（ADR-0034）。 */
+const MERGE_RUN = 2;
 
 /** 自由欄的上限。跟 firestore.rules 的 validNewResponse() 是同一個數字。 */
 export const FREE_TEXT_MAX = 500;
@@ -131,6 +131,9 @@ export function splitByInvite({ rows = [], invites = [], today }) {
  *
  * 前端送什麼過來都要先過這一關 —— 客戶那一頁跑在別人的手機上，
  * 而 Rules 擋得掉形狀不對的，擋不掉「同一天送兩次」。
+ *
+ * `weekdays` 表單已經不問了（每一格都用點的，見 ADR-0034），但形狀留著：
+ * 已經送出的那幾份裡有它，而「整個禮拜五不行」現在是從日期**推**出來的。
  */
 export function normalizePicks({ weekdays = [], dates = [] } = {}) {
   const byWeekday = new Map();
@@ -154,58 +157,81 @@ export function normalizePicks({ weekdays = [], dates = [] } = {}) {
 
 const partOf = (pick) => (PART_OF_DAY.includes(pick?.partOfDay) ? pick.partOfDay : null);
 
-/**
- * 某一天是不是已經被「固定星期不行」蓋掉了。
- *
- * 客戶那一頁靠它把那幾格畫成不可點的斜線 —— 已經說過「每個禮拜五不行」，
- * 再讓他一個一個點禮拜五是白費力氣，而且點了會產生互相矛盾的兩條規則。
- *
- * @returns {'all'|'am'|'pm'|null}
- */
-export function weekdayBlock(weekdays, date) {
-  if (!isValidDate(date)) return null;
-  const hit = (weekdays ?? []).find((w) => Number(w?.weekday) === weekdayOf(date));
-  if (!hit) return null;
-  return partOf(hit) ?? 'all';
-}
-
-// ---------- 轉成規則 ----------
+// ---------- 收合 ----------
 
 /**
- * 客戶勾的東西 → `domain/availability.js` 認得的規則。
+ * 把一堆點掉的日子收成看得懂的幾句話。**這一支是規則、原文、複述三邊共用的來源**，
+ * 所以三邊講的話永遠一樣 —— 客戶按下送出時看到的字，就是她收到的字。
  *
- * 連續三天以上併成一條 `exclude_range`（出國那種），其餘一天一條。
- * **只有整天不行的才併** —— 「9/22 整天、9/23 只有下午」併成一條範圍
- * 會把 9/23 的上午一起吃掉，而那是客戶真的有空的半天。
+ * 三層，由大到小：
+ *
+ * 1. **整個月都點掉了** → 一條範圍。不然會變成七條「每個禮拜X不行」
+ * 2. **某個星期整個月都點掉了** → 一條「每個禮拜五不行」
+ * 3. **剩下的連續日子** → 一條範圍（兩天以上就收）
+ *
+ * 第 2 層的條件刻意嚴格：**那個月裡的每一個禮拜五都要被點到，而且半天別一致**，
+ * 少一個就不收。少的那一天他是真的可以，收成「每個禮拜五」會把它一起擋掉 ——
+ * 而「多擋一天」在排班上是看不出來的錯，她只會覺得這個客戶怎麼那麼難排。
+ *
+ * @param {{weekdays?:object[], dates?:object[]}} picks
+ * @param {{month?:string}} [opts] 'YYYY-MM'。沒給就只做第 3 層
+ * @returns {{weekdays:object[], ranges:object[], dates:object[], whole:boolean}}
  */
-export function picksToRules(picks) {
+export function groupPicks(picks, { month = null } = {}) {
   const { weekdays, dates } = normalizePicks(picks);
+  const left = new Map(dates.map((d) => [d.date, d.partOfDay]));
+  const out = { weekdays: [...weekdays], ranges: [], dates: [], whole: false };
 
-  const rules = weekdays.map((w) => ({
-    kind: 'exclude_weekday',
-    weekday: w.weekday,
-    ...(w.partOfDay ? { partOfDay: w.partOfDay } : {}),
-  }));
+  if (isMonth(month)) {
+    const all = monthDates(month);
 
-  for (const group of groupDates(dates)) {
-    if (group.length >= MERGE_RUN) {
-      rules.push({ kind: 'exclude_range', from: group[0].date, to: group[group.length - 1].date });
-    } else {
-      for (const d of group) {
-        rules.push({
-          kind: 'exclude_date',
-          date: d.date,
-          ...(d.partOfDay ? { partOfDay: d.partOfDay } : {}),
-        });
+    // 1. 整個月，而且都是整天。半天不收 —— exclude_range 沒有 partOfDay 可以放。
+    if (all.length && all.every((d) => left.has(d) && left.get(d) === null)) {
+      return {
+        weekdays: out.weekdays,
+        ranges: [{ from: all[0], to: all[all.length - 1] }],
+        dates: [],
+        whole: true,
+      };
+    }
+
+    // 2. 某個星期整個月都被點掉
+    for (let weekday = 0; weekday <= 6; weekday += 1) {
+      const days = all.filter((d) => weekdayOf(d) === weekday);
+      if (!days.length || !days.every((d) => left.has(d))) continue;
+      const part = left.get(days[0]);
+      if (!days.every((d) => left.get(d) === part)) continue;
+
+      if (!out.weekdays.some((w) => w.weekday === weekday)) {
+        out.weekdays.push({ weekday, partOfDay: part });
       }
+      for (const d of days) left.delete(d);
+    }
+    out.weekdays.sort((a, b) => a.weekday - b.weekday);
+  }
+
+  // 3. 剩下的照連續分組
+  const rest = [...left.entries()]
+    .map(([date, partOfDay]) => ({ date, partOfDay }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const group of runsOf(rest)) {
+    if (group.length >= MERGE_RUN) {
+      out.ranges.push({ from: group[0].date, to: group[group.length - 1].date });
+    } else {
+      out.dates.push(...group);
     }
   }
 
-  return rules;
+  return out;
 }
 
-/** 連續的整天分成一組。半天的自己一組，永遠不會被併進範圍。 */
-function groupDates(dates) {
+/**
+ * 連續的整天分成一組。
+ * 半天的自己一組，永遠不會被併進範圍 —— 「9/22 整天、9/23 只有下午」併成一條
+ * 會把 9/23 的上午一起吃掉，而那是客戶真的有空的半天。
+ */
+function runsOf(dates) {
   const groups = [];
   for (const pick of dates) {
     const last = groups[groups.length - 1];
@@ -219,29 +245,55 @@ function groupDates(dates) {
   return groups;
 }
 
+function monthDates(month) {
+  const [y, m] = month.split('-').map(Number);
+  const out = [];
+  for (let day = 1; day <= lastDayOf(y, m); day += 1) {
+    out.push(`${month}-${String(day).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+// ---------- 轉成規則 ----------
+
+/** 客戶點的東西 → `domain/availability.js` 認得的規則。收合規則見 `groupPicks()`。 */
+export function picksToRules(picks, { month = null } = {}) {
+  const g = groupPicks(picks, { month });
+
+  return [
+    ...g.weekdays.map((w) => ({
+      kind: 'exclude_weekday',
+      weekday: w.weekday,
+      ...(w.partOfDay ? { partOfDay: w.partOfDay } : {}),
+    })),
+    ...g.ranges.map((r) => ({ kind: 'exclude_range', from: r.from, to: r.to })),
+    ...g.dates.map((d) => ({
+      kind: 'exclude_date',
+      date: d.date,
+      ...(d.partOfDay ? { partOfDay: d.partOfDay } : {}),
+    })),
+  ];
+}
+
 // ---------- 轉成原文 ----------
 
 /**
- * 把客戶勾的東西寫成一句她看得懂的中文。
+ * 把客戶點的東西寫成一句她看得懂的中文。
  *
  * **這句話要能被 `parseAvailability()` 讀回同一組規則**（見檔頭），
  * 所以日期一律寫成 `9/18` 而不是 `9/18(四)` —— 中間那個括號會讓
  * 「9/22 到 9/24」的範圍比對整條失效。給人看的星期在畫面上補，不在原文裡。
  */
-export function picksToText(picks) {
-  const { weekdays, dates } = normalizePicks(picks);
+export function picksToText(picks, { month = null } = {}) {
+  const g = groupPicks(picks, { month });
   const parts = [];
 
-  for (const w of weekdays) {
+  for (const w of g.weekdays) {
     parts.push(`每個禮拜${WEEKDAY_NAMES[w.weekday]}${PART_LABELS[w.partOfDay] ?? ''}不行`);
   }
-
-  for (const group of groupDates(dates)) {
-    if (group.length >= MERGE_RUN) {
-      parts.push(`${md(group[0].date)} 到 ${md(group[group.length - 1].date)} 不行`);
-    } else {
-      for (const d of group) parts.push(`${md(d.date)} ${PART_LABELS[d.partOfDay] ?? ''}不行`.replace(/\s+/g, ' ').trim());
-    }
+  for (const r of g.ranges) parts.push(`${md(r.from)} 到 ${md(r.to)} 不行`);
+  for (const d of g.dates) {
+    parts.push(`${md(d.date)} ${PART_LABELS[d.partOfDay] ?? ''}不行`.replace(/\s+/g, ' ').trim());
   }
 
   return parts.join('、');
@@ -255,57 +307,56 @@ const md = (iso) => {
 /**
  * 存進收集的原文。
  *
- * 兩行：第一行是把勾選組回去的人話，第二行是客戶自己打的那段**照抄**。
+ * 兩行：第一行是把點選組回去的人話，第二行是客戶自己打的那段**照抄**。
  * SPEC 第 4.3 節的「原文永遠是最終依據」在表單這條路上的等價物就是第二行 ——
- * 勾選的部分是結構化的、不會讀錯，真正可能有意外的永遠是客戶自己講的話。
+ * 點選的部分是結構化的、不會讀錯，真正可能有意外的永遠是客戶自己講的話。
  *
  * 兩邊都空的時候給一句「這個月都可以」：`validateCollection()` 不收空的原文，
  * 而「他說都可以」本身就是一個要記下來的答案。
  */
-export function rawTextFrom({ weekdays, dates, freeText } = {}) {
-  const picked = picksToText({ weekdays, dates });
+export function rawTextFrom({ weekdays, dates, freeText } = {}, { month = null } = {}) {
+  const picked = picksToText({ weekdays, dates }, { month });
   const free = String(freeText ?? '').trim();
 
   if (!picked && !free) return '這個月都可以';
   return [picked, free].filter(Boolean).join('\n');
 }
 
+// ---------- 給人看的複述 ----------
+
 /**
- * 給人看的複述。客戶那一頁的清單、送出前的確認頁、她的收件匣都用這一份 ——
- * 三個地方講同一句話，客戶按下送出時看到的字要跟她收到的一模一樣。
+ * 客戶那一頁的確認、送出後那一頁、她的收件匣、回覆客戶的訊息，四個地方都用這一份 ——
+ * 客戶按下送出時看到的字，要跟她收到的字一模一樣。
+ *
+ * **不含客戶自己打的那段。** 確認那一頁的自由欄還在編輯中，把它混進複述裡
+ * 會變成「他打一個字、上面就多一行」。要含的地方用 `describeResponse()`。
  *
  * @returns {string[]} 一句一列
  */
-export function describePicks({ weekdays, dates, freeText } = {}) {
-  const { weekdays: ws, dates: ds } = normalizePicks({ weekdays, dates });
+export function describePicks(picks, { month = null } = {}) {
+  const g = groupPicks(picks, { month });
   const out = [];
 
-  for (const w of ws) {
-    out.push(`每個禮拜${WEEKDAY_NAMES[w.weekday]}${partSuffix(w.partOfDay)}`);
-  }
+  if (g.whole && isMonth(month)) return [`整個 ${Number(month.slice(5))} 月都不行`];
 
-  for (const group of groupDates(ds)) {
-    if (group.length >= MERGE_RUN) {
-      // 全形括號本身就撐開了間距，再補半形空白會變成「）　到　9/24」那種鬆散的樣子
-      out.push(`${dateLabel(group[0].date)}到${dateLabel(group[group.length - 1].date)}整天不行`);
-    } else {
-      for (const d of group) out.push(`${dateLabel(d.date)}${partSuffix(d.partOfDay)}`);
-    }
+  for (const w of g.weekdays) {
+    out.push(w.partOfDay
+      ? `整個禮拜${WEEKDAY_NAMES[w.weekday]}的${PART_LABELS[w.partOfDay]}不行`
+      : `整個禮拜${WEEKDAY_NAMES[w.weekday]}不行`);
   }
-
-  const free = String(freeText ?? '').trim();
-  if (free) out.push(free);
+  for (const r of g.ranges) out.push(`${shortDate(r.from)} ~ ${shortDate(r.to)} 整天不行`);
+  for (const d of g.dates) out.push(`${shortDate(d.date)} ${partSuffix(d.partOfDay)}`);
 
   return out.length ? out : ['這個月都可以，沒有不方便的日子'];
 }
 
 const partSuffix = (part) => (part ? `只有${PART_LABELS[part]}不行` : '整天不行');
 
-/** 客戶看的日期一定要有星期 —— 「9/18 是禮拜幾」是他點下去之前唯一要確認的事。 */
-export function dateLabel(iso) {
-  if (!isValidDate(iso)) return '';
-  const [, m, d] = iso.split('-').map(Number);
-  return `${m}/${d}（${WEEKDAY_NAMES[weekdayOf(iso)]}）`;
+/** 複述加上客戶自己打的那一段。收件匣、送出後那一頁、回覆訊息用這一支。 */
+export function describeResponse(response, { month = null } = {}) {
+  const lines = describePicks(response ?? {}, { month: month ?? response?.month ?? null });
+  const free = String(response?.freeText ?? '').trim();
+  return free ? [...lines, free] : lines;
 }
 
 // ---------- 收下 ----------
@@ -318,20 +369,17 @@ export function dateLabel(iso) {
  * `collectedAt` 用**她收下的那天**，不是客戶送出的那天。這一份收集的意義是
  * 「她手上握有的最新資訊」，而她是今天才握有的；`submittedAt` 留在收件匣那一筆上，
  * 要查「客戶什麼時候填的」看得到。
- *
- * @param {object} response `formResponses` 的一筆
- * @param {object} invite 對應的邀請，有效期從這裡來
- * @param {{today:string}} when
  */
 export function collectionFrom(response, invite, { today } = {}) {
+  const month = invite?.month ?? response?.month ?? null;
   const picks = normalizePicks(response ?? {});
 
   return {
     collectedAt: isValidDate(today) ? today : null,
     validFrom: invite?.validFrom ?? null,
     validTo: invite?.validTo ?? null,
-    rawText: rawTextFrom({ ...picks, freeText: response?.freeText }),
-    rules: picksToRules(picks),
+    rawText: rawTextFrom({ ...picks, freeText: response?.freeText }, { month }),
+    rules: picksToRules(picks, { month }),
     followupNote: null,
     // 畫面上要看得出這一份是客戶自己填的 —— 他自己講的話比她轉述的可信。
     source: 'form',
@@ -344,7 +392,7 @@ export function collectionFrom(response, invite, { today } = {}) {
 /**
  * 客戶送出的那一份對不對。客戶那一頁按送出前擋一次，她收下前再擋一次。
  *
- * 這裡只擋「形狀不對」，不擋「填得少」—— 什麼都沒勾是一個合法而且常見的答案
+ * 這裡只擋「形狀不對」，不擋「填得少」—— 什麼都沒點是一個合法而且常見的答案
  * （這個月都可以）。
  */
 export function validateResponse(response) {
@@ -367,7 +415,7 @@ export function validateResponse(response) {
   return errors;
 }
 
-/** 客戶勾的日子有沒有落在這條連結問的那個月以外。畫面上不該點得到，但值得擋一次。 */
+/** 客戶點的日子有沒有落在這條連結問的那個月以外。畫面上不該點得到，但值得擋一次。 */
 export function outOfRange(response, invite) {
   if (!invite?.validFrom || !invite?.validTo) return [];
   return (response?.dates ?? [])
@@ -390,18 +438,16 @@ export function outOfRange(response, invite) {
  */
 export function monthGrid(month, { today = null } = {}) {
   if (!isMonth(month)) return [];
-  const [y, m] = month.split('-').map(Number);
   const first = `${month}-01`;
   const lead = (weekdayOf(first) + 6) % 7;
 
   const cells = [];
   for (let i = 0; i < lead; i += 1) cells.push({ date: null, day: null, weekday: i, past: false });
 
-  for (let day = 1; day <= lastDayOf(y, m); day += 1) {
-    const date = `${month}-${String(day).padStart(2, '0')}`;
+  for (const date of monthDates(month)) {
     cells.push({
       date,
-      day,
+      day: Number(date.slice(8)),
       weekday: weekdayOf(date),
       past: Boolean(today && isValidDate(today) && daysBetween(today, date) < 0),
     });

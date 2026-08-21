@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 
 import {
   newInvite, inviteState, formLink, splitByInvite,
-  normalizePicks, weekdayBlock, picksToRules, picksToText, rawTextFrom,
-  describePicks, collectionFrom, validateResponse, outOfRange, monthGrid,
+  normalizePicks, groupPicks, picksToRules, picksToText, rawTextFrom,
+  describePicks, describeResponse, collectionFrom, validateResponse, outOfRange, monthGrid,
 } from '../public/js/domain/availabilityForm.js';
 import { parseAvailability, validateCollection } from '../public/js/domain/availability.js';
 
@@ -79,27 +79,70 @@ test('重複與不合法的勾選清掉，順序排好', () => {
   assert.deepEqual(picks.dates.map((d) => d.date), ['2026-09-18', '2026-09-20']);
 });
 
-test('固定星期不行的日子在日曆上不可點', () => {
-  const weekdays = [{ weekday: 5, partOfDay: null }];
-  assert.equal(weekdayBlock(weekdays, '2026-09-04'), 'all'); // 禮拜五
-  assert.equal(weekdayBlock(weekdays, '2026-09-03'), null);
-  assert.equal(weekdayBlock([{ weekday: 5, partOfDay: 'pm' }], '2026-09-04'), 'pm');
-});
-
 // ---------- 轉成規則 ----------
 
-test('連續三天以上併成一條範圍，兩天不併', () => {
+test('連續兩天以上就併成一條範圍', () => {
   const rules = picksToRules({
     dates: [
       { date: '2026-09-22' }, { date: '2026-09-23' }, { date: '2026-09-24' },
       { date: '2026-09-27' }, { date: '2026-09-28' },
+      { date: '2026-09-30' },
     ],
   });
   assert.deepEqual(rules, [
     { kind: 'exclude_range', from: '2026-09-22', to: '2026-09-24' },
-    { kind: 'exclude_date', date: '2026-09-27' },
-    { kind: 'exclude_date', date: '2026-09-28' },
+    { kind: 'exclude_range', from: '2026-09-27', to: '2026-09-28' },
+    { kind: 'exclude_date', date: '2026-09-30' },
   ]);
+});
+
+// 2026 年 9 月的禮拜五：4、11、18、25
+const SEPT_FRIDAYS = ['2026-09-04', '2026-09-11', '2026-09-18', '2026-09-25'];
+
+test('整個月的禮拜五都點掉 → 收成一條「每個禮拜五不行」', () => {
+  const rules = picksToRules(
+    { dates: SEPT_FRIDAYS.map((date) => ({ date })) },
+    { month: '2026-09' },
+  );
+  assert.deepEqual(rules, [{ kind: 'exclude_weekday', weekday: 5 }]);
+});
+
+test('少點一個禮拜五就不收 —— 那一天他是真的可以', () => {
+  const rules = picksToRules(
+    { dates: SEPT_FRIDAYS.slice(0, 3).map((date) => ({ date })) },
+    { month: '2026-09' },
+  );
+  assert.equal(rules.every((r) => r.kind !== 'exclude_weekday'), true);
+  assert.equal(rules.some((r) => r.kind === 'exclude_range'), false, '4、11、18 不連續，不該併成範圍');
+});
+
+test('半天別不一致就不收成星期', () => {
+  const dates = SEPT_FRIDAYS.map((date, i) => ({ date, partOfDay: i ? 'pm' : 'am' }));
+  const rules = picksToRules({ dates }, { month: '2026-09' });
+  assert.equal(rules.every((r) => r.kind !== 'exclude_weekday'), true);
+});
+
+test('整個禮拜五的下午都點掉 → 收成一條帶半天的星期', () => {
+  const dates = SEPT_FRIDAYS.map((date) => ({ date, partOfDay: 'pm' }));
+  assert.deepEqual(
+    picksToRules({ dates }, { month: '2026-09' }),
+    [{ kind: 'exclude_weekday', weekday: 5, partOfDay: 'pm' }],
+  );
+});
+
+test('整個月都點掉 → 一條範圍，不是七條星期', () => {
+  const dates = monthGrid('2026-09').filter((c) => c.date).map((c) => ({ date: c.date }));
+  assert.deepEqual(
+    picksToRules({ dates }, { month: '2026-09' }),
+    [{ kind: 'exclude_range', from: '2026-09-01', to: '2026-09-30' }],
+  );
+  assert.deepEqual(describePicks({ dates }, { month: '2026-09' }), ['整個 9 月都不行']);
+});
+
+test('沒有給月份就只做連續收合，不推星期', () => {
+  const g = groupPicks({ dates: SEPT_FRIDAYS.map((date) => ({ date })) });
+  assert.deepEqual(g.weekdays, []);
+  assert.equal(g.dates.length, 4);
 });
 
 test('半天不行的日子永遠不會被併進範圍', () => {
@@ -110,7 +153,7 @@ test('半天不行的日子永遠不會被併進範圍', () => {
       { date: '2026-09-23', partOfDay: 'pm' },
       { date: '2026-09-24' },
     ],
-  });
+  }, { month: '2026-09' });
   assert.deepEqual(rules, [
     { kind: 'exclude_date', date: '2026-09-22' },
     { kind: 'exclude_date', date: '2026-09-23', partOfDay: 'pm' },
@@ -119,7 +162,7 @@ test('半天不行的日子永遠不會被併進範圍', () => {
 });
 
 test('轉出來的規則不標 manual —— 標了重新解析會變兩份', () => {
-  const rules = picksToRules({ weekdays: [{ weekday: 5 }] });
+  const rules = picksToRules({ weekdays: [{ weekday: 5 }] }, { month: '2026-09' });
   assert.equal(rules.every((r) => r.manual === undefined), true);
 });
 
@@ -146,16 +189,22 @@ test('什麼都沒勾也要有原文 —— 收集不收空的原文', () => {
 
 test('產生的原文餵回解析器要得到同一組規則', () => {
   const picks = {
-    weekdays: [{ weekday: 5, partOfDay: 'pm' }, { weekday: 2 }],
+    // 整個月的禮拜五都點掉 → 會被收成一條星期，原文也要跟著收
     dates: [
-      { date: '2026-09-18' },
+      ...SEPT_FRIDAYS.map((date) => ({ date })),
+      { date: '2026-09-17' },
       { date: '2026-09-20', partOfDay: 'am' },
       { date: '2026-09-22' }, { date: '2026-09-23' }, { date: '2026-09-24' },
     ],
   };
 
-  const mine = picksToRules(picks);
-  const { rules: reparsed } = parseAvailability(picksToText(picks), { year: 2026 });
+  const mine = picksToRules(picks, { month: '2026-09' });
+  assert.equal(mine.some((r) => r.kind === 'exclude_weekday'), true, '這個案例要涵蓋收合後的星期');
+
+  const { rules: reparsed } = parseAvailability(
+    picksToText(picks, { month: '2026-09' }),
+    { year: 2026 },
+  );
 
   const key = (r) => JSON.stringify(Object.entries(r).sort());
   assert.deepEqual(
@@ -173,24 +222,29 @@ test('沒有勾任何東西時原文不會解析出規則，但也不會炸', ()
 
 // ---------- 複述 ----------
 
-test('複述給客戶看的一定要有星期', () => {
-  const lines = describePicks({
+test('複述給客戶看的一定要有星期，而且不含他自己打的那一段', () => {
+  const picks = {
     weekdays: [{ weekday: 5 }],
-    dates: [{ date: '2026-09-18', partOfDay: 'pm' }],
+    dates: [{ date: '2026-09-17', partOfDay: 'pm' }],
     freeText: '月底要出國',
-  });
-  assert.deepEqual(lines, [
-    '每個禮拜五整天不行',
-    '9/18（五）只有下午不行',
+  };
+  assert.deepEqual(describePicks(picks), [
+    '整個禮拜五不行',
+    '9/17(四) 只有下午不行',
+  ], '確認那一頁的自由欄還在編輯中，混進複述會變成打一個字上面就多一行');
+
+  assert.deepEqual(describeResponse({ ...picks, month: '2026-09' }), [
+    '整個禮拜五不行',
+    '9/17(四) 只有下午不行',
     '月底要出國',
   ]);
 });
 
 test('連續的日子複述成一列，而且每一列都自己說得完整', () => {
   const lines = describePicks({
-    dates: [{ date: '2026-09-22' }, { date: '2026-09-23' }, { date: '2026-09-24' }],
+    dates: [{ date: '2026-09-01' }, { date: '2026-09-02' }, { date: '2026-09-03' }],
   });
-  assert.deepEqual(lines, ['9/22（二）到9/24（四）整天不行']);
+  assert.deepEqual(lines, ['9/1(二) ~ 9/3(四) 整天不行']);
 });
 
 test('什麼都沒勾的複述講的是一句完整的話，不是空白', () => {

@@ -25,7 +25,7 @@ describe('問這一輪的時間', () => {
   test('講的是要問的那個月', () => {
     assert.equal(
       askAvailabilityMessage(CUSTOMER, { month: '2026-10' }),
-      '王小姐您好，要幫您安排 10 月的課程，請問您 10 月哪幾天方便呢？不方便的日子也可以直接跟我說。',
+      '王小姐大哥/姐姐\n即將幫您安排 10 月的課程\n請問您 10 月有哪幾天不方便呢？',
     );
   });
 
@@ -35,8 +35,21 @@ describe('問這一輪的時間', () => {
     }
   });
 
-  test('沒有名字就從「您好」開始，不要變成「您您好」或「undefined您好」', () => {
-    assert.match(askAvailabilityMessage({}, { month: '2026-10' }), /^您好，/);
+  test('有連結就換一種問法，而且連結在最後一行', () => {
+    const msg = askAvailabilityMessage(CUSTOMER, {
+      month: '2026-10', link: 'https://example.app/form.html?t=abc',
+    });
+    assert.match(msg, /點下面這個連結/);
+    assert.doesNotMatch(msg, /哪幾天不方便呢/, '有連結就不要再叫客戶用打字的回，不然連結白給了');
+    assert.equal(msg.split('\n').pop(), 'https://example.app/form.html?t=abc');
+  });
+
+  test('稱呼兩個都給，不要自己判斷性別 —— 猜錯比她刪一個字貴', () => {
+    assert.match(askAvailabilityMessage(CUSTOMER, { month: '2026-10' }), /^王小姐大哥\/姐姐$/m);
+  });
+
+  test('沒有名字也不要變成「undefined大哥」', () => {
+    assert.match(askAvailabilityMessage({}, { month: '2026-10' }), /^大哥\/姐姐/);
     assert.match(offerSlotMessage(null, { date: '2026-09-18', startsAt: '14:00' }), /^您好，/);
   });
 });
