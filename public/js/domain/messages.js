@@ -48,8 +48,14 @@ function firstStart(visit) {
 /**
  * 問這一輪的時間。她每個月都要問一次，這是所有對話的起點。
  *
+ * 稱呼一律給「大哥/姐姐」兩個都留，**不要自己判斷性別** —— 猜錯一次比她自己
+ * 刪一個字貴得多，而她本來就會在貼進 LINE 之前改（訊息是草稿不是定稿）。
+ *
  * 給了連結就換一種問法：**不要再問「哪幾天方便」**，那會讓客戶用打字的回你，
- * 於是連結白給了。改成一句「點進去點一點就好」，把動作講清楚。
+ * 於是連結白給了。改成一句「點一點就好」，把動作講清楚。
+ *
+ * 用字（含斷行與那個「呦～」）是使用者自己定的版本，不要「順」它 ——
+ * 她跟客戶講話就是長這樣。
  *
  * @param {{name:string}} customer
  * @param {{month:string, link?:string}} when month 是 'YYYY-MM'
@@ -59,12 +65,16 @@ export function askAvailabilityMessage(customer, { month, link = '' } = {}) {
   if (!m) return '';
 
   if (link) {
-    return `${nameOf(customer)}您好，要幫您安排 ${m} 月的課程。`
-      + `麻煩您點下面這個連結，把 ${m} 月不方便的日子點一點就好，大概半分鐘。\n${link}`;
+    return `${nameOf(customer)}大哥/姐姐\n`
+      + `即將幫您安排 ${m} 月的課程\n`
+      + `請您點下面這個連結，把 ${m} 月\n`
+      + `“不方便”的日子都點起來呦～\n`
+      + link;
   }
 
-  return `${nameOf(customer)}您好，要幫您安排 ${m} 月的課程，`
-    + `請問您 ${m} 月哪幾天方便呢？不方便的日子也可以直接跟我說。`;
+  return `${nameOf(customer)}大哥/姐姐\n`
+    + `即將幫您安排 ${m} 月的課程\n`
+    + `請問您 ${m} 月有哪幾天不方便呢？`;
 }
 
 /**
@@ -77,7 +87,7 @@ export function askAvailabilityMessage(customer, { month, link = '' } = {}) {
  *
  * @param {{name:string}} customer
  * @param {{month:string, lines:string[]}} what lines 是
- *   `domain/availabilityForm.js` 的 `describePicks()`
+ *   `domain/availabilityForm.js` 的 `describeResponse()`
  */
 export function availabilityReceivedMessage(customer, { month, lines = [] } = {}) {
   const m = monthOf(month);
@@ -85,7 +95,8 @@ export function availabilityReceivedMessage(customer, { month, lines = [] } = {}
 
   const said = lines.filter(Boolean).map((line) => `・${line}`).join('\n');
 
-  return `${nameOf(customer)}您好，收到了，謝謝您。\n`
+  return `${nameOf(customer)}大哥/姐姐\n`
+    + `收到了，謝謝您 🙏\n`
     + `記下來的是：\n${said}\n`
     + `我會照這個安排 ${m} 月的課程，排好再跟您確認時間。`;
 }
