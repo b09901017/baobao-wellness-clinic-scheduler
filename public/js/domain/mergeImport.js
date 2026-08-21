@@ -86,6 +86,13 @@ export function validateFile(json) {
       + '產檔那側不敢猜，所以一筆都沒有匯入。匯完到日曆上自己補');
   }
 
+  // 「沒有這幾筆」和「讀不到這幾筆」是兩件事。同一條規矩。
+  const unreadable = (json.unreadable ?? []).length;
+  if (unreadable) {
+    warnings.push(`行事曆裡有 ${unreadable} 筆事件產檔那側讀不出日期，`
+      + '所以這份檔案裡完全沒有它們（不是「那幾天沒事」）');
+  }
+
   return { errors, warnings };
 }
 
@@ -458,19 +465,29 @@ export function defaultPicks(json, today = null) {
  * 不走 `visits`（ADR-0015：合成同一個集合會讓「要不要扣次數」變成到處都要判斷的分支）。
  */
 export function eventDocs(candidates) {
-  return candidates.map((c) => ({
-    title: norm(c.title),
-    category: c.category === 'leave' ? 'leave' : 'personal',
-    startDate: c.startDate,
-    endDate: c.endDate || c.startDate,
-    allDay: !isValidTime(c.startTime),
-    startTime: isValidTime(c.startTime) ? c.startTime : null,
-    endTime: isValidTime(c.endTime) ? c.endTime
-      : (isValidTime(c.startTime) ? addMinutes(c.startTime, 60) : null),
-    // note 空的時候給 null 不給空字串 —— data/events.js 的 shape() 就是這樣寫的，
-    // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
-    note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
-  }));
+  return candidates.map((c) => {
+    // 有明確欄位就用它（產檔那側從 DTSTART 的 VALUE=DATE 判的），沒有才從
+    // 「有沒有時間」反推 —— 舊的合併檔沒有這個欄位，照樣要吃得下。
+    const allDay = typeof c.allDay === 'boolean' ? c.allDay : !isValidTime(c.startTime);
+    // 整天就是整天：時間一律清掉。標成整天卻帶著時間的資料，日曆上會畫成
+    // 一條有時有分的色條，而那個時間是沒有來源的。
+    const start = !allDay && isValidTime(c.startTime) ? c.startTime : null;
+    return {
+      title: norm(c.title),
+      category: c.category === 'leave' ? 'leave' : 'personal',
+      startDate: c.startDate,
+      // 跨天的個人行程是這個系統裡唯一可以跨天的東西（ADR-0015）。
+      // 結束日比開始日早的資料進不去（firestore.rules 的 validEvent()），當成單天。
+      endDate: c.endDate && c.endDate >= c.startDate ? c.endDate : c.startDate,
+      allDay,
+      startTime: start,
+      endTime: isValidTime(c.endTime) && start ? c.endTime
+        : (start ? addMinutes(start, 60) : null),
+      // note 空的時候給 null 不給空字串 —— data/events.js 的 shape() 就是這樣寫的，
+      // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
+      note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
+    };
+  });
 }
 
 /**

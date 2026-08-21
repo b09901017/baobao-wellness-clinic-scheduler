@@ -1,6 +1,6 @@
 # 跨天的行事曆事件無聲塌成一天：`parseIcs()` 從來沒讀過 `DTEND`
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-21
 動工前先讀：`.claude/skills/calendar-sheet-merge/scripts/merge.mjs` 的 `parseIcs()`、
 `domain/events.js` 的檔頭、`docs/adr/0015-calendar-is-a-first-class-surface.md`
@@ -84,3 +84,72 @@ const timeOf = (e) => timeInSummary(e.summary)?.start ?? e.clock ?? null;
 
 - **不要順手在 `merge.mjs` 裡判斷「未來」。** 理由見 `issues/03`。
 - **不要把跨天事件拆成好幾筆單天的。** `domain/events.js` 就是為了不那樣做才存在的。
+
+
+## Comments
+
+**2026-08-21 — 做完了。** `npm test` 從 722 變成 739 全過。
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `merge.mjs` 的 `parseIcs()` | 屬性的參數（`;VALUE=DATE`）現在留得住；新的 `icsMoment()` 同時解 `DTSTART` 與 `DTEND`；每筆事件多回 `endDate` 與 `allDay` |
+| 同上 | 回傳從陣列改成 `{ events, unreadable }`。`DTSTART` 讀不出來的那幾筆不再 `continue` 掉，累積起來 |
+| 同上 | 新的 `timeOf()` 提到模組層級（本來藏在 `importJson()` 裡）：**整天事件不回頭猜標題**。報告與 JSON 兩邊共用同一支 |
+| `reconcile()` | 收下 `unreadable` 往外帶；`span` 的右界改看 `endDate`（跨到月底的休假，涵蓋範圍就到月底） |
+| `importJson()` | `eventCandidates` 帶 `endDate`、`allDay`；多一份 `unreadable[]` |
+| `reportText()` | 表頭多一句「其中 N 筆跨天」與「另外有 N 筆讀不出來」；⑥ 區的整天標成「整天」、跨天標出「到 X，共 N 天」；新的 ⑦ 區列讀不出來的那幾筆 |
+| `SKILL.md` | 契約那一段補上 `allDay`、`unreadable[]`，並寫清楚 `endDate` 是真的結束日 |
+| `domain/mergeImport.js` | `eventDocs()` 有明確 `allDay` 就用它，沒有才反推；整天事件的時間一律清掉；`endDate` 比 `startDate` 早的當成單天 |
+| 同上 | `validateFile()` 把 `unreadable` 算進 warnings |
+| `tests/calendar-merge.test.js` | **新檔**。`merge.mjs` 在這之前一支測試都沒有 |
+
+### 整天事件那一半：確認了，而且是同一個洞
+
+不用等她的原始檔了 —— `parseIcs()` 本來就沒有在判整天，所以
+「198 筆全部都有 startTime，一筆整天事件都沒有」是**必然**的結果，不是巧合：
+`clock` 是 null 的時候 `timeOf()` 會退回去用 `timeInSummary()` 認標題，
+而她的標題幾乎都有數字。有了 `allDay` 這個明確欄位之後就不必猜了。
+
+### 護欄真的有效
+
+把 `parseIcs()` 暫時改回舊行為（不讀 `DTEND`、不判 `allDay`、讀不出來的整筆丟掉），
+`tests/calendar-merge.test.js` **14 條裡 7 條當場失敗**。改回來就全綠。
+在這之前，同樣的程式碼是**連一支測試都沒有**的。
+
+### 刻意沒有做的
+
+- **`endTime` 還是 `null`。** `DTEND` 的日期拿來用，時間不拿 —— 行事曆的時間欄
+  會歪（量到過 3:45 存成 18:00），而 `startTime` 是從標題認的。兩邊拿不同來源
+  湊一組起訖，會湊出「結束比開始早」的時段。app 那側照舊用課程時長往後推一小時。
+- **跨天事件沒有拆成好幾筆單天的**（issue 裡寫著不要）。
+- **`byDate` 只索引開始日**，所以一條跨天的個人行程不會被拿去跟中間那幾天的
+  來訪配對。那是對的：療程配對配的是「某人某天做了什麼」。
+- **格式版本沒有動，還是 `baobao-merge/v1`。** 新欄位全部可選，
+  app 那側有就用、沒有就退回原本的反推。**她手上那份 8/19 產的檔案照樣貼得進去**
+  （跨天的事件當然還是缺，那要重跑 skill 才有）。
+
+### 還沒驗證的
+
+**`.gs` 一個字都沒改，不用重新部署。** 但**要重跑一次 skill 才拿得到含 `endDate`
+的合併檔**：
+
+```
+node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
+  --sheets <tsv 資料夾> --ics <你的 .ics> --year 2026 \
+  --aliases .local/aliases.json --out <輸出資料夾>
+```
+
+跑完先看報告最上面那一行會不會出現「其中 N 筆跨天」。
+另外看一眼有沒有 ⑦ 區：那一段列的是**這次讀不出來的**，
+在這之前它們是連提都不會提就消失的。
+
+如果跨天還是 0 筆，那代表她的 `.ics` 用的是第三種寫法（既沒有 `DTEND`
+也沒有 `DURATION`，或者 `DURATION` 寫成別的形狀）。把那幾行原文貼回來就補得掉。
+
+### 順手多做的：`DURATION`
+
+有些匯出器不寫 `DTEND`，寫 `DURATION:P5D`。issue 上沒提，但那條路上的症狀
+跟這一支要修的完全一樣（跨天的事件無聲塌成一天），而且是同一個 `if` 裡的事，
+所以一起補了。只認天（`P5D`）與週（`P1W`）兩種 —— 只有時分的（`PT2H`）跨不跨天
+要看 `DTSTART` 的時間，而**那個欄位會歪**，所以一律當同一天：
+寧可少算一天，也不要在她的日曆上多畫一天出來。

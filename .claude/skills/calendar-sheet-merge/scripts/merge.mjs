@@ -22,6 +22,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..');
 const { parseSheet, planForSheet } = await import(join(REPO, 'public/js/domain/legacyImport.js'));
 const { SEED } = await import(join(REPO, 'public/js/domain/seed.js'));
+// 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
+// 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
+const { addDays } = await import(join(REPO, 'public/js/domain/dates.js'));
 
 // ---------- 速記語法 ----------
 //
@@ -217,29 +220,103 @@ export function nameHit(summary, name) {
 
 // ---------- 行事曆 ----------
 
+/**
+ * `P5D` / `P1W` → 幾天。認不出來（`PT2H` 這種只有時分的）回 0，當成同一天。
+ * **整天事件的 DURATION 跟 DTEND 一樣不含端點**：8/10 起算 `P5D` 是 8/10–8/14。
+ */
+function durationDays(value) {
+  const m = /^-?P(?:(\d+)W|(\d+)D)/.exec(String(value ?? '').trim());
+  if (!m) return 0;
+  return m[1] ? Number(m[1]) * 7 : Number(m[2]);
+}
+
+/** `20260810T143000` / `20260810` → `{ date, clock }`。讀不出來回 null。 */
+function icsMoment(value) {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?/.exec(String(value ?? ''));
+  if (!m) return null;
+  return { date: `${m[1]}-${m[2]}-${m[3]}`, clock: m[4] ? `${m[4]}:${m[5]}` : null };
+}
+
+/**
+ * 一份 .ics 裡的事件。
+ *
+ * **`DTEND` 要讀。** 沒讀它的時候跨天的事件會無聲塌成一天：一條「8/10–8/14 出國」
+ * 進來只剩 8/10，而且不會出現在任何清單裡說它被砍了
+ * （`.scratch/first-real-import/issues/06`）。app 那一側從 `domain/events.js` 到
+ * `firestore.rules` 一路都支援跨天，缺的只有這裡。
+ *
+ * **整天事件的 `DTEND` 是不含端點的**（iCalendar 規格）：8/10–8/14 會寫成
+ * `DTEND;VALUE=DATE:20260815`，所以要減一天。
+ *
+ * @returns {{events: object[], unreadable: object[]}}
+ *   `unreadable` 是 `DTSTART` 讀不出來的那幾筆。**它們不能安靜地消失** ——
+ *   原本那句 `if (!m) continue;` 讓整筆蒸發，而且不會出現在報告裡。
+ */
 export function parseIcs(text) {
   const raw = String(text).replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '');
-  const out = [];
+  const events = [];
+  const unreadable = [];
   for (const block of raw.split('BEGIN:VEVENT').slice(1)) {
     const body = block.split('END:VEVENT')[0];
     const d = {};
+    const params = {};
     for (const line of body.split('\n')) {
       const i = line.indexOf(':');
-      if (i > 0) d[line.slice(0, i).split(';')[0]] = line.slice(i + 1).trim();
+      if (i <= 0) continue;
+      const [name, ...rest] = line.slice(0, i).split(';');
+      d[name] = line.slice(i + 1).trim();
+      params[name] = rest.join(';');
     }
-    const m = /^(\d{4})(\d{2})(\d{2})T?(\d{2})?(\d{2})?/.exec(d.DTSTART ?? '');
-    if (!m) continue;
-    out.push({
+
+    const start = icsMoment(d.DTSTART);
+    if (!start) {
+      unreadable.push({
+        uid: d.UID ?? '',
+        summary: d.SUMMARY ?? '',
+        raw: d.DTSTART ?? '',
+        why: d.DTSTART ? 'DTSTART 讀不出日期' : '這筆事件沒有 DTSTART',
+      });
+      continue;
+    }
+
+    // 沒有 `T` 就是整天。`VALUE=DATE` 再確認一次（`VALUE=DATE-TIME` 不算）。
+    const allDay = !start.clock || /VALUE=DATE(?!-)/i.test(params.DTSTART ?? '');
+    const end = icsMoment(d.DTEND);
+    let endDate = start.date;
+    if (end) {
+      endDate = allDay ? addDays(end.date, -1) : end.date;
+      // 有的匯出器把整天事件的 DTEND 寫成跟 DTSTART 同一天。減完比開始還早就是這種，
+      // 當成單天 —— firestore.rules 的 validEvent() 擋 endDate < startDate。
+      if (endDate < start.date) endDate = start.date;
+    } else if (d.DURATION) {
+      // 沒有 DTEND 的匯出器會寫 DURATION（`P5D`、`P1W`、`PT2H`）。
+      // 只認天與週那兩種 —— 小時與分鐘跨不跨天要看 DTSTART 的時間，
+      // 而那個欄位會歪（見 `timeInSummary()` 的檔頭），寧可少算一天也不要多算一天。
+      endDate = addDays(start.date, Math.max(0, durationDays(d.DURATION) - (allDay ? 1 : 0)));
+    }
+
+    events.push({
       uid: d.UID ?? `${d.DTSTART}-${d.SUMMARY}`,
-      date: `${m[1]}-${m[2]}-${m[3]}`,
-      clock: m[4] ? `${m[4]}:${m[5]}` : null, // 行事曆時間欄，只當佐證
+      date: start.date,
+      endDate,
+      allDay,
+      clock: start.clock, // 行事曆時間欄，只當佐證
       summary: d.SUMMARY ?? '',
       color: d.COLOR ?? '',
       repeats: Boolean(d.RRULE),
     });
   }
-  return out;
+  return { events, unreadable };
 }
+
+/**
+ * 這筆事件的開始時間。
+ *
+ * **整天事件不回頭猜標題。** `timeInSummary()` 是從標題文字認時間的（她寫「2.30」
+ * 「9：15」），所以一筆整天事件只要標題裡有數字，就會被安上一個假的時間，
+ * 匯進來變成一筆有時有分的行程。有 `allDay` 這個明確欄位之後就不必猜了。
+ */
+export const timeOf = (e) => (e.allDay ? null : timeInSummary(e.summary)?.start ?? e.clock ?? null);
 
 // ---------- 配對 ----------
 
@@ -361,12 +438,13 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
       parseSheet(readFileSync(join(sheetsDir, f), 'utf8'), { sheetName: f.replace(/\.tsv$/, '') }), ctx,
     ));
 
-  const events = parseIcs(readFileSync(icsPath, 'utf8'));
+  const { events, unreadable } = parseIcs(readFileSync(icsPath, 'utf8'));
   const byDate = new Map();
   for (const e of events) byDate.set(e.date, [...(byDate.get(e.date) ?? []), e]);
+  // 涵蓋範圍的右邊看 endDate —— 一條跨到月底的休假，涵蓋範圍就到月底
   const span = events.length
     ? [events.reduce((a, e) => (e.date < a ? e.date : a), events[0].date),
-      events.reduce((a, e) => (e.date > a ? e.date : a), events[0].date)]
+      events.reduce((a, e) => (e.endDate > a ? e.endDate : a), events[0].endDate)]
     : [null, null];
 
   // 主檔的治療師名單 ＋ 對照表補的別名。認得這些字，`residualNames()` 才不會把
@@ -437,7 +515,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     else leftover.calendarOnly.push(row);
   }
 
-  return { plans: customers, events, span, leftover, ambiguous, renames, year };
+  return { plans: customers, events, unreadable, span, leftover, ambiguous, renames, year };
 }
 
 // ---------- 給 app 的合併檔 ----------
@@ -450,16 +528,18 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
  * 每個時段都帶 `confidence` 與 `evidence`：低信心的那幾筆長得跟高信心的一模一樣，
  * 沒有這兩個欄位，她在 app 裡分不出哪幾筆是推測來的。
  *
- * 三份候選清單（未來的預約、行事曆有試算表沒勾、對不到客戶的）**一律 `include: false`**。
- * 那是她說的：全部列出來，她一筆一筆決定。預設匯入等於替她做了決定，
- * 而錯的那幾筆會在日曆上長出她沒有的事。
+ * 三份候選清單（未來的預約、行事曆有試算表沒勾、對不到客戶的）一律 `include: false`。
+ * **這個欄位 app 那一側從來沒有讀過**（勾選狀態是那一頁自己的），留著只是描述性的。
+ * 真正的預設值在 `domain/mergeImport.js` 的 `defaultPicks()`：**還沒發生的預設勾起來、
+ * 已經發生的預設不勾**（2026-08-21 使用者拍板，見
+ * `docs/adr/0030-future-candidates-are-ticked-by-default.md`）。
+ * 界線不寫進這份檔案 —— 「未來」是在她按下匯入的那一刻才算得準的。
  */
 export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '' } = {}) {
   const courseByName = new Map(SEED.courses.map((c) => [c.name, c]));
   const endOf = (start, courseName) => (start
     ? addMin(start, courseByName.get(courseName)?.durationMin ?? 60)
     : null);
-  const timeOf = (e) => timeInSummary(e.summary)?.start ?? e.clock ?? null;
   // 候選清單靠名字認人（`addExtraVisits()` 拿它去找那位客戶的計畫），
   // 所以這裡要跟 customers[].name 用同一套清理 —— 一邊清了一邊沒清，
   // 27 筆補的來訪會一筆都對不上，而症狀只是「都沒進去」，看不出是名字的問題。
@@ -517,11 +597,20 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     })),
     eventCandidates: r.leftover.personal.map((e) => ({
       title: e.summary,
-      startDate: e.date, endDate: e.date,
+      // endDate 是真的結束日，不是 startDate 抄一份 —— 跨天的事件靠它才進得去
+      startDate: e.date, endDate: e.endDate,
+      // 整天事件不給時間（`timeOf()` 不猜標題）。endTime 一律 null：
+      // 行事曆的時間欄會歪（量到過 3:45 存成 18:00），startTime 是從標題認的，
+      // 兩邊拿不同來源湊一組起訖，會湊出結束比開始早的時段。
+      allDay: e.allDay,
       startTime: timeOf(e), endTime: null,
       category: 'personal', repeats: e.repeats, include: false,
     })),
     ambiguous: r.ambiguous.map((a) => ({ ...a, who: a.who.map(nameOf) })),
+    // 讀不出來的那幾筆。**列出來**才不會又是一次「東西不見了，而畫面上什麼都沒說」。
+    unreadable: (r.unreadable ?? []).map((x) => ({
+      title: x.summary, raw: x.raw, why: x.why,
+    })),
   };
 }
 
@@ -540,7 +629,12 @@ export function reportText(r) {
   const conflicts = r.plans.flatMap((p) => p.days.flatMap((d) => d.conflicts.map((c) => ({ p, d, c }))));
 
   L.push('試算表 × 行事曆 — 對帳報告（還沒有寫入任何東西）', '');
-  L.push(`行事曆涵蓋 ${r.span[0]} ～ ${r.span[1]}，共 ${r.events.length} 筆事件`);
+  L.push(`行事曆涵蓋 ${r.span[0]} ～ ${r.span[1]}，共 ${r.events.length} 筆事件`
+    + (r.events.filter((e) => e.endDate > e.date).length
+      ? `（其中 ${r.events.filter((e) => e.endDate > e.date).length} 筆跨天）` : ''));
+  if (r.unreadable?.length) {
+    L.push(`  ⚠ 另外有 ${r.unreadable.length} 筆讀不出來，底下 ⑦ 列出來`);
+  }
   L.push(`試算表 ${r.plans.length} 張分頁，${slots.length} 個時段`);
   L.push(`  三方對得上（人＋日期＋療程）  ${high}`);
   L.push(`  要你確認（只寫了一半）        ${low}`);
@@ -644,7 +738,7 @@ export function reportText(r) {
   L.push('   對得到客戶與療程、日期在今天之後。這幾筆是「已確認、還沒來」，會算進已排未上。', '');
   if (!r.leftover.future.length) L.push('   （沒有）');
   for (const x of r.leftover.future) {
-    L.push(`   ${x.event.date} ${timeInSummary(x.event.summary)?.start ?? x.event.clock}`
+    L.push(`   ${x.event.date} ${timeOf(x.event) ?? ''}`
       + ` ${short(x.customer)}｜${x.course}｜「${x.event.summary}」`);
   }
   L.push('');
@@ -658,11 +752,27 @@ export function reportText(r) {
       month = e.date.slice(0, 7);
       L.push(`   ── ${month}`);
     }
-    L.push(`   ${e.date} ${padStart(timeInSummary(e.summary)?.start ?? e.clock ?? '', 5)}  ${e.summary}`
+    L.push(`   ${e.date} ${padStart(e.allDay ? '整天' : timeOf(e) ?? '', 5)}  ${e.summary}`
+      + (e.endDate > e.date ? `　（到 ${e.endDate}，共 ${daysOf(e)} 天）` : '')
       + (e.repeats ? '　（重複事件）' : ''));
+  }
+
+  if (r.unreadable?.length) {
+    L.push('');
+    L.push(`━━━ ⑦ 這 ${r.unreadable.length} 筆讀不出來 ━━━`);
+    L.push('   `DTSTART` 解不出日期，所以整筆沒有進到上面任何一段。');
+    L.push('   不是「沒有這幾筆」，是「讀不到」—— 兩件事的處理方式不一樣。', '');
+    for (const x of r.unreadable) {
+      L.push(`   ${x.why}｜「${short(x.summary)}」｜原文：${x.raw || '（空的）'}`);
+    }
   }
   return L.join('\n');
 }
+
+/** 一筆事件橫跨幾天。同一天是 1。 */
+const daysOf = (e) => Math.round(
+  (Date.parse(`${e.endDate}T00:00:00Z`) - Date.parse(`${e.date}T00:00:00Z`)) / 86400000,
+) + 1;
 
 const short = (n) => String(n).replace(/\\n/g, '/').replace(/\s+/g, ' ');
 

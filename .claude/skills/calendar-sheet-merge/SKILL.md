@@ -116,7 +116,10 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 > 可以全部列給我，不用預設計入 app 沒關係，全部列給我我之後一個一個決定要不要匯入
 
 同樣的道理，`import.json` 裡三份候選清單（未來的預約、行事曆有試算表沒勾、
-對不到客戶的）一律 `include: false`。預設匯入等於替她做了決定。
+對不到客戶的）一律 `include: false` —— 不過**那個欄位 app 沒有在讀**，
+它只是描述性的。真正的預設值在 app 那一側依日期決定：**還沒發生的預設勾起來、
+已經發生的預設不勾**（2026-08-21 使用者拍板，`docs/adr/0030-*`）。
+界線刻意不寫進檔案 —— 「未來」是在她按下匯入的那一刻才算得準的。
 
 ## 什麼時候要停下來問
 
@@ -148,9 +151,19 @@ customers[]: { sheetName, name, source, notes,
                                             confidence:'high'|'low'|null, evidence } } }
 futureVisits[]:    { customerName, date, status:'confirmed', courseName, startsAt, evidence, include:false }
 missingFromSheet[]:{ customerName, date, courseName, startsAt, evidence, sheetHasThatDay, include:false }
-eventCandidates[]: { title, startDate, endDate, startTime, endTime, category, repeats, include:false }
+eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime, category, repeats, include:false }
 ambiguous[]:       { date, evidence, course, who[] }
+unreadable[]:      { title, raw, why }
 ```
+
+`eventCandidates[].endDate` 是**真的結束日**，跨天的事件靠它才進得去 ——
+個人行程是這個系統裡唯一可以跨天的東西（`CONTEXT.md`、ADR-0015）。
+整天事件的 `DTEND` 是不含端點的（iCalendar 規格：8/10–8/14 會寫成
+`DTEND;VALUE=DATE:20260815`），`parseIcs()` 已經減過一天了。
+`allDay` 是明確欄位，app 不用再從有沒有時間反推。
+
+`unreadable[]` 是 `DTSTART` 讀不出來、整筆沒有進到任何一段的事件。
+**它要列出來** —— 「沒有這幾筆」和「讀不到這幾筆」是兩件事。
 
 三個設計上的理由，改的時候不要弄丟：
 
