@@ -57,12 +57,13 @@ class FakeRange {
   }
 
   merge() {
-    this.sheet.merges.push(`${A1(this.row, this.col)}:${A1(this.row + this.rows - 1, this.col + this.cols - 1)}`);
+    this.sheet.addMerge(this.row, this.col, this.rows, this.cols);
     return this.#self();
   }
 
   breakApart() {
     this.sheet.merges.length = 0;
+    this.sheet.mergeBounds.length = 0;
     return this.#self();
   }
 
@@ -108,7 +109,10 @@ class FakeSheet {
   constructor(name) {
     this.name = name;
     this.cells = new Map();
+    /** 給測試斷言用的 A1 字串（例：`A1:M1`）。 */
     this.merges = [];
+    /** 同一份合併，但留著數字邊界 —— 凍結線的檢查要算得出來。 */
+    this.mergeBounds = [];
     this.backgrounds = new Map();
     this.fonts = new Set();
     this.borders = 0;
@@ -150,8 +154,36 @@ class FakeSheet {
 
   clear() { this.cells.clear(); this.backgrounds.clear(); }
   clearConditionalFormatRules() {}
-  setFrozenRows(n) { this.frozenRows = n; }
-  setFrozenColumns(n) { this.frozenCols = n; }
+
+  addMerge(row, col, rows, cols) {
+    this.merges.push(`${A1(row, col)}:${A1(row + rows - 1, col + cols - 1)}`);
+    this.mergeBounds.push({
+      top: row, left: col, bottom: row + rows - 1, right: col + cols - 1,
+    });
+  }
+
+  // 凍結線不能穿過合併儲存格。Google 是這樣擋的，替身原本兩件事都記得住
+  // 但從來不檢查它們有沒有打架 —— 所以 setFrozenColumns(1) 加上一個橫跨
+  // 整張表的表頭，測試全綠、真的部署一推就炸。
+  // 見 .scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md
+
+  setFrozenRows(n) {
+    const split = this.mergeBounds.find((m) => n >= m.top && n < m.bottom);
+    if (split) {
+      throw new Error('很抱歉，你無法凍結僅包含部分合併儲存格的列。'
+        + `請取消合併儲存格，或凍結更多列以納入全部的合併儲存格。（${this.name} 凍結 ${n} 列）`);
+    }
+    this.frozenRows = n;
+  }
+
+  setFrozenColumns(n) {
+    const split = this.mergeBounds.find((m) => n >= m.left && n < m.right);
+    if (split) {
+      throw new Error('很抱歉，你無法凍結僅包含部分合併儲存格的欄。'
+        + `請取消合併儲存格，或凍結更多欄以納入全部的合併儲存格。（${this.name} 凍結 ${n} 欄）`);
+    }
+    this.frozenCols = n;
+  }
   setColumnWidth(col, w) { this.widths.set(col, w); }
   setRowHeights() {}
   hideSheet() { this.hidden = true; }
