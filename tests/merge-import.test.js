@@ -231,6 +231,89 @@ test('摘要的數字要跟報告對得起來', () => {
   assert.equal(s.timed, 2);
 });
 
+// ---------- 已經來過 vs 還沒來（.scratch/first-real-import/issues/03） ----------
+//
+// 舊表上有打勾在她的用法裡是「排了」，不是「來了」—— 她也會先把未來的預約寫進去。
+// 合併檔那側因此一律吐 done，2026-08-21 那份 67 筆來訪全是 done，其中 11 筆在今天之後。
+// `done` 才扣次數（SPEC 第 4.2 節），所以那 11 筆會讓剩餘次數少算。
+
+const FUTURE = () => {
+  const entry = CUSTOMER();
+  entry.visits.push({
+    date: '2026-09-30',
+    status: 'done', // 合併檔那側一律吐 done —— 這正是要修的東西
+    slots: [{
+      entitlementKey: 'r8', courseName: '靜脈', startsAt: '10:00', endsAt: '11:00',
+      roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+      confidence: 'high', evidence: '10.IL',
+    }],
+  });
+  return entry;
+};
+
+test('日期在今天之後的來訪建成已確認，今天含以前的維持已完成', () => {
+  const p = plan(FUTURE(), { today: '2026-08-21' });
+  const past = p.visits.find((v) => v.date === '2026-08-13');
+  const ahead = p.visits.find((v) => v.date === '2026-09-30');
+
+  assert.equal(past.status, 'done');
+  assert.equal(ahead.status, 'confirmed');
+});
+
+test('還沒來就不算出席 —— 未來那幾段的 attended 是 false', () => {
+  const p = plan(FUTURE(), { today: '2026-08-21' });
+  const ahead = p.visits.find((v) => v.date === '2026-09-30');
+  const past = p.visits.find((v) => v.date === '2026-08-13');
+
+  assert.equal(ahead.slots.every((x) => x.attended === false), true);
+  assert.equal(past.slots.every((x) => x.attended === true), true);
+});
+
+test('今天當天算已經發生，不是未來', () => {
+  const p = plan(CUSTOMER(), { today: '2026-08-13' });
+  assert.equal(p.visits[0].status, 'done');
+});
+
+test('檔案說 confirmed 就聽它，不管日期', () => {
+  // futureVisits 那條路標的 confirmed 是有依據的判斷，不要拿算出來的結果蓋掉它
+  const entry = CUSTOMER();
+  entry.visits[0].status = 'confirmed';
+  const p = plan(entry, { today: '2026-12-31' });
+  assert.equal(p.visits[0].status, 'confirmed');
+});
+
+test('沒給 today 就只看檔案裡寫什麼', () => {
+  const p = plan(FUTURE());
+  assert.deepEqual(p.visits.map((v) => v.status), ['done', 'done']);
+});
+
+test('補進來的未來來訪也要是已確認，不要又變回已完成', () => {
+  // 她從 missingFromSheet 勾一筆未來的，走的是 addExtraVisits() 那一條
+  const plans = [plan(CUSTOMER(), { today: '2026-08-21' })];
+  addExtraVisits(plans, [
+    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-08-01', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+  ], { ...CTX, today: '2026-08-21' });
+
+  const ahead = plans[0].visits.find((v) => v.date === '2026-09-15');
+  const past = plans[0].visits.find((v) => v.date === '2026-08-01');
+  assert.equal(ahead.status, 'confirmed');
+  assert.equal(ahead.slots[0].attended, false);
+  assert.equal(past.status, 'done');
+  assert.equal(past.slots[0].attended, true);
+});
+
+test('摘要要講出「其中幾筆還沒發生」', () => {
+  const plans = [plan(FUTURE(), { today: '2026-08-21' })];
+  assert.equal(summarize(plans).future, 1);
+
+  addExtraVisits(plans, [
+    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+  ], { ...CTX, today: '2026-08-21' });
+  assert.equal(summarize(plans).future, 2, '補進來的那一筆也要算進去');
+  assert.equal(summarize(plans).visits, 3);
+});
+
 // ---------- 二返（GitHub issue #15） ----------
 //
 // 行事曆上有、試算表沒有的 27 筆來訪裡，15 筆補不進來，訊息是

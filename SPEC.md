@@ -617,13 +617,16 @@ audit/{eventId}                   // append-only 稽核紀錄
 - 匯入的資料標記 `importedFrom` 來源，方便日後追查
 - 一位客戶是一個原子單位（客戶＋額度＋來訪同一次寫入），一位失敗不影響其他人
 - 同名的客戶整張跳過，所以重複貼同一張不會建出第二份
-- **不產生任務** —— 那些掛號在舊系統早就做完了
+- **來訪的狀態依匯入當下的日期決定**：日期在今天之後的建成「已確認」（她在舊表上也會先把未來的預約寫進去，那一格的勾是「排了」不是「來了」），今天含以前的維持「已完成」
+- **已經發生的那些不產生任務** —— 那些掛號在舊系統早就做完了
 
 舊表的結構與已知陷阱（購買數量是反推的、`0.75萬健檢` 會被舊正則讀成 75）在
-`docs/legacy/README.md`。兩個實作上的決定：資料怎麼進來見
+`docs/legacy/README.md`。三個實作上的決定：資料怎麼進來見
 `docs/adr/0012-legacy-import-is-a-paste-not-an-integration.md`，
 匯進來的來訪為什麼缺欄位見
-`docs/adr/0011-imported-visits-are-incomplete-on-purpose.md`。
+`docs/adr/0011-imported-visits-are-incomplete-on-purpose.md`，
+狀態為什麼要看日期見
+`docs/adr/0029-imported-visits-take-their-status-from-the-date.md`。
 
 ---
 

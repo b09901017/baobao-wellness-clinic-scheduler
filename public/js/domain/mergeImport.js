@@ -97,12 +97,13 @@ function stampOf(json, sheetName) {
  * 一位客戶一個 commit、有稽核、不產生任務。
  *
  * @param {object} entry  合併檔裡的一位客戶
- * @param {object} ctx    { courses, equipment, ivProducts, rooms, staff, existingCustomers }
+ * @param {object} ctx    { courses, equipment, ivProducts, rooms, staff, existingCustomers, today }
  * @param {object} [json] 整份檔案，只用來記來源
  */
 export function planForCustomer(entry, ctx = {}, json = null) {
   const {
     courses = [], equipment = [], ivProducts = [], rooms = [], staff = [], existingCustomers = [],
+    today = null,
   } = ctx;
   const problems = [];
   const problem = (where, raw, why) => problems.push({ where, raw: raw || '', why });
@@ -165,6 +166,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
   // ---------- 來訪 ----------
   const visits = [];
   for (const v of entry.visits ?? []) {
+    // 日期先決定狀態，狀態再決定那幾段算不算做過了 —— 順序反過來的話
+    // 未來的來訪會帶著 `attended: true` 進去，那是「人來了」的意思。
+    const status = statusFor(v.status, v.date, today);
     const slots = [];
     for (const s of v.slots ?? []) {
       if (!keys.has(s.entitlementKey)) {
@@ -184,11 +188,11 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         startsAt: s.startsAt ?? null,
         endsAt: s.endsAt ?? null,
         bed: null,
-        attended: true,
+        attended: status !== 'confirmed',
       });
     }
     if (!slots.length) continue;
-    visits.push(visitDoc({ name, date: v.date, status: v.status, slots, stamp }));
+    visits.push(visitDoc({ name, date: v.date, status, slots, stamp }));
   }
 
   return {
@@ -216,6 +220,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       entitlements: entitlements.length,
       followups: paired.length,
       visits: visits.length,
+      // 還沒發生的那幾筆。摘要卡要講出來 —— 「67 筆來訪」和
+      // 「67 筆來訪，其中 11 筆還沒發生」是兩個不同的畫面。
+      future: visits.filter((v) => v.status === 'confirmed').length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
       timed: visits.reduce((n, v) => n + v.slots.filter((s) => s.startsAt).length, 0),
       low: (entry.visits ?? []).reduce(
@@ -241,11 +248,33 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
   };
 }
 
+/**
+ * 這一筆來訪要建成哪一種狀態。
+ *
+ * 舊表上有打勾在她的用法裡是「排了」，不是「來了」—— 她也會先把未來的預約
+ * 寫進去。所以合併檔那側一律吐 `done`，而**日期在今天之後的那幾筆是
+ * 「已確認、還沒來」**：算進已排未上，次數還不會扣（SPEC 第 4.2 節）。
+ *
+ * **界線在匯入的那一刻，不是產檔的那一刻。** 一份 8/19 產的檔案她 8/21 才貼，
+ * 下個月再貼一次，同一批資料的「未來」會完全不同 —— 所以這個判斷不能寫進檔案，
+ * 也不能在 skill 那側做（見 `.scratch/first-real-import/issues/03`）。
+ *
+ * 檔案說 `confirmed` 就聽它，不管日期：`futureVisits` 那條路已經標過了，
+ * 那是有依據的判斷，不要拿一個算出來的結果去蓋掉它。
+ *
+ * `today` 沒給就只看檔案裡寫什麼（維持舊行為）。UI 那層一律用
+ * `domain/dates.js` 的 `todayISO()` 取。
+ */
+function statusFor(status, date, today) {
+  if (status === 'confirmed') return 'confirmed';
+  return today && date > today ? 'confirmed' : 'done';
+}
+
 function visitDoc({ name, date, status, slots, stamp }) {
   return {
     customerName: name,
     date,
-    status: status === 'confirmed' ? 'confirmed' : 'done',
+    status,
     confirmedAt: null,
     cancelledAt: null,
     cancelReason: null,
@@ -265,7 +294,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
-    counts: { entitlements: 0, followups: 0, visits: 0, slots: 0, timed: 0, low: 0 },
+    counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
   };
 }
 
@@ -278,10 +307,10 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
  *
  * @param {object[]} plans      planForCustomer() 的結果
  * @param {object[]} extras     { customerName, date, courseName, startsAt, status }
- * @param {object} ctx
+ * @param {object} ctx          { courses, today }
  */
 export function addExtraVisits(plans, extras, ctx = {}) {
-  const { courses = [] } = ctx;
+  const { courses = [], today = null } = ctx;
   const problems = [];
   for (const x of extras) {
     const plan = plans.find((p) => !p.skip && p.customerName === norm(x.customerName));
@@ -309,6 +338,9 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       continue;
     }
     const start = isValidTime(x.startsAt) ? x.startsAt : null;
+    // 同一條規則要套在這裡，否則她從 missingFromSheet 勾一筆未來的，
+    // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
+    const status = statusFor(x.status, x.date, today);
     const slot = {
       entitlementKey: hits[0].key,
       courseId: course.id,
@@ -320,18 +352,19 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       startsAt: start,
       endsAt: start ? addMinutes(start, course.durationMin ?? 60) : null,
       bed: null,
-      attended: x.status !== 'confirmed',
+      attended: status !== 'confirmed',
     };
     // 同一天已經有來訪就併進去 —— 來訪的定義是「某人某天到院一次」（CONTEXT.md）
     const same = plan.visits.find((v) => v.date === x.date);
     if (same) same.slots.push(slot);
     else {
       plan.visits.push(visitDoc({
-        name: plan.customerName, date: x.date, status: x.status, slots: [slot],
+        name: plan.customerName, date: x.date, status, slots: [slot],
         stamp: plan.customer.importedFrom,
       }));
     }
     plan.counts.visits = plan.visits.length;
+    plan.counts.future = plan.visits.filter((v) => v.status === 'confirmed').length;
     plan.counts.slots += 1;
     if (start) plan.counts.timed += 1;
   }
@@ -374,6 +407,9 @@ export function summarize(plans) {
     // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。
     followups: live.reduce((n, p) => n + (p.counts.followups ?? 0), 0),
     visits: live.reduce((n, p) => n + p.counts.visits, 0),
+    // 其中還沒發生的。合併檔那側一律吐 done，日期在今天之後的會建成已確認 ——
+    // 那個數字要看得到，否則「67 筆來訪」看起來就是 67 筆都做過了。
+    future: live.reduce((n, p) => n + (p.counts.future ?? 0), 0),
     slots: live.reduce((n, p) => n + p.counts.slots, 0),
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),

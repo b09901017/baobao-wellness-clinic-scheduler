@@ -12,6 +12,7 @@ import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize,
 } from '../../domain/mergeImport.js';
+import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -43,12 +44,16 @@ export async function render(el) {
 
 function plansOf(ctx) {
   if (!file) return [];
-  const plans = file.customers.map((c) => planForCustomer(c, ctx, file));
+  // 「未來」的界線在**匯入的那一刻**，不是產檔的那一刻：一份 8/19 產的檔案
+  // 她 8/21 才貼，下個月再貼一次「未來」會完全不同。所以 today 在這裡取，
+  // 不寫進檔案（`.scratch/first-real-import/issues/03`）。
+  const withToday = { ...ctx, today: todayISO() };
+  const plans = file.customers.map((c) => planForCustomer(c, withToday, file));
   const extras = [
     ...(file.futureVisits ?? []).filter((_, i) => picks.future.has(i)),
     ...(file.missingFromSheet ?? []).filter((_, i) => picks.missing.has(i)),
   ];
-  const extraProblems = addExtraVisits(plans, extras, ctx);
+  const extraProblems = addExtraVisits(plans, extras, withToday);
   return { plans, extraProblems };
 }
 
@@ -146,6 +151,9 @@ function summaryCard(s, plans, extraProblems) {
       <h2 class="card__title">會寫進去什麼</h2>
       <p><b>${s.customers}</b> 位客戶　<b>${s.entitlements}</b> 筆額度　<b>${s.visits}</b> 筆來訪　<b>${s.slots}</b> 個時段</p>
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
+      ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成
+        <b>已確認</b> —— 那是「已經約好、還沒來」：算進已排未上，次數還不會扣。
+        其餘的標成已完成。</p>` : ''}
       ${s.followups ? `<p class="muted">額度裡有 <b>${s.followups}</b> 筆二返是系統配的
         —— 買幾次健檢就有幾次二返，合併檔上沒有這一項。次數不對就到客戶詳情頁改。</p>` : ''}
       ${span.length ? `<p class="muted">行事曆涵蓋 ${esc(span[0] ?? '')} ～ ${esc(span[1] ?? '')}，
@@ -230,7 +238,8 @@ function runCard(s) {
         <button class="btn btn--primary" type="button" data-run ${s.customers ? '' : 'disabled'}>開始匯入</button>
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
-        來訪一律標成已完成（未來的預約是已確認），而且<b>不會產生任何待辦任務</b> ——
+        已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
+        （算進已排未上，次數還不會扣）。已經發生的那些<b>不會產生任何待辦任務</b> ——
         那些掛號在舊系統早就做完了。</p>
     </section>`;
 }
@@ -244,6 +253,9 @@ async function run(el, ctx, plans, s) {
     consequences: [
       `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
       `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
+      s.future
+        ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
+        : '沒有日期在今天之後的來訪，全部標成已完成',
       ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
       events.length ? `建立 ${events.length} 筆個人行程` : '沒有勾任何個人行程',

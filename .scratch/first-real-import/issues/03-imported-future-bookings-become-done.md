@@ -1,6 +1,6 @@
 # 匯入分不出「已經來過」和「還沒來」，未來的預約被當成已完成
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-21
 動工前先讀：`SPEC.md` 第 4.1、4.2 節、`CONTEXT.md` 的「來訪」與四種狀態、
 `domain/mergeImport.js` 的 `visitDoc()`、`docs/adr/0011-imported-visits-are-incomplete-on-purpose.md`、
@@ -89,3 +89,52 @@ status: status === 'confirmed' ? 'confirmed' : 'done',
 - **不要順手改 `merge.mjs` 讓它自己判斷未來。** 那會讓同一件事有兩份實作，
   而且是會過期的那一份。skill 那側該做的是**照實回報**（見 `issues/06`）。
 - **不要因為日期在未來就跳過不匯。** 那是她已經約好的事，日曆上必須看得到。
+
+
+## Comments
+
+**2026-08-21 — 做完了。** `npm test` 從 705 變成 712 全過。
+
+規則寫在 `domain/mergeImport.js` 新的 `statusFor(status, date, today)`，一支，
+`planForCustomer()` 與 `addExtraVisits()` 兩條路共用：
+
+| 檔案說 | 日期 | 建成 |
+|---|---|---|
+| `confirmed` | 不管 | `confirmed` |
+| 其他 | 今天之後 | `confirmed` |
+| 其他 | 今天含以前 | `done` |
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `domain/mergeImport.js` | `statusFor()`；`ctx` 多收 `today`（兩支都收）；`visitDoc()` 不再自己判斷，收到什麼狀態就寫什麼 |
+| 同上 | `slot.attended` 跟著狀態走：`confirmed` → `false`。順序是「日期決定狀態、狀態決定 attended」—— 反過來的話未來的來訪會帶著「人來了」進去 |
+| 同上 | `counts.future` 與 `summarize().future` |
+| `ui/views/mergeImport.js` | `plansOf()` 裡用 `todayISO()` 取今天；摘要卡多一句；`runCard()` 那句錯的文案改掉；確認框多一條 |
+| `docs/adr/0029-*` | 新的一支。ADR-0011 一個字都沒改 |
+| `SPEC.md` 第 6.10 節 | 多一條「來訪的狀態依匯入當下的日期決定」 |
+| `tests/merge-import.test.js` | 七條 |
+
+### `today` 沒給的時候
+
+維持舊行為（只看檔案裡寫什麼）。這是刻意的：`domain/` 是純函式，
+「今天」是唯一不純的東西，`domain/dates.js` 的檔頭本來就寫著
+「需要判斷的函式一律把 today 當參數收」。UI 那層一定會給。
+
+### 做了 issue 上沒寫的事
+
+**`slot.attended` 也跟著改了。** issue 只講 `visit.status`，但那兩個欄位講的是
+不同的事：狀態說這次預約走到哪裡，`attended` 說那一段有沒有做
+（ADR-0025）。未來的來訪帶著 `attended: true` 進去，等於在資料裡寫了
+「人來了」——`domain/entitlements.js` 的 `slotOutcome()` 檔頭本來就描述著
+「`confirmed` 的來訪，匯入器會寫 `attended: false`」，而在這一支之前那句話是假的。
+
+**確認框多了一條 consequence。** 摘要卡講了，但按下去之前那個框沒講 ——
+兩個地方講的東西不一樣就是下一個「畫面在講一件不會發生的事」。
+
+### 沒有做的
+
+- **`merge.mjs` 沒有動。** issue 寫著不要順手改它，理由是那會讓同一件事有兩份
+  實作，而且是會過期的那一份。skill 那側該做的是照實回報，那是 `issues/06`。
+- **既有資料沒有回頭改。** 如果她在這一支之前已經匯過一次，那 11 筆還是 `done`。
+  要修的話是到客戶詳情頁一筆一筆改狀態（會留稽核），或者把那批資料清掉重匯。
+  沒有做成自動的搬移 —— 分不出哪幾筆是匯錯的、哪幾筆是她後來自己改成已完成的。
