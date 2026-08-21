@@ -1,6 +1,10 @@
 // 本輪可用性的收集與檢視。SPEC 第 4.3、8.5 節。掛在客戶詳情底下。
 //
 // 這一頁的設計只有一個重點：**原文永遠比解析結果大**。
+//
+// 收集有兩個來源：她自己記的，和客戶自己填表單填的（`source: 'form'`，
+// 見 ADR-0031 與 ADR-0032）。兩種在這一頁長得一樣、改起來也一樣 ——
+// 差別只有一顆徽章，因為客戶自己講的話比她轉述的可信，那件事值得看得見。
 // 原文用正常字級顯示在最上面，解析出來的規則排在它下面，而且明講那是「系統讀成」，
 // 讓她一眼看得出系統有沒有讀錯。看不懂的句子也要列出來 —— 安靜地少一條規則，
 // 她會以為系統知道，其實不知道。
@@ -68,9 +72,14 @@ function collectionCard(record, today, isCurrent) {
     <div class="pool ${state === 'expired' ? 'pool--stale' : ''}">
       <div class="pool__head">
         <span>${esc(record.validFrom ?? '?')} 到 ${esc(record.validTo ?? '?')}</span>
-        <span class="badge ${badgeClass}">${badgeText}${
-          state === 'expired' ? ` ${-days} 天` : ''
-        }</span>
+        <span>
+          ${record.source === 'form'
+            ? '<span class="badge badge--ok">客戶自己填的</span>'
+            : ''}
+          <span class="badge ${badgeClass}">${badgeText}${
+            state === 'expired' ? ` ${-days} 天` : ''
+          }</span>
+        </span>
       </div>
 
       <p class="ban__raw" style="margin-top: var(--space-2)">${esc(record.rawText ?? '')}</p>

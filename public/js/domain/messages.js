@@ -48,14 +48,46 @@ function firstStart(visit) {
 /**
  * 問這一輪的時間。她每個月都要問一次，這是所有對話的起點。
  *
+ * 給了連結就換一種問法：**不要再問「哪幾天方便」**，那會讓客戶用打字的回你，
+ * 於是連結白給了。改成一句「點進去點一點就好」，把動作講清楚。
+ *
  * @param {{name:string}} customer
- * @param {{month:string}} when month 是 'YYYY-MM'
+ * @param {{month:string, link?:string}} when month 是 'YYYY-MM'
  */
-export function askAvailabilityMessage(customer, { month } = {}) {
+export function askAvailabilityMessage(customer, { month, link = '' } = {}) {
   const m = monthOf(month);
   if (!m) return '';
+
+  if (link) {
+    return `${nameOf(customer)}您好，要幫您安排 ${m} 月的課程。`
+      + `麻煩您點下面這個連結，把 ${m} 月不方便的日子點一點就好，大概半分鐘。\n${link}`;
+  }
+
   return `${nameOf(customer)}您好，要幫您安排 ${m} 月的課程，`
     + `請問您 ${m} 月哪幾天方便呢？不方便的日子也可以直接跟我說。`;
+}
+
+/**
+ * 客戶填完表單之後回他的那一句。
+ *
+ * 這不只是禮貌，它是**最便宜的驗證**：把系統讀到的東西複述回去，
+ * 讀錯了客戶會當場說「不是啦我是說⋯⋯」。表單的答案是結構化的，讀錯的機率
+ * 比解析自由文字低得多，但不是零 —— 客戶點錯一天，或者自由欄裡藏著
+ * 一句「不過月底那週也不行」。見 ADR-0032。
+ *
+ * @param {{name:string}} customer
+ * @param {{month:string, lines:string[]}} what lines 是
+ *   `domain/availabilityForm.js` 的 `describePicks()`
+ */
+export function availabilityReceivedMessage(customer, { month, lines = [] } = {}) {
+  const m = monthOf(month);
+  if (!m) return '';
+
+  const said = lines.filter(Boolean).map((line) => `・${line}`).join('\n');
+
+  return `${nameOf(customer)}您好，收到了，謝謝您。\n`
+    + `記下來的是：\n${said}\n`
+    + `我會照這個安排 ${m} 月的課程，排好再跟您確認時間。`;
 }
 
 /**
@@ -110,14 +142,18 @@ export function offerSlotMessage(customer, slot = {}) {
  * @param {object[]} [ctx.visits] 這位客戶的來訪
  * @param {string} ctx.today
  * @param {string} [ctx.month] 要問哪個月，預設下個月
+ * @param {string} [ctx.formLink] 這位客戶這個月的表單連結，有就換一種問法
  * @returns {{id:string, label:string, text:string}[]}
  */
-export function messagesFor({ customer, visits = [], today, month = null }) {
+export function messagesFor({ customer, visits = [], today, month = null, formLink = '' }) {
   const out = [];
   const alive = visits.filter((v) => !v.deletedAt && v.status !== 'cancelled');
 
-  const ask = askAvailabilityMessage(customer, { month: month ?? addMonths(today, 1).slice(0, 7) });
-  if (ask) out.push({ id: 'ask', label: '問這一輪的時間', text: ask });
+  const ask = askAvailabilityMessage(customer, {
+    month: month ?? addMonths(today, 1).slice(0, 7),
+    link: formLink,
+  });
+  if (ask) out.push({ id: 'ask', label: formLink ? '問這一輪的時間（附表單）' : '問這一輪的時間', text: ask });
 
   // 還在等回覆的那幾筆一次問完，跟首頁「今天壓了誰」用的是同一則
   const waiting = alive.filter((v) => v.status === 'pending_confirm' && v.date >= today);

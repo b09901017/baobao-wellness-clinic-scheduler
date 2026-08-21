@@ -15,6 +15,9 @@ import * as visitsData from '../../data/visits.js';
 import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
+import * as invitesData from '../../data/formInvites.js';
+import * as responsesData from '../../data/formResponses.js';
+import * as formInbox from './formInbox.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
@@ -23,12 +26,14 @@ import {
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
 import { customersToAsk } from '../../domain/scheduling.js';
+import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import { todayISO, shortDate, daysBetween, addMonths } from '../../domain/dates.js';
 import { wireDrag } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import { icon } from '../icons.js';
+import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -46,6 +51,13 @@ let drawer = null;
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
 let askRows = null;
 
+// 其中「連結已經發出、還沒填」的有幾位。那一列的數字不減掉他們（ADR-0033），
+// 但說明文字要講出來，不然她會重複問。
+let sentCount = 0;
+
+// 「客戶填好的時間」那一列。null = 還沒載完，跟 askRows 同一個道理。
+let inboxRows = null;
+
 // ---------- 總覽 ----------
 
 export async function render(el) {
@@ -53,6 +65,8 @@ export async function render(el) {
   picked = new Set();
   drawer = null;
   askRows = null;
+  sentCount = 0;
+  inboxRows = null;
 
   const today = todayISO();
   let tasks;
@@ -78,6 +92,7 @@ export async function render(el) {
   const ctx = { el, tasks, pending, unclosed, notes, settings, today };
   paint(ctx);
   loadAsk(ctx);
+  loadInbox(ctx);
 }
 
 /**
@@ -88,25 +103,47 @@ export async function render(el) {
  * 這一列等資料回來再補上去**，不要為了它讓整頁多等一輪。
  *
  * 額度與可用性都是 collection group query，各一次，不是一位客戶一次。
+ * 邀請多一次，跟著同一組 Promise.all 走，不多一輪往返。
  */
 async function loadAsk(ctx) {
   try {
-    const [customers, entitlementsBy, availabilityBy] = await Promise.all([
+    const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
       customersData.list(),
       customersData.entitlementsByCustomer(),
       customersData.availabilityByCustomer(),
+      invitesData.list(),
     ]);
     askRows = customersToAsk({ customers, entitlementsBy, availabilityBy, today: ctx.today });
+    // 連結發出去了的那幾位還是留在名單上（他們確實還沒回），只是說明要講出來。
+    sentCount = splitByInvite({ rows: askRows, invites, today: ctx.today }).sent.length;
   } catch {
     // 讀不到就當這一列不存在。它是提醒，不是這一頁的主體 ——
     // 為了它把已經畫好的待辦換成一句錯誤訊息，代價比看不到這一列大。
     askRows = [];
+    sentCount = 0;
   }
 
   // 她可能已經切到「依客戶」那個看法了，那時候沒有這個位置可以填。
   // 不用補救：切回來會重畫，那時 askRows 已經有了。
   const slot = ctx.el.querySelector('[data-ask]');
   if (slot) slot.innerHTML = askGroupRow();
+}
+
+/**
+ * 「客戶填好的時間」那一列。跟 loadAsk 同一個作法：頁面先畫完，這一列等資料回來。
+ *
+ * 讀失敗一樣當它不存在 —— 收件匣是提醒，客戶填的東西還在 Firestore 裡，
+ * 下次打開就看得到，沒有任何東西會因此掉。
+ */
+async function loadInbox(ctx) {
+  try {
+    inboxRows = await responsesData.listInbox();
+  } catch {
+    inboxRows = [];
+  }
+
+  const slot = ctx.el.querySelector('[data-inbox]');
+  if (slot) slot.innerHTML = inboxGroupRow();
 }
 
 function paint(ctx) {
@@ -175,6 +212,7 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
         href: '#/todo/confirm', lead: true, dot: 'accent',
         label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
       })}
+      <div data-inbox>${inboxGroupRow()}</div>
       <div data-ask>${askGroupRow()}</div>
       ${kinds.map((k) => groupRow({
         href: `#/todo/${encodeURIComponent(k)}`, dot: '',
@@ -197,11 +235,36 @@ function askGroupRow() {
   if (!askRows?.length) return '';
   const never = askRows.filter((r) => r.state === 'never').length;
 
+  // 數字**不減掉**已經發出連結的那幾位：這一輪的時間確實還沒問到，
+  // 把數字做小會讓她以為進度比實際好。改成在說明裡講出來（ADR-0033）。
+  const note = sentCount
+    ? `其中 ${sentCount} 位已經發出連結，在等他填`
+    : (never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了');
+
   return groupRow({
     href: '#/todo/ask', dot: '',
     label: '問這輪的時間',
-    note: never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了',
+    note,
     n: askRows.length,
+  });
+}
+
+/**
+ * 客戶自己填好、還沒被收下的那幾份。
+ *
+ * 排在「問這輪的時間」上面：客戶已經回了的比還沒開口問的急 ——
+ * 一份是等著她處理，另一份是等著她開口。
+ *
+ * 一樣，0 的時候整列不畫。
+ */
+function inboxGroupRow() {
+  if (!inboxRows?.length) return '';
+
+  return groupRow({
+    href: '#/todo/forms', lead: true, dot: 'accent',
+    label: '客戶填好的時間',
+    note: '客戶自己填的，看過就收下',
+    n: inboxRows.length,
   });
 }
 
@@ -407,6 +470,7 @@ const GROUPS = {
   cancel: { title: '改時間／取消', lead: '來訪取消後，要回去把已經做掉的登記收回來。' },
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
   ask: { title: '問這輪的時間', lead: '' },
+  forms: { title: '客戶填好的時間', lead: '' },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
@@ -423,6 +487,7 @@ export async function renderGroup(el, group) {
   if (group === 'close') return renderClose(el);
   if (group === 'notes') return renderNotes(el);
   if (group === 'ask') return renderAsk(el);
+  if (group === 'forms') return formInbox.render(el);
 
   const tasks = await tasksData.listOpen();
   const today = todayISO();
@@ -546,17 +611,18 @@ async function markDone(ctx) {
 // customersToAsk()。
 
 async function renderAsk(el) {
-  const [customers, entitlementsBy, availabilityBy] = await Promise.all([
+  const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     customersData.availabilityByCustomer(),
+    invitesData.list(),
   ]);
 
   const today = todayISO();
   const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
 
   paintAsk({
-    el, byId,
+    el, byId, invites, today,
     rows: customersToAsk({ customers, entitlementsBy, availabilityBy, today }),
     // 她問的是下個月的時間 —— askAvailabilityMessage() 的預設也是下個月，
     // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
@@ -564,29 +630,37 @@ async function renderAsk(el) {
   });
 }
 
+/**
+ * 三區，不是兩區。第三區是表單做出來之後才存在的那一段時間：
+ * **連結發出去了、客戶還沒填**。她不該在那時候再問一次，但那一位也還沒問到，
+ * 所以他留在名單上，只是排到最後面。見 ADR-0033。
+ */
 function paintAsk(ctx) {
-  const { el, rows, byId, month } = ctx;
-  const never = rows.filter((r) => r.state === 'never');
-  const expired = rows.filter((r) => r.state !== 'never');
+  const { el, rows, invites, month, today } = ctx;
+  const groups = splitByInvite({ rows, invites, today });
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">問這輪的時間</h1>
-      <p class="page__lead">問 ${Number(month.slice(5))} 月哪幾天方便，問到之後記進客戶頁的「不能的時間」。</p>
+      <p class="page__lead">問 ${Number(month.slice(5))} 月哪幾天方便。
+        發一條連結讓客戶自己點，或者照舊自己問、問到之後記進客戶頁的「不能的時間」。</p>
     </div>
 
     ${rows.length ? `
-      ${askSection('從來沒問過', never, byId, month,
+      ${askSection('從來沒問過', groups.never, ctx,
         '這幾位身上還有次數，但一次都沒問過時間。')}
-      ${askSection('該重問了', expired, byId, month,
-        '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}`
+      ${askSection('該重問了', groups.expired, ctx,
+        '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}
+      ${askSection('已經發出連結', groups.sent, ctx,
+        '連結給出去了，在等他填。先不要再問一次 —— 他填好會出現在「客戶填好的時間」。')}`
       : '<p class="muted">都問到了。</p>'}`;
 
   message.wire(el, toast.info);
+  wireAsk(ctx);
 }
 
-function askSection(title, rows, byId, month, lead) {
+function askSection(title, rows, ctx, lead) {
   if (!rows.length) return '';
 
   return `
@@ -595,19 +669,25 @@ function askSection(title, rows, byId, month, lead) {
       <span class="section__n">${rows.length}</span>
     </div>
     <p class="muted" style="margin: 0 0 var(--space-3)">${esc(lead)}</p>
-    <div class="stack">${rows.map((r) => askCard(r, byId[r.customerId], month)).join('')}</div>`;
+    <div class="stack">${rows.map((r) => askCard(r, ctx)).join('')}</div>`;
 }
 
-function askCard(row, customer, month) {
+function askCard(row, { byId, month }) {
+  const customer = byId[row.customerId];
   const name = row.customerName ?? '（沒有名字）';
+  const link = row.invite ? formLink(location.origin, row.invite.id) : '';
 
   // 「幾天前」講的是最後一次問的那天，不是收集的有效期 ——
   // 她要判斷的是「這個人我多久沒聯絡了」。
-  const when = row.state === 'never'
-    ? '從來沒問過'
-    : row.lastAskedAt
-      ? `上次 ${shortDate(row.lastAskedAt)} 問的・${row.daysSinceAsked} 天前`
-      : '問過，但不知道是哪天問的';
+  const when = row.invite
+    // sentAt 壞掉或缺了就不要編一個日期出來 —— 「不知道哪天發的」跟「今天發的」
+    // 是兩件事，而她看這一行就是為了判斷「等多久了，該不該催」。
+    ? `連結${row.invite.sentAt ? ` ${shortDate(row.invite.sentAt)}` : ''}發出・還沒填`
+    : row.state === 'never'
+      ? '從來沒問過'
+      : row.lastAskedAt
+        ? `上次 ${shortDate(row.lastAskedAt)} 問的・${row.daysSinceAsked} 天前`
+        : '問過，但不知道是哪天問的';
 
   return `
     <div class="card" style="margin: 0">
@@ -621,11 +701,67 @@ function askCard(row, customer, month) {
 
       ${message.box({
         id: `ask-${row.customerId}`,
-        text: askAvailabilityMessage(customer ?? { name }, { month }),
+        text: askAvailabilityMessage(customer ?? { name }, { month, link }),
         collapsed: true,
-        buttonLabel: '複製 LINE 訊息',
+        buttonLabel: link ? '複製 LINE 訊息（含連結）' : '複製 LINE 訊息',
       })}
+
+      <p style="margin: var(--space-1) 0 0">
+        ${link
+          ? `<button class="btn btn--sm" type="button"
+                     data-resend="${esc(row.customerId)}">重發一條新連結</button>`
+          : `<button class="btn btn--sm" type="button"
+                     data-makelink="${esc(row.customerId)}">產生表單連結</button>`}
+      </p>
     </div>`;
+}
+
+/**
+ * 連結**按下去的那一刻才產生**。她有二十幾位客戶但這一輪可能只問十二位，
+ * 進這一頁就全部產生等於留下一堆沒發出去的邀請。
+ *
+ * 重發是「作廢舊的、發一條新的」：表單不重填（Rules 擋著），客戶填錯了的
+ * 唯一出路就是拿到一條新連結。舊的留著只會讓他填一個已經作廢的東西。
+ */
+function wireAsk(ctx) {
+  const { el, rows, invites, month, today } = ctx;
+  const nameOf = (id) => rows.find((r) => r.customerId === id)?.customerName ?? '';
+
+  el.querySelectorAll('[data-makelink]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const customerId = btn.dataset.makelink;
+      await toast.withSaveState(
+        () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
+        { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
+      );
+      renderAsk(el);
+    }));
+
+  el.querySelectorAll('[data-resend]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const customerId = btn.dataset.resend;
+      const old = invites.filter((i) => i.customerId === customerId && !i.deletedAt);
+
+      const ok = await confirmAction({
+        title: '重發一條新連結？',
+        consequences: [
+          `${esc(nameOf(customerId))}手上那條連結會作廢`,
+          '他如果已經點開舊的那條，會看到「這個連結找不到」',
+          '重發是客戶填錯之後唯一的改法 —— 表單填過一次就不能再填',
+        ],
+        confirmLabel: '重發',
+      });
+      if (!ok) return;
+
+      await toast.withSaveState(
+        async () => {
+          for (const invite of old) await invitesData.revoke(invite.id, '重發新連結');
+          await invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today });
+        },
+        { pending: '重發中…', success: '新的連結好了', undoable: false },
+      );
+      renderAsk(el);
+    }));
 }
 
 // ---------- 跟客人確認時間 ----------

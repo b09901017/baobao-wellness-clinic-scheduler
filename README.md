@@ -94,6 +94,7 @@
 | 後端 | Firebase（Firestore + Auth + Security Rules + Hosting） |
 | 部署 | Firebase Hosting，GitHub Actions 自動部署（push 即上線） |
 | 舊系統銜接 | app 產生與現行試算表同構的報表，可以複製貼回去，也可以讓 app 自動推給試算表的 Apps Script 排版上鎖。**單向** —— Apps Script 只收不取，那一側沒有任何憑證（ADR-0010、ADR-0013） |
+| 客戶那一頁 | `/form.html`，獨立入口，不載 app 也不註冊 service worker。整份 Rules 裡唯一讓未登入的人寫得進來的地方，四道限制見 `firestore.rules` 的「客戶自己填的時間」與 ADR-0031 |
 
 刻意不用 React、不用 build pipeline。維護者只有一個人，能直接看懂原始碼比較重要。
 
@@ -136,7 +137,8 @@ npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
 | 10 | 日曆 + 試算表報表 | ☑ |
 | 11 | 舊資料匯入 | ☑ |
 | 12 | 介面重新設計 | ☑ |
-| 13 | 多帳號 | ☐ |
+| 13 | 客戶自己填時間的表單 | ☑ |
+| 14 | 多帳號 | ☐ |
 
 第 12 步之後補的一件事：**二返**（[GitHub issue #15](https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15)）。
 `SPEC.md` 第 7 節規則 8 從第一版就寫著「健檢完成 → 自動產生待約二返」，但那件事一直沒有實作 ——

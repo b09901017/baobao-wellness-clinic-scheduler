@@ -9,11 +9,16 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v36';
+const VERSION = 'v37';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
 // 否則冷啟動離線會少檔案。tests/shell-cache.test.js 會盯著它。
+//
+// **唯一的例外是客戶那一頁**（`/form.html` 與它底下的東西）：那不是 app 的一部分，
+// 是客戶在 LINE 裡點開的一個連結（ADR-0031）。她的裝置永遠不會離線打開它，
+// 預先快取只是浪費；而客戶那一頁本身不註冊 service worker，所以也不靠這裡。
+// 排除清單寫在 tests/shell-cache.test.js，有測試盯著它不會愈長愈長。
 const SHELL = [
   '/',
   '/index.html',
@@ -95,6 +100,10 @@ const SHELL = [
   '/js/ui/views/legacyImport.js',
   '/js/ui/views/mergeImport.js',
   '/js/data/sheetSync.js',
+  '/js/domain/availabilityForm.js',
+  '/js/data/formInvites.js',
+  '/js/data/formResponses.js',
+  '/js/ui/views/formInbox.js',
 ];
 
 self.addEventListener('install', (event) => {

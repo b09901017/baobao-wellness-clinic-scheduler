@@ -1,0 +1,342 @@
+/* 客戶自己填時間的那一頁。`/form.html`
+ *
+ * 顏色與間距沿用 tokens.css，**尺寸全部放大一級**：這一頁的使用者是長輩，
+ * 而且他只會打開一次、只有一次機會填對。
+ *
+ * 三個刻意的取捨：
+ *
+ * 1. **不能只靠顏色。** 長輩的色覺辨識比想像中差，所以紅底一律配上
+ *    「✕」或「上午／下午」兩個字。
+ * 2. **不套 app 的 .status-* 那一組。** 那一組是「來訪狀態」的顏色，
+ *    由 domain/visits.js 的 STATUS_VIEW 決定（CLAUDE.md 的連動表）。
+ *    這一頁不是來訪，套過來的話她之後改一個來訪顏色會同時改到客戶看的東西。
+ * 3. **點擊區一律 48px 起跳**，比 app 的 44px 再大一點。
+ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC', sans-serif;
+  font-size: 17px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-7);
+}
+
+.wait { color: var(--text-dim); text-align: center; padding: var(--space-7) 0; }
+
+/* ---------- 抬頭 ---------- */
+
+.head { margin-bottom: var(--space-5); }
+.head__hello { margin: 0; color: var(--text-dim); font-size: 16px; }
+.head__title {
+  margin: var(--space-1) 0 var(--space-2);
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.4;
+}
+.head__lead { margin: 0; color: var(--text-dim); font-size: 16px; }
+.head__lead b { color: var(--text); }
+
+/* ---------- 「這個月都可以」 ---------- */
+
+.allok {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  margin-bottom: var(--space-6);
+  border: 2px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.allok:active { transform: scale(0.99); }
+
+/* ---------- 一段 ---------- */
+
+.sec { margin-bottom: var(--space-6); }
+.sec__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: 20px;
+  font-weight: 700;
+}
+.sec__n {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 16px;
+}
+.sec__hint { margin: 0 0 var(--space-3); color: var(--text-dim); font-size: 15px; }
+
+/* ---------- 星期 ---------- */
+
+.pills { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.pill {
+  min-height: 62px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pill__cap { display: block; font-size: 11px; font-weight: 400; color: var(--text-mute); }
+.pill--on {
+  border-color: var(--overdue);
+  background: var(--overdue-bg);
+  color: var(--overdue);
+}
+.pill--on .pill__cap { color: var(--overdue); }
+
+/* ---------- 日曆 ---------- */
+
+.cal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-2);
+}
+.cal__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: var(--space-1);
+}
+.cal__wd {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-mute);
+}
+.cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+
+.cell {
+  position: relative;
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  min-height: 52px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.cell__d { font-size: 20px; font-weight: 500; line-height: 1.1; }
+.cell__tag { font-size: 11px; font-weight: 700; line-height: 1; }
+
+.cell--blank { background: none; cursor: default; }
+.cell--past { background: none; color: var(--text-mute); cursor: default; opacity: 0.45; }
+
+/* 選起來的：紅底 + 一定要有字，不能只靠顏色 */
+.cell--off {
+  border-color: var(--overdue);
+  background: var(--overdue-bg);
+  color: var(--overdue);
+}
+.cell--off .cell__d { font-weight: 700; }
+
+/* 半天的：只有一半塗色，另一半留白 —— 一眼看得出「只有半天」 */
+.cell--am { background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface) 52%); }
+.cell--pm { background: linear-gradient(to bottom, var(--surface) 48%, var(--overdue-bg) 48%); }
+
+/* 被「固定星期不行」擋掉的：斜線，點不動 */
+.cell--byweek {
+  color: var(--overdue);
+  cursor: default;
+  background:
+    repeating-linear-gradient(-45deg,
+      var(--overdue-bg) 0 6px, transparent 6px 12px);
+  opacity: 0.75;
+}
+
+.notice {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--soon-bg);
+  color: var(--soon);
+  font-size: 15px;
+}
+.notice__go {
+  margin-left: var(--space-2);
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* ---------- 複述清單 ---------- */
+
+.recap { margin-top: var(--space-4); }
+.recap__title {
+  margin: 0 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: 15px;
+  font-weight: 700;
+}
+.recap__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-soft);
+}
+.recap__what { flex: 1; font-size: 17px; font-weight: 500; }
+.recap__part {
+  min-height: 48px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.recap__caret { color: var(--text-mute); }
+.recap__x {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.choices { display: grid; gap: 6px; padding: 0 0 var(--space-3); }
+.choice {
+  min-height: 54px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+.choice--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---------- 自由欄 ---------- */
+
+.free {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px; /* 16px 以下 iOS 會自動放大，畫面會亂跳 */
+  resize: vertical;
+}
+
+/* ---------- 按鈕與確認 ---------- */
+
+.go {
+  display: block;
+  width: 100%;
+  min-height: 62px;
+  margin-top: var(--space-5);
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.go:disabled { opacity: 0.6; }
+.back {
+  display: block;
+  width: 100%;
+  min-height: 54px;
+  margin-top: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+.foot { margin: var(--space-2) 0 0; text-align: center; color: var(--text-mute); font-size: 14px; }
+.err {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--overdue-bg);
+  color: var(--overdue);
+  font-size: 16px;
+}
+
+.card {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.card--talk { text-align: center; }
+.confirm__title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-serif);
+  font-size: 24px;
+}
+.said {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.said li {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+  font-size: 18px;
+  font-weight: 500;
+}
+.said li:first-child { border-top: none; }
+.talk { margin: var(--space-4) 0 0; color: var(--text-dim); font-size: 16px; }
+.talk--dim { color: var(--text-mute); font-size: 15px; }
+.done__mark {
+  margin: 0;
+  color: var(--accent);
+  font-size: 44px;
+  line-height: 1;
+}

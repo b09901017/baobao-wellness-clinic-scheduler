@@ -29,6 +29,29 @@ function shellList() {
 
 const CACHEABLE = /\.(js|css|html|webmanifest)$/;
 
+// 客戶填時間的那一頁不是 app 的一部分（ADR-0031）：客戶在 LINE 裡點一個連結
+// 就開了，那一頁自己不註冊 service worker，而她的裝置永遠不會離線打開它。
+// 預先快取它只是白白佔位子。
+//
+// **這份清單要留得很短。** 它是「離線會壞掉」那道守衛唯一的後門，
+// 每多一條就少擋一個檔案 —— 要加之前先問這個檔案是不是真的不屬於 app。
+const NOT_APP_SHELL = [
+  '/form.html',
+  '/css/form.css',
+  '/js/form/page.js',
+  '/js/data/publicForm.js',
+];
+
+test('排除清單裡的檔案都真的存在，而且沒有被列進 SHELL', () => {
+  // 排除清單打錯字的話它就什麼都沒排除，而那個錯誤是安靜的。
+  const missing = NOT_APP_SHELL.filter((p) => !existsSync(join(PUBLIC, p)));
+  assert.deepEqual(missing, [], `排除清單指向不存在的檔案：${missing.join(', ')}`);
+
+  const listed = new Set(shellList());
+  const both = NOT_APP_SHELL.filter((p) => listed.has(p));
+  assert.deepEqual(both, [], `這些檔案同時被排除又被列進 SHELL：${both.join(', ')}`);
+});
+
 test('SHELL 列的檔案都真的存在', () => {
   const missing = shellList()
     .filter((p) => p !== '/')
@@ -40,7 +63,7 @@ test('每個 app 殼檔案都被列進 SHELL', () => {
   const listed = new Set(shellList());
   const onDisk = walk(PUBLIC)
     .map((p) => p.slice(PUBLIC.length - 1))
-    .filter((p) => CACHEABLE.test(p) && p !== '/sw.js');
+    .filter((p) => CACHEABLE.test(p) && p !== '/sw.js' && !NOT_APP_SHELL.includes(p));
 
   const notListed = onDisk.filter((p) => !listed.has(p));
   assert.deepEqual(
