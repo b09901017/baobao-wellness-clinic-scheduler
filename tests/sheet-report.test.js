@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  customerReport, toTSV, toCSV, READONLY_NOTICE, syncBundle,
+  customerReport, toTSV, toCSV, READONLY_NOTICE, syncBundle, describeSync,
 } from '../public/js/domain/sheetReport.js';
 import { MARK_LEGEND } from '../public/js/domain/visits.js';
 
@@ -462,4 +462,58 @@ test('取消與軟刪除的來訪不進整包資料', () => {
   assert.equal(bundle.sheets.length, 1, '刪掉的客戶不該出現');
   assert.deepEqual(bundle.sheets[0].dates, []);
   assert.deepEqual(bundle.sheets[0].log, []);
+});
+
+// ---------- 自動同步的狀態（.scratch/first-real-import/issues/02） ----------
+//
+// 2026-08-21 第一次真的部署 `.gs`：每一次推送都在丟例外，而畫面上一個字都沒說。
+// 她唯一發現的方法是手動按「立刻推一次」—— 因為只有那條路會把錯誤顯示出來。
+
+describe('自動同步現在該說哪一句', () => {
+  test('沒設定就說沒開，不要講成失敗', () => {
+    const { tone, lines } = describeSync({ configured: false });
+    assert.equal(tone, 'off');
+    assert.equal(lines.length, 1);
+    assert.ok(!lines[0].includes('失敗'));
+  });
+
+  test('「還沒推」和「推了但被拒絕」不可以講成同一句', () => {
+    const waiting = describeSync({ configured: true, lastAtLabel: '8/21 10:00', dirty: true });
+    const failed = describeSync({
+      configured: true, lastAtLabel: '8/21 10:00', dirty: true,
+      error: '很抱歉，你無法凍結僅包含部分合併儲存格的欄。', errorAtLabel: '8/21 10:05',
+    });
+
+    assert.equal(waiting.tone, 'waiting');
+    assert.equal(failed.tone, 'failed');
+    assert.ok(failed.lines.some((l) => l.includes('被拒絕')));
+    assert.ok(failed.lines.some((l) => l.includes('無法凍結')), '原文要看得到，不然她修不了');
+    // 有錯誤時就不要再說「安靜幾秒會自己再推一次」—— 那是騙人的，它推了，被擋了
+    assert.ok(!failed.lines.some((l) => l.includes('自己再推')));
+  });
+
+  test('推失敗要說清楚資料本身沒事（ADR-0013）', () => {
+    const { lines } = describeSync({ configured: true, error: '密鑰不對' });
+    assert.ok(lines.some((l) => l.includes('app 裡是安全的')));
+  });
+
+  test('`.gs` 說有幾張沒更新，就要講出是哪幾張', () => {
+    const { tone, lines } = describeSync({
+      configured: true, lastAtLabel: '8/21 10:00', skipped: ['客戶A', '王小明'],
+    });
+    // 推成功了，但那兩位的次數是舊的 —— 跟「全部推好了」不是同一件事
+    assert.equal(tone, 'partial');
+    assert.ok(lines.some((l) => l.includes('客戶A') && l.includes('王小明')));
+  });
+
+  test('一切正常就只說上次同步是什麼時候', () => {
+    const { tone, lines } = describeSync({ configured: true, lastAtLabel: '8/21 10:00' });
+    assert.equal(tone, 'ok');
+    assert.deepEqual(lines, ['上次同步 8/21 10:00']);
+  });
+
+  test('沒推過也要有一句話，不要留空白', () => {
+    const { lines } = describeSync({ configured: true });
+    assert.ok(lines[0].includes('還沒推過'));
+  });
 });

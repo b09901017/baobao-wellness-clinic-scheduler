@@ -1,6 +1,6 @@
 # 自動推送失敗一個字都不說
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-21
 動工前先讀：`data/sheetSync.js`、`ui/views/report.js` 的 `syncCard()` 與 `pushNow()`、
 `docs/adr/0013-sheet-sync-is-a-push-not-a-pull.md`
@@ -73,3 +73,58 @@ return { ok: true, at, sheets: reply.sheets ?? null };
 - **不要改成失敗就跳 toast。** 自動推送是每次存檔後十秒觸發的，
   網路差的時候她會被 toast 洗版，然後學會忽略它 —— 那比不說還糟。
 - **不要因為推不出去就擋下寫入或回滾。** ADR-0013 的那句話還是對的。
+
+
+## Comments
+
+**2026-08-21 — 做完了。** `npm test` 從 699 變成 705 全過。
+
+三件事都做了，另外多做了一件（下面「做了 issue 上沒寫的事」那一段）。
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `data/sheetSync.js` | 多兩個 localStorage 的鍵：`sheetSync.lastError`（`{ at, error }`）與 `sheetSync.lastSkipped`（`{ at, names }`）。失敗一律走新的 `noteFailure()`，成功時把 `lastError` 清掉、把 `.gs` 回的 `skipped` 存起來 |
+| 同上 | `run()` 的回傳補上 `skipped`（陣列）。原本「還沒設定」那條回的也叫 `skipped`，但它是一句話不是清單，改名成 `off` + `error`，兩個東西不要共用一個欄位名 |
+| 同上 | `schedule()` 的 `.catch(() => {})` 換成 `.catch((err) => noteFailure(…))`。痕跡留在 `run()` 裡而不是 `schedule()` 裡 —— 手動按「立刻推一次」走的是同一支，兩條路要留下同一份紀錄 |
+| `domain/sheetReport.js` | 新的 `describeSync()`：那張卡現在該說哪幾句 |
+| `ui/views/report.js` | `syncCard()` 讀 `describeSync()`；`pushNow()` 成功但有 `skipped` 時走 `toast.failed` 而不是 `toast.info` |
+| `tests/sheet-report.test.js` | 六條，盯著「還沒推」與「推了被拒絕」不可以講成同一句 |
+
+### 為什麼那句話抽成純函式
+
+`data/sheetSync.js` 在 node 裡跑不起來（它一路 import 到 firebase 的 CDN 網址），
+所以那一層寫什麼都測不到。而這一支真正壞掉的東西是**一句話講反了**：
+「有資料還沒推上去」講的是「還沒推」，不是「推了但被拒絕」。
+那條規則放進 `domain/sheetReport.js` 之後測得到，六條測試盯著它。
+
+時間一律由 `ui/views/report.js` 格式化好再傳進去 —— `toLocaleString()` 跟著裝置的
+時區與語系走，寫在純函式裡等於寫了一個在別台機器上會變的東西。
+
+### 做了 issue 上沒寫的事
+
+`describeSync()` 多回一個 `tone`（`off` / `ok` / `waiting` / `partial` / `failed`），
+其中 **`partial` 是「推成功了，但有幾張沒更新」**。issue 只說 `skipped` 要顯示出來，
+沒說它算不算「有問題」。做成獨立的一種是因為那兩件事在她那裡的後果不一樣：
+`failed` 是整份報表都是舊的，`partial` 是**那幾位**的次數是舊的。
+畫面上都會標成「有問題」，但講的句子不同。
+
+### 沒有做的
+
+- **首頁不出聲。** issue 裡「要決定的一件事」那段本來就寫著這一支先不做，
+  連續失敗超過一天要不要浮到待辦中心，另外想。
+  **2026-08-21 使用者確認照這樣做**，沒有另外開票 —— 等她實際用到「推不出去而
+  我一整天沒發現」的時候再談，現在就開等於替一個還沒發生的問題設計。
+- **沒有加 `data/` 那層的測試。** 這個 repo 目前一支都沒有（firebase SDK 是從
+  CDN import 的，node 解析不了那個 URL）。要補的話得先給 `data/` 一個
+  import map 或 stub loader，那是另一件事。
+
+### 還沒驗證的
+
+`.gs` 一個字都沒改，所以**不用重新部署**。但要看到這一支的效果，得先照
+`issues/01` 的 Comments 把 `sheets/readonly-report.gs` 重新貼進 Apps Script 部署 ——
+在那之前每一次推送都還是會被同一個例外擋下來，只是現在**畫面上會講出來**：
+`#/settings/report` 的「自動同步」卡會顯示「上次推送被拒絕（時間）：<Google 的原文>」。
+
+驗證方式（不用等真的壞掉）：把密鑰故意改錯一個字 → 存檔 → 等十秒 →
+重新整理 `#/settings/report`，那張卡應該說「被拒絕：密鑰不對」。
+改回來再按「立刻推一次」，那一句要消失。

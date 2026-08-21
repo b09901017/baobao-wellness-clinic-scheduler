@@ -8,7 +8,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
+  groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { validateVisit } from '../public/js/domain/visits.js';
@@ -209,6 +210,38 @@ test('未來的預約是已確認、還沒來，所以不算出席', () => {
   assert.equal(visit.slots[0].attended, false);
 });
 
+test('跨天的個人行程進得去，明確的 allDay 欄位比反推優先', () => {
+  // 產檔那側現在會給 endDate 與 allDay（.scratch/first-real-import/issues/06）
+  const [away, odd, old] = eventDocs([
+    { title: '出國', startDate: '2026-08-10', endDate: '2026-08-14', allDay: true, startTime: null },
+    // 標成整天卻帶著時間：整天贏，時間清掉 —— 那個時間沒有來源
+    { title: '休假', startDate: '2026-09-01', endDate: '2026-09-01', allDay: true, startTime: '09:00' },
+    // 舊的合併檔沒有 allDay，照樣要吃得下
+    { title: '公出', startDate: '2026-08-12', endDate: '2026-08-12', startTime: '14:30' },
+  ]);
+
+  assert.equal(away.endDate, '2026-08-14');
+  assert.equal(away.allDay, true);
+  assert.equal(odd.startTime, null);
+  assert.equal(odd.endTime, null);
+  assert.equal(old.allDay, false);
+  assert.equal(old.endTime, '15:30');
+});
+
+test('結束日比開始日早的資料當成單天，不要送進去被 rules 打回來', () => {
+  const [e] = eventDocs([
+    { title: '壞掉的', startDate: '2026-08-10', endDate: '2026-08-01', allDay: true },
+  ]);
+  assert.equal(e.endDate, '2026-08-10');
+});
+
+test('讀不出來的行事曆事件要講出來', () => {
+  const { warnings } = validateFile(FILE({
+    unreadable: [{ title: '讀不出來的東西', raw: '壞掉的值', why: 'DTSTART 讀不出日期' }],
+  }));
+  assert.ok(warnings.some((w) => w.includes('讀不出日期')));
+});
+
 test('個人行程沒有時間就是整天', () => {
   const [timed, allDay] = eventDocs([
     { title: '公出', startDate: '2026-08-10', endDate: '2026-08-10', startTime: '15:00', endTime: null },
@@ -229,6 +262,176 @@ test('摘要的數字要跟報告對得起來', () => {
   assert.equal(s.visits, 1);
   assert.equal(s.slots, 2);
   assert.equal(s.timed, 2);
+});
+
+// ---------- 已經來過 vs 還沒來（.scratch/first-real-import/issues/03） ----------
+//
+// 舊表上有打勾在她的用法裡是「排了」，不是「來了」—— 她也會先把未來的預約寫進去。
+// 合併檔那側因此一律吐 done，2026-08-21 那份 67 筆來訪全是 done，其中 11 筆在今天之後。
+// `done` 才扣次數（SPEC 第 4.2 節），所以那 11 筆會讓剩餘次數少算。
+
+const FUTURE = () => {
+  const entry = CUSTOMER();
+  entry.visits.push({
+    date: '2026-09-30',
+    status: 'done', // 合併檔那側一律吐 done —— 這正是要修的東西
+    slots: [{
+      entitlementKey: 'r8', courseName: '靜脈', startsAt: '10:00', endsAt: '11:00',
+      roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+      confidence: 'high', evidence: '10.IL',
+    }],
+  });
+  return entry;
+};
+
+test('日期在今天之後的來訪建成已確認，今天含以前的維持已完成', () => {
+  const p = plan(FUTURE(), { today: '2026-08-21' });
+  const past = p.visits.find((v) => v.date === '2026-08-13');
+  const ahead = p.visits.find((v) => v.date === '2026-09-30');
+
+  assert.equal(past.status, 'done');
+  assert.equal(ahead.status, 'confirmed');
+});
+
+test('還沒來就不算出席 —— 未來那幾段的 attended 是 false', () => {
+  const p = plan(FUTURE(), { today: '2026-08-21' });
+  const ahead = p.visits.find((v) => v.date === '2026-09-30');
+  const past = p.visits.find((v) => v.date === '2026-08-13');
+
+  assert.equal(ahead.slots.every((x) => x.attended === false), true);
+  assert.equal(past.slots.every((x) => x.attended === true), true);
+});
+
+test('今天當天算已經發生，不是未來', () => {
+  const p = plan(CUSTOMER(), { today: '2026-08-13' });
+  assert.equal(p.visits[0].status, 'done');
+});
+
+test('檔案說 confirmed 就聽它，不管日期', () => {
+  // futureVisits 那條路標的 confirmed 是有依據的判斷，不要拿算出來的結果蓋掉它
+  const entry = CUSTOMER();
+  entry.visits[0].status = 'confirmed';
+  const p = plan(entry, { today: '2026-12-31' });
+  assert.equal(p.visits[0].status, 'confirmed');
+});
+
+test('沒給 today 就只看檔案裡寫什麼', () => {
+  const p = plan(FUTURE());
+  assert.deepEqual(p.visits.map((v) => v.status), ['done', 'done']);
+});
+
+test('補進來的未來來訪也要是已確認，不要又變回已完成', () => {
+  // 她從 missingFromSheet 勾一筆未來的，走的是 addExtraVisits() 那一條
+  const plans = [plan(CUSTOMER(), { today: '2026-08-21' })];
+  addExtraVisits(plans, [
+    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-08-01', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+  ], { ...CTX, today: '2026-08-21' });
+
+  const ahead = plans[0].visits.find((v) => v.date === '2026-09-15');
+  const past = plans[0].visits.find((v) => v.date === '2026-08-01');
+  assert.equal(ahead.status, 'confirmed');
+  assert.equal(ahead.slots[0].attended, false);
+  assert.equal(past.status, 'done');
+  assert.equal(past.slots[0].attended, true);
+});
+
+test('摘要要講出「其中幾筆還沒發生」', () => {
+  const plans = [plan(FUTURE(), { today: '2026-08-21' })];
+  assert.equal(summarize(plans).future, 1);
+
+  addExtraVisits(plans, [
+    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+  ], { ...CTX, today: '2026-08-21' });
+  assert.equal(summarize(plans).future, 2, '補進來的那一筆也要算進去');
+  assert.equal(summarize(plans).visits, 3);
+});
+
+// ---------- 候選清單分區（.scratch/first-real-import/issues/05） ----------
+//
+// 原本三張卡是照「這筆資料哪裡來的」分的，198 筆過去與未來交錯排列，
+// 她要一筆一筆看日期才知道哪些還沒發生。
+
+const CANDIDATES = () => FILE({
+  missingFromSheet: [
+    { customerName: '客戶A', date: '2026-07-02', courseName: '靜脈', include: false },
+    { customerName: '客戶A', date: '2026-09-20', courseName: '靜脈', include: false },
+    { customerName: '客戶A', date: '2026-08-05', courseName: '復能', include: false },
+  ],
+  futureVisits: [
+    { customerName: '客戶A', date: '2026-09-05', courseName: '復能', status: 'confirmed', include: false },
+  ],
+  eventCandidates: [
+    { title: '公出', startDate: '2026-08-30', endDate: '2026-08-30', include: false },
+    { title: '演講', startDate: '2026-06-01', endDate: '2026-06-01', include: false },
+  ],
+});
+
+test('候選清單先分時間再分來源', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+
+  assert.deepEqual(g.future.visits.map((r) => r.date), ['2026-09-05', '2026-09-20']);
+  assert.deepEqual(g.future.events.map((r) => r.date), ['2026-08-30']);
+  assert.deepEqual(g.past.visits.map((r) => r.date), ['2026-08-05', '2026-07-02']);
+  assert.deepEqual(g.past.events.map((r) => r.date), ['2026-06-01']);
+});
+
+test('排序是「離今天多遠」：未來近的在前，過去最近做的在前', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+  assert.equal(g.future.visits[0].date, '2026-09-05');
+  assert.equal(g.past.visits[0].date, '2026-08-05');
+});
+
+test('分組記的是原本清單裡的位置，勾選才對得回去', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+  const late = g.future.visits.find((r) => r.kind === 'missing');
+  assert.equal(late.index, 1, 'missingFromSheet 的第 2 筆');
+  assert.equal(late.item.date, '2026-09-20');
+});
+
+test('還沒發生的預設勾起來，已經發生的一筆都不勾（ADR-0030）', () => {
+  const chosen = defaultPicks(CANDIDATES(), '2026-08-21');
+  assert.deepEqual(chosen.future, [0], '未來的預約那一筆');
+  assert.deepEqual(chosen.missing, [1], '只有 9/20 那筆在未來');
+  assert.deepEqual(chosen.events, [0], '只有 8/30 那筆在未來');
+});
+
+test('沒給 today 就全部算成已經發生，一筆都不預設勾', () => {
+  // 分不出來的時候寧可不勾 —— 替她勾錯的成本比要她自己勾高
+  const g = groupCandidates(CANDIDATES(), null);
+  assert.equal(g.future.visits.length + g.future.events.length, 0);
+  assert.deepEqual(defaultPicks(CANDIDATES(), null), { future: [], missing: [], events: [] });
+});
+
+test('customers[] 裡的未來來訪要數出來 —— 那張卡本來只列得出十一分之一', () => {
+  const json = FILE({ customers: [FUTURE()] });
+  assert.equal(groupCandidates(json, '2026-08-21').plannedFuture, 1);
+  assert.equal(groupCandidates(json, '2026-12-31').plannedFuture, 0);
+});
+
+test('ambiguous 要有人講出來，不然那一筆就這樣消失了', () => {
+  const json = FILE({
+    ambiguous: [{ date: '2026-06-30', evidence: '3.15 IL治2', course: '靜脈', who: ['客戶A', '王小明'] }],
+  });
+  const { errors, warnings } = validateFile(json);
+  assert.deepEqual(errors, [], '這不是壞檔案');
+  assert.ok(warnings.some((w) => w.includes('兩位以上')));
+});
+
+// ---------- 待辦（.scratch/first-real-import/issues/04） ----------
+
+test('確認框上的待辦筆數只數還沒發生的那些', () => {
+  const ahead = plan(FUTURE(), { today: '2026-08-21' });
+  // 9/30 那筆是靜脈（C 類 → Abovee 一件）；8/13 那筆已經發生，一件都不長
+  assert.equal(countNewTasks([ahead], { courses: SEED.courses, today: '2026-08-21' }), 1);
+
+  const past = plan(CUSTOMER(), { today: '2026-08-21' });
+  assert.equal(countNewTasks([past], { courses: SEED.courses, today: '2026-08-21' }), 0);
+});
+
+test('整位跳過的客戶不算待辦', () => {
+  const skipped = plan(FUTURE(), { today: '2026-08-21', existingCustomers: [{ id: 'c1', name: '客戶A' }] });
+  assert.equal(countNewTasks([skipped], { courses: SEED.courses, today: '2026-08-21' }), 0);
 });
 
 // ---------- 二返（GitHub issue #15） ----------

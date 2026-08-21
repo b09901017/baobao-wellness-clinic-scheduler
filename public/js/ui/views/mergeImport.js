@@ -10,8 +10,10 @@
 
 import * as importer from '../../data/legacyImport.js';
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
+  groupCandidates, defaultPicks,
 } from '../../domain/mergeImport.js';
+import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -24,8 +26,25 @@ import { icon } from '../icons.js';
 let file = null;
 let fileErrors = [];
 let fileWarnings = [];
-/** 三份候選清單她勾了哪幾筆。預設一筆都不勾 —— 那是她指定的。 */
-let picks = { future: new Set(), missing: new Set(), events: new Set() };
+/**
+ * 三份候選清單她勾了哪幾筆，記的是在原本那三份清單裡的位置。
+ * 預設值見 `defaultPicks()`：還沒發生的勾起來、已經發生的不勾（ADR-0030）。
+ */
+let picks = emptyPicks();
+
+function emptyPicks() {
+  return { future: new Set(), missing: new Set(), events: new Set() };
+}
+
+/** 一份檔案剛讀進來時的預設勾選。 */
+function pickSets(json) {
+  const chosen = defaultPicks(json, todayISO());
+  return {
+    future: new Set(chosen.future),
+    missing: new Set(chosen.missing),
+    events: new Set(chosen.events),
+  };
+}
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -43,18 +62,23 @@ export async function render(el) {
 
 function plansOf(ctx) {
   if (!file) return [];
-  const plans = file.customers.map((c) => planForCustomer(c, ctx, file));
+  // 「未來」的界線在**匯入的那一刻**，不是產檔的那一刻：一份 8/19 產的檔案
+  // 她 8/21 才貼，下個月再貼一次「未來」會完全不同。所以 today 在這裡取，
+  // 不寫進檔案（`.scratch/first-real-import/issues/03`）。
+  const withToday = { ...ctx, today: todayISO() };
+  const plans = file.customers.map((c) => planForCustomer(c, withToday, file));
   const extras = [
     ...(file.futureVisits ?? []).filter((_, i) => picks.future.has(i)),
     ...(file.missingFromSheet ?? []).filter((_, i) => picks.missing.has(i)),
   ];
-  const extraProblems = addExtraVisits(plans, extras, ctx);
+  const extraProblems = addExtraVisits(plans, extras, withToday);
   return { plans, extraProblems };
 }
 
 function paint(el, ctx) {
   const { plans = [], extraProblems = [] } = file ? plansOf(ctx) : {};
   const s = file ? summarize(plans) : null;
+  const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
 
   el.innerHTML = `
     ${backLink()}
@@ -83,14 +107,14 @@ function paint(el, ctx) {
     ${file ? summaryCard(s, plans, extraProblems) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
-    ${file ? runCard(s) : ''}`;
+    ${file ? runCard(s, tasks) : ''}`;
 
   el.querySelector('[data-load]')?.addEventListener('click', () => load(el, ctx));
   el.querySelector('[data-clear]')?.addEventListener('click', () => {
     file = null;
     fileErrors = [];
     fileWarnings = [];
-    picks = { future: new Set(), missing: new Set(), events: new Set() };
+    picks = emptyPicks();
     paint(el, ctx);
   });
   el.querySelectorAll('[data-pick]').forEach((box) =>
@@ -101,7 +125,20 @@ function paint(el, ctx) {
       paint(el, ctx);
     }),
   );
-  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s));
+  // 一個時間區塊一顆。198 筆全部要或全部不要都是一次點擊，
+  // 而不是勾 198 次 —— 那才是「一樣可以勾選」講得通的前提。
+  el.querySelectorAll('[data-all]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const on = btn.dataset.on === '1';
+      const group = groupCandidates(file, todayISO())[btn.dataset.all];
+      for (const r of [...group.visits, ...group.events]) {
+        if (on) picks[r.kind].add(r.index);
+        else picks[r.kind].delete(r.index);
+      }
+      paint(el, ctx);
+    }),
+  );
+  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks));
 }
 
 function load(el, ctx) {
@@ -124,7 +161,7 @@ function load(el, ctx) {
   fileErrors = errors;
   fileWarnings = warnings;
   file = errors.length ? null : json;
-  picks = { future: new Set(), missing: new Set(), events: new Set() };
+  picks = file ? pickSets(file) : emptyPicks();
   paint(el, ctx);
 }
 
@@ -146,6 +183,9 @@ function summaryCard(s, plans, extraProblems) {
       <h2 class="card__title">會寫進去什麼</h2>
       <p><b>${s.customers}</b> 位客戶　<b>${s.entitlements}</b> 筆額度　<b>${s.visits}</b> 筆來訪　<b>${s.slots}</b> 個時段</p>
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
+      ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成
+        <b>已確認</b> —— 那是「已經約好、還沒來」：算進已排未上，次數還不會扣。
+        其餘的標成已完成。</p>` : ''}
       ${s.followups ? `<p class="muted">額度裡有 <b>${s.followups}</b> 筆二返是系統配的
         —— 買幾次健檢就有幾次二返，合併檔上沒有這一項。次數不對就到客戶詳情頁改。</p>` : ''}
       ${span.length ? `<p class="muted">行事曆涵蓋 ${esc(span[0] ?? '')} ～ ${esc(span[1] ?? '')}，
@@ -186,56 +226,129 @@ function lowCard(plans) {
     </section>`;
 }
 
-/** 三份候選清單。**一律預設不勾** —— 匯什麼由她一筆一筆決定。 */
+/**
+ * 候選清單。**先分時間、再分來源** —— 她要問的是「這件事發生了沒」，
+ * 不是「這筆資料哪裡來的」（`.scratch/first-real-import/issues/05`）。
+ *
+ * 分組與預設值都在 `domain/mergeImport.js`，這裡只負責畫。
+ */
 function candidateCards() {
-  const list = (kind, title, note, items, line) => (items?.length ? `
-    <section class="card">
-      <h2 class="card__title">${title}<span class="badge">${picks[kind].size} / ${items.length}</span></h2>
-      <p class="muted">${note}</p>
-      <ul class="tight">
-        ${items.map((x, i) => `
-          <li><label class="choice" style="border: none; background: none; padding: 2px 0">
-            <input type="checkbox" data-pick="${kind}" data-index="${i}" ${picks[kind].has(i) ? 'checked' : ''}>
-            <span>${line(x)}</span>
-          </label></li>`).join('')}
-      </ul>
-    </section>` : '');
-
+  const groups = groupCandidates(file, todayISO());
   return [
-    list('missing', '行事曆上有，試算表沒勾',
-      '她那天做了、但忘記回去打勾的。勾起來會補成一筆來訪，次數才算得對。',
-      file.missingFromSheet,
-      (x) => `${esc(x.date)}　${esc(x.customerName)}　${esc(x.courseName)}
-        ${x.startsAt ? `<b>${esc(x.startsAt)}</b>` : ''}
-        <span class="muted">「${esc(x.evidence ?? '')}」${x.sheetHasThatDay ? '（那天試算表有勾別的）' : ''}</span>`),
-    list('future', '未來的預約',
-      '已經約好、還沒來的。勾起來會建成「已確認」的來訪，算進已排未上。',
-      file.futureVisits,
-      (x) => `${esc(x.date)}　${esc(x.customerName)}　${esc(x.courseName)}
-        ${x.startsAt ? `<b>${esc(x.startsAt)}</b>` : ''}
-        <span class="muted">「${esc(x.evidence ?? '')}」</span>`),
-    list('events', '對不到客戶的行事曆事件',
-      '個人行程、公司的事、待辦全部混在一起。勾起來的會變成個人行程 ——'
-      + '不綁客戶、不產生任務、不扣次數。',
-      file.eventCandidates,
-      (x) => `${esc(x.startDate)}　${x.startTime ? `<b>${esc(x.startTime)}</b>　` : ''}${esc(x.title)}
-        ${x.repeats ? '<span class="muted">（行事曆上是重複事件，只匯這一次）</span>' : ''}`),
+    block('future', '還沒發生的', groups.future, {
+      note: '她現在正在管理的事，所以<b>預設全部勾起來</b>。不要的自己取消。',
+      extra: groups.plannedFuture
+        ? `另外有 <b>${groups.plannedFuture}</b> 筆未來的來訪寫在客戶的療程紀錄裡，`
+          + '那些一定會匯入，不用勾 —— 那是她已經約好的事，日曆上必須看得到。'
+        : '',
+    }),
+    block('past', '已經發生的', groups.past, {
+      note: '補歷史要謹慎：補一筆進去等於說「那天做了這件事」，而那會扣一次次數。'
+        + '所以<b>預設一筆都不勾</b>，要哪幾筆自己挑。',
+      extra: '',
+    }),
+    ambiguousCard(),
   ].join('');
 }
 
-function runCard(s) {
+/** 一個時間區塊：底下再分「來訪」與「個人行程」兩段。 */
+function block(which, title, group, { note, extra }) {
+  const rows = [...group.visits, ...group.events];
+  if (!rows.length) return '';
+  const chosen = rows.filter((r) => picks[r.kind].has(r.index)).length;
+
+  return `
+    <section class="card">
+      <h2 class="card__title">${title}<span class="badge">${chosen} / ${rows.length}</span></h2>
+      <p class="muted">${note}</p>
+      <p class="form__actions">
+        <button class="btn" type="button" data-all="${which}" data-on="1">全選</button>
+        <button class="btn" type="button" data-all="${which}" data-on="0">全不選</button>
+      </p>
+      ${section('來訪', group.visits, (r) => visitLine(r, which),
+    which === 'future'
+      ? '勾起來會建成「已確認」的來訪，算進已排未上，而且會長出登記待辦。'
+      : '勾起來會補成一筆「已完成」的來訪，次數才算得對。')}
+      ${section('個人行程', group.events, eventLine,
+    '不綁客戶、不產生任務、不扣次數。')}
+      ${extra ? `<p class="muted">${extra}</p>` : ''}
+    </section>`;
+}
+
+function section(title, rows, line, note) {
+  if (!rows.length) return '';
+  return `
+    <h3 class="card__title" style="margin-top: var(--space-5)">${title}<span class="badge">${rows.length}</span></h3>
+    <p class="muted">${note}</p>
+    <ul class="tight">
+      ${rows.map((r) => `
+        <li><label class="choice" style="border: none; background: none; padding: 2px 0">
+          <input type="checkbox" data-pick="${r.kind}" data-index="${r.index}"
+            ${picks[r.kind].has(r.index) ? 'checked' : ''}>
+          <span>${line(r)}</span>
+        </label></li>`).join('')}
+    </ul>`;
+}
+
+const visitLine = ({ kind, item: x, date }, which) => `${esc(date)}　${esc(x.customerName)}　${esc(x.courseName)}
+  ${x.startsAt ? `<b>${esc(x.startsAt)}</b>` : ''}
+  <span class="muted">「${esc(x.evidence ?? '')}」${
+  kind === 'missing'
+    ? `（行事曆上有、試算表沒勾${x.sheetHasThatDay ? '，那天試算表有勾別的' : ''}）`
+    : '（行事曆上的預約）'}${
+  // 產檔的時候還在未來、貼進來的時候已經過了。照檔案標的建成「已確認」
+  // （issues/03 的判準：檔案說 confirmed 就聽它），但那一筆的登記待辦
+  // 一長出來就是逾期的紅字 —— 先講出來，不要讓她在待辦中心才發現。
+  which === 'past' && x.status === 'confirmed'
+    ? '　⚠ 檔案標成已確認，但日期已經過了 —— 會建成已確認，登記待辦一出生就逾期'
+    : ''}</span>`;
+
+const eventLine = ({ item: x }) => `${esc(x.startDate)}${
+  x.endDate && x.endDate !== x.startDate ? `～${esc(x.endDate)}` : ''}　${
+  x.startTime ? `<b>${esc(x.startTime)}</b>　` : ''}${esc(x.title)}
+  ${x.endDate && x.endDate !== x.startDate ? '<span class="muted">（跨天）</span>' : ''}
+  ${x.repeats ? '<span class="muted">（行事曆上是重複事件，只匯這一次）</span>' : ''}`;
+
+/**
+ * 對得上兩位以上客戶的那幾筆。**唯讀** —— 勾了也不知道要算給誰。
+ *
+ * 產檔那側花力氣不猜，app 這側連提都沒提的話，那一筆來訪就這樣消失了：
+ * 兩邊都沒有錯，但東西不見了。
+ */
+function ambiguousCard() {
+  const rows = file.ambiguous ?? [];
+  if (!rows.length) return '';
+  return `
+    <section class="card">
+      <h2 class="card__title">這 ${rows.length} 筆兩位客戶都可能</h2>
+      <p class="muted">行事曆上沒寫是誰，而那天有兩位以上都排了這個療程。
+        <b>一筆都沒有匯入</b>，也沒辦法在這裡勾 —— 勾了也不知道要算給誰。
+        匯完到日曆上自己補。</p>
+      <ul class="tight">
+        ${rows.map((a) => `<li>${esc(a.date ?? '')}　${esc(a.course ?? '')}
+          <span class="muted">「${esc(a.evidence ?? '')}」</span>
+          → 可能是：${esc((a.who ?? []).join(' 或 '))}</li>`).join('')}
+      </ul>
+    </section>`;
+}
+
+function runCard(s, tasks) {
   return `
     <section class="card">
       <p class="form__actions">
         <button class="btn btn--primary" type="button" data-run ${s.customers ? '' : 'disabled'}>開始匯入</button>
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
-        來訪一律標成已完成（未來的預約是已確認），而且<b>不會產生任何待辦任務</b> ——
-        那些掛號在舊系統早就做完了。</p>
+        已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
+        （算進已排未上，次數還不會扣）。</p>
+      <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
+        那些掛號在舊系統早就做完了。${tasks
+          ? `還沒發生的那些會，這次是 <b>${tasks}</b> 筆：那幾件登記與確認是真的還沒做。`
+          : '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。'}</p>
     </section>`;
 }
 
-async function run(el, ctx, plans, s) {
+async function run(el, ctx, plans, s, tasks) {
   const events = eventDocs((file.eventCandidates ?? []).filter((_, i) => picks.events.has(i)));
   const extras = picks.future.size + picks.missing.size;
 
@@ -244,11 +357,16 @@ async function run(el, ctx, plans, s) {
     consequences: [
       `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
       `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
+      s.future
+        ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
+        : '沒有日期在今天之後的來訪，全部標成已完成',
       ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
       events.length ? `建立 ${events.length} 筆個人行程` : '沒有勾任何個人行程',
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
-      '不會產生任何待辦任務',
+      tasks
+        ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
+        : '不會產生任何待辦任務 —— 這次沒有還沒發生的來訪',
       '每位客戶各自寫入，一位失敗不影響其他人',
     ],
     confirmLabel: '匯入',
@@ -278,7 +396,7 @@ async function run(el, ctx, plans, s) {
   } else {
     toast.info(`${results.length} 位客戶都匯進去了`);
     file = null;
-    picks = { future: new Set(), missing: new Set(), events: new Set() };
+    picks = emptyPicks();
   }
 
   await render(el);

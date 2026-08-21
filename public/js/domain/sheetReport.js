@@ -384,3 +384,58 @@ function taskBlocks(tasks, visits) {
 
 const byDue = (a, b) => String(a.dueDate ?? '').localeCompare(String(b.dueDate ?? ''));
 const byDoneDesc = (a, b) => String(b.doneAt ?? '').localeCompare(String(a.doneAt ?? ''));
+
+// ---------- 自動同步現在是什麼狀態 ----------
+
+/**
+ * `#/settings/report` 那張「自動同步」的卡現在該說哪幾句。
+ *
+ * 為什麼是一支純函式而不是寫在那張卡裡：**「還沒推」和「推了但被拒絕」是兩件事**，
+ * 而她的處理方式完全不同 —— 前者等一下就好，後者要她去看設定或重新部署 `.gs`。
+ * 這兩句講反了正是 `.scratch/first-real-import/issues/02` 要修的東西，
+ * 而 `data/sheetSync.js` 那一層在 node 裡跑不起來（它一路 import 到 firebase 的
+ * CDN 網址），所以規則放在這裡才測得到。
+ *
+ * 時間一律由呼叫端格式化好再傳進來 —— `toLocaleString()` 的結果跟著裝置的
+ * 時區與語系走，寫在純函式裡就等於寫了一個在別台機器上會變的東西。
+ *
+ * @param {object} state
+ * @param {boolean} state.configured      網址與密鑰都填了
+ * @param {string|null} [state.lastAtLabel] 上次推成功的時間，已經格式化好
+ * @param {boolean} [state.dirty]         有資料還沒推上去
+ * @param {string|null} [state.error]     上次被拒絕的原因
+ * @param {string|null} [state.errorAtLabel] 上次被拒絕的時間，已經格式化好
+ * @param {string[]} [state.skipped]      沒有更新到的分頁名字
+ * @returns {{tone: 'off'|'ok'|'waiting'|'partial'|'failed', lines: string[]}}
+ */
+export function describeSync({
+  configured = false, lastAtLabel = null, dirty = false,
+  error = null, errorAtLabel = null, skipped = [],
+} = {}) {
+  if (!configured) {
+    return { tone: 'off', lines: ['沒有開。網址與密鑰兩個欄位都填了才會開始推。'] };
+  }
+
+  const lines = [`上次同步 ${lastAtLabel ?? '還沒推過'}`];
+  let tone = 'ok';
+
+  if (error) {
+    tone = 'failed';
+    lines.push(`上次推送被拒絕${errorAtLabel ? `（${errorAtLabel}）` : ''}：${error}`);
+    // 這一句是為了擋掉「那我剛剛存的東西是不是也沒進去」那個念頭。
+    // 資料在 Firestore 裡是安全的（ADR-0013），錯的是試算表上那一份。
+    lines.push('資料在 app 裡是安全的，沒推出去的是報表 —— 試算表上那份現在是舊的。');
+  } else if (dirty) {
+    tone = 'waiting';
+    lines.push('有資料還沒推上去，安靜幾秒會自己再推一次。');
+  }
+
+  if (skipped.length) {
+    if (tone !== 'failed') tone = 'partial';
+    lines.push(`另外有 ${skipped.length} 張分頁沒有更新：${skipped.join('、')}。`
+      + '試算表上那幾張認不出來是系統畫的，所以不敢清空重畫 —— 那幾位的次數還是舊的。'
+      + '到試算表把它們改名或刪掉，下次推送就會重畫。');
+  }
+
+  return { tone, lines };
+}

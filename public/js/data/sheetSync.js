@@ -31,6 +31,13 @@ const QUIET_MS = 10_000;
 const LAST_KEY = 'sheetSync.lastAt';
 /** 有資料變了但還沒推成功。離線時會一直是 true，連上網之後補推。 */
 const DIRTY_KEY = 'sheetSync.dirty';
+/**
+ * 上次推送**被拒絕**的原因。跟 DIRTY_KEY 是兩件事：
+ * 那個說「還沒推」，這個說「推了，對面不收」——處理方式完全不同。
+ */
+const ERROR_KEY = 'sheetSync.lastError';
+/** `.gs` 認不出來、所以沒有更新的那幾張分頁。那幾位的次數是舊的，要講出來。 */
+const SKIPPED_KEY = 'sheetSync.lastSkipped';
 
 let timer = null;
 let inFlight = null;
@@ -51,8 +58,32 @@ const write = (key, value) => {
   }
 };
 
+const readJson = (key) => {
+  try {
+    return JSON.parse(read(key) ?? 'null');
+  } catch {
+    return null;
+  }
+};
+
 export const lastSyncedAt = () => read(LAST_KEY);
 export const isDirty = () => read(DIRTY_KEY) === '1';
+
+/** 上次失敗的原因，{ at, error }。沒失敗過或上次成功了就是 null。 */
+export const lastError = () => readJson(ERROR_KEY);
+/** 上次推送有幾張沒更新，{ at, names }。一張都沒有就是 null。 */
+export const lastSkipped = () => readJson(SKIPPED_KEY);
+
+/**
+ * 推失敗了。**留下來的是痕跡，不是彈窗** —— 自動推送是每次存檔後十秒觸發的，
+ * 網路差的時候跳 toast 會把她洗版，然後她就學會忽略它，那比不說還糟。
+ * 待推標記照舊留著，下次寫入或下次開 app 會補推（ADR-0013）。
+ */
+function noteFailure(error) {
+  write(DIRTY_KEY, '1');
+  write(ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), error }));
+  return { ok: false, error };
+}
 
 /** 設定齊了才算開著。網址或密鑰少一個都推不出去。 */
 export function isConfigured(settings) {
@@ -93,7 +124,11 @@ export async function buildBundle() {
 /**
  * 推一次。同時只會有一份在路上 —— 兩份整包互相覆蓋，後到的不一定比較新。
  *
- * @returns {Promise<{ok: boolean, skipped?: string, error?: string, at?: string}>}
+ * **不 throw。** 失敗是回傳值，而且一定會被 noteFailure() 記下來 ——
+ * 自動推送那條路沒有人在看回傳值，只有痕跡留得住。
+ *
+ * @returns {Promise<{ok: boolean, off?: boolean, error?: string,
+ *                    at?: string, sheets?: number|null, skipped?: string[]}>}
  */
 export function push() {
   inFlight ??= run().finally(() => { inFlight = null; });
@@ -102,7 +137,8 @@ export function push() {
 
 async function run() {
   const settings = await config.getSettings();
-  if (!isConfigured(settings)) return { ok: false, skipped: '還沒設定試算表的網址與密鑰' };
+  // 「沒有開」不是失敗，不留失敗痕跡 —— 那張卡本來就會說它沒開。
+  if (!isConfigured(settings)) return { ok: false, off: true, error: '還沒設定試算表的網址與密鑰' };
 
   const { url, token } = settings.sheetSync;
   const bundle = await buildBundle();
@@ -119,41 +155,44 @@ async function run() {
     });
   } catch (err) {
     // 離線就是這一條。留著待推標記，下次寫入或下次開 app 再補。
-    write(DIRTY_KEY, '1');
-    return { ok: false, error: `連不上試算表：${err.message}` };
+    return noteFailure(`連不上試算表：${err.message}`);
   }
 
   const text = (await res.text()).trim();
-  if (!res.ok) {
-    write(DIRTY_KEY, '1');
-    return { ok: false, error: `試算表回了 ${res.status}：${text.slice(0, 200)}` };
-  }
+  if (!res.ok) return noteFailure(`試算表回了 ${res.status}：${text.slice(0, 200)}`);
 
   let reply;
   try {
     reply = JSON.parse(text);
   } catch {
     // Apps Script 出錯時回的是一整頁 HTML，直接印出來只會嚇到人
-    write(DIRTY_KEY, '1');
-    return { ok: false, error: '試算表回了看不懂的東西，請確認網頁應用程式的部署還在' };
+    return noteFailure('試算表回了看不懂的東西，請確認網頁應用程式的部署還在');
   }
 
-  if (!reply.ok) {
-    write(DIRTY_KEY, '1');
-    return { ok: false, error: reply.error ?? '試算表說失敗，但沒說為什麼' };
-  }
+  if (!reply.ok) return noteFailure(reply.error ?? '試算表說失敗，但沒說為什麼');
 
   const at = new Date().toISOString();
+  // `.gs` 的 resetSheet() 認不出來、所以沒有清空重畫的那幾張。那條守衛做出來
+  // 就是為了講話的：那幾位的次數還是上一次的，而畫面上看起來跟推好了一模一樣。
+  const skipped = Array.isArray(reply.skipped) ? reply.skipped : [];
   write(LAST_KEY, at);
   write(DIRTY_KEY, null);
-  return { ok: true, at, sheets: reply.sheets ?? null };
+  write(ERROR_KEY, null);
+  write(SKIPPED_KEY, skipped.length ? JSON.stringify({ at, names: skipped }) : null);
+  return { ok: true, at, sheets: reply.sheets ?? null, skipped };
 }
 
 /** 安靜 QUIET_MS 之後推一次。連續存十幾筆只會換來一次推送。 */
 export function schedule() {
   write(DIRTY_KEY, '1');
   clearTimeout(timer);
-  timer = setTimeout(() => { push().catch(() => {}); }, QUIET_MS);
+  timer = setTimeout(() => {
+    // push() 失敗時回的是 `{ ok: false, error }`，不是 throw —— 以前這裡
+    // 只有一個 `.catch(() => {})`，所以那個回傳值從頭到尾沒有人讀，
+    // 密鑰錯了、格式版本不對、`.gs` 丟例外，畫面上全都長得一模一樣。
+    // 現在痕跡由 run() 自己留，這裡只要接住真的意外。
+    push().catch((err) => noteFailure(`推送時出了意外：${err.message}`));
+  }, QUIET_MS);
 }
 
 /**

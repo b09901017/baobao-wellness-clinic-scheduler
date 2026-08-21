@@ -1,6 +1,6 @@
 # 匯進來的未來預約要長出登記待辦（ADR-0027 的另一半）
 
-Status: 待動工（相依 `issues/03`）
+Status: done
 回報者：使用者，2026-08-21
 動工前先讀：`docs/adr/0027-registration-tasks-wait-for-the-customer.md`、
 `domain/taskRules.js` 的 `acceptsNewTasks()`、`data/legacyImport.js` 的 `importPlan()`、
@@ -65,3 +65,64 @@ ADR-0027 定的是：**登記任務等客人說可以之後才長出來**，
 - **不要對過去的來訪產生任務然後標成已完成。** 那會讓 FINISHED 區長出
   幾百筆從來沒發生過的「完成紀錄」，而試算表的 TODO / FINISHED 是
   app 任務狀態的鏡子（ADR-0024）—— 鏡子照出來的東西必須是真的。
+
+
+## Comments
+
+**2026-08-21 — 做完了。** `npm test` 從 712 變成 715 全過。相依的 `issues/03` 先做完。
+
+`importPlan()` 現在對每一筆來訪呼叫一次
+`syncTasksForVisit(visit, [], { coursesById, today })`，把回來的 `create` 跟客戶、
+額度、來訪放進**同一個 commit**。判斷一個字都沒有在 `importPlan()` 裡重寫 ——
+`syncTasksForVisit()` 自己會問 `acceptsNewTasks()`，那正是 `CLAUDE.md` 那張連動表要的。
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `data/legacyImport.js` | `importPlan()` 逐筆走 `syncTasksForVisit()`；回傳多一個 `tasks` |
+| 同上 | 新的 `loadCoursesById()`，**連已刪除的課程一起讀**（主檔刪掉課程不代表那筆來訪不用去掛號）。`importAll()` 讀一次往下傳，21 位不會讀 21 次 |
+| 同上 | 檔頭那段「刻意不產生任務」改寫成「逐筆問一次」，並寫清楚為什麼這不是特例 |
+| 同上 | `ops.length * 2 > 500` 的訊息重寫：原本寫「請先把這張工作表拆成兩張」，對合併檔那條路講不通 |
+| `domain/mergeImport.js` | 新的 `countNewTasks()` —— 確認框要講得出筆數 |
+| `ui/views/mergeImport.js` | `runCard()` 與確認框那句「不會產生任何待辦任務」改掉 |
+| `SPEC.md` 第 6.10 節 | 「不產生任務」那條改成「逐筆問一次」 |
+| `tests/tasks.test.js`、`tests/merge-import.test.js` | 三條 |
+
+### 三件要先確認的事，確認的結果
+
+1. **`acceptsNewTasks()` 吃什麼回什麼**：吃來訪狀態字串，只有 `'confirmed'` 回 true。
+   所以這一支什麼判斷都不用寫，把整筆來訪交給 `syncTasksForVisit()` 就好 ——
+   而且順便拿到了「課程被移出來訪要收掉」那一段（匯入時 `existingTasks` 是空的，
+   那一段跑起來是 no-op，但不必為此挑一支比較窄的函式來呼叫）。
+2. **死線會不會算成過去的日期**：
+   - **今天**那幾筆不會。`statusFor()` 判的是 `date > today`，今天當天算已經發生 →
+     `done` → 一筆任務都不長。（`tests/merge-import.test.js` 有一條盯著。）
+   - **有一種會**：檔案自己寫 `confirmed`、但那個日期在她貼進來的時候已經過了。
+     `issues/03` 定的是「檔案說 confirmed 就聽它，不管日期」，所以那一筆會建成
+     已確認，並長出死線已經過期的登記。她 8/19 那份檔案裡 `futureVisits` 只有 1 筆，
+     所以最多 1 筆、而且要她自己勾了才會發生。**沒有為它加特例** ——
+     加了就是在 `acceptsNewTasks()` 之外寫第二條「什麼時候產生」的規則。
+     真的礙事的話該修的是 `statusFor()`（讓日期贏過檔案），那是一個獨立的決定。
+3. **一個 commit 塞不塞得下**：塞得下。上限是 `ops.length * 2 > 500`（每筆佔兩個：
+   本體 + 稽核），實測那份檔案最多的一位是 19 個 ops；那位就算 11 筆來訪全是未來的、
+   每筆都是 A 類（四件任務），也只多 44 個 ops。訊息還是更新了，因為它原本
+   只講得通舊試算表那條路。
+
+### 做了 issue 上沒寫的事
+
+**確認框與那張卡會講出「會產生幾筆」**，不是只講「未來的會產生」。
+其他每一條 consequence 都有數字，只有這一條沒有的話，她沒辦法在按下去之前
+知道待辦中心等一下會多出多少東西。筆數由 `countNewTasks()` 算，
+而它呼叫的是同一支 `syncTasksForVisit()` —— **不是在 UI 上重數一次**，
+否則預覽跟真正寫進去的會跑掉。
+
+### 沒有做的
+
+- **「約二返」的待辦沒有跟著長。** `importPlan()` 不跑 `syncFollowupTasks()`，
+  跟這一支之前一樣。匯進來的健檢要補二返，走的是 ADR-0023 那條路
+  （客戶詳情頁或資料健檢頁）。這一支只處理登記類的任務。
+- **舊試算表那條路（`#/settings/import`）沒有動。**
+  `domain/legacyImport.js` 把來訪寫死成 `status: 'done'`（「勾起來就是做過了。
+  舊表沒有『排了但還沒上』這種狀態」），所以那條路一筆 `confirmed` 都產不出來，
+  也就一筆任務都不會長，那一頁的文案還是真的。**但那句註解裡的假設跟
+  `issues/03` 修掉的是同一個** —— 她在舊表上也會先把未來的預約寫進去。
+  那條路現在只是備用（她已經改用合併檔），要修的話是另一支票。

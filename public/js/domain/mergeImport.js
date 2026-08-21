@@ -14,6 +14,7 @@
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
+import { syncTasksForVisit } from './taskRules.js';
 
 export const FORMAT = 'baobao-merge/v1';
 
@@ -77,6 +78,21 @@ export function validateFile(json) {
       + `（${[...new Set(orphan)].slice(0, 3).join('、')}…），勾了也補不進去`);
   }
 
+  // skill 那側花力氣「不敢猜」，結果 app 這側連提都沒提 —— 那一筆來訪就這樣
+  // 消失了，兩邊都沒有錯，但東西不見了。理由跟上面那條一樣：講出來。
+  const ambiguous = (json.ambiguous ?? []).length;
+  if (ambiguous) {
+    warnings.push(`有 ${ambiguous} 筆行事曆事件對得上兩位以上的客戶，`
+      + '產檔那側不敢猜，所以一筆都沒有匯入。匯完到日曆上自己補');
+  }
+
+  // 「沒有這幾筆」和「讀不到這幾筆」是兩件事。同一條規矩。
+  const unreadable = (json.unreadable ?? []).length;
+  if (unreadable) {
+    warnings.push(`行事曆裡有 ${unreadable} 筆事件產檔那側讀不出日期，`
+      + '所以這份檔案裡完全沒有它們（不是「那幾天沒事」）');
+  }
+
   return { errors, warnings };
 }
 
@@ -97,12 +113,13 @@ function stampOf(json, sheetName) {
  * 一位客戶一個 commit、有稽核、不產生任務。
  *
  * @param {object} entry  合併檔裡的一位客戶
- * @param {object} ctx    { courses, equipment, ivProducts, rooms, staff, existingCustomers }
+ * @param {object} ctx    { courses, equipment, ivProducts, rooms, staff, existingCustomers, today }
  * @param {object} [json] 整份檔案，只用來記來源
  */
 export function planForCustomer(entry, ctx = {}, json = null) {
   const {
     courses = [], equipment = [], ivProducts = [], rooms = [], staff = [], existingCustomers = [],
+    today = null,
   } = ctx;
   const problems = [];
   const problem = (where, raw, why) => problems.push({ where, raw: raw || '', why });
@@ -165,6 +182,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
   // ---------- 來訪 ----------
   const visits = [];
   for (const v of entry.visits ?? []) {
+    // 日期先決定狀態，狀態再決定那幾段算不算做過了 —— 順序反過來的話
+    // 未來的來訪會帶著 `attended: true` 進去，那是「人來了」的意思。
+    const status = statusFor(v.status, v.date, today);
     const slots = [];
     for (const s of v.slots ?? []) {
       if (!keys.has(s.entitlementKey)) {
@@ -184,11 +204,11 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         startsAt: s.startsAt ?? null,
         endsAt: s.endsAt ?? null,
         bed: null,
-        attended: true,
+        attended: status !== 'confirmed',
       });
     }
     if (!slots.length) continue;
-    visits.push(visitDoc({ name, date: v.date, status: v.status, slots, stamp }));
+    visits.push(visitDoc({ name, date: v.date, status, slots, stamp }));
   }
 
   return {
@@ -216,6 +236,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       entitlements: entitlements.length,
       followups: paired.length,
       visits: visits.length,
+      // 還沒發生的那幾筆。摘要卡要講出來 —— 「67 筆來訪」和
+      // 「67 筆來訪，其中 11 筆還沒發生」是兩個不同的畫面。
+      future: visits.filter((v) => v.status === 'confirmed').length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
       timed: visits.reduce((n, v) => n + v.slots.filter((s) => s.startsAt).length, 0),
       low: (entry.visits ?? []).reduce(
@@ -241,11 +264,33 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
   };
 }
 
+/**
+ * 這一筆來訪要建成哪一種狀態。
+ *
+ * 舊表上有打勾在她的用法裡是「排了」，不是「來了」—— 她也會先把未來的預約
+ * 寫進去。所以合併檔那側一律吐 `done`，而**日期在今天之後的那幾筆是
+ * 「已確認、還沒來」**：算進已排未上，次數還不會扣（SPEC 第 4.2 節）。
+ *
+ * **界線在匯入的那一刻，不是產檔的那一刻。** 一份 8/19 產的檔案她 8/21 才貼，
+ * 下個月再貼一次，同一批資料的「未來」會完全不同 —— 所以這個判斷不能寫進檔案，
+ * 也不能在 skill 那側做（見 `.scratch/first-real-import/issues/03`）。
+ *
+ * 檔案說 `confirmed` 就聽它，不管日期：`futureVisits` 那條路已經標過了，
+ * 那是有依據的判斷，不要拿一個算出來的結果去蓋掉它。
+ *
+ * `today` 沒給就只看檔案裡寫什麼（維持舊行為）。UI 那層一律用
+ * `domain/dates.js` 的 `todayISO()` 取。
+ */
+function statusFor(status, date, today) {
+  if (status === 'confirmed') return 'confirmed';
+  return today && date > today ? 'confirmed' : 'done';
+}
+
 function visitDoc({ name, date, status, slots, stamp }) {
   return {
     customerName: name,
     date,
-    status: status === 'confirmed' ? 'confirmed' : 'done',
+    status,
     confirmedAt: null,
     cancelledAt: null,
     cancelReason: null,
@@ -265,23 +310,23 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
-    counts: { entitlements: 0, followups: 0, visits: 0, slots: 0, timed: 0, low: 0 },
+    counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
   };
 }
 
 /**
  * 她勾起來的那幾筆候選，加進對應客戶的計畫裡。
  *
- * 三份候選清單在檔案裡一律 `include: false`（她說要自己一筆一筆決定），
- * UI 勾完之後把勾起來的丟進來。**跟客戶同一個 commit**：分開寫的話，
+ * 三份候選清單她自己勾，UI 勾完之後把勾起來的丟進來（預設值見 `defaultPicks()`：
+ * 還沒發生的勾起來、已經發生的不勾）。**跟客戶同一個 commit**：分開寫的話，
  * 客戶建好了、補的來訪失敗，會留下一份看起來完整、其實少了幾筆的資料。
  *
  * @param {object[]} plans      planForCustomer() 的結果
  * @param {object[]} extras     { customerName, date, courseName, startsAt, status }
- * @param {object} ctx
+ * @param {object} ctx          { courses, today }
  */
 export function addExtraVisits(plans, extras, ctx = {}) {
-  const { courses = [] } = ctx;
+  const { courses = [], today = null } = ctx;
   const problems = [];
   for (const x of extras) {
     const plan = plans.find((p) => !p.skip && p.customerName === norm(x.customerName));
@@ -309,6 +354,9 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       continue;
     }
     const start = isValidTime(x.startsAt) ? x.startsAt : null;
+    // 同一條規則要套在這裡，否則她從 missingFromSheet 勾一筆未來的，
+    // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
+    const status = statusFor(x.status, x.date, today);
     const slot = {
       entitlementKey: hits[0].key,
       courseId: course.id,
@@ -320,18 +368,19 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       startsAt: start,
       endsAt: start ? addMinutes(start, course.durationMin ?? 60) : null,
       bed: null,
-      attended: x.status !== 'confirmed',
+      attended: status !== 'confirmed',
     };
     // 同一天已經有來訪就併進去 —— 來訪的定義是「某人某天到院一次」（CONTEXT.md）
     const same = plan.visits.find((v) => v.date === x.date);
     if (same) same.slots.push(slot);
     else {
       plan.visits.push(visitDoc({
-        name: plan.customerName, date: x.date, status: x.status, slots: [slot],
+        name: plan.customerName, date: x.date, status, slots: [slot],
         stamp: plan.customer.importedFrom,
       }));
     }
     plan.counts.visits = plan.visits.length;
+    plan.counts.future = plan.visits.filter((v) => v.status === 'confirmed').length;
     plan.counts.slots += 1;
     if (start) plan.counts.timed += 1;
   }
@@ -345,23 +394,122 @@ function addMinutes(hhmm, min) {
 }
 
 /**
+ * 候選清單**先分時間、再分來源**。
+ *
+ * 原本三張卡是照「這筆資料哪裡來的」分的，而那不是她看這一頁時要問的問題 ——
+ * 她要問的是「這件事發生了沒」。198 筆混在一起、過去與未來交錯排列，
+ * 等於要她一筆一筆看日期（`.scratch/first-real-import/issues/05`）。
+ *
+ * 界線一樣用 `today` 現算，不寫進檔案（理由見 `statusFor()`）。
+ *
+ * 排序是「離今天多遠」：還沒發生的近的在前，已經發生的最近做的在前。
+ *
+ * @param {object} json  整份合併檔
+ * @param {string|null} today
+ * @returns {{future: {visits: Ref[], events: Ref[]},
+ *            past: {visits: Ref[], events: Ref[]},
+ *            plannedFuture: number}}
+ *   Ref = { kind: 'future'|'missing'|'events', index: number, date: string, item: object }
+ *   `index` 是在原本那三份清單裡的位置 —— 勾選狀態記的是它。
+ */
+export function groupCandidates(json, today = null) {
+  const refs = (list, kind, dateOf) => (list ?? [])
+    .map((item, index) => ({ kind, index, date: dateOf(item) ?? '', item }));
+
+  const visits = [
+    ...refs(json?.futureVisits, 'future', (x) => x.date),
+    ...refs(json?.missingFromSheet, 'missing', (x) => x.date),
+  ];
+  const events = refs(json?.eventCandidates, 'events', (x) => x.startDate);
+
+  const ahead = (r) => Boolean(today) && r.date > today;
+  const soonest = (a, b) => a.date.localeCompare(b.date);
+  const latest = (a, b) => b.date.localeCompare(a.date);
+
+  return {
+    future: {
+      visits: visits.filter(ahead).sort(soonest),
+      events: events.filter(ahead).sort(soonest),
+    },
+    past: {
+      visits: visits.filter((r) => !ahead(r)).sort(latest),
+      events: events.filter((r) => !ahead(r)).sort(latest),
+    },
+    // customers[] 裡日期在今天之後的來訪。**它們沒有勾選介面**，一定會匯入
+    // （`issues/03`：那是她已經約好的事，日曆上必須看得到）。
+    // 要數出來是因為「未來的預約」那張卡本來只列得出十一分之一 ——
+    // 一張卡列出十一分之一，比沒有這張卡還糟。
+    plannedFuture: (json?.customers ?? []).reduce(
+      (n, c) => n + (c?.visits ?? []).filter((v) => today && v?.date > today).length, 0,
+    ),
+  };
+}
+
+/**
+ * 一份檔案剛讀進來時哪幾筆預設勾起來。
+ *
+ * **還沒發生的全部勾起來，已經發生的一筆都不勾**（2026-08-21 使用者拍板，
+ * 見 `docs/adr/0030-future-candidates-are-ticked-by-default.md`）。
+ *
+ * @returns {{future: number[], missing: number[], events: number[]}}
+ */
+export function defaultPicks(json, today = null) {
+  const { future } = groupCandidates(json, today);
+  const out = { future: [], missing: [], events: [] };
+  for (const r of [...future.visits, ...future.events]) out[r.kind].push(r.index);
+  return out;
+}
+
+/**
  * 她勾起來的個人行程。**不綁客戶、不產生任務、不扣次數**，所以它們走 `events`
  * 不走 `visits`（ADR-0015：合成同一個集合會讓「要不要扣次數」變成到處都要判斷的分支）。
  */
 export function eventDocs(candidates) {
-  return candidates.map((c) => ({
-    title: norm(c.title),
-    category: c.category === 'leave' ? 'leave' : 'personal',
-    startDate: c.startDate,
-    endDate: c.endDate || c.startDate,
-    allDay: !isValidTime(c.startTime),
-    startTime: isValidTime(c.startTime) ? c.startTime : null,
-    endTime: isValidTime(c.endTime) ? c.endTime
-      : (isValidTime(c.startTime) ? addMinutes(c.startTime, 60) : null),
-    // note 空的時候給 null 不給空字串 —— data/events.js 的 shape() 就是這樣寫的，
-    // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
-    note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
-  }));
+  return candidates.map((c) => {
+    // 有明確欄位就用它（產檔那側從 DTSTART 的 VALUE=DATE 判的），沒有才從
+    // 「有沒有時間」反推 —— 舊的合併檔沒有這個欄位，照樣要吃得下。
+    const allDay = typeof c.allDay === 'boolean' ? c.allDay : !isValidTime(c.startTime);
+    // 整天就是整天：時間一律清掉。標成整天卻帶著時間的資料，日曆上會畫成
+    // 一條有時有分的色條，而那個時間是沒有來源的。
+    const start = !allDay && isValidTime(c.startTime) ? c.startTime : null;
+    return {
+      title: norm(c.title),
+      category: c.category === 'leave' ? 'leave' : 'personal',
+      startDate: c.startDate,
+      // 跨天的個人行程是這個系統裡唯一可以跨天的東西（ADR-0015）。
+      // 結束日比開始日早的資料進不去（firestore.rules 的 validEvent()），當成單天。
+      endDate: c.endDate && c.endDate >= c.startDate ? c.endDate : c.startDate,
+      allDay,
+      startTime: start,
+      endTime: isValidTime(c.endTime) && start ? c.endTime
+        : (start ? addMinutes(start, 60) : null),
+      // note 空的時候給 null 不給空字串 —— data/events.js 的 shape() 就是這樣寫的，
+      // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
+      note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
+    };
+  });
+}
+
+/**
+ * 這批計畫會長出幾筆登記待辦。
+ *
+ * **判斷不在這裡。** 呼叫的是每次存來訪都在跑的那一支（`syncTasksForVisit()`，
+ * 它自己會問 `acceptsNewTasks()`），這裡只負責數 —— 在 UI 上再判斷一次
+ * 「哪一種來訪會長任務」，就是第二份實作，而它一定會跟真正寫入的那一份跑掉。
+ *
+ * 這個數字是給確認框看的：那一頁本來寫著「不會產生任何待辦任務」，
+ * 而那句話對未來的預約是錯的（`.scratch/first-real-import/issues/04`）。
+ *
+ * @param {object[]} plans
+ * @param {{courses?: object[], today?: string|null}} ctx
+ */
+export function countNewTasks(plans, { courses = [], today = null } = {}) {
+  const coursesById = Object.fromEntries((courses ?? []).map((c) => [c.id, c]));
+  return plans
+    .filter((p) => !p.skip)
+    .reduce((n, p) => n + p.visits.reduce(
+      (m, v) => m + syncTasksForVisit(v, [], { coursesById, today }).create.length, 0,
+    ), 0);
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */
@@ -374,6 +522,9 @@ export function summarize(plans) {
     // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。
     followups: live.reduce((n, p) => n + (p.counts.followups ?? 0), 0),
     visits: live.reduce((n, p) => n + p.counts.visits, 0),
+    // 其中還沒發生的。合併檔那側一律吐 done，日期在今天之後的會建成已確認 ——
+    // 那個數字要看得到，否則「67 筆來訪」看起來就是 67 筆都做過了。
+    future: live.reduce((n, p) => n + (p.counts.future ?? 0), 0),
     slots: live.reduce((n, p) => n + p.counts.slots, 0),
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
