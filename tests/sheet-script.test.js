@@ -148,15 +148,34 @@ describe('渲染', () => {
     assert.match(text, /時間不詳/, '匯入的來訪沒有時間，要寫時間不詳不是留白（ADR-0011）');
   });
 
-  test('表頭與備註區有合併儲存格、有凍結、有欄寬', () => {
+  test('表頭與備註區有合併儲存格、有凍結列、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
     // FINISHED 在 K 欄，所以表至少寬到 M 欄，第一列要橫跨整張
     assert.ok(sheet.merges.includes('A1:M1'), `第一列要橫跨整張表，實際：${sheet.merges.join(' ')}`);
     assert.equal(sheet.frozenRows, 5);
-    assert.equal(sheet.frozenCols, 1);
+    // **不凍結欄**。表頭三列橫跨整張表，凍結欄的線會穿過那些合併儲存格，
+    // Google 會直接丟例外（issues/01）。要往右捲還看得到療程項目那一欄的話，
+    // 得先把表頭改成不合併 —— 那是另一個決定，不要偷偷加回來。
+    assert.equal(sheet.frozenCols, 0);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');
+  });
+
+  test('凍結線穿過合併儲存格時替身會擋下來', () => {
+    // 這一條測的是替身本身。沒有它，issues/01 那個例外會再一次全綠通過 ——
+    // 那個 bug 就是這樣活到第一次真的部署才被發現的。
+    const { ss } = render();
+    const sheet = ss.getSheetByName('客戶A');
+    assert.throws(() => sheet.setFrozenColumns(1), /無法凍結僅包含部分合併儲存格的欄/);
+    // 落在合併範圍外的凍結照樣過得去。表頭的合併都是水平的（一列之內），
+    // 所以水平的凍結線本來就切不到 —— 這正是凍結列留得住、凍結欄留不住的原因。
+    assert.doesNotThrow(() => sheet.setFrozenColumns(0));
+    assert.doesNotThrow(() => sheet.setFrozenRows(5));
+
+    // 列的那一半也要擋。這張表上沒有跨列的合併，所以自己做一個。
+    sheet.addMerge(8, 1, 3, 2);
+    assert.throws(() => sheet.setFrozenRows(9), /無法凍結僅包含部分合併儲存格的列/);
   });
 
   test('TODO 與 FINISHED 並排，位置照舊表（A 欄與 K 欄）', () => {

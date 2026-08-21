@@ -1,6 +1,6 @@
 # 試算表推送在第一位客戶就當掉：凍結欄切到合併儲存格
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-21（第一次真的部署 `.gs` 之後）
 動工前先讀：`sheets/readonly-report.gs` 的 `renderCustomer()`、
 `docs/adr/0013-sheet-sync-is-a-push-not-a-pull.md`、
@@ -79,3 +79,40 @@ Google 試算表不允許凍結線穿過合併儲存格，所以這一行一定�
 訊息照 Google 的原文。`setFrozenRows()` 同理（雖然目前的合併都是水平的，踩不到）。
 
 沒有這條，下一次有人加回合併儲存格時，測試會再一次全綠。
+
+
+## Comments
+
+**2026-08-21 — 做完了。** `npm test` 從 698 變成 699 全過。
+
+使用者選了**第 1 條**（拿掉凍結欄、保留合併），不是我建議的第 2 條。
+理由是她要的是「和我原本那張一樣」的視覺，表頭那三條橫跨整張的色帶就是那個樣子。
+往右捲看不到療程項目那一欄的代價先收下 —— 真的礙事再回來改成第 2 條，
+那時候是一個獨立的決定，不要和這支修 bug 的混在一起。
+
+| 在哪裡 | 做什麼 |
+|---|---|
+| `sheets/readonly-report.gs` | 拿掉 `renderCustomer()` 的 `setFrozenColumns(1)`，留 `setFrozenRows()`。原地留一段註解講為什麼不能加回來 |
+| `tests/helpers/appsScriptStub.js` | `merge()` 改走新的 `addMerge()`，多存一份數字邊界 `mergeBounds`；`setFrozenRows()` / `setFrozenColumns()` 學會在凍結線穿過合併範圍時丟例外，訊息照 Google 的原文 |
+| `tests/sheet-script.test.js` | 原本斷言 `frozenCols === 1`，改成 `0` 並寫清楚為什麼；多一條測替身本身的護欄 |
+
+`resetSheet()` 裡的 `setFrozenColumns(0)` 留著 —— 0 不會切到任何東西，
+而且它防的是「上一版留下來的凍結欄」。
+
+### 護欄真的有效
+
+把 `setFrozenColumns(1)` 暫時加回去重跑，**14 條測試當場失敗**，訊息是：
+
+> Error: 很抱歉，你無法凍結僅包含部分合併儲存格的欄。請取消合併儲存格，或凍結更多欄以納入全部的合併儲存格。（客戶A 凍結 1 欄）
+
+和她在 `#/settings/report` 按「立刻推一次」收到的那句一模一樣。
+在這之前，同樣的程式碼是**測試全綠**的。
+
+### 還沒驗證的
+
+一樣只跑過替身。**要她把 `sheets/readonly-report.gs` 重新貼進 Apps Script 並重新部署**
+（改的是 `.gs`，app 那側不用動），再按一次「立刻推一次」。
+預期看到 21 張分頁全部畫完並上鎖。
+
+如果這次又炸在別的地方，那會是替身抓不到的第二個 Google 行為差異 ——
+處理方式一樣：把錯誤訊息貼回來，在替身補一條對應的護欄，再修。

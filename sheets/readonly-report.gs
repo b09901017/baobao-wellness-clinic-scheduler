@@ -246,8 +246,11 @@ function renderCustomer(ss, data, bundle) {
   for (var d2 = 0; d2 < dateCount; d2++) {
     sheet.setColumnWidth(COL.FIRST_DATE + d2, STYLE.dateWidth);
   }
+  // 只凍結列，**不要凍結欄**。表頭那三列是橫跨整張表的合併儲存格，
+  // 而 Google 試算表不讓凍結線穿過合併儲存格 —— 加回 setFrozenColumns(1)
+  // 會在這裡丟例外，第一位客戶之後一張都畫不出來。
+  // 見 .scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
-  sheet.setFrozenColumns(1);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
   return name;
