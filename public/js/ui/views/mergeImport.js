@@ -10,7 +10,7 @@
 
 import * as importer from '../../data/legacyImport.js';
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
@@ -60,6 +60,7 @@ function plansOf(ctx) {
 function paint(el, ctx) {
   const { plans = [], extraProblems = [] } = file ? plansOf(ctx) : {};
   const s = file ? summarize(plans) : null;
+  const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
 
   el.innerHTML = `
     ${backLink()}
@@ -88,7 +89,7 @@ function paint(el, ctx) {
     ${file ? summaryCard(s, plans, extraProblems) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
-    ${file ? runCard(s) : ''}`;
+    ${file ? runCard(s, tasks) : ''}`;
 
   el.querySelector('[data-load]')?.addEventListener('click', () => load(el, ctx));
   el.querySelector('[data-clear]')?.addEventListener('click', () => {
@@ -106,7 +107,7 @@ function paint(el, ctx) {
       paint(el, ctx);
     }),
   );
-  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s));
+  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks));
 }
 
 function load(el, ctx) {
@@ -231,7 +232,7 @@ function candidateCards() {
   ].join('');
 }
 
-function runCard(s) {
+function runCard(s, tasks) {
   return `
     <section class="card">
       <p class="form__actions">
@@ -239,12 +240,15 @@ function runCard(s) {
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
-        （算進已排未上，次數還不會扣）。已經發生的那些<b>不會產生任何待辦任務</b> ——
-        那些掛號在舊系統早就做完了。</p>
+        （算進已排未上，次數還不會扣）。</p>
+      <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
+        那些掛號在舊系統早就做完了。${tasks
+          ? `還沒發生的那些會，這次是 <b>${tasks}</b> 筆：那幾件登記與確認是真的還沒做。`
+          : '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。'}</p>
     </section>`;
 }
 
-async function run(el, ctx, plans, s) {
+async function run(el, ctx, plans, s, tasks) {
   const events = eventDocs((file.eventCandidates ?? []).filter((_, i) => picks.events.has(i)));
   const extras = picks.future.size + picks.missing.size;
 
@@ -260,7 +264,9 @@ async function run(el, ctx, plans, s) {
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
       events.length ? `建立 ${events.length} 筆個人行程` : '沒有勾任何個人行程',
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
-      '不會產生任何待辦任務',
+      tasks
+        ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
+        : '不會產生任何待辦任務 —— 這次沒有還沒發生的來訪',
       '每位客戶各自寫入，一位失敗不影響其他人',
     ],
     confirmLabel: '匯入',

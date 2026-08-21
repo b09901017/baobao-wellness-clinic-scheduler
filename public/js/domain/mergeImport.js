@@ -14,6 +14,7 @@
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
+import { syncTasksForVisit } from './taskRules.js';
 
 export const FORMAT = 'baobao-merge/v1';
 
@@ -395,6 +396,28 @@ export function eventDocs(candidates) {
     // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
     note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
   }));
+}
+
+/**
+ * 這批計畫會長出幾筆登記待辦。
+ *
+ * **判斷不在這裡。** 呼叫的是每次存來訪都在跑的那一支（`syncTasksForVisit()`，
+ * 它自己會問 `acceptsNewTasks()`），這裡只負責數 —— 在 UI 上再判斷一次
+ * 「哪一種來訪會長任務」，就是第二份實作，而它一定會跟真正寫入的那一份跑掉。
+ *
+ * 這個數字是給確認框看的：那一頁本來寫著「不會產生任何待辦任務」，
+ * 而那句話對未來的預約是錯的（`.scratch/first-real-import/issues/04`）。
+ *
+ * @param {object[]} plans
+ * @param {{courses?: object[], today?: string|null}} ctx
+ */
+export function countNewTasks(plans, { courses = [], today = null } = {}) {
+  const coursesById = Object.fromEntries((courses ?? []).map((c) => [c.id, c]));
+  return plans
+    .filter((p) => !p.skip)
+    .reduce((n, p) => n + p.visits.reduce(
+      (m, v) => m + syncTasksForVisit(v, [], { coursesById, today }).create.length, 0,
+    ), 0);
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */

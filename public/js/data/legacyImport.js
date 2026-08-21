@@ -5,10 +5,23 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import * as customers from './customers.js';
 import { recount } from '../domain/visits.js';
+import { syncTasksForVisit } from '../domain/taskRules.js';
+import { todayISO } from '../domain/dates.js';
 
 const CUSTOMERS = 'customers';
 const VISITS = 'visits';
+const TASKS = 'tasks';
 const entPath = (customerId) => `${CUSTOMERS}/${customerId}/entitlements`;
+
+/**
+ * 課程對照表。**連已刪除的一起讀** —— 主檔把課程刪掉，不代表已經排出去的來訪
+ * 就不用去掛號了。少讀那一筆的代價是任務被靜默移除，而那正是這個 app 要解決的問題。
+ * （同一個判準見 `data/visits.js` 的 `taskOps()`。）
+ */
+async function loadCoursesById() {
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  return Object.fromEntries(courses.map((c) => [c.id, c]));
+}
 
 /**
  * dry-run 與正式匯入都要的對照資料：課程、器材、品項、方案範本，
@@ -36,13 +49,21 @@ export async function loadContext() {
  * 危險得多，因為沒有人會發現 —— 這正是 repo.commit() 存在的理由。所以塞不進
  * 一個 batch 時我們選擇拒絕，不選擇分批。
  *
- * 刻意**不產生任務**：這些掛號在舊系統裡早就做完了，照常產生會長出幾百筆逾期任務
- * 把待辦中心淹掉，而那些事沒有一件真的要做。
+ * **任務逐筆問一次 `acceptsNewTasks()`，不是整批一律不產生。**
+ * 已經發生的那些一筆都不長 —— 那些掛號在舊系統裡早就做完了，照常產生會長出
+ * 幾百筆逾期任務把待辦中心淹掉。但同一份檔案裡會夾著**還沒發生**的預約
+ * （ADR-0029），而一筆「未來 + 已確認」的來訪正好就是 ADR-0027 說該長任務的那一種：
+ * 她要去公司另外兩個系統登記、要確認當天出席簽療程單，那些事是真的還沒做。
+ *
+ * 判斷不在這裡寫第二次 —— 這裡呼叫的是每次存來訪都在跑的那一支
+ * （`domain/taskRules.js` 的 `syncTasksForVisit()`，它自己會問 `acceptsNewTasks()`）。
+ * 所以匯入不是「多開一個特例」，是**停止繞過**那條既有的規則。
  *
  * @param {ReturnType<import('../domain/legacyImport.js').planForSheet>} plan
- * @returns {Promise<{customerId: string, entitlements: number, visits: number}>}
+ * @param {{coursesById?: Record<string, object>}} [opts] importAll() 讀一次往下傳，省往返
+ * @returns {Promise<{customerId: string, entitlements: number, visits: number, tasks: number}>}
  */
-export async function importPlan(plan) {
+export async function importPlan(plan, { coursesById = null } = {}) {
   if (plan.skip || !plan.customer) throw new Error(`「${plan.sheetName}」被跳過，沒有東西可以寫`);
 
   const customerId = repo.newId(CUSTOMERS);
@@ -67,6 +88,14 @@ export async function importPlan(plan) {
   // 次數的算法只能有一份（ADR-0004）。
   const counts = recount([...idByKey.values()], visits);
 
+  // 任務跟來訪同一個 commit：分開寫的話來訪進去了、任務失敗，會留下一筆
+  // 「看起來已經確認、卻沒有任何登記待辦」的來訪，而那正是她最主要的痛點。
+  const today = todayISO();
+  const courses = coursesById ?? await loadCoursesById();
+  const tasks = visits.flatMap(
+    (visit) => syncTasksForVisit(visit, [], { coursesById: courses, today }).create,
+  );
+
   const ops = [
     { op: 'create', path: CUSTOMERS, id: customerId, data: plan.customer },
     ...plan.entitlements.map((e) => ({
@@ -76,17 +105,25 @@ export async function importPlan(plan) {
       data: { ...withFollowupId(e.doc, idByKey), ...counts[idByKey.get(e.key)] },
     })),
     ...visits.map(({ id, ...data }) => ({ op: 'create', path: VISITS, id, data })),
+    ...tasks.map((data) => ({ op: 'create', path: TASKS, data })),
   ];
 
   if (ops.length * 2 > 500) {
     throw new Error(
-      `「${plan.sheetName}」一次要寫 ${ops.length} 筆，超過單次寫入上限。`
-      + '請先把這張工作表拆成兩張再匯一次 —— 分批寫會留下半套資料。',
+      `「${plan.customerName || plan.sheetName}」一次要寫 ${ops.length} 筆，超過單次寫入上限。`
+      + '整位擋下來是刻意的 —— 分批寫會留下半套資料，而半套沒有人看得出來。'
+      + '把這位的資料分成兩份再匯兩次：舊試算表那條路是把工作表拆成兩張，'
+      + '合併檔那條路是先刪掉一部分來訪、匯完再貼另一半。',
     );
   }
 
   await repo.commit(ops);
-  return { customerId, entitlements: plan.entitlements.length, visits: visits.length };
+  return {
+    customerId,
+    entitlements: plan.entitlements.length,
+    visits: visits.length,
+    tasks: tasks.length,
+  };
 }
 
 /**
@@ -131,10 +168,12 @@ export async function importEvents(docs, onProgress = null) {
 export async function importAll(plans, onProgress = null) {
   const todo = plans.filter((p) => !p.skip && p.customer);
   const results = [];
+  // 21 位客戶讀 21 次主檔只是白跑 20 趟。讀一次往下傳。
+  const coursesById = await loadCoursesById();
 
   for (const [i, plan] of todo.entries()) {
     try {
-      const done = await importPlan(plan);
+      const done = await importPlan(plan, { coursesById });
       results.push({ sheetName: plan.sheetName, customerName: plan.customerName, ok: true, ...done });
     } catch (err) {
       results.push({
