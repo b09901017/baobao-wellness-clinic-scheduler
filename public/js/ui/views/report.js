@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as configData from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
-import { customerReport, toTSV, toCSV } from '../../domain/sheetReport.js';
+import { customerReport, toTSV, toCSV, describeSync } from '../../domain/sheetReport.js';
 import { todayISO, addDays } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
@@ -141,18 +141,28 @@ function paint(el, data) {
 function syncCard({ settings }) {
   const sync = settings.sheetSync ?? { url: '', token: '' };
   const on = Boolean(sync.url && sync.token);
-  const last = sheetSync.lastSyncedAt();
+  const failure = sheetSync.lastError();
+  const skipped = sheetSync.lastSkipped();
+
+  // 自動推送是背景的事，所以它不跳彈窗；但**狀態要看得出來**，
+  // 否則像 2026-08-21 那次：`.gs` 每一次都丟例外，而畫面上什麼都沒說。
+  const { tone, lines } = describeSync({
+    configured: on,
+    lastAtLabel: timeLabel(sheetSync.lastSyncedAt()),
+    dirty: sheetSync.isDirty(),
+    error: failure?.error ?? null,
+    errorAtLabel: timeLabel(failure?.at),
+    skipped: skipped?.names ?? [],
+  });
 
   return `
     <section class="card">
       <h3 class="card__title">自動同步到試算表</h3>
       <p class="muted">設定好之後，每次存檔安靜幾秒就會自己推一份過去，不用再手動貼。
         單向 —— 試算表上改的東西不會回到 app，下次同步就會被蓋掉。</p>
-      <p class="${on ? 'muted' : ''}">
-        ${on
-          ? `目前：<b>開著</b>。上次同步 ${last ? esc(new Date(last).toLocaleString('zh-TW')) : '還沒推過'}${
-            sheetSync.isDirty() ? '，<b>有資料還沒推上去</b>' : ''}`
-          : '目前：<b>沒有開</b>。兩個欄位都填了才會開始推。'}
+      <p class="${tone === 'ok' || tone === 'off' ? 'muted' : ''}">
+        目前：<b>${on ? '開著' : '沒有開'}</b>${tone === 'failed' || tone === 'partial' ? '，<b>有問題</b>' : ''}<br>
+        ${lines.map((line) => esc(line)).join('<br>')}
       </p>
 
       <label class="field">
@@ -199,10 +209,23 @@ async function pushNow(el, data) {
   toast.saving('推送中…');
   const result = await sheetSync.push();
 
-  if (result.ok) toast.info(`推好了，試算表更新了 ${result.sheets ?? ''} 張分頁`);
-  else toast.failed(result.error ?? result.skipped ?? '推不出去');
+  if (!result.ok) {
+    toast.failed(result.error ?? '推不出去');
+  } else if (result.skipped?.length) {
+    // 「更新了 19 張」和「更新了 19 張，另外 2 位沒動」在畫面上不可以長得一樣 ——
+    // 後者代表那兩位的次數是舊的。
+    toast.failed(`推好了 ${result.sheets ?? ''} 張，但有 ${result.skipped.length} 張沒有更新：`
+      + `${result.skipped.join('、')}。那幾張試算表認不出來是系統畫的，不敢清空重畫。`);
+  } else {
+    toast.info(`推好了，試算表更新了 ${result.sheets ?? ''} 張分頁`);
+  }
 
   paint(el, data);
+}
+
+/** 存的是 ISO 字串，給人看要換成當地時間。沒有就回 null，讓文案那側決定怎麼講。 */
+function timeLabel(iso) {
+  return iso ? new Date(iso).toLocaleString('zh-TW') : null;
 }
 
 function buildReport(data) {
