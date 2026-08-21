@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
+  groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { validateVisit } from '../public/js/domain/visits.js';
@@ -312,6 +313,77 @@ test('摘要要講出「其中幾筆還沒發生」', () => {
   ], { ...CTX, today: '2026-08-21' });
   assert.equal(summarize(plans).future, 2, '補進來的那一筆也要算進去');
   assert.equal(summarize(plans).visits, 3);
+});
+
+// ---------- 候選清單分區（.scratch/first-real-import/issues/05） ----------
+//
+// 原本三張卡是照「這筆資料哪裡來的」分的，198 筆過去與未來交錯排列，
+// 她要一筆一筆看日期才知道哪些還沒發生。
+
+const CANDIDATES = () => FILE({
+  missingFromSheet: [
+    { customerName: '客戶A', date: '2026-07-02', courseName: '靜脈', include: false },
+    { customerName: '客戶A', date: '2026-09-20', courseName: '靜脈', include: false },
+    { customerName: '客戶A', date: '2026-08-05', courseName: '復能', include: false },
+  ],
+  futureVisits: [
+    { customerName: '客戶A', date: '2026-09-05', courseName: '復能', status: 'confirmed', include: false },
+  ],
+  eventCandidates: [
+    { title: '公出', startDate: '2026-08-30', endDate: '2026-08-30', include: false },
+    { title: '演講', startDate: '2026-06-01', endDate: '2026-06-01', include: false },
+  ],
+});
+
+test('候選清單先分時間再分來源', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+
+  assert.deepEqual(g.future.visits.map((r) => r.date), ['2026-09-05', '2026-09-20']);
+  assert.deepEqual(g.future.events.map((r) => r.date), ['2026-08-30']);
+  assert.deepEqual(g.past.visits.map((r) => r.date), ['2026-08-05', '2026-07-02']);
+  assert.deepEqual(g.past.events.map((r) => r.date), ['2026-06-01']);
+});
+
+test('排序是「離今天多遠」：未來近的在前，過去最近做的在前', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+  assert.equal(g.future.visits[0].date, '2026-09-05');
+  assert.equal(g.past.visits[0].date, '2026-08-05');
+});
+
+test('分組記的是原本清單裡的位置，勾選才對得回去', () => {
+  const g = groupCandidates(CANDIDATES(), '2026-08-21');
+  const late = g.future.visits.find((r) => r.kind === 'missing');
+  assert.equal(late.index, 1, 'missingFromSheet 的第 2 筆');
+  assert.equal(late.item.date, '2026-09-20');
+});
+
+test('還沒發生的預設勾起來，已經發生的一筆都不勾（ADR-0030）', () => {
+  const chosen = defaultPicks(CANDIDATES(), '2026-08-21');
+  assert.deepEqual(chosen.future, [0], '未來的預約那一筆');
+  assert.deepEqual(chosen.missing, [1], '只有 9/20 那筆在未來');
+  assert.deepEqual(chosen.events, [0], '只有 8/30 那筆在未來');
+});
+
+test('沒給 today 就全部算成已經發生，一筆都不預設勾', () => {
+  // 分不出來的時候寧可不勾 —— 替她勾錯的成本比要她自己勾高
+  const g = groupCandidates(CANDIDATES(), null);
+  assert.equal(g.future.visits.length + g.future.events.length, 0);
+  assert.deepEqual(defaultPicks(CANDIDATES(), null), { future: [], missing: [], events: [] });
+});
+
+test('customers[] 裡的未來來訪要數出來 —— 那張卡本來只列得出十一分之一', () => {
+  const json = FILE({ customers: [FUTURE()] });
+  assert.equal(groupCandidates(json, '2026-08-21').plannedFuture, 1);
+  assert.equal(groupCandidates(json, '2026-12-31').plannedFuture, 0);
+});
+
+test('ambiguous 要有人講出來，不然那一筆就這樣消失了', () => {
+  const json = FILE({
+    ambiguous: [{ date: '2026-06-30', evidence: '3.15 IL治2', course: '靜脈', who: ['客戶A', '王小明'] }],
+  });
+  const { errors, warnings } = validateFile(json);
+  assert.deepEqual(errors, [], '這不是壞檔案');
+  assert.ok(warnings.some((w) => w.includes('兩位以上')));
 });
 
 // ---------- 待辦（.scratch/first-real-import/issues/04） ----------

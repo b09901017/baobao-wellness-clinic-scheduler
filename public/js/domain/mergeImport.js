@@ -78,6 +78,14 @@ export function validateFile(json) {
       + `（${[...new Set(orphan)].slice(0, 3).join('、')}…），勾了也補不進去`);
   }
 
+  // skill 那側花力氣「不敢猜」，結果 app 這側連提都沒提 —— 那一筆來訪就這樣
+  // 消失了，兩邊都沒有錯，但東西不見了。理由跟上面那條一樣：講出來。
+  const ambiguous = (json.ambiguous ?? []).length;
+  if (ambiguous) {
+    warnings.push(`有 ${ambiguous} 筆行事曆事件對得上兩位以上的客戶，`
+      + '產檔那側不敢猜，所以一筆都沒有匯入。匯完到日曆上自己補');
+  }
+
   return { errors, warnings };
 }
 
@@ -302,8 +310,8 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
 /**
  * 她勾起來的那幾筆候選，加進對應客戶的計畫裡。
  *
- * 三份候選清單在檔案裡一律 `include: false`（她說要自己一筆一筆決定），
- * UI 勾完之後把勾起來的丟進來。**跟客戶同一個 commit**：分開寫的話，
+ * 三份候選清單她自己勾，UI 勾完之後把勾起來的丟進來（預設值見 `defaultPicks()`：
+ * 還沒發生的勾起來、已經發生的不勾）。**跟客戶同一個 commit**：分開寫的話，
  * 客戶建好了、補的來訪失敗，會留下一份看起來完整、其實少了幾筆的資料。
  *
  * @param {object[]} plans      planForCustomer() 的結果
@@ -376,6 +384,73 @@ function addMinutes(hhmm, min) {
   const [h, m] = hhmm.split(':').map(Number);
   const t = h * 60 + m + min;
   return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 候選清單**先分時間、再分來源**。
+ *
+ * 原本三張卡是照「這筆資料哪裡來的」分的，而那不是她看這一頁時要問的問題 ——
+ * 她要問的是「這件事發生了沒」。198 筆混在一起、過去與未來交錯排列，
+ * 等於要她一筆一筆看日期（`.scratch/first-real-import/issues/05`）。
+ *
+ * 界線一樣用 `today` 現算，不寫進檔案（理由見 `statusFor()`）。
+ *
+ * 排序是「離今天多遠」：還沒發生的近的在前，已經發生的最近做的在前。
+ *
+ * @param {object} json  整份合併檔
+ * @param {string|null} today
+ * @returns {{future: {visits: Ref[], events: Ref[]},
+ *            past: {visits: Ref[], events: Ref[]},
+ *            plannedFuture: number}}
+ *   Ref = { kind: 'future'|'missing'|'events', index: number, date: string, item: object }
+ *   `index` 是在原本那三份清單裡的位置 —— 勾選狀態記的是它。
+ */
+export function groupCandidates(json, today = null) {
+  const refs = (list, kind, dateOf) => (list ?? [])
+    .map((item, index) => ({ kind, index, date: dateOf(item) ?? '', item }));
+
+  const visits = [
+    ...refs(json?.futureVisits, 'future', (x) => x.date),
+    ...refs(json?.missingFromSheet, 'missing', (x) => x.date),
+  ];
+  const events = refs(json?.eventCandidates, 'events', (x) => x.startDate);
+
+  const ahead = (r) => Boolean(today) && r.date > today;
+  const soonest = (a, b) => a.date.localeCompare(b.date);
+  const latest = (a, b) => b.date.localeCompare(a.date);
+
+  return {
+    future: {
+      visits: visits.filter(ahead).sort(soonest),
+      events: events.filter(ahead).sort(soonest),
+    },
+    past: {
+      visits: visits.filter((r) => !ahead(r)).sort(latest),
+      events: events.filter((r) => !ahead(r)).sort(latest),
+    },
+    // customers[] 裡日期在今天之後的來訪。**它們沒有勾選介面**，一定會匯入
+    // （`issues/03`：那是她已經約好的事，日曆上必須看得到）。
+    // 要數出來是因為「未來的預約」那張卡本來只列得出十一分之一 ——
+    // 一張卡列出十一分之一，比沒有這張卡還糟。
+    plannedFuture: (json?.customers ?? []).reduce(
+      (n, c) => n + (c?.visits ?? []).filter((v) => today && v?.date > today).length, 0,
+    ),
+  };
+}
+
+/**
+ * 一份檔案剛讀進來時哪幾筆預設勾起來。
+ *
+ * **還沒發生的全部勾起來，已經發生的一筆都不勾**（2026-08-21 使用者拍板，
+ * 見 `docs/adr/0030-future-candidates-are-ticked-by-default.md`）。
+ *
+ * @returns {{future: number[], missing: number[], events: number[]}}
+ */
+export function defaultPicks(json, today = null) {
+  const { future } = groupCandidates(json, today);
+  const out = { future: [], missing: [], events: [] };
+  for (const r of [...future.visits, ...future.events]) out[r.kind].push(r.index);
+  return out;
 }
 
 /**
