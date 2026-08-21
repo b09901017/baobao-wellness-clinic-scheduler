@@ -220,12 +220,13 @@ function doneHtml() {
   return `
     <div class="card card--talk">
       <p class="done__mark">✓</p>
-      <h1 class="confirm__title">收到了，謝謝您</h1>
+      <h1 class="confirm__title">收到了，謝謝您~</h1>
       <ul class="said">
         ${lines.map((l) => `<li>${esc(l)}</li>`).join('')}
         ${free ? `<li>${esc(free)}</li>` : ''}
       </ul>
       <p class="talk">我會照這個幫您安排，排好之後再跟您確認時間。</p>
+      <p class="talk">祝您有美好的一天</p>
       <p class="talk talk--dim">如果要修改，直接在 LINE 跟我說就好。</p>
     </div>`;
 }

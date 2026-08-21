@@ -58,6 +58,10 @@ let sentCount = 0;
 // 「客戶填好的時間」那一列。null = 還沒載完，跟 askRows 同一個道理。
 let inboxRows = null;
 
+// 「問這輪的時間」那一頁的分段切換：還沒發連結 / 已經發出。
+// 存在模組裡而不是網址裡 —— 它是看法，不是位置（同首頁的「總覽／依客戶」）。
+let askTab = 'todo';
+
 // ---------- 總覽 ----------
 
 export async function render(el) {
@@ -486,7 +490,10 @@ export async function renderGroup(el, group) {
   if (group === 'confirm') return renderConfirm(el);
   if (group === 'close') return renderClose(el);
   if (group === 'notes') return renderNotes(el);
-  if (group === 'ask') return renderAsk(el);
+  if (group === 'ask') {
+    askTab = 'todo';
+    return renderAsk(el);
+  }
   if (group === 'forms') return formInbox.render(el);
 
   const tasks = await tasksData.listOpen();
@@ -622,19 +629,12 @@ async function renderAsk(el, { focus = null } = {}) {
   const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
 
   paintAsk({
-    el, byId, invites, today,
+    el, byId, invites, today, focus,
     rows: customersToAsk({ customers, entitlementsBy, availabilityBy, today }),
     // 她問的是下個月的時間 —— askAvailabilityMessage() 的預設也是下個月，
     // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
     month: addMonths(today, 1).slice(0, 7),
   });
-
-  // 產生連結之後整頁重畫，捲軸會停在別的地方 —— 她的下一個動作是「複製那則訊息」，
-  // 所以把剛剛那一位捲回眼前，不要讓她自己找。
-  if (focus) {
-    el.querySelector(`[data-card="${CSS.escape(focus)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
 }
 
 /**
@@ -643,8 +643,9 @@ async function renderAsk(el, { focus = null } = {}) {
  * 所以他留在名單上，只是排到最後面。見 ADR-0033。
  */
 function paintAsk(ctx) {
-  const { el, rows, invites, month, today } = ctx;
+  const { el, rows, invites, month, today, focus } = ctx;
   const groups = splitByInvite({ rows, invites, today });
+  const todo = groups.never.length + groups.expired.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -655,16 +656,35 @@ function paintAsk(ctx) {
     </div>
 
     ${rows.length ? `
-      ${askSection('從來沒問過', groups.never, ctx,
-        '這幾位身上還有次數，但一次都沒問過時間。')}
-      ${askSection('該重問了', groups.expired, ctx,
-        '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}
-      ${askSection('已經發出連結', groups.sent, ctx,
-        '連結給出去了，在等他填。先不要再問一次 —— 他填好會出現在「客戶填好的時間」。')}`
+      <div class="seg" role="group" style="margin-bottom: var(--space-4)">
+        <button class="seg__item" type="button" data-asktab="todo"
+                aria-pressed="${askTab === 'todo'}">還沒發連結 ${todo}</button>
+        <button class="seg__item" type="button" data-asktab="sent"
+                aria-pressed="${askTab === 'sent'}">已經發出 ${groups.sent.length}</button>
+      </div>
+
+      ${askTab === 'sent'
+        ? askSection('已經發出連結', groups.sent, ctx,
+          '連結給出去了，在等他填。先不要再問一次 —— 他填好會出現在「客戶填好的時間」。')
+          || '<p class="muted">還沒發出任何連結。</p>'
+        : `${askSection('從來沒問過', groups.never, ctx,
+            '這幾位身上還有次數，但一次都沒問過時間。')}
+           ${askSection('該重問了', groups.expired, ctx,
+            '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}
+           ${todo ? '' : '<p class="muted">都發出去了，在等他們填。</p>'}`}`
       : '<p class="muted">都問到了。</p>'}`;
 
   message.wire(el, toast.info);
   wireAsk(ctx);
+
+  // 產生連結之後那一位會從左邊那一格跳到右邊，捲軸也會停在別的地方 ——
+  // 她的下一個動作是「複製那則訊息」，所以捲回眼前，順便把訊息展開。
+  if (focus) {
+    el.querySelector(`[data-card="${CSS.escape(focus)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const wrap = el.querySelector(`[data-msg-wrap="ask-${CSS.escape(focus)}"]`);
+    if (wrap) wrap.open = true;
+  }
 }
 
 function askSection(title, rows, ctx, lead) {
@@ -735,6 +755,13 @@ function wireAsk(ctx) {
   const { el, rows, invites, month, today } = ctx;
   const nameOf = (id) => rows.find((r) => r.customerId === id)?.customerName ?? '';
 
+  // 切換**不重新讀資料**，就地重畫 —— 那三份資料剛剛才讀過，再讀一次只是讓她等。
+  el.querySelectorAll('[data-asktab]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      askTab = btn.dataset.asktab;
+      paintAsk({ ...ctx, focus: null });
+    }));
+
   el.querySelectorAll('[data-makelink]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const customerId = btn.dataset.makelink;
@@ -742,6 +769,7 @@ function wireAsk(ctx) {
         () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
         { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
       );
+      askTab = 'sent';
       renderAsk(el, { focus: customerId });
     }));
 
@@ -768,6 +796,7 @@ function wireAsk(ctx) {
         },
         { pending: '重發中…', success: '新的連結好了', undoable: false },
       );
+      askTab = 'sent';
       renderAsk(el, { focus: customerId });
     }));
 }
