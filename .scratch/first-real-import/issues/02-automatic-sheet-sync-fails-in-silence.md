@@ -112,6 +112,8 @@ return { ok: true, at, sheets: reply.sheets ?? null };
 
 - **首頁不出聲。** issue 裡「要決定的一件事」那段本來就寫著這一支先不做，
   連續失敗超過一天要不要浮到待辦中心，另外想。
+  **2026-08-21 使用者確認照這樣做**，沒有另外開票 —— 等她實際用到「推不出去而
+  我一整天沒發現」的時候再談，現在就開等於替一個還沒發生的問題設計。
 - **沒有加 `data/` 那層的測試。** 這個 repo 目前一支都沒有（firebase SDK 是從
   CDN import 的，node 解析不了那個 URL）。要補的話得先給 `data/` 一個
   import map 或 stub loader，那是另一件事。

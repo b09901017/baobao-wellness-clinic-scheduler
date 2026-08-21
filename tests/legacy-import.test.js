@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   parseDelimited,
@@ -660,4 +661,44 @@ test('整張跳過的要講出來，否則她會以為那位進去了', () => {
     { year: 2026 },
   );
   assert.ok(points.some((x) => x.text.includes('整張跳過')));
+});
+
+
+// ---------- 這一頁的文案靠什麼撐著（.scratch/first-real-import/issues/07） ----------
+
+test('這條路一律建成已完成，所以那一頁的兩句文案才是真的', () => {
+  // 這一條綁的是**兩支檔案的關係**，不是單一支的行為。
+  //
+  // `ui/views/legacyImport.js` 的卡片與確認框寫著「來訪一律是已完成」與
+  // 「不會產生任何待辦任務」。那兩句今天是真的，但它們的正確性完全靠
+  // `planForSheet()` 這裡寫死的 `status: 'done'` —— 共用的 `importPlan()`
+  // 是逐筆問 `acceptsNewTasks()` 的，只要這條路開始產得出 `confirmed`，
+  // 那兩句話當場就變成謊話，而畫面在講一件不會發生的事比沒講還糟。
+  //
+  // 合併檔那條路已經改成依日期判斷（ADR-0029），這一條遲早要跟上
+  // （`issues/07`）。**做那件事的時候這條測試會紅，那就是它的用途**：
+  // 它會指著這裡說「文案也要一起改」。
+  const future = SHEET
+    .replace('8/1,8/11,8/18', '8/1,8/11,12/31')
+    .replace(/,FALSE$/gm, ',TRUE');
+  const p = planForSheet(parseSheet(future, { sheetName: '客戶A' }), CTX);
+
+  assert.ok(p.visits.length >= 2, 'fixture 要真的產出好幾天的來訪');
+  assert.ok(
+    p.visits.some((v) => v.date > '2026-08-21'),
+    'fixture 要包含一筆日期在未來的來訪，否則這條測試什麼都沒驗到',
+  );
+  assert.deepEqual(
+    [...new Set(p.visits.map((v) => v.status))],
+    ['done'],
+    '這條路還是一律 done。改成依日期判斷的話，'
+      + 'ui/views/legacyImport.js 的「來訪一律是已完成」與'
+      + '「不會產生任何待辦任務」兩句要一起改（見 .scratch/first-real-import/issues/07）',
+  );
+
+  const view = readFileSync(new URL('../public/js/ui/views/legacyImport.js', import.meta.url), 'utf8');
+  assert.ok(
+    view.includes('不會產生任何待辦任務'),
+    '那句文案不在了的話，這條測試也該跟著更新 —— 它盯的是那句話與上面那條斷言的關係',
+  );
 });
