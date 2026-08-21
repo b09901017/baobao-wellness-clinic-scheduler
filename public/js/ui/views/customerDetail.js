@@ -359,33 +359,72 @@ function openMarks(ctx, current) {
  * 產生一則裡面沒有日期的空話比不產生更糟。
  */
 async function openMessages(ctx, today) {
-  // 這位客戶這個月有沒有一條還開著的表單連結。有的話「問這輪的時間」那一則
-  // 就換成附連結的講法（domain/messages.js）—— 兩則同時給她會讓她不知道
-  // 該貼哪一則，而貼錯的後果是客戶用打字回她，連結白給了。
-  //
-  // 讀失敗就當沒有連結：那一則退回原本的問法，她照樣問得了人。
-  let link = '';
-  try {
-    const month = addMonths(today, 1).slice(0, 7);
-    const invite = (await invitesData.list())
-      .filter((i) => i.customerId === ctx.customer.id && i.month === month)
-      .find((i) => inviteState(i, today) === 'open');
-    link = invite ? formLink(location.origin, invite.id) : '';
-  } catch {
-    link = '';
-  }
-
-  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today, formLink: link });
+  const month = addMonths(today, 1).slice(0, 7);
 
   const sheet = openSheet({
     title: 'LINE 訊息',
     note: '產生的是草稿，複製之前可以直接改。',
-    body: list.length
-      ? list.map((m) => message.box({ id: `msg-${m.id}`, text: m.text, label: m.label })).join('')
-      : '<p class="muted">現在沒有用得到的訊息。壓好表或該問時間了才會長出來。</p>',
+    body: '<p class="muted">載入中…</p>',
   });
 
+  paintMessages(sheet, ctx, today, month, await openInviteFor(ctx.customer.id, month, today));
+}
+
+/**
+ * 這位客戶這個月有沒有一條還開著的表單連結。
+ * 讀失敗就當沒有 —— 那一則退回原本的問法，她照樣問得了人。
+ */
+async function openInviteFor(customerId, month, today) {
+  try {
+    return (await invitesData.list())
+      .filter((i) => i.customerId === customerId && i.month === month)
+      .find((i) => inviteState(i, today) === 'open') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 只列現在用得到的：沒有待確認的來訪就不出現「問壓好的時間可不可以」，
+ * 產生一則裡面沒有日期的空話比不產生更糟。
+ *
+ * **還沒有連結的時候，「問這一輪的時間」那一則換成一顆「產生表單連結」。**
+ * 兩則（有連結的與沒連結的）同時給她會讓她不知道該貼哪一則，而貼錯的後果是
+ * 客戶用打字回她、連結白給了。動線與待辦中心那一頁一樣：先產生，再複製。
+ */
+function paintMessages(sheet, ctx, today, month, invite) {
+  const link = invite ? formLink(location.origin, invite.id) : '';
+  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today, formLink: link });
+  const shown = link ? list : list.filter((m) => m.id !== 'ask');
+
+  // 走面板自己的 update()：它會保住捲動位置，不會把她捲回最上面。
+  sheet.update(`
+    ${link ? '' : `
+      <div class="field">
+        <div class="field__label">問這一輪的時間</div>
+        <p class="muted" style="margin: 0 0 var(--space-2)">
+          先產生一條這位客戶專屬的連結，訊息才貼得出去。</p>
+        <button class="btn btn--primary btn--wide" type="button" data-makelink>產生表單連結</button>
+      </div>`}
+
+    ${shown.length
+      ? shown.map((m) => message.box({ id: `msg-${m.id}`, text: m.text, label: m.label })).join('')
+      : (link ? '<p class="muted">現在沒有用得到的訊息。</p>' : '')}`);
+
   message.wire(sheet.el, toast.info);
+
+  sheet.body()?.querySelector('[data-makelink]')?.addEventListener('click', async () => {
+    const token = await toast.withSaveState(
+      () => invitesData.create({
+        customerId: ctx.customer.id, customerName: ctx.customer.name, month, sentAt: today,
+      }),
+      { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
+    );
+    if (!token) return;
+    // 就地換掉面板內容，不重開一張 —— 重開會再播一次滑上來的動畫，
+    // 看起來像她按錯了什麼。
+    paintMessages(sheet, ctx, today, month, await openInviteFor(ctx.customer.id, month, today));
+  });
 }
 
 /**

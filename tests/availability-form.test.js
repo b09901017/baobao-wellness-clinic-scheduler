@@ -142,7 +142,27 @@ test('整個月都點掉 → 一條範圍，不是七條星期', () => {
 test('沒有給月份就只做連續收合，不推星期', () => {
   const g = groupPicks({ dates: SEPT_FRIDAYS.map((date) => ({ date })) });
   assert.deepEqual(g.weekdays, []);
-  assert.equal(g.dates.length, 4);
+  assert.equal(g.spans.length, 4, '四個禮拜五彼此不連續，就是四段各一天');
+  assert.equal(g.spans.every((s) => s.from === s.to), true);
+});
+
+test('複述照日期排，連續的和單獨一天混在同一串裡', () => {
+  // 使用者的原話：不要「9/7~9/8」跑到「9/1」前面
+  const lines = describePicks({
+    dates: [
+      ...SEPT_FRIDAYS.map((date) => ({ date })),
+      { date: '2026-09-01' },
+      { date: '2026-09-07' }, { date: '2026-09-08' },
+      { date: '2026-09-10' },
+    ],
+  }, { month: '2026-09' });
+
+  assert.deepEqual(lines, [
+    '整個禮拜五不行',
+    '9/1(二) 整天不行',
+    '9/7(一) ~ 9/8(二) 整天不行',
+    '9/10(四) 整天不行',
+  ]);
 });
 
 test('半天不行的日子永遠不會被併進範圍', () => {

@@ -173,14 +173,18 @@ const partOf = (pick) => (PART_OF_DAY.includes(pick?.partOfDay) ? pick.partOfDay
  * 少一個就不收。少的那一天他是真的可以，收成「每個禮拜五」會把它一起擋掉 ——
  * 而「多擋一天」在排班上是看不出來的錯，她只會覺得這個客戶怎麼那麼難排。
  *
+ * 回傳的 `spans` 是**照日期排好的一串**，單獨一天就是 `from === to`。
+ * 刻意不把「範圍」和「單獨一天」分成兩個陣列：分開的話唸出來會變成
+ * 「9/7~9/8、9/1、9/9」—— 客戶自己講的順序是日曆的順序，讀的人也是。
+ *
  * @param {{weekdays?:object[], dates?:object[]}} picks
  * @param {{month?:string}} [opts] 'YYYY-MM'。沒給就只做第 3 層
- * @returns {{weekdays:object[], ranges:object[], dates:object[], whole:boolean}}
+ * @returns {{weekdays:object[], spans:{from:string,to:string,partOfDay:?string}[], whole:boolean}}
  */
 export function groupPicks(picks, { month = null } = {}) {
   const { weekdays, dates } = normalizePicks(picks);
   const left = new Map(dates.map((d) => [d.date, d.partOfDay]));
-  const out = { weekdays: [...weekdays], ranges: [], dates: [], whole: false };
+  const out = { weekdays: [...weekdays], spans: [], whole: false };
 
   if (isMonth(month)) {
     const all = monthDates(month);
@@ -189,8 +193,7 @@ export function groupPicks(picks, { month = null } = {}) {
     if (all.length && all.every((d) => left.has(d) && left.get(d) === null)) {
       return {
         weekdays: out.weekdays,
-        ranges: [{ from: all[0], to: all[all.length - 1] }],
-        dates: [],
+        spans: [{ from: all[0], to: all[all.length - 1], partOfDay: null }],
         whole: true,
       };
     }
@@ -210,24 +213,24 @@ export function groupPicks(picks, { month = null } = {}) {
     out.weekdays.sort((a, b) => a.weekday - b.weekday);
   }
 
-  // 3. 剩下的照連續分組
+  // 3. 剩下的照連續分組。runsOf() 收到的是排好序的，所以 spans 天生照日期排。
   const rest = [...left.entries()]
     .map(([date, partOfDay]) => ({ date, partOfDay }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   for (const group of runsOf(rest)) {
-    if (group.length >= MERGE_RUN) {
-      out.ranges.push({ from: group[0].date, to: group[group.length - 1].date });
-    } else {
-      out.dates.push(...group);
-    }
+    out.spans.push({
+      from: group[0].date,
+      to: group[group.length - 1].date,
+      partOfDay: group[0].partOfDay,
+    });
   }
 
   return out;
 }
 
 /**
- * 連續的整天分成一組。
+ * 連續的整天分成一組，兩天以上才算一段。
  * 半天的自己一組，永遠不會被併進範圍 —— 「9/22 整天、9/23 只有下午」併成一條
  * 會把 9/23 的上午一起吃掉，而那是客戶真的有空的半天。
  */
@@ -242,7 +245,8 @@ function runsOf(dates) {
     if (canJoin) last.push(pick);
     else groups.push([pick]);
   }
-  return groups;
+  // 一天的那幾組留著（from === to），不要在這裡拆掉 —— 拆了順序就散了
+  return groups.filter((g) => g.length >= MERGE_RUN || g.length === 1);
 }
 
 function monthDates(month) {
@@ -266,12 +270,9 @@ export function picksToRules(picks, { month = null } = {}) {
       weekday: w.weekday,
       ...(w.partOfDay ? { partOfDay: w.partOfDay } : {}),
     })),
-    ...g.ranges.map((r) => ({ kind: 'exclude_range', from: r.from, to: r.to })),
-    ...g.dates.map((d) => ({
-      kind: 'exclude_date',
-      date: d.date,
-      ...(d.partOfDay ? { partOfDay: d.partOfDay } : {}),
-    })),
+    ...g.spans.map((s) => (s.from === s.to
+      ? { kind: 'exclude_date', date: s.from, ...(s.partOfDay ? { partOfDay: s.partOfDay } : {}) }
+      : { kind: 'exclude_range', from: s.from, to: s.to })),
   ];
 }
 
@@ -291,9 +292,10 @@ export function picksToText(picks, { month = null } = {}) {
   for (const w of g.weekdays) {
     parts.push(`每個禮拜${WEEKDAY_NAMES[w.weekday]}${PART_LABELS[w.partOfDay] ?? ''}不行`);
   }
-  for (const r of g.ranges) parts.push(`${md(r.from)} 到 ${md(r.to)} 不行`);
-  for (const d of g.dates) {
-    parts.push(`${md(d.date)} ${PART_LABELS[d.partOfDay] ?? ''}不行`.replace(/\s+/g, ' ').trim());
+  for (const s of g.spans) {
+    parts.push(s.from === s.to
+      ? `${md(s.from)} ${PART_LABELS[s.partOfDay] ?? ''}不行`.replace(/\s+/g, ' ').trim()
+      : `${md(s.from)} 到 ${md(s.to)} 不行`);
   }
 
   return parts.join('、');
@@ -328,6 +330,10 @@ export function rawTextFrom({ weekdays, dates, freeText } = {}, { month = null }
  * 客戶那一頁的確認、送出後那一頁、她的收件匣、回覆客戶的訊息，四個地方都用這一份 ——
  * 客戶按下送出時看到的字，要跟她收到的字一模一樣。
  *
+ * **整個星期的排在最前面，其餘照日期由早到晚**，連續的和單獨一天混在同一串裡。
+ * 把範圍全部提到前面會讓人讀成「9/7~9/8、9/1、9/9」，而客戶自己講的順序、
+ * 她排班時看的順序，都是日曆的順序。
+ *
  * **不含客戶自己打的那段。** 確認那一頁的自由欄還在編輯中，把它混進複述裡
  * 會變成「他打一個字、上面就多一行」。要含的地方用 `describeResponse()`。
  *
@@ -335,17 +341,17 @@ export function rawTextFrom({ weekdays, dates, freeText } = {}, { month = null }
  */
 export function describePicks(picks, { month = null } = {}) {
   const g = groupPicks(picks, { month });
-  const out = [];
-
   if (g.whole && isMonth(month)) return [`整個 ${Number(month.slice(5))} 月都不行`];
 
-  for (const w of g.weekdays) {
-    out.push(w.partOfDay
-      ? `整個禮拜${WEEKDAY_NAMES[w.weekday]}的${PART_LABELS[w.partOfDay]}不行`
-      : `整個禮拜${WEEKDAY_NAMES[w.weekday]}不行`);
+  const out = g.weekdays.map((w) => (w.partOfDay
+    ? `整個禮拜${WEEKDAY_NAMES[w.weekday]}的${PART_LABELS[w.partOfDay]}不行`
+    : `整個禮拜${WEEKDAY_NAMES[w.weekday]}不行`));
+
+  for (const s of g.spans) {
+    out.push(s.from === s.to
+      ? `${shortDate(s.from)} ${partSuffix(s.partOfDay)}`
+      : `${shortDate(s.from)} ~ ${shortDate(s.to)} 整天不行`);
   }
-  for (const r of g.ranges) out.push(`${shortDate(r.from)} ~ ${shortDate(r.to)} 整天不行`);
-  for (const d of g.dates) out.push(`${shortDate(d.date)} ${partSuffix(d.partOfDay)}`);
 
   return out.length ? out : ['這個月都可以，沒有不方便的日子'];
 }
