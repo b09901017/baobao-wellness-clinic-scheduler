@@ -240,6 +240,81 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- 客戶自己填的時間 ----------
+    //
+    // 這是整份 Rules 裡**唯一讓沒有登入的人寫得進來**的地方，所以它比其他集合都緊。
+    // 設計與四道限制見 docs/adr/0031-the-customer-form-is-its-own-page.md 與
+    // .scratch/customer-availability-form/spec.md 第 6 節。
+    //
+    // 客戶手上唯一的鑰匙是 token，也就是文件 id：Firestore 自動 id，
+    // 20 個字元、62 種字元，猜不到。
+
+    function inviteOf(token) {
+      return get(/databases/$(database)/documents/formInvites/$(token)).data;
+    }
+
+    function validInvite() {
+      let d = request.resource.data;
+      return d.customerId is string
+        && d.month is string
+        && d.month.size() == 7
+        && d.validFrom is string
+        && d.validTo is string
+        // Rules 沒辦法把 'YYYY-MM-DD' 跟 request.time 比大小，所以過期靠這個時間戳
+        && d.expiresAt is timestamp;
+    }
+
+    match /formInvites/{token} {
+      // **get 與 list 分開，這是這一段最容易寫錯的地方。** 兩個都寫成
+      // allow read 的話，任何人都可以一次查出全部邀請 —— 而邀請上有客戶的名字。
+      // 拿得到 token 才讀得到那一份，是客戶本人要知道「這是誰的、問哪個月」。
+      allow get:  if true;
+      allow list: if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validInvite();
+      allow delete: if false;
+    }
+
+    // 客戶送出的答案。**id 就是 token —— 一條連結只有一份答案。**
+    //
+    // 「暫時不重填」是這條 Rules 保證的，不是前端擋的：第二次送出在 Firestore
+    // 眼中是 update，而客戶沒有 update 的權限。前端擋是體貼，這裡擋才算數。
+    //
+    // 前端送什麼過來都繞不過 customerId 與 month —— 它們是拿邀請本身比對的，
+    // 不是信任 request 裡的值。
+    function validNewResponse(token) {
+      let d = request.resource.data;
+      return exists(/databases/$(database)/documents/formInvites/$(token))
+        && inviteOf(token).deletedAt == null
+        && request.time < inviteOf(token).expiresAt
+        && d.keys().hasOnly(['token', 'customerId', 'customerName', 'month',
+                             'weekdays', 'dates', 'freeText',
+                             'submittedAt', 'takenAt', 'deletedAt'])
+        && d.token == token
+        && d.customerId == inviteOf(token).customerId
+        && d.month == inviteOf(token).month
+        && d.weekdays is list
+        && d.weekdays.size() <= 14
+        && d.dates is list
+        && d.dates.size() <= 45
+        && d.freeText is string
+        && d.freeText.size() <= 500
+        && d.takenAt == null
+        // 沒有這個欄位她的收件匣一筆都看不到 —— repo.list() 一律用
+        // where('deletedAt','==',null) 過濾。
+        && d.deletedAt == null;
+    }
+
+    match /formResponses/{token} {
+      // 拿得到 token 的人就是客戶本人，他重開連結時看得到自己填了什麼。
+      // list 一樣關著 —— 收件匣是她的。
+      allow get:  if true;
+      allow list: if allowed();
+      allow create: if validNewResponse(token);
+      // 收下（takenAt）與丟掉（deletedAt）都只有她做得到。
+      allow update: if allowed() && keepsExistingId();
+      allow delete: if false;
+    }
+
     // ---------- 其餘一律拒絕 ----------
     // 沒有明確允許的路徑就是不能碰。新增集合時要回來這裡開洞，
     // 這是刻意的：忘記開規則會壞掉，但不會外洩。

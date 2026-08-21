@@ -32,8 +32,10 @@ import { counts, reconcile, isOverused, validateEntitlement } from '../../domain
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
-import { todayISO, shortDate } from '../../domain/dates.js';
+import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
+import { formLink, inviteState } from '../../domain/availabilityForm.js';
+import * as invitesData from '../../data/formInvites.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
@@ -356,8 +358,24 @@ function openMarks(ctx, current) {
  * 只列現在用得到的：沒有待確認的來訪就不出現「問壓好的時間可不可以」，
  * 產生一則裡面沒有日期的空話比不產生更糟。
  */
-function openMessages(ctx, today) {
-  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today });
+async function openMessages(ctx, today) {
+  // 這位客戶這個月有沒有一條還開著的表單連結。有的話「問這輪的時間」那一則
+  // 就換成附連結的講法（domain/messages.js）—— 兩則同時給她會讓她不知道
+  // 該貼哪一則，而貼錯的後果是客戶用打字回她，連結白給了。
+  //
+  // 讀失敗就當沒有連結：那一則退回原本的問法，她照樣問得了人。
+  let link = '';
+  try {
+    const month = addMonths(today, 1).slice(0, 7);
+    const invite = (await invitesData.list())
+      .filter((i) => i.customerId === ctx.customer.id && i.month === month)
+      .find((i) => inviteState(i, today) === 'open');
+    link = invite ? formLink(location.origin, invite.id) : '';
+  } catch {
+    link = '';
+  }
+
+  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today, formLink: link });
 
   const sheet = openSheet({
     title: 'LINE 訊息',
