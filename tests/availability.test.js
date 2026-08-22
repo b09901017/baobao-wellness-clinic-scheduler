@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseAvailability, dayStatus, availableDates, describeRule,
-  collectionState, currentCollection, validateCollection, summarize,
+  collectionState, currentCollection, collectionFor, validateCollection, summarize,
   manualRule, mergeRules, validateRule,
 } from '../public/js/domain/availability.js';
 
@@ -208,6 +208,44 @@ describe('有效期', () => {
 
   test('軟刪除的不算', () => {
     assert.equal(currentCollection([{ ...record, id: 'a', deletedAt: 'x' }], '2026-09-10'), null);
+  });
+});
+
+// 壓表問的是「那個月問到什麼」，不是「今天有沒有一份有效的」。
+// 兩件事分開的理由見 docs/adr/0036。
+describe('涵蓋某一段期間的那一份', () => {
+  const sep = { id: 'sep', validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: '2026-08-28' };
+  const aug = { id: 'aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-07-25' };
+
+  test('壓九月拿九月那一份', () => {
+    assert.equal(collectionFor([aug, sep], '2026-09-01', '2026-09-30').id, 'sep');
+  });
+
+  test('壓八月不會拿到九月那一份 —— 那個月還沒問就是還沒問', () => {
+    assert.equal(collectionFor([sep], '2026-08-01', '2026-08-31'), null);
+  });
+
+  test('同一個月有兩份時，交集多的贏', () => {
+    const half = { id: 'half', validFrom: '2026-09-20', validTo: '2026-10-10', collectedAt: '2026-09-19' };
+    assert.equal(collectionFor([half, sep], '2026-09-01', '2026-09-30').id, 'sep',
+      '比較新但只講到十天的那一份，不能蓋過整個月的那一份');
+  });
+
+  test('交集一樣多才比收集日期', () => {
+    const older = { ...sep, id: 'a', collectedAt: '2026-08-01' };
+    const newer = { ...sep, id: 'b', collectedAt: '2026-08-28' };
+    assert.equal(collectionFor([older, newer], '2026-09-01', '2026-09-30').id, 'b');
+  });
+
+  test('只碰到一天也算涵蓋 —— 可用日本來就只算交集那幾天', () => {
+    const edge = { id: 'edge', validFrom: '2026-09-30', validTo: '2026-10-20', collectedAt: '2026-09-01' };
+    assert.equal(collectionFor([edge], '2026-09-01', '2026-09-30').id, 'edge');
+  });
+
+  test('軟刪除、有效期壞掉、期間反過來的一律不算', () => {
+    assert.equal(collectionFor([{ ...sep, deletedAt: 'x' }], '2026-09-01', '2026-09-30'), null);
+    assert.equal(collectionFor([{ ...sep, validTo: null }], '2026-09-01', '2026-09-30'), null);
+    assert.equal(collectionFor([sep], '2026-09-30', '2026-09-01'), null);
   });
 });
 

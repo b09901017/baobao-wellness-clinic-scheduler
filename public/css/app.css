@@ -672,6 +672,16 @@ textarea {
   flex: 0 0 auto;
 }
 
+/* 分隔之後那一組在做什麼，用一個小標寫出來 —— 同一排裡兩件事長得一樣，
+   她會以為點了「喜好」就會篩掉別人。 */
+.chiprow__lead {
+  align-self: center;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
 /* 排序丸與篩選丸中間的分隔 —— 兩邊做的事不一樣，不要看起來像同一組。 */
 .chiprow__sep {
   width: 1px;
@@ -1255,12 +1265,34 @@ button.mark::after {
   color: var(--soon);
 }
 
-/* 可用性原文永遠比解析出來的規則大 —— 解析錯了以原文為準（SPEC 4.3） */
+/* 可用性原文比解析出來的規則大 —— 解析錯了以原文為準（SPEC 4.3）。
+   壓表那一頁把它收進 .ban__more 裡（ADR-0035），其他地方仍然直接攤開。 */
 .ban__raw {
   margin-top: var(--space-2);
   font-size: var(--text-md);
   line-height: 1.55;
   color: var(--text);
+}
+
+/* 「他原本是怎麼說的」。壓表卡片上要掃的是丸子，原文是她想確認解析對不對時
+   才打開的那一層 —— 收起來之後只佔一行。 */
+.ban__more {
+  margin-top: var(--space-2);
+}
+
+.ban__more > summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.ban__more > summary::marker {
+  color: var(--text-mute);
 }
 
 /* 一個課程一顆泡泡，一列掃得完 */
@@ -1520,13 +1552,39 @@ button.mark::after {
   cursor: default;
 }
 
-/* 她說不行的日子。劃掉而不是只變淡 —— 變淡在陽光下看不出來。 */
+/* 點不下去的日子有三種，而她只會在「為什麼這天不能點」上停下來，
+   所以三種原因三種樣子，不要用同一個米色講三件事。 */
 .minical__cell--off {
+  cursor: not-allowed;
+}
+
+/* 他說不行。紅色劃掉而不是變淡 —— 她是在公司電腦旁邊、常常有窗邊反光的地方
+   看這一格，而這是挑格子時唯一不能挑錯的一件事。 */
+.minical__cell--ban {
+  background: var(--overdue-bg);
+  border-color: var(--overdue-bg);
+  color: var(--overdue);
+  font-weight: 600;
+  text-decoration: line-through;
+  text-decoration-color: var(--overdue);
+  text-decoration-thickness: 2px;
+}
+
+/* 你自己休假。跟日曆上的個人行程同一個霧藍（ADR-0015）——
+   同樣排不進去，但那不是客戶的限制。 */
+.minical__cell--away {
+  background: var(--slate-soft);
+  border-color: var(--slate-soft);
+  color: var(--slate);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+/* 已經過去的。不必解釋，也不該搶眼。 */
+.minical__cell--past {
   background: var(--surface-2);
   border-color: var(--surface-2);
   color: var(--text-mute);
-  text-decoration: line-through;
-  cursor: not-allowed;
 }
 
 .minical__cell--has {
@@ -1581,9 +1639,14 @@ button.mark::after {
   border-color: var(--accent-line);
 }
 
-.minical__swatch--off {
-  background: var(--surface-2);
-  border-color: var(--surface-2);
+.minical__swatch--ban {
+  background: var(--overdue-bg);
+  border-color: var(--overdue);
+}
+
+.minical__swatch--away {
+  background: var(--slate-soft);
+  border-color: var(--slate);
 }
 
 /* ---------- 日曆 ---------- */

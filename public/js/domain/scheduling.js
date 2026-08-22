@@ -12,7 +12,7 @@
 // 所以每一項的貢獻都要攤成人話標籤，讓她看得懂為什麼這人排第一，不同意就跳過去。
 
 import { counts } from './entitlements.js';
-import { availableDates, currentCollection, dayStatus } from './availability.js';
+import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive } from './visits.js';
 import { annotateOptions } from './contraindications.js';
 import { overlaps, toMinutes } from './visitTime.js';
@@ -240,8 +240,16 @@ function prevMonthOf(targetMonth) {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
 }
 
+/**
+ * 一列的即時資訊。壓表與時段反查共用（見下面「時段反查」那一段的理由）。
+ *
+ * **可用性是照 `range` 挑的，不是照 `today`。** 她八月坐下來壓的是九月的表，
+ * 而九月那一份在八月還沒生效；反過來，九月那一份也不該被拿去講八月的事。
+ * 這一段期間沒問過就是 `needsAvailability`，而不是拿另一個月的答案硬算 ——
+ * 見 `docs/adr/0036-availability-is-picked-by-the-month-being-scheduled.md`。
+ */
 function rowFor({ customer, state, visits, availability, range, today }) {
-  const collection = currentCollection(availability, today);
+  const collection = collectionFor(availability, range.from, range.to);
   const rules = collection?.rules ?? [];
 
   // 可用日只算在這個月裡面的 —— 她問的就是這個月
@@ -269,6 +277,10 @@ function rowFor({ customer, state, visits, availability, range, today }) {
     rules,
     rawText: collection?.rawText ?? null,
     collectedAt: collection?.collectedAt ?? null,
+    // 這一份講的是哪一段期間。UI 要講得出「問的是哪個月」，
+    // 不然「還沒問」與「問過但那是別的月份」在畫面上長得一樣。
+    askedFrom: collection?.validFrom ?? null,
+    askedTo: collection?.validTo ?? null,
     needsAvailability: !collection,
     daysSinceLast: last ? daysBetween(last.date, today) : null,
     lastVisitDate: last?.date ?? null,
@@ -334,6 +346,54 @@ const clamp = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 /** 手機一列只放得下一個標籤，放貢獻最大的那個。 */
 export function strongestReason(row) {
   return (row?.reasons ?? [])[0] ?? null;
+}
+
+// ---------- 卡片牆的排序 ----------
+//
+// 預設順序是分數算出來的（上面那一段），而分數是一個把四件事揉成一個數字的東西。
+// 她坐下來壓表的時候心裡想的常常只有其中一件：「先弄有問到時間的」「先弄喜歡的」
+// 「先弄剩最多次的」。那時候她要的不是另一套分數，是**把同一份名單換個方式排**。
+//
+// 所以這裡只有比較函式，沒有第二組計分 —— `CLAUDE.md` 那條「先看誰用同一組計分」
+// 沒有被推翻：每一種排法都是同一批 row、同一組 reasons，換的只是先看哪一欄。
+// 見 `docs/adr/0037-the-wall-can-be-re-sorted-but-never-re-scored.md`。
+//
+// 每一種都是穩定排序，所以**同一個值的那幾位仍然照預設順序**（分數排出來的那個）。
+
+export const QUEUE_SORTS = [
+  { id: 'default', label: '預設' },
+  { id: 'asked', label: '問到時間的先' },
+  { id: 'priority', label: '喜好' },
+  { id: 'remaining', label: '剩最多次' },
+  { id: 'gap', label: '最久沒來' },
+];
+
+/**
+ * 「還沒上過課」在「最久沒來」這一欄要排最前面 —— 買了方案一次都沒上，
+ * 比上個月來過的更久。`scoreRow()` 的第四項也是這樣算的（給滿分）。
+ */
+const gapOf = (row) => (row?.daysSinceLast === null || row?.daysSinceLast === undefined
+  ? Infinity
+  : row.daysSinceLast);
+
+const COMPARE = {
+  default: null,
+  asked: (a, b) => Number(!!a.needsAvailability) - Number(!!b.needsAvailability),
+  priority: (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+  remaining: (a, b) => (b.totalRemaining ?? 0) - (a.totalRemaining ?? 0),
+  gap: (a, b) => gapOf(b) - gapOf(a),
+};
+
+/**
+ * 把卡片牆的順序換一種排法。
+ *
+ * @param {object[]} rows 已經照預設順序排好的那一份（批次是凍結的那個順序）
+ * @param {string} [sortId] `QUEUE_SORTS` 的 id，不認得就當預設
+ * @returns {object[]} 新的陣列，不改原本的
+ */
+export function sortQueueRows(rows = [], sortId = 'default') {
+  const compare = COMPARE[sortId];
+  return compare ? [...rows].sort(compare) : [...rows];
 }
 
 /**
@@ -541,7 +601,8 @@ export function candidatesFor({
       continue;
     }
 
-    const collection = currentCollection(availabilityBy[customer.id] ?? [], today);
+    // 那一天所在的那一份，不是今天有效的那一份 —— 空出來的格子可能在下個月。
+    const collection = collectionFor(availabilityBy[customer.id] ?? [], date, date);
     const day = collection ? dayStatus(collection.rules ?? [], date) : null;
 
     if (day && !day.available) {
@@ -578,7 +639,7 @@ export function candidatesFor({
 
 function fitNotes({ collection, day, visits, date }) {
   const notes = [];
-  if (!collection) notes.push('還沒問這輪的時間，不知道他那天行不行');
+  if (!collection) notes.push('沒問到那天的時間，不知道他那天行不行');
   else if (day?.preferred) notes.push('他說這天方便');
   else notes.push('這輪問到的條件沒有擋掉這天');
 

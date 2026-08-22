@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
   strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
-  DEFAULT_WEIGHTS,
+  sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS,
 } from '../public/js/domain/scheduling.js';
 
 const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
@@ -292,6 +292,110 @@ describe('佇列排序', () => {
     const a = build().map((r) => r.customerId);
     const b = build().map((r) => r.customerId);
     assert.deepEqual(a, b);
+  });
+});
+
+// 她八月坐下來壓的是九月的表。哪一份可用性算數，看的是**壓哪個月**，
+// 不是今天有沒有一份有效的 —— ADR-0036。
+describe('可用性要挑壓的那個月的那一份', () => {
+  const today = '2026-08-28';
+  const customers = [{ id: 'c1', name: '客戶甲', active: true, priority: 0 }];
+  const entitlementsBy = { c1: [ent()] };
+
+  const coll = (over = {}) => ({
+    id: 'a1', collectedAt: '2026-08-20', rawText: '九月的時間',
+    validFrom: '2026-09-01', validTo: '2026-09-30', rules: [], ...over,
+  });
+
+  const build = (over = {}) =>
+    buildCustomerQueue({
+      customers, entitlementsBy, visitsBy: {}, availabilityBy: {},
+      today, weights: DEFAULT_WEIGHTS, ...over,
+    });
+
+  test('壓八月時，九月那一份不算數 —— 八月就是還沒問', () => {
+    const row = build({ targetMonth: '2026-08', availabilityBy: { c1: [coll()] } })[0];
+
+    assert.equal(row.needsAvailability, true);
+    assert.equal(row.availableDays, null, '不是 0 天。0 天的意思是「哪天都不行」');
+    assert.ok(row.reasons.some((x) => x.key === 'ask'));
+  });
+
+  test('同一位客戶，壓九月時那一份就算數了', () => {
+    const row = build({ targetMonth: '2026-09', availabilityBy: { c1: [coll()] } })[0];
+
+    assert.equal(row.needsAvailability, false);
+    assert.equal(row.availableDays, 30);
+    assert.equal(row.askedFrom, '2026-09-01');
+    assert.equal(row.askedTo, '2026-09-30');
+  });
+
+  test('八月九月各問過一份時，兩個月各看各的', () => {
+    const availabilityBy = {
+      c1: [
+        coll({ id: 'aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-07-20',
+               rules: [{ kind: 'exclude_range', from: '2026-08-01', to: '2026-08-25' }] }),
+        coll({ id: 'sep' }),
+      ],
+    };
+
+    assert.equal(build({ targetMonth: '2026-08', availabilityBy })[0].availableDays, 6);
+    assert.equal(build({ targetMonth: '2026-09', availabilityBy })[0].availableDays, 30);
+  });
+
+  test('拿別的月份硬算的話，她會在第一位看到一個假的「可用 0 天」', () => {
+    // 這一條盯的是修掉的那個 bug 本身：九月那一份與八月完全沒有交集，
+    // 交集算出來是 0 天，而 0 天在排序裡是「限制最多」，會把人推到第一位。
+    const row = build({ targetMonth: '2026-08', availabilityBy: { c1: [coll()] } })[0];
+    const tightness = row.reasons.find((x) => x.key === 'available');
+    assert.equal(tightness, undefined, '沒問過就不該有「可用 N 天」這個理由');
+  });
+});
+
+// 預設順序是分數排的，但她心裡常常只有一件事。ADR-0037。
+describe('卡片牆換一種排法', () => {
+  const rows = [
+    { customerId: 'c1', customerName: '客戶甲', needsAvailability: true, priority: 5,
+      totalRemaining: 3, daysSinceLast: 10 },
+    { customerId: 'c2', customerName: '客戶乙', needsAvailability: false, priority: 1,
+      totalRemaining: 20, daysSinceLast: null },
+    { customerId: 'c3', customerName: '客戶丙', needsAvailability: false, priority: 3,
+      totalRemaining: 8, daysSinceLast: 40 },
+  ];
+  const ids = (sort) => sortQueueRows(rows, sort).map((r) => r.customerId);
+
+  test('預設就是傳進來的那個順序 —— 批次凍結的那一份', () => {
+    assert.deepEqual(ids('default'), ['c1', 'c2', 'c3']);
+    assert.deepEqual(ids('沒這種排法'), ['c1', 'c2', 'c3']);
+  });
+
+  test('問到時間的先，還沒問的沉到後面', () => {
+    assert.deepEqual(ids('asked'), ['c2', 'c3', 'c1']);
+  });
+
+  test('喜好、剩最多次、最久沒來各排各的', () => {
+    assert.deepEqual(ids('priority'), ['c1', 'c3', 'c2']);
+    assert.deepEqual(ids('remaining'), ['c2', 'c3', 'c1']);
+    assert.deepEqual(ids('gap'), ['c2', 'c3', 'c1'], '還沒上過課的算最久沒來');
+  });
+
+  test('同一個值的那幾位仍然照預設順序 —— 換排法不會把牆洗掉重來', () => {
+    const tied = [
+      { customerId: 'a', priority: 2 }, { customerId: 'b', priority: 2 },
+      { customerId: 'c', priority: 5 },
+    ];
+    assert.deepEqual(sortQueueRows(tied, 'priority').map((r) => r.customerId), ['c', 'a', 'b']);
+  });
+
+  test('不改原本那個陣列', () => {
+    const original = [...rows];
+    sortQueueRows(rows, 'priority');
+    assert.deepEqual(rows, original);
+  });
+
+  test('每一種排法都有人話標籤，畫面上才寫得出來', () => {
+    assert.ok(QUEUE_SORTS.every((s) => s.id && s.label));
+    assert.equal(QUEUE_SORTS[0].id, 'default');
   });
 });
 

@@ -116,18 +116,34 @@ describe('那天他行不行', () => {
     assert.equal(morning.candidates.length, 1);
   });
 
-  test('還沒問這輪的時間仍然列出來，但講明不知道他行不行（ADR-0002）', () => {
+  test('沒問到那天的時間仍然列出來，但講明不知道他行不行（ADR-0002）', () => {
     const { candidates } = run({ availability: [] });
     assert.equal(candidates.length, 1);
-    assert.ok(candidates[0].fitNotes.some((n) => /還沒問這輪的時間/.test(n)));
+    assert.ok(candidates[0].fitNotes.some((n) => /沒問到那天的時間/.test(n)));
   });
 
-  test('過期的收集等於沒問過，不能拿來擋人', () => {
+  test('沒有涵蓋到那一天的收集等於沒問過，不能拿來擋人', () => {
     const stale = collection([{ kind: 'exclude_date', date: DATE }], {
       validFrom: '2026-08-01', validTo: '2026-08-31',
     });
     const { candidates } = run({ availability: [stale] });
     assert.equal(candidates.length, 1);
+  });
+
+  test('看的是涵蓋那一天的那一份，不是今天有效的那一份（ADR-0036）', () => {
+    // 八月那一份今天還有效，九月那一份才講得出 9/18 行不行。
+    // 拿今天有效的去判斷，等於用八月的答案回答九月的問題。
+    const august = collection([], {
+      id: 'aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-09-10',
+    });
+    const september = collection([{ kind: 'exclude_date', date: DATE }], { id: 'sep' });
+
+    const { candidates, excluded } = run({
+      availability: [august, september],
+      args: { today: '2026-08-31' },
+    });
+    assert.equal(candidates.length, 0, '九月那一份說這天不行，就是不行');
+    assert.match(excluded[0].why, /不行/);
   });
 
   test('他說這天方便就標出來', () => {
