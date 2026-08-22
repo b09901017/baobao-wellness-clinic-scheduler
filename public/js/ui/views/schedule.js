@@ -9,10 +9,28 @@
 // 寬螢幕只是卡片更寬、旁邊多露一點，不是另一套版型。
 //
 // 這一頁**不出建議時段**（ADR-0002）。它的工作是把判斷所需的資訊攤開、
-// 把結果記下來。排序只是預設順序，她隨時可以跳著點。
+// 把結果記下來。排序只是預設順序，她隨時可以跳著點，也可以整個換一種排法
+//（ADR-0037）。
 //
 // 佇列順序在批次建立當下凍結（ADR-0001 的 Consequences）——
 // 換裝置回來不會發現順序跳掉。但每一列的即時資訊仍然現算。
+//
+// ## 這一頁為什麼長這樣：**只重畫真的變了的那一塊**
+//
+// 她點一顆丸子（做什麼、幾點、哪一台器材）是這一頁最高頻的動作，一位客戶要點五六次。
+// 原本每點一下都重畫整頁，代價是整張卡閃一下、捲動位置回到最上面 ——
+// 一個晚上要發生幾百次。所以這一支的規矩是：
+//
+// - **DOM 事件一律用委派**（`[data-page]` 與 `[data-deck]` 各一組），
+//   任何一塊重畫之後都不必重新掛監聽，也就不會有「漏掛」這種 bug。
+// - **選了什麼就只改 `aria-pressed`**，不重畫任何 HTML。
+// - 只有真的會換掉內容的動作才重畫，而且只重畫那一塊：
+//   換課程 → `[data-entfields]`；換日子 → `[data-daypanel]`；
+//   存好一筆 → 那張卡的內容（捲動位置自己接回去）。
+// - 換人是把**那兩張卡換掉**，不是重畫整個卡片組 —— 軌道的捲動位置要留著，
+//   不然滑到一半會被拉回去。
+//
+// 見 docs/adr/0038-picking-an-option-does-not-repaint-the-page.md。
 
 import * as config from '../../data/config.js';
 import * as customersData from '../../data/customers.js';
@@ -20,7 +38,8 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as eventsData from '../../data/events.js';
 import {
-  buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange, strongestReason,
+  buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
+  strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
 import { dayStatus } from '../../domain/availability.js';
 import { blockedDates } from '../../domain/events.js';
@@ -30,7 +49,7 @@ import {
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
-import { todayISO, addMonths, addDays, shortDate, weekdayLabel, lastDayOf } from '../../domain/dates.js';
+import { todayISO, addMonths, addDays, shortDate, lastDayOf } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
@@ -48,6 +67,10 @@ const view = {
   // 預設看全部。「還沒壓」是她最常要的視角，但月中打開時多半是 0 位，
   // 一進來就看到「這個篩選底下沒有人」是死路 —— 篩選要是主動收窄，不是預設收窄。
   filter: 'all',
+  // 排序與搜尋字是**看**的方式，不是進度，所以留在這裡而不是存進 batch ——
+  // 她在 iPad 上搜尋「王」，不該讓手機那邊也只剩姓王的（ADR-0037）。
+  sort: 'default',
+  search: '',
   // 記錄面板的暫存選擇。換人就清掉 —— 帶著上一位的選擇進來太容易記錯。
   day: null,
   entitlementId: null,
@@ -57,11 +80,22 @@ const view = {
   roomKey: null,
 };
 
+/**
+ * 這一批的資料與畫面狀態。放在模組層是因為畫面現在是一塊一塊重畫的 ——
+ * 事件委派的處理器要拿到的是**當下**這一份，不是它被掛上去那一刻的那一份。
+ */
+let ctx = null;
+
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
     equipmentId: null, therapistId: null, roomKey: null,
   });
+}
+
+/** 換課程時要跟著清掉的：器材、治療師、診間都是綁著課程的。時間留著。 */
+function resetCourseBoundPicks() {
+  Object.assign(view, { equipmentId: null, therapistId: null, roomKey: null });
 }
 
 export async function render(el) {
@@ -90,11 +124,12 @@ async function paintStart(el) {
     <section class="card">
       <h2 class="card__title">要壓哪個月</h2>
       <p class="card__note">開始之後會照「限制多的先看」排好，但那只是預設順序 ——
-        想先弄誰就點誰。</p>
+        想先弄誰就點誰，也可以整個換一種排法。</p>
       <div class="chips" role="group">
         ${months.map((m, i) => `
           <button class="chip" type="button" role="button"
-                  aria-pressed="${i === 0}" data-month="${esc(m)}">${esc(m)}</button>`).join('')}
+                  aria-pressed="${i === 0}" data-month="${esc(m)}">${esc(monthLabel(m))}
+            <span class="num dim">&nbsp;${esc(m)}</span></button>`).join('')}
       </div>
       <p style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="button" data-start>開始這一批</button>
@@ -136,10 +171,17 @@ async function paintStart(el) {
   );
 }
 
+/** 'YYYY-MM' → '9月'。她講的是「九月的表」，不是「2026-09 的表」。 */
+function monthLabel(targetMonth) {
+  const m = Number(String(targetMonth ?? '').slice(5, 7));
+  return m ? `${m}月` : String(targetMonth ?? '');
+}
+
 function openRow(b) {
   const p = progressOf(b);
   return `<li><button class="row-link" type="button" data-open-batch="${esc(b.id)}">
-    <span class="link-list__label">${esc(b.targetMonth)}</span>
+    <span class="link-list__label">${esc(monthLabel(b.targetMonth))}壓表
+      <span class="num dim">${esc(b.targetMonth)}</span></span>
     <span class="badge">已壓 ${p.handled} / ${p.total}</span>
     ${b.lastDeviceHint ? `<span class="badge">上次在${esc(b.lastDeviceHint)}</span>` : ''}
   </button></li>`;
@@ -208,6 +250,29 @@ async function loadAll(targetMonth) {
   };
 }
 
+/**
+ * 把凍結的佇列與現算的即時資訊疊起來。
+ *
+ * 順序凍結：照 batch.queue 的順序排，不重新排序。即時資訊照樣現算 ——
+ * 剩幾次、這個月排了幾天、那個月問到的時間，每次打開都要是真的。
+ */
+function rowsOf(batch, data) {
+  const ids = new Set((batch.queue ?? []).map((q) => q.customerId));
+  const live = new Map(
+    buildCustomerQueue({
+      ...data.queueInput,
+      targetMonth: batch.targetMonth,
+      customers: data.queueInput.customers.filter((c) => ids.has(c.id)),
+      includeUsedUp: true,
+    }).map((r) => [r.customerId, r]),
+  );
+
+  return (batch.queue ?? []).map((q) => ({
+    ...q,
+    ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
+  }));
+}
+
 // ---------- 批次 ----------
 
 async function paintBatch(el) {
@@ -235,25 +300,30 @@ async function paintBatch(el) {
   }
 
   const data = await loadAll(batch.targetMonth);
-
-  // 順序凍結：照 batch.queue 的順序排，不重新排序。即時資訊照樣現算。
-  const ids = new Set((batch.queue ?? []).map((q) => q.customerId));
-  const live = new Map(
-    buildCustomerQueue({
-      ...data.queueInput,
-      targetMonth: batch.targetMonth,
-      customers: data.queueInput.customers.filter((c) => ids.has(c.id)),
-      includeUsedUp: true,
-    }).map((r) => [r.customerId, r]),
-  );
-
-  const rows = (batch.queue ?? []).map((q) => ({
-    ...q,
-    ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
-  }));
-
-  paint({ el, batch, rows, ...data });
+  ctx = { el, batch, rows: rowsOf(batch, data), shown: [], ...data };
+  mount();
 }
+
+/**
+ * 重讀一次並把畫面接回去。存好一筆、或標記某位處理完之後用。
+ *
+ * **不重新 mount**：卡片組還開著的時候整個重畫，等於把她捲到的位置洗掉一次。
+ */
+async function reload() {
+  const batch = await batchesData.get(view.batchId);
+  if (!batch || !monthRange(batch.targetMonth)) {
+    // 這一批在別的裝置上被結束或刪掉了。整頁重來是對的 ——
+    // 回傳 true 讓呼叫端知道「別再往下畫了」。
+    view.batchId = null;
+    await render(ctx.el);
+    return true;
+  }
+  const data = await loadAll(batch.targetMonth);
+  ctx = { ...ctx, batch, rows: rowsOf(batch, data), ...data };
+  return false;
+}
+
+const selectedRow = () => ctx.rows.find((r) => r.customerId === view.customerId) ?? null;
 
 /**
  * 卡片牆上的篩選。刻意很少。
@@ -267,52 +337,142 @@ const FILTERS = [
   { id: 'noask', label: '沒問過時間', match: (r) => r.needsAvailability },
 ];
 
-function paint(ctx) {
-  const { el, batch, rows } = ctx;
-  // 每次重畫都重新認一次選中的是誰 —— 用 ctx 上的舊值會畫出上一位
-  ctx.selected = rows.find((r) => r.customerId === view.customerId) ?? null;
-  const selected = ctx.selected;
-  const p = progressOf(batch);
-  const filter = FILTERS.find((x) => x.id === view.filter) ?? FILTERS[0];
-  // 選中的那位一定留在卡片組裡，就算她剛剛把篩選切成別的 ——
-  // 正在處理的人從畫面上消失是最難懂的一種畫面
-  const shown = rows.filter((r) => filter.match(r) || r.customerId === view.customerId);
-  ctx.shown = shown;
+/** 搜尋只比姓名 —— 她找人的時候腦子裡是名字。 */
+function matchesSearch(row) {
+  const q = view.search.trim();
+  return !q || String(row.customerName ?? '').includes(q);
+}
 
-  el.innerHTML = `
+/** 現在牆上（與卡片組裡）有哪幾位，照她選的排法排。 */
+function computeShown() {
+  const filter = FILTERS.find((x) => x.id === view.filter) ?? FILTERS[0];
+  // 選中的那位一定留在卡片組裡，就算她剛剛把篩選切成別的、或搜尋了別的字 ——
+  // 正在處理的人從畫面上消失是最難懂的一種畫面
+  const kept = ctx.rows.filter(
+    (r) => (filter.match(r) && matchesSearch(r)) || r.customerId === view.customerId,
+  );
+  ctx.shown = sortQueueRows(kept, view.sort);
+  return ctx.shown;
+}
+
+// ---------- 整頁 ----------
+
+function mount() {
+  const { el } = ctx;
+  el.innerHTML = '<div data-page></div>';
+
+  const page = el.querySelector('[data-page]');
+  // 事件委派：這一層以下不管重畫幾次，監聽都還在（見檔頭）
+  page.addEventListener('click', onPageClick);
+  page.addEventListener('input', onPageInput);
+
+  paintPage();
+  if (selectedRow()) openDeck();
+}
+
+function paintPage() {
+  const { batch } = ctx;
+  const p = progressOf(batch);
+
+  ctx.el.querySelector('[data-page]').innerHTML = `
     <div class="page">
-      <h1 class="page__title">壓表</h1>
+      <h1 class="page__title">${esc(monthLabel(batch.targetMonth))}壓表</h1>
       <p class="page__lead num">${esc(batch.targetMonth)}・已壓 ${p.handled} / ${p.total} 位</p>
       <div class="meter" style="margin-top: var(--space-2)">
         <span class="meter__done" style="width: ${pct(p.handled, p.total)}"></span>
       </div>
     </div>
 
-    <div class="chiprow noscroll-bar" role="group" aria-label="先看誰">
+    <label class="field" style="margin-bottom: var(--space-2)">
+      <span class="visually-hidden">找人</span>
+      <input type="text" data-search value="${esc(view.search)}" style="width: 100%"
+             placeholder="找人：打名字" />
+    </label>
+
+    <div class="chiprow noscroll-bar" role="group" aria-label="篩選與排序">
       ${FILTERS.map((x) => `
         <button class="chip chip--sm" type="button" aria-pressed="${x.id === view.filter}"
                 data-filter="${x.id}">${esc(x.label)}
-          <span class="num dim">${rows.filter(x.match).length}</span></button>`).join('')}
+          <span class="num dim">${ctx.rows.filter(x.match).length}</span></button>`).join('')}
+      <span class="chiprow__sep" aria-hidden="true"></span>
+      <span class="chiprow__lead">排序</span>
+      ${QUEUE_SORTS.map((s) => `
+        <button class="chip chip--sm" type="button" aria-pressed="${s.id === view.sort}"
+                data-sort="${esc(s.id)}">${esc(s.label)}</button>`).join('')}
     </div>
 
-    <p class="muted" style="margin: 0 0 var(--space-3)">
-      順序是算出來的預設值 —— 限制多的排前面。想先弄誰就點誰。</p>
+    <p class="muted" data-sortnote style="margin: 0 0 var(--space-3)">${sortNote()}</p>
 
-    <div class="cardgrid">
-      ${shown.length
-        ? shown.map((r) => custCard(r, r.customerId === view.customerId)).join('')
-        : '<p class="muted">這個篩選底下沒有人。點上面的「全部」看整批。</p>'}
-    </div>
+    <div class="cardgrid" data-wall></div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-close>結束這一批</button>
-    </div>
+    </div>`;
 
-    ${selected ? deckHtml(ctx, shown, selected) : ''}`;
-
-  wire(ctx);
-  if (selected) centerDeck(el);
+  paintWall();
 }
+
+function sortNote() {
+  if (view.sort === 'default') {
+    return '順序是算出來的預設值 —— 限制多的排前面。想先弄誰就點誰。';
+  }
+  const label = QUEUE_SORTS.find((s) => s.id === view.sort)?.label ?? '';
+  return `照「${esc(label)}」排。一樣的那幾位仍然照預設順序。`;
+}
+
+/** 只重畫牆。搜尋框在外面，所以打字的游標不會被洗掉。 */
+function paintWall() {
+  const shown = computeShown();
+  const wall = ctx.el.querySelector('[data-wall]');
+  if (!wall) return;
+
+  wall.innerHTML = shown.length
+    ? shown.map((r) => custCard(r, r.customerId === view.customerId)).join('')
+    : `<p class="muted">${view.search.trim()
+        ? '沒有這個名字。清掉搜尋看整批。'
+        : '這個篩選底下沒有人。點上面的「全部」看整批。'}</p>`;
+}
+
+function pressChips() {
+  const page = ctx.el.querySelector('[data-page]');
+  page.querySelectorAll('[data-filter]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.filter === view.filter)));
+  page.querySelectorAll('[data-sort]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.sort === view.sort)));
+  const note = page.querySelector('[data-sortnote]');
+  if (note) note.innerHTML = sortNote();
+}
+
+function onPageClick(e) {
+  const filter = e.target.closest('[data-filter]');
+  if (filter) {
+    view.filter = filter.dataset.filter;
+    pressChips();
+    return paintWall();
+  }
+
+  const sort = e.target.closest('[data-sort]');
+  if (sort) {
+    view.sort = sort.dataset.sort;
+    pressChips();
+    return paintWall();
+  }
+
+  const pick = e.target.closest('[data-pick]');
+  if (pick) return openDeckAt(pick.dataset.pick);
+
+  if (e.target.closest('[data-close]')) return closeBatch();
+  return null;
+}
+
+function onPageInput(e) {
+  if (e.target.matches('[data-search]')) {
+    view.search = e.target.value;
+    paintWall();
+  }
+}
+
+const pct = (n, total) => `${total ? Math.round((n / total) * 100) : 0}%`;
 
 // ---------- 置中的客戶卡片組 ----------
 
@@ -325,50 +485,103 @@ function paint(ctx) {
  * 旁邊那幾張只畫認得出是誰的資訊。全部都畫完整的記錄面板，
  * 二十三位客戶就是二十三份小日曆。
  */
-function deckHtml(ctx, shown, selected) {
-  const i = shown.findIndex((r) => r.customerId === selected.customerId);
+function openDeck() {
+  const node = document.createElement('div');
+  node.className = 'deck';
+  node.dataset.deck = '';
+  node.setAttribute('role', 'dialog');
+  node.setAttribute('aria-modal', 'true');
+  node.setAttribute('aria-label', `${selectedRow()?.customerName ?? ''}的壓表記錄`);
 
+  node.addEventListener('click', onDeckClick);
+  node.addEventListener('change', onDeckChange);
+
+  ctx.el.appendChild(node);
+  fillDeck();
+}
+
+function openDeckAt(customerId) {
+  view.customerId = customerId;
+  resetPicks();
+  if (deckEl()) fillDeck();
+  else openDeck();
+}
+
+const deckEl = () => ctx.el.querySelector('[data-deck]');
+const trackEl = () => ctx.el.querySelector('[data-track]');
+const fullCardEl = () => ctx.el.querySelector('.deck__card:not(.deck__card--peek)');
+
+/** 整個卡片組重畫。只有「換了哪幾位在裡面」的時候才需要（例如壓完一位換下一位）。 */
+function fillDeck() {
+  const deck = deckEl();
+  const shown = ctx.shown.length ? ctx.shown : computeShown();
+  const selected = selectedRow();
+  if (!deck || !selected) return;
+
+  deck.innerHTML = `
+    ${deckHead(shown, selected)}
+    <div class="deck__track noscroll-bar" data-track>
+      ${shown.map((r) => (r.customerId === selected.customerId
+        ? fullCardHtml(r)
+        : peekCardHtml(r))).join('')}
+    </div>`;
+
+  wireTrack();
+  centerDeck();
+}
+
+function deckHead(shown, selected) {
+  const i = shown.findIndex((r) => r.customerId === selected.customerId);
   return `
-    <div class="deck" data-deck role="dialog" aria-modal="true"
-         aria-label="${esc(selected.customerName ?? '')}的壓表記錄">
-      <div class="deck__head">
-        <button class="deck__btn" type="button" data-step="-1" aria-label="上一位"
-                ${i <= 0 ? 'disabled' : ''}>${icon('left', { size: 17, width: 2 })}</button>
-        <span class="deck__who">${esc(selected.customerName ?? '?')}
-          <span class="deck__count">${i + 1} / ${shown.length}</span></span>
-        <button class="deck__btn" type="button" data-step="1" aria-label="下一位"
-                ${i >= shown.length - 1 ? 'disabled' : ''}>${icon('right', { size: 17, width: 2 })}</button>
-        <button class="deck__btn" type="button" data-deck-close aria-label="回卡片牆">
-          ${icon('close', { size: 17, width: 2 })}</button>
-      </div>
-      <div class="deck__track noscroll-bar" data-track>
-        ${shown.map((r) => (r.customerId === selected.customerId
-          ? `<div class="deck__card" data-card="${esc(r.customerId)}">${recordPanel(ctx, r)}</div>`
-          : `<button class="deck__card deck__card--peek" type="button"
-                     data-card="${esc(r.customerId)}" data-goto="${esc(r.customerId)}">
-              ${peekCard(r)}</button>`)).join('')}
-      </div>
+    <div class="deck__head" data-deckhead>
+      <button class="deck__btn" type="button" data-step="-1" aria-label="上一位"
+              ${i <= 0 ? 'disabled' : ''}>${icon('left', { size: 17, width: 2 })}</button>
+      <span class="deck__who">${esc(selected.customerName ?? '?')}
+        <span class="deck__count">${i + 1} / ${shown.length}</span></span>
+      <button class="deck__btn" type="button" data-step="1" aria-label="下一位"
+              ${i >= shown.length - 1 ? 'disabled' : ''}>${icon('right', { size: 17, width: 2 })}</button>
+      <button class="deck__btn" type="button" data-deck-close aria-label="回卡片牆">
+        ${icon('close', { size: 17, width: 2 })}</button>
     </div>`;
 }
 
-function peekCard(row) {
-  return `
+const fullCardHtml = (row) =>
+  `<div class="deck__card" data-card="${esc(row.customerId)}">${recordPanel(row)}</div>`;
+
+const peekCardHtml = (row) => `
+  <button class="deck__card deck__card--peek" type="button"
+          data-card="${esc(row.customerId)}" data-goto="${esc(row.customerId)}">
     <span class="row__title" style="justify-content: center">${esc(row.customerName ?? '?')}</span>
     <span class="poolchips" style="justify-content: center">
-      ${(row.pools ?? []).slice(0, 4).map(poolChip).join('')}</span>`;
+      ${(row.pools ?? []).slice(0, 4).map(poolChip).join('')}</span>
+  </button>`;
+
+function closeDeck() {
+  deckEl()?.remove();
+  view.customerId = null;
+  resetPicks();
+  paintWall();
 }
 
-/** 把選中的那張推到正中間。重畫之後要復位，否則每點一顆泡泡畫面就跳回第一張。 */
-function centerDeck(el) {
-  const track = el.querySelector('[data-track]');
-  const card = track?.querySelector('.deck__card:not(.deck__card--peek)');
+/**
+ * 把選中的那張推到正中間。
+ *
+ * 只有在**整個軌道被重畫**之後才需要（重畫會把 scrollLeft 歸零）。
+ * 換人現在是換掉那兩張卡，軌道本身沒有被重畫，所以不會走這裡 ——
+ * 那正是滑到一半不會被拉回去的原因。
+ */
+function centerDeck({ smooth = false } = {}) {
+  const track = trackEl();
+  const card = fullCardEl();
   if (!track || !card) return;
-  track.scrollLeft = card.offsetLeft - (track.clientWidth - card.offsetWidth) / 2;
+  const left = card.offsetLeft - (track.clientWidth - card.offsetWidth) / 2;
+  if (smooth && typeof track.scrollTo === 'function') track.scrollTo({ left, behavior: 'smooth' });
+  else track.scrollLeft = left;
 }
 
 /** 滑停之後看正中間是誰。scrollend 是新的，沒有就用去抖動的 scroll 頂替。 */
-function wireDeck(ctx) {
-  const track = ctx.el.querySelector('[data-track]');
+function wireTrack() {
+  const track = trackEl();
   if (!track) return;
 
   const settle = () => {
@@ -383,8 +596,8 @@ function wireDeck(ctx) {
       }
     }
     const id = best?.dataset.card;
-    if (!id || id === view.customerId) return;
-    goTo(ctx, id);
+    // 已經滑到定位了，不要再捲一次 —— 那會跟她的手指打架
+    if (id && id !== view.customerId) goTo(id, { scroll: false });
   };
 
   if ('onscrollend' in window) {
@@ -396,34 +609,67 @@ function wireDeck(ctx) {
       timer = setTimeout(settle, 140);
     });
   }
-
-  ctx.el.querySelectorAll('[data-goto]').forEach((btn) =>
-    btn.addEventListener('click', () => goTo(ctx, btn.dataset.goto)),
-  );
-
-  ctx.el.querySelectorAll('[data-step]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const i = ctx.shown.findIndex((r) => r.customerId === view.customerId);
-      const next = ctx.shown[i + Number(btn.dataset.step)];
-      if (next) goTo(ctx, next.customerId);
-    }),
-  );
-
-  ctx.el.querySelector('[data-deck-close]')?.addEventListener('click', () => {
-    view.customerId = null;
-    resetPicks();
-    paint(ctx);
-  });
 }
 
-/** 換人一律把記錄面板的暫存選擇清掉 —— 帶著上一位的選擇進來太容易記錯。 */
-function goTo(ctx, customerId) {
+/**
+ * 換人。**只換掉那兩張卡**：舊的變成 peek、新的展開成完整面板。
+ *
+ * 不重畫整個軌道，所以捲動位置留著；用鈕換人時才自己捲過去。
+ */
+function goTo(customerId, { scroll = true } = {}) {
+  const track = trackEl();
+  const previous = view.customerId;
+  if (!track || customerId === previous) return;
+
+  const next = ctx.shown.find((r) => r.customerId === customerId);
+  if (!next) return;
+
   view.customerId = customerId;
   resetPicks();
-  paint(ctx);
+
+  const before = ctx.shown.find((r) => r.customerId === previous);
+  if (before) swapCard(previous, peekCardHtml(before));
+  swapCard(customerId, fullCardHtml(next));
+
+  const head = ctx.el.querySelector('[data-deckhead]');
+  if (head) head.outerHTML = deckHead(ctx.shown, next);
+  deckEl()?.setAttribute('aria-label', `${next.customerName ?? ''}的壓表記錄`);
+
+  if (scroll) centerDeck({ smooth: true });
 }
 
-const pct = (n, total) => `${total ? Math.round((n / total) * 100) : 0}%`;
+/** 換掉軌道上的一張卡。整條軌道的寬度沒變，所以捲動位置仍然對得上。 */
+function swapCard(customerId, html) {
+  const old = trackEl()?.querySelector(`[data-card="${cssEscape(customerId)}"]`);
+  if (!old) return;
+  const holder = document.createElement('template');
+  holder.innerHTML = html.trim();
+  const node = holder.content.firstElementChild;
+  if (node) old.replaceWith(node);
+}
+
+const cssEscape = (value) =>
+  (globalThis.CSS?.escape ? globalThis.CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&'));
+
+/** 重畫選中那一位的面板內容（存好一筆之後）。捲到哪裡要自己接回去。 */
+function paintRecord() {
+  const card = fullCardEl();
+  const row = selectedRow();
+  if (!card || !row) return;
+
+  const top = card.scrollTop;
+  card.innerHTML = recordPanel(row);
+  card.scrollTop = top;
+
+  // 旁邊那幾張的剩餘次數也可能變了。換內容不換節點，軌道不會動。
+  for (const peek of trackEl()?.querySelectorAll('.deck__card--peek') ?? []) {
+    const other = ctx.shown.find((r) => r.customerId === peek.dataset.card);
+    if (!other) continue;
+    const holder = document.createElement('template');
+    holder.innerHTML = peekCardHtml(other).trim();
+    peek.innerHTML = holder.content.firstElementChild.innerHTML;
+  }
+}
 
 // ---------- 客戶卡片 ----------
 
@@ -478,14 +724,25 @@ function custCard(row, isSelected) {
     </button>`;
 }
 
-/** 不能的時間。解析出來的條件在上面，原文在下面而且比較大（SPEC 第 4.3 節）。 */
-function banBlock(row) {
+/**
+ * 不能的時間。**只放解析出來的條件丸子**，原文收在摺疊裡（記錄面板才有，牆上沒有）。
+ *
+ * 原本原文是這一塊最大的一段。現在幾乎每一份都是客戶自己在表單上填的，
+ * 而那份原文是系統照她的答案產生的 —— 把同一件事講第二次，佔掉的是她在公司電腦前
+ * 一眼要掃到的位置。見 docs/adr/0035-the-wall-shows-rules-not-the-raw-answer.md。
+ *
+ * @param {object} row
+ * @param {{raw?: boolean}} [options] raw：要不要附上「看原文」那一摺
+ */
+function banBlock(row, { raw = false } = {}) {
+  const month = monthLabel(ctx.range.from.slice(0, 7));
+
   if (row.needsAvailability) {
     return `
       <span class="ban ban--unknown" style="display: block">
-        <span class="ban__head"><span>還沒問這輪的時間</span>
+        <span class="ban__head"><span>還沒問${esc(month)}的時間</span>
           <span class="ban__when">${row.collectedAt ? `上次 ${esc(row.collectedAt)}` : ''}</span></span>
-        <span class="ban__raw">不知道他這個月哪幾天可以 —— 先傳訊息問。</span>
+        <span class="ban__raw">不知道他${esc(month)}哪幾天可以 —— 先傳訊息問。</span>
       </span>`;
   }
 
@@ -501,10 +758,14 @@ function banBlock(row) {
       <span class="ban__head"><span>${none ? '沒有說哪天不行' : '不能的時間'}</span>
         <span class="ban__when">${row.collectedAt ? `${esc(row.collectedAt)} 收集` : ''}</span></span>
       ${chips ? `<span class="ban__chips">${chips}</span>` : ''}
-      ${row.rawText ? `<span class="ban__raw">「${esc(row.rawText)}」</span>` : ''}
       <span class="ban__chips" style="margin-top: var(--space-2)">
         <span class="ban__chip">可用 ${row.availableDays} 天</span>
       </span>
+      ${raw && row.rawText ? `
+        <details class="ban__more">
+          <summary>他原本是怎麼說的</summary>
+          <span class="ban__raw">「${esc(row.rawText)}」</span>
+        </details>` : ''}
     </span>`;
 }
 
@@ -527,9 +788,10 @@ function poolChip(pool) {
 
 // ---------- 記錄面板 ----------
 
-function recordPanel(ctx, row) {
+function recordPanel(row) {
   const entry = ctx.batch.queue.find((q) => q.customerId === row.customerId);
-  const recorded = recordedSlots(ctx, row);
+  const recorded = recordedSlots(row);
+  const month = monthLabel(ctx.range.from.slice(0, 7));
 
   return `
     <section class="card">
@@ -543,25 +805,25 @@ function recordPanel(ctx, row) {
         </div>
         <span class="badge badge--ok">已記 ${recorded.length} 筆</span>
       </div>
-      ${banBlock(row)}
-      ${row.rawText ? '' : `<p class="card__note" style="margin: var(--space-2) 0 0">
+      ${banBlock(row, { raw: true })}
+      ${row.needsAvailability ? `<p class="card__note" style="margin: var(--space-2) 0 0">
           <button class="btn btn--sm" type="button"
-                  data-ask="${esc(row.customerId)}">去記一次詢問結果</button></p>`}
+                  data-ask="${esc(row.customerId)}">去記${esc(month)}問到的時間</button></p>` : ''}
       <div class="poolchips">
         ${(row.pools ?? []).map(poolChip).join('') || '<span class="muted">沒有剩餘次數了</span>'}
       </div>
-      ${blockedNote(ctx, row)}
+      ${blockedNote(row)}
     </section>
 
     <section class="card">
       <h3 class="card__title">挑日子</h3>
-      ${miniCal(ctx, row)}
+      ${miniCal(row)}
     </section>
 
-    ${view.day ? dayPanel(ctx, row) : ''}
+    <div data-daypanel>${view.day ? dayPanel(row) : ''}</div>
 
     <section class="card">
-      <h3 class="card__title">這次壓好的<span class="muted"> ${recorded.length}</span></h3>
+      <h3 class="card__title">這個月壓好的<span class="muted"> ${recorded.length}</span></h3>
       ${recorded.length
         ? `<ul class="link-list">${recorded.map((s) => `
             <li><a href="#/visits/${esc(s.visitId)}">
@@ -581,7 +843,7 @@ function recordPanel(ctx, row) {
     </section>`;
 }
 
-function blockedNote(ctx, row) {
+function blockedNote(row) {
   const blocked = annotateOptions({ flags: row.flags ?? [] }, ctx.all.equipment).filter((e) => e.blocked);
   if (!blocked.length) return '';
   return `
@@ -596,18 +858,21 @@ function blockedNote(ctx, row) {
 // ---------- 小日曆 ----------
 
 /**
- * 挑日子。她說不行的日子劃掉不能點，已經記過的標起來。
+ * 挑日子。**他說不行的日子用紅色劃掉**，她自己休假的用霧藍，已經過去的只是變淡。
+ *
+ * 三種都點不下去，但原因完全不同，而她只有在「為什麼這天不能點」上會停下來 ——
+ * 一種顏色講三件事，等於每次都要把 title 叫出來看。顏色的分工跟全站一致：
+ * 紅是擋住的，霧藍是她的個人行程（ADR-0015），淡的是已經不用管的。
  *
  * 用整月的格子而不是 chip 列表：這裡要挑的是「哪一天」，而月曆的形狀本身
  * 就帶著「這是禮拜幾」「離月底還有多久」兩個她需要的資訊。
- * 每格 46px 高，手機上按得到。
  */
-function miniCal(ctx, row) {
+function miniCal(row) {
   const { range, today, away } = ctx;
   const [y, m] = range.from.split('-').map(Number);
   const first = range.from;
   const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
-  const has = recordedDays(ctx, row);
+  const has = recordedDays(row);
 
   const cells = [];
   for (let i = 0; i < lead; i += 1) {
@@ -619,18 +884,26 @@ function miniCal(ctx, row) {
     const status = row.needsAvailability ? { available: true, reasons: [] } : dayStatus(row.rules ?? [], iso);
     const isAway = away.has(iso);
     const past = iso < today;
-    const off = !status.available || isAway || past;
+    const banned = !status.available;
 
-    const why = isAway ? '你這天休假' : past ? '已經過去了' : status.reasons.join('、');
+    // **已經過去的優先於他說不行。** 月中打開時前面半個月本來就不能點了，
+    // 那幾天再標成紅色，紅色就從「這天他不行」變成「這半頁都是紅的」——
+    // 紅要留給「本來排得進去、但他不行」的那幾天才有意義。
+    const kind = past ? 'past' : banned ? 'ban' : isAway ? 'away' : null;
+    const why = past ? '已經過去了'
+      : banned ? (status.reasons.join('、') || '他說這天不行')
+      : isAway ? '你這天休假' : '';
+
     const classes = [
       'minical__cell',
-      off ? 'minical__cell--off' : '',
+      kind ? 'minical__cell--off' : '',
+      kind ? `minical__cell--${kind}` : '',
       has.has(iso) ? 'minical__cell--has' : '',
       iso === view.day ? 'minical__cell--on' : '',
     ].filter(Boolean).join(' ');
 
     cells.push(`
-      <button class="${classes}" type="button" data-day="${iso}" ${off ? 'disabled' : ''}
+      <button class="${classes}" type="button" data-day="${iso}" ${kind ? 'disabled' : ''}
               title="${esc(why)}">
         ${d}<span class="minical__dot"></span>
       </button>`);
@@ -640,19 +913,20 @@ function miniCal(ctx, row) {
     <div class="minical__head">
       <span class="minical__month num">${esc(range.from.slice(0, 7))}</span>
     </div>
-    <div class="minical__grid">
+    <div class="minical__grid" data-minical>
       ${WD.map((w) => `<span class="minical__wd">${w}</span>`).join('')}
       ${cells.join('')}
     </div>
     <div class="minical__legend">
       <span><i class="minical__swatch"></i>可以排</span>
       <span><i class="minical__swatch minical__swatch--has"></i>已經記了</span>
-      <span><i class="minical__swatch minical__swatch--off"></i>不能排</span>
+      <span><i class="minical__swatch minical__swatch--ban"></i>他不行</span>
+      <span><i class="minical__swatch minical__swatch--away"></i>你休假</span>
     </div>`;
 }
 
 /** 這位客戶這個月已經被記在哪幾天。 */
-function recordedDays(ctx, row) {
+function recordedDays(row) {
   const out = new Set();
   for (const v of ctx.queueInput.visitsBy[row.customerId] ?? []) {
     if (isActive(v) && v.date >= ctx.range.from && v.date <= ctx.range.to) out.add(v.date);
@@ -661,7 +935,7 @@ function recordedDays(ctx, row) {
 }
 
 /** 這位客戶這個月已經記了哪些時段。 */
-function recordedSlots(ctx, row) {
+function recordedSlots(row) {
   const out = [];
   for (const v of ctx.queueInput.visitsBy[row.customerId] ?? []) {
     if (!isActive(v) || v.date < ctx.range.from || v.date > ctx.range.to) continue;
@@ -687,12 +961,18 @@ function timeChoices() {
   return out;
 }
 
-function dayPanel(ctx, row) {
-  const { all } = ctx;
-  const options = courseOptions(ctx, row);
+/**
+ * 選中那一天的面板。
+ *
+ * 版面切成兩塊是為了讓「換課程」只重畫該重畫的那一塊：
+ * `[data-entfields]` 裡面是**跟著課程走**的欄位（幾點、器材、治療師、診間），
+ * 外面是不跟著課程走的（這一次記一句、加這一筆）——
+ * 她打到一半的備註不可以因為換了課程就不見。
+ */
+function dayPanel(row) {
+  const options = courseOptions(row);
   const picked = options.find((o) => o.entitlementId === view.entitlementId) ?? null;
-  const course = picked?.course ?? null;
-  const sameDay = sameDayVisit(ctx, row, view.day);
+  const sameDay = sameDayVisit(row, view.day);
 
   return `
     <section class="card card--on">
@@ -714,40 +994,50 @@ function dayPanel(ctx, row) {
         </div>
       </div>
 
-      ${course ? `
-        <div class="fieldgroup">
-          <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
-          <div class="chiprow noscroll-bar">
-            ${timeChoices().map((t) => `
-              <button class="chip chip--sm" type="button" aria-pressed="${t === view.startsAt}"
-                      data-time="${t}"><span class="num">${t}</span></button>`).join('')}
-          </div>
-          <label class="field" style="margin: var(--space-3) 0 0">
-            <span class="field__label">上面沒有的時間</span>
-            <input type="time" data-othertime value="${esc(view.startsAt ?? '')}" step="300" />
-          </label>
-        </div>
+      <div data-entfields>${entFields(row, picked)}</div>
 
-        ${course.requiresEquipment ? equipmentField(ctx, row, picked) : ''}
-        ${course.requiresIvProduct ? ivField(all) : ''}
-        ${course.assigns === 'therapist' ? therapistField(all) : ''}
-        ${course.assigns === 'room' ? roomField(all, course) : ''}
+      <label class="field">
+        <span class="field__label">這一次記一句</span>
+        <input type="text" data-note maxlength="${NOTE_MAX}"
+               value="${esc(sameDay?.note ?? '')}"
+               placeholder="例：她說下午比較好" />
+      </label>
 
-        <label class="field">
-          <span class="field__label">這一次記一句</span>
-          <input type="text" data-note maxlength="${NOTE_MAX}"
-                 value="${esc(sameDay?.note ?? '')}"
-                 placeholder="例：她說下午比較好" />
-        </label>
-
-        <div class="errors" data-errors hidden></div>
-        <button class="btn btn--primary btn--wide" type="button" data-add>加這一筆</button>
-        <p class="card__note" style="margin: var(--space-3) 0 0">
-          ${sameDay
-            ? '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。'
-            : '存下去會記成「已壓表，等客戶回覆」。系統登記等客人說可以之後才長出來。'}</p>
-      ` : ''}
+      <div class="errors" data-errors hidden></div>
+      <button class="btn btn--primary btn--wide" type="button" data-add
+              ${picked ? '' : 'disabled'}>加這一筆</button>
+      <p class="card__note" style="margin: var(--space-3) 0 0">
+        ${sameDay
+          ? '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。'
+          : '存下去會記成「已壓表，等客戶回覆」。系統登記等客人說可以之後才長出來。'}</p>
     </section>`;
+}
+
+/** 跟著課程走的那幾欄。沒選課程時只留一句話，不留一堆空欄位。 */
+function entFields(row, picked) {
+  if (!picked) return '<p class="muted" style="margin: 0 0 var(--space-4)">先選上面要做什麼。</p>';
+
+  const { all } = ctx;
+  const course = picked.course;
+
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
+      <div class="chiprow noscroll-bar">
+        ${timeChoices().map((t) => `
+          <button class="chip chip--sm" type="button" aria-pressed="${t === view.startsAt}"
+                  data-time="${t}"><span class="num">${t}</span></button>`).join('')}
+      </div>
+      <label class="field" style="margin: var(--space-3) 0 0">
+        <span class="field__label">上面沒有的時間</span>
+        <input type="time" data-othertime value="${esc(view.startsAt ?? '')}" step="300" />
+      </label>
+    </div>
+
+    ${course.requiresEquipment ? equipmentField(row, picked) : ''}
+    ${course.requiresIvProduct ? ivField(all) : ''}
+    ${course.assigns === 'therapist' ? therapistField(all) : ''}
+    ${course.assigns === 'room' ? roomField(all, course) : ''}`;
 }
 
 /**
@@ -756,7 +1046,7 @@ function dayPanel(ctx, row) {
  * 擇一池沒有 courseId（ADR-0005），它對應的是「需要選器材的課程」，
  * 所以這裡走 coursesForEntitlement() 而不是自己判斷。
  */
-function courseOptions(ctx, row) {
+function courseOptions(row) {
   const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
   const out = [];
 
@@ -778,7 +1068,7 @@ function courseOptions(ctx, row) {
   return out;
 }
 
-function equipmentField(ctx, row, picked) {
+function equipmentField(row, picked) {
   const ids = picked.entitlement?.optionEquipmentIds ?? [];
   const pool = ids.length
     ? ids.map((id) => ctx.all.equipment.find((e) => e.id === id)).filter(Boolean)
@@ -851,73 +1141,127 @@ function roomField(all, course) {
 
 const keyOf = (s) => `${s.roomId}|${s.bed ?? ''}`;
 
-function sameDayVisit(ctx, row, date) {
+function sameDayVisit(row, date) {
   return (ctx.queueInput.visitsBy[row.customerId] ?? [])
     .find((v) => v.date === date && isActive(v)) ?? null;
 }
 
-// ---------- 事件 ----------
+// ---------- 卡片組裡的事件 ----------
 
-function wire(ctx) {
-  const { el } = ctx;
+/**
+ * 一組委派處理所有事。**選了什麼只改 aria-pressed，一個字的 HTML 都不重畫** ——
+ * 她一位客戶要點五六次，每點一下重畫一次的代價是整張卡閃一下、捲回最上面。
+ */
+function onDeckClick(e) {
+  const step = e.target.closest('[data-step]');
+  if (step) {
+    const i = ctx.shown.findIndex((r) => r.customerId === view.customerId);
+    const next = ctx.shown[i + Number(step.dataset.step)];
+    if (next) goTo(next.customerId);
+    return;
+  }
 
-  el.querySelector('[data-close]')?.addEventListener('click', () => closeBatch(ctx));
+  if (e.target.closest('[data-deck-close]')) return closeDeck();
 
-  el.querySelectorAll('[data-filter]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      view.filter = btn.dataset.filter;
-      paint(ctx);
-    }),
-  );
+  const goto = e.target.closest('[data-goto]');
+  if (goto) return goTo(goto.dataset.goto);
 
-  el.querySelectorAll('[data-pick]').forEach((btn) =>
-    btn.addEventListener('click', () => goTo(ctx, btn.dataset.pick)),
-  );
+  const ask = e.target.closest('[data-ask]');
+  if (ask) return go(`/customers/${ask.dataset.ask}`);
 
-  wireDeck(ctx);
+  const day = e.target.closest('[data-day]');
+  if (day) return pickDay(day.dataset.day);
 
-  el.querySelector('[data-ask]')?.addEventListener('click', (e) =>
-    go(`/customers/${e.currentTarget.dataset.ask}`),
-  );
+  const ent = e.target.closest('[data-ent]');
+  if (ent) return pickCourse(ent.dataset.ent);
 
-  el.querySelectorAll('[data-day]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      view.day = btn.dataset.day;
-      // 換一天就把時間清掉，其餘保留 —— 同一個人連著排兩天，
-      // 課程與治療師通常一樣，時間才是要重挑的那一個。
-      view.startsAt = defaultStart(ctx, ctx.selected, view.day);
-      paint(ctx);
-    }),
-  );
+  const time = e.target.closest('[data-time]');
+  if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
-  const pickInto = (attr, key) =>
-    el.querySelectorAll(`[data-${attr}]`).forEach((btn) =>
-      btn.addEventListener('click', () => {
-        view[key] = btn.dataset[attr] === view[key] ? null : btn.dataset[attr];
-        paint(ctx);
-      }),
-    );
+  for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
+    ['therapist', 'therapistId'], ['room', 'roomKey']]) {
+    const hit = e.target.closest(`[data-${attr}]`);
+    if (hit) return pickOne(attr, key, hit.dataset[attr]);
+  }
 
-  pickInto('ent', 'entitlementId');
-  pickInto('time', 'startsAt');
-  pickInto('equipment', 'equipmentId');
-  pickInto('ivproduct', 'equipmentId');
-  pickInto('therapist', 'therapistId');
-  pickInto('room', 'roomKey');
+  if (e.target.closest('[data-add]')) return addSlot();
+  if (e.target.closest('[data-skip]')) return mark('skipped');
+  if (e.target.closest('[data-done]')) return mark('done');
+  return null;
+}
 
-  el.querySelector('[data-othertime]')?.addEventListener('change', (e) => {
-    view.startsAt = e.target.value || null;
-    paint(ctx);
-  });
+function onDeckChange(e) {
+  if (e.target.matches('[data-othertime]')) pickTime(e.target.value || null, { fromInput: true });
+}
 
-  el.querySelector('[data-skip]')?.addEventListener('click', () => mark(ctx, 'skipped'));
-  el.querySelector('[data-done]')?.addEventListener('click', () => mark(ctx, 'done'));
-  el.querySelector('[data-add]')?.addEventListener('click', () => addSlot(ctx));
+/** 選一顆丸子：只改按下去的樣子。再點一次同一顆就取消。 */
+function pickOne(attr, key, value) {
+  view[key] = view[key] === value ? null : value;
+  press(`[data-${attr}]`, attr, view[key]);
+}
+
+function press(selector, attr, value) {
+  deckEl()?.querySelectorAll(selector).forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset[attr] === value)));
+}
+
+function pickTime(value, { fromInput = false } = {}) {
+  view.startsAt = value;
+  press('[data-time]', 'time', value);
+  if (fromInput) return;
+  const input = deckEl()?.querySelector('[data-othertime]');
+  if (input) input.value = value ?? '';
+}
+
+/** 換課程只重畫跟著課程走的那幾欄，她打到一半的備註留著。 */
+function pickCourse(entitlementId) {
+  view.entitlementId = view.entitlementId === entitlementId ? null : entitlementId;
+  resetCourseBoundPicks();
+  press('[data-ent]', 'ent', view.entitlementId);
+
+  const row = selectedRow();
+  const fields = deckEl()?.querySelector('[data-entfields]');
+  if (!row || !fields) return;
+
+  const picked = courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null;
+  fields.innerHTML = entFields(row, picked);
+
+  const add = deckEl()?.querySelector('[data-add]');
+  if (add) add.disabled = !picked;
+  showErrors([]);
+}
+
+/** 換日子只重畫那一天的面板，小日曆本身只改哪一格被選中。 */
+function pickDay(iso) {
+  const row = selectedRow();
+  if (!row) return;
+
+  view.day = iso;
+  // 換一天就把時間清掉，其餘保留 —— 同一個人連著排兩天，
+  // 課程與治療師通常一樣，時間才是要重挑的那一個。
+  view.startsAt = defaultStart(row, iso);
+
+  deckEl()?.querySelectorAll('[data-day]').forEach((b) =>
+    b.classList.toggle('minical__cell--on', b.dataset.day === iso));
+
+  const panel = deckEl()?.querySelector('[data-daypanel]');
+  if (!panel) return;
+  panel.innerHTML = dayPanel(row);
+  panel.querySelector('.card')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function showErrors(errors) {
+  const box = deckEl()?.querySelector('[data-errors]');
+  if (!box) return;
+  box.hidden = !errors.length;
+  box.innerHTML = errors.length
+    ? `<ul>${errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+    : '';
 }
 
 /** 那天已經有來訪就接在最後一段後面，中間留設定裡的間隔。 */
-function defaultStart(ctx, row, date) {
-  const visit = row ? sameDayVisit(ctx, row, date) : null;
+function defaultStart(row, date) {
+  const visit = row ? sameDayVisit(row, date) : null;
   const last = (visit?.slots ?? []).filter((s) => isValidTime(s.endsAt)).sort(
     (a, b) => toMinutes(b.endsAt) - toMinutes(a.endsAt),
   )[0];
@@ -926,24 +1270,16 @@ function defaultStart(ctx, row, date) {
 
 // ---------- 記一筆 ----------
 
-async function addSlot(ctx) {
-  const { el, selected, all } = ctx;
+async function addSlot() {
+  const selected = selectedRow();
   if (!selected || !view.day) return;
 
-  const errBox = el.querySelector('[data-errors]');
-  const options = courseOptions(ctx, selected);
+  const { all } = ctx;
+  const options = courseOptions(selected);
   const picked = options.find((o) => o.entitlementId === view.entitlementId);
 
-  const show = (errors) => {
-    if (!errBox) return;
-    errBox.hidden = !errors.length;
-    errBox.innerHTML = errors.length
-      ? `<ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`
-      : '';
-  };
-
-  if (!picked) return show(['先選要做什麼']);
-  if (!isValidTime(view.startsAt)) return show(['先選幾點開始']);
+  if (!picked) return showErrors(['先選要做什麼']);
+  if (!isValidTime(view.startsAt)) return showErrors(['先選幾點開始']);
 
   const course = picked.course;
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
@@ -962,10 +1298,10 @@ async function addSlot(ctx) {
     attended: null,
   };
 
-  const note = el.querySelector('[data-note]')?.value?.trim() || null;
+  const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）
-  const sameDay = sameDayVisit(ctx, selected, view.day);
+  const sameDay = sameDayVisit(selected, view.day);
   const visit = sameDay
     ? { ...sameDay, note, slots: [...(sameDay.slots ?? []), slot] }
     : {
@@ -988,7 +1324,7 @@ async function addSlot(ctx) {
     sameDayVisits: await visitsData.listByDate(view.day),
   });
 
-  show(errors);
+  showErrors(errors);
   if (errors.length) return;
 
   // SPEC 第 7 節規則 10：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號
@@ -1008,7 +1344,12 @@ async function addSlot(ctx) {
     // 記完把時段相關的選擇清掉，日期留著 —— 同一天常常要連記兩三段
     view.startsAt = null;
     view.entitlementId = null;
-    render(el);
+    resetCourseBoundPicks();
+
+    // 重讀之後只換掉這張卡的內容：她捲到哪裡就留在哪裡
+    if (await reload()) return;
+    paintPage();
+    paintRecord();
   } catch {
     /* 已處理 */
   }
@@ -1016,8 +1357,9 @@ async function addSlot(ctx) {
 
 // ---------- 進度 ----------
 
-async function mark(ctx, state) {
-  const { batch, selected } = ctx;
+async function mark(state) {
+  const { batch } = ctx;
+  const selected = selectedRow();
   if (!selected) return;
 
   let reason = null;
@@ -1044,13 +1386,19 @@ async function mark(ctx, state) {
     );
     view.customerId = next?.customerId ?? null;
     resetPicks();
-    render(ctx.el);
+
+    if (await reload()) return;
+    paintPage();
+    // 換人之後卡片組裡有誰可能整個變了（例如篩選是「還沒壓」），
+    // 這種時候才整個重畫 —— 但外框留著，所以不會再淡入一次。
+    if (view.customerId) fillDeck();
+    else deckEl()?.remove();
   } catch {
     /* 已處理 */
   }
 }
 
-async function closeBatch(ctx) {
+async function closeBatch() {
   const p = progressOf(ctx.batch);
   const ok = await confirmAction({
     title: '結束這一批？',

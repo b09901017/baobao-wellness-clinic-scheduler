@@ -346,6 +346,46 @@ export function currentCollection(collections, today) {
     .sort((a, b) => String(b.collectedAt ?? '').localeCompare(String(a.collectedAt ?? '')))[0] ?? null;
 }
 
+/**
+ * 涵蓋某一段期間的那一份。**壓表要用的是「那個月問到的」，不是「今天還有效的」。**
+ *
+ * 兩支的差別是刻意的，因為它們回答的是兩個不同的問題：
+ *
+ * - `currentCollection()` 問「現在手上有沒有一份還算數的」—— 待辦中心的
+ *   「問這輪的時間」與資料健檢用它，那兩個地方講的是此時此刻。
+ * - `collectionFor()` 問「這段期間問到了什麼」—— 壓表與時段反查用它，
+ *   因為她八月坐下來壓的可能是九月的表，而九月那一份在今天還沒生效。
+ *
+ * 分不開的代價是實際會發生的錯：八月的表吃到九月那一份，交集是空的，
+ * 「可用 0 天」會把一位其實只是還沒問的客戶推到排序的第一位 ——
+ * 而那一頁的第一位正是她最信任的那一列。
+ *
+ * 有交集就算數（不必整段涵蓋），可用日的計算本來就只算交集那幾天。
+ * 同時有好幾份時取**交集最多**的那一份，一樣多才比收集日期 ——
+ * 「哪一份在講這個月」比「哪一份比較新」更接近她的意思。
+ *
+ * @param {object[]} collections 這位客戶的全部收集
+ * @param {string} from 'YYYY-MM-DD'
+ * @param {string} to 'YYYY-MM-DD'
+ * @returns {object|null} 沒有任何一份涵蓋到這段期間就是 null（= 這段期間還沒問）
+ */
+export function collectionFor(collections, from, to) {
+  if (!isValidDate(from) || !isValidDate(to) || from > to) return null;
+
+  return (collections ?? [])
+    .filter((c) => c && !c.deletedAt && isValidDate(c.validFrom) && isValidDate(c.validTo))
+    .filter((c) => c.validFrom <= to && c.validTo >= from)
+    .map((c) => ({
+      c,
+      cover: daysBetween(
+        c.validFrom > from ? c.validFrom : from,
+        c.validTo < to ? c.validTo : to,
+      ) + 1,
+    }))
+    .sort((a, b) => b.cover - a.cover
+      || String(b.c.collectedAt ?? '').localeCompare(String(a.c.collectedAt ?? '')))[0]?.c ?? null;
+}
+
 // ---------- 驗證 ----------
 
 /**
