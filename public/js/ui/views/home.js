@@ -28,6 +28,7 @@ import {
   sortNotes, openCount, groupByCustomer, MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
+import { groupByStage, nextStage, isRetired, RETIRED_KINDS } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import {
@@ -142,6 +143,7 @@ async function loadBook(ctx) {
 
   const slot = ctx.el.querySelector('[data-book]');
   if (slot) slot.innerHTML = bookGroupRow(ctx.today);
+  markNext(ctx.el);
 }
 
 /**
@@ -176,6 +178,7 @@ async function loadAsk(ctx) {
   // 不用補救：切回來會重畫，那時 askRows 已經有了。
   const slot = ctx.el.querySelector('[data-ask]');
   if (slot) slot.innerHTML = askGroupRow();
+  markNext(ctx.el);
 }
 
 /**
@@ -193,6 +196,7 @@ async function loadInbox(ctx) {
 
   const slot = ctx.el.querySelector('[data-inbox]');
   if (slot) slot.innerHTML = inboxGroupRow();
+  markNext(ctx.el);
 }
 
 function paint(ctx) {
@@ -228,7 +232,21 @@ function paint(ctx) {
 
   wireOverview(ctx);
   wireQuickCapture(ctx);
+  markNext(el);
   scanHealth(el);
+}
+
+/**
+ * 標出「下一步」：**流程上最前面那個還有東西的段**，不是數字最大的那一段 ——
+ * 她的問題是「接下來做什麼」，而流程的答案是從頭開始。
+ *
+ * 在 DOM 上算而不是在資料上算，因為有三列是等資料回來才補進去的
+ * （`loadAsk` / `loadInbox` / `loadBook`）。那三支填完會再叫一次這裡。
+ */
+function markNext(el) {
+  const groups = [...el.querySelectorAll('.flowgroup')];
+  for (const g of groups) g.classList.remove('flowgroup--next');
+  groups.find((g) => g.querySelector('.grouprow'))?.classList.add('flowgroup--next');
 }
 
 /** 一句話講完現在的狀況。數字很小的時候不要硬講成很急。 */
@@ -243,10 +261,45 @@ function headline(total, overdue, waiting, toClose = 0) {
   return parts.join('，');
 }
 
+/**
+ * 總覽。**照流程的順序分段**，不是照樣板裡的出現順序（ADR-0043）。
+ *
+ * 三顆大數字不動：逾期／今天／明天是緊急度分流，跟流程是兩個軸，
+ * 合在一起會兩個都講不清楚。
+ *
+ * 每一段固定都畫出來，**空的那一段由 CSS 的 `:has()` 收掉** ——
+ * 有兩三列是等資料回來才補進去的（`data-ask` / `data-inbox` / `data-book`），
+ * 段落先在那裡，補進來才有位置放，而且不必為了它重畫整塊。
+ */
 function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
   const { tasks } = ctx;
   const cancels = tasks.filter((t) => isCancelKind(t.kind));
   const kinds = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))];
+
+  // 每一列先算出來，順序由 STAGES 決定，不是由這裡的寫法決定。
+  const rows = [
+    { id: 'ask', html: `<div data-ask>${askGroupRow()}</div>` },
+    { id: 'forms', html: `<div data-inbox>${inboxGroupRow()}</div>` },
+    { id: 'book', html: `<div data-book>${bookGroupRow(ctx.today)}</div>` },
+    { id: 'confirm', html: waiting.size ? groupRow({
+      href: '#/todo/confirm',
+      label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
+    }) : '' },
+    { id: 'close', html: toClose.length ? groupRow({
+      href: '#/todo/close',
+      label: '簽療程單', note: '來了、單簽了就打勾，次數這時才扣', n: toClose.length,
+    }) : '' },
+    ...kinds.map((k) => ({ id: k, html: groupRow({
+      href: `#/todo/${encodeURIComponent(k)}`,
+      label: k, note: isRetired(k) ? '這個類別已經取消了，這是舊資料' : kindNote(k),
+      n: tasks.filter((t) => t.kind === k).length,
+      faded: isRetired(k),
+    }) })),
+    { id: 'cancel', html: cancels.length ? groupRow({
+      href: '#/todo/cancel',
+      label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
+    }) : '' },
+  ];
 
   return `
     <div class="tiles">
@@ -255,27 +308,15 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
       ${tile('tomorrow', tomorrow.length, '明天', '')}
     </div>
 
-    <div class="groups">
-      ${toClose.length ? groupRow({
-        href: '#/todo/close', lead: true, dot: 'accent',
-        label: '簽療程單', note: '來了、單簽了就打勾，次數這時才扣', n: toClose.length,
-      }) : ''}
-      ${groupRow({
-        href: '#/todo/confirm', lead: true, dot: 'accent',
-        label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
-      })}
-      <div data-inbox>${inboxGroupRow()}</div>
-      <div data-ask>${askGroupRow()}</div>
-      <div data-book>${bookGroupRow(ctx.today)}</div>
-      ${kinds.map((k) => groupRow({
-        href: `#/todo/${encodeURIComponent(k)}`, dot: '',
-        label: k, note: kindNote(k), n: tasks.filter((t) => t.kind === k).length,
-      })).join('')}
-      ${cancels.length ? groupRow({
-        href: '#/todo/cancel', dot: 'danger',
-        label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
-      }) : ''}
-    </div>`;
+    ${groupByStage(rows).map(({ stage, rows: mine }) => `
+      <section class="flowgroup flowgroup--${stage.tone}">
+        <h2 class="flowgroup__head">
+          <span class="flowgroup__n num">${stage.n}</span>
+          <span class="flowgroup__label">${esc(stage.label)}</span>
+          <span class="flowgroup__next">下一步</span>
+        </h2>
+        <div class="groups">${mine.map((r) => r.html).join('')}</div>
+      </section>`).join('')}`;
 }
 
 /**
@@ -295,7 +336,7 @@ function askGroupRow() {
     : (never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了');
 
   return groupRow({
-    href: '#/todo/ask', dot: '',
+    href: '#/todo/ask',
     label: '問這輪的時間',
     note,
     n: askRows.length,
@@ -314,7 +355,7 @@ function inboxGroupRow() {
   if (!inboxRows?.length) return '';
 
   return groupRow({
-    href: '#/todo/forms', lead: true, dot: 'accent',
+    href: '#/todo/forms',
     label: '客戶填好的時間',
     note: '客戶自己填的，看過就收下',
     n: inboxRows.length,
@@ -332,7 +373,7 @@ function bookGroupRow(today) {
   const examine = bookRows.filter((r) => r.systems.some((x) => x.system === 'Examine')).length;
 
   return groupRow({
-    href: '#/todo/book', dot: '',
+    href: '#/todo/book',
     label: '壓表登記',
     note: examine
       ? `${monthLabel(today)}還有 ${bookRows.length} 位沒排，其中 ${examine} 位是健檢`
@@ -361,10 +402,14 @@ function tile(id, n, label, cls) {
     </button>`;
 }
 
-function groupRow({ href, label, note, n, dot = '', lead = false, danger = false }) {
+/**
+ * 一列。**小圓點與「重點列」的底色都拿掉了** —— 段落左邊那條線接手了顏色
+ * 這件事。一列一個點、一列一片綠底、一段一條線，三套視覺語言在講同一件事，
+ * 而看的人只會覺得吵（ADR-0043）。
+ */
+function groupRow({ href, label, note, n, danger = false, faded = false }) {
   return `
-    <a class="grouprow ${lead ? 'grouprow--lead' : ''}" href="${href}">
-      <span class="grouprow__dot ${dot ? `grouprow__dot--${dot}` : ''}"></span>
+    <a class="grouprow ${faded ? 'grouprow--faded' : ''}" href="${href}">
       <span class="grouprow__main">
         <span class="grouprow__label" ${danger ? 'style="color: var(--overdue)"' : ''}>${esc(label)}</span>
         ${note ? `<span class="grouprow__note">${esc(note)}</span>` : ''}
@@ -759,7 +804,15 @@ export async function renderGroup(el, group) {
     cancel: (t) => isCancelKind(t.kind),
   };
   const match = filters[group] ?? ((t) => t.kind === group);
-  const meta = GROUPS[group] ?? { title: group, lead: kindNote(group) };
+  const meta = GROUPS[group] ?? {
+    title: group,
+    // 已經拿掉的種類（ADR-0041）。列還在是因為那是她真的還沒做的事 ——
+    // 替她刪待辦比留著更糟（同 ADR-0027 的判斷）。但要講出來它不會再長了。
+    lead: isRetired(group)
+      ? '這個類別已經取消了 —— 底下是舊資料，不會再長出新的。勾掉就不會再出現。'
+      : kindNote(group),
+    retired: isRetired(group),
+  };
 
   paintTasks({ el, group, tasks: tasks.filter(match), today, meta });
 }
@@ -775,6 +828,10 @@ function paintTasks(ctx) {
     </div>
 
     ${tasks.length ? `
+      ${meta.retired ? `
+        <div class="form__actions" style="margin-bottom: var(--space-3)">
+          <button class="btn" type="button" data-pick-all>全部勾起來（${tasks.length} 筆）</button>
+        </div>` : ''}
       <div class="stack">${tasks.map((t) => taskRow(t, today)).join('')}</div>
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="button" data-mark disabled>
@@ -793,6 +850,17 @@ function paintTasks(ctx) {
   el.querySelectorAll('[data-visit]').forEach((btn) =>
     btn.addEventListener('click', () => go(`/visits/${btn.dataset.visit}`)),
   );
+
+  // 已經取消的類別才有這一顆。**它只是全部勾起來，不是直接標完成** ——
+  // 送出前還要再按一次「把勾起來的標成完成」，而那一批是同一個 commit，
+  // 所以復原退得回去（SPEC 第 6.3 節）。
+  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
+    el.querySelectorAll('[data-task]').forEach((box) => {
+      box.checked = true;
+      picked.add(box.dataset.task);
+    });
+    syncMarkButton(el);
+  });
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);

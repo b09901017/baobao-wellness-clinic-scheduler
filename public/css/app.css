@@ -874,6 +874,85 @@ textarea {
   font-weight: 600;
 }
 
+/* 流程分段。待辦中心的每一段就是「她真的在做的第幾步」，段落左邊那條線的
+   顏色就是**那一筆來訪當下在日曆上的顏色** —— 同一件事在兩個畫面同一個顏色。
+   一個新色相都不開（ADR-0039 已經記著色相不夠用了），見 ADR-0043。 */
+.flowgroup {
+  position: relative;
+  padding-left: 13px;
+  margin-bottom: var(--space-3);
+}
+
+/* 空的那一段整段收掉（含標題）。列是等資料回來才補進去的，
+   所以不能在產生 HTML 的時候決定 —— 那時候還不知道有沒有東西。 */
+.flowgroup:not(:has(.grouprow)) {
+  display: none;
+}
+
+.flowgroup::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--flow-tone);
+}
+
+.flowgroup--none { --flow-tone: var(--border); }
+.flowgroup--pending { --flow-tone: var(--visit-pending); }
+.flowgroup--confirmed { --flow-tone: var(--visit-confirmed); }
+.flowgroup--done { --flow-tone: var(--visit-done); }
+.flowgroup--no-show { --flow-tone: var(--visit-no-show); }
+
+/* 來訪當天：那一天正在從已確認變成已完成，所以線也是。 */
+.flowgroup--onday {
+  --flow-tone: linear-gradient(
+    to bottom, var(--visit-confirmed), var(--visit-done)
+  );
+}
+
+.flowgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.flowgroup__n {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--text-mute);
+}
+
+.flowgroup__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* 流程上最前面那個還有東西的段。**只有一顆**，多了就等於沒有。 */
+.flowgroup__next {
+  display: none;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+.flowgroup--next .flowgroup__next {
+  display: inline-block;
+}
+
+/* 已經取消的類別。列還在（那是她真的還沒做的事），但不該再吸引注意力。 */
+.grouprow--faded .grouprow__label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
 /* 分類清單。一列一個數字加一句話，點進去才是完整內容。 */
 .groups {
   background: var(--surface);
@@ -903,31 +982,6 @@ textarea {
 
 .grouprow:first-child {
   border-top: none;
-}
-
-.grouprow--lead {
-  background: var(--accent-soft);
-}
-
-.grouprow--lead .grouprow__label,
-.grouprow--lead .grouprow__n {
-  color: var(--accent);
-}
-
-.grouprow__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--tea);
-  flex-shrink: 0;
-}
-
-.grouprow__dot--danger {
-  background: var(--overdue);
-}
-
-.grouprow__dot--accent {
-  background: var(--accent);
 }
 
 .grouprow__main {

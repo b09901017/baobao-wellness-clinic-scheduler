@@ -1,0 +1,119 @@
+// 待辦中心的流程分段。SPEC 第 8.1 節。純函式。
+//
+// 首頁本來是一排長得一樣的列，順序是**寫死在樣板裡的出現順序** —— 那個順序
+// 沒有任何人決定過，它是「先寫的先出現」。而她要的是「下一步是什麼」。
+//
+// 所以段落的定義放在這裡而不是放在 `views/home.js`：「這件事是流程的第幾步」
+// 之後進度追蹤頁也會問同一句，而同一件事在兩個畫面歸到不同的段，
+// 她不會知道哪個算數（同 ADR-0028 的理由）。
+//
+// 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
+
+import { isCancelKind } from './taskRules.js';
+import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND } from './followups.js';
+
+/**
+ * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
+ * 中間某一段空了，其餘的編號不重新編。
+ *
+ * `tone` 對到 `tokens.css` 已經有的來訪狀態色，**一個新色相都不開**
+ * （ADR-0039 已經記著色相不夠用了）。而且借得剛好：待辦的階段本來就對應
+ * 那一筆來訪當下的狀態 —— 她在待辦上看到琥珀色的那一段，日曆上那幾筆
+ * 也正是琥珀色的。
+ */
+export const STAGES = [
+  { id: 'ask', n: 1, label: '問到時間', tone: 'none' },
+  { id: 'book', n: 2, label: '壓表', tone: 'none' },
+  { id: 'confirm', n: 3, label: '等客人回覆', tone: 'pending' },
+  { id: 'before', n: 4, label: '來訪前一天', tone: 'confirmed' },
+  { id: 'onday', n: 5, label: '來訪當天', tone: 'onday' },
+  { id: 'after', n: 6, label: '來訪之後', tone: 'done' },
+  { id: 'undo', n: 7, label: '要收回來的', tone: 'no-show' },
+];
+
+/**
+ * 拿掉的任務種類。它們不再產生，但 Firestore 裡已經有的不會消失 ——
+ * 已完成的是紀錄（SPEC 第 6.1 節），未完成的是她真的還沒做的事。
+ *
+ * 「壓表就是 Abovee 登記」見 ADR-0041；打電話是 2026-08-23 拿掉的。
+ */
+export const RETIRED_KINDS = ['打電話', 'Abovee'];
+
+export const isRetired = (kind) => RETIRED_KINDS.includes(kind);
+
+/**
+ * 每一種待辦在哪一段、段裡排第幾。**寫成一個有序的陣列而不是一張表**，
+ * 因為這兩件事本來就是同一個順序：這一份的先後就是她做事的先後。
+ *
+ * 段裡的順序不能交給死線 —— 「追蹤健檢報告」的死線是 21 天，「約二返」是
+ * 拿到報告之後 7 天，照死線排會把鏈條的第二站排到第一站前面。
+ */
+const FLOW = [
+  // 推導出來的那幾列（不是任務，所以用列的 id 問）
+  ['ask', 'ask'],
+  ['forms', 'ask'],
+  ['book', 'book'],
+  ['confirm', 'confirm'],
+  // 任務種類
+  ['Examine', 'before'],
+  ['耀聖', 'before'],
+  ['close', 'onday'],
+  [REPORT_TASK_KIND, 'after'],
+  [FOLLOWUP_TASK_KIND, 'after'],
+  ['cancel', 'undo'],
+];
+
+const STAGE_OF = Object.fromEntries(FLOW);
+const ORDER_OF = Object.fromEntries(FLOW.map(([kind], i) => [kind, i]));
+
+/**
+ * 一種待辦屬於流程的哪一段。列的 id 與任務種類都吃得下。
+ *
+ * **認不得的一律回 `before`。** 那不是隨便挑的：認不得的種類只有兩種來源，
+ * 已經拿掉的那幾種（打電話、Abovee）與她手動加的，而兩種都是
+ * 「來訪之前要去做的事」。回 `undo` 或另開一段「其他」會讓那幾列
+ * 排在最後面，而它們可能是今天就該做的。
+ */
+export function stageOf(kind) {
+  if (isCancelKind(kind)) return 'undo';
+  return STAGE_OF[kind] ?? 'before';
+}
+
+/**
+ * 段裡排第幾。**認不得的排最後**（已經拿掉的那幾種、她手動加的）——
+ * 它們還在清單上是因為那是她真的還沒做的事，但不該擋在該做的事前面。
+ */
+export function orderOf(kind) {
+  if (isCancelKind(kind)) return ORDER_OF.cancel;
+  return ORDER_OF[kind] ?? Number.POSITIVE_INFINITY;
+}
+
+/**
+ * 把一批列照流程分段。**空的段留在結果裡**（`rows` 是空陣列）——
+ * 首頁上有兩三列是等資料回來才補的，段落先在那裡，補進來才有位置放。
+ * 要不要畫由畫面決定（CSS 的 `:has()`）。
+ *
+ * @param {{id: string}[]} rows 每一列至少要有 id
+ * @returns {{stage: object, rows: object[]}[]} 照 STAGES 的順序
+ */
+export function groupByStage(rows = []) {
+  return STAGES.map((stage) => ({
+    stage,
+    rows: rows
+      .filter((r) => stageOf(r.id) === stage.id)
+      .sort((a, b) => orderOf(a.id) - orderOf(b.id)),
+  }));
+}
+
+/**
+ * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。
+ *
+ * 「最該做」＝ **流程上最前面那個還有東西的段**，不是數字最大的那一段 ——
+ * 她的問題是「接下來做什麼」，而流程的答案是從頭開始。
+ * 逾期優先於流程，那一段在畫面上另外處理（三顆大數字）。
+ *
+ * @returns {object|null} STAGES 裡的一個
+ */
+export function nextStage(counts = {}) {
+  return STAGES.find((s) => (counts[s.id] ?? 0) > 0) ?? null;
+}
