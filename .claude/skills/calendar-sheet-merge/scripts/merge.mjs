@@ -25,6 +25,7 @@ const { SEED } = await import(join(REPO, 'public/js/domain/seed.js'));
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
 const { addDays } = await import(join(REPO, 'public/js/domain/dates.js'));
+const { KIND_LABEL } = await import(join(REPO, 'public/js/domain/mergeImport.js'));
 
 // ---------- 速記語法 ----------
 //
@@ -204,7 +205,12 @@ const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|�
  * 那幾天會整片變成排不進去的灰青斜線 —— 而她其實在上班。
  */
 function residualPeople(summary) {
-  let s = normVariant(summary).replace(LEAVE_WORDS_ALL, ' ');
+  // 假別後面黏著的長度：`請假3天`、`休假半天`、`補休一天`、`特休兩天`。
+  // 數字本身會被下面的非中文那一關洗掉，但 `天`／`兩天`／`半天` 是中文，
+  // 留著就會被讀成人名 —— `請假3天` 曾經報出「寫的是「天」的假」。
+  let s = normVariant(summary)
+    .replace(LEAVE_WORDS_ALL, ' ')
+    .replace(/[一二三四五六七八九十兩半整全]*[天日]/g, ' ');
   for (const [re] of TOKENS) s = s.replace(new RegExp(re.source, `g${re.flags.replace('g', '')}`), ' ');
   s = s.replace(/治\s*\d+|點滴\s*\d+|床\s*[A-Za-z]/g, ' ').replace(/[^\u4e00-\u9fff]/g, '');
   for (const w of NOT_A_NAME) s = s.split(w).join('');
@@ -226,8 +232,9 @@ function leadsWithTime(summary) {
   return /^\d/.test(head) && Boolean(timeInSummary(summary));
 }
 
-/** 日曆上那三類的名字。用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞。 */
-export const KIND_LABEL = { leave: '休假', note: '待辦', personal: '行事備註' };
+// 那三類的名字借 app 那一份（`domain/mergeImport.js` 的 `KIND_LABEL`）。
+// 在這裡再寫一次的話，改詞彙表要改兩個地方，而其中一個一定會被忘記 ——
+// 這支腳本本來就在跑 app 的 domain 了（檔頭的 import）。
 
 /**
  * 對不到客戶的那一筆事件，在日曆上該是哪一類。
@@ -750,6 +757,18 @@ const width = (t) => [...String(t)].reduce((n, ch) => n + (/[⺀-꓏가-힣豈-�
 const padStart = (t, to) => `${' '.repeat(Math.max(to - width(t), 0))}${t}`;
 const pad = (t, to) => `${t}${' '.repeat(Math.max(to - width(t), 0))}`;
 
+/**
+ * 讀舊表時發現的問題，攤平成一列一筆。
+ *
+ * `planForSheet()` 一直都算得出這些，只是以前只有 app 那一頁在讀。
+ * 那一頁拿掉之後（ADR-0047）唯一看得到的地方就是這份報告。
+ */
+function sheetProblems(r) {
+  return (r.plans ?? []).flatMap((p) => (p.problems ?? []).map((x) => ({
+    name: p.customerName || p.sheetName, where: x.where, raw: x.raw, why: x.why,
+  })));
+}
+
 export function reportText(r) {
   const L = [];
   const slots = r.plans.flatMap((p) => p.days.flatMap((d) => d.filled));
@@ -794,6 +813,7 @@ export function reportText(r) {
   L.push(`   ④b 兩個人都可能　${r.ambiguous.length}`);
   L.push(`   ⑤ 未來的預約　${r.leftover.future.length}`);
   L.push(`   ⑥ 對不到客戶的　${r.leftover.personal.length}　（這一段是清單不是問題，慢慢挑）`);
+  if (sheetProblems(r).length) L.push(`   ⓪b 舊表本身讀到的問題　${sheetProblems(r).length}`);
   L.push('');
 
   // 一位客戶整批對不上，幾乎一定是名字的問題（行事曆上叫暱稱、打錯字、只寫姓）。
@@ -820,6 +840,29 @@ export function reportText(r) {
     L.push('   舊表的 A2 把名字、病歷號、器材偏好擠在同一格。拿掉的東西沒有掉 ——');
     L.push('   它們已經收進那位客戶的備註了。', '');
     for (const [raw, name] of renamed) L.push(`   ${short(raw)}　→　${name}`);
+    L.push('');
+  }
+
+  // 讀舊表的時候發現的東西。**跟行事曆無關**，所以不編進 ①～⑥ 那幾段 ——
+  // 那幾段講的都是「兩邊對不對得起來」。
+  //
+  // 這一段 2026-08-23 補回來：app 那側原本有一頁在讀 `planForSheet()` 的
+  // `problems`，那一頁拿掉之後（ADR-0047）這些就沒有任何地方看得到了。
+  // 拿真檔跑會有 28 筆，其中「勾了 3 次但總次數只有 1」那種是真的會在
+  // 資料健檢上變成額度超用的。
+  const sheet = sheetProblems(r);
+  if (sheet.length) {
+    L.push(`━━━ ⓪b 舊表本身讀到的問題 ${sheet.length} 筆 ━━━`);
+    L.push('   讀她的舊表時發現的，跟行事曆無關。有幾種是「這一格沒有匯進去」，');
+    L.push('   有幾種是「匯進去之後資料健檢會報」。', '');
+    let who = '';
+    for (const x of sheet) {
+      if (x.name !== who) {
+        who = x.name;
+        L.push(`   ── ${short(who)}`);
+      }
+      L.push(`      ${x.where ? `${x.where}｜` : ''}${x.raw ? `「${short(x.raw)}」｜` : ''}${x.why}`);
+    }
     L.push('');
   }
 

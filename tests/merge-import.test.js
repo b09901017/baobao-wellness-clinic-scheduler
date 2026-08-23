@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs, eventKind,
+  looseDocs, looseTally,
   summarize, countNewTasks,
   groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
@@ -608,5 +609,63 @@ describe('文字裡的醫療禁忌要在匯入前講出來', () => {
       { ...CTX, existingCustomers: [{ id: 'c1', name: CUSTOMER().name }] },
     )]);
     assert.equal(s.contraindications.length, 0);
+  });
+});
+
+// ---------- 待辦與行事備註分別寫到哪個集合 ----------
+//
+// 「待辦寫進 notes、另外兩種寫進 events」是規則不是畫面（SPEC 第 10 節），
+// 所以它在 domain 而不在那一頁的事件處理器裡。
+describe('looseDocs() 是那個分歧點', () => {
+  const CANDS = [
+    { title: '休', startDate: '2026-09-05', endDate: '2026-09-05', allDay: true, kind: 'leave' },
+    { title: 'H2U電話', startDate: '2026-09-06', endDate: '2026-09-06', startTime: '14:00', kind: 'note' },
+    { title: '顧客會', startDate: '2026-09-07', endDate: '2026-09-07', startTime: '19:00', kind: 'personal' },
+  ];
+  const fileKind = (i) => eventKind(CANDS[i]);
+
+  test('待辦走 notes，另外兩種走 events', () => {
+    const { events, notes } = looseDocs(CANDS, fileKind, [0, 1, 2]);
+    assert.deepEqual(events.map((e) => e.title), ['休', '顧客會']);
+    assert.deepEqual(notes.map((n) => n.text), ['H2U電話']);
+    assert.deepEqual(events.map((e) => e.category), ['leave', 'personal']);
+  });
+
+  test('沒勾的一筆都不進去', () => {
+    const { events, notes } = looseDocs(CANDS, fileKind, [1]);
+    assert.equal(events.length, 0);
+    assert.equal(notes.length, 1);
+  });
+
+  // 這是整支功能的重點：產檔那側判的只是建議，她改掉的那一個才算數。
+  test('她改過的分類要真的改變寫到哪裡', () => {
+    const hers = (i) => (i === 2 ? 'note' : 'leave');
+    const { events, notes } = looseDocs(CANDS, hers, [0, 1, 2]);
+    assert.deepEqual(notes.map((n) => n.text), ['顧客會'], '她把顧客會改成待辦');
+    assert.deepEqual(events.map((e) => e.category), ['leave', 'leave'], '她把 H2U電話 改成休假');
+  });
+
+  // 隨手記的空日期要收成 null 不是空字串 —— 日曆是 where('date','>=',…) 撈的，
+  // 空字串撈得到而 null 撈不到（domain/notes.js 的 normalize()）。
+  test('待辦的形狀走隨手記自己的 normalize()', () => {
+    const [n] = looseDocs([{ title: '記得帶健保卡', startDate: '' }], () => 'note', [0]).notes;
+    assert.equal(n.date, null);
+    assert.equal(n.customerId, null);
+    assert.equal(n.done, false);
+  });
+
+  test('匯進來的東西標得出是從哪一次合併來的', () => {
+    const json = { calendar: { file: 'timetree.ics' } };
+    const { events, notes } = looseDocs(CANDS, fileKind, [0, 1], json);
+    assert.equal(events[0].importedFrom.source, 'merge-file');
+    assert.equal(events[0].importedFrom.calendar, 'timetree.ics');
+    assert.equal(notes[0].importedFrom.calendar, 'timetree.ics');
+  });
+
+  test('數得出勾起來的各有幾筆', () => {
+    assert.deepEqual(
+      looseTally(CANDS, fileKind, [0, 1, 2]).map((x) => [x.label, x.count]),
+      [['待辦', 1], ['行事備註', 1], ['休假', 1]],
+    );
   });
 });

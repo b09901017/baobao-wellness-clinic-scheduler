@@ -189,3 +189,16 @@ describe('同一天的收在一起', () => {
     assert.deepEqual(groupByDay(undefined, () => ''), []);
   });
 });
+
+// events 這個集合同時放行事備註與休假（ADR-0045），而那兩個在日曆上是不同的兩類。
+// 只看路徑的話，一則休假的稽核會寫著「行事備註」。
+test('休假的稽核不會寫成行事備註', () => {
+  assert.equal(
+    describeEvent({ action: 'events.create', targetPath: 'events/e1', before: null, after: { title: '宜蘭休假', category: 'leave' } }),
+    '新增休假「宜蘭休假」',
+  );
+  assert.equal(
+    describeEvent({ action: 'events.create', targetPath: 'events/e2', before: null, after: { title: '高齡演講', category: 'personal' } }),
+    '新增行事備註「高齡演講」',
+  );
+});

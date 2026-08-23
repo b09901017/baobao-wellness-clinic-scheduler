@@ -309,6 +309,19 @@ svg {
   box-shadow: var(--shadow-1);
 }
 
+/* 出事會有實際後果的那種卡：匯入擋下來的錯誤、文字裡讀到的醫療禁忌。
+   **這個 class 一直被用著卻從來沒有定義過**（2026-08-23 補），所以那幾張
+   卡片一直長得跟普通卡一模一樣 —— 而其中一張講的是「沒設定的話超磁場
+   不會被擋下來」。
+
+   不整張塗紅：整張紅底會把裡面的字壓成低對比，而那張卡上每一個字都要讀。
+   左邊一條粗邊 + 淡底，紅色用在邊上不用在字底下。 */
+.card--danger {
+  border-color: var(--danger);
+  border-left-width: 4px;
+  background: var(--overdue-bg);
+}
+
 /* 掛在抽屜裡的編輯器用。抽屜本身已經是那個框了 —— 裡面再疊一層白卡，
    看起來像「面板裡還有一張紙」，而它們講的是同一件事（ADR-0018 的同一個理由）。
    段落之間改用髮絲線分。 */
@@ -4105,8 +4118,8 @@ summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 4px 0 10px 30px;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-2) var(--space-5);
 }
 
 /* 三顆並排時不要撐滿整行：`.seg__item` 預設 flex:1，那會讓三個字的按鈕
@@ -4115,10 +4128,14 @@ summary {
   flex: 0 0 auto;
 }
 
+/* 三顆並排，每顆至少 44px 寬 —— `.seg__item::after` 只把感應範圍往上下撐
+   （SPEC 第 8.0 節），左右要靠自己夠寬。按錯這裡的代價不對稱：多一天休假
+   就是那一天整片排不進去。 */
 .kindpick .seg__item {
   flex: 0 0 auto;
-  padding: 0 10px;
-  font-size: var(--text-2xs);
+  min-width: 44px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
 }
 
 .kindpick .muted {

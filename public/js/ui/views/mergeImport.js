@@ -5,14 +5,15 @@
 // 踩過坑、有護欄了。同一件事做兩份，遲早有一份是錯的。這一頁只負責
 // 「看得懂這份檔案、對得到她自己的主檔、把要寫的東西講清楚、寫進去」。
 //
-// 跟舊資料匯入（#/settings/import）同一個節奏：貼上 → 看清楚 → 確認 → 才寫。
-// 差別是那一頁吃試算表文字、來訪一律沒有時間；這一頁吃合併檔、時間補得進來。
+// 節奏是：貼上 → 看清楚 → 確認 → 才寫（SPEC 第 6.10 節要的 dry-run）。
+// **舊資料只有這一條路進得來**（ADR-0047）—— 「把試算表文字直接貼進來」那條
+// 2026-08-23 拿掉了，它讀得到的東西是這份合併檔的子集。
 
 import * as importer from '../../data/legacyImport.js';
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
   summarize, countNewTasks, groupCandidates, defaultPicks, eventKind,
-  EVENT_KINDS, KIND_LABEL,
+  CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
@@ -50,15 +51,12 @@ function kindOf(index) {
   return kindOverrides.get(index) ?? eventKind(file?.eventCandidates?.[index]);
 }
 
-/** 她勾起來的那幾筆，照現在的分類分成兩堆：走 events 的與走 notes 的。 */
+/**
+ * 她勾起來的那幾筆，照現在的分類分成兩堆：走 events 的與走 notes 的。
+ * **分歧點在 domain**（`looseDocs()`），這裡只負責把她點的東西交過去。
+ */
 function chosenLoose() {
-  const rows = (file?.eventCandidates ?? [])
-    .map((c, i) => ({ c, i, kind: kindOf(i) }))
-    .filter((r) => picks.events.has(r.i));
-  return {
-    events: eventDocs(rows.filter((r) => r.kind !== 'note').map((r) => ({ ...r.c, kind: r.kind }))),
-    notes: noteDocs(rows.filter((r) => r.kind === 'note').map((r) => r.c)),
-  };
+  return looseDocs(file?.eventCandidates, kindOf, [...picks.events], file);
 }
 
 /** 一份檔案剛讀進來時的預設勾選。 */
@@ -109,9 +107,9 @@ function paint(el, ctx) {
     ${backLink()}
 
     <section class="card">
-      <h2 class="card__title">合併檔匯入</h2>
+      <h2 class="card__title">舊資料匯入</h2>
       <p class="muted">把 Claude 對照過試算表與行事曆之後給你的 <code>import.json</code>
-        整份貼進來。它比舊資料匯入多了時間、診間、治療師與器材 —— 那些是從行事曆補起來的。</p>
+        整份貼進來。時間、診間、治療師與器材是從行事曆補起來的，舊試算表上沒有那些。</p>
       <p class="muted">貼進來的東西只留在這個畫面上，重新整理就沒了。</p>
 
       <label class="field">
@@ -401,7 +399,7 @@ function kindPicker(index, x) {
   const why = !kindOverrides.has(index) && x.why ? x.why : '';
   return `<span class="kindpick" data-kindrow="${index}">
     <span class="seg" role="group">
-      ${EVENT_KINDS.map((k) => `<button class="seg__item" type="button"
+      ${CALENDAR_KINDS.map((k) => `<button class="seg__item" type="button"
         data-kind="${k}" data-index="${index}" aria-pressed="${k === now}">${KIND_LABEL[k]}</button>`).join('')}
     </span>
     ${why ? `<span class="muted">${esc(why)}</span>` : ''}
@@ -437,22 +435,20 @@ function ambiguousCard() {
  * **不重算整頁**：她改分類的時候要看得到「休假變幾筆了」，而那正是最該看一眼的
  * 數字 —— 休假多一天，那一天就整片排不進去。
  */
-function looseTally() {
-  const rows = (file?.eventCandidates ?? [])
-    .map((c, i) => ({ i, kind: kindOf(i) }))
-    .filter((r) => picks.events.has(r.i));
-  return EVENT_KINDS.map((k) => `${KIND_LABEL[k]} ${rows.filter((r) => r.kind === k).length}`).join('　');
+function tallyText() {
+  return looseTally(file?.eventCandidates, kindOf, [...picks.events])
+    .map((x) => `${x.label} ${x.count}`).join('　');
 }
 
 function repaintLooseCounts(el) {
   const node = el.querySelector('[data-loosecount]');
-  if (node) node.textContent = looseTally();
+  if (node) node.textContent = tallyText();
 }
 
 function runCard(s, tasks) {
   return `
     <section class="card">
-      <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${looseTally()}</b>。
+      <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
         待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
       <p class="form__actions">
         <button class="btn btn--primary" type="button" data-run ${s.customers ? '' : 'disabled'}>開始匯入</button>

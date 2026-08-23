@@ -120,6 +120,19 @@ export function describeAction(action) {
   return `${OP_LABELS[op] ?? op ?? '異動'}${what}`;
 }
 
+/**
+ * 這一則講的是哪一種東西。
+ *
+ * 大部分看路徑就夠了，`events` 是例外：**同一個集合裡放著行事備註與休假**
+ * （ADR-0045），而那兩個在日曆上是不同的兩類。只看路徑的話，一則休假的
+ * 稽核會寫著「行事備註」。
+ */
+function describeKind(event) {
+  const noun = describeTarget(event?.targetPath);
+  if (noun !== '行事備註') return noun;
+  return merged(event).category === 'leave' ? '休假' : noun;
+}
+
 /** 例：'customers/abc/entitlements/def' → '額度'。 */
 export function describeTarget(targetPath) {
   const parts = String(targetPath ?? '').split('/').filter(Boolean);
@@ -218,7 +231,6 @@ export function formatField(key, value) {
   return f ? f(value) : formatValue(value);
 }
 
-const say = formatField;
 
 /**
  * 一則稽核的那一句話。
@@ -232,52 +244,50 @@ const say = formatField;
 const SENTENCES = [
   // 狀態變化是這份紀錄裡最常被回頭查的一種：次數就是跟著它扣的。
   {
-    when: (e, f) => op(e) === 'update' && f.some((x) => x.key === 'status'),
+    when: (e, f) => opOf(e) === 'update' && f.some((x) => x.key === 'status'),
     text: (e, f) => {
       const x = f.find((c) => c.key === 'status');
-      return `${withSubject(e, describeTarget(e.targetPath))}改成${say('status', x.after)}`;
+      return `${withSubject(e, describeKind(e))}改成${formatField('status', x.after)}`;
     },
   },
   // 勾任務、勾隨手記
   {
-    when: (e, f) => op(e) === 'update' && f.some((x) => x.key === 'done'),
+    when: (e, f) => opOf(e) === 'update' && f.some((x) => x.key === 'done'),
     text: (e, f) => {
       const done = f.find((c) => c.key === 'done').after;
-      const what = e.after?.kind || subjectOf(e) || describeTarget(e.targetPath);
+      const what = e.after?.kind || subjectOf(e) || describeKind(e);
       return `${done ? '勾掉' : '取消勾選'}${withSubject(e, '', { override: what })}`;
     },
   },
   // 次數只會因為來訪狀態變化而動（SPEC 4.2），所以它旁邊一定有一筆來訪的紀錄。
   {
-    when: (e, f) => op(e) === 'update'
+    when: (e, f) => opOf(e) === 'update'
       && f.length > 0 && f.every((x) => x.key === 'doneCount' || x.key === 'bookedCount'),
     text: (e, f) => `${withSubject(e, '額度')}：${
       f.map((x) => `${fieldLabel(x.key)} ${formatValue(x.before)} → ${formatValue(x.after)}`).join('、')}`,
   },
   {
-    when: (e) => op(e) === 'create',
-    text: (e) => `新增${withSubject(e, describeTarget(e.targetPath))}`,
+    when: (e) => opOf(e) === 'create',
+    text: (e) => `新增${withSubject(e, describeKind(e))}`,
   },
   {
-    when: (e) => op(e) === 'softDelete',
-    text: (e) => `刪掉${withSubject(e, describeTarget(e.targetPath))}`,
+    when: (e) => opOf(e) === 'softDelete',
+    text: (e) => `刪掉${withSubject(e, describeKind(e))}`,
   },
   // 一般的修改：講改了哪幾個欄位，不講改成什麼 —— 那是展開之後的事。
   {
-    when: (e, f) => op(e) === 'update' && f.length > 0 && f.length <= 3,
-    text: (e, f) => `改了${withSubject(e, describeTarget(e.targetPath), { possessive: true })}的${
+    when: (e, f) => opOf(e) === 'update' && f.length > 0 && f.length <= 3,
+    text: (e, f) => `改了${withSubject(e, describeKind(e), { possessive: true })}的${
       f.map((x) => x.label).join('、')}`,
   },
   {
-    when: (e, f) => op(e) === 'update' && f.length > 3,
-    text: (e, f) => `改了${withSubject(e, describeTarget(e.targetPath), { possessive: true })}的 ${f.length} 個欄位`,
+    when: (e, f) => opOf(e) === 'update' && f.length > 3,
+    text: (e, f) => `改了${withSubject(e, describeKind(e), { possessive: true })}的 ${f.length} 個欄位`,
   },
 ];
 
 /** `visits.update` → `update`。 */
 export const opOf = (event) => String(event?.action ?? '').split('.')[1] ?? '';
-
-const op = opOf;
 
 /**
  * 這一筆要怎麼稱呼：`客戶A的來訪`、`客戶「客戶A」`、`來訪`。
