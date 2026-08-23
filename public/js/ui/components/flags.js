@@ -11,6 +11,41 @@
 
 import { esc, parseList } from './form.js';
 import { splitFlagsForEdit, mergeFlags } from '../../domain/customers.js';
+import { equipmentLimitLabel } from '../../domain/contraindications.js';
+
+/**
+ * 只讀的那一面：**會真的擋掉器材的那幾個永久限制**，掛在客戶名字底下。
+ *
+ * 壓表卡片牆與待辦的「壓表登記」兩頁共用（ADR-0046）。分開寫的話會出現
+ * 一邊紅一邊灰，而這一顆的整個意義就是「掃過去一眼分得出誰被硬性擋住」。
+ *
+ * **不擋器材的永久限制不畫。** 「固定禮拜五不行」也是永久限制，但一張卡上
+ * 十個紅字等於全都不紅（SPEC 第 4.3 節仍然成立：記錄面板與客戶詳情上全部都有）。
+ *
+ * `terms` 由呼叫端算好傳進來（`contraindicationTerms()`），不在這裡算 ——
+ * 一頁要畫二十幾張卡，每張重算一次器材主檔是白費的。
+ *
+ * @param {object} opts
+ * @param {string[]} opts.flags 這位客戶的全部永久限制
+ * @param {string[]} opts.terms 會擋掉器材的那幾個字
+ * @param {object[]|null} opts.options 這位客戶擇一池裡的器材。給了才會多一句
+ *   「只能 INDIBA」；沒有擇一池就不給。
+ */
+export function blockChips({ flags = [], terms = [], options = null }) {
+  const blocking = new Set(terms);
+  const mine = flags.filter((x) => blocking.has(x));
+  if (!mine.length) return '';
+
+  const limit = options ? equipmentLimitLabel({ flags }, options) : null;
+
+  return `
+    <span class="blockchips">
+      ${mine.map((x) => `<span class="flag flag--block">${esc(x)}</span>`).join('')}
+      ${limit
+        ? `<span class="flag ${limit.leftCount ? 'flag--left' : 'flag--block'}">${esc(limit.text)}</span>`
+        : ''}
+    </span>`;
+}
 
 /**
  * 掛一個永久限制編輯器進 host。

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 
 import {
   MAX_LENGTH,
+  datedIn,
   groupByCustomer,
   isOpen,
   normalize,
@@ -91,10 +92,54 @@ test('某位客戶身上還沒處理掉的', () => {
 
 test('沒掛客戶時兩個欄位一起清成 null', () => {
   const out = normalize({ text: '  記一下  ', customerId: '   ', customerName: '王小姐' });
-  assert.deepEqual(out, { text: '記一下', customerId: null, customerName: null, done: false });
+  assert.deepEqual(out,
+    { text: '記一下', customerId: null, customerName: null, date: null, done: false });
 });
 
 test('掛了客戶就兩個都留著', () => {
   const out = normalize({ text: 'x', customerId: 'c1', customerName: ' 王小姐 ', done: true });
-  assert.deepEqual(out, { text: 'x', customerId: 'c1', customerName: '王小姐', done: true });
+  assert.deepEqual(out,
+    { text: 'x', customerId: 'c1', customerName: '王小姐', date: null, done: true });
+});
+
+// ---------- 日期（選填）----------
+
+test('日期空字串一律清成 null —— 日曆是用 date >= from 撈的', () => {
+  // 空字串會被 `where('date', '>=', '2026-08-01')` 撈進來嗎？不會，
+  // 但它會排在所有日期前面而且看起來像有值。null 才是「沒掛日期」。
+  for (const date of ['', '   ', undefined, null]) {
+    assert.equal(normalize({ text: 'x', date }).date, null, JSON.stringify(date));
+  }
+  assert.equal(normalize({ text: 'x', date: ' 2026-08-25 ' }).date, '2026-08-25');
+});
+
+test('日期是選填的，但填了就要是真的日期', () => {
+  assert.deepEqual(validateNote({ text: 'x' }).errors, []);
+  assert.deepEqual(validateNote({ text: 'x', date: '2026-08-25' }).errors, []);
+  assert.ok(validateNote({ text: 'x', date: '八月二十五' }).errors.length);
+  assert.ok(validateNote({ text: 'x', date: '2026-13-40' }).errors.length);
+});
+
+test('過去的日期不擋 —— 她會補記昨天那一件', () => {
+  assert.deepEqual(validateNote({ text: 'x', date: '2020-01-01' }).errors, []);
+});
+
+test('datedIn：沒有日期的不上日曆，勾掉的照樣上', () => {
+  const rows = [
+    note({ id: 'a', date: '2026-08-25' }),
+    note({ id: 'b', date: null }),
+    note({ id: 'c', date: '2026-08-25', done: true }),
+    note({ id: 'd', date: '2026-09-01' }),
+    note({ id: 'e', date: '2026-08-20', deletedAt: 'x' }),
+  ];
+  assert.deepEqual(
+    datedIn(rows, '2026-08-01', '2026-08-31').map((n) => n.id),
+    ['a', 'c'],
+    '勾掉的要留著 —— 日曆上畫成刪除線，不是消失',
+  );
+});
+
+test('datedIn：頭尾兩天都算在範圍裡', () => {
+  const rows = [note({ id: 'a', date: '2026-08-01' }), note({ id: 'b', date: '2026-08-31' })];
+  assert.deepEqual(datedIn(rows, '2026-08-01', '2026-08-31').map((n) => n.id), ['a', 'b']);
 });

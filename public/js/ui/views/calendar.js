@@ -1,9 +1,13 @@
 // 日曆。SPEC 第 8.6 節、ADR-0015、ADR-0020。取代 TimeTree（第 4.9 節）。
 //
-// 這是**可以直接編輯的第一線畫面**，不是唯讀的檢視。上面有兩種各自獨立的東西：
+// 這是**可以直接編輯的第一線畫面**，不是唯讀的檢視。上面有四類，
+// 來自三個集合（ADR-0045）：
 //
-//   來訪     —— 綁客戶，產生任務，扣次數，走第 4.1 節的狀態機
-//   個人行程 —— 公出、休假、演講。不綁客戶、不產生任務、不扣次數，可以跨天
+//   客戶來訪 —— `visits`。綁客戶，產生任務，扣次數，走第 4.1 節的狀態機
+//   待辦     —— `notes` 裡**有日期的**那幾筆。就是隨手記本人，不是另一份資料
+//                （ADR-0044）—— 所以「同步」這件事沒有東西要做
+//   行事備註 —— `events`（`category: 'personal'`）。公出、演講。可以跨天
+//   休假     —— `events`（`category: 'leave'`）。那幾天她根本不在
 //
 // 月檢視上跨天的東西畫成橫跨格子的色條而不是圓點 —— 看不出從哪天到哪天的話，
 // 那條資訊等於沒給。排版計算在 domain/events.js 的 layoutMonth()。
@@ -20,6 +24,7 @@
 import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
+import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
@@ -32,8 +37,12 @@ import {
   describeStatus, statusClass, shortStatus, STATUS_VIEW_ORDER,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
+import { MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
+import * as note from '../components/note.js';
+import { confirmAction } from '../components/dialog.js';
+import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { icon } from '../icons.js';
@@ -45,8 +54,9 @@ const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: fa
 /** 頂端那一排可勾選的篩選。一種一個顏色，關掉就不顯示。 */
 const KINDS = [
   // 這顆是開關不是狀態，所以用中性色 —— 來訪本身的顏色由狀態決定（見圖例）
-  { id: 'visit', label: '來訪', cls: 'kind-any' },
-  { id: 'personal', label: '個人行程', cls: 'kind-personal' },
+  { id: 'visit', label: '客戶來訪', cls: 'kind-any' },
+  { id: 'note', label: '待辦', cls: 'kind-todo' },
+  { id: 'personal', label: '行事備註', cls: 'kind-personal' },
   { id: 'leave', label: '休假', cls: 'kind-leave' },
 ];
 
@@ -81,9 +91,11 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, rooms, staff] = await Promise.all([
+    const [visits, events, notes, rooms, staff] = await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
+      // 有日期的隨手記（ADR-0044）。跟其他四份一起走，不多一輪往返。
+      notesData.listBetween(from.from, to.to),
       config.listAll('rooms'),
       config.listAll('staff'),
     ]);
@@ -92,6 +104,7 @@ async function load() {
       value: {
         visits,
         events,
+        notes,
         roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
         staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
       },
@@ -200,9 +213,13 @@ function countLine(data, date) {
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
   ).length;
+  const notes = shows('note')
+    ? (data.notes ?? []).filter((n) => inRange(n.date)).length
+    : 0;
   const parts = [];
   if (visits) parts.push(`${visits} 筆來訪`);
-  if (events) parts.push(`${events} 筆行程`);
+  if (notes) parts.push(`${notes} 件待辦`);
+  if (events) parts.push(`${events} 筆行事備註`);
   return parts.join('・') || '這段時間沒有東西';
 }
 
@@ -217,7 +234,7 @@ function bodyHtml(data, date, today) {
 /**
  * 月。一週一列，跨天的事情用橫跨格子的色條表示。
  *
- * 來訪與個人行程餵進同一次排版計算 —— 分兩次算的話兩種東西會互相蓋住，
+ * 來訪與行事備註餵進同一次排版計算 —— 分兩次算的話兩種東西會互相蓋住，
  * 而她看月檢視就是為了知道「那一天到底卡了幾件事」。
  *
  * **一整欄都是那一天的按鈕**（`.monthweek__hit`，從第一列跨到最後一列）：
@@ -228,6 +245,7 @@ function monthHtml(data, date, today) {
   const weeks = monthWeeks(date.slice(0, 7));
   const items = [
     ...(shows('visit') ? data.visits.map(visitAsBar) : []),
+    ...(shows('note') ? (data.notes ?? []).map(noteAsBar) : []),
     ...data.events.filter((e) => shows(e.category)),
   ];
   const rows = layoutMonth(items, weeks);
@@ -282,6 +300,25 @@ function visitAsBar(visit) {
   };
 }
 
+/**
+ * 一件待辦在月檢視上就是一格寬的色條。
+ *
+ * **它不搶一個色相**（ADR-0045）：方框勾勾那個記號在 11px 的字裡認得出來，
+ * 而且它自己就說明了「這是一件可以勾掉的事」。勾掉的畫成刪除線 ——
+ * **不消失**，她要看得出「這件事處理掉了」。記號與刪除線在 CSS 的 `.kind-todo`。
+ */
+function noteAsBar(n) {
+  return {
+    id: n.id,
+    title: n.text ?? '',
+    category: 'note',
+    kind: `kind-todo${n.done ? ' kind-todo--done' : ''}`,
+    startDate: n.date,
+    endDate: n.date,
+    deletedAt: n.deletedAt ?? null,
+  };
+}
+
 /** 週。手機是七段直的清單，iPad 橫式才變七欄。一週是她真正在規劃的單位。 */
 function weekHtml(data, date, today) {
   const days = weekDays(date);
@@ -296,7 +333,8 @@ function weekHtml(data, date, today) {
         const day = summary[d];
         const rows = shows('visit') ? agendaFor(data.visits, d, data) : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
-        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0);
+        const todos = notesOn(data, d);
+        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         return `
@@ -310,6 +348,7 @@ function weekHtml(data, date, today) {
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
             </button>
 
+            ${todos.map(noteLine).join('')}
             ${allDay.map(eventLine).join('')}
             ${timed.map(eventLine).join('')}
             ${rows.map((r) => `
@@ -335,6 +374,27 @@ function weekHtml(data, date, today) {
     </div>`;
 }
 
+/** 那一天有日期的隨手記。篩選關掉就沒有。 */
+function notesOn(data, date) {
+  if (!shows('note')) return [];
+  return (data.notes ?? []).filter((n) => !n.deletedAt && n.date === date);
+}
+
+/**
+ * 一件待辦在週／日檢視上的樣子。**釘在最上面**，跟整天的行事備註同一區 ——
+ * 它沒有時間（她自己選的：只選日期），硬塞進時間軸只能擺在一個假位置。
+ */
+function noteLine(n) {
+  return `
+    <button class="allday kind-todo ${n.done ? 'kind-todo--done' : ''}" type="button"
+            data-open="note:${esc(n.id)}"
+            style="margin: var(--space-2) var(--space-3) 0; width: auto">
+      <span class="allday__bar"></span>
+      <span class="allday__t">${esc(n.text)}</span>
+      ${n.customerName ? `<span class="allday__aside">${esc(n.customerName)}</span>` : ''}
+    </button>`;
+}
+
 function eventLine(e) {
   return `
     <button class="allday ${e.kind}" type="button" data-open="event:${esc(e.id)}"
@@ -347,14 +407,15 @@ function eventLine(e) {
 
 /**
  * 日。一整天照時間排開，左邊時間、中間內容、右邊狀態。
- * 整天的個人行程釘在最上面，不進時間軸 —— 它沒有時間，硬塞進去只能擺在一個假位置。
+ * 整天的行事備註釘在最上面，不進時間軸 —— 它沒有時間，硬塞進去只能擺在一個假位置。
  */
 function dayHtml(data, date, today) {
   const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
   const visible = data.events.filter((e) => shows(e.category));
   const { allDay, timed } = dayEvents(visible, date);
+  const todos = notesOn(data, date);
 
-  // 有時間的個人行程跟來訪的時段排在同一條時間軸上 —— 她要看的是
+  // 有時間的行事備註跟來訪的時段排在同一條時間軸上 —— 她要看的是
   // 「那一格幾點有事」，不是「這件事屬於哪一種資料」。
   const merged = [
     ...rows.map((r) => ({ kind: 'visit', at: r.startsAt, row: r })),
@@ -365,11 +426,12 @@ function dayHtml(data, date, today) {
     return av - bv;
   });
 
-  if (!merged.length && !allDay.length) {
+  if (!merged.length && !allDay.length && !todos.length) {
     return `<p class="muted">${esc(shortDate(date))} 沒有排東西。</p>`;
   }
 
   return `
+    ${todos.map(noteLine).join('')}
     ${allDay.map(eventLine).join('')}
     <div class="timeline">
       ${merged.map((item) => (item.kind === 'visit'
@@ -434,8 +496,12 @@ function fabHtml() {
       ${state.fab ? `
         <div class="fab__menu">
           <button class="fab__item" type="button" data-new-event>
-            <span>新增個人行程</span>
+            <span>新增行事備註</span>
             <span class="fab__dot fab__dot--tea">${icon('calendar', { size: 18 })}</span>
+          </button>
+          <button class="fab__item" type="button" data-new-note>
+            <span>新增待辦</span>
+            <span class="fab__dot fab__dot--todo">${icon('pencil', { size: 18 })}</span>
           </button>
           <button class="fab__item" type="button" data-new-visit>
             <span>新增來訪</span>
@@ -463,7 +529,7 @@ function openDay(el, data, date) {
   const today = todayISO();
   const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
   const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), date);
-  const n = rows.length + allDay.length + timed.length;
+  const n = rows.length + allDay.length + timed.length + notesOn(data, date).length;
 
   const sheet = openSheet({
     title: shortDate(date),
@@ -472,7 +538,8 @@ function openDay(el, data, date) {
       : '這天還沒有東西 —— 但同事在 Abovee 壓的看不到，空的不代表真的空著。',
     body: dayHtml(data, date, today),
     actions: `
-      <button class="btn" type="button" data-add-event>個人行程</button>
+      <button class="btn" type="button" data-add-note>待辦</button>
+      <button class="btn" type="button" data-add-event>行事備註</button>
       <button class="btn btn--primary" type="button" data-add-visit>來訪</button>`,
     onClose: closeCard,
   });
@@ -482,6 +549,10 @@ function openDay(el, data, date) {
       const [what, id] = btn.dataset.open.split(':');
       openDetail(el, data, what, id, date);
     }),
+  );
+
+  sheet.el.querySelector('[data-add-note]').addEventListener('click', () =>
+    mountNoteEditor(el, data, sheet, { date, backDate: date }),
   );
 
   sheet.el.querySelector('[data-add-event]').addEventListener('click', () =>
@@ -502,6 +573,8 @@ function openDay(el, data, date) {
  * 每一次都冒著改到東西的風險，而這一站最不能出錯的就是次數（ADR-0020）。
  */
 function openDetail(el, data, what, id, date) {
+  if (what === 'note') return openNoteCard(el, data, id, date);
+
   if (what === 'event') {
     const event = data.events.find((e) => e.id === id);
     if (!event) return;
@@ -532,6 +605,165 @@ function openDetail(el, data, what, id, date) {
       });
     },
   });
+}
+
+/**
+ * 一件待辦的讀取模式。
+ *
+ * **勾掉那一顆就長在讀取卡片上**，這是待辦跟來訪不一樣的地方：勾掉不是
+ * 「改資料」，是「這件事做完了」，而那正是她點開它的原因。來訪那一張
+ * 之所以要先看再按鉛筆，是因為那一站最不能出錯的是次數（ADR-0020）；
+ * 隨手記勾錯了點回來就好。
+ */
+function openNoteCard(el, data, id, date) {
+  const n = (data.notes ?? []).find((x) => x.id === id);
+  if (!n) return;
+
+  const paint = (current) => {
+    openCard({
+      title: current.text,
+      subtitle: `${esc(shortDate(current.date))}${
+        current.customerName ? `・${esc(current.customerName)}` : ''}`,
+      body: `<p class="muted">隨手記。沒有死線 —— 這個日期是「想在這一天處理」，
+        不是死線。</p>`,
+      actions: `
+        <button class="btn ${current.done ? '' : 'btn--primary'}" type="button" data-tick>
+          ${current.done ? '拿回來，還沒做' : '做完了，勾掉'}</button>`,
+      canEdit: true,
+      onEdit: () => {
+        closeCard();
+        openNoteEditor(el, data, { id: current.id, backDate: date });
+      },
+      onMount: (card) => {
+        card.querySelector('[data-tick]')?.addEventListener('click', async () => {
+          try {
+            await toast.withSaveState(() => notesData.setDone(current.id, !current.done), {
+              success: current.done ? '拿回來了' : '勾掉了',
+            });
+          } catch {
+            return; /* 已處理 */
+          }
+          // 卡片留在原地，只把它自己重畫一次 —— 她可能還想看那一天的其他東西。
+          // 底下那一天的面板等關掉之後由 render() 一起更新。
+          const next = { ...current, done: !current.done };
+          const i = (data.notes ?? []).findIndex((x) => x.id === current.id);
+          if (i >= 0) data.notes[i] = next;
+          paint(next);
+        });
+      },
+      onClose: () => render(el),
+    });
+  };
+
+  paint(n);
+}
+
+/**
+ * 待辦的編輯器。掛在同一張抽屜裡，不換頁（ADR-0020）。
+ *
+ * 欄位跟隨手記其他三個入口一模一樣（`ui/components/note.js`）——
+ * 日曆上那一類**就是隨手記本人**（ADR-0044），長得不一樣只會讓她以為
+ * 是兩種東西。
+ */
+function mountNoteEditor(el, data, sheet, spec) {
+  const existing = spec.id ? (data.notes ?? []).find((x) => x.id === spec.id) : null;
+  const isNew = !existing;
+
+  sheet.setTitle(isNew ? '新增待辦' : '改這一件');
+  sheet.setNote('隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
+  sheet.setActions('');
+  sheet.update(`
+    <form data-noteform class="form">
+      <label class="field">
+        <span class="field__label">記什麼</span>
+        <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}"
+               value="${esc(existing?.text ?? '')}"
+               placeholder="例：幫王小明問週六有沒有位子" />
+      </label>
+      <span class="field__label">哪一天</span>
+      ${note.field({ value: existing?.date ?? spec.date })}
+      <div class="form__actions" style="margin-top: var(--space-4)">
+        <button class="btn btn--primary btn--wide" type="submit">
+          ${isNew ? '記下來' : '存起來'}</button>
+        ${isNew ? '' : `
+          <button class="btn" type="button" data-undate>從日曆拿掉</button>
+          <button class="btn btn--danger" type="button" data-drop>刪掉</button>`}
+      </div>
+      ${isNew ? '' : `<p class="field__hint">「從日曆拿掉」只是清掉日期 ——
+        這一筆會留在隨手記裡，只是不再出現在日曆上。</p>`}
+    </form>`);
+  sheet.expand();
+
+  note.wire(sheet.el);
+
+  const done = () => {
+    closeSheet();
+    render(el);
+  };
+
+  const write = async (changes, success) => {
+    try {
+      await toast.withSaveState(
+        () => (isNew ? notesData.create(changes) : notesData.update(existing.id, changes)),
+        { success },
+      );
+      done();
+    } catch {
+      /* 已處理 */
+    }
+  };
+
+  sheet.el.querySelector('[data-noteform]').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = String(e.target.elements.text.value ?? '').trim();
+    if (!text) return;
+    write(
+      {
+        text,
+        date: note.read(sheet.el),
+        // 掛的客戶不在這一頁改 —— 那是客戶詳情頁的事，而這裡改的是「哪一天」。
+        customerId: existing?.customerId ?? null,
+        customerName: existing?.customerName ?? null,
+      },
+      isNew ? '記下來了' : '改好了',
+    );
+  });
+
+  sheet.el.querySelector('[data-undate]')?.addEventListener('click', () =>
+    write(
+      {
+        text: existing.text,
+        date: null,
+        customerId: existing.customerId ?? null,
+        customerName: existing.customerName ?? null,
+      },
+      '從日曆拿掉了，隨手記裡還在',
+    ),
+  );
+
+  sheet.el.querySelector('[data-drop]')?.addEventListener('click', async () => {
+    const ok = await confirmAction({
+      title: '刪掉這一件？',
+      body: '它會進「已刪除項目」，之後還原得回來。',
+      confirm: '刪掉',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await toast.withSaveState(() => notesData.remove(existing.id, '從日曆刪掉'), {
+        success: '刪掉了',
+      });
+      done();
+    } catch {
+      /* 已處理 */
+    }
+  });
+}
+
+/** 沒有現成抽屜可以接的時候（資訊卡片上的鉛筆）就開一張新的。 */
+function openNoteEditor(el, data, spec) {
+  const sheet = openSheet({ title: '', body: '', onClose: closeCard });
+  mountNoteEditor(el, data, sheet, spec);
 }
 
 /**
@@ -585,7 +817,7 @@ function eventReadHtml(event) {
         <span class="readrow__v">${esc(event.note)}</span>
       </div>` : ''}
     <p class="muted" style="margin: var(--space-3) 0 0">
-      個人行程不綁客戶、不產生任務、不扣次數。</p>`;
+      行事備註不綁客戶、不產生任務、不扣次數。</p>`;
 }
 
 // ---------- 就地編輯 ----------
@@ -608,7 +840,7 @@ function mountEditor(el, data, sheet, spec) {
   // 抬頭放日期不放人名：人名連同狀態與醫療禁忌就在編輯器自己的第一列，
   // 抬頭再寫一次等於用掉一整行講同一件事。她在這裡要確認的是「排到哪一天」。
   sheet.setTitle(kind === 'event'
-    ? (isNew ? '新增個人行程' : '個人行程')
+    ? (isNew ? '新增行事備註' : '行事備註')
     : `${shortDate(spec.date)} ${isNew ? '排一筆' : '的來訪'}`);
   sheet.setNote('');
   sheet.setActions('');
@@ -762,6 +994,12 @@ function wire(el, data) {
     state.fab = false;
     paint(el, data);
     openEditor(el, data, { kind: 'event', date: state.day ?? state.date });
+  });
+
+  el.querySelector('[data-new-note]')?.addEventListener('click', () => {
+    state.fab = false;
+    paint(el, data);
+    openNoteEditor(el, data, { date: state.day ?? state.date });
   });
 
   el.querySelector('[data-new-visit]')?.addEventListener('click', () => {

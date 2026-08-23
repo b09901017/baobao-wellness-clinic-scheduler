@@ -1,4 +1,4 @@
-// 個人行程的編輯器。ADR-0015。
+// 行事備註的編輯器。ADR-0015。
 //
 // 公出、休假、演講 —— 她自己的行事，不是客戶的來訪。
 // 不綁客戶、不產生任務、不扣次數，所以這一頁完全碰不到額度與任務，
@@ -60,7 +60,7 @@ export async function mountEdit(el, { id, embedded = false, onDone, onCancel } =
   el.innerHTML = '<p class="muted">載入中…</p>';
   const event = await eventsData.get(id);
   if (!event) {
-    el.innerHTML = '<div class="card"><p>找不到這筆行程，可能已經被刪掉了。</p></div>';
+    el.innerHTML = '<div class="card"><p>找不到這筆行事備註，可能已經被刪掉了。</p></div>';
     return;
   }
   paint(el, event, { isNew: false, embedded, onDone, onCancel });
@@ -83,7 +83,7 @@ function html(e, { isNew, embedded = false }) {
       <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
 
       <div class="page">
-        <h1 class="page__title">${isNew ? '新增個人行程' : '個人行程'}</h1>
+        <h1 class="page__title">${isNew ? '新增行事備註' : '行事備註'}</h1>
         <p class="page__lead">不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。</p>
       </div>`}
 
@@ -106,7 +106,7 @@ function html(e, { isNew, embedded = false }) {
         </div>
         ${isLeave(e)
           ? `<p class="field__hint">休假那幾天壓表的小日曆會直接劃掉 —— 你人不在，排了也是白排。</p>`
-          : `<p class="field__hint">個人行程只是那個時段有事，其餘時間照樣排得了。</p>`}
+          : `<p class="field__hint">行事備註只是那個時段有事，其餘時間照樣排得了。</p>`}
       </div>
 
       ${colourField(e)}

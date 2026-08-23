@@ -13,7 +13,9 @@ import * as tasksData from './tasks.js';
 import * as customersData from './customers.js';
 import { touchedEntitlementIds, recount } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
-import { syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS } from '../domain/followups.js';
+import {
+  syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
+} from '../domain/followups.js';
 import { todayISO } from '../domain/dates.js';
 
 const PATH = 'visits';
@@ -224,6 +226,7 @@ async function followupOps(visit, visitsAfter, coursesById) {
       tasks,
       coursesById,
       dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+      reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
     }),
   );
 }

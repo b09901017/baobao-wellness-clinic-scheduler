@@ -1,11 +1,14 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { tasksForCategory, dueDateFor, tasksForVisit } from '../public/js/domain/taskRules.js';
+import {
+  tasksForCategory, dueDateFor, tasksForVisit, bookingSystemFor, bookingSystemsForVisit,
+} from '../public/js/domain/taskRules.js';
 import {
   isBlocked,
   blockingFlags,
   annotateOptions,
+  equipmentLimitLabel,
   validateSlots,
 } from '../public/js/domain/contraindications.js';
 import {
@@ -14,14 +17,25 @@ import {
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
 describe('任務規則', () => {
-  test('A 類四個任務、B 類兩個、C 類只有 Abovee', () => {
-    assert.deepEqual(tasksForCategory('A'), ['打電話', 'Abovee', 'Examine', '耀聖']);
-    assert.deepEqual(tasksForCategory('B'), ['打電話', 'Examine']);
-    assert.deepEqual(tasksForCategory('C'), ['Abovee']);
+  test('確認之後只有門診那一類還要登記', () => {
+    assert.deepEqual(tasksForCategory('A'), ['Examine', '耀聖']);
+    assert.deepEqual(tasksForCategory('B'), []);
+    assert.deepEqual(tasksForCategory('C'), []);
   });
 
-  test('C 類沒有打電話 —— 舊 Apps Script 給了，那是錯的', () => {
-    assert.ok(!tasksForCategory('C').includes('打電話'));
+  test('壓表就是登記，所以 Abovee 與打電話都不是任務', () => {
+    for (const category of ['A', 'B', 'C', null, undefined]) {
+      const kinds = tasksForCategory(category);
+      assert.ok(!kinds.includes('Abovee'), `${category} 不該有 Abovee`);
+      assert.ok(!kinds.includes('打電話'), `${category} 不該有打電話`);
+    }
+  });
+
+  test('壓表登記在哪個系統：健檢是 Examine，其餘都是 Abovee', () => {
+    assert.equal(bookingSystemFor('B'), 'Examine');
+    for (const category of ['A', 'C', null, undefined, 'Z']) {
+      assert.equal(bookingSystemFor(category), 'Abovee', `${category} 該壓在 Abovee`);
+    }
   });
 
   test('未知類別回空陣列，不亂猜', () => {
@@ -46,8 +60,8 @@ describe('任務規則', () => {
     };
     const courses = { rehab: { category: 'A' }, cardio: { category: 'A' } };
     const tasks = tasksForVisit(visit, courses);
-    assert.equal(tasks.length, 4);
-    assert.equal(new Set(tasks.map((t) => t.kind)).size, 4);
+    assert.equal(tasks.length, 2);
+    assert.equal(new Set(tasks.map((t) => t.kind)).size, 2);
     assert.ok(tasks.every((t) => t.dueDate === '2026-09-09'));
   });
 
@@ -59,9 +73,30 @@ describe('任務規則', () => {
       date: '2026-09-10',
       slots: [{ courseId: 'recovery' }, { courseId: 'checkup' }],
     };
-    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' } };
+    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' }, rehab: { category: 'A' } };
     const kinds = tasksForVisit(visit, courses).map((t) => t.kind).sort();
-    assert.deepEqual(kinds, ['Abovee', 'Examine', '打電話'].sort());
+    assert.deepEqual(kinds, [], '復能與健檢確認後都沒有後續登記');
+
+    const withClinic = { ...visit, slots: [...visit.slots, { courseId: 'rehab' }] };
+    assert.deepEqual(
+      tasksForVisit(withClinic, courses).map((t) => t.kind).sort(),
+      ['Examine', '耀聖'],
+    );
+  });
+
+  test('一筆來訪動到了哪幾個系統的壓表登記', () => {
+    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' } };
+    const at = (slots) => bookingSystemsForVisit({ slots }, courses).sort();
+
+    assert.deepEqual(at([{ courseId: 'recovery' }]), ['Abovee']);
+    assert.deepEqual(at([{ courseId: 'checkup' }]), ['Examine']);
+    assert.deepEqual(at([{ courseId: 'recovery' }, { courseId: 'checkup' }]),
+      ['Abovee', 'Examine'], '同一天兩種，兩個系統上真的各有一筆');
+    // 認不得的課程**照樣算一個**。這裡不確定的只有「壓在哪個系統」，
+    // 而「有沒有壓過」是確定的 —— 那筆來訪存在就代表壓過了（ADR-0041）。
+    // 跳過等於在課程主檔被刪掉的那幾筆上，把那個時段永遠佔在 Abovee 上。
+    assert.deepEqual(at([{ courseId: 'ghost' }]), ['Abovee'],
+      '猜錯系統她看得懂，不猜等於一個時段永遠佔著而畫面上什麼都沒說');
   });
 
   test('找不到課程時略過，不會炸掉', () => {
@@ -100,6 +135,36 @@ describe('醫療禁忌（硬性阻擋）', () => {
   test('缺欄位時不當成有禁忌', () => {
     assert.ok(!isBlocked({}, {}));
     assert.ok(!isBlocked(undefined, undefined));
+  });
+
+  // 壓表卡片牆上那顆丸子（ADR-0046）。它是算出來的，不是打字打的 ——
+  // 器材主檔上的禁忌一改，這句話跟著改。
+  test('只剩一台就講「只能 ⋯⋯」', () => {
+    assert.deepEqual(
+      equipmentLimitLabel(體內金屬客戶, [laser, sis, indiba]),
+      { text: '只能 INDIBA', blockedCount: 2, leftCount: 1 },
+    );
+  });
+
+  test('還剩兩台以上就講「不能用 ⋯⋯」', () => {
+    const 孕婦 = { flags: ['孕婦'] };
+    const eq = [{ ...sis, contraindications: ['孕婦'] }, laser, indiba];
+    assert.equal(equipmentLimitLabel(孕婦, eq).text, '不能用 超磁場');
+  });
+
+  test('一台都不剩要講得出來 —— 那時候她壓不下去', () => {
+    const 全擋 = { flags: ['體內金屬'] };
+    const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
+    assert.deepEqual(equipmentLimitLabel(全擋, eq), { text: '3 台都不能用', blockedCount: 3, leftCount: 0 });
+  });
+
+  test('沒有東西被擋就回 null —— 不然它會變成每一張卡都有的裝飾', () => {
+    assert.equal(equipmentLimitLabel(一般客戶, [sis, laser, indiba]), null);
+  });
+
+  test('沒有擇一池就回 null，不要無中生有一句話', () => {
+    assert.equal(equipmentLimitLabel(體內金屬客戶, []), null);
+    assert.equal(equipmentLimitLabel(體內金屬客戶), null);
   });
 
   test('送出前驗證會指出是第幾個時段出問題', () => {

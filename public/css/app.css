@@ -518,6 +518,16 @@ textarea {
   background: var(--tea-soft);
 }
 
+/* 掛在徽章右邊的一句補述，例：「不用簽」。比徽章本身再淡一級 ——
+   它講的是這一段的例外，不是這一段是什麼。 */
+.badge__aside {
+  margin-left: 6px;
+  padding-left: 6px;
+  color: var(--text-mute);
+  font-weight: 500;
+  border-left: 1px solid var(--border);
+}
+
 /* 醫療禁忌永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
 .flag {
   display: inline-flex;
@@ -530,6 +540,32 @@ textarea {
   color: var(--danger);
   background: var(--overdue-bg);
   white-space: nowrap;
+}
+
+/* 會真的擋掉器材的那幾個（`contraindicationTerms()` 裡有的字）。
+   一般的 .flag 已經是紅字淡底，而一張卡上十個永久限制全紅等於全都不紅 ——
+   這一顆是實心的，掃過去一眼就分得出「這個人有東西被硬性擋住」。
+   選項從器材主檔的醫療禁忌推出來，不是打字打的。 */
+.flag--block {
+  color: var(--on-danger);
+  background: var(--danger);
+}
+
+/* 「只能 INDIBA」「不能用 超磁場」—— 算出來的那一句。
+   比上面那顆輕一級：被擋掉的那幾個字是事實，這一句是它的後果。
+   一台都不剩時改掛 .flag--block（那時候她壓不下去，要跟旗標一樣重）。 */
+.flag--left {
+  color: var(--danger);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+/* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */
+.blockchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
 }
 
 .stars {
@@ -855,6 +891,85 @@ textarea {
   font-weight: 600;
 }
 
+/* 流程分段。待辦中心的每一段就是「她真的在做的第幾步」，段落左邊那條線的
+   顏色就是**那一筆來訪當下在日曆上的顏色** —— 同一件事在兩個畫面同一個顏色。
+   一個新色相都不開（ADR-0039 已經記著色相不夠用了），見 ADR-0043。 */
+.flowgroup {
+  position: relative;
+  padding-left: 13px;
+  margin-bottom: var(--space-3);
+}
+
+/* 空的那一段整段收掉（含標題）。列是等資料回來才補進去的，
+   所以不能在產生 HTML 的時候決定 —— 那時候還不知道有沒有東西。 */
+.flowgroup:not(:has(.grouprow)) {
+  display: none;
+}
+
+.flowgroup::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--flow-tone);
+}
+
+.flowgroup--none { --flow-tone: var(--border); }
+.flowgroup--pending { --flow-tone: var(--visit-pending); }
+.flowgroup--confirmed { --flow-tone: var(--visit-confirmed); }
+.flowgroup--done { --flow-tone: var(--visit-done); }
+.flowgroup--no-show { --flow-tone: var(--visit-no-show); }
+
+/* 來訪當天：那一天正在從已確認變成已完成，所以線也是。 */
+.flowgroup--onday {
+  --flow-tone: linear-gradient(
+    to bottom, var(--visit-confirmed), var(--visit-done)
+  );
+}
+
+.flowgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.flowgroup__n {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--text-mute);
+}
+
+.flowgroup__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* 流程上最前面那個還有東西的段。**只有一顆**，多了就等於沒有。 */
+.flowgroup__next {
+  display: none;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+.flowgroup--next .flowgroup__next {
+  display: inline-block;
+}
+
+/* 已經取消的類別。列還在（那是她真的還沒做的事），但不該再吸引注意力。 */
+.grouprow--faded .grouprow__label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
 /* 分類清單。一列一個數字加一句話，點進去才是完整內容。 */
 .groups {
   background: var(--surface);
@@ -884,31 +999,6 @@ textarea {
 
 .grouprow:first-child {
   border-top: none;
-}
-
-.grouprow--lead {
-  background: var(--accent-soft);
-}
-
-.grouprow--lead .grouprow__label,
-.grouprow--lead .grouprow__n {
-  color: var(--accent);
-}
-
-.grouprow__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--tea);
-  flex-shrink: 0;
-}
-
-.grouprow__dot--danger {
-  background: var(--overdue);
-}
-
-.grouprow__dot--accent {
-  background: var(--accent);
 }
 
 .grouprow__main {
@@ -1109,9 +1199,9 @@ button.mark::after {
   inset: -5px;
 }
 
-/* 「不挑，跟著類別走」那一顆（個人行程的顏色，ADR-0040）。
+/* 「不挑，跟著類別走」那一顆（行事備註的顏色，ADR-0040）。
    空心圈而不是實心點 —— 它長成那一類本來的顏色，而那個顏色也在底下六顆裡面
-   （個人行程預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
+   （行事備註預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
    空心講的是「這不是一個顏色選擇」。 */
 .swatch--auto::before {
   background: transparent;
@@ -1607,7 +1697,7 @@ button.mark::after {
   text-decoration-thickness: 2px;
 }
 
-/* 你自己休假。跟日曆上的個人行程同一個霧藍（ADR-0015）——
+/* 你自己休假。跟日曆上的行事備註同一個霧藍（ADR-0015）——
    同樣排不進去，但那不是客戶的限制。 */
 .minical__cell--away {
   /* 跟日曆上的休假同一組顏色與同一條斜線紋 —— 講的就是同一件事（她不在）。
@@ -1865,7 +1955,7 @@ button.mark::after {
   color: var(--kind-bg);
 }
 
-/* 三種東西各自的顏色。個人行程紫、休假灰青加斜線紋。
+/* 三種東西各自的顏色。行事備註紫、休假灰青加斜線紋。
    顏色值在 tokens.css，那裡有為什麼不再借用語意色的完整理由（ADR-0039）。 */
 .kind-visit {
   --kind-fg: var(--accent);
@@ -1889,7 +1979,7 @@ button.mark::after {
  * 用紋路比用第六個色相準確得多，而且色弱的情況下照樣成立。
  *
  * 疊在 --kind-bg 上而不是取代它：底色要留著，字才有對比度可用。
- * 個人行程可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
+ * 行事備註可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
  * 那條紋路講的是「我不在」，不是一種配色。
  */
 .kind-leave,
@@ -1897,7 +1987,7 @@ button.mark::after {
   background-image: var(--stripe-leave);
 }
 
-/* 她自己替一筆個人行程挑的顏色（ADR-0040）。
+/* 她自己替一筆行事備註挑的顏色（ADR-0040）。
    **排在 .kind-* 後面**：挑過的顏色要蓋掉那一類的預設色。休假挑了顏色時
    兩個 class 都在，這裡蓋掉的是 --kind-fg / --kind-bg，
    .kind-leave 的 background-image（斜線紋）管的是別的屬性，蓋不到。 */
@@ -1908,8 +1998,51 @@ button.mark::after {
 .evcolor-blue { --kind-fg: var(--evcolor-blue); --kind-bg: var(--evcolor-blue-bg); }
 .evcolor-violet { --kind-fg: var(--evcolor-violet); --kind-bg: var(--evcolor-violet-bg); }
 
+/* 日曆上的待辦：有日期的隨手記（ADR-0044）。
+ *
+ * **它不搶一個色相**（ADR-0045）。它是第七種 —— 前面六種已經把色相用完了，
+ * 而色相輪上塞六個彼此分得開的顏色，最後兩個一定會擠在一起 —— 這是休假
+ * 改走斜線紋的同一個理由。待辦靠的是方框勾勾那個記號：它在 11px 的色條上
+ * 認得出來，而且它自己就說明了「這是一件可以勾掉的事」。
+ *
+ * 「勾掉了」也因此有畫法可用：刪除線。**勾掉的不消失** —— 她要看得出
+ * 「這件事處理掉了」，不是看不到它。
+ */
+.kind-todo {
+  --kind-fg: var(--cal-todo);
+  --kind-bg: var(--cal-todo-bg);
+}
+
+.kind-todo .monthbar__t::before,
+.kind-todo .allday__t::before {
+  content: '☐';
+  /* inline-block 是為了讓刪除線畫不到它上面 —— text-decoration 不會傳進
+     atomic inline 的盒子裡。勾勾框被劃掉的話，「勾了」跟「劃掉了」會糊成一團。 */
+  display: inline-block;
+  margin-right: 3px;
+  font-weight: 400;
+}
+
+.kind-todo--done .monthbar__t::before,
+.kind-todo--done .allday__t::before {
+  content: '☑';
+}
+
+.kind-todo--done .monthbar__t,
+.kind-todo--done .allday__t {
+  text-decoration: line-through;
+  opacity: 0.62;
+}
+
+/* 掛在待辦後面的客戶名字。比本文再淡一級 —— 它是誰的事，不是那件事。 */
+.allday__aside {
+  margin-left: auto;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
-   拿它當整個類別的顏色會跟正下方的圖例打架。個人行程與休假沒有這個問題，
+   拿它當整個類別的顏色會跟正下方的圖例打架。行事備註與休假沒有這個問題，
    它們的顏色就是它們自己。 */
 .kind-any {
   --kind-fg: var(--text-dim);
@@ -2264,7 +2397,7 @@ button.mark::after {
   border-radius: var(--radius);
 }
 
-/* 整天的個人行程釘在最上面，不進時間軸 */
+/* 整天的行事備註釘在最上面，不進時間軸 */
 .allday {
   display: flex;
   align-items: center;
@@ -2846,6 +2979,12 @@ button.mark::after {
   color: var(--text-dim);
 }
 
+.slotrow__form {
+  margin-left: 6px;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
 .slotrow--no {
   background: var(--overdue-bg);
   border-color: var(--overdue-bg);
@@ -3083,6 +3222,29 @@ button.mark::after {
 .choice--row {
   width: 100%;
   margin-bottom: var(--space-3);
+  /* 說明長的時候整條換行，讓標籤自己佔一行 —— 排成一列的話
+     「來訪時要選醫師」會被擠成一個字一行，而那是這一列上唯一要讀的東西。 */
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+/* 勾勾框與標籤永遠在同一行，說明才換到底下。 */
+.choice--row > input {
+  flex: 0 0 auto;
+}
+
+.choice--row > span:not(.field__hint) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.choice--row > .field__hint {
+  flex: 1 1 100%;
+  margin-top: 2px;
+  /* 對齊上面那個標籤，而不是對齊勾勾框 */
+  padding-left: calc(20px + var(--space-2));
 }
 
 .choice input {
@@ -3778,6 +3940,13 @@ summary {
   color: var(--surface);
 }
 
+/* 日曆上的待辦。跟色條同一組（--cal-todo），所以那三條路的圖示顏色
+   一眼對得上它們在格子裡的樣子。 */
+.fab__dot--todo {
+  background: var(--cal-todo);
+  color: var(--surface);
+}
+
 /* 「這一批共同的」那一塊的抬頭。填完之後收成一行摘要 ——
    她接下來只會打名字，那一塊在手機上佔掉大半頁。 */
 .sharedhead {
@@ -3839,4 +4008,49 @@ summary {
   flex: 0 0 auto;
   margin-top: 3px;
   color: var(--accent);
+}
+
+/* 隨手記那個選填的日期欄（components/note.js 的 field）。
+   兩顆丸子 ＋ 選過之後才出現的那一小塊 —— 預設是沒有日期，所以預設什麼都不佔。 */
+.notedate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+/* `display` 一定要打得贏 `[hidden]`，不然沒選日期時那顆叉叉照樣浮在那裡 ——
+   跟 `.fab__menu { display: flex }` 是同一個坑，而且一樣只有畫出來才看得到。 */
+.notedate__picked[hidden] {
+  display: none;
+}
+
+.notedate__picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.notedate input[type='date'] {
+  flex: 1 0 100%;
+}
+
+/* 掛在隨手記那一列前面的日期。過了今天而且還沒勾的用逾期色 —— 但它**不是死線**
+   （隨手記沒有死線，見 CONTEXT.md），所以只是提醒，沒有紅底。 */
+.note__date {
+  margin-right: 6px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
+}
+
+.note__date--past {
+  color: var(--overdue);
 }

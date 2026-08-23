@@ -64,6 +64,33 @@ export function daysBetween(from, to) {
 }
 
 /**
+ * 「9月」。'YYYY-MM' 與 'YYYY-MM-DD' 都吃得下。
+ *
+ * **她講的是「九月的表」，不是「2026-09 的表」**（ADR-0036 那一課）。
+ * 中間不留空白 —— 「壓 9 月的表」在一行標題裡會斷得很奇怪。
+ * 認不出來就原樣回傳，不要吐一個假的月份。
+ */
+export function monthLabel(iso) {
+  const m = Number(String(iso ?? '').slice(5, 7));
+  return m >= 1 && m <= 12 ? `${m}月` : String(iso ?? '');
+}
+
+/**
+ * Firestore 的 Timestamp 與 ISO 字串都吃得下，回 'YYYY-MM-DD'（裝置當地）。
+ *
+ * 兩種形狀是真的會混在一起：`createdAt` 是伺服器寫的 Timestamp，
+ * `followupAt`、`doneAt` 是前端按下去那一刻寫的 ISO 字串。
+ * **認不出來回 `null`，不要猜一個日期出來** —— 猜出來的日期會變成一個
+ * 看起來很正常的死線，而那比空白難發現得多。
+ */
+export function dayOf(ts) {
+  if (!ts) return null;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * 裝置當地的今天。
  *
  * 這是 domain 裡唯一一個不純的函式，因為「今天」本來就不純。

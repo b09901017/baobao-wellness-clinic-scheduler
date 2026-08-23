@@ -60,6 +60,47 @@ export function validateSlots(customer, slots, equipmentById) {
 }
 
 /**
+ * 這位客戶的擇一池還剩下什麼可以用，講成一句話。
+ *
+ * 壓表卡片牆上那顆紅丸子（SPEC 第 8.2 節）。**它是算出來的，不是打字打的** ——
+ * 器材主檔上的禁忌一改，這句話跟著改。
+ *
+ * 三種說法，而不是一種，因為那三種的後果完全不同：
+ *
+ * | 剩下 | 說法 | 她要做什麼 |
+ * |---|---|---|
+ * | 一台 | `只能 INDIBA` | 記錄時沒得選，照著填 |
+ * | 兩台以上但有被擋的 | `不能用 超磁場` | 記錄時要避開那一台 |
+ * | 一台都不剩 | `三台都不能用` | **壓不下去**，她要在點進去之前就知道 |
+ *
+ * 沒有任何一台被擋就回 `null` —— 卡片牆上那一顆丸子只在有東西被硬性擋住時
+ * 才出現，不然它會變成每一張卡都有的裝飾。
+ *
+ * @param {{flags?: string[]}} customer
+ * @param {{id:string, name:string, contraindications?: string[]}[]} equipmentOptions
+ *   這位客戶擇一池裡的那幾台。沒有擇一池就傳空陣列，回 null。
+ * @returns {{text: string, blockedCount: number, leftCount: number}|null}
+ *   兩個數字帶 `Count` 是刻意的 —— 呼叫端拿它們當「還剩幾台」用，
+ *   而 `blocked` / `left` 這種名字讀起來像器材的清單。
+ */
+export function equipmentLimitLabel(customer, equipmentOptions = []) {
+  const annotated = annotateOptions(customer, equipmentOptions);
+  if (!annotated.length) return null;
+
+  const blocked = annotated.filter((eq) => eq.blocked);
+  if (!blocked.length) return null;
+
+  const left = annotated.filter((eq) => !eq.blocked);
+  const text = (() => {
+    if (!left.length) return `${annotated.length} 台都不能用`;
+    if (left.length === 1) return `只能 ${left[0].name}`;
+    return `不能用 ${blocked.map((eq) => eq.name).join('、')}`;
+  })();
+
+  return { text, blockedCount: blocked.length, leftCount: left.length };
+}
+
+/**
  * 目前所有器材宣告的禁忌詞，去重，維持器材主檔上的順序。
  *
  * 這是「哪些字會真的擋下器材」的唯一來源 —— 客戶身上的永久限制要變成可以

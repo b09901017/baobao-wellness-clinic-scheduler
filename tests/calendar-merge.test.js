@@ -6,7 +6,7 @@
 // 少的那一段在 parseIcs()，它從頭到尾沒有讀過 DTEND。
 // 見 .scratch/first-real-import/issues/06。
 //
-// fixture 全部是編出來的：個人行程本來就不綁客戶，所以這裡連假名都不需要。
+// fixture 全部是編出來的：行事備註本來就不綁客戶，所以這裡連假名都不需要。
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

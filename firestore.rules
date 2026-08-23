@@ -214,7 +214,10 @@ service cloud.firestore {
       return d.text is string
         && d.text.size() > 0
         && d.text.size() <= 200
-        && d.done is bool;
+        && d.done is bool
+        // 選填的日期。掛了就會出現在日曆上（ADR-0044）。
+        // 這一層只擋型別，格式在前端擋（SPEC 第 6.7 節）。
+        && (!('date' in d) || d.date == null || d.date is string);
     }
 
     match /notes/{noteId} {

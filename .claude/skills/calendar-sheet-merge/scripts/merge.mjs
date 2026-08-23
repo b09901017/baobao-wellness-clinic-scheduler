@@ -744,7 +744,7 @@ export function reportText(r) {
   L.push('');
 
   L.push(`━━━ ⑥ 對不到客戶的 ${r.leftover.personal.length} 筆，全部列在這裡 ━━━`);
-  L.push('   個人行程、公司的事、待辦全部混在一起，而且顏色分不出來。');
+  L.push('   行事備註、公司的事、待辦全部混在一起，而且顏色分不出來。');
   L.push('   一律**預設不匯入**，由她一筆一筆決定 —— 猜錯會在日曆上長出她沒有的事。', '');
   let month = '';
   for (const e of [...r.leftover.personal].sort((a, b) => (a.date + a.summary).localeCompare(b.date + b.summary))) {

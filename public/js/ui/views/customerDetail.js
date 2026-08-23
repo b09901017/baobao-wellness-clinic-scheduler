@@ -23,7 +23,7 @@ import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
-import { sortNotes } from '../../domain/notes.js';
+import { sortNotes, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
 import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
@@ -40,6 +40,7 @@ import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
+import * as note from '../components/note.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
@@ -229,6 +230,8 @@ function wire(ctx, { today, marks }) {
   el.querySelectorAll('[data-note]').forEach((btn) =>
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
+
+  note.wire(el);
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -711,17 +714,16 @@ function notesBlock(notes) {
   const rows = sortNotes(notes);
   return `
     <div class="groups">
-      ${rows.map((n) => `
-        <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
-          <span class="note__box">${icon('check', { size: 12, width: 3.2 })}</span>
-          <span class="note__main"><span class="note__text">${esc(n.text)}</span></span>
-        </button>`).join('')
+      ${rows.map((n) => note.row(n, { customer: false, iconSize: 12 })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
-    <form data-newnote style="display: flex; gap: var(--space-2); margin-top: var(--space-2)">
-      <input type="text" name="text" maxlength="200" style="flex: 1; min-width: 0"
-             placeholder="他臨時提的小要求…" aria-label="新的隨手記" />
-      <button class="btn" type="submit">記</button>
+    <form data-newnote style="margin-top: var(--space-2)">
+      <div style="display: flex; gap: var(--space-2)">
+        <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
+               placeholder="他臨時提的小要求…" aria-label="新的隨手記" />
+        <button class="btn" type="submit">記</button>
+      </div>
+      ${note.field()}
     </form>`;
 }
 
@@ -747,6 +749,7 @@ async function addNote(ctx, form) {
         text,
         customerId: ctx.id,
         customerName: ctx.customer.name,
+        date: note.read(form),
       }),
       { success: '記下來了' },
     );

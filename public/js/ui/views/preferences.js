@@ -56,9 +56,15 @@ export async function render(el) {
           hint: '已壓表但客人還沒回，超過這個天數會在待辦中心變紅。',
         })}
         ${f.number({
-          name: 'followupDueDays', label: '健檢做完幾天內要約好二返',
+          name: 'reportDueDays', label: '健檢做完幾天內要問到報告',
+          value: s.reportDueDays ?? DEFAULT_SETTINGS.reportDueDays, min: 1, step: 1,
+          hint: '「追蹤健檢報告」那筆待辦的死線 = 健檢日 + 這個天數。報告通常兩三週出來。',
+        })}
+        ${f.number({
+          name: 'followupDueDays', label: '拿到報告幾天內要約好二返',
           value: s.followupDueDays ?? DEFAULT_SETTINGS.followupDueDays, min: 1, step: 1,
-          hint: '「約二返」那筆待辦的死線 = 健檢日 + 這個天數。逾期一樣會變紅。',
+          hint: '「約二返」那筆待辦的死線 = 勾掉「追蹤健檢報告」那一天 + 這個天數。'
+            + '從健檢日算的話，它一出生就是逾期紅字。',
         })}
 
         <div class="form__actions">
@@ -78,6 +84,7 @@ export async function render(el) {
     }
     if (!(v.slotGapMin >= 0)) errors.push('時段間隔必須是 0 或正數');
     if (!(v.noReplyDays >= 1)) errors.push('未回覆天數至少要 1 天');
+    if (!(v.reportDueDays >= 1)) errors.push('追蹤報告的天數至少要 1 天');
     if (!(v.followupDueDays >= 1)) errors.push('二返的天數至少要 1 天');
     f.showErrors(el, errors);
     if (errors.length) return;
@@ -86,6 +93,7 @@ export async function render(el) {
       sortWeights: Object.fromEntries(WEIGHTS.map((w) => [w.key, v[w.key]])),
       slotGapMin: v.slotGapMin,
       noReplyDays: v.noReplyDays,
+      reportDueDays: v.reportDueDays,
       followupDueDays: v.followupDueDays,
     };
     try {

@@ -83,6 +83,7 @@ const editors = {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
+      needsTreatmentForm: true,
       frequencyRule: null,
       followupCourseId: null,
     },
@@ -94,7 +95,8 @@ const editors = {
       f.select({
         name: 'category', label: '任務類別', value: r.category ?? null,
         options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
-        hint: '決定這個課程的來訪會自動產生哪些系統任務。',
+        hint: '決定兩件事：壓表登記在哪個系統，以及客人確認之後還要去哪幾個。'
+          + '「要不要簽療程單」不歸類別管，那是底下自己的一個勾。',
       }),
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
@@ -120,6 +122,11 @@ const editors = {
         value: !!r.requiresDoctor,
         hint: '二返預設開著。復健科醫師門診、心臟科評估也有醫師，想記就勾起來。'
           + '和上面的診間、治療師不衝突 —— 二返同時要診間和醫師。',
+      }),
+      f.toggle({
+        name: 'needsTreatmentForm', label: '來訪當天要請客人簽療程單',
+        value: r.needsTreatmentForm !== false,
+        hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。',
       }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
@@ -151,6 +158,7 @@ const editors = {
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,
+      needsTreatmentForm: !!v.needsTreatmentForm,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),

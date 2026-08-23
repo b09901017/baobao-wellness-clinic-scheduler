@@ -61,11 +61,11 @@ register('/visits/new/:customerId/:date', {
 });
 
 register('/events/new/:date', {
-  title: '新增個人行程', nav: false,
+  title: '新增行事備註', nav: false,
   render: (el, date) => eventEditor.renderNew(el, date),
 });
 register('/events/:id', {
-  title: '個人行程', nav: false,
+  title: '行事備註', nav: false,
   render: (el, id) => eventEditor.renderEdit(el, id),
 });
 register('/visits/:id', {

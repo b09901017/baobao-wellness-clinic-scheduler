@@ -21,19 +21,25 @@ import * as formInbox from './formInbox.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
-  visitsToClose, visitsToConfirm, closeVisit, describeStatus, NOTE_MAX,
+  visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
   sortNotes, openCount, groupByCustomer, MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
-import { customersToAsk } from '../../domain/scheduling.js';
+import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
+import { groupByStage, nextStage, isRetired, RETIRED_KINDS } from '../../domain/todoFlow.js';
+import { contraindicationTerms } from '../../domain/contraindications.js';
+import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
-import { todayISO, shortDate, daysBetween, addMonths } from '../../domain/dates.js';
+import {
+  todayISO, shortDate, daysBetween, addMonths, monthLabel,
+} from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
+import * as note from '../components/note.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -60,6 +66,9 @@ let sentCount = 0;
 // 「客戶填好的時間」那一列。null = 還沒載完，跟 askRows 同一個道理。
 let inboxRows = null;
 
+// 「壓表登記」那一列。null = 還沒載完，跟 askRows 同一個道理。
+let bookRows = null;
+
 // 「問這輪的時間」那一頁的分段切換：還沒發連結 / 已經發出。
 // 存在模組裡而不是網址裡 —— 它是看法，不是位置（同首頁的「總覽／依客戶」）。
 let askTab = 'todo';
@@ -73,6 +82,7 @@ export async function render(el) {
   askRows = null;
   sentCount = 0;
   inboxRows = null;
+  bookRows = null;
 
   const today = todayISO();
   let tasks;
@@ -99,6 +109,56 @@ export async function render(el) {
   paint(ctx);
   loadAsk(ctx);
   loadInbox(ctx);
+  loadBook(ctx);
+}
+
+/**
+ * 「壓表登記」那一列要的四份資料，算成一組 row。首頁那一列與 `#/todo/book`
+ * 兩邊共用 —— 兩份寫法遲早會有一份忘了帶 `includeDeleted`，而那一顆的後果
+ * 是整位客戶從清單上消失（見底下）。
+ *
+ * **課程主檔要含已刪除的。** `customersToBook()` 認不得課程時會把那一筆
+ * 來訪當成「沒動到任何系統」，於是她只要在主檔停用一個課程，用過那個課程的
+ * 客戶就會被算成「這個月還沒壓」而重複出現 —— 帶著已刪除的才問得到真話。
+ */
+async function loadBookRows(today) {
+  const month = today.slice(0, 7);
+  const range = monthRange(month);
+  const [customers, entitlementsBy, visits, courses] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    visitsData.listBetween(range.from, range.to),
+    config.listAll('courses', { includeDeleted: true }),
+  ]);
+
+  const visitsBy = {};
+  for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
+
+  return customersToBook({
+    customers,
+    entitlementsBy,
+    visitsBy,
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    targetMonth: month,
+  });
+}
+
+/**
+ * 「壓表登記」那一列。跟 loadAsk 同一個作法：頁面先畫完，這一列等資料回來。
+ *
+ * 它要多讀四份（客戶、額度、這個月的來訪、課程主檔），而這一頁她一天開十幾次。
+ */
+async function loadBook(ctx) {
+  try {
+    bookRows = await loadBookRows(ctx.today);
+  } catch {
+    // 同 loadAsk：讀不到就當這一列不存在。它是提醒，不是這一頁的主體。
+    bookRows = [];
+  }
+
+  const slot = ctx.el.querySelector('[data-book]');
+  if (slot) slot.innerHTML = bookGroupRow(ctx.today);
+  markNext(ctx.el);
 }
 
 /**
@@ -133,6 +193,7 @@ async function loadAsk(ctx) {
   // 不用補救：切回來會重畫，那時 askRows 已經有了。
   const slot = ctx.el.querySelector('[data-ask]');
   if (slot) slot.innerHTML = askGroupRow();
+  markNext(ctx.el);
 }
 
 /**
@@ -150,6 +211,7 @@ async function loadInbox(ctx) {
 
   const slot = ctx.el.querySelector('[data-inbox]');
   if (slot) slot.innerHTML = inboxGroupRow();
+  markNext(ctx.el);
 }
 
 function paint(ctx) {
@@ -185,7 +247,21 @@ function paint(ctx) {
 
   wireOverview(ctx);
   wireQuickCapture(ctx);
+  markNext(el);
   scanHealth(el);
+}
+
+/**
+ * 標出「下一步」：**流程上最前面那個還有東西的段**，不是數字最大的那一段 ——
+ * 她的問題是「接下來做什麼」，而流程的答案是從頭開始。
+ *
+ * 在 DOM 上算而不是在資料上算，因為有三列是等資料回來才補進去的
+ * （`loadAsk` / `loadInbox` / `loadBook`）。那三支填完會再叫一次這裡。
+ */
+function markNext(el) {
+  const groups = [...el.querySelectorAll('.flowgroup')];
+  for (const g of groups) g.classList.remove('flowgroup--next');
+  groups.find((g) => g.querySelector('.grouprow'))?.classList.add('flowgroup--next');
 }
 
 /** 一句話講完現在的狀況。數字很小的時候不要硬講成很急。 */
@@ -194,16 +270,51 @@ function headline(total, overdue, waiting, toClose = 0) {
   const parts = [];
   if (total) parts.push(`今天有 ${total} 件`);
   // 沒結案的排在最前面 —— 那是唯一會讓剩餘次數失準的一種（SPEC 第 4.2 節）
-  if (toClose) parts.push(`${toClose} 筆還沒結案`);
+  if (toClose) parts.push(`${toClose} 筆還沒簽單結案`);
   else if (overdue) parts.push(`其中 ${overdue} 件逾期了`);
   else if (waiting) parts.push(`${waiting} 位在等你確認`);
   return parts.join('，');
 }
 
+/**
+ * 總覽。**照流程的順序分段**，不是照樣板裡的出現順序（ADR-0043）。
+ *
+ * 三顆大數字不動：逾期／今天／明天是緊急度分流，跟流程是兩個軸，
+ * 合在一起會兩個都講不清楚。
+ *
+ * 每一段固定都畫出來，**空的那一段由 CSS 的 `:has()` 收掉** ——
+ * 有兩三列是等資料回來才補進去的（`data-ask` / `data-inbox` / `data-book`），
+ * 段落先在那裡，補進來才有位置放，而且不必為了它重畫整塊。
+ */
 function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
   const { tasks } = ctx;
   const cancels = tasks.filter((t) => isCancelKind(t.kind));
   const kinds = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))];
+
+  // 每一列先算出來，順序由 STAGES 決定，不是由這裡的寫法決定。
+  const rows = [
+    { id: 'ask', html: `<div data-ask>${askGroupRow()}</div>` },
+    { id: 'forms', html: `<div data-inbox>${inboxGroupRow()}</div>` },
+    { id: 'book', html: `<div data-book>${bookGroupRow(ctx.today)}</div>` },
+    { id: 'confirm', html: waiting.size ? groupRow({
+      href: '#/todo/confirm',
+      label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
+    }) : '' },
+    { id: 'close', html: toClose.length ? groupRow({
+      href: '#/todo/close',
+      label: '簽療程單', note: '來了、單簽了就打勾，次數這時才扣', n: toClose.length,
+    }) : '' },
+    ...kinds.map((k) => ({ id: k, html: groupRow({
+      href: `#/todo/${encodeURIComponent(k)}`,
+      label: k, note: isRetired(k) ? '這個類別已經取消了，這是舊資料' : kindNote(k),
+      n: tasks.filter((t) => t.kind === k).length,
+      faded: isRetired(k),
+    }) })),
+    { id: 'cancel', html: cancels.length ? groupRow({
+      href: '#/todo/cancel',
+      label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
+    }) : '' },
+  ];
 
   return `
     <div class="tiles">
@@ -212,26 +323,15 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
       ${tile('tomorrow', tomorrow.length, '明天', '')}
     </div>
 
-    <div class="groups">
-      ${toClose.length ? groupRow({
-        href: '#/todo/close', lead: true, dot: 'accent',
-        label: '客人來了嗎', note: '簽了療程單就打勾，次數這時才扣', n: toClose.length,
-      }) : ''}
-      ${groupRow({
-        href: '#/todo/confirm', lead: true, dot: 'accent',
-        label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
-      })}
-      <div data-inbox>${inboxGroupRow()}</div>
-      <div data-ask>${askGroupRow()}</div>
-      ${kinds.map((k) => groupRow({
-        href: `#/todo/${encodeURIComponent(k)}`, dot: '',
-        label: k, note: kindNote(k), n: tasks.filter((t) => t.kind === k).length,
-      })).join('')}
-      ${cancels.length ? groupRow({
-        href: '#/todo/cancel', dot: 'danger',
-        label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
-      }) : ''}
-    </div>`;
+    ${groupByStage(rows).map(({ stage, rows: mine }) => `
+      <section class="flowgroup flowgroup--${stage.tone}">
+        <h2 class="flowgroup__head">
+          <span class="flowgroup__n num">${stage.n}</span>
+          <span class="flowgroup__label">${esc(stage.label)}</span>
+          <span class="flowgroup__next">下一步</span>
+        </h2>
+        <div class="groups">${mine.map((r) => r.html).join('')}</div>
+      </section>`).join('')}`;
 }
 
 /**
@@ -251,7 +351,7 @@ function askGroupRow() {
     : (never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了');
 
   return groupRow({
-    href: '#/todo/ask', dot: '',
+    href: '#/todo/ask',
     label: '問這輪的時間',
     note,
     n: askRows.length,
@@ -270,10 +370,30 @@ function inboxGroupRow() {
   if (!inboxRows?.length) return '';
 
   return groupRow({
-    href: '#/todo/forms', lead: true, dot: 'accent',
+    href: '#/todo/forms',
     label: '客戶填好的時間',
     note: '客戶自己填的，看過就收下',
     n: inboxRows.length,
+  });
+}
+
+/**
+ * 她流程的**第三步**：這個月還有誰沒壓表。
+ *
+ * 數字是**人數**不是系統數 —— 她問的是「還有幾個人要處理」。同一位客戶
+ * 健檢與其他都還沒排時，兩區都會出現，但這裡只算一次。
+ */
+function bookGroupRow(today) {
+  if (!bookRows?.length) return '';
+  const examine = bookRows.filter((r) => r.systems.some((x) => x.system === 'Examine')).length;
+
+  return groupRow({
+    href: '#/todo/book',
+    label: '壓表登記',
+    note: examine
+      ? `${monthLabel(today)}還有 ${bookRows.length} 位沒排，其中 ${examine} 位是健檢`
+      : `${monthLabel(today)}還有 ${bookRows.length} 位沒排`,
+    n: bookRows.length,
   });
 }
 
@@ -282,9 +402,10 @@ const KIND_NOTES = {
   Abovee: '壓表登記',
   Examine: '預約作業 → 查核 → 已報到',
   耀聖: '右下角 → 未報到 → V',
-  // 健檢做完了、還沒回去跟客人約聽報告的時間（GitHub issue #15）。
-  // 死線不是來訪日前一天，是健檢日往後算 —— 間隔在設定頁調。
-  約二返: '健檢做完了，還沒約聽報告的時間',
+  // 健檢做完了 → 先追蹤報告（兩三週才出來）→ 拿到了才約二返。
+  // 兩張的死線都不是來訪日前一天，間隔在設定頁調，見 ADR-0042。
+  追蹤健檢報告: '健檢做完了，報告通常兩三週出來',
+  約二返: '報告拿到了，還沒約聽報告的時間',
 };
 const kindNote = (k) => KIND_NOTES[k] ?? '';
 
@@ -296,10 +417,14 @@ function tile(id, n, label, cls) {
     </button>`;
 }
 
-function groupRow({ href, label, note, n, dot = '', lead = false, danger = false }) {
+/**
+ * 一列。**小圓點與「重點列」的底色都拿掉了** —— 段落左邊那條線接手了顏色
+ * 這件事。一列一個點、一列一片綠底、一段一條線，三套視覺語言在講同一件事，
+ * 而看的人只會覺得吵（ADR-0043）。
+ */
+function groupRow({ href, label, note, n, danger = false, faded = false }) {
   return `
-    <a class="grouprow ${lead ? 'grouprow--lead' : ''}" href="${href}">
-      <span class="grouprow__dot ${dot ? `grouprow__dot--${dot}` : ''}"></span>
+    <a class="grouprow ${faded ? 'grouprow--faded' : ''}" href="${href}">
       <span class="grouprow__main">
         <span class="grouprow__label" ${danger ? 'style="color: var(--overdue)"' : ''}>${esc(label)}</span>
         ${note ? `<span class="grouprow__note">${esc(note)}</span>` : ''}
@@ -365,26 +490,18 @@ function notesCard(notes) {
       </div>
 
       <div class="groups">
-        ${rows.map(noteRow).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
+        ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
-      <form data-newnote style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
-        <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
-               placeholder="記一筆…" aria-label="新的隨手記" />
-        <button class="btn btn--primary" type="submit">記</button>
+      <form data-newnote style="margin-top: var(--space-3)">
+        <div style="display: flex; gap: var(--space-2)">
+          <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
+                 placeholder="記一筆…" aria-label="新的隨手記" />
+          <button class="btn btn--primary" type="submit">記</button>
+        </div>
+        ${note.field()}
       </form>
     </section>`;
-}
-
-function noteRow(n) {
-  return `
-    <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
-      <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
-      <span class="note__main">
-        <span class="note__text">${esc(n.text)}</span>
-        ${n.customerName ? `<span class="badge" style="margin-top: var(--space-1)">${esc(n.customerName)}</span>` : ''}
-      </span>
-    </button>`;
 }
 
 // ---------- 隨手記：右下角那顆泡泡 ----------
@@ -462,6 +579,8 @@ function quickBody() {
     </div>
     <div data-wholist hidden></div>
 
+    ${note.field()}
+
     <div data-just></div>`;
 }
 
@@ -470,6 +589,7 @@ function wireQuick(drawer, ctx, added) {
   // 沒必要為了那一次讓每次開面板都多一次往返。
   let customers = null;
   let picked = null;
+  const when = note.wire(drawer);
 
   const input = () => drawer.querySelector('[data-quicktext]');
   const label = () => drawer.querySelector('[data-wholabel]');
@@ -518,6 +638,7 @@ function wireQuick(drawer, ctx, added) {
           text,
           customerId: picked?.id ?? null,
           customerName: picked?.name ?? null,
+          date: note.read(drawer),
         }),
         { success: '記下來了' },
       );
@@ -535,7 +656,10 @@ function wireQuick(drawer, ctx, added) {
 
     // 清空、焦點留在輸入框 —— 她的下一句話通常就跟在後面。
     // **不重畫整個面板**：換掉節點就等於把鍵盤收起來再叫一次，那一下會閃。
+    // 日期一起清掉：三件事記在一起不代表都掛同一天，而她「忘了取消上一筆的日期」
+    // 的後果是日曆上多一條她沒打算放的東西。
     input().value = '';
+    when.set(null);
     input().focus();
   };
 
@@ -619,6 +743,8 @@ function wireOverview(ctx) {
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
 
+  note.wire(el);
+
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
     addNote(ctx, e.target);
@@ -642,7 +768,10 @@ async function addNote(ctx, form) {
   const text = form.elements.text.value.trim();
   if (!text) return;
   try {
-    await toast.withSaveState(() => notesData.create({ text }), { success: '記下來了' });
+    await toast.withSaveState(
+      () => notesData.create({ text, date: note.read(form) }),
+      { success: '記下來了' },
+    );
     await render(ctx.el);
   } catch {
     /* 已處理 */
@@ -653,7 +782,7 @@ async function addNote(ctx, form) {
 
 const GROUPS = {
   confirm: { title: '跟客人確認時間', lead: '壓好了、還沒問過本人。問完回來按打勾。' },
-  close: { title: '客人來了嗎', lead: '客人來了、療程單簽了就打勾。次數是這時候才扣的。' },
+  close: { title: '簽療程單', lead: '客人來了、療程單簽了就打勾。次數是這時候才扣的。' },
   overdue: { title: '逾期的', lead: '死線已經過去了。' },
   today: { title: '今天要做的', lead: '死線是今天。' },
   tomorrow: { title: '明天要做的', lead: '可以提早做。' },
@@ -661,6 +790,7 @@ const GROUPS = {
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
   ask: { title: '問這輪的時間', lead: '' },
   forms: { title: '客戶填好的時間', lead: '' },
+  book: { title: '壓表登記', lead: '' },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
@@ -681,6 +811,7 @@ export async function renderGroup(el, group) {
     return renderAsk(el);
   }
   if (group === 'forms') return formInbox.render(el);
+  if (group === 'book') return renderBook(el);
 
   const tasks = await tasksData.listOpen();
   const today = todayISO();
@@ -692,7 +823,15 @@ export async function renderGroup(el, group) {
     cancel: (t) => isCancelKind(t.kind),
   };
   const match = filters[group] ?? ((t) => t.kind === group);
-  const meta = GROUPS[group] ?? { title: group, lead: kindNote(group) };
+  const meta = GROUPS[group] ?? {
+    title: group,
+    // 已經拿掉的種類（ADR-0041）。列還在是因為那是她真的還沒做的事 ——
+    // 替她刪待辦比留著更糟（同 ADR-0027 的判斷）。但要講出來它不會再長了。
+    lead: isRetired(group)
+      ? '這個類別已經取消了 —— 底下是舊資料，不會再長出新的。勾掉就不會再出現。'
+      : kindNote(group),
+    retired: isRetired(group),
+  };
 
   paintTasks({ el, group, tasks: tasks.filter(match), today, meta });
 }
@@ -708,6 +847,10 @@ function paintTasks(ctx) {
     </div>
 
     ${tasks.length ? `
+      ${meta.retired ? `
+        <div class="form__actions" style="margin-bottom: var(--space-3)">
+          <button class="btn" type="button" data-pick-all>全部勾起來（${tasks.length} 筆）</button>
+        </div>` : ''}
       <div class="stack">${tasks.map((t) => taskRow(t, today)).join('')}</div>
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="button" data-mark disabled>
@@ -726,6 +869,17 @@ function paintTasks(ctx) {
   el.querySelectorAll('[data-visit]').forEach((btn) =>
     btn.addEventListener('click', () => go(`/visits/${btn.dataset.visit}`)),
   );
+
+  // 已經取消的類別才有這一顆。**它只是全部勾起來，不是直接標完成** ——
+  // 送出前還要再按一次「把勾起來的標成完成」，而那一批是同一個 commit，
+  // 所以復原退得回去（SPEC 第 6.3 節）。
+  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
+    el.querySelectorAll('[data-task]').forEach((box) => {
+      box.checked = true;
+      picked.add(box.dataset.task);
+    });
+    syncMarkButton(el);
+  });
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
@@ -1275,7 +1429,7 @@ async function applyConfirm(ctx) {
   }
 }
 
-// ---------- 客人來了嗎（收尾） ----------
+// ---------- 簽療程單（收尾） ----------
 //
 // 這一頁是 SPEC 第 4.2 節那句「次數在已完成才扣」的入口。
 // 在這之前它藏在來訪編輯器的狀態卡裡，走動時拿手機要點四層 ——
@@ -1286,32 +1440,73 @@ async function applyConfirm(ctx) {
 
 async function renderClose(el) {
   const today = todayISO();
-  const unclosed = await visitsData.listUnclosed(today);
-  paintClose({ el, rows: visitsToClose(unclosed, today), today });
+  // 課程主檔是為了「這一段要不要簽療程單」。二返不用簽，其餘都要 ——
+  // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
+  const [unclosed, courses] = await Promise.all([
+    visitsData.listUnclosed(today),
+    // 含已刪除的：她停用一個課程，那幾筆還沒結案的來訪照樣要問得出「要不要簽單」
+    config.listAll('courses', { includeDeleted: true }),
+  ]);
+  paintClose({
+    el,
+    rows: visitsToClose(unclosed, today),
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    today,
+  });
 }
 
 function paintClose(ctx) {
-  const { el, rows, today } = ctx;
+  const { el, rows, coursesById, today } = ctx;
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">客人來了嗎</h1>
+      <h1 class="page__title">簽療程單</h1>
       <p class="page__lead">${rows.length
         ? `有 ${rows.length} 筆還沒結案。客人來了、療程單簽了就打勾 —— 次數是這時候才扣的。`
         : '都結案了。'}</p>
     </div>
 
-    ${rows.length ? `<div class="stack">${rows.map((v) => closeCard(v, today)).join('')}</div>` : ''}
+    ${rows.length
+      ? `<div class="stack">${rows.map((v) => closeCard(v, coursesById, today)).join('')}</div>`
+      : ''}
 
     ${drawer ? closeDrawerHtml(ctx) : ''}`;
 
   wireClose(ctx);
 }
 
-function closeCard(visit, today) {
+/**
+ * 這一筆來訪裡，哪幾段要標「不用簽療程單」（目前只有二返）。
+ *
+ * **反過來標的理由**：一整天四段裡通常四段都要簽，四顆標記等於沒有標記；
+ * 真正要她看到的是「這一段是例外」。
+ *
+ * **整筆都不用簽時回空的** —— 那時候底下那一句已經講完了（「不用簽療程單 ——
+ * 來了就打勾」），逐段再標一次是同一件事講兩遍。卡片與收尾抽屜共用這一支，
+ * 兩邊各寫一次的話遲早有一邊忘了那個例外。
+ */
+function formMarks(visit, coursesById) {
+  const slots = visit.slots ?? [];
+  const need = new Set(formSlotIndexes(visit, coursesById));
+  const skip = slots.map((_, i) => i).filter((i) => !need.has(i));
+  return {
+    /** 要標「不用簽」的那幾段 */
+    mark: new Set(skip.length === slots.length ? [] : skip),
+    /** 整筆都不用簽 */
+    none: skip.length === slots.length,
+    /** 要簽的有幾段 */
+    count: slots.length - skip.length,
+  };
+}
+
+function closeCard(visit, coursesById, today) {
   const late = daysBetween(visit.date, today);
   const slots = visit.slots ?? [];
+  // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記
+  // 等於沒有標記；真正要她看到的是「這一段是例外」。整筆都不用簽時
+  // 底下那一句已經講完了，逐段就不再標一次。
+  const form = formMarks(visit, coursesById);
 
   return `
     <div class="card" style="margin: 0">
@@ -1329,9 +1524,14 @@ function closeCard(visit, today) {
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${slots.map((sl) => `<span class="badge num">${esc(timeLabel(sl))}　${
-          esc(sl.courseName ?? '')}</span>`).join('')}
+        ${slots.map((sl, i) => `<span class="badge num">${esc(timeLabel(sl))}　${
+          esc(sl.courseName ?? '')}${
+          form.mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
       </div>
+
+      <p class="card__note" style="margin-top: var(--space-2)">${form.none
+        ? '不用簽療程單 —— 來了就打勾'
+        : `請客人簽療程單（${form.count} 段）`}</p>
 
       ${visit.status === 'pending_confirm' ? `
         <p class="card__note" style="margin-top: var(--space-3)">
@@ -1353,6 +1553,7 @@ function closeDrawerHtml(ctx) {
 
   const slots = visit.slots ?? [];
   const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
+  const form = formMarks(visit, ctx.coursesById);
 
   return `
     <div class="drawer-backdrop" data-backdrop>
@@ -1371,7 +1572,8 @@ function closeDrawerHtml(ctx) {
               <button class="slotrow ${missed ? 'slotrow--no' : ''}" type="button" data-slot="${i}">
                 <span class="slotrow__main">
                   <span class="slotrow__when">${esc(timeLabel(sl))}</span>
-                  <span class="slotrow__what">${esc(sl.courseName ?? '')}</span>
+                  <span class="slotrow__what">${esc(sl.courseName ?? '')}${
+                    form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
                 </span>
                 <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
                   missed ? '沒做' : '做了'}</span>
@@ -1453,6 +1655,75 @@ async function applyClose(ctx) {
   }
 }
 
+// ---------- 壓表登記那一頁 ----------
+
+/**
+ * 這個月還有誰沒壓表，分兩區：健檢直接去 Examine、其餘去 Abovee（ADR-0041）。
+ *
+ * **這一頁不排序也不計分**（ADR-0028 的同一個理由）：「先壓誰」是壓表那一頁的事，
+ * 這裡只回答「還有誰」。所以底下一顆按鈕直接跳過去。
+ */
+async function renderBook(el) {
+  const today = todayISO();
+  const [rows, equipment] = await Promise.all([
+    loadBookRows(today),
+    config.listAll('equipment'),
+  ]);
+
+  // 哪幾個永久限制是會擋掉器材的。那幾個要紅、要跟著名字（SPEC 第 4.3 節）。
+  // 算一次就好 —— 二十幾張卡各算一次是白費的。
+  const terms = contraindicationTerms(equipment);
+
+  const section = (system, title, note) => {
+    const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
+    if (!mine.length) return '';
+    return `
+      <section class="card">
+        <h2 class="card__title">${esc(title)}<span class="muted"> ${mine.length}</span></h2>
+        <p class="card__note">${esc(note)}</p>
+        <div class="groups" style="margin-top: var(--space-3)">
+          ${mine.map((r) => bookRow(r, system, terms)).join('')}
+        </div>
+      </section>`;
+  };
+
+  el.innerHTML = `
+    ${backLink()}
+    <div class="page">
+      <h1 class="page__title">${esc(monthLabel(today))}壓表登記</h1>
+      <p class="page__lead">${rows.length
+        ? `還有 ${rows.length} 位沒排。壓好了回來按「這位壓完了」，他就會出現在「跟客人確認時間」。`
+        : '這個月每一位都排過了。'}</p>
+    </div>
+
+    <div class="stack">
+      ${section('Examine', '直接去 Examine', '健檢不佔 Abovee 的格子，直接在 Examine 上登記。')}
+      ${section('Abovee', '去 Abovee', '在 Abovee 上把時段佔住。壓完回 app 記錄。')}
+    </div>
+
+    ${rows.length ? `
+      <div class="form__actions" style="margin-top: var(--space-4)">
+        <a class="btn btn--primary" href="#/schedule">開始壓${esc(monthLabel(today))}的表</a>
+      </div>` : ''}`;
+}
+
+function bookRow(row, system, terms) {
+  const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
+
+  return `
+    <a class="grouprow" href="#/customers/${esc(row.customerId)}">
+      <span class="grouprow__main">
+        <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
+        ${flagsUi.blockChips({ flags: row.flags ?? [], terms })}
+        <span class="poolchips" style="margin-top: var(--space-1)">
+          ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
+            esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}
+        </span>
+      </span>
+      ${icon('right', { size: 18 })}
+    </a>`;
+}
+
 // ---------- 隨手記那一頁 ----------
 
 async function renderNotes(el) {
@@ -1485,7 +1756,12 @@ function paintNotes(ctx) {
           options: [{ value: '', label: '（沒掛客戶）' },
             ...customers.map((c) => ({ value: c.id, label: c.name }))],
         })}
-        <button class="btn btn--primary btn--wide" type="submit">記一筆</button>
+        <span class="field__label">哪一天　可以不填</span>
+        ${note.field()}
+        <p class="field__hint">掛了日期就會出現在日曆上。它不是死線 ——
+          隨手記沒有死線，過了也不會變紅。</p>
+        <button class="btn btn--primary btn--wide" type="submit"
+                style="margin-top: var(--space-3)">記一筆</button>
       </form>
     </section>
 
@@ -1493,7 +1769,7 @@ function paintNotes(ctx) {
       <section class="card">
         <h2 class="card__title">${esc(g.customerName)}
           <span class="muted"> ${g.notes.length}</span></h2>
-        <div class="groups">${g.notes.map(noteRow).join('')}</div>
+        <div class="groups">${g.notes.map((n) => note.row(n, { customer: false })).join('')}</div>
       </section>`).join('')
       || '<p class="muted">還沒記過。</p>'}`;
 
@@ -1512,6 +1788,8 @@ function paintNotes(ctx) {
     }),
   );
 
+  note.wire(el);
+
   el.querySelector('[data-newnote]')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = f.readForm(e.target);
@@ -1523,6 +1801,7 @@ function paintNotes(ctx) {
           text: v.text,
           customerId: customer?.id ?? null,
           customerName: customer?.name ?? null,
+          date: note.read(el),
         }),
         { success: '記下來了' },
       );

@@ -8,7 +8,10 @@ import {
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
-import { describeCategory, tasksForCategory, CATEGORY_OPTIONS } from '../public/js/domain/taskRules.js';
+import {
+  describeCategory, tasksForCategory, CATEGORY_OPTIONS, bookingSystemFor,
+} from '../public/js/domain/taskRules.js';
+import { needsForm } from '../public/js/domain/visits.js';
 
 describe('主檔驗證', () => {
   test('名稱空白一律擋下', () => {
@@ -314,11 +317,40 @@ describe('種子資料', () => {
     }
   });
 
-  test('C 類課程只產生 Abovee', () => {
+  test('C 類課程確認後沒有後續登記 —— 壓表就是 Abovee 那一件', () => {
     const cCourses = SEED.courses.filter((c) => c.category === 'C');
     assert.ok(cCourses.length >= 4);
     for (const c of cCourses) {
-      assert.deepEqual(tasksForCategory(c.category), ['Abovee'], `${c.name} 不該有打電話`);
+      assert.deepEqual(tasksForCategory(c.category), [], `${c.name} 不該有後續登記`);
+      assert.equal(bookingSystemFor(c.category), 'Abovee');
+    }
+  });
+
+  test('健檢壓在 Examine，其餘全部壓在 Abovee', () => {
+    for (const c of SEED.courses) {
+      assert.equal(
+        bookingSystemFor(c.category),
+        c.category === 'B' ? 'Examine' : 'Abovee',
+        c.name,
+      );
+    }
+  });
+
+  test('「要不要簽療程單」只能是是或否 —— 字串會被判成「要簽」', () => {
+    const base = SEED.courses.find((c) => c.id === 'course-recovery');
+    assert.deepEqual(validate('courses', { ...base, needsTreatmentForm: false }), []);
+    assert.deepEqual(validate('courses', { ...base, needsTreatmentForm: undefined }), []);
+    assert.ok(validate('courses', { ...base, needsTreatmentForm: 'false' }).length,
+      '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
+  });
+
+  test('除了二返，種子課程全部都要簽療程單', () => {
+    for (const c of SEED.courses) {
+      assert.equal(
+        needsForm(c),
+        c.id !== 'course-followup',
+        `${c.name} 的簽單設定不對`,
+      );
     }
   });
 
@@ -329,15 +361,17 @@ describe('種子資料', () => {
 });
 
 describe('類別說明', () => {
-  test('每個類別都說得出會產生哪些任務', () => {
-    assert.match(describeCategory('A'), /打電話.*Abovee.*Examine.*耀聖/);
-    assert.match(describeCategory('C'), /Abovee/);
+  test('每個類別都說得出壓表在哪、確認後還要做什麼', () => {
+    assert.match(describeCategory('A'), /Abovee 壓表.*Examine.*耀聖/);
+    assert.match(describeCategory('B'), /Examine 壓表/);
+    assert.match(describeCategory('C'), /Abovee 壓表.*沒有後續登記/);
     assert.ok(!describeCategory('C').includes('打電話'));
   });
 
-  test('不產生任務要明講，不是空白', () => {
-    assert.equal(describeCategory(null), '不產生任務');
-    assert.equal(describeCategory(undefined), '不產生任務');
+  test('沒有後續登記要明講，不是空白', () => {
+    for (const category of [null, undefined]) {
+      assert.match(describeCategory(category), /^不用掛號 — Abovee 壓表，確認後沒有後續登記$/);
+    }
   });
 
   test('四個選項涵蓋所有合法類別', () => {

@@ -46,10 +46,13 @@ import { blockedDates } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
 } from '../../domain/visits.js';
-import { annotateOptions } from '../../domain/contraindications.js';
+import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
+import * as flagsUi from '../components/flags.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
-import { todayISO, addMonths, addDays, shortDate, lastDayOf } from '../../domain/dates.js';
+import {
+  todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
+} from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
@@ -171,12 +174,7 @@ async function paintStart(el) {
   );
 }
 
-/** 'YYYY-MM' → '9月'。她講的是「九月的表」，不是「2026-09 的表」。 */
-function monthLabel(targetMonth) {
-  const m = Number(String(targetMonth ?? '').slice(5, 7));
-  return m ? `${m}月` : String(targetMonth ?? '');
-}
-
+/** 「還沒壓完的」那一段裡的一列。 */
 function openRow(b) {
   const p = progressOf(b);
   return `<li><button class="row-link" type="button" data-open-batch="${esc(b.id)}">
@@ -548,12 +546,13 @@ function deckHead(shown, selected) {
 const fullCardHtml = (row) =>
   `<div class="deck__card" data-card="${esc(row.customerId)}">${recordPanel(row)}</div>`;
 
+// 旁邊半露的那兩張：姓名與紅丸，跟卡片牆一致（ADR-0046）。
+// 剩餘次數拿掉了 —— 那一張只有一半露在外面，四顆泡泡在那個寬度只是色塊。
 const peekCardHtml = (row) => `
   <button class="deck__card deck__card--peek" type="button"
           data-card="${esc(row.customerId)}" data-goto="${esc(row.customerId)}">
     <span class="row__title" style="justify-content: center">${esc(row.customerName ?? '?')}</span>
-    <span class="poolchips" style="justify-content: center">
-      ${(row.pools ?? []).slice(0, 4).map(poolChip).join('')}</span>
+    <span style="display: flex; justify-content: center">${blockChips(row)}</span>
   </button>`;
 
 function closeDeck() {
@@ -674,11 +673,17 @@ function paintRecord() {
 // ---------- 客戶卡片 ----------
 
 /**
- * 卡片上最大的一塊是「不能的時間」 —— 那是她在公司系統上挑格子時
- * 唯一需要一直對照的東西（SPEC 第 8.2 節）。
+ * 卡片牆上一張卡只回答一個問題：**下一個處理誰。**
+ *
+ * 所以它只剩三樣東西：姓名、醫療禁忌、壓了沒。其餘七塊（不能的時間、
+ * 剩餘次數、這個月上個月、備註、排序理由、喜好星星）全部搬進記錄面板 ——
+ * 那幾塊是她**點進去之後**要一直對照的東西，在牆上只是把二十幾位客戶
+ * 拉成三次捲動。理由見 docs/adr/0046-the-wall-only-answers-who-is-next.md。
+ *
+ * **醫療禁忌反而變得更明顯**（SPEC 第 4.3 節：任何畫面都不可摺疊隱藏）——
+ * 一張卡上原本十個永久限制全是紅字淡底，等於全都不紅。
  */
 function custCard(row, isSelected) {
-  const strongest = strongestReason(row);
   const state = {
     done: '<span class="badge badge--ok">已壓好</span>',
     skipped: '<span class="badge">跳過</span>',
@@ -690,38 +695,40 @@ function custCard(row, isSelected) {
     <button class="card queue-row ${isSelected ? 'queue-row--on' : ''}"
             type="button" data-pick="${esc(row.customerId)}"
             style="display: block; text-align: left">
-      <span class="row" style="align-items: flex-start">
+      <span class="row" style="align-items: center">
         <span class="row__main">
-          <span class="row__title">
-            ${esc(row.customerName ?? '?')}
-            ${row.priority ? `<span class="stars">${'★'.repeat(row.priority)}</span>` : ''}
-            ${(row.flags ?? []).map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
-          </span>
-          ${strongest ? `<span class="muted dim">${esc(strongest.label)}</span>` : ''}
+          <span class="row__title">${esc(row.customerName ?? '?')}</span>
+          ${blockChips(row)}
         </span>
         ${state}
       </span>
-
-      ${banBlock(row)}
-
-      <span class="poolchips">
-        ${(row.pools ?? []).slice(0, 6).map(poolChip).join('')
-          || '<span class="muted">沒有剩餘次數了</span>'}
-      </span>
-
-      <span class="custcard__meta">
-        <span>這個月排 ${row.scheduledThisMonth} 次・上個月 ${row.visitsPrevMonth} 次${
-          row.daysSinceLast === null ? '・還沒上過課' : `・距上次 ${row.daysSinceLast} 天`}</span>
-      </span>
-
-      ${(row.marks ?? []).length
-        ? `<span class="marks" style="margin-top: var(--space-2)">
-            ${row.marks.slice(0, 3).map(markChip).join('')}
-            ${row.marks.length > 3
-              ? `<span class="mark mark--empty">還有 ${row.marks.length - 3} 則</span>` : ''}
-          </span>`
-        : ''}
     </button>`;
+}
+
+/**
+ * 會真的擋掉器材的那幾個永久限制，加上一句「所以還剩什麼」。
+ *
+ * 畫法在 `ui/components/flags.js`，跟待辦的「壓表登記」那一頁共用（ADR-0046）——
+ * 一邊紅一邊灰的話，那一顆的整個意義（掃過去一眼分得出誰被硬性擋住）就沒了。
+ * 這裡只負責把這位客戶的擇一池換算成器材物件。
+ */
+function blockChips(row) {
+  const equipment = ctx?.all?.equipment ?? [];
+  const pool = (row.pools ?? []).find((p) => p.type === 'pool');
+  const options = pool
+    ? (pool.optionEquipmentIds ?? []).map((id) => equipment.find((e) => e.id === id)).filter(Boolean)
+    : null;
+
+  return flagsUi.blockChips({ flags: row.flags ?? [], terms: blockingTerms(), options });
+}
+
+/**
+ * 會擋掉器材的那幾個字。**一批算一次**，不是一張卡算一次 ——
+ * 卡片牆一次畫二十幾張，而器材主檔在一批之內不會變。
+ */
+function blockingTerms() {
+  ctx.terms ??= contraindicationTerms(ctx?.all?.equipment ?? []);
+  return ctx.terms;
 }
 
 /**
@@ -811,6 +818,21 @@ function recordPanel(row) {
       <div class="poolchips">
         ${(row.pools ?? []).map(poolChip).join('') || '<span class="muted">沒有剩餘次數了</span>'}
       </div>
+
+      <div class="custcard__meta">
+        <span>這個月排 ${row.scheduledThisMonth} 次・上個月 ${row.visitsPrevMonth} 次${
+          row.daysSinceLast === null ? '・還沒上過課' : `・距上次 ${row.daysSinceLast} 天`}</span>
+      </div>
+
+      ${(row.marks ?? []).length
+        ? `<div class="marks" style="margin-top: var(--space-2)">
+            ${row.marks.map(markChip).join('')}</div>`
+        : ''}
+
+      ${strongestReason(row)
+        ? `<p class="muted dim" style="margin: var(--space-2) 0 0">排在這裡的理由：${
+            esc(strongestReason(row).label)}</p>`
+        : ''}
       ${blockedNote(row)}
     </section>
 
@@ -874,7 +896,7 @@ function halfBlocked(row, iso) {
  *
  * 三種都點不下去，但原因完全不同，而她只有在「為什麼這天不能點」上會停下來 ——
  * 一種顏色講三件事，等於每次都要把 title 叫出來看。顏色的分工跟全站一致：
- * 紅是擋住的，霧藍是她的個人行程（ADR-0015），淡的是已經不用管的。
+ * 紅是擋住的，霧藍是她的行事備註（ADR-0015），淡的是已經不用管的。
  *
  * **只擋半天的日子是第四種，而且它點得下去。** 那天真的排得進去，只是要挑另外
  * 半天（`availableDates()` 也是這樣算的），所以它不是 `--off` 的第四個成員，

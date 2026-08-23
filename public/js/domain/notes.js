@@ -3,8 +3,21 @@
 // 客人臨時提出的零碎小要求：指定某位治療師、下次記得帶健保卡、幫我問問看能不能約週六。
 // 這些沒有死線，也不是來訪產生的，所以它不是任務 —— 見 CONTEXT.md 兩者的分界。
 //
-// 刻意做得很薄：一行字、一個勾、選填掛在誰身上。它要能在三秒內記完，
-// 多一個必填欄位就會變成「算了我等一下再記」，然後就忘了。
+// 刻意做得很薄：一行字、一個勾、選填掛在誰身上、選填掛一個日期。
+// 它要能在三秒內記完，多一個**必填**欄位就會變成「算了我等一下再記」，
+// 然後就忘了 —— 所以後面那兩個永遠是選填的。
+//
+// ## 掛了日期就上日曆
+//
+// 有日期的那幾筆會出現在日曆上（`views/calendar.js` 的「待辦」那一類），
+// 勾掉了畫成刪除線。**日曆上那一類就是這個集合，不是另一份資料** ——
+// 「也必須要同步到隨手記那邊」最可靠的作法是根本沒有第二份。
+// 見 docs/adr/0044-a-dated-note-goes-on-the-calendar.md。
+//
+// 日期**不是死線**。任務要有死線且由來訪產生（CONTEXT.md），
+// 隨手記的日期是「我想在這一天處理」——過了也不會變紅字。
+
+import { isValidDate } from './dates.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -29,6 +42,11 @@ export function validateNote(note) {
   if (note?.customerId && !trimmed(note?.customerName)) {
     errors.push('掛了客戶卻沒有名字');
   }
+
+  // 日期是選填的，但填了就要是真的日期。**過去的日期不擋** ——
+  // 她會補記昨天那一件。
+  const date = trimmed(note?.date);
+  if (date && !isValidDate(date)) errors.push('日期看不懂');
 
   return { errors };
 }
@@ -83,6 +101,19 @@ export function groupByCustomer(notes) {
   });
 }
 
+/**
+ * 有日期、而且落在這段期間裡的。日曆用。
+ *
+ * **含已經勾掉的** —— 日曆上勾掉的要畫成刪除線，不是消失。
+ * 日期舊的在前，同一天照建立時間。
+ */
+export function datedIn(notes = [], from, to) {
+  return notes
+    .filter((n) => isLive(n) && n.date && n.date >= from && n.date <= to)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date))
+      || String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+}
+
 /** 某位客戶身上還沒處理掉的。客戶詳情頁用。 */
 export function openFor(notes, customerId) {
   return sortNotes(notes).filter((n) => n.customerId === customerId && !n.done);
@@ -105,6 +136,9 @@ export function normalize(note) {
     text: trimmed(note?.text),
     customerId,
     customerName: customerId ? trimmed(note?.customerName) : null,
+    // 沒有日期就是 null，不要留空字串 —— 日曆是用
+    // `where('date', '>=', ...)` 撈的，空字串會被撈進來而 null 不會。
+    date: trimmed(note?.date) || null,
     done: Boolean(note?.done),
   };
 }

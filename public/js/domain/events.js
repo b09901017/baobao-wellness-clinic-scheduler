@@ -1,9 +1,13 @@
-// 個人行程。SPEC 第 5.3 節、ADR-0015。純函式。
+// 行事備註與休假。SPEC 第 5.3 節、ADR-0015。純函式。
 //
 // 這是唯一可以跨天的資料。「來訪」的定義是「客戶某一天到院一次」（見 CONTEXT.md），
 // 跨天的來訪不存在，所以那兩件事刻意不共用同一個形狀 ——
 // 合成一個集合再用欄位區分，會讓「這筆要不要扣次數」變成到處都要判斷的分支，
 // 而漏判一次就是次數算錯。這裡的程式碼碰不到額度，也就不可能扣錯。
+//
+// **2026-08-23 改名：「個人行程」→「行事備註」。** 只改畫面上的字，
+// `category` 的 id（`personal` / `leave`）一個都沒動 —— Firestore 裡已經有的
+// 資料不必搬。日曆上那四類見 ADR-0045。
 
 import { addDays, daysBetween, isValidDate, shortDate } from './dates.js';
 import { isValidTime, toMinutes } from './visitTime.js';
@@ -11,10 +15,10 @@ import { MARK_COLORS } from './customerMarks.js';
 
 /**
  * 兩種，差別是實質的：休假那幾天她根本不在，任何來訪都排不進去；
- * 個人行程只是那個時段有事，其餘時間照樣排得了。
+ * 行事備註只是那個時段有事，其餘時間照樣排得了。
  */
 export const CATEGORIES = [
-  { id: 'personal', label: '個人行程', kind: 'kind-personal' },
+  { id: 'personal', label: '行事備註', kind: 'kind-personal' },
   { id: 'leave', label: '休假', kind: 'kind-leave' },
 ];
 
@@ -33,7 +37,7 @@ export function kindClass(id) {
 }
 
 /**
- * 她可以替一筆行程自己挑的顏色。
+ * 她可以替一筆行事備註自己挑的顏色。
  *
  * 「公出、宜蘭休假、高齡演講」對系統來說一律是「那個時段有事」——
  * 它們之間**沒有系統看得懂的差別**，但對她來說差很多，而那個差別只有她知道。
@@ -49,12 +53,12 @@ export const EVENT_COLOR_OPTIONS = MARK_COLORS.map(({ id, label }) => ({ id, lab
 export const EVENT_COLORS = EVENT_COLOR_OPTIONS.map((c) => c.id);
 
 /**
- * 這筆行程要用哪一組顏色的 class。
+ * 這筆行事備註要用哪一組顏色的 class。
  *
  * **沒挑或認不得就回空字串**，讓呼叫端落回 `kindClass()` 那一類本來的顏色。
  * 這跟 `describeCategory()` 對不認得的類別大聲講出來刻意不同：
  * 類別錯了是資料壞了、要看得見；顏色沒挑只是她還沒挑，畫成預設色才是對的。
- * 2026-08 以前建的行程身上都沒有這個欄位，那些不是壞資料。
+ * 2026-08 以前建的那幾筆身上都沒有這個欄位，那些不是壞資料。
  */
 export function colorClass(event) {
   const color = event?.color;
@@ -79,7 +83,7 @@ export function isLeave(event) {
   return event?.category === 'leave';
 }
 
-/** 這筆行程還算不算數。 */
+/** 這筆行事備註還算不算數。 */
 export function isLive(event) {
   return Boolean(event) && !event.deletedAt;
 }
@@ -89,7 +93,7 @@ export function isLive(event) {
 /**
  * 存檔前的檢查。
  *
- * 個人行程不綁客戶、不產生任務、不扣次數，所以這裡沒有任何「只提示」的警告 ——
+ * 行事備註不綁客戶、不產生任務、不扣次數，所以這裡沒有任何「只提示」的警告 ——
  * 錯的東西就是錯的，其餘都不關系統的事。
  *
  * @returns {{errors: string[]}}
@@ -99,7 +103,7 @@ export function validateEvent(event) {
   const e = event ?? {};
 
   if (!String(e.title ?? '').trim()) errors.push('要有名稱');
-  if (!BY_ID[e.category]) errors.push('要選一種：個人行程或休假');
+  if (!BY_ID[e.category]) errors.push('要選一種：行事備註或休假');
 
   // 顏色是選填的（沒挑就跟著類別走），但挑了就要是認得的那六個之一。
   // 顯示端對舊資料寬容（`colorClass()` 落回預設），這裡不寬容 ——
@@ -134,7 +138,7 @@ export function validateEvent(event) {
 
 // ---------- 範圍 ----------
 
-/** 這筆行程蓋到那一天沒有。跨天的中間每一天都算。 */
+/** 這筆行事備註蓋到那一天沒有。跨天的中間每一天都算。 */
 export function coversDate(event, date) {
   if (!isLive(event) || !isValidDate(date)) return false;
   if (!isValidDate(event.startDate) || !isValidDate(event.endDate)) return false;
@@ -152,7 +156,7 @@ export function inRange(events, from, to) {
   return (events ?? []).filter((e) => overlapsRange(e, from, to));
 }
 
-/** 一筆行程橫跨幾天。同一天是 1。 */
+/** 一筆行事備註橫跨幾天。同一天是 1。 */
 export function lengthInDays(event) {
   if (!isValidDate(event?.startDate) || !isValidDate(event?.endDate)) return 0;
   return daysBetween(event.startDate, event.endDate) + 1;
@@ -162,7 +166,7 @@ export function lengthInDays(event) {
  * 休假蓋掉的日子。
  *
  * 壓表的小日曆要把這些劃掉 —— 她人不在，那幾天排了也是白排。
- * 個人行程不算：那只是某個時段有事，其餘時間照樣排得了。
+ * 行事備註不算：那只是某個時段有事，其餘時間照樣排得了。
  *
  * @returns {Set<string>}
  */
@@ -180,11 +184,11 @@ export function blockedDates(events, from, to) {
 // ---------- 月檢視的排版 ----------
 
 /**
- * 把行程攤成每一週的色條。
+ * 把行事備註攤成每一週的色條。
  *
  * 月檢視上跨天的東西要畫成橫跨格子的一條，不是每天一個圓點 ——
- * 看不出從哪天到哪天的話，那條資訊等於沒給。一筆跨週的行程會在每一週
- * 各得到一段，所以回傳的是「每週各自的色條」而不是「每筆行程一條」。
+ * 看不出從哪天到哪天的話，那條資訊等於沒給。一筆跨週的行事備註會在每一週
+ * 各得到一段，所以回傳的是「每週各自的色條」而不是「每筆行事備註一條」。
  *
  * 同一週裡的色條要疊成好幾層（lane），層數有上限，放不下的用「+N」表示 ——
  * 格子撐爛比少講幾筆更糟。
@@ -235,7 +239,7 @@ function layoutWeek(events, week, maxLanes) {
       id: piece.event.id,
       title: piece.event.title,
       category: piece.event.category,
-      // 呼叫端可以自己指定顏色組。日曆的月檢視要把來訪與個人行程排在同一組
+      // 呼叫端可以自己指定顏色組。日曆的月檢視要把來訪與行事備註排在同一組
       // lane 裡（否則兩種東西會互相蓋住），所以它會餵進來訪並自己標 kind。
       kind: piece.event.kind ?? paintClass(piece.event),
       col: piece.startIdx + 1,
@@ -262,7 +266,7 @@ function firstFreeLane(lanes, piece) {
 // ---------- 日檢視 ----------
 
 /**
- * 某一天的行程，分成整天的與有時間的。
+ * 某一天的行事備註，分成整天的與有時間的。
  *
  * 整天的釘在畫面最上面，不進時間軸 —— 它沒有時間，硬塞進時間軸只能擺在某個
  * 假的位置上，那會讓人以為它只佔那一格。
@@ -295,7 +299,7 @@ export function dayEvents(events, date) {
  * 「什麼時候」那一句：跨天的給日期範圍、整天的就寫整天、其餘給起訖時間。
  *
  * 日曆的格子與資訊卡片講的是同一件事，所以只有這一份 —— 兩份的下場是
- * 同一筆行程在兩個地方寫得不一樣，而她會以為那是兩筆。
+ * 同一筆行事備註在兩個地方寫得不一樣，而她會以為那是兩筆。
  */
 export function spanLabel(event) {
   const e = event ?? {};

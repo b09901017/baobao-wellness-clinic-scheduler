@@ -1,4 +1,4 @@
-// 個人行程。ADR-0015：它是唯一可以跨天的資料，所以跨天的排版是這裡的重點。
+// 行事備註。ADR-0015：它是唯一可以跨天的資料，所以跨天的排版是這裡的重點。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -104,7 +104,7 @@ test('橫跨幾天', () => {
 
 // ---------- 休假擋日子 ----------
 
-test('休假蓋掉的日子會被列出來，個人行程不會', () => {
+test('休假蓋掉的日子會被列出來，行事備註不會', () => {
   const leave = ev({ id: 'l', category: 'leave', startDate: '2026-08-03', endDate: '2026-08-06' });
   const personal = ev({ id: 'p', category: 'personal', startDate: '2026-08-10', endDate: '2026-08-10' });
 
@@ -189,7 +189,7 @@ test('放不下的用 +N 表示，不把格子撐爛', () => {
   assert.equal(rows[1].more[0], 0);
 });
 
-test('呼叫端可以自己指定顏色組 —— 來訪要跟個人行程排在同一組 lane 裡', () => {
+test('呼叫端可以自己指定顏色組 —— 來訪要跟行事備註排在同一組 lane 裡', () => {
   const visitish = ev({ id: 'v', title: '王小姐 復能', category: 'visit', kind: 'kind-visit' });
   const rows = layoutMonth([visitish], WEEKS);
   assert.equal(rows[1].bars[0].kind, 'kind-visit');
@@ -271,11 +271,16 @@ test('每天幾筆，跨天的每一天都算一筆', () => {
 
 test('認不得的類別原樣顯示，不要吞掉', () => {
   assert.equal(describeCategory('leave'), '休假');
+  // 2026-08-23 從「個人行程」改名。**id 沒有跟著改** —— Firestore 裡已經有的
+  // 資料不必搬，所以這一條同時盯住兩件事：字改了、值沒改（ADR-0045）。
+  assert.equal(describeCategory('personal'), '行事備註');
   assert.match(describeCategory('nope'), /未知類別/);
   assert.equal(kindClass('nope'), 'kind-personal');
 });
 
 test('類別清單只有兩種，而且是實質的分別', () => {
+  // 2026-08-23 「個人行程」改名成「行事備註」，**id 沒有跟著改** ——
+  // Firestore 裡已經有的資料不必搬（ADR-0045）。這一條盯住那件事。
   assert.deepEqual(CATEGORIES.map((c) => c.id), ['personal', 'leave']);
 });
 
