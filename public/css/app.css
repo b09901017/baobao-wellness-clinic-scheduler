@@ -3222,6 +3222,29 @@ button.mark::after {
 .choice--row {
   width: 100%;
   margin-bottom: var(--space-3);
+  /* 說明長的時候整條換行，讓標籤自己佔一行 —— 排成一列的話
+     「來訪時要選醫師」會被擠成一個字一行，而那是這一列上唯一要讀的東西。 */
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+/* 勾勾框與標籤永遠在同一行，說明才換到底下。 */
+.choice--row > input {
+  flex: 0 0 auto;
+}
+
+.choice--row > span:not(.field__hint) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.choice--row > .field__hint {
+  flex: 1 1 100%;
+  margin-top: 2px;
+  /* 對齊上面那個標籤，而不是對齊勾勾框 */
+  padding-left: calc(20px + var(--space-2));
 }
 
 .choice input {

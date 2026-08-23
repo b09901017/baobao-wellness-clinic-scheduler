@@ -95,7 +95,8 @@ const editors = {
       f.select({
         name: 'category', label: '任務類別', value: r.category ?? null,
         options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
-        hint: '決定這個課程的來訪會自動產生哪些系統任務。',
+        hint: '決定兩件事：壓表登記在哪個系統，以及客人確認之後還要去哪幾個。'
+          + '「要不要簽療程單」不歸類別管，那是底下自己的一個勾。',
       }),
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
@@ -125,8 +126,7 @@ const editors = {
       f.toggle({
         name: 'needsTreatmentForm', label: '來訪當天要請客人簽療程單',
         value: r.needsTreatmentForm !== false,
-        hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。'
-          + '療程單是扣掉那一次的憑據，客人事後對次數有疑問時拿得出來的就是它。',
+        hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。',
       }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
