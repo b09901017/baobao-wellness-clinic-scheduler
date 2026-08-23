@@ -3808,3 +3808,35 @@ summary {
 [data-shared][open] .sharedhead__digest {
   display: none;
 }
+
+/* ---------- 隨手記的捕捉面板 ---------- */
+
+.quickwho {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.quickjust__head {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+/* 剛剛記的那幾筆。她一次常常記三件事，看得到記了什麼才知道沒有漏。 */
+.quickjust__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.quickjust__row svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--accent);
+}

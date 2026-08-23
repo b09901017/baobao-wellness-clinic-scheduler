@@ -1,6 +1,6 @@
 # 一次建立一群客戶
 
-Status: 待動工
+Status: done
 來源：使用者，2026-08-23
 動工前先讀：`SPEC.md` 第 8.5 節、`CONTEXT.md` 的「方案」「額度」、
 `docs/adr/0002`、`0003`、`0019`、`0022`
@@ -162,3 +162,24 @@ createWithPlan(customer, { plan, quantity, extras = [] })
   - 不套方案那一位身上只有復能
 
 ## Comments
+
+**2026-08-23 —— done。**
+
+`createWithPlan()` 的 `extras` 照計畫走同一個 commit，所以「方案 + 健檢」
+那條路買到的健檢會**連二返一起長出來**。`domain/bulkCustomers.js` 的
+`planEntitlementsFor()` 與 `extrasFor()` 刻意分開回傳，就是為了讓呼叫端不必
+去數方案有幾個項目才拆得開那兩半 —— 那是一條會在有人改 `expandPlan()` 的那天
+安靜壞掉的耦合（第一版真的是這樣寫的）。
+
+**在瀏覽器裡把真的 view 跑起來，抓到三個測試看不到的問題：**
+
+- `openSheet()` 是**同步**呼叫 `onMount` 的（在它回傳之前），所以
+  `const sheet = openSheet({ onMount: () => …sheet… })` 當場 TDZ 爆掉
+- `sheet.update()` 會再呼叫一次 `onMount`，而監聽掛的是不會被換掉的 `drawer`
+  —— 沒有旗標的話重畫一次就多一組監聽，按「加」會一次加兩筆
+- `.fab__menu { display: flex }` 蓋掉瀏覽器對 `[hidden]` 的 `display: none`，
+  收起來的選單其實一直開著
+
+還有一個順手修的：`display: flex` 的 `summary` 會把 `::marker` 整個吃掉，
+所以那個展開三角形從來沒出現過 —— 一個沒有任何記號的 summary 看起來就是
+一行灰字。`.ban__more`（壓表卡片上的「他原本是怎麼說的」）有同一個問題，一起修。
