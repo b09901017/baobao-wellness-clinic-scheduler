@@ -3592,10 +3592,22 @@ summary {
 
 /* ---------- 稽核紀錄與資料健檢 ---------- */
 
-/* 差異是拿來掃的：每一列自己一塊，欄位變動縮排在下面。
+/* 一列是一句話，細節收在 details 裡。差異表是拿來掃的：她先掃過去、停在可疑的
+   那一列，才想看細節 —— 每一列都攤開路徑與欄位表的話，那一停就要捲三頁。
    不用 table —— 手機上表格不是橫向捲就是擠成一團，兩種都不能看。 */
+.audit__day {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2) 0 var(--space-1);
+  background: var(--bg);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--text-mute);
+}
+
 .audit__row {
-  padding: var(--space-2) 0;
+  padding: 0;
   border-top: 1px solid var(--border-soft);
 }
 
@@ -3605,14 +3617,43 @@ summary {
 
 .audit__head {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-2);
+  padding: var(--space-2) 0;
   font-size: var(--text-sm);
+  cursor: pointer;
+  list-style: none;
+}
+
+.audit__head::-webkit-details-marker {
+  display: none;
+}
+
+/* 時間欄固定寬又對齊數字：同一天的十幾列時間對成一直排，才掃得出「那一分鐘
+   前後發生了什麼」—— 出事時要看的正是那個。 */
+.audit__time {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
 }
 
 .audit__what {
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.audit__detail {
+  padding: 0 0 var(--space-3) var(--space-5);
+}
+
+/* 文件路徑是查 Firestore 時才要的東西，不是給人讀的。留著，但收到最底下、
+   縮到最小 —— 拿掉的話出事時就少了唯一能貼進 Console 的東西。 */
+.audit__path {
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-mute);
+  overflow-wrap: anywhere;
 }
 
 .audit__fields {

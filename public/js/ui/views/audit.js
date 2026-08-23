@@ -9,7 +9,9 @@
 // 要把某一筆改回去請走復原或直接編輯那筆資料，那樣才會再留一則稽核。
 
 import * as auditData from '../../data/audit.js';
-import { describeAction, describeTarget, changedFields, formatValue } from '../../domain/audit.js';
+import {
+  describeAction, changedFields, formatField, describeEvent, groupByDay, opOf,
+} from '../../domain/audit.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 
@@ -86,37 +88,75 @@ export function wireSection(el, load) {
 
 /** 一組稽核列。整頁、客戶詳情底下的「變更紀錄」面板都用它，不要各畫一份。 */
 export function listHtml(events) {
-  return `<div class="audit">${events.map(rowHtml).join('')}</div>`;
+  const days = groupByDay(events, dayOf);
+  return days.map((d) => `
+    <div class="audit__day">${esc(dayLabel(d.day))}</div>
+    <div class="audit">${d.events.map(rowHtml).join('')}</div>`).join('');
 }
 
+/**
+ * 一列 = 一句話 + 時間。**細節收在 `<details>` 裡。**
+ *
+ * 她打開這一頁是在問「我剛剛做了什麼」或「這筆怎麼變成這樣的」，
+ * 兩個問題都是先掃過去、停在可疑的那一列，才想看細節。
+ * 每一列都攤開路徑與欄位表的話，那一停就要捲三頁。
+ */
 function rowHtml(event) {
   const fields = changedFields(event);
+  const line = describeEvent(event);
 
   return `
-    <div class="audit__row">
-      <div class="audit__head">
-        <span class="audit__what">${esc(describeAction(event.action))}</span>
-        <span class="muted">${esc(formatWhen(event.at))}</span>
+    <details class="audit__row">
+      <summary class="audit__head">
+        <span class="audit__time">${esc(formatTime(event.at))}</span>
+        <span class="audit__what">${esc(line ?? describeAction(event.action))}</span>
+      </summary>
+      <div class="audit__detail">
+        ${line ? `<div class="muted">${esc(describeAction(event.action))}</div>` : ''}
+        ${event.note ? `<div class="muted">${esc(event.note)}</div>` : ''}
+        ${fields.length
+    ? `<ul class="audit__fields">${fields.map((f) => fieldHtml(f, opOf(event))).join('')}</ul>`
+    : '<p class="muted">沒有欄位變動。</p>'}
+        <div class="audit__path">${esc(event.targetPath ?? '')}</div>
       </div>
-      <div class="muted">${esc(describeTarget(event.targetPath))}・${esc(event.targetPath ?? '')}</div>
-      ${event.note ? `<div class="muted">${esc(event.note)}</div>` : ''}
-      ${fields.length
-        ? `<ul class="audit__fields">${fields.map(fieldHtml).join('')}</ul>`
-        : '<p class="muted">沒有欄位變動。</p>'}
-    </div>`;
+    </details>`;
 }
 
-function fieldHtml(field) {
+/**
+ * 新增的那幾則**不畫箭頭**：新增之前本來就沒有值，一整排「（空的） →」
+ * 是這一頁最沒有資訊量的東西，而它剛好佔掉每一列最左邊最顯眼的位置。
+ */
+function fieldHtml(field, op) {
+  const to = `<b>${esc(formatField(field.key, field.after))}</b>`;
   return `
     <li>
       <span class="audit__field">${esc(field.label)}</span>
-      <span class="muted">${esc(formatValue(field.before))} → </span>
-      <b>${esc(formatValue(field.after))}</b>
+      ${op === 'create' ? to : `<span class="muted">${esc(formatField(field.key, field.before))} → </span>${to}`}
     </li>`;
 }
 
 /** Firestore Timestamp 或字串都可能。時間本身就是稽核的價值，不能顯示成「未知」就算了。 */
-function formatWhen(at) {
+function formatTime(at) {
   const ms = auditData.millisOf(at);
-  return ms ? new Date(ms).toLocaleString('zh-TW') : '（沒有時間）';
+  if (!ms) return '？？:？？';
+  return new Date(ms).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/** 'YYYY-MM-DD'，讀不出時間的收成同一組。 */
+function dayOf(event) {
+  const ms = auditData.millisOf(event.at);
+  return ms ? isoDay(new Date(ms)) : '';
+}
+
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** 今天、昨天，再遠就寫日期 —— 她想的是「那是今天還是昨天的事」。 */
+function dayLabel(day) {
+  if (!day) return '（沒有時間）';
+  const today = isoDay(new Date());
+  const yesterday = isoDay(new Date(Date.now() - 86400000));
+  if (day === today) return '今天';
+  if (day === yesterday) return '昨天';
+  const [, m, d] = day.split('-');
+  return `${Number(m)} 月 ${Number(d)} 日`;
 }

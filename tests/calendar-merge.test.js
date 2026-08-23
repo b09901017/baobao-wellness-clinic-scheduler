@@ -241,3 +241,26 @@ describe('classifyEvent() 分出休假、待辦、行事備註', () => {
     assert.ok(out.eventCandidates.every((c) => c.why));
   });
 });
+
+test('休假一律是整天 —— 行事曆的時間欄會歪，而休假本來就不需要時間', () => {
+  const { events } = parseIcs(ics(
+    // 時間欄歪掉的那種：標題沒寫時間，DTSTART 卻是深夜
+    vevent('UID:1', 'DTSTART:20260905T230000', 'SUMMARY:休'),
+    // 標題開頭是日期不是時間，認時間那一支會把 6／17 讀成 18:00
+    vevent('UID:2', 'DTSTART:20260624T180000', 'SUMMARY:6／17開會補休'),
+    // 對照組：行事備註照樣留著時間
+    vevent('UID:3', 'DTSTART:20260907T140000', 'SUMMARY:2.顧客會'),
+  ));
+  const out = importJson({
+    plans: [], events, unreadable: [], span: ['2026-06-24', '2026-09-07'],
+    leftover: { calendarOnly: [], future: [], personal: events }, ambiguous: [], renames: {},
+  });
+  const [leave, comp, personal] = out.eventCandidates;
+
+  assert.equal(leave.allDay, true);
+  assert.equal(leave.startTime, null);
+  assert.equal(comp.allDay, true, '補休也是休假，一樣整天');
+  assert.equal(comp.startTime, null);
+  assert.equal(personal.allDay, false, '行事備註不受影響');
+  assert.equal(personal.startTime, '14:00');
+});

@@ -709,6 +709,14 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     })),
     eventCandidates: r.leftover.personal.map((e) => {
       const { kind, why } = classifyEvent(e.summary);
+      // **休假一律是整天。** 休假講的是「那幾天她根本不在」（`CONTEXT.md`），
+      // 一筆 23:00 開始的休假沒有意義 —— 而 23:00 正是行事曆時間欄歪掉的樣子
+      // （317 筆裡 27 筆落在凌晨，見 references/findings.md）。
+      //
+      // 判準刻意不是「標題有沒有寫時間」：`6／17開會補休` 的 `6／17` 是日期，
+      // 但認時間的那一支會把它讀成 18:00。與其修那支正則（它同時餵著來訪配對），
+      // 不如認清休假本來就不需要時間 —— 少一條會過期的規則。
+      const wholeDay = e.allDay || kind === 'leave';
       return {
         title: e.summary,
         // endDate 是真的結束日，不是 startDate 抄一份 —— 跨天的事件靠它才進得去
@@ -716,8 +724,8 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
         // 整天事件不給時間（`timeOf()` 不猜標題）。endTime 一律 null：
         // 行事曆的時間欄會歪（量到過 3:45 存成 18:00），startTime 是從標題認的，
         // 兩邊拿不同來源湊一組起訖，會湊出結束比開始早的時段。
-        allDay: e.allDay,
-        startTime: timeOf(e), endTime: null,
+        allDay: wholeDay,
+        startTime: wholeDay ? null : timeOf(e), endTime: null,
         // 日曆上的哪一類（ADR-0045）。`note` 走 notes 集合，另外兩個走 events。
         // `category` 是給舊版 app 讀的：它只認得 'leave' 與 'personal'，
         // 沒有待辦這一類，所以待辦在那裡退回行事備註 —— 少一個分類，
