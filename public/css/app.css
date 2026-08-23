@@ -1595,9 +1595,12 @@ button.mark::after {
 /* 你自己休假。跟日曆上的個人行程同一個霧藍（ADR-0015）——
    同樣排不進去，但那不是客戶的限制。 */
 .minical__cell--away {
-  background: var(--slate-soft);
-  border-color: var(--slate-soft);
-  color: var(--slate);
+  /* 跟日曆上的休假同一組顏色與同一條斜線紋 —— 講的就是同一件事（她不在）。
+     顏色與紋路都住在 tokens.css，這裡不再抄一份色碼（ADR-0039）。 */
+  background-color: var(--event-leave-bg);
+  background-image: var(--stripe-leave);
+  border-color: var(--event-leave-bg);
+  color: var(--event-leave);
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }
@@ -1723,8 +1726,9 @@ button.mark::after {
 }
 
 .minical__swatch--away {
-  background: var(--slate-soft);
-  border-color: var(--slate);
+  background-color: var(--event-leave-bg);
+  background-image: var(--stripe-leave);
+  border-color: var(--event-leave);
 }
 
 /* ---------- 日曆 ---------- */
@@ -1846,20 +1850,36 @@ button.mark::after {
   color: var(--kind-bg);
 }
 
-/* 三種東西各自的顏色。來訪墨綠、個人行程茶、休假霧藍。 */
+/* 三種東西各自的顏色。個人行程紫、休假灰青加斜線紋。
+   顏色值在 tokens.css，那裡有為什麼不再借用語意色的完整理由（ADR-0039）。 */
 .kind-visit {
   --kind-fg: var(--accent);
   --kind-bg: var(--accent-soft);
 }
 
 .kind-personal {
-  --kind-fg: var(--tea);
-  --kind-bg: var(--tea-soft);
+  --kind-fg: var(--event-personal);
+  --kind-bg: var(--event-personal-bg);
 }
 
 .kind-leave {
-  --kind-fg: var(--slate);
-  --kind-bg: var(--slate-soft);
+  --kind-fg: var(--event-leave);
+  --kind-bg: var(--event-leave-bg);
+}
+
+/* 休假是唯一有紋路的一種。
+ *
+ * 色相輪上塞六個彼此分得開的顏色，最後兩個一定會擠在一起；而休假講的本來
+ * 就不是「這裡有一件事」，是「這幾天我不在」—— 那不是同一類東西，
+ * 用紋路比用第六個色相準確得多，而且色弱的情況下照樣成立。
+ *
+ * 疊在 --kind-bg 上而不是取代它：底色要留著，字才有對比度可用。
+ * 個人行程可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
+ * 那條紋路講的是「我不在」，不是一種配色。
+ */
+.kind-leave,
+.calfilter__item.kind-leave[aria-pressed='true'] {
+  background-image: var(--stripe-leave);
 }
 
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
@@ -2062,15 +2082,30 @@ button.mark::after {
   font-weight: 700;
 }
 
+/* 色條上的字**放得下就置中，放不下就靠左從右邊切**。
+ *
+ * 這裡本來是 `display: block` + `text-align: left` + `text-overflow: ellipsis`，
+ * 而且註解特別警告過不要改成 flex（省略號對 flex 容器裡的裸文字無效）。
+ * 那個警告的前提已經沒有了 —— **省略號拿掉了**：在 11px 的字、一格七分之一
+ * 螢幕寬的地方，那顆 `…` 吃掉的寬度接近兩個中文字，換來的資訊是「還有字」，
+ * 而色條被切掉這件事她一天看幾百次，本來就知道。
+ *
+ * 純粹的 `text-align: center` 是錯的：文字比格子寬的時候，置中會讓**開頭的姓
+ * 也被切掉**，而姓正是她在掃的那個字。`justify-content: safe center` 就是為了
+ * 這件事存在的關鍵字 —— 溢出時自動退回靠左。
+ *
+ * 文字包一層 span，不要當裸文字丟進 flex 容器。
+ */
 .monthbar {
-  /* 刻意用 block 不用 flex：text-overflow 的省略號對 flex 容器裡的裸文字無效，
-     名字會被從中間切一半 —— 那看起來像畫面壞了，不像「還有字」。 */
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
   min-height: 15px;
   line-height: 15px;
   /* grid 項目預設 min-width:auto，長名字會把色條撐出格子外蓋到隔壁天。 */
   min-width: 0;
-  padding: 0 4px;
+  /* 左右各讓 3px 而不是 4px —— 省下來的寬度拿去放字。 */
+  padding: 0 3px;
   /* 疊在那一天的按鈕上面，但不吃點擊 —— 點名字跳去別的畫面是最容易誤觸的
      一種設計，那一格從頭到尾只做一件事：打開那一天（ADR-0020）。 */
   position: relative;
@@ -2078,16 +2113,23 @@ button.mark::after {
   pointer-events: none;
   border: none;
   font: inherit;
-  text-align: left;
   border-radius: 4px;
-  background: var(--kind-bg);
+  /* background-color 而不是 background —— 簡寫會把 .kind-leave 疊上去的
+     斜線紋（background-image）一起重設掉。 */
+  background-color: var(--kind-bg);
   color: var(--kind-fg);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.monthbar__t {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
+  /* 切掉就切掉。省略號的位置留給字。 */
+  text-overflow: clip;
 }
 
 .monthmore {
@@ -2209,7 +2251,8 @@ button.mark::after {
   text-align: left;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--kind-bg);
+  /* 同 .monthbar：簡寫會洗掉休假的斜線紋。 */
+  background-color: var(--kind-bg);
   color: var(--kind-fg);
   font-size: var(--text-xs);
   font-weight: 600;

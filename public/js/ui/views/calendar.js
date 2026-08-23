@@ -250,7 +250,7 @@ function monthHtml(data, date, today) {
           ${rows[wi].bars.map((b) => `
             <span class="monthbar ${b.kind}"
                   style="grid-column: ${b.col} / span ${b.span}; grid-row: ${b.lane + 2}"
-                  title="${esc(b.title)}">${esc(b.title)}</span>`).join('')}
+                  title="${esc(b.title)}"><span class="monthbar__t">${esc(b.title)}</span></span>`).join('')}
           ${rows[wi].more.map((n, di) => (n
             ? `<span class="monthmore" style="grid-column: ${di + 1}; grid-row: 5">+${n}</span>`
             : '')).join('')}
@@ -266,9 +266,14 @@ function monthHtml(data, date, today) {
  */
 function visitAsBar(visit) {
   const courses = [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))];
+  const name = visit.customerName ?? '?';
+  const course = courses[0] ?? '';
   return {
     id: visit.id,
-    title: `${visit.customerName ?? '?'} ${courses[0] ?? ''}`.trim(),
+    // 姓名與課程之間用**半形**間隔號。一格是七分之一個螢幕寬，
+    // 手機上放得下四個多字 —— 全形的空白或「・」等於整整少看到一個字，
+    // 而被切掉時那一顆懸在邊緣的全形符號比半形的顯眼得多。
+    title: course ? `${name}·${course}` : name,
     category: 'visit',
     kind: statusClass(visit.status) || 'kind-visit',
     startDate: visit.date,

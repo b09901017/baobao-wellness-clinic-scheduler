@@ -79,10 +79,6 @@
   --tea: #a4703c;
   --tea-soft: #f5e9dc;
 
-  /* 霧藍：個人行程裡的休假那一類 */
-  --slate: #5b7a8c;
-  --slate-soft: #e6edf1;
-
   /* 狀態色。逾期紅、今明黃、其餘灰 —— SPEC 8.1 */
   --overdue: #a63a2a;
   --overdue-bg: #f7e4e0;
@@ -92,24 +88,55 @@
   --ok-bg: #e4ede8;
   --danger: #a63a2a;
 
-  /* 備註的顏色小丸。六個就夠了 —— 再多她自己也分不清哪個是哪個。
-     每一個都在淺色與深色下都看得出來，不是隨手挑的色票。 */
-  /* 來訪狀態。暖 → 冷 → 綠：待確認琥珀、已確認霧藍、已完成墨綠。
-     未到用紅的（不急，但要看得見），取消是灰的。
-     刻意做成別名指到既有的語意色 —— 深色模式那邊已經幫它們換過一輪，
-     這裡再抄一份就會有一份忘了改。哪一個狀態配哪個 class 在
-     domain/visits.js 的 STATUS_VIEW，這裡只管顏色。 */
-  --visit-pending: var(--soon);
-  --visit-pending-bg: var(--soon-bg);
-  --visit-confirmed: var(--slate);
-  --visit-confirmed-bg: var(--slate-soft);
-  --visit-done: var(--accent);
-  --visit-done-bg: var(--accent-soft);
-  --visit-no-show: var(--overdue);
-  --visit-no-show-bg: var(--overdue-bg);
+  /* ---------- 日曆上要一眼分辨的六種東西 ----------
+   *
+   * 待確認、已確認、已完成、未到、個人行程、休假 —— **六種**。
+   *
+   * 這一組本來是別名，指到既有的語意色（逾期紅、今明黃、墨綠、霧藍）。
+   * 那個省法在狀態少的時候是對的，代價是**狀態色不能有自己的想法**：
+   * 它只能長成某個既有語意色的樣子，而既有語意色一共就那幾個。
+   * 六種東西要分辨的時候就付不起了 —— `--visit-confirmed` 與休假的
+   * `--slate` 曾經是同一個 #5b7a8c，一條霧藍的色條可能是「客人確認要來」
+   * 也可能是「這天我不在」，兩件事的意思相反而畫面上一模一樣。
+   *
+   * 所以現在各有各的值，深色那一份要跟著改（別名省掉的就是這份工，
+   * 這是換來六個分得開的顏色所付的代價）。字對底一律 ≥ 4.5:1 ——
+   * 色條上是 11px 的中文，這個門檻不是形式。
+   *
+   * 休假刻意**不搶一個鮮豔的色相**，走中性灰青加斜線紋（app.css 的
+   * .kind-leave）：色相輪上塞六個彼此分得開的顏色，最後兩個一定會擠在一起，
+   * 而休假講的本來就不是「這裡有一件事」，是「這幾天我不在」。
+   *
+   * 哪一個狀態配哪個 class 在 domain/visits.js 的 STATUS_VIEW，這裡只管顏色。
+   * 見 docs/adr/0039。
+   */
+  --visit-pending: #995400;
+  --visit-pending-bg: #fbeacd;
+  --visit-confirmed: #1c5fa8;
+  --visit-confirmed-bg: #dde9f8;
+  --visit-done: #17714b;
+  --visit-done-bg: #d5efe2;
+  --visit-no-show: #c0271a;
+  --visit-no-show-bg: #fbdedb;
   --visit-cancelled: var(--text-mute);
   --visit-cancelled-bg: var(--surface-2);
 
+  /* 個人行程與休假。跟上面四個同一組，所以放在一起 ——
+     分開放的話下一次調色會有一半忘了跟。 */
+  --event-personal: #6b3fa0;
+  --event-personal-bg: #eae0f8;
+  --event-leave: #4f6b7d;
+  --event-leave-bg: #e4ebf0;
+
+  /* 休假身上那條斜線紋。整條圖案收成一個 token，因為它出現在兩個地方
+     （色條與頂端的篩選丸），而斜線的角度與粗細在兩邊不一樣就不像同一件事。 */
+  --stripe-leave: repeating-linear-gradient(
+    -45deg, transparent 0 5px, rgb(79 107 125 / 20%) 5px 10px
+  );
+
+  /* 備註的顏色小丸。六個就夠了 —— 再多她自己也分不清哪個是哪個。
+     每一個都在淺色與深色下都看得出來，不是隨手挑的色票。
+     個人行程挑顏色用的是同一組（ADR-0040）—— 色票只能有一份。 */
   --mark-grey: #7c7268;
   --mark-green: #3f7a5f;
   --mark-tea: #b0763b;
@@ -145,9 +172,6 @@
     --tea: #d8a46a;
     --tea-soft: #35291b;
 
-    --slate: #8fb0c2;
-    --slate-soft: #1f2b33;
-
     --overdue: #e8877a;
     --overdue-bg: #3a211c;
     --soon: #dfb55e;
@@ -155,6 +179,25 @@
     --ok: #7fbba3;
     --ok-bg: #1e3229;
     --danger: #e8877a;
+
+    /* 六種東西的深色版。別名拿掉之後這一份就得自己寫 —— 見淺色那一段的理由。
+       深色底下字對底一律 ≥ 6:1。 */
+    --visit-pending: #e8a94a;
+    --visit-pending-bg: #3a2c14;
+    --visit-confirmed: #7fb3e8;
+    --visit-confirmed-bg: #16283a;
+    --visit-done: #6fc79a;
+    --visit-done-bg: #123024;
+    --visit-no-show: #f08a7c;
+    --visit-no-show-bg: #3a1e1a;
+
+    --event-personal: #b899ec;
+    --event-personal-bg: #251c3a;
+    --event-leave: #9db4c4;
+    --event-leave-bg: #1e2a33;
+    --stripe-leave: repeating-linear-gradient(
+      -45deg, transparent 0 5px, rgb(157 180 196 / 22%) 5px 10px
+    );
 
     --mark-grey: #a89d90;
     --mark-green: #7fbba3;
