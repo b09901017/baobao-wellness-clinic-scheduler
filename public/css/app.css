@@ -649,9 +649,15 @@ textarea {
   color: var(--overdue);
 }
 
+/* 她還是挑了那半天的時間。選中的樣子要先讀得出「我挑了這個」，
+   所以照樣是填滿的實心丸 —— 只是填的是紅的，不是墨綠的。
+   （不可以只覆蓋 background：`.chip[aria-pressed='true']` 把字改成白的了，
+   白字配淡粉底是看不見的。） */
 .chip--halfoff[aria-pressed='true'] {
-  background: var(--overdue-bg);
+  background: var(--overdue);
+  border-color: var(--overdue);
   border-style: solid;
+  color: var(--accent-text);
   font-weight: 700;
 }
 
@@ -1633,36 +1639,39 @@ button.mark::after {
 }
 
 .minical__cell--half-am {
-  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface) 52%);
+  background: linear-gradient(to bottom, var(--overdue-bg) 50%, var(--surface) 50%);
+  /* 數字往下擠進還可以排的那半邊。**格子裡數字站的位置就是他還有空的那半天** ——
+     這是這一格上最省事的一個線索，不必先讀那兩個字就看得出來。 */
+  padding-top: 11px;
 }
 
 .minical__cell--half-pm {
-  background: linear-gradient(to bottom, var(--surface) 48%, var(--overdue-bg) 48%);
+  background: linear-gradient(to bottom, var(--surface) 50%, var(--overdue-bg) 50%);
+  padding-bottom: 11px;
 }
 
-/* 被擋的那半邊上的那條線。用 ::before 疊上去而不是 text-decoration ——
-   text-decoration 只劃得到文字，而要劃掉的是「那半格」。 */
-.minical__cell--half::before {
-  content: '';
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 2px;
-  background: var(--overdue);
-  opacity: 0.75;
-}
+/* 「上午」/「下午」兩個字。三件事一起做到：
+   1. **不可以只靠顏色** —— 她是在窗邊反光的地方看這一格（同 --ban 那段的理由）
+   2. **那兩個字要待在它講的那半邊**，不然「上午」印在下半格等於在講反話
+   3. **劃掉的是那兩個字，不是數字** —— --ban 劃的是數字，意思是「整天不行」，
+      兩者長一樣她就分不出半天與整天
 
-.minical__cell--half-am::before { top: calc(26% - 1px); }
-.minical__cell--half-pm::before { top: calc(74% - 1px); }
-
-/* 「上午」/「下午」兩個字。**不可以只靠顏色** —— 她是在窗邊反光的地方看這一格
-   （同 --ban 那段的理由），而半天與整天的差別比顏色深淺更需要講出來。 */
+   絕對定位而不是排進 flex：flex 會把數字、字、點三個當成一組置中，
+   那個字就會落在中線附近，剛好是最看不出它屬於哪半邊的位置。 */
 .minical__half {
+  position: absolute;
+  left: 0;
+  right: 0;
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
   color: var(--overdue);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
 }
+
+.minical__cell--half-am .minical__half { top: 4px; }
+.minical__cell--half-pm .minical__half { bottom: 4px; }
 
 .minical__dot {
   width: 4px;
