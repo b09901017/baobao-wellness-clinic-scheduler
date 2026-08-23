@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  parseIcs, timeOf, importJson, reportText,
+  parseIcs, timeOf, importJson, reportText, classifyEvent,
 } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
 
 const ics = (...events) => ['BEGIN:VCALENDAR', ...events, 'END:VCALENDAR'].join('\r\n');
@@ -171,5 +171,73 @@ describe('合併檔帶得出跨天與整天', () => {
     const text = reportText(base({ events, leftover: { calendarOnly: [], future: [], personal: events } }));
     assert.ok(text.includes('到 2026-08-14'), '要看得到它跨到哪一天');
     assert.ok(text.includes('共 5 天'));
+  });
+});
+
+describe('classifyEvent() 分出休假、待辦、行事備註', () => {
+  const kindOf = (title) => classifyEvent(title).kind;
+
+  test('她自己的假是休假，不管假別怎麼寫', () => {
+    for (const title of ['休', '請假', '請生理假', '請公假', '特休', '排休', '😀請假']) {
+      assert.equal(kindOf(title), 'leave', title);
+    }
+  });
+
+  // 使用者點名的那一條。判錯的代價不對稱：那幾天會整片變成排不進去的休假，
+  // 而她其實在上班。所以寫了別人名字的一律退回行事備註。
+  test('別人的假不是她的假', () => {
+    for (const title of ['陳小美休假', '林小華請假', '12.陳小美請假']) {
+      assert.equal(kindOf(title), 'personal', title);
+    }
+    assert.match(classifyEvent('陳小美休假').why, /陳小美/);
+  });
+
+  // residualNames() 會扣掉治療師名單（配對來訪時那是雜訊），這裡不能共用它 ——
+  // 治療師正是那個「誰」。
+  test('治療師請假也不是她的假', () => {
+    assert.equal(kindOf('王小婷休假'), 'personal');
+  });
+
+  test('假別黏著動詞的那幾種不會被讀成人名', () => {
+    // `請生理假` 扣掉假別剩一個 `請`、`開會補休` 剩 `開會`，
+    // 兩個都曾經被當成別人的名字。
+    assert.equal(kindOf('請生理假'), 'leave');
+    assert.equal(kindOf('6／17開會補休'), 'leave');
+  });
+
+  test('沒寫時間又是做完可以勾掉的事就是待辦', () => {
+    for (const title of ['H2U電話', '記復能行事曆', '蒐集客人復能時間', '取消王小明', '壓表']) {
+      assert.equal(kindOf(title), 'note', title);
+    }
+  });
+
+  // 隨手記存得下日期、存不下時間（domain/notes.js）。她特地把時間打進標題，
+  // 就表示那個時間有意義，改成待辦會把它弄丟。
+  test('標題裡寫了時間就不是待辦', () => {
+    assert.equal(kindOf('3.王小明聯絡'), 'personal');
+    assert.match(classifyEvent('3.王小明聯絡').why, /時間/);
+  });
+
+  test('那天會發生的事不是待辦', () => {
+    for (const title of ['公出', '顧客會', '高齡博覽會', 'AI課']) {
+      assert.equal(kindOf(title), 'personal', title);
+    }
+  });
+
+  test('importJson() 把分類帶進合併檔，並且鏡射成舊版讀得懂的 category', () => {
+    const { events } = parseIcs(ics(
+      vevent('UID:1', 'DTSTART:20260905T090000', 'SUMMARY:休'),
+      vevent('UID:2', 'DTSTART:20260906T090000', 'SUMMARY:H2U電話'),
+      vevent('UID:3', 'DTSTART:20260907T090000', 'SUMMARY:顧客會'),
+    ));
+    const out = importJson({
+      plans: [], events, unreadable: [], span: ['2026-09-05', '2026-09-07'],
+      leftover: { calendarOnly: [], future: [], personal: events }, ambiguous: [], renames: {},
+    });
+    assert.deepEqual(out.eventCandidates.map((c) => c.kind), ['leave', 'note', 'personal']);
+    // 舊版 app 只認得 leave 與 personal，待辦在那裡退回行事備註 ——
+    // 少一個分類，不是多一筆讀不懂的資料。
+    assert.deepEqual(out.eventCandidates.map((c) => c.category), ['leave', 'personal', 'personal']);
+    assert.ok(out.eventCandidates.every((c) => c.why));
   });
 });

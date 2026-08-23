@@ -150,6 +150,118 @@ export function roomOf(summary) {
   return il ? `點滴${il[1]}` : null;
 }
 
+// ---------- 這一筆是哪一類 ----------
+//
+// 日曆上有四類（ADR-0045），行事曆匯出的檔案裡分不出來：TimeTree 只給標題、
+// 時間與顏色，而**顏色分不出來**（references/shorthand.md：實測 9 種顏色每一種
+// 底下都混著來訪與雜事）。配得到客戶的那些走來訪，剩下的這裡再分三類。
+//
+// 分完還是要她確認 —— app 那一頁每一列都可以改（`ui/views/mergeImport.js`）。
+// 這裡的工作是讓她不用把兩百列一列一列重挑，不是替她決定。
+
+/**
+ * 休假詞。長的排前面，`休` 一定要在最後，否則 `休假` 只會被吃掉一個字。
+ *
+ * 兩份是同一個來源，一份拿來問「有沒有」、一份拿來扣掉。**不要合成一個帶 `g` 的**：
+ * 帶 `g` 的正則在 `test()` 之間會記住 `lastIndex`，同一個字串問兩次會得到不同答案。
+ */
+const LEAVE_SOURCE = '休假|請假|特休|補休|年假|調休|排休|公假|事假|病假|生理假|補假|休';
+const LEAVE_WORDS = new RegExp(LEAVE_SOURCE);
+const LEAVE_WORDS_ALL = new RegExp(LEAVE_SOURCE, 'g');
+
+/**
+ * 是中文字，但一定不是人名。
+ *
+ * 只為了一件事存在：`6／17開會補休` 扣掉 `補休` 之後剩下 `開會`，
+ * 而「還剩中文字」的判準會把它當成別人的名字，於是她自己的補休變成行事備註。
+ * 名單保持短 —— 每一個都要真的在她的行事曆上出現過。
+ */
+const NOT_A_NAME = [
+  '開會', '上班', '下班', '加班', '補班', '值班', '公司', '門診', '早上', '下午', '晚上', '整天', '全天',
+  // 假別前後黏著的動詞。`請生理假` 扣掉 `生理假` 之後剩一個 `請`，
+  // 而一個中文字看起來就跟只寫一個字的名字一模一樣 —— 她自己的假會變成別人的。
+  '請', '放', '補', '休', '假',
+];
+
+/**
+ * 待辦動詞。這幾個字出現在標題裡，那一筆就是一件「做完可以勾掉的事」。
+ *
+ * 名單是從她真的寫過的字來的（`H2U電話`、`記復能行事曆`、`蒐集客人復能時間`、
+ * `王小明聯絡`、`林小美通知`、`取消陳小華`、`處理王小明＆林小美`、`交收據`、`寄資料夏醫師`），
+ * 不是想像出來的。看到新的寫法就加進來。
+ *
+ * `生日`、`退伍` 這種**不在名單上**是刻意的：那是「那天會發生的事」，不是待辦。
+ * 給它一個勾掉的框，等於問她要不要把別人的生日勾掉。
+ */
+const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|記錄|紀錄|記|蒐集|收集|繳|買|取消|查|準備|報名|填|送|還|催|領|退費|盤點|壓表|看|Examine|耀聖/i;
+
+/**
+ * 這句話裡除了認得出來的東西以外，還剩下的中文字 —— 拿來判斷「寫的是別人」。
+ *
+ * 跟 `residualNames()` 有一個關鍵差別：**這裡不扣治療師的名字**。
+ * 那一支是在配對來訪，治療師名字是預期中的雜訊；這裡在問「這是誰的假」，
+ * 而治療師正是那個「誰」。`王小婷休假` 扣掉治療師名單就變成她自己的休假，
+ * 那幾天會整片變成排不進去的灰青斜線 —— 而她其實在上班。
+ */
+function residualPeople(summary) {
+  let s = normVariant(summary).replace(LEAVE_WORDS_ALL, ' ');
+  for (const [re] of TOKENS) s = s.replace(new RegExp(re.source, `g${re.flags.replace('g', '')}`), ' ');
+  s = s.replace(/治\s*\d+|點滴\s*\d+|床\s*[A-Za-z]/g, ' ').replace(/[^\u4e00-\u9fff]/g, '');
+  for (const w of NOT_A_NAME) s = s.split(w).join('');
+  return s.trim();
+}
+
+/**
+ * 這句標題**開頭**是不是一個時間。
+ *
+ * `timeInSummary()` 會把前面的非數字全部丟掉再找數字，所以 `H2U電話` 裡的 `2`
+ * 會被讀成 2 點，而那是一件她要打的電話，不是下午兩點的事。分類要問的是
+ * 「她有沒有在最前面寫時間」—— 那才是她的寫法（`references/shorthand.md`）。
+ *
+ * 開頭的表情符號與標點先拿掉：`😀2.30學HRV` 的時間照樣算數，
+ * `😀ExamineX光` 則停在 `E`，不會因為後面有個 `X` 就被當成有時間。
+ */
+function leadsWithTime(summary) {
+  const head = String(summary ?? '').replace(/^[^\d一-鿿A-Za-z]+/u, '');
+  return /^\d/.test(head) && Boolean(timeInSummary(summary));
+}
+
+/** 日曆上那三類的名字。用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞。 */
+export const KIND_LABEL = { leave: '休假', note: '待辦', personal: '行事備註' };
+
+/**
+ * 對不到客戶的那一筆事件，在日曆上該是哪一類。
+ *
+ * 三條規則，由上到下：
+ *
+ * 1. **寫了休假詞，而且沒有寫到別人** → 休假。她那幾天不在，任何來訪都排不進去
+ *    （`CONTEXT.md`）。`陳小美休假`、`林小華請假` 寫的是同事，那對她只是一則行事備註 ——
+ *    判錯這一條的代價是整片日子被擋掉，所以寧可退回行事備註。
+ * 2. **標題最前面沒有寫時間，而且有待辦動詞** → 待辦（有日期的隨手記，ADR-0044）。
+ *    **有寫時間就不是待辦**：隨手記存得下日期、存不下時間（`domain/notes.js`），
+ *    而她特地把 `3.` 打進標題就表示那個時間有意義，改成待辦會把它弄丟。
+ *    這個判準比顏色可靠，見 `references/shorthand.md`。
+ * 3. 其餘 → 行事備註。`公出`、`顧客會`、`高齡博覽會`、`<家人>生日` 都落在這裡。
+ *    `公出` 刻意不算休假：`CONTEXT.md` 把它列在行事備註的例子裡，而且那是
+ *    「人在別的地方辦公事」不是「今天休息」。她不同意的話在 app 上點一下就改得掉。
+ *
+ * @returns {{kind: 'leave'|'note'|'personal', why: string}}
+ *   `why` 是給報告與 app 上那一列看的一句話。**分類要講得出理由** ——
+ *   兩百列裡她只會停在覺得怪的那幾列，而沒有理由就看不出哪幾列該停。
+ */
+export function classifyEvent(summary) {
+  const s = normVariant(summary ?? '');
+  if (LEAVE_WORDS.test(s)) {
+    const others = residualPeople(s);
+    if (!others) return { kind: 'leave', why: '標題寫了休假，而且沒有寫到別人' };
+    return { kind: 'personal', why: `寫的是「${others}」的假，不是她自己不在` };
+  }
+  if (!leadsWithTime(s) && TODO_WORDS.test(s)) {
+    return { kind: 'note', why: '沒寫時間，而且是一件做完可以勾掉的事' };
+  }
+  return { kind: 'personal', why: leadsWithTime(s) ? '標題最前面寫了時間' : '不是休假，也不是做完可以勾掉的事' };
+}
+
 // ---------- 名字 ----------
 
 /**
@@ -314,7 +426,7 @@ export function parseIcs(text) {
  *
  * **整天事件不回頭猜標題。** `timeInSummary()` 是從標題文字認時間的（她寫「2.30」
  * 「9：15」），所以一筆整天事件只要標題裡有數字，就會被安上一個假的時間，
- * 匯進來變成一筆有時有分的行程。有 `allDay` 這個明確欄位之後就不必猜了。
+ * 匯進來變成一筆有時有分的行事備註。有 `allDay` 這個明確欄位之後就不必猜了。
  */
 export const timeOf = (e) => (e.allDay ? null : timeInSummary(e.summary)?.start ?? e.clock ?? null);
 
@@ -595,17 +707,27 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
       startsAt: timeOf(x.event), evidence: x.event.summary,
       sheetHasThatDay: x.sheetHasThatDay, include: false,
     })),
-    eventCandidates: r.leftover.personal.map((e) => ({
-      title: e.summary,
-      // endDate 是真的結束日，不是 startDate 抄一份 —— 跨天的事件靠它才進得去
-      startDate: e.date, endDate: e.endDate,
-      // 整天事件不給時間（`timeOf()` 不猜標題）。endTime 一律 null：
-      // 行事曆的時間欄會歪（量到過 3:45 存成 18:00），startTime 是從標題認的，
-      // 兩邊拿不同來源湊一組起訖，會湊出結束比開始早的時段。
-      allDay: e.allDay,
-      startTime: timeOf(e), endTime: null,
-      category: 'personal', repeats: e.repeats, include: false,
-    })),
+    eventCandidates: r.leftover.personal.map((e) => {
+      const { kind, why } = classifyEvent(e.summary);
+      return {
+        title: e.summary,
+        // endDate 是真的結束日，不是 startDate 抄一份 —— 跨天的事件靠它才進得去
+        startDate: e.date, endDate: e.endDate,
+        // 整天事件不給時間（`timeOf()` 不猜標題）。endTime 一律 null：
+        // 行事曆的時間欄會歪（量到過 3:45 存成 18:00），startTime 是從標題認的，
+        // 兩邊拿不同來源湊一組起訖，會湊出結束比開始早的時段。
+        allDay: e.allDay,
+        startTime: timeOf(e), endTime: null,
+        // 日曆上的哪一類（ADR-0045）。`note` 走 notes 集合，另外兩個走 events。
+        // `category` 是給舊版 app 讀的：它只認得 'leave' 與 'personal'，
+        // 沒有待辦這一類，所以待辦在那裡退回行事備註 —— 少一個分類，
+        // 不是多一筆讀不懂的資料。
+        kind,
+        category: kind === 'leave' ? 'leave' : 'personal',
+        why,
+        repeats: e.repeats, include: false,
+      };
+    }),
     ambiguous: r.ambiguous.map((a) => ({ ...a, who: a.who.map(nameOf) })),
     // 讀不出來的那幾筆。**列出來**才不會又是一次「東西不見了，而畫面上什麼都沒說」。
     unreadable: (r.unreadable ?? []).map((x) => ({
@@ -628,6 +750,19 @@ export function reportText(r) {
   const miss = slots.filter((s) => !s.match).length;
   const conflicts = r.plans.flatMap((p) => p.days.flatMap((d) => d.conflicts.map((c) => ({ p, d, c }))));
 
+  // ③ 那一段的內容。**算在這裡**是為了讓最上面那句「要你判斷的有幾件」數得到它 ——
+  // 一份兩百多行的報告，沒有人會為了找 ③ 而往回捲。
+  const orphans = [];
+  for (const p of r.plans) {
+    for (const d of p.days) {
+      const open = d.filled.filter((x) => !x.match);
+      if (!open.length) continue;
+      const alt = r.leftover.calendarOnly.filter((x) => x.event.date === d.date
+        && open.some((o) => SAME(x.course, o.slot.courseName)));
+      orphans.push({ name: p.customerName, date: d.date, courses: open.map((o) => o.slot.courseName), alt });
+    }
+  }
+
   L.push('試算表 × 行事曆 — 對帳報告（還沒有寫入任何東西）', '');
   L.push(`行事曆涵蓋 ${r.span[0]} ～ ${r.span[1]}，共 ${r.events.length} 筆事件`
     + (r.events.filter((e) => e.endDate > e.date).length
@@ -639,6 +774,18 @@ export function reportText(r) {
   L.push(`  三方對得上（人＋日期＋療程）  ${high}`);
   L.push(`  要你確認（只寫了一半）        ${low}`);
   L.push(`  配不到，時間維持不詳          ${miss}`);
+  L.push('');
+
+  // 要她判斷的有幾件，一句話講完並且指到段號。
+  // ⑥ 那兩百筆**不算在裡面** —— 那是一份清單，不是一份問題；把它算進來，
+  // 「有 213 件要判斷」會讓真正要判斷的 30 件看起來不值得找。
+  L.push('━━━ 這份報告要你判斷的有 ━━━');
+  L.push(`   ① 兩邊講的不是同一件事　${conflicts.length}`);
+  L.push(`   ② 行事曆有、試算表沒勾　${r.leftover.calendarOnly.length}　← 做了卻沒打勾，次數會少算`);
+  L.push(`   ③ 試算表有、行事曆沒有　${orphans.length}`);
+  L.push(`   ④b 兩個人都可能　${r.ambiguous.length}`);
+  L.push(`   ⑤ 未來的預約　${r.leftover.future.length}`);
+  L.push(`   ⑥ 對不到客戶的　${r.leftover.personal.length}　（這一段是清單不是問題，慢慢挑）`);
   L.push('');
 
   // 一位客戶整批對不上，幾乎一定是名字的問題（行事曆上叫暱稱、打錯字、只寫姓）。
@@ -691,16 +838,6 @@ export function reportText(r) {
   L.push('━━━ ③ 試算表有，行事曆沒有 ━━━');
   L.push('   可能是沒記行事曆，也可能是勾錯人 —— 同一天有另一位客戶的同樣療程只出現在');
   L.push('   行事曆上時，底下會標「⇄ 可能勾錯人」。', '');
-  const orphans = [];
-  for (const p of r.plans) {
-    for (const d of p.days) {
-      const open = d.filled.filter((x) => !x.match);
-      if (!open.length) continue;
-      const alt = r.leftover.calendarOnly.filter((x) => x.event.date === d.date
-        && open.some((o) => SAME(x.course, o.slot.courseName)));
-      orphans.push({ name: p.customerName, date: d.date, courses: open.map((o) => o.slot.courseName), alt });
-    }
-  }
   if (!orphans.length) L.push('   （沒有）');
   for (const o of orphans.sort((a, b) => a.date.localeCompare(b.date))) {
     const outside = r.span[0] && o.date < r.span[0];
@@ -743,18 +880,28 @@ export function reportText(r) {
   }
   L.push('');
 
+  const sorted = [...r.leftover.personal]
+    .map((e) => ({ e, ...classifyEvent(e.summary) }))
+    .sort((a, b) => (a.e.date + a.e.summary).localeCompare(b.e.date + b.e.summary));
+  const tally = (k) => sorted.filter((x) => x.kind === k).length;
+
   L.push(`━━━ ⑥ 對不到客戶的 ${r.leftover.personal.length} 筆，全部列在這裡 ━━━`);
-  L.push('   行事備註、公司的事、待辦全部混在一起，而且顏色分不出來。');
-  L.push('   一律**預設不匯入**，由她一筆一筆決定 —— 猜錯會在日曆上長出她沒有的事。', '');
+  L.push(`   休假 ${tally('leave')}　待辦 ${tally('note')}　行事備註 ${tally('personal')}`);
+  L.push('   顏色分不出來（實測 9 種顏色底下都混著來訪與雜事），所以是照標題判的，');
+  L.push('   判準寫在 `classifyEvent()`。**分類是建議，不是結論** —— app 那一頁每一列');
+  L.push('   都改得掉，而且已經發生的一律預設不勾。', '');
   let month = '';
-  for (const e of [...r.leftover.personal].sort((a, b) => (a.date + a.summary).localeCompare(b.date + b.summary))) {
+  for (const { e, kind, why } of sorted) {
     if (e.date.slice(0, 7) !== month) {
       month = e.date.slice(0, 7);
       L.push(`   ── ${month}`);
     }
-    L.push(`   ${e.date} ${padStart(e.allDay ? '整天' : timeOf(e) ?? '', 5)}  ${e.summary}`
+    L.push(`   ${e.date} ${padStart(e.allDay ? '整天' : timeOf(e) ?? '', 5)}  ${pad(KIND_LABEL[kind], 10)}${e.summary}`
       + (e.endDate > e.date ? `　（到 ${e.endDate}，共 ${daysOf(e)} 天）` : '')
       + (e.repeats ? '　（重複事件）' : ''));
+    // 判成休假的那幾筆一定要看得到理由：那幾天會整片排不進去，
+    // 而「陳小美休假」跟「休」在清單上只差三個字。
+    if (kind === 'leave') L.push(`${' '.repeat(24)}└ ${why}`);
   }
 
   if (r.unreadable?.length) {
