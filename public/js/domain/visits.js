@@ -189,6 +189,32 @@ export function visitsToClose(visits = [], today) {
 }
 
 /**
+ * 這個課程當天要不要請客人簽療程單。
+ *
+ * 療程單是**扣掉那一次的憑據** —— 客人事後對次數有疑問時，拿得出來的就是它
+ *（`CONTEXT.md`）。所以幾乎每一種都要簽，只有二返不用：那一次是回院聽報告，
+ * 沒有療程可以扣（2026-08-23 使用者確認）。
+ *
+ * **認不得的課程當成要簽**，沒有欄位的舊資料也一樣。少簽一張單是實際損失，
+ * 多問她一次不是。
+ */
+export function needsForm(course) {
+  return course?.needsTreatmentForm !== false;
+}
+
+/**
+ * 這一筆來訪裡，哪幾段要請客人簽療程單。回的是時段的索引。
+ *
+ * 空陣列代表整筆都不用簽（例：只有二返的那一天）—— 但**那一筆照樣要結案**，
+ * 次數是在結案時扣的（SPEC 第 4.2 節）。「不用簽單」跟「不用收尾」是兩件事。
+ */
+export function formSlotIndexes(visit, coursesById = {}) {
+  return (visit?.slots ?? [])
+    .map((slot, i) => (needsForm(coursesById[slot.courseId]) ? i : -1))
+    .filter((i) => i >= 0);
+}
+
+/**
  * 這一段在畫面上要顯示成哪一個狀態。
  *
  * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答

@@ -518,6 +518,14 @@ textarea {
   background: var(--tea-soft);
 }
 
+/* 這一段當天要請客人簽療程單。用最輕的一級 —— 一整天四段裡通常四段都要簽，
+   四顆重色徽章等於沒有徽章。要看得出來的是「哪一段不用」，見 domain/visits.js */
+.badge--form {
+  color: var(--text);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
 /* 醫療禁忌永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
 .flag {
   display: inline-flex;
@@ -2844,6 +2852,12 @@ button.mark::after {
 .slotrow__what {
   font-size: var(--text-xs);
   color: var(--text-dim);
+}
+
+.slotrow__form {
+  margin-left: 6px;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
 }
 
 .slotrow--no {

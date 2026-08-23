@@ -13,7 +13,7 @@ import {
   isLocked, isActive, isImported, coursesForEntitlement, validateVisit,
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
-  visitsToClose, visitsToConfirm, closeVisit, slotStatus,
+  visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -235,7 +235,7 @@ describe('一段在畫面上顯示成哪一個狀態', () => {
   });
 });
 
-describe('收尾：客人來了嗎', () => {
+describe('收尾：簽療程單', () => {
   const TODAY = '2026-08-20';
   const visit = (over = {}) => ({
     id: 'v1', customerName: '客戶A', date: '2026-08-19', status: 'confirmed',
@@ -360,6 +360,47 @@ describe('收尾：客人來了嗎', () => {
       assert.notEqual(next, before, '要回傳新的，不要就地改');
       assert.equal(before.slots[0].attended, undefined, '原本那筆不可以被動到');
     });
+  });
+});
+
+describe('哪幾段要簽療程單', () => {
+  const COURSES = {
+    'course-followup': { needsTreatmentForm: false },
+    'course-recovery': { needsTreatmentForm: true },
+    'course-rehab': {},          // 舊資料沒有這個欄位
+  };
+
+  test('沒有欄位就是要簽 —— 少簽一張是實際損失', () => {
+    assert.equal(needsForm({}), true);
+    assert.equal(needsForm(undefined), true, '認不得的課程也當成要簽');
+    assert.equal(needsForm({ needsTreatmentForm: true }), true);
+  });
+
+  test('只有明確關掉的那一個不用簽', () => {
+    assert.equal(needsForm({ needsTreatmentForm: false }), false);
+  });
+
+  test('回的是時段的索引，不是時段本身', () => {
+    const visit = {
+      slots: [
+        { courseId: 'course-followup' },
+        { courseId: 'course-recovery' },
+        { courseId: 'ghost' },
+      ],
+    };
+    assert.deepEqual(formSlotIndexes(visit, COURSES), [1, 2]);
+  });
+
+  test('整筆都是二返就是空的 —— 但那一筆照樣要結案', () => {
+    const visit = { slots: [{ courseId: 'course-followup' }] };
+    assert.deepEqual(formSlotIndexes(visit, COURSES), []);
+    // 「不用簽單」跟「不用收尾」是兩件事：次數是在結案時扣的（SPEC 4.2）
+    assert.equal(visitsToClose([{ ...visit, status: 'confirmed', date: '2026-08-19' }], '2026-08-20').length, 1);
+  });
+
+  test('沒有時段、沒有課程主檔都不會炸', () => {
+    assert.deepEqual(formSlotIndexes({}, COURSES), []);
+    assert.deepEqual(formSlotIndexes({ slots: [{ courseId: 'x' }] }), [0]);
   });
 });
 

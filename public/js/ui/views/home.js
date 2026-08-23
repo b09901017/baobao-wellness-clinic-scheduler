@@ -21,7 +21,7 @@ import * as formInbox from './formInbox.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
-  visitsToClose, visitsToConfirm, closeVisit, describeStatus, NOTE_MAX,
+  visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -194,7 +194,7 @@ function headline(total, overdue, waiting, toClose = 0) {
   const parts = [];
   if (total) parts.push(`今天有 ${total} 件`);
   // 沒結案的排在最前面 —— 那是唯一會讓剩餘次數失準的一種（SPEC 第 4.2 節）
-  if (toClose) parts.push(`${toClose} 筆還沒結案`);
+  if (toClose) parts.push(`${toClose} 筆還沒簽單結案`);
   else if (overdue) parts.push(`其中 ${overdue} 件逾期了`);
   else if (waiting) parts.push(`${waiting} 位在等你確認`);
   return parts.join('，');
@@ -215,7 +215,7 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
     <div class="groups">
       ${toClose.length ? groupRow({
         href: '#/todo/close', lead: true, dot: 'accent',
-        label: '客人來了嗎', note: '簽了療程單就打勾，次數這時才扣', n: toClose.length,
+        label: '簽療程單', note: '來了、單簽了就打勾，次數這時才扣', n: toClose.length,
       }) : ''}
       ${groupRow({
         href: '#/todo/confirm', lead: true, dot: 'accent',
@@ -653,7 +653,7 @@ async function addNote(ctx, form) {
 
 const GROUPS = {
   confirm: { title: '跟客人確認時間', lead: '壓好了、還沒問過本人。問完回來按打勾。' },
-  close: { title: '客人來了嗎', lead: '客人來了、療程單簽了就打勾。次數是這時候才扣的。' },
+  close: { title: '簽療程單', lead: '客人來了、療程單簽了就打勾。次數是這時候才扣的。' },
   overdue: { title: '逾期的', lead: '死線已經過去了。' },
   today: { title: '今天要做的', lead: '死線是今天。' },
   tomorrow: { title: '明天要做的', lead: '可以提早做。' },
@@ -1275,7 +1275,7 @@ async function applyConfirm(ctx) {
   }
 }
 
-// ---------- 客人來了嗎（收尾） ----------
+// ---------- 簽療程單（收尾） ----------
 //
 // 這一頁是 SPEC 第 4.2 節那句「次數在已完成才扣」的入口。
 // 在這之前它藏在來訪編輯器的狀態卡裡，走動時拿手機要點四層 ——
@@ -1286,32 +1286,47 @@ async function applyConfirm(ctx) {
 
 async function renderClose(el) {
   const today = todayISO();
-  const unclosed = await visitsData.listUnclosed(today);
-  paintClose({ el, rows: visitsToClose(unclosed, today), today });
+  // 課程主檔是為了「這一段要不要簽療程單」。二返不用簽，其餘都要 ——
+  // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
+  const [unclosed, courses] = await Promise.all([
+    visitsData.listUnclosed(today),
+    config.listAll('courses'),
+  ]);
+  paintClose({
+    el,
+    rows: visitsToClose(unclosed, today),
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    today,
+  });
 }
 
 function paintClose(ctx) {
-  const { el, rows, today } = ctx;
+  const { el, rows, coursesById, today } = ctx;
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">客人來了嗎</h1>
+      <h1 class="page__title">簽療程單</h1>
       <p class="page__lead">${rows.length
         ? `有 ${rows.length} 筆還沒結案。客人來了、療程單簽了就打勾 —— 次數是這時候才扣的。`
         : '都結案了。'}</p>
     </div>
 
-    ${rows.length ? `<div class="stack">${rows.map((v) => closeCard(v, today)).join('')}</div>` : ''}
+    ${rows.length
+      ? `<div class="stack">${rows.map((v) => closeCard(v, coursesById, today)).join('')}</div>`
+      : ''}
 
     ${drawer ? closeDrawerHtml(ctx) : ''}`;
 
   wireClose(ctx);
 }
 
-function closeCard(visit, today) {
+function closeCard(visit, coursesById, today) {
   const late = daysBetween(visit.date, today);
   const slots = visit.slots ?? [];
+  // 哪幾段要簽單。空的代表整筆都不用（只有二返的那一天）—— 但照樣要結案，
+  // 次數是在這裡扣的。「不用簽單」跟「不用收尾」是兩件事。
+  const forms = new Set(formSlotIndexes(visit, coursesById));
 
   return `
     <div class="card" style="margin: 0">
@@ -1329,9 +1344,14 @@ function closeCard(visit, today) {
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${slots.map((sl) => `<span class="badge num">${esc(timeLabel(sl))}　${
+        ${slots.map((sl, i) => `<span class="badge num ${forms.has(i) ? 'badge--form' : ''}">${
+          forms.has(i) ? '✍ ' : ''}${esc(timeLabel(sl))}　${
           esc(sl.courseName ?? '')}</span>`).join('')}
       </div>
+
+      <p class="card__note" style="margin-top: var(--space-2)">${forms.size
+        ? `請客人簽療程單（${forms.size} 段）`
+        : '門診，不用簽單 —— 來了就打勾'}</p>
 
       ${visit.status === 'pending_confirm' ? `
         <p class="card__note" style="margin-top: var(--space-3)">
@@ -1353,6 +1373,7 @@ function closeDrawerHtml(ctx) {
 
   const slots = visit.slots ?? [];
   const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
+  const forms = new Set(formSlotIndexes(visit, ctx.coursesById));
 
   return `
     <div class="drawer-backdrop" data-backdrop>
@@ -1371,7 +1392,8 @@ function closeDrawerHtml(ctx) {
               <button class="slotrow ${missed ? 'slotrow--no' : ''}" type="button" data-slot="${i}">
                 <span class="slotrow__main">
                   <span class="slotrow__when">${esc(timeLabel(sl))}</span>
-                  <span class="slotrow__what">${esc(sl.courseName ?? '')}</span>
+                  <span class="slotrow__what">${esc(sl.courseName ?? '')}${
+                    forms.has(i) ? '<span class="slotrow__form">✍ 要簽單</span>' : ''}</span>
                 </span>
                 <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
                   missed ? '沒做' : '做了'}</span>

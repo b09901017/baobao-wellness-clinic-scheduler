@@ -11,6 +11,7 @@ import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
   describeCategory, tasksForCategory, CATEGORY_OPTIONS, bookingSystemFor,
 } from '../public/js/domain/taskRules.js';
+import { needsForm } from '../public/js/domain/visits.js';
 
 describe('主檔驗證', () => {
   test('名稱空白一律擋下', () => {
@@ -331,6 +332,16 @@ describe('種子資料', () => {
         bookingSystemFor(c.category),
         c.category === 'B' ? 'Examine' : 'Abovee',
         c.name,
+      );
+    }
+  });
+
+  test('除了二返，種子課程全部都要簽療程單', () => {
+    for (const c of SEED.courses) {
+      assert.equal(
+        needsForm(c),
+        c.id !== 'course-followup',
+        `${c.name} 的簽單設定不對`,
       );
     }
   });

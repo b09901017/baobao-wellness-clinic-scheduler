@@ -1,6 +1,6 @@
 # 「客人來了嗎」就是「簽療程單」，而二返不用簽
 
-Status: 待動工
+Status: done
 來源：使用者，2026-08-23
 動工前先讀：本資料夾的 `spec.md`、`SPEC.md` 第 4.2、8.1 節、
 `CONTEXT.md` 的「療程單」、`docs/adr/0025`
@@ -97,3 +97,20 @@ export function needsNoForm(visit, coursesById)
   混合的來訪只回要簽的那幾段
 - 瀏覽器：`#/todo/close` 上一筆只有二返的來訪寫著「不用簽單」，
   勾完照樣扣次數
+
+## Comments
+
+**2026-08-23 —— done。** 兩件值得記著：
+
+- **函式叫 `needsForm()` 不叫 `needsTreatmentForm()`**，跟欄位同名的話
+  `needsTreatmentForm(course)` 與 `course.needsTreatmentForm` 在讀 code 時
+  會混在一起 —— 而它們的答案不一樣：欄位是 `undefined` 時函式回 `true`。
+- **`formSlotIndexes()` 回索引不回時段。** 呼叫端要的是「第幾段要標」，
+  而時段本身沒有 id，回時段就得在畫面上再比對一次。
+
+`badge--form` 用最輕的一級（外框而不是實色）：一整天四段裡通常四段都要簽，
+四顆重色徽章等於沒有徽章 —— 這一頁要看得出來的是**哪一段不用**。
+`.card__note` 那一句才是講整筆的（「門診，不用簽單 —— 來了就打勾」）。
+
+SPEC 第 7 節規則 8 第三點還寫著「A 類的四個任務」，那是舊的 —— 那一整條在
+`issues/04` 會重寫，一起改。

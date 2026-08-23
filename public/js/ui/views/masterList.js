@@ -83,6 +83,7 @@ const editors = {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
+      needsTreatmentForm: true,
       frequencyRule: null,
       followupCourseId: null,
     },
@@ -121,6 +122,12 @@ const editors = {
         hint: '二返預設開著。復健科醫師門診、心臟科評估也有醫師，想記就勾起來。'
           + '和上面的診間、治療師不衝突 —— 二返同時要診間和醫師。',
       }),
+      f.toggle({
+        name: 'needsTreatmentForm', label: '來訪當天要請客人簽療程單',
+        value: r.needsTreatmentForm !== false,
+        hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。'
+          + '療程單是扣掉那一次的憑據，客人事後對次數有疑問時拿得出來的就是它。',
+      }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -151,6 +158,7 @@ const editors = {
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,
+      needsTreatmentForm: !!v.needsTreatmentForm,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),

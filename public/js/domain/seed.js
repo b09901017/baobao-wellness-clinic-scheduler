@@ -93,6 +93,10 @@ export const SEED = {
       id: 'course-followup', name: '二返', category: 'A', durationMin: 30,
       assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
+      // 唯一一個不用簽療程單的課程（2026-08-23 使用者確認）。它是回院聽報告，
+      // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
+      // 沒有這個欄位就是要簽，所以其餘課程一個字都不用寫。
+      needsTreatmentForm: false,
     },
 
     // ---- B 類：單系統＋電話 ----

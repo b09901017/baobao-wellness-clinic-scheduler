@@ -607,7 +607,7 @@ function wireStatus(ctx, draft) {
 
       const at = new Date().toISOString();
 
-      // 收尾走 domain 那一支，跟待辦中心的「客人來了嗎」同一份規則 ——
+      // 收尾走 domain 那一支，跟待辦中心的「簽療程單」同一份規則 ——
       // 這裡整筆一起標，所以每一段都給同一個結果。要逐段分開記，
       // 走待辦中心那一頁（`ui/views/home.js` 的收尾畫面）。
       let next = to === 'done' || to === 'no_show'
