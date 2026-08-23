@@ -551,6 +551,23 @@ textarea {
   background: var(--danger);
 }
 
+/* 「只能 INDIBA」「不能用 超磁場」—— 算出來的那一句。
+   比上面那顆輕一級：被擋掉的那幾個字是事實，這一句是它的後果。
+   一台都不剩時改掛 .flag--block（那時候她壓不下去，要跟旗標一樣重）。 */
+.flag--left {
+  color: var(--danger);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+/* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */
+.blockchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
 .stars {
   font-size: var(--text-2xs);
   font-weight: 700;

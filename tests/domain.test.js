@@ -8,6 +8,7 @@ import {
   isBlocked,
   blockingFlags,
   annotateOptions,
+  equipmentLimitLabel,
   validateSlots,
 } from '../public/js/domain/contraindications.js';
 import {
@@ -131,6 +132,36 @@ describe('醫療禁忌（硬性阻擋）', () => {
   test('缺欄位時不當成有禁忌', () => {
     assert.ok(!isBlocked({}, {}));
     assert.ok(!isBlocked(undefined, undefined));
+  });
+
+  // 壓表卡片牆上那顆丸子（ADR-0046）。它是算出來的，不是打字打的 ——
+  // 器材主檔上的禁忌一改，這句話跟著改。
+  test('只剩一台就講「只能 ⋯⋯」', () => {
+    assert.deepEqual(
+      equipmentLimitLabel(體內金屬客戶, [laser, sis, indiba]),
+      { text: '只能 INDIBA', blocked: 2, left: 1 },
+    );
+  });
+
+  test('還剩兩台以上就講「不能用 ⋯⋯」', () => {
+    const 孕婦 = { flags: ['孕婦'] };
+    const eq = [{ ...sis, contraindications: ['孕婦'] }, laser, indiba];
+    assert.equal(equipmentLimitLabel(孕婦, eq).text, '不能用 超磁場');
+  });
+
+  test('一台都不剩要講得出來 —— 那時候她壓不下去', () => {
+    const 全擋 = { flags: ['體內金屬'] };
+    const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
+    assert.deepEqual(equipmentLimitLabel(全擋, eq), { text: '3 台都不能用', blocked: 3, left: 0 });
+  });
+
+  test('沒有東西被擋就回 null —— 不然它會變成每一張卡都有的裝飾', () => {
+    assert.equal(equipmentLimitLabel(一般客戶, [sis, laser, indiba]), null);
+  });
+
+  test('沒有擇一池就回 null，不要無中生有一句話', () => {
+    assert.equal(equipmentLimitLabel(體內金屬客戶, []), null);
+    assert.equal(equipmentLimitLabel(體內金屬客戶), null);
   });
 
   test('送出前驗證會指出是第幾個時段出問題', () => {
