@@ -14,7 +14,7 @@
 // 之後進度追蹤頁也要問同一句，而同一位客戶在兩個畫面顯示成不同狀態，
 // 她不會知道哪個算數。
 
-import { daysBetween } from './dates.js';
+import { daysBetween, dayOf } from './dates.js';
 
 /**
  * 那一句話存在來訪上（`followupNote` / `followupAt`），不是任務也不是備註：
@@ -86,19 +86,4 @@ function label(note, waited, late) {
   if (waited == null) return '剛壓';
   if (!waited) return '今天壓的';
   return late ? `已等 ${waited} 天・久了` : `已等 ${waited} 天`;
-}
-
-/**
- * Firestore 的 Timestamp 與 ISO 字串都吃得下，回 'YYYY-MM-DD'。
- *
- * `createdAt` 是伺服器寫的 Timestamp，`followupAt` 是她按下去那一刻由前端寫的
- * ISO 字串 —— 兩種形狀混在同一個判斷裡，所以這裡兩種都認。
- * 認不出來回 null，不要猜一個日期出來。
- */
-function dayOf(ts) {
-  if (!ts) return null;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }

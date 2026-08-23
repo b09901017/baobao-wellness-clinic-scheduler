@@ -64,6 +64,21 @@ export function daysBetween(from, to) {
 }
 
 /**
+ * Firestore 的 Timestamp 與 ISO 字串都吃得下，回 'YYYY-MM-DD'（裝置當地）。
+ *
+ * 兩種形狀是真的會混在一起：`createdAt` 是伺服器寫的 Timestamp，
+ * `followupAt`、`doneAt` 是前端按下去那一刻寫的 ISO 字串。
+ * **認不出來回 `null`，不要猜一個日期出來** —— 猜出來的日期會變成一個
+ * 看起來很正常的死線，而那比空白難發現得多。
+ */
+export function dayOf(ts) {
+  if (!ts) return null;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * 裝置當地的今天。
  *
  * 這是 domain 裡唯一一個不純的函式，因為「今天」本來就不純。

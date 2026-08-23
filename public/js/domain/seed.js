@@ -6,7 +6,7 @@
 // SPEC 第 13 節仍列為資料缺口的部分（完整診間清單、各點滴室床位數、
 // 完整治療師名單）就照目前已知的填，之後在設定頁補。
 
-import { DEFAULT_FOLLOWUP_DUE_DAYS } from './followups.js';
+import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.js';
 
 export const SEED = {
   rooms: [
@@ -197,8 +197,11 @@ export const DEFAULT_SETTINGS = {
   sortWeights: { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 },
   slotGapMin: 15,
   noReplyDays: 3,
-  // 健檢做完之後幾天內要把二返約好。SPEC 第 13 節本來就把這個間隔列在
-  // 待確認清單裡，所以它是可調的預設值，不是寫死的規則（ADR-0022）。
+  // 健檢做完之後幾天內要去問報告出來了沒（報告通常兩三週）。
+  reportDueDays: DEFAULT_REPORT_DUE_DAYS,
+  // **拿到報告那天**往後幾天內要把二返約好。從健檢日算的話它一出生就是
+  // 逾期紅字，見 ADR-0042。SPEC 第 13 節本來就把這個間隔列在待確認清單裡，
+  // 所以它是可調的預設值，不是寫死的規則（ADR-0022）。
   followupDueDays: DEFAULT_FOLLOWUP_DUE_DAYS,
   // 試算表同步。兩個都填了才會開始推（見 data/sheetSync.js）。
   // 密鑰放在這裡而不是寫進前端程式碼：部署出去的 JS 人人看得到，
