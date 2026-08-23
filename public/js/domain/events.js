@@ -7,6 +7,7 @@
 
 import { addDays, daysBetween, isValidDate, shortDate } from './dates.js';
 import { isValidTime, toMinutes } from './visitTime.js';
+import { MARK_COLORS } from './customerMarks.js';
 
 /**
  * 兩種，差別是實質的：休假那幾天她根本不在，任何來訪都排不進去；
@@ -29,6 +30,49 @@ export function describeCategory(id) {
 /** 日曆上這一種要用哪一組顏色。CSS 那邊是 .kind-personal / .kind-leave。 */
 export function kindClass(id) {
   return BY_ID[id]?.kind ?? 'kind-personal';
+}
+
+/**
+ * 她可以替一筆行程自己挑的顏色。
+ *
+ * 「公出、宜蘭休假、高齡演講」對系統來說一律是「那個時段有事」——
+ * 它們之間**沒有系統看得懂的差別**，但對她來說差很多，而那個差別只有她知道。
+ * 這跟客戶身上的備註是同一個形狀（ADR-0019），所以名單直接借
+ * `domain/customerMarks.js` 的六色：色票只能有一份，兩個地方各挑六個顏色，
+ * 遲早會變成兩組不一樣的六色。
+ *
+ * **存的是名字不是色碼。** 存色碼的話深色模式那一份就沒有人換得掉，
+ * 而且以後要調色就得回頭改每一筆資料。見 ADR-0040。
+ */
+export const EVENT_COLOR_OPTIONS = MARK_COLORS.map(({ id, label }) => ({ id, label }));
+
+export const EVENT_COLORS = EVENT_COLOR_OPTIONS.map((c) => c.id);
+
+/**
+ * 這筆行程要用哪一組顏色的 class。
+ *
+ * **沒挑或認不得就回空字串**，讓呼叫端落回 `kindClass()` 那一類本來的顏色。
+ * 這跟 `describeCategory()` 對不認得的類別大聲講出來刻意不同：
+ * 類別錯了是資料壞了、要看得見；顏色沒挑只是她還沒挑，畫成預設色才是對的。
+ * 2026-08 以前建的行程身上都沒有這個欄位，那些不是壞資料。
+ */
+export function colorClass(event) {
+  const color = event?.color;
+  return EVENT_COLORS.includes(color) ? `evcolor-${color}` : '';
+}
+
+/**
+ * 日曆上這一筆實際要套的顏色 class。挑過就用挑的，沒挑就用那一類的。
+ *
+ * 休假挑了顏色時**兩個 class 都給**：`.kind-leave` 身上那條斜線紋不跟著顏色走。
+ * 那條紋路講的是「這幾天我不在」，不是一種配色（ADR-0039、0040）。
+ * CSS 那邊 `.evcolor-*` 排在 `.kind-*` 後面，所以顏色由挑的那個決定，
+ * 紋路由 `.kind-leave` 決定 —— 兩者管的是不同的屬性，不會互相蓋掉。
+ */
+export function paintClass(event) {
+  const color = colorClass(event);
+  if (!color) return kindClass(event?.category);
+  return isLeave(event) ? `${color} kind-leave` : color;
 }
 
 export function isLeave(event) {
@@ -56,6 +100,13 @@ export function validateEvent(event) {
 
   if (!String(e.title ?? '').trim()) errors.push('要有名稱');
   if (!BY_ID[e.category]) errors.push('要選一種：個人行程或休假');
+
+  // 顏色是選填的（沒挑就跟著類別走），但挑了就要是認得的那六個之一。
+  // 顯示端對舊資料寬容（`colorClass()` 落回預設），這裡不寬容 ——
+  // 那份寬容是為了已經存在的資料，不是為了讓新的髒資料寫得進來。
+  if (e.color != null && e.color !== '' && !EVENT_COLORS.includes(e.color)) {
+    errors.push('不認得的顏色');
+  }
 
   if (!isValidDate(e.startDate)) errors.push('開始日期不對');
   if (!isValidDate(e.endDate)) errors.push('結束日期不對');
@@ -186,7 +237,7 @@ function layoutWeek(events, week, maxLanes) {
       category: piece.event.category,
       // 呼叫端可以自己指定顏色組。日曆的月檢視要把來訪與個人行程排在同一組
       // lane 裡（否則兩種東西會互相蓋住），所以它會餵進來訪並自己標 kind。
-      kind: piece.event.kind ?? kindClass(piece.event.category),
+      kind: piece.event.kind ?? paintClass(piece.event),
       col: piece.startIdx + 1,
       span: piece.endIdx - piece.startIdx + 1,
       lane,
@@ -256,7 +307,7 @@ export function spanLabel(event) {
 function withSpanLabel(event, date) {
   return {
     ...event,
-    kind: kindClass(event.category),
+    kind: paintClass(event),
     spanLabel: spanLabel(event),
     isFirstDay: event.startDate === date,
     isLastDay: event.endDate === date,

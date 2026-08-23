@@ -134,6 +134,23 @@
     -45deg, transparent 0 5px, rgb(79 107 125 / 20%) 5px 10px
   );
 
+  /* 個人行程自己挑的顏色（ADR-0040）。名單與 --mark-* 是同一組六色，
+     但值不一樣：--mark-* 是給小圓點用的，這裡要當 11px 的字擺在色塊上，
+     所以每一個都往下壓到字對底 ≥ 4.6:1 為止。挑一個「看起來夠深」的
+     會挑出 3.3:1 —— 茶色那一個原本就是。 */
+  --evcolor-grey: #70675e;
+  --evcolor-grey-bg: #ebeae8;
+  --evcolor-green: #3b7158;
+  --evcolor-green-bg: #e2ebe7;
+  --evcolor-tea: #8d5e2f;
+  --evcolor-tea-bg: #f3eae2;
+  --evcolor-red: #ae4333;
+  --evcolor-red-bg: #f3e3e1;
+  --evcolor-blue: #426d86;
+  --evcolor-blue-bg: #e4ecf0;
+  --evcolor-violet: #755c90;
+  --evcolor-violet-bg: #ebe7ef;
+
   /* 備註的顏色小丸。六個就夠了 —— 再多她自己也分不清哪個是哪個。
      每一個都在淺色與深色下都看得出來，不是隨手挑的色票。
      個人行程挑顏色用的是同一組（ADR-0040）—— 色票只能有一份。 */
@@ -198,6 +215,20 @@
     --stripe-leave: repeating-linear-gradient(
       -45deg, transparent 0 5px, rgb(157 180 196 / 22%) 5px 10px
     );
+
+    /* 個人行程的顏色，深色版。字對底 ≥ 4.7:1。 */
+    --evcolor-grey: #a89d90;
+    --evcolor-grey-bg: #37322c;
+    --evcolor-green: #7fbba3;
+    --evcolor-green-bg: #2e3930;
+    --evcolor-tea: #d8a46a;
+    --evcolor-tea-bg: #413424;
+    --evcolor-red: #e8877a;
+    --evcolor-red-bg: #452d27;
+    --evcolor-blue: #8fb0c2;
+    --evcolor-blue-bg: #313637;
+    --evcolor-violet: #b09ecc;
+    --evcolor-violet-bg: #393239;
 
     --mark-grey: #a89d90;
     --mark-green: #7fbba3;

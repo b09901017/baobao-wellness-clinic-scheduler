@@ -1103,6 +1103,15 @@ button.mark::after {
   inset: -5px;
 }
 
+/* 「不挑，跟著類別走」那一顆（個人行程的顏色，ADR-0040）。
+   空心圈而不是實心點 —— 它長成那一類本來的顏色，而那個顏色也在底下六顆裡面
+   （個人行程預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
+   空心講的是「這不是一個顏色選擇」。 */
+.swatch--auto::before {
+  background: transparent;
+  border: 3px solid var(--mark);
+}
+
 .swatch[aria-pressed='true'] {
   border-color: var(--mark);
 }
@@ -1881,6 +1890,17 @@ button.mark::after {
 .calfilter__item.kind-leave[aria-pressed='true'] {
   background-image: var(--stripe-leave);
 }
+
+/* 她自己替一筆個人行程挑的顏色（ADR-0040）。
+   **排在 .kind-* 後面**：挑過的顏色要蓋掉那一類的預設色。休假挑了顏色時
+   兩個 class 都在，這裡蓋掉的是 --kind-fg / --kind-bg，
+   .kind-leave 的 background-image（斜線紋）管的是別的屬性，蓋不到。 */
+.evcolor-grey { --kind-fg: var(--evcolor-grey); --kind-bg: var(--evcolor-grey-bg); }
+.evcolor-green { --kind-fg: var(--evcolor-green); --kind-bg: var(--evcolor-green-bg); }
+.evcolor-tea { --kind-fg: var(--evcolor-tea); --kind-bg: var(--evcolor-tea-bg); }
+.evcolor-red { --kind-fg: var(--evcolor-red); --kind-bg: var(--evcolor-red-bg); }
+.evcolor-blue { --kind-fg: var(--evcolor-blue); --kind-bg: var(--evcolor-blue-bg); }
+.evcolor-violet { --kind-fg: var(--evcolor-violet); --kind-bg: var(--evcolor-violet-bg); }
 
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
    拿它當整個類別的顏色會跟正下方的圖例打架。個人行程與休假沒有這個問題，

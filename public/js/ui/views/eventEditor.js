@@ -9,7 +9,9 @@
 // 表單本身與驗證一模一樣 —— 兩份表單遲早會有一份漏掉一個欄位。
 
 import * as eventsData from '../../data/events.js';
-import { CATEGORIES, DEFAULT_CATEGORY, validateEvent, kindClass, isLeave } from '../../domain/events.js';
+import {
+  CATEGORIES, DEFAULT_CATEGORY, validateEvent, kindClass, isLeave, EVENT_COLOR_OPTIONS,
+} from '../../domain/events.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -35,6 +37,7 @@ function blankEvent(date) {
     startDate: start,
     endDate: start,
     allDay: true,
+    color: null,
     startTime: '09:00',
     endTime: '10:00',
     note: '',
@@ -106,6 +109,8 @@ function html(e, { isNew, embedded = false }) {
           : `<p class="field__hint">個人行程只是那個時段有事，其餘時間照樣排得了。</p>`}
       </div>
 
+      ${colourField(e)}
+
       <label class="choice choice--row">
         <input type="checkbox" data-allday ${e.allDay ? 'checked' : ''} />
         <span>整天</span>
@@ -152,6 +157,31 @@ function html(e, { isNew, embedded = false }) {
       </section>`}`;
 }
 
+/**
+ * 挑顏色。公出、宜蘭休假、高齡演講對系統來說一模一樣，那個差別只有她知道
+ * （ADR-0040）。色票跟客戶備註同一組六色。
+ *
+ * 第一顆是「跟著類別」，也就是不挑 —— 它要長成那一類本來的顏色，
+ * 所以把 kindClass() 掛在它身上讓 --kind-fg 解得出來。
+ */
+function colourField(e) {
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">顏色　可以不挑</span>
+      <div class="swatches" role="group" aria-label="顏色">
+        <button class="swatch swatch--auto ${kindClass(e.category)}" type="button"
+                data-colour="" aria-pressed="${!e.color}" aria-label="跟著類別"
+                style="--mark: var(--kind-fg)"></button>
+        ${EVENT_COLOR_OPTIONS.map((c) => `
+          <button class="swatch" type="button" data-colour="${c.id}"
+                  aria-pressed="${c.id === e.color}" aria-label="${esc(c.label)}"
+                  style="--mark: var(--evcolor-${c.id})"></button>`).join('')}
+      </div>
+      <p class="field__hint">日曆上這一筆會用這個顏色。${
+        isLeave(e) ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}</p>
+    </div>`;
+}
+
 function wire(el, draft, { isNew, id, embedded, onDone, onCancel }, repaint) {
   const bind = (sel, key) =>
     el.querySelector(sel)?.addEventListener('input', (ev) => {
@@ -178,6 +208,15 @@ function wire(el, draft, { isNew, id, embedded, onDone, onCancel }, repaint) {
   el.querySelectorAll('[data-category]').forEach((btn) =>
     btn.addEventListener('click', () => {
       draft.category = btn.dataset.category;
+      repaint();
+    }),
+  );
+
+  el.querySelectorAll('[data-colour]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      // 空字串就是「跟著類別」。存 null 不存空字串 ——
+      // 「挑了一個叫空字串的顏色」跟「沒挑」在查詢上是兩件事。
+      draft.color = btn.dataset.colour || null;
       repaint();
     }),
   );
