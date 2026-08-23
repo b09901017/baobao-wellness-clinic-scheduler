@@ -92,8 +92,11 @@ describe('任務規則', () => {
     assert.deepEqual(at([{ courseId: 'checkup' }]), ['Examine']);
     assert.deepEqual(at([{ courseId: 'recovery' }, { courseId: 'checkup' }]),
       ['Abovee', 'Examine'], '同一天兩種，兩個系統上真的各有一筆');
-    assert.deepEqual(at([{ courseId: 'ghost' }]), [],
-      '認不得的課程不猜 —— 連壓過沒有都不知道');
+    // 認不得的課程**照樣算一個**。這裡不確定的只有「壓在哪個系統」，
+    // 而「有沒有壓過」是確定的 —— 那筆來訪存在就代表壓過了（ADR-0041）。
+    // 跳過等於在課程主檔被刪掉的那幾筆上，把那個時段永遠佔在 Abovee 上。
+    assert.deepEqual(at([{ courseId: 'ghost' }]), ['Abovee'],
+      '猜錯系統她看得懂，不猜等於一個時段永遠佔著而畫面上什麼都沒說');
   });
 
   test('找不到課程時略過，不會炸掉', () => {
@@ -139,7 +142,7 @@ describe('醫療禁忌（硬性阻擋）', () => {
   test('只剩一台就講「只能 ⋯⋯」', () => {
     assert.deepEqual(
       equipmentLimitLabel(體內金屬客戶, [laser, sis, indiba]),
-      { text: '只能 INDIBA', blocked: 2, left: 1 },
+      { text: '只能 INDIBA', blockedCount: 2, leftCount: 1 },
     );
   });
 
@@ -152,7 +155,7 @@ describe('醫療禁忌（硬性阻擋）', () => {
   test('一台都不剩要講得出來 —— 那時候她壓不下去', () => {
     const 全擋 = { flags: ['體內金屬'] };
     const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
-    assert.deepEqual(equipmentLimitLabel(全擋, eq), { text: '3 台都不能用', blocked: 3, left: 0 });
+    assert.deepEqual(equipmentLimitLabel(全擋, eq), { text: '3 台都不能用', blockedCount: 3, leftCount: 0 });
   });
 
   test('沒有東西被擋就回 null —— 不然它會變成每一張卡都有的裝飾', () => {

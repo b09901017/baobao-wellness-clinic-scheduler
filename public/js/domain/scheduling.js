@@ -508,11 +508,19 @@ export function customersToBook({
 
     // 這個月已經動過哪幾個系統。一位客戶這個月已經排了復能，Abovee 那一區
     // 就沒有他了 —— 她那一格已經壓過了。
+    //
+    // **認不得的課程不算數**，這裡跟 `bookingSystemsForVisit()` 刻意相反。
+    // 兩邊問的問題不一樣：那一支問「她壓過嗎」（來訪存在就是壓過了，所以猜），
+    // 這一支問「還要不要壓」，而猜錯的方向是把一位該壓的客戶整個從清單上抹掉。
+    // 兩邊都倒向「寧可多講一句」—— 東西不見了而畫面上什麼都沒說，
+    // 是這個 app 反覆踩過的那一種錯。
     const booked = new Set();
     for (const v of visits) {
       if (!isActive(v) || !isValidDate(v.date) || v.date < range.from || v.date > range.to) continue;
       for (const slot of v.slots ?? []) {
-        booked.add(bookingSystemFor(coursesById[slot.courseId]?.category));
+        const category = coursesById[slot.courseId]?.category;
+        if (category === undefined) continue;
+        booked.add(bookingSystemFor(category));
       }
     }
 

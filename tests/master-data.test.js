@@ -336,6 +336,14 @@ describe('種子資料', () => {
     }
   });
 
+  test('「要不要簽療程單」只能是是或否 —— 字串會被判成「要簽」', () => {
+    const base = SEED.courses.find((c) => c.id === 'course-recovery');
+    assert.deepEqual(validate('courses', { ...base, needsTreatmentForm: false }), []);
+    assert.deepEqual(validate('courses', { ...base, needsTreatmentForm: undefined }), []);
+    assert.ok(validate('courses', { ...base, needsTreatmentForm: 'false' }).length,
+      '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
+  });
+
   test('除了二返，種子課程全部都要簽療程單', () => {
     for (const c of SEED.courses) {
       assert.equal(

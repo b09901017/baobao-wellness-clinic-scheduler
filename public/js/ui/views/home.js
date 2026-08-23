@@ -30,6 +30,7 @@ import {
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
 import { groupByStage, nextStage, isRetired, RETIRED_KINDS } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
+import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import {
   todayISO, shortDate, daysBetween, addMonths, monthLabel,
@@ -112,31 +113,44 @@ export async function render(el) {
 }
 
 /**
+ * 「壓表登記」那一列要的四份資料，算成一組 row。首頁那一列與 `#/todo/book`
+ * 兩邊共用 —— 兩份寫法遲早會有一份忘了帶 `includeDeleted`，而那一顆的後果
+ * 是整位客戶從清單上消失（見底下）。
+ *
+ * **課程主檔要含已刪除的。** `customersToBook()` 認不得課程時會把那一筆
+ * 來訪當成「沒動到任何系統」，於是她只要在主檔停用一個課程，用過那個課程的
+ * 客戶就會被算成「這個月還沒壓」而重複出現 —— 帶著已刪除的才問得到真話。
+ */
+async function loadBookRows(today) {
+  const month = today.slice(0, 7);
+  const range = monthRange(month);
+  const [customers, entitlementsBy, visits, courses] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    visitsData.listBetween(range.from, range.to),
+    config.listAll('courses', { includeDeleted: true }),
+  ]);
+
+  const visitsBy = {};
+  for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
+
+  return customersToBook({
+    customers,
+    entitlementsBy,
+    visitsBy,
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    targetMonth: month,
+  });
+}
+
+/**
  * 「壓表登記」那一列。跟 loadAsk 同一個作法：頁面先畫完，這一列等資料回來。
  *
  * 它要多讀四份（客戶、額度、這個月的來訪、課程主檔），而這一頁她一天開十幾次。
  */
 async function loadBook(ctx) {
   try {
-    const month = ctx.today.slice(0, 7);
-    const range = monthRange(month);
-    const [customers, entitlementsBy, visits, courses] = await Promise.all([
-      customersData.list(),
-      customersData.entitlementsByCustomer(),
-      visitsData.listBetween(range.from, range.to),
-      config.listAll('courses'),
-    ]);
-
-    const visitsBy = {};
-    for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
-
-    bookRows = customersToBook({
-      customers,
-      entitlementsBy,
-      visitsBy,
-      coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
-      targetMonth: month,
-    });
+    bookRows = await loadBookRows(ctx.today);
   } catch {
     // 同 loadAsk：讀不到就當這一列不存在。它是提醒，不是這一頁的主體。
     bookRows = [];
@@ -1430,7 +1444,8 @@ async function renderClose(el) {
   // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
   const [unclosed, courses] = await Promise.all([
     visitsData.listUnclosed(today),
-    config.listAll('courses'),
+    // 含已刪除的：她停用一個課程，那幾筆還沒結案的來訪照樣要問得出「要不要簽單」
+    config.listAll('courses', { includeDeleted: true }),
   ]);
   paintClose({
     el,
@@ -1462,13 +1477,27 @@ function paintClose(ctx) {
 }
 
 /**
- * 這一筆來訪裡，哪幾段**不用**簽療程單（目前只有二返）。
+ * 這一筆來訪裡，哪幾段要標「不用簽療程單」（目前只有二返）。
  *
- * 反過來算的理由見 `closeCard()`：要標的是例外，不是常態。
+ * **反過來標的理由**：一整天四段裡通常四段都要簽，四顆標記等於沒有標記；
+ * 真正要她看到的是「這一段是例外」。
+ *
+ * **整筆都不用簽時回空的** —— 那時候底下那一句已經講完了（「不用簽療程單 ——
+ * 來了就打勾」），逐段再標一次是同一件事講兩遍。卡片與收尾抽屜共用這一支，
+ * 兩邊各寫一次的話遲早有一邊忘了那個例外。
  */
-function skipsForm(visit, coursesById) {
+function formMarks(visit, coursesById) {
+  const slots = visit.slots ?? [];
   const need = new Set(formSlotIndexes(visit, coursesById));
-  return new Set((visit.slots ?? []).map((_, i) => i).filter((i) => !need.has(i)));
+  const skip = slots.map((_, i) => i).filter((i) => !need.has(i));
+  return {
+    /** 要標「不用簽」的那幾段 */
+    mark: new Set(skip.length === slots.length ? [] : skip),
+    /** 整筆都不用簽 */
+    none: skip.length === slots.length,
+    /** 要簽的有幾段 */
+    count: slots.length - skip.length,
+  };
 }
 
 function closeCard(visit, coursesById, today) {
@@ -1477,9 +1506,7 @@ function closeCard(visit, coursesById, today) {
   // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記
   // 等於沒有標記；真正要她看到的是「這一段是例外」。整筆都不用簽時
   // 底下那一句已經講完了，逐段就不再標一次。
-  const skip = skipsForm(visit, coursesById);
-  // 整筆都不用簽時逐段不再標一次 —— 底下那一句已經講完了
-  const mark = skip.size === slots.length ? new Set() : skip;
+  const form = formMarks(visit, coursesById);
 
   return `
     <div class="card" style="margin: 0">
@@ -1499,13 +1526,12 @@ function closeCard(visit, coursesById, today) {
       <div class="chips" style="margin-top: var(--space-3)">
         ${slots.map((sl, i) => `<span class="badge num">${esc(timeLabel(sl))}　${
           esc(sl.courseName ?? '')}${
-          mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
+          form.mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
       </div>
 
-      <p class="card__note" style="margin-top: var(--space-2)">${
-        skip.size === slots.length
-          ? '不用簽療程單 —— 來了就打勾'
-          : `請客人簽療程單（${slots.length - skip.size} 段）`}</p>
+      <p class="card__note" style="margin-top: var(--space-2)">${form.none
+        ? '不用簽療程單 —— 來了就打勾'
+        : `請客人簽療程單（${form.count} 段）`}</p>
 
       ${visit.status === 'pending_confirm' ? `
         <p class="card__note" style="margin-top: var(--space-3)">
@@ -1527,8 +1553,7 @@ function closeDrawerHtml(ctx) {
 
   const slots = visit.slots ?? [];
   const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
-  const allSkip = skipsForm(visit, ctx.coursesById);
-  const skip = allSkip.size === slots.length ? new Set() : allSkip;
+  const form = formMarks(visit, ctx.coursesById);
 
   return `
     <div class="drawer-backdrop" data-backdrop>
@@ -1548,7 +1573,7 @@ function closeDrawerHtml(ctx) {
                 <span class="slotrow__main">
                   <span class="slotrow__when">${esc(timeLabel(sl))}</span>
                   <span class="slotrow__what">${esc(sl.courseName ?? '')}${
-                    skip.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
+                    form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
                 </span>
                 <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
                   missed ? '沒做' : '做了'}</span>
@@ -1640,30 +1665,14 @@ async function applyClose(ctx) {
  */
 async function renderBook(el) {
   const today = todayISO();
-  const month = today.slice(0, 7);
-  const range = monthRange(month);
-
-  const [customers, entitlementsBy, visits, courses, equipment] = await Promise.all([
-    customersData.list(),
-    customersData.entitlementsByCustomer(),
-    visitsData.listBetween(range.from, range.to),
-    config.listAll('courses'),
+  const [rows, equipment] = await Promise.all([
+    loadBookRows(today),
     config.listAll('equipment'),
   ]);
 
-  const visitsBy = {};
-  for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
-
-  const rows = customersToBook({
-    customers,
-    entitlementsBy,
-    visitsBy,
-    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
-    targetMonth: month,
-  });
-
   // 哪幾個永久限制是會擋掉器材的。那幾個要紅、要跟著名字（SPEC 第 4.3 節）。
-  const blocking = new Set(contraindicationTerms(equipment));
+  // 算一次就好 —— 二十幾張卡各算一次是白費的。
+  const terms = contraindicationTerms(equipment);
 
   const section = (system, title, note) => {
     const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
@@ -1673,7 +1682,7 @@ async function renderBook(el) {
         <h2 class="card__title">${esc(title)}<span class="muted"> ${mine.length}</span></h2>
         <p class="card__note">${esc(note)}</p>
         <div class="groups" style="margin-top: var(--space-3)">
-          ${mine.map((r) => bookRow(r, system, blocking)).join('')}
+          ${mine.map((r) => bookRow(r, system, terms)).join('')}
         </div>
       </section>`;
   };
@@ -1698,15 +1707,14 @@ async function renderBook(el) {
       </div>` : ''}`;
 }
 
-function bookRow(row, system, blocking) {
+function bookRow(row, system, terms) {
   const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
-  const flags = (row.flags ?? []).filter((x) => blocking.has(x));
 
   return `
     <a class="grouprow" href="#/customers/${esc(row.customerId)}">
       <span class="grouprow__main">
-        <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}
-          ${flags.map((x) => `<span class="flag flag--block">${esc(x)}</span>`).join('')}</span>
+        <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
+        ${flagsUi.blockChips({ flags: row.flags ?? [], terms })}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}

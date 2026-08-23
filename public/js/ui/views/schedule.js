@@ -46,9 +46,8 @@ import { blockedDates } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
 } from '../../domain/visits.js';
-import {
-  annotateOptions, contraindicationTerms, equipmentLimitLabel,
-} from '../../domain/contraindications.js';
+import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
+import * as flagsUi from '../components/flags.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
@@ -175,7 +174,7 @@ async function paintStart(el) {
   );
 }
 
-/** 'YYYY-MM' → '9月'。她講的是「九月的表」，不是「2026-09 的表」。 */
+/** 「還沒壓完的」那一段裡的一列。 */
 function openRow(b) {
   const p = progressOf(b);
   return `<li><button class="row-link" type="button" data-open-batch="${esc(b.id)}">
@@ -709,33 +708,27 @@ function custCard(row, isSelected) {
 /**
  * 會真的擋掉器材的那幾個永久限制，加上一句「所以還剩什麼」。
  *
- * **只放會擋的那幾個。** 「固定禮拜五不行」也是永久限制，但它不擋任何器材，
- * 而它會出現在記錄面板上（那裡才是需要對照它的地方）。卡片牆上放進去的話，
- * 紅色就從「有東西被硬性擋住」變成「這個人有一些條件」，而那兩件事的
- * 急迫度差很多。
- *
- * 那一句是算出來的（`equipmentLimitLabel()`），不是打字打的 ——
- * 器材主檔上的禁忌一改，它跟著改。
+ * 畫法在 `ui/components/flags.js`，跟待辦的「壓表登記」那一頁共用（ADR-0046）——
+ * 一邊紅一邊灰的話，那一顆的整個意義（掃過去一眼分得出誰被硬性擋住）就沒了。
+ * 這裡只負責把這位客戶的擇一池換算成器材物件。
  */
 function blockChips(row) {
   const equipment = ctx?.all?.equipment ?? [];
-  const blocking = new Set(contraindicationTerms(equipment));
-  const flags = (row.flags ?? []).filter((x) => blocking.has(x));
-  if (!flags.length) return '';
-
   const pool = (row.pools ?? []).find((p) => p.type === 'pool');
-  const options = (pool?.optionEquipmentIds ?? [])
-    .map((id) => equipment.find((e) => e.id === id))
-    .filter(Boolean);
-  const limit = equipmentLimitLabel({ flags: row.flags ?? [] }, options);
+  const options = pool
+    ? (pool.optionEquipmentIds ?? []).map((id) => equipment.find((e) => e.id === id)).filter(Boolean)
+    : null;
 
-  return `
-    <span class="blockchips">
-      ${flags.map((x) => `<span class="flag flag--block">${esc(x)}</span>`).join('')}
-      ${limit
-        ? `<span class="flag ${limit.left ? 'flag--left' : 'flag--block'}">${esc(limit.text)}</span>`
-        : ''}
-    </span>`;
+  return flagsUi.blockChips({ flags: row.flags ?? [], terms: blockingTerms(), options });
+}
+
+/**
+ * 會擋掉器材的那幾個字。**一批算一次**，不是一張卡算一次 ——
+ * 卡片牆一次畫二十幾張，而器材主檔在一批之內不會變。
+ */
+function blockingTerms() {
+  ctx.terms ??= contraindicationTerms(ctx?.all?.equipment ?? []);
+  return ctx.terms;
 }
 
 /**

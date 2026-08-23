@@ -482,6 +482,18 @@ describe('這個月還有誰沒壓表', () => {
     assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee']);
   });
 
+  // `bookingSystemsForVisit()` 對認不得的課程會猜 Abovee，這一支刻意相反：
+  // 兩邊問的問題不一樣，而猜錯的方向在這裡是把一位該壓的客戶整個抹掉。
+  test('認不得的課程不算「已經壓過」—— 少一位該壓的人比多一位嚴重', () => {
+    const rows = book({
+      visitsBy: {
+        c1: [{ id: 'v1', status: 'confirmed', date: '2026-09-03', slots: [{ courseId: 'ghost' }] }],
+      },
+    });
+    assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee'],
+      '她停用一個課程，用過那個課程的客戶不該從清單上消失');
+  });
+
   test('剩餘次數 0 的額度不算，整位次數用完就不列', () => {
     const rows = book({ entitlementsBy: { c1: [pool({ doneCount: 12 })] } });
     assert.deepEqual(rows, []);

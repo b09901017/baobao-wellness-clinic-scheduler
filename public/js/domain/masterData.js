@@ -140,6 +140,13 @@ const validators = {
       errors.push('一個課程不會同時要選器材又要選點滴品項');
     }
 
+    // 來訪當天要不要請客人簽療程單。沒有這個欄位就是要簽（`visits.needsForm()`），
+    // 所以這裡只擋型別 —— 存成字串的話 `!== false` 會判成「要簽」，
+    // 而她明明關掉了。SPEC 第 7 節規則 9。
+    if (r.needsTreatmentForm !== undefined && typeof r.needsTreatmentForm !== 'boolean') {
+      errors.push('「要不要簽療程單」只能是是或否');
+    }
+
     // 做完之後要再約一次的那個課程（健檢 → 二返）。指到不存在的課程，
     // 額度就配不出來，而配不出來在畫面上跟「這位客戶沒買健檢」長得一模一樣。
     // 見 domain/followups.js 與 ADR-0022。

@@ -68,7 +68,13 @@ export function field({ value = null } = {}) {
     </div>`;
 }
 
-/** 現在選的是哪一天。沒選回 null（不是空字串）。 */
+/**
+ * 現在選的是哪一天。沒選回 null（不是空字串）—— 空字串在日曆的查詢上
+ * 跟 null 是兩件事（`domain/notes.js` 的 `normalize()`）。
+ *
+ * 讀第一個就好：呼叫端一次送一份表單，而一份表單只有一個日期欄。
+ * 要讀某一份特定的就把那一份的容器傳進來，不要傳整頁。
+ */
 export function read(root) {
   return root?.querySelector('[data-nd-input]')?.value || null;
 }
@@ -77,11 +83,23 @@ export function read(root) {
  * 掛上互動。回傳一支 `set(iso)`，讓呼叫端在存完之後把它清回沒有日期。
  *
  * 事件用委派掛在 `[data-notedate]` 上，所以呼叫端把整塊重畫也不會漏掛。
+ *
+ * **一個 root 底下有幾個就綁幾個。** 今天每一頁都只有一塊（泡泡那一塊在
+ * `document.body` 底下的面板裡，不在頁面的 root 裡），但只綁第一個是一個
+ * 沒有人會發現的假設 —— 下一個人把面板改成 inline，第二塊就靜靜不會動了。
+ * `set()` 會一起清掉全部。
  */
 export function wire(root) {
-  const box = root?.querySelector('[data-notedate]');
-  if (!box) return { set: () => {} };
+  const boxes = [...(root?.querySelectorAll('[data-notedate]') ?? [])];
+  if (!boxes.length) return { set: () => {} };
+  if (boxes.length > 1) {
+    const each = boxes.map((box) => wireOne(box));
+    return { set: (iso) => each.forEach((w) => w.set(iso)) };
+  }
+  return wireOne(boxes[0]);
+}
 
+function wireOne(box) {
   const input = box.querySelector('[data-nd-input]');
   const label = box.querySelector('[data-nd-label]');
   const picked = box.querySelector('.notedate__picked');

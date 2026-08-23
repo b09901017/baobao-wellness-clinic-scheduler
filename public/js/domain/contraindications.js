@@ -79,7 +79,9 @@ export function validateSlots(customer, slots, equipmentById) {
  * @param {{flags?: string[]}} customer
  * @param {{id:string, name:string, contraindications?: string[]}[]} equipmentOptions
  *   這位客戶擇一池裡的那幾台。沒有擇一池就傳空陣列，回 null。
- * @returns {{text: string, blocked: number, left: number}|null}
+ * @returns {{text: string, blockedCount: number, leftCount: number}|null}
+ *   兩個數字帶 `Count` 是刻意的 —— 呼叫端拿它們當「還剩幾台」用，
+ *   而 `blocked` / `left` 這種名字讀起來像器材的清單。
  */
 export function equipmentLimitLabel(customer, equipmentOptions = []) {
   const annotated = annotateOptions(customer, equipmentOptions);
@@ -95,7 +97,7 @@ export function equipmentLimitLabel(customer, equipmentOptions = []) {
     return `不能用 ${blocked.map((eq) => eq.name).join('、')}`;
   })();
 
-  return { text, blocked: blocked.length, left: left.length };
+  return { text, blockedCount: blocked.length, leftCount: left.length };
 }
 
 /**

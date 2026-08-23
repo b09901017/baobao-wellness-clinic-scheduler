@@ -113,14 +113,21 @@ export function bookingSystemFor(category) {
   return ruleFor(category).bookAt;
 }
 
-/** 一筆來訪動到了哪幾個系統的壓表登記。取消時要回去放掉的就是這幾個。 */
+/**
+ * 一筆來訪動到了哪幾個系統的壓表登記。取消時要回去放掉的就是這幾個。
+ *
+ * **認不得的課程照樣算一個**，用預設的 Abovee。這一支之前是 `continue`，
+ * 那是錯的：這裡不確定的只有「壓在哪個系統」，而「有沒有壓過」是確定的 ——
+ * 那筆來訪存在就代表壓過了（ADR-0041 的整個前提）。跳過等於在課程主檔
+ * 被刪掉的那幾筆上，把 ADR-0041 要補的洞原樣留著，而那個時段是真的還被佔著。
+ *
+ * 猜錯的代價是一張寫著錯系統的提醒，她看得懂；不猜的代價是一個時段
+ * 永遠佔在那裡而畫面上什麼都沒說。
+ */
 export function bookingSystemsForVisit(visit, coursesById = {}) {
   const out = new Set();
   for (const slot of visit?.slots ?? []) {
-    const course = coursesById[slot.courseId];
-    // 認不得的課程不猜。它可能是被刪掉的主檔，而那時候連「有沒有壓過」都不知道。
-    if (!course) continue;
-    out.add(bookingSystemFor(course.category));
+    out.add(bookingSystemFor(coursesById[slot.courseId]?.category));
   }
   return [...out];
 }
