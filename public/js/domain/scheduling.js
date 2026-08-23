@@ -18,6 +18,7 @@ import { annotateOptions } from './contraindications.js';
 import { overlaps, toMinutes } from './visitTime.js';
 import { daysBetween, isValidDate, lastDayOf } from './dates.js';
 import { readMarks } from './customerMarks.js';
+import { bookingSystemFor } from './taskRules.js';
 
 export const DEFAULT_WEIGHTS = { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 };
 
@@ -465,6 +466,91 @@ export function customersToAsk({
     return String(a.lastAskedAt ?? '').localeCompare(String(b.lastAskedAt ?? ''))
       || String(a.customerName).localeCompare(String(b.customerName), 'zh-TW');
   });
+}
+
+/**
+ * 這個月還有誰沒壓表，以及那一位要去哪個系統登記。
+ *
+ * 待辦中心那一列「壓表登記」（SPEC 第 8.1 節）。跟 `customersToAsk()` 一樣
+ * 是**推導出來的提醒，不是佇列**：它不排序、不計分，只回答「還有誰」。
+ * 「先壓誰」是壓表那一頁的事（ADR-0028 的同一個理由）。
+ *
+ * **按系統分，不是按課程分。** 一位客戶身上可能同時有健檢與復能還沒排，
+ * 而那是要分別去做的兩件事：健檢直接在 Examine 上登記，其餘在 Abovee 上
+ * 壓格子（ADR-0041）。所以同一位客戶兩區都會出現，那是對的。
+ *
+ * 剩餘次數讀計數欄位不現算（ADR-0004：清單頁讀快取）—— 這一列是提醒，
+ * 不是對帳。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.customers 在服務中的客戶
+ * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
+ * @param {Record<string, object[]>} ctx.visitsBy 客戶 id → 來訪
+ * @param {Record<string, object>} ctx.coursesById 課程主檔
+ * @param {string} ctx.targetMonth 'YYYY-MM'
+ * @returns {{customerId:string, customerName:string, priority:number,
+ *            flags:string[], marks:object[],
+ *            systems:{system:string, pools:{label:string, remaining:number}[]}[]}[]}
+ */
+export function customersToBook({
+  customers = [], entitlementsBy = {}, visitsBy = {}, coursesById = {}, targetMonth,
+}) {
+  const range = monthRange(targetMonth);
+  if (!range) return [];
+
+  const rows = [];
+
+  for (const customer of customers) {
+    if (customer.active === false || customer.deletedAt) continue;
+
+    const { pools } = customerPools({ entitlements: entitlementsBy[customer.id] ?? [] });
+    const visits = visitsBy[customer.id] ?? [];
+
+    // 這個月已經動過哪幾個系統。一位客戶這個月已經排了復能，Abovee 那一區
+    // 就沒有他了 —— 她那一格已經壓過了。
+    const booked = new Set();
+    for (const v of visits) {
+      if (!isActive(v) || !isValidDate(v.date) || v.date < range.from || v.date > range.to) continue;
+      for (const slot of v.slots ?? []) {
+        booked.add(bookingSystemFor(coursesById[slot.courseId]?.category));
+      }
+    }
+
+    const bySystem = new Map();
+    for (const pool of pools) {
+      if (pool.remaining <= 0) continue;
+      const system = bookingSystemFor(systemCategoryOf(pool, coursesById));
+      if (booked.has(system)) continue;
+      if (!bySystem.has(system)) bySystem.set(system, []);
+      bySystem.get(system).push({ label: pool.label, remaining: pool.remaining });
+    }
+
+    if (!bySystem.size) continue;
+
+    rows.push({
+      customerId: customer.id,
+      customerName: customer.name,
+      priority: customer.priority ?? 0,
+      flags: customer.flags ?? [],
+      marks: readMarks(customer),
+      systems: [...bySystem].map(([system, poolsIn]) => ({ system, pools: poolsIn })),
+    });
+  }
+
+  return rows.sort((a, b) =>
+    String(a.customerName).localeCompare(String(b.customerName), 'zh-TW'));
+}
+
+/**
+ * 一份額度對應到哪個課程類別。
+ *
+ * 擇一池沒有 `courseId`（ADR-0005），它對應的是「需要選器材的課程」＝ 復能，
+ * 而那是 C 類。這裡不去反查主檔 —— 池子只有這一種，多繞一圈只是多一個
+ * 對不上就靜默出錯的接縫。
+ */
+function systemCategoryOf(pool, coursesById) {
+  if (pool.type === 'pool') return 'C';
+  return coursesById[pool.courseId]?.category ?? null;
 }
 
 // ---------- 批次 ----------

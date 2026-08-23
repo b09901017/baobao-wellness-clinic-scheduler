@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
   strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
+  customersToBook,
   sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS,
 } from '../public/js/domain/scheduling.js';
 
@@ -396,6 +397,120 @@ describe('卡片牆換一種排法', () => {
   test('每一種排法都有人話標籤，畫面上才寫得出來', () => {
     assert.ok(QUEUE_SORTS.every((s) => s.id && s.label));
     assert.equal(QUEUE_SORTS[0].id, 'default');
+  });
+});
+
+// 待辦中心的「壓表登記」。她的第三步，發生在問到時間之後。
+describe('這個月還有誰沒壓表', () => {
+  const MONTH = '2026-09';
+
+  const COURSES = {
+    'course-checkup': { id: 'course-checkup', category: 'B' },   // 健檢 → Examine
+    'course-iv-laser': { id: 'course-iv-laser', category: 'C' }, // 靜脈 → Abovee
+    'course-inbody': { id: 'course-inbody', category: null },    // Inbody → Abovee
+  };
+
+  const person = (id, name) => ({ id, name, active: true });
+  const pool = (over = {}) => ({ id: 'e1', type: 'pool', label: '復能', totalQty: 12, doneCount: 0, bookedCount: 0, ...over });
+  const single = (over = {}) => ({ id: 'e2', type: 'single', label: '靜脈', courseId: 'course-iv-laser', totalQty: 20, doneCount: 0, bookedCount: 0, ...over });
+  const checkup = (over = {}) => ({ id: 'e3', type: 'single', label: '健檢', courseId: 'course-checkup', totalQty: 2, doneCount: 0, bookedCount: 0, ...over });
+
+  const book = (over = {}) => customersToBook({
+    customers: [person('c1', '王小明')],
+    entitlementsBy: { c1: [pool()] },
+    visitsBy: {},
+    coursesById: COURSES,
+    targetMonth: MONTH,
+    ...over,
+  });
+
+  test('復能與靜脈都壓在 Abovee，健檢自己一區', () => {
+    const rows = book({ entitlementsBy: { c1: [pool(), single(), checkup()] } });
+    assert.equal(rows.length, 1);
+
+    const systems = Object.fromEntries(rows[0].systems.map((x) => [x.system, x.pools.map((p) => p.label)]));
+    assert.deepEqual(Object.keys(systems).sort(), ['Abovee', 'Examine']);
+    assert.deepEqual(systems.Abovee.sort(), ['復能', '靜脈']);
+    assert.deepEqual(systems.Examine, ['健檢']);
+  });
+
+  test('沒有類別的課程（Inbody、諮詢）也在 Abovee 那一區', () => {
+    const rows = book({
+      entitlementsBy: { c1: [single({ id: 'e9', label: 'Inbody', courseId: 'course-inbody' })] },
+    });
+    assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee']);
+  });
+
+  test('這個月排過健檢，Examine 那一區就沒有他了，Abovee 那一區還在', () => {
+    const rows = book({
+      entitlementsBy: { c1: [pool(), checkup()] },
+      visitsBy: {
+        c1: [{ id: 'v1', status: 'confirmed', date: '2026-09-03', slots: [{ courseId: 'course-checkup' }] }],
+      },
+    });
+    assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee']);
+  });
+
+  test('兩種都排過了就整位不列', () => {
+    const rows = book({
+      entitlementsBy: { c1: [pool(), checkup()] },
+      visitsBy: {
+        c1: [{
+          id: 'v1', status: 'confirmed', date: '2026-09-03',
+          slots: [{ courseId: 'course-checkup' }, { courseId: 'course-iv-laser' }],
+        }],
+      },
+    });
+    assert.deepEqual(rows, []);
+  });
+
+  test('別的月份排的不算', () => {
+    const rows = book({
+      visitsBy: {
+        c1: [{ id: 'v1', status: 'confirmed', date: '2026-08-30', slots: [{ courseId: 'course-iv-laser' }] }],
+      },
+    });
+    assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee']);
+  });
+
+  test('取消掉的來訪不算壓過 —— 那個時段已經還回去了', () => {
+    const rows = book({
+      visitsBy: {
+        c1: [{ id: 'v1', status: 'cancelled', date: '2026-09-03', slots: [{ courseId: 'course-iv-laser' }] }],
+      },
+    });
+    assert.deepEqual(rows[0].systems.map((x) => x.system), ['Abovee']);
+  });
+
+  test('剩餘次數 0 的額度不算，整位次數用完就不列', () => {
+    const rows = book({ entitlementsBy: { c1: [pool({ doneCount: 12 })] } });
+    assert.deepEqual(rows, []);
+  });
+
+  test('停用與軟刪除的客戶不算', () => {
+    for (const over of [{ active: false }, { deletedAt: 'x' }]) {
+      assert.deepEqual(book({ customers: [{ ...person('c1', '王小明'), ...over }] }), [],
+        JSON.stringify(over));
+    }
+  });
+
+  test('壞掉的月份回空陣列，不炸', () => {
+    assert.deepEqual(book({ targetMonth: 'nope' }), []);
+  });
+
+  test('照姓名排 —— 這一列不計分也不排序（ADR-0028）', () => {
+    const rows = book({
+      customers: [person('c2', '陳大文'), person('c1', '王小明')],
+      entitlementsBy: { c1: [pool()], c2: [pool({ id: 'e5' })] },
+    });
+    assert.deepEqual(rows.map((r) => r.customerName), ['陳大文', '王小明'].sort((a, b) => a.localeCompare(b, 'zh-TW')));
+  });
+
+  test('醫療禁忌跟著出來 —— 永久限制在任何畫面都不可摺疊（SPEC 4.3）', () => {
+    const rows = book({
+      customers: [{ ...person('c1', '王小明'), flags: ['體內金屬'] }],
+    });
+    assert.deepEqual(rows[0].flags, ['體內金屬']);
   });
 });
 

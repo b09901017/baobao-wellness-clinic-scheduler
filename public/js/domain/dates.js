@@ -64,6 +64,18 @@ export function daysBetween(from, to) {
 }
 
 /**
+ * 「9月」。'YYYY-MM' 與 'YYYY-MM-DD' 都吃得下。
+ *
+ * **她講的是「九月的表」，不是「2026-09 的表」**（ADR-0036 那一課）。
+ * 中間不留空白 —— 「壓 9 月的表」在一行標題裡會斷得很奇怪。
+ * 認不出來就原樣回傳，不要吐一個假的月份。
+ */
+export function monthLabel(iso) {
+  const m = Number(String(iso ?? '').slice(5, 7));
+  return m >= 1 && m <= 12 ? `${m}月` : String(iso ?? '');
+}
+
+/**
  * Firestore 的 Timestamp 與 ISO 字串都吃得下，回 'YYYY-MM-DD'（裝置當地）。
  *
  * 兩種形狀是真的會混在一起：`createdAt` 是伺服器寫的 Timestamp，

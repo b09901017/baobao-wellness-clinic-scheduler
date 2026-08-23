@@ -27,9 +27,12 @@ import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
   sortNotes, openCount, groupByCustomer, MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
-import { customersToAsk } from '../../domain/scheduling.js';
+import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
+import { contraindicationTerms } from '../../domain/contraindications.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
-import { todayISO, shortDate, daysBetween, addMonths } from '../../domain/dates.js';
+import {
+  todayISO, shortDate, daysBetween, addMonths, monthLabel,
+} from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
@@ -60,6 +63,9 @@ let sentCount = 0;
 // 「客戶填好的時間」那一列。null = 還沒載完，跟 askRows 同一個道理。
 let inboxRows = null;
 
+// 「壓表登記」那一列。null = 還沒載完，跟 askRows 同一個道理。
+let bookRows = null;
+
 // 「問這輪的時間」那一頁的分段切換：還沒發連結 / 已經發出。
 // 存在模組裡而不是網址裡 —— 它是看法，不是位置（同首頁的「總覽／依客戶」）。
 let askTab = 'todo';
@@ -73,6 +79,7 @@ export async function render(el) {
   askRows = null;
   sentCount = 0;
   inboxRows = null;
+  bookRows = null;
 
   const today = todayISO();
   let tasks;
@@ -99,6 +106,42 @@ export async function render(el) {
   paint(ctx);
   loadAsk(ctx);
   loadInbox(ctx);
+  loadBook(ctx);
+}
+
+/**
+ * 「壓表登記」那一列。跟 loadAsk 同一個作法：頁面先畫完，這一列等資料回來。
+ *
+ * 它要多讀四份（客戶、額度、這個月的來訪、課程主檔），而這一頁她一天開十幾次。
+ */
+async function loadBook(ctx) {
+  try {
+    const month = ctx.today.slice(0, 7);
+    const range = monthRange(month);
+    const [customers, entitlementsBy, visits, courses] = await Promise.all([
+      customersData.list(),
+      customersData.entitlementsByCustomer(),
+      visitsData.listBetween(range.from, range.to),
+      config.listAll('courses'),
+    ]);
+
+    const visitsBy = {};
+    for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
+
+    bookRows = customersToBook({
+      customers,
+      entitlementsBy,
+      visitsBy,
+      coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+      targetMonth: month,
+    });
+  } catch {
+    // 同 loadAsk：讀不到就當這一列不存在。它是提醒，不是這一頁的主體。
+    bookRows = [];
+  }
+
+  const slot = ctx.el.querySelector('[data-book]');
+  if (slot) slot.innerHTML = bookGroupRow(ctx.today);
 }
 
 /**
@@ -223,6 +266,7 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
       })}
       <div data-inbox>${inboxGroupRow()}</div>
       <div data-ask>${askGroupRow()}</div>
+      <div data-book>${bookGroupRow(ctx.today)}</div>
       ${kinds.map((k) => groupRow({
         href: `#/todo/${encodeURIComponent(k)}`, dot: '',
         label: k, note: kindNote(k), n: tasks.filter((t) => t.kind === k).length,
@@ -274,6 +318,26 @@ function inboxGroupRow() {
     label: '客戶填好的時間',
     note: '客戶自己填的，看過就收下',
     n: inboxRows.length,
+  });
+}
+
+/**
+ * 她流程的**第三步**：這個月還有誰沒壓表。
+ *
+ * 數字是**人數**不是系統數 —— 她問的是「還有幾個人要處理」。同一位客戶
+ * 健檢與其他都還沒排時，兩區都會出現，但這裡只算一次。
+ */
+function bookGroupRow(today) {
+  if (!bookRows?.length) return '';
+  const examine = bookRows.filter((r) => r.systems.some((x) => x.system === 'Examine')).length;
+
+  return groupRow({
+    href: '#/todo/book', dot: '',
+    label: '壓表登記',
+    note: examine
+      ? `${monthLabel(today)}還有 ${bookRows.length} 位沒排，其中 ${examine} 位是健檢`
+      : `${monthLabel(today)}還有 ${bookRows.length} 位沒排`,
+    n: bookRows.length,
   });
 }
 
@@ -662,6 +726,7 @@ const GROUPS = {
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
   ask: { title: '問這輪的時間', lead: '' },
   forms: { title: '客戶填好的時間', lead: '' },
+  book: { title: '壓表登記', lead: '' },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
@@ -682,6 +747,7 @@ export async function renderGroup(el, group) {
     return renderAsk(el);
   }
   if (group === 'forms') return formInbox.render(el);
+  if (group === 'book') return renderBook(el);
 
   const tasks = await tasksData.listOpen();
   const today = todayISO();
@@ -1322,12 +1388,25 @@ function paintClose(ctx) {
   wireClose(ctx);
 }
 
+/**
+ * 這一筆來訪裡，哪幾段**不用**簽療程單（目前只有二返）。
+ *
+ * 反過來算的理由見 `closeCard()`：要標的是例外，不是常態。
+ */
+function skipsForm(visit, coursesById) {
+  const need = new Set(formSlotIndexes(visit, coursesById));
+  return new Set((visit.slots ?? []).map((_, i) => i).filter((i) => !need.has(i)));
+}
+
 function closeCard(visit, coursesById, today) {
   const late = daysBetween(visit.date, today);
   const slots = visit.slots ?? [];
-  // 哪幾段要簽單。空的代表整筆都不用（只有二返的那一天）—— 但照樣要結案，
-  // 次數是在這裡扣的。「不用簽單」跟「不用收尾」是兩件事。
-  const forms = new Set(formSlotIndexes(visit, coursesById));
+  // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記
+  // 等於沒有標記；真正要她看到的是「這一段是例外」。整筆都不用簽時
+  // 底下那一句已經講完了，逐段就不再標一次。
+  const skip = skipsForm(visit, coursesById);
+  // 整筆都不用簽時逐段不再標一次 —— 底下那一句已經講完了
+  const mark = skip.size === slots.length ? new Set() : skip;
 
   return `
     <div class="card" style="margin: 0">
@@ -1345,14 +1424,15 @@ function closeCard(visit, coursesById, today) {
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${slots.map((sl, i) => `<span class="badge num ${forms.has(i) ? 'badge--form' : ''}">${
-          forms.has(i) ? '✍ ' : ''}${esc(timeLabel(sl))}　${
-          esc(sl.courseName ?? '')}</span>`).join('')}
+        ${slots.map((sl, i) => `<span class="badge num">${esc(timeLabel(sl))}　${
+          esc(sl.courseName ?? '')}${
+          mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
       </div>
 
-      <p class="card__note" style="margin-top: var(--space-2)">${forms.size
-        ? `請客人簽療程單（${forms.size} 段）`
-        : '門診，不用簽單 —— 來了就打勾'}</p>
+      <p class="card__note" style="margin-top: var(--space-2)">${
+        skip.size === slots.length
+          ? '不用簽療程單 —— 來了就打勾'
+          : `請客人簽療程單（${slots.length - skip.size} 段）`}</p>
 
       ${visit.status === 'pending_confirm' ? `
         <p class="card__note" style="margin-top: var(--space-3)">
@@ -1374,7 +1454,8 @@ function closeDrawerHtml(ctx) {
 
   const slots = visit.slots ?? [];
   const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
-  const forms = new Set(formSlotIndexes(visit, ctx.coursesById));
+  const allSkip = skipsForm(visit, ctx.coursesById);
+  const skip = allSkip.size === slots.length ? new Set() : allSkip;
 
   return `
     <div class="drawer-backdrop" data-backdrop>
@@ -1394,7 +1475,7 @@ function closeDrawerHtml(ctx) {
                 <span class="slotrow__main">
                   <span class="slotrow__when">${esc(timeLabel(sl))}</span>
                   <span class="slotrow__what">${esc(sl.courseName ?? '')}${
-                    forms.has(i) ? '<span class="slotrow__form">✍ 要簽單</span>' : ''}</span>
+                    skip.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
                 </span>
                 <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
                   missed ? '沒做' : '做了'}</span>
@@ -1474,6 +1555,92 @@ async function applyClose(ctx) {
   } catch {
     /* 已處理 */
   }
+}
+
+// ---------- 壓表登記那一頁 ----------
+
+/**
+ * 這個月還有誰沒壓表，分兩區：健檢直接去 Examine、其餘去 Abovee（ADR-0041）。
+ *
+ * **這一頁不排序也不計分**（ADR-0028 的同一個理由）：「先壓誰」是壓表那一頁的事，
+ * 這裡只回答「還有誰」。所以底下一顆按鈕直接跳過去。
+ */
+async function renderBook(el) {
+  const today = todayISO();
+  const month = today.slice(0, 7);
+  const range = monthRange(month);
+
+  const [customers, entitlementsBy, visits, courses, equipment] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    visitsData.listBetween(range.from, range.to),
+    config.listAll('courses'),
+    config.listAll('equipment'),
+  ]);
+
+  const visitsBy = {};
+  for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
+
+  const rows = customersToBook({
+    customers,
+    entitlementsBy,
+    visitsBy,
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    targetMonth: month,
+  });
+
+  // 哪幾個永久限制是會擋掉器材的。那幾個要紅、要跟著名字（SPEC 第 4.3 節）。
+  const blocking = new Set(contraindicationTerms(equipment));
+
+  const section = (system, title, note) => {
+    const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
+    if (!mine.length) return '';
+    return `
+      <section class="card">
+        <h2 class="card__title">${esc(title)}<span class="muted"> ${mine.length}</span></h2>
+        <p class="card__note">${esc(note)}</p>
+        <div class="groups" style="margin-top: var(--space-3)">
+          ${mine.map((r) => bookRow(r, system, blocking)).join('')}
+        </div>
+      </section>`;
+  };
+
+  el.innerHTML = `
+    ${backLink()}
+    <div class="page">
+      <h1 class="page__title">${esc(monthLabel(today))}壓表登記</h1>
+      <p class="page__lead">${rows.length
+        ? `還有 ${rows.length} 位沒排。壓好了回來按「這位壓完了」，他就會出現在「跟客人確認時間」。`
+        : '這個月每一位都排過了。'}</p>
+    </div>
+
+    <div class="stack">
+      ${section('Examine', '直接去 Examine', '健檢不佔 Abovee 的格子，直接在 Examine 上登記。')}
+      ${section('Abovee', '去 Abovee', '在 Abovee 上把時段佔住。壓完回 app 記錄。')}
+    </div>
+
+    ${rows.length ? `
+      <div class="form__actions" style="margin-top: var(--space-4)">
+        <a class="btn btn--primary" href="#/schedule">開始壓${esc(monthLabel(today))}的表</a>
+      </div>` : ''}`;
+}
+
+function bookRow(row, system, blocking) {
+  const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
+  const flags = (row.flags ?? []).filter((x) => blocking.has(x));
+
+  return `
+    <a class="grouprow" href="#/customers/${esc(row.customerId)}">
+      <span class="grouprow__main">
+        <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}
+          ${flags.map((x) => `<span class="flag flag--block">${esc(x)}</span>`).join('')}</span>
+        <span class="poolchips" style="margin-top: var(--space-1)">
+          ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
+            esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}
+        </span>
+      </span>
+      ${icon('right', { size: 18 })}
+    </a>`;
 }
 
 // ---------- 隨手記那一頁 ----------

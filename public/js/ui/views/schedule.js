@@ -49,7 +49,9 @@ import {
 import { annotateOptions } from '../../domain/contraindications.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
-import { todayISO, addMonths, addDays, shortDate, lastDayOf } from '../../domain/dates.js';
+import {
+  todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
+} from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
@@ -172,11 +174,6 @@ async function paintStart(el) {
 }
 
 /** 'YYYY-MM' → '9月'。她講的是「九月的表」，不是「2026-09 的表」。 */
-function monthLabel(targetMonth) {
-  const m = Number(String(targetMonth ?? '').slice(5, 7));
-  return m ? `${m}月` : String(targetMonth ?? '');
-}
-
 function openRow(b) {
   const p = progressOf(b);
   return `<li><button class="row-link" type="button" data-open-batch="${esc(b.id)}">
