@@ -1,7 +1,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { tasksForCategory, dueDateFor, tasksForVisit } from '../public/js/domain/taskRules.js';
+import {
+  tasksForCategory, dueDateFor, tasksForVisit, bookingSystemFor, bookingSystemsForVisit,
+} from '../public/js/domain/taskRules.js';
 import {
   isBlocked,
   blockingFlags,
@@ -14,14 +16,25 @@ import {
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
 describe('任務規則', () => {
-  test('A 類四個任務、B 類兩個、C 類只有 Abovee', () => {
-    assert.deepEqual(tasksForCategory('A'), ['打電話', 'Abovee', 'Examine', '耀聖']);
-    assert.deepEqual(tasksForCategory('B'), ['打電話', 'Examine']);
-    assert.deepEqual(tasksForCategory('C'), ['Abovee']);
+  test('確認之後只有門診那一類還要登記', () => {
+    assert.deepEqual(tasksForCategory('A'), ['Examine', '耀聖']);
+    assert.deepEqual(tasksForCategory('B'), []);
+    assert.deepEqual(tasksForCategory('C'), []);
   });
 
-  test('C 類沒有打電話 —— 舊 Apps Script 給了，那是錯的', () => {
-    assert.ok(!tasksForCategory('C').includes('打電話'));
+  test('壓表就是登記，所以 Abovee 與打電話都不是任務', () => {
+    for (const category of ['A', 'B', 'C', null, undefined]) {
+      const kinds = tasksForCategory(category);
+      assert.ok(!kinds.includes('Abovee'), `${category} 不該有 Abovee`);
+      assert.ok(!kinds.includes('打電話'), `${category} 不該有打電話`);
+    }
+  });
+
+  test('壓表登記在哪個系統：健檢是 Examine，其餘都是 Abovee', () => {
+    assert.equal(bookingSystemFor('B'), 'Examine');
+    for (const category of ['A', 'C', null, undefined, 'Z']) {
+      assert.equal(bookingSystemFor(category), 'Abovee', `${category} 該壓在 Abovee`);
+    }
   });
 
   test('未知類別回空陣列，不亂猜', () => {
@@ -46,8 +59,8 @@ describe('任務規則', () => {
     };
     const courses = { rehab: { category: 'A' }, cardio: { category: 'A' } };
     const tasks = tasksForVisit(visit, courses);
-    assert.equal(tasks.length, 4);
-    assert.equal(new Set(tasks.map((t) => t.kind)).size, 4);
+    assert.equal(tasks.length, 2);
+    assert.equal(new Set(tasks.map((t) => t.kind)).size, 2);
     assert.ok(tasks.every((t) => t.dueDate === '2026-09-09'));
   });
 
@@ -59,9 +72,27 @@ describe('任務規則', () => {
       date: '2026-09-10',
       slots: [{ courseId: 'recovery' }, { courseId: 'checkup' }],
     };
-    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' } };
+    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' }, rehab: { category: 'A' } };
     const kinds = tasksForVisit(visit, courses).map((t) => t.kind).sort();
-    assert.deepEqual(kinds, ['Abovee', 'Examine', '打電話'].sort());
+    assert.deepEqual(kinds, [], '復能與健檢確認後都沒有後續登記');
+
+    const withClinic = { ...visit, slots: [...visit.slots, { courseId: 'rehab' }] };
+    assert.deepEqual(
+      tasksForVisit(withClinic, courses).map((t) => t.kind).sort(),
+      ['Examine', '耀聖'],
+    );
+  });
+
+  test('一筆來訪動到了哪幾個系統的壓表登記', () => {
+    const courses = { recovery: { category: 'C' }, checkup: { category: 'B' } };
+    const at = (slots) => bookingSystemsForVisit({ slots }, courses).sort();
+
+    assert.deepEqual(at([{ courseId: 'recovery' }]), ['Abovee']);
+    assert.deepEqual(at([{ courseId: 'checkup' }]), ['Examine']);
+    assert.deepEqual(at([{ courseId: 'recovery' }, { courseId: 'checkup' }]),
+      ['Abovee', 'Examine'], '同一天兩種，兩個系統上真的各有一筆');
+    assert.deepEqual(at([{ courseId: 'ghost' }]), [],
+      '認不得的課程不猜 —— 連壓過沒有都不知道');
   });
 
   test('找不到課程時略過，不會炸掉', () => {

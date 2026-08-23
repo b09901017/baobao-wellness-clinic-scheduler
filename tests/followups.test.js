@@ -483,9 +483,7 @@ describe('「約二返」不歸 syncTasksForVisit 管', () => {
     assert.deepEqual(remove, []);
   });
 
-  test('健檢照樣產生它自己的 B 類任務', () => {
-    // 狀態是 confirmed 而不是 pending_confirm：登記任務要等客人確認才長出來
-    // （ADR-0027）。這一條測的是「健檢走 B 類」，不是「什麼時候長」。
+  test('健檢確認後一件登記都不長 —— 她壓的時候就在 Examine 上登記了', () => {
     const { create } = syncTasksForVisit(
       {
         id: 'v1', customerId: 'c1', customerName: '客戶甲', date: '2026-08-01',
@@ -494,10 +492,10 @@ describe('「約二返」不歸 syncTasksForVisit 管', () => {
       [],
       { coursesById: COURSES, today: '2026-07-01' },
     );
-    assert.deepEqual(create.map((t) => t.kind).sort(), ['Examine', '打電話']);
+    assert.deepEqual(create, []);
   });
 
-  test('約好的二返走一般動線：A 類的四個任務照樣產生', () => {
+  test('約好的二返走一般動線：門診的兩個登記照樣產生', () => {
     const { create } = syncTasksForVisit(
       {
         id: 'v9', customerId: 'c1', customerName: '客戶甲', date: '2026-08-20',
@@ -507,10 +505,7 @@ describe('「約二返」不歸 syncTasksForVisit 管', () => {
       [],
       { coursesById: COURSES, today: '2026-08-10' },
     );
-    assert.deepEqual(
-      create.map((t) => t.kind).sort(),
-      ['Abovee', 'Examine', '打電話', '耀聖'].sort(),
-    );
+    assert.deepEqual(create.map((t) => t.kind).sort(), ['Examine', '耀聖']);
     assert.equal(create[0].dueDate, '2026-08-19', '一般任務的死線仍然是來訪日前一天');
   });
 });

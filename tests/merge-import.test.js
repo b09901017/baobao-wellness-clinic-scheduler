@@ -421,12 +421,34 @@ test('ambiguous 要有人講出來，不然那一筆就這樣消失了', () => {
 // ---------- 待辦（.scratch/first-real-import/issues/04） ----------
 
 test('確認框上的待辦筆數只數還沒發生的那些', () => {
+  // 9/30 那筆是靜脈（C 類 → 確認後沒有後續登記），8/13 那筆已經發生 ——
+  // 兩筆都不長。壓表登記那一件她在舊系統上早就做完了，見
+  // .scratch/todo-flow-rework/issues/01
   const ahead = plan(FUTURE(), { today: '2026-08-21' });
-  // 9/30 那筆是靜脈（C 類 → Abovee 一件）；8/13 那筆已經發生，一件都不長
-  assert.equal(countNewTasks([ahead], { courses: SEED.courses, today: '2026-08-21' }), 1);
+  assert.equal(countNewTasks([ahead], { courses: SEED.courses, today: '2026-08-21' }), 0);
 
   const past = plan(CUSTOMER(), { today: '2026-08-21' });
   assert.equal(countNewTasks([past], { courses: SEED.courses, today: '2026-08-21' }), 0);
+});
+
+test('未來的門診會長出 Examine 與耀聖 —— 那兩件是真的還沒做', () => {
+  const entry = CUSTOMER();
+  entry.entitlements.push({
+    key: 'r9', type: 'single', label: '復健科醫師門診', totalQty: 2,
+    courseName: '復健科醫師門診', optionEquipmentNames: [], productName: null,
+  });
+  entry.visits.push({
+    date: '2026-09-30',
+    status: 'done',
+    slots: [{
+      entitlementKey: 'r9', courseName: '復健科醫師門診', startsAt: '10:00', endsAt: '10:30',
+      roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+      confidence: 'high', evidence: '10.復健',
+    }],
+  });
+
+  const ahead = plan(entry, { today: '2026-08-21' });
+  assert.equal(countNewTasks([ahead], { courses: SEED.courses, today: '2026-08-21' }), 2);
 });
 
 test('整位跳過的客戶不算待辦', () => {
