@@ -4,11 +4,12 @@
 // fixture 全部是編出來的匿名資料 —— 真實的合併檔含客戶姓名與健康資訊，
 // 一個字都不可以進版控（SPEC.md 第 10 節）。
 
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs, eventKind,
+  summarize, countNewTasks,
   groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -515,4 +516,46 @@ test('沒買健檢的人，行事曆上的二返照樣補不進來，而且要�
   );
   assert.equal(problems.length, 1);
   assert.match(problems[0].why, /沒有這個課程的額度/);
+});
+
+describe('行事曆上的雜事分三類', () => {
+  test('eventKind() 讀產檔那側判好的分類', () => {
+    assert.equal(eventKind({ kind: 'leave' }), 'leave');
+    assert.equal(eventKind({ kind: 'note' }), 'note');
+    assert.equal(eventKind({ kind: 'personal' }), 'personal');
+  });
+
+  // 2026-08-23 以前產的合併檔沒有 kind，那時候也還沒有「待辦」這一類。
+  // 舊檔案照樣讀得進來，只是三類變兩類。
+  test('舊的合併檔只有 category，照樣讀得進來', () => {
+    assert.equal(eventKind({ category: 'leave' }), 'leave');
+    assert.equal(eventKind({ category: 'personal' }), 'personal');
+    assert.equal(eventKind({}), 'personal');
+    assert.equal(eventKind({ kind: '亂寫的' }), 'personal');
+  });
+
+  test('休假走 events 的 category，不是另一個集合', () => {
+    const [leave, plain] = eventDocs([
+      { title: '休', startDate: '2026-09-05', endDate: '2026-09-05', allDay: true, kind: 'leave' },
+      { title: '公出', startDate: '2026-09-06', endDate: '2026-09-06', allDay: true, kind: 'personal' },
+    ]);
+    assert.equal(leave.category, 'leave');
+    assert.equal(plain.category, 'personal');
+  });
+
+  // 掛了日期的隨手記就是日曆上的待辦（ADR-0044），不是第三份資料 ——
+  // 所以這裡吐的是 notes 的形狀，不是 events 的。
+  test('待辦變成掛了日期的隨手記', () => {
+    const [note] = noteDocs([
+      { title: 'H2U電話', startDate: '2026-09-07', startTime: '14:00', kind: 'note' },
+    ]);
+    assert.equal(note.text, 'H2U電話');
+    assert.equal(note.date, '2026-09-07');
+    assert.equal(note.done, false);
+    // 隨手記存得下日期、存不下時間，而判成待辦的前提就是她沒在標題最前面寫時間
+    assert.equal(note.startTime, undefined);
+    // 認錯人會把一件雜事掛到錯的客戶身上，所以一律不掛
+    assert.equal(note.customerId, null);
+    assert.equal(note.customerName, null);
+  });
 });

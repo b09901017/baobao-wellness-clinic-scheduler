@@ -4054,3 +4054,32 @@ summary {
 .note__date--past {
   color: var(--overdue);
 }
+
+/* ---------- 合併檔匯入：那一列是哪一類 ---------- */
+
+/* 行事曆匯出的雜事分不出待辦、行事備註與休假（顏色也分不出來），所以產檔那側
+   照標題判一個建議，這裡讓她逐列改。判錯休假的代價最大 —— 那幾天會整片排不進去
+   —— 所以三顆一直攤開，不藏在下拉選單裡。 */
+.kindpick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px 30px;
+}
+
+/* 三顆並排時不要撐滿整行：`.seg__item` 預設 flex:1，那會讓三個字的按鈕
+   跟兩個字的一樣寬，掃起來反而看不出哪一顆被按下去。 */
+.kindpick .seg {
+  flex: 0 0 auto;
+}
+
+.kindpick .seg__item {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  font-size: var(--text-2xs);
+}
+
+.kindpick .muted {
+  font-size: var(--text-2xs);
+}

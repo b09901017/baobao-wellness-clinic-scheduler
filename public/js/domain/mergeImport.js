@@ -461,6 +461,53 @@ export function defaultPicks(json, today = null) {
 }
 
 /**
+ * 日曆上那三類（ADR-0045 的四類扣掉來訪）。**這是「寫到哪個集合」的分歧點**：
+ * `note` 走 `notes`，另外兩個走 `events`。
+ */
+export const EVENT_KINDS = ['note', 'personal', 'leave'];
+
+/** 給人看的名字。用 `CONTEXT.md` 的詞。 */
+export const KIND_LABEL = { note: '待辦', personal: '行事備註', leave: '休假' };
+
+/**
+ * 這一筆候選在日曆上是哪一類。
+ *
+ * 產檔那側照標題判好了（`classifyEvent()`），**但那是建議不是結論** ——
+ * 她在畫面上改掉的那一個才算數，所以這一支只負責讀檔案裡的預設值。
+ *
+ * `category` 是舊版合併檔的欄位，只認得 `leave` 與 `personal`：2026-08-23
+ * 以前產的檔案沒有 `kind`，那時候也還沒有「待辦」這一類。舊檔案照樣讀得進來，
+ * 只是三類變兩類。
+ */
+export function eventKind(candidate) {
+  const kind = candidate?.kind;
+  if (EVENT_KINDS.includes(kind)) return kind;
+  return candidate?.category === 'leave' ? 'leave' : 'personal';
+}
+
+/**
+ * 她勾起來、而且留在「待辦」那一類的那幾筆 → 隨手記。
+ *
+ * **掛了日期的隨手記就是日曆上的待辦**（ADR-0044），不是第三份資料，
+ * 所以這裡不需要再寫進 `events` 一份 —— 寫兩份就要同步兩份。
+ *
+ * 不掛客戶：行事曆上那幾筆寫的是「打電話給某某」，那個某某是誰要她自己認，
+ * 而認錯人會把一件雜事掛到錯的客戶身上（`domain/legacyImport.js` 同一個判準）。
+ * 時間丟掉是刻意的：隨手記存得下日期、存不下時間（`domain/notes.js`），
+ * 而產檔那側判待辦的前提就是「她沒在標題最前面寫時間」。
+ */
+export function noteDocs(candidates) {
+  return (candidates ?? []).map((c) => ({
+    text: norm(c.title),
+    date: c.startDate,
+    customerId: null,
+    customerName: null,
+    done: false,
+    doneAt: null,
+  }));
+}
+
+/**
  * 她勾起來的行事備註。**不綁客戶、不產生任務、不扣次數**，所以它們走 `events`
  * 不走 `visits`（ADR-0015：合成同一個集合會讓「要不要扣次數」變成到處都要判斷的分支）。
  */
@@ -474,7 +521,7 @@ export function eventDocs(candidates) {
     const start = !allDay && isValidTime(c.startTime) ? c.startTime : null;
     return {
       title: norm(c.title),
-      category: c.category === 'leave' ? 'leave' : 'personal',
+      category: eventKind(c) === 'leave' ? 'leave' : 'personal',
       startDate: c.startDate,
       // 跨天的行事備註是這個系統裡唯一可以跨天的東西（ADR-0015）。
       // 結束日比開始日早的資料進不去（firestore.rules 的 validEvent()），當成單天。

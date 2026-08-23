@@ -140,23 +140,32 @@ function withFollowupId(doc, idByKey) {
 }
 
 /**
- * 她從行事曆勾起來的行事備註。
+ * 她從行事曆勾起來的雜事。
  *
- * 跟客戶那一段不一樣，這裡**刻意分批寫**：行事備註彼此獨立（不綁客戶、不扣次數），
+ * 跟客戶那一段不一樣，這裡**刻意分批寫**：這些彼此獨立（不綁客戶、不扣次數），
  * 少進去一筆就是少一筆，不會留下半套的資料。客戶那一段之所以拒絕分批，
  * 是因為「客戶建好了、額度只進去三筆」沒有人看得出來。
  */
-export async function importEvents(docs, onProgress = null) {
+async function importLoose(path, docs, onProgress = null) {
   const CHUNK = 100; // repo.commit 的上限是 250 個操作（每筆佔兩個：本體 + 稽核）
   let done = 0;
   for (let i = 0; i < docs.length; i += CHUNK) {
     const slice = docs.slice(i, i + CHUNK);
-    await repo.commit(slice.map((data) => ({ op: 'create', path: 'events', data })));
+    await repo.commit(slice.map((data) => ({ op: 'create', path, data })));
     done += slice.length;
     onProgress?.(done, docs.length);
   }
   return done;
 }
+
+/** 行事備註與休假。兩種都是 `events`，靠 `category` 分（ADR-0045）。 */
+export const importEvents = (docs, onProgress = null) => importLoose('events', docs, onProgress);
+
+/**
+ * 日曆上的待辦。**它就是隨手記**，所以寫的是 `notes` 不是 `events`
+ * —— 日曆上那一類沒有自己的集合（ADR-0044）。
+ */
+export const importNotes = (docs, onProgress = null) => importLoose('notes', docs, onProgress);
 
 /**
  * 一張一張匯。**一位客戶失敗不會拖垮其他人** —— 每位各自一個 commit，
