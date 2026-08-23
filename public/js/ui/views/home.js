@@ -24,11 +24,13 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
-import { sortNotes, openCount, groupByCustomer } from '../../domain/notes.js';
+import {
+  sortNotes, openCount, groupByCustomer, MAX_LENGTH as NOTE_TEXT_MAX,
+} from '../../domain/notes.js';
 import { customersToAsk } from '../../domain/scheduling.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import { todayISO, shortDate, daysBetween, addMonths } from '../../domain/dates.js';
-import { wireDrag } from '../components/sheet.js';
+import { wireDrag, openSheet } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
@@ -177,9 +179,12 @@ function paint(ctx) {
     ${tab === 'all' ? overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose })
                     : byCustomerHtml(ctx, waiting)}
 
-    ${notesCard(notes)}`;
+    ${notesCard(notes)}
+
+    ${quickFab()}`;
 
   wireOverview(ctx);
+  wireQuickCapture(ctx);
   scanHealth(el);
 }
 
@@ -364,7 +369,7 @@ function notesCard(notes) {
       </div>
 
       <form data-newnote style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
-        <input type="text" name="text" maxlength="200" style="flex: 1; min-width: 0"
+        <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
                placeholder="記一筆…" aria-label="新的隨手記" />
         <button class="btn btn--primary" type="submit">記</button>
       </form>
@@ -380,6 +385,187 @@ function noteRow(n) {
         ${n.customerName ? `<span class="badge" style="margin-top: var(--space-1)">${esc(n.customerName)}</span>` : ''}
       </span>
     </button>`;
+}
+
+// ---------- 隨手記：右下角那顆泡泡 ----------
+
+/*
+ * `domain/notes.js` 的檔頭寫死了這件事的標準：「它要能在三秒內記完，
+ * 多一個必填欄位就會變成『算了我等一下再記』，然後就忘了」。
+ *
+ * 那份判斷是對的，只是**它只管到了表單裡面**。表單本身確實只要打一行字 ——
+ * 但走到那個表單前面要先捲過整頁待辦，而她要記的那句話是客人**當著她的面**
+ * 講的。三秒是從口袋掏出手機開始算，不是從捲到底開始算。
+ *
+ * 所以右下角一顆泡泡：點下去、鍵盤自己上來、打字、送出。
+ */
+
+function quickFab() {
+  return `
+    <div class="fab">
+      <button class="fab__main" type="button" data-quick aria-label="記一筆隨手記">
+        ${icon('pencil', { size: 24, width: 2 })}
+      </button>
+    </div>`;
+}
+
+function wireQuickCapture(ctx) {
+  ctx.el.querySelector('[data-quick]')?.addEventListener('click', () => openQuick(ctx));
+}
+
+/**
+ * 從底部滑出來的捕捉面板。
+ *
+ * **送出之後不關掉。** 同一位客人常常一次講三件事，關掉再點開三次
+ * 就是把剛剛省下來的又還回去。清空、焦點留著、剛記的那幾筆列在底下。
+ */
+function openQuick(ctx) {
+  // 這一趟記了哪幾筆。關掉時用它決定要不要重畫首頁 ——
+  // 什麼都沒記就不要重畫，那會白閃一下。
+  const added = [];
+
+  openSheet({
+    title: '記一筆',
+    note: '客人臨時說的小要求。沒有死線，所以它不是任務。',
+    body: quickBody(),
+    actions: '<button class="btn btn--primary btn--wide" type="button" data-save>記下來</button>',
+    onMount: (drawer) => {
+      const input = drawer.querySelector('[data-quicktext]');
+      // **同步聚焦。** onMount 是在 openSheet() 裡面同步呼叫的（在 playIn() 之前），
+      // 所以這一下還在她點泡泡那個手勢的堆疊裡，iOS 才肯把鍵盤叫出來。
+      // 包進 setTimeout 或 requestAnimationFrame 就會失效，而且是**靜靜地**失效
+      // —— 桌機上看起來完全正常。
+      input?.focus();
+
+      if (drawer.dataset.quickWired) return;
+      drawer.dataset.quickWired = '1';
+      wireQuick(drawer, ctx, added);
+    },
+    onClose: () => {
+      // 記了東西才重畫首頁：底下那張卡與數字要跟著更新
+      if (added.length) render(ctx.el);
+    },
+  });
+}
+
+function quickBody() {
+  return `
+    <input type="text" data-quicktext maxlength="${NOTE_TEXT_MAX}"
+           placeholder="例：指定 LuLu，不要排騰崴" aria-label="記什麼"
+           enterkeyhint="done" autocomplete="off" style="width: 100%" />
+
+    <div class="quickwho">
+      <button class="chip chip--sm" type="button" data-who aria-pressed="false">
+        <span data-wholabel>掛給誰？可以不掛</span>
+      </button>
+      <button class="chip chip--sm" type="button" data-whoclear hidden>不掛了</button>
+    </div>
+    <div data-wholist hidden></div>
+
+    <div data-just></div>`;
+}
+
+function wireQuick(drawer, ctx, added) {
+  // 掛給誰是選填的，所以客戶名單**點開才讀** —— 她十次有九次不掛人，
+  // 沒必要為了那一次讓每次開面板都多一次往返。
+  let customers = null;
+  let picked = null;
+
+  const input = () => drawer.querySelector('[data-quicktext]');
+  const label = () => drawer.querySelector('[data-wholabel]');
+
+  const showPicked = () => {
+    label().textContent = picked ? picked.name : '掛給誰？可以不掛';
+    drawer.querySelector('[data-who]').setAttribute('aria-pressed', String(Boolean(picked)));
+    drawer.querySelector('[data-whoclear]').hidden = !picked;
+    drawer.querySelector('[data-wholist]').hidden = true;
+  };
+
+  const openWho = async () => {
+    const box = drawer.querySelector('[data-wholist]');
+    if (!box.hidden) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    if (!customers) {
+      box.innerHTML = '<p class="muted">讀取中…</p>';
+      try {
+        customers = await customersData.list();
+      } catch {
+        box.innerHTML = '<p class="muted">讀不到客戶名單。先記下來，之後再掛人也行。</p>';
+        return;
+      }
+    }
+    box.innerHTML = `
+      <div class="chips" style="margin-top: var(--space-2)">
+        ${customers.map((c) => `
+          <button class="chip chip--sm" type="button" data-pick="${esc(c.id)}"
+                  aria-pressed="${picked?.id === c.id}">${esc(c.name)}</button>`).join('')
+        || '<span class="muted">還沒有客戶。</span>'}
+      </div>`;
+  };
+
+  const save = async () => {
+    const text = String(input()?.value ?? '').trim();
+    if (!text) {
+      input()?.focus();
+      return;
+    }
+    try {
+      await toast.withSaveState(
+        () => notesData.create({
+          text,
+          customerId: picked?.id ?? null,
+          customerName: picked?.name ?? null,
+        }),
+        { success: '記下來了' },
+      );
+    } catch {
+      return; /* withSaveState 已經顯示錯誤與重試 */
+    }
+
+    added.push(text);
+    const just = drawer.querySelector('[data-just]');
+    just.innerHTML = `
+      <p class="quickjust__head">剛剛記的 ${added.length}</p>
+      ${added.map((t) => `
+        <p class="quickjust__row">${icon('check', { size: 13, width: 3 })}
+          <span>${esc(t)}</span></p>`).join('')}`;
+
+    // 清空、焦點留在輸入框 —— 她的下一句話通常就跟在後面。
+    // **不重畫整個面板**：換掉節點就等於把鍵盤收起來再叫一次，那一下會閃。
+    input().value = '';
+    input().focus();
+  };
+
+  drawer.addEventListener('click', (e) => {
+    if (e.target.closest('[data-save]')) return save();
+    if (e.target.closest('[data-whoclear]')) {
+      picked = null;
+      showPicked();
+      return;
+    }
+    if (e.target.closest('[data-who]')) return openWho();
+
+    const pick = e.target.closest('[data-pick]');
+    if (pick) {
+      const found = (customers ?? []).find((c) => c.id === pick.dataset.pick);
+      // 再點一次同一位就取消
+      picked = picked?.id === found?.id ? null : found;
+      showPicked();
+      input()?.focus();
+    }
+    return null;
+  });
+
+  drawer.addEventListener('keydown', (e) => {
+    // 輸入法組字中的 Enter 是「確定這個字」，不是「送出」
+    if (!e.target.matches('[data-quicktext]')) return;
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    save();
+  });
 }
 
 // ---------- 資料健檢 ----------
@@ -1292,7 +1478,7 @@ function paintNotes(ctx) {
       <form data-newnote>
         <label class="field">
           <span class="field__label">記什麼</span>
-          <input type="text" name="text" maxlength="200" placeholder="例：指定 LuLu，不要排騰崴" />
+          <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" placeholder="例：指定 LuLu，不要排騰崴" />
         </label>
         ${f.select({
           name: 'customerId', label: '關於誰　可以不填', value: '',

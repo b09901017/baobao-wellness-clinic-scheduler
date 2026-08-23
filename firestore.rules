@@ -193,7 +193,11 @@ service cloud.firestore {
         && d.endDate is string
         && d.endDate.size() == 10
         && d.endDate >= d.startDate
-        && d.allDay is bool;
+        && d.allDay is bool
+        // 她自己挑的顏色（ADR-0040）。選填，所以「沒有這個欄位」是對的；
+        // 有的話擋掉形狀不對的。認得哪幾個名字是 domain 的事，
+        // Rules 這裡只擋「連字串都不是」—— 這一層守的是形狀，不是詞彙表。
+        && (!('color' in d) || d.color == null || d.color is string);
     }
 
     match /events/{eventId} {

@@ -8,6 +8,7 @@ import * as preferences from './views/preferences.js';
 import * as home from './views/home.js';
 import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
+import * as customersBulk from './views/customersBulk.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as progress from './views/progress.js';
 import * as visitEditor from './views/visitEditor.js';
@@ -39,6 +40,9 @@ register('/todo/:group', {
 });
 
 register('/customers/new', { title: '新增客戶', nav: false, render: customers.renderNew });
+register('/customers/bulk', {
+  title: '快速建立一群', nav: false, render: customersBulk.render,
+});
 // 註冊在 /customers/:id 前面。router 先試完全相符再試樣板，所以順序其實不影響，
 // 但擺在一起看得出「progress 不是某位客戶的 id」。
 register('/customers/progress', { title: '進度追蹤', nav: false, render: progress.render });

@@ -137,15 +137,26 @@ export async function listDeletedAvailability() {
  * @param {{plan?: object|null, quantity?: number}} [purchase]
  * @returns {Promise<string>} 新客戶的 id
  */
-export async function createWithPlan(customer, { plan = null, quantity = 1 } = {}) {
+export async function createWithPlan(customer, { plan = null, quantity = 1, extras = [] } = {}) {
   const id = repo.newId(PATH);
 
+  // `extras` 是方案之外的單項加購（批次建立那一頁的「微調」用，
+  // 也可以是「不套方案、只買復能」那種整批沒有方案的路）。
+  //
+  // **它們一定要跟方案展開的那幾筆走同一條路**，因為底下的 `missingPairs()`
+  // 要看得到它們：加購的健檢也有二返（ADR-0022）。另外寫一支去建加購的話，
+  // 那幾筆健檢就會少掉二返，而那件事要等她幾週後真的要記一筆二返才會被發現
+  // —— README 記過這個代價。
+  //
   // 額度的 id 先拿出來，因為二返那一筆要指回它配的是哪一筆健檢
   // （`followupForEntitlementId`），而那個 id 必須先於寫入存在。
-  const entitlements = expandPlan(plan, quantity, {
-    purchasedAt: customer.purchasedAt ?? null,
-    expiresAt: customer.membershipExpiresAt ?? null,
-  }).map((data) => ({ id: repo.newId(entPath(id)), data }));
+  const entitlements = [
+    ...expandPlan(plan, quantity, {
+      purchasedAt: customer.purchasedAt ?? null,
+      expiresAt: customer.membershipExpiresAt ?? null,
+    }),
+    ...extras,
+  ].map((data) => ({ id: repo.newId(entPath(id)), data }));
 
   const courses = await config.listAll('courses', { includeDeleted: true });
   const pairs = missingPairs(

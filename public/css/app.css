@@ -639,6 +639,28 @@ textarea {
   font-size: var(--text-xs);
 }
 
+/* 落在「他說這天上午不行」那半天的時間丸子。
+   **標起來，不 disable** —— 唯一會鎖住選項的是醫療禁忌（SPEC 第 4.7 節），
+   而原文永遠比解析結果大（第 4.3 節）：解析錯的時候她要有辦法照樣排下去。
+   所以樣子要看得出「這顆怪怪的」，但不可以看起來像壞掉的按鈕。 */
+.chip--halfoff {
+  border-style: dashed;
+  border-color: var(--overdue);
+  color: var(--overdue);
+}
+
+/* 她還是挑了那半天的時間。選中的樣子要先讀得出「我挑了這個」，
+   所以照樣是填滿的實心丸 —— 只是填的是紅的，不是墨綠的。
+   （不可以只覆蓋 background：`.chip[aria-pressed='true']` 把字改成白的了，
+   白字配淡粉底是看不見的。） */
+.chip--halfoff[aria-pressed='true'] {
+  background: var(--overdue);
+  border-color: var(--overdue);
+  border-style: solid;
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
 /* 選了會真的擋掉器材的那幾顆（體內金屬）。選中不用墨綠 ——
    墨綠在這一站是「好了、完成」，而這顆的意思是「這台不能用」。 */
 .chip--hard[aria-pressed='true'] {
@@ -752,6 +774,12 @@ textarea {
   flex-direction: column;
   align-items: flex-end;
   gap: var(--space-2);
+}
+
+/* 作者寫的 `display: flex` 會蓋掉瀏覽器對 `[hidden]` 的 `display: none`，
+   所以收起來的選單其實一直開著。要自己再擋一次。 */
+.fab__menu[hidden] {
+  display: none;
 }
 
 .fab__item {
@@ -1079,6 +1107,15 @@ button.mark::after {
   content: '';
   position: absolute;
   inset: -5px;
+}
+
+/* 「不挑，跟著類別走」那一顆（個人行程的顏色，ADR-0040）。
+   空心圈而不是實心點 —— 它長成那一類本來的顏色，而那個顏色也在底下六顆裡面
+   （個人行程預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
+   空心講的是「這不是一個顏色選擇」。 */
+.swatch--auto::before {
+  background: transparent;
+  border: 3px solid var(--mark);
 }
 
 .swatch[aria-pressed='true'] {
@@ -1573,9 +1610,12 @@ button.mark::after {
 /* 你自己休假。跟日曆上的個人行程同一個霧藍（ADR-0015）——
    同樣排不進去，但那不是客戶的限制。 */
 .minical__cell--away {
-  background: var(--slate-soft);
-  border-color: var(--slate-soft);
-  color: var(--slate);
+  /* 跟日曆上的休假同一組顏色與同一條斜線紋 —— 講的就是同一件事（她不在）。
+     顏色與紋路都住在 tokens.css，這裡不再抄一份色碼（ADR-0039）。 */
+  background-color: var(--event-leave-bg);
+  background-image: var(--stripe-leave);
+  border-color: var(--event-leave-bg);
+  color: var(--event-leave);
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }
@@ -1599,6 +1639,57 @@ button.mark::after {
   border-width: 2px;
   font-weight: 700;
 }
+
+/* 只有半天不行。**這一種點得下去** —— 那天真的排得進去，只是要挑另外半天
+   （`availableDates()` 也是這樣算的），所以它不是 --off 的第四個成員，
+   而是疊在正常格子上的一層。
+
+   畫法跟客戶自己填的那一頁同一招（form.css 的 .cell--am/.cell--pm）：
+   被擋的那半邊塗紅、另一半留白。**兩處的 52% / 48% 是為了讓中線壓在數字上
+   看起來不歪，抄過來就照抄，不要改成 50%。**
+
+   跟 --ban 的差別要一眼看得出來：--ban 是整格劃掉（整天不行），
+   這裡只在被擋的那半邊劃一條線。整格劃掉的意思是整天，兩者不可以長一樣。 */
+.minical__cell--half {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--overdue-bg);
+}
+
+.minical__cell--half-am {
+  background: linear-gradient(to bottom, var(--overdue-bg) 50%, var(--surface) 50%);
+  /* 數字往下擠進還可以排的那半邊。**格子裡數字站的位置就是他還有空的那半天** ——
+     這是這一格上最省事的一個線索，不必先讀那兩個字就看得出來。 */
+  padding-top: 11px;
+}
+
+.minical__cell--half-pm {
+  background: linear-gradient(to bottom, var(--surface) 50%, var(--overdue-bg) 50%);
+  padding-bottom: 11px;
+}
+
+/* 「上午」/「下午」兩個字。三件事一起做到：
+   1. **不可以只靠顏色** —— 她是在窗邊反光的地方看這一格（同 --ban 那段的理由）
+   2. **那兩個字要待在它講的那半邊**，不然「上午」印在下半格等於在講反話
+   3. **劃掉的是那兩個字，不是數字** —— --ban 劃的是數字，意思是「整天不行」，
+      兩者長一樣她就分不出半天與整天
+
+   絕對定位而不是排進 flex：flex 會把數字、字、點三個當成一組置中，
+   那個字就會落在中線附近，剛好是最看不出它屬於哪半邊的位置。 */
+.minical__half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--overdue);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.minical__cell--half-am .minical__half { top: 4px; }
+.minical__cell--half-pm .minical__half { bottom: 4px; }
 
 .minical__dot {
   width: 4px;
@@ -1644,9 +1735,15 @@ button.mark::after {
   border-color: var(--overdue);
 }
 
+.minical__swatch--half {
+  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface) 52%);
+  border-color: var(--overdue-bg);
+}
+
 .minical__swatch--away {
-  background: var(--slate-soft);
-  border-color: var(--slate);
+  background-color: var(--event-leave-bg);
+  background-image: var(--stripe-leave);
+  border-color: var(--event-leave);
 }
 
 /* ---------- 日曆 ---------- */
@@ -1768,21 +1865,48 @@ button.mark::after {
   color: var(--kind-bg);
 }
 
-/* 三種東西各自的顏色。來訪墨綠、個人行程茶、休假霧藍。 */
+/* 三種東西各自的顏色。個人行程紫、休假灰青加斜線紋。
+   顏色值在 tokens.css，那裡有為什麼不再借用語意色的完整理由（ADR-0039）。 */
 .kind-visit {
   --kind-fg: var(--accent);
   --kind-bg: var(--accent-soft);
 }
 
 .kind-personal {
-  --kind-fg: var(--tea);
-  --kind-bg: var(--tea-soft);
+  --kind-fg: var(--event-personal);
+  --kind-bg: var(--event-personal-bg);
 }
 
 .kind-leave {
-  --kind-fg: var(--slate);
-  --kind-bg: var(--slate-soft);
+  --kind-fg: var(--event-leave);
+  --kind-bg: var(--event-leave-bg);
 }
+
+/* 休假是唯一有紋路的一種。
+ *
+ * 色相輪上塞六個彼此分得開的顏色，最後兩個一定會擠在一起；而休假講的本來
+ * 就不是「這裡有一件事」，是「這幾天我不在」—— 那不是同一類東西，
+ * 用紋路比用第六個色相準確得多，而且色弱的情況下照樣成立。
+ *
+ * 疊在 --kind-bg 上而不是取代它：底色要留著，字才有對比度可用。
+ * 個人行程可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
+ * 那條紋路講的是「我不在」，不是一種配色。
+ */
+.kind-leave,
+.calfilter__item.kind-leave[aria-pressed='true'] {
+  background-image: var(--stripe-leave);
+}
+
+/* 她自己替一筆個人行程挑的顏色（ADR-0040）。
+   **排在 .kind-* 後面**：挑過的顏色要蓋掉那一類的預設色。休假挑了顏色時
+   兩個 class 都在，這裡蓋掉的是 --kind-fg / --kind-bg，
+   .kind-leave 的 background-image（斜線紋）管的是別的屬性，蓋不到。 */
+.evcolor-grey { --kind-fg: var(--evcolor-grey); --kind-bg: var(--evcolor-grey-bg); }
+.evcolor-green { --kind-fg: var(--evcolor-green); --kind-bg: var(--evcolor-green-bg); }
+.evcolor-tea { --kind-fg: var(--evcolor-tea); --kind-bg: var(--evcolor-tea-bg); }
+.evcolor-red { --kind-fg: var(--evcolor-red); --kind-bg: var(--evcolor-red-bg); }
+.evcolor-blue { --kind-fg: var(--evcolor-blue); --kind-bg: var(--evcolor-blue-bg); }
+.evcolor-violet { --kind-fg: var(--evcolor-violet); --kind-bg: var(--evcolor-violet-bg); }
 
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
    拿它當整個類別的顏色會跟正下方的圖例打架。個人行程與休假沒有這個問題，
@@ -1984,15 +2108,30 @@ button.mark::after {
   font-weight: 700;
 }
 
+/* 色條上的字**放得下就置中，放不下就靠左從右邊切**。
+ *
+ * 這裡本來是 `display: block` + `text-align: left` + `text-overflow: ellipsis`，
+ * 而且註解特別警告過不要改成 flex（省略號對 flex 容器裡的裸文字無效）。
+ * 那個警告的前提已經沒有了 —— **省略號拿掉了**：在 11px 的字、一格七分之一
+ * 螢幕寬的地方，那顆 `…` 吃掉的寬度接近兩個中文字，換來的資訊是「還有字」，
+ * 而色條被切掉這件事她一天看幾百次，本來就知道。
+ *
+ * 純粹的 `text-align: center` 是錯的：文字比格子寬的時候，置中會讓**開頭的姓
+ * 也被切掉**，而姓正是她在掃的那個字。`justify-content: safe center` 就是為了
+ * 這件事存在的關鍵字 —— 溢出時自動退回靠左。
+ *
+ * 文字包一層 span，不要當裸文字丟進 flex 容器。
+ */
 .monthbar {
-  /* 刻意用 block 不用 flex：text-overflow 的省略號對 flex 容器裡的裸文字無效，
-     名字會被從中間切一半 —— 那看起來像畫面壞了，不像「還有字」。 */
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
   min-height: 15px;
   line-height: 15px;
   /* grid 項目預設 min-width:auto，長名字會把色條撐出格子外蓋到隔壁天。 */
   min-width: 0;
-  padding: 0 4px;
+  /* 左右各讓 3px 而不是 4px —— 省下來的寬度拿去放字。 */
+  padding: 0 3px;
   /* 疊在那一天的按鈕上面，但不吃點擊 —— 點名字跳去別的畫面是最容易誤觸的
      一種設計，那一格從頭到尾只做一件事：打開那一天（ADR-0020）。 */
   position: relative;
@@ -2000,16 +2139,23 @@ button.mark::after {
   pointer-events: none;
   border: none;
   font: inherit;
-  text-align: left;
   border-radius: 4px;
-  background: var(--kind-bg);
+  /* background-color 而不是 background —— 簡寫會把 .kind-leave 疊上去的
+     斜線紋（background-image）一起重設掉。 */
+  background-color: var(--kind-bg);
   color: var(--kind-fg);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.monthbar__t {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
+  /* 切掉就切掉。省略號的位置留給字。 */
+  text-overflow: clip;
 }
 
 .monthmore {
@@ -2131,7 +2277,8 @@ button.mark::after {
   text-align: left;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--kind-bg);
+  /* 同 .monthbar：簡寫會洗掉休假的斜線紋。 */
+  background-color: var(--kind-bg);
   color: var(--kind-fg);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -3480,4 +3627,216 @@ summary {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---------- 一次建立一群客戶 ---------- */
+
+/* 名單。一列一位，右邊兩顆小鈕。
+   她一批要看八到二十列，所以一列的高度只夠放名字 —— 微調過的那幾列才會長高。 */
+.roster {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+.roster__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.roster__row:first-child {
+  border-top: none;
+}
+
+.roster__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roster__name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 微調過的那一列多這一行。**沒動過的什麼都不寫** —— 「跟大家一樣」是預設，
+   八列各掛一個「跟大家一樣」的話，那一頁就只剩下那八個標籤看得到。 */
+.roster__note {
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+}
+
+.roster__warn {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: var(--text-2xs);
+  color: var(--overdue);
+}
+
+.roster__x {
+  flex: 0 0 auto;
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 視覺 30px，感應範圍撐回 44px —— 同第 8.0 節那條規矩 */
+.roster__x::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+/* 打名字那一列。輸入框吃掉剩下的寬度，按鈕不縮。 */
+.rosteradd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rosteradd > input[type='text'],
+.rosteradd > select {
+  flex: 1;
+  min-width: 0;
+}
+
+.rosteradd > .btn {
+  flex: 0 0 auto;
+}
+
+/* 收起來的一段。預設收著，點開才展開。 */
+.foldout {
+  margin: var(--space-3) 0;
+}
+
+.foldout > summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.foldout > summary::marker,
+.ban__more > summary::marker {
+  color: var(--text-mute);
+}
+
+/* `display: flex` 會把 `::marker` 整個吃掉，所以那個三角形一直沒有出現過 ——
+   一個沒有任何記號的 summary 看起來就是一行灰字，沒有人會知道它點得開。
+   自己補一個箭頭，展開時轉 90 度。 */
+.foldout > summary::after,
+.ban__more > summary::after {
+  content: '›';
+  margin-left: var(--space-2);
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--text-mute);
+  transition: transform 0.12s ease;
+}
+
+.foldout[open] > summary::after,
+.ban__more[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+/* 懸浮鈕選單裡那顆圓的圖示底。原本是寫在 calendar.js 的 inline style 裡，
+   第二個地方要用（客戶那一頁的兩條路）就該有名字了。 */
+.fab__dot {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.fab__dot--tea {
+  background: var(--tea);
+  color: var(--surface);
+}
+
+/* 「這一批共同的」那一塊的抬頭。填完之後收成一行摘要 ——
+   她接下來只會打名字，那一塊在手機上佔掉大半頁。 */
+.sharedhead {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.sharedhead__title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/* 展開的時候摘要就沒必要了 —— 底下那幾欄寫著同樣的東西 */
+.sharedhead__digest {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-shared][open] .sharedhead__digest {
+  display: none;
+}
+
+/* ---------- 隨手記的捕捉面板 ---------- */
+
+.quickwho {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.quickjust__head {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+/* 剛剛記的那幾筆。她一次常常記三件事，看得到記了什麼才知道沒有漏。 */
+.quickjust__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.quickjust__row svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--accent);
 }

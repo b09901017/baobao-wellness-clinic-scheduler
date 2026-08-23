@@ -13,6 +13,9 @@ import {
   inRange,
   isLeave,
   kindClass,
+  colorClass,
+  paintClass,
+  EVENT_COLORS,
   layoutMonth,
   lengthInDays,
   overlapsRange,
@@ -274,4 +277,55 @@ test('認不得的類別原樣顯示，不要吞掉', () => {
 
 test('類別清單只有兩種，而且是實質的分別', () => {
   assert.deepEqual(CATEGORIES.map((c) => c.id), ['personal', 'leave']);
+});
+
+// ---------- 她自己挑的顏色（ADR-0040） ----------
+
+test('挑過顏色就用挑的，沒挑就用那一類本來的', () => {
+  assert.equal(paintClass(ev({ color: 'violet' })), 'evcolor-violet');
+  assert.equal(paintClass(ev({ color: null })), 'kind-personal');
+  assert.equal(paintClass(ev({ category: 'leave' })), 'kind-leave');
+});
+
+test('認不得的顏色不讓畫面壞掉，落回那一類的預設色', () => {
+  // 顯示端的寬容是為了已經存在的資料 —— 2026-08 以前建的行程身上
+  // 根本沒有這個欄位，那些不是壞資料。
+  assert.equal(colorClass(ev({ color: 'chartreuse' })), '');
+  assert.equal(colorClass(ev({})), '');
+  assert.equal(colorClass(null), '');
+  assert.equal(paintClass(ev({ color: 'chartreuse' })), 'kind-personal');
+});
+
+test('休假挑了顏色，斜線紋還在 —— 那條紋路講的是「她不在」，不是配色', () => {
+  const painted = paintClass(ev({ category: 'leave', color: 'red' }));
+  assert.ok(painted.includes('evcolor-red'), '顏色要換成她挑的');
+  assert.ok(painted.includes('kind-leave'), '.kind-leave 要留著，斜線紋掛在它身上');
+});
+
+test('存檔時不寬容：挑了就要是認得的那六個之一', () => {
+  const base = { title: '公出', category: 'personal', startDate: '2026-09-01',
+    endDate: '2026-09-01', allDay: true };
+
+  assert.deepEqual(validateEvent({ ...base, color: 'violet' }).errors, []);
+  assert.deepEqual(validateEvent({ ...base, color: null }).errors, [], '不挑是合法的');
+  assert.deepEqual(validateEvent({ ...base }).errors, [], '沒有這個欄位也是合法的');
+  assert.ok(validateEvent({ ...base, color: 'chartreuse' }).errors.includes('不認得的顏色'));
+});
+
+test('顏色存的是名字不是色碼 —— 存色碼的話深色模式那一份沒有人換得掉', () => {
+  for (const id of EVENT_COLORS) {
+    assert.ok(/^[a-z]+$/.test(id), `${id} 應該是名字，不是 #rrggbb`);
+  }
+});
+
+test('日曆的月檢視與日檢視讀的是同一組顏色', () => {
+  const weeks = monthWeeks('2026-09');
+  const leave = ev({ id: 'L', category: 'leave', color: 'red',
+    startDate: '2026-09-02', endDate: '2026-09-02' });
+
+  const bar = layoutMonth([leave], weeks).flatMap((r) => r.bars).find((b) => b.id === 'L');
+  const { allDay } = dayEvents([leave], '2026-09-02');
+
+  assert.equal(bar.kind, paintClass(leave));
+  assert.equal(allDay[0].kind, paintClass(leave));
 });

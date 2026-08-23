@@ -250,7 +250,7 @@ function monthHtml(data, date, today) {
           ${rows[wi].bars.map((b) => `
             <span class="monthbar ${b.kind}"
                   style="grid-column: ${b.col} / span ${b.span}; grid-row: ${b.lane + 2}"
-                  title="${esc(b.title)}">${esc(b.title)}</span>`).join('')}
+                  title="${esc(b.title)}"><span class="monthbar__t">${esc(b.title)}</span></span>`).join('')}
           ${rows[wi].more.map((n, di) => (n
             ? `<span class="monthmore" style="grid-column: ${di + 1}; grid-row: 5">+${n}</span>`
             : '')).join('')}
@@ -266,9 +266,14 @@ function monthHtml(data, date, today) {
  */
 function visitAsBar(visit) {
   const courses = [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))];
+  const name = visit.customerName ?? '?';
+  const course = courses[0] ?? '';
   return {
     id: visit.id,
-    title: `${visit.customerName ?? '?'} ${courses[0] ?? ''}`.trim(),
+    // 姓名與課程之間用**半形**間隔號。一格是七分之一個螢幕寬，
+    // 手機上放得下四個多字 —— 全形的空白或「・」等於整整少看到一個字，
+    // 而被切掉時那一顆懸在邊緣的全形符號比半形的顯眼得多。
+    title: course ? `${name}·${course}` : name,
     category: 'visit',
     kind: statusClass(visit.status) || 'kind-visit',
     startDate: visit.date,
@@ -425,24 +430,20 @@ function eventRow(e) {
 
 function fabHtml() {
   return `
-    <div class="fab" data-open-state="${state.fab}">
+    <div class="fab" data-open="${state.fab}">
       ${state.fab ? `
         <div class="fab__menu">
           <button class="fab__item" type="button" data-new-event>
             <span>新增個人行程</span>
-            <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--tea);
-                         color: var(--surface); display: flex; align-items: center; justify-content: center">
-              ${icon('calendar', { size: 18 })}</span>
+            <span class="fab__dot fab__dot--tea">${icon('calendar', { size: 18 })}</span>
           </button>
           <button class="fab__item" type="button" data-new-visit>
             <span>新增來訪</span>
-            <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--accent);
-                         color: var(--accent-text); display: flex; align-items: center; justify-content: center">
-              ${icon('people', { size: 18 })}</span>
+            <span class="fab__dot">${icon('people', { size: 18 })}</span>
           </button>
         </div>` : ''}
       <button class="fab__main" type="button" data-fab aria-label="新增"
-              style="transform: rotate(${state.fab ? 45 : 0}deg)">
+              aria-expanded="${state.fab}">
         ${icon('plus', { size: 26, width: 2.2 })}
       </button>
     </div>`;
