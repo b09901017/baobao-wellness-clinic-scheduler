@@ -13,11 +13,11 @@ const PATH = 'events';
 export const get = (id) => repo.getOne(PATH, id);
 
 /**
- * 跟 from–to 這段有重疊的行程。
+ * 跟 from–to 這段有重疊的行事備註。
  *
  * 查的是「結束日期在範圍起點之後」，開始日期比範圍終點晚的由呼叫端夾掉 ——
  * Firestore 一次只能對一個欄位做範圍查詢，而反過來查 startDate <= to
- * 會把過去所有的行程都撈回來，越用越慢。
+ * 會把過去所有的行事備註都撈回來，越用越慢。
  *
  * 需要 (deletedAt, endDate asc) 複合索引，已列在 firestore.indexes.json。
  */
@@ -36,7 +36,7 @@ export async function listDeleted() {
 }
 
 /**
- * 存一筆行程。
+ * 存一筆行事備註。
  *
  * allDay 時把時間清成 null，不要留一個沒人看的舊值 —— 之後改成非整天時
  * 會冒出一個她從來沒選過的時間，那比空白更難懂。

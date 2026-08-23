@@ -60,7 +60,7 @@ export async function mountEdit(el, { id, embedded = false, onDone, onCancel } =
   el.innerHTML = '<p class="muted">載入中…</p>';
   const event = await eventsData.get(id);
   if (!event) {
-    el.innerHTML = '<div class="card"><p>找不到這筆行程，可能已經被刪掉了。</p></div>';
+    el.innerHTML = '<div class="card"><p>找不到這筆行事備註，可能已經被刪掉了。</p></div>';
     return;
   }
   paint(el, event, { isNew: false, embedded, onDone, onCancel });

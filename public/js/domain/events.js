@@ -83,7 +83,7 @@ export function isLeave(event) {
   return event?.category === 'leave';
 }
 
-/** 這筆行程還算不算數。 */
+/** 這筆行事備註還算不算數。 */
 export function isLive(event) {
   return Boolean(event) && !event.deletedAt;
 }
@@ -138,7 +138,7 @@ export function validateEvent(event) {
 
 // ---------- 範圍 ----------
 
-/** 這筆行程蓋到那一天沒有。跨天的中間每一天都算。 */
+/** 這筆行事備註蓋到那一天沒有。跨天的中間每一天都算。 */
 export function coversDate(event, date) {
   if (!isLive(event) || !isValidDate(date)) return false;
   if (!isValidDate(event.startDate) || !isValidDate(event.endDate)) return false;
@@ -156,7 +156,7 @@ export function inRange(events, from, to) {
   return (events ?? []).filter((e) => overlapsRange(e, from, to));
 }
 
-/** 一筆行程橫跨幾天。同一天是 1。 */
+/** 一筆行事備註橫跨幾天。同一天是 1。 */
 export function lengthInDays(event) {
   if (!isValidDate(event?.startDate) || !isValidDate(event?.endDate)) return 0;
   return daysBetween(event.startDate, event.endDate) + 1;
@@ -184,11 +184,11 @@ export function blockedDates(events, from, to) {
 // ---------- 月檢視的排版 ----------
 
 /**
- * 把行程攤成每一週的色條。
+ * 把行事備註攤成每一週的色條。
  *
  * 月檢視上跨天的東西要畫成橫跨格子的一條，不是每天一個圓點 ——
- * 看不出從哪天到哪天的話，那條資訊等於沒給。一筆跨週的行程會在每一週
- * 各得到一段，所以回傳的是「每週各自的色條」而不是「每筆行程一條」。
+ * 看不出從哪天到哪天的話，那條資訊等於沒給。一筆跨週的行事備註會在每一週
+ * 各得到一段，所以回傳的是「每週各自的色條」而不是「每筆行事備註一條」。
  *
  * 同一週裡的色條要疊成好幾層（lane），層數有上限，放不下的用「+N」表示 ——
  * 格子撐爛比少講幾筆更糟。
@@ -266,7 +266,7 @@ function firstFreeLane(lanes, piece) {
 // ---------- 日檢視 ----------
 
 /**
- * 某一天的行程，分成整天的與有時間的。
+ * 某一天的行事備註，分成整天的與有時間的。
  *
  * 整天的釘在畫面最上面，不進時間軸 —— 它沒有時間，硬塞進時間軸只能擺在某個
  * 假的位置上，那會讓人以為它只佔那一格。
@@ -299,7 +299,7 @@ export function dayEvents(events, date) {
  * 「什麼時候」那一句：跨天的給日期範圍、整天的就寫整天、其餘給起訖時間。
  *
  * 日曆的格子與資訊卡片講的是同一件事，所以只有這一份 —— 兩份的下場是
- * 同一筆行程在兩個地方寫得不一樣，而她會以為那是兩筆。
+ * 同一筆行事備註在兩個地方寫得不一樣，而她會以為那是兩筆。
  */
 export function spanLabel(event) {
   const e = event ?? {};
