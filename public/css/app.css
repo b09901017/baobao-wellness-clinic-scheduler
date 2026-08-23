@@ -3919,3 +3919,48 @@ summary {
   margin-top: 3px;
   color: var(--accent);
 }
+
+/* 隨手記那個選填的日期欄（components/noteDate.js）。
+   兩顆丸子 ＋ 選過之後才出現的那一小塊 —— 預設是沒有日期，所以預設什麼都不佔。 */
+.notedate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+/* `display` 一定要打得贏 `[hidden]`，不然沒選日期時那顆叉叉照樣浮在那裡 ——
+   跟 `.fab__menu { display: flex }` 是同一個坑，而且一樣只有畫出來才看得到。 */
+.notedate__picked[hidden] {
+  display: none;
+}
+
+.notedate__picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.notedate input[type='date'] {
+  flex: 1 0 100%;
+}
+
+/* 掛在隨手記那一列前面的日期。過了今天而且還沒勾的用逾期色 —— 但它**不是死線**
+   （隨手記沒有死線，見 CONTEXT.md），所以只是提醒，沒有紅底。 */
+.note__date {
+  margin-right: 6px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
+}
+
+.note__date--past {
+  color: var(--overdue);
+}

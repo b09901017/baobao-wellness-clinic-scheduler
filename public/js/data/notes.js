@@ -33,6 +33,21 @@ export function listByCustomer(customerId) {
   });
 }
 
+/**
+ * 有日期、而且落在這段範圍裡的。日曆用。
+ *
+ * **含已經勾掉的** —— 日曆上勾掉的要畫成刪除線，不是消失。
+ * 沒有日期的（`date` 是 null）不會被撈到，那是對的：沒掛日期就不上日曆。
+ *
+ * 需要 (deletedAt, date asc) 複合索引，已列在 firestore.indexes.json。
+ */
+export function listBetween(from, to) {
+  return repo.list(PATH, {
+    wheres: [where('date', '>=', from), where('date', '<=', to)],
+    order: ['date', 'asc'],
+  });
+}
+
 export async function listDeleted() {
   return (await repo.listWithDeleted(PATH)).filter((n) => n.deletedAt);
 }

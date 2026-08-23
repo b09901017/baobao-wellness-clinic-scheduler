@@ -1,6 +1,6 @@
 # 隨手記可以掛一個日期
 
-Status: 待動工
+Status: done
 來源：使用者，2026-08-23
 動工前先讀：本資料夾的 `spec.md`、`SPEC.md` 第 8.1 節、
 `CONTEXT.md` 的「隨手記」、`.scratch/quick-capture/issues/01`
@@ -83,3 +83,19 @@ export function listBetween(from, to)
   `datedIn()` 的邊界（`from`、`to` 當天都要算進去）
 - 瀏覽器：泡泡點開 → 打字 → 按「今天」→ 送出 → 那一筆帶著今天的日期
 - 瀏覽器：不按任何日期鈕 → 送出 → `date` 是 `null`，行為跟現在一模一樣
+
+## Comments
+
+**2026-08-23 —— done。** 三件跟原本寫的不一樣：
+
+- **元件叫 `ui/components/note.js` 不是 `noteForm.js`，而且它多帶了「一列」。**
+  原本只打算抽日期欄，但那一列（勾勾框、文字、掛的客戶）本來就有**三份**寫法
+  （首頁那張卡、`#/todo/notes`、客戶詳情），而日期標籤三個地方都要出現 ——
+  抽一半等於留兩個地方會忘記改。
+- **首頁那張卡的小表單也加了日期欄。** 原本沒算它（它是第四個地方）。
+  不加的話會有一條死路：從那裡記的隨手記永遠掛不上日期，而隨手記除了
+  勾掉之外沒有任何編輯入口。
+- **`.notedate__picked[hidden] { display: none }`。** `display: inline-flex`
+  會蓋掉瀏覽器對 `[hidden]` 的 `display: none`，所以沒選日期時那顆叉叉照樣
+  浮在那裡。跟 `README.md` 記著的 `.fab__menu` 是同一個坑，而且一樣**只有把
+  畫面真的畫出來才看得到** —— `npm test` 全綠，程式碼讀起來也對。

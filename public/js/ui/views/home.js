@@ -38,6 +38,7 @@ import { wireDrag, openSheet } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
+import * as note from '../components/note.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -475,26 +476,18 @@ function notesCard(notes) {
       </div>
 
       <div class="groups">
-        ${rows.map(noteRow).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
+        ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
-      <form data-newnote style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
-        <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
-               placeholder="記一筆…" aria-label="新的隨手記" />
-        <button class="btn btn--primary" type="submit">記</button>
+      <form data-newnote style="margin-top: var(--space-3)">
+        <div style="display: flex; gap: var(--space-2)">
+          <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
+                 placeholder="記一筆…" aria-label="新的隨手記" />
+          <button class="btn btn--primary" type="submit">記</button>
+        </div>
+        ${note.field()}
       </form>
     </section>`;
-}
-
-function noteRow(n) {
-  return `
-    <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
-      <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
-      <span class="note__main">
-        <span class="note__text">${esc(n.text)}</span>
-        ${n.customerName ? `<span class="badge" style="margin-top: var(--space-1)">${esc(n.customerName)}</span>` : ''}
-      </span>
-    </button>`;
 }
 
 // ---------- 隨手記：右下角那顆泡泡 ----------
@@ -572,6 +565,8 @@ function quickBody() {
     </div>
     <div data-wholist hidden></div>
 
+    ${note.field()}
+
     <div data-just></div>`;
 }
 
@@ -580,6 +575,7 @@ function wireQuick(drawer, ctx, added) {
   // 沒必要為了那一次讓每次開面板都多一次往返。
   let customers = null;
   let picked = null;
+  const when = note.wire(drawer);
 
   const input = () => drawer.querySelector('[data-quicktext]');
   const label = () => drawer.querySelector('[data-wholabel]');
@@ -628,6 +624,7 @@ function wireQuick(drawer, ctx, added) {
           text,
           customerId: picked?.id ?? null,
           customerName: picked?.name ?? null,
+          date: note.read(drawer),
         }),
         { success: '記下來了' },
       );
@@ -645,7 +642,10 @@ function wireQuick(drawer, ctx, added) {
 
     // 清空、焦點留在輸入框 —— 她的下一句話通常就跟在後面。
     // **不重畫整個面板**：換掉節點就等於把鍵盤收起來再叫一次，那一下會閃。
+    // 日期一起清掉：三件事記在一起不代表都掛同一天，而她「忘了取消上一筆的日期」
+    // 的後果是日曆上多一條她沒打算放的東西。
     input().value = '';
+    when.set(null);
     input().focus();
   };
 
@@ -729,6 +729,8 @@ function wireOverview(ctx) {
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
 
+  note.wire(el);
+
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
     addNote(ctx, e.target);
@@ -752,7 +754,10 @@ async function addNote(ctx, form) {
   const text = form.elements.text.value.trim();
   if (!text) return;
   try {
-    await toast.withSaveState(() => notesData.create({ text }), { success: '記下來了' });
+    await toast.withSaveState(
+      () => notesData.create({ text, date: note.read(form) }),
+      { success: '記下來了' },
+    );
     await render(ctx.el);
   } catch {
     /* 已處理 */
@@ -1743,7 +1748,12 @@ function paintNotes(ctx) {
           options: [{ value: '', label: '（沒掛客戶）' },
             ...customers.map((c) => ({ value: c.id, label: c.name }))],
         })}
-        <button class="btn btn--primary btn--wide" type="submit">記一筆</button>
+        <span class="field__label">哪一天　可以不填</span>
+        ${note.field()}
+        <p class="field__hint">掛了日期就會出現在日曆上。它不是死線 ——
+          隨手記沒有死線，過了也不會變紅。</p>
+        <button class="btn btn--primary btn--wide" type="submit"
+                style="margin-top: var(--space-3)">記一筆</button>
       </form>
     </section>
 
@@ -1751,7 +1761,7 @@ function paintNotes(ctx) {
       <section class="card">
         <h2 class="card__title">${esc(g.customerName)}
           <span class="muted"> ${g.notes.length}</span></h2>
-        <div class="groups">${g.notes.map(noteRow).join('')}</div>
+        <div class="groups">${g.notes.map((n) => note.row(n, { customer: false })).join('')}</div>
       </section>`).join('')
       || '<p class="muted">還沒記過。</p>'}`;
 
@@ -1770,6 +1780,8 @@ function paintNotes(ctx) {
     }),
   );
 
+  note.wire(el);
+
   el.querySelector('[data-newnote]')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = f.readForm(e.target);
@@ -1781,6 +1793,7 @@ function paintNotes(ctx) {
           text: v.text,
           customerId: customer?.id ?? null,
           customerName: customer?.name ?? null,
+          date: note.read(el),
         }),
         { success: '記下來了' },
       );
