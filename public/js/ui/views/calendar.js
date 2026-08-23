@@ -430,24 +430,20 @@ function eventRow(e) {
 
 function fabHtml() {
   return `
-    <div class="fab" data-open-state="${state.fab}">
+    <div class="fab" data-open="${state.fab}">
       ${state.fab ? `
         <div class="fab__menu">
           <button class="fab__item" type="button" data-new-event>
             <span>新增個人行程</span>
-            <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--tea);
-                         color: var(--surface); display: flex; align-items: center; justify-content: center">
-              ${icon('calendar', { size: 18 })}</span>
+            <span class="fab__dot fab__dot--tea">${icon('calendar', { size: 18 })}</span>
           </button>
           <button class="fab__item" type="button" data-new-visit>
             <span>新增來訪</span>
-            <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--accent);
-                         color: var(--accent-text); display: flex; align-items: center; justify-content: center">
-              ${icon('people', { size: 18 })}</span>
+            <span class="fab__dot">${icon('people', { size: 18 })}</span>
           </button>
         </div>` : ''}
       <button class="fab__main" type="button" data-fab aria-label="新增"
-              style="transform: rotate(${state.fab ? 45 : 0}deg)">
+              aria-expanded="${state.fab}">
         ${icon('plus', { size: 26, width: 2.2 })}
       </button>
     </div>`;

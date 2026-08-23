@@ -776,6 +776,12 @@ textarea {
   gap: var(--space-2);
 }
 
+/* 作者寫的 `display: flex` 會蓋掉瀏覽器對 `[hidden]` 的 `display: none`，
+   所以收起來的選單其實一直開著。要自己再擋一次。 */
+.fab__menu[hidden] {
+  display: none;
+}
+
 .fab__item {
   display: flex;
   align-items: center;
@@ -3621,4 +3627,184 @@ summary {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---------- 一次建立一群客戶 ---------- */
+
+/* 名單。一列一位，右邊兩顆小鈕。
+   她一批要看八到二十列，所以一列的高度只夠放名字 —— 微調過的那幾列才會長高。 */
+.roster {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+.roster__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.roster__row:first-child {
+  border-top: none;
+}
+
+.roster__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roster__name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 微調過的那一列多這一行。**沒動過的什麼都不寫** —— 「跟大家一樣」是預設，
+   八列各掛一個「跟大家一樣」的話，那一頁就只剩下那八個標籤看得到。 */
+.roster__note {
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+}
+
+.roster__warn {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: var(--text-2xs);
+  color: var(--overdue);
+}
+
+.roster__x {
+  flex: 0 0 auto;
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 視覺 30px，感應範圍撐回 44px —— 同第 8.0 節那條規矩 */
+.roster__x::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+/* 打名字那一列。輸入框吃掉剩下的寬度，按鈕不縮。 */
+.rosteradd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rosteradd > input[type='text'],
+.rosteradd > select {
+  flex: 1;
+  min-width: 0;
+}
+
+.rosteradd > .btn {
+  flex: 0 0 auto;
+}
+
+/* 收起來的一段。預設收著，點開才展開。 */
+.foldout {
+  margin: var(--space-3) 0;
+}
+
+.foldout > summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.foldout > summary::marker,
+.ban__more > summary::marker {
+  color: var(--text-mute);
+}
+
+/* `display: flex` 會把 `::marker` 整個吃掉，所以那個三角形一直沒有出現過 ——
+   一個沒有任何記號的 summary 看起來就是一行灰字，沒有人會知道它點得開。
+   自己補一個箭頭，展開時轉 90 度。 */
+.foldout > summary::after,
+.ban__more > summary::after {
+  content: '›';
+  margin-left: var(--space-2);
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--text-mute);
+  transition: transform 0.12s ease;
+}
+
+.foldout[open] > summary::after,
+.ban__more[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+/* 懸浮鈕選單裡那顆圓的圖示底。原本是寫在 calendar.js 的 inline style 裡，
+   第二個地方要用（客戶那一頁的兩條路）就該有名字了。 */
+.fab__dot {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.fab__dot--tea {
+  background: var(--tea);
+  color: var(--surface);
+}
+
+/* 「這一批共同的」那一塊的抬頭。填完之後收成一行摘要 ——
+   她接下來只會打名字，那一塊在手機上佔掉大半頁。 */
+.sharedhead {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.sharedhead__title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/* 展開的時候摘要就沒必要了 —— 底下那幾欄寫著同樣的東西 */
+.sharedhead__digest {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-shared][open] .sharedhead__digest {
+  display: none;
 }

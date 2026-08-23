@@ -100,8 +100,19 @@ export async function render(el) {
 
     <div data-rows></div>
 
-    <div class="fab">
-      <button class="fab__main" type="button" data-new aria-label="新增客戶">
+    <div class="fab" data-fab>
+      <div class="fab__menu" hidden data-fabmenu>
+        <button class="fab__item" type="button" data-bulk>
+          <span>快速建立一群</span>
+          <span class="fab__dot fab__dot--tea">${icon('people', { size: 18 })}</span>
+        </button>
+        <button class="fab__item" type="button" data-new>
+          <span>新增一位</span>
+          <span class="fab__dot">${icon('plus', { size: 18, width: 2.2 })}</span>
+        </button>
+      </div>
+      <button class="fab__main" type="button" data-fabtoggle aria-label="新增"
+              aria-expanded="false">
         ${icon('plus', { size: 24, width: 2.2 })}
       </button>
     </div>`;
@@ -147,7 +158,21 @@ export async function render(el) {
     }),
   );
 
+  // 懸浮鈕點開兩條路。單一動作直接跳走的那一版在「快速建立一群」出現之後
+  // 就不夠用了 —— 但預設仍然是收起來的：她大部分時候是來看名單，不是來新增。
+  const fab = el.querySelector('[data-fab]');
+  const menu = el.querySelector('[data-fabmenu]');
+  const toggle = el.querySelector('[data-fabtoggle]');
+
+  toggle.addEventListener('click', () => {
+    const open = menu.hidden;
+    menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    fab.dataset.open = String(open);
+  });
+
   el.querySelector('[data-new]').addEventListener('click', () => go('/customers/new'));
+  el.querySelector('[data-bulk]').addEventListener('click', () => go('/customers/bulk'));
 }
 
 /** 課程丸：實際上有人還有剩餘次數的那幾種，多的排前面。 */
