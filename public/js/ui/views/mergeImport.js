@@ -251,7 +251,7 @@ function candidateCards() {
   ].join('');
 }
 
-/** 一個時間區塊：底下再分「來訪」與「個人行程」兩段。 */
+/** 一個時間區塊：底下再分「來訪」與「行事備註」兩段。 */
 function block(which, title, group, { note, extra }) {
   const rows = [...group.visits, ...group.events];
   if (!rows.length) return '';
@@ -269,7 +269,7 @@ function block(which, title, group, { note, extra }) {
     which === 'future'
       ? '勾起來會建成「已確認」的來訪，算進已排未上，而且會長出登記待辦。'
       : '勾起來會補成一筆「已完成」的來訪，次數才算得對。')}
-      ${section('個人行程', group.events, eventLine,
+      ${section('行事備註', group.events, eventLine,
     '不綁客戶、不產生任務、不扣次數。')}
       ${extra ? `<p class="muted">${extra}</p>` : ''}
     </section>`;
@@ -362,7 +362,7 @@ async function run(el, ctx, plans, s, tasks) {
         : '沒有日期在今天之後的來訪，全部標成已完成',
       ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
-      events.length ? `建立 ${events.length} 筆個人行程` : '沒有勾任何個人行程',
+      events.length ? `建立 ${events.length} 筆行事備註` : '沒有勾任何行事備註',
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
       tasks
         ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
@@ -380,7 +380,7 @@ async function run(el, ctx, plans, s, tasks) {
       toast.saving(`匯入中… ${done}/${total}（${name}）`),
     );
     if (events.length) {
-      toast.saving(`匯入中… 個人行程 ${events.length} 筆`);
+      toast.saving(`匯入中… 行事備註 ${events.length} 筆`);
       await importer.importEvents(events);
     }
   } catch (err) {

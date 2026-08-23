@@ -1,6 +1,6 @@
-// 個人行程的存取。ADR-0015。
+// 行事備註的存取。ADR-0015。
 //
-// 這一層刻意碰不到額度與任務 —— 個人行程不扣次數、不產生任務，
+// 這一層刻意碰不到額度與任務 —— 行事備註不扣次數、不產生任務，
 // 而「不可能扣錯」比「共用一份程式碼」重要（見那支 ADR）。
 
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';

@@ -1182,9 +1182,9 @@ button.mark::after {
   inset: -5px;
 }
 
-/* 「不挑，跟著類別走」那一顆（個人行程的顏色，ADR-0040）。
+/* 「不挑，跟著類別走」那一顆（行事備註的顏色，ADR-0040）。
    空心圈而不是實心點 —— 它長成那一類本來的顏色，而那個顏色也在底下六顆裡面
-   （個人行程預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
+   （行事備註預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
    空心講的是「這不是一個顏色選擇」。 */
 .swatch--auto::before {
   background: transparent;
@@ -1680,7 +1680,7 @@ button.mark::after {
   text-decoration-thickness: 2px;
 }
 
-/* 你自己休假。跟日曆上的個人行程同一個霧藍（ADR-0015）——
+/* 你自己休假。跟日曆上的行事備註同一個霧藍（ADR-0015）——
    同樣排不進去，但那不是客戶的限制。 */
 .minical__cell--away {
   /* 跟日曆上的休假同一組顏色與同一條斜線紋 —— 講的就是同一件事（她不在）。
@@ -1938,7 +1938,7 @@ button.mark::after {
   color: var(--kind-bg);
 }
 
-/* 三種東西各自的顏色。個人行程紫、休假灰青加斜線紋。
+/* 三種東西各自的顏色。行事備註紫、休假灰青加斜線紋。
    顏色值在 tokens.css，那裡有為什麼不再借用語意色的完整理由（ADR-0039）。 */
 .kind-visit {
   --kind-fg: var(--accent);
@@ -1962,7 +1962,7 @@ button.mark::after {
  * 用紋路比用第六個色相準確得多，而且色弱的情況下照樣成立。
  *
  * 疊在 --kind-bg 上而不是取代它：底色要留著，字才有對比度可用。
- * 個人行程可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
+ * 行事備註可以自己挑顏色（ADR-0040），但**斜線不跟著顏色走** ——
  * 那條紋路講的是「我不在」，不是一種配色。
  */
 .kind-leave,
@@ -1970,7 +1970,7 @@ button.mark::after {
   background-image: var(--stripe-leave);
 }
 
-/* 她自己替一筆個人行程挑的顏色（ADR-0040）。
+/* 她自己替一筆行事備註挑的顏色（ADR-0040）。
    **排在 .kind-* 後面**：挑過的顏色要蓋掉那一類的預設色。休假挑了顏色時
    兩個 class 都在，這裡蓋掉的是 --kind-fg / --kind-bg，
    .kind-leave 的 background-image（斜線紋）管的是別的屬性，蓋不到。 */
@@ -1981,8 +1981,51 @@ button.mark::after {
 .evcolor-blue { --kind-fg: var(--evcolor-blue); --kind-bg: var(--evcolor-blue-bg); }
 .evcolor-violet { --kind-fg: var(--evcolor-violet); --kind-bg: var(--evcolor-violet-bg); }
 
+/* 日曆上的待辦：有日期的隨手記（ADR-0044）。
+ *
+ * **它不搶一個色相**（ADR-0045）。日曆上要一眼分辨的東西已經有六種，
+ * 而色相輪上塞六個彼此分得開的顏色，最後兩個一定會擠在一起 —— 這是休假
+ * 改走斜線紋的同一個理由。待辦靠的是方框勾勾那個記號：它在 11px 的色條上
+ * 認得出來，而且它自己就說明了「這是一件可以勾掉的事」。
+ *
+ * 「勾掉了」也因此有畫法可用：刪除線。**勾掉的不消失** —— 她要看得出
+ * 「這件事處理掉了」，不是看不到它。
+ */
+.kind-todo {
+  --kind-fg: var(--cal-todo);
+  --kind-bg: var(--cal-todo-bg);
+}
+
+.kind-todo .monthbar__t::before,
+.kind-todo .allday__t::before {
+  content: '☐';
+  /* inline-block 是為了讓刪除線畫不到它上面 —— text-decoration 不會傳進
+     atomic inline 的盒子裡。勾勾框被劃掉的話，「勾了」跟「劃掉了」會糊成一團。 */
+  display: inline-block;
+  margin-right: 3px;
+  font-weight: 400;
+}
+
+.kind-todo--done .monthbar__t::before,
+.kind-todo--done .allday__t::before {
+  content: '☑';
+}
+
+.kind-todo--done .monthbar__t,
+.kind-todo--done .allday__t {
+  text-decoration: line-through;
+  opacity: 0.62;
+}
+
+/* 掛在待辦後面的客戶名字。比本文再淡一級 —— 它是誰的事，不是那件事。 */
+.allday__aside {
+  margin-left: auto;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
-   拿它當整個類別的顏色會跟正下方的圖例打架。個人行程與休假沒有這個問題，
+   拿它當整個類別的顏色會跟正下方的圖例打架。行事備註與休假沒有這個問題，
    它們的顏色就是它們自己。 */
 .kind-any {
   --kind-fg: var(--text-dim);
@@ -2337,7 +2380,7 @@ button.mark::after {
   border-radius: var(--radius);
 }
 
-/* 整天的個人行程釘在最上面，不進時間軸 */
+/* 整天的行事備註釘在最上面，不進時間軸 */
 .allday {
   display: flex;
   align-items: center;
@@ -3854,6 +3897,13 @@ summary {
 
 .fab__dot--tea {
   background: var(--tea);
+  color: var(--surface);
+}
+
+/* 日曆上的待辦。跟色條同一組（--cal-todo），所以那三條路的圖示顏色
+   一眼對得上它們在格子裡的樣子。 */
+.fab__dot--todo {
+  background: var(--cal-todo);
   color: var(--surface);
 }
 

@@ -140,7 +140,7 @@ async function loadGroups() {
       })),
     },
     {
-      label: '個人行程',
+      label: '行事備註',
       rows: deletedEvents.map((e) => ({
         name: e.title ?? '（沒有名稱）',
         note: e.startDate === e.endDate ? e.startDate : `${e.startDate} 到 ${e.endDate}`,

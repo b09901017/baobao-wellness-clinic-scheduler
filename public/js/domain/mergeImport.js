@@ -461,7 +461,7 @@ export function defaultPicks(json, today = null) {
 }
 
 /**
- * 她勾起來的個人行程。**不綁客戶、不產生任務、不扣次數**，所以它們走 `events`
+ * 她勾起來的行事備註。**不綁客戶、不產生任務、不扣次數**，所以它們走 `events`
  * 不走 `visits`（ADR-0015：合成同一個集合會讓「要不要扣次數」變成到處都要判斷的分支）。
  */
 export function eventDocs(candidates) {
@@ -476,7 +476,7 @@ export function eventDocs(candidates) {
       title: norm(c.title),
       category: c.category === 'leave' ? 'leave' : 'personal',
       startDate: c.startDate,
-      // 跨天的個人行程是這個系統裡唯一可以跨天的東西（ADR-0015）。
+      // 跨天的行事備註是這個系統裡唯一可以跨天的東西（ADR-0015）。
       // 結束日比開始日早的資料進不去（firestore.rules 的 validEvent()），當成單天。
       endDate: c.endDate && c.endDate >= c.startDate ? c.endDate : c.startDate,
       allDay,

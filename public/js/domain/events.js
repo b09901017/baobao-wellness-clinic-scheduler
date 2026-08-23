@@ -1,9 +1,13 @@
-// 個人行程。SPEC 第 5.3 節、ADR-0015。純函式。
+// 行事備註與休假。SPEC 第 5.3 節、ADR-0015。純函式。
 //
 // 這是唯一可以跨天的資料。「來訪」的定義是「客戶某一天到院一次」（見 CONTEXT.md），
 // 跨天的來訪不存在，所以那兩件事刻意不共用同一個形狀 ——
 // 合成一個集合再用欄位區分，會讓「這筆要不要扣次數」變成到處都要判斷的分支，
 // 而漏判一次就是次數算錯。這裡的程式碼碰不到額度，也就不可能扣錯。
+//
+// **2026-08-23 改名：「個人行程」→「行事備註」。** 只改畫面上的字，
+// `category` 的 id（`personal` / `leave`）一個都沒動 —— Firestore 裡已經有的
+// 資料不必搬。日曆上那四類見 ADR-0045。
 
 import { addDays, daysBetween, isValidDate, shortDate } from './dates.js';
 import { isValidTime, toMinutes } from './visitTime.js';
@@ -11,10 +15,10 @@ import { MARK_COLORS } from './customerMarks.js';
 
 /**
  * 兩種，差別是實質的：休假那幾天她根本不在，任何來訪都排不進去；
- * 個人行程只是那個時段有事，其餘時間照樣排得了。
+ * 行事備註只是那個時段有事，其餘時間照樣排得了。
  */
 export const CATEGORIES = [
-  { id: 'personal', label: '個人行程', kind: 'kind-personal' },
+  { id: 'personal', label: '行事備註', kind: 'kind-personal' },
   { id: 'leave', label: '休假', kind: 'kind-leave' },
 ];
 
@@ -33,7 +37,7 @@ export function kindClass(id) {
 }
 
 /**
- * 她可以替一筆行程自己挑的顏色。
+ * 她可以替一筆行事備註自己挑的顏色。
  *
  * 「公出、宜蘭休假、高齡演講」對系統來說一律是「那個時段有事」——
  * 它們之間**沒有系統看得懂的差別**，但對她來說差很多，而那個差別只有她知道。
@@ -49,12 +53,12 @@ export const EVENT_COLOR_OPTIONS = MARK_COLORS.map(({ id, label }) => ({ id, lab
 export const EVENT_COLORS = EVENT_COLOR_OPTIONS.map((c) => c.id);
 
 /**
- * 這筆行程要用哪一組顏色的 class。
+ * 這筆行事備註要用哪一組顏色的 class。
  *
  * **沒挑或認不得就回空字串**，讓呼叫端落回 `kindClass()` 那一類本來的顏色。
  * 這跟 `describeCategory()` 對不認得的類別大聲講出來刻意不同：
  * 類別錯了是資料壞了、要看得見；顏色沒挑只是她還沒挑，畫成預設色才是對的。
- * 2026-08 以前建的行程身上都沒有這個欄位，那些不是壞資料。
+ * 2026-08 以前建的那幾筆身上都沒有這個欄位，那些不是壞資料。
  */
 export function colorClass(event) {
   const color = event?.color;
@@ -89,7 +93,7 @@ export function isLive(event) {
 /**
  * 存檔前的檢查。
  *
- * 個人行程不綁客戶、不產生任務、不扣次數，所以這裡沒有任何「只提示」的警告 ——
+ * 行事備註不綁客戶、不產生任務、不扣次數，所以這裡沒有任何「只提示」的警告 ——
  * 錯的東西就是錯的，其餘都不關系統的事。
  *
  * @returns {{errors: string[]}}
@@ -99,7 +103,7 @@ export function validateEvent(event) {
   const e = event ?? {};
 
   if (!String(e.title ?? '').trim()) errors.push('要有名稱');
-  if (!BY_ID[e.category]) errors.push('要選一種：個人行程或休假');
+  if (!BY_ID[e.category]) errors.push('要選一種：行事備註或休假');
 
   // 顏色是選填的（沒挑就跟著類別走），但挑了就要是認得的那六個之一。
   // 顯示端對舊資料寬容（`colorClass()` 落回預設），這裡不寬容 ——
@@ -162,7 +166,7 @@ export function lengthInDays(event) {
  * 休假蓋掉的日子。
  *
  * 壓表的小日曆要把這些劃掉 —— 她人不在，那幾天排了也是白排。
- * 個人行程不算：那只是某個時段有事，其餘時間照樣排得了。
+ * 行事備註不算：那只是某個時段有事，其餘時間照樣排得了。
  *
  * @returns {Set<string>}
  */
@@ -235,7 +239,7 @@ function layoutWeek(events, week, maxLanes) {
       id: piece.event.id,
       title: piece.event.title,
       category: piece.event.category,
-      // 呼叫端可以自己指定顏色組。日曆的月檢視要把來訪與個人行程排在同一組
+      // 呼叫端可以自己指定顏色組。日曆的月檢視要把來訪與行事備註排在同一組
       // lane 裡（否則兩種東西會互相蓋住），所以它會餵進來訪並自己標 kind。
       kind: piece.event.kind ?? paintClass(piece.event),
       col: piece.startIdx + 1,
