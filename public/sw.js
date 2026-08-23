@@ -101,7 +101,6 @@ const SHELL = [
   '/js/domain/legacyImport.js',
   '/js/domain/mergeImport.js',
   '/js/data/legacyImport.js',
-  '/js/ui/views/legacyImport.js',
   '/js/ui/views/mergeImport.js',
   '/js/data/sheetSync.js',
   '/js/domain/availabilityForm.js',

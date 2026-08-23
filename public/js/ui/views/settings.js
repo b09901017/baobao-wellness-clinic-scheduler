@@ -68,8 +68,7 @@ export async function render(el) {
         ${tile('#/settings/audit', '稽核紀錄', '每一次寫入的 before / after')}
         ${tile('#/settings/trash', '已刪除項目', '刪除只是標記，還原得回來')}
         ${tile('#/settings/report', '試算表報表', '產生後貼回去，或讓它自己推')}
-        ${tile('#/settings/import', '舊資料匯入', '貼上舊試算表，先看比對報告')}
-        ${tile('#/settings/merge', '合併檔匯入', '貼上對照過行事曆的合併檔，時間補得進來')}
+        ${tile('#/settings/merge', '舊資料匯入', '貼上對照過行事曆的合併檔')}
       </div>
     </section>
 

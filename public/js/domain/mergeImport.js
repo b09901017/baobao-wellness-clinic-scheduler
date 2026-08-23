@@ -14,6 +14,7 @@
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
+import { contraindicationHints } from './contraindications.js';
 import { syncTasksForVisit } from './taskRules.js';
 
 export const FORMAT = 'baobao-merge/v1';
@@ -232,6 +233,14 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     entitlements,
     visits,
     problems,
+    // 舊表沒有「永久限制」這個欄位，所以那幾句話寫在購買名稱或空白處，而合併檔
+    // 把它們原封不動收進 `notes`。**匯進來之後 `customer.flags` 是空的**，
+    // 而擋器材是拿 flags 去比對的 —— 沒有那個標記，超磁場與高能量雷射不會被擋，
+    // 那是整個系統唯一會造成實際傷害的一條。只提示不自動填（ADR-0002）。
+    contraindications: contraindicationHints([
+      { where: '購買名稱', text: entry.source },
+      { where: '備註', text: entry.notes },
+    ], equipment),
     counts: {
       entitlements: entitlements.length,
       followups: paired.length,
@@ -281,7 +290,7 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
  * `today` 沒給就只看檔案裡寫什麼（維持舊行為）。UI 那層一律用
  * `domain/dates.js` 的 `todayISO()` 取。
  */
-function statusFor(status, date, today) {
+export function statusFor(status, date, today) {
   if (status === 'confirmed') return 'confirmed';
   return today && date > today ? 'confirmed' : 'done';
 }
@@ -310,6 +319,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
+    contraindications: [],
     counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
   };
 }
@@ -576,5 +586,14 @@ export function summarize(plans) {
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
+    // 會匯進去的那幾位身上、文字裡提到的醫療禁忌。**跳過的那幾位不算** ——
+    // 她們根本不會進來，講了只會讓真的要處理的那幾位被稀釋掉。
+    contraindications: live
+      .filter((p) => (p.contraindications ?? []).length)
+      .map((p) => ({
+        customerName: p.customerName || p.sheetName,
+        terms: [...new Set(p.contraindications.map((h) => h.term))],
+        blocks: [...new Set(p.contraindications.flatMap((h) => h.blocks))],
+      })),
   };
 }

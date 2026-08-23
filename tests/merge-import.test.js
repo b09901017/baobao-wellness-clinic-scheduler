@@ -559,3 +559,54 @@ describe('行事曆上的雜事分三類', () => {
     assert.equal(note.customerName, null);
   });
 });
+
+// ---------- 醫療禁忌（貼舊試算表那條路拿掉之後，這裡是唯一的守門員） ----------
+//
+// 舊表沒有「永久限制」這個欄位，那幾句話寫在購買名稱或空白處，合併檔照抄進備註。
+// 匯進來之後 `customer.flags` 是空的，而擋器材是拿 flags 去比對的 ——
+// 沒有那個標記，超磁場與高能量雷射不會被擋下來，那是唯一會造成實際傷害的一條。
+//
+// 這一段 2026-08-23 從 tests/legacy-import.test.js 搬過來：那條路的入口拿掉了，
+// 而**這條路以前根本沒有這個提示**。搬過來不是為了保住覆蓋率，是因為
+// 拿掉一條路不可以順手拿掉一個安全網。
+describe('文字裡的醫療禁忌要在匯入前講出來', () => {
+  const metal = () => planForCustomer(
+    { ...CUSTOMER(), source: '0604 顧客會-手有金屬，只能INDIBA' },
+    { ...CTX, existingCustomers: [] },
+  );
+
+  test('購買名稱裡的禁忌字眼認得出來，並說得出沒設定會漏擋哪幾台', () => {
+    const hits = metal().contraindications;
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].term, '體內金屬');
+    assert.deepEqual(hits[0].blocks.sort(), ['超磁場', '高能量雷射']);
+  });
+
+  test('備註裡的也算 —— 舊表的空白處就是寫在那裡', () => {
+    const p = planForCustomer(
+      { ...CUSTOMER(), notes: 'A15｜手術後體內金屬還在' },
+      { ...CTX, existingCustomers: [] },
+    );
+    assert.equal(p.contraindications[0]?.term, '體內金屬');
+  });
+
+  test('認出來也不會自動設定永久限制', () => {
+    // 「手有金屬」是禁忌，「金屬已取出」不是，兩句話都含有「金屬」。
+    // 那是她的判斷（ADR-0002）。
+    assert.deepEqual(metal().customer.flags, []);
+  });
+
+  test('摘要要數得出有幾位，那一頁才畫得出最上面那張紅卡', () => {
+    const s = summarize([metal()]);
+    assert.equal(s.contraindications.length, 1);
+    assert.deepEqual(s.contraindications[0].terms, ['體內金屬']);
+  });
+
+  test('整張跳過的那幾位不算 —— 她們根本不會進來', () => {
+    const s = summarize([planForCustomer(
+      { ...CUSTOMER(), source: '0604 顧客會-手有金屬' },
+      { ...CTX, existingCustomers: [{ id: 'c1', name: CUSTOMER().name }] },
+    )]);
+    assert.equal(s.contraindications.length, 0);
+  });
+});

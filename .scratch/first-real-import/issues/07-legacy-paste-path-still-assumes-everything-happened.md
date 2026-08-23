@@ -1,6 +1,6 @@
 # 貼舊試算表那條路還是假設「勾起來就是做過了」
 
-Status: 待動工
+Status: 結案（2026-08-23）—— 不是修好，是那條路整條拿掉了，見 `docs/adr/0047-there-is-one-way-in.md`
 回報者：使用者，2026-08-21（`issues/03`～`06` 合併前的檢查）
 動工前先讀：`domain/legacyImport.js` 的 `planForSheet()`（寫死 `status: 'done'` 那一段）、
 `domain/mergeImport.js` 的 `statusFor()`、`docs/adr/0029-imported-visits-take-their-status-from-the-date.md`、
@@ -77,3 +77,24 @@ visits.push({
   而 `CLAUDE.md` 那張連動表對這件事寫得很清楚：比沒講還糟。
 - **不要回頭改已經匯進去的資料。** 分不出哪幾筆是匯錯的、哪幾筆是她後來自己
   改成已完成的（同一個判斷見 `issues/03` 的 Comments）。
+
+## Comments
+
+**2026-08-23｜結案，但不是用修的**
+
+使用者的原話：「貼舊試算表那邊，其實已經完全不需要了」。
+
+所以這一支的修法不是讓 `legacyImport.js` 也吃 `statusFor()`，是**把整條路拿掉**：
+`#/settings/import`、`ui/views/legacyImport.js`、`sheets/export-legacy.gs`
+都刪了，舊資料只剩合併檔那一條路進得來。
+
+`planForSheet()` 裡寫死的 `status: 'done'` **留著而且現在是對的**：它唯一的
+消費者變成 skill 那側的 `merge.mjs`，而狀態一律由 `domain/mergeImport.js` 的
+`statusFor()` 在匯入當下依日期重判 —— 產檔那側算不準「未來」。
+
+那一頁的兩句文案跟著頁面一起消失了，所以「文案與實作要一起改」這件事也就
+不存在了。原本盯著那個關係的測試改成盯新的分工（`tests/legacy-import.test.js`
+的「這一支一律吐已完成，而狀態是在匯入的那一刻才決定的」）。
+
+**搬過來一件事**：那一頁的醫療禁忌提示是合併檔那條路沒有的，
+拿掉入口之前先補到那一頁上，見 ADR-0047。

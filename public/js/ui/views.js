@@ -18,7 +18,6 @@ import * as audit from './views/audit.js';
 import * as backfill from './views/backfill.js';
 import * as calendar from './views/calendar.js';
 import * as report from './views/report.js';
-import * as legacyImport from './views/legacyImport.js';
 import * as mergeImport from './views/mergeImport.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
@@ -78,7 +77,6 @@ register('/settings/trash', { title: '已刪除項目', nav: false, render: tras
 register('/settings/health', { title: '資料健檢', nav: false, render: health.render });
 register('/settings/report', { title: '試算表報表', nav: false, render: report.render });
 register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.render });
-register('/settings/import', { title: '舊資料匯入', nav: false, render: legacyImport.render });
 register('/settings/merge', { title: '合併檔匯入', nav: false, render: mergeImport.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/:type', {
