@@ -17,12 +17,37 @@
 // 上午；如果直接忽略「下午」，又會推薦一個她不能用的時段。兩種都是錯的，所以記下來。
 
 import { addDays, daysBetween, isValidDate, weekdayOf, shortDate } from './dates.js';
+import { isValidTime, toMinutes } from './visitTime.js';
 
 export const RULE_KINDS = ['exclude_weekday', 'exclude_date', 'exclude_range', 'prefer'];
 
 const WEEKDAYS = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
 
 const PART_LABELS = { am: '上午', pm: '下午' };
+
+/**
+ * 中午的界線：12:00 起算下午。
+ *
+ * 這個數字只能有一份。畫面上要把「他說這天上午不行」標到時間丸子上時，
+ * 得先回答「10:30 算不算上午」—— 那是規則，不是排版，所以住在這裡。
+ */
+export const NOON_MINUTES = 12 * 60;
+
+/** 'am' / 'pm' → 人話。認不得的回空字串，不要印一個猜的。 */
+export function partLabel(part) {
+  return PART_LABELS[part] ?? '';
+}
+
+/**
+ * 一個時間落在上午還是下午。
+ *
+ * @param {string} hhmm 'HH:MM'
+ * @returns {'am'|'pm'|null} 不是合法時間就回 null —— 猜一個會讓丸子標錯半天
+ */
+export function partOfTime(hhmm) {
+  if (!isValidTime(hhmm)) return null;
+  return toMinutes(hhmm) < NOON_MINUTES ? 'am' : 'pm';
+}
 
 const CN_NUMBERS = { 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
 

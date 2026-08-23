@@ -639,6 +639,22 @@ textarea {
   font-size: var(--text-xs);
 }
 
+/* 落在「他說這天上午不行」那半天的時間丸子。
+   **標起來，不 disable** —— 唯一會鎖住選項的是醫療禁忌（SPEC 第 4.7 節），
+   而原文永遠比解析結果大（第 4.3 節）：解析錯的時候她要有辦法照樣排下去。
+   所以樣子要看得出「這顆怪怪的」，但不可以看起來像壞掉的按鈕。 */
+.chip--halfoff {
+  border-style: dashed;
+  border-color: var(--overdue);
+  color: var(--overdue);
+}
+
+.chip--halfoff[aria-pressed='true'] {
+  background: var(--overdue-bg);
+  border-style: solid;
+  font-weight: 700;
+}
+
 /* 選了會真的擋掉器材的那幾顆（體內金屬）。選中不用墨綠 ——
    墨綠在這一站是「好了、完成」，而這顆的意思是「這台不能用」。 */
 .chip--hard[aria-pressed='true'] {
@@ -1600,6 +1616,54 @@ button.mark::after {
   font-weight: 700;
 }
 
+/* 只有半天不行。**這一種點得下去** —— 那天真的排得進去，只是要挑另外半天
+   （`availableDates()` 也是這樣算的），所以它不是 --off 的第四個成員，
+   而是疊在正常格子上的一層。
+
+   畫法跟客戶自己填的那一頁同一招（form.css 的 .cell--am/.cell--pm）：
+   被擋的那半邊塗紅、另一半留白。**兩處的 52% / 48% 是為了讓中線壓在數字上
+   看起來不歪，抄過來就照抄，不要改成 50%。**
+
+   跟 --ban 的差別要一眼看得出來：--ban 是整格劃掉（整天不行），
+   這裡只在被擋的那半邊劃一條線。整格劃掉的意思是整天，兩者不可以長一樣。 */
+.minical__cell--half {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--overdue-bg);
+}
+
+.minical__cell--half-am {
+  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface) 52%);
+}
+
+.minical__cell--half-pm {
+  background: linear-gradient(to bottom, var(--surface) 48%, var(--overdue-bg) 48%);
+}
+
+/* 被擋的那半邊上的那條線。用 ::before 疊上去而不是 text-decoration ——
+   text-decoration 只劃得到文字，而要劃掉的是「那半格」。 */
+.minical__cell--half::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--overdue);
+  opacity: 0.75;
+}
+
+.minical__cell--half-am::before { top: calc(26% - 1px); }
+.minical__cell--half-pm::before { top: calc(74% - 1px); }
+
+/* 「上午」/「下午」兩個字。**不可以只靠顏色** —— 她是在窗邊反光的地方看這一格
+   （同 --ban 那段的理由），而半天與整天的差別比顏色深淺更需要講出來。 */
+.minical__half {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--overdue);
+}
+
 .minical__dot {
   width: 4px;
   height: 4px;
@@ -1642,6 +1706,11 @@ button.mark::after {
 .minical__swatch--ban {
   background: var(--overdue-bg);
   border-color: var(--overdue);
+}
+
+.minical__swatch--half {
+  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface) 52%);
+  border-color: var(--overdue-bg);
 }
 
 .minical__swatch--away {

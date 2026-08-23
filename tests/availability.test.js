@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {
   parseAvailability, dayStatus, availableDates, describeRule,
   collectionState, currentCollection, collectionFor, validateCollection, summarize,
-  manualRule, mergeRules, validateRule,
+  manualRule, mergeRules, validateRule, partOfTime, partLabel,
 } from '../public/js/domain/availability.js';
 
 const parse = (text) => parseAvailability(text, { year: 2026 });
@@ -153,6 +153,42 @@ describe('可用天數', () => {
   test('日期不合法或顛倒就回空陣列，不要無限迴圈', () => {
     assert.deepEqual(availableDates([], '2026-09-30', '2026-09-01'), []);
     assert.deepEqual(availableDates([], 'x', '2026-09-01'), []);
+  });
+
+  // 壓表的小日曆把只擋半天的日子標起來了（.scratch/half-day-availability/issues/01）。
+  // 標起來歸標起來，那幾天仍然算可用 —— 這個數字是排序的第一權重（SPEC 第 9 節），
+  // 一旦把半天算成不可用，一位只是「下午不行」的客戶就會被推到名單最上面。
+  test('只擋半天的日子照樣算在可用天數裡', () => {
+    const half = [{ kind: 'exclude_weekday', weekday: 5, partOfDay: 'pm' }];
+    const days = availableDates(half, '2026-09-01', '2026-09-30');
+
+    assert.equal(days.length, 30, '九月的四個星期五都還在');
+    assert.ok(days.includes('2026-09-04'));
+  });
+});
+
+// 半天限制要標到時間丸子上，就得先回答「10:30 算不算上午」。
+// 那是規則不是排版，所以住在 domain 裡，畫面不自己判斷一次。
+describe('一個時間算上午還是下午', () => {
+  test('中午 12:00 起算下午', () => {
+    assert.equal(partOfTime('11:59'), 'am');
+    assert.equal(partOfTime('12:00'), 'pm');
+    assert.equal(partOfTime('09:00'), 'am');
+    assert.equal(partOfTime('18:00'), 'pm');
+  });
+
+  test('不是合法時間就回 null —— 猜一個會把丸子標到錯的半天', () => {
+    assert.equal(partOfTime('9:5'), null);
+    assert.equal(partOfTime('25:00'), null);
+    assert.equal(partOfTime(''), null);
+    assert.equal(partOfTime(null), null);
+  });
+
+  test('人話認得 am / pm，其餘回空字串', () => {
+    assert.equal(partLabel('am'), '上午');
+    assert.equal(partLabel('pm'), '下午');
+    assert.equal(partLabel(null), '');
+    assert.equal(partLabel('evening'), '');
   });
 });
 

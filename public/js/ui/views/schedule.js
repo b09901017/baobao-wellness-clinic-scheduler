@@ -41,7 +41,7 @@ import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
   strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
-import { dayStatus } from '../../domain/availability.js';
+import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
@@ -771,8 +771,8 @@ function banBlock(row, { raw = false } = {}) {
 
 /** 卡片上的一行塞不下完整句子，這裡只給日期本身。完整的在原文裡。 */
 function describeShort(rule) {
-  if (rule.kind === 'exclude_weekday') return `每週${weekdayLabelOf(rule.weekday)}${partLabel(rule)}`;
-  if (rule.kind === 'exclude_date') return `${short(rule.date)}${partLabel(rule)}`;
+  if (rule.kind === 'exclude_weekday') return `每週${weekdayLabelOf(rule.weekday)}${partLabel(rule.partOfDay)}`;
+  if (rule.kind === 'exclude_date') return `${short(rule.date)}${partLabel(rule.partOfDay)}`;
   if (rule.kind === 'exclude_range') return `${short(rule.from)}–${short(rule.to)}`;
   return '';
 }
@@ -780,7 +780,6 @@ function describeShort(rule) {
 const WD = ['日', '一', '二', '三', '四', '五', '六'];
 const weekdayLabelOf = (n) => WD[n] ?? '?';
 const short = (iso) => (typeof iso === 'string' ? iso.slice(5).replace('-', '/') : '');
-const partLabel = (r) => (r.partOfDay === 'am' ? '上午' : r.partOfDay === 'pm' ? '下午' : '');
 
 function poolChip(pool) {
   return `<span class="poolchip ${pool.remaining <= 2 ? 'poolchip--low' : ''}">${esc(pool.label)}<b class="num">${pool.remaining}</b></span>`;
@@ -858,11 +857,30 @@ function blockedNote(row) {
 // ---------- 小日曆 ----------
 
 /**
+ * 這一天他是不是只有半天不行，是哪半天。
+ *
+ * `dayStatus()` 早就算得出來了（`blockedPart`），只是以前沒有人接。
+ * 整天不行的那幾天回 null —— 那是 `--ban` 在管的，不是這裡。
+ *
+ * 這個月沒問過就是不知道，不要拿別的月份那一份硬算（ADR-0036）。
+ */
+function halfBlocked(row, iso) {
+  if (!iso || row.needsAvailability) return null;
+  return dayStatus(row.rules ?? [], iso).blockedPart;
+}
+
+/**
  * 挑日子。**他說不行的日子用紅色劃掉**，她自己休假的用霧藍，已經過去的只是變淡。
  *
  * 三種都點不下去，但原因完全不同，而她只有在「為什麼這天不能點」上會停下來 ——
  * 一種顏色講三件事，等於每次都要把 title 叫出來看。顏色的分工跟全站一致：
  * 紅是擋住的，霧藍是她的個人行程（ADR-0015），淡的是已經不用管的。
+ *
+ * **只擋半天的日子是第四種，而且它點得下去。** 那天真的排得進去，只是要挑另外
+ * 半天（`availableDates()` 也是這樣算的），所以它不是 `--off` 的第四個成員，
+ * 是疊在正常格子上的一層：被擋的那半邊塗紅、劃線、寫「上午」或「下午」。
+ * 畫法跟客戶自己填的那一頁同一招（`form.css` 的 `.cell--am`）——
+ * 他點的時候看到什麼樣子，她壓表時就該看到什麼樣子。
  *
  * 用整月的格子而不是 chip 列表：這裡要挑的是「哪一天」，而月曆的形狀本身
  * 就帶著「這是禮拜幾」「離月底還有多久」兩個她需要的資訊。
@@ -890,14 +908,22 @@ function miniCal(row) {
     // 那幾天再標成紅色，紅色就從「這天他不行」變成「這半頁都是紅的」——
     // 紅要留給「本來排得進去、但他不行」的那幾天才有意義。
     const kind = past ? 'past' : banned ? 'ban' : isAway ? 'away' : null;
+
+    // 點得下去的日子裡，還有一種「只有半天不行」。它不是第四個 kind ——
+    // 那幾天排得進去，只是要挑另外半天。
+    const half = kind ? null : status.blockedPart;
+
     const why = past ? '已經過去了'
       : banned ? (status.reasons.join('、') || '他說這天不行')
-      : isAway ? '你這天休假' : '';
+      : isAway ? '你這天休假'
+      : half ? (status.reasons.join('、') || `他說這天${partLabel(half)}不行`)
+      : '';
 
     const classes = [
       'minical__cell',
       kind ? 'minical__cell--off' : '',
       kind ? `minical__cell--${kind}` : '',
+      half ? `minical__cell--half minical__cell--half-${half}` : '',
       has.has(iso) ? 'minical__cell--has' : '',
       iso === view.day ? 'minical__cell--on' : '',
     ].filter(Boolean).join(' ');
@@ -905,7 +931,9 @@ function miniCal(row) {
     cells.push(`
       <button class="${classes}" type="button" data-day="${iso}" ${kind ? 'disabled' : ''}
               title="${esc(why)}">
-        ${d}<span class="minical__dot"></span>
+        ${d}
+        ${half ? `<span class="minical__half">${partLabel(half)}</span>` : ''}
+        <span class="minical__dot"></span>
       </button>`);
   }
 
@@ -921,6 +949,7 @@ function miniCal(row) {
       <span><i class="minical__swatch"></i>可以排</span>
       <span><i class="minical__swatch minical__swatch--has"></i>已經記了</span>
       <span><i class="minical__swatch minical__swatch--ban"></i>他不行</span>
+      <span><i class="minical__swatch minical__swatch--half"></i>只有半天</span>
       <span><i class="minical__swatch minical__swatch--away"></i>你休假</span>
     </div>`;
 }
@@ -981,6 +1010,7 @@ function dayPanel(row) {
           ${esc(shortDate(view.day))}</h3>
         <span class="muted">${sameDay ? `這天已經記了 ${sameDay.slots.length} 段` : '這天還沒排東西'}</span>
       </div>
+      ${halfNote(row)}
 
       <div class="fieldgroup" style="margin-top: var(--space-4)">
         <span class="fieldgroup__label">做什麼</span>
@@ -1013,20 +1043,49 @@ function dayPanel(row) {
     </section>`;
 }
 
+/**
+ * 選中的那一天只有半天不行時的那一句。
+ *
+ * 小日曆上已經標出來了，這裡還要再講一次 —— 她點進來是要挑時間的，
+ * 而時間丸子就在這句話底下。在挑時間的那一刻不講，等於沒講。
+ *
+ * 用 `.warn` 不用 `.warn--hard`：硬的那一種在這一頁只有醫療禁忌用得起
+ * （見 `blockedNote()`），而這一條是提醒，不擋。
+ */
+function halfNote(row) {
+  const half = halfBlocked(row, view.day);
+  if (!half) return '';
+  return `
+    <div class="warn" style="margin-top: var(--space-3)">
+      ${icon('info', { size: 16 })}
+      <span>他說這天<b>${esc(partLabel(half))}不行</b> ——
+        底下${half === 'am' ? '上午' : '下午'}的時間會標起來，但沒有擋。</span>
+    </div>`;
+}
+
 /** 跟著課程走的那幾欄。沒選課程時只留一句話，不留一堆空欄位。 */
 function entFields(row, picked) {
   if (!picked) return '<p class="muted" style="margin: 0 0 var(--space-4)">先選上面要做什麼。</p>';
 
   const { all } = ctx;
   const course = picked.course;
+  const half = halfBlocked(row, view.day);
 
   return `
     <div class="fieldgroup">
       <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
       <div class="chiprow noscroll-bar">
-        ${timeChoices().map((t) => `
-          <button class="chip chip--sm" type="button" aria-pressed="${t === view.startsAt}"
-                  data-time="${t}"><span class="num">${t}</span></button>`).join('')}
+        ${timeChoices().map((t) => {
+          // 落在他說不行的那半天。標起來，但**不 disable** —— 唯一會鎖住選項的
+          // 是醫療禁忌（SPEC 第 4.7 節），而原文永遠比解析結果大（第 4.3 節）：
+          // 解析錯的時候她要有辦法照樣排下去。
+          const off = half && partOfTime(t) === half;
+          return `
+          <button class="chip chip--sm ${off ? 'chip--halfoff' : ''}" type="button"
+                  aria-pressed="${t === view.startsAt}"
+                  data-time="${t}" title="${esc(off ? `他說這天${partLabel(half)}不行` : '')}">
+            <span class="num">${t}</span></button>`;
+        }).join('')}
       </div>
       <label class="field" style="margin: var(--space-3) 0 0">
         <span class="field__label">上面沒有的時間</span>
