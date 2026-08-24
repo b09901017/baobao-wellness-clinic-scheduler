@@ -1,6 +1,6 @@
 # 「回上一頁」其實是往前走一頁
 
-Status: todo
+Status: done
 來源：使用者，2026-08-24（spec.md 的原因 2）
 動工前先讀：`ui/router.js`
 
@@ -71,3 +71,18 @@ export function back(fallback) { ... }
 - 瀏覽器：直接貼一個 `#/customers/xxx` 的網址進去 → 按「客戶」→ 到客戶列表
   （fallback 那條路）
 - 瀏覽器：在四五個分頁之間跳來跳去，返回鍵的行為講得通
+
+## Comments
+
+**2026-08-24 —— done（ADR-0048）。** `nav.js` 的 `back(fallback)`。
+
+**沒有抽 `ui/components/backlink.js`。** issue 建議抽一支產生器，
+但那要改十五個呼叫點；改成在 `renderShell()` 上做**事件委派**（`a.backlink`），
+一個地方接完全部，而且 `href` 一個字都不用動 —— 長按「在新分頁開啟」照樣有意義，
+JS 壞掉時也還走得掉。
+
+自己接了事件的（`data-back`）跳過委派。那幾個分成兩種，都處理了：
+回某個網址的（客戶詳情、批次建立、來訪編輯器、客戶表單）改用 `back()`；
+回同一頁前一個畫面的（主檔編輯、可用性、額度）改用 `pushScreen()`，見 `issues/03`。
+
+`go()` 多了一條「同一個 hash 不重推」的短路 —— 那本來就不該推一筆紀錄。

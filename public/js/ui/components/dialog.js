@@ -3,6 +3,8 @@
 // SPEC 第 6.5 節：確認框要顯示具體後果，不要只有「確定嗎？」。
 // 所以 consequences 是必填的，不給就沒有東西可以顯示。
 
+import { pushLayer } from '../nav.js';
+
 let openDialog = null;
 
 /**
@@ -33,7 +35,12 @@ export function confirmAction({ title, consequences, confirmLabel = '確定', da
         </div>
       </div>`;
 
-    const finish = (answer) => {
+    // 對話框也吃返回鍵，而且**返回等於取消**。這一顆很重要：破壞性操作的
+    // 二次確認如果被返回鍵略過，那顆「刪除」會在她以為自己取消了的時候執行。
+    const layer = pushLayer(() => finish(false, { fromBack: true }));
+
+    const finish = (answer, { fromBack = false } = {}) => {
+      if (!fromBack) layer.pop();
       close();
       resolve(answer);
     };

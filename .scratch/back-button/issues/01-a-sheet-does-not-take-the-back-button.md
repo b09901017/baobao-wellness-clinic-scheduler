@@ -1,6 +1,6 @@
 # 抽屜、卡片、對話框要吃掉返回鍵
 
-Status: todo
+Status: done
 來源：使用者，2026-08-24（spec.md 的原因 1）
 動工前先讀：`ui/components/sheet.js`、`ui/components/card.js`、
 `ui/components/dialog.js`、`docs/adr/0021`
@@ -66,3 +66,24 @@ export function pushLayer(onPop) { ... }
 - 瀏覽器：刪除的二次確認 → 返回鍵 → 等於取消，東西沒被刪
 - 瀏覽器：連續快速開關面板數十次，返回鍵仍然一次退一層
 - **手機上真的測**（Android Chrome 的返回鍵、iOS 的左緣滑）
+
+## Comments
+
+**2026-08-24 —— done（ADR-0048）。** `ui/nav.js` 的 `pushLayer()`，
+抽屜、卡片、二次確認三個都接上了。
+
+**「關閉的路只有一條」是這一支的關鍵。** 由畫面自己關掉時走 `pop()`
+（標記 closing → `history.back()`），返回鍵按下去時走 `popstate`。
+兩條路最後都會走到同一個 `close()`，差別只有 `fromBack` 這個旗標決定
+要不要再退一筆紀錄 —— 沒有這個旗標的話，往下甩掉面板之後按返回鍵會多退一頁。
+
+`openSheet()` 換第二張面板時走的是 `closeSheet({ instant: true })`，
+那條路照樣經過 `close()` 所以照樣 `pop()`。
+
+**頻率上限那件事沒有實測。** issue 要求「連續快速開關面板 50 次」，
+我在無頭瀏覽器上跑不出 Safari 的限流（那是 Safari 專屬的）。
+壓表那一頁因此**刻意沒有接上去**（見 `issues/03`）—— 那是唯一會高頻開關的地方。
+
+**驗證方式**：寫了一支 `navcheck.mjs`（跟截圖腳本同一組假 Firebase），
+真的按 `page.goBack()`。七項全過，含「叉叉關掉之後返回鍵只退一頁」
+與「二次確認的返回鍵等於取消」。那支腳本不進版控，理由同截圖腳本。

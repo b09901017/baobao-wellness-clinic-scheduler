@@ -1,5 +1,6 @@
 import { navRoutes, activeNavPath, start } from './router.js';
 import { icon } from './icons.js';
+import { back } from './nav.js';
 import { setSignOut } from './session.js';
 
 function navHtml(activePath) {
@@ -76,6 +77,8 @@ export function renderShell(root, { onSignOut }) {
   const view = root.querySelector('#view');
   const navEl = root.querySelector('.app__nav');
 
+  wireBackLinks(root);
+
   start(({ path, route, params }) => {
     if (!route) return;
     const title = route.titleFor ? route.titleFor(...params) : route.title;
@@ -86,5 +89,30 @@ export function renderShell(root, { onSignOut }) {
     Promise.resolve(route.render(view, ...params)).catch((err) => {
       view.innerHTML = `<div class="card"><p>這一頁出錯了：${err.message}</p></div>`;
     });
+  });
+}
+
+/**
+ * 每一頁左上角那個「回上一頁」。
+ *
+ * 它們本來是普通的 `<a href="#/customers">`，而那是**往前推一筆**不是往回退：
+ * 客戶列表 → 客戶詳情 → 按「客戶」，紀錄裡就有三筆，手機返回鍵會把她送回
+ * 剛剛才離開的客戶詳情。她的原話是「跳到奇怪的頁面」。
+ *
+ * 用事件委派接在整個 app 上，不是每一頁各接一次 —— 這種連結有十五個以上，
+ * 而漏掉的那幾個會變成「有時候正常有時候怪」，比全部都怪更難查。
+ *
+ * `href` 留著沒有拿掉：長按「在新分頁開啟」照樣有意義，JS 壞掉時也還走得掉。
+ * 自己接了事件的（`data-back`）跳過 —— 那幾個回的不是某個網址，
+ * 是同一頁上的前一個畫面。
+ */
+function wireBackLinks(root) {
+  root.addEventListener('click', (e) => {
+    const link = e.target.closest('a.backlink');
+    if (!link || link.hasAttribute('data-back')) return;
+    const href = link.getAttribute('href') ?? '';
+    if (!href.startsWith('#/')) return;
+    e.preventDefault();
+    back(href.slice(1));
   });
 }

@@ -45,6 +45,7 @@ import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { back, popScreens, pushScreen } from '../nav.js';
 
 const esc = f.esc;
 
@@ -95,6 +96,9 @@ export async function render(el, id) {
 function reload(ctx) {
   // 重畫整頁時把開著的面板收掉 —— 它顯示的是已經過期的那一份
   closeSheet();
+  // 原地換掉的那幾層（編輯、加購、記一次）的瀏覽器紀錄也要退掉，
+  // 不然她存完按返回鍵會回到一張已經存過的表單，看起來像沒存進去。
+  popScreens();
   return render(ctx.el, ctx.id);
 }
 
@@ -205,7 +209,7 @@ function wire(ctx, { today, marks }) {
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    go('/customers');
+    back('/customers');
   });
   el.querySelector('[data-edit]').addEventListener('click', () => paintEdit(ctx));
   el.querySelector('[data-add-ent]')?.addEventListener('click', () => paintEntitlement(ctx, null));
@@ -794,12 +798,13 @@ function paintEdit(ctx) {
       </form>
     </section>`;
 
-  const back = () => paint(ctx);
+  // 原地換掉整頁 → 疊一層，返回鍵退得回詳情而不是離開這個人（ADR-0048）。
+  const leave = pushScreen('customer-edit', () => paint(ctx));
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    back();
+    leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', back);
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags,
@@ -896,12 +901,13 @@ function paintEntitlement(ctx, record, draft = null) {
     </section>
     ${isNew ? '' : entitlementDanger()}`;
 
-  const back = () => paint(ctx);
+  // 同上。這一頁換額度型態時會重畫自己，pushScreen 的 key 讓它不再疊一層。
+  const leave = pushScreen('entitlement-edit', () => paint(ctx));
   el.querySelector('[data-back]').addEventListener('click', (ev) => {
     ev.preventDefault();
-    back();
+    leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', back);
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
   const form = el.querySelector('[data-form]');
 

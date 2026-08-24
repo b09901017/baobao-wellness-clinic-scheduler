@@ -29,6 +29,7 @@ import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { back } from '../nav.js';
 
 const esc = f.esc;
 
@@ -226,7 +227,7 @@ function paint(ctx, draft) {
 
   el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
-    go(`/customers/${customer.id}`);
+    back(`/customers/${customer.id}`);
   });
   el.querySelector('[data-cancel-edit]').addEventListener('click', () =>
     (ctx.onCancel ? ctx.onCancel() : go(`/customers/${customer.id}`)),

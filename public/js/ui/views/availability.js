@@ -18,6 +18,7 @@ import {
 import { todayISO, addMonths, lastDayOf, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
+import { pushScreen } from '../nav.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -178,7 +179,9 @@ function paintForm(ctx, record, draft = null) {
     </section>
     ${isNew ? '' : dangerZone()}`;
 
-  const back = () => ctx.back();
+  // 原地換掉整頁 → 疊一層。這一頁重畫自己很多次（重新解析、加一條規則、
+  // 刪一條），所以 pushScreen 要一把 key，不然按五次返回鍵才回得去。
+  const back = pushScreen('availability-form', () => ctx.back());
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
     back();

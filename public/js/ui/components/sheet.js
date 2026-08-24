@@ -14,6 +14,7 @@
 // docs/adr/0021-the-sheet-is-dragged-by-transform.md。
 
 import { icon } from '../icons.js';
+import { pushLayer } from '../nav.js';
 import { esc } from './form.js';
 
 /** 同一時間只會有一個。開第二個之前先把前一個關掉，不要疊成兩層灰底。 */
@@ -58,6 +59,10 @@ export function openSheet({ title, note = '', body = '', actions = '', tools = '
 
   const drawer = root.querySelector('.drawer');
 
+  // 疊了一層 → 多一筆返回鍵退得掉的紀錄。按返回鍵就是關掉這張面板，
+  // 而不是跳走上一頁（`ui/nav.js`）。
+  const layer = pushLayer(() => close({ fromBack: true }));
+
   const remove = () => {
     root.remove();
     document.removeEventListener('keydown', onKey);
@@ -69,9 +74,15 @@ export function openSheet({ title, note = '', body = '', actions = '', tools = '
   // 收起來的動畫播完才真的拿掉節點。手勢拖到底與按叉叉走的是同一條路。
   const drag = wireDrag(drawer, remove, { backdrop: root });
 
-  const close = ({ instant = false } = {}) => {
+  /**
+   * @param {{instant?: boolean, fromBack?: boolean}} [opts]
+   *   fromBack：這一下是返回鍵按的，紀錄已經退掉了，不要再退一次
+   *   （不然往下甩掉面板之後按返回鍵會多退一頁）。
+   */
+  const close = ({ instant = false, fromBack = false } = {}) => {
     if (open?.root !== root) return;
     open = null;
+    if (!fromBack) layer.pop();
     if (instant) remove();
     else drag.dismiss();
   };

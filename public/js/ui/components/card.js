@@ -9,6 +9,7 @@
 // 進去就是一張可以改的表單，等於每次都冒著改到東西的風險。要改就按鉛筆。
 
 import { icon } from '../icons.js';
+import { pushLayer } from '../nav.js';
 import { esc } from './form.js';
 
 /** 同一時間只有一張。開第二張之前先收掉上一張，不要疊成三層灰底。 */
@@ -56,14 +57,21 @@ export function openCard({
   document.body.appendChild(root);
 
   const card = root.querySelector('.popcard');
-  const close = () => {
+
+  // 卡片疊在抽屜上面，所以它是第二層 —— 按返回鍵先關掉卡片，
+  // 底下那一天的面板留著（`ui/nav.js`）。
+  const layer = pushLayer(() => close({ fromBack: true }));
+
+  const close = ({ fromBack = false } = {}) => {
     if (open?.root !== root) return;
+    if (!fromBack) layer.pop();
     root.remove();
     document.removeEventListener('keydown', onKey);
-    window.removeEventListener('hashchange', close);
+    window.removeEventListener('hashchange', onHash);
     open = null;
     onClose?.();
   };
+  const onHash = () => close();
 
   function onKey(e) {
     // 最上面那一層先關。底下的抽屜留著 —— 她只是看完這一筆，不是要離開那一天。
@@ -73,11 +81,11 @@ export function openCard({
     }
   }
 
-  window.addEventListener('hashchange', close, { once: true });
+  window.addEventListener('hashchange', onHash, { once: true });
   root.addEventListener('click', (e) => {
     if (e.target === root) close();
   });
-  root.querySelector('[data-card-close]').addEventListener('click', close);
+  root.querySelector('[data-card-close]').addEventListener('click', () => close());
   root.querySelector('[data-card-edit]')?.addEventListener('click', () => onEdit?.());
   document.addEventListener('keydown', onKey);
 

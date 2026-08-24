@@ -29,6 +29,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { back } from '../nav.js';
 
 const esc = f.esc;
 
@@ -132,7 +133,7 @@ function paint() {
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    go('/customers');
+    back('/customers');
   });
 
   wireShared();
