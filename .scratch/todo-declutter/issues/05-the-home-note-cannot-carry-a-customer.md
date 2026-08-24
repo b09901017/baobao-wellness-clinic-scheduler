@@ -1,6 +1,6 @@
 # 首頁那一格隨手記掛得了日期，掛不了客戶
 
-Status: todo
+Status: done
 來源：使用者，2026-08-24（spec.md 的 e）
 動工前先讀：`CONTEXT.md`（隨手記）、`docs/adr/0044`、`.scratch/quick-capture/`
 
@@ -48,3 +48,9 @@ Status: todo
 - `npm test`
 - 瀏覽器：首頁那一格掛一位客戶 → 那位客戶的詳情頁看得到
 - 瀏覽器：首頁那一格與泡泡的欄位長一樣
+
+## Comments
+
+**2026-08-24 —— done。** 「掛給誰」抽進 `ui/components/note.js`
+（`who()` / `readWho()` / `wireWho()`），首頁那一格與右下角泡泡共用同一支。
+客戶名單一樣是**點開才讀**。

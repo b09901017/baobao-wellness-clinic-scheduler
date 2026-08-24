@@ -629,7 +629,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 ### 6.6 對帳檢查（reconciliation）
 
-提供一個「資料健檢」頁面，可手動執行，也在 app 啟動時背景跑 —— 背景那次每天最多一次，見 `docs/adr/0008-startup-health-scan-runs-once-a-day.md`：
+提供一個「資料健檢」頁面（`#/settings/health`），入口在設定頁，打開就掃一次。**沒有背景掃描** —— 原本啟動時會跑一次（ADR-0008），2026-08-24 連同待辦中心那顆徽章一起拿掉了，見 `docs/adr/0049-the-todo-centre-does-not-run-the-health-scan.md`：
 
 | 檢查項 | 內容 |
 |---|---|

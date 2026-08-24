@@ -1,6 +1,6 @@
 # 泡泡上「掛給誰」旁邊永遠站著一顆「不掛了」
 
-Status: todo
+Status: done
 來源：使用者，2026-08-24（spec.md 的 f）
 動工前先讀：`.scratch/quick-capture/issues/01-a-note-should-not-need-a-scroll.md`
 
@@ -69,3 +69,16 @@ Status: todo
 - 瀏覽器：選了人 → 變成名字 + 一顆淡紅的叉叉；按叉叉 → 回到「掛給誰」
 - 瀏覽器：**全站掃一遍 `[hidden]`** —— 待辦首頁、日曆、壓表、客戶詳情、
   設定，確認沒有東西因為那條全域規則消失或多出來
+
+## Comments
+
+**2026-08-24 —— done。**
+
+`[hidden] { display: none !important; }` 加在 `app.css` 最上面，
+**取代了散在各處的五條**（`.fab__menu`、`.drawer__note`、`.drawer__actions`、
+`.toast`、`.notedate__picked`）。加完把全站十七張截圖重跑一遍
+（含深色模式與 iPad 橫式），沒有東西因此消失或多出來。
+
+文案改成「掛給誰」，選了人之後那一顆變成名字，旁邊出現一顆淡紅的
+「✕ 不掛了」（`.chip--clear`，用既有的 `--overdue-bg` / `--overdue`，
+沒有新開顏色）。

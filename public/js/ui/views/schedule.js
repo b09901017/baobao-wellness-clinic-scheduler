@@ -89,6 +89,21 @@ const view = {
  */
 let ctx = null;
 
+/**
+ * 從別的畫面指定「進去就打開這一位」。待辦中心的「壓表登記」點一個人名走這條路
+ * （`.scratch/todo-declutter/issues/04`）。
+ *
+ * **存在模組層而不是網址裡。** 進網址要嘛多一層路由參數（router 只支援一層，
+ * 而這裡要帶月份與客戶兩個值），要嘛把月份塞進去而讓她重整時看到一個
+ * 半生不熟的狀態。放在這裡的代價是「中途重整就回到卡片牆」——
+ * 而她不會在那三秒中間重整。
+ */
+let pendingOpen = null;
+
+export function openFor({ month, customerId }) {
+  pendingOpen = { month, customerId };
+}
+
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
@@ -104,11 +119,37 @@ function resetCourseBoundPicks() {
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   try {
-    if (view.batchId) await paintBatch(el);
+    if (pendingOpen) {
+      const spec = pendingOpen;
+      pendingOpen = null;
+      await openPending(el, spec);
+    } else if (view.batchId) await paintBatch(el);
     else await paintStart(el);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
   }
+}
+
+/**
+ * 別的畫面指名要壓某一位的某一個月。
+ *
+ * **那個月已經有一批在跑就接著用**，不要再開一批 —— 兩批同一個月會讓
+ * 「已壓 5 / 23」變成兩個各自算的數字，而進度是存在雲端跨裝置接續的
+ * （SPEC 第 1 節）。沒有的話才開一批。
+ */
+async function openPending(el, { month, customerId }) {
+  const active = await batchesData.listActive();
+  const found = active.find((b) => b.targetMonth === month);
+
+  resetPicks();
+  view.customerId = customerId ?? null;
+
+  if (found) {
+    view.batchId = found.id;
+    await paintBatch(el);
+    return;
+  }
+  await startBatch(el, month, { keepCustomer: true });
 }
 
 // ---------- 起點：選月份 ----------
@@ -185,7 +226,11 @@ function openRow(b) {
   </button></li>`;
 }
 
-async function startBatch(el, targetMonth) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.keepCustomer] 別的畫面指名了要打開誰，開完不要把它清掉
+ */
+async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
   el.innerHTML = '<p class="muted">算佇列中…</p>';
   const data = await loadAll(targetMonth);
   const rows = buildCustomerQueue({ ...data.queueInput, targetMonth });
@@ -206,7 +251,7 @@ async function startBatch(el, targetMonth) {
       { success: '開始了' },
     );
     view.batchId = id;
-    view.customerId = null;
+    if (!keepCustomer) view.customerId = null;
     resetPicks();
     render(el);
   } catch {

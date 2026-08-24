@@ -90,7 +90,13 @@ export function openSheet({ title, note = '', body = '', actions = '', tools = '
   function onKey(e) {
     if (e.key === 'Escape') close();
   }
-  const onHash = () => close({ instant: true });
+  /**
+   * 換頁了。面板要收掉，但**不能 pop** —— 它的那一筆紀錄現在在新頁面的下面，
+   * 退掉會把剛剛的換頁一起退掉（`history.back()` 是非同步的，
+   * 而 `location.hash = ...` 是同步的，所以 back 會後到並吃掉那次換頁）。
+   * 留下來的那一筆由 `nav.js` 的 popstate 認出來並自動跳過。
+   */
+  const onHash = () => close({ instant: true, fromBack: true });
 
   // 換頁就收掉。它掛在 <body> 上而不是 view 裡（見上面），所以路由換了它不會
   // 自己消失 —— 那會變成一個蓋在新畫面上、內容還是舊畫面的面板。

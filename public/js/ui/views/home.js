@@ -10,7 +10,6 @@
 // 其餘照樣成立 —— 不做整批一次確認，因為客人常常是「這兩天可以、那天不行」。
 
 import * as tasksData from '../../data/tasks.js';
-import * as health from './health.js';
 import * as visitsData from '../../data/visits.js';
 import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
@@ -33,7 +32,7 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addMonths, monthLabel,
+  todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -44,6 +43,7 @@ import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import * as scheduleView from './schedule.js';
 
 const esc = f.esc;
 
@@ -223,15 +223,13 @@ function paint(ctx) {
   const waiting = byCustomer(visitsToConfirm(pending, today));
   const toClose = visitsToClose(unclosed ?? [], today);
 
+  const nothing = !tasks.length && !waiting.size && !toClose.length;
+
   el.innerHTML = `
     <div class="page">
-      <div class="page__row">
-        <span class="muted num">${esc(shortDate(today))}</span>
-      </div>
-      <h1 class="page__title">${headline(tasks.length, overdue.length, waiting.size, toClose.length)}</h1>
+      <h1 class="page__title num">${esc(longDate(today))}</h1>
+      ${nothing ? '<p class="page__lead">今天沒有待辦。</p>' : ''}
     </div>
-
-    <div data-health></div>
 
     <div class="seg" role="group" style="margin-bottom: var(--space-4)">
       <button class="seg__item" type="button" aria-pressed="${tab === 'all'}" data-tab="all">總覽</button>
@@ -248,7 +246,6 @@ function paint(ctx) {
   wireOverview(ctx);
   wireQuickCapture(ctx);
   markNext(el);
-  scanHealth(el);
 }
 
 /**
@@ -261,19 +258,27 @@ function paint(ctx) {
 function markNext(el) {
   const groups = [...el.querySelectorAll('.flowgroup')];
   for (const g of groups) g.classList.remove('flowgroup--next');
-  groups.find((g) => g.querySelector('.grouprow'))?.classList.add('flowgroup--next');
+  // **提醒不算「下一步」。** 她的下一步不會是一件永遠做不完的事 ——
+  // 壓表那一段身上永遠有人，標成下一步等於那顆標記永遠停在同一個地方。
+  groups
+    .find((g) => g.querySelector('.grouprow:not(.grouprow--reminder)'))
+    ?.classList.add('flowgroup--next');
 }
 
-/** 一句話講完現在的狀況。數字很小的時候不要硬講成很急。 */
-function headline(total, overdue, waiting, toClose = 0) {
-  if (!total && !waiting && !toClose) return '今天沒有待辦';
-  const parts = [];
-  if (total) parts.push(`今天有 ${total} 件`);
-  // 沒結案的排在最前面 —— 那是唯一會讓剩餘次數失準的一種（SPEC 第 4.2 節）
-  if (toClose) parts.push(`${toClose} 筆還沒簽單結案`);
-  else if (overdue) parts.push(`其中 ${overdue} 件逾期了`);
-  else if (waiting) parts.push(`${waiting} 位在等你確認`);
-  return parts.join('，');
+/**
+ * 抬頭就是日期。
+ *
+ * 這裡本來有一句「今天有 N 件，M 筆還沒簽單結案」，而那句話在說謊：
+ * 那個 N 是 `tasksData.listOpen()` 的長度，也就是**身上所有還沒完成的任務**，
+ * 不分死線。她問「為什麼上面寫 18 件、下面又寫今天 2 件」—— 兩個數字沒有
+ * 矛盾，是那句話用錯了詞（2026-08-24）。
+ *
+ * 拿掉之後這一頁的順序是「今天幾號 → 三顆大數字（逾期／今天／明天）→ 分段清單」，
+ * 而那三顆本來就準。全部歸零時才多一句「今天沒有待辦」—— 那是難得的好消息。
+ */
+function longDate(iso) {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${m}月${d}日 星期${weekdayLabel(iso)}`;
 }
 
 /**
@@ -380,20 +385,24 @@ function inboxGroupRow() {
 /**
  * 她流程的**第三步**：這個月還有誰沒壓表。
  *
- * 數字是**人數**不是系統數 —— 她問的是「還有幾個人要處理」。同一位客戶
- * 健檢與其他都還沒排時，兩區都會出現，但這裡只算一次。
+ * **這一列是提醒，不是任務，所以不給數字。** ADR-0028 與 ADR-0041 早就寫了
+ * 這件事（沒有死線也不計分），但畫面一直沒照著做 —— 它跟 Examine、耀聖
+ * 那幾列用同一支 `groupRow()`、同一個大數字、同一個紅字位置。
+ *
+ * 她的原話：「其實應該沒有這個月一定要壓所有人的限制，只是可以提醒，
+ * 因為我有很多客戶，所以一定會有沒壓到的，那這樣 todo 這邊顯示了好多數字，
+ * 看了就會很煩，他不像其他 todo 是真的要做的。」
+ *
+ * 「其中 N 位是健檢」也一起拿掉：想知道有誰就點進去，那一頁本來就分兩區。
  */
 function bookGroupRow(today) {
   if (!bookRows?.length) return '';
-  const examine = bookRows.filter((r) => r.systems.some((x) => x.system === 'Examine')).length;
 
   return groupRow({
     href: '#/todo/book',
     label: '壓表登記',
-    note: examine
-      ? `${monthLabel(today)}還有 ${bookRows.length} 位沒排，其中 ${examine} 位是健檢`
-      : `${monthLabel(today)}還有 ${bookRows.length} 位沒排`,
-    n: bookRows.length,
+    note: `${monthLabel(today)}還沒排到的人`,
+    reminder: true,
   });
 }
 
@@ -421,15 +430,22 @@ function tile(id, n, label, cls) {
  * 一列。**小圓點與「重點列」的底色都拿掉了** —— 段落左邊那條線接手了顏色
  * 這件事。一列一個點、一列一片綠底、一段一條線，三套視覺語言在講同一件事，
  * 而看的人只會覺得吵（ADR-0043）。
+ *
+ * `reminder` 的那幾列**沒有數字**。這一頁上的東西分兩種：真的要做的
+ * （漏一件就出事）與提醒（沒有死線、沒有完成的定義）。給第二種一個大數字，
+ * 等於每天告訴她「你有九件事沒做」，而那九件永遠不會歸零 ——
+ * 看久了的結果不是她去做，是她學會不看這一頁（她的原話：「看了就會很煩」）。
  */
-function groupRow({ href, label, note, n, danger = false, faded = false }) {
+function groupRow({ href, label, note, n, danger = false, faded = false, reminder = false }) {
   return `
-    <a class="grouprow ${faded ? 'grouprow--faded' : ''}" href="${href}">
+    <a class="grouprow ${faded ? 'grouprow--faded' : ''} ${reminder ? 'grouprow--reminder' : ''}"
+       href="${href}">
       <span class="grouprow__main">
         <span class="grouprow__label" ${danger ? 'style="color: var(--overdue)"' : ''}>${esc(label)}</span>
         ${note ? `<span class="grouprow__note">${esc(note)}</span>` : ''}
       </span>
-      <span class="grouprow__n" ${danger ? 'style="color: var(--overdue)"' : ''}>${n}</span>
+      ${reminder ? '' : `
+        <span class="grouprow__n" ${danger ? 'style="color: var(--overdue)"' : ''}>${n}</span>`}
       ${icon('right', { size: 18 })}
     </a>`;
 }
@@ -499,7 +515,10 @@ function notesCard(notes) {
                  placeholder="記一筆…" aria-label="新的隨手記" />
           <button class="btn btn--primary" type="submit">記</button>
         </div>
-        ${note.field()}
+        <div class="notemeta">
+          ${note.field()}
+          ${note.who()}
+        </div>
       </form>
     </section>`;
 }
@@ -559,8 +578,9 @@ function openQuick(ctx) {
       wireQuick(drawer, ctx, added);
     },
     onClose: () => {
-      // 記了東西才重畫首頁：底下那張卡與數字要跟著更新
-      if (added.length) render(ctx.el);
+      // 記了東西才重畫：底下那張卡與數字要跟著更新。什麼都沒記就不要重畫，
+      // 那會白閃一下。`#/todo/notes` 傳自己的 render 進來（它也有這顆泡泡）。
+      if (added.length) (ctx.render ?? render)(ctx.el);
     },
   });
 }
@@ -571,60 +591,22 @@ function quickBody() {
            placeholder="例：指定 LuLu，不要排騰崴" aria-label="記什麼"
            enterkeyhint="done" autocomplete="off" style="width: 100%" />
 
-    <div class="quickwho">
-      <button class="chip chip--sm" type="button" data-who aria-pressed="false">
-        <span data-wholabel>掛給誰？可以不掛</span>
-      </button>
-      <button class="chip chip--sm" type="button" data-whoclear hidden>不掛了</button>
+    <div class="notemeta">
+      ${note.field()}
+      ${note.who()}
     </div>
-    <div data-wholist hidden></div>
-
-    ${note.field()}
 
     <div data-just></div>`;
 }
 
 function wireQuick(drawer, ctx, added) {
-  // 掛給誰是選填的，所以客戶名單**點開才讀** —— 她十次有九次不掛人，
-  // 沒必要為了那一次讓每次開面板都多一次往返。
-  let customers = null;
-  let picked = null;
+  // 日期與「掛給誰」都走 `ui/components/note.js` —— 首頁那一格、這顆泡泡、
+  // 客戶詳情用的是同一份欄位。長得不一樣會讓她以為是兩種東西
+  // （`CLAUDE.md` 的連動表）。
   const when = note.wire(drawer);
+  const whom = note.wireWho(drawer, { load: () => customersData.list() });
 
   const input = () => drawer.querySelector('[data-quicktext]');
-  const label = () => drawer.querySelector('[data-wholabel]');
-
-  const showPicked = () => {
-    label().textContent = picked ? picked.name : '掛給誰？可以不掛';
-    drawer.querySelector('[data-who]').setAttribute('aria-pressed', String(Boolean(picked)));
-    drawer.querySelector('[data-whoclear]').hidden = !picked;
-    drawer.querySelector('[data-wholist]').hidden = true;
-  };
-
-  const openWho = async () => {
-    const box = drawer.querySelector('[data-wholist]');
-    if (!box.hidden) {
-      box.hidden = true;
-      return;
-    }
-    box.hidden = false;
-    if (!customers) {
-      box.innerHTML = '<p class="muted">讀取中…</p>';
-      try {
-        customers = await customersData.list();
-      } catch {
-        box.innerHTML = '<p class="muted">讀不到客戶名單。先記下來，之後再掛人也行。</p>';
-        return;
-      }
-    }
-    box.innerHTML = `
-      <div class="chips" style="margin-top: var(--space-2)">
-        ${customers.map((c) => `
-          <button class="chip chip--sm" type="button" data-pick="${esc(c.id)}"
-                  aria-pressed="${picked?.id === c.id}">${esc(c.name)}</button>`).join('')
-        || '<span class="muted">還沒有客戶。</span>'}
-      </div>`;
-  };
 
   const save = async () => {
     const text = String(input()?.value ?? '').trim();
@@ -636,9 +618,8 @@ function wireQuick(drawer, ctx, added) {
       await toast.withSaveState(
         () => notesData.create({
           text,
-          customerId: picked?.id ?? null,
-          customerName: picked?.name ?? null,
           date: note.read(drawer),
+          ...note.readWho(drawer),
         }),
         { success: '記下來了' },
       );
@@ -656,31 +637,16 @@ function wireQuick(drawer, ctx, added) {
 
     // 清空、焦點留在輸入框 —— 她的下一句話通常就跟在後面。
     // **不重畫整個面板**：換掉節點就等於把鍵盤收起來再叫一次，那一下會閃。
-    // 日期一起清掉：三件事記在一起不代表都掛同一天，而她「忘了取消上一筆的日期」
-    // 的後果是日曆上多一條她沒打算放的東西。
+    // 日期與掛的人一起清掉：三件事記在一起不代表都是同一天、同一位，
+    // 而「忘了取消上一筆的日期」的後果是日曆上多一條她沒打算放的東西。
     input().value = '';
     when.set(null);
+    whom.set(null);
     input().focus();
   };
 
   drawer.addEventListener('click', (e) => {
-    if (e.target.closest('[data-save]')) return save();
-    if (e.target.closest('[data-whoclear]')) {
-      picked = null;
-      showPicked();
-      return;
-    }
-    if (e.target.closest('[data-who]')) return openWho();
-
-    const pick = e.target.closest('[data-pick]');
-    if (pick) {
-      const found = (customers ?? []).find((c) => c.id === pick.dataset.pick);
-      // 再點一次同一位就取消
-      picked = picked?.id === found?.id ? null : found;
-      showPicked();
-      input()?.focus();
-    }
-    return null;
+    if (e.target.closest('[data-save]')) save();
   });
 
   drawer.addEventListener('keydown', (e) => {
@@ -690,37 +656,6 @@ function wireQuick(drawer, ctx, added) {
     e.preventDefault();
     save();
   });
-}
-
-// ---------- 資料健檢 ----------
-
-/**
- * SPEC 第 6.6 節要求 app 啟動時也在背景跑一次，而她一打開 app 就是這一頁。
- * 掃描本身每天最多跑一次，細節見 views/health.js。
- *
- * 沒問題時整張卡不出現：沒事還佔一格，下次真的有事時她也不會注意到。
- */
-async function scanHealth(el) {
-  const paintCard = (badge) => {
-    const slot = el.querySelector('[data-health]');
-    if (!slot) return;
-    slot.innerHTML = badge
-      ? `<a class="card" href="#/settings/health" style="display: block; text-decoration: none; color: inherit; border-color: var(--soon)">
-           <div class="row">
-             <span class="row__main">
-               <span class="card__title" style="margin: 0; display: block">資料健檢</span>
-               <span class="badge badge--soon" style="margin: 3px 0">${esc(badge)}</span>
-               <span class="muted" style="display: block">背景掃描發現的差異。只是提醒，沒有動到任何資料。</span>
-             </span>
-             ${icon('right', { size: 16 })}
-           </div>
-         </a>`
-      : '';
-  };
-
-  paintCard(health.lastBadge());
-  const result = await health.runIfDue();
-  if (result) paintCard(health.lastBadge());
 }
 
 // ---------- 總覽的事件 ----------
@@ -744,6 +679,7 @@ function wireOverview(ctx) {
   );
 
   note.wire(el);
+  note.wireWho(el, { load: () => customersData.list() });
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -769,7 +705,7 @@ async function addNote(ctx, form) {
   if (!text) return;
   try {
     await toast.withSaveState(
-      () => notesData.create({ text, date: note.read(form) }),
+      () => notesData.create({ text, date: note.read(form), ...note.readWho(form) }),
       { success: '記下來了' },
     );
     await render(ctx.el);
@@ -1692,7 +1628,7 @@ async function renderBook(el) {
     <div class="page">
       <h1 class="page__title">${esc(monthLabel(today))}壓表登記</h1>
       <p class="page__lead">${rows.length
-        ? `還有 ${rows.length} 位沒排。壓好了回來按「這位壓完了」，他就會出現在「跟客人確認時間」。`
+        ? '身上還有次數、這個月還沒排到的人。點一位就去壓他的表。'
         : '這個月每一位都排過了。'}</p>
     </div>
 
@@ -1703,15 +1639,28 @@ async function renderBook(el) {
 
     ${rows.length ? `
       <div class="form__actions" style="margin-top: var(--space-4)">
-        <a class="btn btn--primary" href="#/schedule">開始壓${esc(monthLabel(today))}的表</a>
+        <a class="btn btn--primary" href="#/schedule">去壓表</a>
       </div>` : ''}`;
+
+  el.querySelectorAll('[data-book-who]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const row = rows.find((r) => r.customerId === btn.dataset.bookWho);
+      askBookMonth(btn.dataset.bookWho, row?.customerName, today);
+    }),
+  );
 }
 
+/**
+ * 一位客戶。**點下去是去壓他的表**，不是去看他的資料。
+ *
+ * 以前這一列連到客戶詳情，而她在那一頁要做的下一件事就是「去壓這個人的表」——
+ * 而客戶詳情上沒有任何一條路通到壓表（她的原話：「跳到客戶資訊那邊很怪」）。
+ */
 function bookRow(row, system, terms) {
   const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
 
   return `
-    <a class="grouprow" href="#/customers/${esc(row.customerId)}">
+    <button class="grouprow" type="button" data-book-who="${esc(row.customerId)}">
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
         ${flagsUi.blockChips({ flags: row.flags ?? [], terms })}
@@ -1721,95 +1670,175 @@ function bookRow(row, system, terms) {
         </span>
       </span>
       ${icon('right', { size: 18 })}
-    </a>`;
+    </button>`;
+}
+
+/**
+ * 點了一位之後先問月份，選完直接進壓表的卡片牆並停在那一位身上。
+ *
+ * 只有兩顆：她壓的永遠是這個月或下個月。不做月份選擇器 ——
+ * 那是一個為了「以防萬一」而多出來的畫面。
+ */
+function askBookMonth(customerId, name, today) {
+  const months = [today.slice(0, 7), addMonths(today, 1).slice(0, 7)];
+
+  const sheet = openSheet({
+    title: name ?? '要壓哪個月',
+    note: '選完直接進壓表，停在這一位身上。',
+    body: `
+      <div class="chips" role="group" style="margin-top: var(--space-2)">
+        ${months.map((m, i) => `
+          <button class="chip" type="button" data-book-month="${esc(m)}">
+            ${esc(monthLabel(m))}${i ? '（下個月）' : ''}</button>`).join('')}
+      </div>`,
+  });
+
+  sheet.el.querySelectorAll('[data-book-month]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      scheduleView.openFor({ month: btn.dataset.bookMonth, customerId });
+      // **不要自己 close()。** 換頁時 `sheet.js` 的 hashchange 會收掉它，
+      // 而自己關會 `history.back()`（非同步）把緊接著的換頁退掉。
+      go('/schedule');
+    }),
+  );
 }
 
 // ---------- 隨手記那一頁 ----------
+//
+// **這一頁是看的，不是記的**（2026-08-24）。記東西有兩個更快的入口
+// （右下角泡泡、首頁那一格），而她點「全部」進來是為了看有哪些、勾掉、
+// 或者清掉已經做完的。原本最上面那一整張新增表單她九成用不到。
+//
+// 右下角那顆泡泡留著，所以「在這一頁想記一筆」還是三秒做得到。
+
+/** 未完成／已完成。存在模組裡不進網址 —— 它是看法，不是位置（同首頁的分頁）。 */
+let notesTab = 'open';
 
 async function renderNotes(el) {
-  const [notes, customers] = await Promise.all([
-    notesData.listOpen(),
-    customersData.list(),
-  ]);
-  paintNotes({ el, notes, customers });
+  const notes = await notesData.listAll();
+  paintNotes({ el, notes });
 }
 
 function paintNotes(ctx) {
-  const { el, notes, customers } = ctx;
-  const groups = groupByCustomer(notes);
+  const { el, notes } = ctx;
+  const live = sortNotes(notes);
+  const open = live.filter((n) => !n.done);
+  const done = live.filter((n) => n.done);
+  const rows = notesTab === 'done' ? done : open;
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">隨手記</h1>
-      <p class="page__lead">客人臨時說的小要求。沒有死線，所以它不是任務。</p>
     </div>
 
-    <section class="card">
-      <form data-newnote>
-        <label class="field">
-          <span class="field__label">記什麼</span>
-          <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" placeholder="例：指定 LuLu，不要排騰崴" />
-        </label>
-        ${f.select({
-          name: 'customerId', label: '關於誰　可以不填', value: '',
-          options: [{ value: '', label: '（沒掛客戶）' },
-            ...customers.map((c) => ({ value: c.id, label: c.name }))],
-        })}
-        <span class="field__label">哪一天　可以不填</span>
-        ${note.field()}
-        <p class="field__hint">掛了日期就會出現在日曆上。它不是死線 ——
-          隨手記沒有死線，過了也不會變紅。</p>
-        <button class="btn btn--primary btn--wide" type="submit"
-                style="margin-top: var(--space-3)">記一筆</button>
-      </form>
-    </section>
+    <div class="seg" role="group" style="margin-bottom: var(--space-4)">
+      <button class="seg__item" type="button" aria-pressed="${notesTab === 'open'}"
+              data-notes-tab="open">未完成${open.length ? ` ${open.length}` : ''}</button>
+      <button class="seg__item" type="button" aria-pressed="${notesTab === 'done'}"
+              data-notes-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
+    </div>
 
-    ${groups.map((g) => `
-      <section class="card">
-        <h2 class="card__title">${esc(g.customerName)}
-          <span class="muted"> ${g.notes.length}</span></h2>
-        <div class="groups">${g.notes.map((n) => note.row(n, { customer: false })).join('')}</div>
-      </section>`).join('')
-      || '<p class="muted">還沒記過。</p>'}`;
+    <div class="notelist">
+      ${rows.map((n) => note.row(n, { trash: true })).join('')
+        || `<p class="muted" style="padding: var(--space-3) 0">${
+          notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
+    </div>
 
-  el.querySelectorAll('[data-note]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      const note = notes.find((n) => n.id === btn.dataset.note);
-      if (!note) return;
-      try {
-        await toast.withSaveState(() => notesData.setDone(note.id, !note.done), {
-          success: note.done ? '拿回來了' : '勾掉了',
-        });
-        await renderNotes(el);
-      } catch {
-        /* 已處理 */
-      }
+    ${notesTab === 'done' && done.length ? `
+      <p style="margin-top: var(--space-4)">
+        <button class="btn btn--danger" type="button" data-clear-done>清掉這 ${done.length} 筆</button>
+      </p>` : ''}
+
+    ${quickFab()}`;
+
+  el.querySelectorAll('[data-notes-tab]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      notesTab = btn.dataset.notesTab;
+      paintNotes(ctx);
     }),
   );
 
-  note.wire(el);
+  el.querySelectorAll('[data-note]').forEach((btn) =>
+    btn.addEventListener('click', () => tickNote(el, notes, btn.dataset.note)),
+  );
 
-  el.querySelector('[data-newnote]')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const v = f.readForm(e.target);
-    if (!String(v.text ?? '').trim()) return;
-    const customer = customers.find((c) => c.id === v.customerId) ?? null;
-    try {
-      await toast.withSaveState(
-        () => notesData.create({
-          text: v.text,
-          customerId: customer?.id ?? null,
-          customerName: customer?.name ?? null,
-          date: note.read(el),
-        }),
-        { success: '記下來了' },
-      );
-      await renderNotes(el);
-    } catch {
-      /* 已處理 */
-    }
+  el.querySelectorAll('[data-note-del]').forEach((btn) =>
+    btn.addEventListener('click', () => removeNote(el, notes, btn.dataset.noteDel)),
+  );
+
+  el.querySelector('[data-clear-done]')?.addEventListener('click', () => clearDone(el, done));
+
+  wireQuickCapture({ el, render: renderNotes });
+}
+
+/**
+ * 勾掉／拿回來。**勾掉的不會消失**，它劃掉之後沉到「已完成」那一格
+ * （`sortNotes()` 早就這樣排了，只是 data 層一直沒把它們撈回來）。
+ */
+async function tickNote(el, notes, id) {
+  const n = notes.find((x) => x.id === id);
+  if (!n) return;
+  try {
+    await toast.withSaveState(() => notesData.setDone(id, !n.done), {
+      success: n.done ? '拿回來了' : '勾掉了',
+    });
+    await renderNotes(el);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+/**
+ * 刪掉一筆。**只有勾掉的那幾筆才有這顆** —— 還沒做的要刪就先勾掉再刪，
+ * 兩步比誤刪好。
+ *
+ * 走軟刪除（SPEC 第 6.1 節）：設定頁的「已刪除項目」還原得回來，
+ * 而且 `withSaveState` 讓她當場復原得掉（第 6.3 節）。
+ */
+async function removeNote(el, notes, id) {
+  const n = notes.find((x) => x.id === id);
+  if (!n) return;
+  try {
+    await toast.withSaveState(() => notesData.remove(id, '在隨手記裡刪掉'), { success: '刪掉了' });
+    await renderNotes(el);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+/**
+ * 一次清掉全部已完成。破壞性操作，走二次確認並講出筆數（SPEC 第 6.5 節）。
+ *
+ * 一筆一個 commit，中間失敗就停下來講清楚刪了幾筆 —— 已經刪掉的不退回去
+ * （第 6.1 節，跟批次建客戶同一個作法）。
+ */
+async function clearDone(el, done) {
+  const ok = await confirmAction({
+    title: `清掉 ${done.length} 筆已完成的隨手記`,
+    consequences: [
+      `這 ${done.length} 筆會從隨手記裡消失`,
+      '刪除只是標記，設定 → 已刪除項目裡還原得回來',
+    ],
+    confirmLabel: '清掉',
+    danger: true,
   });
+  if (!ok) return;
+
+  let n = 0;
+  try {
+    for (const row of done) {
+      // 一筆一個 commit：中間失敗時前面那幾筆已經刪掉了，那是可以接受的，
+      // 但要講清楚刪到哪裡。
+      // eslint-disable-next-line no-await-in-loop
+      await notesData.remove(row.id, '清掉已完成的隨手記');
+      n += 1;
+    }
+    toast.saved(`清掉了 ${n} 筆`);
+  } catch (err) {
+    toast.failed(`刪到第 ${n + 1} 筆時失敗了（已經刪掉 ${n} 筆）：${err.message}`);
+  }
+  await renderNotes(el);
 }
 
 // ---------- 小工具 ----------

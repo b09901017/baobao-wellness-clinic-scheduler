@@ -71,7 +71,8 @@ export function openCard({
     open = null;
     onClose?.();
   };
-  const onHash = () => close();
+  // 換頁了。收掉但不 pop —— 理由同 sheet.js 的 onHash。
+  const onHash = () => close({ fromBack: true });
 
   function onKey(e) {
     // 最上面那一層先關。底下的抽屜留著 —— 她只是看完這一筆，不是要離開那一天。

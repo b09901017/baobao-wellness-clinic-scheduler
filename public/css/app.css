@@ -15,6 +15,17 @@
   box-sizing: border-box;
 }
 
+/* `[hidden]` 是瀏覽器層級的「這東西不在」，而任何一條作者寫的 `display`
+   都打得贏它 —— 所以 `.chip { display: inline-flex }` 讓一顆標著 hidden 的
+   丸子一直站在畫面上（2026-08-24 她問「旁邊又寫不掛了，好怪？」）。
+   這個 repo 已經為同一顆釘子補過四次區域性的修正（`.fab__menu`、
+   `.drawer__note`、`.toast`、`.notedate__picked`），每一次都是「只有把畫面
+   真的畫出來才看得到」。**這一條取代那四條**，`!important` 在這裡是對的：
+   沒有任何一種版面理由該贏過「這東西不在」。 */
+[hidden] {
+  display: none !important;
+}
+
 html {
   /* 100vh 在 iOS Safari 不準（工具列會伸縮），用 dvh */
   height: 100dvh;
@@ -672,6 +683,15 @@ textarea {
   font-weight: 600;
 }
 
+/* 「不掛了」「拿掉」那種取消的小丸。淡紅 —— 它是一個減法的動作，
+   而全站的綠色講的是「這是你要按的那一顆」。 */
+.chip--clear {
+  background: var(--overdue-bg);
+  border-color: transparent;
+  color: var(--overdue);
+  font-weight: 600;
+}
+
 /* 醫療禁忌鎖掉的選項。這是唯一會直接鎖住的檢查（SPEC 4.5） */
 .chip:disabled,
 .chip[aria-disabled='true'] {
@@ -825,12 +845,6 @@ textarea {
   gap: var(--space-2);
 }
 
-/* 作者寫的 `display: flex` 會蓋掉瀏覽器對 `[hidden]` 的 `display: none`，
-   所以收起來的選單其實一直開著。要自己再擋一次。 */
-.fab__menu[hidden] {
-  display: none;
-}
-
 .fab__item {
   display: flex;
   align-items: center;
@@ -979,6 +993,17 @@ textarea {
 
 /* 已經取消的類別。列還在（那是她真的還沒做的事），但不該再吸引注意力。 */
 .grouprow--faded .grouprow__label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* 提醒那幾列（壓表登記）。**沒有數字**，而且整列淡一級。
+ *
+ * 這一頁上的東西分兩種：真的要做的（Examine、耀聖、簽療程單 —— 漏一件就出事）
+ * 與提醒（沒有死線、沒有完成的定義）。第二種身上永遠有人，給它一個跟真任務
+ * 一樣的大數字，會把整頁的數字都貶值。她的原話是「看了就會很煩，
+ * 他不像其他 todo 是真的要做的」。 */
+.grouprow--reminder .grouprow__label {
   color: var(--text-dim);
   font-weight: 500;
 }
@@ -2810,10 +2835,6 @@ button.mark::after {
   align-items: center;
 }
 
-.drawer__tools[hidden] {
-  display: none;
-}
-
 /* 「＋」與它長出來的選單。
  *
  * 視覺上 32px（跟叉叉一樣大），感應範圍靠 ::after 撐到 44（SPEC 第 8.0 節）。
@@ -2856,10 +2877,6 @@ button.mark::after {
   box-shadow: 0 10px 28px rgb(36 31 26 / 18%);
 }
 
-.addmenu__list[hidden] {
-  display: none;
-}
-
 .addmenu__item {
   display: flex;
   align-items: center;
@@ -2897,10 +2914,6 @@ button.mark::after {
   color: var(--text-dim);
 }
 
-.drawer__note[hidden] {
-  display: none;
-}
-
 /* 抽屜裡的內容自己捲，標題與底下的按鈕釘住 —— 一長串來訪不該把「關閉」推出畫面。
    pan-y 讓瀏覽器照樣負責捲動（慣性與邊緣回彈只有它給得出來）；捲到頭之後
    由 sheet.js 把同一個手勢接過去改拖面板。contain 是為了不要把整頁一起帶著捲。 */
@@ -2924,12 +2937,6 @@ button.mark::after {
   margin-top: var(--space-3);
   flex-shrink: 0;
   transform: translateY(calc(-1 * min(var(--sheet-y, 0px), var(--sheet-peek, 0px))));
-}
-
-/* display: flex 會蓋掉 hidden 屬性自己的 display: none —— 沒有按鈕的面板
-   底下會多一條空白。 */
-.drawer__actions[hidden] {
-  display: none;
 }
 
 .drawer__actions .btn {
@@ -3202,10 +3209,6 @@ button.mark::after {
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   z-index: 25;
-}
-
-.toast[hidden] {
-  display: none;
 }
 
 .visually-hidden {
@@ -4181,10 +4184,26 @@ summary {
 
 /* ---------- 隨手記的捕捉面板 ---------- */
 
-.quickwho {
+/* 日期與「掛給誰」那兩排。四個入口共用（首頁那一格、右下角泡泡、
+   `#/todo/notes`、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。 */
+.notemeta {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+.notewho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 客戶名單。點開才長出來，也才去讀 —— 她十次有九次不掛人。 */
+.notewho__list {
+  flex-basis: 100%;
+  margin-top: var(--space-1);
 }
 
 .quickjust__head {
@@ -4218,13 +4237,6 @@ summary {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: var(--space-2);
-}
-
-/* `display` 一定要打得贏 `[hidden]`，不然沒選日期時那顆叉叉照樣浮在那裡 ——
-   跟 `.fab__menu { display: flex }` 是同一個坑，而且一樣只有畫出來才看得到。 */
-.notedate__picked[hidden] {
-  display: none;
 }
 
 .notedate__picked {
@@ -4242,18 +4254,97 @@ summary {
   flex: 1 0 100%;
 }
 
-/* 掛在隨手記那一列前面的日期。過了今天而且還沒勾的用逾期色 —— 但它**不是死線**
-   （隨手記沒有死線，見 CONTEXT.md），所以只是提醒，沒有紅底。 */
-.note__date {
-  margin-right: 6px;
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-mute);
+/* 掛在一筆隨手記身上的東西：客戶一顆、日期一顆，沒掛的就沒有。
+ *
+ * 以前客戶是換行掛在底下的一顆徽章，一列因此變成兩行高 —— 而那兩行講的是
+ * 同一件事。改成右邊一排小丸（她的原話：「像那個飄浮泡泡出來的那樣是
+ * 標籤小丸的方式」，2026-08-24）。 */
+.notetags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
-.note__date--past {
+.notetag {
+  padding: 1px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+/* 過了今天而且還沒勾的用逾期色 —— 但它**不是死線**（隨手記沒有死線，
+   見 CONTEXT.md），所以只有字變色，沒有紅底。 */
+.notetag--date {
+  font-variant-numeric: tabular-nums;
+}
+
+.notetag--past {
   color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+/* 一列＋（勾掉的那幾筆才有的）垃圾桶。 */
+.noterow {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border-soft);
+}
+
+.noterow:first-child {
+  border-top: none;
+}
+
+.noterow .note {
+  border-top: none;
+}
+
+/* 只有勾掉的那幾筆有這顆。還沒做的要刪就先勾掉再刪 —— 兩步比誤刪好。
+   視覺 28px，感應範圍照樣撐到 44。 */
+.noterow__trash {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.noterow__trash::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.noterow__trash:active {
+  background: var(--overdue-bg);
+  color: var(--overdue);
+}
+
+/* `#/todo/notes` 那一頁的清單。**不包卡片** —— 一列一張白卡看起來像
+   十件不相干的事，而它們是同一疊雜事（`issues/07`）。 */
+.notelist {
+  border-top: 1px solid var(--border-soft);
+}
+
+.notelist .noterow:first-child {
+  border-top: none;
 }
 
 /* ---------- 合併檔匯入：那一列是哪一類 ---------- */
