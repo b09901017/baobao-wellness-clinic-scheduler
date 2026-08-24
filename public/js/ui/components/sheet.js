@@ -25,12 +25,14 @@ let open = null;
  * @param {string} [opts.note]     抬頭底下的一句說明
  * @param {string} [opts.body]     內容 HTML（自己捲）
  * @param {string} [opts.actions]  底部按鈕列 HTML（釘住不捲）
+ * @param {string} [opts.tools]    抬頭上、叉叉左邊那一格 HTML（例如日曆那一天的「＋」）
  * @param {Function} [opts.onMount] 拿到 .drawer 元素，接自己的事件
  * @param {Function} [opts.onClose] 關掉之後做的事
  * @returns {{close: Function, update: Function, setTitle: Function, setNote: Function,
- *            setActions: Function, expand: Function, body: Function, el: HTMLElement}}
+ *            setActions: Function, setTools: Function, expand: Function,
+ *            body: Function, el: HTMLElement}}
  */
-export function openSheet({ title, note = '', body = '', actions = '', onMount, onClose }) {
+export function openSheet({ title, note = '', body = '', actions = '', tools = '', onMount, onClose }) {
   // 換一張面板時上一張直接拿掉，不播收起來的動畫 —— 兩張同時在畫面上滑
   // 看起來像壞掉。
   closeSheet({ instant: true });
@@ -42,6 +44,7 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
       <button class="drawer__grip" type="button" data-sheet-close aria-label="關閉"></button>
       <div class="drawer__head">
         <h2 class="drawer__title" data-sheet-title>${esc(title)}</h2>
+        <div class="drawer__tools" data-sheet-tools ${tools ? '' : 'hidden'}>${tools}</div>
         <button class="drawer__x" type="button" data-sheet-close aria-label="關閉">
           ${icon('close', { size: 18, width: 2 })}
         </button>
@@ -124,6 +127,19 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
     /** 底下那排按鈕也會換 —— 選人的時候沒有按鈕，進了編輯器才有。 */
     setActions(html) {
       const box = root.querySelector('[data-sheet-actions]');
+      if (!box) return;
+      box.innerHTML = html ?? '';
+      box.hidden = !html;
+    },
+    /**
+     * 抬頭上、叉叉左邊那一格。
+     *
+     * 跟 setActions() 一樣要記得換掉：日曆那一天的抽屜在抬頭放一顆「＋」，
+     * 而換成編輯器之後那一顆必須消失 —— 在一張正在填的表單上面留一顆「新增」
+     * 是講不通的。叉叉的位置不動，關掉是每一張抽屜都有的動作。
+     */
+    setTools(html) {
+      const box = root.querySelector('[data-sheet-tools]');
       if (!box) return;
       box.innerHTML = html ?? '';
       box.hidden = !html;
