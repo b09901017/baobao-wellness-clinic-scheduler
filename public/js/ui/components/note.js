@@ -1,4 +1,5 @@
-// 隨手記在畫面上的兩塊：**一列**（`row`）與**那個選填的日期欄**（`field`）。
+// 隨手記在畫面上的三塊：**一列**（`row`）、**選填的日期欄**（`field`）與
+// **選填的「掛給誰」**（`who`）。
 //
 // 四個地方共用：待辦首頁底下那張卡、右下角那顆泡泡、`#/todo/notes`、
 // 客戶詳情頁，之後再加日曆上的待辦（ADR-0044）。
@@ -32,21 +33,33 @@ import { shortDate, todayISO } from '../../domain/dates.js';
  * @param {{today?: string, customer?: boolean, iconSize?: number}} [options]
  *   customer：要不要把掛的客戶名字印出來（客戶詳情頁上是多餘的）
  */
-export function row(n, { today = todayISO(), customer = true, iconSize = 13 } = {}) {
+export function row(n, { today = todayISO(), customer = true, iconSize = 13, trash = false } = {}) {
   const late = n.date && !n.done && n.date < today;
 
+  // 掛在這一筆身上的東西做成小丸擺在右邊：客戶一顆、日期一顆，沒掛的就沒有。
+  // 以前客戶是換行掛在底下的一顆徽章，一列因此變成兩行高 —— 而那兩行講的是
+  // 同一件事。
+  const tags = `
+    ${customer && n.customerName
+      ? `<span class="notetag">${esc(n.customerName)}</span>` : ''}
+    ${n.date
+      ? `<span class="notetag notetag--date ${late ? 'notetag--past' : ''}">${esc(shortDate(n.date))}</span>`
+      : ''}`;
+
   return `
-    <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
-      <span class="note__box">${icon('check', { size: iconSize, width: 3.2 })}</span>
-      <span class="note__main">
-        <span class="note__text">${n.date
-          ? `<span class="note__date ${late ? 'note__date--past' : ''}">${esc(shortDate(n.date))}</span>`
-          : ''}${esc(n.text)}</span>
-        ${customer && n.customerName
-          ? `<span class="badge" style="margin-top: var(--space-1)">${esc(n.customerName)}</span>`
-          : ''}
-      </span>
-    </button>`;
+    <div class="noterow">
+      <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
+        <span class="note__box">${icon('check', { size: iconSize, width: 3.2 })}</span>
+        <span class="note__main">
+          <span class="note__text">${esc(n.text)}</span>
+        </span>
+        <span class="notetags">${tags}</span>
+      </button>
+      ${trash && n.done
+        ? `<button class="noterow__trash" type="button" data-note-del="${esc(n.id)}"
+                   aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>`
+        : ''}
+    </div>`;
 }
 
 /**
@@ -137,6 +150,113 @@ function wireOne(box) {
   });
 
   input.addEventListener('change', paint);
+  paint();
+  return { set };
+}
+
+// ---------- 掛給誰 ----------
+//
+// 也是選填的，而且跟日期一樣：**點開才讀客戶名單**。她十次有九次不掛人，
+// 沒必要為了那一次讓每次開面板都多一趟往返。
+//
+// 首頁那一格以前沒有這個欄位（只有日期），所以變成一個「掛得了日期、
+// 掛不了人」的奇怪組合，而掛人比掛日期常用（2026-08-24）。
+// 抽出來之後首頁那一格與右下角的泡泡長一模一樣。
+
+/**
+ * @param {{customerId?: string|null, customerName?: string|null}} [options]
+ */
+export function who({ customerId = null, customerName = null } = {}) {
+  const has = Boolean(customerId);
+  return `
+    <div class="notewho" data-notewho>
+      <button class="chip chip--sm" type="button" data-nw-toggle aria-pressed="${has}">
+        <span data-nw-label>${has ? esc(customerName ?? '') : '掛給誰'}</span>
+      </button>
+      <button class="chip chip--sm chip--clear" type="button" data-nw-clear
+              ${has ? '' : 'hidden'} aria-label="不掛了">✕ 不掛了</button>
+      <input type="hidden" data-nw-id value="${esc(customerId ?? '')}" />
+      <input type="hidden" data-nw-name value="${esc(customerName ?? '')}" />
+      <div class="notewho__list" data-nw-list hidden></div>
+    </div>`;
+}
+
+/** 現在掛的是誰。沒掛回兩個 null —— 空字串跟 null 在查詢上是兩件事。 */
+export function readWho(root) {
+  const box = root?.querySelector('[data-notewho]');
+  const id = box?.querySelector('[data-nw-id]')?.value || null;
+  return {
+    customerId: id,
+    customerName: id ? (box?.querySelector('[data-nw-name]')?.value || null) : null,
+  };
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {{load: () => Promise<object[]>}} opts load：點開才會被呼叫，而且只呼叫一次
+ * @returns {{set: Function}} 存完之後把它清回沒掛人
+ */
+export function wireWho(root, { load }) {
+  const box = root?.querySelector('[data-notewho]');
+  if (!box) return { set: () => {} };
+
+  const idIn = box.querySelector('[data-nw-id]');
+  const nameIn = box.querySelector('[data-nw-name]');
+  const label = box.querySelector('[data-nw-label]');
+  const clear = box.querySelector('[data-nw-clear]');
+  const list = box.querySelector('[data-nw-list]');
+  let customers = null;
+
+  const paint = () => {
+    const has = Boolean(idIn.value);
+    label.textContent = has ? nameIn.value : '掛給誰';
+    box.querySelector('[data-nw-toggle]').setAttribute('aria-pressed', String(has));
+    clear.hidden = !has;
+  };
+
+  const set = (customer) => {
+    idIn.value = customer?.id ?? '';
+    nameIn.value = customer?.name ?? '';
+    list.hidden = true;
+    paint();
+  };
+
+  const openList = async () => {
+    if (!list.hidden) {
+      list.hidden = true;
+      return;
+    }
+    list.hidden = false;
+    if (!customers) {
+      list.innerHTML = '<p class="muted">讀取中…</p>';
+      try {
+        customers = await load();
+      } catch {
+        list.innerHTML = '<p class="muted">讀不到客戶名單。先記下來，之後再掛人也行。</p>';
+        return;
+      }
+    }
+    list.innerHTML = `
+      <div class="chips">
+        ${customers.map((c) => `
+          <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
+                  aria-pressed="${idIn.value === c.id}">${esc(c.name)}</button>`).join('')
+        || '<span class="muted">還沒有客戶。</span>'}
+      </div>`;
+  };
+
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-nw-clear]')) return set(null);
+    if (e.target.closest('[data-nw-toggle]')) return openList();
+    const pick = e.target.closest('[data-nw-pick]');
+    if (pick) {
+      const found = (customers ?? []).find((c) => c.id === pick.dataset.nwPick);
+      // 再點一次同一位就取消
+      return set(idIn.value === found?.id ? null : found);
+    }
+    return undefined;
+  });
+
   paint();
   return { set };
 }

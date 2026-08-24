@@ -6,7 +6,7 @@
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import * as repo from './repo.js';
-import { DEFAULT_CATEGORY } from '../domain/events.js';
+import { normalize } from '../domain/events.js';
 
 const PATH = 'events';
 
@@ -38,30 +38,17 @@ export async function listDeleted() {
 /**
  * 存一筆行事備註。
  *
- * allDay 時把時間清成 null，不要留一個沒人看的舊值 —— 之後改成非整天時
- * 會冒出一個她從來沒選過的時間，那比空白更難懂。
+ * 形狀整理在 `domain/events.js` 的 `normalize()`，這一層只負責寫進去 ——
+ * 那一支原本住在這裡，於是沒有測試看得到它，而它漏掉的欄位讓她挑的顏色
+ * 一路走到最後一刻才被丟掉（2026-08-24）。
  */
 export function create(data) {
-  return repo.create(PATH, shape(data));
+  return repo.create(PATH, normalize(data));
 }
 
 export function update(id, changes) {
-  return repo.update(PATH, id, shape(changes));
+  return repo.update(PATH, id, normalize(changes));
 }
 
 export const remove = (id, reason) => repo.softDelete(PATH, id, reason);
 export const restore = (id) => repo.restore(PATH, id);
-
-function shape(data) {
-  const allDay = Boolean(data.allDay);
-  return {
-    title: String(data.title ?? '').trim(),
-    category: data.category ?? DEFAULT_CATEGORY,
-    startDate: data.startDate,
-    endDate: data.endDate ?? data.startDate,
-    allDay,
-    startTime: allDay ? null : (data.startTime ?? null),
-    endTime: allDay ? null : (data.endTime ?? null),
-    note: String(data.note ?? '').trim() || null,
-  };
-}

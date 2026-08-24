@@ -4,6 +4,8 @@
 // 支援一層參數：'/settings/:type' 會匹配 '#/settings/rooms'，
 // 並把 'rooms' 當作參數傳給 render。
 
+import { noteRoutePush } from './nav.js';
+
 /** @type {Map<string, {title: string, icon?: string, nav?: boolean, render: Function}>} */
 const routes = new Map();
 
@@ -55,7 +57,15 @@ export function activeNavPath(path) {
     .sort((a, b) => b.length - a.length)[0] ?? '/';
 }
 
+/**
+ * 前往某一頁。**這是往前走，不是回上一頁** —— 回上一頁用 `nav.js` 的 `back()`。
+ *
+ * 兩個動詞分開之後，「客戶列表 → 客戶詳情 → 回客戶列表」在瀏覽器紀錄裡
+ * 是兩筆而不是三筆，手機返回鍵才不會把她送回剛剛離開的那一頁。
+ */
 export function go(path) {
+  if (path === location.hash.replace(/^#/, '')) return;
+  noteRoutePush();
   location.hash = path;
 }
 

@@ -19,6 +19,8 @@ import { urgency } from './taskRules.js';
 import { currentCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
 import { VISIT_STATUSES, isActive } from './visits.js';
+import { readMarks, toCustomerFields } from './customerMarks.js';
+import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
 /**
  * 八項檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
@@ -64,6 +66,11 @@ export const CHECKS = [
     id: 'staleAvailability',
     label: '資料過期',
     hint: '本輪可用性已過有效期，排序會失真',
+  },
+  {
+    id: 'chartNo',
+    label: '備註寫著舊的說法',
+    hint: '匯入時寫成「姓名欄的編號：」的那幾則，其實那是病歷號',
   },
 ];
 
@@ -529,6 +536,51 @@ function checkStaleAvailability(ctx) {
   return out;
 }
 
+// ---------- 九、備註寫著舊的說法 ----------
+//
+// 舊試算表的姓名格是 `王小明 (高能/sis)3157`，匯入時把那串數字寫成備註
+// 「姓名欄的編號：3157」—— 當初刻意不認定它是什麼，因為舊表沒有標題。
+// 2026-08-24 她說了：**那就是病歷號。**
+//
+// 匯入端已經改成寫「病歷號 3157」，但既有的二十幾位身上還掛著舊的說法，
+// 而那是她天天看得到的字。這一項把它們列出來，一鍵改掉。
+//
+// **這是資料健檢第三個會寫入的動作**（ADR-0007 原本只給計數對帳一個，
+// ADR-0023 加了補二返額度）。它符合那兩支的條件：有明確正解、
+// 而且沒有第二種可能的意思。
+
+function checkChartNo(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    const marks = readMarks(customer);
+    const stale = marks.filter((m) => m.text.startsWith(OLD_CHART_NO_PREFIX));
+    if (!stale.length) continue;
+
+    const next = marks.map((m) => (m.text.startsWith(OLD_CHART_NO_PREFIX)
+      ? { ...m, text: `${CHART_NO_PREFIX}${m.text.slice(OLD_CHART_NO_PREFIX.length).trim()}` }
+      : m));
+
+    out.push({
+      severity: 'attention',
+      title: customer.name,
+      detail: `${stale.map((m) => m.text).join('、')} → ${
+        next.filter((m) => m.text.startsWith(CHART_NO_PREFIX)).map((m) => m.text).join('、')}`,
+      link: `#/customers/${customer.id}`,
+      fix: {
+        kind: 'renameChartNo',
+        customerId: customer.id,
+        label: customer.name,
+        // **兩個欄位一起寫。** `notes` 是那幾則備註接起來的純文字，
+        // 試算表報表與壓表卡片讀的是它 —— 只改 marks 會讓兩邊從此對不起來。
+        changes: toCustomerFields(next),
+      },
+    });
+  }
+
+  return out;
+}
+
 const RUNNERS = {
   counts: checkCounts,
   followups: checkFollowups,
@@ -538,4 +590,5 @@ const RUNNERS = {
   conflicts: checkConflicts,
   overdueTasks: checkOverdueTasks,
   staleAvailability: checkStaleAvailability,
+  chartNo: checkChartNo,
 };

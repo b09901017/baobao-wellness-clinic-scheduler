@@ -15,6 +15,17 @@
   box-sizing: border-box;
 }
 
+/* `[hidden]` 是瀏覽器層級的「這東西不在」，而任何一條作者寫的 `display`
+   都打得贏它 —— 所以 `.chip { display: inline-flex }` 讓一顆標著 hidden 的
+   丸子一直站在畫面上（2026-08-24 她問「旁邊又寫不掛了，好怪？」）。
+   這個 repo 已經為同一顆釘子補過四次區域性的修正（`.fab__menu`、
+   `.drawer__note`、`.toast`、`.notedate__picked`），每一次都是「只有把畫面
+   真的畫出來才看得到」。**這一條取代那四條**，`!important` 在這裡是對的：
+   沒有任何一種版面理由該贏過「這東西不在」。 */
+[hidden] {
+  display: none !important;
+}
+
 html {
   /* 100vh 在 iOS Safari 不準（工具列會伸縮），用 dvh */
   height: 100dvh;
@@ -672,6 +683,24 @@ textarea {
   font-weight: 600;
 }
 
+/* 「不掛了」「拿掉」那種取消的小丸。淡紅 —— 它是一個減法的動作，
+   而全站的綠色講的是「這是你要按的那一顆」。 */
+.chip--clear {
+  background: var(--overdue-bg);
+  border-color: transparent;
+  color: var(--overdue);
+  font-weight: 600;
+}
+
+/* 掛在丸子後面的一小句補述：「（不是這個課程常用的）」「剩 11/12」。
+   比丸子本身淡一級 —— 它是理由，不是那個選項的名字。 */
+.chip__note {
+  margin-left: 4px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  opacity: 0.7;
+}
+
 /* 醫療禁忌鎖掉的選項。這是唯一會直接鎖住的檢查（SPEC 4.5） */
 .chip:disabled,
 .chip[aria-disabled='true'] {
@@ -825,12 +854,6 @@ textarea {
   gap: var(--space-2);
 }
 
-/* 作者寫的 `display: flex` 會蓋掉瀏覽器對 `[hidden]` 的 `display: none`，
-   所以收起來的選單其實一直開著。要自己再擋一次。 */
-.fab__menu[hidden] {
-  display: none;
-}
-
 .fab__item {
   display: flex;
   align-items: center;
@@ -979,6 +1002,17 @@ textarea {
 
 /* 已經取消的類別。列還在（那是她真的還沒做的事），但不該再吸引注意力。 */
 .grouprow--faded .grouprow__label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* 提醒那幾列（壓表登記）。**沒有數字**，而且整列淡一級。
+ *
+ * 這一頁上的東西分兩種：真的要做的（Examine、耀聖、簽療程單 —— 漏一件就出事）
+ * 與提醒（沒有死線、沒有完成的定義）。第二種身上永遠有人，給它一個跟真任務
+ * 一樣的大數字，會把整頁的數字都貶值。她的原話是「看了就會很煩，
+ * 他不像其他 todo 是真的要做的」。 */
+.grouprow--reminder .grouprow__label {
   color: var(--text-dim);
   font-weight: 500;
 }
@@ -2026,8 +2060,7 @@ button.mark::after {
   --kind-bg: var(--cal-todo-bg);
 }
 
-.kind-todo .monthbar__t::before,
-.kind-todo .allday__t::before {
+.kind-todo .monthbar__t::before {
   content: '☐';
   /* inline-block 是為了讓刪除線畫不到它上面 —— text-decoration 不會傳進
      atomic inline 的盒子裡。勾勾框被劃掉的話，「勾了」跟「劃掉了」會糊成一團。 */
@@ -2036,22 +2069,13 @@ button.mark::after {
   font-weight: 400;
 }
 
-.kind-todo--done .monthbar__t::before,
-.kind-todo--done .allday__t::before {
+.kind-todo--done .monthbar__t::before {
   content: '☑';
 }
 
-.kind-todo--done .monthbar__t,
-.kind-todo--done .allday__t {
+.kind-todo--done .monthbar__t {
   text-decoration: line-through;
   opacity: 0.62;
-}
-
-/* 掛在待辦後面的客戶名字。比本文再淡一級 —— 它是誰的事，不是那件事。 */
-.allday__aside {
-  margin-left: auto;
-  font-weight: 500;
-  opacity: 0.75;
 }
 
 /* 「來訪」那顆篩選只是一個開關，不代表任何一種狀態 —— 綠色現在的意思是「已完成」，
@@ -2360,10 +2384,27 @@ button.mark::after {
 }
 
 /* 日：一整天照時間排開，左邊時間、中間內容、右邊狀態。 */
+/* 日／週檢視的一天。**沒有框。**
+ *
+ * 以前一筆是一張白卡（底色 + 邊框 + 圓角），一天五筆就是五張卡，
+ * 框線與留白佔掉的高度比字還多。她要的是一般日曆 app 那樣的清單：
+ * 左邊一小欄時間、一條細色棒、右邊名稱，分隔靠留白不靠框
+ * （`.scratch/calendar-drawer/issues/03`）。
+ *
+ * 整天的東西走同一套列，左欄寫「整天」而不是時間 —— 兩種東西上下相接時
+ * 文字要對得齊，那是「不搭」的主因（`issues/05`）。 */
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+}
+
+/* 釘在最上面那幾件（整天的）與時間軸之間的分隔。
+   只有兩邊都有東西時才畫 —— 一條孤零零的線比沒有線更奇怪。 */
+.timeline__split {
+  height: 0;
+  margin: var(--space-2) 0 var(--space-2) 52px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
 }
 
 .timerow {
@@ -2375,13 +2416,13 @@ button.mark::after {
 .timerow__clock {
   width: 42px;
   flex-shrink: 0;
-  padding-top: var(--space-2);
+  padding-top: var(--space-3);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .timerow__from {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -2391,52 +2432,104 @@ button.mark::after {
   color: var(--text-mute);
 }
 
+/* 一列一條，不是一條貫穿整天的脊椎 —— 上下兩筆是兩件事，
+   色棒連在一起會讓兩筆看起來是同一段。 */
 .timerow__bar {
   width: 3px;
   flex-shrink: 0;
+  margin: 3px 0;
   border-radius: var(--radius-pill);
   background: var(--kind-fg, var(--accent));
 }
 
+/* 休假身上的斜線改掛在色棒上（`issues/05`）。
+ *
+ * `.kind-leave` 那條規則把斜線畫在元素本身，而它以前掛的是月檢視的色條與
+ * 整天那顆丸子 —— 都是小塊的色塊。掛到一整列上會變成整條橫幅都是斜線，
+ * 底下的字讀不了，所以這裡要關掉再畫到色棒上。
+ *
+ * 3px 寬畫不出看得懂的斜線，所以色棒加寬到 5px —— 那條資訊講的是
+ * 「這幾天我不在」，不能因為換版型就掉了（ADR-0039）。 */
+.timerow.kind-leave {
+  background-image: none;
+}
+
+.kind-leave .timerow__bar {
+  width: 6px;
+  background-color: var(--kind-fg);
+  /* **這裡不用 --stripe-leave**，而那是刻意的。那個 token 是為 11px 高的色塊
+     調的：5px 一段、20% 的疊色。同樣的圖案畫在一條 6px 寬的直棒上等於看不見
+     （疊色跟底色太接近，而一段就佔掉整個寬度）。所以這裡自己一份：間距收到
+     一半，缺口用面板底色挖穿，斜線才真的是斜線。
+     ADR-0039 要的是「休假看得出跟別人不一樣」，不是「同一串 CSS」。 */
+  background-image: repeating-linear-gradient(
+    -45deg, transparent 0 2.5px, var(--surface) 2.5px 5px
+  );
+}
+
+/* 沒有框，所以「按下去」要自己講。觸控上這比在桌機上重要得多 ——
+   沒有 hover 可以先告訴她「這裡按得動」。 */
 .timerow__body {
   flex: 1;
   min-width: 0;
-  margin-bottom: 3px;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-2);
   font: inherit;
   color: inherit;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-/* 整天的行事備註釘在最上面，不進時間軸 */
-.allday {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 34px;
-  width: 100%;
-  padding: 5px var(--space-3);
-  margin-bottom: 5px;
-  font: inherit;
   text-align: left;
-  border: none;
+  background: none;
+  border: 0;
   border-radius: var(--radius-sm);
-  /* 同 .monthbar：簡寫會洗掉休假的斜線紋。 */
-  background-color: var(--kind-bg);
-  color: var(--kind-fg);
-  font-size: var(--text-xs);
-  font-weight: 600;
   cursor: pointer;
 }
 
-.allday__bar {
-  width: 3px;
-  height: 16px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
+.timerow__body:active {
+  background: var(--surface-2);
+}
+
+/* 主體是名稱，不是時間。 */
+.timerow__title {
+  display: block;
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.timerow__sub {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+/* 右邊那一小塊：跨天的期間、待辦掛的客戶名字。比本文淡一級 —— 
+   它是附註，不是那件事本身。 */
+.timerow__aside {
   flex-shrink: 0;
+  padding-left: var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 待辦的方框勾勾記號（ADR-0045）。月檢視的色條與這裡共用同一組記號 ——
+   顏色沒有「完成」這個狀態，記號有。 */
+.kind-todo .timerow__title::before {
+  content: '☐';
+  /* inline-block 是為了讓刪除線畫不到它上面 —— text-decoration 不會傳進
+     atomic inline 的盒子裡。 */
+  display: inline-block;
+  margin-right: 4px;
+  font-weight: 400;
+}
+
+.kind-todo--done .timerow__title::before {
+  content: '☑';
+}
+
+.kind-todo--done .timerow__title {
+  text-decoration: line-through;
+  opacity: 0.62;
 }
 
 /* 診間或治療師撞在一起就標出來 —— 只提示，不阻擋（SPEC 4.7） */
@@ -2742,16 +2835,92 @@ button.mark::after {
   inset: -6px;
 }
 
+/* 抬頭上、叉叉左邊那一格。日曆那一天的「＋」長在這裡。
+   叉叉的位置不動 —— 關掉是每一張抽屜都有的動作，不能因為某一張多了一顆＋就換。 */
+.drawer__tools {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* 「＋」與它長出來的選單。
+ *
+ * 視覺上 32px（跟叉叉一樣大），感應範圍靠 ::after 撐到 44（SPEC 第 8.0 節）。
+ * 選單往下長，第一個項目是來訪 —— 手指從那一顆出發，最先碰到的是最常按的。
+ * 懸浮泡泡往上長，所以那邊來訪在最下面：規矩是同一條，方向相反。 */
+.addmenu__btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  color: var(--accent-text);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.addmenu__btn::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.addmenu__list {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 3;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgb(36 31 26 / 18%);
+}
+
+.addmenu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.addmenu__item:active {
+  background: var(--surface-2);
+}
+
+/* 選單裡的圓點比懸浮泡泡那邊小 —— 那邊一列有 56px 可用，這裡只有 44。 */
+.addmenu__item .fab__dot {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
 /* 抬頭底下那句說明。換內容時它跟著換，不會留著上一段的字。 */
 .drawer__note {
   margin: 0 0 var(--space-2);
   flex-shrink: 0;
   font-size: var(--text-sm);
   color: var(--text-dim);
-}
-
-.drawer__note[hidden] {
-  display: none;
 }
 
 /* 抽屜裡的內容自己捲，標題與底下的按鈕釘住 —— 一長串來訪不該把「關閉」推出畫面。
@@ -2777,12 +2946,6 @@ button.mark::after {
   margin-top: var(--space-3);
   flex-shrink: 0;
   transform: translateY(calc(-1 * min(var(--sheet-y, 0px), var(--sheet-peek, 0px))));
-}
-
-/* display: flex 會蓋掉 hidden 屬性自己的 display: none —— 沒有按鈕的面板
-   底下會多一條空白。 */
-.drawer__actions[hidden] {
-  display: none;
 }
 
 .drawer__actions .btn {
@@ -3055,10 +3218,6 @@ button.mark::after {
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   z-index: 25;
-}
-
-.toast[hidden] {
-  display: none;
 }
 
 .visually-hidden {
@@ -3373,14 +3532,481 @@ button.mark::after {
 
 /* ---------- 額度 ---------- */
 
-.pools {
-  display: grid;
-  gap: var(--space-2);
+/* 一個時段。移除那顆叉叉絕對定位在右上角，所以它不吃抬頭那一列的寬度 ——
+   量過：那一列在 390px 上只有 328px 可用，而時間 212 + 課程名 108 + 叉叉 28
+   加間距是 364，叉叉一定會掉到第二行去，然後那一行只有一顆叉叉。 */
+.slotcard {
+  position: relative;
 }
 
-@media (min-width: 600px) {
-  .pools {
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+/* 一個時段的抬頭：時間與課程名一行。
+   結束時間本來就是算出來的，拆成兩個上下疊的欄位等於用兩行講一件事。 */
+.slothead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.slothead__time {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.slothead__time input[type='time'] {
+  width: auto;
+  padding: 4px var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.slothead__dash {
+  color: var(--text-mute);
+}
+
+/* 這一段在做什麼。只有一個課程可選時它是**唯一**寫出課程名的地方 ——
+   那時候底下不畫丸子（一顆孤零零的丸子看起來像可以取消）。
+   
+   它同時當這一列的彈簧（把剩餘次數與叉叉推到右邊），所以自己 `flex: 1`，
+   不另外放一顆 `.app__spacer` —— 兩個都能長的東西擺在一起，字會被擠成零寬。
+
+   **`min-width` 不能是 0。** 原生的 `<input type="time">` 有自己的最小寬度、
+   縮不下去，所以整列擠的時候收縮全部落在這一格上：`min-width: 0` 的結果是
+   課程名整個消失（DOM 裡有、畫面上沒有，只有截圖看得出來）。給它一個
+   撐得住的下限，擠不下時整列換行，讓它掉到第二行去。 */
+.slothead__what {
+  flex: 1 1 6em;
+  min-width: 6em;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slothead__end {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.slothead__x {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.slothead__x::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+/* ---------- 表單：主體與背景 ---------- */
+
+/* 「進階設定」那一摺。她點進加購／調整的理由只有一種（選一個課程、
+   打一個數字），其餘七個欄位一年動不到一次 —— 收起來讓主體留在畫面上。
+   **摺疊的標題要講出裡面被動過幾樣**：收起來的東西不能安靜地生效。 */
+.advanced {
+  margin: var(--space-4) 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.advanced__head {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced__head::-webkit-details-marker {
+  display: none;
+}
+
+.advanced__head::after {
+  content: '›';
+  margin-left: auto;
+  font-size: var(--text-lg);
+  transition: transform 0.15s ease;
+}
+
+.advanced[open] .advanced__head::after {
+  transform: rotate(90deg);
+}
+
+.advanced__body {
+  padding-bottom: var(--space-3);
+}
+
+/* 次數：一個輸入框加幾顆快捷丸。iPad 上打字快，手機上點兩下就好。 */
+.qty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty__n {
+  width: 92px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* 調整那一張的主體：三個數字。它們是唯讀的（SPEC 第 6.4 節），
+   所以長得像資料不像欄位。 */
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.tally__one {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.tally__one b {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.tally__one--key b {
+  color: var(--accent);
+}
+
+/* 客戶詳情的任務。一列自己就講得完：哪一種、死線、做完了沒、哪一筆產生的。
+   勾掉就在這一列做 —— 「要勾完成請到待辦中心」那句話在解釋一個限制，
+   而不是限制本身（2026-08-24）。 */
+.tasklist {
+  border-top: 1px solid var(--border-soft);
+}
+
+.taskrow {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border-soft);
+}
+
+.taskrow:first-child {
+  border-top: none;
+}
+
+.taskrow .note {
+  border-top: none;
+}
+
+/* 「來訪 ›」。跟勾掉分得開的兩個動作 —— 中間隔一條線，不會手滑。 */
+.taskrow__link {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-height: 32px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  margin-right: var(--space-1);
+  font: inherit;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--border-soft);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.taskrow__link::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+
+.taskrow__link:active {
+  color: var(--accent);
+}
+
+/* ---------- 「記一次」的日曆 ---------- */
+
+/* 她自己記的那一份 2026-08-24 之後也改用日曆（`.scratch/customer-detail-rework/
+ * issues/04`）。**互動照抄客戶那一頁，樣式不抄**：客戶那一頁的顏色寫在
+ * `form.css` 而且刻意不套 `.status-*`（SPEC 第 8.9 節），那是為了「改一個
+ * 來訪顏色不會同時改到客戶看的東西」。這一頁是她的畫面，走這裡的 token。
+ *
+ * 格子比客戶那一頁小一級：她是熟手，而且這一頁在她的 iPad 上多半是雙欄。 */
+.pickcal {
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pickcal__week,
+.pickcal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.pickcal__week {
+  margin-bottom: var(--space-1);
+}
+
+/* 星期那一排點得下去 —— 一次擋掉整個月的禮拜五。她的可用性條件有一半是
+   用星期講的（`domain/dates.js` 的 `weekdayLabel` 註解），逐格點七次太笨。 */
+.pickcal__wd {
+  min-height: 30px;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pickcal__wd[aria-pressed='true'] {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+.pickcal__cell {
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  min-height: 46px;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pickcal__d {
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pickcal__tag {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pickcal__cell--blank {
+  background: none;
+  cursor: default;
+}
+
+/* 選起來的：紅底**加上字**。不能只靠顏色 —— 這一條在客戶那一頁是為了長輩，
+   在這裡是為了她低頭快看的那一眼。 */
+.pickcal__cell--off {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-color: var(--overdue);
+}
+
+.pickcal__cell--off .pickcal__d {
+  font-weight: 700;
+}
+
+/* 半天的：只塗一半，一眼看得出「只有半天」。數字擠在還可以排的那一半 ——
+   數字站的位置本身就講得出他還有空的是哪半天（SPEC 第 8.2 節同一招）。 */
+.pickcal__cell--am {
+  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface-2) 52%);
+}
+
+.pickcal__cell--pm {
+  background: linear-gradient(to bottom, var(--surface-2) 48%, var(--overdue-bg) 48%);
+}
+
+/* 被「整個禮拜五」擋掉的那幾格：虛線框，跟她逐格點的分得出來 ——
+   點它會變成逐格的那一種，而那時候她要知道自己在改哪一層。 */
+.pickcal__cell--auto {
+  border-style: dashed;
+}
+
+/* 點完日期從底下浮出來的三選一。不做三態循環、不做拖拉（ADR-0034）。 */
+.picksheet-back {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(36 31 26 / 45%);
+}
+
+.picksheet {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: var(--space-4) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-drawer);
+}
+
+.picksheet__title {
+  margin: 0 0 var(--space-1);
+  text-align: center;
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+/* 「這一天是被每個禮拜二擋掉的」。講出真正的開關在哪裡，
+   比給她一顆按了沒用的按鈕好。 */
+.picksheet__note {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.picksheet__choice {
+  min-height: 50px;
+  font: inherit;
+  font-size: var(--text-md);
+  color: inherit;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.picksheet__choice--on {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-color: var(--overdue);
+  font-weight: 700;
+}
+
+.picksheet__cancel {
+  min-height: 48px;
+  margin-top: var(--space-1);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* iPad 橫式：抽屜改成置中對話框，這一張跟著（同 .drawer 的作法）。 */
+@media (min-width: 900px) {
+  .picksheet-back {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .picksheet {
+    width: min(420px, 92vw);
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* 「以前問過的 N 次」那一摺。客戶詳情用。 */
+.pastavail {
+  margin-top: var(--space-2);
+}
+
+.pastavail__one {
+  margin-top: var(--space-2);
+}
+
+/* 「這個月」那一段的換月份。段落抬頭右邊兩顆，44px 感應範圍靠 ::after 撐。 */
+.monthnav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.monthnav__btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.monthnav__btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.monthnav__btn:active {
+  background: var(--surface-2);
+}
+
+/* 額度改成橫著捲（`.strip`），跟「這個月」同一套。
+ *
+ * 為什麼這一段橫著捲、而「這個月」那一段反過來改成直的清單：判斷的依據是
+ * 「這一段回答的問題是一個列表，還是一組彼此獨立的數字」。額度是後者 ——
+ * 她一次只看一個（「復能還剩幾次」），而直著疊十二種課程會佔掉半頁。
+ * 見 `.scratch/customer-detail-rework/spec.md`。 */
+.poolcard {
+  flex: 0 0 auto;
+  width: 244px;
+  scroll-snap-align: start;
+}
+
+/* 最長的課程名是「復健科醫師門診」七個字，244px 放得下而且還有位置給
+   右邊那顆「調整」。 */
+@media (min-width: 900px) {
+  .poolcard {
+    width: 268px;
   }
 }
 
@@ -4034,10 +4660,26 @@ summary {
 
 /* ---------- 隨手記的捕捉面板 ---------- */
 
-.quickwho {
+/* 日期與「掛給誰」那兩排。四個入口共用（首頁那一格、右下角泡泡、
+   `#/todo/notes`、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。 */
+.notemeta {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+.notewho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 客戶名單。點開才長出來，也才去讀 —— 她十次有九次不掛人。 */
+.notewho__list {
+  flex-basis: 100%;
+  margin-top: var(--space-1);
 }
 
 .quickjust__head {
@@ -4071,13 +4713,6 @@ summary {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: var(--space-2);
-}
-
-/* `display` 一定要打得贏 `[hidden]`，不然沒選日期時那顆叉叉照樣浮在那裡 ——
-   跟 `.fab__menu { display: flex }` 是同一個坑，而且一樣只有畫出來才看得到。 */
-.notedate__picked[hidden] {
-  display: none;
 }
 
 .notedate__picked {
@@ -4095,18 +4730,97 @@ summary {
   flex: 1 0 100%;
 }
 
-/* 掛在隨手記那一列前面的日期。過了今天而且還沒勾的用逾期色 —— 但它**不是死線**
-   （隨手記沒有死線，見 CONTEXT.md），所以只是提醒，沒有紅底。 */
-.note__date {
-  margin-right: 6px;
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-mute);
+/* 掛在一筆隨手記身上的東西：客戶一顆、日期一顆，沒掛的就沒有。
+ *
+ * 以前客戶是換行掛在底下的一顆徽章，一列因此變成兩行高 —— 而那兩行講的是
+ * 同一件事。改成右邊一排小丸（她的原話：「像那個飄浮泡泡出來的那樣是
+ * 標籤小丸的方式」，2026-08-24）。 */
+.notetags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
-.note__date--past {
+.notetag {
+  padding: 1px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+/* 過了今天而且還沒勾的用逾期色 —— 但它**不是死線**（隨手記沒有死線，
+   見 CONTEXT.md），所以只有字變色，沒有紅底。 */
+.notetag--date {
+  font-variant-numeric: tabular-nums;
+}
+
+.notetag--past {
   color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+/* 一列＋（勾掉的那幾筆才有的）垃圾桶。 */
+.noterow {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border-soft);
+}
+
+.noterow:first-child {
+  border-top: none;
+}
+
+.noterow .note {
+  border-top: none;
+}
+
+/* 只有勾掉的那幾筆有這顆。還沒做的要刪就先勾掉再刪 —— 兩步比誤刪好。
+   視覺 28px，感應範圍照樣撐到 44。 */
+.noterow__trash {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.noterow__trash::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.noterow__trash:active {
+  background: var(--overdue-bg);
+  color: var(--overdue);
+}
+
+/* `#/todo/notes` 那一頁的清單。**不包卡片** —— 一列一張白卡看起來像
+   十件不相干的事，而它們是同一疊雜事（`issues/07`）。 */
+.notelist {
+  border-top: 1px solid var(--border-soft);
+}
+
+.notelist .noterow:first-child {
+  border-top: none;
 }
 
 /* ---------- 合併檔匯入：那一列是哪一類 ---------- */

@@ -23,6 +23,19 @@ export function listOpen() {
 }
 
 /**
+ * 全部，**含已經勾掉的**。`#/todo/notes` 用。
+ *
+ * 首頁那一格照樣用 `listOpen()` —— 那一格只有四列，它要回答的是
+ * 「還有什麼沒做」。這一頁不一樣：勾掉的不能消失，她會勾錯，
+ * 而且她要能回頭看「這件事我處理掉了」（2026-08-24）。
+ *
+ * 需要 (deletedAt, createdAt desc) 複合索引。
+ */
+export function listAll() {
+  return repo.list(PATH, { order: ['createdAt', 'desc'] });
+}
+
+/**
  * 某位客戶身上的，含已勾掉的。客戶詳情頁用。
  * 需要 (deletedAt, customerId, createdAt desc) 複合索引。
  */

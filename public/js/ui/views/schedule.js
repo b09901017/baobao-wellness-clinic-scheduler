@@ -48,6 +48,7 @@ import {
 } from '../../domain/visits.js';
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
+import * as banUi from '../components/ban.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
@@ -89,6 +90,21 @@ const view = {
  */
 let ctx = null;
 
+/**
+ * 從別的畫面指定「進去就打開這一位」。待辦中心的「壓表登記」點一個人名走這條路
+ * （`.scratch/todo-declutter/issues/04`）。
+ *
+ * **存在模組層而不是網址裡。** 進網址要嘛多一層路由參數（router 只支援一層，
+ * 而這裡要帶月份與客戶兩個值），要嘛把月份塞進去而讓她重整時看到一個
+ * 半生不熟的狀態。放在這裡的代價是「中途重整就回到卡片牆」——
+ * 而她不會在那三秒中間重整。
+ */
+let pendingOpen = null;
+
+export function openFor({ month, customerId }) {
+  pendingOpen = { month, customerId };
+}
+
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
@@ -104,11 +120,37 @@ function resetCourseBoundPicks() {
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   try {
-    if (view.batchId) await paintBatch(el);
+    if (pendingOpen) {
+      const spec = pendingOpen;
+      pendingOpen = null;
+      await openPending(el, spec);
+    } else if (view.batchId) await paintBatch(el);
     else await paintStart(el);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
   }
+}
+
+/**
+ * 別的畫面指名要壓某一位的某一個月。
+ *
+ * **那個月已經有一批在跑就接著用**，不要再開一批 —— 兩批同一個月會讓
+ * 「已壓 5 / 23」變成兩個各自算的數字，而進度是存在雲端跨裝置接續的
+ * （SPEC 第 1 節）。沒有的話才開一批。
+ */
+async function openPending(el, { month, customerId }) {
+  const active = await batchesData.listActive();
+  const found = active.find((b) => b.targetMonth === month);
+
+  resetPicks();
+  view.customerId = customerId ?? null;
+
+  if (found) {
+    view.batchId = found.id;
+    await paintBatch(el);
+    return;
+  }
+  await startBatch(el, month, { keepCustomer: true });
 }
 
 // ---------- 起點：選月份 ----------
@@ -185,7 +227,11 @@ function openRow(b) {
   </button></li>`;
 }
 
-async function startBatch(el, targetMonth) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.keepCustomer] 別的畫面指名了要打開誰，開完不要把它清掉
+ */
+async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
   el.innerHTML = '<p class="muted">算佇列中…</p>';
   const data = await loadAll(targetMonth);
   const rows = buildCustomerQueue({ ...data.queueInput, targetMonth });
@@ -206,7 +252,7 @@ async function startBatch(el, targetMonth) {
       { success: '開始了' },
     );
     view.batchId = id;
-    view.customerId = null;
+    if (!keepCustomer) view.customerId = null;
     resetPicks();
     render(el);
   } catch {
@@ -732,61 +778,19 @@ function blockingTerms() {
 }
 
 /**
- * 不能的時間。**只放解析出來的條件丸子**，原文收在摺疊裡（記錄面板才有，牆上沒有）。
+ * 不能的時間。畫法在 `ui/components/ban.js`，客戶詳情共用同一份 ——
+ * 同一件事在兩個畫面長得不一樣，她會以為是兩種東西（2026-08-24）。
  *
- * 原本原文是這一塊最大的一段。現在幾乎每一份都是客戶自己在表單上填的，
- * 而那份原文是系統照她的答案產生的 —— 把同一件事講第二次，佔掉的是她在公司電腦前
- * 一眼要掃到的位置。見 docs/adr/0035-the-wall-shows-rules-not-the-raw-answer.md。
+ * **哪一份算數是這裡決定的**：壓表綁月份，所以用的是這一批那個月的那一份
+ * （`buildCustomerQueue()` 已經照 `collectionFor()` 挑好了，ADR-0036）。
  *
  * @param {object} row
  * @param {{raw?: boolean}} [options] raw：要不要附上「看原文」那一摺
  */
 function banBlock(row, { raw = false } = {}) {
-  const month = monthLabel(ctx.range.from.slice(0, 7));
-
-  if (row.needsAvailability) {
-    return `
-      <span class="ban ban--unknown" style="display: block">
-        <span class="ban__head"><span>還沒問${esc(month)}的時間</span>
-          <span class="ban__when">${row.collectedAt ? `上次 ${esc(row.collectedAt)}` : ''}</span></span>
-        <span class="ban__raw">不知道他${esc(month)}哪幾天可以 —— 先傳訊息問。</span>
-      </span>`;
-  }
-
-  const rules = (row.rules ?? []).filter((r) => r.kind !== 'prefer');
-  const chips = rules.map((r) => `<span class="ban__chip">${esc(describeShort(r))}</span>`).join('');
-
-  // 問過了、而且她沒說哪天不行 —— 那是好消息，不要用紅色講出來。
-  // 紅色在這一頁的意思是「有東西擋著」，沒有限制卻紅著會讓她每次都停下來確認。
-  const none = rules.length === 0;
-
-  return `
-    <span class="ban ${none ? 'ban--none' : ''}" style="display: block">
-      <span class="ban__head"><span>${none ? '沒有說哪天不行' : '不能的時間'}</span>
-        <span class="ban__when">${row.collectedAt ? `${esc(row.collectedAt)} 收集` : ''}</span></span>
-      ${chips ? `<span class="ban__chips">${chips}</span>` : ''}
-      <span class="ban__chips" style="margin-top: var(--space-2)">
-        <span class="ban__chip">可用 ${row.availableDays} 天</span>
-      </span>
-      ${raw && row.rawText ? `
-        <details class="ban__more">
-          <summary>他原本是怎麼說的</summary>
-          <span class="ban__raw">「${esc(row.rawText)}」</span>
-        </details>` : ''}
-    </span>`;
+  return banUi.banBlock(row, { month: monthLabel(ctx.range.from.slice(0, 7)), raw });
 }
 
-/** 卡片上的一行塞不下完整句子，這裡只給日期本身。完整的在原文裡。 */
-function describeShort(rule) {
-  if (rule.kind === 'exclude_weekday') return `每週${weekdayLabelOf(rule.weekday)}${partLabel(rule.partOfDay)}`;
-  if (rule.kind === 'exclude_date') return `${short(rule.date)}${partLabel(rule.partOfDay)}`;
-  if (rule.kind === 'exclude_range') return `${short(rule.from)}–${short(rule.to)}`;
-  return '';
-}
-
-const WD = ['日', '一', '二', '三', '四', '五', '六'];
-const weekdayLabelOf = (n) => WD[n] ?? '?';
-const short = (iso) => (typeof iso === 'string' ? iso.slice(5).replace('-', '/') : '');
 
 function poolChip(pool) {
   return `<span class="poolchip ${pool.remaining <= 2 ? 'poolchip--low' : ''}">${esc(pool.label)}<b class="num">${pool.remaining}</b></span>`;

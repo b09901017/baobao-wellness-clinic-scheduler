@@ -17,9 +17,6 @@ import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
-/** 上次掃描是哪一天、結果如何。跨重新整理也要記得，所以放 localStorage。 */
-const LAST_RUN_KEY = 'health:lastRun';
-
 export async function render(el) {
   el.innerHTML = '<p class="muted">掃描中…</p>';
 
@@ -256,52 +253,3 @@ async function applyAndReload(el, fixes, { title, consequences }) {
   }
 }
 
-// ---------- 啟動時的背景掃描 ----------
-//
-// SPEC 第 6.6 節要求 app 啟動時也跑一次。但全庫掃描要把客戶、額度、來訪、任務、
-// 可用性全讀一遍，每次開 app 都跑等於每天幾十次全表讀取 ——
-// 所以改成「每天最多一次」：問題最慢隔天早上第一次打開就會浮出來，
-// 而她本來就不是一天內把資料改壞好幾次的用法。
-
-/**
- * 今天還沒掃過就掃一次。失敗一律安靜略過 —— 這是背景動作，
- * 它不該在她要做別的事情的時候跳錯誤出來擋路。
- *
- * @returns {Promise<object|null>} 這次的掃描結果，沒掃就是 null
- */
-export async function runIfDue() {
-  const today = todayISO();
-  if (readLastRun()?.date === today) return null;
-
-  try {
-    const result = await healthData.run(today);
-    rememberRun(result);
-    return result;
-  } catch {
-    return null;
-  }
-}
-
-/** 首頁的徽章要用。沒掃過或沒問題就回 null。 */
-export function lastBadge() {
-  return readLastRun()?.badge ?? null;
-}
-
-function rememberRun(result) {
-  try {
-    localStorage.setItem(
-      LAST_RUN_KEY,
-      JSON.stringify({ date: result.today, badge: healthBadge(result) }),
-    );
-  } catch {
-    // iOS 的無痕模式寫 localStorage 會丟例外。記不住只是每次開都重掃，不是壞掉。
-  }
-}
-
-function readLastRun() {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_RUN_KEY) ?? 'null');
-  } catch {
-    return null;
-  }
-}

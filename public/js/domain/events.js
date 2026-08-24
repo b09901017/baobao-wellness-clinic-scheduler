@@ -136,6 +136,40 @@ export function validateEvent(event) {
   return { errors };
 }
 
+/**
+ * 送進 data 層之前把形狀整理好。
+ *
+ * **這一支住在 domain 而不是 data**，理由跟 `domain/notes.js` 的 `normalize()`
+ * 一樣：它是一組判斷（整天要不要留時間、認不認得這個顏色），不是存取。
+ * 它原本待在 `data/events.js` 裡，於是**沒有任何測試看得到它** ——
+ * 而它漏掉了 `color`，讓她挑的顏色一路過了畫面、過了 `validateEvent()`、
+ * 過了 Rules，最後在寫進 Firestore 前一刻被丟掉（2026-08-24）。
+ *
+ * `allDay` 時把時間清成 null，不要留一個沒人看的舊值 —— 之後改成非整天時
+ * 會冒出一個她從來沒選過的時間，那比空白更難懂。
+ *
+ * 顏色用白名單過一次而不是原樣傳過去。`validateEvent()` 已經擋過一次，
+ * 但這是最後一道，而「寫得進去卻畫不出來的顏色」在畫面上完全看不出哪裡錯了。
+ * 沒挑就存 `null` 不要留 `undefined`：Firestore 會直接省略那個欄位，
+ * 而 `update()` 時「省略」的意思是「不要動它」—— 那會讓「把顏色改回跟著類別」
+ * 變成一個做不到的動作。
+ */
+export function normalize(event) {
+  const e = event ?? {};
+  const allDay = Boolean(e.allDay);
+  return {
+    title: String(e.title ?? '').trim(),
+    category: e.category ?? DEFAULT_CATEGORY,
+    startDate: e.startDate,
+    endDate: e.endDate ?? e.startDate,
+    allDay,
+    color: EVENT_COLORS.includes(e.color) ? e.color : null,
+    startTime: allDay ? null : (e.startTime ?? null),
+    endTime: allDay ? null : (e.endTime ?? null),
+    note: String(e.note ?? '').trim() || null,
+  };
+}
+
 // ---------- 範圍 ----------
 
 /** 這筆行事備註蓋到那一天沒有。跨天的中間每一天都算。 */

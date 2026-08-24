@@ -78,6 +78,71 @@ export function lowRemaining(entitlements) {
 }
 
 /** 已排 + 已完成超過總數。只提示，不阻擋。 */
+/**
+ * 客戶詳情那一排額度卡的順序。
+ *
+ * 那一排是**橫著捲**的（`.scratch/customer-detail-rework/issues/05`），
+ * 而橫著捲的東西只有最前面兩三張會被看到 —— 所以順序不是裝飾，是「她會不會
+ * 看到那個數字」。三層：
+ *
+ * 1. **還有剩的排前面。** 用完的她不會去看。
+ * 2. **剩得少的更前面。** 那是她要提醒客戶加購的。
+ * 3. **健檢與它的二返相鄰**（ADR-0022：買幾次健檢就有幾次二返）。這一層是
+ *    最後套上去的，會蓋掉前兩層 —— 健檢卡底下那句「健檢做完 N 次，二返還欠
+ *    M 次」要對照著看才有意義，而最需要對照的情況正是**兩者剩餘次數不同**
+ *    的時候（欠幾次就是那個差）。只靠前兩層排的話，那正是它們被拆開的時候。
+ *
+ * 配對走 `followupForEntitlementId`，不是比課程 —— 兩筆健檢時比課程會配錯
+ * （`domain/followups.js` 的 `pairsOf()` 同一個理由）。
+ *
+ * @param {object[]} entitlements
+ * @param {object[]} visits 現算剩餘次數要用（ADR-0004：詳情頁現算）
+ */
+export function sortPools(entitlements = [], visits = []) {
+  const remainingOf = (e) => Math.max(0, counts(e, visits, e.id).remaining);
+
+  const sorted = [...entitlements].sort((a, b) => {
+    const ra = remainingOf(a);
+    const rb = remainingOf(b);
+    if ((ra > 0) !== (rb > 0)) return ra > 0 ? -1 : 1;
+    if (ra !== rb) return ra - rb;
+    return String(a.label ?? '').localeCompare(String(b.label ?? ''), 'zh-TW');
+  });
+
+  // 二返搬到它那一筆健檢的正後面。從後往前掃，這樣一次搬一筆不會打亂還沒處理的。
+  const out = [];
+  const followupsBySource = new Map();
+  for (const e of sorted) {
+    if (e.followupForEntitlementId) {
+      const list = followupsBySource.get(e.followupForEntitlementId) ?? [];
+      list.push(e);
+      followupsBySource.set(e.followupForEntitlementId, list);
+    }
+  }
+
+  for (const e of sorted) {
+    // 配得到來源的二返不自己排隊，它跟著來源走。配不到的（來源被刪了）照常排 ——
+    // 掉出畫面比排在奇怪的位置糟。
+    if (e.followupForEntitlementId && sorted.some((x) => x.id === e.followupForEntitlementId)) {
+      continue;
+    }
+    out.push(e);
+    for (const f of followupsBySource.get(e.id) ?? []) out.push(f);
+  }
+
+  return out;
+}
+
+/**
+ * 有幾筆的計數欄位跟現算對不起來。
+ *
+ * 那一排卡橫著捲，所以「這張卡的數字可能是錯的」有可能在畫面外 ——
+ * 呼叫端把它畫成段落抬頭上的一顆徽章，那句話不能被捲走。
+ */
+export function offCount(entitlements = [], visits = []) {
+  return entitlements.filter((e) => !reconcile(e, visits, e.id).ok).length;
+}
+
 export function isOverused(c) {
   return c.done + c.booked > c.total;
 }

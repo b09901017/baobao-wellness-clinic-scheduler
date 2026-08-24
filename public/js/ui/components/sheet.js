@@ -14,6 +14,7 @@
 // docs/adr/0021-the-sheet-is-dragged-by-transform.md。
 
 import { icon } from '../icons.js';
+import { pushLayer } from '../nav.js';
 import { esc } from './form.js';
 
 /** 同一時間只會有一個。開第二個之前先把前一個關掉，不要疊成兩層灰底。 */
@@ -25,12 +26,14 @@ let open = null;
  * @param {string} [opts.note]     抬頭底下的一句說明
  * @param {string} [opts.body]     內容 HTML（自己捲）
  * @param {string} [opts.actions]  底部按鈕列 HTML（釘住不捲）
+ * @param {string} [opts.tools]    抬頭上、叉叉左邊那一格 HTML（例如日曆那一天的「＋」）
  * @param {Function} [opts.onMount] 拿到 .drawer 元素，接自己的事件
  * @param {Function} [opts.onClose] 關掉之後做的事
  * @returns {{close: Function, update: Function, setTitle: Function, setNote: Function,
- *            setActions: Function, expand: Function, body: Function, el: HTMLElement}}
+ *            setActions: Function, setTools: Function, expand: Function,
+ *            body: Function, el: HTMLElement}}
  */
-export function openSheet({ title, note = '', body = '', actions = '', onMount, onClose }) {
+export function openSheet({ title, note = '', body = '', actions = '', tools = '', onMount, onClose }) {
   // 換一張面板時上一張直接拿掉，不播收起來的動畫 —— 兩張同時在畫面上滑
   // 看起來像壞掉。
   closeSheet({ instant: true });
@@ -42,6 +45,7 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
       <button class="drawer__grip" type="button" data-sheet-close aria-label="關閉"></button>
       <div class="drawer__head">
         <h2 class="drawer__title" data-sheet-title>${esc(title)}</h2>
+        <div class="drawer__tools" data-sheet-tools ${tools ? '' : 'hidden'}>${tools}</div>
         <button class="drawer__x" type="button" data-sheet-close aria-label="關閉">
           ${icon('close', { size: 18, width: 2 })}
         </button>
@@ -55,6 +59,10 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
 
   const drawer = root.querySelector('.drawer');
 
+  // 疊了一層 → 多一筆返回鍵退得掉的紀錄。按返回鍵就是關掉這張面板，
+  // 而不是跳走上一頁（`ui/nav.js`）。
+  const layer = pushLayer(() => close({ fromBack: true }));
+
   const remove = () => {
     root.remove();
     document.removeEventListener('keydown', onKey);
@@ -66,9 +74,15 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
   // 收起來的動畫播完才真的拿掉節點。手勢拖到底與按叉叉走的是同一條路。
   const drag = wireDrag(drawer, remove, { backdrop: root });
 
-  const close = ({ instant = false } = {}) => {
+  /**
+   * @param {{instant?: boolean, fromBack?: boolean}} [opts]
+   *   fromBack：這一下是返回鍵按的，紀錄已經退掉了，不要再退一次
+   *   （不然往下甩掉面板之後按返回鍵會多退一頁）。
+   */
+  const close = ({ instant = false, fromBack = false } = {}) => {
     if (open?.root !== root) return;
     open = null;
+    if (!fromBack) layer.pop();
     if (instant) remove();
     else drag.dismiss();
   };
@@ -76,7 +90,13 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
   function onKey(e) {
     if (e.key === 'Escape') close();
   }
-  const onHash = () => close({ instant: true });
+  /**
+   * 換頁了。面板要收掉，但**不能 pop** —— 它的那一筆紀錄現在在新頁面的下面，
+   * 退掉會把剛剛的換頁一起退掉（`history.back()` 是非同步的，
+   * 而 `location.hash = ...` 是同步的，所以 back 會後到並吃掉那次換頁）。
+   * 留下來的那一筆由 `nav.js` 的 popstate 認出來並自動跳過。
+   */
+  const onHash = () => close({ instant: true, fromBack: true });
 
   // 換頁就收掉。它掛在 <body> 上而不是 view 裡（見上面），所以路由換了它不會
   // 自己消失 —— 那會變成一個蓋在新畫面上、內容還是舊畫面的面板。
@@ -124,6 +144,19 @@ export function openSheet({ title, note = '', body = '', actions = '', onMount, 
     /** 底下那排按鈕也會換 —— 選人的時候沒有按鈕，進了編輯器才有。 */
     setActions(html) {
       const box = root.querySelector('[data-sheet-actions]');
+      if (!box) return;
+      box.innerHTML = html ?? '';
+      box.hidden = !html;
+    },
+    /**
+     * 抬頭上、叉叉左邊那一格。
+     *
+     * 跟 setActions() 一樣要記得換掉：日曆那一天的抽屜在抬頭放一顆「＋」，
+     * 而換成編輯器之後那一顆必須消失 —— 在一張正在填的表單上面留一顆「新增」
+     * 是講不通的。叉叉的位置不動，關掉是每一張抽屜都有的動作。
+     */
+    setTools(html) {
+      const box = root.querySelector('[data-sheet-tools]');
       if (!box) return;
       box.innerHTML = html ?? '';
       box.hidden = !html;

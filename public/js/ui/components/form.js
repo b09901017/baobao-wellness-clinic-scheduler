@@ -93,6 +93,93 @@ export function select({ name, label, value, options, hint = '' }) {
     </label>`;
 }
 
+/**
+ * 一排丸子。**取代大部分的下拉選單。**
+ *
+ * SPEC 第 8.2 節寫的是「課程／時段／器材／治療師／診間全部用點的，備註才要打字」，
+ * 而第 8.3 節的來訪編輯器範例畫的也是丸子。實作卻用了 `<select>` ——
+ * 這不是她想要新設計，是實作跟規格從一開始就不一樣（2026-08-24 她指出來）。
+ *
+ * 丸子比下拉好的三個實際理由（不只是好看）：
+ *
+ * 1. **看得到有哪些選項。** 下拉要點開才知道有三個還是三十個。
+ * 2. **被禁忌擋掉的器材看得見。** 下拉選單裡那一行 `✕ 超磁場（不可使用）`
+ *    只有點開才看得到，而 SPEC 第 4.3 節要求醫療禁忌**永遠可見、不可摺疊**。
+ * 3. **少一次點擊。** 她一個晚上要記二三十筆。
+ *
+ * ## 值怎麼讀回去
+ *
+ * 丸子是 `<button>`，`readForm()` 看不到它們。所以旁邊藏一個 `<input type="hidden">`
+ * 帶著同一個 `name` —— **呼叫端完全不用改讀值的那一段**。
+ * 點一顆丸子會在那個 hidden input 上派一個 `change` 事件，
+ * 所以原本掛在表單上的 change 處理器照樣會跑。
+ *
+ * @param {object} opts
+ * @param {string} opts.name
+ * @param {string} opts.label
+ * @param {*} opts.value 現在選的
+ * @param {(string|{value:*, label:string, disabled?:boolean, note?:string})[]} opts.options
+ * @param {string} [opts.hint]
+ * @param {boolean} [opts.quiet] true = 選了不重畫（只換 aria-pressed）。
+ *   給「換了它不會改變其他欄位」的那幾組用 —— 器材、治療師、診間、醫師、品項。
+ *   她記一位客戶要點五六下，重畫的代價是卡片閃一下加捲回最上面（ADR-0038）。
+ */
+export function chips({ name, label, value, options, hint = '', quiet = false }) {
+  const current = value ?? null;
+  const items = options
+    .map((option) => {
+      const { value: v, label: l } = optionOf(option);
+      const disabled = option?.disabled ? ' aria-disabled="true"' : '';
+      const note = option?.note ? `<span class="chip__note">${esc(option.note)}</span>` : '';
+      return `
+        <button class="chip" type="button" data-chip="${esc(name)}"
+                data-chip-value="${v === null ? '__null__' : esc(v)}"
+                aria-pressed="${current === v}"${disabled}>
+          ${esc(l)}${note}</button>`;
+    })
+    .join('');
+
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">${esc(label)}</span>
+      <div class="chiprow">${items}</div>
+      <input type="hidden" name="${name}"
+             value="${current === null ? '__null__' : esc(current)}"
+             ${quiet ? 'data-chip-quiet' : ''} />
+      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
+    </div>`;
+}
+
+/**
+ * 把一排丸子接起來。事件委派掛在 root 上，所以任何一塊重畫之後都不必重掛。
+ *
+ * `quiet` 的那幾組選了**不派 change**，只改 `aria-pressed` 與那個 hidden input ——
+ * 值還是讀得到（`readForm()` 讀的是 input），只是畫面不重畫。
+ *
+ * **`root` 是會被重畫換掉的節點時不用給 `signal`**（監聽跟著節點一起消失）；
+ * 掛在一個會留著的容器上（例如整頁的 `el`）就一定要給，不然每重畫一次就
+ * 多掛一組，點一下會跑好幾次。
+ */
+export function wireChips(root, { signal } = {}) {
+  root.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-chip]');
+    if (!chip || chip.getAttribute('aria-disabled') === 'true') return;
+
+    const name = chip.dataset.chip;
+    const box = root.querySelector(`input[type="hidden"][name="${CSS.escape(name)}"]`);
+    if (!box) return;
+
+    box.value = chip.dataset.chipValue;
+    for (const other of root.querySelectorAll(`[data-chip="${CSS.escape(name)}"]`)) {
+      other.setAttribute('aria-pressed', String(other === chip));
+    }
+
+    if (box.dataset.chipQuiet === undefined) {
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }, { signal });
+}
+
 export function checkboxes({ name, label, values = [], options, hint = '' }) {
   const boxes = options
     .map((option) => {

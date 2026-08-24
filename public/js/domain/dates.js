@@ -50,6 +50,16 @@ export function weekdayLabel(iso) {
   return WEEKDAYS[weekdayOf(iso)];
 }
 
+/**
+ * 星期的號碼 → 給人看的字，例：`2` → `'二'`。
+ *
+ * 有些地方手上只有號碼沒有日期（可用性的規則存的是 `weekday: 2`），
+ * 而那幾個地方本來各自寫了一份 `['日','一',…]`。**這一份是唯一的一份。**
+ */
+export function weekdayName(weekday) {
+  return WEEKDAYS[weekday] ?? '？';
+}
+
 /** 'M/D(週)'，例：'9/3(三)'。LINE 訊息與清單都用這個格式。 */
 export function shortDate(iso) {
   const [, m, d] = iso.split('-').map(Number);

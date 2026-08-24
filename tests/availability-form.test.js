@@ -10,6 +10,7 @@ import {
   newInvite, inviteState, formLink, splitByInvite,
   normalizePicks, groupPicks, picksToRules, picksToText, rawTextFrom,
   describePicks, describeResponse, collectionFrom, validateResponse, outOfRange, monthGrid,
+  rulesToPicks, freeTextFrom,
 } from '../public/js/domain/availabilityForm.js';
 import { parseAvailability, validateCollection } from '../public/js/domain/availability.js';
 
@@ -328,4 +329,123 @@ test('月曆補到禮拜一，補的那幾格是空的', () => {
   assert.equal(cells.filter((c) => c.date).length, 30);
   assert.equal(cells.find((c) => c.date === '2026-09-09').past, true);
   assert.equal(cells.find((c) => c.date === '2026-09-10').past, false);
+});
+
+// ---------- 反過來：規則 → 格子 ----------
+//
+// 她自己記的那一份 2026-08-24 之後也改用日曆（`.scratch/customer-detail-rework/
+// issues/04`），所以「打開既有的一份」要能把規則標回格子上 —— 不然編輯等於重填。
+
+const RTP_MONTH = '2026-09';
+
+test('rulesToPicks：來回一趟不掉東西 —— 這是這一支存在的意義', () => {
+  const picks = {
+    weekdays: [{ weekday: 2, partOfDay: null }, { weekday: 3, partOfDay: 'am' }],
+    dates: [
+      { date: '2026-09-07', partOfDay: null },
+      { date: '2026-09-10', partOfDay: null },
+      { date: '2026-09-11', partOfDay: null },
+    ],
+  };
+  const rules = picksToRules(picks, { month: RTP_MONTH });
+  const back = rulesToPicks(rules, { month: RTP_MONTH });
+
+  assert.deepEqual(back.picks, normalizePicks(picks));
+  assert.deepEqual(back.leftover, []);
+});
+
+test('rulesToPicks：範圍攤回一天一格', () => {
+  const { picks } = rulesToPicks(
+    [{ kind: 'exclude_range', from: '2026-09-10', to: '2026-09-12' }], { month: RTP_MONTH },
+  );
+  assert.deepEqual(picks.dates.map((d) => d.date),
+    ['2026-09-10', '2026-09-11', '2026-09-12']);
+});
+
+test('rulesToPicks：半天標得回來', () => {
+  const { picks } = rulesToPicks(
+    [{ kind: 'exclude_date', date: '2026-09-07', partOfDay: 'pm' }], { month: RTP_MONTH },
+  );
+  assert.deepEqual(picks.dates, [{ date: '2026-09-07', partOfDay: 'pm' }]);
+});
+
+test('rulesToPicks：別的月份的日期不畫到這個月的格子上，但也不吞掉', () => {
+  const rules = [
+    { kind: 'exclude_date', date: '2026-10-05' },
+    { kind: 'exclude_range', from: '2026-08-28', to: '2026-09-02' },
+  ];
+  const { picks, leftover } = rulesToPicks(rules, { month: RTP_MONTH });
+  assert.deepEqual(picks.dates, []);
+  assert.equal(leftover.length, 2, '兩條都要留著，改不了但仍然生效');
+});
+
+test('rulesToPicks：認不得的規則進 leftover —— 安靜地少一條規則是最不能犯的錯', () => {
+  const rules = [
+    { kind: 'prefer', weekday: 2 },
+    { kind: '未來才會有的種類', foo: 1 },
+    { kind: 'exclude_weekday', weekday: 5 },
+  ];
+  const { picks, leftover } = rulesToPicks(rules, { month: RTP_MONTH });
+  assert.deepEqual(picks.weekdays, [{ weekday: 5, partOfDay: null }]);
+  assert.equal(leftover.length, 2);
+});
+
+// ---------- 改一份舊的，客戶原本說的話不能不見 ----------
+//
+// 存檔時 rawText 是用 rawTextFrom() 重新產生的。打開一份舊的來改時如果沒有把
+// 「她（或客戶）自己打的那段」帶回備註欄，存回去就等於**安靜地把客戶說過的話
+// 換掉** —— 違反 SPEC 第 4.3 節「原文永遠比解析結果大」，也是
+// `.scratch/customer-detail-rework/issues/04` 的驗收條件之一。
+
+test('freeTextFrom：機器寫的那一行丟掉，客戶自己打的那段留著', () => {
+  const picks = { weekdays: [{ weekday: 2, partOfDay: null }], dates: [] };
+  const generated = picksToText(picks, { month: '2026-09' });
+  const raw = `${generated}\n出國回來看情況再說`;
+
+  assert.equal(freeTextFrom(raw, picks, { month: '2026-09' }), '出國回來看情況再說');
+});
+
+test('freeTextFrom：只有機器寫的那一行就回空字串', () => {
+  const picks = { weekdays: [{ weekday: 2, partOfDay: null }], dates: [] };
+  const raw = picksToText(picks, { month: '2026-09' });
+  assert.equal(freeTextFrom(raw, picks, { month: '2026-09' }), '');
+});
+
+test('freeTextFrom：認不出來的整段留著 —— 寧可重複也不要弄丟', () => {
+  // 2026-08 以前她自己打的原文：沒有換行，也對不上任何點選
+  const raw = '9月禮拜一不行，9/17、9/18、9/22–24 不行';
+  const picks = { weekdays: [{ weekday: 2, partOfDay: null }], dates: [] };
+  assert.equal(freeTextFrom(raw, picks, { month: '2026-09' }), raw);
+});
+
+test('freeTextFrom：一個日子都沒點時，整段原文照樣留著', () => {
+  const raw = '他說都可以，但盡量不要太早';
+  assert.equal(freeTextFrom(raw, { weekdays: [], dates: [] }, { month: '2026-09' }), raw);
+});
+
+test('freeTextFrom：「這個月都可以」是系統寫的，不是她打的', () => {
+  assert.equal(freeTextFrom('這個月都可以', { weekdays: [], dates: [] }, { month: '2026-09' }), '');
+});
+
+test('freeTextFrom：空的就是空的', () => {
+  assert.equal(freeTextFrom(null, { weekdays: [], dates: [] }), '');
+  assert.equal(freeTextFrom('   ', { weekdays: [], dates: [] }), '');
+});
+
+test('來回一趟：打開一份舊的、什麼都不改、存回去 —— 原文一個字都不變', () => {
+  const picks = {
+    weekdays: [{ weekday: 2, partOfDay: null }],
+    dates: [{ date: '2026-09-07', partOfDay: null }],
+  };
+  const month = '2026-09';
+  const before = rawTextFrom({ ...picks, freeText: '出國回來看情況再說' }, { month });
+
+  // 打開：規則反推回格子、原文的自由那半段回到備註欄
+  const rules = picksToRules(picks, { month });
+  const reopened = rulesToPicks(rules, { month });
+  const freeText = freeTextFrom(before, reopened.picks, { month });
+
+  // 存回去
+  const after = rawTextFrom({ ...reopened.picks, freeText }, { month });
+  assert.equal(after, before);
 });

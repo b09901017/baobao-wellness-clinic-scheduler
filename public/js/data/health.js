@@ -73,6 +73,17 @@ export async function applyFixes(fixes) {
 function opFor(fix) {
   const path = `customers/${fix?.customerId}/entitlements`;
 
+  // 這一個寫的是客戶本人，不是他的額度 —— 所以在算 path 之後就先岔開。
+  if (fix?.kind === 'renameChartNo') {
+    return {
+      op: 'update',
+      path: 'customers',
+      id: fix.customerId,
+      changes: fix.changes,
+      note: '資料健檢：備註的「姓名欄的編號」改成「病歷號」',
+    };
+  }
+
   if (fix?.kind === 'recount') {
     return {
       op: 'update',

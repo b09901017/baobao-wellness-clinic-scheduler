@@ -25,6 +25,7 @@ import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { back as goBack } from '../nav.js';
 
 const esc = f.esc;
 
@@ -450,12 +451,12 @@ function paintNew(el, draft, plans, existing, terms) {
       </form>
     </section>`;
 
-  const back = () => go('/customers');
+  const leave = () => goBack('/customers');
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    back();
+    leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', back);
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
   const form = el.querySelector('[data-form]');
 

@@ -25,14 +25,21 @@ import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
 import { sortNotes, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
+import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
-import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
+import {
+  counts, reconcile, isOverused, validateEntitlement, sortPools, offCount,
+} from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
-import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
+import { buildProgress } from '../../domain/progress.js';
+import { progressDayHtml, tallyHtml } from './progress.js';
+import { visitReadHtml } from './calendar.js';
+import { openCard, closeCard } from '../components/card.js';
+import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
 import { formLink, inviteState } from '../../domain/availabilityForm.js';
 import * as invitesData from '../../data/formInvites.js';
@@ -45,22 +52,59 @@ import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { back, popScreens, pushScreen } from '../nav.js';
 
 const esc = f.esc;
 
 /** 變更紀錄往回查幾筆來訪。listByCustomer 是新的在前，所以這是「最近的 N 筆」。 */
+/**
+ * 來訪紀錄那一段展開了沒。**預設收起來，而且不記住** —— 每次進來都是收起來的，
+ * 那才是「預設不佔位置」的意思（`.scratch/customer-detail-rework/issues/06`）。
+ *
+ * 這一段跟上面的「這個月」重疊很多（同一批來訪，換個角度看），
+ * 而她要看歷史的時候是在對帳 —— 那時候她會想一直看著它，所以是就地展開，
+ * 不是抽屜（抽屜要再關一次才回得來）。
+ */
+let showVisits = false;
+
+/**
+ * 「這個月」那一段在看哪個月（`'YYYY-MM'`）。每次進這一頁重設成當月 ——
+ * 她開這一頁十次有九次問的是「他這個月什麼時候來」。
+ */
+let detailMonth = null;
+
+/**
+ * 上一次重畫掛在 `el` 上的那組事件。
+ *
+ * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，**`el` 本身沒有被
+ * 換掉** —— 所以每重畫一次就再 `addEventListener` 一次，點一下會跑好幾個
+ * 處理器，而舊的那幾個抓著已經過期的狀態。掛新的之前先把上一組整個中止掉。
+ *
+ * 掛在 `el` 底下那些節點上的監聽不受影響：它們跟著 innerHTML 一起被換掉了。
+ */
+let detailEvents = null;
+let entEvents = null;
+
 const AUDIT_VISIT_LIMIT = 30;
+
+/** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
+const POOL_PICK = '__pool__';
 
 /** 一眼掃得完的長度。超過就收進「看全部」，不要把整頁拉成一條長清單。 */
 const RECENT_VISITS = 6;
 const RECENT_TASKS = 6;
 
 export async function render(el, id) {
+  showVisits = false;
+  detailMonth = null;
+  detailEvents?.abort();
+  entEvents?.abort();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
   try {
-    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes] =
+    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes,
+      rooms, staff] =
       await Promise.all([
         data.get(id),
         data.listEntitlements(id),
@@ -70,9 +114,14 @@ export async function render(el, id) {
         config.listAll('courses'),
         config.listAll('equipment'),
         notesData.listByCustomer(id),
+        // 診間與治療師是給那張讀取卡片用的（點一筆來訪浮出來的那一張，
+        // 共用日曆的 `visitReadHtml()`）。跟其他八份同一趟拿，不多一輪往返。
+        config.listAll('rooms'),
+        config.listAll('staff'),
       ]);
     ctx = {
       el, id, customer, entitlements, visits, tasks, courses, equipment, notes,
+      rooms, staff,
       availability: avail,
       back: () => reload(ctx),
     };
@@ -95,6 +144,9 @@ export async function render(el, id) {
 function reload(ctx) {
   // 重畫整頁時把開著的面板收掉 —— 它顯示的是已經過期的那一份
   closeSheet();
+  // 原地換掉的那幾層（編輯、加購、記一次）的瀏覽器紀錄也要退掉，
+  // 不然她存完按返回鍵會回到一張已經存過的表單，看起來像沒存進去。
+  popScreens();
   return render(ctx.el, ctx.id);
 }
 
@@ -139,35 +191,39 @@ function paint(ctx) {
       ? marksUi.row(marks, { large: true })
       : '<p class="muted" style="margin: 0">還沒有備註。客戶臨時提的小事記在這裡，顏色自己分。</p>'}
 
-    <div class="section">
-      <h2 class="section__title">這個月</h2>
-      <span class="section__n">${esc(monthLine(visits, today))}</span>
-    </div>
-    ${visitStrip(visits, today)}
+    <div data-monthblock>${monthBlock(visits, today)}</div>
 
     ${availability.sectionHtml(ctx.availability, today)}
 
     <div class="section">
       <h2 class="section__title">額度</h2>
       <span class="section__n">${entitlements.length}</span>
+      ${offCount(entitlements, visits)
+        ? `<span class="badge badge--soon">${offCount(entitlements, visits)} 筆對不起來</span>`
+        : ''}
       <button class="section__more" type="button" data-add-ent>加購</button>
     </div>
     ${entitlements.length === 0
       ? '<p class="muted" style="margin: 0">還沒有額度。按上面的「加購」單項加。</p>'
-      : `<div class="pools">${entitlements.map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
+      : `<div class="strip noscroll-bar">${sortPools(entitlements, visits)
+          .map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
 
     <div class="section">
       <h2 class="section__title">來訪紀錄</h2>
       <span class="section__n">${visits.length}</span>
-      ${visits.length > RECENT_VISITS
-        ? `<button class="section__more" type="button" data-all-visits>看全部</button>`
+      ${visits.length
+        ? `<button class="section__more" type="button" data-toggle-visits
+                   aria-expanded="${showVisits}">${showVisits ? '收起來' : '展開'}</button>`
         : ''}
     </div>
-    ${visits.length
-      ? `<ul class="link-list">${visits.slice(0, RECENT_VISITS).map(visitRow).join('')}</ul>`
-      : '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'}
-    <p style="margin: var(--space-3) 0 0">
-      <button class="btn" type="button" data-add-visit>記錄一次來訪</button></p>
+    ${!visits.length
+      ? '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'
+      : (showVisits ? `
+        <ul class="link-list">${visits.slice(0, RECENT_VISITS).map(visitRow).join('')}</ul>
+        ${visits.length > RECENT_VISITS
+          ? `<p style="margin: var(--space-2) 0 0">
+               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 筆</button></p>`
+          : ''}` : '')}
 
     <div class="section">
       <h2 class="section__title">隨手記</h2>
@@ -183,10 +239,8 @@ function paint(ctx) {
         : ''}
     </div>
     ${tasks.length
-      ? `<ul class="link-list">${[...openTasks, ...tasks.filter((t) => t.done)]
-          .slice(0, RECENT_TASKS).map(taskRow).join('')}</ul>
-         <p class="muted" style="margin: var(--space-2) 0 0">
-           要勾完成請到待辦中心，那裡可以一次勾一批。</p>`
+      ? `<div class="tasklist">${[...openTasks, ...tasks.filter((t) => t.done)]
+          .slice(0, RECENT_TASKS).map(taskRow).join('')}</div>`
       : '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'}
 
     <div class="footlinks">
@@ -205,11 +259,42 @@ function wire(ctx, { today, marks }) {
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    go('/customers');
+    back('/customers');
   });
   el.querySelector('[data-edit]').addEventListener('click', () => paintEdit(ctx));
   el.querySelector('[data-add-ent]')?.addEventListener('click', () => paintEntitlement(ctx, null));
-  el.querySelector('[data-add-visit]').addEventListener('click', () => go(`/visits/new/${ctx.id}`));
+  el.querySelector('[data-toggle-visits]')?.addEventListener('click', () => {
+    showVisits = !showVisits;
+    paint(ctx);
+  });
+
+  // 換月份**只重畫那一塊**（ADR-0038 的規矩：只換真的變了的那一塊）——
+  // 重畫整頁會把她剛剛展開的來訪紀錄捲回最上面。
+  detailEvents?.abort();
+  detailEvents = new AbortController();
+  el.addEventListener('click', (e) => {
+    const stepped = steppedMonth(e.target, detailMonth ?? today.slice(0, 7), addMonths);
+    if (stepped) {
+      detailMonth = stepped;
+      const box = el.querySelector('[data-monthblock]');
+      if (box) box.innerHTML = monthBlock(ctx.visits, today);
+      return;
+    }
+    const day = e.target.closest('[data-visit]');
+    if (day) {
+      openVisitCard(ctx, day.dataset.visit);
+      return;
+    }
+
+    const toVisit = e.target.closest('[data-task-visit]');
+    if (toVisit) {
+      openVisitCard(ctx, toVisit.dataset.taskVisit);
+      return;
+    }
+
+    const task = e.target.closest('[data-task]');
+    if (task) toggleTask(ctx, task.dataset.task);
+  }, { signal: detailEvents.signal });
 
   el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
 
@@ -246,14 +331,20 @@ function wire(ctx, { today, marks }) {
     }),
   );
 
-  el.querySelector('[data-all-tasks]')?.addEventListener('click', () =>
-    openSheet({
+  el.querySelector('[data-all-tasks]')?.addEventListener('click', () => {
+    const sheet = openSheet({
       title: '全部任務',
-      note: '要勾完成請到待辦中心，那裡可以一次勾一批。',
-      body: `<ul class="link-list">${[...tasks.filter((t) => !t.done), ...tasks.filter((t) => t.done)]
-        .map(taskRow).join('')}</ul>`,
-    }),
-  );
+      body: `<div class="tasklist">${
+        [...tasks.filter((t) => !t.done), ...tasks.filter((t) => t.done)]
+          .map(taskRow).join('')}</div>`,
+    });
+    sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        sheet.close();
+        toggleTask(ctx, btn.dataset.task);
+      }),
+    );
+  });
 
   el.querySelector('[data-msgs]').addEventListener('click', () => openMessages(ctx, today));
   el.querySelector('[data-audit]').addEventListener('click', () => openAudit(ctx));
@@ -273,46 +364,39 @@ function contactLine(c) {
   return parts.length ? parts.join('・') : '沒有聯絡方式';
 }
 
-function monthLine(visits, today) {
-  const month = today.slice(0, 7);
-  const inMonth = visits.filter((v) => isActive(v) && v.date.startsWith(month));
-  const waiting = inMonth.filter((v) => v.status === 'pending_confirm').length;
-  if (!inMonth.length) return '這個月還沒排';
-  return `${inMonth.length} 次${waiting ? `・${waiting} 筆等回覆` : ''}`;
-}
-
 /**
- * 這個月與之後的來訪，橫著排。
+ * 那一個月排了什麼。**一天一組、一段一列**，跟「看這個月的進度」那一頁
+ * 長一模一樣（共用 `views/progress.js` 的 `progressDayHtml()` 與 `tallyHtml()`）——
+ * 她的原話是「就像是客戶那頁『看這個月的進度』那邊呈現的一樣」。
  *
- * 客戶臨時問的就是「我什麼時候要來」，而那個答案是一串日期 ——
- * 橫著捲一眼看得到有幾次，直著疊要捲三個螢幕才知道。
+ * **只有選中的那個月。** 以前的篩選是「這個月 || 今天以後的全部」，
+ * 所以標題寫著「這個月」卻混著下個月的來訪（她問「為什麼會有下個月的預約
+ * 資訊跑進來？」）。SPEC 第 8.5 節原本寫的就是「本月與之後」，
+ * 所以程式沒寫錯 —— 是標題與規格從一開始就對不起來。2026-08-24 定案：
+ * **標題說哪個月就只有哪個月**，往右一格自己去看下個月。
  */
-function visitStrip(visits, today) {
-  const month = today.slice(0, 7);
-  const rows = visits
-    .filter((v) => isActive(v) && (v.date.startsWith(month) || v.date > today))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 12);
+function monthBlock(visits, today) {
+  const month = detailMonth ?? today.slice(0, 7);
+  const { rows } = buildProgress({
+    customers: [{ id: '_', name: '_' }],
+    // buildProgress 是照 customerId 分組的，這裡只有一位 —— 全部認成他。
+    visits: visits.map((v) => ({ ...v, customerId: '_' })),
+    month,
+  });
+  const row = rows[0] ?? null;
 
-  if (!rows.length) {
-    return '<p class="muted" style="margin: 0">這個月還沒有排，之後也還沒有。</p>';
-  }
+  return `
+    <div class="section">
+      <h2 class="section__title">${esc(monthLabel(`${month}-01`))}</h2>
+      <span class="section__n">${row ? `${row.days.length} 天・${row.slotCount} 段` : '沒有排'}</span>
+      ${monthNav()}
+    </div>
 
-  return `<div class="strip noscroll-bar">${rows.map((v) => {
-    // 過去的先變淡（她掃的是「接下來什麼時候來」），其餘照狀態上色 ——
-    // 顏色與日曆同一組，兩個畫面說同一件事（domain/visits.js 的 STATUS_VIEW）。
-    const cls = v.date < today ? 'stripcard--past' : statusClass(v.status);
-    const slots = (v.slots ?? []).slice(0, 3);
-    return `
-      <a class="stripcard ${cls}" href="#/visits/${esc(v.id)}">
-        <span class="stripcard__day">${esc(shortDate(v.date))}</span>
-        ${slots.map((s) => `
-          <span class="stripcard__slot">${esc(timeLabel(s))}　${esc(s.courseName ?? '')}</span>`).join('')}
-        ${(v.slots ?? []).length > slots.length
-          ? `<span class="stripcard__slot dim">還有 ${(v.slots ?? []).length - slots.length} 段</span>` : ''}
-        <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
-      </a>`;
-  }).join('')}</div>`;
+    ${row ? `
+      <span class="chips" style="justify-content: flex-end; margin-bottom: var(--space-2)">
+        ${tallyHtml(row.tally)}</span>
+      <div class="progdays">${row.days.map(progressDayHtml).join('')}</div>`
+      : '<p class="muted" style="margin: 0">這個月沒有排。</p>'}`;
 }
 
 // ---------- 備註 ----------
@@ -536,7 +620,7 @@ function poolCard(e, visits, ctx, today) {
   const kind = kindText(e, ctx);
 
   return `
-    <div class="pool">
+    <div class="pool poolcard">
       <div class="pool__head">
         <span>${esc(e.label)}</span>
         <button class="btn--ghost btn btn--sm" type="button" data-ent="${esc(e.id)}">調整</button>
@@ -688,18 +772,36 @@ function visitRow(v) {
     </a></li>`;
 }
 
+/**
+ * 一張任務。**這一列自己就講得完**：哪一種、死線、做完了沒、哪一筆產生的。
+ *
+ * 以前整列連到那筆來訪（`#/visits/:id`，而且是整頁編輯器）。她問：
+ * 「不是應該跳到 todo 那邊嗎？不知道為甚麼點進去是那個？」
+ *
+ * 兩邊都不太對：待辦中心列的是**所有客戶**的任務，從一位客戶身上跳過去
+ * 她還要在裡面把這個人找回來。所以答案是**哪裡都不去** ——
+ * 勾掉就在這一列做（跟日曆上勾待辦同一個判斷，ADR-0045），
+ * 右邊那個「8/14 的來訪 ›」才是連結，而且點下去是讀取卡片不是編輯器。
+ */
 function taskRow(t) {
-  const label = `${t.done ? '✓ ' : ''}${esc(t.kind)}`;
-  const badge = `<span class="badge ${t.done ? 'badge--ok' : ''}">${
-    t.done ? '已完成' : `死線 ${esc(t.dueDate)}`
-  }</span>`;
-
-  // 手動加的獨立待辦沒有來訪可以點進去
-  return t.visitId
-    ? `<li><a href="#/visits/${esc(t.visitId)}">
-        <span class="link-list__label">${label}</span>${badge}</a></li>`
-    : `<li><span class="row__main" style="padding: var(--space-2) 0; font-size: var(--text-sm)">
-        ${label} ${badge}</span></li>`;
+  return `
+    <div class="taskrow ${t.done ? 'taskrow--done' : ''}">
+      <button class="note ${t.done ? 'note--done' : ''}" type="button"
+              data-task="${esc(t.id)}" style="flex: 1; min-width: 0">
+        <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
+        <span class="note__main">
+          <span class="note__text">${esc(t.kind)}</span>
+        </span>
+        <span class="notetags">
+          <span class="notetag ${!t.done && t.dueDate ? 'notetag--date' : ''}">${
+            t.done ? '已完成' : `死線 ${esc(t.dueDate ?? '—')}`}</span>
+        </span>
+      </button>
+      ${t.visitId
+        ? `<button class="taskrow__link" type="button" data-task-visit="${esc(t.visitId)}">
+             來訪${icon('right', { size: 14 })}</button>`
+        : ''}
+    </div>`;
 }
 
 // ---------- 隨手記 ----------
@@ -794,12 +896,13 @@ function paintEdit(ctx) {
       </form>
     </section>`;
 
-  const back = () => paint(ctx);
+  // 原地換掉整頁 → 疊一層，返回鍵退得回詳情而不是離開這個人（ADR-0048）。
+  const leave = pushScreen('customer-edit', () => paint(ctx));
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
-    back();
+    leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', back);
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags,
@@ -837,79 +940,215 @@ function paintEdit(ctx) {
 
 // ---------- 額度編輯 ----------
 
+/**
+ * 加購／調整額度。
+ *
+ * **兩個入口拆成兩張表**（2026-08-24）。以前是同一張表用 `isNew` 分岔，
+ * 八個欄位上下疊、每一個看起來一樣重要 —— 而她點進來的理由只有兩種：
+ *
+ * - **加購**：客戶多買了五次復能 → 選一個課程、打一個數字。其餘七個欄位
+ *   都是「跟方案範本展開出來的一樣就好」，她一年動不到一次。
+ * - **調整**：次數談錯了、或多送兩次 → 改**一個數字**。
+ *
+ * 所以每一張表都有一個主體，其餘收進「進階設定」那一摺。她明講不要更多
+ * 說明文字（`.scratch/form-legibility/spec.md`），所以那些欄位底下解釋
+ * 「為什麼這裡有這個欄位」的 hint 大半跟著進去或直接刪掉。
+ */
 function paintEntitlement(ctx, record, draft = null) {
   const { el } = ctx;
   const isNew = !record;
   const e = draft ?? record ?? {
     type: 'single', label: '', totalQty: 1, durationMin: null,
     courseId: null, optionEquipmentIds: [], frequencyRule: null, expiresAt: null,
+    advanced: false,
   };
 
   const aliveCourses = ctx.courses.filter((c) => !c.deletedAt);
   const aliveEquip = ctx.equipment.filter((x) => !x.deletedAt);
+  const c = isNew ? null : counts(record, ctx.visits, record.id);
 
   el.innerHTML = `
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(ctx.customer.name)}</a>
-    <section class="card">
-      <h2 class="card__title">${isNew ? '加購額度' : esc(record.label)}</h2>
-      <div class="errors" data-errors hidden></div>
-      <form data-form>
-        ${f.select({
-          name: 'type', label: '型態', value: e.type,
-          options: [
-            { value: 'single', label: '單一課程（固定療程）' },
-            { value: 'pool', label: '擇一池（每次選一種器材）' },
-          ],
-          hint: '換型態會換掉下面要填的欄位。',
-        })}
-        ${f.text({ name: 'label', label: '顯示名稱', value: e.label, placeholder: '復能' })}
-        ${f.number({ name: 'totalQty', label: '總次數', value: e.totalQty, min: 1 })}
-        ${f.number({
-          name: 'durationMin', label: '時長（分鐘）', value: e.durationMin ?? '', min: 1, step: 5,
-          hint: '留空就用課程本身的時長。',
-        })}
-        ${e.type === 'pool'
-          ? f.checkboxes({
-              name: 'optionEquipmentIds', label: '可選的器材',
-              values: e.optionEquipmentIds ?? [],
-              options: aliveEquip.map((x) => ({ value: x.id, label: x.name })),
-              hint: '至少兩種。客戶身上有對應禁忌的器材，排班時會被硬性擋掉。',
-            })
-          : f.select({
-              name: 'courseId', label: '課程', value: e.courseId ?? null,
-              options: [
-                { value: null, label: '（請選擇）' },
-                ...courseOptions(aliveCourses, e.courseId),
-              ],
-            })}
-        ${f.text({
-          name: 'frequencyRule', label: '頻率限制', value: e.frequencyRule ?? '',
-          placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
-        })}
-        ${f.date({ name: 'expiresAt', label: '這筆額度的到期日', value: e.expiresAt ?? '' })}
-        ${isNew ? '' : usedFields(record)}
-        <div class="form__actions">
-          <button class="btn btn--primary" type="submit">儲存</button>
-          <button class="btn" type="button" data-cancel>取消</button>
+
+    <div class="page">
+      <h1 class="page__title">${isNew ? '加購' : esc(record.label)}</h1>
+    </div>
+
+    <div class="errors" data-errors hidden></div>
+
+    <form data-form>
+      ${isNew ? buyFields(e, aliveCourses) : adjustFields(e, c)}
+
+      <details class="advanced" ${e.advanced ? 'open' : ''}>
+        <summary class="advanced__head">進階設定${advancedDigest(e, isNew)}</summary>
+        <div class="advanced__body">
+          ${advancedFields(e, aliveCourses, aliveEquip, isNew)}
         </div>
-      </form>
-    </section>
+      </details>
+
+      <div class="form__actions">
+        <button class="btn btn--primary" type="submit">${isNew ? '加購' : '存起來'}</button>
+        <button class="btn" type="button" data-cancel>取消</button>
+      </div>
+    </form>
+
     ${isNew ? '' : entitlementDanger()}`;
 
-  const back = () => paint(ctx);
+  wireEntitlement(el, ctx, record, e, { isNew, aliveCourses });
+}
+
+/**
+ * 加購只問兩件事：買了什麼、幾次。
+ *
+ * 課程用丸子不用下拉選單 —— SPEC 第 8.2 節寫的「全部用點的，備註才要打字」
+ * 在這一頁一樣成立。選了之後名稱、時長、型態自動帶（課程主檔上就有），
+ * 所以她一個字都不用打。
+ */
+function buyFields(e, courses) {
+  return `
+    ${f.chips({
+      name: 'buy', label: '買了什麼',
+      value: e.type === 'pool' ? POOL_PICK : e.courseId,
+      options: [
+        ...courses.map((course) => ({ value: course.id, label: course.name })),
+        { value: POOL_PICK, label: '復能（三選一池）' },
+      ],
+    })}
+
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">幾次</span>
+      <div class="qty">
+        <input class="qty__n" type="number" name="totalQty" min="1" step="1"
+               inputmode="numeric" value="${esc(e.totalQty ?? 1)}" aria-label="幾次" />
+        ${[1, 5, 10].map((n) => `
+          <button class="chip chip--sm" type="button" data-qty="${n}">+${n}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+/**
+ * 調整的主體是那三個數字。
+ *
+ * 「已完成 / 已排未上」是**唯讀**的（SPEC 第 6.4 節：只能透過來訪狀態變化連動）。
+ * 對不起來的時候走資料健檢那一頁修（ADR-0007），不在這裡。
+ */
+function adjustFields(e, c) {
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">總次數</span>
+      <div class="qty">
+        <input class="qty__n" type="number" name="totalQty" min="1" step="1"
+               inputmode="numeric" value="${esc(e.totalQty ?? 1)}" aria-label="總次數" />
+        ${[1, 5, 10].map((n) => `
+          <button class="chip chip--sm" type="button" data-qty="${n}">+${n}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="tally">
+      <span class="tally__one"><b class="num">${c.done}</b>已完成</span>
+      <span class="tally__one"><b class="num">${c.booked}</b>已排未上</span>
+      <span class="tally__one tally__one--key"><b class="num">${c.remaining}</b>剩餘</span>
+      ${c.noShow ? `<span class="tally__one"><b class="num">${c.noShow}</b>未到</span>` : ''}
+    </div>
+    <p class="muted dim" style="margin: var(--space-1) 0 0; font-size: var(--text-2xs)">
+      已完成與已排未上跟著來訪的狀態走，改不了。對不起來時到資料健檢修。</p>`;
+}
+
+/** 摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。 */
+function advancedDigest(e, isNew) {
+  const changed = [
+    e.durationMin ? '時長' : null,
+    e.frequencyRule ? '頻率限制' : null,
+    e.expiresAt ? '到期日' : null,
+    isNew && e.label ? '顯示名稱' : null,
+  ].filter(Boolean);
+  return changed.length ? `<span class="muted"> 改了 ${changed.join('、')}</span>` : '';
+}
+
+function advancedFields(e, courses, equipment, isNew) {
+  return `
+    ${f.text({
+      name: 'label', label: '顯示名稱', value: e.label,
+      placeholder: '留空就用課程的名字',
+    })}
+    ${f.number({
+      name: 'durationMin', label: '時長（分鐘）', value: e.durationMin ?? '', min: 1, step: 5,
+      hint: '留空就用課程本身的時長。',
+    })}
+    ${e.type === 'pool'
+      ? f.checkboxes({
+          name: 'optionEquipmentIds', label: '可選的器材',
+          values: e.optionEquipmentIds ?? [],
+          options: equipment.map((x) => ({ value: x.id, label: x.name })),
+        })
+      : `<input type="hidden" name="courseId" value="${esc(e.courseId ?? '')}" />
+         ${isNew ? '' : f.select({
+           name: 'courseIdPick', label: '課程', value: e.courseId ?? null,
+           options: [
+             { value: null, label: '（請選擇）' },
+             ...courseOptions(courses, e.courseId),
+           ],
+         })}`}
+    ${f.text({
+      name: 'frequencyRule', label: '頻率限制', value: e.frequencyRule ?? '',
+      placeholder: '每季一次', hint: '只提示不阻擋。',
+    })}
+    ${f.date({ name: 'expiresAt', label: '這筆額度的到期日', value: e.expiresAt ?? '' })}`;
+}
+
+function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
+  // 同上。這一頁換課程／展開進階時會重畫自己，pushScreen 的 key 讓它不再疊一層。
+  const leave = pushScreen('entitlement-edit', () => paint(ctx));
   el.querySelector('[data-back]').addEventListener('click', (ev) => {
     ev.preventDefault();
-    back();
+    leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', back);
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
   const form = el.querySelector('[data-form]');
+  const advanced = () => Boolean(el.querySelector('.advanced')?.open);
+  const redraw = (over) =>
+    paintEntitlement(ctx, record, {
+      ...e, ...readEntitlement(form), advanced: advanced(), ...over,
+    });
 
-  // 換型態要換欄位，所以重畫。先把填到一半的值讀回來，不要清掉。
-  form.addEventListener('change', (ev) => {
-    if (ev.target.name !== 'type') return;
-    paintEntitlement(ctx, record, { ...e, ...readEntitlement(form) });
-  });
+  entEvents?.abort();
+  entEvents = new AbortController();
+  f.wireChips(el, { signal: entEvents.signal });
+
+  el.addEventListener('click', (ev) => {
+    const pick = ev.target.closest('[data-chip="buy"]');
+    if (pick) {
+      const value = pick.dataset.chipValue;
+      if (value === POOL_PICK) {
+        redraw({
+          type: 'pool',
+          courseId: null,
+          label: e.label || '復能',
+          optionEquipmentIds: ctx.equipment.filter((x) => !x.deletedAt).map((x) => x.id),
+        });
+        return;
+      }
+      const found = aliveCourses.find((x) => x.id === value);
+      // 選了課程就把名稱與時長帶進來 —— 她一個字都不用打。
+      // 她自己改過的名稱不覆蓋（那是進階設定裡刻意動過的）。
+      redraw({
+        type: 'single',
+        courseId: found?.id ?? null,
+        optionEquipmentIds: [],
+        label: e.label && e.label !== nameOfCourse(aliveCourses, e.courseId)
+          ? e.label : (found?.name ?? ''),
+        durationMin: e.durationMin ?? null,
+      });
+      return;
+    }
+
+    const qty = ev.target.closest('[data-qty]');
+    if (qty) {
+      const box = form.elements.totalQty;
+      box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
+    }
+  }, { signal: entEvents.signal });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -957,6 +1196,8 @@ function paintEntitlement(ctx, record, draft = null) {
   if (!isNew) wireEntitlementDanger(ctx, record);
 }
 
+const nameOfCourse = (courses, id) => courses.find((x) => x.id === id)?.name ?? '';
+
 function courseOptions(courses, currentId) {
   const opts = courses.map((c) => ({
     value: c.id,
@@ -972,29 +1213,22 @@ function courseOptions(courses, currentId) {
 function readEntitlement(form) {
   const v = f.readForm(form);
   return {
-    type: v.type,
+    // 課程由「買了什麼」那一排丸子決定，而那一顆的值直接寫進 draft
+    // （`redraw()`），不從表單讀 —— 因為擇一池那一顆不是課程 id。
+    // 進階設定裡的下拉（只有編輯既有的那一張才有）優先。
+    courseId: v.courseIdPick ?? v.courseId ?? null,
     label: String(v.label ?? '').trim(),
     totalQty: v.totalQty,
     durationMin: v.durationMin ?? null,
-    courseId: v.courseId ?? null,
     optionEquipmentIds: v.optionEquipmentIds ?? [],
     frequencyRule: String(v.frequencyRule ?? '').trim() || null,
     expiresAt: v.expiresAt || null,
   };
 }
 
-/** 已扣掉的次數不可直接改數字，只能透過來訪狀態變化連動 —— SPEC 第 6.4 節。 */
-function usedFields(record) {
-  return f.readonly({
-    label: '已完成 / 已排未上',
-    value: `${record.doneCount ?? 0} / ${record.bookedCount ?? 0}`,
-    hint: '這兩個數字不能直接改，它們跟著來訪的狀態走。對不起來時詳情頁會顯示差異。',
-  });
-}
-
 function entitlementDanger() {
   return `
-    <section class="card danger">
+    <section class="card danger" style="margin-top: var(--space-5)">
       <h2 class="card__title">刪除這筆額度</h2>
       <p class="muted">刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。</p>
       <p style="margin-bottom: 0">
@@ -1026,4 +1260,55 @@ function wireEntitlementDanger(ctx, record) {
       /* 已處理 */
     }
   });
+}
+
+/**
+ * 點一筆來訪先浮出讀取模式的卡片，右上角鉛筆才進編輯器。
+ *
+ * ADR-0020 早就寫了這條規矩，但它一直只活在日曆上 ——「她點一筆的十次有九次
+ * 只是要確認那天幾點、誰、做什麼。直接落進表單等於每次都冒著改到東西的風險，
+ * 而這一站最不能出錯的就是次數。」那句話跟在哪一頁點的沒有關係。
+ *
+ * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
+ * 長得不一樣，她會以為是兩種東西。
+ */
+function openVisitCard(ctx, visitId) {
+  const visit = ctx.visits.find((v) => v.id === visitId);
+  if (!visit) return;
+
+  openCard({
+    title: shortDate(visit.date),
+    subtitle: esc(describeStatus(visit.status)),
+    body: visitReadHtml(visit, {
+      roomsById: byId(ctx.rooms ?? []),
+      staffById: byId(ctx.staff ?? []),
+    }),
+    canEdit: true,
+    onEdit: () => {
+      closeCard();
+      go(`/visits/${visit.id}`);
+    },
+  });
+}
+
+const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
+
+/**
+ * 勾掉／拿回來一張任務。
+ *
+ * 以前這一頁寫著「要勾完成請到待辦中心，那裡可以一次勾一批」—— 那句話在
+ * 解釋一個限制，而不是限制本身。在這裡勾掉一筆沒有任何壞處
+ * （跟日曆上勾待辦是同一個判斷，ADR-0045），而且她人就在這個客戶身上。
+ */
+async function toggleTask(ctx, id) {
+  const task = ctx.tasks.find((t) => t.id === id);
+  if (!task) return;
+  try {
+    await toast.withSaveState(() => tasksData.setDone(id, !task.done), {
+      success: task.done ? '拿回來了' : '勾掉了',
+    });
+    reload(ctx);
+  } catch {
+    /* 已處理 */
+  }
 }

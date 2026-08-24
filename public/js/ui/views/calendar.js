@@ -337,6 +337,11 @@ function weekHtml(data, date, today) {
         const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
+        // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
+        // （那是分組），一筆一個框拿掉了 —— 見 `issues/03`。
+        const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
+        const timeline = [...timed.map(eventRow), ...rows.map(visitRow)].join('');
+
         return `
           <section class="card ${weekend ? 'weekday--weekend' : ''}" style="padding: 0; overflow: hidden">
             <button class="weekday__head" type="button" data-day="${d}">
@@ -348,27 +353,14 @@ function weekHtml(data, date, today) {
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
             </button>
 
-            ${todos.map(noteLine).join('')}
-            ${allDay.map(eventLine).join('')}
-            ${timed.map(eventLine).join('')}
-            ${rows.map((r) => `
-              <button class="note ${esc(statusClass(r.status))}" type="button"
-                      data-open="visit:${esc(r.visitId)}" style="align-items: center">
-                <span class="num" style="width: 42px; flex-shrink: 0; font-size: var(--text-xs);
-                                         font-weight: 700; color: var(--text-dim)">
-                  ${esc(r.timeLabel)}</span>
-                <span class="note__main">
-                  <span class="note__text" style="font-size: var(--text-sm); font-weight: 700">
-                    ${esc(r.customerName)}</span>
-                  <span class="grouprow__note">${esc(r.courseName)}${
-                    r.room ? `・${esc(r.room)}${esc(r.bed ?? '')}` : ''}${
-                    r.therapist ? `・${esc(r.therapist)}` : ''}</span>
-                </span>
-                <span style="width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0;
-                             background: var(--kind-fg, var(--text-mute))"></span>
-              </button>`).join('')}
-
-            ${!total ? '<div style="padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--text-mute)">沒有排東西</div>' : ''}
+            ${total ? `
+              <div class="timeline timeline--week">
+                ${pinned}
+                ${pinned && timeline ? '<hr class="timeline__split" />' : ''}
+                ${timeline}
+              </div>` : `
+              <div style="padding: var(--space-3) var(--space-4); font-size: var(--text-sm);
+                          color: var(--text-mute)">沒有排東西</div>`}
           </section>`;
       }).join('')}
     </div>`;
@@ -381,28 +373,75 @@ function notesOn(data, date) {
 }
 
 /**
- * 一件待辦在週／日檢視上的樣子。**釘在最上面**，跟整天的行事備註同一區 ——
- * 它沒有時間（她自己選的：只選日期），硬塞進時間軸只能擺在一個假位置。
+ * 一列。日／週檢視上**所有東西都長這樣**：左邊一小欄時間、一條色棒、右邊內容。
+ *
+ * 以前整天的東西是填滿底色的丸子、有時間的是白卡加左色棒，兩種上下相接的時候
+ * 接縫看得出來 —— 文字起點差了快 50px，填色方式也不一樣。她的原話是
+ * 「很不搭…有點重疊的感覺」（`.scratch/calendar-drawer/issues/05`）。
+ *
+ * 所以整天的東西也走這一套，差別只在左邊那一欄寫的是「整天」而不是時間。
+ * 它回答的是同一個問題（這是幾點的事），站同一欄才對得齊。
+ *
+ * @param {object} row
+ * @param {string} row.kind    色彩用的 class（狀態、類別或自己挑的顏色）
+ * @param {string} row.open    data-open 的值，例：'note:abc'
+ * @param {string} row.clock   左欄上面那行（時間或「整天」）
+ * @param {string} [row.until] 左欄下面那行（結束時間）
+ * @param {string} row.title   主體
+ * @param {string} [row.sub]   主體底下那行（課程・診間・治療師）
+ * @param {string} [row.aside] 右邊（狀態徽章、期間、客戶名字）
+ * @param {string} [row.extra] 整列最底下（撞期提醒）
  */
-function noteLine(n) {
+function agendaRow({ kind, open, clock, until = '', title, sub = '', aside = '', extra = '' }) {
   return `
-    <button class="allday kind-todo ${n.done ? 'kind-todo--done' : ''}" type="button"
-            data-open="note:${esc(n.id)}"
-            style="margin: var(--space-2) var(--space-3) 0; width: auto">
-      <span class="allday__bar"></span>
-      <span class="allday__t">${esc(n.text)}</span>
-      ${n.customerName ? `<span class="allday__aside">${esc(n.customerName)}</span>` : ''}
-    </button>`;
+    <div class="timerow ${kind}">
+      <div class="timerow__clock">
+        <div class="timerow__from">${esc(clock)}</div>
+        ${until ? `<div class="timerow__to">${esc(until)}</div>` : ''}
+      </div>
+      <span class="timerow__bar"></span>
+      <button class="timerow__body" type="button" data-open="${esc(open)}">
+        <span class="row" style="align-items: baseline">
+          <span class="row__main">
+            <span class="timerow__title">${esc(title)}</span>
+            ${sub ? `<span class="timerow__sub">${esc(sub)}</span>` : ''}
+          </span>
+          ${aside}
+        </span>
+        ${extra}
+      </button>
+    </div>`;
 }
 
+/**
+ * 一件待辦。**釘在最上面**，跟整天的行事備註同一區 —— 它沒有時間
+ * （她自己選的：只選日期），硬塞進時間軸只能擺在一個假位置。
+ *
+ * 方框勾勾那個記號留著（ADR-0045）：它不搶一個色相，而顏色沒有「完成」
+ * 這個狀態，記號有。
+ */
+function noteLine(n) {
+  return agendaRow({
+    kind: `kind-todo${n.done ? ' kind-todo--done' : ''}`,
+    open: `note:${n.id}`,
+    clock: '整天',
+    title: n.text,
+    aside: n.customerName ? `<span class="timerow__aside">${esc(n.customerName)}</span>` : '',
+  });
+}
+
+/** 整天的行事備註或休假。跨天的把期間寫在右邊 —— 那是這一類唯一有、別人沒有的資訊。 */
 function eventLine(e) {
-  return `
-    <button class="allday ${e.kind}" type="button" data-open="event:${esc(e.id)}"
-            style="margin: var(--space-2) var(--space-3) 0; width: auto">
-      <span class="allday__bar"></span>
-      <span>${esc(e.title)}</span>
-      <span style="opacity: 0.75; font-weight: 500">${esc(e.spanLabel)}</span>
-    </button>`;
+  return agendaRow({
+    kind: e.kind,
+    open: `event:${e.id}`,
+    clock: '整天',
+    title: e.title,
+    sub: e.note ?? '',
+    aside: e.spanLabel && e.spanLabel !== '整天'
+      ? `<span class="timerow__aside">${esc(e.spanLabel)}</span>`
+      : '',
+  });
 }
 
 /**
@@ -426,66 +465,56 @@ function dayHtml(data, date, today) {
     return av - bv;
   });
 
+  // 空的那一天講的那句話搬到這裡（`issues/04`）—— 它以前掛在抽屜抬頭底下的
+  // 說明列上，而那一列現在拿掉了。這句不能拿掉：SPEC 第 8.6 節最後一段要求
+  // 這一頁講明「空的格子不等於那個時段真的空著」，不然她會拿它當可用時段表用。
   if (!merged.length && !allDay.length && !todos.length) {
-    return `<p class="muted">${esc(shortDate(date))} 沒有排東西。</p>`;
+    return `<p class="muted" style="margin: 0">這天還沒有東西 ——
+      但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
   }
 
+  const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
+
   return `
-    ${todos.map(noteLine).join('')}
-    ${allDay.map(eventLine).join('')}
     <div class="timeline">
+      ${pinned}
+      ${pinned && merged.length ? '<hr class="timeline__split" />' : ''}
       ${merged.map((item) => (item.kind === 'visit'
         ? visitRow(item.row)
         : eventRow(item.event))).join('')}
     </div>`;
 }
 
+/** 一筆來訪的一段。狀態 class 掛在整列上，色棒與徽章都從它繼承。 */
 function visitRow(r) {
-  // 狀態 class 掛在整列上：左邊那條色棒（.timerow__bar 讀 --kind-fg）與
-  // 右邊的徽章都從它繼承，不必各自再判斷一次狀態。
-  return `
-    <div class="timerow ${esc(statusClass(r.status)) || 'kind-visit'}">
-      <div class="timerow__clock">
-        <div class="timerow__from">${esc(r.startsAt || '—')}</div>
-        <div class="timerow__to">${esc(r.endsAt || '')}</div>
-      </div>
-      <span class="timerow__bar"></span>
-      <button class="timerow__body" type="button" data-open="visit:${esc(r.visitId)}"
-              style="text-align: left; cursor: pointer">
-        <span class="row" style="align-items: flex-start">
-          <span class="row__main">
-            <span class="row__title" style="font-size: var(--text-md)">${esc(r.customerName)}</span>
-            <span class="grouprow__note">${esc(r.courseName)}${
-              r.room ? `・${esc(r.room)}${esc(r.bed ?? '')}` : ''}${
-              r.therapist ? `・${esc(r.therapist)}` : ''}</span>
-          </span>
-          <span class="badge ${esc(statusClass(r.status))}">
-            ${esc(describeStatus(r.status))}</span>
-        </span>
-        ${r.clashes.length ? `
-          <span class="warn">
-            ${icon('alert', { size: 15 })}
-            <span>${esc(r.clashes.map((c) => `${c.what} 這個時間也排了 ${c.with}`).join('；'))}。
-              只是提醒，沒有擋。</span>
-          </span>` : ''}
-      </button>
-    </div>`;
+  return agendaRow({
+    kind: esc(statusClass(r.status)) || 'kind-visit',
+    open: `visit:${r.visitId}`,
+    clock: r.startsAt || '—',
+    until: r.endsAt || '',
+    title: r.customerName,
+    sub: `${r.courseName}${r.room ? `・${r.room}${r.bed ?? ''}` : ''}${
+      r.therapist ? `・${r.therapist}` : ''}`,
+    aside: `<span class="badge ${esc(statusClass(r.status))}">${esc(describeStatus(r.status))}</span>`,
+    extra: r.clashes.length ? `
+      <span class="warn">
+        ${icon('alert', { size: 15 })}
+        <span>${esc(r.clashes.map((c) => `${c.what} 這個時間也排了 ${c.with}`).join('；'))}。
+          只是提醒，沒有擋。</span>
+      </span>` : '',
+  });
 }
 
+/** 有時間的行事備註。跟來訪排在同一條時間軸上。 */
 function eventRow(e) {
-  return `
-    <div class="timerow ${e.kind}">
-      <div class="timerow__clock">
-        <div class="timerow__from">${esc(e.startTime ?? '—')}</div>
-        <div class="timerow__to">${esc(e.endTime ?? '')}</div>
-      </div>
-      <span class="timerow__bar"></span>
-      <button class="timerow__body" type="button" data-open="event:${esc(e.id)}"
-              style="text-align: left; cursor: pointer">
-        <span class="row__title" style="font-size: var(--text-md)">${esc(e.title)}</span>
-        ${e.note ? `<span class="grouprow__note">${esc(e.note)}</span>` : ''}
-      </button>
-    </div>`;
+  return agendaRow({
+    kind: e.kind,
+    open: `event:${e.id}`,
+    clock: e.startTime ?? '—',
+    until: e.endTime ?? '',
+    title: e.title,
+    sub: e.note ?? '',
+  });
 }
 
 // ---------- 懸浮泡泡 ----------
@@ -527,20 +556,14 @@ function fabHtml() {
  */
 function openDay(el, data, date) {
   const today = todayISO();
-  const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
-  const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), date);
-  const n = rows.length + allDay.length + timed.length + notesOn(data, date).length;
 
   const sheet = openSheet({
     title: shortDate(date),
-    note: n
-      ? `${n} 件事。點一筆看細節，要改再按鉛筆。`
-      : '這天還沒有東西 —— 但同事在 Abovee 壓的看不到，空的不代表真的空著。',
+    // 抬頭底下不再寫「N 件事。點一筆看細節，要改再按鉛筆。」（`issues/04`）——
+    // 那是她每天做十次的事，寫出來只佔一行，件數清單自己數得出來。
+    // 空的那一天要講的那句話搬進 dayHtml() 的空狀態裡。
     body: dayHtml(data, date, today),
-    actions: `
-      <button class="btn" type="button" data-add-note>待辦</button>
-      <button class="btn" type="button" data-add-event>行事備註</button>
-      <button class="btn btn--primary" type="button" data-add-visit>來訪</button>`,
+    tools: addMenuHtml(),
     onClose: closeCard,
   });
 
@@ -551,19 +574,89 @@ function openDay(el, data, date) {
     }),
   );
 
-  sheet.el.querySelector('[data-add-note]').addEventListener('click', () =>
-    mountNoteEditor(el, data, sheet, { date, backDate: date }),
-  );
-
-  sheet.el.querySelector('[data-add-event]').addEventListener('click', () =>
-    mountEditor(el, data, sheet, { kind: 'event', date, backDate: date }),
-  );
-
-  sheet.el.querySelector('[data-add-visit]').addEventListener('click', () =>
-    pickCustomer(el, data, sheet, date, date),
-  );
+  wireAddMenu(sheet, {
+    visit: () => pickCustomer(el, data, sheet, date, date),
+    note: () => mountNoteEditor(el, data, sheet, { date, backDate: date }),
+    event: () => mountEditor(el, data, sheet, { kind: 'event', date, backDate: date }),
+  });
 
   return sheet;
+}
+
+/**
+ * 那一天的抽屜，抬頭右上角那一顆「＋」。
+ *
+ * 以前是底部三顆並排的按鈕（待辦／行事備註／來訪）。三顆等寬、其中一顆主色，
+ * 那是**分段切換**的長相 —— 她的原話是「不像是新增的樣子，感覺像是切換而已」。
+ * 而且它們佔掉抽屜底部一整條，那一格是她看那一天時最不需要的東西。
+ *
+ * 選單往下長，順序是**離觸發點最近的最常按** —— 來訪排第一。
+ * 懸浮泡泡往上長，所以那邊來訪在最下面：兩者的規矩是同一條
+ * （手指從那一顆出發，第一個碰到的是來訪），只是方向相反。
+ */
+function addMenuHtml() {
+  return `
+    <div class="addmenu" data-addmenu>
+      <button class="addmenu__btn" type="button" data-addmenu-toggle
+              aria-label="新增" aria-expanded="false">
+        ${icon('plus', { size: 20, width: 2.2 })}
+      </button>
+      <div class="addmenu__list" data-addmenu-list hidden>
+        <button class="addmenu__item" type="button" data-add="visit">
+          <span class="fab__dot">${icon('people', { size: 16 })}</span>
+          <span>新增來訪</span>
+        </button>
+        <button class="addmenu__item" type="button" data-add="note">
+          <span class="fab__dot fab__dot--todo">${icon('pencil', { size: 16 })}</span>
+          <span>新增待辦</span>
+        </button>
+        <button class="addmenu__item" type="button" data-add="event">
+          <span class="fab__dot fab__dot--tea">${icon('calendar', { size: 16 })}</span>
+          <span>新增行事備註</span>
+        </button>
+      </div>
+    </div>`;
+}
+
+function wireAddMenu(sheet, handlers) {
+  const menu = sheet.el.querySelector('[data-addmenu]');
+  if (!menu) return;
+  const list = menu.querySelector('[data-addmenu-list]');
+  const toggle = menu.querySelector('[data-addmenu-toggle]');
+
+  const setOpen = (open) => {
+    list.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(list.hidden);
+  });
+
+  // 點面板上任何其他地方就收起來。掛在抽屜上而不是 document 上 ——
+  // 抽屜關掉的時候這個監聽跟著節點一起消失，不必自己拆。
+  sheet.el.addEventListener('click', (e) => {
+    if (menu.contains(e.target)) return;
+    setOpen(false);
+  });
+
+  // Esc 先收選單，**不要讓它一路傳到抽屜**（`sheet.js` 也聽 Escape）——
+  // 不然按一下 Esc 會把整張抽屜關掉，而她只是想收掉那張小選單。
+  // 同一個道理見 `card.js` 的 onKey：最上面那一層先關。
+  sheet.el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || list.hidden) return;
+    e.stopPropagation();
+    setOpen(false);
+    toggle.focus();
+  });
+
+  menu.querySelectorAll('[data-add]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      setOpen(false);
+      handlers[btn.dataset.add]?.();
+    }),
+  );
 }
 
 /**
@@ -672,6 +765,9 @@ function mountNoteEditor(el, data, sheet, spec) {
   sheet.setTitle(isNew ? '新增待辦' : '改這一件');
   sheet.setNote('隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
   sheet.setActions('');
+  // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——
+  // 在一張正在填的表單上面留一顆「新增」是講不通的。
+  sheet.setTools('');
   sheet.update(`
     <form data-noteform class="form">
       <label class="field">
@@ -844,6 +940,9 @@ function mountEditor(el, data, sheet, spec) {
     : `${shortDate(spec.date)} ${isNew ? '排一筆' : '的來訪'}`);
   sheet.setNote('');
   sheet.setActions('');
+  // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——
+  // 在一張正在填的表單上面留一顆「新增」是講不通的。
+  sheet.setTools('');
   sheet.update('<div data-editor></div>');
   // 表單比一天的清單長得多，直接撐到頂 —— 不必她自己再拖一次
   sheet.expand();
@@ -889,6 +988,9 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
   sheet.setTitle(`${shortDate(date)} 要幫誰排？`);
   sheet.setNote('選完就在這裡接著記，不會換頁。');
   sheet.setActions('');
+  // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——
+  // 在一張正在填的表單上面留一顆「新增」是講不通的。
+  sheet.setTools('');
   sheet.update(`
     <label class="field">
       <span class="visually-hidden">找人</span>

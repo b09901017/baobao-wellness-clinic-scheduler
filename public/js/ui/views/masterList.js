@@ -14,6 +14,7 @@ import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
+import { pushScreen } from '../nav.js';
 
 const esc = f.esc;
 
@@ -489,7 +490,8 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
     </section>
     ${isNew ? '' : dangerZone(record)}`;
 
-  const back = () => render(el, type);
+  // 原地換掉整頁 → 疊一層，返回鍵退得回那一份主檔清單而不是離開設定。
+  const back = pushScreen(`master-${type}`, () => render(el, type));
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
     back();
