@@ -181,7 +181,8 @@ function customerCard(row) {
     </section>`;
 }
 
-function tallyHtml(tally) {
+/** 那幾顆狀態小徽章（`△ 1`、`✓ 3`）。客戶詳情共用。 */
+export function tallyHtml(tally) {
   return PROGRESS_STATUSES
     .filter((s) => tally[s])
     .map((s) => `
@@ -190,7 +191,12 @@ function tallyHtml(tally) {
     .join('');
 }
 
-function dayHtml(day) {
+/**
+ * 一天一組、一段一列。**客戶詳情的「這個月」也用這一支**
+ * （`.scratch/customer-detail-rework/issues/02`）—— 她要的就是「跟看這個月的
+ * 進度那邊呈現的一樣」，而同一件事畫成兩種樣子會讓她以為是兩份資料。
+ */
+export function dayHtml(day) {
   return `
     <button class="progday" type="button" data-visit="${esc(day.visitId)}">
       <span class="progday__head">

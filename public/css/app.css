@@ -3523,14 +3523,256 @@ button.mark::after {
 
 /* ---------- 額度 ---------- */
 
-.pools {
-  display: grid;
-  gap: var(--space-2);
+/* ---------- 「記一次」的日曆 ---------- */
+
+/* 她自己記的那一份 2026-08-24 之後也改用日曆（`.scratch/customer-detail-rework/
+ * issues/04`）。**互動照抄客戶那一頁，樣式不抄**：客戶那一頁的顏色寫在
+ * `form.css` 而且刻意不套 `.status-*`（SPEC 第 8.9 節），那是為了「改一個
+ * 來訪顏色不會同時改到客戶看的東西」。這一頁是她的畫面，走這裡的 token。
+ *
+ * 格子比客戶那一頁小一級：她是熟手，而且這一頁在她的 iPad 上多半是雙欄。 */
+.pickcal {
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
-@media (min-width: 600px) {
-  .pools {
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+.pickcal__week,
+.pickcal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.pickcal__week {
+  margin-bottom: var(--space-1);
+}
+
+/* 星期那一排點得下去 —— 一次擋掉整個月的禮拜五。她的可用性條件有一半是
+   用星期講的（`domain/dates.js` 的 `weekdayLabel` 註解），逐格點七次太笨。 */
+.pickcal__wd {
+  min-height: 30px;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pickcal__wd[aria-pressed='true'] {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+.pickcal__cell {
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  min-height: 46px;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pickcal__d {
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pickcal__tag {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pickcal__cell--blank {
+  background: none;
+  cursor: default;
+}
+
+/* 選起來的：紅底**加上字**。不能只靠顏色 —— 這一條在客戶那一頁是為了長輩，
+   在這裡是為了她低頭快看的那一眼。 */
+.pickcal__cell--off {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-color: var(--overdue);
+}
+
+.pickcal__cell--off .pickcal__d {
+  font-weight: 700;
+}
+
+/* 半天的：只塗一半，一眼看得出「只有半天」。數字擠在還可以排的那一半 ——
+   數字站的位置本身就講得出他還有空的是哪半天（SPEC 第 8.2 節同一招）。 */
+.pickcal__cell--am {
+  background: linear-gradient(to bottom, var(--overdue-bg) 52%, var(--surface-2) 52%);
+}
+
+.pickcal__cell--pm {
+  background: linear-gradient(to bottom, var(--surface-2) 48%, var(--overdue-bg) 48%);
+}
+
+/* 被「整個禮拜五」擋掉的那幾格：虛線框，跟她逐格點的分得出來 ——
+   點它會變成逐格的那一種，而那時候她要知道自己在改哪一層。 */
+.pickcal__cell--auto {
+  border-style: dashed;
+}
+
+/* 點完日期從底下浮出來的三選一。不做三態循環、不做拖拉（ADR-0034）。 */
+.picksheet-back {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(36 31 26 / 45%);
+}
+
+.picksheet {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: var(--space-4) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-drawer);
+}
+
+.picksheet__title {
+  margin: 0 0 var(--space-1);
+  text-align: center;
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+/* 「這一天是被每個禮拜二擋掉的」。講出真正的開關在哪裡，
+   比給她一顆按了沒用的按鈕好。 */
+.picksheet__note {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.picksheet__choice {
+  min-height: 50px;
+  font: inherit;
+  font-size: var(--text-md);
+  color: inherit;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.picksheet__choice--on {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-color: var(--overdue);
+  font-weight: 700;
+}
+
+.picksheet__cancel {
+  min-height: 48px;
+  margin-top: var(--space-1);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* iPad 橫式：抽屜改成置中對話框，這一張跟著（同 .drawer 的作法）。 */
+@media (min-width: 900px) {
+  .picksheet-back {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .picksheet {
+    width: min(420px, 92vw);
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* 「以前問過的 N 次」那一摺。客戶詳情用。 */
+.pastavail {
+  margin-top: var(--space-2);
+}
+
+.pastavail__one {
+  margin-top: var(--space-2);
+}
+
+/* 「這個月」那一段的換月份。段落抬頭右邊兩顆，44px 感應範圍靠 ::after 撐。 */
+.monthnav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.monthnav__btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.monthnav__btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.monthnav__btn:active {
+  background: var(--surface-2);
+}
+
+/* 額度改成橫著捲（`.strip`），跟「這個月」同一套。
+ *
+ * 為什麼這一段橫著捲、而「這個月」那一段反過來改成直的清單：判斷的依據是
+ * 「這一段回答的問題是一個列表，還是一組彼此獨立的數字」。額度是後者 ——
+ * 她一次只看一個（「復能還剩幾次」），而直著疊十二種課程會佔掉半頁。
+ * 見 `.scratch/customer-detail-rework/spec.md`。 */
+.poolcard {
+  flex: 0 0 auto;
+  width: 244px;
+  scroll-snap-align: start;
+}
+
+/* 最長的課程名是「復健科醫師門診」七個字，244px 放得下而且還有位置給
+   右邊那顆「調整」。 */
+@media (min-width: 900px) {
+  .poolcard {
+    width: 268px;
   }
 }
 

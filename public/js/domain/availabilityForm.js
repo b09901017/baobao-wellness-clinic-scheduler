@@ -276,6 +276,55 @@ export function picksToRules(picks, { month = null } = {}) {
   ];
 }
 
+/**
+ * 反過來：一組規則 → 日曆上點掉的那些格子。
+ *
+ * **編輯既有的那一份要用它。** 她自己記的那一份 2026-08-24 之後也改用日曆了
+ * （`.scratch/customer-detail-rework/issues/04`），而在那之前存進去的規則
+ * 是解析原文來的 —— 打開來要能標回格子上，不然編輯等於重填。
+ *
+ * **認不得的規則不吞掉。** 手動加的、或超出這個月範圍的都放進 `leftover`，
+ * 由呼叫端列出來並講清楚「這幾條改不了但仍然生效」。安靜地少一條規則是這個
+ * app 最不能犯的錯（SPEC 第 4.3 節的整個精神）——「她以為系統知道，其實不知道」。
+ *
+ * `prefer`（他說哪天方便）不是「不能的時間」，所以不會被畫到格子上，
+ * 但它照樣進 `leftover` —— 存回去的時候要留著。
+ *
+ * @param {object[]} rules
+ * @param {{month: string}} opts 'YYYY-MM'
+ * @returns {{picks: {weekdays: object[], dates: object[]}, leftover: object[]}}
+ */
+export function rulesToPicks(rules, { month } = {}) {
+  const weekdays = [];
+  const dates = [];
+  const leftover = [];
+  const inMonth = (iso) => isValidDate(iso) && iso.slice(0, 7) === month;
+
+  for (const rule of rules ?? []) {
+    if (rule?.kind === 'exclude_weekday' && rule.weekday >= 0 && rule.weekday <= 6) {
+      weekdays.push({ weekday: rule.weekday, partOfDay: partOf(rule) });
+      continue;
+    }
+
+    if (rule?.kind === 'exclude_date' && inMonth(rule.date)) {
+      dates.push({ date: rule.date, partOfDay: partOf(rule) });
+      continue;
+    }
+
+    if (rule?.kind === 'exclude_range' && inMonth(rule.from) && inMonth(rule.to)) {
+      // 範圍沒有半天（`picksToRules()` 那一側也是），所以一律整天。
+      for (let d = rule.from; d <= rule.to; d = addDays(d, 1)) {
+        dates.push({ date: d, partOfDay: null });
+      }
+      continue;
+    }
+
+    leftover.push(rule);
+  }
+
+  return { picks: normalizePicks({ weekdays, dates }), leftover };
+}
+
 // ---------- 轉成原文 ----------
 
 /**

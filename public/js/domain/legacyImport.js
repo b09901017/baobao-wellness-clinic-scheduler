@@ -785,14 +785,22 @@ export function planForSheet(parsed, {
 /**
  * 姓名格裡除了名字以外的東西。
  *
- * 刻意不講「這串數字是病歷號」——舊表沒有標題，那只是我們的推測，
- * 而備註是給人看的：講清楚它寫在哪裡就夠了，別替她認定它是什麼。
+ * 這串數字**就是病歷號** —— 2026-08-24 她確認的。原本寫「姓名欄的編號：」
+ * 是刻意的保守（舊表沒有標題，那時候只是我們的推測），現在知道了就叫它的
+ * 真名：她在客戶詳情上看到的每一則備註都寫著那六個字，而它們指的是同一件事。
  *
- * `王小明 (高能/sis)3157` → ['姓名欄的編號：3157', '姓名欄的註記：高能/sis']
+ * 冒號也拿掉了 ——「病歷號 3157」讀起來就是一件事，不需要標點。
+ *
+ * `王小明 (高能/sis)3157` → ['病歷號 3157', '姓名欄的註記：高能/sis']
  */
+export const CHART_NO_PREFIX = '病歷號 ';
+
+/** 匯入到 2026-08-24 為止寫的說法。資料健檢認得它，才改得掉既有的那幾筆。 */
+export const OLD_CHART_NO_PREFIX = '姓名欄的編號：';
+
 function nameExtras(name) {
   const text = String(name ?? '');
-  const out = (text.match(/\d{3,}/g) ?? []).map((d) => `姓名欄的編號：${d}`);
+  const out = (text.match(/\d{3,}/g) ?? []).map((d) => `${CHART_NO_PREFIX}${d}`);
   for (const m of text.matchAll(/[(（]([^)）]*)[)）]/g)) {
     const inner = normalize(m[1]);
     if (inner) out.push(`姓名欄的註記：${inner}`);

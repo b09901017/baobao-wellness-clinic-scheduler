@@ -356,7 +356,7 @@ test('姓名格裡的編號與括號註記另外解析進備註，但名字原�
   const p = planForSheet(parseSheet(sheet, { sheetName: '客戶G' }), CTX);
 
   assert.equal(p.customer.name, '客戶A (高能/sis)3157');
-  assert.ok(p.customer.notes.includes('姓名欄的編號：3157'));
+  assert.ok(p.customer.notes.includes('病歷號 3157'));
   assert.ok(p.customer.notes.includes('姓名欄的註記：高能/sis'));
 });
 

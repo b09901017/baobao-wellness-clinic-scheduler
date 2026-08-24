@@ -66,9 +66,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('八項檢查都在，順序固定', () => {
+  test('九項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 8);
+    assert.equal(result.checks.length, 9);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -115,10 +115,47 @@ describe('形狀', () => {
         else if (check.id === 'followups') {
           assert.equal(Boolean(f.fix), f.severity === 'mismatch',
             '缺的可以一鍵補，次數對不上的不給修正');
+        } else if (check.id === 'chartNo') {
+          assert.ok(f.fix, '改字有明確正解，給得出修正（ADR-0050）');
         } else assert.equal(f.fix, null, `${check.id} 不該給修正`);
       }
     }
     assert.equal(result.totals.fixable, findingsOf(result, 'counts').length);
+  });
+});
+
+describe('備註寫著舊的說法（ADR-0050）', () => {
+  const withMarks = (marks) => run({ customers: [customer({ marks })] });
+
+  test('「姓名欄的編號：3157」列出來，而且給得出改成什麼', () => {
+    const result = withMarks([{ text: '姓名欄的編號：3157', color: 'grey' }]);
+    const [f] = findingsOf(result, 'chartNo');
+    assert.ok(f, '應該要報');
+    assert.equal(f.fix.kind, 'renameChartNo');
+    assert.deepEqual(f.fix.changes.marks, [{ text: '病歷號 3157', color: 'grey' }]);
+    // notes 是那幾則接起來的純文字，試算表報表讀的是它 —— 兩個欄位要一起寫
+    assert.equal(f.fix.changes.notes, '病歷號 3157');
+  });
+
+  test('顏色與其他備註原封不動', () => {
+    const result = withMarks([
+      { text: '喜歡下午', color: 'blue' },
+      { text: '姓名欄的編號：9001', color: 'red' },
+    ]);
+    const [f] = findingsOf(result, 'chartNo');
+    assert.deepEqual(f.fix.changes.marks, [
+      { text: '喜歡下午', color: 'blue' },
+      { text: '病歷號 9001', color: 'red' },
+    ]);
+  });
+
+  test('已經是新說法的不報 —— 改過一次就不該再出現', () => {
+    const result = withMarks([{ text: '病歷號 3157', color: 'grey' }]);
+    assert.equal(findingsOf(result, 'chartNo').length, 0);
+  });
+
+  test('沒有備註的不報', () => {
+    assert.equal(findingsOf(run(), 'chartNo').length, 0);
   });
 });
 

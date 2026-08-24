@@ -29,7 +29,7 @@ const CUSTOMER = () => ({
   sheetName: '客戶A',
   name: '客戶A',
   source: '0522 顧客會-8',
-  notes: '姓名欄的編號：9001',
+  notes: '病歷號 9001',
   entitlements: [
     {
       key: 'r7', type: 'pool', label: '復能(1小時)', totalQty: 20, courseName: null,

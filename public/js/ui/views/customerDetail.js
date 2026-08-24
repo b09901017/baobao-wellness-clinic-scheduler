@@ -32,7 +32,11 @@ import { counts, reconcile, isOverused, validateEntitlement } from '../../domain
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
-import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
+import { buildProgress } from '../../domain/progress.js';
+import { dayHtml, tallyHtml } from './progress.js';
+import { visitReadHtml } from './calendar.js';
+import { openCard, closeCard } from '../components/card.js';
+import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
 import { formLink, inviteState } from '../../domain/availabilityForm.js';
 import * as invitesData from '../../data/formInvites.js';
@@ -50,6 +54,22 @@ import { back, popScreens, pushScreen } from '../nav.js';
 const esc = f.esc;
 
 /** 變更紀錄往回查幾筆來訪。listByCustomer 是新的在前，所以這是「最近的 N 筆」。 */
+/**
+ * 來訪紀錄那一段展開了沒。**預設收起來，而且不記住** —— 每次進來都是收起來的，
+ * 那才是「預設不佔位置」的意思（`.scratch/customer-detail-rework/issues/06`）。
+ *
+ * 這一段跟上面的「這個月」重疊很多（同一批來訪，換個角度看），
+ * 而她要看歷史的時候是在對帳 —— 那時候她會想一直看著它，所以是就地展開，
+ * 不是抽屜（抽屜要再關一次才回得來）。
+ */
+let showVisits = false;
+
+/**
+ * 「這個月」那一段在看哪個月（`'YYYY-MM'`）。每次進這一頁重設成當月 ——
+ * 她開這一頁十次有九次問的是「他這個月什麼時候來」。
+ */
+let detailMonth = null;
+
 const AUDIT_VISIT_LIMIT = 30;
 
 /** 一眼掃得完的長度。超過就收進「看全部」，不要把整頁拉成一條長清單。 */
@@ -57,11 +77,14 @@ const RECENT_VISITS = 6;
 const RECENT_TASKS = 6;
 
 export async function render(el, id) {
+  showVisits = false;
+  detailMonth = null;
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
   try {
-    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes] =
+    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes,
+      rooms, staff] =
       await Promise.all([
         data.get(id),
         data.listEntitlements(id),
@@ -71,9 +94,14 @@ export async function render(el, id) {
         config.listAll('courses'),
         config.listAll('equipment'),
         notesData.listByCustomer(id),
+        // 診間與治療師是給那張讀取卡片用的（點一筆來訪浮出來的那一張，
+        // 共用日曆的 `visitReadHtml()`）。跟其他八份同一趟拿，不多一輪往返。
+        config.listAll('rooms'),
+        config.listAll('staff'),
       ]);
     ctx = {
       el, id, customer, entitlements, visits, tasks, courses, equipment, notes,
+      rooms, staff,
       availability: avail,
       back: () => reload(ctx),
     };
@@ -143,35 +171,39 @@ function paint(ctx) {
       ? marksUi.row(marks, { large: true })
       : '<p class="muted" style="margin: 0">還沒有備註。客戶臨時提的小事記在這裡，顏色自己分。</p>'}
 
-    <div class="section">
-      <h2 class="section__title">這個月</h2>
-      <span class="section__n">${esc(monthLine(visits, today))}</span>
-    </div>
-    ${visitStrip(visits, today)}
+    <div data-monthblock>${monthBlock(visits, today)}</div>
 
     ${availability.sectionHtml(ctx.availability, today)}
 
     <div class="section">
       <h2 class="section__title">額度</h2>
       <span class="section__n">${entitlements.length}</span>
+      ${offCount(entitlements, visits)
+        ? `<span class="badge badge--soon">${offCount(entitlements, visits)} 筆對不起來</span>`
+        : ''}
       <button class="section__more" type="button" data-add-ent>加購</button>
     </div>
     ${entitlements.length === 0
       ? '<p class="muted" style="margin: 0">還沒有額度。按上面的「加購」單項加。</p>'
-      : `<div class="pools">${entitlements.map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
+      : `<div class="strip noscroll-bar">${sortPools(entitlements, visits)
+          .map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
 
     <div class="section">
       <h2 class="section__title">來訪紀錄</h2>
       <span class="section__n">${visits.length}</span>
-      ${visits.length > RECENT_VISITS
-        ? `<button class="section__more" type="button" data-all-visits>看全部</button>`
+      ${visits.length
+        ? `<button class="section__more" type="button" data-toggle-visits
+                   aria-expanded="${showVisits}">${showVisits ? '收起來' : '展開'}</button>`
         : ''}
     </div>
-    ${visits.length
-      ? `<ul class="link-list">${visits.slice(0, RECENT_VISITS).map(visitRow).join('')}</ul>`
-      : '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'}
-    <p style="margin: var(--space-3) 0 0">
-      <button class="btn" type="button" data-add-visit>記錄一次來訪</button></p>
+    ${!visits.length
+      ? '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'
+      : (showVisits ? `
+        <ul class="link-list">${visits.slice(0, RECENT_VISITS).map(visitRow).join('')}</ul>
+        ${visits.length > RECENT_VISITS
+          ? `<p style="margin: var(--space-2) 0 0">
+               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 筆</button></p>`
+          : ''}` : '')}
 
     <div class="section">
       <h2 class="section__title">隨手記</h2>
@@ -213,7 +245,25 @@ function wire(ctx, { today, marks }) {
   });
   el.querySelector('[data-edit]').addEventListener('click', () => paintEdit(ctx));
   el.querySelector('[data-add-ent]')?.addEventListener('click', () => paintEntitlement(ctx, null));
-  el.querySelector('[data-add-visit]').addEventListener('click', () => go(`/visits/new/${ctx.id}`));
+  el.querySelector('[data-toggle-visits]')?.addEventListener('click', () => {
+    showVisits = !showVisits;
+    paint(ctx);
+  });
+
+  // 換月份**只重畫那一塊**（ADR-0038 的規矩：只換真的變了的那一塊）——
+  // 重畫整頁會把她剛剛展開的來訪紀錄捲回最上面。
+  el.addEventListener('click', (e) => {
+    const step = e.target.closest('[data-month-step]');
+    if (step) {
+      const month = detailMonth ?? today.slice(0, 7);
+      detailMonth = addMonths(`${month}-01`, Number(step.dataset.monthStep)).slice(0, 7);
+      const box = el.querySelector('[data-monthblock]');
+      if (box) box.innerHTML = monthBlock(ctx.visits, today);
+      return;
+    }
+    const day = e.target.closest('[data-visit]');
+    if (day) openVisitCard(ctx, day.dataset.visit);
+  });
 
   el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
 
@@ -277,46 +327,44 @@ function contactLine(c) {
   return parts.length ? parts.join('・') : '沒有聯絡方式';
 }
 
-function monthLine(visits, today) {
-  const month = today.slice(0, 7);
-  const inMonth = visits.filter((v) => isActive(v) && v.date.startsWith(month));
-  const waiting = inMonth.filter((v) => v.status === 'pending_confirm').length;
-  if (!inMonth.length) return '這個月還沒排';
-  return `${inMonth.length} 次${waiting ? `・${waiting} 筆等回覆` : ''}`;
-}
-
 /**
- * 這個月與之後的來訪，橫著排。
+ * 那一個月排了什麼。**一天一組、一段一列**，跟「看這個月的進度」那一頁
+ * 長一模一樣（共用 `views/progress.js` 的 `dayHtml()` 與 `tallyHtml()`）——
+ * 她的原話是「就像是客戶那頁『看這個月的進度』那邊呈現的一樣」。
  *
- * 客戶臨時問的就是「我什麼時候要來」，而那個答案是一串日期 ——
- * 橫著捲一眼看得到有幾次，直著疊要捲三個螢幕才知道。
+ * **只有選中的那個月。** 以前的篩選是「這個月 || 今天以後的全部」，
+ * 所以標題寫著「這個月」卻混著下個月的來訪（她問「為什麼會有下個月的預約
+ * 資訊跑進來？」）。SPEC 第 8.5 節原本寫的就是「本月與之後」，
+ * 所以程式沒寫錯 —— 是標題與規格從一開始就對不起來。2026-08-24 定案：
+ * **標題說哪個月就只有哪個月**，往右一格自己去看下個月。
  */
-function visitStrip(visits, today) {
-  const month = today.slice(0, 7);
-  const rows = visits
-    .filter((v) => isActive(v) && (v.date.startsWith(month) || v.date > today))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 12);
+function monthBlock(visits, today) {
+  const month = detailMonth ?? today.slice(0, 7);
+  const { rows } = buildProgress({
+    customers: [{ id: '_', name: '_' }],
+    // buildProgress 是照 customerId 分組的，這裡只有一位 —— 全部認成他。
+    visits: visits.map((v) => ({ ...v, customerId: '_' })),
+    month,
+  });
+  const row = rows[0] ?? null;
 
-  if (!rows.length) {
-    return '<p class="muted" style="margin: 0">這個月還沒有排，之後也還沒有。</p>';
-  }
+  return `
+    <div class="section">
+      <h2 class="section__title">${esc(monthLabel(`${month}-01`))}</h2>
+      <span class="section__n">${row ? `${row.days.length} 天・${row.slotCount} 段` : '沒有排'}</span>
+      <span class="monthnav">
+        <button class="monthnav__btn" type="button" data-month-step="-1"
+                aria-label="上個月">${icon('left', { size: 16 })}</button>
+        <button class="monthnav__btn" type="button" data-month-step="1"
+                aria-label="下個月">${icon('right', { size: 16 })}</button>
+      </span>
+    </div>
 
-  return `<div class="strip noscroll-bar">${rows.map((v) => {
-    // 過去的先變淡（她掃的是「接下來什麼時候來」），其餘照狀態上色 ——
-    // 顏色與日曆同一組，兩個畫面說同一件事（domain/visits.js 的 STATUS_VIEW）。
-    const cls = v.date < today ? 'stripcard--past' : statusClass(v.status);
-    const slots = (v.slots ?? []).slice(0, 3);
-    return `
-      <a class="stripcard ${cls}" href="#/visits/${esc(v.id)}">
-        <span class="stripcard__day">${esc(shortDate(v.date))}</span>
-        ${slots.map((s) => `
-          <span class="stripcard__slot">${esc(timeLabel(s))}　${esc(s.courseName ?? '')}</span>`).join('')}
-        ${(v.slots ?? []).length > slots.length
-          ? `<span class="stripcard__slot dim">還有 ${(v.slots ?? []).length - slots.length} 段</span>` : ''}
-        <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
-      </a>`;
-  }).join('')}</div>`;
+    ${row ? `
+      <span class="chips" style="justify-content: flex-end; margin-bottom: var(--space-2)">
+        ${tallyHtml(row.tally)}</span>
+      <div class="progdays">${row.days.map(dayHtml).join('')}</div>`
+      : '<p class="muted" style="margin: 0">這個月沒有排。</p>'}`;
 }
 
 // ---------- 備註 ----------
@@ -530,6 +578,32 @@ function openDanger(ctx) {
 
 // ---------- 額度 ----------
 
+/**
+ * 橫著捲的東西**只有最前面兩三張會被看到**，所以順序要有意義：
+ * 還有剩的排前面（用完的她不會去看），剩得少的更前面（那是她要提醒客戶的），
+ * 同分時健檢與二返相鄰（ADR-0022：它們成對，「還欠幾次」那句話寫在健檢那一張上）。
+ */
+export function sortPools(entitlements, visits) {
+  const remainingOf = (e) => Math.max(0, counts(e, visits, e.id).remaining);
+  return [...entitlements].sort((a, b) => {
+    const ra = remainingOf(a);
+    const rb = remainingOf(b);
+    if ((ra > 0) !== (rb > 0)) return ra > 0 ? -1 : 1;
+    if (ra !== rb) return ra - rb;
+    return String(a.label).localeCompare(String(b.label), 'zh-TW');
+  });
+}
+
+/**
+ * 有幾筆的計數欄位跟現算對不起來。
+ *
+ * 橫著捲之後那張卡可能在畫面外，而「這張卡的數字可能是錯的」不能被捲走 ——
+ * 所以段落抬頭旁邊放一顆徽章。
+ */
+function offCount(entitlements, visits) {
+  return entitlements.filter((e) => !reconcile(e, visits, e.id).ok).length;
+}
+
 function poolCard(e, visits, ctx, today) {
   const c = counts(e, visits, e.id);
   const rec = reconcile(e, visits, e.id);
@@ -540,7 +614,7 @@ function poolCard(e, visits, ctx, today) {
   const kind = kindText(e, ctx);
 
   return `
-    <div class="pool">
+    <div class="pool poolcard">
       <div class="pool__head">
         <span>${esc(e.label)}</span>
         <button class="btn--ghost btn btn--sm" type="button" data-ent="${esc(e.id)}">調整</button>
@@ -1033,3 +1107,34 @@ function wireEntitlementDanger(ctx, record) {
     }
   });
 }
+
+/**
+ * 點一筆來訪先浮出讀取模式的卡片，右上角鉛筆才進編輯器。
+ *
+ * ADR-0020 早就寫了這條規矩，但它一直只活在日曆上 ——「她點一筆的十次有九次
+ * 只是要確認那天幾點、誰、做什麼。直接落進表單等於每次都冒著改到東西的風險，
+ * 而這一站最不能出錯的就是次數。」那句話跟在哪一頁點的沒有關係。
+ *
+ * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
+ * 長得不一樣，她會以為是兩種東西。
+ */
+function openVisitCard(ctx, visitId) {
+  const visit = ctx.visits.find((v) => v.id === visitId);
+  if (!visit) return;
+
+  openCard({
+    title: shortDate(visit.date),
+    subtitle: esc(describeStatus(visit.status)),
+    body: visitReadHtml(visit, {
+      roomsById: byId(ctx.rooms ?? []),
+      staffById: byId(ctx.staff ?? []),
+    }),
+    canEdit: true,
+    onEdit: () => {
+      closeCard();
+      go(`/visits/${visit.id}`);
+    },
+  });
+}
+
+const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
