@@ -18,6 +18,7 @@ import {
   EVENT_COLORS,
   layoutMonth,
   lengthInDays,
+  normalize,
   overlapsRange,
   spanLabel,
   validateEvent,
@@ -315,6 +316,58 @@ test('存檔時不寬容：挑了就要是認得的那六個之一', () => {
   assert.deepEqual(validateEvent({ ...base, color: null }).errors, [], '不挑是合法的');
   assert.deepEqual(validateEvent({ ...base }).errors, [], '沒有這個欄位也是合法的');
   assert.ok(validateEvent({ ...base, color: 'chartreuse' }).errors.includes('不認得的顏色'));
+});
+
+// ---------- 存進去之前的形狀 ----------
+//
+// 這一組是 2026-08-24 補的。`normalize()` 原本叫 `shape()` 而且住在
+// `data/events.js` 裡，於是沒有任何測試看得到它 —— 它漏掉了 `color`，
+// 讓她挑的顏色過了畫面、過了 validateEvent()、過了 Rules，
+// 在寫進 Firestore 前一刻被丟掉。這一組在的意義是那種漏不會再發生一次。
+
+test('挑好的顏色要活著送進去 —— 這是那個 bug 本人', () => {
+  const out = normalize({
+    title: '宜蘭休假', category: 'leave',
+    startDate: '2026-09-01', endDate: '2026-09-03', allDay: true, color: 'red',
+  });
+  assert.equal(out.color, 'red');
+});
+
+test('沒挑顏色存 null，不是 undefined', () => {
+  // Firestore 會把 undefined 的欄位整個省略，而 update() 時「省略」的意思是
+  // 「不要動它」—— 那會讓「把顏色改回跟著類別」變成一個做不到的動作。
+  const out = normalize({ title: '公出', startDate: '2026-09-01' });
+  assert.equal(out.color, null);
+  assert.ok('color' in out, '欄位本身要在，值才可以是 null');
+});
+
+test('認不得的顏色在最後一道被擋下來，不會寫進資料庫', () => {
+  assert.equal(normalize({ title: '公出', startDate: '2026-09-01', color: 'chartreuse' }).color, null);
+});
+
+test('整天的把時間清成 null —— 不要留一個她從來沒選過的舊值', () => {
+  const out = normalize({
+    title: '公出', startDate: '2026-09-01', allDay: true,
+    startTime: '09:00', endTime: '10:00',
+  });
+  assert.equal(out.startTime, null);
+  assert.equal(out.endTime, null);
+});
+
+test('不是整天的把時間留著', () => {
+  const out = normalize({
+    title: '演講', startDate: '2026-09-01', allDay: false,
+    startTime: '14:00', endTime: '16:00',
+  });
+  assert.equal(out.startTime, '14:00');
+  assert.equal(out.endTime, '16:00');
+});
+
+test('沒填結束日期就跟開始同一天，備註空白存 null', () => {
+  const out = normalize({ title: '  公出  ', startDate: '2026-09-01', note: '   ' });
+  assert.equal(out.endDate, '2026-09-01');
+  assert.equal(out.title, '公出');
+  assert.equal(out.note, null);
 });
 
 test('顏色存的是名字不是色碼 —— 存色碼的話深色模式那一份沒有人換得掉', () => {
