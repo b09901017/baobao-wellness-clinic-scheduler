@@ -114,3 +114,40 @@ export function contraindicationTerms(equipment = []) {
   const alive = (equipment ?? []).filter((e) => e && !e.deletedAt);
   return [...new Set(alive.flatMap((e) => e.contraindications ?? []))];
 }
+
+/**
+ * 文字裡有沒有出現主檔登記的醫療禁忌。
+ *
+ * 舊表沒有「永久限制」這個欄位，所以那些話寫在購買名稱裡（`0604 顧客會-手有金屬，
+ * 只能INDIBA`）或空白處。匯進來之後 `customer.flags` 是空的，而
+ * `domain/contraindications.js` 是拿 flags 去比對的 —— **沒有那個標記，
+ * 超磁場與高能量雷射就不會被擋下來**，而那是整個系統唯一會造成實際傷害的一條。
+ *
+ * 要找的字不寫死在這裡，從主檔的器材上推出來（CLAUDE.md：醫療禁忌記在器材上）。
+ * 她之後新增一台有別的禁忌的器材，這裡自動就會找那個字。
+ *
+ * **只提示，不自動填 flags。** 「手有金屬」是禁忌，但「金屬已取出」不是，
+ * 而兩句話都含有「金屬」—— 那是她的判斷（ADR-0002）。
+ *
+ * @returns {{where: string, text: string, term: string, blocks: string[]}[]}
+ */
+export function contraindicationHints(sources, equipment) {
+  const alive = equipment.filter((e) => !e.deletedAt);
+  // 要找哪些字跟「客戶身上可以點哪些丸子」是同一個問題，共用同一支
+  const terms = contraindicationTerms(equipment);
+  const hints = [];
+
+  for (const term of terms) {
+    // 「體內金屬」寫在舊表上可能是「手有金屬」。前面的限定詞拿掉再找一次。
+    const needles = [...new Set([term, term.replace(/^(體內|身上|身體|有)/, '')])]
+      .filter((n) => n.length >= 2);
+    const blocks = alive.filter((e) => (e.contraindications ?? []).includes(term))
+      .map((e) => e.name);
+
+    for (const { where, text } of sources) {
+      if (!text || !needles.some((n) => text.includes(n))) continue;
+      hints.push({ where, text, term, blocks });
+    }
+  }
+  return hints;
+}

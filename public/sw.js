@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v43';
+const VERSION = 'v44';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -101,7 +101,6 @@ const SHELL = [
   '/js/domain/legacyImport.js',
   '/js/domain/mergeImport.js',
   '/js/data/legacyImport.js',
-  '/js/ui/views/legacyImport.js',
   '/js/ui/views/mergeImport.js',
   '/js/data/sheetSync.js',
   '/js/domain/availabilityForm.js',

@@ -14,11 +14,8 @@ import {
   parseIvBreakdown,
   readCheckbox,
   planForSheet,
-  summarize,
-  reportText,
-  parseWorkbook,
-  attentionPoints,
 } from '../public/js/domain/legacyImport.js';
+import { statusFor } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const CTX = {
@@ -253,48 +250,6 @@ test('客戶的購買名稱帶過去，不含任何指回範本的欄位', () =>
   }
 });
 
-// ---------- 比對報告 ----------
-
-test('報告數得出會建立幾位客戶、幾筆額度、幾筆來訪', () => {
-  const one = plan();
-  const skipped = plan({ existingCustomers: [{ id: 'c1', name: '客戶A' }] });
-  const report = summarize([one, skipped]);
-
-  assert.equal(report.sheets, 2);
-  assert.equal(report.customers, 1);
-  // 11 筆讀自舊表，加上系統替健檢配的那一筆二返（issue #15）
-  assert.equal(report.entitlements, 12);
-  assert.equal(report.followups, 1);
-  assert.equal(report.visits, 3);
-  assert.equal(report.slots, 5);
-  assert.equal(report.skipped.length, 1);
-  assert.ok(report.problems > 0);
-});
-
-test('比對報告講得出總計、每一位建了什麼、以及每一個要看的地方', () => {
-  const text = reportText([plan(), plan({ existingCustomers: [{ id: 'c1', name: '客戶A' }] })], {
-    generatedAt: '2026-08-18 10:00',
-    year: 2026,
-  });
-
-  assert.ok(text.includes('還沒有寫入任何東西'));
-  assert.ok(text.includes('會建立 1 位客戶、12 筆額度、3 筆來訪（5 個時段）'));
-  assert.ok(text.includes('另外配了 1 筆二返額度'), '舊表沒有二返這一列，配出來的要講一聲');
-  assert.ok(text.includes('一律當成 2026 年'));
-  assert.ok(text.includes('0.75萬健檢'), '對帳表要列出每一列的療程名稱');
-  assert.ok(text.includes('拆成 護肝排毒 11 次、雪顏亮彩 22 次'), '拆成幾筆額度要講');
-  assert.ok(text.includes('整張跳過'));
-  assert.ok(text.includes('雪顏亮彩'));
-});
-
-test('勾得比買的還多照樣匯進去，但先講一聲資料健檢會報額度超用', () => {
-  const bad = SHEET.replace('Inbody,4,1,FALSE,TRUE,FALSE', 'Inbody,1,1,TRUE,TRUE,TRUE');
-  const p = planForSheet(parseSheet(bad, { sheetName: '客戶A' }), CTX);
-  assert.equal(p.entitlements.find((e) => e.doc.label === 'Inbody').doc.totalQty, 1);
-  assert.equal(p.visits.reduce((n, v) => n + v.slots.filter((s) => s.courseName === '身體組成分析').length, 0), 3);
-  assert.ok(why(p).some((w) => w.includes('額度超用')));
-});
-
 // ---------- 拿真的舊表跑過之後補的 ----------
 //
 // 下面這些是 2026-08-18 拿到真檔案（21 位客戶）跑 dry-run 才發現的落差。
@@ -405,15 +360,6 @@ test('姓名格裡的編號與括號註記另外解析進備註，但名字原�
   assert.ok(p.customer.notes.includes('姓名欄的註記：高能/sis'));
 });
 
-test('報告把同一個理由的空白列收成一行', () => {
-  // 只買健檢的客戶會有九列空白的模板列。一列一行會把真正要看的 ⚠ 淹掉，
-  // 而她是照著這份決定要不要按下去的。
-  const text = reportText([shortPlan()], { year: 2026 });
-  const skipped = text.split('\n').filter((l) => l.includes('沒有次數也沒有勾選'));
-  assert.equal(skipped.length, 1);
-  assert.match(skipped[0], /第 9、10 列/);
-});
-
 test('營養品的勾選不會在每一個日期再報一次「沒有建出額度」', () => {
   const sheet = SHEET.replace(
     ',夜態美+速膳淨,營養品(12000),1,0,FALSE,FALSE,FALSE',
@@ -460,52 +406,17 @@ test('沒有欄位可放的手寫註記原文收進備註，一個字都不改�
   assert.ok(notes.includes('和妻同一天賦能'), 'A15 的排班習慣');
 });
 
-test('報告一格一格列出這些註記，並且說得出它們原本寫在哪一格', () => {
-  const text = reportText([notePlan()], { year: 2026 });
-  assert.match(text, /＋ A11｜目前只要SIS/);
-  assert.match(text, /＋ B14｜寄紙本報告/);
-  assert.match(text, /＋ A15｜和妻同一天賦能/);
-});
-
-test('看起來像限制或喜好的註記多提醒一句，但不自動寫進任何欄位', () => {
+test('看起來像限制或喜好的註記不自動寫進任何欄位', () => {
   // 「只要SIS」是器材偏好，但「五不行」到底是禮拜五還是五號，app 看不出來，
-  // 那是她的判斷（ADR-0002）。所以只提醒，不代填。
+  // 那是她的判斷（ADR-0002）。所以原文留著，不代填。
   const p = notePlan();
-  const text = reportText([p], { year: 2026 });
-  assert.match(text, /A11.*記得去客戶詳情頁設定/);
   assert.deepEqual(p.customer.flags, [], '永久限制不可以自動填');
+  assert.ok(p.customer.notes.includes('目前只要SIS'), '原文一定要留著');
 });
 
 test('排在日期欄外面的空勾選框與 TODO 區塊不算手寫註記', () => {
   const cells = notePlan().leftovers.map((x) => x.cell);
   assert.deepEqual(cells, ['A11', 'B14', 'A15']);
-});
-
-test('報告用一個數字回答「舊表上的東西有沒有全部進來」', () => {
-  const text = reportText([notePlan()], { year: 2026 });
-  assert.match(text, /舊表一共勾了 1 格，全部都變成時段了/);
-  assert.match(text, /3 格手寫註記沒有對應的欄位/);
-});
-
-test('營養品那一列勾了但刻意不匯入，對帳表要標出來', () => {
-  const sheet = SHEET.replace(
-    ',夜態美+速膳淨,營養品(12000),1,0,FALSE,FALSE,FALSE',
-    ',夜態美+速膳淨,營養品(12000),1,0,TRUE,FALSE,FALSE',
-  );
-  const text = reportText(
-    [planForSheet(parseSheet(sheet, { sheetName: '客戶O' }), CTX)],
-    { year: 2026 },
-  );
-  assert.match(text, /其中 1 格沒有變成時段/);
-  assert.match(text, /第 12 列 營養品\(12000\).*沒有.*←/);
-});
-
-test('對帳表把舊表的數字跟匯進去的並排，空白的模板列不進表', () => {
-  const text = reportText([notePlan()], { year: 2026 });
-  // 第 7 列：應有 20、實際 1、勾選 1 → 額度 20、來訪 1
-  assert.match(text, /第\s+7 列 復能\(1小時\)\s+20\s+1\s+1\s+｜\s+20\s+1/);
-  // 沒買的項目（D、E、勾選都是 0）不佔版面
-  assert.equal(text.includes('第  9 列 x萬健檢'), false);
 });
 
 // ---------- 醫療禁忌與沒填完的健檢等級 ----------
@@ -551,25 +462,6 @@ test('認出禁忌字眼也不會自動設定永久限制', () => {
   assert.deepEqual(metalPlan().customer.flags, []);
 });
 
-test('報告與總計都把醫療禁忌講出來，而且擺在捲不掉的位置', () => {
-  const text = reportText([metalPlan()], { year: 2026 });
-  const head = text.split('── ')[0];
-
-  assert.match(head, /1 位客戶的文字裡提到醫療禁忌/);
-  assert.match(head, /體內金屬/);
-  assert.match(head, /不會自動設定永久限制/);
-  assert.match(head, /按下「開始匯入」之前/, '要注意的事擺在最上面，不是埋在報告裡');
-  assert.ok(
-    head.indexOf('醫療禁忌') < head.indexOf('總計'),
-    '醫療禁忌要排在總計前面 —— 那是唯一會造成實際傷害的一條',
-  );
-  assert.match(text, /‼ B2 購買名稱.*「超磁場、高能量雷射」不會被擋下來/);
-  assert.deepEqual(
-    summarize([metalPlan()]).contraindications,
-    [{ customerName: '客戶A', sheetName: '客戶M', terms: ['體內金屬'] }],
-  );
-});
-
 test('金額等級還沒填的健檢照樣建額度，但要講一聲', () => {
   // `x萬健檢` 的 x 是還沒決定的等級，不是打錯字。不講的話她會在客戶詳情頁
   // 看到一筆叫「x萬健檢」的額度，那看起來像系統壞掉。
@@ -587,97 +479,17 @@ test('金額填好的健檢不會被當成沒填', () => {
   );
 });
 
-// ---------- 一次貼很多張 ----------
+// ---------- planForSheet() 的 done 現在由誰負責（.scratch/first-real-import/issues/07） ----------
 
-test('一份匯出檔切得出每一張工作表，分頁名跟著走', () => {
-  const text = [
-    '##### SHEET 客戶A',
-    '客戶名稱\t購買名稱\t療程內容',
-    '客戶A\t0522 顧客會-8\tInbody',
-    '##### SHEET 客戶B',
-    '客戶名稱\t購買名稱\t療程內容',
-    '客戶B\t0514 顧客會-8\tInbody',
-  ].join('\n');
-
-  const sheets = parseWorkbook(text);
-  assert.equal(sheets.length, 2);
-  assert.deepEqual(sheets.map((x) => x.sheetName), ['客戶A', '客戶B']);
-  assert.ok(sheets[0].text.startsWith('客戶名稱'));
-  assert.ok(sheets[1].text.includes('客戶B'));
-});
-
-test('沒有分隔線就整份當成一張 —— 從畫面單獨複製一張的那條路不能壞掉', () => {
-  const sheets = parseWorkbook(SHEET);
-  assert.equal(sheets.length, 1);
-  assert.equal(sheets[0].sheetName, '');
-  assert.equal(sheets[0].text, SHEET);
-});
-
-test('空白的貼上不會產生工作表', () => {
-  assert.deepEqual(parseWorkbook('   \n  '), []);
-  assert.deepEqual(parseWorkbook(''), []);
-  assert.deepEqual(parseWorkbook('##### SHEET 客戶A\n\n'), [], '只有標題沒有內容不算一張');
-});
-
-test('切開來的每一張都解析得出來', () => {
-  const text = `##### SHEET 客戶A\n${SHEET}`;
-  const [sheet] = parseWorkbook(text);
-  const p = planForSheet(parseSheet(sheet.text, { sheetName: sheet.sheetName }), CTX);
-  assert.equal(p.customerName, '客戶A');
-  assert.equal(p.sheetName, '客戶A');
-  assert.ok(p.entitlements.length > 0);
-});
-
-// ---------- 按下去之前要注意什麼 ----------
-
-test('要注意的事依「不處理的後果多嚴重」排序，醫療禁忌永遠第一', () => {
-  const points = attentionPoints([metalPlan()], { year: 2026 });
-  assert.equal(points[0].level, 'danger');
-  assert.match(points[0].text, /醫療禁忌/);
-  assert.match(points[0].text, /不會自動設定永久限制/);
-});
-
-test('對不到課程的列會被列成要注意 —— 那是真的掉了資料', () => {
-  const sheet = SHEET.replace(',,EECP,3,0', ',,火星療法,3,0');
-  const p = planForSheet(parseSheet(sheet, { sheetName: '客戶X' }), CTX);
-  const points = attentionPoints([p], { year: 2026 });
-
-  const hit = points.find((x) => x.text.includes('對不到課程'));
-  assert.ok(hit, '整列沒匯入這件事一定要講在最上面');
-  assert.equal(hit.level, 'danger');
-  assert.match(hit.text, /火星療法/);
-});
-
-test('沒有任何危險的時候，清單只剩下該知道的事', () => {
-  const points = attentionPoints([plan()], { year: 2026 });
-  assert.equal(points.some((x) => x.level === 'danger'), false);
-  assert.ok(points.some((x) => x.text.includes('一律當成 2026 年')));
-  assert.ok(points.some((x) => x.text.includes('時間不詳')));
-});
-
-test('整張跳過的要講出來，否則她會以為那位進去了', () => {
-  const points = attentionPoints(
-    [plan({ existingCustomers: [{ id: 'c1', name: '客戶A' }] })],
-    { year: 2026 },
-  );
-  assert.ok(points.some((x) => x.text.includes('整張跳過')));
-});
-
-
-// ---------- 這一頁的文案靠什麼撐著（.scratch/first-real-import/issues/07） ----------
-
-test('這條路一律建成已完成，所以那一頁的兩句文案才是真的', () => {
-  // 這一條綁的是**兩支檔案的關係**，不是單一支的行為。
+test('這一支一律吐已完成，而狀態是在匯入的那一刻才決定的', () => {
+  // 這一條原本綁的是「貼舊試算表」那一頁的兩句文案。**那條路 2026-08-23 拿掉了**，
+  // 所以 `planForSheet()` 現在只剩一個消費者：`.claude/skills/calendar-sheet-merge`
+  // 的 `merge.mjs`，它把結果寫進合併檔的 `customers[].visits`。
   //
-  // `ui/views/legacyImport.js` 的卡片與確認框寫著「來訪一律是已完成」與
-  // 「不會產生任何待辦任務」。那兩句今天是真的，但它們的正確性完全靠
-  // `planForSheet()` 這裡寫死的 `status: 'done'` —— 共用的 `importPlan()`
-  // 是逐筆問 `acceptsNewTasks()` 的，只要這條路開始產得出 `confirmed`，
-  // 那兩句話當場就變成謊話，而畫面在講一件不會發生的事比沒講還糟。
-  //
-  // 合併檔那條路已經改成依日期判斷（ADR-0029），這一條遲早要跟上
-  // （`issues/07`）。**做那件事的時候這條測試會紅，那就是它的用途**：
-  // 它會指著這裡說「文案也要一起改」。
+  // 於是這裡寫死 `done` 從「一個等著出事的假設」變成「對的分工」：
+  // 產檔那側不知道她哪一天會貼，狀態一律由 `domain/mergeImport.js` 的
+  // `statusFor()` 在匯入當下依日期重判（ADR-0029）。**這條測試盯的就是那個分工** ——
+  // 哪天這裡開始吐 `confirmed`，就表示有人在產檔那側猜「未來」，而那個猜測會過期。
   const future = SHEET
     .replace('8/1,8/11,8/18', '8/1,8/11,12/31')
     .replace(/,FALSE$/gm, ',TRUE');
@@ -691,14 +503,10 @@ test('這條路一律建成已完成，所以那一頁的兩句文案才是真�
   assert.deepEqual(
     [...new Set(p.visits.map((v) => v.status))],
     ['done'],
-    '這條路還是一律 done。改成依日期判斷的話，'
-      + 'ui/views/legacyImport.js 的「來訪一律是已完成」與'
-      + '「不會產生任何待辦任務」兩句要一起改（見 .scratch/first-real-import/issues/07）',
+    '這一支一律 done，日期在未來的那幾筆由 mergeImport 的 statusFor() 改成 confirmed',
   );
 
-  const view = readFileSync(new URL('../public/js/ui/views/legacyImport.js', import.meta.url), 'utf8');
-  assert.ok(
-    view.includes('不會產生任何待辦任務'),
-    '那句文案不在了的話，這條測試也該跟著更新 —— 它盯的是那句話與上面那條斷言的關係',
-  );
+  // 而那個「改成 confirmed」真的會發生 —— 不然上面那條斷言只是在描述一個 bug。
+  assert.equal(statusFor('done', '2026-12-31', '2026-08-23'), 'confirmed');
+  assert.equal(statusFor('done', '2026-08-11', '2026-08-23'), 'done');
 });

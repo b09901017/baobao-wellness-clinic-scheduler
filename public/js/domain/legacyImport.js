@@ -1,7 +1,18 @@
-// 舊試算表匯入。純函式，只負責「這張工作表要變成什麼」，不碰 IO。
+// 舊試算表的解析。純函式，只負責「這張工作表要變成什麼」，不碰 IO。
+//
+// **這一支現在只有一個消費者**：`.claude/skills/calendar-sheet-merge` 的
+// `merge.mjs`。它拿 `parseSheet()` 與 `planForSheet()` 讀舊表，再跟行事曆對帳、
+// 補上時間，產出合併檔。app 這一側吃的是那份合併檔（`domain/mergeImport.js`），
+// **不再有「把試算表文字貼進 app」那條路** —— 那條 2026-08-23 拿掉了，
+// 因為它讀得到的東西是合併檔的子集（沒有時間、診間、治療師、器材），
+// 而兩條路共用同一個寫入端，等於留著一條只會匯進比較少東西的入口。
+//
+// 所以這裡的 `status: 'done'` 不是結論：日期在未來的那幾筆由
+// `domain/mergeImport.js` 的 `statusFor()` 在匯入當下重判（ADR-0029）。
 //
 // SPEC 第 6.10 節要求：先 dry-run 產出比對報告 → 人工確認 → 才真的寫入，
-// 匯入的資料標 importedFrom。這個檔負責前半段，寫入在 data/legacyImport.js。
+// 匯入的資料標 importedFrom。報告在 skill 那側產（`merge.mjs` 的 `reportText()`），
+// 寫入在 data/legacyImport.js。
 //
 // 舊表的結構與已知陷阱在 docs/legacy/README.md。三條原則：
 //
@@ -19,7 +30,7 @@
 // 見 docs/adr/0011-imported-visits-are-incomplete-on-purpose.md。
 
 import { isValidDate, lastDayOf } from './dates.js';
-import { contraindicationTerms } from './contraindications.js';
+import { contraindicationHints } from './contraindications.js';
 import { followupPlanEntries } from './followups.js';
 
 // ---------- 工作表幾何 ----------
@@ -175,44 +186,6 @@ function detectDelimiter(src) {
   const tabs = (firstLine.match(/\t/g) ?? []).length;
   const commas = (firstLine.match(/,/g) ?? []).length;
   return tabs > commas ? '\t' : ',';
-}
-
-// ---------- 一次貼很多張 ----------
-
-/**
- * 分頁之間的分隔線。`sheets/export-legacy.gs` 寫出來的就是這一行，兩邊要一模一樣。
- * 開頭那五個井號在真的舊表上不可能出現。
- */
-const SHEET_MARKER = '##### SHEET ';
-
-/**
- * 一份文字裡有幾張工作表。
- *
- * Google 試算表的剪貼簿一次只能複製一張分頁，所以 21 位客戶原本就是貼 21 次。
- * `sheets/export-legacy.gs` 在舊試算表那邊跑一次，把全部分頁串成一份文字，
- * 她複製一次貼進來，這裡切開。**還是貼上，只是貼一次**（ADR-0012 沒有變）。
- *
- * 沒有分隔線就整份當成一張 —— 她從畫面上單獨複製一張分頁貼進來的那條路
- * 不能因為多了這個功能就壞掉。
- *
- * @param {string} text
- * @returns {{sheetName: string, text: string}[]}
- */
-export function parseWorkbook(text) {
-  const src = String(text ?? '');
-  if (!src.includes(SHEET_MARKER)) {
-    return src.trim() ? [{ sheetName: '', text: src }] : [];
-  }
-
-  const out = [];
-  for (const chunk of src.split(SHEET_MARKER)) {
-    if (!chunk.trim()) continue;
-    const cut = chunk.indexOf('\n');
-    const sheetName = (cut === -1 ? chunk : chunk.slice(0, cut)).trim();
-    const body = cut === -1 ? '' : chunk.slice(cut + 1);
-    if (body.trim()) out.push({ sheetName, text: body });
-  }
-  return out;
 }
 
 // ---------- 日期 ----------
@@ -801,49 +774,12 @@ export function planForSheet(parsed, {
     counts: {
       entitlements: entitlements.length,
       // 舊表上沒有二返這一列，所以這幾筆是系統配出來的，不是讀出來的。
-      // 報告要分開講一次，見 attentionPoints()。
+      // 匯入那一頁要分開講一次（`ui/views/mergeImport.js` 的 summaryCard()）。
       followups: paired.length,
       visits: visits.length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
     },
   };
-}
-
-/**
- * 文字裡有沒有出現主檔登記的醫療禁忌。
- *
- * 舊表沒有「永久限制」這個欄位，所以那些話寫在購買名稱裡（`0604 顧客會-手有金屬，
- * 只能INDIBA`）或空白處。匯進來之後 `customer.flags` 是空的，而
- * `domain/contraindications.js` 是拿 flags 去比對的 —— **沒有那個標記，
- * 超磁場與高能量雷射就不會被擋下來**，而那是整個系統唯一會造成實際傷害的一條。
- *
- * 要找的字不寫死在這裡，從主檔的器材上推出來（CLAUDE.md：醫療禁忌記在器材上）。
- * 她之後新增一台有別的禁忌的器材，這裡自動就會找那個字。
- *
- * **只提示，不自動填 flags。** 「手有金屬」是禁忌，但「金屬已取出」不是，
- * 而兩句話都含有「金屬」—— 那是她的判斷（ADR-0002）。
- *
- * @returns {{where: string, text: string, term: string, blocks: string[]}[]}
- */
-function contraindicationHints(sources, equipment) {
-  const alive = equipment.filter((e) => !e.deletedAt);
-  // 要找哪些字跟「客戶身上可以點哪些丸子」是同一個問題，共用同一支
-  const terms = contraindicationTerms(equipment);
-  const hints = [];
-
-  for (const term of terms) {
-    // 「體內金屬」寫在舊表上可能是「手有金屬」。前面的限定詞拿掉再找一次。
-    const needles = [...new Set([term, term.replace(/^(體內|身上|身體|有)/, '')])]
-      .filter((n) => n.length >= 2);
-    const blocks = alive.filter((e) => (e.contraindications ?? []).includes(term))
-      .map((e) => e.name);
-
-    for (const { where, text } of sources) {
-      if (!text || !needles.some((n) => text.includes(n))) continue;
-      hints.push({ where, text, term, blocks });
-    }
-  }
-  return hints;
 }
 
 /**
@@ -950,279 +886,4 @@ function emptyPlan(parsed, { skip = null, problems = [] } = {}) {
     quantityHint: null,
     counts: { entitlements: 0, followups: 0, visits: 0, slots: 0 },
   };
-}
-
-// ---------- 比對報告 ----------
-
-/**
- * SPEC 第 6.10 節要的那份 dry-run 報告：會建立幾位客戶、幾筆額度、幾筆來訪，
- * 有哪幾筆解析不了。
- *
- * @param {ReturnType<typeof planForSheet>[]} plans
- */
-export function summarize(plans) {
-  const willImport = plans.filter((p) => !p.skip);
-  return {
-    sheets: plans.length,
-    customers: willImport.length,
-    skipped: plans.filter((p) => p.skip).map((p) => ({
-      sheetName: p.sheetName,
-      customerName: p.customerName,
-      why: p.skip,
-    })),
-    entitlements: willImport.reduce((n, p) => n + p.counts.entitlements, 0),
-    followups: willImport.reduce((n, p) => n + (p.counts.followups ?? 0), 0),
-    visits: willImport.reduce((n, p) => n + p.counts.visits, 0),
-    slots: willImport.reduce((n, p) => n + p.counts.slots, 0),
-    problems: plans.reduce((n, p) => n + p.problems.length, 0),
-    // 「舊表上的東西有沒有全部進來」只需要一個數字就答得完。
-    // 沒有它，她要確認這件事只能回試算表一格一格數。
-    checks: willImport.reduce((n, p) => n + p.rows.reduce((m, r) => m + r.checks, 0), 0),
-    leftovers: willImport.reduce((n, p) => n + p.leftovers.length, 0),
-    // 文字裡出現醫療禁忌字眼的客戶。匯完之後一定要去設定永久限制，
-    // 否則那幾台器材不會被擋下來（domain/contraindications.js 是拿 flags 比對的）。
-    contraindications: willImport
-      .filter((p) => p.contraindications.length)
-      .map((p) => ({
-        customerName: p.customerName,
-        sheetName: p.sheetName,
-        terms: [...new Set(p.contraindications.map((x) => x.term))],
-      })),
-  };
-}
-
-/**
- * 中文字在等寬字型裡佔兩格。用 String.length 對齊，表格會歪掉 ——
- * 而歪掉的對帳表她就不會拿來對帳了。
- */
-function width(text) {
-  let n = 0;
-  for (const ch of String(text)) n += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1;
-  return n;
-}
-
-const padEnd = (text, to) => `${text}${' '.repeat(Math.max(to - width(text), 0))}`;
-const padStart = (text, to) => `${' '.repeat(Math.max(to - width(text), 0))}${text}`;
-
-/**
- * 一位客戶的對帳表：**舊表寫什麼，匯進去變成什麼，並排放。**
- *
- * 沒有這張表的時候，要確認一張工作表有沒有讀對，只能回試算表一格一格看 ——
- * 二十幾位客戶沒有人做得到，所以實際上就是不會有人檢查。
- */
-function rowTable(plan) {
-  // 舊表整列都是空的（沒買這個項目）不進表。那是模板留下來的空列，
-  // 一位客戶動輒九列，全印出來就換她自己在雜訊裡找那一列有問題的。
-  const rows = plan.rows.filter(
-    (r) => r.qty !== null || r.checks > 0 || (r.expected ?? 0) > 0 || (r.actual ?? 0) > 0,
-  );
-  if (!rows.length) return [];
-
-  const labelWidth = Math.max(10, ...rows.map((r) => width(r.label)));
-  const lines = [`     ${padEnd('舊表的療程列', labelWidth + 8)}`
-    + `${padStart('應有', 6)}${padStart('實際', 6)}${padStart('勾選', 6)}`
-    + `  ｜${padStart('額度', 6)}${padStart('來訪', 6)}`];
-
-  for (const r of rows) {
-    const missed = r.qty === null;
-    // ← 只標「舊表有、但沒有全部進來」的列。標太多等於沒標。
-    const lost = missed || r.checks !== r.visits;
-    lines.push(`     ${padEnd(`第 ${String(r.row).padStart(2)} 列 ${r.label}`, labelWidth + 8)}`
-      + `${padStart(r.expected ?? '－', 6)}${padStart(r.actual ?? '－', 6)}${padStart(r.checks, 6)}`
-      + `  ｜${padStart(missed ? '沒有' : r.qty, 6)}${padStart(missed ? '－' : r.visits, 6)}`
-      + (lost ? '  ←' : ''));
-    if (r.parts.length) lines.push(`       └ 拆成 ${r.parts.join('、')}`);
-  }
-  return lines;
-}
-
-/**
- * 這句手寫的話看起來像不像永久限制或喜好。
- *
- * **只用來在報告上提醒一句，不會自動寫進任何欄位。** 「五不行」到底是
- * 禮拜五不行還是五號不行，app 看不出來 —— 那是她的判斷（ADR-0002）。
- */
-function looksLikeConstraint(text) {
-  return /金屬|不行|不能|只要|只能|不可|喜歡|偏好|禁|過敏|only|Only|ONLY/.test(String(text));
-}
-
-/** 跳過的列依理由歸成一組，順序照第一次出現的理由。 */
-function groupByReason(skippedRows) {
-  const byReason = new Map();
-  for (const x of skippedRows) byReason.set(x.why, [...(byReason.get(x.why) ?? []), x.row]);
-  return byReason;
-}
-
-/**
- * 「按下去之前你要注意什麼」。
- *
- * 報告本身已經把每一件事都寫出來了，但那是**三百行**——她要捲到最後才按得到
- * 「開始匯入」，中間看過的東西早就忘了。所以把「真的需要她做什麼」抽出來，
- * 用她會採取的行動排序，放在最上面。
- *
- * 排序的判準是「不處理的後果多嚴重」：會造成實際傷害的第一（醫療禁忌），
- * 資料真的掉了的第二，之後才是要補的資料與純資訊。
- *
- * @param {ReturnType<typeof planForSheet>[]} plans
- * @param {{year?: number|null}} [options]
- * @returns {{level: 'danger'|'warn'|'info', text: string}[]}
- */
-export function attentionPoints(plans, { year = null } = {}) {
-  const s = summarize(plans);
-  const out = [];
-
-  if (s.contraindications.length) {
-    out.push({
-      level: 'danger',
-      text: `${s.contraindications.length} 位客戶的文字裡提到醫療禁忌（`
-        + `${s.contraindications.map((x) => `${x.customerName || x.sheetName}：${x.terms.join('、')}`).join('；')}）。`
-        + '匯入不會自動設定永久限制 —— 匯完請到這幾位的客戶詳情頁設定，'
-        + '沒設的話對應的器材不會被擋下來。',
-    });
-  }
-
-  // 對不到課程 = 那一列的額度與勾選真的沒有進來，而且事後很難發現
-  const unmatched = plans.flatMap((p) => p.problems.filter((x) => x.why.includes('對不到任何課程'))
-    .map((x) => `${p.customerName || p.sheetName} ${x.raw}`));
-  if (unmatched.length) {
-    out.push({
-      level: 'danger',
-      text: `${unmatched.length} 列對不到課程，整列沒有匯入：${unmatched.join('、')}。`
-        + '先去主檔把課程建起來，再匯一次會比較完整。',
-    });
-  }
-
-  if (s.skipped.length) {
-    out.push({
-      level: 'warn',
-      text: `${s.skipped.length} 張整張跳過：`
-        + `${s.skipped.map((x) => `${x.customerName || x.sheetName}（${x.why}）`).join('；')}`,
-    });
-  }
-
-  const dropped = s.checks - s.slots;
-  if (dropped > 0) {
-    out.push({
-      level: 'warn',
-      text: `舊表勾了 ${s.checks} 格，其中 ${dropped} 格沒有變成時段。`
-        + '每一位的對帳表上標了 ←，逐一看過再按。',
-    });
-  }
-
-  const pending = plans.flatMap((p) => p.problems.filter((x) => x.why.includes('金額等級還沒填'))
-    .map(() => p.customerName || p.sheetName));
-  if (pending.length) {
-    out.push({
-      level: 'warn',
-      text: `${pending.length} 位客戶的健檢金額等級還沒填（${pending.join('、')}），`
-        + '額度會叫「x萬健檢」。匯完記得改成實際的等級。',
-    });
-  }
-
-  if (year) {
-    out.push({
-      level: 'info',
-      text: `舊表的日期沒有年份，一律當成 ${year} 年。年份挑錯，那一整批來訪就會落到別的地方去。`,
-    });
-  }
-
-  if (s.leftovers) {
-    out.push({
-      level: 'info',
-      text: `${s.leftovers} 格手寫註記沒有對應的欄位，原文收進了備註（每一位底下標 ＋）。`,
-    });
-  }
-
-  if (s.followups) {
-    out.push({
-      level: 'info',
-      text: `另外配了 ${s.followups} 筆二返額度（買幾次健檢就有幾次二返）。`
-        + '舊表上沒有二返這一列，所以那是系統配出來的，不是從表上讀出來的 ——'
-        + '次數不對就到客戶詳情頁改。',
-    });
-  }
-
-  out.push({
-    level: 'info',
-    text: '匯入的來訪只有日期與課程 —— 時間、器材、診間、治療師舊表沒有記過，'
-      + '畫面上會顯示「時間不詳」。也不會產生任何待辦任務。',
-  });
-
-  return out;
-}
-
-/**
- * 比對報告的純文字版。她要在按下「開始匯入」之前把它看完，
- * 也要能存一份下來 —— 匯完之後回頭查「那天到底跳過了什麼」只剩這一份。
- *
- * 排版放在 domain 是為了測得到。報告漏講一件事跟解析錯一樣嚴重：
- * 她是照著這份決定要不要按下去的。
- *
- * @param {ReturnType<typeof planForSheet>[]} plans
- * @param {{generatedAt?: string, year?: number}} [meta]
- */
-export function reportText(plans, { generatedAt = '', year = null } = {}) {
-  const s = summarize(plans);
-  const points = attentionPoints(plans, { year });
-  const MARK = { danger: '‼', warn: '⚠', info: '·' };
-
-  const lines = [
-    '舊資料匯入 — 比對報告（dry-run，還沒有寫入任何東西）',
-    generatedAt ? `產生時間：${generatedAt}` : '',
-    '',
-    '━━━ 按下「開始匯入」之前，你要注意這幾件事 ━━━',
-    '',
-    // 報告本身有三百行，她要捲到最後才按得到那顆按鈕 ——
-    // 真的需要她做什麼，講在最上面。
-    ...points.map((x, i) => `${String(i + 1).padStart(2)}. ${MARK[x.level]} ${x.text}`),
-    '',
-    '━━━ 總計 ━━━',
-    '',
-    `${s.sheets} 張工作表 → 會建立 ${s.customers} 位客戶、`
-      + `${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
-    `舊表一共勾了 ${s.checks} 格，`
-      + (s.checks - s.slots
-        ? `其中 ${s.checks - s.slots} 格沒有變成時段（每一張的對帳表上標了 ←）`
-        : '全部都變成時段了'),
-    `要看一下的地方：${s.problems} 處`,
-    '',
-    '━━━ 一位一位看 ━━━',
-    '',
-  ];
-
-  for (const p of plans) {
-    lines.push(`── ${p.customerName || '（沒有名字）'}${p.sheetName ? `｜工作表：${p.sheetName}` : ''}`);
-    if (p.skip) {
-      lines.push(`   整張跳過：${p.skip}`, '');
-      continue;
-    }
-    for (const x of p.contraindications) {
-      lines.push(`   ‼ ${x.where}｜${x.text}｜看起來提到「${x.term}」。`
-        + `永久限制沒有自動設定，沒設的話「${x.blocks.join('、')}」不會被擋下來`);
-    }
-    if (p.quantityHint) lines.push(`   ${p.quantityHint}`);
-
-    const checked = p.rows.reduce((n, r) => n + r.checks, 0);
-    const dropped = checked - p.counts.slots;
-    lines.push(`   額度 ${p.counts.entitlements}、來訪 ${p.counts.visits}、時段 ${p.counts.slots}`
-      + `　·　舊表勾了 ${checked} 格`
-      + (dropped ? `，其中 ${dropped} 格沒有進來（下面標 ← 的那幾列）` : '，全部都進來了'));
-    lines.push(...rowTable(p));
-
-    for (const x of p.problems) lines.push(`   ⚠ ${x.where}｜${x.raw}｜${x.why}`);
-    // 手寫註記沒有固定欄位，讀不進任何一格，但一個字都不能掉。
-    // 一格一格列出來，她才看得出「這張表上的字有沒有全部進去」。
-    for (const x of p.leftovers) {
-      lines.push(`   ＋ ${x.cell}｜${x.text}｜沒有對應的欄位，原文收進備註`
-        + (looksLikeConstraint(x.text) ? '（看起來是限制或喜好，匯完記得去客戶詳情頁設定）' : ''));
-    }
-    // 沒買的項目在舊表上是空白的模板列，一位客戶動輒九列 —— 一列一行會把真正
-    // 要看的 ⚠ 淹掉，而她是照著這份決定要不要按下去的。同一個理由收成一行。
-    for (const [why, rows] of groupByReason(p.skippedRows)) {
-      lines.push(`   － 第 ${rows.join('、')} 列${why}，沒有匯入`);
-    }
-    lines.push('');
-  }
-
-  return lines.filter((l, i) => l !== '' || lines[i - 1] !== '').join('\n');
 }

@@ -4,11 +4,13 @@
 // fixture 全部是編出來的匿名資料 —— 真實的合併檔含客戶姓名與健康資訊，
 // 一個字都不可以進版控（SPEC.md 第 10 節）。
 
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs, eventKind,
+  looseDocs, looseTally,
+  summarize, countNewTasks,
   groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -515,4 +517,155 @@ test('沒買健檢的人，行事曆上的二返照樣補不進來，而且要�
   );
   assert.equal(problems.length, 1);
   assert.match(problems[0].why, /沒有這個課程的額度/);
+});
+
+describe('行事曆上的雜事分三類', () => {
+  test('eventKind() 讀產檔那側判好的分類', () => {
+    assert.equal(eventKind({ kind: 'leave' }), 'leave');
+    assert.equal(eventKind({ kind: 'note' }), 'note');
+    assert.equal(eventKind({ kind: 'personal' }), 'personal');
+  });
+
+  // 2026-08-23 以前產的合併檔沒有 kind，那時候也還沒有「待辦」這一類。
+  // 舊檔案照樣讀得進來，只是三類變兩類。
+  test('舊的合併檔只有 category，照樣讀得進來', () => {
+    assert.equal(eventKind({ category: 'leave' }), 'leave');
+    assert.equal(eventKind({ category: 'personal' }), 'personal');
+    assert.equal(eventKind({}), 'personal');
+    assert.equal(eventKind({ kind: '亂寫的' }), 'personal');
+  });
+
+  test('休假走 events 的 category，不是另一個集合', () => {
+    const [leave, plain] = eventDocs([
+      { title: '休', startDate: '2026-09-05', endDate: '2026-09-05', allDay: true, kind: 'leave' },
+      { title: '公出', startDate: '2026-09-06', endDate: '2026-09-06', allDay: true, kind: 'personal' },
+    ]);
+    assert.equal(leave.category, 'leave');
+    assert.equal(plain.category, 'personal');
+  });
+
+  // 掛了日期的隨手記就是日曆上的待辦（ADR-0044），不是第三份資料 ——
+  // 所以這裡吐的是 notes 的形狀，不是 events 的。
+  test('待辦變成掛了日期的隨手記', () => {
+    const [note] = noteDocs([
+      { title: 'H2U電話', startDate: '2026-09-07', startTime: '14:00', kind: 'note' },
+    ]);
+    assert.equal(note.text, 'H2U電話');
+    assert.equal(note.date, '2026-09-07');
+    assert.equal(note.done, false);
+    // 隨手記存得下日期、存不下時間，而判成待辦的前提就是她沒在標題最前面寫時間
+    assert.equal(note.startTime, undefined);
+    // 認錯人會把一件雜事掛到錯的客戶身上，所以一律不掛
+    assert.equal(note.customerId, null);
+    assert.equal(note.customerName, null);
+  });
+});
+
+// ---------- 醫療禁忌（貼舊試算表那條路拿掉之後，這裡是唯一的守門員） ----------
+//
+// 舊表沒有「永久限制」這個欄位，那幾句話寫在購買名稱或空白處，合併檔照抄進備註。
+// 匯進來之後 `customer.flags` 是空的，而擋器材是拿 flags 去比對的 ——
+// 沒有那個標記，超磁場與高能量雷射不會被擋下來，那是唯一會造成實際傷害的一條。
+//
+// 這一段 2026-08-23 從 tests/legacy-import.test.js 搬過來：那條路的入口拿掉了，
+// 而**這條路以前根本沒有這個提示**。搬過來不是為了保住覆蓋率，是因為
+// 拿掉一條路不可以順手拿掉一個安全網。
+describe('文字裡的醫療禁忌要在匯入前講出來', () => {
+  const metal = () => planForCustomer(
+    { ...CUSTOMER(), source: '0604 顧客會-手有金屬，只能INDIBA' },
+    { ...CTX, existingCustomers: [] },
+  );
+
+  test('購買名稱裡的禁忌字眼認得出來，並說得出沒設定會漏擋哪幾台', () => {
+    const hits = metal().contraindications;
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].term, '體內金屬');
+    assert.deepEqual(hits[0].blocks.sort(), ['超磁場', '高能量雷射']);
+  });
+
+  test('備註裡的也算 —— 舊表的空白處就是寫在那裡', () => {
+    const p = planForCustomer(
+      { ...CUSTOMER(), notes: 'A15｜手術後體內金屬還在' },
+      { ...CTX, existingCustomers: [] },
+    );
+    assert.equal(p.contraindications[0]?.term, '體內金屬');
+  });
+
+  test('認出來也不會自動設定永久限制', () => {
+    // 「手有金屬」是禁忌，「金屬已取出」不是，兩句話都含有「金屬」。
+    // 那是她的判斷（ADR-0002）。
+    assert.deepEqual(metal().customer.flags, []);
+  });
+
+  test('摘要要數得出有幾位，那一頁才畫得出最上面那張紅卡', () => {
+    const s = summarize([metal()]);
+    assert.equal(s.contraindications.length, 1);
+    assert.deepEqual(s.contraindications[0].terms, ['體內金屬']);
+  });
+
+  test('整張跳過的那幾位不算 —— 她們根本不會進來', () => {
+    const s = summarize([planForCustomer(
+      { ...CUSTOMER(), source: '0604 顧客會-手有金屬' },
+      { ...CTX, existingCustomers: [{ id: 'c1', name: CUSTOMER().name }] },
+    )]);
+    assert.equal(s.contraindications.length, 0);
+  });
+});
+
+// ---------- 待辦與行事備註分別寫到哪個集合 ----------
+//
+// 「待辦寫進 notes、另外兩種寫進 events」是規則不是畫面（SPEC 第 10 節），
+// 所以它在 domain 而不在那一頁的事件處理器裡。
+describe('looseDocs() 是那個分歧點', () => {
+  const CANDS = [
+    { title: '休', startDate: '2026-09-05', endDate: '2026-09-05', allDay: true, kind: 'leave' },
+    { title: 'H2U電話', startDate: '2026-09-06', endDate: '2026-09-06', startTime: '14:00', kind: 'note' },
+    { title: '顧客會', startDate: '2026-09-07', endDate: '2026-09-07', startTime: '19:00', kind: 'personal' },
+  ];
+  const fileKind = (i) => eventKind(CANDS[i]);
+
+  test('待辦走 notes，另外兩種走 events', () => {
+    const { events, notes } = looseDocs(CANDS, fileKind, [0, 1, 2]);
+    assert.deepEqual(events.map((e) => e.title), ['休', '顧客會']);
+    assert.deepEqual(notes.map((n) => n.text), ['H2U電話']);
+    assert.deepEqual(events.map((e) => e.category), ['leave', 'personal']);
+  });
+
+  test('沒勾的一筆都不進去', () => {
+    const { events, notes } = looseDocs(CANDS, fileKind, [1]);
+    assert.equal(events.length, 0);
+    assert.equal(notes.length, 1);
+  });
+
+  // 這是整支功能的重點：產檔那側判的只是建議，她改掉的那一個才算數。
+  test('她改過的分類要真的改變寫到哪裡', () => {
+    const hers = (i) => (i === 2 ? 'note' : 'leave');
+    const { events, notes } = looseDocs(CANDS, hers, [0, 1, 2]);
+    assert.deepEqual(notes.map((n) => n.text), ['顧客會'], '她把顧客會改成待辦');
+    assert.deepEqual(events.map((e) => e.category), ['leave', 'leave'], '她把 H2U電話 改成休假');
+  });
+
+  // 隨手記的空日期要收成 null 不是空字串 —— 日曆是 where('date','>=',…) 撈的，
+  // 空字串撈得到而 null 撈不到（domain/notes.js 的 normalize()）。
+  test('待辦的形狀走隨手記自己的 normalize()', () => {
+    const [n] = looseDocs([{ title: '記得帶健保卡', startDate: '' }], () => 'note', [0]).notes;
+    assert.equal(n.date, null);
+    assert.equal(n.customerId, null);
+    assert.equal(n.done, false);
+  });
+
+  test('匯進來的東西標得出是從哪一次合併來的', () => {
+    const json = { calendar: { file: 'timetree.ics' } };
+    const { events, notes } = looseDocs(CANDS, fileKind, [0, 1], json);
+    assert.equal(events[0].importedFrom.source, 'merge-file');
+    assert.equal(events[0].importedFrom.calendar, 'timetree.ics');
+    assert.equal(notes[0].importedFrom.calendar, 'timetree.ics');
+  });
+
+  test('數得出勾起來的各有幾筆', () => {
+    assert.deepEqual(
+      looseTally(CANDS, fileKind, [0, 1, 2]).map((x) => [x.label, x.count]),
+      [['待辦', 1], ['行事備註', 1], ['休假', 1]],
+    );
+  });
 });

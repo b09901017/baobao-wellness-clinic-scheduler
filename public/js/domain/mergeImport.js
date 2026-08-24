@@ -14,6 +14,8 @@
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
+import { contraindicationHints } from './contraindications.js';
+import { normalize as normalizeNote } from './notes.js';
 import { syncTasksForVisit } from './taskRules.js';
 
 export const FORMAT = 'baobao-merge/v1';
@@ -232,6 +234,14 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     entitlements,
     visits,
     problems,
+    // 舊表沒有「永久限制」這個欄位，所以那幾句話寫在購買名稱或空白處，而合併檔
+    // 把它們原封不動收進 `notes`。**匯進來之後 `customer.flags` 是空的**，
+    // 而擋器材是拿 flags 去比對的 —— 沒有那個標記，超磁場與高能量雷射不會被擋，
+    // 那是整個系統唯一會造成實際傷害的一條。只提示不自動填（ADR-0002）。
+    contraindications: contraindicationHints([
+      { where: '購買名稱', text: entry.source },
+      { where: '備註', text: entry.notes },
+    ], equipment),
     counts: {
       entitlements: entitlements.length,
       followups: paired.length,
@@ -281,7 +291,7 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
  * `today` 沒給就只看檔案裡寫什麼（維持舊行為）。UI 那層一律用
  * `domain/dates.js` 的 `todayISO()` 取。
  */
-function statusFor(status, date, today) {
+export function statusFor(status, date, today) {
   if (status === 'confirmed') return 'confirmed';
   return today && date > today ? 'confirmed' : 'done';
 }
@@ -310,6 +320,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
+    contraindications: [],
     counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
   };
 }
@@ -461,20 +472,112 @@ export function defaultPicks(json, today = null) {
 }
 
 /**
+ * 日曆上那三類（ADR-0045 的四類扣掉來訪）。**這是「寫到哪個集合」的分歧點**：
+ * `note` 走 `notes`，另外兩個走 `events`。
+ *
+ * 名字裡刻意沒有 event：日曆上的待辦**不是 `events` 的第三種類別**，
+ * 它就是有日期的隨手記（ADR-0044）。叫它 `EVENT_KINDS` 會讓下一個人
+ * 去 `events` 裡找待辦。
+ */
+export const CALENDAR_KINDS = ['note', 'personal', 'leave'];
+
+/** 給人看的名字。用 `CONTEXT.md` 的詞。 */
+export const KIND_LABEL = { note: '待辦', personal: '行事備註', leave: '休假' };
+
+/**
+ * 這一筆候選在日曆上是哪一類。
+ *
+ * 產檔那側照標題判好了（`classifyEvent()`），**但那是建議不是結論** ——
+ * 她在畫面上改掉的那一個才算數，所以這一支只負責讀檔案裡的預設值。
+ *
+ * `category` 是舊版合併檔的欄位，只認得 `leave` 與 `personal`：2026-08-23
+ * 以前產的檔案沒有 `kind`，那時候也還沒有「待辦」這一類。舊檔案照樣讀得進來，
+ * 只是三類變兩類。
+ */
+export function eventKind(candidate) {
+  const kind = candidate?.kind;
+  if (CALENDAR_KINDS.includes(kind)) return kind;
+  return candidate?.category === 'leave' ? 'leave' : 'personal';
+}
+
+/**
+ * 她勾起來、而且留在「待辦」那一類的那幾筆 → 隨手記。
+ *
+ * **掛了日期的隨手記就是日曆上的待辦**（ADR-0044），不是第三份資料，
+ * 所以這裡不需要再寫進 `events` 一份 —— 寫兩份就要同步兩份。
+ *
+ * 不掛客戶：行事曆上那幾筆寫的是「打電話給某某」，那個某某是誰要她自己認，
+ * 而認錯人會把一件雜事掛到錯的客戶身上（`domain/legacyImport.js` 同一個判準）。
+ * 時間丟掉是刻意的：隨手記存得下日期、存不下時間（`domain/notes.js`），
+ * 而產檔那側判待辦的前提就是「她沒在標題最前面寫時間」。
+ */
+export function noteDocs(candidates, stamp = null) {
+  return (candidates ?? []).map((c) => ({
+    // **走隨手記自己的 normalize()**，不要在這裡另外拼一份形狀：
+    // 沒有日期要收成 null 而不是空字串（日曆是 `where('date','>=',…)` 撈的，
+    // 空字串撈得到而 null 撈不到），那條不變量只寫在 `domain/notes.js`。
+    ...normalizeNote({ text: c.title, date: c.startDate }),
+    doneAt: null,
+    // 匯進來的東西都標得出是從哪一次合併來的（SPEC 第 6.10 節）
+    ...(stamp ? { importedFrom: stamp } : {}),
+  }));
+}
+
+/**
+ * 她勾起來的雜事，照現在的分類分成兩堆。
+ *
+ * **分歧點只有這裡一個。** 這句判斷本來寫在那一頁的事件處理器裡，
+ * 而「待辦寫進 notes、另外兩種寫進 events」是規則不是畫面（SPEC 第 10 節）。
+ *
+ * @param {object[]} candidates 檔案裡的 `eventCandidates`
+ * @param {(index: number) => string} kindOf 這一列現在算哪一類（她改過的算她的）
+ * @param {number[]} chosen 她勾起來的位置
+ * @returns {{events: object[], notes: object[]}}
+ */
+export function looseDocs(candidates, kindOf, chosen, json = null) {
+  const stamp = stampOf(json, null);
+  const rows = (candidates ?? [])
+    .map((c, index) => ({ ...c, kind: kindOf(index), index }))
+    .filter((r) => chosen.includes(r.index));
+  return {
+    events: eventDocs(rows.filter((r) => r.kind !== 'note'), stamp),
+    notes: noteDocs(rows.filter((r) => r.kind === 'note'), stamp),
+  };
+}
+
+/** 勾起來的那幾筆照分類數一遍。畫面拿它寫「休假 4　待辦 2　行事備註 22」。 */
+export function looseTally(candidates, kindOf, chosen) {
+  const kinds = (candidates ?? [])
+    .map((c, index) => ({ kind: kindOf(index), index }))
+    .filter((r) => chosen.includes(r.index))
+    .map((r) => r.kind);
+  return CALENDAR_KINDS.map((k) => ({ kind: k, label: KIND_LABEL[k], count: kinds.filter((x) => x === k).length }));
+}
+
+/**
  * 她勾起來的行事備註。**不綁客戶、不產生任務、不扣次數**，所以它們走 `events`
  * 不走 `visits`（ADR-0015：合成同一個集合會讓「要不要扣次數」變成到處都要判斷的分支）。
  */
-export function eventDocs(candidates) {
+export function eventDocs(candidates, stamp = null) {
   return candidates.map((c) => {
+    const kind = eventKind(c);
     // 有明確欄位就用它（產檔那側從 DTSTART 的 VALUE=DATE 判的），沒有才從
     // 「有沒有時間」反推 —— 舊的合併檔沒有這個欄位，照樣要吃得下。
-    const allDay = typeof c.allDay === 'boolean' ? c.allDay : !isValidTime(c.startTime);
+    //
+    // **休假一律整天**，而且這一條要在這裡擋，不能只擋在產檔那側：
+    // 她在畫面上可以把一筆 14:00 的行事備註改成休假（那正是這一頁的重點），
+    // 而休假講的是「那幾天她根本不在」（`CONTEXT.md`）—— 一筆 14:00 開始的
+    // 休假在日曆上會畫成一條一小時的色條，那不是她的意思。
+    const allDay = kind === 'leave'
+      || (typeof c.allDay === 'boolean' ? c.allDay : !isValidTime(c.startTime));
     // 整天就是整天：時間一律清掉。標成整天卻帶著時間的資料，日曆上會畫成
     // 一條有時有分的色條，而那個時間是沒有來源的。
     const start = !allDay && isValidTime(c.startTime) ? c.startTime : null;
     return {
       title: norm(c.title),
-      category: c.category === 'leave' ? 'leave' : 'personal',
+      // 只有兩種進得了 `events`。判成待辦的那幾筆由 `looseDocs()` 分去 `notes`，
+      // 走不到這裡 —— 舊的合併檔沒有待辦這一類，所以剩下的一定是這兩種。
+      category: kind === 'leave' ? 'leave' : 'personal',
       startDate: c.startDate,
       // 跨天的行事備註是這個系統裡唯一可以跨天的東西（ADR-0015）。
       // 結束日比開始日早的資料進不去（firestore.rules 的 validEvent()），當成單天。
@@ -486,6 +589,8 @@ export function eventDocs(candidates) {
       // note 空的時候給 null 不給空字串 —— data/events.js 的 shape() 就是這樣寫的，
       // 兩條路寫出不一樣的空值，之後讀的地方就要判斷兩種。
       note: c.repeats ? '行事曆上是重複事件，匯入的只有這一次' : null,
+      // 匯進來的東西都標得出是從哪一次合併來的（SPEC 第 6.10 節）
+      ...(stamp ? { importedFrom: stamp } : {}),
     };
   });
 }
@@ -529,5 +634,14 @@ export function summarize(plans) {
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
+    // 會匯進去的那幾位身上、文字裡提到的醫療禁忌。**跳過的那幾位不算** ——
+    // 她們根本不會進來，講了只會讓真的要處理的那幾位被稀釋掉。
+    contraindications: live
+      .filter((p) => (p.contraindications ?? []).length)
+      .map((p) => ({
+        customerName: p.customerName || p.sheetName,
+        terms: [...new Set(p.contraindications.map((h) => h.term))],
+        blocks: [...new Set(p.contraindications.flatMap((h) => h.blocks))],
+      })),
   };
 }

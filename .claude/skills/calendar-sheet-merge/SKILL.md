@@ -97,17 +97,18 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 
 ### 5. 讀報告，把該問的問掉
 
-報告分六段，**每一段對應她要做的一個動作**：
+報告分七段，**每一段對應她要做的一個動作**：
 
 | 段 | 是什麼 | 她要做什麼 |
 |---|---|---|
+| ⓪b 舊表本身讀到的問題 | 讀她的舊表時發現的，跟行事曆無關（沒寫年份、勾了但不排班、勾得比買的多） | 掃過去。有幾種是「這一格沒進去」，有幾種是「匯進去之後資料健檢會報」 |
 | ① 兩邊講的不是同一件事 | 試算表勾 A、行事曆寫 B | 判斷哪邊對。通常是行事曆 |
 | ② 行事曆有、試算表沒勾 | **最嚴重**：做了但忘記打勾，次數少算 | 逐筆確認要不要補一筆來訪 |
 | ③ 試算表有、行事曆沒有 | 沒記行事曆，或**勾錯人** | 看有沒有標 `⇄ 可能勾錯人` |
 | ④ 補到了什麼 | 一位一位、一個時段一個時段列出補到的時間／診間／器材 | 掃過去看有沒有離譜的 |
 | ④b 兩個人都可能 | 沒寫名字、那天兩位都勾了同一個療程 | 指認是誰 |
 | ⑤ 未來的預約 | 對得到客戶與療程、日期在今天之後 | 決定要不要建成來訪 |
-| ⑥ 對不到客戶的 | **全部列出來**，行事備註、公司的事、待辦混在一起 | 一筆一筆決定 |
+| ⑥ 對不到客戶的 | **全部列出來**，已經照標題分成休假／待辦／行事備註三類 | 掃過去看分錯了沒，其餘一筆一筆決定 |
 
 報告只講事實，**判斷交給她**。不要在報告上替她決定。
 
@@ -151,16 +152,34 @@ customers[]: { sheetName, name, source, notes,
                                             confidence:'high'|'low'|null, evidence } } }
 futureVisits[]:    { customerName, date, status:'confirmed', courseName, startsAt, evidence, include:false }
 missingFromSheet[]:{ customerName, date, courseName, startsAt, evidence, sheetHasThatDay, include:false }
-eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime, category, repeats, include:false }
+eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime,
+                     kind:'personal'|'leave'|'note', why, category, repeats, include:false }
 ambiguous[]:       { date, evidence, course, who[] }
 unreadable[]:      { title, raw, why }
 ```
+
+`eventCandidates[].kind` 是**日曆上的哪一類**（ADR-0045 的四類扣掉來訪）。
+`classifyEvent()` 照標題判，三條規則：寫了休假詞而且沒寫到別人 → `leave`；
+標題裡沒寫時間而且有待辦動詞 → `note`；其餘 → `personal`。
+**不能拿顏色判**（`references/shorthand.md`：9 種顏色底下都混著來訪與雜事）。
+
+判錯休假的代價最大 —— 那幾天她根本不在，任何來訪都排不進去 —— 所以
+`陳小美休假`、`林小華請假` 這種**寫了別人名字的一律退回 `personal`**。這條的實作
+刻意不共用 `residualNames()`：那一支會把治療師名單扣掉（配對來訪時那是雜訊），
+而這裡治療師正是那個「誰」，扣掉之後 `王小婷休假` 會變成她自己的休假。
+
+`why` 是一句人話的理由，報告與 app 那一列都印它。**分類是建議不是結論**：
+app 那一頁每一列都可以改（`ui/views/mergeImport.js`），這裡的工作是讓她不用
+把兩百列一列一列重挑。`category` 只是給舊版 app 讀的鏡像（它認不得 `note`，
+會退回行事備註）。
 
 `eventCandidates[].endDate` 是**真的結束日**，跨天的事件靠它才進得去 ——
 行事備註是這個系統裡唯一可以跨天的東西（`CONTEXT.md`、ADR-0015）。
 整天事件的 `DTEND` 是不含端點的（iCalendar 規格：8/10–8/14 會寫成
 `DTEND;VALUE=DATE:20260815`），`parseIcs()` 已經減過一天了。
 `allDay` 是明確欄位，app 不用再從有沒有時間反推。
+**判成 `leave` 的一律 `allDay: true`、沒有時間** —— 休假講的是「那幾天她根本不在」，
+而行事曆的時間欄會歪（27/317 落在凌晨）。
 
 `unreadable[]` 是 `DTSTART` 讀不出來、整筆沒有進到任何一段的事件。
 **它要列出來** —— 「沒有這幾筆」和「讀不到這幾筆」是兩件事。
@@ -181,7 +200,8 @@ app 那一側拿名字去對自己的主檔，對不到就報出來 —— 跟 `
 **ADR-0011 沒有被推翻。** 對不上的時段照樣 `startsAt: null`、照樣顯示「時間不詳」。
 多了一份知道時間的資料，不等於可以編一個時間出來。
 
-app 那一側的待辦在 `.scratch/legacy-calendar-merge/issues/`。
+app 那一側的待辦在 `.scratch/legacy-calendar-merge/issues/`（已結案）與
+`.scratch/first-real-import/issues/`。
 
 ## 兩份參考
 

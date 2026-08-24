@@ -29,7 +29,8 @@ node scripts/legacy-dry-run.mjs docs/legacy/samples 2026 > docs/legacy/samples/d
 ```
 
 `dry-run-report.txt` 是上面那行的輸出，跟 app 裡「開始匯入」前看到的是同一份報告
-（`domain/legacyImport.js` 的 `reportText()`），差別只在它連 Firestore 都沒有。
+（`.claude/skills/calendar-sheet-merge/scripts/merge.mjs` 的 `reportText()`），差別只在它連 Firestore 都沒有。
+這份樣本產出時報告還在 `domain/legacyImport.js`，那一支隨著貼試算表那條路一起拿掉了（ADR-0047）。
 主檔用 `domain/seed.js` 的種子資料，所以報告講的是「用種子主檔會怎樣」，
 不是「在她自己的資料庫裡會怎樣」。
 

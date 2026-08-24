@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   describeAction, describeTarget, fieldLabel, changedFields, formatValue,
+  describeEvent, subjectOf, groupByDay,
 } from '../public/js/domain/audit.js';
 
 describe('動作與目標', () => {
@@ -92,4 +93,112 @@ describe('值怎麼顯示', () => {
     assert.equal(formatValue('done'), 'done');
     assert.equal(formatValue(0), '0');
   });
+});
+
+// ---------- 一則稽核 → 一句話 ----------
+//
+// 她打開這一頁是在問「我剛剛做了什麼」或「這筆怎麼變成這樣的」。
+// 原本每一列印的是 `customers/AbC123/entitlements/XyZ789` 加一排
+// `（一組資料）`，兩個問題都答不出來。這一段盯的是那句話講得像人話。
+
+describe('一句話講完一則稽核', () => {
+  const ev = (action, before, after, targetPath = 'visits/v1') =>
+    ({ action, targetPath, before, after });
+
+  test('狀態變了就講變成什麼 —— 次數是跟著它扣的', () => {
+    const line = describeEvent(ev('visits.update',
+      { customerName: '客戶A', status: 'confirmed' },
+      { status: 'done' }));
+    assert.equal(line, '客戶A的來訪改成已完成');
+  });
+
+  // 狀態的字從 domain/visits.js 的 STATUS_VIEW 來，不在這裡再寫一份
+  // （CLAUDE.md：來訪狀態的標籤只改那一支）。
+  test('狀態的字跟日曆、客戶詳情用的是同一份', () => {
+    const line = describeEvent(ev('visits.update',
+      { customerName: '客戶A', status: 'pending_confirm' },
+      { status: 'no_show' }));
+    assert.match(line, /未到$/);
+  });
+
+  test('勾任務就說勾掉了什麼', () => {
+    const line = describeEvent(ev('tasks.update',
+      { customerName: '客戶A', kind: 'Examine', done: false },
+      { done: true, kind: 'Examine' }, 'tasks/t1'));
+    assert.equal(line, '勾掉客戶A的Examine');
+  });
+
+  test('次數只講數字怎麼變，不講欄位叫什麼', () => {
+    const line = describeEvent(ev('customers/c1/entitlements.update',
+      { label: '復能', doneCount: 7 },
+      { doneCount: 8 }, 'customers/c1/entitlements/e1'));
+    assert.match(line, /額度「復能」/);
+    assert.match(line, /已完成次數 7 → 8/);
+  });
+
+  test('新增與刪除講得出是誰', () => {
+    assert.equal(
+      describeEvent(ev('customers.create', null, { name: '客戶A' }, 'customers/c1')),
+      '新增客戶「客戶A」',
+    );
+    assert.equal(
+      describeEvent(ev('visits.softDelete', { customerName: '客戶A' }, { deletedAt: 'server' })),
+      '刪掉客戶A的來訪',
+    );
+  });
+
+  test('一般的修改講改了哪幾個欄位，改成什麼是展開之後的事', () => {
+    const line = describeEvent(ev('customers.update',
+      { name: '客戶A', phone: '02', lineId: 'a' },
+      { phone: '03', lineId: 'b' }, 'customers/c1'));
+    assert.equal(line, '改了客戶A的電話、LINE');
+  });
+
+  test('改了一大片就只講幾個欄位 —— 列出十個欄位名等於沒講', () => {
+    const before = { name: '客戶A' };
+    const after = { a: 1, b: 2, c: 3, d: 4, e: 5 };
+    assert.match(describeEvent(ev('customers.update', before, after, 'customers/c1')), /5 個欄位/);
+  });
+
+  // 湊不出句子的時候要回 null，畫面才知道要退回欄位表。
+  // 硬湊一句話出來，湊錯的那幾則會比欄位表更難查。
+  test('翻不出來就回 null，不要硬湊', () => {
+    assert.equal(describeEvent(ev('visits.update', { status: 'done' }, { status: 'done' })), null);
+    assert.equal(describeEvent({}), null);
+  });
+
+  test('讀不到名字就不編一個', () => {
+    assert.equal(subjectOf({ before: null, after: { status: 'done' } }), null);
+    assert.equal(describeEvent(ev('visits.update', { status: 'confirmed' }, { status: 'done' })),
+      '來訪改成已完成');
+  });
+});
+
+describe('同一天的收在一起', () => {
+  test('照原順序分組，不重排', () => {
+    const days = groupByDay(
+      [{ id: 1, d: '08-23' }, { id: 2, d: '08-23' }, { id: 3, d: '08-22' }, { id: 4, d: '08-23' }],
+      (e) => e.d,
+    );
+    assert.deepEqual(days.map((g) => g.day), ['08-23', '08-22', '08-23']);
+    assert.deepEqual(days.map((g) => g.events.length), [2, 1, 1]);
+  });
+
+  test('沒有事件就沒有分組', () => {
+    assert.deepEqual(groupByDay([], () => ''), []);
+    assert.deepEqual(groupByDay(undefined, () => ''), []);
+  });
+});
+
+// events 這個集合同時放行事備註與休假（ADR-0045），而那兩個在日曆上是不同的兩類。
+// 只看路徑的話，一則休假的稽核會寫著「行事備註」。
+test('休假的稽核不會寫成行事備註', () => {
+  assert.equal(
+    describeEvent({ action: 'events.create', targetPath: 'events/e1', before: null, after: { title: '宜蘭休假', category: 'leave' } }),
+    '新增休假「宜蘭休假」',
+  );
+  assert.equal(
+    describeEvent({ action: 'events.create', targetPath: 'events/e2', before: null, after: { title: '高齡演講', category: 'personal' } }),
+    '新增行事備註「高齡演講」',
+  );
 });

@@ -5,13 +5,15 @@
 // 踩過坑、有護欄了。同一件事做兩份，遲早有一份是錯的。這一頁只負責
 // 「看得懂這份檔案、對得到她自己的主檔、把要寫的東西講清楚、寫進去」。
 //
-// 跟舊資料匯入（#/settings/import）同一個節奏：貼上 → 看清楚 → 確認 → 才寫。
-// 差別是那一頁吃試算表文字、來訪一律沒有時間；這一頁吃合併檔、時間補得進來。
+// 節奏是：貼上 → 看清楚 → 確認 → 才寫（SPEC 第 6.10 節要的 dry-run）。
+// **舊資料只有這一條路進得來**（ADR-0047）—— 「把試算表文字直接貼進來」那條
+// 2026-08-23 拿掉了，它讀得到的東西是這份合併檔的子集。
 
 import * as importer from '../../data/legacyImport.js';
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, summarize, countNewTasks,
-  groupCandidates, defaultPicks,
+  FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
+  summarize, countNewTasks, groupCandidates, defaultPicks, eventKind,
+  CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
@@ -32,8 +34,29 @@ let fileWarnings = [];
  */
 let picks = emptyPicks();
 
+/**
+ * 她把哪幾筆改成別的分類了（在 `eventCandidates` 裡的位置 → 分類）。
+ *
+ * **只記她改過的那幾筆**，沒改過的一律現問 `eventKind()`。整份抄一份下來的話，
+ * 檔案換了、預設值變了，這裡還會拿著上一份的答案。
+ */
+let kindOverrides = new Map();
+
 function emptyPicks() {
   return { future: new Set(), missing: new Set(), events: new Set() };
+}
+
+/** 這一筆現在算哪一類：她改過就聽她的，沒改過就聽檔案的。 */
+function kindOf(index) {
+  return kindOverrides.get(index) ?? eventKind(file?.eventCandidates?.[index]);
+}
+
+/**
+ * 她勾起來的那幾筆，照現在的分類分成兩堆：走 events 的與走 notes 的。
+ * **分歧點在 domain**（`looseDocs()`），這裡只負責把她點的東西交過去。
+ */
+function chosenLoose() {
+  return looseDocs(file?.eventCandidates, kindOf, [...picks.events], file);
 }
 
 /** 一份檔案剛讀進來時的預設勾選。 */
@@ -84,9 +107,9 @@ function paint(el, ctx) {
     ${backLink()}
 
     <section class="card">
-      <h2 class="card__title">合併檔匯入</h2>
+      <h2 class="card__title">舊資料匯入</h2>
       <p class="muted">把 Claude 對照過試算表與行事曆之後給你的 <code>import.json</code>
-        整份貼進來。它比舊資料匯入多了時間、診間、治療師與器材 —— 那些是從行事曆補起來的。</p>
+        整份貼進來。時間、診間、治療師與器材是從行事曆補起來的，舊試算表上沒有那些。</p>
       <p class="muted">貼進來的東西只留在這個畫面上，重新整理就沒了。</p>
 
       <label class="field">
@@ -104,6 +127,7 @@ function paint(el, ctx) {
         </div>` : ''}
     </section>
 
+    ${file ? contraindicationCard(s) : ''}
     ${file ? summaryCard(s, plans, extraProblems) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
@@ -115,6 +139,7 @@ function paint(el, ctx) {
     fileErrors = [];
     fileWarnings = [];
     picks = emptyPicks();
+    kindOverrides = new Map();
     paint(el, ctx);
   });
   el.querySelectorAll('[data-pick]').forEach((box) =>
@@ -138,6 +163,22 @@ function paint(el, ctx) {
       paint(el, ctx);
     }),
   );
+  // 分類鈕。**只換這一列**（ADR-0038）—— 這一頁一次列兩百筆，
+  // 整頁重畫等於每點一下就捲回最上面，而她要點的正是清單中段那幾列。
+  // 事件用委派掛在容器上：兩百列 × 三顆鈕 = 六百個 listener。
+  el.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-kind]');
+    if (!btn) return;
+    const index = Number(btn.dataset.index);
+    kindOverrides.set(index, btn.dataset.kind);
+    const row = el.querySelector(`[data-kindrow="${index}"]`);
+    if (row) row.outerHTML = kindPicker(index, file.eventCandidates[index]);
+    // 「待辦沒有時間」那一句是靠 eventLine() 畫的，換了類別要跟著重畫。
+    const line = el.querySelector(`[data-eventline="${index}"]`);
+    if (line) line.innerHTML = eventLine({ item: file.eventCandidates[index], index });
+    repaintLooseCounts(el);
+  });
+
   el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks));
 }
 
@@ -173,6 +214,33 @@ function errorsCard() {
       ${fileErrors.length > 12 ? `<p class="muted">還有 ${fileErrors.length - 12} 項</p>` : ''}
       <p class="muted">整份擋下來是刻意的 —— 匯進去一半比整份失敗難救得多。</p>
     </div>`;
+}
+
+/**
+ * 文字裡提到醫療禁忌的那幾位。**排在所有東西前面**，因為它是這一頁唯一
+ * 會造成實際傷害的一件事。
+ *
+ * 舊表沒有「永久限制」這個欄位，那幾句話寫在購買名稱或空白處，合併檔照抄進備註。
+ * 匯進來之後 `customer.flags` 是空的，而擋器材是拿 flags 比對的 ——
+ * **沒有那個標記，超磁場與高能量雷射不會被擋下來**。
+ *
+ * 不自動填 flags：「手有金屬」是禁忌、「金屬已取出」不是，而兩句話都有「金屬」，
+ * 那是她的判斷（ADR-0002）。
+ */
+function contraindicationCard(s) {
+  const rows = s?.contraindications ?? [];
+  if (!rows.length) return '';
+  return `
+    <section class="card card--danger">
+      <h2 class="card__title">這 ${rows.length} 位的文字裡提到醫療禁忌</h2>
+      <ul class="tight">
+        ${rows.map((x) => `<li><b>${esc(x.customerName)}</b>：${esc(x.terms.join('、'))}
+          ${x.blocks.length ? `<span class="muted">（會擋掉 ${esc(x.blocks.join('、'))}）</span>` : ''}</li>`).join('')}
+      </ul>
+      <p class="muted"><b>匯入不會自動設定永久限制。</b>匯完請到這幾位的客戶詳情頁自己設 ——
+        沒設的話對應的器材不會被擋下來，而那是整個系統唯一會造成實際傷害的一條。
+        不自動填是因為「手有金屬」是禁忌、「金屬已取出」不是，而兩句話都有「金屬」。</p>
+    </section>`;
 }
 
 function summaryCard(s, plans, extraProblems) {
@@ -269,13 +337,21 @@ function block(which, title, group, { note, extra }) {
     which === 'future'
       ? '勾起來會建成「已確認」的來訪，算進已排未上，而且會長出登記待辦。'
       : '勾起來會補成一筆「已完成」的來訪，次數才算得對。')}
-      ${section('行事備註', group.events, eventLine,
-    '不綁客戶、不產生任務、不扣次數。')}
+      ${section('行事曆上的雜事', group.events, eventLine,
+    '<b>分類是猜的，改得掉。</b>Claude 照標題判成待辦／行事備註／休假，'
+    + '每一列點一下就換一類 —— 判錯休假的代價最大，那幾天會整片排不進去。'
+    + '待辦會變成掛了日期的隨手記，另外兩種不綁客戶、不產生任務、不扣次數。',
+    (r) => kindPicker(r.index, r.item))}
       ${extra ? `<p class="muted">${extra}</p>` : ''}
     </section>`;
 }
 
-function section(title, rows, line, note) {
+/**
+ * @param {(r: object) => string} [after]
+ *   畫在 `<label>` **外面**的東西。分類鈕一定要走這裡 ——
+ *   放進 label 裡的話，點「休假」會順便把那一列的勾選也切掉。
+ */
+function section(title, rows, line, note, after = null) {
   if (!rows.length) return '';
   return `
     <h3 class="card__title" style="margin-top: var(--space-5)">${title}<span class="badge">${rows.length}</span></h3>
@@ -285,8 +361,8 @@ function section(title, rows, line, note) {
         <li><label class="choice" style="border: none; background: none; padding: 2px 0">
           <input type="checkbox" data-pick="${r.kind}" data-index="${r.index}"
             ${picks[r.kind].has(r.index) ? 'checked' : ''}>
-          <span>${line(r)}</span>
-        </label></li>`).join('')}
+          <span${r.kind === 'events' ? ` data-eventline="${r.index}"` : ''}>${line({ ...r, index: r.index })}</span>
+        </label>${after ? after(r) : ''}</li>`).join('')}
     </ul>`;
 }
 
@@ -303,11 +379,32 @@ const visitLine = ({ kind, item: x, date }, which) => `${esc(date)}　${esc(x.cu
     ? '　⚠ 檔案標成已確認，但日期已經過了 —— 會建成已確認，登記待辦一出生就逾期'
     : ''}</span>`;
 
-const eventLine = ({ item: x }) => `${esc(x.startDate)}${
+const eventLine = ({ item: x, index }) => `${esc(x.startDate)}${
   x.endDate && x.endDate !== x.startDate ? `～${esc(x.endDate)}` : ''}　${
-  x.startTime ? `<b>${esc(x.startTime)}</b>　` : ''}${esc(x.title)}
+  x.startTime && kindOf(index) !== 'note' ? `<b>${esc(x.startTime)}</b>　` : ''}${esc(x.title)}
   ${x.endDate && x.endDate !== x.startDate ? '<span class="muted">（跨天）</span>' : ''}
   ${x.repeats ? '<span class="muted">（行事曆上是重複事件，只匯這一次）</span>' : ''}`;
+
+/**
+ * 那一列的三選一：待辦／行事備註／休假。
+ *
+ * 用 `aria-pressed` 標選中的那一顆、只重畫這一列（ADR-0038），不整頁重畫 ——
+ * 這一頁一次列兩百筆，整頁重畫等於每點一下就捲回最上面。
+ *
+ * `why` 是產檔那側判斷的理由，只在**她還沒改過**的那幾列顯示：改過之後那句話
+ * 講的是上一個答案，留著只會讓人以為系統不同意她。
+ */
+function kindPicker(index, x) {
+  const now = kindOf(index);
+  const why = !kindOverrides.has(index) && x.why ? x.why : '';
+  return `<span class="kindpick" data-kindrow="${index}">
+    <span class="seg" role="group">
+      ${CALENDAR_KINDS.map((k) => `<button class="seg__item" type="button"
+        data-kind="${k}" data-index="${index}" aria-pressed="${k === now}">${KIND_LABEL[k]}</button>`).join('')}
+    </span>
+    ${why ? `<span class="muted">${esc(why)}</span>` : ''}
+  </span>`;
+}
 
 /**
  * 對得上兩位以上客戶的那幾筆。**唯讀** —— 勾了也不知道要算給誰。
@@ -332,9 +429,27 @@ function ambiguousCard() {
     </section>`;
 }
 
+/**
+ * 勾起來的雜事照現在的分類數一遍，一句話。
+ *
+ * **不重算整頁**：她改分類的時候要看得到「休假變幾筆了」，而那正是最該看一眼的
+ * 數字 —— 休假多一天，那一天就整片排不進去。
+ */
+function tallyText() {
+  return looseTally(file?.eventCandidates, kindOf, [...picks.events])
+    .map((x) => `${x.label} ${x.count}`).join('　');
+}
+
+function repaintLooseCounts(el) {
+  const node = el.querySelector('[data-loosecount]');
+  if (node) node.textContent = tallyText();
+}
+
 function runCard(s, tasks) {
   return `
     <section class="card">
+      <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
+        待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
       <p class="form__actions">
         <button class="btn btn--primary" type="button" data-run ${s.customers ? '' : 'disabled'}>開始匯入</button>
       </p>
@@ -349,7 +464,7 @@ function runCard(s, tasks) {
 }
 
 async function run(el, ctx, plans, s, tasks) {
-  const events = eventDocs((file.eventCandidates ?? []).filter((_, i) => picks.events.has(i)));
+  const { events, notes } = chosenLoose();
   const extras = picks.future.size + picks.missing.size;
 
   const ok = await confirmAction({
@@ -362,7 +477,8 @@ async function run(el, ctx, plans, s, tasks) {
         : '沒有日期在今天之後的來訪，全部標成已完成',
       ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
       extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
-      events.length ? `建立 ${events.length} 筆行事備註` : '沒有勾任何行事備註',
+      events.length ? `建立 ${events.length} 筆行事備註或休假` : '沒有勾任何行事備註或休假',
+      notes.length ? `建立 ${notes.length} 筆待辦（掛了日期的隨手記）` : '沒有勾任何待辦',
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
       tasks
         ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
@@ -380,8 +496,12 @@ async function run(el, ctx, plans, s, tasks) {
       toast.saving(`匯入中… ${done}/${total}（${name}）`),
     );
     if (events.length) {
-      toast.saving(`匯入中… 行事備註 ${events.length} 筆`);
+      toast.saving(`匯入中… 行事備註與休假 ${events.length} 筆`);
       await importer.importEvents(events);
+    }
+    if (notes.length) {
+      toast.saving(`匯入中… 待辦 ${notes.length} 筆`);
+      await importer.importNotes(notes);
     }
   } catch (err) {
     toast.failed(`匯入失敗：${err.message}`);
@@ -397,6 +517,7 @@ async function run(el, ctx, plans, s, tasks) {
     toast.info(`${results.length} 位客戶都匯進去了`);
     file = null;
     picks = emptyPicks();
+    kindOverrides = new Map();
   }
 
   await render(el);
