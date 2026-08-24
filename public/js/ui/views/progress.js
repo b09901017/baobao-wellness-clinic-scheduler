@@ -177,7 +177,7 @@ function customerCard(row) {
         <span class="chips" style="justify-content: flex-end">${tallyHtml(row.tally)}</span>
       </div>
 
-      <div class="progdays">${row.days.map(dayHtml).join('')}</div>
+      <div class="progdays">${row.days.map(progressDayHtml).join('')}</div>
     </section>`;
 }
 
@@ -193,10 +193,14 @@ export function tallyHtml(tally) {
 
 /**
  * 一天一組、一段一列。**客戶詳情的「這個月」也用這一支**
+ *
+ * 名字帶 `progress` 前綴是為了跟 `views/calendar.js` 的 `dayHtml()` 分開 ——
+ * 那一支吃的是 `(data, date, today)`、畫的是一整天的議程；這一支吃的是
+ * 一位客戶的一天。客戶詳情同時 import 兩邊，撞名會讓人以為是同一件事。
  * （`.scratch/customer-detail-rework/issues/02`）—— 她要的就是「跟看這個月的
  * 進度那邊呈現的一樣」，而同一件事畫成兩種樣子會讓她以為是兩份資料。
  */
-export function dayHtml(day) {
+export function progressDayHtml(day) {
   return `
     <button class="progday" type="button" data-visit="${esc(day.visitId)}">
       <span class="progday__head">

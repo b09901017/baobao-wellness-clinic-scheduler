@@ -12,7 +12,7 @@ import {
   validateSlots,
 } from '../public/js/domain/contraindications.js';
 import {
-  counts, isOverused, reconcile, expandPlan, slotOutcome,
+  counts, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
 } from '../public/js/domain/entitlements.js';
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
@@ -372,5 +372,76 @@ describe('來訪時間', () => {
     assert.ok(!overlaps(a, { startsAt: '10:00', endsAt: '11:00' }));
     assert.ok(overlaps(a, { startsAt: '09:59', endsAt: '11:00' }));
     assert.ok(overlaps(a, { startsAt: '09:15', endsAt: '09:30' }));
+  });
+});
+
+// ---------- 客戶詳情那一排額度卡的順序 ----------
+//
+// 那一排是橫著捲的，只有最前面兩三張會被看到 —— 所以順序不是裝飾，
+// 是「她會不會看到那個數字」（`.scratch/customer-detail-rework/issues/05`）。
+
+describe('sortPools', () => {
+  const e = (id, label, total, done = 0, over = {}) =>
+    ({ id, label, totalQty: total, doneCount: done, bookedCount: 0, ...over });
+  // 用 visits 現算：一筆 done 就扣一次（ADR-0004：詳情頁現算）
+  const doneVisits = (entId, n) =>
+    Array.from({ length: n }, () => ({ status: 'done', slots: [{ entitlementId: entId }] }));
+
+  test('用完的沉到最後 —— 她不會去看已經沒有次數的那幾張', () => {
+    const rows = [e('a', '復能', 2), e('b', '靜脈', 5)];
+    const visits = doneVisits('a', 2); // 復能用完了
+    assert.deepEqual(sortPools(rows, visits).map((x) => x.id), ['b', 'a']);
+  });
+
+  test('剩得少的排前面 —— 那是她要提醒客戶加購的', () => {
+    const rows = [e('a', '復能', 10), e('b', '靜脈', 10)];
+    const visits = doneVisits('a', 8); // 復能剩 2、靜脈剩 10
+    assert.deepEqual(sortPools(rows, visits).map((x) => x.id), ['a', 'b']);
+  });
+
+  test('二返緊跟在它那一筆健檢後面，剩餘次數不一樣時也是（ADR-0022）', () => {
+    // 這一條是重點：最需要把兩張擺在一起看的情況，正是兩者剩餘不同的時候
+    //（「健檢做完 N 次、二返還欠 M 次」，欠幾次就是那個差）——
+    // 而那也正是只靠剩餘次數排的話它們會被拆開的時候。
+    const rows = [
+      e('chk', '健檢', 4),
+      e('iv', '營養點滴', 10),
+      e('fu', '二返', 10, 0, { followupForEntitlementId: 'chk' }),
+    ];
+    // 健檢剩 1、點滴剩 4、二返剩 10 —— 只照剩餘次數排的話點滴會擠在中間，
+    // 這一條要的就是那個情況。
+    const visits = [...doneVisits('chk', 3), ...doneVisits('iv', 6)];
+    assert.deepEqual(sortPools(rows, visits).map((x) => x.id), ['chk', 'fu', 'iv']);
+  });
+
+  test('配對走 followupForEntitlementId，不是比課程 —— 兩筆健檢時比課程會配錯', () => {
+    const rows = [
+      e('chk1', '健檢 12 萬', 2),
+      e('chk2', '健檢 0.75 萬', 6),
+      e('fu2', '二返', 6, 0, { followupForEntitlementId: 'chk2' }),
+      e('fu1', '二返', 2, 0, { followupForEntitlementId: 'chk1' }),
+    ];
+    assert.deepEqual(sortPools(rows, []).map((x) => x.id), ['chk1', 'fu1', 'chk2', 'fu2']);
+  });
+
+  test('來源被刪掉的二返照常排，不會掉出畫面', () => {
+    const rows = [e('fu', '二返', 2, 0, { followupForEntitlementId: 'gone' }), e('b', '靜脈', 5)];
+    assert.equal(sortPools(rows, []).length, 2, '兩張都要在');
+  });
+
+  test('不改動傳進來的那個陣列', () => {
+    const rows = [e('a', '復能', 1), e('b', '靜脈', 9)];
+    sortPools(rows, []);
+    assert.deepEqual(rows.map((x) => x.id), ['a', 'b']);
+  });
+});
+
+describe('offCount', () => {
+  test('計數欄位跟現算對不起來的有幾筆', () => {
+    const rows = [
+      { id: 'a', totalQty: 10, doneCount: 9, bookedCount: 0 }, // 現算是 0，對不起來
+      { id: 'b', totalQty: 10, doneCount: 0, bookedCount: 0 }, // 對得起來
+    ];
+    assert.equal(offCount(rows, []), 1);
   });
 });

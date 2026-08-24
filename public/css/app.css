@@ -3532,10 +3532,18 @@ button.mark::after {
 
 /* ---------- 額度 ---------- */
 
-/* 一個時段的抬頭：時間合成一行、剩餘次數、移除。
+/* 一個時段。移除那顆叉叉絕對定位在右上角，所以它不吃抬頭那一列的寬度 ——
+   量過：那一列在 390px 上只有 328px 可用，而時間 212 + 課程名 108 + 叉叉 28
+   加間距是 364，叉叉一定會掉到第二行去，然後那一行只有一顆叉叉。 */
+.slotcard {
+  position: relative;
+}
+
+/* 一個時段的抬頭：時間與課程名一行。
    結束時間本來就是算出來的，拆成兩個上下疊的欄位等於用兩行講一件事。 */
 .slothead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
@@ -3559,6 +3567,27 @@ button.mark::after {
   color: var(--text-mute);
 }
 
+/* 這一段在做什麼。只有一個課程可選時它是**唯一**寫出課程名的地方 ——
+   那時候底下不畫丸子（一顆孤零零的丸子看起來像可以取消）。
+   
+   它同時當這一列的彈簧（把剩餘次數與叉叉推到右邊），所以自己 `flex: 1`，
+   不另外放一顆 `.app__spacer` —— 兩個都能長的東西擺在一起，字會被擠成零寬。
+
+   **`min-width` 不能是 0。** 原生的 `<input type="time">` 有自己的最小寬度、
+   縮不下去，所以整列擠的時候收縮全部落在這一格上：`min-width: 0` 的結果是
+   課程名整個消失（DOM 裡有、畫面上沒有，只有截圖看得出來）。給它一個
+   撐得住的下限，擠不下時整列換行，讓它掉到第二行去。 */
+.slothead__what {
+  flex: 1 1 6em;
+  min-width: 6em;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .slothead__end {
   font-size: var(--text-lg);
   font-weight: 700;
@@ -3566,8 +3595,9 @@ button.mark::after {
 }
 
 .slothead__x {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
   width: 28px;
   height: 28px;
   display: flex;

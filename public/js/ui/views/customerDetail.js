@@ -25,15 +25,18 @@ import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
 import { sortNotes, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
+import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
-import { counts, reconcile, isOverused, validateEntitlement } from '../../domain/entitlements.js';
+import {
+  counts, reconcile, isOverused, validateEntitlement, sortPools, offCount,
+} from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
-import { dayHtml, tallyHtml } from './progress.js';
+import { progressDayHtml, tallyHtml } from './progress.js';
 import { visitReadHtml } from './calendar.js';
 import { openCard, closeCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
@@ -70,7 +73,22 @@ let showVisits = false;
  */
 let detailMonth = null;
 
+/**
+ * 上一次重畫掛在 `el` 上的那組事件。
+ *
+ * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，**`el` 本身沒有被
+ * 換掉** —— 所以每重畫一次就再 `addEventListener` 一次，點一下會跑好幾個
+ * 處理器，而舊的那幾個抓著已經過期的狀態。掛新的之前先把上一組整個中止掉。
+ *
+ * 掛在 `el` 底下那些節點上的監聽不受影響：它們跟著 innerHTML 一起被換掉了。
+ */
+let detailEvents = null;
+let entEvents = null;
+
 const AUDIT_VISIT_LIMIT = 30;
+
+/** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
+const POOL_PICK = '__pool__';
 
 /** 一眼掃得完的長度。超過就收進「看全部」，不要把整頁拉成一條長清單。 */
 const RECENT_VISITS = 6;
@@ -79,6 +97,8 @@ const RECENT_TASKS = 6;
 export async function render(el, id) {
   showVisits = false;
   detailMonth = null;
+  detailEvents?.abort();
+  entEvents?.abort();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -250,11 +270,12 @@ function wire(ctx, { today, marks }) {
 
   // 換月份**只重畫那一塊**（ADR-0038 的規矩：只換真的變了的那一塊）——
   // 重畫整頁會把她剛剛展開的來訪紀錄捲回最上面。
+  detailEvents?.abort();
+  detailEvents = new AbortController();
   el.addEventListener('click', (e) => {
-    const step = e.target.closest('[data-month-step]');
-    if (step) {
-      const month = detailMonth ?? today.slice(0, 7);
-      detailMonth = addMonths(`${month}-01`, Number(step.dataset.monthStep)).slice(0, 7);
+    const stepped = steppedMonth(e.target, detailMonth ?? today.slice(0, 7), addMonths);
+    if (stepped) {
+      detailMonth = stepped;
       const box = el.querySelector('[data-monthblock]');
       if (box) box.innerHTML = monthBlock(ctx.visits, today);
       return;
@@ -273,7 +294,7 @@ function wire(ctx, { today, marks }) {
 
     const task = e.target.closest('[data-task]');
     if (task) toggleTask(ctx, task.dataset.task);
-  });
+  }, { signal: detailEvents.signal });
 
   el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
 
@@ -345,7 +366,7 @@ function contactLine(c) {
 
 /**
  * 那一個月排了什麼。**一天一組、一段一列**，跟「看這個月的進度」那一頁
- * 長一模一樣（共用 `views/progress.js` 的 `dayHtml()` 與 `tallyHtml()`）——
+ * 長一模一樣（共用 `views/progress.js` 的 `progressDayHtml()` 與 `tallyHtml()`）——
  * 她的原話是「就像是客戶那頁『看這個月的進度』那邊呈現的一樣」。
  *
  * **只有選中的那個月。** 以前的篩選是「這個月 || 今天以後的全部」，
@@ -368,18 +389,13 @@ function monthBlock(visits, today) {
     <div class="section">
       <h2 class="section__title">${esc(monthLabel(`${month}-01`))}</h2>
       <span class="section__n">${row ? `${row.days.length} 天・${row.slotCount} 段` : '沒有排'}</span>
-      <span class="monthnav">
-        <button class="monthnav__btn" type="button" data-month-step="-1"
-                aria-label="上個月">${icon('left', { size: 16 })}</button>
-        <button class="monthnav__btn" type="button" data-month-step="1"
-                aria-label="下個月">${icon('right', { size: 16 })}</button>
-      </span>
+      ${monthNav()}
     </div>
 
     ${row ? `
       <span class="chips" style="justify-content: flex-end; margin-bottom: var(--space-2)">
         ${tallyHtml(row.tally)}</span>
-      <div class="progdays">${row.days.map(dayHtml).join('')}</div>`
+      <div class="progdays">${row.days.map(progressDayHtml).join('')}</div>`
       : '<p class="muted" style="margin: 0">這個月沒有排。</p>'}`;
 }
 
@@ -593,32 +609,6 @@ function openDanger(ctx) {
 }
 
 // ---------- 額度 ----------
-
-/**
- * 橫著捲的東西**只有最前面兩三張會被看到**，所以順序要有意義：
- * 還有剩的排前面（用完的她不會去看），剩得少的更前面（那是她要提醒客戶的），
- * 同分時健檢與二返相鄰（ADR-0022：它們成對，「還欠幾次」那句話寫在健檢那一張上）。
- */
-export function sortPools(entitlements, visits) {
-  const remainingOf = (e) => Math.max(0, counts(e, visits, e.id).remaining);
-  return [...entitlements].sort((a, b) => {
-    const ra = remainingOf(a);
-    const rb = remainingOf(b);
-    if ((ra > 0) !== (rb > 0)) return ra > 0 ? -1 : 1;
-    if (ra !== rb) return ra - rb;
-    return String(a.label).localeCompare(String(b.label), 'zh-TW');
-  });
-}
-
-/**
- * 有幾筆的計數欄位跟現算對不起來。
- *
- * 橫著捲之後那張卡可能在畫面外，而「這張卡的數字可能是錯的」不能被捲走 ——
- * 所以段落抬頭旁邊放一顆徽章。
- */
-function offCount(entitlements, visits) {
-  return entitlements.filter((e) => !reconcile(e, visits, e.id).ok).length;
-}
 
 function poolCard(e, visits, ctx, today) {
   const c = counts(e, visits, e.id);
@@ -1016,17 +1006,14 @@ function paintEntitlement(ctx, record, draft = null) {
  */
 function buyFields(e, courses) {
   return `
-    <div class="fieldgroup">
-      <span class="fieldgroup__label">買了什麼</span>
-      <div class="chiprow">
-        ${courses.map((course) => `
-          <button class="chip" type="button" data-course="${esc(course.id)}"
-                  aria-pressed="${e.type === 'single' && e.courseId === course.id}">
-            ${esc(course.name)}</button>`).join('')}
-        <button class="chip" type="button" data-pool
-                aria-pressed="${e.type === 'pool'}">復能（三選一池）</button>
-      </div>
-    </div>
+    ${f.chips({
+      name: 'buy', label: '買了什麼',
+      value: e.type === 'pool' ? POOL_PICK : e.courseId,
+      options: [
+        ...courses.map((course) => ({ value: course.id, label: course.name })),
+        { value: POOL_PICK, label: '復能（三選一池）' },
+      ],
+    })}
 
     <div class="fieldgroup">
       <span class="fieldgroup__label">幾次</span>
@@ -1125,10 +1112,24 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       ...e, ...readEntitlement(form), advanced: advanced(), ...over,
     });
 
+  entEvents?.abort();
+  entEvents = new AbortController();
+  f.wireChips(el, { signal: entEvents.signal });
+
   el.addEventListener('click', (ev) => {
-    const course = ev.target.closest('[data-course]');
-    if (course) {
-      const found = aliveCourses.find((x) => x.id === course.dataset.course);
+    const pick = ev.target.closest('[data-chip="buy"]');
+    if (pick) {
+      const value = pick.dataset.chipValue;
+      if (value === POOL_PICK) {
+        redraw({
+          type: 'pool',
+          courseId: null,
+          label: e.label || '復能',
+          optionEquipmentIds: ctx.equipment.filter((x) => !x.deletedAt).map((x) => x.id),
+        });
+        return;
+      }
+      const found = aliveCourses.find((x) => x.id === value);
       // 選了課程就把名稱與時長帶進來 —— 她一個字都不用打。
       // 她自己改過的名稱不覆蓋（那是進階設定裡刻意動過的）。
       redraw({
@@ -1142,22 +1143,12 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       return;
     }
 
-    if (ev.target.closest('[data-pool]')) {
-      redraw({
-        type: 'pool',
-        courseId: null,
-        label: e.label || '復能',
-        optionEquipmentIds: ctx.equipment.filter((x) => !x.deletedAt).map((x) => x.id),
-      });
-      return;
-    }
-
     const qty = ev.target.closest('[data-qty]');
     if (qty) {
       const box = form.elements.totalQty;
       box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
     }
-  });
+  }, { signal: entEvents.signal });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -1222,7 +1213,8 @@ function courseOptions(courses, currentId) {
 function readEntitlement(form) {
   const v = f.readForm(form);
   return {
-    // 型態與課程由丸子決定，不在表單元素上 —— 讀回來的是隱藏欄位那一份。
+    // 課程由「買了什麼」那一排丸子決定，而那一顆的值直接寫進 draft
+    // （`redraw()`），不從表單讀 —— 因為擇一池那一顆不是課程 id。
     // 進階設定裡的下拉（只有編輯既有的那一張才有）優先。
     courseId: v.courseIdPick ?? v.courseId ?? null,
     label: String(v.label ?? '').trim(),

@@ -17,6 +17,7 @@
 
 import { esc } from './form.js';
 import { availableDates, partLabel } from '../../domain/availability.js';
+import { weekdayName } from '../../domain/dates.js';
 
 /**
  * @param {object} row
@@ -89,12 +90,10 @@ export function rowFromCollection(record) {
 
 /** 卡片上的一行塞不下完整句子，這裡只給日期本身。完整的在原文裡。 */
 function describeShort(rule) {
-  if (rule.kind === 'exclude_weekday') return `每週${weekdayLabelOf(rule.weekday)}${partLabel(rule.partOfDay)}`;
+  if (rule.kind === 'exclude_weekday') return `每週${weekdayName(rule.weekday)}${partLabel(rule.partOfDay)}`;
   if (rule.kind === 'exclude_date') return `${short(rule.date)}${partLabel(rule.partOfDay)}`;
   if (rule.kind === 'exclude_range') return `${short(rule.from)}–${short(rule.to)}`;
   return '';
 }
 
-const WD = ['日', '一', '二', '三', '四', '五', '六'];
-const weekdayLabelOf = (n) => WD[n] ?? '?';
 const short = (iso) => (typeof iso === 'string' ? iso.slice(5).replace('-', '/') : '');

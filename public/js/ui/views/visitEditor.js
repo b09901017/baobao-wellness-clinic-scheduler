@@ -328,7 +328,7 @@ function slotCard(ctx, draft, slot, i) {
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
 
   return `
-    <section class="card ${embedded ? 'card--bare' : ''}">
+    <section class="card slotcard ${embedded ? 'card--bare' : ''}">
       <div class="slothead">
         <div class="slothead__time">
           <input type="time" name="s${i}-start" value="${esc(slot.startsAt ?? '')}" step="300"
@@ -336,10 +336,12 @@ function slotCard(ctx, draft, slot, i) {
           <span class="slothead__dash">–</span>
           <span class="slothead__end num">${esc(slot.endsAt ?? '—')}</span>
         </div>
-        <span class="app__spacer"></span>
-        ${ent ? `<span class="poolchip">剩 <b class="num">${
-          counts(ent, customerVisits, ent.id).remaining}</b>／${
-          counts(ent, customerVisits, ent.id).total}</span>` : ''}
+        ${/* 剩餘次數不寫在這裡：正下方那一排額度丸子上，被選中的那一顆
+             已經寫著「復能 剩 11」。同一個數字在相隔 30px 的地方寫兩次，
+             省下來的空間剛好夠課程名待在同一行（SPEC 第 8.3 節那張圖）。 */''}
+        ${courseChoices.length === 1 && course
+          ? `<span class="slothead__what">${esc(course.name)}</span>`
+          : '<span class="app__spacer"></span>'}
         ${draft.slots.length > 1
           ? `<button class="slothead__x" type="button" data-del-slot="${i}"
                      aria-label="移除第 ${i + 1} 段">${icon('close', { size: 15, width: 2 })}</button>`
@@ -354,6 +356,9 @@ function slotCard(ctx, draft, slot, i) {
         }),
       })}
 
+      ${/* 只有一個選項時不畫丸子（一顆孤零零的丸子看起來像可以取消），
+             課程名由上面那一行的抬頭講 —— SPEC 第 8.3 節那張圖就是
+             `10:30–11:30  物理賦能  剩 11/12`。 */''}
       ${courseChoices.length === 1
         ? ''
         : f.chips({

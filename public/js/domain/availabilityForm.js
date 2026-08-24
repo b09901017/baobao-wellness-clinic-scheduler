@@ -373,6 +373,42 @@ export function rawTextFrom({ weekdays, dates, freeText } = {}, { month = null }
   return [picked, free].filter(Boolean).join('\n');
 }
 
+/**
+ * 一份既有的收集記錄裡，**屬於「她（或客戶）自己打的那段話」**的部分。
+ *
+ * 打開一份舊的來改時要把它帶回備註欄，不然存回去的時候
+ * `rawTextFrom()` 會用新產生的那一段整個蓋掉它 —— **客戶原本說的話就沒了**，
+ * 而且沒有任何訊息。那違反 SPEC 第 4.3 節「原文永遠比解析結果大」，
+ * 也是 `.scratch/customer-detail-rework/issues/04` 的驗收條件之一
+ *（「存回去不會掉東西」）。
+ *
+ * `rawTextFrom()` 存的是兩行：第一行是點選組回去的人話，第二行起是照抄的。
+ * 所以第一行**如果剛好等於**現在這組點選產生的句子，那它就是機器寫的，可以丟；
+ * 認不出來（例如 2026-08 以前她自己打的整段原文，根本沒有換行）就
+ * **整段留著** —— 寧可讓她看到一段重複的字，也不要安靜地弄丟客戶講過的話。
+ *
+ * @param {string} rawText 記錄上存的原文
+ * @param {{weekdays?:object[], dates?:object[]}} picks 反推回來的那組點選
+ * @param {{month?:string}} [opts]
+ * @returns {string}
+ */
+export function freeTextFrom(rawText, picks, { month = null } = {}) {
+  const raw = String(rawText ?? '').trim();
+  if (!raw) return '';
+
+  // 「這個月都可以」是 rawTextFrom() 在兩邊都空的時候寫的，不是她打的。
+  if (raw === '這個月都可以') return '';
+
+  const generated = picksToText(picks, { month }).trim();
+  if (!generated) return raw;
+
+  const nl = raw.indexOf('\n');
+  const first = (nl === -1 ? raw : raw.slice(0, nl)).trim();
+  if (first !== generated) return raw;
+
+  return nl === -1 ? '' : raw.slice(nl + 1).trim();
+}
+
 // ---------- 給人看的複述 ----------
 
 /**

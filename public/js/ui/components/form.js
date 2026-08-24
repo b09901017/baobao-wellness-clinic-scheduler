@@ -155,8 +155,12 @@ export function chips({ name, label, value, options, hint = '', quiet = false })
  *
  * `quiet` 的那幾組選了**不派 change**，只改 `aria-pressed` 與那個 hidden input ——
  * 值還是讀得到（`readForm()` 讀的是 input），只是畫面不重畫。
+ *
+ * **`root` 是會被重畫換掉的節點時不用給 `signal`**（監聽跟著節點一起消失）；
+ * 掛在一個會留著的容器上（例如整頁的 `el`）就一定要給，不然每重畫一次就
+ * 多掛一組，點一下會跑好幾次。
  */
-export function wireChips(root) {
+export function wireChips(root, { signal } = {}) {
   root.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-chip]');
     if (!chip || chip.getAttribute('aria-disabled') === 'true') return;
@@ -173,7 +177,7 @@ export function wireChips(root) {
     if (box.dataset.chipQuiet === undefined) {
       box.dispatchEvent(new Event('change', { bubbles: true }));
     }
-  });
+  }, { signal });
 }
 
 export function checkboxes({ name, label, values = [], options, hint = '' }) {

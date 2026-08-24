@@ -12,18 +12,19 @@
 import * as data from '../../data/customers.js';
 import { describeRule, currentCollection, validateCollection } from '../../domain/availability.js';
 import {
-  monthGrid, picksToRules, rawTextFrom, rulesToPicks,
+  freeTextFrom, monthGrid, picksToRules, rawTextFrom, rulesToPicks,
 } from '../../domain/availabilityForm.js';
 import {
-  todayISO, addMonths, lastDayOf, shortDate, monthLabel, weekdayOf,
+  todayISO, addMonths, lastDayOf, shortDate, monthLabel, weekdayOf, weekdayName,
 } from '../../domain/dates.js';
 import * as banUi from '../components/ban.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
+import { monthNav, steppedMonth } from '../components/monthnav.js';
 
+/** 一週從星期一開始。她的日曆與客戶那一頁都是這個順序。 */
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
-const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
-import { pushScreen } from '../nav.js';
+import { pushLayer, pushScreen } from '../nav.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -100,6 +101,29 @@ export function wireSection(ctx) {
 // 只是它現在保證跟規則一致（那句話餵回 `parseAvailability()` 會得到同一組規則，
 // 那是 `tests/availability-form.test.js` 盯著的不變量）。
 
+/**
+ * 點一天之後那張三選一疊在這一頁上面，所以它**也是一層**（ADR-0048：
+ * 畫面上多出來一層東西，就多一筆返回鍵退得掉的紀錄 —— 不管那一層是一張抽屜、
+ * 一張卡片、一個對話框）。
+ *
+ * 它的生死跟著 `state.sheetDate` 走，同步在 `wireForm()` 的最後做：
+ * 有日期就推一層、沒有就收掉。這樣「點選項」「點取消」「按返回鍵」三條路
+ * 都落在同一個地方，不會有第二份關閉邏輯。
+ */
+let daySheetLayer = null;
+
+/**
+ * 上一次重畫掛的那組事件。
+ *
+ * `paintForm()` 換的是 `el.innerHTML`，**`el` 本身沒有被換掉** —— 所以每重畫
+ * 一次就再 `addEventListener` 一次，點一下會跑好幾個處理器，而舊的那幾個
+ * 抓著已經過期的 `state`。這一頁重畫得很兇（點一天、換月份、選一個半天），
+ * 症狀是「點了三選一之後有一筆日期變成 null」。
+ *
+ * 掛新的之前先把上一組整個中止掉。
+ */
+let formEvents = null;
+
 /** 她問的永遠是「下個月」，所以預設就是下個月。 */
 const defaultMonth = (today) => addMonths(today, 1).slice(0, 7);
 
@@ -124,6 +148,9 @@ function paintForm(ctx, record, draft = null) {
   const today = todayISO();
   const isNew = !record?.id;
 
+  // 從客戶詳情重新進來（不是自己重畫）—— 上一次留下的那一層不算數了。
+  if (!draft) daySheetLayer = null;
+
   const state = draft ?? initialDraft(record, today);
   const cells = monthGrid(state.month, { today: null });
 
@@ -139,12 +166,7 @@ function paintForm(ctx, record, draft = null) {
 
     <div class="section">
       <h2 class="section__title">${esc(monthLabel(`${state.month}-01`))}</h2>
-      <span class="monthnav">
-        <button class="monthnav__btn" type="button" data-month-step="-1"
-                aria-label="上個月">${icon('left', { size: 16 })}</button>
-        <button class="monthnav__btn" type="button" data-month-step="1"
-                aria-label="下個月">${icon('right', { size: 16 })}</button>
-      </span>
+      ${monthNav()}
     </div>
 
     <div class="pickcal">
@@ -152,7 +174,7 @@ function paintForm(ctx, record, draft = null) {
         ${WEEK_ORDER.map((w) => `
           <button class="pickcal__wd" type="button" data-weekday="${w}"
                   aria-pressed="${Boolean(state.weekdays.get(w))}"
-                  title="整個月的禮拜${WEEKDAY_NAMES[w]}都不行">${WEEKDAY_NAMES[w]}${
+                  title="整個月的禮拜${weekdayName(w)}都不行">${weekdayName(w)}${
             partTag(state.weekdays.get(w))}</button>`).join('')}
       </div>
       <div class="pickcal__grid">${cells.map((c) => cellHtml(c, state)).join('')}</div>
@@ -190,7 +212,7 @@ function paintForm(ctx, record, draft = null) {
 
     ${state.sheetDate ? sheetHtml(state.sheetDate, state) : ''}`;
 
-  wireForm(el, ctx, record, state, today);
+  wireForm(el, ctx, record, state);
 }
 
 /**
@@ -206,7 +228,9 @@ function initialDraft(record, today) {
     weekdays: new Map(picks.weekdays.map((w) => [w.weekday, w.partOfDay ?? 'all'])),
     dates: new Map(picks.dates.map((d) => [d.date, d.partOfDay ?? 'all'])),
     leftover,
-    freeText: '',
+    // **她（或客戶）自己打的那段話要帶回來。** 存檔時 rawText 是重新產生的，
+    // 不帶回來的話改一份舊的等於安靜地把客戶原本說的話換掉（SPEC 第 4.3 節）。
+    freeText: freeTextFrom(record?.rawText, picks, { month }),
     collectedAt: record?.collectedAt ?? today,
     followupNote: record?.followupNote ?? '',
     sheetDate: null,
@@ -250,7 +274,7 @@ function sheetHtml(date, state) {
         <p class="picksheet__title">${esc(shortDate(date))}</p>
         ${byWeekday ? `
           <p class="picksheet__note">這一天是被「每個禮拜${
-            WEEKDAY_NAMES[weekdayOf(date)]}」擋掉的。要放行請點日曆最上面那一排。</p>` : ''}
+            weekdayName(weekdayOf(date))}」擋掉的。要放行請點日曆最上面那一排。</p>` : ''}
         ${PART_CHOICES.map(([v, label]) => `
           <button class="picksheet__choice ${current === v ? 'picksheet__choice--on' : ''}"
                   type="button" data-set="${v}">${label}</button>`).join('')}
@@ -314,10 +338,9 @@ const draftPicks = (state) => {
   return { weekdays, dates };
 };
 
-function wireForm(el, ctx, record, state, today) {
+function wireForm(el, ctx, record, state) {
   const isNew = !record?.id;
   const form = el.querySelector('[data-form]');
-  const repaint = () => paintForm(ctx, record, { ...state, ...readForm(form) });
 
   // 原地換掉整頁 → 疊一層。這一頁重畫自己很多次（點一天、換月份、刪一條），
   // 所以 pushScreen 要一把 key，不然按十次返回鍵才回得去。
@@ -328,10 +351,12 @@ function wireForm(el, ctx, record, state, today) {
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
 
+  formEvents?.abort();
+  formEvents = new AbortController();
+
   el.addEventListener('click', (e) => {
-    const step = e.target.closest('[data-month-step]');
-    if (step) {
-      const next = addMonths(`${state.month}-01`, Number(step.dataset.monthStep)).slice(0, 7);
+    const next = steppedMonth(e.target, state.month, addMonths);
+    if (next) {
       // 換月份不清掉已經點的：她可能在兩個月之間來回確認。反正只有
       // `state.month` 那個月的格子畫得出來，存的時候也只收那個月。
       paintForm(ctx, record, { ...state, ...readForm(form), month: next, sheetDate: null });
@@ -378,7 +403,7 @@ function wireForm(el, ctx, record, state, today) {
         leftover: state.leftover.filter((_, k) => k !== i),
       });
     }
-  });
+  }, { signal: formEvents.signal });
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -398,9 +423,18 @@ function wireForm(el, ctx, record, state, today) {
   });
 
   if (!isNew) wireDangerZone(ctx, record);
-  // 沒有用到，但留著讓「今天」跟畫面上的其他日期一致
-  void today;
-  void repaint;
+
+  // 三選一那一層的生死。三條關閉的路（選一個、按取消、按返回鍵）都經過這裡。
+  if (state.sheetDate && !daySheetLayer) {
+    daySheetLayer = pushLayer(() => {
+      daySheetLayer = null;
+      // 返回鍵：收掉三選一，那一天不動。
+      paintForm(ctx, record, { ...state, ...readForm(form), sheetDate: null });
+    });
+  } else if (!state.sheetDate && daySheetLayer) {
+    daySheetLayer.pop();
+    daySheetLayer = null;
+  }
 }
 
 function readForm(form) {

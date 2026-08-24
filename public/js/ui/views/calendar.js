@@ -641,6 +641,16 @@ function wireAddMenu(sheet, handlers) {
     setOpen(false);
   });
 
+  // Esc 先收選單，**不要讓它一路傳到抽屜**（`sheet.js` 也聽 Escape）——
+  // 不然按一下 Esc 會把整張抽屜關掉，而她只是想收掉那張小選單。
+  // 同一個道理見 `card.js` 的 onKey：最上面那一層先關。
+  sheet.el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || list.hidden) return;
+    e.stopPropagation();
+    setOpen(false);
+    toggle.focus();
+  });
+
   menu.querySelectorAll('[data-add]').forEach((btn) =>
     btn.addEventListener('click', () => {
       setOpen(false);
