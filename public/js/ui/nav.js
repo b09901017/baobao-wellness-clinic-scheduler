@@ -21,12 +21,28 @@
 // 網址一個字都不會變（`pushState(state, '', location.hash)`），所以不會觸發
 // `hashchange`，路由不會重畫。hash 路由是刻意選的（見 `router.js` 的檔頭），
 // 這一支沒有動它。
+//
+// ## 為什麼是「對帳」而不是一層一個 back
+//
+// 第一版是「開一層就 pushState，關一層就 history.back()」。那會壞，而且壞得
+// 很難查：**`history.back()` 是非同步的**，它排在後面才跑。所以「關掉卡片 →
+// 關掉抽屜 → 開一張新抽屜」（她在日曆上點一筆再按鉛筆就是這條路）這一連串
+// 同步動作跑完之後，兩個排隊中的 back 才輪到，把剛開好的那張新抽屜也退掉了。
+// 同一種 race 也發生在「關掉面板然後換頁」上。
+//
+// 所以改成：畫面那邊只管維護 `stack`（現在疊著哪幾層），這一支在**微任務**裡
+// 跟瀏覽器紀錄對一次帳 —— 一個 tick 裡開開關關幾次都無所謂，對帳只看最後的結果。
 
-/** 每一層一個遞增的號碼。history.state 上存的就是它。 */
-let seq = 0;
-
-/** @type {{key: number, onPop: Function, closing: boolean}[]} 由下往上 */
+/** 現在畫面上疊著哪幾層，由下往上。 */
 const stack = [];
+
+/**
+ * 瀏覽器紀錄裡目前有幾層（也就是 `history.state.__layer`）。
+ * 對帳就是把它推成等於 `stack.length`。
+ */
+let physical = 0;
+
+let scheduled = false;
 
 /**
  * 我們自己推過幾筆**路由**紀錄。`back()` 用它判斷「有沒有東西可以退」。
@@ -43,50 +59,70 @@ function wire() {
   wired = true;
 
   window.addEventListener('popstate', () => {
-    const target = window.history.state?.__layer ?? 0;
+    physical = window.history.state?.__layer ?? 0;
 
     // 退到哪一層就收掉它上面的每一層。她可能長按返回鍵一次退兩層。
-    while (stack.length && stack[stack.length - 1].key > target) {
-      const layer = stack.pop();
-      // 由畫面自己關掉的那一層（叉叉、手勢、取消）已經收好了，
-      // 這裡只是把它的紀錄吃掉，不要再關一次。
-      if (!layer.closing) layer.onPop();
-    }
+    while (stack.length > physical) stack.pop().onPop();
 
-    // 換頁時留下來的舊層。它們的畫面早就被 hashchange 收掉了，
-    // 紀錄卻還在 —— 不跳過的話她會按到一次「什麼都沒發生」的返回鍵。
-    if (window.history.state?.__layer && !stack.length) window.history.back();
+    schedule();
   });
 
   // 換頁（換路由）時把還開著的層忘掉。它們自己會被 hashchange 收掉
-  // （`sheet.js` / `card.js` 都有那個監聽），這裡只是不要再持有它們。
+  // （`sheet.js` / `card.js` 都有那個監聽），而且**那一路不可以退紀錄** ——
+  // 它們的那幾筆現在在新頁面的下面，退掉會把換頁一起退掉。
   window.addEventListener('hashchange', () => {
     stack.length = 0;
+    physical = window.history.state?.__layer ?? 0;
   });
+}
+
+/** 對帳排在微任務裡：一個 tick 裡開開關關幾次都只對一次。 */
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  queueMicrotask(() => {
+    scheduled = false;
+    reconcile();
+  });
+}
+
+function reconcile() {
+  const want = stack.length;
+  if (physical === want) return;
+
+  if (physical > want) {
+    // 多的一次退到位，不要一層一個 back。
+    const n = physical - want;
+    physical = want;
+    window.history.go(-n);
+    return;
+  }
+
+  while (physical < want) {
+    physical += 1;
+    window.history.pushState({ __layer: physical }, '', window.location.hash);
+  }
 }
 
 /**
  * 畫面上疊了一層東西。
  *
  * @param {Function} onPop 按返回鍵時把這一層收掉。由畫面自己關掉時不會被呼叫。
- * @returns {{pop: Function}} `pop()` 給「用叉叉或手勢關掉」那條路用 ——
- *   它把剛剛推的那一筆紀錄退掉，不然紀錄會越積越多。
+ * @returns {{pop: Function}} `pop()` 給「用叉叉或手勢關掉」那條路用。
  */
 export function pushLayer(onPop) {
   wire();
-  seq += 1;
-  const layer = { key: seq, onPop, closing: false };
+  const layer = { onPop, closed: false };
   stack.push(layer);
-  window.history.pushState({ __layer: layer.key }, '', window.location.hash);
+  schedule();
 
   return {
     pop() {
-      if (layer.closing) return;
-      layer.closing = true;
-      // 只有最上面那一層退得掉。不是最上面的（理論上不該發生）就讓它留在
-      // 堆疊裡由 popstate 收掉 —— 硬退會把別人的紀錄也吃掉。
-      if (stack[stack.length - 1] === layer) window.history.back();
-      else stack.splice(stack.indexOf(layer), 1);
+      if (layer.closed) return;
+      layer.closed = true;
+      const i = stack.indexOf(layer);
+      if (i >= 0) stack.splice(i, 1);
+      schedule();
     },
   };
 }
@@ -123,8 +159,8 @@ export function back(fallback) {
  * 主檔的編輯表單。它們不換網址，所以在上面按返回鍵會整個離開這個人，
  * 而且打到一半的東西沒了。
  *
- * **這些畫面會重畫自己好幾次**（換了額度型態要換欄位、重新解析規則要重列），
- * 所以要一把 key：同一個畫面重畫不再疊一層，不然按五次返回鍵才回得去。
+ * **這些畫面會重畫自己好幾次**（換了額度型態要換欄位、點一天要重畫日曆），
+ * 所以要一把 key：同一個畫面重畫不再疊一層，不然按十次返回鍵才回得去。
  *
  * @param {string} key     這個畫面的身分，例：'customer-edit'
  * @param {Function} restore 回到上一個畫面（通常就是那一頁的 paint()）
@@ -134,9 +170,9 @@ export function pushScreen(key, restore) {
   wire();
 
   const top = stack[stack.length - 1];
-  if (top && top.screenKey === key && !top.closing) {
+  if (top?.screenKey === key) {
     // 同一個畫面重畫。restore 的 closure 可能換了（它抓著新的 draft），
-    // 所以要換掉，但不再推一筆紀錄。
+    // 所以要換掉，但不再疊一層。
     top.onPop = restore;
     return top.leave;
   }
@@ -156,12 +192,13 @@ export function pushScreen(key, restore) {
  * 存完了、要整頁重讀的時候呼叫。
  *
  * 原地換掉的那幾層（`pushScreen()`）如果留在紀錄裡，她存完之後按返回鍵
- * 會回到一張**已經存過的表單**，看起來像沒存進去。這一支把它們的紀錄
- * 一起退掉，而且不呼叫它們的 restore —— 呼叫端正在做自己的重畫。
+ * 會回到一張**已經存過的表單**，看起來像沒存進去。這一支把它們一起收掉，
+ * 而且不呼叫它們的 restore —— 呼叫端正在做自己的重畫。
  */
 export function popScreens() {
-  const live = stack.filter((l) => l.screenKey && !l.closing);
-  if (!live.length) return;
-  for (const l of live) l.closing = true;
-  window.history.go(-live.length);
+  const before = stack.length;
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    if (stack[i].screenKey) stack.splice(i, 1);
+  }
+  if (stack.length !== before) schedule();
 }

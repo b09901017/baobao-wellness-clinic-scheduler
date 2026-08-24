@@ -234,6 +234,7 @@ function paint(ctx, draft) {
   );
 
   const form = el.querySelector('[data-form]');
+  f.wireChips(form);
 
   form.addEventListener('change', async (e) => {
     // 這一句話不影響畫面上算出來的任何東西，所以不要為了它重畫。
@@ -308,6 +309,18 @@ function warningsHtml(warnings, embedded = false) {
     </div>`;
 }
 
+/**
+ * 一個時段。
+ *
+ * **選項一律用丸子，不是下拉選單**（2026-08-24）。SPEC 第 8.2 節寫的
+ * 「課程／時段／器材／治療師／診間全部用點的，備註才要打字」與第 8.3 節那張
+ * 範例圖畫的本來就是丸子 —— 實作用了 `<select>` 是從一開始就沒照規格做。
+ * 理由與作法見 `ui/components/form.js` 的 `chips()`。
+ *
+ * **時間合成一行**（`10:30 – 11:30`）：結束時間本來就是算出來的，
+ * 拆成兩個上下疊的欄位等於用兩行講一件事。那句「依 XX 的時長自動算」也拿掉了
+ * —— 改了左邊右邊就動，那是看得出來的。
+ */
 function slotCard(ctx, draft, slot, i) {
   const { entitlements, all, customerVisits, customer, embedded } = ctx;
   const ent = entitlements.find((x) => x.id === slot.entitlementId) ?? null;
@@ -316,67 +329,55 @@ function slotCard(ctx, draft, slot, i) {
 
   return `
     <section class="card ${embedded ? 'card--bare' : ''}">
-      <div class="pool__head">
-        <span>第 ${i + 1} 個時段</span>
-        <span class="muted">${esc(timeLabel(slot))}</span>
+      <div class="slothead">
+        <div class="slothead__time">
+          <input type="time" name="s${i}-start" value="${esc(slot.startsAt ?? '')}" step="300"
+                 aria-label="第 ${i + 1} 段的開始時間" />
+          <span class="slothead__dash">–</span>
+          <span class="slothead__end num">${esc(slot.endsAt ?? '—')}</span>
+        </div>
+        <span class="app__spacer"></span>
+        ${ent ? `<span class="poolchip">剩 <b class="num">${
+          counts(ent, customerVisits, ent.id).remaining}</b>／${
+          counts(ent, customerVisits, ent.id).total}</span>` : ''}
+        ${draft.slots.length > 1
+          ? `<button class="slothead__x" type="button" data-del-slot="${i}"
+                     aria-label="移除第 ${i + 1} 段">${icon('close', { size: 15, width: 2 })}</button>`
+          : ''}
       </div>
 
-      ${f.select({
+      ${f.chips({
         name: `s${i}-ent`, label: '額度', value: slot.entitlementId,
-        options: [
-          { value: null, label: '（請選擇）' },
-          ...entitlements.map((e) => {
-            const c = counts(e, customerVisits, e.id);
-            return { value: e.id, label: `${e.label}（剩 ${c.remaining} / ${c.total}）` };
-          }),
-        ],
+        options: entitlements.map((e) => {
+          const c = counts(e, customerVisits, e.id);
+          return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
+        }),
       })}
 
       ${courseChoices.length === 1
-        ? f.readonly({ label: '課程', value: courseChoices[0].name })
-        : f.select({
+        ? ''
+        : f.chips({
             name: `s${i}-course`, label: '課程', value: slot.courseId,
-            options: [
-              { value: null, label: '（請選擇）' },
-              ...courseChoices.map((c) => ({ value: c.id, label: c.name })),
-            ],
+            options: courseChoices.map((c) => ({ value: c.id, label: c.name })),
           })}
 
       ${course?.requiresEquipment ? equipmentField(customer, ent, all, slot, i) : ''}
       ${course?.requiresIvProduct
-        ? f.select({
-            name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId,
-            options: [
-              { value: null, label: '（請選擇）' },
-              ...all.ivProducts.map((p) => ({ value: p.id, label: p.name })),
-            ],
-            hint: '每次施打的品項可能不同，所以每次都要記。',
+        ? f.chips({
+            name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId, quiet: true,
+            options: all.ivProducts.map((p) => ({ value: p.id, label: p.name })),
           })
         : ''}
-
-      ${f.time({ name: `s${i}-start`, label: '開始時間', value: slot.startsAt })}
-      ${f.readonly({
-        label: '結束時間',
-        value: slot.endsAt ?? '—',
-        hint: `依 ${esc(course?.name ?? '課程')} 的時長自動算，改開始時間就跟著動。`,
-      })}
 
       ${course?.assigns === 'room' ? roomField(all, course, slot, i) : ''}
       ${course?.assigns === 'therapist'
-        ? f.select({
-            name: `s${i}-staff`, label: '治療師', value: slot.therapistId,
-            options: [
-              { value: null, label: '（請選擇）' },
-              ...staffWithRole(all.staff, THERAPIST_ROLE)
-                .map((s) => ({ value: s.id, label: s.name })),
-            ],
+        ? f.chips({
+            name: `s${i}-staff`, label: '治療師', value: slot.therapistId, quiet: true,
+            options: staffWithRole(all.staff, THERAPIST_ROLE)
+              .map((x) => ({ value: x.id, label: x.name })),
           })
         : ''}
       ${course?.requiresDoctor ? doctorField(all, slot, i) : ''}
-
-      ${draft.slots.length > 1
-        ? `<p><button class="btn" type="button" data-del-slot="${i}">移除這個時段</button></p>`
-        : ''}
     </section>`;
 }
 
@@ -389,17 +390,18 @@ function equipmentField(customer, ent, all, slot, i) {
     : all.equipment;
 
   const annotated = annotateOptions(customer, pool);
-  const options = [
-    { value: null, label: '（請選擇）' },
-    ...annotated.map((eq) => ({
-      value: eq.id,
-      label: eq.blocked ? `✕ ${eq.name}（${eq.reasons.join('、')}，不可使用）` : eq.name,
-    })),
-  ];
 
-  return f.select({
-    name: `s${i}-equip`, label: '器材', value: slot.equipmentId, options,
-    hint: '打叉的是醫療禁忌擋下的，選了會存不進去 —— 這是全系統唯一會擋人的檢查。',
+  // **被擋掉的留在原位、劃掉、點不下去。** 這是丸子取代下拉最重要的一個理由：
+  // SPEC 第 4.3 節要求醫療禁忌永遠可見不可摺疊，而下拉選單裡那一行
+  // 「✕ 超磁場（不可使用）」只有點開才看得到。
+  return f.chips({
+    name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
+    options: annotated.map((eq) => ({
+      value: eq.id,
+      label: eq.name,
+      disabled: eq.blocked,
+      note: eq.blocked ? eq.reasons.join('、') : '',
+    })),
   });
 }
 
@@ -414,15 +416,13 @@ function equipmentField(customer, ent, all, slot, i) {
  */
 function doctorField(all, slot, i) {
   const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
-  return f.select({
-    name: `s${i}-doc`, label: '醫師', value: slot.doctorId,
+  return f.chips({
+    name: `s${i}-doc`, label: '醫師　還沒定也存得下去', value: slot.doctorId, quiet: true,
     options: [
-      { value: null, label: '（還沒定）' },
+      { value: null, label: '還沒定' },
       ...doctors.map((d) => ({ value: d.id, label: d.name })),
     ],
-    hint: doctors.length
-      ? '還沒定也存得下去，之後回來補。'
-      : '主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。',
+    hint: doctors.length ? '' : '主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。',
   });
 }
 
@@ -431,19 +431,19 @@ function roomField(all, course, slot, i) {
   const allowedIds = new Set(allowed.map((r) => r.id));
   const slots = roomSlots(all.rooms);
 
-  const options = [
-    { value: null, label: '（請選擇）' },
-    ...slots
-      .slice()
-      .sort((a, b) => Number(allowedIds.has(b.roomId)) - Number(allowedIds.has(a.roomId)))
-      .map((s) => ({
-        value: roomKey(s.roomId, s.bed),
-        label: allowedIds.has(s.roomId) ? s.label : `${s.label}（不是這個課程常用的）`,
-      })),
-  ];
+  // 這個課程常用的排前面。不常用的不藏起來（她偶爾真的會排到別間），
+  // 但要標出來 —— 診間有十六個，排錯順序等於每次都要從頭掃。
+  const options = slots
+    .slice()
+    .sort((a, b) => Number(allowedIds.has(b.roomId)) - Number(allowedIds.has(a.roomId)))
+    .map((s) => ({
+      value: roomKey(s.roomId, s.bed),
+      label: s.label,
+      note: allowedIds.has(s.roomId) ? '' : '不常用',
+    }));
 
-  return f.select({
-    name: `s${i}-room`, label: '診間',
+  return f.chips({
+    name: `s${i}-room`, label: '診間', quiet: true,
     value: slot.roomId ? roomKey(slot.roomId, slot.bed) : null,
     options,
   });
