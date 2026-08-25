@@ -51,6 +51,14 @@ bug」，然後要一份「我可以怎麼操作、預期結果是什麼」的�
 無條件取消任務、ADR-0029 的匯入狀態、ADR-0036 的可用性挑月份、
 `firestore.indexes.json` 與所有查詢、`sw.js` 的 SHELL 清單、分層守衛。
 
+## 驗收清單
+
+手動測試流程（125 條，照她實際的做事順序排，含邊緣情況、可勾選）：
+<https://claude.ai/code/artifact/bfbaf061-bbbb-4aa3-86fb-43f8ce5554e1>
+
+不放進 repo 是刻意的：那一份會隨著功能一直改，而它問的是「畫面上看到什麼」，
+不是「程式怎麼寫」—— 進了 `docs/` 就會變成第二份 SPEC。
+
 ## 這一輪之後留下來的東西
 
 - 兩支迴歸測試：`tests/notes.test.js` 的 `normalizePatch`、
