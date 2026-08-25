@@ -1,6 +1,6 @@
 # 加購買不到營養品，營養點滴也選不了品項
 
-Status: todo
+Status: done
 來源：她的三件事，2026-08-25（`../spec.md`）
 動工前先讀：`CONTEXT.md` 的「營養品」「營養點滴品項」「額度」、`docs/adr/0054`、
 `docs/adr/0003`、`domain/legacyImport.js` 的營養點滴那一段

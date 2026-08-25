@@ -1,6 +1,6 @@
 # 詳情卡片還有鉛筆，底下還留著一句看不懂的說明
 
-Status: todo
+Status: done
 來源：她的三件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0018`、`docs/adr/0020`、`ui/components/card.js` 的檔頭
 

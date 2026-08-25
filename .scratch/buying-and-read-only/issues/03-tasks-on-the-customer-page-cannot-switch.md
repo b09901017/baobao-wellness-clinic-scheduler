@@ -1,6 +1,6 @@
 # 客戶詳情的任務不能切換未完成／已完成
 
-Status: todo
+Status: done
 來源：她的三件事，2026-08-25（`../spec.md`）
 動工前先讀：`../../asks-2026-08-25/issues/08`、`ui/views/home.js` 的 `paintTasks()`
 

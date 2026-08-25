@@ -1,6 +1,6 @@
 # 客戶詳情的「來訪」按鈕與來訪紀錄那一列還是直接跳編輯器
 
-Status: todo
+Status: done
 來源：她的三件事，2026-08-25（`../spec.md`）
 動工前先讀：`01-the-detail-card-still-has-a-pencil.md`、`docs/adr/0018`
 

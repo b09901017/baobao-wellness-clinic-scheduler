@@ -894,8 +894,10 @@ function taskRow(t) {
           <span class="note__text">${esc(t.kind)}</span>
         </span>
         <span class="notetags">
+          ${/* 日期一律走 shortDate()：全站別的地方寫的都是「8/30(日)」，
+                 只有這一列印原始的 2026-08-30，看起來像另一種東西 */''}
           <span class="notetag ${!t.done && t.dueDate ? 'notetag--date' : ''}">${
-            t.done ? '已完成' : `死線 ${esc(t.dueDate ?? '—')}`}</span>
+            t.done ? '已完成' : `死線 ${esc(t.dueDate ? shortDate(t.dueDate) : '—')}`}</span>
         </span>
       </button>
       ${t.visitId

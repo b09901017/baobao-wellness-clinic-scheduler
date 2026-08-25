@@ -1,6 +1,6 @@
 # 新增客戶那一頁沒有加購，方案數量最少是 1
 
-Status: todo
+Status: done
 來源：她的三件事，2026-08-25（`../spec.md`）
 動工前先讀：`04-buying-cannot-reach-products-or-drip-items.md`、`docs/adr/0003`、
 `data/customers.js` 的 `createWithPlan()`
