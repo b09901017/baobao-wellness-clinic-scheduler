@@ -2,6 +2,7 @@ import { navRoutes, activeNavPath, start } from './router.js';
 import { icon } from './icons.js';
 import { back } from './nav.js';
 import { setSignOut } from './session.js';
+import { watchSystemTheme } from './theme.js';
 
 function navHtml(activePath) {
   return navRoutes()
@@ -66,6 +67,9 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
  */
 export function renderShell(root, { onSignOut }) {
   setSignOut(onSignOut);
+  // 選了「跟著系統」的話，她在 iPad 的控制中心切深色時 app 通常還開著。
+  // `data-theme` 本身在 index.html 的 `<head>` 就蓋好了（ADR-0055）。
+  watchSystemTheme();
 
   root.innerHTML = `
     <nav class="app__nav" aria-label="主選單"></nav>

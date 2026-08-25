@@ -33,6 +33,20 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap"
     />
 
+
+    <!-- 淺色／深色。客戶這一頁沒有設定，一律跟著他自己的裝置走。
+         行內、不是 module —— 要在第一次繪製之前蓋上去，晚一步會閃一下白的。
+         深色那一整組值在 /css/tokens.css 的 :root[data-theme='dark']。 -->
+    <script>
+      (function () {
+        var dark = window.matchMedia
+          && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        var bar = document.querySelector('meta[name="theme-color"]');
+        if (bar) bar.setAttribute('content', dark ? '#1a1714' : '#2f5d4c');
+      })();
+    </script>
+
     <link rel="stylesheet" href="/css/tokens.css" />
     <link rel="stylesheet" href="/css/form.css" />
   </head>

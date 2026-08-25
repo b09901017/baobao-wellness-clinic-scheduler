@@ -11,6 +11,7 @@ import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import { signOutNow } from '../session.js';
 import { saveText, dated } from '../components/download.js';
+import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -72,6 +73,19 @@ export async function render(el) {
       </div>
     </section>
 
+    <section class="card card--flat">
+      <h2 class="card__title">外觀</h2>
+      <p class="card__note">記在這一台裝置上，兩台各自設定。</p>
+      <div class="chiprow" data-theme-pick>
+        ${THEME_CHOICES.map((c) => `
+          <button class="chip" type="button" data-theme-set="${c.value}"
+                  aria-pressed="${readTheme() === c.value}">${esc(c.label)}</button>`).join('')}
+      </div>
+      <p class="card__note" style="margin-top: var(--space-2)">
+        「跟著系統」是 Android 的 設定 → 顯示 → 深色主題，
+        iPad 的 設定 → 螢幕顯示與亮度。</p>
+    </section>
+
     <section class="card">
       <h2 class="card__title">帳號</h2>
       <p class="card__note">登出之後資料都還在雲端，重新登入就看得到。</p>
@@ -90,6 +104,16 @@ export async function render(el) {
         累積起來可能比其他資料加起來還大，手機下載會等比較久。</p>
       <p><button class="btn" type="button" data-export>匯出</button></p>
     </section>`;
+
+  // 換主題只改那一排丸子的 aria-pressed，**不重畫整頁**（ADR-0038）——
+  // 顏色是 CSS 變數換的，畫面自己會跟上。
+  el.querySelector('[data-theme-pick]')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-theme-set]');
+    if (!btn) return;
+    setTheme(btn.dataset.themeSet);
+    el.querySelectorAll('[data-theme-set]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b === btn)));
+  });
 
   el.querySelector('[data-seed]')?.addEventListener('click', () => runSeed(el));
   el.querySelector('[data-signout]')?.addEventListener('click', () => signOutNow());

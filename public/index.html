@@ -32,6 +32,28 @@
       />
     </noscript>
 
+
+    <!-- 淺色／深色。**要在第一次繪製之前蓋上去**，晚一步就會閃一下白的，
+         所以它是行內的、不是 module（module 是 defer 的，來不及）。
+         同一件事的執行期版本在 /js/ui/theme.js —— key 與那三個值兩邊要一致，
+         `tests/tokens.test.js` 盯著。 -->
+    <script>
+      (function () {
+        var choice = 'system';
+        try {
+          var saved = localStorage.getItem('scheduler.theme');
+          if (saved === 'light' || saved === 'dark' || saved === 'system') choice = saved;
+        } catch (e) { /* 無痕視窗讀不到，當作跟著系統 */ }
+        var dark = choice === 'dark'
+          || (choice === 'system'
+              && window.matchMedia
+              && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        var bar = document.querySelector('meta[name="theme-color"]');
+        if (bar) bar.setAttribute('content', dark ? '#1a1714' : '#2f5d4c');
+      })();
+    </script>
+
     <link rel="stylesheet" href="/css/tokens.css" />
     <link rel="stylesheet" href="/css/app.css" />
   </head>

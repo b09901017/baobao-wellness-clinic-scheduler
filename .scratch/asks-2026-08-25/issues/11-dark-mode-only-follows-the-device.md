@@ -1,6 +1,6 @@
 # 深色模式只跟系統走，切不動
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0039`、`public/css/tokens.css` 的檔頭
 
