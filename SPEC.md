@@ -489,10 +489,16 @@ audit/{eventId}                   // append-only 稽核紀錄
 {
   text,
   customerId, customerName,   // 可為 null（不掛在任何人身上的雜事）
+  date,                       // 選填，'2026-09-03'。掛了就出現在日曆「待辦」那一類
+                              //   空字串一律正規化成 null —— 日曆是用
+                              //   where('date', '>=', …) 撈的，null 撈不到而
+                              //   空字串會排在所有日期前面（ADR-0044）
   done, doneAt,
   createdBy, createdAt, updatedAt, deletedAt
 }
 // 沒有死線，所以不是任務。任務是來訪自動產生的，隨手記是她自己打的。
+// 上面那個 date **不是死線**：它是「我想在這一天處理」，過了只有字變色，
+// 不進「逾期」那顆數字。見 docs/adr/0044-a-dated-note-goes-on-the-calendar.md。
 
 // batches/{id}  —— 一次壓表作業
 {
@@ -521,11 +527,17 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 ### 5.4 需要的複合索引
 
+**軟刪除是查詢的一部分**（第 6.1 節：永不硬刪除），所以會被查的集合一律以
+`deletedAt` 開頭 —— 少了它，刪掉的東西會照樣被撈回畫面上。
+
 - `visits`: `date asc` + `status`；`customerId` + `date desc`
-- `events`: `startDate asc`；跨天的要靠 `endDate >= 月初` 再過濾，見 `domain/events.js`
-- `notes`: `done` + `createdAt desc`；`customerId` + `createdAt desc`
+- `events`: `deletedAt` + `endDate asc`；跨天的要靠 `endDate >= 月初` 再過濾，見 `domain/events.js`
+- `notes`: `deletedAt` + `done` + `createdAt desc`；`deletedAt` + `customerId` + `createdAt desc`；
+  `deletedAt` + `date asc`（日曆上「待辦」那一類，ADR-0044）；`deletedAt` + `createdAt desc`
 - `tasks`: `done` + `dueDate asc`；`visitId`
 - `customers`: `active` + `name`
+
+實際的那一份在 `firestore.indexes.json`，這裡只講為什麼。
 
 ### 5.5 任務產生規則矩陣
 
@@ -641,8 +653,19 @@ audit/{eventId}                   // append-only 稽核紀錄
 | 額度超用 | 已排 + 已完成 > 總次數 |
 | 資料過期 | 可用性收集已過有效期 |
 | 衝突殘留 | 同診間／同治療師同時段重複 |
+| 備註寫著舊的說法 | 匯入寫的「姓名欄的編號：」，正確的說法是「病歷號」（ADR-0050） |
 
-發現不一致時**顯示差異**，不要自動偷偷改。**一鍵修正只有兩項有** —— 「次數對帳」（真相永遠是 `visits`）與「二返額度」缺配對的那一種（次數就是健檢的次數）。只有這兩件事存在不需要判斷的正解，其餘只顯示差異並提供跳到那一筆的連結，見 `docs/adr/0007-health-check-reads-only.md` 與 `docs/adr/0023-health-check-can-also-create-the-missing-followup.md`。
+發現不一致時**顯示差異**，不要自動偷偷改。這一頁的預設是**只讀不寫**（`docs/adr/0007-health-check-reads-only.md`），其餘一律只顯示差異並提供跳到那一筆的連結，要怎麼處理是她的決定（第 4.7 節、ADR-0002）。
+
+**一項要有「一鍵修正」，三個條件都要成立：**
+
+1. **有明確正解** —— 不需要她判斷該變成什麼。
+2. **沒有第二種可能的意思** —— 不像「健檢 3 次、二返 2 次」那樣可能是她故意的。
+3. **沒有別的地方做得了** —— 這個 app 沒有後台，她只有畫面，跑一次就丟的腳本她跑不了。
+
+目前符合的有三項：**次數對帳**（真相永遠是 `visits`，ADR-0004）、**二返額度缺配對的那一種**（買幾次健檢就有幾次二返，`docs/adr/0023-health-check-can-also-create-the-missing-followup.md`）、**備註寫著舊的說法**（「姓名欄的編號：」改成「病歷號」，`docs/adr/0050-the-health-check-can-rename-an-imported-note.md`）。
+
+**這裡寫的是條件不是數量**：再多一項就補一支 ADR 說明它怎麼符合這三條，不必回來改這一句 —— 上一次加第三項時這裡還寫著「只有兩項」，而那是畫面與規格對不起來。
 
 二返額度那一項裡「次數對不上」的那一種**不給一鍵修正**：健檢 3 次、二返 2 次可能是她故意的（其中一次的報告用電話講完了）。「完全沒有」與「數字不一樣」是兩種問題。
 
@@ -752,6 +775,33 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 **iPad 上放得下兩張卡就放兩張**（`.cardgrid`）。多的是「同時看得到」，不是多出來的功能。
 
+#### 返回鍵：畫面上多一層東西，就多一步退得掉的路
+
+她的主力是 Android 手機，那顆返回鍵是實體的、隨時在手邊。**她按它的意思通常是
+「關掉我剛打開的東西」，不是「離開這一頁」。**
+
+所以底部面板、浮出的讀取卡片、二次確認，以及**原地換掉整頁 `innerHTML` 的畫面**
+（客戶詳情的「編輯」「加購」、可用性的「記一次」、主檔的編輯表單）——
+一律各推一筆瀏覽器紀錄，走 `ui/nav.js` 的 `pushLayer()` / `pushScreen()`。
+推的是 `pushState(state, '', location.hash)`，**網址一個字都不會變**，
+所以不觸發 `hashchange`、路由不重畫。
+
+三條配套的規矩：
+
+- **「回上一頁」要真的退**（`back(fallback)`），不是把 `location.hash` 再推一筆 ——
+  推的話「客戶列表 → 客戶詳情 → 按左上角的『客戶』」會在紀錄裡留下三筆，
+  再按返回鍵會回到她剛剛才離開的地方。有沒有東西可以退**自己數**，
+  不看 `history.length`（她從 LINE 點連結進來時那個數字跟這個 app 無關）。
+- **存檔之後要把那幾層收掉**，不然存完按返回鍵會回到一張已經存過的表單，
+  看起來像沒存進去。
+- **一層不等於一次重畫。** 同一個畫面重畫（換額度型態、點一天）要靠 key
+  認出來，不再疊一層；壓表的卡片組整組只算一層，換人不推
+  （`docs/adr/0052-the-deck-is-one-layer.md`）。
+
+`pushState` 有頻率上限（Safari 每 30 秒），所以**高頻的互動一律不推** ——
+選一顆丸子、換一個日子、滑到下一位都不是「多一層東西」。
+理由與踩過的 race 見 `docs/adr/0048-a-layer-on-screen-is-a-step-back.md`。
+
 ### 8.1 首頁 — TODO 中心
 
 **主力裝置：手機**（走動時勾待辦）。iPad 橫式時左待辦、右選中項目的詳情。
@@ -857,9 +907,12 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 #### 記錄是疊上來的一張卡，不是另一個畫面
 
-點一位客戶不換頁，而是把記錄面板**疊在卡片牆上面、置中浮出來**，一位客戶一張，**左右滑就是上一位／下一位**。旁邊那幾張只畫得出姓名與剩餘次數泡泡，滑過去才展開成完整面板。抬頭上有上一位／下一位兩顆鈕，不靠手勢也換得了人。
+點一位客戶不換頁，而是把記錄面板**疊在卡片牆上面、置中浮出來**，一位客戶一張，**左右滑就是上一位／下一位**。旁邊那幾張只畫姓名與那顆醫療禁忌丸，**跟卡片牆上看到的一樣**（ADR-0046）——
+剩餘次數不畫，一張卡只有一半露在外面，四顆泡泡在那個寬度只會是四塊色。滑過去才展開成完整面板。抬頭上有上一位／下一位兩顆鈕，不靠手勢也換得了人。
 
 三個斷點共用同一份：寬螢幕只是卡片更寬、旁邊多露一點，**不是另一套版型**。理由見 `docs/adr/0017-recording-happens-in-a-card-deck.md`。
+
+**手機的返回鍵關掉卡片組，不是跳走整頁**（第 8.0 節的通則：畫面上多一層就多一步退得掉的路）。**整個卡片組只算一層** —— 左右滑換人、點丸子、換日子一筆紀錄都不推，不然按返回鍵會倒著走過她剛剛處理完的二十幾位，而且會撞上 Safari 的 `pushState` 頻率上限。見 `docs/adr/0052-the-deck-is-one-layer.md`。
 
 **iPad 上多的是「同時看得到」，不是多出來的功能。** 手機做得到的事一件都不能少。兩種版型共用同一個 `batch`，任何時候換裝置都接得上。
 
@@ -1011,7 +1064,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 **主力裝置：iPad**（差異比對是表格）。手機版可看摘要與逐項修正。
 
-第 6.6 節的對帳結果，一頁呈現。次數對帳可一鍵修正，其餘只顯示差異並跳到那一筆（`docs/adr/0007-health-check-reads-only.md`）。
+第 6.6 節的對帳結果，一頁呈現。符合那三個條件的檢查項給「一鍵修正」（目前是次數對帳、缺配對的二返額度、備註寫著舊的說法），其餘只顯示差異並跳到那一筆（`docs/adr/0007-health-check-reads-only.md`）。沒有 finding 的檢查項收起來 —— 一頁十項全部攤開，她要找的那一項就被稀釋了。
+
+**沒有背景掃描，也沒有徽章**：要看就自己來這一頁（第 6.6 節、`docs/adr/0049-the-todo-centre-does-not-run-the-health-scan.md`）。
 
 ### 8.8 設定
 
