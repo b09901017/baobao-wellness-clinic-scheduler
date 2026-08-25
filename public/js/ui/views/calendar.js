@@ -869,6 +869,12 @@ function openNoteEditor(el, data, spec) {
  * 兩邊各畫一份，遲早會變成一邊看得到治療師、另一邊看不到
  * （同樣的理由見 ADR-0018 的 `ui/views/audit.js` 的 `listHtml()`）。
  *
+ * **這裡不解釋規則。** 底下本來有一句「改時間不是改日期 —— 取消這一筆再重排
+ * 一筆」，而這張卡片上根本沒有一個地方改得了日期 —— 那句話對著一個不存在的
+ * 按鈕解釋它為什麼不能按（她的原話：「我完全看不懂他想說什麼」）。
+ * 那條規則（SPEC 第 7 節規則 10）仍然寫在它真的會發生的地方：來訪編輯器的
+ * 狀態卡與取消確認框。見 ADR-0056。
+ *
  * @param {object} visit
  * @param {{roomsById:object, staffById:object}} data
  */
@@ -891,10 +897,7 @@ export function visitReadHtml(visit, data) {
       <div class="readrow">
         <span class="readrow__k">記的話</span>
         <span class="readrow__v">${esc(visit.note)}</span>
-      </div>` : ''}
-
-    <p class="muted" style="margin: var(--space-3) 0 0">
-      改時間不是改日期 —— 取消這一筆再重排一筆，舊系統的登記才會長出取消任務。</p>`;
+      </div>` : ''}`;
 }
 
 function eventReadHtml(event) {

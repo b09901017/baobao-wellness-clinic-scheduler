@@ -41,7 +41,7 @@ import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
 import { visitReadHtml } from './calendar.js';
-import { openCard, closeCard } from '../components/card.js';
+import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
 import { formLink, inviteState } from '../../domain/availabilityForm.js';
@@ -1353,11 +1353,15 @@ function wireEntitlementDanger(ctx, record) {
 }
 
 /**
- * 點一筆來訪先浮出讀取模式的卡片，右上角鉛筆才進編輯器。
+ * 點一筆來訪浮出讀取模式的卡片。**唯讀，沒有鉛筆。**
  *
- * ADR-0020 早就寫了這條規矩，但它一直只活在日曆上 ——「她點一筆的十次有九次
- * 只是要確認那天幾點、誰、做什麼。直接落進表單等於每次都冒著改到東西的風險，
- * 而這一站最不能出錯的就是次數。」那句話跟在哪一頁點的沒有關係。
+ * ADR-0020 早就寫了「先讀取，要改按鉛筆」這條規矩，但它一直只活在日曆上 ——
+ *「她點一筆的十次有九次只是要確認那天幾點、誰、做什麼。直接落進表單等於每次
+ * 都冒著改到東西的風險，而這一站最不能出錯的就是次數。」
+ *
+ * 2026-08-25 這一頁再往前收一格：連那十次裡的第十次都不在這裡做。她在客戶詳情
+ * 回答的是「他還剩幾次、這個月哪天來」，排班是日曆的事，而一筆來訪有三個入口
+ * 改得動，等於同一件事有三條路。見 ADR-0056。
  *
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
@@ -1373,11 +1377,6 @@ function openVisitCard(ctx, visitId) {
       roomsById: byId(ctx.rooms ?? []),
       staffById: byId(ctx.staff ?? []),
     }),
-    canEdit: true,
-    onEdit: () => {
-      closeCard();
-      go(`/visits/${visit.id}`);
-    },
   });
 }
 
