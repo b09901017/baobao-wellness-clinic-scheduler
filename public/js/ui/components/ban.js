@@ -28,9 +28,11 @@ import { weekdayName } from '../../domain/dates.js';
  * @param {string} [row.rawText]
  * @param {boolean} [row.fromForm] 客戶自己填的（比她轉述的可信，值得看得見）
  * @param {{month: string, raw?: boolean, rawLabel?: string}} options
- *   month：講給人聽的月份，例：'9月'。raw：附不附「他原本是怎麼說的」那一摺。
+ *   month：講給人聽的月份，例：'9月'。**抬頭一定要印出它**（ADR-0053）——
+ *   一份本輪可用性就是一個月，而「不能的時間」四個字說不出是哪個月的，
+ *   於是同一個月被記了兩份也看不出來。raw：附不附「他原本是怎麼說的」那一摺。
  */
-export function banBlock(row, { month, raw = false, rawLabel = '他原本是怎麼說的' } = {}) {
+export function banBlock(row, { month = '', raw = false, rawLabel = '他原本是怎麼說的' } = {}) {
   if (row.needsAvailability) {
     return `
       <span class="ban ban--unknown" style="display: block">
@@ -49,7 +51,7 @@ export function banBlock(row, { month, raw = false, rawLabel = '他原本是怎�
 
   return `
     <span class="ban ${none ? 'ban--none' : ''}" style="display: block">
-      <span class="ban__head"><span>${none ? '沒有說哪天不行' : '不能的時間'}</span>
+      <span class="ban__head"><span>${esc(month)}${none ? '沒有說哪天不行' : '不能的時間'}</span>
         <span class="ban__when">
           ${row.fromForm ? '<span class="badge badge--ok">客戶自己填的</span>' : ''}
           ${row.collectedAt ? `${esc(row.collectedAt)} 收集` : ''}</span></span>

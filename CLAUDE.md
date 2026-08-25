@@ -28,16 +28,19 @@
 | 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
 | 次數的算法 | `domain/entitlements.js` 的 `counts()`（現算）、`summarize()`（讀快取）、`reconcile()`（對帳）要一起改，見 ADR-0004。「這一段算不算」只寫在同一支的 `slotOutcome()`，見 ADR-0025 |
 | 健檢與二返的關係 | 只寫在 `domain/followups.js`（配對、還欠幾次、「約二返」的待辦）。不要在 `taskRules.js` 或 UI 裡再判斷一次，見 ADR-0022 |
+| 勾掉一張待辦 | 走 `data/tasks.js` 的 `setDone(tasks, done)`，**收的是任務本身不是 id**。健檢鏈那兩種（追蹤健檢報告、約二返）會連著把下一站算出來，跟勾選寫在同一個 commit 裡 —— 規則仍然只在 `domain/followups.js` |
 | 任務什麼時候產生 | 只寫在 `domain/taskRules.js` 的 `acceptsNewTasks()`（客人確認之後才長，見 ADR-0027）。UI 上講這件事的四句文案要跟著改：壓表那一頁兩句、確認動線的提示、客戶詳情沒有任務時那一句 —— 畫面在講一件不會發生的事，比沒講還糟 |
 | 匯入的來訪要建成什麼狀態 | 只寫在 `domain/mergeImport.js` 的 `statusFor()`（依匯入當下的日期，不是產檔的日期，見 ADR-0029）。`domain/legacyImport.js` 寫死的 `done` 是對的：它只餵給 skill，狀態一律在匯入那一刻重判。**舊資料只有合併檔一條路進得來**，貼試算表那條 2026-08-23 拿掉了，見 ADR-0047 |
 | 行事曆匯進來的雜事是哪一類 | 產檔那側的 `classifyEvent()` 出**建議**（休假／待辦／行事備註），app 那側 `domain/mergeImport.js` 的 `eventKind()` 讀它、`ui/views/mergeImport.js` 讓她逐列改，**她改的那一個才算數**。待辦寫進 `notes`（就是掛日期的隨手記，ADR-0044），另外兩種寫進 `events`。判錯休假的代價最不對稱 —— 那幾天會整片排不進去 —— 所以寫了同事名字的一律退回行事備註 |
 | 匯入時哪些候選預設勾起來 | 只寫在 `domain/mergeImport.js` 的 `defaultPicks()`（還沒發生的勾、已經發生的不勾，見 ADR-0030）。不要在 UI 或產檔的 skill 那側再決定一次 —— 合併檔裡的 `include` 欄位是描述性的，app 從來沒有讀過它 |
 | 客戶自己填的時間 | 表單那一頁在 `public/form.html` 與 `public/js/form/`，**不進 `sw.js` 的 SHELL**（排除清單在 `tests/shell-cache.test.js`）。答案 → 規則 → 原文只寫在 `domain/availabilityForm.js`，而且「產生的原文餵回解析器要得到同一組規則」是有測試的不變量。客戶填的不自動生效，一律先進收件匣，見 ADR-0031、0032、0033 |
 | 要拿某位客戶的本輪可用性 | 先問「這是哪一段期間的事」。壓表、時段反查那種**綁月份或綁某一天**的畫面用 `domain/availability.js` 的 `collectionFor()`；待辦中心的「問這輪的時間」、資料健檢那種問「現在」的才用 `currentCollection()`。挑錯的後果是假的「可用 0 天」把人推到排序第一位，見 ADR-0036 |
+| 「不能的時間」的畫法或動線 | **一份就是一個月**（ADR-0053）。`components/ban.js` 的抬頭一定要印出月份；「記一次」先問哪個月，已經有的月份不出現在「新增」那一排；既有的那一份不給換月份；改完存檔前要把差異講出來（`describeRuleChanges()`）。既有的重複資料由資料健檢的 `duplicateAvailability` 列出來，**不自動合併** |
 | 壓表那一頁的任何互動 | 不要接成整頁重畫。事件用委派、選了什麼只改 `aria-pressed`、只換真的變了的那一塊 —— 她一位客戶要點五六下，重畫的代價是閃一下加捲回最上面，見 ADR-0038 |
 | 任何「先看誰」的排序或推薦名單 | 用 `domain/scheduling.js` 的同一組計分，不要另寫一套 —— 同一位客戶在兩個畫面排名不同，她不會知道哪個算數。**兩個例外都在待辦中心，而且都是刻意的**：「問這輪的時間」問的是「先**問**誰」、「壓表登記」問的是「還有**誰**」，兩列都不吃計分也不排序（`customersToAsk()` / `customersToBook()`，見 ADR-0028、0041）。它們是提醒，不是佇列 —— 要決定「先壓誰」是壓表那一頁的事 |
 | 來訪狀態的顏色、標籤或符號 | 只改 `domain/visits.js` 的 `STATUS_VIEW`，日曆、客戶詳情、試算表全部讀它。`app.css` 的 `.status-*` 只掛 class，色值全部在 `tokens.css`（淺色與深色兩份都要改，見 ADR-0039）。`tests/visits.test.js` 盯著兩邊對得上。**這一組是全站共用的，不可能只改一頁** |
 | 日曆上任何一種東西的顏色 | 要分辨的是**七種**：待確認／已確認／已完成／未到／行事備註／休假／待辦。**色相已經用完了** —— 休假走斜線紋、待辦走方框勾勾記號，都是因為數不夠（ADR-0039、0045）。第八種一律先想「有沒有不用顏色的畫法」。行事備註可以自己挑顏色，色票名單與客戶備註共用 `MARK_COLORS`，但值另有一組 `--evcolor-*`（小圓點的顏色當 11px 的字對比度不夠，見 ADR-0040）；待辦不能挑 |
 | 日曆上「待辦」那一類 | 它**就是 `notes` 裡有日期的那幾筆**，不是 `events` 的第三種類別，也不是 `tasks`（ADR-0044、0045）。所以「同步回隨手記」沒有東西要做 —— 沒有第二份資料。任務不上日曆 |
 | 隨手記的欄位或那一列的樣子 | 四個地方共用 `ui/components/note.js`：待辦首頁那張卡、右下角泡泡、`#/todo/notes`、客戶詳情。**日曆上的待辦編輯器也是同一支的欄位** —— 長得不一樣會讓她以為是兩種東西 |
+| `tokens.css` 加一個顏色 | 淺色與深色**兩份都要有**（深色只有一份，在 `:root[data-theme='dark']`，沒有 `@media` 的複本，見 ADR-0055）。`tests/tokens.test.js` 盯著；改主題的 key 或選項時，`index.html` 與 `form.html` 的行內開機腳本要跟著改 |
 | UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |

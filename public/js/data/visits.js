@@ -15,6 +15,7 @@ import { touchedEntitlementIds, recount } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND,
 } from '../domain/followups.js';
 import { todayISO } from '../domain/dates.js';
 
@@ -86,6 +87,24 @@ export function listBetween(from, to) {
 /** 某一天她自己排的全部來訪。診間與治療師的自撞提示要用。 */
 export function listByDate(date) {
   return repo.list(PATH, { wheres: [where('date', '==', date)] });
+}
+
+/**
+ * 一次抓好幾筆來訪。待辦中心那幾頁要在每一列上寫出「那天壓了幾項」。
+ *
+ * 任務身上沒有時段數，也**不該有** —— 那會是第二份會對不起來的資料
+ *（同 ADR-0004 的判斷：真相是來訪本身）。所以那一頁多讀一次。
+ *
+ * 讀不到的（被刪了、id 壞了）就少一筆，不要整批失敗：一筆讀不到的代價是
+ * 那一列少一個數字，整批失敗的代價是整頁空白。
+ *
+ * @param {string[]} ids
+ * @returns {Promise<Map<string, object>>} id → 來訪
+ */
+export async function getMany(ids = []) {
+  const wanted = [...new Set((ids ?? []).filter(Boolean))];
+  const rows = await Promise.all(wanted.map((id) => get(id).catch(() => null)));
+  return new Map(rows.filter(Boolean).map((v) => [v.id, v]));
 }
 
 /** 已刪除的來訪。設定頁的「已刪除項目」用。 */
@@ -229,6 +248,76 @@ async function followupOps(visit, visitsAfter, coursesById) {
       reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
     }),
   );
+}
+
+/**
+ * 勾掉（或拿回來）一張健檢鏈上的待辦之後，鏈條該變成什麼樣。
+ *
+ * 這一支存在的理由：`syncFollowupTasks()` 算得出「報告勾掉了 → 該長出約二返」，
+ * 但**在 2026-08-25 之前沒有人在勾掉的那一刻叫它** —— 它三個呼叫端全部在
+ * `save()` / `remove()` / `restore()` 底下。所以她勾掉「追蹤健檢報告」之後
+ * 什麼都不會發生，要等這位客戶下一次有來訪被存檔，「約二返」才會突然冒出來，
+ * 而且死線是從報告勾掉那天回推的 —— 它可能一出生就是紅字。
+ *
+ * 回傳的是**操作**不是寫入，所以呼叫端（`data/tasks.js` 的 `setDone()`）
+ * 可以把它跟那幾筆勾選放進同一個 commit：
+ *
+ * - 不會出現「勾好了但約二返沒長出來」的半套狀態
+ * - 復原退得回整組（一個動作一個 commit 才給得出復原，見 repo.withUndo）
+ *
+ * @param {object[]} changed 這幾筆任務**寫入之後**的樣子（要有 id、kind、
+ *   customerId、done、doneAt）
+ * @returns {Promise<object[]>} 要一起寫的操作，沒有就是空陣列
+ */
+export async function followupOpsAfterTaskChange(changed = []) {
+  const chainKinds = [FOLLOWUP_TASK_KIND, REPORT_TASK_KIND];
+  const rows = (changed ?? []).filter((t) => t?.customerId && chainKinds.includes(t.kind));
+  // 勾一批 Examine 不該為了這件事多打好幾次往返。
+  if (!rows.length) return [];
+
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  // 主檔裡沒有任何課程設了「做完還要再約一次」就不可能有配對（同 followupOps）。
+  if (!Object.values(coursesById).some((c) => c?.followupCourseId)) return [];
+
+  const settings = await config.getSettings();
+  const byCustomer = new Map();
+  for (const t of rows) {
+    if (!byCustomer.has(t.customerId)) byCustomer.set(t.customerId, []);
+    byCustomer.get(t.customerId).push(t);
+  }
+
+  const ops = [];
+  for (const [customerId, mine] of byCustomer) {
+    // eslint-disable-next-line no-await-in-loop
+    const [entitlements, tasks, visits] = await Promise.all([
+      customersData.listEntitlements(customerId),
+      tasksData.listByCustomer(customerId),
+      listByCustomer(customerId),
+    ]);
+
+    // **算的是「寫進去之後」的世界**：那幾筆勾選還沒 commit，直接把讀回來的
+    // 那一份就地換成新的樣子。不這樣做的話 syncFollowupTasks() 看到的報告
+    // 還是未完成的，於是它會說「現在該有的是追蹤報告」，什麼都不長。
+    const patched = new Map(mine.map((t) => [t.id, t]));
+    const after = tasks.map((t) => (patched.has(t.id) ? { ...t, ...patched.get(t.id) } : t));
+
+    ops.push(...toOps(syncFollowupTasks({
+      customer: {
+        id: customerId,
+        name: mine.find((t) => t.customerName)?.customerName
+          ?? visits.find((v) => v.customerName)?.customerName ?? null,
+      },
+      entitlements,
+      visits,
+      tasks: after,
+      coursesById,
+      dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+      reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
+    })));
+  }
+
+  return ops;
 }
 
 function toOps({ create = [], update = [], remove = [] }) {

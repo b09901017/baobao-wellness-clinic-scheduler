@@ -1,6 +1,6 @@
 // 隨手記。它要能在三秒內記完，所以這裡驗的多半是「不要多擋」。
 
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -14,6 +14,7 @@ import {
   openFor,
   sortNotes,
   validateNote,
+  sameOpenNote,
 } from '../public/js/domain/notes.js';
 
 const note = (over = {}) => ({
@@ -182,4 +183,34 @@ test('客戶那兩個欄位是一組的，只帶一個過來也要一起算出�
 test('什麼都沒帶就什麼都不寫', () => {
   assert.deepEqual(normalizePatch(), {});
   assert.deepEqual(normalizePatch({}), {});
+});
+
+// 「跟客人確認時間」那張卡片上打的「禮拜一再問問」會同時落進隨手記
+// （`.scratch/asks-2026-08-25/issues/05`），而那個輸入框每按一次「記」就寫一次。
+describe('同一句話不要記兩次', () => {
+  const open = { id: 'n1', customerId: 'c1', customerName: '王小明', text: '禮拜一再問問', done: false };
+
+  test('同一位客戶、同一句話、還沒勾掉 —— 找得到', () => {
+    assert.equal(
+      sameOpenNote([open], { customerId: 'c1', text: '禮拜一再問問' })?.id,
+      'n1',
+    );
+  });
+
+  test('前後空白不算差別', () => {
+    assert.ok(sameOpenNote([open], { customerId: 'c1', text: '  禮拜一再問問 ' }));
+  });
+
+  test('勾掉的那一筆不算 —— 同一句話再出現一次是真的又要做一次', () => {
+    assert.equal(sameOpenNote([{ ...open, done: true }], { customerId: 'c1', text: '禮拜一再問問' }), null);
+  });
+
+  test('別位客戶的不算', () => {
+    assert.equal(sameOpenNote([open], { customerId: 'c2', text: '禮拜一再問問' }), null);
+  });
+
+  test('刪掉的不算，空字串不比', () => {
+    assert.equal(sameOpenNote([{ ...open, deletedAt: 'x' }], { customerId: 'c1', text: '禮拜一再問問' }), null);
+    assert.equal(sameOpenNote([open], { customerId: 'c1', text: '   ' }), null);
+  });
 });

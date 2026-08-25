@@ -115,3 +115,31 @@ test('相對 import 都指得到真的檔案', () => {
   }
   assert.deepEqual(missing, [], `這些路徑指不到檔案：\n${missing.join('\n')}`);
 });
+
+// 每一頁都畫在同一個 `#view` 元素上（`ui/shell.js`），所以掛在那個元素**本身**
+// 的委派監聽跟著它走：重畫一次多一顆，換頁之後還活著，而且在別的頁面上照樣
+// 被觸發 —— `data-kind` 在匯入是分類鈕、在日曆是篩選丸；`data-task` 在客戶詳情
+// 與待辦中心各有一個意思。2026-08-25 的症狀是「客戶詳情的換月份箭頭跳到記一次」
+// （`.scratch/asks-2026-08-25/issues/04`），要先照特定順序點過兩頁才看得到。
+//
+// `shell.js` 現在每次換頁都把 `#view` 整個換掉，所以跨頁那一半已經斷了。
+// 這一支守的是另一半：**同一頁重畫自己**（`paint()` → `paint()`）時掛在 `el`
+// 上的那一顆，換頁換不掉它。委派要掛在每次重畫都會被換掉的容器上。
+test('/ui/views 的委派監聽不掛在整頁的 el 上', () => {
+  const viewsDir = join(JS_ROOT, 'ui/views');
+  const offenders = [];
+  // `sheet.el` / `card.el` 那種不算：它們是每次打開都重新建立的節點。
+  const ON_PAGE_EL = /(^|[^.\w$])(?:ctx\.)?el\.addEventListener\s*\(/;
+
+  for (const file of filesUnder(viewsDir)) {
+    const src = readFileSync(file, 'utf8');
+    const code = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    if (ON_PAGE_EL.test(code)) offenders.push(file.slice(JS_ROOT.length));
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `這些畫面把委派監聽掛在整頁的 el 上，重畫一次就多一顆：${offenders.join(', ')}`,
+  );
+});

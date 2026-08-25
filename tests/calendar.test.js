@@ -6,6 +6,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
@@ -25,25 +26,29 @@ const CTX = {
 };
 
 describe('週與月的格子', () => {
-  test('一週從禮拜日開始', () => {
+  // 2026-08-25：全站改成週一起算。以前這裡是週日，而她自己記時間的那一頁與
+  // 客戶填的表單一直是週一 —— 同一個產品裡兩種排法（`.scratch/asks-2026-08-25/issues/12`）。
+  test('一週從禮拜一開始', () => {
     // 2026-09-18 是禮拜五
-    assert.equal(weekStart('2026-09-18'), '2026-09-13');
-    assert.equal(weekStart('2026-09-13'), '2026-09-13');
-    assert.deepEqual(weekDays('2026-09-18')[6], '2026-09-19');
+    assert.equal(weekStart('2026-09-18'), '2026-09-14');
+    assert.equal(weekStart('2026-09-14'), '2026-09-14');
+    // 禮拜日是一週的最後一天，不是第一天 —— 這一顆是週日起算最容易錯的地方
+    assert.equal(weekStart('2026-09-20'), '2026-09-14');
+    assert.deepEqual(weekDays('2026-09-18')[6], '2026-09-20');
     assert.equal(weekDays('2026-09-18').length, 7);
   });
 
-  test('表頭是日一二三四五六', () => {
-    assert.deepEqual(WEEKDAY_HEADERS, ['日', '一', '二', '三', '四', '五', '六']);
+  test('表頭是一二三四五六日', () => {
+    assert.deepEqual(WEEKDAY_HEADERS, ['一', '二', '三', '四', '五', '六', '日']);
   });
 
   test('月的格子補滿前後兩端，每一列都是七格', () => {
     const weeks = monthWeeks('2026-09');
     assert.ok(weeks.every((w) => w.length === 7));
-    assert.equal(weeks[0][0].date, '2026-08-30'); // 9/1 是禮拜二，前面補兩天
+    assert.equal(weeks[0][0].date, '2026-08-31'); // 9/1 是禮拜二，前面補一天
     assert.equal(weeks[0][0].inMonth, false);
-    assert.equal(weeks[0][2].date, '2026-09-01');
-    assert.equal(weeks[0][2].inMonth, true);
+    assert.equal(weeks[0][1].date, '2026-09-01');
+    assert.equal(weeks[0][1].inMonth, true);
 
     const last = weeks[weeks.length - 1];
     assert.ok(last.some((d) => d.date === '2026-09-30'));
@@ -51,11 +56,11 @@ describe('週與月的格子', () => {
   });
 
   test('整月剛好塞滿幾週時不會多補一列空的', () => {
-    // 2026-02 的 1 號是禮拜日、28 號是禮拜六，剛好四週
-    const weeks = monthWeeks('2026-02');
+    // 2027-02 的 1 號是禮拜一、28 號是禮拜日，剛好四週
+    const weeks = monthWeeks('2027-02');
     assert.equal(weeks.length, 4);
-    assert.equal(weeks[0][0].date, '2026-02-01');
-    assert.equal(weeks[3][6].date, '2026-02-28');
+    assert.equal(weeks[0][0].date, '2027-02-01');
+    assert.equal(weeks[3][6].date, '2027-02-28');
   });
 
   test('亂寫的月份回空陣列，不要湊出一個月曆', () => {
@@ -66,8 +71,8 @@ describe('週與月的格子', () => {
 describe('每個檢視要讀哪一段', () => {
   test('日只讀那一天，週讀七天，月連補的日子一起讀', () => {
     assert.deepEqual(rangeOf('day', '2026-09-18'), { from: '2026-09-18', to: '2026-09-18' });
-    assert.deepEqual(rangeOf('week', '2026-09-18'), { from: '2026-09-13', to: '2026-09-19' });
-    assert.deepEqual(rangeOf('month', '2026-09-18'), { from: '2026-08-30', to: '2026-10-03' });
+    assert.deepEqual(rangeOf('week', '2026-09-18'), { from: '2026-09-14', to: '2026-09-20' });
+    assert.deepEqual(rangeOf('month', '2026-09-18'), { from: '2026-08-31', to: '2026-10-04' });
   });
 
   test('補進來的鄰月日子也要有資料 —— 留白會讓人以為那天沒事', () => {
@@ -97,7 +102,7 @@ describe('標題', () => {
   test('三種檢視各自講得清楚是哪一段', () => {
     // 日檢視不放年份：390px 上會斷成兩行，而年份是最不需要確認的一項
     assert.equal(titleOf('day', '2026-09-18'), '9/18(五)');
-    assert.equal(titleOf('week', '2026-09-18'), '9/13(日) – 9/19(六)');
+    assert.equal(titleOf('week', '2026-09-18'), '9/14(一) – 9/20(日)');
     assert.equal(titleOf('month', '2026-09-18'), '2026 年 9 月');
   });
 });
@@ -216,5 +221,42 @@ describe('每天的摘要', () => {
       visit({ id: 'v2', deletedAt: 'x' }),
     ]);
     assert.deepEqual(summary, {});
+  });
+});
+
+// 四個畫著格子的地方要用同一個起點。
+//
+// 2026-08-25 之前它們是兩派：日曆與壓表的小日曆週日起算，她自己記時間的那一頁
+// 與客戶填的表單週一起算 —— 而後兩支的註解都寫著「跟她的日曆一樣」。
+// 她在收件匣核對客戶填了什麼的時候，兩邊的格子位置是錯開的。
+//
+// 這一支不執行程式碼，只讀原始碼（同 `module-names.test.js` 的路數）——
+// 那兩個 WEEK_ORDER 是畫面自己列的常數，測不到，但看得到。
+describe('一週的起點只有一個', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url).pathname, 'utf8');
+
+  test('日曆的表頭從禮拜一起算', () => {
+    assert.equal(WEEKDAY_HEADERS[0], '一');
+    assert.equal(WEEKDAY_HEADERS[6], '日');
+  });
+
+  test('自己列順序的那兩頁跟表頭一致', () => {
+    for (const rel of ['js/ui/views/availability.js', 'js/form/page.js']) {
+      const m = /const WEEK_ORDER = \[([^\]]+)\]/.exec(read(rel));
+      assert.ok(m, `${rel} 找不到 WEEK_ORDER`);
+      const order = m[1].split(',').map((x) => Number(x.trim()));
+      assert.deepEqual(order, [1, 2, 3, 4, 5, 6, 0], `${rel} 的一週起點跟日曆不一樣`);
+    }
+  });
+
+  test('自己算月初空幾格的那兩支也是', () => {
+    // `(weekday + 6) % 7`：週日是 0，往回退 6 天才回到那一週的禮拜一。
+    for (const rel of ['js/domain/availabilityForm.js', 'js/ui/views/schedule.js']) {
+      assert.match(
+        read(rel),
+        /const lead = \(.*\+ 6\) % 7/,
+        `${rel} 的 lead 沒有跟著週一起算 —— 月初那幾格會整排錯開`,
+      );
+    }
   });
 });

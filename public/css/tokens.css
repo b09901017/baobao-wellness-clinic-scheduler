@@ -183,8 +183,21 @@
   --shadow-drawer: 0 -8px 30px rgb(36 31 26 / 18%);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* ---------- 深色 ----------
+ *
+ * **只有一份，而且靠 `<html data-theme>` 挑。** 以前這一段是
+ * `@media (prefers-color-scheme: dark)`，所以它只跟得上裝置的系統設定 ——
+ * 而她要的是「現在這個場合切一下」：晚上在家看 iPad 想要深的，
+ * 白天在院裡同一台想要淺的（ADR-0055）。
+ *
+ * 兩個 HTML 的 `<head>` 各有一段不到十行的行內腳本，在第一次繪製之前就把
+ * `data-theme` 蓋上去（晚一步就會閃一下白的）。所以這裡不需要第二份
+ * `@media` 的複本 —— 沒有 build step 的專案裡，「同一組值寫兩遍」
+ * 遲早會有一遍忘了跟（ADR-0039 已經為了六個顏色付過一次這種帳）。
+ *
+ * `tests/tokens.test.js` 盯著：淺色那一段定義的每一個變數，這裡都要有。
+ */
+:root[data-theme='dark'] {
     /* 紙的暖度留著，墨綠與茶色提亮到看得清為止。
        狀態色不換位子：紅還是逾期。 */
     --bg: #1a1714;
@@ -260,5 +273,4 @@
     --shadow-3: 0 18px 44px rgb(0 0 0 / 55%);
     --shadow-fab: 0 8px 20px rgb(0 0 0 / 50%);
     --shadow-drawer: 0 -8px 30px rgb(0 0 0 / 55%);
-  }
 }

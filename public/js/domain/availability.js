@@ -411,6 +411,104 @@ export function collectionFor(collections, from, to) {
       || String(b.c.collectedAt ?? '').localeCompare(String(a.c.collectedAt ?? '')))[0]?.c ?? null;
 }
 
+// ---------- 一份綁一個月 ----------
+//
+// 她問時間的節奏是「月底那一兩個禮拜問下個月」，所以**一份本輪可用性就是
+// 一個月**（ADR-0053）。ADR-0036 已經決定壓表要挑「涵蓋那個月的那一份」，
+// 這幾支是把同一件事講給畫面聽：哪幾個月問過了、那個月是哪一份、改了什麼。
+
+/**
+ * 這一份在講哪個月。`'YYYY-MM'`，看不出來回 `null`。
+ *
+ * 看的是 `validFrom` 不是 `collectedAt` —— 她八月底問的是九月的時間，
+ * 而「這一份在講九月」才是壓表要的答案。
+ */
+export function monthOf(record) {
+  const from = record?.validFrom;
+  return typeof from === 'string' && isValidDate(from) ? from.slice(0, 7) : null;
+}
+
+/**
+ * 照月份分組，月份新的在前。
+ *
+ * **有效期看不出月份的那幾份收在 `month: null` 那一組，排最後** ——
+ * 丟掉它們等於讓一份壞掉的資料從畫面上消失，而看不見的壞資料比看得見的難修。
+ *
+ * @param {object[]} collections 這位客戶的全部收集（已刪除的會被濾掉）
+ * @returns {{month: string|null, records: object[]}[]} 組內照收集日期新到舊
+ */
+export function collectionsByMonth(collections = []) {
+  const groups = new Map();
+
+  for (const c of collections ?? []) {
+    if (!c || c.deletedAt) continue;
+    const month = monthOf(c);
+    if (!groups.has(month)) groups.set(month, []);
+    groups.get(month).push(c);
+  }
+
+  return [...groups.entries()]
+    .map(([month, records]) => ({
+      month,
+      records: records
+        .slice()
+        .sort((a, b) => String(b.collectedAt ?? '').localeCompare(String(a.collectedAt ?? ''))),
+    }))
+    .sort((a, b) => {
+      if (a.month === b.month) return 0;
+      if (a.month === null) return 1;
+      if (b.month === null) return -1;
+      return b.month.localeCompare(a.month);
+    });
+}
+
+/**
+ * 已經問過哪幾個月。`'YYYY-MM'` 的陣列，新的在前。
+ *
+ * 「記一次 → 新增」那一排丸子拿它濾掉已經有的月份 —— **同一個月不會有第二份**
+ * 是動線本身保證的，不是靠一句錯誤訊息（ADR-0053）。
+ */
+export function monthsTaken(collections = []) {
+  return collectionsByMonth(collections).map((g) => g.month).filter(Boolean);
+}
+
+/**
+ * 「以前問過的」收起來時那一行要寫什麼。月份由呼叫端印，這裡只講內容。
+ *
+ * 跟 `banBlock()` 的丸子一樣濾掉 `prefer` —— 那一種講的是「他比較方便」，
+ * 不是「不能的時間」，兩邊算出不同的數字會讓她以為少了一條。
+ */
+export function summarizeCollection(record) {
+  const rules = (record?.rules ?? []).filter((r) => r.kind !== 'prefer');
+  const parts = [];
+  if (record?.collectedAt) parts.push(`${record.collectedAt} 收集`);
+  parts.push(rules.length ? `${rules.length} 條` : '沒有說哪天不行');
+  return parts.join('・');
+}
+
+/**
+ * 改了什麼。存檔之前要把它講給她聽（ADR-0053）——
+ * 「已儲存」三個字說不出「我剛剛是不是把 9/17 弄掉了」。
+ *
+ * 比對的是規則本身，不是原文：原文每次存檔都是重新產生的，比它會把
+ * 「一個字都沒改」報成一堆差異。
+ *
+ * @returns {{added: string[], removed: string[]}} 人話，句子走 `describeRule()`
+ */
+export function describeRuleChanges(before = [], after = []) {
+  const key = (r) => [
+    r?.kind, r?.date ?? '', r?.from ?? '', r?.to ?? '', r?.weekday ?? '', r?.partOfDay ?? '',
+  ].join('|');
+
+  const was = new Map((before ?? []).map((r) => [key(r), r]));
+  const now = new Map((after ?? []).map((r) => [key(r), r]));
+
+  return {
+    added: [...now].filter(([k]) => !was.has(k)).map(([, r]) => describeRule(r)),
+    removed: [...was].filter(([k]) => !now.has(k)).map(([, r]) => describeRule(r)),
+  };
+}
+
 // ---------- 驗證 ----------
 
 /**

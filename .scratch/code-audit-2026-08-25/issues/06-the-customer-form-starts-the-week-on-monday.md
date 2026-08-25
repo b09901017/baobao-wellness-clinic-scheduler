@@ -1,6 +1,6 @@
 # 客戶表單的星期起點跟她的日曆相反
 
-Status: todo
+Status: done
 來源：全庫掃描，2026-08-25（`../spec.md`）
 動工前先讀：`SPEC.md` 第 8.9 節、`docs/adr/0034`
 
@@ -42,3 +42,17 @@ Status: todo
 ## 驗證
 
 瀏覽器：日曆的表頭與 `/form.html?t=<token>` 的表頭，第一格是同一天。
+
+## Comments
+
+**2026-08-25 —— 她選了「全部改成週一開始」**，而且這一輪發現**其實有四個地方
+不是三個**：她自己記時間的那一頁（`ui/views/availability.js`）是這一輪才加的，
+也是週一起算。做掉的是：
+
+- `domain/calendar.js` 的 `weekStart()` 與 `WEEKDAY_HEADERS` 改成週一起算
+- `ui/views/schedule.js` 的 `miniCal()` 的 `lead` 跟著改
+- 兩支 `WEEK_ORDER` 上面那句「跟她的日曆一樣」現在是真的了
+- `tests/calendar.test.js` 多一組守衛：四個地方的起點要一致（其中兩支是畫面
+  自己列的常數，測不到但讀得到）
+
+見 `.scratch/asks-2026-08-25/issues/12`。

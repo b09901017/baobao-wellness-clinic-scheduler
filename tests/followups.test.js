@@ -500,6 +500,44 @@ describe('待辦鏈：追蹤健檢報告 → 約二返', () => {
 
 // ---------- 給畫面的那一句話 ----------
 
+// 2026-08-25：勾掉「追蹤健檢報告」以前不會長出「約二返」（沒有人在勾掉的那一刻
+// 叫這一支），而把報告那一張**拿回來**會反過來把它刪掉 —— 判斷「這一筆健檢有沒有
+// 追蹤報告的紀錄」時只看了勾掉的那一種。
+// 見 .scratch/asks-2026-08-25/issues/09。
+describe('報告那一張被拿回來', () => {
+  const visits = [visit('v1', '2026-08-01', 'ent-checkup')];
+
+  test('報告變回未完成時，約二返收起來、報告那一張留著', () => {
+    const { create, remove } = sync({
+      visits,
+      tasks: [
+        report({ id: 'tr', done: false, doneAt: null }),
+        task({ id: 'tb', visitId: 'v1' }),
+      ],
+    });
+
+    assert.deepEqual(create, [], '報告那一張已經在了，不用再長一張');
+    assert.deepEqual(remove, [{ id: 'tb', reason: '報告那一張被拿回來了' }]);
+  });
+
+  test('這一筆健檢從來沒有過報告那一張，既有的約二返照樣不動', () => {
+    const { create, update, remove } = sync({
+      visits,
+      tasks: [task({ id: 'tb', visitId: 'v1' })],
+    });
+    assert.deepEqual([create, update, remove], [[], [], []], '那是這一支上線前就有的資料');
+  });
+
+  test('再勾一次報告，約二返又長回來', () => {
+    const { create } = sync({
+      visits,
+      tasks: [report({ id: 'tr', done: true, doneAt: '2026-09-05T02:00:00.000Z' })],
+    });
+    assert.equal(create.length, 1);
+    assert.equal(create[0].kind, FOLLOWUP_TASK_KIND);
+  });
+});
+
 describe('客戶詳情頁那一句', () => {
   test('欠的時候講欠幾次', () => {
     const pair = { source: checkup(), followup: followup() };

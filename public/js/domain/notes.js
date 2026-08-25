@@ -119,6 +119,29 @@ export function openFor(notes, customerId) {
   return sortNotes(notes).filter((n) => n.customerId === customerId && !n.done);
 }
 
+/**
+ * 這位客戶身上有沒有一筆一模一樣、還沒勾掉的隨手記。
+ *
+ * 「跟客人確認時間」那張卡片上打的「禮拜一再問問」會同時落進隨手記
+ *（`.scratch/asks-2026-08-25/issues/05`），而那個輸入框每按一次「記」就寫一次
+ * —— 她改了字又改回來、或者按兩下，都不該長出第二筆。
+ *
+ * 比的是**還沒勾掉的**：勾掉的那一筆代表那件事處理完了，同一句話再出現一次
+ * 是真的又要做一次。
+ *
+ * @returns {object|null} 找到的那一筆
+ */
+export function sameOpenNote(notes = [], { customerId = null, text = '' } = {}) {
+  const want = trimmed(text);
+  if (!want) return null;
+
+  return (notes ?? []).find(
+    (n) => isOpen(n)
+      && (n.customerId ?? null) === (customerId ?? null)
+      && trimmed(n.text) === want,
+  ) ?? null;
+}
+
 /** 首頁那一列要顯示的數字：還沒勾掉的有幾筆。 */
 export function openCount(notes) {
   return (notes ?? []).filter(isOpen).length;

@@ -31,9 +31,12 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, validateEntitlement, sortPools, offCount,
+  TIER_PRESETS, tieredLabel,
 } from '../../domain/entitlements.js';
-import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
-import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
+import {
+  pairsOf, missingPairs, describePair, followupCourseIdOf,
+} from '../../domain/followups.js';
+import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
@@ -74,21 +77,25 @@ let showVisits = false;
 let detailMonth = null;
 
 /**
- * 上一次重畫掛在 `el` 上的那組事件。
+ * 這一頁的兩組委派監聽掛在自己的容器上，**不掛在 `el` 上**。
  *
- * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，**`el` 本身沒有被
- * 換掉** —— 所以每重畫一次就再 `addEventListener` 一次，點一下會跑好幾個
- * 處理器，而舊的那幾個抓著已經過期的狀態。掛新的之前先把上一組整個中止掉。
+ * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，`el` 本身沒有被換掉
+ * —— 掛在 `el` 上的話每重畫一次就多一顆，而且離開這一頁之後它們還活著：
+ * `data-visit` 與 `data-task` 在待辦中心各有另一個意思，按下去會用一份
+ * 已經過期的 `ctx` 去找東西（`.scratch/asks-2026-08-25/issues/04`）。
  *
- * 掛在 `el` 底下那些節點上的監聽不受影響：它們跟著 innerHTML 一起被換掉了。
+ * 掛在每次重畫都會被換掉的容器上，就沒有任何人需要記得拆它。
  */
-let detailEvents = null;
-let entEvents = null;
+const pageRoot = (el) => el.querySelector('[data-detailpage]');
+const entRoot = (el) => el.querySelector('[data-entform]');
 
 const AUDIT_VISIT_LIMIT = 30;
 
 /** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
 const POOL_PICK = '__pool__';
+
+/** 「幾萬的」那一排裡的「其他…」。它不是一個等級，是一顆展開輸入框的鈕。 */
+const TIER_OTHER = '__other__';
 
 /** 一眼掃得完的長度。超過就收進「看全部」，不要把整頁拉成一條長清單。 */
 const RECENT_VISITS = 6;
@@ -97,8 +104,6 @@ const RECENT_TASKS = 6;
 export async function render(el, id) {
   showVisits = false;
   detailMonth = null;
-  detailEvents?.abort();
-  entEvents?.abort();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -161,6 +166,7 @@ function paint(ctx) {
   const openTasks = tasks.filter((t) => !t.done);
 
   el.innerHTML = `
+    <div data-detailpage>
     <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
 
     <div class="hero">
@@ -249,6 +255,7 @@ function paint(ctx) {
       <button class="footlink" type="button" data-audit>變更紀錄</button>
       <button class="footlink footlink--danger" type="button" data-danger>
         ${customer.active === false ? '重新啟用與刪除' : '停用與刪除'}</button>
+    </div>
     </div>`;
 
   wire(ctx, { today, marks });
@@ -270,9 +277,7 @@ function wire(ctx, { today, marks }) {
 
   // 換月份**只重畫那一塊**（ADR-0038 的規矩：只換真的變了的那一塊）——
   // 重畫整頁會把她剛剛展開的來訪紀錄捲回最上面。
-  detailEvents?.abort();
-  detailEvents = new AbortController();
-  el.addEventListener('click', (e) => {
+  pageRoot(el).addEventListener('click', (e) => {
     const stepped = steppedMonth(e.target, detailMonth ?? today.slice(0, 7), addMonths);
     if (stepped) {
       detailMonth = stepped;
@@ -294,7 +299,7 @@ function wire(ctx, { today, marks }) {
 
     const task = e.target.closest('[data-task]');
     if (task) toggleTask(ctx, task.dataset.task);
-  }, { signal: detailEvents.signal });
+  });
 
   el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
 
@@ -762,11 +767,10 @@ async function fixCounts(ctx, entId) {
 // ---------- 來訪與任務的列 ----------
 
 function visitRow(v) {
-  const courses = [...new Set((v.slots ?? []).map((s) => s.courseName).filter(Boolean))];
   return `
     <li><a href="#/visits/${esc(v.id)}">
       <span class="link-list__label num">${esc(shortDate(v.date))}
-        <span class="muted">${esc(courses.join('、') || `${(v.slots ?? []).length} 個時段`)}</span>
+        <span class="muted">${esc(visitCourseLabel(v))}</span>
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
     </a></li>`;
@@ -968,6 +972,7 @@ function paintEntitlement(ctx, record, draft = null) {
   const c = isNew ? null : counts(record, ctx.visits, record.id);
 
   el.innerHTML = `
+    <div data-entform>
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(ctx.customer.name)}</a>
 
     <div class="page">
@@ -980,7 +985,7 @@ function paintEntitlement(ctx, record, draft = null) {
       ${isNew ? buyFields(e, aliveCourses) : adjustFields(e, c)}
 
       <details class="advanced" ${e.advanced ? 'open' : ''}>
-        <summary class="advanced__head">進階設定${advancedDigest(e, isNew)}</summary>
+        <summary class="advanced__head">進階設定${advancedDigest(e, isNew, aliveCourses)}</summary>
         <div class="advanced__body">
           ${advancedFields(e, aliveCourses, aliveEquip, isNew)}
         </div>
@@ -992,7 +997,8 @@ function paintEntitlement(ctx, record, draft = null) {
       </div>
     </form>
 
-    ${isNew ? '' : entitlementDanger()}`;
+    ${isNew ? '' : entitlementDanger()}
+    </div>`;
 
   wireEntitlement(el, ctx, record, e, { isNew, aliveCourses });
 }
@@ -1015,6 +1021,8 @@ function buyFields(e, courses) {
       ],
     })}
 
+    ${tierFields(e, courses)}
+
     <div class="fieldgroup">
       <span class="fieldgroup__label">幾次</span>
       <div class="qty">
@@ -1024,6 +1032,43 @@ function buyFields(e, courses) {
           <button class="chip chip--sm" type="button" data-qty="${n}">+${n}</button>`).join('')}
       </div>
     </div>`;
+}
+
+/**
+ * 「幾萬的」那一排。**只在選到有配二返的課程時出現**（健檢就是那一種）。
+ *
+ * 不寫死「健檢」兩個字：課程是她自己在主檔建的，名字隨時改得了，而
+ * `followupCourseId` 是這個 app 裡「這是健檢」唯一的機器判準
+ *（`domain/followups.js` 的檔頭寫過為什麼不用名字比對）。
+ *
+ * 等級只進顯示名稱（ADR-0054），所以它就長在名稱旁邊，不進「進階設定」。
+ * 「其他」讓她自己打 —— 她的資料裡有「5萬(心臟)」這種。
+ */
+function tierFields(e, courses) {
+  const course = courses.find((c) => c.id === e.courseId);
+  if (e.type === 'pool' || !followupCourseIdOf(course)) return '';
+
+  const tier = String(e.tier ?? '').trim();
+  const custom = Boolean(e.tierOther) || (Boolean(tier) && !TIER_PRESETS.includes(tier));
+
+  return `
+    ${f.chips({
+      name: 'tier', label: '幾萬的',
+      value: custom ? TIER_OTHER : (tier || null),
+      options: [
+        ...TIER_PRESETS.map((t) => ({ value: t, label: t })),
+        { value: TIER_OTHER, label: '其他…' },
+      ],
+    })}
+    <div data-tierother ${custom ? '' : 'hidden'}>
+      ${f.text({
+        name: 'tierText', label: '自己打', value: custom ? tier : '',
+        placeholder: '5萬(心臟)',
+      })}
+    </div>
+    <p class="muted dim" style="margin: calc(var(--space-2) * -1) 0 var(--space-4); font-size: var(--text-2xs)">
+      等級只影響顯示名稱（會變成「${esc(tieredLabel(tier || '8萬', course?.name ?? ''))}」），
+      流程與任務都不受影響。</p>`;
 }
 
 /**
@@ -1054,13 +1099,19 @@ function adjustFields(e, c) {
       已完成與已排未上跟著來訪的狀態走，改不了。對不起來時到資料健檢修。</p>`;
 }
 
-/** 摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。 */
-function advancedDigest(e, isNew) {
+/**
+ * 摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。
+ *
+ * 顯示名稱要跟**自動帶的那一個**比（`keptLabel()`）。以前是「有值就算改過」，
+ * 於是她一選課程就看到「改了 顯示名稱」—— 而那是 app 自己填的，她沒有動過。
+ * 畫面在講一件沒發生的事，比沒講還糟。
+ */
+function advancedDigest(e, isNew, courses) {
   const changed = [
     e.durationMin ? '時長' : null,
     e.frequencyRule ? '頻率限制' : null,
     e.expiresAt ? '到期日' : null,
-    isNew && e.label ? '顯示名稱' : null,
+    isNew && keptLabel(e, courses) ? '顯示名稱' : null,
   ].filter(Boolean);
   return changed.length ? `<span class="muted"> 改了 ${changed.join('、')}</span>` : '';
 }
@@ -1112,11 +1163,10 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       ...e, ...readEntitlement(form), advanced: advanced(), ...over,
     });
 
-  entEvents?.abort();
-  entEvents = new AbortController();
-  f.wireChips(el, { signal: entEvents.signal });
+  const root = entRoot(el);
+  f.wireChips(root);
 
-  el.addEventListener('click', (ev) => {
+  root.addEventListener('click', (ev) => {
     const pick = ev.target.closest('[data-chip="buy"]');
     if (pick) {
       const value = pick.dataset.chipValue;
@@ -1130,16 +1180,29 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
         return;
       }
       const found = aliveCourses.find((x) => x.id === value);
+      // 換到不配二返的課程（也就是不是健檢）就把等級丟掉 ——
+      // 「8萬復能」是一句沒有意義的話。
+      const tier = followupCourseIdOf(found) ? (e.tier ?? null) : null;
       // 選了課程就把名稱與時長帶進來 —— 她一個字都不用打。
       // 她自己改過的名稱不覆蓋（那是進階設定裡刻意動過的）。
       redraw({
         type: 'single',
         courseId: found?.id ?? null,
         optionEquipmentIds: [],
-        label: e.label && e.label !== nameOfCourse(aliveCourses, e.courseId)
-          ? e.label : (found?.name ?? ''),
+        label: keptLabel(e, aliveCourses) ?? tieredLabel(tier, found?.name ?? ''),
         durationMin: e.durationMin ?? null,
+        tier,
+        tierOther: Boolean(tier) && !TIER_PRESETS.includes(tier),
       });
+      return;
+    }
+
+    // 「幾萬的」那一排。`wireChips()` 先跑，所以 `readEntitlement()` 讀得到
+    // 新選的那一顆 —— 這裡只要把顯示名稱跟著換掉。
+    const tierPick = ev.target.closest('[data-chip="tier"]');
+    if (tierPick) {
+      const next = { ...e, ...readEntitlement(form) };
+      redraw({ label: keptLabel(e, aliveCourses) ?? tieredLabel(next.tier, nameOfCourse(aliveCourses, next.courseId)) });
       return;
     }
 
@@ -1148,7 +1211,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       const box = form.elements.totalQty;
       box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
     }
-  }, { signal: entEvents.signal });
+  });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -1167,6 +1230,8 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       optionEquipmentIds: next.type === 'pool' ? next.optionEquipmentIds : null,
       frequencyRule: next.frequencyRule,
       expiresAt: next.expiresAt,
+      // 只影響顯示名稱（ADR-0054）。沒選就是 null，不要留空字串。
+      tier: next.tier ?? null,
     };
 
     try {
@@ -1198,6 +1263,18 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
 
 const nameOfCourse = (courses, id) => courses.find((x) => x.id === id)?.name ?? '';
 
+/**
+ * 她自己打過的顯示名稱。**沒改過就回 `null`**，讓呼叫端重新帶一個自動的。
+ *
+ * 「改過」的判準是「跟自動帶的那一個不一樣」—— 自動帶的是
+ * `等級 + 課程名`（`tieredLabel()`）。這一支是為了讓「換課程」與「換等級」
+ * 兩條路用同一個判斷：兩邊各寫一次遲早會有一邊把她打的字蓋掉。
+ */
+function keptLabel(e, courses) {
+  const auto = tieredLabel(e.tier, nameOfCourse(courses, e.courseId));
+  return e.label && e.label !== auto ? e.label : null;
+}
+
 function courseOptions(courses, currentId) {
   const opts = courses.map((c) => ({
     value: c.id,
@@ -1223,6 +1300,19 @@ function readEntitlement(form) {
     optionEquipmentIds: v.optionEquipmentIds ?? [],
     frequencyRule: String(v.frequencyRule ?? '').trim() || null,
     expiresAt: v.expiresAt || null,
+    // **只有那一排真的在畫面上時才回報 `tier`。** 調整那一張表沒有這一排，
+    // 少帶一個欄位就等於把它清成 null —— 那正是 2026-08-25 修過的
+    // `normalize()` / `normalizePatch()` 那一種形狀（`domain/notes.js`）。
+    ...(form.elements.tier ? readTier(v) : {}),
+  };
+}
+
+function readTier(v) {
+  const pick = v.tier ?? null;
+  const other = pick === TIER_OTHER;
+  return {
+    tier: (other ? String(v.tierText ?? '').trim() : String(pick ?? '').trim()) || null,
+    tierOther: other,
   };
 }
 
@@ -1304,7 +1394,7 @@ async function toggleTask(ctx, id) {
   const task = ctx.tasks.find((t) => t.id === id);
   if (!task) return;
   try {
-    await toast.withSaveState(() => tasksData.setDone(id, !task.done), {
+    await toast.withSaveState(() => tasksData.setDone(task, !task.done), {
       success: task.done ? '拿回來了' : '勾掉了',
     });
     reload(ctx);

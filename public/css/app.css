@@ -640,6 +640,20 @@ textarea {
   box-shadow: var(--shadow-1);
 }
 
+/* 匯入那一頁那幾張清單。名字寫著「緊湊」，而它以前一條規則都沒有 ——
+   長成瀏覽器預設的項目符號清單，左邊縮排 40px、每一列之間留一整行
+   （`.scratch/code-audit-2026-08-25/issues/08`）。那一頁一次列兩百筆。 */
+.tight {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.tight > li + li {
+  margin-top: var(--space-1);
+}
+
 /* ---------- 選項泡泡 ---------- */
 
 /* 時間、課程、器材、診間、治療師一律用點的。只有備註要打字。
@@ -1726,9 +1740,14 @@ button.mark::after {
   cursor: default;
 }
 
-/* 點不下去的日子有三種，而她只會在「為什麼這天不能點」上停下來，
-   所以三種原因三種樣子，不要用同一個米色講三件事。 */
-.minical__cell--off {
+/* 標起來的日子有三種，而她只會在「為什麼這天是紅的」上停下來，
+   所以三種原因三種樣子，不要用同一個米色講三件事。
+
+   **只有「已經過去了」點不下去**（`--past`，那不是判斷是事實）。
+   他說不行與你休假照樣點得下去，點了在面板上出一條提醒 ——
+   解析可能讀錯，而休假是她自己記的，兩件事她都可以改主意（ADR-0002、
+   `.scratch/asks-2026-08-25/issues/03`）。 */
+.minical__cell--past {
   cursor: not-allowed;
 }
 
@@ -2849,6 +2868,14 @@ button.mark::after {
  * 視覺上 32px（跟叉叉一樣大），感應範圍靠 ::after 撐到 44（SPEC 第 8.0 節）。
  * 選單往下長，第一個項目是來訪 —— 手指從那一顆出發，最先碰到的是最常按的。
  * 懸浮泡泡往上長，所以那邊來訪在最下面：規矩是同一條，方向相反。 */
+/* 「＋」那個選單的外框。**它自己要 position: relative** ——
+   `.addmenu__list` 是絕對定位的，以前靠上層 `.drawer__tools` 剛好也是
+   relative 才沒有跑掉，那是巧合（`.scratch/code-audit-2026-08-25/issues/08`）。
+   哪天它被搬出那個容器，選單就會飛到頁面的角落。 */
+.addmenu {
+  position: relative;
+}
+
 .addmenu__btn {
   width: 32px;
   height: 32px;
@@ -3948,12 +3975,77 @@ button.mark::after {
 }
 
 /* 「以前問過的 N 次」那一摺。客戶詳情用。 */
+/* 「已完成」那一格的日期分隔。條列式往下，中間插一行「今天」「8/24(日)」——
+   跟隨手記那一頁的 .notelist 共用底下的列，只多這一行小標。 */
+.donegroup {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+}
+
+.donegroup:first-of-type {
+  margin-top: 0;
+}
+
 .pastavail {
   margin-top: var(--space-2);
 }
 
+/* 一份一行，收起來只有月份與一句摘要（ADR-0053）。以前是每一份都整塊攤開，
+   問過六個月就是六大塊紅框框，底下的額度與來訪紀錄被推到看不見的地方。 */
+.pastavail__year {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+}
+
 .pastavail__one {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.pastavail__one[open] {
+  padding-bottom: var(--space-3);
+}
+
+.pastavail__sum {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  list-style: none;
+}
+
+.pastavail__sum::-webkit-details-marker {
+  display: none;
+}
+
+.pastavail__month {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 收起／展開的那個小三角自己畫，才轉得動也才對得齊。 */
+.pastavail__sum::after {
+  content: '';
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid var(--text-mute);
+  border-bottom: 1.6px solid var(--text-mute);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.pastavail__one[open] .pastavail__sum::after {
+  transform: rotate(45deg);
 }
 
 /* 「這個月」那一段的換月份。段落抬頭右邊兩顆，44px 感應範圍靠 ::after 撐。 */

@@ -2,6 +2,7 @@ import { navRoutes, activeNavPath, start } from './router.js';
 import { icon } from './icons.js';
 import { back } from './nav.js';
 import { setSignOut } from './session.js';
+import { watchSystemTheme } from './theme.js';
 
 function navHtml(activePath) {
   return navRoutes()
@@ -66,6 +67,9 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
  */
 export function renderShell(root, { onSignOut }) {
   setSignOut(onSignOut);
+  // 選了「跟著系統」的話，她在 iPad 的控制中心切深色時 app 通常還開著。
+  // `data-theme` 本身在 index.html 的 `<head>` 就蓋好了（ADR-0055）。
+  watchSystemTheme();
 
   root.innerHTML = `
     <nav class="app__nav" aria-label="主選單"></nav>
@@ -74,7 +78,6 @@ export function renderShell(root, { onSignOut }) {
     </div>
   `;
 
-  const view = root.querySelector('#view');
   const navEl = root.querySelector('.app__nav');
 
   wireBackLinks(root);
@@ -83,13 +86,38 @@ export function renderShell(root, { onSignOut }) {
     if (!route) return;
     const title = route.titleFor ? route.titleFor(...params) : route.title;
     document.title = `${title} · 排課系統`;
-    view.scrollTop = 0;
+    const view = freshView(root);
     navEl.innerHTML = navHtml(activeNavPath(path));
     // render 可能是 async，錯誤要看得見，不能靜默失敗
     Promise.resolve(route.render(view, ...params)).catch((err) => {
       view.innerHTML = `<div class="card"><p>這一頁出錯了：${err.message}</p></div>`;
     });
   });
+}
+
+/**
+ * 換頁時把 `#view` 整個換成一個新的空節點。
+ *
+ * **每一頁都畫在同一個元素上**，而好幾頁會把委派的 click 監聽掛在那個元素本身
+ * （一次接住兩百列比接兩百顆按鈕便宜得多，ADR-0038 的那一段就是這樣寫的）。
+ * 那些監聽跟著元素走，所以**換頁不會收掉它們** —— 它們會一路活到重新整理，
+ * 而且在別的頁面上照樣被觸發：`data-kind`（匯入的分類鈕）跟日曆頂端的篩選丸
+ * 是同一個屬性名，`data-task` 在客戶詳情與待辦中心各有一個意思。
+ *
+ * 一頁一頁去記得拆監聽是做不到的（漏掉的那一個只有在特定順序點過兩頁才看得到，
+ * 而那正是 2026-08-25 那個「換月份箭頭跳到記一次」的形狀）。
+ * 換掉節點是唯一不用任何人記得的作法：舊節點連同它身上的監聽一起被丟掉。
+ *
+ * 順帶修掉另一件事：`render()` 是 async 的，換頁時上一頁可能還在等資料。
+ * 以前它回來之後會把**新的那一頁**蓋掉；現在它畫進一個已經離開文件的節點，
+ * 什麼事都不會發生。
+ */
+function freshView(root) {
+  const old = root.querySelector('#view');
+  // cloneNode(false)：屬性照抄（id、class、tabindex），子節點與監聽都不抄。
+  const next = old.cloneNode(false);
+  old.replaceWith(next);
+  return next;
 }
 
 /**

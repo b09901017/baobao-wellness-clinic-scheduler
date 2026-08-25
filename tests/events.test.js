@@ -130,7 +130,8 @@ test('isLeave 認得休假', () => {
 
 // ---------- 月檢視排版 ----------
 
-// 2026 年 8 月 1 日是禮拜六，所以第一列是 7/26–8/1、第二列是 8/2–8/8。
+// 一週從禮拜一開始（2026-08-25 起，`.scratch/asks-2026-08-25/issues/12`）。
+// 2026 年 8 月 1 日是禮拜六，所以第一列是 7/27–8/2、第二列是 8/3–8/9。
 const WEEKS = monthWeeks('2026-08');
 
 test('同一週的跨天行程變成一條橫跨的色條', () => {
@@ -139,7 +140,7 @@ test('同一週的跨天行程變成一條橫跨的色條', () => {
 
   const week2 = rows[1];
   assert.equal(week2.bars.length, 1);
-  assert.equal(week2.bars[0].col, 2, '8/3 是那一列的第二格');
+  assert.equal(week2.bars[0].col, 1, '8/3 是禮拜一，那一列的第一格');
   assert.equal(week2.bars[0].span, 4, '8/3 到 8/6 共四天');
   assert.equal(week2.bars[0].lane, 0);
   assert.equal(week2.bars[0].kind, 'kind-leave');
@@ -150,14 +151,14 @@ test('跨週的行程在每一週各得到一段，並標出前後還有', () =>
   const rows = layoutMonth([e], WEEKS);
 
   const week2 = rows[1].bars[0];
-  assert.equal(week2.col, 6);
-  assert.equal(week2.span, 2, '8/7、8/8');
+  assert.equal(week2.col, 5, '8/7 是禮拜五');
+  assert.equal(week2.span, 3, '8/7、8/8、8/9');
   assert.equal(week2.continuesBefore, false);
   assert.equal(week2.continuesAfter, true);
 
   const week3 = rows[2].bars[0];
   assert.equal(week3.col, 1);
-  assert.equal(week3.span, 2, '8/9、8/10');
+  assert.equal(week3.span, 1, '8/10');
   assert.equal(week3.continuesBefore, true);
   assert.equal(week3.continuesAfter, false);
 });
@@ -186,7 +187,7 @@ test('放不下的用 +N 表示，不把格子撐爛', () => {
   const rows = layoutMonth(many, WEEKS, { maxLanes: 3 });
 
   assert.equal(rows[1].bars.length, 3);
-  assert.equal(rows[1].more[2], 1, '8/4 是第三格，被擠掉一筆');
+  assert.equal(rows[1].more[1], 1, '8/4 是禮拜二，那一列的第二格，被擠掉一筆');
   assert.equal(rows[1].more[0], 0);
 });
 

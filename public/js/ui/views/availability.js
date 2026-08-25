@@ -10,7 +10,10 @@
 // 她會以為系統知道，其實不知道。
 
 import * as data from '../../data/customers.js';
-import { describeRule, currentCollection, validateCollection } from '../../domain/availability.js';
+import {
+  describeRule, currentCollection, validateCollection,
+  collectionsByMonth, monthsTaken, summarizeCollection, describeRuleChanges,
+} from '../../domain/availability.js';
 import {
   freeTextFrom, monthGrid, picksToRules, rawTextFrom, rulesToPicks,
 } from '../../domain/availabilityForm.js';
@@ -22,9 +25,16 @@ import * as f from '../components/form.js';
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 
-/** 一週從星期一開始。她的日曆與客戶那一頁都是這個順序。 */
+/**
+ * 一週從星期一開始。全站四個畫著格子的地方都是這個順序 ——
+ * 日曆與壓表的小日曆走 `domain/calendar.js` 的 `WEEKDAY_HEADERS`，
+ * 這一頁與客戶填的表單自己列（它們的格子是自己畫的，不吃那一份表頭）。
+ * 2026-08-25 之前日曆那兩個是週日起算，而這裡的註解寫著「跟她的日曆一樣」——
+ * 那句話當時是假的。
+ */
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 import { pushLayer, pushScreen } from '../nav.js';
+import { openSheet } from '../components/sheet.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 
@@ -32,9 +42,22 @@ const esc = f.esc;
 
 // ---------- 客戶詳情裡的區塊 ----------
 
+/**
+ * 客戶詳情上那一段。
+ *
+ * **「以前問過的」是一行一份，收起來的時候只有月份與一句摘要**（ADR-0053）。
+ * 以前是每一份都整塊攤開，問過六個月就是六大塊紅框框，底下的額度與來訪紀錄
+ * 被推到看不見的地方 —— 她的原話是「不要一點開就跳出全部占版面」。
+ *
+ * 就地展開不做成抽屜：她攤開歷史是在對帳，那時候她會想一直看著它，
+ * 而抽屜要再關一次才回得來（同「來訪紀錄」那一段的判斷）。
+ */
 export function sectionHtml(collections, today) {
   const current = currentCollection(collections, today);
-  const others = collections.filter((c) => c.id !== current?.id);
+  const groups = collectionsByMonth(collections)
+    .map((g) => ({ ...g, records: g.records.filter((c) => c.id !== current?.id) }))
+    .filter((g) => g.records.length);
+  const count = groups.reduce((n, g) => n + g.records.length, 0);
 
   return `
     <div class="section">
@@ -53,29 +76,115 @@ export function sectionHtml(collections, today) {
         <button class="btn btn--sm" type="button" data-edit-avail="${esc(current.id)}">編輯</button>
       </p>` : ''}
 
-    ${others.length
+    ${count
       ? `<details class="pastavail">
-           <summary class="muted">以前問過的 ${others.length} 次</summary>
-           ${others.map((c) => `
-             <div class="pastavail__one">
-               ${banUi.banBlock(banUi.rowFromCollection(c), {
-                 month: monthLabel(c.validFrom ?? today), raw: true,
-               })}
-               <p style="margin: var(--space-1) 0 0">
-                 <button class="btn btn--sm" type="button"
-                         data-edit-avail="${esc(c.id)}">編輯</button></p>
-             </div>`).join('')}
+           <summary class="muted">以前問過的 ${count} 次</summary>
+           ${byYear(groups).map(([year, months]) => `
+             <p class="pastavail__year">${year ? `${esc(year)} 年` : '有效期看不出月份'}</p>
+             ${months.flatMap((g) => g.records.map((c) => pastRow(g.month, c))).join('')}
+           `).join('')}
          </details>`
       : ''}`;
 }
 
+/** 年份新的在前。`collectionsByMonth()` 已經排好月份，這裡只是再收一層。 */
+function byYear(groups) {
+  const years = new Map();
+  for (const g of groups) {
+    const year = g.month ? g.month.slice(0, 4) : null;
+    if (!years.has(year)) years.set(year, []);
+    years.get(year).push(g);
+  }
+  return [...years.entries()];
+}
+
+/** 收起來只有一行：哪個月、什麼時候問的、幾條。點開才是那份紅框框。 */
+function pastRow(month, record) {
+  return `
+    <details class="pastavail__one">
+      <summary class="pastavail__sum">
+        <span class="pastavail__month">${month ? esc(monthLabel(`${month}-01`)) : '？'}</span>
+        <span class="muted">${esc(summarizeCollection(record))}</span>
+      </summary>
+      ${banUi.banBlock(banUi.rowFromCollection(record), {
+        month: month ? monthLabel(`${month}-01`) : '', raw: true,
+      })}
+      <p style="margin: var(--space-2) 0 0">
+        <button class="btn btn--sm" type="button"
+                data-edit-avail="${esc(record.id)}">編輯</button></p>
+    </details>`;
+}
+
 export function wireSection(ctx) {
-  ctx.el.querySelector('[data-add-avail]')?.addEventListener('click', () => paintForm(ctx, null));
+  ctx.el.querySelector('[data-add-avail]')?.addEventListener('click', () => openPicker(ctx));
 
   ctx.el.querySelectorAll('[data-edit-avail]').forEach((btn) =>
     btn.addEventListener('click', () =>
       paintForm(ctx, ctx.availability.find((c) => c.id === btn.dataset.editAvail)),
     ),
+  );
+}
+
+// ---------- 記一次：先問是哪個月 ----------
+//
+// 她問時間的節奏是「月底那一兩個禮拜問下個月」，所以一份就是一個月（ADR-0053）。
+// 「記一次」以前直接開一張下個月的空白表，於是同一個月被記兩份是很容易的事 ——
+// 而壓表只挑得到其中一份（`collectionFor()`，ADR-0036），另一份是隱形的。
+//
+// **同一個月不會有第二份，是動線本身保證的**：已經有的月份只出現在「改」那一排，
+// 不會出現在「新增」那一排。不是靠一句錯誤訊息。
+
+/** 「新增」那一排給幾個月。從下個月往後數，夠她提前問。 */
+const AHEAD = 4;
+
+function openPicker(ctx) {
+  const today = todayISO();
+  const taken = new Set(monthsTaken(ctx.availability));
+  const existing = collectionsByMonth(ctx.availability).filter((g) => g.month);
+  const ahead = [];
+  for (let i = 1; i <= AHEAD; i += 1) {
+    const month = addMonths(today, i).slice(0, 7);
+    if (!taken.has(month)) ahead.push(month);
+  }
+
+  const sheet = openSheet({
+    title: '記一次',
+    note: '一份就是一個月。已經問過的那幾個月在上面，改它就好。',
+    body: `
+      ${existing.length ? `
+        <div class="field">
+          <div class="field__label">改已經填過的</div>
+          <div class="chips">
+            ${existing.flatMap((g) => g.records.map((c) => `
+              <button class="chip" type="button" data-pick-edit="${esc(c.id)}">
+                ${esc(monthLabel(`${g.month}-01`))}
+                <span class="num dim">&nbsp;${esc(c.collectedAt ?? '')}</span></button>`)).join('')}
+          </div>
+        </div>` : ''}
+
+      <div class="field">
+        <div class="field__label">新增</div>
+        <div class="chips">
+          ${ahead.map((m) => `
+            <button class="chip" type="button" data-pick-new="${m}">
+              ${esc(monthLabel(`${m}-01`))}</button>`).join('')
+            || '<span class="muted">往後四個月都問過了。要改的話點上面那一排。</span>'}
+        </div>
+      </div>`,
+  });
+
+  sheet.el.querySelectorAll('[data-pick-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      sheet.close();
+      paintForm(ctx, ctx.availability.find((c) => c.id === btn.dataset.pickEdit));
+    }),
+  );
+
+  sheet.el.querySelectorAll('[data-pick-new]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      sheet.close();
+      paintForm(ctx, null, null, btn.dataset.pickNew);
+    }),
   );
 }
 
@@ -113,16 +222,16 @@ export function wireSection(ctx) {
 let daySheetLayer = null;
 
 /**
- * 上一次重畫掛的那組事件。
+ * 這一頁的委派監聽掛在 `[data-availform]` 上，**不掛在 `el` 上**。
  *
- * `paintForm()` 換的是 `el.innerHTML`，**`el` 本身沒有被換掉** —— 所以每重畫
- * 一次就再 `addEventListener` 一次，點一下會跑好幾個處理器，而舊的那幾個
- * 抓著已經過期的 `state`。這一頁重畫得很兇（點一天、換月份、選一個半天），
- * 症狀是「點了三選一之後有一筆日期變成 null」。
+ * `paintForm()` 換的是 `el.innerHTML`，`el` 本身沒有被換掉 —— 掛在 `el` 上的話
+ * 每重畫一次就多一顆，而且**離開這一頁之後它還活著**：客戶詳情的「這個月」
+ * 也用 `monthNav()`（同一個 `data-month-step`），於是記一次回去之後按那兩顆
+ * 箭頭會整頁跳回記一次（`.scratch/asks-2026-08-25/issues/04`）。
  *
- * 掛新的之前先把上一組整個中止掉。
+ * 掛在每次重畫都會被換掉的那個容器上，就沒有任何人需要記得拆它。
  */
-let formEvents = null;
+const formRoot = (el) => el.querySelector('[data-availform]');
 
 /** 她問的永遠是「下個月」，所以預設就是下個月。 */
 const defaultMonth = (today) => addMonths(today, 1).slice(0, 7);
@@ -142,8 +251,9 @@ const PART_CHOICES = [
  * @param {object} ctx
  * @param {object|null} record 既有的那一份，null 是新記一次
  * @param {object|null} draft 重畫時帶著的暫存值
+ * @param {string|null} month 新增時她在面板上挑的那個月，`'YYYY-MM'`
  */
-function paintForm(ctx, record, draft = null) {
+function paintForm(ctx, record, draft = null, month = null) {
   const { el, customer } = ctx;
   const today = todayISO();
   const isNew = !record?.id;
@@ -151,14 +261,16 @@ function paintForm(ctx, record, draft = null) {
   // 從客戶詳情重新進來（不是自己重畫）—— 上一次留下的那一層不算數了。
   if (!draft) daySheetLayer = null;
 
-  const state = draft ?? initialDraft(record, today);
+  const state = draft ?? initialDraft(record, today, month);
   const cells = monthGrid(state.month, { today: null });
 
   el.innerHTML = `
+    <div data-availform>
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
 
     <div class="page">
-      <h1 class="page__title">${isNew ? '記一次' : '改這一份'}</h1>
+      <h1 class="page__title">${isNew ? '記' : '改'}${
+        esc(monthLabel(`${state.month}-01`))}不能的時間</h1>
       <p class="page__lead">點掉他不方便的日子就好。什麼都不點就是「這個月都可以」。</p>
     </div>
 
@@ -166,7 +278,12 @@ function paintForm(ctx, record, draft = null) {
 
     <div class="section">
       <h2 class="section__title">${esc(monthLabel(`${state.month}-01`))}</h2>
-      ${monthNav()}
+      ${
+        // **既有的那一份不給換月份**：一份綁一段有效期（ADR-0053），把 9 月那一份
+        // 改成 10 月，壓 9 月的表就會突然找不到那一份。要記 10 月的話回上一頁
+        // 按「記一次 → 新增」，那條路長出來的是新的一份。
+        isNew ? monthNav() : ''
+      }
     </div>
 
     <div class="pickcal">
@@ -210,7 +327,8 @@ function paintForm(ctx, record, draft = null) {
     ${leftoverHtml(state)}
     ${isNew ? '' : dangerZone()}
 
-    ${state.sheetDate ? sheetHtml(state.sheetDate, state) : ''}`;
+    ${state.sheetDate ? sheetHtml(state.sheetDate, state) : ''}
+    </div>`;
 
   wireForm(el, ctx, record, state);
 }
@@ -219,8 +337,8 @@ function paintForm(ctx, record, draft = null) {
  * 打開既有的一份時，把規則反推回格子上（`rulesToPicks()`）。
  * 反推不回來的**不吞掉**，放進 `leftover` 列在畫面上。
  */
-function initialDraft(record, today) {
-  const month = record?.validFrom?.slice(0, 7) ?? defaultMonth(today);
+function initialDraft(record, today, picked = null) {
+  const month = record?.validFrom?.slice(0, 7) ?? picked ?? defaultMonth(today);
   const { picks, leftover } = rulesToPicks(record?.rules ?? [], { month });
 
   return {
@@ -351,10 +469,7 @@ function wireForm(el, ctx, record, state) {
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
 
-  formEvents?.abort();
-  formEvents = new AbortController();
-
-  el.addEventListener('click', (e) => {
+  formRoot(el).addEventListener('click', (e) => {
     const next = steppedMonth(e.target, state.month, addMonths);
     if (next) {
       // 換月份不清掉已經點的：她可能在兩個月之間來回確認。反正只有
@@ -403,7 +518,7 @@ function wireForm(el, ctx, record, state) {
         leftover: state.leftover.filter((_, k) => k !== i),
       });
     }
-  }, { signal: formEvents.signal });
+  });
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -446,10 +561,42 @@ function readForm(form) {
   };
 }
 
+/**
+ * 改既有的那一份之前，先把差異講出來（ADR-0053）。
+ *
+ * 「已儲存」三個字說不出「我剛剛是不是把 9/17 弄掉了」，而這一份是壓那個月的表
+ * 唯一會看的東西。**沒有差異就不問**，也不寫一筆稽核 —— 她只是點進來看一眼。
+ *
+ * 新增不問：她正在建立的東西畫面上就有，再問一次只是多一次點擊。
+ *
+ * @returns {Promise<boolean>} 要不要繼續存
+ */
+async function confirmChanges(record, next) {
+  const { added, removed } = describeRuleChanges(record?.rules ?? [], next.rules ?? []);
+  const month = monthLabel(next.validFrom);
+
+  if (!added.length && !removed.length) {
+    // 規則一條都沒動，但備註或收集日期可能改了 —— 那兩個不值得攔一次。
+    return true;
+  }
+
+  return confirmAction({
+    title: `改${month}不能的時間？`,
+    consequences: [
+      ...removed.map((r) => `拿掉「${esc(r)}」`),
+      ...added.map((r) => `加上「${esc(r)}」`),
+      `改完之後壓${month}的表會用這一份`,
+    ],
+    confirmLabel: '存起來',
+  });
+}
+
 async function submit(ctx, record, next) {
   const errors = validateCollection(next);
   f.showErrors(ctx.el, errors);
   if (errors.length) return;
+
+  if (record?.id && !(await confirmChanges(record, next))) return;
 
   const payload = {
     rawText: next.rawText.trim(),

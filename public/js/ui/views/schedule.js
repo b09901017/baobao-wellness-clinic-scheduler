@@ -42,7 +42,7 @@ import {
   strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
-import { blockedDates } from '../../domain/events.js';
+import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
 } from '../../domain/visits.js';
@@ -919,9 +919,21 @@ function halfBlocked(row, iso) {
 /**
  * 挑日子。**他說不行的日子用紅色劃掉**，她自己休假的用霧藍，已經過去的只是變淡。
  *
- * 三種都點不下去，但原因完全不同，而她只有在「為什麼這天不能點」上會停下來 ——
+ * 三種的原因完全不同，而她只有在「為什麼這天不能點」上會停下來 ——
  * 一種顏色講三件事，等於每次都要把 title 叫出來看。顏色的分工跟全站一致：
  * 紅是擋住的，霧藍是她的行事備註（ADR-0015），淡的是已經不用管的。
+ *
+ * **只有「已經過去了」點不下去。** 那不是判斷，是事實。另外兩種照樣點得下去，
+ * 點了在面板最上面出一條提醒（`dayWarnings()`）：
+ *
+ * - 「他說不行」是**解析出來的**（SPEC 第 4.3 節：原文永遠比解析結果大）。
+ *   原文寫「9/22 那個禮拜盡量不要」會被讀成整週不行，而她電話裡問到
+ *   「其實禮拜三可以」時，得有辦法照樣排下去。
+ * - 「我休假」是她自己記的行事備註，她隨時可以改主意（ADR-0002：
+ *   app 記錄決定，不做決定）。
+ *
+ * 這一頁**唯一會鎖住選項的是醫療禁忌**（SPEC 第 4.7 節，`blockedNote()`）。
+ * 時段丸子那一段早就是這樣寫的了，只是整天那一格漏掉了。
  *
  * **只擋半天的日子是第四種，而且它點得下去。** 那天真的排得進去，只是要挑另外
  * 半天（`availableDates()` 也是這樣算的），所以它不是 `--off` 的第四個成員，
@@ -936,7 +948,8 @@ function miniCal(row) {
   const { range, today, away } = ctx;
   const [y, m] = range.from.split('-').map(Number);
   const first = range.from;
-  const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  // 月初那一格前面要空幾格。週一起算，所以週日（0）要空六格（`weekStart()`）。
+  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
   const has = recordedDays(row);
 
   const cells = [];
@@ -968,7 +981,6 @@ function miniCal(row) {
 
     const classes = [
       'minical__cell',
-      kind ? 'minical__cell--off' : '',
       kind ? `minical__cell--${kind}` : '',
       half ? `minical__cell--half minical__cell--half-${half}` : '',
       has.has(iso) ? 'minical__cell--has' : '',
@@ -976,7 +988,7 @@ function miniCal(row) {
     ].filter(Boolean).join(' ');
 
     cells.push(`
-      <button class="${classes}" type="button" data-day="${iso}" ${kind ? 'disabled' : ''}
+      <button class="${classes}" type="button" data-day="${iso}" ${past ? 'disabled' : ''}
               title="${esc(why)}">
         ${d}
         ${half ? `<span class="minical__half">${partLabel(half)}</span>` : ''}
@@ -1057,7 +1069,7 @@ function dayPanel(row) {
           ${esc(shortDate(view.day))}</h3>
         <span class="muted">${sameDay ? `這天已經記了 ${sameDay.slots.length} 段` : '這天還沒排東西'}</span>
       </div>
-      ${halfNote(row)}
+      ${dayWarnings(row)}
 
       <div class="fieldgroup" style="margin-top: var(--space-4)">
         <span class="fieldgroup__label">做什麼</span>
@@ -1091,23 +1103,51 @@ function dayPanel(row) {
 }
 
 /**
- * 選中的那一天只有半天不行時的那一句。
+ * 選中的那一天上面那幾條提醒。
  *
- * 小日曆上已經標出來了，這裡還要再講一次 —— 她點進來是要挑時間的，
- * 而時間丸子就在這句話底下。在挑時間的那一刻不講，等於沒講。
+ * 小日曆上已經用顏色標出來了，這裡還要再講一次 —— 她點進來是要挑時間的，
+ * 而時間丸子就在這幾句話底下。在挑時間的那一刻不講，等於沒講。
  *
- * 用 `.warn` 不用 `.warn--hard`：硬的那一種在這一頁只有醫療禁忌用得起
- * （見 `blockedNote()`），而這一條是提醒，不擋。
+ * 三種都用 `.warn` 不用 `.warn--hard`：硬的那一種在這一頁只有醫療禁忌用得起
+ * （見 `blockedNote()`），這幾條是提醒，不擋。
  */
-function halfNote(row) {
-  const half = halfBlocked(row, view.day);
-  if (!half) return '';
-  return `
+function dayWarnings(row) {
+  const iso = view.day;
+  if (!iso) return '';
+
+  const out = [];
+  const status = row.needsAvailability ? null : dayStatus(row.rules ?? [], iso);
+
+  if (status && !status.available) {
+    out.push(`他說<b>這天不行</b>${
+      status.reasons.length ? ` —— ${esc(status.reasons.join('、'))}` : ''
+    }。還是排得下去，但先跟他確認過。`);
+  } else if (status?.blockedPart) {
+    const half = status.blockedPart;
+    out.push(`他說這天<b>${esc(partLabel(half))}不行</b> ——
+      底下${half === 'am' ? '上午' : '下午'}的時間會標起來，但沒有擋。`);
+  }
+
+  if (ctx.away.has(iso)) {
+    const why = leaveTitles(iso);
+    out.push(`<b>你這天休假</b>${why ? ` —— ${esc(why)}` : ''}。
+      排得下去，但那天你不在院裡。`);
+  }
+
+  return out.map((text) => `
     <div class="warn" style="margin-top: var(--space-3)">
       ${icon('info', { size: 16 })}
-      <span>他說這天<b>${esc(partLabel(half))}不行</b> ——
-        底下${half === 'am' ? '上午' : '下午'}的時間會標起來，但沒有擋。</span>
-    </div>`;
+      <span>${text}</span>
+    </div>`).join('');
+}
+
+/** 那天的休假叫什麼。認不出來回空字串 —— 印一個猜的比不印糟。 */
+function leaveTitles(iso) {
+  return (ctx.events ?? [])
+    .filter((e) => isLeave(e) && coversDate(e, iso))
+    .map((e) => e.title)
+    .filter(Boolean)
+    .join('、');
 }
 
 /** 跟著課程走的那幾欄。沒選課程時只留一句話，不留一堆空欄位。 */

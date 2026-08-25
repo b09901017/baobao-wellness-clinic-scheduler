@@ -67,9 +67,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('九項檢查都在，順序固定', () => {
+  test('十項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 9);
+    assert.equal(result.checks.length, 10);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -586,6 +586,44 @@ function topKeys(body) {
   }
   return keys;
 }
+
+// 一份不能的時間就是一個月（ADR-0053）。同一個月有兩份時壓表只挑得到其中一份，
+// 另一份是隱形的 —— 只列不修，合併是不可逆的。
+describe('同一個月有兩份不能的時間', () => {
+  const two = [
+    {
+      id: 'a1', customerId: 'cus-1', collectedAt: '2026-08-20',
+      validFrom: '2026-09-01', validTo: '2026-09-30', rawText: '禮拜五不行',
+      rules: [{ kind: 'exclude_weekday', weekday: 5 }],
+    },
+    {
+      id: 'a2', customerId: 'cus-1', collectedAt: '2026-08-24',
+      validFrom: '2026-09-01', validTo: '2026-09-30', rawText: '都可以', rules: [],
+    },
+  ];
+
+  test('列出來，但不給一鍵修正', () => {
+    const rows = findingsOf(run({ availability: two }), 'duplicateAvailability');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /9月/);
+    assert.match(rows[0].detail, /記了 2 份/);
+    assert.equal(rows[0].fix, null, '合併是不可逆的，要她自己決定留哪一份');
+  });
+
+  test('不同月份各一份不算重複', () => {
+    const rows = findingsOf(run({
+      availability: [two[0], { ...two[1], id: 'a3', validFrom: '2026-10-01', validTo: '2026-10-31' }],
+    }), 'duplicateAvailability');
+    assert.deepEqual(rows, []);
+  });
+
+  test('有效期看不出月份的那幾份不算重複 —— 那是另一種壞法', () => {
+    const rows = findingsOf(run({
+      availability: two.map((c) => ({ ...c, validFrom: null, validTo: null })),
+    }), 'duplicateAvailability');
+    assert.deepEqual(rows, []);
+  });
+});
 
 describe('畫面認得每一種修正', () => {
   // 三種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法

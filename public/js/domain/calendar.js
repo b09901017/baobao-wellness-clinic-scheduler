@@ -19,9 +19,20 @@ export const VIEWS = ['day', 'week', 'month'];
 
 export const VIEW_LABELS = { day: '日', week: '週', month: '月' };
 
-/** 一週從禮拜日開始。她的可用性條件講的是「禮拜一三下午」，週日起算跟她的講法一致。 */
+/**
+ * 一週從**禮拜一**開始。
+ *
+ * 2026-08-25 以前這裡是週日起算，而她自己記時間的那一頁（`views/availability.js`）
+ * 與客戶填的表單（`js/form/page.js`）是週一起算 —— 同一個產品裡兩種排法，
+ * 而且那兩支的註解都寫著「跟她的日曆一樣」，那句話是假的。
+ * 她選的是全部改成週一（`.scratch/asks-2026-08-25/issues/12`）。
+ *
+ * 週一起算本身也比較貼近她講話的方式（「禮拜一三下午」從一數起），
+ * 而且月曆上週六與週日並排在同一側，一眼看得出哪幾天是週末。
+ */
 export function weekStart(date) {
-  return isValidDate(date) ? addDays(date, -weekdayOf(date)) : null;
+  // (weekday + 6) % 7：週日是 0，往回退 6 天才回到那一週的禮拜一。
+  return isValidDate(date) ? addDays(date, -((weekdayOf(date) + 6) % 7)) : null;
 }
 
 /** 某一天所在那一週的七天。 */
@@ -191,7 +202,11 @@ export function summaryByDate(visits) {
   return out;
 }
 
-/** 星期幾的表頭，日曆的第一列。 */
+/**
+ * 星期幾的表頭，日曆的第一列。**一 二 三 四 五 六 日**，跟 `weekStart()` 同一個
+ * 起點 —— 全站四個畫著格子的地方（日曆、壓表的小日曆、她的「記一次」、
+ * 客戶填的表單）都要是同一排字。
+ */
 export const WEEKDAY_HEADERS = Array.from({ length: 7 }, (_, i) =>
-  weekdayLabel(addDays('2026-01-04', i)), // 2026-01-04 是禮拜日
+  weekdayLabel(addDays('2026-01-05', i)), // 2026-01-05 是禮拜一
 );

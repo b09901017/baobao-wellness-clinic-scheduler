@@ -19,7 +19,8 @@
 import { counts, reconcile, isOverused } from './entitlements.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
-import { currentCollection } from './availability.js';
+import { monthLabel } from './dates.js';
+import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
 import { VISIT_STATUSES, isActive } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
@@ -72,6 +73,11 @@ export const CHECKS = [
     id: 'staleAvailability',
     label: '資料過期',
     hint: '本輪可用性已過有效期，排序會失真',
+  },
+  {
+    id: 'duplicateAvailability',
+    label: '同一個月有兩份',
+    hint: '同一個月記了兩份不能的時間 —— 壓表只挑得到其中一份，另一份是隱形的',
   },
   {
     id: 'chartNo',
@@ -555,6 +561,42 @@ function checkStaleAvailability(ctx) {
 // ADR-0023 加了補二返額度）。它符合那兩支的條件：有明確正解、
 // 而且沒有第二種可能的意思。
 
+/**
+ * 同一個月記了兩份不能的時間。
+ *
+ * **只列不修**（ADR-0053）。壓表挑的是「涵蓋那個月、交集最多」的那一份
+ *（`collectionFor()`，ADR-0036），所以它挑得出來 —— 但另一份是隱形的：
+ * 她在客戶詳情上看到的是最新的那一份，壓表用的可能是另一份。
+ *
+ * 不自動合併也不自動刪：兩份的內容可能都對（她問了兩次、客人改口），
+ * 而合併是不可逆的；其中一份如果是問錯人記的，錯的那幾天會被永久併進來。
+ * 2026-08-25 使用者選的就是「列出來，我自己決定」。
+ *
+ * 動線上以後不會再長出新的：「記一次 → 新增」那一排已經有的月份不出現
+ *（`ui/views/availability.js` 的 `openPicker()`）。這一項掃的是既有資料。
+ */
+function checkDuplicateAvailability(ctx) {
+  const out = [];
+
+  for (const customer of alive(ctx.customers)) {
+    for (const group of collectionsByMonth(ctx.availByCustomer[customer.id] ?? [])) {
+      if (!group.month || group.records.length < 2) continue;
+
+      out.push({
+        severity: 'attention',
+        title: `${customer.name}・${monthLabel(`${group.month}-01`)}`,
+        detail: `記了 ${group.records.length} 份：${
+          group.records.map((c) => summarizeCollection(c)).join('；')
+        }。壓表只會用到其中一份，留一份就好。`,
+        link: `#/customers/${customer.id}`,
+        fix: null,
+      });
+    }
+  }
+
+  return out;
+}
+
 function checkChartNo(ctx) {
   const out = [];
 
@@ -596,5 +638,6 @@ const RUNNERS = {
   conflicts: checkConflicts,
   overdueTasks: checkOverdueTasks,
   staleAvailability: checkStaleAvailability,
+  duplicateAvailability: checkDuplicateAvailability,
   chartNo: checkChartNo,
 };

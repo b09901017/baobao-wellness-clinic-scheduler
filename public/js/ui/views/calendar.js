@@ -354,7 +354,7 @@ function weekHtml(data, date, today) {
             </button>
 
             ${total ? `
-              <div class="timeline timeline--week">
+              <div class="timeline">
                 ${pinned}
                 ${pinned && timeline ? '<hr class="timeline__split" />' : ''}
                 ${timeline}
