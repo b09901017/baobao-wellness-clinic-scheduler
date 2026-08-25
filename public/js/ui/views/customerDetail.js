@@ -77,6 +77,17 @@ let showVisits = false;
 let detailMonth = null;
 
 /**
+ * 任務那一段在看哪一格：未完成／已完成。跟待辦中心的 `taskTab`、隨手記那一頁
+ * 同一個判斷 —— **它是看法，不是位置**，所以不進網址。
+ *
+ * 預設「未完成」：她開這一頁問的是「他還有什麼沒做」。
+ */
+let taskTab = 'open';
+
+/** 上一次畫的是誰。只給 `taskTab` 用，判斷這次是換人還是同一個人重讀。 */
+let shownCustomerId = null;
+
+/**
  * 這一頁的兩組委派監聽掛在自己的容器上，**不掛在 `el` 上**。
  *
  * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，`el` 本身沒有被換掉
@@ -104,6 +115,11 @@ const RECENT_TASKS = 6;
 export async function render(el, id) {
   showVisits = false;
   detailMonth = null;
+  // 換人才重設任務那一格；**同一位客戶重讀不重設** —— 勾掉一筆任務會走
+  // `reload()`（就是這一支），而她在「已完成」點回一筆之後應該還停在
+  // 「已完成」，不是被彈回「未完成」。
+  if (shownCustomerId !== id) taskTab = 'open';
+  shownCustomerId = id;
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -163,7 +179,6 @@ function paint(ctx) {
   const flags = rules.splitFlags(customer, equipment);
   const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
-  const openTasks = tasks.filter((t) => !t.done);
 
   el.innerHTML = `
     <div data-detailpage>
@@ -237,17 +252,7 @@ function paint(ctx) {
     </div>
     ${notesBlock(notes)}
 
-    <div class="section">
-      <h2 class="section__title">任務</h2>
-      <span class="section__n">${openTasks.length ? `${openTasks.length} 未完成` : `${tasks.length}`}</span>
-      ${tasks.length > RECENT_TASKS
-        ? `<button class="section__more" type="button" data-all-tasks>看全部</button>`
-        : ''}
-    </div>
-    ${tasks.length
-      ? `<div class="tasklist">${[...openTasks, ...tasks.filter((t) => t.done)]
-          .slice(0, RECENT_TASKS).map(taskRow).join('')}</div>`
-      : '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'}
+    <div data-taskblock>${taskBlock(tasks)}</div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
@@ -262,7 +267,7 @@ function paint(ctx) {
 }
 
 function wire(ctx, { today, marks }) {
-  const { el, entitlements, visits, tasks } = ctx;
+  const { el, entitlements, visits } = ctx;
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
@@ -294,6 +299,22 @@ function wire(ctx, { today, marks }) {
     const toVisit = e.target.closest('[data-task-visit]');
     if (toVisit) {
       openVisitCard(ctx, toVisit.dataset.taskVisit);
+      return;
+    }
+
+    // 換任務那一格**只重畫那一塊**（同上面的換月份）。
+    const tab = e.target.closest('[data-task-tab]');
+    if (tab) {
+      taskTab = tab.dataset.taskTab;
+      const box = el.querySelector('[data-taskblock]');
+      if (box) box.innerHTML = taskBlock(ctx.tasks);
+      return;
+    }
+
+    // 「看全部」那顆住在會被重畫的那一塊裡，所以也走委派 ——
+    // 用 querySelector 掛的話，換一次分頁它就死了。
+    if (e.target.closest('[data-all-tasks]')) {
+      openAllTasks(ctx);
       return;
     }
 
@@ -338,21 +359,6 @@ function wire(ctx, { today, marks }) {
     });
     sheet.el.querySelectorAll('[data-visit]').forEach((btn) =>
       btn.addEventListener('click', () => openVisitCard(ctx, btn.dataset.visit)),
-    );
-  });
-
-  el.querySelector('[data-all-tasks]')?.addEventListener('click', () => {
-    const sheet = openSheet({
-      title: '全部任務',
-      body: `<div class="tasklist">${
-        [...tasks.filter((t) => !t.done), ...tasks.filter((t) => t.done)]
-          .map(taskRow).join('')}</div>`,
-    });
-    sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
-      btn.addEventListener('click', () => {
-        sheet.close();
-        toggleTask(ctx, btn.dataset.task);
-      }),
     );
   });
 
@@ -786,6 +792,46 @@ function visitRow(v) {
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
     </button></li>`;
+}
+
+/**
+ * 任務那一整段：抬頭、未完成／已完成那一排、清單。
+ *
+ * **自己一個容器**（`[data-taskblock]`），換分頁時只重畫它 ——
+ * 整頁重畫會把她剛剛展開的來訪紀錄收回去、把畫面捲回最上面（ADR-0038）。
+ *
+ * 分兩格的理由跟待辦中心一樣（`.scratch/asks-2026-08-25/issues/08`）：
+ * 混在同一串裡的話，一位做完十次療程的客戶那六格會被已完成的塞滿，
+ * 而她要看的「還沒做的那兩件」被擠進「看全部」裡面去了。
+ */
+function taskBlock(tasks) {
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+  const rows = taskTab === 'done' ? done : open;
+
+  return `
+    <div class="section">
+      <h2 class="section__title">任務</h2>
+      <span class="section__n">${open.length ? `${open.length} 未完成` : `${tasks.length}`}</span>
+      ${rows.length > RECENT_TASKS
+        ? `<button class="section__more" type="button" data-all-tasks>看全部</button>`
+        : ''}
+    </div>
+
+    ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
+    ${!tasks.length
+      ? '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'
+      : `
+        <div class="seg" role="group" style="margin-bottom: var(--space-2)">
+          <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
+                  data-task-tab="open">未完成${open.length ? ` ${open.length}` : ''}</button>
+          <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
+                  data-task-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
+        </div>
+        ${rows.length
+          ? `<div class="tasklist">${rows.slice(0, RECENT_TASKS).map(taskRow).join('')}</div>`
+          : `<p class="muted" style="margin: 0">${
+              taskTab === 'done' ? '還沒有勾掉的。' : '沒有還沒做的了。'}</p>`}`}`;
 }
 
 /**
@@ -1397,6 +1443,26 @@ function openVisitCard(ctx, visitId) {
 }
 
 const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
+
+/**
+ * 「看全部」那張面板。**列的是現在那一格的全部**，不是兩格混在一起 ——
+ * 抬頭要講出是哪一格，不然她分不出「這是全部」還是「這是未完成的全部」。
+ *
+ * 面板不在 `pageRoot(el)` 底下，委派監聽吃不到，所以自己接一次。
+ */
+function openAllTasks(ctx) {
+  const rows = ctx.tasks.filter((t) => (taskTab === 'done' ? t.done : !t.done));
+  const sheet = openSheet({
+    title: `全部任務・${taskTab === 'done' ? '已完成' : '未完成'}`,
+    body: `<div class="tasklist">${rows.map(taskRow).join('')}</div>`,
+  });
+  sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      sheet.close();
+      toggleTask(ctx, btn.dataset.task);
+    }),
+  );
+}
 
 /**
  * 勾掉／拿回來一張任務。
