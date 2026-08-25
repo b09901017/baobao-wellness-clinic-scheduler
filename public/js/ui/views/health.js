@@ -33,7 +33,6 @@ export async function render(el) {
     return;
   }
 
-  rememberRun(result);
   paint(el, result);
 }
 

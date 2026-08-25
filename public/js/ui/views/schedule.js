@@ -49,6 +49,7 @@ import {
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
+import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
@@ -58,6 +59,7 @@ import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
 import { chip as markChip } from '../components/marks.js';
+import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -403,6 +405,7 @@ function computeShown() {
 
 function mount() {
   const { el } = ctx;
+  deckLayer = null; // 整頁重畫，上一次那一層的節點與紀錄都不在了
   el.innerHTML = '<div data-page></div>';
 
   const page = el.querySelector('[data-page]');
@@ -521,6 +524,16 @@ const pct = (n, total) => `${total ? Math.round((n / total) * 100) : 0}%`;
 // ---------- 置中的客戶卡片組 ----------
 
 /**
+ * 卡片組現在佔著的那一層瀏覽器紀錄（`ui/nav.js`）。
+ *
+ * **整個卡片組只推一層**，換人與點丸子都不推 —— ADR-0048 當初把這一頁排除在外，
+ * 就是因為她一個晚上要開關面板幾百次，而 Safari 的 `pushState` 有頻率上限。
+ * 一位客戶推一筆還會有第二個更糟的後果：按返回鍵要倒著走過二十幾位才回得到牆上。
+ * 見 docs/adr/0052-the-deck-is-one-layer.md。
+ */
+let deckLayer = null;
+
+/**
  * 點一位客戶不換頁，而是把她疊在卡片牆上面，左右滑就是下一位（ADR-0017）。
  *
  * 左右滑交給 CSS 的 scroll-snap，不自己接 touch 事件 —— 自己接會失去慣性、
@@ -541,6 +554,8 @@ function openDeck() {
   node.addEventListener('change', onDeckChange);
 
   ctx.el.appendChild(node);
+  // 返回鍵要關掉這一層，不是跳走整頁（ADR-0048）
+  deckLayer = pushLayer(() => closeDeck({ fromBack: true }));
   fillDeck();
 }
 
@@ -601,7 +616,13 @@ const peekCardHtml = (row) => `
     <span style="display: flex; justify-content: center">${blockChips(row)}</span>
   </button>`;
 
-function closeDeck() {
+/**
+ * @param {{fromBack?: boolean}} [options] fromBack：返回鍵按的。
+ *   那一層瀏覽器紀錄已經被退掉了，再 `pop()` 一次會多退一筆、把她踢出這一頁。
+ */
+function closeDeck({ fromBack = false } = {}) {
+  if (!fromBack) deckLayer?.pop();
+  deckLayer = null;
   deckEl()?.remove();
   view.customerId = null;
   resetPicks();
@@ -968,7 +989,7 @@ function miniCal(row) {
       <span class="minical__month num">${esc(range.from.slice(0, 7))}</span>
     </div>
     <div class="minical__grid" data-minical>
-      ${WD.map((w) => `<span class="minical__wd">${w}</span>`).join('')}
+      ${WEEKDAY_HEADERS.map((w) => `<span class="minical__wd">${esc(w)}</span>`).join('')}
       ${cells.join('')}
     </div>
     <div class="minical__legend">
