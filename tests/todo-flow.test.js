@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   STAGES, stageOf, orderOf, groupByStage, nextStage, RETIRED_KINDS, isRetired,
+  groupByDoneDay,
 } from '../public/js/domain/todoFlow.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND } from '../public/js/domain/followups.js';
 import { TASK_KINDS, cancelKindFor } from '../public/js/domain/taskRules.js';
@@ -98,5 +99,31 @@ describe('拿掉的種類', () => {
     for (const kind of RETIRED_KINDS) {
       assert.ok(!TASK_KINDS.includes(kind), `${kind} 還在 TASK_KINDS 裡`);
     }
+  });
+});
+
+// 「已完成」那一格是條列式往下，中間插日期分隔 ——
+// 她的原話是「會有今天(完成的) 幾月幾號等等」（`.scratch/asks-2026-08-25/issues/08`）。
+describe('已完成照完成那一天分段', () => {
+  const t = (id, doneAt) => ({ id, kind: 'Examine', done: true, doneAt });
+
+  test('新的一天在前，同一天的照原本的順序', () => {
+    const groups = groupByDoneDay([
+      t('a', '2026-08-24T02:00:00.000Z'),
+      t('b', '2026-08-25T02:00:00.000Z'),
+      t('c', '2026-08-25T06:00:00.000Z'),
+    ]);
+    assert.deepEqual(groups.map((g) => g.day), ['2026-08-25', '2026-08-24']);
+    assert.deepEqual(groups[0].tasks.map((x) => x.id), ['b', 'c']);
+  });
+
+  test('讀不出完成時間的收在最後，不丟掉也不猜一天', () => {
+    const groups = groupByDoneDay([t('a', null), t('b', '2026-08-25T02:00:00.000Z')]);
+    assert.deepEqual(groups.map((g) => g.day), ['2026-08-25', null]);
+    assert.deepEqual(groups[1].tasks.map((x) => x.id), ['a']);
+  });
+
+  test('什麼都沒有時回空陣列', () => {
+    assert.deepEqual(groupByDoneDay(), []);
   });
 });

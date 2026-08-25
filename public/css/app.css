@@ -3953,6 +3953,20 @@ button.mark::after {
 }
 
 /* 「以前問過的 N 次」那一摺。客戶詳情用。 */
+/* 「已完成」那一格的日期分隔。條列式往下，中間插一行「今天」「8/24(日)」——
+   跟隨手記那一頁的 .notelist 共用底下的列，只多這一行小標。 */
+.donegroup {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+}
+
+.donegroup:first-of-type {
+  margin-top: 0;
+}
+
 .pastavail {
   margin-top: var(--space-2);
 }

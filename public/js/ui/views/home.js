@@ -28,7 +28,9 @@ import {
   sortNotes, openCount, groupByCustomer, sameOpenNote, MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
-import { groupByStage, nextStage, isRetired, RETIRED_KINDS } from '../../domain/todoFlow.js';
+import {
+  groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
+} from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
@@ -46,6 +48,7 @@ import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
+import { visitReadHtml } from './calendar.js';
 
 const esc = f.esc;
 
@@ -740,6 +743,7 @@ export async function renderGroup(el, group) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
   drawer = null;
+  taskVisits = null;
 
   if (group === 'confirm') return renderConfirm(el);
   if (group === 'close') return renderClose(el);
@@ -751,7 +755,7 @@ export async function renderGroup(el, group) {
   if (group === 'forms') return formInbox.render(el);
   if (group === 'book') return renderBook(el);
 
-  const tasks = await tasksData.listOpen();
+  const [open, done] = await Promise.all([tasksData.listOpen(), tasksData.listDone()]);
   const today = todayISO();
 
   const filters = {
@@ -771,11 +775,64 @@ export async function renderGroup(el, group) {
     retired: isRetired(group),
   };
 
-  paintTasks({ el, group, tasks: tasks.filter(match), today, meta });
+  // 「已完成」那一格用**同一個 match** —— 逾期／今天／明天那三種照死線切的分組，
+  // 在已完成那一格也是照死線切的。她在那三頁問的是「這個死線的事情做完了沒」。
+  const ctx = {
+    el, group, today, meta,
+    open: open.filter(match),
+    done: done.filter(match),
+  };
+  paintTasks(ctx);
+  loadTaskVisits(ctx);
 }
 
+/**
+ * 每一列上那個「N 項」與「詳情」那顆按鈕要的來訪。
+ *
+ * 跟 `loadAsk()` / `loadBook()` 同一個作法：**頁面先畫出來，這一段等資料回來
+ * 再補上去** —— 那一頁她一天開十幾次，不要為了一個數字讓整頁多等一輪。
+ *
+ * 任務身上沒有時段數，也不該有（那會是第二份會對不起來的資料）。
+ */
+async function loadTaskVisits(ctx) {
+  const ids = [...ctx.open, ...ctx.done].map((t) => t.visitId).filter(Boolean);
+  if (!ids.length) return;
+
+  try {
+    const [visits, rooms, staff] = await Promise.all([
+      visitsData.getMany(ids),
+      config.listAll('rooms'),
+      config.listAll('staff'),
+    ]);
+    taskVisits = { visits, roomsById: byId(rooms), staffById: byId(staff) };
+  } catch {
+    // 讀不到就當這一段不存在：少一個數字，不是少一頁。
+    return;
+  }
+
+  // 讀回來之前那顆徽章是 hidden 的 —— 空的丸子看起來像壞掉的東西。
+  for (const node of ctx.el.querySelectorAll('[data-slots]')) {
+    const visit = taskVisits.visits.get(node.dataset.slots);
+    if (!visit) continue;
+    node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.hidden = false;
+  }
+}
+
+/**
+ * 那一頁上那幾筆來訪。**存在模組裡而不是 ctx 裡**：`paintTasks()` 會重畫好幾次
+ * （換分頁、勾一筆），而重畫不該把已經讀回來的東西丟掉。
+ */
+let taskVisits = null;
+
+const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
+
+/** 未完成／已完成。存在模組裡不進網址 —— 它是看法，不是位置（同隨手記那一頁）。 */
+let taskTab = 'open';
+
 function paintTasks(ctx) {
-  const { el, tasks, today, meta } = ctx;
+  const { el, today, meta } = ctx;
+  const rows = taskTab === 'done' ? ctx.done : ctx.open;
 
   el.innerHTML = `
     ${backLink()}
@@ -784,17 +841,22 @@ function paintTasks(ctx) {
       <p class="page__lead">${esc(meta.lead)}</p>
     </div>
 
-    ${tasks.length ? `
-      ${meta.retired ? `
-        <div class="form__actions" style="margin-bottom: var(--space-3)">
-          <button class="btn" type="button" data-pick-all>全部勾起來（${tasks.length} 筆）</button>
-        </div>` : ''}
-      <div class="stack">${tasks.map((t) => taskRow(t, today)).join('')}</div>
-      <div class="form__actions" style="margin-top: var(--space-4)">
-        <button class="btn btn--primary btn--wide" type="button" data-mark disabled>
-          把勾起來的標成完成</button>
-      </div>`
-      : '<p class="muted">這裡是空的。</p>'}`;
+    <div class="seg" role="group" style="margin-bottom: var(--space-4)">
+      <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
+              data-task-tab="open">未完成${ctx.open.length ? ` ${ctx.open.length}` : ''}</button>
+      <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
+              data-task-tab="done">已完成${ctx.done.length ? ` ${ctx.done.length}` : ''}</button>
+    </div>
+
+    ${taskTab === 'done' ? doneList(ctx) : openList(ctx, today)}`;
+
+  el.querySelectorAll('[data-task-tab]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      taskTab = btn.dataset.taskTab;
+      picked = new Set();
+      paintTasks(ctx);
+    }),
+  );
 
   el.querySelectorAll('[data-task]').forEach((box) =>
     box.addEventListener('change', () => {
@@ -805,8 +867,18 @@ function paintTasks(ctx) {
   );
 
   el.querySelectorAll('[data-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => go(`/visits/${btn.dataset.visit}`)),
+    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit)),
   );
+
+  el.querySelectorAll('[data-untick]').forEach((btn) =>
+    btn.addEventListener('click', () => untickTask(ctx, btn.dataset.untick)),
+  );
+
+  el.querySelectorAll('[data-drop]').forEach((btn) =>
+    btn.addEventListener('click', () => dropTask(ctx, btn.dataset.drop)),
+  );
+
+  el.querySelector('[data-clear-done]')?.addEventListener('click', () => clearDoneTasks(ctx));
 
   // 已經取消的類別才有這一顆。**它只是全部勾起來，不是直接標完成** ——
   // 送出前還要再按一次「把勾起來的標成完成」，而那一批是同一個 commit，
@@ -823,10 +895,75 @@ function paintTasks(ctx) {
   syncMarkButton(el);
 }
 
+function openList(ctx, today) {
+  const { open, meta } = ctx;
+  if (!open.length) return '<p class="muted">這裡是空的。</p>';
+
+  return `
+    ${meta.retired ? `
+      <div class="form__actions" style="margin-bottom: var(--space-3)">
+        <button class="btn" type="button" data-pick-all>全部勾起來（${open.length} 筆）</button>
+      </div>` : ''}
+    <div class="stack">${open.map((t) => taskRow(t, today)).join('')}</div>
+    <div class="form__actions" style="margin-top: var(--space-4)">
+      <button class="btn btn--primary btn--wide" type="button" data-mark disabled>
+        把勾起來的標成完成</button>
+    </div>`;
+}
+
+/**
+ * 已完成那一格。**照完成那一天分段**，新的在前 —— 她的原話是
+ * 「一樣是條列式往下不過會有今天(完成的) 幾月幾號等等，然後都可以清除」。
+ *
+ * 勾掉的不會消失（`.scratch/todo-declutter/issues/08` 那一條，隨手記早就這樣了），
+ * 點一列拿得回來，垃圾桶只在這一格出現 —— 還沒做的要刪就先勾掉再刪，
+ * 兩步比誤刪好。
+ */
+function doneList(ctx) {
+  const groups = groupByDoneDay(ctx.done);
+  if (!groups.length) return '<p class="muted">還沒有勾掉的。</p>';
+
+  return `
+    ${groups.map((g) => `
+      <p class="donegroup">${g.day ? esc(doneDayLabel(g.day, ctx.today)) : '不知道什麼時候'}</p>
+      <div class="notelist">${g.tasks.map(doneRow).join('')}</div>`).join('')}
+
+    <p style="margin-top: var(--space-4)">
+      <button class="btn btn--danger" type="button" data-clear-done>
+        清掉這 ${ctx.done.length} 筆</button></p>`;
+}
+
+const doneDayLabel = (day, today) => (day === today ? '今天' : shortDate(day));
+
+function doneRow(t) {
+  return `
+    <div class="noterow">
+      <button class="note note--done" type="button" data-untick="${esc(t.id)}">
+        <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
+        <span class="note__main">
+          <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
+        </span>
+        <span class="notetags">
+          ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
+        </span>
+      </button>
+      <button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
+              aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>
+    </div>`;
+}
+
 function backLink() {
   return `<a class="backlink" href="#/">${icon('left', { size: 19 })}待辦</a>`;
 }
 
+/**
+ * 一列任務。**多一個「幾項」** —— 她的原話是「多一個幾項讓我知道今天要壓多少」，
+ * 那個數字要等來訪讀回來才填得上（`loadTaskVisits()`）。
+ *
+ * 右邊那顆按鈕以前叫「來訪」而且直接 `go('/visits/:id')`，落在整頁的編輯器上。
+ * `components/card.js` 的檔頭早就寫過相反的規矩：**一律先進讀取模式，要改按鉛筆**
+ * —— 日曆與客戶詳情都照做了，待辦中心是唯一漏掉的那一個。
+ */
 function taskRow(t, today) {
   const state = urgency(t.dueDate, today);
   return `
@@ -837,14 +974,42 @@ function taskRow(t, today) {
           <span class="row__title">
             ${esc(t.customerName ?? '（沒有名字）')}
             <span class="badge">${esc(t.kind)}</span>
+            ${t.visitId ? `<span class="badge" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
             <span class="badge ${badgeClass(state)}">${esc(dueLabel(t.dueDate, today))}</span>
           </span>
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
       ${t.visitId ? `<button class="btn" type="button" data-visit="${esc(t.visitId)}"
-                             style="min-height: 40px">來訪</button>` : ''}
+                             style="min-height: 40px">詳情</button>` : ''}
     </div>`;
+}
+
+/**
+ * 點「詳情」浮出那一天的讀取卡片，鉛筆才進編輯器。
+ *
+ * 卡片與 `visitReadHtml()` 跟日曆、客戶詳情共用同一支 —— 同一筆來訪在三個
+ * 畫面長一樣，才不會有「哪一個算數」的問題。
+ */
+function openTaskVisit(visitId) {
+  const visit = taskVisits?.visits.get(visitId);
+  if (!visit) {
+    // 還沒讀回來（或那一筆被刪了）。直接進編輯器比什麼都不做好 ——
+    // 她按這一顆是為了看那一天。
+    go(`/visits/${visitId}`);
+    return;
+  }
+
+  openCard({
+    title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
+    subtitle: esc(describeStatus(visit.status)),
+    body: visitReadHtml(visit, {
+      roomsById: taskVisits.roomsById,
+      staffById: taskVisits.staffById,
+    }),
+    canEdit: true,
+    onEdit: () => go(`/visits/${visit.id}`),
+  });
 }
 
 function badgeClass(state) {
@@ -871,19 +1036,102 @@ function syncMarkButton(el) {
     : '把勾起來的標成完成';
 }
 
+/**
+ * 勾完成。**先跳一個置中的確認**，把要標掉的那幾筆列出來 ——
+ * 她的原話是「勾起來按下確認後可以跳出一個中間提示框，說移到已完成」。
+ *
+ * 那一句「不會消失」很重要：以前勾完那幾筆直接從清單上不見了，
+ * 而她會勾錯（同 `.scratch/todo-declutter/issues/08` 對隨手記的判斷）。
+ */
 async function markDone(ctx) {
-  const rows = ctx.tasks.filter((t) => picked.has(t.id));
+  const rows = ctx.open.filter((t) => picked.has(t.id));
   if (!rows.length) return;
+
+  const ok = await confirmAction({
+    title: `把 ${rows.length} 筆標成完成？`,
+    consequences: [
+      ...rows.slice(0, 8).map((t) => `${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}`),
+      ...(rows.length > 8 ? [`⋯還有 ${rows.length - 8} 筆`] : []),
+      '它們會移到「已完成」，不會消失',
+      '勾錯了在那一格點回來就好',
+    ],
+    confirmLabel: '標成完成',
+  });
+  if (!ok) return;
+
   try {
     // 一批寫在同一個 commit 裡，所以復原是整批一起退回去
     await toast.withSaveState(() => tasksData.setDone(rows, true), {
-      success: `${rows.length} 筆完成`,
+      success: `${rows.length} 筆移到已完成`,
     });
     picked = new Set();
     await renderGroup(ctx.el, ctx.group);
   } catch {
     /* 已處理 */
   }
+}
+
+/** 勾錯了點回來。已完成那一格點一列就是這個。 */
+async function untickTask(ctx, id) {
+  const task = ctx.done.find((t) => t.id === id);
+  if (!task) return;
+  try {
+    await toast.withSaveState(() => tasksData.setDone(task, false), { success: '拿回來了' });
+    await renderGroup(ctx.el, ctx.group);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+/**
+ * 刪掉一筆。**只有已完成的那幾列有這顆** —— 還沒做的要刪就先勾掉再刪，
+ * 兩步比誤刪好（同隨手記那一頁）。走軟刪除，設定 → 已刪除項目 還原得回來。
+ */
+async function dropTask(ctx, id) {
+  const task = ctx.done.find((t) => t.id === id);
+  if (!task) return;
+  try {
+    await toast.withSaveState(() => tasksData.remove(id, '在待辦裡刪掉'), { success: '刪掉了' });
+    await renderGroup(ctx.el, ctx.group);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+/**
+ * 一次清掉這一頁全部已完成的。破壞性操作，走二次確認並講出筆數（SPEC 第 6.5 節）。
+ *
+ * 一筆一個 commit，中間失敗就停下來講清楚刪了幾筆 —— 已經刪掉的不退回去
+ * （第 6.1 節，跟隨手記那一頁同一個作法）。
+ */
+async function clearDoneTasks(ctx) {
+  const rows = ctx.done;
+  if (!rows.length) return;
+
+  const ok = await confirmAction({
+    title: `清掉 ${rows.length} 筆已完成的待辦`,
+    consequences: [
+      `這 ${rows.length} 筆會從這一頁消失`,
+      '刪除只是標記，設定 → 已刪除項目裡還原得回來',
+      '做過的事本身沒有被改掉 —— 清掉的只是這一列',
+    ],
+    confirmLabel: '清掉',
+    danger: true,
+  });
+  if (!ok) return;
+
+  let n = 0;
+  try {
+    for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop
+      await tasksData.remove(row.id, '清掉已完成的待辦');
+      n += 1;
+    }
+    toast.saved(`清掉了 ${n} 筆`);
+  } catch (err) {
+    toast.failed(`刪到第 ${n + 1} 筆時失敗了（已經刪掉 ${n} 筆）：${err.message}`);
+  }
+  await renderGroup(ctx.el, ctx.group);
 }
 
 // ---------- 問這輪的時間 ----------

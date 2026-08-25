@@ -1,6 +1,6 @@
 # 任務勾掉就從清單上消失
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`SPEC.md` 第 6.1 節、`.scratch/todo-declutter/issues/08`
 

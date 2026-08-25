@@ -28,6 +28,7 @@
 | 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
 | 次數的算法 | `domain/entitlements.js` 的 `counts()`（現算）、`summarize()`（讀快取）、`reconcile()`（對帳）要一起改，見 ADR-0004。「這一段算不算」只寫在同一支的 `slotOutcome()`，見 ADR-0025 |
 | 健檢與二返的關係 | 只寫在 `domain/followups.js`（配對、還欠幾次、「約二返」的待辦）。不要在 `taskRules.js` 或 UI 裡再判斷一次，見 ADR-0022 |
+| 勾掉一張待辦 | 走 `data/tasks.js` 的 `setDone(tasks, done)`，**收的是任務本身不是 id**。健檢鏈那兩種（追蹤健檢報告、約二返）會連著把下一站算出來，跟勾選寫在同一個 commit 裡 —— 規則仍然只在 `domain/followups.js` |
 | 任務什麼時候產生 | 只寫在 `domain/taskRules.js` 的 `acceptsNewTasks()`（客人確認之後才長，見 ADR-0027）。UI 上講這件事的四句文案要跟著改：壓表那一頁兩句、確認動線的提示、客戶詳情沒有任務時那一句 —— 畫面在講一件不會發生的事，比沒講還糟 |
 | 匯入的來訪要建成什麼狀態 | 只寫在 `domain/mergeImport.js` 的 `statusFor()`（依匯入當下的日期，不是產檔的日期，見 ADR-0029）。`domain/legacyImport.js` 寫死的 `done` 是對的：它只餵給 skill，狀態一律在匯入那一刻重判。**舊資料只有合併檔一條路進得來**，貼試算表那條 2026-08-23 拿掉了，見 ADR-0047 |
 | 行事曆匯進來的雜事是哪一類 | 產檔那側的 `classifyEvent()` 出**建議**（休假／待辦／行事備註），app 那側 `domain/mergeImport.js` 的 `eventKind()` 讀它、`ui/views/mergeImport.js` 讓她逐列改，**她改的那一個才算數**。待辦寫進 `notes`（就是掛日期的隨手記，ADR-0044），另外兩種寫進 `events`。判錯休假的代價最不對稱 —— 那幾天會整片排不進去 —— 所以寫了同事名字的一律退回行事備註 |

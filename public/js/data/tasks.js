@@ -24,6 +24,23 @@ export function listOpen() {
   });
 }
 
+/**
+ * 已經勾掉的任務，完成日期新的在前。待辦那幾頁的「已完成」那一格用。
+ *
+ * **有上限。** 她要看的是「最近做完的」，不是全部歷史 —— 一年之後這個集合
+ * 有好幾千筆，而那一格只是讓她確認「我剛剛勾掉的那幾筆去哪了」與勾錯了點得回來。
+ * 報表要全部的話走 `listAll()`。
+ *
+ * 需要 (deletedAt, done, doneAt desc) 複合索引，已列在 firestore.indexes.json。
+ */
+export function listDone(limit = 200) {
+  return repo.list(PATH, {
+    wheres: [where('done', '==', true)],
+    order: ['doneAt', 'desc'],
+    limit,
+  });
+}
+
 /** 某一筆來訪的任務，含已完成的。來訪存檔時要拿它來比對。 */
 export function listByVisit(visitId) {
   return repo.list(PATH, { wheres: [where('visitId', '==', visitId)] });

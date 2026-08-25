@@ -11,6 +11,7 @@
 
 import { isCancelKind } from './taskRules.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND } from './followups.js';
+import { dayOf } from './dates.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -116,4 +117,36 @@ export function groupByStage(rows = []) {
  */
 export function nextStage(counts = {}) {
   return STAGES.find((s) => (counts[s.id] ?? 0) > 0) ?? null;
+}
+
+/**
+ * 已經勾掉的照完成那一天分段，新的在前。
+ *
+ * 「已完成」那一格是條列式往下，中間插日期分隔（她的原話是「會有今天(完成的)
+ * 幾月幾號等等」）。分段是規則不是排版：同一天勾掉的要在一起，而「同一天」
+ * 的定義是裝置當地的那一天（`dayOf()`，`doneAt` 存的是 ISO 字串）。
+ *
+ * **讀不出完成時間的收在最後那一組（`day: null`）**，不要丟掉也不要猜一天 ——
+ * 猜出來的日期會讓她以為那件事是那天做的。
+ *
+ * @param {object[]} tasks 已經勾掉的那些
+ * @returns {{day: string|null, tasks: object[]}[]}
+ */
+export function groupByDoneDay(tasks = []) {
+  const groups = new Map();
+
+  for (const t of tasks ?? []) {
+    const day = dayOf(t?.doneAt);
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(t);
+  }
+
+  return [...groups.entries()]
+    .map(([day, rows]) => ({ day, tasks: rows }))
+    .sort((a, b) => {
+      if (a.day === b.day) return 0;
+      if (a.day === null) return 1;
+      if (b.day === null) return -1;
+      return b.day.localeCompare(a.day);
+    });
 }

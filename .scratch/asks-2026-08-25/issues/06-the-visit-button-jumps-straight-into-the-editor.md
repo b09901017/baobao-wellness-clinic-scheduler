@@ -1,6 +1,6 @@
 # 待辦的「來訪」按鈕直接跳進編輯器；列上看不出那天要壓幾項
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0018`、`ui/components/card.js` 的檔頭
 

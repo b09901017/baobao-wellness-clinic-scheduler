@@ -89,6 +89,24 @@ export function listByDate(date) {
   return repo.list(PATH, { wheres: [where('date', '==', date)] });
 }
 
+/**
+ * 一次抓好幾筆來訪。待辦中心那幾頁要在每一列上寫出「那天壓了幾項」。
+ *
+ * 任務身上沒有時段數，也**不該有** —— 那會是第二份會對不起來的資料
+ *（同 ADR-0004 的判斷：真相是來訪本身）。所以那一頁多讀一次。
+ *
+ * 讀不到的（被刪了、id 壞了）就少一筆，不要整批失敗：一筆讀不到的代價是
+ * 那一列少一個數字，整批失敗的代價是整頁空白。
+ *
+ * @param {string[]} ids
+ * @returns {Promise<Map<string, object>>} id → 來訪
+ */
+export async function getMany(ids = []) {
+  const wanted = [...new Set((ids ?? []).filter(Boolean))];
+  const rows = await Promise.all(wanted.map((id) => get(id).catch(() => null)));
+  return new Map(rows.filter(Boolean).map((v) => [v.id, v]));
+}
+
 /** 已刪除的來訪。設定頁的「已刪除項目」用。 */
 export async function listDeleted() {
   return (await repo.listWithDeleted(PATH)).filter((v) => v.deletedAt);
