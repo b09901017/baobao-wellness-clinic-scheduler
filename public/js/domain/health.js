@@ -9,9 +9,12 @@
 //
 // 只算不寫：這裡回傳的是差異，不是修好的資料。要不要改是她的決定
 //（docs/adr/0002-app-records-decisions-it-does-not-make-them.md）。
-// 只有兩項給得出一鍵修正，因為只有它們的正解不需要判斷：計數欄位重算
-//（docs/adr/0007-health-check-reads-only.md）與補上缺的二返額度
-//（docs/adr/0023-health-check-can-also-create-the-missing-followup.md）。
+// 給得出一鍵修正的是**符合 SPEC 第 6.6 節那三個條件**的那幾項（有明確正解／
+// 沒有第二種意思／沒有別的地方做得了）—— 跟 SPEC 一樣寫條件不寫數字，
+// 因為那個數字會變，而上一次它變了的時候畫面與規格就對不起來了。
+// 今天符合的是計數欄位重算（docs/adr/0007-health-check-reads-only.md）、
+// 補上缺的二返額度（docs/adr/0023-health-check-can-also-create-the-missing-followup.md）
+// 與備註的舊說法改名（docs/adr/0050-the-health-can-rename-an-imported-note.md）。
 
 import { counts, reconcile, isOverused } from './entitlements.js';
 import { missingPairs, countMismatches } from './followups.js';
@@ -23,8 +26,11 @@ import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
 /**
- * 八項檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
+ * 檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
  * id 會出現在網址與稽核訊息裡，不要改。
+ *
+ * **每一個 id 在 `RUNNERS` 都要有一支，`ui/views/health.js` 的 `FIX_COPY`
+ * 也要有一列**（那一項給不給修正都要，不給的話文案裡不放按鈕就好）。
  */
 export const CHECKS = [
   {

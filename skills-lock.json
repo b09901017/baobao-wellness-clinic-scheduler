@@ -13,6 +13,12 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "4eabc66183767153e404b39d1b839b1c37f2d82d86f0a0d7e880a579d8d62336"
     },
+    "graphify": {
+      "source": "Graphify-Labs/graphify",
+      "sourceType": "github",
+      "skillPath": "graphify/skill.md",
+      "computedHash": "3e4d30df5a936965acaa25117230a6f3ff44353c137e63030e85e3bc3a391fb7"
+    },
     "grill-with-docs": {
       "source": "mattpocock/skills",
       "sourceType": "github",

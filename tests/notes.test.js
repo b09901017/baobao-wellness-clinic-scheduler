@@ -9,6 +9,7 @@ import {
   groupByCustomer,
   isOpen,
   normalize,
+  normalizePatch,
   openCount,
   openFor,
   sortNotes,
@@ -142,4 +143,43 @@ test('datedIn：沒有日期的不上日曆，勾掉的照樣上', () => {
 test('datedIn：頭尾兩天都算在範圍裡', () => {
   const rows = [note({ id: 'a', date: '2026-08-01' }), note({ id: 'b', date: '2026-08-31' })];
   assert.deepEqual(datedIn(rows, '2026-08-01', '2026-08-31').map((n) => n.id), ['a', 'b']);
+});
+
+// ---------- 改一筆（normalizePatch） ----------
+//
+// `normalize()` 吃的是一份完整的隨手記，`update(id, changes)` 收的是
+// 「只有變了的那幾欄」。兩件事用同一支函式的代價是實際發生過的：
+// 日曆上的待辦編輯器只問「記什麼」與「哪一天」，於是改一件**已經勾掉**的
+// 待辦會把它變回沒做，而 `doneAt` 還留著上次的時間。
+
+test('沒帶到的欄位一個都不動 —— 改一件勾掉的待辦不會把它變回沒做', () => {
+  const patch = normalizePatch({ text: '訂九月的衛教單（改過）', date: '2026-09-03' });
+  assert.deepEqual(patch, { text: '訂九月的衛教單（改過）', date: '2026-09-03' });
+  assert.ok(!('done' in patch), 'done 沒帶到就不可以出現在要寫進去的東西裡');
+  assert.ok(!('customerId' in patch));
+});
+
+test('帶到的欄位照 normalize 的規矩整理', () => {
+  assert.deepEqual(normalizePatch({ text: '  兩邊留白  ' }), { text: '兩邊留白' });
+  // 空字串一律收成 null —— 日曆是 where('date','>=',…) 撈的（ADR-0044）
+  assert.deepEqual(normalizePatch({ date: '' }), { date: null });
+  assert.deepEqual(normalizePatch({ done: 1 }), { done: true });
+});
+
+test('客戶那兩個欄位是一組的，只帶一個過來也要一起算出來', () => {
+  assert.deepEqual(
+    normalizePatch({ customerId: 'c1', customerName: ' 王小明 ' }),
+    { customerId: 'c1', customerName: '王小明' },
+  );
+  // 拿掉客戶時名字要跟著清掉，不能留著上一版的
+  assert.deepEqual(normalizePatch({ customerId: '' }), { customerId: null, customerName: null });
+  assert.deepEqual(
+    normalizePatch({ customerName: '王小明' }),
+    { customerId: null, customerName: null },
+  );
+});
+
+test('什麼都沒帶就什麼都不寫', () => {
+  assert.deepEqual(normalizePatch(), {});
+  assert.deepEqual(normalizePatch({}), {});
 });

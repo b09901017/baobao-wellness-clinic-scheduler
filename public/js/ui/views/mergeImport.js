@@ -445,6 +445,26 @@ function repaintLooseCounts(el) {
   if (node) node.textContent = tallyText();
 }
 
+/**
+ * 「一筆待辦都不會長」的理由。
+ *
+ * **會不會長是看課程的類別，不是看有沒有未來的來訪**（`countNewTasks()` 問的是
+ * `syncTasksForVisit()`）。這兩件事以前被寫成同一句，於是未來那幾筆全是 C 類
+ * （復能、靜脈、EECP、營養點滴 —— 她大部分的量）的時候，這一頁上面才剛說
+ * 「來訪裡有 N 筆的日期在今天之後」，兩段之後就說「這次沒有還沒發生的來訪」。
+ * 同一頁自打嘴巴比不講還糟。
+ */
+function noTaskWhy(s, tasks) {
+  if (tasks) {
+    return `還沒發生的那些會，這次是 <b>${tasks}</b> 筆：那幾件登記與確認是真的還沒做。`;
+  }
+  if (s.future) {
+    return `還沒發生的那 <b>${s.future}</b> 筆都是不用另外掛號的課程，`
+      + '所以這次一筆待辦也不會長出來。';
+  }
+  return '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。';
+}
+
 function runCard(s, tasks) {
   return `
     <section class="card">
@@ -457,9 +477,7 @@ function runCard(s, tasks) {
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
         （算進已排未上，次數還不會扣）。</p>
       <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
-        那些掛號在舊系統早就做完了。${tasks
-          ? `還沒發生的那些會，這次是 <b>${tasks}</b> 筆：那幾件登記與確認是真的還沒做。`
-          : '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。'}</p>
+        那些掛號在舊系統早就做完了。${noTaskWhy(s, tasks)}</p>
     </section>`;
 }
 
@@ -482,7 +500,9 @@ async function run(el, ctx, plans, s, tasks) {
       s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
       tasks
         ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
-        : '不會產生任何待辦任務 —— 這次沒有還沒發生的來訪',
+        : `不會產生任何待辦任務 —— ${s.future
+          ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
+          : '這次沒有還沒發生的來訪'}`,
       '每位客戶各自寫入，一位失敗不影響其他人',
     ],
     confirmLabel: '匯入',

@@ -1433,7 +1433,7 @@ async function addSlot() {
   showErrors(errors);
   if (errors.length) return;
 
-  // SPEC 第 7 節規則 10：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號
+  // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號
   const ok = await confirmAction({
     title: '已經在 Abovee 壓好表了嗎？',
     consequences: [

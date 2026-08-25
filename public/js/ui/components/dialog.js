@@ -39,7 +39,16 @@ export function confirmAction({ title, consequences, confirmLabel = '確定', da
     // 二次確認如果被返回鍵略過，那顆「刪除」會在她以為自己取消了的時候執行。
     const layer = pushLayer(() => finish(false, { fromBack: true }));
 
+    // Esc 那一顆掛在 document 上，所以**不管從哪一條路關掉都要拆掉它**。
+    // 以前只有「真的按了 Esc」那一條會拆，於是用叉叉或按鈕關掉的每一次
+    // 都在 document 上多留一顆監聽 —— 這個 repo 已經修過三次同一種
+    // 「監聽越掛越多」，而那三次都是只有把畫面真的開開關關才看得到。
+    const onKey = (e) => {
+      if (e.key === 'Escape') finish(false);
+    };
+
     const finish = (answer, { fromBack = false } = {}) => {
+      document.removeEventListener('keydown', onKey);
       if (!fromBack) layer.pop();
       close();
       resolve(answer);
@@ -51,12 +60,7 @@ export function confirmAction({ title, consequences, confirmLabel = '確定', da
     el.addEventListener('click', (e) => {
       if (e.target === el) finish(false);
     });
-    document.addEventListener('keydown', function onKey(e) {
-      if (e.key === 'Escape') {
-        document.removeEventListener('keydown', onKey);
-        finish(false);
-      }
-    });
+    document.addEventListener('keydown', onKey);
 
     document.body.appendChild(el);
     openDialog = el;

@@ -116,7 +116,7 @@ export function shortStatus(status) {
 }
 
 
-// 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 9），所以 cancelled 是終點。
+// 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 10），所以 cancelled 是終點。
 // done 也是終點，要改必須走更正流程（SPEC 第 6.4 節）。
 const TRANSITIONS = {
   pending_confirm: ['confirmed', 'done', 'no_show', 'cancelled'],

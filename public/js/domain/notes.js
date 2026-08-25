@@ -125,7 +125,8 @@ export function openCount(notes) {
 }
 
 /**
- * 送進 data 層之前把形狀整理好。
+ * 送進 data 層之前把形狀整理好。**吃的是一份完整的隨手記**，
+ * 沒帶到的欄位一律算成「空的」。新增走這一支，改一筆請走 `normalizePatch()`。
  *
  * 沒掛客戶時兩個欄位一起清成 null，不要留一個空字串 ——
  * 「掛了一位叫空字串的客戶」跟「沒掛客戶」在查詢上是兩件事。
@@ -141,4 +142,37 @@ export function normalize(note) {
     date: trimmed(note?.date) || null,
     done: Boolean(note?.done),
   };
+}
+
+/**
+ * 改一筆的時候用。**只整理有帶到的那幾個欄位。**
+ *
+ * `normalize()` 吃的是一份完整的隨手記，所以少帶一個欄位就等於把它清空。
+ * 而 `update(id, changes)` 收的天生是一份「只有變了的那幾欄」：日曆上那個
+ * 待辦編輯器只問「記什麼」與「哪一天」，於是 2026-08-25 以前**改一件已經
+ * 勾掉的待辦會把它變回沒做**（`done` 沒帶到 → 算成 false），而 `doneAt`
+ * 還留著上次勾掉的時間，兩個欄位從此對不起來。
+ *
+ * 那不是有人忘了帶一個欄位，是「完整的文件」與「只有變了的那幾欄」用了
+ * 同一支函式。所以這一支只碰 `changes` 裡真的出現過的鍵。
+ *
+ * @param {object} changes 只有要改的那幾個欄位
+ */
+export function normalizePatch(changes = {}) {
+  const has = (key) => Object.prototype.hasOwnProperty.call(changes ?? {}, key);
+  const out = {};
+
+  if (has('text')) out.text = trimmed(changes.text);
+  if (has('date')) out.date = trimmed(changes.date) || null;
+  if (has('done')) out.done = Boolean(changes.done);
+
+  // 兩個欄位是一組的：掛了人就要有名字，沒掛人兩個一起清成 null。
+  // 只帶其中一個過來時，另一個要跟著算出來，不能留著上一版的值。
+  if (has('customerId') || has('customerName')) {
+    const customerId = trimmed(changes.customerId) || null;
+    out.customerId = customerId;
+    out.customerName = customerId ? trimmed(changes.customerName) : null;
+  }
+
+  return out;
 }
