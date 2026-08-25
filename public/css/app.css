@@ -640,6 +640,20 @@ textarea {
   box-shadow: var(--shadow-1);
 }
 
+/* 匯入那一頁那幾張清單。名字寫著「緊湊」，而它以前一條規則都沒有 ——
+   長成瀏覽器預設的項目符號清單，左邊縮排 40px、每一列之間留一整行
+   （`.scratch/code-audit-2026-08-25/issues/08`）。那一頁一次列兩百筆。 */
+.tight {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.tight > li + li {
+  margin-top: var(--space-1);
+}
+
 /* ---------- 選項泡泡 ---------- */
 
 /* 時間、課程、器材、診間、治療師一律用點的。只有備註要打字。
@@ -2854,6 +2868,14 @@ button.mark::after {
  * 視覺上 32px（跟叉叉一樣大），感應範圍靠 ::after 撐到 44（SPEC 第 8.0 節）。
  * 選單往下長，第一個項目是來訪 —— 手指從那一顆出發，最先碰到的是最常按的。
  * 懸浮泡泡往上長，所以那邊來訪在最下面：規矩是同一條，方向相反。 */
+/* 「＋」那個選單的外框。**它自己要 position: relative** ——
+   `.addmenu__list` 是絕對定位的，以前靠上層 `.drawer__tools` 剛好也是
+   relative 才沒有跑掉，那是巧合（`.scratch/code-audit-2026-08-25/issues/08`）。
+   哪天它被搬出那個容器，選單就會飛到頁面的角落。 */
+.addmenu {
+  position: relative;
+}
+
 .addmenu__btn {
   width: 32px;
   height: 32px;

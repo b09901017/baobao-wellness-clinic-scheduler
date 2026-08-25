@@ -1,6 +1,6 @@
 # 用了但沒定義的 CSS class、沒有人用的索引
 
-Status: todo
+Status: done
 來源：全庫掃描，2026-08-25（`../spec.md`）
 
 ## 一、JS 印出來、`app.css` 沒有定義的 class
@@ -36,3 +36,15 @@ Status: todo
 
 不會壞，只是多一支要維護的索引。要嘛拿掉（含 SPEC 那一行），
 要嘛在 SPEC 上寫清楚它留著是為了什麼。
+
+## Comments
+
+**2026-08-25 做掉了**（`.scratch/asks-2026-08-25/issues/12` 那一輪順手）：
+
+- `.timeline--week` 拿掉 —— 它一條規則都沒有，等於沒加這個修飾詞
+- `.tight` 補上樣式（縮排收窄、字級小一級、列距一格）
+- `.addmenu` 補 `position: relative`，不再靠 `.drawer__tools` 那個巧合
+- `customers` 那一支索引**留著**，`SPEC.md` 第 5.4 節寫清楚它是為了多帳號
+  那一階段（到那時候客戶清單會大到不能整包拉回來）
+- `.audit` / `.choices` / `.msg-box` / `.form` 維持原樣 —— 它們只是外框，
+  底下的元素有樣式，拿掉反而讓 HTML 讀不出結構

@@ -20,7 +20,13 @@ import {
 } from '../domain/availabilityForm.js';
 import { todayISO, shortDate } from '../domain/dates.js';
 
-/** 畫面上的順序是一到日，跟她的日曆一樣。 */
+/**
+ * 畫面上的順序是一到日，跟她的日曆一樣。
+ *
+ * 2026-08-25 以前這句話是假的（日曆與壓表的小日曆是週日起算），
+ * 那一天全部改成週一 —— 她在收件匣核對客戶填了什麼的時候，兩邊的格子位置
+ * 不可以錯開。見 `.scratch/asks-2026-08-25/issues/12`。
+ */
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const PART_LABELS = { all: '整天不行', am: '只有上午不行', pm: '只有下午不行' };

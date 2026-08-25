@@ -948,7 +948,8 @@ function miniCal(row) {
   const { range, today, away } = ctx;
   const [y, m] = range.from.split('-').map(Number);
   const first = range.from;
-  const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  // 月初那一格前面要空幾格。週一起算，所以週日（0）要空六格（`weekStart()`）。
+  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
   const has = recordedDays(row);
 
   const cells = [];

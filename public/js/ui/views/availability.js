@@ -25,7 +25,13 @@ import * as f from '../components/form.js';
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 
-/** 一週從星期一開始。她的日曆與客戶那一頁都是這個順序。 */
+/**
+ * 一週從星期一開始。全站四個畫著格子的地方都是這個順序 ——
+ * 日曆與壓表的小日曆走 `domain/calendar.js` 的 `WEEKDAY_HEADERS`，
+ * 這一頁與客戶填的表單自己列（它們的格子是自己畫的，不吃那一份表頭）。
+ * 2026-08-25 之前日曆那兩個是週日起算，而這裡的註解寫著「跟她的日曆一樣」——
+ * 那句話當時是假的。
+ */
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 import { pushLayer, pushScreen } from '../nav.js';
 import { openSheet } from '../components/sheet.js';
