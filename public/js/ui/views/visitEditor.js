@@ -522,7 +522,7 @@ async function submit(ctx, draft) {
     return;
   }
 
-  // SPEC 第 7 節規則 10：標記已壓表時要問這一句。app 看不到 Abovee，
+  // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到 Abovee，
   // 這道確認就是她手寫的那兩個驚嘆號。
   if (isNew) {
     const ok = await confirmAction({
@@ -573,7 +573,7 @@ function statusCard(draft, embedded = false) {
       <section class="card ${bare}">
         <h2 class="card__title">狀態</h2>
         <p class="muted">${esc(describeStatus(draft.status))}。這是終點，不會再往下走。
-          要改期就取消後重新排一筆（SPEC 第 7 節規則 9）。</p>
+          要改期就取消後重新排一筆（SPEC 第 7 節規則 10）。</p>
       </section>`;
   }
   return `

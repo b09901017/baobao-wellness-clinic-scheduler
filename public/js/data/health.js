@@ -45,12 +45,14 @@ export async function run(today) {
 }
 
 /**
- * 套用修正。只有兩種修正做得出來，因為只有它們的正解不需要判斷：
+ * 套用修正。做得出來的是**正解不需要判斷**的那幾種（SPEC 第 6.6 節那三個條件）：
  *
  * - `recount`：計數欄位改成從來訪重算的值。真相永遠是 visits（ADR-0004），
  *   見 docs/adr/0007-health-check-reads-only.md。
  * - `addFollowup`：補上缺的二返額度。次數就是健檢的次數，
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
+ * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
+ *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
  *
  * 其餘的檢查一律只顯示差異：過期的來訪該標 done 還是 no_show、撞在一起的
  * 兩筆該動哪一筆，都是 app 看不到 Abovee 就答不出來的問題（ADR-0002）。

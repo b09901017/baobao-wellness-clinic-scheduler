@@ -45,3 +45,6 @@ __pycache__/
 # 別名表裡是真實客戶姓名，跟匯出的 TSV、報告一樣不進版控。
 # 遠端容器會被回收，所以每次跑完要把 .local/ 裡的東西交還給使用者自己留著。
 /.local/
+
+# graphify 產出的圖（build artifact，不進版控）
+graphify-out/

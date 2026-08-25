@@ -5,7 +5,7 @@
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import * as repo from './repo.js';
-import { normalize } from '../domain/notes.js';
+import { normalize, normalizePatch } from '../domain/notes.js';
 
 const PATH = 'notes';
 
@@ -69,8 +69,13 @@ export function create(data) {
   return repo.create(PATH, { ...normalize(data), doneAt: null });
 }
 
+/**
+ * 改一筆。**走 `normalizePatch()` 不是 `normalize()`** —— 呼叫端給的是
+ * 「變了的那幾欄」，而 `normalize()` 吃的是一份完整的隨手記，
+ * 少帶一欄就等於把它清掉（`domain/notes.js` 那一支的註解寫了是哪一次）。
+ */
 export function update(id, changes) {
-  return repo.update(PATH, id, normalize(changes));
+  return repo.update(PATH, id, normalizePatch(changes));
 }
 
 export const remove = (id, reason) => repo.softDelete(PATH, id, reason);

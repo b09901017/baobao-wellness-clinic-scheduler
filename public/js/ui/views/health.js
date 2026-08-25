@@ -2,12 +2,17 @@
 //
 // 主力裝置是 iPad（差異比對是表格），手機看得到摘要也修得動每一筆。
 //
-// 這一頁只算不寫，會寫入的只有兩種一鍵修正：「次數對帳」（計數欄位是快取、
-// 真相在來訪，ADR-0004）與「補上缺的二返額度」（次數就是健檢的次數）。
-// 只有這兩項有不需要判斷的正解 —— 其餘只顯示差異並提供跳過去的連結，
-// 要怎麼處理是她的決定（ADR-0002）。見
-// docs/adr/0007-health-check-reads-only.md 與
-// docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
+// 這一頁只算不寫。會寫入的是**符合 SPEC 第 6.6 節那三個條件**的那幾項一鍵修正
+// （有明確正解／沒有第二種意思／沒有別的地方做得了）—— 數量會變，所以這裡跟
+// SPEC 一樣寫條件不寫數字。今天符合的是「次數對帳」（計數欄位是快取、真相在
+// 來訪，ADR-0004）、「補上缺的二返額度」（次數就是健檢的次數，ADR-0023）
+// 與「備註寫著舊的說法」（「姓名欄的編號：」→「病歷號」，ADR-0050）。
+// 其餘只顯示差異並提供跳過去的連結，要怎麼處理是她的決定（ADR-0002）。見
+// docs/adr/0007-health-check-reads-only.md。
+//
+// **加一種修正就要在 `FIX_COPY` 與 `KIND_TO_CHECK` 各補一列。** 少補的話
+// `copyFor()` 會安靜地退回別項的文案 —— 按鈕印著別人的字，按下去讀不到
+// 那一項沒有的欄位就整個炸掉，而畫面上什麼都不會說。
 
 import * as healthData from '../../data/health.js';
 import { healthBadge } from '../../domain/health.js';
@@ -52,8 +57,8 @@ function paint(el, result) {
           ? `<span class="badge badge--overdue">${esc(badge)}</span>`
           : '<span class="badge badge--ok">全部對得起來</span>'}
       </div>
-      <p class="page__lead">發現的問題只會顯示出來。只有計數欄位重算與補二返額度這兩件事
-        有「修正」可以按，其餘一律不會自動改任何資料。</p>
+      <p class="page__lead">發現的問題只會顯示出來。正解不需要判斷的那幾項才有
+        「修正」可以按，其餘一律不會自動改任何資料。</p>
     </div>
 
     <div class="checks" style="margin-bottom: var(--space-5)">
@@ -205,10 +210,45 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label} → ${fix.draft.label} ${fix.qty} 次`),
     }),
   },
+  chartNo: {
+    button: () => '改成「病歷號」',
+    all: (n) => `一次改這 ${n} 筆`,
+    one: (fix) => ({
+      title: `把「${fix.label}」那則備註改成「病歷號」？`,
+      lines: [
+        '匯入時寫的是「姓名欄的編號：」，那時候只是推測',
+        '號碼一個字都不會動，只換前面那幾個字',
+        '備註與它的純文字鏡像會一起改（ADR-0050）',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 筆備註都改成「病歷號」？`,
+      lines: fixes.map((fix) => `${fix.label}`),
+    }),
+  },
 };
 
-const KIND_TO_CHECK = { recount: 'counts', addFollowup: 'followups' };
-const copyFor = (fix) => FIX_COPY[KIND_TO_CHECK[fix?.kind]] ?? FIX_COPY.counts;
+const KIND_TO_CHECK = {
+  recount: 'counts',
+  addFollowup: 'followups',
+  renameChartNo: 'chartNo',
+};
+
+/**
+ * 這一筆修正要用哪一組文案。
+ *
+ * **對不到就是漏了一列，不要退回別人的文案。** 以前這裡寫著
+ * `?? FIX_COPY.counts`，於是 `renameChartNo` 印著「改成重算值」，
+ * 而按下去 `one()` 去讀那一筆根本沒有的 `fix.from.done` 就整個炸掉 ——
+ * 一鍵修正在畫面上完全按不動，而畫面上什麼都沒說（ADR-0050 那一項）。
+ * 現在對不到就丟例外：它會被 `render()` 的 catch 接住寫成「讀取失敗」，
+ * 那比一顆長得正常、按下去沒反應的按鈕誠實。
+ */
+function copyFor(fix) {
+  const copy = FIX_COPY[KIND_TO_CHECK[fix?.kind]];
+  if (!copy) throw new Error(`資料健檢：沒有「${fix?.kind}」這種修正的文案`);
+  return copy;
+}
 const buttonLabel = (fix) => copyFor(fix).button();
 
 async function fixOne(el, result, index) {

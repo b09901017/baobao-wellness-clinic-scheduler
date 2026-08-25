@@ -10,6 +10,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { runHealthCheck, healthBadge, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
 
@@ -535,5 +536,96 @@ describe('二返額度', () => {
       entitlements: [checkupEnt()],
     });
     assert.deepEqual(findingsOf(result, 'followups'), []);
+  });
+});
+
+// ---------- 畫面認不認得每一種修正 ----------
+//
+// `ui/views/health.js` 拿 `fix.kind` 去查兩張表：`KIND_TO_CHECK`（這是哪一項）
+// 與 `FIX_COPY`（按鈕上印什麼、確認框寫什麼）。少補一列的代價不是少一句話 ——
+// 2026-08-25 抓到的是：`renameChartNo` 兩張表都沒有，於是按鈕印著別項的
+// 「改成重算值」，而按下去要讀那一筆根本沒有的 `fix.from.done`，
+// 整顆一鍵修正就這樣按不動，畫面上什麼都沒說（ADR-0050 那一項）。
+//
+// 這一支跟 `module-names.test.js` 同一個路數：**不執行 UI 程式碼**
+//（那一支要 DOM 與 firebase），只讀原始碼問「這個名字在不在那張表裡」。
+
+const VIEW_SRC = readFileSync(
+  new URL('../public/js/ui/views/health.js', import.meta.url).pathname,
+  'utf8',
+);
+
+/** `const NAME = {` 到對應的 `}` 之間那一段。註解裡的括號不算。 */
+function objectBody(src, name) {
+  const start = src.indexOf(`const ${name} = {`);
+  assert.notEqual(start, -1, `ui/views/health.js 裡找不到 ${name}`);
+  let depth = 0;
+  for (let i = src.indexOf('{', start); i < src.length; i += 1) {
+    if (src[i] === '{') depth += 1;
+    else if (src[i] === '}') {
+      depth -= 1;
+      if (!depth) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error(`${name} 的大括號沒有收尾`);
+}
+
+/** 最外層那幾個鍵。巢狀的不算 —— 一行一行走，只認 depth 1 那幾行。 */
+function topKeys(body) {
+  const keys = [];
+  let depth = 0;
+  for (const line of body.split('\n')) {
+    if (depth === 1) {
+      const m = /^\s*([A-Za-z_$][\w$]*)\s*:/.exec(line);
+      if (m) keys.push(m[1]);
+    }
+    for (const ch of line) {
+      if (ch === '{') depth += 1;
+      else if (ch === '}') depth -= 1;
+    }
+  }
+  return keys;
+}
+
+describe('畫面認得每一種修正', () => {
+  // 三種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法
+  const result = run({
+    customers: [customer({ marks: [{ text: '姓名欄的編號：3157', color: 'grey' }] })],
+    entitlements: [
+      ent({ doneCount: 5 }),
+      ent({ id: 'e-chk', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),
+    ],
+    visits: [visit()],
+  });
+
+  const kinds = [...new Set(
+    result.checks.flatMap((c) => c.findings).map((f) => f.fix?.kind).filter(Boolean),
+  )];
+
+  test('這份快照真的把三種修正都長出來了', () => {
+    assert.deepEqual(kinds.slice().sort(), ['addFollowup', 'recount', 'renameChartNo']);
+  });
+
+  test('每一種 fix.kind 在 KIND_TO_CHECK 與 FIX_COPY 都查得到', () => {
+    const map = objectBody(VIEW_SRC, 'KIND_TO_CHECK');
+    const copyKeys = topKeys(objectBody(VIEW_SRC, 'FIX_COPY'));
+
+    for (const kind of kinds) {
+      const m = new RegExp(`\\b${kind}\\s*:\\s*'([\\w-]+)'`).exec(map);
+      assert.ok(m, `KIND_TO_CHECK 少了 ${kind} —— 按鈕會印成別項的文案，按下去會爆`);
+      assert.ok(
+        copyKeys.includes(m[1]),
+        `FIX_COPY 少了 ${m[1]}（${kind} 對到的那一項）`,
+      );
+    }
+  });
+
+  test('FIX_COPY 的每一個鍵都真的是一項檢查', () => {
+    for (const key of topKeys(objectBody(VIEW_SRC, 'FIX_COPY'))) {
+      assert.ok(
+        CHECKS.some((c) => c.id === key),
+        `FIX_COPY 有 ${key}，但 CHECKS 裡沒有這一項`,
+      );
+    }
   });
 });
