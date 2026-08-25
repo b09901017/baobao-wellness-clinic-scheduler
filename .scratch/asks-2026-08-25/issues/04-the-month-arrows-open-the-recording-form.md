@@ -1,6 +1,6 @@
 # 客戶詳情的換月份箭頭會跳到「記一次」
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0038`、`docs/adr/0048`
 

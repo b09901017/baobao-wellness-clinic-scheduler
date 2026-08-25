@@ -3952,8 +3952,59 @@ button.mark::after {
   margin-top: var(--space-2);
 }
 
+/* 一份一行，收起來只有月份與一句摘要（ADR-0053）。以前是每一份都整塊攤開，
+   問過六個月就是六大塊紅框框，底下的額度與來訪紀錄被推到看不見的地方。 */
+.pastavail__year {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+}
+
 .pastavail__one {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.pastavail__one[open] {
+  padding-bottom: var(--space-3);
+}
+
+.pastavail__sum {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  list-style: none;
+}
+
+.pastavail__sum::-webkit-details-marker {
+  display: none;
+}
+
+.pastavail__month {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 收起／展開的那個小三角自己畫，才轉得動也才對得齊。 */
+.pastavail__sum::after {
+  content: '';
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid var(--text-mute);
+  border-bottom: 1.6px solid var(--text-mute);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.pastavail__one[open] .pastavail__sum::after {
+  transform: rotate(45deg);
 }
 
 /* 「這個月」那一段的換月份。段落抬頭右邊兩顆，44px 感應範圍靠 ::after 撐。 */

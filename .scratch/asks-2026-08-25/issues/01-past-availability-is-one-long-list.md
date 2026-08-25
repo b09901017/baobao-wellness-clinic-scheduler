@@ -1,6 +1,6 @@
 # 「以前問過的」一攤開就是一整片
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0036`、`CONTEXT.md` 的「本輪可用性」
 

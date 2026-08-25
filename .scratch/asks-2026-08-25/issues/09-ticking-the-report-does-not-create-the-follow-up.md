@@ -1,6 +1,6 @@
 # 勾掉「追蹤健檢報告」不會長出「約二返」
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`docs/adr/0042`、`docs/adr/0022`、`SPEC.md` 第 7 節規則 8
 

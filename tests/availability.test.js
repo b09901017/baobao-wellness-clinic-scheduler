@@ -10,6 +10,7 @@ import {
   parseAvailability, dayStatus, availableDates, describeRule,
   collectionState, currentCollection, collectionFor, validateCollection, summarize,
   manualRule, mergeRules, validateRule, partOfTime, partLabel,
+  collectionsByMonth, monthsTaken, monthOf, summarizeCollection, describeRuleChanges,
 } from '../public/js/domain/availability.js';
 
 const parse = (text) => parseAvailability(text, { year: 2026 });
@@ -406,5 +407,92 @@ describe('手動加的規則', () => {
       rules: [manualRule({ kind: 'exclude_range', from: '2026-09-28', to: '2026-09-30' })],
     });
     assert.deepEqual(errors, []);
+  });
+});
+
+// ---------- 一份綁一個月（ADR-0053） ----------
+//
+// 她問時間的節奏是「月底那一兩個禮拜問下個月」。ADR-0036 已經決定壓表要挑
+// 「涵蓋那個月的那一份」，這幾支是把同一件事講給畫面聽。
+
+describe('一份綁一個月', () => {
+  const sep = {
+    id: 'a-sep', validFrom: '2026-09-01', validTo: '2026-09-30', collectedAt: '2026-08-24',
+    rules: [{ kind: 'exclude_date', date: '2026-09-17' }],
+  };
+  const sepOld = { ...sep, id: 'a-sep-old', collectedAt: '2026-08-20', rules: [] };
+  const aug = {
+    id: 'a-aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-07-28',
+    rules: [],
+  };
+  const broken = { id: 'a-broken', validFrom: null, validTo: null, collectedAt: '2026-06-01' };
+  const gone = { id: 'a-gone', validFrom: '2026-07-01', validTo: '2026-07-31', deletedAt: 'x' };
+
+  test('月份看的是有效期起日，不是收集日期', () => {
+    assert.equal(monthOf(sep), '2026-09', '八月底問的是九月的時間');
+    assert.equal(monthOf(broken), null, '看不出來就說看不出來，不要猜一個');
+    assert.equal(monthOf(undefined), null);
+  });
+
+  test('照月份分組，月份新的在前、組內收集日期新的在前', () => {
+    const groups = collectionsByMonth([aug, sepOld, sep, gone]);
+    assert.deepEqual(groups.map((g) => g.month), ['2026-09', '2026-08']);
+    assert.deepEqual(groups[0].records.map((r) => r.id), ['a-sep', 'a-sep-old']);
+  });
+
+  test('有效期看不出月份的收在最後那一組，不丟掉', () => {
+    const groups = collectionsByMonth([broken, sep]);
+    assert.deepEqual(groups.map((g) => g.month), ['2026-09', null]);
+    assert.deepEqual(groups[1].records.map((r) => r.id), ['a-broken'],
+      '看不見的壞資料比看得見的難修');
+  });
+
+  test('已經問過哪幾個月 —— 看不出月份的不算', () => {
+    assert.deepEqual(monthsTaken([aug, sep, broken, gone]), ['2026-09', '2026-08']);
+  });
+
+  test('收起來那一行只講內容，月份由畫面印', () => {
+    assert.equal(summarizeCollection(sep), '2026-08-24 收集・1 條');
+    assert.equal(summarizeCollection(aug), '2026-07-28 收集・沒有說哪天不行');
+  });
+
+  test('摘要跟丸子一樣濾掉 prefer —— 兩邊數字不一樣她會以為少了一條', () => {
+    assert.equal(
+      summarizeCollection({ collectedAt: '2026-08-24', rules: [{ kind: 'prefer', weekday: 3 }] }),
+      '2026-08-24 收集・沒有說哪天不行',
+    );
+  });
+});
+
+describe('改了什麼', () => {
+  test('拿掉的與加上的各自講成人話', () => {
+    const { added, removed } = describeRuleChanges(
+      [{ kind: 'exclude_date', date: '2026-09-17' }, { kind: 'exclude_weekday', weekday: 5 }],
+      [{ kind: 'exclude_weekday', weekday: 5 }, { kind: 'exclude_date', date: '2026-09-22', partOfDay: 'pm' }],
+    );
+    assert.deepEqual(removed, ['9/17(四)不行']);
+    assert.deepEqual(added, ['9/22(二)下午不行']);
+  });
+
+  test('半天變整天算成一拿掉一加上 —— 那是真的在說一件不同的事', () => {
+    const { added, removed } = describeRuleChanges(
+      [{ kind: 'exclude_date', date: '2026-09-17', partOfDay: 'am' }],
+      [{ kind: 'exclude_date', date: '2026-09-17' }],
+    );
+    assert.deepEqual(removed, ['9/17(四)上午不行']);
+    assert.deepEqual(added, ['9/17(四)不行']);
+  });
+
+  test('順序換了不算改 —— 存檔時規則的順序本來就不保證', () => {
+    const rules = [
+      { kind: 'exclude_weekday', weekday: 5 },
+      { kind: 'exclude_date', date: '2026-09-17' },
+    ];
+    const { added, removed } = describeRuleChanges(rules, [rules[1], rules[0]]);
+    assert.deepEqual([added, removed], [[], []]);
+  });
+
+  test('什麼都沒有時兩邊都是空的', () => {
+    assert.deepEqual(describeRuleChanges(), { added: [], removed: [] });
   });
 });
