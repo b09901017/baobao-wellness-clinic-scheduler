@@ -464,6 +464,25 @@ describe('資料過期', () => {
     const deleted = run({ customers: [customer({ deletedAt: 'x' })], entitlements: ents });
     assert.equal(findingsOf(deleted, 'staleAvailability').length, 0);
   });
+
+  // ADR-0057：只買了兩罐夜態美的客戶不需要被問時間，而「還有 2 次沒排」
+  // 那句話講的是兩罐營養品 —— 她會照著去問一個不存在的班。
+  test('只買了營養品的客戶不報', () => {
+    const onlyProduct = run({
+      entitlements: [ent({ id: 'p1', type: 'product', label: 'GABA', totalQty: 2, courseId: null })],
+    });
+    assert.equal(findingsOf(onlyProduct, 'staleAvailability').length, 0);
+  });
+
+  test('有課程額度時，那個數字不含營養品', () => {
+    const mixed = run({
+      entitlements: [
+        ent({ totalQty: 12 }),
+        ent({ id: 'p1', type: 'product', label: 'GABA', totalQty: 2, courseId: null }),
+      ],
+    });
+    assert.match(findingsOf(mixed, 'staleAvailability')[0].detail, /還有 12 次沒排/);
+  });
 });
 
 describe('摘要', () => {

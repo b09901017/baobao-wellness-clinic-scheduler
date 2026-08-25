@@ -14,7 +14,7 @@
 // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
 // 一位客戶一張，就這樣。
 
-import { counts } from './entitlements.js';
+import { counts, isProduct } from './entitlements.js';
 import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -245,11 +245,13 @@ export function syncBundle({
       dates,
       dateLabels: dates.map(shortDate),
       rows,
-      totals: rows.reduce((t, r) => ({
-        total: t.total + r.total,
-        done: t.done + r.done,
-        booked: t.booked + r.booked,
-        remaining: t.remaining + r.remaining,
+      // 營養品**有那一列**（她的舊表第 12 列就是它，ADR-0024），
+      // 但**不進合計** —— 那一行寫的是「剩餘 N 次」，而兩罐夜態美不是兩次。
+      totals: alive.reduce((t, e, i) => (isProduct(e) ? t : {
+        total: t.total + rows[i].total,
+        done: t.done + rows[i].done,
+        booked: t.booked + rows[i].booked,
+        remaining: t.remaining + rows[i].remaining,
       }), { total: 0, done: 0, booked: 0, remaining: 0 }),
       // 二返約在哪天，寫在**那次健檢被勾起來的那一欄**底下 —— 她原本就是這樣記的
       // （docs/legacy/README.md 第 6 節）。

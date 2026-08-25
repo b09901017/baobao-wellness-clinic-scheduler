@@ -13,7 +13,7 @@ import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as rules from '../../domain/customers.js';
-import { summarize, expandPlan } from '../../domain/entitlements.js';
+import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
@@ -327,7 +327,12 @@ function card(c, ctx) {
                   還有 ${pools.length - shown.length} 種，點進去看</p>`
               : ''}
           </div>`
-        : '<p class="muted" style="margin: var(--space-2) 0 0">還沒有額度。</p>'}
+        : `<p class="muted" style="margin: var(--space-2) 0 0">${
+            // 買了營養品但沒有任何課程額度是會發生的（ADR-0057）。
+            // 這一列不畫營養品（它排不進來訪，寫在這裡只會擠掉真的要排的人），
+            // 但也不可以說成「還沒有額度」—— 她明明賣掉了東西。
+            ents.some(isProduct) ? '只買了營養品，沒有要排的課程。' : '還沒有額度。'
+          }</p>`}
 
       ${flags.others.length || sum.overused ? `
         <div class="chips" style="margin-top: var(--space-3); row-gap: 6px">
