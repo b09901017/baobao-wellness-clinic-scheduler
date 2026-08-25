@@ -32,6 +32,7 @@
 import { isValidDate, lastDayOf } from './dates.js';
 import { contraindicationHints } from './contraindications.js';
 import { followupPlanEntries } from './followups.js';
+import { itemisedLabel } from './entitlements.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -487,7 +488,7 @@ export function planForSheet(parsed, {
           key,
           productName: p.name,
           productId: product?.id ?? null,
-          doc: entitlementDoc({ label: `營養點滴 - ${p.name}`, course, totalQty: qty, stamp }),
+          doc: entitlementDoc({ label: itemisedLabel(IV_DRIP_PREFIX, p.name), course, totalQty: qty, stamp }),
         });
         made.push(key);
       }

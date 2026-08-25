@@ -35,6 +35,32 @@ export function slotOutcome(visit, slot) {
 }
 
 /**
+ * 這一筆額度排得進來訪嗎。
+ *
+ * 營養品排不進去 —— `CONTEXT.md`：「賣給客戶的實體商品……只記錄與顯示，
+ * **不佔時段、不排班、不產生任務**」。它之所以還是一筆額度（而不是客戶身上
+ * 的一個陣列），是為了共用同一顆「加購」按鈕、同一份稽核紀錄、同一個垃圾桶，
+ * 見 ADR-0057。
+ *
+ * 代價就是這一支：它**不可以流進任何「還要排幾次」的計算**，
+ * 否則她的待辦上會冒出「王小明還有 2 次沒壓表」，而那 2 是兩罐夜態美。
+ */
+export const isProduct = (e) => e?.type === 'product';
+
+/**
+ * 一筆額度可以是哪幾種。
+ *
+ * **`firestore.rules` 的 `validEntitlement()` 有同一份白名單**，而那一份漏掉
+ * 一種的症狀特別糟：程式完全正確、測試全綠，只有在真的裝置上按下「加購」
+ * 才會看到「Missing or insufficient permissions」。`tests/rules.test.js`
+ * 拿這一份去對它。
+ */
+export const ENTITLEMENT_TYPES = ['single', 'pool', 'product'];
+
+/** 排得進來訪的那幾筆。要給人選「這一段扣哪一筆」的地方一律先過這一支。 */
+export const schedulable = (entitlements = []) => entitlements.filter((e) => !isProduct(e));
+
+/**
  * 三段式次數。永遠可以從 visits 重算，不依賴任何計數欄位。
  * 這個函式就是對帳的基準：存在 entitlement 上的計數欄位必須等於它。
  *
@@ -70,9 +96,9 @@ export function counts(entitlement, visits, entitlementId) {
 /** 剩幾次以內算「快用完」，客戶總覽的篩選用。 */
 export const LOW_REMAINING = 2;
 
-/** 這位客戶有沒有任何一池快用完（含已超用）。 */
+/** 這位客戶有沒有任何一池快用完（含已超用）。營養品不算 —— 它扣不掉。 */
 export function lowRemaining(entitlements) {
-  return (entitlements ?? []).some(
+  return schedulable(entitlements ?? []).some(
     (e) => (e.totalQty ?? 0) - (e.doneCount ?? 0) - (e.bookedCount ?? 0) <= LOW_REMAINING,
   );
 }
@@ -233,7 +259,23 @@ export function tieredLabel(tier, courseName) {
   return level ? `${level}${name}` : name;
 }
 
-export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
+/**
+ * 帶品項的顯示名稱：`'營養點滴'` + `'雪顏亮彩'` → `'營養點滴 - 雪顏亮彩'`。
+ *
+ * `CONTEXT.md`：營養點滴品項「各自有各自的次數，不合併計算」，所以一位客戶
+ * 身上會有好幾筆營養點滴額度，靠這個名字分辨。
+ *
+ * **這一支就是那個接法的唯一一份。** 舊試算表匯進來的那幾筆
+ *（`domain/legacyImport.js`）與她自己手動加購的走同一支 —— 兩邊各接一次的話，
+ * 同一位客戶身上一筆匯進來的、一筆手動加的，長得不一樣她會以為是兩種東西。
+ */
+export function itemisedLabel(courseName, itemName) {
+  const name = String(courseName ?? '').trim();
+  const item = String(itemName ?? '').trim();
+  return item ? `${name} - ${item}` : name;
+}
+
+export function validateEntitlement(e, { courses = [], equipment = [], products = [] } = {}) {
   const errors = [];
   const isBlank = (v) => v == null || String(v).trim() === '';
   const positiveInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
@@ -246,6 +288,7 @@ export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
 
   const aliveCourse = courses.filter((c) => !c.deletedAt);
   const aliveEquip = equipment.filter((x) => !x.deletedAt);
+  const aliveProduct = products.filter((x) => !x.deletedAt);
 
   if (e.type === 'single') {
     if (isBlank(e.courseId)) errors.push('要選一個課程');
@@ -256,8 +299,15 @@ export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
     else if (opts.some((id) => !aliveEquip.some((x) => x.id === id))) {
       errors.push('指定的器材不存在或已刪除');
     }
+  } else if (isProduct(e)) {
+    // 營養品那一筆一定要指得出是哪一款：它沒有課程可以問，名字又是可以改的
+    // 顯示字串。指不出來的話，之後主檔改名它就變成一筆沒有人認得的紀錄。
+    if (isBlank(e.productId)) errors.push('要選一個營養品');
+    else if (!aliveProduct.some((x) => x.id === e.productId)) {
+      errors.push('指定的營養品不存在或已刪除');
+    }
   } else {
-    errors.push('型態必須是 single 或 pool');
+    errors.push(`型態必須是 ${ENTITLEMENT_TYPES.join('、')}`);
   }
 
   // 等級是選填的，填了就要是一段人看得懂的字。長度上限跟名稱同一個道理：
@@ -281,7 +331,8 @@ export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
  */
 export function summarize(entitlements) {
   const out = { pools: 0, total: 0, done: 0, booked: 0, remaining: 0, overused: false };
-  for (const e of entitlements ?? []) {
+  // 營養品不進這個合計：那一列寫的是「剩 N 次」，而兩罐夜態美不是兩次。
+  for (const e of schedulable(entitlements ?? [])) {
     const c = {
       total: e.totalQty ?? 0,
       done: e.doneCount ?? 0,

@@ -13,7 +13,8 @@ import {
 } from '../public/js/domain/contraindications.js';
 import {
   counts, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
-  validateEntitlement, tieredLabel, TIER_PRESETS,
+  validateEntitlement, tieredLabel, TIER_PRESETS, itemisedLabel, isProduct, schedulable,
+  summarize, lowRemaining,
 } from '../public/js/domain/entitlements.js';
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
@@ -475,5 +476,73 @@ describe('健檢的金額等級', () => {
       validateEntitlement({ ...base, tier: '一'.repeat(21) }, { courses }),
       ['金額等級太長了 —— 那一格只放「8萬」這種'],
     );
+  });
+});
+
+// 營養品（ADR-0057）。是一筆額度，但排不進來訪。
+describe('營養品', () => {
+  const products = [{ id: 'p-yetaimei', name: '夜態美' }];
+  const base = { type: 'product', label: '夜態美', totalQty: 2, productId: 'p-yetaimei' };
+
+  test('一定要指得出是哪一款 —— 名字是可以改的顯示字串', () => {
+    assert.deepEqual(validateEntitlement(base, { products }), []);
+    assert.deepEqual(
+      validateEntitlement({ ...base, productId: null }, { products }),
+      ['要選一個營養品'],
+    );
+    assert.deepEqual(
+      validateEntitlement({ ...base, productId: 'p-gone' }, { products }),
+      ['指定的營養品不存在或已刪除'],
+    );
+  });
+
+  test('不用選課程，也不用選器材', () => {
+    assert.deepEqual(validateEntitlement(base, { products, courses: [], equipment: [] }), []);
+  });
+
+  test('認不得的型態照舊擋掉', () => {
+    assert.deepEqual(
+      validateEntitlement({ ...base, type: '罐' }, { products }),
+      ['型態必須是 single、pool、product'],
+    );
+  });
+
+  test('schedulable() 把它濾掉，其餘原封不動', () => {
+    const pool = { id: 'e1', type: 'pool', totalQty: 10 };
+    const single = { id: 'e2', type: 'single', totalQty: 5 };
+    const product = { id: 'e3', type: 'product', totalQty: 2 };
+    assert.equal(isProduct(product), true);
+    assert.equal(isProduct(single), false);
+    // 舊資料沒有 type 也不能被當成營養品
+    assert.equal(isProduct({ id: 'e4' }), false);
+    assert.deepEqual(schedulable([pool, product, single]), [pool, single]);
+  });
+
+  test('客戶總覽的「剩 N 次」不含罐數', () => {
+    const rows = [
+      { type: 'single', totalQty: 10, doneCount: 2, bookedCount: 1 },
+      { type: 'product', totalQty: 3, doneCount: 0, bookedCount: 0 },
+    ];
+    const out = summarize(rows);
+    assert.equal(out.pools, 1);
+    assert.equal(out.total, 10);
+    assert.equal(out.remaining, 7);
+  });
+
+  test('兩罐營養品不算「快用完」', () => {
+    assert.equal(lowRemaining([{ type: 'product', totalQty: 2 }]), false);
+    assert.equal(lowRemaining([{ type: 'single', totalQty: 2 }]), true);
+  });
+});
+
+// 營養點滴品項各自計次，靠名字分辨（CONTEXT.md）。匯入與加購共用同一支。
+describe('營養點滴的顯示名稱', () => {
+  test('課程名接品項', () => {
+    assert.equal(itemisedLabel('營養點滴', '雪顏亮彩'), '營養點滴 - 雪顏亮彩');
+  });
+
+  test('沒有品項就是課程本來的名字 —— 不要留一個沒有右半邊的破折號', () => {
+    assert.equal(itemisedLabel('營養點滴', null), '營養點滴');
+    assert.equal(itemisedLabel('營養點滴', '  '), '營養點滴');
   });
 });

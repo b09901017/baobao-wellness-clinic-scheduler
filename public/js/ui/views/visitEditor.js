@@ -17,7 +17,7 @@ import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
   coursesForEntitlement, closeVisit, NOTE_MAX,
 } from '../../domain/visits.js';
-import { counts } from '../../domain/entitlements.js';
+import { counts, schedulable } from '../../domain/entitlements.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import {
@@ -85,9 +85,11 @@ async function boot(el, {
     }
 
     const id = existing?.customerId ?? customerId;
+    // 額度那一排丸子問的是「這一段扣哪一筆」，所以只列排得進來訪的
+    //（`schedulable()`）—— 營養品扣不掉任何一段，見 ADR-0057。
     const [customer, entitlements, all, settings, customerVisits] = await Promise.all([
       customersData.get(id),
-      customersData.listEntitlements(id),
+      customersData.listEntitlements(id).then(schedulable),
       config.loadAll(),
       config.getSettings(),
       visitsData.listByCustomer(id),
