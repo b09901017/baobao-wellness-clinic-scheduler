@@ -74,16 +74,17 @@ let showVisits = false;
 let detailMonth = null;
 
 /**
- * 上一次重畫掛在 `el` 上的那組事件。
+ * 這一頁的兩組委派監聽掛在自己的容器上，**不掛在 `el` 上**。
  *
- * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，**`el` 本身沒有被
- * 換掉** —— 所以每重畫一次就再 `addEventListener` 一次，點一下會跑好幾個
- * 處理器，而舊的那幾個抓著已經過期的狀態。掛新的之前先把上一組整個中止掉。
+ * `paint()` 與 `paintEntitlement()` 換的是 `el.innerHTML`，`el` 本身沒有被換掉
+ * —— 掛在 `el` 上的話每重畫一次就多一顆，而且離開這一頁之後它們還活著：
+ * `data-visit` 與 `data-task` 在待辦中心各有另一個意思，按下去會用一份
+ * 已經過期的 `ctx` 去找東西（`.scratch/asks-2026-08-25/issues/04`）。
  *
- * 掛在 `el` 底下那些節點上的監聽不受影響：它們跟著 innerHTML 一起被換掉了。
+ * 掛在每次重畫都會被換掉的容器上，就沒有任何人需要記得拆它。
  */
-let detailEvents = null;
-let entEvents = null;
+const pageRoot = (el) => el.querySelector('[data-detailpage]');
+const entRoot = (el) => el.querySelector('[data-entform]');
 
 const AUDIT_VISIT_LIMIT = 30;
 
@@ -97,8 +98,6 @@ const RECENT_TASKS = 6;
 export async function render(el, id) {
   showVisits = false;
   detailMonth = null;
-  detailEvents?.abort();
-  entEvents?.abort();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let ctx;
@@ -161,6 +160,7 @@ function paint(ctx) {
   const openTasks = tasks.filter((t) => !t.done);
 
   el.innerHTML = `
+    <div data-detailpage>
     <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
 
     <div class="hero">
@@ -249,6 +249,7 @@ function paint(ctx) {
       <button class="footlink" type="button" data-audit>變更紀錄</button>
       <button class="footlink footlink--danger" type="button" data-danger>
         ${customer.active === false ? '重新啟用與刪除' : '停用與刪除'}</button>
+    </div>
     </div>`;
 
   wire(ctx, { today, marks });
@@ -270,9 +271,7 @@ function wire(ctx, { today, marks }) {
 
   // 換月份**只重畫那一塊**（ADR-0038 的規矩：只換真的變了的那一塊）——
   // 重畫整頁會把她剛剛展開的來訪紀錄捲回最上面。
-  detailEvents?.abort();
-  detailEvents = new AbortController();
-  el.addEventListener('click', (e) => {
+  pageRoot(el).addEventListener('click', (e) => {
     const stepped = steppedMonth(e.target, detailMonth ?? today.slice(0, 7), addMonths);
     if (stepped) {
       detailMonth = stepped;
@@ -294,7 +293,7 @@ function wire(ctx, { today, marks }) {
 
     const task = e.target.closest('[data-task]');
     if (task) toggleTask(ctx, task.dataset.task);
-  }, { signal: detailEvents.signal });
+  });
 
   el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
 
@@ -968,6 +967,7 @@ function paintEntitlement(ctx, record, draft = null) {
   const c = isNew ? null : counts(record, ctx.visits, record.id);
 
   el.innerHTML = `
+    <div data-entform>
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(ctx.customer.name)}</a>
 
     <div class="page">
@@ -992,7 +992,8 @@ function paintEntitlement(ctx, record, draft = null) {
       </div>
     </form>
 
-    ${isNew ? '' : entitlementDanger()}`;
+    ${isNew ? '' : entitlementDanger()}
+    </div>`;
 
   wireEntitlement(el, ctx, record, e, { isNew, aliveCourses });
 }
@@ -1112,11 +1113,10 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       ...e, ...readEntitlement(form), advanced: advanced(), ...over,
     });
 
-  entEvents?.abort();
-  entEvents = new AbortController();
-  f.wireChips(el, { signal: entEvents.signal });
+  const root = entRoot(el);
+  f.wireChips(root);
 
-  el.addEventListener('click', (ev) => {
+  root.addEventListener('click', (ev) => {
     const pick = ev.target.closest('[data-chip="buy"]');
     if (pick) {
       const value = pick.dataset.chipValue;
@@ -1148,7 +1148,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       const box = form.elements.totalQty;
       box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
     }
-  }, { signal: entEvents.signal });
+  });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();

@@ -104,6 +104,7 @@ function paint(el, ctx) {
   const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
 
   el.innerHTML = `
+    <div data-mergepage>
     ${backLink()}
 
     <section class="card">
@@ -131,7 +132,8 @@ function paint(el, ctx) {
     ${file ? summaryCard(s, plans, extraProblems) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
-    ${file ? runCard(s, tasks) : ''}`;
+    ${file ? runCard(s, tasks) : ''}
+    </div>`;
 
   el.querySelector('[data-load]')?.addEventListener('click', () => load(el, ctx));
   el.querySelector('[data-clear]')?.addEventListener('click', () => {
@@ -166,7 +168,12 @@ function paint(el, ctx) {
   // 分類鈕。**只換這一列**（ADR-0038）—— 這一頁一次列兩百筆，
   // 整頁重畫等於每點一下就捲回最上面，而她要點的正是清單中段那幾列。
   // 事件用委派掛在容器上：兩百列 × 三顆鈕 = 六百個 listener。
-  el.addEventListener('click', (e) => {
+  //
+  // 掛在 `[data-mergepage]` 而不是 `el`：`paint()` 每點一下勾就跑一次，
+  // 掛在 `el` 上等於每次多留一顆，而且離開這一頁之後它還活著 ——
+  // `data-kind` 在日曆頂端是篩選丸，那裡沒有 `index` 可以讀
+  //（`.scratch/asks-2026-08-25/issues/04` 是同一個形狀）。
+  el.querySelector('[data-mergepage]').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-kind]');
     if (!btn) return;
     const index = Number(btn.dataset.index);

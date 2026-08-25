@@ -113,16 +113,16 @@ export function wireSection(ctx) {
 let daySheetLayer = null;
 
 /**
- * 上一次重畫掛的那組事件。
+ * 這一頁的委派監聽掛在 `[data-availform]` 上，**不掛在 `el` 上**。
  *
- * `paintForm()` 換的是 `el.innerHTML`，**`el` 本身沒有被換掉** —— 所以每重畫
- * 一次就再 `addEventListener` 一次，點一下會跑好幾個處理器，而舊的那幾個
- * 抓著已經過期的 `state`。這一頁重畫得很兇（點一天、換月份、選一個半天），
- * 症狀是「點了三選一之後有一筆日期變成 null」。
+ * `paintForm()` 換的是 `el.innerHTML`，`el` 本身沒有被換掉 —— 掛在 `el` 上的話
+ * 每重畫一次就多一顆，而且**離開這一頁之後它還活著**：客戶詳情的「這個月」
+ * 也用 `monthNav()`（同一個 `data-month-step`），於是記一次回去之後按那兩顆
+ * 箭頭會整頁跳回記一次（`.scratch/asks-2026-08-25/issues/04`）。
  *
- * 掛新的之前先把上一組整個中止掉。
+ * 掛在每次重畫都會被換掉的那個容器上，就沒有任何人需要記得拆它。
  */
-let formEvents = null;
+const formRoot = (el) => el.querySelector('[data-availform]');
 
 /** 她問的永遠是「下個月」，所以預設就是下個月。 */
 const defaultMonth = (today) => addMonths(today, 1).slice(0, 7);
@@ -155,6 +155,7 @@ function paintForm(ctx, record, draft = null) {
   const cells = monthGrid(state.month, { today: null });
 
   el.innerHTML = `
+    <div data-availform>
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
 
     <div class="page">
@@ -210,7 +211,8 @@ function paintForm(ctx, record, draft = null) {
     ${leftoverHtml(state)}
     ${isNew ? '' : dangerZone()}
 
-    ${state.sheetDate ? sheetHtml(state.sheetDate, state) : ''}`;
+    ${state.sheetDate ? sheetHtml(state.sheetDate, state) : ''}
+    </div>`;
 
   wireForm(el, ctx, record, state);
 }
@@ -351,10 +353,7 @@ function wireForm(el, ctx, record, state) {
   });
   el.querySelector('[data-cancel]').addEventListener('click', back);
 
-  formEvents?.abort();
-  formEvents = new AbortController();
-
-  el.addEventListener('click', (e) => {
+  formRoot(el).addEventListener('click', (e) => {
     const next = steppedMonth(e.target, state.month, addMonths);
     if (next) {
       // 換月份不清掉已經點的：她可能在兩個月之間來回確認。反正只有
@@ -403,7 +402,7 @@ function wireForm(el, ctx, record, state) {
         leftover: state.leftover.filter((_, k) => k !== i),
       });
     }
-  }, { signal: formEvents.signal });
+  });
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
