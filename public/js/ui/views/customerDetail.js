@@ -1304,7 +1304,7 @@ async function toggleTask(ctx, id) {
   const task = ctx.tasks.find((t) => t.id === id);
   if (!task) return;
   try {
-    await toast.withSaveState(() => tasksData.setDone(id, !task.done), {
+    await toast.withSaveState(() => tasksData.setDone(task, !task.done), {
       success: task.done ? '拿回來了' : '勾掉了',
     });
     reload(ctx);

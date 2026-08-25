@@ -5,6 +5,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   syncTasksForVisit,
@@ -290,5 +291,37 @@ describe('日期的人話格式', () => {
   test('M/D(週)', () => {
     assert.equal(shortDate('2026-09-03'), '9/3(四)');
     assert.equal(shortDate('2026-12-25'), '12/25(五)');
+  });
+});
+
+// ---------- 勾掉一張待辦要把健檢鏈一起帶著走 ----------
+//
+// 這一支不執行程式碼，只讀原始碼 —— 跟 `module-names.test.js` 同一個路數。
+// `data/*.js` 從 gstatic 載入 Firebase SDK，node 載不進來，而這裡要守的是
+// 一個「不執行就看不出來、執行了要有真的 Firestore 才看得出來」的接線：
+//
+//   勾掉「追蹤健檢報告」→ 同一個 commit 裡把「約二返」長出來
+//
+// 2026-08-25 以前這條線根本不存在（`syncFollowupTasks()` 三個呼叫端全在
+// `save()` / `remove()` / `restore()` 底下），而且**947 個測試全綠** ——
+// 規則本身測得很完整，只是沒有人在勾掉的那一刻叫它。
+// 見 `.scratch/asks-2026-08-25/issues/09`。
+describe('勾完成那一支的接線', () => {
+  const src = readFileSync(
+    new URL('../public/js/data/tasks.js', import.meta.url).pathname, 'utf8',
+  );
+  const setDone = src.slice(src.indexOf('export async function setDone'));
+
+  test('setDone 把健檢鏈的操作放進同一個 commit', () => {
+    assert.match(setDone, /followupOpsAfterTaskChange/,
+      '勾掉「追蹤健檢報告」要連著把「約二返」長出來');
+    assert.match(setDone, /repo\.commit\(\[[\s\S]*followupOpsAfterTaskChange/,
+      '兩件事要在同一個 commit 裡，不然復原只退得回其中一半');
+  });
+
+  test('setDone 收的是任務本身，不是 id', () => {
+    // 收 id 的話這一層得先把那幾筆讀回來才知道是不是鏈上的那兩種，
+    // 而呼叫端手上本來就有 —— 那是白白多一輪往返。
+    assert.match(setDone, /setDone\(tasks, done\)/);
   });
 });

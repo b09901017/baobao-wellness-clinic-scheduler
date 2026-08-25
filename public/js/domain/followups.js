@@ -333,6 +333,9 @@ export function syncFollowupTasks({
       wanted.set(visit.id, stationFor(visit, {
         report: doneReport.get(visit.id),
         booking: openBooking.get(visit.id),
+        // 「這一筆健檢有沒有追蹤報告的紀錄」—— 勾掉的與還沒勾的都算。
+        // 只看勾掉的那一種會讓「把報告那一張拿回來」變成把它刪掉，見 stationFor()。
+        hasReport: openReport.has(visit.id) || doneReport.has(visit.id),
         dueDays,
         reportDueDays,
       }));
@@ -370,7 +373,7 @@ export function syncFollowupTasks({
     if (wanted.get(t.visitId)?.kind === t.kind) continue;
     const visit = visitById.get(t.visitId);
     const stillDone = visit && !visit.deletedAt && visit.status === 'done';
-    remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone) });
+    remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone, wanted.get(t.visitId)?.kind) });
   }
 
   return { create, update, remove };
@@ -383,13 +386,18 @@ export function syncFollowupTasks({
  *
  * 1. **報告勾掉了** → 約二返，死線從**勾掉那一天**算。從健檢日算的話
  *    它一出生就是逾期紅字（報告本來就要兩三週），而紅久了她就不看了。
- * 2. **已經有一張未完成的約二返，但沒有任何追蹤報告的紀錄** → 那是這一支
- *    上線之前就存在的資料。當作報告那一段已經走過了：不補產生追蹤報告，
- *    也不動那張約二返（連死線都不改）。**不這樣做的話，她手上真的還沒做的
- *    那幾件會在第一次存檔時被默默收掉。**
+ * 2. **已經有一張未完成的約二返，而這一筆健檢從來沒有過追蹤報告那一張** →
+ *    那是這一支上線之前就存在的資料。當作報告那一段已經走過了：不補產生
+ *    追蹤報告，也不動那張約二返（連死線都不改）。**不這樣做的話，她手上真的
+ *    還沒做的那幾件會在第一次存檔時被默默收掉。**
+ *
+ *    「從來沒有過」要連**還沒勾的**那一張一起看（`hasReport`），不能只看勾掉的
+ *    ——她把報告那一張**拿回來**（取消勾選）的時候，勾掉的那一份就不見了，
+ *    只看勾掉的會讓這裡誤判成舊資料，於是把她剛拿回來的那一張刪掉。
+ *    正確的行為是退回第 3 站：報告那一張留著，約二返收起來。
  * 3. 其餘 → 追蹤健檢報告，死線從健檢那天算。
  */
-function stationFor(visit, { report, booking, dueDays, reportDueDays }) {
+function stationFor(visit, { report, booking, hasReport, dueDays, reportDueDays }) {
   if (report) {
     // doneAt 讀不出來（舊資料、手動改過）就退回「健檢日 + 報告天數 + 約的天數」。
     // 不用今天 —— 用今天的話，死線每讀一次就往後跑一天。
@@ -401,7 +409,7 @@ function stationFor(visit, { report, booking, dueDays, reportDueDays }) {
     };
   }
 
-  if (booking) {
+  if (booking && !hasReport) {
     return { kind: FOLLOWUP_TASK_KIND, dueDate: booking.dueDate, note: booking.note };
   }
 
@@ -412,9 +420,12 @@ function stationFor(visit, { report, booking, dueDays, reportDueDays }) {
   };
 }
 
-function reasonFor(kind, stillDone) {
+function reasonFor(kind, stillDone, wantedKind) {
   if (!stillDone) return '那一筆健檢不是已完成了';
-  return kind === REPORT_TASK_KIND ? '報告拿到了' : '二返已經約好了';
+  if (kind === REPORT_TASK_KIND) return '報告拿到了';
+  // 退回上一站：她把「追蹤健檢報告」那一張拿回來了，所以還不到約二返。
+  if (wantedKind === REPORT_TASK_KIND) return '報告那一張被拿回來了';
+  return '二返已經約好了';
 }
 
 /**

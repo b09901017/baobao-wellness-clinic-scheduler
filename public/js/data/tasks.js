@@ -7,6 +7,7 @@
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import * as repo from './repo.js';
+import { followupOpsAfterTaskChange } from './visits.js';
 
 const PATH = 'tasks';
 
@@ -59,15 +60,26 @@ export const restore = (id) => repo.restore(PATH, id);
  * 到 Examine 一次把整批掛完，回來要能一次勾掉（SPEC 第 8.1 節）。
  *
  * 一批寫在同一個 commit 裡，所以復原是把整批一起退回去，不是退一筆。
+ *
+ * **收的是任務本身不是 id。** 勾掉「追蹤健檢報告」要連著把「約二返」長出來
+ *（ADR-0042 的鏈條），而那要知道勾的是哪一種、掛在哪位客戶身上。
+ * 只收 id 的話這一層得先把那幾筆讀回來，而呼叫端手上本來就有 ——
+ * 那是白白多一輪往返，她常常在大樓裡用行動網路（SPEC 第 6.9 節）。
+ *
+ * 鏈條那幾筆操作跟勾選**寫在同一個 commit**：不會出現「勾好了但約二返
+ * 沒長出來」的半套狀態，而且復原退得回整組（`repo.withUndo` 只有剛好
+ * 一次 commit 的動作給得出復原）。
+ *
+ * @param {object|object[]} tasks 要勾的那幾筆（要有 id、kind、customerId）
+ * @param {boolean} done
  */
-export function setDone(ids, done) {
+export async function setDone(tasks, done) {
+  const rows = (Array.isArray(tasks) ? tasks : [tasks]).filter(Boolean);
   const doneAt = done ? new Date().toISOString() : null;
-  return repo.commit(
-    (Array.isArray(ids) ? ids : [ids]).map((id) => ({
-      op: 'update',
-      path: PATH,
-      id,
-      changes: { done, doneAt },
-    })),
-  );
+  const after = rows.map((t) => ({ ...t, done, doneAt }));
+
+  return repo.commit([
+    ...rows.map((t) => ({ op: 'update', path: PATH, id: t.id, changes: { done, doneAt } })),
+    ...(await followupOpsAfterTaskChange(after)),
+  ]);
 }

@@ -870,12 +870,12 @@ function syncMarkButton(el) {
 }
 
 async function markDone(ctx) {
-  const ids = [...picked];
-  if (!ids.length) return;
+  const rows = ctx.tasks.filter((t) => picked.has(t.id));
+  if (!rows.length) return;
   try {
     // 一批寫在同一個 commit 裡，所以復原是整批一起退回去
-    await toast.withSaveState(() => tasksData.setDone(ids, true), {
-      success: `${ids.length} 筆完成`,
+    await toast.withSaveState(() => tasksData.setDone(rows, true), {
+      success: `${rows.length} 筆完成`,
     });
     picked = new Set();
     await renderGroup(ctx.el, ctx.group);
