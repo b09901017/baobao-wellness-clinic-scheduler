@@ -16,7 +16,9 @@
 // 她的原話是「可以不要用下拉選單而是用小丸」。
 
 import * as f from './form.js';
-import { TIER_PRESETS, tieredLabel, itemisedLabel } from '../../domain/entitlements.js';
+import {
+  TIER_PRESETS, tieredLabel, itemisedLabel, validateEntitlement,
+} from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 
 /** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
@@ -68,9 +70,9 @@ export function fields(e, master) {
       options: [
         ...(master.courses ?? []).map((c) => ({ value: c.id, label: c.name })),
         { value: POOL_PICK, label: '復能（三選一池）' },
-        // 營養品放最後一顆：它不是課程，而中間隔著那顆擇一池，
-        // 順序本身就在講「這一顆是別的東西」。
-        { value: PRODUCT_PICK, label: '營養品' },
+        // 營養品放最後一顆，而且前面隔一條線 —— 它不是課程。一排十幾顆要滑，
+        // 滑到底才看到的那一顆如果是另一種東西，得先說一聲。
+        { value: PRODUCT_PICK, label: '營養品', lead: '商品' },
       ],
     })}
 
@@ -200,6 +202,18 @@ export function read(form, v) {
   if (form.elements.productId) out.productId = v.productId ?? null;
 
   return out;
+}
+
+/**
+ * 存得下去嗎。
+ *
+ * **「她還沒選」與「她選了但填錯」是兩件事。** 一張什麼都還沒點的表送出去，
+ * `validateEntitlement()` 會同時吐「額度名稱不可空白」與「要選一個課程」——
+ * 兩句話講同一件事，而且第一句用的是她不會用的詞。這裡先攔下來。
+ */
+export function validate(e, master) {
+  if (!picked(e)) return ['先選一個「買了什麼」'];
+  return validateEntitlement(e, master);
 }
 
 /** 草稿 → 可以寫進 `entitlements` 的那幾個欄位。 */

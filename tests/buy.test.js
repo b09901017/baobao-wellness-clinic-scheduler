@@ -150,6 +150,21 @@ describe('讀值：沒在畫面上的欄位不回報', () => {
   });
 });
 
+describe('存得下去嗎', () => {
+  test('一張什麼都還沒點的表，只講一句話', () => {
+    assert.deepEqual(buy.validate(buy.blank(), MASTER), ['先選一個「買了什麼」']);
+  });
+
+  test('選了才輪到欄位的驗證', () => {
+    const drip = { ...from('c-drip'), ivProductId: 'iv-snow' };
+    assert.deepEqual(buy.validate(drip, MASTER), []);
+    assert.deepEqual(
+      buy.validate({ ...from(buy.PRODUCT_PICK), label: 'x' }, MASTER),
+      ['要選一個營養品'],
+    );
+  });
+});
+
 describe('草稿翻成一筆額度', () => {
   test('營養品不帶課程、器材、時長與頻率', () => {
     const e = { ...from(buy.PRODUCT_PICK), productId: 'prod-gaba', label: 'GABA', totalQty: 2 };
@@ -187,6 +202,14 @@ describe('草稿翻成一筆額度', () => {
 });
 
 describe('畫出來的那幾排', () => {
+  test('營養品那一顆前面隔一條線 —— 它不是課程', () => {
+    const html = buy.fields(buy.blank(), MASTER);
+    const lead = html.indexOf('chiprow__lead');
+    assert.ok(html.includes('<span class="chiprow__lead">商品</span>'));
+    assert.ok(lead > html.indexOf('復能（三選一池）'), '線要在課程那一組後面');
+    assert.ok(lead < html.lastIndexOf('營養品'), '線要在營養品那一顆前面');
+  });
+
   test('營養品那一顆一直在，而且排在最後', () => {
     const html = buy.fields(buy.blank(), MASTER);
     const order = ['健檢', '營養點滴', '復能', '復能（三選一池）', '營養品'];

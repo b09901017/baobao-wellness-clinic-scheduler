@@ -23,6 +23,8 @@ import { todayISO, addDays, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
+import * as buy from '../components/buy.js';
+import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back as goBack } from '../nav.js';
@@ -371,9 +373,15 @@ export async function renderNew(el) {
   let plans;
   let existing;
   let equipment;
+  let courses;
+  let ivProducts;
+  let products;
   try {
-    [plans, existing, equipment] = await Promise.all([
+    // 課程／品項／營養品是底下那一段「加購」要的（同一張表，`components/buy.js`）。
+    // 跟另外三份同一趟拿，不多一輪往返。
+    [plans, existing, equipment, courses, ivProducts, products] = await Promise.all([
       config.listAll('plans'), data.list(), config.listAll('equipment'),
+      config.listAll('courses'), config.listAll('ivProducts'), config.listAll('products'),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
@@ -393,18 +401,42 @@ export async function renderNew(el) {
     marks: [],
     planId: null,
     quantity: 1,
+    // 方案之外多買的。建立之前都只是草稿，一個字都還沒寫進去。
+    extras: [],
   };
 
-  paintNew(el, draft, usable, existing, contraindicationTerms(equipment));
+  paintNew(el, draft, usable, existing, contraindicationTerms(equipment), {
+    courses, equipment, ivProducts, products,
+  });
 }
 
-// 這幾個欄位一動，畫面上算出來的東西（展開預覽、提示）就變了，所以要重畫。
-// 重畫一律先把表單現況讀回 draft，沒存的字不會不見。
+// 這幾個欄位一動，畫面上算出來的東西就變了。
+//
+// **只有「方案」那一排會重畫整頁**，因為選了方案才會多出「購買數量」那一格。
+// 另外兩個各自只換一小塊，而那兩塊裡面**沒有任何可以點的東西** ——
+// 這一條不是為了省效能，是為了不吃掉她的下一次點擊：
+//
+// `change` 在**離開欄位的那一刻**才發生，而她離開欄位的方式通常就是去點下一個
+// 東西。整頁重畫會在那一下點擊送達之前把目標換掉，於是「打完名字點方案」
+// 的第一下永遠沒有反應（ADR-0038 講的是同一件事）。
 const RECOMPUTE_ON = ['planId', 'quantity', 'name'];
 
-function paintNew(el, draft, plans, existing, terms) {
+/**
+ * 買了幾份方案。**0 是合法的** —— 她的原話是「購買方案的數量可以是0，
+ * 因為有人會單買加購的療程」。
+ *
+ * 0 不等於「不選方案」：她選了方案又打 0，畫面要承認她做了這件事
+ *（預覽那一塊會講出來），而不是偷偷把方案清掉。
+ */
+const planQuantity = (raw) => {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 1;
+};
+
+function paintNew(el, draft, plans, existing, terms, master) {
   const plan = plans.find((p) => p.id === draft.planId) ?? null;
-  const preview = expandPlan(plan, Number(draft.quantity) || 1);
+  const qty = planQuantity(draft.quantity);
+  const preview = qty > 0 ? expandPlan(plan, qty) : [];
 
   el.innerHTML = `
     <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
@@ -420,10 +452,10 @@ function paintNew(el, draft, plans, existing, terms) {
           placeholder: '0522 顧客會-8', hint: '試算表 B2 那一欄的購買名稱。',
         })}
         ${f.date({ name: 'purchasedAt', label: '購買日', value: draft.purchasedAt })}
-        ${f.select({
+        ${f.chips({
           name: 'priority', label: '喜好程度', value: String(draft.priority),
           options: priorityOptions(),
-          hint: '排班佇列的排序權重之一（SPEC 第 9 節）。0 代表還沒評。',
+          hint: '0 代表還沒評。',
         })}
         <div data-flags></div>
 
@@ -433,16 +465,17 @@ function paintNew(el, draft, plans, existing, terms) {
         </div>
 
         <h3 class="card__title" style="margin-top: var(--space-5)">買了什麼</h3>
-        ${f.select({
-          name: 'planId', label: '方案範本', value: draft.planId,
-          options: [{ value: null, label: '不選方案（之後單項加購）' },
+        ${f.chips({
+          name: 'planId', label: '方案', value: draft.planId,
+          options: [{ value: null, label: '不選方案' },
                     ...plans.map((p) => ({ value: p.id, label: p.name }))],
-          hint: '展開後與範本完全脫鉤，之後改範本不會動到這位客戶。',
+          hint: '之後改範本不會動到這位客戶。',
         })}
-        ${f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 1 })}
+        ${plan ? f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 0 }) : ''}
 
-        ${previewHtml(plan, preview)}
-        ${warningsHtml(draftToCustomer(draft), existing)}
+        <div data-preview>${previewHtml(plan, preview, qty)}</div>
+        ${extrasHtml(draft.extras)}
+        <div data-warnings>${warningsHtml(draftToCustomer(draft), existing)}</div>
 
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">建立客戶</button>
@@ -475,9 +508,52 @@ function paintNew(el, draft, plans, existing, terms) {
     },
   });
 
+  // 丸子換掉了方案與喜好程度那兩個下拉。掛在 `form` 上就好 ——
+  // 它每次重畫都會被換掉，沒有人需要記得拆它。
+  f.wireChips(form);
+
+  const repaint = (next) => paintNew(el, next, plans, existing, terms, master);
+  const swap = (sel, html) => {
+    const box = el.querySelector(sel);
+    if (box) box.innerHTML = html;
+  };
+
   form.addEventListener('change', (e) => {
     if (!RECOMPUTE_ON.includes(e.target.name)) return;
-    paintNew(el, { ...draft, ...f.readForm(form) }, plans, existing, terms);
+    const next = { ...draft, ...f.readForm(form) };
+    Object.assign(draft, next);
+
+    // 方案換了才重畫整頁：選了方案才會多出「購買數量」那一格
+    if (e.target.name === 'planId') {
+      repaint(next);
+      return;
+    }
+    const nextPlan = plans.find((p) => p.id === next.planId) ?? null;
+    const nextQty = planQuantity(next.quantity);
+    if (e.target.name === 'quantity') {
+      swap('[data-preview]', previewHtml(nextPlan, nextQty > 0 ? expandPlan(nextPlan, nextQty) : [], nextQty));
+    } else {
+      swap('[data-warnings]', warningsHtml(draftToCustomer(next), existing));
+    }
+  });
+
+  form.addEventListener('click', (e) => {
+    if (e.target.closest('[data-addextra]')) {
+      // 面板裡改的是它自己的草稿，按「加進來」才回到這一頁的名單上
+      openBuySheet(master, (item) => repaint({
+        ...draft, ...f.readForm(form), extras: [...draft.extras, item],
+      }));
+      return;
+    }
+    const drop = e.target.closest('[data-dropextra]');
+    if (drop) {
+      const at = Number(drop.dataset.dropextra);
+      repaint({
+        ...draft,
+        ...f.readForm(form),
+        extras: draft.extras.filter((_, i) => i !== at),
+      });
+    }
   });
 
   form.addEventListener('submit', async (e) => {
@@ -489,16 +565,132 @@ function paintNew(el, draft, plans, existing, terms) {
     f.showErrors(el, errors);
     if (errors.length) return;
 
-    const chosen = plans.find((p) => p.id === values.planId) ?? null;
+    const quantity = planQuantity(values.quantity);
+    // 數量 0 就不展開方案。**不是把方案清掉** —— 展開 0 次會建出一串
+    // 總次數是 0 的額度，而那幾筆之後只會在她的畫面上礙事。
+    const chosen = quantity > 0 ? (plans.find((p) => p.id === values.planId) ?? null) : null;
+
     try {
       const id = await toast.withSaveState(
-        () => data.createWithPlan(customer, { plan: chosen, quantity: Number(values.quantity) || 1 }),
+        () => data.createWithPlan(customer, {
+          plan: chosen,
+          quantity,
+          // 加購跟方案展開的那幾筆走同一個 commit，加購的健檢才配得到二返
+          // （ADR-0022，`data/customers.js` 的 `createWithPlan()` 檔頭）。
+          extras: values.extras.map(
+            (x) => buy.toEntitlement(x, { purchasedAt: customer.purchasedAt ?? null }),
+          ),
+        }),
         { success: '已建立' },
       );
       go(`/customers/${id}`);
     } catch {
       /* withSaveState 已顯示錯誤與重試 */
     }
+  });
+}
+
+/**
+ * 「加購」那一段。跟客戶詳情的加購是**同一張表**（`components/buy.js`），
+ * 只是這裡列的是還沒寫進去的草稿 —— 建立之前一個字都還沒進資料庫。
+ */
+function extrasHtml(extras) {
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">加購　方案之外多買的</span>
+      ${extras.length ? `
+        <ul class="roster">
+          ${extras.map((x, i) => `
+            <li class="roster__row">
+              <span class="roster__main">
+                <span class="roster__name">${esc(x.label || '（沒有名稱）')}</span>
+                <span class="roster__note">${esc(x.totalQty ?? 0)} ${esc(buy.unitOf(x))}</span>
+              </span>
+              <button class="roster__x" type="button" data-dropextra="${i}"
+                      aria-label="拿掉">${icon('close', { size: 15, width: 2 })}</button>
+            </li>`).join('')}
+        </ul>` : '<p class="muted" style="margin: 0 0 var(--space-2)">還沒加購。</p>'}
+      <button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>
+    </div>`;
+}
+
+/**
+ * 加一項的那一張面板。
+ *
+ * 內容就是 `components/buy.js` 那一張表，所以健檢的「幾萬的」、營養點滴的
+ * 「哪一種」、營養品的「幾份」在這裡與客戶詳情長得一模一樣。
+ *
+ * 沒有「進階設定」：她在建立一位新客戶的時候要的是「再給他三次健檢」，
+ * 那七個欄位一年動不到一次，建好之後進詳情頁調（同 `views/customersBulk.js`
+ * 的微調面板）。所以這裡沒有顯示名稱那一格 —— 名字一律自動帶。
+ */
+function openBuySheet(master, onAdd) {
+  let item = buy.blank();
+  let sheet = null;
+
+  const html = () => `
+    <div class="errors" data-errors hidden></div>
+    <form data-buyform>${buy.fields(item, master)}</form>`;
+
+  const readItem = (form) => {
+    const v = f.readForm(form);
+    return { totalQty: v.totalQty, ...buy.read(form, v) };
+  };
+
+  sheet = openSheet({
+    title: '加購',
+    note: '方案之外多買的。加完可以再加一項。',
+    body: html(),
+    actions: `
+      <button class="btn" type="button" data-sheet-close>取消</button>
+      <button class="btn btn--primary" type="button" data-addbuy>加進來</button>`,
+    // `update()` 會再呼叫一次 onMount，而監聽掛的是 drawer（它不會被換掉）——
+    // 沒有這道旗標，重畫一次就多一組監聽，按「加進來」會一次加兩筆。
+    onMount: (drawer) => {
+      if (drawer.dataset.buyWired) return;
+      drawer.dataset.buyWired = '1';
+      f.wireChips(drawer);
+
+      drawer.addEventListener('click', (ev) => {
+        const form = drawer.querySelector('[data-buyform]');
+        if (!form) return;
+
+        const chosen = ev.target.closest('[data-chip="buy"]');
+        if (chosen) {
+          const before = { ...item, ...readItem(form) };
+          item = { ...before, ...buy.pick(chosen.dataset.chipValue, item, master) };
+          sheet.update(html());
+          return;
+        }
+
+        const detail = ev.target.closest(
+          '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productId"]',
+        );
+        if (detail) {
+          const next = { ...item, ...readItem(form) };
+          item = { ...next, label: buy.retitle(item, next, master) };
+          sheet.update(html());
+          return;
+        }
+
+        const qty = ev.target.closest('[data-qty]');
+        if (qty) {
+          const box = form.elements.totalQty;
+          box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
+          item = { ...item, ...readItem(form) };
+          return;
+        }
+
+        if (ev.target.closest('[data-addbuy]')) {
+          const next = { ...item, ...readItem(form) };
+          const errors = buy.validate(next, master);
+          f.showErrors(drawer, errors);
+          if (errors.length) return;
+          onAdd(next);
+          closeSheet();
+        }
+      });
+    },
   });
 }
 
@@ -528,9 +720,15 @@ function draftToCustomer(d) {
   };
 }
 
-function previewHtml(plan, preview) {
+function previewHtml(plan, preview, qty) {
   if (!plan) {
-    return `<p class="muted">沒有選方案，建立後在詳情頁一項一項加購。</p>`;
+    return `<p class="muted">沒有選方案，底下可以一項一項加購。</p>`;
+  }
+  // 她選了方案又打 0。**畫面要承認她做了這件事** —— 偷偷把方案當成沒選，
+  // 等於她之後永遠不知道那一格為什麼沒有作用。
+  if (qty === 0) {
+    return `<p class="muted">數量是 0，「${esc(plan.name)}」不會展開任何額度。
+      底下的加購還是會建。</p>`;
   }
   if (!preview.length) {
     return `<p class="muted">「${esc(plan.name)}」還沒有任何項目，
@@ -539,12 +737,11 @@ function previewHtml(plan, preview) {
   return `
     <div class="card card--flat">
       <h3 class="card__title">會展開這些額度</h3>
-      <ul class="muted">
+      <ul class="muted" style="margin-bottom: 0">
         ${preview
           .map((e) => `<li>${esc(e.label)} <b>${e.totalQty}</b> 次</li>`)
           .join('')}
       </ul>
-      <p class="muted" style="margin-bottom: 0">建立後與範本脫鉤，可以個別加減。</p>
     </div>`;
 }
 

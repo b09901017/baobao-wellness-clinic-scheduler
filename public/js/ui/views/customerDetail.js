@@ -30,7 +30,7 @@ import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
-  counts, reconcile, isOverused, validateEntitlement, sortPools, offCount, isProduct,
+  counts, reconcile, isOverused, sortPools, offCount, isProduct,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
@@ -1247,7 +1247,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
     ev.preventDefault();
     const next = { ...e, ...readEntitlement(form) };
 
-    const errors = validateEntitlement(next, {
+    const errors = buy.validate(next, {
       courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,
     });
     f.showErrors(el, errors);
