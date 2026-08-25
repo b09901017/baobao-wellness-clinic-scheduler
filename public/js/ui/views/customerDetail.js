@@ -665,8 +665,11 @@ function poolCard(e, visits, ctx, today) {
       ${e.expiresAt ? `<p class="muted dim" style="font-size: var(--text-2xs)">${esc(e.expiresAt)} 到期${
         expiry.state === 'expired' ? '（已過期）' : ''
       }</p>` : ''}
+      ${/* 「已與範本脫鉤」拿掉了：那是 ADR-0003 的說法，不是她的。她要從這一行
+             知道的只有「這一筆是哪裡來的」，而範本之後會不會動到它，
+             是她永遠不會問的問題（因為答案永遠是不會）。 */''}
       ${e.sourcePlanName
-        ? `<p class="muted dim" style="font-size: var(--text-2xs)">來自方案「${esc(e.sourcePlanName)}」的展開，已與範本脫鉤</p>`
+        ? `<p class="muted dim" style="font-size: var(--text-2xs)">來自方案「${esc(e.sourcePlanName)}」</p>`
         : '<p class="muted dim" style="font-size: var(--text-2xs)">單項加購</p>'}
       ${followupLine(e, ctx, visits)}
       ${rec.ok ? '' : reconcileWarning(e, rec)}
