@@ -328,13 +328,18 @@ function wire(ctx, { today, marks }) {
     addNote(ctx, e.target);
   });
 
-  el.querySelector('[data-all-visits]')?.addEventListener('click', () =>
-    openSheet({
+  // 面板不在 `pageRoot(el)` 底下，委派監聽吃不到 —— 自己接一次
+  //（底下的「全部任務」是同一個作法）。
+  el.querySelector('[data-all-visits]')?.addEventListener('click', () => {
+    const sheet = openSheet({
       title: '全部來訪',
       note: `${visits.length} 筆，新的在上面。`,
       body: `<ul class="link-list">${visits.map(visitRow).join('')}</ul>`,
-    }),
-  );
+    });
+    sheet.el.querySelectorAll('[data-visit]').forEach((btn) =>
+      btn.addEventListener('click', () => openVisitCard(ctx, btn.dataset.visit)),
+    );
+  });
 
   el.querySelector('[data-all-tasks]')?.addEventListener('click', () => {
     const sheet = openSheet({
@@ -766,14 +771,21 @@ async function fixCounts(ctx, entId) {
 
 // ---------- 來訪與任務的列 ----------
 
+/**
+ * 來訪紀錄那一列。**長相跟以前一模一樣，只是不再是一條連到編輯器的連結**
+ * —— 她認的是「日期＋課程＋狀態徽章」那一列，不是那是不是一個 `<a>`。
+ *
+ * 點下去跟任務列右邊那顆「詳情」走同一支（`openVisitCard()`，唯讀）。
+ * 這是 ADR-0056 的另一半：留一條繞得過去的路，等於那個決定只做了一半。
+ */
 function visitRow(v) {
   return `
-    <li><a href="#/visits/${esc(v.id)}">
+    <li><button class="row-link" type="button" data-visit="${esc(v.id)}">
       <span class="link-list__label num">${esc(shortDate(v.date))}
         <span class="muted">${esc(visitCourseLabel(v))}</span>
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
-    </a></li>`;
+    </button></li>`;
 }
 
 /**
@@ -785,7 +797,11 @@ function visitRow(v) {
  * 兩邊都不太對：待辦中心列的是**所有客戶**的任務，從一位客戶身上跳過去
  * 她還要在裡面把這個人找回來。所以答案是**哪裡都不去** ——
  * 勾掉就在這一列做（跟日曆上勾待辦同一個判斷，ADR-0045），
- * 右邊那個「8/14 的來訪 ›」才是連結，而且點下去是讀取卡片不是編輯器。
+ * 右邊那顆「詳情 ›」浮出唯讀卡片。
+ *
+ * 那顆按鈕以前寫的是「來訪」，跟待辦中心那顆一模一樣的動作卻叫兩個名字
+ *（她的原話：「他其實和已改成詳情的按鈕一樣?」）。同一個動作在兩頁叫兩個
+ * 名字，她會以為是兩件事。
  */
 function taskRow(t) {
   return `
@@ -803,7 +819,7 @@ function taskRow(t) {
       </button>
       ${t.visitId
         ? `<button class="taskrow__link" type="button" data-task-visit="${esc(t.visitId)}">
-             來訪${icon('right', { size: 14 })}</button>`
+             詳情${icon('right', { size: 14 })}</button>`
         : ''}
     </div>`;
 }
