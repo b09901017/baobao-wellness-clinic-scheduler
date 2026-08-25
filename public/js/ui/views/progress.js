@@ -149,7 +149,7 @@ function bodyHtml(data, ctx, target) {
 
     <p class="footnote">
       ${icon('info', { size: 14 })}
-      <span>這一頁只給看的，改東西要到日曆或客戶詳情。
+      <span>這一頁只給看的，改東西要到日曆。
         取消掉的時段不畫 —— 跟日曆一樣，時段已經還回去了。</span>
     </p>`;
 }
@@ -277,8 +277,8 @@ function wire(ctx, data, visits) {
     btn.addEventListener('click', () => {
       const visit = visits.find((v) => v.id === btn.dataset.visit);
       if (!visit) return;
-      // canEdit 是 false：這一頁不給改。要改她會自己去日曆或客戶詳情，
-      // 而那是一個明確的決定，不是在對帳的時候手滑。
+      // canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
+      // 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
       openCard({
         title: visit.customerName ?? '（沒有名字）',
         subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,

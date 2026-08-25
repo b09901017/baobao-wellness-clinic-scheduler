@@ -216,6 +216,27 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
   assert.deepEqual(sheet.totals, { total: 12, done: 1, booked: 1, remaining: 10 });
 });
 
+// ADR-0057：她的舊表第 12 列就是營養品（ADR-0024），所以它有那一列；
+// 但合計那一行寫的是「剩餘 N 次」，而兩罐夜態美不是兩次。
+test('營養品有那一列，但不進合計', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: {
+      c1: [
+        { id: 'e1', label: '復能', totalQty: 12 },
+        { id: 'p1', type: 'product', label: '夜態美', totalQty: 2, productId: 'prod-1' },
+      ],
+    },
+    visitsBy: { c1: [] },
+    today: '2026-08-10',
+    generatedAt: '2026/8/10',
+  });
+
+  const sheet = bundle.sheets[0];
+  assert.deepEqual(sheet.rows.map((r) => r.label), ['復能', '夜態美']);
+  assert.deepEqual(sheet.totals, { total: 12, done: 0, booked: 0, remaining: 12 });
+});
+
 test('三種狀態三個符號，同一格混在一起也分得出來', () => {
   // 她要的是「一眼看出這一格走到哪一步了」（2026-08-20）：
   // ○ 待確認、△ 已確認、✓ 已完成、✗ 未到。

@@ -89,7 +89,10 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.label is string
         && d.label.size() > 0
-        && d.type in ['single', 'pool']
+        // product 是營養品（ADR-0057）：一樣是一筆額度，只是排不進來訪。
+        // 「它要有 productId」那一條在 domain/entitlements.js 的
+        // validateEntitlement() 擋，這裡只驗形狀 —— 同 followupForEntitlementId。
+        && d.type in ['single', 'pool', 'product']
         && d.totalQty is int
         && d.totalQty > 0
         && (!d.keys().hasAny(['followupForEntitlementId'])
@@ -98,7 +101,15 @@ service cloud.firestore {
         // 健檢的金額等級（ADR-0054）。選填，只影響顯示名稱。
         && (!d.keys().hasAny(['tier'])
             || d.tier == null
-            || (d.tier is string && d.tier.size() <= 20));
+            || (d.tier is string && d.tier.size() <= 20))
+        // 哪一個營養點滴品項／哪一款營養品（ADR-0057）。兩個都選填，
+        // 都只影響顯示名稱 —— 流程與任務一行都不看它們。
+        && (!d.keys().hasAny(['ivProductId'])
+            || d.ivProductId == null
+            || d.ivProductId is string)
+        && (!d.keys().hasAny(['productId'])
+            || d.productId == null
+            || d.productId is string);
     }
 
     match /customers/{customerId} {

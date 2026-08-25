@@ -974,8 +974,8 @@ function backLink() {
  * 那個數字要等來訪讀回來才填得上（`loadTaskVisits()`）。
  *
  * 右邊那顆按鈕以前叫「來訪」而且直接 `go('/visits/:id')`，落在整頁的編輯器上。
- * `components/card.js` 的檔頭早就寫過相反的規矩：**一律先進讀取模式，要改按鉛筆**
- * —— 日曆與客戶詳情都照做了，待辦中心是唯一漏掉的那一個。
+ * `components/card.js` 的檔頭早就寫過相反的規矩：**一律先進讀取模式**。
+ * 2026-08-25 再收一格：這一頁的卡片連鉛筆都沒有（ADR-0056）。
  */
 function taskRow(t, today) {
   const state = urgency(t.dueDate, today);
@@ -999,17 +999,22 @@ function taskRow(t, today) {
 }
 
 /**
- * 點「詳情」浮出那一天的讀取卡片，鉛筆才進編輯器。
+ * 點「詳情」浮出那一天的讀取卡片。**唯讀，沒有鉛筆。**
  *
  * 卡片與 `visitReadHtml()` 跟日曆、客戶詳情共用同一支 —— 同一筆來訪在三個
  * 畫面長一樣，才不會有「哪一個算數」的問題。
+ *
+ * 她在這一頁做的事是「去 Examine 掛號」，不是改班（她的原話：「不懂什麼情況
+ * 點完詳情進去後會需要修改？」）。要改一筆來訪只有日曆一個入口，見 ADR-0056。
  */
 function openTaskVisit(visitId) {
   const visit = taskVisits?.visits.get(visitId);
   if (!visit) {
-    // 還沒讀回來（或那一筆被刪了）。直接進編輯器比什麼都不做好 ——
-    // 她按這一顆是為了看那一天。
-    go(`/visits/${visitId}`);
+    // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
+    // 而無聲什麼都不發生更糟 —— 講出來是哪一種情況。
+    toast.info(taskVisits
+      ? '找不到這一筆來訪，可能已經刪掉了'
+      : '那一天的資料還在讀，等一下再按一次');
     return;
   }
 
@@ -1020,8 +1025,6 @@ function openTaskVisit(visitId) {
       roomsById: taskVisits.roomsById,
       staffById: taskVisits.staffById,
     }),
-    canEdit: true,
-    onEdit: () => go(`/visits/${visit.id}`),
   });
 }
 

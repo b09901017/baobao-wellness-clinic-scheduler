@@ -113,6 +113,16 @@ describe('一位客戶身上的所有額度', () => {
     assert.equal(out.pools.length, 1);
   });
 
+  // ADR-0057：這一支是全站的閘門。漏掉的話她的待辦上會冒出
+  // 「還有 2 次沒壓表」，而那 2 是兩罐夜態美。
+  test('營養品不算 —— 它排不進來訪', () => {
+    const out = customerPools({
+      entitlements: [ent(), { id: 'p', type: 'product', label: '夜態美', totalQty: 2 }],
+    });
+    assert.equal(out.pools.length, 1);
+    assert.equal(out.totalRemaining, 12, '兩罐夜態美不是兩次');
+  });
+
   test('最快到期的那一份決定急迫度，用完的不算', () => {
     const out = customerPools({
       entitlements: [

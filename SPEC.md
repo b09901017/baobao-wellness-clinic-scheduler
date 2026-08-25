@@ -362,11 +362,20 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 // customers/{id}/entitlements/{id}
 {
-  type,                      // 'single' | 'pool'
+  type,                      // 'single' | 'pool' | 'product'
+                             // product = 營養品。**排不進來訪**（只記錄與顯示），
+                             // 所以它不可以流進任何「還要排幾次」的計算 ——
+                             // 閘門是 domain/entitlements.js 的 schedulable()。
+                             // 見 docs/adr/0057-a-product-is-an-entitlement-that-cannot-be-scheduled.md
   label, totalQty, durationMin,
   tier,                      // 健檢的金額等級，例：'8萬'。選填，**只影響顯示名稱**
                              // （CONTEXT.md 的「健檢」）—— 流程與任務都不看它。
                              // 見 docs/adr/0054-a-checkup-tier-lives-on-the-entitlement.md
+  ivProductId,               // 這一筆是哪一個營養點滴品項的（『營養點滴 - 雪顏亮彩』）。
+                             // 選填，同 tier：只影響顯示名稱。品項各自計次不合併
+                             // （CONTEXT.md 的「營養點滴品項」），所以一筆額度一個品項。
+  productId,                 // type === 'product' 才有：哪一款營養品。
+                             // 存 id 不是只留在名字裡 —— 主檔上的名字改得了。
   courseId, optionEquipmentIds,   // pool 型態：擇一池換的是器材
   sourcePlanName,            // 展開當下的方案名稱文字快照；null = 單項加購
                              // 不存 sourcePlanId —— 額度不指回範本，範本會被就地改。

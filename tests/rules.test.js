@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { ENTITLEMENT_TYPES } from '../public/js/domain/entitlements.js';
+
 const ROOT = new URL('../', import.meta.url).pathname;
 const RULES = readFileSync(join(ROOT, 'firestore.rules'), 'utf8');
 const DATA_DIR = join(ROOT, 'public/js/data');
@@ -51,5 +53,20 @@ test('collection group 查詢要用遞迴萬用路徑另外開一條', () => {
     missing,
     [],
     `這些 collection group 查詢會被 Rules 擋下來：\n${missing.join('\n')}`,
+  );
+});
+
+test('額度的型態白名單要跟 domain 那一份對得上', () => {
+  // 兩份白名單（domain 的 validateEntitlement() 與 Rules 的 validEntitlement()）
+  // 漏掉一種的症狀是：程式完全正確、測試全綠，只有在真的裝置上按下「加購」
+  // 才會看到「Missing or insufficient permissions」。見 ADR-0057。
+  const m = RULES.match(/d\.type in \[([^\]]+)\]/);
+  assert.ok(m, 'firestore.rules 裡找不到額度型態的白名單');
+
+  const allowed = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  assert.deepEqual(
+    [...allowed].sort(),
+    [...ENTITLEMENT_TYPES].sort(),
+    `Rules 收的是 ${allowed.join('、')}，domain 寫的是 ${ENTITLEMENT_TYPES.join('、')}`,
   );
 });

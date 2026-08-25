@@ -118,7 +118,9 @@ export function select({ name, label, value, options, hint = '' }) {
  * @param {string} opts.name
  * @param {string} opts.label
  * @param {*} opts.value 現在選的
- * @param {(string|{value:*, label:string, disabled?:boolean, note?:string})[]} opts.options
+ * @param {(string|{value:*, label:string, disabled?:boolean, note?:string,
+ *            lead?:string})[]} opts.options
+ *   `lead` = 這一顆前面插一條分隔線與一個小標，用來把一排丸子切成兩組。
  * @param {string} [opts.hint]
  * @param {boolean} [opts.quiet] true = 選了不重畫（只換 aria-pressed）。
  *   給「換了它不會改變其他欄位」的那幾組用 —— 器材、治療師、診間、醫師、品項。
@@ -131,7 +133,13 @@ export function chips({ name, label, value, options, hint = '', quiet = false })
       const { value: v, label: l } = optionOf(option);
       const disabled = option?.disabled ? ' aria-disabled="true"' : '';
       const note = option?.note ? `<span class="chip__note">${esc(option.note)}</span>` : '';
-      return `
+      // 同一排裡分成兩組時，中間插一條線與一個小標講出後面那一組是什麼
+      // （壓表那一頁的「排序」用的是同一組 class）。一排十幾顆要滑，
+      // 而滑到底才看到的那一顆如果是另一種東西，得先說一聲。
+      const lead = option?.lead
+        ? `<span class="chiprow__sep"></span><span class="chiprow__lead">${esc(option.lead)}</span>`
+        : '';
+      return `${lead}
         <button class="chip" type="button" data-chip="${esc(name)}"
                 data-chip-value="${v === null ? '__null__' : esc(v)}"
                 aria-pressed="${current === v}"${disabled}>

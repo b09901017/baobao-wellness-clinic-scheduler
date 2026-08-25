@@ -11,7 +11,7 @@
 // （docs/adr/0002-app-records-decisions-it-does-not-make-them.md）。
 // 所以每一項的貢獻都要攤成人話標籤，讓她看得懂為什麼這人排第一，不同意就跳過去。
 
-import { counts } from './entitlements.js';
+import { counts, isProduct } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive } from './visits.js';
 import { annotateOptions } from './contraindications.js';
@@ -108,6 +108,10 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
 
   for (const e of entitlements) {
     if (!e || e.deletedAt) continue;
+    // 營養品排不進來訪（ADR-0057）。這裡是全站唯一的閘門 —— 壓表卡片牆、
+    // 待辦中心的「壓表登記」與「問這輪的時間」三條路都走這一支，
+    // 漏掉的話她的待辦上會冒出「還有 2 次沒壓表」，而那 2 是兩罐夜態美。
+    if (isProduct(e)) continue;
 
     const c = cached
       ? {

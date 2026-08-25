@@ -16,7 +16,7 @@
 // 補上缺的二返額度（docs/adr/0023-health-check-can-also-create-the-missing-followup.md）
 // 與備註的舊說法改名（docs/adr/0050-the-health-can-rename-an-imported-note.md）。
 
-import { counts, reconcile, isOverused } from './entitlements.js';
+import { counts, reconcile, isOverused, schedulable } from './entitlements.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -528,7 +528,9 @@ function checkStaleAvailability(ctx) {
     if (current) continue;
 
     // 還有剩餘次數才要緊 —— 沒有次數可排的人不需要被問時間。
-    const remaining = alive(ctx.entsByCustomer[customer.id] ?? []).reduce((sum, e) => {
+    // **營養品不算**（ADR-0057）：只買了兩罐夜態美的客戶不需要被問時間，
+    // 而「還有 2 次沒排」那句話講的是兩罐營養品，她會照著去問一個不存在的班。
+    const remaining = schedulable(alive(ctx.entsByCustomer[customer.id] ?? [])).reduce((sum, e) => {
       const c = counts(e, ctx.visitsByCustomer[customer.id] ?? [], e.id);
       return sum + Math.max(0, c.remaining);
     }, 0);
