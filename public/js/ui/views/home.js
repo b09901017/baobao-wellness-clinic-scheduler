@@ -810,8 +810,20 @@ async function loadTaskVisits(ctx) {
     return;
   }
 
+  fillSlotCounts(ctx.el);
+}
+
+/**
+ * 把「N 項」填進那幾顆徽章。
+ *
+ * **每次重畫都要再叫一次** —— `paintTasks()` 換分頁時把那幾列整個重畫，
+ * 而重畫出來的徽章又是 hidden 的。讀回來的東西存在 `taskVisits` 裡不會掉，
+ * 但畫面上的節點是新的。
+ */
+function fillSlotCounts(el) {
+  if (!taskVisits) return;
   // 讀回來之前那顆徽章是 hidden 的 —— 空的丸子看起來像壞掉的東西。
-  for (const node of ctx.el.querySelectorAll('[data-slots]')) {
+  for (const node of el.querySelectorAll('[data-slots]')) {
     const visit = taskVisits.visits.get(node.dataset.slots);
     if (!visit) continue;
     node.textContent = `${(visit.slots ?? []).length} 項`;
@@ -893,6 +905,7 @@ function paintTasks(ctx) {
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
+  fillSlotCounts(el);
 }
 
 function openList(ctx, today) {
@@ -1390,8 +1403,8 @@ function confirmCard(customerId, visits, today, noReplyDays) {
 
       <div class="chips" style="margin-top: var(--space-3)">
         ${visits.map((v) => `
-          <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>
-            ${esc(visitCourseLabel(v))}</span>`).join('')}
+          <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>&nbsp;${
+            esc(visitCourseLabel(v))}</span>`).join('')}
       </div>
 
       ${followupForm(customerId, name, state.note)}

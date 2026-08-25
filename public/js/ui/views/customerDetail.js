@@ -985,7 +985,7 @@ function paintEntitlement(ctx, record, draft = null) {
       ${isNew ? buyFields(e, aliveCourses) : adjustFields(e, c)}
 
       <details class="advanced" ${e.advanced ? 'open' : ''}>
-        <summary class="advanced__head">進階設定${advancedDigest(e, isNew)}</summary>
+        <summary class="advanced__head">進階設定${advancedDigest(e, isNew, aliveCourses)}</summary>
         <div class="advanced__body">
           ${advancedFields(e, aliveCourses, aliveEquip, isNew)}
         </div>
@@ -1099,13 +1099,19 @@ function adjustFields(e, c) {
       已完成與已排未上跟著來訪的狀態走，改不了。對不起來時到資料健檢修。</p>`;
 }
 
-/** 摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。 */
-function advancedDigest(e, isNew) {
+/**
+ * 摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。
+ *
+ * 顯示名稱要跟**自動帶的那一個**比（`keptLabel()`）。以前是「有值就算改過」，
+ * 於是她一選課程就看到「改了 顯示名稱」—— 而那是 app 自己填的，她沒有動過。
+ * 畫面在講一件沒發生的事，比沒講還糟。
+ */
+function advancedDigest(e, isNew, courses) {
   const changed = [
     e.durationMin ? '時長' : null,
     e.frequencyRule ? '頻率限制' : null,
     e.expiresAt ? '到期日' : null,
-    isNew && e.label ? '顯示名稱' : null,
+    isNew && keptLabel(e, courses) ? '顯示名稱' : null,
   ].filter(Boolean);
   return changed.length ? `<span class="muted"> 改了 ${changed.join('、')}</span>` : '';
 }
