@@ -33,7 +33,7 @@ import {
   counts, reconcile, isOverused, validateEntitlement, sortPools, offCount,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
-import { describeStatus, statusClass, isActive } from '../../domain/visits.js';
+import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
@@ -761,11 +761,10 @@ async function fixCounts(ctx, entId) {
 // ---------- 來訪與任務的列 ----------
 
 function visitRow(v) {
-  const courses = [...new Set((v.slots ?? []).map((s) => s.courseName).filter(Boolean))];
   return `
     <li><a href="#/visits/${esc(v.id)}">
       <span class="link-list__label num">${esc(shortDate(v.date))}
-        <span class="muted">${esc(courses.join('、') || `${(v.slots ?? []).length} 個時段`)}</span>
+        <span class="muted">${esc(visitCourseLabel(v))}</span>
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
     </a></li>`;

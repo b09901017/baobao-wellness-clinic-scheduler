@@ -14,6 +14,7 @@ import {
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
+  visitCourseLabel, describeConfirmed,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -718,5 +719,61 @@ describe('匯入的舊來訪（ADR-0011）', () => {
 
   test('匯入的來訪是已完成，所以落在唯讀鎖定區', () => {
     assert.equal(isLocked(noTime().status), true);
+  });
+});
+
+// 「跟客人確認時間」那一排丸子上要看得到課程，不只日期 ——
+// 她的原話是「9/14(一)復能、營養針」。客戶詳情的來訪列共用同一支。
+describe('那天做什麼', () => {
+  test('同一個課程只印一次', () => {
+    assert.equal(
+      visitCourseLabel({ slots: [{ courseName: '復能' }, { courseName: '復能' }, { courseName: '營養點滴' }] }),
+      '復能、營養點滴',
+    );
+  });
+
+  test('認不出課程名時退回「N 段」，不要回空白', () => {
+    assert.equal(visitCourseLabel({ slots: [{}, {}] }), '2 段');
+    assert.equal(visitCourseLabel({}), '0 段');
+    assert.equal(visitCourseLabel(null), '0 段');
+  });
+});
+
+// 加進日曆之後那張置中的卡片要講出「最後成立的是哪幾段」——
+// 那是這條動線唯一一次不可逆的寫入（`.scratch/asks-2026-08-25/issues/05`）。
+describe('確認之後成立的是哪幾段', () => {
+  const visits = [
+    {
+      id: 'v2', customerName: '王小明', date: '2026-09-23',
+      slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '復能' }],
+    },
+    {
+      id: 'v1', customerName: '王小明', date: '2026-09-14',
+      slots: [
+        { startsAt: '11:30', endsAt: '12:30', courseName: '營養點滴' },
+        { startsAt: '10:30', endsAt: '11:30', courseName: '復能' },
+      ],
+    },
+  ];
+
+  test('照日期與時間排，不照來訪進來的順序', () => {
+    const { rows, name, rejected } = describeConfirmed(visits, new Set());
+    assert.equal(name, '王小明');
+    assert.equal(rejected, 0);
+    assert.deepEqual(rows.map((r) => `${r.date} ${r.slot.startsAt}`), [
+      '2026-09-14 10:30', '2026-09-14 11:30', '2026-09-23 14:00',
+    ]);
+  });
+
+  test('被退掉的那幾段不列，但要數出來', () => {
+    const { rows, rejected } = describeConfirmed(visits, new Set(['v1:0', 'v2:0']));
+    assert.deepEqual(rows.map((r) => r.slot.courseName), ['復能']);
+    assert.equal(rejected, 2);
+  });
+
+  test('整批都退掉時 rows 是空的 —— 畫面靠它決定不畫那張卡片', () => {
+    const { rows, rejected } = describeConfirmed(visits, new Set(['v1:0', 'v1:1', 'v2:0']));
+    assert.deepEqual(rows, []);
+    assert.equal(rejected, 3);
   });
 });

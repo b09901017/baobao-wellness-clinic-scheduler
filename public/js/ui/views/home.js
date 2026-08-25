@@ -20,11 +20,12 @@ import * as formInbox from './formInbox.js';
 import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
-  visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes, NOTE_MAX,
+  visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
+  visitCourseLabel, describeConfirmed, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, MAX_LENGTH as NOTE_TEXT_MAX,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
 import { groupByStage, nextStage, isRetired, RETIRED_KINDS } from '../../domain/todoFlow.js';
@@ -35,6 +36,7 @@ import {
   todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
+import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
@@ -1139,7 +1141,9 @@ function confirmCard(customerId, visits, today, noReplyDays) {
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${visits.map((v) => `<span class="badge num">${esc(shortDate(v.date))}</span>`).join('')}
+        ${visits.map((v) => `
+          <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>
+            ${esc(visitCourseLabel(v))}</span>`).join('')}
       </div>
 
       ${followupForm(customerId, name, state.note)}
@@ -1286,14 +1290,48 @@ async function saveFollowupNote(ctx, customerId, text) {
   const trimmed = String(text ?? '').trim();
   if (trimmed === (followupNoteOf(visits) ?? '')) return; // 沒改就不要白寫一筆稽核
 
+  // 同一句話已經在隨手記上而且還沒勾掉就不再寫一筆（她改了字又改回來、
+  // 或者連按兩下「記」，都不該長出第二筆）。讀失敗就當沒有 ——
+  // 多一筆重複的隨手記，比因為讀不到而整個不記好。
+  const remember = trimmed
+    && !sameOpenNote(await openNotesFor(customerId), { customerId, text: trimmed });
+
   try {
     await toast.withSaveState(
-      () => visitsData.setFollowupNote(visits.map((v) => v.id), trimmed),
-      { success: trimmed ? '記下了，這一列還留著' : '收掉了' },
+      async () => {
+        await visitsData.setFollowupNote(visits.map((v) => v.id), trimmed);
+        if (remember) {
+          await notesData.create({
+            text: trimmed,
+            customerId,
+            customerName: visits[0].customerName ?? null,
+            // 日期留空：那一句沒有死線，掛了日期它就會跑到日曆上（ADR-0044），
+            // 而「禮拜一再問問」不是一件排在哪一天的事。
+            date: null,
+          });
+        }
+      },
+      {
+        success: trimmed
+          ? (remember ? '記下了，也放進隨手記' : '記下了，這一列還留著')
+          : '收掉了',
+        // 兩個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）。
+        // 只寫來訪那一個時照舊給得出來。
+        undoable: !remember,
+      },
     );
     await renderConfirm(ctx.el);
   } catch {
     /* 已處理 */
+  }
+}
+
+/** 這位客戶身上還沒勾掉的隨手記。讀不到就當空的 —— 去重是體貼，不是正確性。 */
+async function openNotesFor(customerId) {
+  try {
+    return await notesData.listByCustomer(customerId);
+  } catch {
+    return [];
   }
 }
 
@@ -1343,6 +1381,9 @@ async function applyConfirm(ctx) {
     };
   });
 
+  // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
+  const summary = describeConfirmed(visits, rejected);
+
   try {
     await toast.withSaveState(
       async () => {
@@ -1360,9 +1401,44 @@ async function applyConfirm(ctx) {
     );
     drawer = null;
     await renderConfirm(ctx.el);
+    showConfirmed(summary);
   } catch {
     /* 已處理 */
   }
+}
+
+/**
+ * 加進日曆之後那張置中的卡片。
+ *
+ * 右下角那條 toast 只說得出「已排進日曆」，而她剛剛才逐段點掉了其中幾段 ——
+ * **這是這條動線唯一一次不可逆的寫入**（狀態轉 confirmed、登記任務長出來），
+ * 所以最後成立的是哪幾段要攤開來看得見。她的原話是「簡潔的說，誰，幾月幾號
+ * 幾點做什麼，加入日曆」。
+ *
+ * 走既有的 `openCard()`，不新開一種浮層 —— 這個 app 的浮層已經有三種了
+ *（抽屜、卡片、對話框，ADR-0048）。
+ */
+function showConfirmed(summary) {
+  if (!summary.rows.length) return; // 整批都退掉了，toast 那一句已經講完了
+
+  const card = openCard({
+    title: `${summary.name}・加進日曆`,
+    subtitle: `${summary.rows.length} 段`,
+    body: `
+      <ul class="link-list">
+        ${summary.rows.map((r) => `
+          <li><span class="link-list__label num">${esc(shortDate(r.date))}
+            ${esc(timeLabel(r.slot))}
+            <span class="muted">${esc(r.slot.courseName ?? '')}</span></span></li>`).join('')}
+      </ul>
+      ${summary.rejected
+        ? `<p class="muted" style="margin: var(--space-3) 0 0">
+             退掉 ${summary.rejected} 段（客人說不行）。那幾段的時間已經還回去了。</p>`
+        : ''}`,
+    actions: '<button class="btn btn--primary btn--wide" type="button" data-ok>好</button>',
+  });
+
+  card.el.querySelector('[data-ok]')?.addEventListener('click', () => card.close());
 }
 
 // ---------- 簽療程單（收尾） ----------
@@ -1404,7 +1480,7 @@ function paintClose(ctx) {
     </div>
 
     ${rows.length
-      ? `<div class="stack">${rows.map((v) => closeCard(v, coursesById, today)).join('')}</div>`
+      ? `<div class="stack">${rows.map((v) => closeRow(v, coursesById, today)).join('')}</div>`
       : ''}
 
     ${drawer ? closeDrawerHtml(ctx) : ''}`;
@@ -1436,7 +1512,7 @@ function formMarks(visit, coursesById) {
   };
 }
 
-function closeCard(visit, coursesById, today) {
+function closeRow(visit, coursesById, today) {
   const late = daysBetween(visit.date, today);
   const slots = visit.slots ?? [];
   // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記

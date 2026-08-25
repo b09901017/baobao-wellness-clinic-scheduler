@@ -215,6 +215,23 @@ export function formSlotIndexes(visit, coursesById = {}) {
 }
 
 /**
+ * 這一筆來訪那天做什麼，講成一句話。
+ *
+ * 同一個課程只印一次 —— 那天做兩節復能就是「復能」，不是「復能、復能」。
+ * 名字讀 `slot.courseName`（來訪身上的快照），主檔改名不影響已經排出去的。
+ *
+ * **一個時段都認不出來時退回「N 段」**，不要回空字串：她在「跟客人確認時間」
+ * 那一排丸子上看到空白，會以為那顆丸子壞了。
+ *
+ * 兩個畫面共用：客戶詳情的來訪列，與待辦中心「跟客人確認時間」那一排丸子
+ *（她的原話是「9/14(一)復能、營養針」）。兩份寫法遲早會有一份忘了去重。
+ */
+export function visitCourseLabel(visit) {
+  const names = [...new Set((visit?.slots ?? []).map((s) => s.courseName).filter(Boolean))];
+  return names.join('、') || `${(visit?.slots ?? []).length} 段`;
+}
+
+/**
  * 這一段在畫面上要顯示成哪一個狀態。
  *
  * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答
@@ -255,6 +272,43 @@ export function visitsToConfirm(visits = [], today) {
   return visits.filter((v) => !v.deletedAt
     && v.status === 'pending_confirm'
     && (!isValidDate(v.date) || v.date >= today));
+}
+
+/**
+ * 客人說「可以」之後，最後成立的是哪幾段。
+ *
+ * 她按下「確認 N 段，加進日曆」的那一刻是這條動線唯一一次不可逆的寫入
+ *（狀態轉 confirmed、登記任務長出來），而她剛剛才逐段點掉了其中幾段 ——
+ * 畫面要把「最後成立的是哪幾段」講出來，不能只丟一句「已排進日曆」。
+ *
+ * 這裡只回事實（誰、哪一天、幾點、做什麼、退掉幾段），排版是畫面的事。
+ *
+ * @param {object[]} visits 這位客戶還在等回覆的那幾筆
+ * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
+ * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
+ */
+export function describeConfirmed(visits = [], rejected = new Set()) {
+  const rows = [];
+  let dropped = 0;
+
+  for (const v of visits ?? []) {
+    (v.slots ?? []).forEach((slot, i) => {
+      if (rejected.has(`${v.id}:${i}`)) {
+        dropped += 1;
+        return;
+      }
+      rows.push({ date: v.date, slot });
+    });
+  }
+
+  rows.sort((a, b) => String(a.date).localeCompare(String(b.date))
+    || String(a.slot.startsAt ?? '').localeCompare(String(b.slot.startsAt ?? '')));
+
+  return {
+    name: (visits ?? []).find((v) => v.customerName)?.customerName ?? '',
+    rows,
+    rejected: dropped,
+  };
 }
 
 /**
