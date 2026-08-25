@@ -94,7 +94,11 @@ service cloud.firestore {
         && d.totalQty > 0
         && (!d.keys().hasAny(['followupForEntitlementId'])
             || d.followupForEntitlementId == null
-            || d.followupForEntitlementId is string);
+            || d.followupForEntitlementId is string)
+        // 健檢的金額等級（ADR-0054）。選填，只影響顯示名稱。
+        && (!d.keys().hasAny(['tier'])
+            || d.tier == null
+            || (d.tier is string && d.tier.size() <= 20));
     }
 
     match /customers/{customerId} {

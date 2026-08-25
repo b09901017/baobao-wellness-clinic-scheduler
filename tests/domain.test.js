@@ -13,6 +13,7 @@ import {
 } from '../public/js/domain/contraindications.js';
 import {
   counts, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
+  validateEntitlement, tieredLabel, TIER_PRESETS,
 } from '../public/js/domain/entitlements.js';
 import { endOf, nextStart, layOutSlots, overlaps, timeLabel } from '../public/js/domain/visitTime.js';
 
@@ -443,5 +444,36 @@ describe('offCount', () => {
       { id: 'b', totalQty: 10, doneCount: 0, bookedCount: 0 }, // 對得起來
     ];
     assert.equal(offCount(rows, []), 1);
+  });
+});
+
+// 健檢的金額等級（ADR-0054）。只影響顯示名稱，不影響流程與任務。
+describe('健檢的金額等級', () => {
+  test('等級接在課程名前面', () => {
+    assert.equal(tieredLabel('8萬', '健檢'), '8萬健檢');
+    assert.equal(tieredLabel('5萬(心臟)', '健檢'), '5萬(心臟)健檢');
+  });
+
+  test('沒有等級就是課程本來的名字 —— 不要補一個猜的', () => {
+    assert.equal(tieredLabel(null, '健檢'), '健檢');
+    assert.equal(tieredLabel('  ', '健檢'), '健檢');
+    assert.equal(tieredLabel(undefined, undefined), '');
+  });
+
+  test('丸子上那三顆是常用的，不是可以填的全部', () => {
+    assert.deepEqual(TIER_PRESETS, ['0.75萬', '8萬', '12萬']);
+  });
+
+  test('等級是選填的，太長才擋', () => {
+    const base = {
+      type: 'single', label: '8萬健檢', totalQty: 1, courseId: 'c-checkup',
+    };
+    const courses = [{ id: 'c-checkup', name: '健檢' }];
+    assert.deepEqual(validateEntitlement({ ...base, tier: '8萬' }, { courses }), []);
+    assert.deepEqual(validateEntitlement(base, { courses }), []);
+    assert.deepEqual(
+      validateEntitlement({ ...base, tier: '一'.repeat(21) }, { courses }),
+      ['金額等級太長了 —— 那一格只放「8萬」這種'],
+    );
   });
 });

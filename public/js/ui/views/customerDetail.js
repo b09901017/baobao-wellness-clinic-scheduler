@@ -31,8 +31,11 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, validateEntitlement, sortPools, offCount,
+  TIER_PRESETS, tieredLabel,
 } from '../../domain/entitlements.js';
-import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import {
+  pairsOf, missingPairs, describePair, followupCourseIdOf,
+} from '../../domain/followups.js';
 import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -90,6 +93,9 @@ const AUDIT_VISIT_LIMIT = 30;
 
 /** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
 const POOL_PICK = '__pool__';
+
+/** 「幾萬的」那一排裡的「其他…」。它不是一個等級，是一顆展開輸入框的鈕。 */
+const TIER_OTHER = '__other__';
 
 /** 一眼掃得完的長度。超過就收進「看全部」，不要把整頁拉成一條長清單。 */
 const RECENT_VISITS = 6;
@@ -1015,6 +1021,8 @@ function buyFields(e, courses) {
       ],
     })}
 
+    ${tierFields(e, courses)}
+
     <div class="fieldgroup">
       <span class="fieldgroup__label">幾次</span>
       <div class="qty">
@@ -1024,6 +1032,43 @@ function buyFields(e, courses) {
           <button class="chip chip--sm" type="button" data-qty="${n}">+${n}</button>`).join('')}
       </div>
     </div>`;
+}
+
+/**
+ * 「幾萬的」那一排。**只在選到有配二返的課程時出現**（健檢就是那一種）。
+ *
+ * 不寫死「健檢」兩個字：課程是她自己在主檔建的，名字隨時改得了，而
+ * `followupCourseId` 是這個 app 裡「這是健檢」唯一的機器判準
+ *（`domain/followups.js` 的檔頭寫過為什麼不用名字比對）。
+ *
+ * 等級只進顯示名稱（ADR-0054），所以它就長在名稱旁邊，不進「進階設定」。
+ * 「其他」讓她自己打 —— 她的資料裡有「5萬(心臟)」這種。
+ */
+function tierFields(e, courses) {
+  const course = courses.find((c) => c.id === e.courseId);
+  if (e.type === 'pool' || !followupCourseIdOf(course)) return '';
+
+  const tier = String(e.tier ?? '').trim();
+  const custom = Boolean(e.tierOther) || (Boolean(tier) && !TIER_PRESETS.includes(tier));
+
+  return `
+    ${f.chips({
+      name: 'tier', label: '幾萬的',
+      value: custom ? TIER_OTHER : (tier || null),
+      options: [
+        ...TIER_PRESETS.map((t) => ({ value: t, label: t })),
+        { value: TIER_OTHER, label: '其他…' },
+      ],
+    })}
+    <div data-tierother ${custom ? '' : 'hidden'}>
+      ${f.text({
+        name: 'tierText', label: '自己打', value: custom ? tier : '',
+        placeholder: '5萬(心臟)',
+      })}
+    </div>
+    <p class="muted dim" style="margin: calc(var(--space-2) * -1) 0 var(--space-4); font-size: var(--text-2xs)">
+      等級只影響顯示名稱（會變成「${esc(tieredLabel(tier || '8萬', course?.name ?? ''))}」），
+      流程與任務都不受影響。</p>`;
 }
 
 /**
@@ -1129,16 +1174,29 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
         return;
       }
       const found = aliveCourses.find((x) => x.id === value);
+      // 換到不配二返的課程（也就是不是健檢）就把等級丟掉 ——
+      // 「8萬復能」是一句沒有意義的話。
+      const tier = followupCourseIdOf(found) ? (e.tier ?? null) : null;
       // 選了課程就把名稱與時長帶進來 —— 她一個字都不用打。
       // 她自己改過的名稱不覆蓋（那是進階設定裡刻意動過的）。
       redraw({
         type: 'single',
         courseId: found?.id ?? null,
         optionEquipmentIds: [],
-        label: e.label && e.label !== nameOfCourse(aliveCourses, e.courseId)
-          ? e.label : (found?.name ?? ''),
+        label: keptLabel(e, aliveCourses) ?? tieredLabel(tier, found?.name ?? ''),
         durationMin: e.durationMin ?? null,
+        tier,
+        tierOther: Boolean(tier) && !TIER_PRESETS.includes(tier),
       });
+      return;
+    }
+
+    // 「幾萬的」那一排。`wireChips()` 先跑，所以 `readEntitlement()` 讀得到
+    // 新選的那一顆 —— 這裡只要把顯示名稱跟著換掉。
+    const tierPick = ev.target.closest('[data-chip="tier"]');
+    if (tierPick) {
+      const next = { ...e, ...readEntitlement(form) };
+      redraw({ label: keptLabel(e, aliveCourses) ?? tieredLabel(next.tier, nameOfCourse(aliveCourses, next.courseId)) });
       return;
     }
 
@@ -1166,6 +1224,8 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
       optionEquipmentIds: next.type === 'pool' ? next.optionEquipmentIds : null,
       frequencyRule: next.frequencyRule,
       expiresAt: next.expiresAt,
+      // 只影響顯示名稱（ADR-0054）。沒選就是 null，不要留空字串。
+      tier: next.tier ?? null,
     };
 
     try {
@@ -1197,6 +1257,18 @@ function wireEntitlement(el, ctx, record, e, { isNew, aliveCourses }) {
 
 const nameOfCourse = (courses, id) => courses.find((x) => x.id === id)?.name ?? '';
 
+/**
+ * 她自己打過的顯示名稱。**沒改過就回 `null`**，讓呼叫端重新帶一個自動的。
+ *
+ * 「改過」的判準是「跟自動帶的那一個不一樣」—— 自動帶的是
+ * `等級 + 課程名`（`tieredLabel()`）。這一支是為了讓「換課程」與「換等級」
+ * 兩條路用同一個判斷：兩邊各寫一次遲早會有一邊把她打的字蓋掉。
+ */
+function keptLabel(e, courses) {
+  const auto = tieredLabel(e.tier, nameOfCourse(courses, e.courseId));
+  return e.label && e.label !== auto ? e.label : null;
+}
+
 function courseOptions(courses, currentId) {
   const opts = courses.map((c) => ({
     value: c.id,
@@ -1222,6 +1294,19 @@ function readEntitlement(form) {
     optionEquipmentIds: v.optionEquipmentIds ?? [],
     frequencyRule: String(v.frequencyRule ?? '').trim() || null,
     expiresAt: v.expiresAt || null,
+    // **只有那一排真的在畫面上時才回報 `tier`。** 調整那一張表沒有這一排，
+    // 少帶一個欄位就等於把它清成 null —— 那正是 2026-08-25 修過的
+    // `normalize()` / `normalizePatch()` 那一種形狀（`domain/notes.js`）。
+    ...(form.elements.tier ? readTier(v) : {}),
+  };
+}
+
+function readTier(v) {
+  const pick = v.tier ?? null;
+  const other = pick === TIER_OTHER;
+  return {
+    tier: (other ? String(v.tierText ?? '').trim() : String(pick ?? '').trim()) || null,
+    tierOther: other,
   };
 }
 

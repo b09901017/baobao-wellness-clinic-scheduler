@@ -1,6 +1,6 @@
 # 加購健檢沒得選金額等級
 
-Status: todo
+Status: done
 來源：她的十二件事，2026-08-25（`../spec.md`）
 動工前先讀：`CONTEXT.md` 的「健檢」、`docs/adr/0022`、`docs/adr/0003`
 

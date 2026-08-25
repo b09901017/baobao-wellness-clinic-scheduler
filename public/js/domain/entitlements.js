@@ -206,6 +206,33 @@ export function expandPlan(plan, quantity = 1, { purchasedAt = null, expiresAt =
  * @param {{courses?: object[], equipment?: object[]}} [context]
  * @returns {string[]} 空陣列代表可以存
  */
+/**
+ * 健檢的金額等級。她手上的健檢有 0.75 萬、8 萬、12 萬幾種。
+ *
+ * **等級只影響顯示名稱**（`CONTEXT.md` 的「健檢」），不影響流程與任務 ——
+ * `taskRules.js`、`followups.js`、這一支的計數，一行都不因為它而變。
+ * 所以它是額度上的一個欄位，不是三個課程（ADR-0054）。
+ *
+ * 這一份是**丸子上看得到的那幾顆**，不是可以填的全部：畫面上有一顆「其他」
+ * 讓她自己打（她的資料裡有「5萬(心臟)」這種）。要加常用的就改這一行。
+ */
+export const TIER_PRESETS = ['0.75萬', '8萬', '12萬'];
+
+/**
+ * 帶等級的顯示名稱：`'8萬'` + `'健檢'` → `'8萬健檢'`。
+ *
+ * 沒有等級就是課程本來的名字 —— **不要補一個猜的**。2026-08 以前建的那幾筆
+ * 健檢額度身上沒有 `tier`，猜一個金額出來比空白糟得多。
+ *
+ * 配出來的二返會叫「二返（8萬健檢）」，那一段不用改：`followupDraft()`
+ * 本來就抄來源額度的 `label`。
+ */
+export function tieredLabel(tier, courseName) {
+  const level = String(tier ?? '').trim();
+  const name = String(courseName ?? '').trim();
+  return level ? `${level}${name}` : name;
+}
+
 export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
   const errors = [];
   const isBlank = (v) => v == null || String(v).trim() === '';
@@ -231,6 +258,12 @@ export function validateEntitlement(e, { courses = [], equipment = [] } = {}) {
     }
   } else {
     errors.push('型態必須是 single 或 pool');
+  }
+
+  // 等級是選填的，填了就要是一段人看得懂的字。長度上限跟名稱同一個道理：
+  // 超過的通常是她把整段方案名稱貼進來了。
+  if (e.tier != null && String(e.tier).trim().length > 20) {
+    errors.push('金額等級太長了 —— 那一格只放「8萬」這種');
   }
 
   return errors;

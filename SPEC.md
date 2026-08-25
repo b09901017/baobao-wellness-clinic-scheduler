@@ -364,6 +364,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 {
   type,                      // 'single' | 'pool'
   label, totalQty, durationMin,
+  tier,                      // 健檢的金額等級，例：'8萬'。選填，**只影響顯示名稱**
+                             // （CONTEXT.md 的「健檢」）—— 流程與任務都不看它。
+                             // 見 docs/adr/0054-a-checkup-tier-lives-on-the-entitlement.md
   courseId, optionEquipmentIds,   // pool 型態：擇一池換的是器材
   sourcePlanName,            // 展開當下的方案名稱文字快照；null = 單項加購
                              // 不存 sourcePlanId —— 額度不指回範本，範本會被就地改。
