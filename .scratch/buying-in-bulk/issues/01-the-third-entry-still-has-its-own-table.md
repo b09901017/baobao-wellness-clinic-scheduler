@@ -1,6 +1,6 @@
 # 批次建立的「微調」還在用自己的那一張加購表
 
-Status: todo
+Status: done
 來源：使用者，2026-08-26（`../spec.md`）
 動工前先讀：`CONTEXT.md` 的「營養品」「營養點滴品項」「健檢」、
 `docs/adr/0054`、`docs/adr/0057`、`docs/adr/0038`、
@@ -126,3 +126,31 @@ Status: todo
   「夜態美 2 份」→「好了」→ 名單那一列的小字寫得出這兩筆 →「建立 2 位」→
   進那位客戶的詳情：額度多一張「8萬健檢」、底下自動配出「二返（8萬健檢）」、
   **營養品那一段**多一列「夜態美 ×2」，而且它沒有進「剩 N 次」
+
+## 做了什麼
+
+- `ui/views/customersBulk.js`
+  - `render()` 多讀 `ivProducts` 與 `products`，收成 `state.master`
+  - 微調面板的加購換成 `buy.fields()` + `buy.wire()`。「＋ 加一項」在**同一張
+    面板裡就地展開**（`components/sheet.js` 同一時間只留一張，開第二張會把
+    微調面板連同她還沒按「好了」的兩個欄位一起關掉）
+  - 那一位的購買數量從 `data-qty` 改叫 `data-rowqty` —— 加購那一張表的
+    `+1/+5/+10` 是照著 `data-qty` 找欄位的，兩個同名會讓「點一下購買數量」
+    去改加購的「幾次」
+  - 加購那一張表是個 `<form>` 而且沒有送出鈕，所以接了 `submit`：
+    在「幾次」那一格按 Enter 是「加進來」，不是整頁重載
+- `domain/bulkCustomers.js`
+  - `extraToEntitlement()` 刪掉（那件事現在是 `components/buy.js` 在做）
+  - `extrasFor()` 只剩「把整批的購買日蓋上去」
+  - `summarizeRoster()` 的每一列多一個 `products`：**份數不加進次數裡**
+  - `validateRoster()` 多拿一份營養品主檔
+- `ui/views/customersBulk.js` 的摘要與名單那兩行小字跟著分開講次與份
+- `SPEC.md` 第 8.5 節、`CLAUDE.md` 的連動表、`public/sw.js` 的 `VERSION`
+
+## 驗證做了什麼
+
+`npm test` 之外，用**假的 data 層在 Chromium 裡真的跑了一遍**這一頁
+（`.scratch` 之外的一次性腳本，沒有進版控）：打名字 → 微調 → ＋加一項 →
+健檢 → 其他… → 打「5萬(心臟)」→ 加進來 → 再加一筆營養品 2 份 → 好了 →
+建立。20 條斷言全過、主控台零錯誤，其中四條盯的是**寫出去的那幾筆額度**：
+名字、`tier`、`productId`、以及「畫面上才用的欄位（`tierOther`）沒有跟著寫出去」。

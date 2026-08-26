@@ -4,6 +4,9 @@
 // 這一頁的形狀是一句話：**共用的填一次，不一樣的才微調。**
 //
 // 規則全部在 `domain/bulkCustomers.js`，這裡只負責畫與接事件。
+// 微調面板裡的「加購」是 `components/buy.js` 那一張表，跟客戶詳情的「加購」與
+// 新增客戶那一頁的「加一項」是同一張 —— 這一頁比那一支早兩天寫，所以它曾經
+// 有自己的一張（`.scratch/buying-in-bulk/issues/01`）。
 //
 // ## 這一頁為什麼分成三塊各自重畫
 //
@@ -24,6 +27,7 @@ import {
   extrasFor, customerFor, summarizeRoster, validateRoster, rosterWarnings,
 } from '../../domain/bulkCustomers.js';
 import { todayISO } from '../../domain/dates.js';
+import * as buy from '../components/buy.js';
 import * as f from '../components/form.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { icon } from '../icons.js';
@@ -43,12 +47,18 @@ export async function render(el) {
   let existing;
   let courses;
   let equipment;
+  let ivProducts;
+  let products;
   try {
-    [plans, existing, courses, equipment] = await Promise.all([
+    // 品項與營養品是微調面板裡那一張加購表要的（同一張，`components/buy.js`）。
+    // 跟另外四份同一趟拿，不多一輪往返。
+    [plans, existing, courses, equipment, ivProducts, products] = await Promise.all([
       config.listAll('plans'),
       data.list(),
       config.listAll('courses'),
       config.listAll('equipment'),
+      config.listAll('ivProducts'),
+      config.listAll('products'),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
@@ -65,6 +75,9 @@ export async function render(el) {
     courses: alive,
     coursesById: Object.fromEntries(alive.map((c) => [c.id, c])),
     equipment,
+    products,
+    // 加購那一張表吃的就是這個形狀（`components/buy.js`）
+    master: { courses: alive, equipment, ivProducts, products },
     shared: {
       source: '',
       purchasedAt: todayISO(),
@@ -83,6 +96,7 @@ const ctxOf = () => ({
   plan: state.plans.find((p) => p.id === state.shared.planId) ?? null,
   coursesById: state.coursesById,
   equipment: state.equipment,
+  products: state.products,
 });
 
 // ---------- 整頁 ----------
@@ -233,9 +247,8 @@ function adjustedLabel(row) {
   const parts = [];
   if (!row.usePlan) parts.push('不套方案');
   if (row.quantity != null) parts.push(`數量 ${row.quantity}`);
-  for (const x of row.extras ?? []) {
-    parts.push(`加購 ${state.coursesById[x.courseId]?.name ?? '?'} ${x.qty}`);
-  }
+  // 「8萬健檢 1 次」「夜態美 2 份」—— 論次還是論份只寫在 `buy.unitOf()`
+  for (const x of row.extras ?? []) parts.push(`加購 ${buy.summaryLine(x)}`);
   return parts.join('・');
 }
 
@@ -274,7 +287,7 @@ function paintSummary() {
           ${s.rows.map((r) => `
             <li class="roster__row">
               <span class="roster__main"><span class="roster__name">${esc(r.name)}</span></span>
-              <span class="badge">${r.count} 筆・共 ${r.total} 次</span>
+              <span class="badge">${r.count} 筆・${amountText(r)}</span>
             </li>`).join('')}
         </ul>
       </details>
@@ -292,6 +305,18 @@ function paintSummary() {
         <button class="btn btn--primary btn--wide" type="button" data-create>
           建立 ${s.people} 位</button>`}
     </section>`;
+}
+
+/**
+ * 一位身上會長出多少東西。**營養品論份，其餘論次**（ADR-0057）——
+ * 兩種單位不可以加成同一個數字，那個數字看起來像「還要排幾次」。
+ * 一份都沒買就不講「0 份」。
+ */
+function amountText(r) {
+  const parts = [];
+  if (r.total || !r.products) parts.push(`共 ${r.total} 次`);
+  if (r.products) parts.push(`${r.products} 份`);
+  return parts.join('・');
 }
 
 /**
@@ -397,17 +422,23 @@ function dropRow(key) {
 /**
  * 一位客戶一張。只有三件事：數量、要不要套方案、加購。
  *
- * **不用客戶詳情頁那張額度表單**（型態／顯示名稱／總次數／時長／課程／頻率／
- * 到期日，七個欄位）。那張是給「這筆額度長得跟任何範本都不一樣」用的，
- * 而她在這裡要的是「再給他三次健檢」。真的要調那七欄，
- * 客戶建好之後進詳情頁調 —— 那是一年兩次的事，不該讓它把這一頁弄雜。
+ * **加購那一段就是 `components/buy.js` 那一張表**，跟客戶詳情的「加購」與
+ * 新增客戶那一頁的「加一項」一模一樣 —— 所以健檢選得到「幾萬的」、
+ * 營養點滴選得到品項、營養品也在那一排丸子上。這一頁以前有自己的一張
+ * （一個下拉選單挑課程、一格數字），那是它比 `components/buy.js` 早兩天寫的
+ * 遺跡（`.scratch/buying-in-bulk/issues/01`）。
+ *
+ * **進階設定那七個欄位仍然不在這裡**（型態／顯示名稱／時長／頻率／到期日…）。
+ * 那張是給「這筆額度長得跟任何範本都不一樣」用的，而她在這裡要的是
+ * 「再給他三次健檢」。真的要調那七欄，客戶建好之後進詳情頁調。
  */
 function openTune(key) {
   const row = state.rows.find((r) => r.key === key);
   if (!row) return;
 
-  // 面板上改的是複本，按「好了」才寫回去 —— 拖下去關掉等於取消
-  const draft = { ...row, extras: [...(row.extras ?? [])] };
+  // 面板上改的是複本，按「好了」才寫回去 —— 拖下去關掉等於取消。
+  // `adding` 是「加一項」那一張還沒按下「加進來」的草稿，null = 沒在加。
+  const panel = { draft: { ...row, extras: [...(row.extras ?? [])] }, adding: null };
 
   // `openSheet()` **同步**呼叫 onMount（在它回傳之前），所以那裡面拿不到
   // 它的回傳值 —— 寫成 `const sheet = openSheet({ onMount: () => …sheet… })`
@@ -415,14 +446,14 @@ function openTune(key) {
   tuneSheet = openSheet({
     title: row.name,
     note: '沒動的就是跟大家一樣。',
-    body: tuneHtml(draft),
+    body: tuneHtml(panel),
     actions: `<button class="btn btn--primary btn--wide" type="button" data-apply>好了</button>`,
     // update() 會再呼叫一次 onMount，而監聽掛的是 drawer（它不會被換掉）——
-    // 沒有這道旗標，重畫一次就多一組監聽，按「加」會一次加兩筆。
+    // 沒有這道旗標，重畫一次就多一組監聽，按「加進來」會一次加兩筆。
     onMount: (drawer) => {
       if (drawer.dataset.tuneWired) return;
       drawer.dataset.tuneWired = '1';
-      wireTune(drawer, draft);
+      wireTune(drawer, panel);
     },
     onClose: () => {
       tuneSheet = null;
@@ -433,7 +464,7 @@ function openTune(key) {
 /** 微調面板本人。重畫時要用到，而 onMount 的時候它還不存在（見上面）。 */
 let tuneSheet = null;
 
-function tuneHtml(draft) {
+function tuneHtml({ draft, adding }) {
   const batchQty = quantityFor({ quantity: null }, state.shared);
   const plan = ctxOf().plan;
 
@@ -447,7 +478,7 @@ function tuneHtml(draft) {
     ${draft.usePlan && plan ? `
       <label class="field">
         <span class="field__label">購買數量　整批是 ${batchQty}</span>
-        <input type="number" data-qty min="1" step="1"
+        <input type="number" data-rowqty min="1" step="1"
                value="${draft.quantity ?? ''}" placeholder="${batchQty}" />
         <span class="field__hint">留空就跟大家一樣。</span>
       </label>` : ''}
@@ -459,67 +490,102 @@ function tuneHtml(draft) {
           ${draft.extras.map((x, i) => `
             <li class="roster__row">
               <span class="roster__main">
-                <span class="roster__name">${esc(state.coursesById[x.courseId]?.name ?? '?')}</span>
-                <span class="roster__note">${x.qty} 次</span>
+                <span class="roster__name">${esc(x.label || '（沒有名稱）')}</span>
+                <span class="roster__note">${esc(x.totalQty ?? 0)} ${esc(buy.unitOf(x))}</span>
               </span>
               <button class="roster__x" type="button" data-dropextra="${i}"
                       aria-label="拿掉">${icon('close', { size: 15, width: 2 })}</button>
             </li>`).join('')}
         </ul>` : '<p class="muted" style="margin: 0 0 var(--space-2)">還沒加購。</p>'}
 
-      <div class="rosteradd">
-        <select data-extracourse aria-label="加購哪一個課程" style="flex: 1; min-width: 0">
-          ${state.courses.map((c) => `
-            <option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
-        </select>
-        <input type="number" data-extraqty min="1" step="1" value="1"
-               aria-label="幾次" style="width: 5.5em" />
-        <button class="btn" type="button" data-addextra>加</button>
-      </div>
+      ${adding ? `
+        <div class="card card--flat">
+          <div class="errors" data-errors hidden></div>
+          <form data-buyform>${buy.fields(adding, state.master)}</form>
+          <div class="form__actions">
+            <button class="btn btn--primary" type="button" data-addbuy>加進來</button>
+            <button class="btn" type="button" data-cancelbuy>取消</button>
+          </div>
+        </div>`
+      : '<button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>'}
     </div>`;
 }
 
-function wireTune(drawer, draft) {
+function wireTune(drawer, panel) {
   const repaint = () => {
-    tuneSheet?.update(tuneHtml(draft));
+    tuneSheet?.update(tuneHtml(panel));
   };
+  const buyForm = () => drawer.querySelector('[data-buyform]');
+
+  // 加購那一張表的四種動作（換丸子、`+1`、在「自己打」那一格打字）全部
+  // 走 `components/buy.js` 的同一份接線 —— 這裡只回答「哪一塊要重畫」。
+  f.wireChips(drawer);
+  buy.wire(drawer, {
+    form: buyForm,
+    draft: () => panel.adding ?? buy.blank(),
+    master: state.master,
+    onChange: (next, { repaint: redraw }) => {
+      panel.adding = next;
+      if (redraw) repaint();
+    },
+  });
 
   drawer.addEventListener('change', (e) => {
     if (e.target.matches('[data-useplan]')) {
-      draft.usePlan = e.target.checked;
+      panel.draft.usePlan = e.target.checked;
       // 不套方案時那個數量沒有意義，清掉不要留一個看不到卻還在的值
-      if (!draft.usePlan) draft.quantity = null;
+      if (!panel.draft.usePlan) panel.draft.quantity = null;
       repaint();
     }
   });
 
   drawer.addEventListener('input', (e) => {
-    if (e.target.matches('[data-qty]')) {
+    // 這一格是**她這一位的購買數量**，不是加購那一張表的「幾次」。
+    // 兩個以前都叫 `data-qty`，而加購那一張表的 `+1` 是照著那個名字找欄位的。
+    if (e.target.matches('[data-rowqty]')) {
       const v = e.target.value.trim();
-      draft.quantity = v === '' ? null : Number(v);
+      panel.draft.quantity = v === '' ? null : Number(v);
     }
+  });
+
+  // 加購那一張表沒有送出鈕，但它是一個 `<form>` —— 在數量那一格按 Enter
+  // 會觸發瀏覽器的隱含送出，而那會整頁重載。接成「加進來」。
+  drawer.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (panel.adding) addBuy(drawer, panel, repaint);
   });
 
   drawer.addEventListener('click', (e) => {
     const drop = e.target.closest('[data-dropextra]');
     if (drop) {
-      draft.extras.splice(Number(drop.dataset.dropextra), 1);
+      panel.draft.extras.splice(Number(drop.dataset.dropextra), 1);
       repaint();
       return;
     }
 
     if (e.target.closest('[data-addextra]')) {
-      const courseId = drawer.querySelector('[data-extracourse]')?.value;
-      const qty = Number(drawer.querySelector('[data-extraqty]')?.value) || 1;
-      if (courseId) draft.extras.push({ courseId, qty });
+      panel.adding = buy.blank();
       repaint();
       return;
     }
 
+    if (e.target.closest('[data-cancelbuy]')) {
+      panel.adding = null;
+      repaint();
+      return;
+    }
+
+    if (e.target.closest('[data-addbuy]')) {
+      addBuy(drawer, panel, repaint);
+      return;
+    }
+
     if (e.target.closest('[data-apply]')) {
-      const row = state.rows.find((r) => r.key === draft.key);
+      const row = state.rows.find((r) => r.key === panel.draft.key);
       if (row) Object.assign(row, {
-        usePlan: draft.usePlan, quantity: draft.quantity, extras: draft.extras,
+        usePlan: panel.draft.usePlan,
+        quantity: panel.draft.quantity,
+        extras: panel.draft.extras,
       });
       state.run = null;
       closeSheet();
@@ -527,6 +593,29 @@ function wireTune(drawer, draft) {
       paintSummary();
     }
   });
+}
+
+/**
+ * 「加進來」。存進名單的是**一筆整理好的額度**，不是畫面上那張草稿 ——
+ * 草稿上有 `tierOther` 這種只有畫面在用的欄位，留著它會一路寫進 Firestore。
+ * 購買日留 null，`extrasFor()` 那一刻才蓋上整批的那一天。
+ */
+function addBuy(drawer, panel, repaint) {
+  const form = drawer.querySelector('[data-buyform]');
+  if (!form) return;
+
+  const next = { ...panel.adding, ...buy.values(form) };
+  const errors = buy.validate(next, state.master);
+  if (errors.length) {
+    // 不重畫：重畫會把剛剛印上去的那幾句話換掉
+    panel.adding = next;
+    f.showErrors(drawer, errors);
+    return;
+  }
+
+  panel.draft.extras.push(buy.toEntitlement(next));
+  panel.adding = null;
+  repaint();
 }
 
 // ---------- 建立 ----------
@@ -553,7 +642,7 @@ async function createAll() {
         plan: row.usePlan ? ctx.plan : null,
         quantity: quantityFor(row, state.shared),
         // 加購跟方案展開的那幾筆走同一個 commit，二返才配得到（ADR-0022）
-        extras: extrasFor(row, state.shared, ctx),
+        extras: extrasFor(row, state.shared),
       });
     } catch (err) {
       state.run = {
