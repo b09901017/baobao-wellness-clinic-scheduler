@@ -1,9 +1,13 @@
 // 「買了什麼」那一張表的規則（`ui/components/buy.js`）。
 //
-// 這一支是 UI 元件，但它裡面**沒有一行碰 DOM** —— 產生 HTML 字串、
-// 算顯示名稱、把草稿翻成一筆額度，三件都是純函式。而它現在被兩個入口共用
-//（客戶詳情的「加購」與新增客戶那一頁），所以「換一顆丸子之後草稿變成什麼」
-// 錯掉的話，兩個畫面會同時錯。
+// 那一支的**上半段沒有一行碰 DOM** —— 產生 HTML 字串、算顯示名稱、
+// 把草稿翻成一筆額度，全部是純函式。這裡測的就是那一段。
+// 下半段的 `wire()` 是接線（會碰 DOM），測不到，所以它刻意薄到只剩
+// 「讀表單 → 叫上半段 → 交給呼叫端重畫」。
+//
+// 這張表被**三個入口**共用（客戶詳情的「加購」、新增客戶那一頁、
+// 批次建立那一頁的「微調」），所以「動了一下之後草稿變成什麼」錯掉的話，
+// 三個畫面會同時錯。
 //
 // 讀值那一段收一個 `form`，測試餵的是 `{ elements: {...} }` ——
 // 它只問「這個欄位在不在畫面上」，不問 DOM 的任何其他事。
@@ -123,6 +127,72 @@ describe('顯示名稱：三種接法', () => {
 
     const mine = { ...before, label: '客戶A的健檢' };
     assert.equal(buy.retitle(mine, { ...mine, tier: '12萬' }, MASTER), '客戶A的健檢');
+  });
+});
+
+describe('動了一下之後的整張草稿', () => {
+  // 這一段以前散在三個呼叫端各寫一次，於是「其他…」那一格漏了兩次
+  // （`.scratch/buying-in-bulk/issues/02`）。
+
+  test('選了一顆課程：她還沒送出去的字也要留著', () => {
+    const draft = from('c-checkup');
+    const next = buy.afterPick('c-drip', draft, { totalQty: 7, tier: null }, MASTER);
+
+    assert.equal(next.courseId, 'c-drip');
+    assert.equal(next.totalQty, 7, '她打在「幾次」那一格的數字不可以被丟掉');
+    assert.equal(next.tier, null, '營養點滴沒有「幾萬的」');
+    assert.equal(next.label, '營養點滴');
+  });
+
+  test('選了一顆課程：等級拿草稿上的那一版去問，不是表單上的', () => {
+    // 兩邊在畫面上永遠一致（換了等級就改名），混著問會得出「她改過名稱」——
+    // 然後「8萬健檢」就會跟著她換到復能去。
+    const draft = { ...from('c-checkup'), tier: '8萬', label: '8萬健檢' };
+    const next = buy.afterPick('c-recovery', draft, { tier: '8萬', label: '8萬健檢' }, MASTER);
+    assert.equal(next.label, '復能');
+    assert.equal(next.tier, null);
+  });
+
+  test('選了一顆課程：她自己打的名稱不覆蓋', () => {
+    const draft = { ...from('c-checkup'), label: '客戶A的健檢' };
+    const next = buy.afterPick('c-recovery', draft, { label: '客戶A的健檢' }, MASTER);
+    assert.equal(next.label, '客戶A的健檢');
+  });
+
+  test('換了「幾萬的」，名稱跟著換', () => {
+    const draft = from('c-checkup');
+    const next = buy.afterDetail(draft, { tier: '8萬', tierOther: false }, MASTER);
+    assert.equal(next.label, '8萬健檢');
+  });
+
+  test('換了「哪一種」，名稱跟著換', () => {
+    const next = buy.afterDetail(from('c-drip'), { ivProductId: 'iv-liver' }, MASTER);
+    assert.equal(next.label, '營養點滴 - 護肝排毒');
+  });
+
+  test('「其他…」那一格打字，名稱也要跟著換', () => {
+    // 她的原話：「如果是幾萬建檢選其他，名稱不會自動改?」
+    const draft = { ...from('c-checkup'), tierOther: true };
+    const next = buy.afterDetail(draft, { tier: '5萬', tierOther: true }, MASTER);
+    assert.equal(next.tier, '5萬');
+    assert.equal(next.label, '5萬健檢');
+  });
+
+  test('**連著打第二個字也要跟** —— 拿上一版去問，不是拿更早那一版', () => {
+    // 打字不重畫，所以呼叫端每一下都要把回傳的草稿收起來。沒收的話
+    // 第二個字開始，app 自己填的「5萬健檢」會被誤判成「她改過的名稱」。
+    let draft = { ...from('c-checkup'), tierOther: true };
+    for (const typed of ['5', '5萬', '5萬(', '5萬(心臟)']) {
+      draft = buy.afterDetail(draft, { tier: typed, tierOther: true }, MASTER);
+    }
+    assert.equal(draft.label, '5萬(心臟)健檢');
+  });
+
+  test('打字時她自己打過的名稱一樣不覆蓋', () => {
+    let draft = { ...from('c-checkup'), tierOther: true, label: '客戶A的健檢' };
+    draft = buy.afterDetail(draft, { tier: '5萬', label: '客戶A的健檢' }, MASTER);
+    assert.equal(draft.label, '客戶A的健檢');
+    assert.equal(draft.tier, '5萬', '名稱不改，等級還是要存下去');
   });
 });
 

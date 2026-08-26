@@ -1,8 +1,10 @@
-// 「買了什麼」那一張表。**客戶詳情的「加購」與新增客戶那一頁共用同一份。**
+// 「買了什麼」那一張表。**三個入口共用同一份**：客戶詳情的「加購」、
+// 新增客戶那一頁的「加一項」、批次建立那一頁「微調」面板裡的「加一項」。
 //
-// 兩個入口問的是同一句話（「這位客戶多買了什麼」），所以不可以有兩張長得不一樣
+// 三個入口問的是同一句話（「這位客戶多買了什麼」），所以不可以有三張長得不一樣
 // 的表 —— 她在一邊選得到營養點滴的品項、另一邊選不到，那不是兩個畫面，
-// 是同一個畫面壞了一半。
+// 是同一個畫面壞了一半。第三個入口比這個檔案早兩天寫，所以它自己長了一張
+// 下拉選單的表，2026-08-26 才接進來（`.scratch/buying-in-bulk/issues/01`）。
 //
 // ## 草稿的形狀就是一筆額度
 //
@@ -14,6 +16,13 @@
 //
 // `components/form.js` 的 `chips()` 檔頭已經寫過三個理由。這一頁還有第四個：
 // 她的原話是「可以不要用下拉選單而是用小丸」。
+//
+// ## 規則在上半段，接線在下半段
+//
+// 上半段（到 `unitOf()` 為止）沒有一行碰 DOM，`tests/buy.test.js` 盯著它。
+// 下半段的 `wire()` 是三個入口共用的那一份接線 —— 以前那幾行在每個入口各寫
+// 一次，於是「其他…」那一格漏了兩次都沒有人發現
+// （`.scratch/buying-in-bulk/issues/02`）。
 
 import * as f from './form.js';
 import {
@@ -144,6 +153,38 @@ export function pick(value, e, master) {
  */
 export function retitle(prev, next, master) {
   return keptLabel(prev, master) ?? autoLabel(next, master);
+}
+
+/**
+ * 點了「買了什麼」的某一顆之後的**整張**草稿。
+ *
+ * `typed` 是表單現在說的話（她打進去的字、還沒送出去的數量），全部要留著 ——
+ * 換一顆課程不該把她打了一半的「幾次」清掉。
+ *
+ * **但「她自己改過名稱嗎」只拿草稿加上她打的名稱去問。** 等級與品項要用
+ * 草稿上的那一版：它們在畫面上永遠跟顯示名稱同步（換了就改名），
+ * 混著表單上的值去問會得出「她改過」，然後名字就再也不跟了。
+ */
+export function afterPick(value, draft, typed, master) {
+  const prev = typed && 'label' in typed ? { ...draft, label: typed.label } : draft;
+  return { ...draft, ...typed, ...pick(value, prev, master) };
+}
+
+/**
+ * 換了「幾萬的」「哪一種」、或在「自己打」那一格打字之後的**整張**草稿。
+ *
+ * 這一下 `typed` 裡的等級／品項已經是**新的**（丸子換的是 hidden input，
+ * 打字換的是那一格本身），所以「她自己改過名稱嗎」要拿 `draft` 去問 ——
+ * 加上她打在顯示名稱那一格的字，那一格這一下沒有變。
+ *
+ * **連續打字時 `draft` 一定要是上一個字那一版。** 呼叫端每一下都要把回傳的
+ * 草稿收起來，不然第二個字開始，app 自己填的名字會被誤判成「她改過的」
+ * 而停在那裡不再跟（`.scratch/buying-in-bulk/issues/02`）。
+ */
+export function afterDetail(draft, typed, master) {
+  const prev = typed && 'label' in typed ? { ...draft, label: typed.label } : draft;
+  const next = { ...draft, ...typed };
+  return { ...next, label: retitle(prev, next, master) };
 }
 
 /**
@@ -340,13 +381,18 @@ function productRow(e, products) {
  * 「會變成『8萬健檢』」那一句。
  *
  * 它不是說明，是**預告** —— 自動帶的名稱藏在「進階設定」裡，不講的話她要
- * 存下去才知道那一筆會叫什麼。還沒選就不印（在講一件還沒發生的事）。
+ * 存下去才知道那一筆會叫什麼。還沒選就不講（那是在講一件還沒發生的事）。
+ *
+ * **不講的時候節點還是要在**，只是 `hidden`。她在「自己打」那一格打字時
+ * 這一頁不重畫（會洗掉游標與輸入法的組字狀態），所以那一句是就地換字的 ——
+ * 沒有節點的話第一個字打下去就沒有東西可以改。
  */
 function nameHint(name, hasPick) {
-  if (!hasPick || !name) return '';
+  const show = Boolean(hasPick) && Boolean(name);
   return `
-    <p class="muted dim" style="margin: calc(var(--space-2) * -1) 0 var(--space-4); font-size: var(--text-2xs)">
-      會變成「${f.esc(name)}」</p>`;
+    <p class="muted dim" data-namehint ${show ? '' : 'hidden'}
+       style="margin: calc(var(--space-2) * -1) 0 var(--space-4); font-size: var(--text-2xs)"
+       >${show ? `會變成「${f.esc(name)}」` : ''}</p>`;
 }
 
 /** 幾次／幾份。營養品論份 —— 一罐夜態美不是「一次」。 */
@@ -362,4 +408,95 @@ function qtyField(e) {
           <button class="chip chip--sm" type="button" data-qty="${n}">+${n}</button>`).join('')}
       </div>
     </div>`;
+}
+
+// ---------- 底下是三個入口共用的那一份接線 ----------
+
+/** 「哪一種／幾萬的」那幾排丸子。換了它們要跟著改顯示名稱。 */
+const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productId"]';
+
+/**
+ * 這一張表自己管的那幾個欄位，從表單上讀回來。
+ *
+ * 客戶詳情那一張還要讀顯示名稱、時長、到期日那幾格，所以它自己給一支
+ * （`wire()` 的 `typed` 參數）。沒給的就是這一支 —— 兩張只有加購的表
+ *（新增客戶、批次建立的微調）表上就只有這些。
+ */
+export function values(form) {
+  const v = f.readForm(form);
+  return { totalQty: v.totalQty, ...read(form, v) };
+}
+
+/**
+ * 把這一張表接起來。**三個入口共用同一份。**
+ *
+ * 以前這幾行在每個入口各寫一次，於是「其他…」展開的那一格漏了兩次都沒有人
+ * 發現 —— 打字不是點擊，而三個入口都只聽了點丸子
+ *（`.scratch/buying-in-bulk/issues/02`）。
+ *
+ * 呼叫端只回答一件事：**哪一塊要重畫**。`repaint` 是 false 的那幾下
+ *（`+1` 與打字）一定也要把草稿收起來，`afterDetail()` 的檔頭寫了為什麼。
+ *
+ * 事件用委派，所以重畫之後不必重掛 —— 但 `root` 必須是**重畫時會被換掉**
+ * 的那一層（或者本來就只有一個，例如一張面板），不然每重畫一次就多一組。
+ * `f.wireChips(root)` 要先掛，它換的 hidden input 就是這裡讀回來的東西。
+ *
+ * @param {HTMLElement} root 事件委派掛在這上面
+ * @param {object} o
+ * @param {() => HTMLFormElement|null} o.form 現在畫面上的那一張表
+ * @param {() => object} o.draft 現在的草稿
+ * @param {{courses:object[], equipment:object[], ivProducts:object[], products:object[]}} o.master
+ * @param {(form: HTMLFormElement) => object} [o.typed] 表單上還要讀哪些欄位
+ * @param {(next: object, o: {repaint: boolean}) => void} o.onChange
+ */
+export function wire(root, { form, draft, master, typed = values, onChange }) {
+  root.addEventListener('click', (ev) => {
+    const box = form();
+    if (!box) return;
+
+    const chosen = ev.target.closest('[data-chip="buy"]');
+    if (chosen) {
+      onChange(afterPick(chosen.dataset.chipValue, draft(), typed(box), master), { repaint: true });
+      return;
+    }
+
+    if (ev.target.closest(DETAIL_CHIPS)) {
+      onChange(afterDetail(draft(), typed(box), master), { repaint: true });
+      return;
+    }
+
+    const qty = ev.target.closest('[data-qty]');
+    if (qty) {
+      const n = box.elements.totalQty;
+      if (!n) return;
+      n.value = Math.max(1, Number(n.value || 0) + Number(qty.dataset.qty));
+      // 只改了一個數字，畫面上沒有別的東西要跟著變 —— 重畫只會讓她的下一下
+      // 「+1」落空（ADR-0038）。
+      onChange({ ...draft(), ...typed(box) }, { repaint: false });
+    }
+  });
+
+  // 「其他…」展開的那一格。**打字不重畫** —— 重畫會把游標與輸入法的組字狀態
+  // 一起洗掉，所以顯示名稱與那句預告是就地改的。
+  root.addEventListener('input', (ev) => {
+    if (!ev.target.matches?.('[name="tierText"]')) return;
+    const box = form();
+    if (!box) return;
+
+    const next = afterDetail(draft(), typed(box), master);
+    onChange(next, { repaint: false });
+    reflect(root, box, next, master);
+  });
+}
+
+/** 不重畫的那條路上，把新的顯示名稱寫回畫面。兩個地方會講到它。 */
+function reflect(root, form, e, master) {
+  // 顯示名稱那一格只有客戶詳情那一張表有（另外兩張沒有「進階設定」）
+  if (form.elements.label) form.elements.label.value = e.label ?? '';
+
+  const hint = root.querySelector('[data-namehint]');
+  if (!hint) return;
+  const name = autoLabel(e, master);
+  hint.textContent = name ? `會變成「${name}」` : '';
+  hint.hidden = !name;
 }

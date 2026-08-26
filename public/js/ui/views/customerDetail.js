@@ -1210,47 +1210,31 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
 
   const form = el.querySelector('[data-form]');
   const advanced = () => Boolean(el.querySelector('.advanced')?.open);
-  const redraw = (over) =>
-    paintEntitlement(ctx, record, {
-      ...e, ...readEntitlement(form), advanced: advanced(), ...over,
-    });
 
   const root = entRoot(el);
   f.wireChips(root);
 
-  root.addEventListener('click', (ev) => {
-    // 「她自己改過名稱嗎」一定要拿**點下去之前**那一版去問，而那一版是畫出來的
-    // `e` 加上她剛剛打進去的字 —— `readEntitlement()` 不行：`wireChips()` 先跑，
-    // 它讀到的丸子已經是新選的那一顆了，比出來會變成「她改過」。
-    const before = () => ({ ...e, label: String(f.readForm(form).label ?? '').trim() });
-
-    // 選了「買了什麼」的某一顆。名稱、時長、型態自動帶（主檔上就有），
-    // 她自己改過的名稱不覆蓋 —— 規則在 `components/buy.js`，這裡只負責重畫。
-    const chosen = ev.target.closest('[data-chip="buy"]');
-    if (chosen) {
-      redraw(buy.pick(chosen.dataset.chipValue, before(), master));
-      return;
-    }
-
-    // 「幾萬的」「哪一種」那幾排。`wireChips()` 先跑，所以 `readEntitlement()`
-    // 讀得到新選的那一顆 —— 這裡只要把顯示名稱跟著換掉。
-    const detail = ev.target.closest('[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productId"]');
-    if (detail) {
-      const next = { ...e, ...readEntitlement(form) };
-      redraw({ label: buy.retitle(before(), next, master) });
-      return;
-    }
-
-    const qty = ev.target.closest('[data-qty]');
-    if (qty) {
-      const box = form.elements.totalQty;
-      box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
-    }
+  // 這一張表上的四種動作（換「買了什麼」、換「幾萬的／哪一種」、`+1`、
+  // 在「自己打」那一格打字）走 `components/buy.js` 的同一份接線 ——
+  // 三個入口共用，這裡只回答「哪一塊要重畫」。
+  //
+  // `live` 是**還沒重畫的那幾下**的草稿。不重畫的那兩下（`+1` 與打字）
+  // 也一定要收起來，`afterDetail()` 的檔頭寫了為什麼。
+  let live = e;
+  buy.wire(root, {
+    form: () => form,
+    draft: () => live,
+    master,
+    typed: readEntitlement,
+    onChange: (next, { repaint }) => {
+      live = next;
+      if (repaint) paintEntitlement(ctx, record, { ...next, advanced: advanced() });
+    },
   });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const next = { ...e, ...readEntitlement(form) };
+    const next = { ...live, ...readEntitlement(form) };
 
     const errors = buy.validate(next, {
       courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,
@@ -1297,8 +1281,8 @@ function courseOptions(courses, currentId) {
 function readEntitlement(form) {
   const v = f.readForm(form);
   return {
-    // 課程由「買了什麼」那一排丸子決定，而那一顆的值直接寫進 draft
-    // （`redraw()`），不從表單讀 —— 因為擇一池那一顆不是課程 id。
+    // 課程由「買了什麼」那一排丸子決定，而那一顆的值直接寫進草稿
+    // （`buy.afterPick()`），不從表單讀 —— 因為擇一池那一顆不是課程 id。
     // 進階設定裡的下拉（只有編輯既有的那一張才有）優先。
     courseId: v.courseIdPick ?? v.courseId ?? null,
     label: String(v.label ?? '').trim(),
