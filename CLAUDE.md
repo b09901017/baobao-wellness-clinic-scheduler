@@ -27,7 +27,7 @@
 | 做完一個開發步驟 | `README.md` 開發狀態表打勾 |
 | 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
 | 次數的算法 | `domain/entitlements.js` 的 `counts()`（現算）、`summarize()`（讀快取）、`reconcile()`（對帳）要一起改，見 ADR-0004。「這一段算不算」只寫在同一支的 `slotOutcome()`，見 ADR-0025 |
-| 「她賣了什麼給客戶」的那張表 | 只寫在 `ui/components/buy.js`（新增客戶與客戶詳情共用一份）。**營養品是一筆排不進來訪的額度**（ADR-0057），所以它不可以流進任何「還要排幾次」：閘門在 `domain/entitlements.js` 的 `schedulable()`，用在 `customerPools()`、`summarize()`／`lowRemaining()`、資料健檢的「資料過期」、來訪編輯器的額度丸子。試算表報表刻意**有那一列但不進合計** |
+| 「她賣了什麼給客戶」的那張表 | 只寫在 `ui/components/buy.js`。**三個入口共用一份**：客戶詳情的「加購」、新增客戶的「加一項」、批次建立「微調」面板裡的「加一項」——欄位與**接線**（`wire()`）都是同一份，呼叫端只回答「哪一塊要重畫」。多接一次的代價已經付過了：「其他…」那一格漏了兩次。**營養品是一筆排不進來訪的額度**（ADR-0057），所以它不可以流進任何「還要排幾次」：閘門在 `domain/entitlements.js` 的 `schedulable()`，用在 `customerPools()`、`summarize()`／`lowRemaining()`、資料健檢的「資料過期」、來訪編輯器的額度丸子。試算表報表刻意**有那一列但不進合計** |
 | 一筆來訪改得動的地方 | **只有日曆**（ADR-0056）。待辦中心、客戶詳情、進度追蹤那三張讀取卡片都沒有鉛筆，來訪紀錄那一列也不是連到編輯器的連結 —— 留一條繞過去的路，等於那個決定只做了一半 |
 | 健檢與二返的關係 | 只寫在 `domain/followups.js`（配對、還欠幾次、「約二返」的待辦）。不要在 `taskRules.js` 或 UI 裡再判斷一次，見 ADR-0022 |
 | 勾掉一張待辦 | 走 `data/tasks.js` 的 `setDone(tasks, done)`，**收的是任務本身不是 id**。健檢鏈那兩種（追蹤健檢報告、約二返）會連著把下一站算出來，跟勾選寫在同一個 commit 裡 —— 規則仍然只在 `domain/followups.js` |

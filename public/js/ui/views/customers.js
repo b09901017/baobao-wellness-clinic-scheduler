@@ -637,11 +637,6 @@ function openBuySheet(master, onAdd) {
     <div class="errors" data-errors hidden></div>
     <form data-buyform>${buy.fields(item, master)}</form>`;
 
-  const readItem = (form) => {
-    const v = f.readForm(form);
-    return { totalQty: v.totalQty, ...buy.read(form, v) };
-  };
-
   sheet = openSheet({
     title: '加購',
     note: '方案之外多買的。加完可以再加一項。',
@@ -656,44 +651,31 @@ function openBuySheet(master, onAdd) {
       drawer.dataset.buyWired = '1';
       f.wireChips(drawer);
 
+      const formOf = () => drawer.querySelector('[data-buyform]');
+
+      // 換丸子、`+1`、在「自己打」那一格打字，四種動作走同一份接線
+      // （`components/buy.js`）—— 這裡只回答「哪一塊要重畫」。
+      buy.wire(drawer, {
+        form: formOf,
+        draft: () => item,
+        master,
+        onChange: (next, { repaint }) => {
+          item = next;
+          if (repaint) sheet.update(html());
+        },
+      });
+
       drawer.addEventListener('click', (ev) => {
-        const form = drawer.querySelector('[data-buyform]');
+        if (!ev.target.closest('[data-addbuy]')) return;
+        const form = formOf();
         if (!form) return;
 
-        const chosen = ev.target.closest('[data-chip="buy"]');
-        if (chosen) {
-          const before = { ...item, ...readItem(form) };
-          item = { ...before, ...buy.pick(chosen.dataset.chipValue, item, master) };
-          sheet.update(html());
-          return;
-        }
-
-        const detail = ev.target.closest(
-          '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productId"]',
-        );
-        if (detail) {
-          const next = { ...item, ...readItem(form) };
-          item = { ...next, label: buy.retitle(item, next, master) };
-          sheet.update(html());
-          return;
-        }
-
-        const qty = ev.target.closest('[data-qty]');
-        if (qty) {
-          const box = form.elements.totalQty;
-          box.value = Math.max(1, Number(box.value || 0) + Number(qty.dataset.qty));
-          item = { ...item, ...readItem(form) };
-          return;
-        }
-
-        if (ev.target.closest('[data-addbuy]')) {
-          const next = { ...item, ...readItem(form) };
-          const errors = buy.validate(next, master);
-          f.showErrors(drawer, errors);
-          if (errors.length) return;
-          onAdd(next);
-          closeSheet();
-        }
+        const next = { ...item, ...buy.values(form) };
+        const errors = buy.validate(next, master);
+        f.showErrors(drawer, errors);
+        if (errors.length) return;
+        onAdd(next);
+        closeSheet();
       });
     },
   });

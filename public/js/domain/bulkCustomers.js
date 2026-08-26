@@ -14,7 +14,7 @@
 // 「方案展開後與範本脫鉤」是 ADR-0003 的規則，只能有一份實作。
 // 這裡只負責回答「這一位要用誰的數量、要不要套方案、加購接哪幾筆」。
 
-import { expandPlan, validateEntitlement } from './entitlements.js';
+import { expandPlan, isProduct, validateEntitlement } from './entitlements.js';
 import { toCustomerFields } from './customerMarks.js';
 import { isValidDate } from './dates.js';
 
@@ -52,7 +52,15 @@ export function newRow(name, key) {
     // null 代表「用整批的」。填了數字才是這一位自己的。
     quantity: null,
     usePlan: true,
-    // 加購：[{ courseId, qty }]。方案之外多買的那幾筆。
+    // 加購：方案之外多買的那幾筆，**一筆就是一筆整理好的額度**
+    //（`ui/components/buy.js` 的 `toEntitlement()` 吐出來的形狀）。
+    //
+    // 不存畫面上那種草稿：草稿上有 `tierOther` 這種只有畫面在用的欄位，
+    // 而它會一路跟著 `createWithPlan()` 寫進 Firestore —— Rules 的
+    // `validEntitlement()` 只驗形狀，不會有人攔下來。
+    //
+    // 購買日留 null，`extrasFor()` 那一刻才蓋上去 —— 她可能先加了三筆加購
+    // 才回頭去改整批的購買日。
     extras: [],
   };
 }
@@ -111,40 +119,6 @@ export function quantityFor(row, shared) {
 }
 
 /**
- * 一筆加購 → 一筆額度。
- *
- * 這裡只問兩件事：哪一個課程、幾次。其餘（型態、顯示名稱、時長）從課程主檔推。
- *
- * 客戶詳情頁那張加購表單有七個欄位，是給「這筆額度長得跟任何範本都不一樣」
- * 的情況用的。她在這一頁要的是「再給他三次健檢」，那張表單在這裡是噪音 ——
- * 真的要調那七欄，客戶建好之後進詳情頁調，那是一年兩次的事。
- *
- * @returns {object|null} 課程不存在就回 null，不要湊一筆出來
- */
-export function extraToEntitlement(extra, coursesById, { purchasedAt = null } = {}) {
-  const course = coursesById?.[extra?.courseId];
-  if (!course) return null;
-
-  const qty = Number(extra?.qty);
-  return {
-    type: 'single',
-    label: course.name,
-    courseId: course.id,
-    optionEquipmentIds: null,
-    totalQty: Number.isInteger(qty) && qty > 0 ? qty : 1,
-    durationMin: course.durationMin ?? null,
-    frequencyRule: course.frequencyRule ?? null,
-    // 單項加購，不是從範本展開的
-    sourcePlanName: null,
-    purchasedAt,
-    expiresAt: null,
-    doneCount: 0,
-    bookedCount: 0,
-    lastReconciledAt: null,
-  };
-}
-
-/**
  * 這一位身上會長出哪幾筆額度。
  *
  * 方案的部分交給 `expandPlan()`（ADR-0003），加購接在後面。
@@ -157,7 +131,7 @@ export function extraToEntitlement(extra, coursesById, { purchasedAt = null } = 
  * @returns {object[]}
  */
 export function entitlementsFor(row, shared, ctx = {}) {
-  return [...planEntitlementsFor(row, shared, ctx), ...extrasFor(row, shared, ctx)];
+  return [...planEntitlementsFor(row, shared, ctx), ...extrasFor(row, shared)];
 }
 
 /** 方案展開的那幾筆。不套方案、或整批就沒選方案時是空的。 */
@@ -169,17 +143,19 @@ export function planEntitlementsFor(row, shared, { plan = null } = {}) {
 }
 
 /**
- * 加購的那幾筆。
+ * 加購的那幾筆。整批的購買日就是在這一刻蓋上去的。
  *
  * 跟 `planEntitlementsFor()` 分開回傳，是因為 `data/customers.js` 的
  * `createWithPlan()` 吃的就是「方案 + extras」這兩半 —— 呼叫端不該為了拆開它們
  * 而去數方案有幾個項目（那是一條會在有人改 `expandPlan()` 的那天安靜壞掉的耦合）。
+ *
+ * 「一筆加購長什麼樣」不在這裡，在 `ui/components/buy.js` —— 三個加購入口
+ * 共用同一張表、同一支 `toEntitlement()`。這裡再接一次的話，同一位客戶身上
+ * 一筆在批次建立時加的、一筆之後在詳情頁加的，會長得不一樣。
  */
-export function extrasFor(row, shared, { coursesById = {} } = {}) {
+export function extrasFor(row, shared) {
   const purchasedAt = isValidDate(shared?.purchasedAt) ? shared.purchasedAt : null;
-  return (row?.extras ?? [])
-    .map((x) => extraToEntitlement(x, coursesById, { purchasedAt }))
-    .filter(Boolean);
+  return (row?.extras ?? []).map((e) => ({ ...e, purchasedAt }));
 }
 
 /**
@@ -207,17 +183,23 @@ export function customerFor(row, shared) {
 /**
  * 第三段那兩個數字與明細。
  *
+ * **次數與份數分開數**（ADR-0057）：營養品論份、其餘論次，兩種單位加成同一個
+ * 數字就是一句沒有意義的話 —— 而且那個數字看起來像「還要排幾次」。
+ *
  * @returns {{people:number, entitlements:number, rows:{key:string,name:string,
- *            count:number,total:number,adjusted:boolean}[]}}
+ *            count:number,total:number,products:number,adjusted:boolean}[]}}
  */
 export function summarizeRoster(rows = [], shared = {}, ctx = {}) {
+  const sum = (list) => list.reduce((n, e) => n + (e.totalQty ?? 0), 0);
+
   const detail = rows.map((row) => {
     const ents = entitlementsFor(row, shared, ctx);
     return {
       key: row.key,
       name: trimmed(row.name),
       count: ents.length,
-      total: ents.reduce((n, e) => n + (e.totalQty ?? 0), 0),
+      total: sum(ents.filter((e) => !isProduct(e))),
+      products: sum(ents.filter(isProduct)),
       adjusted: isAdjusted(row),
     };
   });
@@ -264,6 +246,9 @@ export function validateRoster(rows = [], shared = {}, ctx = {}) {
       const why = validateEntitlement(e, {
         courses: Object.values(ctx.coursesById ?? {}),
         equipment: ctx.equipment ?? [],
+        // 少了這一份，一筆營養品加購會被判成「指定的營養品不存在或已刪除」，
+        // 而那句話會擋住整批建立（ADR-0057）
+        products: ctx.products ?? [],
       });
       for (const w of why) errors.push(`${name}・${e.label ?? '某一筆額度'}：${w}`);
     }

@@ -2,6 +2,10 @@
 //
 // 這一支的形狀是「共用的填一次，不一樣的才微調」，所以測試盯的也是那兩半：
 // 預設真的跟大家一樣，微調過的真的只影響那一位。
+//
+// 加購那一半 2026-08-26 改成跟另外兩個入口共用同一張表
+//（`ui/components/buy.js`，`.scratch/buying-in-bulk/issues/01`），所以這裡的
+// `extras` 也是那張表吐出來的形狀，不是這一支自己接的。
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,13 +17,14 @@ import {
   isAdjusted,
   duplicatesOf,
   quantityFor,
-  extraToEntitlement,
   entitlementsFor,
+  extrasFor,
   customerFor,
   summarizeRoster,
   validateRoster,
   rosterWarnings,
 } from '../public/js/domain/bulkCustomers.js';
+import * as buy from '../public/js/ui/components/buy.js';
 
 const PLAN = {
   name: '筋骨強身',
@@ -32,15 +37,32 @@ const PLAN = {
 
 const COURSES = {
   'course-rehab': { id: 'course-rehab', name: '復健科醫師門診', durationMin: 30 },
-  'course-checkup': { id: 'course-checkup', name: '健檢', durationMin: 120 },
+  'course-checkup': {
+    id: 'course-checkup', name: '健檢', durationMin: 120, followupCourseId: 'course-followup',
+  },
   'course-eecp': { id: 'course-eecp', name: 'EECP', durationMin: 30 },
 };
 
 const EQUIP = [{ id: 'eq-laser' }, { id: 'eq-sis' }, { id: 'eq-indiba' }];
-const CTX = { plan: PLAN, coursesById: COURSES, equipment: EQUIP };
+const PRODUCTS = [{ id: 'prod-yetaimei', name: '夜態美' }];
+const CTX = { plan: PLAN, coursesById: COURSES, equipment: EQUIP, products: PRODUCTS };
 const SHARED = { source: '0522 顧客會-8', purchasedAt: '2026-08-23', quantity: 1 };
 
 const rowsOf = (...names) => names.map((n, i) => newRow(n, `k${i}`));
+
+// 加購那幾筆是**畫面上那張表吐出來的整理好的額度**（`ui/components/buy.js`），
+// 不是這一支自己接的 —— 三個加購入口共用同一張表。測試照著同一條路走，
+// 才不會在那張表換了形狀的那天還是綠的。
+const MASTER = {
+  courses: Object.values(COURSES), equipment: EQUIP, ivProducts: [], products: PRODUCTS,
+};
+const bought = (...picks) =>
+  buy.toEntitlement(picks.reduce(
+    (e, p) => (typeof p === 'string'
+      ? buy.afterPick(p, e, {}, MASTER)
+      : buy.afterDetail(e, p, MASTER)),
+    buy.blank(),
+  ));
 
 describe('把貼進來的一串字拆成名單', () => {
   test('換行、逗號、頓號、分號都算分隔', () => {
@@ -78,10 +100,7 @@ describe('預設就是跟大家一樣', () => {
   test('動過的三種都算微調', () => {
     assert.equal(isAdjusted({ ...newRow('王小明'), quantity: 2 }), true);
     assert.equal(isAdjusted({ ...newRow('王小明'), usePlan: false }), true);
-    assert.equal(
-      isAdjusted({ ...newRow('王小明'), extras: [{ courseId: 'course-checkup', qty: 1 }] }),
-      true,
-    );
+    assert.equal(isAdjusted({ ...newRow('王小明'), extras: [bought('course-checkup')] }), true);
   });
 
   test('沒填數量就用整批的，填了才是自己的', () => {
@@ -112,25 +131,49 @@ describe('這一位身上會長出哪幾筆額度', () => {
     assert.deepEqual(entitlementsFor(rows[1], SHARED, CTX).map((e) => e.totalQty), [12, 24]);
   });
 
-  test('方案 ＋ 健檢', () => {
-    const row = { ...newRow('王小明'), extras: [{ courseId: 'course-checkup', qty: 3 }] };
+  test('方案 ＋ 8萬健檢', () => {
+    // 「幾萬的」以前在這一頁選不到，加出來的兩筆都叫「健檢」（ADR-0054）
+    const row = {
+      ...newRow('王小明'),
+      extras: [bought('course-checkup', { tier: '8萬' }, { totalQty: 3 })],
+    };
     const ents = entitlementsFor(row, SHARED, CTX);
 
-    assert.deepEqual(ents.map((e) => e.label), ['復健科醫師門診', '復能', '健檢']);
+    assert.deepEqual(ents.map((e) => e.label), ['復健科醫師門診', '復能', '8萬健檢']);
     assert.equal(ents[2].totalQty, 3);
+    assert.equal(ents[2].tier, '8萬');
     assert.equal(ents[2].sourcePlanName, null, '加購不是從範本展開的');
+  });
+
+  test('營養品也加得進來，而且它論份不論次（ADR-0057）', () => {
+    const row = {
+      ...newRow('王小明'),
+      usePlan: false,
+      extras: [bought(buy.PRODUCT_PICK, { productId: 'prod-yetaimei' }, { totalQty: 2 })],
+    };
+    const ents = entitlementsFor(row, SHARED, CTX);
+
+    assert.deepEqual(ents.map((e) => e.label), ['夜態美']);
+    assert.equal(ents[0].type, 'product');
+    assert.equal(ents[0].productId, 'prod-yetaimei');
+    assert.equal(ents[0].courseId, null);
+    assert.deepEqual(validateRoster([row], SHARED, CTX), [], '營養品主檔要進得了驗證');
   });
 
   test('沒有方案，單買 EECP', () => {
     const row = {
       ...newRow('王小明'),
       usePlan: false,
-      extras: [{ courseId: 'course-eecp', qty: 10 }],
+      extras: [bought('course-eecp', { totalQty: 10 })],
     };
     const ents = entitlementsFor(row, SHARED, CTX);
 
     assert.deepEqual(ents.map((e) => e.label), ['EECP']);
-    assert.equal(ents[0].durationMin, 30, '時長從課程主檔推，不用她填');
+    assert.equal(ents[0].totalQty, 10);
+    // 時長留空 = 「用課程主檔的」（`visitEditor.js` 與 `schedule.js` 兩邊都是
+    // `ent.durationMin ?? course.durationMin ?? 60`）。跟另外兩個加購入口一樣，
+    // 而且課程之後改了時長它會跟著改。
+    assert.equal(ents[0].durationMin, null);
   });
 
   test('整批就沒選方案時，沒微調的那幾位身上是空的', () => {
@@ -138,19 +181,21 @@ describe('這一位身上會長出哪幾筆額度', () => {
     assert.deepEqual(ents, []);
   });
 
-  test('加購指到不存在的課程就回 null，不要湊一筆出來', () => {
-    assert.equal(extraToEntitlement({ courseId: 'nope', qty: 1 }, COURSES), null);
-    const row = { ...newRow('王小明'), extras: [{ courseId: 'nope', qty: 1 }] };
-    assert.deepEqual(entitlementsFor(row, SHARED, CTX).map((e) => e.label),
-      ['復健科醫師門診', '復能']);
+  test('加購指到不存在的課程要擋下來，不要安靜地少建一筆', () => {
+    // 她加完之後那個課程才被刪掉。**不可以默默丟掉** —— 她明明賣掉了東西。
+    const row = { ...newRow('王小明'), extras: [{ ...bought('course-eecp'), courseId: 'nope' }] };
+    assert.ok(validateRoster([row], SHARED, CTX).some((e) => e.includes('王小明')));
   });
 
-  test('購買日跟著整批走，複製到每一筆額度上', () => {
-    const ents = entitlementsFor(
-      { ...newRow('王小明'), extras: [{ courseId: 'course-checkup', qty: 1 }] },
-      SHARED, CTX,
-    );
-    for (const e of ents) assert.equal(e.purchasedAt, '2026-08-23');
+  test('購買日跟著整批走，加購是在最後一刻才蓋上去的', () => {
+    // 她可能先加了三筆加購才回頭去改整批的購買日
+    const row = { ...newRow('王小明'), extras: [bought('course-checkup')] };
+    assert.equal(row.extras[0].purchasedAt, null, '加進名單的時候還不知道是哪一天');
+
+    for (const e of entitlementsFor(row, SHARED, CTX)) {
+      assert.equal(e.purchasedAt, '2026-08-23');
+    }
+    assert.equal(extrasFor(row, { purchasedAt: '不是日期' })[0].purchasedAt, null);
   });
 });
 
@@ -205,7 +250,7 @@ describe('重複的名字只提示不阻擋', () => {
 describe('會建立什麼的摘要', () => {
   test('人數與額度筆數', () => {
     const rows = rowsOf('王小明', '李美', '陳大文');
-    rows[1].extras = [{ courseId: 'course-checkup', qty: 1 }];
+    rows[1].extras = [bought('course-checkup')];
 
     const s = summarizeRoster(rows, SHARED, CTX);
     assert.equal(s.people, 3);
@@ -216,6 +261,17 @@ describe('會建立什麼的摘要', () => {
   test('每一列的總次數算得出來', () => {
     const s = summarizeRoster(rowsOf('王小明'), SHARED, CTX);
     assert.equal(s.rows[0].total, 18, '6 + 12');
+    assert.equal(s.rows[0].products, 0);
+  });
+
+  test('**份數不加進次數裡**（ADR-0057）—— 兩罐夜態美不是兩次', () => {
+    const rows = rowsOf('王小明');
+    rows[0].extras = [bought(buy.PRODUCT_PICK, { productId: 'prod-yetaimei' }, { totalQty: 2 })];
+
+    const s = summarizeRoster(rows, SHARED, CTX);
+    assert.equal(s.rows[0].total, 18, '還是 6 + 12');
+    assert.equal(s.rows[0].products, 2);
+    assert.equal(s.entitlements, 3, '筆數照算 —— 她確實多買了一樣東西');
   });
 });
 
