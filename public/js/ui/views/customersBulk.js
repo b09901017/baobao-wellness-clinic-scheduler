@@ -600,11 +600,14 @@ function wireTune(drawer, panel) {
  * 草稿上有 `tierOther` 這種只有畫面在用的欄位，留著它會一路寫進 Firestore。
  * 購買日留 null，`extrasFor()` 那一刻才蓋上整批的那一天。
  */
-function addBuy(drawer, panel, repaint) {
+async function addBuy(drawer, panel, repaint) {
   const form = drawer.querySelector('[data-buyform]');
   if (!form) return;
 
-  const next = { ...panel.adding, ...buy.values(form) };
+  // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
+  const next = await buy.commitNewProduct(
+    { ...panel.adding, ...buy.values(form) }, state.master, (row) => config.create('products', row),
+  );
   const errors = buy.validate(next, state.master);
   if (errors.length) {
     // 不重畫：重畫會把剛剛印上去的那幾句話換掉

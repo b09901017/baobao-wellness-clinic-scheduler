@@ -105,8 +105,27 @@ describe('顯示名稱：三種接法', () => {
     assert.equal(buy.autoLabel({ type: 'single', courseId: 'c-drip' }, MASTER), '營養點滴');
   });
 
-  test('營養品就是那一款的名字', () => {
-    assert.equal(buy.autoLabel({ type: 'product', productId: 'prod-gaba' }, MASTER), 'GABA');
+  test('營養品是金額加那幾款 —— 一次購買一筆', () => {
+    // 她記的是 `營養品(5000) : 夜態美+速體淨+粒能康+GABA`，那是一筆不是四筆
+    assert.equal(
+      buy.autoLabel({
+        type: 'product',
+        amountTwd: 5000,
+        items: [{ productId: 'prod-gaba', name: 'GABA' }, { productId: 'prod-yetaimei', name: '夜態美' }],
+      }, MASTER),
+      '營養品 5,000（GABA＋夜態美）',
+    );
+  });
+
+  test('舊資料（單數的 productId）照樣讀得出來', () => {
+    assert.equal(
+      buy.autoLabel({ type: 'product', productId: 'prod-gaba', label: 'GABA' }, MASTER),
+      '營養品（GABA）',
+    );
+  });
+
+  test('一款都還沒選就不給名字 —— 那是在講一件還沒發生的事', () => {
+    assert.equal(buy.autoLabel({ type: 'product', items: [] }, MASTER), '');
   });
 
   test('她自己打過的名字不會被下一次點擊蓋掉', () => {
@@ -216,7 +235,28 @@ describe('讀值：沒在畫面上的欄位不回報', () => {
 
   test('品項那兩排各自獨立', () => {
     assert.deepEqual(buy.read(formWith('ivProductId'), { ivProductId: 'iv-liver' }), { ivProductId: 'iv-liver' });
-    assert.deepEqual(buy.read(formWith('productId'), { productId: 'prod-gaba' }), { productId: 'prod-gaba' });
+  });
+
+  test('營養品讀回好幾款與金額', () => {
+    const out = buy.read(formWith('productIds'), {
+      productIds: 'prod-gaba\nprod-yetaimei', amountTwd: '5000',
+    });
+    assert.deepEqual(out.items.map((x) => x.productId), ['prod-gaba', 'prod-yetaimei']);
+    assert.equal(out.amountTwd, 5000);
+    assert.equal(out.newProduct, false);
+  });
+
+  test('金額留白是 null 不是 0 —— 那是兩件事', () => {
+    assert.equal(buy.read(formWith('productIds'), { productIds: 'prod-gaba', amountTwd: '' }).amountTwd, null);
+  });
+
+  test('「＋ 新增…」不是一款，是一顆展開輸入框的鈕', () => {
+    const out = buy.read(formWith('productIds'), {
+      productIds: `prod-gaba\n${buy.PRODUCT_NEW}`, newProductName: '  Q10  ',
+    });
+    assert.deepEqual(out.items.map((x) => x.productId), ['prod-gaba']);
+    assert.equal(out.newProduct, true);
+    assert.equal(out.newProductName, 'Q10');
   });
 });
 
@@ -230,17 +270,24 @@ describe('存得下去嗎', () => {
     assert.deepEqual(buy.validate(drip, MASTER), []);
     assert.deepEqual(
       buy.validate({ ...from(buy.PRODUCT_PICK), label: 'x' }, MASTER),
-      ['要選一個營養品'],
+      ['要選至少一種營養品'],
     );
   });
 });
 
 describe('草稿翻成一筆額度', () => {
   test('營養品不帶課程、器材、時長與頻率', () => {
-    const e = { ...from(buy.PRODUCT_PICK), productId: 'prod-gaba', label: 'GABA', totalQty: 2 };
+    const e = {
+      ...from(buy.PRODUCT_PICK),
+      items: [{ productId: 'prod-gaba', name: 'GABA' }],
+      amountTwd: 5000, label: '營養品 5,000（GABA）', totalQty: 2,
+    };
     const doc = buy.payload(e);
     assert.equal(doc.type, 'product');
-    assert.equal(doc.productId, 'prod-gaba');
+    assert.deepEqual(doc.items, [{ productId: 'prod-gaba', name: 'GABA' }]);
+    assert.equal(doc.amountTwd, 5000);
+    // 新的一律寫進 items —— 單數的 productId 只留著讀得懂舊資料
+    assert.equal(doc.productId, null);
     assert.equal(doc.courseId, null);
     assert.equal(doc.optionEquipmentIds, null);
     assert.equal(doc.durationMin, null);
@@ -296,13 +343,18 @@ describe('畫出來的那幾排', () => {
     assert.ok(buy.fields(from('c-checkup'), MASTER).includes('幾萬的'));
     assert.ok(!buy.fields(from('c-checkup'), MASTER).includes('哪一種'));
     assert.ok(buy.fields(from('c-drip'), MASTER).includes('哪一種'));
-    assert.ok(buy.fields(from(buy.PRODUCT_PICK), MASTER).includes('哪一種'));
+    assert.ok(buy.fields(from(buy.PRODUCT_PICK), MASTER).includes('哪幾種'));
   });
 
-  test('營養品論份，其餘論次', () => {
-    assert.ok(buy.fields(from(buy.PRODUCT_PICK), MASTER).includes('幾份'));
+  test('營養品論個月，其餘論次', () => {
+    // 她的原話：「次數1就是一個月2就是兩個月的」。以前寫「份」是猜的 ——
+    // 一次購買裡有四款，「2 份」那個數字對不上任何東西。
+    assert.ok(buy.fields(from(buy.PRODUCT_PICK), MASTER).includes('幾個月'));
     assert.ok(buy.fields(from('c-recovery'), MASTER).includes('幾次'));
-    assert.equal(buy.summaryLine({ label: '夜態美', totalQty: 2, type: 'product' }), '夜態美 2 份');
+    assert.equal(
+      buy.summaryLine({ label: '營養品 5,000（夜態美）', totalQty: 2, type: 'product' }),
+      '營養品 5,000（夜態美） 2 個月',
+    );
     assert.equal(buy.summaryLine({ label: '復能', totalQty: 5, type: 'single' }), '復能 5 次');
   });
 
@@ -316,5 +368,56 @@ describe('畫出來的那幾排', () => {
     for (const e of [buy.blank(), from('c-checkup'), from('c-drip'), from(buy.PRODUCT_PICK)]) {
       assert.ok(!buy.fields(e, MASTER).includes('<select'), '她說過不要下拉選單');
     }
+  });
+});
+
+describe('「＋ 新增…」那一款', () => {
+  const master = () => ({ products: [{ id: 'p-1', name: '夜態美' }] });
+  const draft = (over = {}) => ({
+    type: 'product', items: [], newProduct: true, newProductName: 'Q10', label: '', ...over,
+  });
+
+  test('寫進主檔並且選起來', async () => {
+    const m = master();
+    const created = [];
+    const out = await buy.commitNewProduct(draft(), m, async (row) => {
+      created.push(row);
+      return 'p-new';
+    });
+
+    assert.deepEqual(created, [{ name: 'Q10' }]);
+    assert.deepEqual(out.items, [{ productId: 'p-new', name: 'Q10' }]);
+    assert.equal(out.newProduct, false, '那一格要收起來');
+    assert.equal(out.newProductName, '');
+    assert.ok(m.products.some((p) => p.id === 'p-new'), '呼叫端手上的主檔要跟著補一筆');
+  });
+
+  test('原本選好的那幾款留著', async () => {
+    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }] });
+    const out = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    assert.deepEqual(out.items.map((x) => x.productId), ['p-1', 'p-new']);
+  });
+
+  test('同名的已經有了就用既有那一筆 —— 不要長出第二個「夜態美」', async () => {
+    let called = 0;
+    const out = await buy.commitNewProduct(
+      draft({ newProductName: ' 夜態美 ' }), master(), async () => { called += 1; return 'x'; },
+    );
+    assert.equal(called, 0);
+    assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
+  });
+
+  test('沒有要新增就原樣回去，一次 IO 都不會發生', async () => {
+    let called = 0;
+    const d = draft({ newProduct: false });
+    const out = await buy.commitNewProduct(d, master(), async () => { called += 1; return 'x'; });
+    assert.equal(called, 0);
+    assert.equal(out, d);
+  });
+
+  test('名字留白也不新增', async () => {
+    let called = 0;
+    await buy.commitNewProduct(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
+    assert.equal(called, 0);
   });
 });

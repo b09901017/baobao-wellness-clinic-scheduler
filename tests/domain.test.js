@@ -485,10 +485,11 @@ describe('營養品', () => {
   const base = { type: 'product', label: '夜態美', totalQty: 2, productId: 'p-yetaimei' };
 
   test('一定要指得出是哪一款 —— 名字是可以改的顯示字串', () => {
+    // 舊形狀（單數的 productId）照樣讀得出來，見 domain/products.js 的 itemsOf()
     assert.deepEqual(validateEntitlement(base, { products }), []);
     assert.deepEqual(
       validateEntitlement({ ...base, productId: null }, { products }),
-      ['要選一個營養品'],
+      ['要選至少一種營養品'],
     );
     assert.deepEqual(
       validateEntitlement({ ...base, productId: 'p-gone' }, { products }),

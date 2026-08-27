@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v71';
+const VERSION = 'v72';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -75,6 +75,7 @@ const SHELL = [
   '/js/domain/visits.js',
   '/js/domain/confirmations.js',
   '/js/domain/consequences.js',
+  '/js/domain/products.js',
   '/js/domain/undo.js',
   '/js/domain/availability.js',
   '/js/domain/scheduling.js',

@@ -1234,7 +1234,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const next = { ...live, ...readEntitlement(form) };
+    // 「＋ 新增…」打的那一款先寫進主檔，換回一張指得到它的草稿。
+    // 沒有要新增就原樣回來，一次 IO 都不會發生（三個入口共用同一支）。
+    const next = await buy.commitNewProduct(
+      { ...live, ...readEntitlement(form) },
+      { products: ctx.products },
+      (row) => config.create('products', row),
+    );
 
     const errors = buy.validate(next, {
       courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,

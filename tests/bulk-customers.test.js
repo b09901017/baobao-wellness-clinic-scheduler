@@ -44,7 +44,7 @@ const COURSES = {
 };
 
 const EQUIP = [{ id: 'eq-laser' }, { id: 'eq-sis' }, { id: 'eq-indiba' }];
-const PRODUCTS = [{ id: 'prod-yetaimei', name: '夜態美' }];
+const PRODUCTS = [{ id: 'prod-yetaimei', name: '夜態美' }, { id: 'prod-gaba', name: 'GABA' }];
 const CTX = { plan: PLAN, coursesById: COURSES, equipment: EQUIP, products: PRODUCTS };
 const SHARED = { source: '0522 顧客會-8', purchasedAt: '2026-08-23', quantity: 1 };
 
@@ -145,17 +145,24 @@ describe('這一位身上會長出哪幾筆額度', () => {
     assert.equal(ents[2].sourcePlanName, null, '加購不是從範本展開的');
   });
 
-  test('營養品也加得進來，而且它論份不論次（ADR-0057）', () => {
+  test('營養品也加得進來，一次購買一筆、帶金額（ADR-0057）', () => {
     const row = {
       ...newRow('王小明'),
       usePlan: false,
-      extras: [bought(buy.PRODUCT_PICK, { productId: 'prod-yetaimei' }, { totalQty: 2 })],
+      extras: [bought(buy.PRODUCT_PICK, {
+        items: [
+          { productId: 'prod-yetaimei', name: '夜態美' },
+          { productId: 'prod-gaba', name: 'GABA' },
+        ],
+        amountTwd: 5000,
+      }, { totalQty: 2 })],
     };
     const ents = entitlementsFor(row, SHARED, CTX);
 
-    assert.deepEqual(ents.map((e) => e.label), ['夜態美']);
+    assert.deepEqual(ents.map((e) => e.label), ['營養品 5,000（夜態美＋GABA）']);
     assert.equal(ents[0].type, 'product');
-    assert.equal(ents[0].productId, 'prod-yetaimei');
+    assert.equal(ents[0].amountTwd, 5000);
+    assert.deepEqual(ents[0].items.map((x) => x.productId), ['prod-yetaimei', 'prod-gaba']);
     assert.equal(ents[0].courseId, null);
     assert.deepEqual(validateRoster([row], SHARED, CTX), [], '營養品主檔要進得了驗證');
   });
