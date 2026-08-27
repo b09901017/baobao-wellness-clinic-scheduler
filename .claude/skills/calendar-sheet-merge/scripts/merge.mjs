@@ -142,13 +142,20 @@ export function ivProductOf(summary, products = []) {
   return null;
 }
 
-/** `治3` = 治療室3；`IL.9`、`IL 9` = 點滴9（使用者確認過：IL 後面的數字是點滴室）。 */
+/**
+ * `治3` = 治療室3；`IL.9`、`IL 9` = 點滴9（使用者確認過：IL 後面的數字是點滴室）。
+ *
+ * 她也會直接把房間寫出來：`腸道點滴.9`、`IL（點3`。**這一種要有 `點` 這個字**——
+ * 沒有它的裸數字（`雪顏.2`）意思不明，寧可留空也不要掛到錯的房間。
+ */
 export function roomOf(summary) {
   const s = String(summary).replace(/\s+/g, '');
   const t = /治(\d+)/.exec(s);
   if (t) return `治${t[1]}`;
   const il = /(?:ILIB|IL)[.．]?(\d+)/i.exec(s);
-  return il ? `點滴${il[1]}` : null;
+  if (il) return `點滴${il[1]}`;
+  const drip = /點滴?[.．]?(\d+)/.exec(s);
+  return drip ? `點滴${drip[1]}` : null;
 }
 
 // ---------- 這一筆是哪一類 ----------
@@ -193,8 +200,11 @@ const NOT_A_NAME = [
  *
  * `生日`、`退伍` 這種**不在名單上**是刻意的：那是「那天會發生的事」，不是待辦。
  * 給它一個勾掉的框，等於問她要不要把別人的生日勾掉。
+ *
+ * `壓` 收的是整個「壓進某個系統」的家族（`壓表`、`休假壓outlook`），不是只有 `壓表` ——
+ * 她拿同一個字講 Abovee、Examine、Outlook 三件事。
  */
-const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|記錄|紀錄|記|蒐集|收集|繳|買|取消|查|準備|報名|填|送|還|催|領|退費|盤點|壓表|看|Examine|耀聖/i;
+const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|記錄|紀錄|記|提醒|蒐集|收集|繳|買|取消|查|準備|報名|填|送|還|催|領|退費|盤點|壓|看|Examine|耀聖/i;
 
 /**
  * 這句話裡除了認得出來的東西以外，還剩下的中文字 —— 拿來判斷「寫的是別人」。
@@ -229,7 +239,14 @@ function residualPeople(summary) {
  */
 function leadsWithTime(summary) {
   const head = String(summary ?? '').replace(/^[^\d一-鿿A-Za-z]+/u, '');
-  return /^\d/.test(head) && Boolean(timeInSummary(summary));
+  if (!/^\d/.test(head)) return false;
+  // 開頭是 13 以上、**後面沒有接分鐘**的裸數字，多半是日期不是時間：
+  // `20這週約王小明`（假名）講的是 20 號那一週要約人，不是晚上八點的行程。
+  // 院內作業時間到 20:00，所以這種數字真的當時間用的時候她會寫成
+  // `13.30`、`8：50` —— 有分鐘的那一種這裡照樣放行。
+  const bare = /^(\d{1,2})(?![.：:]?\d{2})/.exec(head);
+  if (bare && Number(bare[1]) >= 13) return false;
+  return Boolean(timeInSummary(summary));
 }
 
 // 那三類的名字借 app 那一份（`domain/mergeImport.js` 的 `KIND_LABEL`）。
@@ -261,6 +278,12 @@ export function classifyEvent(summary) {
   if (LEAVE_WORDS.test(s)) {
     const others = residualPeople(s);
     if (!others) return { kind: 'leave', why: '標題寫了休假，而且沒有寫到別人' };
+    // 寫了別人就不是她的假 —— 但這句話也可能根本不是在講「誰放假」，
+    // 而是一件跟假有關的雜事（`休假壓outlook` 是每個月提醒自己去壓一次）。
+    // 落到行事備註的話，理由那一句會變成「寫的是「壓」的假」，那是句廢話。
+    if (!leadsWithTime(s) && TODO_WORDS.test(s)) {
+      return { kind: 'note', why: '講的是一件跟休假有關、做完可以勾掉的事，不是她自己不在' };
+    }
     return { kind: 'personal', why: `寫的是「${others}」的假，不是她自己不在` };
   }
   if (!leadsWithTime(s) && TODO_WORDS.test(s)) {
@@ -670,39 +693,45 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
-    customers: r.plans.filter((p) => !p.skip).map((p) => ({
-      sheetName: p.sheetName,
-      name: displayName(p.customer?.name ?? p.customerName, { renames: r.renames, sheetName: p.sheetName }),
-      rawName: p.customer?.name ?? p.customerName,
-      source: p.customer?.source ?? null,
-      notes: p.customer?.notes ?? '',
-      entitlements: p.entitlements.map((e) => ({
-        key: e.key,
-        type: e.doc.type,
-        label: e.doc.label,
-        totalQty: e.doc.totalQty,
-        courseName: SEED.courses.find((c) => c.id === e.doc.courseId)?.name ?? null,
-        optionEquipmentNames: (e.doc.optionEquipmentIds ?? [])
-          .map((id) => SEED.equipment.find((x) => x.id === id)?.name ?? id),
-        productName: e.productName,
-      })),
-      visits: p.days.map((d) => ({
-        date: d.date,
-        status: 'done',
-        slots: d.filled.map((f) => ({
-          entitlementKey: f.slot.entitlementKey,
-          courseName: f.slot.courseName,
-          startsAt: f.match?.startsAt ?? null,
-          endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName),
-          roomName: f.match?.room ?? null,
-          therapistName: f.match?.therapistName ?? null,
-          equipmentName: f.match?.equipmentName ?? null,
-          ivProductName: f.match?.ivProductName ?? null,
-          confidence: f.match?.confidence ?? null,
-          evidence: f.match?.evidence ?? null,
+    customers: r.plans.filter((p) => !p.skip).map((p) => {
+      // 舊表那一列寫著每一次用的營養點滴品項簡寫，`planForSheet()` 已經把它
+      // 拆成一份品項一筆額度了（`r11:護肝排毒`）。行事曆上沒寫品項的那幾筆
+      // 退回用它 —— 那不是猜，是她自己在試算表上寫的那一格。
+      const productOf = new Map(p.entitlements.map((e) => [e.key, e.productName ?? null]));
+      return {
+        sheetName: p.sheetName,
+        name: displayName(p.customer?.name ?? p.customerName, { renames: r.renames, sheetName: p.sheetName }),
+        rawName: p.customer?.name ?? p.customerName,
+        source: p.customer?.source ?? null,
+        notes: p.customer?.notes ?? '',
+        entitlements: p.entitlements.map((e) => ({
+          key: e.key,
+          type: e.doc.type,
+          label: e.doc.label,
+          totalQty: e.doc.totalQty,
+          courseName: SEED.courses.find((c) => c.id === e.doc.courseId)?.name ?? null,
+          optionEquipmentNames: (e.doc.optionEquipmentIds ?? [])
+            .map((id) => SEED.equipment.find((x) => x.id === id)?.name ?? id),
+          productName: e.productName,
         })),
-      })),
-    })),
+        visits: p.days.map((d) => ({
+          date: d.date,
+          status: 'done',
+          slots: d.filled.map((f) => ({
+            entitlementKey: f.slot.entitlementKey,
+            courseName: f.slot.courseName,
+            startsAt: f.match?.startsAt ?? null,
+            endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName),
+            roomName: f.match?.room ?? null,
+            therapistName: f.match?.therapistName ?? null,
+            equipmentName: f.match?.equipmentName ?? null,
+            ivProductName: f.match?.ivProductName ?? productOf.get(f.slot.entitlementKey) ?? null,
+            confidence: f.match?.confidence ?? null,
+            evidence: f.match?.evidence ?? null,
+          })),
+        })),
+      };
+    }),
     // 已確認、還沒來 —— 所以是 confirmed 不是 done，會算進「已排未上」
     futureVisits: r.leftover.future.map((x) => ({
       customerName: nameOf(x.customer), date: x.event.date, status: 'confirmed',

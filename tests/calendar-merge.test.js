@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  parseIcs, timeOf, importJson, reportText, classifyEvent,
+  parseIcs, timeOf, importJson, reportText, classifyEvent, roomOf,
 } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
 
 const ics = (...events) => ['BEGIN:VCALENDAR', ...events, 'END:VCALENDAR'].join('\r\n');
@@ -263,4 +263,81 @@ test('休假一律是整天 —— 行事曆的時間欄會歪，而休假本來
   assert.equal(comp.startTime, null);
   assert.equal(personal.allDay, false, '行事備註不受影響');
   assert.equal(personal.startTime, '14:00');
+});
+
+// 2026-08-27 那一批真檔跑出來的三個修正。三個都是「她真的那樣寫」，
+// 不是想像出來的寫法，理由見 references/findings.md 的同一次紀錄。
+describe('2026-08-27 那一批補上的寫法', () => {
+  const kindOf = (title) => classifyEvent(title).kind;
+
+  test('「提醒」是待辦動詞', () => {
+    assert.equal(kindOf('提醒王小明外檢'), 'note');
+  });
+
+  // `20這週約王小明` 的 20 是日期不是晚上八點。認時間那一支會把它讀成 20:00，
+  // 於是一件「20 號那一週要約人」的待辦變成一筆晚上的行程。
+  test('開頭是 13 以上的裸數字算日期，不算時間', () => {
+    assert.equal(kindOf('20這週約王小明'), 'note');
+    assert.equal(kindOf('27改王小明.20這週約復健'), 'note');
+  });
+
+  // 放寬只到「沒接分鐘」為止 —— 她真的要寫下午一點半就會寫成 13.30。
+  test('接了分鐘的還是時間，照樣不是待辦', () => {
+    assert.equal(kindOf('13.30王小明身體組成'), 'personal');
+    assert.equal(kindOf('8：50王小明健檢'), 'personal');
+  });
+
+  // 她也會直接把點滴室寫出來（`腸道點滴.9`、`IL（點3`），而原本只認得 `治N` 與 `IL.N`。
+  test('直接寫出來的點滴室也算數，但裸數字不算', () => {
+    assert.equal(roomOf('2.客戶A腸道點滴.9+問日期'), '點滴9');
+    assert.equal(roomOf('13：30IL（點3'), '點滴3');
+    assert.equal(roomOf('IL治2'), '治2', '治療室優先，不要被後面的字搶走');
+    assert.equal(roomOf('2.客戶A.雪顏.2'), null, '裸數字意思不明，留空');
+    assert.equal(roomOf('不能排點滴，沒有醫生'), null);
+  });
+
+  // 一句「跟假有關的雜事」不是「誰放假」。落到行事備註的話，理由那一句
+  // 會變成「寫的是「壓」的假」—— 她看了只會更困惑。
+  test('跟休假有關的雜事是待辦，不是誰的假', () => {
+    assert.equal(kindOf('休假壓outlook'), 'note');
+    assert.match(classifyEvent('休假壓outlook').why, /勾掉/);
+    // 對照組：真的寫了別人名字的假照樣退回行事備註
+    assert.equal(kindOf('陳小美休假'), 'personal');
+    assert.equal(kindOf('請假'), 'leave');
+  });
+
+  // 舊表那一列寫著每一次用的品項簡寫，而行事曆上她常常只寫「點滴」。
+  // 額度已經照品項拆好了，退回用它不是猜。
+  test('行事曆沒寫品項時，退回用額度上的品項', () => {
+    const plans = [{
+      sheetName: '客戶A',
+      customerName: '客戶A',
+      customer: { name: '客戶A', source: null, notes: '' },
+      skip: null,
+      entitlements: [{
+        key: 'r11:護肝排毒',
+        productName: '護肝排毒',
+        doc: { type: 'single', label: '營養點滴 - 護肝排毒', totalQty: 3, courseId: 'course-iv-drip' },
+      }],
+      days: [{
+        date: '2026-07-06',
+        filled: [
+          { slot: { entitlementKey: 'r11:護肝排毒', courseName: '營養點滴' }, match: null },
+          {
+            slot: { entitlementKey: 'r11:護肝排毒', courseName: '營養點滴' },
+            // 行事曆寫了品項的那一筆以行事曆為準
+            match: { confidence: 'high', startsAt: '14:00', ivProductName: '雪顏亮彩', evidence: '2.客戶A雪顏點滴' },
+          },
+        ],
+      }],
+    }];
+    const out = importJson({
+      plans, events: [], unreadable: [], span: ['2026-07-06', '2026-07-06'],
+      leftover: { calendarOnly: [], future: [], personal: [] }, ambiguous: [], renames: {},
+    });
+    const [noEvidence, fromCalendar] = out.customers[0].visits[0].slots;
+    assert.equal(noEvidence.ivProductName, '護肝排毒');
+    assert.equal(noEvidence.startsAt, null, '退回品項不代表也編一個時間出來（ADR-0011）');
+    assert.equal(fromCalendar.ivProductName, '雪顏亮彩');
+  });
 });
