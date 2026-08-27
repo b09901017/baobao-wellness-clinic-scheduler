@@ -698,25 +698,33 @@ function wireOverview(ctx) {
 }
 
 async function toggleNote(ctx, id) {
-  const note = ctx.notes.find((n) => n.id === id);
-  if (!note) return;
+  // **不要叫它 `note`** —— 這一頁把 `components/note.js` 也 import 成 `note`，
+  // 同名的區域變數會把整支模組蓋掉。
+  const row = ctx.notes.find((n) => n.id === id);
+  if (!row) return;
+
+  // 掛了額度的那幾筆是營養品的提醒 —— 勾掉之前先問「給了哪些」。
+  // 問話那一段刻意在 withSaveState 外面：包進去的話，她按了「先不要」
+  // 也會跳一句「勾掉了」（四個入口共用 `note.prepareToggle()`）。
+  const plan = await note.prepareToggle(row, noteDeps());
+  if (!plan) return;
+
   try {
-    // 掛了額度的那幾筆是營養品的提醒 —— 勾掉之前先問「給了哪些」。
-    // 四個入口共用 `noteUi.toggleWithDelivery()`（見那一支的檔頭）。
-    const wrote = await toast.withSaveState(
-      () => note.toggleWithDelivery(note, {
-        loadEntitlements: (cid) => customersData.listEntitlements(cid),
-        recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-        setDone: (id, done) => notesData.setDone(id, done),
-        today: todayISO(),
-      }),
-      { success: note.done ? '拿回來了' : '勾掉了' },
-    );
-    if (wrote === false) return;
+    await toast.withSaveState(plan.run, { success: plan.success });
     await render(ctx.el);
   } catch {
     /* 已處理 */
   }
+}
+
+/** 勾一筆隨手記要用到的那幾支。四個入口的形狀一樣，只有這一份。 */
+function noteDeps() {
+  return {
+    loadEntitlements: (cid) => customersData.listEntitlements(cid),
+    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+    setDone: (id, done) => notesData.setDone(id, done),
+    today: todayISO(),
+  };
 }
 
 async function addNote(ctx, form) {

@@ -729,19 +729,19 @@ function openNoteCard(el, data, id, date) {
       },
       onMount: (card) => {
         card.querySelector('[data-tick]')?.addEventListener('click', async () => {
+          // 營養品的提醒會先問「給了哪些」（四個入口共用 `note.prepareToggle()`）。
+          // 問話在 withSaveState 外面 —— 包進去的話她按了「先不要」也會跳
+          // 一句「勾掉了」。
+          const plan = await note.prepareToggle(current, {
+            loadEntitlements: (cid) => customersData.listEntitlements(cid),
+            recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+            setDone: (id, done) => notesData.setDone(id, done),
+            today: todayISO(),
+          });
+          if (!plan) return;
+
           try {
-            // 營養品的提醒會先問「給了哪些」（四個入口共用同一支，見
-            // `components/note.js` 的 toggleWithDelivery）
-            const wrote = await toast.withSaveState(
-              () => note.toggleWithDelivery(current, {
-                loadEntitlements: (cid) => customersData.listEntitlements(cid),
-                recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-                setDone: (id, done) => notesData.setDone(id, done),
-                today: todayISO(),
-              }),
-              { success: current.done ? '拿回來了' : '勾掉了' },
-            );
-            if (wrote === false) return;
+            await toast.withSaveState(plan.run, { success: plan.success });
           } catch {
             return; /* 已處理 */
           }

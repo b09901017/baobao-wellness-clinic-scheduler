@@ -1378,6 +1378,11 @@ function examField(row, picked) {
 /**
  * 這一筆額度的健檢候選。**不是二返就回 `null`**（跟「是二返但沒有候選」不一樣，
  * 那一種要印一句話）。
+ *
+ * 來訪讀的是這一頁載進來的那一份（`loadAll()`：往回 180 天）。超過那個範圍的
+ * 健檢在這裡列不出來 —— 而那沒關係，鏈條本來就是「健檢 +21 天拿到報告、
+ * 再 +7 天約掉」。真的要接一場半年前的健檢時，日曆的來訪編輯器讀的是
+ * `listByCustomer()`（完整的一份），那裡選得到。
  */
 function examChoicesOf(row, picked) {
   const ent = picked?.entitlement;

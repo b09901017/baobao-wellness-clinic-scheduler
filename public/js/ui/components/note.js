@@ -273,10 +273,14 @@ export function wireWho(root, { load }) {
 // 而少掉的那一筆紀錄要到她對帳時才會被發現 —— 同 `components/buy.js` 的教訓。
 
 /**
- * 勾掉一筆隨手記。**營養品的提醒會先問「給了哪些」。**
+ * 準備勾掉一筆隨手記。**營養品的提醒會先問「給了哪些」。**
+ *
+ * 回的是**一份還沒執行的寫入**，不是直接寫進去。這樣呼叫端才能只把真的會寫的
+ * 那一下包進 `toast.withSaveState()` —— 包住問話那一段的話，她按了「先不要」
+ * 也會跳一句「勾掉了」，而那是在說一件沒有發生的事（順帶還會給出一個
+ * 什麼都退不掉的「復原」）。
  *
  * 逐項預設全部打勾，跟收尾那一張同一個判斷（十次有九次是整包給完）。
- * 底下那顆主要按鈕的字跟著勾選數變。
  *
  * @param {object} note 那一筆隨手記
  * @param {object} deps
@@ -284,16 +288,19 @@ export function wireWho(root, { load }) {
  * @param {(note, entitlement, delivery) => Promise<void>} deps.recordDelivery
  * @param {(id: string, done: boolean) => Promise<void>} deps.setDone
  * @param {string} deps.today
- * @returns {Promise<boolean>} 有沒有真的寫進去（她按了「先不要」就是 false）
+ * @returns {Promise<{run: () => Promise<void>, success: string}|null>}
+ *          null = 她按了「先不要」，什麼都不要做
  */
-export async function toggleWithDelivery(note, {
+export async function prepareToggle(note, {
   loadEntitlements, recordDelivery, setDone, today,
 }) {
+  const plain = {
+    run: () => setDone(note.id, !note.done),
+    success: note.done ? '拿回來了' : '勾掉了',
+  };
+
   // 拿回來（取消勾選）永遠只是拿回來 —— 不要順便問她給了什麼。
-  if (!note?.entitlementId || note.done) {
-    await setDone(note.id, !note.done);
-    return true;
-  }
+  if (!note?.entitlementId || note.done) return plain;
 
   let entitlement = null;
   try {
@@ -305,16 +312,15 @@ export async function toggleWithDelivery(note, {
 
   // 額度讀不到（被刪了、離線）就退回普通的勾掉 —— 少一筆交付紀錄，
   // 不是少一次勾選。擋下來的話她連那一列都關不掉。
-  if (!entitlement) {
-    await setDone(note.id, true);
-    return true;
-  }
+  if (!entitlement) return plain;
 
   const picked = await askDelivery(entitlement, note);
-  if (!picked) return false;
+  if (!picked) return null;
 
-  await recordDelivery(note, entitlement, { at: today, productIds: picked });
-  return true;
+  return {
+    run: () => recordDelivery(note, entitlement, { at: today, productIds: picked }),
+    success: picked.length === undelivered(entitlement).length ? '都給了，記起來了' : '記起來了',
+  };
 }
 
 /**
