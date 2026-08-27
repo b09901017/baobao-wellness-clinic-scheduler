@@ -109,7 +109,15 @@ service cloud.firestore {
             || d.ivProductId is string)
         && (!d.keys().hasAny(['productId'])
             || d.productId == null
-            || d.productId is string);
+            || d.productId is string)
+        // 一次購買的營養品有好幾款、一個金額、還有「哪天給了哪些」的紀錄。
+        // 這裡一樣只驗形狀 —— 裡面每一款指不指得到主檔在
+        // domain/products.js 的 validateProduct() 擋。
+        && (!d.keys().hasAny(['items']) || d.items == null || d.items is list)
+        && (!d.keys().hasAny(['amountTwd'])
+            || d.amountTwd == null
+            || (d.amountTwd is int && d.amountTwd > 0))
+        && (!d.keys().hasAny(['deliveries']) || d.deliveries == null || d.deliveries is list);
     }
 
     match /customers/{customerId} {

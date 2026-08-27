@@ -10,7 +10,7 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { validateSlots as contraindicationErrors } from './contraindications.js';
 import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, DOCTOR_ROLE } from './masterData.js';
+import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
 export const VISIT_STATUSES = [
@@ -160,6 +160,62 @@ export function isImported(visit) {
 /** 這筆來訪還算不算佔著次數。取消的不算，時段已經還回去了。 */
 export function isActive(visit) {
   return !visit?.deletedAt && visit?.status !== 'cancelled';
+}
+
+// ---------- 同一天再記一段 ----------
+//
+// 排班的原子單位是「某人某天來一次」（SPEC 第 4.4 節），所以同一天再壓一段
+// 是併進既有的那一筆，不是開第二筆。但**併進去的是時段，不是進度** ——
+// 那一段她還沒跟客人講過，不能因為那一筆來訪走得比較前面就跟著算數。
+
+/**
+ * 這一筆來訪還收不收得下新的時段。
+ *
+ * 已完成與未到都**收不下**：那一天已經結案了。收下去的話那一段會當場被
+ * `slotOutcome()` 算成「做完了」或「沒來」，額度立刻扣一次，而且不會長出
+ * 任何一張「簽療程單」——她回頭想改還會撞上「已完成是唯讀鎖定區」
+ *（SPEC 第 6.4 節，`isLocked()`）。壓表那一頁的日期選得到今天，
+ * 而今天那一筆可能早上就結案了，所以這不是理論上的邊緣狀況。
+ *
+ * 取消的也收不下，`isActive()` 已經濾掉了 —— 這一支只回答狀態那一半。
+ */
+export function acceptsMoreSlots(status) {
+  return status === 'pending_confirm' || status === 'confirmed';
+}
+
+/**
+ * 把一段併進同一天已經有的那一筆來訪。
+ *
+ * **併進一筆已確認的來訪會把整筆退回「等客戶回覆」。** 一筆來訪只有一個狀態，
+ * 而她確實還沒跟客人講過新加的這一段 —— 不退回去的話，「跟客人確認時間」
+ * 那一列（從 `pending_confirm` 推導的，見 ADR-0001）根本不會出現，
+ * 於是那一段的時間從頭到尾沒有人問過客人。
+ *
+ * 多問一次的代價，遠小於一段沒問過的時間被當成談定了。
+ *
+ * 已經長出來的登記任務不動：`syncTasksForVisit()` 本來就不會因為狀態往回走
+ * 而收掉既有任務（見那一支的檔頭），所以她已經做掉的 Examine 不會被洗掉。
+ *
+ * @param {object} visit 同一天已經有的那一筆
+ * @param {object} slot 要加上去的時段
+ * @param {{note?: string|null}} [opts] 「這一次記一句」，沒給就留原本那一句
+ * @returns {{visit: object, reopened: boolean}} reopened = 有沒有退回等客戶回覆
+ */
+export function withExtraSlot(visit, slot, { note } = {}) {
+  const reopened = visit.status === 'confirmed';
+  return {
+    reopened,
+    visit: {
+      ...visit,
+      note: note === undefined ? (visit.note ?? null) : note,
+      slots: [...(visit.slots ?? []), slot],
+      ...(reopened
+        // confirmedAt 一起清掉 —— 留著的話詳情頁會寫「客戶已確認」的時間戳，
+        // 而那一筆現在是待確認的。
+        ? { status: INITIAL_STATUS, confirmedAt: null, statusAt: new Date().toISOString() }
+        : {}),
+    },
+  };
 }
 
 // ---------- 收尾（客人來了沒、療程單簽了沒） ----------
@@ -390,6 +446,7 @@ export function validateVisit(visit, ctx) {
 
 function visitErrors(visit, {
   customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
+  customerVisits = [],
 }) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
@@ -459,6 +516,20 @@ function visitErrors(visit, {
         && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
       errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
     }
+
+    // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
+    // （見 assignmentWarnings）—— 舊資料一筆都沒有這個欄位，擋下來等於
+    // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
+    if (slot.followupForVisitId) {
+      const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
+      // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
+      // 試算表會把二返註記寫到一個不相干的日期底下。
+      else if (ent?.followupForEntitlementId
+          && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
+        errors.push(`${at}：指定的那一筆來訪裡沒有「${ent.label}」對應的健檢`);
+      }
+    }
   });
 
   // 醫療禁忌：整個系統唯一的硬性阻擋
@@ -521,22 +592,32 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 }
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
-function assignmentWarnings(visit, { courses = [], rooms = [] }) {
+function assignmentWarnings(visit, { courses = [], rooms = [], entitlements = [] }) {
   const out = [];
   const coursesById = byId(courses);
+  const entsById = byId(entitlements);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
     if (!course) return;
     const at = `第 ${i + 1} 個時段`;
 
-    // 醫師走的是 requiresEquipment / requiresIvProduct 那條路（課程上一個布林、
-    // 時段上一個 id），不是 assigns —— assigns 是單選的，而二返同時要診間和醫師。
-    // 見 docs/adr/0026-doctors-are-assignable-staff.md
-    if (course.requiresDoctor && !slot.doctorId) {
+    // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
+    // 同一條原則），而且她可能就是還沒決定要接哪一次。
+    // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
+    if (entsById[slot.entitlementId]?.followupForEntitlementId && !slot.followupForVisitId) {
+      out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
+    }
+
+    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（A 類一律選得到，
+    // 其餘看課程上的旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
+    // 而症狀是「壓表選得到、來訪編輯器說不需要」。
+    //
+    // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
+    if (picksDoctor(course) && !slot.doctorId) {
       out.push(`${at}：${course.name} 還沒選醫師`);
     }
-    if (!course.requiresDoctor && slot.doctorId) {
+    if (!picksDoctor(course) && slot.doctorId) {
       out.push(`${at}：${course.name} 不需要指定醫師`);
     }
 

@@ -49,6 +49,7 @@ import * as buy from '../components/buy.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { deliveryState, monthsOf } from '../../domain/products.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
@@ -699,11 +700,19 @@ function productsBlock(bought) {
       <span class="section__n">${sorted.length}</span>
     </div>
     <ul class="link-list">
-      ${sorted.map((e) => `
+      ${sorted.map((e) => {
+        // 「給了沒」是這一段最重要的資訊 —— 她的原話是「假設我當天忘記給了，
+        // 然後可以記我給了那些多少」。規則只在 `domain/products.js`。
+        const gave = deliveryState(e);
+        return `
         <li><button class="row-link" type="button" data-ent="${esc(e.id)}">
-          <span class="link-list__label">${esc(e.label ?? '（沒有名稱）')}</span>
-          <span class="badge num">×${esc(e.totalQty ?? 0)}</span>
-        </button></li>`).join('')}
+          <span class="link-list__label">${esc(e.label ?? '（沒有名稱）')}
+            <span class="muted">${esc(gave.text)}${
+              gave.at ? `・${esc(shortDate(gave.at))}` : ''}</span></span>
+          <span class="badge ${gave.state === 'all' ? 'badge--ok' : ''} num"
+            >${esc(monthsOf(e))} 個月</span>
+        </button></li>`;
+      }).join('')}
     </ul>`;
 }
 
@@ -855,7 +864,10 @@ function taskBlock(tasks) {
 
     ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
     ${!tasks.length
-      ? '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'
+      // ADR-0027：任務等客人說可以之後才長。這是 CLAUDE.md 點名的那四句之一，
+      // 改「什麼時候產生」的規則時要一起改。用她的詞，不要寫「系統登記」。
+      ? `<p class="muted" style="margin: 0">還沒有任務。
+          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來。</p>`
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-2)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
@@ -933,12 +945,22 @@ function notesBlock(notes) {
 }
 
 async function toggleNote(ctx, id) {
-  const note = ctx.notes.find((n) => n.id === id);
-  if (!note) return;
+  // **不要叫它 `note`** —— 這一頁把 `components/note.js` 也 import 成 `note`。
+  const row = ctx.notes.find((n) => n.id === id);
+  if (!row) return;
+
+  // 營養品的提醒會先問「給了哪些」。問話在 withSaveState 外面 ——
+  // 包進去的話她按了「先不要」也會跳一句「勾掉了」。
+  const plan = await note.prepareToggle(row, {
+    loadEntitlements: (cid) => data.listEntitlements(cid),
+    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+    setDone: (nid, done) => notesData.setDone(nid, done),
+    today: todayISO(),
+  });
+  if (!plan) return;
+
   try {
-    await toast.withSaveState(() => notesData.setDone(id, !note.done), {
-      success: note.done ? '拿回來了' : '勾掉了',
-    });
+    await toast.withSaveState(plan.run, { success: plan.success });
     await reload(ctx);
   } catch {
     /* 已處理 */
@@ -1234,7 +1256,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const next = { ...live, ...readEntitlement(form) };
+    // 「＋ 新增…」打的那一款先寫進主檔，換回一張指得到它的草稿。
+    // 沒有要新增就原樣回來，一次 IO 都不會發生（三個入口共用同一支）。
+    const next = await buy.commitNewProduct(
+      { ...live, ...readEntitlement(form) },
+      { products: ctx.products },
+      (row) => config.create('products', row),
+    );
 
     const errors = buy.validate(next, {
       courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,

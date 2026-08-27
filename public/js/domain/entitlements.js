@@ -3,6 +3,8 @@
 // 次數在「已完成」才扣，未到不扣但獨立計數。現行試算表在排定時就扣，
 // 導致取消改期後數字與現實脫節 —— 這裡不重蹈覆轍。
 
+import { validateProduct } from './products.js';
+
 /**
  * 這一個時段實際上算哪一種。次數的算法只認這一支。
  *
@@ -300,12 +302,12 @@ export function validateEntitlement(e, { courses = [], equipment = [], products 
       errors.push('指定的器材不存在或已刪除');
     }
   } else if (isProduct(e)) {
-    // 營養品那一筆一定要指得出是哪一款：它沒有課程可以問，名字又是可以改的
+    // 營養品那一筆一定要指得出是哪幾款：它沒有課程可以問，名字又是可以改的
     // 顯示字串。指不出來的話，之後主檔改名它就變成一筆沒有人認得的紀錄。
-    if (isBlank(e.productId)) errors.push('要選一個營養品');
-    else if (!aliveProduct.some((x) => x.id === e.productId)) {
-      errors.push('指定的營養品不存在或已刪除');
-    }
+    //
+    // 規則本身在 `domain/products.js` 的 `validateProduct()` —— 一次購買
+    // 可以有好幾款、還有一個金額，那些只寫在那一支。
+    errors.push(...validateProduct(e, { products }));
   } else {
     errors.push(`型態必須是 ${ENTITLEMENT_TYPES.join('、')}`);
   }

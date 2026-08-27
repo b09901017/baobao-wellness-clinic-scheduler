@@ -29,6 +29,7 @@ import {
   TIER_PRESETS, tieredLabel, itemisedLabel, validateEntitlement,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
+import { itemsOf, productLabel } from '../../domain/products.js';
 
 /** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
 export const POOL_PICK = '__pool__';
@@ -38,6 +39,12 @@ export const PRODUCT_PICK = '__product__';
 
 /** 「幾萬的」那一排裡的「其他…」。它不是一個等級，是一顆展開輸入框的鈕。 */
 export const TIER_OTHER = '__other__';
+
+/**
+ * 「哪幾種」那一排裡的「＋ 新增…」。同上 —— 它不是一款營養品，
+ * 是一顆展開輸入框的鈕。存下去的時候才真的寫進主檔。
+ */
+export const PRODUCT_NEW = '__newproduct__';
 
 /** 一張空白的草稿。 */
 export function blank() {
@@ -53,7 +60,15 @@ export function blank() {
     tier: null,
     tierOther: false,
     ivProductId: null,
+    // 一次購買可以有好幾種營養品，外加一個金額（`domain/products.js`）。
+    // `productId` 留著只為了讀得懂舊資料 —— 新的一律寫進 `items`。
     productId: null,
+    items: [],
+    amountTwd: null,
+    // 「＋ 新增…」那一格開著沒有。跟 `tierOther` 一模一樣的作法 ——
+    // 開合狀態存在草稿上，畫的時候就決定，不必另外接一段。
+    newProduct: false,
+    newProductName: '',
   };
 }
 
@@ -119,8 +134,12 @@ export function pick(value, e, master) {
       ivProductId: null,
       tier: null,
       tierOther: false,
-      // 換去營養品再換回來的時候，她剛剛挑的那一款留著
+      // 換去營養品再換回來的時候，她剛剛挑的那幾款與金額都留著
       productId: e.productId ?? null,
+      items: e.items ?? [],
+      amountTwd: e.amountTwd ?? null,
+      newProduct: Boolean(e.newProduct),
+      newProductName: e.newProductName ?? '',
       durationMin: null,
       frequencyRule: null,
     };
@@ -135,6 +154,10 @@ export function pick(value, e, master) {
     type: 'single',
     courseId: course?.id ?? null,
     productId: null,
+    items: [],
+    amountTwd: null,
+    newProduct: false,
+    newProductName: '',
     optionEquipmentIds: [],
     tier,
     tierOther: Boolean(tier) && !TIER_PRESETS.includes(tier),
@@ -183,8 +206,21 @@ export function afterPick(value, draft, typed, master) {
  */
 export function afterDetail(draft, typed, master) {
   const prev = typed && 'label' in typed ? { ...draft, label: typed.label } : draft;
-  const next = { ...draft, ...typed };
+  const next = withItemNames({ ...draft, ...typed }, master);
   return { ...next, label: retitle(prev, next, master) };
+}
+
+/**
+ * 把 `items` 上的名字從主檔補齊。
+ *
+ * 表單只送得回 id（丸子上的 `data-chip-value`），但名字要**跟著存** ——
+ * 那一款之後被主檔刪掉時，畫面上還要印得出來（同 `payload()` 對
+ * `productId` 的理由）。認不出來的那一筆留著 id、名字空白，不要丟掉。
+ */
+function withItemNames(e, master) {
+  if (e?.type !== 'product' || !Array.isArray(e.items)) return e;
+  const byId = new Map((master.products ?? []).map((p) => [p.id, p.name]));
+  return { ...e, items: e.items.map((x) => ({ ...x, name: byId.get(x.productId) ?? x.name ?? '' })) };
 }
 
 /**
@@ -195,9 +231,9 @@ export function afterDetail(draft, typed, master) {
  * 營養品就是那一款的名字。
  */
 export function autoLabel(e, master) {
-  if (e?.type === 'product') {
-    return (master.products ?? []).find((p) => p.id === e.productId)?.name ?? '';
-  }
+  // 一次購買一筆，名字裡帶金額與那幾款 —— 她的舊表就是那樣寫的
+  // （`營養品(5000) : 夜態美+速體淨…`）。規則只在 `domain/products.js`。
+  if (e?.type === 'product') return itemsOf(e).length ? productLabel(e) : '';
   if (e?.type === 'pool') return '復能';
 
   const course = (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
@@ -240,7 +276,19 @@ export function read(form, v) {
     out.tierOther = other;
   }
   if (form.elements.ivProductId) out.ivProductId = v.ivProductId ?? null;
-  if (form.elements.productId) out.productId = v.productId ?? null;
+
+  if (form.elements.productIds) {
+    // 值從 `v`（`readForm()` 的結果）讀，不從 `form.elements` ——
+    // `form.elements.productIds` 只回答「這一排在不在畫面上」（同上面的 tier）。
+    const raw = f.splitMulti(v.productIds);
+    out.newProduct = raw.includes(PRODUCT_NEW);
+    // 「新增…」不是一款，是一顆展開輸入框的鈕（同「其他…」那一格）。
+    out.newProductName = out.newProduct ? String(v.newProductName ?? '').trim() : '';
+    out.items = raw
+      .filter((id) => id !== PRODUCT_NEW)
+      .map((id) => ({ productId: id, name: '' }));
+    out.amountTwd = String(v.amountTwd ?? '').trim() === '' ? null : Number(v.amountTwd);
+  }
 
   return out;
 }
@@ -274,7 +322,11 @@ export function payload(e) {
     // 原因（`domain/followups.js` 的檔頭）。
     tier: e.tier ?? null,
     ivProductId: e.type === 'single' ? (e.ivProductId ?? null) : null,
-    productId: product ? (e.productId ?? null) : null,
+    // 一次購買一筆，裡面好幾款（`domain/products.js`）。`productId` 保持
+    // 寫 null —— 舊資料上有值的那幾筆讀得懂就好，新的不再寫它。
+    productId: null,
+    items: product ? (e.items ?? []) : null,
+    amountTwd: product ? (e.amountTwd ?? null) : null,
   };
 }
 
@@ -295,8 +347,13 @@ export function summaryLine(e) {
   return `${e.label || '（沒有名稱）'} ${e.totalQty ?? 0} ${unitOf(e)}`;
 }
 
-/** 營養品論份，其餘論次。 */
-export const unitOf = (e) => (e?.type === 'product' ? '份' : '次');
+/**
+ * 營養品論**月**，其餘論次。
+ *
+ * 她的原話：「次數1就是一個月2就是兩個月的」。以前寫「份」是猜的 ——
+ * 一次購買裡有四款，「2 份」那個數字對不上任何東西。
+ */
+export const unitOf = (e) => (e?.type === 'product' ? '個月' : '次');
 
 // ---------- 底下是這一支自己的欄位 ----------
 
@@ -367,14 +424,45 @@ function ivRow(e, ivProducts, course) {
     )}`;
 }
 
-/** 營養品的「哪一種」。名字就是那一款的名字，不用再預告一次。 */
+/**
+ * 營養品的「哪幾種」與「多少錢」。
+ *
+ * **複選**，因為一次購買就是好幾種：她記的是
+ * `營養品(5000) : 夜態美+速體淨+粒能康+GABA`，那是一筆不是四筆
+ *（金額是整包的，拆成四筆就沒有地方放）。見 `domain/products.js`。
+ *
+ * 「新增…」讓她當場加一款沒有事先設定好的 —— 她的原話是
+ * 「有些可能沒有事先設定好的這邊可以新增」。按下去在旁邊展開一格打名字，
+ * 送出時才真的寫進主檔（`config/products`）。
+ */
 function productRow(e, products) {
-  return f.chips({
-    name: 'productId',
-    label: '哪一種',
-    value: e.productId ?? null,
-    options: products.map((p) => ({ value: p.id, label: p.name })),
-  });
+  const ids = itemsOf(e).map((x) => x.productId).filter(Boolean);
+  const adding = Boolean(e.newProduct);
+  return `
+    ${f.chips({
+      name: 'productIds',
+      label: '哪幾種　可以複選',
+      value: adding ? [...ids, PRODUCT_NEW] : ids,
+      multi: true,
+      options: [
+        ...products.map((p) => ({ value: p.id, label: p.name })),
+        { value: PRODUCT_NEW, label: '＋ 新增…', lead: '沒有的' },
+      ],
+    })}
+    <div data-newproduct ${adding ? '' : 'hidden'}>
+      ${f.text({
+        name: 'newProductName', label: '新的那一款叫什麼',
+        value: e.newProductName ?? '',
+        placeholder: '例：Q10',
+        hint: '存下去的時候會一起加進「設定 → 營養品」，下次就選得到了。',
+      })}
+    </div>
+    ${f.number({
+      name: 'amountTwd', label: '多少錢　選填',
+      value: e.amountTwd ?? '', min: 0, step: 100,
+      hint: '整包的價錢。會寫進名稱裡，也會進試算表。',
+    })}
+    ${nameHint(productLabel(e), ids.length)}`;
 }
 
 /**
@@ -410,10 +498,45 @@ function qtyField(e) {
     </div>`;
 }
 
+/**
+ * 她在「＋ 新增…」那一格打的那一款，寫進主檔並選起來。
+ *
+ * **三個入口共用同一支**，理由跟 `wire()` 一樣：三邊各寫一次的話，遲早有一邊
+ * 忘了把新建的那一筆選進 `items`，於是她打了名字、存下去，那一款卻不在裡面。
+ *
+ * 存檔前叫一次。沒有要新增就原樣回去，一次 IO 都不會發生。
+ *
+ * **寫入那一下是呼叫端傳進來的**，這一支不 import `/data` ——
+ * `tests/buy.test.js` 直接載入這個檔案，而 `data/config.js` 那條路會一路
+ * import 到 Firebase SDK（一個 `https:` 網址），Node 載不動。
+ *
+ * @param {object} draft
+ * @param {{products?: object[]}} master 呼叫端手上的主檔（會被就地補一筆）
+ * @param {(data: {name: string}) => Promise<string>} createProduct 回新的 id
+ * @returns {Promise<object>} 換掉之後的草稿
+ */
+export async function commitNewProduct(draft, master = {}, createProduct) {
+  const name = String(draft?.newProductName ?? '').trim();
+  if (!draft?.newProduct || !name || typeof createProduct !== 'function') return draft;
+
+  // 同名的已經有了就用既有那一筆，不要長出第二個「Q10」——
+  // 主檔上兩筆同名的東西，她之後分不出該選哪一個。
+  const existing = (master.products ?? []).find(
+    (p) => !p.deletedAt && String(p.name).trim() === name,
+  );
+  const id = existing?.id ?? await createProduct({ name });
+  if (!existing) (master.products ??= []).push({ id, name });
+
+  const items = [...(draft.items ?? [])];
+  if (!items.some((x) => x.productId === id)) items.push({ productId: id, name });
+
+  return { ...draft, items, newProduct: false, newProductName: '', label: draft.label };
+}
+
 // ---------- 底下是三個入口共用的那一份接線 ----------
 
 /** 「哪一種／幾萬的」那幾排丸子。換了它們要跟著改顯示名稱。 */
-const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productId"]';
+const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productIds"]';
 
 /**
  * 這一張表自己管的那幾個欄位，從表單上讀回來。
@@ -476,10 +599,10 @@ export function wire(root, { form, draft, master, typed = values, onChange }) {
     }
   });
 
-  // 「其他…」展開的那一格。**打字不重畫** —— 重畫會把游標與輸入法的組字狀態
-  // 一起洗掉，所以顯示名稱與那句預告是就地改的。
+  // 「其他…」與「新增…」展開的那一格。**打字不重畫** —— 重畫會把游標與
+  // 輸入法的組字狀態一起洗掉，所以顯示名稱與那句預告是就地改的。
   root.addEventListener('input', (ev) => {
-    if (!ev.target.matches?.('[name="tierText"]')) return;
+    if (!ev.target.matches?.('[name="tierText"], [name="newProductName"]')) return;
     const box = form();
     if (!box) return;
 
@@ -488,6 +611,7 @@ export function wire(root, { form, draft, master, typed = values, onChange }) {
     reflect(root, box, next, master);
   });
 }
+
 
 /** 不重畫的那條路上，把新的顯示名稱寫回畫面。兩個地方會講到它。 */
 function reflect(root, form, e, master) {

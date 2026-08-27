@@ -38,6 +38,11 @@ import {
   todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
+import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
+import {
+  FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
+} from '../../domain/followups.js';
+import { isConfigured } from '../../data/sheetSync.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
@@ -693,16 +698,33 @@ function wireOverview(ctx) {
 }
 
 async function toggleNote(ctx, id) {
-  const note = ctx.notes.find((n) => n.id === id);
-  if (!note) return;
+  // **不要叫它 `note`** —— 這一頁把 `components/note.js` 也 import 成 `note`，
+  // 同名的區域變數會把整支模組蓋掉。
+  const row = ctx.notes.find((n) => n.id === id);
+  if (!row) return;
+
+  // 掛了額度的那幾筆是營養品的提醒 —— 勾掉之前先問「給了哪些」。
+  // 問話那一段刻意在 withSaveState 外面：包進去的話，她按了「先不要」
+  // 也會跳一句「勾掉了」（四個入口共用 `note.prepareToggle()`）。
+  const plan = await note.prepareToggle(row, noteDeps());
+  if (!plan) return;
+
   try {
-    await toast.withSaveState(() => notesData.setDone(id, !note.done), {
-      success: note.done ? '拿回來了' : '勾掉了',
-    });
+    await toast.withSaveState(plan.run, { success: plan.success });
     await render(ctx.el);
   } catch {
     /* 已處理 */
   }
+}
+
+/** 勾一筆隨手記要用到的那幾支。四個入口的形狀一樣，只有這一份。 */
+function noteDeps() {
+  return {
+    loadEntitlements: (cid) => customersData.listEntitlements(cid),
+    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+    setDone: (id, done) => notesData.setDone(id, done),
+    today: todayISO(),
+  };
 }
 
 async function addNote(ctx, form) {
@@ -784,6 +806,7 @@ export async function renderGroup(el, group) {
   };
   paintTasks(ctx);
   loadTaskVisits(ctx);
+  loadFollowupBookings(ctx);
 }
 
 /**
@@ -827,6 +850,70 @@ function fillSlotCounts(el) {
     const visit = taskVisits.visits.get(node.dataset.slots);
     if (!visit) continue;
     node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.hidden = false;
+  }
+}
+
+/**
+ * 「約二返」那幾列各自約了沒。task id → `{booked, text}`。
+ *
+ * 跟 `taskVisits` 一樣存在模組裡：`paintTasks()` 會重畫好幾次，
+ * 而重畫不該把已經讀回來的東西丟掉。
+ */
+let followupBookings = new Map();
+
+/**
+ * 那幾張「約二返」對應的健檢，二返到底約了沒。
+ *
+ * 她的原話：「我發現這個預約二返我可以直接勾掉但是其實沒有還沒預約」。
+ * 勾掉之後那一次健檢整條鏈就結束了，所以「其實還沒約」這件事會就這樣消失。
+ *
+ * **照客戶收攏再讀**：一位客戶讀一次額度與來訪，不是一列讀一次 ——
+ * 同一個人身上兩張「約二返」是正常的（買了 3 次健檢）。
+ *
+ * 跟 `loadTaskVisits()` 同一個作法：頁面先畫出來，這一段等資料回來再補上去。
+ */
+async function loadFollowupBookings(ctx) {
+  const mine = ctx.open.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.customerId && t.visitId);
+  if (!mine.length) return;
+
+  const byCust = new Map();
+  for (const t of mine) {
+    if (!byCust.has(t.customerId)) byCust.set(t.customerId, []);
+    byCust.get(t.customerId).push(t);
+  }
+
+  try {
+    const courses = await config.listAll('courses', { includeDeleted: true });
+    const coursesById = byId(courses);
+
+    await Promise.all([...byCust.entries()].map(async ([customerId, tasks]) => {
+      const [entitlements, visits] = await Promise.all([
+        customersData.listEntitlements(customerId),
+        visitsData.listByCustomer(customerId),
+      ]);
+      for (const t of tasks) {
+        const state = bookingStateForTask(t, { entitlements, coursesById, visits });
+        // 算不出來的不寫進去 —— 那一列就照舊什麼都不說。斷言「還沒約」
+        // 會讓她照著去多約一場。
+        if (state) followupBookings.set(t.id, state);
+      }
+    }));
+  } catch {
+    // 讀不到就當這一段不存在：少一句話，不是少一頁。
+    return;
+  }
+
+  fillBookingStates(ctx.el);
+}
+
+/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillSlotCounts）。 */
+function fillBookingStates(el) {
+  for (const node of el.querySelectorAll('[data-booked]')) {
+    const state = followupBookings.get(node.dataset.booked);
+    if (!state) continue;
+    node.textContent = state.text;
+    node.className = `badge ${state.booked ? 'badge--ok' : 'badge--overdue'}`;
     node.hidden = false;
   }
 }
@@ -882,6 +969,10 @@ function paintTasks(ctx) {
     btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit)),
   );
 
+  el.querySelectorAll('[data-book-followup]').forEach((btn) =>
+    btn.addEventListener('click', () => bookFollowup(ctx, btn.dataset.bookFollowup)),
+  );
+
   el.querySelectorAll('[data-untick]').forEach((btn) =>
     btn.addEventListener('click', () => untickTask(ctx, btn.dataset.untick)),
   );
@@ -906,6 +997,7 @@ function paintTasks(ctx) {
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
   fillSlotCounts(el);
+  fillBookingStates(el);
 }
 
 function openList(ctx, today) {
@@ -989,10 +1081,18 @@ function taskRow(t, today) {
             <span class="badge">${esc(t.kind)}</span>
             ${t.visitId ? `<span class="badge" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
             <span class="badge ${badgeClass(state)}">${esc(dueLabel(t.dueDate, today))}</span>
+            ${t.kind === FOLLOWUP_TASK_KIND
+              ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
           </span>
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
+      ${t.kind === FOLLOWUP_TASK_KIND && t.customerId
+        // 她的原話：「希望這邊有可以點了直接連結到壓表……然後會自動選好二返」。
+        // 項目與「哪一次健檢的」都先選好，她只要挑日期跟時間。
+        ? `<button class="btn" type="button" data-book-followup="${esc(t.id)}"
+                   style="min-height: 40px">去壓表</button>`
+        : ''}
       ${t.visitId ? `<button class="btn" type="button" data-visit="${esc(t.visitId)}"
                              style="min-height: 40px">詳情</button>` : ''}
     </div>`;
@@ -1063,15 +1163,27 @@ async function markDone(ctx) {
   const rows = ctx.open.filter((t) => picked.has(t.id));
   if (!rows.length) return;
 
+  // 還沒看到那一場二返的那幾張，單獨講一句。**不擋**（ADR-0002：app 記錄決定，
+  // 不做決定）—— 她可能在別的地方約好了還沒回來記，或者客人當場就約了下一次。
+  // 已經約到的就不要多問，多問一次她會學會閉著眼睛按。
+  const unbooked = rows.filter((t) => followupBookings.get(t.id)?.booked === false);
+
   const ok = await confirmAction({
     title: `把 ${rows.length} 筆標成完成？`,
     consequences: [
       ...rows.slice(0, 8).map((t) => `${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}`),
       ...(rows.length > 8 ? [`⋯還有 ${rows.length - 8} 筆`] : []),
+      ...(unbooked.length ? [
+        `⚠️ 其中 ${unbooked.length} 筆還沒看到二返的預約`
+          + `（${unbooked.slice(0, 3).map((t) => t.customerName ?? '（沒有名字）').join('、')}）`,
+        '勾掉之後那幾次健檢就不會再出現在待辦上了',
+        '如果只是還沒回來記，先去壓表比較安全',
+      ] : []),
       '它們會移到「已完成」，不會消失',
       '勾錯了在那一格點回來就好',
     ],
-    confirmLabel: '標成完成',
+    confirmLabel: unbooked.length ? '還是標成完成' : '標成完成',
+    danger: unbooked.length > 0,
   });
   if (!ok) return;
 
@@ -1081,10 +1193,53 @@ async function markDone(ctx) {
       success: `${rows.length} 筆移到已完成`,
     });
     picked = new Set();
+    followupBookings = new Map();
     await renderGroup(ctx.el, ctx.group);
   } catch {
     /* 已處理 */
   }
+}
+
+/**
+ * 從「約二返」那一列跳到壓表，項目與「哪一次健檢的」都先選好。
+ *
+ * 要先問一次額度才知道要選哪一筆 —— 待辦身上只有那一次**健檢**的來訪 id，
+ * 沒有二返那一筆額度的 id（任務刻意不存那個，見 ADR-0004 的同一條判斷：
+ * 第二份資料一定會對不起來）。
+ *
+ * 月份用**這個月**：她約二返通常就是最近的事，而壓表那一頁的日期本來就換得動。
+ */
+async function bookFollowup(ctx, taskId) {
+  const t = ctx.open.find((x) => x.id === taskId);
+  if (!t?.customerId) return;
+
+  let entitlementId = null;
+  try {
+    const [entitlements, courses] = await Promise.all([
+      customersData.listEntitlements(t.customerId),
+      config.listAll('courses', { includeDeleted: true }),
+    ]);
+    const visits = await visitsData.listByCustomer(t.customerId);
+    const exam = visits.find((v) => v.id === t.visitId) ?? null;
+    const coursesById = byId(courses);
+
+    for (const pair of pairsOf(entitlements, coursesById)) {
+      if (!pair.followup || !exam) continue;
+      if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
+      entitlementId = pair.followup.id;
+      break;
+    }
+  } catch {
+    // 讀不到就照樣跳過去，只是少選好那兩顆 —— 少兩下點擊，不是少一頁。
+  }
+
+  scheduleView.openFor({
+    month: ctx.today.slice(0, 7),
+    customerId: t.customerId,
+    entitlementId,
+    followupForVisitId: entitlementId ? t.visitId : null,
+  });
+  go('/schedule');
 }
 
 /** 勾錯了點回來。已完成那一格點一列就是這個。 */
@@ -1355,12 +1510,23 @@ function wireAsk(ctx) {
 // 見 .scratch/visit-lifecycle/issues/01-confirm-row-cannot-carry-a-note.md
 
 async function renderConfirm(el) {
-  const [pending, settings] = await Promise.all([
+  // 課程主檔是為了那張「已確認」卡片上那幾句「接著會發生什麼」
+  //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
+  // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
+  // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
+  const [pending, settings, courses] = await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
+    config.listAll('courses', { includeDeleted: true }),
   ]);
   const today = todayISO();
-  paintConfirm({ el, pending: visitsToConfirm(pending, today), settings, today });
+  paintConfirm({
+    el,
+    pending: visitsToConfirm(pending, today),
+    settings,
+    today,
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+  });
 }
 
 function paintConfirm(ctx) {
@@ -1647,6 +1813,11 @@ async function applyConfirm(ctx) {
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
   const summary = describeConfirmed(visits, rejected);
+  const said = confirmConsequences(
+    writes.filter((v) => v.status === 'confirmed'),
+    ctx.coursesById ?? {},
+    isConfigured(ctx.settings),
+  );
 
   try {
     await toast.withSaveState(
@@ -1665,7 +1836,7 @@ async function applyConfirm(ctx) {
     );
     drawer = null;
     await renderConfirm(ctx.el);
-    showConfirmed(summary);
+    showConfirmed(summary, said);
   } catch {
     /* 已處理 */
   }
@@ -1682,11 +1853,13 @@ async function applyConfirm(ctx) {
  * 走既有的 `openCard()`，不新開一種浮層 —— 這個 app 的浮層已經有三種了
  *（抽屜、卡片、對話框，ADR-0048）。
  */
-function showConfirmed(summary) {
+function showConfirmed(summary, said = []) {
   if (!summary.rows.length) return; // 整批都退掉了，toast 那一句已經講完了
 
   const card = openCard({
-    title: `${summary.name}・加進日曆`,
+    // **不是「加進日曆」** —— 那幾筆壓表的時候就已經在日曆上了，這一步改的是
+    // 顏色不是有沒有。寫成「加進日曆」會讓她以為在這之前日曆上是空的。
+    title: `${summary.name}・已確認`,
     subtitle: `${summary.rows.length} 段`,
     body: `
       <ul class="link-list">
@@ -1695,6 +1868,10 @@ function showConfirmed(summary) {
             ${esc(timeLabel(r.slot))}
             <span class="muted">${esc(r.slot.courseName ?? '')}</span></span></li>`).join('')}
       </ul>
+      ${said.length ? `
+        <ul class="dialog__list" style="margin: var(--space-3) 0 0">
+          ${said.map((line) => `<li>${esc(line)}</li>`).join('')}
+        </ul>` : ''}
       ${summary.rejected
         ? `<p class="muted" style="margin: var(--space-3) 0 0">
              退掉 ${summary.rejected} 段（客人說不行）。那幾段的時間已經還回去了。</p>`
@@ -1718,16 +1895,21 @@ async function renderClose(el) {
   const today = todayISO();
   // 課程主檔是為了「這一段要不要簽療程單」。二返不用簽，其餘都要 ——
   // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
-  const [unclosed, courses] = await Promise.all([
+  const [unclosed, courses, settings] = await Promise.all([
     visitsData.listUnclosed(today),
     // 含已刪除的：她停用一個課程，那幾筆還沒結案的來訪照樣要問得出「要不要簽單」
     config.listAll('courses', { includeDeleted: true }),
+    config.getSettings(),
   ]);
   paintClose({
     el,
     rows: visitsToClose(unclosed, today),
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
     today,
+    settings,
+    // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
+    // 開啟抽屜時才讀那一位的 —— 這一頁上可能有十幾筆，全部先讀是白費的。
+    entitlements: [],
   });
 }
 
@@ -1860,6 +2042,16 @@ function closeDrawerHtml(ctx) {
             壓表時記的：${esc(visit.note)}</p>` : ''}
         </div>
 
+        <ul class="dialog__list" style="margin: var(--space-3) var(--gutter) 0">
+          ${closeConsequences({
+            visit,
+            doneCount,
+            entitlements: ctx.entitlements ?? [],
+            coursesById: ctx.coursesById,
+            sheetSyncOn: isConfigured(ctx.settings),
+          }).map((line) => `<li>${esc(line)}</li>`).join('')}
+        </ul>
+
         <div class="drawer__actions">
           <button class="btn btn--primary" type="button" data-apply>
             ${doneCount ? `這 ${doneCount} 段做了，結案` : '一段都沒做 → 記成未到'}</button>
@@ -1873,9 +2065,20 @@ function wireClose(ctx) {
   const { el } = ctx;
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       drawer = { visitId: btn.dataset.open, missed: new Set() };
       paintClose(ctx);
+
+      // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
+      // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
+      const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
+      if (!visit?.customerId || ctx.entitlements?.length) return;
+      try {
+        ctx.entitlements = await customersData.listEntitlements(visit.customerId);
+      } catch {
+        return; // 讀不到就少一句話，不是少一頁
+      }
+      if (drawer?.visitId === visit.id) paintClose(ctx);
     }),
   );
 
@@ -1890,6 +2093,9 @@ function wireClose(ctx) {
 
   const close = () => {
     drawer = null;
+    // 換一位客戶時不要沿用上一位的額度 —— 那會讓「會多一張追蹤健檢報告」
+    // 出現在一個根本沒買健檢的人身上。
+    ctx.entitlements = [];
     paintClose(ctx);
   };
   el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));

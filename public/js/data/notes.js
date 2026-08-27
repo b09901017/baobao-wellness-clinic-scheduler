@@ -6,8 +6,11 @@ import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firest
 
 import * as repo from './repo.js';
 import { normalize, normalizePatch } from '../domain/notes.js';
+import { withDelivery, isFullyDelivered, noteTextFor } from '../domain/products.js';
 
 const PATH = 'notes';
+
+// 營養品的交付規則全部在 domain/products.js，這一層只負責寫。
 
 export const get = (id) => repo.getOne(PATH, id);
 
@@ -89,4 +92,46 @@ export const restore = (id) => repo.restore(PATH, id);
  */
 export function setDone(id, done) {
   return repo.update(PATH, id, { done, doneAt: done ? new Date().toISOString() : null });
+}
+
+/**
+ * 勾掉一筆營養品的提醒，**連同「給了哪些」一起記進那筆額度**。
+ *
+ * 兩件事寫在同一個 commit 裡：分開寫的話「勾好了、交付沒記到」會留下一筆
+ * 看起來做完、其實查不出給了什麼的紀錄 —— 而那正是要進試算表的東西。
+ * 同一個 commit 也讓復原退得回兩筆（見 `data/repo.js` 的 withUndo）。
+ *
+ * 沒給完的那幾種**留著那一筆提醒不勾掉**，只把文字換成剩下的：
+ * 她的原話是「假設我當天忘記給了，然後可以記我給了那些多少」。
+ * 日期不動 —— 隨手記的日期不是死線（`domain/notes.js`），過了也不會變紅字，
+ * 而自己往後跳一天會讓她以為是系統排的。
+ *
+ * @param {object} note 那一筆提醒（要有 id、entitlementId、customerId）
+ * @param {object} entitlement 那一筆營養品（要有 id）
+ * @param {{at: string, productIds: string[]}} delivery
+ */
+export async function recordDelivery(note, entitlement, delivery) {
+  const patch = withDelivery(entitlement, delivery);
+  if (!patch) return;
+
+  const after = { ...entitlement, ...patch };
+  const finished = isFullyDelivered(after);
+  const at = new Date().toISOString();
+
+  await repo.commit([
+    {
+      op: 'update',
+      path: `customers/${note.customerId}/entitlements`,
+      id: entitlement.id,
+      changes: patch,
+    },
+    {
+      op: 'update',
+      path: PATH,
+      id: note.id,
+      changes: finished
+        ? { done: true, doneAt: at }
+        : { done: false, doneAt: null, text: noteTextFor(after, note.customerName ?? '') },
+    },
+  ]);
 }

@@ -95,13 +95,13 @@ test('某位客戶身上還沒處理掉的', () => {
 test('沒掛客戶時兩個欄位一起清成 null', () => {
   const out = normalize({ text: '  記一下  ', customerId: '   ', customerName: '王小姐' });
   assert.deepEqual(out,
-    { text: '記一下', customerId: null, customerName: null, date: null, done: false });
+    { text: '記一下', customerId: null, customerName: null, date: null, done: false, entitlementId: null });
 });
 
 test('掛了客戶就兩個都留著', () => {
   const out = normalize({ text: 'x', customerId: 'c1', customerName: ' 王小姐 ', done: true });
   assert.deepEqual(out,
-    { text: 'x', customerId: 'c1', customerName: '王小姐', date: null, done: true });
+    { text: 'x', customerId: 'c1', customerName: '王小姐', date: null, done: true, entitlementId: null });
 });
 
 // ---------- 日期（選填）----------
@@ -213,4 +213,21 @@ describe('同一句話不要記兩次', () => {
     assert.equal(sameOpenNote([{ ...open, deletedAt: 'x' }], { customerId: 'c1', text: '禮拜一再問問' }), null);
     assert.equal(sameOpenNote([open], { customerId: 'c1', text: '   ' }), null);
   });
+});
+
+// ---------- 營養品的提醒 ----------
+
+test('掛了額度的那一筆留著 entitlementId —— 勾掉時要靠它找回那一包', () => {
+  const out = normalize({ text: '給營養品', customerId: 'c1', customerName: '王小明', entitlementId: 'ent-1' });
+  assert.equal(out.entitlementId, 'ent-1');
+});
+
+test('一般的隨手記是 null，不是空字串', () => {
+  assert.equal(normalize({ text: 'x' }).entitlementId, null);
+  assert.equal(normalize({ text: 'x', entitlementId: '  ' }).entitlementId, null);
+});
+
+test('改一筆的時候不碰它 —— 待辦編輯器帶不到它，而少帶就等於清空', () => {
+  const out = normalizePatch({ text: '換一句', date: '2026-09-01' });
+  assert.ok(!('entitlementId' in out));
 });

@@ -204,7 +204,7 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
     generatedAt: '2026/8/10',
   });
 
-  assert.equal(bundle.format, 2);
+  assert.equal(bundle.format, 3);
   assert.equal(bundle.sheets.length, 1);
 
   const sheet = bundle.sheets[0];
@@ -216,15 +216,21 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
   assert.deepEqual(sheet.totals, { total: 12, done: 1, booked: 1, remaining: 10 });
 });
 
-// ADR-0057：她的舊表第 12 列就是營養品（ADR-0024），所以它有那一列；
-// 但合計那一行寫的是「剩餘 N 次」，而兩罐夜態美不是兩次。
-test('營養品有那一列，但不進合計', () => {
+// ADR-0057 + 格式 3：營養品自己一區，不進矩陣也不進合計。
+// 留在矩陣裡的話那四個數字欄印的是月數，而「應有 2 已完成 0 已排未上 0 剩餘 2」
+// 沒有一個看得懂 —— 2026-08-27 她選了「排版乾淨」那一條。
+test('營養品自己一區，不進矩陣也不進合計', () => {
   const bundle = syncBundle({
     customers: [{ id: 'c1', name: '客戶A' }],
     entitlementsBy: {
       c1: [
         { id: 'e1', label: '復能', totalQty: 12 },
-        { id: 'p1', type: 'product', label: '夜態美', totalQty: 2, productId: 'prod-1' },
+        {
+          id: 'p1', type: 'product', label: '營養品 5,000（夜態美＋GABA）', totalQty: 2,
+          amountTwd: 5000,
+          items: [{ productId: 'prod-1', name: '夜態美' }, { productId: 'prod-2', name: 'GABA' }],
+          deliveries: [{ at: '2026-08-05', productIds: ['prod-1', 'prod-2'] }],
+        },
       ],
     },
     visitsBy: { c1: [] },
@@ -233,8 +239,35 @@ test('營養品有那一列，但不進合計', () => {
   });
 
   const sheet = bundle.sheets[0];
-  assert.deepEqual(sheet.rows.map((r) => r.label), ['復能', '夜態美']);
+  assert.deepEqual(sheet.rows.map((r) => r.label), ['復能'], '矩陣裡沒有營養品');
   assert.deepEqual(sheet.totals, { total: 12, done: 0, booked: 0, remaining: 12 });
+
+  assert.equal(sheet.products.length, 1);
+  assert.equal(sheet.products[0].amount, 5000);
+  assert.equal(sheet.products[0].months, 2);
+  assert.deepEqual(sheet.products[0].items, ['夜態美', 'GABA']);
+  assert.equal(sheet.products[0].done, true);
+  assert.equal(sheet.products[0].deliveredAt, '2026-08-05');
+});
+
+test('還沒給的營養品講得出「還沒給」', () => {
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: {
+      c1: [{
+        id: 'p1', type: 'product', label: '營養品（夜態美）', totalQty: 1,
+        items: [{ productId: 'prod-1', name: '夜態美' }],
+      }],
+    },
+    visitsBy: { c1: [] },
+    today: '2026-08-10',
+  });
+
+  const p = bundle.sheets[0].products[0];
+  assert.equal(p.done, false);
+  assert.equal(p.delivery, '還沒給');
+  assert.equal(p.deliveredAt, null);
+  assert.equal(p.amount, null, '沒填金額就是 null，不是 0');
 });
 
 test('三種狀態三個符號，同一格混在一起也分得出來', () => {

@@ -19,7 +19,7 @@
 // 決定與理由見 docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md。
 
 import { counts } from './entitlements.js';
-import { addDays, dayOf } from './dates.js';
+import { addDays, dayOf, shortDate } from './dates.js';
 
 /**
  * 「約二返」的任務種類。
@@ -252,6 +252,172 @@ function doneVisitsFor(entitlement, visits = []) {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
+// ---------- 一場二返接在哪一次健檢後面 ----------
+//
+// 配對到這裡為止都只做到**額度**那一層（`followupForEntitlementId`）。
+// 額度層答得出「還欠幾次」，答不出「這一次是哪一次的」——
+// 而一筆健檢額度買了 3 次就有 3 次健檢來訪對 3 次二返來訪。
+//
+// 少了那一層的代價，兩個地方都在用猜的補：
+//
+//   - 試算表的二返註記（`sheetReport.js` 的 `followupNotes()`）**照位置配**：
+//     第一次健檢配第一次二返。順序一亂就配錯，而錯了畫面上看不出來。
+//   - 「約二返」那張待辦勾得掉，但沒有人檢查世界上真的有那一場。
+//
+// 所以時段上多一個 `followupForVisitId`：**那一次健檢的來訪 id**。
+// 放在時段不放在來訪 —— 一筆來訪可以有好幾段，二返那一段跟同一天別的療程沒關係。
+//
+// 粒度是**來訪**不是時段：同一天兩段健檢會併在同一筆來訪裡（排班的原子單位是
+// 「某人某天來一次」），而她說「理論上我也不會同一天約兩個健檢」。
+// 真的發生時那一天只認得出一次，資料健檢會列出來。
+
+/** 這一段是不是一場二返（扣的是二返那一筆額度）。 */
+const isFollowupSlot = (slot, followupId) => slot?.entitlementId === followupId;
+
+/**
+ * 這一筆二返額度已經認領掉哪幾次健檢。
+ *
+ * 已取消／已刪除的來訪不算 —— 那一場沒發生，它認領的健檢要放回去讓人重新約。
+ *
+ * @returns {Map<string, object>} 健檢來訪 id → 那一筆二返來訪
+ */
+export function claimedExams(followupEntitlementId, visits = []) {
+  const out = new Map();
+  for (const v of visits ?? []) {
+    if (v.deletedAt || v.status === 'cancelled') continue;
+    for (const slot of v.slots ?? []) {
+      if (!isFollowupSlot(slot, followupEntitlementId)) continue;
+      if (slot.followupForVisitId) out.set(slot.followupForVisitId, v);
+    }
+  }
+  return out;
+}
+
+/**
+ * 壓二返時「這是哪一次健檢的」那一排要列什麼。
+ *
+ * **全部列出來，被認領的也列**，只是標記起來 —— 藏掉的話她看不出「另外那一次
+ * 已經約過了」，而那正是她要對照的資訊。已經被別人認領的不給選（`taken`），
+ * 但**正在編輯的那一段自己認領的那一次要給選**（`selected`），
+ * 不然一打開編輯器她就會發現原本選好的那一顆按不下去。
+ *
+ * @param {{source:object, followup:object|null}} pair
+ * @param {object[]} visits 這位客戶的全部來訪
+ * @param {object} [opts]
+ * @param {string|null} [opts.selected] 正在編輯的那一段現在指著哪一次
+ * @param {string|null} [opts.excludeVisitId] 正在編輯的那一筆來訪（它自己的認領不算數）
+ * @returns {{visitId:string, date:string, taken:boolean, bookedOn:string|null}[]}
+ *          日期舊的在前 —— 二返是照順序約掉的
+ */
+export function examChoicesFor(pair, visits = [], { selected = null, excludeVisitId = null } = {}) {
+  // 沒配到二返額度就沒有候選。列出來也選不了 —— 沒有額度可以扣，
+  // 那一段根本存不進去（同 `owed()` 的守衛）。
+  if (!pair?.source || !pair.followup) return [];
+  const claimed = claimedExams(pair.followup.id, visits);
+
+  return doneVisitsFor(pair.source, visits)
+    .slice()
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .map((v) => {
+      const by = claimed.get(v.id) ?? null;
+      // 自己認領的那一次不算「被佔走」—— 她正在改的就是那一段。
+      const mine = by && (by.id === excludeVisitId || v.id === selected);
+      return {
+        visitId: v.id,
+        date: v.date,
+        taken: Boolean(by) && !mine,
+        bookedOn: by?.date ?? null,
+      };
+    });
+}
+
+/**
+ * 這一次健檢的二返約了沒。「約二返」那張待辦要靠它講出「已約 9/3」還是「還沒約」。
+ *
+ * 找的是**扣二返額度、而且指著這一次健檢**的那一段。指不到的（舊資料、
+ * 她在別的地方約的）回 `null` —— 不要退回「照位置猜一個」，
+ * 猜出來的日期會讓她以為已經約好了。
+ *
+ * @returns {{visit:object, slot:object}|null}
+ */
+export function bookingForExam(examVisitId, followupEntitlementId, visits = []) {
+  for (const v of visits ?? []) {
+    if (v.deletedAt || v.status === 'cancelled') continue;
+    for (const slot of v.slots ?? []) {
+      if (isFollowupSlot(slot, followupEntitlementId) && slot.followupForVisitId === examVisitId) {
+        return { visit: v, slot };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 「約二返」那一列右邊那一句：約了沒、約在哪天幾點。
+ *
+ * 她的原話：「我發現這個預約二返我可以直接勾掉但是其實沒有還沒預約」。
+ * 那一列以前只寫得出種類與死線，看不出世界上到底有沒有那一場。
+ *
+ * **這是推導值，不是新欄位** —— 存第二份一定會對不起來（ADR-0004 的同一條判斷）。
+ *
+ * @param {{visit:object, slot:object}|null} booking `bookingForExam()` 的結果
+ * @returns {{booked:boolean, text:string}}
+ */
+export function describeBooking(booking) {
+  if (!booking) return { booked: false, text: '還沒約' };
+  const at = booking.slot?.startsAt ? ` ${booking.slot.startsAt}` : '';
+  return { booked: true, text: `已約 ${shortDate(booking.visit.date)}${at}` };
+}
+
+/**
+ * 這一筆「約二返」的待辦，對應的那一次健檢約了沒。
+ *
+ * 待辦掛在健檢那一筆來訪上（`task.visitId`），所以問的就是那一次健檢。
+ * 找不到配對（額度被刪了、種類不對）一律回 `null` —— **不要回「還沒約」**，
+ * 那是在斷言一件不知道的事，而她會照著它去多約一場。
+ *
+ * @returns {{booked:boolean, text:string}|null}
+ */
+export function bookingStateForTask(task, { entitlements = [], coursesById = {}, visits = [] }) {
+  if (task?.kind !== FOLLOWUP_TASK_KIND || !task.visitId) return null;
+
+  const exam = (visits ?? []).find((v) => v.id === task.visitId) ?? null;
+  if (!exam) return null;
+
+  for (const pair of pairsOf(entitlements, coursesById)) {
+    if (!pair.followup) continue;
+    // 這一張待辦掛的那一次健檢，扣的是這一筆配對的健檢額度嗎
+    if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
+    return describeBooking(bookingForExam(task.visitId, pair.followup.id, visits));
+  }
+
+  return null;
+}
+
+/**
+ * 這位客戶身上，每一筆配對的每一次健檢現在是什麼狀態。
+ *
+ * 待辦中心、客戶詳情、試算表三個地方問的是同一句話，所以只有這一份。
+ *
+ * @returns {{pair:object, examVisitId:string, examDate:string,
+ *            booking:{visit:object, slot:object}|null}[]}
+ */
+export function examStates(entitlements = [], coursesById = {}, visits = []) {
+  const out = [];
+  for (const pair of pairsOf(entitlements, coursesById)) {
+    if (!pair.followup) continue;
+    for (const exam of doneVisitsFor(pair.source, visits).slice().reverse()) {
+      out.push({
+        pair,
+        examVisitId: exam.id,
+        examDate: exam.date,
+        booking: bookingForExam(exam.id, pair.followup.id, visits),
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * 這位客戶現在該有哪幾張待辦，以及每一筆健檢走到鏈條的哪一站。
  *
@@ -321,7 +487,15 @@ export function syncFollowupTasks({
     const want = owed(pair, visits);
     if (!want) continue;
 
-    const candidates = doneVisitsFor(pair.source, visits).filter((v) => !settled.has(v.id));
+    // 已經真的約好那一場的健檢也不用待辦了。**這一道是連結那一層帶來的精準度**：
+    // `owed()` 早就會因為多一場二返而少算一次，但它算的是**幾張**，不是**哪幾張** ——
+    // 所以在這一道之前，被收掉的可能是別的那一次健檢的待辦，而真的約掉的那一次
+    // 反而還掛在那裡。她看到的症狀是「我明明約好了，它還在叫我去約」。
+    //
+    // 舊資料（二返沒指到健檢）走不到這裡，行為跟以前一模一樣。
+    const booked = claimedExams(pair.followup.id, visits);
+    const candidates = doneVisitsFor(pair.source, visits)
+      .filter((v) => !settled.has(v.id) && !booked.has(v.id));
 
     // 已經有待辦的排前面，其餘照日期新到舊。二返是照順序約掉的，先做的健檢
     // 先約，所以還欠的一定是最後那幾次。已有的排前面則是為了不要每存一次檔

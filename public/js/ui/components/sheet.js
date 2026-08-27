@@ -194,6 +194,31 @@ const isFormControl = (el) =>
   Boolean(el?.closest?.('input, textarea, select, [contenteditable="true"]'));
 
 /**
+ * 全站橫著捲的那幾種容器。**這一份要跟 `app.css` 的 `.drawer__body` 那一段對得上**
+ * —— 那裡把同一組選出來開 `touch-action: pan-x pan-y`，這裡把同一組的橫向手勢
+ * 還給瀏覽器。少一邊都沒有用。
+ *
+ * `.noscroll-bar` 是慣例上的那顆總開關（「橫著捲、只是不畫捲軸」），所以
+ * `.calfilter` / `.deck__track` / `.swipe` 都被它蓋到了。`.chiprow` 要單獨列：
+ * `components/form.js` 的 `chips()` 畫出來的那一排沒有掛 `.noscroll-bar`，
+ * 而那正是「微調」面板裡滑不動的那一排。
+ *
+ * `.chips` 與 `.qty` 刻意不在裡面 —— 它們是 `flex-wrap: wrap`，換行不橫捲。
+ */
+const SIDEWAYS = '.chiprow, .strip, .noscroll-bar';
+
+/**
+ * 手指按著的地方在不在一個**真的捲得動**的橫向容器裡。
+ *
+ * 「真的捲得動」是關鍵：一排只有三顆丸子時它捲不動，那時候橫著滑本來就該
+ * 拖面板 —— 不然那一排上面就變成一塊拖不動的死區。
+ */
+const sidewaysUnder = (target) => {
+  const box = target?.closest?.(SIDEWAYS);
+  return box && box.scrollWidth > box.clientWidth + 1 ? box : null;
+};
+
+/**
  * 抓著面板上下拖。**整張面板都拖得動**，不是只有上面那條橫桿。
  *
  * ## 為什麼只動 transform
@@ -217,8 +242,24 @@ const isFormControl = (el) =>
  *   - 其餘                          → 讓它自己捲
  *
  * 落在其他任何地方（把手、抬頭、留白、按鈕之間）一律拖面板。
- * 判斷只做一次，在手指移動超過 5px 的那一刻；決定了就不再改，
+ * 判斷只做一次，在第一次 `touchmove` 那一刻；決定了就不再改，
  * 免得同一個手勢裡捲一半又變成拖。
+ *
+ * ## 橫的一律不接手
+ *
+ * 上面那三條全部只看 Y，所以**橫向滑丸子時面板會把手勢搶走**：橫著滑的時候
+ * 手指不可能只動 X（`dy` 通常是 1～3px），而面板內容不夠長時 `scroller` 是
+ * `null`，於是第一條就把它判成「拖面板」，接著 `preventDefault()` 把瀏覽器的
+ * 橫向捲動當場取消 —— 症狀是「微調那裡丸子不好左右滑」，而且四個抽屜一起壞
+ *（批次建立的微調、客戶詳情的加購、來訪編輯器、待辦編輯器）。
+ *
+ * 所以在那三條之前先擋兩道：
+ *
+ *   1. **這一下比較像橫的**（|dx| > |dy|）→ 還給瀏覽器
+ *   2. **手指按在一個真的捲得動的橫向容器上**（`.chiprow` 那幾種）→ 還給瀏覽器
+ *
+ * 兩道都要：第一道看方向，第二道看她按在什麼上面 —— 她想滑丸子但手指幾乎
+ * 垂直地劃過去時，只有第二道擋得住。
  *
  * 手勢是快捷方式，不是唯一的路：把手仍然是關閉鈕，右上角還有一個叉叉，
  * 點灰底也關得掉。SPEC 第 8.0 節的「無拖拉」講的是不靠拖拉就做不到的功能。
@@ -332,9 +373,11 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
   // ---------- 一次手勢 ----------
 
   let startY = 0;
+  let startX = 0;
   let startTranslate = 0;
   let mode = 'none'; // none | undecided | sheet | scroll
   let scroller = null;
+  let sideways = null;
   // 速度用一小段時間窗算，不看最後一下。兩個事件擠在同一毫秒裡送達時，
   // 單看最後一下會算出十倍的速度，然後把「輕輕推一下」判成「用力甩」——
   // 面板就會在她只是想挪一點的時候整個關掉。
@@ -357,23 +400,26 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
     return box && box.scrollHeight > box.clientHeight + 1 ? box : null;
   };
 
-  function onStart(clientY, target) {
+  function onStart(clientY, target, clientX = 0) {
     // 在輸入框上拖是在移動游標，不是在拖面板
     if (isFormControl(target)) return;
     mode = 'undecided';
     moved = false;
     startY = clientY;
+    startX = clientX;
     samples = [{ t: Date.now(), y: clientY }];
     scroller = scrollableUnder(target);
+    sideways = sidewaysUnder(target);
     startTranslate = y;
     anim(false);
   }
 
   /** @returns {boolean} 有沒有把這個手勢接過來（接了就要擋掉預設行為） */
-  function onMove(clientY) {
+  function onMove(clientY, clientX = startX) {
     if (mode === 'none' || mode === 'scroll') return false;
 
     const dy = clientY - startY;
+    const dx = clientX - startX;
     if (Math.abs(dy) > SLOP) moved = true;
 
     if (mode === 'undecided') {
@@ -381,6 +427,19 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
       // 內容那一塊是 touch-action: pan-y，瀏覽器在第一次 touchmove 就決定
       // 要不要開始捲；那一下沒有 preventDefault，這個手勢就被它拿走了，
       // 之後再擋也沒有用 —— 症狀是「有時候拖不動」。
+      // **橫向捲得動的那幾排上面，橫的一律還給瀏覽器。** 這一道要在底下那三條
+      // 之前 —— 那三條只看 Y，落到它們手上的橫向手勢一定會被判成「拖面板」，
+      // 接著 preventDefault() 把丸子的橫向捲動當場取消（見檔頭）。
+      //
+      // 判斷**只在那幾排上面做**，其他地方一個字都不改：拿掉限定的話，
+      // 一次斜著往下拖的第一格可能是「右 2 下 1」，那就會被判成橫的、
+      // 然後整個手勢鎖在 scroll —— 症狀是面板時好時壞地拖不動。
+      // 在丸子那一排上判錯的代價小得多：她換一個地方（把手、留白）再拖一次。
+      if (sideways && Math.abs(dx) > Math.abs(dy)) {
+        mode = 'scroll';
+        return false;
+      }
+
       if (!dy) return false;
       if (!scroller) mode = 'sheet';
       else if (dy > 0 && scroller.scrollTop <= 0) mode = 'sheet';
@@ -434,14 +493,14 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
     'touchstart',
     (e) => {
       if (e.touches.length !== 1) return;
-      onStart(e.touches[0].clientY, e.target);
+      onStart(e.touches[0].clientY, e.target, e.touches[0].clientX);
     },
     { passive: true },
   );
   drawer.addEventListener(
     'touchmove',
     (e) => {
-      if (onMove(e.touches[0].clientY)) e.preventDefault();
+      if (onMove(e.touches[0].clientY, e.touches[0].clientX)) e.preventDefault();
     },
     { passive: false },
   );
@@ -450,8 +509,8 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
 
   drawer.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    onStart(e.clientY, e.target);
-    const move = (ev) => onMove(ev.clientY);
+    onStart(e.clientY, e.target, e.clientX);
+    const move = (ev) => onMove(ev.clientY, ev.clientX);
     const up = () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);

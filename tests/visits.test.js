@@ -493,7 +493,10 @@ describe('只提醒不阻擋的（warnings）', () => {
       id: 'v-other', customerName: '客戶乙', status: 'cancelled',
       slots: [{ startsAt: '13:45', endsAt: '14:15', roomId: 'r-t3', bed: null }],
     };
-    assert.deepEqual(validateVisit(visit(), ctx({ sameDayVisits: [other] })).warnings, []);
+    // 只問自撞那一條。這一筆是 A 類而且沒填醫師，所以另外還有一句「還沒選醫師」
+    // （`picksDoctor()`，ADR-0058）—— 那跟這個測試要問的事無關。
+    const { warnings } = validateVisit(visit(), ctx({ sameDayVisits: [other] }));
+    assert.ok(!warnings.some((w) => w.includes('客戶乙')));
   });
 
   test('同一間但不同床位不算撞 —— 床位才是最小單位', () => {
@@ -612,10 +615,40 @@ describe('醫師（ADR-0026）', () => {
   });
 
   test('不需要醫師的課程填了醫師只提醒，和「不需要診間」那條一樣', () => {
-    const v = visit({ slots: [{ ...visit().slots[0], doctorId: 'st-dr-xia' }] });
+    // 復能是 C 類而且沒開旗標，所以它選不到醫師（`picksDoctor()`）。
+    // 拿 A 類的來測是問錯問題 —— A 類現在一律選得到。
+    const v = visit({
+      slots: [{
+        ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery', courseName: '復能',
+        roomId: null, bed: null, therapistId: 'st-tw', equipmentId: 'eq-indiba',
+        doctorId: 'st-dr-xia',
+      }],
+    });
     const { errors, warnings } = validateVisit(v, ctx());
     assert.deepEqual(errors, []);
     assert.ok(warnings.some((w) => /不需要指定醫師/.test(w)));
+  });
+
+  test('A 類一律選得到醫師，主檔上不用逐課程再勾一次', () => {
+    // 她的原話：「A類的門診都要選醫生」。復健科醫師門診身上沒有 requiresDoctor，
+    // 但它是門診 —— 要她回主檔補勾一次，是把一條已經知道的規則交給她記得。
+    const { errors, warnings } = validateVisit(visit(), ctx());
+    assert.deepEqual(errors, [], '不強制 —— 沒選也存得下去');
+    assert.ok(warnings.some((w) => /復健科醫師門診 還沒選醫師/.test(w)));
+  });
+
+  test('非 A 類要選醫師的，主檔上的旗標照樣管用', () => {
+    // 之後真的有一個 C 類要記醫師時，主檔勾一下就有，不用改程式。
+    const courses = COURSES.map((c) => (
+      c.id === 'c-recovery' ? { ...c, requiresDoctor: true } : c));
+    const v = visit({
+      slots: [{
+        ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery', courseName: '復能',
+        roomId: null, bed: null, therapistId: 'st-tw', equipmentId: 'eq-indiba',
+      }],
+    });
+    const { warnings } = validateVisit(v, ctx({ courses }));
+    assert.ok(warnings.some((w) => /復能 還沒選醫師/.test(w)));
   });
 
   test('醫師不納入自撞提示 —— 她看不到醫師的班表（ADR-0002）', () => {

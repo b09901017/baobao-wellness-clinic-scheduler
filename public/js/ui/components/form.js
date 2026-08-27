@@ -125,9 +125,14 @@ export function select({ name, label, value, options, hint = '' }) {
  * @param {boolean} [opts.quiet] true = 選了不重畫（只換 aria-pressed）。
  *   給「換了它不會改變其他欄位」的那幾組用 —— 器材、治療師、診間、醫師、品項。
  *   她記一位客戶要點五六下，重畫的代價是卡片閃一下加捲回最上面（ADR-0038）。
+ * @param {boolean} [opts.multi] true = 複選。`value` 收的是一個陣列，
+ *   hidden input 存的是用換行串起來的值（見 `MULTI_SEP`）。一次購買的營養品
+ *   有好幾種（`domain/products.js`），那一排就是這一種。
  */
-export function chips({ name, label, value, options, hint = '', quiet = false }) {
+export function chips({ name, label, value, options, hint = '', quiet = false, multi = false }) {
+  const picked = multi ? new Set(value ?? []) : null;
   const current = value ?? null;
+  const isOn = (v) => (multi ? picked.has(v) : current === v);
   const items = options
     .map((option) => {
       const { value: v, label: l } = optionOf(option);
@@ -142,7 +147,7 @@ export function chips({ name, label, value, options, hint = '', quiet = false })
       return `${lead}
         <button class="chip" type="button" data-chip="${esc(name)}"
                 data-chip-value="${v === null ? '__null__' : esc(v)}"
-                aria-pressed="${current === v}"${disabled}>
+                aria-pressed="${isOn(v)}"${disabled}>
           ${esc(l)}${note}</button>`;
     })
     .join('');
@@ -152,8 +157,8 @@ export function chips({ name, label, value, options, hint = '', quiet = false })
       <span class="fieldgroup__label">${esc(label)}</span>
       <div class="chiprow">${items}</div>
       <input type="hidden" name="${name}"
-             value="${current === null ? '__null__' : esc(current)}"
-             ${quiet ? 'data-chip-quiet' : ''} />
+             value="${multi ? esc([...picked].join(MULTI_SEP)) : (current === null ? '__null__' : esc(current))}"
+             ${multi ? 'data-chip-multi' : ''} ${quiet ? 'data-chip-quiet' : ''} />
       ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </div>`;
 }
@@ -177,9 +182,19 @@ export function wireChips(root, { signal } = {}) {
     const box = root.querySelector(`input[type="hidden"][name="${CSS.escape(name)}"]`);
     if (!box) return;
 
-    box.value = chip.dataset.chipValue;
-    for (const other of root.querySelectorAll(`[data-chip="${CSS.escape(name)}"]`)) {
-      other.setAttribute('aria-pressed', String(other === chip));
+    if (box.dataset.chipMulti === undefined) {
+      box.value = chip.dataset.chipValue;
+      for (const other of root.querySelectorAll(`[data-chip="${CSS.escape(name)}"]`)) {
+        other.setAttribute('aria-pressed', String(other === chip));
+      }
+    } else {
+      // 複選：點一下切一次，那一顆自己改 aria-pressed，別人不動。
+      const on = chip.getAttribute('aria-pressed') !== 'true';
+      chip.setAttribute('aria-pressed', String(on));
+      const set = new Set(splitMulti(box.value));
+      if (on) set.add(chip.dataset.chipValue);
+      else set.delete(chip.dataset.chipValue);
+      box.value = [...set].join(MULTI_SEP);
     }
 
     if (box.dataset.chipQuiet === undefined) {
@@ -187,6 +202,17 @@ export function wireChips(root, { signal } = {}) {
     }
   }, { signal });
 }
+
+/**
+ * 複選的丸子把值串在一個 hidden input 裡的分隔字元。
+ *
+ * **不是逗號** —— 那一排存的是 id，而她自己加的那幾款營養品之後也可能拿名字
+ * 當 id 的一部分。換行不會出現在 id 裡，也不會出現在她打的名字裡。
+ */
+const MULTI_SEP = '\n';
+
+/** 複選丸子的 hidden input 讀回來。空字串是空陣列，不是 `['']`。 */
+export const splitMulti = (raw) => String(raw ?? '').split(MULTI_SEP).filter(Boolean);
 
 export function checkboxes({ name, label, values = [], options, hint = '' }) {
   const boxes = options

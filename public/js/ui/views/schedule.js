@@ -37,6 +37,7 @@ import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as eventsData from '../../data/events.js';
+import { isConfigured } from '../../data/sheetSync.js';
 import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
   strongestReason, sortQueueRows, QUEUE_SORTS,
@@ -45,12 +46,17 @@ import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
+  acceptsMoreSlots, withExtraSlot,
 } from '../../domain/visits.js';
+import { bookingConsequences } from '../../domain/consequences.js';
+import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
-import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
+import {
+  roomSlots, roomsForCourse, picksDoctor, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+} from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
@@ -103,20 +109,32 @@ let ctx = null;
  */
 let pendingOpen = null;
 
-export function openFor({ month, customerId }) {
-  pendingOpen = { month, customerId };
+/**
+ * @param {object} spec
+ * @param {string} spec.month 'YYYY-MM'
+ * @param {string} [spec.customerId]
+ * @param {string} [spec.entitlementId] 要先選好的那一筆額度
+ * @param {string} [spec.followupForVisitId] 二返要接的那一次健檢
+ */
+export function openFor({ month, customerId, entitlementId = null, followupForVisitId = null }) {
+  pendingOpen = { month, customerId, entitlementId, followupForVisitId };
 }
 
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
-    equipmentId: null, therapistId: null, roomKey: null,
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
   });
 }
 
-/** 換課程時要跟著清掉的：器材、治療師、診間都是綁著課程的。時間留著。 */
+/**
+ * 換課程時要跟著清掉的：器材、治療師、診間、醫師，還有「這是哪一次健檢的」——
+ * 五個都是綁著課程的。時間留著。
+ */
 function resetCourseBoundPicks() {
-  Object.assign(view, { equipmentId: null, therapistId: null, roomKey: null });
+  Object.assign(view, {
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
+  });
 }
 
 export async function render(el) {
@@ -140,12 +158,16 @@ export async function render(el) {
  * 「已壓 5 / 23」變成兩個各自算的數字，而進度是存在雲端跨裝置接續的
  * （SPEC 第 1 節）。沒有的話才開一批。
  */
-async function openPending(el, { month, customerId }) {
+async function openPending(el, { month, customerId, entitlementId, followupForVisitId }) {
   const active = await batchesData.listActive();
   const found = active.find((b) => b.targetMonth === month);
 
   resetPicks();
   view.customerId = customerId ?? null;
+  // 從「約二返」那一列點進來的：項目與「哪一次健檢的」都先選好，
+  // 她只要挑日期跟時間。**日期不猜** —— 那是她要跟客人談的事。
+  view.entitlementId = entitlementId ?? null;
+  view.followupForVisitId = followupForVisitId ?? null;
 
   if (found) {
     view.batchId = found.id;
@@ -874,7 +896,7 @@ function recordPanel(row) {
         ? `<ul class="link-list">${recorded.map((s) => `
             <li><a href="#/visits/${esc(s.visitId)}">
               <span class="link-list__label num">${esc(s.label)}</span></a></li>`).join('')}</ul>`
-        : '<p class="muted">還沒記。在 Abovee 壓完之後回來記一筆。</p>'}
+        : '<p class="muted">還沒記。在 Abovee 或 Examine 壓完之後回來記一筆。</p>'}
     </section>
 
     <section class="card card--flat">
@@ -1061,13 +1083,14 @@ function dayPanel(row) {
   const options = courseOptions(row);
   const picked = options.find((o) => o.entitlementId === view.entitlementId) ?? null;
   const sameDay = sameDayVisit(row, view.day);
+  const closed = sameDayClosed(row, view.day);
 
   return `
     <section class="card card--on">
       <div class="row" style="align-items: baseline">
         <h3 class="card__title row__main" style="margin: 0">
           ${esc(shortDate(view.day))}</h3>
-        <span class="muted">${sameDay ? `這天已經記了 ${sameDay.slots.length} 段` : '這天還沒排東西'}</span>
+        <span class="muted">${dayTally(sameDay, closed)}</span>
       </div>
       ${dayWarnings(row)}
 
@@ -1095,11 +1118,34 @@ function dayPanel(row) {
       <div class="errors" data-errors hidden></div>
       <button class="btn btn--primary btn--wide" type="button" data-add
               ${picked ? '' : 'disabled'}>加這一筆</button>
-      <p class="card__note" style="margin: var(--space-3) 0 0">
-        ${sameDay
-          ? '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。'
-          : '存下去會記成「已壓表，等客戶回覆」。系統登記等客人說可以之後才長出來。'}</p>
+      <p class="card__note" style="margin: var(--space-3) 0 0">${addNote(sameDay, closed)}</p>
     </section>`;
+}
+
+/** 這天已經有什麼。已經結案的那幾筆要單獨講 —— 它們併不進去，會另開一筆。 */
+function dayTally(sameDay, closed) {
+  const parts = [];
+  if (sameDay) parts.push(`這天已經記了 ${sameDay.slots.length} 段`);
+  if (closed.length) {
+    parts.push(`另有 ${closed.reduce((n, v) => n + (v.slots?.length ?? 0), 0)} 段已經結案`);
+  }
+  return parts.length ? esc(parts.join('・')) : '這天還沒排東西';
+}
+
+/**
+ * 「加這一筆」底下那一句。**講會發生的事，不要講不會發生的事。**
+ *
+ * 以前那一句是「系統登記等客人說可以之後才長出來」—— 她說看不懂，而且它
+ * 講的是一件不會發生的事。詳細的後果在按下去之後那一道確認裡
+ *（`domain/consequences.js`），這裡只給最短的一句。
+ */
+function addNote(sameDay, closed) {
+  if (sameDay && sameDay.status === 'confirmed') {
+    return '這一段會併進同一天那一筆，那一筆會退回「等客戶回覆」—— 這一段還沒問過客人。';
+  }
+  if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
+  if (closed.length) return '這天那一筆已經結案了，所以這一段會另開一筆新的來訪。';
+  return '存下去會記到日曆上，標成「待確認」，待辦會多一張「跟客人確認時間」。';
 }
 
 /**
@@ -1183,7 +1229,9 @@ function entFields(row, picked) {
     ${course.requiresEquipment ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all) : ''}
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
-    ${course.assigns === 'room' ? roomField(all, course) : ''}`;
+    ${course.assigns === 'room' ? roomField(all, course) : ''}
+    ${picksDoctor(course) ? doctorField(all) : ''}
+    ${examField(row, picked)}`;
 }
 
 /**
@@ -1248,15 +1296,117 @@ function ivField(all) {
 }
 
 function therapistField(all) {
+  // 治療師的選單只列治療師 —— 跑出三位醫師來的話，她要點到第三個字才發現
+  // 點錯人（ADR-0026，`staffWithRole()` 是唯一的入口）。
+  const therapists = staffWithRole(all.staff, THERAPIST_ROLE);
   return `
     <div class="fieldgroup">
       <span class="fieldgroup__label">治療師</span>
       <div class="chips">
-        ${all.staff.filter((s) => s.active !== false).map((s) => `
-          <button class="chip" type="button" aria-pressed="${s.id === view.therapistId}"
-                  data-therapist="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+        ${therapists.length
+          ? therapists.map((s) => `
+              <button class="chip" type="button" aria-pressed="${s.id === view.therapistId}"
+                      data-therapist="${esc(s.id)}">${esc(s.name)}</button>`).join('')
+          : '<span class="muted">主檔裡還沒有治療師，到「設定 → 治療師與醫師」新增。</span>'}
       </div>
     </div>`;
+}
+
+/**
+ * 醫師。**跟治療師是兩個各自獨立的選單**，同一段可以兩個都有 ——
+ * 二返同時要診間和醫師（ADR-0026）。哪些課程有這一排只寫在
+ * `domain/masterData.js` 的 `picksDoctor()`（A 類一律有）。
+ *
+ * 以前這一排只有日曆的來訪編輯器有，所以她壓完二返之後那一段的醫師一定是空的，
+ * 而試算表的二返註記括號裡讀的就是它 —— 括號因此永遠是空的。
+ */
+function doctorField(all) {
+  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">醫師　還沒定也存得下去</span>
+      <div class="chips">
+        ${doctors.length
+          ? doctors.map((d) => `
+              <button class="chip" type="button" aria-pressed="${d.id === view.doctorId}"
+                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`).join('')
+          : '<span class="muted">主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。</span>'}
+      </div>
+    </div>`;
+}
+
+/**
+ * 「這是哪一次健檢的二返」。**只有二返那一筆額度會冒出這一排。**
+ *
+ * 她的原話：「就是想要二返和健檢是一對一連結的」「期待我在壓表壓二返的時候，
+ * 可以顯示這是聯結幾號的健檢」。
+ *
+ * 只有一個候選就自動選好（`pickExamIfObvious()`）—— 大部分時候她身上只有一次
+ * 還沒約的健檢，多一下點擊沒有換到任何資訊。
+ *
+ * 已經被別的二返認領掉的那幾次照樣列出來但按不下去：藏掉的話她看不出
+ * 「另外那一次已經約過了」，而那正是她要對照的東西。
+ */
+function examField(row, picked) {
+  const choices = examChoicesOf(row, picked);
+  if (!choices) return '';
+
+  if (!choices.length) {
+    return `
+      <div class="fieldgroup">
+        <span class="fieldgroup__label">這是哪一次健檢的</span>
+        <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
+      </div>`;
+  }
+
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">這是哪一次健檢的</span>
+      <div class="chips">
+        ${choices.map((c) => `
+          <button class="chip" type="button"
+                  aria-pressed="${c.visitId === view.followupForVisitId}"
+                  ${c.taken ? 'disabled aria-disabled="true"' : ''}
+                  data-exam="${esc(c.visitId)}"
+                  title="${esc(c.taken ? `已經約在 ${shortDate(c.bookedOn)} 了` : '')}">
+            <span class="num">${esc(shortDate(c.date))}</span>
+            ${c.taken ? '<span class="chip__note">已約</span>' : ''}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+/**
+ * 這一筆額度的健檢候選。**不是二返就回 `null`**（跟「是二返但沒有候選」不一樣，
+ * 那一種要印一句話）。
+ *
+ * 來訪讀的是這一頁載進來的那一份（`loadAll()`：往回 180 天）。超過那個範圍的
+ * 健檢在這裡列不出來 —— 而那沒關係，鏈條本來就是「健檢 +21 天拿到報告、
+ * 再 +7 天約掉」。真的要接一場半年前的健檢時，日曆的來訪編輯器讀的是
+ * `listByCustomer()`（完整的一份），那裡選得到。
+ */
+function examChoicesOf(row, picked) {
+  const ent = picked?.entitlement;
+  if (!ent?.followupForEntitlementId) return null;
+
+  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
+  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
+  const pair = pairsOf(ents, coursesById).find((x) => x.followup?.id === ent.id);
+  if (!pair) return null;
+
+  return examChoicesFor(pair, ctx.queueInput.visitsBy[row.customerId] ?? [], {
+    selected: view.followupForVisitId,
+  });
+}
+
+/**
+ * 只有一個選得下去的候選時就先幫她選好。
+ *
+ * 換課程之後才叫得動（候選是跟著額度走的），所以它跟 `resetCourseBoundPicks()`
+ * 是一組的 —— 先清乾淨，再看要不要自動填。
+ */
+function pickExamIfObvious(row, picked) {
+  const open = (examChoicesOf(row, picked) ?? []).filter((c) => !c.taken);
+  view.followupForVisitId = open.length === 1 ? open[0].visitId : null;
 }
 
 /**
@@ -1287,9 +1437,22 @@ function roomField(all, course) {
 
 const keyOf = (s) => `${s.roomId}|${s.bed ?? ''}`;
 
+/**
+ * 同一天那一筆**收得下新時段**的來訪。
+ *
+ * 已完成／未到的那幾筆不算 —— 那一天已經結案了，再併進去那一段會當場
+ * 被算成做完或沒來（`acceptsMoreSlots()` 的檔頭寫了為什麼）。
+ * 收不下就是回 `null`，呼叫端照「新的一筆」那條路走。
+ */
 function sameDayVisit(row, date) {
   return (ctx.queueInput.visitsBy[row.customerId] ?? [])
-    .find((v) => v.date === date && isActive(v)) ?? null;
+    .find((v) => v.date === date && isActive(v) && acceptsMoreSlots(v.status)) ?? null;
+}
+
+/** 同一天已經結案的那幾筆。只拿來在畫面上講一句，不是併入的對象。 */
+function sameDayClosed(row, date) {
+  return (ctx.queueInput.visitsBy[row.customerId] ?? [])
+    .filter((v) => v.date === date && isActive(v) && !acceptsMoreSlots(v.status));
 }
 
 // ---------- 卡片組裡的事件 ----------
@@ -1325,7 +1488,8 @@ function onDeckClick(e) {
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
-    ['therapist', 'therapistId'], ['room', 'roomKey']]) {
+    ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],
+    ['exam', 'followupForVisitId']]) {
     const hit = e.target.closest(`[data-${attr}]`);
     if (hit) return pickOne(attr, key, hit.dataset[attr]);
   }
@@ -1370,6 +1534,8 @@ function pickCourse(entitlementId) {
   if (!row || !fields) return;
 
   const picked = courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null;
+  // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
+  pickExamIfObvious(row, picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');
@@ -1441,24 +1607,30 @@ async function addSlot() {
     roomId: course.assigns === 'room' ? (roomId || null) : null,
     bed: course.assigns === 'room' ? (bed || null) : null,
     therapistId: course.assigns === 'therapist' ? (view.therapistId ?? null) : null,
+    doctorId: picksDoctor(course) ? (view.doctorId ?? null) : null,
+    // 這一段二返接在哪一次健檢後面。不是二返就一定是 null ——
+    // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下。
+    followupForVisitId: picked.entitlement?.followupForEntitlementId
+      ? (view.followupForVisitId ?? null)
+      : null,
     attended: null,
   };
 
   const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;
 
-  // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）
+  // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
+  // 規則在 `domain/visits.js`：收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
   const sameDay = sameDayVisit(selected, view.day);
-  const visit = sameDay
-    ? { ...sameDay, note, slots: [...(sameDay.slots ?? []), slot] }
-    : {
-        customerId: selected.customerId,
-        customerName: selected.customerName,
-        date: view.day,
-        status: INITIAL_STATUS,
-        confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
-        note,
-        slots: [slot],
-      };
+  const merged = sameDay ? withExtraSlot(sameDay, slot, { note }) : null;
+  const visit = merged?.visit ?? {
+    customerId: selected.customerId,
+    customerName: selected.customerName,
+    date: view.day,
+    status: INITIAL_STATUS,
+    confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
+    note,
+    slots: [slot],
+  };
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
   const { errors } = validateVisit(visit, {
@@ -1473,13 +1645,33 @@ async function addSlot() {
   showErrors(errors);
   if (errors.length) return;
 
-  // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號
+  // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號。
+  // 抬頭壓在哪個系統、底下會發生什麼，全部由 `domain/consequences.js` 算 ——
+  // 這一頁與來訪編輯器以前各自寫死了「Abovee」，而健檢壓的是 Examine。
+  const coursesById = Object.fromEntries(all.courses.map((c) => [c.id, c]));
+  const said = bookingConsequences({
+    visit,
+    coursesById,
+    merge: merged ? { reopened: merged.reopened } : null,
+    sheetSyncOn: isConfigured(ctx.settings),
+  });
+
+  // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，
+  // 可以顯示這是聯結幾號的健檢」。順便講出那一張待辦會自己收掉，
+  // 不然她會回待辦中心找一張已經不在的東西。
+  const linkedExam = slot.followupForVisitId
+    ? (customerVisits.find((v) => v.id === slot.followupForVisitId) ?? null)
+    : null;
+
   const ok = await confirmAction({
-    title: '已經在 Abovee 壓好表了嗎？',
+    title: said.title,
     consequences: [
       `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
-      sameDay ? '這一段會併進同一天已經有的來訪裡' : '這會建立一筆新的來訪',
-      '會記成「已壓表，等客戶回覆」—— 系統登記等客人確認之後才產生',
+      ...(linkedExam ? [
+        `接在 ${shortDate(linkedExam.date)} 那一次健檢後面`,
+        '待辦上那一張「約二返」會自己收掉',
+      ] : []),
+      ...said.lines,
     ],
     confirmLabel: '已確認，記錄',
   });
