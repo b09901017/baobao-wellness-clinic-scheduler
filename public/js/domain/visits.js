@@ -162,6 +162,62 @@ export function isActive(visit) {
   return !visit?.deletedAt && visit?.status !== 'cancelled';
 }
 
+// ---------- 同一天再記一段 ----------
+//
+// 排班的原子單位是「某人某天來一次」（SPEC 第 4.4 節），所以同一天再壓一段
+// 是併進既有的那一筆，不是開第二筆。但**併進去的是時段，不是進度** ——
+// 那一段她還沒跟客人講過，不能因為那一筆來訪走得比較前面就跟著算數。
+
+/**
+ * 這一筆來訪還收不收得下新的時段。
+ *
+ * 已完成與未到都**收不下**：那一天已經結案了。收下去的話那一段會當場被
+ * `slotOutcome()` 算成「做完了」或「沒來」，額度立刻扣一次，而且不會長出
+ * 任何一張「簽療程單」——她回頭想改還會撞上「已完成是唯讀鎖定區」
+ *（SPEC 第 6.4 節，`isLocked()`）。壓表那一頁的日期選得到今天，
+ * 而今天那一筆可能早上就結案了，所以這不是理論上的邊緣狀況。
+ *
+ * 取消的也收不下，`isActive()` 已經濾掉了 —— 這一支只回答狀態那一半。
+ */
+export function acceptsMoreSlots(status) {
+  return status === 'pending_confirm' || status === 'confirmed';
+}
+
+/**
+ * 把一段併進同一天已經有的那一筆來訪。
+ *
+ * **併進一筆已確認的來訪會把整筆退回「等客戶回覆」。** 一筆來訪只有一個狀態，
+ * 而她確實還沒跟客人講過新加的這一段 —— 不退回去的話，「跟客人確認時間」
+ * 那一列（從 `pending_confirm` 推導的，見 ADR-0001）根本不會出現，
+ * 於是那一段的時間從頭到尾沒有人問過客人。
+ *
+ * 多問一次的代價，遠小於一段沒問過的時間被當成談定了。
+ *
+ * 已經長出來的登記任務不動：`syncTasksForVisit()` 本來就不會因為狀態往回走
+ * 而收掉既有任務（見那一支的檔頭），所以她已經做掉的 Examine 不會被洗掉。
+ *
+ * @param {object} visit 同一天已經有的那一筆
+ * @param {object} slot 要加上去的時段
+ * @param {{note?: string|null}} [opts] 「這一次記一句」，沒給就留原本那一句
+ * @returns {{visit: object, reopened: boolean}} reopened = 有沒有退回等客戶回覆
+ */
+export function withExtraSlot(visit, slot, { note } = {}) {
+  const reopened = visit.status === 'confirmed';
+  return {
+    reopened,
+    visit: {
+      ...visit,
+      note: note === undefined ? (visit.note ?? null) : note,
+      slots: [...(visit.slots ?? []), slot],
+      ...(reopened
+        // confirmedAt 一起清掉 —— 留著的話詳情頁會寫「客戶已確認」的時間戳，
+        // 而那一筆現在是待確認的。
+        ? { status: INITIAL_STATUS, confirmedAt: null, statusAt: new Date().toISOString() }
+        : {}),
+    },
+  };
+}
+
 // ---------- 收尾（客人來了沒、療程單簽了沒） ----------
 
 /**

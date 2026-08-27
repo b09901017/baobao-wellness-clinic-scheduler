@@ -18,6 +18,8 @@ import {
   coursesForEntitlement, closeVisit, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
+import { bookingConsequences } from '../../domain/consequences.js';
+import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import {
@@ -524,15 +526,24 @@ async function submit(ctx, draft) {
     return;
   }
 
-  // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到 Abovee，
+  // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。
+  //
+  // 抬頭與後果由 `domain/consequences.js` 算：這裡以前寫死「Abovee」，
+  // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemFor()`），
+  // 只是沒有人用它。壓表那一頁走的是同一支。
   if (isNew) {
+    const said = bookingConsequences({
+      visit: draft,
+      coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
+      sheetSyncOn: isConfigured(ctx.settings),
+    });
     const ok = await confirmAction({
-      title: '已經在 Abovee 壓好表了嗎？',
+      title: said.title,
       consequences: [
         ...draft.slots.map((s) => slotSummary(s, all)),
-        '這筆會記成「已壓表，等客戶回覆」',
-        'app 看不到同事壓的東西，診間有沒有被佔用要以 Abovee 為準',
+        ...said.lines,
+        'app 看不到同事壓的東西，診間有沒有被佔用要以那邊為準',
       ],
       confirmLabel: '已確認，記錄',
     });

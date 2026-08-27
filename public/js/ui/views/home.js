@@ -38,6 +38,8 @@ import {
   todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
+import { confirmConsequences } from '../../domain/consequences.js';
+import { isConfigured } from '../../data/sheetSync.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
@@ -1355,12 +1357,23 @@ function wireAsk(ctx) {
 // 見 .scratch/visit-lifecycle/issues/01-confirm-row-cannot-carry-a-note.md
 
 async function renderConfirm(el) {
-  const [pending, settings] = await Promise.all([
+  // 課程主檔是為了那張「已確認」卡片上那幾句「接著會發生什麼」
+  //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
+  // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
+  // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
+  const [pending, settings, courses] = await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
+    config.listAll('courses', { includeDeleted: true }),
   ]);
   const today = todayISO();
-  paintConfirm({ el, pending: visitsToConfirm(pending, today), settings, today });
+  paintConfirm({
+    el,
+    pending: visitsToConfirm(pending, today),
+    settings,
+    today,
+    coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+  });
 }
 
 function paintConfirm(ctx) {
@@ -1647,6 +1660,11 @@ async function applyConfirm(ctx) {
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
   const summary = describeConfirmed(visits, rejected);
+  const said = confirmConsequences(
+    writes.filter((v) => v.status === 'confirmed'),
+    ctx.coursesById ?? {},
+    isConfigured(ctx.settings),
+  );
 
   try {
     await toast.withSaveState(
@@ -1665,7 +1683,7 @@ async function applyConfirm(ctx) {
     );
     drawer = null;
     await renderConfirm(ctx.el);
-    showConfirmed(summary);
+    showConfirmed(summary, said);
   } catch {
     /* 已處理 */
   }
@@ -1682,11 +1700,13 @@ async function applyConfirm(ctx) {
  * 走既有的 `openCard()`，不新開一種浮層 —— 這個 app 的浮層已經有三種了
  *（抽屜、卡片、對話框，ADR-0048）。
  */
-function showConfirmed(summary) {
+function showConfirmed(summary, said = []) {
   if (!summary.rows.length) return; // 整批都退掉了，toast 那一句已經講完了
 
   const card = openCard({
-    title: `${summary.name}・加進日曆`,
+    // **不是「加進日曆」** —— 那幾筆壓表的時候就已經在日曆上了，這一步改的是
+    // 顏色不是有沒有。寫成「加進日曆」會讓她以為在這之前日曆上是空的。
+    title: `${summary.name}・已確認`,
     subtitle: `${summary.rows.length} 段`,
     body: `
       <ul class="link-list">
@@ -1695,6 +1715,10 @@ function showConfirmed(summary) {
             ${esc(timeLabel(r.slot))}
             <span class="muted">${esc(r.slot.courseName ?? '')}</span></span></li>`).join('')}
       </ul>
+      ${said.length ? `
+        <ul class="dialog__list" style="margin: var(--space-3) 0 0">
+          ${said.map((line) => `<li>${esc(line)}</li>`).join('')}
+        </ul>` : ''}
       ${summary.rejected
         ? `<p class="muted" style="margin: var(--space-3) 0 0">
              退掉 ${summary.rejected} 段（客人說不行）。那幾段的時間已經還回去了。</p>`

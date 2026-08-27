@@ -1,6 +1,6 @@
 # 同一天再壓一筆，新的時段繼承了舊來訪的狀態
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-27（「我先壓今天 9 點然後去 todo 勾掉，接著在壓表同一個人的一樣項目、
 可能說 10 點，這樣 todo 沒有產生任何東西ㄝ?」）
 動工前先讀：`SPEC.md` 第 4.1／4.4 節、`docs/adr/0027-registration-tasks-wait-for-the-customer.md`
@@ -89,3 +89,20 @@ const visit = sameDay
 - 併進 `done` 的來訪 → 另開一筆新來訪，額度不會被當場扣掉
 - 對話框把「會退回等客戶回覆」講出來
 - `tests/visits.test.js` / `tests/tasks.test.js` 補上這三條
+
+## 做了什麼（2026-08-27）
+
+規則放在 `domain/visits.js`，壓表那一頁不自己判斷：
+
+- `acceptsMoreSlots(status)` —— 只有 `pending_confirm` 與 `confirmed` 收得下新時段。
+  `sameDayVisit()` 加上這一道，所以已完成／未到的那一天會另開一筆新來訪。
+- `withExtraSlot(visit, slot, { note })` —— 併進已確認的那一筆時整筆退回
+  `pending_confirm`，`confirmedAt` 一起清掉，回傳 `{ visit, reopened }`。
+
+確認對話框改由 `domain/consequences.js` 產生（見 issue 07）：抬頭不再寫死
+Abovee，而且 `reopened` 時一定會講出「會退回等客戶回覆」。
+
+面板上「這天已經記了 N 段」那一句也跟著分開講已結案的那幾筆（`dayTally()`），
+底下那一句換成會發生的事（`addNote()`）。
+
+`tests/consequences.test.js` 24 條。

@@ -37,6 +37,7 @@ import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as eventsData from '../../data/events.js';
+import { isConfigured } from '../../data/sheetSync.js';
 import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
   strongestReason, sortQueueRows, QUEUE_SORTS,
@@ -45,7 +46,9 @@ import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
+  acceptsMoreSlots, withExtraSlot,
 } from '../../domain/visits.js';
+import { bookingConsequences } from '../../domain/consequences.js';
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
@@ -1061,13 +1064,14 @@ function dayPanel(row) {
   const options = courseOptions(row);
   const picked = options.find((o) => o.entitlementId === view.entitlementId) ?? null;
   const sameDay = sameDayVisit(row, view.day);
+  const closed = sameDayClosed(row, view.day);
 
   return `
     <section class="card card--on">
       <div class="row" style="align-items: baseline">
         <h3 class="card__title row__main" style="margin: 0">
           ${esc(shortDate(view.day))}</h3>
-        <span class="muted">${sameDay ? `這天已經記了 ${sameDay.slots.length} 段` : '這天還沒排東西'}</span>
+        <span class="muted">${dayTally(sameDay, closed)}</span>
       </div>
       ${dayWarnings(row)}
 
@@ -1095,11 +1099,34 @@ function dayPanel(row) {
       <div class="errors" data-errors hidden></div>
       <button class="btn btn--primary btn--wide" type="button" data-add
               ${picked ? '' : 'disabled'}>加這一筆</button>
-      <p class="card__note" style="margin: var(--space-3) 0 0">
-        ${sameDay
-          ? '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。'
-          : '存下去會記成「已壓表，等客戶回覆」。系統登記等客人說可以之後才長出來。'}</p>
+      <p class="card__note" style="margin: var(--space-3) 0 0">${addNote(sameDay, closed)}</p>
     </section>`;
+}
+
+/** 這天已經有什麼。已經結案的那幾筆要單獨講 —— 它們併不進去，會另開一筆。 */
+function dayTally(sameDay, closed) {
+  const parts = [];
+  if (sameDay) parts.push(`這天已經記了 ${sameDay.slots.length} 段`);
+  if (closed.length) {
+    parts.push(`另有 ${closed.reduce((n, v) => n + (v.slots?.length ?? 0), 0)} 段已經結案`);
+  }
+  return parts.length ? esc(parts.join('・')) : '這天還沒排東西';
+}
+
+/**
+ * 「加這一筆」底下那一句。**講會發生的事，不要講不會發生的事。**
+ *
+ * 以前那一句是「系統登記等客人說可以之後才長出來」—— 她說看不懂，而且它
+ * 講的是一件不會發生的事。詳細的後果在按下去之後那一道確認裡
+ *（`domain/consequences.js`），這裡只給最短的一句。
+ */
+function addNote(sameDay, closed) {
+  if (sameDay && sameDay.status === 'confirmed') {
+    return '這一段會併進同一天那一筆，那一筆會退回「等客戶回覆」—— 這一段還沒問過客人。';
+  }
+  if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
+  if (closed.length) return '這天那一筆已經結案了，所以這一段會另開一筆新的來訪。';
+  return '存下去會記到日曆上，標成「待確認」，待辦會多一張「跟客人確認時間」。';
 }
 
 /**
@@ -1287,9 +1314,22 @@ function roomField(all, course) {
 
 const keyOf = (s) => `${s.roomId}|${s.bed ?? ''}`;
 
+/**
+ * 同一天那一筆**收得下新時段**的來訪。
+ *
+ * 已完成／未到的那幾筆不算 —— 那一天已經結案了，再併進去那一段會當場
+ * 被算成做完或沒來（`acceptsMoreSlots()` 的檔頭寫了為什麼）。
+ * 收不下就是回 `null`，呼叫端照「新的一筆」那條路走。
+ */
 function sameDayVisit(row, date) {
   return (ctx.queueInput.visitsBy[row.customerId] ?? [])
-    .find((v) => v.date === date && isActive(v)) ?? null;
+    .find((v) => v.date === date && isActive(v) && acceptsMoreSlots(v.status)) ?? null;
+}
+
+/** 同一天已經結案的那幾筆。只拿來在畫面上講一句，不是併入的對象。 */
+function sameDayClosed(row, date) {
+  return (ctx.queueInput.visitsBy[row.customerId] ?? [])
+    .filter((v) => v.date === date && isActive(v) && !acceptsMoreSlots(v.status));
 }
 
 // ---------- 卡片組裡的事件 ----------
@@ -1446,19 +1486,19 @@ async function addSlot() {
 
   const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;
 
-  // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）
+  // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
+  // 規則在 `domain/visits.js`：收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
   const sameDay = sameDayVisit(selected, view.day);
-  const visit = sameDay
-    ? { ...sameDay, note, slots: [...(sameDay.slots ?? []), slot] }
-    : {
-        customerId: selected.customerId,
-        customerName: selected.customerName,
-        date: view.day,
-        status: INITIAL_STATUS,
-        confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
-        note,
-        slots: [slot],
-      };
+  const merged = sameDay ? withExtraSlot(sameDay, slot, { note }) : null;
+  const visit = merged?.visit ?? {
+    customerId: selected.customerId,
+    customerName: selected.customerName,
+    date: view.day,
+    status: INITIAL_STATUS,
+    confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
+    note,
+    slots: [slot],
+  };
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
   const { errors } = validateVisit(visit, {
@@ -1473,13 +1513,22 @@ async function addSlot() {
   showErrors(errors);
   if (errors.length) return;
 
-  // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號
+  // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號。
+  // 抬頭壓在哪個系統、底下會發生什麼，全部由 `domain/consequences.js` 算 ——
+  // 這一頁與來訪編輯器以前各自寫死了「Abovee」，而健檢壓的是 Examine。
+  const coursesById = Object.fromEntries(all.courses.map((c) => [c.id, c]));
+  const said = bookingConsequences({
+    visit,
+    coursesById,
+    merge: merged ? { reopened: merged.reopened } : null,
+    sheetSyncOn: isConfigured(ctx.settings),
+  });
+
   const ok = await confirmAction({
-    title: '已經在 Abovee 壓好表了嗎？',
+    title: said.title,
     consequences: [
       `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
-      sameDay ? '這一段會併進同一天已經有的來訪裡' : '這會建立一筆新的來訪',
-      '會記成「已壓表，等客戶回覆」—— 系統登記等客人確認之後才產生',
+      ...said.lines,
     ],
     confirmLabel: '已確認，記錄',
   });
