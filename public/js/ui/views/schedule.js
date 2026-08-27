@@ -109,8 +109,15 @@ let ctx = null;
  */
 let pendingOpen = null;
 
-export function openFor({ month, customerId }) {
-  pendingOpen = { month, customerId };
+/**
+ * @param {object} spec
+ * @param {string} spec.month 'YYYY-MM'
+ * @param {string} [spec.customerId]
+ * @param {string} [spec.entitlementId] 要先選好的那一筆額度
+ * @param {string} [spec.followupForVisitId] 二返要接的那一次健檢
+ */
+export function openFor({ month, customerId, entitlementId = null, followupForVisitId = null }) {
+  pendingOpen = { month, customerId, entitlementId, followupForVisitId };
 }
 
 function resetPicks() {
@@ -151,12 +158,16 @@ export async function render(el) {
  * 「已壓 5 / 23」變成兩個各自算的數字，而進度是存在雲端跨裝置接續的
  * （SPEC 第 1 節）。沒有的話才開一批。
  */
-async function openPending(el, { month, customerId }) {
+async function openPending(el, { month, customerId, entitlementId, followupForVisitId }) {
   const active = await batchesData.listActive();
   const found = active.find((b) => b.targetMonth === month);
 
   resetPicks();
   view.customerId = customerId ?? null;
+  // 從「約二返」那一列點進來的：項目與「哪一次健檢的」都先選好，
+  // 她只要挑日期跟時間。**日期不猜** —— 那是她要跟客人談的事。
+  view.entitlementId = entitlementId ?? null;
+  view.followupForVisitId = followupForVisitId ?? null;
 
   if (found) {
     view.batchId = found.id;
@@ -1640,10 +1651,21 @@ async function addSlot() {
     sheetSyncOn: isConfigured(ctx.settings),
   });
 
+  // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，
+  // 可以顯示這是聯結幾號的健檢」。順便講出那一張待辦會自己收掉，
+  // 不然她會回待辦中心找一張已經不在的東西。
+  const linkedExam = slot.followupForVisitId
+    ? (customerVisits.find((v) => v.id === slot.followupForVisitId) ?? null)
+    : null;
+
   const ok = await confirmAction({
     title: said.title,
     consequences: [
       `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
+      ...(linkedExam ? [
+        `接在 ${shortDate(linkedExam.date)} 那一次健檢後面`,
+        '待辦上那一張「約二返」會自己收掉',
+      ] : []),
       ...said.lines,
     ],
     confirmLabel: '已確認，記錄',

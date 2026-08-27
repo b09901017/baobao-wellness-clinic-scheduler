@@ -19,7 +19,7 @@
 // 決定與理由見 docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md。
 
 import { counts } from './entitlements.js';
-import { addDays, dayOf } from './dates.js';
+import { addDays, dayOf, shortDate } from './dates.js';
 
 /**
  * 「約二返」的任務種類。
@@ -353,6 +353,48 @@ export function bookingForExam(examVisitId, followupEntitlementId, visits = []) 
 }
 
 /**
+ * 「約二返」那一列右邊那一句：約了沒、約在哪天幾點。
+ *
+ * 她的原話：「我發現這個預約二返我可以直接勾掉但是其實沒有還沒預約」。
+ * 那一列以前只寫得出種類與死線，看不出世界上到底有沒有那一場。
+ *
+ * **這是推導值，不是新欄位** —— 存第二份一定會對不起來（ADR-0004 的同一條判斷）。
+ *
+ * @param {{visit:object, slot:object}|null} booking `bookingForExam()` 的結果
+ * @returns {{booked:boolean, text:string}}
+ */
+export function describeBooking(booking) {
+  if (!booking) return { booked: false, text: '還沒約' };
+  const at = booking.slot?.startsAt ? ` ${booking.slot.startsAt}` : '';
+  return { booked: true, text: `已約 ${shortDate(booking.visit.date)}${at}` };
+}
+
+/**
+ * 這一筆「約二返」的待辦，對應的那一次健檢約了沒。
+ *
+ * 待辦掛在健檢那一筆來訪上（`task.visitId`），所以問的就是那一次健檢。
+ * 找不到配對（額度被刪了、種類不對）一律回 `null` —— **不要回「還沒約」**，
+ * 那是在斷言一件不知道的事，而她會照著它去多約一場。
+ *
+ * @returns {{booked:boolean, text:string}|null}
+ */
+export function bookingStateForTask(task, { entitlements = [], coursesById = {}, visits = [] }) {
+  if (task?.kind !== FOLLOWUP_TASK_KIND || !task.visitId) return null;
+
+  const exam = (visits ?? []).find((v) => v.id === task.visitId) ?? null;
+  if (!exam) return null;
+
+  for (const pair of pairsOf(entitlements, coursesById)) {
+    if (!pair.followup) continue;
+    // 這一張待辦掛的那一次健檢，扣的是這一筆配對的健檢額度嗎
+    if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
+    return describeBooking(bookingForExam(task.visitId, pair.followup.id, visits));
+  }
+
+  return null;
+}
+
+/**
  * 這位客戶身上，每一筆配對的每一次健檢現在是什麼狀態。
  *
  * 待辦中心、客戶詳情、試算表三個地方問的是同一句話，所以只有這一份。
@@ -445,7 +487,15 @@ export function syncFollowupTasks({
     const want = owed(pair, visits);
     if (!want) continue;
 
-    const candidates = doneVisitsFor(pair.source, visits).filter((v) => !settled.has(v.id));
+    // 已經真的約好那一場的健檢也不用待辦了。**這一道是連結那一層帶來的精準度**：
+    // `owed()` 早就會因為多一場二返而少算一次，但它算的是**幾張**，不是**哪幾張** ——
+    // 所以在這一道之前，被收掉的可能是別的那一次健檢的待辦，而真的約掉的那一次
+    // 反而還掛在那裡。她看到的症狀是「我明明約好了，它還在叫我去約」。
+    //
+    // 舊資料（二返沒指到健檢）走不到這裡，行為跟以前一模一樣。
+    const booked = claimedExams(pair.followup.id, visits);
+    const candidates = doneVisitsFor(pair.source, visits)
+      .filter((v) => !settled.has(v.id) && !booked.has(v.id));
 
     // 已經有待辦的排前面，其餘照日期新到舊。二返是照順序約掉的，先做的健檢
     // 先約，所以還欠的一定是最後那幾次。已有的排前面則是為了不要每存一次檔

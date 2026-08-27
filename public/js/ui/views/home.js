@@ -39,6 +39,9 @@ import {
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { confirmConsequences } from '../../domain/consequences.js';
+import {
+  FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
+} from '../../domain/followups.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -786,6 +789,7 @@ export async function renderGroup(el, group) {
   };
   paintTasks(ctx);
   loadTaskVisits(ctx);
+  loadFollowupBookings(ctx);
 }
 
 /**
@@ -829,6 +833,70 @@ function fillSlotCounts(el) {
     const visit = taskVisits.visits.get(node.dataset.slots);
     if (!visit) continue;
     node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.hidden = false;
+  }
+}
+
+/**
+ * 「約二返」那幾列各自約了沒。task id → `{booked, text}`。
+ *
+ * 跟 `taskVisits` 一樣存在模組裡：`paintTasks()` 會重畫好幾次，
+ * 而重畫不該把已經讀回來的東西丟掉。
+ */
+let followupBookings = new Map();
+
+/**
+ * 那幾張「約二返」對應的健檢，二返到底約了沒。
+ *
+ * 她的原話：「我發現這個預約二返我可以直接勾掉但是其實沒有還沒預約」。
+ * 勾掉之後那一次健檢整條鏈就結束了，所以「其實還沒約」這件事會就這樣消失。
+ *
+ * **照客戶收攏再讀**：一位客戶讀一次額度與來訪，不是一列讀一次 ——
+ * 同一個人身上兩張「約二返」是正常的（買了 3 次健檢）。
+ *
+ * 跟 `loadTaskVisits()` 同一個作法：頁面先畫出來，這一段等資料回來再補上去。
+ */
+async function loadFollowupBookings(ctx) {
+  const mine = ctx.open.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.customerId && t.visitId);
+  if (!mine.length) return;
+
+  const byCust = new Map();
+  for (const t of mine) {
+    if (!byCust.has(t.customerId)) byCust.set(t.customerId, []);
+    byCust.get(t.customerId).push(t);
+  }
+
+  try {
+    const courses = await config.listAll('courses', { includeDeleted: true });
+    const coursesById = byId(courses);
+
+    await Promise.all([...byCust.entries()].map(async ([customerId, tasks]) => {
+      const [entitlements, visits] = await Promise.all([
+        customersData.listEntitlements(customerId),
+        visitsData.listByCustomer(customerId),
+      ]);
+      for (const t of tasks) {
+        const state = bookingStateForTask(t, { entitlements, coursesById, visits });
+        // 算不出來的不寫進去 —— 那一列就照舊什麼都不說。斷言「還沒約」
+        // 會讓她照著去多約一場。
+        if (state) followupBookings.set(t.id, state);
+      }
+    }));
+  } catch {
+    // 讀不到就當這一段不存在：少一句話，不是少一頁。
+    return;
+  }
+
+  fillBookingStates(ctx.el);
+}
+
+/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillSlotCounts）。 */
+function fillBookingStates(el) {
+  for (const node of el.querySelectorAll('[data-booked]')) {
+    const state = followupBookings.get(node.dataset.booked);
+    if (!state) continue;
+    node.textContent = state.text;
+    node.className = `badge ${state.booked ? 'badge--ok' : 'badge--overdue'}`;
     node.hidden = false;
   }
 }
@@ -884,6 +952,10 @@ function paintTasks(ctx) {
     btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit)),
   );
 
+  el.querySelectorAll('[data-book-followup]').forEach((btn) =>
+    btn.addEventListener('click', () => bookFollowup(ctx, btn.dataset.bookFollowup)),
+  );
+
   el.querySelectorAll('[data-untick]').forEach((btn) =>
     btn.addEventListener('click', () => untickTask(ctx, btn.dataset.untick)),
   );
@@ -908,6 +980,7 @@ function paintTasks(ctx) {
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
   fillSlotCounts(el);
+  fillBookingStates(el);
 }
 
 function openList(ctx, today) {
@@ -991,10 +1064,18 @@ function taskRow(t, today) {
             <span class="badge">${esc(t.kind)}</span>
             ${t.visitId ? `<span class="badge" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
             <span class="badge ${badgeClass(state)}">${esc(dueLabel(t.dueDate, today))}</span>
+            ${t.kind === FOLLOWUP_TASK_KIND
+              ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
           </span>
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
+      ${t.kind === FOLLOWUP_TASK_KIND && t.customerId
+        // 她的原話：「希望這邊有可以點了直接連結到壓表……然後會自動選好二返」。
+        // 項目與「哪一次健檢的」都先選好，她只要挑日期跟時間。
+        ? `<button class="btn" type="button" data-book-followup="${esc(t.id)}"
+                   style="min-height: 40px">去壓表</button>`
+        : ''}
       ${t.visitId ? `<button class="btn" type="button" data-visit="${esc(t.visitId)}"
                              style="min-height: 40px">詳情</button>` : ''}
     </div>`;
@@ -1065,15 +1146,27 @@ async function markDone(ctx) {
   const rows = ctx.open.filter((t) => picked.has(t.id));
   if (!rows.length) return;
 
+  // 還沒看到那一場二返的那幾張，單獨講一句。**不擋**（ADR-0002：app 記錄決定，
+  // 不做決定）—— 她可能在別的地方約好了還沒回來記，或者客人當場就約了下一次。
+  // 已經約到的就不要多問，多問一次她會學會閉著眼睛按。
+  const unbooked = rows.filter((t) => followupBookings.get(t.id)?.booked === false);
+
   const ok = await confirmAction({
     title: `把 ${rows.length} 筆標成完成？`,
     consequences: [
       ...rows.slice(0, 8).map((t) => `${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}`),
       ...(rows.length > 8 ? [`⋯還有 ${rows.length - 8} 筆`] : []),
+      ...(unbooked.length ? [
+        `⚠️ 其中 ${unbooked.length} 筆還沒看到二返的預約`
+          + `（${unbooked.slice(0, 3).map((t) => t.customerName ?? '（沒有名字）').join('、')}）`,
+        '勾掉之後那幾次健檢就不會再出現在待辦上了',
+        '如果只是還沒回來記，先去壓表比較安全',
+      ] : []),
       '它們會移到「已完成」，不會消失',
       '勾錯了在那一格點回來就好',
     ],
-    confirmLabel: '標成完成',
+    confirmLabel: unbooked.length ? '還是標成完成' : '標成完成',
+    danger: unbooked.length > 0,
   });
   if (!ok) return;
 
@@ -1083,10 +1176,53 @@ async function markDone(ctx) {
       success: `${rows.length} 筆移到已完成`,
     });
     picked = new Set();
+    followupBookings = new Map();
     await renderGroup(ctx.el, ctx.group);
   } catch {
     /* 已處理 */
   }
+}
+
+/**
+ * 從「約二返」那一列跳到壓表，項目與「哪一次健檢的」都先選好。
+ *
+ * 要先問一次額度才知道要選哪一筆 —— 待辦身上只有那一次**健檢**的來訪 id，
+ * 沒有二返那一筆額度的 id（任務刻意不存那個，見 ADR-0004 的同一條判斷：
+ * 第二份資料一定會對不起來）。
+ *
+ * 月份用**這個月**：她約二返通常就是最近的事，而壓表那一頁的日期本來就換得動。
+ */
+async function bookFollowup(ctx, taskId) {
+  const t = ctx.open.find((x) => x.id === taskId);
+  if (!t?.customerId) return;
+
+  let entitlementId = null;
+  try {
+    const [entitlements, courses] = await Promise.all([
+      customersData.listEntitlements(t.customerId),
+      config.listAll('courses', { includeDeleted: true }),
+    ]);
+    const visits = await visitsData.listByCustomer(t.customerId);
+    const exam = visits.find((v) => v.id === t.visitId) ?? null;
+    const coursesById = byId(courses);
+
+    for (const pair of pairsOf(entitlements, coursesById)) {
+      if (!pair.followup || !exam) continue;
+      if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
+      entitlementId = pair.followup.id;
+      break;
+    }
+  } catch {
+    // 讀不到就照樣跳過去，只是少選好那兩顆 —— 少兩下點擊，不是少一頁。
+  }
+
+  scheduleView.openFor({
+    month: ctx.today.slice(0, 7),
+    customerId: t.customerId,
+    entitlementId,
+    followupForVisitId: entitlementId ? t.visitId : null,
+  });
+  go('/schedule');
 }
 
 /** 勾錯了點回來。已完成那一格點一列就是這個。 */

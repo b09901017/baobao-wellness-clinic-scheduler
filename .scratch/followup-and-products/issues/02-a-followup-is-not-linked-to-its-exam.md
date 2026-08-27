@@ -1,6 +1,6 @@
 # 二返沒有連到它那一次健檢
 
-Status: 進行中
+Status: done
 回報者：使用者，2026-08-27（「二返應該要和他的健檢連結在一起，就是我要知道這個二反是哪個健檢的」）
 動工前先讀：`docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md`、
 `docs/adr/0042-the-report-comes-before-the-follow-up.md`、`domain/followups.js` 檔頭
