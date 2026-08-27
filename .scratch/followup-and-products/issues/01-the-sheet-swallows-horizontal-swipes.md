@@ -1,6 +1,6 @@
 # 抽屜裡的丸子左右滑不動
 
-Status: 待動工
+Status: done
 回報者：使用者，2026-08-27（「新增一批客戶的微調那裡 丸子不好左右滑」）
 動工前先讀：`docs/adr/0021-the-sheet-is-dragged-by-transform.md`
 
@@ -68,3 +68,22 @@ else { mode = 'scroll'; return false; }
 - 微調面板裡「買了什麼」那一排，橫著滑得動，面板不會跟著上下跳
 - 面板本身還是上下拖得動（把手、抬頭、留白處），拖到底還是會關掉
 - 內容夠長時 `.drawer__body` 還是自己捲，捲到頂再往下拖才收面板
+
+## 做了什麼（2026-08-27）
+
+**兩邊各壞一半，所以兩邊一起修。** 上面那段診斷漏了 CSS 那一半：
+
+`app.css` 的 `.drawer__body` 宣告 `touch-action: pan-y`，而那句話的意思是
+「這一塊只准直著滑」—— 它會蓋到底下每一排丸子，所以**瀏覽器連試都不會試著
+橫向捲**。就算 `wireDrag()` 把手勢還回去也一樣滑不動。
+
+- `app.css`：`.drawer__body :is(.chiprow, .strip, .noscroll-bar)` 開
+  `touch-action: pan-x pan-y`（不是 `pan-x` —— 直的還要能捲抽屜、能拖面板）
+- `sheet.js`：`onStart` / `onMove` 收 `clientX`，在只看 Y 的那三條**之前**
+  加一道「橫向捲得動的那幾排上面，橫的還給瀏覽器」
+
+第二道**只在那幾排上面生效**，不是全域。拿掉限定的話，一次斜著往下拖的第一格
+可能是「右 2 下 1」，整個手勢就鎖在 scroll —— 症狀會變成面板時好時壞地拖不動。
+在丸子那一排上判錯的代價小得多：她換個地方再拖一次。
+
+兩邊各有一份選擇器，`tests/sheet-gesture.test.js` 盯著它們一樣。
