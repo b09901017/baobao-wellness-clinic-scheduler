@@ -19,6 +19,7 @@ import {
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences } from '../../domain/consequences.js';
+import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
@@ -26,7 +27,7 @@ import {
   roomSlots, roomsForCourse, staffWithRole, picksDoctor, THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
-import { todayISO, isValidDate } from '../../domain/dates.js';
+import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -387,7 +388,49 @@ function slotCard(ctx, draft, slot, i) {
           })
         : ''}
       ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
+      ${examField(ctx, draft, ent, slot, i)}
     </section>`;
+}
+
+/**
+ * 「這是哪一次健檢的二返」。只有二返那一筆額度會冒出這一排。
+ *
+ * 跟壓表那一頁是同一組候選（`domain/followups.js` 的 `examChoicesFor()`）——
+ * 兩邊各算一次的話，同一段在壓表選得到、回來改就選不到了。
+ *
+ * `quiet: true`：換這一顆不影響任何別的欄位，重畫只會讓她捲回最上面（ADR-0038）。
+ */
+function examField(ctx, draft, ent, slot, i) {
+  if (!ent?.followupForEntitlementId) return '';
+
+  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
+  const pair = pairsOf(ctx.entitlements, coursesById).find((x) => x.followup?.id === ent.id);
+  if (!pair) return '';
+
+  const choices = examChoicesFor(pair, ctx.customerVisits, {
+    selected: slot.followupForVisitId ?? null,
+    excludeVisitId: draft?.id ?? null,
+  });
+
+  if (!choices.length) {
+    return `
+      <div class="fieldgroup">
+        <span class="fieldgroup__label">這是哪一次健檢的</span>
+        <p class="muted" style="margin: 0">還沒有做完的健檢可以接。</p>
+      </div>`;
+  }
+
+  return f.chips({
+    name: `s${i}-exam`, label: '這是哪一次健檢的', value: slot.followupForVisitId ?? null,
+    quiet: true,
+    options: choices.map((c) => ({
+      value: c.visitId,
+      label: shortDate(c.date),
+      disabled: c.taken,
+      note: c.taken ? '已約' : '',
+    })),
+    hint: '還沒定也存得下去，但試算表的二返註記要靠它才寫得出日期。',
+  });
 }
 
 /** 擇一池的器材。被禁忌擋掉的要留在原位標示出來，不能整個消失。 */
@@ -492,6 +535,12 @@ function readDraft(ctx, form, draft) {
         : { roomId: null, bed: null }),
       therapistId: course?.assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
       doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
+      // 不是二返就一定是 null —— 帶著一個不相干的 id 會讓試算表把註記
+      // 寫到別人底下。沒被畫出來時 `v[...]` 是 undefined，那時要留原值
+      // 不要清成 null（同這一支的 `key()`）。
+      followupForVisitId: ent?.followupForEntitlementId
+        ? key(v, `s${i}-exam`, slot.followupForVisitId ?? null)
+        : null,
     };
   });
 

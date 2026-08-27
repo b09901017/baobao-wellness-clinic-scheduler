@@ -1,6 +1,6 @@
 # 二返沒有連到它那一次健檢
 
-Status: 待動工
+Status: 進行中
 回報者：使用者，2026-08-27（「二返應該要和他的健檢連結在一起，就是我要知道這個二反是哪個健檢的」）
 動工前先讀：`docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md`、
 `docs/adr/0042-the-report-comes-before-the-follow-up.md`、`domain/followups.js` 檔頭
@@ -60,7 +60,7 @@ Status: 待動工
 | `ui/views/visitEditor.js` | 同上，來訪編輯器也要改得到 |
 | `domain/sheetReport.js` | `followupNotes()` 改成走 `followupForVisitId`，不要再照位置配 |
 | `domain/health.js` | 資料健檢多一條：二返時段指不到健檢 |
-| `firestore.rules` | `validVisit()` 的時段欄位白名單要放行 |
+| ~~`firestore.rules`~~ | **不用改** —— `validVisit()` 只驗 `slots` 是不是一個非空的 list，不看時段裡面（同 ADR-0026 對 `doctorId` 的判斷） |
 
 **舊資料怎麼辦**：`followupForVisitId` 沒有值的二返時段照舊走「照位置配」那條路。
 不補猜、不自動回填 —— 猜錯的話試算表上會出現一個對不起來的日期，
@@ -72,3 +72,29 @@ Status: 待動工
 - 那位客戶有兩次健檢時，兩個候選都列得出來，選錯得回頭改
 - 試算表印 `8/5 二返(王醫師)`，不再是 `二返()`
 - 舊資料（沒有這個欄位的）照舊印得出來，不會變成空白
+
+## 做了什麼（2026-08-27）
+
+`slot.followupForVisitId` 上線了。
+
+`domain/followups.js` 多了四支（`tests/followups.test.js` 15 條）：
+
+| | |
+|---|---|
+| `claimedExams()` | 這筆二返額度已經認領掉哪幾次健檢。取消／刪掉的不算 —— 那次健檢要放回去 |
+| `examChoicesFor()` | 壓表時「這是哪一次健檢的」那一排。**被認領的照樣列出來但按不下去**，藏掉的話她看不出「另外那一次已經約過了」 |
+| `bookingForExam()` | 這一次健檢的二返約了沒。指不到就是 `null`，不退回照位置猜 |
+| `examStates()` | 每一次健檢現在是什麼狀態。待辦、詳情、試算表共用一份 |
+
+`domain/sheetReport.js` 的 `followupNotes()` 改成照連結配。**照位置那條路留著當退路**
+（舊資料一筆都沒有那個欄位），但已經被連結認領掉的那幾場不可以再被猜一次 ——
+否則同一場二返會出現在兩個健檢底下。
+
+`domain/visits.js`：指到一筆對不上的健檢是 error（資料壞了），沒指到只是 warning
+（舊資料就是這一種，而且她可能還沒決定要接哪一次）。
+
+壓表與來訪編輯器兩邊都有那一排，走同一組候選。壓表那邊只有一個選得下去的候選時
+自動選好（`pickExamIfObvious()`）—— 大部分時候她身上只有一次還沒約的健檢。
+
+**空括號 `二返()` 保留**：ADR-0026 定的，那在她的寫法裡就是「還沒約」的意思，
+不是漏印。填得出日期的是「有連結而且真的約了」那一種。

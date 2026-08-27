@@ -21,6 +21,10 @@ import {
   owed,
   syncFollowupTasks,
   describePair,
+  claimedExams,
+  examChoicesFor,
+  bookingForExam,
+  examStates,
 } from '../public/js/domain/followups.js';
 
 // ---------- 共用的假資料 ----------
@@ -629,5 +633,123 @@ describe('這兩張待辦不歸 syncTasksForVisit 管', () => {
     );
     assert.deepEqual(create.map((t) => t.kind).sort(), ['Examine', '耀聖']);
     assert.equal(create[0].dueDate, '2026-08-19', '一般任務的死線仍然是來訪日前一天');
+  });
+});
+
+// ---------- 一場二返接在哪一次健檢後面 ----------
+//
+// 連結以前只做到額度那一層，所以「這一次二返是哪一次健檢的」沒有人答得出來。
+// 試算表的二返註記照位置猜，而「約二返」那張待辦勾得掉但沒有人檢查真的約了沒。
+// 見 `.scratch/followup-and-products/issues/02`。
+
+describe('一場二返接在哪一次健檢後面', () => {
+  const pair = { source: checkup(), followup: followup(), followupCourseId: 'course-followup' };
+
+  /** 一場二返：扣二返額度，指著某一次健檢。 */
+  const booking = (id, date, examId, over = {}) => ({
+    id,
+    customerId: 'c1',
+    date,
+    status: 'confirmed',
+    slots: [{
+      entitlementId: 'ent-followup',
+      courseId: 'course-followup',
+      followupForVisitId: examId,
+      doctorId: null,
+      ...(over.slot ?? {}),
+    }],
+    ...(over.visit ?? {}),
+  });
+
+  const exams = [
+    visit('exam-1', '2026-07-06', 'ent-checkup'),
+    visit('exam-2', '2026-08-10', 'ent-checkup'),
+  ];
+
+  describe('已經被認領掉的健檢', () => {
+    test('指得到就收進來', () => {
+      const claimed = claimedExams('ent-followup', [...exams, booking('b1', '2026-07-20', 'exam-1')]);
+      assert.deepEqual([...claimed.keys()], ['exam-1']);
+      assert.equal(claimed.get('exam-1').date, '2026-07-20');
+    });
+
+    test('取消掉的那一場不算 —— 那次健檢要放回去讓人重新約', () => {
+      const cancelled = booking('b1', '2026-07-20', 'exam-1', { visit: { status: 'cancelled' } });
+      assert.equal(claimedExams('ent-followup', [...exams, cancelled]).size, 0);
+    });
+
+    test('刪掉的也不算', () => {
+      const gone = booking('b1', '2026-07-20', 'exam-1', { visit: { deletedAt: 'x' } });
+      assert.equal(claimedExams('ent-followup', [...exams, gone]).size, 0);
+    });
+
+    test('沒指到健檢的二返不算認領 —— 舊資料就是這一種', () => {
+      assert.equal(claimedExams('ent-followup', [...exams, booking('b1', '2026-07-20', null)]).size, 0);
+    });
+  });
+
+  describe('壓表時「這是哪一次健檢的」那一排', () => {
+    test('做完的健檢都列出來，日期舊的在前 —— 二返是照順序約掉的', () => {
+      const out = examChoicesFor(pair, exams);
+      assert.deepEqual(out.map((c) => c.date), ['2026-07-06', '2026-08-10']);
+    });
+
+    test('還沒做完的健檢不列 —— 沒有報告可以聽', () => {
+      const booked = visit('exam-3', '2026-09-01', 'ent-checkup', { status: 'confirmed' });
+      const out = examChoicesFor(pair, [...exams, booked]);
+      assert.ok(!out.some((c) => c.visitId === 'exam-3'));
+    });
+
+    test('已經被認領的照樣列出來，但標記起來', () => {
+      const out = examChoicesFor(pair, [...exams, booking('b1', '2026-07-20', 'exam-1')]);
+      // 藏掉的話她看不出「另外那一次已經約過了」，而那正是她要對照的東西
+      assert.equal(out.length, 2);
+      assert.deepEqual(out.map((c) => c.taken), [true, false]);
+      assert.equal(out[0].bookedOn, '2026-07-20');
+    });
+
+    test('正在編輯的那一段自己認領的那一次要給選', () => {
+      const mine = booking('b1', '2026-07-20', 'exam-1');
+      // 不然一打開編輯器，原本選好的那一顆就按不下去了
+      const out = examChoicesFor(pair, [...exams, mine], { excludeVisitId: 'b1' });
+      assert.equal(out.find((c) => c.visitId === 'exam-1').taken, false);
+    });
+
+    test('沒配到二返額度就沒有候選', () => {
+      assert.deepEqual(examChoicesFor({ source: checkup(), followup: null }, exams), []);
+    });
+  });
+
+  describe('這一次健檢的二返約了沒', () => {
+    test('約了就找得到，連那一段一起回', () => {
+      const hit = bookingForExam('exam-1', 'ent-followup', [...exams, booking('b1', '2026-07-20', 'exam-1')]);
+      assert.equal(hit.visit.date, '2026-07-20');
+      assert.equal(hit.slot.followupForVisitId, 'exam-1');
+    });
+
+    test('沒約就是 null —— 不要退回照位置猜一個', () => {
+      // 猜出來的日期會讓她以為已經約好了，而那正是這一輪要修的東西
+      assert.equal(bookingForExam('exam-2', 'ent-followup', [...exams, booking('b1', '2026-07-20', 'exam-1')]), null);
+    });
+
+    test('取消掉的那一場不算已約', () => {
+      const cancelled = booking('b1', '2026-07-20', 'exam-1', { visit: { status: 'cancelled' } });
+      assert.equal(bookingForExam('exam-1', 'ent-followup', [...exams, cancelled]), null);
+    });
+  });
+
+  describe('每一次健檢現在是什麼狀態', () => {
+    test('一次健檢一列，日期舊的在前，各自帶自己的二返', () => {
+      const all = [...exams, booking('b1', '2026-07-20', 'exam-1')];
+      const out = examStates([checkup(), followup()], COURSES, all);
+
+      assert.deepEqual(out.map((x) => x.examDate), ['2026-07-06', '2026-08-10']);
+      assert.equal(out[0].booking.visit.date, '2026-07-20');
+      assert.equal(out[1].booking, null);
+    });
+
+    test('沒配到二返的健檢不列 —— 它沒有二返要約', () => {
+      assert.deepEqual(examStates([checkup()], COURSES, exams), []);
+    });
   });
 });

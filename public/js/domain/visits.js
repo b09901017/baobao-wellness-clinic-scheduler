@@ -446,6 +446,7 @@ export function validateVisit(visit, ctx) {
 
 function visitErrors(visit, {
   customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
+  customerVisits = [],
 }) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
@@ -515,6 +516,20 @@ function visitErrors(visit, {
         && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
       errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
     }
+
+    // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
+    // （見 assignmentWarnings）—— 舊資料一筆都沒有這個欄位，擋下來等於
+    // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
+    if (slot.followupForVisitId) {
+      const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
+      // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
+      // 試算表會把二返註記寫到一個不相干的日期底下。
+      else if (ent?.followupForEntitlementId
+          && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
+        errors.push(`${at}：指定的那一筆來訪裡沒有「${ent.label}」對應的健檢`);
+      }
+    }
   });
 
   // 醫療禁忌：整個系統唯一的硬性阻擋
@@ -577,14 +592,22 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 }
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
-function assignmentWarnings(visit, { courses = [], rooms = [] }) {
+function assignmentWarnings(visit, { courses = [], rooms = [], entitlements = [] }) {
   const out = [];
   const coursesById = byId(courses);
+  const entsById = byId(entitlements);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
     if (!course) return;
     const at = `第 ${i + 1} 個時段`;
+
+    // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
+    // 同一條原則），而且她可能就是還沒決定要接哪一次。
+    // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
+    if (entsById[slot.entitlementId]?.followupForEntitlementId && !slot.followupForVisitId) {
+      out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
+    }
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（A 類一律選得到，
     // 其餘看課程上的旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，

@@ -311,23 +311,71 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
 
   for (const pair of pairsOf(alive, coursesById)) {
     const label = coursesById[pair.followupCourseId]?.name ?? '二返';
-    const booked = pair.followup ? bookingsOf(visits, pair.followup.id, dates) : [];
+    // **照連結配，不照位置配。** 以前這裡把健檢的日期與二返的日期各自排序，
+    // 再拿第 i 個對第 i 個 —— 順序一亂就配錯，而錯了畫面上看不出來。
+    // 連結在時段上（`slot.followupForVisitId`），見 `domain/followups.js`。
+    const linked = pair.followup
+      ? bookingsByExam(visits, pair.followup.id)
+      : new Map();
+    // 舊資料沒有那個欄位，所以照位置那條路留著當退路 —— 一次性回填會把
+    // 猜出來的日期寫死，而猜錯的日期比空括號糟得多（同 ADR-0009 的判準）。
+    const guessed = pair.followup ? bookingsOf(visits, pair.followup.id, dates) : [];
+    const guessedFor = new Set(linked.keys());
 
     dates
       .filter((d) => usedOn(visits, pair.source.id, d))
       .forEach((date, i) => {
-        const hit = booked[i] ?? null;
+        const exam = examOn(visits, pair.source.id, date);
+        // 連結找得到就用連結的；找不到才退回照位置，而且**已經被連結認領掉的
+        // 那幾場不可以再被猜一次** —— 否則同一場二返會出現在兩個健檢底下。
+        const hit = (exam && linked.get(exam.id))
+          ?? (exam && guessedFor.has(exam.id) ? null : takeUnlinked(guessed, linked, i));
         const doctor = hit?.doctorId ? (staffById[hit.doctorId]?.name ?? null) : null;
         out.push({
           dateIndex: dates.indexOf(date),
           text: hit
             ? `${monthDay(hit.date)} ${label}${doctor ? `(${doctor})` : ''}`
+            // 空括號在她的寫法裡就是「還沒約」的意思（ADR-0026），
+            // 所以這裡刻意保留 —— 它不是漏印，它是一個訊息。
             : `${label}()`,
         });
       });
   }
 
   return out;
+}
+
+/**
+ * 這一筆二返額度被排在哪幾天，照它指到的那一次健檢收成一張表。
+ *
+ * @returns {Map<string, {date:string, doctorId:string|null}>} 健檢來訪 id → 那一場二返
+ */
+function bookingsByExam(visits, followupEntitlementId) {
+  const out = new Map();
+  for (const v of visits ?? []) {
+    for (const slot of v.slots ?? []) {
+      if (slot.entitlementId !== followupEntitlementId || !slot.followupForVisitId) continue;
+      // 同一次健檢被指了兩次是資料有問題，取第一個 —— 那要在資料健檢頁被看見，
+      // 不是在報表上被展開（同 `bookingsOf()` 的判斷）。
+      if (!out.has(slot.followupForVisitId)) {
+        out.set(slot.followupForVisitId, { date: v.date, doctorId: slot.doctorId ?? null });
+      }
+    }
+  }
+  return out;
+}
+
+/** 那一天用掉這筆額度的那一筆來訪。二返註記要靠它把日期換成健檢的 id。 */
+function examOn(visits, entitlementId, date) {
+  return (visits ?? []).find(
+    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
+  ) ?? null;
+}
+
+/** 照位置配的退路：第 i 個，但已經被連結認領掉的那幾場跳過。 */
+function takeUnlinked(guessed, linked, i) {
+  const taken = new Set([...linked.values()].map((b) => b.date));
+  return guessed.filter((g) => !taken.has(g.date))[i] ?? null;
 }
 
 /**

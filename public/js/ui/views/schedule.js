@@ -49,6 +49,7 @@ import {
   acceptsMoreSlots, withExtraSlot,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
+import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
@@ -1218,7 +1219,8 @@ function entFields(row, picked) {
     ${course.requiresIvProduct ? ivField(all) : ''}
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
     ${course.assigns === 'room' ? roomField(all, course) : ''}
-    ${picksDoctor(course) ? doctorField(all) : ''}`;
+    ${picksDoctor(course) ? doctorField(all) : ''}
+    ${examField(row, picked)}`;
 }
 
 /**
@@ -1323,6 +1325,75 @@ function doctorField(all) {
 }
 
 /**
+ * 「這是哪一次健檢的二返」。**只有二返那一筆額度會冒出這一排。**
+ *
+ * 她的原話：「就是想要二返和健檢是一對一連結的」「期待我在壓表壓二返的時候，
+ * 可以顯示這是聯結幾號的健檢」。
+ *
+ * 只有一個候選就自動選好（`pickExamIfObvious()`）—— 大部分時候她身上只有一次
+ * 還沒約的健檢，多一下點擊沒有換到任何資訊。
+ *
+ * 已經被別的二返認領掉的那幾次照樣列出來但按不下去：藏掉的話她看不出
+ * 「另外那一次已經約過了」，而那正是她要對照的東西。
+ */
+function examField(row, picked) {
+  const choices = examChoicesOf(row, picked);
+  if (!choices) return '';
+
+  if (!choices.length) {
+    return `
+      <div class="fieldgroup">
+        <span class="fieldgroup__label">這是哪一次健檢的</span>
+        <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
+      </div>`;
+  }
+
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">這是哪一次健檢的</span>
+      <div class="chips">
+        ${choices.map((c) => `
+          <button class="chip" type="button"
+                  aria-pressed="${c.visitId === view.followupForVisitId}"
+                  ${c.taken ? 'disabled aria-disabled="true"' : ''}
+                  data-exam="${esc(c.visitId)}"
+                  title="${esc(c.taken ? `已經約在 ${shortDate(c.bookedOn)} 了` : '')}">
+            <span class="num">${esc(shortDate(c.date))}</span>
+            ${c.taken ? '<span class="chip__note">已約</span>' : ''}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+/**
+ * 這一筆額度的健檢候選。**不是二返就回 `null`**（跟「是二返但沒有候選」不一樣，
+ * 那一種要印一句話）。
+ */
+function examChoicesOf(row, picked) {
+  const ent = picked?.entitlement;
+  if (!ent?.followupForEntitlementId) return null;
+
+  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
+  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
+  const pair = pairsOf(ents, coursesById).find((x) => x.followup?.id === ent.id);
+  if (!pair) return null;
+
+  return examChoicesFor(pair, ctx.queueInput.visitsBy[row.customerId] ?? [], {
+    selected: view.followupForVisitId,
+  });
+}
+
+/**
+ * 只有一個選得下去的候選時就先幫她選好。
+ *
+ * 換課程之後才叫得動（候選是跟著額度走的），所以它跟 `resetCourseBoundPicks()`
+ * 是一組的 —— 先清乾淨，再看要不要自動填。
+ */
+function pickExamIfObvious(row, picked) {
+  const open = (examChoicesOf(row, picked) ?? []).filter((c) => !c.taken);
+  view.followupForVisitId = open.length === 1 ? open[0].visitId : null;
+}
+
+/**
  * 診間。這個課程常用的放前面當泡泡，其餘的收在底下 ——
  * 十五間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
  */
@@ -1401,7 +1472,8 @@ function onDeckClick(e) {
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
-    ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId']]) {
+    ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],
+    ['exam', 'followupForVisitId']]) {
     const hit = e.target.closest(`[data-${attr}]`);
     if (hit) return pickOne(attr, key, hit.dataset[attr]);
   }
@@ -1446,6 +1518,8 @@ function pickCourse(entitlementId) {
   if (!row || !fields) return;
 
   const picked = courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null;
+  // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
+  pickExamIfObvious(row, picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');
@@ -1518,6 +1592,11 @@ async function addSlot() {
     bed: course.assigns === 'room' ? (bed || null) : null,
     therapistId: course.assigns === 'therapist' ? (view.therapistId ?? null) : null,
     doctorId: picksDoctor(course) ? (view.doctorId ?? null) : null,
+    // 這一段二返接在哪一次健檢後面。不是二返就一定是 null ——
+    // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下。
+    followupForVisitId: picked.entitlement?.followupForEntitlementId
+      ? (view.followupForVisitId ?? null)
+      : null,
     attended: null,
   };
 
