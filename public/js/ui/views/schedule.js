@@ -53,7 +53,9 @@ import { annotateOptions, contraindicationTerms } from '../../domain/contraindic
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
-import { roomSlots, roomsForCourse } from '../../domain/masterData.js';
+import {
+  roomSlots, roomsForCourse, picksDoctor, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+} from '../../domain/masterData.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
@@ -113,13 +115,18 @@ export function openFor({ month, customerId }) {
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
-    equipmentId: null, therapistId: null, roomKey: null,
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
   });
 }
 
-/** 換課程時要跟著清掉的：器材、治療師、診間都是綁著課程的。時間留著。 */
+/**
+ * 換課程時要跟著清掉的：器材、治療師、診間、醫師，還有「這是哪一次健檢的」——
+ * 五個都是綁著課程的。時間留著。
+ */
 function resetCourseBoundPicks() {
-  Object.assign(view, { equipmentId: null, therapistId: null, roomKey: null });
+  Object.assign(view, {
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
+  });
 }
 
 export async function render(el) {
@@ -1210,7 +1217,8 @@ function entFields(row, picked) {
     ${course.requiresEquipment ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all) : ''}
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
-    ${course.assigns === 'room' ? roomField(all, course) : ''}`;
+    ${course.assigns === 'room' ? roomField(all, course) : ''}
+    ${picksDoctor(course) ? doctorField(all) : ''}`;
 }
 
 /**
@@ -1275,13 +1283,41 @@ function ivField(all) {
 }
 
 function therapistField(all) {
+  // 治療師的選單只列治療師 —— 跑出三位醫師來的話，她要點到第三個字才發現
+  // 點錯人（ADR-0026，`staffWithRole()` 是唯一的入口）。
+  const therapists = staffWithRole(all.staff, THERAPIST_ROLE);
   return `
     <div class="fieldgroup">
       <span class="fieldgroup__label">治療師</span>
       <div class="chips">
-        ${all.staff.filter((s) => s.active !== false).map((s) => `
-          <button class="chip" type="button" aria-pressed="${s.id === view.therapistId}"
-                  data-therapist="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+        ${therapists.length
+          ? therapists.map((s) => `
+              <button class="chip" type="button" aria-pressed="${s.id === view.therapistId}"
+                      data-therapist="${esc(s.id)}">${esc(s.name)}</button>`).join('')
+          : '<span class="muted">主檔裡還沒有治療師，到「設定 → 治療師與醫師」新增。</span>'}
+      </div>
+    </div>`;
+}
+
+/**
+ * 醫師。**跟治療師是兩個各自獨立的選單**，同一段可以兩個都有 ——
+ * 二返同時要診間和醫師（ADR-0026）。哪些課程有這一排只寫在
+ * `domain/masterData.js` 的 `picksDoctor()`（A 類一律有）。
+ *
+ * 以前這一排只有日曆的來訪編輯器有，所以她壓完二返之後那一段的醫師一定是空的，
+ * 而試算表的二返註記括號裡讀的就是它 —— 括號因此永遠是空的。
+ */
+function doctorField(all) {
+  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">醫師　還沒定也存得下去</span>
+      <div class="chips">
+        ${doctors.length
+          ? doctors.map((d) => `
+              <button class="chip" type="button" aria-pressed="${d.id === view.doctorId}"
+                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`).join('')
+          : '<span class="muted">主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。</span>'}
       </div>
     </div>`;
 }
@@ -1365,7 +1401,7 @@ function onDeckClick(e) {
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
-    ['therapist', 'therapistId'], ['room', 'roomKey']]) {
+    ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId']]) {
     const hit = e.target.closest(`[data-${attr}]`);
     if (hit) return pickOne(attr, key, hit.dataset[attr]);
   }
@@ -1481,6 +1517,7 @@ async function addSlot() {
     roomId: course.assigns === 'room' ? (roomId || null) : null,
     bed: course.assigns === 'room' ? (bed || null) : null,
     therapistId: course.assigns === 'therapist' ? (view.therapistId ?? null) : null,
+    doctorId: picksDoctor(course) ? (view.doctorId ?? null) : null,
     attended: null,
   };
 

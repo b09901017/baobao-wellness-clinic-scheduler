@@ -10,7 +10,7 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { validateSlots as contraindicationErrors } from './contraindications.js';
 import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, DOCTOR_ROLE } from './masterData.js';
+import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
 export const VISIT_STATUSES = [
@@ -586,13 +586,15 @@ function assignmentWarnings(visit, { courses = [], rooms = [] }) {
     if (!course) return;
     const at = `第 ${i + 1} 個時段`;
 
-    // 醫師走的是 requiresEquipment / requiresIvProduct 那條路（課程上一個布林、
-    // 時段上一個 id），不是 assigns —— assigns 是單選的，而二返同時要診間和醫師。
-    // 見 docs/adr/0026-doctors-are-assignable-staff.md
-    if (course.requiresDoctor && !slot.doctorId) {
+    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（A 類一律選得到，
+    // 其餘看課程上的旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
+    // 而症狀是「壓表選得到、來訪編輯器說不需要」。
+    //
+    // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
+    if (picksDoctor(course) && !slot.doctorId) {
       out.push(`${at}：${course.name} 還沒選醫師`);
     }
-    if (!course.requiresDoctor && slot.doctorId) {
+    if (!picksDoctor(course) && slot.doctorId) {
       out.push(`${at}：${course.name} 不需要指定醫師`);
     }
 

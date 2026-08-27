@@ -298,7 +298,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
   requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
-  requiresDoctor,        // bool。true 時來訪要選醫師（種子資料只有二返）
+  requiresDoctor,        // bool。**非 A 類**要選醫師時才勾 —— A 類（門診）一律
+                         // 選得到，不用勾，見 docs/adr/0058-...
+                         // 判斷只有一份：domain/masterData.js 的 picksDoctor()
                          // 不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
                          // 沒選只提醒不擋，見 docs/adr/0026-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
@@ -466,8 +468,9 @@ audit/{eventId}                   // append-only 稽核紀錄
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
       roomId, bed, therapistId,
-      doctorId,               // 這次是哪位醫師。requiresDoctor 的課程才有，
-                              // 目前只有二返。既有的來訪一律是 null，不要猜
+      doctorId,               // 這次是哪位醫師。picksDoctor() 為真的課程才有
+                              // （A 類一律，其餘看 requiresDoctor）。
+                              // 既有的來訪一律是 null，不要猜
       attended }
   ],
   createdBy, createdAt, updatedAt, deletedAt
@@ -1404,7 +1407,7 @@ INDIBA、超磁場（SIS）、高能量雷射。
 
 物理治療師：騰崴（行事曆上寫騰威）、芝寧、LuLu、欣穎（也寫新穎）、耕宇、姿璇、怡婷、珮喩、王婷。
 
-醫師：夏、許、李。姓氏就是她講的全部，名字她沒說。約二返時用選的 —— 課程主檔上開了 `requiresDoctor` 的課程，來訪編輯器才會出現醫師選單，種子資料只開二返。
+醫師：夏、許、李。姓氏就是她講的全部，名字她沒說。**門診（A 類）一律選得到醫師**，其餘課程看主檔上的 `requiresDoctor`（見 [ADR-0058](./docs/adr/0058-outpatient-always-picks-a-doctor.md)）。壓表那一頁與來訪編輯器兩邊都有那一排。
 
 > 2026-08-20 之前這裡寫的是「醫師不放進 `config/staff`」。她那天決定要記進 app，見 [ADR-0026](./docs/adr/0026-doctors-are-assignable-staff.md)。她的舊試算表本來就手寫著 `7/13 二返(夏)`，括號裡那個字在醫師進 app 之前 app 記不住。
 

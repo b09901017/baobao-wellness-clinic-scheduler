@@ -32,6 +32,28 @@ export function staffWithRole(staff = [], role) {
   return staff.filter((s) => !s.deletedAt && s.active !== false && s.role === role);
 }
 
+/**
+ * 這個課程排班時選不選得到醫師。
+ *
+ * **A 類（門診）一律選得到** —— 她的原話是「門診類的可以選醫生，復能類的選
+ * 物理治療師」。以前這件事只看課程上的 `requiresDoctor` 旗標，而種子資料裡
+ * 只有二返打開了它，所以復健科醫師門診與心臟科評估**選不到醫師** ——
+ * 兩個都是門診，兩個都真的有醫師。要她回主檔逐課程補勾一次，是把一條
+ * 已經知道的規則交給她記得。
+ *
+ * 旗標留著，當成**非 A 類的例外開關**：之後真的有一個 C 類要記醫師時，
+ * 主檔上勾一下就有，不用改程式（同 ADR-0022 的判準）。
+ *
+ * 醫師走的是 `requiresEquipment` / `requiresIvProduct` 那條路（課程上一個布林、
+ * 時段上一個 id），不是 `assigns` —— `assigns` 是單選的，而二返同時要診間和醫師。
+ * 治療師與醫師是兩種人，兩個選單各自從 `staffWithRole()` 來。
+ * 見 docs/adr/0026 與 docs/adr/0058。
+ *
+ * **選不選得到 ≠ 一定要選。** 沒選也存得下去，`validateVisit()` 給的是
+ * warning 不是 error（ADR-0002：app 記錄決定，不做決定）。
+ */
+export const picksDoctor = (course) => course?.category === 'A' || Boolean(course?.requiresDoctor);
+
 // 課程要指派什麼。復能三器材選治療師，其餘含靜脈選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 

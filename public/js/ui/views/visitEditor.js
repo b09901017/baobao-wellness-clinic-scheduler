@@ -23,7 +23,7 @@ import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
 import {
-  roomSlots, roomsForCourse, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+  roomSlots, roomsForCourse, staffWithRole, picksDoctor, THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate } from '../../domain/dates.js';
@@ -386,7 +386,7 @@ function slotCard(ctx, draft, slot, i) {
               .map((x) => ({ value: x.id, label: x.name })),
           })
         : ''}
-      ${course?.requiresDoctor ? doctorField(all, slot, i) : ''}
+      ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
     </section>`;
 }
 
@@ -491,7 +491,7 @@ function readDraft(ctx, form, draft) {
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
       therapistId: course?.assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
-      doctorId: course?.requiresDoctor ? (v[`s${i}-doc`] ?? null) : null,
+      doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
     };
   });
 
