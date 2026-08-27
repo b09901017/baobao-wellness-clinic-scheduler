@@ -698,13 +698,23 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
       // 拆成一份品項一筆額度了（`r11:護肝排毒`）。行事曆上沒寫品項的那幾筆
       // 退回用它 —— 那不是猜，是她自己在試算表上寫的那一格。
       const productOf = new Map(p.entitlements.map((e) => [e.key, e.productName ?? null]));
+      // **配出來的二返不寫進檔案。** `planForSheet()` 會替每一筆健檢配一筆二返額度
+      // （`domain/followups.js` 的 `followupPlanEntries()`），而 app 那一側匯入時
+      // 會再配一次 —— 那一支靠 `followupForEntitlementKey` 認「已經配過了」，
+      // 而這份檔案的額度沒有那個欄位，於是護欄看不到、每位健檢客戶長出兩筆二返額度。
+      // 兩筆的下場是「對到不只一份額度，不知道要扣哪一份」：她在 ② 勾起來的
+      // 每一筆二返都補不進去，而那正是這整份報告最在意的一種。
+      // 規則只能有一份，而它在 app 那一側（ADR-0022）。
+      const derived = new Set(p.entitlements
+        .filter((e) => e.doc?.followupForEntitlementKey)
+        .map((e) => e.key));
       return {
         sheetName: p.sheetName,
         name: displayName(p.customer?.name ?? p.customerName, { renames: r.renames, sheetName: p.sheetName }),
         rawName: p.customer?.name ?? p.customerName,
         source: p.customer?.source ?? null,
         notes: p.customer?.notes ?? '',
-        entitlements: p.entitlements.map((e) => ({
+        entitlements: p.entitlements.filter((e) => !derived.has(e.key)).map((e) => ({
           key: e.key,
           type: e.doc.type,
           label: e.doc.label,

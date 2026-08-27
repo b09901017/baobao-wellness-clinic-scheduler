@@ -306,6 +306,35 @@ describe('2026-08-27 那一批補上的寫法', () => {
     assert.equal(kindOf('請假'), 'leave');
   });
 
+  // 配出來的二返額度不能寫進檔案：app 那一側匯入時會再配一次，而它認「已經配過了」
+  // 靠的是 `followupForEntitlementKey`，那個欄位不在合併檔的契約裡。
+  // 兩筆的下場是「對到不只一份額度」—— ② 勾起來的每一筆二返都補不進去。
+  test('健檢配出來的二返額度不寫進合併檔', () => {
+    const plans = [{
+      sheetName: '客戶A',
+      customerName: '客戶A',
+      customer: { name: '客戶A', source: null, notes: '' },
+      skip: null,
+      entitlements: [
+        { key: 'r9', productName: null, doc: { type: 'single', label: '5萬健檢', totalQty: 1, courseId: 'course-checkup' } },
+        {
+          key: 'r9-followup',
+          productName: null,
+          doc: {
+            type: 'single', label: '二返（5萬健檢）', totalQty: 1,
+            courseId: 'course-followup', followupForEntitlementKey: 'r9',
+          },
+        },
+      ],
+      days: [],
+    }];
+    const out = importJson({
+      plans, events: [], unreadable: [], span: [null, null],
+      leftover: { calendarOnly: [], future: [], personal: [] }, ambiguous: [], renames: {},
+    });
+    assert.deepEqual(out.customers[0].entitlements.map((e) => e.key), ['r9']);
+  });
+
   // 舊表那一列寫著每一次用的品項簡寫，而行事曆上她常常只寫「點滴」。
   // 額度已經照品項拆好了，退回用它不是猜。
   test('行事曆沒寫品項時，退回用額度上的品項', () => {
