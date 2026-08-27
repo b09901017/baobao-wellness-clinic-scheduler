@@ -186,3 +186,58 @@ export function validateProduct(e, { products = [] } = {}) {
 
   return errors;
 }
+
+// ---------- 哪天順便給 ----------
+//
+// 提醒走**一筆有日期的隨手記**（ADR-0044），所以它自己就會出現在日曆的「待辦」
+// 那一類、改期就是改那一筆的日期、勾掉畫成刪除線。**不開日曆的第八種顏色** ——
+// 色相已經用完了（ADR-0039、0045）。
+//
+// 隨手記是提醒，額度是紀錄。她會把勾掉的隨手記清掉（「清掉這 N 筆已完成的隨手記」），
+// 而「7/6 給了什麼」是要進試算表的東西 —— 那一份存在額度上。
+
+/**
+ * 那一筆營養品該配的隨手記長什麼樣。沒有 id —— id 由 /data 那一層給。
+ *
+ * **不是營養品、或者一款都沒選就不配** —— 提醒她去給一包空的東西沒有意義。
+ *
+ * @param {object} o
+ * @param {object} o.entitlement 那一筆營養品（要有 id）
+ * @param {{id:string, name?:string}} o.customer
+ * @param {string|null} [o.date] 想在哪一天給。不知道就留空白 ——
+ *   **不要猜一天**，猜出來的日期會讓她以為那天客人真的會來。
+ */
+export function deliveryNoteFor({ entitlement, customer, date = null }) {
+  if (!isProductEntitlement(entitlement) || !itemsOf(entitlement).length) return null;
+
+  return {
+    text: noteTextFor(entitlement, customer?.name ?? ''),
+    customerId: customer?.id ?? null,
+    customerName: customer?.name ?? null,
+    date: date ?? null,
+    // 這一筆隨手記講的是哪一包。勾掉時要靠它找回額度去記交付。
+    entitlementId: entitlement?.id ?? null,
+    done: false,
+    doneAt: null,
+  };
+}
+
+/**
+ * 她下一次會見到這位客戶是哪一天。營養品的提醒預設掛在那一天 ——
+ * 她的原話：「我都是等客人哪天有預約來，我就順便給」。
+ *
+ * 找不到就回 `null`（新客戶、這陣子沒有預約）。**不要退回今天** ——
+ * 今天客人不見得會來，而一個掛錯日期的待辦比一個沒有日期的待辦糟：
+ * 前者她會照著做，後者她會去挑一天。
+ *
+ * @param {object[]} visits 這位客戶的來訪
+ * @param {string} today 'YYYY-MM-DD'
+ */
+export function nextDeliveryDate(visits = [], today) {
+  return (visits ?? [])
+    .filter((v) => !v.deletedAt
+      && (v.status === 'pending_confirm' || v.status === 'confirmed')
+      && typeof v.date === 'string' && v.date >= today)
+    .map((v) => v.date)
+    .sort()[0] ?? null;
+}

@@ -164,6 +164,10 @@ export function normalize(note) {
     // `where('date', '>=', ...)` 撈的，空字串會被撈進來而 null 不會。
     date: trimmed(note?.date) || null,
     done: Boolean(note?.done),
+    // 這一筆講的是哪一包營養品（`domain/products.js`）。一般的隨手記沒有這個，
+    // 所以是 null。**`normalizePatch()` 刻意不碰它** —— 待辦編輯器只問
+    // 「記什麼」與「哪一天」，帶不到它，而少帶就等於清空。
+    entitlementId: trimmed(note?.entitlementId) || null,
   };
 }
 

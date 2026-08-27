@@ -21,6 +21,8 @@
 import { esc } from './form.js';
 import { icon } from '../icons.js';
 import { shortDate, todayISO } from '../../domain/dates.js';
+import { undelivered } from '../../domain/products.js';
+import { openSheet } from './sheet.js';
 
 /**
  * 一列隨手記。點一下就勾掉／取消勾（呼叫端接 `[data-note]`）。
@@ -259,4 +261,123 @@ export function wireWho(root, { load }) {
 
   paint();
   return { set };
+}
+
+// ---------- 營養品的交付 ----------
+//
+// 掛了 `entitlementId` 的那幾筆隨手記是**營養品的提醒**（`domain/products.js`）。
+// 勾掉它不只是勾掉 —— 要順便問「給了哪些」，因為那是要進試算表的紀錄。
+//
+// **四個入口共用這一支**（首頁那張卡、右下角泡泡、`#/todo/notes`、客戶詳情，
+// 再加上日曆的待辦編輯器）。四邊各寫一次的話遲早有一邊只勾不記，
+// 而少掉的那一筆紀錄要到她對帳時才會被發現 —— 同 `components/buy.js` 的教訓。
+
+/**
+ * 勾掉一筆隨手記。**營養品的提醒會先問「給了哪些」。**
+ *
+ * 逐項預設全部打勾，跟收尾那一張同一個判斷（十次有九次是整包給完）。
+ * 底下那顆主要按鈕的字跟著勾選數變。
+ *
+ * @param {object} note 那一筆隨手記
+ * @param {object} deps
+ * @param {(customerId: string) => Promise<object[]>} deps.loadEntitlements
+ * @param {(note, entitlement, delivery) => Promise<void>} deps.recordDelivery
+ * @param {(id: string, done: boolean) => Promise<void>} deps.setDone
+ * @param {string} deps.today
+ * @returns {Promise<boolean>} 有沒有真的寫進去（她按了「先不要」就是 false）
+ */
+export async function toggleWithDelivery(note, {
+  loadEntitlements, recordDelivery, setDone, today,
+}) {
+  // 拿回來（取消勾選）永遠只是拿回來 —— 不要順便問她給了什麼。
+  if (!note?.entitlementId || note.done) {
+    await setDone(note.id, !note.done);
+    return true;
+  }
+
+  let entitlement = null;
+  try {
+    const rows = await loadEntitlements(note.customerId);
+    entitlement = (rows ?? []).find((e) => e.id === note.entitlementId) ?? null;
+  } catch {
+    entitlement = null;
+  }
+
+  // 額度讀不到（被刪了、離線）就退回普通的勾掉 —— 少一筆交付紀錄，
+  // 不是少一次勾選。擋下來的話她連那一列都關不掉。
+  if (!entitlement) {
+    await setDone(note.id, true);
+    return true;
+  }
+
+  const picked = await askDelivery(entitlement, note);
+  if (!picked) return false;
+
+  await recordDelivery(note, entitlement, { at: today, productIds: picked });
+  return true;
+}
+
+/**
+ * 「給了什麼？」那一張面板。**逐項預設打勾**，點一下切成「沒給」。
+ *
+ * @returns {Promise<string[]|null>} null = 她按了「先不要」
+ */
+function askDelivery(entitlement, note) {
+  const left = undelivered(entitlement);
+  const state = new Set(left.map((x) => x.productId));
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      sheet.close();
+      resolve(value);
+    };
+
+    const body = () => `
+      <p class="drawer__note" style="padding: 0">哪一種沒給就點它一下。給了的才會記進試算表。</p>
+      ${left.map((x) => {
+        const on = state.has(x.productId);
+        return `
+          <button class="slotrow ${on ? '' : 'slotrow--no'}" type="button"
+                  data-give="${esc(x.productId)}">
+            <span class="slotrow__main"><span class="slotrow__what">${esc(x.name)}</span></span>
+            <span class="badge ${on ? 'badge--ok' : 'badge--overdue'}">${on ? '給了' : '沒給'}</span>
+          </button>`;
+      }).join('')}`;
+
+    const actions = () => {
+      const n = state.size;
+      return `
+        <button class="btn btn--primary" type="button" data-give-ok ${n ? '' : 'disabled'}>
+          ${n === left.length ? `${n} 種都給了，記起來` : `${n} 種給了，記起來`}</button>
+        <button class="btn" type="button" data-give-cancel>先不要，回去</button>`;
+    };
+
+    const sheet = openSheet({
+      title: `給了什麼？　${note.customerName ?? ''}`,
+      body: body(),
+      actions: actions(),
+      onClose: () => finish(null),
+      onMount: (drawer) => {
+        if (drawer.dataset.giveWired) return;
+        drawer.dataset.giveWired = '1';
+
+        drawer.addEventListener('click', (ev) => {
+          const hit = ev.target.closest('[data-give]');
+          if (hit) {
+            const id = hit.dataset.give;
+            if (state.has(id)) state.delete(id);
+            else state.add(id);
+            sheet.update(body());
+            sheet.setActions(actions());
+            return;
+          }
+          if (ev.target.closest('[data-give-ok]')) finish([...state]);
+          else if (ev.target.closest('[data-give-cancel]')) finish(null);
+        });
+      },
+    });
+  });
 }

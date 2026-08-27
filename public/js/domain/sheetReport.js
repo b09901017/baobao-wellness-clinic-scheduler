@@ -15,6 +15,7 @@
 // 一位客戶一張，就這樣。
 
 import { counts, isProduct } from './entitlements.js';
+import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -63,7 +64,11 @@ export function customerReport({
     ['療程項目', '應有', '已完成', '已排未上', '剩餘', ...dates.map(shortDate)],
   ];
 
-  for (const e of alive) {
+  // 營養品不進矩陣 —— 它自己一區（見底下）。兩條路必須長一樣，
+  // 所以這裡跟 `syncBundle()` 是同一個判斷。
+  const scheduled = alive.filter((e) => !isProduct(e));
+
+  for (const e of scheduled) {
     const c = counts(e, used, e.id);
     rows.push([
       e.label ?? '',
@@ -75,7 +80,7 @@ export function customerReport({
     ]);
   }
 
-  if (!alive.length) rows.push(['（還沒有額度）']);
+  if (!scheduled.length) rows.push(['（還沒有額度）']);
 
   // 二返：一列，寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的
   const notes = followupNotes({ alive, visits: used, dates, coursesById, staffById });
@@ -83,6 +88,23 @@ export function customerReport({
     const line = [];
     for (const note of notes) line[COUNT_COLS + note.dateIndex] = note.text;
     rows.push([...line].map((cell) => cell ?? ''));
+  }
+
+  // 營養品那一區。**一筆都沒有就整段不畫** —— 大部分客戶不買，
+  // 而一個永遠空著的區塊只是在每次看報表時提醒她那件事不存在。
+  const bought = alive.filter(isProduct);
+  if (bought.length) {
+    rows.push([], ['營養品', '金額', '幾個月', '哪幾種', '給了沒']);
+    for (const e of bought) {
+      const gave = deliveryState(e);
+      rows.push([
+        e.label ?? '',
+        amountOf(e) == null ? '' : String(amountOf(e)),
+        String(monthsOf(e)),
+        itemsOf(e).map((x) => x.name).filter(Boolean).join('、'),
+        gave.at ? `${monthDay(gave.at)} ${gave.text}` : gave.text,
+      ]);
+    }
   }
 
   const blocks = taskBlocks(tasks, used);
@@ -186,8 +208,15 @@ function csvCell(value) {
  *
  * 2 起：拿掉 `overview`（不做總表），勾選格改成四種符號，
  * 每張表多了 `tasks`（TODO / FINISHED 兩塊）與 `followupNotes`（二返註記）。
+ *
+ * 3 起：多了 `products`（營養品那一區）。以前營養品混在 `rows` 裡，
+ * 而那四個數字欄印的是**月數** —— 「應有 2 已完成 0 已排未上 0 剩餘 2」
+ * 沒有一個看得懂。現在它自己一區，帶金額、哪幾款、哪天給了。
+ *
+ * **升版了就一定要回 Google 試算表把 `.gs` 重新貼一次並重新部署** ——
+ * 它收到不認得的版本會整份拒收（`SUPPORTED_FORMAT`），試算表會停止更新。
  */
-export const SYNC_FORMAT = 2;
+export const SYNC_FORMAT = 3;
 
 /**
  * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
@@ -224,7 +253,11 @@ export function syncBundle({
     const alive = (entitlementsBy[customer.id] ?? []).filter((e) => !e.deletedAt);
     const dates = [...new Set(visits.map((v) => v.date))].sort();
 
-    const rows = alive.map((e) => {
+    // 營養品不進矩陣（格式 3 起）—— 它自己一區。留在矩陣裡的話那四個數字欄
+    // 印的是月數，而「應有 2 已完成 0 已排未上 0 剩餘 2」沒有一個看得懂。
+    const scheduled = alive.filter((e) => !isProduct(e));
+
+    const rows = scheduled.map((e) => {
       const c = counts(e, visits, e.id);
       return {
         label: e.label ?? '',
@@ -245,13 +278,28 @@ export function syncBundle({
       dates,
       dateLabels: dates.map(shortDate),
       rows,
+      // 營養品自己一區（格式 3 起）。它以前混在 `rows` 裡，而那幾個數字欄
+      // 印的是月數 —— 一個都看不懂。這一區帶金額、哪幾款、哪天給了。
+      products: alive.filter(isProduct).map((e) => {
+        const gave = deliveryState(e);
+        return {
+          label: e.label ?? '',
+          amount: amountOf(e),
+          months: monthsOf(e),
+          items: itemsOf(e).map((x) => x.name).filter(Boolean),
+          // 「還差什麼」是她要回去補的東西，所以整句話都送過去
+          delivery: gave.text,
+          deliveredAt: gave.at,
+          done: gave.state === 'all',
+        };
+      }),
       // 營養品**有那一列**（她的舊表第 12 列就是它，ADR-0024），
       // 但**不進合計** —— 那一行寫的是「剩餘 N 次」，而兩罐夜態美不是兩次。
-      totals: alive.reduce((t, e, i) => (isProduct(e) ? t : {
-        total: t.total + rows[i].total,
-        done: t.done + rows[i].done,
-        booked: t.booked + rows[i].booked,
-        remaining: t.remaining + rows[i].remaining,
+      totals: rows.reduce((t, r) => ({
+        total: t.total + r.total,
+        done: t.done + r.done,
+        booked: t.booked + r.booked,
+        remaining: t.remaining + r.remaining,
       }), { total: 0, done: 0, booked: 0, remaining: 0 }),
       // 二返約在哪天，寫在**那次健檢被勾起來的那一欄**底下 —— 她原本就是這樣記的
       // （docs/legacy/README.md 第 6 節）。

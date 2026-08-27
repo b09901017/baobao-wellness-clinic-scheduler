@@ -13,8 +13,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import { loadAppsScript } from './helpers/appsScriptStub.js';
-import { syncBundle, READONLY_NOTICE } from '../public/js/domain/sheetReport.js';
+import { syncBundle, READONLY_NOTICE, SYNC_FORMAT } from '../public/js/domain/sheetReport.js';
 
 const bundle = (overrides = {}) => ({
   ...syncBundle({
@@ -80,7 +82,7 @@ describe('收件口', () => {
     const { post, ss } = loadAppsScript();
     const reply = post({ token: 'secret', bundle: bundle({ format: 99 }) });
     assert.equal(reply.ok, false);
-    assert.match(reply.error, /只認得 2/);
+    assert.match(reply.error, new RegExp(`只認得 ${SYNC_FORMAT}`));
     assert.equal(ss.getSheets().length, 0);
   });
 
@@ -353,4 +355,22 @@ describe('手動編輯', () => {
     app.context.onEdit({ range, oldValue: '舊的', source: { getActiveSheet: () => sheet } });
     assert.equal(sheet.at('A2'), '新的');
   });
+});
+
+// ---------- 兩側的格式版本 ----------
+
+test('`.gs` 的 SUPPORTED_FORMAT 要跟 app 的 SYNC_FORMAT 一樣', () => {
+  // 對不上的症狀最糟：app 照樣推、`.gs` 整包拒收，而畫面上看起來跟推好了
+  // 一模一樣（失敗只留痕跡不跳彈窗，見 data/sheetSync.js 的 noteFailure）。
+  // 她要幾天後打開試算表才會發現數字停在某一天。
+  //
+  // 升版了就一定要**回 Google 試算表把 `.gs` 重新貼一次並重新部署**。
+  const src = readFileSync(new URL('../sheets/readonly-report.gs', import.meta.url).pathname, 'utf8');
+  const m = src.match(/var SUPPORTED_FORMAT = (\d+);/);
+  assert.ok(m, '`.gs` 裡找不到 SUPPORTED_FORMAT');
+  assert.equal(
+    Number(m[1]),
+    SYNC_FORMAT,
+    '改了 SYNC_FORMAT 就要一起改 `.gs`，而且她要回試算表重新部署那份指令碼',
+  );
 });

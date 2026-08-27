@@ -30,7 +30,7 @@
 var TOKEN_PROPERTY = 'SYNC_TOKEN';
 var DATA_SHEET = '_data';
 /** 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。 */
-var SUPPORTED_FORMAT = 2;
+var SUPPORTED_FORMAT = 3;
 
 // ---------- 版面 ----------
 //
@@ -188,6 +188,7 @@ function renderCustomer(ss, data, bundle) {
   ensureSize(
     sheet,
     MATRIX_HEADER_ROW + data.rows.length + data.log.length
+      + ((data.products || []).length + 2)
       + data.tasks.todo.length + data.tasks.finished.length + 20,
     width,
   );
@@ -238,6 +239,7 @@ function renderCustomer(ss, data, bundle) {
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
   after = renderFollowupNotes(sheet, data, after, matrixWidth);
+  after = renderProducts(sheet, data, after, width);
   after = renderNotes(sheet, data, after + 1, width);
   renderTasks(sheet, data, after, width);
 
@@ -283,6 +285,50 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
       .setVerticalAlignment('middle').setWrap(true);
   }
   return top + 1;
+}
+
+/**
+ * 營養品那一區。緊接在二返註記底下。
+ *
+ * **格式 3 起它才自己一區。** 以前營養品混在矩陣裡，而那四個數字欄印的是
+ * 月數 —— 「應有 2 已完成 0 已排未上 0 剩餘 2」沒有一個看得懂。
+ *
+ * **一筆都沒有就整段不畫** —— 大部分客戶不買，而一個永遠空著的區塊只是在
+ * 每次看報表時提醒她那件事不存在。
+ */
+function renderProducts(sheet, data, top, width) {
+  var rows = data.products || [];
+  if (!rows.length) return top;
+
+  var head = top + 1;
+  blockHead(sheet, head, 1, '營養品');
+
+  var headers = ['品名', '金額', '幾個月', '哪幾種', '給了沒'];
+  sheet.getRange(head + 1, 1, 1, headers.length).setValues([headers]);
+  styleHeader(sheet.getRange(head + 1, 1, 1, headers.length));
+
+  var body = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    body.push([
+      r.label || '',
+      r.amount == null ? '' : r.amount,
+      r.months == null ? '' : r.months,
+      (r.items || []).join('、'),
+      (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || ''),
+    ]);
+  }
+  sheet.getRange(head + 2, 1, body.length, headers.length).setValues(body)
+    .setVerticalAlignment('middle').setWrap(true);
+
+  // 還沒給完的那幾列標起來 —— 那是她要回去補的東西。
+  // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
+  for (var j = 0; j < rows.length; j++) {
+    if (rows[j].done) continue;
+    sheet.getRange(head + 2 + j, 1, 1, headers.length).setBackground(COLOR.booked);
+  }
+
+  return head + 2 + body.length + 1;
 }
 
 /**

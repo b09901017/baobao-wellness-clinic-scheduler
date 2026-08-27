@@ -8,9 +8,12 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import { expandPlan } from '../domain/entitlements.js';
 import { missingPairs } from '../domain/followups.js';
+import { deliveryNoteFor } from '../domain/products.js';
 
 const PATH = 'customers';
 const entPath = (customerId) => `${PATH}/${customerId}/entitlements`;
+/** 隨手記是頂層集合（`data/notes.js` 的同一條路徑）。營養品的提醒就是一筆。 */
+const NOTE_PATH = 'notes';
 
 /**
  * 全部在服務中的客戶，依姓名排序。
@@ -48,16 +51,26 @@ export const listEntitlements = (customerId) => repo.list(entPath(customerId));
  *
  * 配對規則本身在 domain/followups.js，這裡只負責寫。見 ADR-0022。
  */
-export async function createEntitlement(customerId, data) {
+export async function createEntitlement(customerId, data, { customer = null, deliverOn = null } = {}) {
   const courses = await config.listAll('courses', { includeDeleted: true });
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
 
   const id = repo.newId(entPath(customerId));
   const pairs = missingPairs([{ ...data, id }], coursesById);
 
+  // 營養品要配一筆「哪天順便給」的隨手記。同一個 commit 的理由跟二返一樣：
+  // 分開寫的話「營養品建好了、提醒失敗」會留下一份看起來正常、其實少了一半的
+  // 資料 —— 而少掉的那一半是她會忘記給東西。復原也退得回兩筆。
+  const note = deliveryNoteFor({
+    entitlement: { ...data, id },
+    customer: { id: customerId, name: customer?.name ?? null },
+    date: deliverOn,
+  });
+
   const [created] = await repo.commit([
     { op: 'create', path: entPath(customerId), id, data },
     ...pairs.map((p) => ({ op: 'create', path: entPath(customerId), data: p.draft })),
+    ...(note ? [{ op: 'create', path: NOTE_PATH, data: note }] : []),
   ]);
   return created;
 }
@@ -164,10 +177,21 @@ export async function createWithPlan(customer, { plan = null, quantity = 1, extr
     Object.fromEntries(courses.map((c) => [c.id, c])),
   );
 
+  // 營養品那幾筆各配一張「哪天順便給」的提醒。**日期留空白** ——
+  // 新客戶身上還沒有任何來訪，猜一天出來會讓她以為那天客人真的會來
+  //（`nextDeliveryDate()` 的同一條判斷）。她之後在隨手記或日曆上挑。
+  const notes = entitlements
+    .map((e) => deliveryNoteFor({
+      entitlement: { ...e.data, id: e.id },
+      customer: { id, name: customer?.name ?? null },
+    }))
+    .filter(Boolean);
+
   await repo.createMany([
     { path: PATH, id, data: { ...customer, active: true } },
     ...entitlements.map((e) => ({ path: entPath(id), id: e.id, data: e.data })),
     ...pairs.map((p) => ({ path: entPath(id), data: p.draft })),
+    ...notes.map((data) => ({ path: NOTE_PATH, data })),
   ]);
 
   return id;

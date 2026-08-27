@@ -730,9 +730,18 @@ function openNoteCard(el, data, id, date) {
       onMount: (card) => {
         card.querySelector('[data-tick]')?.addEventListener('click', async () => {
           try {
-            await toast.withSaveState(() => notesData.setDone(current.id, !current.done), {
-              success: current.done ? '拿回來了' : '勾掉了',
-            });
+            // 營養品的提醒會先問「給了哪些」（四個入口共用同一支，見
+            // `components/note.js` 的 toggleWithDelivery）
+            const wrote = await toast.withSaveState(
+              () => note.toggleWithDelivery(current, {
+                loadEntitlements: (cid) => customersData.listEntitlements(cid),
+                recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+                setDone: (id, done) => notesData.setDone(id, done),
+                today: todayISO(),
+              }),
+              { success: current.done ? '拿回來了' : '勾掉了' },
+            );
+            if (wrote === false) return;
           } catch {
             return; /* 已處理 */
           }

@@ -49,6 +49,7 @@ import * as buy from '../components/buy.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { deliveryState, monthsOf } from '../../domain/products.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
@@ -699,11 +700,19 @@ function productsBlock(bought) {
       <span class="section__n">${sorted.length}</span>
     </div>
     <ul class="link-list">
-      ${sorted.map((e) => `
+      ${sorted.map((e) => {
+        // 「給了沒」是這一段最重要的資訊 —— 她的原話是「假設我當天忘記給了，
+        // 然後可以記我給了那些多少」。規則只在 `domain/products.js`。
+        const gave = deliveryState(e);
+        return `
         <li><button class="row-link" type="button" data-ent="${esc(e.id)}">
-          <span class="link-list__label">${esc(e.label ?? '（沒有名稱）')}</span>
-          <span class="badge num">×${esc(e.totalQty ?? 0)}</span>
-        </button></li>`).join('')}
+          <span class="link-list__label">${esc(e.label ?? '（沒有名稱）')}
+            <span class="muted">${esc(gave.text)}${
+              gave.at ? `・${esc(shortDate(gave.at))}` : ''}</span></span>
+          <span class="badge ${gave.state === 'all' ? 'badge--ok' : ''} num"
+            >${esc(monthsOf(e))} 個月</span>
+        </button></li>`;
+      }).join('')}
     </ul>`;
 }
 
@@ -936,9 +945,17 @@ async function toggleNote(ctx, id) {
   const note = ctx.notes.find((n) => n.id === id);
   if (!note) return;
   try {
-    await toast.withSaveState(() => notesData.setDone(id, !note.done), {
-      success: note.done ? '拿回來了' : '勾掉了',
-    });
+    // 營養品的提醒會先問「給了哪些」（四個入口共用同一支）
+    const wrote = await toast.withSaveState(
+      () => note.toggleWithDelivery(note, {
+        loadEntitlements: (cid) => data.listEntitlements(cid),
+        recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+        setDone: (id, done) => notesData.setDone(id, done),
+        today: todayISO(),
+      }),
+      { success: note.done ? '拿回來了' : '勾掉了' },
+    );
+    if (wrote === false) return;
     await reload(ctx);
   } catch {
     /* 已處理 */
