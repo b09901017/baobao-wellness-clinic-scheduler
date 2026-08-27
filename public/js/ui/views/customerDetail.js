@@ -864,7 +864,10 @@ function taskBlock(tasks) {
 
     ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
     ${!tasks.length
-      ? '<p class="muted" style="margin: 0">還沒有任務。客人確認時間之後，該做的系統登記會自動產生。</p>'
+      // ADR-0027：任務等客人說可以之後才長。這是 CLAUDE.md 點名的那四句之一，
+      // 改「什麼時候產生」的規則時要一起改。用她的詞，不要寫「系統登記」。
+      ? `<p class="muted" style="margin: 0">還沒有任務。
+          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來。</p>`
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-2)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"

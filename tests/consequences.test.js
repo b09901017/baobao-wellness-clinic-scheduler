@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
 import {
   bookingSystemLabel, pendingRegistrations, bookingConsequences, confirmConsequences,
+  closeConsequences,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -200,5 +201,61 @@ describe('勾掉「跟客人確認時間」之後', () => {
   test('A 類會講出那兩張登記待辦', () => {
     const lines = confirmConsequences([visit('pending_confirm', [slot('c-followup')])], COURSES);
     assert.ok(lines.some((l) => l.includes('Examine') && l.includes('耀聖')));
+  });
+});
+
+describe('結案那一下會發生什麼', () => {
+  const ENTS = [
+    { id: 'e-checkup', courseId: 'c-checkup', totalQty: 3 },
+    { id: 'e-followup', courseId: 'c-followup', totalQty: 3, followupForEntitlementId: 'e-checkup' },
+    { id: 'e-recovery', courseId: 'c-recovery', totalQty: 12 },
+  ];
+  const COURSES2 = { ...COURSES, 'c-checkup': { ...COURSES['c-checkup'], followupCourseId: 'c-followup' } };
+
+  const slotFor = (entitlementId, courseId) => ({ entitlementId, courseId, startsAt: '09:00' });
+  const ask = (o) => closeConsequences({ entitlements: ENTS, coursesById: COURSES2, ...o });
+
+  test('有做：改成已完成、扣次數', () => {
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
+    assert.ok(lines[0].includes('已完成'));
+    assert.ok(lines[0].includes('扣掉次數'));
+  });
+
+  test('一段都沒做：改成未到、不扣次數', () => {
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 0 });
+    assert.ok(lines[0].includes('未到'));
+    assert.ok(lines[0].includes('不扣'));
+  });
+
+  test('健檢結案才講「追蹤健檢報告」', () => {
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), doneCount: 1 });
+    assert.ok(lines.some((l) => l.includes('追蹤健檢報告')));
+  });
+
+  test('沒有健檢就不要講 —— 那是一件不會發生的事', () => {
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
+    assert.ok(!lines.some((l) => l.includes('追蹤健檢報告')));
+  });
+
+  test('健檢整筆沒做也不講 —— 沒做完就沒有報告要追', () => {
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), doneCount: 0 });
+    assert.ok(!lines.some((l) => l.includes('追蹤健檢報告')));
+  });
+
+  test('健檢沒配到二返額度就不講 —— 那時候鏈條長不出來', () => {
+    const lines = closeConsequences({
+      visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]),
+      doneCount: 1,
+      entitlements: [ENTS[0]],
+      coursesById: COURSES2,
+    });
+    assert.ok(!lines.some((l) => l.includes('追蹤健檢報告')));
+  });
+
+  test('同步沒設定就不要承諾試算表會動', () => {
+    const off = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
+    assert.ok(!off.some((l) => l.includes('試算表')));
+    const on = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1, sheetSyncOn: true });
+    assert.ok(on.some((l) => l.includes('試算表')));
   });
 });

@@ -38,7 +38,7 @@ import {
   todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
-import { confirmConsequences } from '../../domain/consequences.js';
+import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
@@ -1887,16 +1887,21 @@ async function renderClose(el) {
   const today = todayISO();
   // 課程主檔是為了「這一段要不要簽療程單」。二返不用簽，其餘都要 ——
   // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
-  const [unclosed, courses] = await Promise.all([
+  const [unclosed, courses, settings] = await Promise.all([
     visitsData.listUnclosed(today),
     // 含已刪除的：她停用一個課程，那幾筆還沒結案的來訪照樣要問得出「要不要簽單」
     config.listAll('courses', { includeDeleted: true }),
+    config.getSettings(),
   ]);
   paintClose({
     el,
     rows: visitsToClose(unclosed, today),
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
     today,
+    settings,
+    // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
+    // 開啟抽屜時才讀那一位的 —— 這一頁上可能有十幾筆，全部先讀是白費的。
+    entitlements: [],
   });
 }
 
@@ -2029,6 +2034,16 @@ function closeDrawerHtml(ctx) {
             壓表時記的：${esc(visit.note)}</p>` : ''}
         </div>
 
+        <ul class="dialog__list" style="margin: var(--space-3) var(--gutter) 0">
+          ${closeConsequences({
+            visit,
+            doneCount,
+            entitlements: ctx.entitlements ?? [],
+            coursesById: ctx.coursesById,
+            sheetSyncOn: isConfigured(ctx.settings),
+          }).map((line) => `<li>${esc(line)}</li>`).join('')}
+        </ul>
+
         <div class="drawer__actions">
           <button class="btn btn--primary" type="button" data-apply>
             ${doneCount ? `這 ${doneCount} 段做了，結案` : '一段都沒做 → 記成未到'}</button>
@@ -2042,9 +2057,20 @@ function wireClose(ctx) {
   const { el } = ctx;
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       drawer = { visitId: btn.dataset.open, missed: new Set() };
       paintClose(ctx);
+
+      // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
+      // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
+      const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
+      if (!visit?.customerId || ctx.entitlements?.length) return;
+      try {
+        ctx.entitlements = await customersData.listEntitlements(visit.customerId);
+      } catch {
+        return; // 讀不到就少一句話，不是少一頁
+      }
+      if (drawer?.visitId === visit.id) paintClose(ctx);
     }),
   );
 
@@ -2059,6 +2085,9 @@ function wireClose(ctx) {
 
   const close = () => {
     drawer = null;
+    // 換一位客戶時不要沿用上一位的額度 —— 那會讓「會多一張追蹤健檢報告」
+    // 出現在一個根本沒買健檢的人身上。
+    ctx.entitlements = [];
     paintClose(ctx);
   };
   el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));

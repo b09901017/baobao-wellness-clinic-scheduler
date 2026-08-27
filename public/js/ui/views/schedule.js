@@ -896,7 +896,7 @@ function recordPanel(row) {
         ? `<ul class="link-list">${recorded.map((s) => `
             <li><a href="#/visits/${esc(s.visitId)}">
               <span class="link-list__label num">${esc(s.label)}</span></a></li>`).join('')}</ul>`
-        : '<p class="muted">還沒記。在 Abovee 壓完之後回來記一筆。</p>'}
+        : '<p class="muted">還沒記。在 Abovee 或 Examine 壓完之後回來記一筆。</p>'}
     </section>
 
     <section class="card card--flat">

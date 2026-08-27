@@ -26,6 +26,7 @@
 
 import { bookingSystemFor, tasksForCategory } from './taskRules.js';
 import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
+import { pairsOf, REPORT_TASK_KIND } from './followups.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -134,4 +135,48 @@ export function confirmConsequences(visits = [], coursesById = {}, sheetSyncOn =
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 結案（簽療程單）那一下會發生什麼。收尾抽屜底下那一句預告。
+ *
+ * **只講這一筆真的會發生的事**：整批都沒做就不要說「次數扣掉」，
+ * 沒有健檢就不要說「會多一張追蹤健檢報告」。講一件不會發生的事，
+ * 比沒講還糟（那正是她說看不懂的那幾句的毛病）。
+ *
+ * @param {object} o
+ * @param {object} o.visit 那一筆來訪
+ * @param {number} o.doneCount 逐段勾完之後，算「做了」的有幾段
+ * @param {object[]} o.entitlements 這位客戶的額度（要判斷有沒有健檢配二返）
+ * @param {Record<string, object>} o.coursesById
+ * @param {boolean} [o.sheetSyncOn]
+ * @returns {string[]}
+ */
+export function closeConsequences({
+  visit, doneCount, entitlements = [], coursesById = {}, sheetSyncOn = false,
+}) {
+  const lines = [];
+
+  if (doneCount) {
+    lines.push(`日曆上這一筆改成「${shortStatus('done')}」，做了的那 ${doneCount} 段扣掉次數`);
+  } else {
+    lines.push(`日曆上這一筆改成「${shortStatus('no_show')}」，次數不扣`);
+  }
+
+  // 健檢結案才長「追蹤健檢報告」（ADR-0042：報告要兩三週，報告沒到就不可能約）。
+  // 判斷走 `pairsOf()` —— 這一頁不認課程名字。
+  if (doneCount && hasCheckupSlot(visit, entitlements, coursesById)) {
+    lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
+  }
+
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  return lines;
+}
+
+/** 這一筆來訪裡有沒有一段是「做完之後還要再約一次」的健檢。 */
+function hasCheckupSlot(visit, entitlements, coursesById) {
+  const sources = new Set(
+    pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id),
+  );
+  return (visit?.slots ?? []).some((s) => sources.has(s.entitlementId));
 }
