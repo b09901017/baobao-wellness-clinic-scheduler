@@ -328,6 +328,16 @@ service cloud.firestore {
         && d.dates.size() <= 45
         && d.freeText is string
         && d.freeText.size() <= 500
+        // 名字只是顯示用（資料歸屬看的是上面拿邀請比對的 customerId），
+        // 但它沒有型別與上限的話，這裡就是整份 Rules 唯一一個
+        // 沒登入的人可以塞任意型別、任意大小的欄位 —— 兄弟欄位全都擋了。
+        && d.customerName is string
+        && d.customerName.size() <= 100
+        // **送出時間由伺服器決定。** 客戶端寫的是 serverTimestamp()，
+        // 在 Rules 眼中就等於 request.time；比對它等於不接受客戶端自己指定的值。
+        // 這個欄位不是裝飾：收件匣把「什麼時候填的」印出來，而她要靠它判斷
+        // 這一份是不是在她壓完那個月的表之後才回來的。
+        && d.submittedAt == request.time
         && d.takenAt == null
         // 沒有這個欄位她的收件匣一筆都看不到 —— repo.list() 一律用
         // where('deletedAt','==',null) 過濾。
