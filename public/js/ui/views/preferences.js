@@ -97,7 +97,9 @@ export async function render(el) {
       followupDueDays: v.followupDueDays,
     };
     try {
-      await toast.withSaveState(() => config.saveSettings(next), { success: '已儲存' });
+      await toast.withSaveState(() => config.saveSettings(next), {
+        success: '已儲存', key: 'settings:save',
+      });
     } catch {
       /* 已處理 */
     }

@@ -543,11 +543,11 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
     try {
       if (isNew) {
         await toast.withSaveState(() => config.create(type, { ...parsed, active: true }), {
-          success: '已新增',
+          success: '已新增', key: `master:create:${type}`,
         });
       } else {
         await toast.withSaveState(() => config.update(type, record.id, parsed), {
-          success: '已儲存',
+          success: '已儲存', key: `master:update:${type}:${record.id}`,
         });
       }
       back();

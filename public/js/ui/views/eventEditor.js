@@ -247,7 +247,10 @@ async function save(el, draft, { isNew, id, onDone }) {
   try {
     await toast.withSaveState(
       () => (isNew ? eventsData.create(draft) : eventsData.update(id, draft)),
-      { success: isNew ? '加好了' : '存好了' },
+      {
+        success: isNew ? '加好了' : '存好了',
+        key: isNew ? `event:create:${draft.startDate}:${draft.title}` : `event:update:${id}`,
+      },
     );
     if (onDone) onDone();
     else go('/calendar');

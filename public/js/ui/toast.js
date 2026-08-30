@@ -83,23 +83,61 @@ export function failed(message, onRetry) {
 }
 
 /**
+ * 同一個 `key` 的動作正在飛的時候，那一趟的 Promise 放在這裡。
+ *
+ * 走二次確認的路徑本來就防得住連點 —— `confirmAction()` 一按下去就把整個
+ * 對話框節點移除，後面幾下落在不存在的元素上（`07-chaos.spec.js` 的 C12／C13
+ * 會過就是靠這個）。**沒有確認框的那幾條路完全沒有保護**：
+ * 「儲存中…」只是一條 toast，既不遮蔽也不鎖表單，而她在公司大樓裡用行動網路，
+ * 慢一拍就多按一下是常態。雙擊「建立」＝ 兩位同名客戶，各自展開一整份方案額度。
+ */
+const inFlight = new Map();
+
+/**
  * 包住一次寫入，自動處理「儲存中 → 已儲存（可復原）／ 失敗可重試」。
  * 所有寫入都應該經過這裡，這樣就不會有人忘記處理失敗，也不用逐個記得接復原。
  *
  * @param {() => Promise<T>} fn
- * @param {{pending?:string, success?:string, undoable?:boolean}} [options]
+ * @param {{pending?:string, success?:string, undoable?:boolean, key?:string|null}} [options]
  *   undoable 預設為真。寫了好幾批的動作 repo 會自己判斷給不出復原，這裡不用管。
+ *
+ *   `key` 給**同一下不可以做兩次**的動作用（建客戶、存來訪、加額度這種
+ *   會長出新資料或動到次數的）。同一個 key 還在飛的時候，第二次呼叫
+ *   **接到的是同一趟**，不是再跑一趟 —— 回傳值照樣拿得到，
+ *   所以呼叫端那句 `go(\`/customers/${id}\`)` 不會拿到 undefined。
+ *
+ *   勾掉、還原這種「做兩次結果一樣」的動作不用給 key：全域鎖住一次一個寫入
+ *   會讓她連續勾三筆待辦時後兩筆安靜地不見，那比連點嚴重得多。
  * @template T
  */
-export async function withSaveState(fn, { pending, success, undoable = true } = {}) {
-  saving(pending);
-  try {
-    const { result, undo } = await withUndo(fn);
-    saved(success, undoable ? undo : null);
-    return result;
-  } catch (err) {
-    failed(`儲存失敗：${err.message}`, () =>
-      withSaveState(fn, { pending, success, undoable }));
-    throw err;
+export function withSaveState(fn, { pending, success, undoable = true, key = null } = {}) {
+  if (key !== null) {
+    const running = inFlight.get(key);
+    if (running) return running;
   }
+
+  const run = (async () => {
+    saving(pending);
+    try {
+      const { result, undo } = await withUndo(fn);
+      saved(success, undoable ? undo : null);
+      return result;
+    } catch (err) {
+      failed(`儲存失敗：${err.message}`, () =>
+        withSaveState(fn, { pending, success, undoable, key }));
+      throw err;
+    }
+  })();
+
+  if (key !== null) {
+    inFlight.set(key, run);
+    // **成功或失敗都要放開**，否則存失敗一次之後那顆按鈕就永遠按不動了 ——
+    // 而「失敗可重試」正是這一支存在的理由。這裡的 catch 只是為了掛得上
+    // finally，真正的錯誤照樣從 `run` 丟出去給呼叫端。
+    run.catch(() => {}).finally(() => {
+      if (inFlight.get(key) === run) inFlight.delete(key);
+    });
+  }
+
+  return run;
 }
