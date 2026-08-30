@@ -233,7 +233,7 @@ describe('每天的摘要', () => {
 // 這一支不執行程式碼，只讀原始碼（同 `module-names.test.js` 的路數）——
 // 那兩個 WEEK_ORDER 是畫面自己列的常數，測不到，但看得到。
 describe('一週的起點只有一個', () => {
-  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url).pathname, 'utf8');
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
 
   test('日曆的表頭從禮拜一起算', () => {
     assert.equal(WEEKDAY_HEADERS[0], '一');

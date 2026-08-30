@@ -14,7 +14,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync, existsSync } from 'node:fs';
 
-const ROOT = new URL('../', import.meta.url).pathname;
+import { fromRoot } from './helpers/paths.js';
+
+const ROOT = fromRoot();
 
 function trackedFiles() {
   return execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })

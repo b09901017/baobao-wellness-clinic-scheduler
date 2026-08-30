@@ -9,7 +9,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const JS_ROOT = new URL('../public/js/', import.meta.url).pathname;
+import { fromRoot, toPosix } from './helpers/paths.js';
+
+const JS_ROOT = fromRoot('public/js/');
 
 function filesUnder(dir) {
   const out = [];
@@ -26,7 +28,9 @@ const FIREBASE_IMPORT = /from\s+['"]https:\/\/www\.gstatic\.com\/firebasejs\//;
 test('只有 /data 可以 import firebase SDK', () => {
   const offenders = [];
   for (const file of filesUnder(JS_ROOT)) {
-    const rel = file.slice(JS_ROOT.length);
+    // **一定要換成 `/`**：Windows 上這裡是 `data\repo.js`，
+    // `startsWith('data/')` 會是 false，於是 /data 底下那幾支也被當成違規者。
+    const rel = toPosix(file.slice(JS_ROOT.length));
     if (rel.startsWith('data/')) continue;
     if (FIREBASE_IMPORT.test(readFileSync(file, 'utf8'))) offenders.push(rel);
   }
@@ -43,7 +47,7 @@ test('/domain 不可以 import /data 或 /ui', () => {
   for (const file of filesUnder(domainDir)) {
     const src = readFileSync(file, 'utf8');
     if (/from\s+['"][^'"]*\/(data|ui)\//.test(src)) {
-      offenders.push(file.slice(JS_ROOT.length));
+      offenders.push(toPosix(file.slice(JS_ROOT.length)));
     }
   }
   assert.deepEqual(offenders, [], `/domain 必須是純函式，不能往上依賴：${offenders.join(', ')}`);
@@ -95,7 +99,7 @@ test('每個具名 import 都對得上真的匯出', () => {
       for (const part of m[1].split(',')) {
         const name = part.trim().split(/\s+as\s+/)[0].trim();
         if (name && !have.has(name)) {
-          missing.push(`${file.slice(JS_ROOT.length)} 想要 ${name}，但 ${m[2]} 沒有匯出`);
+          missing.push(`${toPosix(file.slice(JS_ROOT.length))} 想要 ${name}，但 ${m[2]} 沒有匯出`);
         }
       }
     }
@@ -110,7 +114,7 @@ test('相對 import 都指得到真的檔案', () => {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) {
       const target = resolve(dirname(file), m[1]);
-      if (!existsSync(target)) missing.push(`${file.slice(JS_ROOT.length)} → ${m[1]}`);
+      if (!existsSync(target)) missing.push(`${toPosix(file.slice(JS_ROOT.length))} → ${m[1]}`);
     }
   }
   assert.deepEqual(missing, [], `這些路徑指不到檔案：\n${missing.join('\n')}`);
@@ -134,7 +138,7 @@ test('/ui/views 的委派監聽不掛在整頁的 el 上', () => {
   for (const file of filesUnder(viewsDir)) {
     const src = readFileSync(file, 'utf8');
     const code = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    if (ON_PAGE_EL.test(code)) offenders.push(file.slice(JS_ROOT.length));
+    if (ON_PAGE_EL.test(code)) offenders.push(toPosix(file.slice(JS_ROOT.length)));
   }
 
   assert.deepEqual(

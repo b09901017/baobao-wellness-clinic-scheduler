@@ -308,7 +308,7 @@ describe('日期的人話格式', () => {
 // 見 `.scratch/asks-2026-08-25/issues/09`。
 describe('勾完成那一支的接線', () => {
   const src = readFileSync(
-    new URL('../public/js/data/tasks.js', import.meta.url).pathname, 'utf8',
+    new URL('../public/js/data/tasks.js', import.meta.url), 'utf8',
   );
   const setDone = src.slice(src.indexOf('export async function setDone'));
 

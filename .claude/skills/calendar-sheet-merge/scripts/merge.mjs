@@ -16,16 +16,23 @@
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..');
-const { parseSheet, planForSheet } = await import(join(REPO, 'public/js/domain/legacyImport.js'));
-const { SEED } = await import(join(REPO, 'public/js/domain/seed.js'));
+
+// **一定要轉成 file:// URL 才 import 得動。** Windows 上絕對路徑長
+// `C:\repo\public\…`，動態 import 會把 `C:` 當成協定，然後喊
+// ERR_UNSUPPORTED_ESM_URL_SCHEME —— 而在 macOS 上 `/Users/…` 剛好能用，
+// 所以這個坑只有她那台看得到。
+const repoModule = (rel) => import(pathToFileURL(join(REPO, rel)).href);
+
+const { parseSheet, planForSheet } = await repoModule('public/js/domain/legacyImport.js');
+const { SEED } = await repoModule('public/js/domain/seed.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
-const { addDays } = await import(join(REPO, 'public/js/domain/dates.js'));
-const { KIND_LABEL } = await import(join(REPO, 'public/js/domain/mergeImport.js'));
+const { addDays } = await repoModule('public/js/domain/dates.js');
+const { KIND_LABEL } = await repoModule('public/js/domain/mergeImport.js');
 
 // ---------- 速記語法 ----------
 //

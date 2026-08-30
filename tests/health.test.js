@@ -570,7 +570,7 @@ describe('二返額度', () => {
 //（那一支要 DOM 與 firebase），只讀原始碼問「這個名字在不在那張表裡」。
 
 const VIEW_SRC = readFileSync(
-  new URL('../public/js/ui/views/health.js', import.meta.url).pathname,
+  new URL('../public/js/ui/views/health.js', import.meta.url),
   'utf8',
 );
 
