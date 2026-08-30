@@ -232,6 +232,58 @@ test('U12 破壞性操作一定要有二次確認，而且講出後果', async (
   expect(notes.some((n) => n.id === 'n-done'), '取消之後那一筆要還在').toBe(true);
 });
 
+// 這一條路以前沒有任何測試走過，而它是壞的：`calendar.js` 傳給 confirmAction 的
+// 參數名是 `body` / `confirm`，而簽章要的是 `consequences` / `confirmLabel`。
+// 於是元件對 undefined 做 .map() 丟出 TypeError，而它發生在 Promise 的執行器裡 ——
+// 對話框一次都沒出現、那筆待辦永遠刪不掉，畫面上一個字都不說（SPEC 6.9）。
+//
+// fixture 會把未捕獲的 pageerror 判成失敗，所以**光是走過這條路**就守得住它；
+// 底下的斷言是為了讓壞掉的時候一眼看出壞在哪一步。
+test('U13 日曆上刪掉一筆待辦：確認框出得來，而且真的刪得掉', async ({ app, page }) => {
+  await app.seed(richSeed());
+  await app.signIn('/calendar');
+
+  // 點那一天 → 底部滑出 → 點那一筆待辦 → 浮出讀取卡片 → 鉛筆 → 編輯器
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await page.waitForTimeout(600);
+  await page.locator('[data-open^="note:"]').first().click();
+  await page.waitForTimeout(600);
+  await page.locator('[data-card-edit]').click();
+  await page.waitForTimeout(600);
+
+  await page.locator('[data-drop]').click();
+
+  await expect(app.dialog(), '刪掉是破壞性操作，要先問').toBeVisible();
+  const text = await app.dialogText();
+  console.log('[U13] 日曆刪待辦的確認框 =', JSON.stringify(text));
+  expect(text, '要講出還原得回來').toMatch(/還原|已刪除項目/);
+  await app.ok();
+  await page.waitForTimeout(1200);
+
+  const gone = await app.readDoc('notes', 'n1');
+  expect(gone.deletedAt, '按了確定就要真的刪掉（軟刪除）').not.toBe(null);
+});
+
+test('U14 取消刪除就什麼都不該發生', async ({ app, page }) => {
+  await app.seed(richSeed());
+  await app.signIn('/calendar');
+
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await page.waitForTimeout(600);
+  await page.locator('[data-open^="note:"]').first().click();
+  await page.waitForTimeout(600);
+  await page.locator('[data-card-edit]').click();
+  await page.waitForTimeout(600);
+
+  await page.locator('[data-drop]').click();
+  await expect(app.dialog()).toBeVisible();
+  await app.cancelDialog();
+  await page.waitForTimeout(600);
+
+  const still = await app.readDoc('notes', 'n1');
+  expect(still.deletedAt, '按了取消那一筆要還在').toBe(null);
+});
+
 test('U15 日曆七種東西各自畫得出來、而且分得出來', async ({ app, page }) => {
   await app.seed(richSeed());
   await app.signIn('/calendar');

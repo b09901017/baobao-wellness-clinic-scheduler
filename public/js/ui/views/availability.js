@@ -583,8 +583,9 @@ async function confirmChanges(record, next) {
   return confirmAction({
     title: `改${month}不能的時間？`,
     consequences: [
-      ...removed.map((r) => `拿掉「${esc(r)}」`),
-      ...added.map((r) => `加上「${esc(r)}」`),
+      // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
+      ...removed.map((r) => `拿掉「${r}」`),
+      ...added.map((r) => `加上「${r}」`),
       `改完之後壓${month}的表會用這一份`,
     ],
     confirmLabel: '存起來',
@@ -610,11 +611,13 @@ async function submit(ctx, record, next) {
   try {
     if (record?.id) {
       await toast.withSaveState(() => data.updateAvailability(ctx.id, record.id, payload), {
-        success: '已儲存',
+        success: '已儲存', key: `availability:update:${record.id}`,
       });
     } else {
+      // 同一個月連點兩下就是兩份可用性，而「哪一份算數」要靠資料健檢才看得出來
+      // （ADR-0053：一份就是一個月，重複的不自動合併）。
       await toast.withSaveState(() => data.createAvailability(ctx.id, payload), {
-        success: '已記錄',
+        success: '已記錄', key: `availability:create:${ctx.id}:${payload.month ?? payload.validFrom}`,
       });
     }
     ctx.back();
