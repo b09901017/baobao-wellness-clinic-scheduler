@@ -19,7 +19,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url).pathname, 'utf8');
+const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
 
 const JS = read('js/ui/components/sheet.js');
 const CSS = read('css/app.css');

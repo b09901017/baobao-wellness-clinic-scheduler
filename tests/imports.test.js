@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 
-const JS_ROOT = new URL('../public/js/', import.meta.url).pathname;
+import { fromRoot, toPosix } from './helpers/paths.js';
+
+const JS_ROOT = fromRoot('public/js/');
 
 function filesUnder(dir) {
   const out = [];
@@ -33,7 +35,7 @@ test('每個相對 import 都指向實際存在的檔案', () => {
       if (!spec.startsWith('.')) continue; // CDN 或裸模組不檢查
       const target = resolve(dirname(file), spec);
       if (!existsSync(target)) {
-        broken.push(`${file.slice(JS_ROOT.length)} → ${spec}`);
+        broken.push(`${toPosix(file.slice(JS_ROOT.length))} → ${spec}`);
       }
     }
   }
@@ -48,7 +50,7 @@ test('相對 import 一律帶 .js 副檔名', () => {
     for (const m of readFileSync(file, 'utf8').matchAll(SPEC_RE)) {
       const spec = m[1];
       if (spec.startsWith('.') && !spec.endsWith('.js')) {
-        bad.push(`${file.slice(JS_ROOT.length)} → ${spec}`);
+        bad.push(`${toPosix(file.slice(JS_ROOT.length))} → ${spec}`);
       }
     }
   }

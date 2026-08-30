@@ -25,7 +25,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # 沒有相依套件，不需要 npm install
+      # 這一段不需要 npm install：`npm test` 跑的是純函式測試與靜態守衛，
+      # 一個套件都不吃。package.json 的 devDependencies 只有端對端用得到。
+      #
+      # **端對端（`tests-e2e/`）刻意不在這裡跑**：它要 Firebase 模擬器、Java
+      # 與 Playwright 的瀏覽器，而且 workers 必須是 1（每一支測試都會把
+      # Firestore 清空）。要搬進 CI 得先讓每個 worker 有自己的 projectId，
+      # 見 playwright.config.js 的檔頭。
       - run: npm test
 
   deploy:

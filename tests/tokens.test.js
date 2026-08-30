@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url).pathname, 'utf8');
+const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
 
 const CSS = read('css/tokens.css');
 const LIGHT_MARK = '---------- 淺色 ----------';
@@ -76,9 +76,12 @@ describe('開機時蓋上去的那一段', () => {
   test('兩個 HTML 都在第一次繪製之前蓋 data-theme', () => {
     for (const html of boots) {
       assert.match(html, /documentElement\.dataset\.theme/);
-      // 不可以是 module —— module 是 defer 的，來不及，畫面會閃一下白的
-      assert.ok(
-        html.includes("<script>\n      (function () {"),
+      // 不可以是 module —— module 是 defer 的，來不及，畫面會閃一下白的。
+      // **換行用 `\s*` 帶過，不要寫死 `\n`**：Windows 上簽出來的是 CRLF，
+      // 寫死換行字元的比對只有在那台會紅，而它紅的原因跟主題一點關係都沒有。
+      assert.match(
+        html,
+        /<script>\s*\(function \(\) \{/,
         '開機那一段要是行內的普通 script',
       );
     }

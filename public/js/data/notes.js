@@ -89,9 +89,16 @@ export const restore = (id) => repo.restore(PATH, id);
  *
  * 勾掉的不會馬上從清單消失 —— 她會勾錯，看得到才點得回來（見 domain/notes.js
  * 的 sortNotes）。
+ *
+ * **回傳寫進去的那幾欄**，理由跟 `recordDelivery()` 同一條：呼叫端要重畫的話，
+ * 讀的是寫入的人回報的結果，不是自己猜的。
+ *
+ * @returns {Promise<{done: boolean, doneAt: string|null}>}
  */
-export function setDone(id, done) {
-  return repo.update(PATH, id, { done, doneAt: done ? new Date().toISOString() : null });
+export async function setDone(id, done) {
+  const changes = { done, doneAt: done ? new Date().toISOString() : null };
+  await repo.update(PATH, id, changes);
+  return changes;
 }
 
 /**
@@ -106,17 +113,27 @@ export function setDone(id, done) {
  * 日期不動 —— 隨手記的日期不是死線（`domain/notes.js`），過了也不會變紅字，
  * 而自己往後跳一天會讓她以為是系統排的。
  *
+ * **回傳這一筆提醒變成什麼樣**，因為「勾不勾得掉」是這裡決定的：呼叫端猜
+ * `!note.done` 的話，只給了一部分時畫面會說一件資料庫沒有發生的事
+ * （SPEC 第 6.9 節，日曆的待辦卡片就這樣說過謊）。判斷仍然只有這一份。
+ *
  * @param {object} note 那一筆提醒（要有 id、entitlementId、customerId）
  * @param {object} entitlement 那一筆營養品（要有 id）
  * @param {{at: string, productIds: string[]}} delivery
+ * @returns {Promise<object>} 寫完之後的那一筆提醒
  */
 export async function recordDelivery(note, entitlement, delivery) {
   const patch = withDelivery(entitlement, delivery);
-  if (!patch) return;
+  // 沒有東西要記（她點成一款都沒給、或那幾款早就給過了）：不寫，
+  // 那一筆提醒也就原封不動。
+  if (!patch) return { ...note };
 
   const after = { ...entitlement, ...patch };
   const finished = isFullyDelivered(after);
   const at = new Date().toISOString();
+  const changes = finished
+    ? { done: true, doneAt: at }
+    : { done: false, doneAt: null, text: noteTextFor(after, note.customerName ?? '') };
 
   await repo.commit([
     {
@@ -129,9 +146,9 @@ export async function recordDelivery(note, entitlement, delivery) {
       op: 'update',
       path: PATH,
       id: note.id,
-      changes: finished
-        ? { done: true, doneAt: at }
-        : { done: false, doneAt: null, text: noteTextFor(after, note.customerName ?? '') },
+      changes,
     },
   ]);
+
+  return { ...note, ...changes };
 }

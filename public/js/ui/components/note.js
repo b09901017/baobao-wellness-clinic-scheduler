@@ -282,20 +282,25 @@ export function wireWho(root, { load }) {
  *
  * 逐項預設全部打勾，跟收尾那一張同一個判斷（十次有九次是整包給完）。
  *
+ * **`run()` 會回傳寫完之後的那一筆隨手記。** 呼叫端多半是整塊重畫（那時它
+ * 自己會去讀），但原地重畫的那一個（日曆的待辦卡片）需要知道結果 ——
+ * 而它猜不得：只給了一部分時 `recordDelivery()` 刻意把提醒留成沒勾掉並換掉
+ * 文字，猜 `!note.done` 的話卡片會說一件資料庫沒有發生的事（SPEC 第 6.9 節）。
+ *
  * @param {object} note 那一筆隨手記
  * @param {object} deps
  * @param {(customerId: string) => Promise<object[]>} deps.loadEntitlements
- * @param {(note, entitlement, delivery) => Promise<void>} deps.recordDelivery
- * @param {(id: string, done: boolean) => Promise<void>} deps.setDone
+ * @param {(note, entitlement, delivery) => Promise<object>} deps.recordDelivery
+ * @param {(id: string, done: boolean) => Promise<object>} deps.setDone
  * @param {string} deps.today
- * @returns {Promise<{run: () => Promise<void>, success: string}|null>}
+ * @returns {Promise<{run: () => Promise<object>, success: string}|null>}
  *          null = 她按了「先不要」，什麼都不要做
  */
 export async function prepareToggle(note, {
   loadEntitlements, recordDelivery, setDone, today,
 }) {
   const plain = {
-    run: () => setDone(note.id, !note.done),
+    run: async () => ({ ...note, ...(await setDone(note.id, !note.done)) }),
     success: note.done ? '拿回來了' : '勾掉了',
   };
 

@@ -13,8 +13,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ENTITLEMENT_TYPES } from '../public/js/domain/entitlements.js';
+import { fromRoot } from './helpers/paths.js';
 
-const ROOT = new URL('../', import.meta.url).pathname;
+const ROOT = fromRoot();
 const RULES = readFileSync(join(ROOT, 'firestore.rules'), 'utf8');
 const DATA_DIR = join(ROOT, 'public/js/data');
 

@@ -106,12 +106,33 @@
 
 ## 開始開發
 
-沒有 build 步驟，也沒有相依套件。
+沒有 build 步驟，**app 自己也沒有任何相依套件** —— `package.json` 裡那幾個
+全部是測試才用得到的（Playwright、Firebase 模擬器）。瀏覽器載的還是原始檔。
 
 ```
-npm test                    # 跑 domain 純函式測試與分層守衛
+npm install                 # 只裝測試要用的東西
+npm test                    # domain 純函式測試與分層守衛，不用模擬器
 npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
+npm run test:e2e            # 端對端。**要先把上面那行的模擬器跑起來**
 ```
+
+端對端那一套在 `tests-e2e/`：真的模擬器、真的登入、真的點擊，一支一支走完
+她會走的動線。跑出來的東西（報告、截圖、錄影、trace）全部落在 `.artifacts/`，
+不進版控 —— 那是那一次的證據，不是原始碼。
+
+### 架構圖（graphify）
+
+`graphify-out/` 是一張可以查詢的程式碼知識圖，**不進版控**（build artifact）。
+這台機器裝了 graphify 的 git hook：
+
+```
+graphify hook install       # 裝好之後每次 commit 就在背景重建一次
+graphify hook status        # 看裝了沒
+```
+
+它只讀程式碼（AST），**不呼叫 LLM、不花錢**；文件與圖片的改動它不管，
+那要手動跑 `/graphify --update`。hook 裝在 `.git/hooks/` 裡，
+所以**換一台機器要自己再跑一次** —— git 不會帶著它走。
 
 第一次要做三件事，都在 Firebase Console：
 

@@ -2321,14 +2321,23 @@ function paintNotes(ctx) {
 /**
  * 勾掉／拿回來。**勾掉的不會消失**，它劃掉之後沉到「已完成」那一格
  * （`sortNotes()` 早就這樣排了，只是 data 層一直沒把它們撈回來）。
+ *
+ * **走 `note.prepareToggle()`，跟另外三個入口同一支。** 這一頁曾經直接呼叫
+ * `notesData.setDone()`，於是從這裡勾掉營養品的提醒不會問「給了哪些」——
+ * 那筆要進試算表的交付紀錄靜靜地沒了，而她再按一下「清掉這 N 筆已完成的」，
+ * 連提醒本身都不見（`ui/components/note.js` 的檔頭寫的正是這一種）。
  */
 async function tickNote(el, notes, id) {
   const n = notes.find((x) => x.id === id);
   if (!n) return;
+
+  // 問話刻意在 withSaveState 外面：包進去的話她按了「先不要」也會跳一句
+  // 「勾掉了」，而那是在說一件沒有發生的事。
+  const plan = await note.prepareToggle(n, noteDeps());
+  if (!plan) return;
+
   try {
-    await toast.withSaveState(() => notesData.setDone(id, !n.done), {
-      success: n.done ? '拿回來了' : '勾掉了',
-    });
+    await toast.withSaveState(plan.run, { success: plan.success });
     await renderNotes(el);
   } catch {
     /* 已處理 */

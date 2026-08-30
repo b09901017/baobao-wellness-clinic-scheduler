@@ -903,6 +903,11 @@ textarea {
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
   font: inherit;
+  /* `font: inherit` 不帶顏色。少了這一行，這顆 <button> 會退回瀏覽器的
+     `buttontext`（深色底下就是黑的），而「明天」那一顆沒有 --overdue／--soon
+     幫它補顏色 —— 於是那個數字在深色模式下對比 1.29:1，等於看不見。
+     逾期與今天那兩顆各自設了 color，所以只有這一顆會中。 */
+  color: inherit;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);

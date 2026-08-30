@@ -2,8 +2,15 @@
   "name": "baobao-wellness-clinic-scheduler",
   "private": true,
   "type": "module",
-  "description": "健康管理師排課系統。刻意沒有相依套件，也沒有 build 步驟。",
+  "description": "健康管理師排課系統。刻意沒有執行期相依套件，也沒有 build 步驟；devDependencies 只有測試用得到。",
   "scripts": {
-    "test": "node --test \"tests/*.test.js\""
+    "test": "node --test \"tests/*.test.js\"",
+    "test:e2e": "playwright test --project=phone"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.62.1",
+    "firebase": "^12.18.0",
+    "firebase-tools": "^15.28.2"
   }
 }

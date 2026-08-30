@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const PUBLIC = new URL('../public/', import.meta.url).pathname;
+import { fromRoot, toPosix } from './helpers/paths.js';
+
+const PUBLIC = fromRoot('public/');
 
 function walk(dir) {
   const out = [];
@@ -62,7 +64,8 @@ test('SHELL 列的檔案都真的存在', () => {
 test('每個 app 殼檔案都被列進 SHELL', () => {
   const listed = new Set(shellList());
   const onDisk = walk(PUBLIC)
-    .map((p) => p.slice(PUBLIC.length - 1))
+    // SHELL 裡寫的是網址（`/js/app.js`），所以切出來的相對路徑要換成 `/`。
+    .map((p) => toPosix(p.slice(PUBLIC.length - 1)))
     .filter((p) => CACHEABLE.test(p) && p !== '/sw.js' && !NOT_APP_SHELL.includes(p));
 
   const notListed = onDisk.filter((p) => !listed.has(p));

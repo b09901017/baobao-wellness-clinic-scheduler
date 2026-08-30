@@ -25,7 +25,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const JS_ROOT = new URL('../public/js/', import.meta.url).pathname;
+import { fromRoot, toPosix } from './helpers/paths.js';
+
+const JS_ROOT = fromRoot('public/js/');
 
 function filesUnder(dir) {
   const out = [];
@@ -250,7 +252,7 @@ test('沒有用到不存在的名字', () => {
     const bound = boundNames(code);
     for (const [name, line] of usedNames(code)) {
       if (bound.has(name) || BROWSER_GLOBALS.has(name) || NODE_GLOBALS.has(name)) continue;
-      offenders.push(`${file.slice(JS_ROOT.length)}:${line} 用了 ${name}，但它沒有宣告也沒有 import`);
+      offenders.push(`${toPosix(file.slice(JS_ROOT.length))}:${line} 用了 ${name}，但它沒有宣告也沒有 import`);
     }
   }
   assert.deepEqual(
@@ -289,7 +291,7 @@ function exportedNames(code) {
 test('import 進來的名字，對面那一支有 export', () => {
   const offenders = [];
   for (const file of filesUnder(JS_ROOT)) {
-    const rel = file.slice(JS_ROOT.length);
+    const rel = toPosix(file.slice(JS_ROOT.length));
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(/\bimport\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
       const [, clause, path] = m;

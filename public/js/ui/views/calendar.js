@@ -740,14 +740,19 @@ function openNoteCard(el, data, id, date) {
           });
           if (!plan) return;
 
+          let next;
           try {
-            await toast.withSaveState(plan.run, { success: plan.success });
+            next = await toast.withSaveState(plan.run, { success: plan.success });
           } catch {
             return; /* 已處理 */
           }
           // 卡片留在原地，只把它自己重畫一次 —— 她可能還想看那一天的其他東西。
           // 底下那一天的面板等關掉之後由 render() 一起更新。
-          const next = { ...current, done: !current.done };
+          //
+          // **重畫的是寫入那一層回報的那一筆，不是 `!current.done`。**
+          // 營養品的提醒沒給完時 `recordDelivery()` 刻意把它留成沒勾掉、
+          // 只換掉文字，猜的話卡片會說它已經勾掉了 —— 而資料庫裡沒有
+          // 這回事（SPEC 第 6.9 節：樂觀更新要誠實）。
           const i = (data.notes ?? []).findIndex((x) => x.id === current.id);
           if (i >= 0) data.notes[i] = next;
           paint(next);

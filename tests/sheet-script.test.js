@@ -365,7 +365,7 @@ test('`.gs` 的 SUPPORTED_FORMAT 要跟 app 的 SYNC_FORMAT 一樣', () => {
   // 她要幾天後打開試算表才會發現數字停在某一天。
   //
   // 升版了就一定要**回 Google 試算表把 `.gs` 重新貼一次並重新部署**。
-  const src = readFileSync(new URL('../sheets/readonly-report.gs', import.meta.url).pathname, 'utf8');
+  const src = readFileSync(new URL('../sheets/readonly-report.gs', import.meta.url), 'utf8');
   const m = src.match(/var SUPPORTED_FORMAT = (\d+);/);
   assert.ok(m, '`.gs` 裡找不到 SUPPORTED_FORMAT');
   assert.equal(
