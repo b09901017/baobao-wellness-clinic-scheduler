@@ -34,8 +34,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
 
-      # 純函式測試與靜態守衛。**一個套件都不吃**，所以不必先 npm ci。
+      # 以前這一段不需要 `npm ci` —— 那時 `npm test` 一個套件都不吃。
+      # 2026-09-02 之後不成立了：`tests/restore-backup.test.js` 會 import
+      # `scripts/restore-backup.mjs`，而那支維運腳本吃 firebase-admin
+      # （寫進真的專案要服務帳號憑證，那不是自己刻得出來的東西）。
+      #
+      # 為了保住「零相依」而把 Timestamp 的還原改成 Date，會讓還原掉精度 ——
+      # 那個代價比 CI 多花十幾秒大。有 npm 快取，實際上也就十幾秒。
+      - run: npm ci
       - name: 單元測試與靜態守衛
         run: npm test
 
