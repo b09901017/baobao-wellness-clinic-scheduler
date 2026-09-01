@@ -27,7 +27,9 @@ describe('照她的流程分段', () => {
       after: { customerName: '客戶A', date: '2026-09-03', status: 'pending_confirm' },
     })]);
     assert.deepEqual(idsOf(review), ['book']);
-    assert.deepEqual(textsOf(review, 'book'), ['新增客戶A的來訪']);
+    // 句子由 domain/audit.js 翻譯，這裡只確認歸類對了、而且那一句
+    // 講得出誰與哪一天（那一支的測試盯著完整的寫法）
+    assert.deepEqual(textsOf(review, 'book'), ['新增 客戶A・9/3(四)']);
   });
 
   test('狀態改成已確認 → 跟客人確認', () => {

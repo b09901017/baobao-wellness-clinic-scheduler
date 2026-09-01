@@ -595,8 +595,13 @@ function openAudit(ctx) {
   auditData
     .listForCustomer(ctx.id, ctx.visits.slice(0, AUDIT_VISIT_LIMIT).map((v) => v.id))
     .then((events) => {
+      // 這一頁本來就知道是誰，所以不用再讀一次客戶名單 —— 額度與可用性
+      // 那幾則靠它才講得出名字（`domain/audit.js` 的 `describeParts()`）。
+      const nameOf = (id) => (id === ctx.id ? (ctx.customer?.name ?? null) : null);
       sheet.update(
-        events.length ? auditView.listHtml(events) : '<p class="muted">沒有變更紀錄。</p>',
+        events.length
+          ? auditView.listHtml(events, { nameOf })
+          : '<p class="muted">沒有變更紀錄。</p>',
       );
     })
     .catch((err) => {

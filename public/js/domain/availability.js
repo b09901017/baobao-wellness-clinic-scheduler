@@ -473,16 +473,26 @@ export function monthsTaken(collections = []) {
 }
 
 /**
- * 「以前問過的」收起來時那一行要寫什麼。月份由呼叫端印，這裡只講內容。
+ * 這一份裡「不能的時間」有幾條。
  *
  * 跟 `banBlock()` 的丸子一樣濾掉 `prefer` —— 那一種講的是「他比較方便」，
  * 不是「不能的時間」，兩邊算出不同的數字會讓她以為少了一條。
+ *
+ * 抽成一支是因為稽核那一句話也要講這個數字（`domain/audit.js`）——
+ * 兩個地方各數一次的話，遲早有一邊把 `prefer` 也算進去。
+ */
+export function banCount(record) {
+  return (record?.rules ?? []).filter((r) => r.kind !== 'prefer').length;
+}
+
+/**
+ * 「以前問過的」收起來時那一行要寫什麼。月份由呼叫端印，這裡只講內容。
  */
 export function summarizeCollection(record) {
-  const rules = (record?.rules ?? []).filter((r) => r.kind !== 'prefer');
+  const n = banCount(record);
   const parts = [];
   if (record?.collectedAt) parts.push(`${record.collectedAt} 收集`);
-  parts.push(rules.length ? `${rules.length} 條` : '沒有說哪天不行');
+  parts.push(n ? `${n} 條` : '沒有說哪天不行');
   return parts.join('・');
 }
 
