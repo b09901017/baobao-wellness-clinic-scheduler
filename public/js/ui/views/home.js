@@ -46,7 +46,9 @@ import {
 import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import * as auditData from '../../data/audit.js';
-import { reviewOf, dayTitle, NOTHING as REVIEW_NOTHING } from '../../domain/dayReview.js';
+import {
+  reviewOf, dayTitle, NOBODY, NOTHING as REVIEW_NOTHING,
+} from '../../domain/dayReview.js';
 import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -291,6 +293,23 @@ const REVIEW_BACK = 7;
 /** 現在看的是哪一天。存在模組裡不進網址 —— 它是看法，不是位置。 */
 let reviewDay = null;
 
+/**
+ * 照人還是照流程。同上，是看法不是位置。
+ *
+ * **預設照人**（2026-09-01 她指定的）：她收工前問的是「這個人今天處理完了沒」。
+ * 照流程那一格留著回答另一個問題 —— 「哪一類整個漏了」（ADR-0062、0043）。
+ */
+let reviewBy = 'person';
+
+/**
+ * 那一天撈回來的稽核與客戶名單。
+ *
+ * 存在模組裡是為了**換看法不重打一次網路**：切「照人／照流程」是同一批資料的
+ * 兩種排法，翻日子才要重讀。名單只讀一次，之後翻幾天都用同一份。
+ */
+let reviewCache = null;
+let reviewNames = null;
+
 function reviewSection() {
   return `
     <details class="card" data-review style="margin-top: var(--space-4)">
@@ -309,29 +328,49 @@ function wireReview(ctx) {
     if (!box.open || loaded) return;
     loaded = true;
     reviewDay = ctx.today;
-    paintReview(ctx, body);
+    loadReview(ctx, body);
   });
 
-  // 換一天只重畫這一塊（ADR-0038）—— 重畫整頁的代價是閃一下加捲回最上面，
-  // 而她人在這一頁的最底下。
+  // 換一天、換看法都**只重畫這一塊**（ADR-0038）—— 重畫整頁的代價是閃一下
+  // 加捲回最上面，而她人在這一頁的最底下。
   body.addEventListener('click', (e) => {
     const step = e.target.closest('[data-review-step]');
-    if (!step) return;
-    const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
-    if (next > ctx.today) return;
-    if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
-    reviewDay = next;
-    paintReview(ctx, body);
+    if (step) {
+      const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
+      if (next > ctx.today) return;
+      if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
+      reviewDay = next;
+      loadReview(ctx, body);
+      return;
+    }
+
+    // 換看法**不重新讀資料**：那一天的稽核已經在手上了，兩種只是排法不同。
+    const by = e.target.closest('[data-review-by]');
+    if (by && by.dataset.reviewBy !== reviewBy) {
+      reviewBy = by.dataset.reviewBy;
+      paintReview(ctx, body);
+    }
   });
 }
 
-async function paintReview(ctx, body) {
+/**
+ * 撈那一天的稽核，順便把客戶名單準備好。
+ *
+ * 名單只是用來把 id 換成名字（額度與本輪可用性身上沒有名字，只有路徑上有 id）。
+ * **它讀不到不可以擋住這一塊** —— 少了名字那幾則會落進「沒有掛客戶」，
+ * 那是 `describeParts()` 本來就有的退路。名單只讀一次，翻日子不再讀。
+ */
+async function loadReview(ctx, body) {
   const day = reviewDay ?? ctx.today;
   body.innerHTML = '<p class="muted">載入中…</p>';
+  reviewCache = null;
 
   let events;
   try {
-    events = await auditData.listOnDay(day);
+    [events] = await Promise.all([
+      auditData.listOnDay(day),
+      reviewNames ? Promise.resolve() : loadReviewNames(),
+    ]);
   } catch (err) {
     body.innerHTML = `<p class="muted">讀不到：${esc(err.message)}
       <br>收起來再展開一次就會重試。</p>`;
@@ -340,8 +379,25 @@ async function paintReview(ctx, body) {
   // 她可能在讀回來之前又翻了一天
   if ((reviewDay ?? ctx.today) !== day) return;
 
-  const review = reviewOf(events, { limit: 300 });
-  body.innerHTML = reviewHtml(review, day, ctx.today, ctx.settings);
+  reviewCache = { day, events };
+  paintReview(ctx, body);
+}
+
+async function loadReviewNames() {
+  try {
+    const customers = await customersData.list();
+    const byId = new Map(customers.map((c) => [c.id, c.name]));
+    reviewNames = (id) => byId.get(id) ?? null;
+  } catch {
+    // 讀不到就當它不存在：少幾個名字，不是少一塊畫面。
+    reviewNames = null;
+  }
+}
+
+function paintReview(ctx, body) {
+  if (!reviewCache) return;
+  const review = reviewOf(reviewCache.events, { limit: 300, nameOf: reviewNames });
+  body.innerHTML = reviewHtml(review, reviewCache.day, ctx.today, ctx.settings);
 }
 
 function reviewHtml(review, day, today, settings) {
@@ -356,6 +412,15 @@ function reviewHtml(review, day, today, settings) {
               ${day < today ? '' : 'disabled'}>後一天 ›</button>
     </div>
 
+    ${/* 兩種看法問的是兩件事：照人問「這個人處理完了沒」，
+          照流程問「哪一類整個漏了」。同一批資料，切換不重讀。 */''}
+    <div class="seg" role="group" aria-label="怎麼分組" style="margin-bottom: var(--space-3)">
+      <button class="seg__item" type="button" data-review-by="person"
+              aria-pressed="${reviewBy === 'person'}">照人</button>
+      <button class="seg__item" type="button" data-review-by="stage"
+              aria-pressed="${reviewBy === 'stage'}">照流程</button>
+    </div>
+
     ${review.tiles.length ? `
       <p class="reviewtiles">
         ${review.tiles.map((t) => `
@@ -363,9 +428,12 @@ function reviewHtml(review, day, today, settings) {
             <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
       </p>` : ''}
 
-    ${review.groups.length
-      ? review.groups.map(reviewGroupHtml).join('')
-      : `<p class="muted">${REVIEW_NOTHING}</p>`}
+    <div class="reviewlist">
+      ${review.total === 0 ? `<p class="muted">${REVIEW_NOTHING}</p>` : ''}
+      ${reviewBy === 'person'
+        ? review.people.map(reviewPersonHtml).join('')
+        : review.groups.map(reviewGroupHtml).join('')}
+    </div>
 
     ${review.truncated ? `
       <p class="muted dim" style="margin-top: var(--space-2)">
@@ -377,6 +445,30 @@ function reviewHtml(review, day, today, settings) {
     <p class="muted dim" style="margin: var(--space-3) 0 0; font-size: var(--text-2xs)">
       這裡是稽核紀錄的白話版 —— 要看某一筆到底改了哪個欄位，去
       <a href="#/settings/audit">稽核紀錄</a>。</p>`;
+}
+
+/**
+ * 一位客戶一組。**抬頭是名字，所以那幾列不再印一次名字**
+ * （`domain/dayReview.js` 給的就是不含名字的那一半）。
+ *
+ * 中間那一欄是流程分段的名字，淡一級 —— 它是分類不是內容。
+ * 不印編號：編號講的是流程的第幾步，在照人的排法裡沒有意義。
+ */
+function reviewPersonHtml(person) {
+  return `
+    <div class="reviewgroup">
+      <p class="reviewwho">
+        <span class="reviewwho__name">${esc(person.who ?? NOBODY)}</span>
+        <span class="reviewwho__n num">${person.n}</span>
+      </p>
+      ${person.rows.map((row) => `
+        <p class="reviewrow">
+          <span class="reviewrow__at num">${esc(reviewTime(row.at))}</span>
+          <span class="reviewrow__stage">${esc(row.stage)}</span>
+          <span class="reviewrow__what">${esc(row.text)}</span>
+          ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
+        </p>`).join('')}
+    </div>`;
 }
 
 function reviewGroupHtml(group) {

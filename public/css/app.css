@@ -3054,8 +3054,54 @@ button.mark::after {
   color: var(--text);
 }
 
+/* 換一天、換看法的時候整塊會被換掉。給一個很輕的淡入（沿用 deck-in），
+   **不要逐列延遲** —— 一天一百多列的話那會變成一串閃爍。 */
+.reviewlist {
+  animation: deck-in 0.14s ease-out;
+}
+
 .reviewgroup {
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* 照人那一格的抬頭：名字大一點，右邊一個淡的件數。
+   她的原話：「用客戶姓名作為大標題，底下條列式列出對他做了什麼事」。 */
+.reviewwho {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.reviewwho__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.reviewwho__n {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 照人那一格中間那一欄：這一列是壓表還是掛號。**淡一級** ——
+   它是分類不是內容。固定寬度，掃的時候眼睛不用重新對焦。
+   不印編號：編號講的是流程的第幾步，在照人的排法裡沒有意義。 */
+.reviewrow__stage {
+  flex-shrink: 0;
+  /* 最長的分段名是五個字（「跟客人確認」「取消與改期」），所以留 5em
+     並且不換行 —— 換行的話那一欄會把每一列撐成兩行高。 */
+  width: 5em;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+  white-space: nowrap;
 }
 
 .reviewgroup__head {
