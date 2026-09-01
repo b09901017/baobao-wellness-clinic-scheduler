@@ -17,7 +17,7 @@ import * as config from '../../data/config.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
-import { urgency, isCancelKind } from '../../domain/taskRules.js';
+import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
@@ -46,7 +46,9 @@ import {
 import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import * as auditData from '../../data/audit.js';
-import { reviewOf, dayTitle, NOTHING as REVIEW_NOTHING } from '../../domain/dayReview.js';
+import {
+  reviewOf, dayTitle, NOBODY, NOTHING as REVIEW_NOTHING,
+} from '../../domain/dayReview.js';
 import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -291,6 +293,23 @@ const REVIEW_BACK = 7;
 /** 現在看的是哪一天。存在模組裡不進網址 —— 它是看法，不是位置。 */
 let reviewDay = null;
 
+/**
+ * 照人還是照流程。同上，是看法不是位置。
+ *
+ * **預設照人**（2026-09-01 她指定的）：她收工前問的是「這個人今天處理完了沒」。
+ * 照流程那一格留著回答另一個問題 —— 「哪一類整個漏了」（ADR-0062、0043）。
+ */
+let reviewBy = 'person';
+
+/**
+ * 那一天撈回來的稽核與客戶名單。
+ *
+ * 存在模組裡是為了**換看法不重打一次網路**：切「照人／照流程」是同一批資料的
+ * 兩種排法，翻日子才要重讀。名單只讀一次，之後翻幾天都用同一份。
+ */
+let reviewCache = null;
+let reviewNames = null;
+
 function reviewSection() {
   return `
     <details class="card" data-review style="margin-top: var(--space-4)">
@@ -305,43 +324,87 @@ function wireReview(ctx) {
   const body = box.querySelector('[data-review-body]');
   let loaded = false;
 
-  box.addEventListener('toggle', () => {
+  box.addEventListener('toggle', async () => {
     if (!box.open || loaded) return;
     loaded = true;
     reviewDay = ctx.today;
-    paintReview(ctx, body);
+    // **失敗要能再試一次，所以把旗標放回去**（同 `views/audit.js` 的
+    // `wireSection()`）—— 那一句「收起來再展開一次就會重試」以前是假的。
+    if (!await loadReview(ctx, body)) loaded = false;
   });
 
-  // 換一天只重畫這一塊（ADR-0038）—— 重畫整頁的代價是閃一下加捲回最上面，
-  // 而她人在這一頁的最底下。
+  // 換一天、換看法都**只重畫這一塊**（ADR-0038）—— 重畫整頁的代價是閃一下
+  // 加捲回最上面，而她人在這一頁的最底下。
   body.addEventListener('click', (e) => {
     const step = e.target.closest('[data-review-step]');
-    if (!step) return;
-    const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
-    if (next > ctx.today) return;
-    if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
-    reviewDay = next;
-    paintReview(ctx, body);
+    if (step) {
+      const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
+      if (next > ctx.today) return;
+      if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
+      reviewDay = next;
+      // 翻日子失敗也一樣：收起來再展開才重試得了
+      loadReview(ctx, body).then((ok) => { if (!ok) loaded = false; });
+      return;
+    }
+
+    // 換看法**不重新讀資料**：那一天的稽核已經在手上了，兩種只是排法不同。
+    const by = e.target.closest('[data-review-by]');
+    if (by && by.dataset.reviewBy !== reviewBy) {
+      reviewBy = by.dataset.reviewBy;
+      paintReview(ctx, body);
+    }
   });
 }
 
-async function paintReview(ctx, body) {
+/**
+ * 撈那一天的稽核，順便把客戶名單準備好。
+ *
+ * 名單只是用來把 id 換成名字（額度與本輪可用性身上沒有名字，只有路徑上有 id）。
+ * **它讀不到不可以擋住這一塊** —— 少了名字那幾則會落進「沒有掛客戶」，
+ * 那是 `describeParts()` 本來就有的退路。名單只讀一次，翻日子不再讀。
+ *
+ * @returns {Promise<boolean>} 稽核撈到了沒。撈不到的話呼叫端要把「載過了」
+ *   那個旗標放回去，不然那一句「收起來再展開一次就會重試」是假的。
+ */
+async function loadReview(ctx, body) {
   const day = reviewDay ?? ctx.today;
   body.innerHTML = '<p class="muted">載入中…</p>';
+  reviewCache = null;
 
   let events;
   try {
-    events = await auditData.listOnDay(day);
+    [events] = await Promise.all([
+      auditData.listOnDay(day),
+      reviewNames ? Promise.resolve() : loadReviewNames(),
+    ]);
   } catch (err) {
     body.innerHTML = `<p class="muted">讀不到：${esc(err.message)}
       <br>收起來再展開一次就會重試。</p>`;
-    return;
+    return false;
   }
   // 她可能在讀回來之前又翻了一天
-  if ((reviewDay ?? ctx.today) !== day) return;
+  if ((reviewDay ?? ctx.today) !== day) return true;
 
-  const review = reviewOf(events, { limit: 300 });
-  body.innerHTML = reviewHtml(review, day, ctx.today, ctx.settings);
+  reviewCache = { day, events };
+  paintReview(ctx, body);
+  return true;
+}
+
+async function loadReviewNames() {
+  try {
+    const customers = await customersData.list();
+    const byId = new Map(customers.map((c) => [c.id, c.name]));
+    reviewNames = (id) => byId.get(id) ?? null;
+  } catch {
+    // 讀不到就當它不存在：少幾個名字，不是少一塊畫面。
+    reviewNames = null;
+  }
+}
+
+function paintReview(ctx, body) {
+  if (!reviewCache) return;
+  const review = reviewOf(reviewCache.events, { limit: 300, nameOf: reviewNames });
+  body.innerHTML = reviewHtml(review, reviewCache.day, ctx.today, ctx.settings);
 }
 
 function reviewHtml(review, day, today, settings) {
@@ -356,6 +419,15 @@ function reviewHtml(review, day, today, settings) {
               ${day < today ? '' : 'disabled'}>後一天 ›</button>
     </div>
 
+    ${/* 兩種看法問的是兩件事：照人問「這個人處理完了沒」，
+          照流程問「哪一類整個漏了」。同一批資料，切換不重讀。 */''}
+    <div class="seg" role="group" aria-label="怎麼分組" style="margin-bottom: var(--space-3)">
+      <button class="seg__item" type="button" data-review-by="person"
+              aria-pressed="${reviewBy === 'person'}">照人</button>
+      <button class="seg__item" type="button" data-review-by="stage"
+              aria-pressed="${reviewBy === 'stage'}">照流程</button>
+    </div>
+
     ${review.tiles.length ? `
       <p class="reviewtiles">
         ${review.tiles.map((t) => `
@@ -363,9 +435,12 @@ function reviewHtml(review, day, today, settings) {
             <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
       </p>` : ''}
 
-    ${review.groups.length
-      ? review.groups.map(reviewGroupHtml).join('')
-      : `<p class="muted">${REVIEW_NOTHING}</p>`}
+    <div class="reviewlist">
+      ${review.total === 0 ? `<p class="muted">${REVIEW_NOTHING}</p>` : ''}
+      ${reviewBy === 'person'
+        ? review.people.map(reviewPersonHtml).join('')
+        : review.groups.map(reviewGroupHtml).join('')}
+    </div>
 
     ${review.truncated ? `
       <p class="muted dim" style="margin-top: var(--space-2)">
@@ -377,6 +452,30 @@ function reviewHtml(review, day, today, settings) {
     <p class="muted dim" style="margin: var(--space-3) 0 0; font-size: var(--text-2xs)">
       這裡是稽核紀錄的白話版 —— 要看某一筆到底改了哪個欄位，去
       <a href="#/settings/audit">稽核紀錄</a>。</p>`;
+}
+
+/**
+ * 一位客戶一組。**抬頭是名字，所以那幾列不再印一次名字**
+ * （`domain/dayReview.js` 給的就是不含名字的那一半）。
+ *
+ * 中間那一欄是流程分段的名字，淡一級 —— 它是分類不是內容。
+ * 不印編號：編號講的是流程的第幾步，在照人的排法裡沒有意義。
+ */
+function reviewPersonHtml(person) {
+  return `
+    <div class="reviewgroup">
+      <p class="reviewwho">
+        <span class="reviewwho__name">${esc(person.who ?? NOBODY)}</span>
+        <span class="reviewwho__n num">${person.n}</span>
+      </p>
+      ${person.rows.map((row) => `
+        <p class="reviewrow">
+          <span class="reviewrow__at num">${esc(reviewTime(row.at))}</span>
+          <span class="reviewrow__stage">${esc(row.stage)}</span>
+          <span class="reviewrow__what">${esc(row.text)}</span>
+          ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
+        </p>`).join('')}
+    </div>`;
 }
 
 function reviewGroupHtml(group) {
@@ -1115,23 +1214,38 @@ async function loadTaskVisits(ctx) {
     return;
   }
 
-  fillSlotCounts(ctx.el);
+  fillVisitInfo(ctx.el);
 }
 
 /**
- * 把「N 項」填進那幾顆徽章。
+ * 把「N 項」與「哪一天的什麼」填進那幾列。
  *
  * **每次重畫都要再叫一次** —— `paintTasks()` 換分頁時把那幾列整個重畫，
- * 而重畫出來的徽章又是 hidden 的。讀回來的東西存在 `taskVisits` 裡不會掉，
+ * 而重畫出來的節點又是 hidden 的。讀回來的東西存在 `taskVisits` 裡不會掉，
  * 但畫面上的節點是新的。
+ *
+ * 兩件事一起填：它們要的是同一筆來訪，分兩支只會有一支被忘記叫。
  */
-function fillSlotCounts(el) {
+function fillVisitInfo(el) {
   if (!taskVisits) return;
-  // 讀回來之前那顆徽章是 hidden 的 —— 空的丸子看起來像壞掉的東西。
+  // 讀回來之前是 hidden 的 —— 空的丸子與空的一行都看起來像壞掉的東西。
   for (const node of el.querySelectorAll('[data-slots]')) {
     const visit = taskVisits.visits.get(node.dataset.slots);
     if (!visit) continue;
     node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.hidden = false;
+  }
+
+  // 「Examine・9/1(一)・二返」的後半段。日期是**來訪那一天**不是死線
+  //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
+  // 死線是它的前一天，兩個差一天最容易看錯人。
+  for (const node of el.querySelectorAll('[data-taskwhen]')) {
+    const visit = taskVisits.visits.get(node.dataset.taskwhen);
+    if (!visit) continue;
+    const line = taskLine({}, visit);
+    const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
+    if (!text) continue;
+    node.textContent = text;
     node.hidden = false;
   }
 }
@@ -1189,7 +1303,7 @@ async function loadFollowupBookings(ctx) {
   fillBookingStates(ctx.el);
 }
 
-/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillSlotCounts）。 */
+/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillVisitInfo）。 */
 function fillBookingStates(el) {
   for (const node of el.querySelectorAll('[data-booked]')) {
     const state = followupBookings.get(node.dataset.booked);
@@ -1278,7 +1392,7 @@ function paintTasks(ctx) {
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
-  fillSlotCounts(el);
+  fillVisitInfo(el);
   fillBookingStates(el);
 }
 
@@ -1329,6 +1443,8 @@ function doneRow(t) {
         <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
         <span class="note__main">
           <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
+          ${/* 勾掉之後長得不一樣會讓她以為那是另一種東西，所以這一格也補 */''}
+          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
         </span>
         <span class="notetags">
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
@@ -1393,6 +1509,10 @@ function taskRow(t, today) {
             ${t.kind === FOLLOWUP_TASK_KIND
               ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
           </span>
+          ${/* 「這是哪一天的什麼」。那一列上面已經有四樣東西了，再擠一串會爆版，
+                 所以放第二行。等來訪讀回來才填得上（同「N 項」，`fillVisitInfo()`），
+                 讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
+          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>

@@ -20,12 +20,29 @@
 // 順序等於要她在腦子裡翻譯一次。所以這裡不會出現「visits」「notes」這種字，
 // 出現的是「壓表」「簽療程單」。
 //
+// ## 兩種分組，同一批資料（2026-09-01）
+//
+// 她的原話：「也許可以以人為群組分類呈現？用客戶姓名作為大標題，底下條列式
+// 列出對他做了什麼事」。所以現在有兩種看法，而**流程分段沒有被推翻** ——
+// 它變成其中一種：
+//
+//     照人   →「這個人今天處理完了沒」（壓了表、確認了、掛號了）
+//     照流程 →「哪一類整個漏了」（例如整天一張療程單都沒簽）
+//
+// 兩種都是同一批稽核的排法，不多讀一次也不多寫一筆。
+// 「最後一段永遠收得下剩下的、一則都不可以被丟掉」對兩種都成立。
+//
 // ## 這裡只翻譯與歸類，一件事都不判斷
 //
 // 跟 `domain/audit.js` 同一條界線。時間怎麼印是畫面的事（那要 Timestamp，
 // 而這一層不碰 IO），所以每一列原樣帶著 `at`。
+//
+// 句子也不在這裡組：`describeParts()` 給「誰」與「做了什麼」兩半，
+// 這裡只決定哪一半要印（照人那一格不印名字，抬頭已經寫了）。
 
-import { describeEvent, describeAction, changedFields, opOf } from './audit.js';
+import {
+  describeParts, joinParts, describeAction, changedFields, opOf,
+} from './audit.js';
 
 /**
  * 一段。**順序就是她的流程順序**，空的段不畫。
@@ -72,8 +89,12 @@ const STAGES = [
     id: 'cancel',
     label: '取消與改期',
     n: '⑥',
+    // **改期也算在這一段。** 這一段叫「取消與改期」，而改一筆來訪的日期以前
+    // 落進最後的「其他」—— 段落名在講一件它收不到的事，比沒講還糟。
     match: (e, f) => collectionOf(e) === 'visits'
-      && (statusTo(f) === 'cancelled' || opOf(e) === 'softDelete'),
+      && (statusTo(f) === 'cancelled'
+        || opOf(e) === 'softDelete'
+        || (opOf(e) === 'update' && f.some((x) => x.key === 'date'))),
   },
   {
     id: 'calendar',
@@ -148,31 +169,80 @@ function collapse(rows) {
 }
 
 /**
+ * 沒有掛在任何客戶身上的那一組，抬頭寫這個。
+ *
+ * **刻意不叫「其他」** —— 那三個字已經是流程分段的最後一段（`STAGES` 的
+ * `other`），兩個「其他」在同一塊畫面上會讓人以為是同一件事。
+ * 這一組裡的是設定、行事備註、休假這種本來就不屬於某一個人的東西。
+ */
+export const NOBODY = '沒有掛客戶';
+
+/**
  * 今天做了什麼。
  *
+ * **兩種分組，同一批資料。** 兩種看法回答的是兩個不同的問題，而她兩個都會問：
+ *
+ * | 看法 | 回答 |
+ * |---|---|
+ * | `people` | 「這個人今天處理完了沒」—— 壓了表、確認了、掛號了 |
+ * | `groups` | 「哪一類整個漏了」—— 例如整天一張療程單都沒簽 |
+ *
+ * 所以 ADR-0062 的流程分段沒有被推翻，它變成兩種看法的其中一種。
+ * **一則都不可以被丟掉**這條規矩對兩種分組都成立（見底下的測試）。
+ *
  * @param {object[]} events 那一天的稽核，**新的在前**（`listOnDay()` 給的順序）
- * @returns {{groups: object[], tiles: object[], total: number, truncated: boolean}}
- *   groups：只含有東西的那幾段，照流程順序
- *   tiles：頂端那一排數字，只含有值的
- *   total：一共幾則（收合前）
+ * @param {{limit?: number|null, nameOf?: ((id: string) => (string|null))|null}} [o]
+ *   nameOf：id → 名字。額度與本輪可用性身上沒有名字，只有路徑上有 id
+ *   （`domain/audit.js`）。沒傳的話那幾則會落進「沒有掛客戶」那一組。
+ * @returns {{groups: object[], people: object[], tiles: object[],
+ *            total: number, truncated: boolean}}
  */
-export function reviewOf(events = [], { limit = null } = {}) {
+export function reviewOf(events = [], { limit = null, nameOf = null } = {}) {
   const buckets = new Map(STAGES.map((s) => [s.id, []]));
+  // Map 的順序就是「第一次碰到」的順序，而事件是新的在前 ——
+  // 所以自然就是「最近處理過的人排最上面」，不用另外排一次。
+  const byPerson = new Map();
 
   for (const event of events ?? []) {
     const fields = changedFields(event);
     const stage = STAGES.find((s) => s.match(event, fields)) ?? STAGES[STAGES.length - 1];
-    buckets.get(stage.id).push({
-      at: event.at ?? null,
-      // 翻不出一句話就退回「修改來訪」那種 —— 跟 `views/audit.js` 的
-      // `rowHtml()` 同一條退路。硬湊一句錯的比退回去糟。
-      text: describeEvent(event) ?? describeAction(event.action),
+    const parts = describeParts(event, { nameOf });
+    // 翻不出一句話就退回「修改來訪」那種 —— 跟 `views/audit.js` 的
+    // `rowHtml()` 同一條退路。硬湊一句錯的比退回去糟。
+    const fallback = describeAction(event.action);
+
+    const at = event.at ?? null;
+    // `|| fallback`（不是 `??`）：湊出空字串也要退回去，那一列不可以是空白。
+    buckets.get(stage.id).push({ at, text: (parts ? joinParts(parts) : '') || fallback });
+
+    // 照人那一格的那一列**不含名字**：抬頭已經寫著了，再印一次是雜訊。
+    const key = parts?.whoId ?? parts?.who ?? null;
+    if (!byPerson.has(key)) {
+      byPerson.set(key, { who: parts?.who ?? null, whoId: parts?.whoId ?? null, rows: [] });
+    }
+    byPerson.get(key).rows.push({
+      at,
+      text: (parts ? joinParts({ ...parts, who: null }) : '') || fallback,
+      stage: stage.label,
     });
   }
 
   const groups = STAGES
     .map((s) => ({ stage: s, rows: collapse(buckets.get(s.id)), n: buckets.get(s.id).length }))
     .filter((g) => g.rows.length);
+
+  const people = [...byPerson.values()]
+    .map((p) => ({
+      ...p,
+      n: p.rows.length,
+      // **一個人身上的事是一條線**（壓表 → 確認 → 掛號），照她做的順序讀
+      // 才連得起來，所以由早到晚。收合仍然走同一支 `collapse()`（它吃的是
+      // 新的在前那個順序，收完再倒過來），照流程那一格維持新的在前 ——
+      // 那一格問的是「我剛剛做了什麼」。
+      rows: collapse(p.rows).reverse(),
+    }))
+    // 沒有掛客戶的永遠排最後 —— 那些不是「一個人」。
+    .sort((a, b) => Number(a.who == null) - Number(b.who == null));
 
   const tiles = TILES
     .map((t) => ({ ...t, n: buckets.get(t.id).length }))
@@ -181,6 +251,7 @@ export function reviewOf(events = [], { limit = null } = {}) {
   const total = (events ?? []).length;
   return {
     groups,
+    people,
     tiles,
     total,
     // 撈到上限就講出來 —— 靜靜截斷的話她會以為那幾筆沒發生（SPEC 第 6.9 節）。

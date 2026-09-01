@@ -16,7 +16,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { loadAppsScript } from './helpers/appsScriptStub.js';
-import { syncBundle, READONLY_NOTICE, SYNC_FORMAT } from '../public/js/domain/sheetReport.js';
+import {
+  syncBundle, customerReport, READONLY_NOTICE, SYNC_FORMAT,
+} from '../public/js/domain/sheetReport.js';
 
 const bundle = (overrides = {}) => ({
   ...syncBundle({
@@ -291,6 +293,154 @@ describe('渲染', () => {
     const reply = app.post({ token: 'secret', bundle: wide });
     assert.equal(reply.ok, true, reply.error);
     assert.ok(app.ss.getSheetByName('客戶A').getMaxColumns() >= 5 + wide.sheets[0].dates.length);
+  });
+});
+
+// ---------- 營養品那一區（格式 3 起）----------
+//
+// 這一區是 2026-09-01 之前**整段沒有測試**的：`products`／`營養品` 在這一支
+// 裡一次都沒出現過。而它是她每天看的那張表上最新的一區，`.gs` 又是這個 repo
+// 裡唯一跑在別人機器上的程式碼 —— 排錯了要等她打開試算表才會發現。
+//
+// 營養品以前混在矩陣裡，那四個數字欄印的是月數（「應有 2 已完成 0 已排未上 0
+// 剩餘 2」沒有一個看得懂），所以格式 3 把它獨立成一區（ADR-0057、0059）。
+
+describe('營養品那一區', () => {
+  const withProducts = (extra = []) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: {
+      c1: [
+        { id: 'e1', label: '復能', totalQty: 12 },
+        {
+          id: 'p1', type: 'product', label: '夜態美＋速膳淨', totalQty: 2, amountTwd: 12000,
+          items: [{ productId: 'x1', name: '夜態美' }, { productId: 'x2', name: '速膳淨' }],
+          deliveries: [{ at: '2026-08-20', productIds: ['x1'] }],
+        },
+        ...extra,
+      ],
+    },
+    visitsBy: {
+      c1: [{
+        id: 'v1', date: '2026-08-01', status: 'done',
+        slots: [{ entitlementId: 'e1', courseName: '復能' }],
+      }],
+    },
+    tasksBy: { c1: [] },
+    today: '2026-08-25',
+    generatedAt: '2026/8/25',
+  });
+
+  /** 那張分頁上「營養品」抬頭在第幾列。找不到回 -1。 */
+  const productRowOf = (sheet) => {
+    for (let r = 1; r <= 60; r += 1) if (sheet.at(`A${r}`) === '營養品') return r;
+    return -1;
+  };
+
+  const render = (b) => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: b });
+    assert.equal(reply.ok, true, reply.error);
+    return app.ss.getSheetByName('客戶A');
+  };
+
+  test('抬頭與五個欄位標題照 syncBundle 送過去的排', () => {
+    const sheet = render(withProducts());
+    const top = productRowOf(sheet);
+    assert.ok(top > 0, '找不到「營養品」那一段');
+    assert.deepEqual(
+      ['A', 'B', 'C', 'D', 'E'].map((c) => sheet.at(`${c}${top + 1}`)),
+      ['品名', '金額', '幾個月', '哪幾種', '給了沒'],
+    );
+  });
+
+  test('每一格的值跟 syncBundle 送過去的一模一樣 —— .gs 一個字都不重算', () => {
+    const b = withProducts();
+    const sheet = render(b);
+    const top = productRowOf(sheet);
+    const sent = b.sheets[0].products[0];
+
+    assert.equal(sheet.at(`A${top + 2}`), sent.label);
+    assert.equal(sheet.at(`B${top + 2}`), sent.amount);
+    assert.equal(sheet.at(`C${top + 2}`), sent.months);
+    assert.equal(sheet.at(`D${top + 2}`), sent.items.join('、'));
+    assert.match(String(sheet.at(`E${top + 2}`)), /還差 速膳淨$/);
+  });
+
+  // 同一份報表因為走哪條路而長得不同，她會以為其中一條壞了
+  //（`domain/sheetReport.js` 的檔頭）。以前「手動貼上」印 `8/20`、
+  // 「自動推送」印 `2026-08-20`。
+  test('「給了沒」那一格，手動貼上與自動推送印出同一串字', () => {
+    const b = withProducts();
+    const sheet = render(b);
+    const pushed = String(sheet.at(`E${productRowOf(sheet) + 2}`));
+
+    const pasted = customerReport({
+      customer: { id: 'c1', name: '客戶A' },
+      entitlements: [{
+        id: 'p1', type: 'product', label: '夜態美＋速膳淨', totalQty: 2, amountTwd: 12000,
+        items: [{ productId: 'x1', name: '夜態美' }, { productId: 'x2', name: '速膳淨' }],
+        deliveries: [{ at: '2026-08-20', productIds: ['x1'] }],
+      }],
+      visits: [],
+    }).rows.find((r) => r[0] === '夜態美＋速膳淨');
+
+    assert.equal(pushed, pasted[4]);
+    assert.match(pushed, /^8\/20　/, '日期照她舊表的寫法，不是 ISO');
+  });
+
+  test('還沒給完的那一列標起來，給完的不標', () => {
+    const sheet = render(withProducts([{
+      id: 'p2', type: 'product', label: '膠原', totalQty: 1, amountTwd: 3000,
+      items: [{ productId: 'x3', name: '膠原' }],
+      deliveries: [{ at: '2026-08-21', productIds: ['x3'] }],
+    }]));
+    const top = productRowOf(sheet);
+    // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷）
+    assert.ok(sheet.backgrounds.get(`A${top + 2}`), '沒給完的那一列要有底色');
+    assert.equal(
+      sheet.backgrounds.get(`A${top + 3}`) ?? null, null, '都給了的那一列不要標',
+    );
+  });
+
+  // 大部分客戶不買，而一個永遠空著的區塊只是在每次看報表時提醒她那件事不存在。
+  test('一筆營養品都沒有就整段不畫', () => {
+    const plain = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 12 }] },
+      visitsBy: { c1: [] },
+      today: '2026-08-25',
+    });
+    assert.equal(productRowOf(render(plain)), -1);
+  });
+
+  // 營養品是一筆排不進來訪的額度（ADR-0057）：它有那一列，但不進合計 ——
+  // 那一行寫的是「剩餘 N 次」，而兩罐夜態美不是兩次。
+  test('營養品不進矩陣，也不進合計', () => {
+    const b = withProducts();
+    const sheet = render(b);
+
+    assert.deepEqual(b.sheets[0].rows.map((r) => r.label), ['復能'], '矩陣只有排得進來訪的');
+    assert.equal(b.sheets[0].totals.total, 12, '合計不含營養品的月數');
+    assert.equal(String(sheet.at('C2')).includes('應有 12'), true);
+  });
+
+  // 營養品那一區底下還有備註、來訪紀錄、TODO／FINISHED —— renderProducts()
+  // 回傳的下一列位置算錯的話，那幾塊會被壓到或疊在一起。
+  test('底下的備註、來訪紀錄、TODO 都還在，而且沒有被壓到', () => {
+    const sheet = render(withProducts());
+    const top = productRowOf(sheet);
+    const labels = [];
+    for (let r = top; r <= 60; r += 1) {
+      const v = sheet.at(`A${r}`);
+      if (v) labels.push(String(v));
+    }
+    for (const want of ['備註', '來訪紀錄', 'TODO（還沒做的）']) {
+      assert.ok(labels.includes(want), `營養品底下少了「${want}」：${labels.join(' / ')}`);
+    }
+    assert.ok(
+      labels.indexOf('備註') > labels.indexOf('品名'),
+      '備註要排在營養品那一區底下',
+    );
   });
 });
 

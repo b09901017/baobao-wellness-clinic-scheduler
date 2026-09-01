@@ -8,7 +8,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { reviewOf, dayTitle } from '../public/js/domain/dayReview.js';
+import { reviewOf, dayTitle, NOBODY } from '../public/js/domain/dayReview.js';
 
 /** 一則稽核。`after` 是這一次寫進去的那幾欄，`before` 是寫之前。 */
 const ev = (action, { before = {}, after = {}, at = 'T' } = {}) => ({
@@ -27,7 +27,9 @@ describe('照她的流程分段', () => {
       after: { customerName: '客戶A', date: '2026-09-03', status: 'pending_confirm' },
     })]);
     assert.deepEqual(idsOf(review), ['book']);
-    assert.deepEqual(textsOf(review, 'book'), ['新增客戶A的來訪']);
+    // 句子由 domain/audit.js 翻譯，這裡只確認歸類對了、而且那一句
+    // 講得出誰與哪一天（那一支的測試盯著完整的寫法）
+    assert.deepEqual(textsOf(review, 'book'), ['新增 客戶A・9/3(四)']);
   });
 
   test('狀態改成已確認 → 跟客人確認', () => {
@@ -60,6 +62,16 @@ describe('照她的流程分段', () => {
     const review = reviewOf([ev('visits.update', {
       before: { customerName: '客戶A', status: 'confirmed' },
       after: { status: 'cancelled' },
+    })]);
+    assert.deepEqual(idsOf(review), ['cancel']);
+  });
+
+  // 這一段叫「取消與改期」，而改期以前落進最後的「其他」——
+  // 段落名在講一件它收不到的事。
+  test('改一筆來訪的日期算在取消與改期那一段', () => {
+    const review = reviewOf([ev('visits.update', {
+      before: { customerName: '客戶A', date: '2026-09-14', status: 'confirmed' },
+      after: { date: '2026-09-20' },
     })]);
     assert.deepEqual(idsOf(review), ['cancel']);
   });
@@ -223,5 +235,117 @@ describe('那一天的抬頭', () => {
 
   test('讀不出來不要編一個', () => {
     assert.equal(dayTitle(null, '2026-09-01'), '？');
+  });
+});
+
+// ---------- 照人分組 ----------
+//
+// 她的原話：「在今天做了什麼那邊也許可以以人為群組分類呈現？用客戶姓名作為
+// 大標題，底下條列式列出對他做了什麼事」。
+//
+// 兩種分組是同一批資料的兩種排法，所以**兩邊的總數都要等於進去的筆數** ——
+// 她開這一頁就是為了確認沒有漏掉東西，一則安靜消失正好毀掉那個用途。
+
+describe('照人分組', () => {
+  const person = (review, who) => review.people.find((p) => p.who === who);
+
+  test('一位客戶身上的事收成一組，而且照她做的順序由早到晚', () => {
+    // 進來的順序是新的在前（`listOnDay()` 給的）
+    const review = reviewOf([
+      ev('tasks.update', {
+        at: '16:40',
+        before: { customerName: '客戶A', kind: 'Examine', done: false },
+        after: { done: true },
+      }),
+      ev('visits.update', {
+        at: '15:03',
+        before: { customerName: '客戶A', date: '2026-09-14', status: 'pending_confirm' },
+        after: { status: 'confirmed' },
+      }),
+      ev('visits.create', {
+        at: '14:22',
+        after: { customerName: '客戶A', date: '2026-09-14', status: 'pending_confirm' },
+      }),
+    ]);
+
+    assert.equal(review.people.length, 1);
+    const mine = person(review, '客戶A');
+    assert.equal(mine.n, 3);
+    assert.deepEqual(mine.rows.map((r) => r.at), ['14:22', '15:03', '16:40']);
+    assert.deepEqual(mine.rows.map((r) => r.stage), ['壓表', '跟客人確認', '登記掛號']);
+  });
+
+  test('那一列不含名字 —— 抬頭已經寫了', () => {
+    const review = reviewOf([ev('visits.create', {
+      after: { customerName: '客戶A', date: '2026-09-14' },
+    })]);
+    const row = person(review, '客戶A').rows[0];
+    assert.ok(!row.text.includes('客戶A'), `不該再印一次名字：${row.text}`);
+    // 照流程那一格照樣要有名字（那一格沒有抬頭可以靠）
+    assert.ok(review.groups[0].rows[0].text.includes('客戶A'));
+  });
+
+  test('掛不到人的收成一組，排最後，而且不叫「其他」', () => {
+    const review = reviewOf([
+      ev('events.create', { after: { title: '宜蘭', category: 'leave', startDate: '2026-09-05' } }),
+      ev('visits.create', { after: { customerName: '客戶A', date: '2026-09-14' } }),
+    ]);
+    assert.deepEqual(review.people.map((p) => p.who), ['客戶A', null]);
+    assert.equal(NOBODY, '沒有掛客戶');
+  });
+
+  test('人的順序是「最近碰過的排最上面」', () => {
+    const review = reviewOf([
+      ev('visits.create', { at: '17:00', after: { customerName: '客戶B', date: '2026-09-14' } }),
+      ev('visits.create', { at: '09:00', after: { customerName: '客戶A', date: '2026-09-14' } }),
+    ]);
+    assert.deepEqual(review.people.map((p) => p.who), ['客戶B', '客戶A']);
+  });
+
+  // ADR-0062 的那一條規矩對兩種分組都成立。
+  test('一則都不會被丟掉 —— 兩種分組的筆數都等於進去的筆數', () => {
+    const events = [
+      ev('visits.create', { after: { customerName: '客戶A', date: '2026-09-14' } }),
+      ev('notes.create', { after: { text: '一件事' } }),
+      ev('config/app/courses.create', { after: { name: '復能' } }),
+      ev('weird.thing', { after: { x: 1 } }),
+    ];
+    const review = reviewOf(events);
+    const sum = (rows) => rows.reduce((n, g) => n + g.n, 0);
+    assert.equal(sum(review.groups), events.length);
+    assert.equal(sum(review.people), events.length);
+    assert.equal(review.total, events.length);
+  });
+
+  test('連著一樣的句子在照人那一格也收成一則', () => {
+    const one = ev('tasks.update', {
+      before: { customerName: '客戶A', kind: 'Examine', done: false },
+      after: { done: true },
+    });
+    const rows = person(reviewOf([one, one, one]), '客戶A').rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].times, 3);
+  });
+
+  test('沒傳解析器照樣不會爆 —— 那幾則落進沒有掛客戶那一組', () => {
+    const review = reviewOf([ev('customers/c1/entitlements.update', {
+      before: { label: '復能', doneCount: 7 },
+      after: { doneCount: 8 },
+    })]);
+    assert.equal(review.people.length, 1);
+    assert.equal(review.people[0].who, null);
+  });
+
+  test('傳了解析器，子集合那幾則就掛得到人', () => {
+    const events = [{
+      action: 'customers/c1/entitlements.update',
+      targetPath: 'customers/c1/entitlements/e1',
+      before: { label: '復能', doneCount: 7 },
+      after: { doneCount: 8 },
+      at: 'T',
+    }];
+    const review = reviewOf(events, { nameOf: (id) => (id === 'c1' ? '客戶A' : null) });
+    assert.equal(review.people[0].who, '客戶A');
+    assert.equal(review.people[0].rows[0].text, '復能・已完成 7 → 8 次');
   });
 });

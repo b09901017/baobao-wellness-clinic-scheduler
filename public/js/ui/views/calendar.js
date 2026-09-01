@@ -1032,16 +1032,23 @@ function mountNoteEditor(el, data, sheet, spec) {
                value="${esc(existing?.text ?? '')}"
                placeholder="例：幫王小明問週六有沒有位子" />
       </label>
-      <span class="field__label">哪一天</span>
-      ${note.field({ value: existing?.date ?? spec.date })}
-      <span data-calwho>
+      ${/* 三排各自是一個欄位，節奏跟上面那個「記什麼」一樣 ——
+             以前它們裸放而且中間一點間距都沒有，「營養品」和「掛給誰」
+             會擠在一起（她的原話）。`.notemeta` 是那四個入口共用的外框。 */''}
+      <div class="field">
+        <span class="field__label">哪一天</span>
+        <div class="notemeta">${note.field({ value: existing?.date ?? spec.date })}</div>
+      </div>
+      <div class="field" data-calwho>
         <span class="field__label">掛給誰</span>
-        ${note.who({
-          customerId: existing?.customerId ?? null,
-          customerName: existing?.customerName ?? null,
-        })}
-      </span>
-      ${isNew ? note.give() : ''}
+        <div class="notemeta">
+          ${note.who({
+            customerId: existing?.customerId ?? null,
+            customerName: existing?.customerName ?? null,
+          })}
+        </div>
+      </div>
+      ${isNew ? `<div class="field">${note.give()}</div>` : ''}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>

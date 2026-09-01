@@ -9,6 +9,7 @@
 // 要把某一筆改回去請走復原或直接編輯那筆資料，那樣才會再留一則稽核。
 
 import * as auditData from '../../data/audit.js';
+import * as customersData from '../../data/customers.js';
 import {
   describeAction, changedFields, formatField, describeEvent, groupByDay, opOf,
 } from '../../domain/audit.js';
@@ -22,8 +23,18 @@ export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   let events;
+  // 客戶名單只是用來把 id 換成名字（額度與本輪可用性身上沒有名字，
+  // 只有路徑上有 id）。**它讀不到不可以擋住稽核** —— 稽核才是這一頁的主體，
+  // 少了名字那幾列就退回不講名字，那是 `describeParts()` 本來就有的行為。
+  let nameOf = null;
   try {
-    events = await auditData.listRecent(PAGE_SIZE);
+    const [rows, customers] = await Promise.all([
+      auditData.listRecent(PAGE_SIZE),
+      customersData.list().catch(() => []),
+    ]);
+    events = rows;
+    const byId = new Map(customers.map((c) => [c.id, c.name]));
+    nameOf = (id) => byId.get(id) ?? null;
   } catch (err) {
     el.innerHTML = `
       <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
@@ -39,7 +50,7 @@ export async function render(el) {
       <p class="muted">每一次寫入都會留下一筆，改不掉也刪不掉。
         這裡只能看 —— 要改回去請到那筆資料上編輯，那樣才會再留一筆紀錄。</p>
     </section>
-    ${events.length ? listHtml(events) : '<p class="muted">還沒有任何變更紀錄。</p>'}`;
+    ${events.length ? listHtml(events, { nameOf }) : '<p class="muted">還沒有任何變更紀錄。</p>'}`;
 }
 
 /**
@@ -86,12 +97,19 @@ export function wireSection(el, load) {
   });
 }
 
-/** 一組稽核列。整頁、客戶詳情底下的「變更紀錄」面板都用它，不要各畫一份。 */
-export function listHtml(events) {
+/**
+ * 一組稽核列。整頁、客戶詳情底下的「變更紀錄」面板都用它，不要各畫一份。
+ *
+ * @param {object[]} events
+ * @param {{nameOf?: (customerId: string) => (string|null)}} [ctx]
+ *   id → 名字。沒傳的話講不出名字的那幾列就不講（`domain/audit.js` 的規矩：
+ *   讀不到名字就不編一個）。
+ */
+export function listHtml(events, ctx = {}) {
   const days = groupByDay(events, dayOf);
   return days.map((d) => `
     <div class="audit__day">${esc(dayLabel(d.day))}</div>
-    <div class="audit">${d.events.map(rowHtml).join('')}</div>`).join('');
+    <div class="audit">${d.events.map((e) => rowHtml(e, ctx)).join('')}</div>`).join('');
 }
 
 /**
@@ -101,9 +119,9 @@ export function listHtml(events) {
  * 兩個問題都是先掃過去、停在可疑的那一列，才想看細節。
  * 每一列都攤開路徑與欄位表的話，那一停就要捲三頁。
  */
-function rowHtml(event) {
+function rowHtml(event, ctx = {}) {
   const fields = changedFields(event);
-  const line = describeEvent(event);
+  const line = describeEvent(event, ctx);
 
   return `
     <details class="audit__row">

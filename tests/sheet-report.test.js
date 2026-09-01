@@ -247,7 +247,9 @@ test('營養品自己一區，不進矩陣也不進合計', () => {
   assert.equal(sheet.products[0].months, 2);
   assert.deepEqual(sheet.products[0].items, ['夜態美', 'GABA']);
   assert.equal(sheet.products[0].done, true);
-  assert.equal(sheet.products[0].deliveredAt, '2026-08-05');
+  // 送過去的已經是她舊表上那種寫法（`docs/legacy/README.md` 第 6 節），
+  // 不是 ISO —— 貼上那條路印的也是這個，兩條路必須長一樣。
+  assert.equal(sheet.products[0].deliveredAt, '8/5');
 });
 
 test('還沒給的營養品講得出「還沒給」', () => {

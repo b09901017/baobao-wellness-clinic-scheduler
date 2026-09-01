@@ -12,6 +12,7 @@ import {
   acceptsNewTasks,
   isCancelKind,
   cancelKindFor,
+  taskLine,
 } from '../public/js/domain/taskRules.js';
 import { confirmMessage } from '../public/js/domain/messages.js';
 import { shortDate, weekdayLabel } from '../public/js/domain/dates.js';
@@ -323,5 +324,54 @@ describe('勾完成那一支的接線', () => {
     // 收 id 的話這一層得先把那幾筆讀回來才知道是不是鏈上的那兩種，
     // 而呼叫端手上本來就有 —— 那是白白多一輪往返。
     assert.match(setDone, /setDone\(tasks, done\)/);
+  });
+});
+
+// ---------- 一列任務要講的三件事 ----------
+//
+// 她的原話：「客戶詳情裡的任務目前只會顯示 Examine 或 耀聖，資訊量太少……
+// 例如：Examine・9/1・二返」。
+//
+// 三個地方共用（試算表的 TODO 區、客戶詳情、待辦中心），所以「日期取哪一個」
+// 只能有一份答案 —— 兩份的話會有一份差一天。
+
+describe('一列任務要講的三件事', () => {
+  const t = task({ kind: 'Examine', dueDate: '2026-09-09' });
+
+  test('日期是**來訪那一天**，不是死線', () => {
+    const line = taskLine(t, visit({ date: '2026-09-10', slots: [{ courseName: '二返' }] }));
+    assert.equal(line.date, '2026-09-10');
+    assert.equal(line.fromDue, false);
+    assert.equal(line.kind, 'Examine');
+    assert.equal(line.what, '二返');
+  });
+
+  test('來訪找不到才退回死線，而且要講得出來那是退回來的', () => {
+    const line = taskLine(t, null);
+    assert.equal(line.date, '2026-09-09');
+    assert.equal(line.fromDue, true, '畫面要靠它決定講不講「死線」兩個字');
+    assert.equal(line.what, '');
+  });
+
+  test('同一場兩段同一個課程只印一次（去重在 visitCourseLabel）', () => {
+    const line = taskLine(t, visit({
+      slots: [{ courseName: '復能' }, { courseName: '復能' }, { courseName: '營養針' }],
+    }));
+    assert.equal(line.what, '復能、營養針');
+  });
+
+  test('課程名全都認不出來就退回「N 段」，不是空白', () => {
+    const line = taskLine(t, visit({ slots: [{}, {}] }));
+    assert.equal(line.what, '2 段');
+  });
+
+  test('沒有時段就沒有東西可講 —— 不要印「0 段」', () => {
+    assert.equal(taskLine(t, visit({ slots: [] })).what, '');
+  });
+
+  test('死線與來訪日都沒有也不會爆', () => {
+    const line = taskLine({ kind: '耀聖' }, null);
+    assert.equal(line.date, null);
+    assert.equal(line.kind, '耀聖');
   });
 });

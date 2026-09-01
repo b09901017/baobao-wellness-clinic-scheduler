@@ -18,6 +18,7 @@
 import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as tasksData from '../../data/tasks.js';
+import { taskLine } from '../../domain/taskRules.js';
 import * as availability from './availability.js';
 import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
@@ -258,7 +259,9 @@ function paint(ctx) {
     </div>
     ${notesBlock(notes)}
 
-    <div data-taskblock>${taskBlock(tasks)}</div>
+    ${/* 上面剛結束的是一排 28px 的小丸子，視覺重量很輕 ——
+           `.section` 自己的上邊界在這裡不夠，兩塊會黏在一起 */''}
+    <div data-taskblock style="margin-top: var(--space-5)">${taskBlock(tasks, visits)}</div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
@@ -313,7 +316,7 @@ function wire(ctx, { today, marks }) {
     if (tab) {
       taskTab = tab.dataset.taskTab;
       const box = el.querySelector('[data-taskblock]');
-      if (box) box.innerHTML = taskBlock(ctx.tasks);
+      if (box) box.innerHTML = taskBlock(ctx.tasks, ctx.visits);
       return;
     }
 
@@ -595,8 +598,13 @@ function openAudit(ctx) {
   auditData
     .listForCustomer(ctx.id, ctx.visits.slice(0, AUDIT_VISIT_LIMIT).map((v) => v.id))
     .then((events) => {
+      // 這一頁本來就知道是誰，所以不用再讀一次客戶名單 —— 額度與可用性
+      // 那幾則靠它才講得出名字（`domain/audit.js` 的 `describeParts()`）。
+      const nameOf = (id) => (id === ctx.id ? (ctx.customer?.name ?? null) : null);
       sheet.update(
-        events.length ? auditView.listHtml(events) : '<p class="muted">沒有變更紀錄。</p>',
+        events.length
+          ? auditView.listHtml(events, { nameOf })
+          : '<p class="muted">沒有變更紀錄。</p>',
       );
     })
     .catch((err) => {
@@ -917,10 +925,14 @@ function visitRow(v) {
  * 混在同一串裡的話，一位做完十次療程的客戶那六格會被已完成的塞滿，
  * 而她要看的「還沒做的那兩件」被擠進「看全部」裡面去了。
  */
-function taskBlock(tasks) {
+function taskBlock(tasks, visits = []) {
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
   const rows = taskTab === 'done' ? done : open;
+  // 來訪這一頁本來就有了（`ctx.visits`），所以一次讀取都不用多加 ——
+  // 任務身上沒有來訪日與課程名，也不該有（`data/tasks.js` 的檔頭）。
+  const visitById = new Map(visits.map((v) => [v.id, v]));
+  const row = (t) => taskRow(t, visitById.get(t.visitId) ?? null);
 
   return `
     <div class="section">
@@ -938,14 +950,14 @@ function taskBlock(tasks) {
       ? `<p class="muted" style="margin: 0">還沒有任務。
           勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來。</p>`
       : `
-        <div class="seg" role="group" style="margin-bottom: var(--space-2)">
+        <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
                   data-task-tab="open">未完成${open.length ? ` ${open.length}` : ''}</button>
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
                   data-task-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
         </div>
         ${rows.length
-          ? `<div class="tasklist">${rows.slice(0, RECENT_TASKS).map(taskRow).join('')}</div>`
+          ? `<div class="tasklist">${rows.slice(0, RECENT_TASKS).map(row).join('')}</div>`
           : `<p class="muted" style="margin: 0">${
               taskTab === 'done' ? '還沒有勾掉的。' : '沒有還沒做的了。'}</p>`}`}`;
 }
@@ -965,14 +977,28 @@ function taskBlock(tasks) {
  *（她的原話：「他其實和已改成詳情的按鈕一樣?」）。同一個動作在兩頁叫兩個
  * 名字，她會以為是兩件事。
  */
-function taskRow(t) {
+function taskRow(t, visit = null) {
+  // 哪一天、哪一場走 `domain/taskRules.js` 的 `taskLine()` —— 待辦中心與
+  // 試算表的 TODO 區讀的是同一支。日期是**來訪那一天**，不是死線；
+  // 來訪找不到才退回死線，而且那時候要講明它是死線。
+  const line = taskLine(t, visit);
+  // 來訪找不到（獨立待辦、來訪被刪了）就什麼都不接：右邊那顆丸子已經在講
+  // 死線了，這裡再印一次死線只是把同一件事講兩遍，而且看起來像來訪日。
+  const tail = line.fromDue
+    ? ''
+    : [shortDate(line.date), line.what].filter(Boolean).join('・');
+
   return `
     <div class="taskrow ${t.done ? 'taskrow--done' : ''}">
       <button class="note ${t.done ? 'note--done' : ''}" type="button"
               data-task="${esc(t.id)}" style="flex: 1; min-width: 0">
         <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
         <span class="note__main">
-          <span class="note__text">${esc(t.kind)}</span>
+          ${/* 她的原話：「例如 Examine・9/1・二返」—— 種類、日期、具體項目名稱。
+                 種類正常粗細，後面那一串淡一級：種類才是她在掃的東西 */''}
+          <span class="note__text">${esc(line.kind)}${
+            tail ? `<span class="note__sub">・${esc(tail)}</span>` : ''}</span>
+          ${t.note ? `<span class="note__note">${esc(t.note)}</span>` : ''}
         </span>
         <span class="notetags">
           ${/* 日期一律走 shortDate()：全站別的地方寫的都是「8/30(日)」，
@@ -1003,13 +1029,16 @@ function notesBlock(notes) {
       ${rows.map((n) => note.row(n, { customer: false, iconSize: 12 })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
-    <form data-newnote style="margin-top: var(--space-2)">
+    ${/* 日期那一排包在 `.notemeta` 裡 —— 那是四個入口共用的外框
+           （`CLAUDE.md` 的連動表）。以前這裡裸放，於是丸子貼著輸入框，
+           她的原話是「跟輸入框以及下方的任務貼得太近了」 */''}
+    <form data-newnote style="margin-top: var(--space-4)">
       <div style="display: flex; gap: var(--space-2)">
         <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
                placeholder="他臨時提的小要求…" aria-label="新的隨手記" />
         <button class="btn" type="submit">記</button>
       </div>
-      ${note.field()}
+      <div class="notemeta">${note.field()}</div>
     </form>`;
 }
 
@@ -1592,9 +1621,11 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
  */
 function openAllTasks(ctx) {
   const rows = ctx.tasks.filter((t) => (taskTab === 'done' ? t.done : !t.done));
+  const visitById = new Map(ctx.visits.map((v) => [v.id, v]));
   const sheet = openSheet({
     title: `全部任務・${taskTab === 'done' ? '已完成' : '未完成'}`,
-    body: `<div class="tasklist">${rows.map(taskRow).join('')}</div>`,
+    body: `<div class="tasklist">${
+      rows.map((t) => taskRow(t, visitById.get(t.visitId) ?? null)).join('')}</div>`,
   });
   sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
     btn.addEventListener('click', () => {

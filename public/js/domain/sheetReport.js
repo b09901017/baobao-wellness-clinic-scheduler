@@ -18,6 +18,7 @@ import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
+import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
@@ -102,7 +103,7 @@ export function customerReport({
         amountOf(e) == null ? '' : String(amountOf(e)),
         String(monthsOf(e)),
         itemsOf(e).map((x) => x.name).filter(Boolean).join('、'),
-        gave.at ? `${monthDay(gave.at)} ${gave.text}` : gave.text,
+        deliveryCell(gave),
       ]);
     }
   }
@@ -165,6 +166,17 @@ function usedOn(visits, entitlementId, date) {
 function monthDay(iso) {
   const [, m, d] = String(iso).split('-').map(Number);
   return `${m}/${d}`;
+}
+
+/**
+ * 營養品那一區「給了沒」那一格印什麼。
+ *
+ * **兩條路共用**：貼上那條在這裡拼完，推送那條把兩半送過去讓 `.gs` 用同一個
+ * 全形空白接起來（`renderProducts()`）。同一份報表因為走哪條路而長得不同，
+ * 她會以為其中一條壞了 —— 而那正是這一支檔頭寫的規矩。
+ */
+export function deliveryCell(gave) {
+  return gave?.at ? `${monthDay(gave.at)}　${gave.text}` : (gave?.text ?? '');
 }
 
 /**
@@ -289,7 +301,12 @@ export function syncBundle({
           items: itemsOf(e).map((x) => x.name).filter(Boolean),
           // 「還差什麼」是她要回去補的東西，所以整句話都送過去
           delivery: gave.text,
-          deliveredAt: gave.at,
+          // **已經是 `8/20` 這種她自己的寫法**（`docs/legacy/README.md` 第 6 節，
+          // 舊表上一個 ISO 日期都沒有），跟貼上那條路同一支 `monthDay()`。
+          // 以前這裡原樣送 `2026-08-20`，於是同一份營養品在「手動貼上」印
+          // `8/20`、在「自動推送」印 `2026-08-20` —— 而這一支的檔頭寫著
+          // 兩條路必須長一樣。`.gs` 一個日期都不格式化，同它一個數字都不算。
+          deliveredAt: gave.at ? monthDay(gave.at) : null,
           done: gave.state === 'all',
         };
       }),
@@ -460,13 +477,12 @@ function taskBlocks(tasks, visits) {
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
   const line = (t) => {
-    const visit = visitById[t.visitId];
-    const when = visit?.date ?? t.dueDate ?? '';
-    const what = visit
-      ? [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))].join('、')
-      : '';
+    // 哪一天、哪一場走 `taskRules.js` 的 `taskLine()` —— 客戶詳情與待辦中心
+    // 讀的是同一支。以前這裡自己算了一次同樣的東西，而「日期取來訪那一天
+    // 不是死線」這個判斷只要有兩份，就會有一份差一天。
+    const { date, what } = taskLine(t, visitById[t.visitId]);
     return {
-      label: [when ? monthDay(when) : '', what].filter(Boolean).join(' '),
+      label: [date ? monthDay(date) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',
       dueDate: t.dueDate ?? '',
       doneAt: t.doneAt ?? '',
