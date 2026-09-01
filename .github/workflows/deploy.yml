@@ -22,9 +22,26 @@ env:
   # 放進 secrets 只會讓 Actions 日誌把它遮成 ***，出事時反而看不懂。
   PROD_PROJECT_ID: wellness-clinic-scheduler
   STAGING_PROJECT_ID: wellness-clinic-staging
-  # 本機驗過的東西和 CI 部署的東西要是同一個版本。
-  # 這個號碼要跟 package.json 的 devDependency 對得上。
-  FIREBASE_TOOLS: firebase-tools@15
+
+  # ⚠ **部署 Firestore 的那一步釘在 13，不要往上升。**
+  #
+  # firebase-tools **14 開始**，`deploy --only firestore:…` 會多做一件事：
+  # 先打 `serviceusage.googleapis.com` 問「Firestore API 有沒有開」
+  # （`lib/deploy/firestore/prepare.js` 呼叫的是硬性的 `ensure()`，
+  # 不是 `bestEffortEnsure()`，所以那一下 403 就直接中止，沒有任何開關跳得過）。
+  #
+  # 那個呼叫要 `serviceusage.services.get` 權限，而 Firebase Console
+  # →「服務帳戶」→「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號
+  # **在正式專案上沒有這個權限** —— 重新產生金鑰也沒用，同一個服務帳號、
+  # 同一組角色。2026-09-02 的 403 就是這樣來的（那次 Hosting 部署成功、
+  # 只有 Firestore 那一步失敗，所以不是 secret 讀錯）。
+  #
+  # 三個版本實測（對 staging）：13 不呼叫、14 呼叫、15 呼叫。
+  #
+  # 要升上去的話，先去 Google Cloud Console → IAM，把那個服務帳號加一個
+  # 「Service Usage Consumer」（roles/serviceusage.serviceUsageConsumer），
+  # **正式與 staging 兩個專案都要**，然後才改這一行。做法見 docs/STAGING.md。
+  FIREBASE_TOOLS: firebase-tools@13
 
 jobs:
   test:
@@ -90,8 +107,11 @@ jobs:
       - name: 端對端（煙霧 + 混沌 + 離線）
         env:
           CI: '1'
+        # 用 `npm ci` 裝好的那一支（devDependency 的 ^15），不要另外 npx 拉一個 ——
+        # 模擬器這條路跟部署那條無關，它不碰 serviceusage，所以不受上面那個
+        # 版本釘子影響，而且本機跟 CI 跑的是同一個版本才對得起來。
         run: |
-          npx firebase-tools@15 emulators:exec \
+          npx firebase emulators:exec \
             --project demo-scheduler \
             --only auth,firestore,hosting \
             "npx playwright test --project=phone tests-e2e/specs/00-smoke.spec.js tests-e2e/specs/07-chaos.spec.js tests-e2e/specs/10-offline.spec.js"

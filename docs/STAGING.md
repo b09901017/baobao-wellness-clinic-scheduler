@@ -121,6 +121,42 @@ CI 需要兩把，放在 GitHub repository secrets
 
 ---
 
+## 三之二、`firebase-tools` 為什麼釘在 13（別隨手升上去）
+
+`.github/workflows/deploy.yml` 的 `FIREBASE_TOOLS` 是 `firebase-tools@13`。
+**升上去正式環境的部署會 403。**
+
+原因：firebase-tools **14 開始**，`deploy --only firestore:…` 會先打
+`serviceusage.googleapis.com` 問「Firestore API 有沒有開」。那個呼叫要
+`serviceusage.services.get` 權限，而 Firebase Console →「服務帳戶」→
+「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號，在正式專案上沒有它。
+
+症狀特別容易誤判：**Hosting 那一步會成功，只有 Firestore 那一步失敗** ——
+看起來像 secret 設錯了，其實不是。而且**重新產生金鑰沒有用**：
+新金鑰還是同一個服務帳號、同一組角色。
+
+（staging 是新專案，它的服務帳號有這個權限，所以 staging 升上去不會壞 ——
+這也是為什麼這件事在 staging 上測不出來。）
+
+### 想升上去的話，先補權限
+
+Google Cloud Console → IAM 與管理 → IAM → 找到
+`firebase-adminsdk-…@<專案>.iam.gserviceaccount.com` → 編輯 → 新增角色
+**Service Usage Consumer**（`roles/serviceusage.serviceUsageConsumer`）。
+
+指令版：
+
+```bash
+gcloud projects add-iam-policy-binding wellness-clinic-scheduler \
+  --member="serviceAccount:firebase-adminsdk-XXXXX@wellness-clinic-scheduler.iam.gserviceaccount.com" \
+  --role="roles/serviceusage.serviceUsageConsumer"
+```
+
+**兩個專案都要做**，然後才把 `FIREBASE_TOOLS` 改成 `firebase-tools@15`。
+改完先推一次 `develop`（上 staging）確認綠了，再進 `main`。
+
+---
+
 ## 四、日常怎麼跑
 
 ```
