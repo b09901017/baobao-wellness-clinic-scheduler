@@ -893,8 +893,13 @@ async function runVisitAction(el, data, visit, action, backDate) {
     // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
     const customerVisits = await visitsData.listByCustomer(visit.customerId);
     const next = applyStatus(visit, action);
+    // 快捷選單自己會在回呼之前把節點移除，所以**快速**連點本來就落空了。
+    // 但「長按 → 選 → 還在存 → 再長按 → 再選」這條慢路徑沒有東西擋，
+    // 而改一筆來訪只有日曆這一個入口（ADR-0056）—— 另外三個存來訪的地方
+    // （待辦中心、壓表、來訪編輯器）都有 key，就這裡沒有。
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
       success: `已改成「${describeStatus(action)}」`,
+      key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);
   } catch {

@@ -1187,7 +1187,9 @@ async function addNote(ctx, form) {
         customerName: ctx.customer.name,
         date: note.read(form),
       }),
-      { success: '記下來了' },
+      // 隨手記的**第四個**入口（CLAUDE.md 那四個共用 `components/note.js` 的）。
+      // 四個都要有 key —— 漏掉的那個一定是比較順手的那個。
+      { success: '記下來了', key: `note:create:${ctx.id}:${text}` },
     );
     await reload(ctx);
   } catch {

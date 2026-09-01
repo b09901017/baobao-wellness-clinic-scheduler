@@ -936,7 +936,11 @@ function wireQuick(drawer, ctx, added) {
             }
             : note.readWho(drawer)),
         }),
-        { success: '記下來了' },
+        // **`key` 不可以少。** `#/todo/notes` 那一頁的 `addNote()` 一直都有，
+        // 這顆泡泡沒有 —— 而這顆是最順手的那一個入口，而且它刻意不重畫面板、
+        // 焦點留在輸入框，所以按下去畫面幾乎沒有變化，最容易多按一下。
+        // key 帶上文字：連續記三件不同的事不可以被當成同一件擋掉。
+        { success: '記下來了', key: `note:create:${text}` },
       );
     } catch {
       return; /* withSaveState 已經顯示錯誤與重試 */
@@ -1892,9 +1896,13 @@ function wireAsk(ctx) {
   el.querySelectorAll('[data-makelink]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const customerId = btn.dataset.makelink;
+      // **`key` 不可以少。** 客戶詳情那個入口（`views/customerDetail.js`）
+      // 一直都有，這一個沒有 —— 而這一個是她一輪連按十幾次的那個。
+      // 連點兩下 = 客戶手上兩條連結，而一條連結只有一份答案（id 就是 token），
+      // 所以他填了其中一條，另一條會永遠掛在「已發出」那一格。
       await toast.withSaveState(
         () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
-        { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
+        { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE', key: `invite:create:${customerId}:${month}` },
       );
       askTab = 'sent';
       renderAsk(el, { focus: customerId });
@@ -2263,6 +2271,10 @@ async function applyConfirm(ctx) {
           : '確認了，已排進日曆',
         // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）
         undoable: false,
+        // **這一顆特別需要 key。** 上面那段註解自己寫著「這是這條動線唯一一次
+        // 不可逆的寫入」，而它沒有二次確認框擋著，又是一個 for 迴圈一筆一筆存 ——
+        // 連點兩下等於整批各存兩次，中間那幾筆的登記任務會長出兩份。
+        key: `confirm:${drawer.customerId}`,
       },
     );
     drawer = null;
