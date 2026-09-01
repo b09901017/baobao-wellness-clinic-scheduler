@@ -32,9 +32,29 @@ const BENIGN = [
   // serverTimestamp 還是真實的現在 —— SDK 就會喊「更新時間在未來」。
   // 真實使用不會發生，把它當成錯誤會讓每一支時間旅行的測試都紅掉。
   /Detected an update time that is in the future/i,
+  // **Firestore 自己的長連線在重建時會回 400。**
+  // 那是 SDK 的傳輸層（WebChannel）在換一條連線，它自己會重送，
+  // 資料不會少 —— 上面那條 /WebChannelConnection/ 擋的是 SDK 印出來的警告，
+  // 但瀏覽器另外會印一句沒有頭沒有尾的
+  // 「Failed to load resource: the server responded with a status of 400」，
+  // 那一句的文字裡沒有任何線索，只有 `location().url` 認得出來。
+  // 2026-09-02 C13 就是被這一句弄成 flaky 的（重試就過，斷言從來沒錯過）。
+  //
+  // 範圍刻意收得很窄：只有 Firestore 自己那兩條通道的網址。
+  // 權限被 Rules 擋掉走的是另一條路（SDK 會丟 permission-denied，
+  // 而畫面上那句話有各自的測試在盯），不會被這一條蓋掉。
+  /\/google\.firestore\.v1\.Firestore\/(Write|Listen)\/channel/,
 ];
 
-const isBenign = (text) => BENIGN.some((re) => re.test(text));
+/**
+ * 這一則 console 錯誤可以忽略嗎。
+ *
+ * **文字與來源網址都要問。** 瀏覽器對「某個請求失敗了」印的那一句
+ * （`Failed to load resource: …`）裡面沒有網址，只有 `location().url` 有 ——
+ * 只看文字的話，Firestore 傳輸層的重連跟 app 真的打壞了一個請求長得一模一樣。
+ */
+const isBenign = (text, url = '') =>
+  BENIGN.some((re) => re.test(text) || (url && re.test(url)));
 
 export const test = base.extend({
   // 刻意**沒有** seed 這個 option fixture。
@@ -64,7 +84,9 @@ export const test = base.extend({
     page.on('console', (m) => {
       if (m.type() !== 'error') return;
       const text = m.text();
-      if (!isBenign(text)) errors.push({ kind: 'console', text });
+      // 網址在 location() 裡，不在訊息裡（見 isBenign 的說明）。
+      const url = m.location?.()?.url ?? '';
+      if (!isBenign(text, url)) errors.push({ kind: 'console', text, url });
     });
     page.on('pageerror', (e) => {
       if (!isBenign(e.message)) errors.push({ kind: 'pageerror', text: e.message, stack: e.stack });
@@ -202,7 +224,11 @@ export const test = base.extend({
 
     // ---- 收尾：沒被宣告預期的 console error 一律讓測試紅掉 ----
     if (errors.length && !test.info().annotations.some((a) => a.type === 'allow-console-errors')) {
-      const lines = errors.map((e) => `  [${e.kind}] ${e.text}`).join('\n');
+      // 網址一起印出來 —— 「Failed to load resource」那一句沒有網址就查不下去，
+      // 而那正是查 C13 那個 flaky 花掉最多時間的地方。
+      const lines = errors
+        .map((e) => `  [${e.kind}] ${e.text}${e.url ? `\n          ← ${e.url}` : ''}`)
+        .join('\n');
       throw new Error(`這個測試在 console 留下了 ${errors.length} 筆錯誤：\n${lines}`);
     }
   },
