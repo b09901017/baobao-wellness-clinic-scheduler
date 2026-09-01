@@ -66,6 +66,16 @@ describe('照她的流程分段', () => {
     assert.deepEqual(idsOf(review), ['cancel']);
   });
 
+  // 這一段叫「取消與改期」，而改期以前落進最後的「其他」——
+  // 段落名在講一件它收不到的事。
+  test('改一筆來訪的日期算在取消與改期那一段', () => {
+    const review = reviewOf([ev('visits.update', {
+      before: { customerName: '客戶A', date: '2026-09-14', status: 'confirmed' },
+      after: { date: '2026-09-20' },
+    })]);
+    assert.deepEqual(idsOf(review), ['cancel']);
+  });
+
   test('刪掉一筆來訪也算在取消那一段', () => {
     const review = reviewOf([ev('visits.softDelete', {
       before: { customerName: '客戶A' },

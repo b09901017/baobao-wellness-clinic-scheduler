@@ -89,8 +89,12 @@ const STAGES = [
     id: 'cancel',
     label: '取消與改期',
     n: '⑥',
+    // **改期也算在這一段。** 這一段叫「取消與改期」，而改一筆來訪的日期以前
+    // 落進最後的「其他」—— 段落名在講一件它收不到的事，比沒講還糟。
     match: (e, f) => collectionOf(e) === 'visits'
-      && (statusTo(f) === 'cancelled' || opOf(e) === 'softDelete'),
+      && (statusTo(f) === 'cancelled'
+        || opOf(e) === 'softDelete'
+        || (opOf(e) === 'update' && f.some((x) => x.key === 'date'))),
   },
   {
     id: 'calendar',

@@ -402,6 +402,16 @@ const SENTENCES = [
       ),
     }),
   },
+  // 改期。**舊日期要從 `before` 拿** —— `merged()` 給的 `date` 已經是新的了。
+  // 這一條排在狀態變化後面：改期同時改狀態的話，狀態才是那一則的主角。
+  {
+    when: (e, f) => coll(e) === 'visits' && opOf(e) === 'update'
+      && f.some((x) => x.key === 'date'),
+    say: (e, f, d) => {
+      const x = f.find((c) => c.key === 'date');
+      return { text: bits(when(x.before), courses(d), `改期到 ${when(x.after)}`) };
+    },
+  },
   // 「禮拜一再問問」那一句。它不是任務也不是備註（CONTEXT.md），所以自己一條。
   {
     when: (e, f) => coll(e) === 'visits' && f.length > 0

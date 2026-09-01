@@ -145,6 +145,14 @@ describe('一句話講完一則稽核', () => {
     assert.equal(line, '客戶A・9/14(一)・復能、營養針・改成已確認');
   });
 
+  // 舊日期要從 before 拿 —— merged() 給的 date 已經是新的那一天了。
+  test('改期講得出從哪天改到哪天', () => {
+    const line = describeEvent(ev('visits.update',
+      visit({ status: 'confirmed' }),
+      { date: '2026-09-20' }));
+    assert.equal(line, '客戶A・9/14(一)・復能、營養針・改期到 9/20(日)');
+  });
+
   test('「禮拜一再問問」是自己一種，不是改了一個欄位', () => {
     const line = describeEvent(ev('visits.update',
       visit({ followupNote: null }),
