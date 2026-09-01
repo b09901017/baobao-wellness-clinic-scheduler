@@ -1,0 +1,338 @@
+#!/usr/bin/env node
+//
+// 在 staging（或模擬器）上長出一份可以拿來點的假資料。
+//
+// **合成的，不是把正式資料匿名化。** 匿名化那條路有兩個問題：匿名腳本自己會
+// 漏欄位（漏一個就是真名進了另一個資料庫），而且它要先把正式資料倒出來 ——
+// 那份檔案在硬碟上放著的每一分鐘都是風險。合成資料一個真名都不會有，
+// 規模還可以自己調（要壓測就 `--customers 200`）。
+//
+// 假名一律用專案已經在用的那幾個（CLAUDE.md：例子一律寫「客戶A」，
+// 規則跟名字的字數有關時用假名）。`tests/no-secrets.test.js` 盯著。
+//
+// ---------------------------------------------------------------------------
+//
+//   # 模擬器（不需要憑證）
+//   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+//     node scripts/seed-staging.mjs --project demo-scheduler --yes
+//
+//   # staging（要服務帳號金鑰）
+//   GOOGLE_APPLICATION_CREDENTIALS=/path/to/staging-sa.json \
+//     node scripts/seed-staging.mjs --project staging --yes
+//
+// 跟 `restore-backup.mjs` 一樣：沒有 `--yes` 就只是印出打算做什麼，
+// 而且**拒絕跑在正式專案上**（連 `--allow-prod` 都沒有 —— 正式環境沒有任何
+// 理由需要假客戶）。
+
+import { initializeApp, applicationDefault } from 'firebase-admin/app';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+
+import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
+import { expandPlan } from '../public/js/domain/entitlements.js';
+
+const PROD_PROJECT = 'wellness-clinic-scheduler';
+// **正式那兩個別名一定要在這裡。** 少了它們，`--project prod` 會原封不動地
+// traverse 過守衛（'prod' !== 'wellness-clinic-scheduler'），然後死在
+// 「找不到憑證」——看起來像是被擋下來了，其實只是剛好沒有金鑰。
+const ALIASES = {
+  staging: 'wellness-clinic-staging',
+  prod: PROD_PROJECT,
+  production: PROD_PROJECT,
+};
+
+/**
+ * 假名。**全部是明顯虛構的**：王小明是中文的 John Doe，這個 repo 本來就在用它
+ *（ADR-0024）。二十位就夠像真的了 —— 她手上大約就是這個數量級。
+ */
+const SURNAMES = ['王', '李', '陳', '林', '張', '黃', '吳', '劉', '蔡', '楊'];
+const GIVEN = ['小明', '小華', '小美', '小安', '小文'];
+
+/**
+ * 假資料的 id 一律用這個開頭。`clearPrevious()` 靠它認出「上一輪長出來的東西」。
+ *
+ * 前綴而不是「整個集合清空」是刻意的：staging 上可能有她自己手動建的東西，
+ * 那些不該被一個種子腳本掃掉。
+ */
+const PREFIX = 'seed-cus-';
+
+/**
+ * 種子。同一個種子跑兩次長出一模一樣的資料 —— 可重現才拿得來查 bug。
+ *
+ * **每一位客戶配一組自己的**，不是全部共用一條序列。共用的話，改動一位客戶
+ * 身上任何一個 `rand()` 呼叫（例如後來多加了一份可用性）會把**後面每一位**
+ * 的資料整個位移 —— 我就是這樣踩到的：加了可用性之後重跑，
+ * 上一輪的來訪留在資料庫裡沒被蓋掉，於是計數欄位跟現算對不起來。
+ */
+function rng(seed = 42) {
+  let s = seed;
+  return () => {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+const iso = (d) => d.toISOString().slice(0, 10);
+const addDays = (date, n) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return iso(d);
+};
+
+function parseArgs(argv) {
+  const out = { project: null, yes: false, customers: 20, months: 6 };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--yes') out.yes = true;
+    else if (arg === '--project') out.project = argv[++i];
+    else if (arg.startsWith('--project=')) out.project = arg.slice('--project='.length);
+    else if (arg === '--customers') out.customers = Number(argv[++i]);
+    else if (arg === '--months') out.months = Number(argv[++i]);
+  }
+  return out;
+}
+
+/**
+ * 一位假客戶連同他的額度、來訪、任務、隨手記。
+ *
+ * 來訪的狀態**照日期判**，跟 `domain/mergeImport.js` 的 `statusFor()` 同一個
+ * 判斷（ADR-0029）：過去的是已完成、未來的是已確認或待確認。
+ * 隨手猜一個狀態出來的話，資料健檢會滿江紅，那份假資料就沒有人想用。
+ */
+function makeCustomer(i, today, { months }) {
+  // 每一位自己一條序列（見 `rng()` 的說明）。
+  const rand = rng(1000 + i);
+  const id = `${PREFIX}${String(i + 1).padStart(3, '0')}`;
+  const name = `${SURNAMES[i % SURNAMES.length]}${GIVEN[Math.floor(i / SURNAMES.length) % GIVEN.length]}`;
+  const plan = SEED.plans[i % SEED.plans.length];
+  const purchasedAt = addDays(today, -Math.floor(rand() * months * 30));
+  const expiresAt = addDays(purchasedAt, 365);
+
+  const entitlements = expandPlan(plan, 1, { purchasedAt, expiresAt })
+    .map((data, n) => ({ id: `${id}-ent-${n}`, data }));
+
+  const visits = [];
+  const tasks = [];
+  // 一位客戶大約 0–8 筆來訪，扣的是他的第一筆池額度。
+  const pool = entitlements.find((e) => e.data.type === 'pool') ?? entitlements[0];
+  const howMany = Math.floor(rand() * 9);
+
+  for (let n = 0; n < howMany; n += 1) {
+    const offset = Math.floor(rand() * months * 30) - Math.floor(months * 22);
+    const date = addDays(today, offset);
+    const past = date < today;
+    const vid = `${id}-visit-${n}`;
+
+    visits.push({
+      id: vid,
+      data: {
+        customerId: id,
+        customerName: name,
+        date,
+        status: past ? 'done' : (rand() > 0.4 ? 'confirmed' : 'pending_confirm'),
+        slots: [{
+          entitlementId: pool.id,
+          courseId: 'course-recovery',
+          courseName: '復能',
+          equipmentId: 'eq-indiba',
+          startsAt: '10:30',
+          endsAt: '11:30',
+          ...(past ? { attended: true } : {}),
+        }],
+        note: null,
+      },
+    });
+
+    // 已確認的來訪才有登記任務（ADR-0027：客人確認之後才長）。
+    if (!past && visits[visits.length - 1].data.status === 'confirmed') {
+      tasks.push({
+        id: `${vid}-task`,
+        data: {
+          customerId: id,
+          customerName: name,
+          visitId: vid,
+          kind: 'Abovee',
+          dueDate: addDays(date, -1),
+          done: false,
+          doneAt: null,
+          autoGenerated: true,
+        },
+      });
+    }
+  }
+
+  // 計數欄位要跟來訪對得起來，否則資料健檢第一項就滿江紅。
+  const doneCount = visits.filter((v) => v.data.status === 'done').length;
+  const bookedCount = visits.filter(
+    (v) => v.data.status === 'confirmed' || v.data.status === 'pending_confirm',
+  ).length;
+  const counted = entitlements.map((e) => (e.id === pool.id
+    ? { ...e, data: { ...e.data, doneCount, bookedCount } }
+    : e));
+
+  // **這個月的可用性收集要有一份。** 少了它，資料健檢的「資料過期」會把
+  // 每一位還有剩餘次數的假客戶都列出來 —— 而一份假資料如果一打開就滿江紅，
+  // 那她就沒辦法拿「健檢有沒有變多」當成回歸的判準了。
+  // 一份就是一個月（ADR-0053），有效期涵蓋今天。
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const availability = [{
+    id: `${id}-avail`,
+    data: {
+      month: today.slice(0, 7),
+      rawText: '星期三下午不行',
+      rules: [{ kind: 'weekday', weekday: 3, partOfDay: 'pm', allowed: false }],
+      validFrom: monthStart,
+      validTo: addDays(monthStart, 60),
+      collectedAt: addDays(today, -Math.floor(rand() * 10)),
+    },
+  }];
+
+  const notes = rand() > 0.6
+    ? [{
+      id: `${id}-note`,
+      data: {
+        text: '下次來提醒他帶健保卡',
+        done: false,
+        date: addDays(today, Math.floor(rand() * 20)),
+        customerId: id,
+        customerName: name,
+        entitlementId: null,
+      },
+    }]
+    : [];
+
+  return {
+    customer: { id, data: { name, active: true, priority: Math.floor(rand() * 6), marks: [], purchasedAt, membershipExpiresAt: expiresAt } },
+    entitlements: counted,
+    availability,
+    visits,
+    tasks,
+    notes,
+  };
+}
+
+const BATCH_SIZE = 400;
+
+/**
+ * 把上一輪種出來的東西先清掉。
+ *
+ * **不清會出事，而且症狀很難看懂**：客戶與額度的 id 是固定的（會被蓋掉），
+ * 但來訪的筆數是隨機的 —— 上一輪種了 8 筆、這一輪只種 5 筆，
+ * 多出來的那 3 筆會留在資料庫裡。於是額度上的計數欄位（這一輪算的）
+ * 跟從來訪重算的值對不起來，資料健檢第一項就滿江紅，
+ * 而看起來完全像是 app 算錯了。
+ *
+ * 這裡是**真的刪掉**，不是軟刪除 —— 這些是合成資料，不是她的東西，
+ * 而且留著一堆 `deletedAt` 的假資料只會讓「已刪除項目」那一頁看不懂。
+ * 只刪 id 以 `seed-cus-` 開頭的，她自己在 staging 上手動建的不會被掃到。
+ */
+async function clearPrevious(db) {
+  const refs = [];
+
+  for (const path of ['visits', 'tasks', 'notes', 'customers']) {
+    const snap = await db.collection(path).get();
+    for (const doc of snap.docs) if (doc.id.startsWith(PREFIX)) refs.push(doc.ref);
+  }
+  // 子集合的 id 也帶著前綴，但保險起見連父文件一起認 ——
+  // collectionGroup 掃得到的才刪得掉，漏掉的會變成孤兒。
+  for (const group of ['entitlements', 'availability']) {
+    const snap = await db.collectionGroup(group).get();
+    for (const doc of snap.docs) {
+      if (doc.ref.parent.parent?.id?.startsWith(PREFIX)) refs.push(doc.ref);
+    }
+  }
+
+  if (!refs.length) return 0;
+  for (let i = 0; i < refs.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    for (const ref of refs.slice(i, i + BATCH_SIZE)) batch.delete(ref);
+    await batch.commit();
+  }
+  return refs.length;
+}
+
+async function writeAll(db, plan) {
+  for (let i = 0; i < plan.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    for (const { path, id, data } of plan.slice(i, i + BATCH_SIZE)) {
+      batch.set(db.collection(path).doc(id), {
+        deletedAt: null,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+        createdBy: 'seed-staging',
+        ...data,
+      });
+    }
+    await batch.commit();
+    process.stdout.write(`\r  寫入 ${Math.min(i + BATCH_SIZE, plan.length)}/${plan.length}`);
+  }
+  if (plan.length) process.stdout.write('\n');
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const projectId = ALIASES[args.project] ?? args.project;
+  const emulator = process.env.FIRESTORE_EMULATOR_HOST;
+
+  if (!projectId) {
+    console.error('用法：node scripts/seed-staging.mjs --project <staging|專案id> [--yes] [--customers 20]');
+    process.exit(2);
+  }
+  if (projectId === PROD_PROJECT) {
+    console.error(`\n拒絕。正式專案（${PROD_PROJECT}）沒有任何理由需要假客戶。\n`);
+    process.exit(3);
+  }
+
+  const today = iso(new Date());
+  const people = Array.from({ length: args.customers }, (_, i) => makeCustomer(i, today, args));
+
+  const plan = [];
+  for (const [type, rows] of Object.entries(SEED)) {
+    for (const row of rows) {
+      const { id, ...data } = row;
+      plan.push({ path: `config/app/${type}`, id, data: { ...data, active: true } });
+    }
+  }
+  for (const p of people) {
+    plan.push({ path: 'customers', id: p.customer.id, data: p.customer.data });
+    for (const e of p.entitlements) plan.push({ path: `customers/${p.customer.id}/entitlements`, id: e.id, data: e.data });
+    for (const a of p.availability) plan.push({ path: `customers/${p.customer.id}/availability`, id: a.id, data: a.data });
+    for (const v of p.visits) plan.push({ path: 'visits', id: v.id, data: v.data });
+    for (const t of p.tasks) plan.push({ path: 'tasks', id: t.id, data: t.data });
+    for (const n of p.notes) plan.push({ path: 'notes', id: n.id, data: n.data });
+  }
+
+  console.log(`
+目標專案　 ${projectId}${emulator ? `（模擬器 ${emulator}）` : ''}
+模式　　　 ${args.yes ? '**真的寫入**' : 'dry run'}
+假客戶　　 ${people.length} 位
+來訪　　　 ${people.reduce((n, p) => n + p.visits.length, 0)} 筆
+額度　　　 ${people.reduce((n, p) => n + p.entitlements.length, 0)} 筆
+總文件數　 ${plan.length}
+`);
+
+  if (!args.yes) {
+    console.log('沒有寫任何東西。加 --yes 跑一次。\n');
+    return;
+  }
+
+  initializeApp({ projectId, ...(emulator ? {} : { credential: applicationDefault() }) });
+  const db = getFirestore();
+
+  await db.doc('config/app').set(DEFAULT_SETTINGS, { merge: true });
+  const cleared = await clearPrevious(db);
+  if (cleared) console.log(`  清掉上一輪種出來的 ${cleared} 筆`);
+  await writeAll(db, plan);
+
+  console.log(`
+寫好了。接下來：
+
+  1. 到 staging 的 app 登入一次，畫面會說「這個帳號還沒有權限」並印出你的 uid
+  2. 把那串 uid 加進 staging 專案的 allowedUsers 集合（見 docs/STAGING.md）
+  3. 開 #/settings/health 跑一次資料健檢 —— 這份假資料應該一條都不報
+`);
+}
+
+main().catch((err) => {
+  console.error(`\n出事了：${err.message}`);
+  process.exit(1);
+});
