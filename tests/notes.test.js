@@ -14,6 +14,7 @@ import {
   openFor,
   sortNotes,
   validateNote,
+  noteActions,
   sameOpenNote,
 } from '../public/js/domain/notes.js';
 
@@ -230,4 +231,68 @@ test('一般的隨手記是 null，不是空字串', () => {
 test('改一筆的時候不碰它 —— 待辦編輯器帶不到它，而少帶就等於清空', () => {
   const out = normalizePatch({ text: '換一句', date: '2026-09-01' });
   assert.ok(!('entitlementId' in out));
+});
+
+// 長按一列隨手記（ADR-0060）。**五個入口共用一份** —— 在待辦中心長按有
+// 「改日期」、在日曆長按沒有，那不是兩個畫面，是同一個畫面壞了一半。
+describe('長按一筆隨手記有哪幾顆（noteActions）', () => {
+  const TODAY = '2026-09-01';
+  const ids = (note, opts = {}) =>
+    noteActions(note, { today: TODAY, ...opts }).map((a) => a.id);
+
+  test('還沒勾的給「勾掉」，勾掉的給「拿回來」', () => {
+    assert.ok(ids({ done: false }).includes('tick'));
+    assert.ok(!ids({ done: false }).includes('untick'));
+    assert.ok(ids({ done: true }).includes('untick'));
+    assert.ok(!ids({ done: true }).includes('tick'));
+  });
+
+  test('已經是今天就不再給「改成今天」', () => {
+    assert.ok(ids({ done: false, date: null }).includes('today'));
+    assert.ok(!ids({ done: false, date: TODAY }).includes('today'));
+  });
+
+  test('沒有日期就沒有「拿掉日期」', () => {
+    assert.ok(!ids({ done: false, date: null }).includes('undate'));
+    assert.ok(ids({ done: false, date: '2026-09-09' }).includes('undate'));
+  });
+
+  test('還沒勾的不給「刪掉」 —— 要刪先勾掉，兩步比誤刪好', () => {
+    assert.ok(!ids({ done: false }).includes('remove'));
+    assert.ok(ids({ done: true }).includes('remove'));
+  });
+
+  test('日曆上「拿掉日期」要講成「從日曆拿掉」 —— 那才是她看得到的後果', () => {
+    const on = noteActions({ date: '2026-09-09' }, { today: TODAY, onCalendar: true });
+    const off = noteActions({ date: '2026-09-09' }, { today: TODAY });
+    assert.equal(on.find((a) => a.id === 'undate').label, '從日曆拿掉');
+    assert.equal(off.find((a) => a.id === 'undate').label, '拿掉日期');
+  });
+
+  test('營養品的提醒是另一組：不掛人、不拿掉日期，多一顆看那一包', () => {
+    const rows = ids({ done: false, entitlementId: 'e1', date: '2026-09-09' });
+    assert.deepEqual(rows, ['tick', 'today', 'date', 'bag']);
+  });
+
+  test('營養品那一顆「勾掉」要先講會問給了哪幾款', () => {
+    const tick = noteActions({ entitlementId: 'e1' }, { today: TODAY })
+      .find((a) => a.id === 'tick');
+    assert.match(tick.note, /給了/);
+  });
+
+  test('任何情況都不超過五顆 —— 加上「先不要」剛好是六顆的上限', () => {
+    for (const done of [true, false]) {
+      for (const date of [null, TODAY, '2026-09-09']) {
+        for (const entitlementId of [null, 'e1']) {
+          for (const customerId of [null, 'c1']) {
+            const n = noteActions(
+              { done, date, entitlementId, customerId, customerName: '客戶A' },
+              { today: TODAY },
+            ).length;
+            assert.ok(n <= 5, `done=${done} date=${date} 有 ${n} 顆`);
+          }
+        }
+      }
+    }
+  });
 });

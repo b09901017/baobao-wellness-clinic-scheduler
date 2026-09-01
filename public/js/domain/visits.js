@@ -403,6 +403,92 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
   };
 }
 
+// ---------- 換一個狀態 ----------
+
+/**
+ * 換一個狀態之後那一筆來訪長什麼樣。**只算，不寫。**
+ *
+ * 來訪編輯器的狀態卡與日曆的快捷選單（ADR-0060）共用這一支 ——
+ * 兩邊各寫一次的話，遲早有一邊忘了補 `cancelledAt`，
+ * 而那一筆從此在稽核紀錄裡看不出是什麼時候取消的。
+ *
+ * 收尾（`done` / `no_show`）走 `closeVisit()`，**整筆一起標** ——
+ * 每一段都給同一個結果。要逐段分開記（客人做了兩段就走）走待辦中心的
+ * 「簽療程單」那一頁，那裡才問得出「哪一段沒做」（ADR-0025）。
+ *
+ * @param {object} visit
+ * @param {string} to 要換成哪一個狀態
+ * @param {{at?: string, reason?: string|null}} [o] reason 只有取消才用得到
+ * @returns {object} 新的那一筆（原本那一份一個字都不動）
+ */
+export function applyStatus(visit, to, { at = new Date().toISOString(), reason = null } = {}) {
+  let next = to === 'done' || to === 'no_show'
+    ? closeVisit(visit, (visit?.slots ?? []).map(() => to === 'done'), at)
+    : { ...visit, status: to, statusAt: at };
+
+  if (to === 'confirmed') next = { ...next, confirmedAt: at };
+  if (to === 'cancelled') {
+    next = { ...next, cancelledAt: at, cancelReason: reason, released: false };
+  }
+  return next;
+}
+
+/**
+ * 長按一筆來訪，快捷選單上有哪幾顆（ADR-0060）。
+ *
+ * 狀態那幾顆**直接借 `nextStatuses()`**，不要在畫面上另外列一份 ——
+ * 兩份遲早會有一份准了一個 `TRANSITIONS` 不准的轉移，而 Rules 不擋狀態機
+ * （ADR-0006），所以那一下會真的寫進去。
+ *
+ * **「已完成」與「未到」不放進來。** 那兩個是**逐段**的結果
+ * （`slotOutcome()`，ADR-0025），整筆一起標會把「客人做了兩段就走」記錯 ——
+ * 而次數就是跟著它扣的。所以日子到了的那幾筆給的是一顆「去簽療程單」，
+ * 通到待辦中心那張逐段的抽屜。
+ *
+ * 順序就是畫面上的順序：**最常按的在最上面**，破壞性的在最下面。
+ * 最多五顆（加上選單自己的「先不要」剛好六顆，`openActions()` 的上限）。
+ *
+ * @param {object} visit
+ * @param {{today: string}} o
+ * @returns {{id:string, label:string, icon?:string, tone?:string}[]}
+ */
+export function visitActions(visit, { today } = {}) {
+  const next = nextStatuses(visit?.status);
+  const out = [];
+
+  if (next.includes('confirmed')) {
+    out.push({
+      id: 'confirmed',
+      label: '客戶說可以',
+      note: `改成「${describeStatus('confirmed')}」`,
+      icon: 'check',
+      tone: 'primary',
+    });
+  }
+
+  // 日子到了才有。還沒到的那一筆點進去只會看到一張空的收尾抽屜
+  // （`visitsToClose()` 撈的是 `date <= today`）。
+  if (today && typeof visit?.date === 'string' && visit.date <= today
+      && (visit.status === 'pending_confirm' || visit.status === 'confirmed')) {
+    out.push({
+      id: 'close',
+      label: '客人來了，去簽療程單',
+      note: '逐段勾，次數在那裡才扣',
+      icon: 'todo',
+    });
+  }
+
+  if (!isLocked(visit?.status) && visit?.status !== 'cancelled') {
+    out.push({ id: 'edit', label: '改這一筆', icon: 'pencil' });
+  }
+
+  if (next.includes('cancelled')) {
+    out.push({ id: 'cancelled', label: '取消這一筆', icon: 'close', tone: 'danger' });
+  }
+
+  return out;
+}
+
 /**
  * 這筆額度可以排哪些課程。
  *

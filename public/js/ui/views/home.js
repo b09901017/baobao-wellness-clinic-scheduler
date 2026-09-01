@@ -25,7 +25,8 @@ import {
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, sameOpenNote, MAX_LENGTH as NOTE_TEXT_MAX,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
+  MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
 import {
@@ -48,6 +49,7 @@ import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { openActions, wireLongPress } from '../components/actions.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -521,7 +523,7 @@ function notesCard(notes) {
           全部${icon('right', { size: 14 })}</a>
       </div>
 
-      <div class="groups">
+      <div class="groups" data-notes>
         ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
@@ -696,6 +698,7 @@ function wireOverview(ctx) {
 
   note.wire(el);
   note.wireWho(el, { load: () => customersData.list() });
+  wireNoteLongPress(el, ctx.notes, () => render(ctx.el));
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -723,14 +726,63 @@ async function toggleNote(ctx, id) {
   }
 }
 
-/** 勾一筆隨手記要用到的那幾支。四個入口的形狀一樣，只有這一份。 */
+/** 勾一筆隨手記要用到的那幾支。五個入口的形狀一樣，只有這一份。 */
 function noteDeps() {
   return {
+    update: (id, changes) => notesData.update(id, changes),
+    remove: (id, reason) => notesData.remove(id, reason),
+    setDone: (id, done) => notesData.setDone(id, done),
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-    setDone: (id, done) => notesData.setDone(id, done),
+    loadCustomers: () => customersData.list(),
     today: todayISO(),
+    // 問話那一段刻意在 withSaveState 外面（`note.prepareToggle()` 的檔頭），
+    // 所以這裡收的是「真的會寫的那一下」。
+    save: (run, opts) => toast.withSaveState(run, opts),
   };
+}
+
+/**
+ * 長按一列隨手記＝直接做（ADR-0060）。點一下勾掉的行為一個字都沒有變。
+ *
+ * **委派掛在那一塊清單上，不是掛在 `el` 上。** `paint()` / `paintNotes()`
+ * 換的是 `el.innerHTML`，`el` 本身留著 —— 掛在它上面的話每重畫一次就多一組，
+ * 而這一頁光是切一次「總覽／依客戶」就會重畫。
+ *
+ * 「改文字」沒有現成的編輯器可以開（隨手記除了勾掉之外只有日曆上那一張，
+ * 見 ADR-0044 的 Consequences），所以這裡先講出來 —— 靜靜不動更糟。
+ *
+ * @param {HTMLElement} el 那一頁的容器
+ * @param {object[]} notes 現在畫出來的那幾筆
+ * @param {Function} after 寫完之後重畫哪一頁
+ */
+function wireNoteLongPress(el, notes, after) {
+  wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
+    const n = (notes ?? []).find((x) => x.id === btn.dataset.note);
+    if (!n) return;
+
+    openActions({
+      title: n.text,
+      subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
+        .filter(Boolean).join('・'),
+      items: noteActions(n, { today: todayISO() }),
+      onPick: async (action) => {
+        try {
+          const changed = await note.runAction(action, n, {
+            ...noteDeps(),
+            onEdit: () => toast.info('要改字的話，先勾掉再記一筆新的 —— 或到日曆上那一天改'),
+            onBag: () => {
+              if (n.customerId) go(`/customers/${n.customerId}`);
+              else toast.info('這一筆沒有掛客戶，找不到是哪一包');
+            },
+          });
+          if (changed) await after();
+        } catch {
+          /* 已處理 */
+        }
+      },
+    });
+  });
 }
 
 async function addNote(ctx, form) {
@@ -2322,7 +2374,7 @@ function paintNotes(ctx) {
               data-notes-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
     </div>
 
-    <div class="notelist">
+    <div class="notelist" data-notes>
       ${rows.map((n) => note.row(n, { trash: true })).join('')
         || `<p class="muted" style="padding: var(--space-3) 0">${
           notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
@@ -2352,6 +2404,7 @@ function paintNotes(ctx) {
 
   el.querySelector('[data-clear-done]')?.addEventListener('click', () => clearDone(el, done));
 
+  wireNoteLongPress(el, notes, () => renderNotes(el));
   wireQuickCapture({ el, render: renderNotes });
 }
 

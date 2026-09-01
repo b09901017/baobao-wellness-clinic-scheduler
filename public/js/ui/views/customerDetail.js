@@ -23,7 +23,7 @@ import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
-import { sortNotes, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
+import { sortNotes, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
@@ -49,6 +49,7 @@ import * as buy from '../components/buy.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { openActions, wireLongPress } from '../components/actions.js';
 import { deliveryState, monthsOf } from '../../domain/products.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
@@ -343,6 +344,33 @@ function wire(ctx, { today, marks }) {
   el.querySelectorAll('[data-note]').forEach((btn) =>
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
+
+  // 長按一列＝直接做（ADR-0060）。五個入口共用同一組
+  // （`noteActions()` 決定有哪幾顆、`note.runAction()` 執行）。
+  //
+  // 委派掛在那一塊清單上而不是 `el` 上：這一頁換月份、展開任務都會重畫，
+  // 掛在 `el` 上每重畫一次就多一組。
+  wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
+    const n = ctx.notes.find((x) => x.id === btn.dataset.note);
+    if (!n) return;
+    openActions({
+      title: n.text,
+      subtitle: n.date ? shortDate(n.date) : '沒有日期',
+      items: noteActions(n, { today: todayISO() }),
+      onPick: async (action) => {
+        try {
+          const changed = await note.runAction(action, n, {
+            ...noteRunDeps(ctx),
+            onEdit: () => toast.info('要改字的話，先勾掉再記一筆新的 —— 或到日曆上那一天改'),
+            onBag: () => toast.info('那一包就在這一頁的「營養品」那一段'),
+          });
+          if (changed) await reload(ctx);
+        } catch {
+          /* 已處理 */
+        }
+      },
+    });
+  });
 
   note.wire(el);
 
@@ -936,7 +964,7 @@ function taskRow(t) {
 function notesBlock(notes) {
   const rows = sortNotes(notes);
   return `
-    <div class="groups">
+    <div class="groups" data-notes>
       ${rows.map((n) => note.row(n, { customer: false, iconSize: 12 })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
@@ -948,6 +976,20 @@ function notesBlock(notes) {
       </div>
       ${note.field()}
     </form>`;
+}
+
+/** 勾一筆隨手記／改它的日期與掛的人。五個入口的形狀一樣，只有這一份。 */
+function noteRunDeps(ctx) {
+  return {
+    update: (id, changes) => notesData.update(id, changes),
+    remove: (id, reason) => notesData.remove(id, reason),
+    setDone: (id, done) => notesData.setDone(id, done),
+    loadEntitlements: (cid) => data.listEntitlements(cid),
+    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+    loadCustomers: () => data.list(),
+    today: todayISO(),
+    save: (run, opts) => toast.withSaveState(run, opts),
+  };
 }
 
 async function toggleNote(ctx, id) {

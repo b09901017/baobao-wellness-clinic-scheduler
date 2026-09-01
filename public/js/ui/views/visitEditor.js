@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, closeVisit, NOTE_MAX,
+  coursesForEntitlement, applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences } from '../../domain/consequences.js';
@@ -676,19 +676,12 @@ function wireStatus(ctx, draft) {
         if (!ok) return;
       }
 
-      const at = new Date().toISOString();
-
-      // 收尾走 domain 那一支，跟待辦中心的「簽療程單」同一份規則 ——
-      // 這裡整筆一起標，所以每一段都給同一個結果。要逐段分開記，
-      // 走待辦中心那一頁（`ui/views/home.js` 的收尾畫面）。
-      let next = to === 'done' || to === 'no_show'
-        ? closeVisit(draft, (draft.slots ?? []).map(() => to === 'done'), at)
-        : { ...draft, status: to, statusAt: at };
-
-      if (to === 'confirmed') next.confirmedAt = at;
-      if (to === 'cancelled') {
-        next = { ...next, cancelledAt: at, cancelReason: reason, released: false };
-      }
+      // 換狀態之後長什麼樣全部在 `domain/visits.js` 的 `applyStatus()` ——
+      // 這一段與日曆的快捷選單（ADR-0060）共用同一份。兩邊各寫一次的話，
+      // 遲早有一邊忘了補 `cancelledAt`，而那一筆從此在稽核紀錄裡看不出
+      // 是什麼時候取消的。收尾（done／no_show）在那裡整筆一起標，
+      // 要逐段分開記走待辦中心的「簽療程單」（ADR-0025）。
+      const next = applyStatus(draft, to, { reason });
 
       try {
         await toast.withSaveState(() => visitsData.save(next, ctx.customerVisits), {

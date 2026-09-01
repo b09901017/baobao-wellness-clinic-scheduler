@@ -23,6 +23,8 @@ import { icon } from '../icons.js';
 import { shortDate, todayISO } from '../../domain/dates.js';
 import { undelivered } from '../../domain/products.js';
 import { openSheet } from './sheet.js';
+import { openCard, closeCard } from './card.js';
+import { confirmAction } from './dialog.js';
 
 /**
  * 一列隨手記。點一下就勾掉／取消勾（呼叫端接 `[data-note]`）。
@@ -30,6 +32,10 @@ import { openSheet } from './sheet.js';
  * 有日期的在文字前面掛一顆日期標籤。過了今天而且還沒勾的用逾期色 ——
  * **但它不是死線**（隨手記沒有死線，見 `CONTEXT.md`），所以只有字變色，
  * 沒有紅底。紅底在這個 app 裡的意思是「這件事該做了」。
+ *
+ * **`data-longpress` 掛在整列上**（ADR-0060）：點一下勾掉，長按開快捷選單。
+ * 這一支只負責標記，「有哪幾顆」在 `domain/notes.js` 的 `noteActions()`，
+ * 「選了之後做什麼」在底下的 `runAction()` —— 五個入口共用同樣那三份。
  *
  * @param {object} n
  * @param {{today?: string, customer?: boolean, iconSize?: number}} [options]
@@ -50,7 +56,8 @@ export function row(n, { today = todayISO(), customer = true, iconSize = 13, tra
 
   return `
     <div class="noterow">
-      <button class="note ${n.done ? 'note--done' : ''}" type="button" data-note="${esc(n.id)}">
+      <button class="note ${n.done ? 'note--done' : ''}" type="button"
+              data-note="${esc(n.id)}" data-longpress>
         <span class="note__box">${icon('check', { size: iconSize, width: 3.2 })}</span>
         <span class="note__main">
           <span class="note__text">${esc(n.text)}</span>
@@ -390,5 +397,213 @@ function askDelivery(entitlement, note) {
         });
       },
     });
+  });
+}
+
+// ---------- 長按之後選了一顆，接下來做什麼 ----------
+//
+// 「有哪幾顆」在 `domain/notes.js` 的 `noteActions()`，這裡是**執行那一顆**。
+//
+// **五個入口共用這一支**（待辦首頁那張卡、右下角泡泡、`#/todo/notes`、
+// 客戶詳情、日曆的抽屜／日／週）。五邊各寫一次的話遲早有一邊直接叫
+// `setDone()` 而不是 `prepareToggle()` —— 那正是 `#/todo/notes` 犯過的錯，
+// 症狀是營養品的交付紀錄靜靜地沒了（見這個檔案上半段）。
+//
+// 寫入那幾支由呼叫端傳進來，這一支不 import `/data` —— 同 `prepareToggle()`
+// 與 `buy.commitNewProduct()` 的理由。
+
+/**
+ * 執行一顆快捷動作。
+ *
+ * @param {string} action `noteActions()` 給的 id
+ * @param {object} note
+ * @param {object} deps
+ * @param {(id: string, changes: object) => Promise<any>} deps.update
+ * @param {(id: string, reason: string) => Promise<any>} deps.remove
+ * @param {(id: string, done: boolean) => Promise<any>} deps.setDone
+ * @param {(customerId: string) => Promise<object[]>} deps.loadEntitlements
+ * @param {(note, entitlement, delivery) => Promise<object>} deps.recordDelivery
+ * @param {() => Promise<object[]>} deps.loadCustomers
+ * @param {string} deps.today
+ * @param {(kind: 'save', run: Function, o: {success: string}) => Promise<any>} deps.save
+ *   包住寫入的那一層（呼叫端的 `toast.withSaveState`）。復原退得回去。
+ * @param {Function} [deps.onEdit] 「改文字」—— 呼叫端自己決定開哪一個編輯器
+ * @param {Function} [deps.onBag]  「看那一包營養品」
+ * @returns {Promise<boolean>} true = 真的寫了東西（呼叫端該重畫）
+ */
+export async function runAction(action, note, deps) {
+  const {
+    update, remove, setDone, loadEntitlements, recordDelivery,
+    loadCustomers, today, save, onEdit, onBag,
+  } = deps;
+
+  if (action === 'edit') {
+    onEdit?.(note);
+    return false;
+  }
+  if (action === 'bag') {
+    onBag?.(note);
+    return false;
+  }
+
+  // 勾掉／拿回來**一定要走 `prepareToggle()`** —— 營養品的提醒要先問
+  // 「給了哪些」，而那筆交付紀錄是要進試算表的。
+  if (action === 'tick' || action === 'untick') {
+    const plan = await prepareToggle(note, {
+      loadEntitlements, recordDelivery, setDone, today,
+    });
+    if (!plan) return false;
+    await save(plan.run, { success: plan.success });
+    return true;
+  }
+
+  if (action === 'today') {
+    await save(() => update(note.id, { date: today }), { success: `改成今天（${shortDate(today)}）` });
+    return true;
+  }
+
+  if (action === 'date') {
+    const picked = await askDate(note.date ?? today);
+    if (!picked) return false;
+    await save(() => update(note.id, { date: picked }), { success: `改成 ${shortDate(picked)}` });
+    return true;
+  }
+
+  if (action === 'undate') {
+    await save(() => update(note.id, { date: null }), {
+      success: '從日曆拿掉了，隨手記裡還在',
+    });
+    return true;
+  }
+
+  if (action === 'who') {
+    const picked = await askCustomer(loadCustomers, note.customerId ?? null);
+    if (picked === undefined) return false;
+    // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
+    // 只帶其中一個過來，另一個會被算成空的。
+    await save(
+      () => update(note.id, {
+        customerId: picked?.id ?? null,
+        customerName: picked?.name ?? null,
+      }),
+      { success: picked ? `掛給${picked.name}了` : '不掛人了' },
+    );
+    return true;
+  }
+
+  if (action === 'remove') {
+    const ok = await confirmAction({
+      title: '刪掉這一筆隨手記？',
+      consequences: [
+        note.text,
+        '它會進「已刪除項目」，之後還原得回來',
+        note.date ? '日曆上那一件也會一起消失 —— 那就是它本人' : '它只在隨手記裡',
+      ],
+      confirmLabel: '刪掉',
+      danger: true,
+    });
+    if (!ok) return false;
+    await save(() => remove(note.id, '長按刪掉'), { success: '刪掉了' });
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 挑一天。
+ *
+ * 走 `openCard()` 而不是直接 `showPicker()`：那一支要在點擊的手勢堆疊裡才叫得動
+ * （`wireOne()` 那一段的同一個坑），而這裡是長按選單關掉之後才走到的 ——
+ * 手勢堆疊早就散了。一張小卡片反而更穩，而且它自己吃返回鍵。
+ *
+ * @returns {Promise<string|null>} null = 她按了取消
+ */
+function askDate(value) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      closeCard();
+      resolve(v);
+    };
+
+    openCard({
+      title: '哪一天',
+      subtitle: '這個日期不是死線 —— 它是「我想在這一天處理」',
+      body: `
+        <label class="field">
+          <span class="visually-hidden">日期</span>
+          <input type="date" data-pickdate value="${esc(value ?? '')}" style="width: 100%" />
+        </label>`,
+      actions: `
+        <button class="btn btn--primary" type="button" data-pickdate-ok>存起來</button>
+        <button class="btn" type="button" data-pickdate-cancel>先不要</button>`,
+      onClose: () => finish(null),
+      onMount: (card) => {
+        if (card.dataset.pickdateWired) return;
+        card.dataset.pickdateWired = '1';
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('[data-pickdate-cancel]')) finish(null);
+          else if (e.target.closest('[data-pickdate-ok]')) {
+            finish(card.querySelector('[data-pickdate]')?.value || null);
+          }
+        });
+      },
+    });
+  });
+}
+
+/**
+ * 掛給誰。一排丸子，跟 `wireWho()` 那一排長一樣 ——
+ * 同一件事在兩個地方長得不一樣，她會以為是兩種東西。
+ *
+ * @returns {Promise<{id, name}|null|undefined>}
+ *   物件 = 選了誰、null = 不掛人、**undefined = 她按了取消（什麼都不要做）**
+ */
+function askCustomer(loadCustomers, currentId) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      closeCard();
+      resolve(v);
+    };
+
+    const card = openCard({
+      title: '掛給誰',
+      body: '<p class="muted">讀取中…</p>',
+      actions: `
+        ${currentId ? '<button class="btn" type="button" data-who-none>✕ 不掛人</button>' : ''}
+        <button class="btn" type="button" data-who-cancel>先不要</button>`,
+      onClose: () => finish(undefined),
+      onMount: (el) => {
+        if (el.dataset.whoWired) return;
+        el.dataset.whoWired = '1';
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('[data-who-cancel]')) return finish(undefined);
+          if (e.target.closest('[data-who-none]')) return finish(null);
+          const hit = e.target.closest('[data-who-pick]');
+          if (hit) finish({ id: hit.dataset.whoPick, name: hit.dataset.whoName });
+          return undefined;
+        });
+      },
+    });
+
+    loadCustomers()
+      .then((rows) => {
+        const live = (rows ?? []).filter((c) => c.active !== false);
+        card.update(live.length
+          ? `<div class="chips">${live.map((c) => `
+              <button class="chip" type="button" data-who-pick="${esc(c.id)}"
+                      data-who-name="${esc(c.name)}"
+                      aria-pressed="${currentId === c.id}">${esc(c.name)}</button>`).join('')}</div>`
+          : '<p class="muted">還沒有客戶。</p>');
+      })
+      .catch(() => {
+        card.update('<p class="muted">讀不到客戶名單。先記下來，之後再掛人也行。</p>');
+      });
   });
 }
