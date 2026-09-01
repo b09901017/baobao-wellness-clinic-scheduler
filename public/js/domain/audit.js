@@ -13,6 +13,7 @@
 
 import { shortStatus, visitCourseLabel } from './visits.js';
 import { isProduct } from './entitlements.js';
+import { itemsOf, deliveredIds } from './products.js';
 import { monthOf, banCount, describeRuleChanges } from './availability.js';
 import { shortDate } from './dates.js';
 
@@ -73,6 +74,10 @@ const FIELD_LABELS = {
   frequencyRule: '頻率限制',
   expiresAt: '到期日',
   lastReconciledAt: '上次對帳時間',
+  deliveries: '交付紀錄',
+  items: '哪幾款',
+  amountTwd: '金額',
+  type: '型態',
   optionEquipmentIds: '擇一池器材',
   courseId: '課程',
   role: '角色',
@@ -454,6 +459,13 @@ const SENTENCES = [
     }),
   },
   {
+    // 只改了那一句話。營養品的提醒沒給完時就走這一條（`recordDelivery()` 把
+    // 文字換成剩下的那幾款），以前它掉進「一般的修改」，印成
+    // 「改了 某某・給某某營養品：速膳淨・內容」—— 名字出現了兩次。
+    when: (e, f) => coll(e) === 'notes' && f.length === 1 && f[0].key === 'text',
+    say: (e, f) => ({ text: `待辦改成${quoted(f[0].after) ?? '（空白）'}` }),
+  },
+  {
     when: (e, f) => coll(e) === 'notes' && f.length === 1 && f[0].key === 'date',
     say: (e, f, d) => ({
       text: bits(
@@ -535,6 +547,24 @@ const SENTENCES = [
     when: (e, f) => coll(e) === 'entitlements' && f.length > 0
       && f.every((x) => ['doneCount', 'bookedCount', 'totalQty'].includes(x.key)),
     say: (e, f, d) => ({ text: bits(d.label, countChanges(d, f)) }),
+  },
+  {
+    // **交付**：她給了哪幾款營養品。這一筆是要進試算表的紀錄（ADR-0059），
+    // 所以句子要講得出是哪幾款 —— 以前它掉進「一般的修改」，印成
+    // 「改了 某某・夜態美＋速膳淨・deliveries」，連欄位名都是英文的。
+    when: (e, f) => coll(e) === 'entitlements' && f.some((x) => x.key === 'deliveries'),
+    say: (e, f, d) => {
+      const x = f.find((c) => c.key === 'deliveries');
+      const was = deliveredIds({ deliveries: x.before ?? [] });
+      const added = [...deliveredIds({ deliveries: x.after ?? [] })].filter((id) => !was.has(id));
+      // 名字認不回來就別硬湊一串（舊資料的 `items[].name` 是空的，
+      // 而主檔在這一層讀不到 —— `itemsOf()` 的檔頭）。
+      const names = itemsOf(d)
+        .filter((it) => added.includes(it.productId))
+        .map((it) => it.name)
+        .filter(Boolean);
+      return { text: bits(d.label, names.length ? `給了 ${names.join('、')}` : '記了一筆交付') };
+    },
   },
   {
     // 只動到對帳時間：那一則做的事就是「對過了」。

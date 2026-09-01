@@ -223,6 +223,46 @@ describe('一句話講完一則稽核', () => {
     assert.equal(line, '客戶A・復能・對帳過了');
   });
 
+  // 交付紀錄是要進試算表的那一份（ADR-0059），所以句子要講得出是哪幾款。
+  // 以前它掉進「一般的修改」，印成「改了 …・deliveries」—— 欄位名是英文的。
+  test('交付講得出這一次給了哪幾款', () => {
+    const line = describeEvent(ev('customers/c1/entitlements.update',
+      {
+        label: '夜態美＋速膳淨',
+        type: 'product',
+        items: [{ productId: 'x1', name: '夜態美' }, { productId: 'x2', name: '速膳淨' }],
+        deliveries: [{ at: '2026-08-20', productIds: ['x1'] }],
+      },
+      {
+        deliveries: [
+          { at: '2026-08-20', productIds: ['x1'] },
+          { at: '2026-09-01', productIds: ['x2'] },
+        ],
+      },
+      'customers/c1/entitlements/p1'), { nameOf });
+    assert.equal(line, '客戶A・夜態美＋速膳淨・給了 速膳淨');
+  });
+
+  // 舊資料的 items[].name 是空的，而主檔在 /domain 這一層讀不到 ——
+  // 認不回名字就別硬湊一串（`itemsOf()` 的檔頭）。
+  test('名字認不回來就只說記了一筆交付', () => {
+    const line = describeEvent(ev('customers/c1/entitlements.update',
+      { label: '營養品', type: 'product', items: [{ productId: 'x1', name: '' }], deliveries: [] },
+      { deliveries: [{ at: '2026-09-01', productIds: ['x1'] }] },
+      'customers/c1/entitlements/p1'), { nameOf });
+    assert.equal(line, '客戶A・營養品・記了一筆交付');
+  });
+
+  // 只給了一部分時 recordDelivery() 把文字換成剩下的那幾款。以前這一則
+  // 掉進「一般的修改」，而 selfNameOf() 撿到的就是那一句話本身，
+  // 於是名字出現了兩次。
+  test('隨手記只改了內容就講改成什麼', () => {
+    const line = describeEvent(ev('notes.update',
+      { customerName: '客戶A', text: '給客戶A營養品：夜態美、速膳淨' },
+      { text: '給客戶A營養品：速膳淨' }, 'notes/n1'));
+    assert.equal(line, '客戶A・待辦改成「給客戶A營養品：速膳淨」');
+  });
+
   test('營養品論月，其餘論次（ADR-0057、0059）', () => {
     assert.equal(
       describeEvent(ev('customers/c1/entitlements.create', null,
