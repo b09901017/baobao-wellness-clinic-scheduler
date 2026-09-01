@@ -212,7 +212,8 @@ export function reviewOf(events = [], { limit = null, nameOf = null } = {}) {
     const fallback = describeAction(event.action);
 
     const at = event.at ?? null;
-    buckets.get(stage.id).push({ at, text: parts ? joinParts(parts) : fallback });
+    // `|| fallback`（不是 `??`）：湊出空字串也要退回去，那一列不可以是空白。
+    buckets.get(stage.id).push({ at, text: (parts ? joinParts(parts) : '') || fallback });
 
     // 照人那一格的那一列**不含名字**：抬頭已經寫著了，再印一次是雜訊。
     const key = parts?.whoId ?? parts?.who ?? null;
@@ -221,7 +222,7 @@ export function reviewOf(events = [], { limit = null, nameOf = null } = {}) {
     }
     byPerson.get(key).rows.push({
       at,
-      text: parts ? joinParts({ ...parts, who: null }) : fallback,
+      text: (parts ? joinParts({ ...parts, who: null }) : '') || fallback,
       stage: stage.label,
     });
   }

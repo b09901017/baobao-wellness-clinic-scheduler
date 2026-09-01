@@ -654,7 +654,9 @@ export function describeParts(event, { nameOf = null } = {}) {
  */
 export function describeEvent(event, ctx = {}) {
   const parts = describeParts(event, ctx);
-  return parts ? joinParts(parts) : null;
+  // 湊出空字串也算「翻不出來」：`''` 不是 nullish，呼叫端的 `?? 退路` 接不住它，
+  // 畫面上會出現一列什麼都沒有的稽核。
+  return (parts ? joinParts(parts) : null) || null;
 }
 
 /**
