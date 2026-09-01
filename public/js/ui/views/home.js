@@ -324,11 +324,13 @@ function wireReview(ctx) {
   const body = box.querySelector('[data-review-body]');
   let loaded = false;
 
-  box.addEventListener('toggle', () => {
+  box.addEventListener('toggle', async () => {
     if (!box.open || loaded) return;
     loaded = true;
     reviewDay = ctx.today;
-    loadReview(ctx, body);
+    // **失敗要能再試一次，所以把旗標放回去**（同 `views/audit.js` 的
+    // `wireSection()`）—— 那一句「收起來再展開一次就會重試」以前是假的。
+    if (!await loadReview(ctx, body)) loaded = false;
   });
 
   // 換一天、換看法都**只重畫這一塊**（ADR-0038）—— 重畫整頁的代價是閃一下
@@ -340,7 +342,8 @@ function wireReview(ctx) {
       if (next > ctx.today) return;
       if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
       reviewDay = next;
-      loadReview(ctx, body);
+      // 翻日子失敗也一樣：收起來再展開才重試得了
+      loadReview(ctx, body).then((ok) => { if (!ok) loaded = false; });
       return;
     }
 
@@ -359,6 +362,9 @@ function wireReview(ctx) {
  * 名單只是用來把 id 換成名字（額度與本輪可用性身上沒有名字，只有路徑上有 id）。
  * **它讀不到不可以擋住這一塊** —— 少了名字那幾則會落進「沒有掛客戶」，
  * 那是 `describeParts()` 本來就有的退路。名單只讀一次，翻日子不再讀。
+ *
+ * @returns {Promise<boolean>} 稽核撈到了沒。撈不到的話呼叫端要把「載過了」
+ *   那個旗標放回去，不然那一句「收起來再展開一次就會重試」是假的。
  */
 async function loadReview(ctx, body) {
   const day = reviewDay ?? ctx.today;
@@ -374,13 +380,14 @@ async function loadReview(ctx, body) {
   } catch (err) {
     body.innerHTML = `<p class="muted">讀不到：${esc(err.message)}
       <br>收起來再展開一次就會重試。</p>`;
-    return;
+    return false;
   }
   // 她可能在讀回來之前又翻了一天
-  if ((reviewDay ?? ctx.today) !== day) return;
+  if ((reviewDay ?? ctx.today) !== day) return true;
 
   reviewCache = { day, events };
   paintReview(ctx, body);
+  return true;
 }
 
 async function loadReviewNames() {
