@@ -1,8 +1,28 @@
 import { navRoutes, activeNavPath, start } from './router.js';
 import { icon } from './icons.js';
+import { esc } from './components/form.js';
 import { back } from './nav.js';
 import { setSignOut } from './session.js';
 import { watchSystemTheme } from './theme.js';
+import { watchOffline } from './net.js';
+import { envBanner } from '../firebase-config.js';
+
+/**
+ * 「這裡不是正式環境」那一條。正式環境回空字串 —— **一個元素都不畫**，
+ * 所以它不佔高度、也不需要在正式環境上驗證任何排版。
+ *
+ * 登入前後都要畫（`renderGate` 與 `renderShell` 各接一次）：她在 staging 上
+ * 卡在登入畫面時，最需要知道的正是「這條是 staging，白名單要另外加」。
+ */
+function envBarHtml() {
+  const bar = envBanner();
+  if (!bar) return '';
+  return `
+    <div class="envbar" role="status">
+      <span class="envbar__label">${esc(bar.label)}</span>
+      <span class="envbar__hint">${esc(bar.hint)}</span>
+    </div>`;
+}
 
 function navHtml(activePath) {
   return navRoutes()
@@ -18,7 +38,7 @@ function navHtml(activePath) {
 }
 
 /** 未登入、或登入了但不在白名單時顯示的畫面。 */
-export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
+export function renderGate(root, { state, email, uid, onSignIn, onSignOut, onRetry }) {
   const boxes = {
     unconfigured: `
       <h2 class="card__title">還沒設定 Firebase</h2>
@@ -29,17 +49,28 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut }) {
       <p><button class="btn btn--primary" type="button" data-signin>使用 Google 登入</button></p>`,
     notAllowed: `
       <h2 class="card__title">這個帳號還沒有權限</h2>
-      <p class="muted">${email ?? ''} 已登入，但不在白名單裡。</p>
+      <p class="muted">${esc(email ?? '')} 已登入，但不在白名單裡。</p>
       <p class="muted">到 Firebase Console → Firestore Database，建一個叫
         <b>allowedUsers</b> 的集合，裡面放一份文件 ID 等於下面這串的空文件：</p>
-      <code data-uid>${uid ?? ''}</code>
+      <code data-uid>${esc(uid ?? '')}</code>
       <p><button class="btn btn--primary" type="button" data-copy>複製 uid</button></p>
+      <p><button class="btn" type="button" data-signout>換一個帳號</button></p>`,
+    // 「讀不到白名單」跟「不在白名單」要講不一樣的話（data/auth.js 的
+    // accessState）。這一頁刻意**不提 Firebase Console** —— 她照著上面那一頁
+    // 的指示跑去 Console 加一筆自己早就在裡面的 uid，那是白忙一場。
+    unreachable: `
+      <h2 class="card__title">連不上</h2>
+      <p class="muted">${esc(email ?? '')} 已經登入了，但現在讀不到權限設定，
+        通常是網路不穩。</p>
+      <p class="muted">已經記進去的資料都在，不會因為這樣不見。</p>
+      <p><button class="btn btn--primary" type="button" data-retry>再試一次</button></p>
       <p><button class="btn" type="button" data-signout>換一個帳號</button></p>`,
   };
 
-  root.innerHTML = `<div class="gate"><div class="card gate__box">${boxes[state]}</div></div>`;
+  root.innerHTML = `${envBarHtml()}<div class="gate"><div class="card gate__box">${boxes[state]}</div></div>`;
   root.querySelector('[data-signin]')?.addEventListener('click', onSignIn);
   root.querySelector('[data-signout]')?.addEventListener('click', onSignOut);
+  root.querySelector('[data-retry]')?.addEventListener('click', onRetry);
 
   // 手機上在 Console 和 app 之間手抄 uid 很容易抄錯，給一顆複製鈕。
   root.querySelector('[data-copy]')?.addEventListener('click', async (e) => {
@@ -72,11 +103,22 @@ export function renderShell(root, { onSignOut }) {
   watchSystemTheme();
 
   root.innerHTML = `
+    ${envBarHtml()}
+    <div class="netbar" role="status" hidden>
+      <span class="netbar__label">目前離線</span>
+      <span class="netbar__hint">還是可以記，連上網路會自動送出去</span>
+    </div>
     <nav class="app__nav" aria-label="主選單"></nav>
     <div class="app__body">
       <main class="app__main" id="view" tabindex="-1"></main>
     </div>
   `;
+
+  // 離線時常駐一條。**不是彈窗** —— 她離線連做十件事，跳十次視窗只會讓她
+  // 學會忽略它（同 `data/sheetSync.js` 對推送失敗的判斷）。
+  // 這一條也不擋任何操作：資料進得了本機快取，記得下來才是重點。
+  const netBar = root.querySelector('.netbar');
+  watchOffline((offline) => { netBar.hidden = !offline; });
 
   const navEl = root.querySelector('.app__nav');
 
@@ -85,12 +127,18 @@ export function renderShell(root, { onSignOut }) {
   start(({ path, route, params }) => {
     if (!route) return;
     const title = route.titleFor ? route.titleFor(...params) : route.title;
-    document.title = `${title} · 排課系統`;
+    // 分頁標題也帶上環境。橫幅在螢幕上，但**切分頁**的時候只看得到標題 ——
+    // 而「兩個分頁開著、按錯那一個」正是這個安排最容易出的事。
+    const env = envBanner();
+    document.title = `${env ? `[${env.label}] ` : ''}${title} · 排課系統`;
     const view = freshView(root);
     navEl.innerHTML = navHtml(activeNavPath(path));
     // render 可能是 async，錯誤要看得見，不能靜默失敗
     Promise.resolve(route.render(view, ...params)).catch((err) => {
-      view.innerHTML = `<div class="card"><p>這一頁出錯了：${err.message}</p></div>`;
+      // `esc()` 不可以少：例外訊息裡帶得進使用者的資料（`data/legacyImport.js`
+      // 會把舊試算表的分頁名放進來，而那些分頁名就是客戶姓名）。
+      // 每一個 view 自己的「讀取失敗」一直都有逃脫，只有這一條總路漏掉了。
+      view.innerHTML = `<div class="card"><p>這一頁出錯了：${esc(err.message)}</p></div>`;
     });
   });
 }

@@ -1,12 +1,16 @@
 name: 測試與部署
 
-# push 到 main 就上線。維護者多用手機開發，不能依賴本機跑 firebase deploy。
+# 兩段式：
 #
-# PR 也跑，但只跑測試那一段 —— 測試結果要在合併之前看得到，
-# 不是合併之後才發現紅的。部署由下面的 if 擋掉。
+#   push 到 develop → 測試 → 部署 **staging**
+#   push 到 main    → 測試 → 部署 **正式**
+#   PR              → 只跑測試，不部署
+#
+# 修 bug 的動線是 main 開分支 → PR → 合進 develop（自動上 staging，在那裡點過）
+# → PR 進 main（自動上正式）。維護者多用手機開發，不能依賴本機跑 firebase deploy。
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 
@@ -14,8 +18,13 @@ permissions:
   contents: read
 
 env:
-  # 不是密鑰，與 .firebaserc 同一個值
-  FIREBASE_PROJECT_ID: wellness-clinic-scheduler
+  # 都不是密鑰，與 .firebaserc、public/js/firebase-config.js 同一組值。
+  # 放進 secrets 只會讓 Actions 日誌把它遮成 ***，出事時反而看不懂。
+  PROD_PROJECT_ID: wellness-clinic-scheduler
+  STAGING_PROJECT_ID: wellness-clinic-staging
+  # 本機驗過的東西和 CI 部署的東西要是同一個版本。
+  # 這個號碼要跟 package.json 的 devDependency 對得上。
+  FIREBASE_TOOLS: firebase-tools@15
 
 jobs:
   test:
@@ -25,50 +34,128 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # 這一段不需要 npm install：`npm test` 跑的是純函式測試與靜態守衛，
-      # 一個套件都不吃。package.json 的 devDependencies 只有端對端用得到。
+          cache: npm
+
+      # 以前這一段不需要 `npm ci` —— 那時 `npm test` 一個套件都不吃。
+      # 2026-09-02 之後不成立了：`tests/restore-backup.test.js` 會 import
+      # `scripts/restore-backup.mjs`，而那支維運腳本吃 firebase-admin
+      # （寫進真的專案要服務帳號憑證，那不是自己刻得出來的東西）。
       #
-      # **端對端（`tests-e2e/`）刻意不在這裡跑**：它要 Firebase 模擬器、Java
-      # 與 Playwright 的瀏覽器，而且 workers 必須是 1（每一支測試都會把
-      # Firestore 清空）。要搬進 CI 得先讓每個 worker 有自己的 projectId，
-      # 見 playwright.config.js 的檔頭。
-      - run: npm test
+      # 為了保住「零相依」而把 Timestamp 的還原改成 Date，會讓還原掉精度 ——
+      # 那個代價比 CI 多花十幾秒大。有 npm 快取，實際上也就十幾秒。
+      - run: npm ci
+      - name: 單元測試與靜態守衛
+        run: npm test
+
+  rules:
+    # Rules 是這個系統唯一真正的安全防線，而 2026-09-01 以前它從來沒有在
+    # 上線這條路上被跑過 —— 每次 push 都是未經驗證就部署。
+    #
+    # 用 `emulators:exec`：它自己起、自己關模擬器，不需要背景程序。
+    # projectId 是 `demo-` 開頭，所以完全離線，不需要任何憑證。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # Firestore 模擬器是 Java 寫的
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Security Rules（跑在模擬器上）
+        run: npm run test:rules
+
+  e2e:
+    # **只跑三支，不是全部 58 支。** 全套要 `workers: 1`（每一支都會把 Firestore
+    # 清空），跑完二十幾分鐘 —— 那個值得做，但不值得擋住每一次 push。
+    # 這三支擋掉的是最貴的那幾種災難：整頁白屏、髒字串被當成程式碼執行、
+    # 離線時畫面不說話。要跑全套在本機 `npm run test:e2e`。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: 端對端（煙霧 + 混沌 + 離線）
+        env:
+          CI: '1'
+        run: |
+          npx firebase-tools@15 emulators:exec \
+            --project demo-scheduler \
+            --only auth,firestore,hosting \
+            "npx playwright test --project=phone tests-e2e/specs/00-smoke.spec.js tests-e2e/specs/07-chaos.spec.js tests-e2e/specs/10-offline.spec.js"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-證據
+          path: .artifacts/
+          retention-days: 7
 
   deploy:
-    needs: test
+    needs: [test, rules, e2e]
     # PR 只驗證，不上線。
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # 只需要一個 repository secret：FIREBASE_SERVICE_ACCOUNT（服務帳號 JSON 全文）。
-      # 服務帳號金鑰絕對不能 commit，只能放 secrets。
-      #
-      # 專案 ID 不是密鑰（.firebaserc 和 firebase-config.js 裡本來就有），
-      # 放進 secrets 只會讓 Actions 日誌把它遮成 ***，出事時反而看不懂。
+      # 哪一個環境由分支決定，**只在這一步決定一次**。
+      # 後面每一步都讀這裡的輸出，不要各自再判斷一次 branch ——
+      # 兩份判斷遲早會有一份把 staging 推到正式上。
+      - name: 決定要部署到哪裡
+        id: target
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "project=${{ env.PROD_PROJECT_ID }}" >> "$GITHUB_OUTPUT"
+            echo "name=正式" >> "$GITHUB_OUTPUT"
+            echo "secret=FIREBASE_SERVICE_ACCOUNT" >> "$GITHUB_OUTPUT"
+          else
+            echo "project=${{ env.STAGING_PROJECT_ID }}" >> "$GITHUB_OUTPUT"
+            echo "name=staging" >> "$GITHUB_OUTPUT"
+            echo "secret=FIREBASE_SERVICE_ACCOUNT_STAGING" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 這一次要部署到哪裡
+        run: echo "→ ${{ steps.target.outputs.name }}（${{ steps.target.outputs.project }}）"
+
+      # 兩個環境各自一把服務帳號金鑰，放在 repository secrets：
+      #   FIREBASE_SERVICE_ACCOUNT          → 正式
+      #   FIREBASE_SERVICE_ACCOUNT_STAGING  → staging
+      # 服務帳號金鑰絕對不能 commit，只能放 secrets。設定方式見 docs/STAGING.md。
       - name: 部署 Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: ${{ env.FIREBASE_PROJECT_ID }}
+          firebaseServiceAccount: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          projectId: ${{ steps.target.outputs.project }}
           channelId: live
 
-      # 上面那個 action 只部署 Hosting。Rules 是真正的安全防線，
-      # 必須跟著程式一起上線，不能靠人記得手動部署。
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # 上面那個 action 只部署 Hosting。Rules 是真正的安全防線，
+      # 必須跟著程式一起上線，不能靠人記得手動部署。
+      # 索引同理：漏了索引，用到它的查詢會在正式環境上直接失敗。
       - name: 部署 Firestore Rules 與索引
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SA_JSON: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
         run: |
-          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "$SA_JSON" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx --yes firebase-tools@13 deploy \
+          npx --yes ${{ env.FIREBASE_TOOLS }} deploy \
             --only firestore:rules,firestore:indexes \
-            --project "$FIREBASE_PROJECT_ID" \
+            --project "${{ steps.target.outputs.project }}" \
             --non-interactive
           rm -f "$RUNNER_TEMP/sa.json"

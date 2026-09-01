@@ -20,12 +20,17 @@ const FIX_CHUNK = 200;
  * 而「被軟刪除」與「根本不存在」是兩種不同的問題，讀不到刪掉的那些就分不出來。
  */
 export async function loadSnapshot() {
-  const [customers, entitlements, availability, visits, tasks, master] = await Promise.all([
+  const [customers, entitlements, availability, visits, tasks, notes, master] = await Promise.all([
     repo.listWithDeleted('customers'),
     repo.listGroup('entitlements', { includeDeleted: true }),
     repo.listGroup('availability'),
     repo.list('visits'),
     repo.list('tasks'),
+    // 隨手記以前不在快照裡，所以它身上的孤兒**一個都看不到** —— 而它現在
+    // 扛著兩個職責（日曆上的「待辦」與營養品的交付觸發，ADR-0044、0059），
+    // 合併匯入一次還會寫進兩百多筆。指到已刪除額度的那一筆勾下去
+    // 什麼都不會寫，而畫面上看起來就只是勾掉了。
+    repo.list('notes'),
     loadMaster(),
   ]);
 
@@ -35,6 +40,7 @@ export async function loadSnapshot() {
     availability: availability.map(withCustomerId),
     visits,
     tasks,
+    notes,
     master,
   };
 }

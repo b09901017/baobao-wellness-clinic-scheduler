@@ -686,6 +686,9 @@ function wireStatus(ctx, draft) {
       try {
         await toast.withSaveState(() => visitsData.save(next, ctx.customerVisits), {
           success: `已改成「${describeStatus(to)}」`,
+          // 存來訪的四個地方都要有 key（同一支檔案上面那個存檔鈕也有）——
+          // 取消那一條有二次確認框擋著，其餘幾個轉移沒有。
+          key: `visit:save:${next.id}`,
         });
         leave(ctx);
       } catch {

@@ -100,7 +100,7 @@ export async function buildBundle() {
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
-    tasksData.listAll(),
+    tasksData.listForReport(),
     config.loadAll(),
   ]);
 

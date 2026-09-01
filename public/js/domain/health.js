@@ -47,7 +47,7 @@ export const CHECKS = [
   {
     id: 'orphans',
     label: '孤兒資料',
-    hint: '指向不存在的客戶、額度、課程、診間、器材的來訪或任務',
+    hint: '指向不存在的客戶、額度、課程、診間、器材的來訪、任務或隨手記',
   },
   {
     id: 'visitStatus',
@@ -152,6 +152,8 @@ function prepare(snapshot, today) {
   const visits = alive(snapshot.visits);
   const tasks = alive(snapshot.tasks);
   const availability = alive(snapshot.availability);
+  // 快照沒帶隨手記時當成空的 —— 舊的呼叫端與既有測試不必為了這件事全部改。
+  const notes = alive(snapshot.notes);
   const master = snapshot.master ?? {};
 
   const visitsByCustomer = {};
@@ -174,6 +176,7 @@ function prepare(snapshot, today) {
     visitsById: byId(visits),
     visitsByCustomer,
     tasks,
+    notes,
     availByCustomer,
     coursesById: byId(master.courses),
     roomsById: byId(master.rooms),
@@ -357,6 +360,26 @@ function checkOrphans(ctx) {
         fix: null,
       });
     }
+  }
+
+  // 隨手記。**只看已經勾了人或勾了額度的那些** —— 沒掛人的雜事是正常的
+  // （`data/notes.js`：「沒掛人的雜事通常是最容易忘的那些」），不是孤兒。
+  //
+  // `entitlementId` 那一條是這一段真正的理由：營養品的提醒靠它找到要把
+  // 交付寫回哪一包（ADR-0059）。額度被刪掉之後那一筆提醒還在、還勾得動，
+  // 而勾下去 `recordDelivery()` 寫不進任何東西 —— 畫面上看起來就只是勾掉了，
+  // 那份要進試算表的交付紀錄安靜地沒了。
+  for (const note of ctx.notes) {
+    const who = note.customerName ?? (note.customerId ? nameOf(ctx, note.customerId) : '');
+    const head = `隨手記「${String(note.text ?? '').slice(0, 20)}」${who ? `・${who}` : ''}`;
+    const link = note.customerId ? `#/customers/${note.customerId}` : '#/todo/notes';
+
+    push(refState(note.customerId, ctx.customersById), {
+      title: head, what: '這則隨手記掛的客戶', link,
+    });
+    push(refState(note.entitlementId, ctx.entitlementsById), {
+      title: head, what: '這則提醒要記回去的那一包營養品', link,
+    });
   }
 
   return out;

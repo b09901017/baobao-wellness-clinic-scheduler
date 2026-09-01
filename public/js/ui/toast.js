@@ -6,11 +6,25 @@
 
 import { withUndo } from '../data/repo.js';
 import { reload } from './router.js';
+import { esc } from './components/form.js';
 
 const el = () => document.getElementById('toast');
 
 /** 復原按鈕留多久。SPEC 6.3 要求 5–10 秒。 */
 const UNDO_MS = 8000;
+
+/**
+ * 寫入等多久還沒回來，就換一句話。
+ *
+ * **這個數字存在的理由**：Firestore 的寫入 Promise 只有在伺服器確認之後才
+ * resolve，離線時它**既不 resolve 也不 reject** —— 它會一直等到網路回來，
+ * 而且沒有內建逾時。所以底下 `withSaveState()` 的 `catch` 在離線時
+ * 永遠不會被執行，「儲存中…」會停在畫面上直到她重新整理。
+ *
+ * 那正好違反 SPEC 6.9（「失敗要看得見」）—— 而她大部分時間在公司大樓裡
+ * 用行動網路。8 秒是「慢一點的 4G 存得完」與「她已經開始懷疑」之間。
+ */
+const PENDING_MS = 8000;
 
 let hideTimer = null;
 
@@ -29,7 +43,20 @@ export function hide() {
 }
 
 export function saving(message = '儲存中…') {
-  show(`<span>${message}</span>`, { timeout: 0 });
+  show(`<span>${esc(message)}</span>`, { timeout: 0 });
+}
+
+/**
+ * 等太久了。**這不是失敗，所以不可以說失敗。**
+ *
+ * 寫入這時候已經進了 Firestore 的本機快取，SDK 會自己排隊重送 ——
+ * 資料是安全的，只是還沒到伺服器。說成「儲存失敗」會讓她再存一次，
+ * 而那才真的會變成兩筆。
+ *
+ * 也不給重試鈕，理由同上：要重試的不是她，是 SDK。
+ */
+export function queued(message = '還沒送出去 —— 已經存在這台裝置上了，連上網路會自動補送') {
+  show(`<span>${esc(message)}</span>`, { timeout: 0 });
 }
 
 /**
@@ -38,11 +65,11 @@ export function saving(message = '儲存中…') {
  */
 export function saved(message = '已儲存', onUndo = null) {
   if (!onUndo) {
-    show(`<span>${message}</span>`);
+    show(`<span>${esc(message)}</span>`);
     return;
   }
 
-  show(`<span>${message}</span><button class="btn" type="button" data-undo>復原</button>`, {
+  show(`<span>${esc(message)}</span><button class="btn" type="button" data-undo>復原</button>`, {
     timeout: UNDO_MS,
   });
 
@@ -60,7 +87,7 @@ export function saved(message = '已儲存', onUndo = null) {
 }
 
 export function info(message) {
-  show(`<span>${message}</span>`);
+  show(`<span>${esc(message)}</span>`);
 }
 
 /**
@@ -69,8 +96,12 @@ export function info(message) {
  * @param {() => void} [onRetry]
  */
 export function failed(message, onRetry) {
+  // **一定要逃脫。** 這一句常常是 `儲存失敗：${err.message}`，而例外訊息裡
+  // 帶得進使用者的資料 —— 例如 `data/legacyImport.js` 會把舊試算表的分頁名
+  // 放進訊息，而那些分頁名就是客戶姓名。各個 view 的 `讀取失敗` 一直都有
+  // `esc()`，只有這條路漏掉了。
   show(
-    `<span>${message}</span>` +
+    `<span>${esc(message)}</span>` +
       (onRetry ? '<button class="btn" type="button" data-retry>重試</button>' : ''),
     { timeout: onRetry ? 0 : 5000 },
   );
@@ -118,11 +149,24 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
 
   const run = (async () => {
     saving(pending);
+
+    // 等太久就換一句話。**計時器不會取消那一趟寫入** —— 它還在飛，
+    // 而且離線時它會一直飛到網路回來（見 PENDING_MS 的說明）。
+    // 這裡換掉的只有畫面上那一句，因為「儲存中…」停在那裡三分鐘等於沒說話。
+    let settled = false;
+    const slow = setTimeout(() => {
+      if (!settled) queued();
+    }, PENDING_MS);
+
     try {
       const { result, undo } = await withUndo(fn);
+      settled = true;
+      clearTimeout(slow);
       saved(success, undoable ? undo : null);
       return result;
     } catch (err) {
+      settled = true;
+      clearTimeout(slow);
       failed(`儲存失敗：${err.message}`, () =>
         withSaveState(fn, { pending, success, undoable, key }));
       throw err;

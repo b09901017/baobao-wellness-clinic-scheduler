@@ -19,6 +19,7 @@ import {
   monthGrid, describePicks, inviteState, FREE_TEXT_MAX,
 } from '../domain/availabilityForm.js';
 import { todayISO, shortDate } from '../domain/dates.js';
+import { envBanner } from '../firebase-config.js';
 
 /**
  * 畫面上的順序是一到日，跟她的日曆一樣。
@@ -119,10 +120,26 @@ function paint() {
     confirm: confirmHtml,
     done: doneHtml,
   };
-  root().innerHTML = (screens[state.screen] ?? screens.loading)();
+  root().innerHTML = envBarHtml() + (screens[state.screen] ?? screens.loading)();
   wire();
   // 換頁一定回到最上面。長輩不會自己往上捲，捲軸停在中間他會以為東西不見了。
   if (state.screen !== 'pick' || !state.sheetDate) window.scrollTo(0, 0);
+}
+
+/**
+ * 「這不是正式的連結」那一條。正式環境回空字串，客戶永遠看不到它。
+ *
+ * 這一頁畫得比 app 那一條克制（沒有置頂、字也小）：客戶不需要懂環境是什麼，
+ * 它存在的理由只有一個 —— 她在 staging 上點開自己發的測試連結時，
+ * 要看得出「剛剛填的那一份不會進正式的收件匣」。
+ */
+function envBarHtml() {
+  const bar = envBanner();
+  if (!bar) return '';
+  return `<div class="envbar" role="status">
+    <span class="envbar__label">${esc(bar.label)}</span>
+    <span class="envbar__hint">${esc(bar.hint)}</span>
+  </div>`;
 }
 
 function blockedHtml() {

@@ -12,7 +12,17 @@ import { fileURLToPath } from 'node:url';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 
-export const PROJECT_ID = 'wellness-clinic-scheduler';
+/**
+ * 模擬器的專案 id。**三個地方要一模一樣**：這裡、`start-emulators.sh` 的
+ * `--project`，以及 `public/js/firebase-config.js` 的 emulator config。
+ *
+ * 對不上的症狀特別壞：fixture 把資料塞進 A 命名空間、app 讀 B，
+ * 於是每一個測試都是「畫面空的」，而且**沒有任何錯誤訊息**。
+ * `tests/env.test.js` 盯著這三邊。
+ *
+ * `demo-` 開頭是刻意的：Firebase 看到這個前綴才會進入完全離線模式。
+ */
+export const PROJECT_ID = 'demo-scheduler';
 export const AUTH_HOST = 'http://127.0.0.1:9099';
 export const APP_ORIGIN = 'http://127.0.0.1:5000';
 

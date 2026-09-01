@@ -123,9 +123,13 @@ function wire(ctx) {
     const invite = invitesByToken[row?.token];
     if (!row || !invite) return;
 
+    // **`key` 不可以少。** `take()` 每一次呼叫都 create 一筆新的可用性收集
+    // （自動 id），所以連點兩下就是**同一個月兩份**。而 ADR-0053 明訂重複的
+    // 那幾份由資料健檢列出來、**不自動合併** —— 誤觸一下留下的是要她手動
+    // 清理的資料，而且要到壓表的時候才看得出來（壓表只挑得到其中一份）。
     await toast.withSaveState(
       () => responsesData.take(row, invite, { today }),
-      { pending: '收下中…', success: '收下了，可以拿來排班了' },
+      { pending: '收下中…', success: '收下了，可以拿來排班了', key: `response:take:${row.token}` },
     );
     render(el);
   }));

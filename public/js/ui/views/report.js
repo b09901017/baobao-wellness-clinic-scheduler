@@ -52,7 +52,7 @@ async function load() {
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
-    tasksData.listAll(),
+    tasksData.listForReport(),
     // 連已刪除的課程一起讀：主檔把健檢刪掉，不代表做過的那幾次就不用配二返了
     configData.listAll('courses', { includeDeleted: true }),
     // 同理，離職的醫師也要讀得到 —— 那次二返確實是他看的

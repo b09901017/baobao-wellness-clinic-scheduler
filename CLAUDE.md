@@ -12,6 +12,7 @@
 | `CONTEXT.md` | 詞彙表。定義詞是什麼，不放實作 |
 | `docs/adr/` | 為什麼這樣決定。一支一個決定，寫理由不寫作法。慣例見 `docs/agents/domain.md` |
 | `docs/legacy/` | 舊系統的結構，唯讀參考 |
+| `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、種假資料、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md`） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
 寫新文件前先確認這件事還沒被寫過。
@@ -53,3 +54,7 @@
 | 一列任務要顯示什麼 | 種類、**來訪那一天**、課程，只寫在 `domain/taskRules.js` 的 `taskLine()`。三個地方讀它：客戶詳情、待辦中心、試算表的 TODO／FINISHED 區。**日期不是死線**（死線是它的前一天，兩個差一天最容易看錯人），也**不要拿死線 + 1 反推**（取消類的任務不是那樣算的）|
 | 「今天做了什麼」要多列一種 | 分段只在 `domain/dayReview.js` 的 `STAGES`，**最後一段永遠收得下剩下的**（一則都不可以被丟掉，而且**照人與照流程兩種分組都要成立**）。它是稽核紀錄的白話版，**不可以為了它多寫任何一筆資料**，見 ADR-0062 |
 | UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |
+| 哪個網址算哪個環境 | 只寫在 `public/js/firebase-config.js` 的 `envOf()`。**模擬器那一份的 `projectId` 要跟三個地方一致**：這裡、`tests-e2e/start-emulators.sh` 的 `--project`、`tests-e2e/fixtures/emulator.js` 的 `PROJECT_ID`。對不上的症狀特別壞 —— fixture 塞進 A 命名空間、app 讀 B，每個 E2E 都是「畫面空的」而且**沒有錯誤訊息**。`tests/env.test.js` 盯著三邊。環境設定與部署指令見 `docs/STAGING.md` |
+| `data/backup.js` 的 `exportAll()` 加一個集合 | `scripts/restore-backup.mjs` 的 `SECTIONS` 要跟著加一列，否則還原完會**少一整類資料**，而且要等到她去找那一類東西才會發現（`notes` 與 `events` 已經被漏掉過一次，見那支檔案的檔頭）。`tests/restore-backup.test.js` 盯著兩邊 |
+| 寫入的等待與失敗文案 | 只寫在 `ui/toast.js`。**Firestore 的寫入 Promise 離線時既不 resolve 也不 reject**，所以 `catch` 接不到離線 —— 那條路走的是 `PENDING_MS` 的逾時，而它換上的那句話**不可以說「失敗」**（資料已經在本機快取裡，說失敗她會再存一次）。常駐的離線提示是另一件事，在 `ui/net.js` 與殼上的 `.netbar`。`tests-e2e/specs/10-offline.spec.js` 盯著 |
+| 一個會建立新資料的按鈕 | `toast.withSaveState()` 要傳 `key`，除非那條路上有二次確認框（`confirmAction()` 與 `openActions()` 都是按下去就把節點移除，連點自然落空）。**同一件事有兩個入口時兩邊都要傳** —— 漏掉的那個一定是比較順手的那個（收件匣「收下」＝同月兩份可用性、待辦中心「產生連結」＝客戶手上兩條連結，兩次都是這樣來的） |
