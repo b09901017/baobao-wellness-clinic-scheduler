@@ -604,8 +604,11 @@ async function submit(ctx, draft) {
     : draft;
 
   try {
+    // 存一筆來訪會動到額度的計數欄位，做兩次就多扣一次（新增的那條路有二次確認
+    // 擋著，改的那條沒有）。同一位客戶的同一天鎖在一起就夠了。
     const id = await toast.withSaveState(() => visitsData.save(payload, customerVisits), {
       success: isNew ? '已記錄' : '已儲存',
+      key: `visit:save:${payload.id ?? `${payload.customerId}:${payload.date}`}`,
     });
     leave(ctx);
     return id;

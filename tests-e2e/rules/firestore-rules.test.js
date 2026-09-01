@@ -378,10 +378,13 @@ describe('R10 表單邀請與回覆（唯一讓沒登入的人寫得進來的地
     });
   });
 
+  // `submittedAt` 用 serverTimestamp()，跟 `data/publicForm.js` 真的送出去的一樣。
+  // Rules 那邊比對的是 `d.submittedAt == request.time` —— 客戶端自己帶一個
+  // `new Date()` 進來會被擋掉，那正是 R10.16 在測的事。
   const answer = (over = {}) => ({
     token: TOKEN, customerId: 'c1', customerName: '王小明', month: '2026-09',
     weekdays: [5], dates: ['2026-09-06'], freeText: '',
-    submittedAt: new Date(), takenAt: null, deletedAt: null, ...over,
+    submittedAt: serverTimestamp(), takenAt: null, deletedAt: null, ...over,
   });
 
   test('R10.1 拿得到 token 就讀得到那一份邀請（客戶在 LINE 點開）', async () => {
@@ -451,6 +454,34 @@ describe('R10 表單邀請與回覆（唯一讓沒登入的人寫得進來的地
     })));
     await assertFails(setDoc(doc(anon, 'formResponses', TOKEN), answer({
       weekdays: Array.from({ length: 15 }, (_, i) => i),
+    })));
+  });
+
+  test('R10.15 名字要是字串，而且有上限 —— 這裡是唯一沒登入也寫得進來的地方', async () => {
+    await seedInvite();
+    // 型別不對
+    await assertFails(setDoc(doc(anon, 'formResponses', TOKEN), answer({
+      customerName: { evil: true },
+    })));
+    // 超過上限（其餘欄位都有上限，這一個以前沒有）
+    await assertFails(setDoc(doc(anon, 'formResponses', TOKEN), answer({
+      customerName: '王'.repeat(101),
+    })));
+    // 正常長度照樣進得去
+    await assertSucceeds(setDoc(doc(anon, 'formResponses', TOKEN), answer({
+      customerName: '王小明',
+    })));
+  });
+
+  test('R10.16 送出時間由伺服器決定 —— 客戶端自己指定的一律擋掉', async () => {
+    await seedInvite();
+    // 她要靠「什麼時候填的」判斷這一份是不是壓完表之後才回來的，
+    // 所以那個時間不可以由填表的人決定。
+    await assertFails(setDoc(doc(anon, 'formResponses', TOKEN), answer({
+      submittedAt: new Date(Date.now() - 30 * 864e5),
+    })));
+    await assertFails(setDoc(doc(anon, 'formResponses', TOKEN), answer({
+      submittedAt: new Date(Date.now() + 30 * 864e5),
     })));
   });
 

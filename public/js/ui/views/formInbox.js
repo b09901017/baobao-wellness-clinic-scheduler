@@ -137,7 +137,8 @@ function wire(ctx) {
     const ok = await confirmAction({
       title: '不收這一份？',
       consequences: [
-        `${esc(row.customerName || '這位客戶')}填的這一份會從清單消失`,
+        // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
+        `${row.customerName || '這位客戶'}填的這一份會從清單消失`,
         '它只是被收起來，設定頁的「已刪除項目」找得回來',
         '他手上那條連結已經用掉了，要他重填就得重發一條',
       ],

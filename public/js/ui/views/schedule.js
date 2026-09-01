@@ -273,7 +273,7 @@ async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
   try {
     const id = await toast.withSaveState(
       () => batchesData.create(newBatch({ targetMonth, rows })),
-      { success: '開始了' },
+      { success: '開始了', key: `batch:create:${targetMonth}` },
     );
     view.batchId = id;
     if (!keepCustomer) view.customerId = null;
@@ -1678,7 +1678,10 @@ async function addSlot() {
   if (!ok) return;
 
   try {
-    await toast.withSaveState(() => visitsData.save(visit, customerVisits), { success: '記好了' });
+    await toast.withSaveState(() => visitsData.save(visit, customerVisits), {
+      success: '記好了',
+      key: `visit:save:${visit.id ?? `${visit.customerId}:${visit.date}`}`,
+    });
     // 記完把時段相關的選擇清掉，日期留著 —— 同一天常常要連記兩三段
     view.startsAt = null;
     view.entitlementId = null;

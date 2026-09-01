@@ -586,7 +586,8 @@ function paintNew(el, draft, plans, existing, terms, master) {
             (x) => buy.toEntitlement(x, { purchasedAt: customer.purchasedAt ?? null }),
           ),
         }),
-        { success: '已建立' },
+        // 連點兩下就是兩位同名客戶，各自展開一整份方案額度。
+        { success: '已建立', key: 'customer:create' },
       );
       go(`/customers/${id}`);
     } catch {

@@ -523,7 +523,12 @@ function paintMessages(sheet, ctx, today, month, invite) {
       () => invitesData.create({
         customerId: ctx.customer.id, customerName: ctx.customer.name, month, sentAt: today,
       }),
-      { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE' },
+      // 連點兩下就是兩條連結，而舊的那條會當場作廢 —— 她貼給客戶的可能是廢的那條
+      {
+        pending: '產生中…',
+        success: '連結好了，複製訊息貼到 LINE',
+        key: `invite:create:${ctx.customer.id}:${month}`,
+      },
     );
     if (!token) return;
     // 就地換掉面板內容，不重開一張 —— 重開會再播一次滑上來的動畫，
@@ -761,6 +766,7 @@ async function addFollowup(ctx, entId) {
   try {
     await toast.withSaveState(() => data.createEntitlement(ctx.id, miss.draft), {
       success: '已補上二返額度',
+      key: `entitlement:followup:${miss.source.id}`,
     });
     reload(ctx);
   } catch {
@@ -1055,7 +1061,9 @@ function paintEdit(ctx) {
     if (errors.length) return;
 
     try {
-      await toast.withSaveState(() => data.update(ctx.id, changes), { success: '已儲存' });
+      await toast.withSaveState(() => data.update(ctx.id, changes), {
+        success: '已儲存', key: `customer:update:${ctx.id}`,
+      });
       reload(ctx);
     } catch {
       /* 已處理 */
@@ -1277,12 +1285,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
             ctx.id,
             buy.toEntitlement(next, { purchasedAt: ctx.customer.purchasedAt ?? null }),
           ),
-          { success: '已加購' },
+          // 連點兩下就是兩筆額度，而額度是「還能上幾次」的來源
+          { success: '已加購', key: `entitlement:create:${ctx.id}` },
         );
       } else {
         await toast.withSaveState(
           () => data.updateEntitlement(ctx.id, record.id, buy.payload(next)),
-          { success: '已儲存' },
+          { success: '已儲存', key: `entitlement:update:${record.id}` },
         );
       }
       reload(ctx);

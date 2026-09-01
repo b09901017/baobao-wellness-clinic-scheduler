@@ -733,7 +733,7 @@ async function addNote(ctx, form) {
   try {
     await toast.withSaveState(
       () => notesData.create({ text, date: note.read(form), ...note.readWho(form) }),
-      { success: '記下來了' },
+      { success: '記下來了', key: `note:create:${text}` },
     );
     await render(ctx.el);
   } catch {
@@ -1171,7 +1171,8 @@ async function markDone(ctx) {
   const ok = await confirmAction({
     title: `把 ${rows.length} 筆標成完成？`,
     consequences: [
-      ...rows.slice(0, 8).map((t) => `${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}`),
+      // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
+      ...rows.slice(0, 8).map((t) => `${t.customerName ?? '（沒有名字）'}・${t.kind}`),
       ...(rows.length > 8 ? [`⋯還有 ${rows.length - 8} 筆`] : []),
       ...(unbooked.length ? [
         `⚠️ 其中 ${unbooked.length} 筆還沒看到二返的預約`
@@ -1478,7 +1479,8 @@ function wireAsk(ctx) {
       const ok = await confirmAction({
         title: '重發一條新連結？',
         consequences: [
-          `${esc(nameOf(customerId))}手上那條連結會作廢`,
+          // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
+          `${nameOf(customerId)}手上那條連結會作廢`,
           '他如果已經點開舊的那條，會看到「這個連結找不到」',
           '重發是客戶填錯之後唯一的改法 —— 表單填過一次就不能再填',
         ],
@@ -2125,10 +2127,12 @@ async function applyClose(ctx) {
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
 
   try {
+    // 結案就是扣次數的那一下，做兩次會多扣一次
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
       success: next.status === 'done'
         ? `${visit.customerName ?? ''} 結案了，次數扣掉了`
         : `記成未到，次數沒有扣`,
+      key: `visit:save:${next.id}`,
     });
     drawer = null;
     await renderClose(ctx.el);

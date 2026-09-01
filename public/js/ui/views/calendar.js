@@ -815,7 +815,10 @@ function mountNoteEditor(el, data, sheet, spec) {
     try {
       await toast.withSaveState(
         () => (isNew ? notesData.create(changes) : notesData.update(existing.id, changes)),
-        { success },
+        {
+          success,
+          key: isNew ? `note:create:${changes.date}:${changes.text}` : `note:update:${existing.id}`,
+        },
       );
       done();
     } catch {
@@ -854,8 +857,11 @@ function mountNoteEditor(el, data, sheet, spec) {
   sheet.el.querySelector('[data-drop]')?.addEventListener('click', async () => {
     const ok = await confirmAction({
       title: '刪掉這一件？',
-      body: '它會進「已刪除項目」，之後還原得回來。',
-      confirm: '刪掉',
+      consequences: [
+        '它會進「已刪除項目」，之後還原得回來',
+        '這一筆在隨手記那邊也會一起消失 —— 日曆上的待辦就是它本人',
+      ],
+      confirmLabel: '刪掉',
       danger: true,
     });
     if (!ok) return;

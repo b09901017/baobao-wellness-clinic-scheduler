@@ -85,15 +85,23 @@ test('C3c 客戶姓名裡的髒字串在每一頁都是文字', async ({ app, pa
   ]);
   await app.signIn('/customers');
 
+  // **掃 document 不是 `#view`。** 確認框、抽屜、浮出卡片全都掛在 `<body>` 上
+  // （`dialog.js` / `sheet.js` / `card.js` 都是 `document.body.appendChild`），
+  // 所以只掃 `#view` 的話，那三種疊上來的東西是結構性的死角 ——
+  // 而確認框正是最後一個沒有逃脫的地方。
+  // 掃「app 自己畫出來的每一片表面」，而不是整份 document —— index.html 本來就有
+  // 合法的 <script>，掃整份會永遠大於 0。
+  const SURFACES = '#view, .dialog-backdrop, .drawer-backdrop, .popcard-backdrop, #toast';
+  const injectedCount = () => page.evaluate((sel) => [...document.querySelectorAll(sel)]
+    .reduce((n, root) => n
+      + root.querySelectorAll('[onmouseover], [onerror], [onload], script').length, 0), SURFACES);
+
   for (const hash of ['/customers', '/customers/cust-x', '/', '/settings/health']) {
     await app.go(hash);
 
     // **不要數 `<b>` 的總數** —— app 自己就用 `<b>` 印數字（`<b>10</b>`）。
     // 要問的是「有沒有一個元素帶著我注入的那個屬性」。
-    const injected = await page.evaluate(
-      () => document.querySelectorAll('#view [onmouseover], #view [onerror], #view script').length,
-    );
-    expect(injected, `${hash} 不可以把客戶姓名當成標籤解析`).toBe(0);
+    expect(await injectedCount(), `${hash} 不可以把客戶姓名當成標籤解析`).toBe(0);
     expect(await page.evaluate(() => window.__pwned === 1)).toBe(false);
 
     // 有印出名字的那幾頁，原文要看得見（她要認得出這位客戶的名字被打成什麼樣）。
@@ -102,6 +110,20 @@ test('C3c 客戶姓名裡的髒字串在每一頁都是文字', async ({ app, pa
       expect(await app.text(), `${hash} 要印得出原文`).toContain('<b onmouseover=');
     }
   }
+
+  // **二次確認框裡也一樣。** 破壞性動線上的那句話會把客戶姓名整個唸出來
+  //（`刪除「⋯」？`），而那正是她判斷要不要按下去的依據 ——
+  // 名字被當成標籤解析的話，那句話會顯示不完整。
+  await app.go('/customers/cust-x');
+  await page.locator('[data-danger]').click();
+  await page.waitForTimeout(500);
+  await page.locator('[data-delete]').click();
+  await expect(app.dialog()).toBeVisible();
+
+  expect(await injectedCount(), '確認框不可以把客戶姓名當成標籤解析').toBe(0);
+  expect(await page.evaluate(() => window.__pwned === 1)).toBe(false);
+  expect(await app.dialogText(), '確認框要把名字原封不動唸出來').toContain('<b onmouseover=');
+  await app.cancelDialog();
 });
 
 test('C12 連點 5 次「加這一筆」→ 只寫進去一筆（防重複提交）', async ({ app, page }) => {
