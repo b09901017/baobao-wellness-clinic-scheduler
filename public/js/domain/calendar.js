@@ -112,14 +112,30 @@ export function titleOf(view, date) {
  * 而一次來訪有 2–3 個時段散在不同時間。
  *
  * @param {object[]} visits 這一天的來訪
- * @param {object} [ctx] { roomsById, staffById } 有的話就把診間與治療師換成名字
+ * @param {object} [ctx] { roomsById, staffById, includeCancelled }
+ *   有 roomsById / staffById 的話就把診間與治療師換成名字。
+ *
+ *   `includeCancelled`：把取消的也攤平出來。**預設 false** ——
+ *   壓表與進度追蹤問的是「這一天還排得下嗎」「這個月做了多少」，
+ *   而取消的時段已經還回去了。只有日曆的三個檢視要看得見它們，
+ *   因為「那天本來有人、後來取消了」正是她會想再排一個人進去的訊號
+ *   （ADR-0061）。
+ *
+ *   **軟刪除的一律不收**，`includeCancelled` 也救不回來 ——
+ *   刪掉不是一種狀態，是那一筆不存在。所以這兩件事要分開判斷，
+ *   不可以只把 `isActive()` 放寬。
  * @returns {object[]} 每一列帶 clashes：跟它同時段又同診間床位／同治療師的其他列
  */
-export function agendaFor(visits, date, { roomsById = {}, staffById = {} } = {}) {
+export function agendaFor(
+  visits,
+  date,
+  { roomsById = {}, staffById = {}, includeCancelled = false } = {},
+) {
   const rows = [];
 
   for (const visit of visits ?? []) {
-    if (visit.date !== date || !isActive(visit)) continue;
+    if (visit.date !== date || visit.deletedAt) continue;
+    if (!isActive(visit) && !includeCancelled) continue;
 
     (visit.slots ?? []).forEach((slot, index) => {
       rows.push({
@@ -152,6 +168,9 @@ export function agendaFor(visits, date, { roomsById = {}, staffById = {} } = {})
 /**
  * 同一格資源被排了兩次。SPEC 第 4.7 節：只提示，不阻擋 ——
  * 這裡看不到同事在 Abovee 上壓的東西，找到的一定是她自己撞的。
+ *
+ * **取消的那幾列一律跳過**（`includeCancelled` 才會有它們）：那個時段已經
+ * 還回去了，標成撞期是假警報 —— 而假警報會讓她學會忽略真的那幾個。
  */
 function markClashes(rows) {
   for (let i = 0; i < rows.length; i += 1) {
@@ -159,6 +178,7 @@ function markClashes(rows) {
       const a = rows[i];
       const b = rows[j];
       if (a.visitId === b.visitId) continue;
+      if (a.status === 'cancelled' || b.status === 'cancelled') continue;
       if (!isValidTime(a.startsAt) || !isValidTime(b.startsAt)) continue;
       if (!overlaps(a, b)) continue;
 

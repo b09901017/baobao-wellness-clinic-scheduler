@@ -34,7 +34,7 @@ import {
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import {
-  describeStatus, statusClass, shortStatus, STATUS_VIEW_ORDER,
+  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
@@ -207,8 +207,11 @@ function legendHtml() {
 function countLine(data, date) {
   const range = rangeOf(state.view, date);
   const inRange = (d) => d >= range.from && d <= range.to;
+  // **取消的不算。** 這一行回答的是「那段時間有幾件事要做」，而取消的那一筆
+  // 已經沒事要做了 —— 算進去會讓她以為那幾天排滿了（ADR-0061）。
+  // 它們照樣畫得出來（月檢視的色條、抽屜裡暗掉的那一列），只是不算數。
   const visits = shows('visit')
-    ? data.visits.filter((v) => inRange(v.date)).length
+    ? data.visits.filter((v) => inRange(v.date) && isActive(v)).length
     : 0;
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
@@ -331,9 +334,13 @@ function weekHtml(data, date, today) {
     <div class="weekgrid">
       ${days.map((d) => {
         const day = summary[d];
-        const rows = shows('visit') ? agendaFor(data.visits, d, data) : [];
+        const rows = shows('visit')
+          ? agendaFor(data.visits, d, { ...data, includeCancelled: true })
+          : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
         const todos = notesOn(data, d);
+        // `summaryByDate()` 已經濾掉取消的，所以這個數字天生就不含它們 ——
+        // 跟頂端那一行講同一句話（ADR-0061）。
         const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
@@ -449,7 +456,11 @@ function eventLine(e) {
  * 整天的行事備註釘在最上面，不進時間軸 —— 它沒有時間，硬塞進去只能擺在一個假位置。
  */
 function dayHtml(data, date, today) {
-  const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
+  // `includeCancelled`：取消的畫出來但暗掉（ADR-0061）。月檢視的色條一直
+  // 都畫得出來，而這裡以前整筆濾掉 —— 同一份資料兩種畫法，她點下去看到空的。
+  const rows = shows('visit')
+    ? agendaFor(data.visits, date, { ...data, includeCancelled: true })
+    : [];
   const visible = data.events.filter((e) => shows(e.category));
   const { allDay, timed } = dayEvents(visible, date);
   const todos = notesOn(data, date);
@@ -468,7 +479,10 @@ function dayHtml(data, date, today) {
   // 空的那一天講的那句話搬到這裡（`issues/04`）—— 它以前掛在抽屜抬頭底下的
   // 說明列上，而那一列現在拿掉了。這句不能拿掉：SPEC 第 8.6 節最後一段要求
   // 這一頁講明「空的格子不等於那個時段真的空著」，不然她會拿它當可用時段表用。
-  if (!merged.length && !allDay.length && !todos.length) {
+  // 空狀態要拿**還算數的那幾筆**去問：一天只剩取消的來訪時，那幾列照樣要畫，
+  // 但「這天還沒有東西」那句話不可以同時印出來。
+  const live = merged.filter((item) => item.kind !== 'visit' || item.row.status !== 'cancelled');
+  if (!live.length && !allDay.length && !todos.length) {
     return `<p class="muted" style="margin: 0">這天還沒有東西 ——
       但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
   }
@@ -485,10 +499,17 @@ function dayHtml(data, date, today) {
     </div>`;
 }
 
-/** 一筆來訪的一段。狀態 class 掛在整列上，色棒與徽章都從它繼承。 */
+/**
+ * 一筆來訪的一段。狀態 class 掛在整列上，色棒與徽章都從它繼承。
+ *
+ * 取消的那幾列多一個 `timerow--off`：整列降透明度加刪除線（ADR-0061）。
+ * **不吃新的色相** —— 色相已經用完了（ADR-0039、0045），所以走的是
+ * `.kind-todo--done` 那一種手法。
+ */
 function visitRow(r) {
+  const off = r.status === 'cancelled' ? ' timerow--off' : '';
   return agendaRow({
-    kind: esc(statusClass(r.status)) || 'kind-visit',
+    kind: `${esc(statusClass(r.status)) || 'kind-visit'}${off}`,
     open: `visit:${r.visitId}`,
     clock: r.startsAt || '—',
     until: r.endsAt || '',
@@ -792,6 +813,11 @@ function mountNoteEditor(el, data, sheet, spec) {
       </label>
       <span class="field__label">哪一天</span>
       ${note.field({ value: existing?.date ?? spec.date })}
+      <span class="field__label">掛給誰</span>
+      ${note.who({
+        customerId: existing?.customerId ?? null,
+        customerName: existing?.customerName ?? null,
+      })}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>
@@ -805,6 +831,20 @@ function mountNoteEditor(el, data, sheet, spec) {
   sheet.expand();
 
   note.wire(sheet.el);
+  // 「掛給誰」跟另外四個入口是同一塊（`ui/components/note.js`）。它以前不在
+  // 這一頁，理由寫的是「那是客戶詳情頁的事」—— 而那句話指向一個不存在的地方：
+  // 隨手記除了勾掉之外沒有別的編輯入口，這一張就是唯一的那一個
+  // （ADR-0044 的 Consequences 自己寫著）。
+  //
+  // **旗標是必要的。** `note.wire()` 每次都重抓 `[data-notedate]` 所以它自己
+  // 防得了重複，`wireWho()` 是把監聽委派在 `sheet.el` 上的 —— 而
+  // `sheet.update()` 換的是內容那一塊，`sheet.el` 本身留著。同一張抽屜上
+  // mount 兩次就會掛兩組（同 `views/home.js` 的 `openQuick()`）。
+  if (!sheet.el.dataset.noteWhoWired) {
+    sheet.el.dataset.noteWhoWired = '1';
+    // 點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
+    note.wireWho(sheet.el, { load: () => customersData.list() });
+  }
 
   const done = () => {
     closeSheet();
@@ -834,9 +874,9 @@ function mountNoteEditor(el, data, sheet, spec) {
       {
         text,
         date: note.read(sheet.el),
-        // 掛的客戶不在這一頁改 —— 那是客戶詳情頁的事，而這裡改的是「哪一天」。
-        customerId: existing?.customerId ?? null,
-        customerName: existing?.customerName ?? null,
+        // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
+        // 只帶其中一個過來，另一個會被算成空的。`readWho()` 一律兩個一起回。
+        ...note.readWho(sheet.el),
       },
       isNew ? '記下來了' : '改好了',
     );
@@ -847,8 +887,9 @@ function mountNoteEditor(el, data, sheet, spec) {
       {
         text: existing.text,
         date: null,
-        customerId: existing.customerId ?? null,
-        customerName: existing.customerName ?? null,
+        // 從表單讀，不從 `existing` 讀 —— 她可能剛剛才在這一頁改了掛給誰，
+        // 然後才按「從日曆拿掉」。用舊的那一份會把她剛改的清掉。
+        ...note.readWho(sheet.el),
       },
       '從日曆拿掉了，隨手記裡還在',
     ),

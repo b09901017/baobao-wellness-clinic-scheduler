@@ -134,7 +134,20 @@ export function wireSection(ctx) {
 // **同一個月不會有第二份，是動線本身保證的**：已經有的月份只出現在「改」那一排，
 // 不會出現在「新增」那一排。不是靠一句錯誤訊息。
 
-/** 「新增」那一排給幾個月。從下個月往後數，夠她提前問。 */
+/**
+ * 「新增」那一排往後給幾個月。**從這個月起算**（`i = 0`）。
+ *
+ * 她的常態是月底那一兩個禮拜問下個月（ADR-0053），而這一排以前就是照那個
+ * 常態從 `i = 1` 開始 —— 於是客人月中打來說「我這個月 20 號之後出國」時，
+ * 她**沒有地方記**。那是把常態當成了限制。
+ *
+ * domain 那一側從來沒有擋過當月：`validateCollection()` 只看日期合不合法，
+ * `monthGrid()` 畫得出任何一個月，而 `collectionFor()`（ADR-0036）是照
+ * `validFrom` 的月份挑的，所以九月那一份對壓九月的表天生就是對的。
+ *
+ * 當月的格子會含已經過去的日子，**這是對的，不要擋** ——
+ * 同 `domain/notes.js` 的 `validateNote()`：「不擋過去的日期，她會補記昨天那一件」。
+ */
 const AHEAD = 4;
 
 function openPicker(ctx) {
@@ -142,7 +155,7 @@ function openPicker(ctx) {
   const taken = new Set(monthsTaken(ctx.availability));
   const existing = collectionsByMonth(ctx.availability).filter((g) => g.month);
   const ahead = [];
-  for (let i = 1; i <= AHEAD; i += 1) {
+  for (let i = 0; i <= AHEAD; i += 1) {
     const month = addMonths(today, i).slice(0, 7);
     if (!taken.has(month)) ahead.push(month);
   }

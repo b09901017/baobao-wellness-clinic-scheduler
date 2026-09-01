@@ -54,7 +54,10 @@ export const INITIAL_STATUS = 'pending_confirm';
  * 顏色的走向是「暖 → 冷 → 綠」：待確認琥珀（還欠一件事）、
  * 已確認霧藍（談定了、還沒發生）、已完成墨綠（結案）。
  * 未到用紅的 —— 它不急，但「這個人常放鴿子」是要看得見的（SPEC 第 4.2 節）。
- * 取消是灰的，而且日曆上根本不畫（`isActive()` 濾掉了）。
+ * 取消是灰的。日曆上**畫得出來但整列暗掉**（ADR-0061）——
+ * 「那天本來有人、後來取消了」是她會想再排一個人進去的訊號。
+ * 但它不算進任何一個數字：`summaryByDate()` 與日曆頂端那一行都濾掉它，
+ * 而 `agendaFor()` 預設也不收（只有日曆三個檢視傳 `includeCancelled`）。
  */
 const STATUS_VIEW = {
   pending_confirm: {

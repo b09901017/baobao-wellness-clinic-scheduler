@@ -199,6 +199,48 @@ describe('一整天的時段', () => {
   });
 });
 
+// 取消的來訪在日曆上畫得出來但暗掉（ADR-0061）。以前這裡整筆濾掉，
+// 於是月檢視有一條灰色色條、點下去那一天卻是空的 —— 同一份資料兩種畫法。
+describe('取消的來訪（ADR-0061）', () => {
+  const cancelled = () => visit({ id: 'v9', customerName: '客戶九', status: 'cancelled' });
+
+  test('預設不收 —— 壓表與進度追蹤問的是「還排得下嗎」', () => {
+    const rows = agendaFor([cancelled()], '2026-09-18', CTX);
+    assert.deepEqual(rows, []);
+  });
+
+  test('帶 includeCancelled 才收，而且狀態原樣帶著', () => {
+    const rows = agendaFor([cancelled()], '2026-09-18', { ...CTX, includeCancelled: true });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'cancelled');
+    assert.equal(rows[0].customerName, '客戶九');
+  });
+
+  test('軟刪除的照樣不收 —— 刪掉不是一種狀態，是那一筆不存在', () => {
+    const rows = agendaFor(
+      [visit({ id: 'v8', deletedAt: '2026-09-01T00:00:00Z' })],
+      '2026-09-18',
+      { ...CTX, includeCancelled: true },
+    );
+    assert.deepEqual(rows, []);
+  });
+
+  test('取消的不撞期，也不讓別人多一筆撞期', () => {
+    const rows = agendaFor([
+      visit(),
+      cancelled(),
+    ], '2026-09-18', { ...CTX, includeCancelled: true });
+
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((r) => r.clashes.length === 0));
+  });
+
+  test('summaryByDate() 不算它 —— 頂端那一行與週檢視講同一句話', () => {
+    const summary = summaryByDate([visit(), cancelled()]);
+    assert.equal(summary['2026-09-18'].visits, 1);
+  });
+});
+
 describe('每天的摘要', () => {
   test('數來訪、數時段，等回覆的另外數', () => {
     const summary = summaryByDate([

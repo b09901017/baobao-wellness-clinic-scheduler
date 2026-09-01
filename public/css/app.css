@@ -2556,6 +2556,20 @@ button.mark::after {
   opacity: 0.62;
 }
 
+/* 取消的來訪：**畫出來但暗掉**（ADR-0061）。她要看得出「那天本來有人」——
+   那正是她會想再排一個人進去的訊號。
+
+   跟 .kind-todo--done 用同一種手法（降透明度 + 刪除線），一個新色相都不開 ——
+   色相在 ADR-0039、0045 就已經用完了。opacity 與 text-decoration 都不是顏色，
+   所以 tokens.css 的淺色深色兩份都不用動。 */
+.timerow--off {
+  opacity: 0.55;
+}
+
+.timerow--off .timerow__title {
+  text-decoration: line-through;
+}
+
 /* 診間或治療師撞在一起就標出來 —— 只提示，不阻擋（SPEC 4.7） */
 .warn {
   margin-top: var(--space-2);

@@ -64,6 +64,12 @@ let picked = new Set();
 let tab = 'all';
 
 // 確認畫面。開著的是哪一位、哪幾段被客人退掉。
+//
+// **`shown` 記的是「進場動畫播過了沒」。** 這一頁的兩張抽屜都是自己畫的
+// （它們要跟著整頁重畫），而 `paintClose()` / `paintConfirm()` 在抽屜開著的
+// 時候還會跑好幾次 —— 補那句「會多一張追蹤健檢報告」、逐段勾選、逐筆退回。
+// 每一次都重播 `playIn()` 的話，症狀就是抽屜在她眼前一直往上跳
+// （`.scratch/quick-actions-and-supplements/issues/01`）。
 let drawer = null;
 
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
@@ -1062,6 +1068,33 @@ function backLink() {
 }
 
 /**
+ * 這一頁那兩張自己畫的抽屜共用的手勢接線。
+ *
+ * **進場動畫只播一次。** 兩張抽屜都跟著整頁重畫（`paintClose()` /
+ * `paintConfirm()` 換掉 `el.innerHTML`），而抽屜開著的時候那兩支還會跑好幾次：
+ * 補那句「會多一張追蹤健檢報告」（先畫再補，同 `loadTaskVisits()`）、
+ * 逐段勾「這段沒做」、逐筆退回。每一次都 `playIn()` 的話，抽屜會在她眼前
+ * 從螢幕外重新滑上來 —— 她點一下打勾就看到它跳兩次，一筆來訪三段就跳四次
+ * （`.scratch/quick-actions-and-supplements/issues/01`）。
+ *
+ * 播過了沒記在 `drawer` 上而不是這裡：那個物件就是「現在開著哪一張」的
+ * 唯一真相，關掉時整個換成 null，下一次開啟自然又是還沒播過。
+ *
+ * @param {HTMLElement} el 那一頁的容器
+ * @param {Function} close 收起來之後做什麼
+ */
+function mountDrawerGesture(el, close) {
+  const box = el.querySelector('.drawer');
+  if (!box) return;
+
+  const drag = wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') });
+  if (drawer && !drawer.shown) {
+    drawer.shown = true;
+    drag.playIn();
+  }
+}
+
+/**
  * 一列任務。**多一個「幾項」** —— 她的原話是「多一個幾項讓我知道今天要壓多少」，
  * 那個數字要等來訪讀回來才填得上（`loadTaskVisits()`）。
  *
@@ -1671,7 +1704,8 @@ function wireConfirm(ctx) {
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
-      drawer = { customerId: btn.dataset.open, rejected: new Set() };
+      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+      drawer = { customerId: btn.dataset.open, rejected: new Set(), shown: false };
       paintConfirm(ctx);
     }),
   );
@@ -1696,8 +1730,7 @@ function wireConfirm(ctx) {
 
   // 這一張是自己畫的（它要跟著整頁重畫），沒走 openSheet，
   // 但手勢要跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了。
-  const box = el.querySelector('.drawer');
-  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
+  mountDrawerGesture(el, close);
 
   el.querySelectorAll('[data-followup]').forEach((form) =>
     form.addEventListener('submit', (e) => {
@@ -2068,7 +2101,8 @@ function wireClose(ctx) {
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', async () => {
-      drawer = { visitId: btn.dataset.open, missed: new Set() };
+      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+      drawer = { visitId: btn.dataset.open, missed: new Set(), shown: false };
       paintClose(ctx);
 
       // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
@@ -2106,8 +2140,7 @@ function wireClose(ctx) {
   });
 
   // 手勢跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了
-  const box = el.querySelector('.drawer');
-  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
+  mountDrawerGesture(el, close);
 
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyClose(ctx));
 }
