@@ -14,7 +14,7 @@ import {
   touchedEntitlementIds, recount,
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
-  visitCourseLabel, describeConfirmed,
+  visitCourseLabel, describeConfirmed, applyStatus, visitActions,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -808,5 +808,92 @@ describe('確認之後成立的是哪幾段', () => {
     const { rows, rejected } = describeConfirmed(visits, new Set(['v1:0', 'v1:1', 'v2:0']));
     assert.deepEqual(rows, []);
     assert.equal(rejected, 3);
+  });
+});
+
+// 長按一列的快捷選單（ADR-0060）。狀態轉換抽成 applyStatus() 之後，
+// 來訪編輯器的狀態卡與日曆的快捷選單共用同一份 —— 兩邊各寫一次的話，
+// 遲早有一邊忘了補 cancelledAt。
+describe('換一個狀態（applyStatus）', () => {
+  const v = () => ({
+    id: 'v1', status: 'confirmed', date: '2026-09-01',
+    slots: [{ startsAt: '10:30' }, { startsAt: '11:30' }],
+  });
+
+  test('不動到原本那一份', () => {
+    const before = v();
+    applyStatus(before, 'cancelled', { at: 'T', reason: '客人要改時間' });
+    assert.equal(before.status, 'confirmed');
+    assert.ok(!('cancelledAt' in before));
+  });
+
+  test('取消會補上時間、理由與「還沒釋出遞補」', () => {
+    const next = applyStatus(v(), 'cancelled', { at: 'T', reason: '客人要改時間' });
+    assert.equal(next.status, 'cancelled');
+    assert.equal(next.cancelledAt, 'T');
+    assert.equal(next.cancelReason, '客人要改時間');
+    assert.equal(next.released, false);
+  });
+
+  test('確認會補上 confirmedAt', () => {
+    const next = applyStatus(v(), 'confirmed', { at: 'T' });
+    assert.equal(next.status, 'confirmed');
+    assert.equal(next.confirmedAt, 'T');
+  });
+
+  test('收尾走 closeVisit() —— 跟整筆標成已完成一模一樣', () => {
+    const mine = applyStatus(v(), 'done', { at: 'T' });
+    const theirs = closeVisit(v(), [true, true], 'T');
+    assert.deepEqual(mine, theirs);
+  });
+
+  test('整筆標成未到 = 每一段都沒做', () => {
+    const next = applyStatus(v(), 'no_show', { at: 'T' });
+    assert.equal(next.status, 'no_show');
+    assert.ok(next.slots.every((sl) => sl.attended === false));
+  });
+});
+
+describe('長按一筆來訪有哪幾顆（visitActions）', () => {
+  const ids = (visit, today = '2026-09-05') =>
+    visitActions(visit, { today }).map((a) => a.id);
+
+  test('待確認、日子還沒到：確認、改、取消', () => {
+    assert.deepEqual(
+      ids({ status: 'pending_confirm', date: '2026-09-20' }),
+      ['confirmed', 'edit', 'cancelled'],
+    );
+  });
+
+  test('日子到了才有「去簽療程單」', () => {
+    assert.ok(ids({ status: 'confirmed', date: '2026-09-05' }).includes('close'));
+    assert.ok(!ids({ status: 'confirmed', date: '2026-09-06' }).includes('close'));
+  });
+
+  test('**沒有「已完成」與「未到」** —— 那兩個是逐段的結果（ADR-0025）', () => {
+    const all = ids({ status: 'confirmed', date: '2026-09-01' });
+    assert.ok(!all.includes('done'));
+    assert.ok(!all.includes('no_show'));
+  });
+
+  test('終點沒有東西可做', () => {
+    assert.deepEqual(ids({ status: 'done', date: '2026-09-01' }), []);
+    assert.deepEqual(ids({ status: 'cancelled', date: '2026-09-01' }), []);
+  });
+
+  test('只給 TRANSITIONS 准的轉移 —— Rules 不擋狀態機（ADR-0006）', () => {
+    for (const status of VISIT_STATUSES) {
+      const allowed = new Set(nextStatuses(status));
+      for (const a of visitActions({ status, date: '2026-09-01' }, { today: '2026-09-05' })) {
+        if (VISIT_STATUSES.includes(a.id)) assert.ok(allowed.has(a.id), `${status} → ${a.id}`);
+      }
+    }
+  });
+
+  test('最多五顆 —— 加上選單自己的「先不要」剛好是六顆的上限', () => {
+    for (const status of VISIT_STATUSES) {
+      const n = visitActions({ status, date: '2026-09-01' }, { today: '2026-09-05' }).length;
+      assert.ok(n <= 5, `${status} 有 ${n} 顆`);
+    }
   });
 });

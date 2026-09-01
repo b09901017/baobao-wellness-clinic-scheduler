@@ -11,6 +11,7 @@ import {
   itemsOf, itemNames, productLabel, amountOf, monthsOf,
   deliveredIds, undelivered, isFullyDelivered, lastDeliveredAt,
   deliveryState, noteTextFor, withDelivery, validateProduct,
+  deliveryChoices, UNKNOWN_ITEM, productActions, existingReminder, givableBags,
 } from '../public/js/domain/products.js';
 
 const PRODUCTS = [
@@ -210,5 +211,186 @@ describe('存檔前的檢查', () => {
 
   test('不是營養品就不管', () => {
     assert.deepEqual(validateProduct({ type: 'single', courseId: 'c1' }, { products: PRODUCTS }), []);
+  });
+});
+
+// 2026-08 到 09 之間存進去的那幾筆 `items[].name` 是空字串（表單只送得回 id，
+// 而存檔那一下把補好的名字蓋掉了）。既有的**不回頭改**（ADR-0011、0059），
+// 所以認回來的責任在讀的這一側。
+describe('舊資料的空名字（issues/10）', () => {
+  const blank = () => bag({
+    items: [{ productId: 'p-ye', name: '' }, { productId: 'p-su', name: '' }],
+  });
+
+  test('沒給主檔就照舊 —— 空的還是空的，不要假裝知道', () => {
+    assert.deepEqual(itemsOf(blank()).map((x) => x.name), ['', '']);
+  });
+
+  test('給了主檔就認回來', () => {
+    assert.deepEqual(
+      itemsOf(blank(), { products: PRODUCTS }).map((x) => x.name),
+      ['夜態美', '速體淨'],
+    );
+  });
+
+  test('主檔裡也沒有（那一款被刪了）就講出來，不要留一列空白', () => {
+    const gone = bag({ items: [{ productId: 'p-gone', name: '' }] });
+    assert.deepEqual(itemsOf(gone, { products: PRODUCTS }).map((x) => x.name), [UNKNOWN_ITEM]);
+  });
+
+  test('她自己存下來的名字優先 —— 主檔改了名不會蓋掉舊紀錄', () => {
+    const own = bag({ items: [{ productId: 'p-ye', name: '夜態美（舊包裝）' }] });
+    assert.equal(itemsOf(own, { products: PRODUCTS })[0].name, '夜態美（舊包裝）');
+  });
+
+  test('顯示名稱與提醒那一句都跟著認回來', () => {
+    assert.equal(productLabel(blank(), '營養品', { products: PRODUCTS }),
+      '營養品 5,000（夜態美＋速體淨）');
+    assert.equal(noteTextFor(blank(), '客戶A', { products: PRODUCTS }),
+      '給客戶A營養品：夜態美＋速體淨');
+  });
+});
+
+// 「給了什麼？」那張面板在 ui/components/note.js（碰 DOM，測不到），
+// 但「有沒有東西可以列」是規則，抽到這裡才測得到。
+describe('交付面板要列什麼（deliveryChoices）', () => {
+  test('還沒給就全部列出來', () => {
+    const out = deliveryChoices(bag());
+    assert.equal(out.left.length, 4);
+    assert.equal(out.nothingLeft, false);
+  });
+
+  test('給了一部分就只列剩下的', () => {
+    const out = deliveryChoices(bag({ deliveries: [{ at: '2026-07-06', productIds: ['p-ye', 'p-su'] }] }));
+    assert.deepEqual(out.left.map((x) => x.productId), ['p-li', 'p-ga']);
+  });
+
+  test('**每一款都給過了 → nothingLeft**，那時不可以開一張按不下去的面板', () => {
+    const out = deliveryChoices(bag({
+      deliveries: [{ at: '2026-07-06', productIds: ['p-ye', 'p-su', 'p-li', 'p-ga'] }],
+    }));
+    assert.equal(out.nothingLeft, true);
+    assert.equal(out.everGave, true, '分得出「給完了」與「本來就沒選過」');
+  });
+
+  test('**一款都沒選的舊資料也是 nothingLeft**，但講的話不一樣', () => {
+    const out = deliveryChoices(bag({ items: [] }));
+    assert.equal(out.nothingLeft, true);
+    assert.equal(out.everGave, false);
+  });
+});
+
+// 客戶詳情那一列以前直接落進「調整」那一張表。她點它十次有九次要問的是
+// 「這一包給了沒、什麼時候給」，不是「改幾個月」（issue 11、ADR-0060）。
+describe('客戶詳情那一列有哪幾顆（productActions）', () => {
+  const ids = (e, note) => productActions(e, note).map((a) => a.id);
+
+  test('三顆：約時間、已經給了、編輯', () => {
+    assert.deepEqual(ids(bag(), null), ['when', 'gave', 'edit']);
+  });
+
+  test('還沒約就寫「約時間」，約了就寫「改時間」並帶出是哪一天', () => {
+    assert.equal(productActions(bag(), null)[0].label, '約時間');
+    const dated = productActions(bag(), { date: '2026-09-03' })[0];
+    assert.equal(dated.label, '改時間');
+    assert.match(dated.note, /2026-09-03/);
+  });
+
+  test('都給完了就沒有「已經給了」 —— 那一顆按下去只會跳一張空的', () => {
+    const done = bag({ deliveries: [{ at: '7/6', productIds: ['p-ye', 'p-su', 'p-li', 'p-ga'] }] });
+    assert.deepEqual(ids(done, null), ['when', 'edit']);
+  });
+});
+
+describe('這一包配的是哪一筆提醒（existingReminder）', () => {
+  const notes = [
+    { id: 'n1', entitlementId: 'ent-1', done: false },
+    { id: 'n2', entitlementId: 'ent-2', done: false },
+  ];
+
+  test('靠 entitlementId 連著', () => {
+    assert.equal(existingReminder(notes, 'ent-1').id, 'n1');
+  });
+
+  test('已經勾掉的不算 —— 那一筆講的是上一次的交付', () => {
+    assert.equal(existingReminder([{ id: 'n1', entitlementId: 'ent-1', done: true }], 'ent-1'), null);
+  });
+
+  test('刪掉的不算', () => {
+    assert.equal(
+      existingReminder([{ id: 'n1', entitlementId: 'ent-1', done: false, deletedAt: 'x' }], 'ent-1'),
+      null,
+    );
+  });
+
+  test('找不到回 null，不是 undefined', () => {
+    assert.equal(existingReminder(notes, 'ent-9'), null);
+    assert.equal(existingReminder([], null), null);
+  });
+});
+
+// 記隨手記時那顆「給營養品」（issue 12）。她要記的那件事本來就有專門的形狀
+// （一筆掛了 entitlementId 的隨手記），所以那一顆是捷徑不是新欄位。
+describe('誰現在有東西可以給（givableBags）', () => {
+  const customers = [
+    { id: 'c1', name: '客戶A' },
+    { id: 'c2', name: '客戶B' },
+    { id: 'c3', name: '客戶C', active: false },
+  ];
+
+  test('只列還沒給完的那幾包', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: {
+        c1: [bag({ id: 'e1' })],
+        c2: [bag({ id: 'e2', deliveries: [{ at: '7/6', productIds: ['p-ye', 'p-su', 'p-li', 'p-ga'] }] })],
+      },
+    });
+    assert.deepEqual(out.map((r) => r.customerId), ['c1']);
+    assert.deepEqual(out[0].bags.map((b) => b.entitlementId), ['e1']);
+  });
+
+  test('一包都不剩的客戶整位不出現', () => {
+    const out = givableBags({ customers, entitlementsBy: { c1: [] } });
+    assert.deepEqual(out, []);
+  });
+
+  test('停用的客戶不出現', () => {
+    const out = givableBags({ customers, entitlementsBy: { c3: [bag({ id: 'e3' })] } });
+    assert.deepEqual(out, []);
+  });
+
+  test('不是營養品的額度不算', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: { c1: [{ id: 'x', type: 'single', courseId: 'c-checkup' }] },
+    });
+    assert.deepEqual(out, []);
+  });
+
+  test('已經約了的那幾包照樣列，只是標出來 —— 她可能就是要改成今天給', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: { c1: [bag({ id: 'e1' })] },
+      notes: [{ id: 'n1', entitlementId: 'e1', done: false, date: '2026-09-03' }],
+    });
+    assert.match(out[0].bags[0].hint, /2026-09-03 已經約了/);
+  });
+
+  test('還差哪幾款要寫出來 —— 「還差什麼」正是她要回去補的東西', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: { c1: [bag({ id: 'e1', deliveries: [{ at: '7/6', productIds: ['p-ye', 'p-su'] }] })] },
+    });
+    assert.match(out[0].bags[0].hint, /粒能康＋GABA/);
+  });
+
+  test('舊資料的空名字也認得回來', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: { c1: [bag({ id: 'e1', items: [{ productId: 'p-ye', name: '' }] })] },
+      master: { products: PRODUCTS },
+    });
+    assert.match(out[0].bags[0].hint, /夜態美/);
   });
 });

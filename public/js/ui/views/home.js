@@ -25,7 +25,8 @@ import {
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, sameOpenNote, MAX_LENGTH as NOTE_TEXT_MAX,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
+  MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
 import {
@@ -35,19 +36,25 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
+  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
+import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
+import * as auditData from '../../data/audit.js';
+import { reviewOf, dayTitle, NOTHING as REVIEW_NOTHING } from '../../domain/dayReview.js';
+import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { openActions, wireLongPress } from '../components/actions.js';
+import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -64,6 +71,12 @@ let picked = new Set();
 let tab = 'all';
 
 // 確認畫面。開著的是哪一位、哪幾段被客人退掉。
+//
+// **`shown` 記的是「進場動畫播過了沒」。** 這一頁的兩張抽屜都是自己畫的
+// （它們要跟著整頁重畫），而 `paintClose()` / `paintConfirm()` 在抽屜開著的
+// 時候還會跑好幾次 —— 補那句「會多一張追蹤健檢報告」、逐段勾選、逐筆退回。
+// 每一次都重播 `playIn()` 的話，症狀就是抽屜在她眼前一直往上跳
+// （`.scratch/quick-actions-and-supplements/issues/01`）。
 let drawer = null;
 
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
@@ -251,11 +264,179 @@ function paint(ctx) {
 
     ${notesCard(notes)}
 
+    ${reviewSection()}
+
     ${quickFab()}`;
 
   wireOverview(ctx);
   wireQuickCapture(ctx);
+  wireReview(ctx);
   markNext(el);
+}
+
+// ---------- 看今天做了什麼 ----------
+//
+// 她的原話：「我需要一個能回顧今天操作紀錄的介面…目的：確認是否有遺漏登記
+// （例如忘記把某個紀錄同步到試算表）。」
+//
+// **它是稽核紀錄的白話版，不是第二份紀錄**（ADR-0062）。歸類的規則全部在
+// `domain/dayReview.js`，這裡只負責畫。
+//
+// 做成**展開才載入**，跟客戶詳情的「變更紀錄」同一種（她指名的那一個）：
+// 她一天開這一頁十幾次，而看回顧是收工前一次的事。
+
+/** 往前最多翻幾天。再遠她會去查 `#/settings/audit`。 */
+const REVIEW_BACK = 7;
+
+/** 現在看的是哪一天。存在模組裡不進網址 —— 它是看法，不是位置。 */
+let reviewDay = null;
+
+function reviewSection() {
+  return `
+    <details class="card" data-review style="margin-top: var(--space-4)">
+      <summary class="card__title">看今天做了什麼</summary>
+      <div data-review-body><p class="muted">展開時才載入。</p></div>
+    </details>`;
+}
+
+function wireReview(ctx) {
+  const box = ctx.el.querySelector('[data-review]');
+  if (!box) return;
+  const body = box.querySelector('[data-review-body]');
+  let loaded = false;
+
+  box.addEventListener('toggle', () => {
+    if (!box.open || loaded) return;
+    loaded = true;
+    reviewDay = ctx.today;
+    paintReview(ctx, body);
+  });
+
+  // 換一天只重畫這一塊（ADR-0038）—— 重畫整頁的代價是閃一下加捲回最上面，
+  // 而她人在這一頁的最底下。
+  body.addEventListener('click', (e) => {
+    const step = e.target.closest('[data-review-step]');
+    if (!step) return;
+    const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
+    if (next > ctx.today) return;
+    if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
+    reviewDay = next;
+    paintReview(ctx, body);
+  });
+}
+
+async function paintReview(ctx, body) {
+  const day = reviewDay ?? ctx.today;
+  body.innerHTML = '<p class="muted">載入中…</p>';
+
+  let events;
+  try {
+    events = await auditData.listOnDay(day);
+  } catch (err) {
+    body.innerHTML = `<p class="muted">讀不到：${esc(err.message)}
+      <br>收起來再展開一次就會重試。</p>`;
+    return;
+  }
+  // 她可能在讀回來之前又翻了一天
+  if ((reviewDay ?? ctx.today) !== day) return;
+
+  const review = reviewOf(events, { limit: 300 });
+  body.innerHTML = reviewHtml(review, day, ctx.today, ctx.settings);
+}
+
+function reviewHtml(review, day, today, settings) {
+  const back = daysBetween(addDays(day, -1), today) <= REVIEW_BACK;
+
+  return `
+    <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
+      <span class="row__main" style="font-weight: 600">${esc(dayTitle(day, today))}</span>
+      <button class="chip chip--sm" type="button" data-review-step="-1"
+              ${back ? '' : 'disabled'}>‹ 前一天</button>
+      <button class="chip chip--sm" type="button" data-review-step="1"
+              ${day < today ? '' : 'disabled'}>後一天 ›</button>
+    </div>
+
+    ${review.tiles.length ? `
+      <p class="reviewtiles">
+        ${review.tiles.map((t) => `
+          <span class="reviewtiles__one">${esc(t.label)}
+            <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
+      </p>` : ''}
+
+    ${review.groups.length
+      ? review.groups.map(reviewGroupHtml).join('')
+      : `<p class="muted">${REVIEW_NOTHING}</p>`}
+
+    ${review.truncated ? `
+      <p class="muted dim" style="margin-top: var(--space-2)">
+        這一天太多了，只列得出最近的 ${review.total} 則。更早的到
+        <a href="#/settings/audit">稽核紀錄</a>看。</p>` : ''}
+
+    ${day === today ? syncLine(settings) : ''}
+
+    <p class="muted dim" style="margin: var(--space-3) 0 0; font-size: var(--text-2xs)">
+      這裡是稽核紀錄的白話版 —— 要看某一筆到底改了哪個欄位，去
+      <a href="#/settings/audit">稽核紀錄</a>。</p>`;
+}
+
+function reviewGroupHtml(group) {
+  return `
+    <div class="reviewgroup">
+      <p class="reviewgroup__head">
+        <span class="reviewgroup__n">${group.stage.n}</span>${esc(group.stage.label)}
+      </p>
+      ${group.rows.map((row) => `
+        <p class="reviewrow">
+          <span class="reviewrow__at num">${esc(reviewTime(row.at))}</span>
+          <span class="reviewrow__what">${esc(row.text)}</span>
+          ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
+        </p>`).join('')}
+    </div>`;
+}
+
+function reviewTime(at) {
+  const ms = auditData.millisOf(at);
+  if (!ms) return '—';
+  return new Date(ms).toLocaleTimeString('zh-TW', {
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
+/**
+ * 最底下那一行試算表。**她點名要的那一句**：
+ * 「確認是否有遺漏登記（例如忘記把某個紀錄同步到試算表）」。
+ *
+ * 判斷全部在 `domain/sheetReport.js` 的 `describeSync()`（設定頁那一段用的是
+ * 同一支）—— 這裡只把它收成一行，細節按進去看。
+ *
+ * **只在「今天」那一格出現**：`sheetSync` 存的是「上次」，不是每一天的歷史，
+ * 翻到昨天時那一行會在講今天的事。
+ */
+function syncLine(settings) {
+  const failure = sheetSync.lastError();
+  const { tone } = describeSync({
+    configured: isConfigured(settings),
+    lastAtLabel: sheetSync.lastSyncedAt(),
+    dirty: sheetSync.isDirty(),
+    error: failure?.error ?? null,
+    skipped: sheetSync.lastSkipped()?.names ?? [],
+  });
+
+  const SAY = {
+    off: { text: '沒有設定自動推送', cls: 'muted' },
+    ok: { text: '推過了', cls: 'muted' },
+    waiting: { text: '還有東西沒推上去', cls: 'reviewsync--soon' },
+    partial: { text: '有分頁沒更新', cls: 'reviewsync--soon' },
+    failed: { text: '上次推失敗了', cls: 'reviewsync--bad' },
+  };
+  const say = SAY[tone] ?? SAY.ok;
+  const at = sheetSync.lastSyncedAt();
+
+  return `
+    <p class="reviewsync ${say.cls}">
+      <span>試算表：${esc(say.text)}${at && tone !== 'off' ? `・上次 ${esc(reviewTime(at))}` : ''}</span>
+      <a href="#/settings/report">看細節</a>
+    </p>`;
 }
 
 /**
@@ -515,7 +696,7 @@ function notesCard(notes) {
           全部${icon('right', { size: 14 })}</a>
       </div>
 
-      <div class="groups">
+      <div class="groups" data-notes>
         ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
@@ -603,7 +784,8 @@ function quickBody() {
 
     <div class="notemeta">
       ${note.field()}
-      ${note.who()}
+      <span data-quickwho>${note.who()}</span>
+      ${note.give()}
     </div>
 
     <div data-just></div>`;
@@ -618,18 +800,42 @@ function wireQuick(drawer, ctx, added) {
 
   const input = () => drawer.querySelector('[data-quicktext]');
 
+  // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。選了之後：
+  //   - 文字自動填好（`noteTextFor()`）—— 她自己打的那一行沒有 entitlementId，
+  //     勾掉時就不會問「給了哪些」，那筆交付紀錄會靜靜沒了
+  //   - 「掛給誰」那一排收起來 —— 客戶已經由那一包決定了，兩個地方各講一次
+  //     會出現「掛給客戶B、內容是給客戶A營養品」這種東西
+  const give = note.wireGive(drawer, {
+    load: () => loadGivableBags(),
+    onPick: (picked) => {
+      const box = drawer.querySelector('[data-quickwho]');
+      if (box) box.hidden = Boolean(picked);
+      if (picked && input()) input().value = picked.text;
+    },
+  });
+
   const save = async () => {
     const text = String(input()?.value ?? '').trim();
     if (!text) {
       input()?.focus();
       return;
     }
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 「掛給誰」那一排這時候是收起來的。
+    const bag = note.readGive(drawer);
+
     try {
       await toast.withSaveState(
         () => notesData.create({
           text,
           date: note.read(drawer),
-          ...note.readWho(drawer),
+          ...(bag
+            ? {
+              customerId: bag.customerId,
+              customerName: bag.customerName,
+              entitlementId: bag.entitlementId,
+            }
+            : note.readWho(drawer)),
         }),
         { success: '記下來了' },
       );
@@ -652,6 +858,7 @@ function wireQuick(drawer, ctx, added) {
     input().value = '';
     when.set(null);
     whom.set(null);
+    give.set(null);
     input().focus();
   };
 
@@ -690,6 +897,7 @@ function wireOverview(ctx) {
 
   note.wire(el);
   note.wireWho(el, { load: () => customersData.list() });
+  wireNoteLongPress(el, ctx.notes, () => render(ctx.el));
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -717,14 +925,88 @@ async function toggleNote(ctx, id) {
   }
 }
 
-/** 勾一筆隨手記要用到的那幾支。四個入口的形狀一樣，只有這一份。 */
+/**
+ * 「給營養品」那一顆點開之後要列的東西。
+ *
+ * 三份資料一次讀完：客戶、全部客戶的額度（一次 collection group 查詢，
+ * 客戶總覽已經在用）、還沒勾掉的隨手記（用來標「9/3 已經約了」）。
+ * **點開才會被呼叫，而且只呼叫一次**（`note.wireGive()` 的規矩）——
+ * 她十次有九次不是在記營養品。
+ *
+ * 誰有貨、哪幾包還沒給完，規則全部在 `domain/products.js` 的 `givableBags()`。
+ */
+async function loadGivableBags() {
+  const [customers, entitlementsBy, notes, products] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    notesData.listOpen(),
+    config.listAll('products'),
+  ]);
+  return givableBags({ customers, entitlementsBy, notes, master: { products } });
+}
+
+/** 勾一筆隨手記要用到的那幾支。五個入口的形狀一樣，只有這一份。 */
 function noteDeps() {
   return {
+    update: (id, changes) => notesData.update(id, changes),
+    remove: (id, reason) => notesData.remove(id, reason),
+    setDone: (id, done) => notesData.setDone(id, done),
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-    setDone: (id, done) => notesData.setDone(id, done),
+    loadCustomers: () => customersData.list(),
+    // 舊資料的 `items[].name` 是空字串，靠主檔認回名字 ——
+    // 沒有的話「給了什麼？」那張面板每一列都是空白（`issues/10`）。
+    loadProducts: () => config.listAll('products'),
     today: todayISO(),
+    // 問話那一段刻意在 withSaveState 外面（`note.prepareToggle()` 的檔頭），
+    // 所以這裡收的是「真的會寫的那一下」。
+    save: (run, opts) => toast.withSaveState(run, opts),
   };
+}
+
+/**
+ * 長按一列隨手記＝直接做（ADR-0060）。點一下勾掉的行為一個字都沒有變。
+ *
+ * **委派掛在那一塊清單上，不是掛在 `el` 上。** `paint()` / `paintNotes()`
+ * 換的是 `el.innerHTML`，`el` 本身留著 —— 掛在它上面的話每重畫一次就多一組，
+ * 而這一頁光是切一次「總覽／依客戶」就會重畫。
+ *
+ * 「改文字」沒有現成的編輯器可以開（隨手記除了勾掉之外只有日曆上那一張，
+ * 見 ADR-0044 的 Consequences），所以這裡先講出來 —— 靜靜不動更糟。
+ *
+ * @param {HTMLElement} el 那一頁的容器
+ * @param {object[]} notes 現在畫出來的那幾筆
+ * @param {Function} after 寫完之後重畫哪一頁
+ */
+function wireNoteLongPress(el, notes, after) {
+  wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
+    const n = (notes ?? []).find((x) => x.id === btn.dataset.note);
+    if (!n) return;
+
+    openActions({
+      title: n.text,
+      subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
+        .filter(Boolean).join('・'),
+      items: noteActions(n, { today: todayISO() }),
+      onPick: async (action) => {
+        try {
+          // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
+          // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
+          // 那是在解釋一個限制而不是在做事。
+          const changed = await note.runAction(action, n, {
+            ...noteDeps(),
+            onBag: () => {
+              if (n.customerId) go(`/customers/${n.customerId}`);
+              else toast.info('這一筆沒有掛客戶，找不到是哪一包');
+            },
+          });
+          if (changed) await after();
+        } catch {
+          /* 已處理 */
+        }
+      },
+    });
+  });
 }
 
 async function addNote(ctx, form) {
@@ -1059,6 +1341,33 @@ function doneRow(t) {
 
 function backLink() {
   return `<a class="backlink" href="#/">${icon('left', { size: 19 })}待辦</a>`;
+}
+
+/**
+ * 這一頁那兩張自己畫的抽屜共用的手勢接線。
+ *
+ * **進場動畫只播一次。** 兩張抽屜都跟著整頁重畫（`paintClose()` /
+ * `paintConfirm()` 換掉 `el.innerHTML`），而抽屜開著的時候那兩支還會跑好幾次：
+ * 補那句「會多一張追蹤健檢報告」（先畫再補，同 `loadTaskVisits()`）、
+ * 逐段勾「這段沒做」、逐筆退回。每一次都 `playIn()` 的話，抽屜會在她眼前
+ * 從螢幕外重新滑上來 —— 她點一下打勾就看到它跳兩次，一筆來訪三段就跳四次
+ * （`.scratch/quick-actions-and-supplements/issues/01`）。
+ *
+ * 播過了沒記在 `drawer` 上而不是這裡：那個物件就是「現在開著哪一張」的
+ * 唯一真相，關掉時整個換成 null，下一次開啟自然又是還沒播過。
+ *
+ * @param {HTMLElement} el 那一頁的容器
+ * @param {Function} close 收起來之後做什麼
+ */
+function mountDrawerGesture(el, close) {
+  const box = el.querySelector('.drawer');
+  if (!box) return;
+
+  const drag = wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') });
+  if (drawer && !drawer.shown) {
+    drawer.shown = true;
+    drag.playIn();
+  }
 }
 
 /**
@@ -1671,7 +1980,8 @@ function wireConfirm(ctx) {
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
-      drawer = { customerId: btn.dataset.open, rejected: new Set() };
+      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+      drawer = { customerId: btn.dataset.open, rejected: new Set(), shown: false };
       paintConfirm(ctx);
     }),
   );
@@ -1696,8 +2006,7 @@ function wireConfirm(ctx) {
 
   // 這一張是自己畫的（它要跟著整頁重畫），沒走 openSheet，
   // 但手勢要跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了。
-  const box = el.querySelector('.drawer');
-  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
+  mountDrawerGesture(el, close);
 
   el.querySelectorAll('[data-followup]').forEach((form) =>
     form.addEventListener('submit', (e) => {
@@ -2068,7 +2377,8 @@ function wireClose(ctx) {
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', async () => {
-      drawer = { visitId: btn.dataset.open, missed: new Set() };
+      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+      drawer = { visitId: btn.dataset.open, missed: new Set(), shown: false };
       paintClose(ctx);
 
       // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
@@ -2106,8 +2416,7 @@ function wireClose(ctx) {
   });
 
   // 手勢跟全站一樣 —— 只有一張拖不動的話，她會以為那張壞了
-  const box = el.querySelector('.drawer');
-  if (box) wireDrag(box, close, { backdrop: el.querySelector('[data-backdrop]') }).playIn();
+  mountDrawerGesture(el, close);
 
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyClose(ctx));
 }
@@ -2289,7 +2598,7 @@ function paintNotes(ctx) {
               data-notes-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
     </div>
 
-    <div class="notelist">
+    <div class="notelist" data-notes>
       ${rows.map((n) => note.row(n, { trash: true })).join('')
         || `<p class="muted" style="padding: var(--space-3) 0">${
           notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
@@ -2319,6 +2628,7 @@ function paintNotes(ctx) {
 
   el.querySelector('[data-clear-done]')?.addEventListener('click', () => clearDone(el, done));
 
+  wireNoteLongPress(el, notes, () => renderNotes(el));
   wireQuickCapture({ el, render: renderNotes });
 }
 

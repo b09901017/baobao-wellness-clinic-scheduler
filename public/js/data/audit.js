@@ -25,6 +25,31 @@ export function listRecent(limit = 100) {
 }
 
 /**
+ * 某一天的變更，新的在前。待辦中心的「看今天做了什麼」用（ADR-0062）。
+ *
+ * `at` 上的範圍查詢加上 `at desc` 排序，吃的是 Firestore 自動有的單欄索引
+ * —— **不必補複合索引**。
+ *
+ * 日界線用**本地時間**：她問的是「我今天做了什麼」，而 `at` 存的是 UTC 的
+ * Timestamp。`views/audit.js` 的 `dayOf()` 也是本地時間分組的，兩邊要一致，
+ * 不然同一則稽核在兩個畫面會落在不同的日子。
+ *
+ * 上限 300：她最忙的一天（一次壓十幾位客戶）大約一百多則。滿了要**講出來**，
+ * 不要靜靜截斷 —— 她開這一頁就是為了確認沒有漏掉東西（SPEC 第 6.9 節）。
+ *
+ * @param {string} day 'YYYY-MM-DD'
+ */
+export function listOnDay(day, limit = 300) {
+  const from = new Date(`${day}T00:00:00`);
+  const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+  return repo.listWithDeleted(PATH, {
+    wheres: [where('at', '>=', from), where('at', '<', to)],
+    order: ['at', 'desc'],
+    limit,
+  });
+}
+
+/**
  * 某一筆資料的完整變更歷史。
  * 需要 (targetPath asc, at desc) 複合索引，已列在 firestore.indexes.json。
  *

@@ -150,7 +150,8 @@ function bodyHtml(data, ctx, target) {
     <p class="footnote">
       ${icon('info', { size: 14 })}
       <span>這一頁只給看的，改東西要到日曆。
-        取消掉的時段不畫 —— 跟日曆一樣，時段已經還回去了。</span>
+        取消掉的時段不畫 —— 這一頁問的是「這個月做了多少」，
+        而取消的那一次沒有發生。（日曆上看得到它，只是暗掉的，見 ADR-0061。）</span>
     </p>`;
 }
 

@@ -216,6 +216,13 @@ export function afterDetail(draft, typed, master) {
  * 表單只送得回 id（丸子上的 `data-chip-value`），但名字要**跟著存** ——
  * 那一款之後被主檔刪掉時，畫面上還要印得出來（同 `payload()` 對
  * `productId` 的理由）。認不出來的那一筆留著 id、名字空白，不要丟掉。
+ *
+ * **這一支要在存檔前再跑一次**，不是只有換丸子的時候。`afterDetail()` 補好的
+ * 那一份會被存檔那一下的 `values(form)` 蓋掉（表單只回得了 id），
+ * 而名字沒了之後 `productLabel()`、`noteTextFor()` 與交付面板會一起變空白 ——
+ * 她看到的就是「營養品：營養品」與一張空的「給了什麼？」
+ * （`.scratch/quick-actions-and-supplements/issues/08`）。
+ * 最後一站是 `commitNewProduct()`，三個入口都會經過它。
  */
 function withItemNames(e, master) {
   if (e?.type !== 'product' || !Array.isArray(e.items)) return e;
@@ -325,7 +332,15 @@ export function payload(e) {
     // 一次購買一筆，裡面好幾款（`domain/products.js`）。`productId` 保持
     // 寫 null —— 舊資料上有值的那幾筆讀得懂就好，新的不再寫它。
     productId: null,
-    items: product ? (e.items ?? []) : null,
+    // 形狀統一：只有 `productId` 與 `name` 兩個欄位，名字 trim 過。
+    // `itemNames()` 本來就 `filter(Boolean)`，所以空字串跟沒有是一樣的 ——
+    // 統一是為了讓存進去的東西可預測（Rules 只驗 `items is list`）。
+    items: product
+      ? (e.items ?? []).map((x) => ({
+        productId: x?.productId ?? null,
+        name: String(x?.name ?? '').trim(),
+      }))
+      : null,
     amountTwd: product ? (e.amountTwd ?? null) : null,
   };
 }
@@ -459,8 +474,15 @@ function productRow(e, products) {
     </div>
     ${f.number({
       name: 'amountTwd', label: '多少錢　選填',
-      value: e.amountTwd ?? '', min: 0, step: 100,
-      hint: '整包的價錢。會寫進名稱裡，也會進試算表。',
+      // **step 是 1，不是 100。** 以前是 100，於是 5050 被瀏覽器的內建驗證
+      // 擋下來（「最接近的有效值為 5000 和 5100」）—— 表單連 submit 都不會
+      // 觸發，所以 `validateProduct()` 那條規則其實一次都沒攔到她。
+      // 那個 100 是「金額通常是整百」的猜測，而 5050 就是反例。
+      //
+      // min 是 1 不是 0：`validateProduct()` 本來就擋 0
+      //（送的東西她不會記在營養品那一列），欄位要跟驗證講同一句話。
+      value: e.amountTwd ?? '', min: 1, step: 1,
+      hint: '整包的價錢，打多少就是多少。會寫進名稱裡，也會進試算表。',
     })}
     ${nameHint(productLabel(e), ids.length)}`;
 }
@@ -499,12 +521,21 @@ function qtyField(e) {
 }
 
 /**
- * 她在「＋ 新增…」那一格打的那一款，寫進主檔並選起來。
+ * **存檔前的最後一站。** 做兩件事：
+ *
+ *   1. 她在「＋ 新增…」那一格打的那一款，寫進主檔並選起來
+ *   2. **把 `items` 上的名字從主檔補齊**（`withItemNames()`）
+ *
+ * 第二件事看起來多餘 —— `afterDetail()` 已經補過了。但那一份會被存檔那一下的
+ * `values(form)` 蓋掉：表單只送得回 id（`read()` 給的 `name` 一律是空字串）。
+ * 於是寫進 Firestore 的是一排沒有名字的 `items`，而三個地方會一起壞：
+ * 顯示名稱少了那幾款、提醒那一句變成「給營養品：營養品」、
+ * 交付面板每一列都是空白（`issues/08`）。
  *
  * **三個入口共用同一支**，理由跟 `wire()` 一樣：三邊各寫一次的話，遲早有一邊
  * 忘了把新建的那一筆選進 `items`，於是她打了名字、存下去，那一款卻不在裡面。
  *
- * 存檔前叫一次。沒有要新增就原樣回去，一次 IO 都不會發生。
+ * 存檔前叫一次。沒有要新增就只補名字，一次 IO 都不會發生。
  *
  * **寫入那一下是呼叫端傳進來的**，這一支不 import `/data` ——
  * `tests/buy.test.js` 直接載入這個檔案，而 `data/config.js` 那條路會一路
@@ -517,7 +548,9 @@ function qtyField(e) {
  */
 export async function commitNewProduct(draft, master = {}, createProduct) {
   const name = String(draft?.newProductName ?? '').trim();
-  if (!draft?.newProduct || !name || typeof createProduct !== 'function') return draft;
+  if (!draft?.newProduct || !name || typeof createProduct !== 'function') {
+    return withItemNames(draft, master);
+  }
 
   // 同名的已經有了就用既有那一筆，不要長出第二個「Q10」——
   // 主檔上兩筆同名的東西，她之後分不出該選哪一個。
@@ -530,13 +563,26 @@ export async function commitNewProduct(draft, master = {}, createProduct) {
   const items = [...(draft.items ?? [])];
   if (!items.some((x) => x.productId === id)) items.push({ productId: id, name });
 
-  return { ...draft, items, newProduct: false, newProductName: '', label: draft.label };
+  return withItemNames(
+    { ...draft, items, newProduct: false, newProductName: '', label: draft.label },
+    master,
+  );
 }
 
 // ---------- 底下是三個入口共用的那一份接線 ----------
 
 /** 「哪一種／幾萬的」那幾排丸子。換了它們要跟著改顯示名稱。 */
 const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productIds"]';
+
+/**
+ * **打字**會改到顯示名稱的那幾格。
+ *
+ * 「多少錢」以前不在裡面，所以金額有存進去、就是**沒有進名字** ——
+ * 而 `productLabel()` 的整個設計（ADR-0059：`營養品(5000)` 是她舊表的寫法）
+ * 都依賴那個名字。她看到的症狀是「輸入的價格沒有被加入到名稱顯示中」
+ * （`.scratch/quick-actions-and-supplements/issues/09`）。
+ */
+const TYPED_FIELDS = '[name="tierText"], [name="newProductName"], [name="amountTwd"]';
 
 /**
  * 這一張表自己管的那幾個欄位，從表單上讀回來。
@@ -602,7 +648,7 @@ export function wire(root, { form, draft, master, typed = values, onChange }) {
   // 「其他…」與「新增…」展開的那一格。**打字不重畫** —— 重畫會把游標與
   // 輸入法的組字狀態一起洗掉，所以顯示名稱與那句預告是就地改的。
   root.addEventListener('input', (ev) => {
-    if (!ev.target.matches?.('[name="tierText"], [name="newProductName"]')) return;
+    if (!ev.target.matches?.(TYPED_FIELDS)) return;
     const box = form();
     if (!box) return;
 

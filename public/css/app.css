@@ -2556,6 +2556,20 @@ button.mark::after {
   opacity: 0.62;
 }
 
+/* 取消的來訪：**畫出來但暗掉**（ADR-0061）。她要看得出「那天本來有人」——
+   那正是她會想再排一個人進去的訊號。
+
+   跟 .kind-todo--done 用同一種手法（降透明度 + 刪除線），一個新色相都不開 ——
+   色相在 ADR-0039、0045 就已經用完了。opacity 與 text-decoration 都不是顏色，
+   所以 tokens.css 的淺色深色兩份都不用動。 */
+.timerow--off {
+  opacity: 0.55;
+}
+
+.timerow--off .timerow__title {
+  text-decoration: line-through;
+}
+
 /* 診間或治療師撞在一起就標出來 —— 只提示，不阻擋（SPEC 4.7） */
 .warn {
   margin-top: var(--space-2);
@@ -3017,6 +3031,280 @@ button.mark::after {
     max-height: var(--sheet-peek-max);
     border-radius: var(--radius-lg);
   }
+}
+
+/* ---------- 看今天做了什麼（ADR-0062） ---------- */
+
+/* 稽核紀錄的白話版。她開它是為了「掃一眼確認沒漏」，所以這一整塊的目標是
+   **一眼掃得完**：每一列一行、時間對齊、每一段一個小標，沒有任何可以展開的
+   東西（要看差異表去 #/settings/audit）。 */
+
+.reviewtiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.reviewtiles__one b {
+  margin: 0 2px;
+  font-size: var(--text-md);
+  color: var(--text);
+}
+
+.reviewgroup {
+  margin-bottom: var(--space-3);
+}
+
+.reviewgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+/* 段落編號講的是流程的第幾步，不是畫面上的第幾段（同待辦中心，ADR-0043）——
+   所以中間空了一段，其餘的編號不重新編。 */
+.reviewgroup__n {
+  color: var(--text-mute);
+}
+
+/* 一列：時間靠左對齊成一欄，句子跟著。時間用等寬數字，掃的時候眼睛不用重新對焦。 */
+.reviewrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 3px 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.reviewrow__at {
+  flex-shrink: 0;
+  width: 3.1em;
+  color: var(--text-mute);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.reviewrow__what {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 連著一樣的句子收成一則。**只收連著的** —— 早上勾三張、下午又勾兩張是
+   兩件事，全天去重會把「下午又做了一次」藏起來（`domain/dayReview.js`）。 */
+.reviewrow__x {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+/* 最底下那一行試算表。她點名要的那一句：「確認是否有遺漏登記」。
+   判斷在 domain/sheetReport.js 的 describeSync()，這裡只上色。 */
+.reviewsync {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--text-xs);
+}
+
+.reviewsync span {
+  flex: 1;
+  min-width: 0;
+}
+
+.reviewsync--soon {
+  color: var(--soon);
+}
+
+.reviewsync--bad {
+  color: var(--overdue);
+}
+
+/* ---------- 長按的快捷選單（ADR-0060） ---------- */
+
+/* 一列回答兩個手勢：點一下是看，長按是做。
+   長按是隱形的，所以按下去那 450ms 一定要有回饋 —— 沒有的話她會以為當掉了，
+   放開手，然後永遠不知道有這條路。 */
+
+[data-longpress] {
+  position: relative;
+  /* iOS 長按一段文字會跳「拷貝／查詢」的放大鏡，Android 會跳系統選單。
+     兩個都會蓋在快捷選單上面。 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.12s ease;
+}
+
+[data-longpress].is-pressing {
+  transform: scale(0.985);
+}
+
+/* 按住時淡進來的那一層底色。**用那一列自己的 --kind-bg** ——
+   來訪那幾列的顏色就是狀態的顏色（`domain/visits.js` 的 STATUS_VIEW），
+   所以按壓回饋順便再講一次「這一筆現在是哪一種」，而不是蓋掉它。
+   沒有 --kind-bg 的（隨手記那幾列）退回 --surface-2。
+
+   過場時間 0.45s = `actions.js` 的 HOLD_MS。她看到底色滿上來的那一刻，
+   正好就是選單升起來的那一刻 —— 那段等待因此是有回饋的，
+   而不是「怎麼還沒反應」。
+
+   比 .timerow__body:active 那一條晚出現，所以按著的時候是這一條算數。 */
+[data-longpress].is-pressing {
+  background: var(--kind-bg, var(--surface-2));
+  transition: background 0.45s linear, transform 0.12s ease;
+}
+
+/* 選單本身疊在抽屜（20）上面。跟資訊卡片同一層 —— 兩者是同一種東西的兩面
+   （那一筆的細節／那一筆現在做得到的事），而且不會同時開著：
+   選了一顆之後這張會先收起來（`openActions()` 的 onPick）。 */
+.drawer-backdrop--over {
+  z-index: 21;
+}
+
+/* 這張比一般的抽屜矮：它最多六顆，撐到 84dvh 只會留一片空白。 */
+.drawer--actions {
+  max-height: min(var(--sheet-peek-max), 70dvh);
+  gap: 0;
+}
+
+.actions__head {
+  padding: 0 var(--space-1) var(--space-3);
+  flex-shrink: 0;
+}
+
+.actions__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  /* 名字可能很長，而抬頭不是重點 —— 重點是底下那幾顆。 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions__sub {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+  margin-bottom: var(--space-3);
+}
+
+/* 一顆。長相跟日曆抽屜那顆「＋」展開的 .addmenu__item 是同一種 ——
+   左邊一顆圓點裝圖示、右邊一行字。她已經認得那個形狀了。 */
+.actionrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease, background 0.14s ease;
+  /* 依序浮現。`--i` 由 actions.js 給，**不用 JS 排程** ——
+     animation-delay 比一串 setTimeout 準，而且底下那一段
+     prefers-reduced-motion 會自動把它壓成 0。 */
+  animation: actionrow-in 0.16s ease-out both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+
+.actionrow:active {
+  transform: scale(0.99);
+  background: var(--surface-2);
+}
+
+.actionrow[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@keyframes actionrow-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.actionrow__dot {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.actionrow__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.actionrow__label {
+  display: block;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.actionrow__note {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 主要動作與破壞性動作。顏色全部借既有的 token ——
+   tokens.css 一個新的都不用開（淺色深色兩份都要有，ADR-0055）。 */
+.actionrow--primary .actionrow__dot {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+.actionrow--danger .actionrow__label {
+  color: var(--overdue);
+}
+
+.actionrow--danger .actionrow__dot {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+.actions__cancel {
+  flex-shrink: 0;
 }
 
 /* ---------- 置中的資訊卡片 ---------- */
@@ -4792,6 +5080,25 @@ summary {
 .notewho__list {
   flex-basis: 100%;
   margin-top: var(--space-1);
+}
+
+/* 「給營養品」那一顆捷徑（ADR-0059）。長相跟「掛給誰」一模一樣 ——
+   它們是同一種東西（一顆選填的丸子，點開才讀），長得不一樣會讓她
+   以為其中一個比較重要。 */
+.notegive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 選了一包之後，「掛給誰」那一排要收起來 —— 客戶已經由那一包決定了。
+   `display` 一定要在這裡蓋掉：包在外面的 <span> 沒有 class，
+   但 [hidden] 遇到任何 display 宣告就會失效（`.fab__menu` 踩過的同一個坑，
+   README 記著）。 */
+[data-quickwho][hidden],
+[data-calwho][hidden] {
+  display: none !important;
 }
 
 .quickjust__head {

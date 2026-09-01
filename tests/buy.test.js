@@ -15,7 +15,10 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import * as buy from '../public/js/ui/components/buy.js';
+import { fromRoot } from './helpers/paths.js';
 
 const MASTER = {
   courses: [
@@ -205,6 +208,24 @@ describe('動了一下之後的整張草稿', () => {
       draft = buy.afterDetail(draft, { tier: typed, tierOther: true }, MASTER);
     }
     assert.equal(draft.label, '5萬(心臟)健檢');
+  });
+
+  test('**在「多少錢」打字，金額要進名稱** —— 她的舊表就是那樣寫的', () => {
+    // 她的原話：「加購營養品時，輸入的價格沒有正確被加入到名稱顯示中」。
+    // 症狀的根因在接線（`amountTwd` 不在那一排會觸發重算的欄位裡），
+    // 但規則本身要先是對的（`issues/09`）。
+    let draft = { ...from('__product__'), items: [{ productId: 'prod-gaba', name: 'GABA' }] };
+    draft = buy.afterDetail(draft, { productIds: 'prod-gaba', amountTwd: 5050 }, MASTER);
+    assert.equal(draft.amountTwd, 5050);
+    assert.equal(draft.label, '營養品 5,050（GABA）');
+  });
+
+  test('連著打第二個字，金額的名稱一樣要跟', () => {
+    let draft = { ...from('__product__'), items: [{ productId: 'prod-gaba', name: 'GABA' }] };
+    for (const typed of [5, 50, 505, 5050]) {
+      draft = buy.afterDetail(draft, { productIds: 'prod-gaba', amountTwd: typed }, MASTER);
+    }
+    assert.equal(draft.label, '營養品 5,050（GABA）');
   });
 
   test('打字時她自己打過的名稱一樣不覆蓋', () => {
@@ -407,17 +428,60 @@ describe('「＋ 新增…」那一款', () => {
     assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
   });
 
-  test('沒有要新增就原樣回去，一次 IO 都不會發生', async () => {
+  test('沒有要新增就不寫主檔，一次 IO 都不會發生', async () => {
     let called = 0;
-    const d = draft({ newProduct: false });
+    const d = draft({ newProduct: false, items: [{ productId: 'p-1', name: '夜態美' }] });
     const out = await buy.commitNewProduct(d, master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
-    assert.equal(out, d);
+    assert.deepEqual(out, d);
+  });
+
+  // 這一支是**存檔前的最後一站**，所以名字要在這裡補齊 ——
+  // `read()` 從表單讀回來的 items 一律是 `name: ''`（表單只送得回 id），
+  // 而那一份會蓋掉 `afterDetail()` 補好的。名字沒了之後顯示名稱、
+  // 提醒那一句與交付面板會一起變空白（`issues/08`）。
+  test('沒有要新增也要把名字從主檔補齊', async () => {
+    const out = await buy.commitNewProduct(
+      draft({ newProduct: false, items: [{ productId: 'p-1', name: '' }] }),
+      master(),
+      async () => 'x',
+    );
+    assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
+  });
+
+  test('主檔認不出來的那一筆留著 id，名字不變 —— 不要弄成 undefined', async () => {
+    const out = await buy.commitNewProduct(
+      draft({ newProduct: false, items: [{ productId: 'gone', name: '' }] }),
+      master(),
+      async () => 'x',
+    );
+    assert.deepEqual(out.items, [{ productId: 'gone', name: '' }]);
   });
 
   test('名字留白也不新增', async () => {
     let called = 0;
     await buy.commitNewProduct(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
+  });
+});
+
+// 底下兩條讀的是原始碼。`wire()` 那一段碰 DOM，測不到 —— 但它擋掉的
+// 那兩個 bug 都是「一個常數寫錯」，而那種東西讀得出來。
+describe('原始碼守衛：兩個一個字就會壞掉的地方', () => {
+  const SRC = readFileSync(fromRoot('public/js/ui/components/buy.js'), 'utf8');
+
+  test('「多少錢」不可以有倍數限制 —— 5050 會被瀏覽器擋在 submit 之前', () => {
+    // step="100" 讓瀏覽器的內建驗證跳「最接近的有效值為 5000 和 5100」，
+    // 而那一下表單連 submit 都不會觸發（`issues/09`）。
+    const field = SRC.slice(SRC.indexOf("name: 'amountTwd'"));
+    const step = field.slice(0, field.indexOf('})')).match(/step:\s*(\d+)/);
+    assert.ok(step, '找不到「多少錢」那一格的 step');
+    assert.equal(step[1], '1');
+  });
+
+  test('在「多少錢」打字要重算顯示名稱', () => {
+    const typed = SRC.match(/const TYPED_FIELDS = '([^']+)'/);
+    assert.ok(typed, '找不到 TYPED_FIELDS');
+    assert.ok(typed[1].includes('amountTwd'), '金額不在會重算名稱的那幾格裡');
   });
 });

@@ -147,6 +147,95 @@ export function openCount(notes) {
   return (notes ?? []).filter(isOpen).length;
 }
 
+// ---------- 長按的快捷選單 ----------
+
+/**
+ * 長按一筆隨手記，快捷選單上有哪幾顆（ADR-0060）。
+ *
+ * **五個入口共用一份**：待辦首頁那張卡、`#/todo/notes`、客戶詳情、
+ * 日曆的抽屜／日／週。在待辦中心長按有「改日期」、在日曆長按沒有 ——
+ * 那不是兩個畫面，是同一個畫面壞了一半（`ui/components/note.js` 的檔頭）。
+ *
+ * **最多五顆**（加上選單自己的「先不要」剛好六顆，`openActions()` 的上限）。
+ * 所以分兩組：
+ *
+ *   - 一般的隨手記：勾掉／改日期／掛給誰／改文字／（拿掉日期或刪掉）
+ *   - **營養品的提醒**（掛了 `entitlementId`，`domain/products.js`）：
+ *     勾掉那一顆會先問「給了哪些」，所以不再塞「給營養品」——
+ *     它已經是一包了。多給一顆「看那一包」通到客戶詳情。
+ *
+ * @param {object} note
+ * @param {{today: string, onCalendar?: boolean}} o
+ *   onCalendar：這一列現在畫在日曆上。「拿掉日期」在那裡要講成
+ *   「從日曆拿掉」—— 那才是她看得到的後果。
+ * @returns {{id:string, label:string, note?:string, icon?:string, tone?:string}[]}
+ */
+export function noteActions(note, { today, onCalendar = false } = {}) {
+  const out = [];
+  const product = Boolean(note?.entitlementId);
+
+  if (note?.done) {
+    out.push({ id: 'untick', label: '拿回來，還沒做', icon: 'todo' });
+  } else {
+    out.push({
+      id: 'tick',
+      label: '做完了，勾掉',
+      // 營養品的提醒勾掉之前會先問「給了哪些」（`prepareToggle()`）——
+      // 講出來，不然她會以為按下去就直接勾掉了。
+      note: product ? '會先問給了哪幾款' : undefined,
+      icon: 'check',
+      tone: 'primary',
+    });
+  }
+
+  // 「改成今天」是最常按的那一種（客人當著她的面講的話通常今天就處理），
+  // 但**只在還沒有日期時給**：已經掛了日期的那一筆，底下「改哪一天」那一顆
+  // 已經帶著現在是哪一天，兩顆都給會擠掉「改文字」。
+  // 已經勾掉的也不給 —— 替一件做完的事改日期沒有意義。
+  if (!note?.done && !note?.date) {
+    out.push({ id: 'today', label: '改成今天', icon: 'clock' });
+  }
+  out.push({
+    id: 'date',
+    label: note?.date ? '改哪一天' : '挑一天',
+    note: note?.date ?? undefined,
+    icon: 'calendar',
+  });
+
+  // 營養品的提醒到這裡就收尾。它已經是一包了，不再塞「給營養品」——
+  // 多的那一顆通到客戶詳情看整包（金額、哪幾款、給了哪些）。
+  if (product) {
+    out.push({ id: 'bag', label: '看那一包營養品', icon: 'box' });
+    return out;
+  }
+
+  out.push({
+    id: 'who',
+    label: note?.customerId ? '改掛給誰' : '掛給誰',
+    note: note?.customerName ?? undefined,
+    icon: 'people',
+  });
+
+  // 「改文字」補上的是 ADR-0044 Consequences 記著的那個缺口：在這之前
+  // 隨手記除了勾掉之外只有日曆上那一張編輯器改得動。
+  out.push({ id: 'edit', label: '改文字', icon: 'pencil' });
+
+  if (note?.done) {
+    // 刪掉**只給已經勾掉的那幾筆** —— 還沒做的要刪就先勾掉再刪，
+    // 兩步比誤刪好（跟那顆垃圾桶同一條規矩）。
+    out.push({ id: 'remove', label: '刪掉', icon: 'trash', tone: 'danger' });
+  } else if (note?.date) {
+    out.push({
+      id: 'undate',
+      label: onCalendar ? '從日曆拿掉' : '拿掉日期',
+      note: '這一筆會留在隨手記裡',
+      icon: 'close',
+    });
+  }
+
+  return out;
+}
+
 /**
  * 送進 data 層之前把形狀整理好。**吃的是一份完整的隨手記**，
  * 沒帶到的欄位一律算成「空的」。新增走這一支，改一筆請走 `normalizePatch()`。

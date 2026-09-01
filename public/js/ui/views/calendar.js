@@ -33,11 +33,13 @@ import {
   rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate,
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
+import { givableBags } from '../../domain/products.js';
 import {
-  describeStatus, statusClass, shortStatus, STATUS_VIEW_ORDER,
+  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
+  applyStatus, visitActions,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
-import { MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
+import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import * as note from '../components/note.js';
@@ -45,11 +47,15 @@ import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
+import { openActions, wireLongPress } from '../components/actions.js';
+import { go } from '../router.js';
 import { icon } from '../icons.js';
 
 // 看到哪一天留在模組層：點進一筆來訪再退回來，她要回到原本那一頁而不是今天。
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
-const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false };
+// `data` 是最後一次畫出來的那一份。長按改完狀態之後要重讀再把同一天重開 ——
+// 而 `openDay()` 需要一份新的資料（ADR-0020：她的下一個動作八成是看同一天的別筆）。
+const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null };
 
 /** 頂端那一排可勾選的篩選。一種一個顏色，關掉就不顯示。 */
 const KINDS = [
@@ -135,6 +141,7 @@ async function slide(el, data, offset) {
 
 function paint(el, data) {
   const today = todayISO();
+  state.data = data;
 
   // 控制項全部收成兩列。原本月份切換、日週月、篩選各佔一列，
   // 三列加起來就把格子推到螢幕外 —— 而她開這一頁是為了看格子。
@@ -181,6 +188,11 @@ function paint(el, data) {
         空的格子不代表那個時段真的空著。</span>
     </p>
 
+    <p class="footnote">
+      ${icon('todo', { size: 14 })}
+      <span>長按一列可以直接改。</span>
+    </p>
+
     ${fabHtml()}`;
 
   wire(el, data);
@@ -207,8 +219,11 @@ function legendHtml() {
 function countLine(data, date) {
   const range = rangeOf(state.view, date);
   const inRange = (d) => d >= range.from && d <= range.to;
+  // **取消的不算。** 這一行回答的是「那段時間有幾件事要做」，而取消的那一筆
+  // 已經沒事要做了 —— 算進去會讓她以為那幾天排滿了（ADR-0061）。
+  // 它們照樣畫得出來（月檢視的色條、抽屜裡暗掉的那一列），只是不算數。
   const visits = shows('visit')
-    ? data.visits.filter((v) => inRange(v.date)).length
+    ? data.visits.filter((v) => inRange(v.date) && isActive(v)).length
     : 0;
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
@@ -331,14 +346,22 @@ function weekHtml(data, date, today) {
     <div class="weekgrid">
       ${days.map((d) => {
         const day = summary[d];
-        const rows = shows('visit') ? agendaFor(data.visits, d, data) : [];
+        const rows = shows('visit')
+          ? agendaFor(data.visits, d, { ...data, includeCancelled: true })
+          : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
         const todos = notesOn(data, d);
+        // `summaryByDate()` 已經濾掉取消的，所以這個數字天生就不含它們 ——
+        // 跟頂端那一行講同一句話（ADR-0061）。
         const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
         // （那是分組），一筆一個框拿掉了 —— 見 `issues/03`。
+        //
+        // **畫不畫那一段看的是「有沒有東西可以畫」，不是 `total`。**
+        // 那個數字刻意不含取消的（ADR-0061），所以拿它當開關的話，
+        // 一天只剩取消的來訪時整段會寫「沒有排東西」而那一列根本不畫。
         const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
         const timeline = [...timed.map(eventRow), ...rows.map(visitRow)].join('');
 
@@ -353,7 +376,7 @@ function weekHtml(data, date, today) {
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
             </button>
 
-            ${total ? `
+            ${pinned || timeline ? `
               <div class="timeline">
                 ${pinned}
                 ${pinned && timeline ? '<hr class="timeline__split" />' : ''}
@@ -400,7 +423,7 @@ function agendaRow({ kind, open, clock, until = '', title, sub = '', aside = '',
         ${until ? `<div class="timerow__to">${esc(until)}</div>` : ''}
       </div>
       <span class="timerow__bar"></span>
-      <button class="timerow__body" type="button" data-open="${esc(open)}">
+      <button class="timerow__body" type="button" data-open="${esc(open)}" data-longpress>
         <span class="row" style="align-items: baseline">
           <span class="row__main">
             <span class="timerow__title">${esc(title)}</span>
@@ -449,7 +472,11 @@ function eventLine(e) {
  * 整天的行事備註釘在最上面，不進時間軸 —— 它沒有時間，硬塞進去只能擺在一個假位置。
  */
 function dayHtml(data, date, today) {
-  const rows = shows('visit') ? agendaFor(data.visits, date, data) : [];
+  // `includeCancelled`：取消的畫出來但暗掉（ADR-0061）。月檢視的色條一直
+  // 都畫得出來，而這裡以前整筆濾掉 —— 同一份資料兩種畫法，她點下去看到空的。
+  const rows = shows('visit')
+    ? agendaFor(data.visits, date, { ...data, includeCancelled: true })
+    : [];
   const visible = data.events.filter((e) => shows(e.category));
   const { allDay, timed } = dayEvents(visible, date);
   const todos = notesOn(data, date);
@@ -468,6 +495,11 @@ function dayHtml(data, date, today) {
   // 空的那一天講的那句話搬到這裡（`issues/04`）—— 它以前掛在抽屜抬頭底下的
   // 說明列上，而那一列現在拿掉了。這句不能拿掉：SPEC 第 8.6 節最後一段要求
   // 這一頁講明「空的格子不等於那個時段真的空著」，不然她會拿它當可用時段表用。
+  //
+  // **問的是 `merged`，也就是「畫得出東西嗎」，不是「有幾件事要做」。**
+  // 一天只剩取消的來訪時那幾列照樣要畫（ADR-0061），所以那時候這裡不可以
+  // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
+  // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
   if (!merged.length && !allDay.length && !todos.length) {
     return `<p class="muted" style="margin: 0">這天還沒有東西 ——
       但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
@@ -485,10 +517,17 @@ function dayHtml(data, date, today) {
     </div>`;
 }
 
-/** 一筆來訪的一段。狀態 class 掛在整列上，色棒與徽章都從它繼承。 */
+/**
+ * 一筆來訪的一段。狀態 class 掛在整列上，色棒與徽章都從它繼承。
+ *
+ * 取消的那幾列多一個 `timerow--off`：整列降透明度加刪除線（ADR-0061）。
+ * **不吃新的色相** —— 色相已經用完了（ADR-0039、0045），所以走的是
+ * `.kind-todo--done` 那一種手法。
+ */
 function visitRow(r) {
+  const off = r.status === 'cancelled' ? ' timerow--off' : '';
   return agendaRow({
-    kind: esc(statusClass(r.status)) || 'kind-visit',
+    kind: `${esc(statusClass(r.status)) || 'kind-visit'}${off}`,
     open: `visit:${r.visitId}`,
     clock: r.startsAt || '—',
     until: r.endsAt || '',
@@ -573,6 +612,13 @@ function openDay(el, data, date) {
       openDetail(el, data, what, id, date);
     }),
   );
+
+  // 長按一列＝直接做（ADR-0060）。點一下的行為一個字都沒有變。
+  // 委派掛在 `sheet.el` 上：那張抽屜關掉時整個節點被拿掉，監聽跟著消失。
+  wireLongPress(sheet.el, '[data-open]', (btn) => {
+    const [what, id] = btn.dataset.open.split(':');
+    openQuickActions(el, data, what, id, date);
+  });
 
   wireAddMenu(sheet, {
     visit: () => pickCustomer(el, data, sheet, date, date),
@@ -732,12 +778,7 @@ function openNoteCard(el, data, id, date) {
           // 營養品的提醒會先問「給了哪些」（四個入口共用 `note.prepareToggle()`）。
           // 問話在 withSaveState 外面 —— 包進去的話她按了「先不要」也會跳
           // 一句「勾掉了」。
-          const plan = await note.prepareToggle(current, {
-            loadEntitlements: (cid) => customersData.listEntitlements(cid),
-            recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-            setDone: (id, done) => notesData.setDone(id, done),
-            today: todayISO(),
-          });
+          const plan = await note.prepareToggle(current, noteDeps());
           if (!plan) return;
 
           let next;
@@ -764,6 +805,207 @@ function openNoteCard(el, data, id, date) {
 
   paint(n);
 }
+
+// ---------- 長按：快捷選單（ADR-0060） ----------
+//
+// 點一下＝看（讀取卡片），長按＝做。點一下的行為一個字都沒有變。
+//
+// **改一筆來訪只有日曆這一個入口**（ADR-0056），所以狀態那幾顆只長在這裡 ——
+// 待辦中心與客戶詳情的列一顆都不會有。
+//
+// 存完之後三個畫面怎麼跟上：**一條路都不另外開。** 寫入一律走
+// `visitsData.save()`，它把來訪本身、額度的計數與該產生／該收掉的任務放在
+// 同一個 batch 裡。待辦中心的「跟客人確認時間」「簽療程單」是從來訪**推導**的，
+// 客戶詳情的次數是 `counts()` 現算的 —— 沒有第二份資料要同步。
+
+/** 長按一列之後跳出來的那一張。三種東西各一份清單，全部在 domain。 */
+function openQuickActions(el, data, what, id, backDate) {
+  if (what === 'visit') return visitQuickActions(el, data, id, backDate);
+  if (what === 'note') return noteQuickActions(el, data, id, backDate);
+  return eventQuickActions(el, data, id, backDate);
+}
+
+/**
+ * 存完之後：重讀那一頁，再把**同一天**的抽屜開回來。
+ *
+ * 不開回來的話她每改一筆就要重新找一次那一天，而她在日曆上的心裡狀態是
+ * 「八月三號那天」（ADR-0020）。`render()` 讀完會把新的那一份放進 `state.data`。
+ */
+async function refreshAfterAction(el, backDate) {
+  closeSheet();
+  closeCard();
+  await render(el);
+  if (backDate && state.data) openDay(el, state.data, backDate);
+}
+
+function visitQuickActions(el, data, id, backDate) {
+  const visit = data.visits.find((v) => v.id === id);
+  if (!visit) return;
+
+  const items = visitActions(visit, { today: todayISO() });
+  if (!items.length) {
+    // 終點（已完成／已取消）沒有東西可做。**講出來**，不要跳一張空選單 ——
+    // 靜靜什麼都不發生比講一句話糟（SPEC 第 6.9 節）。
+    toast.info(`這一筆是「${describeStatus(visit.status)}」，已經是終點了`);
+    return;
+  }
+
+  openActions({
+    title: visit.customerName ?? '（沒有名字）',
+    subtitle: `${shortDate(visit.date)}・${describeStatus(visit.status)}`,
+    items,
+    onPick: (action) => runVisitAction(el, data, visit, action, backDate),
+  });
+}
+
+async function runVisitAction(el, data, visit, action, backDate) {
+  if (action === 'edit') {
+    openEditor(el, data, {
+      kind: 'visit', visitId: visit.id, date: visit.date, backDate,
+    });
+    return;
+  }
+
+  if (action === 'close') {
+    // 收尾是**逐段**的（ADR-0025：客人做了兩段就走是會發生的事，而次數就是
+    // 跟著它扣的）。所以這一顆不自己標，通到待辦中心那張逐段的抽屜。
+    go('/todo/close');
+    return;
+  }
+
+  // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
+  if (action === 'cancelled') {
+    const ok = await confirmAction({
+      title: `取消${visit.customerName ?? ''}這一筆來訪？`,
+      consequences: [
+        `${(visit.slots ?? []).length} 個時段會退回去，次數也會還回來`,
+        '改期不是改日期，是取消後重新排一筆',
+        '如果已經在 Abovee／Examine／耀聖登記過，要回去把舊的取消掉',
+        '取消後不能復原成已確認，但日曆上還看得到它（暗掉的那一列）',
+      ],
+      confirmLabel: '取消這筆來訪',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+
+  try {
+    // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
+    const customerVisits = await visitsData.listByCustomer(visit.customerId);
+    const next = applyStatus(visit, action);
+    await toast.withSaveState(() => visitsData.save(next, customerVisits), {
+      success: `已改成「${describeStatus(action)}」`,
+    });
+    await refreshAfterAction(el, backDate);
+  } catch {
+    /* 已處理 */
+  }
+}
+
+/**
+ * 「給營養品」那一顆點開之後要列的東西。點開才讀，而且只讀一次
+ * （`note.wireGive()` 的規矩）—— 日曆是她每天開十幾次的一頁。
+ *
+ * 誰有貨、哪幾包還沒給完，規則全部在 `domain/products.js` 的 `givableBags()`。
+ */
+async function loadGivableBags() {
+  const [customers, entitlementsBy, openNotes, products] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    notesData.listOpen(),
+    config.listAll('products'),
+  ]);
+  return givableBags({ customers, entitlementsBy, notes: openNotes, master: { products } });
+}
+
+/** 勾一筆隨手記／改它的日期與掛的人，五個入口共用同一份形狀。 */
+function noteDeps() {
+  return {
+    update: (id, changes) => notesData.update(id, changes),
+    remove: (id, reason) => notesData.remove(id, reason),
+    setDone: (id, done) => notesData.setDone(id, done),
+    loadEntitlements: (cid) => customersData.listEntitlements(cid),
+    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
+    loadCustomers: () => customersData.list(),
+    // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
+    loadProducts: () => config.listAll('products'),
+    today: todayISO(),
+    // 問話那一段刻意在 withSaveState 外面（見 `note.prepareToggle()` 的檔頭），
+    // 所以這裡收的是「真的會寫的那一下」。
+    save: (run, opts) => toast.withSaveState(run, opts),
+  };
+}
+
+function noteQuickActions(el, data, id, backDate) {
+  const n = (data.notes ?? []).find((x) => x.id === id);
+  if (!n) return;
+
+  openActions({
+    title: n.text,
+    subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
+      .filter(Boolean).join('・'),
+    items: noteActions(n, { today: todayISO(), onCalendar: true }),
+    onPick: async (action) => {
+      try {
+        const changed = await note.runAction(action, n, {
+          ...noteDeps(),
+          onEdit: () => openNoteEditor(el, data, { id: n.id, backDate }),
+          onBag: () => {
+            if (n.customerId) go(`/customers/${n.customerId}`);
+            else toast.info('這一筆沒有掛客戶，找不到是哪一包');
+          },
+        });
+        if (changed) await refreshAfterAction(el, backDate);
+      } catch {
+        /* 已處理 */
+      }
+    },
+  });
+}
+
+function eventQuickActions(el, data, id, backDate) {
+  const event = data.events.find((e) => e.id === id);
+  if (!event) return;
+
+  openActions({
+    title: event.title,
+    subtitle: `${describeCategory(event.category)}・${spanLabel(event)}`,
+    // 行事備註本來就只有這兩件事可做 —— 它不綁客戶、不產生任務、不扣次數。
+    items: [
+      { id: 'edit', label: '改這一筆', icon: 'pencil' },
+      { id: 'remove', label: '刪掉', icon: 'trash', tone: 'danger' },
+    ],
+    onPick: async (action) => {
+      if (action === 'edit') {
+        openEditor(el, data, { kind: 'event', id: event.id, backDate });
+        return;
+      }
+      const ok = await confirmAction({
+        title: `刪掉「${event.title}」？`,
+        consequences: [
+          '它會進「已刪除項目」，之後還原得回來',
+          isLeaveEvent(event)
+            ? '那幾天就不再被當成休假了 —— 壓表會重新排得進去'
+            : '行事備註不綁客戶、不產生任務，所以沒有別的東西會跟著變',
+        ],
+        confirmLabel: '刪掉',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await toast.withSaveState(() => eventsData.remove(event.id, '在日曆上長按刪掉'), {
+          success: '刪掉了',
+        });
+        await refreshAfterAction(el, backDate);
+      } catch {
+        /* 已處理 */
+      }
+    },
+  });
+}
+
+/** 休假那幾天她根本不在，所以刪掉它的後果跟一般的行事備註不一樣。 */
+const isLeaveEvent = (event) => event?.category === 'leave';
 
 /**
  * 待辦的編輯器。掛在同一張抽屜裡，不換頁（ADR-0020）。
@@ -792,6 +1034,14 @@ function mountNoteEditor(el, data, sheet, spec) {
       </label>
       <span class="field__label">哪一天</span>
       ${note.field({ value: existing?.date ?? spec.date })}
+      <span data-calwho>
+        <span class="field__label">掛給誰</span>
+        ${note.who({
+          customerId: existing?.customerId ?? null,
+          customerName: existing?.customerName ?? null,
+        })}
+      </span>
+      ${isNew ? note.give() : ''}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>
@@ -805,6 +1055,32 @@ function mountNoteEditor(el, data, sheet, spec) {
   sheet.expand();
 
   note.wire(sheet.el);
+  // 「掛給誰」跟另外四個入口是同一塊（`ui/components/note.js`）。它以前不在
+  // 這一頁，理由寫的是「那是客戶詳情頁的事」—— 而那句話指向一個不存在的地方：
+  // 隨手記除了勾掉之外沒有別的編輯入口，這一張就是唯一的那一個
+  // （ADR-0044 的 Consequences 自己寫著）。
+  //
+  // **旗標是必要的。** `note.wire()` 每次都重抓 `[data-notedate]` 所以它自己
+  // 防得了重複，`wireWho()` 是把監聽委派在 `sheet.el` 上的 —— 而
+  // `sheet.update()` 換的是內容那一塊，`sheet.el` 本身留著。同一張抽屜上
+  // mount 兩次就會掛兩組（同 `views/home.js` 的 `openQuick()`）。
+  if (!sheet.el.dataset.noteWhoWired) {
+    sheet.el.dataset.noteWhoWired = '1';
+    // 點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
+    note.wireWho(sheet.el, { load: () => customersData.list() });
+
+    // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。**只在新增時有** ——
+    // 改一件既有的待辦時，它是哪一包早就決定了。
+    note.wireGive(sheet.el, {
+      load: () => loadGivableBags(),
+      onPick: (picked) => {
+        const box = sheet.el.querySelector('[data-calwho]');
+        if (box) box.hidden = Boolean(picked);
+        const text = sheet.el.querySelector('[data-noteform] [name="text"]');
+        if (picked && text) text.value = picked.text;
+      },
+    });
+  }
 
   const done = () => {
     closeSheet();
@@ -830,13 +1106,23 @@ function mountNoteEditor(el, data, sheet, spec) {
     e.preventDefault();
     const text = String(e.target.elements.text.value ?? '').trim();
     if (!text) return;
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 「掛給誰」那一排這時候是收起來的。
+    const bag = isNew ? note.readGive(sheet.el) : null;
+
     write(
       {
         text,
         date: note.read(sheet.el),
-        // 掛的客戶不在這一頁改 —— 那是客戶詳情頁的事，而這裡改的是「哪一天」。
-        customerId: existing?.customerId ?? null,
-        customerName: existing?.customerName ?? null,
+        // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
+        // 只帶其中一個過來，另一個會被算成空的。`readWho()` 一律兩個一起回。
+        ...(bag
+          ? {
+            customerId: bag.customerId,
+            customerName: bag.customerName,
+            entitlementId: bag.entitlementId,
+          }
+          : note.readWho(sheet.el)),
       },
       isNew ? '記下來了' : '改好了',
     );
@@ -847,8 +1133,9 @@ function mountNoteEditor(el, data, sheet, spec) {
       {
         text: existing.text,
         date: null,
-        customerId: existing.customerId ?? null,
-        customerName: existing.customerName ?? null,
+        // 從表單讀，不從 `existing` 讀 —— 她可能剛剛才在這一頁改了掛給誰，
+        // 然後才按「從日曆拿掉」。用舊的那一份會把她剛改的清掉。
+        ...note.readWho(sheet.el),
       },
       '從日曆拿掉了，隨手記裡還在',
     ),
@@ -1109,6 +1396,16 @@ function wire(el, data) {
       openDetail(el, data, what, id, null);
     }),
   );
+
+  // 長按一列＝直接做（ADR-0060）。
+  //
+  // **委派掛在 `[data-swipe]` 上，不是 `el` 上。** `paint()` 換的是
+  // `el.innerHTML`，`el` 本身留著 —— 掛在它上面的話每重畫一次就多一組，
+  // 而這一頁光是點一顆篩選就會重畫。三格 swipe 容器每次重畫都是新的節點。
+  wireLongPress(el.querySelector('[data-swipe]'), '[data-open]', (btn) => {
+    const [what, id] = btn.dataset.open.split(':');
+    openQuickActions(el, data, what, id, null);
+  });
 
   el.querySelector('[data-fab]')?.addEventListener('click', () => {
     state.fab = !state.fab;
