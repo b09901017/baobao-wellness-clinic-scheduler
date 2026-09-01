@@ -258,6 +258,59 @@ describe('孤兒資料', () => {
     const standalone = run({ tasks: [task({ visitId: null })] });
     assert.equal(findingsOf(standalone, 'orphans').length, 0);
   });
+
+  // 隨手記以前不在快照裡，所以它身上的孤兒一個都看不到。它現在扛著日曆上的
+  // 「待辦」與營養品的交付觸發兩個職責（ADR-0044、0059）。
+  describe('隨手記', () => {
+    const note = (over = {}) => ({
+      id: 'n1', text: '記得給營養品', done: false, ...over,
+    });
+
+    test('沒掛人的雜事不是孤兒 —— 那是正常的', () => {
+      const result = run({ notes: [note({ customerId: null, entitlementId: null })] });
+      assert.equal(findingsOf(result, 'orphans').length, 0);
+    });
+
+    test('掛到不存在的客戶會被抓到', () => {
+      const result = run({ notes: [note({ customerId: 'cus-gone' })] });
+      const [f] = findingsOf(result, 'orphans');
+      assert.equal(f.severity, 'mismatch');
+      assert.match(f.detail, /客戶/);
+    });
+
+    // 這一條是整段的理由：額度被刪掉之後那筆提醒還勾得動，
+    // 而勾下去 recordDelivery() 寫不進任何東西 —— 畫面上只是勾掉了。
+    test('提醒指向已刪除的營養品額度會被抓到', () => {
+      const result = run({
+        entitlements: [ent({ id: 'e-prod', type: 'product', deletedAt: 'x' })],
+        notes: [note({ customerId: 'cus-1', entitlementId: 'e-prod' })],
+      });
+      const [f] = findingsOf(result, 'orphans');
+      assert.equal(f.severity, 'attention', '已刪除是 attention，不存在才是 mismatch');
+      assert.match(f.detail, /營養品/);
+      assert.equal(f.link, '#/customers/cus-1');
+    });
+
+    test('指向不存在的額度是 mismatch，而且連得到那位客戶', () => {
+      const result = run({ notes: [note({ customerId: 'cus-1', entitlementId: 'e-gone' })] });
+      const [f] = findingsOf(result, 'orphans');
+      assert.equal(f.severity, 'mismatch');
+      assert.equal(f.link, '#/customers/cus-1');
+    });
+
+    test('好好的那一筆一項都不報', () => {
+      const result = run({
+        entitlements: [ent({ id: 'e-prod', type: 'product' })],
+        notes: [note({ customerId: 'cus-1', entitlementId: 'e-prod' })],
+      });
+      assert.equal(findingsOf(result, 'orphans').length, 0);
+    });
+
+    test('快照沒帶 notes 也不會炸 —— 舊呼叫端照樣跑得動', () => {
+      const result = runHealthCheck({ customers: [customer()], master: MASTER }, TODAY);
+      assert.equal(findingsOf(result, 'orphans').length, 0);
+    });
+  });
 });
 
 describe('狀態異常', () => {

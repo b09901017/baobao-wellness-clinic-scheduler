@@ -29,7 +29,7 @@ export function listOpen() {
  *
  * **有上限。** 她要看的是「最近做完的」，不是全部歷史 —— 一年之後這個集合
  * 有好幾千筆，而那一格只是讓她確認「我剛剛勾掉的那幾筆去哪了」與勾錯了點得回來。
- * 報表要全部的話走 `listAll()`。
+ * 報表要的那一組走 `listForReport()`。
  *
  * 需要 (deletedAt, done, doneAt desc) 複合索引，已列在 firestore.indexes.json。
  */
@@ -52,12 +52,29 @@ export function listByCustomer(customerId) {
 }
 
 /**
- * 全部任務，含已完成的。試算表報表的 TODO / FINISHED 兩塊用。
+ * 報表要的那些任務。試算表報表與 `#/settings/report` 的 TODO / FINISHED 兩塊用。
  *
- * 不逐位客戶查：一次要畫二十幾位，那是二十幾次讀取，而報表本來就要全部。
+ * 不逐位客戶查：一次要畫二十幾位，那是二十幾次讀取。
+ *
+ * **兩邊不對稱，這是刻意的：**
+ *
+ * - **沒做完的全部拿。** 死線在一年前的逾期任務照樣要出現在 TODO 那一塊 ——
+ *   拖最久的那幾筆正是她最需要看到的。這一半天生有界（她會把它們做掉）。
+ * - **做完的只拿最近的。** 這一半永遠只增不減，一年就好幾千筆。
+ *
+ * 以前這裡是 `repo.list(PATH, {})`，也就是**開站到今天的全部任務、沒有上限**，
+ * 而試算表同步是每次寫入後十秒推一次（`data/sheetSync.js`）——
+ * 那是整個 app 唯一一個又高頻又無上界的讀取，會逐年線性變貴。
+ * 同一支檔案的 `listDone()` 早就想過這件事了（見它的註解），只有這裡漏掉。
+ *
+ * 兩個查詢吃的都是已經存在的複合索引，不必為這件事多開一個。
+ *
+ * @param {{doneLimit?: number}} [o] 做完的最多拿幾筆。500 筆 ÷ 二十幾位客戶
+ *   ≈ 每人二十幾筆，比她的舊試算表一張分頁放得下的還多。
  */
-export function listAll() {
-  return repo.list(PATH, {});
+export async function listForReport({ doneLimit = 500 } = {}) {
+  const [open, done] = await Promise.all([listOpen(), listDone(doneLimit)]);
+  return [...open, ...done];
 }
 
 export async function listDeleted() {
