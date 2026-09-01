@@ -1,8 +1,18 @@
 # === 絕對不能進版控（SPEC.md 第 10 節）===
-# Service account 金鑰是萬能鑰匙，會繞過所有 Security Rules
+# Service account 金鑰是萬能鑰匙，**它繞過所有 Security Rules**。
+#
+# 兩層擋法，刻意重複：
+#
+#   1. 檔名 —— Console 下載下來的預設名字就長這樣，改到別的資料夾也照樣擋
+#   2. 整個 keys/ 資料夾 —— 擋掉「她把檔名改短了」的那種情況，
+#      而那正是第 1 條唯一漏得掉的破口
+#
+# 少了任何一條都還有另一條在。驗證方式：
+#   git check-ignore -v keys/你的金鑰.json
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
 *serviceAccount*.json
+keys/
 
 # 含真實客戶健康資訊的匯出檔與備份
 /backups/
