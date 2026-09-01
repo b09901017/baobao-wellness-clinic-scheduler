@@ -1,6 +1,6 @@
 # 客戶詳情點營養品直接落進「調整」表單
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 6.4）
 Blocked by: 05, 08, 10
 動工前先讀：`public/js/ui/views/customerDetail.js` 的 `productsBlock()`、

@@ -1,6 +1,6 @@
 # 看今天做了什麼
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 D.7）
 動工前先讀：`public/js/domain/audit.js`、`public/js/data/audit.js`、
 `public/js/ui/views/audit.js`、`public/js/data/sheetSync.js`、

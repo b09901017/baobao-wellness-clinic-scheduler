@@ -247,9 +247,15 @@ describe('長按一筆隨手記有哪幾顆（noteActions）', () => {
     assert.ok(!ids({ done: true }).includes('tick'));
   });
 
-  test('已經是今天就不再給「改成今天」', () => {
+  test('**只有還沒掛日期時才給「改成今天」** —— 掛了的話「改哪一天」已經帶著它', () => {
     assert.ok(ids({ done: false, date: null }).includes('today'));
     assert.ok(!ids({ done: false, date: TODAY }).includes('today'));
+    assert.ok(!ids({ done: false, date: '2026-09-09' }).includes('today'));
+  });
+
+  test('「改文字」永遠在 —— 它補的是 ADR-0044 記著的那個缺口', () => {
+    assert.ok(ids({ done: false }).includes('edit'));
+    assert.ok(ids({ done: true, date: '2026-09-09' }).includes('edit'));
   });
 
   test('沒有日期就沒有「拿掉日期」', () => {
@@ -269,9 +275,17 @@ describe('長按一筆隨手記有哪幾顆（noteActions）', () => {
     assert.equal(off.find((a) => a.id === 'undate').label, '拿掉日期');
   });
 
-  test('營養品的提醒是另一組：不掛人、不拿掉日期，多一顆看那一包', () => {
-    const rows = ids({ done: false, entitlementId: 'e1', date: '2026-09-09' });
-    assert.deepEqual(rows, ['tick', 'today', 'date', 'bag']);
+  test('營養品的提醒是另一組：不掛人、不改文字、不拿掉日期，多一顆看那一包', () => {
+    assert.deepEqual(
+      ids({ done: false, entitlementId: 'e1', date: '2026-09-09' }),
+      ['tick', 'date', 'bag'],
+    );
+    // 那一句文字是 `noteTextFor()` 產的（ADR-0059），她不該手改 ——
+    // 改了之後給了一部分時會被 recordDelivery() 換掉，等於白改。
+    assert.deepEqual(
+      ids({ done: false, entitlementId: 'e1', date: null }),
+      ['tick', 'today', 'date', 'bag'],
+    );
   });
 
   test('營養品那一顆「勾掉」要先講會問給了哪幾款', () => {

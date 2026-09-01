@@ -1,6 +1,6 @@
 # 文件、ADR、SPEC、README 收尾
 
-Status: todo
+Status: done
 來源：這一輪的連動（`CLAUDE.md` 的「容易漏掉的連動」）
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13
 動工前先讀：`CLAUDE.md`、`docs/agents/domain.md`、`docs/adr/` 的編號慣例

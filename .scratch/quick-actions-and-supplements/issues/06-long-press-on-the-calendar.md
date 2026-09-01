@@ -1,6 +1,6 @@
 # 日曆的每一列接上長按
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 B.5）
 Blocked by: 02, 03, 05
 動工前先讀：`issues/05`、`public/js/ui/views/calendar.js`、

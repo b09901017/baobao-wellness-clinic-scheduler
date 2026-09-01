@@ -372,9 +372,9 @@ function wire(ctx, { today, marks }) {
       items: noteActions(n, { today: todayISO() }),
       onPick: async (action) => {
         try {
+          // 不傳 `onEdit`：這一頁沒有自己的編輯器，`runAction()` 會用內建的那一張。
           const changed = await note.runAction(action, n, {
             ...noteRunDeps(ctx),
-            onEdit: () => toast.info('要改字的話，先勾掉再記一筆新的 —— 或到日曆上那一天改'),
             onBag: () => toast.info('那一包就在這一頁的「營養品」那一段'),
           });
           if (changed) await reload(ctx);

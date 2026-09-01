@@ -188,10 +188,11 @@ export function noteActions(note, { today, onCalendar = false } = {}) {
     });
   }
 
-  // 「改成今天」是最常按的那一種（客人當著她的面講的話通常今天就處理）。
-  // 已經勾掉的不給這一顆 —— 替一件做完的事改日期沒有意義，
-  // 而那一格要留給「刪掉」。
-  if (!note?.done && note?.date !== today) {
+  // 「改成今天」是最常按的那一種（客人當著她的面講的話通常今天就處理），
+  // 但**只在還沒有日期時給**：已經掛了日期的那一筆，底下「改哪一天」那一顆
+  // 已經帶著現在是哪一天，兩顆都給會擠掉「改文字」。
+  // 已經勾掉的也不給 —— 替一件做完的事改日期沒有意義。
+  if (!note?.done && !note?.date) {
     out.push({ id: 'today', label: '改成今天', icon: 'clock' });
   }
   out.push({
@@ -214,6 +215,10 @@ export function noteActions(note, { today, onCalendar = false } = {}) {
     note: note?.customerName ?? undefined,
     icon: 'people',
   });
+
+  // 「改文字」補上的是 ADR-0044 Consequences 記著的那個缺口：在這之前
+  // 隨手記除了勾掉之外只有日曆上那一張編輯器改得動。
+  out.push({ id: 'edit', label: '改文字', icon: 'pencil' });
 
   if (note?.done) {
     // 刪掉**只給已經勾掉的那幾筆** —— 還沒做的要刪就先勾掉再刪，

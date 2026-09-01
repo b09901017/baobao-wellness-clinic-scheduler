@@ -22,6 +22,7 @@ import { esc } from './form.js';
 import { icon } from '../icons.js';
 import { shortDate, todayISO } from '../../domain/dates.js';
 import { undelivered, deliveryChoices, noteTextFor } from '../../domain/products.js';
+import { MAX_LENGTH } from '../../domain/notes.js';
 import { openSheet } from './sheet.js';
 import { openCard, closeCard } from './card.js';
 import { confirmAction } from './dialog.js';
@@ -482,24 +483,37 @@ export async function askGiven(entitlement, { customerName = '', master } = {}) 
  */
 export async function runAction(action, note, deps) {
   const {
-    update, remove, setDone, loadEntitlements, recordDelivery,
+    update, remove, setDone, loadEntitlements, recordDelivery, loadProducts,
     loadCustomers, today, save, onEdit, onBag,
   } = deps;
 
-  if (action === 'edit') {
-    onEdit?.(note);
-    return false;
-  }
   if (action === 'bag') {
     onBag?.(note);
     return false;
+  }
+
+  if (action === 'edit') {
+    // 呼叫端有自己的編輯器（日曆那一張，連日期與刪除都在裡面）就走它。
+    // **沒有的話用內建的那一張小卡片** —— 另外四個入口以前只能回一句
+    // 「先勾掉再記一筆新的」，而那是在解釋一個限制，不是在做事。
+    // 這一顆補的正是 ADR-0044 Consequences 記著的缺口。
+    if (onEdit) {
+      onEdit(note);
+      return false;
+    }
+    const text = await askText(note.text ?? '');
+    if (text === null || text === note.text) return false;
+    await save(() => update(note.id, { text }), { success: '改好了' });
+    return true;
   }
 
   // 勾掉／拿回來**一定要走 `prepareToggle()`** —— 營養品的提醒要先問
   // 「給了哪些」，而那筆交付紀錄是要進試算表的。
   if (action === 'tick' || action === 'untick') {
     const plan = await prepareToggle(note, {
-      loadEntitlements, recordDelivery, setDone, today,
+      // `loadProducts` 一定要往下傳：舊資料的 `items[].name` 是空字串，
+      // 少了它那張「給了什麼？」的面板每一列都是空白（issue 10）。
+      loadEntitlements, recordDelivery, setDone, today, loadProducts,
     });
     if (!plan) return false;
     await save(plan.run, { success: plan.success });
@@ -557,6 +571,60 @@ export async function runAction(action, note, deps) {
   }
 
   return false;
+}
+
+/**
+ * 改那一行字。
+ *
+ * 內建的那一張，給**沒有自己的編輯器**的那四個入口用（首頁那張卡、
+ * `#/todo/notes`、客戶詳情，加上那顆泡泡記完之後）。日曆有它自己的
+ * （那裡連日期與刪除都在同一張表上），所以那邊傳 `onEdit` 走自己的。
+ *
+ * @returns {Promise<string|null>} null = 她按了取消或清成空白
+ */
+function askText(value) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      closeCard();
+      resolve(v);
+    };
+
+    openCard({
+      title: '改文字',
+      body: `
+        <label class="field">
+          <span class="visually-hidden">記什麼</span>
+          <input type="text" data-edittext maxlength="${MAX_LENGTH}"
+                 value="${esc(value)}" style="width: 100%" />
+        </label>`,
+      actions: `
+        <button class="btn btn--primary" type="button" data-edittext-ok>存起來</button>
+        <button class="btn" type="button" data-edittext-cancel>先不要</button>`,
+      onClose: () => finish(null),
+      onMount: (card) => {
+        if (card.dataset.edittextWired) return;
+        card.dataset.edittextWired = '1';
+        card.querySelector('[data-edittext]')?.focus();
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('[data-edittext-cancel]')) return finish(null);
+          if (!e.target.closest('[data-edittext-ok]')) return undefined;
+          // 空白不算改 —— 一筆沒有字的隨手記在清單上是一列看不懂的東西
+          // （`validateNote()` 也擋）。
+          return finish(String(card.querySelector('[data-edittext]')?.value ?? '').trim() || null);
+        });
+        card.addEventListener('keydown', (e) => {
+          if (!e.target.matches('[data-edittext]')) return;
+          // 輸入法組字中的 Enter 是「確定這個字」，不是「送出」（同泡泡那一支）
+          if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          finish(String(e.target.value ?? '').trim() || null);
+        });
+      },
+    });
+  });
 }
 
 /**

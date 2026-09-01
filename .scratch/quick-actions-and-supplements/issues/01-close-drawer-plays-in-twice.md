@@ -1,6 +1,6 @@
 # 簽療程單的抽屜跳出來兩次
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A.1）
 動工前先讀：`public/js/ui/views/home.js` 的 `wireClose()`、
 `public/js/ui/components/sheet.js` 的 `wireDrag()`、ADR-0038

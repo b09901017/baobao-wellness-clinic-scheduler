@@ -1,6 +1,6 @@
 # 「記一次」的新增那一排沒有這個月
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A.4）
 動工前先讀：`public/js/ui/views/availability.js` 的 `openPicker()`、
 ADR-0036、ADR-0053、`CONTEXT.md` 的「本輪可用性」

@@ -1,6 +1,6 @@
 # 營養品的提醒：空白的交付面板與一條走不完的路
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 6.1）
 Blocked by: 08
 動工前先讀：`public/js/ui/components/note.js` 的 `prepareToggle()` 與 `askDelivery()`、

@@ -1,6 +1,6 @@
 # 金額打進去不會進顯示名稱，而且 5050 被瀏覽器擋掉
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 6.2、6.3）
 Blocked by: 08
 動工前先讀：`public/js/ui/components/buy.js` 的 `wire()` 與 `productRow()`、

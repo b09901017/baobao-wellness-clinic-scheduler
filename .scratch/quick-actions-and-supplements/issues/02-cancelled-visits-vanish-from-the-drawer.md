@@ -1,6 +1,6 @@
 # 已取消的來訪在抽屜／日／週檢視整個不見
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A.2）
 動工前先讀：`public/js/domain/calendar.js` 的 `agendaFor()`、
 `public/js/domain/visits.js` 的 `isActive()` 與 `STATUS_VIEW`、ADR-0039、0045

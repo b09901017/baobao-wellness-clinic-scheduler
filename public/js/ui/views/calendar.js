@@ -358,6 +358,10 @@ function weekHtml(data, date, today) {
 
         // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
         // （那是分組），一筆一個框拿掉了 —— 見 `issues/03`。
+        //
+        // **畫不畫那一段看的是「有沒有東西可以畫」，不是 `total`。**
+        // 那個數字刻意不含取消的（ADR-0061），所以拿它當開關的話，
+        // 一天只剩取消的來訪時整段會寫「沒有排東西」而那一列根本不畫。
         const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
         const timeline = [...timed.map(eventRow), ...rows.map(visitRow)].join('');
 
@@ -372,7 +376,7 @@ function weekHtml(data, date, today) {
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
             </button>
 
-            ${total ? `
+            ${pinned || timeline ? `
               <div class="timeline">
                 ${pinned}
                 ${pinned && timeline ? '<hr class="timeline__split" />' : ''}
@@ -491,10 +495,12 @@ function dayHtml(data, date, today) {
   // 空的那一天講的那句話搬到這裡（`issues/04`）—— 它以前掛在抽屜抬頭底下的
   // 說明列上，而那一列現在拿掉了。這句不能拿掉：SPEC 第 8.6 節最後一段要求
   // 這一頁講明「空的格子不等於那個時段真的空著」，不然她會拿它當可用時段表用。
-  // 空狀態要拿**還算數的那幾筆**去問：一天只剩取消的來訪時，那幾列照樣要畫，
-  // 但「這天還沒有東西」那句話不可以同時印出來。
-  const live = merged.filter((item) => item.kind !== 'visit' || item.row.status !== 'cancelled');
-  if (!live.length && !allDay.length && !todos.length) {
+  //
+  // **問的是 `merged`，也就是「畫得出東西嗎」，不是「有幾件事要做」。**
+  // 一天只剩取消的來訪時那幾列照樣要畫（ADR-0061），所以那時候這裡不可以
+  // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
+  // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
+  if (!merged.length && !allDay.length && !todos.length) {
     return `<p class="muted" style="margin: 0">這天還沒有東西 ——
       但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
   }

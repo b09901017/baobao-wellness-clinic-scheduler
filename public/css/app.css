@@ -3033,6 +3033,106 @@ button.mark::after {
   }
 }
 
+/* ---------- 看今天做了什麼（ADR-0062） ---------- */
+
+/* 稽核紀錄的白話版。她開它是為了「掃一眼確認沒漏」，所以這一整塊的目標是
+   **一眼掃得完**：每一列一行、時間對齊、每一段一個小標，沒有任何可以展開的
+   東西（要看差異表去 #/settings/audit）。 */
+
+.reviewtiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.reviewtiles__one b {
+  margin: 0 2px;
+  font-size: var(--text-md);
+  color: var(--text);
+}
+
+.reviewgroup {
+  margin-bottom: var(--space-3);
+}
+
+.reviewgroup__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+/* 段落編號講的是流程的第幾步，不是畫面上的第幾段（同待辦中心，ADR-0043）——
+   所以中間空了一段，其餘的編號不重新編。 */
+.reviewgroup__n {
+  color: var(--text-mute);
+}
+
+/* 一列：時間靠左對齊成一欄，句子跟著。時間用等寬數字，掃的時候眼睛不用重新對焦。 */
+.reviewrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 3px 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.reviewrow__at {
+  flex-shrink: 0;
+  width: 3.1em;
+  color: var(--text-mute);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.reviewrow__what {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 連著一樣的句子收成一則。**只收連著的** —— 早上勾三張、下午又勾兩張是
+   兩件事，全天去重會把「下午又做了一次」藏起來（`domain/dayReview.js`）。 */
+.reviewrow__x {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+/* 最底下那一行試算表。她點名要的那一句：「確認是否有遺漏登記」。
+   判斷在 domain/sheetReport.js 的 describeSync()，這裡只上色。 */
+.reviewsync {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--text-xs);
+}
+
+.reviewsync span {
+  flex: 1;
+  min-width: 0;
+}
+
+.reviewsync--soon {
+  color: var(--soon);
+}
+
+.reviewsync--bad {
+  color: var(--overdue);
+}
+
 /* ---------- 長按的快捷選單（ADR-0060） ---------- */
 
 /* 一列回答兩個手勢：點一下是看，長按是做。

@@ -1,6 +1,6 @@
 # 一支共用的長按快捷選單
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 B.5 的基礎）
 動工前先讀：`public/js/ui/components/sheet.js`（`wireDrag()`）、
 `public/js/ui/components/card.js`、`public/js/ui/nav.js`、

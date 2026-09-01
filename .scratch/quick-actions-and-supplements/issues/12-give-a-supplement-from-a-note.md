@@ -1,6 +1,6 @@
 # 記隨手記的時候多一顆「給營養品」
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 6.6）
 Blocked by: 08, 10, 11
 動工前先讀：`public/js/ui/components/note.js`、`public/js/domain/products.js`、

@@ -1,6 +1,6 @@
 # 日曆上新增待辦掛不了客戶
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A.3）
 動工前先讀：`public/js/ui/components/note.js`、
 `public/js/ui/views/calendar.js` 的 `mountNoteEditor()`、ADR-0044

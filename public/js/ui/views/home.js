@@ -36,14 +36,18 @@ import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addMonths, monthLabel, weekdayLabel,
+  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
+import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
+import * as auditData from '../../data/audit.js';
+import { reviewOf, dayTitle, NOTHING as REVIEW_NOTHING } from '../../domain/dayReview.js';
+import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
@@ -260,11 +264,179 @@ function paint(ctx) {
 
     ${notesCard(notes)}
 
+    ${reviewSection()}
+
     ${quickFab()}`;
 
   wireOverview(ctx);
   wireQuickCapture(ctx);
+  wireReview(ctx);
   markNext(el);
+}
+
+// ---------- 看今天做了什麼 ----------
+//
+// 她的原話：「我需要一個能回顧今天操作紀錄的介面…目的：確認是否有遺漏登記
+// （例如忘記把某個紀錄同步到試算表）。」
+//
+// **它是稽核紀錄的白話版，不是第二份紀錄**（ADR-0062）。歸類的規則全部在
+// `domain/dayReview.js`，這裡只負責畫。
+//
+// 做成**展開才載入**，跟客戶詳情的「變更紀錄」同一種（她指名的那一個）：
+// 她一天開這一頁十幾次，而看回顧是收工前一次的事。
+
+/** 往前最多翻幾天。再遠她會去查 `#/settings/audit`。 */
+const REVIEW_BACK = 7;
+
+/** 現在看的是哪一天。存在模組裡不進網址 —— 它是看法，不是位置。 */
+let reviewDay = null;
+
+function reviewSection() {
+  return `
+    <details class="card" data-review style="margin-top: var(--space-4)">
+      <summary class="card__title">看今天做了什麼</summary>
+      <div data-review-body><p class="muted">展開時才載入。</p></div>
+    </details>`;
+}
+
+function wireReview(ctx) {
+  const box = ctx.el.querySelector('[data-review]');
+  if (!box) return;
+  const body = box.querySelector('[data-review-body]');
+  let loaded = false;
+
+  box.addEventListener('toggle', () => {
+    if (!box.open || loaded) return;
+    loaded = true;
+    reviewDay = ctx.today;
+    paintReview(ctx, body);
+  });
+
+  // 換一天只重畫這一塊（ADR-0038）—— 重畫整頁的代價是閃一下加捲回最上面，
+  // 而她人在這一頁的最底下。
+  body.addEventListener('click', (e) => {
+    const step = e.target.closest('[data-review-step]');
+    if (!step) return;
+    const next = addDays(reviewDay ?? ctx.today, Number(step.dataset.reviewStep));
+    if (next > ctx.today) return;
+    if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
+    reviewDay = next;
+    paintReview(ctx, body);
+  });
+}
+
+async function paintReview(ctx, body) {
+  const day = reviewDay ?? ctx.today;
+  body.innerHTML = '<p class="muted">載入中…</p>';
+
+  let events;
+  try {
+    events = await auditData.listOnDay(day);
+  } catch (err) {
+    body.innerHTML = `<p class="muted">讀不到：${esc(err.message)}
+      <br>收起來再展開一次就會重試。</p>`;
+    return;
+  }
+  // 她可能在讀回來之前又翻了一天
+  if ((reviewDay ?? ctx.today) !== day) return;
+
+  const review = reviewOf(events, { limit: 300 });
+  body.innerHTML = reviewHtml(review, day, ctx.today, ctx.settings);
+}
+
+function reviewHtml(review, day, today, settings) {
+  const back = daysBetween(addDays(day, -1), today) <= REVIEW_BACK;
+
+  return `
+    <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
+      <span class="row__main" style="font-weight: 600">${esc(dayTitle(day, today))}</span>
+      <button class="chip chip--sm" type="button" data-review-step="-1"
+              ${back ? '' : 'disabled'}>‹ 前一天</button>
+      <button class="chip chip--sm" type="button" data-review-step="1"
+              ${day < today ? '' : 'disabled'}>後一天 ›</button>
+    </div>
+
+    ${review.tiles.length ? `
+      <p class="reviewtiles">
+        ${review.tiles.map((t) => `
+          <span class="reviewtiles__one">${esc(t.label)}
+            <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
+      </p>` : ''}
+
+    ${review.groups.length
+      ? review.groups.map(reviewGroupHtml).join('')
+      : `<p class="muted">${REVIEW_NOTHING}</p>`}
+
+    ${review.truncated ? `
+      <p class="muted dim" style="margin-top: var(--space-2)">
+        這一天太多了，只列得出最近的 ${review.total} 則。更早的到
+        <a href="#/settings/audit">稽核紀錄</a>看。</p>` : ''}
+
+    ${day === today ? syncLine(settings) : ''}
+
+    <p class="muted dim" style="margin: var(--space-3) 0 0; font-size: var(--text-2xs)">
+      這裡是稽核紀錄的白話版 —— 要看某一筆到底改了哪個欄位，去
+      <a href="#/settings/audit">稽核紀錄</a>。</p>`;
+}
+
+function reviewGroupHtml(group) {
+  return `
+    <div class="reviewgroup">
+      <p class="reviewgroup__head">
+        <span class="reviewgroup__n">${group.stage.n}</span>${esc(group.stage.label)}
+      </p>
+      ${group.rows.map((row) => `
+        <p class="reviewrow">
+          <span class="reviewrow__at num">${esc(reviewTime(row.at))}</span>
+          <span class="reviewrow__what">${esc(row.text)}</span>
+          ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
+        </p>`).join('')}
+    </div>`;
+}
+
+function reviewTime(at) {
+  const ms = auditData.millisOf(at);
+  if (!ms) return '—';
+  return new Date(ms).toLocaleTimeString('zh-TW', {
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
+/**
+ * 最底下那一行試算表。**她點名要的那一句**：
+ * 「確認是否有遺漏登記（例如忘記把某個紀錄同步到試算表）」。
+ *
+ * 判斷全部在 `domain/sheetReport.js` 的 `describeSync()`（設定頁那一段用的是
+ * 同一支）—— 這裡只把它收成一行，細節按進去看。
+ *
+ * **只在「今天」那一格出現**：`sheetSync` 存的是「上次」，不是每一天的歷史，
+ * 翻到昨天時那一行會在講今天的事。
+ */
+function syncLine(settings) {
+  const failure = sheetSync.lastError();
+  const { tone } = describeSync({
+    configured: isConfigured(settings),
+    lastAtLabel: sheetSync.lastSyncedAt(),
+    dirty: sheetSync.isDirty(),
+    error: failure?.error ?? null,
+    skipped: sheetSync.lastSkipped()?.names ?? [],
+  });
+
+  const SAY = {
+    off: { text: '沒有設定自動推送', cls: 'muted' },
+    ok: { text: '推過了', cls: 'muted' },
+    waiting: { text: '還有東西沒推上去', cls: 'reviewsync--soon' },
+    partial: { text: '有分頁沒更新', cls: 'reviewsync--soon' },
+    failed: { text: '上次推失敗了', cls: 'reviewsync--bad' },
+  };
+  const say = SAY[tone] ?? SAY.ok;
+  const at = sheetSync.lastSyncedAt();
+
+  return `
+    <p class="reviewsync ${say.cls}">
+      <span>試算表：${esc(say.text)}${at && tone !== 'off' ? `・上次 ${esc(reviewTime(at))}` : ''}</span>
+      <a href="#/settings/report">看細節</a>
+    </p>`;
 }
 
 /**
@@ -818,9 +990,11 @@ function wireNoteLongPress(el, notes, after) {
       items: noteActions(n, { today: todayISO() }),
       onPick: async (action) => {
         try {
+          // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
+          // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
+          // 那是在解釋一個限制而不是在做事。
           const changed = await note.runAction(action, n, {
             ...noteDeps(),
-            onEdit: () => toast.info('要改字的話，先勾掉再記一筆新的 —— 或到日曆上那一天改'),
             onBag: () => {
               if (n.customerId) go(`/customers/${n.customerId}`);
               else toast.info('這一筆沒有掛客戶，找不到是哪一包');

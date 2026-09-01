@@ -1,6 +1,6 @@
 # 加購營養品存下去的時候，「哪幾款」的名字被清成空字串
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 6.1、6.2、6.5 的共同根因）
 動工前先讀：`public/js/ui/components/buy.js`、`public/js/domain/products.js`、
 ADR-0057、0059、`CLAUDE.md` 的「她賣了什麼給客戶」那一列
