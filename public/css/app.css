@@ -626,6 +626,8 @@ textarea {
   border-radius: var(--radius-pill);
   cursor: pointer;
   touch-action: manipulation;
+  /* 同 `.chip`：切換是顏色的事 */
+  transition: background-color 0.16s ease, color 0.16s ease;
 }
 
 .seg__item::after {
@@ -662,7 +664,8 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  row-gap: 10px;
+  /* 換行的時候要看得出是兩排，不是一團 */
+  row-gap: var(--space-3);
 }
 
 .chip {
@@ -682,6 +685,10 @@ textarea {
   white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
+  /* 選中／取消選中是顏色的事，讓它滑進去而不是跳過去。
+     **只給顏色，不給位移** —— 她一位客戶要點五六下（ADR-0038），
+     動畫再長就是在擋她。底下的 prefers-reduced-motion 會把它壓成 0。 */
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .chip::after {
@@ -3106,8 +3113,11 @@ button.mark::after {
 .reviewwho__name {
   flex: 1;
   min-width: 0;
-  font-size: var(--text-sm);
+  /* 她要的是「用客戶姓名作為大標題」，所以它要比底下那幾列重一級 ——
+     色值寫明，不要靠繼承（這一塊被塞進不同的卡片裡過）。 */
+  font-size: var(--text-md);
   font-weight: 700;
+  color: var(--text);
 }
 
 .reviewwho__n {
@@ -5134,26 +5144,41 @@ summary {
 
 /* ---------- 隨手記的捕捉面板 ---------- */
 
-/* 日期與「掛給誰」那兩排。四個入口共用（首頁那一格、右下角泡泡、
-   `#/todo/notes`、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。 */
+/* 日期、掛給誰、給營養品那幾排。**四個入口共用**（首頁那一格、右下角泡泡、
+   日曆的待辦編輯器、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。
+   共用的不只是 `components/note.js` 那幾支，**包住它們的這一層也是**：
+   2026-09-01 之前只有兩個入口包了它，另外兩個裸放，於是那兩邊的丸子貼著
+   輸入框（她的原話：「跟輸入框以及下方的任務貼得太近了」）。
+
+   **gap 是「排與排之間」，不是「丸子與丸子之間」**：一排裡面是 --space-2，
+   兩排之間要更大，否則三排丸子看起來像一團。 */
 .notemeta {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: var(--space-2);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* 包在一個有標籤的欄位裡時（日曆的待辦編輯器），上邊界由 `.field` 給 ——
+   標籤跟它底下的控制項之間本來就只該隔 3px，再加 12px 會斷成兩塊。 */
+.field > .notemeta {
+  margin-top: 0;
 }
 
 .notewho {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
+  row-gap: var(--space-2);
 }
 
-/* 客戶名單。點開才長出來，也才去讀 —— 她十次有九次不掛人。 */
+/* 客戶名單。點開才長出來，也才去讀 —— 她十次有九次不掛人。
+   淡入沿用 `deck-in`，不另外寫一支 keyframes。 */
 .notewho__list {
   flex-basis: 100%;
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
+  animation: deck-in 0.14s ease-out;
 }
 
 /* 「給營養品」那一顆捷徑（ADR-0059）。長相跟「掛給誰」一模一樣 ——
@@ -5163,7 +5188,8 @@ summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
+  row-gap: var(--space-2);
 }
 
 /* 選了一包之後，「掛給誰」那一排要收起來 —— 客戶已經由那一包決定了。
@@ -5205,7 +5231,8 @@ summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
+  row-gap: var(--space-2);
 }
 
 .notedate__picked {
@@ -5233,7 +5260,7 @@ summary {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   flex-shrink: 0;
   margin-top: 1px;
 }

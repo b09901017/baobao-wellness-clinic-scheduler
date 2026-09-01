@@ -259,7 +259,9 @@ function paint(ctx) {
     </div>
     ${notesBlock(notes)}
 
-    <div data-taskblock>${taskBlock(tasks, visits)}</div>
+    ${/* 上面剛結束的是一排 28px 的小丸子，視覺重量很輕 ——
+           `.section` 自己的上邊界在這裡不夠，兩塊會黏在一起 */''}
+    <div data-taskblock style="margin-top: var(--space-5)">${taskBlock(tasks, visits)}</div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
@@ -948,7 +950,7 @@ function taskBlock(tasks, visits = []) {
       ? `<p class="muted" style="margin: 0">還沒有任務。
           勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來。</p>`
       : `
-        <div class="seg" role="group" style="margin-bottom: var(--space-2)">
+        <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
                   data-task-tab="open">未完成${open.length ? ` ${open.length}` : ''}</button>
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
@@ -1027,13 +1029,16 @@ function notesBlock(notes) {
       ${rows.map((n) => note.row(n, { customer: false, iconSize: 12 })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
-    <form data-newnote style="margin-top: var(--space-2)">
+    ${/* 日期那一排包在 `.notemeta` 裡 —— 那是四個入口共用的外框
+           （`CLAUDE.md` 的連動表）。以前這裡裸放，於是丸子貼著輸入框，
+           她的原話是「跟輸入框以及下方的任務貼得太近了」 */''}
+    <form data-newnote style="margin-top: var(--space-4)">
       <div style="display: flex; gap: var(--space-2)">
         <input type="text" name="text" maxlength="${NOTE_TEXT_MAX}" style="flex: 1; min-width: 0"
                placeholder="他臨時提的小要求…" aria-label="新的隨手記" />
         <button class="btn" type="submit">記</button>
       </div>
-      ${note.field()}
+      <div class="notemeta">${note.field()}</div>
     </form>`;
 }
 
