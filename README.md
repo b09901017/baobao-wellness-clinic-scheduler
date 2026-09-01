@@ -89,6 +89,11 @@
 - **資料健檢頁** —— 定期對帳次數、找孤兒資料、抓狀態異常，發現問題顯示差異而不自動偷改
 - **雙層驗證** —— 前端擋一次，Firestore Rules 再擋一次
 - **試算表唯讀** —— 它現在是報表不是資料來源。app 產生後貼回去，或讓 app 自動推過去；在試算表上改的東西會被當場還原，不做雙向同步
+- **備份還原得回去** —— 匯出的 JSON 有一支讀得回它的腳本（`scripts/restore-backup.mjs`），
+  而且**每個月在 staging 上真的演練一次**。沒有還原過的備份不是備份，只是一個 JSON 檔
+- **離線不假裝** —— Firestore 的寫入 Promise 在離線時既不成功也不失敗，
+  所以畫面自己有一道逾時：8 秒還沒送出去就換一句話講清楚「資料在這台裝置上，
+  連上網路會自動補送」。**不會說成失敗** —— 說失敗她會再存一次，那才真的變成兩筆
 
 ## 技術棧
 
@@ -96,7 +101,7 @@
 |---|---|
 | 前端 | 原生 HTML / CSS / JS，PWA，觸控優先響應式（<600 / 600–899 / ≥900） |
 | 後端 | Firebase（Firestore + Auth + Security Rules + Hosting） |
-| 部署 | Firebase Hosting，GitHub Actions 自動部署（push 即上線） |
+| 部署 | Firebase Hosting，GitHub Actions 自動部署。**兩個環境**：push 到 `develop` 上 staging、push 到 `main` 上正式，見 [`docs/STAGING.md`](./docs/STAGING.md) |
 | 舊系統銜接 | app 產生與現行試算表同構的報表，可以複製貼回去，也可以讓 app 自動推給試算表的 Apps Script 排版上鎖。**單向** —— Apps Script 只收不取，那一側沒有任何憑證（ADR-0010、ADR-0013） |
 | 客戶那一頁 | `/form.html`，獨立入口，不載 app 也不註冊 service worker。整份 Rules 裡唯一讓未登入的人寫得進來的地方，四道限制見 `firestore.rules` 的「客戶自己填的時間」與 ADR-0031 |
 
@@ -110,11 +115,17 @@
 全部是測試才用得到的（Playwright、Firebase 模擬器）。瀏覽器載的還是原始檔。
 
 ```
-npm install                 # 只裝測試要用的東西
+npm install                 # 只裝測試與維運腳本要用的東西
 npm test                    # domain 純函式測試與分層守衛，不用模擬器
-npx firebase-tools emulators:start   # 本機跑 Auth + Firestore + Hosting
+npm run test:rules          # Security Rules，會自己起一個模擬器再關掉
+npm run emulators           # 本機跑 Auth + Firestore + Hosting
 npm run test:e2e            # 端對端。**要先把上面那行的模擬器跑起來**
 ```
+
+本機一律連模擬器，專案 id 是 `demo-scheduler`（`demo-` 開頭讓 Firebase 進入
+完全離線模式）。**要 staging 或正式環境的操作看
+[`docs/STAGING.md`](./docs/STAGING.md)** —— 環境是照網址挑的，
+一份原始碼跑兩個環境，沒有 build 步驟也沒有環境變數。
 
 端對端那一套在 `tests-e2e/`：真的模擬器、真的登入、真的點擊，一支一支走完
 她會走的動線。跑出來的東西（報告、截圖、錄影、trace）全部落在 `.artifacts/`，
@@ -163,7 +174,8 @@ graphify hook status        # 看裝了沒
 | 11 | 舊資料匯入 | ☑ |
 | 12 | 介面重新設計 | ☑ |
 | 13 | 客戶自己填時間的表單 | ☑ |
-| 14 | 多帳號 | ☐ |
+| 14 | 上線前體檢：雙環境、還原腳本、離線誠實 | ☑ |
+| 15 | 多帳號 | ☐ |
 
 第 12 步之後補的一件事：**二返**（[GitHub issue #15](https://github.com/b09901017/baobao-wellness-clinic-scheduler/issues/15)）。
 `SPEC.md` 第 7 節規則 8 從第一版就寫著「健檢完成 → 自動產生待約二返」，但那件事一直沒有實作 ——
