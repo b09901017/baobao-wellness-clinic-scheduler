@@ -1141,6 +1141,34 @@ textarea {
   line-height: 1.5;
 }
 
+/* 一列任務的後半段：「Examine・9/1(一)・二返」的那一串。
+   **淡一級** —— 種類才是她在掃的東西，日期與項目是用來認人的線索。
+   她的原話：「資訊量太少……讓使用者一眼就知道這是哪天的什麼任務」。 */
+.note__sub {
+  color: var(--text-mute);
+  font-weight: 400;
+}
+
+/* 取消類任務身上那一句（「回去把 Examine 上壓的時段放掉」）。
+   自己一行 —— 它是一句話，不是標籤。 */
+.note__note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+  line-height: 1.4;
+}
+
+/* 待辦中心那一列的第二行：那一筆來訪是哪一天的什麼。
+   等來訪讀回來才填（`fillVisitInfo()`），讀回來之前 hidden。 */
+.row__sub {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+
 .note--done .note__text {
   color: var(--text-mute);
   text-decoration: line-through;

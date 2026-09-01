@@ -18,6 +18,7 @@
 import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as tasksData from '../../data/tasks.js';
+import { taskLine } from '../../domain/taskRules.js';
 import * as availability from './availability.js';
 import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
@@ -258,7 +259,7 @@ function paint(ctx) {
     </div>
     ${notesBlock(notes)}
 
-    <div data-taskblock>${taskBlock(tasks)}</div>
+    <div data-taskblock>${taskBlock(tasks, visits)}</div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
@@ -313,7 +314,7 @@ function wire(ctx, { today, marks }) {
     if (tab) {
       taskTab = tab.dataset.taskTab;
       const box = el.querySelector('[data-taskblock]');
-      if (box) box.innerHTML = taskBlock(ctx.tasks);
+      if (box) box.innerHTML = taskBlock(ctx.tasks, ctx.visits);
       return;
     }
 
@@ -922,10 +923,14 @@ function visitRow(v) {
  * 混在同一串裡的話，一位做完十次療程的客戶那六格會被已完成的塞滿，
  * 而她要看的「還沒做的那兩件」被擠進「看全部」裡面去了。
  */
-function taskBlock(tasks) {
+function taskBlock(tasks, visits = []) {
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
   const rows = taskTab === 'done' ? done : open;
+  // 來訪這一頁本來就有了（`ctx.visits`），所以一次讀取都不用多加 ——
+  // 任務身上沒有來訪日與課程名，也不該有（`data/tasks.js` 的檔頭）。
+  const visitById = new Map(visits.map((v) => [v.id, v]));
+  const row = (t) => taskRow(t, visitById.get(t.visitId) ?? null);
 
   return `
     <div class="section">
@@ -950,7 +955,7 @@ function taskBlock(tasks) {
                   data-task-tab="done">已完成${done.length ? ` ${done.length}` : ''}</button>
         </div>
         ${rows.length
-          ? `<div class="tasklist">${rows.slice(0, RECENT_TASKS).map(taskRow).join('')}</div>`
+          ? `<div class="tasklist">${rows.slice(0, RECENT_TASKS).map(row).join('')}</div>`
           : `<p class="muted" style="margin: 0">${
               taskTab === 'done' ? '還沒有勾掉的。' : '沒有還沒做的了。'}</p>`}`}`;
 }
@@ -970,14 +975,28 @@ function taskBlock(tasks) {
  *（她的原話：「他其實和已改成詳情的按鈕一樣?」）。同一個動作在兩頁叫兩個
  * 名字，她會以為是兩件事。
  */
-function taskRow(t) {
+function taskRow(t, visit = null) {
+  // 哪一天、哪一場走 `domain/taskRules.js` 的 `taskLine()` —— 待辦中心與
+  // 試算表的 TODO 區讀的是同一支。日期是**來訪那一天**，不是死線；
+  // 來訪找不到才退回死線，而且那時候要講明它是死線。
+  const line = taskLine(t, visit);
+  // 來訪找不到（獨立待辦、來訪被刪了）就什麼都不接：右邊那顆丸子已經在講
+  // 死線了，這裡再印一次死線只是把同一件事講兩遍，而且看起來像來訪日。
+  const tail = line.fromDue
+    ? ''
+    : [shortDate(line.date), line.what].filter(Boolean).join('・');
+
   return `
     <div class="taskrow ${t.done ? 'taskrow--done' : ''}">
       <button class="note ${t.done ? 'note--done' : ''}" type="button"
               data-task="${esc(t.id)}" style="flex: 1; min-width: 0">
         <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
         <span class="note__main">
-          <span class="note__text">${esc(t.kind)}</span>
+          ${/* 她的原話：「例如 Examine・9/1・二返」—— 種類、日期、具體項目名稱。
+                 種類正常粗細，後面那一串淡一級：種類才是她在掃的東西 */''}
+          <span class="note__text">${esc(line.kind)}${
+            tail ? `<span class="note__sub">・${esc(tail)}</span>` : ''}</span>
+          ${t.note ? `<span class="note__note">${esc(t.note)}</span>` : ''}
         </span>
         <span class="notetags">
           ${/* 日期一律走 shortDate()：全站別的地方寫的都是「8/30(日)」，
@@ -1597,9 +1616,11 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
  */
 function openAllTasks(ctx) {
   const rows = ctx.tasks.filter((t) => (taskTab === 'done' ? t.done : !t.done));
+  const visitById = new Map(ctx.visits.map((v) => [v.id, v]));
   const sheet = openSheet({
     title: `全部任務・${taskTab === 'done' ? '已完成' : '未完成'}`,
-    body: `<div class="tasklist">${rows.map(taskRow).join('')}</div>`,
+    body: `<div class="tasklist">${
+      rows.map((t) => taskRow(t, visitById.get(t.visitId) ?? null)).join('')}</div>`,
   });
   sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
     btn.addEventListener('click', () => {

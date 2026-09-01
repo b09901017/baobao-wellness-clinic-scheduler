@@ -18,6 +18,7 @@ import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
+import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
@@ -460,13 +461,12 @@ function taskBlocks(tasks, visits) {
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
   const line = (t) => {
-    const visit = visitById[t.visitId];
-    const when = visit?.date ?? t.dueDate ?? '';
-    const what = visit
-      ? [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))].join('、')
-      : '';
+    // 哪一天、哪一場走 `taskRules.js` 的 `taskLine()` —— 客戶詳情與待辦中心
+    // 讀的是同一支。以前這裡自己算了一次同樣的東西，而「日期取來訪那一天
+    // 不是死線」這個判斷只要有兩份，就會有一份差一天。
+    const { date, what } = taskLine(t, visitById[t.visitId]);
     return {
-      label: [when ? monthDay(when) : '', what].filter(Boolean).join(' '),
+      label: [date ? monthDay(date) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',
       dueDate: t.dueDate ?? '',
       doneAt: t.doneAt ?? '',

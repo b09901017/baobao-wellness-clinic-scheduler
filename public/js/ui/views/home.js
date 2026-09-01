@@ -17,7 +17,7 @@ import * as config from '../../data/config.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
-import { urgency, isCancelKind } from '../../domain/taskRules.js';
+import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
@@ -1207,23 +1207,38 @@ async function loadTaskVisits(ctx) {
     return;
   }
 
-  fillSlotCounts(ctx.el);
+  fillVisitInfo(ctx.el);
 }
 
 /**
- * 把「N 項」填進那幾顆徽章。
+ * 把「N 項」與「哪一天的什麼」填進那幾列。
  *
  * **每次重畫都要再叫一次** —— `paintTasks()` 換分頁時把那幾列整個重畫，
- * 而重畫出來的徽章又是 hidden 的。讀回來的東西存在 `taskVisits` 裡不會掉，
+ * 而重畫出來的節點又是 hidden 的。讀回來的東西存在 `taskVisits` 裡不會掉，
  * 但畫面上的節點是新的。
+ *
+ * 兩件事一起填：它們要的是同一筆來訪，分兩支只會有一支被忘記叫。
  */
-function fillSlotCounts(el) {
+function fillVisitInfo(el) {
   if (!taskVisits) return;
-  // 讀回來之前那顆徽章是 hidden 的 —— 空的丸子看起來像壞掉的東西。
+  // 讀回來之前是 hidden 的 —— 空的丸子與空的一行都看起來像壞掉的東西。
   for (const node of el.querySelectorAll('[data-slots]')) {
     const visit = taskVisits.visits.get(node.dataset.slots);
     if (!visit) continue;
     node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.hidden = false;
+  }
+
+  // 「Examine・9/1(一)・二返」的後半段。日期是**來訪那一天**不是死線
+  //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
+  // 死線是它的前一天，兩個差一天最容易看錯人。
+  for (const node of el.querySelectorAll('[data-taskwhen]')) {
+    const visit = taskVisits.visits.get(node.dataset.taskwhen);
+    if (!visit) continue;
+    const line = taskLine({}, visit);
+    const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
+    if (!text) continue;
+    node.textContent = text;
     node.hidden = false;
   }
 }
@@ -1281,7 +1296,7 @@ async function loadFollowupBookings(ctx) {
   fillBookingStates(ctx.el);
 }
 
-/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillSlotCounts）。 */
+/** 把「已約 9/3 14:00」填進那幾顆徽章。每次重畫都要再叫一次（同 fillVisitInfo）。 */
 function fillBookingStates(el) {
   for (const node of el.querySelectorAll('[data-booked]')) {
     const state = followupBookings.get(node.dataset.booked);
@@ -1370,7 +1385,7 @@ function paintTasks(ctx) {
 
   el.querySelector('[data-mark]')?.addEventListener('click', () => markDone(ctx));
   syncMarkButton(el);
-  fillSlotCounts(el);
+  fillVisitInfo(el);
   fillBookingStates(el);
 }
 
@@ -1421,6 +1436,8 @@ function doneRow(t) {
         <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
         <span class="note__main">
           <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
+          ${/* 勾掉之後長得不一樣會讓她以為那是另一種東西，所以這一格也補 */''}
+          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
         </span>
         <span class="notetags">
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
@@ -1485,6 +1502,10 @@ function taskRow(t, today) {
             ${t.kind === FOLLOWUP_TASK_KIND
               ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
           </span>
+          ${/* 「這是哪一天的什麼」。那一列上面已經有四樣東西了，再擠一串會爆版，
+                 所以放第二行。等來訪讀回來才填得上（同「N 項」，`fillVisitInfo()`），
+                 讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
+          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
