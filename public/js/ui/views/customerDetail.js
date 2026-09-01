@@ -50,7 +50,10 @@ import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { openActions, wireLongPress } from '../components/actions.js';
-import { deliveryState, monthsOf } from '../../domain/products.js';
+import {
+  deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
+  deliveryNoteFor, undelivered,
+} from '../../domain/products.js';
 import { confirmAction } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
@@ -230,7 +233,7 @@ function paint(ctx) {
       : `<div class="strip noscroll-bar">${sortPools(pools, visits)
           .map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
 
-    ${productsBlock(bought)}
+    ${productsBlock(bought, notes, ctx)}
 
     <div class="section">
       <h2 class="section__title">來訪紀錄</h2>
@@ -335,6 +338,16 @@ function wire(ctx, { today, marks }) {
 
   el.querySelectorAll('[data-fix]').forEach((btn) =>
     btn.addEventListener('click', () => fixCounts(ctx, btn.dataset.fix)),
+  );
+
+  // 營養品那一列：**點一下與長按都開快捷選單**（ADR-0060）。
+  // 它不是清單裡的一列（那種要保留「點＝看」），它是一個入口 ——
+  // 而以前那個入口直接落進一張表單。
+  el.querySelectorAll('[data-product]').forEach((btn) =>
+    btn.addEventListener('click', () => openProductActions(ctx, btn.dataset.product)),
+  );
+  wireLongPress(el.querySelector('[data-products]'), '[data-product]', (btn) =>
+    openProductActions(ctx, btn.dataset.product),
   );
 
   el.querySelectorAll('[data-add-followup]').forEach((btn) =>
@@ -718,11 +731,19 @@ function poolCard(e, visits, ctx, today) {
  * 三段式進度條，而營養品永遠是滿的（ADR-0057）。一條永遠滿格的進度條
  * 在講一件不會發生的事。
  *
- * 點一列進的是同一張「調整」表（`[data-ent]`），只是那裡只剩「幾份」與刪除。
+ * **點一列開的是快捷選單，不是「調整」那一張表**（ADR-0060）。
+ * ADR-0020 對日曆定的規矩（先給看的，不先給改的）在這裡更該守：
+ * 她點這一列，十次有九次要問的是「這一包給了沒、什麼時候給」，
+ * 不是「改幾個月」。長按開的是同一張 —— 兩種手勢同一個結果，不會有人按錯。
+ *
+ * 那一列右邊多一句**提醒的狀態**（`9/3 給` / `還沒排哪天給`），
+ * 因為那正是「約時間」那一顆要回答的問題。提醒就是一筆有日期的隨手記
+ * （ADR-0044、0059），這一頁本來就讀好了，不多一次 IO。
  */
-function productsBlock(bought) {
+function productsBlock(bought, notes, ctx) {
   if (!bought.length) return '';
 
+  const master = { products: ctx?.products ?? [] };
   const sorted = [...bought].sort(
     (a, b) => String(a.label ?? '').localeCompare(String(b.label ?? ''), 'zh-TW'),
   );
@@ -732,21 +753,35 @@ function productsBlock(bought) {
       <h2 class="section__title">營養品</h2>
       <span class="section__n">${sorted.length}</span>
     </div>
-    <ul class="link-list">
+    <ul class="link-list" data-products>
       ${sorted.map((e) => {
         // 「給了沒」是這一段最重要的資訊 —— 她的原話是「假設我當天忘記給了，
         // 然後可以記我給了那些多少」。規則只在 `domain/products.js`。
-        const gave = deliveryState(e);
+        const gave = deliveryState(e, master);
+        const reminder = existingReminder(notes, e.id);
         return `
-        <li><button class="row-link" type="button" data-ent="${esc(e.id)}">
+        <li><button class="row-link" type="button" data-product="${esc(e.id)}" data-longpress>
           <span class="link-list__label">${esc(e.label ?? '（沒有名稱）')}
             <span class="muted">${esc(gave.text)}${
-              gave.at ? `・${esc(shortDate(gave.at))}` : ''}</span></span>
+              gave.at ? `・${esc(shortDate(gave.at))}` : ''}${
+              esc(reminderLine(gave, reminder))}</span></span>
           <span class="badge ${gave.state === 'all' ? 'badge--ok' : ''} num"
             >${esc(monthsOf(e))} 個月</span>
         </button></li>`;
       }).join('')}
     </ul>`;
+}
+
+/**
+ * 那一列右邊接著寫的「哪天給」。
+ *
+ * **都給了就不寫** —— `deliveryState()` 那一句（「都給了・9/1」）已經講完了，
+ * 再寫一次是同一件事講兩遍。
+ */
+function reminderLine(gave, reminder) {
+  if (gave.state === 'all') return '';
+  if (reminder?.date) return `・${shortDate(reminder.date)} 給`;
+  return '・還沒排哪天給';
 }
 
 /**
@@ -978,6 +1013,105 @@ function notesBlock(notes) {
     </form>`;
 }
 
+// ---------- 營養品那一列的三顆 ----------
+//
+// 她的原話：「請改成點擊或長按後彈出選單，提供三個選項：約時間、已經給了、編輯」。
+//
+// **交付的紀錄與提醒的勾選寫在同一個 commit 裡**（`data/notes.js` 的
+// `recordDelivery()`，ADR-0059）—— 分開寫的話「勾好了、交付沒記到」會留下
+// 一筆看起來做完、其實查不出給了什麼的紀錄，而那正是要進試算表的東西。
+//
+// 日曆與待辦**沒有東西要同步**：提醒就是一筆有日期的隨手記本人（ADR-0044），
+// 改它的日期就是改日曆上那一件。
+
+function openProductActions(ctx, entId) {
+  const e = ctx.entitlements.find((x) => x.id === entId);
+  if (!e) return;
+
+  const master = { products: ctx.products ?? [] };
+  const reminder = existingReminder(ctx.notes, e.id);
+  const gave = deliveryState(e, master);
+
+  openActions({
+    title: e.label ?? '（沒有名稱）',
+    subtitle: `${monthsOf(e)} 個月・${gave.text}`,
+    items: productActions(e, reminder, master),
+    onPick: (action) => runProductAction(ctx, e, reminder, action),
+  });
+}
+
+async function runProductAction(ctx, e, reminder, action) {
+  if (action === 'edit') {
+    paintEntitlement(ctx, e);
+    return;
+  }
+
+  const master = { products: ctx.products ?? [] };
+
+  try {
+    if (action === 'when') {
+      // 預設帶「她下一次會見到這位客戶是哪一天」。找不到就空白 ——
+      // **不要退回今天**：今天客人不見得會來，而一個掛錯日期的待辦
+      // 比一個沒有日期的待辦糟（`nextDeliveryDate()` 的檔頭）。
+      const picked = await note.askDate(
+        reminder?.date ?? nextDeliveryDate(ctx.visits, todayISO()),
+        { title: '哪天順便給', subtitle: '選了之後，日曆的那一天會多一件待辦' },
+      );
+      if (!picked) return;
+
+      if (reminder) {
+        await toast.withSaveState(() => notesData.update(reminder.id, { date: picked }), {
+          success: `改成 ${shortDate(picked)} 給`,
+        });
+      } else {
+        const draft = deliveryNoteFor({
+          entitlement: e,
+          customer: { id: ctx.id, name: ctx.customer.name },
+          date: picked,
+        });
+        if (!draft) {
+          toast.info('這一包還沒選是哪幾款 —— 先按「編輯這一包」補上');
+          return;
+        }
+        await toast.withSaveState(() => notesData.create(draft), {
+          success: `${shortDate(picked)} 提醒你給${ctx.customer.name}`,
+          key: `note:create:${e.id}:${picked}`,
+        });
+      }
+      await reload(ctx);
+      return;
+    }
+
+    if (action === 'gave') {
+      const at = await note.askDate(todayISO(), {
+        title: '哪一天給的',
+        subtitle: '預設今天。這一筆會進試算表',
+      });
+      if (!at) return;
+
+      // 逐款那一張借 `components/note.js` 的同一支 —— 兩邊各畫一張的話，
+      // 遲早有一邊少了「給了的才會記進試算表」那一句。
+      const picked = await note.askGiven(e, { customerName: ctx.customer.name, master });
+      if (!picked?.length) return;
+
+      // 這一下把剩下的全部記完了嗎 —— 跟 `prepareToggle()` 那一句同一個判斷。
+      const all = picked.length === undelivered(e, master).length;
+
+      await toast.withSaveState(
+        () => notesData.recordDelivery(reminder, e, { at, productIds: picked }, {
+          customerId: ctx.id,
+          customerName: ctx.customer.name,
+          products: ctx.products ?? [],
+        }),
+        { success: all ? '都給了，記起來了' : '記起來了' },
+      );
+      await reload(ctx);
+    }
+  } catch {
+    /* 已處理 */
+  }
+}
+
 /** 勾一筆隨手記／改它的日期與掛的人。五個入口的形狀一樣，只有這一份。 */
 function noteRunDeps(ctx) {
   return {
@@ -987,6 +1121,9 @@ function noteRunDeps(ctx) {
     loadEntitlements: (cid) => data.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => data.list(),
+    // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
+    // 這一頁已經讀好了，不多一次往返。
+    loadProducts: async () => ctx.products ?? [],
     today: todayISO(),
     save: (run, opts) => toast.withSaveState(run, opts),
   };
@@ -999,12 +1136,7 @@ async function toggleNote(ctx, id) {
 
   // 營養品的提醒會先問「給了哪些」。問話在 withSaveState 外面 ——
   // 包進去的話她按了「先不要」也會跳一句「勾掉了」。
-  const plan = await note.prepareToggle(row, {
-    loadEntitlements: (cid) => data.listEntitlements(cid),
-    recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-    setDone: (nid, done) => notesData.setDone(nid, done),
-    today: todayISO(),
-  });
+  const plan = await note.prepareToggle(row, noteRunDeps(ctx));
   if (!plan) return;
 
   try {
@@ -1326,6 +1458,16 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
           () => data.createEntitlement(
             ctx.id,
             buy.toEntitlement(next, { purchasedAt: ctx.customer.purchasedAt ?? null }),
+            {
+              // 營養品要配一筆「哪天順便給」的提醒（ADR-0059），而那一句話要
+              // 印得出是誰 —— 少了它會變成「給營養品：…」，
+              // 而她的隨手記上一次有十幾筆，看不出是誰的。
+              customer: ctx.customer,
+              // 「我都是等客人哪天有預約來，我就順便給」。找不到就留空白 ——
+              // **不要退回今天**：一個掛錯日期的待辦比一個沒有日期的待辦糟，
+              // 前者她會照著做（`nextDeliveryDate()` 的檔頭）。
+              deliverOn: nextDeliveryDate(ctx.visits, todayISO()),
+            },
           ),
           // 連點兩下就是兩筆額度，而額度是「還能上幾次」的來源
           { success: '已加購', key: `entitlement:create:${ctx.id}` },

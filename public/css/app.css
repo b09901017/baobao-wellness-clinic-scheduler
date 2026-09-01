@@ -4982,6 +4982,25 @@ summary {
   margin-top: var(--space-1);
 }
 
+/* 「給營養品」那一顆捷徑（ADR-0059）。長相跟「掛給誰」一模一樣 ——
+   它們是同一種東西（一顆選填的丸子，點開才讀），長得不一樣會讓她
+   以為其中一個比較重要。 */
+.notegive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 選了一包之後，「掛給誰」那一排要收起來 —— 客戶已經由那一包決定了。
+   `display` 一定要在這裡蓋掉：包在外面的 <span> 沒有 class，
+   但 [hidden] 遇到任何 display 宣告就會失效（`.fab__menu` 踩過的同一個坑，
+   README 記著）。 */
+[data-quickwho][hidden],
+[data-calwho][hidden] {
+  display: none !important;
+}
+
 .quickjust__head {
   margin: var(--space-4) 0 var(--space-1);
   font-size: var(--text-2xs);

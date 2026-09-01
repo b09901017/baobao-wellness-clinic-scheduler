@@ -50,6 +50,7 @@ import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { openActions, wireLongPress } from '../components/actions.js';
+import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -611,7 +612,8 @@ function quickBody() {
 
     <div class="notemeta">
       ${note.field()}
-      ${note.who()}
+      <span data-quickwho>${note.who()}</span>
+      ${note.give()}
     </div>
 
     <div data-just></div>`;
@@ -626,18 +628,42 @@ function wireQuick(drawer, ctx, added) {
 
   const input = () => drawer.querySelector('[data-quicktext]');
 
+  // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。選了之後：
+  //   - 文字自動填好（`noteTextFor()`）—— 她自己打的那一行沒有 entitlementId，
+  //     勾掉時就不會問「給了哪些」，那筆交付紀錄會靜靜沒了
+  //   - 「掛給誰」那一排收起來 —— 客戶已經由那一包決定了，兩個地方各講一次
+  //     會出現「掛給客戶B、內容是給客戶A營養品」這種東西
+  const give = note.wireGive(drawer, {
+    load: () => loadGivableBags(),
+    onPick: (picked) => {
+      const box = drawer.querySelector('[data-quickwho]');
+      if (box) box.hidden = Boolean(picked);
+      if (picked && input()) input().value = picked.text;
+    },
+  });
+
   const save = async () => {
     const text = String(input()?.value ?? '').trim();
     if (!text) {
       input()?.focus();
       return;
     }
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 「掛給誰」那一排這時候是收起來的。
+    const bag = note.readGive(drawer);
+
     try {
       await toast.withSaveState(
         () => notesData.create({
           text,
           date: note.read(drawer),
-          ...note.readWho(drawer),
+          ...(bag
+            ? {
+              customerId: bag.customerId,
+              customerName: bag.customerName,
+              entitlementId: bag.entitlementId,
+            }
+            : note.readWho(drawer)),
         }),
         { success: '記下來了' },
       );
@@ -660,6 +686,7 @@ function wireQuick(drawer, ctx, added) {
     input().value = '';
     when.set(null);
     whom.set(null);
+    give.set(null);
     input().focus();
   };
 
@@ -726,6 +753,26 @@ async function toggleNote(ctx, id) {
   }
 }
 
+/**
+ * 「給營養品」那一顆點開之後要列的東西。
+ *
+ * 三份資料一次讀完：客戶、全部客戶的額度（一次 collection group 查詢，
+ * 客戶總覽已經在用）、還沒勾掉的隨手記（用來標「9/3 已經約了」）。
+ * **點開才會被呼叫，而且只呼叫一次**（`note.wireGive()` 的規矩）——
+ * 她十次有九次不是在記營養品。
+ *
+ * 誰有貨、哪幾包還沒給完，規則全部在 `domain/products.js` 的 `givableBags()`。
+ */
+async function loadGivableBags() {
+  const [customers, entitlementsBy, notes, products] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    notesData.listOpen(),
+    config.listAll('products'),
+  ]);
+  return givableBags({ customers, entitlementsBy, notes, master: { products } });
+}
+
 /** 勾一筆隨手記要用到的那幾支。五個入口的形狀一樣，只有這一份。 */
 function noteDeps() {
   return {
@@ -735,6 +782,9 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 舊資料的 `items[].name` 是空字串，靠主檔認回名字 ——
+    // 沒有的話「給了什麼？」那張面板每一列都是空白（`issues/10`）。
+    loadProducts: () => config.listAll('products'),
     today: todayISO(),
     // 問話那一段刻意在 withSaveState 外面（`note.prepareToggle()` 的檔頭），
     // 所以這裡收的是「真的會寫的那一下」。

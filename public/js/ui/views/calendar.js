@@ -33,6 +33,7 @@ import {
   rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate,
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
+import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
   applyStatus, visitActions,
@@ -771,12 +772,7 @@ function openNoteCard(el, data, id, date) {
           // 營養品的提醒會先問「給了哪些」（四個入口共用 `note.prepareToggle()`）。
           // 問話在 withSaveState 外面 —— 包進去的話她按了「先不要」也會跳
           // 一句「勾掉了」。
-          const plan = await note.prepareToggle(current, {
-            loadEntitlements: (cid) => customersData.listEntitlements(cid),
-            recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
-            setDone: (id, done) => notesData.setDone(id, done),
-            today: todayISO(),
-          });
+          const plan = await note.prepareToggle(current, noteDeps());
           if (!plan) return;
 
           let next;
@@ -900,6 +896,22 @@ async function runVisitAction(el, data, visit, action, backDate) {
   }
 }
 
+/**
+ * 「給營養品」那一顆點開之後要列的東西。點開才讀，而且只讀一次
+ * （`note.wireGive()` 的規矩）—— 日曆是她每天開十幾次的一頁。
+ *
+ * 誰有貨、哪幾包還沒給完，規則全部在 `domain/products.js` 的 `givableBags()`。
+ */
+async function loadGivableBags() {
+  const [customers, entitlementsBy, openNotes, products] = await Promise.all([
+    customersData.list(),
+    customersData.entitlementsByCustomer(),
+    notesData.listOpen(),
+    config.listAll('products'),
+  ]);
+  return givableBags({ customers, entitlementsBy, notes: openNotes, master: { products } });
+}
+
 /** 勾一筆隨手記／改它的日期與掛的人，五個入口共用同一份形狀。 */
 function noteDeps() {
   return {
@@ -909,6 +921,8 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
+    loadProducts: () => config.listAll('products'),
     today: todayISO(),
     // 問話那一段刻意在 withSaveState 外面（見 `note.prepareToggle()` 的檔頭），
     // 所以這裡收的是「真的會寫的那一下」。
@@ -1014,11 +1028,14 @@ function mountNoteEditor(el, data, sheet, spec) {
       </label>
       <span class="field__label">哪一天</span>
       ${note.field({ value: existing?.date ?? spec.date })}
-      <span class="field__label">掛給誰</span>
-      ${note.who({
-        customerId: existing?.customerId ?? null,
-        customerName: existing?.customerName ?? null,
-      })}
+      <span data-calwho>
+        <span class="field__label">掛給誰</span>
+        ${note.who({
+          customerId: existing?.customerId ?? null,
+          customerName: existing?.customerName ?? null,
+        })}
+      </span>
+      ${isNew ? note.give() : ''}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>
@@ -1045,6 +1062,18 @@ function mountNoteEditor(el, data, sheet, spec) {
     sheet.el.dataset.noteWhoWired = '1';
     // 點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
     note.wireWho(sheet.el, { load: () => customersData.list() });
+
+    // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。**只在新增時有** ——
+    // 改一件既有的待辦時，它是哪一包早就決定了。
+    note.wireGive(sheet.el, {
+      load: () => loadGivableBags(),
+      onPick: (picked) => {
+        const box = sheet.el.querySelector('[data-calwho]');
+        if (box) box.hidden = Boolean(picked);
+        const text = sheet.el.querySelector('[data-noteform] [name="text"]');
+        if (picked && text) text.value = picked.text;
+      },
+    });
   }
 
   const done = () => {
@@ -1071,13 +1100,23 @@ function mountNoteEditor(el, data, sheet, spec) {
     e.preventDefault();
     const text = String(e.target.elements.text.value ?? '').trim();
     if (!text) return;
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 「掛給誰」那一排這時候是收起來的。
+    const bag = isNew ? note.readGive(sheet.el) : null;
+
     write(
       {
         text,
         date: note.read(sheet.el),
         // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
         // 只帶其中一個過來，另一個會被算成空的。`readWho()` 一律兩個一起回。
-        ...note.readWho(sheet.el),
+        ...(bag
+          ? {
+            customerId: bag.customerId,
+            customerName: bag.customerName,
+            entitlementId: bag.entitlementId,
+          }
+          : note.readWho(sheet.el)),
       },
       isNew ? '記下來了' : '改好了',
     );

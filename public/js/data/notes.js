@@ -117,38 +117,45 @@ export async function setDone(id, done) {
  * `!note.done` 的話，只給了一部分時畫面會說一件資料庫沒有發生的事
  * （SPEC 第 6.9 節，日曆的待辦卡片就這樣說過謊）。判斷仍然只有這一份。
  *
- * @param {object} note 那一筆提醒（要有 id、entitlementId、customerId）
+ * @param {object|null} note 那一筆提醒（要有 id、entitlementId、customerId）。
+ *   **沒有也可以** —— 她可能從來沒約過時間就直接給了（客戶詳情的「已經給了」
+ *   那一顆）。那時候只寫額度那一半：交付紀錄是要進試算表的那一份，
+ *   提醒只是提醒（ADR-0059）。
  * @param {object} entitlement 那一筆營養品（要有 id）
  * @param {{at: string, productIds: string[]}} delivery
- * @returns {Promise<object>} 寫完之後的那一筆提醒
+ * @param {{customerId?: string, customerName?: string, products?: object[]}} [ctx]
+ *   沒有提醒時要靠它知道這一包是誰的。`products` 是主檔，
+ *   舊資料的空名字靠它認回來（`domain/products.js` 的 `itemsOf()`）。
+ * @returns {Promise<object|null>} 寫完之後的那一筆提醒（沒有提醒就回 null）
  */
-export async function recordDelivery(note, entitlement, delivery) {
+export async function recordDelivery(note, entitlement, delivery, ctx = {}) {
   const patch = withDelivery(entitlement, delivery);
   // 沒有東西要記（她點成一款都沒給、或那幾款早就給過了）：不寫，
   // 那一筆提醒也就原封不動。
-  if (!patch) return { ...note };
+  if (!patch) return note ? { ...note } : null;
+
+  const customerId = note?.customerId ?? ctx.customerId;
+  const customerName = note?.customerName ?? ctx.customerName ?? '';
+  const master = ctx.products ? { products: ctx.products } : undefined;
 
   const after = { ...entitlement, ...patch };
   const finished = isFullyDelivered(after);
   const at = new Date().toISOString();
   const changes = finished
     ? { done: true, doneAt: at }
-    : { done: false, doneAt: null, text: noteTextFor(after, note.customerName ?? '') };
+    : { done: false, doneAt: null, text: noteTextFor(after, customerName, master) };
 
   await repo.commit([
     {
       op: 'update',
-      path: `customers/${note.customerId}/entitlements`,
+      path: `customers/${customerId}/entitlements`,
       id: entitlement.id,
       changes: patch,
     },
-    {
-      op: 'update',
-      path: PATH,
-      id: note.id,
-      changes,
-    },
+    // 沒有提醒就只寫額度那一半。**額度那一筆一定要寫**（那是要進試算表的紀錄），
+    // 提醒是可有可無的那一半。
+    ...(note ? [{ op: 'update', path: PATH, id: note.id, changes }] : []),
   ]);
 
-  return { ...note, ...changes };
+  return note ? { ...note, ...changes } : null;
 }
