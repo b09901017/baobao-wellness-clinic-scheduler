@@ -33,6 +33,21 @@ body {
 
 .wait { color: var(--text-mute); text-align: center; padding: var(--space-7) 0; }
 
+/* 非正式環境的橫幅。這一頁的 `#root` 就是 `.wrap`，沒有殼可以掛，
+   所以它畫在內容最上面而不是視窗頂端 —— 對「這是不是真的連結」來說夠了。
+   正式環境完全不畫（js/form/page.js 的 envBarHtml）。 */
+.envbar {
+  margin: calc(var(--space-5) * -1) calc(var(--space-4) * -1) var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: var(--envbar-bg);
+  color: var(--envbar-fg);
+  font-size: 13px;
+  text-align: center;
+}
+
+.envbar__label { font-weight: 700; letter-spacing: 0.04em; }
+.envbar__hint { opacity: 0.85; }
+
 /* ---------- 抬頭 ---------- */
 
 .head { margin-bottom: var(--space-4); }

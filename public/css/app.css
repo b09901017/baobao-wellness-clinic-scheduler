@@ -85,6 +85,80 @@ svg {
   flex: 1;
 }
 
+/* 非正式環境的橫幅。`order: 0` 讓它排在 body（1）與導覽列（2）前面，
+   也就是螢幕最上面 —— 她一打開就看到，不用捲。
+   正式環境**完全不畫這個元素**，所以不佔任何高度（ui/shell.js 的 envBarHtml）。
+
+   safe-area 的補償從 .app__main 手上接過來：有這條的時候，瀏海底下的是它。 */
+.envbar {
+  order: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-1) var(--space-3);
+  padding-top: max(var(--space-1), env(safe-area-inset-top));
+  background: var(--envbar-bg);
+  color: var(--envbar-fg);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.envbar__label {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 提示那半句在窄螢幕上收起來 —— 標籤本身已經講完最重要的事了。 */
+.envbar__hint {
+  opacity: 0.85;
+}
+
+@media (max-width: 359px) {
+  .envbar__hint {
+    display: none;
+  }
+}
+
+/* 離線那一條。跟 .envbar 一樣排在最上面（order: 0），兩條可以同時出現 ——
+   在 staging 上離線是完全正常的情況，兩件事各講各的。
+   `hidden` 由 ui/shell.js 的 watchOffline 切換（全域 reset 有 [hidden] 規則）。 */
+.netbar {
+  order: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-1) var(--space-3);
+  padding-top: max(var(--space-1), env(safe-area-inset-top));
+  background: var(--netbar-bg);
+  color: var(--netbar-fg);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* 兩條都在的時候，下面那條不用再讓一次瀏海 */
+.envbar + .netbar {
+  padding-top: var(--space-1);
+}
+
+.netbar__label { font-weight: 700; letter-spacing: 0.04em; }
+.netbar__hint { opacity: 0.85; }
+
+@media (max-width: 359px) {
+  .netbar__hint { display: none; }
+}
+
+/* 有橫幅的時候，主內容區不用再自己讓瀏海 */
+.app:has(.envbar) .app__main,
+.app:has(.netbar:not([hidden])) .app__main {
+  padding-top: var(--space-3);
+}
+
 .app__body {
   order: 1;
   display: flex;

@@ -14,17 +14,13 @@ import {
   connectFirestoreEmulator,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-import { firebaseConfig, isConfigured } from '../firebase-config.js';
+import { firebaseConfig, isConfigured, usingEmulator } from '../firebase-config.js';
 
 export { isConfigured };
 
 let app = null;
 let auth = null;
 let db = null;
-
-function usingEmulator() {
-  return ['localhost', '127.0.0.1'].includes(location.hostname);
-}
 
 export function initFirebase() {
   if (app) return { app, auth, db };

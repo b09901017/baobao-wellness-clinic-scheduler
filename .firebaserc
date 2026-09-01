@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "wellness-clinic-scheduler"
+    "default": "wellness-clinic-scheduler",
+    "prod": "wellness-clinic-scheduler",
+    "staging": "wellness-clinic-staging"
   }
 }
