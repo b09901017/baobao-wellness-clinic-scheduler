@@ -1,6 +1,6 @@
 # 一則紀錄要講得出誰、哪一天、哪一項
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A）
 動工前先讀：`public/js/domain/audit.js`、`public/js/ui/views/audit.js`、
 `public/js/domain/availability.js` 的 `describeRuleChanges()`、

@@ -1,6 +1,6 @@
 # 試算表：營養品區塊零覆蓋，而交付日期兩條路印得不一樣
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 D；2026-09-01 確認過「指令碼她自己重貼」）
 動工前先讀：`sheets/readonly-report.gs` 的 `renderProducts()`、
 `public/js/domain/sheetReport.js` 的 `SYNC_FORMAT` 與 `customerReport()`、

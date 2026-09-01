@@ -1,6 +1,6 @@
 # 丸子貼著輸入框、貼著底下的任務、彼此也貼在一起
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 C）
 動工前先讀：`public/js/ui/components/note.js` 的 `field()`／`who()`／`give()`、
 `public/css/app.css` 的 `.notemeta` 那一段、

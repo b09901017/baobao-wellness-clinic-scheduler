@@ -1,6 +1,6 @@
 # 今天做了什麼：以人分組，照流程留成另一種看法
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 A.1，2026-09-01 確認過分組方式）
 Blocked by: 01
 動工前先讀：`public/js/domain/dayReview.js`、`public/js/ui/views/home.js`

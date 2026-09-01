@@ -1,6 +1,6 @@
 # 文件、ADR、SPEC、README 收尾
 
-Status: todo
+Status: done
 來源：這一輪的連動（`CLAUDE.md` 的連動表）
 Blocked by: 01, 02, 03, 04, 05
 動工前先讀：`CLAUDE.md`、`docs/agents/domain.md`、`docs/adr/0062`

@@ -1,6 +1,6 @@
 # 一列任務只寫得出 Examine
 
-Status: todo
+Status: done
 來源：使用者，2026-09-01（需求 B，2026-09-01 確認過日期取哪一個）
 動工前先讀：`public/js/domain/taskRules.js`、
 `public/js/domain/sheetReport.js` 的 `taskBlocks()`、
