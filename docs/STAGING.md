@@ -20,7 +20,7 @@
 ## 一、第一次設定（只做一次）
 
 Firebase Console 上建好 `wellness-clinic-staging`、開了 Firestore／
-Authentication／Hosting 之後，還有四件事。
+Authentication／Hosting 之後，還有五件事。
 
 ### 1. 開 Google 登入
 
@@ -28,6 +28,46 @@ Console → Authentication → Sign-in method → **Google** → 啟用。
 
 同一頁的 **Authorized domains** 要有 `wellness-clinic-staging.web.app`
 （建專案時通常自動就有）。少了它，登入彈窗會直接被擋掉。
+
+### 1.5 補一個 IAM 角色（新專案幾乎一定要做這一步）
+
+Console 下載下來的服務帳號金鑰（`firebase-adminsdk-…`），預設只有讀寫
+Firestore 資料的權限，**沒有部署時要用到的權限**。
+
+2024 年之後建立的新 Firebase 專案，Google 不再自動把 Editor 角色給那個
+預設服務帳號了（舊專案因為是很久以前建的，還留著那個角色，這就是為什麼
+正式環境的部署一直是好的，staging 卻不是）。少了它，`firebase deploy`
+會在兩個地方 403：
+
+- 測試 `firestore.rules` 編譯得過不過（`firebaserules.googleapis.com`）
+- 問 Firestore API 開了沒（`serviceusage.googleapis.com`，firebase-tools
+  14 開始才會問）
+
+**症狀**：Hosting 部署成功，Firestore 那一步失敗，錯誤訊息是
+`The caller does not have permission` 或
+`Permission denied to get service […]`。**重新產生金鑰沒有用** ——
+新金鑰還是同一個服務帳號、同一組角色，問題從來不在金鑰本身。
+
+**補法**：Google Cloud Console → IAM 與管理 → IAM →
+勾選「Include Google-provided role grants」才看得到那個帳號 →
+找到 `firebase-adminsdk-…@<專案>.iam.gserviceaccount.com` → 編輯 →
+新增角色 **Editor**（`roles/editor`）。
+
+```bash
+gcloud projects add-iam-policy-binding wellness-clinic-staging \
+  --member="serviceAccount:firebase-adminsdk-fbsvc@wellness-clinic-staging.iam.gserviceaccount.com" \
+  --role="roles/editor"
+```
+
+給 `Editor` 而不是逐條加最小權限，是刻意的：這條路以後還會用到哪些 Google
+API 沒辦法先猜完，逐條補會變成每次升級 firebase-tools 都要再補一次。
+`Editor` 正是舊專案的預設服務帳號本來就有的權限 —— 補到跟舊專案一樣，
+不是給多的。
+
+**改完不要用本機測**（見「三之二」那個框：本機只要 `firebase login`
+過就測不準，會給出跟 CI 不一樣的假結果）。驗證方式：推一個空 commit 到
+`develop`，到 GitHub Actions 看 `deploy` job 是不是綠的
+（`git commit --allow-empty -m "驗證 IAM" && git push origin develop`）。
 
 ### 2. 推 Rules 與索引上去
 
