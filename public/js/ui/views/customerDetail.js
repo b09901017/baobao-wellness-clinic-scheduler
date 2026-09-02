@@ -33,6 +33,9 @@ import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import {
+  examVisits, followupsOfExam, nthLabel, secondFollowupIds,
+} from '../../domain/nthFollowup.js';
 import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -814,7 +817,35 @@ function followupLine(e, ctx, visits) {
   }
 
   const line = describePair(pair, visits);
-  return line ? `<p class="muted">${esc(line.text)}</p>` : '';
+  return `
+    ${line ? `<p class="muted">${esc(line.text)}</p>` : ''}
+    ${nthLine(e, ctx, visits)}`;
+}
+
+/**
+ * 這一筆健檢底下加約過哪幾返。**接在二返那一句下面，同一個位置、同一個字級。**
+ *
+ * n返 沒有額度，所以它沒有自己的卡片可以掛（`domain/nthFollowup.js` 的檔頭）。
+ * 掛在健檢那一張底下是對的：她問的是「這一次健檢後來聽了幾次報告」。
+ *
+ * **這裡沒有「加約」按鈕。** ADR-0056 定了只有日曆改得了一筆來訪，而加一場
+ * n返 就是建一筆來訪 —— 從這一頁給一顆按鈕等於在那個決定上再開一個洞。
+ * 她的路徑跟排任何一場來訪一樣：壓表，或日曆。
+ */
+function nthLine(e, ctx, visits) {
+  const coursesById = Object.fromEntries(ctx.courses.map((c) => [c.id, c]));
+  const second = secondFollowupIds(ctx.entitlements);
+  const rows = [];
+
+  for (const exam of examVisits([e], coursesById, visits)) {
+    const extra = followupsOfExam(exam.id, visits, second).filter((f) => !second.has(f.slot.entitlementId));
+    if (!extra.length) continue;
+    rows.push(`${shortDate(exam.date)} 的健檢 → ${
+      extra.map((f) => `${nthLabel(f.nth)} ${shortDate(f.visit.date)}`).join('・')}`);
+  }
+
+  if (!rows.length) return '';
+  return `<p class="muted">加約：${rows.map(esc).join('；')}</p>`;
 }
 
 async function addFollowup(ctx, entId) {

@@ -18,6 +18,7 @@ import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
+import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
@@ -115,6 +116,12 @@ export function customerReport({
 
   return { name: customer?.name ?? '（沒有名字）', rows };
 }
+
+/**
+ * 同一格裡好幾行時的分隔。`.gs` 那側寫那一格時 `setWrap(true)`，
+ * 所以換行在試算表上就是換行。
+ */
+const NL = String.fromCharCode(10);
 
 /** 矩陣左邊那幾欄（療程項目、應有、已完成、已排未上、剩餘）。日期從第 6 欄起。 */
 const COUNT_COLS = 5;
@@ -372,7 +379,25 @@ export function syncBundle({
  * 不要印一個空的 `()` —— 那在她的寫法裡是「還沒約」的意思，會反過來騙人。
  */
 function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
-  const out = [];
+  // **一欄一格，格子裡可以有好幾行。**
+  //
+  // 以前這一支一個健檢欄位只回一筆，而手動貼上那條路是
+  // `line[COUNT_COLS + note.dateIndex] = note.text` —— 後面的會蓋掉前面的。
+  // 加約的三返、四返之後，同一次健檢底下會有好幾場，所以收攏一定要在這裡
+  // 做完（同一個 dateIndex 只回一筆，`text` 裡面有換行），兩條路才會長一樣
+  // —— 這一支的檔頭就寫著「同一份報表因為走哪條路而長得不同，她會以為
+  // 其中一條壞了」。
+  //
+  // 換行**不需要動 `SYNC_FORMAT`**：形狀（`{dateIndex, text}`）一個欄位都沒變，
+  // 而 `.gs` 那側寫那一格時本來就 `setWrap(true)`。她不用回 Google 試算表
+  // 重貼腳本（`CLAUDE.md` 對格式對不上的警告：app 照樣推、`.gs` 整包拒收，
+  // 而畫面上看起來跟推好了一模一樣）。
+  const lines = new Map();
+  const add = (dateIndex, text) => {
+    if (dateIndex < 0) return;
+    if (!lines.has(dateIndex)) lines.set(dateIndex, []);
+    lines.get(dateIndex).push(text);
+  };
 
   for (const pair of pairsOf(alive, coursesById)) {
     const label = coursesById[pair.followupCourseId]?.name ?? '二返';
@@ -396,18 +421,35 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
         const hit = (exam && linked.get(exam.id))
           ?? (exam && guessedFor.has(exam.id) ? null : takeUnlinked(guessed, linked, i));
         const doctor = hit?.doctorId ? (staffById[hit.doctorId]?.name ?? null) : null;
-        out.push({
-          dateIndex: dates.indexOf(date),
-          text: hit
-            ? `${monthDay(hit.date)} ${label}${doctor ? `(${doctor})` : ''}`
-            // 空括號在她的寫法裡就是「還沒約」的意思（ADR-0026），
-            // 所以這裡刻意保留 —— 它不是漏印，它是一個訊息。
-            : `${label}()`,
-        });
+        const at = dates.indexOf(date);
+
+        add(at, hit
+          ? `${monthDay(hit.date)} ${label}${doctor ? `(${doctor})` : ''}`
+          // 空括號在她的寫法裡就是「還沒約」的意思（ADR-0026），
+          // 所以這裡刻意保留 —— 它不是漏印，它是一個訊息。
+          : `${label}()`);
+
+        // 加約的三返、四返……接在二返底下，同一格、照返數由小到大。
+        //
+        // **還沒約的 n返 不會出現**（二返有 `二返()` 那個空括號）：二返是一定
+        // 要約的，所以「沒有」是一件待辦；n返 是加約的，「沒有三返」是常態，
+        // 印一個空的 `三返()` 等於每一位客戶的表上都多一行永遠做不完的事。
+        //
+        // 第三個參數傳空陣列 —— 那一支靠它認二返，不給就只回 n返，
+        // 而二返上面那一行已經印過了。
+        if (!exam) return;
+        for (const extra of followupsOfExam(exam.id, visits, [])) {
+          const who = extra.slot.doctorId ? (staffById[extra.slot.doctorId]?.name ?? null) : null;
+          // 醫師還沒定就印空括號 —— **這一種空括號是有意義的**：
+          // 那一場已經約了（日期就在前面），只是醫師還沒挑。
+          add(at, `${monthDay(extra.visit.date)} ${nthLabel(extra.nth)}${who ? `(${who})` : '()'}`);
+        }
       });
   }
 
-  return out;
+  return [...lines.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([dateIndex, texts]) => ({ dateIndex, text: texts.join(NL) }));
 }
 
 /**

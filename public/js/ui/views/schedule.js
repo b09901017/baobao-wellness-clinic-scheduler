@@ -50,6 +50,10 @@ import {
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
+import {
+  nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
+  nthSlotFields, MIN_NTH, MAX_NTH,
+} from '../../domain/nthFollowup.js';
 import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
@@ -123,7 +127,8 @@ export function openFor({ month, customerId, entitlementId = null, followupForVi
 function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
-    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null,
+    followupForVisitId: null, nth: null,
   });
 }
 
@@ -133,7 +138,11 @@ function resetPicks() {
  */
 function resetCourseBoundPicks() {
   Object.assign(view, {
-    equipmentId: null, therapistId: null, roomKey: null, doctorId: null, followupForVisitId: null,
+    equipmentId: null, therapistId: null, roomKey: null, doctorId: null,
+    // **返數也要清。** 少了這一行，她點了「n返」再改回「復能」，
+    // `view.nth` 會留著，而下一次她選回 n返 時看到的是上一次的返數。
+    // 更糟的是那一段存進去時可能同時帶著額度與返數。
+    followupForVisitId: null, nth: null,
   });
 }
 
@@ -1101,7 +1110,10 @@ function dayPanel(row) {
             ? options.map((o) => `
                 <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
                         data-ent="${esc(o.entitlementId)}">${esc(o.label)}
-                  <span class="num dim">&nbsp;剩 ${o.remaining}</span></button>`).join('')
+                  ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
+                        0 看起來像「用完了」，而它根本不是一筆額度 */''}
+                  ${o.isNth ? '<span class="chip__note">不扣次數</span>'
+                            : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`).join('')
             : '<span class="muted">這位客戶身上沒有還有剩的課程了。</span>'}
         </div>
       </div>
@@ -1231,7 +1243,48 @@ function entFields(row, picked) {
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
     ${course.assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all) : ''}
-    ${examField(row, picked)}`;
+    ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
+}
+
+/**
+ * n返 的兩排：第幾返、哪一次健檢的。
+ *
+ * 跟二返那一排（`examField()`）只有一個地方刻意不一樣：**一個候選都不會被
+ * 鎖住**。二返是一對一，所以被別的二返認領掉的那幾次點不下去；n返 沒有上限，
+ * 每一次健檢都可以再約一場。已經有幾返照樣標出來 —— 她要對照的正是那個。
+ *
+ * 也**不自動幫她選**（二返有 `pickExamIfObvious()`）：二返是「一定要約的
+ * 那一次」，自動選省她一下點擊；n返 是她特地要加的一場，替她決定接哪一次
+ * 健檢會讓她漏看。
+ */
+function nthFields(row) {
+  const exams = nthExamChoices(row);
+  const numbers = [];
+  for (let n = MIN_NTH; n <= MAX_NTH; n += 1) numbers.push(n);
+
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">第幾返</span>
+      <div class="chiprow noscroll-bar">
+        ${numbers.map((n) => `
+          <button class="chip chip--sm" type="button" aria-pressed="${n === view.nth}"
+                  data-nth="${n}">${esc(nthLabel(n))}</button>`).join('')}
+      </div>
+      <span class="field__hint">二返是健檢做完一定會有的那一次，在上面那一排選它的額度。這裡是加約的。</span>
+    </div>
+
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">這是哪一次健檢的　一定要選</span>
+      <div class="chips">
+        ${exams.map((c) => `
+          <button class="chip" type="button"
+                  aria-pressed="${c.visitId === view.followupForVisitId}"
+                  data-exam="${esc(c.visitId)}">
+            <span class="num">${esc(shortDate(c.date))}</span>
+            ${c.note ? `<span class="chip__note">${esc(c.note)}</span>` : ''}</button>`).join('')}
+      </div>
+      <span class="field__hint">沒有它，試算表上這一場沒有位置可以印。</span>
+    </div>`;
 }
 
 /**
@@ -1259,7 +1312,61 @@ function courseOptions(row) {
       entitlement: ent,
     });
   }
+
+  // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）—— 它沒有被買、
+  // 沒有次數、扣不掉。它排在同一排是因為她在這裡問的是「這一段要做什麼」，
+  // 而那一排就是回答那個問題的地方。
+  //
+  // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
+  const exams = nthExamChoices(row);
+  if (exams.length) {
+    const course = ctx.all.courses.find((c) => c.id === nthCourseId(row, exams)) ?? null;
+    if (course) {
+      out.push({
+        entitlementId: NTH_PICK,
+        label: '＋ n返',
+        // 剩餘次數那一格印的是「—」不是 0：0 看起來像「用完了」，
+        // 而 n返 根本沒有次數這件事。
+        remaining: '—',
+        durationMin: course.durationMin ?? 30,
+        course,
+        entitlement: null,
+        isNth: true,
+      });
+    }
+  }
+
   return out;
+}
+
+/**
+ * 額度那一排上「n返」那一顆的值。**不是任何一筆額度的 id** ——
+ * Firestore 的自動 id 是 20 個 [A-Za-z0-9] 字元，撞不到這兩條底線。
+ */
+const NTH_PICK = '__nth__';
+
+/** 這位客戶有哪幾次健檢接得了 n返。 */
+function nthExamChoices(row) {
+  return examChoicesForNth({
+    entitlements: ctx.queueInput.entitlementsBy[row.customerId] ?? [],
+    coursesById: Object.fromEntries(ctx.all.courses.map((c) => [c.id, c])),
+    visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
+  });
+}
+
+/**
+ * n返 借的是哪一個課程 —— 那一次健檢配的二返課程（ADR-0022 的同一條連結）。
+ *
+ * 已經選好健檢就用那一次的；還沒選就拿第一個候選的 —— 幾乎所有客戶身上
+ * 的健檢都配到同一個二返課程，而她選完之後這個值會重算。
+ */
+function nthCourseId(row, exams) {
+  const visits = ctx.queueInput.visitsBy[row.customerId] ?? [];
+  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
+  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
+  const wanted = view.followupForVisitId ?? exams[0]?.visitId ?? null;
+  const exam = visits.find((v) => v.id === wanted) ?? null;
+  return exam ? courseIdForNth(exam, ents, coursesById) : null;
 }
 
 function equipmentField(row, picked) {
@@ -1484,6 +1591,9 @@ function onDeckClick(e) {
   const ent = e.target.closest('[data-ent]');
   if (ent) return pickCourse(ent.dataset.ent);
 
+  const nth = e.target.closest('[data-nth]');
+  if (nth) return pickNth(Number(nth.dataset.nth));
+
   const time = e.target.closest('[data-time]');
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
@@ -1491,7 +1601,13 @@ function onDeckClick(e) {
     ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],
     ['exam', 'followupForVisitId']]) {
     const hit = e.target.closest(`[data-${attr}]`);
-    if (hit) return pickOne(attr, key, hit.dataset[attr]);
+    if (hit) {
+      pickOne(attr, key, hit.dataset[attr]);
+      // 換了「哪一次健檢」之後返數要跟著重算 —— 兩次健檢各自有各自的第幾返，
+      // 而她選完健檢之後看到的那個數字如果還是上一次的，她會直接按下去。
+      if (attr === 'exam' && view.nth != null) refreshNth();
+      return null;
+    }
   }
 
   if (e.target.closest('[data-add]')) return addSlot();
@@ -1502,6 +1618,21 @@ function onDeckClick(e) {
 
 function onDeckChange(e) {
   if (e.target.matches('[data-othertime]')) pickTime(e.target.value || null, { fromInput: true });
+}
+
+/** 換了「哪一次健檢」之後把返數重算一次，並且只改那一排的 aria-pressed。 */
+function refreshNth() {
+  const row = selectedRow();
+  if (!row) return;
+  view.nth = view.followupForVisitId
+    ? nextNthFor(
+      view.followupForVisitId,
+      ctx.queueInput.visitsBy[row.customerId] ?? [],
+      secondFollowupIds(ctx.queueInput.entitlementsBy[row.customerId] ?? []),
+    )
+    : MIN_NTH;
+  deckEl()?.querySelectorAll('[data-nth]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(Number(b.dataset.nth) === view.nth)));
 }
 
 /** 選一顆丸子：只改按下去的樣子。再點一次同一顆就取消。 */
@@ -1535,12 +1666,40 @@ function pickCourse(entitlementId) {
 
   const picked = courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null;
   // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
-  pickExamIfObvious(row, picked);
+  if (picked?.isNth) pickDefaultNth(row);
+  else pickExamIfObvious(row, picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');
   if (add) add.disabled = !picked;
   showErrors([]);
+}
+
+/** 選第幾返。跟別的丸子一樣只改 aria-pressed，不重畫（ADR-0038）。 */
+function pickNth(n) {
+  view.nth = view.nth === n ? null : n;
+  deckEl()?.querySelectorAll('[data-nth]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(Number(b.dataset.nth) === view.nth)));
+}
+
+/**
+ * 剛選到「n返」時給一個預設返數。
+ *
+ * **只有一個健檢候選時才算得準** —— 返數是跟著「哪一次健檢」走的
+ *（同一次健檢底下最大的 + 1）。有好幾次健檢時先給最小值，等她選了健檢
+ * 再算一次（`pickOne()` 那條路走 `onDeckClick` 的 `exam`，見底下）。
+ */
+function pickDefaultNth(row) {
+  const exams = nthExamChoices(row);
+  const only = exams.length === 1 ? exams[0].visitId : view.followupForVisitId;
+  if (exams.length === 1) view.followupForVisitId = only;
+  view.nth = only
+    ? nextNthFor(
+      only,
+      ctx.queueInput.visitsBy[row.customerId] ?? [],
+      secondFollowupIds(ctx.queueInput.entitlementsBy[row.customerId] ?? []),
+    )
+    : MIN_NTH;
 }
 
 /** 換日子只重畫那一天的面板，小日曆本身只改哪一格被選中。 */
@@ -1592,9 +1751,32 @@ async function addSlot() {
 
   if (!picked) return showErrors(['先選要做什麼']);
   if (!isValidTime(view.startsAt)) return showErrors(['先選幾點開始']);
+  // n返 的兩格在這裡先擋，不要等 `validateVisit()` ——
+  // 那一支講的是「第 1 個時段：……」，而她在這一頁看到的是一張卡片，
+  // 沒有「第幾個時段」這個概念。
+  if (picked.isNth && !view.nth) return showErrors(['先選第幾返']);
+  if (picked.isNth && !view.followupForVisitId) {
+    return showErrors(['先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印']);
+  }
 
   const course = picked.course;
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
+
+  // n返 的三樣東西（沒有額度、返數、哪一次健檢）由 `nthSlotFields()` 給 ——
+  // 兩個入口共用同一支，各自組一次的話遲早有一個忘了把 `entitlementId`
+  // 設成 null，而那一段會被算進某一筆額度的次數裡。
+  const nthPart = picked.isNth
+    ? nthSlotFields({
+      nth: view.nth,
+      examVisitId: view.followupForVisitId,
+      courseId: courseIdForNth(
+        (ctx.queueInput.visitsBy[selected.customerId] ?? [])
+          .find((x) => x.id === view.followupForVisitId) ?? null,
+        ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
+        Object.fromEntries(all.courses.map((c) => [c.id, c])),
+      ) ?? course.id,
+    })
+    : null;
 
   const slot = {
     entitlementId: picked.entitlementId,
@@ -1614,6 +1796,9 @@ async function addSlot() {
       ? (view.followupForVisitId ?? null)
       : null,
     attended: null,
+    // n返 覆蓋掉上面那幾樣。**放在最後不是隨便放的** —— 上面那一份是
+    // 「一段普通的來訪」的形狀，這一份只換掉真的不一樣的三樣。
+    ...(nthPart ?? {}),
   };
 
   const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;

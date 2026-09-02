@@ -463,7 +463,9 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // / doctorId 一律是 null —— 舊表沒有記過那些，見
                               // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
-    { entitlementId, courseId, courseName,
+    { entitlementId,          // **n返 是 null**：它沒有被買、沒有次數、扣不掉
+                              // （ADR-0063）。其餘每一種時段都一定要有一筆額度。
+      courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
@@ -471,6 +473,13 @@ audit/{eventId}                   // append-only 稽核紀錄
       doctorId,               // 這次是哪位醫師。picksDoctor() 為真的課程才有
                               // （A 類一律，其餘看 requiresDoctor）。
                               // 既有的來訪一律是 null，不要猜
+      followupForVisitId,     // 這一段接在哪一次健檢後面。二返與 n返 都用它。
+                              // **二返是選填**（舊資料一筆都沒有，ADR-0011），
+                              // **n返 是必填**（它全新，而且少了它試算表上
+                              // 那一場沒有位置可以印）
+      followupNth,            // n返 才有：3、4、5……（3–10）。二返身上**沒有
+                              // 這個欄位**，兩者靠它分辨。名字由它組
+                              // （3 → 三返），課程借二返那一個。見 ADR-0063
       attended }
   ],
   createdBy, createdAt, updatedAt, deletedAt
@@ -594,6 +603,14 @@ audit/{eventId}                   // append-only 稽核紀錄
 「已經登記過」指的是 Examine、耀聖這兩種會在外部系統留下東西的任務已被勾完成（歷史資料裡還有勾掉的 `Abovee` 任務，一樣算）。**打電話做過就是做過了，沒有東西要收回來**，不產生取消任務。取消類任務的 `kind` 是原本的種類加上 `取消 ` 前綴，產生後就不再受來訪現況管轄 —— 它記的是「當初登記過、現在要收回來」這件事。
 
 > **不要照抄舊 `.gs` 的分支。** 它用課程名稱做字串包含比對，療程一改名就靜默失效，而且給的任務清單是舊的。
+
+### n返（三返、四返……）走的是課程那一條，不是這一條
+
+加約的 n返 **借二返那個課程**（`followupCourseId` 指到的那一個），所以它的
+掛號任務、要不要簽療程單、選不選得到醫師，全部由上面那張矩陣照 A 類推導 ——
+一行程式都不用寫。它與二返在資料上完全不相交（`entitlementId` 是 `null`），
+所以底下那兩種鏈式待辦一個都不會因為它而多長或少長。見
+`docs/adr/0063-an-nth-followup-is-a-visit-without-an-entitlement.md`。
 
 ### 「追蹤健檢報告」與「約二返」不在這張矩陣上
 

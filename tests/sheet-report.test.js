@@ -573,3 +573,129 @@ describe('自動同步現在該說哪一句', () => {
     assert.ok(lines[0].includes('還沒推過'));
   });
 });
+
+// ---------- 加約的三返、四返 ----------
+//
+// 她的原話：「試算表紀錄的部分就是，和二返一樣紀錄在健檢預約的下面，
+// 有二返(...) 三返(...)」。
+//
+// 收攏在同一格是**刻意的**，而且它決定了「要不要動 SYNC_FORMAT」：
+// 形狀不變（`{dateIndex, text}`）→ `.gs` 不用重貼、她不用重新部署。
+
+const NL = String.fromCharCode(10);
+
+const nthWorld = (extra = []) => syncBundle({
+  customers: [{ id: 'c1', name: '客戶A' }],
+  entitlementsBy: {
+    c1: [
+      { id: 'e-chk', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1 },
+      { id: 'e-fu', label: '二返（8萬健檢）', courseId: 'course-followup', followupForEntitlementId: 'e-chk', totalQty: 1 },
+    ],
+  },
+  visitsBy: {
+    c1: [
+      { id: 'v-exam', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e-chk' }] },
+      {
+        id: 'v-2nd', date: '2026-08-08', status: 'confirmed',
+        slots: [{ entitlementId: 'e-fu', doctorId: 'st-xia', followupForVisitId: 'v-exam' }],
+      },
+      ...extra,
+    ],
+  },
+  today: '2026-08-10',
+  master: {
+    courses: [
+      { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
+      { id: 'course-followup', name: '二返' },
+    ],
+    staff: [{ id: 'st-xia', name: '夏', role: '醫師' }, { id: 'st-li', name: '李', role: '醫師' }],
+  },
+});
+
+test('三返接在二返底下，**同一格**、照返數由小到大', () => {
+  const bundle = nthWorld([
+    {
+      id: 'v-4th', date: '2026-10-08', status: 'confirmed',
+      slots: [{ entitlementId: null, followupNth: 4, doctorId: 'st-li', followupForVisitId: 'v-exam' }],
+    },
+    {
+      id: 'v-3rd', date: '2026-09-20', status: 'confirmed',
+      slots: [{ entitlementId: null, followupNth: 3, doctorId: 'st-xia', followupForVisitId: 'v-exam' }],
+    },
+  ]);
+
+  const notes = bundle.sheets[0].followupNotes;
+  assert.equal(notes.length, 1, '**一欄只能有一筆** —— 手動貼上那條路是直接寫進格子，第二筆會蓋掉第一筆');
+  assert.equal(notes[0].dateIndex, 0, '對齊健檢那一欄');
+  assert.equal(notes[0].text, ['8/8 二返(夏)', '9/20 三返(夏)', '10/8 四返(李)'].join(NL));
+});
+
+test('**還沒約的 n返 不會出現**（二返的空括號留著，理由不一樣）', () => {
+  const notes = nthWorld().sheets[0].followupNotes;
+  assert.equal(notes[0].text, '8/8 二返(夏)');
+  assert.equal(notes[0].text.includes('三返'), false,
+    '「沒有三返」是常態不是待辦 —— 印一個空的三返() 等於每張表都多一行永遠做不完的事');
+});
+
+test('約了但醫師還沒定的 n返 印空括號 —— 那一種空括號是有意義的', () => {
+  const notes = nthWorld([{
+    id: 'v-3rd', date: '2026-09-20', status: 'confirmed',
+    slots: [{ entitlementId: null, followupNth: 3, doctorId: null, followupForVisitId: 'v-exam' }],
+  }]).sheets[0].followupNotes;
+
+  assert.equal(notes[0].text, ['8/8 二返(夏)', '9/20 三返()'].join(NL));
+});
+
+test('取消掉的 n返 不印 —— 那一場沒發生', () => {
+  const notes = nthWorld([{
+    id: 'v-3rd', date: '2026-09-20', status: 'cancelled',
+    slots: [{ entitlementId: null, followupNth: 3, doctorId: 'st-li', followupForVisitId: 'v-exam' }],
+  }]).sheets[0].followupNotes;
+
+  assert.equal(notes[0].text, '8/8 二返(夏)');
+});
+
+test('**n返 不進矩陣**：它沒有額度，所以那幾個數字欄一個都不會動', () => {
+  const sheet = nthWorld([{
+    id: 'v-3rd', date: '2026-09-20', status: 'confirmed',
+    slots: [{ entitlementId: null, followupNth: 3, doctorId: 'st-li', followupForVisitId: 'v-exam' }],
+  }]).sheets[0];
+
+  const second = sheet.rows.find((r) => r.label.startsWith('二返'));
+  assert.deepEqual(
+    { total: second.total, done: second.done, booked: second.booked, remaining: second.remaining },
+    { total: 1, done: 0, booked: 1, remaining: 0 },
+    '三返不可以被算進二返那一筆額度',
+  );
+  assert.equal(sheet.rows.length, 2, '三返不會自己多一列 —— 她要的是「記在健檢預約的下面」');
+});
+
+test('手動貼上那條路要跟自動推送長一樣（同一格、同一組換行）', () => {
+  const { rows } = customerReport({
+    customer: { id: 'c1', name: '客戶A' },
+    entitlements: [
+      { id: 'e-chk', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1 },
+      { id: 'e-fu', label: '二返（8萬健檢）', courseId: 'course-followup', followupForEntitlementId: 'e-chk', totalQty: 1 },
+    ],
+    visits: [
+      { id: 'v-exam', date: '2026-08-01', status: 'done', slots: [{ entitlementId: 'e-chk' }] },
+      {
+        id: 'v-2nd', date: '2026-08-08', status: 'confirmed',
+        slots: [{ entitlementId: 'e-fu', doctorId: 'st-xia', followupForVisitId: 'v-exam' }],
+      },
+      {
+        id: 'v-3rd', date: '2026-09-20', status: 'confirmed',
+        slots: [{ entitlementId: null, followupNth: 3, doctorId: 'st-li', followupForVisitId: 'v-exam' }],
+      },
+    ],
+    courses: [
+      { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
+      { id: 'course-followup', name: '二返' },
+    ],
+    staff: [{ id: 'st-xia', name: '夏', role: '醫師' }, { id: 'st-li', name: '李', role: '醫師' }],
+  });
+
+  const note = rows.find((r) => r.some((cell) => String(cell).includes('三返')));
+  assert.ok(note, `三返註記要在，實際：${JSON.stringify(rows)}`);
+  assert.equal(note[5], ['8/8 二返(夏)', '9/20 三返(李)'].join(NL), '對齊健檢那一欄，一格兩行');
+});

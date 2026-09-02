@@ -20,6 +20,10 @@ import {
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
+import {
+  isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
+  secondFollowupIds, nthSlotFields, MIN_NTH, MAX_NTH,
+} from '../../domain/nthFollowup.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
@@ -328,9 +332,12 @@ function warningsHtml(warnings, embedded = false) {
  */
 function slotCard(ctx, draft, slot, i) {
   const { entitlements, all, customerVisits, customer, embedded } = ctx;
-  const ent = entitlements.find((x) => x.id === slot.entitlementId) ?? null;
-  const courseChoices = coursesForEntitlement(ent, all.courses);
+  const nth = isNthSlot(slot);
+  const ent = nth ? null : (entitlements.find((x) => x.id === slot.entitlementId) ?? null);
+  // n返 借二返那個課程，所以課程那一排不用出現（只有一個選項，而且她選不了別的）
+  const courseChoices = nth ? [] : coursesForEntitlement(ent, all.courses);
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
+  const nthExams = nthExamChoices(ctx, draft);
 
   return `
     <section class="card slotcard ${embedded ? 'card--bare' : ''}">
@@ -354,12 +361,26 @@ function slotCard(ctx, draft, slot, i) {
       </div>
 
       ${f.chips({
-        name: `s${i}-ent`, label: '額度', value: slot.entitlementId,
-        options: entitlements.map((e) => {
-          const c = counts(e, customerVisits, e.id);
-          return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
-        }),
+        name: `s${i}-ent`, label: '額度', value: nth ? NTH_PICK : slot.entitlementId,
+        options: [
+          ...entitlements.map((e) => {
+            const c = counts(e, customerVisits, e.id);
+            return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
+          }),
+          // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
+          // 它排在同一排是因為她在這裡問的是「這一段是什麼」，而那一排就是
+          // 回答那個問題的地方。前面插一條線與一個小標，因為滑到底看到的
+          // 那一顆是另一種東西（`chips()` 的 `lead`）。
+          //
+          // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
+          // 一顆永遠按不下去的丸子只會讓她每次都試一下。
+          ...(nthExams.length
+            ? [{ value: NTH_PICK, label: '＋ n返', note: '不扣次數', lead: '加約' }]
+            : []),
+        ],
       })}
+
+      ${nth ? nthFields(ctx, draft, slot, i, nthExams) : ''}
 
       ${/* 只有一個選項時不畫丸子（一顆孤零零的丸子看起來像可以取消），
              課程名由上面那一行的抬頭講 —— SPEC 第 8.3 節那張圖就是
@@ -390,6 +411,68 @@ function slotCard(ctx, draft, slot, i) {
       ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
     </section>`;
+}
+
+/**
+ * 額度那一排上「n返」那一顆的值。**不是任何一筆額度的 id** ——
+ * 它只活在表單裡，`readDraft()` 讀到它就換一條路組時段。
+ *
+ * 前綴那兩條底線是刻意的：Firestore 的自動 id 是 20 個 [A-Za-z0-9] 字元，
+ * 撞不到。
+ */
+const NTH_PICK = '__nth__';
+
+/** 這位客戶有哪幾次健檢接得了 n返。一段一段都問同一支，答案一樣。 */
+function nthExamChoices(ctx, draft) {
+  return examChoicesForNth({
+    entitlements: ctx.entitlements,
+    coursesById: Object.fromEntries(ctx.all.courses.map((c) => [c.id, c])),
+    visits: ctx.customerVisits,
+    excludeVisitId: draft?.id ?? null,
+  });
+}
+
+/**
+ * n返 的兩排：第幾返、哪一次健檢的。
+ *
+ * 跟二返那一排（`examField()`）刻意長得不一樣的地方只有一個：
+ * **一個候選都不會被鎖住**。二返是一對一，所以被別的二返認領掉的那幾次
+ * 點不下去；n返 沒有上限，每一次健檢都可以再約一場。已經有幾返照樣標出來
+ * —— 她要對照的正是那個。
+ *
+ * 兩排都 `quiet`：換這兩顆不影響任何別的欄位，重畫只會讓她捲回最上面
+ * （ADR-0038）。
+ */
+function nthFields(ctx, draft, slot, i, choices) {
+  const picked = nthOf(slot) ?? MIN_NTH;
+
+  const numbers = [];
+  for (let n = MIN_NTH; n <= MAX_NTH; n += 1) numbers.push(n);
+
+  return `
+    ${f.chips({
+      name: `s${i}-nth`, label: '第幾返', value: String(picked), quiet: true,
+      options: numbers.map((n) => ({ value: String(n), label: nthLabel(n) })),
+      hint: '二返是健檢做完一定會有的那一次，在上面那一排選它的額度。這裡是加約的。',
+    })}
+
+    ${choices.length
+      ? f.chips({
+          name: `s${i}-exam-nth`, label: '這是哪一次健檢的', quiet: true,
+          value: slot.followupForVisitId ?? null,
+          options: choices.map((c) => ({
+            value: c.visitId,
+            label: shortDate(c.date),
+            // 已經有幾返了。**不寫「還沒約」** —— 那三個字是二返那一排的，
+            // 兩個地方講不同的事會讓她以為是同一件。
+            note: c.note,
+          })),
+          hint: '一定要選 —— 沒有它，試算表上這一場沒有位置可以印。',
+        })
+      : `<div class="fieldgroup">
+           <span class="fieldgroup__label">這是哪一次健檢的</span>
+           <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
+         </div>`}`;
 }
 
 /**
@@ -507,8 +590,19 @@ function readDraft(ctx, form, draft) {
   const v = f.readForm(form);
   const { entitlements, all } = ctx;
 
+  const coursesById = Object.fromEntries(all.courses.map((c) => [c.id, c]));
+
   const slots = draft.slots.map((slot, i) => {
-    const entitlementId = key(v, `s${i}-ent`, slot.entitlementId);
+    const entitlementId = key(v, `s${i}-ent`, isNthSlot(slot) ? NTH_PICK : slot.entitlementId);
+
+    // n返 走另一條路：沒有額度、沒有課程可以挑（借二返那個），
+    // 但多了返數與「哪一次健檢的」。形狀由 `nthSlotFields()` 給，
+    // 三個入口共用同一支 —— 各自組一次的話遲早有一個忘了把
+    // `entitlementId` 設成 null，而那一段會被算進某一筆額度的次數裡。
+    if (entitlementId === NTH_PICK) {
+      return readNthSlot({ v, i, slot, ctx, coursesById });
+    }
+
     const ent = entitlements.find((x) => x.id === entitlementId) ?? null;
 
     // 換了額度就要重挑課程，舊的課程可能根本不屬於新的額度
@@ -541,6 +635,11 @@ function readDraft(ctx, form, draft) {
       followupForVisitId: ent?.followupForEntitlementId
         ? key(v, `s${i}-exam`, slot.followupForVisitId ?? null)
         : null,
+      // **她把這一段從「n返」改回一筆額度了。** `...slot` 會把 `followupNth`
+      // 原封不動帶過來，而帶著它的那一段會同時被算進那筆額度的次數、
+      // 又被畫成一場三返 —— 存檔時 `validateVisit()` 會擋（「不可以同時指定
+      // 額度」），但她看到的是一個莫名其妙的錯誤訊息。清乾淨是這裡的事。
+      followupNth: null,
     };
   });
 
@@ -549,6 +648,43 @@ function readDraft(ctx, form, draft) {
     date: v.date || draft.date,
     note: String(key(v, 'note', draft.note) ?? '').trim() || null,
     slots,
+  };
+}
+
+/**
+ * 一段 n返 讀回來。
+ *
+ * 時間、醫師、診間跟一般時段一樣走同一組欄位（課程是二返那一個，
+ * 所以 `assigns` 與 `picksDoctor()` 都答得出來）；差別只有前面那三樣。
+ */
+function readNthSlot({ v, i, slot, ctx, coursesById }) {
+  const { entitlements, all, customerVisits } = ctx;
+  const examVisitId = key(v, `s${i}-exam-nth`, slot.followupForVisitId ?? null);
+  const exam = customerVisits.find((x) => x.id === examVisitId) ?? null;
+  const nth = Number(key(v, `s${i}-nth`, nthOf(slot) ?? MIN_NTH));
+
+  const courseId = exam
+    ? courseIdForNth(exam, entitlements, coursesById)
+    // 還沒選健檢時課程也還不知道 —— 沿用原本那一個（改一段既有的 n返 時
+    // 它已經對了）。存檔會被 `validateVisit()` 擋下來並講出是哪一格沒選。
+    : (slot.courseId ?? null);
+  const course = all.courses.find((c) => c.id === courseId) ?? null;
+
+  const startsAt = v[`s${i}-start`] || slot.startsAt;
+  const durationMin = course?.durationMin ?? 30;
+
+  return {
+    ...slot,
+    ...nthSlotFields({ nth, examVisitId, courseId }),
+    equipmentId: null,
+    ivProductId: null,
+    startsAt,
+    endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
+    ...(course?.assigns === 'room'
+      ? parseRoomKey(v[`s${i}-room`])
+      : { roomId: null, bed: null }),
+    therapistId: null,
+    doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
   };
 }
 

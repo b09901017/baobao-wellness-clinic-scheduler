@@ -11,6 +11,10 @@ import { validateSlots as contraindicationErrors } from './contraindications.js'
 import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+import {
+  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
+  followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
+} from './nthFollowup.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
 export const VISIT_STATUSES = [
@@ -553,12 +557,36 @@ function visitErrors(visit, {
   const slots = visit.slots ?? [];
   if (!slots.length) errors.push('一次來訪至少要有一個時段');
 
+  // 哪幾筆額度是健檢。n返 指到的那一筆來訪要靠它驗（判斷跟
+  // `domain/followups.js` 走同一條路：課程主檔上設了 followupCourseId 的）。
+  const examIds = examEntitlementIds(entitlements, coursesById);
+
   slots.forEach((slot, i) => {
     const at = `第 ${i + 1} 個時段`;
 
     const ent = entsById[slot.entitlementId];
-    if (!slot.entitlementId) errors.push(`${at}：要選一個額度`);
-    else if (!ent) errors.push(`${at}：指定的額度不存在或已刪除`);
+
+    // **n返 排不進任何額度**（`domain/nthFollowup.js` 的檔頭）：它沒有被買、
+    // 沒有次數、扣不掉。所以這一段不要求額度 —— 但它多要求兩件事，底下驗。
+    //
+    // 反過來也要擋：帶著 `followupNth` **又**指了一筆額度，那一段會同時
+    // 被算進那筆額度的次數、又被畫成一場 n返。兩種身分只能挑一種。
+    const nth = isNthSlot(slot);
+    if (!slot.entitlementId) {
+      if (!nth) errors.push(`${at}：要選一個額度`);
+    } else if (nth) {
+      errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
+    } else if (!ent) {
+      errors.push(`${at}：指定的額度不存在或已刪除`);
+    }
+
+    // 返數本身。`isNthSlot()` 看的是「填過沒」，`nthOf()` 看的是「合不合法」——
+    // 分開問才講得出真正錯的是什麼（填了 33 的時候不要抱怨「要選一個額度」）。
+    if (nth && nthOf(slot) == null) {
+      errors.push(
+        `${at}：返數要是 ${MIN_NTH} 到 ${MAX_NTH} 之間的整數 —— 二返走額度那條路，不是這裡`,
+      );
+    }
 
     const course = coursesById[slot.courseId];
     if (!slot.courseId) errors.push(`${at}：要選一個課程`);
@@ -618,6 +646,17 @@ function visitErrors(visit, {
           && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
         errors.push(`${at}：指定的那一筆來訪裡沒有「${ent.label}」對應的健檢`);
       }
+      // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
+      // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
+      else if (nth && !(exam.status === 'done' && isExamVisit(exam, examIds))) {
+        errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
+      }
+    } else if (nth) {
+      // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
+      // 二返有一整批舊資料身上沒有這個欄位（ADR-0011 的同一條原則），
+      // 擋下來她連改一個時間都存不回去；n返 是全新的，一筆舊資料都沒有，
+      // 而且沒有那個連結它在試算表上根本沒有位置可以印。
+      errors.push(`${at}：${nthLabel(nthOf(slot)) ?? 'n返'} 一定要指定是哪一次健檢的`);
     }
   });
 
@@ -634,9 +673,36 @@ function visitWarnings(visit, ctx) {
     ...overlapWarnings(visit),
     ...entitlementWarnings(visit, ctx),
     ...assignmentWarnings(visit, ctx),
+    ...nthWarnings(visit, ctx),
     ...conflictWarnings(visit, ctx),
     ...frequencyWarnings(visit, ctx),
   ];
+}
+
+/**
+ * 同一次健檢底下已經有一場同樣的返數了。
+ *
+ * **只提醒不擋**（ADR-0002：app 記錄決定，不做決定）—— 改期就是取消再排一筆，
+ * 那兩筆會同時存在一下下；她也可能真的要在同一次健檢底下約兩場三返
+ * （客人第一場沒來，重約一場）。擋下來的話她會卡在一個存不進去的畫面上。
+ */
+function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
+  const out = [];
+  const second = secondFollowupIds(entitlements);
+  const others = (customerVisits ?? []).filter((v) => v.id !== visit.id);
+
+  (visit.slots ?? []).forEach((slot, i) => {
+    const nth = nthOf(slot);
+    if (!nth || !slot.followupForVisitId) return;
+
+    const same = followupsOfExam(slot.followupForVisitId, others, second)
+      .filter((f) => f.nth === nth);
+    if (same.length) {
+      out.push(`第 ${i + 1} 個時段：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
+    }
+  });
+
+  return out;
 }
 
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
