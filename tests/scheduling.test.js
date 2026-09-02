@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
   strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
+  customersToAskForMonth,
   customersToBook,
   sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS,
 } from '../public/js/domain/scheduling.js';
@@ -708,3 +709,122 @@ describe('批次', () => {
 function markAll(batch, state) {
   return batch.queue.map((q) => ({ ...q, state }));
 }
+
+
+// ---------- 某一個月的時間問到誰（customersToAskForMonth） ----------
+//
+// 跟 `customersToAsk()` 是兩支，兩支都要活著：一支問「現在」、一支問「9 月」。
+// 這一組測試盯的正是兩者不該一樣的那幾個地方。
+
+describe('某一個月的時間問到誰（customersToAskForMonth）', () => {
+  const person = (id, name, over = {}) => ({ id, name, priority: 3, flags: [], ...over });
+  const ent = (over = {}) => ({
+    id: 'e1', type: 'pool', label: '復能', totalQty: 12, doneCount: 0, bookedCount: 0,
+    optionEquipmentIds: ['eq1', 'eq2'], ...over,
+  });
+  const coll = (over = {}) => ({
+    id: 'a-sep', collectedAt: '2026-08-20', validFrom: '2026-09-01', validTo: '2026-09-30',
+    rawText: '', rules: [], ...over,
+  });
+
+  const base = {
+    customers: [person('c1', '客戶甲')],
+    entitlementsBy: { c1: [ent()] },
+    availabilityBy: {},
+    month: '2026-09',
+  };
+
+  test('那個月沒有收集 = 還沒問到，而且看得出是「從來沒問過」', () => {
+    const rows = customersToAskForMonth(base);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].state, 'never');
+    assert.equal(rows[0].collection, null);
+  });
+
+  test('那個月有一份 = 已經問到了。**那一位不會消失**，只是狀態變了', () => {
+    const rows = customersToAskForMonth({ ...base, availabilityBy: { c1: [coll()] } });
+    assert.equal(rows.length, 1, '她的原話：「都不要消失」');
+    assert.equal(rows[0].state, 'asked');
+    assert.equal(rows[0].collection.id, 'a-sep');
+  });
+
+  test('問過八月、沒問過九月 —— 這是第三種狀態，不是「從來沒問過」', () => {
+    const rows = customersToAskForMonth({
+      ...base,
+      availabilityBy: {
+        c1: [coll({ id: 'a-aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-07-28' })],
+      },
+    });
+    assert.equal(rows[0].state, 'notThisMonth');
+    assert.equal(rows[0].collection, null);
+    assert.equal(rows[0].lastAskedAt, '2026-07-28', '最後一次問的是哪一天，任何月份都算');
+  });
+
+  test('**次數用完的照樣要問得到** —— 這一支跟 customersToAsk() 最大的差別', () => {
+    const rows = customersToAskForMonth({
+      ...base,
+      entitlementsBy: { c1: [ent({ totalQty: 12, doneCount: 12 })] },
+    });
+    assert.equal(rows.length, 1, '她的原話：「不用看他身上還有沒有次數」');
+    assert.equal(rows[0].remaining, 0, '但剩幾次還是要講出來，那是她提醒加購的線索');
+
+    // 同一份資料餵給問「現在」那一支，答案相反 —— 兩支各自都是對的
+    assert.deepEqual(
+      customersToAsk({ ...base, entitlementsBy: { c1: [ent({ totalQty: 12, doneCount: 12 })] }, today: '2026-08-29' }),
+      [],
+    );
+  });
+
+  test('**用 collectionFor 不是 currentCollection**：回頭看已經過去的月份', () => {
+    // 9/5 這一天回頭問「8 月問到了誰」。8 月那一份在今天**已經過期**，
+    // 所以 currentCollection() 會說「手上沒有一份算數的」——
+    // 但 8 月確實是問過的，那正是這一頁要答的問題。
+    const august = {
+      ...base,
+      availabilityBy: {
+        c1: [coll({ id: 'a-aug', validFrom: '2026-08-01', validTo: '2026-08-31', collectedAt: '2026-07-28' })],
+      },
+      month: '2026-08',
+    };
+    assert.equal(customersToAskForMonth(august)[0].state, 'asked');
+
+    // 同一份資料餵給問「現在（9/5）」的那一支，答案相反 —— 兩支各自都是對的。
+    // 挑錯的後果是「8 月」那一格整片寫著「還沒問」。
+    assert.equal(customersToAsk({ ...august, today: '2026-09-05' }).length, 1);
+  });
+
+  test('停用與軟刪除的客戶不算', () => {
+    for (const over of [{ active: false }, { deletedAt: 'x' }]) {
+      assert.deepEqual(
+        customersToAskForMonth({ ...base, customers: [{ ...person('c1', '客戶甲'), ...over }] }),
+        [], JSON.stringify(over),
+      );
+    }
+  });
+
+  test('刪掉的收集不算數 —— 刪掉就是那個月沒問過', () => {
+    const rows = customersToAskForMonth({
+      ...base,
+      availabilityBy: { c1: [coll({ deletedAt: 'x' })] },
+    });
+    assert.equal(rows[0].state, 'never');
+  });
+
+  test('月份不合法回空陣列，不要退回「這個月」', () => {
+    assert.deepEqual(customersToAskForMonth({ ...base, month: '2026-13' }), []);
+    assert.deepEqual(customersToAskForMonth({ ...base, month: undefined }), []);
+  });
+
+  test('順序：從來沒問過 → 問過別的月份 → 這個月已經有了', () => {
+    const rows = customersToAskForMonth({
+      ...base,
+      customers: [person('c1', '甲'), person('c2', '乙'), person('c3', '丙')],
+      entitlementsBy: { c1: [ent()], c2: [ent()], c3: [ent()] },
+      availabilityBy: {
+        c2: [coll({ id: 'a-aug', validFrom: '2026-08-01', validTo: '2026-08-31' })],
+        c3: [coll()],
+      },
+    });
+    assert.deepEqual(rows.map((r) => r.state), ['never', 'notThisMonth', 'asked']);
+  });
+});

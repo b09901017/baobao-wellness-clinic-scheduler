@@ -28,13 +28,15 @@ import {
   sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
   MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
-import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
+import {
+  customersToAsk, customersToAskForMonth, customersToBook, monthRange,
+} from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
-import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
+import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
@@ -57,6 +59,7 @@ import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
+import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
@@ -98,6 +101,12 @@ let bookRows = null;
 // 「問這輪的時間」那一頁的分段切換：還沒發連結 / 已經發出。
 // 存在模組裡而不是網址裡 —— 它是看法，不是位置（同首頁的「總覽／依客戶」）。
 let askTab = 'todo';
+
+// 那一頁現在在看哪個月。`null` = 還沒進去過，進去時填成**下個月**。
+//
+// 同樣不進網址：它是看法不是位置。但它跟 `askTab` 有一個差別 ——
+// **換月份要重新讀資料**（那一頁三份資料都是照月份挑的），而換分段不用。
+let askMonth = null;
 
 // ---------- 總覽 ----------
 
@@ -642,9 +651,13 @@ function askGroupRow() {
 
   // 數字**不減掉**已經發出連結的那幾位：這一輪的時間確實還沒問到，
   // 把數字做小會讓她以為進度比實際好。改成在說明裡講出來（ADR-0033）。
+  // 這一列的數字**問的是「現在」**（`customersToAsk()`，ADR-0028），而點進去
+  // 那一頁綁月份、而且不看次數 —— 兩個數字對不起來是正常的，所以要講出來。
+  // 一個數字後面配一句話，比兩個互相矛盾的數字好懂（ADR-0033 的同一句）。
   const note = sentCount
-    ? `其中 ${sentCount} 位已經發出連結，在等他填`
-    : (never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了');
+    ? `其中 ${sentCount} 位已經發出連結，在等他填・點進去可以換月份`
+    : (never ? `其中 ${never} 位從來沒問過・點進去可以換月份`
+             : '上次問的都過期了・點進去可以換月份');
 
   return groupRow({
     href: '#/todo/ask',
@@ -1487,6 +1500,9 @@ export async function renderGroup(el, group) {
   if (group === 'notes') return renderNotes(el);
   if (group === 'ask') {
     askTab = 'todo';
+    // 每次從待辦中心點進來都回到下個月 —— 那是她問時間的常態節奏
+    //（月底那一兩個禮拜問下個月，ADR-0053）。上次看到十月不該黏著。
+    askMonth = null;
     return renderAsk(el);
   }
   if (group === 'forms') return formInbox.render(el);
@@ -2079,61 +2095,87 @@ async function clearDoneTasks(ctx) {
 // customersToAsk()。
 
 async function renderAsk(el, { focus = null } = {}) {
-  const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
+  const today = todayISO();
+  // 預設下個月：她問時間的節奏是月底那一兩個禮拜問下個月（ADR-0053）。
+  // 但那是**預設不是限制** —— 客人月中打來說「我這個月 20 號之後出國」時，
+  // 她要有地方記；想提早開始問十月也一樣。以前這一行是寫死的。
+  askMonth ??= addMonths(today, 1).slice(0, 7);
+
+  el.innerHTML = '<p class="muted">載入中…</p>';
+
+  const [customers, entitlementsBy, availabilityBy, invites, responses] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     customersData.availabilityByCustomer(),
     invitesData.list(),
+    // **全部回覆，含已經收下的。** 收件匣那一支濾掉了收下的那幾份，
+    // 而這一頁要靠它們標出「已確認排定」（她的原話：「都不要消失」）。
+    responsesData.list(),
   ]);
 
-  const today = todayISO();
   const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
 
   paintAsk({
-    el, byId, invites, today, focus,
-    rows: customersToAsk({ customers, entitlementsBy, availabilityBy, today }),
-    // 她問的是下個月的時間 —— askAvailabilityMessage() 的預設也是下個月，
-    // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
-    month: addMonths(today, 1).slice(0, 7),
+    el, byId, invites, responses, today, focus,
+    month: askMonth,
+    rows: customersToAskForMonth({ customers, entitlementsBy, availabilityBy, month: askMonth }),
   });
 }
 
 /**
- * 三區，不是兩區。第三區是表單做出來之後才存在的那一段時間：
- * **連結發出去了、客戶還沒填**。她不該在那時候再問一次，但那一位也還沒問到，
- * 所以他留在名單上，只是排到最後面。見 ADR-0033。
+ * 三塊，而且**沒有人會憑空消失**。
+ *
+ * | 塊 | 是誰 | 她在那裡要做什麼 |
+ * |---|---|---|
+ * | 還沒發連結 | 那個月既沒有連結、也沒有時間 | 產生一條那個月的連結，或者自己去問 |
+ * | 已經發出 | 那個月發過連結 | 看走到哪一步了；「已填寫時段」那幾位要去收下 |
+ * | 這個月已經問到了 | 沒發連結、但那個月已經有時間 | 沒事 —— 摺疊起來，只給一個數字 |
+ *
+ * 第三塊是 2026-09-02 補的。整個藏掉最乾淨，但「東西不見了而畫面上什麼都沒說」
+ * 是這個 app 反覆踩過的錯（ADR-0009、0053 都在講同一件事）。
+ *
+ * 分區的規則一條都不在這裡：全部在 `domain/availabilityForm.js` 的
+ * `splitByMonth()` 與 `inviteProgress()`。
  */
 function paintAsk(ctx) {
-  const { el, rows, invites, month, today, focus } = ctx;
-  const groups = splitByInvite({ rows, invites, today });
-  const todo = groups.never.length + groups.expired.length;
+  const { el, rows, invites, responses, month, today, focus } = ctx;
+  const groups = splitByMonth({ rows, invites, responses, month, today });
+  const label = monthLabel(`${month}-01`);
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">問這輪的時間</h1>
-      <p class="page__lead">問 ${Number(month.slice(5))} 月哪幾天方便。
-        發一條連結讓客戶自己點，或者照舊自己問、問到之後記進客戶頁的「不能的時間」。</p>
+      <p class="page__lead">發一條連結讓客戶自己點，或者照舊自己問、問到之後
+        記進客戶頁的「不能的時間」。<strong>看的是那個月問到了沒，跟他身上還剩幾次無關。</strong></p>
+    </div>
+
+    ${/* 月份切換。排版照客戶詳情的「不能的時間」（她指名的參考）：
+           一條 `.section`，抬頭印月份、右邊兩顆箭頭。 */''}
+    <div class="section">
+      <h2 class="section__title">${esc(label)}</h2>
+      <span class="section__n">${rows.length} 位客戶</span>
+      ${monthNav()}
     </div>
 
     ${rows.length ? `
       <div class="seg" role="group" style="margin-bottom: var(--space-4)">
         <button class="seg__item" type="button" data-asktab="todo"
-                aria-pressed="${askTab === 'todo'}">還沒發連結 ${todo}</button>
+                aria-pressed="${askTab === 'todo'}">還沒發連結 ${groups.todo.length}</button>
         <button class="seg__item" type="button" data-asktab="sent"
                 aria-pressed="${askTab === 'sent'}">已經發出 ${groups.sent.length}</button>
       </div>
 
       ${askTab === 'sent'
-        ? askSection('已經發出連結', groups.sent, ctx,
-          '連結給出去了，在等他填。先不要再問一次 —— 他填好會出現在「客戶填好的時間」。')
-          || '<p class="muted">還沒發出任何連結。</p>'
-        : `${askSection('從來沒問過', groups.never, ctx,
-            '這幾位身上還有次數，但一次都沒問過時間。')}
-           ${askSection('該重問了', groups.expired, ctx,
-            '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}
-           ${todo ? '' : '<p class="muted">都發出去了，在等他們填。</p>'}`}`
-      : '<p class="muted">都問到了。</p>'}`;
+        ? (askSection(`${label}發出的連結`, groups.sent, ctx,
+            '連結給出去了就留在這裡 —— 他填好、你收下了都不會消失，狀態寫在每一列右邊。')
+          || `<p class="muted">${esc(label)}還沒發出任何連結。</p>`)
+        : (askSection(`還沒發${label}的連結`, groups.todo, ctx,
+            '這幾位還沒有這個月的時間，也還沒發過連結。')
+          || `<p class="muted">${esc(label)}的連結都發出去了。</p>`)}
+
+      ${doneBlock(groups.done, label)}`
+      : '<p class="muted">還沒有客戶。</p>'}`;
 
   message.wire(el, toast.info);
   wireAsk(ctx);
@@ -2148,6 +2190,30 @@ function paintAsk(ctx) {
   }
 }
 
+/**
+ * 「這個月已經問到了」那一塊。**摺疊，只給一個數字。**
+ *
+ * 她自己在 LINE 問完、直接記進「不能的時間」的那幾位不屬於上面任何一格。
+ * 攤開來會把真的要做的事推到看不見的地方，整個藏掉又會讓她答不出
+ * 「我到底問到幾個人了」。
+ */
+function doneBlock(rows, label) {
+  if (!rows.length) return '';
+
+  return `
+    <details class="pastavail" style="margin-top: var(--space-5)">
+      <summary class="muted">${esc(label)}已經問到了 ${rows.length} 位</summary>
+      ${rows.map((r) => `
+        <div class="askdone">
+          <span class="askdone__name">${esc(r.customerName ?? NO_NAME)}</span>
+          <span class="muted num">${esc(r.collection?.collectedAt
+            ? `${shortDate(r.collection.collectedAt)} 記的`
+            : '不知道哪天記的')}</span>
+          <a class="footlink" href="#/customers/${esc(r.customerId)}">看</a>
+        </div>`).join('')}
+    </details>`;
+}
+
 function askSection(title, rows, ctx, lead) {
   if (!rows.length) return '';
 
@@ -2160,29 +2226,28 @@ function askSection(title, rows, ctx, lead) {
     <div class="stack">${rows.map((r) => askCard(r, ctx)).join('')}</div>`;
 }
 
+/**
+ * 一位客戶一張卡。
+ *
+ * **剩幾次只是一行灰字，不是門檻**（2026-09-02）—— 她的原話是「不用看他身上
+ * 還有沒有次數」。它留著是因為那是她判斷「要不要順便提醒他加購」的線索。
+ */
 function askCard(row, { byId, month }) {
   const customer = byId[row.customerId];
-  const name = row.customerName ?? '（沒有名字）';
+  const name = row.customerName ?? NO_NAME;
   const link = row.invite ? formLink(location.origin, row.invite.id) : '';
-
-  // 「幾天前」講的是最後一次問的那天，不是收集的有效期 ——
-  // 她要判斷的是「這個人我多久沒聯絡了」。
-  const when = row.invite
-    // sentAt 壞掉或缺了就不要編一個日期出來 —— 「不知道哪天發的」跟「今天發的」
-    // 是兩件事，而她看這一行就是為了判斷「等多久了，該不該催」。
-    ? `連結${row.invite.sentAt ? ` ${shortDate(row.invite.sentAt)}` : ''}發出・還沒填`
-    : row.state === 'never'
-      ? '從來沒問過'
-      : row.lastAskedAt
-        ? `上次 ${shortDate(row.lastAskedAt)} 問的・${row.daysSinceAsked} 天前`
-        : '問過，但不知道是哪天問的';
+  const label = monthLabel(`${month}-01`);
 
   return `
     <div class="card" style="margin: 0" data-card="${esc(row.customerId)}">
       <div class="row" style="align-items: flex-start">
         <div class="row__main">
-          <div class="row__title">${esc(name)}</div>
-          <div class="muted num">${esc(when)}・還剩 ${row.remaining} 次</div>
+          <div class="row__title">${esc(name)}
+            ${row.progress ? `<span class="badge ${
+              row.progress.tone ? `badge--${row.progress.tone}` : ''
+            }">${esc(row.progress.label)}</span>` : ''}
+          </div>
+          <div class="muted num">${esc(askWhen(row, label))}・還剩 ${row.remaining} 次</div>
         </div>
         <a class="footlink" href="#/customers/${esc(row.customerId)}">去記錄</a>
       </div>
@@ -2199,10 +2264,38 @@ function askCard(row, { byId, month }) {
                   data-resend="${esc(row.customerId)}">重發一條新連結</button></p>`
         // 還沒產生連結就只有這一顆。訊息框要等連結出來才有意義 ——
         // 先把它畫在上面，她按完「產生」還得往下捲才找得到「複製」。
+        //
+        // 按鈕上要印月份：這一頁換得動月份，而「產生表單連結」五個字
+        // 說不出它會產生哪一個月的。
         : `<p style="margin: var(--space-3) 0 0">
              <button class="btn btn--primary btn--wide" type="button"
-                     data-makelink="${esc(row.customerId)}">產生表單連結</button></p>`}
+                     data-makelink="${esc(row.customerId)}">產生${esc(label)}的連結</button></p>`}
     </div>`;
+}
+
+/**
+ * 那一行灰字。三種列各自要講的話不一樣：
+ *
+ * - 發過連結的：走到哪一步了、哪天發的
+ * - 還沒發的：上次是什麼時候問的（**任何月份**都算）—— 她要判斷的是
+ *   「這個人我多久沒聯絡了」
+ */
+function askWhen(row, label) {
+  if (row.progress) {
+    const sent = row.invite?.sentAt ? `${shortDate(row.invite.sentAt)} 發出` : '不知道哪天發的';
+    const tail = row.progress.expired ? '・連結已過期' : '';
+    const at = row.progress.at && row.progress.state === 'settled'
+      ? `・${shortDate(row.progress.at)} 收下`
+      : '';
+    return `${sent}${at}${tail}`;
+  }
+
+  if (row.state === 'never') return '從來沒問過';
+  // sentAt / collectedAt 壞掉或缺了就不要編一個日期出來 —— 「不知道哪天」跟
+  // 「今天」是兩件事，而她看這一行就是為了判斷「等多久了，該不該催」。
+  return row.lastAskedAt
+    ? `還沒問${label}・上次 ${shortDate(row.lastAskedAt)} 問的`
+    : `還沒問${label}`;
 }
 
 /**
@@ -2216,7 +2309,17 @@ function wireAsk(ctx) {
   const { el, rows, invites, month, today } = ctx;
   const nameOf = (id) => rows.find((r) => r.customerId === id)?.customerName ?? '';
 
-  // 切換**不重新讀資料**，就地重畫 —— 那三份資料剛剛才讀過，再讀一次只是讓她等。
+  // 換月份。**這一顆要重新讀資料** —— 那一頁的三份都是照月份挑的
+  //（`collectionFor()` 與邀請的 `month` 欄位），不像換分段是同一批資料換個分法。
+  el.querySelectorAll('[data-month-step]').forEach((btn) =>
+    btn.addEventListener('click', (e) => {
+      const stepped = steppedMonth(e.target, month, addMonths);
+      if (!stepped) return;
+      askMonth = stepped;
+      renderAsk(el);
+    }));
+
+  // 切換**不重新讀資料**，就地重畫 —— 那幾份資料剛剛才讀過，再讀一次只是讓她等。
   el.querySelectorAll('[data-asktab]').forEach((btn) =>
     btn.addEventListener('click', () => {
       askTab = btn.dataset.asktab;
@@ -2230,6 +2333,8 @@ function wireAsk(ctx) {
       // 一直都有，這一個沒有 —— 而這一個是她一輪連按十幾次的那個。
       // 連點兩下 = 客戶手上兩條連結，而一條連結只有一份答案（id 就是 token），
       // 所以他填了其中一條，另一條會永遠掛在「已發出」那一格。
+      //
+      // **月份帶的是她現在看的那個月**，不是寫死的下個月。
       await toast.withSaveState(
         () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
         { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE', key: `invite:create:${customerId}:${month}` },
@@ -2241,10 +2346,15 @@ function wireAsk(ctx) {
   el.querySelectorAll('[data-resend]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const customerId = btn.dataset.resend;
-      const old = invites.filter((i) => i.customerId === customerId && !i.deletedAt);
+      // **只作廢那個月的。** 她可能同時開著九月與十月兩條，重發九月那一條
+      // 不該把十月那一條一起收掉 —— 客戶手上那條會突然打不開，而畫面上
+      // 什麼都不會說。
+      const old = invites.filter(
+        (i) => i.customerId === customerId && !i.deletedAt && i.month === month,
+      );
 
       const ok = await confirmAction({
-        title: '重發一條新連結？',
+        title: `重發一條新的${monthLabel(`${month}-01`)}連結？`,
         consequences: [
           // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
           `${nameOf(customerId)}手上那條連結會作廢`,

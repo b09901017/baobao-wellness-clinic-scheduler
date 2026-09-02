@@ -4269,6 +4269,27 @@ button.mark::after {
   color: var(--accent);
 }
 
+/* 「這個月已經問到了」那一塊裡的一列。摺疊起來只有一個數字，點開才是這些。
+   刻意很扁：她點開是為了掃過去確認「喔這幾位問過了」，不是為了讀。 */
+.askdone {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.askdone:first-of-type {
+  border-top: none;
+}
+
+.askdone__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 /* 抽屜裡「這一件要去別的地方做」那種列。
  *
  * 跟上面那幾列勾得掉的長得**刻意不一樣**：沒有勾選框、右邊是一個「›」、

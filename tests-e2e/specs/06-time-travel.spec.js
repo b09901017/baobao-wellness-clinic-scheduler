@@ -122,8 +122,12 @@ test('T4 隨手記的日期過了只變色，**不進「逾期」那顆數字**�
 // 這一支第一次寫的時候我把預期寫反了 —— `currentCollection()` 刻意**保留**
 // 還沒生效的那一份（`collectionState()` 的 'upcoming' 沒有被濾掉），
 // 而待辦那一頁問的正是「下一輪」。所以「已經填好九月」的人不該再被問。
+//
+// 2026-09-02 那一頁改成綁月份（`customersToAskForMonth()`）之後，這一條的
+// **結論沒有變、理由換了一個**：填好九月的人不再出現在「還沒發連結」那一格，
+// 但他不是消失了 —— 他收在「9月已經問到了」那個摺疊區裡。
 // ---------------------------------------------------------------------------
-test('T7 待辦中心的「問這輪的時間」：填好下一輪的人不再被問，沒填的才被問', async ({ app }) => {
+test('T7 待辦中心的「問這輪的時間」：填好那個月的人不再被問，沒填的才被問', async ({ app }) => {
   await app.seed([
     ...masterDocs(),
     customer({ id: 'cust-a', name: '客戶A' }),
@@ -145,9 +149,11 @@ test('T7 待辦中心的「問這輪的時間」：填好下一輪的人不再�
 
   const ask = await app.text();
   console.log('[T7] 問這輪的時間 =', JSON.stringify(ask.slice(0, 400)));
-  expect(ask, '這一頁要講出在問哪個月').toMatch(/問\s*9\s*月/);
+  expect(ask, '這一頁要講出在看哪個月').toMatch(/9\s*月/);
   expect(ask, '沒填過的要被列出來').toContain('客戶Z');
-  expect(ask, '已經填好九月的不該再被問').not.toContain('客戶A');
+  expect(ask, '已經填好九月的不該出現在要問的名單裡').not.toContain('客戶A');
+  expect(ask, '但他也不是消失了 —— 摺疊區的抬頭要數得到他')
+    .toMatch(/9月已經問到了\s*1\s*位/);
 });
 
 test('T6 八月壓九月的表 → 用得到九月那一份（collectionFor）', async ({ app, page }) => {
