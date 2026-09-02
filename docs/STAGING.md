@@ -124,19 +124,29 @@ CI 需要兩把，放在 GitHub repository secrets
 ## 三之二、`firebase-tools` 為什麼釘在 13（別隨手升上去）
 
 `.github/workflows/deploy.yml` 的 `FIREBASE_TOOLS` 是 `firebase-tools@13`。
-**升上去正式環境的部署會 403。**
+**升上去，正式與 staging 兩邊的部署都會 403。**
 
 原因：firebase-tools **14 開始**，`deploy --only firestore:…` 會先打
 `serviceusage.googleapis.com` 問「Firestore API 有沒有開」。那個呼叫要
 `serviceusage.services.get` 權限，而 Firebase Console →「服務帳戶」→
-「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號，在正式專案上沒有它。
+「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號，**兩個專案上都沒有它**
+（新專案的預設服務帳號也不例外）。
 
 症狀特別容易誤判：**Hosting 那一步會成功，只有 Firestore 那一步失敗** ——
 看起來像 secret 設錯了，其實不是。而且**重新產生金鑰沒有用**：
 新金鑰還是同一個服務帳號、同一組角色。
 
-（staging 是新專案，它的服務帳號有這個權限，所以 staging 升上去不會壞 ——
-這也是為什麼這件事在 staging 上測不出來。）
+> ⚠️ **這裡曾經寫錯過一次，記下來提醒自己別再犯。**
+> 早先這裡寫著「staging 的服務帳號有這個權限，所以升上去不會壞」——
+> 那是在一台**已經用 `firebase login` 登入過專案擁有者帳號**的機器上,
+> 用 `GOOGLE_APPLICATION_CREDENTIALS` 指到服務帳號金鑰測出來的「成功」。
+> firebase-tools 在有本機登入狀態時,不保證每一條程式路徑都真的只用
+> 環境變數指定的那把金鑰 —— 於是那次「測試」量到的其實是**登入帳號**
+> 的權限,不是服務帳號的權限,兩者混在一起看起來完全正常,直到 CI
+> （沒有登入狀態,只有那把金鑰）跑出跟正式環境一樣的 403。
+>
+> **教訓：驗證「一把 service account 金鑰單獨夠不夠權限」，只有 CI
+> 那種乾淨環境算數。本機只要曾經 `firebase login` 過，測出來的結果就不可信。**
 
 ### 想升上去的話，先補權限
 
@@ -154,6 +164,10 @@ gcloud projects add-iam-policy-binding wellness-clinic-scheduler \
 
 **兩個專案都要做**，然後才把 `FIREBASE_TOOLS` 改成 `firebase-tools@15`。
 改完先推一次 `develop`（上 staging）確認綠了，再進 `main`。
+
+**只信任 CI 的結果，不要信任本機的「測試」**（見上面那個框）——
+除非你在一台從沒 `firebase login` 過的機器上、只用
+`GOOGLE_APPLICATION_CREDENTIALS` 測，那才算數。
 
 ---
 
