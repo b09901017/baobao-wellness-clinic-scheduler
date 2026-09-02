@@ -124,6 +124,116 @@ export function splitByInvite({ rows = [], invites = [], today }) {
   return out;
 }
 
+/**
+ * 一位客戶在**某一個月**的問時間走到哪一步了。
+ *
+ * 她 2026-09-02 的原話：「已發連結（如果對方已回覆填寫完 或是他回覆我確認完
+ * 都不要消失 就把狀態呈現在已發連結這邊就好）」。
+ *
+ * 以前那一列會**整個消失**：客戶填完 → 她收下 → 那個月有了一份可用性 →
+ * `customersToAsk()` 直接跳過那一位。事情做完了沒有痕跡，等於她要靠腦袋
+ * 記得「這個人我問過了」，而那正是這個 app 要消滅的東西。
+ *
+ * 三種狀態，判斷只有這一份 —— 畫面不要自己再比一次 `takenAt`：
+ *
+ * | 回的 | 什麼時候 | 她接下來要做什麼 |
+ * |---|---|---|
+ * | `waiting` | 連結發出去了，還沒收到回覆 | 等，或者過幾天催一下 |
+ * | `filled`  | 客戶填了，她還沒按「收下」 | **去收下**（在「客戶填好的時間」那一頁） |
+ * | `settled` | 收下了，或那個月本來就有一份 | 沒事了 |
+ *
+ * `settled` 刻意也認「那個月有一份收集」而不只認 `takenAt`：她自己在 LINE
+ * 問完直接記進「不能的時間」的那幾位，事情一樣是做完的。
+ *
+ * @param {object} ctx
+ * @param {object|null} ctx.invite 那個月的邀請
+ * @param {object|null} ctx.response 那條連結的回覆（`formResponses/{token}`）
+ * @param {object|null} ctx.collection 那個月的本輪可用性
+ * @param {string} [ctx.today] 判斷連結過期了沒
+ * @returns {{state:'waiting'|'filled'|'settled', label:string,
+ *            tone:''|'soon'|'ok', expired:boolean, at:string|null}}
+ */
+export function inviteProgress({ invite = null, response = null, collection = null, today } = {}) {
+  const expired = Boolean(invite) && inviteState(invite, today) === 'expired';
+
+  if (collection || response?.takenAt) {
+    return {
+      state: 'settled',
+      label: '已確認排定',
+      tone: 'ok',
+      expired,
+      at: collection?.collectedAt ?? response?.takenAt ?? null,
+    };
+  }
+
+  if (response) {
+    // 琥珀色不是裝飾：這一格是**她還有事要做**的那一格，而另外兩格不是。
+    return { state: 'filled', label: '已填寫時段', tone: 'soon', expired, at: null };
+  }
+
+  return { state: 'waiting', label: '等待回覆', tone: '', expired, at: invite?.sentAt ?? null };
+}
+
+/**
+ * `#/todo/ask` 那一頁的三塊。**照月份分，不照「現在有沒有效」分。**
+ *
+ * 跟 `splitByInvite()` 是兩支（那一支首頁那一列還在用，一個字都沒改）。
+ * 兩個關鍵差別：
+ *
+ * 1. **邀請看的是 `month` 欄位，不是過不過期。** 9 月那一批連結在 9/30
+ *    全部過期，照舊規則整格會在月底突然清空 —— 而她 10/1 回頭看
+ *    「9 月到底問到了誰」時，那正是她要看的東西。過期只是那一列上多一句話。
+ * 2. **多一塊 `done`**：沒發過連結、但那個月已經有一份可用性的（她自己在
+ *    LINE 問完直接記的）。整個藏掉最乾淨，但「東西不見了而畫面上什麼都沒說」
+ *    是這個 app 反覆踩過的錯，所以它收在一個摺疊區裡，只給一個數字。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.rows `customersToAskForMonth()` 的結果
+ * @param {object[]} ctx.invites 全部邀請
+ * @param {object[]} ctx.responses 全部回覆（含已經收下的）
+ * @param {string} ctx.month 'YYYY-MM'
+ * @param {string} [ctx.today]
+ * @returns {{todo:object[], sent:object[], done:object[]}}
+ */
+export function splitByMonth({ rows = [], invites = [], responses = [], month, today } = {}) {
+  const mine = new Map();
+  for (const invite of invites) {
+    if (!invite || invite.deletedAt || invite.month !== month) continue;
+    // 同一位客戶在同一個月有兩條時，以晚發的那條為準 —— 她重發就是為了取代舊的
+    //（表單不重填，改就是重發一條）。同 `splitByInvite()`。
+    const seen = mine.get(invite.customerId);
+    if (!seen || String(invite.sentAt ?? '') >= String(seen.sentAt ?? '')) {
+      mine.set(invite.customerId, invite);
+    }
+  }
+
+  const byToken = new Map((responses ?? []).filter(Boolean).map((r) => [r.token ?? r.id, r]));
+
+  const out = { todo: [], sent: [], done: [] };
+  for (const row of rows) {
+    const invite = mine.get(row.customerId) ?? null;
+
+    if (invite) {
+      out.sent.push({
+        ...row,
+        invite,
+        progress: inviteProgress({
+          invite,
+          response: byToken.get(invite.id) ?? null,
+          collection: row.collection,
+          today,
+        }),
+      });
+      continue;
+    }
+
+    if (row.collection) out.done.push(row);
+    else out.todo.push(row);
+  }
+
+  return out;
+}
+
 // ---------- 客戶勾的東西 ----------
 
 /**

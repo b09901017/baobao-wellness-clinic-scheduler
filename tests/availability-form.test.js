@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  newInvite, inviteState, formLink, splitByInvite,
+  newInvite, inviteState, formLink, splitByInvite, splitByMonth, inviteProgress,
   normalizePicks, groupPicks, picksToRules, picksToText, rawTextFrom,
   describePicks, describeResponse, collectionFrom, validateResponse, outOfRange, monthGrid,
   rulesToPicks, freeTextFrom,
@@ -448,4 +448,114 @@ test('來回一趟：打開一份舊的、什麼都不改、存回去 —— 原
   // 存回去
   const after = rawTextFrom({ ...reopened.picks, freeText }, { month });
   assert.equal(after, before);
+});
+
+
+// ---------- 某一個月走到哪一步（inviteProgress / splitByMonth） ----------
+//
+// 這一組盯的是她 2026-09-02 那一句：「已發連結（如果對方已回覆填寫完
+// 或是他回覆我確認完 都不要消失 就把狀態呈現在已發連結這邊就好）」。
+
+const monthRow = (id, over = {}) => ({
+  customerId: id, customerName: id, remaining: 5, collection: null, state: 'never', ...over,
+});
+const sep = (id, over = {}) => ({
+  ...newInvite({ customerId: id, customerName: id, month: '2026-09', sentAt: '2026-08-20' }),
+  id: `inv-${id}`, ...over,
+});
+
+test('三種狀態各自分得出來', () => {
+  const invite = sep('c1');
+
+  assert.equal(inviteProgress({ invite, today: '2026-08-25' }).state, 'waiting');
+  assert.equal(
+    inviteProgress({ invite, response: { token: 'inv-c1', takenAt: null }, today: '2026-08-25' }).state,
+    'filled',
+  );
+  assert.equal(
+    inviteProgress({ invite, response: { token: 'inv-c1', takenAt: '2026-08-26' }, today: '2026-08-27' }).state,
+    'settled',
+  );
+});
+
+test('那個月本來就有一份收集也算「已確認排定」—— 她自己在 LINE 問完直接記的那幾位', () => {
+  const out = inviteProgress({ invite: sep('c1'), collection: { collectedAt: '2026-08-18' } });
+  assert.equal(out.state, 'settled');
+  assert.equal(out.at, '2026-08-18');
+});
+
+test('「已填寫時段」是唯一一格她還有事要做的，所以它是琥珀色', () => {
+  assert.equal(inviteProgress({ invite: sep('c1'), response: { token: 'inv-c1' } }).tone, 'soon');
+  assert.equal(inviteProgress({ invite: sep('c1') }).tone, '');
+  assert.equal(inviteProgress({ invite: sep('c1'), collection: {} }).tone, 'ok');
+});
+
+test('過期只是多一句話，不會讓那一列換一格', () => {
+  const out = inviteProgress({ invite: sep('c1'), today: '2026-10-05' });
+  assert.equal(out.state, 'waiting', '過期不等於沒發過');
+  assert.equal(out.expired, true);
+});
+
+test('照月份分三塊：還沒發、已經發出、這個月已經問到了', () => {
+  const out = splitByMonth({
+    rows: [
+      monthRow('c1'),
+      monthRow('c2'),
+      monthRow('c3', { state: 'asked', collection: { id: 'a1', collectedAt: '2026-08-18' } }),
+    ],
+    invites: [sep('c2')],
+    responses: [],
+    month: '2026-09',
+    today: '2026-08-25',
+  });
+
+  assert.deepEqual(out.todo.map((r) => r.customerId), ['c1']);
+  assert.deepEqual(out.sent.map((r) => r.customerId), ['c2']);
+  assert.deepEqual(out.done.map((r) => r.customerId), ['c3'], '她自己問到的收在摺疊區，不是不見了');
+});
+
+test('**收下之後那一列還在「已經發出」那一格**，只是狀態變成已確認排定', () => {
+  const out = splitByMonth({
+    rows: [monthRow('c2', { state: 'asked', collection: { id: 'a1', collectedAt: '2026-08-26' } })],
+    invites: [sep('c2')],
+    responses: [{ token: 'inv-c2', takenAt: '2026-08-26' }],
+    month: '2026-09',
+    today: '2026-08-27',
+  });
+
+  assert.equal(out.sent.length, 1, '不可以掉到「這個月已經問到了」那一塊 —— 連結是發過的');
+  assert.equal(out.done.length, 0);
+  assert.equal(out.sent[0].progress.state, 'settled');
+});
+
+test('**別的月份的邀請不算數** —— 這一頁綁月份', () => {
+  const aug = {
+    ...newInvite({ customerId: 'c1', month: '2026-08', sentAt: '2026-07-25' }),
+    id: 'inv-aug',
+  };
+  const out = splitByMonth({
+    rows: [monthRow('c1')], invites: [aug], responses: [], month: '2026-09', today: '2026-08-25',
+  });
+  assert.deepEqual(out.todo.map((r) => r.customerId), ['c1']);
+  assert.equal(out.sent.length, 0);
+});
+
+test('過期的邀請照樣留在「已經發出」—— 10/1 回頭看 9 月，那正是她要看的', () => {
+  const out = splitByMonth({
+    rows: [monthRow('c1')], invites: [sep('c1')], responses: [], month: '2026-09', today: '2026-10-01',
+  });
+  assert.equal(out.sent.length, 1);
+  assert.equal(out.sent[0].progress.expired, true);
+  assert.equal(out.todo.length, 0, '照舊規則這一格會在月底突然清空');
+});
+
+test('同一位客戶同一個月兩條連結，以晚發的那條為準', () => {
+  const out = splitByMonth({
+    rows: [monthRow('c1')],
+    invites: [sep('c1', { id: 'old', sentAt: '2026-08-10' }), sep('c1', { id: 'new', sentAt: '2026-08-20' })],
+    responses: [],
+    month: '2026-09',
+    today: '2026-08-25',
+  });
+  assert.equal(out.sent[0].invite.id, 'new');
 });

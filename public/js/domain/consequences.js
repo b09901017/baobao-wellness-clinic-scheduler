@@ -27,6 +27,7 @@
 import { bookingSystemFor, tasksForCategory } from './taskRules.js';
 import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
 import { pairsOf, REPORT_TASK_KIND } from './followups.js';
+import { nthOf, nthLabel } from './nthFollowup.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -104,9 +105,26 @@ export function bookingConsequences({ visit, coursesById = {}, merge = null, she
     lines.push(`等客人說可以之後，待辦會再多${later.map((k) => `一張「${k}」`).join('、')}`);
   }
 
+  // n返 是加約的，**不扣任何次數**。這一句是她最會擔心的那件事：
+  // 整套系統的核心焦慮就是次數對不對得起來，而一場「不用先加購」的來訪
+  // 憑直覺看起來像會偷扣一次。講一次，她就不用回去客戶詳情比對。
+  for (const nth of nthLabels(visit)) {
+    lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
+  }
+
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
   return { title: `已經在 ${where} 壓好表了嗎？`, lines };
+}
+
+/** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */
+function nthLabels(visit) {
+  const seen = new Set();
+  for (const slot of visit?.slots ?? []) {
+    const label = nthLabel(nthOf(slot));
+    if (label) seen.add(label);
+  }
+  return [...seen];
 }
 
 /**

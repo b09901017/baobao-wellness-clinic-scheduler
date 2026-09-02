@@ -463,7 +463,9 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // / doctorId 一律是 null —— 舊表沒有記過那些，見
                               // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
-    { entitlementId, courseId, courseName,
+    { entitlementId,          // **n返 是 null**：它沒有被買、沒有次數、扣不掉
+                              // （ADR-0063）。其餘每一種時段都一定要有一筆額度。
+      courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
@@ -471,6 +473,13 @@ audit/{eventId}                   // append-only 稽核紀錄
       doctorId,               // 這次是哪位醫師。picksDoctor() 為真的課程才有
                               // （A 類一律，其餘看 requiresDoctor）。
                               // 既有的來訪一律是 null，不要猜
+      followupForVisitId,     // 這一段接在哪一次健檢後面。二返與 n返 都用它。
+                              // **二返是選填**（舊資料一筆都沒有，ADR-0011），
+                              // **n返 是必填**（它全新，而且少了它試算表上
+                              // 那一場沒有位置可以印）
+      followupNth,            // n返 才有：3、4、5……（3–10）。二返身上**沒有
+                              // 這個欄位**，兩者靠它分辨。名字由它組
+                              // （3 → 三返），課程借二返那一個。見 ADR-0063
       attended }
   ],
   createdBy, createdAt, updatedAt, deletedAt
@@ -594,6 +603,14 @@ audit/{eventId}                   // append-only 稽核紀錄
 「已經登記過」指的是 Examine、耀聖這兩種會在外部系統留下東西的任務已被勾完成（歷史資料裡還有勾掉的 `Abovee` 任務，一樣算）。**打電話做過就是做過了，沒有東西要收回來**，不產生取消任務。取消類任務的 `kind` 是原本的種類加上 `取消 ` 前綴，產生後就不再受來訪現況管轄 —— 它記的是「當初登記過、現在要收回來」這件事。
 
 > **不要照抄舊 `.gs` 的分支。** 它用課程名稱做字串包含比對，療程一改名就靜默失效，而且給的任務清單是舊的。
+
+### n返（三返、四返……）走的是課程那一條，不是這一條
+
+加約的 n返 **借二返那個課程**（`followupCourseId` 指到的那一個），所以它的
+掛號任務、要不要簽療程單、選不選得到醫師，全部由上面那張矩陣照 A 類推導 ——
+一行程式都不用寫。它與二返在資料上完全不相交（`entitlementId` 是 `null`），
+所以底下那兩種鏈式待辦一個都不會因為它而多長或少長。見
+`docs/adr/0063-an-nth-followup-is-a-visit-without-an-entitlement.md`。
 
 ### 「追蹤健檢報告」與「約二返」不在這張矩陣上
 
@@ -845,7 +862,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 | 段 | 分類 | 是什麼 |
 |---|---|---|
-| ① 問到時間 | **問這輪的時間** | 身上還有次數、但沒有有效本輪可用性的客戶 —— 她流程的第一步，發生在壓表之前。推導的，不是任務。點進去是一組分段切換：**「還沒發連結」**（底下再分「從來沒問過」與「該重問了」兩區）與**「已經發出」**。切換不重新讀資料，就地重畫；產生連結之後自動跳到右邊那一格並把該客戶的訊息展開 —— 她的下一個動作是複製，不是找按鈕，各附一則可以貼到 LINE 的訊息。規則在 `domain/scheduling.js` 的 `customersToAsk()`，見 `docs/adr/0028-asking-for-times-is-a-todo-row-not-a-queue.md`；第三區與那一列的數字為什麼不減掉他們，見 `docs/adr/0033-a-sent-link-is-a-third-state-of-asking.md` |
+| ① 問到時間 | **問這輪的時間** | **那一列與點進去那一頁問的是兩個不同的問題，這是刻意的。**<br>**那一列**問「**現在**還沒問到誰」：身上還有次數、而且沒有有效本輪可用性的客戶。規則在 `domain/scheduling.js` 的 `customersToAsk()`（一個字都沒有變），見 `docs/adr/0028-asking-for-times-is-a-todo-row-not-a-queue.md`；已經發出連結的人為什麼還算在那個數字裡，見 `docs/adr/0033-a-sent-link-is-a-third-state-of-asking.md`。<br>**點進去那一頁**（2026-09-02 起）問「**某一個月**問到了誰」：頂端一組月份切換器（照客戶詳情「不能的時間」那一段的排版，共用 `components/monthnav.js`），預設下個月，上下不設限。兩個關鍵差別：**不拿次數當濾網**（她的原話：「不用看他身上還有沒有次數，就單純看他那個月有沒有被排過時間」——剩幾次仍然顯示，但只當提醒加購的線索），以及**用 `collectionFor()` 不是 `currentCollection()`**（這一頁綁月份，ADR-0036）。規則在 `customersToAskForMonth()`。<br>底下兩格加一個摺疊區：**「還沒發連結」**（那個月既沒連結也沒時間）、**「已經發出」**（那個月發過連結——**不會因為客戶填了或她收下就消失**，狀態寫成 `等待回覆` / `已填寫時段` / `已確認排定` 三顆徽章，判斷只在 `domain/availabilityForm.js` 的 `inviteProgress()`），以及摺疊起來的**「這個月已經問到了」**（她自己在 LINE 問完直接記的那幾位——整個藏掉最乾淨，但「東西不見了而畫面上什麼都沒說」是這個 app 反覆踩過的錯）。分區在 `splitByMonth()`。**產生的連結帶的是選中的那個月**，按鈕上也印出來。換分段不重新讀資料就地重畫，**換月份要重讀**（三份資料都是照月份挑的）；產生連結之後自動跳到「已經發出」並把該客戶的訊息展開——她的下一個動作是複製，不是找按鈕 |
 | ① 問到時間 | **客戶填好的時間** | 客戶自己填了表單、她還沒收下的那幾份。**不會自動生效** —— 她按「收下」才變成本輪可用性，並附一則回覆客戶的訊息。見第 8.9 節與 `docs/adr/0032-what-the-customer-fills-in-waits-in-an-inbox.md` |
 | ② 壓表 | **壓表登記** | 這個月還沒排的客戶 —— 她流程的第三步。**這一列是提醒不是任務**：壓表就是在 Abovee 上把時段佔住，做完了才有那筆來訪（ADR-0041），所以它沒有死線也不計分。點進去分兩區：**健檢直接去 Examine**、**其餘去 Abovee**，同一位客戶兩區都還沒排就兩區都出現。規則在 `domain/scheduling.js` 的 `customersToBook()` |
 | ③ 等客人回覆 | **跟客人確認時間** | 壓好了、還沒問過本人的客戶。壓表記完會自動長出來，見下面的確認動線 |
