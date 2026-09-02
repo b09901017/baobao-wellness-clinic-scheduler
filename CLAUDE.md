@@ -12,6 +12,9 @@
 | `CONTEXT.md` | 詞彙表。定義詞是什麼，不放實作 |
 | `docs/adr/` | 為什麼這樣決定。一支一個決定，寫理由不寫作法。慣例見 `docs/agents/domain.md` |
 | `docs/legacy/` | 舊系統的結構，唯讀參考 |
+| `docs/操作手冊.md` | **怎麼操作 app**：核心動線一步一步，給沒看過的人。**一條業務規則都不定義** —— 規則一律用一行連結指回 `SPEC.md` 或 ADR |
+| `docs/常見問題.md` | 「我按了 X 為什麼沒有 Y」。每一條三段：看到什麼、為什麼、怎麼辦 |
+| `docs/邊界測試清單.md` | 上線前要親手點過的極端情境。**刻意沒有 happy path** —— 那些由 `tests-e2e/` 盯著 |
 | `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、種假資料、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md`） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
