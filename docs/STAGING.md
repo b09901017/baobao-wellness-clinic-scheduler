@@ -20,7 +20,7 @@
 ## 一、第一次設定（只做一次）
 
 Firebase Console 上建好 `wellness-clinic-staging`、開了 Firestore／
-Authentication／Hosting 之後，還有四件事。
+Authentication／Hosting 之後，還有五件事。
 
 ### 1. 開 Google 登入
 
@@ -28,6 +28,46 @@ Console → Authentication → Sign-in method → **Google** → 啟用。
 
 同一頁的 **Authorized domains** 要有 `wellness-clinic-staging.web.app`
 （建專案時通常自動就有）。少了它，登入彈窗會直接被擋掉。
+
+### 1.5 補一個 IAM 角色（新專案幾乎一定要做這一步）
+
+Console 下載下來的服務帳號金鑰（`firebase-adminsdk-…`），預設只有讀寫
+Firestore 資料的權限，**沒有部署時要用到的權限**。
+
+2024 年之後建立的新 Firebase 專案，Google 不再自動把 Editor 角色給那個
+預設服務帳號了（舊專案因為是很久以前建的，還留著那個角色，這就是為什麼
+正式環境的部署一直是好的，staging 卻不是）。少了它，`firebase deploy`
+會在兩個地方 403：
+
+- 測試 `firestore.rules` 編譯得過不過（`firebaserules.googleapis.com`）
+- 問 Firestore API 開了沒（`serviceusage.googleapis.com`，firebase-tools
+  14 開始才會問）
+
+**症狀**：Hosting 部署成功，Firestore 那一步失敗，錯誤訊息是
+`The caller does not have permission` 或
+`Permission denied to get service […]`。**重新產生金鑰沒有用** ——
+新金鑰還是同一個服務帳號、同一組角色，問題從來不在金鑰本身。
+
+**補法**：Google Cloud Console → IAM 與管理 → IAM →
+勾選「Include Google-provided role grants」才看得到那個帳號 →
+找到 `firebase-adminsdk-…@<專案>.iam.gserviceaccount.com` → 編輯 →
+新增角色 **Editor**（`roles/editor`）。
+
+```bash
+gcloud projects add-iam-policy-binding wellness-clinic-staging \
+  --member="serviceAccount:firebase-adminsdk-fbsvc@wellness-clinic-staging.iam.gserviceaccount.com" \
+  --role="roles/editor"
+```
+
+給 `Editor` 而不是逐條加最小權限，是刻意的：這條路以後還會用到哪些 Google
+API 沒辦法先猜完，逐條補會變成每次升級 firebase-tools 都要再補一次。
+`Editor` 正是舊專案的預設服務帳號本來就有的權限 —— 補到跟舊專案一樣，
+不是給多的。
+
+**改完不要用本機測**（見「三之二」那個框：本機只要 `firebase login`
+過就測不準，會給出跟 CI 不一樣的假結果）。驗證方式：推一個空 commit 到
+`develop`，到 GitHub Actions 看 `deploy` job 是不是綠的
+（`git commit --allow-empty -m "驗證 IAM" && git push origin develop`）。
 
 ### 2. 推 Rules 與索引上去
 
@@ -124,19 +164,29 @@ CI 需要兩把，放在 GitHub repository secrets
 ## 三之二、`firebase-tools` 為什麼釘在 13（別隨手升上去）
 
 `.github/workflows/deploy.yml` 的 `FIREBASE_TOOLS` 是 `firebase-tools@13`。
-**升上去正式環境的部署會 403。**
+**升上去，正式與 staging 兩邊的部署都會 403。**
 
 原因：firebase-tools **14 開始**，`deploy --only firestore:…` 會先打
 `serviceusage.googleapis.com` 問「Firestore API 有沒有開」。那個呼叫要
 `serviceusage.services.get` 權限，而 Firebase Console →「服務帳戶」→
-「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號，在正式專案上沒有它。
+「產生新的私密金鑰」給的那個 `firebase-adminsdk` 帳號，**兩個專案上都沒有它**
+（新專案的預設服務帳號也不例外）。
 
 症狀特別容易誤判：**Hosting 那一步會成功，只有 Firestore 那一步失敗** ——
 看起來像 secret 設錯了，其實不是。而且**重新產生金鑰沒有用**：
 新金鑰還是同一個服務帳號、同一組角色。
 
-（staging 是新專案，它的服務帳號有這個權限，所以 staging 升上去不會壞 ——
-這也是為什麼這件事在 staging 上測不出來。）
+> ⚠️ **這裡曾經寫錯過一次，記下來提醒自己別再犯。**
+> 早先這裡寫著「staging 的服務帳號有這個權限，所以升上去不會壞」——
+> 那是在一台**已經用 `firebase login` 登入過專案擁有者帳號**的機器上,
+> 用 `GOOGLE_APPLICATION_CREDENTIALS` 指到服務帳號金鑰測出來的「成功」。
+> firebase-tools 在有本機登入狀態時,不保證每一條程式路徑都真的只用
+> 環境變數指定的那把金鑰 —— 於是那次「測試」量到的其實是**登入帳號**
+> 的權限,不是服務帳號的權限,兩者混在一起看起來完全正常,直到 CI
+> （沒有登入狀態,只有那把金鑰）跑出跟正式環境一樣的 403。
+>
+> **教訓：驗證「一把 service account 金鑰單獨夠不夠權限」，只有 CI
+> 那種乾淨環境算數。本機只要曾經 `firebase login` 過，測出來的結果就不可信。**
 
 ### 想升上去的話，先補權限
 
@@ -154,6 +204,10 @@ gcloud projects add-iam-policy-binding wellness-clinic-scheduler \
 
 **兩個專案都要做**，然後才把 `FIREBASE_TOOLS` 改成 `firebase-tools@15`。
 改完先推一次 `develop`（上 staging）確認綠了，再進 `main`。
+
+**只信任 CI 的結果，不要信任本機的「測試」**（見上面那個框）——
+除非你在一台從沒 `firebase login` 過的機器上、只用
+`GOOGLE_APPLICATION_CREDENTIALS` 測，那才算數。
 
 ---
 
