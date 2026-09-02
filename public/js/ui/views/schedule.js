@@ -1263,6 +1263,7 @@ function nthFields(row) {
   for (let n = MIN_NTH; n <= MAX_NTH; n += 1) numbers.push(n);
 
   return `
+    <div class="nthfields">
     <div class="fieldgroup">
       <span class="fieldgroup__label">第幾返</span>
       <div class="chiprow noscroll-bar">
@@ -1284,6 +1285,7 @@ function nthFields(row) {
             ${c.note ? `<span class="chip__note">${esc(c.note)}</span>` : ''}</button>`).join('')}
       </div>
       <span class="field__hint">沒有它，試算表上這一場沒有位置可以印。</span>
+    </div>
     </div>`;
 }
 

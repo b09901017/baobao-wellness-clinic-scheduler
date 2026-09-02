@@ -4269,6 +4269,43 @@ button.mark::after {
   color: var(--accent);
 }
 
+/* 換月份之後那一塊名單的進場。**方向跟著箭頭走** —— 往右按就從右邊進來，
+   那一下是在回答「往哪個方向走了」。位移只有 10px：它要看得出來，
+   但不可以讓她覺得畫面在飛。
+
+   只動名單那一塊，抬頭與月份切換器不動（ADR-0038：選一個選項不重畫整頁）。
+
+   `prefers-reduced-motion` 由 app.css 底部那一段對 `*` 生效，這裡不必再寫。 */
+@keyframes month-in-next {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes month-in-prev {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.monthslide--next {
+  animation: month-in-next var(--motion-base) var(--ease-out);
+}
+
+.monthslide--prev {
+  animation: month-in-prev var(--motion-base) var(--ease-out);
+}
+
+/* n返 那兩排（第幾返、哪一次健檢的）。**它們是那顆丸子叫出來的**，
+   所以要看得出來是從那裡長出來的 —— 淡入加一點點往下的位移就夠了。
+   不做高度動畫：那一排的高度會隨候選數量變，動起來會抖。 */
+@keyframes nth-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.nthfields {
+  animation: nth-in var(--motion-base) var(--ease-out);
+}
+
 /* 「這個月已經問到了」那一塊裡的一列。摺疊起來只有一個數字，點開才是這些。
    刻意很扁：她點開是為了掃過去確認「喔這幾位問過了」，不是為了讀。 */
 .askdone {

@@ -695,7 +695,12 @@ test('手動貼上那條路要跟自動推送長一樣（同一格、同一組�
     staff: [{ id: 'st-xia', name: '夏', role: '醫師' }, { id: 'st-li', name: '李', role: '醫師' }],
   });
 
-  const note = rows.find((r) => r.some((cell) => String(cell).includes('三返')));
-  assert.ok(note, `三返註記要在，實際：${JSON.stringify(rows)}`);
-  assert.equal(note[5], ['8/8 二返(夏)', '9/20 三返(李)'].join(NL), '對齊健檢那一欄，一格兩行');
+  // 這一條路的產物會經過 toTSV()，而它把換行換成空白 —— 所以**一返一列**，
+  // 同一欄往下疊。自動推送那條路是一格兩行，看起來是一樣的東西。
+  const second = rows.find((r) => r.some((cell) => String(cell).includes('二返(夏)')));
+  const third = rows.find((r) => r.some((cell) => String(cell).includes('三返(李)')));
+  assert.ok(second && third, `兩列都要在，實際：${JSON.stringify(rows)}`);
+  assert.equal(second[5], '8/8 二返(夏)', '對齊健檢那一欄');
+  assert.equal(third[5], '9/20 三返(李)', '接在正下方，同一欄');
+  assert.equal(rows.indexOf(third), rows.indexOf(second) + 1, '三返緊接在二返底下');
 });

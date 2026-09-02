@@ -118,6 +118,11 @@ export async function render(el) {
   sentCount = 0;
   inboxRows = null;
   bookRows = null;
+  // **回到這一頁一律是收起來的。** `reviewOpen` 撐得過 `paint()`（在抽屜裡
+  // 勾一筆會重畫底下這一頁），但撐不過重新進來 —— 那一塊「展開才載入」的
+  // 理由就是她一天開這一頁十幾次，而看回顧是收工前一次的事（ADR-0062）。
+  reviewOpen = false;
+  reviewDay = null;
 
   const today = todayISO();
   let tasks;
@@ -320,9 +325,19 @@ let reviewBy = 'person';
 let reviewCache = null;
 let reviewNames = null;
 
+/**
+ * 展開了沒。**存在模組裡，因為這一頁重畫的次數變多了**（2026-09-02）——
+ * 在「依客戶」的抽屜裡勾一筆會讓底下這一頁重畫，而重畫出來的
+ * `<details>` 預設是收起來的。她剛剛才展開的東西在她眼前收起來，
+ * 看起來像按錯了什麼。
+ *
+ * 換分頁（總覽／依客戶）也重畫，所以這一條順便把那個老毛病一起修掉。
+ */
+let reviewOpen = false;
+
 function reviewSection() {
   return `
-    <details class="card" data-review style="margin-top: var(--space-4)">
+    <details class="card" data-review ${reviewOpen ? 'open' : ''} style="margin-top: var(--space-4)">
       <summary class="card__title">看今天做了什麼</summary>
       <div data-review-body><p class="muted">展開時才載入。</p></div>
     </details>`;
@@ -334,14 +349,23 @@ function wireReview(ctx) {
   const body = box.querySelector('[data-review-body]');
   let loaded = false;
 
-  box.addEventListener('toggle', async () => {
+  const load = async () => {
     if (!box.open || loaded) return;
     loaded = true;
-    reviewDay = ctx.today;
+    reviewDay ??= ctx.today;
     // **失敗要能再試一次，所以把旗標放回去**（同 `views/audit.js` 的
     // `wireSection()`）—— 那一句「收起來再展開一次就會重試」以前是假的。
     if (!await loadReview(ctx, body)) loaded = false;
+  };
+
+  box.addEventListener('toggle', () => {
+    reviewOpen = box.open;
+    load();
   });
+
+  // 重畫之前就是展開的：`toggle` 不會為了「一出生就 open」而觸發，
+  // 所以這裡自己叫一次 —— 少了它，重畫之後那一塊會停在「展開時才載入」。
+  if (box.open) load();
 
   // 換一天、換看法都**只重畫這一塊**（ADR-0038）—— 重畫整頁的代價是閃一下
   // 加捲回最上面，而她人在這一頁的最底下。
@@ -2094,7 +2118,7 @@ async function clearDoneTasks(ctx) {
 // 誰該進來、怎麼排，一條規則都不在這裡：全部在 domain/scheduling.js 的
 // customersToAsk()。
 
-async function renderAsk(el, { focus = null } = {}) {
+async function renderAsk(el, { focus = null, slide = null } = {}) {
   const today = todayISO();
   // 預設下個月：她問時間的節奏是月底那一兩個禮拜問下個月（ADR-0053）。
   // 但那是**預設不是限制** —— 客人月中打來說「我這個月 20 號之後出國」時，
@@ -2116,7 +2140,7 @@ async function renderAsk(el, { focus = null } = {}) {
   const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
 
   paintAsk({
-    el, byId, invites, responses, today, focus,
+    el, byId, invites, responses, today, focus, slide,
     month: askMonth,
     rows: customersToAskForMonth({ customers, entitlementsBy, availabilityBy, month: askMonth }),
   });
@@ -2138,7 +2162,7 @@ async function renderAsk(el, { focus = null } = {}) {
  * `splitByMonth()` 與 `inviteProgress()`。
  */
 function paintAsk(ctx) {
-  const { el, rows, invites, responses, month, today, focus } = ctx;
+  const { el, rows, invites, responses, month, today, focus, slide } = ctx;
   const groups = splitByMonth({ rows, invites, responses, month, today });
   const label = monthLabel(`${month}-01`);
 
@@ -2158,6 +2182,9 @@ function paintAsk(ctx) {
       ${monthNav()}
     </div>
 
+    ${/* 換月份之後這一整塊淡入，方向跟著箭頭走 —— 那一下是在回答
+           「往哪個方向走了」。只有這一塊會動，抬頭與切換器不動（ADR-0038）。 */''}
+    <div class="${slide ? `monthslide--${slide}` : ''}">
     ${rows.length ? `
       <div class="seg" role="group" style="margin-bottom: var(--space-4)">
         <button class="seg__item" type="button" data-asktab="todo"
@@ -2175,7 +2202,8 @@ function paintAsk(ctx) {
           || `<p class="muted">${esc(label)}的連結都發出去了。</p>`)}
 
       ${doneBlock(groups.done, label)}`
-      : '<p class="muted">還沒有客戶。</p>'}`;
+      : '<p class="muted">還沒有客戶。</p>'}
+    </div>`;
 
   message.wire(el, toast.info);
   wireAsk(ctx);
@@ -2316,7 +2344,7 @@ function wireAsk(ctx) {
       const stepped = steppedMonth(e.target, month, addMonths);
       if (!stepped) return;
       askMonth = stepped;
-      renderAsk(el);
+      renderAsk(el, { slide: stepped > month ? 'next' : 'prev' });
     }));
 
   // 切換**不重新讀資料**，就地重畫 —— 那幾份資料剛剛才讀過，再讀一次只是讓她等。

@@ -84,12 +84,25 @@ export function customerReport({
 
   if (!scheduled.length) rows.push(['（還沒有額度）']);
 
-  // 二返：一列，寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的
+  // 回訪註記：寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的。
+  //
+  // **一返一列**，不是一格塞好幾行。自動推送那條路一格可以有好幾行
+  //（`.gs` 那側 `setWrap(true)`），但這條路的產物會經過 `toTSV()`，
+  // 而它把換行換成空白（不然貼進試算表會整個錯位）。同一格三返擠在二返後面
+  // 是看得懂但很難掃的東西，所以這裡攤成幾列 —— 兩條路長得一樣，
+  // 只是這一條把「同一格的第二行」畫成「下一列的同一欄」。
   const notes = followupNotes({ alive, visits: used, dates, coursesById, staffById });
   if (notes.length) {
-    const line = [];
-    for (const note of notes) line[COUNT_COLS + note.dateIndex] = note.text;
-    rows.push([...line].map((cell) => cell ?? ''));
+    const parts = notes.map((note) => ({ at: note.dateIndex, lines: note.text.split(NL) }));
+    const height = Math.max(...parts.map((p) => p.lines.length));
+
+    for (let i = 0; i < height; i += 1) {
+      const line = [];
+      for (const part of parts) {
+        if (part.lines[i]) line[COUNT_COLS + part.at] = part.lines[i];
+      }
+      rows.push([...line].map((cell) => cell ?? ''));
+    }
   }
 
   // 營養品那一區。**一筆都沒有就整段不畫** —— 大部分客戶不買，

@@ -351,9 +351,12 @@ function slotCard(ctx, draft, slot, i) {
         ${/* 剩餘次數不寫在這裡：正下方那一排額度丸子上，被選中的那一顆
              已經寫著「復能 剩 11」。同一個數字在相隔 30px 的地方寫兩次，
              省下來的空間剛好夠課程名待在同一行（SPEC 第 8.3 節那張圖）。 */''}
-        ${courseChoices.length === 1 && course
-          ? `<span class="slothead__what">${esc(course.name)}</span>`
-          : '<span class="app__spacer"></span>'}
+        ${/* n返 的名字不在主檔上（它借二返那個課程），所以照返數印 */''}
+        ${nth
+          ? `<span class="slothead__what">${esc(nthLabel(nthOf(slot)) ?? 'n返')}</span>`
+          : (courseChoices.length === 1 && course
+            ? `<span class="slothead__what">${esc(course.name)}</span>`
+            : '<span class="app__spacer"></span>')}
         ${draft.slots.length > 1
           ? `<button class="slothead__x" type="button" data-del-slot="${i}"
                      aria-label="移除第 ${i + 1} 段">${icon('close', { size: 15, width: 2 })}</button>`
@@ -385,7 +388,10 @@ function slotCard(ctx, draft, slot, i) {
       ${/* 只有一個選項時不畫丸子（一顆孤零零的丸子看起來像可以取消），
              課程名由上面那一行的抬頭講 —— SPEC 第 8.3 節那張圖就是
              `10:30–11:30  物理賦能  剩 11/12`。 */''}
-      ${courseChoices.length === 1
+      ${/* n返 沒有課程可以挑（它借二返那一個），所以整排不畫 ——
+             以前這裡只問 `length === 1`，於是 n返 會多出一排**空的**「課程」，
+             而一排沒有東西的丸子看起來像壞掉。 */''}
+      ${nth || courseChoices.length === 1
         ? ''
         : f.chips({
             name: `s${i}-course`, label: '課程', value: slot.courseId,
@@ -450,6 +456,7 @@ function nthFields(ctx, draft, slot, i, choices) {
   for (let n = MIN_NTH; n <= MAX_NTH; n += 1) numbers.push(n);
 
   return `
+    <div class="nthfields">
     ${f.chips({
       name: `s${i}-nth`, label: '第幾返', value: String(picked), quiet: true,
       options: numbers.map((n) => ({ value: String(n), label: nthLabel(n) })),
@@ -472,7 +479,8 @@ function nthFields(ctx, draft, slot, i, choices) {
       : `<div class="fieldgroup">
            <span class="fieldgroup__label">這是哪一次健檢的</span>
            <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
-         </div>`}`;
+         </div>`}
+    </div>`;
 }
 
 /**
