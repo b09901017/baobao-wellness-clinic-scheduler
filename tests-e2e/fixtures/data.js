@@ -71,19 +71,29 @@ const COURSE_NAME = Object.fromEntries(SEED.courses.map((c) => [c.id, c.name]));
 export const slot = ({
   courseId, entitlementId, startsAt, endsAt, equipmentId = null,
   therapistId = null, doctorId = null, roomId = null, bed = null,
-  ivProductId = null, followupForVisitId = null, attended = undefined,
+  ivProductId = null, followupForVisitId = null, followupNth = null,
+  attended = undefined,
 }) => {
   const s = {
     courseId,
     // 少了它畫面上會印「（沒有課程）」—— `visitCourseLabel()` 讀的是這個快照，
     // 不是回頭去查主檔。種子少寫這一欄會讓每一支測試都在看一個不寫實的畫面。
-    courseName: COURSE_NAME[courseId] ?? '',
+    //
+    // **n返 的名字不是主檔上那一個**（它借二返那個課程，但畫面上要印「三返」），
+    // 所以有返數時照返數組（同 `domain/nthFollowup.js` 的 `nthSlotFields()`）。
+    courseName: followupNth ? `${NTH_NAMES[followupNth] ?? ''}返` : (COURSE_NAME[courseId] ?? ''),
     entitlementId, startsAt, endsAt,
     equipmentId, therapistId, doctorId, roomId, bed, ivProductId, followupForVisitId,
   };
+  // 二返身上沒有這個欄位，所以只有 n返 才寫進去 —— 一律寫 null 的話，
+  // 「有沒有填過」這個判斷（`isNthSlot()`）在種子與真的資料上會不一樣。
+  if (followupNth != null) s.followupNth = followupNth;
   if (attended !== undefined) s.attended = attended;
   return s;
 };
+
+/** 3 → 三。`domain/nthFollowup.js` 有同一份，這裡是種子用的最小複本。 */
+const NTH_NAMES = { 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 10: '十' };
 
 export function task({
   id, customerId, customerName, kind, dueDate, visitId = null,

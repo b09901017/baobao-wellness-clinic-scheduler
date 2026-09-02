@@ -18,7 +18,6 @@
 import * as data from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as tasksData from '../../data/tasks.js';
-import { taskLine } from '../../domain/taskRules.js';
 import * as availability from './availability.js';
 import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
@@ -34,6 +33,9 @@ import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import {
+  examVisits, followupsOfExam, nthLabel, secondFollowupIds,
+} from '../../domain/nthFollowup.js';
 import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -50,6 +52,7 @@ import * as buy from '../components/buy.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { taskRow } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import {
   deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
@@ -814,7 +817,35 @@ function followupLine(e, ctx, visits) {
   }
 
   const line = describePair(pair, visits);
-  return line ? `<p class="muted">${esc(line.text)}</p>` : '';
+  return `
+    ${line ? `<p class="muted">${esc(line.text)}</p>` : ''}
+    ${nthLine(e, ctx, visits)}`;
+}
+
+/**
+ * 這一筆健檢底下加約過哪幾返。**接在二返那一句下面，同一個位置、同一個字級。**
+ *
+ * n返 沒有額度，所以它沒有自己的卡片可以掛（`domain/nthFollowup.js` 的檔頭）。
+ * 掛在健檢那一張底下是對的：她問的是「這一次健檢後來聽了幾次報告」。
+ *
+ * **這裡沒有「加約」按鈕。** ADR-0056 定了只有日曆改得了一筆來訪，而加一場
+ * n返 就是建一筆來訪 —— 從這一頁給一顆按鈕等於在那個決定上再開一個洞。
+ * 她的路徑跟排任何一場來訪一樣：壓表，或日曆。
+ */
+function nthLine(e, ctx, visits) {
+  const coursesById = Object.fromEntries(ctx.courses.map((c) => [c.id, c]));
+  const second = secondFollowupIds(ctx.entitlements);
+  const rows = [];
+
+  for (const exam of examVisits([e], coursesById, visits)) {
+    const extra = followupsOfExam(exam.id, visits, second).filter((f) => !second.has(f.slot.entitlementId));
+    if (!extra.length) continue;
+    rows.push(`${shortDate(exam.date)} 的健檢 → ${
+      extra.map((f) => `${nthLabel(f.nth)} ${shortDate(f.visit.date)}`).join('・')}`);
+  }
+
+  if (!rows.length) return '';
+  return `<p class="muted">加約：${rows.map(esc).join('；')}</p>`;
 }
 
 async function addFollowup(ctx, entId) {
@@ -962,57 +993,20 @@ function taskBlock(tasks, visits = []) {
               taskTab === 'done' ? '還沒有勾掉的。' : '沒有還沒做的了。'}</p>`}`}`;
 }
 
-/**
- * 一張任務。**這一列自己就講得完**：哪一種、死線、做完了沒、哪一筆產生的。
+/*
+ * 一張任務長什麼樣**搬到 `ui/components/tasklist.js` 了**（2026-09-02）——
+ * 待辦中心的「依客戶」抽屜要用同一份。搬走的理由寫在那一支的檔頭。
  *
- * 以前整列連到那筆來訪（`#/visits/:id`，而且是整頁編輯器）。她問：
- * 「不是應該跳到 todo 那邊嗎？不知道為甚麼點進去是那個？」
+ * 這一頁對那一列的兩個決定沒有變，記在這裡免得之後有人在抽屜那側改壞：
  *
- * 兩邊都不太對：待辦中心列的是**所有客戶**的任務，從一位客戶身上跳過去
- * 她還要在裡面把這個人找回來。所以答案是**哪裡都不去** ——
- * 勾掉就在這一列做（跟日曆上勾待辦同一個判斷，ADR-0045），
- * 右邊那顆「詳情 ›」浮出唯讀卡片。
- *
- * 那顆按鈕以前寫的是「來訪」，跟待辦中心那顆一模一樣的動作卻叫兩個名字
- *（她的原話：「他其實和已改成詳情的按鈕一樣?」）。同一個動作在兩頁叫兩個
- * 名字，她會以為是兩件事。
+ * - **點一列就是勾掉／拿回來**，哪裡都不去。以前整列連到那筆來訪
+ *   （`#/visits/:id`，而且是整頁編輯器），她問「不是應該跳到 todo 那邊嗎？」
+ *   —— 兩邊都不太對：待辦中心列的是所有客戶的任務，從一位客戶身上跳過去
+ *   她還要在裡面把這個人找回來。所以答案是哪裡都不去
+ *   （跟日曆上勾待辦同一個判斷，ADR-0045）。
+ * - 右邊那顆叫「**詳情**」不叫「來訪」，浮出的是唯讀卡片（ADR-0056）。
+ *   同一個動作在兩頁叫兩個名字，她會以為是兩件事。
  */
-function taskRow(t, visit = null) {
-  // 哪一天、哪一場走 `domain/taskRules.js` 的 `taskLine()` —— 待辦中心與
-  // 試算表的 TODO 區讀的是同一支。日期是**來訪那一天**，不是死線；
-  // 來訪找不到才退回死線，而且那時候要講明它是死線。
-  const line = taskLine(t, visit);
-  // 來訪找不到（獨立待辦、來訪被刪了）就什麼都不接：右邊那顆丸子已經在講
-  // 死線了，這裡再印一次死線只是把同一件事講兩遍，而且看起來像來訪日。
-  const tail = line.fromDue
-    ? ''
-    : [shortDate(line.date), line.what].filter(Boolean).join('・');
-
-  return `
-    <div class="taskrow ${t.done ? 'taskrow--done' : ''}">
-      <button class="note ${t.done ? 'note--done' : ''}" type="button"
-              data-task="${esc(t.id)}" style="flex: 1; min-width: 0">
-        <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
-        <span class="note__main">
-          ${/* 她的原話：「例如 Examine・9/1・二返」—— 種類、日期、具體項目名稱。
-                 種類正常粗細，後面那一串淡一級：種類才是她在掃的東西 */''}
-          <span class="note__text">${esc(line.kind)}${
-            tail ? `<span class="note__sub">・${esc(tail)}</span>` : ''}</span>
-          ${t.note ? `<span class="note__note">${esc(t.note)}</span>` : ''}
-        </span>
-        <span class="notetags">
-          ${/* 日期一律走 shortDate()：全站別的地方寫的都是「8/30(日)」，
-                 只有這一列印原始的 2026-08-30，看起來像另一種東西 */''}
-          <span class="notetag ${!t.done && t.dueDate ? 'notetag--date' : ''}">${
-            t.done ? '已完成' : `死線 ${esc(t.dueDate ? shortDate(t.dueDate) : '—')}`}</span>
-        </span>
-      </button>
-      ${t.visitId
-        ? `<button class="taskrow__link" type="button" data-task-visit="${esc(t.visitId)}">
-             詳情${icon('right', { size: 14 })}</button>`
-        : ''}
-    </div>`;
-}
 
 // ---------- 隨手記 ----------
 

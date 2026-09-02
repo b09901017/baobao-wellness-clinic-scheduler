@@ -473,6 +473,80 @@ export function customersToAsk({
 }
 
 /**
+ * **某一個月**的時間問到了誰、還沒問到誰。`#/todo/ask` 那一頁用。
+ *
+ * 跟 `customersToAsk()` 是兩支，因為它們回答的是兩個不同的問題 ——
+ * 同 `currentCollection()` 與 `collectionFor()` 分開的那個理由（ADR-0036）：
+ *
+ * - `customersToAsk()` 問「**現在**還沒問到誰」。首頁那一列與資料健檢用它，
+ *   那兩個地方講的是此時此刻，而且它會擋掉身上沒次數的人。**這一支一個字都不改。**
+ * - 這一支問「**9 月**問到了誰」。她 2026-09-02 的原話：「不用看他身上還有
+ *   沒有次數，就單純看他那個月有沒有被排過時間」。
+ *
+ * 兩個差別因此都是刻意的：
+ *
+ * 1. **不拿次數當濾網。** 一位這個月剛用完、下個月要續購的客戶照樣要問得到時間。
+ *    `remaining` 仍然算出來，但只當一行灰字顯示 —— 那是她判斷「要不要順便
+ *    提醒他加購」的線索，不是「該不該問他」的答案。
+ * 2. **用 `collectionFor()` 不用 `currentCollection()`。** 這一頁綁月份，
+ *    而 8 月底問到的 9 月那一份在今天還沒生效 —— 用「現在有效的」去問
+ *    「9 月問到了沒」，答案會全部是「還沒問」。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.customers
+ * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
+ * @param {Record<string, object[]>} ctx.availabilityBy 客戶 id → 可用性收集
+ * @param {string} ctx.month 'YYYY-MM'
+ * @returns {{customerId:string, customerName:string, remaining:number,
+ *            state:'asked'|'never'|'notThisMonth', collection:object|null,
+ *            lastAskedAt:string|null}[]}
+ *   月份不合法就是空陣列 —— 不要退回「這個月」，那會讓畫面在講另一個月的事。
+ */
+export function customersToAskForMonth({
+  customers = [], entitlementsBy = {}, availabilityBy = {}, month,
+}) {
+  const range = monthRange(month);
+  if (!range) return [];
+
+  const rows = [];
+
+  for (const customer of customers) {
+    if (customer.active === false || customer.deletedAt) continue;
+
+    const collections = (availabilityBy[customer.id] ?? []).filter((c) => !c.deletedAt);
+    const collection = collectionFor(collections, range.from, range.to);
+
+    // 最後一次是什麼時候問的（**任何一個月**都算）。收集日期壞掉的那幾筆跳過
+    // —— 那是「不知道什麼時候」，不是「今天」，而編一個日期出來會讓她
+    // 以為最近問過（同 `customersToAsk()`）。
+    const lastAskedAt = collections
+      .map((c) => c.collectedAt)
+      .filter(isValidDate)
+      .sort()
+      .pop() ?? null;
+
+    rows.push({
+      customerId: customer.id,
+      customerName: customer.name,
+      remaining: customerPools({ entitlements: entitlementsBy[customer.id] ?? [] }).totalRemaining,
+      collection,
+      // 三種，不是兩種：**「問過別的月份」跟「一次都沒問過」是不一樣的問題**。
+      // 前者她只要補這個月，後者可能是這個人根本還沒被納入這一輪。
+      state: collection ? 'asked' : (collections.length ? 'notThisMonth' : 'never'),
+      lastAskedAt,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    // 從來沒問過的最前面，其次是問過別的月份的，最後是這個月已經有的
+    const rank = { never: 0, notThisMonth: 1, asked: 2 };
+    if (rank[a.state] !== rank[b.state]) return rank[a.state] - rank[b.state];
+    return String(a.lastAskedAt ?? '').localeCompare(String(b.lastAskedAt ?? ''))
+      || String(a.customerName).localeCompare(String(b.customerName), 'zh-TW');
+  });
+}
+
+/**
  * 這個月還有誰沒壓表，以及那一位要去哪個系統登記。
  *
  * 待辦中心那一列「壓表登記」（SPEC 第 8.1 節）。跟 `customersToAsk()` 一樣

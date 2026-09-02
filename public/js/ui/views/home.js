@@ -28,20 +28,22 @@ import {
   sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
   MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
-import { customersToAsk, customersToBook, monthRange } from '../../domain/scheduling.js';
+import {
+  customersToAsk, customersToAskForMonth, customersToBook, monthRange,
+} from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
-import { splitByInvite, formLink } from '../../domain/availabilityForm.js';
+import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
 import {
-  FOLLOWUP_TASK_KIND, bookingStateForTask, pairsOf,
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
 import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
@@ -55,7 +57,9 @@ import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
+import { taskRow as sharedTaskRow, wayRow } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
+import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
@@ -98,6 +102,12 @@ let bookRows = null;
 // 存在模組裡而不是網址裡 —— 它是看法，不是位置（同首頁的「總覽／依客戶」）。
 let askTab = 'todo';
 
+// 那一頁現在在看哪個月。`null` = 還沒進去過，進去時填成**下個月**。
+//
+// 同樣不進網址：它是看法不是位置。但它跟 `askTab` 有一個差別 ——
+// **換月份要重新讀資料**（那一頁三份資料都是照月份挑的），而換分段不用。
+let askMonth = null;
+
 // ---------- 總覽 ----------
 
 export async function render(el) {
@@ -108,6 +118,11 @@ export async function render(el) {
   sentCount = 0;
   inboxRows = null;
   bookRows = null;
+  // **回到這一頁一律是收起來的。** `reviewOpen` 撐得過 `paint()`（在抽屜裡
+  // 勾一筆會重畫底下這一頁），但撐不過重新進來 —— 那一塊「展開才載入」的
+  // 理由就是她一天開這一頁十幾次，而看回顧是收工前一次的事（ADR-0062）。
+  reviewOpen = false;
+  reviewDay = null;
 
   const today = todayISO();
   let tasks;
@@ -262,7 +277,7 @@ function paint(ctx) {
     </div>
 
     ${tab === 'all' ? overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose })
-                    : byCustomerHtml(ctx, waiting)}
+                    : byCustomerHtml(ctx, waiting, toClose)}
 
     ${notesCard(notes)}
 
@@ -310,9 +325,19 @@ let reviewBy = 'person';
 let reviewCache = null;
 let reviewNames = null;
 
+/**
+ * 展開了沒。**存在模組裡，因為這一頁重畫的次數變多了**（2026-09-02）——
+ * 在「依客戶」的抽屜裡勾一筆會讓底下這一頁重畫，而重畫出來的
+ * `<details>` 預設是收起來的。她剛剛才展開的東西在她眼前收起來，
+ * 看起來像按錯了什麼。
+ *
+ * 換分頁（總覽／依客戶）也重畫，所以這一條順便把那個老毛病一起修掉。
+ */
+let reviewOpen = false;
+
 function reviewSection() {
   return `
-    <details class="card" data-review style="margin-top: var(--space-4)">
+    <details class="card" data-review ${reviewOpen ? 'open' : ''} style="margin-top: var(--space-4)">
       <summary class="card__title">看今天做了什麼</summary>
       <div data-review-body><p class="muted">展開時才載入。</p></div>
     </details>`;
@@ -324,14 +349,23 @@ function wireReview(ctx) {
   const body = box.querySelector('[data-review-body]');
   let loaded = false;
 
-  box.addEventListener('toggle', async () => {
+  const load = async () => {
     if (!box.open || loaded) return;
     loaded = true;
-    reviewDay = ctx.today;
+    reviewDay ??= ctx.today;
     // **失敗要能再試一次，所以把旗標放回去**（同 `views/audit.js` 的
     // `wireSection()`）—— 那一句「收起來再展開一次就會重試」以前是假的。
     if (!await loadReview(ctx, body)) loaded = false;
+  };
+
+  box.addEventListener('toggle', () => {
+    reviewOpen = box.open;
+    load();
   });
+
+  // 重畫之前就是展開的：`toggle` 不會為了「一出生就 open」而觸發，
+  // 所以這裡自己叫一次 —— 少了它，重畫之後那一塊會停在「展開時才載入」。
+  if (box.open) load();
 
   // 換一天、換看法都**只重畫這一塊**（ADR-0038）—— 重畫整頁的代價是閃一下
   // 加捲回最上面，而她人在這一頁的最底下。
@@ -641,9 +675,13 @@ function askGroupRow() {
 
   // 數字**不減掉**已經發出連結的那幾位：這一輪的時間確實還沒問到，
   // 把數字做小會讓她以為進度比實際好。改成在說明裡講出來（ADR-0033）。
+  // 這一列的數字**問的是「現在」**（`customersToAsk()`，ADR-0028），而點進去
+  // 那一頁綁月份、而且不看次數 —— 兩個數字對不起來是正常的，所以要講出來。
+  // 一個數字後面配一句話，比兩個互相矛盾的數字好懂（ADR-0033 的同一句）。
   const note = sentCount
-    ? `其中 ${sentCount} 位已經發出連結，在等他填`
-    : (never ? `其中 ${never} 位從來沒問過` : '上次問的都過期了');
+    ? `其中 ${sentCount} 位已經發出連結，在等他填・點進去可以換月份`
+    : (never ? `其中 ${never} 位從來沒問過・點進去可以換月份`
+             : '上次問的都過期了・點進去可以換月份');
 
   return groupRow({
     href: '#/todo/ask',
@@ -740,39 +778,356 @@ function groupRow({ href, label, note, n, danger = false, faded = false, reminde
     </a>`;
 }
 
-/** 依客戶：一位客戶一列，看得出「這個人身上還有幾件事」。 */
-function byCustomerHtml(ctx, waiting) {
-  const { tasks } = ctx;
-  const rows = new Map();
-
-  const bump = (id, name, what) => {
-    if (!rows.has(id)) rows.set(id, { id, name, whats: new Set(), n: 0 });
-    const row = rows.get(id);
-    row.whats.add(what);
-    row.n += 1;
-  };
-
-  for (const t of tasks) bump(t.customerId, t.customerName ?? '（沒有名字）', t.kind);
-  for (const [id, visits] of waiting) {
-    bump(id, visits[0].customerName ?? '（沒有名字）', '跟客人確認時間');
-  }
-
-  if (!rows.size) return '<p class="muted">沒有待辦。</p>';
+/**
+ * 依客戶：一位客戶一列，看得出「這個人身上還有幾件事」。
+ *
+ * **點一列不換頁**（2026-09-02）。以前這裡是 `<a href="#/customers/:id">`，
+ * 於是她要處理一位客戶得走五步：點 → 捲到任務那一段 → 勾 → 返回 →
+ * 再把「依客戶」切回來（`tab` 沒有存進網址）。二十幾位就是一百步。
+ * 她的原話是「打斷批次處理待辦事項的操作節奏」。
+ *
+ * **那顆數字是三種相加**（2026-09-02 她決定的）：任務、跟客人確認時間、
+ * 簽療程單。清單比數字多一項她會以為數字壞了，所以抽屜裡列什麼，
+ * 這裡就要算什麼 —— 兩邊只有 `whoRows()` 一支在決定，不要在抽屜那側
+ * 自己再挑一次。
+ */
+function byCustomerHtml(ctx, waiting, toClose) {
+  const rows = [...whoRows(ctx, waiting, toClose).values()];
+  if (!rows.length) return '<p class="muted">沒有待辦。</p>';
 
   return `
     <div class="stack">
-      ${[...rows.values()]
+      ${rows
         .sort((a, b) => b.n - a.n || String(a.name).localeCompare(String(b.name), 'zh-TW'))
         .map((r) => `
-          <a class="card row" href="#/customers/${esc(r.id)}" style="text-decoration: none; color: inherit">
+          <button class="card row whorow" type="button" data-who="${esc(r.id)}">
             <span class="row__main">
               <span class="row__title">${esc(r.name)}</span>
               <span class="muted">${esc([...r.whats].join('・'))}</span>
             </span>
-            <span class="badge ${r.whats.has('跟客人確認時間') ? 'badge--ok' : 'badge--soon'}">${r.n}</span>
+            <span class="badge ${r.tasks.length ? 'badge--soon' : 'badge--ok'}">${r.n}</span>
             ${icon('right', { size: 18 })}
-          </a>`).join('')}
+          </button>`).join('')}
     </div>`;
+}
+
+const NO_NAME = '（沒有名字）';
+
+/**
+ * 一位客戶身上還有哪些事。**清單與數字的唯一來源** ——
+ * 卡片那一列與抽屜裡的內容都問這一支。
+ *
+ * @returns {Map<string, {id:string, name:string, whats:Set<string>, n:number,
+ *   tasks:object[], confirm:object[], close:object[]}>}
+ */
+function whoRows(ctx, waiting, toClose = []) {
+  const rows = new Map();
+  const at = (id, name) => {
+    if (!rows.has(id)) {
+      rows.set(id, { id, name: name || NO_NAME, whats: new Set(), n: 0, tasks: [], confirm: [], close: [] });
+    }
+    const row = rows.get(id);
+    // 名字兩邊都是快照，可能其中一份是空的。有名字的那一份贏 ——
+    // 「（沒有名字）」不該蓋掉一個真的有的名字。
+    if (name && row.name === NO_NAME) row.name = name;
+    return row;
+  };
+
+  for (const t of ctx.tasks) {
+    const row = at(t.customerId, t.customerName);
+    row.whats.add(t.kind);
+    row.tasks.push(t);
+    row.n += 1;
+  }
+
+  for (const [id, visits] of waiting) {
+    const row = at(id, visits[0].customerName);
+    row.whats.add('跟客人確認時間');
+    row.confirm.push(...visits);
+    row.n += visits.length;
+  }
+
+  for (const v of toClose ?? []) {
+    const row = at(v.customerId, v.customerName);
+    row.whats.add('簽療程單');
+    row.close.push(v);
+    row.n += 1;
+  }
+
+  return rows;
+}
+
+// ---------- 依客戶：原地展開的那張抽屜 ----------
+//
+// 她在這張抽屜裡做的事只有一件：**把這個人身上勾得掉的勾掉**。
+// 另外兩種（跟客人確認時間、簽療程單）在這裡只是一條路 —— 它們都不是布林值，
+// 一個要把所有時段攤開逐筆退回，一個要逐段記結果（ADR-0025）。
+// 做成勾選框的話她點一下就會以為完成了。
+//
+// 抽屜走 `components/sheet.js`（全站共用那一支）：它自己接返回鍵（ADR-0048）、
+// 自己吃往下甩、≥900px 自己變成置中對話框。**不要在這一頁再刻一張** ——
+// 這一頁已經有兩張自己畫的抽屜（確認動線與收尾），那兩張是因為要跟著整頁
+// 重畫才自己畫的，這一張不是。
+
+/**
+ * 現在開著哪一位。`tasks` 是**這張抽屜自己的一份快照**，不是 `ctx.tasks` 的參照：
+ * 勾掉的那幾筆要留在抽屜裡（劃掉、點得回來，同隨手記與任務那幾頁的判斷），
+ * 但要從 `ctx.tasks` 裡拿掉，底下那張卡片的數字才會跟著減。
+ */
+let whoDrawer = null;
+
+function openWhoDrawer(ctx, customerId, waiting, toClose) {
+  const row = whoRows(ctx, waiting, toClose).get(customerId);
+  if (!row) return;
+
+  const d = {
+    customerId,
+    row,
+    tasks: row.tasks.map((t) => ({ ...t })),
+    visits: null,
+    rooms: {},
+    staff: {},
+    bookings: new Map(),
+    sheet: null,
+  };
+  whoDrawer = d;
+
+  d.sheet = openSheet({
+    title: row.name,
+    note: whoNote(),
+    body: whoBodyHtml(ctx),
+    onMount: () => wireWhoDrawer(ctx),
+    onClose: () => { if (whoDrawer === d) whoDrawer = null; },
+  });
+
+  loadWhoDetails(ctx);
+}
+
+/** 抬頭底下那一句。勾掉之後要跟著換 —— 留著上一句比沒有說明更糟。 */
+function whoNote() {
+  const d = whoDrawer;
+  if (!d) return '';
+  const open = d.tasks.filter((t) => !t.done).length;
+  const ways = d.row.confirm.length + d.row.close.length;
+  if (!open && !ways) return '這個人身上的事都做完了。';
+  const parts = [];
+  if (open) parts.push(`${open} 件可以在這裡勾`);
+  if (ways) parts.push(`${ways} 件要去別的地方做`);
+  return parts.join('・');
+}
+
+function whoBodyHtml(ctx) {
+  const d = whoDrawer;
+  if (!d) return '';
+
+  const rows = d.tasks.map((t) => sharedTaskRow(t, d.visits?.get(t.visitId) ?? null, {
+    booking: d.bookings.get(t.id) ?? null,
+    // 「去壓表」只有「約二返」那幾列有：項目與「哪一次健檢的」都先選好，
+    // 她只要挑日期跟時間（同任務那一頁那一顆，共用 `bookFollowup()`）。
+    actions: t.kind === FOLLOWUP_TASK_KIND && t.customerId && !t.done
+      ? `<button class="btn btn--sm" type="button" data-who-book="${esc(t.id)}"
+                 style="align-self: center; margin-right: var(--space-1)">去壓表</button>`
+      : '',
+  }));
+
+  const ways = [
+    ...(d.row.confirm.length ? [wayRow({
+      label: '跟客人確認時間',
+      count: d.row.confirm.length,
+      note: d.row.confirm.map((v) => shortDate(v.date)).join('、'),
+      hint: '客人可能只答應其中幾天，要逐筆過 —— 在那一頁做',
+      href: '#/todo/confirm',
+    })] : []),
+    ...(d.row.close.length ? [wayRow({
+      label: '簽療程單',
+      count: d.row.close.length,
+      note: d.row.close.map((v) => shortDate(v.date)).join('、'),
+      hint: '次數是收尾時才扣的，哪幾段做了要逐段記 —— 在那一頁做',
+      href: '#/todo/close',
+    })] : []),
+  ];
+
+  return `
+    ${rows.length ? `<div class="tasklist">${rows.join('')}</div>`
+                  : '<p class="muted" style="margin: 0">沒有可以在這裡勾的任務。</p>'}
+    ${ways.length ? `
+      <div class="tasklist__way">
+        <p class="tasklist__waylead">這幾件在別的地方做</p>
+        ${ways.join('')}
+      </div>` : ''}`;
+}
+
+function wireWhoDrawer(ctx) {
+  const el = whoDrawer?.sheet?.el;
+  if (!el) return;
+
+  el.querySelectorAll('[data-task]').forEach((btn) =>
+    btn.addEventListener('click', () => toggleWhoTask(ctx, btn.dataset.task)),
+  );
+
+  el.querySelectorAll('[data-task-visit]').forEach((btn) =>
+    btn.addEventListener('click', () => openWhoVisit(btn.dataset.taskVisit)),
+  );
+
+  el.querySelectorAll('[data-who-book]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const tasks = whoDrawer?.tasks ?? [];
+      whoDrawer?.sheet?.close();
+      bookFollowup({ ...ctx, open: tasks }, btn.dataset.whoBook);
+    }),
+  );
+}
+
+/**
+ * 那一列上的「哪一天・哪一場」與「約二返約了沒」。
+ *
+ * **抽屜先開，這一段等資料回來再補**（同 `loadTaskVisits()` / `loadAsk()`）——
+ * 她點下去要的是「這個人身上有什麼」，不是等三次查詢跑完。
+ * 讀不到就當這一段不存在：少一行字，不是少一張抽屜。
+ */
+async function loadWhoDetails(ctx) {
+  const d = whoDrawer;
+  if (!d) return;
+
+  const ids = d.tasks.map((t) => t.visitId).filter(Boolean);
+
+  try {
+    const [visits, rooms, staff] = await Promise.all([
+      ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
+      config.listAll('rooms'),
+      config.listAll('staff'),
+    ]);
+    if (whoDrawer !== d) return;   // 她已經關掉、或換了一位
+    d.visits = visits;
+    d.rooms = byId(rooms);
+    d.staff = byId(staff);
+  } catch {
+    return;
+  }
+
+  // 「約二返」那幾列各自約了沒。一位客戶讀一次，不是一列讀一次。
+  const mine = d.tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.visitId);
+  if (mine.length) {
+    try {
+      const [courses, entitlements, hers] = await Promise.all([
+        config.listAll('courses', { includeDeleted: true }),
+        customersData.listEntitlements(d.customerId),
+        visitsData.listByCustomer(d.customerId),
+      ]);
+      if (whoDrawer !== d) return;
+      const coursesById = byId(courses);
+      for (const t of mine) {
+        const state = bookingStateForTask(t, { entitlements, coursesById, visits: hers });
+        // 算不出來的不寫進去 —— 斷言「還沒約」會讓她照著去多約一場。
+        if (state) d.bookings.set(t.id, state);
+      }
+    } catch {
+      /* 少一顆丸子，不是少一張抽屜 */
+    }
+  }
+
+  if (whoDrawer !== d) return;
+  d.sheet.update(whoBodyHtml(ctx));
+}
+
+/** 抽屜裡那顆「詳情 ›」。**唯讀，沒有鉛筆**（ADR-0056）。 */
+function openWhoVisit(visitId) {
+  const d = whoDrawer;
+  const visit = d?.visits?.get(visitId);
+  if (!visit) {
+    toast.info(d?.visits
+      ? '找不到這一筆來訪，可能已經刪掉了'
+      : '那一天的資料還在讀，等一下再按一次');
+    return;
+  }
+  openCard({
+    title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
+    subtitle: esc(describeStatus(visit.status)),
+    body: visitReadHtml(visit, { roomsById: d.rooms, staffById: d.staff }),
+  });
+}
+
+/**
+ * 在抽屜裡勾掉／拿回來一張任務。
+ *
+ * **樂觀更新**：畫面先動，寫入失敗再翻回來（SPEC 第 6.9 節「樂觀更新要誠實」）。
+ * 寫入本身一律走 `toast.withSaveState()` —— 離線時 Firestore 的寫入 Promise
+ * 既不 resolve 也不 reject，那條路只有它處理得了（`ui/toast.js` 的檔頭）。
+ *
+ * `key` 一定要傳：抽屜裡連點兩下會送兩次 `setDone`，而第二次會把 `doneAt`
+ * 蓋成另一個時間 —— 「今天做了什麼」與已完成那一格都照 `doneAt` 分組。
+ *
+ * ## 勾掉「追蹤健檢報告」會讓事情變多，不是變少
+ *
+ * `data/tasks.js` 的 `setDone()` 會連著把「約二返」寫在同一個 commit 裡
+ *（ADR-0042）。所以那一種勾完之後要重讀一次 `listOpen()`，不然她會看到數字
+ * 從 3 減成 2、關掉抽屜再打開又變回 3。其餘的走就地更新不重讀 ——
+ * 重讀會讓底下那一頁的三份補資料（問時間、壓表、收件匣）整組再跑一次。
+ */
+async function toggleWhoTask(ctx, id) {
+  const d = whoDrawer;
+  const task = d?.tasks.find((t) => t.id === id);
+  if (!task) return;
+
+  const to = !task.done;
+  const before = ctx.tasks;
+  const beforeAt = task.doneAt ?? null;
+  const saved = { ...task };
+
+  // 1. 畫面先動
+  task.done = to;
+  task.doneAt = to ? new Date().toISOString() : null;
+  ctx.tasks = to
+    ? ctx.tasks.filter((t) => t.id !== id)
+    : [...ctx.tasks, { ...task }];
+  d.sheet.update(whoBodyHtml(ctx));
+  d.sheet.setNote(whoNote());
+  paint(ctx);
+
+  try {
+    await toast.withSaveState(
+      () => tasksData.setDone(saved, to),
+      { success: to ? '勾掉了' : '拿回來了', key: `task:done:${id}:${to}` },
+    );
+  } catch {
+    // 2. 失敗就翻回來。**這是樂觀更新唯一誠實的收尾** ——
+    //    畫面留在「已完成」而資料庫沒有，比一開始就不動更糟。
+    task.done = !to;
+    task.doneAt = beforeAt;
+    ctx.tasks = before;
+    if (whoDrawer === d) {
+      d.sheet.update(whoBodyHtml(ctx));
+      d.sheet.setNote(whoNote());
+    }
+    paint(ctx);
+    return;
+  }
+
+  // 3. 健檢那條鏈：報告勾掉了就會多一張「約二返」，那一張要看得見
+  if (task.kind === REPORT_TASK_KIND) await refreshChain(ctx, d);
+}
+
+/** 勾掉「追蹤健檢報告」之後，把新長出來的那一張撈回抽屜裡。 */
+async function refreshChain(ctx, d) {
+  let fresh;
+  try {
+    fresh = await tasksData.listOpen();
+  } catch {
+    return;   // 讀不到就維持就地更新的結果，下次打開會對
+  }
+  if (whoDrawer !== d) return;
+
+  ctx.tasks = fresh;
+  const added = fresh.filter(
+    (t) => t.customerId === d.customerId && !d.tasks.some((x) => x.id === t.id),
+  );
+  d.tasks.push(...added.map((t) => ({ ...t })));
+  d.row.tasks = fresh.filter((t) => t.customerId === d.customerId);
+  d.sheet.update(whoBodyHtml(ctx));
+  d.sheet.setNote(whoNote());
+  paint(ctx);
+  // 新長出來的那一張要有「哪一天・哪一場」與「約了沒」
+  if (added.length) loadWhoDetails(ctx);
 }
 
 // ---------- 隨手記 ----------
@@ -994,6 +1349,18 @@ function wireOverview(ctx) {
     btn.addEventListener('click', () => go(`/todo/${btn.dataset.tile}`)),
   );
 
+  // 「依客戶」那一列。**點下去不換頁**，原地展開抽屜（見 byCustomerHtml()）。
+  // waiting 與 toClose 在這裡重算而不是從 paint() 傳進來：這一支的簽名是
+  // 全頁共用的，多兩個只有一種看法用得到的參數，另一種看法也得跟著傳。
+  el.querySelectorAll('[data-who]').forEach((btn) =>
+    btn.addEventListener('click', () => openWhoDrawer(
+      ctx,
+      btn.dataset.who,
+      byCustomer(visitsToConfirm(ctx.pending, ctx.today)),
+      visitsToClose(ctx.unclosed ?? [], ctx.today),
+    )),
+  );
+
   el.querySelectorAll('[data-note]').forEach((btn) =>
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
@@ -1157,6 +1524,9 @@ export async function renderGroup(el, group) {
   if (group === 'notes') return renderNotes(el);
   if (group === 'ask') {
     askTab = 'todo';
+    // 每次從待辦中心點進來都回到下個月 —— 那是她問時間的常態節奏
+    //（月底那一兩個禮拜問下個月，ADR-0053）。上次看到十月不該黏著。
+    askMonth = null;
     return renderAsk(el);
   }
   if (group === 'forms') return formInbox.render(el);
@@ -1748,62 +2118,92 @@ async function clearDoneTasks(ctx) {
 // 誰該進來、怎麼排，一條規則都不在這裡：全部在 domain/scheduling.js 的
 // customersToAsk()。
 
-async function renderAsk(el, { focus = null } = {}) {
-  const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
+async function renderAsk(el, { focus = null, slide = null } = {}) {
+  const today = todayISO();
+  // 預設下個月：她問時間的節奏是月底那一兩個禮拜問下個月（ADR-0053）。
+  // 但那是**預設不是限制** —— 客人月中打來說「我這個月 20 號之後出國」時，
+  // 她要有地方記；想提早開始問十月也一樣。以前這一行是寫死的。
+  askMonth ??= addMonths(today, 1).slice(0, 7);
+
+  el.innerHTML = '<p class="muted">載入中…</p>';
+
+  const [customers, entitlementsBy, availabilityBy, invites, responses] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     customersData.availabilityByCustomer(),
     invitesData.list(),
+    // **全部回覆，含已經收下的。** 收件匣那一支濾掉了收下的那幾份，
+    // 而這一頁要靠它們標出「已確認排定」（她的原話：「都不要消失」）。
+    responsesData.list(),
   ]);
 
-  const today = todayISO();
   const byId = Object.fromEntries(customers.map((c) => [c.id, c]));
 
   paintAsk({
-    el, byId, invites, today, focus,
-    rows: customersToAsk({ customers, entitlementsBy, availabilityBy, today }),
-    // 她問的是下個月的時間 —— askAvailabilityMessage() 的預設也是下個月，
-    // 兩邊講同一個月份，不要一邊寫 9 月一邊寫 10 月。
-    month: addMonths(today, 1).slice(0, 7),
+    el, byId, invites, responses, today, focus, slide,
+    month: askMonth,
+    rows: customersToAskForMonth({ customers, entitlementsBy, availabilityBy, month: askMonth }),
   });
 }
 
 /**
- * 三區，不是兩區。第三區是表單做出來之後才存在的那一段時間：
- * **連結發出去了、客戶還沒填**。她不該在那時候再問一次，但那一位也還沒問到，
- * 所以他留在名單上，只是排到最後面。見 ADR-0033。
+ * 三塊，而且**沒有人會憑空消失**。
+ *
+ * | 塊 | 是誰 | 她在那裡要做什麼 |
+ * |---|---|---|
+ * | 還沒發連結 | 那個月既沒有連結、也沒有時間 | 產生一條那個月的連結，或者自己去問 |
+ * | 已經發出 | 那個月發過連結 | 看走到哪一步了；「已填寫時段」那幾位要去收下 |
+ * | 這個月已經問到了 | 沒發連結、但那個月已經有時間 | 沒事 —— 摺疊起來，只給一個數字 |
+ *
+ * 第三塊是 2026-09-02 補的。整個藏掉最乾淨，但「東西不見了而畫面上什麼都沒說」
+ * 是這個 app 反覆踩過的錯（ADR-0009、0053 都在講同一件事）。
+ *
+ * 分區的規則一條都不在這裡：全部在 `domain/availabilityForm.js` 的
+ * `splitByMonth()` 與 `inviteProgress()`。
  */
 function paintAsk(ctx) {
-  const { el, rows, invites, month, today, focus } = ctx;
-  const groups = splitByInvite({ rows, invites, today });
-  const todo = groups.never.length + groups.expired.length;
+  const { el, rows, invites, responses, month, today, focus, slide } = ctx;
+  const groups = splitByMonth({ rows, invites, responses, month, today });
+  const label = monthLabel(`${month}-01`);
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">問這輪的時間</h1>
-      <p class="page__lead">問 ${Number(month.slice(5))} 月哪幾天方便。
-        發一條連結讓客戶自己點，或者照舊自己問、問到之後記進客戶頁的「不能的時間」。</p>
+      <p class="page__lead">發一條連結讓客戶自己點，或者照舊自己問、問到之後
+        記進客戶頁的「不能的時間」。<strong>看的是那個月問到了沒，跟他身上還剩幾次無關。</strong></p>
     </div>
 
+    ${/* 月份切換。排版照客戶詳情的「不能的時間」（她指名的參考）：
+           一條 `.section`，抬頭印月份、右邊兩顆箭頭。 */''}
+    <div class="section">
+      <h2 class="section__title">${esc(label)}</h2>
+      <span class="section__n">${rows.length} 位客戶</span>
+      ${monthNav()}
+    </div>
+
+    ${/* 換月份之後這一整塊淡入，方向跟著箭頭走 —— 那一下是在回答
+           「往哪個方向走了」。只有這一塊會動，抬頭與切換器不動（ADR-0038）。 */''}
+    <div class="${slide ? `monthslide--${slide}` : ''}">
     ${rows.length ? `
       <div class="seg" role="group" style="margin-bottom: var(--space-4)">
         <button class="seg__item" type="button" data-asktab="todo"
-                aria-pressed="${askTab === 'todo'}">還沒發連結 ${todo}</button>
+                aria-pressed="${askTab === 'todo'}">還沒發連結 ${groups.todo.length}</button>
         <button class="seg__item" type="button" data-asktab="sent"
                 aria-pressed="${askTab === 'sent'}">已經發出 ${groups.sent.length}</button>
       </div>
 
       ${askTab === 'sent'
-        ? askSection('已經發出連結', groups.sent, ctx,
-          '連結給出去了，在等他填。先不要再問一次 —— 他填好會出現在「客戶填好的時間」。')
-          || '<p class="muted">還沒發出任何連結。</p>'
-        : `${askSection('從來沒問過', groups.never, ctx,
-            '這幾位身上還有次數，但一次都沒問過時間。')}
-           ${askSection('該重問了', groups.expired, ctx,
-            '上次問到的已經過期了。過期的條件不能拿來排，要重新問一次。')}
-           ${todo ? '' : '<p class="muted">都發出去了，在等他們填。</p>'}`}`
-      : '<p class="muted">都問到了。</p>'}`;
+        ? (askSection(`${label}發出的連結`, groups.sent, ctx,
+            '連結給出去了就留在這裡 —— 他填好、你收下了都不會消失，狀態寫在每一列右邊。')
+          || `<p class="muted">${esc(label)}還沒發出任何連結。</p>`)
+        : (askSection(`還沒發${label}的連結`, groups.todo, ctx,
+            '這幾位還沒有這個月的時間，也還沒發過連結。')
+          || `<p class="muted">${esc(label)}的連結都發出去了。</p>`)}
+
+      ${doneBlock(groups.done, label)}`
+      : '<p class="muted">還沒有客戶。</p>'}
+    </div>`;
 
   message.wire(el, toast.info);
   wireAsk(ctx);
@@ -1818,6 +2218,30 @@ function paintAsk(ctx) {
   }
 }
 
+/**
+ * 「這個月已經問到了」那一塊。**摺疊，只給一個數字。**
+ *
+ * 她自己在 LINE 問完、直接記進「不能的時間」的那幾位不屬於上面任何一格。
+ * 攤開來會把真的要做的事推到看不見的地方，整個藏掉又會讓她答不出
+ * 「我到底問到幾個人了」。
+ */
+function doneBlock(rows, label) {
+  if (!rows.length) return '';
+
+  return `
+    <details class="pastavail" style="margin-top: var(--space-5)">
+      <summary class="muted">${esc(label)}已經問到了 ${rows.length} 位</summary>
+      ${rows.map((r) => `
+        <div class="askdone">
+          <span class="askdone__name">${esc(r.customerName ?? NO_NAME)}</span>
+          <span class="muted num">${esc(r.collection?.collectedAt
+            ? `${shortDate(r.collection.collectedAt)} 記的`
+            : '不知道哪天記的')}</span>
+          <a class="footlink" href="#/customers/${esc(r.customerId)}">看</a>
+        </div>`).join('')}
+    </details>`;
+}
+
 function askSection(title, rows, ctx, lead) {
   if (!rows.length) return '';
 
@@ -1830,29 +2254,28 @@ function askSection(title, rows, ctx, lead) {
     <div class="stack">${rows.map((r) => askCard(r, ctx)).join('')}</div>`;
 }
 
+/**
+ * 一位客戶一張卡。
+ *
+ * **剩幾次只是一行灰字，不是門檻**（2026-09-02）—— 她的原話是「不用看他身上
+ * 還有沒有次數」。它留著是因為那是她判斷「要不要順便提醒他加購」的線索。
+ */
 function askCard(row, { byId, month }) {
   const customer = byId[row.customerId];
-  const name = row.customerName ?? '（沒有名字）';
+  const name = row.customerName ?? NO_NAME;
   const link = row.invite ? formLink(location.origin, row.invite.id) : '';
-
-  // 「幾天前」講的是最後一次問的那天，不是收集的有效期 ——
-  // 她要判斷的是「這個人我多久沒聯絡了」。
-  const when = row.invite
-    // sentAt 壞掉或缺了就不要編一個日期出來 —— 「不知道哪天發的」跟「今天發的」
-    // 是兩件事，而她看這一行就是為了判斷「等多久了，該不該催」。
-    ? `連結${row.invite.sentAt ? ` ${shortDate(row.invite.sentAt)}` : ''}發出・還沒填`
-    : row.state === 'never'
-      ? '從來沒問過'
-      : row.lastAskedAt
-        ? `上次 ${shortDate(row.lastAskedAt)} 問的・${row.daysSinceAsked} 天前`
-        : '問過，但不知道是哪天問的';
+  const label = monthLabel(`${month}-01`);
 
   return `
     <div class="card" style="margin: 0" data-card="${esc(row.customerId)}">
       <div class="row" style="align-items: flex-start">
         <div class="row__main">
-          <div class="row__title">${esc(name)}</div>
-          <div class="muted num">${esc(when)}・還剩 ${row.remaining} 次</div>
+          <div class="row__title">${esc(name)}
+            ${row.progress ? `<span class="badge ${
+              row.progress.tone ? `badge--${row.progress.tone}` : ''
+            }">${esc(row.progress.label)}</span>` : ''}
+          </div>
+          <div class="muted num">${esc(askWhen(row, label))}・還剩 ${row.remaining} 次</div>
         </div>
         <a class="footlink" href="#/customers/${esc(row.customerId)}">去記錄</a>
       </div>
@@ -1869,10 +2292,38 @@ function askCard(row, { byId, month }) {
                   data-resend="${esc(row.customerId)}">重發一條新連結</button></p>`
         // 還沒產生連結就只有這一顆。訊息框要等連結出來才有意義 ——
         // 先把它畫在上面，她按完「產生」還得往下捲才找得到「複製」。
+        //
+        // 按鈕上要印月份：這一頁換得動月份，而「產生表單連結」五個字
+        // 說不出它會產生哪一個月的。
         : `<p style="margin: var(--space-3) 0 0">
              <button class="btn btn--primary btn--wide" type="button"
-                     data-makelink="${esc(row.customerId)}">產生表單連結</button></p>`}
+                     data-makelink="${esc(row.customerId)}">產生${esc(label)}的連結</button></p>`}
     </div>`;
+}
+
+/**
+ * 那一行灰字。三種列各自要講的話不一樣：
+ *
+ * - 發過連結的：走到哪一步了、哪天發的
+ * - 還沒發的：上次是什麼時候問的（**任何月份**都算）—— 她要判斷的是
+ *   「這個人我多久沒聯絡了」
+ */
+function askWhen(row, label) {
+  if (row.progress) {
+    const sent = row.invite?.sentAt ? `${shortDate(row.invite.sentAt)} 發出` : '不知道哪天發的';
+    const tail = row.progress.expired ? '・連結已過期' : '';
+    const at = row.progress.at && row.progress.state === 'settled'
+      ? `・${shortDate(row.progress.at)} 收下`
+      : '';
+    return `${sent}${at}${tail}`;
+  }
+
+  if (row.state === 'never') return '從來沒問過';
+  // sentAt / collectedAt 壞掉或缺了就不要編一個日期出來 —— 「不知道哪天」跟
+  // 「今天」是兩件事，而她看這一行就是為了判斷「等多久了，該不該催」。
+  return row.lastAskedAt
+    ? `還沒問${label}・上次 ${shortDate(row.lastAskedAt)} 問的`
+    : `還沒問${label}`;
 }
 
 /**
@@ -1886,7 +2337,17 @@ function wireAsk(ctx) {
   const { el, rows, invites, month, today } = ctx;
   const nameOf = (id) => rows.find((r) => r.customerId === id)?.customerName ?? '';
 
-  // 切換**不重新讀資料**，就地重畫 —— 那三份資料剛剛才讀過，再讀一次只是讓她等。
+  // 換月份。**這一顆要重新讀資料** —— 那一頁的三份都是照月份挑的
+  //（`collectionFor()` 與邀請的 `month` 欄位），不像換分段是同一批資料換個分法。
+  el.querySelectorAll('[data-month-step]').forEach((btn) =>
+    btn.addEventListener('click', (e) => {
+      const stepped = steppedMonth(e.target, month, addMonths);
+      if (!stepped) return;
+      askMonth = stepped;
+      renderAsk(el, { slide: stepped > month ? 'next' : 'prev' });
+    }));
+
+  // 切換**不重新讀資料**，就地重畫 —— 那幾份資料剛剛才讀過，再讀一次只是讓她等。
   el.querySelectorAll('[data-asktab]').forEach((btn) =>
     btn.addEventListener('click', () => {
       askTab = btn.dataset.asktab;
@@ -1900,6 +2361,8 @@ function wireAsk(ctx) {
       // 一直都有，這一個沒有 —— 而這一個是她一輪連按十幾次的那個。
       // 連點兩下 = 客戶手上兩條連結，而一條連結只有一份答案（id 就是 token），
       // 所以他填了其中一條，另一條會永遠掛在「已發出」那一格。
+      //
+      // **月份帶的是她現在看的那個月**，不是寫死的下個月。
       await toast.withSaveState(
         () => invitesData.create({ customerId, customerName: nameOf(customerId), month, sentAt: today }),
         { pending: '產生中…', success: '連結好了，複製訊息貼到 LINE', key: `invite:create:${customerId}:${month}` },
@@ -1911,10 +2374,15 @@ function wireAsk(ctx) {
   el.querySelectorAll('[data-resend]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const customerId = btn.dataset.resend;
-      const old = invites.filter((i) => i.customerId === customerId && !i.deletedAt);
+      // **只作廢那個月的。** 她可能同時開著九月與十月兩條，重發九月那一條
+      // 不該把十月那一條一起收掉 —— 客戶手上那條會突然打不開，而畫面上
+      // 什麼都不會說。
+      const old = invites.filter(
+        (i) => i.customerId === customerId && !i.deletedAt && i.month === month,
+      );
 
       const ok = await confirmAction({
-        title: '重發一條新連結？',
+        title: `重發一條新的${monthLabel(`${month}-01`)}連結？`,
         consequences: [
           // 逃脫由 `components/dialog.js` 負責，這裡傳純文字就好
           `${nameOf(customerId)}手上那條連結會作廢`,

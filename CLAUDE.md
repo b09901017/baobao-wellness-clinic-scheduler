@@ -12,6 +12,9 @@
 | `CONTEXT.md` | 詞彙表。定義詞是什麼，不放實作 |
 | `docs/adr/` | 為什麼這樣決定。一支一個決定，寫理由不寫作法。慣例見 `docs/agents/domain.md` |
 | `docs/legacy/` | 舊系統的結構，唯讀參考 |
+| `docs/操作手冊.md` | **怎麼操作 app**：核心動線一步一步，給沒看過的人。**一條業務規則都不定義** —— 規則一律用一行連結指回 `SPEC.md` 或 ADR |
+| `docs/常見問題.md` | 「我按了 X 為什麼沒有 Y」。每一條三段：看到什麼、為什麼、怎麼辦 |
+| `docs/邊界測試清單.md` | 上線前要親手點過的極端情境。**刻意沒有 happy path** —— 那些由 `tests-e2e/` 盯著 |
 | `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、種假資料、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md`） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
@@ -41,6 +44,7 @@ staging 上被點過 —— 只有急件這樣做。
 | 試算表的 `SYNC_FORMAT` | `sheets/readonly-report.gs` 的 `SUPPORTED_FORMAT` 要一起改，**而且她要回 Google 試算表重新貼一次並重新部署** —— 對不上的話 app 照樣推、`.gs` 整包拒收，而畫面上看起來跟推好了一模一樣。`tests/sheet-script.test.js` 盯著兩邊 |
 | 「她賣了什麼給客戶」的那張表 | 只寫在 `ui/components/buy.js`。**三個入口共用一份**：客戶詳情的「加購」、新增客戶的「加一項」、批次建立「微調」面板裡的「加一項」——欄位與**接線**（`wire()`）都是同一份，呼叫端只回答「哪一塊要重畫」。多接一次的代價已經付過了：「其他…」那一格漏了兩次。**營養品是一筆排不進來訪的額度**（ADR-0057），所以它不可以流進任何「還要排幾次」：閘門在 `domain/entitlements.js` 的 `schedulable()`，用在 `customerPools()`、`summarize()`／`lowRemaining()`、資料健檢的「資料過期」、來訪編輯器的額度丸子。試算表報表刻意**有那一列但不進合計** |
 | 一筆來訪改得動的地方 | **只有日曆**（ADR-0056），日曆上的長按選單也算在那一個入口裡。待辦中心、客戶詳情、進度追蹤那三張讀取卡片都沒有鉛筆，來訪紀錄那一列也不是連到編輯器的連結 —— 留一條繞過去的路，等於那個決定只做了一半 |
+| n返（三返、四返…）的形狀 | 它**不是額度**：時段的 `entitlementId` 是 `null`，靠 `followupNth` 與 `followupForVisitId` 站得住（ADR-0063）。規則只在 `domain/nthFollowup.js`，**不要寫進 `domain/followups.js`** —— 那一支是二返的，而「二返一個字都不動」是這件事唯一站得住的理由。判準：**這一行會不會讓一筆二返的資料被算成 n返，或反過來？** 兩個入口（壓表、來訪編輯器）共用 `nthSlotFields()` 組時段；換掉那顆丸子時 `followupNth` **一定要清乾淨**，不然那一段會同時帶著額度與返數 |
 | 健檢與二返的關係 | 只寫在 `domain/followups.js`（配對、還欠幾次、「約二返」的待辦）。不要在 `taskRules.js` 或 UI 裡再判斷一次，見 ADR-0022 |
 | 勾掉一張待辦 | 走 `data/tasks.js` 的 `setDone(tasks, done)`，**收的是任務本身不是 id**。健檢鏈那兩種（追蹤健檢報告、約二返）會連著把下一站算出來，跟勾選寫在同一個 commit 裡 —— 規則仍然只在 `domain/followups.js` |
 | 任務什麼時候產生 | 只寫在 `domain/taskRules.js` 的 `acceptsNewTasks()`（客人確認之後才長，見 ADR-0027）。UI 上講這件事的四句文案要跟著改：壓表那一頁兩句、確認動線的提示、客戶詳情沒有任務時那一句 —— 畫面在講一件不會發生的事，比沒講還糟 |

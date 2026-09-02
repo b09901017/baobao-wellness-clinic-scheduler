@@ -23,6 +23,18 @@ export async function listInbox() {
     .sort((a, b) => millisOf(b.submittedAt) - millisOf(a.submittedAt));
 }
 
+/**
+ * **全部**回覆，含已經收下的。`#/todo/ask` 那一頁用。
+ *
+ * 跟 `listInbox()` 不一樣的地方就是那一句 `!r.takenAt`：收件匣問的是
+ * 「還有幾份要處理」，而問時間那一頁問的是「這個月每一位走到哪一步了」——
+ * 收下的那幾份正是它要標成「已確認排定」的那些（ADR-0033 的延伸，
+ * 她的原話：「都不要消失 就把狀態呈現在已發連結這邊」）。
+ *
+ * 一樣不加 where：這裡永遠只有二十幾筆，在 client 濾便宜得多。
+ */
+export const list = () => repo.list(PATH);
+
 export const get = (token) => repo.getOne(PATH, token);
 
 /**

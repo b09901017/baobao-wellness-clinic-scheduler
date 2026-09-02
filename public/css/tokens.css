@@ -40,6 +40,27 @@
   --sheet-peek-max: 84dvh;
   --sheet-full: 94dvh;
 
+  /* 會動的東西共用這一組。**放在「淺色」那一行之前是刻意的** ——
+     tests/tokens.test.js 只要求那個標記之後定義的東西要有深色版，
+     而時長與曲線不是顏色，不該有第二份值。
+
+     三段時長對到三件事，不要憑感覺挑：
+       fast  按到了沒（按壓回饋、丸子選中）
+       base  剛剛發生了什麼（狀態變化、顏色漸變、只換一塊的重畫）
+       slow  這個東西從哪裡來的（抽屜、整塊換掉）
+
+     slow 與 ease-out 就是 .drawer--anim 本來寫死的那兩個值，抽出來讓
+     這一輪新加的東西跟既有的抽屜同一個快慢 —— 快慢不一樣比完全沒有動畫
+     更容易被看出來。
+
+     `@media (prefers-reduced-motion: reduce)` 在 app.css 底部是對 `*`
+     生效的，所以用到這幾個值的地方**不必各自再寫一次** —— 但也因此
+     絕對不要用 setTimeout 去等動畫播完，那個路徑繞得過那一段。 */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 300ms;
+  --ease-out: cubic-bezier(0.22, 0.85, 0.3, 1);
+
   --radius-sm: 10px;
   --radius: 14px;
   --radius-lg: 18px;
