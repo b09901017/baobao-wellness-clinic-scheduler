@@ -1,6 +1,6 @@
 # 這四件事，本來就該是測試攔下來的
 
-Status: proposed
+Status: done
 來源：她實測回報第五項，2026-09-04（`../spec.md`）
 
 ## 她要的

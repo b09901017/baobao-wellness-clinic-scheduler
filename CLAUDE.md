@@ -62,7 +62,7 @@ staging 上被點過 —— 只有急件這樣做。
 | 來訪狀態的顏色、標籤或符號 | 只改 `domain/visits.js` 的 `STATUS_VIEW`，日曆、客戶詳情、試算表全部讀它。`app.css` 的 `.status-*` 只掛 class，色值全部在 `tokens.css`（淺色與深色兩份都要改，見 ADR-0039）。`tests/visits.test.js` 盯著兩邊對得上。**這一組是全站共用的，不可能只改一頁** |
 | 日曆上任何一種東西的顏色 | 要分辨的是**七種**：待確認／已確認／已完成／未到／行事備註／休假／待辦。**色相已經用完了** —— 休假走斜線紋、待辦走方框勾勾記號，都是因為數不夠（ADR-0039、0045）。第八種一律先想「有沒有不用顏色的畫法」。行事備註可以自己挑顏色，色票名單與客戶備註共用 `MARK_COLORS`，但值另有一組 `--evcolor-*`（小圓點的顏色當 11px 的字對比度不夠，見 ADR-0040）；待辦不能挑 |
 | 日曆上「待辦」那一類 | 它**就是 `notes` 裡有日期的那幾筆**，不是 `events` 的第三種類別，也不是 `tasks`（ADR-0044、0045）。所以「同步回隨手記」沒有東西要做 —— 沒有第二份資料。任務不上日曆 |
-| 備忘錄的內容或它掛到哪些課程 | 規則只在 `domain/playbook.js`。哪一節會自己浮出來由 `whenForVisit()` 決定，**兩個入口共用 `ui/components/playbookHint.js`**（日曆的來訪讀取卡片、待辦的「跟客人確認時間」）。它**綁課程不綁人、不上日曆、勾不掉**，也不產生任何任務（ADR-0067）。`visitReadHtml()` 一個字都不要改 —— 那一支是四個畫面共用的 |
+| 備忘錄的內容或它掛到哪些課程 | 規則只在 `domain/playbook.js`。它只有**三個欄位**：標題、掛哪些課程、一大塊字（ADR-0069 把章節、分類、釘選、時機全部拿掉了）。自己浮出來的那一小塊是**整份的前幾行**，**兩個入口共用 `ui/components/playbookHint.js`**（日曆的來訪讀取卡片、待辦的「跟客人確認時間」）。它**綁課程不綁人、不上日曆、勾不掉**，也不產生任何任務（ADR-0067）。`visitReadHtml()` 一個字都不要改 —— 那一支是四個畫面共用的 |
 | 隨手記的欄位或那一列的樣子 | 四個地方共用 `ui/components/note.js`：待辦首頁那張卡、右下角泡泡、`#/todo/notes`、客戶詳情。**日曆上的待辦編輯器也是同一支的欄位** —— 長得不一樣會讓她以為是兩種東西。**包住它們的那一層（`.notemeta`）也算共用的一部分**：2026-09-01 之前只有兩個入口包了它，另外兩個裸放，於是那兩邊的丸子貼著輸入框、三排之間一點間距都沒有 |
 | `tokens.css` 加一個顏色 | 淺色與深色**兩份都要有**（深色只有一份，在 `:root[data-theme='dark']`，沒有 `@media` 的複本，見 ADR-0055）。`tests/tokens.test.js` 盯著；改主題的 key 或選項時，`index.html` 與 `form.html` 的行內開機腳本要跟著改 |
 | 任何一列的長按選單 | 有哪幾顆**只寫在 domain**（`domain/visits.js` 的 `visitActions()`、`domain/notes.js` 的 `noteActions()`、`domain/products.js` 的 `productActions()`），畫面不自己判斷 —— 兩份清單遲早有一份會准一個狀態機不准的轉移，而 Rules 不擋狀態機。**每一顆都要另外有一條點得到的路**，長按是捷徑不是唯一的路，見 ADR-0060。最多六顆（含「先不要」） |
@@ -70,6 +70,9 @@ staging 上被點過 —— 只有急件這樣做。
 | 稽核或回顧上那一句話 | 只寫在 `domain/audit.js` 的 `describeParts()`（拆成「誰」與「做了什麼」兩半，接起來走 `joinParts()`）。`ui/views/audit.js`、客戶詳情的變更紀錄、`domain/dayReview.js` 都讀它 —— 兩份寫法遲早有一份會漏掉名字或印出疊字（「勾掉某某的某某」就是這樣來的）。**額度與本輪可用性身上沒有名字**，只有路徑上有 id，所以名字由畫面解析後傳 `nameOf` 進來；問不到就不講，不編一個 |
 | 一列任務要顯示什麼 | 種類、**來訪那一天**、課程，只寫在 `domain/taskRules.js` 的 `taskLine()`。三個地方讀它：客戶詳情、待辦中心、試算表的 TODO／FINISHED 區。**日期不是死線**（死線是它的前一天，兩個差一天最容易看錯人），也**不要拿死線 + 1 反推**（取消類的任務不是那樣算的）|
 | 「今天做了什麼」要多列一種 | 分段只在 `domain/dayReview.js` 的 `STAGES`，**最後一段永遠收得下剩下的**（一則都不可以被丟掉，而且**照人與照流程兩種分組都要成立**）。它是稽核紀錄的白話版，**不可以為了它多寫任何一筆資料**，見 ADR-0062 |
+| 任何一個 `type="number"` 或 `type="time"` | **欄位的 `min` / `step` 要跟 domain 的驗證講同一句話。** HTML 的 `step` 從 `min` 起算，所以 `min="1" step="5"` 只收 1、6、11…… 30 存不下去，而**瀏覽器擋在 submit 之前，domain 的驗證跑都沒跑到**。這個坑已經踩過三次（金額 `step="100"`、課程時長、方案項目時長）。「通常是 N 的倍數」寫進 `hint` 不要寫進 `step`。`tests/number-fields.test.js` 掃原始碼、`tests-e2e/specs/17-settings-fields.spec.js` 掃瀏覽器真的看到的屬性 |
+| 一段來訪要選哪一款營養點滴品項 | 只寫在 `domain/masterData.js` 的 `ivChoicesFor()`（**壓表與來訪編輯器兩個入口共用**）：買的那一款排第一顆而且預設選好，其餘收在「換一款」後面。**不硬擋** —— 換了只多一句提醒（`domain/visits.js` 的 `assignmentWarnings()`），因為「今天 A 剛好用完先打了 B」是真的會發生的事（ADR-0002；醫療禁忌是全站唯一的硬性阻擋）。已經存進去的錯配由資料健檢的 `ivMismatch` 列出來，不自動改 |
+| 「今天做了什麼」的分段 | `domain/dayReview.js` 的 `STAGES`，**由上到下比、第一個對上的算數**，而陣列的順序就是她做事的順序。所以要把一種從別段分出來時，改的是**前面那一段的條件**，不是把新的一段插到前面去（④登記掛號排掉「寫紀錄」就是這樣做的）|
 | UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |
 | 哪個網址算哪個環境 | 只寫在 `public/js/firebase-config.js` 的 `envOf()`。**模擬器那一份的 `projectId` 要跟三個地方一致**：這裡、`tests-e2e/start-emulators.sh` 的 `--project`、`tests-e2e/fixtures/emulator.js` 的 `PROJECT_ID`。對不上的症狀特別壞 —— fixture 塞進 A 命名空間、app 讀 B，每個 E2E 都是「畫面空的」而且**沒有錯誤訊息**。`tests/env.test.js` 盯著三邊。環境設定與部署指令見 `docs/STAGING.md` |
 | `data/backup.js` 的 `exportAll()` 加一個集合 | `scripts/restore-backup.mjs` 的 `SECTIONS` 要跟著加一列，否則還原完會**少一整類資料**，而且要等到她去找那一類東西才會發現（`notes` 與 `events` 已經被漏掉過一次，見那支檔案的檔頭；`playbooks` 是 2026-09-03 加的，兩邊同時加）。`tests/restore-backup.test.js` 盯著兩邊 |

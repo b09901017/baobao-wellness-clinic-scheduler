@@ -1,6 +1,6 @@
 # 「今天做了什麼」給「寫紀錄」自己一段
 
-Status: proposed
+Status: done
 來源：上一輪留下來的問題，她 2026-09-04 回答「好啊可以另外開一段給它」
 動工前先讀：ADR-0062（回顧是稽核紀錄的白話版）、`domain/dayReview.js` 的 `STAGES`
 

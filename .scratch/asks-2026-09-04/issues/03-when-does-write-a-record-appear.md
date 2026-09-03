@@ -1,6 +1,6 @@
 # 「寫紀錄」沒有長出來，以及設定裡為什麼沒有 n返
 
-Status: proposed
+Status: done
 來源：她實測回報第二項的前兩問，2026-09-04（`../spec.md`）
 動工前先讀：ADR-0066（紀錄是來訪之後才長出來的任務）、ADR-0063（n返 不是額度）、
 `domain/taskRules.js` 的 `acceptsRecordTasks()`

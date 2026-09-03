@@ -1,6 +1,6 @@
 # 排來訪時，營養點滴的品項可以選到她沒買的那一款
 
-Status: proposed
+Status: done
 來源：她實測回報第四項，2026-09-04（`../spec.md`）
 動工前先讀：ADR-0004（次數的算法只有一份）、`domain/visits.js` 的
 `validateVisit()` 裡「擇一池」那一段、`ui/components/buy.js` 的 `ivRow()`

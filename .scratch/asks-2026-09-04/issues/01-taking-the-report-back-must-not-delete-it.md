@@ -1,6 +1,6 @@
 # 把「追蹤健檢報告」拿回來，那一張自己會被靜默刪掉
 
-Status: proposed
+Status: done
 來源：她實測回報第一項，2026-09-04（`../spec.md`）
 動工前先讀：ADR-0042（報告先於二返）、ADR-0065（第二站是兩張）、
 `domain/followups.js` 的 `syncFollowupTasks()`、`data/tasks.js` 的 `setDone()`

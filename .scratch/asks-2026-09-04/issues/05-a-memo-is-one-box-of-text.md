@@ -1,6 +1,6 @@
 # 備忘錄砍成三個欄位：標題、掛哪些課程、一大塊字
 
-Status: proposed
+Status: done
 來源：她實測回報第三項，2026-09-04（`../spec.md`）
 動工前先讀：ADR-0067（備忘錄是拿來讀的，不是拿來勾的）、`domain/playbook.js`
 

@@ -1,6 +1,6 @@
 # 時長填 30 存不下去：欄位比 domain 嚴（全站清查）
 
-Status: proposed
+Status: done
 來源：她實測回報第二項，2026-09-04（`../spec.md`）
 動工前先讀：`domain/products.js` 第 243 行那一段註解、`ui/components/buy.js`
 的 `amountTwd` 欄位註解、`domain/masterData.js` 的 `positiveInt()`
