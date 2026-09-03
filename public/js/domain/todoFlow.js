@@ -10,7 +10,7 @@
 // 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
 
 import { isCancelKind } from './taskRules.js';
-import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND } from './followups.js';
+import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 import { dayOf } from './dates.js';
 
 /**
@@ -60,6 +60,10 @@ const FLOW = [
   ['耀聖', 'before'],
   ['close', 'onday'],
   [REPORT_TASK_KIND, 'after'],
+  // 寄報告排在約二返前面：她自己標的順序就是「(1) 寄報告 (2) 三系統」，
+  // 而約二返比三系統更前面。兩張的死線一樣，所以先後只能由這一份決定
+  //（ADR-0043：段裡的順序不能交給死線）。
+  [SEND_REPORT_TASK_KIND, 'after'],
   [FOLLOWUP_TASK_KIND, 'after'],
   ['cancel', 'undo'],
 ];

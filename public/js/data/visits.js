@@ -270,6 +270,9 @@ async function followupOps(visit, visitsAfter, coursesById) {
  * @returns {Promise<object[]>} 要一起寫的操作，沒有就是空陣列
  */
 export async function followupOpsAfterTaskChange(changed = []) {
+  // 寄報告那一張刻意**不在這裡**：勾掉它不會讓鏈條上任何東西改變
+  //（`syncFollowupTasks()` 的第二圈只看報告那一張勾了沒），
+  // 放進來只會讓每一次勾掉它都多打三次讀取。ADR-0065。
   const chainKinds = [FOLLOWUP_TASK_KIND, REPORT_TASK_KIND];
   const rows = (changed ?? []).filter((t) => t?.customerId && chainKinds.includes(t.kind));
   // 勾一批 Examine 不該為了這件事多打好幾次往返。
