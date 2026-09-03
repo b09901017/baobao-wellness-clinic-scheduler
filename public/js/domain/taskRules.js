@@ -287,10 +287,11 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 取消類的任務不受來訪現況管轄：它記的是「當初登記過、現在要收回來」這件事，
   // 來訪本身怎麼變都不該動到它。
   //
-  // 「追蹤健檢報告」與「約二返」同樣不歸這裡管，但理由不一樣：它們是從額度
-  // 推導的，而這一支的視野只有一筆來訪，看不到「另外那兩次健檢的二返已經約掉了」。
-  // 不擋掉的話，健檢那一筆一存檔，這裡就會因為「來訪裡沒有需要這個任務的課程」
-  // 而把它刪掉。那一段在 domain/followups.js 的 syncFollowupTasks()。
+  // 健檢那條鏈上的三種（追蹤健檢報告、寄報告給醫師、約二返）同樣不歸這裡管，
+  // 但理由不一樣：它們是從額度推導的，而這一支的視野只有一筆來訪，
+  // 看不到「另外那兩次健檢的二返已經約掉了」。不擋掉的話，健檢那一筆一存檔，
+  // 這裡就會因為「來訪裡沒有需要這個任務的課程」而把它刪掉。
+  // 那一段在 domain/followups.js 的 syncFollowupTasks()（ADR-0042、0065）。
   const CHAIN_KINDS = [FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND];
   const auto = (existingTasks ?? []).filter(
     (t) => !t.deletedAt
@@ -353,9 +354,9 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
 
   // 「課程還在，只是那一場沒做完」跟「課程被移出來訪了」是兩種情況，
   // 而收掉的理由要分得出來 —— 印一句對不上的話，她下次查稽核會查錯方向。
-  const stillWantsRecord = (visit.slots ?? []).some(
-    (s) => coursesById[s.courseId]?.needsRecord === true,
-  );
+  // **走 `needsRecord()` 不要在這裡再比一次** ——「哪些課程要寫紀錄」
+  // 只能有一份判斷，不然改了主檔欄位的名字會有一邊忘了跟。
+  const stillWantsRecord = needsRecord(visit, coursesById);
 
   for (const t of auto) {
     const want = wanted.get(t.kind);

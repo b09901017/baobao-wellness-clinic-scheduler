@@ -141,6 +141,36 @@ test.describe('備忘錄／SOP', () => {
     expect(page.url()).toContain('#/playbook/pb-drip');
   });
 
+  // 這一格 P3 抓不到：新增那條路存完會**換網址**，所以看起來一切正常。
+  // 改既有的那一份網址沒變，而 `go()` 對相同的網址直接 return ——
+  // 她會看到「存起來了」，然後編輯表單還留在畫面上。
+  test('P6b 改既有的那一份、按儲存 → **回到閱讀模式**，改的內容看得到', async ({ app, page }) => {
+    await app.seed([
+      ...masterDocs(),
+      playbook({
+        id: 'pb-drip', title: '營養點滴', tag: '點滴',
+        sections: ['before|前情提醒|飯後打針'],
+      }),
+    ]);
+    await app.signIn('/playbook/pb-drip');
+
+    await page.click('[data-edit]');
+    await page.fill('[data-body="0"]', '飯後打針（通知客人）\n預約系統註記');
+    await page.click('button[type="submit"]');
+    await app.settled();
+
+    // 表單不可以還在
+    await expect(page.locator('[data-body="0"]')).toHaveCount(0);
+    // 而且畫的是剛存進去的那一份
+    await expect(page.locator('.pb__title')).toHaveText('營養點滴');
+    await expect(page.locator('.pblines li')).toHaveText(['飯後打針（通知客人）', '預約系統註記']);
+
+    // 重新整理之後還是那一份 —— 剛剛看到的不是只有畫面上的樂觀更新
+    await app.reload();
+    await app.go('/playbook/pb-drip');
+    await expect(page.locator('.pblines li')).toHaveCount(2);
+  });
+
   test('P7 加一節之後，已經打到一半的字不會被弄丟', async ({ app, page }) => {
     await app.seed([...masterDocs()]);
     await app.signIn('/playbook');

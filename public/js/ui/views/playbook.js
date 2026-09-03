@@ -530,7 +530,20 @@ function wireEdit(el, ectx) {
           : playbooksData.update(ectx.id, next).then(() => ectx.id)),
         { success: '存起來了', key: `playbook:save:${ectx.id ?? 'new'}` },
       );
-      go(`/playbook/${id}`);
+
+      if (isNew) {
+        go(`/playbook/${id}`);
+        return;
+      }
+
+      // **改既有的那一份不可以靠 `go()`** —— 網址沒有變（本來就在這一份上），
+      // 而 `go()` 對相同的網址直接 return，於是編輯表單留在畫面上，
+      // 而她剛剛才看到「存起來了」。
+      //
+      // 走 `leave()`：它退掉那一層（返回鍵的紀錄跟著收乾淨）並重畫閱讀模式。
+      // 先把手上這一份換成剛存進去的樣子，那一次重畫就不用再讀一次網路。
+      ectx.playbook = { ...ectx.playbook, ...next };
+      leave();
     } catch {
       /* withSaveState 已顯示錯誤與重試 */
     }
