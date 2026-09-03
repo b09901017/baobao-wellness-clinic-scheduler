@@ -143,3 +143,41 @@ test('H6 孤兒資料：指向不存在的課程的來訪要被列出來', async
   console.log('[H6] =\n' + body.slice(0, 1500));
   expect(body).toContain('孤兒資料');
 });
+
+
+// issue 04，2026-09-04：排班的兩個入口以前把主檔裡全部的品項列出來，所以
+// 「營養點滴・護肝排毒」那筆額度底下排成別款是存得下去的。現在畫面預設就是
+// 買的那一款、存檔會提醒 —— 但**已經存進去的那幾筆不會自己好**，
+// 而她看不到。資料健檢就是讓她看得到它們的地方。
+test('H8 已經存進去的品項錯配列得出來，而且不自動改', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-i', name: '客戶I' }),
+    entitlement('cust-i', {
+      id: 'ent-i-drip', label: '營養點滴・護肝排毒', type: 'single',
+      courseId: 'course-iv-drip', totalQty: 6, durationMin: 60,
+      // 次數要先對得起來，不然這一支會連帶抓到「次數對帳」那一項
+      doneCount: 1, bookedCount: 0,
+      ivProductId: 'iv-liver',
+    }),
+    visit({
+      id: 'v-i-drip', customerId: 'cust-i', customerName: '客戶I',
+      date: addDays(TODAY, -2), status: 'done',
+      slots: [slot({
+        courseId: 'course-iv-drip', entitlementId: 'ent-i-drip',
+        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8', bed: 'A',
+        ivProductId: 'iv-heart', attended: true,
+      })],
+    }),
+  ]);
+  await app.signIn('/settings/health');
+
+  const body = await app.text();
+  expect(body).toContain('品項跟買的不一樣');
+  expect(body, '一列要講清楚買的是哪一款、排成了哪一款').toContain('買的是 護肝排毒');
+  expect(body).toContain('排成了 護心抗老');
+
+  // **不給一鍵修正** —— Abovee 上那一筆也要跟著改，那不是 app 做得到的事
+  const fixable = await page.locator('#view [data-fix]').count();
+  expect(fixable).toBe(0);
+});

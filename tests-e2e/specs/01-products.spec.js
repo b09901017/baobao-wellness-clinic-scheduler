@@ -5,7 +5,10 @@
 //   「四邊各寫一次的話遲早有一邊只勾不記，而少掉的那一筆紀錄要到她對帳時才會被發現」
 
 import { test, expect } from '../fixtures/app.js';
-import { scenarioProducts, TODAY, addDays } from '../fixtures/data.js';
+import {
+  scenarioProducts, masterDocs, customer, entitlement, visit, slot,
+  TODAY, addDays,
+} from '../fixtures/data.js';
 
 const GIVE_DATE = addDays(TODAY, 2);
 
@@ -166,4 +169,93 @@ test('J-E9 🟡 日曆待辦卡：只給一部分，卡片卻說已經勾掉了'
   const label = await page.locator('[data-tick]').innerText().catch(() => '(卡片關了)');
   console.log('[J-E9] 資料庫 done =', note.done, '／卡片上的按鈕寫著 =', label);
   expect(label, '卡片不該說它已經勾掉了').toContain('做完了，勾掉');
+});
+
+
+// ---------------------------------------------------------------------------
+// 營養點滴的品項（不是營養品）。issue 04，2026-09-04。
+//
+// 她問的：「我營養點滴如果一開始加購的是 A，但是我排來訪的時候，選營養點滴
+// 還能排到其他 BCD？這不太對吧。」
+//
+// 品項是**購買的時候就定下來的**（存在額度身上）。所以排班的時候預設就是那一款，
+// 其餘的收在「換一款」後面 —— 不是不給選：「今天 A 剛好用完，先打了 B」
+// 是真的會發生的事（ADR-0002）。
+// ---------------------------------------------------------------------------
+
+const DRIP_DAY = addDays(TODAY, 3);
+const DRIP_MONTH = DRIP_DAY.slice(0, 7);
+
+/** 一位買了「營養點滴・護肝排毒」的客戶I。 */
+function seedDrip() {
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-i', name: '客戶I' }),
+    entitlement('cust-i', {
+      id: 'ent-i-drip', label: '營養點滴・護肝排毒', type: 'single',
+      courseId: 'course-iv-drip', totalQty: 6, durationMin: 60,
+      ivProductId: 'iv-liver',
+    }),
+  ];
+}
+
+test('J-E10 壓表時品項預設就是她買的那一款，其餘要按「換一款」才看得到', async ({ app, page }) => {
+  await app.seed(seedDrip());
+  await app.signIn('/');
+
+  await app.go('/schedule');
+  await page.locator(`[data-month="${DRIP_MONTH}"]`).click();
+  await page.locator('[data-start]').click();
+  await app.settled();
+  await page.locator('[data-pick="cust-i"]').first().click();
+  await page.waitForTimeout(600);
+
+  await page.locator(`[data-day="${DRIP_DAY}"]`).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-ent="ent-i-drip"]').click();
+  await page.waitForTimeout(300);
+
+  // 買的那一款已經選好了
+  await expect(page.locator('[data-ivproduct="iv-liver"]'))
+    .toHaveAttribute('aria-pressed', 'true');
+
+  // 其餘六款都收起來（在 DOM 裡，但看不到）
+  await expect(page.locator('[data-ivproduct="iv-heart"]')).not.toBeVisible();
+  await expect(page.locator('[data-chip-more]')).toBeVisible();
+
+  // 按下去才長出來
+  await page.locator('[data-chip-more]').click();
+  await expect(page.locator('[data-ivproduct="iv-heart"]')).toBeVisible();
+  await expect(page.locator('[data-chip-more]')).not.toBeVisible();
+});
+
+test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一樣」', async ({ app, page }) => {
+  await app.seed([
+    ...seedDrip(),
+    visit({
+      id: 'v-i-drip', customerId: 'cust-i', customerName: '客戶I',
+      date: DRIP_DAY, status: 'pending_confirm',
+      slots: [slot({
+        courseId: 'course-iv-drip', entitlementId: 'ent-i-drip',
+        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8', bed: 'A',
+        ivProductId: 'iv-liver',
+      })],
+    }),
+  ]);
+  await app.signIn('/visits/v-i-drip');
+
+  // 換成別款
+  await page.locator('[data-chip-more]').click();
+  await page.locator('[data-chip="s0-iv"][data-chip-value="iv-heart"]').click();
+  await page.waitForTimeout(300);
+
+  await expect(page.locator('#view')).toContainText('跟買的不一樣');
+
+  // **存得下去** —— 這不是錯誤，是一句提醒
+  await page.locator('button[type="submit"]').first().click();
+  await app.settled();
+  await page.waitForTimeout(1200);
+
+  const saved = await app.readDoc('visits', 'v-i-drip');
+  expect(saved.slots[0].ivProductId, '她的決定要記得下來').toBe('iv-heart');
 });

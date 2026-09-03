@@ -25,7 +25,7 @@ export function forget() {
 }
 
 /**
- * 全部，照標題排由畫面決定。
+ * 全部，順序由畫面決定（`deckOrder()`）。
  *
  * **不下 `order`**：`repo.list()` 本來就帶 `where('deletedAt','==',null)`，
  * 純等值查詢不需要複合索引，而排序在 client 做便宜得多
@@ -63,9 +63,9 @@ export async function create(data) {
 /**
  * 改一份。
  *
- * **收的是整份不是變了的那幾欄** —— 章節是一個陣列，逐欄 patch 沒有意義
- *（少帶一節就等於把它刪掉，而那正是 `domain/notes.js` 的 `normalizePatch()`
- * 存在的理由）。整份寫進去，稽核紀錄上的 before/after 也才看得出改了哪一節。
+ * **收的是整份不是變了的那幾欄** —— `normalize()` 只回三個欄位，
+ * 逐欄 patch 會讓舊形狀留下來的 `sections`／`tag`／`pinned` 永遠留在文件上。
+ * 整份寫進去，稽核紀錄上的 before/after 也才看得出改了什麼。
  */
 export async function update(id, data) {
   await repo.update(PATH, id, normalize(data));

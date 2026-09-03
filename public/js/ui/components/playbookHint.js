@@ -8,14 +8,14 @@
 // > 「提醒吃飯」的任務，避免洗版。
 //
 // **她選的是不開任務。** 所以這一支就是「飯後打針」那個問題的完整答案：
-// 它是點滴那份備忘錄 `before` 那一節的第一行，而那一節會在她正在發確認訊息
-// 的那一刻出現在畫面上。
+// 它是點滴那份備忘錄的前幾行，而它會在她正在發確認訊息的那一刻出現在畫面上。
 //
-// ## 挑哪一節只有一份判斷
+// ## 洗版由行數擋，不由時機擋
 //
-// `domain/playbook.js` 的 `whenForVisit()`。兩個入口問的是同一句話，
-// 而同一筆來訪在兩個畫面浮出不同的一節，她不會知道哪個算數
-//（同 ADR-0028、ADR-0043 的理由）。
+// 第一版（2026-09-03）讓她替每一節標「事前／當天／結束後」，只浮對得上的
+// 那一節。她點過之後說「不用特地幫我分什麼事前事後」，所以現在浮的是
+// **整份的前幾行**（`PREVIEW_LINES`）。行數比時機好懂：她看得到自己寫的
+// 第幾行會出現在卡片上，而時機要她先在腦袋裡跑一次判斷。見 ADR-0069。
 //
 // ## 為什麼共用一支而不是各寫一份
 //
@@ -23,16 +23,10 @@
 // 兩次、`note.js` 的 `.notemeta` 有兩個入口裸放。第三個入口以後接上去只要一行。
 
 import { esc } from './form.js';
-import {
-  playbooksForVisit, whenForVisit, sectionFor, linesOf, whenLabel,
-} from '../../domain/playbook.js';
+import { playbooksForVisit, previewOf } from '../../domain/playbook.js';
 
 /**
- * 這一筆來訪現在該看的那幾節。
- *
- * **這一支不決定「哪一節」，它只負責畫。** 時機由 `when` 決定：
- * 給了就用給的（確認動線那一頁永遠是「事前」—— 那一頁的定義就是還沒發生），
- * 沒給就問 `whenForVisit()`。
+ * 這一筆來訪掛到的那幾份，各印前幾行。
  *
  * 沒有東西可以畫時回空字串，**不要留一個空殼** —— 一個永遠空的區塊
  * 會讓她以為那裡壞了。
@@ -40,18 +34,10 @@ import {
  * @param {object} o
  * @param {object[]} o.playbooks 全部的備忘錄
  * @param {object} o.visit 那一筆來訪（要有 slots）
- * @param {string} [o.today] 沒給 `when` 時要它才問得出時機
- * @param {string|null} [o.when] 指定時機
  * @returns {string} HTML
  */
-export function hintHtml({ playbooks = [], visit = null, today = null, when = undefined }) {
-  const at = when === undefined ? whenForVisit(visit, today) : when;
-  if (!at) return '';
-
-  return playbooksForVisit(playbooks, visit)
-    .map((p) => blockHtml(p, sectionFor(p, at), at))
-    .filter(Boolean)
-    .join('');
+export function hintHtml({ playbooks = [], visit = null }) {
+  return playbooksForVisit(playbooks, visit).map(blockHtml).filter(Boolean).join('');
 }
 
 /**
@@ -61,10 +47,8 @@ export function hintHtml({ playbooks = [], visit = null, today = null, when = un
  * @param {object} o
  * @param {object[]} o.playbooks
  * @param {object[]} o.visits 這一組的那幾筆
- * @param {string|null} o.when 時機
  */
-export function hintForVisits({ playbooks = [], visits = [], when = 'before' }) {
-  if (!when) return '';
+export function hintForVisits({ playbooks = [], visits = [] }) {
   const seen = new Set();
   const out = [];
 
@@ -72,27 +56,27 @@ export function hintForVisits({ playbooks = [], visits = [], when = 'before' }) 
     for (const p of playbooksForVisit(playbooks, visit)) {
       if (seen.has(p.id)) continue;
       seen.add(p.id);
-      const html = blockHtml(p, sectionFor(p, when), when);
+      const html = blockHtml(p);
       if (html) out.push(html);
     }
   }
   return out.join('');
 }
 
-function blockHtml(playbook, section, when) {
-  const lines = linesOf(section);
-  // 那一節不存在、或它是空的 → 整塊不畫。
+function blockHtml(playbook) {
+  const { lines, rest } = previewOf(playbook);
+  // 內文是空的 → 整塊不畫。
   if (!lines.length) return '';
 
   return `
     <div class="pbhint">
       <div class="pbhint__head">
-        <span class="pbhint__when">${esc(whenLabel(when))}</span>
         <span class="pbhint__title">${esc(playbook.title ?? '')}</span>
         <a class="pbhint__more" href="#/playbook/${esc(playbook.id)}">看整份</a>
       </div>
       <ul class="pblines pblines--tight">
         ${lines.map((line) => `<li>${esc(line)}</li>`).join('')}
       </ul>
+      ${rest ? `<p class="pbhint__rest">還有 ${rest} 行</p>` : ''}
     </div>`;
 }

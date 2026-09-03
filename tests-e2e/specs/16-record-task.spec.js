@@ -126,3 +126,48 @@ test('R4 沒勾「做完要寫紀錄」的課程一張都不長', async ({ app, 
   expect((await live(app)).some((t) => t.kind === '寫紀錄'),
     '復能做完沒有紀錄要補').toBe(false);
 });
+
+
+// 2026-09-04 她回報「勾完簽療程單後是沒有預設會有產生紀錄的 todo」。
+// 那不是 bug，是那個課程上的勾沒打開（她的資料庫比這個欄位老）。
+// 結案抽屜那一句預告就是這件事的指示燈 —— 它沒出現就是那個勾沒開。
+test('R5 結案抽屜會先講「待辦會多一張寫紀錄」，沒勾的課程不講', async ({ app, page }) => {
+  await app.seed(seedFollowupToday());
+  await app.signIn('/todo/close');
+
+  await page.locator('[data-open="visit-g-followup"]').click();
+  await expect(page.locator('.drawer')).toContainText('寫紀錄');
+  await expect(page.locator('.drawer')).toContainText('客人走了之後要補的那一份');
+});
+
+test('R6 沒勾的課程，結案抽屜一個字都不提「寫紀錄」', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-h', name: '客戶H' }),
+    entitlement('cust-h', {
+      id: 'ent-h-recovery', label: '復能', type: 'pool', totalQty: 12,
+      optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60,
+    }),
+    visit({
+      id: 'visit-h-recovery', customerId: 'cust-h', customerName: '客戶H',
+      date: TODAY, status: 'confirmed',
+      slots: [slot({
+        courseId: 'course-recovery', entitlementId: 'ent-h-recovery',
+        startsAt: '10:00', endsAt: '11:00', equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+      })],
+    }),
+  ]);
+  await app.signIn('/todo/close');
+
+  await page.locator('[data-open="visit-h-recovery"]').click();
+  await expect(page.locator('.drawer')).toBeVisible();
+  await expect(page.locator('.drawer')).not.toContainText('寫紀錄');
+});
+
+test('R7 設定 → 課程那一排看得出哪幾個會長出「寫紀錄」', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/courses');
+
+  const row = page.locator('.card.row').filter({ hasText: '二返' }).first();
+  await expect(row, '一整排掃過去要看得出哪幾個開著').toContainText('要寫紀錄');
+});

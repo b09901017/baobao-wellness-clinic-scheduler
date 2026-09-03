@@ -537,14 +537,15 @@ function ivField(ent, all, slot, i) {
   const { bought, primary, others } = ivChoicesFor(ent, all.ivProducts);
   const options = [...primary, ...others].map((p) => ({ value: p.id, label: p.name }));
 
+  // **這一排刻意不是 quiet 的**（器材、治療師、診間那幾排是）。換了品項會多出
+  // 一句「跟買的不一樣」，而那一句由 `assignmentWarnings()` 算、畫在整張表的
+  // 上方 —— 不重畫就看不到它。訊息只有一份，所以只能用重畫換
+  //（在這裡自己再寫一句，就是第二份會跟 domain 分岔的文案）。
   return f.chips({
-    name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId, quiet: true,
+    name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId,
     options,
     // 有買的那一款才收：沒有的話全部都是平等的候選，收起來只是把選項藏掉。
     tuckAfter: bought ? primary.length : null,
-    hint: bought && slot.ivProductId && slot.ivProductId !== bought.id
-      ? `跟買的不一樣 —— 這筆額度買的是 ${bought.name}`
-      : '',
   });
 }
 

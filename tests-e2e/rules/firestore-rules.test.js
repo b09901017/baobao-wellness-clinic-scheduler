@@ -166,7 +166,7 @@ describe('R4 永不硬刪除（SPEC 6.1）', () => {
       startDate: '2026-09-01', endDate: '2026-09-03', allDay: true,
     }],
     ['batches', { targetMonth: '2026-09', queue: [], status: 'active' }],
-    ['playbooks', { title: '營養點滴', sections: [{ heading: '', when: null, body: '飯後打針' }] }],
+    ['playbooks', { title: '營養點滴', body: '飯後打針' }],
   ];
 
   for (const [path, data] of CASES) {
@@ -338,13 +338,11 @@ describe('R8 隨手記（validNote）', () => {
 
 // ---------- 備忘錄：只擋型別與大小，逐節的內容在前端 ----------
 
-describe('R8b 備忘錄（validPlaybook，ADR-0067）', () => {
+describe('R8b 備忘錄（validPlaybook，ADR-0067、ADR-0069）', () => {
   const p = (over = {}) => stamped({
     title: '營養點滴',
-    tag: '點滴',
     courseIds: ['course-iv-drip'],
-    sections: [{ heading: '前情提醒', when: 'before', body: '飯後打針' }],
-    pinned: false,
+    body: '飯後打針\n先問有沒有吃東西',
     ...over,
   });
 
@@ -357,18 +355,20 @@ describe('R8b 備忘錄（validPlaybook，ADR-0067）', () => {
     await assertFails(setDoc(doc(allowed, 'playbooks', 'pb3'), p({ title: '字'.repeat(41) })));
   });
 
-  test('R8b.3 一節都沒有被擋 —— 打開是空的那一份沒有意義', async () => {
-    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb4'), p({ sections: [] })));
+  test('R8b.3 內文空的被擋 —— 打開是空的那一份沒有意義', async () => {
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb4'), p({ body: '' })));
   });
 
-  test('R8b.4 超過 20 節被擋', async () => {
-    const many = Array.from({ length: 21 }, () => ({ heading: '', when: null, body: 'x' }));
-    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb5'), p({ sections: many })));
+  test('R8b.4 內文超過 5000 字被擋', async () => {
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb5'), p({ body: '字'.repeat(5001) })));
   });
 
-  test('R8b.5 分類選填，null 也可以，但不能是數字', async () => {
-    await assertSucceeds(setDoc(doc(allowed, 'playbooks', 'pb6'), p({ tag: null })));
-    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb7'), p({ tag: 5 })));
+  test('R8b.5 舊形狀（章節）寫不進來 —— 那一版只活在她本機的模擬器裡', async () => {
+    const legacy = stamped({
+      title: '營養點滴',
+      sections: [{ heading: '前情提醒', when: 'before', body: '飯後打針' }],
+    });
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb6'), legacy));
   });
 
   test('R8b.6 courseIds 必須是陣列 —— 掛錯型別會讓「自己浮出來」整段壞掉', async () => {

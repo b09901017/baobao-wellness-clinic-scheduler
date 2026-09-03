@@ -1,229 +1,250 @@
-// 備忘錄／SOP。ADR-0067。
+// 備忘錄／SOP。ADR-0067（它是拿來讀的，不是拿來勾的）與 ADR-0069（一大塊字）。
 //
-// 這一支盯著三件事：
-//
-//   1. 存進去的形狀是乾淨的（空節丟掉、空字串變 null、分類去重）
-//   2. **哪一節會自己浮出來**只有一份判斷（`whenForVisit()`）——
-//      同一筆來訪在兩個畫面浮出不同的一節，她不會知道哪個算數
-//   3. 一份備忘錄掛到兩段同樣的課程時只回一次
+// 這一支測的是三件事：**存得下去嗎、掛到哪一筆來訪、一疊卡的順序**。
+// 排版與動畫在 CSS，不在這裡。
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  normalize, validatePlaybook, linesOf, groupByTag, tagsOf, matches,
-  playbooksForVisit, whenForVisit, sectionFor, whensOf, whenLabel,
-  SECTION_WHEN, NO_TAG, MAX_SECTIONS,
+  normalize, bodyOf, validatePlaybook, linesOf, previewOf, deckOrder, matches,
+  playbooksForVisit, MAX_TITLE, MAX_BODY, PREVIEW_LINES,
 } from '../public/js/domain/playbook.js';
 
-const section = (over = {}) => ({ heading: '前情提醒', when: 'before', body: '飯後打針', ...over });
-const book = (over = {}) => ({
-  id: 'p1', title: '營養點滴', tag: '點滴', courseIds: ['course-iv-drip'],
-  sections: [section()], pinned: false, ...over,
+const pb = (over = {}) => ({
+  id: 'pb-iv',
+  title: '營養點滴',
+  courseIds: ['course-iv'],
+  body: '飯後打針\n先問有沒有吃東西\n血管難打的先看註記',
+  ...over,
 });
 
-describe('存進去的形狀', () => {
-  test('空字串的分類變成 null —— 不然清單上會長出一個沒有名字的群組', () => {
-    assert.equal(normalize({ title: 'x', tag: '   ', sections: [section()] }).tag, null);
-  });
+// ---------- 形狀 ----------
 
-  test('整節都空白的丟掉 —— 存進去只會在閱讀頁上留一塊空的', () => {
-    const p = normalize({
-      title: 'x',
-      sections: [section(), { heading: '  ', when: 'onday', body: '' }],
+describe('存檔前的整理', () => {
+  test('三個欄位，多的不留 —— 舊形狀的章節、分類、釘選一起清掉', () => {
+    const out = normalize({
+      title: '  營養點滴  ',
+      courseIds: ['a', 'a', 'b', null, ''],
+      body: '  飯後打針  ',
+      tag: '點滴',
+      pinned: true,
+      sections: [{ heading: 'x', when: 'before', body: 'y' }],
     });
-    assert.equal(p.sections.length, 1);
+    assert.deepEqual(Object.keys(out).sort(), ['body', 'courseIds', 'title']);
+    assert.equal(out.title, '營養點滴');
+    assert.deepEqual(out.courseIds, ['a', 'b'], '去重、空的丟掉');
   });
 
-  test('只有標題沒有內容的那一節留著，讓 validate 講出是哪一節', () => {
-    const p = normalize({ title: 'x', sections: [{ heading: '當天', body: '' }] });
-    assert.equal(p.sections.length, 1);
-    assert.match(validatePlaybook(p).join(''), /第 1 節/);
+  test('內文只去頭尾，中間的縮排原樣留著 —— 她可能刻意用縮排分層', () => {
+    const out = normalize({ title: 't', body: '\n第一段\n  縮排的一行\n\n最後\n\n' });
+    assert.equal(out.body, '第一段\n  縮排的一行\n\n最後');
   });
 
-  test('認不得的時機退回「隨時看」，不要存一個看不懂的值', () => {
-    const p = normalize({ title: 'x', sections: [section({ when: '亂填' })] });
-    assert.equal(p.sections[0].when, null);
-  });
-
-  test('掛到同一個課程兩次只算一次', () => {
-    const p = normalize({ title: 'x', courseIds: ['a', 'a', 'b'], sections: [section()] });
-    assert.deepEqual(p.courseIds, ['a', 'b']);
-  });
-
-  test('內文只去頭尾空白，中間的縮排留著 —— 她可能刻意用它分層', () => {
-    const p = normalize({ title: 'x', sections: [section({ body: '\n一\n  二\n' })] });
-    assert.equal(p.sections[0].body, '一\n  二');
+  test('沒有 courseIds 也不會炸', () => {
+    assert.deepEqual(normalize({ title: 't', body: 'x' }).courseIds, []);
   });
 });
 
-describe('存檔前的檢查', () => {
-  test('要有標題', () => {
-    assert.match(validatePlaybook({ sections: [section()] }).join(''), /標題/);
+describe('舊形狀讀得回來（2026-09-03 那一版）', () => {
+  const legacy = {
+    id: 'pb-old',
+    title: '營養點滴',
+    sections: [
+      { heading: '前情提醒', when: 'before', body: '飯後打針' },
+      { heading: '', when: 'onday', body: '確認血管' },
+    ],
+  };
+
+  test('章節接成一大塊，節標題自成一行，順序照原本的節', () => {
+    assert.equal(bodyOf(legacy), '前情提醒\n飯後打針\n\n確認血管');
   });
 
-  test('一節都沒有就擋下來 —— 打開是空的那一份沒有意義', () => {
-    assert.match(validatePlaybook({ title: 'x', sections: [] }).join(''), /至少要寫一節/);
+  test('新的 body 有東西時就不看舊的 —— 存過一次之後舊欄位是死的', () => {
+    assert.equal(bodyOf({ ...legacy, body: '新的' }), '新的');
   });
 
-  test('節數有上限，而且訊息要講出現在有幾節', () => {
-    const many = Array.from({ length: MAX_SECTIONS + 1 }, () => section());
-    const errors = validatePlaybook({ title: 'x', sections: many });
-    assert.match(errors.join(''), new RegExp(`${MAX_SECTIONS + 1} 節`));
-  });
-
-  test('一份正常的通得過', () => {
-    assert.deepEqual(validatePlaybook(book()), []);
-  });
-});
-
-describe('一節拆成幾行', () => {
-  test('空行丟掉 —— 不然閱讀頁上會出現一個空的項目符號', () => {
-    assert.deepEqual(linesOf({ body: '一\n\n\n二\n   \n三' }), ['一', '二', '三']);
-  });
-
-  test('沒有內容就是空陣列', () => {
-    assert.deepEqual(linesOf({}), []);
-    assert.deepEqual(linesOf(), []);
+  test('兩邊都空的回空字串，不回 undefined', () => {
+    assert.equal(bodyOf({}), '');
+    assert.equal(bodyOf(null), '');
   });
 });
 
-describe('清單分組', () => {
-  const rows = [
-    book({ id: 'a', title: '營養點滴', tag: '點滴' }),
-    book({ id: 'b', title: '外院檢送', tag: null }),
-    book({ id: 'c', title: '復健科流程', tag: '復健科' }),
-    book({ id: 'd', title: '刪掉的', tag: '點滴', deletedAt: 'x' }),
-  ];
+// ---------- 驗證 ----------
 
-  test('沒有分類的收在最後一組，抬頭不叫「其他」', () => {
-    const groups = groupByTag(rows);
-    assert.equal(groups[groups.length - 1].tag, NO_TAG);
+describe('存得下去嗎', () => {
+  test('好好的一份沒有錯誤', () => {
+    assert.deepEqual(validatePlaybook(pb()), []);
   });
 
-  test('已刪除的不出現', () => {
-    const all = groupByTag(rows).flatMap((g) => g.rows.map((r) => r.id));
-    assert.ok(!all.includes('d'));
+  test('沒有標題', () => {
+    assert.deepEqual(validatePlaybook(pb({ title: '   ' })), ['要有一個標題']);
   });
 
-  test('釘選的自成一組排最前面，而且是跨分類的', () => {
-    const pinned = [...rows, book({ id: 'e', title: '外檢', tag: '外檢', pinned: true })];
-    const groups = groupByTag(pinned);
-    assert.equal(groups[0].pinned, true);
-    assert.deepEqual(groups[0].rows.map((r) => r.id), ['e']);
-    // 釘起來的那一份不該又出現在它原本的分類底下
-    assert.equal(groups.filter((g) => g.rows.some((r) => r.id === 'e')).length, 1);
+  test(`標題最多 ${MAX_TITLE} 字`, () => {
+    const errors = validatePlaybook(pb({ title: '字'.repeat(MAX_TITLE + 1) }));
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /標題太長/);
   });
 
-  test('現有的分類照筆數多的在前，給編輯時的丸子用', () => {
-    const many = [
-      book({ id: '1', tag: '點滴' }), book({ id: '2', tag: '點滴' }),
-      book({ id: '3', tag: '外檢' }), book({ id: '4', tag: null }),
+  test('內容空的 —— 打開會什麼都沒有', () => {
+    const errors = validatePlaybook(pb({ body: '  \n \n ' }));
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /內容是空的/);
+  });
+
+  test(`內容最多 ${MAX_BODY} 字`, () => {
+    const errors = validatePlaybook(pb({ body: '字'.repeat(MAX_BODY + 1) }));
+    assert.match(errors[0], /內容太長/);
+  });
+
+  test('舊形狀的章節也算內容 —— 讀出來不是空的就存得下去', () => {
+    const legacy = { title: 't', sections: [{ heading: '', when: null, body: '有東西' }] };
+    assert.deepEqual(validatePlaybook(legacy), []);
+  });
+});
+
+// ---------- 行 ----------
+
+describe('拆成行', () => {
+  test('空行丟掉，行尾的空白也去掉', () => {
+    assert.deepEqual(linesOf({ body: 'a  \n\n  \nb' }), ['a', 'b']);
+  });
+
+  test('行首的縮排留著 —— 她可能刻意用它分層', () => {
+    assert.deepEqual(linesOf({ body: 'a\n  b' }), ['a', '  b']);
+  });
+
+  test('前幾行加上「還有幾行」', () => {
+    const many = { body: Array.from({ length: 7 }, (_, i) => `第 ${i + 1} 行`).join('\n') };
+    const { lines, rest } = previewOf(many);
+    assert.equal(lines.length, PREVIEW_LINES);
+    assert.equal(lines[0], '第 1 行');
+    assert.equal(rest, 7 - PREVIEW_LINES);
+  });
+
+  test('行數剛好或更少時 rest 是 0，不是負的', () => {
+    assert.equal(previewOf({ body: 'a\nb' }).rest, 0);
+  });
+
+  test('空的內文回空陣列 —— 呼叫端靠它決定整塊畫不畫', () => {
+    assert.deepEqual(previewOf({ body: '' }), { lines: [], rest: 0 });
+  });
+});
+
+// ---------- 一疊卡的順序 ----------
+
+describe('一疊卡的順序（deckOrder）', () => {
+  const at = (ms) => ({ toMillis: () => ms });
+
+  test('她寫下來的順序，新的在最後面', () => {
+    const rows = [
+      pb({ id: 'c', createdAt: at(300) }),
+      pb({ id: 'a', createdAt: at(100) }),
+      pb({ id: 'b', createdAt: at(200) }),
     ];
-    assert.deepEqual(tagsOf(many), ['點滴', '外檢']);
+    assert.deepEqual(deckOrder(rows).map((p) => p.id), ['a', 'b', 'c']);
+  });
+
+  test('createdAt 讀不出來的排最後，同一批之內維持進來的順序', () => {
+    const rows = [
+      pb({ id: 'x' }),
+      pb({ id: 'a', createdAt: at(100) }),
+      pb({ id: 'y', createdAt: null }),
+    ];
+    assert.deepEqual(deckOrder(rows).map((p) => p.id), ['a', 'x', 'y']);
+  });
+
+  test('ISO 字串、Date、毫秒數都吃得下', () => {
+    const rows = [
+      pb({ id: 'iso', createdAt: '2026-09-03T00:00:00.000Z' }),
+      pb({ id: 'date', createdAt: new Date('2026-09-01T00:00:00.000Z') }),
+      pb({ id: 'ms', createdAt: Date.parse('2026-09-02T00:00:00.000Z') }),
+    ];
+    assert.deepEqual(deckOrder(rows).map((p) => p.id), ['date', 'ms', 'iso']);
+  });
+
+  test('已刪除的不進這一疊', () => {
+    const rows = [pb({ id: 'a', createdAt: at(1) }), pb({ id: 'gone', deletedAt: 'x' })];
+    assert.deepEqual(deckOrder(rows).map((p) => p.id), ['a']);
+  });
+
+  test('空的也不會炸', () => {
+    assert.deepEqual(deckOrder(), []);
+    assert.deepEqual(deckOrder(null), []);
   });
 });
+
+// ---------- 搜尋 ----------
 
 describe('搜尋', () => {
-  test('標題、分類、每一節的標題與內文都比得到', () => {
-    const p = book({ sections: [section({ heading: '前情提醒', body: '飯後打針' })] });
-    for (const q of ['營養', '點滴', '前情', '打針']) assert.equal(matches(p, q), true, q);
-    assert.equal(matches(p, '完全沒有的字'), false);
+  test('標題與內文都比，大小寫不分', () => {
+    assert.equal(matches(pb(), '點滴'), true);
+    assert.equal(matches(pb(), '血管'), true);
+    assert.equal(matches(pb({ title: 'INDIBA' }), 'indiba'), true);
   });
 
-  test('空字串一律通過 —— 沒在找東西就不要濾掉任何一份', () => {
-    assert.equal(matches(book(), '  '), true);
+  test('比不到就是 false', () => {
+    assert.equal(matches(pb(), '外檢'), false);
+  });
+
+  test('空字串一律 true —— 沒在搜尋的時候不篩掉任何一份', () => {
+    assert.equal(matches(pb(), ''), true);
+    assert.equal(matches(pb(), '   '), true);
+  });
+
+  test('舊形狀的章節內容也搜得到', () => {
+    const legacy = { title: 't', sections: [{ heading: '', when: null, body: '飯後打針' }] };
+    assert.equal(matches(legacy, '飯後'), true);
   });
 });
 
-describe('這一筆來訪掛得到哪幾份', () => {
-  const drip = book({ id: 'drip', courseIds: ['course-iv-drip'] });
-  const followup = book({ id: 'fu', courseIds: ['course-followup'] });
-  const none = book({ id: 'none', courseIds: [] });
+// ---------- 掛到哪一筆來訪 ----------
+
+describe('掛到哪一筆來訪', () => {
+  const iv = pb({ id: 'pb-iv', courseIds: ['course-iv'] });
+  const rehab = pb({ id: 'pb-rehab', courseIds: ['course-rehab'], title: '復健科流程' });
+  const all = [iv, rehab];
+
+  const visit = (courseIds) => ({ slots: courseIds.map((courseId) => ({ courseId })) });
 
   test('比的是時段的課程', () => {
-    const visit = { slots: [{ courseId: 'course-iv-drip' }] };
-    assert.deepEqual(
-      playbooksForVisit([drip, followup, none], visit).map((p) => p.id), ['drip'],
-    );
+    assert.deepEqual(playbooksForVisit(all, visit(['course-iv'])).map((p) => p.id), ['pb-iv']);
   });
 
-  test('同一天兩段同樣的課程，同一份只回一次', () => {
-    const visit = { slots: [{ courseId: 'course-iv-drip' }, { courseId: 'course-iv-drip' }] };
-    assert.equal(playbooksForVisit([drip], visit).length, 1);
+  test('一天兩個課程就掛到兩份', () => {
+    const found = playbooksForVisit(all, visit(['course-iv', 'course-rehab']));
+    assert.deepEqual(found.map((p) => p.id), ['pb-iv', 'pb-rehab']);
   });
 
-  test('兩段兩個課程就回兩份', () => {
-    const visit = { slots: [{ courseId: 'course-iv-drip' }, { courseId: 'course-followup' }] };
-    assert.deepEqual(
-      playbooksForVisit([drip, followup], visit).map((p) => p.id), ['drip', 'fu'],
-    );
+  test('同一天兩段同一個課程，同一份只回一次', () => {
+    const found = playbooksForVisit(all, visit(['course-iv', 'course-iv']));
+    assert.deepEqual(found.map((p) => p.id), ['pb-iv']);
   });
 
-  test('沒掛課程的那一份永遠不會自己浮出來 —— 但它照樣查得到', () => {
-    const visit = { slots: [{ courseId: 'course-iv-drip' }] };
-    assert.deepEqual(playbooksForVisit([none], visit), []);
+  test('沒有時段、沒有來訪都回空陣列', () => {
+    assert.deepEqual(playbooksForVisit(all, { slots: [] }), []);
+    assert.deepEqual(playbooksForVisit(all, null), []);
   });
 
-  test('沒有時段就沒有東西掛得上', () => {
-    assert.deepEqual(playbooksForVisit([drip], { slots: [] }), []);
-    assert.deepEqual(playbooksForVisit([drip], null), []);
-  });
-});
-
-describe('這一筆現在該看哪一節（只有這一份判斷）', () => {
-  const today = '2026-09-03';
-
-  test('還沒到 → 事前', () => {
-    assert.equal(whenForVisit({ date: '2026-09-10', status: 'confirmed' }, today), 'before');
-    assert.equal(whenForVisit({ date: '2026-09-10', status: 'pending_confirm' }, today), 'before');
+  test('已刪除的不掛', () => {
+    const dead = [pb({ id: 'pb-iv', courseIds: ['course-iv'], deletedAt: 'x' })];
+    assert.deepEqual(playbooksForVisit(dead, visit(['course-iv'])), []);
   });
 
-  test('**就是今天 → 當天，不管狀態還是不是待確認**', () => {
-    assert.equal(whenForVisit({ date: today, status: 'pending_confirm' }, today), 'onday');
-    assert.equal(whenForVisit({ date: today, status: 'confirmed' }, today), 'onday');
-  });
-
-  test('日子過了 → 結束後', () => {
-    assert.equal(whenForVisit({ date: '2026-08-20', status: 'confirmed' }, today), 'after');
-  });
-
-  test('已完成或未到 → 結束後，就算日期還沒到也一樣', () => {
-    assert.equal(whenForVisit({ date: '2026-09-10', status: 'done' }, today), 'after');
-    assert.equal(whenForVisit({ date: '2026-09-10', status: 'no_show' }, today), 'after');
-  });
-
-  test('日期讀不出來就回 null —— 不要猜一個', () => {
-    assert.equal(whenForVisit({ status: 'confirmed' }, today), null);
-    assert.equal(whenForVisit({ date: '2026-09-10' }, ''), null);
+  test('一個課程都沒掛的那一份永遠不會自己浮出來', () => {
+    const loose = [pb({ id: 'pb-loose', courseIds: [] })];
+    assert.deepEqual(playbooksForVisit(loose, visit(['course-iv'])), []);
   });
 });
 
-describe('挑出那一節', () => {
-  const p = book({
-    sections: [
-      section({ when: 'before', heading: '前情提醒' }),
-      section({ when: 'onday', heading: '當天', body: '提早十分鐘' }),
-    ],
-  });
+// ---------- 這一支不該有的東西 ----------
 
-  test('找得到就回那一節', () => {
-    assert.equal(sectionFor(p, 'onday').heading, '當天');
-  });
-
-  test('沒有那個時機的節就回 null —— **不要退回第一節**', () => {
-    assert.equal(sectionFor(p, 'after'), null);
-    assert.equal(sectionFor(p, null), null);
-  });
-
-  test('有哪幾種時機，照 SECTION_WHEN 的順序', () => {
-    assert.deepEqual(whensOf(p), ['事前', '當天']);
-    assert.deepEqual(whensOf(book({ sections: [section({ when: null })] })), ['隨時看']);
-  });
-
-  test('認不得的時機當成「隨時看」，不要印一個空白', () => {
-    assert.equal(whenLabel('亂填'), '隨時看');
-    assert.equal(whenLabel(undefined), '隨時看');
-    for (const w of SECTION_WHEN) assert.equal(whenLabel(w.id), w.label);
+describe('它不是待辦', () => {
+  test('沒有 done、沒有 dueDate、沒有時機 —— 一放進來它就變成第二個待辦中心', () => {
+    const out = normalize(pb({ done: false, dueDate: '2026-09-10', sections: [] }));
+    assert.equal('done' in out, false);
+    assert.equal('dueDate' in out, false);
+    assert.equal('when' in out, false);
   });
 });

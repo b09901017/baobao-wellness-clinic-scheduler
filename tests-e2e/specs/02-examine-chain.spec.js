@@ -203,8 +203,11 @@ test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且�
   expect(report.deletedAt ?? null, '而且不可以被軟刪除到「已刪除項目」裡').toBeNull();
   expect(report.done, '要回到未完成').toBe(false);
 
-  // 畫面上真的看得到它
+  // 畫面上真的看得到它。**要先切回「未完成」那一格** —— 剛剛是從「已完成」
+  // 點回來的，而那個分頁的選擇是留著的（首頁的模組狀態）。
   await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await page.locator('[data-task-tab="open"]').click();
+  await page.waitForTimeout(400);
   await expect(page.locator('#view')).toContainText('客戶B');
   await expect(page.locator('[data-task]')).toHaveCount(1);
 });
