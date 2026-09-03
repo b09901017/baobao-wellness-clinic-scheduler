@@ -1409,7 +1409,7 @@ function advancedFields(e, master, isNew) {
       placeholder: '留空就用課程的名字',
     })}
     ${f.number({
-      name: 'durationMin', label: '時長（分鐘）', value: e.durationMin ?? '', min: 1, step: 5,
+      name: 'durationMin', label: '時長（分鐘）', value: e.durationMin ?? '', min: 1, step: 1,
       hint: '留空就用課程本身的時長。',
     })}
     ${e.type === 'pool'

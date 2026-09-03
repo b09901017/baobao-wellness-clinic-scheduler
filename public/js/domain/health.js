@@ -80,6 +80,11 @@ export const CHECKS = [
     hint: '同一個月記了兩份不能的時間 —— 壓表只挑得到其中一份，另一份是隱形的',
   },
   {
+    id: 'ivMismatch',
+    label: '品項跟買的不一樣',
+    hint: '排出去的營養點滴品項不是那筆額度買的那一款 —— 試算表印的跟次數扣的對不起來',
+  },
+  {
     id: 'chartNo',
     label: '備註寫著舊的說法',
     hint: '匯入時寫成「姓名欄的編號：」的那幾則，其實那是病歷號',
@@ -654,6 +659,44 @@ function checkChartNo(ctx) {
   return out;
 }
 
+/**
+ * 排出去的品項不是那筆額度買的那一款。
+ *
+ * 2026-09-04 以前排班的兩個入口都是把主檔裡**全部**的品項列出來，
+ * 所以「營養點滴・A」那筆額度底下排成 B 是存得下去的。現在畫面預設就是買的
+ * 那一款（`ivChoicesFor()`），存檔時也會有一句提醒（`assignmentWarnings()`）——
+ * 但**已經存進去的那幾筆不會自己好**，而她看不到。
+ *
+ * **不自動改**（同 `duplicateAvailability` 的判斷）：改的時候她要知道
+ * Abovee 上那一筆也要跟著改，那不是 app 做得到的事。所以只列出來，
+ * 一列講清楚是哪一天、哪一筆、買的是哪一款、排成了哪一款。
+ *
+ * `attention` 不是 `mismatch`：資料本身沒有壞（兩邊都指得到東西），
+ * 是**她要去看一眼**那一天到底打了哪一款。
+ */
+function checkIvMismatch(ctx) {
+  const out = [];
+
+  for (const visit of ctx.visits) {
+    (visit.slots ?? []).forEach((slot, i) => {
+      const bought = ctx.entitlementsById[slot.entitlementId]?.ivProductId ?? null;
+      if (!bought || !slot.ivProductId || slot.ivProductId === bought) return;
+
+      const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      const name = (id) => ctx.ivProductsById[id]?.name ?? '（已刪除的品項）';
+      out.push({
+        severity: 'attention',
+        title: `來訪 ${visit.date}・${who}・第 ${i + 1} 個時段`,
+        detail: `買的是 ${name(bought)}，排成了 ${name(slot.ivProductId)}`,
+        link: `#/visits/${visit.id}`,
+        fix: null,
+      });
+    });
+  }
+
+  return out;
+}
+
 const RUNNERS = {
   counts: checkCounts,
   followups: checkFollowups,
@@ -664,5 +707,6 @@ const RUNNERS = {
   overdueTasks: checkOverdueTasks,
   staleAvailability: checkStaleAvailability,
   duplicateAvailability: checkDuplicateAvailability,
+  ivMismatch: checkIvMismatch,
   chartNo: checkChartNo,
 };

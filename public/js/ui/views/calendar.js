@@ -746,7 +746,7 @@ function openDetail(el, data, what, id, date) {
     // 而客戶詳情、待辦中心、進度追蹤那三頁問的問題（他還剩幾次、今天要掛哪幾個、
     // 這個月做了多少）都不是「這一場我該怎麼做」。備忘錄接在後面，只在日曆上。
     body: visitReadHtml(visit, data)
-      + hintHtml({ playbooks: data.playbooks ?? [], visit, today: todayISO() }),
+      + hintHtml({ playbooks: data.playbooks ?? [], visit }),
     canEdit: true,
     onEdit: () => {
       closeCard();

@@ -10,6 +10,8 @@ import {
   copyPlan,
 } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import { isFollowupCourse } from '../../domain/followups.js';
+import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
@@ -108,11 +110,17 @@ const editors = {
       frequencyRule: null,
       followupCourseId: null,
     },
+    // 「要寫紀錄」印在摘要上是 2026-09-04 加的：她簽完療程單沒有長出那一張，
+    // 而原因是這個勾沒打開 —— 一整排課程掃過去看不出哪幾個開著，
+    // 她只能一個一個點進去。ADR-0066。
     summary: (r) =>
-      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`,
+      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`
+      + `${r.needsRecord ? ' · 要寫紀錄' : ''}`,
     fields: (r, all) => [
       f.text({ name: 'name', label: '課程名稱', value: r.name, placeholder: '復能' }),
-      f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 5 }),
+      // step 是 1 不是 5：`positiveInt()` 只要求大於 0 的整數，欄位不可以比它嚴
+      // —— `min:1 step:5` 的合法值是 1、6、11…… 30 存不下去（見 form.js 的 number()）。
+      f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 1 }),
       f.select({
         name: 'category', label: '任務類別', value: r.category ?? null,
         options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
@@ -161,6 +169,15 @@ const editors = {
         hint: '目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
           + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
       }),
+      // n返 借的就是這一個課程（ADR-0063：它不是額度，時段的 entitlementId
+      // 是 null、courseId 指著二返）。所以上面每一個設定都會套用到三返、四返 ——
+      // 2026-09-04 她問「設定那邊的課程沒有 n返？還是其實我設定二返就等於 n返？」，
+      // 而畫面上一個字都沒講。只在真的是二返的那一頁講（掛條件，不是每頁一句廢話）。
+      isFollowupCourse(r.id, all.courses ?? [])
+        ? `<p class="muted" style="margin: calc(var(--space-2) * -1) 0 var(--space-4)">
+             ${esc(nthLabel(MIN_NTH))}、${esc(nthLabel(MIN_NTH + 1))}⋯⋯
+             借的就是這個課程，所以上面這些設定它們也照著走。</p>`
+        : '',
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -302,7 +319,7 @@ function itemCard(it, i, total, all) {
 
       ${f.number({
         name: `item-${i}-duration`, label: '時長（分鐘）', value: it.durationMin ?? '',
-        min: 1, step: 5,
+        min: 1, step: 1,
         hint: isPool ? '擇一池沒有課程可以帶，要自己填。' : '選課程時會帶入該課程的時長，可以改。',
       })}
 

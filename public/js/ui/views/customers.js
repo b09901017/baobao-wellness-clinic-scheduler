@@ -483,7 +483,7 @@ function paintNew(el, draft, plans, existing, terms, master) {
                     ...plans.map((p) => ({ value: p.id, label: p.name }))],
           hint: '之後改範本不會動到這位客戶。',
         })}
-        ${plan ? f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 0 }) : ''}
+        ${plan ? f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 1 }) : ''}
 
         <div data-preview>${previewHtml(plan, preview, qty)}</div>
         ${extrasHtml(draft.extras)}

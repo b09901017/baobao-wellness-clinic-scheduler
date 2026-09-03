@@ -364,13 +364,23 @@ describe('待辦鏈：追蹤健檢報告 → 約二返', () => {
     assert.deepEqual(remove, [{ id: 'tb', reason: '那一筆健檢不是已完成了' }]);
   });
 
-  test('二返約好了，未完成的追蹤報告也跟著收掉', () => {
+  // 2026-09-04 **這一條反過來了**。以前是「二返約好了 → 未完成的追蹤報告也跟著
+  // 收掉」，理由是「她都去約了，報告顯然拿到了」。那個推論有兩個問題：
+  //
+  //   1. ADR-0042 自己寫著「**沒有第二個地方記『報告拿到了沒』**，那張任務的
+  //      `done` 就是那個狀態」。從別的資料推論出那個狀態，就是第二個地方。
+  //   2. ADR-0065 之後，「寄報告給醫師」只在報告那一張被**勾掉**的時候長出來。
+  //      她如果先去壓二返、還沒勾報告，收掉那一張等於那一站**永遠到不了** ——
+  //      她再也不會被提醒把報告寄給醫師。
+  //
+  // 所以現在留著。她一勾掉它，寄報告那一張就會補上來。
+  test('二返約好了，未完成的追蹤報告還是留著 —— 那一張是「報告拿到了沒」唯一的答案', () => {
     const visits = [
       visit('v1', '2026-08-01', 'ent-checkup'),
       visit('v2', '2026-08-10', 'ent-followup', { status: 'confirmed' }),
     ];
     const { remove } = sync({ visits, tasks: [report({ id: 'tr' })] });
-    assert.deepEqual(remove, [{ id: 'tr', reason: '報告拿到了' }]);
+    assert.deepEqual(remove, []);
   });
 
   // 這一支上線之前，Firestore 裡就有未完成的「約二返」。第一次跑到它們時
@@ -546,6 +556,76 @@ describe('報告那一張被拿回來', () => {
       [SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND].sort(),
       '第二站是兩張（ADR-0065）',
     );
+  });
+
+  // 2026-09-04 她實測回報：勾掉報告 → 長出兩張 → 再把報告勾回去，
+  // 那一張報告**自己被軟刪除了**（不在未完成、不在已完成）。
+  // 原因是收掉的判斷只問「在不在 wanted 裡」，而 wanted 的第一道閘門是
+  // owed()：二返一壓好或一勾掉，那一次健檢就整個退出候選。
+  // 見 .scratch/asks-2026-09-04/issues/01。
+  describe('二返那邊已經有進度了，報告還是要留著', () => {
+    // 那一場二返（`followupForVisitId` 指回 v1，所以 v1 算是被認領掉了）
+    const booked = (status) => ({
+      id: 'v2',
+      customerId: 'c1',
+      date: '2026-09-10',
+      status,
+      slots: [{
+        entitlementId: 'ent-followup',
+        courseId: 'course-followup',
+        followupForVisitId: 'v1',
+      }],
+    });
+
+    const taken = [
+      report({ id: 'tr', done: false, doneAt: null }),
+      task({ id: 'tb' }),
+      task({ id: 'ts', kind: SEND_REPORT_TASK_KIND }),
+    ];
+
+    for (const status of ['pending', 'confirmed', 'done']) {
+      test(`二返已經壓好（${status}）→ 報告留著，另外兩張收掉`, () => {
+        const { remove } = sync({ visits: [...visits, booked(status)], tasks: taken });
+        assert.deepEqual(
+          remove.map((r) => r.id).sort(),
+          ['tb', 'ts'],
+          '被收掉的只有那兩張衍生的，報告不可以在裡面',
+        );
+      });
+    }
+
+    test('「約二返」已經勾掉了 → 報告還是留著', () => {
+      const { remove } = sync({
+        visits,
+        tasks: [
+          report({ id: 'tr', done: false, doneAt: null }),
+          task({ id: 'tb', done: true, doneAt: '2026-09-05T02:00:00.000Z' }),
+          task({ id: 'ts', kind: SEND_REPORT_TASK_KIND }),
+        ],
+      });
+      assert.deepEqual(remove.map((r) => r.id), ['ts']);
+    });
+
+    test('健檢被取消 → 三張一起收，理由講得出來', () => {
+      const cancelled = [visit('v1', '2026-08-01', 'ent-checkup', { status: 'cancelled' })];
+      const { remove } = sync({ visits: cancelled, tasks: taken });
+      assert.deepEqual(
+        remove.map((r) => r.reason),
+        ['那一筆健檢不是已完成了', '那一筆健檢不是已完成了', '那一筆健檢不是已完成了'],
+      );
+    });
+
+    test('同一筆健檢底下兩張未完成的報告，只留一張', () => {
+      const { remove } = sync({
+        visits,
+        tasks: [
+          report({ id: 'tr-a', done: false, doneAt: null }),
+          report({ id: 'tr-b', done: false, doneAt: null }),
+        ],
+      });
+      assert.equal(remove.length, 1);
+      assert.equal(remove[0].reason, '這一筆健檢已經有另一張追蹤報告了');
+    });
   });
 });
 

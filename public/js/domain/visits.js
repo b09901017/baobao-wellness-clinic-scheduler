@@ -747,10 +747,13 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 }
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
-function assignmentWarnings(visit, { courses = [], rooms = [], entitlements = [] }) {
+function assignmentWarnings(visit, {
+  courses = [], rooms = [], entitlements = [], ivProducts = [],
+}) {
   const out = [];
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
+  const ivById = byId(ivProducts);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
@@ -796,6 +799,21 @@ function assignmentWarnings(visit, { courses = [], rooms = [], entitlements = []
 
     if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
       out.push(`${at}：${course.name} 不需要診間也不需要治療師`);
+    }
+
+    // 排的品項不是她買的那一款。2026-09-04 她問的：「我營養點滴如果一開始
+    // 加購的是 A，但是我排來訪的時候，選營養點滴還能排到其他 BCD？」
+    //
+    // **只提醒不擋**（她 2026-09-04 選的）。硬擋的話「今天 A 剛好用完，
+    // 先打了 B」這一筆永遠記不進系統，而醫療禁忌是全站唯一的硬性阻擋
+    //（`domain/contraindications.js` 的檔頭），這一條不會變成第二個。
+    //
+    // 額度上沒有 ivProductId 的不比：舊資料與匯入進來的來訪都沒有這個欄位。
+    // n返 也不比 —— 它沒有額度（`entitlementId` 是 null）。
+    const bought = entsById[slot.entitlementId]?.ivProductId ?? null;
+    if (bought && slot.ivProductId && slot.ivProductId !== bought) {
+      const name = ivById[bought]?.name ?? '（已刪除的品項）';
+      out.push(`${at}：這一段的品項跟買的不一樣（買的是 ${name}）`);
     }
   });
 

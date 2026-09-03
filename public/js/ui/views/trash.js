@@ -9,6 +9,7 @@ import * as visits from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as notesData from '../../data/notes.js';
 import * as playbooksData from '../../data/playbooks.js';
+import { linesOf } from '../../domain/playbook.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -163,7 +164,9 @@ async function loadGroups() {
       label: '備忘錄',
       rows: deletedPlaybooks.map((p) => ({
         name: p.title ?? '（沒有標題）',
-        note: `${p.tag ?? '沒有分類'}・${(p.sections ?? []).length} 節`,
+        // 掛了哪些課程答不出來（這一層沒有課程主檔），所以講行數 ——
+        // 她要分辨的是「哪一份是那一份」，而長短最快。
+        note: `${linesOf(p).length} 行`,
         deletedAt: p.deletedAt,
         restore: () => playbooksData.restore(p.id),
       })),

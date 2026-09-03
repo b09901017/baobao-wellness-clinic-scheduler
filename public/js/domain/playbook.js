@@ -1,15 +1,21 @@
 // 備忘錄／SOP：她自己整理的流程與心得。純函式，不碰 IO。
 //
-// 她的原話：
+// 她的原話（2026-09-03）：
 //
 // > 我可以記錄一些自己的心得或是要注意的事項……像是復健科流程 這個就是屬於
 // > 我會習慣的我會漸漸上手的，只需要當下打開備忘錄看就好，不用什麼事前提醒
 // > 或是事後提醒……在手機版可一鍵隨時查閱，**不需要變成打勾任務**。
 //
-// ## 它跟「隨手記」是兩種東西
+// 2026-09-04 她點過第一版之後：
 //
-// `CONTEXT.md` 的「隨手記」原本把「備忘錄」列在 `_Avoid_` 裡，
-// 2026-09-03 她決定拿掉那一項並在兩個詞條上各寫一行界線：
+// > 不用特地幫我分什麼事前事後，那些全部都給我一個大框框，像是一般的備忘錄
+// > app 一樣，只要有標題、掛那個課程，以及很大的輸入框就好。
+// > 不需要章節，不需要分類，也不需要多餘的說明。
+//
+// 所以現在只有三個欄位：**標題、掛哪些課程、一大塊字**。
+// 被拿掉的那幾個（章節、時機、分類、釘選）與為什麼可以拿掉，見 ADR-0069。
+//
+// ## 它跟「隨手記」是兩種東西
 //
 //   隨手記   客人臨時說的一件小事，會被勾掉，掛了日期就上日曆，選填綁客戶
 //   備忘錄   她自己整理的一段流程，不會消失，不上日曆，綁**課程**不綁人
@@ -20,87 +26,69 @@
 // 都要想一下該記在哪裡。而「點滴要注意什麼」對每一位客人都一樣 ——
 // 不一樣的那些是臨床提醒（ADR-0064）。
 //
-// ## 一節可以標「時機」，那是這一整支唯一系統看得懂的東西
-//
-// 其餘全部是給人讀的字。標了時機的那一節會在她真的在做那件事的時候自己
-// 浮出來（`ui/components/playbookHint.js`）—— 那就是「飯後打針該何時提醒」
-// 的答案：不多開一張要勾的東西。
-//
-// 見 docs/adr/0067-a-playbook-is-read-not-ticked.md。
+// 見 docs/adr/0067-a-playbook-is-read-not-ticked.md 與
+// docs/adr/0069-a-memo-is-one-box-of-text.md。
 
 const trimmed = (v) => String(v ?? '').trim();
 
-/**
- * 一節是什麼時候要看的。**`null` 是預設**（隨時看）。
- *
- * 這四個不是我們發明的分段，是她自己的筆記本來就有的結構
- *（點滴那一份寫成「前情提醒／當天／結束」）。
- */
-export const SECTION_WHEN = [
-  { id: 'before', label: '事前' },
-  { id: 'onday', label: '當天' },
-  { id: 'after', label: '結束後' },
-  { id: null, label: '隨時看' },
-];
-
-const WHEN_IDS = new Set(SECTION_WHEN.map((w) => w.id));
-
-/** 時機 id → 那兩個字。認不得的當成「隨時看」，不要印一個空白。 */
-export function whenLabel(id) {
-  return (SECTION_WHEN.find((w) => w.id === (id ?? null)) ?? SECTION_WHEN[3]).label;
-}
-
 export const MAX_TITLE = 40;
-export const MAX_TAG = 12;
-export const MAX_HEADING = 20;
-export const MAX_BODY = 2000;
-/** 一份最多幾節。再多她自己也翻不完，而那時候該拆成兩份。 */
-export const MAX_SECTIONS = 20;
 
-/** 沒有分類的那一組。**刻意不叫「其他」** —— 那三個字在待辦與回顧上另有意思。 */
-export const NO_TAG = '沒有分類';
+/**
+ * 內文的上限。
+ *
+ * 第一版是 2000，但那時候一份可以有 20 節、每節各 2000 字。現在只有一格，
+ * 上限跟著放大才不會變成另一種「存不下去」——
+ * 那正是 `tests/number-fields.test.js` 檔頭在講的同一件事。
+ */
+export const MAX_BODY = 5000;
 
-/** 一節的空白起點。加一節時用。 */
-export const BLANK_SECTION = Object.freeze({ heading: '', when: null, body: '' });
-
-function normalizeSection(section) {
-  const when = section?.when ?? null;
-  return {
-    heading: trimmed(section?.heading),
-    when: WHEN_IDS.has(when) ? when : null,
-    // 內文不 trim 每一行，只去頭尾：她可能刻意用縮排分層。
-    body: String(section?.body ?? '').trim(),
-  };
-}
+/**
+ * 掛在來訪上的時候先給幾行。
+ *
+ * 她原本擔心的是洗版（「不用什麼事前提醒或是事後提醒」）。第一版用「時機」
+ * 擋，現在用**行數**擋 —— 行數比時機好懂：她看得到自己寫的第幾行會出現在
+ * 日曆的卡片上，而時機要她先在腦袋裡跑一次 `whenForVisit()`。
+ */
+export const PREVIEW_LINES = 4;
 
 /**
  * 存檔前把形狀整理好。
  *
- * **空字串一律變成 `null`**（`tag`）—— Firestore 上「沒有分類」與「分類是空字串」
- * 是兩回事，而後者會在清單上長出一個沒有名字的群組（同 ADR-0044 對隨手記
- * `date` 的判斷）。
+ * `courseIds` 去重；內文只去頭尾的空白，**不逐行 trim** ——
+ * 她可能刻意用縮排分層。
  *
- * 整節都空白的丟掉：她加了一節又沒填，存進去只會在閱讀頁上留一塊空的。
+ * ## 舊形狀的退路
+ *
+ * 2026-09-03 到 09-04 之間的那一版存的是 `sections: [{heading, when, body}]`。
+ * `playbooks` 這個集合在那之前不存在，所以正式資料裡一筆都沒有 ——
+ * 但她自己在本機點過，而那正是她發現這些問題的方式。
+ *
+ * **只在讀的時候接起來，不自動改寫資料**：她一存檔就自然變成新的形狀。
  */
 export function normalize(playbook = {}) {
-  const sections = (playbook.sections ?? [])
-    .map(normalizeSection)
-    .filter((s) => s.heading || s.body);
-
   return {
     title: trimmed(playbook.title),
-    tag: trimmed(playbook.tag) || null,
     courseIds: [...new Set((playbook.courseIds ?? []).filter(Boolean))],
-    sections,
-    pinned: playbook.pinned === true,
+    body: bodyOf(playbook),
   };
+}
+
+/** 內文。舊形狀（只有 `sections`）接得起來，節標題自成一行。 */
+export function bodyOf(playbook) {
+  const body = String(playbook?.body ?? '').trim();
+  if (body) return body;
+
+  return (playbook?.sections ?? [])
+    .map((s) => [trimmed(s?.heading), String(s?.body ?? '').trim()].filter(Boolean).join('\n'))
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
  * 存檔前的檢查。回傳訊息陣列，空陣列代表可以存。
  *
  * 前端擋一次、Firestore Rules 再擋一次（SPEC 第 6.7 節）——
- * Rules 那一層只擋型別與大小，逐節的內容在這裡。
+ * Rules 那一層只擋型別與大小。
  */
 export function validatePlaybook(playbook) {
   const errors = [];
@@ -109,97 +97,70 @@ export function validatePlaybook(playbook) {
   if (!p.title) errors.push('要有一個標題');
   else if (p.title.length > MAX_TITLE) errors.push(`標題太長了（最多 ${MAX_TITLE} 字）`);
 
-  if (p.tag && p.tag.length > MAX_TAG) {
-    errors.push(`分類太長了（最多 ${MAX_TAG} 字）。分類是用來分組的，長的那種寫進標題`);
-  }
-
-  if (!p.sections.length) errors.push('至少要寫一節，不然這一份打開是空的');
-  if (p.sections.length > MAX_SECTIONS) {
-    errors.push(`最多 ${MAX_SECTIONS} 節（現在有 ${p.sections.length} 節）。再多的話拆成兩份比較翻得完`);
-  }
-
-  p.sections.forEach((s, i) => {
-    const at = `第 ${i + 1} 節`;
-    if (s.heading.length > MAX_HEADING) errors.push(`${at}：標題太長了（最多 ${MAX_HEADING} 字）`);
-    if (s.body.length > MAX_BODY) errors.push(`${at}：內容太長了（最多 ${MAX_BODY} 字）`);
-    if (!s.body) errors.push(`${at}：只有標題沒有內容`);
-  });
+  if (!p.body) errors.push('內容是空的 —— 這一份打開會什麼都沒有');
+  else if (p.body.length > MAX_BODY) errors.push(`內容太長了（最多 ${MAX_BODY} 字）`);
 
   return errors;
 }
 
 /**
- * 一節的內文拆成行。空行丟掉。
+ * 內文拆成行。空行丟掉。
  *
- * 閱讀頁與「自己浮出來」那一塊共用這一支 —— 兩份寫法遲早有一份會把空行
- * 畫成一個空的項目符號，而那看起來像資料壞了。
+ * 閱讀的那一面與掛在來訪上的預覽共用這一支 —— 兩份寫法遲早有一份會把空行
+ * 畫成一個空的項目，而那看起來像資料壞了。
  */
-export function linesOf(section) {
-  return String(section?.body ?? '')
+export function linesOf(playbook) {
+  return bodyOf(playbook)
     .split('\n')
     .map((line) => line.replace(/\s+$/, ''))
     .filter((line) => line.trim());
 }
 
 /**
- * 清單依分類分組。
+ * 掛在來訪上時要印的那幾行，以及還剩幾行沒印。
  *
- * **釘選的排在最前面**，而且是**跨分類**的一組 —— 她釘起來的意思是
- * 「這一份我常看」，不是「這一份在它那一類裡比較重要」。
- *
- * 沒有分類的收在最後一組，抬頭 `NO_TAG`。
- *
- * @param {object[]} playbooks
- * @returns {{tag: string, pinned: boolean, rows: object[]}[]}
+ * @returns {{lines: string[], rest: number}}
  */
-export function groupByTag(playbooks = []) {
-  const alive = (playbooks ?? []).filter((p) => p && !p.deletedAt);
-  const pinned = alive.filter((p) => p.pinned);
-  const rest = alive.filter((p) => !p.pinned);
-
-  const groups = new Map();
-  for (const p of rest) {
-    const tag = trimmed(p.tag) || NO_TAG;
-    if (!groups.has(tag)) groups.set(tag, []);
-    groups.get(tag).push(p);
-  }
-
-  const byTitle = (a, b) => String(a.title ?? '').localeCompare(String(b.title ?? ''), 'zh-Hant');
-  const out = [...groups.entries()]
-    .map(([tag, rows]) => ({ tag, pinned: false, rows: rows.slice().sort(byTitle) }))
-    // 沒有分類的永遠最後，其餘照分類名
-    .sort((a, b) => {
-      if (a.tag === NO_TAG) return 1;
-      if (b.tag === NO_TAG) return -1;
-      return a.tag.localeCompare(b.tag, 'zh-Hant');
-    });
-
-  return pinned.length
-    ? [{ tag: '常看的', pinned: true, rows: pinned.slice().sort(byTitle) }, ...out]
-    : out;
+export function previewOf(playbook, max = PREVIEW_LINES) {
+  const all = linesOf(playbook);
+  return { lines: all.slice(0, max), rest: Math.max(0, all.length - max) };
 }
 
-/** 現有的分類，去重、照筆數多的在前。編輯時做成可以點的丸子。 */
-export function tagsOf(playbooks = []) {
-  const counts = new Map();
-  for (const p of playbooks ?? []) {
-    const tag = trimmed(p?.tag);
-    if (!tag || p.deletedAt) continue;
-    counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag);
+/**
+ * 一疊卡的順序：**她寫下來的順序，新的在最後面**。
+ *
+ * 不用「最近改過的在前」（一般備忘錄 app 的作法）：那一疊會在她編輯完之後
+ * 自己重排，而卡牌的全部價值就是「我正在看第三張」這件事站得住。
+ * 也不用標題排序 —— 那個順序對她沒有意義。
+ *
+ * `createdAt` 讀不出來的（剛存還沒回填、匯進來的）排最後，
+ * 同一批之內維持進來的順序。
+ */
+export function deckOrder(playbooks = []) {
+  return (playbooks ?? [])
+    .filter((p) => p && !p.deletedAt)
+    .map((p, i) => ({ p, i, at: millisOf(p.createdAt) }))
+    .sort((a, b) => (a.at - b.at) || (a.i - b.i))
+    .map((x) => x.p);
 }
 
-/** 搜尋：標題、分類、每一節的標題與內文都比。 */
+/** Firestore 的 Timestamp、Date、ISO 字串、毫秒數都吃得下。讀不出來回無限大。 */
+function millisOf(value) {
+  if (value == null) return Number.POSITIVE_INFINITY;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  const t = Date.parse(String(value));
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/** 搜尋：標題與內文都比。 */
 export function matches(playbook, query) {
   const q = trimmed(query).toLowerCase();
   if (!q) return true;
-  const hay = [
-    playbook?.title,
-    playbook?.tag,
-    ...(playbook?.sections ?? []).flatMap((s) => [s.heading, s.body]),
-  ].map((x) => String(x ?? '').toLowerCase());
-  return hay.some((x) => x.includes(q));
+  return [playbook?.title, bodyOf(playbook)]
+    .map((x) => String(x ?? '').toLowerCase())
+    .some((x) => x.includes(q));
 }
 
 /**
@@ -216,49 +177,4 @@ export function playbooksForVisit(playbooks = [], visit = null) {
   return (playbooks ?? []).filter(
     (p) => p && !p.deletedAt && (p.courseIds ?? []).some((id) => courseIds.has(id)),
   );
-}
-
-/**
- * 這一筆來訪**現在**該看哪一節。
- *
- * | 那一筆 | 看哪一節 |
- * |---|---|
- * | 日期在今天之後 | `before` |
- * | 日期就是今天 | `onday` —— **不管狀態還是不是待確認**，人已經要來了 |
- * | 日期過了，或已完成／未到 | `after` |
- *
- * 判斷放在 domain 而不是各自的畫面裡：兩個入口問的是同一句話，而同一筆
- * 來訪在兩個畫面浮出不同的一節，她不會知道哪個算數
- *（同 ADR-0028、ADR-0043 的理由）。
- *
- * 日期讀不出來時回 `null`（不浮任何一節）—— **不要猜一個**。
- * 猜錯的代價是她照著「結束後」那一節去做一件還沒發生的事。
- */
-export function whenForVisit(visit, today) {
-  const date = trimmed(visit?.date);
-  if (!date || !trimmed(today)) return null;
-  if (['done', 'no_show'].includes(visit?.status)) return 'after';
-  if (date > today) return 'before';
-  if (date === today) return 'onday';
-  return 'after';
-}
-
-/**
- * 一份備忘錄裡該浮出來的那一節。
- *
- * 找不到那個時機的節就回 `null`，**不要退回第一節** —— 退回去的那一節
- * 講的是別的時候的事，而她不會知道自己看的是哪一段。
- */
-export function sectionFor(playbook, when) {
-  if (!when) return null;
-  return (playbook?.sections ?? []).find((s) => (s?.when ?? null) === when) ?? null;
-}
-
-/**
- * 一份備忘錄有哪幾種時機，照 `SECTION_WHEN` 的順序。清單上那一行摘要用。
- * 一節時機都沒標的回 `['隨時看']`。
- */
-export function whensOf(playbook) {
-  const have = new Set((playbook?.sections ?? []).map((s) => s?.when ?? null));
-  return SECTION_WHEN.filter((w) => have.has(w.id)).map((w) => w.label);
 }

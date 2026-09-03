@@ -8,6 +8,8 @@
 //   5. 2026-09-03 起第二站是**兩張**（ADR-0065）。最危險的一格是
 //      「二返約好了、報告還沒寄」—— 寄報告如果擠在 owed() 那道閘門裡面，
 //      它會在她約好二返的那一刻被靜默收掉（J-D5 盯著）
+//   6. 2026-09-04：反過來的同一個坑 —— 二返一有進度，**未完成的追蹤報告**
+//      會在她把它勾回去的那一刻被靜默軟刪除（J-D6 盯著，ADR-0068）
 //
 // 注意：這幾張待辦**不是種子塞得出來的**，它們由 `syncFollowupTasks()` 在
 // 寫入的那一刻產生。所以這一支一律走真的動線去觸發。
@@ -163,6 +165,51 @@ test('J-D3 把報告那一張「拿回來」→ 退回上一站，約二返收�
 
   const send = tasks.find((t) => t.kind === '寄報告給醫師');
   expect(send, '寄報告也一起收起來 —— 報告都還沒拿到，沒有東西可以寄').toBeFalsy();
+});
+
+// 2026-09-04 她實測回報的那一個：J-D3 走的是「勾掉 → 立刻反悔」，那一條本來就對。
+// 壞掉的是**中間做了事**再反悔 —— 二返一有進度，owed() 就掉到 0，那一次健檢
+// 整個退出候選，於是她剛拿回來的那一張報告自己被軟刪除。見 ADR-0068。
+test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且回到未完成', async ({ app, page }) => {
+  await app.seed(seedBeforeClose());
+  await app.signIn('/');
+  await closeExam(app, page);
+
+  // 勾掉報告 → 第二站兩張都長出來
+  await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await page.locator('[data-task]').first().check();
+  await page.locator('[data-mark]').click();
+  await app.ok();
+  await page.waitForTimeout(2000);
+
+  // 她去約了，把「約二返」也勾掉
+  await app.go(`/todo/${encodeURIComponent('約二返')}`);
+  await page.locator('[data-task]').first().check();
+  await page.locator('[data-mark]').click();
+  await app.ok();
+  await page.waitForTimeout(2000);
+
+  // 這時候才發現按錯了，把報告那一張拿回來
+  await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await page.locator('[data-task-tab="done"]').click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-untick]').first().click();
+  await page.waitForTimeout(2000);
+
+  const all = await app.readAll('tasks');
+  const report = all.find((t) => t.kind === '追蹤健檢報告');
+
+  expect(report, '那一張報告不可以消失').toBeTruthy();
+  expect(report.deletedAt ?? null, '而且不可以被軟刪除到「已刪除項目」裡').toBeNull();
+  expect(report.done, '要回到未完成').toBe(false);
+
+  // 畫面上真的看得到它。**要先切回「未完成」那一格** —— 剛剛是從「已完成」
+  // 點回來的，而那個分頁的選擇是留著的（首頁的模組狀態）。
+  await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await page.locator('[data-task-tab="open"]').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('#view')).toContainText('客戶B');
+  await expect(page.locator('[data-task]')).toHaveCount(1);
 });
 
 test('J-D4 買 2 次只做 1 次 → 只欠 1 次二返，不是 2 次', async ({ app, page }) => {

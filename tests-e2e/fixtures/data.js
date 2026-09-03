@@ -131,22 +131,20 @@ export function event({
  * 一份備忘錄（ADR-0067）。`sections` 收簡寫：`['事前|前情提醒|飯後打針']`
  * 這種形狀在測試裡讀起來比一疊物件清楚。
  */
-export function playbook({
-  id, title, tag = null, courseIds = [], pinned = false, sections = [],
-}) {
+/**
+ * 一份備忘錄。三個欄位：標題、掛哪些課程、一大塊字（ADR-0069）。
+ *
+ * `body` 可以直接給字串，也可以給一個陣列（一項一行）——
+ * 規格裡的備忘錄幾乎都是「一行一件事」。
+ */
+export function playbook({ id, title, courseIds = [], body = '' }) {
   return {
     path: 'playbooks',
     id,
     data: {
       title,
-      tag,
       courseIds,
-      pinned,
-      sections: sections.map((raw) => {
-        if (typeof raw !== 'string') return raw;
-        const [when, heading, body] = raw.split('|');
-        return { when: when || null, heading: heading ?? '', body: body ?? '' };
-      }),
+      body: Array.isArray(body) ? body.join('\n') : body,
     },
   };
 }

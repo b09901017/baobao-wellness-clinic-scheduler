@@ -616,18 +616,47 @@ export function syncFollowupTasks({
   }
 
   for (const t of openTasks) {
-    // 寄報告那一張問的是另一份清單 —— 它不在第一圈那條線上（見上面那一段）。
-    const keep = t.kind === SEND_REPORT_TASK_KIND
-      ? wantedSend.has(t.visitId)
-      : wanted.get(t.visitId)?.kind === t.kind;
-    if (keep) continue;
-
     const visit = visitById.get(t.visitId);
-    const stillDone = visit && !visit.deletedAt && visit.status === 'done';
+    const stillDone = Boolean(visit && !visit.deletedAt && visit.status === 'done');
+    if (keepsOpen(t, { stillDone, wanted, wantedSend, openReport })) continue;
     remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone, wanted.get(t.visitId)?.kind) });
   }
 
   return { create, update, remove };
+}
+
+/**
+ * 這一張還沒勾的待辦要不要留著。
+ *
+ * **「還該不該長出來」跟「還算不算數」是兩條規則，三種待辦三個答案。**
+ * 這是 2026-09-04 她回報的那個 bug 的整個內容：她把「追蹤健檢報告」勾回去，
+ * 那一張自己被軟刪除了 —— 不在未完成、不在已完成，只在「已刪除項目」裡。
+ *
+ * 原因是這裡本來只問一句「在不在 `wanted` 裡」，而 `wanted` 的第一道閘門是
+ * `owed()`：二返一壓好（`booked`）或一勾掉（`settled`），那一次健檢就整個
+ * 退出候選，於是掛在它身上的**每一張**未完成待辦都不在 `wanted` 裡 ——
+ * 包含她剛剛才拿回來的那一張報告。
+ *
+ * ADR-0065 已經替「寄報告」走過同一段推論（擠進第一圈的話，她一約好二返，
+ * 還沒寄出去的那一張就被靜默收掉）。同一個閘門對「追蹤健檢報告」也是錯的，
+ * 上一輪只是沒有一起看。
+ *
+ * | 種類 | 長出來要 | 留著要 |
+ * |---|---|---|
+ * | 追蹤健檢報告 | `owed > 0`（沒買二返額度就不該長） | **那一筆健檢還是已完成的，就這樣** |
+ * | 約二返 | 在 `wanted` 裡 | 在 `wanted` 裡（它本來就是 `owed` 在數的東西） |
+ * | 寄報告給醫師 | 報告勾掉了 | 報告還是勾掉的（ADR-0065 的第二圈） |
+ *
+ * 健檢被取消或刪掉時**三種都要收**（`stillDone`）—— 那才是「替她刪待辦」
+ * 唯一站得住的時候：那一場沒發生，沒有東西要追。
+ */
+function keepsOpen(task, { stillDone, wanted, wantedSend, openReport }) {
+  if (!stillDone) return false;
+  // 同一筆健檢底下只留一張追蹤報告。`openReport` 是 visitId → 任務的 Map，
+  // 所以「不是 Map 裡那一張」就是重複的那一張（併發寫入才生得出來）。
+  if (task.kind === REPORT_TASK_KIND) return openReport.get(task.visitId)?.id === task.id;
+  if (task.kind === SEND_REPORT_TASK_KIND) return wantedSend.has(task.visitId);
+  return wanted.get(task.visitId)?.kind === task.kind;
 }
 
 /**
@@ -673,7 +702,10 @@ function stationFor(visit, { report, booking, hasReport, dueDays, reportDueDays 
 
 function reasonFor(kind, stillDone, wantedKind) {
   if (!stillDone) return '那一筆健檢不是已完成了';
-  if (kind === REPORT_TASK_KIND) return '報告拿到了';
+  // 追蹤報告只剩一種收掉的理由：同一筆健檢底下有兩張，留下另一張。
+  // 這裡以前寫的是「報告拿到了」，而那是一句**從來沒有成立過的話** ——
+  // 拿到了等於它是已完成的，而已完成的根本不會走到這個迴圈裡（見 keepsOpen）。
+  if (kind === REPORT_TASK_KIND) return '這一筆健檢已經有另一張追蹤報告了';
   // 寄報告那一張只有一種收掉的理由：報告那一張被拿回來了，所以還沒有東西可以寄。
   // 它不會因為「二返約好了」而消失 —— 那是另一件事（ADR-0065）。
   if (kind === SEND_REPORT_TASK_KIND) return '報告那一張被拿回來了';

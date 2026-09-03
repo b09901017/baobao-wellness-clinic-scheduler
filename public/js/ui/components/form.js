@@ -20,13 +20,49 @@ export function text({ name, label, value = '', placeholder = '', hint = '', max
     </label>`;
 }
 
+/**
+ * 一個數字欄位。
+ *
+ * ## `step` 是禁令不是提示
+ *
+ * HTML 的 `step` **從 `min` 起算**，所以 `min="1" step="5"` 的合法值是
+ * 1、6、11、16、21、26、31…… 而 30 不在裡面 —— 瀏覽器會在 submit 之前擋下來，
+ * 順口報出最近的兩個。2026-09-04 她就是這樣被課程時長那一格擋住的
+ *（「他不讓我儲存說只能 26 或 31？？」），而 2026-08-30 金額那一格的
+ * `step="100"` 是同一個坑的第一次（5050 存不下去，見 `domain/products.js`）。
+ *
+ * **判準：欄位的 `min` / `step` 要跟 domain 的驗證講同一句話。**
+ * domain 說「大於 0 的整數」，欄位就是 `min: 1, step: 1`。
+ * 「通常是 5 的倍數」那種話寫進 `hint`，寫進 `step` 會變成禁令。
+ * `tests/number-fields.test.js` 盯著每一個呼叫端。
+ *
+ * @param {number|string} [o.step] 數字，或 `'any'`（小數不設限）
+ */
 export function number({ name, label, value = '', min = 0, step = 1, hint = '' }) {
   return `
     <label class="field">
       <span class="field__label">${esc(label)}</span>
-      <input type="number" name="${name}" value="${esc(value)}" min="${min}" step="${step}" inputmode="numeric" />
+      <input type="number" name="${name}" value="${esc(value)}" min="${min}" step="${esc(step)}"
+             inputmode="${step === 1 ? 'numeric' : 'decimal'}" />
       ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
+}
+
+/**
+ * 一個時間欄位要用多大的 `step`。**四個手寫的 `type="time"` 也要用這一支。**
+ *
+ * `step="300"`（5 分鐘）是刻意的：手機上的時間滾輪會照著 5 分鐘跳，
+ * 而她一天要點很多次，1 分鐘一格等於多滾五倍。
+ *
+ * 但它跟 `number()` 那一段是同一個坑：**現有的值如果不是 5 的倍數，
+ * 她一打開那一筆就存不回去**，而錯誤訊息一樣是看不懂的「最接近的有效值」。
+ * 匯入進來的舊資料就可能是 10:32。所以那種時候退成一分鐘一格 ——
+ * 她自己新填的一律還是 5 分鐘的滾輪。
+ */
+export function timeStepFor(value) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim());
+  if (!m) return 300;
+  return Number(m[2]) % 5 === 0 ? 300 : 60;
 }
 
 export function date({ name, label, value = '', hint = '' }) {
@@ -42,7 +78,7 @@ export function time({ name, label, value = '', hint = '' }) {
   return `
     <label class="field">
       <span class="field__label">${esc(label)}</span>
-      <input type="time" name="${name}" value="${esc(value ?? '')}" step="300" />
+      <input type="time" name="${name}" value="${esc(value ?? '')}" step="${timeStepFor(value)}" />
       ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
@@ -128,16 +164,28 @@ export function select({ name, label, value, options, hint = '' }) {
  * @param {boolean} [opts.multi] true = 複選。`value` 收的是一個陣列，
  *   hidden input 存的是用換行串起來的值（見 `MULTI_SEP`）。一次購買的營養品
  *   有好幾種（`domain/products.js`），那一排就是這一種。
+ * @param {number} [opts.tuckAfter] 前幾顆一直看得到，其餘的收在一顆
+ *   「換一款」後面。**不是藏起來，是排在後面** —— 給「有一個正確答案，
+ *   但別的答案偶爾也對」的那幾排用（營養點滴的品項就是：買的是 A，
+ *   而今天 A 剛好用完是真的會發生的事，見 `domain/masterData.js` 的
+ *   `ivChoicesFor()`）。展開只改一個屬性，整排不重畫（ADR-0038）。
+ * @param {string} [opts.moreLabel] 那一顆上面寫什麼
  */
-export function chips({ name, label, value, options, hint = '', quiet = false, multi = false }) {
+export function chips({
+  name, label, value, options, hint = '', quiet = false, multi = false,
+  tuckAfter = null, moreLabel = '換一款',
+}) {
   const picked = multi ? new Set(value ?? []) : null;
   const current = value ?? null;
   const isOn = (v) => (multi ? picked.has(v) : current === v);
+  // 選著的那一顆永遠看得到 —— 收起來的話畫面上會是「一排都沒選」。
+  const tucks = tuckAfter != null && options.length > tuckAfter;
   const items = options
-    .map((option) => {
+    .map((option, i) => {
       const { value: v, label: l } = optionOf(option);
       const disabled = option?.disabled ? ' aria-disabled="true"' : '';
       const note = option?.note ? `<span class="chip__note">${esc(option.note)}</span>` : '';
+      const tucked = tucks && i >= tuckAfter && !isOn(v) ? ' chip--tucked' : '';
       // 同一排裡分成兩組時，中間插一條線與一個小標講出後面那一組是什麼
       // （壓表那一頁的「排序」用的是同一組 class）。一排十幾顆要滑，
       // 而滑到底才看到的那一顆如果是另一種東西，得先說一聲。
@@ -145,17 +193,22 @@ export function chips({ name, label, value, options, hint = '', quiet = false, m
         ? `<span class="chiprow__sep"></span><span class="chiprow__lead">${esc(option.lead)}</span>`
         : '';
       return `${lead}
-        <button class="chip" type="button" data-chip="${esc(name)}"
+        <button class="chip${tucked}" type="button" data-chip="${esc(name)}"
                 data-chip-value="${v === null ? '__null__' : esc(v)}"
                 aria-pressed="${isOn(v)}"${disabled}>
           ${esc(l)}${note}</button>`;
     })
     .join('');
 
+  const more = tucks
+    ? `<button class="chip chip--more" type="button" data-chip-more
+               aria-expanded="false">${esc(moreLabel)}</button>`
+    : '';
+
   return `
-    <div class="fieldgroup">
+    <div class="fieldgroup" ${tucks ? "data-tuck='closed'" : ''}>
       <span class="fieldgroup__label">${esc(label)}</span>
-      <div class="chiprow">${items}</div>
+      <div class="chiprow">${items}${more}</div>
       <input type="hidden" name="${name}"
              value="${multi ? esc([...picked].join(MULTI_SEP)) : (current === null ? '__null__' : esc(current))}"
              ${multi ? 'data-chip-multi' : ''} ${quiet ? 'data-chip-quiet' : ''} />
@@ -175,6 +228,14 @@ export function chips({ name, label, value, options, hint = '', quiet = false, m
  */
 export function wireChips(root, { signal } = {}) {
   root.addEventListener('click', (e) => {
+    // 「換一款」：只改一個屬性，整排不重畫（ADR-0038）。
+    const more = e.target.closest('[data-chip-more]');
+    if (more) {
+      more.setAttribute('aria-expanded', 'true');
+      more.closest('[data-tuck]')?.setAttribute('data-tuck', 'open');
+      return;
+    }
+
     const chip = e.target.closest('[data-chip]');
     if (!chip || chip.getAttribute('aria-disabled') === 'true') return;
 

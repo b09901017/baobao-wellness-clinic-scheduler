@@ -99,6 +99,45 @@ describe('照她的流程分段', () => {
     assert.deepEqual(idsOf(unticked), ['other']);
   });
 
+  // 2026-09-04 她說「好啊可以另外開一段給它」。在這之前它落進④「登記掛號」，
+  // 而段落名在講一件它收不到的事。ADR-0066。
+  describe('「寫紀錄」自己一段', () => {
+    const tick = (kind) => ev('tasks.update', {
+      before: { customerName: '客戶A', kind, done: false },
+      after: { done: true },
+    });
+
+    test('勾掉一張「寫紀錄」→ 落在寫紀錄那一段，不在登記掛號', () => {
+      const review = reviewOf([tick('寫紀錄')]);
+      assert.deepEqual(idsOf(review), ['record']);
+    });
+
+    test('掛號那一族照舊落在登記掛號', () => {
+      assert.deepEqual(idsOf(reviewOf([tick('Examine')])), ['register']);
+      assert.deepEqual(idsOf(reviewOf([tick('耀聖')])), ['register']);
+    });
+
+    test('取消勾選一張「寫紀錄」還是不算做了 —— 落到其他，但不可以消失', () => {
+      const review = reviewOf([ev('tasks.update', {
+        before: { customerName: '客戶A', kind: '寫紀錄', done: true },
+        after: { done: false },
+      })]);
+      assert.deepEqual(idsOf(review), ['other']);
+    });
+
+    test('讀不出種類的（舊的稽核沒有 before）照舊落在登記掛號 —— 一則都不可以掉', () => {
+      const review = reviewOf([ev('tasks.update', { before: {}, after: { done: true } })]);
+      assert.deepEqual(idsOf(review), ['register']);
+    });
+
+    test('照人分組時也在，而且只出現一次', () => {
+      const review = reviewOf([tick('寫紀錄')]);
+      const mine = review.people.find((x) => x.who === '客戶A');
+      assert.equal(mine.n, 1);
+      assert.deepEqual(mine.rows.map((r) => r.stage), ['寫紀錄']);
+    });
+  });
+
   test('隨手記與行事備註 → 日曆與待辦', () => {
     const review = reviewOf([
       ev('notes.create', { after: { text: '幫王小明問週六' } }),

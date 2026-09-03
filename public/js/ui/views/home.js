@@ -2510,10 +2510,9 @@ function confirmCard(customerId, visits, today, noReplyDays, playbooks = []) {
             esc(visitCourseLabel(v))}</span>`).join('')}
       </div>
 
-      ${/* 這一頁的定義就是「還沒發生、要去問本人」，所以時機固定是「事前」
-             —— 不走 whenForVisit()。擺在那一句話與訊息範本中間：
-             她的動線是「看一眼要提醒什麼 → 打字 → 送出」。 */''}
-      ${hintForVisits({ playbooks, visits, when: 'before' })}
+      ${/* 擺在那一句話與訊息範本中間：她的動線是
+             「看一眼要提醒什麼 → 打字 → 送出」。 */''}
+      ${hintForVisits({ playbooks, visits })}
 
       ${followupForm(customerId, name, state.note)}
 

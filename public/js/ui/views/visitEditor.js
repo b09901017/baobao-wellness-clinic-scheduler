@@ -30,7 +30,8 @@ import { annotateOptions } from '../../domain/contraindications.js';
 import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
 import {
-  roomSlots, roomsForCourse, staffWithRole, picksDoctor, THERAPIST_ROLE, DOCTOR_ROLE,
+  roomSlots, roomsForCourse, staffWithRole, picksDoctor, ivChoicesFor,
+  THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
@@ -153,7 +154,9 @@ function blankSlot(entitlement, all, settings, startsAt) {
     courseId: course?.id ?? null,
     courseName: course?.name ?? null,
     equipmentId: null,
-    ivProductId: null,
+    // 買的時候就定下來的那一款先選好 —— 不選存不下去，而只有一個正確答案的
+    // 時候讓她多點一下沒有任何意義（`ivChoicesFor()`）。
+    ivProductId: course?.requiresIvProduct ? (entitlement?.ivProductId ?? null) : null,
     startsAt,
     endsAt: endOf(startsAt, durationMin),
     roomId: null,
@@ -345,7 +348,8 @@ function slotCard(ctx, draft, slot, i) {
     <section class="card slotcard ${embedded ? 'card--bare' : ''}">
       <div class="slothead">
         <div class="slothead__time">
-          <input type="time" name="s${i}-start" value="${esc(slot.startsAt ?? '')}" step="300"
+          <input type="time" name="s${i}-start" value="${esc(slot.startsAt ?? '')}"
+                 step="${f.timeStepFor(slot.startsAt)}"
                  aria-label="第 ${i + 1} 段的開始時間" />
           <span class="slothead__dash">–</span>
           <span class="slothead__end num">${esc(slot.endsAt ?? '—')}</span>
@@ -401,12 +405,7 @@ function slotCard(ctx, draft, slot, i) {
           })}
 
       ${course?.requiresEquipment ? equipmentField(customer, ent, all, slot, i) : ''}
-      ${course?.requiresIvProduct
-        ? f.chips({
-            name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId, quiet: true,
-            options: all.ivProducts.map((p) => ({ value: p.id, label: p.name })),
-          })
-        : ''}
+      ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
       ${course?.assigns === 'room' ? roomField(all, course, slot, i) : ''}
       ${course?.assigns === 'therapist'
@@ -527,6 +526,29 @@ function examField(ctx, draft, ent, slot, i) {
 }
 
 /** 擇一池的器材。被禁忌擋掉的要留在原位標示出來，不能整個消失。 */
+/**
+ * 營養點滴的品項。
+ *
+ * **預設就是她買的那一款**，其餘的收在「換一款」後面 ——
+ * 哪幾顆、誰在前面只寫在 `domain/masterData.js` 的 `ivChoicesFor()`，
+ * 壓表那一頁讀的是同一支。真的換了會有一句提醒（`assignmentWarnings()`）。
+ */
+function ivField(ent, all, slot, i) {
+  const { bought, primary, others } = ivChoicesFor(ent, all.ivProducts);
+  const options = [...primary, ...others].map((p) => ({ value: p.id, label: p.name }));
+
+  // **這一排刻意不是 quiet 的**（器材、治療師、診間那幾排是）。換了品項會多出
+  // 一句「跟買的不一樣」，而那一句由 `assignmentWarnings()` 算、畫在整張表的
+  // 上方 —— 不重畫就看不到它。訊息只有一份，所以只能用重畫換
+  //（在這裡自己再寫一句，就是第二份會跟 domain 分岔的文案）。
+  return f.chips({
+    name: `s${i}-iv`, label: '營養點滴品項', value: slot.ivProductId,
+    options,
+    // 有買的那一款才收：沒有的話全部都是平等的候選，收起來只是把選項藏掉。
+    tuckAfter: bought ? primary.length : null,
+  });
+}
+
 function equipmentField(customer, ent, all, slot, i) {
   const pool = ent?.type === 'pool'
     ? (ent.optionEquipmentIds ?? [])
