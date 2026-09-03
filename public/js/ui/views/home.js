@@ -268,7 +268,14 @@ function paint(ctx) {
 
   el.innerHTML = `
     <div class="page">
-      <h1 class="page__title num">${esc(longDate(today))}</h1>
+      <div class="page__row">
+        <h1 class="page__title num">${esc(longDate(today))}</h1>
+        ${/* 備忘錄的入口。跟客戶頁的「看這個月的進度」同一顆、同一個位置 ——
+             她指名要這個做法。導覽列一個字都不動（ADR-0067）。 */''}
+        <span class="footlinks footlinks--inline">
+          <a class="footlink" href="#/playbook">${icon('manual', { size: 15 })}備忘錄</a>
+        </span>
+      </div>
       ${nothing ? '<p class="page__lead">今天沒有待辦。</p>' : ''}
     </div>
 

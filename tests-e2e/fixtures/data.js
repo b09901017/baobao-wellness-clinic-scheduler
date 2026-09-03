@@ -127,6 +127,30 @@ export function event({
   };
 }
 
+/**
+ * 一份備忘錄（ADR-0067）。`sections` 收簡寫：`['事前|前情提醒|飯後打針']`
+ * 這種形狀在測試裡讀起來比一疊物件清楚。
+ */
+export function playbook({
+  id, title, tag = null, courseIds = [], pinned = false, sections = [],
+}) {
+  return {
+    path: 'playbooks',
+    id,
+    data: {
+      title,
+      tag,
+      courseIds,
+      pinned,
+      sections: sections.map((raw) => {
+        if (typeof raw !== 'string') return raw;
+        const [when, heading, body] = raw.split('|');
+        return { when: when || null, heading: heading ?? '', body: body ?? '' };
+      }),
+    },
+  };
+}
+
 export function availability(customerId, {
   id, rawText, validFrom, validTo, rules = [], source = null, collectedAt = null,
 }) {
