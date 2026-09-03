@@ -13,7 +13,9 @@
 //   5. 這一頁上**一個勾選框都沒有**
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, playbook } from '../fixtures/data.js';
+import {
+  masterDocs, playbook, customer, entitlement, visit, slot, TODAY, addDays,
+} from '../fixtures/data.js';
 
 test.describe('備忘錄／SOP', () => {
   test('P1 待辦頁右上角進得去，而且導覽列一個字都沒變', async ({ app, page }) => {
@@ -184,5 +186,98 @@ test.describe('備忘錄／SOP', () => {
     // 還原得回來（軟刪除，SPEC 第 6.1 節）
     await app.go('/settings/trash');
     await expect(page.locator('#view')).toContainText('要刪掉的');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 自己浮出來（ui/components/playbookHint.js）
+//
+// 「飯後打針該何時提醒」的答案：不開任務，而是讓點滴那份備忘錄的「事前」
+// 那一節，在她正在發確認訊息的那一刻出現在畫面上。
+// ---------------------------------------------------------------------------
+
+test.describe('備忘錄自己浮出來', () => {
+  const DRIP = playbook({
+    id: 'pb-drip', title: '營養點滴', tag: '點滴', courseIds: ['course-iv-drip'],
+    sections: [
+      'before|前情提醒|飯後打針（通知客人）',
+      'onday|當天|提早十分鐘檢查房間',
+      'after|結束後|四樓要清理',
+    ],
+  });
+
+  /** 一位排了點滴的客戶A。`when` 由那一筆的日期與狀態決定。 */
+  function seedDrip({ date, status }) {
+    return [
+      ...masterDocs(),
+      DRIP,
+      customer({ id: 'cust-a', name: '客戶A' }),
+      entitlement('cust-a', {
+        id: 'ent-a-drip', label: '營養點滴', courseId: 'course-iv-drip', totalQty: 10,
+      }),
+      visit({
+        id: 'v-drip', customerId: 'cust-a', customerName: '客戶A', date, status,
+        slots: [slot({
+          courseId: 'course-iv-drip', entitlementId: 'ent-a-drip',
+          startsAt: '10:30', endsAt: '11:30', roomId: 'room-iv8', bed: 'A',
+          ivProductId: 'iv-liver',
+        })],
+      }),
+    ];
+  }
+
+  test('H1 日曆上點開還沒到的那一筆 → 浮出「事前」那一節', async ({ app, page }) => {
+    await app.seed(seedDrip({ date: addDays(TODAY, 3), status: 'confirmed' }));
+    await app.signIn('/calendar');
+
+    await page.locator(`[data-day="${addDays(TODAY, 3)}"]`).first().click();
+    await page.locator('[data-open="visit:v-drip"]').first().click();
+
+    await expect(page.locator('.pbhint__when')).toHaveText('事前');
+    await expect(page.locator('.pbhint li')).toHaveText(['飯後打針（通知客人）']);
+  });
+
+  test('H2 就是今天的那一筆 → 換成「當天」那一節', async ({ app, page }) => {
+    await app.seed(seedDrip({ date: TODAY, status: 'confirmed' }));
+    await app.signIn('/calendar');
+
+    await page.locator(`[data-day="${TODAY}"]`).first().click();
+    await page.locator('[data-open="visit:v-drip"]').first().click();
+
+    await expect(page.locator('.pbhint__when')).toHaveText('當天');
+    await expect(page.locator('.pbhint li')).toHaveText(['提早十分鐘檢查房間']);
+  });
+
+  test('H3 沒掛課程的那一份不會浮出來，而且整塊不留空殼', async ({ app, page }) => {
+    const loose = playbook({
+      id: 'pb-loose', title: '外院檢送', courseIds: [], sections: ['before|事前|帶血液常規'],
+    });
+    await app.seed([...seedDrip({ date: addDays(TODAY, 3), status: 'confirmed' }), loose]);
+    await app.signIn('/calendar');
+
+    await page.locator(`[data-day="${addDays(TODAY, 3)}"]`).first().click();
+    await page.locator('[data-open="visit:v-drip"]').first().click();
+
+    await expect(page.locator('.pbhint')).toHaveCount(1);
+    await expect(page.locator('.popcard')).not.toContainText('外院檢送');
+  });
+
+  test('H4 「跟客人確認時間」那一頁固定浮「事前」—— 她正在打那則訊息', async ({ app, page }) => {
+    await app.seed(seedDrip({ date: addDays(TODAY, 3), status: 'pending_confirm' }));
+    await app.signIn('/todo/confirm');
+
+    await expect(page.locator('.pbhint__when')).toHaveText('事前');
+    await expect(page.locator('.pbhint li')).toHaveText(['飯後打針（通知客人）']);
+  });
+
+  test('H5 「看整份」通到那一份備忘錄', async ({ app, page }) => {
+    await app.seed(seedDrip({ date: addDays(TODAY, 3), status: 'pending_confirm' }));
+    await app.signIn('/todo/confirm');
+
+    await page.click('.pbhint__more');
+    await app.settled();
+
+    expect(page.url()).toContain('#/playbook/pb-drip');
+    await expect(page.locator('.pb__title')).toHaveText('營養點滴');
   });
 });

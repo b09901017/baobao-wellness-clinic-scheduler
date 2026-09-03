@@ -6007,3 +6007,71 @@ summary {
   line-height: 1.8;
   resize: vertical;
 }
+
+/* ---- 自己浮出來的那一小塊（ui/components/playbookHint.js） ----
+ *
+ * 日曆上點開一筆來訪、待辦的「跟客人確認時間」那一張卡，都會長這一塊。
+ * **預設展開** —— 她要的是「自動浮現」，收起來等於還是要點一下。
+ *
+ * 它跟閱讀頁共用 `.pblines`（行的畫法只有一份），只是字級收小一級：
+ * 這裡是卡片裡的一段附註，不是那一頁的主體。 */
+.pbhint {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  /* 左邊那一道細線。**它不是裝飾**：這一塊跟它上面那一塊（來訪的時段）
+     底色一樣，而兩者是完全不同的東西 —— 上面是這一筆的事實，這裡是給人看的
+     提醒。沒有這一道，兩塊讀起來像同一種資料。顏色跟「事前」那兩個字同一個
+     （--tea），所以整塊自成一體。 */
+  border-left: 2px solid var(--tea);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+}
+
+.pbhint + .pbhint {
+  margin-top: var(--space-2);
+}
+
+.pbhint__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* 時機那兩個字。跟閱讀頁的 `.pbsec__when` 同一個樣子 —— 兩個畫面上的
+   「事前」看起來要是同一種東西。 */
+.pbhint__when {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--tea);
+}
+
+.pbhint__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* 這是這一塊裡唯一會換頁的動作，而且它換到的是「讀那份備忘錄的地方」。 */
+.pbhint__more {
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pbhint__more::after {
+  content: ' ›';
+}
+
+.pblines--tight li {
+  padding: 1px 0 1px var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.pblines--tight li::before {
+  top: 0.8em;
+}

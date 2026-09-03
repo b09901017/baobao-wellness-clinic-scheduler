@@ -36,6 +36,8 @@ import {
 } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
 import { clinicalTerms } from '../../domain/masterData.js';
+import * as playbooksData from '../../data/playbooks.js';
+import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
@@ -2440,10 +2442,14 @@ async function renderConfirm(el) {
   //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
   // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
   // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
-  const [pending, settings, courses] = await Promise.all([
+  const [pending, settings, courses, playbooks] = await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
+    // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
+    // 的地方** —— 她按下那一列的時候，正在打那則訊息。
+    // 讀不到就不畫那一塊，跟這一頁其他幾份補資料同一個判斷。
+    playbooksData.list().catch(() => []),
   ]);
   const today = todayISO();
   paintConfirm({
@@ -2451,12 +2457,13 @@ async function renderConfirm(el) {
     pending: visitsToConfirm(pending, today),
     settings,
     today,
+    playbooks,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
   });
 }
 
 function paintConfirm(ctx) {
-  const { el, pending, settings, today } = ctx;
+  const { el, pending, settings, today, playbooks } = ctx;
   const groups = [...byCustomer(pending).entries()];
   const noReplyDays = settings.noReplyDays ?? 3;
 
@@ -2469,7 +2476,8 @@ function paintConfirm(ctx) {
 
     ${groups.length ? `
       <div class="stack">
-        ${groups.map(([id, visits]) => confirmCard(id, visits, today, noReplyDays)).join('')}
+        ${groups.map(([id, visits]) =>
+          confirmCard(id, visits, today, noReplyDays, playbooks ?? [])).join('')}
       </div>`
       : '<p class="muted">都問過了。</p>'}
 
@@ -2478,7 +2486,7 @@ function paintConfirm(ctx) {
   wireConfirm(ctx);
 }
 
-function confirmCard(customerId, visits, today, noReplyDays) {
+function confirmCard(customerId, visits, today, noReplyDays, playbooks = []) {
   const name = visits[0].customerName ?? '（沒有名字）';
   const state = waitState(visits, today, noReplyDays);
   const slots = visits.flatMap((v) => v.slots ?? []);
@@ -2501,6 +2509,11 @@ function confirmCard(customerId, visits, today, noReplyDays) {
           <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>&nbsp;${
             esc(visitCourseLabel(v))}</span>`).join('')}
       </div>
+
+      ${/* 這一頁的定義就是「還沒發生、要去問本人」，所以時機固定是「事前」
+             —— 不走 whenForVisit()。擺在那一句話與訊息範本中間：
+             她的動線是「看一眼要提醒什麼 → 打字 → 送出」。 */''}
+      ${hintForVisits({ playbooks, visits, when: 'before' })}
 
       ${followupForm(customerId, name, state.note)}
 
