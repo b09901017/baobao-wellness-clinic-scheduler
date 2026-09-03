@@ -1,6 +1,6 @@
 # 這一輪動到的字、文件與四支 ADR
 
-Status: todo
+Status: done
 Blocked by: 01, 02, 03, 04, 05, 06
 來源：她的三件事，2026-09-03（`../spec.md`）
 動工前先讀：CLAUDE.md 的「文件分工」與「容易漏掉的連動」、`docs/agents/domain.md`
