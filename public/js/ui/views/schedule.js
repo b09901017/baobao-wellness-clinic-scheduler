@@ -59,8 +59,10 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  roomSlots, roomsForCourse, picksDoctor, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+  roomSlots, roomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
+  THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
+import { splitFlags } from '../../domain/customers.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
@@ -644,7 +646,7 @@ const peekCardHtml = (row) => `
   <button class="deck__card deck__card--peek" type="button"
           data-card="${esc(row.customerId)}" data-goto="${esc(row.customerId)}">
     <span class="row__title" style="justify-content: center">${esc(row.customerName ?? '?')}</span>
-    <span style="display: flex; justify-content: center">${blockChips(row)}</span>
+    <span style="display: flex; justify-content: center">${alertChips(row)}</span>
   </button>`;
 
 /**
@@ -796,7 +798,7 @@ function custCard(row, isSelected) {
       <span class="row" style="align-items: center">
         <span class="row__main">
           <span class="row__title">${esc(row.customerName ?? '?')}</span>
-          ${blockChips(row)}
+          ${alertChips(row)}
         </span>
         ${state}
       </span>
@@ -804,20 +806,26 @@ function custCard(row, isSelected) {
 }
 
 /**
- * 會真的擋掉器材的那幾個永久限制，加上一句「所以還剩什麼」。
+ * 卡片牆上姓名底下那一排：會真的擋掉器材的那幾個、「所以還剩什麼」那一句，
+ * 以及臨床提醒（血管難打，ADR-0064）。
  *
  * 畫法在 `ui/components/flags.js`，跟待辦的「壓表登記」那一頁共用（ADR-0046）——
- * 一邊紅一邊灰的話，那一顆的整個意義（掃過去一眼分得出誰被硬性擋住）就沒了。
+ * 一邊紅一邊灰的話，那一排的整個意義（掃過去一眼分得出誰要特別注意）就沒了。
  * 這裡只負責把這位客戶的擇一池換算成器材物件。
  */
-function blockChips(row) {
+function alertChips(row) {
   const equipment = ctx?.all?.equipment ?? [];
   const pool = (row.pools ?? []).find((p) => p.type === 'pool');
   const options = pool
     ? (pool.optionEquipmentIds ?? []).map((id) => equipment.find((e) => e.id === id)).filter(Boolean)
     : null;
 
-  return flagsUi.blockChips({ flags: row.flags ?? [], terms: blockingTerms(), options });
+  return flagsUi.alertChips({
+    flags: row.flags ?? [],
+    terms: blockingTerms(),
+    clinical: alertTerms(),
+    options,
+  });
 }
 
 /**
@@ -827,6 +835,12 @@ function blockChips(row) {
 function blockingTerms() {
   ctx.terms ??= contraindicationTerms(ctx?.all?.equipment ?? []);
   return ctx.terms;
+}
+
+/** 臨床提醒那幾個字。同上，一批算一次。 */
+function alertTerms() {
+  ctx.alerts ??= clinicalTerms(ctx?.all?.clinicalFlags ?? []);
+  return ctx.alerts;
 }
 
 /**
@@ -862,7 +876,8 @@ function recordPanel(row) {
           <div class="row__title" style="font-size: var(--text-xl)">
             ${esc(row.customerName)}
             ${row.priority ? `<span class="stars">${'★'.repeat(row.priority)}</span>` : ''}
-            ${(row.flags ?? []).map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+            ${flagsUi.detailChips(splitFlags({ flags: row.flags ?? [] },
+              ctx?.all?.equipment ?? [], ctx?.all?.clinicalFlags ?? []))}
           </div>
         </div>
         <span class="badge badge--ok">已記 ${recorded.length} 筆</span>
@@ -1234,12 +1249,13 @@ function entFields(row, picked) {
       </div>
       <label class="field" style="margin: var(--space-3) 0 0">
         <span class="field__label">上面沒有的時間</span>
-        <input type="time" data-othertime value="${esc(view.startsAt ?? '')}" step="300" />
+        <input type="time" data-othertime value="${esc(view.startsAt ?? '')}"
+               step="${f.timeStepFor(view.startsAt)}" />
       </label>
     </div>
 
     ${course.requiresEquipment ? equipmentField(row, picked) : ''}
-    ${course.requiresIvProduct ? ivField(all) : ''}
+    ${course.requiresIvProduct ? ivField(all, picked) : ''}
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
     ${course.assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all) : ''}
@@ -1392,15 +1408,39 @@ function equipmentField(row, picked) {
     </div>`;
 }
 
-function ivField(all) {
+/**
+ * 營養點滴的品項。
+ *
+ * **預設就是她買的那一款**，其餘的收在「換一款」後面 —— 哪幾顆、誰在前面
+ * 只寫在 `domain/masterData.js` 的 `ivChoicesFor()`，來訪編輯器讀的是同一支。
+ * 收合的樣子（`chip--tucked` 與 `[data-tuck]`）跟 `f.chips()` 的 `tuckAfter`
+ * 共用同一組 class —— 這一頁的丸子走 view state 不走表單，所以自己畫，
+ * 但**看起來與按起來要一模一樣**。
+ */
+function ivField(all, picked) {
+  const { bought, primary, others } = ivChoicesFor(picked?.entitlement, all.ivProducts);
+  const rows = [...primary, ...others];
+  const tucks = Boolean(bought) && others.length > 0;
+
   return `
-    <div class="fieldgroup">
+    <div class="fieldgroup" ${tucks ? "data-tuck='closed'" : ''}>
       <span class="fieldgroup__label">營養點滴品項</span>
       <div class="chips">
-        ${all.ivProducts.filter((p) => p.active !== false).map((p) => `
-          <button class="chip" type="button" aria-pressed="${p.id === view.equipmentId}"
-                  data-ivproduct="${esc(p.id)}">${esc(p.name)}</button>`).join('')}
+        ${rows.map((p, i) => {
+          const on = p.id === view.equipmentId;
+          // 選著的那一顆永遠看得到 —— 收起來的話畫面上會是「一排都沒選」
+          const tucked = tucks && i >= primary.length && !on ? ' chip--tucked' : '';
+          return `
+          <button class="chip${tucked}" type="button" aria-pressed="${on}"
+                  data-ivproduct="${esc(p.id)}">${esc(p.name)}</button>`;
+        }).join('')}
+        ${tucks ? `
+          <button class="chip chip--more" type="button" data-chip-more
+                  aria-expanded="false">換一款</button>` : ''}
       </div>
+      ${bought && view.equipmentId && view.equipmentId !== bought.id
+        ? `<span class="field__hint">跟買的不一樣 —— 這筆額度買的是 ${esc(bought.name)}</span>`
+        : ''}
     </div>`;
 }
 
@@ -1519,6 +1559,18 @@ function pickExamIfObvious(row, picked) {
 }
 
 /**
+ * 買的時候就定下來的那一款先選好。**同一個 `view.equipmentId` 兩用**
+ *（器材與品項不會同時出現 —— `masterData.js` 的驗證擋著）。
+ *
+ * 不選品項存不下去，而只有一個正確答案的時候讓她多點一下沒有任何意義。
+ * 換得掉：其餘的收在「換一款」後面（`ivField()`）。
+ */
+function pickIvIfBought(picked) {
+  if (!picked?.course?.requiresIvProduct) return;
+  view.equipmentId = picked.entitlement?.ivProductId ?? null;
+}
+
+/**
  * 診間。這個課程常用的放前面當泡泡，其餘的收在底下 ——
  * 十五間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
  */
@@ -1599,6 +1651,14 @@ function onDeckClick(e) {
   const time = e.target.closest('[data-time]');
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
+  // 「換一款」：只改一個屬性，整排不重畫（同 f.chips() 的 wireChips）
+  const more = e.target.closest('[data-chip-more]');
+  if (more) {
+    more.setAttribute('aria-expanded', 'true');
+    more.closest('[data-tuck]')?.setAttribute('data-tuck', 'open');
+    return;
+  }
+
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
     ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],
     ['exam', 'followupForVisitId']]) {
@@ -1670,6 +1730,7 @@ function pickCourse(entitlementId) {
   // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
   if (picked?.isNth) pickDefaultNth(row);
   else pickExamIfObvious(row, picked);
+  pickIvIfBought(picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');

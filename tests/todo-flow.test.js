@@ -10,8 +10,10 @@ import {
   STAGES, stageOf, orderOf, groupByStage, nextStage, RETIRED_KINDS, isRetired,
   groupByDoneDay,
 } from '../public/js/domain/todoFlow.js';
-import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND } from '../public/js/domain/followups.js';
-import { TASK_KINDS, cancelKindFor } from '../public/js/domain/taskRules.js';
+import {
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
+} from '../public/js/domain/followups.js';
+import { TASK_KINDS, cancelKindFor, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 
 describe('流程的段', () => {
   test('七段，編號就是流程的第幾步', () => {
@@ -32,7 +34,7 @@ describe('流程的段', () => {
 
   test('每一種現行的待辦都歸得了段', () => {
     const rows = ['ask', 'forms', 'book', 'confirm', 'close', ...TASK_KINDS,
-      REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+      RECORD_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
     for (const id of rows) {
       assert.ok(STAGES.some((s) => s.id === stageOf(id)), `${id} 歸不了段`);
     }
@@ -58,6 +60,21 @@ describe('段裡的順序', () => {
     assert.ok(orderOf(REPORT_TASK_KIND) < orderOf(FOLLOWUP_TASK_KIND));
   });
 
+  // ADR-0065：寄報告與約二返的死線一模一樣，所以先後只能由 FLOW 那一份決定。
+  // 她自己標的順序是「(1) 寄報告 (2) 三系統」，而約二返比三系統更前面。
+  test('寄報告排在追蹤報告之後、約二返之前', () => {
+    assert.ok(orderOf(REPORT_TASK_KIND) < orderOf(SEND_REPORT_TASK_KIND));
+    assert.ok(orderOf(SEND_REPORT_TASK_KIND) < orderOf(FOLLOWUP_TASK_KIND));
+    assert.equal(stageOf(SEND_REPORT_TASK_KIND), 'after');
+  });
+
+  // ADR-0066：寫紀錄是客人走了之後立刻做的，追蹤報告是三週後的事。
+  // 照死線排的話這兩張的先後是對的，但「照死線排」本身是錯的（ADR-0043）。
+  test('寫紀錄排在「來訪之後」那一段的最前面', () => {
+    assert.equal(stageOf(RECORD_TASK_KIND), 'after');
+    assert.ok(orderOf(RECORD_TASK_KIND) < orderOf(REPORT_TASK_KIND));
+  });
+
   test('認不得的排段裡最後 —— 不擋在該做的事前面', () => {
     assert.ok(orderOf('打電話') > orderOf('Examine'));
     assert.ok(orderOf('打電話') > orderOf('耀聖'));
@@ -71,9 +88,14 @@ describe('段裡的順序', () => {
   });
 
   test('段裡照流程排，不照丟進來的順序', () => {
-    const rows = [{ id: FOLLOWUP_TASK_KIND }, { id: REPORT_TASK_KIND }];
+    const rows = [
+      { id: FOLLOWUP_TASK_KIND }, { id: SEND_REPORT_TASK_KIND }, { id: REPORT_TASK_KIND },
+    ];
     const after = groupByStage(rows).find((g) => g.stage.id === 'after');
-    assert.deepEqual(after.rows.map((r) => r.id), [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND]);
+    assert.deepEqual(
+      after.rows.map((r) => r.id),
+      [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND],
+    );
   });
 });
 

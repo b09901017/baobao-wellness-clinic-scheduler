@@ -19,6 +19,7 @@ import * as backfill from './views/backfill.js';
 import * as calendar from './views/calendar.js';
 import * as report from './views/report.js';
 import * as mergeImport from './views/mergeImport.js';
+import * as playbook from './views/playbook.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 register('/', { title: '待辦', icon: 'todo', render: home.render });
@@ -72,6 +73,17 @@ register('/visits/:id', {
   render: (el, id) => visitEditor.renderEdit(el, id),
 });
 register('/schedule/backfill', { title: '時段反查', nav: false, render: backfill.render });
+
+// 備忘錄／SOP。**不進導覽列**（ADR-0067）：入口在待辦那一頁的右上角，
+// 跟客戶頁的「看這個月的進度」同一顆。五格變六格會讓每一格從 20% 掉到 16.6%，
+// 而她九成的時間在前四格上。
+register('/playbook', { title: '備忘錄', nav: false, render: playbook.render });
+// `:id` 不是另一頁，是「這一疊，開在那一張」（ADR-0069）——
+// 日曆卡片上的「看整份」指著它。少一頁就少一個回不去的地方。
+register('/playbook/:id', {
+  title: '備忘錄', nav: false,
+  render: (el, id) => playbook.render(el, id),
+});
 
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/health', { title: '資料健檢', nav: false, render: health.render });

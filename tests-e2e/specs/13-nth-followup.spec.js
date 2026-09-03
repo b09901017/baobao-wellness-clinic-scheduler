@@ -310,3 +310,50 @@ test('N7 什麼都用完的客戶：日曆上照樣加得了三返', async ({ ap
   expect(saved.slots[0].followupNth).toBe(3);
   expect(saved.slots[0].followupForVisitId).toBe('v-u-exam');
 });
+
+
+// 2026-09-04 她問：「設定那邊的課程沒有 n返？還是其實我設定二返就等於 n返？」
+// 是的：n返 借的就是二返那一個課程（時段的 courseId 指著它），所以二返上的
+// 每一個設定它都照著走 —— 包含「客人走了之後要補一份紀錄」。
+test('J-N7 三返做完也會長出「寫紀錄」—— 它跟著二返的設定走', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-v', name: '客戶V' }),
+    entitlement('cust-v', {
+      id: 'ent-v-exam', label: '8萬健檢', type: 'single', courseId: 'course-checkup',
+      totalQty: 1, doneCount: 1, bookedCount: 0, durationMin: 120,
+    }),
+    visit({
+      id: 'v-v-exam', customerId: 'cust-v', customerName: '客戶V',
+      date: EXAM_DATE, status: 'done',
+      slots: [slot({
+        courseId: 'course-checkup', entitlementId: 'ent-v-exam',
+        startsAt: '09:00', endsAt: '11:00', roomId: 'room-t3', attended: true,
+      })],
+    }),
+    // 今天的一場三返：沒有額度，靠 followupNth 站得住（ADR-0063）
+    visit({
+      id: 'v-v-nth', customerId: 'cust-v', customerName: '客戶V',
+      date: TODAY, status: 'confirmed',
+      slots: [slot({
+        courseId: 'course-followup', entitlementId: null,
+        courseName: '三返', followupNth: 3, followupForVisitId: 'v-v-exam',
+        startsAt: '15:00', endsAt: '15:30', roomId: 'room-t3', doctorId: 'staff-dr-xia',
+      })],
+    }),
+  ]);
+  await app.signIn('/todo/close');
+
+  await page.locator('[data-open="v-v-nth"]').click();
+  await expect(page.locator('.drawer')).toContainText('寫紀錄');
+  await page.locator('[data-apply]').click();
+  await page.waitForTimeout(1800);
+
+  const record = (await app.readAll('tasks'))
+    .filter((t) => !t.deletedAt)
+    .find((t) => t.kind === '寫紀錄');
+
+  expect(record, '三返做完一樣要補一份紀錄').toBeTruthy();
+  expect(record.visitId).toBe('v-v-nth');
+  expect(record.dueDate).toBe(TODAY);
+});

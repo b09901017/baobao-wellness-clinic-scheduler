@@ -649,6 +649,16 @@ textarea {
   background: var(--danger);
 }
 
+/* 臨床提醒（ADR-0064）。比 .flag--block 輕一級：那一顆是「這台機器不能用」，
+   這一顆是「這個人做起來要注意」。**不開新色相**（ADR-0039 已經記著色相不夠用）
+   —— 借 --tea（次要強調），而茶色目前沒有被任何狀態丸用掉。
+   外框而不是實心：實心會跟旁邊的醫療禁忌搶同一個重量，而那兩件事的後果差很多。 */
+.flag--alert {
+  color: var(--tea);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tea);
+}
+
 /* 「只能 INDIBA」「不能用 超磁場」—— 算出來的那一句。
    比上面那顆輕一級：被擋掉的那幾個字是事實，這一句是它的後果。
    一台都不剩時改掛 .flag--block（那時候她壓不下去，要跟旗標一樣重）。 */
@@ -841,6 +851,44 @@ textarea {
   border-color: var(--danger);
   color: var(--danger);
   font-weight: 700;
+}
+
+/* 臨床提醒那一排（血管難打、第一針，ADR-0064）。選中用茶色不用紅 ——
+   紅在這一站已經是「這台不能用」，而這一顆什麼都不擋。
+   兩排丸子的差別要在**選中**的時候最明顯：沒選的時候它們長得一樣是對的，
+   那時候她在挑，不是在讀。 */
+.chip--soft[aria-pressed='true'] {
+  background: var(--tea-soft);
+  border-color: var(--tea);
+  color: var(--tea);
+  font-weight: 700;
+}
+
+/* 「有一個正確答案，但別的答案偶爾也對」的那幾排（`f.chips()` 的 tuckAfter）。
+   營養點滴的品項就是：買的是 A，而今天 A 剛好用完是真的會發生的事
+   —— 所以其餘的**排在後面**，不是不給選（ADR-0002）。
+
+   收起來用 display:none 不用寬度動畫：一排丸子是橫向捲動的，
+   把幾顆的寬度收成 0 會讓整排在動畫中一直改變捲動範圍，手指跟著跳。 */
+.chip--tucked { display: none; }
+
+[data-tuck='open'] .chip--tucked {
+  display: inline-flex;
+  animation: chip-in var(--motion-base) var(--ease-out) both;
+}
+
+[data-tuck='open'] .chip--more { display: none; }
+
+/* 「換一款」自己不是一個選項，所以不長得像選項：虛線、淡字。 */
+.chip--more {
+  border-style: dashed;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+@keyframes chip-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* 一整列的丸子改成左右滑，不要換行往下堆 ——
@@ -5625,4 +5673,409 @@ summary {
 
 .kindpick .muted {
   font-size: var(--text-2xs);
+}
+
+/* ---------- 備忘錄 / SOP（ADR-0067、ADR-0069） ----------
+ *
+ * 她要的是「像卡牌一樣可以左右滑」「背景要是有設計過像是備忘錄感覺的那種卡牌」
+ * 「動畫絲滑流暢，沉浸式」，而且「不需要太多的說明文字」。
+ *
+ * 這一區的原則跟全站相反一點點：`tokens.css` 開頭那條「縮小的是包裝，不是資料」
+ * 在這裡走到底 —— **這一頁上全部都是資料**，所以內文比一般頁面大一級、
+ * 行距拉開，而包裝（外框、底色、按鈕）少到幾乎沒有。
+ *
+ * ## 這一疊的簽名是卡片上緣那一道茶色
+ *
+ * 一疊便條紙的樣子由三件事講完：**白卡 + 上緣的黏邊 + 露出下一張**。
+ * 沒有橫線紙紋、沒有摺角、沒有第二個顏色 —— 再多一件就變成貼圖。
+ * 這是這一頁唯一的裝飾，其餘全部是字。
+ */
+
+/* ---- 抬頭：標題 + 放大鏡 ---- */
+
+.pbtop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--gutter);
+  margin-bottom: var(--space-2);
+}
+
+.pbtop .page__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 放大鏡。感應範圍撐回 44px（SPEC 第 8.0 節）—— 看起來輕、按起來一樣準。 */
+.iconbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+
+.iconbtn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.iconbtn:active { transform: scale(0.94); }
+
+.iconbtn[aria-expanded='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+/* 搜尋列。收合走 grid 0fr→1fr（跟待辦抽屜同一招）——
+   `<details>` 在 iOS Safari 上動不起來，而 height:auto 沒有動畫。 */
+.pbsearch {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-base) var(--ease-out);
+}
+
+.pbsearch[data-open='true'] { grid-template-rows: 1fr; }
+
+.pbsearch__in {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.pbsearch input {
+  width: calc(100% - var(--gutter) * 2);
+  margin: 0 var(--gutter) var(--space-3);
+}
+
+/* ---- 一疊卡 ---- */
+
+/* 原生捲動 + snap。**不自己接手勢** —— 慣性、回彈、橡皮筋自己寫永遠差一截，
+   而她那句「絲滑」講的就是那一截。
+
+   `88%` 讓旁邊露出一小條下一張：那是「還有東西」最早被看到的訊號，
+   比底下的小圓點早。左右各留一段 padding，第一張與最後一張才停得到正中間。 */
+.pbdeck {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  /* **高度跟著內容長，不是固定的一大塊。** 固定高度會讓一張三行的備忘錄
+     底下留半個螢幕的空白，而那半個螢幕什麼都沒有在講。
+     `stretch` 讓同一疊裡的每一張一樣高（照最長的那一張），
+     再長就在卡片裡面捲。 */
+  max-height: 72dvh;
+  padding: 2px var(--gutter) var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--gutter);
+  scrollbar-width: none;
+}
+
+.pbdeck::-webkit-scrollbar { display: none; }
+
+/* 編輯中把 snap 關掉：鍵盤一上來版面會縮，snap 會把她捲到別張去。 */
+.pbdeck[data-editing='true'] { scroll-snap-type: none; }
+
+.pbcard {
+  position: relative;
+  flex: 0 0 88%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  scroll-snap-align: center;
+  overflow: hidden;
+  animation: pbcard-in var(--motion-base) var(--ease-out) both;
+}
+
+/* 上緣那一道茶色 —— 便條紙的黏邊。**這一頁唯一的裝飾。**
+   用 `--tea` 不用 `--tea-soft`：淺的那一個在白卡上等於看不見，
+   而一個看不見的簽名就不是簽名。3px 剛好是「認得出來但不搶戲」。 */
+.pbcard::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--tea);
+}
+
+@keyframes pbcard-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.pbcard__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.pbcard__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.pbcard__edit {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+
+.pbcard__edit::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.pbcard__edit:active {
+  transform: scale(0.94);
+  background: var(--surface-2);
+}
+
+.pbcard__courses {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  color: var(--tea);
+}
+
+/* 內文。`pre-wrap` 讓她自己打的換行與縮排原樣留著 ——
+   她的筆記本來就是那樣排的，替她重排等於改她的意思。
+
+   比一般頁面大一級、行距 1.85：她是低頭看這台、手在做另一件事的時候在讀它。
+   一張卡放不下就在卡片裡面捲，不要把整疊撐高。 */
+.pbcard__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+  line-height: 1.85;
+  color: var(--text);
+}
+
+/* ---- 丸子清單與小圓點 ---- */
+
+.pbchips {
+  margin-bottom: var(--space-2);
+}
+
+.pbdots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: var(--space-2);
+}
+
+.pbdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background-color var(--motion-base) var(--ease-out),
+              transform var(--motion-base) var(--ease-out);
+}
+
+.pbdot[data-on='true'] {
+  background: var(--tea);
+  transform: scale(1.35);
+}
+
+/* ---- 就地編輯 ---- */
+
+/* 那一張卡在原地變成表單。**不換頁、不開抽屜** —— 換頁會讓她失去
+   「我正在看第三張」，而那正是卡牌的全部價值。 */
+.pbcard--edit {
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.pbcard--edit .chiprow {
+  margin-bottom: var(--space-3);
+}
+
+.pbedit__title {
+  width: 100%;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.pbedit__title:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* 內文那一格。**它是這張表單上最重要的欄位**，所以給它最大的面積與
+   跟閱讀那一面一樣的行距 —— 打字的時候看到的排版就是讀的時候的排版。
+   高度由 JS 跟著內容長（一般備忘錄 app 就是這樣）。 */
+.pbedit__body {
+  width: 100%;
+  min-height: 200px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1.85;
+  resize: none;
+  overflow: hidden;
+}
+
+.pbedit__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.pbedit__del {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.pbempty {
+  margin: 0 var(--gutter);
+}
+
+/* ---- 自己浮出來的那一小塊（ui/components/playbookHint.js） ----
+ *
+ * 日曆上點開一筆來訪、待辦的「跟客人確認時間」那一張卡，都會長這一塊。
+ * 印的是那一份的**前幾行**（`PREVIEW_LINES`）—— 洗版由行數擋不由時機擋，
+ * 因為她看得到自己寫的第幾行會出現在這裡（ADR-0069）。 */
+.pbhint {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  /* 左邊那一道細線。**它不是裝飾**：這一塊跟它上面那一塊（來訪的時段）
+     底色一樣，而兩者是完全不同的東西 —— 上面是這一筆的事實，這裡是給人看的
+     提醒。沒有這一道，兩塊讀起來像同一種資料。 */
+  border-left: 2px solid var(--tea);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+}
+
+.pbhint + .pbhint {
+  margin-top: var(--space-2);
+}
+
+.pbhint__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.pbhint__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--tea);
+}
+
+.pbhint__more {
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pbhint__more::after {
+  content: ' ›';
+}
+
+.pbhint__rest {
+  margin: var(--space-1) 0 0 var(--space-4);
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+/* 一行一件事。行的畫法只有一份 —— 兩份寫法遲早有一份會把空行畫成一個
+   空的項目，而那看起來像資料壞了。 */
+.pblines {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pblines li {
+  position: relative;
+  padding: 2px 0 2px var(--space-4);
+  font-size: var(--text-md);
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.pblines li::before {
+  content: '';
+  position: absolute;
+  top: 0.85em;
+  left: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.pblines--tight li {
+  padding: 1px 0 1px var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.pblines--tight li::before {
+  top: 0.8em;
 }

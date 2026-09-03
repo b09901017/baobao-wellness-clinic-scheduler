@@ -6,6 +6,7 @@
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
 import { contraindicationTerms } from './contraindications.js';
+import { clinicalTerms } from './masterData.js';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -105,49 +106,80 @@ export function warnings(c, existing = []) {
 }
 
 /**
- * 把永久限制拆成「可以用點的」與「只能自己打」兩份，給編輯表單用。
+ * 把永久限制拆成三份，給編輯表單用。
  *
- * 會擋掉器材的那幾個字是有限的一組（`contraindicationTerms()`），所以它們可以
- * 做成丸子讓她點 —— 那種字打錯一個就完全不會擋，而不會擋的醫療禁忌比沒有
- * 更危險。其餘的（固定禮拜五不行）是她自己的話，句子長什麼樣只有她知道，
+ * 前兩份是**有限的一組字**，所以做成丸子讓她點：
+ *
+ * - `picked`      醫療禁忌（`contraindicationTerms()`，從器材主檔推出來）
+ * - `clinicalPicked` 臨床提醒（`clinicalTerms()`，自己一份主檔，ADR-0064）
+ *
+ * 醫療禁忌那種字打錯一個就完全不會擋，而不會擋的醫療禁忌比沒有更危險；
+ * 臨床提醒打錯一個則是**壓表卡片牆上什麼都不會出現**，而畫面上看起來
+ * 跟打對了一模一樣 —— 兩種都是「看不出來的錯」，所以兩種都不給她打字。
+ *
+ * 第三份 `others`（固定禮拜五不行）是她自己的話，句子長什麼樣只有她知道，
  * 只能留自由輸入。
  *
+ * **`others` 要同時排掉兩份名單**：少排一份的話，臨床提醒會在自由輸入欄裡
+ * 再出現一次，存檔時 `validate()` 會因為重複而擋下整張表單，
+ * 而畫面上沒有一個欄位看起來是錯的（`mergeFlags()` 已經記過這個坑一次）。
+ *
  * @param {string[]} flags 客戶身上的永久限制
- * @param {string[]} terms 可以點的那幾個字，由 contraindicationTerms() 給
- * @returns {{picked: string[], others: string[]}} picked 照 terms 的順序，
- *          others 照客戶身上的原順序
+ * @param {string[]} terms 會擋掉器材的那幾個字
+ * @param {string[]} clinical 臨床提醒那幾個字
+ * @returns {{picked: string[], clinicalPicked: string[], others: string[]}}
+ *          前兩份照各自名單的順序，`others` 照客戶身上的原順序
  */
-export function splitFlagsForEdit(flags = [], terms = []) {
+export function splitFlagsForEdit(flags = [], terms = [], clinical = []) {
   const has = new Set(flags ?? []);
+  const known = new Set([...(terms ?? []), ...(clinical ?? [])]);
   return {
     picked: (terms ?? []).filter((t) => has.has(t)),
-    others: (flags ?? []).filter((f) => !(terms ?? []).includes(f)),
+    clinicalPicked: (clinical ?? []).filter((t) => has.has(t)),
+    others: (flags ?? []).filter((f) => !known.has(f)),
   };
 }
 
 /**
- * 拆開的兩份合回一個 flags。丸子排前面 —— 會擋東西的字要先被看到。
+ * 拆開的幾份合回一個 flags。**順序就是嚴重程度**：醫療禁忌、臨床提醒、其餘。
+ * 客戶詳情那一排照這個順序畫，所以會擋東西的字永遠先被看到。
  *
  * 去重是必要的而不是保險：她可能在自由輸入那一欄又打了一次「體內金屬」，
  * 而 `validate()` 會因為重複而擋下整張表單，卻沒有任何一個欄位看起來是錯的。
+ *
+ * 中間那一份是後來加的（ADR-0064），所以它有預設值 —— 只傳兩份的呼叫端
+ * 行為一個字都沒有變。
  */
-export function mergeFlags(picked = [], others = []) {
-  const all = [...(picked ?? []), ...(others ?? [])].map((x) => String(x).trim());
+export function mergeFlags(picked = [], clinical = [], others = []) {
+  const all = [...(picked ?? []), ...(clinical ?? []), ...(others ?? [])]
+    .map((x) => String(x).trim());
   return [...new Set(all.filter(Boolean))];
 }
 
 /**
- * 醫療禁忌是永久限制的子集：會讓某個器材完全不能用的那些。
- * 客戶卡片上要把它跟一般限制分開顯示 —— 一般限制是提醒，禁忌是硬性阻擋。
+ * 永久限制的三層，見 ADR-0064。
+ *
+ *   contraindications  醫療禁忌   會讓某個器材完全不能用（全站唯一的硬性阻擋）
+ *   clinical           臨床提醒   什麼都不擋，但壓表那一刻要一眼看得到
+ *   others             其餘       排班相關的話（固定禮拜五不行）
+ *
+ * 三層要分開顯示，而且**畫法不一樣**：一張卡上十個紅字等於全都不紅
+ * （`ui/components/flags.js` 的檔頭）。
+ *
  * @param {object} customer
  * @param {object[]} equipment 器材主檔
- * @returns {{contraindications: string[], others: string[]}}
+ * @param {object[]} clinicalFlags 臨床提醒主檔
+ * @returns {{contraindications: string[], clinical: string[], others: string[]}}
  */
-export function splitFlags(customer, equipment = []) {
+export function splitFlags(customer, equipment = [], clinicalFlags = []) {
   const blocking = new Set(contraindicationTerms(equipment));
+  const alerts = new Set(clinicalTerms(clinicalFlags));
   const flags = customer?.flags ?? [];
   return {
     contraindications: flags.filter((f) => blocking.has(f)),
-    others: flags.filter((f) => !blocking.has(f)),
+    // 兩份名單撞名時**禁忌贏**：那一顆是擋得住東西的，畫成比較輕的一顆
+    // 等於把硬性阻擋降級，而降級在畫面上看不出來。
+    clinical: flags.filter((f) => !blocking.has(f) && alerts.has(f)),
+    others: flags.filter((f) => !blocking.has(f) && !alerts.has(f)),
   };
 }

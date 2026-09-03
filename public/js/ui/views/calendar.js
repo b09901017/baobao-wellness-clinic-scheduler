@@ -25,6 +25,7 @@ import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as notesData from '../../data/notes.js';
+import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
@@ -43,6 +44,7 @@ import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js'
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import * as note from '../components/note.js';
+import { hintHtml } from '../components/playbookHint.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
@@ -97,13 +99,17 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff] = await Promise.all([
+    const [visits, events, notes, rooms, staff, playbooks] = await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
       // 有日期的隨手記（ADR-0044）。跟其他四份一起走，不多一輪往返。
       notesData.listBetween(from.from, to.to),
       config.listAll('rooms'),
       config.listAll('staff'),
+      // 備忘錄（ADR-0067）。點開一筆來訪時，對應時機的那一節會浮在卡片底下。
+      // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
+      // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
+      playbooksData.list().catch(() => []),
     ]);
     return {
       ok: true,
@@ -111,6 +117,7 @@ async function load() {
         visits,
         events,
         notes,
+        playbooks,
         roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
         staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
       },
@@ -735,7 +742,11 @@ function openDetail(el, data, what, id, date) {
   openCard({
     title: visit.customerName ?? '（沒有名字）',
     subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
-    body: visitReadHtml(visit, data),
+    // **不改 `visitReadHtml()` 本身。** 那一支是四個畫面共用的（ADR-0018、0056），
+    // 而客戶詳情、待辦中心、進度追蹤那三頁問的問題（他還剩幾次、今天要掛哪幾個、
+    // 這個月做了多少）都不是「這一場我該怎麼做」。備忘錄接在後面，只在日曆上。
+    body: visitReadHtml(visit, data)
+      + hintHtml({ playbooks: data.playbooks ?? [], visit }),
     canEdit: true,
     onEdit: () => {
       closeCard();

@@ -130,11 +130,13 @@ function html(e, { isNew, embedded = false }) {
       ${e.allDay ? '' : `
         <label class="field">
           <span class="field__label">開始時間</span>
-          <input type="time" data-starttime value="${esc(e.startTime ?? '')}" step="300" />
+          <input type="time" data-starttime value="${esc(e.startTime ?? '')}"
+                 step="${f.timeStepFor(e.startTime)}" />
         </label>
         <label class="field">
           <span class="field__label">結束時間</span>
-          <input type="time" data-endtime value="${esc(e.endTime ?? '')}" step="300" />
+          <input type="time" data-endtime value="${esc(e.endTime ?? '')}"
+                 step="${f.timeStepFor(e.endTime)}" />
         </label>`}
 
       <label class="field">

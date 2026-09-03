@@ -40,14 +40,16 @@ export async function render(el) {
           f.number({
             name: w.key, label: w.label,
             value: s.sortWeights?.[w.key] ?? DEFAULT_SETTINGS.sortWeights[w.key],
-            min: 0, step: 0.1, hint: w.hint,
+            // 'any'：這四個是計分的權重，沒有任何理由只能一位小數。
+            // `step: 0.1` 會讓 1.25 存不下去（見 form.js 的 number()）。
+            min: 0, step: 'any', hint: w.hint,
           }),
         ).join('')}
 
         <h3 class="card__title">其他</h3>
         ${f.number({
           name: 'slotGapMin', label: '來訪內時段間隔（分鐘）',
-          value: s.slotGapMin ?? DEFAULT_SETTINGS.slotGapMin, min: 0, step: 5,
+          value: s.slotGapMin ?? DEFAULT_SETTINGS.slotGapMin, min: 0, step: 1,
           hint: '一次來訪含多個連續時段，中間預設隔這麼久。',
         })}
         ${f.number({
@@ -61,9 +63,9 @@ export async function render(el) {
           hint: '「追蹤健檢報告」那筆待辦的死線 = 健檢日 + 這個天數。報告通常兩三週出來。',
         })}
         ${f.number({
-          name: 'followupDueDays', label: '拿到報告幾天內要約好二返',
+          name: 'followupDueDays', label: '拿到報告幾天內要寄給醫師並約好二返',
           value: s.followupDueDays ?? DEFAULT_SETTINGS.followupDueDays, min: 1, step: 1,
-          hint: '「約二返」那筆待辦的死線 = 勾掉「追蹤健檢報告」那一天 + 這個天數。'
+          hint: '「約二返」與「寄報告給醫師」兩張的死線 = 勾掉「追蹤健檢報告」那一天 + 這個天數。'
             + '從健檢日算的話，它一出生就是逾期紅字。',
         })}
 

@@ -5,7 +5,7 @@ import {
   validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
-  staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES,
+  staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
@@ -116,6 +116,37 @@ describe('課程驗證', () => {
   test('沒設後續課程是常態，不是漏填', () => {
     assert.deepEqual(validate('courses', { ...base, followupCourseId: null }), []);
     assert.deepEqual(validate('courses', { ...base }), []);
+  });
+});
+
+// ADR-0064：臨床提醒是自己一份主檔，不是從器材推出來的 ——
+// 它沒有東西要「對得上」，因為它什麼都不擋。
+describe('臨床提醒主檔（ADR-0064）', () => {
+  test('名單只收還在用的，維持主檔上的順序', () => {
+    const rows = [
+      { name: '血管難打' },
+      { name: '第一針', active: false },
+      { name: '已刪的', deletedAt: 'x' },
+      { name: '怕痛' },
+    ];
+    assert.deepEqual(clinicalTerms(rows), ['血管難打', '怕痛']);
+  });
+
+  test('空的、沒傳的都回空陣列 —— 不要憑空生一個字', () => {
+    assert.deepEqual(clinicalTerms([]), []);
+    assert.deepEqual(clinicalTerms(), []);
+    assert.deepEqual(clinicalTerms([{ name: '   ' }]), []);
+  });
+
+  test('名稱太長擋下來 —— 卡片牆上那一排要掃得完', () => {
+    assert.deepEqual(validate('clinicalFlags', { name: '血管難打' }), []);
+    assert.ok(validate('clinicalFlags', { name: '一二三四五六七八九十一二三' }).length);
+  });
+
+  test('同名只講一次，不要兩句在講同一件事', () => {
+    const existing = [{ id: 'a', name: '血管難打' }];
+    const errors = validate('clinicalFlags', { id: 'b', name: '血管難打' }, { existing });
+    assert.equal(errors.length, 1);
   });
 });
 
@@ -526,4 +557,49 @@ test('沒改名就儲存會被同名檢查擋下來，不會無聲蓋掉', () =>
     equipment: SEED.equipment,
   });
   assert.ok(errors.length > 0);
+});
+
+
+// 2026-09-04 她問的：「我營養點滴如果一開始加購的是 A，但是我排來訪的時候，
+// 選營養點滴還能排到其他 BCD？」壓表與來訪編輯器兩個入口讀的是這一支。
+describe('排班時營養點滴給哪幾顆（ivChoicesFor）', () => {
+  const PRODUCTS = [
+    { id: 'iv-a', name: 'A' },
+    { id: 'iv-b', name: 'B' },
+    { id: 'iv-c', name: 'C', active: false },
+    { id: 'iv-d', name: 'D', deletedAt: '2026-01-01' },
+  ];
+
+  test('買的那一款排第一顆，其餘的收在後面', () => {
+    const { bought, primary, others } = ivChoicesFor({ ivProductId: 'iv-a' }, PRODUCTS);
+    assert.equal(bought.name, 'A');
+    assert.deepEqual(primary.map((p) => p.id), ['iv-a']);
+    assert.deepEqual(others.map((p) => p.id), ['iv-b'], '停用與已刪除的不列');
+  });
+
+  test('額度上沒有品項（舊資料、n返）→ 全部列出來，一顆都不收', () => {
+    const { bought, primary, others } = ivChoicesFor({}, PRODUCTS);
+    assert.equal(bought, null);
+    assert.deepEqual(primary.map((p) => p.id), ['iv-a', 'iv-b']);
+    assert.deepEqual(others, []);
+  });
+
+  test('買的那一款被停用了照樣要出現 —— 那一筆額度上寫的就是它', () => {
+    const { bought, primary, others } = ivChoicesFor({ ivProductId: 'iv-c' }, PRODUCTS);
+    assert.equal(bought.name, 'C');
+    assert.deepEqual(primary.map((p) => p.id), ['iv-c']);
+    assert.deepEqual(others.map((p) => p.id), ['iv-a', 'iv-b']);
+  });
+
+  test('買的那一款在主檔裡整個不見了 → 講不出它叫什麼，退回全部列出來', () => {
+    const { bought, primary } = ivChoicesFor({ ivProductId: 'iv-gone' }, PRODUCTS);
+    assert.equal(bought, null);
+    assert.deepEqual(primary.map((p) => p.id), ['iv-a', 'iv-b']);
+  });
+
+  test('沒有額度、沒有主檔也不會炸', () => {
+    assert.deepEqual(ivChoicesFor(null, []), {
+      boughtId: null, bought: null, primary: [], others: [],
+    });
+  });
 });

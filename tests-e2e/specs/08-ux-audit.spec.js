@@ -8,7 +8,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  masterDocs, customer, entitlement, visit, slot, note, event, TODAY, addDays,
+  masterDocs, customer, entitlement, visit, slot, note, event, playbook, TODAY, addDays,
 } from '../fixtures/data.js';
 
 const PAGES = [
@@ -22,6 +22,7 @@ const PAGES = [
   ['/todo/notes', '隨手記'],
   ['/settings/health', '資料健檢'],
   ['/customers/progress', '進度追蹤'],
+  ['/playbook', '備忘錄'],
 ];
 
 function richSeed() {
@@ -49,6 +50,11 @@ function richSeed() {
     note({ id: 'n1', text: '下次記得帶健保卡', date: TODAY, customerId: 'cust-a', customerName: '客戶A' }),
     event({ id: 'e1', title: '宜蘭休假', category: 'leave', startDate: addDays(TODAY, 2), endDate: addDays(TODAY, 4) }),
     event({ id: 'e2', title: '高齡演講', category: 'personal', startDate: addDays(TODAY, 6), color: 'plum' }),
+    playbook({
+      id: 'pb-drip', title: '營養點滴', courseIds: ['course-iv-drip'],
+      body: ['飯後打針（先通知客人）', '預約系統註記：第一針或血管難打', '四樓要清理'],
+    }),
+    playbook({ id: 'pb-rehab', title: '復健科流程', courseIds: [], body: ['三樓報到'] }),
   ];
 }
 

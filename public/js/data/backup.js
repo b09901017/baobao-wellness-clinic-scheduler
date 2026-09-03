@@ -30,7 +30,7 @@ export const BACKUP_VERSION = 2;
 export async function exportAll({ includeAudit = false } = {}) {
   const [
     master, settings, customers, entitlements, availability, visits, tasks, batches,
-    notes, events, formInvites, formResponses,
+    notes, events, formInvites, formResponses, playbooks,
   ] = await Promise.all([
     exportMaster(),
     config.getSettings(),
@@ -44,6 +44,7 @@ export async function exportAll({ includeAudit = false } = {}) {
     repo.listWithDeleted('events'),
     repo.listWithDeleted('formInvites'),
     repo.listWithDeleted('formResponses'),
+    repo.listWithDeleted('playbooks'),
   ]);
 
   const data = {
@@ -67,6 +68,10 @@ export async function exportAll({ includeAudit = false } = {}) {
     events,
     formInvites,
     formResponses,
+    // 備忘錄是她自己打的字（ADR-0067）。漏掉它，還原完那一整類就沒了，
+    // 而她要等到去翻某一份流程才會發現 —— 那正是 notes 與 events
+    // 被漏掉過一次的症狀。`scripts/restore-backup.mjs` 的 SECTIONS 要一起加。
+    playbooks,
   };
 
   if (includeAudit) data.audit = await repo.listWithDeleted('audit', { order: ['at', 'asc'] });
@@ -95,6 +100,7 @@ const LABELS = {
   formInvites: '發出去的表單',
   formResponses: '表單回覆',
   config: '主檔',
+  playbooks: '備忘錄',
   audit: '稽核紀錄',
 };
 

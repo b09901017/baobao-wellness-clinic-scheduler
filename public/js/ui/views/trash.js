@@ -8,6 +8,8 @@ import * as customers from '../../data/customers.js';
 import * as visits from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as notesData from '../../data/notes.js';
+import * as playbooksData from '../../data/playbooks.js';
+import { linesOf } from '../../domain/playbook.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -82,7 +84,7 @@ export async function render(el) {
 async function loadGroups() {
   const [
     master, deletedCustomers, deletedEnts, aliveCustomers,
-    deletedVisits, deletedAvail, deletedEvents, deletedNotes,
+    deletedVisits, deletedAvail, deletedEvents, deletedNotes, deletedPlaybooks,
   ] = await Promise.all([
     Promise.all(
       MASTER_TYPES.map(async (type) => ({
@@ -103,6 +105,7 @@ async function loadGroups() {
     customers.listDeletedAvailability(),
     eventsData.listDeleted(),
     notesData.listDeleted(),
+    playbooksData.listDeleted(),
   ]);
 
   const nameOf = new Map(
@@ -155,6 +158,17 @@ async function loadGroups() {
         note: n.customerName ?? '沒掛客戶',
         deletedAt: n.deletedAt,
         restore: () => notesData.restore(n.id),
+      })),
+    },
+    {
+      label: '備忘錄',
+      rows: deletedPlaybooks.map((p) => ({
+        name: p.title ?? '（沒有標題）',
+        // 掛了哪些課程答不出來（這一層沒有課程主檔），所以講行數 ——
+        // 她要分辨的是「哪一份是那一份」，而長短最快。
+        note: `${linesOf(p).length} 行`,
+        deletedAt: p.deletedAt,
+        restore: () => playbooksData.restore(p.id),
       })),
     },
     {
