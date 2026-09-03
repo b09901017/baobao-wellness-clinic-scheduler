@@ -28,6 +28,7 @@ import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
+import { clinicalTerms } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct,
@@ -125,8 +126,8 @@ export async function render(el, id) {
 
   let ctx;
   try {
-    const [customer, entitlements, visits, tasks, avail, courses, equipment, notes,
-      rooms, staff, ivProducts, products] =
+    const [customer, entitlements, visits, tasks, avail, courses, equipment, clinicalFlags,
+      notes, rooms, staff, ivProducts, products] =
       await Promise.all([
         data.get(id),
         data.listEntitlements(id),
@@ -135,6 +136,8 @@ export async function render(el, id) {
         data.listAvailability(id),
         config.listAll('courses'),
         config.listAll('equipment'),
+        // 臨床提醒（ADR-0064）。永久限制的第二層，抬頭那一排與編輯表單都要它。
+        config.listAll('clinicalFlags'),
         notesData.listByCustomer(id),
         // 診間與治療師是給那張讀取卡片用的（點一筆來訪浮出來的那一張，
         // 共用日曆的 `visitReadHtml()`）。跟其他幾份同一趟拿，不多一輪往返。
@@ -145,7 +148,7 @@ export async function render(el, id) {
         config.listAll('products'),
       ]);
     ctx = {
-      el, id, customer, entitlements, visits, tasks, courses, equipment, notes,
+      el, id, customer, entitlements, visits, tasks, courses, equipment, clinicalFlags, notes,
       rooms, staff, ivProducts, products,
       availability: avail,
       back: () => reload(ctx),
@@ -178,9 +181,9 @@ function reload(ctx) {
 // ---------- 主畫面 ----------
 
 function paint(ctx) {
-  const { el, customer, entitlements, visits, tasks, equipment, notes } = ctx;
+  const { el, customer, entitlements, visits, tasks, equipment, clinicalFlags, notes } = ctx;
   const today = todayISO();
-  const flags = rules.splitFlags(customer, equipment);
+  const flags = rules.splitFlags(customer, equipment, clinicalFlags);
   const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
@@ -202,10 +205,9 @@ function paint(ctx) {
         </div>
         <button class="btn btn--sm" type="button" data-edit>編輯</button>
       </div>
-      ${flags.contraindications.length || flags.others.length || customer.active === false ? `
+      ${(customer.flags ?? []).length || customer.active === false ? `
         <div class="hero__flags">
-          ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
-          ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
+          ${flagsUi.detailChips(flags)}
           ${customer.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
         </div>` : ''}
     </div>
@@ -1198,7 +1200,7 @@ async function addNote(ctx, form) {
  * 會籍到期日也不在：實務上沒有會籍這件事（ADR-0019）。
  */
 function paintEdit(ctx) {
-  const { el, customer, equipment } = ctx;
+  const { el, customer, equipment, clinicalFlags } = ctx;
   let flags = customer.flags ?? [];
 
   el.innerHTML = `
@@ -1237,6 +1239,7 @@ function paintEdit(ctx) {
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags,
     terms: contraindicationTerms(equipment),
+    clinical: clinicalTerms(clinicalFlags),
     onChange: (list) => {
       flags = list;
     },

@@ -67,6 +67,7 @@ export const MASTER_TYPES = [
   'rooms',
   'staff',
   'equipment',
+  'clinicalFlags',
   'ivProducts',
   'products',
   'courses',
@@ -77,11 +78,41 @@ export const MASTER_LABELS = {
   rooms: '診間',
   staff: '治療師與醫師',
   equipment: '器材',
+  clinicalFlags: '臨床提醒',
   ivProducts: '營養點滴品項',
   products: '營養品',
   courses: '課程',
   plans: '方案範本',
 };
+
+/**
+ * 臨床提醒的名單。**永久限制底下的第二層**，見 ADR-0064。
+ *
+ * 跟醫療禁忌差在一件事：**它什麼都不擋**。
+ * 「體內金屬」會讓超磁場與高能量雷射完全不可選（全站唯一的硬性阻擋，
+ * `domain/contraindications.js`）；「血管難打」不會讓任何東西不能選，
+ * 它只是要在她壓表的那一刻被看到 —— 那一下她要把這件事抄進 Abovee 的註記欄。
+ *
+ * 為什麼是主檔而不是寫死：她手上的筆記裡至少已經有兩個（血管難打、第一針），
+ * 而下一個一定還會有。設定頁的第一句話就是「診間與治療師都在這裡自己加，
+ * 沒有寫死在程式碼裡」。
+ *
+ * 為什麼不像醫療禁忌那樣從別的主檔推出來：醫療禁忌要跟器材上的字**完全相同**
+ * 才擋得住，所以它只能從器材推（`contraindicationTerms()`）。
+ * 臨床提醒沒有東西要對得上，所以它自己就是那份名單。
+ *
+ * 擺在 `staffWithRole()` 旁邊是因為兩支問的是同一句話：
+ * **從主檔拿出一份可以點的名單。**
+ *
+ * @param {{name?: string, active?: boolean, deletedAt?: any}[]} rows config/clinicalFlags
+ * @returns {string[]} 還在用的那幾個字，維持主檔上的順序
+ */
+export function clinicalTerms(rows = []) {
+  return (rows ?? [])
+    .filter((r) => r && !r.deletedAt && r.active !== false)
+    .map((r) => String(r.name ?? '').trim())
+    .filter(Boolean);
+}
 
 const isBlank = (v) => v == null || String(v).trim() === '';
 
@@ -127,6 +158,16 @@ const validators = {
     if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
     else if (contra.some(isBlank)) errors.push('禁忌名稱不可空白');
     return errors;
+  },
+
+  // 臨床提醒（ADR-0064）。同名由 validate() 統一擋，這裡不再擋一次 ——
+  // 兩份實作會讓她看到兩句在講同一件事的錯誤訊息。
+  clinicalFlags(r) {
+    if (isBlank(r.name)) return ['提醒名稱不可空白'];
+    // 這一份的字會原樣畫在壓表卡片牆的一張卡上，而那一排要掃得完。
+    return String(r.name).trim().length > 12
+      ? ['提醒名稱最多 12 字。壓表卡片牆上那一排要掃得完，長的那種寫進備註']
+      : [];
   },
 
   ivProducts(r) {

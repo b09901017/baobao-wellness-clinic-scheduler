@@ -35,6 +35,7 @@ import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
+import { clinicalTerms } from '../../domain/masterData.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
@@ -3060,14 +3061,16 @@ async function applyClose(ctx) {
  */
 async function renderBook(el) {
   const today = todayISO();
-  const [rows, equipment] = await Promise.all([
+  const [rows, equipment, clinicalFlags] = await Promise.all([
     loadBookRows(today),
     config.listAll('equipment'),
+    config.listAll('clinicalFlags'),
   ]);
 
-  // 哪幾個永久限制是會擋掉器材的。那幾個要紅、要跟著名字（SPEC 第 4.3 節）。
-  // 算一次就好 —— 二十幾張卡各算一次是白費的。
+  // 姓名底下那一排要畫哪幾個字。兩份名單：會擋掉器材的（SPEC 第 4.3 節）
+  // 與臨床提醒（ADR-0064）。**各算一次就好** —— 二十幾張卡各算一次是白費的。
   const terms = contraindicationTerms(equipment);
+  const clinical = clinicalTerms(clinicalFlags);
 
   const section = (system, title, note) => {
     const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
@@ -3077,7 +3080,7 @@ async function renderBook(el) {
         <h2 class="card__title">${esc(title)}<span class="muted"> ${mine.length}</span></h2>
         <p class="card__note">${esc(note)}</p>
         <div class="groups" style="margin-top: var(--space-3)">
-          ${mine.map((r) => bookRow(r, system, terms)).join('')}
+          ${mine.map((r) => bookRow(r, system, terms, clinical)).join('')}
         </div>
       </section>`;
   };
@@ -3115,14 +3118,14 @@ async function renderBook(el) {
  * 以前這一列連到客戶詳情，而她在那一頁要做的下一件事就是「去壓這個人的表」——
  * 而客戶詳情上沒有任何一條路通到壓表（她的原話：「跳到客戶資訊那邊很怪」）。
  */
-function bookRow(row, system, terms) {
+function bookRow(row, system, terms, clinical) {
   const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
 
   return `
     <button class="grouprow" type="button" data-book-who="${esc(row.customerId)}">
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
-        ${flagsUi.blockChips({ flags: row.flags ?? [], terms })}
+        ${flagsUi.alertChips({ flags: row.flags ?? [], terms, clinical })}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}

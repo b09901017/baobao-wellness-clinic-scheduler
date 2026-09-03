@@ -5,7 +5,7 @@ import {
   validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
-  staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES,
+  staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
@@ -116,6 +116,37 @@ describe('課程驗證', () => {
   test('沒設後續課程是常態，不是漏填', () => {
     assert.deepEqual(validate('courses', { ...base, followupCourseId: null }), []);
     assert.deepEqual(validate('courses', { ...base }), []);
+  });
+});
+
+// ADR-0064：臨床提醒是自己一份主檔，不是從器材推出來的 ——
+// 它沒有東西要「對得上」，因為它什麼都不擋。
+describe('臨床提醒主檔（ADR-0064）', () => {
+  test('名單只收還在用的，維持主檔上的順序', () => {
+    const rows = [
+      { name: '血管難打' },
+      { name: '第一針', active: false },
+      { name: '已刪的', deletedAt: 'x' },
+      { name: '怕痛' },
+    ];
+    assert.deepEqual(clinicalTerms(rows), ['血管難打', '怕痛']);
+  });
+
+  test('空的、沒傳的都回空陣列 —— 不要憑空生一個字', () => {
+    assert.deepEqual(clinicalTerms([]), []);
+    assert.deepEqual(clinicalTerms(), []);
+    assert.deepEqual(clinicalTerms([{ name: '   ' }]), []);
+  });
+
+  test('名稱太長擋下來 —— 卡片牆上那一排要掃得完', () => {
+    assert.deepEqual(validate('clinicalFlags', { name: '血管難打' }), []);
+    assert.ok(validate('clinicalFlags', { name: '一二三四五六七八九十一二三' }).length);
+  });
+
+  test('同名只講一次，不要兩句在講同一件事', () => {
+    const existing = [{ id: 'a', name: '血管難打' }];
+    const errors = validate('clinicalFlags', { id: 'b', name: '血管難打' }, { existing });
+    assert.equal(errors.length, 1);
   });
 });
 

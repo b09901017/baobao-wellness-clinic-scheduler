@@ -27,6 +27,8 @@ import {
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { annotateOptions } from '../../domain/contraindications.js';
+import { splitFlags } from '../../domain/customers.js';
+import * as flagsUi from '../components/flags.js';
 import {
   roomSlots, roomsForCourse, staffWithRole, picksDoctor, THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
@@ -194,7 +196,7 @@ function paint(ctx, draft) {
       <div class="row__title">
         ${esc(customer.name)}
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
-        ${(customer.flags ?? []).map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+        ${flagsUi.detailChips(splitFlags(customer, all.equipment, all.clinicalFlags))}
       </div>
       ${blockedNote(customer, all.equipment)}
       <div class="errors" data-errors hidden></div>

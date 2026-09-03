@@ -649,6 +649,16 @@ textarea {
   background: var(--danger);
 }
 
+/* 臨床提醒（ADR-0064）。比 .flag--block 輕一級：那一顆是「這台機器不能用」，
+   這一顆是「這個人做起來要注意」。**不開新色相**（ADR-0039 已經記著色相不夠用）
+   —— 借 --tea（次要強調），而茶色目前沒有被任何狀態丸用掉。
+   外框而不是實心：實心會跟旁邊的醫療禁忌搶同一個重量，而那兩件事的後果差很多。 */
+.flag--alert {
+  color: var(--tea);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tea);
+}
+
 /* 「只能 INDIBA」「不能用 超磁場」—— 算出來的那一句。
    比上面那顆輕一級：被擋掉的那幾個字是事實，這一句是它的後果。
    一台都不剩時改掛 .flag--block（那時候她壓不下去，要跟旗標一樣重）。 */
@@ -840,6 +850,17 @@ textarea {
   background: var(--overdue-bg);
   border-color: var(--danger);
   color: var(--danger);
+  font-weight: 700;
+}
+
+/* 臨床提醒那一排（血管難打、第一針，ADR-0064）。選中用茶色不用紅 ——
+   紅在這一站已經是「這台不能用」，而這一顆什麼都不擋。
+   兩排丸子的差別要在**選中**的時候最明顯：沒選的時候它們長得一樣是對的，
+   那時候她在挑，不是在讀。 */
+.chip--soft[aria-pressed='true'] {
+  background: var(--tea-soft);
+  border-color: var(--tea);
+  color: var(--tea);
   font-weight: 700;
 }
 

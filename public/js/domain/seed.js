@@ -57,6 +57,14 @@ export const SEED = {
     { id: 'eq-laser', name: '高能量雷射', contraindications: ['體內金屬'] },
   ],
 
+  // 臨床提醒（ADR-0064）。**不擋任何器材** —— 它只是要在壓表那一刻被看到。
+  // 這兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
+  // 其餘由她自己在設定裡加。
+  clinicalFlags: [
+    { id: 'cf-veins', name: '血管難打', hint: '點滴與抽血要多留時間，先問慣用手' },
+    { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
+  ],
+
   ivProducts: [
     { id: 'iv-heart', name: '護心抗老' },
     { id: 'iv-liver', name: '護肝排毒' },
