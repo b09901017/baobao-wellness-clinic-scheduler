@@ -114,6 +114,50 @@ export function clinicalTerms(rows = []) {
     .filter(Boolean);
 }
 
+/**
+ * 排這一段的時候，營養點滴的品項給她哪幾顆可以選。
+ *
+ * 2026-09-04 她問的：
+ *
+ * > 我營養點滴如果一開始加購的是 A，但是我排來訪的時候，選營養點滴還能排到
+ * > 其他 BCD？這不太對吧。
+ *
+ * 品項是**購買的時候就定下來的**（`ui/components/buy.js` 把它存在額度身上，
+ * 額度的顯示名稱也已經帶著它：「營養點滴・A」）。所以排班的時候預設就是那一款，
+ * 其餘的收在「換一款」後面 —— 不是藏起來，是**排在後面**：
+ * 「今天 A 剛好用完，先打了 B」是真的會發生的事，硬擋等於那一筆記不進系統
+ *（她 2026-09-04 選的，同 ADR-0002）。真的換了會有一句提醒，
+ * 在 `domain/visits.js` 的 `assignmentWarnings()`。
+ *
+ * **買的那一款就算被停用也要出現。** 那一筆額度上寫的就是它，
+ * 看不到的話她會以為資料壞了。
+ *
+ * 額度上沒有品項的（舊資料、匯入進來的、n返 那種沒有額度的）一律全部列出來。
+ *
+ * 擺在 `clinicalTerms()` 旁邊，理由一樣：**從主檔拿出一份可以點的名單。**
+ *
+ * @param {{ivProductId?: string|null}|null} entitlement 這一段用的那筆額度
+ * @param {{id: string, name?: string, active?: boolean, deletedAt?: any}[]} ivProducts
+ * @returns {{boughtId: string|null, bought: object|null,
+ *            primary: object[], others: object[]}}
+ */
+export function ivChoicesFor(entitlement, ivProducts = []) {
+  const alive = (ivProducts ?? []).filter((p) => p && !p.deletedAt);
+  const active = alive.filter((p) => p.active !== false);
+  const boughtId = entitlement?.ivProductId ?? null;
+  const bought = boughtId ? (alive.find((p) => p.id === boughtId) ?? null) : null;
+
+  // 買的那一款在主檔裡整個不見了 —— 講不出它叫什麼，就退回全部列出來。
+  if (!bought) return { boughtId, bought: null, primary: active, others: [] };
+
+  return {
+    boughtId,
+    bought,
+    primary: [bought],
+    others: active.filter((p) => p.id !== bought.id),
+  };
+}
+
 const isBlank = (v) => v == null || String(v).trim() === '';
 
 /** 同一份清單裡不可以有兩個同名的（已刪除的不算）。 */

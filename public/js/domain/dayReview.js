@@ -43,6 +43,7 @@
 import {
   describeParts, joinParts, describeAction, changedFields, opOf,
 } from './audit.js';
+import { RECORD_TASK_KIND } from './taskRules.js';
 
 /**
  * 一段。**順序就是她的流程順序**，空的段不畫。
@@ -76,8 +77,11 @@ const STAGES = [
     label: '登記掛號',
     n: '④',
     // **勾掉才算「做了」。** 取消勾選是把一件事放回去，不是做完它。
-    match: (e, f) => collectionOf(e) === 'tasks'
-      && f.some((x) => x.key === 'done' && x.after === true),
+    //
+    // 「寫紀錄」要排掉：它有自己的一段（⑥），而那一段在流程上排在這裡後面。
+    // 陣列的順序就是她做事的順序（見上面），所以修的是這一段的條件，
+    // 不是把新的一段插到前面來 —— 插到前面的話讀的人要在腦袋裡重排一次。
+    match: (e, f) => tickedTask(e, f) && kindOf(e) !== RECORD_TASK_KIND,
   },
   {
     id: 'close',
@@ -86,9 +90,18 @@ const STAGES = [
     match: (e, f) => collectionOf(e) === 'visits' && ['done', 'no_show'].includes(statusTo(f)),
   },
   {
+    // 客人走了之後去外面那個系統補的那一份（ADR-0066）。
+    // 2026-09-04 她說「好啊可以另外開一段給它」—— 在這之前它落進④「登記掛號」，
+    // 而段落名在講一件它收不到的事（同「取消與改期」當初漏掉改期的毛病）。
+    id: 'record',
+    label: '寫紀錄',
+    n: '⑥',
+    match: (e, f) => tickedTask(e, f) && kindOf(e) === RECORD_TASK_KIND,
+  },
+  {
     id: 'cancel',
     label: '取消與改期',
-    n: '⑥',
+    n: '⑦',
     // **改期也算在這一段。** 這一段叫「取消與改期」，而改一筆來訪的日期以前
     // 落進最後的「其他」—— 段落名在講一件它收不到的事，比沒講還糟。
     match: (e, f) => collectionOf(e) === 'visits'
@@ -99,26 +112,26 @@ const STAGES = [
   {
     id: 'calendar',
     label: '日曆與待辦',
-    n: '⑦',
+    n: '⑧',
     match: (e) => ['events', 'notes'].includes(collectionOf(e)),
   },
   {
     id: 'customer',
     label: '客戶與額度',
-    n: '⑧',
+    n: '⑨',
     match: (e) => ['customers', 'entitlements'].includes(collectionOf(e)),
   },
   {
     id: 'settings',
     label: '設定',
-    n: '⑨',
+    n: '⑩',
     // `config/courses.create` 這種。路徑的第一段是 config。
     match: (e) => String(e?.action ?? '').startsWith('config/'),
   },
   {
     id: 'other',
     label: '其他',
-    n: '⑩',
+    n: '⑪',
     // **什麼都收得下的最後一段。** 一則都不可以被丟掉 —— 她開這一頁是為了
     // 確認沒有漏掉東西，而一個安靜消失的項目正好是最該被看到的那一種。
     match: () => true,
@@ -132,6 +145,26 @@ const TILES = [
   { id: 'register', label: '登記', unit: '筆' },
   { id: 'calendar', label: '記了', unit: '件' },
 ];
+
+/**
+ * 這一則是不是「把一張任務勾掉了」。**勾掉才算做了** —— 取消勾選是把一件事
+ * 放回去，不是做完它。④與⑥兩段共用，兩份寫法遲早有一份會漏掉那個方向。
+ */
+function tickedTask(event, fields) {
+  return collectionOf(event) === 'tasks'
+    && fields.some((x) => x.key === 'done' && x.after === true);
+}
+
+/**
+ * 那一張任務是哪一種。
+ *
+ * 稽核那一則的 `before` 是**整份舊文件**（`data/repo.js` 的 `commit()` 寫的），
+ * 所以問得到。不用多讀一次任務，也不用多寫一個欄位 ——
+ * ADR-0062：這一頁不可以為了它多寫任何一筆資料。
+ */
+function kindOf(event) {
+  return event?.before?.kind ?? null;
+}
 
 /** `'customers/abc/entitlements.create'` → `'entitlements'`。 */
 function collectionOf(event) {

@@ -864,6 +864,33 @@ textarea {
   font-weight: 700;
 }
 
+/* 「有一個正確答案，但別的答案偶爾也對」的那幾排（`f.chips()` 的 tuckAfter）。
+   營養點滴的品項就是：買的是 A，而今天 A 剛好用完是真的會發生的事
+   —— 所以其餘的**排在後面**，不是不給選（ADR-0002）。
+
+   收起來用 display:none 不用寬度動畫：一排丸子是橫向捲動的，
+   把幾顆的寬度收成 0 會讓整排在動畫中一直改變捲動範圍，手指跟著跳。 */
+.chip--tucked { display: none; }
+
+[data-tuck='open'] .chip--tucked {
+  display: inline-flex;
+  animation: chip-in var(--motion-base) var(--ease-out) both;
+}
+
+[data-tuck='open'] .chip--more { display: none; }
+
+/* 「換一款」自己不是一個選項，所以不長得像選項：虛線、淡字。 */
+.chip--more {
+  border-style: dashed;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+@keyframes chip-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* 一整列的丸子改成左右滑，不要換行往下堆 ——
    換行會把它下面的內容一路往下推，而那些內容才是她要看的。
    負邊界讓它捲得到螢幕邊緣，最後一顆露一半就看得出「還有」。 */

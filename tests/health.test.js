@@ -25,7 +25,7 @@ const MASTER = {
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
   equipment: [{ id: 'eq-indiba', name: 'INDIBA' }],
-  ivProducts: [{ id: 'iv-1', name: '護肝排毒' }],
+  ivProducts: [{ id: 'iv-1', name: '護肝排毒' }, { id: 'iv-2', name: '美白' }],
 };
 
 const customer = (over = {}) => ({ id: 'cus-1', name: '客戶一', active: true, ...over });
@@ -67,9 +67,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十項檢查都在，順序固定', () => {
+  test('十一項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 10);
+    assert.equal(result.checks.length, 11);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -122,6 +122,49 @@ describe('形狀', () => {
       }
     }
     assert.equal(result.totals.fixable, findingsOf(result, 'counts').length);
+  });
+});
+
+// 2026-09-04：排班的兩個入口以前把主檔裡全部的品項列出來，所以「營養點滴・A」
+// 那筆額度底下排成 B 是存得下去的。現在畫面預設就是買的那一款、存檔會提醒，
+// 但已經存進去的那幾筆不會自己好 —— 這一項就是讓她看得到它們。
+describe('品項跟買的不一樣', () => {
+  const ivEnt = (over = {}) => ent({
+    id: 'e-iv', type: 'single', label: '營養點滴・護肝排毒',
+    courseId: 'c-iv', ivProductId: 'iv-1', totalQty: 3, ...over,
+  });
+  const ivVisit = (ivProductId) => visit({
+    slots: [slot({
+      entitlementId: 'e-iv', courseId: 'c-iv', equipmentId: null,
+      therapistId: null, ivProductId,
+    })],
+  });
+
+  test('排成別款 → 列出來，一句話講清楚買的是哪一款、排成了哪一款', () => {
+    const found = findingsOf(
+      run({ entitlements: [ivEnt()], visits: [ivVisit('iv-2')] }),
+      'ivMismatch',
+    );
+    assert.equal(found.length, 1);
+    assert.match(found[0].detail, /買的是 護肝排毒，排成了 美白/);
+    assert.equal(found[0].severity, 'attention', '資料沒壞，是要她去看一眼');
+    assert.equal(found[0].fix, null, '不自動改 —— Abovee 上那一筆也要跟著改');
+  });
+
+  test('排的就是買的那一款 → 不報', () => {
+    const found = findingsOf(
+      run({ entitlements: [ivEnt()], visits: [ivVisit('iv-1')] }),
+      'ivMismatch',
+    );
+    assert.deepEqual(found, []);
+  });
+
+  test('額度上沒有品項（舊資料）→ 不報', () => {
+    const found = findingsOf(
+      run({ entitlements: [ivEnt({ ivProductId: null })], visits: [ivVisit('iv-2')] }),
+      'ivMismatch',
+    );
+    assert.deepEqual(found, []);
   });
 });
 

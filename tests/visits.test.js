@@ -45,7 +45,10 @@ const STAFF = [
   { id: 'st-tw', name: '騰崴', role: '物理治療師' },
   { id: 'st-dr-xia', name: '夏', role: '醫師' },
 ];
-const IV = [{ id: 'iv-liver', name: '護肝排毒' }];
+const IV = [
+  { id: 'iv-liver', name: '護肝排毒' },
+  { id: 'iv-bright', name: '美白' },
+];
 
 const ENTS = [
   { id: 'e-rehab', type: 'single', label: '復健科醫師門診', courseId: 'c-rehab',
@@ -56,6 +59,12 @@ const ENTS = [
     totalQty: 4, durationMin: 20, frequencyRule: '每季一次', doneCount: 0, bookedCount: 0 },
   { id: 'e-followup', type: 'single', label: '二返', courseId: 'c-followup',
     totalQty: 1, durationMin: 30, doneCount: 0, bookedCount: 0 },
+  // 買的時候就把品項定下來了（`ui/components/buy.js` 的 ivRow()）
+  { id: 'e-iv', type: 'single', label: '營養點滴・護肝排毒', courseId: 'c-iv',
+    totalQty: 3, durationMin: 60, ivProductId: 'iv-liver', doneCount: 0, bookedCount: 0 },
+  // 舊資料：買的時候還沒有這個欄位
+  { id: 'e-iv-old', type: 'single', label: '營養點滴', courseId: 'c-iv',
+    totalQty: 3, durationMin: 60, doneCount: 0, bookedCount: 0 },
 ];
 
 const CUSTOMER = { id: 'cust-1', name: '客戶甲', flags: [] };
@@ -550,6 +559,48 @@ describe('只提醒不阻擋的（warnings）', () => {
     const { errors, warnings } = validateVisit(v, ctx({ customerVisits: past }));
     assert.deepEqual(errors, [], '超用只提醒，她可能就是要加賣');
     assert.ok(warnings.some((w) => w.includes('超過總次數')));
+  });
+
+  // 2026-09-04 她問的：「我營養點滴如果一開始加購的是 A，但是我排來訪的時候，
+  // 選營養點滴還能排到其他 BCD？」**只提醒不擋**（她選的）——「今天 A 剛好用完，
+  // 先打了 B」是真的會發生的事。見 .scratch/asks-2026-09-04/issues/04。
+  describe('營養點滴的品項跟買的不一樣', () => {
+    const ivSlot = (over = {}) => visit({
+      slots: [{
+        ...visit().slots[0], entitlementId: 'e-iv', courseId: 'c-iv',
+        courseName: '營養點滴', roomId: 'r-iv8', endsAt: '15:00',
+        ivProductId: 'iv-liver', ...over,
+      }],
+    });
+
+    test('換了一款 → 一句提醒，話裡有買的那一款的名字', () => {
+      const { errors, warnings } = validateVisit(ivSlot({ ivProductId: 'iv-bright' }), ctx());
+      assert.deepEqual(errors, [], '不可以擋下來 —— 那一筆就記不進系統了');
+      assert.ok(warnings.some((w) => w.includes('跟買的不一樣') && w.includes('護肝排毒')));
+    });
+
+    test('排的就是買的那一款 → 什麼都不講', () => {
+      const { warnings } = validateVisit(ivSlot(), ctx());
+      assert.ok(!warnings.some((w) => w.includes('跟買的不一樣')));
+    });
+
+    test('額度上沒有品項（舊資料）→ 什麼都不講', () => {
+      const v = ivSlot({ entitlementId: 'e-iv-old', ivProductId: 'iv-bright' });
+      const { warnings } = validateVisit(v, ctx());
+      assert.ok(!warnings.some((w) => w.includes('跟買的不一樣')));
+    });
+
+    test('n返 沒有額度可以比 → 什麼都不講', () => {
+      const v = visit({
+        slots: [{
+          ...visit().slots[0], entitlementId: null, courseId: 'c-followup',
+          followupNth: 3, followupForVisitId: 'v-exam',
+          roomId: 'r-t3', doctorId: 'st-dr-xia', ivProductId: 'iv-bright',
+        }],
+      });
+      const { warnings } = validateVisit(v, ctx());
+      assert.ok(!warnings.some((w) => w.includes('跟買的不一樣')));
+    });
   });
 
   test('排在額度到期日之後', () => {
