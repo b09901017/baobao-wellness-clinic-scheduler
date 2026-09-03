@@ -156,6 +156,18 @@ test.describe('備忘錄／SOP', () => {
     await expect(page.locator('.pbcard__body')).toContainText('先量血壓');
   });
 
+  test('P7b 編輯中右下角那顆泡泡收起來 —— 按下去會把她正在打的那一張換掉', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/playbook');
+
+    await expect(page.locator('[data-fab]')).toBeVisible();
+    await page.click('[data-edit="pb-rehab"]');
+    await expect(page.locator('[data-fab]')).not.toBeVisible();
+
+    await page.click('[data-cancel]');
+    await expect(page.locator('[data-fab]')).toBeVisible();
+  });
+
   test('P8 取消不會留下任何東西', async ({ app, page }) => {
     await app.seed([...masterDocs(), REHAB]);
     await app.signIn('/playbook');

@@ -118,7 +118,10 @@ function paint() {
 
       <div data-stage>${stageHtml()}</div>
 
-      <div class="fab">
+      ${/* 編輯中把這一顆收起來 —— 按下去會把她正在打的那一張換掉，
+             而那是無聲的資料流失。全域的 `[hidden] { display: none !important }`
+             壓得過 `.fab` 的 display:flex（app.css 開頭那一段）。 */''}
+      <div class="fab" data-fab ${ctx.editing ? 'hidden' : ''}>
         <button class="fab__main" type="button" data-new aria-label="加一份備忘錄">
           ${icon('plus', { size: 24, width: 2 })}
         </button>
@@ -308,6 +311,9 @@ function repaintStage() {
   const stage = ctx.el.querySelector('[data-stage]');
   if (!stage) return;
   stage.innerHTML = stageHtml();
+  // 泡泡在編輯中要收起來（見 paint()）。它不在 [data-stage] 裡面，所以要自己切。
+  const fab = ctx.el.querySelector('[data-fab]');
+  if (fab) fab.hidden = Boolean(ctx.editing);
   watchDeck();
   if (ctx.editing) mountEditor();
 }
