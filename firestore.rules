@@ -249,6 +249,33 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- 備忘錄／SOP ----------
+    //
+    // 她自己整理的流程與心得。綁課程不綁人，不會變成待辦（ADR-0067）。
+    //
+    // 跟 validNote() 同一個深度：**只擋型別與大小**。逐節的內容在前端擋
+    //（`domain/playbook.js` 的 `validatePlaybook()`，SPEC 第 6.7 節的雙層驗證）
+    // —— Rules 讀不進巢狀陣列的每一格而不多付一大筆規則複雜度，
+    // 而 validVisit() 對 slots 做過同一個判斷。
+    function validPlaybook() {
+      let d = request.resource.data;
+      return d.title is string
+        && d.title.size() > 0
+        && d.title.size() <= 40
+        && (!('tag' in d) || d.tag == null || d.tag is string)
+        && d.sections is list
+        && d.sections.size() > 0
+        && d.sections.size() <= 20
+        && (!('courseIds' in d) || d.courseIds is list)
+        && (!('pinned' in d) || d.pinned is bool);
+    }
+
+    match /playbooks/{playbookId} {
+      allow read:   if allowed();
+      allow create, update: if allowed() && keepsExistingId() && validPlaybook();
+      allow delete: if false;
+    }
+
     // ---------- 壓表批次 ----------
     // queue 的順序在建立當下凍結，之後只會改每一筆的 state 與 cursor。
     // 這裡不驗證順序沒被動過 —— Rules 讀不到「之前是什麼順序」而不多做一次讀取，

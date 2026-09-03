@@ -338,9 +338,12 @@ describe('n返 與二返互相看不見', () => {
       }],
       coursesById: COURSES,
     });
-    // v-exam-b 的報告勾掉了 → 該長出一張「約二返」，而 v-exam-a 的
-    // 那幾場 n返 一個字都不影響這件事。
-    assert.deepEqual(out.create.map((t) => [t.kind, t.visitId]), [['約二返', 'v-exam-b']]);
+    // v-exam-b 的報告勾掉了 → 該長出第二站那兩張（約二返、寄報告給醫師，
+    // ADR-0065），而 v-exam-a 的那幾場 n返 一個字都不影響這件事。
+    assert.deepEqual(
+      out.create.map((t) => [t.kind, t.visitId]).sort(),
+      [['寄報告給醫師', 'v-exam-b'], ['約二返', 'v-exam-b']].sort(),
+    );
     assert.deepEqual(out.remove, []);
   });
 

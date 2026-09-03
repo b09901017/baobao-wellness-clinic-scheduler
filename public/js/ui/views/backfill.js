@@ -18,6 +18,8 @@ import { candidatesFor, strongestReason, monthRange } from '../../domain/schedul
 import { offerSlotMessage } from '../../domain/messages.js';
 import { endOf, isValidTime } from '../../domain/visitTime.js';
 import { todayISO, addDays, shortDate, isValidDate } from '../../domain/dates.js';
+import { splitFlags } from '../../domain/customers.js';
+import * as flagsUi from '../components/flags.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
 import * as message from '../components/message.js';
@@ -190,12 +192,12 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
         : '<p>沒有人補得上這一格。</p>'}
     </section>
 
-    ${candidates.map((row) => candidateCard(row, slot)).join('')}
+    ${candidates.map((row) => candidateCard(row, slot, ctx)).join('')}
 
     ${excluded.length ? excludedHtml(excluded) : ''}`;
 }
 
-function candidateCard(row, slot) {
+function candidateCard(row, slot, ctx) {
   const strongest = strongestReason(row);
 
   return `
@@ -203,7 +205,12 @@ function candidateCard(row, slot) {
       <div class="row__title">
         ${esc(row.customerName)}
         ${row.priority ? `<span class="badge badge--ok">★ ${row.priority}</span>` : ''}
-        ${(row.flags ?? []).map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+        ${/* 永久限制三層各自的畫法（ADR-0064），跟客戶詳情與壓表的記錄面板
+             共用同一支。以前這裡把三層全部畫成紅字，於是「固定禮拜五不行」
+             跟醫療禁忌看起來一樣重。 */''}
+        ${flagsUi.detailChips(splitFlags(
+          { flags: row.flags ?? [] }, ctx?.all?.equipment ?? [], ctx?.all?.clinicalFlags ?? [],
+        ))}
       </div>
 
       <p class="muted">

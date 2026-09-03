@@ -71,6 +71,7 @@ export const SECTIONS = [
   { key: 'events', path: () => 'events' },
   { key: 'formInvites', path: () => 'formInvites' },
   { key: 'formResponses', path: () => 'formResponses' },
+  { key: 'playbooks', path: () => 'playbooks' },
 ];
 
 // ---------------------------------------------------------------------------

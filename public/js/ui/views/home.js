@@ -35,6 +35,9 @@ import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
+import { clinicalTerms } from '../../domain/masterData.js';
+import * as playbooksData from '../../data/playbooks.js';
+import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
@@ -267,7 +270,14 @@ function paint(ctx) {
 
   el.innerHTML = `
     <div class="page">
-      <h1 class="page__title num">${esc(longDate(today))}</h1>
+      <div class="page__row">
+        <h1 class="page__title num">${esc(longDate(today))}</h1>
+        ${/* 備忘錄的入口。跟客戶頁的「看這個月的進度」同一顆、同一個位置 ——
+             她指名要這個做法。導覽列一個字都不動（ADR-0067）。 */''}
+        <span class="footlinks footlinks--inline">
+          <a class="footlink" href="#/playbook">${icon('manual', { size: 15 })}備忘錄</a>
+        </span>
+      </div>
       ${nothing ? '<p class="page__lead">今天沒有待辦。</p>' : ''}
     </div>
 
@@ -738,10 +748,15 @@ const KIND_NOTES = {
   打電話: '來訪前一天提醒',
   Abovee: '壓表登記',
   Examine: '預約作業 → 查核 → 已報到',
+  // 客人走了之後才長出來的那一族（ADR-0066）。死線是來訪那一天，
+  // 不是它的前一天 —— 這件事是當天做的。
+  寫紀錄: '客人走了，去把紀錄補上',
   耀聖: '右下角 → 未報到 → V',
   // 健檢做完了 → 先追蹤報告（兩三週才出來）→ 拿到了才約二返。
   // 兩張的死線都不是來訪日前一天，間隔在設定頁調，見 ADR-0042。
   追蹤健檢報告: '健檢做完了，報告通常兩三週出來',
+  // 報告到手的那一刻要做兩件事，兩張的死線一樣（ADR-0065）
+  寄報告給醫師: '報告拿到了，寄一份給要看報告的那位醫師',
   約二返: '報告拿到了，還沒約聽報告的時間',
 };
 const kindNote = (k) => KIND_NOTES[k] ?? '';
@@ -1059,10 +1074,11 @@ function openWhoVisit(visitId) {
  *
  * ## 勾掉「追蹤健檢報告」會讓事情變多，不是變少
  *
- * `data/tasks.js` 的 `setDone()` 會連著把「約二返」寫在同一個 commit 裡
- *（ADR-0042）。所以那一種勾完之後要重讀一次 `listOpen()`，不然她會看到數字
- * 從 3 減成 2、關掉抽屜再打開又變回 3。其餘的走就地更新不重讀 ——
- * 重讀會讓底下那一頁的三份補資料（問時間、壓表、收件匣）整組再跑一次。
+ * `data/tasks.js` 的 `setDone()` 會連著把「約二返」與「寄報告給醫師」寫在
+ * 同一個 commit 裡（ADR-0042、0065）。所以那一種勾完之後要重讀一次
+ * `listOpen()`，不然她會看到數字從 3 減成 2、關掉抽屜再打開又變回 4。
+ * 其餘的走就地更新不重讀 —— 重讀會讓底下那一頁的三份補資料
+ *（問時間、壓表、收件匣）整組再跑一次。
  */
 async function toggleWhoTask(ctx, id) {
   const d = whoDrawer;
@@ -1103,11 +1119,16 @@ async function toggleWhoTask(ctx, id) {
     return;
   }
 
-  // 3. 健檢那條鏈：報告勾掉了就會多一張「約二返」，那一張要看得見
+  // 3. 健檢那條鏈：報告勾掉了會多兩張（約二返、寄報告給醫師），兩張都要看得見
   if (task.kind === REPORT_TASK_KIND) await refreshChain(ctx, d);
 }
 
-/** 勾掉「追蹤健檢報告」之後，把新長出來的那一張撈回抽屜裡。 */
+/**
+ * 勾掉「追蹤健檢報告」之後，把新長出來的那幾張撈回抽屜裡。
+ *
+ * **撈的是「這位客戶所有新出現的」而不是某一種**，所以 ADR-0065 多的那一張
+ * 不用改這裡一個字 —— 之後鏈條再長出第三種也一樣。
+ */
 async function refreshChain(ctx, d) {
   let fresh;
   try {
@@ -2421,10 +2442,14 @@ async function renderConfirm(el) {
   //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
   // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
   // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
-  const [pending, settings, courses] = await Promise.all([
+  const [pending, settings, courses, playbooks] = await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
+    // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
+    // 的地方** —— 她按下那一列的時候，正在打那則訊息。
+    // 讀不到就不畫那一塊，跟這一頁其他幾份補資料同一個判斷。
+    playbooksData.list().catch(() => []),
   ]);
   const today = todayISO();
   paintConfirm({
@@ -2432,12 +2457,13 @@ async function renderConfirm(el) {
     pending: visitsToConfirm(pending, today),
     settings,
     today,
+    playbooks,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
   });
 }
 
 function paintConfirm(ctx) {
-  const { el, pending, settings, today } = ctx;
+  const { el, pending, settings, today, playbooks } = ctx;
   const groups = [...byCustomer(pending).entries()];
   const noReplyDays = settings.noReplyDays ?? 3;
 
@@ -2450,7 +2476,8 @@ function paintConfirm(ctx) {
 
     ${groups.length ? `
       <div class="stack">
-        ${groups.map(([id, visits]) => confirmCard(id, visits, today, noReplyDays)).join('')}
+        ${groups.map(([id, visits]) =>
+          confirmCard(id, visits, today, noReplyDays, playbooks ?? [])).join('')}
       </div>`
       : '<p class="muted">都問過了。</p>'}
 
@@ -2459,7 +2486,7 @@ function paintConfirm(ctx) {
   wireConfirm(ctx);
 }
 
-function confirmCard(customerId, visits, today, noReplyDays) {
+function confirmCard(customerId, visits, today, noReplyDays, playbooks = []) {
   const name = visits[0].customerName ?? '（沒有名字）';
   const state = waitState(visits, today, noReplyDays);
   const slots = visits.flatMap((v) => v.slots ?? []);
@@ -2482,6 +2509,11 @@ function confirmCard(customerId, visits, today, noReplyDays) {
           <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>&nbsp;${
             esc(visitCourseLabel(v))}</span>`).join('')}
       </div>
+
+      ${/* 這一頁的定義就是「還沒發生、要去問本人」，所以時機固定是「事前」
+             —— 不走 whenForVisit()。擺在那一句話與訊息範本中間：
+             她的動線是「看一眼要提醒什麼 → 打字 → 送出」。 */''}
+      ${hintForVisits({ playbooks, visits, when: 'before' })}
 
       ${followupForm(customerId, name, state.note)}
 
@@ -3060,14 +3092,16 @@ async function applyClose(ctx) {
  */
 async function renderBook(el) {
   const today = todayISO();
-  const [rows, equipment] = await Promise.all([
+  const [rows, equipment, clinicalFlags] = await Promise.all([
     loadBookRows(today),
     config.listAll('equipment'),
+    config.listAll('clinicalFlags'),
   ]);
 
-  // 哪幾個永久限制是會擋掉器材的。那幾個要紅、要跟著名字（SPEC 第 4.3 節）。
-  // 算一次就好 —— 二十幾張卡各算一次是白費的。
+  // 姓名底下那一排要畫哪幾個字。兩份名單：會擋掉器材的（SPEC 第 4.3 節）
+  // 與臨床提醒（ADR-0064）。**各算一次就好** —— 二十幾張卡各算一次是白費的。
   const terms = contraindicationTerms(equipment);
+  const clinical = clinicalTerms(clinicalFlags);
 
   const section = (system, title, note) => {
     const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
@@ -3077,7 +3111,7 @@ async function renderBook(el) {
         <h2 class="card__title">${esc(title)}<span class="muted"> ${mine.length}</span></h2>
         <p class="card__note">${esc(note)}</p>
         <div class="groups" style="margin-top: var(--space-3)">
-          ${mine.map((r) => bookRow(r, system, terms)).join('')}
+          ${mine.map((r) => bookRow(r, system, terms, clinical)).join('')}
         </div>
       </section>`;
   };
@@ -3115,14 +3149,14 @@ async function renderBook(el) {
  * 以前這一列連到客戶詳情，而她在那一頁要做的下一件事就是「去壓這個人的表」——
  * 而客戶詳情上沒有任何一條路通到壓表（她的原話：「跳到客戶資訊那邊很怪」）。
  */
-function bookRow(row, system, terms) {
+function bookRow(row, system, terms, clinical) {
   const pools = row.systems.find((x) => x.system === system)?.pools ?? [];
 
   return `
     <button class="grouprow" type="button" data-book-who="${esc(row.customerId)}">
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
-        ${flagsUi.blockChips({ flags: row.flags ?? [], terms })}
+        ${flagsUi.alertChips({ flags: row.flags ?? [], terms, clinical })}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}

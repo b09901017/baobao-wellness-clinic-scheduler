@@ -66,7 +66,9 @@ beforeEach(async () => {
 // ---------- 第一道：沒登入、不在白名單，什麼都碰不到 ----------
 
 describe('R1 白名單是唯一的門', () => {
-  const COLLECTIONS = ['customers', 'visits', 'tasks', 'notes', 'events', 'batches', 'audit'];
+  const COLLECTIONS = [
+    'customers', 'visits', 'tasks', 'notes', 'events', 'batches', 'playbooks', 'audit',
+  ];
 
   for (const path of COLLECTIONS) {
     test(`R1.1 沒登入讀不到 ${path}`, async () => {
@@ -164,6 +166,7 @@ describe('R4 永不硬刪除（SPEC 6.1）', () => {
       startDate: '2026-09-01', endDate: '2026-09-03', allDay: true,
     }],
     ['batches', { targetMonth: '2026-09', queue: [], status: 'active' }],
+    ['playbooks', { title: '營養點滴', sections: [{ heading: '', when: null, body: '飯後打針' }] }],
   ];
 
   for (const [path, data] of CASES) {
@@ -330,6 +333,46 @@ describe('R8 隨手記（validNote）', () => {
     await assertSucceeds(setDoc(doc(allowed, 'notes', 'n4'), n({ date: '2026-09-03' })));
     await assertSucceeds(setDoc(doc(allowed, 'notes', 'n5'), n({ date: null })));
     await assertFails(setDoc(doc(allowed, 'notes', 'n6'), n({ date: 20260903 })));
+  });
+});
+
+// ---------- 備忘錄：只擋型別與大小，逐節的內容在前端 ----------
+
+describe('R8b 備忘錄（validPlaybook，ADR-0067）', () => {
+  const p = (over = {}) => stamped({
+    title: '營養點滴',
+    tag: '點滴',
+    courseIds: ['course-iv-drip'],
+    sections: [{ heading: '前情提醒', when: 'before', body: '飯後打針' }],
+    pinned: false,
+    ...over,
+  });
+
+  test('R8b.1 正常的一份寫得進去', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'playbooks', 'pb1'), p()));
+  });
+
+  test('R8b.2 標題空的或太長被擋', async () => {
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb2'), p({ title: '' })));
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb3'), p({ title: '字'.repeat(41) })));
+  });
+
+  test('R8b.3 一節都沒有被擋 —— 打開是空的那一份沒有意義', async () => {
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb4'), p({ sections: [] })));
+  });
+
+  test('R8b.4 超過 20 節被擋', async () => {
+    const many = Array.from({ length: 21 }, () => ({ heading: '', when: null, body: 'x' }));
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb5'), p({ sections: many })));
+  });
+
+  test('R8b.5 分類選填，null 也可以，但不能是數字', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'playbooks', 'pb6'), p({ tag: null })));
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb7'), p({ tag: 5 })));
+  });
+
+  test('R8b.6 courseIds 必須是陣列 —— 掛錯型別會讓「自己浮出來」整段壞掉', async () => {
+    await assertFails(setDoc(doc(allowed, 'playbooks', 'pb8'), p({ courseIds: 'course-x' })));
   });
 });
 

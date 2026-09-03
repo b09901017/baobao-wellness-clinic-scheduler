@@ -65,6 +65,25 @@ const editors = {
     parse: (v) => ({ name: v.name.trim(), contraindications: f.parseList(v.contraindications) }),
   },
 
+  // 臨床提醒（ADR-0064）。永久限制底下的第二層：什麼都不擋，但壓表那一刻
+  // 要一眼看得到。跟器材的醫療禁忌**刻意分成兩份主檔** —— 混在一起的話，
+  // 「禁忌」清單裡會出現不擋任何東西的字，而下一個讀那段程式的人會以為它可信。
+  clinicalFlags: {
+    lead: '這裡加的字會出現在客戶的永久限制上，壓表的卡片牆會跟著名字畫出來。'
+      + '它不會擋掉任何器材 —— 會擋的那一種是器材上的「醫療禁忌」。',
+    blank: { name: '', hint: '' },
+    summary: (r) => r.hint || '壓表時會跟著名字出現',
+    fields: (r) => [
+      f.text({ name: 'name', label: '提醒名稱', value: r.name, placeholder: '血管難打' }),
+      f.text({
+        name: 'hint', label: '一句說明', value: r.hint ?? '',
+        placeholder: '點滴與抽血要多留時間，先問慣用手',
+        hint: '選填。只出現在客戶的永久限制編輯畫面上，不會出現在壓表的卡片牆。',
+      }),
+    ],
+    parse: (v) => ({ name: v.name.trim(), hint: v.hint.trim() || null }),
+  },
+
   ivProducts: {
     blank: { name: '' },
     summary: () => '營養點滴品項',
@@ -85,6 +104,7 @@ const editors = {
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
       needsTreatmentForm: true,
+      needsRecord: false,
       frequencyRule: null,
       followupCourseId: null,
     },
@@ -133,6 +153,14 @@ const editors = {
         value: r.needsTreatmentForm !== false,
         hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。',
       }),
+      // 跟上面那一個問的是同一種問題（「這個課程做完還要做什麼」），
+      // 所以擺在一起。兩個不衝突：二返兩件都是特例，一個不用簽、一個要寫。
+      f.toggle({
+        name: 'needsRecord', label: '客人走了之後要補一份紀錄',
+        value: r.needsRecord === true,
+        hint: '目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
+          + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
+      }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -164,6 +192,7 @@ const editors = {
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,
       needsTreatmentForm: !!v.needsTreatmentForm,
+      needsRecord: !!v.needsRecord,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),
@@ -421,6 +450,7 @@ function paintList(el, type, all) {
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
       <h2 class="card__title">${MASTER_LABELS[type]}<span class="muted"> ${rows.length}</span></h2>
+      ${ed.lead ? `<p class="card__note">${esc(ed.lead)}</p>` : ''}
       <p><button class="btn btn--primary" type="button" data-new>新增</button></p>
     </section>
     ${rows.length === 0 ? '<p class="muted">還沒有資料。</p>' : ''}

@@ -57,6 +57,14 @@ export const SEED = {
     { id: 'eq-laser', name: '高能量雷射', contraindications: ['體內金屬'] },
   ],
 
+  // 臨床提醒（ADR-0064）。**不擋任何器材** —— 它只是要在壓表那一刻被看到。
+  // 這兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
+  // 其餘由她自己在設定裡加。
+  clinicalFlags: [
+    { id: 'cf-veins', name: '血管難打', hint: '點滴與抽血要多留時間，先問慣用手' },
+    { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
+  ],
+
   ivProducts: [
     { id: 'iv-heart', name: '護心抗老' },
     { id: 'iv-liver', name: '護肝排毒' },
@@ -97,6 +105,9 @@ export const SEED = {
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
       // 沒有這個欄位就是要簽，所以其餘課程一個字都不用寫。
       needsTreatmentForm: false,
+      // 客人走了之後要去曜聖補一份二返紀錄（ADR-0066）。跟療程單相反：
+      // 沒有這個欄位就是不用寫，所以只有真的要寫的那幾個課程有它。
+      needsRecord: true,
     },
 
     // ---- B 類：單系統＋電話 ----
@@ -155,6 +166,8 @@ export const SEED = {
       id: 'course-nutrition-consult', name: '營養師諮詢', category: null, durationMin: 20,
       assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
+      // 諮詢完要打一份諮詢紀錄（ADR-0066）
+      needsRecord: true,
     },
   ],
 

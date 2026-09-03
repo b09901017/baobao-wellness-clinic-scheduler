@@ -32,6 +32,7 @@ const COLLECTION_LABELS = {
   tasks: '任務',
   events: '行事備註',
   notes: '隨手記',
+  playbooks: '備忘錄',
   formInvites: '時間表單連結',
   formResponses: '客戶填的時間',
   batches: '壓表批次',

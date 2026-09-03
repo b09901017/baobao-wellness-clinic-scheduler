@@ -1,10 +1,13 @@
-// Journey D：examine（健檢課程）→ 追蹤健檢報告 → 約二返
+// Journey D：examine（健檢課程）→ 追蹤健檢報告 →（寄報告給醫師 ＋ 約二返）
 //
 // 這是整個 app 唯一的**鏈式**待辦，也是歷史上壞過最多次的一段：
 //   1. 勾掉報告不會長出約二返（2026-08-25 以前）
 //   2. 二返額度被配了兩次，於是二返補不進去（commit a8a0932）
 //   3. 「約二返」勾得掉但其實沒約
 //   4. 把報告那一張「拿回來」會被誤判成舊資料，於是刪掉約二返
+//   5. 2026-09-03 起第二站是**兩張**（ADR-0065）。最危險的一格是
+//      「二返約好了、報告還沒寄」—— 寄報告如果擠在 owed() 那道閘門裡面，
+//      它會在她約好二返的那一刻被靜默收掉（J-D5 盯著）
 //
 // 注意：這幾張待辦**不是種子塞得出來的**，它們由 `syncFollowupTasks()` 在
 // 寫入的那一刻產生。所以這一支一律走真的動線去觸發。
@@ -95,8 +98,40 @@ test('J-D2 勾掉「追蹤健檢報告」→ 同一刻長出「約二返」，�
   expect(booking.dueDate, '死線 = 勾掉那天 + 7，不是 examine 日 + 7')
     .toBe(addDays(TODAY, 7));
 
+  // ADR-0065：同一站的第二張。兩張的死線一樣 —— 它們是同一個動作的兩半。
+  const send = tasks.find((t) => t.kind === '寄報告給醫師' && !t.deletedAt);
+  expect(send, '報告拿到了就要寄一份給醫師').toBeTruthy();
+  expect(send.visitId).toBe('visit-b-exam1');
+  expect(send.dueDate).toBe(booking.dueDate);
+
   const report = tasks.find((t) => t.kind === '追蹤健檢報告');
   expect(report.done, '報告那一張要留著，只是勾掉了').toBe(true);
+});
+
+test('J-D5 二返約好了、報告還沒寄 → **寄報告那一張要留著**', async ({ app, page }) => {
+  await app.seed(seedBeforeClose());
+  await app.signIn('/');
+  await closeExam(app, page);
+
+  // 勾掉報告 → 第二站兩張都長出來
+  await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await page.locator('[data-task]').first().check();
+  await page.locator('[data-mark]').click();
+  await app.ok();
+  await page.waitForTimeout(2000);
+
+  // 再把「約二返」勾掉（她去約了）
+  await app.go(`/todo/${encodeURIComponent('約二返')}`);
+  await page.locator('[data-task]').first().check();
+  await page.locator('[data-mark]').click();
+  await app.ok();
+  await page.waitForTimeout(2000);
+
+  const tasks = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
+  const send = tasks.find((t) => t.kind === '寄報告給醫師');
+
+  expect(send, '寄報告不因為二返約好了而消失 —— 那是兩件事').toBeTruthy();
+  expect(send.done, '而且它還沒被做掉').toBe(false);
 });
 
 test('J-D3 把報告那一張「拿回來」→ 退回上一站，約二返收起來，報告留著', async ({ app, page }) => {
@@ -125,6 +160,9 @@ test('J-D3 把報告那一張「拿回來」→ 退回上一站，約二返收�
   expect(report, '報告那一張要還在').toBeTruthy();
   expect(report.done, '而且回到未完成').toBe(false);
   expect(booking, '約二返要收起來 —— 報告都還沒拿到，不到約的時候').toBeFalsy();
+
+  const send = tasks.find((t) => t.kind === '寄報告給醫師');
+  expect(send, '寄報告也一起收起來 —— 報告都還沒拿到，沒有東西可以寄').toBeFalsy();
 });
 
 test('J-D4 買 2 次只做 1 次 → 只欠 1 次二返，不是 2 次', async ({ app, page }) => {

@@ -59,8 +59,10 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  roomSlots, roomsForCourse, picksDoctor, staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE,
+  roomSlots, roomsForCourse, picksDoctor, staffWithRole, clinicalTerms,
+  THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
+import { splitFlags } from '../../domain/customers.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
@@ -644,7 +646,7 @@ const peekCardHtml = (row) => `
   <button class="deck__card deck__card--peek" type="button"
           data-card="${esc(row.customerId)}" data-goto="${esc(row.customerId)}">
     <span class="row__title" style="justify-content: center">${esc(row.customerName ?? '?')}</span>
-    <span style="display: flex; justify-content: center">${blockChips(row)}</span>
+    <span style="display: flex; justify-content: center">${alertChips(row)}</span>
   </button>`;
 
 /**
@@ -796,7 +798,7 @@ function custCard(row, isSelected) {
       <span class="row" style="align-items: center">
         <span class="row__main">
           <span class="row__title">${esc(row.customerName ?? '?')}</span>
-          ${blockChips(row)}
+          ${alertChips(row)}
         </span>
         ${state}
       </span>
@@ -804,20 +806,26 @@ function custCard(row, isSelected) {
 }
 
 /**
- * 會真的擋掉器材的那幾個永久限制，加上一句「所以還剩什麼」。
+ * 卡片牆上姓名底下那一排：會真的擋掉器材的那幾個、「所以還剩什麼」那一句，
+ * 以及臨床提醒（血管難打，ADR-0064）。
  *
  * 畫法在 `ui/components/flags.js`，跟待辦的「壓表登記」那一頁共用（ADR-0046）——
- * 一邊紅一邊灰的話，那一顆的整個意義（掃過去一眼分得出誰被硬性擋住）就沒了。
+ * 一邊紅一邊灰的話，那一排的整個意義（掃過去一眼分得出誰要特別注意）就沒了。
  * 這裡只負責把這位客戶的擇一池換算成器材物件。
  */
-function blockChips(row) {
+function alertChips(row) {
   const equipment = ctx?.all?.equipment ?? [];
   const pool = (row.pools ?? []).find((p) => p.type === 'pool');
   const options = pool
     ? (pool.optionEquipmentIds ?? []).map((id) => equipment.find((e) => e.id === id)).filter(Boolean)
     : null;
 
-  return flagsUi.blockChips({ flags: row.flags ?? [], terms: blockingTerms(), options });
+  return flagsUi.alertChips({
+    flags: row.flags ?? [],
+    terms: blockingTerms(),
+    clinical: alertTerms(),
+    options,
+  });
 }
 
 /**
@@ -827,6 +835,12 @@ function blockChips(row) {
 function blockingTerms() {
   ctx.terms ??= contraindicationTerms(ctx?.all?.equipment ?? []);
   return ctx.terms;
+}
+
+/** 臨床提醒那幾個字。同上，一批算一次。 */
+function alertTerms() {
+  ctx.alerts ??= clinicalTerms(ctx?.all?.clinicalFlags ?? []);
+  return ctx.alerts;
 }
 
 /**
@@ -862,7 +876,8 @@ function recordPanel(row) {
           <div class="row__title" style="font-size: var(--text-xl)">
             ${esc(row.customerName)}
             ${row.priority ? `<span class="stars">${'★'.repeat(row.priority)}</span>` : ''}
-            ${(row.flags ?? []).map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+            ${flagsUi.detailChips(splitFlags({ flags: row.flags ?? [] },
+              ctx?.all?.equipment ?? [], ctx?.all?.clinicalFlags ?? []))}
           </div>
         </div>
         <span class="badge badge--ok">已記 ${recorded.length} 筆</span>

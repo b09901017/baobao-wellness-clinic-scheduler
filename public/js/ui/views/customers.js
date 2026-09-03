@@ -17,6 +17,7 @@ import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { contraindicationTerms } from '../../domain/contraindications.js';
+import { clinicalTerms } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
 import { todayISO, addDays, shortDate } from '../../domain/dates.js';
@@ -59,12 +60,15 @@ export async function render(el) {
   let rows;
   let entsBy;
   let equipment;
+  let clinicalFlags;
   let visits;
   try {
-    [rows, entsBy, equipment, visits] = await Promise.all([
+    [rows, entsBy, equipment, clinicalFlags, visits] = await Promise.all([
       data.list(),
       data.entitlementsByCustomer(),
       config.listAll('equipment'),
+      // 臨床提醒（ADR-0064）。跟另外幾份同一趟拿，不多一輪往返。
+      config.listAll('clinicalFlags'),
       visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKAHEAD_DAYS)),
     ]);
   } catch (err) {
@@ -73,7 +77,7 @@ export async function render(el) {
     return;
   }
 
-  const ctx = { rows, entsBy, equipment, today, visitsBy: byCustomer(visits, today) };
+  const ctx = { rows, entsBy, equipment, clinicalFlags, today, visitsBy: byCustomer(visits, today) };
 
   el.innerHTML = `
     <div class="page">
@@ -289,7 +293,7 @@ function paintRows(el, ctx) {
 function card(c, ctx) {
   const ents = ctx.entsBy[c.id] ?? [];
   const sum = summarize(ents);
-  const flags = rules.splitFlags(c, ctx.equipment);
+  const flags = rules.splitFlags(c, ctx.equipment, ctx.clinicalFlags);
   const marks = readMarks(c);
   let { pools } = customerPools({ entitlements: ents });
 
@@ -307,7 +311,7 @@ function card(c, ctx) {
           <div class="row__title">
             ${esc(c.name)}
             ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
-            ${flags.contraindications.map((x) => `<span class="flag">${esc(x)}</span>`).join('')}
+            ${flagsUi.detailChips(flags, { others: false })}
             ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
           <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
@@ -378,16 +382,19 @@ export async function renderNew(el) {
   let plans;
   let existing;
   let equipment;
+  let clinicalFlags;
   let courses;
   let ivProducts;
   let products;
   try {
     // 課程／品項／營養品是底下那一段「加購」要的（同一張表，`components/buy.js`）。
     // 跟另外三份同一趟拿，不多一輪往返。
-    [plans, existing, equipment, courses, ivProducts, products] = await Promise.all([
-      config.listAll('plans'), data.list(), config.listAll('equipment'),
-      config.listAll('courses'), config.listAll('ivProducts'), config.listAll('products'),
-    ]);
+    [plans, existing, equipment, clinicalFlags, courses, ivProducts, products] =
+      await Promise.all([
+        config.listAll('plans'), data.list(), config.listAll('equipment'),
+        config.listAll('clinicalFlags'),
+        config.listAll('courses'), config.listAll('ivProducts'), config.listAll('products'),
+      ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
@@ -411,7 +418,7 @@ export async function renderNew(el) {
   };
 
   paintNew(el, draft, usable, existing, contraindicationTerms(equipment), {
-    courses, equipment, ivProducts, products,
+    courses, equipment, ivProducts, products, clinical: clinicalTerms(clinicalFlags),
   });
 }
 
@@ -508,6 +515,7 @@ function paintNew(el, draft, plans, existing, terms, master) {
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags: draft.flags,
     terms,
+    clinical: master.clinical ?? [],
     onChange: (list) => {
       draft.flags = list;
     },
