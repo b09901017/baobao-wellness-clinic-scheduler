@@ -13,7 +13,7 @@ import {
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
-import { TASK_KINDS, cancelKindFor } from '../public/js/domain/taskRules.js';
+import { TASK_KINDS, cancelKindFor, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 
 describe('流程的段', () => {
   test('七段，編號就是流程的第幾步', () => {
@@ -34,7 +34,7 @@ describe('流程的段', () => {
 
   test('每一種現行的待辦都歸得了段', () => {
     const rows = ['ask', 'forms', 'book', 'confirm', 'close', ...TASK_KINDS,
-      REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+      RECORD_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
     for (const id of rows) {
       assert.ok(STAGES.some((s) => s.id === stageOf(id)), `${id} 歸不了段`);
     }
@@ -66,6 +66,13 @@ describe('段裡的順序', () => {
     assert.ok(orderOf(REPORT_TASK_KIND) < orderOf(SEND_REPORT_TASK_KIND));
     assert.ok(orderOf(SEND_REPORT_TASK_KIND) < orderOf(FOLLOWUP_TASK_KIND));
     assert.equal(stageOf(SEND_REPORT_TASK_KIND), 'after');
+  });
+
+  // ADR-0066：寫紀錄是客人走了之後立刻做的，追蹤報告是三週後的事。
+  // 照死線排的話這兩張的先後是對的，但「照死線排」本身是錯的（ADR-0043）。
+  test('寫紀錄排在「來訪之後」那一段的最前面', () => {
+    assert.equal(stageOf(RECORD_TASK_KIND), 'after');
+    assert.ok(orderOf(RECORD_TASK_KIND) < orderOf(REPORT_TASK_KIND));
   });
 
   test('認不得的排段裡最後 —— 不擋在該做的事前面', () => {

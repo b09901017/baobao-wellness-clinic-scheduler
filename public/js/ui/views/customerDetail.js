@@ -978,10 +978,12 @@ function taskBlock(tasks, visits = []) {
 
     ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
     ${!tasks.length
-      // ADR-0027：任務等客人說可以之後才長。這是 CLAUDE.md 點名的那四句之一，
-      // 改「什麼時候產生」的規則時要一起改。用她的詞，不要寫「系統登記」。
+      // ADR-0027 與 ADR-0066：任務現在有**兩個**時機。這是 CLAUDE.md 點名的
+      // 那幾句之一，改「什麼時候產生」的規則時要一起改。
+      // 用她的詞，不要寫「系統登記」。
       ? `<p class="muted" style="margin: 0">還沒有任務。
-          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來。</p>`
+          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；
+          要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。</p>`
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"

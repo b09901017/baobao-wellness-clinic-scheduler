@@ -27,6 +27,7 @@
 import { bookingSystemFor, tasksForCategory } from './taskRules.js';
 import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
 import { pairsOf, REPORT_TASK_KIND } from './followups.js';
+import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel } from './nthFollowup.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
@@ -185,6 +186,14 @@ export function closeConsequences({
   // 判斷走 `pairsOf()` —— 這一頁不認課程名字。
   if (doneCount && hasCheckupSlot(visit, entitlements, coursesById)) {
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
+  }
+
+  // 二返與營養師諮詢那一種：客人走了之後要去補一份文字紀錄（ADR-0066）。
+  // 判斷走課程主檔上的那個勾，跟「要不要簽療程單」同一種做法。
+  // **只在真的有做的時候講** —— 沒來就沒有紀錄要寫，而
+  // `recordTasksForVisit()` 也真的不會長出來。
+  if (doneCount && (visit?.slots ?? []).some((sl) => coursesById[sl.courseId]?.needsRecord)) {
+    lines.push(`待辦會多一張「${RECORD_TASK_KIND}」—— 客人走了之後要補的那一份`);
   }
 
   if (sheetSyncOn) lines.push(SHEET_LINE);

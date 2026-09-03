@@ -10,9 +10,12 @@ import { readFileSync } from 'node:fs';
 import {
   syncTasksForVisit,
   acceptsNewTasks,
+  acceptsRecordTasks,
+  recordTasksForVisit,
   isCancelKind,
   cancelKindFor,
   taskLine,
+  RECORD_TASK_KIND,
 } from '../public/js/domain/taskRules.js';
 import { confirmMessage } from '../public/js/domain/messages.js';
 import { shortDate, weekdayLabel } from '../public/js/domain/dates.js';
@@ -21,6 +24,10 @@ const COURSES = {
   rehab: { category: 'A' },   // 復健科：Abovee 壓表，確認後 Examine、耀聖
   checkup: { category: 'B' }, // 健檢：Examine 壓表，確認後沒有後續登記
   recovery: { category: 'C' },// 復能：Abovee 壓表，確認後沒有後續登記
+  // 二返：A 類（所以有掛號那一族），而且做完要補一份紀錄（ADR-0066）
+  followup: { category: 'A', needsRecord: true },
+  // 營養師諮詢：不用掛號，但一樣要補紀錄 —— 這一條逐課程不逐類別
+  consult: { category: null, needsRecord: true },
 };
 
 const visit = (over = {}) => ({
@@ -373,5 +380,87 @@ describe('一列任務要講的三件事', () => {
     const line = taskLine({ kind: '耀聖' }, null);
     assert.equal(line.date, null);
     assert.equal(line.kind, '耀聖');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// ADR-0066：紀錄是來訪之後才長出來的任務
+// ---------------------------------------------------------------------------
+
+describe('客人走了之後要寫的那一張（ADR-0066）', () => {
+  const consult = (over = {}) => visit({ slots: [{ courseId: 'consult' }], ...over });
+  const record = (over = {}) => task({ id: 'tw', kind: RECORD_TASK_KIND, dueDate: '2026-09-10', ...over });
+
+  test('兩個閘門是兩件事：掛號等客人確認，紀錄等那一場做完', () => {
+    assert.equal(acceptsNewTasks('confirmed'), true);
+    assert.equal(acceptsNewTasks('done'), false);
+    assert.equal(acceptsRecordTasks('done'), true);
+    assert.equal(acceptsRecordTasks('confirmed'), false);
+    assert.equal(acceptsRecordTasks('no_show'), false, '人沒來，沒有紀錄要寫');
+  });
+
+  test('死線是來訪那一天，不是它的前一天', () => {
+    const [t] = recordTasksForVisit(consult({ status: 'done' }), COURSES);
+    assert.equal(t.dueDate, '2026-09-10');
+    assert.equal(t.kind, RECORD_TASK_KIND);
+    assert.equal(t.visitId, 'v1');
+  });
+
+  test('課程主檔上沒勾就一張都不長 —— 這一條逐課程不逐類別', () => {
+    assert.deepEqual(recordTasksForVisit(visit({ status: 'done' }), COURSES), []);
+  });
+
+  test('同一天兩個都要寫紀錄的課程只長一張', () => {
+    const both = visit({ status: 'done', slots: [{ courseId: 'consult' }, { courseId: 'followup' }] });
+    assert.equal(recordTasksForVisit(both, COURSES).length, 1);
+  });
+
+  test('確認 → 已完成：長出寫紀錄，而還沒做完的 Examine 一張都不會被收掉', () => {
+    const rehabDone = visit({ status: 'done', slots: [{ courseId: 'followup' }] });
+    const { create, remove } = syncTasksForVisit(rehabDone, [task()], ctx);
+
+    assert.deepEqual(create.map((t) => t.kind), [RECORD_TASK_KIND]);
+    assert.deepEqual(remove, [], '掛號那一族不因為結案而消失（ADR-0027 的 Consequences）');
+  });
+
+  test('已完成 → 拿回來改成已確認：沒勾的那一張收掉，理由講得出是哪一種情況', () => {
+    const { create, remove } = syncTasksForVisit(consult({ status: 'confirmed' }), [record()], ctx);
+    assert.deepEqual(create, []);
+    assert.deepEqual(remove, [{ id: 'tw', reason: '那一場沒有做完，沒有紀錄要寫' }]);
+  });
+
+  test('改成未到也一樣收掉 —— 人沒來就沒有紀錄要寫', () => {
+    const { remove } = syncTasksForVisit(consult({ status: 'no_show' }), [record()], ctx);
+    assert.deepEqual(remove, [{ id: 'tw', reason: '那一場沒有做完，沒有紀錄要寫' }]);
+  });
+
+  test('課程被移出來訪時，理由是另一句 —— 兩種情況要分得出來', () => {
+    const swapped = visit({ status: 'done', slots: [{ courseId: 'recovery' }] });
+    const { remove } = syncTasksForVisit(swapped, [record()], ctx);
+    assert.deepEqual(remove, [{ id: 'tw', reason: '來訪裡已經沒有需要這個任務的課程' }]);
+  });
+
+  test('已經勾掉的紀錄一律不刪，就算來訪被拿回來也一樣', () => {
+    const { remove } = syncTasksForVisit(
+      consult({ status: 'confirmed' }), [record({ done: true, doneAt: 'x' })], ctx,
+    );
+    assert.deepEqual(remove, []);
+  });
+
+  test('改日期時死線跟著移到新的那一天', () => {
+    const moved = consult({ status: 'done', date: '2026-09-12' });
+    const { update } = syncTasksForVisit(moved, [record()], ctx);
+    assert.deepEqual(update, [{ id: 'tw', changes: { dueDate: '2026-09-12' } }]);
+  });
+
+  test('來訪取消時沒勾的收掉 —— 那一場沒發生', () => {
+    const { remove } = syncTasksForVisit(consult({ status: 'cancelled' }), [record()], ctx);
+    assert.ok(remove.some((r) => r.id === 'tw'));
+  });
+
+  test('已經有一張了就不再長第二張', () => {
+    const { create } = syncTasksForVisit(consult({ status: 'done' }), [record()], ctx);
+    assert.deepEqual(create, []);
   });
 });

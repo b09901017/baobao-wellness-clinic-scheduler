@@ -104,6 +104,7 @@ const editors = {
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
       needsTreatmentForm: true,
+      needsRecord: false,
       frequencyRule: null,
       followupCourseId: null,
     },
@@ -152,6 +153,14 @@ const editors = {
         value: r.needsTreatmentForm !== false,
         hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。',
       }),
+      // 跟上面那一個問的是同一種問題（「這個課程做完還要做什麼」），
+      // 所以擺在一起。兩個不衝突：二返兩件都是特例，一個不用簽、一個要寫。
+      f.toggle({
+        name: 'needsRecord', label: '客人走了之後要補一份紀錄',
+        value: r.needsRecord === true,
+        hint: '目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
+          + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
+      }),
       f.text({
         name: 'frequencyRule', label: '頻率限制', value: r.frequencyRule ?? '',
         placeholder: '每季一次', hint: '只提示不阻擋。留空代表沒有限制。',
@@ -183,6 +192,7 @@ const editors = {
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,
       needsTreatmentForm: !!v.needsTreatmentForm,
+      needsRecord: !!v.needsRecord,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),

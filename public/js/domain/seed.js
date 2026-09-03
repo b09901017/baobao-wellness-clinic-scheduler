@@ -105,6 +105,9 @@ export const SEED = {
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
       // 沒有這個欄位就是要簽，所以其餘課程一個字都不用寫。
       needsTreatmentForm: false,
+      // 客人走了之後要去曜聖補一份二返紀錄（ADR-0066）。跟療程單相反：
+      // 沒有這個欄位就是不用寫，所以只有真的要寫的那幾個課程有它。
+      needsRecord: true,
     },
 
     // ---- B 類：單系統＋電話 ----
@@ -163,6 +166,8 @@ export const SEED = {
       id: 'course-nutrition-consult', name: '營養師諮詢', category: null, durationMin: 20,
       assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
+      // 諮詢完要打一份諮詢紀錄（ADR-0066）
+      needsRecord: true,
     },
   ],
 
