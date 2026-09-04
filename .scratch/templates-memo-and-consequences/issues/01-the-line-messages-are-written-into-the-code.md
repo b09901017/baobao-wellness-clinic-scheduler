@@ -1,6 +1,6 @@
 # 要改一句給客人的話，得改程式
 
-Status: todo
+Status: done
 來源：她的第一項（`../spec.md`）
 動工前先讀：`public/js/domain/messages.js`、`ui/views/preferences.js`（設定子頁的樣板）
 

@@ -3656,6 +3656,76 @@ button.mark::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- LINE 回覆模板（ui/views/templates.js） ----
+ *
+ * 一則一格：抬頭、它在哪裡用得到、一個大框、一排點得到的變數丸子。
+ *
+ * 框跟備忘錄那一格踩過同一個坑：`resize` 關掉之後如果又 `overflow: hidden`，
+ * 打長了就看不到後面（見 `.pbedit__body` 那一段）。這裡的框不自動長高
+ * （模板只有幾行），所以 `overflow-y: auto` 就夠 —— 但一定要有。
+ *
+ * 一個新顏色都沒有：全部用現成的 token（ADR-0055）。 */
+.tplbox {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.tplbox:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.tplbox__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 2px;
+}
+
+.tplbox__where {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.tplbox__body {
+  width: 100%;
+  min-height: 92px;
+  max-height: 40dvh;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.7;
+  resize: vertical;
+  overflow-y: auto;
+}
+
+.tplvars {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.tplvars .chip {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.tplbox__hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  color: var(--text-mute);
+}
+
 /* ---- 「這一場的待辦」（ui/components/taskMirror.js） ----
  *
  * 一筆來訪的讀取卡片底下那一小塊，四個畫面一起長（ADR-0018）。

@@ -521,7 +521,13 @@ async function openMessages(ctx, today) {
     body: '<p class="muted">載入中…</p>',
   });
 
-  paintMessages(sheet, ctx, today, month, await openInviteFor(ctx.customer.id, month, today));
+  // 她改過的 LINE 模板。跟連結同一趟拿，不多一輪往返；
+  // `getTemplates()` 有行程內快取而且讀不到就回空物件（＝用預設值）。
+  const [invite, templates] = await Promise.all([
+    openInviteFor(ctx.customer.id, month, today),
+    config.getTemplates(),
+  ]);
+  paintMessages(sheet, ctx, today, month, invite, templates);
 }
 
 /**
@@ -546,9 +552,11 @@ async function openInviteFor(customerId, month, today) {
  * 兩則（有連結的與沒連結的）同時給她會讓她不知道該貼哪一則，而貼錯的後果是
  * 客戶用打字回她、連結白給了。動線與待辦中心那一頁一樣：先產生，再複製。
  */
-function paintMessages(sheet, ctx, today, month, invite) {
+function paintMessages(sheet, ctx, today, month, invite, templates = {}) {
   const link = invite ? formLink(location.origin, invite.id) : '';
-  const list = messagesFor({ customer: ctx.customer, visits: ctx.visits, today, formLink: link });
+  const list = messagesFor({
+    customer: ctx.customer, visits: ctx.visits, today, formLink: link, templates,
+  });
   const shown = link ? list : list.filter((m) => m.id !== 'ask');
 
   // 走面板自己的 update()：它會保住捲動位置，不會把她捲回最上面。
@@ -582,7 +590,10 @@ function paintMessages(sheet, ctx, today, month, invite) {
     if (!token) return;
     // 就地換掉面板內容，不重開一張 —— 重開會再播一次滑上來的動畫，
     // 看起來像她按錯了什麼。
-    paintMessages(sheet, ctx, today, month, await openInviteFor(ctx.customer.id, month, today));
+    paintMessages(
+      sheet, ctx, today, month,
+      await openInviteFor(ctx.customer.id, month, today), templates,
+    );
   });
 }
 

@@ -15,6 +15,7 @@ import { getDb } from './firebase.js';
 import * as repo from './repo.js';
 import { MASTER_TYPES } from '../domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../domain/seed.js';
+import { toStored } from '../domain/messageTemplates.js';
 
 const pathFor = (type) => `config/app/${type}`;
 
@@ -54,6 +55,50 @@ export async function saveSettings(changes) {
       ? { op: 'update', path: 'config', id: 'app', changes }
       : { op: 'create', path: 'config', id: 'app', data: changes },
   ]);
+}
+
+// ---------- LINE 回覆模板 ----------
+//
+// 存在 `config/app` 這份文件的 `messageTemplates` 欄位底下 —— 跟
+// `sortWeights`、`sheetSync` 同一份，所以**自動有稽核紀錄、自動進備份、
+// 自動被還原腳本搬回來**，`firestore.rules` 的 `match /config/{docId=**}`
+// 也已經涵蓋，一行都不用改。
+//
+// 只存她**改過**的那幾則（`toStored()`）：之後改預設值時她沒動過的會跟著更新。
+
+/**
+ * 這一次開著 app 的期間讀過的那一份。`null` 代表還沒讀過。
+ *
+ * 快取的理由跟 `data/playbooks.js` 一樣：模板是**很少改、要在五個地方被讀到**
+ * 的參考資料，每次都重讀等於在她的行動網路上多打幾輪往返（SPEC 第 6.9 節）。
+ */
+let templateCache = null;
+
+/** 任何一次寫入之後都要丟掉 —— 她改完立刻要看到改完的樣子。 */
+export function forgetTemplates() {
+  templateCache = null;
+}
+
+/**
+ * 她改過的那幾則。**讀不到就回空物件**，那時候每一則都用預設值 ——
+ * 「看到出廠設定的那一句」比「看到空白」好得多。
+ *
+ * @param {{fresh?: boolean}} [o]
+ */
+export async function getTemplates({ fresh = false } = {}) {
+  if (!fresh && templateCache) return templateCache;
+  try {
+    templateCache = (await getSettings()).messageTemplates ?? {};
+  } catch {
+    return {};
+  }
+  return templateCache;
+}
+
+/** 存整份。走 `saveSettings()`，所以跟排序權重一樣有稽核與復原。 */
+export async function saveTemplates(next) {
+  await saveSettings({ messageTemplates: toStored(next) });
+  forgetTemplates();
 }
 
 // ---------- 種子資料 ----------

@@ -5,6 +5,7 @@ import * as settings from './views/settings.js';
 import * as masterList from './views/masterList.js';
 import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
+import * as templates from './views/templates.js';
 import * as home from './views/home.js';
 import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
@@ -91,6 +92,7 @@ register('/settings/report', { title: '試算表報表', nav: false, render: rep
 register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.render });
 register('/settings/merge', { title: '舊資料匯入', nav: false, render: mergeImport.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
+register('/settings/templates', { title: 'LINE 回覆模板', nav: false, render: templates.render });
 register('/settings/:type', {
   title: '主檔', nav: false,
   render: (el, type) => masterList.render(el, type),
