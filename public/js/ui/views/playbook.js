@@ -34,7 +34,9 @@ import * as config from '../../data/config.js';
 import {
   validatePlaybook, matches, deckOrder, bodyOf, MAX_TITLE, MAX_BODY,
 } from '../../domain/playbook.js';
-import { sanitizeLinePaste, describeCleanup, EMOJI_ROW } from '../../domain/lineText.js';
+import {
+  sanitizeLinePaste, describeCleanup, hasLineCodes, EMOJI_ROW,
+} from '../../domain/lineText.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
@@ -261,6 +263,11 @@ function editCardHtml(p) {
 function emojiRowHtml() {
   return `
     <div class="emojirow noscroll-bar" role="group" aria-label="插入表情符號" data-emojirow>
+      ${/* 「清掉貼圖代碼」排在最前面，而且**只在真的有代碼的時候出現**。
+             貼上那條路蓋不到已經存在的字（她在這個功能之前就打進去的），
+             而開檔自動改寫她的資料是這個 app 不做的事。放在這一排裡面是為了
+             不多吃一行高度 —— 那正是 c／d 兩個問題的根源。 */''}
+      <button class="emojirow__clean" type="button" data-clean hidden>清掉貼圖代碼</button>
       ${EMOJI_ROW.map((e) => `
         <button class="emojirow__btn" type="button" data-emoji="${esc(e)}"
                 aria-label="插入 ${esc(e)}">${esc(e)}</button>`).join('')}
@@ -439,16 +446,14 @@ function mountEditor() {
   const body = card.querySelector('[data-body]');
   if (!body) return;
 
-  // 打到哪長到哪。一般備忘錄 app 就是這樣，而固定高度的框會讓她一直在小窗裡捲。
-  // 到 `.pbedit__body` 的 `max-height` 就封頂，超過的部分在框裡捲
-  // （那一段 CSS 的註解寫了為什麼一定要 `flex: none`）。
-  const grow = () => {
-    body.style.height = 'auto';
-    body.style.height = `${body.scrollHeight}px`;
-  };
-  body.addEventListener('input', grow);
-  grow();
-
+  // **內文那一格的高度交給 CSS，不再用 JS 撐。**
+  //
+  // 原本是「打到哪長到哪」（`body.style.height = scrollHeight`）。那個做法
+  // 在這張卡上會兩邊都錯：短的備忘錄把卡片撐不滿，長的又把底下那一排 emoji
+  // 與「存起來」擠出畫面 —— 她 2026-09-04 回報的就是後面那一種。
+  //
+  // 現在 `.pbcard--edit > .pbedit__body` 是 `flex: 1 1 0`：它吃掉卡片裡剩下的
+  // 空間，超過就在自己裡面捲。整張卡不用滑，只有這一格會滑。
   // ---- 從 LINE 貼過來的那一段 ----
   //
   // 她的筆記記在 LINE 裡、用貼圖排版，複製出來全部變成 `(emoji)`、`(加1)`。
@@ -472,7 +477,6 @@ function mountEditor() {
     // 自己截才講得出被丟掉幾個字。
     const fits = clean.slice(0, Math.max(0, room));
     f.insertAtCursor(body, fits);
-    grow();
 
     const said = describeCleanup(raw, clean);
     if (said) toast.info(said);
@@ -483,16 +487,35 @@ function mountEditor() {
     }
   });
 
-  // ---- 底下那一排 emoji ----
+  // ---- 底下那一排 emoji 與「清掉貼圖代碼」 ----
   //
   // 委派掛在**那一排**上（它每次重畫都是新的節點），所以不會愈掛愈多。
+  const cleanBtn = card.querySelector('[data-clean]');
+
+  /** 現在的字裡還有沒有代碼。有才把那一顆亮出來。 */
+  const syncClean = () => {
+    if (cleanBtn) cleanBtn.hidden = !hasLineCodes(body.value);
+  };
+  body.addEventListener('input', syncClean);
+  syncClean();
+
   card.querySelector('[data-emojirow]')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-clean]')) {
+      const before = body.value;
+      const after = sanitizeLinePaste(before);
+      if (after === before) return;
+      body.value = after;
+      body.dispatchEvent(new Event('input', { bubbles: true }));
+      const said = describeCleanup(before, after);
+      if (said) toast.info(said);
+      return;
+    }
+
     const btn = e.target.closest('[data-emoji]');
     if (!btn) return;
     // `insertAtCursor()` 會把焦點留在輸入框、游標留在插進去的字後面，
-    // 並且手動發一次 `input`（`grow()` 靠它）。
+    // 並且手動發一次 `input`（`maxlength` 與其他監聽靠它）。
     f.insertAtCursor(body, btn.dataset.emoji);
-    grow();
   });
 }
 

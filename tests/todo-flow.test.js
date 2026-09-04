@@ -171,21 +171,34 @@ describe('這一場走到哪了（todosForVisit）', () => {
   const kinds = (rows) => rows.map((r) => r.kind);
 
   test('推導的兩列也要在 —— 她每天做最多次的就是那兩件', () => {
-    // 還在等回覆而且日子到了：兩列都該出現
     const rows = ask(base({ status: 'pending_confirm' }));
     assert.ok(kinds(rows).includes('跟客人確認時間'));
     assert.ok(kinds(rows).some((k) => k.startsWith('簽療程單')));
     assert.ok(rows.every((r) => r.derived), '這兩列不在 tasks 集合裡');
   });
 
-  test('已確認的那一筆不再問「跟客人確認時間」', () => {
+  test('**做完的不消失，只是勾起來**（2026-09-04 她指名的）', () => {
+    // 一列消失了她分不出「做完了」跟「這一場沒有這一件」
     const rows = ask(base({ status: 'confirmed' }));
-    assert.ok(!kinds(rows).includes('跟客人確認時間'));
+    const confirm = rows.find((r) => r.kind === '跟客人確認時間');
+    assert.ok(confirm, '已確認之後那一列還要在');
+    assert.equal(confirm.done, true, '而且是勾起來的');
   });
 
-  test('日子還沒到就不出現「簽療程單」', () => {
+  test('日子還沒到，「簽療程單」也列出來 —— 她要看到這一場的全部', () => {
     const rows = ask(base({ date: '2026-09-30', status: 'confirmed' }));
-    assert.deepEqual(rows, []);
+    const close = rows.find((r) => r.kind.startsWith('簽療程單'));
+    assert.ok(close);
+    assert.equal(close.done, false);
+  });
+
+  test('結案之後兩列都勾起來', () => {
+    const rows = ask(base({ status: 'done' }));
+    for (const kind of ['跟客人確認時間', '簽療程單']) {
+      const row = rows.find((r) => r.kind.startsWith(kind));
+      assert.ok(row, kind);
+      assert.equal(row.done, true, kind);
+    }
   });
 
   test('整天都是二返的那一筆講明「不用簽，但要結案」', () => {

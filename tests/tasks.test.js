@@ -268,25 +268,51 @@ describe('取消來訪時的任務', () => {
 });
 
 describe('LINE 確認訊息', () => {
-  test('把壓好的時間列成一句可以直接貼的話', () => {
+  test('每一段各自一行：日期、時間、課程', () => {
     const msg = confirmMessage({ name: '王小姐' }, [
-      { date: '2026-09-17', slots: [{ startsAt: '14:00' }] },
-      { date: '2026-09-03', slots: [{ startsAt: '14:00' }, { startsAt: '15:15' }] },
+      { date: '2026-09-17', slots: [
+        { startsAt: '11:00', courseName: '復能' },
+        { startsAt: '10:00', courseName: '營養點滴' },
+      ] },
+      { date: '2026-09-03', slots: [{ startsAt: '14:00', courseName: '復能' }] },
     ]);
 
-    assert.equal(msg, '王小姐您好，9 月為您安排了 9/3(四) 14:00、9/17(四) 14:00，請問可以嗎？');
+    assert.equal(msg, [
+      '王小姐您好，9 月為您安排了：',
+      '9/3(四) 14:00 復能',
+      '9/17(四) 10:00 營養點滴',
+      '9/17(四) 11:00 復能',
+      '請問可以嗎？',
+    ].join('\n'));
   });
 
-  test('一次來訪只講第一個時段的時間，不把整份時刻表念完', () => {
+  test('**同一天不同時段的都要印**（2026-09-04 推翻了「只講第一段」）', () => {
+    // 舊的行為是一筆來訪只印第一個時段，理由是「不要把時刻表念一遍」。
+    // 她實際用過之後說：少印的那幾段客戶照樣要來，看不到反而以為只有一段。
     const msg = confirmMessage({ name: '王小姐' }, [
-      { date: '2026-09-03', slots: [{ startsAt: '15:15' }, { startsAt: '09:15' }] },
+      { date: '2026-09-03', slots: [
+        { startsAt: '15:15', courseName: '靜脈' },
+        { startsAt: '09:15', courseName: '復能' },
+      ] },
     ]);
-    assert.ok(msg.includes('09:15'));
-    assert.ok(!msg.includes('15:15'));
+    assert.ok(msg.includes('09:15 復能'));
+    assert.ok(msg.includes('15:15 靜脈'));
+    // 而且早的排前面
+    assert.ok(msg.indexOf('09:15') < msg.indexOf('15:15'));
+  });
+
+  test('沒有時間的那一段不印時間 —— 「時間不詳」貼給客戶只會被打電話問', () => {
+    const msg = confirmMessage({ name: '王小姐' }, [
+      { date: '2026-09-03', slots: [{ startsAt: null, courseName: '復能' }] },
+    ]);
+    assert.ok(msg.includes('9/3(四) 復能'));
+    assert.ok(!msg.includes('時間不詳'));
   });
 
   test('沒有東西可問就回空字串，不要產生半句話', () => {
     assert.equal(confirmMessage({ name: '王小姐' }, []), '');
+    // 有來訪但一段都沒有，照樣是半句話
+    assert.equal(confirmMessage({ name: '王小姐' }, [{ date: '2026-09-03', slots: [] }]), '');
   });
 });
 
