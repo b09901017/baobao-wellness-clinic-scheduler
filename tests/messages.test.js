@@ -248,6 +248,17 @@ describe('她在設定頁改過之後', () => {
     assert.equal(confirm.text, '換過的：9/10(四) 10:00');
   });
 
+  test('改過的模板照樣吃得到完整的時間區間 —— 模板不管內容', () => {
+    // `{slots}` 的內容是變數，算變數留在 `messages.js`（那一刀切在
+    // `messageTemplates.js` 的檔頭）。所以她改了字，時間照樣是完整的一段。
+    const said = confirmMessage(
+      CUSTOMER,
+      [{ date: '2026-09-03', slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '復能' }] }],
+      { templates: { confirm: '{name}：{slots}' } },
+    );
+    assert.equal(said, '王小明：9/3(四) 14:00–15:00 復能');
+  });
+
   test('模板裡的佔位符打錯字，那幾個字會留在畫面上', () => {
     // 安靜地少一個稱呼比看得到 `{Name}` 糟 —— 後者她一眼就知道自己打錯了
     const said = confirmMessage(
