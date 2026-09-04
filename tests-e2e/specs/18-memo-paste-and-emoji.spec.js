@@ -191,4 +191,69 @@ test.describe('備忘錄：捲動、貼上、emoji', () => {
     await expect(page.locator('#view input[type="checkbox"]')).toHaveCount(0);
     await expect(page.locator('[data-emoji]').first()).toBeVisible();
   });
+
+  test('M8 編輯中整張卡不用捲：emoji 那一排與存檔鈕都在畫面上', async ({ app, page }) => {
+    // 她 2026-09-04 回報的 c 與 d：底下那些 icon「完全沒有顯示出來，感覺被壓
+    // 在底下但滾輪又滾不到」，而存檔鈕要往下滑才看得到。
+    // 根本原因是 flex-shrink 把 `.emojirow` 壓成 2px 高。
+    await openEditor(app, page);
+    await page.fill('[data-body]', Array.from({ length: 60 }, (_, i) => `第 ${i + 1} 行`).join('\n'));
+    await page.waitForTimeout(200);
+
+    const geo = await page.evaluate(() => {
+      const card = document.querySelector('.pbcard--edit');
+      const row = document.querySelector('.emojirow');
+      const body = document.querySelector('.pbedit__body');
+      return {
+        cardOverflow: card.scrollHeight - card.clientHeight,
+        rowHeight: Math.round(row.getBoundingClientRect().height),
+        bodyScrolls: body.scrollHeight - body.clientHeight,
+      };
+    });
+
+    expect(geo.rowHeight, 'emoji 那一排不可以被壓扁').toBeGreaterThan(30);
+    expect(geo.cardOverflow, '整張卡不應該需要捲').toBeLessThanOrEqual(1);
+    expect(geo.bodyScrolls, '要捲的是內文那一格').toBeGreaterThan(0);
+
+    await expect(page.locator('[data-emoji]').first()).toBeInViewport();
+    await expect(page.locator('[data-save]')).toBeInViewport();
+    await expect(page.locator('[data-cancel]')).toBeInViewport();
+  });
+
+  test('M9 全形括號的代碼也清得掉', async ({ app, page }) => {
+    await openEditor(app, page);
+    await page.fill('[data-body]', '');
+    await pasteInto(page, '[data-body]', '（emoji）前情提醒' + '\n' + '（加1）飯後打針');
+
+    const value = await page.locator('[data-body]').inputValue();
+    expect(value).toContain('🐻 前情提醒');
+    expect(value).toContain('1️⃣ 飯後打針');
+  });
+
+  test('M10 已經在框裡的代碼，用那一顆按鈕清得掉', async ({ app, page }) => {
+    // 貼上那條路蓋不到「這個功能上線之前就存在的字」。
+    await app.seed([...masterDocs(), playbook({
+      id: 'pb-old', title: '舊的', courseIds: [],
+      body: ['(emoji)前情提醒', '(加1)飯後打針'],
+    })]);
+    await app.signIn('/playbook');
+    await page.click('[data-edit="pb-old"]');
+    await expect(page.locator('[data-body]')).toBeVisible();
+
+    // 有代碼 → 那一顆要看得到
+    await expect(page.locator('[data-clean]')).toBeVisible();
+    await page.click('[data-clean]');
+    await page.waitForTimeout(200);
+
+    const value = await page.locator('[data-body]').inputValue();
+    expect(value).toContain('🐻 前情提醒');
+    expect(value).not.toContain('(emoji)');
+    // 清完就沒事做了，那一顆收起來
+    await expect(page.locator('[data-clean]')).toBeHidden();
+  });
+
+  test('M11 沒有代碼的時候那一顆不出現', async ({ app, page }) => {
+    await openEditor(app, page);
+    await expect(page.locator('[data-clean]')).toBeHidden();
+  });
 });
