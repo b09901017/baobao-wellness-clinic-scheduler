@@ -160,11 +160,42 @@ describe('一句話講完一則稽核', () => {
     assert.equal(line, '客戶A・9/14(一)・記了一句「禮拜一再問問」');
   });
 
-  test('勾任務就說勾掉了什麼', () => {
-    const line = describeEvent(ev('tasks.update',
-      { customerName: '客戶A', kind: 'Examine', done: false },
-      { done: true, doneAt: '2026-09-01T00:00:00Z' }, 'tasks/t1'));
-    assert.equal(line, '勾掉 客戶A・Examine');
+  // 她的原話（2026-09-04）：「勾掉了誰的什麼時候甚麼的 examine／耀聖，
+  // 不要像現在只寫勾掉 examine」。「勾掉 Examine ×8」看起來很乾淨，
+  // 可是她一個都認不出來，而這一頁的用途正是「那第九個人呢」。
+  //
+  // 缺的不是欄位是**一次查詢**：任務身上不該有來訪日與課程名（那會是第二份
+  // 會對不起來的資料），但它有 `visitId`，而稽核的 before 是整份舊文件。
+  describe('勾掉一張任務', () => {
+    const tick = (extra = {}) => ev('tasks.update',
+      { customerName: '客戶A', kind: 'Examine', done: false, visitId: 'v1', ...extra },
+      { done: true, doneAt: '2026-09-01T00:00:00Z' }, 'tasks/t1');
+
+    const visitOf = (id) => (id === 'v1' ? { id: 'v1', date: '2026-09-14', slots } : null);
+
+    test('傳了 visitOf 就講得出誰的、哪一天的、哪一項', () => {
+      assert.equal(describeEvent(tick(), { visitOf }),
+        '勾掉 客戶A・9/14(一)・復能、營養針・Examine');
+    });
+
+    // 稽核那一頁與客戶詳情的變更紀錄刻意不傳它（那兩頁是查證用的，
+    // 多一次 N 筆來訪的查詢換一個日期不划算）。
+    test('沒傳就退回原本那一句，不是印出半句話', () => {
+      assert.equal(describeEvent(tick()), '勾掉 客戶A・Examine');
+    });
+
+    test('那一筆來訪被刪了、問不到，一樣退回去', () => {
+      assert.equal(describeEvent(tick(), { visitOf: () => null }), '勾掉 客戶A・Examine');
+      assert.equal(describeEvent(tick({ visitId: null }), { visitOf }), '勾掉 客戶A・Examine');
+    });
+
+    // CONTEXT.md 的「拿回來」那一條把「取消勾選」列為 _Avoid_。
+    test('拿回來不是「取消勾選」', () => {
+      const line = describeEvent(ev('tasks.update',
+        { customerName: '客戶A', kind: 'Examine', done: true, visitId: 'v1' },
+        { done: false, doneAt: null }, 'tasks/t1'), { visitOf });
+      assert.equal(line, '拿回來 客戶A・9/14(一)・復能、營養針・Examine');
+    });
   });
 
   // 這是她點名的那個 bug：「什麼叫勾掉某某的某某??」
@@ -176,6 +207,13 @@ describe('一句話講完一則稽核', () => {
       { done: true, doneAt: '2026-09-01T00:00:00Z' }, 'notes/n1'));
     assert.equal(line, '勾掉待辦 客戶A・「帶健保卡」');
     assert.equal(line.split('客戶A').length - 1, 1, '名字只能出現一次');
+  });
+
+  test('拿回來一則待辦也是「拿回來」，不是「取消勾選」', () => {
+    const line = describeEvent(ev('notes.update',
+      { customerId: 'c1', customerName: '客戶A', text: '帶健保卡', done: true },
+      { done: false, doneAt: null }, 'notes/n1'));
+    assert.equal(line, '拿回來待辦 客戶A・「帶健保卡」');
   });
 
   test('新增隨手記講得出哪一天、什麼事', () => {

@@ -131,3 +131,49 @@ test('S4 「看今天做了什麼」照人分組畫得出來，兩種看法切�
   await panel.locator('[data-review-by="person"]').click();
   await expect(panel.locator('.reviewwho__name')).toHaveText('客戶A');
 });
+
+// **一則都不可以安靜地消失**（ADR-0071）。份量閘門本身在
+// `tests/day-review.test.js` 裡測完了；這一支盯的是畫面那一半：
+// 那一行有沒有畫出來、點得動、攤開之後看得到那一則。
+test('S5 濾掉的那幾則不列出來，但數得出來、點得開', async ({ app, page }) => {
+  await app.seed([
+    ...scenarioFresh(),
+    auditRow('a1', '09:11', {
+      action: 'visits.create',
+      targetPath: 'visits/v-review',
+      before: null,
+      after: {
+        customerId: 'cust-a',
+        customerName: '客戶A',
+        date: '2026-09-14',
+        status: 'pending_confirm',
+        slots: [{ courseName: '復能' }],
+      },
+    }),
+    // 壓表的餘波：那一筆來訪存下去，額度的「已排未上」就跟著 0→1。
+    auditRow('a2', '09:11', {
+      action: 'customers/cust-a/entitlements.update',
+      targetPath: 'customers/cust-a/entitlements/ent-a-recovery',
+      before: { label: '復能', bookedCount: 0 },
+      after: { bookedCount: 1 },
+    }),
+  ]);
+  await app.signIn();
+
+  const panel = page.locator('[data-review]');
+  await panel.locator('summary').click();
+
+  // 列出來的只有她按下去的那一則
+  await expect(panel.locator('.reviewlist .reviewrow')).toHaveCount(1);
+  await expect(panel.locator('.reviewlist')).not.toContainText('已排未上');
+
+  // 但它沒有安靜地消失
+  const more = panel.locator('.reviewmore');
+  await expect(more).toContainText('另外 1 則');
+
+  const box = panel.locator('.reviewmore__box');
+  await expect(box).toHaveAttribute('data-open', 'false');
+  await more.locator('[data-review-hidden]').click();
+  await expect(box).toHaveAttribute('data-open', 'true');
+  await expect(box).toContainText('已排未上');
+});
