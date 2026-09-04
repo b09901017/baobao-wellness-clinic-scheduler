@@ -39,7 +39,7 @@ import { clinicalTerms } from '../../domain/masterData.js';
 import * as playbooksData from '../../data/playbooks.js';
 import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
-import { splitByInvite, splitByMonth, formLink } from '../../domain/availabilityForm.js';
+import { splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
@@ -52,7 +52,7 @@ import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import * as auditData from '../../data/audit.js';
 import {
-  reviewOf, dayTitle, NOBODY, NOTHING as REVIEW_NOTHING,
+  reviewOf, visitIdsIn, dayTitle, NOBODY, NOTHING as REVIEW_NOTHING,
 } from '../../domain/dayReview.js';
 import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
@@ -92,10 +92,6 @@ let drawer = null;
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
 let askRows = null;
 
-// 其中「連結已經發出、還沒填」的有幾位。那一列的數字不減掉他們（ADR-0033），
-// 但說明文字要講出來，不然她會重複問。
-let sentCount = 0;
-
 // 「客戶填好的時間」那一列。null = 還沒載完，跟 askRows 同一個道理。
 let inboxRows = null;
 
@@ -119,7 +115,6 @@ export async function render(el) {
   picked = new Set();
   drawer = null;
   askRows = null;
-  sentCount = 0;
   inboxRows = null;
   bookRows = null;
   // **回到這一頁一律是收起來的。** `reviewOpen` 撐得過 `paint()`（在抽屜裡
@@ -127,6 +122,11 @@ export async function render(el) {
   // 理由就是她一天開這一頁十幾次，而看回顧是收工前一次的事（ADR-0062）。
   reviewOpen = false;
   reviewDay = null;
+  reviewHidden = false;
+  // **來訪的快取跟著清掉**（名字的不用）。她一天改好幾次日期，而一筆改過的
+  // 來訪印出舊日期是這一塊最不該犯的錯 —— 名字幾乎不會變，日期是這個
+  // app 的主業。重讀的代價接近零：這一塊展開才載入，而展開是收工前一次的事。
+  reviewVisits = new Map();
 
   const today = todayISO();
   let tasks;
@@ -213,24 +213,23 @@ async function loadBook(ctx) {
  * 這一列等資料回來再補上去**，不要為了它讓整頁多等一輪。
  *
  * 額度與可用性都是 collection group query，各一次，不是一位客戶一次。
- * 邀請多一次，跟著同一組 Promise.all 走，不多一輪往返。
  */
 async function loadAsk(ctx) {
   try {
-    const [customers, entitlementsBy, availabilityBy, invites] = await Promise.all([
+    const [customers, entitlementsBy, availabilityBy] = await Promise.all([
       customersData.list(),
       customersData.entitlementsByCustomer(),
       customersData.availabilityByCustomer(),
-      invitesData.list(),
     ]);
     askRows = customersToAsk({ customers, entitlementsBy, availabilityBy, today: ctx.today });
-    // 連結發出去了的那幾位還是留在名單上（他們確實還沒回），只是說明要講出來。
-    sentCount = splitByInvite({ rows: askRows, invites, today: ctx.today }).sent.length;
+    // **連結不必在這裡讀了**（2026-09-04）：那一列只剩標題與數字，而數字
+    // 本來就不減掉已經發出的那幾位（ADR-0033）。「其中 N 位在等他填」搬到
+    // 點進去那一頁的「已經發出」那一區 —— 那一區本來就要讀邀請。
+    // 少一次 collection query，而首頁是她一天開十幾次的那一頁。
   } catch {
     // 讀不到就當這一列不存在。它是提醒，不是這一頁的主體 ——
     // 為了它把已經畫好的待辦換成一句錯誤訊息，代價比看不到這一列大。
     askRows = [];
-    sentCount = 0;
   }
 
   // 她可能已經切到「依客戶」那個看法了，那時候沒有這個位置可以填。
@@ -337,6 +336,24 @@ let reviewCache = null;
 let reviewNames = null;
 
 /**
+ * 勾掉的那幾張任務對應的來訪。id → 來訪。
+ *
+ * 勾掉一張任務的那一句要講得出「誰的、哪一天的、哪一項」，而任務身上只有
+ * `visitId`（來訪日與課程名不該存在任務上 —— `domain/audit.js` 的檔頭）。
+ * 跟客戶名單同一條規矩：**讀不到不擋這一塊**，少幾個日期不是少一塊畫面。
+ *
+ * 存在模組裡是為了**翻日子不重讀同一筆**：她一天勾十幾張，翻七天很容易碰到
+ * 同一場（一場來訪身上兩三張任務是常態）。
+ */
+let reviewVisits = new Map();
+
+/**
+ * 「另外 N 則」攤開了沒。跟 `reviewBy` 一樣是看法不是位置，所以存在模組裡。
+ * **翻一天要收回去** —— 那個數字換了，攤開的內容也換了。
+ */
+let reviewHidden = false;
+
+/**
  * 展開了沒。**存在模組裡，因為這一頁重畫的次數變多了**（2026-09-02）——
  * 在「依客戶」的抽屜裡勾一筆會讓底下這一頁重畫，而重畫出來的
  * `<details>` 預設是收起來的。她剛剛才展開的東西在她眼前收起來，
@@ -387,8 +404,26 @@ function wireReview(ctx) {
       if (next > ctx.today) return;
       if (daysBetween(next, ctx.today) > REVIEW_BACK) return;
       reviewDay = next;
+      // 翻一天就把「另外 N 則」收回去 —— 那個數字換了，攤開的內容也換了。
+      reviewHidden = false;
       // 翻日子失敗也一樣：收起來再展開才重試得了
       loadReview(ctx, body).then((ok) => { if (!ok) loaded = false; });
+      return;
+    }
+
+    // 「另外 N 則」攤開／收起來。**不重畫這一塊**（ADR-0038）——
+    // 重畫會把那一段的過場吃掉，而她要看的就是它長出來的那一下。
+    const more = e.target.closest('[data-review-hidden]');
+    if (more) {
+      reviewHidden = !reviewHidden;
+      more.setAttribute('aria-expanded', String(reviewHidden));
+      more.textContent = reviewHidden ? '收起來' : '攤開';
+      const box = body.querySelector('.reviewmore__box');
+      if (box) {
+        box.dataset.open = String(reviewHidden);
+        // 收起來的時候連讀螢幕的人也讀不到 —— 它只是被裁掉，不是不存在。
+        box.toggleAttribute('inert', !reviewHidden);
+      }
       return;
     }
 
@@ -431,8 +466,35 @@ async function loadReview(ctx, body) {
   if ((reviewDay ?? ctx.today) !== day) return true;
 
   reviewCache = { day, events };
+  // 先畫再補來訪：這一塊已經等過一輪網路了，不要為了幾個日期再等一輪。
+  // 補回來之後只重畫這一塊（同 `loadTaskVisits()` 的作法）。
   paintReview(ctx, body);
+  loadReviewVisits(ctx, body, events, day);
   return true;
+}
+
+/**
+ * 勾掉的那幾張任務對應的來訪。**讀不到就算了** —— 那幾列會退回
+ * 「勾掉 客戶A・Examine」，那是 `describeParts()` 本來就有的退路。
+ *
+ * 要讀哪幾筆由 `visitIdsIn()` 決定（規則在 domain，畫面不自己認）。
+ * 已經在手上的不重讀。
+ */
+async function loadReviewVisits(ctx, body, events, day) {
+  const wanted = visitIdsIn(events).filter((id) => !reviewVisits.has(id));
+  if (!wanted.length) return;
+
+  let visits;
+  try {
+    visits = await visitsData.getMany(wanted);
+  } catch {
+    return;
+  }
+  // 她可能在讀回來之前又翻了一天。**讀回來的照樣收進快取** ——
+  // 那幾筆之後翻回來還是用得到，只是這一次不重畫。
+  for (const [id, visit] of visits) reviewVisits.set(id, visit);
+  if ((reviewDay ?? ctx.today) !== day) return;
+  paintReview(ctx, body);
 }
 
 async function loadReviewNames() {
@@ -448,7 +510,13 @@ async function loadReviewNames() {
 
 function paintReview(ctx, body) {
   if (!reviewCache) return;
-  const review = reviewOf(reviewCache.events, { limit: 300, nameOf: reviewNames });
+  const review = reviewOf(reviewCache.events, {
+    limit: 300,
+    nameOf: reviewNames,
+    // **問不到就不講**（同 `nameOf`）：還沒讀回來、讀失敗、那一筆被刪了，
+    // 三種都回 null，而那一列退回「勾掉 客戶A・Examine」。
+    visitOf: (id) => reviewVisits.get(id) ?? null,
+  });
   body.innerHTML = reviewHtml(review, reviewCache.day, ctx.today, ctx.settings);
 }
 
@@ -486,6 +554,8 @@ function reviewHtml(review, day, today, settings) {
         ? review.people.map(reviewPersonHtml).join('')
         : review.groups.map(reviewGroupHtml).join('')}
     </div>
+
+    ${hiddenHtml(review)}
 
     ${review.truncated ? `
       <p class="muted dim" style="margin-top: var(--space-2)">
@@ -535,6 +605,43 @@ function reviewGroupHtml(group) {
           <span class="reviewrow__what">${esc(row.text)}</span>
           ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
         </p>`).join('')}
+    </div>`;
+}
+
+/**
+ * 被份量閘門濾掉的那幾則（ADR-0071）。
+ *
+ * **一則都不可以安靜地消失。** 這一行就是那條規矩的全部：不列出來可以，
+ * 不說有幾則不行 —— 她開這一頁是為了確認沒有漏掉東西，而一個安靜消失的
+ * 項目正好是最該被看到的那一種。
+ *
+ * 點得開，而且**不重讀資料**：那幾則本來就在手上。攤開的那幾列比一般的列
+ * 再淡一級 —— 它們是「可以不看的那些」，不是第二份清單。
+ *
+ * **不叫「其他」**：那三個字是流程分段最後一段的名字（`STAGES` 的 `other`），
+ * 同一塊畫面上兩個「其他」會被當成同一件事（`NOBODY` 同一條理由）。
+ */
+function hiddenHtml(review) {
+  if (!review.hidden) return '';
+
+  return `
+    <p class="reviewmore">
+      <span class="reviewmore__say">另外 ${review.hidden} 則沒列出來 —— 改欄位、對帳這種</span>
+      <button class="chip chip--sm" type="button" data-review-hidden
+              aria-expanded="${reviewHidden}">${reviewHidden ? '收起來' : '攤開'}</button>
+    </p>
+    ${/* 收合走 grid 0fr→1fr（同 `.pbsearch`）—— `height: auto` 沒有動畫，
+          而猜一個 max-height 在三則跟三十則的時候會是兩種速度。 */''}
+    <div class="reviewmore__box" data-open="${reviewHidden}"
+         ${reviewHidden ? '' : 'inert'}>
+      <div class="reviewmore__rows">
+        ${review.hiddenRows.map((row) => `
+          <p class="reviewrow">
+            <span class="reviewrow__at num">${esc(reviewTime(row.at))}</span>
+            <span class="reviewrow__what">${esc(row.text)}</span>
+            ${row.times > 1 ? `<span class="reviewrow__x num">×${row.times}</span>` : ''}
+          </p>`).join('')}
+      </div>
     </div>`;
 }
 
@@ -619,6 +726,14 @@ function longDate(iso) {
 /**
  * 總覽。**照流程的順序分段**，不是照樣板裡的出現順序（ADR-0043）。
  *
+ * **一列只有標題與數字**（2026-09-04，ADR-0072）。她的原話：「總攬的那 7 個
+ * 步驟中的每個子項目都有說明，其實不用，就留標題……會讓畫面很亂」。
+ *
+ * 十三句說明沒有消失，它們搬到**她真的要操作的那一頁**（`GROUPS[].lead` 與
+ * `renderGroup()` 的 `meta.lead`）：「Examine：預約作業 → 查核 → 已報到」
+ * 在她按下去之後才有用，在總覽上只是噪音。同一組字另外還住在
+ * `docs/操作手冊.md` 與 `CONTEXT.md`。
+ *
  * 三顆大數字不動：逾期／今天／明天是緊急度分流，跟流程是兩個軸，
  * 合在一起會兩個都講不清楚。
  *
@@ -635,24 +750,25 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
   const rows = [
     { id: 'ask', html: `<div data-ask>${askGroupRow()}</div>` },
     { id: 'forms', html: `<div data-inbox>${inboxGroupRow()}</div>` },
-    { id: 'book', html: `<div data-book>${bookGroupRow(ctx.today)}</div>` },
+    { id: 'book', html: `<div data-book>${bookGroupRow()}</div>` },
     { id: 'confirm', html: waiting.size ? groupRow({
-      href: '#/todo/confirm',
-      label: '跟客人確認時間', note: '壓好了、還沒問過本人', n: waiting.size,
+      href: '#/todo/confirm', label: '跟客人確認時間', n: waiting.size,
     }) : '' },
     { id: 'close', html: toClose.length ? groupRow({
-      href: '#/todo/close',
-      label: '簽療程單', note: '來了、單簽了就打勾，次數這時才扣', n: toClose.length,
+      href: '#/todo/close', label: '簽療程單', n: toClose.length,
     }) : '' },
     ...kinds.map((k) => ({ id: k, html: groupRow({
       href: `#/todo/${encodeURIComponent(k)}`,
-      label: k, note: isRetired(k) ? '這個類別已經取消了，這是舊資料' : kindNote(k),
+      label: k,
+      // 已經取消的種類：一整句換成一顆小丸子。一顆丸子講的是「這一列跟別列
+      // 不同」，一整行講的是「讓我解釋給你聽」—— 她要的是前者，完整版在
+      // 點進去那一頁的第一句（`renderGroup()` 的 `meta.lead`）。
+      tag: isRetired(k) ? '舊資料' : '',
       n: tasks.filter((t) => t.kind === k).length,
       faded: isRetired(k),
     }) })),
     { id: 'cancel', html: cancels.length ? groupRow({
-      href: '#/todo/cancel',
-      label: '改時間／取消', note: '要回頭取消舊登記', n: cancels.length, danger: true,
+      href: '#/todo/cancel', label: '改時間／取消', n: cancels.length, danger: true,
     }) : '' },
   ];
 
@@ -682,22 +798,18 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
  */
 function askGroupRow() {
   if (!askRows?.length) return '';
-  const never = askRows.filter((r) => r.state === 'never').length;
 
   // 數字**不減掉**已經發出連結的那幾位：這一輪的時間確實還沒問到，
-  // 把數字做小會讓她以為進度比實際好。改成在說明裡講出來（ADR-0033）。
-  // 這一列的數字**問的是「現在」**（`customersToAsk()`，ADR-0028），而點進去
-  // 那一頁綁月份、而且不看次數 —— 兩個數字對不起來是正常的，所以要講出來。
-  // 一個數字後面配一句話，比兩個互相矛盾的數字好懂（ADR-0033 的同一句）。
-  const note = sentCount
-    ? `其中 ${sentCount} 位已經發出連結，在等他填・點進去可以換月份`
-    : (never ? `其中 ${never} 位從來沒問過・點進去可以換月份`
-             : '上次問的都過期了・點進去可以換月份');
-
+  // 把數字做小會讓她以為進度比實際好（ADR-0033）。
+  //
+  // 那一句「其中 N 位已經發出連結」2026-09-04 拿掉了（ADR-0072）。
+  // **要解釋的事沒有變，變的是解釋它的地方**：點進去那一頁分三區
+  //（還沒發連結／已經發出／這個月已經問到了），「已經發出」那一區每一列
+  // 還帶著三顆狀態徽章之一 —— 那一區是那句話的完整版，就在一次點擊處。
+  // 同一件事在 `docs/常見問題.md` 也有一條。
   return groupRow({
     href: '#/todo/ask',
     label: '問這輪的時間',
-    note,
     n: askRows.length,
   });
 }
@@ -716,7 +828,6 @@ function inboxGroupRow() {
   return groupRow({
     href: '#/todo/forms',
     label: '客戶填好的時間',
-    note: '客戶自己填的，看過就收下',
     n: inboxRows.length,
   });
 }
@@ -734,17 +845,24 @@ function inboxGroupRow() {
  *
  * 「其中 N 位是健檢」也一起拿掉：想知道有誰就點進去，那一頁本來就分兩區。
  */
-function bookGroupRow(today) {
+function bookGroupRow() {
   if (!bookRows?.length) return '';
 
   return groupRow({
     href: '#/todo/book',
     label: '壓表登記',
-    note: `${monthLabel(today)}還沒排到的人`,
     reminder: true,
   });
 }
 
+/**
+ * 一種任務怎麼做。**2026-09-04 起只印在點進去那一頁的第一行**
+ *（`renderGroup()` 的 `meta.lead`），不再印在總覽上 —— 「預約作業 → 查核 →
+ * 已報到」在她按下去之後才有用（ADR-0072）。
+ *
+ * 這一份**不要刪**：它是那一頁的來源。同一組字另外還住在
+ * `docs/操作手冊.md` 與 `CONTEXT.md` 的「Examine」「耀聖」兩條。
+ */
 const KIND_NOTES = {
   打電話: '來訪前一天提醒',
   Abovee: '壓表登記',
@@ -779,14 +897,18 @@ function tile(id, n, label, cls) {
  * （漏一件就出事）與提醒（沒有死線、沒有完成的定義）。給第二種一個大數字，
  * 等於每天告訴她「你有九件事沒做」，而那九件永遠不會歸零 ——
  * 看久了的結果不是她去做，是她學會不看這一頁（她的原話：「看了就會很煩」）。
+ *
+ * **沒有 `note` 這個參數，這是刻意的**（2026-09-04，ADR-0072）。留著它就是
+ * 留著一條路，而這一頁就是這樣長出十三句說明的。`tag` 收不下一整句
+ *（它是一顆小丸子），那個限制本身就是護欄。
  */
-function groupRow({ href, label, note, n, danger = false, faded = false, reminder = false }) {
+function groupRow({ href, label, tag = '', n, danger = false, faded = false, reminder = false }) {
   return `
     <a class="grouprow ${faded ? 'grouprow--faded' : ''} ${reminder ? 'grouprow--reminder' : ''}"
        href="${href}">
       <span class="grouprow__main">
         <span class="grouprow__label" ${danger ? 'style="color: var(--overdue)"' : ''}>${esc(label)}</span>
-        ${note ? `<span class="grouprow__note">${esc(note)}</span>` : ''}
+        ${tag ? `<span class="grouprow__tag">${esc(tag)}</span>` : ''}
       </span>
       ${reminder ? '' : `
         <span class="grouprow__n" ${danger ? 'style="color: var(--overdue)"' : ''}>${n}</span>`}

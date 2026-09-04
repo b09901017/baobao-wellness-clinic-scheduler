@@ -107,6 +107,9 @@ const FIELD_LABELS = {
   startTime: '開始時間',
   endTime: '結束時間',
   text: '內容',
+  // 備忘錄的那一大塊字（ADR-0069）。少了它稽核上會印出英文欄位名。
+  body: '內文',
+  courseIds: '掛哪些課程',
   note: '這一次記一句',
   marks: '備註',
   attended: '有沒有做',
@@ -387,6 +390,10 @@ function countChanges(d, fields) {
  *
  * 每一條都要能回答「她會怎麼跟人講這件事」：她不會說「修改來訪，status
  * 由 confirmed 變更為 done」，她會說「那個人 9/14 那一場變成已完成了」。
+ *
+ * `say(event, fields, merged, ctx)` 的第四個參數是呼叫端傳進來的解析器
+ * （`nameOf`、`visitOf`）。**只有真的需要多問一次的那一條才用它**，
+ * 而且一律「問不到就不講」。
  */
 const SENTENCES = [
   // ---- 來訪 ----
@@ -432,12 +439,28 @@ const SENTENCES = [
   // 任務身上**沒有**來訪日與課程名，也不該有（那會是第二份會對不起來的資料）。
   // 不要拿 `dueDate + 1` 反推來訪日：取消類的任務不是那樣算的
   //（`taskRules.js` 的 `cancelTask()`），反推出來的日期會有一部分是錯的。
+  //
+  // 缺的不是欄位，是**一次查詢**（2026-09-04）。她的原話：「勾掉了誰的什麼時候
+  // 甚麼的 examine／耀聖，不要像現在只寫勾掉 examine」——「勾掉 Examine ×8」
+  // 看起來很乾淨，可是她一個都認不出來，而這一頁的用途正是「那第九個人呢」。
+  //
+  // 所以呼叫端傳一支 `visitOf` 進來（形狀跟 `nameOf` 一模一樣，同一個理由：
+  // 這一層不碰 IO）。**問不到就不講，不要編一個** —— `bits()` 會把 null 丟掉，
+  // 所以退路是免費的，退回去就是以前那一句。
   {
     when: (e, f) => coll(e) === 'tasks' && f.some((x) => x.key === 'done'),
-    say: (e, f, d) => ({
-      lead: f.find((x) => x.key === 'done').after ? '勾掉' : '取消勾選',
-      text: d.kind ?? '任務',
-    }),
+    say: (e, f, d, ctx) => {
+      const visit = ctx.visitOf?.(d.visitId) ?? null;
+      return {
+        // 「拿回來」不是「取消勾選」（CONTEXT.md 把後者列為 _Avoid_）。
+        lead: f.find((x) => x.key === 'done').after ? '勾掉' : '拿回來',
+        // **日期・課程・種類**，跟上下那幾列（壓表、確認、簽單）對齊 ——
+        // 掃的時候日期要在同一欄。這跟 `taskLine()` 的「種類・日期・課程」
+        // 是兩種順序，因為那一支排的是**清單**，這裡組的是**句子**：
+        // 句子的主詞是那一場。兩支不共用，但講的是同一組事實。
+        text: bits(when(visit?.date), courses(visit ?? {}), d.kind ?? '任務'),
+      };
+    },
   },
 
   // ---- 隨手記（＝日曆上的「待辦」那一類，ADR-0044）----
@@ -455,7 +478,9 @@ const SENTENCES = [
   {
     when: (e, f) => coll(e) === 'notes' && f.some((x) => x.key === 'done'),
     say: (e, f, d) => ({
-      lead: f.find((x) => x.key === 'done').after ? '勾掉待辦' : '取消勾選待辦',
+      // 「拿回來」不是「取消勾選」（CONTEXT.md 把後者列為 _Avoid_）——
+      // 全站的字都是那個，這裡是最後一處沒改到的。
+      lead: f.find((x) => x.key === 'done').after ? '勾掉待辦' : '拿回來待辦',
       text: quoted(d.text) ?? '',
     }),
   },
@@ -657,19 +682,26 @@ export function joinParts({ who = null, lead = null, text = '' } = {}) {
  * 一則稽核拆成「誰」與「做了什麼」兩半。翻譯不出來回 null。
  *
  * @param {object} event
- * @param {{nameOf?: (customerId: string) => (string|null)}} [ctx]
+ * @param {{nameOf?: (customerId: string) => (string|null),
+ *          visitOf?: (visitId: string) => (object|null)}} [ctx]
  *   nameOf：id → 名字。額度與本輪可用性身上沒有名字，只有路徑上有 id。
- *   **沒傳就不講名字**，不要編一個（`subjectOf()` 的檔頭同一條規矩）。
+ *   visitOf：id → 來訪。勾掉一張任務要講得出哪一天的哪一項，而任務身上只有
+ *   `visitId`。**兩支都是「沒傳就不講」**，不要編一個（`subjectOf()` 的
+ *   檔頭同一條規矩）。
+ *
+ *   `#/settings/audit` 與客戶詳情的「變更紀錄」**刻意不傳 `visitOf`**：
+ *   那兩頁是查證用的，多一次 N 筆來訪的查詢換一個日期不划算，而且那一列
+ *   展開就看得到 `visitId`。傳它的是「今天做了什麼」，那一頁是用掃的。
  * @returns {{who: string|null, whoId: string|null, lead: string|null, text: string}|null}
  */
-export function describeParts(event, { nameOf = null } = {}) {
+export function describeParts(event, { nameOf = null, visitOf = null } = {}) {
   const fields = changedFields(event).filter((x) => !QUIET_IN_SENTENCE.has(x.key));
   const d = merged(event);
 
   const rule = SENTENCES.find((r) => r.when(event, fields, d));
   if (!rule) return null;
 
-  const { lead = null, text = '' } = rule.say(event, fields, d);
+  const { lead = null, text = '' } = rule.say(event, fields, d, { nameOf, visitOf });
   return {
     who: whoOf(event, nameOf),
     whoId: customerIdOf(event),
