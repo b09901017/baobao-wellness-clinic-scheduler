@@ -220,4 +220,8 @@ export const DEFAULT_SETTINGS = {
   // 密鑰放在這裡而不是寫進前端程式碼：部署出去的 JS 人人看得到，
   // 這份文件則被 firestore.rules 的白名單守著。
   sheetSync: { url: '', token: '' },
+  // LINE 回覆模板。**只存她改過的那幾則**，所以預設是空的 ——
+  // 沒改過的一律用 `domain/messageTemplates.js` 的 `TEMPLATES`。
+  // 這樣之後改預設值時，她沒動過的那幾則會跟著更新。
+  messageTemplates: {},
 };

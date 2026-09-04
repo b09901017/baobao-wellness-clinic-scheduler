@@ -11,7 +11,8 @@
 
 import { isCancelKind, RECORD_TASK_KIND } from './taskRules.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
-import { dayOf } from './dates.js';
+import { dayOf, isValidDate } from './dates.js';
+import { formSlotIndexes } from './visits.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -157,3 +158,101 @@ export function groupByDoneDay(tasks = []) {
       return b.day.localeCompare(a.day);
     });
 }
+
+// ---------------------------------------------------------------------------
+// 一筆來訪身上的整份待辦
+// ---------------------------------------------------------------------------
+
+/**
+ * 這一筆來訪走到哪了 —— 它身上的每一件待辦與各自做完了沒。
+ *
+ * 來訪的讀取卡片用（`ui/views/calendar.js` 的 `visitReadHtml()`，四個畫面共用）。
+ *
+ * ## 兩種來源都要列，少一種那張表就在說謊
+ *
+ * | 來源 | 哪幾種 |
+ * |---|---|
+ * | `tasks` 集合 | Examine、耀聖、寫紀錄、追蹤健檢報告、約二返、寄報告給醫師、取消 X |
+ * | **從來訪推導** | 跟客人確認時間、簽療程單 |
+ *
+ * 漏掉推導的那兩種是最容易犯的錯：**她每天做最多次的就是那兩件**，
+ * 而它們不在 `tasks` 集合裡（CONTEXT.md 的「待辦」條目在講這件事）。
+ *
+ * 推導那兩種的條件**不自己寫**：確認那一列是 `pending_confirm`（ADR-0001），
+ * 簽療程單那一列照 `visitsToClose()` 的三個條件。在這裡另寫一份的話，
+ * 同一筆來訪在待辦中心與這張卡片上會給出不同的答案。
+ *
+ * ## 順序照 `orderOf()`，不照死線
+ *
+ * 那個順序就是她做事的順序（ADR-0043）。照死線排會把鏈條的第二站排到
+ * 第一站前面 —— 追蹤報告的死線是 21 天，約二返是拿到報告之後 7 天。
+ *
+ * @param {object} visit
+ * @param {object} o
+ * @param {object[]} [o.tasks] 這一筆來訪的任務（含已完成的）
+ * @param {Record<string, object>} [o.coursesById]
+ * @param {string} o.today
+ * @returns {{key:string, kind:string, done:boolean, dueDate:string|null,
+ *            derived:boolean}[]}
+ */
+export function todosForVisit(visit, { tasks = [], coursesById = {}, today } = {}) {
+  if (!visit || visit.deletedAt) return [];
+
+  const rows = (tasks ?? [])
+    .filter((t) => !t.deletedAt && t.visitId === visit.id)
+    .map((t) => ({
+      key: t.id,
+      kind: t.kind,
+      done: Boolean(t.done),
+      dueDate: t.dueDate ?? null,
+      derived: false,
+    }));
+
+  // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生。
+  if (visit.status === 'cancelled') return sortRows(rows);
+
+  // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
+  if (visit.status === 'pending_confirm') {
+    rows.push({
+      key: 'confirm', kind: '跟客人確認時間', done: false, dueDate: null, derived: true,
+    });
+  }
+
+  // ⑤ 簽療程單。條件照 `visitsToClose()`：日子到了、還沒結案。
+  // **整筆都不用簽的那一天照樣要結案**（只有二返的那一天），所以這一列
+  // 跟「有沒有段要簽」無關 —— 那只影響它右邊那一句。
+  const unclosed = (visit.status === 'confirmed' || visit.status === 'pending_confirm')
+    && isValidDate(visit.date) && visit.date <= today;
+  if (unclosed) {
+    const needs = formSlotIndexes(visit, coursesById).length;
+    rows.push({
+      key: 'close',
+      kind: needs ? '簽療程單' : '簽療程單（這一天不用簽，但要結案）',
+      done: false,
+      dueDate: null,
+      derived: true,
+    });
+  }
+
+  // 已經結案的那一筆，「簽療程單」是做完的一件事，要看得到 ——
+  // 不然一筆已完成的來訪上面只剩三週後才長出來的追蹤報告，
+  // 看起來像什麼都沒做過。
+  if (visit.status === 'done' || visit.status === 'no_show') {
+    rows.push({
+      key: 'close', kind: '簽療程單', done: true, dueDate: null, derived: true,
+    });
+  }
+
+  return sortRows(rows);
+}
+
+/** 照 `orderOf()`（＝她做事的順序）。同一階的照種類穩定排。 */
+function sortRows(rows) {
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (orderOf(keyOf(a.r)) - orderOf(keyOf(b.r))) || (a.i - b.i))
+    .map((x) => x.r);
+}
+
+/** 排序用的鍵：推導的那兩列用它們自己的 id，任務用種類。 */
+const keyOf = (row) => (row.derived ? row.key : row.kind);

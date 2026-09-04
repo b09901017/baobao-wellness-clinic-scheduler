@@ -153,6 +153,9 @@ test('J-D3 把報告那一張「拿回來」→ 退回上一站，約二返收�
   await page.locator('[data-task-tab="done"]').click();
   await page.waitForTimeout(400);
   await page.locator('[data-untick]').first().click();
+  // 2026-09-04 起拿回鏈上那兩種會先問一句（它真的會收掉別的張）
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
   await page.waitForTimeout(2000);
 
   const tasks = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
@@ -194,6 +197,9 @@ test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且�
   await page.locator('[data-task-tab="done"]').click();
   await page.waitForTimeout(400);
   await page.locator('[data-untick]').first().click();
+  // 2026-09-04 起拿回鏈上那兩種會先問一句（它真的會收掉別的張）
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
   await page.waitForTimeout(2000);
 
   const all = await app.readAll('tasks');

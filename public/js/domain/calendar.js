@@ -124,7 +124,8 @@ export function titleOf(view, date) {
  *   **軟刪除的一律不收**，`includeCancelled` 也救不回來 ——
  *   刪掉不是一種狀態，是那一筆不存在。所以這兩件事要分開判斷，
  *   不可以只把 `isActive()` 放寬。
- * @returns {object[]} 每一列帶 clashes：跟它同時段又同診間床位／同治療師的其他列
+ * @returns {object[]} 每一列帶 clashes：跟它同時段又同診間床位／同治療師的其他列，
+ *   以及 `hasNote`：這一筆來訪身上有沒有「記的話」
  */
 export function agendaFor(
   visits,
@@ -155,6 +156,13 @@ export function agendaFor(
         therapist: staffById[slot.therapistId]?.name ?? null,
         roomId: slot.roomId ?? null,
         therapistId: slot.therapistId ?? null,
+        // 這一筆底下有沒有她自己打的字（來訪編輯器的「記的話」）。
+        // **帶的是有沒有，不是那段字** —— 那一列不印它，印了會把一列變兩行，
+        // 而它可能有一整段。抽屜上畫一顆小記事本，點開才看得到內容。
+        //
+        // 空字串是「沒有」不是「有一段空的」（同 `domain/notes.js` 的
+        // `normalize()`：空字串與 null 在查詢上是兩件事）。
+        hasNote: Boolean(String(visit.note ?? '').trim()),
         clashes: [],
       });
     });

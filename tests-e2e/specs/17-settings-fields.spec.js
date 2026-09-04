@@ -111,3 +111,133 @@ test('S5 每一格數字欄位的 min 都是 step 的倍數', async ({ app, page
 
   expect(bad, `這幾格會讓她打出正確的數字卻存不下去：${JSON.stringify(bad)}`).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// LINE 回覆模板（2026-09-04）
+//
+// 她要的是「一個地方可以一次修改所有回復的模板」。這幾支盯的是那一頁真的
+// **接到了另一頭** —— 改了字，待辦中心按下複製時拿到的是新的那一句。
+// 單元測試盯得到 `fill()` 與 `textFor()`，盯不到「五個觸發點有沒有把
+// templates 傳下去」，而漏掉任何一個的症狀是「改了沒反應」。
+// ---------------------------------------------------------------------------
+
+import { customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
+
+test('S6 改一則模板 → 存 → 重新整理，那一頁上還是新的字', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/templates');
+
+  await expect(page.locator('[data-text="confirm"]')).toBeVisible();
+  await page.fill('[data-text="confirm"]', '{name}您好，{month} 月排了 {slots}，OK 嗎？');
+  await page.click('[data-save]');
+  await app.settled();
+  await page.waitForTimeout(800);
+
+  // 真的存進去了（不是畫面上有沒有）
+  const settings = await app.readDoc('config', 'app');
+  expect(settings.messageTemplates.confirm).toContain('OK 嗎？');
+
+  await app.reload();
+  await app.go('/settings/templates');
+  await expect(page.locator('[data-text="confirm"]')).toHaveValue(/OK 嗎？/);
+  // 改過的那一則要標出來
+  await expect(page.locator('[data-tpl="confirm"]')).toContainText('已改過');
+});
+
+test('S7 改過的字真的用在待辦中心那顆複製鈕上', async ({ app, page }) => {
+  const DAY = addDays(TODAY, 3);
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-a', label: '復能 6 次', type: 'single', courseId: 'course-recovery',
+      totalQty: 6, doneCount: 0, bookedCount: 1,
+    }),
+    visit({
+      id: 'v1', customerId: 'cust-a', customerName: '客戶A',
+      date: DAY, status: 'pending_confirm',
+      slots: [slot({
+        courseId: 'course-recovery', entitlementId: 'ent-a',
+        startsAt: '14:00', endsAt: '15:00',
+      })],
+    }),
+  ]);
+  await app.signIn('/settings/templates');
+
+  await page.fill('[data-text="confirm"]', '這是我自己的版本：{slots}');
+  await page.click('[data-save]');
+  await app.settled();
+  await page.waitForTimeout(800);
+
+  await app.go('/todo/confirm');
+  await expect(page.locator('#view')).toContainText('客戶A');
+  const box = page.locator('textarea.msg').first();
+  await expect(box).toHaveValue(/這是我自己的版本/);
+  // 變數真的被換掉了，不是原樣印出 `{slots}`
+  await expect(box).not.toHaveValue(/\{slots\}/);
+});
+
+test('S8 逐則「回復預設」與整份「全部回復」都回得去', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/templates');
+
+  const before = await page.locator('[data-text="ask"]').inputValue();
+
+  await page.fill('[data-text="ask"]', '改過的字');
+  await page.click('[data-save]');
+  await app.settled();
+  await page.waitForTimeout(800);
+  await expect(page.locator('[data-tpl="ask"]')).toContainText('已改過');
+
+  // 逐則那一顆：**不走二次確認**（她看得到那一格現在寫什麼）
+  await page.locator('[data-reset="ask"]').click();
+  await expect(page.locator('[data-text="ask"]')).toHaveValue(before);
+
+  // 存回去之後，那一則不再算「改過」
+  await page.click('[data-save]');
+  await app.settled();
+  await page.waitForTimeout(800);
+  await expect(page.locator('[data-tpl="ask"]')).not.toContainText('已改過');
+
+  // 整份那一顆要問一次（它會把她改過的字全部丟掉）
+  await page.fill('[data-text="ask"]', '又改了');
+  await page.click('[data-save]');
+  await app.settled();
+  await page.waitForTimeout(800);
+
+  await page.click('[data-reset-all]');
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.settled();
+  await page.waitForTimeout(800);
+
+  await expect(page.locator('[data-text="ask"]')).toHaveValue(before);
+  const settings = await app.readDoc('config', 'app');
+  expect(settings.messageTemplates ?? {}).toEqual({});
+});
+
+test('S9 一則刪光存不下去 —— 按下複製會得到一則空訊息', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/templates');
+
+  await page.fill('[data-text="reminder"]', '   ');
+  await page.click('[data-save]');
+  await page.waitForTimeout(500);
+
+  await expect(page.locator('[data-errors]')).toBeVisible();
+  await expect(page.locator('[data-errors]')).toContainText('來訪前提醒');
+});
+
+test('S10 變數丸子插在游標處，不是接在最後面', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/templates');
+
+  await page.fill('[data-text="confirm"]', 'AB');
+  await page.locator('[data-text="confirm"]').evaluate((el) => {
+    el.focus();
+    el.setSelectionRange(1, 1);
+  });
+  await page.locator('[data-var="confirm"][data-name="name"]').click();
+
+  await expect(page.locator('[data-text="confirm"]')).toHaveValue('A{name}B');
+});

@@ -2675,6 +2675,20 @@ button.mark::after {
   line-height: 1.35;
 }
 
+/* 抬頭右邊那兩顆：這一筆底下有沒有「記的話」／掛不掛得到備忘錄。
+ *
+ * **用形狀不用顏色。** 日曆上要分辨的已經有七種，色相在休假走斜線紋、
+ * 待辦走方框勾勾的時候就用完了（ADR-0039、0045）。這一顆問的是「有沒有」
+ * 不是「哪一種」。所以它用 `--text-mute`，跟名字明顯分得開又不搶戲。
+ *
+ * `vertical-align` 對齊的是名字的基線 —— 差 1px 那一排看起來就是歪的。 */
+.timerow__mark {
+  display: inline-flex;
+  margin-left: 5px;
+  color: var(--text-mute);
+  vertical-align: -1px;
+}
+
 .timerow__sub {
   display: block;
   margin-top: 1px;
@@ -3641,6 +3655,152 @@ button.mark::after {
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- LINE 回覆模板（ui/views/templates.js） ----
+ *
+ * 一則一格：抬頭、它在哪裡用得到、一個大框、一排點得到的變數丸子。
+ *
+ * 框跟備忘錄那一格踩過同一個坑：`resize` 關掉之後如果又 `overflow: hidden`，
+ * 打長了就看不到後面（見 `.pbedit__body` 那一段）。這裡的框不自動長高
+ * （模板只有幾行），所以 `overflow-y: auto` 就夠 —— 但一定要有。
+ *
+ * 一個新顏色都沒有：全部用現成的 token（ADR-0055）。 */
+.tplbox {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.tplbox:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.tplbox__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 2px;
+}
+
+.tplbox__where {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.tplbox__body {
+  width: 100%;
+  min-height: 92px;
+  max-height: 40dvh;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.7;
+  resize: vertical;
+  overflow-y: auto;
+}
+
+.tplvars {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.tplvars .chip {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.tplbox__hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  color: var(--text-mute);
+}
+
+/* ---- 「這一場的待辦」（ui/components/taskMirror.js） ----
+ *
+ * 一筆來訪的讀取卡片底下那一小塊，四個畫面一起長（ADR-0018）。
+ *
+ * **只給看，不給勾** —— 所以記號是 `✓` / `○` 兩個字元，不是勾選框。
+ * 一放勾選框她就會去點它，而點不動的勾選框是這張卡片上最糟的東西。
+ *
+ * 一個新顏色都沒有：全部用現成的 token（ADR-0055 —— tokens.css 要動就是
+ * 淺色深色兩份都要動，而這一塊沒有任何一個顏色是新的）。 */
+.taskmirror {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  animation: taskmirror-in var(--motion-fast) var(--ease-out) both;
+}
+
+/* 淡入，不要「啪」一下把底下的備忘錄推下去 —— 它是讀回來才補上的。 */
+@keyframes taskmirror-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.taskmirror__head {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+.taskmirror__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskmirror__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 3px 0;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.taskmirror__row.is-done {
+  color: var(--text-mute);
+}
+
+.taskmirror__mark {
+  flex: none;
+  width: 1em;
+  color: var(--text-mute);
+}
+
+.taskmirror__row.is-done .taskmirror__mark {
+  color: var(--ok);
+}
+
+.taskmirror__kind {
+  flex: 1;
+  min-width: 0;
+}
+
+.taskmirror__due {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.taskmirror__due.is-late {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 
 /* 一次來訪的每一個時段。時間是她在掃的東西，所以它比課程名字大。 */
 .readslot {
@@ -5959,10 +6119,28 @@ summary {
 
 /* 內文那一格。**它是這張表單上最重要的欄位**，所以給它最大的面積與
    跟閱讀那一面一樣的行距 —— 打字的時候看到的排版就是讀的時候的排版。
-   高度由 JS 跟著內容長（一般備忘錄 app 就是這樣）。 */
+   高度由 JS 跟著內容長（一般備忘錄 app 就是這樣），到 max-height 就在框裡捲。
+
+   ## `flex: none` 是這一格的整個修正，不要拿掉
+
+   這張卡是 `flex-direction: column`（`.pbcard`），而整疊有 `max-height: 72dvh`
+   （`.pbdeck`）。沒有寫 `flex` 的話它是 `flex: 0 1 auto` —— **flex-shrink 是 1**，
+   於是 JS 把高度撐到 1400px 之後，flex 為了把卡片塞進 72dvh 又把它壓回
+   `min-height` 的 200px。它本來是 `overflow: hidden` + `resize: none`，
+   所以那 1200px 的字**既看不到也捲不到**：她貼一段長筆記進來，後面整段消失。
+
+   閱讀那一面（`.pbcard__body`）一直沒有這個問題，因為它寫了
+   `flex: 1; min-height: 0; overflow-y: auto` —— 少的就是那幾行。
+
+   `max-height` 用 46dvh 不用更大：鍵盤上來之後可見高度大約只剩 55dvh，
+   而「存起來／取消／刪掉」那一排**一定要還在畫面上**。打完看不到存檔鈕，
+   等於這一格又壞了一次。這個值是**含底下那一排 emoji**（`.emojirow`）算的，
+   兩邊要一起看。 */
 .pbedit__body {
+  flex: none;
   width: 100%;
   min-height: 200px;
+  max-height: 46dvh;
   padding: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -5972,7 +6150,59 @@ summary {
   font-size: var(--text-lg);
   line-height: 1.85;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
+  /* 捲到底再往下滑不要把整疊帶著跑（這一疊是橫向 snap 的） */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 輸入框底下那一排 emoji。
+ *
+ * **一直看得到，橫著捲，不折行。** 折成兩行會把存檔鈕再推下去一次，
+ * 而 `.pbedit__body` 的 `max-height: 46dvh` 就是含這一排算出來的。
+ *
+ * 一個新顏色都沒有：全部用現成的 token —— `tokens.css` 要動就是淺色深色
+ * 兩份都要動（ADR-0055），而這一排沒有任何一個顏色是新的。 */
+.emojirow {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.emojirow__btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--motion-fast) var(--ease-out),
+              background-color var(--motion-fast) var(--ease-out);
+}
+
+/* 觸控面積補到 44：一排小方塊按不準比沒有這一排更煩。 */
+.emojirow__btn::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+.emojirow__btn:active {
+  transform: scale(0.9);
+  background: var(--surface-2);
 }
 
 .pbedit__actions {

@@ -155,18 +155,24 @@ async function load(date) {
   const from = [addDays(today, -180), month.from, date].sort()[0];
   const to = [month.to, date].sort().pop();
 
-  const [customers, entitlementsBy, availabilityBy, visits, settings] = await Promise.all([
-    customersData.list(),
-    customersData.entitlementsByCustomer(),
-    customersData.availabilityByCustomer(),
-    visitsData.listBetween(from, to),
-    config.getSettings(),
-  ]);
+  const [customers, entitlementsBy, availabilityBy, visits, settings, templates] =
+    await Promise.all([
+      customersData.list(),
+      customersData.entitlementsByCustomer(),
+      customersData.availabilityByCustomer(),
+      visitsData.listBetween(from, to),
+      config.getSettings(),
+      // 她改過的 LINE 模板（有行程內快取，讀不到就回空物件＝用預設值）
+      config.getTemplates(),
+    ]);
 
   const visitsBy = {};
   for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
 
-  return { customers, entitlementsBy, availabilityBy, visitsBy, today, weights: settings.sortWeights };
+  return {
+    customers, entitlementsBy, availabilityBy, visitsBy, today, templates,
+    weights: settings.sortWeights,
+  };
 }
 
 // ---------- 結果 ----------
@@ -231,7 +237,7 @@ function candidateCard(row, slot, ctx) {
 
       ${message.box({
         id: `offer-${row.customerId}`,
-        text: offerSlotMessage({ name: row.customerName }, slot),
+        text: offerSlotMessage({ name: row.customerName }, slot, { templates: ctx.templates ?? {} }),
         collapsed: true,
         label: '先看一下邀約訊息',
         buttonLabel: '複製邀約訊息',

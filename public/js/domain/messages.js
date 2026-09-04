@@ -6,17 +6,35 @@
 //
 // 產生的是草稿，不是定稿 —— 她複製到 LINE 之後想怎麼改都可以，
 // 所以用字寧可平淡，不要自作聰明加一堆語助詞。
+//
+// ## 2026-09-04 起，字不在這裡
+//
+// 六則的**字**搬去 `domain/messageTemplates.js`（預設值）與設定頁的
+// 「LINE 回覆模板」（她改過的）。這一支只剩一件事：**算變數**。
+//
+// 那一刀切在這裡是因為六則裡有五則的變數是**有條件的** ——
+// 「一次來訪只講第一段的開始時間」「前一天就說明天」「沒有課程名就整段消失」。
+// 那幾個判斷一行都不該讓她在設定頁上重寫一次，也不該搬進模板裡
+//（模板只有 `{}` 這一種語法，寫不出條件，硬要寫就是發明第二套樣板語言）。
+//
+// 每一支都收一個選填的 `templates`：**沒給就用預設值**，所以呼叫端
+// 忘記傳的代價是「看到出廠設定的那一句」，不是「看到空白」。
 
 import { shortDate, daysBetween, addMonths } from './dates.js';
+import { textFor, fill } from './messageTemplates.js';
+
+/** 這一則現在的字，換上變數。 */
+const say = (id, templates, vars) => fill(textFor(id, templates), vars);
 
 /**
  * 一位客戶的壓表結果，問他可不可以。
  *
  * @param {{name:string}} customer
  * @param {{date:string, slots:{startsAt:string}[]}[]} visits 這次要問的來訪
+ * @param {{templates?: object}} [o]
  * @returns {string} 可以直接貼進 LINE 的文字
  */
-export function confirmMessage(customer, visits) {
+export function confirmMessage(customer, visits, { templates = {} } = {}) {
   const rows = (visits ?? [])
     .filter((v) => v.date)
     .slice()
@@ -27,7 +45,11 @@ export function confirmMessage(customer, visits) {
 
   const month = Number(visits.find((v) => v.date).date.split('-')[1]);
 
-  return `${nameOf(customer)}您好，${month} 月為您安排了 ${rows.join('、')}，請問可以嗎？`;
+  return say('confirm', templates, {
+    name: nameOf(customer),
+    month,
+    slots: rows.join('、'),
+  });
 }
 
 /**
@@ -51,30 +73,21 @@ function firstStart(visit) {
  * 稱呼一律給「大哥/姐姐」兩個都留，**不要自己判斷性別** —— 猜錯一次比她自己
  * 刪一個字貴得多，而她本來就會在貼進 LINE 之前改（訊息是草稿不是定稿）。
  *
- * 給了連結就換一種問法：**不要再問「哪幾天方便」**，那會讓客戶用打字的回你，
- * 於是連結白給了。改成一句「點一點就好」，把動作講清楚。
- *
- * 用字（含斷行與那個「呦～」）是使用者自己定的版本，不要「順」它 ——
- * 她跟客戶講話就是長這樣。
+ * 給了連結就換一則（`askWithLink`）：**不要再問「哪幾天方便」**，
+ * 那會讓客戶用打字的回你，於是連結白給了。
  *
  * @param {{name:string}} customer
- * @param {{month:string, link?:string}} when month 是 'YYYY-MM'
+ * @param {{month:string, link?:string, templates?:object}} when month 是 'YYYY-MM'
  */
-export function askAvailabilityMessage(customer, { month, link = '' } = {}) {
+export function askAvailabilityMessage(customer, { month, link = '', templates = {} } = {}) {
   const m = monthOf(month);
   if (!m) return '';
 
-  if (link) {
-    return `${nameOf(customer)}大哥/姐姐\n`
-      + `即將幫您安排 ${m} 月的課程\n`
-      + `請您點下面這個連結，把 ${m} 月\n`
-      + `“不方便”的日子都點起來呦～\n`
-      + link;
-  }
-
-  return `${nameOf(customer)}大哥/姐姐\n`
-    + `即將幫您安排 ${m} 月的課程\n`
-    + `請問您 ${m} 月有哪幾天不方便呢？`;
+  return say(link ? 'askWithLink' : 'ask', templates, {
+    name: nameOf(customer),
+    month: m,
+    link,
+  });
 }
 
 /**
@@ -86,19 +99,20 @@ export function askAvailabilityMessage(customer, { month, link = '' } = {}) {
  * 一句「不過月底那週也不行」。見 ADR-0032。
  *
  * @param {{name:string}} customer
- * @param {{month:string, lines:string[]}} what lines 是
+ * @param {{month:string, lines:string[], templates?:object}} what lines 是
  *   `domain/availabilityForm.js` 的 `describeResponse()`
  */
-export function availabilityReceivedMessage(customer, { month, lines = [] } = {}) {
+export function availabilityReceivedMessage(
+  customer, { month, lines = [], templates = {} } = {},
+) {
   const m = monthOf(month);
   if (!m) return '';
 
-  const said = lines.filter(Boolean).map((line) => `・${line}`).join('\n');
-
-  return `${nameOf(customer)}大哥/姐姐\n`
-    + `收到了，謝謝您 🙏\n`
-    + `記下來的是：\n${said}\n`
-    + `我會照這個安排 ${m} 月的課程，排好再跟您確認時間。`;
+  return say('received', templates, {
+    name: nameOf(customer),
+    month: m,
+    lines: lines.filter(Boolean).map((line) => `・${line}`).join('\n'),
+  });
 }
 
 /**
@@ -109,19 +123,25 @@ export function availabilityReceivedMessage(customer, { month, lines = [] } = {}
  *
  * @param {{name:string}} customer
  * @param {{date:string, slots:{startsAt:string, courseName:string}[]}} visit
- * @param {{today:string}} when
+ * @param {{today:string, templates?:object}} when
  */
-export function reminderMessage(customer, visit, { today } = {}) {
+export function reminderMessage(customer, visit, { today, templates = {} } = {}) {
   if (!visit?.date) return '';
 
   const when = today && daysBetween(today, visit.date) === 1
     ? `明天 ${shortDate(visit.date)}`
     : shortDate(visit.date);
-  const start = firstStart(visit);
   const courses = courseNames(visit);
 
-  return `${nameOf(customer)}您好，提醒您${when} ${start} 有`
-    + `${courses ? `${courses}的` : ''}課程，再麻煩您準時到院，謝謝。`;
+  return say('reminder', templates, {
+    name: nameOf(customer),
+    when,
+    time: firstStart(visit),
+    // **「的」跟著課程名一起進來或一起消失。** 沒有課程時原本那一句是
+    // 「有課程」，而模板裡只有 `{courses}` 一個洞 —— 把「的」留在模板上
+    // 會變成「有的課程」。
+    courses: courses ? `${courses}的` : '',
+  });
 }
 
 /**
@@ -132,14 +152,18 @@ export function reminderMessage(customer, visit, { today } = {}) {
  *
  * @param {{name:string}} customer
  * @param {{date:string, startsAt:string, endsAt:string, courseName:string}} slot
+ * @param {{templates?:object}} [o]
  */
-export function offerSlotMessage(customer, slot = {}) {
+export function offerSlotMessage(customer, slot = {}, { templates = {} } = {}) {
   if (!slot.date || !slot.startsAt) return '';
-  const range = slot.endsAt ? `${slot.startsAt}–${slot.endsAt}` : slot.startsAt;
-  const what = slot.courseName ? `${slot.courseName}的` : '';
 
-  return `${nameOf(customer)}您好，${shortDate(slot.date)} ${range} 臨時空出一個${what}時段，`
-    + `請問您方便過來嗎？`;
+  return say('offer', templates, {
+    name: nameOf(customer),
+    date: shortDate(slot.date),
+    range: slot.endsAt ? `${slot.startsAt}–${slot.endsAt}` : slot.startsAt,
+    // 同 `reminder` 的 `{courses}`：「的」跟著名字一起進來或一起消失
+    course: slot.courseName ? `${slot.courseName}的` : '',
+  });
 }
 
 /**
@@ -154,22 +178,30 @@ export function offerSlotMessage(customer, slot = {}) {
  * @param {string} ctx.today
  * @param {string} [ctx.month] 要問哪個月，預設下個月
  * @param {string} [ctx.formLink] 這位客戶這個月的表單連結，有就換一種問法
+ * @param {object} [ctx.templates] 她改過的模板
  * @returns {{id:string, label:string, text:string}[]}
  */
-export function messagesFor({ customer, visits = [], today, month = null, formLink = '' }) {
+export function messagesFor({
+  customer, visits = [], today, month = null, formLink = '', templates = {},
+}) {
   const out = [];
   const alive = visits.filter((v) => !v.deletedAt && v.status !== 'cancelled');
 
   const ask = askAvailabilityMessage(customer, {
     month: month ?? addMonths(today, 1).slice(0, 7),
     link: formLink,
+    templates,
   });
   if (ask) out.push({ id: 'ask', label: formLink ? '問這一輪的時間（附表單）' : '問這一輪的時間', text: ask });
 
   // 還在等回覆的那幾筆一次問完，跟首頁「今天壓了誰」用的是同一則
   const waiting = alive.filter((v) => v.status === 'pending_confirm' && v.date >= today);
   if (waiting.length) {
-    out.push({ id: 'confirm', label: '問壓好的時間可不可以', text: confirmMessage(customer, waiting) });
+    out.push({
+      id: 'confirm',
+      label: '問壓好的時間可不可以',
+      text: confirmMessage(customer, waiting, { templates }),
+    });
   }
 
   const next = alive
@@ -179,7 +211,7 @@ export function messagesFor({ customer, visits = [], today, month = null, formLi
     out.push({
       id: 'reminder',
       label: `提醒 ${shortDate(next.date)} 的來訪`,
-      text: reminderMessage(customer, next, { today }),
+      text: reminderMessage(customer, next, { today, templates }),
     });
   }
 
