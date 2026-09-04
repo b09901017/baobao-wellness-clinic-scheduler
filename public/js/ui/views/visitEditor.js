@@ -13,12 +13,13 @@
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
+import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
   coursesForEntitlement, applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -823,6 +824,24 @@ function statusCard(draft, embedded = false) {
     </section>`;
 }
 
+/** 課程主檔的 id → 課程。這一支檔案裡有三個地方要它。 */
+const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) => [c.id, c]));
+
+/**
+ * 這一筆來訪身上現有的任務。取消／刪除那兩道確認要它才講得出「哪幾張會被收掉」。
+ *
+ * **讀不到就少講那兩句，不要擋住她。** 那個動作在離線時照樣寫得進本機快取
+ * （`ui/toast.js` 的檔頭），為了一句說明把它擋下來是本末倒置。
+ */
+async function visitTasks(draft) {
+  if (!draft?.id) return [];
+  try {
+    return await tasksData.listByVisit(draft.id);
+  } catch {
+    return [];
+  }
+}
+
 function wireStatus(ctx, draft) {
   ctx.el.querySelectorAll('[data-status]').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -830,14 +849,17 @@ function wireStatus(ctx, draft) {
       const reason = ctx.el.querySelector('[data-cancel-reason]')?.value?.trim() || null;
 
       if (to === 'cancelled') {
+        // 那幾句話走 `domain/consequences.js`，跟日曆的長按選單是**同一份**
+        // （ADR-0056）。以前兩邊各寫一次「Abovee／Examine／耀聖」三個並列，
+        // 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
         const ok = await confirmAction({
           title: '取消這筆來訪？',
-          consequences: [
-            `${draft.slots.length} 個時段會退回去，次數也會還回來`,
-            '改期不是改日期，是取消後重新排一筆',
-            '如果已經在 Abovee／Examine／耀聖登記過，要回去把舊的取消掉',
-            '取消後不能復原成已確認，但可以在已刪除項目看到這筆紀錄',
-          ],
+          consequences: cancelConsequences({
+            visit: draft,
+            coursesById: coursesByIdOf(ctx.all),
+            tasks: await visitTasks(draft),
+            sheetSyncOn: isConfigured(ctx.settings),
+          }),
           confirmLabel: '取消這筆來訪',
           danger: true,
         });
@@ -911,10 +933,14 @@ function wireDangerZone(ctx, draft) {
     const ok = await confirmAction({
       title: '刪除這筆來訪紀錄？',
       consequences: [
-        '這是標記刪除，資料不會真的消失',
-        '它佔掉的次數會還回去',
+        ...cancelConsequences({
+          visit: draft,
+          coursesById: coursesByIdOf(ctx.all),
+          tasks: await visitTasks(draft),
+          removing: true,
+          sheetSyncOn: isConfigured(ctx.settings),
+        }),
         '如果是客人不來或改時間，用「取消」比較好 —— 那會留下理由',
-        '可以在設定 → 已刪除項目 還原',
       ],
       confirmLabel: '刪除',
       danger: true,

@@ -17,7 +17,10 @@
 
 import { esc } from './form.js';
 import { taskLine } from '../../domain/taskRules.js';
+import { untickConsequences } from '../../domain/consequences.js';
 import { shortDate } from '../../domain/dates.js';
+import { previewTaskChange } from '../../data/visits.js';
+import { confirmAction } from './dialog.js';
 import { icon } from '../icons.js';
 
 /**
@@ -89,4 +92,48 @@ export function wayRow({ label, note = '', hint = '', href, count = null }) {
       </span>
       ${icon('right', { size: 18 })}
     </a>`;
+}
+
+/**
+ * 拿回一張已經勾掉的待辦之前要不要先問一句。**三個入口共用這一支。**
+ *
+ * 待辦中心的已完成那一格、待辦中心「依客戶」的抽屜、客戶詳情各接一次的話，
+ * 就是這個 repo 已經付過兩次帳的形狀（`buy.js` 的「其他…」漏了兩次、
+ * `note.js` 的 `.notemeta` 有兩個入口裸放）。
+ *
+ * ## 只有兩種會問
+ *
+ * 鏈上那兩種（追蹤健檢報告、約二返）拿回來會收掉別的張；其餘什麼都不會發生。
+ * `previewTaskChange()` 對非鏈上的種類直接回 `null`，所以那幾種**連一次讀取
+ * 都不會多打**。
+ *
+ * ## 讀不到就放行
+ *
+ * 網路不通的時候擋住她「拿回來」沒有道理 —— 那個動作本身在離線時照樣寫得進
+ * 本機快取（`ui/toast.js` 的檔頭）。問不出後果就不問，不要變成一道
+ * 「網路不好就做不了事」的閘門。
+ *
+ * @param {object} task 那一張待辦（勾選之前的樣子）
+ * @param {boolean} done 要變成什麼。`true`（勾掉）一律放行 —— 這一支只管拿回來
+ * @returns {Promise<boolean>} 可以做了嗎
+ */
+export async function confirmUntick(task, done = false) {
+  if (done || !task) return true;
+
+  let preview;
+  try {
+    preview = await previewTaskChange(task, false);
+  } catch {
+    return true;
+  }
+
+  const said = untickConsequences({ task, preview });
+  if (!said) return true;
+
+  return confirmAction({
+    title: said.title,
+    consequences: said.lines,
+    confirmLabel: '還是拿回來',
+    danger: said.danger,
+  });
 }

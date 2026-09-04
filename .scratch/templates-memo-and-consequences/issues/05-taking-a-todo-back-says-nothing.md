@@ -1,6 +1,6 @@
 # 拿回一張待辦，畫面一個字都不說
 
-Status: todo
+Status: done
 來源：她的第三項第 1 點（`../spec.md`）
 動工前先讀：issue 06 的那五張表、ADR-0042、0065、0068、`domain/consequences.js` 的檔頭
 

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   STAGES, stageOf, orderOf, groupByStage, nextStage, RETIRED_KINDS, isRetired,
   groupByDoneDay,
+  todosForVisit,
 } from '../public/js/domain/todoFlow.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
@@ -147,5 +148,99 @@ describe('已完成照完成那一天分段', () => {
 
   test('什麼都沒有時回空陣列', () => {
     assert.deepEqual(groupByDoneDay(), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 一筆來訪身上的整份待辦（讀取卡片底下那一塊）
+// ---------------------------------------------------------------------------
+
+describe('這一場走到哪了（todosForVisit）', () => {
+  const TODAY = '2026-09-04';
+  const COURSES = {
+    'c-drip': { id: 'c-drip', name: '營養點滴', category: 'C' },
+    'c-2nd': { id: 'c-2nd', name: '二返', category: 'A', needsTreatmentForm: false },
+  };
+  const base = (over = {}) => ({
+    id: 'v1', customerId: 'cust1', date: TODAY, status: 'confirmed',
+    slots: [{ courseId: 'c-drip', entitlementId: 'e1' }],
+    ...over,
+  });
+  const ask = (visit, tasks = []) =>
+    todosForVisit(visit, { tasks, coursesById: COURSES, today: TODAY });
+  const kinds = (rows) => rows.map((r) => r.kind);
+
+  test('推導的兩列也要在 —— 她每天做最多次的就是那兩件', () => {
+    // 還在等回覆而且日子到了：兩列都該出現
+    const rows = ask(base({ status: 'pending_confirm' }));
+    assert.ok(kinds(rows).includes('跟客人確認時間'));
+    assert.ok(kinds(rows).some((k) => k.startsWith('簽療程單')));
+    assert.ok(rows.every((r) => r.derived), '這兩列不在 tasks 集合裡');
+  });
+
+  test('已確認的那一筆不再問「跟客人確認時間」', () => {
+    const rows = ask(base({ status: 'confirmed' }));
+    assert.ok(!kinds(rows).includes('跟客人確認時間'));
+  });
+
+  test('日子還沒到就不出現「簽療程單」', () => {
+    const rows = ask(base({ date: '2026-09-30', status: 'confirmed' }));
+    assert.deepEqual(rows, []);
+  });
+
+  test('整天都是二返的那一筆講明「不用簽，但要結案」', () => {
+    const rows = ask(base({ slots: [{ courseId: 'c-2nd', entitlementId: 'e2' }] }));
+    const line = kinds(rows).find((k) => k.startsWith('簽療程單'));
+    assert.ok(line.includes('不用簽'));
+    assert.ok(line.includes('結案'), '不用簽跟不用收尾是兩件事');
+  });
+
+  test('已結案的那一筆，「簽療程單」要看得到而且是做完的', () => {
+    const rows = ask(base({ status: 'done' }));
+    const row = rows.find((r) => r.kind === '簽療程單');
+    assert.ok(row, '不然一筆已完成的來訪看起來像什麼都沒做過');
+    assert.equal(row.done, true);
+  });
+
+  test('取消掉的那一筆只剩「取消 X」那幾張', () => {
+    const rows = ask(base({ status: 'cancelled' }), [
+      { id: 't1', visitId: 'v1', kind: '取消 Abovee', done: false, dueDate: TODAY },
+    ]);
+    assert.deepEqual(kinds(rows), ['取消 Abovee']);
+  });
+
+  test('別筆來訪的任務不會混進來', () => {
+    const rows = ask(base(), [
+      { id: 't1', visitId: 'v1', kind: 'Examine', done: true },
+      { id: 't2', visitId: 'v-other', kind: '耀聖', done: false },
+    ]);
+    assert.ok(kinds(rows).includes('Examine'));
+    assert.ok(!kinds(rows).includes('耀聖'));
+  });
+
+  test('軟刪除的任務不列', () => {
+    const rows = ask(base(), [
+      { id: 't1', visitId: 'v1', kind: 'Examine', done: false, deletedAt: '2026-09-01' },
+    ]);
+    assert.ok(!kinds(rows).includes('Examine'));
+  });
+
+  test('順序是她做事的順序，不是死線的順序', () => {
+    // 追蹤報告的死線是 21 天、約二返是拿到報告之後 7 天 ——
+    // 照死線排會把鏈條的第二站排到第一站前面
+    const rows = ask(base({ status: 'done' }), [
+      { id: 't2', visitId: 'v1', kind: '約二返', done: false, dueDate: '2026-09-10' },
+      { id: 't1', visitId: 'v1', kind: '追蹤健檢報告', done: true, dueDate: '2026-09-25' },
+      { id: 't0', visitId: 'v1', kind: 'Examine', done: true, dueDate: '2026-09-03' },
+    ]);
+    const order = kinds(rows);
+    assert.ok(order.indexOf('Examine') < order.indexOf('簽療程單'));
+    assert.ok(order.indexOf('簽療程單') < order.indexOf('追蹤健檢報告'));
+    assert.ok(order.indexOf('追蹤健檢報告') < order.indexOf('約二返'));
+  });
+
+  test('刪掉的來訪與空的都收得下', () => {
+    assert.deepEqual(todosForVisit(null, { today: TODAY }), []);
+    assert.deepEqual(todosForVisit(base({ deletedAt: '2026-09-01' }), { today: TODAY }), []);
   });
 });

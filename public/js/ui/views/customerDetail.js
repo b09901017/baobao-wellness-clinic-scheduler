@@ -53,7 +53,7 @@ import * as buy from '../components/buy.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
-import { taskRow } from '../components/tasklist.js';
+import { taskRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import {
   deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
@@ -1605,9 +1605,14 @@ function openVisitCard(ctx, visitId) {
   openCard({
     title: shortDate(visit.date),
     subtitle: esc(describeStatus(visit.status)),
+    // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
+    // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
     body: visitReadHtml(visit, {
       roomsById: byId(ctx.rooms ?? []),
       staffById: byId(ctx.staff ?? []),
+      coursesById: byId(ctx.courses ?? []),
+      tasks: ctx.tasks ?? [],
+      today: todayISO(),
     }),
   });
 }
@@ -1646,6 +1651,8 @@ function openAllTasks(ctx) {
 async function toggleTask(ctx, id) {
   const task = ctx.tasks.find((t) => t.id === id);
   if (!task) return;
+  // 拿回鏈上那兩種會收掉別的張，先問一句（三個入口共用 `confirmUntick()`）
+  if (!(await confirmUntick(task, !task.done))) return;
   try {
     await toast.withSaveState(() => tasksData.setDone(task, !task.done), {
       success: task.done ? '拿回來了' : '勾掉了',

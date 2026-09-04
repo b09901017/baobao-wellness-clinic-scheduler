@@ -270,6 +270,59 @@ async function followupOps(visit, visitsAfter, coursesById) {
  * @returns {Promise<object[]>} 要一起寫的操作，沒有就是空陣列
  */
 export async function followupOpsAfterTaskChange(changed = []) {
+  const plans = await chainPlans(changed);
+  return plans.flatMap((p) => toOps(p.plan));
+}
+
+/**
+ * **同一台引擎，只看不寫。** 二次確認框要講「這一下會少哪幾張」，
+ * 而那個答案 `syncFollowupTasks()` 每次勾選都已經在算了。
+ *
+ * 照著它的規則在畫面上再推論一次是這個 repo 已經付過帳的形狀 ——
+ * `domain/consequences.js` 的檔頭就是為了同一件事而存在的（兩個入口各自
+ * 寫死「Abovee」，而健檢壓的是 Examine）。所以這一支跟
+ * `followupOpsAfterTaskChange()` 共用 `chainPlans()`，差別只有 return 不 commit。
+ *
+ * 代價是**多打一輪讀取**（確認框一次、真的寫的時候一次）。只有鏈上那兩種
+ * 待辦會走到這裡，而她一天拿回來的次數是個位數。
+ *
+ * @param {object} task 那一張待辦（勾選**之前**的樣子）
+ * @param {boolean} done 要變成什麼
+ * @returns {Promise<{create:object[], remove:object[], tasksBefore:object[],
+ *                    visits:object[], entitlements:object[], coursesById:object}|null>}
+ *   不是鏈上那兩種、或主檔裡沒有配對規則時回 `null` —— **那代表「不用問」**，
+ *   跟「問完沒有東西會變」是兩件事。
+ */
+export async function previewTaskChange(task, done) {
+  if (!task?.id) return null;
+  const after = { ...task, done, doneAt: done ? new Date().toISOString() : null };
+  const plans = await chainPlans([after]);
+  const mine = plans[0];
+  if (!mine) return null;
+
+  return {
+    create: mine.plan.create ?? [],
+    remove: (mine.plan.remove ?? []).map((r) => ({
+      ...r,
+      // 收掉的是哪一種、掛在哪一筆來訪上 —— 確認框要講得出來，
+      // 而 `remove` 身上只有 id 與理由。
+      ...(mine.tasksBefore.find((t) => t.id === r.id) ?? {}),
+    })),
+    tasksBefore: mine.tasksBefore,
+    visits: mine.visits,
+    entitlements: mine.entitlements,
+    coursesById: mine.coursesById,
+  };
+}
+
+/**
+ * 鏈上那幾張待辦被勾／被拿回來之後，每一位客戶的鏈條該長什麼樣。
+ *
+ * 寫入（`followupOpsAfterTaskChange()`）與預覽（`previewTaskChange()`）
+ * **共用這一支**。兩份實作遲早會有一份跟 `syncFollowupTasks()` 分岔，
+ * 而分岔的症狀是「確認框說會收掉兩張，實際上收掉三張」—— 那比不講還糟。
+ */
+async function chainPlans(changed = []) {
   // 寄報告那一張刻意**不在這裡**：勾掉它不會讓鏈條上任何東西改變
   //（`syncFollowupTasks()` 的第二圈只看報告那一張勾了沒），
   // 放進來只會讓每一次勾掉它都多打三次讀取。ADR-0065。
@@ -290,7 +343,7 @@ export async function followupOpsAfterTaskChange(changed = []) {
     byCustomer.get(t.customerId).push(t);
   }
 
-  const ops = [];
+  const out = [];
   for (const [customerId, mine] of byCustomer) {
     // eslint-disable-next-line no-await-in-loop
     const [entitlements, tasks, visits] = await Promise.all([
@@ -305,22 +358,29 @@ export async function followupOpsAfterTaskChange(changed = []) {
     const patched = new Map(mine.map((t) => [t.id, t]));
     const after = tasks.map((t) => (patched.has(t.id) ? { ...t, ...patched.get(t.id) } : t));
 
-    ops.push(...toOps(syncFollowupTasks({
-      customer: {
-        id: customerId,
-        name: mine.find((t) => t.customerName)?.customerName
-          ?? visits.find((v) => v.customerName)?.customerName ?? null,
-      },
-      entitlements,
+    out.push({
+      customerId,
+      tasksBefore: tasks,
       visits,
-      tasks: after,
+      entitlements,
       coursesById,
-      dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
-      reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
-    })));
+      plan: syncFollowupTasks({
+        customer: {
+          id: customerId,
+          name: mine.find((t) => t.customerName)?.customerName
+            ?? visits.find((v) => v.customerName)?.customerName ?? null,
+        },
+        entitlements,
+        visits,
+        tasks: after,
+        coursesById,
+        dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+        reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
+      }),
+    });
   }
 
-  return ops;
+  return out;
 }
 
 function toOps({ create = [], update = [], remove = [] }) {

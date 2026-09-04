@@ -60,7 +60,7 @@ import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
-import { taskRow as sharedTaskRow, wayRow } from '../components/tasklist.js';
+import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { givableBags } from '../../domain/products.js';
@@ -70,6 +70,7 @@ import * as toast from '../toast.js';
 import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml } from './calendar.js';
+import { fillMirror } from '../components/taskMirror.js';
 
 const esc = f.esc;
 
@@ -1055,11 +1056,15 @@ function openWhoVisit(visitId) {
       : '那一天的資料還在讀，等一下再按一次');
     return;
   }
-  openCard({
+  const html = (tasks) => visitReadHtml(visit, {
+    roomsById: d.rooms, staffById: d.staff, tasks, today: todayISO(),
+  });
+  // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
+  fillMirror(openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
     subtitle: esc(describeStatus(visit.status)),
-    body: visitReadHtml(visit, { roomsById: d.rooms, staffById: d.staff }),
-  });
+    body: html(undefined),
+  }), visit, html);
 }
 
 /**
@@ -1086,6 +1091,13 @@ async function toggleWhoTask(ctx, id) {
   if (!task) return;
 
   const to = !task.done;
+
+  // 拿回鏈上那兩種會**收掉別的張**，先問一句（三個入口共用 `confirmUntick()`）。
+  // **問話在樂觀更新之前**：先動畫面再問，她按「取消」時畫面已經翻過去了。
+  if (!(await confirmUntick(task, to))) return;
+  // 問的那段時間她可能已經關掉抽屜或換了一頁
+  if (whoDrawer !== d) return;
+
   const before = ctx.tasks;
   const beforeAt = task.doneAt ?? null;
   const saved = { ...task };
@@ -1942,14 +1954,17 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  openCard({
+  const html = (tasks) => visitReadHtml(visit, {
+    roomsById: taskVisits.roomsById,
+    staffById: taskVisits.staffById,
+    tasks,
+    today: todayISO(),
+  });
+  fillMirror(openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
     subtitle: esc(describeStatus(visit.status)),
-    body: visitReadHtml(visit, {
-      roomsById: taskVisits.roomsById,
-      staffById: taskVisits.staffById,
-    }),
-  });
+    body: html(undefined),
+  }), visit, html);
 }
 
 function badgeClass(state) {
@@ -2071,6 +2086,8 @@ async function bookFollowup(ctx, taskId) {
 async function untickTask(ctx, id) {
   const task = ctx.done.find((t) => t.id === id);
   if (!task) return;
+  // 鏈上那兩種拿回來會收掉別的張，先問一句
+  if (!(await confirmUntick(task, false))) return;
   try {
     await toast.withSaveState(() => tasksData.setDone(task, false), { success: '拿回來了' });
     await renderGroup(ctx.el, ctx.group);

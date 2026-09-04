@@ -142,6 +142,20 @@ describe('一整天的時段', () => {
     assert.equal(rows.length, 0);
   });
 
+  test('這一筆底下有沒有「記的話」，那一列自己講得出來', () => {
+    // 抽屜上要畫一顆小記事本，不然她得逐一點開才知道哪一筆寫了字。
+    // **帶的是有沒有，不是那段字** —— 那一列不印它。
+    const [withNote] = agendaFor([visit({ note: '客人說要換床' })], '2026-09-18', CTX);
+    assert.equal(withNote.hasNote, true);
+
+    const [without] = agendaFor([visit({ note: null })], '2026-09-18', CTX);
+    assert.equal(without.hasNote, false);
+
+    // 空字串與只有空白是「沒有」，不是「有一段空的」
+    const [blank] = agendaFor([visit({ note: '   ' })], '2026-09-18', CTX);
+    assert.equal(blank.hasNote, false);
+  });
+
   test('診間與治療師換成名字，沒指派就是 null', () => {
     const [row] = agendaFor([visit({
       slots: [{ startsAt: '10:30', endsAt: '11:30', roomId: 'r-3', bed: 'A' }],

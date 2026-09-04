@@ -1,6 +1,6 @@
 # 哪一筆底下寫了字，要點開才知道
 
-Status: todo
+Status: done
 來源：她的第四項（`../spec.md`）
 動工前先讀：ADR-0039（色相用完了）、ADR-0045
 

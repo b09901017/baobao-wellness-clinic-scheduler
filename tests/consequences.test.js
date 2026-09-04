@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
 import {
   bookingSystemLabel, pendingRegistrations, bookingConsequences, confirmConsequences,
-  closeConsequences,
+  closeConsequences, untickConsequences, cancelConsequences,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -256,6 +256,184 @@ describe('結案那一下會發生什麼', () => {
     const off = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
     assert.ok(!off.some((l) => l.includes('試算表')));
     const on = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1, sheetSyncOn: true });
+    assert.ok(on.some((l) => l.includes('試算表')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 拿回一張待辦
+// ---------------------------------------------------------------------------
+
+describe('拿回一張待辦會發生什麼', () => {
+  const CHAIN_COURSES = {
+    'c-checkup': { id: 'c-checkup', name: '健檢', category: 'B', followupCourseId: 'c-2nd' },
+    'c-2nd': { id: 'c-2nd', name: '二返', category: 'A', needsTreatmentForm: false },
+  };
+  const CHAIN_ENTS = [
+    { id: 'e-exam', type: 'single', courseId: 'c-checkup', totalQty: 3, doneCount: 1 },
+    {
+      id: 'e-2nd', type: 'single', courseId: 'c-2nd', totalQty: 3, doneCount: 0,
+      // 配對是靠這一欄指回去的，不是靠課程比對（`pairsOf()`）
+      followupForEntitlementId: 'e-exam',
+    },
+  ];
+  const EXAM = {
+    id: 'v-exam', customerId: 'cust1', date: '2026-08-20', status: 'done',
+    slots: [{ courseId: 'c-checkup', entitlementId: 'e-exam', attended: true }],
+  };
+  /** 已經約好的那一場二返，指回那一次健檢。 */
+  const BOOKED = {
+    id: 'v-2nd', customerId: 'cust1', date: '2026-09-20', status: 'confirmed',
+    slots: [{
+      courseId: 'c-2nd', entitlementId: 'e-2nd', startsAt: '10:00',
+      followupForVisitId: 'v-exam',
+    }],
+  };
+
+  const reportTask = { id: 't-report', kind: '追蹤健檢報告', visitId: 'v-exam', customerId: 'cust1' };
+
+  /** `previewTaskChange()` 回來的那一份的形狀。 */
+  const preview = ({ remove = [], visits = [EXAM] }) => ({
+    create: [], remove, visits, entitlements: CHAIN_ENTS, coursesById: CHAIN_COURSES,
+  });
+
+  test('會收掉兩張時，兩張各講一行，而且染紅', () => {
+    const said = untickConsequences({
+      task: reportTask,
+      preview: preview({
+        remove: [
+          { id: 't-send', kind: '寄報告給醫師', visitId: 'v-exam' },
+          { id: 't-book', kind: '約二返', visitId: 'v-exam' },
+        ],
+      }),
+    });
+
+    assert.ok(said);
+    assert.equal(said.danger, true);
+    assert.ok(said.title.includes('追蹤健檢報告'));
+    assert.ok(said.lines.some((l) => l.includes('寄報告給醫師') && l.includes('收走')));
+    assert.ok(said.lines.some((l) => l.includes('約二返') && l.includes('收走')));
+    // 那一次健檢是哪一天
+    assert.ok(said.lines.some((l) => l.includes('8/20')));
+    // 還原得回來這件事一定要講
+    assert.ok(said.lines.some((l) => l.includes('已刪除項目')));
+  });
+
+  test('什麼都不會被收走就回 null —— 不用問', () => {
+    assert.equal(untickConsequences({ task: reportTask, preview: preview({}) }), null);
+    // Examine 那一種根本走不到 preview（`previewTaskChange()` 回 null）
+    assert.equal(untickConsequences({ task: reportTask, preview: null }), null);
+  });
+
+  test('被收走的清單裡只有它自己時不算 —— 那不是「別的張」', () => {
+    const said = untickConsequences({
+      task: reportTask,
+      preview: preview({ remove: [{ id: 't-report', kind: '追蹤健檢報告', visitId: 'v-exam' }] }),
+    });
+    assert.equal(said, null);
+  });
+
+  test('二返已經約好時，講得出日期，而且明說那一筆來訪不會被動到', () => {
+    const said = untickConsequences({
+      task: reportTask,
+      preview: preview({
+        remove: [{ id: 't-send', kind: '寄報告給醫師', visitId: 'v-exam' }],
+        visits: [EXAM, BOOKED],
+      }),
+    });
+
+    const line = said.lines.find((l) => l.includes('9/20'));
+    assert.ok(line, '要講出那一場二返約在哪一天');
+    assert.ok(line.includes('不會被動到'), '要明說那一筆來訪不會被動到');
+
+    // **一個字都不可以說「會取消二返」** —— 那是假的（ADR-0002），
+    // 而嚇錯一次之後，真的該停的那一次她也不會停。
+    for (const l of said.lines) {
+      assert.ok(!/取消/.test(l), `這一句在嚇她：${l}`);
+    }
+  });
+
+  test('沒約二返時就不要編一句「還沒約」 —— 那是在斷言不知道的事', () => {
+    const said = untickConsequences({
+      task: reportTask,
+      preview: preview({ remove: [{ id: 't-send', kind: '寄報告給醫師', visitId: 'v-exam' }] }),
+    });
+    assert.ok(!said.lines.some((l) => l.includes('還沒約')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 取消／刪掉一筆來訪
+// ---------------------------------------------------------------------------
+
+describe('取消一筆來訪會發生什麼', () => {
+  const COURSES3 = {
+    'c-checkup': { id: 'c-checkup', name: '健檢', category: 'B' },
+    'c-recovery': { id: 'c-recovery', name: '復能', category: 'C' },
+    'c-clinic': { id: 'c-clinic', name: '復健科門診', category: 'A' },
+  };
+  const exam = {
+    id: 'v1', customerId: 'cust1', date: '2026-08-27', status: 'done',
+    slots: [{ courseId: 'c-checkup', entitlementId: 'e1' }],
+  };
+
+  test('講得出是哪一個系統，不是三個並列', () => {
+    const lines = cancelConsequences({ visit: exam, coursesById: COURSES3 });
+    assert.ok(lines.some((l) => l.includes('取消 Examine')));
+    assert.ok(!lines.some((l) => l.includes('Abovee')), '健檢不是在 Abovee 壓的');
+  });
+
+  test('一天同時有健檢與復能就兩個都講 —— 她真的要去兩個地方收', () => {
+    const both = { ...exam, slots: [{ courseId: 'c-checkup' }, { courseId: 'c-recovery' }] };
+    const lines = cancelConsequences({ visit: both, coursesById: COURSES3 });
+    assert.ok(lines.some((l) => l.includes('取消 Examine')));
+    assert.ok(lines.some((l) => l.includes('取消 Abovee')));
+  });
+
+  test('還沒做完的掛號與紀錄會被收掉，做完的不講', () => {
+    const lines = cancelConsequences({
+      visit: { ...exam, slots: [{ courseId: 'c-clinic' }] },
+      coursesById: COURSES3,
+      tasks: [
+        { id: 't1', kind: 'Examine', done: false },
+        { id: 't2', kind: '耀聖', done: true },
+        { id: 't3', kind: '寫紀錄', done: false },
+      ],
+    });
+    const dropLine = lines.find((l) => l.includes('會被收掉'));
+    assert.ok(dropLine.includes('Examine'));
+    assert.ok(dropLine.includes('寫紀錄'));
+    // 做完的那一張真的做過了，不會被收掉
+    assert.ok(!dropLine.includes('耀聖'));
+  });
+
+  test('健檢那條鏈另外講一句，並且說出為什麼', () => {
+    const lines = cancelConsequences({
+      visit: exam,
+      coursesById: COURSES3,
+      tasks: [{ id: 't1', kind: '追蹤健檢報告', done: false }],
+    });
+    const line = lines.find((l) => l.includes('追蹤健檢報告'));
+    assert.ok(line);
+    assert.ok(line.includes('那一場沒發生'));
+  });
+
+  test('什麼任務都沒有的時候不要講那兩句', () => {
+    const lines = cancelConsequences({ visit: exam, coursesById: COURSES3 });
+    assert.ok(!lines.some((l) => l.includes('會被收掉')));
+  });
+
+  test('刪除那一條要說「標記刪除」與「還原得回來」', () => {
+    const lines = cancelConsequences({ visit: exam, coursesById: COURSES3, removing: true });
+    assert.ok(lines.some((l) => l.includes('標記刪除')));
+    assert.ok(lines.some((l) => l.includes('已刪除項目')));
+    assert.ok(!lines.some((l) => l.includes('暗掉的那一列')));
+  });
+
+  test('同步沒設定就不要承諾試算表會動', () => {
+    const off = cancelConsequences({ visit: exam, coursesById: COURSES3 });
+    assert.ok(!off.some((l) => l.includes('試算表')));
+    const on = cancelConsequences({ visit: exam, coursesById: COURSES3, sheetSyncOn: true });
     assert.ok(on.some((l) => l.includes('試算表')));
   });
 });

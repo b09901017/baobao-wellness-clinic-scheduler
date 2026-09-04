@@ -2675,6 +2675,20 @@ button.mark::after {
   line-height: 1.35;
 }
 
+/* 抬頭右邊那兩顆：這一筆底下有沒有「記的話」／掛不掛得到備忘錄。
+ *
+ * **用形狀不用顏色。** 日曆上要分辨的已經有七種，色相在休假走斜線紋、
+ * 待辦走方框勾勾的時候就用完了（ADR-0039、0045）。這一顆問的是「有沒有」
+ * 不是「哪一種」。所以它用 `--text-mute`，跟名字明顯分得開又不搶戲。
+ *
+ * `vertical-align` 對齊的是名字的基線 —— 差 1px 那一排看起來就是歪的。 */
+.timerow__mark {
+  display: inline-flex;
+  margin-left: 5px;
+  color: var(--text-mute);
+  vertical-align: -1px;
+}
+
 .timerow__sub {
   display: block;
   margin-top: 1px;
@@ -3641,6 +3655,82 @@ button.mark::after {
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- 「這一場的待辦」（ui/components/taskMirror.js） ----
+ *
+ * 一筆來訪的讀取卡片底下那一小塊，四個畫面一起長（ADR-0018）。
+ *
+ * **只給看，不給勾** —— 所以記號是 `✓` / `○` 兩個字元，不是勾選框。
+ * 一放勾選框她就會去點它，而點不動的勾選框是這張卡片上最糟的東西。
+ *
+ * 一個新顏色都沒有：全部用現成的 token（ADR-0055 —— tokens.css 要動就是
+ * 淺色深色兩份都要動，而這一塊沒有任何一個顏色是新的）。 */
+.taskmirror {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  animation: taskmirror-in var(--motion-fast) var(--ease-out) both;
+}
+
+/* 淡入，不要「啪」一下把底下的備忘錄推下去 —— 它是讀回來才補上的。 */
+@keyframes taskmirror-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.taskmirror__head {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+.taskmirror__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskmirror__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 3px 0;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.taskmirror__row.is-done {
+  color: var(--text-mute);
+}
+
+.taskmirror__mark {
+  flex: none;
+  width: 1em;
+  color: var(--text-mute);
+}
+
+.taskmirror__row.is-done .taskmirror__mark {
+  color: var(--ok);
+}
+
+.taskmirror__kind {
+  flex: 1;
+  min-width: 0;
+}
+
+.taskmirror__due {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.taskmirror__due.is-late {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 
 /* 一次來訪的每一個時段。時間是她在掃的東西，所以它比課程名字大。 */
 .readslot {

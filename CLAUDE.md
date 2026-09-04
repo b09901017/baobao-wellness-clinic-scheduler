@@ -49,6 +49,9 @@ staging 上被點過 —— 只有急件這樣做。
 | 健檢與二返的關係 | 只寫在 `domain/followups.js`（配對、還欠幾次、那條鏈上的三種待辦）。不要在 `taskRules.js` 或 UI 裡再判斷一次，見 ADR-0022 |
 | 報告到手之後的那一站 | 它是**兩張**不是一張：寄報告給醫師、約二返，死線一樣（ADR-0065）。**「寄報告」走在 `owed()` 那道閘門外面**（`syncFollowupTasks()` 的第二圈）—— 擠進第一圈的話，她一約好二返 `owed` 就掉到 0，還沒寄出去的那一張會被**靜默收掉**。`taskRules.js` 的 `CHAIN_KINDS` 要有它；`data/visits.js` 的 `chainKinds` 刻意沒有 |
 | 任務有兩個時機 | `acceptsNewTasks()`（客人確認後，掛號那一族）與 `acceptsRecordTasks()`（那一場做完後，紀錄那一族，ADR-0066）。**`tasksForVisit()` 刻意不看狀態、`recordTasksForVisit()` 刻意看** —— 前者同時被拿來比對「哪些還該留著」，跟著狀態變的話來訪一結案她還沒做完的 Examine 就會被靜默收掉；後者相反，那一場沒做完就沒有東西可以寫。「寫紀錄」逐**課程**不逐類別（`course.needsRecord`） |
+| 一句「按下去會發生什麼」 | 只寫在 `domain/consequences.js`。**它只能講真的會發生的事**（ADR-0070）——「拿回來」那一道的後果由 `data/visits.js` 的 `previewTaskChange()` 算，跟真的會寫下去的 `followupOpsAfterTaskChange()` **共用同一段身體**，不要照著規則在畫面上再推論一次。拿回一張待辦**從來不會動到任何一筆來訪**，寫一句「會取消已約好的二返」是假話，而嚇錯一次之後真的該停的那次她也不會停 |
+| 一種課程會長出哪些待辦 | 對照表在 `docs/課程與待辦對照表.md`。改了 `taskRules.js` 或 `followups.js` 的規則要回去改它 —— 確認框上的每一句話都是照那張表寫的，表沒列全警示就會漏 |
+| 一筆來訪的讀取卡片 | `ui/views/calendar.js` 的 `visitReadHtml()`，**四個畫面共用**（日曆、客戶詳情、待辦中心、進度追蹤，ADR-0018、0056）。「這一場的待辦」那一塊在裡面，所以四頁一起長；備忘錄那一塊接在**外面**，只有日曆有。那一塊**只給看不給勾** —— 一個 `<input type="checkbox">` 都不可以有 |
 | 勾掉一張待辦 | 走 `data/tasks.js` 的 `setDone(tasks, done)`，**收的是任務本身不是 id**。健檢鏈那兩種（追蹤健檢報告、約二返）會連著把下一站算出來，跟勾選寫在同一個 commit 裡 —— 規則仍然只在 `domain/followups.js` |
 | 任務什麼時候產生 | 只寫在 `domain/taskRules.js` 的 `acceptsNewTasks()`（客人確認之後才長，見 ADR-0027）。UI 上講這件事的四句文案要跟著改：壓表那一頁兩句、確認動線的提示、客戶詳情沒有任務時那一句 —— 畫面在講一件不會發生的事，比沒講還糟 |
 | 匯入的來訪要建成什麼狀態 | 只寫在 `domain/mergeImport.js` 的 `statusFor()`（依匯入當下的日期，不是產檔的日期，見 ADR-0029）。`domain/legacyImport.js` 寫死的 `done` 是對的：它只餵給 skill，狀態一律在匯入那一刻重判。**舊資料只有合併檔一條路進得來**，貼試算表那條 2026-08-23 拿掉了，見 ADR-0047 |
