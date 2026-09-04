@@ -11,7 +11,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  masterDocs, customer, entitlement, visit, slot, task, TODAY, addDays,
+  masterDocs, customer, entitlement, visit, slot, task, note, TODAY, addDays,
 } from '../fixtures/data.js';
 
 const EXAM_DATE = addDays(TODAY, -3);
@@ -314,6 +314,137 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
     await page.waitForTimeout(900);
     // 一個空殼會讓她以為那裡壞了
     await expect(page.locator('.taskmirror')).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 日曆抽屜裡勾一件待辦。她 2026-09-05 的原話：
+//
+//   > 我按確認之後他又會立刻跳出要不要收回？而且就算我關掉這個收回，
+//   > 在這天的抽屜上他還是顯示沒被勾掉，要我重新整理後才會勾掉。
+//
+// 那是**兩個 bug 疊在一起**：
+//
+//   跳出第二張 —— `paint()` 的實作是 `openCard()`，而那一支第一行就是
+//                 `closeCard()`。所以「原地重畫」在她眼裡是一張關掉、
+//                 另一張跳出來，而新那一張寫著「拿回來，還沒做」。
+//   抽屜不動   —— 那一塊從頭到尾只在 `openDay()` 那一刻畫過一次；
+//                 卡片關掉時跑的 `render()` 重畫的是月曆那一片，
+//                 而抽屜掛在 `document.body` 底下，不在 `el` 裡。
+//
+// 反過來那一邊也要盯：**沒有真的勾掉就不可以關**（營養品沒給完那一次）。
+// 那一條在 `01-products.spec.js` 的 J-E9。
+// ---------------------------------------------------------------------------
+
+test.describe('日曆抽屜裡勾一件待辦', () => {
+  const seedTodos = (extra = []) => [
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    note({ id: 'n-today', text: '幫客戶A問週六有沒有位子', date: TODAY }),
+    note({ id: 'n-other', text: '訂下個月的耗材', date: TODAY }),
+    ...extra,
+  ];
+
+  /** 打開那一天的抽屜，點開一筆待辦的讀取卡片。 */
+  async function openTodoCard(app, page, id = 'n-today') {
+    await page.locator(`[data-day="${TODAY}"]`).first().click();
+    await page.waitForTimeout(600);
+    await page.locator(`[data-open="note:${id}"]`).click();
+    await expect(page.locator('.popcard')).toBeVisible();
+  }
+
+  /** 抽屜裡那一列現在是不是劃掉的樣子。 */
+  const rowOf = (page, id) => page.locator(`.timerow:has([data-open="note:${id}"])`);
+
+  test('U16 勾掉 → 卡片自己收掉，不會再跳一張問要不要收回', async ({ app, page }) => {
+    await app.seed(seedTodos());
+    await app.signIn('/calendar');
+    await openTodoCard(app, page);
+
+    await expect(page.locator('[data-tick]')).toContainText('做完了，勾掉');
+    await page.locator('[data-tick]').click();
+    await page.waitForTimeout(1500);
+
+    await expect(page.locator('.popcard'), '勾完那一張卡片要收掉').toHaveCount(0);
+    // **不會有第二張。** 以前這裡會浮出一張寫著「拿回來，還沒做」的新卡片。
+    await page.waitForTimeout(1200);
+    await expect(page.locator('.popcard')).toHaveCount(0);
+    await expect(page.locator('[data-tick]')).toHaveCount(0);
+
+    const saved = await app.readDoc('notes', 'n-today');
+    expect(saved.done).toBe(true);
+    expect(saved.doneAt, '勾掉的時間要記下來（「已完成」那一格照它排）').toBeTruthy();
+  });
+
+  test('U17 抽屜還開著，而且那一列當場劃掉 —— 不用重新整理', async ({ app, page }) => {
+    await app.seed(seedTodos());
+    await app.signIn('/calendar');
+    await openTodoCard(app, page);
+
+    await page.locator('[data-tick]').click();
+    await page.waitForTimeout(1500);
+
+    // 抽屜留在原地 —— 她可能還想看那一天的其他東西
+    await expect(page.locator('.drawer')).toBeVisible();
+    // **沒有 page.reload()。** 這一行就是她回報的那個症狀。
+    await expect(rowOf(page, 'n-today')).toHaveClass(/kind-todo--done/);
+    // 而且真的是劃掉的，不只是換一個 class
+    const struck = await rowOf(page, 'n-today').locator('.timerow__title').evaluate(
+      (el) => getComputedStyle(el).textDecorationLine,
+    );
+    expect(struck).toContain('line-through');
+    // 同一天的另一筆一個字都沒被動到
+    await expect(rowOf(page, 'n-other')).not.toHaveClass(/kind-todo--done/);
+  });
+
+  test('U18 再點一次拿回來 → 一樣收掉，資料庫也退回去', async ({ app, page }) => {
+    await app.seed(seedTodos([
+      note({ id: 'n-done', text: '寄收據給客戶A', date: TODAY, done: true, doneAt: `${TODAY}T01:00:00.000Z` }),
+    ]));
+    await app.signIn('/calendar');
+    await openTodoCard(app, page, 'n-done');
+
+    await expect(page.locator('[data-tick]')).toContainText('拿回來，還沒做');
+    await page.locator('[data-tick]').click();
+    await page.waitForTimeout(1500);
+
+    await expect(page.locator('.popcard')).toHaveCount(0);
+    await expect(page.locator('.drawer')).toBeVisible();
+    await expect(rowOf(page, 'n-done')).not.toHaveClass(/kind-todo--done/);
+
+    const back = await app.readDoc('notes', 'n-done');
+    expect(back.done).toBe(false);
+    expect(back.doneAt).toBe(null);
+  });
+
+  test('U19 抽屜捲到一半勾一筆，不會被捲回最上面', async ({ app, page }) => {
+    // `sheet.update()` 存在的理由就是這一條（它的註解寫的就是這句話）。
+    //
+    // **30 筆不是隨手挑的**：抽屜的 `max-height` 是 84dvh（`tokens.css` 的
+    // `--sheet-peek-max`），在 414×896 上大約放得下 14 列 —— 剛好等於
+    // 「有時候捲得動、有時候捲不動」，而那種測試比沒有測試更糟。
+    const many = Array.from({ length: 30 }, (_, i) =>
+      note({ id: `n-${i}`, text: `雜事第 ${i + 1} 件`, date: TODAY }));
+    await app.seed([...masterDocs(), customer({ id: 'cust-a', name: '客戶A' }), ...many]);
+    await app.signIn('/calendar');
+
+    await page.locator(`[data-day="${TODAY}"]`).first().click();
+    await page.waitForTimeout(600);
+
+    const body = page.locator('.drawer__body');
+    await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.waitForTimeout(300);
+    const before = await body.evaluate((el) => el.scrollTop);
+    expect(before, '這一支要有東西可捲才問得出問題').toBeGreaterThan(0);
+
+    // 捲到底之後最後那一列就在眼前，點它不會再被捲進來一次
+    await page.locator('[data-open^="note:"]').last().click();
+    await expect(page.locator('.popcard')).toBeVisible();
+    await page.locator('[data-tick]').click();
+    await page.waitForTimeout(1500);
+
+    const after = await body.evaluate((el) => el.scrollTop);
+    expect(after, '勾一筆隨手記不該把她捲回最上面').toBeGreaterThan(0);
   });
 });
 

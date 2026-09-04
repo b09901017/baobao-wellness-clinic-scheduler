@@ -67,6 +67,42 @@ test('勾掉的不會消失 —— 她會勾錯，看得到才點得回來', () 
   assert.equal(openCount(rows), 0);
 });
 
+// 2026-09-05：「最上面的應該是我剛勾掉的，而不是這個 todo 日期最近的」
+describe('勾掉的那一組照「什麼時候勾的」排', () => {
+  test('照 doneAt 由新到舊 —— 而且跟 createdAt 的順序剛好相反才算數', () => {
+    const rows = [
+      // 很久以前記的，但今天才處理掉
+      note({ id: 'old-note', done: true, createdAt: '2026-08-01T00:00:00Z', doneAt: '2026-09-05T09:00:00Z' }),
+      // 今天才記的，昨天…不可能，但它是先被勾掉的那一筆
+      note({ id: 'new-note', done: true, createdAt: '2026-09-05T08:00:00Z', doneAt: '2026-09-05T08:30:00Z' }),
+    ];
+    assert.deepEqual(sortNotes(rows).map((n) => n.id), ['old-note', 'new-note']);
+    // 照 createdAt 排的話會是反過來的 —— 這一支要盯的就是這個差別
+    assert.deepEqual(
+      [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((n) => n.id),
+      ['new-note', 'old-note'],
+    );
+  });
+
+  test('沒勾的那一組一個字都沒變 —— 它問的是「我剛記了什麼」', () => {
+    const rows = [
+      note({ id: 'a', createdAt: '2026-08-01T00:00:00Z', doneAt: '2026-09-05T09:00:00Z' }),
+      note({ id: 'b', createdAt: '2026-09-01T00:00:00Z', doneAt: null }),
+    ];
+    // doneAt 在沒勾的那幾筆身上不算數（舊資料上它可能還留著上一次的值）
+    assert.deepEqual(sortNotes(rows).map((n) => n.id), ['b', 'a']);
+  });
+
+  test('讀不出 doneAt 的舊資料退回 createdAt，不要全部黏在最底下', () => {
+    const rows = [
+      note({ id: 'legacy', done: true, createdAt: '2026-09-04T00:00:00Z', doneAt: null }),
+      note({ id: 'ticked', done: true, createdAt: '2026-08-01T00:00:00Z', doneAt: '2026-09-03T00:00:00Z' }),
+    ];
+    // 退回空字串的話 legacy 會沉到最底，而且彼此之間沒有順序
+    assert.deepEqual(sortNotes(rows).map((n) => n.id), ['legacy', 'ticked']);
+  });
+});
+
 test('已刪除的不算數', () => {
   const rows = [note({ id: 'a', deletedAt: '2026-08-19T00:00:00Z' })];
   assert.deepEqual(sortNotes(rows), []);

@@ -268,22 +268,41 @@ describe('取消來訪時的任務', () => {
 });
 
 describe('LINE 確認訊息', () => {
-  test('每一段各自一行：日期、時間、課程', () => {
+  test('每一段各自一行：日期、幾點到幾點、課程', () => {
     const msg = confirmMessage({ name: '王小姐' }, [
       { date: '2026-09-17', slots: [
-        { startsAt: '11:00', courseName: '復能' },
-        { startsAt: '10:00', courseName: '營養點滴' },
+        { startsAt: '11:00', endsAt: '12:00', courseName: '復能' },
+        { startsAt: '10:00', endsAt: '11:00', courseName: '營養點滴' },
       ] },
-      { date: '2026-09-03', slots: [{ startsAt: '14:00', courseName: '復能' }] },
+      { date: '2026-09-03', slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '復能' }] },
     ]);
 
     assert.equal(msg, [
       '王小姐您好，9 月為您安排了：',
-      '9/3(四) 14:00 復能',
-      '9/17(四) 10:00 營養點滴',
-      '9/17(四) 11:00 復能',
+      '9/3(四) 14:00–15:00 復能',
+      '9/17(四) 10:00–11:00 營養點滴',
+      '9/17(四) 11:00–12:00 復能',
       '請問可以嗎？',
     ].join('\n'));
+  });
+
+  test('**時間寫完整的一段**（2026-09-05 推翻了「只寫幾點開始」）', () => {
+    // 她的原話：「不是只寫幾點開始，而是幾點 - 幾點」。
+    // 「9/17 11:00 復能」看不出做完是幾點，而那正是客戶排當天其他事情要用的
+    // 那個數字。橫槓用 en dash，跟 `timeLabel()` 與「臨時空出一格」那一則一樣。
+    const msg = confirmMessage({ name: '王小姐' }, [
+      { date: '2026-09-03', slots: [{ startsAt: '09:15', endsAt: '10:15', courseName: '復能' }] },
+    ]);
+    assert.ok(msg.includes('09:15–10:15 復能'), msg);
+    assert.ok(!msg.includes('09:15 復能'), '不可以只印開始時間');
+  });
+
+  test('只記得開始時間的那一段就只印開始 —— 不要湊一個半截的橫槓', () => {
+    const msg = confirmMessage({ name: '王小姐' }, [
+      { date: '2026-09-03', slots: [{ startsAt: '14:00', endsAt: null, courseName: '復能' }] },
+    ]);
+    assert.ok(msg.includes('9/3(四) 14:00 復能'), msg);
+    assert.ok(!msg.includes('–'), '結束時間不知道就不要印橫槓');
   });
 
   test('**同一天不同時段的都要印**（2026-09-04 推翻了「只講第一段」）', () => {
@@ -291,22 +310,25 @@ describe('LINE 確認訊息', () => {
     // 她實際用過之後說：少印的那幾段客戶照樣要來，看不到反而以為只有一段。
     const msg = confirmMessage({ name: '王小姐' }, [
       { date: '2026-09-03', slots: [
-        { startsAt: '15:15', courseName: '靜脈' },
-        { startsAt: '09:15', courseName: '復能' },
+        { startsAt: '15:15', endsAt: '16:15', courseName: '靜脈' },
+        { startsAt: '09:15', endsAt: '10:15', courseName: '復能' },
       ] },
     ]);
-    assert.ok(msg.includes('09:15 復能'));
-    assert.ok(msg.includes('15:15 靜脈'));
+    assert.ok(msg.includes('09:15–10:15 復能'));
+    assert.ok(msg.includes('15:15–16:15 靜脈'));
     // 而且早的排前面
     assert.ok(msg.indexOf('09:15') < msg.indexOf('15:15'));
   });
 
   test('沒有時間的那一段不印時間 —— 「時間不詳」貼給客戶只會被打電話問', () => {
     const msg = confirmMessage({ name: '王小姐' }, [
-      { date: '2026-09-03', slots: [{ startsAt: null, courseName: '復能' }] },
+      { date: '2026-09-03', slots: [{ startsAt: null, endsAt: null, courseName: '復能' }] },
     ]);
     assert.ok(msg.includes('9/3(四) 復能'));
     assert.ok(!msg.includes('時間不詳'));
+    // 那一行不可以多一個空格或半截橫槓出來
+    assert.ok(!msg.includes('–'));
+    assert.ok(!msg.includes('  '));
   });
 
   test('沒有東西可問就回空字串，不要產生半句話', () => {

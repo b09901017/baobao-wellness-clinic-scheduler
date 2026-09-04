@@ -645,6 +645,23 @@ function fabHtml() {
 function openDay(el, data, date) {
   const today = todayISO();
 
+  // 抽屜裡那幾列的 click **每重畫一次就要重掛**：`sheet.update()` 換掉整塊
+  // 內容，舊節點連同監聽一起沒了。所以接的是 `openSheet()` 的 `onMount`
+  // —— 它在開的時候與每一次 `update()` 之後都會被呼叫，那正是它存在的理由。
+  //
+  // **只有這一圈搬進來。** `wireLongPress()` 與 `wireAddMenu()` 是委派在
+  // `sheet.el` 上的，而 `sheet.el` 在 `update()` 之後還是同一個節點 ——
+  // 搬進來就會每重畫一次多掛一組（`components/actions.js` 的檔頭寫著
+  // 這個 repo 修過三次同一種）。抬頭那顆「＋」在 `tools` 那一格，也不在裡面。
+  const wireRows = (drawer) => {
+    drawer.querySelectorAll('[data-open]').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const [what, id] = btn.dataset.open.split(':');
+        openDetail(el, data, what, id, date, repaint);
+      }),
+    );
+  };
+
   const sheet = openSheet({
     title: shortDate(date),
     // 抬頭底下不再寫「N 件事。點一筆看細節，要改再按鉛筆。」（`issues/04`）——
@@ -653,14 +670,23 @@ function openDay(el, data, date) {
     body: dayHtml(data, date, today),
     tools: addMenuHtml(),
     onClose: closeCard,
+    onMount: wireRows,
   });
 
-  sheet.el.querySelectorAll('[data-open]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const [what, id] = btn.dataset.open.split(':');
-      openDetail(el, data, what, id, date);
-    }),
-  );
+  /**
+   * 那一天就地重畫。**讀的是抽屜手上那一份 `data`**，不是 `state.data`
+   * —— `render()` 之後那兩份會分岔，而她剛剛那一下改的是手上這一份。
+   *
+   * 走 `sheet.update()` 而不是重開抽屜：它不重設捲動位置，`sheet.js` 上
+   * 那一句註解寫的就是這件事（「勾一筆隨手記不該把她捲回最上面」）。
+   *
+   * **寫成函式宣告是刻意的**：`wireRows` 排在它上面（它要當 `openSheet()`
+   * 的參數），靠宣告的提升才引用得到它。改成 `const` 會在她點第一列的時候
+   * 丟 ReferenceError。
+   */
+  function repaint() {
+    sheet.update(dayHtml(data, date, todayISO()));
+  }
 
   // 長按一列＝直接做（ADR-0060）。點一下的行為一個字都沒有變。
   // 委派掛在 `sheet.el` 上：那張抽屜關掉時整個節點被拿掉，監聽跟著消失。
@@ -759,9 +785,14 @@ function wireAddMenu(sheet, handlers) {
  *
  * 她點一筆的十次有九次只是要確認「那天幾點、誰、做什麼」。直接進表單等於
  * 每一次都冒著改到東西的風險，而這一站最不能出錯的就是次數（ADR-0020）。
+ *
+ * @param {Function} [repaint] 那一天的抽屜就地重畫。**只有待辦那一種用得到**
+ *   —— 它是唯一一種可以在讀取卡片上直接改到資料的（ADR-0045）。來訪與
+ *   行事備註改完走 `refreshAfterAction()`，那條路本來就會把抽屜整個重開。
+ *   日／週檢視上點一筆時沒有抽屜，所以這裡收得到 undefined。
  */
-function openDetail(el, data, what, id, date) {
-  if (what === 'note') return openNoteCard(el, data, id, date);
+function openDetail(el, data, what, id, date, repaint) {
+  if (what === 'note') return openNoteCard(el, data, id, date, repaint);
 
   if (what === 'event') {
     const event = data.events.find((e) => e.id === id);
@@ -814,8 +845,24 @@ function openDetail(el, data, what, id, date) {
  * 「改資料」，是「這件事做完了」，而那正是她點開它的原因。來訪那一張
  * 之所以要先看再按鉛筆，是因為那一站最不能出錯的是次數（ADR-0020）；
  * 隨手記勾錯了點回來就好。
+ *
+ * ## 勾完之後這一張自己收掉（2026-09-05，ADR-0073）
+ *
+ * 在這之前它是**原地重畫**，而重畫的實作是 `openCard()`，那一支第一行就是
+ * `closeCard()` —— 所以她看到的是「一張關掉、另一張跳出來」，而新那一張最
+ * 顯眼的字是「拿回來，還沒做」。她的原話：
+ *
+ * > 我按確認之後他又會立刻跳出要不要收回？…我希望是我勾掉然後按確定後，
+ * > 他就直接勾掉，而且不要跳出要不要收回的確認
+ *
+ * **但只有資料庫真的變了才收。** 營養品的提醒沒給完時 `recordDelivery()`
+ * 刻意留成 `done: false` 只換掉文字 —— 那一次她按了「勾掉」而它沒有被勾掉，
+ * 卡片這時候收掉就是在說一件沒有發生的事（SPEC 第 6.9 節、ADR-0070）。
+ *
+ * 底部那顆「復原」不受影響：它是**寫入之後**的安全網（SPEC 第 6.3 節），
+ * 不是寫入之前的確認，8 秒後自己消失也不擋任何東西。
  */
-function openNoteCard(el, data, id, date) {
+function openNoteCard(el, data, id, date, repaint) {
   const n = (data.notes ?? []).find((x) => x.id === id);
   if (!n) return;
 
@@ -848,15 +895,26 @@ function openNoteCard(el, data, id, date) {
           } catch {
             return; /* 已處理 */
           }
-          // 卡片留在原地，只把它自己重畫一次 —— 她可能還想看那一天的其他東西。
-          // 底下那一天的面板等關掉之後由 render() 一起更新。
-          //
-          // **重畫的是寫入那一層回報的那一筆，不是 `!current.done`。**
+          // **看的是寫入那一層回報的那一筆，不是 `!current.done`。**
           // 營養品的提醒沒給完時 `recordDelivery()` 刻意把它留成沒勾掉、
-          // 只換掉文字，猜的話卡片會說它已經勾掉了 —— 而資料庫裡沒有
+          // 只換掉文字，猜的話畫面會說它已經勾掉了 —— 而資料庫裡沒有
           // 這回事（SPEC 第 6.9 節：樂觀更新要誠實）。
           const i = (data.notes ?? []).findIndex((x) => x.id === current.id);
           if (i >= 0) data.notes[i] = next;
+
+          // 那一天的抽屜就地跟上。它在這之前從頭到尾只畫過一次（`openDay()`
+          // 那一刻），而卡片關掉時跑的 `render()` 重畫的是月曆那一片 ——
+          // 抽屜掛在 `document.body` 底下，不在 `el` 裡，所以她要重新整理
+          // 才看得到那一列被劃掉。
+          repaint?.();
+
+          // 真的勾掉（或真的拿回來）了：這張卡片唯一的一件事做完了，收掉它。
+          // `onClose` 會把月曆那一片一起更新。
+          if (Boolean(next.done) !== Boolean(current.done)) {
+            closeCard();
+            return;
+          }
+          // 沒有真的變 —— 留在原地照實說（營養品沒給完的那一次）。
           paint(next);
         });
       },
