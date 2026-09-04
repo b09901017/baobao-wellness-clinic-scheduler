@@ -13,7 +13,7 @@
 // 「LINE 回覆模板」（她改過的）。這一支只剩一件事：**算變數**。
 //
 // 那一刀切在這裡是因為六則裡有五則的變數是**有條件的** ——
-// 「一次來訪只講第一段的開始時間」「前一天就說明天」「沒有課程名就整段消失」。
+// 「沒有時間的那一段不印時間」「前一天就說明天」「沒有課程名就整段消失」。
 // 那幾個判斷一行都不該讓她在設定頁上重寫一次，也不該搬進模板裡
 //（模板只有 `{}` 這一種語法，寫不出條件，硬要寫就是發明第二套樣板語言）。
 //
@@ -21,6 +21,7 @@
 // 忘記傳的代價是「看到出廠設定的那一句」，不是「看到空白」。
 
 import { shortDate, daysBetween, addMonths } from './dates.js';
+import { isValidTime } from './visitTime.js';
 import { textFor, fill } from './messageTemplates.js';
 
 /** 這一則現在的字，換上變數。 */
@@ -30,7 +31,8 @@ const say = (id, templates, vars) => fill(textFor(id, templates), vars);
  * 一位客戶的壓表結果，問他可不可以。
  *
  * @param {{name:string}} customer
- * @param {{date:string, slots:{startsAt:string}[]}[]} visits 這次要問的來訪
+ * @param {{date:string, slots:{startsAt:string, endsAt:string}[]}[]} visits
+ *   這次要問的來訪
  * @param {{templates?: object}} [o]
  * @returns {string} 可以直接貼進 LINE 的文字
  */
@@ -63,6 +65,14 @@ export function confirmMessage(customer, visits, { templates = {} } = {}) {
  * 那個推論錯在**客戶要的不是「幾點到」而是「那天要待多久、做什麼」**——
  * 少印的那兩段客戶照樣要來，而看不到它們的人反而會以為只有一段。
  *
+ * ## 2026-09-05 又推翻了「只寫幾點開始」
+ *
+ * > 我希望時間可以寫完整，就是不是只寫幾點開始，而是幾點 - 幾點
+ *
+ * 這是上面那一段同一個理由的下半段：**客戶要知道的是那天要待多久**。
+ * 「9/17 10:00 營養點滴、9/17 11:00 復能」看不出 11:00 那一段做完是幾點，
+ * 而那正是他排當天其他事情要用的那個數字。
+ *
  * 排序照日期再照時間。**沒有時間的那一段不印時間**（匯入的舊資料，ADR-0011）
  * ——「9/3 時間不詳 復能」貼給客戶只會讓他打電話來問。
  *
@@ -75,12 +85,29 @@ function slotLines(visits = []) {
     .flatMap((v) => (v.slots ?? []).map((s) => ({
       date: v.date,
       startsAt: s?.startsAt ?? '',
+      endsAt: s?.endsAt ?? '',
       courseName: s?.courseName ?? '',
     })))
     .sort((a, b) => a.date.localeCompare(b.date)
       // 沒有時間的排那一天的最後 —— 它不知道幾點，擺在有時間的前面會誤導
       || (a.startsAt || '99:99').localeCompare(b.startsAt || '99:99'))
-    .map((r) => [shortDate(r.date), r.startsAt, r.courseName].filter(Boolean).join(' '));
+    .map((r) => [shortDate(r.date), slotTime(r), r.courseName].filter(Boolean).join(' '));
+}
+
+/**
+ * 一段時間在**貼給客戶的訊息**裡寫成什麼。兩頭都有就寫完整的一段。
+ *
+ * **`visitTime.js` 的 `timeLabel()` 借不得**：它在沒有時間時回「時間不詳」，
+ * 而那三個字貼給客戶只會換來一通電話（同 `slotLines()` 上面那一條規矩）。
+ * 這裡沒有時間就回空字串，讓那一行只剩日期與課程。
+ *
+ * 橫槓用 `–`（en dash），跟 `timeLabel()` 與「臨時空出一格」那一則的
+ * `{range}` 是同一個字元 —— 那一則**也是貼給客戶的**，兩則用不同的橫槓
+ * 是她自己看得出來的不一致。
+ */
+function slotTime({ startsAt, endsAt } = {}) {
+  if (isValidTime(startsAt) && isValidTime(endsAt)) return `${startsAt}–${endsAt}`;
+  return isValidTime(startsAt) ? startsAt : '';
 }
 
 // ---------- 其餘的訊息 ----------

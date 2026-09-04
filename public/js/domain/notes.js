@@ -61,14 +61,33 @@ export function isOpen(note) {
 }
 
 /**
- * 排序：沒勾的在上面（新的先），勾掉的沉到最下面。
+ * 排序：沒勾的在上面，勾掉的沉到最下面。
  *
  * 勾掉的不馬上消失，因為她會勾錯 —— 看得到才點得回來。
+ *
+ * ## 兩組問的不是同一個問題（2026-09-05）
+ *
+ * 她的原話：
+ *
+ * > 已完成我希望由上到下的排序是我剛勾掉到我更之前勾掉的排序，
+ * > 就是最上面的應該是我剛勾掉的
+ *
+ * 所以**沒勾的照 `createdAt`**（「我剛記了什麼」，她記的順序就是她想到的
+ * 順序），**勾掉的照 `doneAt`**（「我剛做完什麼」）。兩組都用 `createdAt`
+ * 的話，一件三天前記、今天才處理掉的事會排在一件今天記今天勾掉的下面。
+ *
+ * 這不是一條新規矩，是隨手記去對齊任務那幾頁既有的那一條：`data/tasks.js`
+ * 的 `listDone()` 早就是 `doneAt desc`（SPEC 第 8.1 節）。
+ *
+ * **`doneAt` 讀不出來就退回 `createdAt`，不要退回空字串。** 空字串在
+ * 由新到舊的排序裡會沉到最底，於是舊資料（匯入的那一批 `doneAt: null`、
+ * 手動改過的）會全部黏在最下面**而且彼此之間沒有順序**。
  */
 export function sortNotes(notes) {
+  const when = (n) => (n.done ? (n.doneAt || n.createdAt) : n.createdAt);
   return [...(notes ?? [])].filter(isLive).sort((a, b) => {
     if (Boolean(a.done) !== Boolean(b.done)) return a.done ? 1 : -1;
-    return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
+    return String(when(b) ?? '').localeCompare(String(when(a) ?? ''));
   });
 }
 
