@@ -3771,8 +3771,15 @@ button.mark::after {
   color: var(--text);
 }
 
+/* 做完的**淡掉並劃掉，不消失** —— 她要看到的是「這一場的全部」，
+   而一列消失了她分不出「做完了」跟「這一場沒有這一件」。 */
 .taskmirror__row.is-done {
   color: var(--text-mute);
+}
+
+.taskmirror__row.is-done .taskmirror__kind {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 .taskmirror__mark {
@@ -5949,13 +5956,24 @@ summary {
 
 .pbdeck::-webkit-scrollbar { display: none; }
 
-/* 編輯中把 snap 關掉：鍵盤一上來版面會縮，snap 會把她捲到別張去。 */
-.pbdeck[data-editing='true'] { scroll-snap-type: none; }
+/* 編輯中把 snap 關掉：鍵盤一上來版面會縮，snap 會把她捲到別張去。
+ *
+ * **而且給一個確定的高度。** 讀的那一面高度跟著內容長（`max-height`），
+ * 但編輯的那一面不行：內容長度會讓卡片忽高忽低，而底下那一排 emoji 與
+ * 「存起來」就被擠出畫面（她 2026-09-04 回報的 c 與 d）。
+ * 有了確定的高度，卡片裡每一項都放得下，只有內文那一格在裡面捲。 */
+.pbdeck[data-editing='true'] {
+  scroll-snap-type: none;
+  height: min(62dvh, 560px);
+  max-height: none;
+}
 
 .pbcard {
   position: relative;
-  flex: 0 0 88%;
-  max-width: 560px;
+  /* 92% 讓旁邊還是露出一小條下一張（「還有東西」最早被看到的訊號），
+     但比原本的 88% 多出一截可讀的寬度 —— 她 2026-09-04 要的。 */
+  flex: 0 0 92%;
+  max-width: 640px;
   display: flex;
   flex-direction: column;
   padding: var(--space-5) var(--space-4) var(--space-4);
@@ -6089,9 +6107,26 @@ summary {
 
 /* 那一張卡在原地變成表單。**不換頁、不開抽屜** —— 換頁會讓她失去
    「我正在看第三張」，而那正是卡牌的全部價值。 */
+/* **整張卡不捲。** 她的原話：「希望整張卡牌是不用滑的就可以一目瞭然的看
+   所有內容，包含底下的那些 icon 以及存起來，只要輸入框可以上下滑就好。」
+
+   做法是：卡片裡除了內文那一格，每一項都 `flex: none`（不准被壓扁也不准
+   長大），內文那一格吃掉剩下的空間並在自己裡面捲。 */
 .pbcard--edit {
+  /* 正常情況下沒有東西要捲（每一項都放得下）。留 `auto` 不用 `hidden` 是
+     **安全閥**：手機把鍵盤叫出來之後可見高度會掉到剩一半，那時候寧可讓她
+     捲一下，也不要有一顆按鈕永遠碰不到。 */
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg);
+}
+
+/* 這一行是 c 那個 bug 的修正：`.emojirow` 是這張卡的 flex item，
+   而它自己有 `overflow-x: auto` —— 那讓它的「自動最小尺寸」變成 0，
+   於是 flex 為了塞進卡片把整排壓成 2px 高。她看到的就是「icon 完全沒顯示
+   出來，感覺被壓在底下但滾輪又滾不到」。textarea 之前也是同一個坑。 */
+.pbcard--edit > * {
+  flex: none;
 }
 
 .pbcard--edit .chiprow {
@@ -6136,11 +6171,16 @@ summary {
    而「存起來／取消／刪掉」那一排**一定要還在畫面上**。打完看不到存檔鈕，
    等於這一格又壞了一次。這個值是**含底下那一排 emoji**（`.emojirow`）算的，
    兩邊要一起看。 */
+/* 卡片裡**唯一**會伸縮的那一項：吃掉剩下的空間，超過就在自己裡面捲。
+   `flex-basis: 0` 讓它不看內容高度 —— 看內容的話短的備忘錄會把卡片撐不滿、
+   長的又把底下那兩排擠出去，而那正是她回報的問題。 */
+.pbcard--edit > .pbedit__body {
+  flex: 1 1 0;
+}
+
 .pbedit__body {
-  flex: none;
   width: 100%;
-  min-height: 200px;
-  max-height: 46dvh;
+  min-height: 96px;
   padding: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -6172,6 +6212,29 @@ summary {
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+/* 「清掉貼圖代碼」。**只在真的有代碼的時候出現**，所以它不需要解釋自己 ——
+   出現本身就是那句提示。排在這一排最前面、跟 emoji 明顯不同色，
+   她一眼看得出那不是一顆表情。 */
+.emojirow__clean {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--space-3);
+  height: 34px;
+  border: 1px solid var(--tea);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--tea);
+  font: inherit;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.emojirow__clean:active { transform: scale(0.94); }
 
 .emojirow__btn {
   position: relative;

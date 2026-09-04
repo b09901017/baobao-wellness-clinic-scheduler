@@ -261,19 +261,45 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
     await expect(page.locator('.taskmirror button')).toHaveCount(0);
   });
 
-  test('U9 一件待辦都沒有的來訪 → 整塊不出現，不是一個空框', async ({ app, page }) => {
+  test('U9 做完的不消失，是淡掉劃掉 —— 她要看到這一場的全部', async ({ app, page }) => {
+    // 她 2026-09-04 的原話：「把所有代辦都列出來，然後完成的不要消失，
+    // 而是淡掉劃掉，但我還是需要知道這一場的所有代辦。」
+    await app.seed(seedBeforeClose());
+    await app.signIn('/');
+    await closeExam(app, page);
+
+    await app.go('/calendar');
+    await page.click(`[data-day="${EXAM_DATE}"]`);
+    await page.locator('[data-open="visit:visit-b-exam1"]').click();
+
+    const mirror = page.locator('.taskmirror');
+    await expect(mirror).toBeVisible();
+    // 已經結案了，但那兩列還在
+    await expect(mirror).toContainText('跟客人確認時間');
+    await expect(mirror).toContainText('簽療程單');
+
+    const done = mirror.locator('.taskmirror__row.is-done');
+    expect(await done.count()).toBeGreaterThan(0);
+    // 而且真的是劃掉的，不只是變淡
+    const struck = await done.first().locator('.taskmirror__kind').evaluate(
+      (el) => getComputedStyle(el).textDecorationLine,
+    );
+    expect(struck).toContain('line-through');
+  });
+
+  test('U9b 取消掉的那一筆只剩取消那幾張，沒有的話整塊不出現', async ({ app, page }) => {
     const DAY = addDays(TODAY, 6);
     await app.seed([
       ...masterDocs(),
       customer({ id: 'cust-a', name: '客戶A' }),
       entitlement('cust-a', {
         id: 'ent-a', label: '營養點滴 6 次', type: 'single', courseId: 'course-iv-drip',
-        totalQty: 6, doneCount: 0, bookedCount: 1,
+        totalQty: 6, doneCount: 0, bookedCount: 0,
       }),
-      // 已確認、日子還沒到、C 類（確認後沒有登記任務）→ 一件都沒有
+      // 取消掉的：確認與簽單都不會再發生，而種子沒有任何取消任務
       visit({
         id: 'visit-a', customerId: 'cust-a', customerName: '客戶A',
-        date: DAY, status: 'confirmed',
+        date: DAY, status: 'cancelled',
         slots: [slot({
           courseId: 'course-iv-drip', entitlementId: 'ent-a',
           startsAt: '14:00', endsAt: '15:00',
@@ -286,6 +312,7 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
     await page.locator('[data-open="visit:visit-a"]').click();
     await expect(page.locator('.popcard')).toBeVisible();
     await page.waitForTimeout(900);
+    // 一個空殼會讓她以為那裡壞了
     await expect(page.locator('.taskmirror')).toHaveCount(0);
   });
 });

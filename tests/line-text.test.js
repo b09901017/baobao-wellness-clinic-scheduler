@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  sanitizeLinePaste, describeCleanup, EMOJI_PLACEHOLDER, EMOJI_ROW,
+  sanitizeLinePaste, describeCleanup, hasLineCodes, EMOJI_PLACEHOLDER, EMOJI_ROW,
 } from '../public/js/domain/lineText.js';
 
 /** 她從 LINE 筆記本複製出來的那一段（真名換成客戶A）。 */
@@ -50,9 +50,30 @@ test('冪等：清過的再清一次一模一樣', () => {
   assert.equal(sanitizeLinePaste(once), once);
 });
 
-test('全形括號一個字都不動 —— 她的內文到處是這種', () => {
-  const text = '（乾淨度）（通知客人）（1）（emoji）';
+test('全形括號裡是她自己的字就一個字都不動', () => {
+  // **擋的是括號裡的內容，不是括號本身**（2026-09-04 改的）。
+  // 她的內文到處是這種，而它們既不是 emoji 也不是數字。
+  const text = '（乾淨度）（通知客人）（第一針或血管難打）';
   assert.equal(sanitizeLinePaste(text), text);
+});
+
+test('全形括號的代碼也換 —— LINE 在不同裝置上複製出來的括號不一定是半形的', () => {
+  // 只認半形的話，她在某一台上貼進來會完全沒反應，而畫面上沒有任何線索
+  // 說為什麼（2026-09-04 她回報「沒有變成小圖示」）。
+  assert.equal(sanitizeLinePaste('（emoji）前情提醒'), '🐻 前情提醒');
+  assert.equal(sanitizeLinePaste('（加1）飯後打針'), '1️⃣ 飯後打針');
+  // 一半全形一半半形也收得下
+  assert.equal(sanitizeLinePaste('(emoji）當天'), '🐻 當天');
+});
+
+test('hasLineCodes：只有換得掉的才算', () => {
+  assert.equal(hasLineCodes('(emoji)前情提醒'), true);
+  assert.equal(hasLineCodes('（加1）飯後打針'), true);
+  assert.equal(hasLineCodes('沒有代碼'), false);
+  // 認得出來但換不掉的不算 —— 那一顆按鈕按下去什麼都不會發生
+  assert.equal(hasLineCodes('(11)第十一件'), false);
+  assert.equal(hasLineCodes('（乾淨度）'), false);
+  assert.equal(hasLineCodes(''), false);
 });
 
 test('(11) 以上原樣留著 —— 沒有對應的字元，硬拼會變豆腐格', () => {
