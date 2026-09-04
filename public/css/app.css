@@ -5959,10 +5959,28 @@ summary {
 
 /* 內文那一格。**它是這張表單上最重要的欄位**，所以給它最大的面積與
    跟閱讀那一面一樣的行距 —— 打字的時候看到的排版就是讀的時候的排版。
-   高度由 JS 跟著內容長（一般備忘錄 app 就是這樣）。 */
+   高度由 JS 跟著內容長（一般備忘錄 app 就是這樣），到 max-height 就在框裡捲。
+
+   ## `flex: none` 是這一格的整個修正，不要拿掉
+
+   這張卡是 `flex-direction: column`（`.pbcard`），而整疊有 `max-height: 72dvh`
+   （`.pbdeck`）。沒有寫 `flex` 的話它是 `flex: 0 1 auto` —— **flex-shrink 是 1**，
+   於是 JS 把高度撐到 1400px 之後，flex 為了把卡片塞進 72dvh 又把它壓回
+   `min-height` 的 200px。它本來是 `overflow: hidden` + `resize: none`，
+   所以那 1200px 的字**既看不到也捲不到**：她貼一段長筆記進來，後面整段消失。
+
+   閱讀那一面（`.pbcard__body`）一直沒有這個問題，因為它寫了
+   `flex: 1; min-height: 0; overflow-y: auto` —— 少的就是那幾行。
+
+   `max-height` 用 46dvh 不用更大：鍵盤上來之後可見高度大約只剩 55dvh，
+   而「存起來／取消／刪掉」那一排**一定要還在畫面上**。打完看不到存檔鈕，
+   等於這一格又壞了一次。這個值是**含底下那一排 emoji**（`.emojirow`）算的，
+   兩邊要一起看。 */
 .pbedit__body {
+  flex: none;
   width: 100%;
   min-height: 200px;
+  max-height: 46dvh;
   padding: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -5972,7 +5990,59 @@ summary {
   font-size: var(--text-lg);
   line-height: 1.85;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
+  /* 捲到底再往下滑不要把整疊帶著跑（這一疊是橫向 snap 的） */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 輸入框底下那一排 emoji。
+ *
+ * **一直看得到，橫著捲，不折行。** 折成兩行會把存檔鈕再推下去一次，
+ * 而 `.pbedit__body` 的 `max-height: 46dvh` 就是含這一排算出來的。
+ *
+ * 一個新顏色都沒有：全部用現成的 token —— `tokens.css` 要動就是淺色深色
+ * 兩份都要動（ADR-0055），而這一排沒有任何一個顏色是新的。 */
+.emojirow {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.emojirow__btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--motion-fast) var(--ease-out),
+              background-color var(--motion-fast) var(--ease-out);
+}
+
+/* 觸控面積補到 44：一排小方塊按不準比沒有這一排更煩。 */
+.emojirow__btn::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+.emojirow__btn:active {
+  transform: scale(0.9);
+  background: var(--surface-2);
 }
 
 .pbedit__actions {

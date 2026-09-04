@@ -1,6 +1,6 @@
 # 從 LINE 貼過來，滿滿的 (emoji) 與 (加1)
 
-Status: todo
+Status: done
 來源：她的第二項 b（`../spec.md`）
 動工前先讀：issue 02（同一個 `paste` handler）、ADR-0069
 

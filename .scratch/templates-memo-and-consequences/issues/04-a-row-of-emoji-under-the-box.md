@@ -1,6 +1,6 @@
 # 輸入框底下一排點得到的 emoji
 
-Status: todo
+Status: done
 來源：她的第二項 c（`../spec.md`）
 動工前先讀：issue 03（共用 `insertAtCursor()`）、ADR-0038（不重畫整頁）
 

@@ -1,6 +1,6 @@
 # 盤點：一種課程從頭到尾會長出哪些待辦
 
-Status: todo
+Status: done
 來源：她的第三項第 2 點（`../spec.md`）
 動工前先讀：ADR-0027、0041、0042、0065、0066、0068、`domain/taskRules.js`、`domain/followups.js`
 

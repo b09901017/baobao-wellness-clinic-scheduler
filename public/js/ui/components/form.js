@@ -344,3 +344,34 @@ export function showErrors(container, errors) {
   box.hidden = false;
   box.innerHTML = `<ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`;
 }
+
+/**
+ * 在游標處插一段字。emoji 快捷列、模板頁的變數丸子、貼上清洗三個地方共用。
+ *
+ * 三件事都要做，少一件行為就跟打字不一樣：
+ *
+ *   1. **選起來的那一段被取代掉** —— 她反白了一段再點一顆 emoji，
+ *      預期是換掉不是插在旁邊
+ *   2. **游標停在插進去的字後面**，而且焦點留在輸入框上 ——
+ *      焦點跑掉的話她點完一顆還要再點一次輸入框
+ *   3. **手動發一次 `input`** —— 用程式改 `value` 不會觸發它，
+ *      而備忘錄那一格靠 `input` 長高（`mountEditor()` 的 `grow()`）。
+ *      不發的話貼進去的字會被壓在一個沒長高的框裡，
+ *      正好是 `.pbedit__body` 那個 bug 的另一種版本。
+ *
+ * @param {HTMLTextAreaElement|HTMLInputElement} el
+ * @param {string} value 要插進去的字
+ */
+export function insertAtCursor(el, value) {
+  if (!el) return;
+  const text = String(value ?? '');
+  const from = el.selectionStart ?? el.value.length;
+  const to = el.selectionEnd ?? from;
+
+  el.value = `${el.value.slice(0, from)}${text}${el.value.slice(to)}`;
+
+  const at = from + text.length;
+  el.focus();
+  el.setSelectionRange(at, at);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}

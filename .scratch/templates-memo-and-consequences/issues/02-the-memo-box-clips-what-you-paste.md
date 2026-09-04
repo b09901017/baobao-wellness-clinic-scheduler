@@ -1,6 +1,6 @@
 # 備忘錄的大輸入框捲不動，貼長文會被切掉
 
-Status: todo
+Status: done
 來源：她的第二項 a（`../spec.md`）
 動工前先讀：ADR-0069（備忘錄只有三個欄位）、`ui/views/playbook.js` 的 `mountEditor()`
 
