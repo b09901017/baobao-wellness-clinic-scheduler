@@ -24,11 +24,16 @@
 //
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
-import { bookingSystemFor, tasksForCategory } from './taskRules.js';
+import {
+  bookingSystemFor, tasksForCategory, bookingSystemsForVisit, isCancelKind, cancelKindFor,
+} from './taskRules.js';
 import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
-import { pairsOf, REPORT_TASK_KIND } from './followups.js';
+import {
+  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
+} from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel } from './nthFollowup.js';
+import { shortDate } from './dates.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -206,4 +211,173 @@ function hasCheckupSlot(visit, entitlements, coursesById) {
     pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id),
   );
   return (visit?.slots ?? []).some((s) => sources.has(s.entitlementId));
+}
+
+// ---------- 反過來：拿回來、取消 ----------
+
+/**
+ * 拿回一張已經勾掉的待辦，會發生什麼。
+ *
+ * ## 只有兩種要問
+ *
+ * 鏈上那兩種（追蹤健檢報告、約二返）拿回來會**收掉別的張**，其餘五種
+ * （Examine、耀聖、寫紀錄、寄報告給醫師、隨手記）什麼都不會發生。
+ * 每一種都問的話她會學會閉著眼睛按，而那正是「批次勾掉」那一段
+ * 已經寫過的同一句話 —— 多問一次的代價是真的該停的那次也停不下來。
+ *
+ * 判準是 `preview.remove` 有沒有東西，而 `preview` 是**同一台引擎**算出來的
+ * （`data/visits.js` 的 `previewTaskChange()` → `syncFollowupTasks()`）。
+ * 照著規則在這裡再推論一次的話，遲早會出現「說會收掉兩張、實際收掉三張」。
+ *
+ * ## 不可以嚇她
+ *
+ * 這一段最重要的一句話：**拿回一張待辦不會動到任何一筆來訪。**
+ * 勾選那一路產生的操作全部落在 `tasks` 這個集合裡，一筆 `visits` 都沒碰
+ * （ADR-0002：app 記錄決定，不做決定）。
+ *
+ * 所以二返已經約好的時候要講的是「那一筆來訪**不會被動到**」，
+ * 而不是「將會取消已約好的二返」—— 後者是一句假話，而嚇錯一次之後，
+ * 真的該停的那一次她也不會停。
+ *
+ * @param {object} o
+ * @param {object} o.task 那一張待辦（勾選之前的樣子）
+ * @param {{remove:object[], visits:object[], entitlements:object[],
+ *          coursesById:object}} o.preview `previewTaskChange()` 的結果
+ * @returns {{title:string, lines:string[], danger:boolean}|null}
+ *   `null` 代表**不用問**（不是鏈上那兩種，或者拿回來什麼都不會少）
+ */
+export function untickConsequences({ task, preview } = {}) {
+  const dropped = (preview?.remove ?? []).filter((r) => r.id !== task?.id);
+  if (!task || !dropped.length) return null;
+
+  const lines = [];
+
+  const exam = (preview.visits ?? []).find((v) => v.id === task.visitId) ?? null;
+  if (exam?.date) lines.push(`那一次健檢是 ${shortDate(exam.date)}`);
+
+  // 會被收走的那幾張，一種一行。逐張講不逐類講 —— 她要看的是「我做過的
+  // 哪一件會不見」，而不是「有 2 張會不見」。
+  for (const row of dropped) {
+    lines.push(`「${row.kind}」還沒勾，這一張會被收走`);
+  }
+
+  // **已經約好的那一場二返。** 這一行是整段話的重點：講出日期讓她知道
+  // 系統看到了那一場，同時把「來訪不會被動到」講死。
+  const booked = bookedFollowupFor(task, preview);
+  if (booked) {
+    lines.push(
+      `${shortDate(booked.visit.date)} 那一場二返已經約好了 —— `
+      + '那一筆來訪不會被動到，只有上面那幾張待辦會被收走',
+    );
+  }
+
+  lines.push('收走的那幾張在「設定 → 已刪除項目」還原得回來');
+  lines.push(`「${task.kind}」本身會回到未完成`);
+
+  return {
+    title: `拿回「${task.kind}」？`,
+    lines,
+    // 真的有東西會被收走才染紅。沒有下游的那一次根本不會走到這裡（回 null）。
+    danger: true,
+  };
+}
+
+/**
+ * 這一張「追蹤健檢報告」對應的那一次健檢，二返約好了沒。
+ *
+ * 走 `followups.js` 現成的 `bookingForExam()` —— 「那一場二返約在哪一天」
+ * 也不自己算。找不到配對就回 `null`，**不要回「還沒約」**：
+ * 那是在斷言一件不知道的事（同 `bookingStateForTask()` 的判斷）。
+ */
+function bookedFollowupFor(task, preview) {
+  if (!task?.visitId) return null;
+  const exam = (preview.visits ?? []).find((v) => v.id === task.visitId);
+  if (!exam) return null;
+
+  for (const pair of pairsOf(preview.entitlements ?? [], preview.coursesById ?? {})) {
+    if (!pair.followup) continue;
+    if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
+    return bookingForExam(task.visitId, pair.followup.id, preview.visits ?? []);
+  }
+  return null;
+}
+
+/** 健檢那條鏈上的三種。取消一筆來訪時要另外講。 */
+const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND];
+
+/**
+ * 取消或刪掉一筆來訪，會發生什麼。
+ *
+ * 日曆的長按選單與來訪編輯器的狀態卡**共用這一支**（ADR-0056：改得動一筆
+ * 來訪的只有日曆，而那兩個入口都算在裡面）。刪除那一道也走它。
+ *
+ * 以前那兩道各自寫死「如果已經在 Abovee／Examine／耀聖登記過，要回去把舊的
+ * 取消掉」—— 三個系統名字並列，而 `bookingSystemsForVisit()` 早就答得出來
+ * **是哪一個**。這正是這一支檔案的檔頭抱怨過的同一件事：判斷早就有了，
+ * 只是沒有人用它。
+ *
+ * @param {object} o
+ * @param {object} o.visit 要取消的那一筆
+ * @param {Record<string, object>} o.coursesById
+ * @param {object[]} [o.tasks] 這一筆來訪身上現有的任務（含已完成的）
+ * @param {boolean} [o.removing] 走的是刪除不是取消
+ * @param {boolean} [o.sheetSyncOn]
+ * @returns {string[]}
+ */
+export function cancelConsequences({
+  visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false,
+}) {
+  const lines = [];
+  const slots = (visit?.slots ?? []).length;
+
+  lines.push(removing
+    ? `這是標記刪除，資料不會真的消失；${slots} 個時段會退回去，次數也會還回來`
+    : `${slots} 個時段會退回去，次數也會還回來`);
+
+  const alive = (tasks ?? []).filter((t) => !t.deletedAt);
+
+  // **講出是哪一個系統。** 一筆來訪可以同時有健檢（Examine）與復能（Abovee），
+  // 那時候兩個都要講，因為她真的要去兩個地方收。
+  //
+  // **已經有那一張就不要再承諾一次。** `syncTasksForVisit()` 的 `gone` 那一段
+  // 有一道 `already` 擋著同一種只長一張 —— 已經取消過再刪掉的那一次，
+  // 不會多長任何東西，而畫面上說「會多一張」就是在講一件不會發生的事。
+  const already = new Set(alive.filter((t) => isCancelKind(t.kind)).map((t) => t.kind));
+  for (const system of bookingSystemsForVisit(visit, coursesById)) {
+    if (already.has(cancelKindFor(system))) continue;
+    lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
+  }
+
+  const live = alive.filter((t) => !t.done);
+
+  // 掛號與紀錄那兩族：沒做的就不用做了（`syncTasksForVisit()` 的 gone 那一段）。
+  //
+  // **取消類的那幾張不算。** 那一段的 `auto` 濾掉了它們 —— 它記的是
+  // 「當初登記過、現在要收回來」，來訪本身怎麼變都不該動到它。
+  // 把它列進「會被收掉」是一句假話，而且方向剛好相反（它是這一下**長出來**的）。
+  const ownKinds = [...new Set(
+    live
+      .filter((t) => !CHAIN_KINDS.includes(t.kind) && !isCancelKind(t.kind))
+      .map((t) => t.kind),
+  )];
+  if (ownKinds.length) {
+    lines.push(`還沒做完的${ownKinds.map((k) => `「${k}」`).join('、')}會被收掉`);
+  }
+
+  // 健檢那條鏈：那一場沒發生，沒有東西要追（`keepsOpen()` 的 `stillDone`）
+  const chainKinds = [...new Set(live.filter((t) => CHAIN_KINDS.includes(t.kind)).map((t) => t.kind))];
+  if (chainKinds.length) {
+    lines.push(
+      `這一次健檢的${chainKinds.map((k) => `「${k}」`).join('、')}也會被收掉`
+      + ' —— 那一場沒發生，沒有東西要追',
+    );
+  }
+
+  lines.push('改期不是改日期，是取消後重新排一筆');
+  lines.push(removing
+    ? '可以在設定 → 已刪除項目 還原'
+    : '取消後不能復原成已確認，但日曆上還看得到它（暗掉的那一列）');
+
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  return lines;
 }

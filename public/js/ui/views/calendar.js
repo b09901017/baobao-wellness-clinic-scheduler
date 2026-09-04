@@ -25,6 +25,7 @@ import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as notesData from '../../data/notes.js';
+import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
 import * as visitEditor from './visitEditor.js';
@@ -45,6 +46,9 @@ import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import * as note from '../components/note.js';
 import { hintHtml } from '../components/playbookHint.js';
+import { playbooksForVisit } from '../../domain/playbook.js';
+import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
+import { cancelConsequences } from '../../domain/consequences.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
@@ -99,14 +103,18 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff, playbooks] = await Promise.all([
+    const [visits, events, notes, rooms, staff, courses, playbooks] = await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
-      // 有日期的隨手記（ADR-0044）。跟其他四份一起走，不多一輪往返。
+      // 有日期的隨手記（ADR-0044）。跟其他幾份一起走，不多一輪往返。
       notesData.listBetween(from.from, to.to),
       config.listAll('rooms'),
       config.listAll('staff'),
-      // 備忘錄（ADR-0067）。點開一筆來訪時，對應時機的那一節會浮在卡片底下。
+      // 課程主檔：讀取卡片上「這一場的待辦」要它才算得出「簽療程單」該不該
+      // 出現（`needsForm()`），取消那一道確認也要它才講得出壓在哪個系統。
+      // 含已刪除的 —— 她停用一個課程，既有的來訪照樣要答得出這兩件事。
+      config.listAll('courses', { includeDeleted: true }),
+      // 備忘錄（ADR-0067）。點開一筆來訪時，那一份的前幾行會浮在卡片底下。
       // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
       // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
       playbooksData.list().catch(() => []),
@@ -120,6 +128,7 @@ async function load() {
         playbooks,
         roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
         staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
+        coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
       },
     };
   } catch (err) {
@@ -420,9 +429,12 @@ function notesOn(data, date) {
  * @param {string} row.title   主體
  * @param {string} [row.sub]   主體底下那行（課程・診間・治療師）
  * @param {string} [row.aside] 右邊（狀態徽章、期間、客戶名字）
+ * @param {string} [row.marks] 抬頭右邊那幾顆小圖示（有沒有記的話／備忘錄）
  * @param {string} [row.extra] 整列最底下（撞期提醒）
  */
-function agendaRow({ kind, open, clock, until = '', title, sub = '', aside = '', extra = '' }) {
+function agendaRow({
+  kind, open, clock, until = '', title, sub = '', aside = '', marks = '', extra = '',
+}) {
   return `
     <div class="timerow ${kind}">
       <div class="timerow__clock">
@@ -433,7 +445,7 @@ function agendaRow({ kind, open, clock, until = '', title, sub = '', aside = '',
       <button class="timerow__body" type="button" data-open="${esc(open)}" data-longpress>
         <span class="row" style="align-items: baseline">
           <span class="row__main">
-            <span class="timerow__title">${esc(title)}</span>
+            <span class="timerow__title">${esc(title)}${marks}</span>
             ${sub ? `<span class="timerow__sub">${esc(sub)}</span>` : ''}
           </span>
           ${aside}
@@ -519,7 +531,7 @@ function dayHtml(data, date, today) {
       ${pinned}
       ${pinned && merged.length ? '<hr class="timeline__split" />' : ''}
       ${merged.map((item) => (item.kind === 'visit'
-        ? visitRow(item.row)
+        ? visitRow(item.row, data)
         : eventRow(item.event))).join('')}
     </div>`;
 }
@@ -531,7 +543,7 @@ function dayHtml(data, date, today) {
  * **不吃新的色相** —— 色相已經用完了（ADR-0039、0045），所以走的是
  * `.kind-todo--done` 那一種手法。
  */
-function visitRow(r) {
+function visitRow(r, data = null) {
   const off = r.status === 'cancelled' ? ' timerow--off' : '';
   return agendaRow({
     kind: `${esc(statusClass(r.status)) || 'kind-visit'}${off}`,
@@ -539,6 +551,7 @@ function visitRow(r) {
     clock: r.startsAt || '—',
     until: r.endsAt || '',
     title: r.customerName,
+    marks: noteMarks(r, data),
     sub: `${r.courseName}${r.room ? `・${r.room}${r.bed ?? ''}` : ''}${
       r.therapist ? `・${r.therapist}` : ''}`,
     aside: `<span class="badge ${esc(statusClass(r.status))}">${esc(describeStatus(r.status))}</span>`,
@@ -549,6 +562,35 @@ function visitRow(r) {
           只是提醒，沒有擋。</span>
       </span>` : '',
   });
+}
+
+/**
+ * 那一列右邊那兩顆小圖示：**這一筆底下有沒有字**。
+ *
+ * 她的原話：「無法第一時間知道哪一個預約項目底下寫有專屬備忘錄，
+ * 必須逐一點開編輯才能確認。」
+ *
+ * **兩種來源要用兩顆不同的圖示**（她 2026-09-04 選的），因為它們是兩種東西：
+ *
+ *   記事本 `book`   `visit.note`「記的話」—— 只屬於**這一筆**，她自己打的
+ *   翻開的書 `manual` 掛得到的備忘錄／SOP —— 綁**課程**，同一個課程每一筆都有
+ *
+ * **用形狀不用顏色。** 日曆上要分辨的已經有七種，而色相在休假走斜線紋、
+ * 待辦走方框勾勾的時候就用完了（ADR-0039、0045）。這一顆問的是「有沒有」
+ * 不是「哪一種」，形狀答得了。
+ *
+ * **只在抽屜的清單上，不上月檢視** —— 月檢視一格只有幾個 px 的色條，
+ * 塞不下第三種記號。
+ */
+function noteMarks(r, data) {
+  const visit = data?.visits?.find((v) => v.id === r.visitId) ?? null;
+  const hasPlaybook = visit && playbooksForVisit(data?.playbooks ?? [], visit).length > 0;
+
+  return `${r.hasNote
+    ? `<span class="timerow__mark" role="img" aria-label="有記的話">${icon('book', { size: 13 })}</span>`
+    : ''}${hasPlaybook
+    ? `<span class="timerow__mark" role="img" aria-label="有備忘錄">${icon('manual', { size: 13 })}</span>`
+    : ''}`;
 }
 
 /** 有時間的行事備註。跟來訪排在同一條時間軸上。 */
@@ -739,14 +781,20 @@ function openDetail(el, data, what, id, date) {
 
   const visit = data.visits.find((v) => v.id === id);
   if (!visit) return;
-  openCard({
+
+  // 備忘錄接在 `visitReadHtml()` 後面，**只在日曆上** —— 另外三頁問的問題
+  // （他還剩幾次、今天要掛哪幾個、這個月做了多少）都不是「這一場我該怎麼做」。
+  // 「這一場的待辦」那一塊相反：它在 `visitReadHtml()` 裡面，四頁一起長
+  // （2026-09-04 她自己選的，見 `.scratch/templates-memo-and-consequences/spec.md`）。
+  const html = (tasks) => visitReadHtml(visit, { ...data, tasks })
+    + hintHtml({ playbooks: data.playbooks ?? [], visit });
+
+  const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
     subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
-    // **不改 `visitReadHtml()` 本身。** 那一支是四個畫面共用的（ADR-0018、0056），
-    // 而客戶詳情、待辦中心、進度追蹤那三頁問的問題（他還剩幾次、今天要掛哪幾個、
-    // 這個月做了多少）都不是「這一場我該怎麼做」。備忘錄接在後面，只在日曆上。
-    body: visitReadHtml(visit, data)
-      + hintHtml({ playbooks: data.playbooks ?? [], visit }),
+    // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
+    // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
+    body: html(undefined),
     canEdit: true,
     onEdit: () => {
       closeCard();
@@ -755,6 +803,8 @@ function openDetail(el, data, what, id, date) {
       });
     },
   });
+
+  fillMirror(card, visit, html);
 }
 
 /**
@@ -885,15 +935,28 @@ async function runVisitAction(el, data, visit, action, backDate) {
   }
 
   // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
+  //
+  // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`，
+  // 跟來訪編輯器的狀態卡是**同一份**（ADR-0056：改得動一筆來訪的只有日曆，
+  // 而這兩個入口都算在那一個入口裡）。以前兩邊各寫一次「Abovee／Examine／耀聖」
+  // 三個並列 —— 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
   if (action === 'cancelled') {
+    // 會被收掉哪幾張要問這一筆的任務。點下去才讀 —— 日曆是她每天開十幾次的
+    // 一頁，為了一道確認框先把整月的任務讀回來是白費的。
+    // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
+    let tasks = [];
+    try {
+      tasks = await tasksData.listByVisit(visit.id);
+    } catch {
+      /* 少講兩句，不擋 */
+    }
     const ok = await confirmAction({
       title: `取消${visit.customerName ?? ''}這一筆來訪？`,
-      consequences: [
-        `${(visit.slots ?? []).length} 個時段會退回去，次數也會還回來`,
-        '改期不是改日期，是取消後重新排一筆',
-        '如果已經在 Abovee／Examine／耀聖登記過，要回去把舊的取消掉',
-        '取消後不能復原成已確認，但日曆上還看得到它（暗掉的那一列）',
-      ],
+      consequences: cancelConsequences({
+        visit,
+        coursesById: data.coursesById ?? {},
+        tasks,
+      }),
       confirmLabel: '取消這筆來訪',
       danger: true,
     });
@@ -1205,8 +1268,21 @@ function openNoteEditor(el, data, spec) {
  * 那條規則（SPEC 第 7 節規則 10）仍然寫在它真的會發生的地方：來訪編輯器的
  * 狀態卡與取消確認框。見 ADR-0056。
  *
+ * ## 「這一場的待辦」那一塊也在這裡，四個畫面一起長
+ *
+ * 2026-09-04 她要的：點開一筆就看得到那一場的行政進度，不用跳到待辦中心。
+ * 做成這一支的一部分而不是日曆的零件，是她自己選的 —— 同一筆來訪在四個畫面
+ * 上看到的東西本來就該一模一樣，而「這一場走到哪」不是日曆才要回答的問題。
+ *
+ * **只給看，不給勾**（她選的）：那一塊裡一個 `<input type="checkbox">` 都沒有。
+ *
+ * `data.tasks` **沒給就整塊不畫** —— `undefined` 是「還沒讀到」，
+ * `[]` 才是「真的一張都沒有」。兩個混在一起的話，讀取還沒回來的那一瞬間
+ * 會印出一句「這一場沒有待辦」，而那是假的。
+ *
  * @param {object} visit
- * @param {{roomsById:object, staffById:object}} data
+ * @param {{roomsById:object, staffById:object, tasks?:object[],
+ *          coursesById?:object, today?:string}} data
  */
 export function visitReadHtml(visit, data) {
   const slots = visit.slots ?? [];
@@ -1227,7 +1303,14 @@ export function visitReadHtml(visit, data) {
       <div class="readrow">
         <span class="readrow__k">記的話</span>
         <span class="readrow__v">${esc(visit.note)}</span>
-      </div>` : ''}`;
+      </div>` : ''}
+
+    ${mirrorHtml({
+      visit,
+      tasks: data.tasks,
+      coursesById: data.coursesById ?? {},
+      today: data.today ?? todayISO(),
+    })}`;
 }
 
 function eventReadHtml(event) {

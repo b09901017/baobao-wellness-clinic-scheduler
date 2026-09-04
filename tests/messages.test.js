@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 
 import {
   askAvailabilityMessage, reminderMessage, offerSlotMessage, messagesFor,
+  confirmMessage, availabilityReceivedMessage,
 } from '../public/js/domain/messages.js';
 
 const TODAY = '2026-09-15';
@@ -156,5 +157,114 @@ describe('這位客戶現在用得到哪幾則', () => {
     });
     assert.ok(list.every((m) => m.text.trim().length > 10), JSON.stringify(list));
     assert.ok(list.every((m) => m.label));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 她改過的模板
+// ---------------------------------------------------------------------------
+
+describe('她在設定頁改過之後', () => {
+  const CUSTOMER = { name: '王小明' };
+
+  test('六則各自吃得到自己那一則', () => {
+    const t = {
+      ask: '哈囉 {name}，{month} 月喔',
+      askWithLink: '{name} 點這裡：{link}（{month} 月）',
+      received: '{name} 收到：{lines}（{month} 月）',
+      confirm: '{name} 的 {month} 月：{slots}',
+      reminder: '{name} {when} {time} {courses}課',
+      offer: '{name} {date} {range} {course}空位',
+    };
+
+    assert.equal(
+      askAvailabilityMessage(CUSTOMER, { month: '2026-09', templates: t }),
+      '哈囉 王小明，9 月喔',
+    );
+    assert.equal(
+      askAvailabilityMessage(CUSTOMER, { month: '2026-09', link: 'https://x/y', templates: t }),
+      '王小明 點這裡：https://x/y（9 月）',
+    );
+    assert.equal(
+      availabilityReceivedMessage(CUSTOMER, { month: '2026-09', lines: ['週一不行'], templates: t }),
+      '王小明 收到：・週一不行（9 月）',
+    );
+    assert.equal(
+      confirmMessage(CUSTOMER, [{ date: '2026-09-03', slots: [{ startsAt: '14:00' }] }], { templates: t }),
+      '王小明 的 9 月：9/3(四) 14:00',
+    );
+    assert.equal(
+      reminderMessage(
+        CUSTOMER,
+        { date: '2026-09-03', slots: [{ startsAt: '14:00', courseName: '營養點滴' }] },
+        { today: '2026-09-02', templates: t },
+      ),
+      '王小明 明天 9/3(四) 14:00 營養點滴的課',
+    );
+    assert.equal(
+      offerSlotMessage(
+        CUSTOMER,
+        { date: '2026-09-03', startsAt: '14:00', endsAt: '15:00', courseName: '復能' },
+        { templates: t },
+      ),
+      '王小明 9/3(四) 14:00–15:00 復能的空位',
+    );
+  });
+
+  test('只改一則，其餘照樣是預設值', () => {
+    const t = { confirm: '{name}：{slots}？' };
+    // 改過的那一則
+    assert.equal(
+      confirmMessage(CUSTOMER, [{ date: '2026-09-03', slots: [{ startsAt: '14:00' }] }], { templates: t }),
+      '王小明：9/3(四) 14:00？',
+    );
+    // 沒改的那一則一個字都沒變
+    assert.ok(
+      askAvailabilityMessage(CUSTOMER, { month: '2026-09', templates: t }).includes('大哥/姐姐'),
+    );
+  });
+
+  test('「沒有課程」在改過的模板上照樣整段消失', () => {
+    // `{courses}` 自己帶那個「的」，所以模板上不可以再寫一次
+    const t = { reminder: '{name}：{when} 有{courses}課' };
+    assert.equal(
+      reminderMessage(
+        CUSTOMER,
+        { date: '2026-09-03', slots: [{ startsAt: '14:00' }] },
+        { today: '2026-09-01', templates: t },
+      ),
+      '王小明：9/3(四) 有課',
+    );
+  });
+
+  test('messagesFor() 也把模板傳下去', () => {
+    const list = messagesFor({
+      customer: CUSTOMER,
+      visits: [{ id: 'v1', date: '2026-09-10', status: 'pending_confirm', slots: [{ startsAt: '10:00' }] }],
+      today: '2026-09-01',
+      templates: { confirm: '換過的：{slots}' },
+    });
+    const confirm = list.find((m) => m.id === 'confirm');
+    assert.equal(confirm.text, '換過的：9/10(四) 10:00');
+  });
+
+  test('模板裡的佔位符打錯字，那幾個字會留在畫面上', () => {
+    // 安靜地少一個稱呼比看得到 `{Name}` 糟 —— 後者她一眼就知道自己打錯了
+    const said = confirmMessage(
+      CUSTOMER,
+      [{ date: '2026-09-03', slots: [{ startsAt: '14:00' }] }],
+      { templates: { confirm: '{Name} 的 {slot}' } },
+    );
+    assert.equal(said, '{Name} 的 {slot}');
+  });
+
+  test('一則都沒改時，產生的字跟改動之前一模一樣', () => {
+    // 這一支是整輪重構的安全網：上面那三十幾支既有的測試逐字盯著這幾句，
+    // 而這一支盯的是「不傳 templates」與「傳空物件」給的是同一個答案。
+    const args = [CUSTOMER, { month: '2026-09' }];
+    assert.equal(
+      askAvailabilityMessage(...args),
+      askAvailabilityMessage(CUSTOMER, { month: '2026-09', templates: {} }),
+    );
   });
 });

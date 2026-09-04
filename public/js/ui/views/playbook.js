@@ -34,6 +34,7 @@ import * as config from '../../data/config.js';
 import {
   validatePlaybook, matches, deckOrder, bodyOf, MAX_TITLE, MAX_BODY,
 } from '../../domain/playbook.js';
+import { sanitizeLinePaste, describeCleanup, EMOJI_ROW } from '../../domain/lineText.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
@@ -233,6 +234,8 @@ function editCardHtml(p) {
                 aria-label="內容" placeholder="一行一件事就好"
                 rows="10">${esc(bodyOf(draft))}</textarea>
 
+      ${emojiRowHtml()}
+
       <div class="pbedit__actions">
         <button class="btn btn--primary" type="button" data-save>存起來</button>
         <button class="btn" type="button" data-cancel>取消</button>
@@ -241,6 +244,27 @@ function editCardHtml(p) {
             ${icon('trash', { size: 16 })}刪掉</button>`}
       </div>
     </article>`;
+}
+
+/**
+ * 輸入框底下那一排點得到的 emoji。
+ *
+ * **一直看得到，不做展開／收起。** 一顆「打開 emoji」的按鈕等於每次都要多點
+ * 一下，而這一排只有十七顆、佔一行。她要的是「一點就有」。
+ *
+ * 橫著捲不折行：折成兩行會把存檔鈕再推下去一次，而那正是
+ * `.pbedit__body` 的 `max-height` 在避免的事（兩邊要一起看）。
+ *
+ * 有哪幾顆在 `domain/lineText.js` 的 `EMOJI_ROW` —— 跟 `(emoji)` 自動換上的
+ * 那一顆同一份清單，分家的話她會想換掉那顆卻在這排裡找不到它。
+ */
+function emojiRowHtml() {
+  return `
+    <div class="emojirow noscroll-bar" role="group" aria-label="插入表情符號" data-emojirow>
+      ${EMOJI_ROW.map((e) => `
+        <button class="emojirow__btn" type="button" data-emoji="${esc(e)}"
+                aria-label="插入 ${esc(e)}">${esc(e)}</button>`).join('')}
+    </div>`;
 }
 
 /** 掛了哪些課程那一行。認不得的 id 印「（已刪除）」，不要靜靜地少一個。 */
@@ -414,13 +438,62 @@ function mountEditor() {
 
   const body = card.querySelector('[data-body]');
   if (!body) return;
+
   // 打到哪長到哪。一般備忘錄 app 就是這樣，而固定高度的框會讓她一直在小窗裡捲。
+  // 到 `.pbedit__body` 的 `max-height` 就封頂，超過的部分在框裡捲
+  // （那一段 CSS 的註解寫了為什麼一定要 `flex: none`）。
   const grow = () => {
     body.style.height = 'auto';
     body.style.height = `${body.scrollHeight}px`;
   };
   body.addEventListener('input', grow);
   grow();
+
+  // ---- 從 LINE 貼過來的那一段 ----
+  //
+  // 她的筆記記在 LINE 裡、用貼圖排版，複製出來全部變成 `(emoji)`、`(加1)`。
+  // 規則在 `domain/lineText.js`，這裡只負責接。
+  //
+  // **只在貼上的時候清，打字不清** —— 她自己打 `(2)` 一定是有意的。
+  body.addEventListener('paste', (e) => {
+    const raw = e.clipboardData?.getData('text') ?? '';
+    if (!raw) return;
+
+    const clean = sanitizeLinePaste(raw);
+    // 這一次貼得下幾個字（選起來的那一段會被取代掉，所以要加回來）
+    const room = MAX_BODY - (body.value.length - (body.selectionEnd - body.selectionStart));
+    // 沒有東西要清、長度也塞得下，就讓瀏覽器自己貼 ——
+    // 那條路留得住原生的復原堆疊。
+    if (clean === raw && clean.length <= room) return;
+
+    e.preventDefault();
+    // **`maxlength` 對貼上是硬截而且不發任何事件** —— 讓瀏覽器自己截的話，
+    // 她貼一大段筆記進來，最後幾行安靜消失而畫面一個字都沒說（SPEC 6.9）。
+    // 自己截才講得出被丟掉幾個字。
+    const fits = clean.slice(0, Math.max(0, room));
+    f.insertAtCursor(body, fits);
+    grow();
+
+    const said = describeCleanup(raw, clean);
+    if (said) toast.info(said);
+    if (fits.length < clean.length) {
+      toast.info(
+        `太長了，後面 ${clean.length - fits.length} 個字沒有貼進來（一份最多 ${MAX_BODY} 字）`,
+      );
+    }
+  });
+
+  // ---- 底下那一排 emoji ----
+  //
+  // 委派掛在**那一排**上（它每次重畫都是新的節點），所以不會愈掛愈多。
+  card.querySelector('[data-emojirow]')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-emoji]');
+    if (!btn) return;
+    // `insertAtCursor()` 會把焦點留在輸入框、游標留在插進去的字後面，
+    // 並且手動發一次 `input`（`grow()` 靠它）。
+    f.insertAtCursor(body, btn.dataset.emoji);
+    grow();
+  });
 }
 
 /** 畫面上現在打的那些。存檔與取消都要先讀一次，不然重畫會洗掉。 */

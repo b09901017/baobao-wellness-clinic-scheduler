@@ -18,6 +18,7 @@ import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { openCard } from '../components/card.js';
 import { visitReadHtml } from './calendar.js';
+import { fillMirror } from '../components/taskMirror.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 
@@ -280,12 +281,13 @@ function wire(ctx, data, visits) {
       if (!visit) return;
       // canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
       // 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
-      openCard({
+      const html = (tasks) => visitReadHtml(visit, { ...ctx, tasks });
+      fillMirror(openCard({
         title: visit.customerName ?? '（沒有名字）',
         subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
-        body: visitReadHtml(visit, ctx),
+        body: html(undefined),
         canEdit: false,
-      });
+      }), visit, html);
     }),
   );
 }

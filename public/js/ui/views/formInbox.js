@@ -9,6 +9,7 @@
 
 import * as responsesData from '../../data/formResponses.js';
 import * as invitesData from '../../data/formInvites.js';
+import * as config from '../../data/config.js';
 import { describeResponse, collectionFrom } from '../../domain/availabilityForm.js';
 import { describeRule } from '../../domain/availability.js';
 import { availabilityReceivedMessage } from '../../domain/messages.js';
@@ -24,21 +25,24 @@ const esc = f.esc;
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
 
-  const [rows, invites] = await Promise.all([
+  const [rows, invites, templates] = await Promise.all([
     responsesData.listInbox(),
     invitesData.list(),
+    // 她改過的 LINE 模板（有行程內快取，讀不到就回空物件＝用預設值）
+    config.getTemplates(),
   ]);
 
   paint({
     el,
     rows,
+    templates,
     invitesByToken: Object.fromEntries(invites.map((i) => [i.id, i])),
     today: todayISO(),
   });
 }
 
 function paint(ctx) {
-  const { el, rows, invitesByToken, today } = ctx;
+  const { el, rows, invitesByToken, today, templates } = ctx;
 
   el.innerHTML = `
     <a class="backlink" href="#/">${icon('left', { size: 19 })}待辦</a>
@@ -49,13 +53,13 @@ function paint(ctx) {
         : '沒有新的。'}</p>
     </div>
 
-    ${rows.map((row) => card(row, invitesByToken[row.token], today)).join('')}`;
+    ${rows.map((row) => card(row, invitesByToken[row.token], today, templates ?? {})).join('')}`;
 
   message.wire(el, toast.info);
   wire(ctx);
 }
 
-function card(row, invite, today) {
+function card(row, invite, today, templates = {}) {
   // 含客戶自己打的那一段 —— 她要看的是他講的全部，不是只有點掉的日期。
   const lines = describeResponse(row);
   const record = invite ? collectionFrom(row, invite, { today }) : null;
@@ -87,7 +91,7 @@ function card(row, invite, today) {
         id: `got-${row.token}`,
         text: availabilityReceivedMessage(
           { name: row.customerName },
-          { month: row.month, lines },
+          { month: row.month, lines, templates },
         ),
         collapsed: true,
         label: '回他一句（先看一下訊息）',

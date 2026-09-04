@@ -7,6 +7,7 @@ import * as config from '../../data/config.js';
 import * as backup from '../../data/backup.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import { signOutNow } from '../session.js';
@@ -27,6 +28,15 @@ export async function render(el) {
   }
 
   const empty = MASTER_TYPES.every((t) => cache[t].length === 0);
+
+  // 讀不到就當成「都是預設值」—— 這一格是一句說明，不值得為它擋住整頁。
+  let changedTemplates = 0;
+  try {
+    const stored = await config.getTemplates();
+    changedTemplates = TEMPLATES.filter((t) => isCustom(t.id, stored)).length;
+  } catch {
+    /* 那一格印「都是預設值」 */
+  }
 
   el.innerHTML = `
     <div class="page">
@@ -51,6 +61,8 @@ export async function render(el) {
       <p class="card__note">改了會影響之後產生的東西。</p>
       <div class="tilegrid">
         ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
+        ${tile('#/settings/templates', 'LINE 回覆模板',
+          changedTemplates ? `六則，改過 ${changedTemplates} 則` : '六則，都是預設值')}
       </div>
       <details style="margin-top: var(--space-3)">
         <summary class="muted">任務規則綁在課程的類別上</summary>
