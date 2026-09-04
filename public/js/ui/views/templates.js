@@ -62,7 +62,7 @@ function paint(el, stored) {
       </div>
     </section>`;
 
-  wire(el, stored);
+  wire(el);
 }
 
 /**
@@ -101,7 +101,7 @@ function cardHtml(t, stored) {
     </div>`;
 }
 
-function wire(el, stored) {
+function wire(el) {
   const read = () => Object.fromEntries(
     TEMPLATES.map((t) => [t.id, el.querySelector(`[data-text="${CSS.escape(t.id)}"]`)?.value ?? '']),
   );

@@ -24,7 +24,9 @@
 //
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
-import { bookingSystemFor, tasksForCategory, bookingSystemsForVisit } from './taskRules.js';
+import {
+  bookingSystemFor, tasksForCategory, bookingSystemsForVisit, isCancelKind, cancelKindFor,
+} from './taskRules.js';
 import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -332,16 +334,32 @@ export function cancelConsequences({
     ? `這是標記刪除，資料不會真的消失；${slots} 個時段會退回去，次數也會還回來`
     : `${slots} 個時段會退回去，次數也會還回來`);
 
+  const alive = (tasks ?? []).filter((t) => !t.deletedAt);
+
   // **講出是哪一個系統。** 一筆來訪可以同時有健檢（Examine）與復能（Abovee），
   // 那時候兩個都要講，因為她真的要去兩個地方收。
+  //
+  // **已經有那一張就不要再承諾一次。** `syncTasksForVisit()` 的 `gone` 那一段
+  // 有一道 `already` 擋著同一種只長一張 —— 已經取消過再刪掉的那一次，
+  // 不會多長任何東西，而畫面上說「會多一張」就是在講一件不會發生的事。
+  const already = new Set(alive.filter((t) => isCancelKind(t.kind)).map((t) => t.kind));
   for (const system of bookingSystemsForVisit(visit, coursesById)) {
+    if (already.has(cancelKindFor(system))) continue;
     lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
   }
 
-  const live = (tasks ?? []).filter((t) => !t.deletedAt && !t.done);
+  const live = alive.filter((t) => !t.done);
 
-  // 掛號與紀錄那兩族：沒做的就不用做了（`syncTasksForVisit()` 的 gone 那一段）
-  const ownKinds = [...new Set(live.filter((t) => !CHAIN_KINDS.includes(t.kind)).map((t) => t.kind))];
+  // 掛號與紀錄那兩族：沒做的就不用做了（`syncTasksForVisit()` 的 gone 那一段）。
+  //
+  // **取消類的那幾張不算。** 那一段的 `auto` 濾掉了它們 —— 它記的是
+  // 「當初登記過、現在要收回來」，來訪本身怎麼變都不該動到它。
+  // 把它列進「會被收掉」是一句假話，而且方向剛好相反（它是這一下**長出來**的）。
+  const ownKinds = [...new Set(
+    live
+      .filter((t) => !CHAIN_KINDS.includes(t.kind) && !isCancelKind(t.kind))
+      .map((t) => t.kind),
+  )];
   if (ownKinds.length) {
     lines.push(`還沒做完的${ownKinds.map((k) => `「${k}」`).join('、')}會被收掉`);
   }

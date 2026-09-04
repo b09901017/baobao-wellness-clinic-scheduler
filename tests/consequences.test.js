@@ -418,6 +418,37 @@ describe('取消一筆來訪會發生什麼', () => {
     assert.ok(line.includes('那一場沒發生'));
   });
 
+  test('取消類的那幾張不算「會被收掉」—— 它是這一下長出來的，方向剛好相反', () => {
+    const lines = cancelConsequences({
+      visit: exam,
+      coursesById: COURSES3,
+      tasks: [{ id: 't1', kind: '取消 Examine', done: false }],
+    });
+    const dropLine = lines.find((l) => l.includes('會被收掉'));
+    assert.equal(dropLine, undefined, '沒有東西要收，就不要講那一句');
+  });
+
+  test('已經有那一張就不要再承諾一次 —— 同一種只長一張', () => {
+    // 已經取消過、現在要刪掉：`syncTasksForVisit()` 的 `already` 擋著，
+    // 不會多長任何東西。畫面上說「會多一張」是在講一件不會發生的事。
+    const lines = cancelConsequences({
+      visit: exam,
+      coursesById: COURSES3,
+      tasks: [{ id: 't1', kind: '取消 Examine', done: false }],
+      removing: true,
+    });
+    assert.ok(!lines.some((l) => l.includes('會多一張')));
+  });
+
+  test('軟刪除的任務不算 —— 它已經不在了', () => {
+    const lines = cancelConsequences({
+      visit: exam,
+      coursesById: COURSES3,
+      tasks: [{ id: 't1', kind: 'Examine', done: false, deletedAt: '2026-09-01' }],
+    });
+    assert.ok(!lines.some((l) => l.includes('會被收掉')));
+  });
+
   test('什麼任務都沒有的時候不要講那兩句', () => {
     const lines = cancelConsequences({ visit: exam, coursesById: COURSES3 });
     assert.ok(!lines.some((l) => l.includes('會被收掉')));

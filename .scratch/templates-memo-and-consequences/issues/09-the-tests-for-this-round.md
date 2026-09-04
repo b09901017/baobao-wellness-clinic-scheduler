@@ -1,6 +1,6 @@
 # 這一輪的測試：她要手動點的每一件，先用 E2E 跑過
 
-Status: todo
+Status: done
 來源：她上一輪定下來的規矩（`../asks-2026-09-04/spec.md` 第五項）
 動工前先讀：`tests-e2e/fixtures/data.js`、`tests-e2e/specs/15-playbook.spec.js`
 
@@ -76,3 +76,23 @@ Status: todo
 
 E2E 跑完之後，最後一則回覆要列出她自己再點一次的動線 —— 至少包含她信裡指名
 的兩個情境：**LINE 複製貼上**與**反勾選二返警告**。
+
+---
+
+## 動工之後跟計畫不一樣的地方
+
+| 計畫寫的 | 實際做的 | 為什麼 |
+|---|---|---|
+| `tests-e2e/specs/19-*.spec.js` 有 U1〜U11 | 12 支（多一支 U10b） | 「兩顆圖示同時在」跟「有一顆」是兩件事，而擠掉狀態徽章只有兩顆都在時才看得到 |
+| 15-playbook 要補一支 | **一個字都沒改，17 支照樣綠** | emoji 列不影響 `scrollIntoView`，P11「一個勾選框都沒有」也照樣過（emoji 是 `<button>`） |
+| 11-todo-drawer 要補「抽屜裡拿回來也會問」 | **沒補** | 那一條走的是同一支 `confirmUntick()`，而 19 的 U2〜U4 已經蓋住了。補一支只是把同一件事再測一次 |
+| 02-examine-chain 不用動 | **改了兩支** | J-D3 與 J-D6 都在拿回「追蹤健檢報告」，現在會先跳確認。兩支各多一行 `app.ok()` |
+| 沒寫到 | `tests/todo-flow.test.js` 多 10 支 | `todosForVisit()` 是新的 domain 函式（issue 07 的鏡像靠它） |
+| 沒寫到 | `tests/no-secrets.test.js` 的 `NOT_A_NAME` 多三個詞 | 她那段筆記裡的「提早10分」被 PII 守衛當成「姓名＋病歷編號」。改測資等於那支測試不再測她真的會貼的東西，所以改的是白名單 |
+
+## 這一輪最後的數字
+
+- 單元：**1553 綠、0 紅**（動工前 1491）
+- 新的 E2E：`18-memo-paste-and-emoji`（7 支）、`19-untick-and-drawer-todos`（12 支）、
+  `17-settings-fields` 多 5 支（S6〜S10）
+- `public/sw.js` 的 `VERSION` 從 v91 到 v94，`SHELL` 多四支
