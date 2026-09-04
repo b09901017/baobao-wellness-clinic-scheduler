@@ -35,34 +35,52 @@ const say = (id, templates, vars) => fill(textFor(id, templates), vars);
  * @returns {string} 可以直接貼進 LINE 的文字
  */
 export function confirmMessage(customer, visits, { templates = {} } = {}) {
-  const rows = (visits ?? [])
-    .filter((v) => v.date)
-    .slice()
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
-    .map((v) => `${shortDate(v.date)} ${firstStart(v)}`.trim());
-
+  const rows = slotLines(visits);
   if (!rows.length) return '';
 
-  const month = Number(visits.find((v) => v.date).date.split('-')[1]);
+  const month = Number(
+    (visits ?? []).filter((v) => v.date).map((v) => v.date).sort()[0].split('-')[1],
+  );
 
   return say('confirm', templates, {
     name: nameOf(customer),
     month,
-    slots: rows.join('、'),
+    slots: rows.join('\n'),
   });
 }
 
 /**
- * 一次來訪只講第一個時段的開始時間。
- * 她問客戶的是「那天幾點來」，不是把三個療程的時刻表都念一遍 ——
- * 那反而讓客戶看不懂重點。
+ * 壓好的每一段各自一行：**日期、時間、課程**。
+ *
+ * ## 2026-09-04 推翻了「一次來訪只講第一段」
+ *
+ * 原本一筆來訪只印第一個時段的開始時間，理由是「她問客戶的是那天幾點來，
+ * 不是把三個療程的時刻表都念一遍」。她實際用過之後要的相反：
+ *
+ * > 我希望連項目都寫出來並且要換行（包含同一天但不同時段的），
+ * > 例如：9/3 14:00 復能、(換行) 9/17 10:00 點滴、(換行) 9/17 11:00 復能
+ *
+ * 那個推論錯在**客戶要的不是「幾點到」而是「那天要待多久、做什麼」**——
+ * 少印的那兩段客戶照樣要來，而看不到它們的人反而會以為只有一段。
+ *
+ * 排序照日期再照時間。**沒有時間的那一段不印時間**（匯入的舊資料，ADR-0011）
+ * ——「9/3 時間不詳 復能」貼給客戶只會讓他打電話來問。
+ *
+ * @param {{date:string, slots:object[]}[]} visits
+ * @returns {string[]}
  */
-function firstStart(visit) {
-  const starts = (visit.slots ?? [])
-    .map((s) => s.startsAt)
-    .filter(Boolean)
-    .sort();
-  return starts[0] ?? '';
+function slotLines(visits = []) {
+  return (visits ?? [])
+    .filter((v) => v?.date)
+    .flatMap((v) => (v.slots ?? []).map((s) => ({
+      date: v.date,
+      startsAt: s?.startsAt ?? '',
+      courseName: s?.courseName ?? '',
+    })))
+    .sort((a, b) => a.date.localeCompare(b.date)
+      // 沒有時間的排那一天的最後 —— 它不知道幾點，擺在有時間的前面會誤導
+      || (a.startsAt || '99:99').localeCompare(b.startsAt || '99:99'))
+    .map((r) => [shortDate(r.date), r.startsAt, r.courseName].filter(Boolean).join(' '));
 }
 
 // ---------- 其餘的訊息 ----------
@@ -136,7 +154,9 @@ export function reminderMessage(customer, visit, { today, templates = {} } = {})
   return say('reminder', templates, {
     name: nameOf(customer),
     when,
-    time: firstStart(visit),
+    // 提醒那一則問的是「幾點到」，所以只要最早那一段的開始時間 ——
+    // 這一則跟確認訊息不一樣，它不需要整天的時刻表（她只在前一天發它）。
+    time: earliestStart(visit),
     // **「的」跟著課程名一起進來或一起消失。** 沒有課程時原本那一句是
     // 「有課程」，而模板裡只有 `{courses}` 一個洞 —— 把「的」留在模板上
     // 會變成「有的課程」。
@@ -228,6 +248,11 @@ const nameOf = (customer) => String(customer?.name ?? '').trim();
 function monthOf(value) {
   const m = Number(String(value ?? '').split('-')[1]);
   return m >= 1 && m <= 12 ? m : null;
+}
+
+/** 這一筆來訪最早那一段的開始時間。來訪前提醒用。 */
+function earliestStart(visit) {
+  return (visit?.slots ?? []).map((s) => s.startsAt).filter(Boolean).sort()[0] ?? '';
 }
 
 function courseNames(visit) {

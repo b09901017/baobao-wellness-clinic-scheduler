@@ -11,7 +11,7 @@
 
 import { isCancelKind, RECORD_TASK_KIND } from './taskRules.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
-import { dayOf, isValidDate } from './dates.js';
+import { dayOf } from './dates.js';
 import { formSlotIndexes } from './visits.js';
 
 /**
@@ -182,6 +182,14 @@ export function groupByDoneDay(tasks = []) {
  * 簽療程單那一列照 `visitsToClose()` 的三個條件。在這裡另寫一份的話，
  * 同一筆來訪在待辦中心與這張卡片上會給出不同的答案。
  *
+ * ## 做完的不消失，畫成劃掉的
+ *
+ * 她的原話（2026-09-04）：「把所有代辦都列出來，然後完成的不要消失，
+ * 而是淡掉劃掉，但我還是需要知道這一場的所有代辦。」
+ *
+ * 所以推導的那兩列**永遠在**（取消掉的那一筆除外），只是勾起來；
+ * 已完成的任務也照樣列。劃掉那一下畫在 `.taskmirror__row.is-done` 上。
+ *
  * ## 順序照 `orderOf()`，不照死線
  *
  * 那個順序就是她做事的順序（ADR-0043）。照死線排會把鏈條的第二站排到
@@ -191,11 +199,10 @@ export function groupByDoneDay(tasks = []) {
  * @param {object} o
  * @param {object[]} [o.tasks] 這一筆來訪的任務（含已完成的）
  * @param {Record<string, object>} [o.coursesById]
- * @param {string} o.today
  * @returns {{key:string, kind:string, done:boolean, dueDate:string|null,
  *            derived:boolean}[]}
  */
-export function todosForVisit(visit, { tasks = [], coursesById = {}, today } = {}) {
+export function todosForVisit(visit, { tasks = [], coursesById = {} } = {}) {
   if (!visit || visit.deletedAt) return [];
 
   const rows = (tasks ?? [])
@@ -208,40 +215,36 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, today } = {
       derived: false,
     }));
 
-  // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生。
+  // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
   if (visit.status === 'cancelled') return sortRows(rows);
 
   // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
-  if (visit.status === 'pending_confirm') {
-    rows.push({
-      key: 'confirm', kind: '跟客人確認時間', done: false, dueDate: null, derived: true,
-    });
-  }
+  //
+  // **做完了也要留著，畫成劃掉的。** 她 2026-09-04 的原話：「我希望的是把
+  // 所有代辦都列出來，然後完成的不要消失，而是淡掉劃掉，但我還是需要知道
+  // 這一場的所有代辦。」所以這一列不會因為客人已經回覆就整列消失 ——
+  // 那會讓一張已確認的卡片看起來像從來沒問過人。
+  rows.push({
+    key: 'confirm',
+    kind: '跟客人確認時間',
+    done: visit.status !== 'pending_confirm',
+    dueDate: null,
+    derived: true,
+  });
 
-  // ⑤ 簽療程單。條件照 `visitsToClose()`：日子到了、還沒結案。
-  // **整筆都不用簽的那一天照樣要結案**（只有二返的那一天），所以這一列
-  // 跟「有沒有段要簽」無關 —— 那只影響它右邊那一句。
-  const unclosed = (visit.status === 'confirmed' || visit.status === 'pending_confirm')
-    && isValidDate(visit.date) && visit.date <= today;
-  if (unclosed) {
-    const needs = formSlotIndexes(visit, coursesById).length;
-    rows.push({
-      key: 'close',
-      kind: needs ? '簽療程單' : '簽療程單（這一天不用簽，但要結案）',
-      done: false,
-      dueDate: null,
-      derived: true,
-    });
-  }
-
-  // 已經結案的那一筆，「簽療程單」是做完的一件事，要看得到 ——
-  // 不然一筆已完成的來訪上面只剩三週後才長出來的追蹤報告，
-  // 看起來像什麼都沒做過。
-  if (visit.status === 'done' || visit.status === 'no_show') {
-    rows.push({
-      key: 'close', kind: '簽療程單', done: true, dueDate: null, derived: true,
-    });
-  }
+  // ⑤ 簽療程單。**整筆都不用簽的那一天照樣要結案**（只有二返的那一天），
+  // 所以這一列跟「有沒有段要簽」無關 —— 那只影響它印哪一句。
+  //
+  // 日子還沒到也列（同上：她要看到這一場的**全部**），只是還沒勾。
+  const closed = visit.status === 'done' || visit.status === 'no_show';
+  const needsForm = formSlotIndexes(visit, coursesById).length > 0;
+  rows.push({
+    key: 'close',
+    kind: needsForm ? '簽療程單' : '簽療程單（這一天不用簽，但要結案）',
+    done: closed,
+    dueDate: null,
+    derived: true,
+  });
 
   return sortRows(rows);
 }

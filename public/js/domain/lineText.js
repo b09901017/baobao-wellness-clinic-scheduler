@@ -56,19 +56,31 @@ export const EMOJI_ROW = [
 ];
 
 /**
- * 貼圖代碼。半形括號、裡面是 `emoji` 或（可選的「加」加上）一到兩位數字。
+ * 貼圖代碼。括號裡面是 `emoji` 或（可選的「加」加上）一到兩位數字。
+ *
+ * ## 全形括號也認，但只有這幾種內容
+ *
+ * 第一版只認半形，理由是「她的內文到處是全形的（乾淨度）（通知客人），
+ * 認全形等於把她自己的字改掉」。那個理由**只對了一半**：真正該擋的是
+ * **括號裡的內容**，不是括號本身。`（乾淨度）`、`（通知客人）` 不會被誤傷，
+ * 因為裡面既不是 `emoji` 也不是數字。
+ *
+ * 而 LINE 在不同裝置上複製出來的括號**不一定是半形的** —— 只認半形的話，
+ * 她在某一台上貼進來就完全沒反應，而畫面上沒有任何線索說為什麼
+ *（2026-09-04 她回報「沒有變成小圖示」）。
  *
  * 兩位數的上限是刻意的：`(123)` 根本不會被認成代碼（她的內文裡可能有數字），
  * 而 `(11)` 會被認出來但因為超出 `KEYCAPS` 的範圍而原樣留著。
  */
-const CODE = /\((emoji|加?\d{1,2})\)/g;
+const CODE = /[(（]\s*(emoji|加?\d{1,2})\s*[)）]/gi;
 
 /**
  * 換成什麼。認得但換不了（`(11)`、`(0)`）就回 `null`，代表原樣留著。
  */
 function replacementFor(body) {
-  if (body === 'emoji') return EMOJI_PLACEHOLDER;
-  const n = Number(body.replace(/^加/, ''));
+  const value = String(body ?? '').trim();
+  if (value.toLowerCase() === 'emoji') return EMOJI_PLACEHOLDER;
+  const n = Number(value.replace(/^加/, ''));
   return KEYCAPS[n - 1] ?? null;
 }
 
@@ -125,4 +137,19 @@ function countCodes(text) {
     if (replacementFor(body) !== null) n += 1;
   }
   return n;
+}
+
+/**
+ * 這一段裡還有換得掉的貼圖代碼嗎。
+ *
+ * **貼上那條路蓋不到已經存在的字。** 她在這個功能上線之前打／貼進去的那幾份
+ * 備忘錄裡的代碼，永遠不會經過 `paste` 事件 —— 而開檔就自動改寫她的資料是
+ * 這個 app 不做的事（那會是一次沒有人按過的寫入）。
+ *
+ * 所以編輯的時候多一顆按鈕，**只在真的有代碼的時候出現**：她按了才清。
+ * 一顆永遠在那裡的按鈕會變成裝飾，而一顆只在有事做的時候出現的按鈕
+ * 本身就是一句提示。
+ */
+export function hasLineCodes(text) {
+  return countCodes(text) > 0;
 }
