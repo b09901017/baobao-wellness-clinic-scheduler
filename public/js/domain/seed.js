@@ -51,16 +51,31 @@ export const SEED = {
     { id: 'staff-dr-li', name: '李', role: '醫師' },
   ],
 
+  // 器材。**每一台記著「用這台的那一段算哪一個課程」**（ADR-0075）——
+  // 復能四選一是一筆額度、四台器材，而 ILIB 那一台要的是診間、
+  // 其餘三台要的是物理治療師。指派是課程說了算，所以課程要由器材推。
+  //
+  // ILIB 是 2026-09-06 補進來的第四台：在那之前它只是一個課程（靜脈），
+  // 而擇一池的選項是器材，所以它進不了四選一。
   equipment: [
-    { id: 'eq-indiba', name: 'INDIBA', contraindications: [] },
-    { id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] },
-    { id: 'eq-laser', name: '高能量雷射', contraindications: ['體內金屬'] },
+    { id: 'eq-indiba', name: 'INDIBA', courseId: 'course-recovery', contraindications: [] },
+    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
+    { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'] },
+    { id: 'eq-ilib', name: 'ILIB', courseId: 'course-iv-laser', contraindications: [] },
   ],
 
-  // 臨床提醒（ADR-0064）。**不擋任何器材** —— 它只是要在壓表那一刻被看到。
-  // 這兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
+  // 警示（ADR-0074）。永久限制的第一層，**什麼都不擋** ——
+  // 它只是要在壓表那一刻被看到。
+  //
+  // 「體內金屬」是 2026-09-06 加進來的：在那之前它自成一層（醫療禁忌），
+  // 靠器材主檔推出來，而且會硬性擋掉超磁場與高能量雷射。不擋之後那一層就不存在了，
+  // 所以它得在這份名單裡才畫得到客戶身上。**既有資料庫上沒有這一筆** ——
+  // 補進去那一步由資料健檢的「器材上登記的提醒詞還不在警示名單裡」那一列負責。
+  //
+  // 另外兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
   // 其餘由她自己在設定裡加。
   clinicalFlags: [
+    { id: 'cf-metal', name: '體內金屬', hint: '超磁場與高能量雷射要提醒，建議改用 INDIBA' },
     { id: 'cf-veins', name: '血管難打', hint: '點滴與抽血要多留時間，先問慣用手' },
     { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
   ],
@@ -123,15 +138,22 @@ export const SEED = {
     // ---- C 類：只有 Abovee ----
     {
       // 擇一池的那個課程。三種器材都要物理治療師操作，所以指派治療師不指派診間。
+      //
+      // 「可選時長」是 2026-09-06 加的：她要買得到 `sis(60)x5` 也買得到
+      // `indiba(30)x5`，而那兩個是同一個課程的兩種規格，不是兩個課程。
       id: 'course-recovery', name: '復能', category: 'C', durationMin: 60,
       assigns: 'therapist', allowedRoomTypes: [], allowedRoomIds: [],
-      requiresEquipment: true, frequencyRule: null,
+      requiresEquipment: true, frequencyRule: null, durationChoices: [30, 60],
     },
     {
-      // 同屬物理賦能課程分類，但不需要治療師操作，所以獨立計次、選診間
-      id: 'course-iv-laser', name: '靜脈', category: 'C', durationMin: 60,
+      // 同屬物理賦能課程分類，但不需要治療師操作，所以獨立計次、選診間。
+      //
+      // 2026-09-06 從「靜脈」正名成「ILIB」—— 她自己、舊試算表（`ILIB 60mins`）
+      // 與診間名稱（ILIB4）講的都是這個字。**主檔改名不會搬既有時段上的
+      // `courseName` 快照**，那是刻意的（歷史紀錄留著當時寫下去的字）。
+      id: 'course-iv-laser', name: 'ILIB', category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['ILIB室', '治療室', '點滴室'], allowedRoomIds: [],
-      requiresEquipment: false, frequencyRule: null,
+      requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {
       // SPEC 第 7 節規則 2：EECP 只能在治5、治8
@@ -181,14 +203,14 @@ export const SEED = {
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-inbody', label: '身體組成分析', qty: 4, durationMin: 20, frequencyRule: '每季一次' },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能', qty: 12, durationMin: 60,
+        { type: 'pool', label: '復能三選一(60)', qty: 12, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: '靜脈', qty: 20, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 20, durationMin: 60 },
       ],
     },
     {
       // 試算表模板，購買數量 = 1 時的基準。
-      // 賦能與靜脈的次數與筋骨強身相反，這是正常的不是筆誤。
+      // 復能與 ILIB 的次數與筋骨強身相反，這是正常的不是筆誤。
       id: 'plan-8wan', name: '8萬方案', membershipMonths: 12,
       note: '試算表模板，購買數量 1 的基準',
       items: [
@@ -197,9 +219,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-pt-consult', label: '物理治療師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能', qty: 20, durationMin: 60,
+        { type: 'pool', label: '復能三選一(60)', qty: 20, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: '靜脈', qty: 12, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 12, durationMin: 60 },
       ],
     },
   ],

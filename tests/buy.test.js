@@ -22,13 +22,18 @@ import { fromRoot } from './helpers/paths.js';
 
 const MASTER = {
   courses: [
+    { id: 'c-rehab', name: '復健科醫師門診' },
     { id: 'c-checkup', name: '健檢', followupCourseId: 'c-followup' },
     { id: 'c-drip', name: '營養點滴', requiresIvProduct: true },
-    { id: 'c-recovery', name: '復能', requiresEquipment: true },
+    { id: 'c-recovery', name: '復能', requiresEquipment: true, durationMin: 60, durationChoices: [30, 60] },
+    { id: 'c-ilib', name: 'ILIB', durationMin: 60, durationChoices: [30, 60] },
   ],
+  // 器材帶課程（ADR-0075）：前兩台是復能的，ILIB 那一台自己一個課程 ——
+  // 所以「三選一」是前兩台（這份主檔只有兩台），「四選一」是全部三台。
   equipment: [
-    { id: 'eq-indiba', name: 'INDIBA' },
-    { id: 'eq-sis', name: '超磁場' },
+    { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: '超磁場', courseId: 'c-recovery' },
+    { id: 'eq-ilib', name: 'ILIB', courseId: 'c-ilib' },
   ],
   ivProducts: [
     { id: 'iv-snow', name: '雪顏亮彩' },
@@ -46,17 +51,20 @@ const from = (...values) =>
 
 describe('買了什麼：選了之後草稿變成什麼', () => {
   test('選一個課程就把名稱帶進來 —— 她一個字都不用打', () => {
-    const e = from('c-recovery');
+    const e = from('c-rehab');
     assert.equal(e.type, 'single');
-    assert.equal(e.courseId, 'c-recovery');
-    assert.equal(e.label, '復能');
+    assert.equal(e.courseId, 'c-rehab');
+    assert.equal(e.label, '復健科醫師門診');
   });
 
-  test('擇一池預設帶上全部器材', () => {
+  test('點了「復能」預設就是整組那一顆，不是全部器材', () => {
+    // 方案裡的那一項就是三選一，她最常買的先幫她按好。
     const e = from(buy.POOL_PICK);
     assert.equal(e.type, 'pool');
     assert.equal(e.courseId, null);
     assert.deepEqual(e.optionEquipmentIds, ['eq-indiba', 'eq-sis']);
+    assert.equal(e.durationMin, 60, '預設時長也要幫她帶進來');
+    assert.equal(e.label, '復能二選一(60)');
   });
 
   test('營養品是第三種型態，沒有課程也沒有器材', () => {
@@ -67,16 +75,16 @@ describe('買了什麼：選了之後草稿變成什麼', () => {
   });
 
   test('選了營養品再選課程，型態與名稱都跟著回去', () => {
-    const e = from(buy.PRODUCT_PICK, 'c-recovery');
+    const e = from(buy.PRODUCT_PICK, 'c-rehab');
     assert.equal(e.type, 'single');
-    assert.equal(e.label, '復能', '「夜態美」不可以留在課程的名字上');
+    assert.equal(e.label, '復健科醫師門診', '「夜態美」不可以留在課程的名字上');
   });
 
-  test('換到不配二返的課程就把等級丟掉 —— 「8萬復能」是一句沒有意義的話', () => {
+  test('換到不配二返的課程就把等級丟掉 —— 「8萬復健科醫師門診」是一句沒有意義的話', () => {
     const checkup = { ...from('c-checkup'), tier: '8萬', label: '8萬健檢' };
-    const next = { ...checkup, ...buy.pick('c-recovery', checkup, MASTER) };
+    const next = { ...checkup, ...buy.pick('c-rehab', checkup, MASTER) };
     assert.equal(next.tier, null);
-    assert.equal(next.label, '復能');
+    assert.equal(next.label, '復健科醫師門診');
   });
 
   test('換去別的課程再換回健檢，她挑過的等級留著', () => {
@@ -89,7 +97,7 @@ describe('買了什麼：選了之後草稿變成什麼', () => {
 
   test('換到別的課程再換回營養點滴，她挑過的品項留著', () => {
     const drip = { ...from('c-drip'), ivProductId: 'iv-snow' };
-    const other = { ...drip, ...buy.pick('c-recovery', drip, MASTER) };
+    const other = { ...drip, ...buy.pick('c-rehab', drip, MASTER) };
     assert.equal(other.ivProductId, null);
   });
 });
@@ -134,12 +142,12 @@ describe('顯示名稱：三種接法', () => {
   test('她自己打過的名字不會被下一次點擊蓋掉', () => {
     const mine = { ...from('c-checkup'), label: '客戶A的健檢' };
     assert.equal(buy.keptLabel(mine, MASTER), '客戶A的健檢');
-    const next = { ...mine, ...buy.pick('c-recovery', mine, MASTER) };
+    const next = { ...mine, ...buy.pick('c-rehab', mine, MASTER) };
     assert.equal(next.label, '客戶A的健檢');
   });
 
   test('app 自己填的那一個不算「她改過」', () => {
-    assert.equal(buy.keptLabel(from('c-recovery'), MASTER), null);
+    assert.equal(buy.keptLabel(from('c-rehab'), MASTER), null);
   });
 
   test('換等級時的改名也走同一個判斷', () => {
@@ -170,14 +178,14 @@ describe('動了一下之後的整張草稿', () => {
     // 兩邊在畫面上永遠一致（換了等級就改名），混著問會得出「她改過名稱」——
     // 然後「8萬健檢」就會跟著她換到復能去。
     const draft = { ...from('c-checkup'), tier: '8萬', label: '8萬健檢' };
-    const next = buy.afterPick('c-recovery', draft, { tier: '8萬', label: '8萬健檢' }, MASTER);
-    assert.equal(next.label, '復能');
+    const next = buy.afterPick('c-rehab', draft, { tier: '8萬', label: '8萬健檢' }, MASTER);
+    assert.equal(next.label, '復健科醫師門診');
     assert.equal(next.tier, null);
   });
 
   test('選了一顆課程：她自己打的名稱不覆蓋', () => {
     const draft = { ...from('c-checkup'), label: '客戶A的健檢' };
-    const next = buy.afterPick('c-recovery', draft, { label: '客戶A的健檢' }, MASTER);
+    const next = buy.afterPick('c-rehab', draft, { label: '客戶A的健檢' }, MASTER);
     assert.equal(next.label, '客戶A的健檢');
   });
 
@@ -330,7 +338,7 @@ describe('草稿翻成一筆額度', () => {
   });
 
   test('單項加購不指回任何範本（ADR-0003）', () => {
-    const doc = buy.toEntitlement(from('c-recovery'), { purchasedAt: '2026-08-25' });
+    const doc = buy.toEntitlement(from('c-rehab'), { purchasedAt: '2026-08-25' });
     assert.equal(doc.sourcePlanName, null);
     assert.equal(doc.purchasedAt, '2026-08-25');
     assert.equal(doc.doneCount, 0);
@@ -344,19 +352,28 @@ describe('畫出來的那幾排', () => {
     const html = buy.fields(buy.blank(), MASTER);
     const lead = html.indexOf('chiprow__lead');
     assert.ok(html.includes('<span class="chiprow__lead">商品</span>'));
-    assert.ok(lead > html.indexOf('復能（三選一池）'), '線要在課程那一組後面');
+    assert.ok(lead > html.indexOf('復能'), '線要在課程那一組後面');
     assert.ok(lead < html.lastIndexOf('營養品'), '線要在營養品那一顆前面');
   });
 
   test('營養品那一顆一直在，而且排在最後', () => {
     const html = buy.fields(buy.blank(), MASTER);
-    const order = ['健檢', '營養點滴', '復能', '復能（三選一池）', '營養品'];
+    // 順序照主檔（`courseChips()` 不重排）—— 復能留在它自己的位置上，
+    // 因為這一排橫著捲，而她最常買的接在最後面等於每一次都要滑到底。
+    const order = ['健檢', '營養點滴', '復能', 'ILIB', '營養品'];
     let at = -1;
     for (const label of order) {
       const found = html.indexOf(label);
       assert.ok(found > at, `「${label}」的順序不對`);
       at = found;
     }
+  });
+
+  // 要選器材的課程不可以買成 single —— 那一筆額度排班時沒有池可以選器材。
+  test('「復能」只有一顆，而且是擇一池那一顆', () => {
+    const html = buy.fields(buy.blank(), MASTER);
+    assert.equal(html.split('復能').length - 1, 1, '復能不可以同時是課程與擇一池');
+    assert.ok(html.includes(`data-chip-value="${buy.POOL_PICK}"`));
   });
 
   test('選了健檢才有「幾萬的」，選了營養點滴才有「哪一種」', () => {
@@ -371,12 +388,12 @@ describe('畫出來的那幾排', () => {
     // 她的原話：「次數1就是一個月2就是兩個月的」。以前寫「份」是猜的 ——
     // 一次購買裡有四款，「2 份」那個數字對不上任何東西。
     assert.ok(buy.fields(from(buy.PRODUCT_PICK), MASTER).includes('幾個月'));
-    assert.ok(buy.fields(from('c-recovery'), MASTER).includes('幾次'));
+    assert.ok(buy.fields(from('c-rehab'), MASTER).includes('幾次'));
     assert.equal(
       buy.summaryLine({ label: '營養品 5,000（夜態美）', totalQty: 2, type: 'product' }),
       '營養品 5,000（夜態美） 2 個月',
     );
-    assert.equal(buy.summaryLine({ label: '復能', totalQty: 5, type: 'single' }), '復能 5 次');
+    assert.equal(buy.summaryLine({ label: '超磁場(60)', totalQty: 5, type: 'pool' }), '超磁場(60) 5 次');
   });
 
   test('還沒選品項就不預告名字 —— 那是在講一件還沒發生的事', () => {
@@ -483,5 +500,173 @@ describe('原始碼守衛：兩個一個字就會壞掉的地方', () => {
     const typed = SRC.match(/const TYPED_FIELDS = '([^']+)'/);
     assert.ok(typed, '找不到 TYPED_FIELDS');
     assert.ok(typed[1].includes('amountTwd'), '金額不在會重算名稱的那幾格裡');
+  });
+});
+
+
+// ADR-0075 + 她 2026-09-06 的原話：
+//
+// > 課程加購那邊可以只有復能，然後點了之後可以接者選選是三選一，四選一，
+// > 或是單一的哪一項，然後接者選幾分鐘30或60，都是可以用丸子呈現
+//
+// 這一份主檔只有三台器材（兩台復能的、一台 ILIB），所以整組那兩顆叫
+// 「二選一」與「三選一」—— **數字是算出來的**，她多加一台就自己會變。
+describe('加購復能：哪一種 → 幾分鐘', () => {
+  test('哪一種：整組排前面，單買一台接在後面並且隔一條線', () => {
+    const { sets, singles } = buy.poolChoices(MASTER);
+    assert.deepEqual(sets.map((x) => x.label), ['二選一', '三選一']);
+    assert.deepEqual(sets[0].ids, ['eq-indiba', 'eq-sis']);
+    assert.deepEqual(sets[1].ids, ['eq-indiba', 'eq-sis', 'eq-ilib']);
+    assert.deepEqual(singles.map((x) => x.label), ['INDIBA', '超磁場', 'ILIB']);
+
+    const html = buy.fields(from(buy.POOL_PICK), MASTER);
+    assert.ok(html.includes('哪一種'));
+    assert.ok(html.includes('<span class="chiprow__lead">單買一台</span>'));
+    assert.ok(html.indexOf('二選一') < html.indexOf('單買一台'));
+  });
+
+  test('沒有第二組時只出一顆整組 —— 兩顆一模一樣的丸子沒有答案', () => {
+    const onlyRecovery = {
+      ...MASTER,
+      equipment: MASTER.equipment.filter((e) => e.courseId === 'c-recovery'),
+    };
+    assert.deepEqual(buy.poolChoices(onlyRecovery).sets.map((x) => x.label), ['二選一']);
+  });
+
+  test('一台器材都沒有指到課程（舊資料）時，整組就是全部', () => {
+    const old = { ...MASTER, equipment: MASTER.equipment.map(({ courseId, ...r }) => r) };
+    const { sets } = buy.poolChoices(old);
+    assert.equal(sets.length, 1);
+    assert.deepEqual(sets[0].ids, ['eq-indiba', 'eq-sis', 'eq-ilib']);
+  });
+
+  test('按著的是哪一顆，比的是那一串 id 不是她按過什麼', () => {
+    // 從方案展開出來的額度身上只有 ids，點進去調整時那一排也要按對
+    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-indiba'] }, MASTER),
+      buy.POOL_SET_HOME);
+    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis'] }, MASTER), 'eq-sis');
+    assert.equal(buy.poolPickOf({ optionEquipmentIds: [] }, MASTER), null);
+    // 她在進階設定裡自己勾了一個怪組合 → 一顆都不按，而不是亂按一顆
+    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-ilib'] }, MASTER), null);
+  });
+
+  test('換一種：名字跟著變', () => {
+    const pool = from(buy.POOL_PICK);
+    const single = buy.afterDetail(pool, { optionEquipmentIds: ['eq-sis'] }, MASTER);
+    assert.equal(single.label, '超磁場(60)');
+
+    const four = buy.afterDetail(single, {
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-ilib'],
+    }, MASTER);
+    assert.equal(four.label, '復能三選一(60)');
+  });
+
+  test('換幾分鐘：名字跟著變', () => {
+    const pool = from(buy.POOL_PICK);
+    const half = buy.afterDetail(pool, { durationMin: 30 }, MASTER);
+    assert.equal(half.label, '復能二選一(30)');
+  });
+
+  test('她自己打過的名字照樣不被覆蓋', () => {
+    const mine = { ...from(buy.POOL_PICK), label: '客戶A談的那五次' };
+    const next = buy.afterDetail(mine, { durationMin: 30 }, MASTER);
+    assert.equal(next.label, '客戶A談的那五次');
+  });
+
+  test('ILIB 是一個課程，選了它才有「幾分鐘」', () => {
+    const ilib = from('c-ilib');
+    assert.equal(ilib.type, 'single');
+    assert.equal(ilib.durationMin, 60, '預設帶課程的時長');
+    assert.equal(ilib.label, 'ILIB(60)');
+
+    const html = buy.fields(ilib, MASTER);
+    assert.ok(html.includes('幾分鐘'));
+    assert.ok(html.includes('30 分鐘') && html.includes('60 分鐘'));
+
+    // 健檢沒有可選時長 → 那一排不出現（永遠不會被按的丸子只是噪音）
+    assert.ok(!buy.fields(from('c-checkup'), MASTER).includes('幾分鐘'));
+  });
+
+  test('只點了「復能」沒選種類就存不下去，而且話要講在她看得懂的層次', () => {
+    const empty = { ...from(buy.POOL_PICK), optionEquipmentIds: [] };
+    assert.deepEqual(buy.validate(empty, MASTER), ['還要選一種復能']);
+  });
+
+  test('讀表單：那一顆的值換回真正要存的那一串 id', () => {
+    const form = { elements: { poolKind: {}, durationMin: {} } };
+    const out = buy.read(form, { poolKind: buy.POOL_SET_ALL, durationMin: '30' }, MASTER);
+    assert.deepEqual(out.optionEquipmentIds, ['eq-indiba', 'eq-sis', 'eq-ilib']);
+    assert.equal(out.durationMin, 30);
+
+    // 那兩排不在畫面上時一個欄位都不回報 —— 少帶一個等於把它清成 null
+    assert.deepEqual(buy.read({ elements: {} }, { poolKind: 'x', durationMin: '30' }, MASTER), {});
+  });
+
+  test('存下去的形狀：時長帶著，器材那一串也帶著', () => {
+    const doc = buy.toEntitlement(
+      { ...from(buy.POOL_PICK), optionEquipmentIds: ['eq-sis'], durationMin: 30, totalQty: 5 },
+    );
+    assert.equal(doc.type, 'pool');
+    assert.equal(doc.durationMin, 30);
+    assert.deepEqual(doc.optionEquipmentIds, ['eq-sis']);
+    assert.equal(doc.courseId, null, '擇一池沒有 courseId —— 課程由器材推（ADR-0075）');
+  });
+});
+
+
+// 她 2026-09-06：
+//
+// > 其實現在不需要到期日了，可以保留但就是選填，基本上不會到期，
+// > 所以到期日在加購的時候可以在進階設定裡，然後也許可以選一年半年自訂時間等等
+describe('到期日：選填，預設不到期', () => {
+  const FROM = '2026-03-12';
+
+  /** 那一排裡按著的是哪一顆。 */
+  const pressed = (html) =>
+    [...html.matchAll(/data-chip-value="([^"]+)"[^>]*aria-pressed="true"/gs)].map((m) => m[1]);
+
+  test('預設按在「不到期」', () => {
+    assert.deepEqual(pressed(buy.expiryRow(buy.blank(), { from: FROM })), [buy.EXPIRY_NONE]);
+  });
+
+  test('半年與一年從購買日起算，值就是算好的那一天', () => {
+    const html = buy.expiryRow(buy.blank(), { from: FROM });
+    assert.ok(html.includes('2026-09-12'), '半年');
+    assert.ok(html.includes('2027-03-12'), '一年');
+    assert.ok(html.includes('從購買日起算'));
+  });
+
+  test('沒有購買日就從今天起算，而且那句話要跟著改', () => {
+    assert.ok(buy.expiryRow(buy.blank(), {}).includes('從今天起算'));
+  });
+
+  test('存進去的日期對得上某一顆就按那一顆，那一格收著', () => {
+    const html = buy.expiryRow({ ...buy.blank(), expiresAt: '2027-03-12' }, { from: FROM });
+    assert.deepEqual(pressed(html), ['2027-03-12'], '「一年」那一顆');
+    assert.ok(html.includes('data-expiryother hidden'), '對得上就不用展開那一格');
+  });
+
+  test('對不上任何一顆就是「自己選」，而且展開讓她看得到那一天', () => {
+    const html = buy.expiryRow({ ...buy.blank(), expiresAt: '2027-01-01' }, { from: FROM });
+    assert.deepEqual(pressed(html), [buy.EXPIRY_OTHER]);
+    assert.ok(!html.includes('data-expiryother hidden'));
+    assert.ok(html.includes('2027-01-01'));
+  });
+
+  test('讀表單：三種各自回什麼', () => {
+    const form = { elements: { expiryPreset: {} } };
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_NONE }),
+      { expiryOther: false, expiresAt: null });
+    assert.deepEqual(buy.read(form, { expiryPreset: '2027-03-12' }),
+      { expiryOther: false, expiresAt: '2027-03-12' });
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_OTHER, expiresAt: '2027-01-01' }),
+      { expiryOther: true, expiresAt: '2027-01-01' });
+    // 「自己選」但那一格是空的 → null，不要存一個空字串進 Firestore
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_OTHER, expiresAt: '  ' }),
+      { expiryOther: true, expiresAt: null });
+  });
+
+  test('那一排不在畫面上時一個欄位都不回報', () => {
+    assert.deepEqual(buy.read({ elements: {} }, { expiryPreset: '2027-03-12' }), {});
   });
 });

@@ -5,11 +5,12 @@ import {
   tasksForCategory, dueDateFor, tasksForVisit, bookingSystemFor, bookingSystemsForVisit,
 } from '../public/js/domain/taskRules.js';
 import {
-  isBlocked,
-  blockingFlags,
+  hasNotice,
+  noticeFlags,
   annotateOptions,
-  equipmentLimitLabel,
-  validateSlots,
+  suggestedEquipment,
+  noticeSentence,
+  equipmentNotices,
 } from '../public/js/domain/contraindications.js';
 import {
   counts, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
@@ -107,77 +108,104 @@ describe('任務規則', () => {
   });
 });
 
-describe('醫療禁忌（硬性阻擋）', () => {
+// ADR-0074：這一組以前叫「醫療禁忌（硬性阻擋）」，而它是全站唯一會擋下儲存的
+// 檢查。2026-09-06 之後它一個東西都不擋 —— 剩下的兩個問題是
+// 「這一台要不要提醒」與「那該用哪一台」。
+describe('器材提醒（不擋，只講一句）', () => {
   const 體內金屬客戶 = { flags: ['體內金屬'] };
   const 一般客戶 = { flags: [] };
   const sis = { id: 'sis', name: '超磁場', contraindications: ['體內金屬'] };
   const laser = { id: 'laser', name: '高能量雷射', contraindications: ['體內金屬'] };
   const indiba = { id: 'indiba', name: 'INDIBA', contraindications: [] };
 
-  test('體內金屬擋掉超磁場與高能量雷射，只剩 INDIBA', () => {
-    assert.ok(isBlocked(體內金屬客戶, sis));
-    assert.ok(isBlocked(體內金屬客戶, laser));
-    assert.ok(!isBlocked(體內金屬客戶, indiba));
+  test('體內金屬讓超磁場與高能量雷射跳提醒，INDIBA 不跳', () => {
+    assert.ok(hasNotice(體內金屬客戶, sis));
+    assert.ok(hasNotice(體內金屬客戶, laser));
+    assert.ok(!hasNotice(體內金屬客戶, indiba));
   });
 
-  test('沒有標記的客戶三種都能用', () => {
-    for (const eq of [sis, laser, indiba]) assert.ok(!isBlocked(一般客戶, eq));
+  test('沒有標記的客戶三台都不跳', () => {
+    for (const eq of [sis, laser, indiba]) assert.ok(!hasNotice(一般客戶, eq));
   });
 
-  test('要說得出被擋的原因，不能只說不能選', () => {
-    assert.deepEqual(blockingFlags(體內金屬客戶, sis), ['體內金屬']);
+  test('要說得出是哪一個字，不能只說「要注意」', () => {
+    assert.deepEqual(noticeFlags(體內金屬客戶, sis), ['體內金屬']);
   });
 
-  test('被擋的選項留在原位，不從清單消失', () => {
+  test('要提醒的選項留在原位，而且照樣選得到', () => {
     const annotated = annotateOptions(體內金屬客戶, [laser, sis, indiba]);
     assert.deepEqual(annotated.map((o) => o.id), ['laser', 'sis', 'indiba']);
-    assert.deepEqual(annotated.map((o) => o.blocked), [true, true, false]);
+    assert.deepEqual(annotated.map((o) => o.notice), [true, true, false]);
+    assert.ok(!('blocked' in annotated[0]), '不可以再有 blocked 這個欄位');
   });
 
-  test('缺欄位時不當成有禁忌', () => {
-    assert.ok(!isBlocked({}, {}));
-    assert.ok(!isBlocked(undefined, undefined));
+  test('缺欄位時不當成有提醒', () => {
+    assert.ok(!hasNotice({}, {}));
+    assert.ok(!hasNotice(undefined, undefined));
   });
 
-  // 壓表卡片牆上那顆丸子（ADR-0046）。它是算出來的，不是打字打的 ——
-  // 器材主檔上的禁忌一改，這句話跟著改。
-  test('只剩一台就講「只能 ⋯⋯」', () => {
-    assert.deepEqual(
-      equipmentLimitLabel(體內金屬客戶, [laser, sis, indiba]),
-      { text: '只能 INDIBA', blockedCount: 2, leftCount: 1 },
-    );
+  describe('這一池該用哪一台', () => {
+    test('沒事的那幾台與要提醒的那幾台各自分開', () => {
+      const out = suggestedEquipment(體內金屬客戶, [laser, sis, indiba]);
+      assert.deepEqual(out.suggested.map((e) => e.name), ['INDIBA']);
+      assert.deepEqual(out.noticed.map((e) => e.name), ['高能量雷射', '超磁場']);
+    });
+
+    test('一台都沒事就回 null —— 不然它會變成每一張卡都有的裝飾', () => {
+      assert.equal(suggestedEquipment(一般客戶, [sis, laser, indiba]), null);
+    });
+
+    test('沒有擇一池就回 null，不要無中生有一句話', () => {
+      assert.equal(suggestedEquipment(體內金屬客戶, []), null);
+      assert.equal(suggestedEquipment(體內金屬客戶), null);
+    });
+
+    test('每一台都要提醒時 suggested 是空的，但仍然回得出東西', () => {
+      const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
+      const out = suggestedEquipment(體內金屬客戶, eq);
+      assert.deepEqual(out.suggested, []);
+      assert.equal(out.noticed.length, 3);
+    });
   });
 
-  test('還剩兩台以上就講「不能用 ⋯⋯」', () => {
-    const 孕婦 = { flags: ['孕婦'] };
-    const eq = [{ ...sis, contraindications: ['孕婦'] }, laser, indiba];
-    assert.equal(equipmentLimitLabel(孕婦, eq).text, '不能用 超磁場');
+  describe('她剛剛選了一台，畫面上那一句', () => {
+    test('講出是哪個字，也講出建議改用哪一台', () => {
+      const say = noticeSentence(體內金屬客戶, sis, [laser, sis, indiba]);
+      assert.match(say.headline, /超磁場/);
+      assert.match(say.headline, /體內金屬/);
+      assert.match(say.headline, /建議改用 INDIBA/);
+      assert.ok(say.detail.length > 0);
+    });
+
+    test('建議名單裡不會有她剛剛選的那一台', () => {
+      const say = noticeSentence({ flags: ['孕婦'] }, { ...sis, contraindications: ['孕婦'] },
+        [{ ...sis, contraindications: ['孕婦'] }, laser, indiba]);
+      assert.ok(!say.headline.includes('建議改用 超磁場'));
+      assert.match(say.headline, /建議改用 高能量雷射、INDIBA/);
+    });
+
+    test('一台都不能建議時就不講後半句，不要硬湊', () => {
+      const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
+      const say = noticeSentence(體內金屬客戶, sis, eq);
+      assert.ok(!say.headline.includes('建議'));
+    });
+
+    test('沒有東西要提醒就回 null', () => {
+      assert.equal(noticeSentence(體內金屬客戶, indiba, [laser, sis, indiba]), null);
+      assert.equal(noticeSentence(一般客戶, sis, [sis]), null);
+      assert.equal(noticeSentence(體內金屬客戶, null, []), null);
+    });
   });
 
-  test('一台都不剩要講得出來 —— 那時候她壓不下去', () => {
-    const 全擋 = { flags: ['體內金屬'] };
-    const eq = [sis, laser, { ...indiba, contraindications: ['體內金屬'] }];
-    assert.deepEqual(equipmentLimitLabel(全擋, eq), { text: '3 台都不能用', blockedCount: 3, leftCount: 0 });
-  });
-
-  test('沒有東西被擋就回 null —— 不然它會變成每一張卡都有的裝飾', () => {
-    assert.equal(equipmentLimitLabel(一般客戶, [sis, laser, indiba]), null);
-  });
-
-  test('沒有擇一池就回 null，不要無中生有一句話', () => {
-    assert.equal(equipmentLimitLabel(體內金屬客戶, []), null);
-    assert.equal(equipmentLimitLabel(體內金屬客戶), null);
-  });
-
-  test('送出前驗證會指出是第幾個時段出問題', () => {
-    const errors = validateSlots(
+  test('送出前的檢查會指出是第幾個時段', () => {
+    const out = equipmentNotices(
       體內金屬客戶,
       [{ equipmentId: 'indiba' }, { equipmentId: 'sis' }],
       { indiba, sis },
     );
-    assert.equal(errors.length, 1);
-    assert.equal(errors[0].slotIndex, 1);
-    assert.match(errors[0].message, /超磁場/);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].slotIndex, 1);
+    assert.match(out[0].message, /超磁場/);
   });
 });
 

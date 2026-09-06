@@ -27,12 +27,24 @@
 import * as f from './form.js';
 import {
   TIER_PRESETS, tieredLabel, itemisedLabel, validateEntitlement,
+  poolName, timedLabel, durationChoicesOf, countWord,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
+import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
-/** 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。 */
+/**
+ * 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。
+ *
+ * **它取代了「復能」那個課程本身**：要選器材的課程不可以買成 `single`，
+ * 那一筆額度排班時沒有池可以選器材（`picksEquipment()`）。所以課程那一排
+ * 濾掉 `requiresEquipment` 的課程，換成這一顆。
+ */
 export const POOL_PICK = '__pool__';
+
+/** 「哪一種」那一排裡的兩顆整組。其餘每一台器材各一顆，值就是器材 id。 */
+export const POOL_SET_HOME = '__set_home__';
+export const POOL_SET_ALL = '__set_all__';
 
 /** 同上，代表營養品的那一顆。選了它才會冒出「哪一種」那一排。 */
 export const PRODUCT_PICK = '__product__';
@@ -45,6 +57,16 @@ export const TIER_OTHER = '__other__';
  * 是一顆展開輸入框的鈕。存下去的時候才真的寫進主檔。
  */
 export const PRODUCT_NEW = '__newproduct__';
+
+/** 「到期日」那一排的兩顆特別的。其餘幾顆的值**就是算好的那個日期**。 */
+export const EXPIRY_NONE = '__none__';
+export const EXPIRY_OTHER = '__other__';
+
+/** 「半年」「一年」。她 2026-09-06 講的就是這兩個。 */
+export const EXPIRY_PRESETS = [
+  { months: 6, label: '半年' },
+  { months: 12, label: '一年' },
+];
 
 /** 一張空白的草稿。 */
 export function blank() {
@@ -92,8 +114,7 @@ export function fields(e, master) {
       label: '買了什麼',
       value: picked(e),
       options: [
-        ...(master.courses ?? []).map((c) => ({ value: c.id, label: c.name })),
-        { value: POOL_PICK, label: '復能（三選一池）' },
+        ...courseChips(master),
         // 營養品放最後一顆，而且前面隔一條線 —— 它不是課程。一排十幾顆要滑，
         // 滑到底才看到的那一顆如果是另一種東西，得先說一聲。
         { value: PRODUCT_PICK, label: '營養品', lead: '商品' },
@@ -102,6 +123,30 @@ export function fields(e, master) {
 
     ${detailRow(e, master)}
     ${qtyField(e)}`;
+}
+
+/**
+ * 「買了什麼」那一排的課程那一段。
+ *
+ * **要選器材的課程換成擇一池那一顆，而且留在它原本的位置上。**
+ * 那一筆額度要帶著「可以用哪幾台」（`poolChoices()`），買成 `single` 的話
+ * 排班時沒有池可以選器材。
+ *
+ * 留在原位是刻意的：這一排橫著捲，而她最常買的就是復能 ——
+ * 接在最後面等於每一次都要滑到底。順序由她自己在主檔上排，這裡不重排。
+ */
+function courseChips(master) {
+  const out = [];
+  let pooled = false;
+  for (const c of master.courses ?? []) {
+    if (!c.requiresEquipment) {
+      out.push({ value: c.id, label: c.name });
+    } else if (!pooled) {
+      pooled = true;
+      out.push({ value: POOL_PICK, label: c.name });
+    }
+  }
+  return out;
 }
 
 /**
@@ -114,6 +159,8 @@ export function pick(value, e, master) {
   const equipment = master.equipment ?? [];
 
   if (value === POOL_PICK) {
+    const choices = poolChoices(master);
+    const course = poolCourseOf(master);
     const next = {
       type: 'pool',
       courseId: null,
@@ -121,7 +168,10 @@ export function pick(value, e, master) {
       ivProductId: null,
       tier: null,
       tierOther: false,
-      optionEquipmentIds: equipment.map((x) => x.id),
+      // 預設是**整組那一顆**（方案裡的那一項就是它），不是全部器材 ——
+      // 她最常買的就是三選一，先幫她按好。
+      optionEquipmentIds: choices.sets[0]?.ids ?? equipment.map((x) => x.id),
+      durationMin: e.durationMin ?? course?.durationMin ?? null,
     };
     return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
   }
@@ -162,8 +212,11 @@ export function pick(value, e, master) {
     tier,
     tierOther: Boolean(tier) && !TIER_PRESETS.includes(tier),
     ivProductId: course?.requiresIvProduct ? (e.ivProductId ?? null) : null,
-    // 選了課程就把時長帶進來 —— 她一個字都不用打
-    durationMin: e.durationMin ?? null,
+    // 有「可選時長」的課程（ILIB）先幫她按好預設那一顆 —— 不然她要多點一下
+    // 才存得下去，而那一下的答案永遠是課程本身的時長。
+    durationMin: durationChoicesOf(course).length
+      ? (e.durationMin ?? course?.durationMin ?? null)
+      : (e.durationMin ?? null),
   };
   return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
 }
@@ -241,7 +294,15 @@ export function autoLabel(e, master) {
   // 一次購買一筆，名字裡帶金額與那幾款 —— 她的舊表就是那樣寫的
   // （`營養品(5000) : 夜態美+速體淨…`）。規則只在 `domain/products.js`。
   if (e?.type === 'product') return itemsOf(e).length ? productLabel(e) : '';
-  if (e?.type === 'pool') return '復能';
+
+  // 擇一池：一台就叫那一台，多台叫「復能三選一」，後面接時長。
+  // 名字**算出來的**（`poolName()`）—— 她多加一台器材，「四選一」自己會變。
+  if (e?.type === 'pool') {
+    return timedLabel(
+      poolName(e.optionEquipmentIds ?? [], master.equipment ?? [], master.courses ?? []),
+      e.durationMin,
+    );
+  }
 
   const course = (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
   if (!course) return '';
@@ -249,6 +310,8 @@ export function autoLabel(e, master) {
     const item = (master.ivProducts ?? []).find((p) => p.id === e.ivProductId)?.name ?? '';
     return itemisedLabel(course.name, item);
   }
+  // 分得出時長的課程（ILIB）名字裡帶著它 —— 她身上會同時有 ILIB(30) 與 ILIB(60)
+  if (durationChoicesOf(course).length) return timedLabel(course.name, e?.durationMin);
   return tieredLabel(e?.tier, course.name);
 }
 
@@ -273,7 +336,7 @@ export function keptLabel(e, master) {
  * @param {HTMLFormElement} form
  * @param {object} v `f.readForm(form)` 的結果
  */
-export function read(form, v) {
+export function read(form, v, master = {}) {
   const out = {};
 
   if (form.elements.tier) {
@@ -283,6 +346,27 @@ export function read(form, v) {
     out.tierOther = other;
   }
   if (form.elements.ivProductId) out.ivProductId = v.ivProductId ?? null;
+
+  // 「哪一種」那一排送回來的是**一顆的值**（整組或某一台），這裡換回
+  // 真正要存的那一串器材 id —— 存的是 ids，不是她按了哪一顆。
+  if (form.elements.poolKind) {
+    out.optionEquipmentIds = idsForPoolKind(v.poolKind, master) ?? [];
+  }
+  // 時長那一排。`'__null__'` 是 `f.chips()` 對 null 的寫法。
+  if (form.elements.durationMin) {
+    const raw = v.durationMin;
+    out.durationMin = raw && raw !== '__null__' ? Number(raw) : null;
+  }
+
+  // 到期日那一排。**值就是算好的日期**（`expiryRow()` 算的），所以這裡不做
+  // 任何日期運算 —— 兩邊各算一次的話，畫面上按著「一年」而存進去的是別的一天。
+  if (form.elements.expiryPreset) {
+    const preset = v.expiryPreset ?? EXPIRY_NONE;
+    out.expiryOther = preset === EXPIRY_OTHER;
+    out.expiresAt = out.expiryOther
+      ? (String(v.expiresAt ?? '').trim() || null)
+      : (preset === EXPIRY_NONE ? null : preset);
+  }
 
   if (form.elements.productIds) {
     // 值從 `v`（`readForm()` 的結果）讀，不從 `form.elements` ——
@@ -309,6 +393,12 @@ export function read(form, v) {
  */
 export function validate(e, master) {
   if (!picked(e)) return ['先選一個「買了什麼」'];
+  // 「復能」那一顆只是分類，還要說是哪一種。這句話比
+  // `validateEntitlement()` 的「要挑至少一種器材」好懂 —— 她看到的畫面上
+  // 那一排叫「哪一種」，不叫「器材」。
+  if (e.type === 'pool' && !(e.optionEquipmentIds ?? []).length) {
+    return [`還要選一種${poolCourseOf(master)?.name ?? ''}`];
+  }
   return validateEntitlement(e, master);
 }
 
@@ -380,13 +470,127 @@ export const unitOf = (e) => (e?.type === 'product' ? '個月' : '次');
  */
 function detailRow(e, master) {
   if (e.type === 'product') return productRow(e, master.products ?? []);
-  if (e.type === 'pool') return '';
+  if (e.type === 'pool') {
+    return `${poolKindRow(e, master)}${durationRow(e, master)}${nameHint(autoLabel(e, master), picked(e))}`;
+  }
 
   const course = (master.courses ?? []).find((c) => c.id === e.courseId) ?? null;
   if (!course) return '';
   if (course.requiresIvProduct) return ivRow(e, master.ivProducts ?? [], course);
   if (followupCourseIdOf(course)) return tierRow(e, course);
-  return '';
+  const rows = durationRow(e, master);
+  return rows ? `${rows}${nameHint(autoLabel(e, master), e.courseId)}` : '';
+}
+
+// ---------- 復能：哪一種 → 幾分鐘 ----------
+
+/**
+ * 「復能」是哪一個課程。**不寫死名字** —— 判準是「排班時要選器材」，
+ * 跟 `picksEquipment()` 問的是同一件事。
+ *
+ * 有兩個以上就取第一個：那時候這一排本來就講不清楚，而她會在主檔上看到問題。
+ */
+export function poolCourseOf(master = {}) {
+  return (master.courses ?? []).find((c) => !c.deletedAt && c.requiresEquipment) ?? null;
+}
+
+/**
+ * 「哪一種」那一排有哪幾顆。
+ *
+ * 前面是**整組**（三選一、四選一），後面是**單買一台**。順序是刻意的：
+ * 方案裡的那一項就是三選一，她最常買的排最前面（同 `ivChoicesFor()` 的判斷）。
+ *
+ * 兩組整組的定義：
+ *
+ * - **三選一** = 復能那個課程自己的器材（`courseId` 指到它的那幾台）
+ * - **四選一** = 全部還在用的器材（多出來的就是 ILIB）
+ *
+ * 兩組一樣大時只留一顆 —— 畫兩顆一模一樣的丸子等於在問一個沒有答案的問題。
+ * 一台器材都沒有指到課程（舊資料）時，「整組」就是全部，只有一顆。
+ */
+export function poolChoices(master = {}) {
+  const equipment = (master.equipment ?? []).filter((e) => !e.deletedAt && e.active !== false);
+  const home = poolCourseOf(master);
+  const tagged = equipment.filter((e) => e.courseId);
+
+  const homeIds = home && tagged.length
+    ? equipment.filter((e) => e.courseId === home.id).map((e) => e.id)
+    : equipment.map((e) => e.id);
+  const allIds = equipment.map((e) => e.id);
+
+  const sets = [];
+  if (homeIds.length > 1) sets.push({ value: POOL_SET_HOME, ids: homeIds });
+  if (allIds.length > homeIds.length && allIds.length > 1) {
+    sets.push({ value: POOL_SET_ALL, ids: allIds });
+  }
+
+  return {
+    sets: sets.map((x) => ({ ...x, label: `${countWord(x.ids.length)}選一` })),
+    singles: equipment.map((eq) => ({ value: eq.id, ids: [eq.id], label: eq.name })),
+  };
+}
+
+/** 那一顆的值 → 要存進去的那一串器材 id。認不得的回 null（呼叫端當成沒選）。 */
+export function idsForPoolKind(value, master = {}) {
+  if (!value || value === '__null__') return null;
+  const { sets, singles } = poolChoices(master);
+  return [...sets, ...singles].find((x) => x.value === value)?.ids ?? null;
+}
+
+/**
+ * 現在按著的是哪一顆。**比的是那一串 id，不是記她按了什麼** ——
+ * 從方案展開出來的額度身上只有 ids，而她點進去調整時那一排也要按對。
+ */
+export function poolPickOf(e, master = {}) {
+  const mine = [...(e?.optionEquipmentIds ?? [])].sort().join('|');
+  if (!mine) return null;
+  const { sets, singles } = poolChoices(master);
+  return [...sets, ...singles]
+    .find((x) => [...x.ids].sort().join('|') === mine)?.value ?? null;
+}
+
+/**
+ * 「哪一種」那一排。
+ *
+ * 她的原話：「點了之後可以選選是三選一，四選一，或是單一的哪一項」。
+ * 整組與單買中間隔一條線＋一個小標，跟「買了什麼」那一排把營養品分出來
+ * 同一個作法 —— 一排七八顆要滑，而後面那一組是另一種東西，得先說一聲。
+ */
+function poolKindRow(e, master) {
+  const { sets, singles } = poolChoices(master);
+  if (!sets.length && singles.length < 2) return '';
+
+  return `
+    ${f.chips({
+      name: 'poolKind',
+      label: '哪一種',
+      value: poolPickOf(e, master),
+      options: [
+        ...sets,
+        ...singles.map((x, i) => (i === 0 ? { ...x, lead: '單買一台' } : x)),
+      ].map(({ value, label, lead }) => ({ value, label, ...(lead ? { lead } : {}) })),
+    })}`;
+}
+
+/**
+ * 「幾分鐘」那一排。**名單在課程主檔上**（`durationChoices`），不寫死課程名字。
+ *
+ * 沒填的課程整排不出現 —— 健檢那一格永遠不會被按的丸子只是噪音。
+ */
+function durationRow(e, master) {
+  const course = e.type === 'pool'
+    ? poolCourseOf(master)
+    : (master.courses ?? []).find((c) => c.id === e.courseId) ?? null;
+  const choices = durationChoicesOf(course);
+  if (choices.length < 2) return '';
+
+  return `
+    ${f.chips({
+      name: 'durationMin',
+      label: '幾分鐘',
+      value: e.durationMin == null ? null : String(e.durationMin),
+      options: choices.map((n) => ({ value: String(n), label: `${n} 分鐘` })),
+    })}`;
 }
 
 /**
@@ -488,6 +692,51 @@ function productRow(e, products) {
 }
 
 /**
+ * 「到期日」那一排。**進階設定裡的東西**，不在主體上。
+ *
+ * 她 2026-09-06：
+ *
+ * > 其實現在不需要到期日了，可以保留但就是選填，基本上不會到期……
+ * > 也許可以選一年半年自訂時間等等
+ *
+ * 所以預設按在「不到期」，而不是像以前一樣算一個出來。半年與一年從**購買日**
+ * 起算（沒有購買日就從今天）—— 那兩顆的值**就是算好的那一天**，
+ * 所以 `read()` 一行日期運算都不用做。
+ *
+ * 「自己選」跟「其他…」「＋ 新增…」是同一個作法：開合狀態存在草稿上
+ * （`expiryOther`），畫的時候就決定，不必另外接一段。
+ *
+ * @param {object} e 草稿
+ * @param {{from?: string|null}} [o] 從哪一天起算
+ */
+export function expiryRow(e, { from = null } = {}) {
+  const base = isValidDate(from) ? from : todayISO();
+  const options = EXPIRY_PRESETS.map((x) => ({
+    value: addMonths(base, x.months),
+    label: x.label,
+  }));
+  const now = e?.expiresAt ?? null;
+  const custom = Boolean(e?.expiryOther)
+    || (Boolean(now) && !options.some((o) => o.value === now));
+
+  return `
+    ${f.chips({
+      name: 'expiryPreset',
+      label: '到期日',
+      value: custom ? EXPIRY_OTHER : (now ?? EXPIRY_NONE),
+      options: [
+        { value: EXPIRY_NONE, label: '不到期' },
+        ...options,
+        { value: EXPIRY_OTHER, label: '自己選' },
+      ],
+      hint: `半年與一年從${isValidDate(from) ? '購買日' : '今天'}起算。`,
+    })}
+    <div data-expiryother ${custom ? '' : 'hidden'}>
+      ${f.date({ name: 'expiresAt', label: '哪一天', value: custom ? (now ?? '') : '' })}
+    </div>`;
+}
+
+/**
  * 「會變成『8萬健檢』」那一句。
  *
  * 它不是說明，是**預告** —— 自動帶的名稱藏在「進階設定」裡，不講的話她要
@@ -572,7 +821,8 @@ export async function commitNewProduct(draft, master = {}, createProduct) {
 // ---------- 底下是三個入口共用的那一份接線 ----------
 
 /** 「哪一種／幾萬的」那幾排丸子。換了它們要跟著改顯示名稱。 */
-const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productIds"]';
+const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productIds"], '
+  + '[data-chip="poolKind"], [data-chip="durationMin"], [data-chip="expiryPreset"]';
 
 /**
  * **打字**會改到顯示名稱的那幾格。
@@ -591,9 +841,9 @@ const TYPED_FIELDS = '[name="tierText"], [name="newProductName"], [name="amountT
  * （`wire()` 的 `typed` 參數）。沒給的就是這一支 —— 兩張只有加購的表
  *（新增客戶、批次建立的微調）表上就只有這些。
  */
-export function values(form) {
+export function values(form, master = {}) {
   const v = f.readForm(form);
-  return { totalQty: v.totalQty, ...read(form, v) };
+  return { totalQty: v.totalQty, ...read(form, v, master) };
 }
 
 /**
@@ -618,7 +868,7 @@ export function values(form) {
  * @param {(form: HTMLFormElement) => object} [o.typed] 表單上還要讀哪些欄位
  * @param {(next: object, o: {repaint: boolean}) => void} o.onChange
  */
-export function wire(root, { form, draft, master, typed = values, onChange }) {
+export function wire(root, { form, draft, master, typed = (box) => values(box, master), onChange }) {
   root.addEventListener('click', (ev) => {
     const box = form();
     if (!box) return;

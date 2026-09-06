@@ -5,7 +5,6 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
-import { contraindicationTerms } from './contraindications.js';
 import { clinicalTerms } from './masterData.js';
 
 /**
@@ -106,80 +105,71 @@ export function warnings(c, existing = []) {
 }
 
 /**
- * 把永久限制拆成三份，給編輯表單用。
+ * 把永久限制拆成兩份，給編輯表單用。
  *
- * 前兩份是**有限的一組字**，所以做成丸子讓她點：
+ * `picked` 是**警示**（`clinicalTerms()`，設定 → 警示那一份主檔），做成丸子讓她點：
+ * 打錯一個字的症狀是**壓表卡片牆上什麼都不會出現**，而畫面上看起來跟打對了
+ * 一模一樣 —— 看不出來的錯比看得出來的危險。
  *
- * - `picked`      醫療禁忌（`contraindicationTerms()`，從器材主檔推出來）
- * - `clinicalPicked` 臨床提醒（`clinicalTerms()`，自己一份主檔，ADR-0064）
- *
- * 醫療禁忌那種字打錯一個就完全不會擋，而不會擋的醫療禁忌比沒有更危險；
- * 臨床提醒打錯一個則是**壓表卡片牆上什麼都不會出現**，而畫面上看起來
- * 跟打對了一模一樣 —— 兩種都是「看不出來的錯」，所以兩種都不給她打字。
- *
- * 第三份 `others`（固定禮拜五不行）是她自己的話，句子長什麼樣只有她知道，
+ * `others`（固定禮拜五不行）是她自己的話，句子長什麼樣只有她知道，
  * 只能留自由輸入。
  *
- * **`others` 要同時排掉兩份名單**：少排一份的話，臨床提醒會在自由輸入欄裡
- * 再出現一次，存檔時 `validate()` 會因為重複而擋下整張表單，
- * 而畫面上沒有一個欄位看起來是錯的（`mergeFlags()` 已經記過這個坑一次）。
+ * 2026-09-06 之前這裡是三份：醫療禁忌、臨床提醒、其餘。醫療禁忌那一層之所以
+ * 自成一層，唯一的理由是「它會擋」；不擋之後那條界線就不存在了（ADR-0074）。
+ *
+ * **`others` 要排掉警示名單**：少排的話，警示會在自由輸入欄裡再出現一次，
+ * 存檔時 `validate()` 會因為重複而擋下整張表單，而畫面上沒有一個欄位看起來是錯的。
  *
  * @param {string[]} flags 客戶身上的永久限制
- * @param {string[]} terms 會擋掉器材的那幾個字
- * @param {string[]} clinical 臨床提醒那幾個字
- * @returns {{picked: string[], clinicalPicked: string[], others: string[]}}
- *          前兩份照各自名單的順序，`others` 照客戶身上的原順序
+ * @param {string[]} alerts 警示那幾個字（`clinicalTerms()`）
+ * @returns {{picked: string[], others: string[]}}
+ *          `picked` 照主檔的順序，`others` 照客戶身上的原順序
  */
-export function splitFlagsForEdit(flags = [], terms = [], clinical = []) {
+export function splitFlagsForEdit(flags = [], alerts = []) {
   const has = new Set(flags ?? []);
-  const known = new Set([...(terms ?? []), ...(clinical ?? [])]);
+  const known = new Set(alerts ?? []);
   return {
-    picked: (terms ?? []).filter((t) => has.has(t)),
-    clinicalPicked: (clinical ?? []).filter((t) => has.has(t)),
+    picked: (alerts ?? []).filter((t) => has.has(t)),
     others: (flags ?? []).filter((f) => !known.has(f)),
   };
 }
 
 /**
- * 拆開的幾份合回一個 flags。**順序就是嚴重程度**：醫療禁忌、臨床提醒、其餘。
- * 客戶詳情那一排照這個順序畫，所以會擋東西的字永遠先被看到。
+ * 拆開的兩份合回一個 flags。**順序就是嚴重程度**：警示、其餘。
+ * 客戶詳情那一排照這個順序畫，所以要注意的字永遠先被看到。
  *
  * 去重是必要的而不是保險：她可能在自由輸入那一欄又打了一次「體內金屬」，
  * 而 `validate()` 會因為重複而擋下整張表單，卻沒有任何一個欄位看起來是錯的。
- *
- * 中間那一份是後來加的（ADR-0064），所以它有預設值 —— 只傳兩份的呼叫端
- * 行為一個字都沒有變。
  */
-export function mergeFlags(picked = [], clinical = [], others = []) {
-  const all = [...(picked ?? []), ...(clinical ?? []), ...(others ?? [])]
-    .map((x) => String(x).trim());
+export function mergeFlags(picked = [], others = []) {
+  const all = [...(picked ?? []), ...(others ?? [])].map((x) => String(x).trim());
   return [...new Set(all.filter(Boolean))];
 }
 
 /**
- * 永久限制的三層，見 ADR-0064。
+ * 永久限制的兩層，見 ADR-0074。
  *
- *   contraindications  醫療禁忌   會讓某個器材完全不能用（全站唯一的硬性阻擋）
- *   clinical           臨床提醒   什麼都不擋，但壓表那一刻要一眼看得到
- *   others             其餘       排班相關的話（固定禮拜五不行）
+ *   alerts   警示   什麼都不擋，但壓表那一刻要一眼看得到（體內金屬、血管難打）
+ *   others   其餘   她自己的話（固定禮拜五不行）。排班相關的由本輪可用性在管
  *
- * 三層要分開顯示，而且**畫法不一樣**：一張卡上十個紅字等於全都不紅
- * （`ui/components/flags.js` 的檔頭）。
+ * 兩層要分開顯示，而且**畫法不一樣**：一張卡上十個紅字等於全都不紅
+ * （`ui/components/flags.js` 的檔頭）。每一個警示的顏色與填法記在主檔上，
+ * 由她自己挑（`domain/clinicalFlags.js`）。
+ *
+ * **這一支不再需要器材主檔。** 2026-09-06 之前它拿器材上的禁忌詞當第一層；
+ * 現在那些字的用途只剩「選到這一台時要提醒什麼」
+ * （`domain/contraindications.js`），而畫在客戶身上的那一排只看警示主檔。
+ * 器材上有、警示主檔沒有的那幾個字由資料健檢列出來。
  *
  * @param {object} customer
- * @param {object[]} equipment 器材主檔
- * @param {object[]} clinicalFlags 臨床提醒主檔
- * @returns {{contraindications: string[], clinical: string[], others: string[]}}
+ * @param {object[]} clinicalFlags 警示主檔
+ * @returns {{alerts: string[], others: string[]}}
  */
-export function splitFlags(customer, equipment = [], clinicalFlags = []) {
-  const blocking = new Set(contraindicationTerms(equipment));
-  const alerts = new Set(clinicalTerms(clinicalFlags));
+export function splitFlags(customer, clinicalFlags = []) {
+  const known = new Set(clinicalTerms(clinicalFlags));
   const flags = customer?.flags ?? [];
   return {
-    contraindications: flags.filter((f) => blocking.has(f)),
-    // 兩份名單撞名時**禁忌贏**：那一顆是擋得住東西的，畫成比較輕的一顆
-    // 等於把硬性阻擋降級，而降級在畫面上看不出來。
-    clinical: flags.filter((f) => !blocking.has(f) && alerts.has(f)),
-    others: flags.filter((f) => !blocking.has(f) && !alerts.has(f)),
+    alerts: flags.filter((f) => known.has(f)),
+    others: flags.filter((f) => !known.has(f)),
   };
 }

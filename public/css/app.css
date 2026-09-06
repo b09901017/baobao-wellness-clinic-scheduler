@@ -626,7 +626,7 @@ textarea {
   border-left: 1px solid var(--border);
 }
 
-/* 醫療禁忌永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
+/* 永久限制永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
 .flag {
   display: inline-flex;
   align-items: center;
@@ -640,32 +640,30 @@ textarea {
   white-space: nowrap;
 }
 
-/* 會真的擋掉器材的那幾個（`contraindicationTerms()` 裡有的字）。
-   一般的 .flag 已經是紅字淡底，而一張卡上十個永久限制全紅等於全都不紅 ——
-   這一顆是實心的，掃過去一眼就分得出「這個人有東西被硬性擋住」。
-   選項從器材主檔的醫療禁忌推出來，不是打字打的。 */
-.flag--block {
-  color: var(--on-danger);
-  background: var(--danger);
-}
+/* 警示（ADR-0074）。**每一個字自己挑顏色與填法**，因為系統分不出「體內金屬」
+   跟「怕痛」哪一個對她比較重要 —— 那是她的判斷（ADR-0002）。同行事備註（ADR-0040）。
 
-/* 臨床提醒（ADR-0064）。比 .flag--block 輕一級：那一顆是「這台機器不能用」，
-   這一顆是「這個人做起來要注意」。**不開新色相**（ADR-0039 已經記著色相不夠用）
-   —— 借 --tea（次要強調），而茶色目前沒有被任何狀態丸用掉。
-   外框而不是實心：實心會跟旁邊的醫療禁忌搶同一個重量，而那兩件事的後果差很多。 */
+   兩個變數由 `domain/clinicalFlags.js` 的 `styleFor()` 行內填進來，
+   值是 `--evcolor-*` 那一組（不是 --mark-*：後者是給小圓點用的，
+   當 11px 的字擺在色塊上對比度不夠，同 ADR-0040 的理由）。
+   六色 × 兩種填法**不做成十二條 CSS** —— 值全部都在 tokens.css 裡了。 */
 .flag--alert {
-  color: var(--tea);
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--tea);
+  --flag-fg: var(--evcolor-tea);
+  --flag-bg: var(--evcolor-tea-bg);
 }
 
-/* 「只能 INDIBA」「不能用 超磁場」—— 算出來的那一句。
-   比上面那顆輕一級：被擋掉的那幾個字是事實，這一句是它的後果。
-   一台都不剩時改掛 .flag--block（那時候她壓不下去，要跟旗標一樣重）。 */
-.flag--left {
-  color: var(--danger);
+/* 實心：底色與字對調。`--evcolor-X` 與 `--evcolor-X-bg` 本來就互為對比
+   （淺色模式一深一淺、深色模式反過來），所以對調在兩種主題下都讀得出來，
+   不必為了色塊上的字另外開一組 on-color 的 token。 */
+.flag--solid {
+  color: var(--flag-bg);
+  background: var(--flag-fg);
+}
+
+.flag--outline {
+  color: var(--flag-fg);
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--danger);
+  box-shadow: inset 0 0 0 1px var(--flag-fg);
 }
 
 /* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */

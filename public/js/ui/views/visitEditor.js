@@ -16,7 +16,7 @@ import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, applyStatus, NOTE_MAX,
+  coursesForEntitlement, courseForEquipment, picksEquipment, applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
@@ -27,7 +27,6 @@ import {
 } from '../../domain/nthFollowup.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
-import { annotateOptions } from '../../domain/contraindications.js';
 import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
 import {
@@ -148,7 +147,7 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
 }
 
 function blankSlot(entitlement, all, settings, startsAt) {
-  const course = coursesForEntitlement(entitlement, all.courses)[0] ?? null;
+  const course = coursesForEntitlement(entitlement, all.courses, all.equipment)[0] ?? null;
   const durationMin = entitlement?.durationMin ?? course?.durationMin ?? 60;
   return {
     entitlementId: entitlement?.id ?? null,
@@ -200,9 +199,8 @@ function paint(ctx, draft) {
       <div class="row__title">
         ${esc(customer.name)}
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
-        ${flagsUi.detailChips(splitFlags(customer, all.equipment, all.clinicalFlags))}
+        ${flagsUi.detailChips(splitFlags(customer, all.clinicalFlags), { rows: all.clinicalFlags })}
       </div>
-      ${blockedNote(customer, all.equipment)}
       <div class="errors" data-errors hidden></div>
       ${warnings.length ? warningsHtml(warnings, embedded) : ''}
     </section>
@@ -299,22 +297,6 @@ function paint(ctx, draft) {
   if (!isNew) wireDangerZone(ctx, draft);
 }
 
-/**
- * 醫療禁忌是唯一會直接鎖住選項的檢查（ADR-0002），所以它不能長得像一句備註 ——
- * 壓表那一頁用的是同一組樣式，兩邊看起來要一樣重。
- */
-function blockedNote(customer, equipment) {
-  const blocked = annotateOptions(customer, equipment).filter((eq) => eq.blocked);
-  if (!blocked.length) return '';
-  return `
-    <div class="warn warn--hard">
-      ${icon('alert', { size: 16 })}
-      <span>${blocked
-        .map((eq) => `${esc(eq.name)}不可使用 —— ${esc(eq.reasons.join('、'))}禁忌`)
-        .join('；')}。這是唯一會直接鎖住選項的檢查。</span>
-    </div>`;
-}
-
 function warningsHtml(warnings, embedded = false) {
   return `
     <div class="card ${embedded ? 'card--flat' : ''}">
@@ -341,7 +323,11 @@ function slotCard(ctx, draft, slot, i) {
   const nth = isNthSlot(slot);
   const ent = nth ? null : (entitlements.find((x) => x.id === slot.entitlementId) ?? null);
   // n返 借二返那個課程，所以課程那一排不用出現（只有一個選項，而且她選不了別的）
-  const courseChoices = nth ? [] : coursesForEntitlement(ent, all.courses);
+  // 擇一池的課程是從器材推出來的（ADR-0075），所以那一排不出現 ——
+  // 她選的是器材，課程跟著走。
+  const courseChoices = nth || ent?.type === 'pool'
+    ? []
+    : coursesForEntitlement(ent, all.courses, all.equipment);
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
   const nthExams = nthExamChoices(ctx, draft);
 
@@ -405,7 +391,7 @@ function slotCard(ctx, draft, slot, i) {
             options: courseChoices.map((c) => ({ value: c.id, label: c.name })),
           })}
 
-      ${course?.requiresEquipment ? equipmentField(customer, ent, all, slot, i) : ''}
+      ${picksEquipment(ent, course) ? equipmentField(customer, ent, all, slot, i) : ''}
       ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
       ${course?.assigns === 'room' ? roomField(all, course, slot, i) : ''}
@@ -550,27 +536,31 @@ function ivField(ent, all, slot, i) {
   });
 }
 
+/**
+ * 器材那一排。**沒有一顆是關著的**（ADR-0074）—— 她在診間裡看得到儀器擺在哪，
+ * app 看不到。要提醒的那幾台照樣點得下去，點下去底下才跳一句。
+ *
+ * 那一句走 `flagsUi.noticeBlock()`，跟壓表的記錄面板共用同一支。
+ * 這一頁換丸子會整張重畫，所以不用另外接一段就地換字。
+ */
 function equipmentField(customer, ent, all, slot, i) {
-  const pool = ent?.type === 'pool'
+  const options = ent?.type === 'pool'
     ? (ent.optionEquipmentIds ?? [])
       .map((id) => all.equipment.find((e) => e.id === id))
       .filter(Boolean)
     : all.equipment;
 
-  const annotated = annotateOptions(customer, pool);
-
-  // **被擋掉的留在原位、劃掉、點不下去。** 這是丸子取代下拉最重要的一個理由：
-  // SPEC 第 4.3 節要求醫療禁忌永遠可見不可摺疊，而下拉選單裡那一行
-  // 「✕ 超磁場（不可使用）」只有點開才看得到。
-  return f.chips({
-    name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
-    options: annotated.map((eq) => ({
-      value: eq.id,
-      label: eq.name,
-      disabled: eq.blocked,
-      note: eq.blocked ? eq.reasons.join('、') : '',
-    })),
-  });
+  return `
+    ${f.chips({
+      name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
+      options: options.map((eq) => ({ value: eq.id, label: eq.name })),
+    })}
+    ${flagsUi.noticeBlock({
+      customer,
+      equipment: options.find((eq) => eq.id === slot.equipmentId) ?? null,
+      options,
+      size: 16,
+    })}`;
 }
 
 /**
@@ -639,10 +629,18 @@ function readDraft(ctx, form, draft) {
     const ent = entitlements.find((x) => x.id === entitlementId) ?? null;
 
     // 換了額度就要重挑課程，舊的課程可能根本不屬於新的額度
-    const choices = coursesForEntitlement(ent, all.courses);
+    const choices = coursesForEntitlement(ent, all.courses, all.equipment);
     let courseId = key(v, `s${i}-course`, slot.courseId);
     if (choices.length === 1) courseId = choices[0].id;
     else if (!choices.some((c) => c.id === courseId)) courseId = null;
+
+    // **擇一池的課程由器材決定**（ADR-0075）：四選一選到 ILIB 那一段算 ILIB
+    // （要診間），其餘三台算復能（要治療師）。推不出來就維持原來的 ——
+    // 清成 null 的話那一段存不下去，而她只是還沒挑器材。
+    const equipmentId = v[`s${i}-equip`] ?? slot.equipmentId ?? null;
+    if (ent?.type === 'pool') {
+      courseId = courseForEquipment(equipmentId, all.equipment, courseId ?? choices[0]?.id ?? null);
+    }
 
     const course = all.courses.find((c) => c.id === courseId) ?? null;
     const startsAt = v[`s${i}-start`] || slot.startsAt;
@@ -653,7 +651,7 @@ function readDraft(ctx, form, draft) {
       entitlementId,
       courseId,
       courseName: course?.name ?? null,
-      equipmentId: course?.requiresEquipment ? (v[`s${i}-equip`] ?? null) : null,
+      equipmentId: picksEquipment(ent, course) ? (v[`s${i}-equip`] ?? null) : null,
       ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,

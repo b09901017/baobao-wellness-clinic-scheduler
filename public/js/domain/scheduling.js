@@ -14,7 +14,6 @@
 import { counts, isProduct } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive } from './visits.js';
-import { annotateOptions } from './contraindications.js';
 import { overlaps, toMinutes } from './visitTime.js';
 import { daysBetween, isValidDate, lastDayOf } from './dates.js';
 import { readMarks } from './customerMarks.js';
@@ -728,7 +727,6 @@ export function partsOfDay(startsAt, endsAt) {
  * @param {Record<string, object[]>} ctx.entitlementsBy
  * @param {Record<string, object[]>} ctx.visitsBy
  * @param {Record<string, object[]>} ctx.availabilityBy
- * @param {object[]} [ctx.equipment] 擇一池要看禁忌有沒有把器材全鎖死
  * @param {string} ctx.today
  * @param {object} [ctx.weights]
  * @returns {{candidates: object[], excluded: object[]}}
@@ -737,7 +735,7 @@ export function partsOfDay(startsAt, endsAt) {
  */
 export function candidatesFor({
   course, date, startsAt, endsAt = null, customers = [], entitlementsBy = {},
-  visitsBy = {}, availabilityBy = {}, equipment = [], today, weights = DEFAULT_WEIGHTS,
+  visitsBy = {}, availabilityBy = {}, today, weights = DEFAULT_WEIGHTS,
 }) {
   const range = monthRange(String(date ?? '').slice(0, 7));
   if (!course || !isValidDate(date) || !range) return { candidates: [], excluded: [] };
@@ -760,12 +758,10 @@ export function candidatesFor({
       continue;
     }
 
-    // 醫療禁忌是整個系統唯一的硬性阻擋（ADR-0002）。
-    // 擇一池的器材被禁忌全部鎖死時，這個人真的不能來上這堂課。
-    if (course.requiresEquipment && allEquipmentBlocked(customer, state.entitlement, equipment)) {
-      drop(customer, '醫療禁忌把這個池裡的器材全部鎖住了');
-      continue;
-    }
+    // 這裡以前還有一道：擇一池的器材被醫療禁忌全部鎖死時，把這個人整個排除。
+    // 2026-09-06 拿掉了 —— 沒有任何一台器材再被擋住（ADR-0074），
+    // 所以「這個人真的不能來上這堂課」這件事不存在了。要提醒的那幾台照樣選得到，
+    // 而那一句提醒在她真的選下去的那一刻才出現（`noticeSentence()`）。
 
     const clash = sameTimeVisit(visits, date, startsAt, endsAt);
     if (clash) {
@@ -832,12 +828,3 @@ function sameTimeVisit(visits, date, startsAt, endsAt) {
     .find((v) => (v.slots ?? []).some((s) => overlaps(s, want))) ?? null;
 }
 
-function allEquipmentBlocked(customer, entitlement, equipment) {
-  const ids = entitlement?.optionEquipmentIds ?? [];
-  if (!ids.length) return false;
-  const options = ids
-    .map((id) => equipment.find((e) => e.id === id))
-    .filter(Boolean);
-  if (!options.length) return false;
-  return annotateOptions(customer, options).every((o) => o.blocked);
-}
