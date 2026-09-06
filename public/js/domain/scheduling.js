@@ -272,6 +272,8 @@ function rowFor({ customer, state, visits, availability, range, today }) {
     customerName: customer.name,
     priority: customer.priority ?? 0,
     flags: customer.flags ?? [],
+    // 合作機構（ADR-0076）。壓表那一刻要看得到 —— 壓完她要跟對方的專員說一聲。
+    partners: customer.partners ?? [],
     entitlementId: state.entitlement?.id ?? null,
     entitlementLabel: state.entitlement?.label ?? null,
     remaining: state.remaining,
@@ -617,6 +619,7 @@ export function customersToBook({
       customerName: customer.name,
       priority: customer.priority ?? 0,
       flags: customer.flags ?? [],
+      partners: customer.partners ?? [],
       marks: readMarks(customer),
       systems: [...bySystem].map(([system, poolsIn]) => ({ system, pools: poolsIn })),
     });

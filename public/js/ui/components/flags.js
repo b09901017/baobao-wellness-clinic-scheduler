@@ -24,6 +24,12 @@
 // 「哪一台器材要提醒」是另一件事，記在器材主檔上，只在她真的選了那一台的時候
 // 才講一句（`domain/contraindications.js` 的 `noticeSentence()`）——
 // 卡片牆上那顆算出來的「只能 INDIBA」2026-09-06 拿掉了，她指名不要。
+//
+// ## 這一支也畫合作機構
+//
+// 它**不是永久限制**（不擋、不影響排班），但它畫在同一個位置上：跟著客戶的
+// 名字。四個畫面共用一支的理由跟警示一模一樣 —— 各寫一次遲早有一頁忘了跟，
+// 而症狀是「那顆丸子在這一頁有、那一頁沒有」。見 ADR-0076。
 
 import { esc, parseList } from './form.js';
 import { splitFlagsForEdit, mergeFlags } from '../../domain/customers.js';
@@ -185,4 +191,75 @@ export function noticeBlock({ customer, equipment, options = [], size = 18 }) {
       ${icon('alert', { size })}
       <span><b>${esc(say.headline)}</b><br />${esc(say.detail)}</span>
     </div>`;
+}
+
+/**
+ * 合作機構那幾顆（ADR-0076）。
+ *
+ * 畫法**跟警示分得出來**：那一排回答「這個人做起來要注意」，這一排回答
+ * 「這一次要多跟一家講一聲」。兩件事長一樣的話，她掃過去會把它們當成同一種。
+ *
+ * **它不產生任何待辦**（她 2026-09-06 選的），所以這顆丸子就是全部的提醒 ——
+ * 那正是它必須在每一個看得到客戶名字的地方都出現的理由。
+ *
+ * @param {string[]} partners 這位客戶掛的那幾家（`partnersOf()`）
+ */
+export function partnerChips(partners = []) {
+  const mine = (partners ?? []).filter(Boolean);
+  if (!mine.length) return '';
+  return mine.map((x) => `<span class="flag flag--partner">${esc(x)}</span>`).join('');
+}
+
+/**
+ * 掛一個合作機構的挑選器進 host（ADR-0076）。
+ *
+ * **跟永久限制分成兩支**，因為它們是兩件事：一個是「這個人做起來要注意」，
+ * 一個是「這一次要多跟一家講一聲」。合成一支的話，之後改其中一種的行為
+ * 會不小心動到另一種。畫面上它們相鄰是版面的事，不是同一件事。
+ *
+ * @param {HTMLElement} host
+ * @param {object} opts
+ * @param {string[]} opts.partners 現在掛的那幾家
+ * @param {string[]} opts.options  主檔上還在用的那幾家（`partnerNames()`）
+ * @param {Function} opts.onChange 收到合好的 string[]
+ * @returns {{value: () => string[]}}
+ */
+export function mountPartners(host, { partners = [], options = [], onChange }) {
+  if (!host) return { value: () => partners };
+
+  const known = new Set(options);
+  const picked = new Set((partners ?? []).filter((x) => known.has(x)));
+  // 主檔上已經沒有的字照樣留著 —— 她可能把那一筆改名了，而客戶身上存的是字串。
+  // 悄悄丟掉的話，那位客戶就再也不會出現「自然美」那顆丸子了。
+  const orphans = (partners ?? []).filter((x) => x && !known.has(x));
+
+  const value = () => [...options.filter((x) => picked.has(x)), ...orphans];
+
+  host.innerHTML = `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">合作機構　這位客戶要跟誰一起約</span>
+      ${options.length ? `
+        <div class="chiprow noscroll-bar" role="group" aria-label="合作機構">
+          ${options.map((t) => `
+            <button class="chip chip--sm" type="button"
+                    aria-pressed="${picked.has(t)}" data-partner="${esc(t)}">${esc(t)}</button>`).join('')}
+        </div>
+        <p class="field__hint">壓完表記得跟他們的專員說一聲。
+          <b>不會產生任何待辦</b> —— 這顆丸子會跟著名字出現在壓表與待辦上。</p>` : `
+        <p class="field__hint">還沒有合作機構。到設定 → 合作機構加一筆，之後就點得到了。</p>`}
+      ${orphans.length ? `
+        <p class="field__hint">主檔上已經沒有的：${esc(orphans.join('、'))}（照樣留著）</p>` : ''}
+    </div>`;
+
+  host.querySelectorAll('[data-partner]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.partner;
+      if (picked.has(name)) picked.delete(name);
+      else picked.add(name);
+      btn.setAttribute('aria-pressed', String(picked.has(name)));
+      onChange?.(value());
+    }),
+  );
+
+  return { value };
 }

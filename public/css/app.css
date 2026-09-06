@@ -666,6 +666,23 @@ textarea {
   box-shadow: inset 0 0 0 1px var(--flag-fg);
 }
 
+/* 合作機構（ADR-0076）。**不是永久限制** —— 它不擋、不影響排班，
+   只是「這一次要多跟一家講一聲」。所以畫法要跟警示分得出來：
+   那一排是實心／外框的語意色，這一顆是中性的方框加一個小前綴，
+   掃過去一眼就知道它是另一種東西。**不開新色相**（ADR-0039）—— 借 --accent。 */
+.flag--partner {
+  color: var(--accent);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+}
+.flag--partner::before {
+  content: '＋';
+  margin-right: 2px;
+  opacity: 0.7;
+}
+
 /* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */
 .blockchips {
   display: flex;

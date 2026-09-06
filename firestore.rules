@@ -66,7 +66,11 @@ service cloud.firestore {
         && d.name.size() > 0
         && (!d.keys().hasAny(['priority'])
             || (d.priority is int && d.priority >= 0 && d.priority <= 5))
-        && (!d.keys().hasAny(['marks']) || d.marks is list);
+        && (!d.keys().hasAny(['marks']) || d.marks is list)
+        // 合作機構（ADR-0076）。跟 marks 同一個深度：只驗形狀。
+        // 裡面那幾個字對不對得上主檔不驗 —— 客戶身上存的是字串，
+        // 而主檔改名之後那個字照樣要留著（同永久限制）。
+        && (!d.keys().hasAny(['partners']) || d.partners is list);
     }
 
     // 原文是最終依據（SPEC 第 4.3 節），所以它不可以是空的 ——
@@ -276,7 +280,10 @@ service cloud.firestore {
         && d.body is string
         && d.body.size() > 0
         && d.body.size() <= 5000
-        && (!('courseIds' in d) || d.courseIds is list);
+        && (!('courseIds' in d) || d.courseIds is list)
+        // 掛哪幾家合作機構（ADR-0076）。同上，只驗形狀 ——
+        // 存的是字串（跟客戶身上一樣），對不對得上主檔不驗。
+        && (!('partners' in d) || d.partners is list);
     }
 
     match /playbooks/{playbookId} {

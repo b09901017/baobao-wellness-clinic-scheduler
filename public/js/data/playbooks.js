@@ -63,7 +63,7 @@ export async function create(data) {
 /**
  * 改一份。
  *
- * **收的是整份不是變了的那幾欄** —— `normalize()` 只回三個欄位，
+ * **收的是整份不是變了的那幾欄** —— `normalize()` 只回四個欄位，
  * 逐欄 patch 會讓舊形狀留下來的 `sections`／`tag`／`pinned` 永遠留在文件上。
  * 整份寫進去，稽核紀錄上的 before/after 也才看得出改了什麼。
  */

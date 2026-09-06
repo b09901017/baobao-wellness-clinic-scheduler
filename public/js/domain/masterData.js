@@ -70,6 +70,7 @@ export const MASTER_TYPES = [
   'staff',
   'equipment',
   'clinicalFlags',
+  'partners',
   'ivProducts',
   'products',
   'courses',
@@ -78,6 +79,7 @@ export const MASTER_TYPES = [
 
 export const MASTER_LABELS = {
   rooms: '診間',
+  partners: '合作機構',
   staff: '治療師與醫師',
   equipment: '器材',
   clinicalFlags: '臨床提醒',
@@ -109,6 +111,22 @@ export const MASTER_LABELS = {
  * @returns {string[]} 還在用的那幾個字，維持主檔上的順序
  */
 export function clinicalTerms(rows = []) {
+  return aliveNames(rows);
+}
+
+/**
+ * 合作機構的名單（ADR-0076）。跟 `clinicalTerms()` 問的是同一句話：
+ * **從主檔拿出一份可以點的名單**，所以它們住在一起、共用同一支身體。
+ *
+ * 客戶身上存的是**字串不是 id**（同永久限制），所以主檔改名不會搬既有客戶
+ * —— 那是刻意的，改名的人要自己回去重選。
+ */
+export function partnerNames(rows = []) {
+  return aliveNames(rows);
+}
+
+/** 還在用的那幾筆的名字，維持主檔上的順序。 */
+function aliveNames(rows = []) {
   return (rows ?? [])
     .filter((r) => r && !r.deletedAt && r.active !== false)
     .map((r) => String(r.name ?? '').trim())
@@ -250,6 +268,20 @@ const validators = {
       errors.push('填法只能是實心或空心');
     }
     return errors;
+  },
+
+  /**
+   * 合作機構（ADR-0076）。客戶身上打得上的一個標記，例：自然美。
+   *
+   * **不寫死在程式碼裡**：這個 repo 為字串比對付過帳（`domain/followups.js`
+   * 的檔頭）。而且她之後多一家合作的，設定裡加一筆就好。
+   */
+  partners(r) {
+    if (isBlank(r.name)) return ['機構名稱不可空白'];
+    // 這一份的字會原樣畫在壓表卡片牆的一張卡上，而那一排要掃得完（同警示）
+    return String(r.name).trim().length > 12
+      ? ['機構名稱最多 12 字。壓表卡片牆上那一排要掃得完']
+      : [];
   },
 
   ivProducts(r) {

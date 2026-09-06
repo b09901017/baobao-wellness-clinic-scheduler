@@ -27,7 +27,7 @@ import { sortNotes, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domai
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
-import { clinicalTerms } from '../../domain/masterData.js';
+import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
@@ -128,7 +128,7 @@ export async function render(el, id) {
   let ctx;
   try {
     const [customer, entitlements, visits, tasks, avail, courses, equipment, clinicalFlags,
-      notes, rooms, staff, ivProducts, products, plans] =
+      notes, rooms, staff, ivProducts, products, plans, partners] =
       await Promise.all([
         data.get(id),
         data.listEntitlements(id),
@@ -149,10 +149,12 @@ export async function render(el, id) {
         config.listAll('products'),
         // 「加購方案」那一張面板要的（`components/planTweak.js`）。
         config.listAll('plans'),
+        // 合作機構（ADR-0076）。編輯基本資料那一張表要它才點得到。
+        config.listAll('partners'),
       ]);
     ctx = {
       el, id, customer, entitlements, visits, tasks, courses, equipment, clinicalFlags, notes,
-      rooms, staff, ivProducts, products, plans,
+      rooms, staff, ivProducts, products, plans, partners,
       availability: avail,
       back: () => reload(ctx),
     };
@@ -187,6 +189,7 @@ function paint(ctx) {
   const { el, customer, entitlements, visits, tasks, equipment, clinicalFlags, notes } = ctx;
   const today = todayISO();
   const flags = rules.splitFlags(customer, clinicalFlags);
+  const partners = rules.partnersOf(customer);
   const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
@@ -208,9 +211,10 @@ function paint(ctx) {
         </div>
         <button class="btn btn--sm" type="button" data-edit>編輯</button>
       </div>
-      ${(customer.flags ?? []).length || customer.active === false ? `
+      ${(customer.flags ?? []).length || partners.length || customer.active === false ? `
         <div class="hero__flags">
           ${flagsUi.detailChips(flags, { rows: clinicalFlags })}
+          ${flagsUi.partnerChips(partners)}
           ${customer.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
         </div>` : ''}
     </div>
@@ -1226,6 +1230,7 @@ async function addNote(ctx, form) {
 function paintEdit(ctx) {
   const { el, customer, equipment, clinicalFlags } = ctx;
   let flags = customer.flags ?? [];
+  let partners = rules.partnersOf(customer);
 
   el.innerHTML = `
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
@@ -1244,6 +1249,7 @@ function paintEdit(ctx) {
           })),
         })}
         <div data-flags></div>
+        <div data-partners></div>
         ${f.date({ name: 'purchasedAt', label: '購買日', value: customer.purchasedAt ?? '' })}
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
@@ -1268,6 +1274,15 @@ function paintEdit(ctx) {
     },
   });
 
+  // 合作機構（ADR-0076）。**跟永久限制分成兩支** —— 它不是限制。
+  flagsUi.mountPartners(el.querySelector('[data-partners]'), {
+    partners,
+    options: partnerNames(ctx.partners ?? []),
+    onChange: (list) => {
+      partners = list;
+    },
+  });
+
   el.querySelector('[data-form]').addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = f.readForm(e.target);
@@ -1278,6 +1293,7 @@ function paintEdit(ctx) {
       source: v.source.trim() || null,
       priority: Number(v.priority) || 0,
       flags,
+      partners,
       purchasedAt: v.purchasedAt || null,
     };
 

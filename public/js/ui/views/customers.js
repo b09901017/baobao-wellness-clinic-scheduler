@@ -16,7 +16,7 @@ import * as rules from '../../domain/customers.js';
 import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
-import { clinicalTerms } from '../../domain/masterData.js';
+import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
 import { todayISO, addDays, shortDate } from '../../domain/dates.js';
@@ -311,6 +311,7 @@ function card(c, ctx) {
             ${esc(c.name)}
             ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
             ${flagsUi.detailChips(flags, { others: false, rows: ctx.clinicalFlags })}
+            ${flagsUi.partnerChips(rules.partnersOf(c))}
             ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
           <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
@@ -385,14 +386,17 @@ export async function renderNew(el) {
   let courses;
   let ivProducts;
   let products;
+  let partners;
   try {
     // 課程／品項／營養品是底下那一段「加購」要的（同一張表，`components/buy.js`）。
     // 跟另外三份同一趟拿，不多一輪往返。
-    [plans, existing, equipment, clinicalFlags, courses, ivProducts, products] =
+    [plans, existing, equipment, clinicalFlags, courses, ivProducts, products, partners] =
       await Promise.all([
         config.listAll('plans'), data.list(), config.listAll('equipment'),
         config.listAll('clinicalFlags'),
         config.listAll('courses'), config.listAll('ivProducts'), config.listAll('products'),
+        // 合作機構（ADR-0076）
+        config.listAll('partners'),
       ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
@@ -409,6 +413,7 @@ export async function renderNew(el) {
     purchasedAt: todayISO(),
     priority: 0,
     flags: [],
+    partners: [],
     marks: [],
     planId: null,
     quantity: 1,
@@ -417,7 +422,7 @@ export async function renderNew(el) {
   };
 
   paintNew(el, draft, usable, existing, clinicalTerms(clinicalFlags), {
-    courses, equipment, ivProducts, products,
+    courses, equipment, ivProducts, products, partners: partnerNames(partners),
   });
 }
 
@@ -469,6 +474,7 @@ function paintNew(el, draft, plans, existing, alerts, master) {
           hint: '0 代表還沒評。',
         })}
         <div data-flags></div>
+        <div data-partners></div>
 
         <div class="fieldgroup">
           <span class="fieldgroup__label">備註　客戶臨時提的小事，顏色自己分</span>
@@ -516,6 +522,15 @@ function paintNew(el, draft, plans, existing, alerts, master) {
     alerts,
     onChange: (list) => {
       draft.flags = list;
+    },
+  });
+
+  // 合作機構（ADR-0076）。跟客戶詳情的編輯表單同一支。
+  flagsUi.mountPartners(el.querySelector('[data-partners]'), {
+    partners: draft.partners,
+    options: master.partners ?? [],
+    onChange: (list) => {
+      draft.partners = list;
     },
   });
 
@@ -647,6 +662,7 @@ function draftToCustomer(d) {
     membershipExpiresAt: null,
     priority: Number(d.priority) || 0,
     flags: d.flags ?? [],
+    partners: d.partners ?? [],
     // marks 與 notes 永遠一起寫，不要有只改到一邊的路徑
     ...toCustomerFields(d.marks),
   };

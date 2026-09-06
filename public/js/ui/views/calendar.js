@@ -104,7 +104,8 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff, courses, equipment, playbooks] = await Promise.all([
+    const [visits, events, notes, rooms, staff, courses, equipment, playbooks, customers] =
+      await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
       // 有日期的隨手記（ADR-0044）。跟其他幾份一起走，不多一輪往返。
@@ -122,6 +123,11 @@ async function load() {
       // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
       // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
       playbooksData.list().catch(() => []),
+      // 客戶：掛合作機構的那幾份備忘錄要靠客戶身上的標記（ADR-0076）。
+      // 跟其他幾份**同一趟**拿，不多一輪往返 —— 而點開一筆來訪才去讀那一位的話，
+      // 那一塊會在卡片畫好之後才跳出來，看起來像壞掉。
+      // 讀不到就當沒有：那一塊不畫就是了（`playbooksFor()` 的退路）。
+      customersData.list().catch(() => []),
     ]);
     return {
       ok: true,
@@ -136,6 +142,7 @@ async function load() {
         // 一段要唸成什麼要的是**陣列**（`domain/naming.js`）。跟上面那張表
         // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
         master: { courses, equipment },
+        customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
       },
     };
   } catch (err) {
@@ -826,8 +833,14 @@ function openDetail(el, data, what, id, date, repaint) {
   // （他還剩幾次、今天要掛哪幾個、這個月做了多少）都不是「這一場我該怎麼做」。
   // 「這一場的待辦」那一塊相反：它在 `visitReadHtml()` 裡面，四頁一起長
   // （2026-09-04 她自己選的，見 `.scratch/templates-memo-and-consequences/spec.md`）。
+  // 掛合作機構的那幾份要靠客戶身上的標記（ADR-0076）。**只在點開那一下才讀
+  // 那一位** —— 為了一塊提醒把整份客戶清單拉下來，日曆每次開都要多等一輪。
+  // 讀不到就只浮課程配到的那幾份（`playbooksFor()` 的退路）。
+  // 掛合作機構的那幾份要靠客戶身上的標記（ADR-0076）。讀不到那一位就只浮
+  // 課程配到的那幾份（`playbooksFor()` 的退路）—— 少一塊提醒比整張卡壞掉好。
+  const customer = data.customersById?.[visit.customerId] ?? null;
   const html = (tasks) => visitReadHtml(visit, { ...data, tasks })
-    + hintHtml({ playbooks: data.playbooks ?? [], visit });
+    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer });
 
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',

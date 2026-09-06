@@ -819,7 +819,7 @@ function alertChips(row) {
     flags: row.flags ?? [],
     alerts: alertTerms(),
     rows: ctx?.all?.clinicalFlags ?? [],
-  });
+  }) + flagsUi.partnerChips(row.partners ?? []);
 }
 
 /**

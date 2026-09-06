@@ -2594,7 +2594,8 @@ async function renderConfirm(el) {
   //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
   // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
   // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
-  const [pending, settings, courses, equipment, playbooks, templates] = await Promise.all([
+  const [pending, settings, courses, equipment, playbooks, templates, customers] =
+    await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
@@ -2608,6 +2609,9 @@ async function renderConfirm(el) {
     // 她改過的 LINE 模板。有行程內快取，所以一個 session 只真的讀一次；
     // 讀不到就用預設值（`config.getTemplates()` 自己吞掉錯誤）。
     config.getTemplates(),
+    // 掛合作機構的那幾份備忘錄要靠客戶身上的標記（ADR-0076）。
+    // 讀不到就只浮課程配到的那幾份。
+    customersData.list().catch(() => []),
   ]);
   const today = todayISO();
   paintConfirm({
@@ -2617,13 +2621,14 @@ async function renderConfirm(el) {
     today,
     playbooks,
     master: { courses, equipment },
+    customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
     templates,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
   });
 }
 
 function paintConfirm(ctx) {
-  const { el, pending, settings, today, playbooks, templates, master } = ctx;
+  const { el, pending, settings, today, playbooks, templates, master, customersById } = ctx;
   const groups = [...byCustomer(pending).entries()];
   const noReplyDays = settings.noReplyDays ?? 3;
 
@@ -2638,6 +2643,7 @@ function paintConfirm(ctx) {
       <div class="stack">
         ${groups.map(([id, visits]) => confirmCard(
           id, visits, today, noReplyDays, playbooks ?? [], templates ?? {}, master ?? {},
+          customersById?.[id] ?? null,
         )).join('')}
       </div>`
       : '<p class="muted">都問過了。</p>'}
@@ -2647,7 +2653,10 @@ function paintConfirm(ctx) {
   wireConfirm(ctx);
 }
 
-function confirmCard(customerId, visits, today, noReplyDays, playbooks = [], templates = {}, master = {}) {
+function confirmCard(
+  customerId, visits, today, noReplyDays,
+  playbooks = [], templates = {}, master = {}, customer = null,
+) {
   const name = visits[0].customerName ?? '（沒有名字）';
   const state = waitState(visits, today, noReplyDays);
   const slots = visits.flatMap((v) => v.slots ?? []);
@@ -2673,7 +2682,7 @@ function confirmCard(customerId, visits, today, noReplyDays, playbooks = [], tem
 
       ${/* 擺在那一句話與訊息範本中間：她的動線是
              「看一眼要提醒什麼 → 打字 → 送出」。 */''}
-      ${hintForVisits({ playbooks, visits })}
+      ${hintForVisits({ playbooks, visits, customer })}
 
       ${followupForm(customerId, name, state.note)}
 
@@ -3315,6 +3324,7 @@ function bookRow(row, system, alerts, clinicalRows) {
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
         ${flagsUi.alertChips({ flags: row.flags ?? [], alerts, rows: clinicalRows })}
+        ${flagsUi.partnerChips(row.partners ?? [])}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}
