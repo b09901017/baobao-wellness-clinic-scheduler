@@ -4,6 +4,7 @@
 // 導致取消改期後數字與現實脫節 —— 這裡不重蹈覆轍。
 
 import { validateProduct } from './products.js';
+import { nameOf } from './naming.js';
 
 /**
  * 這一個時段實際上算哪一種。次數的算法只認這一支。
@@ -317,12 +318,24 @@ function homeCourseOf(options, courses = []) {
 }
 
 /**
- * 一筆擇一池叫什麼。
+ * 一筆擇一池叫什麼。**課程在前面，破折號後面是哪一種。**
  *
  * | 池裡 | 叫什麼 | 為什麼 |
  * |---|---|---|
- * | 一台 | `超磁場` | 沒得選，就叫那一台。她寫的就是 `sis(60)x5` |
- * | N 台 | `復能三選一` | 「復能」是分類（`homeCourseOf()`），N 是真的有幾台 |
+ * | 一台 | `復能 - SIS` | 前半是分類（`homeCourseOf()`），後半是那一台的**別稱** |
+ * | N 台 | `復能 - 三選一` | N 是真的有幾台 |
+ *
+ * 她 2026-09-07 指名這個格式：
+ *
+ * > 我希望名稱是 復能 - 三選一/四選一/高能量雷射/SIS/INDIBA （30/60）
+ *
+ * 兩件事跟 2026-09-06 那一版不一樣，兩件都是照她講的：
+ *
+ * - **單買一台也帶著「復能」**。以前叫 `超磁場(60)`，跟三選一那一筆並排時
+ *   看不出是同一類東西 —— 而它們扣的是同一種次數、走的是同一條排班路。
+ * - **用別稱不是全名**（`SIS` 不是 `超磁場`）。她自己講的、寫的都是 SIS，
+ *   而別稱正是「她怎麼叫這個東西」那一格（`domain/naming.js`）。
+ *   沒設別稱的（高能量雷射、INDIBA）自己退回全名。
  *
  * **數字是算出來的不是寫死的**：她之後在主檔多加一台，「四選一」自己會變成
  * 「五選一」，一行程式都不用改。
@@ -336,24 +349,71 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
     .map((id) => (equipment ?? []).find((e) => e.id === id))
     .filter(Boolean);
   if (!options.length) return '';
-  if (options.length === 1) return String(options[0].name ?? '').trim();
 
-  const home = homeCourseOf(options, courses);
-  return `${String(home?.name ?? '').trim()}${countWord(options.length)}選一`;
+  const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
+  const only = options.length === 1 ? options[0] : null;
+  const what = only
+    ? nameOf(only, 'short', { as: 'equipment' })
+    : `${countWord(options.length)}選一`;
+
+  if (!what) return home;
+  // 器材與課程是同一件事（ILIB 那一台）就不要接兩次 —— 同 `slotName()` 那一條，
+  // 比的一樣是**全名**，不然別稱 `IL` 會讓它印成「ILIB - IL」。
+  // 這一種在畫面上按不出來（單買那一排沒有 ILIB），但方案範本與匯進來的
+  // 舊資料捏得出來。
+  const sameThing = only && String(only.name ?? '').trim() === home;
+  if (!home || home === what || sameThing) return sameThing ? home : what;
+  return `${home} - ${what}`;
 }
 
 /**
- * 帶時長的顯示名稱：`'超磁場'` + `60` → `'超磁場(60)'`。
+ * 這一池**以前**的自動名字有哪幾種（不含時長）。
+ *
+ * 只給資料健檢的「復能額度還叫舊名字」用。額度的名字是購買當下的快照
+ * （ADR-0003），改了格式之後既有的那幾筆不會自己跟上，而**她自己打的名字
+ * 不可以被一顆按鈕改掉**（同 ADR-0050 的判斷）—— 所以那一列只認得出
+ * 這幾種形狀，其餘一律不列。
+ *
+ * 三代格式：
+ *
+ *   `復能`          最早：擇一池一律叫課程名
+ *   `復能三選一`     算得出名字、但還沒有時長的中間狀態
+ *   `超磁場`         2026-09-06：單買一台叫器材**全名**（現在改叫別稱了）
+ *
+ * @returns {string[]} 去重、去空白
+ */
+export function legacyPoolNames(optionEquipmentIds = [], equipment = [], courses = []) {
+  const options = (optionEquipmentIds ?? [])
+    .map((id) => (equipment ?? []).find((e) => e.id === id))
+    .filter(Boolean);
+  if (!options.length) return [];
+
+  const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
+  const out = new Set([home]);
+  if (options.length === 1) {
+    out.add(String(options[0].name ?? '').trim());
+    out.add(nameOf(options[0], 'short', { as: 'equipment' }));
+  } else if (home) {
+    out.add(`${home}${countWord(options.length)}選一`);
+  }
+  return [...out].filter(Boolean);
+}
+
+/**
+ * 帶時長的顯示名稱：`'復能 - SIS'` + `60` → `'復能 - SIS（60）'`。
  *
  * 括號裡只有數字，沒有「分鐘」—— 她自己寫的就是 `sis(60)x5`，
  * 而那一格旁邊的標籤已經說了那是分鐘。
+ *
+ * **全形括號**（2026-09-07 她指名的格式）。半形的那一版還在既有資料上，
+ * 資料健檢那一列認得出來（`legacyPoolNames()` 的呼叫端）。
  *
  * 沒有時長就不加括號（同 `tieredLabel()` 的判斷：**不要補一個猜的**）。
  */
 export function timedLabel(name, durationMin) {
   const base = String(name ?? '').trim();
   const n = Number(durationMin);
-  return base && Number.isInteger(n) && n > 0 ? `${base}(${n})` : base;
+  return base && Number.isInteger(n) && n > 0 ? `${base}（${n}）` : base;
 }
 
 /**

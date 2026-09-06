@@ -66,10 +66,12 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
- * - `renamePool`：2026-09-06 之前買的復能額度改成新的名字（`復能三選一(60)`）。
- *   **只改 label**，而且只改得動認得出「舊的自動名字」的那幾筆。
+ * - `renamePool`：以前買的復能額度改成新的名字（`復能 - 三選一（60）`）。
+ *   **只改 label**，而且只改得動認得出「歷代自動名字」的那幾筆。
  * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
  *   客戶身上那個字在壓表卡片牆上什麼都不會出現。
+ * - `addEquipment`：種子資料裡有、主檔沒有的那一台器材（ILIB）。少了它，
+ *   加購那一排的「四選一」按不出來（ADR-0077）。
  *
  * 其餘的檢查一律只顯示差異：過期的來訪該標 done 還是 no_show、撞在一起的
  * 兩筆該動哪一筆，都是 app 看不到 Abovee 就答不出來的問題（ADR-0002）。
@@ -123,6 +125,18 @@ function opFor(fix) {
       path: 'config/app/clinicalFlags',
       data: fix.data,
       note: '資料健檢：器材上的提醒詞補進警示名單',
+    };
+  }
+
+  // 種子資料裡有、主檔沒有的那一台器材（ILIB）。**id 用種子上的那一個** ——
+  // 隨機生一個的話下一次健檢還是會說少一台，而且會再建出第二台。
+  if (fix?.kind === 'addEquipment') {
+    return {
+      op: 'create',
+      path: 'config/app/equipment',
+      id: fix.equipmentId,
+      data: fix.data,
+      note: '資料健檢：補上種子資料裡有、主檔沒有的器材',
     };
   }
 

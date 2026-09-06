@@ -99,8 +99,11 @@ describe('這一輪的東西點得出來', () => {
   });
 
   test('有人加購了單台或四選一（issue 04）', () => {
+    // 名字的格式是 2026-09-07 改的（ADR-0077）：單買一台也帶著「復能 - 」，
+    // 而且用的是別稱（`SIS` 不是 `超磁場`）。
     const labels = new Set(every((p) => p.entitlements).map((e) => e.data.label));
-    assert.ok([...labels].some((l) => l.startsWith('超磁場(') || l.startsWith('INDIBA(')));
+    assert.ok([...labels].some((l) => l.startsWith('復能 - SIS')
+      || l.startsWith('復能 - INDIBA')), [...labels].join(' / '));
     assert.ok([...labels].some((l) => l.includes('四選一')));
   });
 

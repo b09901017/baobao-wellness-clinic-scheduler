@@ -7,9 +7,21 @@
 //
 // ## 這一頁改什麼、不改什麼
 //
-//   改  別稱、LINE 名 —— 同一個東西的另外兩種寫法
+//   改  課程的別稱與 LINE 名、器材的別稱
+//   不改 器材的 LINE 名 —— 貼給客人的那一句只講課程（ADR-0077），
+//        那一格畫不出來，所以器材那幾列根本不給它
 //   不改 全名 —— 改全名會動到主檔清單、方案範本、稽核紀錄，那是課程／器材
 //        自己那一頁的事
+//
+// ## 她真正要改的是器材那幾列
+//
+// 她 2026-09-07：
+//
+// > 我不需要改名復能……所以其實要改命名的是 高能量雷射/SIS/INDIBA
+//
+// 因為那三個字才是**月檢視上會出現的東西**：`復能 - 三選一（60）` 那一筆
+// 排到超磁場的那一天，日曆上印的是 `SIS`。課程那一列在這一頁仍然留著 ——
+// ILIB 要靠它才寫得出「一般 ILIB、LINE 靜脈雷射」。
 //
 // ## 為什麼要有預覽
 //
@@ -83,8 +95,21 @@ function courseCard(course, equipment, master) {
     </section>`;
 }
 
-/** 一列：名字、兩格、三種寫法的預覽。 */
+/**
+ * 一列：名字、一到兩格、三種寫法的預覽。
+ *
+ * **器材那幾列沒有 LINE 那一格**（ADR-0077）：貼給客人的那一句只講課程，
+ * 所以器材的 `lineName` 一輩子都畫不出來。留著一個永遠不會出現在任何地方的
+ * 輸入框比沒有還糟 —— 她會填，然後找不到它在哪裡。
+ */
 function nameRow(row, type, { slot, master, indent = false }) {
+  const line = type === 'courses' ? `
+        <label class="field">
+          <span class="field__label">LINE</span>
+          <input type="text" data-line value="${esc(row.lineName ?? '')}"
+                 placeholder="${esc(row.name)}" maxlength="12" />
+        </label>` : '';
+
   return `
     <div class="namerow ${indent ? 'namerow--sub' : ''}"
          data-name="${esc(type)}:${esc(row.id)}">
@@ -94,12 +119,7 @@ function nameRow(row, type, { slot, master, indent = false }) {
           <span class="field__label">別稱</span>
           <input type="text" data-short value="${esc(row.shortName ?? '')}"
                  placeholder="${esc(row.name)}" maxlength="12" />
-        </label>
-        <label class="field">
-          <span class="field__label">LINE</span>
-          <input type="text" data-line value="${esc(row.lineName ?? '')}"
-                 placeholder="${esc(row.shortName || row.name)}" maxlength="12" />
-        </label>
+        </label>${line}
       </div>
       <p class="namerow__preview" data-preview>${previewText(slot, master)}</p>
     </div>`;
@@ -116,15 +136,22 @@ function wire(ctx, master) {
   const root = ctx.el.querySelector('[data-namingroot]');
   if (!root) return;
 
-  /** 這一列改過的值先寫回手上那一份主檔，預覽才跟得上。 */
+  /**
+   * 這一列改過的值先寫回手上那一份主檔，預覽才跟得上。
+   *
+   * 器材那幾列沒有 LINE 那一格（`nameRow()`），所以那一格**不存在**時
+   * `lineName` 一個字都不要動 —— 寫成 `null` 等於一打開這一頁就把她
+   * 以前設過的東西清掉，而畫面上什麼都不會說。
+   */
   const apply = (holder) => {
     const [type, id] = holder.dataset.name.split(':');
     const rows = type === 'courses' ? ctx.courses : ctx.equipment;
     const row = rows.find((r) => r.id === id);
     if (!row) return null;
     row.shortName = holder.querySelector('[data-short]').value.trim() || null;
-    row.lineName = holder.querySelector('[data-line]').value.trim() || null;
-    return { type, id, row };
+    const lineBox = holder.querySelector('[data-line]');
+    if (lineBox) row.lineName = lineBox.value.trim() || null;
+    return { type, id, row, hasLine: Boolean(lineBox) };
   };
 
   // 打字**不重畫** —— 重畫會洗掉游標與輸入法的組字狀態。
@@ -147,7 +174,7 @@ function wire(ctx, master) {
     await toast.withSaveState(
       () => config.update(hit.type, hit.id, {
         shortName: hit.row.shortName,
-        lineName: hit.row.lineName,
+        ...(hit.hasLine ? { lineName: hit.row.lineName } : {}),
       }),
       { success: '改好了', key: `naming:${hit.type}:${hit.id}` },
     );

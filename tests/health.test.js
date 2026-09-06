@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { runHealthCheck, healthBadge, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
+import { SEED } from '../public/js/domain/seed.js';
 
 const TODAY = '2026-09-15';
 
@@ -67,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十三項檢查都在，順序固定', () => {
+  test('十四項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 13);
+    assert.equal(result.checks.length, 14);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -791,7 +792,7 @@ describe('畫面認得每一種修正', () => {
 describe('復能額度還叫舊名字', () => {
   const EQUIPMENT = [
     { id: 'eq-laser', name: '高能量雷射', courseId: 'c-recovery' },
-    { id: 'eq-sis', name: '超磁場', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
     { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
   ];
   const COURSES = [{ id: 'c-recovery', name: '復能', requiresEquipment: true, durationMin: 60 }];
@@ -806,14 +807,20 @@ describe('復能額度還叫舊名字', () => {
 
   test('叫「復能」的那幾筆列出來，而且講得出要改成什麼', () => {
     const [f] = go([pool()]);
-    assert.match(f.detail, /復能三選一\(60\)/);
+    assert.match(f.detail, /復能 - 三選一（60）/);
     assert.equal(f.fix.kind, 'renamePool');
-    assert.equal(f.fix.to, '復能三選一(60)');
+    assert.equal(f.fix.to, '復能 - 三選一（60）');
     assert.equal(f.fix.entitlementId, 'e-pool');
   });
 
   test('已經是新名字的不列 —— 不要每次掃都出現一次', () => {
-    assert.deepEqual(go([pool({ label: '復能三選一(60)' })]), []);
+    assert.deepEqual(go([pool({ label: '復能 - 三選一（60）' })]), []);
+  });
+
+  test('2026-09-06 那一版的自動名字也認得出來（半形括號、沒有破折號）', () => {
+    // 格式改過一次（ADR-0077），既有客戶身上是這一種
+    const [f] = go([pool({ label: '復能三選一(60)' })]);
+    assert.equal(f.fix.to, '復能 - 三選一（60）');
   });
 
   test('中間那個形狀（算得出名字但沒有時長）也認得出來', () => {
@@ -824,9 +831,16 @@ describe('復能額度還叫舊名字', () => {
     assert.deepEqual(go([pool({ label: '客戶A談的那五次' })]), []);
   });
 
-  test('單台的池照樣認得出來，改成器材名', () => {
+  test('單台的池照樣認得出來，改成「復能 - 別稱」', () => {
     const [f] = go([pool({ label: '復能', optionEquipmentIds: ['eq-sis'] })]);
-    assert.equal(f.fix.to, '超磁場(60)');
+    assert.equal(f.fix.to, '復能 - SIS（60）');
+  });
+
+  test('單台的池：2026-09-06 那一版叫器材全名，也認得出來', () => {
+    for (const label of ['超磁場', '超磁場(60)']) {
+      const [f] = go([pool({ label, optionEquipmentIds: ['eq-sis'] })]);
+      assert.equal(f.fix.to, '復能 - SIS（60）', label);
+    }
   });
 
   test('器材全被刪了就不猜一個名字出來', () => {
@@ -880,5 +894,46 @@ describe('器材上的提醒詞不在警示名單裡', () => {
 
   test('沒有器材就一項都不報', () => {
     assert.deepEqual(go([], []), []);
+  });
+});
+
+// ---------- 十四、器材主檔少了一台（ADR-0077）----------
+//
+// 她 2026-09-07 的第一句話是「復能為什麼沒有四選一？」——
+// 答案是她的器材主檔裡沒有 ILIB 那一台，而「四選一」要有一台不屬於復能的
+// 器材才組得出來。少一顆丸子跟「本來就沒有那一種」在畫面上長得一模一樣。
+describe('器材主檔少了一台', () => {
+  const go = (master) => run({ master }).checks
+    .find((c) => c.id === 'seedEquipment').findings;
+
+  const withoutIlib = {
+    courses: SEED.courses,
+    equipment: SEED.equipment.filter((e) => e.id !== 'eq-ilib'),
+  };
+
+  test('種子有、主檔沒有的那一台列出來，而且建得起來', () => {
+    const [f] = go(withoutIlib);
+    assert.equal(f.title, 'ILIB');
+    assert.equal(f.fix.kind, 'addEquipment');
+    assert.equal(f.fix.equipmentId, 'eq-ilib', 'id 要用種子上的那一個，不然會建出第二台');
+    assert.equal(f.fix.data.courseId, 'course-iv-laser');
+    assert.equal(f.fix.data.shortName, 'IL');
+    assert.equal(f.fix.data.active, true);
+    assert.ok(!('id' in f.fix.data), 'id 另外給，不要塞進資料裡');
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go({ courses: SEED.courses, equipment: SEED.equipment }), []);
+  });
+
+  test('她自己刪掉的不再提 —— 這一列不可以變成關不掉的提醒', () => {
+    assert.deepEqual(go({
+      courses: SEED.courses,
+      equipment: SEED.equipment.map((e) => (e.id === 'eq-ilib' ? { ...e, deletedAt: 'x' } : e)),
+    }), []);
+  });
+
+  test('那一台的課程不在主檔裡就不念 —— 那時候缺的是整份主檔', () => {
+    assert.deepEqual(go({ courses: [], equipment: [] }), []);
   });
 });

@@ -61,7 +61,10 @@ export const SEED = {
     { id: 'eq-indiba', name: 'INDIBA', courseId: 'course-recovery', contraindications: [] },
     { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
     { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'] },
-    { id: 'eq-ilib', name: 'ILIB', courseId: 'course-iv-laser', contraindications: [] },
+    // 別稱跟它那個課程一樣是 `IL`（她自己記的寫法）。月檢視印的是器材別稱，
+    // 所以四選一那一筆排到 ILIB 的那一天，日曆上就是 `IL`。
+    // 一般那一種不會印成 `ILIB(IL)` —— `slotName()` 認得出這兩個是同一件事。
+    { id: 'eq-ilib', name: 'ILIB', shortName: 'IL', courseId: 'course-iv-laser', contraindications: [] },
   ],
 
   // 警示（ADR-0074）。永久限制的第一層，**什麼都不擋** ——
@@ -158,7 +161,15 @@ export const SEED = {
       // 2026-09-06 從「靜脈」正名成「ILIB」—— 她自己、舊試算表（`ILIB 60mins`）
       // 與診間名稱（ILIB4）講的都是這個字。**主檔改名不會搬既有時段上的
       // `courseName` 快照**，那是刻意的（歷史紀錄留著當時寫下去的字）。
-      id: 'course-iv-laser', name: 'ILIB', category: 'C', durationMin: 60,
+      //
+      // 三種寫法都在這一列上（2026-09-07，ADR-0077）。她的原話：
+      //
+      // > 靜脈我希望他一般就叫做 ILIB 然後自己記叫做 IL
+      // > 然後 line 草稿是叫做 靜脈雷射
+      //
+      // 貼給客人的那一句不能寫 `ILIB` —— 客戶看不懂那三個字母。
+      id: 'course-iv-laser', name: 'ILIB', shortName: 'IL', lineName: '靜脈雷射',
+      category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['ILIB室', '治療室', '點滴室'], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
@@ -210,9 +221,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-inbody', label: '身體組成分析', qty: 4, durationMin: 20, frequencyRule: '每季一次' },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能三選一(60)', qty: 12, durationMin: 60,
+        { type: 'pool', label: '復能 - 三選一（60）', qty: 12, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 20, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 20, durationMin: 60 },
       ],
     },
     {
@@ -226,9 +237,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-pt-consult', label: '物理治療師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能三選一(60)', qty: 20, durationMin: 60,
+        { type: 'pool', label: '復能 - 三選一（60）', qty: 20, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 12, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 12, durationMin: 60 },
       ],
     },
   ],

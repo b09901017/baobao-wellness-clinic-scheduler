@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 import { nameOf, slotName, visitNames, NAME_CONTEXTS } from '../public/js/domain/naming.js';
 import { SEED } from '../public/js/domain/seed.js';
+import { poolName, timedLabel, legacyPoolNames } from '../public/js/domain/entitlements.js';
 import { validate } from '../public/js/domain/masterData.js';
 
 const MASTER = {
@@ -51,12 +52,14 @@ describe('一筆主檔在某個情境叫什麼', () => {
     assert.equal(nameOf(eq, 'short', { as: 'equipment' }), 'SIS');
   });
 
-  test('器材的 LINE 名退回**別稱**再退回全名 —— 預設要跟畫面上一樣', () => {
-    // 退回全名的話，她什麼都沒設定時 LINE 會寫「復能(超磁場)」，
-    // 跟畫面上的「復能(SIS)」不一樣。
-    assert.equal(nameOf(MASTER.equipment[0], 'line', { as: 'equipment' }), 'SIS');
-    assert.equal(nameOf(MASTER.equipment[3], 'line', { as: 'equipment' }), '那一台');
-    assert.equal(nameOf(MASTER.equipment[1], 'line', { as: 'equipment' }), 'INDIBA');
+  test('器材沒有第三種寫法 —— LINE 草稿一個器材字都不寫（ADR-0077）', () => {
+    // 貼給客人的那一句只講課程，所以器材主檔上的 `lineName` 畫不出來。
+    // 問到 `line` 時退回別稱，跟另外兩種一樣 —— 呼叫端不必先判斷是哪一種。
+    for (const c of NAME_CONTEXTS) {
+      assert.equal(nameOf(MASTER.equipment[0], c, { as: 'equipment' }), 'SIS');
+      assert.equal(nameOf(MASTER.equipment[3], c, { as: 'equipment' }), '別');
+      assert.equal(nameOf(MASTER.equipment[1], c, { as: 'equipment' }), 'INDIBA');
+    }
   });
 });
 
@@ -70,8 +73,17 @@ describe('一段要唸成什麼', () => {
     assert.equal(slotName(slot({ equipmentId: 'eq-indiba' }), MASTER, 'full'), '復能(INDIBA)');
   });
 
-  test('LINE 預設跟一般一樣', () => {
-    assert.equal(slotName(slot({ equipmentId: 'eq-sis' }), MASTER, 'line'), '復能(SIS)');
+  test('LINE 草稿只有課程那一半 —— 客戶看的那一句不寫器材（ADR-0077）', () => {
+    // 她 2026-09-07：「我和客人的草稿只會有復能或靜脈雷射」
+    assert.equal(slotName(slot({ equipmentId: 'eq-sis' }), MASTER, 'line'), '復能');
+    assert.equal(slotName(slot({ equipmentId: 'eq-indiba' }), MASTER, 'line'), '復能');
+    // 器材主檔上設了 LINE 名也一樣畫不出來
+    assert.equal(slotName(slot({ equipmentId: 'eq-line' }), MASTER, 'line'), '復能');
+    // 課程自己那一格照樣用得到
+    assert.equal(
+      slotName({ courseId: 'c-long', courseName: '高能量雷射門診' }, MASTER, 'line'),
+      '雷射門診',
+    );
   });
 
   test('沒有器材就只有課程那一半 —— 健檢一個字都不會變', () => {
@@ -125,18 +137,31 @@ describe('種子與驗證', () => {
     assert.equal(SEED.equipment.find((e) => e.name === '超磁場').shortName, 'SIS');
   });
 
-  test('四選一選到 ILIB 那一段，在種子上唸出來就是 ILIB', () => {
+  test('四選一選到 ILIB 那一段：月檢視 IL、一般 ILIB、LINE 靜脈雷射', () => {
+    // 她 2026-09-07：「靜脈我希望他一般就叫做 ILIB 然後自己記叫做 IL
+    // 然後 line 草稿是叫做 靜脈雷射」
     const master = { courses: SEED.courses, equipment: SEED.equipment };
     const s = { courseId: 'course-iv-laser', courseName: 'ILIB', equipmentId: 'eq-ilib' };
-    for (const c of NAME_CONTEXTS) assert.equal(slotName(s, master, c), 'ILIB');
+    assert.equal(slotName(s, master, 'short'), 'IL');
+    // **不可以是 `ILIB(IL)`** —— 器材與課程是同一件事
+    assert.equal(slotName(s, master, 'full'), 'ILIB');
+    assert.equal(slotName(s, master, 'line'), '靜脈雷射');
   });
 
-  test('種子上的復能 + 超磁場：月檢視 SIS、一般 復能(SIS)', () => {
+  test('單買 ILIB（沒有器材）唸出來跟四選一選到 ILIB 一模一樣', () => {
+    const master = { courses: SEED.courses, equipment: SEED.equipment };
+    const s = { courseId: 'course-iv-laser', courseName: 'ILIB' };
+    assert.equal(slotName(s, master, 'short'), 'IL');
+    assert.equal(slotName(s, master, 'full'), 'ILIB');
+    assert.equal(slotName(s, master, 'line'), '靜脈雷射');
+  });
+
+  test('種子上的復能 + 超磁場：月檢視 SIS、一般 復能(SIS)、LINE 復能', () => {
     const master = { courses: SEED.courses, equipment: SEED.equipment };
     const s = { courseId: 'course-recovery', courseName: '復能', equipmentId: 'eq-sis' };
     assert.equal(slotName(s, master, 'short'), 'SIS');
     assert.equal(slotName(s, master, 'full'), '復能(SIS)');
-    assert.equal(slotName(s, master, 'line'), '復能(SIS)');
+    assert.equal(slotName(s, master, 'line'), '復能');
   });
 
   test('別稱與 LINE 名選填，但填了就有長度上限', () => {
@@ -150,5 +175,84 @@ describe('種子與驗證', () => {
       .some((e) => e.includes('別稱')));
     assert.ok(validate('equipment', { name: 'X', lineName: '一二三四五六七八九十一二三' }, { existing: [] })
       .some((e) => e.includes('LINE 名')));
+  });
+});
+
+// 額度叫什麼（`domain/entitlements.js` 的 `poolName()` / `timedLabel()`）。
+//
+// 它跟 `slotName()` 是兩件事：額度是「當初買了什麼」，時段是「那天做了什麼」。
+// 放在同一支測試裡是因為兩邊都吃**別稱**，而她 2026-09-07 指名的兩個格式
+// （`復能 - SIS（60）` 與月檢視的 `SIS`）必須用同一個字。
+describe('一筆額度叫什麼', () => {
+  const master = { equipment: SEED.equipment, courses: SEED.courses };
+  const name = (ids, min) =>
+    timedLabel(poolName(ids, master.equipment, master.courses), min);
+
+  test('整組：復能 - 三選一（60）', () => {
+    assert.equal(name(['eq-laser', 'eq-sis', 'eq-indiba'], 60), '復能 - 三選一（60）');
+  });
+
+  test('四選一多的那一台是 ILIB，前半仍然是復能', () => {
+    assert.equal(
+      name(['eq-laser', 'eq-sis', 'eq-indiba', 'eq-ilib'], 30),
+      '復能 - 四選一（30）',
+    );
+  });
+
+  test('單買一台：帶著分類，而且用別稱不是全名', () => {
+    assert.equal(name(['eq-sis'], 60), '復能 - SIS（60）');
+    assert.equal(name(['eq-indiba'], 30), '復能 - INDIBA（30）');
+    assert.equal(name(['eq-laser'], 60), '復能 - 高能量雷射（60）');
+  });
+
+  test('沒有時長就不加括號 —— 不要補一個猜的', () => {
+    assert.equal(name(['eq-sis'], null), '復能 - SIS');
+  });
+
+  test('器材與課程同名就不接兩次（ILIB - ILIB 很怪）', () => {
+    assert.equal(poolName(['eq-ilib'], master.equipment, master.courses), 'ILIB');
+  });
+
+  test('器材全被刪了就回空字串，不猜一個名字', () => {
+    assert.equal(poolName(['gone'], master.equipment, master.courses), '');
+  });
+
+  test('歷代自動名字認得出來 —— 資料健檢要靠它分辨「她自己打的」', () => {
+    const three = legacyPoolNames(
+      ['eq-laser', 'eq-sis', 'eq-indiba'], master.equipment, master.courses,
+    );
+    assert.deepEqual(three, ['復能', '復能三選一']);
+
+    const one = legacyPoolNames(['eq-sis'], master.equipment, master.courses);
+    assert.deepEqual(one, ['復能', '超磁場', 'SIS'], '2026-09-06 那一版叫器材全名');
+
+    assert.deepEqual(legacyPoolNames([], master.equipment, master.courses), []);
+  });
+});
+
+describe('種子上的方案', () => {
+  test('復能那一項預設就是三選一 60 分（她 2026-09-07 指名的）', () => {
+    for (const plan of SEED.plans) {
+      const pool = plan.items.find((i) => i.type === 'pool');
+      assert.ok(pool, `${plan.name} 少了復能那一項`);
+      assert.equal(pool.label, '復能 - 三選一（60）', plan.name);
+      assert.equal(pool.durationMin, 60);
+      assert.deepEqual(pool.optionEquipmentIds, ['eq-laser', 'eq-sis', 'eq-indiba']);
+    }
+  });
+
+  test('方案裡的名字就是算出來的那一個 —— 兩邊各寫一次遲早會歪', () => {
+    for (const plan of SEED.plans) {
+      for (const item of plan.items) {
+        if (item.type !== 'pool') continue;
+        assert.equal(
+          item.label,
+          timedLabel(
+            poolName(item.optionEquipmentIds, SEED.equipment, SEED.courses),
+            item.durationMin,
+          ),
+        );
+      }
+    }
   });
 });

@@ -242,6 +242,22 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  seedEquipment: {
+    button: () => '把這一台建起來',
+    all: (n) => `一次建這 ${n} 台`,
+    one: (fix) => ({
+      title: `把「${fix.label}」建進器材主檔？`,
+      lines: [
+        '種子資料裡有這一台，你的器材主檔沒有',
+        '少了它，加購那一排的「四選一」按不出來',
+        '建起來之後可以到設定 → 器材改名字與提醒詞',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 台都建進器材主檔？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
   chartNo: {
     button: () => '改成「病歷號」',
     all: (n) => `一次改這 ${n} 筆`,
@@ -266,6 +282,7 @@ const KIND_TO_CHECK = {
   renameChartNo: 'chartNo',
   renamePool: 'poolLabel',
   addAlert: 'alertTerm',
+  addEquipment: 'seedEquipment',
 };
 
 /**

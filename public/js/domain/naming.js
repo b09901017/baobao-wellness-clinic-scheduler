@@ -20,13 +20,23 @@
 // 三個地方能放的字數差很多（月檢視一小條、讀取卡片一整列、LINE 一句話），
 // 所以每一筆主檔有三格名字，而**組法只有這一支**。
 //
-//   short  月檢視     有器材就只印器材        `SIS`
-//   full   一般       課程全名(器材別稱)      `復能(SIS)`
-//   line   LINE 草稿  課程 LINE 名(器材 LINE 名)  預設同 full
+//   short  月檢視     有器材就只印器材    `SIS`
+//   full   一般       課程全名(器材別稱)  `復能(SIS)`
+//   line   LINE 草稿  **只有課程**        `復能`
 //
-// `lineName` 退回**別稱**不是全名，是刻意的：她要的預設是「LINE 跟一般一樣」，
-// 而一般那個寫法括號裡放的就是別稱。退回全名的話她什麼都沒設定時 LINE 會寫
-// 「復能(超磁場)」，跟畫面上不一樣。
+// ## LINE 草稿一個器材字都不寫（2026-09-07，ADR-0077）
+//
+// 她的原話：
+//
+// > 我和客人的草稿只會有復能或靜脈雷射
+// > 然後我自己看月曆會是當天我壓的器材
+//
+// 所以 `line` 那一格**不接器材那一半**，`復能 - 三選一（60）` 那天壓了超磁場，
+// 貼給客人的還是「復能」。器材主檔上的 `lineName` 因此再也畫不出來，
+// 設定 → 名稱怎麼寫那一頁的器材列也就不給那一格了 —— 一個永遠不會出現的
+// 輸入框比沒有還糟。
+//
+// 2026-09-06 那一版寫的是「LINE 草稿預設同一般」，那一條被這裡推翻了。
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -45,7 +55,11 @@ export const CONTEXT_LABELS = {
  * 退回鏈是**兩份不一樣**的，因為那兩半在句子裡的位置不同：
  *
  *   課程  full → 全名；short/line → 自己那一格，空的退回全名
- *   器材  full/short → 別稱退回全名；line → LINE 名退回別稱再退回全名
+ *   器材  一律別稱退回全名
+ *
+ * 器材沒有 `line` 這一種：LINE 草稿一個器材字都不寫（ADR-0077），
+ * 所以 `slotName()` 根本不會拿 `line` 來問器材。留著這個參數只為了
+ * 呼叫端不用先判斷是哪一種。
  *
  * @param {{name?:string, shortName?:string, lineName?:string}|null} row
  * @param {'short'|'full'|'line'} context
@@ -56,10 +70,7 @@ export function nameOf(row, context, { as = 'course' } = {}) {
   const short = trimmed(row?.shortName) || full;
   const line = trimmed(row?.lineName);
 
-  if (as === 'equipment') {
-    if (context === 'line') return line || short;
-    return short;
-  }
+  if (as === 'equipment') return short;
   if (context === 'short') return short;
   if (context === 'line') return line || full;
   return full;
@@ -68,12 +79,15 @@ export function nameOf(row, context, { as = 'course' } = {}) {
 /**
  * 一段來訪要唸成什麼。**這一支是唯一的一份。**
  *
- * 三條共同的規則：
+ * 四條共同的規則：
  *
  * 1. **沒有器材就只有課程那一半。** 健檢、二返、營養點滴一個字都不會變。
- * 2. **兩半一樣時不加括號。** ILIB 的課程與器材同名，所以是 `ILIB` 不是
- *    `ILIB(ILIB)` —— 她指名這件事。
- * 3. **課程先查主檔，查不到才退回 `slot.courseName` 快照。** 匯進來的舊來訪
+ * 2. **LINE 草稿一律只有課程那一半**（ADR-0077），連查都不查器材。
+ * 3. **器材與課程是同一件事時不加括號。** ILIB 那一台在主檔上跟課程同名，
+ *    所以是 `ILIB` 不是 `ILIB(ILIB)`，也不是 `ILIB(IL)` —— 她指名這件事。
+ *    比的是**全名**：別稱設成 `IL` 之後那兩半印出來就不一樣了，拿印出來的
+ *    比會漏掉。
+ * 4. **課程先查主檔，查不到才退回 `slot.courseName` 快照。** 匯進來的舊來訪
  *    （ADR-0011）與被刪掉的課程都還印得出名字。
  *
  * @param {{courseId?:string, courseName?:string, equipmentId?:string}} slot
@@ -86,6 +100,9 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
     ? nameOf(course, context, { as: 'course' })
     : trimmed(slot?.courseName);
 
+  // 貼給客人的那一句只講課程。器材是她自己要認的東西（ADR-0077）。
+  if (context === 'line') return courseHalf;
+
   const eq = slot?.equipmentId
     ? ((equipment ?? []).find((x) => x.id === slot.equipmentId) ?? null)
     : null;
@@ -95,8 +112,20 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
   if (!eqHalf) return courseHalf;
   // 月檢視只放得下幾個字，而她真正要認的是「哪一台」
   if (context === 'short') return eqHalf;
-  if (!courseHalf || eqHalf === courseHalf) return eqHalf;
+  if (!courseHalf) return eqHalf;
+  if (eqHalf === courseHalf || sameThing(eq, course)) return courseHalf;
   return `${courseHalf}(${eqHalf})`;
+}
+
+/**
+ * 這一台器材與這個課程是不是同一件事。
+ *
+ * 只有 ILIB 是：它同時是一個課程與器材主檔上的第四台（ADR-0075），
+ * 兩邊的**全名**一樣。復能那三台不是 —— 器材叫超磁場、課程叫復能。
+ */
+function sameThing(eq, course) {
+  const a = trimmed(eq?.name);
+  return Boolean(a) && a === trimmed(course?.name);
 }
 
 /**
