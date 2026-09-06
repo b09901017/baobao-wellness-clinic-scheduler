@@ -5,6 +5,12 @@
 
 import { validateProduct } from './products.js';
 import { nameOf } from './naming.js';
+import { durationChoicesOf } from './masterData.js';
+
+// 搬到 `masterData.js` 了（`domain/naming.js` 也要問同一件事，而它不能
+// import 這一支 —— 這一支已經 import 了它的 `nameOf()`）。這裡再匯出一次，
+// 免得七個呼叫端各改一行 import。
+export { durationChoicesOf };
 
 /**
  * 這一個時段實際上算哪一種。次數的算法只認這一支。
@@ -416,15 +422,6 @@ export function timedLabel(name, durationMin) {
   return base && Number.isInteger(n) && n > 0 ? `${base}（${n}）` : base;
 }
 
-/**
- * 這個課程加購時給不給她挑時長。
- *
- * 名單記在**課程主檔**上（`durationChoices`），不寫死課程名字 ——
- * 這個 repo 為字串比對付過帳（`domain/followups.js` 的檔頭）。
- * 沒填就是不給挑，用課程的預設時長。
- */
-export const durationChoicesOf = (course) =>
-  (course?.durationChoices ?? []).filter((n) => Number.isInteger(n) && n > 0);
 
 /**
  * 帶品項的顯示名稱：`'營養點滴'` + `'雪顏亮彩'` → `'營養點滴 - 雪顏亮彩'`。

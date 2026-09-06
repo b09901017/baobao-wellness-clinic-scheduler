@@ -256,3 +256,43 @@ describe('種子上的方案', () => {
     }
   });
 });
+
+// 她 2026-09-07：「希望可以在月檢視能看出來，分的出來，不用記復能(SIS)
+// 而是記 SIS(60)」—— 同一台機器有 30 與 60 兩種，而那是兩筆不同的額度。
+describe('月檢視接上幾分鐘', () => {
+  const master = { courses: SEED.courses, equipment: SEED.equipment };
+  const at = (over) => ({
+    courseId: 'course-recovery', courseName: '復能', equipmentId: 'eq-sis',
+    startsAt: '14:00', endsAt: '15:00', ...over,
+  });
+
+  test('復能：SIS(60) 與 SIS(30) 分得出來', () => {
+    assert.equal(slotName(at({}), master, 'short'), 'SIS(60)');
+    assert.equal(slotName(at({ endsAt: '14:30' }), master, 'short'), 'SIS(30)');
+  });
+
+  test('ILIB 也有兩種規格，所以它也接', () => {
+    const s = at({ courseId: 'course-iv-laser', courseName: 'ILIB', equipmentId: 'eq-ilib' });
+    assert.equal(slotName(s, master, 'short'), 'IL(60)');
+  });
+
+  test('只有一種規格的課程不接 —— 那個數字什麼都沒講，而那一格很貴', () => {
+    const s = { courseId: 'course-checkup', courseName: '健檢', startsAt: '09:00', endsAt: '11:00' };
+    assert.equal(slotName(s, master, 'short'), '健檢');
+  });
+
+  test('沒有時間就不接（匯進來的舊來訪，ADR-0011）', () => {
+    assert.equal(slotName(at({ startsAt: null, endsAt: null }), master, 'short'), 'SIS');
+    assert.equal(slotName(at({ endsAt: null }), master, 'short'), 'SIS');
+  });
+
+  test('時間壞掉也不會炸 —— `toMinutes()` 收到 null 會 throw', () => {
+    assert.equal(slotName(at({ startsAt: '25:99' }), master, 'short'), 'SIS');
+    assert.equal(slotName(at({ endsAt: '14:00' }), master, 'short'), 'SIS', '零分鐘不接');
+  });
+
+  test('另外兩種寫法一個字都不變', () => {
+    assert.equal(slotName(at({}), master, 'full'), '復能(SIS)');
+    assert.equal(slotName(at({}), master, 'line'), '復能');
+  });
+});

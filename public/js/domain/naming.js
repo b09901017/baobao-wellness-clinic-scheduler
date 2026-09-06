@@ -20,9 +20,21 @@
 // 三個地方能放的字數差很多（月檢視一小條、讀取卡片一整列、LINE 一句話），
 // 所以每一筆主檔有三格名字，而**組法只有這一支**。
 //
-//   short  月檢視     有器材就只印器材    `SIS`
-//   full   一般       課程全名(器材別稱)  `復能(SIS)`
-//   line   LINE 草稿  **只有課程**        `復能`
+//   short  月檢視     有器材就只印器材，接上幾分鐘  `SIS(60)`
+//   full   一般       課程全名(器材別稱)            `復能(SIS)`
+//   line   LINE 草稿  **只有課程**                  `復能`
+//
+// ## 月檢視為什麼要接分鐘（2026-09-07）
+//
+// > 希望可以在月檢視能看出來，分的出來，不用記復能(SIS)而是記 SIS(60)
+//
+// 同一台機器有 30 與 60 兩種規格，而它們是**兩筆不同的額度**
+//（`復能 - SIS（30）` 與 `復能 - SIS（60）`）。少了那個數字，月檢視上兩者
+// 長得一模一樣，她要點開才知道那天排的是哪一種。
+//
+// **只有「這個課程有兩種以上規格」時才接**（`durationChoicesOf()`）——
+// 健檢永遠是 120 分，寫出來只是把那一格擠掉一個字。
+// 括號用半形：一格是七分之一個螢幕寬，全形括號等於少看到一個字。
 //
 // ## LINE 草稿一個器材字都不寫（2026-09-07，ADR-0077）
 //
@@ -37,6 +49,9 @@
 // 輸入框比沒有還糟。
 //
 // 2026-09-06 那一版寫的是「LINE 草稿預設同一般」，那一條被這裡推翻了。
+
+import { durationChoicesOf } from './masterData.js';
+import { toMinutes, isValidTime } from './visitTime.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -110,11 +125,29 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
 
   const eqHalf = nameOf(eq, context, { as: 'equipment' });
   if (!eqHalf) return courseHalf;
-  // 月檢視只放得下幾個字，而她真正要認的是「哪一台」
-  if (context === 'short') return eqHalf;
+  // 月檢視只放得下幾個字，而她真正要認的是「哪一台、幾分鐘」
+  if (context === 'short') return withMinutes(eqHalf, slot, course);
   if (!courseHalf) return eqHalf;
   if (eqHalf === courseHalf || sameThing(eq, course)) return courseHalf;
   return `${courseHalf}(${eqHalf})`;
+}
+
+/**
+ * 月檢視那一格後面要不要接分鐘。
+ *
+ * 兩個條件都成立才接：
+ *
+ * 1. **這個課程有兩種以上規格**（`durationChoicesOf()`）。只有一種的話那個
+ *    數字不提供任何資訊，而那一格每一個字都很貴。
+ * 2. **算得出這一段多長**（起訖時間都有）。匯進來的舊來訪沒有時間
+ *    （ADR-0011），那時候不要補一個猜的 —— 同 `timedLabel()` 的判斷。
+ */
+function withMinutes(base, slot, course) {
+  if (durationChoicesOf(course).length < 2) return base;
+  // `toMinutes()` 收到 null 會炸（它 `.split` 那個字串），所以先問過再算
+  if (!isValidTime(slot?.startsAt) || !isValidTime(slot?.endsAt)) return base;
+  const min = toMinutes(slot.endsAt) - toMinutes(slot.startsAt);
+  return min > 0 ? `${base}(${min})` : base;
 }
 
 /**

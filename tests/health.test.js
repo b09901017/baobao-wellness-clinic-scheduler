@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十四項檢查都在，順序固定', () => {
+  test('十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 14);
+    assert.equal(result.checks.length, 15);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -935,5 +935,46 @@ describe('器材主檔少了一台', () => {
 
   test('那一台的課程不在主檔裡就不念 —— 那時候缺的是整份主檔', () => {
     assert.deepEqual(go({ courses: [], equipment: [] }), []);
+  });
+});
+
+// ---------- 十五、課程沒填可選時長（ADR-0077）----------
+describe('課程沒填可選時長', () => {
+  const go = (courses) => run({ master: { ...MASTER, courses } }).checks
+    .find((c) => c.id === 'seedDuration').findings;
+
+  const bare = (id) => ({ ...SEED.courses.find((c) => c.id === id), durationChoices: [] });
+
+  test('那一格是空的就列出來，而且填得起來', () => {
+    const [f] = go([bare('course-recovery')]);
+    assert.equal(f.title, '復能');
+    assert.equal(f.fix.kind, 'setDurations');
+    assert.equal(f.fix.courseId, 'course-recovery');
+    assert.deepEqual(f.fix.durationChoices, [30, 60]);
+    assert.match(f.detail, /30、60/);
+  });
+
+  test('復能與 ILIB 兩個都算數', () => {
+    assert.equal(go([bare('course-recovery'), bare('course-iv-laser')]).length, 2);
+  });
+
+  test('填好了就不再提', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('她自己填成別的組合就不動 —— 那是一個決定', () => {
+    assert.deepEqual(go([{ ...bare('course-recovery'), durationChoices: [60] }]), []);
+  });
+
+  test('她的主檔裡沒有那個課程就不念', () => {
+    assert.deepEqual(go([]), []);
+  });
+
+  test('刪掉的課程不念', () => {
+    assert.deepEqual(go([{ ...bare('course-recovery'), deletedAt: 'x' }]), []);
+  });
+
+  test('種子上沒有可選時長的課程本來就不在名單裡', () => {
+    assert.deepEqual(go([{ ...SEED.courses.find((c) => c.id === 'course-checkup') }]), []);
   });
 });

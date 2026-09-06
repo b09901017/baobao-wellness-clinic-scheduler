@@ -258,6 +258,22 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  seedDuration: {
+    button: () => '填上 30／60',
+    all: (n) => `一次填這 ${n} 個課程`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的可選時長填成 ${fix.durationChoices.join('、')} 分鐘？`,
+      lines: [
+        '這個課程有兩種以上的規格，但主檔上那一格是空的',
+        '沒填的話加購時「幾分鐘」那一排不出現，名字也少了後面那個數字',
+        '月檢視更分不出那天排的是 30 還是 60',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 個課程的可選時長都填上？`,
+      lines: fixes.map((fix) => `${fix.label} → ${fix.durationChoices.join('、')} 分鐘`),
+    }),
+  },
   chartNo: {
     button: () => '改成「病歷號」',
     all: (n) => `一次改這 ${n} 筆`,
@@ -283,6 +299,7 @@ const KIND_TO_CHECK = {
   renamePool: 'poolLabel',
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',
+  setDurations: 'seedDuration',
 };
 
 /**

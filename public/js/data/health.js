@@ -72,6 +72,8 @@ export async function run(today) {
  *   客戶身上那個字在壓表卡片牆上什麼都不會出現。
  * - `addEquipment`：種子資料裡有、主檔沒有的那一台器材（ILIB）。少了它，
  *   加購那一排的「四選一」按不出來（ADR-0077）。
+ * - `setDurations`：復能與 ILIB 補上 30／60 兩種規格。少了它，加購時
+ *   「幾分鐘」那一排不出現，月檢視也分不出那天排的是 30 還是 60。
  *
  * 其餘的檢查一律只顯示差異：過期的來訪該標 done 還是 no_show、撞在一起的
  * 兩筆該動哪一筆，都是 app 看不到 Abovee 就答不出來的問題（ADR-0002）。
@@ -125,6 +127,17 @@ function opFor(fix) {
       path: 'config/app/clinicalFlags',
       data: fix.data,
       note: '資料健檢：器材上的提醒詞補進警示名單',
+    };
+  }
+
+  // 課程補上可選時長（ADR-0077）。**只寫那一格**，課程的其餘欄位一個都不碰。
+  if (fix?.kind === 'setDurations') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: { durationChoices: fix.durationChoices },
+      note: '資料健檢：課程補上可選時長',
     };
   }
 

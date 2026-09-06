@@ -26,6 +26,7 @@
 
 import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
+import * as customersData from '../../data/customers.js';
 import { todosForVisit } from '../../domain/todoFlow.js';
 import { urgency } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
@@ -73,28 +74,41 @@ function rowHtml(row, today) {
 }
 
 /**
- * 把一筆來訪的任務讀回來，補進已經開好的那張卡片。
+ * 把這張卡片**要多打一趟網路才拿得到的那幾樣**讀回來，補進已經開好的那一張。
  *
- * **點開才讀。** 日曆一次畫三個月、待辦中心一次列十幾筆，那幾百筆的任務
- * 先讀回來是白費的（同 `loadGivableBags()` 的規矩）。
+ * 兩樣：這一筆的任務（上面那一塊），以及這位客戶的額度
+ *（每一段底下那一行「扣 復能 - 三選一（60）」，ADR-0077）。
+ * **兩樣一起讀、一次重畫** —— 各自 `card.update()` 的話後到的那一次會把
+ * 先到的那一份洗掉，而畫面上看起來只是「那一行有時候不見」。
  *
- * **讀不到就不畫那一塊。** 它是輔助資訊，不是這張卡片的主體 ——
+ * **點開才讀。** 日曆一次畫三個月、待辦中心一次列十幾筆，那幾百筆的任務與
+ * 額度先讀回來是白費的（同 `loadGivableBags()` 的規矩）。
+ *
+ * **讀不到就不畫那一塊。** 它們是輔助資訊，不是這張卡片的主體 ——
  * 同 `playbooksData.list().catch(() => [])` 的判斷。
  *
- * 客戶詳情**不走這一支**：那一頁手上本來就有這位客戶的全部任務，
+ * 客戶詳情**不走這一支**：那一頁手上本來就有這位客戶的全部任務與額度，
  * 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
  *
  * @param {{el:HTMLElement, update:Function}} card `openCard()` 回來的那一個
  * @param {object} visit
- * @param {(tasks:object[]) => string} render 拿到任務之後整塊 body 長什麼樣
+ * @param {(tasks:object[], extra:{entitlementsById:object}) => string} render
+ *        拿到之後整塊 body 長什麼樣
  */
 export function fillMirror(card, visit, render) {
   if (!visit?.id) return;
-  tasksData.listByVisit(visit.id)
-    .then((tasks) => {
+  Promise.all([
+    tasksData.listByVisit(visit.id).catch(() => []),
+    visit.customerId
+      ? customersData.listEntitlements(visit.customerId).catch(() => [])
+      : Promise.resolve([]),
+  ])
+    .then(([tasks, entitlements]) => {
       // 她可能在讀回來之前就關掉這張卡、或點開了另一筆
       if (!card?.el?.isConnected) return;
-      card.update(render(tasks));
+      card.update(render(tasks, {
+        entitlementsById: Object.fromEntries((entitlements ?? []).map((e) => [e.id, e])),
+      }));
     })
     .catch(() => {});
 }

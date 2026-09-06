@@ -21,7 +21,7 @@ import {
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
-import { clinicalTerms } from './masterData.js';
+import { clinicalTerms, durationChoicesOf } from './masterData.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -110,6 +110,12 @@ export const CHECKS = [
     label: '器材主檔少了一台',
     hint: '「四選一」那一顆丸子要有一台不屬於復能的器材才畫得出來'
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
+  },
+  {
+    id: 'seedDuration',
+    label: '課程沒填可選時長',
+    hint: '復能與 ILIB 有 30 與 60 兩種規格。沒填的話加購時「幾分鐘」那一排不出現，'
+      + '名字也少了後面那個數字，月檢視更分不出那天排的是 30 還是 60',
   },
 ];
 
@@ -850,6 +856,39 @@ function withoutId({ id, ...rest }) {
   return rest;
 }
 
+/**
+ * 十五、課程沒填可選時長。
+ *
+ * 她 2026-09-07：「目前就復能的那四個先預設有 30 60 這兩個時長，
+ * 其他的就預設沒有沒關係」。種子上復能與 ILIB 都是 `[30, 60]`，
+ * 而 2026-09-06 之前建的資料庫上那一格是空的 —— 症狀有三個，三個都是「少東西」：
+ *
+ * - 加購時「幾分鐘」那一排整排不出現
+ * - 名字少了後面那個數字（`復能 - 三選一` 而不是 `復能 - 三選一（60）`）
+ * - 月檢視印不出 `SIS(60)`，30 分與 60 分那兩天長得一模一樣
+ *
+ * **只在她那一格是空的時候報。** 她自己填成 `[60]` 是一個決定，
+ * 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）。
+ */
+function checkSeedDurations(ctx) {
+  return (SEED.courses ?? [])
+    .filter((row) => durationChoicesOf(row).length >= 2)
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && !(mine.durationChoices ?? []).length)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `填上 ${durationChoicesOf(row).join('、')} 分鐘`,
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setDurations',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        durationChoices: durationChoicesOf(row),
+      },
+    }));
+}
+
 const RUNNERS = {
   counts: checkCounts,
   followups: checkFollowups,
@@ -865,4 +904,5 @@ const RUNNERS = {
   poolLabel: checkPoolLabels,
   alertTerm: checkAlertTerms,
   seedEquipment: checkSeedEquipment,
+  seedDuration: checkSeedDurations,
 };
