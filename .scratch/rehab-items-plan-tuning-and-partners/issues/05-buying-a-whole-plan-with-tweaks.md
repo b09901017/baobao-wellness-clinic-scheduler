@@ -46,8 +46,12 @@ export async function addEntitlements(customerId, dataList, opts) { … } // 收
 ### 二、`domain/entitlements.js`：`expandPlan()` 多存一欄
 
 ```js
+purchaseId,      // 這一次購買的 id。同一次展開出來的每一筆都一樣
 sourcePlanQty,   // 展開當下、乘過購買數量之後的次數。單項加購沒有這一欄
 ```
+
+`purchaseId` 是 `06` 那一頁分組與改購買日期要用的 —— 理由寫在那一支。
+單項加購也給它一個（自己一組）。
 
 它是**微調的證據**：`totalQty !== sourcePlanQty` 就是「這一項跟方案本來的不一樣」。
 存數字而不是一個布林，是因為 `06` 那一頁要印得出「15 次（方案本來 20）」——
@@ -128,5 +132,5 @@ sourcePlanQty,   // 展開當下、乘過購買數量之後的次數。單項加
 
 ## 連帶
 
-`firestore.rules` 的 `validEntitlement()` 補 `sourcePlanQty` 的形狀檢查
-（`null` 或大於 0 的整數），`tests-e2e/rules/` 跟著補一條。
+`firestore.rules` 的 `validEntitlement()` 補 `sourcePlanQty`（`null` 或大於 0 的整數）
+與 `purchaseId`（`null` 或字串）的形狀檢查，`tests-e2e/rules/` 跟著補一條。

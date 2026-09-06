@@ -1,7 +1,7 @@
 # 文件收尾：SPEC、CONTEXT、ADR、對照表、手冊
 
 Status: 待確認
-Blocked by: 01, 03, 05, 07, 08
+Blocked by: 01, 03, 05, 07, 08, 13, 14, 15
 
 ## 三支新 ADR
 
@@ -43,7 +43,8 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 |---|---|
 | §4.3 | 三層表 → 兩層表。拿掉「硬性擋掉對應的器材（全站唯一的阻擋）」那一格 |
 | §4.5 | 「這是硬性阻擋，不是警告」整段改寫；「pool（擇一池）」的說明要收得下 1～N 台 |
-| §5.3 | `config/courses` 補 `durationChoices`；`config/equipment` 補 `courseId`；`config/partners` 新增；`customers` 補 `partners`；`entitlements` 補 `sourcePlanQty`；`playbooks` 補 `partnerNames`；`clinicalFlags` 補 `color`／`fill` |
+| §5.3 | `config/courses` 補 `durationChoices`／`shortName`／`lineName`；`config/equipment` 補 `courseId`／`shortName`／`lineName`；`config/partners` 新增；`customers` 補 `partners`；`entitlements` 補 `purchaseId`／`sourcePlanQty` 並改寫 `expiresAt` 那一行（選填，預設不給）；`playbooks` 補 `partnerNames`；`clinicalFlags` 補 `color`／`fill` |
+| §4.8 | 試算表那一段補一句：矩陣底下有兩種註記（二返、用了哪一台） |
 | §5.1 | 集合結構補 `config/partners` |
 | §12 | 種子：器材補 ILIB、方案項目改名、警示補體內金屬、合作機構一筆 |
 | §14 | 「醫療禁忌相關的檢查是硬性阻擋」那一條刪掉，換成「這個 app 沒有任何硬性阻擋」 |
@@ -61,7 +62,8 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 | **醫療禁忌** | 整條**刪掉**，改成器材主檔上的一欄（「要特別提醒的狀況」），在「器材」那一條裡講 |
 | **合作機構** | 新增 |
 | **備忘錄** | 補「也可以掛合作機構」 |
-| **方案** | 補「加購時可以微調，微調只影響這一次」 |
+| **方案** | 補「加購時可以微調，微調只影響這一次」；會籍期限那一句改成「不再自動套用，到期日是選填」 |
+| **別稱** | 新增。一筆主檔的另一種寫法，窄的地方用。與「全名」「LINE 名」是同一個東西的三種寫法，不是三個東西 |
 
 ## `CLAUDE.md` 的「容易漏掉的連動」
 
@@ -73,6 +75,10 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 - 「她賣了什麼給客戶」那張表：補上新的兩排丸子要進 `DETAIL_CHIPS`
 - 補一列：**方案微調**（`ui/components/planTweak.js`，三個入口共用）
 - 補一列：**合作機構**（存字串不存 id、四個地方共用 `partnerChips()`、不生任務）
+- 補一列：**一段來訪在畫面上叫什麼**（`domain/naming.js` 的 `slotName()` 是唯一的一份；
+  三種情境；`slot.courseName` 是快照不是顯示名稱）
+- 補一列：**試算表的註記有兩種**（二返走 `followupNotes`、器材走 `equipmentNotes`，
+  不可以塞進同一個陣列 —— `.gs` 把同一個 `dateIndex` 後面的蓋掉前面的）
 
 ## `docs/課程與待辦對照表.md`
 
@@ -90,10 +96,17 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 2. 加購單台復能（復能 → 超磁場 → 60 → 5 堂）
 3. 標記一位客戶是自然美
 
-外加**一次性的兩步**（升上去之後要她自己做一次）：
+4. 設定 → 名稱怎麼寫：把「超磁場」的別稱填成 SIS
+5. 在「買過什麼」改一組的購買日期
+
+外加**一次性的三步**（升上去之後要她自己做一次）：
 
 - 設定 → 課程 → 把「靜脈」改名成「ILIB」
 - 資料健檢 → 那兩列各按一次（`09`）
+- **回 Google 試算表把 `sheets/readonly-report.gs` 重新貼一次並重新部署**（`14`）
+  —— 不做的話自動同步會整包被拒收
+
+最後那一步也要進 `docs/STAGING.md` 的上線檢查表。
 
 ## `docs/常見問題.md`
 
@@ -102,6 +115,8 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 - 「我選了超磁場，它為什麼不擋我了？」
 - 「我的復能為什麼還叫『復能』不叫『復能三選一(60)』？」
 - 「我標了自然美，待辦為什麼沒有多一條？」
+- 「試算表為什麼停止更新了？」（`.gs` 還沒重貼 → 版本對不上 → 整包拒收）
+- 「日曆上為什麼寫『復能(SIS)』不是我買的『復能四選一(60)』？」
 
 ## `docs/邊界測試清單.md`
 
@@ -117,5 +132,5 @@ Consequences 要寫：**這個 app 從此沒有任何一個硬性阻擋**。
 ## `public/sw.js`
 
 這一輪新增的檔案（`domain/clinicalFlags.js`、`domain/purchases.js`、
-`ui/components/planTweak.js`）要進 `SHELL` 清單，`VERSION` 加一。
+`domain/naming.js`、`ui/components/planTweak.js`）要進 `SHELL` 清單，`VERSION` 加一。
 `tests/shell-cache.test.js` 盯著清單。
