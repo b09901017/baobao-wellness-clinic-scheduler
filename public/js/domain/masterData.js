@@ -82,7 +82,7 @@ export const MASTER_LABELS = {
   partners: '合作機構',
   staff: '治療師與醫師',
   equipment: '器材',
-  clinicalFlags: '臨床提醒',
+  clinicalFlags: '警示',
   ivProducts: '營養點滴品項',
   products: '營養品',
   courses: '課程',
@@ -235,8 +235,8 @@ const validators = {
     const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
-    if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
-    else if (contra.some(isBlank)) errors.push('禁忌名稱不可空白');
+    if (!Array.isArray(contra)) errors.push('要提醒的狀況格式錯誤');
+    else if (contra.some(isBlank)) errors.push('要提醒的狀況不可空白');
 
     // 用這台的那一段算哪一個課程（ADR-0075）。選填 —— 沒填的走舊的推導
     // （`coursesForEntitlement()` 退回 `requiresEquipment` 的課程），

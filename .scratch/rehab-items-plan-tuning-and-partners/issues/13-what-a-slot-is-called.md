@@ -1,6 +1,6 @@
 # 一段要唸成什麼：全名、別稱、LINE 三種寫法
 
-Status: 待確認
+Status: 已完成
 Blocked by: 03
 
 ## 她說的

@@ -1,6 +1,6 @@
 # 試算表註記「這一天用了哪一台」
 
-Status: 待確認
+Status: 已完成
 Blocked by: 13
 
 ## 她說的

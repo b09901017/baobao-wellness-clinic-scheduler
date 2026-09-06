@@ -1,6 +1,6 @@
 # 警示可以挑樣式：六色 × 實心／空心
 
-Status: 待確認
+Status: 已完成
 Blocked by: 01
 
 ## 她說的

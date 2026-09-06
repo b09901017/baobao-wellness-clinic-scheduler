@@ -1,6 +1,6 @@
 # 備忘錄也可以掛合作機構
 
-Status: 待確認
+Status: 已完成
 Blocked by: 07
 
 ## 她說的

@@ -1431,7 +1431,7 @@ function mountEditor(el, data, sheet, spec) {
   const { kind, backDate = null } = spec;
   const isNew = !spec.id && !spec.visitId;
 
-  // 抬頭放日期不放人名：人名連同狀態與醫療禁忌就在編輯器自己的第一列，
+  // 抬頭放日期不放人名：人名連同狀態與永久限制就在編輯器自己的第一列，
   // 抬頭再寫一次等於用掉一整行講同一件事。她在這裡要確認的是「排到哪一天」。
   sheet.setTitle(kind === 'event'
     ? (isNew ? '新增行事備註' : '行事備註')

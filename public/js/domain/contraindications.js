@@ -173,7 +173,7 @@ export function contraindicationTerms(equipment = []) {
  * **只提示，不自動填 flags。** 「手有金屬」是要提醒的，但「金屬已取出」不是，
  * 而兩句話都含有「金屬」—— 那是她的判斷（ADR-0002）。
  *
- * @returns {{where: string, text: string, term: string, blocks: string[]}[]}
+ * @returns {{where: string, text: string, term: string, warns: string[]}[]}
  *   `blocks` 這個欄位名留著 —— 匯入報告那兩支（`legacyImport.js`、`mergeImport.js`）
  *   與它們的測試都讀它，而它現在的意思是「這幾台會跳提醒」。
  */
@@ -187,12 +187,15 @@ export function contraindicationHints(sources, equipment) {
     // 「體內金屬」寫在舊表上可能是「手有金屬」。前面的限定詞拿掉再找一次。
     const needles = [...new Set([term, term.replace(/^(體內|身上|身體|有)/, '')])]
       .filter((n) => n.length >= 2);
-    const blocks = alive.filter((e) => (e.contraindications ?? []).includes(term))
+    // 哪幾台會因為這個字多講一句。**2026-09-06 之後它不擋，只提醒**
+    // （ADR-0074），所以欄位叫 `warns` 不叫 `blocks` —— 名字留著舊的，
+    // 讀的那一頁遲早會照著它寫出一句假話。
+    const warns = alive.filter((e) => (e.contraindications ?? []).includes(term))
       .map((e) => e.name);
 
     for (const { where, text } of sources) {
       if (!text || !needles.some((n) => text.includes(n))) continue;
-      hints.push({ where, text, term, blocks });
+      hints.push({ where, text, term, warns });
     }
   }
   return hints;
