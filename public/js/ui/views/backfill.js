@@ -238,7 +238,10 @@ function candidateCard(row, slot, ctx) {
 
       ${message.box({
         id: `offer-${row.customerId}`,
-        text: offerSlotMessage({ name: row.customerName }, slot, { templates: ctx.templates ?? {} }),
+        text: offerSlotMessage({ name: row.customerName }, slot, {
+          templates: ctx.templates ?? {},
+          master: { courses: ctx.all?.courses ?? [], equipment: ctx.all?.equipment ?? [] },
+        }),
         collapsed: true,
         label: '先看一下邀約訊息',
         buttonLabel: '複製邀約訊息',

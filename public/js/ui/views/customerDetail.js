@@ -27,7 +27,7 @@ import { sortNotes, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domai
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
-import { clinicalTerms } from '../../domain/masterData.js';
+import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
@@ -49,6 +49,8 @@ import * as invitesData from '../../data/formInvites.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as buy from '../components/buy.js';
+import * as planTweak from '../components/planTweak.js';
+import { openBuySheet } from '../components/buySheet.js';
 import * as flagsUi from '../components/flags.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
@@ -126,7 +128,7 @@ export async function render(el, id) {
   let ctx;
   try {
     const [customer, entitlements, visits, tasks, avail, courses, equipment, clinicalFlags,
-      notes, rooms, staff, ivProducts, products] =
+      notes, rooms, staff, ivProducts, products, plans, partners] =
       await Promise.all([
         data.get(id),
         data.listEntitlements(id),
@@ -145,10 +147,14 @@ export async function render(el, id) {
         // 加購那一張表要的：營養點滴選得到品項、營養品選得到哪一款（ADR-0057）。
         config.listAll('ivProducts'),
         config.listAll('products'),
+        // 「加購方案」那一張面板要的（`components/planTweak.js`）。
+        config.listAll('plans'),
+        // 合作機構（ADR-0076）。編輯基本資料那一張表要它才點得到。
+        config.listAll('partners'),
       ]);
     ctx = {
       el, id, customer, entitlements, visits, tasks, courses, equipment, clinicalFlags, notes,
-      rooms, staff, ivProducts, products,
+      rooms, staff, ivProducts, products, plans, partners,
       availability: avail,
       back: () => reload(ctx),
     };
@@ -183,6 +189,7 @@ function paint(ctx) {
   const { el, customer, entitlements, visits, tasks, equipment, clinicalFlags, notes } = ctx;
   const today = todayISO();
   const flags = rules.splitFlags(customer, clinicalFlags);
+  const partners = rules.partnersOf(customer);
   const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
@@ -204,9 +211,10 @@ function paint(ctx) {
         </div>
         <button class="btn btn--sm" type="button" data-edit>編輯</button>
       </div>
-      ${(customer.flags ?? []).length || customer.active === false ? `
+      ${(customer.flags ?? []).length || partners.length || customer.active === false ? `
         <div class="hero__flags">
           ${flagsUi.detailChips(flags, { rows: clinicalFlags })}
+          ${flagsUi.partnerChips(partners)}
           ${customer.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
         </div>` : ''}
     </div>
@@ -231,10 +239,15 @@ function paint(ctx) {
       ${offCount(pools, visits)
         ? `<span class="badge badge--soon">${offCount(pools, visits)} 筆對不起來</span>`
         : ''}
+      ${/* 三顆並排。「買過什麼」是唯讀的那一頁（當初買了什麼），
+           另外兩顆是加購。她一年動不到幾次方案，所以方案那一顆排在中間 ——
+           但它必須在這裡，不然「加購一整個方案」只有建新客戶時做得到。 */''}
+      <a class="section__more" href="#/customers/${esc(ctx.id)}/bought">買過什麼</a>
+      <button class="section__more" type="button" data-add-plan>加購方案</button>
       <button class="section__more" type="button" data-add-ent>加購</button>
     </div>
     ${pools.length === 0
-      ? '<p class="muted" style="margin: 0">還沒有額度。按上面的「加購」單項加。</p>'
+      ? '<p class="muted" style="margin: 0">還沒有額度。按上面的「加購」單項加，或用「加購方案」一次展開一整套。</p>'
       : `<div class="strip noscroll-bar">${sortPools(pools, visits)
           .map((e) => poolCard(e, visits, ctx, today)).join('')}</div>`}
 
@@ -288,6 +301,7 @@ function wire(ctx, { today, marks }) {
   });
   el.querySelector('[data-edit]').addEventListener('click', () => paintEdit(ctx));
   el.querySelector('[data-add-ent]')?.addEventListener('click', () => paintEntitlement(ctx, null));
+  el.querySelector('[data-add-plan]')?.addEventListener('click', () => paintPlanPurchase(ctx));
   el.querySelector('[data-toggle-visits]')?.addEventListener('click', () => {
     showVisits = !showVisits;
     paint(ctx);
@@ -555,6 +569,8 @@ function paintMessages(sheet, ctx, today, month, invite, templates = {}) {
   const link = invite ? formLink(location.origin, invite.id) : '';
   const list = messagesFor({
     customer: ctx.customer, visits: ctx.visits, today, formLink: link, templates,
+    // 那一段寫「那天真的做了什麼」（`13`）
+    master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
   });
   const shown = link ? list : list.filter((m) => m.id !== 'ask');
 
@@ -1214,6 +1230,7 @@ async function addNote(ctx, form) {
 function paintEdit(ctx) {
   const { el, customer, equipment, clinicalFlags } = ctx;
   let flags = customer.flags ?? [];
+  let partners = rules.partnersOf(customer);
 
   el.innerHTML = `
     <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
@@ -1232,6 +1249,7 @@ function paintEdit(ctx) {
           })),
         })}
         <div data-flags></div>
+        <div data-partners></div>
         ${f.date({ name: 'purchasedAt', label: '購買日', value: customer.purchasedAt ?? '' })}
         <div class="form__actions">
           <button class="btn btn--primary" type="submit">儲存</button>
@@ -1256,6 +1274,15 @@ function paintEdit(ctx) {
     },
   });
 
+  // 合作機構（ADR-0076）。**跟永久限制分成兩支** —— 它不是限制。
+  flagsUi.mountPartners(el.querySelector('[data-partners]'), {
+    partners,
+    options: partnerNames(ctx.partners ?? []),
+    onChange: (list) => {
+      partners = list;
+    },
+  });
+
   el.querySelector('[data-form]').addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = f.readForm(e.target);
@@ -1266,6 +1293,7 @@ function paintEdit(ctx) {
       source: v.source.trim() || null,
       priority: Number(v.priority) || 0,
       flags,
+      partners,
       purchasedAt: v.purchasedAt || null,
     };
 
@@ -1285,6 +1313,99 @@ function paintEdit(ctx) {
 }
 
 // ---------- 額度編輯 ----------
+
+/**
+ * 加購一整個方案。
+ *
+ * 她的原話：「客戶詳情那邊的加購可以加購一整個方案」、「我希望方案也可以微調」。
+ *
+ * 面板本身在 `components/planTweak.js`（**三個入口共用同一張**）。
+ * 這一頁只負責：把主檔遞進去、回答「哪一塊要重畫」、把結果寫下去。
+ *
+ * **寫入走 `data.addEntitlements()`** —— 跟單項加購同一支身體，所以方案裡的
+ * 健檢照樣配得到二返、營養品照樣配得到交付提醒。另外寫一支的代價
+ * `data/customers.js` 的檔頭記過。
+ */
+function paintPlanPurchase(ctx, draft = null) {
+  const { el } = ctx;
+  const plans = (ctx.plans ?? []).filter((p) => !p.deletedAt);
+  const master = liveMaster(ctx);
+  const d = draft ?? planTweak.blank(plans);
+
+  el.innerHTML = `
+    <div data-planform>
+    <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(ctx.customer.name)}</a>
+
+    <div class="page"><h1 class="page__title">加購方案</h1></div>
+
+    <div class="errors" data-errors hidden></div>
+
+    <form data-form>
+      ${planTweak.fields(d, plans)}
+
+      <div class="form__actions">
+        <button class="btn btn--primary" type="submit">加購</button>
+        <button class="btn" type="button" data-cancel>取消</button>
+      </div>
+    </form>
+    </div>`;
+
+  wirePlanPurchase(el, ctx, d, { plans, master });
+}
+
+function wirePlanPurchase(el, ctx, d, { plans, master }) {
+  // 重畫自己時不再疊一層（同 `wireEntitlement()`）
+  const leave = pushScreen('plan-purchase', () => paint(ctx));
+  el.querySelector('[data-back]').addEventListener('click', (ev) => {
+    ev.preventDefault();
+    leave();
+  });
+  el.querySelector('[data-cancel]').addEventListener('click', leave);
+
+  const root = el.querySelector('[data-planform]');
+  const form = () => el.querySelector('[data-form]');
+  f.wireChips(root);
+
+  let live = d;
+  planTweak.wire(root, {
+    form,
+    draft: () => live,
+    plans: () => plans,
+    onChange: (next, { repaint }) => {
+      live = next;
+      if (repaint) paintPlanPurchase(ctx, next);
+    },
+  });
+
+  // 「加一項」開的是 `components/buy.js` 那一張表，跟另外三個加購入口同一張。
+  root.addEventListener('click', (ev) => {
+    if (!ev.target.closest('[data-addextra]')) return;
+    live = { ...live, ...planTweak.values(form(), planTweak.rowsOf(live, plans)) };
+    // 「加一項」開的是 `components/buySheet.js` —— 跟新增客戶那一頁同一張。
+    openBuySheet(master, (item) => {
+      paintPlanPurchase(ctx, { ...live, extras: [...(live.extras ?? []), item] });
+    }, { title: '加一項', note: '方案之外多加的。加完可以再加一項。' });
+  });
+
+  form().addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const next = { ...live, ...planTweak.values(form(), planTweak.rowsOf(live, plans)) };
+    live = next;
+
+    const errors = planTweak.validate(next, plans);
+    f.showErrors(el, errors);
+    if (errors.length) return;
+
+    const rows = planTweak.payload(next, plans, {
+      purchasedAt: ctx.customer.purchasedAt ?? null,
+    });
+    await toast.withSaveState(
+      () => data.addEntitlements(ctx.id, rows, { customer: ctx.customer }),
+      { success: `已加購 ${rows.length} 筆`, key: `plan:add:${ctx.id}` },
+    );
+    ctx.back();
+  });
+}
 
 /**
  * 加購／調整額度。
@@ -1632,6 +1753,9 @@ function openVisitCard(ctx, visitId) {
       roomsById: byId(ctx.rooms ?? []),
       staffById: byId(ctx.staff ?? []),
       coursesById: byId(ctx.courses ?? []),
+      // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
+      // 少帶這一份的話這一頁會寫「復能」而日曆上寫「復能(SIS)」。
+      master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
       tasks: ctx.tasks ?? [],
       today: todayISO(),
     }),

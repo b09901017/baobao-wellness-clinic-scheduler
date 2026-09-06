@@ -30,7 +30,7 @@
 var TOKEN_PROPERTY = 'SYNC_TOKEN';
 var DATA_SHEET = '_data';
 /** 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。 */
-var SUPPORTED_FORMAT = 3;
+var SUPPORTED_FORMAT = 4;
 
 // ---------- 版面 ----------
 //
@@ -212,9 +212,22 @@ function renderCustomer(ss, data, bundle) {
   sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length).setValues([head]);
   styleHeader(sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length));
 
-  var rows = data.rows.map(function (r) {
-    return [r.label, r.total, r.done, r.booked, r.remaining].concat(r.marks);
-  });
+  // 每一列的內容與它是什麼。**「這一天用了哪一台」那一列夾在它那一筆額度的
+  // 正下方**（格式 4，她的原話：「在當天的那一列下面」），所以不能先把
+  // `data.rows` 直接攤成矩陣 —— 上色那一圈的 index 要對得上真正的列號。
+  var rows = [];
+  var meta = [];
+  for (var n = 0; n < data.rows.length; n++) {
+    var one = data.rows[n];
+    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(one.marks));
+    meta.push(one);
+
+    var note = equipmentNoteAt(data, n);
+    if (note) {
+      rows.push(equipmentNoteLine(note, head.length));
+      meta.push(null);   // null = 註記列，不上色也沒有數字
+    }
+  }
 
   var top = MATRIX_HEADER_ROW + 1;
   if (rows.length) {
@@ -223,8 +236,14 @@ function renderCustomer(ss, data, bundle) {
     sheet.getRange(top, 2, rows.length, head.length - 1).setHorizontalAlignment('center');
     banding(sheet, top, rows.length, head.length);
 
-    for (var i = 0; i < data.rows.length; i++) {
-      var r = data.rows[i];
+    for (var i = 0; i < meta.length; i++) {
+      var r = meta[i];
+      if (!r) {
+        // 註記列：小一號的灰字，跟上面那一列分得出來但看得出是一組
+        sheet.getRange(top + i, 1, 1, head.length)
+          .setFontSize(9).setFontColor(COLOR.noticeText);
+        continue;
+      }
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
       if (r.remaining === 0) sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
@@ -265,6 +284,33 @@ function colourForMark(mark) {
   if (mark.indexOf('△') === 0) return COLOR.booked;
   if (mark.indexOf('○') === 0) return COLOR.pending;
   return COLOR.noShow;
+}
+
+/**
+ * 第 n 筆額度底下要不要接一列「這一天用了哪一台」（格式 4）。
+ *
+ * 只有**得選的擇一池**才有（`domain/sheetReport.js` 的 `equipmentCells()`）：
+ * 單台的池那一列的名字已經是「超磁場(60)」了，再寫一次是噪音。
+ *
+ * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一列都不畫。
+ */
+function equipmentNoteAt(data, rowIndex) {
+  var notes = data.equipmentNotes || [];
+  for (var i = 0; i < notes.length; i++) {
+    if (notes[i].rowIndex === rowIndex) return notes[i];
+  }
+  return null;
+}
+
+/** 那一列的內容：前五欄留白，日期欄放器材的別稱。 */
+function equipmentNoteLine(note, width) {
+  var line = [];
+  for (var i = 0; i < width; i++) line.push('');
+  for (var c = 0; c < note.cells.length; c++) {
+    var col = COL.FIRST_DATE - 1 + note.cells[c].dateIndex;
+    if (col < width) line[col] = note.cells[c].text;
+  }
+  return line;
 }
 
 /**

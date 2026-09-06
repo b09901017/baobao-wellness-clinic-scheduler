@@ -666,6 +666,23 @@ textarea {
   box-shadow: inset 0 0 0 1px var(--flag-fg);
 }
 
+/* 合作機構（ADR-0076）。**不是永久限制** —— 它不擋、不影響排班，
+   只是「這一次要多跟一家講一聲」。所以畫法要跟警示分得出來：
+   那一排是實心／外框的語意色，這一顆是中性的方框加一個小前綴，
+   掃過去一眼就知道它是另一種東西。**不開新色相**（ADR-0039）—— 借 --accent。 */
+.flag--partner {
+  color: var(--accent);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+}
+.flag--partner::before {
+  content: '＋';
+  margin-right: 2px;
+  opacity: 0.7;
+}
+
 /* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */
 .blockchips {
   display: flex;
@@ -4155,6 +4172,40 @@ button.mark::after {
   padding: 0;
 }
 
+/* 設定 → 名稱怎麼寫。一列 = 一筆主檔的別稱、LINE 名、三種寫法的預覽。
+   器材縮排掛在它的課程底下（ADR-0075）—— 她要看的是那兩個字組起來的樣子。 */
+.namerow {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+.namerow:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.namerow--sub {
+  margin-left: var(--space-4);
+}
+.namerow__head {
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+/* 兩格並排。手機上一格大約 150px，放得下「高能量雷射」那種長度。 */
+.namerow__fields {
+  display: flex;
+  gap: var(--space-2);
+}
+.namerow__fields .field {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.namerow__preview {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
 .field__label {
   display: block;
   margin-bottom: 3px;
@@ -5523,6 +5574,46 @@ summary {
 .roster__note {
   font-size: var(--text-2xs);
   color: var(--text-dim);
+}
+
+/* 微調面板上那一列被改成 0 —— 她按下去之後那一項不會被建立。
+   不是把它從清單上拿掉：拿掉的話她按錯了就找不回來，而 [＋] 就在原地。 */
+.roster__row--off .roster__name,
+.roster__row--off .roster__note {
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
+/* 一列一個 [−] N [＋]。跟 .qty 的差別是它要塞得進一列裡，
+   所以數字那一格窄得多，而兩顆鈕撐到 44px 的觸控區靠 padding 不靠尺寸。 */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.stepper__b {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.stepper__b:active {
+  background: var(--surface-2);
+}
+.stepper__n {
+  width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .roster__warn {

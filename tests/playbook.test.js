@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   normalize, bodyOf, validatePlaybook, linesOf, previewOf, deckOrder, matches,
-  playbooksForVisit, MAX_TITLE, MAX_BODY, PREVIEW_LINES,
+  playbooksForVisit, playbooksFor, MAX_TITLE, MAX_BODY, PREVIEW_LINES,
 } from '../public/js/domain/playbook.js';
 
 const pb = (over = {}) => ({
@@ -22,18 +22,25 @@ const pb = (over = {}) => ({
 // ---------- 形狀 ----------
 
 describe('存檔前的整理', () => {
-  test('三個欄位，多的不留 —— 舊形狀的章節、分類、釘選一起清掉', () => {
+  test('四個欄位，多的不留 —— 舊形狀的章節、分類、釘選一起清掉', () => {
+    // 第四格是 2026-09-06 加的「掛哪幾家合作機構」（ADR-0076）。
     const out = normalize({
       title: '  營養點滴  ',
       courseIds: ['a', 'a', 'b', null, ''],
+      partners: ['自然美', '自然美', '  ', null],
       body: '  飯後打針  ',
       tag: '點滴',
       pinned: true,
       sections: [{ heading: 'x', when: 'before', body: 'y' }],
     });
-    assert.deepEqual(Object.keys(out).sort(), ['body', 'courseIds', 'title']);
+    assert.deepEqual(Object.keys(out).sort(), ['body', 'courseIds', 'partners', 'title']);
     assert.equal(out.title, '營養點滴');
     assert.deepEqual(out.courseIds, ['a', 'b'], '去重、空的丟掉');
+    assert.deepEqual(out.partners, ['自然美'], '同上，而且前後空白去掉');
+  });
+
+  test('沒掛機構就是空陣列 —— 既有那幾份一個字都不用改', () => {
+    assert.deepEqual(normalize({ title: 't', body: 'x' }).partners, []);
   });
 
   test('內文只去頭尾，中間的縮排原樣留著 —— 她可能刻意用縮排分層', () => {
@@ -246,5 +253,58 @@ describe('它不是待辦', () => {
     assert.equal('done' in out, false);
     assert.equal('dueDate' in out, false);
     assert.equal('when' in out, false);
+  });
+});
+
+
+// ADR-0076：備忘錄也可以掛合作機構。**它仍然不綁某一位客戶** ——
+// 綁的是一家機構（跟課程一樣是主檔上的東西），差別只有它是**透過客戶**浮出來的。
+describe('掛合作機構的那幾份', () => {
+  const playbooks = [
+    { id: 'p-drip', title: '營養點滴', courseIds: ['c-drip'], body: 'x' },
+    { id: 'p-nb', title: '自然美對接', partners: ['自然美'], body: 'y' },
+    { id: 'p-both', title: '兩邊都掛', courseIds: ['c-drip'], partners: ['自然美'], body: 'z' },
+    { id: 'p-gone', title: '刪掉的', partners: ['自然美'], body: 'w', deletedAt: 'x' },
+  ];
+  const visit = { slots: [{ courseId: 'c-drip' }] };
+  const withNb = { partners: ['自然美'] };
+
+  test('課程配到的照舊', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit }).map((p) => p.id), ['p-drip', 'p-both'],
+    );
+  });
+
+  test('這位客戶掛了自然美，那一份就浮出來', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit: { slots: [] }, customer: withNb }).map((p) => p.id),
+      ['p-nb', 'p-both'],
+    );
+  });
+
+  test('兩邊都掛的只回一次 —— 同一份不該畫兩塊', () => {
+    const out = playbooksFor({ playbooks, visit, customer: withNb });
+    assert.deepEqual(out.map((p) => p.id), ['p-drip', 'p-nb', 'p-both']);
+  });
+
+  test('沒掛那一家的客戶不會浮出來', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit: { slots: [] }, customer: { partners: ['別家'] } }), [],
+    );
+  });
+
+  test('拿不到客戶就只回課程配到的 —— 少一份提醒比整塊消失好', () => {
+    assert.deepEqual(playbooksFor({ playbooks, visit }).map((p) => p.id), ['p-drip', 'p-both']);
+  });
+
+  test('刪掉的一份都不回', () => {
+    assert.ok(!playbooksFor({ playbooks, visit, customer: withNb }).some((p) => p.id === 'p-gone'));
+  });
+
+  test('舊的那一支還在，而且行為一模一樣', () => {
+    assert.deepEqual(
+      playbooksForVisit(playbooks, visit).map((p) => p.id),
+      playbooksFor({ playbooks, visit }).map((p) => p.id),
+    );
   });
 });

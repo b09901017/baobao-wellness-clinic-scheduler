@@ -7,8 +7,15 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import { runHealthCheck } from '../domain/health.js';
 
-/** 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。 */
-const MASTER_FOR_REFS = ['courses', 'rooms', 'staff', 'equipment', 'ivProducts'];
+/**
+ * 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。
+ *
+ * `clinicalFlags` 是 2026-09-06 加的：「器材上的提醒詞不在警示名單裡」那一項
+ * 要拿它跟器材上的字比一次（ADR-0074）。
+ */
+const MASTER_FOR_REFS = [
+  'courses', 'rooms', 'staff', 'equipment', 'ivProducts', 'clinicalFlags',
+];
 
 /** 一次 commit 最多幾筆修正。repo 的上限是 500 個操作，每筆修正佔兩個（本體 + 稽核）。 */
 const FIX_CHUNK = 200;
@@ -59,6 +66,10 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
+ * - `renamePool`：2026-09-06 之前買的復能額度改成新的名字（`復能三選一(60)`）。
+ *   **只改 label**，而且只改得動認得出「舊的自動名字」的那幾筆。
+ * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
+ *   客戶身上那個字在壓表卡片牆上什麼都不會出現。
  *
  * 其餘的檢查一律只顯示差異：過期的來訪該標 done 還是 no_show、撞在一起的
  * 兩筆該動哪一筆，都是 app 看不到 Abovee 就答不出來的問題（ADR-0002）。
@@ -89,6 +100,29 @@ function opFor(fix) {
       id: fix.customerId,
       changes: fix.changes,
       note: '資料健檢：備註的「姓名欄的編號」改成「病歷號」',
+    };
+  }
+
+  // 復能額度改名（issue 09）。**只改 label**，一個別的欄位都不碰 ——
+  // 次數與器材那幾格是她談出來的，不是這一顆按鈕該動的東西。
+  if (fix?.kind === 'renamePool') {
+    return {
+      op: 'update',
+      path,
+      id: fix.entitlementId,
+      changes: { label: fix.to },
+      note: '資料健檢：復能額度改成新的名字',
+    };
+  }
+
+  // 器材上的提醒詞補進警示主檔（ADR-0074）。它寫的是主檔不是客戶的額度，
+  // 所以跟 `renameChartNo` 一樣在算 path 之後就先岔開。
+  if (fix?.kind === 'addAlert') {
+    return {
+      op: 'create',
+      path: 'config/app/clinicalFlags',
+      data: fix.data,
+      note: '資料健檢：器材上的提醒詞補進警示名單',
     };
   }
 

@@ -24,7 +24,7 @@
 //
 // 綁客戶的東西已經有三種了（永久限制、備註、隨手記），第四種只會讓她每次
 // 都要想一下該記在哪裡。而「點滴要注意什麼」對每一位客人都一樣 ——
-// 不一樣的那些是臨床提醒（ADR-0064）。
+// 不一樣的那些是警示（ADR-0074）。
 //
 // 見 docs/adr/0067-a-playbook-is-read-not-ticked.md 與
 // docs/adr/0069-a-memo-is-one-box-of-text.md。
@@ -69,6 +69,10 @@ export function normalize(playbook = {}) {
   return {
     title: trimmed(playbook.title),
     courseIds: [...new Set((playbook.courseIds ?? []).filter(Boolean))],
+    // 掛哪幾家合作機構（ADR-0076）。**存字串不存 id** —— 客戶身上存的也是字串
+    // （`customer.partners`），比對的兩邊要是同一種東西。課程那一邊存 id 是
+    // 因為時段上本來就寫著 `courseId`，兩邊也都是 id。
+    partners: [...new Set((playbook.partners ?? []).map(trimmed).filter(Boolean))],
     body: bodyOf(playbook),
   };
 }
@@ -164,17 +168,37 @@ export function matches(playbook, query) {
 }
 
 /**
- * 這一筆來訪掛得到哪幾份備忘錄。
+ * 這一筆來訪、這一位客戶，掛得到哪幾份備忘錄。
  *
- * 比的是**時段的課程**：一天兩段兩個課程就可能掛到兩份，各自畫一塊。
- * 同一份只回一次 —— 同一天兩段點滴不該讓同一份備忘錄出現兩次。
+ * 兩種掛法：
+ *
+ *   課程    比的是**時段的課程**。一天兩段兩個課程就可能掛到兩份
+ *   合作機構 比的是**這位客戶掛了哪幾家**（ADR-0076）
+ *
+ * 同一份只回一次 —— 同一天兩段點滴不該讓同一份出現兩次，一份同時掛了課程
+ * 與機構也只畫一塊。
  *
  * 回傳的順序照 `playbooks` 進來的順序，呼叫端要什麼順序自己排。
+ *
+ * **拿不到客戶時只回課程配到的那幾份**，不要整個回空 ——
+ * 少一份提醒比整塊消失好。
+ */
+export function playbooksFor({ playbooks = [], visit = null, customer = null } = {}) {
+  const courseIds = new Set((visit?.slots ?? []).map((s) => s?.courseId).filter(Boolean));
+  const partners = new Set((customer?.partners ?? []).map(trimmed).filter(Boolean));
+  if (!courseIds.size && !partners.size) return [];
+
+  return (playbooks ?? []).filter((p) => {
+    if (!p || p.deletedAt) return false;
+    if ((p.courseIds ?? []).some((id) => courseIds.has(id))) return true;
+    return (p.partners ?? []).some((name) => partners.has(trimmed(name)));
+  });
+}
+
+/**
+ * 舊的那一支。**留著**是因為它有呼叫端也有測試，而且它就是
+ * `playbooksFor()` 的一個薄殼（沒有客戶＝只比課程）。
  */
 export function playbooksForVisit(playbooks = [], visit = null) {
-  const courseIds = new Set((visit?.slots ?? []).map((s) => s?.courseId).filter(Boolean));
-  if (!courseIds.size) return [];
-  return (playbooks ?? []).filter(
-    (p) => p && !p.deletedAt && (p.courseIds ?? []).some((id) => courseIds.has(id)),
-  );
+  return playbooksFor({ playbooks, visit });
 }

@@ -80,6 +80,13 @@ export const SEED = {
     { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
   ],
 
+  // 合作機構（ADR-0076）。客戶身上打得上的一個標記 —— 有這個標記的人，
+  // 她壓完表之後要跟對方的專員說一聲。**不生任何待辦**（她 2026-09-06 選的），
+  // 標記本身就是提醒。
+  partners: [
+    { id: 'partner-nb', name: '自然美' },
+  ],
+
   ivProducts: [
     { id: 'iv-heart', name: '護心抗老' },
     { id: 'iv-liver', name: '護肝排毒' },

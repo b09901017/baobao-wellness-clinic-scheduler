@@ -6,6 +6,7 @@ import {
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
+  partnerNames, MASTER_LABELS,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
@@ -660,5 +661,38 @@ describe('排班時營養點滴給哪幾顆（ivChoicesFor）', () => {
     assert.deepEqual(ivChoicesFor(null, []), {
       boughtId: null, bought: null, primary: [], others: [],
     });
+  });
+});
+
+
+// ADR-0076
+describe('合作機構主檔', () => {
+  test('名字不可空白、最多 12 字', () => {
+    assert.deepEqual(validate('partners', { name: '自然美' }, { existing: [] }), []);
+    assert.ok(validate('partners', { name: '  ' }, { existing: [] }).length);
+    assert.ok(validate('partners', { name: '一二三四五六七八九十一二三' }, { existing: [] })
+      .some((e) => e.includes('12 字')));
+  });
+
+  test('同名擋得下來', () => {
+    const existing = [{ id: 'a', name: '自然美' }];
+    assert.ok(validate('partners', { id: 'b', name: '自然美' }, { existing }).length);
+  });
+
+  test('名單只收還在用的，維持主檔順序', () => {
+    assert.deepEqual(partnerNames([
+      { name: '自然美' },
+      { name: '停用的', active: false },
+      { name: '刪掉的', deletedAt: 'x' },
+      { name: '  ' },
+    ]), ['自然美']);
+    assert.deepEqual(partnerNames([]), []);
+    assert.deepEqual(partnerNames(), []);
+  });
+
+  test('種子有自然美，而且它進得了主檔清單', () => {
+    assert.deepEqual(SEED.partners.map((p) => p.name), ['自然美']);
+    assert.ok(MASTER_TYPES.includes('partners'));
+    assert.equal(MASTER_LABELS.partners, '合作機構');
   });
 });
