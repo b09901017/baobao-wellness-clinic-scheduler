@@ -210,6 +210,38 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label} → ${fix.draft.label} ${fix.qty} 次`),
     }),
   },
+  poolLabel: {
+    button: () => '改成新的名字',
+    all: (n) => `一次改這 ${n} 筆`,
+    one: (fix) => ({
+      title: `把「${fix.from}」改成「${fix.to}」？`,
+      lines: [
+        '額度的名字是購買當下的快照，所以它不會自己跟上（ADR-0003）',
+        '只改名字 —— 次數、器材、到期日一個字都不會動',
+        '同一位客戶身上兩種名字並排，看起來像兩種東西',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 筆復能額度都改成新的名字？`,
+      lines: fixes.map((fix) => `${fix.label} → ${fix.to}`),
+    }),
+  },
+  alertTerm: {
+    button: () => '補進警示名單',
+    all: (n) => `一次補這 ${n} 個`,
+    one: (fix) => ({
+      title: `把「${fix.label}」補進警示名單？`,
+      lines: [
+        '器材上登記了這個字，但警示名單裡沒有',
+        '少了它，客戶身上打了這個字，壓表卡片牆上什麼都不會出現',
+        '補進去之後是紅色實心 —— 之後可以到設定 → 警示改樣式',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 個字都補進警示名單？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
   chartNo: {
     button: () => '改成「病歷號」',
     all: (n) => `一次改這 ${n} 筆`,
@@ -232,6 +264,8 @@ const KIND_TO_CHECK = {
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',
+  renamePool: 'poolLabel',
+  addAlert: 'alertTerm',
 };
 
 /**
