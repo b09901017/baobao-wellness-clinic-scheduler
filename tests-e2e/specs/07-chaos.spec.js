@@ -287,6 +287,7 @@ test('C23 遍歷每一頁：沒有未捕獲例外、沒有白屏', async ({ app,
   const pages = [
     '/', '/customers', '/schedule', '/calendar', '/settings',
     '/customers/new', '/customers/bulk', '/customers/progress', '/customers/cust-a',
+    '/customers/cust-a/bought',
     '/todo/confirm', '/todo/close', '/todo/notes', '/todo/ask', '/todo/forms', '/todo/book',
     '/todo/overdue', '/todo/today', '/todo/tomorrow', '/todo/cancel',
     '/todo/Examine', '/todo/耀聖',

@@ -126,6 +126,21 @@ export async function addEntitlements(customerId, dataList = [], opts = {}) {
 }
 export const updateEntitlement = (customerId, id, changes) =>
   repo.update(entPath(customerId), id, changes);
+
+/**
+ * 一次改一組額度。「買過什麼」那一頁改購買日用。
+ *
+ * **同一個 commit**：一次購買的那幾筆購買日必須一起變 —— 改到一半失敗的話，
+ * 那一組會在畫面上當場裂成兩組，而她看不出發生了什麼事。
+ * 復原也退得回整組。
+ *
+ * @param {string} customerId
+ * @param {{id:string, changes:object}[]} patches
+ */
+export const updateEntitlements = (customerId, patches = []) =>
+  repo.commit(patches.map((p) => ({
+    op: 'update', path: entPath(customerId), id: p.id, data: p.changes,
+  })));
 export const removeEntitlement = (customerId, id, reason) =>
   repo.softDelete(entPath(customerId), id, reason);
 export const restoreEntitlement = (customerId, id) => repo.restore(entPath(customerId), id);

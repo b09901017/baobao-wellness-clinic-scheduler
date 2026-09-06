@@ -11,6 +11,7 @@ import * as schedule from './views/schedule.js';
 import * as customers from './views/customers.js';
 import * as customersBulk from './views/customersBulk.js';
 import * as customerDetail from './views/customerDetail.js';
+import * as bought from './views/bought.js';
 import * as progress from './views/progress.js';
 import * as visitEditor from './views/visitEditor.js';
 import * as eventEditor from './views/eventEditor.js';
@@ -50,6 +51,12 @@ register('/customers/progress', { title: '進度追蹤', nav: false, render: pro
 register('/customers/:id', {
   title: '客戶詳情', nav: false,
   render: (el, id) => customerDetail.render(el, id),
+});
+// 「買過什麼」。三段路徑，所以不會跟 `/customers/:id` 撞（`router.js` 的
+// `match()` 先比段數）。唯讀，只有購買日期改得動。
+register('/customers/:id/bought', {
+  title: '買過什麼', nav: false,
+  render: (el, id) => bought.render(el, id),
 });
 register('/visits/new/:customerId', {
   title: '記錄來訪', nav: false,

@@ -235,9 +235,10 @@ function paint(ctx) {
       ${offCount(pools, visits)
         ? `<span class="badge badge--soon">${offCount(pools, visits)} 筆對不起來</span>`
         : ''}
-      ${/* 兩顆並排：單項加購與整個方案。她一年動不到幾次方案，
-           所以方案那一顆排在後面 —— 但它必須在這裡，不然「加購一整個方案」
-           只有建新客戶時做得到。 */''}
+      ${/* 三顆並排。「買過什麼」是唯讀的那一頁（當初買了什麼），
+           另外兩顆是加購。她一年動不到幾次方案，所以方案那一顆排在中間 ——
+           但它必須在這裡，不然「加購一整個方案」只有建新客戶時做得到。 */''}
+      <a class="section__more" href="#/customers/${esc(ctx.id)}/bought">買過什麼</a>
       <button class="section__more" type="button" data-add-plan>加購方案</button>
       <button class="section__more" type="button" data-add-ent>加購</button>
     </div>
