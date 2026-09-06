@@ -839,7 +839,7 @@ function openDetail(el, data, what, id, date, repaint) {
   // 掛合作機構的那幾份要靠客戶身上的標記（ADR-0076）。讀不到那一位就只浮
   // 課程配到的那幾份（`playbooksFor()` 的退路）—— 少一塊提醒比整張卡壞掉好。
   const customer = data.customersById?.[visit.customerId] ?? null;
-  const html = (tasks) => visitReadHtml(visit, { ...data, tasks })
+  const html = (tasks, extra = {}) => visitReadHtml(visit, { ...data, ...extra, tasks })
     + hintHtml({ playbooks: data.playbooks ?? [], visit, customer });
 
   const card = openCard({
@@ -1378,6 +1378,7 @@ export function visitReadHtml(visit, data) {
                 四個畫面共用這一支，所以四頁一起改 —— 那是刻意的（ADR-0018、0056）。 */''}
           <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'full') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</div>
+          ${fromLine(s, data)}
         </div>`;
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
 
@@ -1393,6 +1394,31 @@ export function visitReadHtml(visit, data) {
       coursesById: data.coursesById ?? {},
       today: data.today ?? todayISO(),
     })}`;
+}
+
+/**
+ * 「這一段扣的是哪一筆」。
+ *
+ * 她 2026-09-07：
+ *
+ * > 我壓表那邊應該可以看我現在有甚麼額度……然後就記錄起來這次壓表是扣哪個？
+ * > 為什麼日曆不知道
+ *
+ * 時段身上一直都有 `entitlementId`，缺的只是**名字**。名字不存在時段上
+ * （那會變成快照的快照 —— 她之後在資料健檢按一下改名，這裡就會停在舊的），
+ * 所以呼叫端把那一位客戶的額度帶進來，這裡照 id 查。
+ *
+ * **帶不帶是選填的**：日曆與待辦中心點開的那一下才去讀那一位（同備忘錄那一塊
+ * 的作法），讀回來之前這一行不出現。少一行字比整張卡慢半秒好。
+ *
+ * n返沒有額度（ADR-0063），所以它本來就不會有這一行。
+ */
+function fromLine(slot, data) {
+  const label = slot?.entitlementId
+    ? String(data?.entitlementsById?.[slot.entitlementId]?.label ?? '').trim()
+    : '';
+  if (!label) return '';
+  return `<div class="readslot__from">扣 ${esc(label)}</div>`;
 }
 
 function eventReadHtml(event) {

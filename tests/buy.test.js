@@ -32,7 +32,7 @@ const MASTER = {
   // 所以「三選一」是前兩台（這份主檔只有兩台），「四選一」是全部三台。
   equipment: [
     { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
-    { id: 'eq-sis', name: '超磁場', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
     { id: 'eq-ilib', name: 'ILIB', courseId: 'c-ilib' },
   ],
   ivProducts: [
@@ -49,6 +49,43 @@ const MASTER = {
 const from = (...values) =>
   values.reduce((e, v) => ({ ...e, ...buy.pick(v, e, MASTER) }), buy.blank());
 
+// 她 2026-09-07：「我希望復能和 ILIB 這兩個丸子可以在隔壁」
+describe('買了什麼：復能與 ILIB 並排', () => {
+  const order = (master) => {
+    const html = buy.fields(buy.blank(), master);
+    const row = html.slice(html.indexOf('買了什麼'), html.indexOf('幾次'));
+    return [...row.matchAll(/aria-pressed="[^"]*">\s*([^<]*)</g)].map((m) => m[1].trim());
+  };
+
+  test('ILIB 緊接在復能後面，就算主檔上被隔開了', () => {
+    const apart = {
+      ...MASTER,
+      courses: [
+        MASTER.courses[3],                       // 復能（擇一池那一顆）
+        MASTER.courses[0],                       // 復健科醫師門診
+        MASTER.courses[1],                       // 健檢
+        MASTER.courses[4],                       // ILIB
+      ],
+    };
+    const names = order(apart);
+    assert.equal(names.indexOf('ILIB'), names.indexOf('復能') + 1, names.join('/'));
+  });
+
+  test('復能還是留在主檔上原本的位置，不會被搬到最前面', () => {
+    const names = order(MASTER);
+    assert.ok(names.indexOf('復健科醫師門診') < names.indexOf('復能'), names.join('/'));
+    assert.equal(names.indexOf('ILIB'), names.indexOf('復能') + 1, names.join('/'));
+  });
+
+  test('沒有 ILIB 那一台器材時就沒有鄰居，其餘照舊', () => {
+    // 資料健檢的「器材主檔少了一台」會講這件事，這一排不自己補一顆
+    const noIlib = { ...MASTER, equipment: MASTER.equipment.filter((e) => e.id !== 'eq-ilib') };
+    const names = order(noIlib);
+    assert.ok(names.includes('復能') && names.includes('ILIB'));
+    assert.deepEqual(buy.poolChoices(noIlib).sets.map((x) => x.label), ['二選一']);
+  });
+});
+
 describe('買了什麼：選了之後草稿變成什麼', () => {
   test('選一個課程就把名稱帶進來 —— 她一個字都不用打', () => {
     const e = from('c-rehab');
@@ -64,7 +101,7 @@ describe('買了什麼：選了之後草稿變成什麼', () => {
     assert.equal(e.courseId, null);
     assert.deepEqual(e.optionEquipmentIds, ['eq-indiba', 'eq-sis']);
     assert.equal(e.durationMin, 60, '預設時長也要幫她帶進來');
-    assert.equal(e.label, '復能二選一(60)');
+    assert.equal(e.label, '復能 - 二選一（60）');
   });
 
   test('營養品是第三種型態，沒有課程也沒有器材', () => {
@@ -517,7 +554,9 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
     assert.deepEqual(sets.map((x) => x.label), ['二選一', '三選一']);
     assert.deepEqual(sets[0].ids, ['eq-indiba', 'eq-sis']);
     assert.deepEqual(sets[1].ids, ['eq-indiba', 'eq-sis', 'eq-ilib']);
-    assert.deepEqual(singles.map((x) => x.label), ['INDIBA', '超磁場', 'ILIB']);
+    // **ILIB 不在單買那一排**：它在「買了什麼」那一排自己有一顆（ADR-0077）。
+    // 印的是別稱，跟 `poolName()` 算出來的名字同一份。
+    assert.deepEqual(singles.map((x) => x.label), ['INDIBA', 'SIS']);
 
     const html = buy.fields(from(buy.POOL_PICK), MASTER);
     assert.ok(html.includes('哪一種'));
@@ -553,18 +592,18 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
   test('換一種：名字跟著變', () => {
     const pool = from(buy.POOL_PICK);
     const single = buy.afterDetail(pool, { optionEquipmentIds: ['eq-sis'] }, MASTER);
-    assert.equal(single.label, '超磁場(60)');
+    assert.equal(single.label, '復能 - SIS（60）', '單買一台也帶著分類，而且用別稱');
 
     const four = buy.afterDetail(single, {
       optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-ilib'],
     }, MASTER);
-    assert.equal(four.label, '復能三選一(60)');
+    assert.equal(four.label, '復能 - 三選一（60）');
   });
 
   test('換幾分鐘：名字跟著變', () => {
     const pool = from(buy.POOL_PICK);
     const half = buy.afterDetail(pool, { durationMin: 30 }, MASTER);
-    assert.equal(half.label, '復能二選一(30)');
+    assert.equal(half.label, '復能 - 二選一（30）');
   });
 
   test('她自己打過的名字照樣不被覆蓋', () => {
@@ -577,7 +616,7 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
     const ilib = from('c-ilib');
     assert.equal(ilib.type, 'single');
     assert.equal(ilib.durationMin, 60, '預設帶課程的時長');
-    assert.equal(ilib.label, 'ILIB(60)');
+    assert.equal(ilib.label, 'ILIB（60）');
 
     const html = buy.fields(ilib, MASTER);
     assert.ok(html.includes('幾分鐘'));

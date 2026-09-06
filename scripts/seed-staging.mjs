@@ -30,7 +30,7 @@ import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
-import { expandPlan } from '../public/js/domain/entitlements.js';
+import { expandPlan, poolName, timedLabel } from '../public/js/domain/entitlements.js';
 // 任務照規則產生，不自己編一個種類。
 import { tasksForVisit, acceptsNewTasks } from '../public/js/domain/taskRules.js';
 
@@ -96,12 +96,21 @@ function parseArgs(argv) {
   return out;
 }
 
-/** 這一輪要種出來的那幾種復能額度（issue 04）。她真的買得到的組合。 */
+/**
+ * 這一輪要種出來的那幾種復能額度（issue 04）。她真的買得到的組合。
+ *
+ * **名字是算出來的不是寫死的**（`poolName()` + `timedLabel()`）——
+ * 寫死的話 2026-09-07 那次改格式之後，這份假資料一打開資料健檢就報
+ * 七筆「復能額度還叫舊名字」，而那是假資料自己造出來的。
+ */
 const RECOVERY_EXTRAS = [
-  { label: '復能四選一(30)', ids: ['eq-laser', 'eq-sis', 'eq-indiba', 'eq-ilib'], durationMin: 30, qty: 10 },
-  { label: '超磁場(60)', ids: ['eq-sis'], durationMin: 60, qty: 5 },
-  { label: 'INDIBA(30)', ids: ['eq-indiba'], durationMin: 30, qty: 5 },
-];
+  { ids: ['eq-laser', 'eq-sis', 'eq-indiba', 'eq-ilib'], durationMin: 30, qty: 10 },
+  { ids: ['eq-sis'], durationMin: 60, qty: 5 },
+  { ids: ['eq-indiba'], durationMin: 30, qty: 5 },
+].map((x) => ({
+  ...x,
+  label: timedLabel(poolName(x.ids, SEED.equipment, SEED.courses), x.durationMin),
+}));
 
 /**
  * 兩份備忘錄（ADR-0067、0076）。一份掛課程、一份掛合作機構 ——

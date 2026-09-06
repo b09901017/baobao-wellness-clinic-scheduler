@@ -1183,7 +1183,8 @@ function openWhoVisit(visitId) {
       : '那一天的資料還在讀，等一下再按一次');
     return;
   }
-  const html = (tasks) => visitReadHtml(visit, {
+  const html = (tasks, extra = {}) => visitReadHtml(visit, {
+    ...extra,
     roomsById: d.rooms, staffById: d.staff, master: d.master, tasks, today: todayISO(),
   });
   // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
@@ -2085,7 +2086,8 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  const html = (tasks) => visitReadHtml(visit, {
+  const html = (tasks, extra = {}) => visitReadHtml(visit, {
+    ...extra,
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
     master: taskVisits.master,
