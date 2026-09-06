@@ -224,14 +224,16 @@ function errorsCard() {
 }
 
 /**
- * 文字裡提到醫療禁忌的那幾位。**排在所有東西前面**，因為它是這一頁唯一
+ * 文字裡提到警示的那幾位。**排在所有東西前面**，因為它是這一頁唯一
  * 會造成實際傷害的一件事。
  *
  * 舊表沒有「永久限制」這個欄位，那幾句話寫在購買名稱或空白處，合併檔照抄進備註。
- * 匯進來之後 `customer.flags` 是空的，而擋器材是拿 flags 比對的 ——
- * **沒有那個標記，超磁場與高能量雷射不會被擋下來**。
+ * 匯進來之後 `customer.flags` 是空的，而那一句提醒是拿 flags 比對的 ——
+ * **沒有那個標記，壓表卡片牆上那顆丸子不會出現，選超磁場也不會多那一句**。
+ * 2026-09-06 之後它不擋器材了（ADR-0074），但「她在診間看不到這件事」
+ * 的傷害一點都沒有變小。
  *
- * 不自動填 flags：「手有金屬」是禁忌、「金屬已取出」不是，而兩句話都有「金屬」，
+ * 不自動填 flags：「手有金屬」要提醒、「金屬已取出」不用，而兩句話都有「金屬」，
  * 那是她的判斷（ADR-0002）。
  */
 function contraindicationCard(s) {
@@ -239,14 +241,14 @@ function contraindicationCard(s) {
   if (!rows.length) return '';
   return `
     <section class="card card--danger">
-      <h2 class="card__title">這 ${rows.length} 位的文字裡提到醫療禁忌</h2>
+      <h2 class="card__title">這 ${rows.length} 位的文字裡提到要注意的狀況</h2>
       <ul class="tight">
         ${rows.map((x) => `<li><b>${esc(x.customerName)}</b>：${esc(x.terms.join('、'))}
-          ${x.blocks.length ? `<span class="muted">（會擋掉 ${esc(x.blocks.join('、'))}）</span>` : ''}</li>`).join('')}
+          ${x.warns.length ? `<span class="muted">（排 ${esc(x.warns.join('、'))} 時會多一句提醒）</span>` : ''}</li>`).join('')}
       </ul>
       <p class="muted"><b>匯入不會自動設定永久限制。</b>匯完請到這幾位的客戶詳情頁自己設 ——
-        沒設的話對應的器材不會被擋下來，而那是整個系統唯一會造成實際傷害的一條。
-        不自動填是因為「手有金屬」是禁忌、「金屬已取出」不是，而兩句話都有「金屬」。</p>
+        沒設的話壓表卡片牆上那顆丸子不會出現，你在診間就看不到這件事。
+        不自動填是因為「手有金屬」要提醒、「金屬已取出」不用，而兩句話都有「金屬」。</p>
     </section>`;
 }
 

@@ -23,6 +23,7 @@
 import { shortDate, daysBetween, addMonths } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { textFor, fill } from './messageTemplates.js';
+import { slotName, visitNames } from './naming.js';
 
 /** 這一則現在的字，換上變數。 */
 const say = (id, templates, vars) => fill(textFor(id, templates), vars);
@@ -33,11 +34,13 @@ const say = (id, templates, vars) => fill(textFor(id, templates), vars);
  * @param {{name:string}} customer
  * @param {{date:string, slots:{startsAt:string, endsAt:string}[]}[]} visits
  *   這次要問的來訪
- * @param {{templates?: object}} [o]
+ * @param {{templates?: object, master?: object}} [o]
+ *   `master`：課程與器材主檔。給了之後那一段寫的是**她那天真的做了什麼**
+ *   （`復能(SIS)`），不是額度的名字。沒給就退回時段上的課程名快照（ADR-0075、`13`）。
  * @returns {string} 可以直接貼進 LINE 的文字
  */
-export function confirmMessage(customer, visits, { templates = {} } = {}) {
-  const rows = slotLines(visits);
+export function confirmMessage(customer, visits, { templates = {}, master = {} } = {}) {
+  const rows = slotLines(visits, master);
   if (!rows.length) return '';
 
   const month = Number(
@@ -79,14 +82,16 @@ export function confirmMessage(customer, visits, { templates = {} } = {}) {
  * @param {{date:string, slots:object[]}[]} visits
  * @returns {string[]}
  */
-function slotLines(visits = []) {
+function slotLines(visits = [], master = {}) {
   return (visits ?? [])
     .filter((v) => v?.date)
     .flatMap((v) => (v.slots ?? []).map((s) => ({
       date: v.date,
       startsAt: s?.startsAt ?? '',
       endsAt: s?.endsAt ?? '',
-      courseName: s?.courseName ?? '',
+      // 貼給客戶的那一句寫**那天真的做了什麼**（`13`）：她點的是四選一，
+      // 但客戶要看到的是「復能(SIS)」。
+      courseName: slotName(s, master, 'line'),
     })))
     .sort((a, b) => a.date.localeCompare(b.date)
       // 沒有時間的排那一天的最後 —— 它不知道幾點，擺在有時間的前面會誤導
@@ -168,15 +173,15 @@ export function availabilityReceivedMessage(
  *
  * @param {{name:string}} customer
  * @param {{date:string, slots:{startsAt:string, courseName:string}[]}} visit
- * @param {{today:string, templates?:object}} when
+ * @param {{today:string, templates?:object, master?:object}} when
  */
-export function reminderMessage(customer, visit, { today, templates = {} } = {}) {
+export function reminderMessage(customer, visit, { today, templates = {}, master = {} } = {}) {
   if (!visit?.date) return '';
 
   const when = today && daysBetween(today, visit.date) === 1
     ? `明天 ${shortDate(visit.date)}`
     : shortDate(visit.date);
-  const courses = courseNames(visit);
+  const courses = courseNames(visit, master);
 
   return say('reminder', templates, {
     name: nameOf(customer),
@@ -199,17 +204,19 @@ export function reminderMessage(customer, visit, { today, templates = {} } = {})
  *
  * @param {{name:string}} customer
  * @param {{date:string, startsAt:string, endsAt:string, courseName:string}} slot
- * @param {{templates?:object}} [o]
+ * @param {{templates?:object, master?:object}} [o]
  */
-export function offerSlotMessage(customer, slot = {}, { templates = {} } = {}) {
+export function offerSlotMessage(customer, slot = {}, { templates = {}, master = {} } = {}) {
   if (!slot.date || !slot.startsAt) return '';
+
+  const course = slotName(slot, master, 'line');
 
   return say('offer', templates, {
     name: nameOf(customer),
     date: shortDate(slot.date),
     range: slot.endsAt ? `${slot.startsAt}–${slot.endsAt}` : slot.startsAt,
     // 同 `reminder` 的 `{courses}`：「的」跟著名字一起進來或一起消失
-    course: slot.courseName ? `${slot.courseName}的` : '',
+    course: course ? `${course}的` : '',
   });
 }
 
@@ -226,10 +233,11 @@ export function offerSlotMessage(customer, slot = {}, { templates = {} } = {}) {
  * @param {string} [ctx.month] 要問哪個月，預設下個月
  * @param {string} [ctx.formLink] 這位客戶這個月的表單連結，有就換一種問法
  * @param {object} [ctx.templates] 她改過的模板
+ * @param {object} [ctx.master] 課程與器材主檔（`13`：那一段寫的是真的做了什麼）
  * @returns {{id:string, label:string, text:string}[]}
  */
 export function messagesFor({
-  customer, visits = [], today, month = null, formLink = '', templates = {},
+  customer, visits = [], today, month = null, formLink = '', templates = {}, master = {},
 }) {
   const out = [];
   const alive = visits.filter((v) => !v.deletedAt && v.status !== 'cancelled');
@@ -247,7 +255,7 @@ export function messagesFor({
     out.push({
       id: 'confirm',
       label: '問壓好的時間可不可以',
-      text: confirmMessage(customer, waiting, { templates }),
+      text: confirmMessage(customer, waiting, { templates, master }),
     });
   }
 
@@ -258,7 +266,7 @@ export function messagesFor({
     out.push({
       id: 'reminder',
       label: `提醒 ${shortDate(next.date)} 的來訪`,
-      text: reminderMessage(customer, next, { today, templates }),
+      text: reminderMessage(customer, next, { today, templates, master }),
     });
   }
 
@@ -282,6 +290,6 @@ function earliestStart(visit) {
   return (visit?.slots ?? []).map((s) => s.startsAt).filter(Boolean).sort()[0] ?? '';
 }
 
-function courseNames(visit) {
-  return [...new Set((visit?.slots ?? []).map((s) => s.courseName).filter(Boolean))].join('、');
+function courseNames(visit, master = {}) {
+  return visitNames(visit, master, 'line').join('、');
 }

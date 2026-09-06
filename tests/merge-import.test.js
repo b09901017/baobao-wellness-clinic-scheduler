@@ -580,7 +580,7 @@ describe('文字裡的醫療禁忌要在匯入前講出來', () => {
     const hits = metal().contraindications;
     assert.equal(hits.length, 1);
     assert.equal(hits[0].term, '體內金屬');
-    assert.deepEqual(hits[0].blocks.sort(), ['超磁場', '高能量雷射']);
+    assert.deepEqual(hits[0].warns.sort(), ['超磁場', '高能量雷射']);
   });
 
   test('備註裡的也算 —— 舊表的空白處就是寫在那裡', () => {

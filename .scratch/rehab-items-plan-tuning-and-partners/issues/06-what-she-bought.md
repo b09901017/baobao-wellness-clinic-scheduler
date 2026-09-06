@@ -1,6 +1,6 @@
 # 客戶詳情多一頁「買過什麼」
 
-Status: 待確認
+Status: 已完成
 Blocked by: 05, 15
 
 ## 她說的

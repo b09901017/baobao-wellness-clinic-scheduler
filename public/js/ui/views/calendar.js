@@ -44,6 +44,7 @@ import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
+import { slotName, visitNames } from '../../domain/naming.js';
 import * as note from '../components/note.js';
 import { hintHtml } from '../components/playbookHint.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
@@ -103,7 +104,8 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff, courses, playbooks] = await Promise.all([
+    const [visits, events, notes, rooms, staff, courses, equipment, playbooks, customers] =
+      await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
       // 有日期的隨手記（ADR-0044）。跟其他幾份一起走，不多一輪往返。
@@ -114,10 +116,18 @@ async function load() {
       // 出現（`needsForm()`），取消那一道確認也要它才講得出壓在哪個系統。
       // 含已刪除的 —— 她停用一個課程，既有的來訪照樣要答得出這兩件事。
       config.listAll('courses', { includeDeleted: true }),
+      // 器材主檔：一段要唸成什麼要它（`domain/naming.js`）——「復能(SIS)」的
+      // 括號裡那一半就是從這裡來的。含已刪除的，理由同課程。
+      config.listAll('equipment', { includeDeleted: true }),
       // 備忘錄（ADR-0067）。點開一筆來訪時，那一份的前幾行會浮在卡片底下。
       // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
       // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
       playbooksData.list().catch(() => []),
+      // 客戶：掛合作機構的那幾份備忘錄要靠客戶身上的標記（ADR-0076）。
+      // 跟其他幾份**同一趟**拿，不多一輪往返 —— 而點開一筆來訪才去讀那一位的話，
+      // 那一塊會在卡片畫好之後才跳出來，看起來像壞掉。
+      // 讀不到就當沒有：那一塊不畫就是了（`playbooksFor()` 的退路）。
+      customersData.list().catch(() => []),
     ]);
     return {
       ok: true,
@@ -129,6 +139,10 @@ async function load() {
         roomsById: Object.fromEntries(rooms.map((r) => [r.id, r])),
         staffById: Object.fromEntries(staff.map((s) => [s.id, s])),
         coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+        // 一段要唸成什麼要的是**陣列**（`domain/naming.js`）。跟上面那張表
+        // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
+        master: { courses, equipment },
+        customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
       },
     };
   } catch (err) {
@@ -275,7 +289,7 @@ function bodyHtml(data, date, today) {
 function monthHtml(data, date, today) {
   const weeks = monthWeeks(date.slice(0, 7));
   const items = [
-    ...(shows('visit') ? data.visits.map(visitAsBar) : []),
+    ...(shows('visit') ? data.visits.map((v) => visitAsBar(v, data.master)) : []),
     ...(shows('note') ? (data.notes ?? []).map(noteAsBar) : []),
     ...data.events.filter((e) => shows(e.category)),
   ];
@@ -313,8 +327,10 @@ function monthHtml(data, date, today) {
  * 顏色跟著狀態走，不是所有來訪都同一條綠 —— 她要一眼看出這個月哪幾天還沒問客人。
  * 色條上放不下狀態兩個字，所以顏色就是唯一的線索，頂端要有圖例。
  */
-function visitAsBar(visit) {
-  const courses = [...new Set((visit.slots ?? []).map((s) => s.courseName).filter(Boolean))];
+function visitAsBar(visit, master = {}) {
+  // **月檢視寫器材名**（`13`）：一格只放得下四個多字，而她真正要認的是
+  // 「那天是哪一台」——「復能」三個人都一樣，「SIS」才分得出來。
+  const courses = visitNames(visit, master, 'short');
   const name = visit.customerName ?? '?';
   const course = courses[0] ?? '';
   return {
@@ -552,7 +568,7 @@ function visitRow(r, data = null) {
     until: r.endsAt || '',
     title: r.customerName,
     marks: noteMarks(r, data),
-    sub: `${r.courseName}${r.room ? `・${r.room}${r.bed ?? ''}` : ''}${
+    sub: `${r.courseLabel ?? r.courseName}${r.room ? `・${r.room}${r.bed ?? ''}` : ''}${
       r.therapist ? `・${r.therapist}` : ''}`,
     aside: `<span class="badge ${esc(statusClass(r.status))}">${esc(describeStatus(r.status))}</span>`,
     extra: r.clashes.length ? `
@@ -817,8 +833,14 @@ function openDetail(el, data, what, id, date, repaint) {
   // （他還剩幾次、今天要掛哪幾個、這個月做了多少）都不是「這一場我該怎麼做」。
   // 「這一場的待辦」那一塊相反：它在 `visitReadHtml()` 裡面，四頁一起長
   // （2026-09-04 她自己選的，見 `.scratch/templates-memo-and-consequences/spec.md`）。
+  // 掛合作機構的那幾份要靠客戶身上的標記（ADR-0076）。**只在點開那一下才讀
+  // 那一位** —— 為了一塊提醒把整份客戶清單拉下來，日曆每次開都要多等一輪。
+  // 讀不到就只浮課程配到的那幾份（`playbooksFor()` 的退路）。
+  // 掛合作機構的那幾份要靠客戶身上的標記（ADR-0076）。讀不到那一位就只浮
+  // 課程配到的那幾份（`playbooksFor()` 的退路）—— 少一塊提醒比整張卡壞掉好。
+  const customer = data.customersById?.[visit.customerId] ?? null;
   const html = (tasks) => visitReadHtml(visit, { ...data, tasks })
-    + hintHtml({ playbooks: data.playbooks ?? [], visit });
+    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer });
 
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
@@ -1352,7 +1374,9 @@ export function visitReadHtml(visit, data) {
       return `
         <div class="readslot">
           <div class="readslot__when num">${esc(timeLabel(s))}</div>
-          <div class="readslot__what">${esc(s.courseName ?? '（沒有課程）')}${
+          ${/* **那天真的做了什麼**（`13`）：她點的是四選一，這裡要寫「復能(SIS)」。
+                四個畫面共用這一支，所以四頁一起改 —— 那是刻意的（ADR-0018、0056）。 */''}
+          <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'full') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</div>
         </div>`;
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
@@ -1407,7 +1431,7 @@ function mountEditor(el, data, sheet, spec) {
   const { kind, backDate = null } = spec;
   const isNew = !spec.id && !spec.visitId;
 
-  // 抬頭放日期不放人名：人名連同狀態與醫療禁忌就在編輯器自己的第一列，
+  // 抬頭放日期不放人名：人名連同狀態與永久限制就在編輯器自己的第一列，
   // 抬頭再寫一次等於用掉一整行講同一件事。她在這裡要確認的是「排到哪一天」。
   sheet.setTitle(kind === 'event'
     ? (isNew ? '新增行事備註' : '行事備註')

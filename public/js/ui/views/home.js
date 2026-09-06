@@ -1129,15 +1129,21 @@ async function loadWhoDetails(ctx) {
   const ids = d.tasks.map((t) => t.visitId).filter(Boolean);
 
   try {
-    const [visits, rooms, staff] = await Promise.all([
+    // 課程與器材是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
+    // 四個畫面共用同一支 `visitReadHtml()`，少帶這兩份的話這一頁會寫「復能」
+    // 而日曆上寫「復能(SIS)」。
+    const [visits, rooms, staff, courses, equipment] = await Promise.all([
       ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
       config.listAll('rooms'),
       config.listAll('staff'),
+      config.listAll('courses', { includeDeleted: true }),
+      config.listAll('equipment', { includeDeleted: true }),
     ]);
     if (whoDrawer !== d) return;   // 她已經關掉、或換了一位
     d.visits = visits;
     d.rooms = byId(rooms);
     d.staff = byId(staff);
+    d.master = { courses, equipment };
   } catch {
     return;
   }
@@ -1178,7 +1184,7 @@ function openWhoVisit(visitId) {
     return;
   }
   const html = (tasks) => visitReadHtml(visit, {
-    roomsById: d.rooms, staffById: d.staff, tasks, today: todayISO(),
+    roomsById: d.rooms, staffById: d.staff, master: d.master, tasks, today: todayISO(),
   });
   // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
   fillMirror(openCard({
@@ -1731,12 +1737,16 @@ async function loadTaskVisits(ctx) {
   if (!ids.length) return;
 
   try {
-    const [visits, rooms, staff] = await Promise.all([
+    const [visits, rooms, staff, courses, equipment] = await Promise.all([
       visitsData.getMany(ids),
       config.listAll('rooms'),
       config.listAll('staff'),
+      config.listAll('courses', { includeDeleted: true }),
+      config.listAll('equipment', { includeDeleted: true }),
     ]);
-    taskVisits = { visits, roomsById: byId(rooms), staffById: byId(staff) };
+    taskVisits = {
+      visits, roomsById: byId(rooms), staffById: byId(staff), master: { courses, equipment },
+    };
   } catch {
     // 讀不到就當這一段不存在：少一個數字，不是少一頁。
     return;
@@ -2078,6 +2088,7 @@ function openTaskVisit(visitId) {
   const html = (tasks) => visitReadHtml(visit, {
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
+    master: taskVisits.master,
     tasks,
     today: todayISO(),
   });
@@ -2583,10 +2594,14 @@ async function renderConfirm(el) {
   //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
   // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
   // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
-  const [pending, settings, courses, playbooks, templates] = await Promise.all([
+  const [pending, settings, courses, equipment, playbooks, templates, customers] =
+    await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
+    // 貼給客戶那一句要寫**她那天真的做了什麼**（`復能(SIS)`，`13`），
+    // 而括號裡那一半是從器材主檔來的。
+    config.listAll('equipment', { includeDeleted: true }),
     // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
     // 的地方** —— 她按下那一列的時候，正在打那則訊息。
     // 讀不到就不畫那一塊，跟這一頁其他幾份補資料同一個判斷。
@@ -2594,6 +2609,9 @@ async function renderConfirm(el) {
     // 她改過的 LINE 模板。有行程內快取，所以一個 session 只真的讀一次；
     // 讀不到就用預設值（`config.getTemplates()` 自己吞掉錯誤）。
     config.getTemplates(),
+    // 掛合作機構的那幾份備忘錄要靠客戶身上的標記（ADR-0076）。
+    // 讀不到就只浮課程配到的那幾份。
+    customersData.list().catch(() => []),
   ]);
   const today = todayISO();
   paintConfirm({
@@ -2602,13 +2620,15 @@ async function renderConfirm(el) {
     settings,
     today,
     playbooks,
+    master: { courses, equipment },
+    customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
     templates,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
   });
 }
 
 function paintConfirm(ctx) {
-  const { el, pending, settings, today, playbooks, templates } = ctx;
+  const { el, pending, settings, today, playbooks, templates, master, customersById } = ctx;
   const groups = [...byCustomer(pending).entries()];
   const noReplyDays = settings.noReplyDays ?? 3;
 
@@ -2621,8 +2641,10 @@ function paintConfirm(ctx) {
 
     ${groups.length ? `
       <div class="stack">
-        ${groups.map(([id, visits]) =>
-          confirmCard(id, visits, today, noReplyDays, playbooks ?? [], templates ?? {})).join('')}
+        ${groups.map(([id, visits]) => confirmCard(
+          id, visits, today, noReplyDays, playbooks ?? [], templates ?? {}, master ?? {},
+          customersById?.[id] ?? null,
+        )).join('')}
       </div>`
       : '<p class="muted">都問過了。</p>'}
 
@@ -2631,7 +2653,10 @@ function paintConfirm(ctx) {
   wireConfirm(ctx);
 }
 
-function confirmCard(customerId, visits, today, noReplyDays, playbooks = [], templates = {}) {
+function confirmCard(
+  customerId, visits, today, noReplyDays,
+  playbooks = [], templates = {}, master = {}, customer = null,
+) {
   const name = visits[0].customerName ?? '（沒有名字）';
   const state = waitState(visits, today, noReplyDays);
   const slots = visits.flatMap((v) => v.slots ?? []);
@@ -2657,13 +2682,13 @@ function confirmCard(customerId, visits, today, noReplyDays, playbooks = [], tem
 
       ${/* 擺在那一句話與訊息範本中間：她的動線是
              「看一眼要提醒什麼 → 打字 → 送出」。 */''}
-      ${hintForVisits({ playbooks, visits })}
+      ${hintForVisits({ playbooks, visits, customer })}
 
       ${followupForm(customerId, name, state.note)}
 
       ${message.box({
         id: customerId,
-        text: confirmMessage({ name }, visits, { templates }),
+        text: confirmMessage({ name }, visits, { templates, master }),
         collapsed: true,
         buttonLabel: '複製 LINE 確認訊息',
       })}
@@ -3299,6 +3324,7 @@ function bookRow(row, system, alerts, clinicalRows) {
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
         ${flagsUi.alertChips({ flags: row.flags ?? [], alerts, rows: clinicalRows })}
+        ${flagsUi.partnerChips(row.partners ?? [])}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}

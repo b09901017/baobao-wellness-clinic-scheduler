@@ -22,6 +22,9 @@ import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
+// `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
+// 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
+import { nameOf as variantName } from './naming.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
@@ -41,12 +44,13 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
  * @param {object[]} [ctx.tasks] 這位客戶的任務，含已完成的
  * @param {object[]} [ctx.courses] 課程主檔，用來找出健檢配的二返（ADR-0022）
  * @param {object[]} [ctx.staff] 治療師與醫師，二返註記的括號要靠它換成名字
+ * @param {object[]} [ctx.equipment] 器材主檔，「這一天用了哪一台」那一列要靠它換成別稱
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
  * @returns {{name:string, rows:string[][]}}
  */
 export function customerReport({
   customer, entitlements = [], visits = [], tasks = [], courses = [], staff = [],
-  generatedAt = '',
+  equipment = [], generatedAt = '',
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
@@ -80,6 +84,16 @@ export function customerReport({
       String(c.remaining),
       ...dates.map((date) => mark(used, e.id, date)),
     ]);
+
+    // 「這一天用了哪一台」**接在那一列的正下方**（她的原話：「在當天的那一列
+    // 下面，可以註記是 ILIB sis indiba 等等」）。只有得選的池才註記 ——
+    // 單台的池與 single 那一列的名字已經講了是哪一台，再寫一次是噪音。
+    const cells = equipmentCells(e, used, dates, equipment);
+    if (cells.length) {
+      const line = [];
+      for (const cell of cells) line[COUNT_COLS + cell.dateIndex] = cell.text;
+      rows.push([...line].map((x) => x ?? ''));
+    }
   }
 
   if (!scheduled.length) rows.push(['（還沒有額度）']);
@@ -247,8 +261,14 @@ function csvCell(value) {
  *
  * **升版了就一定要回 Google 試算表把 `.gs` 重新貼一次並重新部署** ——
  * 它收到不認得的版本會整份拒收（`SUPPORTED_FORMAT`），試算表會停止更新。
+ *
+ * 4（2026-09-06）：每一筆得選的擇一池底下多一列「這一天用了哪一台」。
+ * 她的原話：「我希望能像二返那些註記一樣，就是在當天的那一列下面，可以註記
+ * 是 ILIB sis indiba 等等」。**不塞進 `followupNotes`** —— `.gs` 把那一份
+ * 全部畫在同一列，同一個 `dateIndex` 後面的會蓋掉前面的，而一位客戶同一天
+ * 做了健檢又做了四選一是會發生的。
  */
-export const SYNC_FORMAT = 3;
+export const SYNC_FORMAT = 4;
 
 /**
  * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
@@ -301,6 +321,19 @@ export function syncBundle({
       };
     });
 
+    // 「這一天用了哪一台」（格式 4 起）。一筆額度一列，畫在它那一列的正下方 ——
+    // 帶 `label` 是因為一位客戶可能同時有四選一與三選一，兩列都要註記時
+    // 得分得出來。
+    const equipmentNotes = scheduled
+      .map((e, rowIndex) => ({
+        // **帶第幾列不是只帶名字**：一位客戶可能有兩筆同名的額度，
+        // 而 `.gs` 要把這一列畫在**那一列的正下方**（她的原話）。
+        rowIndex,
+        label: e.label ?? '',
+        cells: equipmentCells(e, visits, dates, master.equipment ?? []),
+      }))
+      .filter((x) => x.cells.length);
+
     return {
       name: customer.name ?? '',
       source: customer.source ?? '',
@@ -310,6 +343,7 @@ export function syncBundle({
       dates,
       dateLabels: dates.map(shortDate),
       rows,
+      equipmentNotes,
       // 營養品自己一區（格式 3 起）。它以前混在 `rows` 裡，而那幾個數字欄
       // 印的是月數 —— 一個都看不懂。這一區帶金額、哪幾款、哪天給了。
       products: alive.filter(isProduct).map((e) => {
@@ -374,6 +408,39 @@ export function syncBundle({
     legend: MARK_LEGEND,
     sheets,
   };
+}
+
+/**
+ * 一筆額度在哪幾欄用了哪一台。
+ *
+ * **只有得選的池才回東西**（`optionEquipmentIds.length >= 2`）：
+ * 她 2026-09-06 說「如果是直接選 ILIB 或是直接選 sis indiba 那就扣那個，
+ * 然後不用註記」—— 單台的池那一列的名字已經是「超磁場(60)」了。
+ *
+ * 寫的是**別稱**（`SIS`、`INDIBA`、`ILIB`）：她自己在行事曆與試算表上寫的
+ * 就是簡寫。同一天同一筆額度有兩段就用頓號接，不要蓋掉一個。
+ *
+ * @returns {{dateIndex:number, text:string}[]}
+ */
+export function equipmentCells(entitlement, visits, dates, equipment = []) {
+  if (entitlement?.type !== 'pool') return [];
+  if ((entitlement.optionEquipmentIds ?? []).length < 2) return [];
+
+  const out = [];
+  dates.forEach((date, dateIndex) => {
+    const names = [];
+    for (const v of visits) {
+      if (v.date !== date) continue;
+      for (const slot of v.slots ?? []) {
+        if (slot.entitlementId !== entitlement.id || !slot.equipmentId) continue;
+        const eq = equipment.find((x) => x.id === slot.equipmentId) ?? null;
+        const name = eq ? variantName(eq, 'short', { as: 'equipment' }) : '';
+        if (name && !names.includes(name)) names.push(name);
+      }
+    }
+    if (names.length) out.push({ dateIndex, text: names.join('、') });
+  });
+  return out;
 }
 
 /**
@@ -577,6 +644,9 @@ const byDoneDesc = (a, b) => String(b.doneAt ?? '').localeCompare(String(a.doneA
  * @param {string[]} [state.skipped]      沒有更新到的分頁名字
  * @returns {{tone: 'off'|'ok'|'waiting'|'partial'|'failed', lines: string[]}}
  */
+/** `.gs` 拒收時那句話裡會有的字。兩邊的訊息只要提到版本就算。 */
+const VERSION_HINT = /格式版本|只認得/;
+
 export function describeSync({
   configured = false, lastAtLabel = null, dirty = false,
   error = null, errorAtLabel = null, skipped = [],
@@ -594,6 +664,13 @@ export function describeSync({
     // 這一句是為了擋掉「那我剛剛存的東西是不是也沒進去」那個念頭。
     // 資料在 Firestore 裡是安全的（ADR-0013），錯的是試算表上那一份。
     lines.push('資料在 app 裡是安全的，沒推出去的是報表 —— 試算表上那份現在是舊的。');
+    // **版本對不上要講出她該做什麼。** `.gs` 那句話講的是原因
+    //（「這份指令碼只認得 3」），而她要的是下一步。這是 app 升版之後
+    // 最可能踩到的一種失敗，而且不做那一步試算表會一直停在舊的。
+    if (VERSION_HINT.test(error)) {
+      lines.push('到 Google 試算表 → 擴充功能 → Apps Script，'
+        + '把 sheets/readonly-report.gs 整份重新貼一次，然後重新部署。');
+    }
   } else if (dirty) {
     tone = 'waiting';
     lines.push('有資料還沒推上去，安靜幾秒會自己再推一次。');

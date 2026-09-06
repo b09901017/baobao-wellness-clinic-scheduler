@@ -186,6 +186,17 @@ const editors = {
     },
   },
 
+  // 合作機構（ADR-0076）。客戶身上打得上的一個標記，例：自然美。
+  // **不生任何待辦** —— 標記本身就是提醒（她 2026-09-06 選的）。
+  partners: {
+    lead: '客戶身上打得上的標記。有這個標記的人，壓完表之後記得跟對方的專員說一聲。'
+      + '它不會產生任何待辦，也不影響排班 —— 那顆丸子會跟著名字出現在壓表與待辦上。',
+    blank: { name: '' },
+    summary: () => '跟著客戶的名字出現',
+    fields: (r) => [f.text({ name: 'name', label: '機構名稱', value: r.name, placeholder: '自然美' })],
+    parse: (v) => ({ name: v.name.trim() }),
+  },
+
   ivProducts: {
     blank: { name: '' },
     summary: () => '營養點滴品項',

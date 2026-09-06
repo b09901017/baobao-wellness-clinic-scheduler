@@ -634,14 +634,14 @@ export function summarize(plans) {
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
-    // 會匯進去的那幾位身上、文字裡提到的醫療禁忌。**跳過的那幾位不算** ——
+    // 會匯進去的那幾位身上、文字裡提到的警示。**跳過的那幾位不算** ——
     // 她們根本不會進來，講了只會讓真的要處理的那幾位被稀釋掉。
     contraindications: live
       .filter((p) => (p.contraindications ?? []).length)
       .map((p) => ({
         customerName: p.customerName || p.sheetName,
         terms: [...new Set(p.contraindications.map((h) => h.term))],
-        blocks: [...new Set(p.contraindications.flatMap((h) => h.blocks))],
+        warns: [...new Set(p.contraindications.flatMap((h) => h.warns))],
       })),
   };
 }

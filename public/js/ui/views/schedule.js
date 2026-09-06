@@ -775,13 +775,14 @@ function paintRecord() {
 /**
  * 卡片牆上一張卡只回答一個問題：**下一個處理誰。**
  *
- * 所以它只剩三樣東西：姓名、醫療禁忌、壓了沒。其餘七塊（不能的時間、
+ * 所以它只剩四樣東西：姓名、警示、合作機構、壓了沒。其餘七塊（不能的時間、
  * 剩餘次數、這個月上個月、備註、排序理由、喜好星星）全部搬進記錄面板 ——
  * 那幾塊是她**點進去之後**要一直對照的東西，在牆上只是把二十幾位客戶
  * 拉成三次捲動。理由見 docs/adr/0046-the-wall-only-answers-who-is-next.md。
  *
- * **醫療禁忌反而變得更明顯**（SPEC 第 4.3 節：任何畫面都不可摺疊隱藏）——
- * 一張卡上原本十個永久限制全是紅字淡底，等於全都不紅。
+ * **警示反而變得更明顯**（SPEC 第 4.3 節：任何畫面都不可摺疊隱藏）——
+ * 一張卡上原本十個永久限制全是紅字淡底，等於全都不紅。現在顏色與實心／空心
+ * 由她自己在主檔上挑，最該一眼看到的那幾個才挑實心。
  */
 function custCard(row, isSelected) {
   const state = {
@@ -819,7 +820,7 @@ function alertChips(row) {
     flags: row.flags ?? [],
     alerts: alertTerms(),
     rows: ctx?.all?.clinicalFlags ?? [],
-  });
+  }) + flagsUi.partnerChips(row.partners ?? []);
 }
 
 /**
@@ -1210,7 +1211,11 @@ function entFields(row, picked) {
 
   return `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
+      ${/* 時長要問**額度**不是課程（`04`）：她買的是「超磁場(30)」，
+             印課程的 60 分鐘會讓她照著排錯一段。`picked.durationMin` 已經是
+             `ent.durationMin ?? course.durationMin` 算好的那一個。 */''}
+      <span class="fieldgroup__label">幾點開始${
+        picked.durationMin ? `　${picked.durationMin} 分鐘` : ''}</span>
       <div class="chiprow noscroll-bar">
         ${timeChoices().map((t) => {
           // 落在他說不行的那半天。標起來，但**不 disable** —— 唯一會鎖住選項的

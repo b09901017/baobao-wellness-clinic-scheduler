@@ -7,7 +7,7 @@ import {
   isValidDate, lastDayOf, addDays, addMonths, daysBetween,
 } from '../public/js/domain/dates.js';
 import {
-  validate, warnings, membershipExpiry, membershipState, splitFlags,
+  validate, warnings, membershipExpiry, membershipState, splitFlags, partnersOf,
   splitFlagsForEdit, mergeFlags, MAX_PRIORITY, EXPIRING_SOON_DAYS,
 } from '../public/js/domain/customers.js';
 import { contraindicationTerms } from '../public/js/domain/contraindications.js';
@@ -314,5 +314,35 @@ describe('客戶總覽的額度合計', () => {
     assert.ok(lowRemaining([{ totalQty: 10, doneCount: 8, bookedCount: 0 }]));
     assert.ok(!lowRemaining([{ totalQty: 10, doneCount: 7, bookedCount: 0 }]));
     assert.equal(LOW_REMAINING, 2);
+  });
+});
+
+
+// ADR-0076：合作機構。客戶身上打得上的一個標記，例：自然美。
+// **不是永久限制** —— 它不擋、不影響排班，只是「這一次要多跟一家講一聲」。
+describe('合作機構', () => {
+  test('掛了哪幾家', () => {
+    assert.deepEqual(partnersOf({ partners: ['自然美'] }), ['自然美']);
+  });
+
+  test('沒掛就是空的，不要吐 undefined', () => {
+    assert.deepEqual(partnersOf({}), []);
+    assert.deepEqual(partnersOf(null), []);
+  });
+
+  test('空字串與空白丟掉 —— 不要存一個看不見的標記', () => {
+    assert.deepEqual(partnersOf({ partners: ['自然美', '', '  '] }), ['自然美']);
+  });
+
+  test('主檔上沒有的字照樣回 —— 她可能把那一筆改名了', () => {
+    // 悄悄丟掉的話，那位客戶就再也不會出現那顆丸子，而她看不出發生了什麼事
+    assert.deepEqual(partnersOf({ partners: ['已經改名的'] }), ['已經改名的']);
+  });
+
+  test('跟永久限制是兩個欄位 —— 混在一起那一排就不只回答一個問題', () => {
+    const c = { flags: ['體內金屬'], partners: ['自然美'] };
+    assert.deepEqual(splitFlags(c, [{ name: '體內金屬' }]).alerts, ['體內金屬']);
+    assert.deepEqual(splitFlags(c, [{ name: '體內金屬' }]).others, []);
+    assert.deepEqual(partnersOf(c), ['自然美']);
   });
 });

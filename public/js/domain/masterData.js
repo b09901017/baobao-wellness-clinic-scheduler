@@ -70,6 +70,7 @@ export const MASTER_TYPES = [
   'staff',
   'equipment',
   'clinicalFlags',
+  'partners',
   'ivProducts',
   'products',
   'courses',
@@ -78,9 +79,10 @@ export const MASTER_TYPES = [
 
 export const MASTER_LABELS = {
   rooms: '診間',
+  partners: '合作機構',
   staff: '治療師與醫師',
   equipment: '器材',
-  clinicalFlags: '臨床提醒',
+  clinicalFlags: '警示',
   ivProducts: '營養點滴品項',
   products: '營養品',
   courses: '課程',
@@ -109,6 +111,22 @@ export const MASTER_LABELS = {
  * @returns {string[]} 還在用的那幾個字，維持主檔上的順序
  */
 export function clinicalTerms(rows = []) {
+  return aliveNames(rows);
+}
+
+/**
+ * 合作機構的名單（ADR-0076）。跟 `clinicalTerms()` 問的是同一句話：
+ * **從主檔拿出一份可以點的名單**，所以它們住在一起、共用同一支身體。
+ *
+ * 客戶身上存的是**字串不是 id**（同永久限制），所以主檔改名不會搬既有客戶
+ * —— 那是刻意的，改名的人要自己回去重選。
+ */
+export function partnerNames(rows = []) {
+  return aliveNames(rows);
+}
+
+/** 還在用的那幾筆的名字，維持主檔上的順序。 */
+function aliveNames(rows = []) {
   return (rows ?? [])
     .filter((r) => r && !r.deletedAt && r.active !== false)
     .map((r) => String(r.name ?? '').trim())
@@ -161,6 +179,23 @@ export function ivChoicesFor(entitlement, ivProducts = []) {
 
 const isBlank = (v) => v == null || String(v).trim() === '';
 
+/**
+ * 別稱與 LINE 名（`domain/naming.js`）。兩個都選填 —— 空的就退回全名。
+ *
+ * 上限 12 字跟警示同一個理由：**別稱是給窄的地方用的**，
+ * 一個比全名還長的別稱等於那一格白填了。
+ */
+function nameVariants(r) {
+  const errors = [];
+  for (const [key, label] of [['shortName', '別稱'], ['lineName', 'LINE 名']]) {
+    const v = r[key];
+    if (v == null || v === '') continue;
+    if (typeof v !== 'string') errors.push(`${label}格式錯誤`);
+    else if (v.trim().length > 12) errors.push(`${label}最多 12 字 —— 它是給窄的地方用的`);
+  }
+  return errors;
+}
+
 /** 同一份清單裡不可以有兩個同名的（已刪除的不算）。 */
 function duplicateName(record, existing) {
   const name = String(record.name ?? '').trim();
@@ -197,11 +232,11 @@ const validators = {
   },
 
   equipment(r, { courses = [] } = {}) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
-    if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
-    else if (contra.some(isBlank)) errors.push('禁忌名稱不可空白');
+    if (!Array.isArray(contra)) errors.push('要提醒的狀況格式錯誤');
+    else if (contra.some(isBlank)) errors.push('要提醒的狀況不可空白');
 
     // 用這台的那一段算哪一個課程（ADR-0075）。選填 —— 沒填的走舊的推導
     // （`coursesForEntitlement()` 退回 `requiresEquipment` 的課程），
@@ -235,6 +270,20 @@ const validators = {
     return errors;
   },
 
+  /**
+   * 合作機構（ADR-0076）。客戶身上打得上的一個標記，例：自然美。
+   *
+   * **不寫死在程式碼裡**：這個 repo 為字串比對付過帳（`domain/followups.js`
+   * 的檔頭）。而且她之後多一家合作的，設定裡加一筆就好。
+   */
+  partners(r) {
+    if (isBlank(r.name)) return ['機構名稱不可空白'];
+    // 這一份的字會原樣畫在壓表卡片牆的一張卡上，而那一排要掃得完（同警示）
+    return String(r.name).trim().length > 12
+      ? ['機構名稱最多 12 字。壓表卡片牆上那一排要掃得完']
+      : [];
+  },
+
   ivProducts(r) {
     return isBlank(r.name) ? ['品項名稱不可空白'] : [];
   },
@@ -244,7 +293,7 @@ const validators = {
   },
 
   courses(r, { existing = [] } = {}) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');

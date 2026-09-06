@@ -182,6 +182,9 @@ export function followupDraft(source, followupCourse) {
     // 額度是展開當下的完整複本，不指回範本（ADR-0003）。二返這一筆的來源
     // 就是那一筆健檢，所以沿用健檢的方案名稱快照。
     sourcePlanName: source?.sourcePlanName ?? null,
+    // 二返跟它那一筆健檢是**同一次購買**（買幾次健檢就有幾次二返，ADR-0022），
+    // 所以「買過什麼」那一頁上它要跟健檢排在同一組。
+    purchaseId: source?.purchaseId ?? null,
     purchasedAt: source?.purchasedAt ?? null,
     expiresAt: source?.expiresAt ?? null,
     doneCount: 0,

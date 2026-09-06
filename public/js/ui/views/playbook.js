@@ -31,6 +31,7 @@
 
 import * as playbooksData from '../../data/playbooks.js';
 import * as config from '../../data/config.js';
+import { partnerNames } from '../../domain/masterData.js';
 import {
   validatePlaybook, matches, deckOrder, bodyOf, MAX_TITLE, MAX_BODY,
 } from '../../domain/playbook.js';
@@ -68,11 +69,14 @@ export async function render(el, id = null) {
 
   let rows;
   let courses;
+  let partners;
   try {
     // fresh：從別的地方存完回來要看到新的那一份
-    [rows, courses] = await Promise.all([
+    [rows, courses, partners] = await Promise.all([
       playbooksData.list({ fresh: true }),
       config.listAll('courses'),
+      // 合作機構（ADR-0076）。掛了的那一份會在帶著那個標記的客戶身上浮出來。
+      config.listAll('partners'),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
@@ -84,6 +88,7 @@ export async function render(el, id = null) {
     el,
     rows: deckOrder(rows),
     courses: (courses ?? []).filter((c) => !c.deletedAt),
+    partners: partnerNames(partners ?? []),
     search: '',
     searchOpen: false,
     editing: null,
@@ -194,7 +199,10 @@ function cardHtml(p) {
   if (ctx.editing?.id === p.id) return editCardHtml(p);
 
   const body = bodyOf(p);
-  const names = courseNames(p.courseIds);
+  // 掛了什麼那一行：課程與合作機構接在一起。她要的是「這一份什麼時候會浮出來」，
+  // 而那個答案不分是哪一種掛法。
+  const names = [courseNames(p.courseIds), (p.partners ?? []).join('・')]
+    .filter(Boolean).join('・');
 
   return `
     <article class="pbcard" data-card="${esc(p.id)}" tabindex="-1">
@@ -231,6 +239,17 @@ function editCardHtml(p) {
         quiet: true,
         options: ctx.courses.map((c) => ({ value: c.id, label: c.name })),
       })}
+
+      ${/* 掛合作機構（ADR-0076）。掛了的那一份會在**帶著那個標記的客戶**身上
+           浮出來。**沒有機構就整排不畫** —— 一排永遠按不下去的丸子只是噪音。
+
+           `.pbcard--edit > *` 那一條（每一項都要 flex: none）自動蓋到這一排：
+           它是 `f.chips()` 吐的 `.fieldgroup`，跟上面那一排同一種節點。 */''}
+      ${(ctx.partners ?? []).length ? f.chips({
+        name: 'partners', label: '掛哪些合作機構', value: draft.partners ?? [], multi: true,
+        quiet: true,
+        options: ctx.partners.map((name) => ({ value: name, label: name })),
+      }) : ''}
 
       <textarea class="pbedit__body" data-body maxlength="${MAX_BODY}"
                 aria-label="內容" placeholder="一行一件事就好"
@@ -420,7 +439,10 @@ function addOne() {
   const input = ctx.el.querySelector('[data-search]');
   if (input) input.value = '';
 
-  ctx.editing = { id: NEW_ID, draft: { id: NEW_ID, title: '', courseIds: [], body: '' } };
+  ctx.editing = {
+    id: NEW_ID,
+    draft: { id: NEW_ID, title: '', courseIds: [], partners: [], body: '' },
+  };
   ctx.activeId = NEW_ID;
   repaintStage();
   focusCard(NEW_ID, 'auto');
@@ -524,11 +546,15 @@ function readEditor() {
   const card = cardEl(ctx.editing.id);
   if (!card) return ctx.editing.draft;
   const box = card.querySelector('input[type="hidden"][name="courseIds"]');
+  const partnerBox = card.querySelector('input[type="hidden"][name="partners"]');
   return {
     ...ctx.editing.draft,
     title: card.querySelector('[data-title]')?.value ?? '',
     body: card.querySelector('[data-body]')?.value ?? '',
     courseIds: f.splitMulti(box?.value),
+    // **那一排不在畫面上時要留原值**（一個合作機構都沒有的時候不畫）——
+    // 讀成空陣列等於把她掛過的那幾家清掉，而畫面上沒有任何地方看得出來。
+    partners: partnerBox ? f.splitMulti(partnerBox.value) : (ctx.editing.draft.partners ?? []),
   };
 }
 

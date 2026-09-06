@@ -1,6 +1,6 @@
 # 本機參考檔案的家：`.local/references/`
 
-Status: 待確認
+Status: 已完成
 
 ## 她說的
 

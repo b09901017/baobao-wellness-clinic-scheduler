@@ -16,7 +16,11 @@
 // 補上缺的二返額度（docs/adr/0023-health-check-can-also-create-the-missing-followup.md）
 // 與備註的舊說法改名（docs/adr/0050-the-health-can-rename-an-imported-note.md）。
 
-import { counts, reconcile, isOverused, schedulable } from './entitlements.js';
+import {
+  counts, reconcile, isOverused, schedulable, poolName, timedLabel,
+} from './entitlements.js';
+import { contraindicationTerms } from './contraindications.js';
+import { clinicalTerms } from './masterData.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -88,6 +92,17 @@ export const CHECKS = [
     id: 'chartNo',
     label: '備註寫著舊的說法',
     hint: '匯入時寫成「姓名欄的編號：」的那幾則，其實那是病歷號',
+  },
+  {
+    id: 'poolLabel',
+    label: '復能額度還叫舊名字',
+    hint: '2026-09-06 之前買的那幾筆叫「復能」，新的叫「復能三選一(60)」'
+      + ' —— 同一位客戶身上兩種名字並排，看起來像兩種東西',
+  },
+  {
+    id: 'alertTerm',
+    label: '器材上的提醒詞不在警示名單裡',
+    hint: '客戶身上打了那個字，壓表卡片牆上卻什麼都不會出現 —— 跟做對了長得一模一樣',
   },
 ];
 
@@ -188,6 +203,11 @@ function prepare(snapshot, today) {
     staffById: byId(master.staff),
     equipmentById: byId(master.equipment),
     ivProductsById: byId(master.ivProducts),
+    // 這兩份是給「復能額度還叫舊名字」與「提醒詞不在警示名單裡」用的，
+    // 而它們要的是**陣列**（算名字與比名單都要順序）。
+    equipment: alive(master.equipment),
+    courses: alive(master.courses),
+    clinicalFlags: alive(master.clinicalFlags),
   };
 }
 
@@ -697,6 +717,94 @@ function checkIvMismatch(ctx) {
   return out;
 }
 
+/**
+ * 十二、復能額度還叫舊名字。
+ *
+ * `04` 之後新買的叫「復能三選一(60)」，而既有客戶身上那一筆叫「復能」——
+ * 額度的名字是購買當下的快照（ADR-0003），它不會自己跟上。同一位客戶身上
+ * 兩種名字並排，看起來像兩種東西。
+ *
+ * **判準是形狀不是名字**：只認得出「舊的自動名字」的那幾筆。她自己打的名字
+ * 不可以被一顆按鈕改掉，所以認不出來的一律不列（同 ADR-0050 的判斷）。
+ *
+ * 舊的自動名字只有兩種形狀，因為以前的 `autoLabel()` 就只吐這兩種：
+ *
+ *   `復能`          那時候擇一池一律叫課程名
+ *   `復能三選一`     算得出名字、但還沒有時長的中間狀態
+ */
+function checkPoolLabels(ctx) {
+  const out = [];
+
+  for (const e of ctx.entitlements) {
+    if (e.deletedAt || e.type !== 'pool') continue;
+
+    const bare = poolName(e.optionEquipmentIds ?? [], ctx.equipment, ctx.courses);
+    if (!bare) continue;                       // 器材全被刪了，講不出該叫什麼
+    const want = timedLabel(bare, e.durationMin);
+    const now = String(e.label ?? '').trim();
+    if (!now || now === want) continue;
+
+    // 她自己打的名字不動。認得出來的只有那兩種舊的自動名字。
+    const homeName = courseNameOf(e, ctx);
+    if (now !== bare && now !== homeName) continue;
+
+    out.push({
+      severity: 'attention',
+      title: `${nameOf(ctx, e.customerId)}・${now}`,
+      detail: `改成「${want}」`,
+      link: `#/customers/${e.customerId}`,
+      fix: {
+        kind: 'renamePool',
+        customerId: e.customerId,
+        entitlementId: e.id,
+        label: `${nameOf(ctx, e.customerId)}・${now}`,
+        from: now,
+        to: want,
+      },
+    });
+  }
+
+  return out;
+}
+
+/** 這一池的「家」課程叫什麼。推不出來就回空字串（那時候什麼都不比）。 */
+function courseNameOf(e, ctx) {
+  const ids = e.optionEquipmentIds ?? [];
+  for (const id of ids) {
+    const courseId = ctx.equipmentById[id]?.courseId ?? null;
+    const course = courseId ? ctx.coursesById[courseId] : null;
+    if (course?.requiresEquipment) return String(course.name ?? '').trim();
+  }
+  return '';
+}
+
+/**
+ * 十三、器材上的提醒詞不在警示名單裡。
+ *
+ * ADR-0074 之後，客戶身上的字要進得了警示主檔才畫得到（`splitFlags()` 拿那份
+ * 名單分兩層）。器材上有、警示主檔沒有的那幾個字，症狀是**客戶身上打了那個字、
+ * 壓表卡片牆上卻什麼都不會出現** —— 跟做對了長得一模一樣，所以它必須被列出來。
+ *
+ * 這一列**之後也還有用**：她新增一台有新提醒詞的器材時會再出現一次。
+ */
+function checkAlertTerms(ctx) {
+  const known = new Set(clinicalTerms(ctx.clinicalFlags));
+  return contraindicationTerms(ctx.equipment)
+    .filter((term) => !known.has(term))
+    .map((term) => ({
+      severity: 'attention',
+      title: term,
+      detail: '客戶身上打了這個字，壓表卡片牆上不會出現任何東西',
+      link: '#/settings/clinicalFlags',
+      fix: {
+        kind: 'addAlert',
+        label: term,
+        // 紅・實心：這幾個字本來就是最該看到的那一種（種子上的體內金屬也是）
+        data: { name: term, color: 'red', fill: 'solid', active: true },
+      },
+    }));
+}
+
 const RUNNERS = {
   counts: checkCounts,
   followups: checkFollowups,
@@ -709,4 +817,6 @@ const RUNNERS = {
   duplicateAvailability: checkDuplicateAvailability,
   ivMismatch: checkIvMismatch,
   chartNo: checkChartNo,
+  poolLabel: checkPoolLabels,
+  alertTerm: checkAlertTerms,
 };

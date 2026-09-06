@@ -200,12 +200,19 @@ export function reconcile(entitlement, visits, entitlementId) {
  *
  * @param {{name:string, items:object[]}} plan
  * @param {number} quantity 購買數量，各項次數乘上它
- * @param {{purchasedAt?:string, expiresAt?:string}} [when]
- *        購買日與到期日。到期日算法見 domain/customers.js 的 membershipExpiry()，
- *        算好之後複製到每一筆額度上 —— 額度自己要知道什麼時候到期，
- *        不能回頭去問方案範本，範本會被改。
+ * @param {object} [when]
+ * @param {string|null} [when.purchasedAt] 購買日
+ * @param {string|null} [when.expiresAt] 到期日。**選填而且預設沒有**（ADR-0074 那一輪
+ *        之後她說「基本上不會到期」）。有的話算好之後複製到每一筆額度上 ——
+ *        額度自己要知道什麼時候到期，不能回頭去問範本，範本會被改。
+ * @param {string|null} [when.purchaseId] 這一次購買的 id。同一次展開出來的每一筆都一樣，
+ *        「買過什麼」那一頁靠它分組、也靠它一次改整組的購買日。
+ *        呼叫端給（id 在 `data/` 那一層鑄造），沒給就沒有 —— 舊資料退回
+ *        「方案名 + 購買日」分組。
  */
-export function expandPlan(plan, quantity = 1, { purchasedAt = null, expiresAt = null } = {}) {
+export function expandPlan(plan, quantity = 1, {
+  purchasedAt = null, expiresAt = null, purchaseId = null,
+} = {}) {
   return (plan?.items ?? []).map((item) => ({
     type: item.type,
     label: item.label,
@@ -216,6 +223,11 @@ export function expandPlan(plan, quantity = 1, { purchasedAt = null, expiresAt =
     frequencyRule: item.frequencyRule ?? null,
     // 文字快照，不是指向範本的連結。範本之後改名或刪掉都不影響這裡。
     sourcePlanName: plan?.name ?? null,
+    // **範本本來寫幾次**（乘過購買數量之後）。跟 totalQty 不一樣就是微調過。
+    // 存數字不存布林：「15 次（方案本來 20）」講得出改成什麼，布林只講得出「改過」。
+    // 同 sourcePlanName 的理由 —— 快照，不回頭問範本。
+    sourcePlanQty: (item.qty ?? 0) * quantity,
+    purchaseId,
     purchasedAt,
     expiresAt,
     doneCount: 0,
@@ -223,6 +235,29 @@ export function expandPlan(plan, quantity = 1, { purchasedAt = null, expiresAt =
     lastReconciledAt: null,
   }));
 }
+
+/**
+ * 方案展開出來的那幾筆，套上她在確認前的微調。
+ *
+ * 微調只有兩種（她 2026-09-06 選的）：**改次數**與**加項目**。
+ * 次數改成 0 就是不要那一項 —— 不用另外一顆垃圾桶，`[−]` 按到 0 就是同一個意思，
+ * 而多一顆刪除鈕等於多一種要學的操作。
+ *
+ * **範本一個字都不會變**（ADR-0003：展開後與範本脫鉤）。
+ *
+ * @param {object[]} rows `expandPlan()` 的結果
+ * @param {Record<number, number>} qtyByIndex 第幾項 → 改成幾次
+ * @returns {object[]} 次數大於 0 的那幾筆
+ */
+export function applyPlanTweak(rows = [], qtyByIndex = {}) {
+  return rows
+    .map((row, i) => (i in qtyByIndex ? { ...row, totalQty: qtyByIndex[i] } : row))
+    .filter((row) => (row.totalQty ?? 0) > 0);
+}
+
+/** 這一筆跟方案本來寫的不一樣。「買過什麼」那一頁要標出來。 */
+export const isTweaked = (e) =>
+  e?.sourcePlanQty != null && e.sourcePlanQty !== (e.totalQty ?? 0);
 
 /**
  * 一筆額度存檔前的驗證。手動加購與從方案展開後的個別修改都走這裡。
