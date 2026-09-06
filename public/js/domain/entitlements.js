@@ -262,6 +262,76 @@ export function tieredLabel(tier, courseName) {
 }
 
 /**
+ * 「三」「四」。**寫到十為止**，超過就用阿拉伯數字 ——
+ * 「十一選一」讀得懂，「十一」以上她不會有那麼多台機器，真的有的話印數字比較清楚。
+ */
+const CN = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+export const countWord = (n) => (n >= 0 && n < CN.length ? CN[n] : String(n));
+
+/**
+ * 這一池的「家」是哪一個課程。
+ *
+ * 四選一跨兩個課程（復能與 ILIB，ADR-0075），而她講的是「復能四選一」——
+ * 那個「復能」是**分類**，也就是池裡那個需要選器材的課程。
+ * 一個都找不到就退回第一個，名字總比空白好。
+ */
+function homeCourseOf(options, courses = []) {
+  const ids = [...new Set(options.map((o) => o.courseId).filter(Boolean))];
+  const mine = ids.map((id) => courses.find((c) => c.id === id)).filter(Boolean);
+  return mine.find((c) => c.requiresEquipment) ?? mine[0] ?? null;
+}
+
+/**
+ * 一筆擇一池叫什麼。
+ *
+ * | 池裡 | 叫什麼 | 為什麼 |
+ * |---|---|---|
+ * | 一台 | `超磁場` | 沒得選，就叫那一台。她寫的就是 `sis(60)x5` |
+ * | N 台 | `復能三選一` | 「復能」是分類（`homeCourseOf()`），N 是真的有幾台 |
+ *
+ * **數字是算出來的不是寫死的**：她之後在主檔多加一台，「四選一」自己會變成
+ * 「五選一」，一行程式都不用改。
+ *
+ * @param {string[]} optionEquipmentIds
+ * @param {object[]} equipment 器材主檔
+ * @param {object[]} courses 課程主檔（分類名要用）
+ */
+export function poolName(optionEquipmentIds = [], equipment = [], courses = []) {
+  const options = (optionEquipmentIds ?? [])
+    .map((id) => (equipment ?? []).find((e) => e.id === id))
+    .filter(Boolean);
+  if (!options.length) return '';
+  if (options.length === 1) return String(options[0].name ?? '').trim();
+
+  const home = homeCourseOf(options, courses);
+  return `${String(home?.name ?? '').trim()}${countWord(options.length)}選一`;
+}
+
+/**
+ * 帶時長的顯示名稱：`'超磁場'` + `60` → `'超磁場(60)'`。
+ *
+ * 括號裡只有數字，沒有「分鐘」—— 她自己寫的就是 `sis(60)x5`，
+ * 而那一格旁邊的標籤已經說了那是分鐘。
+ *
+ * 沒有時長就不加括號（同 `tieredLabel()` 的判斷：**不要補一個猜的**）。
+ */
+export function timedLabel(name, durationMin) {
+  const base = String(name ?? '').trim();
+  const n = Number(durationMin);
+  return base && Number.isInteger(n) && n > 0 ? `${base}(${n})` : base;
+}
+
+/**
+ * 這個課程加購時給不給她挑時長。
+ *
+ * 名單記在**課程主檔**上（`durationChoices`），不寫死課程名字 ——
+ * 這個 repo 為字串比對付過帳（`domain/followups.js` 的檔頭）。
+ * 沒填就是不給挑，用課程的預設時長。
+ */
+export const durationChoicesOf = (course) =>
+  (course?.durationChoices ?? []).filter((n) => Number.isInteger(n) && n > 0);
+
+/**
  * 帶品項的顯示名稱：`'營養點滴'` + `'雪顏亮彩'` → `'營養點滴 - 雪顏亮彩'`。
  *
  * `CONTEXT.md`：營養點滴品項「各自有各自的次數，不合併計算」，所以一位客戶

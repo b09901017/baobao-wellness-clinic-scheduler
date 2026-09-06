@@ -73,6 +73,29 @@ describe('課程驗證', () => {
     assert.deepEqual(validate('courses', { ...base, requiresEquipment: true }), []);
   });
 
+  // 她 2026-09-06：「要能選 30 分鐘或是 60 分鐘的」。名單記在課程主檔上，
+  // 不寫死課程名字 —— 這個 repo 為字串比對付過帳。
+  describe('可選時長', () => {
+    const with_ = (durationChoices, over = {}) =>
+      validate('courses', { ...base, durationChoices, ...over });
+
+    test('選填 —— 留空就是只有一個時長', () => {
+      assert.deepEqual(with_([]), []);
+      assert.deepEqual(validate('courses', base), []);
+    });
+
+    test('填了就要都是正整數、不重複、含得下預設那一個', () => {
+      assert.deepEqual(with_([30, 60], { durationMin: 60 }), []);
+      assert.ok(with_([30, 0]).some((e) => e.includes('大於 0')));
+      assert.ok(with_([30, 30, 60]).some((e) => e.includes('重複')));
+      assert.ok(with_([10, 20, 30, 40, 50, 60, 70]).some((e) => e.includes('最多六個')));
+    });
+
+    test('預設時長不在名單上要擋 —— 那一排會一顆都沒按著', () => {
+      assert.ok(with_([30, 45], { durationMin: 60 }).some((e) => e.includes('包含')));
+    });
+  });
+
   test('時長必須是正整數', () => {
     for (const bad of [0, -30, 1.5, 'abc', null]) {
       assert.ok(validate('courses', { ...base, durationMin: bad }).length, `${bad} 應該被擋`);
@@ -357,6 +380,19 @@ describe('種子資料', () => {
     assert.equal(qty('筋骨強身', 'ILIB(60)'), 20);
     assert.equal(qty('8萬方案', '復能三選一(60)'), 20);
     assert.equal(qty('8萬方案', 'ILIB(60)'), 12);
+  });
+
+  test('復能與 ILIB 都給得出 30 與 60 兩種規格', () => {
+    for (const name of ['復能', 'ILIB']) {
+      const c = SEED.courses.find((x) => x.name === name);
+      assert.deepEqual(c.durationChoices, [30, 60], `${name} 少了可選時長`);
+      assert.ok(c.durationChoices.includes(c.durationMin));
+    }
+  });
+
+  test('其餘課程沒有可選時長 —— 永遠不會被按的丸子只是噪音', () => {
+    const others = SEED.courses.filter((c) => !['復能', 'ILIB'].includes(c.name));
+    assert.ok(others.every((c) => !c.durationChoices?.length));
   });
 
   test('那五項不產生任務的課程確實是 null 類別', () => {

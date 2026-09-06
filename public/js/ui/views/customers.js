@@ -679,7 +679,7 @@ function openBuySheet(master, onAdd) {
 
         // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
         const next = await buy.commitNewProduct(
-          { ...item, ...buy.values(form) }, master, (row) => config.create('products', row),
+          { ...item, ...buy.values(form, master) }, master, (row) => config.create('products', row),
         );
         const errors = buy.validate(next, master);
         f.showErrors(drawer, errors);

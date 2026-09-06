@@ -606,7 +606,7 @@ async function addBuy(drawer, panel, repaint) {
 
   // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
   const next = await buy.commitNewProduct(
-    { ...panel.adding, ...buy.values(form) }, state.master, (row) => config.create('products', row),
+    { ...panel.adding, ...buy.values(form, state.master) }, state.master, (row) => config.create('products', row),
   );
   const errors = buy.validate(next, state.master);
   if (errors.length) {

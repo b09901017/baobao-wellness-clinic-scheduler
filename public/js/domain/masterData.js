@@ -248,6 +248,21 @@ const validators = {
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
+
+    // 加購時給不給她挑時長（選填）。填了就要能用 ——
+    // 一顆按不下去的丸子跟一顆按得下去的長得一模一樣。
+    const choices = r.durationChoices ?? [];
+    if (!Array.isArray(choices)) errors.push('可選時長格式錯誤');
+    else if (choices.length) {
+      if (!choices.every(positiveInt)) errors.push('可選時長必須都是大於 0 的整數分鐘');
+      else if (new Set(choices).size !== choices.length) errors.push('可選時長不可以重複');
+      else if (choices.length > 6) errors.push('可選時長最多六個 —— 再多那一排就要滑了');
+      else if (!choices.includes(Number(r.durationMin))) {
+        // 預設值不在名單上的話，加購那一排會一顆都沒按著，
+        // 而她看到的是一張「還沒選」的表 —— 但她其實什麼都沒動。
+        errors.push('可選時長裡要包含上面那個時長');
+      }
+    }
     if (!ASSIGNS.includes(r.assigns)) errors.push('請選擇要指派治療師還是診間');
 
     const types = r.allowedRoomTypes ?? [];

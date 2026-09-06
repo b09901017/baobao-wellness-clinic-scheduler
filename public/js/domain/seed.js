@@ -138,9 +138,12 @@ export const SEED = {
     // ---- C 類：只有 Abovee ----
     {
       // 擇一池的那個課程。三種器材都要物理治療師操作，所以指派治療師不指派診間。
+      //
+      // 「可選時長」是 2026-09-06 加的：她要買得到 `sis(60)x5` 也買得到
+      // `indiba(30)x5`，而那兩個是同一個課程的兩種規格，不是兩個課程。
       id: 'course-recovery', name: '復能', category: 'C', durationMin: 60,
       assigns: 'therapist', allowedRoomTypes: [], allowedRoomIds: [],
-      requiresEquipment: true, frequencyRule: null,
+      requiresEquipment: true, frequencyRule: null, durationChoices: [30, 60],
     },
     {
       // 同屬物理賦能課程分類，但不需要治療師操作，所以獨立計次、選診間。
@@ -150,7 +153,7 @@ export const SEED = {
       // `courseName` 快照**，那是刻意的（歷史紀錄留著當時寫下去的字）。
       id: 'course-iv-laser', name: 'ILIB', category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['ILIB室', '治療室', '點滴室'], allowedRoomIds: [],
-      requiresEquipment: false, frequencyRule: null,
+      requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {
       // SPEC 第 7 節規則 2：EECP 只能在治5、治8

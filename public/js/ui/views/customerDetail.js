@@ -30,7 +30,7 @@ import * as rules from '../../domain/customers.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
-  counts, reconcile, isOverused, sortPools, offCount, isProduct,
+  counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import {
@@ -1391,8 +1391,11 @@ function adjustFields(e, c) {
  * 畫面在講一件沒發生的事，比沒講還糟。
  */
 function advancedDigest(e, isNew, master) {
+  // 時長那一格在「有可選時長的課程」上已經是主體的一排丸子了（`buy.js`），
+  // 那一排本來就一定有值 —— 講「改了 時長」會變成每一次都出現的假訊息。
+  const timed = isNew && durationChoicesOf(durationCourse(e, master)).length >= 2;
   const changed = [
-    e.durationMin ? '時長' : null,
+    e.durationMin && !timed ? '時長' : null,
     e.frequencyRule ? '頻率限制' : null,
     e.expiresAt ? '到期日' : null,
     isNew && buy.keptLabel(e, master) ? '顯示名稱' : null,
@@ -1404,6 +1407,12 @@ function advancedDigest(e, isNew, master) {
  * 進階設定。**營養品只有顯示名稱** —— 時長、頻率限制、器材、課程、到期日
  * 對一罐夜態美通通沒有意義（ADR-0057）。
  */
+/** 這一筆的「幾分鐘」要問哪一個課程。擇一池問復能，其餘問它自己。 */
+function durationCourse(e, master) {
+  if (e?.type === 'pool') return buy.poolCourseOf(master);
+  return (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
+}
+
 function advancedFields(e, master, isNew) {
   if (isProduct(e)) {
     return f.text({
@@ -1417,16 +1426,19 @@ function advancedFields(e, master, isNew) {
       name: 'label', label: '顯示名稱', value: e.label,
       placeholder: '留空就用課程的名字',
     })}
-    ${f.number({
+    ${/* 加購時「幾分鐘」與「哪一種」已經是主體的兩排丸子（`components/buy.js`），
+         這裡不可以再長出同名的第二個欄位 —— 兩個 `name="durationMin"` 會讓
+         `readForm()` 讀到不確定的那一個。調整既有額度時沒有那兩排，照舊。 */''}
+    ${isNew && durationChoicesOf(durationCourse(e, master)).length >= 2 ? '' : f.number({
       name: 'durationMin', label: '時長（分鐘）', value: e.durationMin ?? '', min: 1, step: 1,
       hint: '留空就用課程本身的時長。',
     })}
     ${e.type === 'pool'
-      ? f.checkboxes({
+      ? (isNew ? '' : f.checkboxes({
           name: 'optionEquipmentIds', label: '可選的器材',
           values: e.optionEquipmentIds ?? [],
           options: master.equipment.map((x) => ({ value: x.id, label: x.name })),
-        })
+        }))
       : `<input type="hidden" name="courseId" value="${esc(e.courseId ?? '')}" />
          ${isNew ? '' : f.select({
            name: 'courseIdPick', label: '課程', value: e.courseId ?? null,
@@ -1468,7 +1480,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
     form: () => form,
     draft: () => live,
     master,
-    typed: readEntitlement,
+    typed: (box) => readEntitlement(box, master),
     onChange: (next, { repaint }) => {
       live = next;
       if (repaint) paintEntitlement(ctx, record, { ...next, advanced: advanced() });
@@ -1480,7 +1492,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
     // 「＋ 新增…」打的那一款先寫進主檔，換回一張指得到它的草稿。
     // 沒有要新增就原樣回來，一次 IO 都不會發生（三個入口共用同一支）。
     const next = await buy.commitNewProduct(
-      { ...live, ...readEntitlement(form) },
+      { ...live, ...readEntitlement(form, master) },
       { products: ctx.products },
       (row) => config.create('products', row),
     );
@@ -1538,7 +1550,7 @@ function courseOptions(courses, currentId) {
   return opts;
 }
 
-function readEntitlement(form) {
+function readEntitlement(form, master = {}) {
   const v = f.readForm(form);
   return {
     // 課程由「買了什麼」那一排丸子決定，而那一顆的值直接寫進草稿
@@ -1553,7 +1565,7 @@ function readEntitlement(form) {
     expiresAt: v.expiresAt || null,
     // 等級／品項那幾排只有加購那一張表有。**沒在畫面上就不回報** ——
     // 少帶一個欄位就等於把它清成 null，見 ADR-0054 的 Consequences。
-    ...buy.read(form, v),
+    ...buy.read(form, v, master),
   };
 }
 

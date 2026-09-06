@@ -209,6 +209,7 @@ const editors = {
       needsRecord: false,
       frequencyRule: null,
       followupCourseId: null,
+      durationChoices: [],
     },
     // 「要寫紀錄」印在摘要上是 2026-09-04 加的：她簽完療程單沒有長出那一張，
     // 而原因是這個勾沒打開 —— 一整排課程掃過去看不出哪幾個開著，
@@ -221,6 +222,14 @@ const editors = {
       // step 是 1 不是 5：`positiveInt()` 只要求大於 0 的整數，欄位不可以比它嚴
       // —— `min:1 step:5` 的合法值是 1、6、11…… 30 存不下去（見 form.js 的 number()）。
       f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 1 }),
+      // 加購時給不給她挑時長。復能與 ILIB 各有 30 與 60 分鐘兩種規格，
+      // 而寫死那兩個課程名字是這個 repo 付過帳的作法（`domain/followups.js` 的檔頭）。
+      f.text({
+        name: 'durationChoices', label: '可選時長（分鐘）',
+        value: (r.durationChoices ?? []).join('、'), placeholder: '30、60',
+        hint: '用頓號分隔。填了之後加購那一頁會多一排丸子，名字也會帶著它'
+          + '（「超磁場(60)」）。留空就是只有上面那一個時長。',
+      }),
       f.select({
         name: 'category', label: '任務類別', value: r.category ?? null,
         options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
@@ -230,7 +239,8 @@ const editors = {
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
         options: ASSIGNS.map((a) => ({ value: a, label: ASSIGN_LABELS[a] })),
-        hint: '復能三器材選治療師；其餘含靜脈選診間；心臟科評估都不用。',
+        hint: '復能三器材選治療師；其餘含 ILIB 選診間；心臟科評估都不用。'
+          + '擇一池的那一段會改看「這一段選了哪一台器材」屬於哪個課程（ADR-0075）。',
       }),
       f.checkboxes({
         name: 'allowedRoomTypes', label: '可用的診間類型',
@@ -300,6 +310,10 @@ const editors = {
     parse: (v, prev) => ({
       name: v.name.trim(),
       durationMin: v.durationMin,
+      // 「30、60」→ [30, 60]。認不出數字的那幾格直接丟掉 ——
+      // 存一個 NaN 進去，加購那一排會冒出一顆按不下去的丸子。
+      durationChoices: f.parseList(v.durationChoices)
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0),
       category: v.category,
       assigns: v.assigns,
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
