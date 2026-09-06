@@ -31,6 +31,7 @@ import {
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
+import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
 /**
  * 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。
@@ -56,6 +57,16 @@ export const TIER_OTHER = '__other__';
  * 是一顆展開輸入框的鈕。存下去的時候才真的寫進主檔。
  */
 export const PRODUCT_NEW = '__newproduct__';
+
+/** 「到期日」那一排的兩顆特別的。其餘幾顆的值**就是算好的那個日期**。 */
+export const EXPIRY_NONE = '__none__';
+export const EXPIRY_OTHER = '__other__';
+
+/** 「半年」「一年」。她 2026-09-06 講的就是這兩個。 */
+export const EXPIRY_PRESETS = [
+  { months: 6, label: '半年' },
+  { months: 12, label: '一年' },
+];
 
 /** 一張空白的草稿。 */
 export function blank() {
@@ -345,6 +356,16 @@ export function read(form, v, master = {}) {
   if (form.elements.durationMin) {
     const raw = v.durationMin;
     out.durationMin = raw && raw !== '__null__' ? Number(raw) : null;
+  }
+
+  // 到期日那一排。**值就是算好的日期**（`expiryRow()` 算的），所以這裡不做
+  // 任何日期運算 —— 兩邊各算一次的話，畫面上按著「一年」而存進去的是別的一天。
+  if (form.elements.expiryPreset) {
+    const preset = v.expiryPreset ?? EXPIRY_NONE;
+    out.expiryOther = preset === EXPIRY_OTHER;
+    out.expiresAt = out.expiryOther
+      ? (String(v.expiresAt ?? '').trim() || null)
+      : (preset === EXPIRY_NONE ? null : preset);
   }
 
   if (form.elements.productIds) {
@@ -671,6 +692,51 @@ function productRow(e, products) {
 }
 
 /**
+ * 「到期日」那一排。**進階設定裡的東西**，不在主體上。
+ *
+ * 她 2026-09-06：
+ *
+ * > 其實現在不需要到期日了，可以保留但就是選填，基本上不會到期……
+ * > 也許可以選一年半年自訂時間等等
+ *
+ * 所以預設按在「不到期」，而不是像以前一樣算一個出來。半年與一年從**購買日**
+ * 起算（沒有購買日就從今天）—— 那兩顆的值**就是算好的那一天**，
+ * 所以 `read()` 一行日期運算都不用做。
+ *
+ * 「自己選」跟「其他…」「＋ 新增…」是同一個作法：開合狀態存在草稿上
+ * （`expiryOther`），畫的時候就決定，不必另外接一段。
+ *
+ * @param {object} e 草稿
+ * @param {{from?: string|null}} [o] 從哪一天起算
+ */
+export function expiryRow(e, { from = null } = {}) {
+  const base = isValidDate(from) ? from : todayISO();
+  const options = EXPIRY_PRESETS.map((x) => ({
+    value: addMonths(base, x.months),
+    label: x.label,
+  }));
+  const now = e?.expiresAt ?? null;
+  const custom = Boolean(e?.expiryOther)
+    || (Boolean(now) && !options.some((o) => o.value === now));
+
+  return `
+    ${f.chips({
+      name: 'expiryPreset',
+      label: '到期日',
+      value: custom ? EXPIRY_OTHER : (now ?? EXPIRY_NONE),
+      options: [
+        { value: EXPIRY_NONE, label: '不到期' },
+        ...options,
+        { value: EXPIRY_OTHER, label: '自己選' },
+      ],
+      hint: `半年與一年從${isValidDate(from) ? '購買日' : '今天'}起算。`,
+    })}
+    <div data-expiryother ${custom ? '' : 'hidden'}>
+      ${f.date({ name: 'expiresAt', label: '哪一天', value: custom ? (now ?? '') : '' })}
+    </div>`;
+}
+
+/**
  * 「會變成『8萬健檢』」那一句。
  *
  * 它不是說明，是**預告** —— 自動帶的名稱藏在「進階設定」裡，不講的話她要
@@ -756,7 +822,7 @@ export async function commitNewProduct(draft, master = {}, createProduct) {
 
 /** 「哪一種／幾萬的」那幾排丸子。換了它們要跟著改顯示名稱。 */
 const DETAIL_CHIPS = '[data-chip="tier"], [data-chip="ivProductId"], [data-chip="productIds"], '
-  + '[data-chip="poolKind"], [data-chip="durationMin"]';
+  + '[data-chip="poolKind"], [data-chip="durationMin"], [data-chip="expiryPreset"]';
 
 /**
  * **打字**會改到顯示名稱的那幾格。

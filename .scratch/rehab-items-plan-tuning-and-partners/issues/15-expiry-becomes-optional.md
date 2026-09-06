@@ -12,20 +12,21 @@ Status: 待確認
 
 ## 現在是什麼樣
 
-買方案時 `data/customers.js` 的 `createWithPlan()` 算
-`membershipExpiry(purchasedAt, plan.membershipMonths)`，把結果**複製到每一筆額度**
-的 `expiresAt` 上。所以每一位客戶身上每一張額度卡都有一行「2027-03-12 到期」，
-而那件事她根本不管。
+**寫這一份規劃時我以為方案展開會自動算到期日，那是錯的。** 實際查過之後：
+`membershipExpiry()` 這一支**一個生產呼叫端都沒有**，兩條建立路徑
+（`ui/views/customers.js`、`domain/bulkCustomers.js`）都直接寫
+`membershipExpiresAt: null` —— ADR-0019 把那一格從畫面上拿掉之後就沒人填了。
+
+所以「預設不給到期日」這件事**已經是現況**。這一支要做的只剩那一排丸子。
 
 ## 要做什麼
 
-### 一、預設不給
+### 一、預設不給（已經是這樣了）
 
-- `expandPlan()` 的 `expiresAt` 由呼叫端傳，**呼叫端不再自己算** ——
-  沒傳就是 `null`。這一支本身不用改。
-- `createWithPlan()` 拿掉那一行 `membershipExpiry(...)`。
+- `expandPlan()` 的 `expiresAt` 由呼叫端傳，沒傳就是 `null`。不用改。
 - `plan.membershipMonths` 這個欄位**留著**（方案範本上還看得到「會籍 12 個月」），
-  只是不再自動套用。她之後要用的時候，「一年」那一顆就是它。
+  只是沒有人自動套用它。她之後要用的時候，「一年」那一顆就是它。
+- `membershipExpiry()` 從死程式碼變回有用的：那兩顆預設用它算日期。
 
 ### 二、加購的進階設定裡一排丸子
 

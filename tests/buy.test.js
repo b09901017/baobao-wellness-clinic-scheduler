@@ -612,3 +612,61 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
     assert.equal(doc.courseId, null, '擇一池沒有 courseId —— 課程由器材推（ADR-0075）');
   });
 });
+
+
+// 她 2026-09-06：
+//
+// > 其實現在不需要到期日了，可以保留但就是選填，基本上不會到期，
+// > 所以到期日在加購的時候可以在進階設定裡，然後也許可以選一年半年自訂時間等等
+describe('到期日：選填，預設不到期', () => {
+  const FROM = '2026-03-12';
+
+  /** 那一排裡按著的是哪一顆。 */
+  const pressed = (html) =>
+    [...html.matchAll(/data-chip-value="([^"]+)"[^>]*aria-pressed="true"/gs)].map((m) => m[1]);
+
+  test('預設按在「不到期」', () => {
+    assert.deepEqual(pressed(buy.expiryRow(buy.blank(), { from: FROM })), [buy.EXPIRY_NONE]);
+  });
+
+  test('半年與一年從購買日起算，值就是算好的那一天', () => {
+    const html = buy.expiryRow(buy.blank(), { from: FROM });
+    assert.ok(html.includes('2026-09-12'), '半年');
+    assert.ok(html.includes('2027-03-12'), '一年');
+    assert.ok(html.includes('從購買日起算'));
+  });
+
+  test('沒有購買日就從今天起算，而且那句話要跟著改', () => {
+    assert.ok(buy.expiryRow(buy.blank(), {}).includes('從今天起算'));
+  });
+
+  test('存進去的日期對得上某一顆就按那一顆，那一格收著', () => {
+    const html = buy.expiryRow({ ...buy.blank(), expiresAt: '2027-03-12' }, { from: FROM });
+    assert.deepEqual(pressed(html), ['2027-03-12'], '「一年」那一顆');
+    assert.ok(html.includes('data-expiryother hidden'), '對得上就不用展開那一格');
+  });
+
+  test('對不上任何一顆就是「自己選」，而且展開讓她看得到那一天', () => {
+    const html = buy.expiryRow({ ...buy.blank(), expiresAt: '2027-01-01' }, { from: FROM });
+    assert.deepEqual(pressed(html), [buy.EXPIRY_OTHER]);
+    assert.ok(!html.includes('data-expiryother hidden'));
+    assert.ok(html.includes('2027-01-01'));
+  });
+
+  test('讀表單：三種各自回什麼', () => {
+    const form = { elements: { expiryPreset: {} } };
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_NONE }),
+      { expiryOther: false, expiresAt: null });
+    assert.deepEqual(buy.read(form, { expiryPreset: '2027-03-12' }),
+      { expiryOther: false, expiresAt: '2027-03-12' });
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_OTHER, expiresAt: '2027-01-01' }),
+      { expiryOther: true, expiresAt: '2027-01-01' });
+    // 「自己選」但那一格是空的 → null，不要存一個空字串進 Firestore
+    assert.deepEqual(buy.read(form, { expiryPreset: buy.EXPIRY_OTHER, expiresAt: '  ' }),
+      { expiryOther: true, expiresAt: null });
+  });
+
+  test('那一排不在畫面上時一個欄位都不回報', () => {
+    assert.deepEqual(buy.read({ elements: {} }, { expiryPreset: '2027-03-12' }), {});
+  });
+});

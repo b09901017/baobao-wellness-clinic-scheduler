@@ -1324,7 +1324,7 @@ function paintEntitlement(ctx, record, draft = null) {
       <details class="advanced" ${e.advanced ? 'open' : ''}>
         <summary class="advanced__head">進階設定${advancedDigest(e, isNew, master)}</summary>
         <div class="advanced__body">
-          ${advancedFields(e, master, isNew)}
+          ${advancedFields(e, master, isNew, ctx.customer.purchasedAt ?? null)}
         </div>
       </details>
 
@@ -1413,7 +1413,7 @@ function durationCourse(e, master) {
   return (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
 }
 
-function advancedFields(e, master, isNew) {
+function advancedFields(e, master, isNew, purchasedAt = null) {
   if (isProduct(e)) {
     return f.text({
       name: 'label', label: '顯示名稱', value: e.label,
@@ -1451,7 +1451,7 @@ function advancedFields(e, master, isNew) {
       name: 'frequencyRule', label: '頻率限制', value: e.frequencyRule ?? '',
       placeholder: '每季一次', hint: '只提示不阻擋。',
     })}
-    ${f.date({ name: 'expiresAt', label: '這筆額度的到期日', value: e.expiresAt ?? '' })}`;
+    ${buy.expiryRow(e, { from: purchasedAt })}`;
 }
 
 function wireEntitlement(el, ctx, record, e, { isNew, master }) {
