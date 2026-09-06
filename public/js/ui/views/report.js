@@ -48,7 +48,7 @@ export async function render(el) {
 
 async function load() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits, tasks, courses, staff, settings] = await Promise.all([
+  const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
@@ -57,6 +57,9 @@ async function load() {
     configData.listAll('courses', { includeDeleted: true }),
     // 同理，離職的醫師也要讀得到 —— 那次二返確實是他看的
     configData.listAll('staff', { includeDeleted: true }),
+    // 「這一天用了哪一台」那一列要靠它換成別稱（格式 4）。含已刪除的 ——
+    // 她停用一台器材，已經做過的那幾次照樣要印得出名字。
+    configData.listAll('equipment', { includeDeleted: true }),
     configData.getSettings(),
   ]);
 
@@ -66,7 +69,7 @@ async function load() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, settings };
+  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, settings };
 }
 
 function paint(el, data) {
@@ -239,6 +242,7 @@ function buildReport(data) {
     tasks: data.tasksBy[picked] ?? [],
     courses: data.courses,
     staff: data.staff,
+    equipment: data.equipment,
     generatedAt,
   });
 }
