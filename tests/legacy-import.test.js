@@ -179,7 +179,7 @@ test('同一天的多個勾選合成一次來訪，一個時段一個課程', ()
   const p = plan();
   assert.deepEqual(p.visits.map((v) => v.date), ['2026-08-01', '2026-08-11', '2026-08-18']);
   assert.deepEqual(p.visits.map((v) => v.slots.length), [2, 2, 1]);
-  assert.deepEqual(p.visits[0].slots.map((s) => s.courseName), ['復能', '靜脈']);
+  assert.deepEqual(p.visits[0].slots.map((s) => s.courseName), ['復能', 'ILIB']);
 });
 
 test('匯入的來訪一律是已完成，而且時間、器材、診間、治療師都不詳', () => {
@@ -345,7 +345,7 @@ test('同一天有兩個日期欄時合併成一筆來訪，並在報告上講�
 
   assert.equal(p.visits.length, 1);
   assert.equal(p.visits[0].date, '2026-08-01');
-  assert.equal(p.visits[0].slots.length, 3, '復能兩次 + 靜脈一次');
+  assert.equal(p.visits[0].slots.length, 3, '復能兩次 + ILIB 一次');
   assert.ok(p.problems.some((x) => x.why.includes('合併成一筆來訪')));
 });
 

@@ -36,7 +36,7 @@ const CUSTOMER = () => ({
       optionEquipmentNames: ['INDIBA', '超磁場', '高能量雷射'], productName: null,
     },
     {
-      key: 'r8', type: 'single', label: 'ILIB 60mins', totalQty: 12, courseName: '靜脈',
+      key: 'r8', type: 'single', label: 'ILIB 60mins', totalQty: 12, courseName: 'ILIB',
       optionEquipmentNames: [], productName: null,
     },
   ],
@@ -50,7 +50,7 @@ const CUSTOMER = () => ({
         confidence: 'high', evidence: '1~3.客戶A SIS治A',
       },
       {
-        entitlementKey: 'r8', courseName: '靜脈', startsAt: '15:15', endsAt: '16:15',
+        entitlementKey: 'r8', courseName: 'ILIB', startsAt: '15:15', endsAt: '16:15',
         roomName: '點滴10', therapistName: null, equipmentName: null, ivProductName: null,
         confidence: 'high', evidence: '3.15客戶A IL.10',
       },
@@ -84,7 +84,7 @@ test('格式不對就整份拒絕，不匯入一半', () => {
 
 test('候選清單的名字對不上 customers 時要講出來', () => {
   const f = FILE({
-    missingFromSheet: [{ customerName: '客戶A9001', date: '2026-08-20', courseName: '靜脈', include: false }],
+    missingFromSheet: [{ customerName: '客戶A9001', date: '2026-08-20', courseName: 'ILIB', include: false }],
   });
   const { errors, warnings } = validateFile(f);
   // 這不是壞檔案，只是補不進去 —— 擋下來反而讓她連對得上的那些也匯不了
@@ -173,7 +173,7 @@ test('時間不詳的時段照樣匯入（ADR-0011），而且驗證得過', () 
     ivProducts: SEED.ivProducts,
     entitlements: [
       { id: 'e0', type: 'pool', label: '復能', optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'] },
-      { id: 'e1', type: 'single', label: '靜脈' },
+      { id: 'e1', type: 'single', label: 'ILIB' },
     ],
   });
   assert.deepEqual(errors, []);
@@ -182,7 +182,7 @@ test('時間不詳的時段照樣匯入（ADR-0011），而且驗證得過', () 
 test('補進來的來訪併進同一天，不會多長一筆', () => {
   const plans = [plan()];
   const problems = addExtraVisits(plans, [
-    { customerName: '客戶A', date: '2026-08-13', courseName: '靜脈', startsAt: '17:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-08-13', courseName: 'ILIB', startsAt: '17:00', status: 'done' },
   ], CTX);
   assert.deepEqual(problems, []);
   assert.equal(plans[0].visits.length, 1);
@@ -194,7 +194,7 @@ test('補進來的來訪對不到額度就不猜', () => {
   const plans = [plan()];
   const problems = addExtraVisits(plans, [
     { customerName: '客戶A', date: '2026-09-01', courseName: '二返', startsAt: '10:00', status: 'confirmed' },
-    { customerName: '不存在的人', date: '2026-09-01', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+    { customerName: '不存在的人', date: '2026-09-01', courseName: 'ILIB', startsAt: '10:00', status: 'done' },
   ], CTX);
   assert.equal(problems.length, 2);
   assert.ok(problems[0].why.includes('沒有這個課程的額度'));
@@ -205,7 +205,7 @@ test('補進來的來訪對不到額度就不猜', () => {
 test('未來的預約是已確認、還沒來，所以不算出席', () => {
   const plans = [plan()];
   addExtraVisits(plans, [
-    { customerName: '客戶A', date: '2026-09-01', courseName: '靜脈', startsAt: '10:00', status: 'confirmed' },
+    { customerName: '客戶A', date: '2026-09-01', courseName: 'ILIB', startsAt: '10:00', status: 'confirmed' },
   ], CTX);
   const visit = plans[0].visits.find((v) => v.date === '2026-09-01');
   assert.equal(visit.status, 'confirmed');
@@ -278,7 +278,7 @@ const FUTURE = () => {
     date: '2026-09-30',
     status: 'done', // 合併檔那側一律吐 done —— 這正是要修的東西
     slots: [{
-      entitlementKey: 'r8', courseName: '靜脈', startsAt: '10:00', endsAt: '11:00',
+      entitlementKey: 'r8', courseName: 'ILIB', startsAt: '10:00', endsAt: '11:00',
       roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
       confidence: 'high', evidence: '10.IL',
     }],
@@ -326,8 +326,8 @@ test('補進來的未來來訪也要是已確認，不要又變回已完成', ()
   // 她從 missingFromSheet 勾一筆未來的，走的是 addExtraVisits() 那一條
   const plans = [plan(CUSTOMER(), { today: '2026-08-21' })];
   addExtraVisits(plans, [
-    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
-    { customerName: '客戶A', date: '2026-08-01', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-09-15', courseName: 'ILIB', startsAt: '10:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-08-01', courseName: 'ILIB', startsAt: '10:00', status: 'done' },
   ], { ...CTX, today: '2026-08-21' });
 
   const ahead = plans[0].visits.find((v) => v.date === '2026-09-15');
@@ -343,7 +343,7 @@ test('摘要要講出「其中幾筆還沒發生」', () => {
   assert.equal(summarize(plans).future, 1);
 
   addExtraVisits(plans, [
-    { customerName: '客戶A', date: '2026-09-15', courseName: '靜脈', startsAt: '10:00', status: 'done' },
+    { customerName: '客戶A', date: '2026-09-15', courseName: 'ILIB', startsAt: '10:00', status: 'done' },
   ], { ...CTX, today: '2026-08-21' });
   assert.equal(summarize(plans).future, 2, '補進來的那一筆也要算進去');
   assert.equal(summarize(plans).visits, 3);
@@ -356,8 +356,8 @@ test('摘要要講出「其中幾筆還沒發生」', () => {
 
 const CANDIDATES = () => FILE({
   missingFromSheet: [
-    { customerName: '客戶A', date: '2026-07-02', courseName: '靜脈', include: false },
-    { customerName: '客戶A', date: '2026-09-20', courseName: '靜脈', include: false },
+    { customerName: '客戶A', date: '2026-07-02', courseName: 'ILIB', include: false },
+    { customerName: '客戶A', date: '2026-09-20', courseName: 'ILIB', include: false },
     { customerName: '客戶A', date: '2026-08-05', courseName: '復能', include: false },
   ],
   futureVisits: [
@@ -413,7 +413,7 @@ test('customers[] 裡的未來來訪要數出來 —— 那張卡本來只列得
 
 test('ambiguous 要有人講出來，不然那一筆就這樣消失了', () => {
   const json = FILE({
-    ambiguous: [{ date: '2026-06-30', evidence: '3.15 IL治2', course: '靜脈', who: ['客戶A', '王小明'] }],
+    ambiguous: [{ date: '2026-06-30', evidence: '3.15 IL治2', course: 'ILIB', who: ['客戶A', '王小明'] }],
   });
   const { errors, warnings } = validateFile(json);
   assert.deepEqual(errors, [], '這不是壞檔案');
@@ -423,7 +423,7 @@ test('ambiguous 要有人講出來，不然那一筆就這樣消失了', () => {
 // ---------- 待辦（.scratch/first-real-import/issues/04） ----------
 
 test('確認框上的待辦筆數只數還沒發生的那些', () => {
-  // 9/30 那筆是靜脈（C 類 → 確認後沒有後續登記），8/13 那筆已經發生 ——
+  // 9/30 那筆是 ILIB（C 類 → 確認後沒有後續登記），8/13 那筆已經發生 ——
   // 兩筆都不長。壓表登記那一件她在舊系統上早就做完了，見
   // .scratch/todo-flow-rework/issues/01
   const ahead = plan(FUTURE(), { today: '2026-08-21' });

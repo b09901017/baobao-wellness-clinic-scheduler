@@ -3,6 +3,8 @@
 // 前端擋一次、Firestore Rules 再擋一次，這裡是前端這一次。
 // 驗證失敗回傳訊息陣列，空陣列代表可以存。
 
+import { ALERT_COLORS, ALERT_FILLS } from './clinicalFlags.js';
+
 export const ROOM_TYPES = ['治療室', '點滴室', 'ILIB室'];
 
 /**
@@ -54,7 +56,7 @@ export function staffWithRole(staff = [], role) {
  */
 export const picksDoctor = (course) => course?.category === 'A' || Boolean(course?.requiresDoctor);
 
-// 課程要指派什麼。復能三器材選治療師，其餘含靜脈選診間，心臟科評估都不用。
+// 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 
 export const ASSIGN_LABELS = {
@@ -86,20 +88,19 @@ export const MASTER_LABELS = {
 };
 
 /**
- * 臨床提醒的名單。**永久限制底下的第二層**，見 ADR-0064。
+ * 警示的名單。**永久限制的第一層**，見 ADR-0074。
  *
- * 跟醫療禁忌差在一件事：**它什麼都不擋**。
- * 「體內金屬」會讓超磁場與高能量雷射完全不可選（全站唯一的硬性阻擋，
- * `domain/contraindications.js`）；「血管難打」不會讓任何東西不能選，
- * 它只是要在她壓表的那一刻被看到 —— 那一下她要把這件事抄進 Abovee 的註記欄。
+ * 它什麼都不擋 —— 它只是要在她壓表的那一刻被看到，那一下她要把這件事抄進
+ * Abovee 的註記欄。2026-09-06 之前這一層叫「臨床提醒」，上面還有一層
+ * 「醫療禁忌」會硬性擋掉器材；不擋之後兩層合併成這一份。
  *
  * 為什麼是主檔而不是寫死：她手上的筆記裡至少已經有兩個（血管難打、第一針），
  * 而下一個一定還會有。設定頁的第一句話就是「診間與治療師都在這裡自己加，
  * 沒有寫死在程式碼裡」。
  *
- * 為什麼不像醫療禁忌那樣從別的主檔推出來：醫療禁忌要跟器材上的字**完全相同**
- * 才擋得住，所以它只能從器材推（`contraindicationTerms()`）。
- * 臨床提醒沒有東西要對得上，所以它自己就是那份名單。
+ * 為什麼不從器材主檔推出來：器材上那幾個字只回答「選了那一台要不要提醒」，
+ * 而這一份要收得下「怕痛」這種跟器材無關的。**器材上有、這一份沒有的字**
+ * 由資料健檢列出來，按一下補進來。
  *
  * 擺在 `staffWithRole()` 旁邊是因為兩支問的是同一句話：
  * **從主檔拿出一份可以點的名單。**
@@ -195,23 +196,43 @@ const validators = {
     return errors;
   },
 
-  equipment(r) {
+  equipment(r, { courses = [] } = {}) {
     const errors = [];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
     if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
     else if (contra.some(isBlank)) errors.push('禁忌名稱不可空白');
+
+    // 用這台的那一段算哪一個課程（ADR-0075）。選填 —— 沒填的走舊的推導
+    // （`coursesForEntitlement()` 退回 `requiresEquipment` 的課程），
+    // 所以既有資料一筆都不會壞。但**指到一個不存在的課程要擋**：
+    // 那一段會推不出課程，而推不出課程的時段存不下去。
+    if (r.courseId != null && !courses.some((c) => c.id === r.courseId && !c.deletedAt)) {
+      errors.push('指定的課程不存在或已刪除');
+    }
     return errors;
   },
 
-  // 臨床提醒（ADR-0064）。同名由 validate() 統一擋，這裡不再擋一次 ——
+  // 警示（ADR-0074）。同名由 validate() 統一擋，這裡不再擋一次 ——
   // 兩份實作會讓她看到兩句在講同一件事的錯誤訊息。
   clinicalFlags(r) {
-    if (isBlank(r.name)) return ['提醒名稱不可空白'];
+    const errors = [];
+    if (isBlank(r.name)) errors.push('警示名稱不可空白');
     // 這一份的字會原樣畫在壓表卡片牆的一張卡上，而那一排要掃得完。
-    return String(r.name).trim().length > 12
-      ? ['提醒名稱最多 12 字。壓表卡片牆上那一排要掃得完，長的那種寫進備註']
-      : [];
+    else if (String(r.name).trim().length > 12) {
+      errors.push('警示名稱最多 12 字。壓表卡片牆上那一排要掃得完，長的那種寫進備註');
+    }
+
+    // 顏色與填法選填（沒設定就是茶色空心，也就是這一層合併之前的樣子）。
+    // 但**填了就要是名單上的**：認不得的值畫出來會退回預設，
+    // 而「存下去了、看起來沒變」正是她分不出來的那種錯。
+    if (r.color != null && !ALERT_COLORS.some((c) => c.id === r.color)) {
+      errors.push('顏色不在名單上');
+    }
+    if (r.fill != null && !ALERT_FILLS.some((f) => f.id === r.fill)) {
+      errors.push('填法只能是實心或空心');
+    }
+    return errors;
   },
 
   ivProducts(r) {
@@ -227,6 +248,21 @@ const validators = {
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
+
+    // 加購時給不給她挑時長（選填）。填了就要能用 ——
+    // 一顆按不下去的丸子跟一顆按得下去的長得一模一樣。
+    const choices = r.durationChoices ?? [];
+    if (!Array.isArray(choices)) errors.push('可選時長格式錯誤');
+    else if (choices.length) {
+      if (!choices.every(positiveInt)) errors.push('可選時長必須都是大於 0 的整數分鐘');
+      else if (new Set(choices).size !== choices.length) errors.push('可選時長不可以重複');
+      else if (choices.length > 6) errors.push('可選時長最多六個 —— 再多那一排就要滑了');
+      else if (!choices.includes(Number(r.durationMin))) {
+        // 預設值不在名單上的話，加購那一排會一顆都沒按著，
+        // 而她看到的是一張「還沒選」的表 —— 但她其實什麼都沒動。
+        errors.push('可選時長裡要包含上面那個時長');
+      }
+    }
     if (!ASSIGNS.includes(r.assigns)) errors.push('請選擇要指派治療師還是診間');
 
     const types = r.allowedRoomTypes ?? [];
@@ -240,9 +276,9 @@ const validators = {
       errors.push('不選診間的課程不該設定診間限制');
     }
 
-    if (r.assigns !== 'therapist' && r.requiresEquipment) {
-      errors.push('要選器材的課程必須同時指派治療師');
-    }
+    // 2026-09-06 拿掉了「要選器材的課程必須同時指派治療師」這一條。
+    // 復能四選一裡的 ILIB 要的是診間不是治療師，而指派已經由「這一段選了哪一台
+    // 器材」推出來（ADR-0075）—— 這一條會把那件事整個擋掉。
     if (r.requiresEquipment && r.requiresIvProduct) {
       errors.push('一個課程不會同時要選器材又要選點滴品項');
     }
@@ -296,7 +332,10 @@ const validators = {
         else if (!courseIds.has(item.courseId)) errors.push(`${at}：指定的課程不存在或已刪除`);
       } else if (item.type === 'pool') {
         const opts = item.optionEquipmentIds ?? [];
-        if (opts.length < 2) errors.push(`${at}：擇一池至少要有兩種器材可選`);
+        // **一種也算數**（ADR-0075）：單買一台就是「這一池裡只有一台」。
+        // 零台仍然擋 —— 那是「選了池卻一台都沒挑」，而那一筆額度排班時
+        // 沒有器材可以選。
+        if (opts.length < 1) errors.push(`${at}：擇一池至少要挑一種器材`);
         else if (opts.some((id) => !equipIds.has(id))) {
           errors.push(`${at}：指定的器材不存在或已刪除`);
         }
@@ -413,6 +452,21 @@ export function roomSlots(rooms) {
     }
   }
   return out;
+}
+
+/**
+ * 某個課程用得到哪幾台器材（ADR-0075）。
+ *
+ * 復能 → 高能量雷射、超磁場、INDIBA；ILIB → ILIB 那一台。
+ * **一台都對不上就回全部** —— 舊資料的器材身上沒有 `courseId`，而在那之前
+ * 「擇一池」就是所有器材。退回去比回空陣列好：空的擇一池排不出任何一段。
+ *
+ * 擺在 `roomsForCourse()` 旁邊，理由一樣：**某個課程用得到哪些資源。**
+ */
+export function equipmentForCourse(courseId, equipment = []) {
+  const alive = (equipment ?? []).filter((e) => e && !e.deletedAt && e.active !== false);
+  const mine = alive.filter((e) => e.courseId === courseId);
+  return mine.length ? mine : alive;
 }
 
 /** 某個課程能選哪些診間。allowedRoomIds 有值時蓋過類型規則。 */

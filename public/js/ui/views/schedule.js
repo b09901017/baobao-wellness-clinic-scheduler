@@ -45,7 +45,8 @@ import {
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
-  INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, NOTE_MAX,
+  INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
+  picksEquipment, NOTE_MAX,
   acceptsMoreSlots, withExtraSlot,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
@@ -54,7 +55,6 @@ import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
   nthSlotFields, MIN_NTH, MAX_NTH,
 } from '../../domain/nthFollowup.js';
-import { annotateOptions, contraindicationTerms } from '../../domain/contraindications.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
@@ -806,38 +806,26 @@ function custCard(row, isSelected) {
 }
 
 /**
- * 卡片牆上姓名底下那一排：會真的擋掉器材的那幾個、「所以還剩什麼」那一句，
- * 以及臨床提醒（血管難打，ADR-0064）。
+ * 卡片牆上姓名底下那一排：警示那一層（體內金屬、血管難打，ADR-0074）。
  *
  * 畫法在 `ui/components/flags.js`，跟待辦的「壓表登記」那一頁共用（ADR-0046）——
  * 一邊紅一邊灰的話，那一排的整個意義（掃過去一眼分得出誰要特別注意）就沒了。
- * 這裡只負責把這位客戶的擇一池換算成器材物件。
+ *
+ * **這裡不再算「所以還剩哪幾台」那一句。** 她 2026-09-06 說「不需要在丸子上
+ * 提示說只能選什麼」—— 那句話改成她真的選下去的那一刻才講（`equipmentField()`）。
  */
 function alertChips(row) {
-  const equipment = ctx?.all?.equipment ?? [];
-  const pool = (row.pools ?? []).find((p) => p.type === 'pool');
-  const options = pool
-    ? (pool.optionEquipmentIds ?? []).map((id) => equipment.find((e) => e.id === id)).filter(Boolean)
-    : null;
-
   return flagsUi.alertChips({
     flags: row.flags ?? [],
-    terms: blockingTerms(),
-    clinical: alertTerms(),
-    options,
+    alerts: alertTerms(),
+    rows: ctx?.all?.clinicalFlags ?? [],
   });
 }
 
 /**
- * 會擋掉器材的那幾個字。**一批算一次**，不是一張卡算一次 ——
- * 卡片牆一次畫二十幾張，而器材主檔在一批之內不會變。
+ * 警示那幾個字。**一批算一次**，不是一張卡算一次 ——
+ * 卡片牆一次畫二十幾張，而主檔在一批之內不會變。
  */
-function blockingTerms() {
-  ctx.terms ??= contraindicationTerms(ctx?.all?.equipment ?? []);
-  return ctx.terms;
-}
-
-/** 臨床提醒那幾個字。同上，一批算一次。 */
 function alertTerms() {
   ctx.alerts ??= clinicalTerms(ctx?.all?.clinicalFlags ?? []);
   return ctx.alerts;
@@ -877,7 +865,7 @@ function recordPanel(row) {
             ${esc(row.customerName)}
             ${row.priority ? `<span class="stars">${'★'.repeat(row.priority)}</span>` : ''}
             ${flagsUi.detailChips(splitFlags({ flags: row.flags ?? [] },
-              ctx?.all?.equipment ?? [], ctx?.all?.clinicalFlags ?? []))}
+              ctx?.all?.clinicalFlags ?? []), { rows: ctx?.all?.clinicalFlags ?? [] })}
           </div>
         </div>
         <span class="badge badge--ok">已記 ${recorded.length} 筆</span>
@@ -904,7 +892,6 @@ function recordPanel(row) {
         ? `<p class="muted dim" style="margin: var(--space-2) 0 0">排在這裡的理由：${
             esc(strongestReason(row).label)}</p>`
         : ''}
-      ${blockedNote(row)}
     </section>
 
     <section class="card">
@@ -935,17 +922,6 @@ function recordPanel(row) {
     </section>`;
 }
 
-function blockedNote(row) {
-  const blocked = annotateOptions({ flags: row.flags ?? [] }, ctx.all.equipment).filter((e) => e.blocked);
-  if (!blocked.length) return '';
-  return `
-    <div class="warn warn--hard">
-      ${icon('alert', { size: 18 })}
-      <span>${blocked.map((e) => `${esc(e.name)}不可使用`).join('、')} ——
-        ${esc([...new Set(blocked.flatMap((e) => e.reasons))].join('、'))}禁忌。
-        這是唯一會直接鎖住選項的檢查。</span>
-    </div>`;
-}
 
 // ---------- 小日曆 ----------
 
@@ -978,7 +954,7 @@ function halfBlocked(row, iso) {
  * - 「我休假」是她自己記的行事備註，她隨時可以改主意（ADR-0002：
  *   app 記錄決定，不做決定）。
  *
- * 這一頁**唯一會鎖住選項的是醫療禁忌**（SPEC 第 4.7 節，`blockedNote()`）。
+ * 這一頁**沒有任何一種東西會鎖住選項**（ADR-0074 之後連醫療禁忌都不擋了）。
  * 時段丸子那一段早就是這樣寫的了，只是整天那一格漏掉了。
  *
  * **只擋半天的日子是第四種，而且它點得下去。** 那天真的排得進去，只是要挑另外
@@ -1181,8 +1157,9 @@ function addNote(sameDay, closed) {
  * 小日曆上已經用顏色標出來了，這裡還要再講一次 —— 她點進來是要挑時間的，
  * 而時間丸子就在這幾句話底下。在挑時間的那一刻不講，等於沒講。
  *
- * 三種都用 `.warn` 不用 `.warn--hard`：硬的那一種在這一頁只有醫療禁忌用得起
- * （見 `blockedNote()`），這幾條是提醒，不擋。
+ * 三種都用 `.warn` 不用 `.warn--hard`：紅的那一種留給「她剛剛選了一台要提醒的
+ * 器材」（見 `equipmentField()`），那一句是**她這一下按出來的**，
+ * 而這幾條是這一天本來就有的背景。
  */
 function dayWarnings(row) {
   const iso = view.day;
@@ -1228,7 +1205,7 @@ function entFields(row, picked) {
   if (!picked) return '<p class="muted" style="margin: 0 0 var(--space-4)">先選上面要做什麼。</p>';
 
   const { all } = ctx;
-  const course = picked.course;
+  const course = effectiveCourse(picked);
   const half = halfBlocked(row, view.day);
 
   return `
@@ -1254,7 +1231,7 @@ function entFields(row, picked) {
       </label>
     </div>
 
-    ${course.requiresEquipment ? equipmentField(row, picked) : ''}
+    ${picksEquipment(picked.entitlement, course) ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all, picked) : ''}
     ${course.assigns === 'therapist' ? therapistField(all) : ''}
     ${course.assigns === 'room' ? roomField(all, course) : ''}
@@ -1308,8 +1285,11 @@ function nthFields(row) {
 /**
  * 這位客戶身上還排得動的課程。
  *
- * 擇一池沒有 courseId（ADR-0005），它對應的是「需要選器材的課程」，
- * 所以這裡走 coursesForEntitlement() 而不是自己判斷。
+ * 擇一池沒有 courseId，它對應的是「池裡那幾台器材各自屬於的課程」，
+ * 所以這裡走 coursesForEntitlement() 而不是自己判斷（ADR-0075）。
+ *
+ * 四選一會推出兩個課程（復能與 ILIB），這裡取第一個當**還沒選器材時**的預設 ——
+ * 她一挑器材就由 `effectiveCourse()` 換掉。
  */
 function courseOptions(row) {
   const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
@@ -1319,7 +1299,7 @@ function courseOptions(row) {
     if (pool.remaining <= 0) continue;
     const ent = ents.find((e) => e.id === pool.entitlementId);
     if (!ent) continue;
-    const course = coursesForEntitlement(ent, ctx.all.courses)[0] ?? null;
+    const course = coursesForEntitlement(ent, ctx.all.courses, ctx.all.equipment)[0] ?? null;
     if (!course) continue;
     out.push({
       entitlementId: pool.entitlementId,
@@ -1387,25 +1367,64 @@ function nthCourseId(row, exams) {
   return exam ? courseIdForNth(exam, ents, coursesById) : null;
 }
 
+/**
+ * 器材那一排。**沒有一顆是關著的**（ADR-0074）—— 她在診間裡看得到儀器擺在哪，
+ * app 看不到。要提醒的那幾台照樣點得下去，點下去才講一句。
+ */
 function equipmentField(row, picked) {
-  const ids = picked.entitlement?.optionEquipmentIds ?? [];
-  const pool = ids.length
-    ? ids.map((id) => ctx.all.equipment.find((e) => e.id === id)).filter(Boolean)
-    : ctx.all.equipment;
-  const annotated = annotateOptions({ flags: row.flags ?? [] }, pool);
+  const options = equipmentOptionsFor(picked);
 
   return `
     <div class="fieldgroup">
       <span class="fieldgroup__label">器材　擇一</span>
       <div class="chips">
-        ${annotated.map((e) => `
+        ${options.map((e) => `
           <button class="chip" type="button"
-                  aria-pressed="${e.id === view.equipmentId && !e.blocked}"
-                  ${e.blocked ? 'disabled aria-disabled="true"' : ''}
-                  data-equipment="${esc(e.id)}"
-                  title="${esc(e.blocked ? `${e.reasons.join('、')}禁忌` : '')}">${esc(e.name)}</button>`).join('')}
+                  aria-pressed="${e.id === view.equipmentId}"
+                  data-equipment="${esc(e.id)}">${esc(e.name)}</button>`).join('')}
       </div>
+      <div data-eqnotice>${equipmentNoticeHtml(row, options)}</div>
     </div>`;
+}
+
+/** 這一段可以選哪幾台。額度沒有指定就是全部。 */
+/**
+ * 這一段**現在**算哪一個課程。
+ *
+ * 擇一池選了哪一台器材，課程就跟著換（ADR-0075）：四選一選到 ILIB 那一段要
+ * 診間、其餘三台要治療師。推不出來就是還沒挑器材，維持 `courseOptions()`
+ * 給的那一個預設。
+ *
+ * **畫欄位與組時段都走這一支。** 兩邊各自判斷的話，會出現「畫面上要她選
+ * 治療師、存進去的卻是一段要診間的 ILIB」。
+ */
+function effectiveCourse(picked) {
+  if (!picked?.course) return null;
+  if (picked.entitlement?.type !== 'pool') return picked.course;
+  const id = courseForEquipment(view.equipmentId, ctx.all.equipment, picked.course.id);
+  return ctx.all.courses.find((c) => c.id === id) ?? picked.course;
+}
+
+function equipmentOptionsFor(picked) {
+  const ids = picked?.entitlement?.optionEquipmentIds ?? [];
+  return ids.length
+    ? ids.map((id) => ctx.all.equipment.find((e) => e.id === id)).filter(Boolean)
+    : ctx.all.equipment;
+}
+
+/**
+ * 她剛剛選的那一台要不要提醒。**沒選、或那一台沒事就整塊不畫** ——
+ * 一個永遠在那裡的紅框，第三天她就不會再看它了。
+ *
+ * 整塊由 `ui/components/flags.js` 的 `noticeBlock()` 畫 —— 來訪編輯器那一邊
+ * 要講的是同一句話，兩份寫法遲早有一邊漏掉新加的器材。
+ */
+function equipmentNoticeHtml(row, options) {
+  return flagsUi.noticeBlock({
+    customer: { flags: row.flags ?? [] },
+    equipment: options.find((e) => e.id === view.equipmentId) ?? null,
+    options,
+  });
 }
 
 /**
@@ -1699,8 +1718,44 @@ function refreshNth() {
 
 /** 選一顆丸子：只改按下去的樣子。再點一次同一顆就取消。 */
 function pickOne(attr, key, value) {
+  // 換器材前先記住這一段現在算哪一個課程 —— 四選一換到 ILIB 時它會變，
+  // 而「變了沒」決定要重畫整塊還是只換一句話。
+  const row = attr === 'equipment' ? selectedRow() : null;
+  const picked = row
+    ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null)
+    : null;
+  const before = picked ? (effectiveCourse(picked)?.id ?? null) : null;
+
   view[key] = view[key] === value ? null : value;
   press(`[data-${attr}]`, attr, view[key]);
+
+  if (picked) afterEquipmentPick(row, picked, before);
+}
+
+/**
+ * 換了器材之後要跟著換的東西。
+ *
+ * 兩種情況，代價差很多：
+ *
+ * - **課程也跟著換了**（四選一從 SIS 換到 ILIB）→ 治療師那一排要變成診間那一排，
+ *   所以整塊欄位重畫。跟 `pickCourse()` 走同一條路。
+ * - **課程沒變**（三選一裡換一台）→ 只換那一句提醒。整塊重畫會閃一下，
+ *   而她一位客戶要點五六下（ADR-0038）。
+ */
+function afterEquipmentPick(row, picked, beforeCourseId) {
+  const fields = deckEl()?.querySelector('[data-entfields]');
+  if (!fields) return;
+
+  if ((effectiveCourse(picked)?.id ?? null) !== beforeCourseId) {
+    // 課程換了 → 跟著課程走的那幾格（治療師、診間、醫師）全部重挑。
+    // 留著舊的話，一段 ILIB 會帶著上一台復能挑的治療師存進去。
+    Object.assign(view, { therapistId: null, roomKey: null, doctorId: null });
+    fields.innerHTML = entFields(row, picked);
+    return;
+  }
+
+  const host = deckEl()?.querySelector('[data-eqnotice]');
+  if (host) host.innerHTML = equipmentNoticeHtml(row, equipmentOptionsFor(picked));
 }
 
 function press(selector, attr, value) {
@@ -1822,7 +1877,9 @@ async function addSlot() {
     return showErrors(['先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印']);
   }
 
-  const course = picked.course;
+  // **存下去的課程也要走 effectiveCourse()**（ADR-0075）—— 只在畫欄位那一邊
+  // 推導的話，畫面上要她選診間、存進去的卻是一段要治療師的復能。
+  const course = effectiveCourse(picked);
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
 
   // n返 的三樣東西（沒有額度、返數、哪一次健檢）由 `nthSlotFields()` 給 ——
@@ -1845,7 +1902,7 @@ async function addSlot() {
     entitlementId: picked.entitlementId,
     courseId: course.id,
     courseName: course.name,
-    equipmentId: course.requiresEquipment ? (view.equipmentId ?? null) : null,
+    equipmentId: picksEquipment(picked.entitlement, course) ? (view.equipmentId ?? null) : null,
     ivProductId: course.requiresIvProduct ? (view.equipmentId ?? null) : null,
     startsAt: view.startsAt,
     endsAt: endOf(view.startsAt, picked.durationMin),

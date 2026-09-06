@@ -251,8 +251,9 @@ export function scenarioProducts({ giveDate = addDays(TODAY, 2) } = {}) {
 }
 
 /**
- * 醫療禁忌：客戶D 體內有金屬，所以超磁場與高能量雷射要被硬性鎖死，
- * 三選一的擇一池只剩 INDIBA。
+ * 器材提醒：客戶D 體內有金屬，所以超磁場與高能量雷射選下去會跳一句提醒，
+ * 而且建議改用 INDIBA。**三台都選得下去**（ADR-0074：2026-09-06 之後
+ * 這個 app 沒有任何硬性阻擋）。
  */
 export function scenarioContraindication() {
   return [

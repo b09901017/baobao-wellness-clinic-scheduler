@@ -182,14 +182,16 @@ describe('那天已經有來訪', () => {
   });
 });
 
-describe('醫療禁忌是唯一的硬性阻擋', () => {
-  test('擇一池的器材被禁忌全部鎖住就排除', () => {
+describe('器材上的提醒不再排除任何人（ADR-0074）', () => {
+  test('池裡每一台都要提醒，這個人照樣是候選人', () => {
+    // 2026-09-06 之前這一條反過來：全部被禁忌鎖死 → 整個人被排除。
+    // 她那天說「只要儀器不要在金屬的上方或附近」就做得了 —— 而那件事 app 看不到。
     const { candidates, excluded } = run({
       customer: customer({ flags: ['體內金屬'] }),
       entitlements: [ent({ optionEquipmentIds: ['eq-sis'] })],
     });
-    assert.equal(candidates.length, 0);
-    assert.match(excluded[0].why, /醫療禁忌/);
+    assert.equal(candidates.length, 1);
+    assert.equal(excluded.length, 0);
   });
 
   test('還有一種器材能用就照樣是候選人', () => {

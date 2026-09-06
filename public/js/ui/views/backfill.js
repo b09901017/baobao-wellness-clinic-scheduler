@@ -211,12 +211,13 @@ function candidateCard(row, slot, ctx) {
       <div class="row__title">
         ${esc(row.customerName)}
         ${row.priority ? `<span class="badge badge--ok">★ ${row.priority}</span>` : ''}
-        ${/* 永久限制三層各自的畫法（ADR-0064），跟客戶詳情與壓表的記錄面板
-             共用同一支。以前這裡把三層全部畫成紅字，於是「固定禮拜五不行」
-             跟醫療禁忌看起來一樣重。 */''}
-        ${flagsUi.detailChips(splitFlags(
-          { flags: row.flags ?? [] }, ctx?.all?.equipment ?? [], ctx?.all?.clinicalFlags ?? [],
-        ))}
+        ${/* 永久限制兩層各自的畫法（ADR-0074），跟客戶詳情與壓表的記錄面板
+             共用同一支。以前這裡把全部畫成紅字，於是「固定禮拜五不行」
+             跟「體內金屬」看起來一樣重。 */''}
+        ${flagsUi.detailChips(
+          splitFlags({ flags: row.flags ?? [] }, ctx?.all?.clinicalFlags ?? []),
+          { rows: ctx?.all?.clinicalFlags ?? [] },
+        )}
       </div>
 
       <p class="muted">

@@ -10,6 +10,10 @@ import {
   copyPlan,
 } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import {
+  ALERT_COLORS, ALERT_FILLS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_FILL,
+  colorTokens, lookOf, styleFor,
+} from '../../domain/clinicalFlags.js';
 import { isFollowupCourse } from '../../domain/followups.js';
 import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
@@ -19,6 +23,51 @@ import { icon } from '../icons.js';
 import { pushScreen } from '../nav.js';
 
 const esc = f.esc;
+
+/**
+ * 一顆警示丸子長什麼樣。**跟真的畫在卡片牆上的那一顆共用同一組 class 與變數**
+ * （`ui/components/flags.js` 的 `chipHtml()`）—— 預覽跟真的長得不一樣的話，
+ * 這一頁就沒有存在的理由。
+ */
+function alertPreview(row, text) {
+  const look = lookOf(row);
+  return `<span class="flag flag--alert flag--${esc(look.fill)}"
+                style="${esc(styleFor(look))}">${esc(text ?? '')}</span>`;
+}
+
+/**
+ * 顏色與填法那兩排，外加一顆即時的預覽。
+ *
+ * 顏色用 `.swatch`（跟客戶備註的挑色器同一組 class）而不是一排寫著「紅」「藍」
+ * 的丸子：這一格挑的就是顏色本身，用文字說它是什麼顏色是多繞一圈。
+ * 填法用一般的丸子 —— 那兩個沒有顏色可以看。
+ */
+function alertLookFields(r) {
+  const look = lookOf(r);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">壓表時長這樣</span>
+      <div data-alertpreview style="margin-bottom: var(--space-2)">
+        ${alertPreview(r, r.name || '警示')}</div>
+
+      <div class="swatches" role="group" aria-label="顏色">
+        ${ALERT_COLORS.map((c) => `
+          <button class="swatch ${look.fill === 'outline' ? 'swatch--auto' : ''}" type="button"
+                  data-colour="${esc(c.id)}" aria-label="${esc(c.label)}"
+                  aria-pressed="${c.id === look.color}"
+                  style="--mark: var(${colorTokens(c.id).fg})"></button>`).join('')}
+      </div>
+      <input type="hidden" name="color" value="${esc(look.color)}" />
+    </div>
+
+    ${f.chips({
+      name: 'fill',
+      label: '填法',
+      value: look.fill,
+      options: ALERT_FILLS.map((x) => ({ value: x.id, label: x.label })),
+      hint: '實心最搶眼，一位客戶身上最好只有一兩個。',
+    })}`;
+}
 
 const editors = {
   rooms: {
@@ -51,39 +100,90 @@ const editors = {
   },
 
   equipment: {
-    blank: { name: '', contraindications: [] },
-    summary: (r) =>
-      r.contraindications?.length
-        ? `⚠ 禁忌：${r.contraindications.join('、')}`
-        : '無禁忌',
-    fields: (r) => [
+    lead: '每一台記著「用這台的那一段算哪一個課程」—— 復能四選一是一筆額度、'
+      + '四台器材，而 ILIB 那一台要的是診間、其餘三台要的是物理治療師。',
+    blank: { name: '', contraindications: [], courseId: null },
+    summary: (r, all) => [
+      (all?.courses ?? []).find((c) => c.id === r.courseId)?.name ?? '還沒指到課程',
+      r.contraindications?.length ? `⚠ 要提醒：${r.contraindications.join('、')}` : null,
+    ].filter(Boolean).join(' · '),
+    fields: (r, all) => [
       f.text({ name: 'name', label: '器材名稱', value: r.name, placeholder: 'INDIBA' }),
+      // 用這台的那一段算哪一個課程（ADR-0075）。指派治療師還是診間、要不要
+      // 簽療程單、長出哪些掛號待辦，全部跟著那個課程走。
+      f.chips({
+        name: 'courseId', label: '用這台算哪一個課程', value: r.courseId ?? null,
+        options: [
+          { value: null, label: '還沒決定' },
+          ...(all?.courses ?? []).filter((c) => !c.deletedAt)
+            .map((c) => ({ value: c.id, label: c.name })),
+        ],
+        hint: '復能三台選這個課程；ILIB 選 ILIB。留空的話，擇一池會退回舊的推導方式。',
+      }),
       f.text({
-        name: 'contraindications', label: '醫療禁忌',
+        name: 'contraindications', label: '要特別提醒的狀況',
         value: (r.contraindications ?? []).join('、'), placeholder: '體內金屬',
-        hint: '用頓號分隔。客戶身上有同名的永久限制時，這個器材會被硬性擋掉，不是警告。',
+        hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
+          + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
     ],
-    parse: (v) => ({ name: v.name.trim(), contraindications: f.parseList(v.contraindications) }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      courseId: v.courseId || null,
+      contraindications: f.parseList(v.contraindications),
+    }),
+    wireForm: ({ form }) => f.wireChips(form),
   },
 
-  // 臨床提醒（ADR-0064）。永久限制底下的第二層：什麼都不擋，但壓表那一刻
-  // 要一眼看得到。跟器材的醫療禁忌**刻意分成兩份主檔** —— 混在一起的話，
-  // 「禁忌」清單裡會出現不擋任何東西的字，而下一個讀那段程式的人會以為它可信。
+  // 警示（ADR-0074）。永久限制只剩兩層，這是上面那一層：什麼都不擋，
+  // 但壓表那一刻要一眼看得到。跟器材上那一欄**刻意分成兩份主檔** ——
+  // 器材那一欄回答的是「選了這一台要不要提醒」，這一份回答的是
+  // 「這位客戶身上要畫哪幾顆丸子」，兩者的名單不必一樣（「怕痛」跟器材無關）。
   clinicalFlags: {
     lead: '這裡加的字會出現在客戶的永久限制上，壓表的卡片牆會跟著名字畫出來。'
-      + '它不會擋掉任何器材 —— 會擋的那一種是器材上的「醫療禁忌」。',
-    blank: { name: '', hint: '' },
+      + '它不會擋掉任何東西 —— 只是要在你壓表的那一刻一眼看得到。',
+    // 卡片上就畫出它真正的樣子。一份清單如果只印名字，
+    // 她要點進去才知道自己上次挑了什麼顏色。
+    badge: (r) => alertPreview(r, r.name),
+    blank: { name: '', hint: '', color: DEFAULT_ALERT_COLOR, fill: DEFAULT_ALERT_FILL },
     summary: (r) => r.hint || '壓表時會跟著名字出現',
     fields: (r) => [
-      f.text({ name: 'name', label: '提醒名稱', value: r.name, placeholder: '血管難打' }),
+      f.text({ name: 'name', label: '警示名稱', value: r.name, placeholder: '血管難打' }),
       f.text({
         name: 'hint', label: '一句說明', value: r.hint ?? '',
         placeholder: '點滴與抽血要多留時間，先問慣用手',
         hint: '選填。只出現在客戶的永久限制編輯畫面上，不會出現在壓表的卡片牆。',
       }),
+      alertLookFields(r),
     ],
-    parse: (v) => ({ name: v.name.trim(), hint: v.hint.trim() || null }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      hint: v.hint.trim() || null,
+      color: v.color || DEFAULT_ALERT_COLOR,
+      fill: v.fill || DEFAULT_ALERT_FILL,
+    }),
+    // **不重畫整張表。** 挑一次顏色重畫一次的話，她打到一半的說明會失去游標
+    // 與輸入法的組字狀態（同 ADR-0038）。所以預覽是就地換的。
+    wireForm: ({ form }) => {
+      f.wireChips(form);
+      const sync = () => {
+        const v = f.readForm(form);
+        const host = form.querySelector('[data-alertpreview]');
+        if (host) host.innerHTML = alertPreview(v, v.name || '警示');
+      };
+      form.addEventListener('click', (e) => {
+        const swatch = e.target.closest('[data-colour]');
+        if (swatch) {
+          form.elements.color.value = swatch.dataset.colour;
+          form.querySelectorAll('[data-colour]').forEach((b) =>
+            b.setAttribute('aria-pressed', String(b === swatch)));
+        }
+        if (swatch || e.target.closest('[data-chip="fill"]')) sync();
+      });
+      form.addEventListener('input', (e) => {
+        if (e.target.name === 'name') sync();
+      });
+    },
   },
 
   ivProducts: {
@@ -109,6 +209,7 @@ const editors = {
       needsRecord: false,
       frequencyRule: null,
       followupCourseId: null,
+      durationChoices: [],
     },
     // 「要寫紀錄」印在摘要上是 2026-09-04 加的：她簽完療程單沒有長出那一張，
     // 而原因是這個勾沒打開 —— 一整排課程掃過去看不出哪幾個開著，
@@ -121,6 +222,14 @@ const editors = {
       // step 是 1 不是 5：`positiveInt()` 只要求大於 0 的整數，欄位不可以比它嚴
       // —— `min:1 step:5` 的合法值是 1、6、11…… 30 存不下去（見 form.js 的 number()）。
       f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 1 }),
+      // 加購時給不給她挑時長。復能與 ILIB 各有 30 與 60 分鐘兩種規格，
+      // 而寫死那兩個課程名字是這個 repo 付過帳的作法（`domain/followups.js` 的檔頭）。
+      f.text({
+        name: 'durationChoices', label: '可選時長（分鐘）',
+        value: (r.durationChoices ?? []).join('、'), placeholder: '30、60',
+        hint: '用頓號分隔。填了之後加購那一頁會多一排丸子，名字也會帶著它'
+          + '（「超磁場(60)」）。留空就是只有上面那一個時長。',
+      }),
       f.select({
         name: 'category', label: '任務類別', value: r.category ?? null,
         options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
@@ -130,7 +239,8 @@ const editors = {
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
         options: ASSIGNS.map((a) => ({ value: a, label: ASSIGN_LABELS[a] })),
-        hint: '復能三器材選治療師；其餘含靜脈選診間；心臟科評估都不用。',
+        hint: '復能三器材選治療師；其餘含 ILIB 選診間；心臟科評估都不用。'
+          + '擇一池的那一段會改看「這一段選了哪一台器材」屬於哪個課程（ADR-0075）。',
       }),
       f.checkboxes({
         name: 'allowedRoomTypes', label: '可用的診間類型',
@@ -200,6 +310,10 @@ const editors = {
     parse: (v, prev) => ({
       name: v.name.trim(),
       durationMin: v.durationMin,
+      // 「30、60」→ [30, 60]。認不出數字的那幾格直接丟掉 ——
+      // 存一個 NaN 進去，加購那一排會冒出一顆按不下去的丸子。
+      durationChoices: f.parseList(v.durationChoices)
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0),
       category: v.category,
       assigns: v.assigns,
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
@@ -477,10 +591,12 @@ function paintList(el, type, all) {
       <section class="card row">
         <div class="row__main">
           <div class="row__title">
-            ${esc(r.name)}
+            ${/* 有 badge 的那幾種在清單上就畫出它真正的樣子（目前只有警示）——
+                 一份只印名字的清單，她要點進去才知道上次挑了什麼顏色。 */''}
+            ${ed.badge ? ed.badge(r) : esc(r.name)}
             ${r.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
           </div>
-          <div class="muted">${esc(ed.summary(r))}</div>
+          <div class="muted">${esc(ed.summary(r, all))}</div>
           ${ed.note ? ed.note(r, all) : ''}
         </div>
         <div class="row__actions">
