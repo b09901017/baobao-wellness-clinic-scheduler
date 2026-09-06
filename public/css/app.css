@@ -5525,6 +5525,46 @@ summary {
   color: var(--text-dim);
 }
 
+/* 微調面板上那一列被改成 0 —— 她按下去之後那一項不會被建立。
+   不是把它從清單上拿掉：拿掉的話她按錯了就找不回來，而 [＋] 就在原地。 */
+.roster__row--off .roster__name,
+.roster__row--off .roster__note {
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
+/* 一列一個 [−] N [＋]。跟 .qty 的差別是它要塞得進一列裡，
+   所以數字那一格窄得多，而兩顆鈕撐到 44px 的觸控區靠 padding 不靠尺寸。 */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.stepper__b {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.stepper__b:active {
+  background: var(--surface-2);
+}
+.stepper__n {
+  width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .roster__warn {
   display: inline-flex;
   align-items: flex-start;

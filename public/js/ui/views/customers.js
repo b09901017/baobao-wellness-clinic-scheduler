@@ -24,7 +24,7 @@ import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
 import * as buy from '../components/buy.js';
-import { openSheet, closeSheet } from '../components/sheet.js';
+import { openBuySheet } from '../components/buySheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back as goBack } from '../nav.js';
@@ -624,71 +624,6 @@ function extrasHtml(extras) {
         </ul>` : '<p class="muted" style="margin: 0 0 var(--space-2)">還沒加購。</p>'}
       <button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>
     </div>`;
-}
-
-/**
- * 加一項的那一張面板。
- *
- * 內容就是 `components/buy.js` 那一張表，所以健檢的「幾萬的」、營養點滴的
- * 「哪一種」、營養品的「幾份」在這裡與客戶詳情長得一模一樣。
- *
- * 沒有「進階設定」：她在建立一位新客戶的時候要的是「再給他三次健檢」，
- * 那七個欄位一年動不到一次，建好之後進詳情頁調（同 `views/customersBulk.js`
- * 的微調面板）。所以這裡沒有顯示名稱那一格 —— 名字一律自動帶。
- */
-function openBuySheet(master, onAdd) {
-  let item = buy.blank();
-  let sheet = null;
-
-  const html = () => `
-    <div class="errors" data-errors hidden></div>
-    <form data-buyform>${buy.fields(item, master)}</form>`;
-
-  sheet = openSheet({
-    title: '加購',
-    note: '方案之外多買的。加完可以再加一項。',
-    body: html(),
-    actions: `
-      <button class="btn" type="button" data-sheet-close>取消</button>
-      <button class="btn btn--primary" type="button" data-addbuy>加進來</button>`,
-    // `update()` 會再呼叫一次 onMount，而監聽掛的是 drawer（它不會被換掉）——
-    // 沒有這道旗標，重畫一次就多一組監聽，按「加進來」會一次加兩筆。
-    onMount: (drawer) => {
-      if (drawer.dataset.buyWired) return;
-      drawer.dataset.buyWired = '1';
-      f.wireChips(drawer);
-
-      const formOf = () => drawer.querySelector('[data-buyform]');
-
-      // 換丸子、`+1`、在「自己打」那一格打字，四種動作走同一份接線
-      // （`components/buy.js`）—— 這裡只回答「哪一塊要重畫」。
-      buy.wire(drawer, {
-        form: formOf,
-        draft: () => item,
-        master,
-        onChange: (next, { repaint }) => {
-          item = next;
-          if (repaint) sheet.update(html());
-        },
-      });
-
-      drawer.addEventListener('click', async (ev) => {
-        if (!ev.target.closest('[data-addbuy]')) return;
-        const form = formOf();
-        if (!form) return;
-
-        // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
-        const next = await buy.commitNewProduct(
-          { ...item, ...buy.values(form, master) }, master, (row) => config.create('products', row),
-        );
-        const errors = buy.validate(next, master);
-        f.showErrors(drawer, errors);
-        if (errors.length) return;
-        onAdd(next);
-        closeSheet();
-      });
-    },
-  });
 }
 
 function priorityOptions() {

@@ -117,7 +117,15 @@ service cloud.firestore {
         && (!d.keys().hasAny(['amountTwd'])
             || d.amountTwd == null
             || (d.amountTwd is int && d.amountTwd > 0))
-        && (!d.keys().hasAny(['deliveries']) || d.deliveries == null || d.deliveries is list);
+        && (!d.keys().hasAny(['deliveries']) || d.deliveries == null || d.deliveries is list)
+        // 一次購買的 id 與「方案本來寫幾次」。兩個都是選填 —— 2026-09-06
+        // 之前建的那幾筆身上沒有，而「買過什麼」那一頁對它們有退路。
+        && (!d.keys().hasAny(['purchaseId'])
+            || d.purchaseId == null
+            || d.purchaseId is string)
+        && (!d.keys().hasAny(['sourcePlanQty'])
+            || d.sourcePlanQty == null
+            || (d.sourcePlanQty is int && d.sourcePlanQty > 0));
     }
 
     match /customers/{customerId} {
