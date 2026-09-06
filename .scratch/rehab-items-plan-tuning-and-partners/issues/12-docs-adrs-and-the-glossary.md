@@ -1,6 +1,6 @@
 # 文件收尾：SPEC、CONTEXT、ADR、對照表、手冊
 
-Status: 待確認
+Status: 已完成
 Blocked by: 01, 03, 05, 07, 08, 13, 14, 15
 
 ## 三支新 ADR

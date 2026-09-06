@@ -17,13 +17,19 @@
 // **整份的前幾行**（`PREVIEW_LINES`）。行數比時機好懂：她看得到自己寫的
 // 第幾行會出現在卡片上，而時機要她先在腦袋裡跑一次判斷。見 ADR-0069。
 //
+// ## 它也認得合作機構
+//
+// 掛了「自然美」的那一份，會在**掛著自然美標記的客戶**身上浮出來（ADR-0076）。
+// 它仍然不綁某一位客戶 —— 綁的是一家機構（跟課程一樣是主檔上的東西），
+// 差別只有它是**透過客戶**浮出來的，所以這兩支都多收一個 `customer`。
+//
 // ## 為什麼共用一支而不是各寫一份
 //
 // 這個專案已經為了「兩份寫法」付過兩次帳：`buy.js` 的「其他…」那一格漏了
 // 兩次、`note.js` 的 `.notemeta` 有兩個入口裸放。第三個入口以後接上去只要一行。
 
 import { esc } from './form.js';
-import { playbooksForVisit, previewOf } from '../../domain/playbook.js';
+import { playbooksFor, previewOf } from '../../domain/playbook.js';
 
 /**
  * 這一筆來訪掛到的那幾份，各印前幾行。
@@ -34,10 +40,11 @@ import { playbooksForVisit, previewOf } from '../../domain/playbook.js';
  * @param {object} o
  * @param {object[]} o.playbooks 全部的備忘錄
  * @param {object} o.visit 那一筆來訪（要有 slots）
+ * @param {object} [o.customer] 這位客戶。掛合作機構的那幾份要靠它（ADR-0076）
  * @returns {string} HTML
  */
-export function hintHtml({ playbooks = [], visit = null }) {
-  return playbooksForVisit(playbooks, visit).map(blockHtml).filter(Boolean).join('');
+export function hintHtml({ playbooks = [], visit = null, customer = null }) {
+  return playbooksFor({ playbooks, visit, customer }).map(blockHtml).filter(Boolean).join('');
 }
 
 /**
@@ -47,13 +54,14 @@ export function hintHtml({ playbooks = [], visit = null }) {
  * @param {object} o
  * @param {object[]} o.playbooks
  * @param {object[]} o.visits 這一組的那幾筆
+ * @param {object} [o.customer] 這位客戶（ADR-0076）
  */
-export function hintForVisits({ playbooks = [], visits = [] }) {
+export function hintForVisits({ playbooks = [], visits = [], customer = null }) {
   const seen = new Set();
   const out = [];
 
   for (const visit of visits ?? []) {
-    for (const p of playbooksForVisit(playbooks, visit)) {
+    for (const p of playbooksFor({ playbooks, visit, customer })) {
       if (seen.has(p.id)) continue;
       seen.add(p.id);
       const html = blockHtml(p);

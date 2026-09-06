@@ -67,9 +67,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十一項檢查都在，順序固定', () => {
+  test('十三項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 11);
+    assert.equal(result.checks.length, 13);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -780,5 +780,105 @@ describe('畫面認得每一種修正', () => {
         `FIX_COPY 有 ${key}，但 CHECKS 裡沒有這一項`,
       );
     }
+  });
+});
+
+
+// ---------- 十二、復能額度還叫舊名字（issue 09）----------
+//
+// `04` 之後新買的叫「復能三選一(60)」，而既有客戶身上那一筆叫「復能」。
+// 額度的名字是購買當下的快照（ADR-0003），它不會自己跟上。
+describe('復能額度還叫舊名字', () => {
+  const EQUIPMENT = [
+    { id: 'eq-laser', name: '高能量雷射', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: '超磁場', courseId: 'c-recovery' },
+    { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
+  ];
+  const COURSES = [{ id: 'c-recovery', name: '復能', requiresEquipment: true, durationMin: 60 }];
+  const pool = (over = {}) => ent({
+    id: 'e-pool', type: 'pool', label: '復能', durationMin: 60,
+    optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], ...over,
+  });
+  const go = (entitlements) => run({
+    entitlements,
+    master: { equipment: EQUIPMENT, courses: COURSES },
+  }).checks.find((c) => c.id === 'poolLabel').findings;
+
+  test('叫「復能」的那幾筆列出來，而且講得出要改成什麼', () => {
+    const [f] = go([pool()]);
+    assert.match(f.detail, /復能三選一\(60\)/);
+    assert.equal(f.fix.kind, 'renamePool');
+    assert.equal(f.fix.to, '復能三選一(60)');
+    assert.equal(f.fix.entitlementId, 'e-pool');
+  });
+
+  test('已經是新名字的不列 —— 不要每次掃都出現一次', () => {
+    assert.deepEqual(go([pool({ label: '復能三選一(60)' })]), []);
+  });
+
+  test('中間那個形狀（算得出名字但沒有時長）也認得出來', () => {
+    assert.equal(go([pool({ label: '復能三選一' })]).length, 1);
+  });
+
+  test('她自己打的名字不動 —— 那不可以被一顆按鈕改掉', () => {
+    assert.deepEqual(go([pool({ label: '客戶A談的那五次' })]), []);
+  });
+
+  test('單台的池照樣認得出來，改成器材名', () => {
+    const [f] = go([pool({ label: '復能', optionEquipmentIds: ['eq-sis'] })]);
+    assert.equal(f.fix.to, '超磁場(60)');
+  });
+
+  test('器材全被刪了就不猜一個名字出來', () => {
+    assert.deepEqual(go([pool({ optionEquipmentIds: ['eq-gone'] })]), []);
+  });
+
+  test('single 型態不進這一項', () => {
+    assert.deepEqual(go([ent({ id: 'e1', type: 'single', label: '健檢' })]), []);
+  });
+});
+
+// ---------- 十三、器材上的提醒詞不在警示名單裡（issue 09）----------
+describe('器材上的提醒詞不在警示名單裡', () => {
+  const go = (equipment, clinicalFlags) => run({
+    master: { equipment, clinicalFlags },
+  }).checks.find((c) => c.id === 'alertTerm').findings;
+
+  test('器材上有、警示主檔沒有的那幾個字列出來', () => {
+    const [f] = go([{ id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] }], []);
+    assert.equal(f.title, '體內金屬');
+    assert.equal(f.fix.kind, 'addAlert');
+    assert.equal(f.fix.data.name, '體內金屬');
+    assert.equal(f.fix.data.fill, 'solid', '這幾個字本來就是最該看到的那一種');
+  });
+
+  test('兩邊都有的不列', () => {
+    assert.deepEqual(
+      go([{ id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] }],
+        [{ id: 'cf', name: '體內金屬' }]),
+      [],
+    );
+  });
+
+  test('停用的警示不算數 —— 它畫不出來', () => {
+    assert.equal(
+      go([{ id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] }],
+        [{ id: 'cf', name: '體內金屬', active: false }]).length,
+      1,
+    );
+  });
+
+  test('同一個字在兩台器材上只列一次', () => {
+    assert.equal(
+      go([
+        { id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] },
+        { id: 'eq-laser', name: '高能量雷射', contraindications: ['體內金屬'] },
+      ], []).length,
+      1,
+    );
+  });
+
+  test('沒有器材就一項都不報', () => {
+    assert.deepEqual(go([], []), []);
   });
 });

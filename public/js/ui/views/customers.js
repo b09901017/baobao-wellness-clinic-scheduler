@@ -16,7 +16,7 @@ import * as rules from '../../domain/customers.js';
 import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
-import { clinicalTerms } from '../../domain/masterData.js';
+import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
 import { todayISO, addDays, shortDate } from '../../domain/dates.js';
@@ -24,7 +24,7 @@ import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
 import * as buy from '../components/buy.js';
-import { openSheet, closeSheet } from '../components/sheet.js';
+import { openBuySheet } from '../components/buySheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back as goBack } from '../nav.js';
@@ -311,6 +311,7 @@ function card(c, ctx) {
             ${esc(c.name)}
             ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
             ${flagsUi.detailChips(flags, { others: false, rows: ctx.clinicalFlags })}
+            ${flagsUi.partnerChips(rules.partnersOf(c))}
             ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
           <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
@@ -385,14 +386,17 @@ export async function renderNew(el) {
   let courses;
   let ivProducts;
   let products;
+  let partners;
   try {
     // 課程／品項／營養品是底下那一段「加購」要的（同一張表，`components/buy.js`）。
     // 跟另外三份同一趟拿，不多一輪往返。
-    [plans, existing, equipment, clinicalFlags, courses, ivProducts, products] =
+    [plans, existing, equipment, clinicalFlags, courses, ivProducts, products, partners] =
       await Promise.all([
         config.listAll('plans'), data.list(), config.listAll('equipment'),
         config.listAll('clinicalFlags'),
         config.listAll('courses'), config.listAll('ivProducts'), config.listAll('products'),
+        // 合作機構（ADR-0076）
+        config.listAll('partners'),
       ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
@@ -409,6 +413,7 @@ export async function renderNew(el) {
     purchasedAt: todayISO(),
     priority: 0,
     flags: [],
+    partners: [],
     marks: [],
     planId: null,
     quantity: 1,
@@ -417,7 +422,7 @@ export async function renderNew(el) {
   };
 
   paintNew(el, draft, usable, existing, clinicalTerms(clinicalFlags), {
-    courses, equipment, ivProducts, products,
+    courses, equipment, ivProducts, products, partners: partnerNames(partners),
   });
 }
 
@@ -469,6 +474,7 @@ function paintNew(el, draft, plans, existing, alerts, master) {
           hint: '0 代表還沒評。',
         })}
         <div data-flags></div>
+        <div data-partners></div>
 
         <div class="fieldgroup">
           <span class="fieldgroup__label">備註　客戶臨時提的小事，顏色自己分</span>
@@ -516,6 +522,15 @@ function paintNew(el, draft, plans, existing, alerts, master) {
     alerts,
     onChange: (list) => {
       draft.flags = list;
+    },
+  });
+
+  // 合作機構（ADR-0076）。跟客戶詳情的編輯表單同一支。
+  flagsUi.mountPartners(el.querySelector('[data-partners]'), {
+    partners: draft.partners,
+    options: master.partners ?? [],
+    onChange: (list) => {
+      draft.partners = list;
     },
   });
 
@@ -626,71 +641,6 @@ function extrasHtml(extras) {
     </div>`;
 }
 
-/**
- * 加一項的那一張面板。
- *
- * 內容就是 `components/buy.js` 那一張表，所以健檢的「幾萬的」、營養點滴的
- * 「哪一種」、營養品的「幾份」在這裡與客戶詳情長得一模一樣。
- *
- * 沒有「進階設定」：她在建立一位新客戶的時候要的是「再給他三次健檢」，
- * 那七個欄位一年動不到一次，建好之後進詳情頁調（同 `views/customersBulk.js`
- * 的微調面板）。所以這裡沒有顯示名稱那一格 —— 名字一律自動帶。
- */
-function openBuySheet(master, onAdd) {
-  let item = buy.blank();
-  let sheet = null;
-
-  const html = () => `
-    <div class="errors" data-errors hidden></div>
-    <form data-buyform>${buy.fields(item, master)}</form>`;
-
-  sheet = openSheet({
-    title: '加購',
-    note: '方案之外多買的。加完可以再加一項。',
-    body: html(),
-    actions: `
-      <button class="btn" type="button" data-sheet-close>取消</button>
-      <button class="btn btn--primary" type="button" data-addbuy>加進來</button>`,
-    // `update()` 會再呼叫一次 onMount，而監聽掛的是 drawer（它不會被換掉）——
-    // 沒有這道旗標，重畫一次就多一組監聽，按「加進來」會一次加兩筆。
-    onMount: (drawer) => {
-      if (drawer.dataset.buyWired) return;
-      drawer.dataset.buyWired = '1';
-      f.wireChips(drawer);
-
-      const formOf = () => drawer.querySelector('[data-buyform]');
-
-      // 換丸子、`+1`、在「自己打」那一格打字，四種動作走同一份接線
-      // （`components/buy.js`）—— 這裡只回答「哪一塊要重畫」。
-      buy.wire(drawer, {
-        form: formOf,
-        draft: () => item,
-        master,
-        onChange: (next, { repaint }) => {
-          item = next;
-          if (repaint) sheet.update(html());
-        },
-      });
-
-      drawer.addEventListener('click', async (ev) => {
-        if (!ev.target.closest('[data-addbuy]')) return;
-        const form = formOf();
-        if (!form) return;
-
-        // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
-        const next = await buy.commitNewProduct(
-          { ...item, ...buy.values(form, master) }, master, (row) => config.create('products', row),
-        );
-        const errors = buy.validate(next, master);
-        f.showErrors(drawer, errors);
-        if (errors.length) return;
-        onAdd(next);
-        closeSheet();
-      });
-    },
-  });
-}
-
 function priorityOptions() {
   return Array.from({ length: rules.MAX_PRIORITY + 1 }, (_, i) => ({
     value: String(i),
@@ -712,6 +662,7 @@ function draftToCustomer(d) {
     membershipExpiresAt: null,
     priority: Number(d.priority) || 0,
     flags: d.flags ?? [],
+    partners: d.partners ?? [],
     // marks 與 notes 永遠一起寫，不要有只改到一邊的路徑
     ...toCustomerFields(d.marks),
   };

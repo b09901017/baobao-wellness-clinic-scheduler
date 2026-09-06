@@ -1,6 +1,6 @@
 # 試算表註記「這一天用了哪一台」
 
-Status: 待確認
+Status: 已完成
 Blocked by: 13
 
 ## 她說的
@@ -54,13 +54,17 @@ equipmentNotes: [
 ## 順手：讓版本對不上這件事看得見
 
 CLAUDE.md 記著：對不上的話「app 照樣推、`.gs` 整包拒收，而畫面上看起來跟推好了
-一模一樣」。`data/sheetSync.js` 其實**已經把失敗記下來了**（`noteFailure()`），
-所以要確認的是**那句話有沒有浮到畫面上**：
+一模一樣」。**查過之後那句話已經過期了** —— `data/sheetSync.js` 的
+`noteFailure()` 把失敗記下來，`domain/sheetReport.js` 的 `describeSync()` 把它
+畫成紅色的一段，`#/settings/report` 上看得到。
 
-- `#/settings/report` 上要看得到上一次失敗的原因，不是只有「上次推送時間」。
-- 這一輪升版正是最可能踩到的一次（她如果忘了重貼），所以順手把這條路走通。
+所以這一段剩下的是**講出她該做什麼**：`.gs` 那句話講的是原因（「這份指令碼
+只認得 3」），而她要的是下一步。錯誤訊息裡提到版本時多一句：
 
-如果它其實已經顯示了，這一段就只剩一條 E2E 斷言。
+> 到 Google 試算表 → 擴充功能 → Apps Script，把 `sheets/readonly-report.gs`
+> 整份重新貼一次，然後重新部署。
+
+CLAUDE.md 那一列要跟著改（`12`）。
 
 ## 手動貼上那條路
 

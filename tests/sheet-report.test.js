@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   customerReport, toTSV, toCSV, READONLY_NOTICE, syncBundle, describeSync,
+  equipmentCells,
 } from '../public/js/domain/sheetReport.js';
 import { MARK_LEGEND } from '../public/js/domain/visits.js';
 
@@ -204,7 +205,7 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
     generatedAt: '2026/8/10',
   });
 
-  assert.equal(bundle.format, 3);
+  assert.equal(bundle.format, 4);
   assert.equal(bundle.sheets.length, 1);
 
   const sheet = bundle.sheets[0];
@@ -703,4 +704,117 @@ test('手動貼上那條路要跟自動推送長一樣（同一格、同一組�
   assert.equal(second[5], '8/8 二返(夏)', '對齊健檢那一欄');
   assert.equal(third[5], '9/20 三返(李)', '接在正下方，同一欄');
   assert.equal(rows.indexOf(third), rows.indexOf(second) + 1, '三返緊接在二返底下');
+});
+
+
+// 她 2026-09-06：「如果是選四選一那筆，那他一樣是扣四選一，但是我希望能像二返
+// 那些註記一樣，就是在當天的那一列下面，可以註記是 ILIB sis indiba 等等，
+// 如果是直接選 ILIB 或是直接選 sis indiba 那就扣那個，然後不用註記」。
+describe('這一天用了哪一台', () => {
+  const EQUIPMENT = [
+    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
+    { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
+    { id: 'eq-ilib', name: 'ILIB', courseId: 'c-ilib' },
+  ];
+  const four = {
+    id: 'e-four', type: 'pool', label: '復能四選一(60)', totalQty: 10,
+    optionEquipmentIds: ['eq-sis', 'eq-indiba', 'eq-ilib'],
+  };
+  const one = {
+    id: 'e-one', type: 'pool', label: '超磁場(60)', totalQty: 5,
+    optionEquipmentIds: ['eq-sis'],
+  };
+  const visit = (id, date, entitlementId, equipmentId) => ({
+    id, date, status: 'done', slots: [{ entitlementId, equipmentId }],
+  });
+  const dates = ['2026-09-01', '2026-09-08'];
+  const visits = [
+    visit('v1', '2026-09-01', 'e-four', 'eq-sis'),
+    visit('v2', '2026-09-08', 'e-four', 'eq-ilib'),
+    visit('v3', '2026-09-08', 'e-one', 'eq-sis'),
+  ];
+
+  test('得選的池才註記，寫的是別稱', () => {
+    assert.deepEqual(equipmentCells(four, visits, dates, EQUIPMENT), [
+      { dateIndex: 0, text: 'SIS' },
+      { dateIndex: 1, text: 'ILIB' },
+    ]);
+  });
+
+  test('單台的池不註記 —— 那一列的名字已經講了是哪一台', () => {
+    assert.deepEqual(equipmentCells(one, visits, dates, EQUIPMENT), []);
+  });
+
+  test('single 型態也不註記', () => {
+    const single = { id: 'e-s', type: 'single', label: '健檢', courseId: 'c-checkup' };
+    assert.deepEqual(equipmentCells(single, visits, dates, EQUIPMENT), []);
+  });
+
+  test('同一天兩段用頓號接，不要蓋掉一個', () => {
+    const two = [{
+      id: 'v9', date: '2026-09-01', status: 'done',
+      slots: [
+        { entitlementId: 'e-four', equipmentId: 'eq-sis' },
+        { entitlementId: 'e-four', equipmentId: 'eq-indiba' },
+      ],
+    }];
+    assert.deepEqual(equipmentCells(four, two, dates, EQUIPMENT), [
+      { dateIndex: 0, text: 'SIS、INDIBA' },
+    ]);
+  });
+
+  test('器材對不到主檔就不亂印一個 id', () => {
+    const gone = [visit('v1', '2026-09-01', 'e-four', 'eq-gone')];
+    assert.deepEqual(equipmentCells(four, gone, dates, EQUIPMENT), []);
+  });
+
+  test('貼上那條路：註記接在那一筆額度的正下方', () => {
+    const out = customerReport({
+      customer: { name: '客戶A' },
+      entitlements: [four, one],
+      visits,
+      equipment: EQUIPMENT,
+    });
+    const at = out.rows.findIndex((r) => r[0] === '復能四選一(60)');
+    assert.ok(at > 0);
+    // 前五欄留白，日期欄放別稱
+    assert.deepEqual(out.rows[at + 1].slice(0, 5), ['', '', '', '', '']);
+    assert.deepEqual(out.rows[at + 1].slice(5), ['SIS', 'ILIB']);
+    // 單台那一筆底下不接
+    const single = out.rows.findIndex((r) => r[0] === '超磁場(60)');
+    assert.notEqual(out.rows[single + 1]?.[5], 'SIS');
+  });
+
+  test('推送那條路：帶得出是第幾列 —— 兩筆同名的額度也分得開', () => {
+    const bundle = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [four, one] },
+      visitsBy: { c1: visits },
+      today: '2026-09-10',
+      master: { equipment: EQUIPMENT },
+    });
+    const notes = bundle.sheets[0].equipmentNotes;
+    assert.equal(notes.length, 1, '只有得選的那一筆');
+    assert.equal(notes[0].rowIndex, 0);
+    assert.equal(notes[0].label, '復能四選一(60)');
+    assert.deepEqual(notes[0].cells.map((c) => c.text), ['SIS', 'ILIB']);
+  });
+});
+
+
+describe('版本對不上要講出她該做什麼', () => {
+  test('提到版本就多一句「重新貼一次並重新部署」', () => {
+    const { tone, lines } = describeSync({
+      configured: true,
+      error: '資料格式版本是 4，這份指令碼只認得 3。請更新試算表這一側的指令碼。',
+    });
+    assert.equal(tone, 'failed');
+    assert.ok(lines.some((l) => l.includes('重新貼一次')));
+    assert.ok(lines.some((l) => l.includes('重新部署')));
+  });
+
+  test('別的失敗不講那一句 —— 那會把她帶去做一件沒有用的事', () => {
+    const { lines } = describeSync({ configured: true, error: '試算表回了 500' });
+    assert.ok(!lines.some((l) => l.includes('重新貼一次')));
+  });
 });
