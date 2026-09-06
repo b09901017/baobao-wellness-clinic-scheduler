@@ -56,7 +56,7 @@ export function staffWithRole(staff = [], role) {
  */
 export const picksDoctor = (course) => course?.category === 'A' || Boolean(course?.requiresDoctor);
 
-// 課程要指派什麼。復能三器材選治療師，其餘含靜脈選診間，心臟科評估都不用。
+// 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 
 export const ASSIGN_LABELS = {
@@ -196,12 +196,20 @@ const validators = {
     return errors;
   },
 
-  equipment(r) {
+  equipment(r, { courses = [] } = {}) {
     const errors = [];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
     if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
     else if (contra.some(isBlank)) errors.push('禁忌名稱不可空白');
+
+    // 用這台的那一段算哪一個課程（ADR-0075）。選填 —— 沒填的走舊的推導
+    // （`coursesForEntitlement()` 退回 `requiresEquipment` 的課程），
+    // 所以既有資料一筆都不會壞。但**指到一個不存在的課程要擋**：
+    // 那一段會推不出課程，而推不出課程的時段存不下去。
+    if (r.courseId != null && !courses.some((c) => c.id === r.courseId && !c.deletedAt)) {
+      errors.push('指定的課程不存在或已刪除');
+    }
     return errors;
   },
 
@@ -253,9 +261,9 @@ const validators = {
       errors.push('不選診間的課程不該設定診間限制');
     }
 
-    if (r.assigns !== 'therapist' && r.requiresEquipment) {
-      errors.push('要選器材的課程必須同時指派治療師');
-    }
+    // 2026-09-06 拿掉了「要選器材的課程必須同時指派治療師」這一條。
+    // 復能四選一裡的 ILIB 要的是診間不是治療師，而指派已經由「這一段選了哪一台
+    // 器材」推出來（ADR-0075）—— 這一條會把那件事整個擋掉。
     if (r.requiresEquipment && r.requiresIvProduct) {
       errors.push('一個課程不會同時要選器材又要選點滴品項');
     }
@@ -309,7 +317,10 @@ const validators = {
         else if (!courseIds.has(item.courseId)) errors.push(`${at}：指定的課程不存在或已刪除`);
       } else if (item.type === 'pool') {
         const opts = item.optionEquipmentIds ?? [];
-        if (opts.length < 2) errors.push(`${at}：擇一池至少要有兩種器材可選`);
+        // **一種也算數**（ADR-0075）：單買一台就是「這一池裡只有一台」。
+        // 零台仍然擋 —— 那是「選了池卻一台都沒挑」，而那一筆額度排班時
+        // 沒有器材可以選。
+        if (opts.length < 1) errors.push(`${at}：擇一池至少要挑一種器材`);
         else if (opts.some((id) => !equipIds.has(id))) {
           errors.push(`${at}：指定的器材不存在或已刪除`);
         }
@@ -426,6 +437,21 @@ export function roomSlots(rooms) {
     }
   }
   return out;
+}
+
+/**
+ * 某個課程用得到哪幾台器材（ADR-0075）。
+ *
+ * 復能 → 高能量雷射、超磁場、INDIBA；ILIB → ILIB 那一台。
+ * **一台都對不上就回全部** —— 舊資料的器材身上沒有 `courseId`，而在那之前
+ * 「擇一池」就是所有器材。退回去比回空陣列好：空的擇一池排不出任何一段。
+ *
+ * 擺在 `roomsForCourse()` 旁邊，理由一樣：**某個課程用得到哪些資源。**
+ */
+export function equipmentForCourse(courseId, equipment = []) {
+  const alive = (equipment ?? []).filter((e) => e && !e.deletedAt && e.active !== false);
+  const mine = alive.filter((e) => e.courseId === courseId);
+  return mine.length ? mine : alive;
 }
 
 /** 某個課程能選哪些診間。allowedRoomIds 有值時蓋過類型規則。 */

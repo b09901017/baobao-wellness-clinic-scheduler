@@ -297,7 +297,9 @@ export function validateEntitlement(e, { courses = [], equipment = [], products 
     else if (!aliveCourse.some((c) => c.id === e.courseId)) errors.push('指定的課程不存在或已刪除');
   } else if (e.type === 'pool') {
     const opts = e.optionEquipmentIds ?? [];
-    if (opts.length < 2) errors.push('擇一池至少要有兩種器材可選');
+    // **一種也算數**（ADR-0075）：單買一台超磁場就是「這一池裡只有一台」，
+    // 排班時沒得選、預設就是它。零台仍然擋 —— 那一筆額度排不出任何一段。
+    if (opts.length < 1) errors.push('要挑至少一種器材');
     else if (opts.some((id) => !aliveEquip.some((x) => x.id === id))) {
       errors.push('指定的器材不存在或已刪除');
     }

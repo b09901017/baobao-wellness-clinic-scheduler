@@ -509,10 +509,58 @@ export function visitActions(visit, { today } = {}) {
  *
  * @returns {object[]} 可選的課程，只有一個時 UI 應該直接帶入
  */
-export function coursesForEntitlement(entitlement, courses = []) {
+export function coursesForEntitlement(entitlement, courses = [], equipment = []) {
   const alive = courses.filter((c) => !c.deletedAt);
-  if (entitlement?.type === 'pool') return alive.filter((c) => c.requiresEquipment);
-  return alive.filter((c) => c.id === entitlement?.courseId);
+  if (entitlement?.type !== 'pool') return alive.filter((c) => c.id === entitlement?.courseId);
+
+  // 池裡每一台器材各自指到的課程，去重、維持池上的順序（ADR-0075）。
+  // 復能四選一 → 復能與 ILIB 兩個；三選一與單台 → 復能一個。
+  const ids = entitlement.optionEquipmentIds ?? [];
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    const courseId = (equipment ?? []).find((e) => e.id === id)?.courseId ?? null;
+    if (!courseId || seen.has(courseId)) continue;
+    const course = alive.find((c) => c.id === courseId);
+    if (course) { seen.add(courseId); out.push(course); }
+  }
+  // 一台都推不出課程就退回舊行為（ADR-0005）—— 舊資料的器材身上沒有
+  // `courseId`，而那時候「擇一池的課程」就是唯一那個要選器材的課程。
+  return out.length ? out : alive.filter((c) => c.requiresEquipment);
+}
+
+/**
+ * 這一段要不要記器材。
+ *
+ * **擇一池一定要**，不管從器材推出來的課程是哪一個 —— 四選一選到 ILIB 那一段，
+ * 課程變成 ILIB（`requiresEquipment` 是 false），但那一段記的仍然是「用了 ILIB」，
+ * 而額度的池成員檢查靠的就是那個 id。只看課程的話，她一選 ILIB 器材那一排
+ * 就整個消失，存下去也少了一個欄位。
+ *
+ * 其餘看課程（目前只有復能開著 `requiresEquipment`）。
+ */
+export const picksEquipment = (entitlement, course) =>
+  entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
+
+/**
+ * 這一段選了這台器材，那它算哪一個課程。
+ *
+ * **只有這一支做這個推導**（ADR-0075）。壓表與來訪編輯器兩個入口都呼叫它，
+ * 兩邊各寫一次的話會出現一邊寫「復能」一邊寫「ILIB」的資料，
+ * 而那要等到她看試算表才會發現。
+ *
+ * 推不出來時**維持原來的課程**，不要回 `null` —— 那會把時段上的 courseId
+ * 清掉，而沒有課程的時段存不下去。
+ *
+ * @param {string|null} equipmentId
+ * @param {object[]} equipment 器材主檔
+ * @param {string|null} fallbackCourseId 推不出來時維持的那一個
+ * @returns {string|null}
+ */
+export function courseForEquipment(equipmentId, equipment = [], fallbackCourseId = null) {
+  if (!equipmentId) return fallbackCourseId;
+  const eq = (equipment ?? []).find((e) => e.id === equipmentId) ?? null;
+  return eq?.courseId ?? fallbackCourseId;
 }
 
 // ---------- 檢查 ----------

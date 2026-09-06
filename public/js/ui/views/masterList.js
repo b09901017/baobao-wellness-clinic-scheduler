@@ -100,26 +100,45 @@ const editors = {
   },
 
   equipment: {
-    blank: { name: '', contraindications: [] },
-    summary: (r) =>
-      r.contraindications?.length
-        ? `⚠ 禁忌：${r.contraindications.join('、')}`
-        : '無禁忌',
-    fields: (r) => [
+    lead: '每一台記著「用這台的那一段算哪一個課程」—— 復能四選一是一筆額度、'
+      + '四台器材，而 ILIB 那一台要的是診間、其餘三台要的是物理治療師。',
+    blank: { name: '', contraindications: [], courseId: null },
+    summary: (r, all) => [
+      (all?.courses ?? []).find((c) => c.id === r.courseId)?.name ?? '還沒指到課程',
+      r.contraindications?.length ? `⚠ 要提醒：${r.contraindications.join('、')}` : null,
+    ].filter(Boolean).join(' · '),
+    fields: (r, all) => [
       f.text({ name: 'name', label: '器材名稱', value: r.name, placeholder: 'INDIBA' }),
+      // 用這台的那一段算哪一個課程（ADR-0075）。指派治療師還是診間、要不要
+      // 簽療程單、長出哪些掛號待辦，全部跟著那個課程走。
+      f.chips({
+        name: 'courseId', label: '用這台算哪一個課程', value: r.courseId ?? null,
+        options: [
+          { value: null, label: '還沒決定' },
+          ...(all?.courses ?? []).filter((c) => !c.deletedAt)
+            .map((c) => ({ value: c.id, label: c.name })),
+        ],
+        hint: '復能三台選這個課程；ILIB 選 ILIB。留空的話，擇一池會退回舊的推導方式。',
+      }),
       f.text({
-        name: 'contraindications', label: '醫療禁忌',
+        name: 'contraindications', label: '要特別提醒的狀況',
         value: (r.contraindications ?? []).join('、'), placeholder: '體內金屬',
-        hint: '用頓號分隔。客戶身上有同名的永久限制時，這個器材會被硬性擋掉，不是警告。',
+        hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
+          + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
     ],
-    parse: (v) => ({ name: v.name.trim(), contraindications: f.parseList(v.contraindications) }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      courseId: v.courseId || null,
+      contraindications: f.parseList(v.contraindications),
+    }),
+    wireForm: ({ form }) => f.wireChips(form),
   },
 
-  // 臨床提醒（ADR-0064）。永久限制底下的第二層：什麼都不擋，但壓表那一刻
-  // 要一眼看得到。跟器材的醫療禁忌**刻意分成兩份主檔** —— 混在一起的話，
-  // 「禁忌」清單裡會出現不擋任何東西的字，而下一個讀那段程式的人會以為它可信。
-  // 警示（ADR-0074）。永久限制只剩兩層，這是上面那一層。
+  // 警示（ADR-0074）。永久限制只剩兩層，這是上面那一層：什麼都不擋，
+  // 但壓表那一刻要一眼看得到。跟器材上那一欄**刻意分成兩份主檔** ——
+  // 器材那一欄回答的是「選了這一台要不要提醒」，這一份回答的是
+  // 「這位客戶身上要畫哪幾顆丸子」，兩者的名單不必一樣（「怕痛」跟器材無關）。
   clinicalFlags: {
     lead: '這裡加的字會出現在客戶的永久限制上，壓表的卡片牆會跟著名字畫出來。'
       + '它不會擋掉任何東西 —— 只是要在你壓表的那一刻一眼看得到。',
@@ -563,7 +582,7 @@ function paintList(el, type, all) {
             ${ed.badge ? ed.badge(r) : esc(r.name)}
             ${r.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
           </div>
-          <div class="muted">${esc(ed.summary(r))}</div>
+          <div class="muted">${esc(ed.summary(r, all))}</div>
           ${ed.note ? ed.note(r, all) : ''}
         </div>
         <div class="row__actions">

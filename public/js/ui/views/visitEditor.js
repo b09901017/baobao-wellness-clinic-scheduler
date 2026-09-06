@@ -16,7 +16,7 @@ import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, applyStatus, NOTE_MAX,
+  coursesForEntitlement, courseForEquipment, picksEquipment, applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
@@ -147,7 +147,7 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
 }
 
 function blankSlot(entitlement, all, settings, startsAt) {
-  const course = coursesForEntitlement(entitlement, all.courses)[0] ?? null;
+  const course = coursesForEntitlement(entitlement, all.courses, all.equipment)[0] ?? null;
   const durationMin = entitlement?.durationMin ?? course?.durationMin ?? 60;
   return {
     entitlementId: entitlement?.id ?? null,
@@ -323,7 +323,11 @@ function slotCard(ctx, draft, slot, i) {
   const nth = isNthSlot(slot);
   const ent = nth ? null : (entitlements.find((x) => x.id === slot.entitlementId) ?? null);
   // n返 借二返那個課程，所以課程那一排不用出現（只有一個選項，而且她選不了別的）
-  const courseChoices = nth ? [] : coursesForEntitlement(ent, all.courses);
+  // 擇一池的課程是從器材推出來的（ADR-0075），所以那一排不出現 ——
+  // 她選的是器材，課程跟著走。
+  const courseChoices = nth || ent?.type === 'pool'
+    ? []
+    : coursesForEntitlement(ent, all.courses, all.equipment);
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
   const nthExams = nthExamChoices(ctx, draft);
 
@@ -387,7 +391,7 @@ function slotCard(ctx, draft, slot, i) {
             options: courseChoices.map((c) => ({ value: c.id, label: c.name })),
           })}
 
-      ${course?.requiresEquipment ? equipmentField(customer, ent, all, slot, i) : ''}
+      ${picksEquipment(ent, course) ? equipmentField(customer, ent, all, slot, i) : ''}
       ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
       ${course?.assigns === 'room' ? roomField(all, course, slot, i) : ''}
@@ -625,10 +629,18 @@ function readDraft(ctx, form, draft) {
     const ent = entitlements.find((x) => x.id === entitlementId) ?? null;
 
     // 換了額度就要重挑課程，舊的課程可能根本不屬於新的額度
-    const choices = coursesForEntitlement(ent, all.courses);
+    const choices = coursesForEntitlement(ent, all.courses, all.equipment);
     let courseId = key(v, `s${i}-course`, slot.courseId);
     if (choices.length === 1) courseId = choices[0].id;
     else if (!choices.some((c) => c.id === courseId)) courseId = null;
+
+    // **擇一池的課程由器材決定**（ADR-0075）：四選一選到 ILIB 那一段算 ILIB
+    // （要診間），其餘三台算復能（要治療師）。推不出來就維持原來的 ——
+    // 清成 null 的話那一段存不下去，而她只是還沒挑器材。
+    const equipmentId = v[`s${i}-equip`] ?? slot.equipmentId ?? null;
+    if (ent?.type === 'pool') {
+      courseId = courseForEquipment(equipmentId, all.equipment, courseId ?? choices[0]?.id ?? null);
+    }
 
     const course = all.courses.find((c) => c.id === courseId) ?? null;
     const startsAt = v[`s${i}-start`] || slot.startsAt;
@@ -639,7 +651,7 @@ function readDraft(ctx, form, draft) {
       entitlementId,
       courseId,
       courseName: course?.name ?? null,
-      equipmentId: course?.requiresEquipment ? (v[`s${i}-equip`] ?? null) : null,
+      equipmentId: picksEquipment(ent, course) ? (v[`s${i}-equip`] ?? null) : null,
       ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,

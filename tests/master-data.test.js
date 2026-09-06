@@ -67,9 +67,10 @@ describe('課程驗證', () => {
     assert.ok(errors.some((e) => e.includes('不該設定診間限制')));
   });
 
-  test('要選器材就必須指派治療師', () => {
-    const errors = validate('courses', { ...base, requiresEquipment: true });
-    assert.ok(errors.some((e) => e.includes('指派治療師')));
+  // ADR-0075：這一條 2026-09-06 拿掉了。復能四選一裡的 ILIB 要的是診間，
+  // 而指派已經由「這一段選了哪一台器材」推出來 —— 留著這一條會把那件事擋掉。
+  test('要選器材的課程不必指派治療師 —— 那是器材決定的', () => {
+    assert.deepEqual(validate('courses', { ...base, requiresEquipment: true }), []);
   });
 
   test('時長必須是正整數', () => {
@@ -195,11 +196,17 @@ describe('方案驗證', () => {
     assert.ok(errors.some((e) => e.includes('不存在')));
   });
 
-  test('擇一池至少兩種器材，否則不叫擇一', () => {
-    const one = validate('plans', {
+  // ADR-0075：一台也算數（單買一台超磁場就是「這一池裡只有一台」）。
+  // 零台仍然擋 —— 那一筆額度排班時沒有器材可以選。
+  test('擇一池一台也算數，零台才擋', () => {
+    assert.deepEqual(validate('plans', {
       name: 'p', items: [{ type: 'pool', label: 'x', qty: 1, optionEquipmentIds: ['e1'] }],
+    }, { courses, equipment }), []);
+
+    const none = validate('plans', {
+      name: 'p', items: [{ type: 'pool', label: 'x', qty: 1, optionEquipmentIds: [] }],
     }, { courses, equipment });
-    assert.ok(one.some((e) => e.includes('至少要有兩種')));
+    assert.ok(none.some((e) => e.includes('至少要挑一種')));
   });
 
   test('錯誤訊息要說是第幾個項目', () => {
@@ -290,14 +297,30 @@ describe('種子資料', () => {
     assert.deepEqual(roomsForCourse(cardio, SEED.rooms), []);
   });
 
-  test('復能選治療師且要選器材，靜脈選診間且不用器材', () => {
+  test('復能選治療師且要選器材，ILIB 選診間且不用器材', () => {
     const recovery = SEED.courses.find((c) => c.name === '復能');
     assert.equal(recovery.assigns, 'therapist');
     assert.equal(recovery.requiresEquipment, true);
 
-    const ivLaser = SEED.courses.find((c) => c.name === '靜脈');
-    assert.equal(ivLaser.assigns, 'room');
-    assert.equal(ivLaser.requiresEquipment, false);
+    const ilib = SEED.courses.find((c) => c.name === 'ILIB');
+    assert.equal(ilib.assigns, 'room');
+    assert.equal(ilib.requiresEquipment, false);
+  });
+
+  // ADR-0075：四選一是一筆額度、四台器材，而它們要的資源不一樣。
+  test('每一台器材都指得到一個活著的課程', () => {
+    for (const eq of SEED.equipment) {
+      assert.ok(eq.courseId, `${eq.name} 沒有指到課程`);
+      assert.ok(SEED.courses.some((c) => c.id === eq.courseId), `${eq.name} 指到不存在的課程`);
+    }
+  });
+
+  test('ILIB 那一台指到 ILIB 課程，其餘三台指到復能', () => {
+    const courseOf = (name) => SEED.equipment.find((e) => e.name === name).courseId;
+    assert.equal(courseOf('ILIB'), 'course-iv-laser');
+    for (const name of ['INDIBA', '超磁場', '高能量雷射']) {
+      assert.equal(courseOf(name), 'course-recovery');
+    }
   });
 
   test('種子資料有夏、許、李三位醫師，而且和治療師分得開', () => {
@@ -327,13 +350,13 @@ describe('種子資料', () => {
     assert.deepEqual(blocked.sort(), ['超磁場', '高能量雷射'].sort());
   });
 
-  test('兩個方案的復能與靜脈次數相反，這是正常的', () => {
+  test('兩個方案的復能與 ILIB 次數相反，這是正常的', () => {
     const qty = (planName, label) =>
       SEED.plans.find((p) => p.name === planName).items.find((i) => i.label === label).qty;
-    assert.equal(qty('筋骨強身', '復能'), 12);
-    assert.equal(qty('筋骨強身', '靜脈'), 20);
-    assert.equal(qty('8萬方案', '復能'), 20);
-    assert.equal(qty('8萬方案', '靜脈'), 12);
+    assert.equal(qty('筋骨強身', '復能三選一(60)'), 12);
+    assert.equal(qty('筋骨強身', 'ILIB(60)'), 20);
+    assert.equal(qty('8萬方案', '復能三選一(60)'), 20);
+    assert.equal(qty('8萬方案', 'ILIB(60)'), 12);
   });
 
   test('那五項不產生任務的課程確實是 null 類別', () => {
@@ -466,7 +489,7 @@ describe('方案項目的形狀', () => {
         name: '新方案',
         items: [
           planItem({ type: 'single', label: '復健', qty: 6, courseId: 'course-rehab' }),
-          planItem({ type: 'pool', label: '復能', qty: 12, optionEquipmentIds: ['eq-indiba'] }),
+          planItem({ type: 'pool', label: '復能', qty: 12, optionEquipmentIds: [] }),
         ],
       },
       { courses: [{ id: 'course-rehab' }], equipment: [{ id: 'eq-indiba' }] },

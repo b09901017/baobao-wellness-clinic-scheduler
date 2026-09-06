@@ -31,6 +31,7 @@
 
 import { isValidDate, lastDayOf } from './dates.js';
 import { contraindicationHints } from './contraindications.js';
+import { equipmentForCourse } from './masterData.js';
 import { followupPlanEntries } from './followups.js';
 import { itemisedLabel } from './entitlements.js';
 
@@ -99,8 +100,7 @@ export const SHEET_COURSE_ALIASES = Object.freeze({
   物理諮詢: '物理治療師諮詢',
   營養諮詢: '營養師諮詢',
   體適能分析: '體適能檢查分析',
-  'ILIB 60mins': '靜脈',
-  ILIB: '靜脈',
+  'ILIB 60mins': 'ILIB',
   EECP: 'EECP',
   營養點滴: '營養點滴',
   // 第 11 列不是營養點滴專用的，也拿來放別的加購。舊表寫「心臟門診」，
@@ -446,7 +446,6 @@ export function planForSheet(parsed, {
   const entitlements = [];
   /** @type {Map<number, {keys: string[], course: object|null, kind: string}>} 列 → 這一列產生了什麼 */
   const byRow = new Map();
-  const poolEquipmentIds = equipment.filter((e) => !e.deletedAt).map((e) => e.id);
 
   for (const item of parsed.items) {
     const checks = item.checks.filter((c) => readCheckbox(c.value) === true).length;
@@ -530,6 +529,12 @@ export function planForSheet(parsed, {
     const course = resolveCourse(isPool ? '復能' : item.label, courses)
       ?? (item.label.includes(CHECKUP_WORD) ? resolveCourse(CHECKUP_WORD, courses) : null);
 
+    // 這一池有哪幾台，從**課程**推（ADR-0075）——「所有器材」在 ILIB 補成
+    // 第四台之後就不對了：舊表的「復能(1小時)」講的是那三台，不含 ILIB。
+    const poolEquipmentIds = isPool
+      ? equipmentForCourse(course?.id ?? null, equipment).map((e) => e.id)
+      : [];
+
     if (!course) {
       problem(`第 ${item.row} 列`, item.label,
         '對不到任何課程，這一列的額度與勾選都沒有匯入（可以先去主檔把課程建起來再匯一次）');
@@ -567,8 +572,8 @@ export function planForSheet(parsed, {
         `勾了 ${checks} 次但總次數只有 ${qty}，匯進去之後資料健檢會列成額度超用`);
     }
 
-    if (isPool && poolEquipmentIds.length < 2) {
-      problem(`第 ${item.row} 列`, item.label, '主檔裡的器材不到兩種，擇一池建不起來');
+    if (isPool && !poolEquipmentIds.length) {
+      problem(`第 ${item.row} 列`, item.label, '主檔裡一台器材都沒有，擇一池建不起來');
       continue;
     }
 
@@ -771,7 +776,7 @@ export function planForSheet(parsed, {
         visits: importedByRow.get(item.row) ?? 0,
       };
     }),
-    quantityHint: quantityHint(parsed, plans),
+    quantityHint: quantityHint(parsed, plans, courses),
     counts: {
       entitlements: entitlements.length,
       // 舊表上沒有二返這一列，所以這幾筆是系統配出來的，不是讀出來的。
@@ -850,24 +855,33 @@ function pickIvEntitlement(shorthand, entitlements, keys) {
  * 就整份算錯（docs/legacy/README.md）。這裡不需要那個數字 —— D 欄本來就是乘完的，
  * 直接當 totalQty 就好。所以推不出來也無所謂，報告上少一句話而已。
  */
-function quantityHint(parsed, plans) {
+function quantityHint(parsed, plans, courses = []) {
   for (const plan of plans) {
     if (plan.deletedAt) continue;
-    const n = multipleOf(parsed, plan);
+    const n = multipleOf(parsed, plan, courses);
     if (n == null) continue;
     return n === 1 ? `看起來是「${plan.name}」` : `看起來是「${plan.name}」 × ${n}`;
   }
   return null;
 }
 
-/** 這張表的 D 欄是不是這個範本的整數倍。對不上就回 null，換下一個範本試。 */
-function multipleOf(parsed, plan) {
+/**
+ * 這張表的 D 欄是不是這個範本的整數倍。對不上就回 null，換下一個範本試。
+ *
+ * **比課程不比名字。** 方案項目的 `label` 是她改得動的顯示字串
+ * （「ILIB(60)」「復能三選一(60)」），拿它去對舊表的欄名遲早對不上 ——
+ * 而對不上的症狀是報告上少一句話，沒有人會發現它壞了。
+ * 名字仍然當退路：舊範本的項目可能沒有 courseId。
+ */
+function multipleOf(parsed, plan, courses = []) {
   const ratios = [];
   for (const item of plan.items ?? []) {
     const row = parsed.items.find((i) => {
+      if (item.type === 'pool') return POOL_LABELS.includes(i.label);
       const wanted = SHEET_COURSE_ALIASES[i.label] ?? i.label;
-      return wanted === item.label || i.label === item.label
-        || (POOL_LABELS.includes(i.label) && item.type === 'pool');
+      const course = resolveCourse(wanted, courses);
+      return (item.courseId && course?.id === item.courseId)
+        || wanted === item.label || i.label === item.label;
     });
     const base = Number(item.qty) || 0;
     const got = toQty(row?.expected);

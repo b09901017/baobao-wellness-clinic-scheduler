@@ -236,11 +236,18 @@ describe('額度驗證', () => {
     assert.ok(validateEntitlement({ type: 'single', label: '門診', totalQty: 6 }, ctx).length);
   });
 
-  test('擇一池至少要有兩種器材，只有一種就不叫擇一', () => {
+  // ADR-0075：單買一台超磁場就是「這一池裡只有一台」。零台才擋。
+  test('擇一池一台也算數，零台才擋', () => {
+    assert.deepEqual(
+      validateEntitlement(
+        { type: 'pool', label: '超磁場(60)', totalQty: 5, optionEquipmentIds: ['eq-a'] }, ctx,
+      ),
+      [],
+    );
     assert.ok(
       validateEntitlement(
-        { type: 'pool', label: '復能', totalQty: 12, optionEquipmentIds: ['eq-a'] }, ctx,
-      ).length,
+        { type: 'pool', label: '復能', totalQty: 12, optionEquipmentIds: [] }, ctx,
+      ).some((e) => e.includes('至少')),
     );
     assert.deepEqual(
       validateEntitlement(
