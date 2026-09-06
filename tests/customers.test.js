@@ -132,62 +132,38 @@ describe('客戶提示（只提示不阻擋）', () => {
   });
 });
 
-describe('永久限制與醫療禁忌', () => {
-  const equipment = [
-    { id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] },
-    { id: 'eq-old', name: '舊機', contraindications: ['心律調節器'], deletedAt: 'x' },
-  ];
-
-  test('會擋掉器材的那些限制要跟其他限制分開 —— 一個是硬性阻擋，一個只是提醒', () => {
-    const split = splitFlags({ flags: ['體內金屬', '固定禮拜五不行'] }, equipment);
-    assert.deepEqual(split.contraindications, ['體內金屬']);
-    assert.deepEqual(split.others, ['固定禮拜五不行']);
-  });
-
-  test('已刪除器材上的禁忌不再算禁忌', () => {
-    const split = splitFlags({ flags: ['心律調節器'] }, equipment);
-    assert.deepEqual(split.contraindications, []);
-    assert.deepEqual(split.others, ['心律調節器']);
-  });
-});
-
-// ADR-0064：永久限制有三層。第二層什麼都不擋，但壓表那一刻要一眼看得到。
-describe('臨床提醒是永久限制的第二層', () => {
-  const equipment = [{ id: 'eq-sis', name: '超磁場', contraindications: ['體內金屬'] }];
+describe('永久限制的兩層（ADR-0074）', () => {
   const clinical = [
+    { id: 'cf-metal', name: '體內金屬' },
     { id: 'cf-veins', name: '血管難打' },
     { id: 'cf-first', name: '第一針', active: false },
     { id: 'cf-gone', name: '已刪的', deletedAt: 'x' },
   ];
 
-  test('三層各自分開 —— 禁忌會擋、臨床提醒不擋但要看得到、其餘不畫在卡片牆上', () => {
-    const split = splitFlags(
-      { flags: ['體內金屬', '血管難打', '固定禮拜五不行'] }, equipment, clinical,
-    );
-    assert.deepEqual(split.contraindications, ['體內金屬']);
-    assert.deepEqual(split.clinical, ['血管難打']);
+  test('警示那一層跟其餘分開 —— 一個畫在卡片牆上，一個不畫', () => {
+    const split = splitFlags({ flags: ['體內金屬', '固定禮拜五不行'] }, clinical);
+    assert.deepEqual(split.alerts, ['體內金屬']);
     assert.deepEqual(split.others, ['固定禮拜五不行']);
   });
 
-  test('停用或刪掉的臨床提醒不再算第二層，掉回其餘', () => {
-    const split = splitFlags({ flags: ['第一針', '已刪的'] }, equipment, clinical);
-    assert.deepEqual(split.clinical, []);
+  test('停用或刪掉的警示掉回其餘 —— 不要讓它整個消失', () => {
+    const split = splitFlags({ flags: ['第一針', '已刪的'] }, clinical);
+    assert.deepEqual(split.alerts, []);
     assert.deepEqual(split.others, ['第一針', '已刪的']);
   });
 
-  test('兩份名單撞名時禁忌贏 —— 畫成比較輕的一顆等於把硬性阻擋降級', () => {
-    const split = splitFlags(
-      { flags: ['體內金屬'] }, equipment, [{ name: '體內金屬' }],
-    );
-    assert.deepEqual(split.contraindications, ['體內金屬']);
-    assert.deepEqual(split.clinical, []);
+  test('沒有警示主檔時，每一個字都掉進其餘', () => {
+    const split = splitFlags({ flags: ['體內金屬', '血管難打'] }, []);
+    assert.deepEqual(split.alerts, []);
+    assert.deepEqual(split.others, ['體內金屬', '血管難打']);
   });
 
-  test('沒有臨床提醒主檔時，行為跟這一支上線之前一模一樣', () => {
-    const split = splitFlags({ flags: ['體內金屬', '血管難打'] }, equipment);
-    assert.deepEqual(split.contraindications, ['體內金屬']);
-    assert.deepEqual(split.clinical, []);
-    assert.deepEqual(split.others, ['血管難打']);
+  test('器材主檔不再參與分層 —— 那些字現在只決定「選了哪一台要提醒」', () => {
+    // 2026-09-06 之前「體內金屬」靠器材主檔被分到最上面那一層。現在它要進得了
+    // 警示主檔才畫得出來，而器材上有、警示沒有的那幾個字由資料健檢列出來。
+    const split = splitFlags({ flags: ['體內金屬'] }, [{ name: '血管難打' }]);
+    assert.deepEqual(split.alerts, []);
+    assert.deepEqual(split.others, ['體內金屬']);
   });
 });
 
@@ -198,22 +174,28 @@ describe('永久限制的編輯（丸子 + 自由輸入）', () => {
     { id: 'eq-indiba', name: 'INDIBA', contraindications: [] },
     { id: 'eq-old', name: '舊機', contraindications: ['心律調節器'], deletedAt: 'x' },
   ];
+  const alerts = ['體內金屬', '血管難打'];
 
-  test('可以點的字就是器材上登記的那幾個，去重且不含已刪除的器材', () => {
+  test('器材上登記的提醒詞去重，且不含已刪除的器材', () => {
+    // 這份名單不再決定分層，但它仍然是「哪些字會讓某一台跳提醒」的唯一來源，
+    // 而資料健檢要拿它跟警示主檔比（`domain/health.js`）。
     assert.deepEqual(contraindicationTerms(equipment), ['體內金屬']);
   });
 
-  test('沒有器材就沒有丸子 —— 不要憑空生一個擋不住東西的字', () => {
+  test('沒有器材就沒有提醒詞', () => {
     assert.deepEqual(contraindicationTerms([]), []);
     assert.deepEqual(contraindicationTerms(), []);
   });
 
-  test('打開表單時，會擋東西的字落在丸子，其餘落在自由輸入', () => {
-    const split = splitFlagsForEdit(
-      ['固定禮拜五不行', '體內金屬'], contraindicationTerms(equipment),
-    );
+  test('打開表單時，警示落在丸子，其餘落在自由輸入', () => {
+    const split = splitFlagsForEdit(['固定禮拜五不行', '體內金屬'], alerts);
     assert.deepEqual(split.picked, ['體內金屬']);
     assert.deepEqual(split.others, ['固定禮拜五不行']);
+  });
+
+  test('丸子照主檔的順序，不照客戶身上的順序', () => {
+    const split = splitFlagsForEdit(['血管難打', '體內金屬'], alerts);
+    assert.deepEqual(split.picked, ['體內金屬', '血管難打']);
   });
 
   test('存檔時合回一份，丸子排前面', () => {
@@ -231,42 +213,10 @@ describe('永久限制的編輯（丸子 + 自由輸入）', () => {
   });
 
   test('拆開再合回去是同一份', () => {
-    const terms = contraindicationTerms(equipment);
-    const before = ['體內金屬', '固定禮拜五不行'];
-    const { picked, others } = splitFlagsForEdit(before, terms);
+    const before = ['體內金屬', '血管難打', '固定禮拜五不行'];
+    const { picked, others } = splitFlagsForEdit(before, alerts);
     assert.deepEqual(mergeFlags(picked, others), before);
-  });
-
-  // ADR-0064：編輯畫面上多一排丸子，而自由輸入那一欄要同時排掉兩份名單。
-  describe('多了臨床提醒那一排之後', () => {
-    const clinicalNames = ['血管難打'];
-
-    test('三份各自落位', () => {
-      const split = splitFlagsForEdit(
-        ['固定禮拜五不行', '體內金屬', '血管難打'],
-        contraindicationTerms(equipment),
-        clinicalNames,
-      );
-      assert.deepEqual(split.picked, ['體內金屬']);
-      assert.deepEqual(split.clinicalPicked, ['血管難打']);
-      assert.deepEqual(split.others, ['固定禮拜五不行']);
-    });
-
-    test('臨床提醒不可以同時掉進自由輸入 —— 那會讓整張表單因為重複而存不下去', () => {
-      const before = ['體內金屬', '血管難打', '固定禮拜五不行'];
-      const s2 = splitFlagsForEdit(before, contraindicationTerms(equipment), clinicalNames);
-      const after = mergeFlags(s2.picked, s2.clinicalPicked, s2.others);
-      assert.deepEqual(after, before);
-      assert.deepEqual(validate({ name: '王小姐', flags: after }), []);
-    });
-
-    test('只傳兩份的舊呼叫端行為一個字都沒有變', () => {
-      assert.deepEqual(mergeFlags(['體內金屬'], ['固定禮拜五不行']), ['體內金屬', '固定禮拜五不行']);
-      const split = splitFlagsForEdit(['體內金屬', '血管難打'], ['體內金屬']);
-      assert.deepEqual(split.picked, ['體內金屬']);
-      assert.deepEqual(split.clinicalPicked, []);
-      assert.deepEqual(split.others, ['血管難打']);
-    });
+    assert.deepEqual(validate({ name: '王小姐', flags: mergeFlags(picked, others) }), []);
   });
 });
 

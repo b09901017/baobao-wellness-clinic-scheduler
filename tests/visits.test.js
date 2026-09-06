@@ -453,17 +453,6 @@ describe('會擋下儲存的（errors）', () => {
     assert.ok(validateVisit(v, ctx()).errors.some((e) => e.includes('品項')));
   });
 
-  test('醫療禁忌是硬性阻擋，不是提醒', () => {
-    const v = visit({
-      slots: [{ ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery',
-                equipmentId: 'eq-sis', roomId: null, therapistId: 'st-tw', endsAt: '15:00' }],
-    });
-    const withMetal = ctx({ customer: { ...CUSTOMER, flags: ['體內金屬'] } });
-    const { errors, warnings } = validateVisit(v, withMetal);
-    assert.ok(errors.some((e) => e.includes('超磁場')), '禁忌必須進 errors');
-    assert.ok(!warnings.some((w) => w.includes('超磁場')), '禁忌不可以只是提醒');
-  });
-
   test('選了擇一池以外的器材會扣到不屬於它的次數，所以擋下來', () => {
     const v = visit({
       slots: [{ ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery',
@@ -479,6 +468,28 @@ describe('會擋下儲存的（errors）', () => {
 });
 
 describe('只提醒不阻擋的（warnings）', () => {
+  // ADR-0074：2026-09-06 之前這一條在 errors 裡，而且是全站唯一會擋下儲存的
+  // 業務規則。她那天說「只要儀器不要在金屬的上方或附近」就做得了 ——
+  // 而儀器擺在哪裡 app 看不到（ADR-0002 的主體）。
+  test('選到要提醒的器材存得下去，只多一句提醒', () => {
+    const v = visit({
+      slots: [{ ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery',
+                equipmentId: 'eq-sis', roomId: null, therapistId: 'st-tw', endsAt: '15:00' }],
+    });
+    const withMetal = ctx({ customer: { ...CUSTOMER, flags: ['體內金屬'] } });
+    const { errors, warnings } = validateVisit(v, withMetal);
+    assert.deepEqual(errors, [], '不可以再擋下儲存');
+    assert.ok(warnings.some((w) => w.includes('超磁場') && w.includes('體內金屬')));
+  });
+
+  test('客戶身上沒有那個字就什麼都不講', () => {
+    const v = visit({
+      slots: [{ ...visit().slots[0], entitlementId: 'e-pool', courseId: 'c-recovery',
+                equipmentId: 'eq-sis', roomId: null, therapistId: 'st-tw', endsAt: '15:00' }],
+    });
+    assert.ok(!validateVisit(v, ctx()).warnings.some((w) => w.includes('超磁場')));
+  });
+
   test('同一次來訪裡自己跟自己重疊', () => {
     const v = visit();
     v.slots.push({ ...v.slots[0], startsAt: '14:15', endsAt: '14:45' });
@@ -794,11 +805,12 @@ describe('匯入的舊來訪（ADR-0011）', () => {
     assert.ok(errors.some((e) => e.includes('要選一個額度')));
   });
 
-  test('醫療禁忌照樣硬性阻擋，匯入不是例外', () => {
+  test('器材上的提醒在匯入的來訪上也是提醒，不是阻擋', () => {
     const v = noTime();
     v.slots[0].equipmentId = 'eq-sis';
-    const { errors } = validateVisit(v, ctx({ customer: { ...CUSTOMER, flags: ['體內金屬'] } }));
-    assert.ok(errors.some((e) => e.includes('體內金屬')));
+    const { errors, warnings } = validateVisit(v, ctx({ customer: { ...CUSTOMER, flags: ['體內金屬'] } }));
+    assert.ok(!errors.some((e) => e.includes('體內金屬')));
+    assert.ok(warnings.some((w) => w.includes('體內金屬')));
   });
 
   test('匯入的來訪是已完成，所以落在唯讀鎖定區', () => {

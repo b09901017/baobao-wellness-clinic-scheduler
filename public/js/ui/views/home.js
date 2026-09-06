@@ -34,7 +34,6 @@ import {
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
-import { contraindicationTerms } from '../../domain/contraindications.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import * as playbooksData from '../../data/playbooks.js';
 import { hintForVisits } from '../components/playbookHint.js';
@@ -3237,16 +3236,14 @@ async function applyClose(ctx) {
  */
 async function renderBook(el) {
   const today = todayISO();
-  const [rows, equipment, clinicalFlags] = await Promise.all([
+  const [rows, clinicalFlags] = await Promise.all([
     loadBookRows(today),
-    config.listAll('equipment'),
     config.listAll('clinicalFlags'),
   ]);
 
-  // 姓名底下那一排要畫哪幾個字。兩份名單：會擋掉器材的（SPEC 第 4.3 節）
-  // 與臨床提醒（ADR-0064）。**各算一次就好** —— 二十幾張卡各算一次是白費的。
-  const terms = contraindicationTerms(equipment);
-  const clinical = clinicalTerms(clinicalFlags);
+  // 姓名底下那一排要畫哪幾個字：警示那一層（ADR-0074）。
+  // **算一次就好** —— 二十幾張卡各算一次是白費的。
+  const alerts = clinicalTerms(clinicalFlags);
 
   const section = (system, title, note) => {
     const mine = rows.filter((r) => r.systems.some((x) => x.system === system));
@@ -3301,7 +3298,7 @@ function bookRow(row, system, terms, clinical) {
     <button class="grouprow" type="button" data-book-who="${esc(row.customerId)}">
       <span class="grouprow__main">
         <span class="grouprow__label" style="display: block">${esc(row.customerName ?? '（沒有名字）')}</span>
-        ${flagsUi.alertChips({ flags: row.flags ?? [], terms, clinical })}
+        ${flagsUi.alertChips({ flags: row.flags ?? [], alerts, rows: clinicalFlags })}
         <span class="poolchips" style="margin-top: var(--space-1)">
           ${pools.map((p) => `<span class="poolchip ${p.remaining <= 2 ? 'poolchip--low' : ''}">${
             esc(p.label)}<b class="num">${p.remaining}</b></span>`).join('')}

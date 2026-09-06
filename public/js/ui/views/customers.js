@@ -16,7 +16,6 @@ import * as rules from '../../domain/customers.js';
 import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
-import { contraindicationTerms } from '../../domain/contraindications.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
@@ -293,7 +292,7 @@ function paintRows(el, ctx) {
 function card(c, ctx) {
   const ents = ctx.entsBy[c.id] ?? [];
   const sum = summarize(ents);
-  const flags = rules.splitFlags(c, ctx.equipment, ctx.clinicalFlags);
+  const flags = rules.splitFlags(c, ctx.clinicalFlags);
   const marks = readMarks(c);
   let { pools } = customerPools({ entitlements: ents });
 
@@ -311,7 +310,7 @@ function card(c, ctx) {
           <div class="row__title">
             ${esc(c.name)}
             ${c.priority ? `<span class="stars">${'★'.repeat(c.priority)}</span>` : ''}
-            ${flagsUi.detailChips(flags, { others: false })}
+            ${flagsUi.detailChips(flags, { others: false, rows: ctx.clinicalFlags })}
             ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
           <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
@@ -417,8 +416,8 @@ export async function renderNew(el) {
     extras: [],
   };
 
-  paintNew(el, draft, usable, existing, contraindicationTerms(equipment), {
-    courses, equipment, ivProducts, products, clinical: clinicalTerms(clinicalFlags),
+  paintNew(el, draft, usable, existing, clinicalTerms(clinicalFlags), {
+    courses, equipment, ivProducts, products,
   });
 }
 
@@ -445,7 +444,7 @@ const planQuantity = (raw) => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 1;
 };
 
-function paintNew(el, draft, plans, existing, terms, master) {
+function paintNew(el, draft, plans, existing, alerts, master) {
   const plan = plans.find((p) => p.id === draft.planId) ?? null;
   const qty = planQuantity(draft.quantity);
   const preview = qty > 0 ? expandPlan(plan, qty) : [];
@@ -514,8 +513,7 @@ function paintNew(el, draft, plans, existing, terms, master) {
 
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags: draft.flags,
-    terms,
-    clinical: master.clinical ?? [],
+    alerts,
     onChange: (list) => {
       draft.flags = list;
     },
@@ -525,7 +523,7 @@ function paintNew(el, draft, plans, existing, terms, master) {
   // 它每次重畫都會被換掉，沒有人需要記得拆它。
   f.wireChips(form);
 
-  const repaint = (next) => paintNew(el, next, plans, existing, terms, master);
+  const repaint = (next) => paintNew(el, next, plans, existing, alerts, master);
   const swap = (sel, html) => {
     const box = el.querySelector(sel);
     if (box) box.innerHTML = html;

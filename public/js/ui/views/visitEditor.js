@@ -27,7 +27,6 @@ import {
 } from '../../domain/nthFollowup.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
-import { annotateOptions } from '../../domain/contraindications.js';
 import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
 import {
@@ -200,9 +199,8 @@ function paint(ctx, draft) {
       <div class="row__title">
         ${esc(customer.name)}
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
-        ${flagsUi.detailChips(splitFlags(customer, all.equipment, all.clinicalFlags))}
+        ${flagsUi.detailChips(splitFlags(customer, all.clinicalFlags), { rows: all.clinicalFlags })}
       </div>
-      ${blockedNote(customer, all.equipment)}
       <div class="errors" data-errors hidden></div>
       ${warnings.length ? warningsHtml(warnings, embedded) : ''}
     </section>
@@ -297,22 +295,6 @@ function paint(ctx, draft) {
   if (locked) wireUnlock(ctx, draft);
   if (!isNew && !locked) wireStatus(ctx, draft);
   if (!isNew) wireDangerZone(ctx, draft);
-}
-
-/**
- * 醫療禁忌是唯一會直接鎖住選項的檢查（ADR-0002），所以它不能長得像一句備註 ——
- * 壓表那一頁用的是同一組樣式，兩邊看起來要一樣重。
- */
-function blockedNote(customer, equipment) {
-  const blocked = annotateOptions(customer, equipment).filter((eq) => eq.blocked);
-  if (!blocked.length) return '';
-  return `
-    <div class="warn warn--hard">
-      ${icon('alert', { size: 16 })}
-      <span>${blocked
-        .map((eq) => `${esc(eq.name)}不可使用 —— ${esc(eq.reasons.join('、'))}禁忌`)
-        .join('；')}。這是唯一會直接鎖住選項的檢查。</span>
-    </div>`;
 }
 
 function warningsHtml(warnings, embedded = false) {
@@ -550,27 +532,31 @@ function ivField(ent, all, slot, i) {
   });
 }
 
+/**
+ * 器材那一排。**沒有一顆是關著的**（ADR-0074）—— 她在診間裡看得到儀器擺在哪，
+ * app 看不到。要提醒的那幾台照樣點得下去，點下去底下才跳一句。
+ *
+ * 那一句走 `flagsUi.noticeBlock()`，跟壓表的記錄面板共用同一支。
+ * 這一頁換丸子會整張重畫，所以不用另外接一段就地換字。
+ */
 function equipmentField(customer, ent, all, slot, i) {
-  const pool = ent?.type === 'pool'
+  const options = ent?.type === 'pool'
     ? (ent.optionEquipmentIds ?? [])
       .map((id) => all.equipment.find((e) => e.id === id))
       .filter(Boolean)
     : all.equipment;
 
-  const annotated = annotateOptions(customer, pool);
-
-  // **被擋掉的留在原位、劃掉、點不下去。** 這是丸子取代下拉最重要的一個理由：
-  // SPEC 第 4.3 節要求醫療禁忌永遠可見不可摺疊，而下拉選單裡那一行
-  // 「✕ 超磁場（不可使用）」只有點開才看得到。
-  return f.chips({
-    name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
-    options: annotated.map((eq) => ({
-      value: eq.id,
-      label: eq.name,
-      disabled: eq.blocked,
-      note: eq.blocked ? eq.reasons.join('、') : '',
-    })),
-  });
+  return `
+    ${f.chips({
+      name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
+      options: options.map((eq) => ({ value: eq.id, label: eq.name })),
+    })}
+    ${flagsUi.noticeBlock({
+      customer,
+      equipment: options.find((eq) => eq.id === slot.equipmentId) ?? null,
+      options,
+      size: 16,
+    })}`;
 }
 
 /**

@@ -27,7 +27,6 @@ import { sortNotes, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domai
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
-import { contraindicationTerms } from '../../domain/contraindications.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
@@ -183,7 +182,7 @@ function reload(ctx) {
 function paint(ctx) {
   const { el, customer, entitlements, visits, tasks, equipment, clinicalFlags, notes } = ctx;
   const today = todayISO();
-  const flags = rules.splitFlags(customer, equipment, clinicalFlags);
+  const flags = rules.splitFlags(customer, clinicalFlags);
   const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
@@ -207,7 +206,7 @@ function paint(ctx) {
       </div>
       ${(customer.flags ?? []).length || customer.active === false ? `
         <div class="hero__flags">
-          ${flagsUi.detailChips(flags)}
+          ${flagsUi.detailChips(flags, { rows: clinicalFlags })}
           ${customer.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
         </div>` : ''}
     </div>
@@ -1251,8 +1250,7 @@ function paintEdit(ctx) {
 
   flagsUi.mount(el.querySelector('[data-flags]'), {
     flags,
-    terms: contraindicationTerms(equipment),
-    clinical: clinicalTerms(clinicalFlags),
+    alerts: clinicalTerms(clinicalFlags),
     onChange: (list) => {
       flags = list;
     },

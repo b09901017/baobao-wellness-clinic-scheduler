@@ -1,13 +1,18 @@
 // 來訪的狀態機與送出前的檢查。純函式。
 //
 // 只有兩種結果：errors 擋下儲存，warnings 顯示在旁邊但存得下去。
-// 除了醫療禁忌與「欄位根本沒填」之外，一律是 warnings ——
+// **除了「欄位根本沒填」與「指到一筆不存在的東西」之外，一律是 warnings** ——
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 // app 看不到同事在 Abovee 上壓的東西，用不完整的資料去擋一個看得到完整畫面的人，
 // 只會擋錯。
+//
+// 2026-09-06 之前這裡還有一個例外：醫療禁忌。它是全站唯一會擋下儲存的檢查，
+// 而 2026-09-06 之後它也變成 warning 了（ADR-0074）——
+// **所以現在真的一個業務規則都不擋**。剩下的 errors 全部是「這筆資料寫下去
+// 會壞掉」，不是「這件事不該做」。
 
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
-import { validateSlots as contraindicationErrors } from './contraindications.js';
+import { equipmentNotices } from './contraindications.js';
 import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
@@ -660,16 +665,12 @@ function visitErrors(visit, {
     }
   });
 
-  // 醫療禁忌：整個系統唯一的硬性阻擋
-  for (const err of contraindicationErrors(customer, slots, equipById)) {
-    errors.push(`第 ${err.slotIndex + 1} 個時段：${err.message}`);
-  }
-
   return errors;
 }
 
 function visitWarnings(visit, ctx) {
   return [
+    ...equipmentNoticeWarnings(visit, ctx),
     ...overlapWarnings(visit),
     ...entitlementWarnings(visit, ctx),
     ...assignmentWarnings(visit, ctx),
@@ -677,6 +678,23 @@ function visitWarnings(visit, ctx) {
     ...conflictWarnings(visit, ctx),
     ...frequencyWarnings(visit, ctx),
   ];
+}
+
+/**
+ * 選到的那一台對這位客戶要提醒。
+ *
+ * **排在 warnings 的最前面**：其餘幾種（時間重疊、診間撞、次數不夠）都是
+ * 她自己看得出來的排班問題，這一種是客戶身上的事，而她壓表那一刻要把它抄進
+ * Abovee 的註記欄。
+ *
+ * 2026-09-06 之前這一段是 error（`visitErrors()` 的最後一圈）——
+ * 她那天說「只要儀器不要在金屬的上方或附近」就做得了，而那件事 app 看不到。
+ * 見 ADR-0074。
+ */
+function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
+  const equipById = byId(equipment);
+  return equipmentNotices(customer, visit.slots ?? [], equipById)
+    .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
 }
 
 /**

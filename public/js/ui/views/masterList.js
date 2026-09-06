@@ -10,6 +10,10 @@ import {
   copyPlan,
 } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import {
+  ALERT_COLORS, ALERT_FILLS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_FILL,
+  colorTokens, lookOf, styleFor,
+} from '../../domain/clinicalFlags.js';
 import { isFollowupCourse } from '../../domain/followups.js';
 import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
@@ -19,6 +23,51 @@ import { icon } from '../icons.js';
 import { pushScreen } from '../nav.js';
 
 const esc = f.esc;
+
+/**
+ * 一顆警示丸子長什麼樣。**跟真的畫在卡片牆上的那一顆共用同一組 class 與變數**
+ * （`ui/components/flags.js` 的 `chipHtml()`）—— 預覽跟真的長得不一樣的話，
+ * 這一頁就沒有存在的理由。
+ */
+function alertPreview(row, text) {
+  const look = lookOf(row);
+  return `<span class="flag flag--alert flag--${esc(look.fill)}"
+                style="${esc(styleFor(look))}">${esc(text ?? '')}</span>`;
+}
+
+/**
+ * 顏色與填法那兩排，外加一顆即時的預覽。
+ *
+ * 顏色用 `.swatch`（跟客戶備註的挑色器同一組 class）而不是一排寫著「紅」「藍」
+ * 的丸子：這一格挑的就是顏色本身，用文字說它是什麼顏色是多繞一圈。
+ * 填法用一般的丸子 —— 那兩個沒有顏色可以看。
+ */
+function alertLookFields(r) {
+  const look = lookOf(r);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">壓表時長這樣</span>
+      <div data-alertpreview style="margin-bottom: var(--space-2)">
+        ${alertPreview(r, r.name || '警示')}</div>
+
+      <div class="swatches" role="group" aria-label="顏色">
+        ${ALERT_COLORS.map((c) => `
+          <button class="swatch ${look.fill === 'outline' ? 'swatch--auto' : ''}" type="button"
+                  data-colour="${esc(c.id)}" aria-label="${esc(c.label)}"
+                  aria-pressed="${c.id === look.color}"
+                  style="--mark: var(${colorTokens(c.id).fg})"></button>`).join('')}
+      </div>
+      <input type="hidden" name="color" value="${esc(look.color)}" />
+    </div>
+
+    ${f.chips({
+      name: 'fill',
+      label: '填法',
+      value: look.fill,
+      options: ALERT_FILLS.map((x) => ({ value: x.id, label: x.label })),
+      hint: '實心最搶眼，一位客戶身上最好只有一兩個。',
+    })}`;
+}
 
 const editors = {
   rooms: {
@@ -70,20 +119,52 @@ const editors = {
   // 臨床提醒（ADR-0064）。永久限制底下的第二層：什麼都不擋，但壓表那一刻
   // 要一眼看得到。跟器材的醫療禁忌**刻意分成兩份主檔** —— 混在一起的話，
   // 「禁忌」清單裡會出現不擋任何東西的字，而下一個讀那段程式的人會以為它可信。
+  // 警示（ADR-0074）。永久限制只剩兩層，這是上面那一層。
   clinicalFlags: {
     lead: '這裡加的字會出現在客戶的永久限制上，壓表的卡片牆會跟著名字畫出來。'
-      + '它不會擋掉任何器材 —— 會擋的那一種是器材上的「醫療禁忌」。',
-    blank: { name: '', hint: '' },
+      + '它不會擋掉任何東西 —— 只是要在你壓表的那一刻一眼看得到。',
+    // 卡片上就畫出它真正的樣子。一份清單如果只印名字，
+    // 她要點進去才知道自己上次挑了什麼顏色。
+    badge: (r) => alertPreview(r, r.name),
+    blank: { name: '', hint: '', color: DEFAULT_ALERT_COLOR, fill: DEFAULT_ALERT_FILL },
     summary: (r) => r.hint || '壓表時會跟著名字出現',
     fields: (r) => [
-      f.text({ name: 'name', label: '提醒名稱', value: r.name, placeholder: '血管難打' }),
+      f.text({ name: 'name', label: '警示名稱', value: r.name, placeholder: '血管難打' }),
       f.text({
         name: 'hint', label: '一句說明', value: r.hint ?? '',
         placeholder: '點滴與抽血要多留時間，先問慣用手',
         hint: '選填。只出現在客戶的永久限制編輯畫面上，不會出現在壓表的卡片牆。',
       }),
+      alertLookFields(r),
     ],
-    parse: (v) => ({ name: v.name.trim(), hint: v.hint.trim() || null }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      hint: v.hint.trim() || null,
+      color: v.color || DEFAULT_ALERT_COLOR,
+      fill: v.fill || DEFAULT_ALERT_FILL,
+    }),
+    // **不重畫整張表。** 挑一次顏色重畫一次的話，她打到一半的說明會失去游標
+    // 與輸入法的組字狀態（同 ADR-0038）。所以預覽是就地換的。
+    wireForm: ({ form }) => {
+      f.wireChips(form);
+      const sync = () => {
+        const v = f.readForm(form);
+        const host = form.querySelector('[data-alertpreview]');
+        if (host) host.innerHTML = alertPreview(v, v.name || '警示');
+      };
+      form.addEventListener('click', (e) => {
+        const swatch = e.target.closest('[data-colour]');
+        if (swatch) {
+          form.elements.color.value = swatch.dataset.colour;
+          form.querySelectorAll('[data-colour]').forEach((b) =>
+            b.setAttribute('aria-pressed', String(b === swatch)));
+        }
+        if (swatch || e.target.closest('[data-chip="fill"]')) sync();
+      });
+      form.addEventListener('input', (e) => {
+        if (e.target.name === 'name') sync();
+      });
+    },
   },
 
   ivProducts: {
@@ -477,7 +558,9 @@ function paintList(el, type, all) {
       <section class="card row">
         <div class="row__main">
           <div class="row__title">
-            ${esc(r.name)}
+            ${/* 有 badge 的那幾種在清單上就畫出它真正的樣子（目前只有警示）——
+                 一份只印名字的清單，她要點進去才知道上次挑了什麼顏色。 */''}
+            ${ed.badge ? ed.badge(r) : esc(r.name)}
             ${r.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
           </div>
           <div class="muted">${esc(ed.summary(r))}</div>
