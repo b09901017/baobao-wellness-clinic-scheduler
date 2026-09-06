@@ -529,3 +529,18 @@ export function roomsForCourse(course, rooms) {
   const types = course.allowedRoomTypes ?? [];
   return types.length ? alive.filter((r) => types.includes(r.type)) : alive;
 }
+
+/**
+ * 這個課程給不給她挑時長 —— 也就是「它有沒有兩種以上的規格」。
+ *
+ * 名單記在**課程主檔**上（`durationChoices`），不寫死課程名字 ——
+ * 這個 repo 為字串比對付過帳（`domain/followups.js` 的檔頭）。
+ * 沒填就是不給挑，用課程的預設時長。
+ *
+ * 兩個地方問同一件事，所以它住在這裡（兩邊都 import 得到）：
+ *
+ * - 加購那一張表：要不要畫「幾分鐘」那一排（`ui/components/buy.js`）
+ * - 月檢視那一格：要不要在器材後面補上分鐘（`domain/naming.js`）
+ */
+export const durationChoicesOf = (course) =>
+  (course?.durationChoices ?? []).filter((n) => Number.isInteger(n) && n > 0);

@@ -30,6 +30,7 @@ import {
   poolName, timedLabel, durationChoicesOf, countWord,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
+import { nameOf } from '../../domain/naming.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
 import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
@@ -133,20 +134,58 @@ export function fields(e, master) {
  * 排班時沒有池可以選器材。
  *
  * 留在原位是刻意的：這一排橫著捲，而她最常買的就是復能 ——
- * 接在最後面等於每一次都要滑到底。順序由她自己在主檔上排，這裡不重排。
+ * 接在最後面等於每一次都要滑到底。
+ *
+ * **復能與 ILIB 一定並排**（2026-09-07 她指名的）：
+ *
+ * > 我希望復能和ILIB這兩個丸子可以在隔壁
+ *
+ * 它們是同一個分類底下的兩個課程（`CONTEXT.md` 的「物理賦能課程」），
+ * 而她每一次加購都是先看這兩顆。判準**不是名字**：接在復能後面的是
+ * 「擁有四選一裡那幾台器材、但自己不是復能」的課程，也就是 ADR-0075 那條
+ * 推導的另一端。她之後多接一台新器材、指到一個新課程，那個課程也會自己
+ * 跟過來 —— 一行程式都不用改。
  */
 function courseChips(master) {
   const out = [];
   let pooled = false;
+  let poolAt = -1;
   for (const c of master.courses ?? []) {
     if (!c.requiresEquipment) {
       out.push({ value: c.id, label: c.name });
     } else if (!pooled) {
       pooled = true;
+      poolAt = out.length;
       out.push({ value: POOL_PICK, label: c.name });
     }
   }
-  return out;
+  if (poolAt < 0) return out;
+
+  const siblings = poolSiblingCourseIds(master);
+  if (!siblings.size) return out;
+
+  const moved = out.filter((x, i) => i !== poolAt && siblings.has(x.value));
+  if (!moved.length) return out;
+  const rest = out.filter((x, i) => i === poolAt || !siblings.has(x.value));
+  const at = rest.findIndex((x) => x.value === POOL_PICK);
+  return [...rest.slice(0, at + 1), ...moved, ...rest.slice(at + 1)];
+}
+
+/**
+ * 擇一池那個課程的「鄰居」是哪幾個課程。
+ *
+ * 四選一裡那幾台器材身上的 `courseId`，扣掉復能自己那一個 —— 現在就是
+ * ILIB 那一個。空的（她還沒把 ILIB 建成器材）就回空的，那時候
+ * 資料健檢的「器材主檔少了一台」會講這件事。
+ */
+function poolSiblingCourseIds(master = {}) {
+  const home = poolCourseOf(master);
+  const ids = new Set();
+  for (const eq of master.equipment ?? []) {
+    if (eq.deletedAt || eq.active === false) continue;
+    if (eq.courseId && eq.courseId !== home?.id) ids.add(eq.courseId);
+  }
+  return ids;
 }
 
 /**
@@ -495,7 +534,9 @@ export function poolCourseOf(master = {}) {
 }
 
 /**
- * 「哪一種」那一排有哪幾顆。
+ * 「哪一種」那一排有哪幾顆。她 2026-09-07 指名的五顆：
+ *
+ * > 三選一/四選一/高能量雷射/SIS/INDIBA
  *
  * 前面是**整組**（三選一、四選一），後面是**單買一台**。順序是刻意的：
  * 方案裡的那一項就是三選一，她最常買的排最前面（同 `ivChoicesFor()` 的判斷）。
@@ -507,15 +548,24 @@ export function poolCourseOf(master = {}) {
  *
  * 兩組一樣大時只留一顆 —— 畫兩顆一模一樣的丸子等於在問一個沒有答案的問題。
  * 一台器材都沒有指到課程（舊資料）時，「整組」就是全部，只有一顆。
+ *
+ * **單買那一排只有復能自己的器材**，ILIB 不在裡面：它在「買了什麼」那一排
+ * 自己有一顆（就在復能隔壁），而單買 ILIB 是那個課程的 `single` 額度 ——
+ * 它要的是診間不是治療師，跟池裡那三台不是同一種東西。同一件事給兩條路買，
+ * 兩邊算出來的次數會對不起來。
+ *
+ * 丸子上印的是**別稱**（`SIS` 不是 `超磁場`），跟 `poolName()` 算出來的
+ * 名字同一份 —— 按下去之後名字變成什麼，按之前就看得到。
  */
 export function poolChoices(master = {}) {
   const equipment = (master.equipment ?? []).filter((e) => !e.deletedAt && e.active !== false);
   const home = poolCourseOf(master);
   const tagged = equipment.filter((e) => e.courseId);
 
-  const homeIds = home && tagged.length
-    ? equipment.filter((e) => e.courseId === home.id).map((e) => e.id)
-    : equipment.map((e) => e.id);
+  const mine = home && tagged.length
+    ? equipment.filter((e) => e.courseId === home.id)
+    : equipment;
+  const homeIds = mine.map((e) => e.id);
   const allIds = equipment.map((e) => e.id);
 
   const sets = [];
@@ -526,7 +576,11 @@ export function poolChoices(master = {}) {
 
   return {
     sets: sets.map((x) => ({ ...x, label: `${countWord(x.ids.length)}選一` })),
-    singles: equipment.map((eq) => ({ value: eq.id, ids: [eq.id], label: eq.name })),
+    singles: mine.map((eq) => ({
+      value: eq.id,
+      ids: [eq.id],
+      label: nameOf(eq, 'short', { as: 'equipment' }),
+    })),
   };
 }
 

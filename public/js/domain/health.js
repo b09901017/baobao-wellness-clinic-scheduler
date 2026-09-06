@@ -17,10 +17,11 @@
 // 與備註的舊說法改名（docs/adr/0050-the-health-can-rename-an-imported-note.md）。
 
 import {
-  counts, reconcile, isOverused, schedulable, poolName, timedLabel,
+  counts, reconcile, isOverused, schedulable, poolName, timedLabel, legacyPoolNames,
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
-import { clinicalTerms } from './masterData.js';
+import { SEED } from './seed.js';
+import { clinicalTerms, durationChoicesOf } from './masterData.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -96,13 +97,25 @@ export const CHECKS = [
   {
     id: 'poolLabel',
     label: '復能額度還叫舊名字',
-    hint: '2026-09-06 之前買的那幾筆叫「復能」，新的叫「復能三選一(60)」'
+    hint: '以前買的那幾筆叫「復能」或「復能三選一(60)」，新的叫「復能 - 三選一（60）」'
       + ' —— 同一位客戶身上兩種名字並排，看起來像兩種東西',
   },
   {
     id: 'alertTerm',
     label: '器材上的提醒詞不在警示名單裡',
     hint: '客戶身上打了那個字，壓表卡片牆上卻什麼都不會出現 —— 跟做對了長得一模一樣',
+  },
+  {
+    id: 'seedEquipment',
+    label: '器材主檔少了一台',
+    hint: '「四選一」那一顆丸子要有一台不屬於復能的器材才畫得出來'
+      + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
+  },
+  {
+    id: 'seedDuration',
+    label: '課程沒填可選時長',
+    hint: '復能與 ILIB 有 30 與 60 兩種規格。沒填的話加購時「幾分鐘」那一排不出現，'
+      + '名字也少了後面那個數字，月檢視更分不出那天排的是 30 還是 60',
   },
 ];
 
@@ -727,10 +740,8 @@ function checkIvMismatch(ctx) {
  * **判準是形狀不是名字**：只認得出「舊的自動名字」的那幾筆。她自己打的名字
  * 不可以被一顆按鈕改掉，所以認不出來的一律不列（同 ADR-0050 的判斷）。
  *
- * 舊的自動名字只有兩種形狀，因為以前的 `autoLabel()` 就只吐這兩種：
- *
- *   `復能`          那時候擇一池一律叫課程名
- *   `復能三選一`     算得出名字、但還沒有時長的中間狀態
+ * 舊的自動名字有哪幾種寫在 `legacyPoolNames()`（三代格式），
+ * 時長那個尾巴半形全形兩種都認 —— 2026-09-07 之前是 `(60)`，之後是 `（60）`。
  */
 function checkPoolLabels(ctx) {
   const out = [];
@@ -738,15 +749,25 @@ function checkPoolLabels(ctx) {
   for (const e of ctx.entitlements) {
     if (e.deletedAt || e.type !== 'pool') continue;
 
-    const bare = poolName(e.optionEquipmentIds ?? [], ctx.equipment, ctx.courses);
+    const ids = e.optionEquipmentIds ?? [];
+    const bare = poolName(ids, ctx.equipment, ctx.courses);
     if (!bare) continue;                       // 器材全被刪了，講不出該叫什麼
     const want = timedLabel(bare, e.durationMin);
     const now = String(e.label ?? '').trim();
     if (!now || now === want) continue;
 
-    // 她自己打的名字不動。認得出來的只有那兩種舊的自動名字。
-    const homeName = courseNameOf(e, ctx);
-    if (now !== bare && now !== homeName) continue;
+    // 她自己打的名字不動 —— 認得出來的只有歷代自動名字。
+    // `bare` 也算一種：算得出名字、但還沒有時長的中間狀態。
+    const known = new Set();
+    const n = Number(e.durationMin);
+    for (const name of [...legacyPoolNames(ids, ctx.equipment, ctx.courses), bare]) {
+      known.add(name);
+      if (Number.isInteger(n) && n > 0) {
+        known.add(`${name}(${n})`);
+        known.add(`${name}（${n}）`);
+      }
+    }
+    if (!known.has(now)) continue;
 
     out.push({
       severity: 'attention',
@@ -765,17 +786,6 @@ function checkPoolLabels(ctx) {
   }
 
   return out;
-}
-
-/** 這一池的「家」課程叫什麼。推不出來就回空字串（那時候什麼都不比）。 */
-function courseNameOf(e, ctx) {
-  const ids = e.optionEquipmentIds ?? [];
-  for (const id of ids) {
-    const courseId = ctx.equipmentById[id]?.courseId ?? null;
-    const course = courseId ? ctx.coursesById[courseId] : null;
-    if (course?.requiresEquipment) return String(course.name ?? '').trim();
-  }
-  return '';
 }
 
 /**
@@ -805,6 +815,80 @@ function checkAlertTerms(ctx) {
     }));
 }
 
+/**
+ * 十四、器材主檔少了一台種子資料裡有的。
+ *
+ * 症狀是**一顆丸子不見了**：加購那一排的「四選一」要有一台 `courseId`
+ * 不是復能的器材才組得出來（`poolChoices()`、ADR-0075），而 ILIB 那一台是
+ * 2026-09-06 才進種子資料的 —— 在那之前建的資料庫裡沒有它，
+ * 於是「四選一」那一顆按不出來，**而畫面上跟「本來就沒有那一種」長得一模一樣**。
+ *
+ * 她 2026-09-07 的第一句話就是「復能為什麼沒有四選一？」——
+ * 這一列就是為了讓那個問題有地方看得到答案。
+ *
+ * 兩道護欄，兩道都是為了不要變成一個關不掉的提醒：
+ *
+ * - **她自己刪掉的不算**：比的是 `equipmentById`（含已刪除的）。
+ * - **那一台的課程要真的存在**。種子說 ILIB 那一台屬於 `course-iv-laser`，
+ *   而她的主檔裡有那個課程 —— 缺的就只是器材那一列。自己從零建主檔、
+ *   一個種子 id 都沒有的資料庫（測試夾具就是）不會被念，因為那時候
+ *   缺的不是一台器材，是整份主檔。
+ */
+function checkSeedEquipment(ctx) {
+  return (SEED.equipment ?? [])
+    .filter((row) => !ctx.equipmentById[row.id] && ctx.coursesById[row.courseId])
+    .map((row) => ({
+      severity: 'attention',
+      title: row.name,
+      detail: '種子資料裡有這一台，你的器材主檔沒有 —— 加購那一排會少一顆丸子',
+      link: '#/settings/equipment',
+      fix: {
+        kind: 'addEquipment',
+        label: row.name,
+        equipmentId: row.id,
+        data: { ...withoutId(row), active: true },
+      },
+    }));
+}
+
+/** 種子的一列去掉 id —— `repo.create()` 收的是資料，id 另外給。 */
+function withoutId({ id, ...rest }) {
+  return rest;
+}
+
+/**
+ * 十五、課程沒填可選時長。
+ *
+ * 她 2026-09-07：「目前就復能的那四個先預設有 30 60 這兩個時長，
+ * 其他的就預設沒有沒關係」。種子上復能與 ILIB 都是 `[30, 60]`，
+ * 而 2026-09-06 之前建的資料庫上那一格是空的 —— 症狀有三個，三個都是「少東西」：
+ *
+ * - 加購時「幾分鐘」那一排整排不出現
+ * - 名字少了後面那個數字（`復能 - 三選一` 而不是 `復能 - 三選一（60）`）
+ * - 月檢視印不出 `SIS(60)`，30 分與 60 分那兩天長得一模一樣
+ *
+ * **只在她那一格是空的時候報。** 她自己填成 `[60]` 是一個決定，
+ * 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）。
+ */
+function checkSeedDurations(ctx) {
+  return (SEED.courses ?? [])
+    .filter((row) => durationChoicesOf(row).length >= 2)
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && !(mine.durationChoices ?? []).length)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `填上 ${durationChoicesOf(row).join('、')} 分鐘`,
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setDurations',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        durationChoices: durationChoicesOf(row),
+      },
+    }));
+}
+
 const RUNNERS = {
   counts: checkCounts,
   followups: checkFollowups,
@@ -819,4 +903,6 @@ const RUNNERS = {
   chartNo: checkChartNo,
   poolLabel: checkPoolLabels,
   alertTerm: checkAlertTerms,
+  seedEquipment: checkSeedEquipment,
+  seedDuration: checkSeedDurations,
 };
