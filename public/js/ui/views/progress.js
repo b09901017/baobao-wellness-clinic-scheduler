@@ -49,6 +49,10 @@ export async function render(el) {
       customersData.list(),
       config.listAll('rooms'),
       config.listAll('staff'),
+      // 那一段叫什麼（`domain/naming.js`）—— 讀取卡片四個畫面共用同一支，
+      // 少帶這兩份的話這一頁會寫「復能」而日曆上寫「復能(SIS)」。
+      config.listAll('courses', { includeDeleted: true }),
+      config.listAll('equipment', { includeDeleted: true }),
     ]);
   } catch (err) {
     el.innerHTML = `${backLink()}
@@ -63,6 +67,7 @@ export async function render(el) {
     customers: customers.filter((c) => c.active !== false),
     roomsById: byId(master[0]),
     staffById: byId(master[1]),
+    master: { courses: master[2], equipment: master[3] },
   };
 
   await paint(ctx);

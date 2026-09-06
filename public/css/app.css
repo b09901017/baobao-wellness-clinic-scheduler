@@ -4155,6 +4155,40 @@ button.mark::after {
   padding: 0;
 }
 
+/* 設定 → 名稱怎麼寫。一列 = 一筆主檔的別稱、LINE 名、三種寫法的預覽。
+   器材縮排掛在它的課程底下（ADR-0075）—— 她要看的是那兩個字組起來的樣子。 */
+.namerow {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+.namerow:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.namerow--sub {
+  margin-left: var(--space-4);
+}
+.namerow__head {
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+/* 兩格並排。手機上一格大約 150px，放得下「高能量雷射」那種長度。 */
+.namerow__fields {
+  display: flex;
+  gap: var(--space-2);
+}
+.namerow__fields .field {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.namerow__preview {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
 .field__label {
   display: block;
   margin-bottom: 3px;

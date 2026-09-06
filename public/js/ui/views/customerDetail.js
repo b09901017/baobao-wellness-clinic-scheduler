@@ -565,6 +565,8 @@ function paintMessages(sheet, ctx, today, month, invite, templates = {}) {
   const link = invite ? formLink(location.origin, invite.id) : '';
   const list = messagesFor({
     customer: ctx.customer, visits: ctx.visits, today, formLink: link, templates,
+    // 那一段寫「那天真的做了什麼」（`13`）
+    master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
   });
   const shown = link ? list : list.filter((m) => m.id !== 'ask');
 
@@ -1735,6 +1737,9 @@ function openVisitCard(ctx, visitId) {
       roomsById: byId(ctx.rooms ?? []),
       staffById: byId(ctx.staff ?? []),
       coursesById: byId(ctx.courses ?? []),
+      // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
+      // 少帶這一份的話這一頁會寫「復能」而日曆上寫「復能(SIS)」。
+      master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
       tasks: ctx.tasks ?? [],
       today: todayISO(),
     }),

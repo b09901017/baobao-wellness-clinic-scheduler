@@ -161,6 +161,23 @@ export function ivChoicesFor(entitlement, ivProducts = []) {
 
 const isBlank = (v) => v == null || String(v).trim() === '';
 
+/**
+ * 別稱與 LINE 名（`domain/naming.js`）。兩個都選填 —— 空的就退回全名。
+ *
+ * 上限 12 字跟警示同一個理由：**別稱是給窄的地方用的**，
+ * 一個比全名還長的別稱等於那一格白填了。
+ */
+function nameVariants(r) {
+  const errors = [];
+  for (const [key, label] of [['shortName', '別稱'], ['lineName', 'LINE 名']]) {
+    const v = r[key];
+    if (v == null || v === '') continue;
+    if (typeof v !== 'string') errors.push(`${label}格式錯誤`);
+    else if (v.trim().length > 12) errors.push(`${label}最多 12 字 —— 它是給窄的地方用的`);
+  }
+  return errors;
+}
+
 /** 同一份清單裡不可以有兩個同名的（已刪除的不算）。 */
 function duplicateName(record, existing) {
   const name = String(record.name ?? '').trim();
@@ -197,7 +214,7 @@ const validators = {
   },
 
   equipment(r, { courses = [] } = {}) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
     if (!Array.isArray(contra)) errors.push('禁忌格式錯誤');
@@ -244,7 +261,7 @@ const validators = {
   },
 
   courses(r, { existing = [] } = {}) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');

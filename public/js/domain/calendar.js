@@ -13,6 +13,7 @@
 
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
+import { slotName } from './naming.js';
 import { isActive } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
@@ -112,8 +113,11 @@ export function titleOf(view, date) {
  * 而一次來訪有 2–3 個時段散在不同時間。
  *
  * @param {object[]} visits 這一天的來訪
- * @param {object} [ctx] { roomsById, staffById, includeCancelled }
+ * @param {object} [ctx] { roomsById, staffById, master, includeCancelled }
  *   有 roomsById / staffById 的話就把診間與治療師換成名字。
+ *   有 `master`（課程與器材主檔）的話多帶一個 `courseLabel`：
+ *   **那天真的做了什麼**（`復能(SIS)`），不是額度的名字。沒給就只有
+ *   `courseName` 快照，畫面自己退回去（`domain/naming.js`）。
  *
  *   `includeCancelled`：把取消的也攤平出來。**預設 false** ——
  *   壓表與進度追蹤問的是「這一天還排得下嗎」「這個月做了多少」，
@@ -130,7 +134,7 @@ export function titleOf(view, date) {
 export function agendaFor(
   visits,
   date,
-  { roomsById = {}, staffById = {}, includeCancelled = false } = {},
+  { roomsById = {}, staffById = {}, master = null, includeCancelled = false } = {},
 ) {
   const rows = [];
 
@@ -151,6 +155,7 @@ export function agendaFor(
         timeLabel: timeLabel(slot),
         endsAt: slot.endsAt ?? '',
         courseName: slot.courseName ?? '',
+        courseLabel: master ? slotName(slot, master, 'full') : null,
         room: roomsById[slot.roomId]?.name ?? null,
         bed: slot.bed ?? null,
         therapist: staffById[slot.therapistId]?.name ?? null,

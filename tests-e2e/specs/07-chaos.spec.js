@@ -296,6 +296,7 @@ test('C23 遍歷每一頁：沒有未捕獲例外、沒有白屏', async ({ app,
     '/settings/merge', '/settings/preferences',
     '/settings/rooms', '/settings/courses', '/settings/staff', '/settings/equipment',
     '/settings/plans', '/settings/ivProducts', '/settings/products',
+    '/settings/clinicalFlags', '/settings/naming',
   ];
 
   const empty = [];

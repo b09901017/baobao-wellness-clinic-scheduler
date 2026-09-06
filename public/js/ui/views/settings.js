@@ -63,6 +63,7 @@ export async function render(el) {
         ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
         ${tile('#/settings/templates', 'LINE 回覆模板',
           changedTemplates ? `六則，改過 ${changedTemplates} 則` : '六則，都是預設值')}
+        ${tile('#/settings/naming', '名稱怎麼寫', '月檢視、一般、LINE 三種寫法')}
       </div>
       <details style="margin-top: var(--space-3)">
         <summary class="muted">任務規則綁在課程的類別上</summary>

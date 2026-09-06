@@ -12,6 +12,7 @@ import * as customers from './views/customers.js';
 import * as customersBulk from './views/customersBulk.js';
 import * as customerDetail from './views/customerDetail.js';
 import * as bought from './views/bought.js';
+import * as naming from './views/naming.js';
 import * as progress from './views/progress.js';
 import * as visitEditor from './views/visitEditor.js';
 import * as eventEditor from './views/eventEditor.js';
@@ -93,6 +94,9 @@ register('/playbook/:id', {
   render: (el, id) => playbook.render(el, id),
 });
 
+register('/settings/naming', {
+  title: '名稱怎麼寫', nav: false, render: naming.render,
+});
 register('/settings/trash', { title: '已刪除項目', nav: false, render: trash.render });
 register('/settings/health', { title: '資料健檢', nav: false, render: health.render });
 register('/settings/report', { title: '試算表報表', nav: false, render: report.render });

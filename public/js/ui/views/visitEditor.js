@@ -28,6 +28,7 @@ import {
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { splitFlags } from '../../domain/customers.js';
+import { slotName } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   roomSlots, roomsForCourse, staffWithRole, picksDoctor, ivChoicesFor,
@@ -347,8 +348,8 @@ function slotCard(ctx, draft, slot, i) {
         ${/* n返 的名字不在主檔上（它借二返那個課程），所以照返數印 */''}
         ${nth
           ? `<span class="slothead__what">${esc(nthLabel(nthOf(slot)) ?? 'n返')}</span>`
-          : (courseChoices.length === 1 && course
-            ? `<span class="slothead__what">${esc(course.name)}</span>`
+          : (course
+            ? `<span class="slothead__what">${esc(slotName(slot, all, 'full'))}</span>`
             : '<span class="app__spacer"></span>')}
         ${draft.slots.length > 1
           ? `<button class="slothead__x" type="button" data-del-slot="${i}"

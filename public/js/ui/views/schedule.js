@@ -1210,7 +1210,11 @@ function entFields(row, picked) {
 
   return `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">幾點開始${course.durationMin ? `　${course.durationMin} 分鐘` : ''}</span>
+      ${/* 時長要問**額度**不是課程（`04`）：她買的是「超磁場(30)」，
+             印課程的 60 分鐘會讓她照著排錯一段。`picked.durationMin` 已經是
+             `ent.durationMin ?? course.durationMin` 算好的那一個。 */''}
+      <span class="fieldgroup__label">幾點開始${
+        picked.durationMin ? `　${picked.durationMin} 分鐘` : ''}</span>
       <div class="chiprow noscroll-bar">
         ${timeChoices().map((t) => {
           // 落在他說不行的那半天。標起來，但**不 disable** —— 唯一會鎖住選項的
