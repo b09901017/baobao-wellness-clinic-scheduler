@@ -1,6 +1,6 @@
 # 日曆點一段，卻把那一天那位客戶的每一段都畫出來
 
-Status: ready（根因已定位；A11 決定月檢視也改成一段一條）
+Status: done
 來源：使用者，2026-09-08（需求 4）
 動工前先讀：`docs/adr/0018`、`0020`、`0056`、`ui/views/calendar.js` 的 `visitReadHtml()`
 

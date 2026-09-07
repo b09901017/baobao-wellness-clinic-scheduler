@@ -1,6 +1,6 @@
 # 文件、ADR、測試收尾
 
-Status: open（最後一支）
+Status: done
 
 ## 要補的 ADR
 

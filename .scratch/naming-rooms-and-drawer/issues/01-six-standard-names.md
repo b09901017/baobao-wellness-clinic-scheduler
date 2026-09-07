@@ -1,6 +1,6 @@
 # 名字只剩三種：額度名、月曆簡寫、LINE 草稿
 
-Status: ready（A1、A2、A3、A5 已定案）
+Status: done
 來源：使用者，2026-09-08（需求 1）
 動工前先讀：`docs/adr/0077`、`domain/naming.js` 的檔頭
 

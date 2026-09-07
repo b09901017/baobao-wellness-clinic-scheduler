@@ -1,6 +1,6 @@
 # 四選一預設彈出「診間」：根因是器材主檔的排序
 
-Status: open（根因已定位，可以動工）
+Status: done
 來源：使用者，2026-09-08（需求 2 前半）
 動工前先讀：`docs/adr/0075`、`domain/visits.js` 的 `coursesForEntitlement()`
 
