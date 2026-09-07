@@ -222,16 +222,27 @@ export const SEED = {
       // `ILIB室` 那個類型 2026-09-08 拿掉了（唯一那一間是 ILIB4，它有個 4）。
       // 她給的優先順序是 `.10、治2、治3`，本來就排在點滴室與治療室。
       assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'], allowedRoomIds: [],
+      // 她 2026-09-08 給的優先順序：`.10、治2、治3`。**只是順序不是限制** ——
+      // 其餘的治療室與點滴室照樣選得到。
+      preferredRoomIds: ['room-iv10', 'room-t2', 'room-t3'],
       requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {
-      // SPEC 第 7 節規則 2：EECP 只能在治5、治8
+      // SPEC 第 7 節規則 2：EECP 只能在治5、治8。
+      // `preferredRoomIds` 跟它**同時填著**是刻意的（2026-09-08）：
+      // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
       id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 30,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
     },
     {
       // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）
+      //
+      // 她 2026-09-08 說營養點滴要優先顯示 `.2` 至 `.10` —— **那本來就成立**：
+      // `allowedRoomTypes` 是點滴室，所以那八間本來就排在最前面、其餘收在
+      // 「其他診間」底下。`preferredRoomIds` 刻意留空：全部都是推薦等於沒有
+      // 推薦，而多一份名單就多一個「她之後加一間點滴室卻忘了加進去」的機會。
       id: 'course-iv-drip', name: '營養點滴', category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,

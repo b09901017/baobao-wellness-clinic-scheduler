@@ -223,6 +223,7 @@ const editors = {
     blank: {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      preferredRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
       needsTreatmentForm: true,
       needsRecord: false,
@@ -265,6 +266,16 @@ const editors = {
         name: 'allowedRoomTypes', label: '可用的診間類型',
         values: r.allowedRoomTypes ?? [], options: ROOM_TYPES,
         hint: '只在「選診間」時有效。',
+      }),
+      // 常用診間（`orderedRoomsForCourse()`）。**這是排序不是限制** ——
+      // 沒勾的那幾間照樣選得到，只是排在「其他診間」底下。
+      f.checkboxes({
+        name: 'preferredRoomIds', label: '常用診間',
+        values: r.preferredRoomIds ?? [],
+        options: (all?.rooms ?? []).filter((x) => !x.deletedAt)
+          .map((x) => ({ value: x.id, label: x.name })),
+        hint: '勾起來的排在最前面。這是順序不是限制 —— 沒勾的照樣選得到，'
+          + '只是收在「其他診間」底下。上面那一排勾不到的診間，勾了也不會出現。',
       }),
       f.toggle({
         name: 'requiresEquipment', label: '來訪時要選器材（擇一池）',
@@ -338,6 +349,7 @@ const editors = {
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
       // 指定診間是例外覆寫，這個表單不動它，保留原值
       allowedRoomIds: v.assigns === 'room' ? (prev?.allowedRoomIds ?? []) : [],
+      preferredRoomIds: v.assigns === 'room' ? (v.preferredRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,

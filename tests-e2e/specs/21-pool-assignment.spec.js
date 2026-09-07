@@ -99,3 +99,36 @@ test('四選一：池選了、器材沒選，存不下去', async ({ app, page }
   await expect(page.locator('#view')).toContainText('復能-四選一(60)');
   await expect(page.locator('#view')).toContainText('器材');
 });
+
+// 她 2026-09-08：「預約 ILIB 時 → 下拉選單優先置頂顯示：.10、治2、治3」。
+//
+// **這是排序不是限制**：其餘的治療室與點滴室照樣選得到，只是排在後面。
+test('ILIB 的診間照她給的順序置頂', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A', priority: 4 }),
+    entitlement('cust-a', {
+      id: 'ent-ilib', label: 'ILIB(60)', type: 'single',
+      courseId: 'course-iv-laser', totalQty: 10, durationMin: 60,
+    }),
+  ]);
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await page.locator('[data-start]').click();
+  await app.settled();
+  await page.locator('[data-pick="cust-a"]').first().click();
+  await page.waitForTimeout(600);
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-ent="ent-ilib"]').click();
+  await page.waitForTimeout(300);
+
+  const chips = page.locator('[data-room]');
+  await expect(chips.nth(0)).toHaveText('點滴10');
+  await expect(chips.nth(1)).toHaveText('治2');
+  await expect(chips.nth(2)).toHaveText('治3');
+
+  // 其餘的照樣選得到 —— 只是排在後面，不是不見了
+  await expect(chips.filter({ hasText: '點滴2' })).toHaveCount(1);
+});

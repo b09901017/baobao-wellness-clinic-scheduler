@@ -59,7 +59,7 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  roomSlots, roomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
+  roomSlots, orderedRoomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
   THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { splitFlags } from '../../domain/customers.js';
@@ -1619,18 +1619,26 @@ function pickIvIfBought(picked) {
 }
 
 /**
- * 診間。這個課程常用的放前面當泡泡，其餘的收在底下 ——
- * 十五間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
+ * 診間。這個課程排得進去的放前面，其餘的收在底下 ——
+ * 十七間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
+ *
+ * **前面那一排的順序由 `orderedRoomsForCourse()` 決定**（她 2026-09-08 要的
+ * 「優先置頂」）：EECP 是治5、治8，ILIB 是 `.10`、治2、治3。
+ * 來訪編輯器走的是同一支 —— 各排一次的話，同一個課程在兩個畫面上第一顆
+ * 丸子不一樣，她不會知道哪個算數。
  */
 function roomField(all, course) {
-  const allowed = new Set(roomsForCourse(course, all.rooms).map((r) => r.id));
+  const ordered = orderedRoomsForCourse(course, all.rooms);
+  const rank = new Map(ordered.map((r, i) => [r.id, i]));
   const slots = roomSlots(all.rooms);
   const chip = (s) => `
     <button class="chip" type="button" aria-pressed="${keyOf(s) === view.roomKey}"
             data-room="${esc(keyOf(s))}">${esc(s.label)}</button>`;
 
-  const primary = slots.filter((s) => allowed.has(s.roomId));
-  const rest = slots.filter((s) => !allowed.has(s.roomId));
+  const primary = slots
+    .filter((s) => rank.has(s.roomId))
+    .sort((a, b) => rank.get(a.roomId) - rank.get(b.roomId));
+  const rest = slots.filter((s) => !rank.has(s.roomId));
 
   return `
     <div class="fieldgroup">

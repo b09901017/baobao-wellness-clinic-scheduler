@@ -1,8 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
-  validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES, ASSIGNS,
+  validate, roomSlots, roomsForCourse, orderedRoomsForCourse,
+  MASTER_TYPES, ROOM_TYPES, ASSIGNS,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
@@ -298,6 +300,78 @@ describe('診間', () => {
 
   test('不選診間的課程回空陣列', () => {
     assert.deepEqual(roomsForCourse({ assigns: 'therapist' }, rooms), []);
+  });
+});
+
+// 她 2026-09-08：「預約 EECP 時 → 下拉選單優先置頂顯示：治5、治8」。
+//
+// **這是排序不是限制。** `allowedRoomIds` 是硬的（EECP 只能在治5、治8，
+// SPEC 第 7 節規則 2），`preferredRoomIds` 只決定誰排前面 ——
+// 兩個欄位回答兩個不同的問題，不可以互相取代。
+describe('這個課程的診間怎麼排', () => {
+  const rooms = [
+    { id: 'iv2', name: '點滴2', type: '點滴室' },
+    { id: 'iv10', name: '點滴10', type: '點滴室' },
+    { id: 't2', name: '治2', type: '治療室' },
+    { id: 't3', name: '治3', type: '治療室' },
+    { id: 'gone', name: '治9', type: '治療室', deletedAt: 'x' },
+  ];
+  const course = (over) => ({
+    assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'], allowedRoomIds: [], ...over,
+  });
+
+  test('推薦的排最前面，順序照她填的', () => {
+    const c = course({ preferredRoomIds: ['iv10', 't2'] });
+    assert.deepEqual(orderedRoomsForCourse(c, rooms).map((r) => r.name),
+      ['點滴10', '治2', '點滴2', '治3']);
+  });
+
+  test('沒填推薦就跟 roomsForCourse() 一模一樣', () => {
+    const c = course({});
+    assert.deepEqual(orderedRoomsForCourse(c, rooms), roomsForCourse(c, rooms));
+  });
+
+  test('推薦裡有一間排不進去的話不出現 —— 也不會因此變成允許', () => {
+    const c = course({ allowedRoomTypes: ['點滴室'], preferredRoomIds: ['t2', 'iv10'] });
+    assert.deepEqual(orderedRoomsForCourse(c, rooms).map((r) => r.name), ['點滴10', '點滴2']);
+  });
+
+  test('推薦裡有一間被刪掉了也不出現', () => {
+    const c = course({ preferredRoomIds: ['gone', 't3'] });
+    assert.deepEqual(orderedRoomsForCourse(c, rooms).map((r) => r.name),
+      ['治3', '點滴2', '點滴10', '治2']);
+  });
+
+  test('不選診間的課程還是空的', () => {
+    assert.deepEqual(orderedRoomsForCourse({ assigns: 'none', preferredRoomIds: ['t2'] }, rooms), []);
+  });
+
+  test('種子上 EECP 與 ILIB 的推薦就是她給的那幾間', () => {
+    const byId = Object.fromEntries(SEED.rooms.map((r) => [r.id, r.name]));
+    const pref = (id) => (SEED.courses.find((c) => c.id === id).preferredRoomIds ?? [])
+      .map((x) => byId[x]);
+    assert.deepEqual(pref('course-eecp'), ['治5', '治8']);
+    assert.deepEqual(pref('course-iv-laser'), ['點滴10', '治2', '治3']);
+  });
+
+  // 兩個入口各排一次的話，同一個課程在兩個畫面上第一顆丸子不一樣。
+  test('壓表與來訪編輯器都走同一支排序', () => {
+    for (const rel of ['js/ui/views/schedule.js', 'js/ui/views/visitEditor.js']) {
+      const src = readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+      assert.match(src, /orderedRoomsForCourse\(/, `${rel} 沒有走排序那一支`);
+      assert.ok(
+        !/roomsForCourse\(/.test(src.replace(/orderedRoomsForCourse\(/g, '')),
+        `${rel} 還在自己用 roomsForCourse() 排 —— 順序會跟另一頁不一樣`,
+      );
+    }
+  });
+
+  test('推薦診間只有選診間的課程才能設', () => {
+    const bad = {
+      name: 'X', durationMin: 30, category: 'C', assigns: 'therapist',
+      allowedRoomTypes: [], allowedRoomIds: [], preferredRoomIds: ['t2'],
+    };
+    assert.ok(validate('courses', bad, { existing: [] }).some((e) => e.includes('診間')));
   });
 });
 
