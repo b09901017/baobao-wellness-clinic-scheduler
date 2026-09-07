@@ -30,7 +30,6 @@ import {
   poolName, timedLabel, durationChoicesOf, countWord,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
-import { nameOf } from '../../domain/naming.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
 import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
@@ -177,8 +176,12 @@ function courseChips(master) {
  * 四選一裡那幾台器材身上的 `courseId`，扣掉復能自己那一個 —— 現在就是
  * ILIB 那一個。空的（她還沒把 ILIB 建成器材）就回空的，那時候
  * 資料健檢的「器材主檔少了一台」會講這件事。
+ *
+ * 設定 →「名稱怎麼寫」那一頁也問同一句話（她那六種的第六種就是這裡回的
+ * 那一個課程），所以它 export 出去 —— 兩邊各判斷一次的話，她之後多接一台
+ * 新器材、指到一個新課程時，加購那一排跟著變而名稱那一頁沒有。
  */
-function poolSiblingCourseIds(master = {}) {
+export function poolSiblingCourseIds(master = {}) {
   const home = poolCourseOf(master);
   const ids = new Set();
   for (const eq of master.equipment ?? []) {
@@ -554,8 +557,9 @@ export function poolCourseOf(master = {}) {
  * 它要的是診間不是治療師，跟池裡那三台不是同一種東西。同一件事給兩條路買，
  * 兩邊算出來的次數會對不起來。
  *
- * 丸子上印的是**別稱**（`SIS` 不是 `超磁場`），跟 `poolName()` 算出來的
- * 名字同一份 —— 按下去之後名字變成什麼，按之前就看得到。
+ * 丸子上印的是器材的**全名**，跟 `poolName()` 算出來的名字同一份 ——
+ * 按下去之後名字變成什麼，按之前就看得到。（別稱那一格留給月曆，
+ * 那裡 INDIBA 是 `IN`，但這一排要印 `INDIBA`，見 2026-09-08 那一輪。）
  */
 export function poolChoices(master = {}) {
   const equipment = (master.equipment ?? []).filter((e) => !e.deletedAt && e.active !== false);
@@ -579,7 +583,7 @@ export function poolChoices(master = {}) {
     singles: mine.map((eq) => ({
       value: eq.id,
       ids: [eq.id],
-      label: nameOf(eq, 'short', { as: 'equipment' }),
+      label: String(eq.name ?? '').trim(),
     })),
   };
 }

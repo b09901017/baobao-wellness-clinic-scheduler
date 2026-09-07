@@ -342,7 +342,7 @@ describe('種子資料', () => {
   test('ILIB 那一台指到 ILIB 課程，其餘三台指到復能', () => {
     const courseOf = (name) => SEED.equipment.find((e) => e.name === name).courseId;
     assert.equal(courseOf('ILIB'), 'course-iv-laser');
-    for (const name of ['INDIBA', '超磁場', '高能量雷射']) {
+    for (const name of ['INDIBA', 'SIS', '高能量雷射']) {
       assert.equal(courseOf(name), 'course-recovery');
     }
   });
@@ -416,20 +416,20 @@ describe('種子資料', () => {
     }
   });
 
-  test('體內金屬只擋超磁場與高能量雷射', () => {
+  test('體內金屬只提醒 SIS 與高能量雷射', () => {
     const blocked = SEED.equipment
       .filter((e) => e.contraindications.includes('體內金屬'))
       .map((e) => e.name);
-    assert.deepEqual(blocked.sort(), ['超磁場', '高能量雷射'].sort());
+    assert.deepEqual(blocked.sort(), ['SIS', '高能量雷射'].sort());
   });
 
   test('兩個方案的復能與 ILIB 次數相反，這是正常的', () => {
     const qty = (planName, label) =>
       SEED.plans.find((p) => p.name === planName).items.find((i) => i.label === label).qty;
-    assert.equal(qty('筋骨強身', '復能 - 三選一（60）'), 12);
-    assert.equal(qty('筋骨強身', 'ILIB（60）'), 20);
-    assert.equal(qty('8萬方案', '復能 - 三選一（60）'), 20);
-    assert.equal(qty('8萬方案', 'ILIB（60）'), 12);
+    assert.equal(qty('筋骨強身', '復能-三選一(60)'), 12);
+    assert.equal(qty('筋骨強身', 'ILIB(60)'), 20);
+    assert.equal(qty('8萬方案', '復能-三選一(60)'), 20);
+    assert.equal(qty('8萬方案', 'ILIB(60)'), 12);
   });
 
   test('復能與 ILIB 都給得出 30 與 60 兩種規格', () => {

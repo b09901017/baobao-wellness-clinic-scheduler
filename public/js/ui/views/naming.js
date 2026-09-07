@@ -1,38 +1,54 @@
 // 設定 → 名稱怎麼寫。
 //
-// 她 2026-09-06：
+// 她 2026-09-08：
 //
-// > 設定可以多一個名稱檢視表？就是可以設定課程的全名以及別稱(像是月檢視這邊
-// > 呈現的)以及如果是 line 草稿要怎麼寫名稱等等
+// > 我不希望出現復能(器材)，靜脈(IL)等其他格式，只會有以下這六種
+// > …設定就不用管復能或靜脈的課程命名，這兩個就固定用上面那六種，
+// > 然後改也是改上面那六種
+//
+// ## 這一頁的形狀：六列
+//
+// 上面一區就是她列的那六種，一種一列，每一列印出「月曆怎麼寫」與
+// 「LINE 草稿怎麼寫」：
+//
+//   復能-三選一      月曆 IN/SIS/高能量雷射   LINE 復能
+//   復能-四選一      月曆 …/IL                LINE 復能/靜脈雷射
+//   復能-INDIBA      月曆 [ IN  ]             LINE 復能
+//   復能-SIS         月曆 [     ]             LINE 復能
+//   復能-高能量雷射   月曆 [     ]             LINE 復能
+//   ILIB            月曆 [ IL  ]             LINE [靜脈雷射]
+//
+// **前兩列只給看。** 它們是一種**買法**（三台器材的組合），背後沒有一筆主檔
+// 可以存字 —— 另外開一份存名字的地方，她改了 SIS 的別稱之後那一列會停在舊的。
+// 那兩列的名字跟著「那天用了哪一台」走，所以改底下三列就好。
+//
+// **這六列一列都不寫死。** 哪幾台屬於復能、多出來的那一個課程是誰，
+// 全部從器材主檔上的 `courseId` 推（ADR-0075），跟加購那一排問的是同一句話
+//（`poolChoices()`、`poolSiblingCourseIds()`）。她之後多接一台新器材、
+// 指到一個新課程，這一頁自己會多一列。
 //
 // ## 這一頁改什麼、不改什麼
 //
-//   改  課程的別稱與 LINE 名、器材的別稱
+//   改   器材的別稱（月曆那一格）、ILIB 課程的別稱與 LINE 名
+//   改   其他課程的別稱與 LINE 名（底下那一區）
 //   不改 器材的 LINE 名 —— 貼給客人的那一句只講課程（ADR-0077），
 //        那一格畫不出來，所以器材那幾列根本不給它
 //   不改 全名 —— 改全名會動到主檔清單、方案範本、稽核紀錄，那是課程／器材
-//        自己那一頁的事
-//
-// ## 她真正要改的是器材那幾列
-//
-// 她 2026-09-07：
-//
-// > 我不需要改名復能……所以其實要改命名的是 高能量雷射/SIS/INDIBA
-//
-// 因為那三個字才是**月檢視上會出現的東西**：`復能 - 三選一（60）` 那一筆
-// 排到超磁場的那一天，日曆上印的是 `SIS`。課程那一列在這一頁仍然留著 ——
-// ILIB 要靠它才寫得出「一般 ILIB、LINE 靜脈雷射」。
+//        自己那一頁的事。復能那五種在 LINE 上都寫「復能」，那就是課程的全名，
+//        真的要改就去設定 → 課程改它
 //
 // ## 為什麼要有預覽
 //
-// 「別稱」跟「LINE 名」單獨看沒有意義 —— 她要看的是那兩個字**組起來**長什麼樣
-//（`復能(SIS)`）。組法只在 `domain/naming.js`，這一頁只是把它畫出來。
+// 「別稱」跟「LINE 名」單獨看沒有意義 —— 她要看的是那兩個字**擺進那一格**
+// 長什麼樣。組法只在 `domain/naming.js`，這一頁只是把它畫出來。
 //
 // 預覽是**就地換字**的：打字重畫會洗掉游標與輸入法的組字狀態（同 `buy.js`
 // 那句「會變成『8萬健檢』」）。
 
 import * as config from '../../data/config.js';
-import { NAME_CONTEXTS, CONTEXT_LABELS, slotName } from '../../domain/naming.js';
+import { slotName } from '../../domain/naming.js';
+import { poolName } from '../../domain/entitlements.js';
+import { poolChoices, poolCourseOf, poolSiblingCourseIds } from '../components/buy.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
@@ -55,6 +71,74 @@ export async function render(el) {
   paint({ el, courses, equipment });
 }
 
+/**
+ * 復能與 ILIB 那六列是哪幾列。**一列都不寫死。**
+ *
+ * 順序照她列的：兩種整組、三台單買、最後 ILIB。
+ *
+ * @returns {{key:string, title:string, slot:object, type:?string, id:?string,
+ *            hasLine:boolean, note:?string}[]}
+ *   `type`/`id` 是空的就代表那一列只給看（沒有一筆主檔可以存字）。
+ */
+function rehabRows(master) {
+  const { courses, equipment } = master;
+  const home = poolCourseOf(master);
+  if (!home) return [];
+
+  const { sets, singles } = poolChoices(master);
+  const rows = [];
+
+  // 一、二：整組。**只給看** —— 它是一種買法，不是一筆主檔。
+  for (const set of sets) {
+    rows.push({
+      key: `set:${set.value}`,
+      title: poolName(set.ids, equipment, courses),
+      // 預覽要印出「這一種在月曆上可能是哪幾個字」，所以帶著整池的器材
+      pool: set.ids,
+      note: '名字跟著那天用的是哪一台走 —— 要改就改底下那幾列',
+    });
+  }
+
+  // 三～五：單買一台。改得動的是器材的**別稱**（月曆那一格）。
+  for (const one of singles) {
+    const eq = equipment.find((x) => x.id === one.value) ?? null;
+    if (!eq) continue;
+    rows.push({
+      key: `equipment:${eq.id}`,
+      title: poolName([eq.id], equipment, courses),
+      slot: { courseId: home.id, courseName: home.name, equipmentId: eq.id },
+      type: 'equipment',
+      id: eq.id,
+      hasLine: false,
+    });
+  }
+
+  // 六：復能的鄰居（現在就是 ILIB）。它是一個**課程**，所以兩格都改得動。
+  for (const id of poolSiblingCourseIds(master)) {
+    const course = courses.find((c) => c.id === id && !c.deletedAt) ?? null;
+    if (!course) continue;
+    rows.push({
+      key: `courses:${course.id}`,
+      title: course.name,
+      slot: { courseId: course.id, courseName: course.name },
+      type: 'courses',
+      id: course.id,
+      hasLine: true,
+    });
+  }
+
+  return rows;
+}
+
+/** 底下那一區：復能與 ILIB 以外的課程。 */
+function otherCourses(master) {
+  const home = poolCourseOf(master);
+  const siblings = poolSiblingCourseIds(master);
+  return (master.courses ?? []).filter(
+    (c) => !c.deletedAt && c.id !== home?.id && !siblings.has(c.id),
+  );
+}
+
 function paint(ctx) {
   const { el, courses, equipment } = ctx;
   const master = { courses, equipment };
@@ -65,45 +149,67 @@ function paint(ctx) {
 
     <div class="page">
       <h1 class="page__title">名稱怎麼寫</h1>
-      <p class="page__lead">同一個東西在三個地方寫法不一樣：月檢視一格只放得下幾個字，
-        貼給客戶的那一句要她跟客人都看得懂。全名在課程與器材那兩頁改。</p>
+      <p class="page__lead">同一個東西在三個地方寫法不一樣：<b>額度</b>是當初買了什麼，
+        <b>月曆</b>一格只放得下幾個字，<b>LINE 草稿</b>要她跟客人都看得懂。
+        全名在課程與器材那兩頁改。</p>
     </div>
 
-    ${courses.map((c) => courseCard(c, equipment, master)).join('')}
+    <section class="card" data-namecard>
+      <h2 class="card__title">復能與 ILIB</h2>
+      <p class="muted" style="margin: 0 0 var(--space-3)">就是這六種。
+        前兩種是一種買法，名字跟著那天用的器材走，所以只給看。</p>
+      ${rehabRows(master).map((row) => rehabRowHtml(row, master)).join('')}
+    </section>
+
+    <section class="card" data-namecard>
+      <h2 class="card__title">其他課程</h2>
+      ${otherCourses(master).map((c) => nameRow({
+        title: c.name,
+        type: 'courses',
+        row: c,
+        hasLine: true,
+        slot: { courseId: c.id, courseName: c.name },
+        master,
+      })).join('')}
+    </section>
     </div>`;
 
   wire(ctx, master);
 }
 
-/**
- * 一個課程一張卡，它的器材縮排掛在底下。
- *
- * 器材掛在課程底下是因為她要看的正是那兩個字**組起來**的樣子
- * —— 「超磁場」單獨一列講不出「復能(SIS)」。掛哪一個課程由器材主檔上的
- * `courseId` 決定（ADR-0075）。
- */
-function courseCard(course, equipment, master) {
-  const mine = equipment.filter((e) => e.courseId === course.id);
-  return `
-    <section class="card" data-namecard="${esc(course.id)}">
-      ${nameRow(course, 'courses', { slot: { courseId: course.id, courseName: course.name }, master })}
-      ${mine.map((eq) => nameRow(eq, 'equipment', {
-        slot: { courseId: course.id, courseName: course.name, equipmentId: eq.id },
-        master,
-        indent: true,
-      })).join('')}
-    </section>`;
+/** 那六列。前兩列沒有輸入框，其餘走 `nameRow()`。 */
+function rehabRowHtml(row, master) {
+  if (!row.type) {
+    return `
+      <div class="namerow">
+        <div class="namerow__head">${esc(row.title)}</div>
+        <p class="namerow__preview">${poolPreview(row.pool, master)}</p>
+        <p class="namerow__preview">${esc(row.note ?? '')}</p>
+      </div>`;
+  }
+
+  const rows = row.type === 'courses' ? master.courses : master.equipment;
+  return nameRow({
+    title: row.title,
+    type: row.type,
+    row: rows.find((r) => r.id === row.id),
+    hasLine: row.hasLine,
+    slot: row.slot,
+    master,
+  });
 }
 
 /**
- * 一列：名字、一到兩格、三種寫法的預覽。
+ * 一列：名字、一到兩格、兩種寫法的預覽。
  *
  * **器材那幾列沒有 LINE 那一格**（ADR-0077）：貼給客人的那一句只講課程，
  * 所以器材的 `lineName` 一輩子都畫不出來。留著一個永遠不會出現在任何地方的
  * 輸入框比沒有還糟 —— 她會填，然後找不到它在哪裡。
  */
-function nameRow(row, type, { slot, master, indent = false }) {
-  const line = type === 'courses' ? `
+function nameRow({ title, type, row, hasLine, slot, master }) {
+  if (!row) return '';
+
+  const line = hasLine ? `
         <label class="field">
           <span class="field__label">LINE</span>
           <input type="text" data-line value="${esc(row.lineName ?? '')}"
@@ -111,12 +217,11 @@ function nameRow(row, type, { slot, master, indent = false }) {
         </label>` : '';
 
   return `
-    <div class="namerow ${indent ? 'namerow--sub' : ''}"
-         data-name="${esc(type)}:${esc(row.id)}">
-      <div class="namerow__head">${esc(row.name)}</div>
+    <div class="namerow" data-name="${esc(type)}:${esc(row.id)}">
+      <div class="namerow__head">${esc(title)}</div>
       <div class="namerow__fields">
         <label class="field">
-          <span class="field__label">別稱</span>
+          <span class="field__label">月曆</span>
           <input type="text" data-short value="${esc(row.shortName ?? '')}"
                  placeholder="${esc(row.name)}" maxlength="12" />
         </label>${line}
@@ -125,11 +230,33 @@ function nameRow(row, type, { slot, master, indent = false }) {
     </div>`;
 }
 
-/** 三種情境並排。`domain/naming.js` 組，這一頁只印。 */
+/**
+ * 一列的預覽。**`domain/naming.js` 組，這一頁只印。**
+ *
+ * 月曆那一格印的是「這一段真的排出去之後長什麼樣」，所以它不帶分鐘 ——
+ * 分鐘要有起訖時間才算得出來（`withMinutes()`），而這裡沒有哪一天。
+ * 底下那一句話講清楚這件事。
+ */
 function previewText(slot, master) {
-  return NAME_CONTEXTS
-    .map((c) => `${CONTEXT_LABELS[c]} ${esc(slotName(slot, master, c))}`)
-    .join('　｜　');
+  return `月曆 ${esc(slotName(slot, master, 'short'))}（30／60 會接在後面）`
+    + `　｜　LINE ${esc(slotName(slot, master, 'line'))}`;
+}
+
+/**
+ * 整組那兩列的預覽：**這一種在月曆上可能是哪幾個字。**
+ *
+ * 她自己寫的就是 `IN/SIS/高能量雷射`、`復能/靜脈雷射` —— 斜線的意思是
+ * 「其中一個，看那天壓了哪一台」。
+ */
+function poolPreview(ids, master) {
+  const slots = (ids ?? []).map((id) => {
+    const eq = (master.equipment ?? []).find((x) => x.id === id) ?? null;
+    const course = (master.courses ?? []).find((c) => c.id === eq?.courseId) ?? null;
+    return { courseId: course?.id, courseName: course?.name, equipmentId: id };
+  });
+  const uniq = (list) => [...new Set(list.filter(Boolean))].join('/');
+  return `月曆 ${esc(uniq(slots.map((s) => slotName(s, master, 'short'))))}`
+    + `　｜　LINE ${esc(uniq(slots.map((s) => slotName(s, master, 'line'))))}`;
 }
 
 function wire(ctx, master) {
@@ -155,12 +282,12 @@ function wire(ctx, master) {
   };
 
   // 打字**不重畫** —— 重畫會洗掉游標與輸入法的組字狀態。
-  // 那一張卡上每一列的預覽都要跟著換：改了「復能」的別稱，底下三台器材的
-  // 「月檢視」那一格也會變。
+  // **整頁的預覽都要跟著換**：改了 SIS 的別稱，上面「三選一」那一列的
+  // `IN/SIS/高能量雷射` 也會變。
   root.addEventListener('input', (ev) => {
     const holder = ev.target.closest('[data-name]');
     if (!holder || !apply(holder)) return;
-    for (const card of root.querySelectorAll('[data-namecard]')) refreshCard(card, ctx, master);
+    repaintPreviews(root, ctx, master);
   });
 
   // 離開那一格才寫進去。**每打一個字就存一次**會把稽核紀錄灌成一長串
@@ -181,20 +308,34 @@ function wire(ctx, master) {
   });
 }
 
-/** 一張卡上的每一列預覽重算一次。 */
-function refreshCard(card, ctx, master) {
-  const courseId = card.dataset.namecard;
-  const course = ctx.courses.find((c) => c.id === courseId) ?? null;
-  if (!course) return;
+/**
+ * 每一列的預覽重算一次。
+ *
+ * **整組那兩列也要**：它們沒有 `data-name`（改不動），但它們印的正是底下
+ * 那幾列的別稱組起來的樣子 —— 只重畫有輸入框的那幾列，她改了 SIS 之後
+ * 「三選一」那一列會停在舊的字。所以整頁重畫，而不是一張卡一張卡。
+ */
+function repaintPreviews(root, ctx, master) {
+  const rows = rehabRows(master);
+  const cards = root.querySelectorAll('[data-namecard]');
+  const rehabCard = cards[0];
 
-  for (const holder of card.querySelectorAll('[data-name]')) {
+  if (rehabCard) {
+    const holders = rehabCard.querySelectorAll('.namerow');
+    rows.forEach((row, i) => {
+      const target = holders[i]?.querySelector('.namerow__preview');
+      if (!target) return;
+      target.innerHTML = row.type ? previewText(row.slot, master) : poolPreview(row.pool, master);
+    });
+  }
+
+  for (const holder of root.querySelectorAll('[data-name]')) {
     const [type, id] = holder.dataset.name.split(':');
-    const slot = {
-      courseId,
-      courseName: course.name,
-      equipmentId: type === 'equipment' ? id : null,
-    };
+    if (type !== 'courses') continue;
+    const course = ctx.courses.find((c) => c.id === id) ?? null;
     const line = holder.querySelector('[data-preview]');
-    if (line) line.innerHTML = previewText(slot, master);
+    if (course && line) {
+      line.innerHTML = previewText({ courseId: course.id, courseName: course.name }, master);
+    }
   }
 }

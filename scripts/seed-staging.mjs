@@ -204,7 +204,7 @@ export function makeCustomer(i, today, { months }) {
     if (at >= 0) planRows[at] = { ...planRows[at], totalQty: planRows[at].totalQty - 5 };
   }
 
-  // 每三位有一位多買一種復能（issue 04）：四選一、單台超磁場、單台 INDIBA。
+  // 每三位有一位多買一種復能（issue 04）：四選一、單台 SIS、單台 INDIBA。
   // **輪流換一種** —— `i % RECOVERY_EXTRAS.length` 會永遠是 0（被選中的 i 都
   // 是 3 的倍數），那樣二十位裡只會出現四選一那一種。
   const extra = i % 3 === 0 ? RECOVERY_EXTRAS[(i / 3) % RECOVERY_EXTRAS.length] : null;

@@ -66,7 +66,7 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
- * - `renamePool`：以前買的復能額度改成新的名字（`復能 - 三選一（60）`）。
+ * - `renamePool`：以前買的復能額度改成新的名字（`復能-三選一(60)`）。
  *   **只改 label**，而且只改得動認得出「歷代自動名字」的那幾筆。
  * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
  *   客戶身上那個字在壓表卡片牆上什麼都不會出現。
@@ -127,6 +127,18 @@ function opFor(fix) {
       path: 'config/app/clinicalFlags',
       data: fix.data,
       note: '資料健檢：器材上的提醒詞補進警示名單',
+    };
+  }
+
+  // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
+  // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
+  if (fix?.kind === 'renameEquipment') {
+    return {
+      op: 'update',
+      path: 'config/app/equipment',
+      id: fix.equipmentId,
+      changes: { name: fix.name, shortName: fix.shortName ?? null },
+      note: '資料健檢：器材的名字改成建議值',
     };
   }
 

@@ -51,15 +51,30 @@ export const SEED = {
     { id: 'staff-dr-li', name: '李', role: '醫師' },
   ],
 
-  // 器材。**每一台記著「用這台的那一段算哪一個課程」**（ADR-0075）——
+  // 器材。**兩格名字回答兩個不同的問題**（2026-09-08）：
+  //
+  //   全名   她叫它什麼           SIS、INDIBA、高能量雷射、ILIB
+  //   別稱   月曆那一格的縮寫     （空）、IN、（空）、IL
+  //
+  // 額度的名字讀全名（`復能-INDIBA(60)`），月曆讀別稱（`IN(60)`）——
+  // 那正是她 2026-09-08 列的六種與它們的簡寫。夠短的就不必有別稱。
+  //
+  // **每一台還記著「用這台的那一段算哪一個課程」**（ADR-0075）——
   // 復能四選一是一筆額度、四台器材，而 ILIB 那一台要的是診間、
   // 其餘三台要的是物理治療師。指派是課程說了算，所以課程要由器材推。
   //
   // ILIB 是 2026-09-06 補進來的第四台：在那之前它只是一個課程（靜脈），
   // 而擇一池的選項是器材，所以它進不了四選一。
   equipment: [
-    { id: 'eq-indiba', name: 'INDIBA', courseId: 'course-recovery', contraindications: [] },
-    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
+    // 別稱 `IN` 是 2026-09-08 補的：月曆一格放不下 `INDIBA(60)` 六個字，
+    // 而她列的第三種就是 `復能-INDIBA(30/60) -> IN(30/60)` —— 額度讀全名、
+    // 月曆讀別稱，這一台正是那兩格會不一樣的那一台。
+    { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'course-recovery', contraindications: [] },
+    // **全名就是她叫它的名字**（2026-09-08）：她自己講的、寫的、記的都是 SIS，
+    // 而額度的名字讀的是全名（`復能-SIS(60)`）。別稱是**月曆上那一格的縮寫**，
+    // SIS 本來就夠短，所以它沒有別稱。既有資料庫上這一台還叫「超磁場」——
+    // 改名那一步由資料健檢的「器材的名字跟建議的不一樣」負責。
+    { id: 'eq-sis', name: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
     { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'] },
     // 別稱跟它那個課程一樣是 `IL`（她自己記的寫法）。月檢視印的是器材別稱，
     // 所以四選一那一筆排到 ILIB 的那一天，日曆上就是 `IL`。
@@ -78,7 +93,7 @@ export const SEED = {
   // 另外兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
   // 其餘由她自己在設定裡加。
   clinicalFlags: [
-    { id: 'cf-metal', name: '體內金屬', hint: '超磁場與高能量雷射要提醒，建議改用 INDIBA' },
+    { id: 'cf-metal', name: '體內金屬', hint: 'SIS 與高能量雷射要提醒，建議改用 INDIBA' },
     { id: 'cf-veins', name: '血管難打', hint: '點滴與抽血要多留時間，先問慣用手' },
     { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
   ],
@@ -235,9 +250,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-inbody', label: '身體組成分析', qty: 4, durationMin: 20, frequencyRule: '每季一次' },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能 - 三選一（60）', qty: 12, durationMin: 60,
+        { type: 'pool', label: '復能-三選一(60)', qty: 12, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 20, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 20, durationMin: 60 },
       ],
     },
     {
@@ -251,9 +266,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-pt-consult', label: '物理治療師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能 - 三選一（60）', qty: 20, durationMin: 60,
+        { type: 'pool', label: '復能-三選一(60)', qty: 20, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 12, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 12, durationMin: 60 },
       ],
     },
   ],

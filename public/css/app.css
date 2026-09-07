@@ -4204,8 +4204,9 @@ button.mark::after {
   padding: 0;
 }
 
-/* 設定 → 名稱怎麼寫。一列 = 一筆主檔的別稱、LINE 名、三種寫法的預覽。
-   器材縮排掛在它的課程底下（ADR-0075）—— 她要看的是那兩個字組起來的樣子。 */
+/* 設定 → 名稱怎麼寫。一列 = 她列的六種之一（或其他課程之一）：
+   月曆那一格、LINE 那一格、兩種寫法的預覽。
+   2026-09-08 之前是「課程一張卡、器材縮排掛在底下」，現在是平的六列。 */
 .namerow {
   padding: var(--space-3) 0;
   border-top: 1px solid var(--border-soft);
@@ -4213,9 +4214,6 @@ button.mark::after {
 .namerow:first-child {
   padding-top: 0;
   border-top: none;
-}
-.namerow--sub {
-  margin-left: var(--space-4);
 }
 .namerow__head {
   font-weight: 600;

@@ -258,6 +258,25 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  // 器材改名。**改名不會搬既有的東西**：客戶身上的額度名字、已經排出去的
+  // 時段快照都留在原地（ADR-0002、0003），所以那兩句要講出來。
+  equipmentNames: {
+    button: () => '改成建議值',
+    all: (n) => `一次改這 ${n} 台`,
+    one: (fix) => ({
+      title: `把「${fix.fromName}」改成「${fix.name}」？`,
+      lines: [
+        `全名 ${fix.fromName} → ${fix.name}，別稱 ${fix.fromShort} → ${fix.shortName ?? '（空）'}`,
+        '額度的名字讀全名、月曆讀別稱 —— 兩邊之後印的就是這兩個字',
+        '已經買下去的額度與已經排出去的來訪都不會跟著改名',
+        '「復能額度還叫舊名字」那一列要在這一步之後再按',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 台的名字都改成建議值？`,
+      lines: fixes.map((fix) => `${fix.fromName} → ${fix.name}`),
+    }),
+  },
   // 她 2026-09-08 的三條規則。**每一句都只講真的會發生的事**（ADR-0070）——
   // 改的是主檔那一格，既有來訪身上的診間一個字都不會動。
   courseAssigns: {
@@ -319,6 +338,7 @@ const KIND_TO_CHECK = {
   addEquipment: 'seedEquipment',
   setDurations: 'seedDuration',
   setAssigns: 'courseAssigns',
+  renameEquipment: 'equipmentNames',
 };
 
 /**

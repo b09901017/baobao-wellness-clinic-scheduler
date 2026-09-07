@@ -97,7 +97,7 @@ export const CHECKS = [
   {
     id: 'poolLabel',
     label: '復能額度還叫舊名字',
-    hint: '以前買的那幾筆叫「復能」或「復能三選一(60)」，新的叫「復能 - 三選一（60）」'
+    hint: '以前買的那幾筆叫「復能」或「復能 - 三選一（60）」，新的叫「復能-三選一(60)」'
       + ' —— 同一位客戶身上兩種名字並排，看起來像兩種東西',
   },
   {
@@ -110,6 +110,12 @@ export const CHECKS = [
     label: '器材主檔少了一台',
     hint: '「四選一」那一顆丸子要有一台不屬於復能的器材才畫得出來'
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
+  },
+  {
+    id: 'equipmentNames',
+    label: '器材的名字跟建議的不一樣',
+    hint: '額度的名字讀器材的全名（`復能-SIS(60)`）、月曆讀別稱（`IN(60)`）——'
+      + ' 那兩格還停在舊的，這兩個地方就都印不出她要的字',
   },
   {
     id: 'courseAssigns',
@@ -863,6 +869,63 @@ function withoutId({ id, ...rest }) {
 }
 
 /**
+ * 2026-09-08 之前種子上那兩台器材的名字。**只認得出這一代。**
+ *
+ * 那一輪把兩格名字的分工定下來（她選的）：
+ *
+ *   全名   她叫它什麼           SIS、INDIBA、高能量雷射、ILIB
+ *   別稱   月曆那一格的縮寫     （空）、IN、（空）、IL
+ *
+ * 額度的名字讀全名（`復能-INDIBA(60)`），月曆讀別稱（`IN(60)`）。在那之前
+ * 兩邊都讀別稱，而那一台叫「超磁場」、INDIBA 沒有別稱 —— 所以既有資料庫上
+ * 額度會印成 `復能-超磁場(60)`、月曆會印成 `INDIBA(60)`，兩個都不是她要的字。
+ *
+ * `null` 代表「那一格是空的」。
+ */
+const LEGACY_EQUIPMENT = {
+  'eq-sis': { name: '超磁場', shortName: 'SIS' },
+  'eq-indiba': { name: 'INDIBA', shortName: null },
+};
+
+/**
+ * 十七、器材的名字跟建議的不一樣。
+ *
+ * **兩格要同時還停在舊的才報**：她自己改過其中一格就是一個決定，
+ * 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）。
+ *
+ * 改完之後，**「復能額度還叫舊名字」那一列算出來的新名字才會是對的** ——
+ * 兩列的順序是這樣：先把器材改名，再改額度的名字。
+ */
+function checkEquipmentNames(ctx) {
+  const same = (a, b) => (String(a ?? '').trim() || null) === (b ?? null);
+
+  return (SEED.equipment ?? [])
+    .filter((row) => LEGACY_EQUIPMENT[row.id])
+    .map((row) => ({ row, was: LEGACY_EQUIPMENT[row.id], mine: ctx.equipmentById[row.id] }))
+    .filter(({ row, was, mine }) => {
+      if (!mine || mine.deletedAt) return false;
+      if (same(row.name, was.name) && same(row.shortName, was.shortName)) return false;
+      return same(mine.name, was.name) && same(mine.shortName, was.shortName);
+    })
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `全名改成「${row.name}」，別稱${
+        row.shortName ? `改成「${row.shortName}」` : '清空'}`,
+      link: '#/settings/naming',
+      fix: {
+        kind: 'renameEquipment',
+        equipmentId: row.id,
+        label: mine.name ?? row.name,
+        name: row.name,
+        shortName: row.shortName ?? null,
+        fromName: mine.name ?? '',
+        fromShort: mine.shortName ?? '（空）',
+      },
+    }));
+}
+
+/**
  * 2026-09-08 之前種子上那六個課程的指派。**只認得出這一代。**
  *
  * 她 2026-09-08 給的三條規則把「需要治療室」收斂成營養點滴、EECP、ILIB 三個，
@@ -922,7 +985,7 @@ function checkCourseAssigns(ctx) {
  * 而 2026-09-06 之前建的資料庫上那一格是空的 —— 症狀有三個，三個都是「少東西」：
  *
  * - 加購時「幾分鐘」那一排整排不出現
- * - 名字少了後面那個數字（`復能 - 三選一` 而不是 `復能 - 三選一（60）`）
+ * - 名字少了後面那個數字（`復能-三選一` 而不是 `復能-三選一(60)`）
  * - 月檢視印不出 `SIS(60)`，30 分與 60 分那兩天長得一模一樣
  *
  * **只在她那一格是空的時候報。** 她自己填成 `[60]` 是一個決定，
@@ -948,6 +1011,7 @@ function checkSeedDurations(ctx) {
 }
 
 const RUNNERS = {
+  equipmentNames: checkEquipmentNames,
   courseAssigns: checkCourseAssigns,
   counts: checkCounts,
   followups: checkFollowups,

@@ -25,7 +25,7 @@ const MASTER = {
   ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
-  equipment: [{ id: 'eq-indiba', name: 'INDIBA' }],
+  equipment: [{ id: 'eq-indiba', name: 'INDIBA', shortName: 'IN' }],
   ivProducts: [{ id: 'iv-1', name: '護肝排毒' }, { id: 'iv-2', name: '美白' }],
 };
 
@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十六項檢查都在，順序固定', () => {
+  test('十七項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 16);
+    assert.equal(result.checks.length, 17);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -792,8 +792,8 @@ describe('畫面認得每一種修正', () => {
 describe('復能額度還叫舊名字', () => {
   const EQUIPMENT = [
     { id: 'eq-laser', name: '高能量雷射', courseId: 'c-recovery' },
-    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
-    { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: 'SIS', courseId: 'c-recovery' },
+    { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'c-recovery' },
   ];
   const COURSES = [{ id: 'c-recovery', name: '復能', requiresEquipment: true, durationMin: 60 }];
   const pool = (over = {}) => ent({
@@ -807,20 +807,22 @@ describe('復能額度還叫舊名字', () => {
 
   test('叫「復能」的那幾筆列出來，而且講得出要改成什麼', () => {
     const [f] = go([pool()]);
-    assert.match(f.detail, /復能 - 三選一（60）/);
+    assert.match(f.detail, /復能-三選一\(60\)/);
     assert.equal(f.fix.kind, 'renamePool');
-    assert.equal(f.fix.to, '復能 - 三選一（60）');
+    assert.equal(f.fix.to, '復能-三選一(60)');
     assert.equal(f.fix.entitlementId, 'e-pool');
   });
 
   test('已經是新名字的不列 —— 不要每次掃都出現一次', () => {
-    assert.deepEqual(go([pool({ label: '復能 - 三選一（60）' })]), []);
+    assert.deepEqual(go([pool({ label: '復能-三選一(60)' })]), []);
   });
 
-  test('2026-09-06 那一版的自動名字也認得出來（半形括號、沒有破折號）', () => {
-    // 格式改過一次（ADR-0077），既有客戶身上是這一種
-    const [f] = go([pool({ label: '復能三選一(60)' })]);
-    assert.equal(f.fix.to, '復能 - 三選一（60）');
+  test('歷代自動名字都認得出來', () => {
+    // 格式改過兩次（ADR-0077、2026-09-08），既有客戶身上是這幾種
+    for (const label of ['復能三選一(60)', '復能 - 三選一（60）', '復能 - 三選一(60)']) {
+      const [f] = go([pool({ label })]);
+      assert.equal(f.fix.to, '復能-三選一(60)', label);
+    }
   });
 
   test('中間那個形狀（算得出名字但沒有時長）也認得出來', () => {
@@ -831,15 +833,15 @@ describe('復能額度還叫舊名字', () => {
     assert.deepEqual(go([pool({ label: '客戶A談的那五次' })]), []);
   });
 
-  test('單台的池照樣認得出來，改成「復能 - 別稱」', () => {
+  test('單台的池照樣認得出來，改成「復能-器材全名」', () => {
     const [f] = go([pool({ label: '復能', optionEquipmentIds: ['eq-sis'] })]);
-    assert.equal(f.fix.to, '復能 - SIS（60）');
+    assert.equal(f.fix.to, '復能-SIS(60)');
   });
 
-  test('單台的池：2026-09-06 那一版叫器材全名，也認得出來', () => {
-    for (const label of ['超磁場', '超磁場(60)']) {
+  test('單台的池：歷代自動名字也認得出來', () => {
+    for (const label of ['SIS', 'SIS(60)', '復能 - SIS（60）']) {
       const [f] = go([pool({ label, optionEquipmentIds: ['eq-sis'] })]);
-      assert.equal(f.fix.to, '復能 - SIS（60）', label);
+      assert.equal(f.fix.to, '復能-SIS(60)', label);
     }
   });
 
@@ -1052,5 +1054,65 @@ describe('課程的指派跟建議的不一樣', () => {
       'allowedRoomIds', 'allowedRoomTypes', 'assigns', 'courseId',
       'fromLabel', 'kind', 'label', 'toLabel',
     ]);
+  });
+});
+
+// ---------- 十七、器材的名字跟建議的不一樣（2026-09-08）----------
+//
+// 那一輪把器材主檔上兩格名字的分工定下來：全名是「她叫它什麼」（額度讀它），
+// 別稱是「月曆那一格的縮寫」（月曆讀它）。在那之前兩邊都讀別稱。
+describe('器材的名字跟建議的不一樣', () => {
+  const go = (equipment) => run({ master: { ...MASTER, equipment } }).checks
+    .find((c) => c.id === 'equipmentNames').findings;
+
+  /** 2026-09-08 之前的樣子。 */
+  const legacy = {
+    'eq-sis': { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'course-recovery' },
+    'eq-indiba': { id: 'eq-indiba', name: 'INDIBA', courseId: 'course-recovery' },
+  };
+
+  test('還停在舊的那一台列出來，而且改得起來', () => {
+    const [f] = go([legacy['eq-sis']]);
+    assert.equal(f.title, '超磁場');
+    assert.equal(f.fix.kind, 'renameEquipment');
+    assert.equal(f.fix.equipmentId, 'eq-sis');
+    assert.equal(f.fix.name, 'SIS');
+    assert.equal(f.fix.shortName, null, 'SIS 本來就夠短，不需要別稱');
+  });
+
+  test('INDIBA 是別稱那一格要補上 IN', () => {
+    const [f] = go([legacy['eq-indiba']]);
+    assert.equal(f.fix.name, 'INDIBA');
+    assert.equal(f.fix.shortName, 'IN');
+  });
+
+  test('兩台一起', () => {
+    assert.equal(go(Object.values(legacy)).length, 2);
+  });
+
+  test('已經是建議值就不再提', () => {
+    assert.deepEqual(go(SEED.equipment), []);
+  });
+
+  test('她自己改過其中一格就不動 —— 那是一個決定', () => {
+    assert.deepEqual(go([{ ...legacy['eq-sis'], name: '磁場' }]), []);
+    assert.deepEqual(go([{ ...legacy['eq-sis'], shortName: '超磁' }]), []);
+    assert.deepEqual(go([{ ...legacy['eq-indiba'], shortName: 'INDI' }]), []);
+  });
+
+  test('沒有要改的那幾台本來就不在名單裡', () => {
+    assert.deepEqual(go([SEED.equipment.find((e) => e.id === 'eq-ilib')]), []);
+    assert.deepEqual(go([SEED.equipment.find((e) => e.id === 'eq-laser')]), []);
+  });
+
+  test('她的主檔裡沒有那一台就不念，刪掉的也不念', () => {
+    assert.deepEqual(go([]), []);
+    assert.deepEqual(go([{ ...legacy['eq-sis'], deletedAt: 'x' }]), []);
+  });
+
+  test('這一種修正在畫面那兩張表上查得到', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/health.js', import.meta.url), 'utf8');
+    assert.ok(src.includes("renameEquipment: 'equipmentNames'"), 'KIND_TO_CHECK 少了');
+    assert.ok(src.includes('  equipmentNames: {'), 'FIX_COPY 少了');
   });
 });

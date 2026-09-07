@@ -116,7 +116,7 @@ async function load() {
       // 出現（`needsForm()`），取消那一道確認也要它才講得出壓在哪個系統。
       // 含已刪除的 —— 她停用一個課程，既有的來訪照樣要答得出這兩件事。
       config.listAll('courses', { includeDeleted: true }),
-      // 器材主檔：一段要唸成什麼要它（`domain/naming.js`）——「復能(SIS)」的
+      // 器材主檔：一段要唸成什麼要它（`domain/naming.js`）——「SIS(60)」的
       // 括號裡那一半就是從這裡來的。含已刪除的，理由同課程。
       config.listAll('equipment', { includeDeleted: true }),
       // 備忘錄（ADR-0067）。點開一筆來訪時，那一份的前幾行會浮在卡片底下。
@@ -1413,9 +1413,11 @@ export function visitReadHtml(visit, data) {
       return `
         <div class="readslot">
           <div class="readslot__when num">${esc(timeLabel(s))}</div>
-          ${/* **那天真的做了什麼**（`13`）：她點的是四選一，這裡要寫「復能(SIS)」。
-                四個畫面共用這一支，所以四頁一起改 —— 那是刻意的（ADR-0018、0056）。 */''}
-          <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'full') || '（沒有課程）')}${
+          ${/* **那天真的做了什麼**：她點的是四選一，這裡要寫「SIS(60)」——
+                跟月曆同一種寫法（2026-09-08 她選的）。底下那一行「扣 …」寫的
+                才是當初買了什麼，兩行合起來就是完整的一句話。
+                四個畫面共用這一支，所以四頁一起改（ADR-0018、0056）。 */''}
+          <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</div>
           ${fromLine(s, data)}
         </div>`;

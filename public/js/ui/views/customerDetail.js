@@ -1754,7 +1754,7 @@ function openVisitCard(ctx, visitId) {
       staffById: byId(ctx.staff ?? []),
       coursesById: byId(ctx.courses ?? []),
       // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
-      // 少帶這一份的話這一頁會寫「復能」而日曆上寫「復能(SIS)」。
+      // 少帶這一份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
       master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
       // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
       // 不必像日曆那樣點開才去讀那一位。

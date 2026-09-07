@@ -351,7 +351,7 @@ function slotCard(ctx, draft, slot, i) {
         ${nth
           ? `<span class="slothead__what">${esc(nthLabel(nthOf(slot)) ?? 'n返')}</span>`
           : (course
-            ? `<span class="slothead__what">${esc(slotName(slot, all, 'full'))}</span>`
+            ? `<span class="slothead__what">${esc(slotName(slot, all, 'short'))}</span>`
             : '<span class="app__spacer"></span>')}
         ${draft.slots.length > 1
           ? `<button class="slothead__x" type="button" data-del-slot="${i}"
