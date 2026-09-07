@@ -300,6 +300,52 @@ export function visitCourseLabel(visit) {
 }
 
 /**
+ * 讀取卡片要畫哪幾段。
+ *
+ * 她 2026-09-08：
+ *
+ * > 我在日曆點開詳情的時候，為甚麼我點的是復能(INDIBA)，
+ * > 但是卻會一次呈現三個復能(INDIBA)、復能(超磁場)、靜脈(IL)？
+ *
+ * 排班的原子單位是**來訪**（SPEC 第 4.4 節）：同一位客戶同一天壓第二次，
+ * 壓表那一頁會併進同一筆來訪。所以她眼裡的「三筆」在資料庫上是
+ * 一筆來訪、三個時段，而讀取卡片一直是把整筆畫出來的。
+ *
+ * 日／週檢視那一份清單**是一段一列**的（`domain/calendar.js` 的 `agendaFor()`
+ * 一路算出了 `slotIndex`），只是畫成按鈕的那一下把它丟掉了。這一支就是把
+ * 那個 index 接回來的地方。
+ *
+ * ## 為什麼是一支 domain 而不是在畫面上判斷
+ *
+ * `visitReadHtml()` 是**四個畫面共用**的（ADR-0018、0056），而另外三頁
+ * （客戶詳情、待辦中心、進度追蹤）列的本來就是整筆來訪 —— 它們是對的，
+ * 不可以跟著變。所以「畫哪幾段」是一條規則，規則寫在 domain。
+ *
+ * ## 兩條刻意的退路
+ *
+ * 1. **沒指定就是全部。** `undefined` 是「沒有人告訴我是哪一段」，
+ *    不是「第 0 段」—— 另外三頁一個字都不用改。
+ * 2. **指到一個不存在的段落也退回全部。** 畫成空白的話她會以為那一筆壞了，
+ *    而畫太多只是回到修好之前的樣子。兩種錯法的代價差很多。
+ *
+ * @param {{slots?: object[]}|null} visit
+ * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
+ * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
+ *   `hidden` 是「這一天還有幾段沒畫」，呼叫端拿它畫那一行「還有另外 N 段」。
+ */
+export function slotsToShow(visit, focusSlot = null) {
+  const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
+  const every = { slots: all, hidden: 0, focused: false };
+
+  // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
+  if (!Number.isInteger(focusSlot)) return every;
+  const one = all[focusSlot];
+  if (!one) return every;
+
+  return { slots: [one], hidden: all.length - 1, focused: true };
+}
+
+/**
  * 這一段在畫面上要顯示成哪一個狀態。
  *
  * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答

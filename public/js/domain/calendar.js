@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName } from './naming.js';
-import { isActive } from './visits.js';
+import { isActive, statusClass } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -176,6 +176,63 @@ export function agendaFor(
   rows.sort(byStart);
   markClashes(rows);
   return rows;
+}
+
+/**
+ * 一筆來訪在月檢視上的色條。**一段一條。**
+ *
+ * 她 2026-09-08：
+ *
+ * > 同一位客戶同一天三段，月檢視上只畫一條色條、而且只印第一段的名字
+ *
+ * 排班的原子單位是來訪（SPEC 第 4.4 節），所以同一天壓三次是一筆來訪三個
+ * 時段。以前這裡是一筆一條、`visitNames()[0]` —— 她那天做了 INDIBA、SIS 與
+ * ILIB，月檢視上只看得到 `IN(30)`。
+ *
+ * 三件刻意的事：
+ *
+ * 1. **id 一段一個**（`v1:0`）。`layoutMonth()` 拿 id 當 key，
+ *    三條同 id 會互相蓋掉。
+ * 2. **`sortKey` 是那一段的開始時間。** 少了它，同一天同樣長的那幾條會落到
+ *    「照標題排」，於是 `IL` `IN` `SIS` 照筆畫走，跟她那一天的順序無關
+ *    （`domain/events.js` 的 `bySortKey()`）。
+ * 3. **不去重。** 同一天兩段點滴就是兩條 —— 那正是她要看到的。
+ *    `visitNames()` 的去重留給 LINE 草稿，在那裡它仍然是對的。
+ *
+ * 一段都沒有的來訪仍然回一條（只有名字）：不然那一天在月檢視上整個不見。
+ *
+ * 月檢視寫的是**器材別稱**（`'short'`）：一格是七分之一個螢幕寬，
+ * 而她真正要認的是「那天是哪一台」——「復能」三個人都一樣，「SIS」才分得出來。
+ *
+ * @param {object} visit
+ * @param {{courses?: object[], equipment?: object[]}} master
+ * @returns {object[]} 餵給 `layoutMonth()` 的那種形狀
+ */
+export function monthBars(visit, master = {}) {
+  const name = visit?.customerName ?? '?';
+  const base = {
+    category: 'visit',
+    kind: statusClass(visit?.status) || 'kind-visit',
+    startDate: visit?.date,
+    endDate: visit?.date,
+    deletedAt: visit?.deletedAt ?? null,
+  };
+
+  // 姓名與課程之間用**半形**間隔號。一格手機上放得下四個多字 ——
+  // 全形的空白或「・」等於整整少看到一個字，而被切掉時那一顆懸在邊緣的
+  // 全形符號比半形的顯眼得多。
+  const bar = (id, course, sortKey) => ({
+    ...base,
+    id,
+    title: course ? `${name}·${course}` : name,
+    sortKey,
+  });
+
+  const slots = visit?.slots ?? [];
+  if (!slots.length) return [bar(visit?.id, '', null)];
+
+  return slots.map((slot, i) =>
+    bar(`${visit.id}:${i}`, slotName(slot, master, 'short'), slot.startsAt ?? null));
 }
 
 /**

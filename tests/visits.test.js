@@ -15,7 +15,7 @@ import {
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
-  courseForEquipment, picksEquipment,
+  courseForEquipment, picksEquipment, slotsToShow,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1051,5 +1051,69 @@ describe('器材決定那一段算哪一個課程', () => {
       assert.equal(picksEquipment({ type: 'single' }, COURSES2[1]), false);
       assert.equal(picksEquipment(null, null), false);
     });
+  });
+});
+
+// 她 2026-09-08：
+//
+// > 我在日曆點開詳情的時候，為甚麼我點的是復能(INDIBA)，
+// > 但是卻會一次呈現三個復能(INDIBA)、復能(超磁場)、靜脈(IL)？
+//
+// 排班的原子單位是來訪（SPEC 第 4.4 節），所以同一位客戶同一天壓三次
+// 是**一筆來訪三個時段**。日／週檢視那一份清單是一段一列的，
+// 但點下去給的是整筆 —— 那一下把「我點的是哪一段」丟掉了。
+describe('讀取卡片要畫哪幾段', () => {
+  const v = {
+    id: 'v1',
+    slots: [
+      { startsAt: '09:00', endsAt: '09:30', courseName: '復能' },
+      { startsAt: '10:00', endsAt: '10:30', courseName: '復能' },
+      { startsAt: '11:00', endsAt: '12:00', courseName: 'ILIB' },
+    ],
+  };
+
+  test('沒指定就是全部 —— 另外三頁列的本來就是整筆來訪', () => {
+    const out = slotsToShow(v);
+    assert.deepEqual(out.slots.map((s) => s.index), [0, 1, 2]);
+    assert.equal(out.hidden, 0);
+    assert.equal(out.focused, false);
+  });
+
+  test('指定了就只有那一段，其餘算成「還有幾段」', () => {
+    const out = slotsToShow(v, 1);
+    assert.deepEqual(out.slots.map((s) => s.index), [1]);
+    assert.equal(out.slots[0].slot.startsAt, '10:00');
+    assert.equal(out.hidden, 2);
+    assert.equal(out.focused, true);
+  });
+
+  test('第 0 段也算數 —— 0 是一個合法的 index，不是「沒指定」', () => {
+    const out = slotsToShow(v, 0);
+    assert.deepEqual(out.slots.map((s) => s.index), [0]);
+    assert.equal(out.hidden, 2);
+  });
+
+  // 這一條是這一支存在的第二個理由：指到一個不存在的段落時**退回全部**。
+  // 畫成空白的話她會以為那一筆壞了，而畫太多只是回到修好之前的樣子。
+  test('指到一個不存在的段落就退回全部，不要畫成空的', () => {
+    for (const bad of [9, -1, 1.5, '1', NaN, null, undefined]) {
+      const out = slotsToShow(v, bad);
+      assert.equal(out.slots.length, 3, `focusSlot=${String(bad)} 應該退回全部`);
+      assert.equal(out.hidden, 0);
+    }
+  });
+
+  test('只有一段的來訪指定第 0 段：畫得出來，而且沒有「還有幾段」', () => {
+    const one = { id: 'v2', slots: [v.slots[0]] };
+    const out = slotsToShow(one, 0);
+    assert.equal(out.slots.length, 1);
+    assert.equal(out.hidden, 0);
+    assert.equal(out.focused, true);
+  });
+
+  test('一段都沒有的來訪不會炸', () => {
+    assert.deepEqual(slotsToShow({ id: 'v3', slots: [] }, 0),
+      { slots: [], hidden: 0, focused: false });
+    assert.deepEqual(slotsToShow(null), { slots: [], hidden: 0, focused: false });
   });
 });

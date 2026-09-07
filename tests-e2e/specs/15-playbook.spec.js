@@ -278,7 +278,7 @@ test.describe('備忘錄自己浮出來', () => {
     await app.signIn('/calendar');
 
     await page.locator(`[data-day="${addDays(TODAY, 3)}"]`).first().click();
-    await page.locator('[data-open="visit:v-drip"]').first().click();
+    await page.locator('[data-open^="visit:v-drip:"]').first().click();
 
     await expect(page.locator('.pbhint__title')).toHaveText('營養點滴');
     // 五行只印前四行，剩下的用一句話帶過 —— 那就是她說的「避免洗版」
@@ -292,7 +292,7 @@ test.describe('備忘錄自己浮出來', () => {
     await app.signIn('/calendar');
 
     await page.locator(`[data-day="${addDays(TODAY, 3)}"]`).first().click();
-    await page.locator('[data-open="visit:v-drip"]').first().click();
+    await page.locator('[data-open^="visit:v-drip:"]').first().click();
 
     await expect(page.locator('.pbhint')).toHaveCount(1);
     await expect(page.locator('.popcard')).not.toContainText('外院檢送');

@@ -36,7 +36,7 @@ async function openVisitEditor(app, page, date, visitId) {
   await app.go('/calendar');
   await page.locator(`[data-day="${date}"]`).first().click();
   await page.waitForTimeout(700);
-  await page.locator(`[data-open="visit:${visitId}"]`).first().click();
+  await page.locator(`[data-open^="visit:${visitId}:"]`).first().click();
   await page.waitForTimeout(700);
   await page.locator('[data-card-edit]').click();
   await page.waitForTimeout(900);
@@ -205,7 +205,7 @@ test('L17+L18 客戶詳情與待辦中心的來訪列**沒有**鉛筆（ADR-0056
   await app.go('/calendar');
   await page.locator(`[data-day="${FUTURE}"]`).first().click();
   await page.waitForTimeout(700);
-  await page.locator(`[data-open="visit:visit-a1"]`).first().click();
+  await page.locator(`[data-open^="visit:visit-a1:"]`).first().click();
   await page.waitForTimeout(700);
   await expect(page.locator('[data-card-edit]'), '日曆的讀取卡片要有鉛筆').toHaveCount(1);
 });

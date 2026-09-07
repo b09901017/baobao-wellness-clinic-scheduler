@@ -212,7 +212,7 @@ test.describe('拿回一張待辦要先講清楚', () => {
     await app.signIn('/calendar');
 
     await page.click(`[data-day="${EXAM_DATE}"]`);
-    await page.locator('[data-open="visit:visit-b-exam1"]').click();
+    await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
     await expect(page.locator('.popcard')).toBeVisible();
     // 讀取卡片沒有取消那一顆 —— 走鉛筆進編輯器（ADR-0056）
     await page.locator('[data-card-edit]').click();
@@ -235,7 +235,7 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
 
     await app.go('/calendar');
     await page.click(`[data-day="${EXAM_DATE}"]`);
-    await page.locator('[data-open="visit:visit-b-exam1"]').click();
+    await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
 
     const mirror = page.locator('.taskmirror');
     await expect(mirror).toBeVisible();
@@ -255,7 +255,7 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
 
     await app.go('/calendar');
     await page.click(`[data-day="${EXAM_DATE}"]`);
-    await page.locator('[data-open="visit:visit-b-exam1"]').click();
+    await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
     await expect(page.locator('.taskmirror')).toBeVisible();
     await expect(page.locator('.taskmirror input[type="checkbox"]')).toHaveCount(0);
     await expect(page.locator('.taskmirror button')).toHaveCount(0);
@@ -270,7 +270,7 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
 
     await app.go('/calendar');
     await page.click(`[data-day="${EXAM_DATE}"]`);
-    await page.locator('[data-open="visit:visit-b-exam1"]').click();
+    await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
 
     const mirror = page.locator('.taskmirror');
     await expect(mirror).toBeVisible();
@@ -309,7 +309,7 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
     await app.signIn('/calendar');
 
     await page.click(`[data-day="${DAY}"]`);
-    await page.locator('[data-open="visit:visit-a"]').click();
+    await page.locator('[data-open^="visit:visit-a:"]').click();
     await expect(page.locator('.popcard')).toBeVisible();
     await page.waitForTimeout(900);
     // 一個空殼會讓她以為那裡壞了
@@ -484,7 +484,7 @@ test.describe('哪一筆底下寫了字', () => {
     ...extra,
   ];
 
-  const rowOf = (page, id) => page.locator(`[data-open="visit:${id}"]`);
+  const rowOf = (page, id) => page.locator(`[data-open^="visit:${id}:"]`);
 
   test('U10 有「記的話」的那一列看得到記事本，沒有的那一列看不到', async ({ app, page }) => {
     await app.seed(seedTwo());
