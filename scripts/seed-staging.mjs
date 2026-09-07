@@ -147,7 +147,9 @@ const PLAYBOOKS = [
  */
 const START_TIMES = ['09:15', '10:30', '13:00', '14:15', '15:30', '16:45'];
 const THERAPISTS = ['staff-tw', 'staff-zn', 'staff-lulu', 'staff-xy', 'staff-gy'];
-const ILIB_ROOMS = ['room-ilib4', 'room-t3', 'room-iv5'];
+// ILIB 那幾間照她 2026-09-08 給的優先順序（`.10、治2、治3`）。
+// `room-ilib4` 2026-09-08 從診間清單上拿掉了 —— 那一間有個 4。
+const ILIB_ROOMS = ['room-iv10', 'room-t2', 'room-t3'];
 
 /** 開始時間 + 60 分鐘。這一份的每一段都是一小時。 */
 function plusHour(hhmm) {

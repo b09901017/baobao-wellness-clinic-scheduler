@@ -38,10 +38,11 @@ describe('主檔驗證', () => {
     assert.deepEqual(validate('rooms', { id: 'a', name: '治3', type: '治療室' }, { existing }), []);
   });
 
-  test('床位不可重複或空白', () => {
-    assert.ok(validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', 'A'] }).length);
-    assert.ok(validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', ''] }).length);
-    assert.deepEqual(validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', 'B'] }), []);
+  // 2026-09-08：「取消任何床位區分」。舊資料上那一格還在（只有點滴8 有
+  // A／B），所以驗證**不擋** —— 擋下來的話她一進設定頁改個名字就存不回去。
+  test('床位那一格不再驗', () => {
+    assert.deepEqual(validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', 'A'] }), []);
+    assert.deepEqual(validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', ''] }), []);
   });
 });
 
@@ -245,23 +246,49 @@ describe('方案驗證', () => {
   });
 });
 
-describe('診間與床位', () => {
+// 2026-09-08 她要的：「取消任何床位區分」。一間就是一個資源。
+describe('診間', () => {
   const rooms = [
-    { id: 'r1', name: '治3', type: '治療室', beds: [] },
-    { id: 'r2', name: '點滴8', type: '點滴室', beds: ['A', 'B'] },
-    { id: 'r3', name: '治9', type: '治療室', beds: [], deletedAt: 'x' },
+    { id: 'r1', name: '治3', type: '治療室' },
+    { id: 'r2', name: '點滴8', type: '點滴室', shortName: '.8' },
+    { id: 'r3', name: '治9', type: '治療室', deletedAt: 'x' },
   ];
 
-  test('有床位的診間攤成多個資源，沒床位的就一個', () => {
+  test('一間就是一個資源 —— 床位那一層拿掉了', () => {
     assert.deepEqual(roomSlots(rooms), [
       { roomId: 'r1', bed: null, label: '治3' },
-      { roomId: 'r2', bed: 'A', label: '點滴8A' },
-      { roomId: 'r2', bed: 'B', label: '點滴8B' },
+      { roomId: 'r2', bed: null, label: '點滴8' },
     ]);
+  });
+
+  // 舊資料上還留著 `beds`，它一個字都不該影響排班時的選項 ——
+  // 留著的話「點滴8A」與「點滴8B」還是會冒出來。
+  test('舊資料上的 beds 不再攤開', () => {
+    const old = [{ id: 'r2', name: '點滴8', type: '點滴室', beds: ['A', 'B'] }];
+    assert.deepEqual(roomSlots(old), [{ roomId: 'r2', bed: null, label: '點滴8' }]);
   });
 
   test('已刪除的診間不會出現', () => {
     assert.ok(!roomSlots(rooms).some((s) => s.roomId === 'r3'));
+  });
+
+  test('三種類型，ILIB 室沒有了（那一間有個 4）', () => {
+    assert.deepEqual(ROOM_TYPES, ['治療室', '點滴室', 'VIP室']);
+  });
+
+  test('簡寫選填，填了有長度上限', () => {
+    const base = { name: '點滴2', type: '點滴室' };
+    assert.deepEqual(validate('rooms', base, { existing: [] }), []);
+    assert.deepEqual(validate('rooms', { ...base, shortName: '.2' }, { existing: [] }), []);
+    assert.ok(validate('rooms', { ...base, shortName: '一二三四五六七八九十一二三' },
+      { existing: [] }).some((e) => e.includes('別稱')));
+  });
+
+  test('床位那一格不再驗 —— 舊資料帶著它也存得下去', () => {
+    assert.deepEqual(
+      validate('rooms', { name: '點滴8', type: '點滴室', beds: ['A', 'A'] }, { existing: [] }),
+      [],
+    );
   });
 
   test('指定的診間 id 蓋過類型規則', () => {
@@ -285,6 +312,40 @@ describe('種子資料', () => {
         assert.deepEqual(errors, [], `${type} / ${record.name}：${errors.join('；')}`);
       }
     }
+  });
+
+  // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
+  test('診間就是她列的那三種、那幾間', () => {
+    const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
+    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治8']);
+    assert.deepEqual(of('點滴室'),
+      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴9', '點滴10']);
+    assert.deepEqual(of('VIP室'), ['VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7']);
+    assert.equal(SEED.rooms.length, 17);
+  });
+
+  test('一間 4 號都沒有', () => {
+    for (const r of SEED.rooms) {
+      assert.ok(!/4/.test(r.name), `${r.name} 有 4`);
+      assert.ok(!/4/.test(r.shortName ?? ''), `${r.name} 的簡寫有 4`);
+    }
+  });
+
+  test('簡寫裡的數字就是房號', () => {
+    const short = Object.fromEntries(SEED.rooms.map((r) => [r.name, r.shortName ?? r.name]));
+    assert.equal(short['點滴2'], '.2');
+    assert.equal(short['點滴10'], '.10');
+    assert.equal(short['VIP7'], 'vip7');
+    assert.equal(short['治8'], '治8', '治療室本來就夠短，不必有簡寫');
+  });
+
+  test('一間都沒有床位', () => {
+    assert.ok(SEED.rooms.every((r) => !(r.beds ?? []).length));
+  });
+
+  test('ILIB 那個課程不再指著一個不存在的類型', () => {
+    const ilib = SEED.courses.find((c) => c.id === 'course-iv-laser');
+    for (const type of ilib.allowedRoomTypes) assert.ok(ROOM_TYPES.includes(type), type);
   });
 
   test('ID 全域唯一', () => {

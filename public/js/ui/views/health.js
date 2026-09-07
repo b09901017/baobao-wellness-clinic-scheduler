@@ -258,6 +258,65 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  // 診間清單。三種形狀（新增／刪掉／補簡寫）走同一個 kind，所以這裡要分岔 ——
+  // **每一句都只講真的會發生的事**（ADR-0070）。「刪掉」那一種的代價要說出來。
+  roomList: {
+    button: (fix) => ({ add: '建起來', drop: '刪掉', short: '填上簡寫' }[fix?.mode] ?? '處理'),
+    all: (n) => `一次處理這 ${n} 間`,
+    one: (fix) => ({
+      add: {
+        title: `把「${fix.label}」建進診間主檔？`,
+        lines: [
+          '建議清單上有這一間，你的主檔沒有',
+          '建起來之後排班時就選得到它，簡寫也一起填好',
+        ],
+      },
+      drop: {
+        title: `刪掉「${fix.label}」？`,
+        lines: [
+          '新的診間清單上沒有這一間了',
+          '排班時從此選不到它',
+          '**已經排在那一間的來訪印不出診間名字** —— 那幾筆本身一個字都不會動',
+          '它會進「已刪除項目」，之後還原得回來',
+        ],
+      },
+      short: {
+        title: `把「${fix.label}」的簡寫填成「${fix.shortName}」？`,
+        lines: [
+          '月曆與日／週那一列會印簡寫，設定頁與試算表仍然印全名',
+          '只填這一格，診間的名字與類型一個字都不動',
+        ],
+      },
+    }[fix.mode]),
+    many: (fixes) => ({
+      title: `一次處理這 ${fixes.length} 間診間？`,
+      lines: fixes.map((fix) => ({
+        add: `新增 ${fix.label}`,
+        drop: `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
+        short: `${fix.label} 的簡寫填成 ${fix.shortName}`,
+      }[fix.mode])),
+    }),
+  },
+
+  // 清掉來訪上的床位。**這是一次不可逆的改寫**（她 2026-09-08 選的），
+  // 所以那一句要寫出來 —— 底部那顆「復原」是寫入之後的安全網，不是免死金牌。
+  slotBeds: {
+    button: () => '清掉床位',
+    all: (n) => `一次清這 ${n} 筆`,
+    one: (fix) => ({
+      title: `清掉「${fix.label}」上的床位？`,
+      lines: [
+        '床位那一層取消了 —— 一間就是一個資源',
+        '清掉之後，同一間同一個時間排了兩個人會被標成撞期（現在不會）',
+        '來訪的其餘欄位一個字都不動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 筆來訪上的床位都清掉？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
+
   // 器材改名。**改名不會搬既有的東西**：客戶身上的額度名字、已經排出去的
   // 時段快照都留在原地（ADR-0002、0003），所以那兩句要講出來。
   equipmentNames: {
@@ -339,6 +398,8 @@ const KIND_TO_CHECK = {
   setDurations: 'seedDuration',
   setAssigns: 'courseAssigns',
   renameEquipment: 'equipmentNames',
+  applyRoom: 'roomList',
+  clearBeds: 'slotBeds',
 };
 
 /**
@@ -356,7 +417,9 @@ function copyFor(fix) {
   if (!copy) throw new Error(`資料健檢：沒有「${fix?.kind}」這種修正的文案`);
   return copy;
 }
-const buttonLabel = (fix) => copyFor(fix).button();
+// **按鈕上的字收得到那一筆修正**：診間清單那一列三種形狀共用一個 kind，
+// 按鈕要分別寫「建起來」「刪掉」「填上簡寫」。其餘幾種不看參數，一樣安全。
+const buttonLabel = (fix) => copyFor(fix).button(fix);
 
 async function fixOne(el, result, index) {
   const finding = fixesOf(result)[index];

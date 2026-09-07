@@ -5,7 +5,20 @@
 
 import { ALERT_COLORS, ALERT_FILLS } from './clinicalFlags.js';
 
-export const ROOM_TYPES = ['治療室', '點滴室', 'ILIB室'];
+/**
+ * 空間有三種。**2026-09-08 她重畫過一次**：
+ *
+ *   治療室  治2 治3 治5 治8
+ *   點滴室  點滴2 3 5 6 7 8 9 10
+ *   VIP室   VIP2 3 5 6 7
+ *
+ * **都沒有 4 號**，而簡寫裡的數字就是房號（`.2`、`vip2`、`治2`）。
+ *
+ * `ILIB室` 拿掉了：唯一那一間是 `ILIB4`，它有個 4；而 ILIB 這個課程本來就
+ * 排在點滴室與治療室（她給的優先順序是 `.10、治2、治3`）。既有來訪還指著
+ * 那一間 —— 刪掉它是資料健檢那一列的事，不是這裡的事。
+ */
+export const ROOM_TYPES = ['治療室', '點滴室', 'VIP室'];
 
 /**
  * `config/staff` 上的角色。
@@ -210,16 +223,17 @@ function positiveInt(v) {
 }
 
 const validators = {
+  /**
+   * 診間。**2026-09-08 之後沒有床位這一層了**（她選的：「取消任何床位區分」）。
+   *
+   * 舊資料上那一格還在（只有點滴8 有 A／B），所以這裡**不驗也不擋** ——
+   * 擋下來的話她一進設定頁改個名字就存不回去。清掉既有那幾筆是資料健檢
+   * 「來訪上還記著床位」那一列的事。
+   */
   rooms(r) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('診間名稱不可空白');
     if (!ROOM_TYPES.includes(r.type)) errors.push('請選擇診間類型');
-    const beds = r.beds ?? [];
-    if (!Array.isArray(beds)) errors.push('床位格式錯誤');
-    else {
-      if (beds.some(isBlank)) errors.push('床位名稱不可空白');
-      if (new Set(beds).size !== beds.length) errors.push('床位名稱不可重複');
-    }
     return errors;
   },
 
@@ -484,23 +498,19 @@ export function validate(type, record, context = {}) {
 }
 
 /**
- * 診間 × 床位 攤平成排班時可選的資源。
- * 沒有床位的診間就是它自己一個選項。
+ * 排班時可選的空間。**一間就是一個選項。**
+ *
+ * 2026-09-08 之前這裡會把有床位的診間攤成好幾個（`點滴8A`、`點滴8B`）。
+ * 她那天說「取消任何床位區分」，所以那一層拿掉了 —— 舊資料上的 `beds`
+ * 一個字都不影響這裡，不然那兩個選項還是會冒出來。
+ *
+ * `bed: null` 那一格留著：呼叫端（`roomKey()`、`parseRoomKey()`）與時段上的
+ * 欄位都還在，而既有來訪身上那個 `A` 要畫得出來。
  */
 export function roomSlots(rooms) {
-  const out = [];
-  for (const room of rooms) {
-    if (room.deletedAt || room.active === false) continue;
-    const beds = room.beds ?? [];
-    if (!beds.length) {
-      out.push({ roomId: room.id, bed: null, label: room.name });
-    } else {
-      for (const bed of beds) {
-        out.push({ roomId: room.id, bed, label: `${room.name}${bed}` });
-      }
-    }
-  }
-  return out;
+  return (rooms ?? [])
+    .filter((room) => room && !room.deletedAt && room.active !== false)
+    .map((room) => ({ roomId: room.id, bed: null, label: room.name }));
 }
 
 /**

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十七項檢查都在，順序固定', () => {
+  test('十九項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 17);
+    assert.equal(result.checks.length, 19);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1114,5 +1114,111 @@ describe('器材的名字跟建議的不一樣', () => {
     const src = readFileSync(new URL('../public/js/ui/views/health.js', import.meta.url), 'utf8');
     assert.ok(src.includes("renameEquipment: 'equipmentNames'"), 'KIND_TO_CHECK 少了');
     assert.ok(src.includes('  equipmentNames: {'), 'FIX_COPY 少了');
+  });
+});
+
+// ---------- 十七、診間清單跟建議的不一樣（2026-09-08）----------
+describe('診間清單跟建議的不一樣', () => {
+  const go = (rooms) => run({ master: { ...MASTER, rooms } }).checks
+    .find((c) => c.id === 'roomList').findings;
+
+  const seedRoom = (id) => SEED.rooms.find((r) => r.id === id);
+
+  test('種子有、她沒有的那幾間列出來，而且建得起來', () => {
+    const [f] = go(SEED.rooms.filter((r) => r.id !== 'room-vip2'));
+    assert.equal(f.title, 'VIP2');
+    assert.equal(f.fix.kind, 'applyRoom');
+    assert.equal(f.fix.mode, 'add');
+    assert.equal(f.fix.roomId, 'room-vip2');
+    assert.equal(f.fix.data.shortName, 'vip2', '建起來的時候簡寫一起填好');
+  });
+
+  test('她自己刪掉的不算 —— 那是一個決定', () => {
+    const rooms = SEED.rooms.map((r) =>
+      (r.id === 'room-vip2' ? { ...r, deletedAt: 'x' } : r));
+    assert.deepEqual(go(rooms), []);
+  });
+
+  test('新清單上沒有的那幾間列出來，而且刪得掉', () => {
+    const withOld = [...SEED.rooms, { id: 'room-t7', name: '治7', type: '治療室' }];
+    const [f] = go(withOld);
+    assert.equal(f.title, '治7');
+    assert.equal(f.fix.mode, 'drop');
+    assert.equal(f.fix.roomId, 'room-t7');
+  });
+
+  test('她把那一間改名拿去當別的用了就不動', () => {
+    const renamed = [...SEED.rooms, { id: 'room-t7', name: '儲藏室', type: '治療室' }];
+    assert.deepEqual(go(renamed), []);
+  });
+
+  test('簡寫那一格是空的就補，她自己填過別的就不動', () => {
+    const bare = SEED.rooms.map((r) =>
+      (r.id === 'room-iv2' ? { ...r, shortName: null } : r));
+    const [f] = go(bare);
+    assert.equal(f.fix.mode, 'short');
+    assert.equal(f.fix.shortName, '.2');
+
+    const mine = SEED.rooms.map((r) =>
+      (r.id === 'room-iv2' ? { ...r, shortName: '滴2' } : r));
+    assert.deepEqual(go(mine), []);
+  });
+
+  test('治療室本來就沒有簡寫，不會被念', () => {
+    assert.equal(seedRoom('room-t2').shortName, undefined);
+    assert.deepEqual(go(SEED.rooms), []);
+  });
+
+  test('她自己加的診間一間都不會被列出來', () => {
+    assert.deepEqual(go([...SEED.rooms, { id: 'room-mine', name: '我的房間', type: '治療室' }]), []);
+  });
+
+  // 一間種子診間都沒有的主檔不是「少了十七間」，是她自己從零建的一份清單。
+  test('沒有一間種子診間的主檔不念「少了誰」', () => {
+    assert.deepEqual(go([{ id: 'room-mine', name: '我的房間', type: '治療室' }]), []);
+    assert.deepEqual(go([]), []);
+  });
+});
+
+// ---------- 十八、來訪上還記著床位（2026-09-08）----------
+describe('來訪上還記著床位', () => {
+  const go = (visits) => run({ visits }).checks
+    .find((c) => c.id === 'slotBeds').findings;
+
+  test('有床位的那幾筆列出來，而且清得掉', () => {
+    const [f] = go([visit({ slots: [slot({ roomId: 'r-iv8', bed: 'A' })] })]);
+    assert.match(f.title, /客戶一/);
+    assert.equal(f.fix.kind, 'clearBeds');
+    assert.equal(f.fix.visitId, 'v1');
+    assert.deepEqual(f.fix.slots.map((s) => s.bed), [null]);
+  });
+
+  test('清掉的只有床位，其餘欄位一個字都不動', () => {
+    const [f] = go([visit({ slots: [slot({ roomId: 'r-iv8', bed: 'A' })] })]);
+    assert.equal(f.fix.slots[0].roomId, 'r-iv8');
+    assert.equal(f.fix.slots[0].courseId, 'c-recovery');
+    assert.equal(f.fix.slots[0].startsAt, '10:30');
+  });
+
+  test('一筆來訪一列，不是一段一列', () => {
+    const two = visit({
+      slots: [slot({ roomId: 'r-iv8', bed: 'A' }), slot({ roomId: 'r-iv8', bed: 'B' })],
+    });
+    const [f] = go([two]);
+    assert.equal(go([two]).length, 1);
+    assert.match(f.detail, /A、B/);
+  });
+
+  test('沒有床位的不念，刪掉的來訪也不念', () => {
+    assert.deepEqual(go([visit()]), []);
+    assert.deepEqual(go([visit({ slots: [slot({ bed: 'A' })], deletedAt: 'x' })]), []);
+  });
+
+  test('這兩種修正在畫面那兩張表上查得到', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/health.js', import.meta.url), 'utf8');
+    assert.ok(src.includes("applyRoom: 'roomList'"));
+    assert.ok(src.includes("clearBeds: 'slotBeds'"));
+    assert.ok(src.includes('  roomList: {'));
+    assert.ok(src.includes('  slotBeds: {'));
   });
 });

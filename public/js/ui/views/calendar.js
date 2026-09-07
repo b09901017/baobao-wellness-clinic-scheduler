@@ -44,7 +44,7 @@ import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
-import { slotName } from '../../domain/naming.js';
+import { slotName, nameOf } from '../../domain/naming.js';
 import * as note from '../components/note.js';
 import { hintHtml } from '../components/playbookHint.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
@@ -1407,7 +1407,9 @@ export function visitReadHtml(visit, data) {
   const { slots, hidden } = slotsToShow(visit, data?.focusSlot ?? null);
   return `
     ${slots.map(({ slot: s }) => {
-      const room = data.roomsById[s.roomId]?.name ?? null;
+      // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
+      // 這一張卡片也是「她自己看」的地方。沒設簡寫就退回全名。
+      const room = data.roomsById[s.roomId] ? nameOf(data.roomsById[s.roomId], 'short') : null;
       const therapist = data.staffById[s.therapistId]?.name ?? null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
       return `

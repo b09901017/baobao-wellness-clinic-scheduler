@@ -21,7 +21,7 @@ const visit = (over = {}) => ({
 });
 
 const CTX = {
-  roomsById: { 'r-3': { name: '治3' } },
+  roomsById: { 'r-3': { name: '治3' }, 'r-iv2': { name: '點滴2', shortName: '.2' } },
   staffById: { s1: { name: '治療師甲' }, s2: { name: '治療師乙' } },
 };
 
@@ -458,5 +458,31 @@ describe('月檢視一段一條', () => {
 
   test('沒有名字的客戶印一個問號，不是 undefined', () => {
     assert.equal(monthBars(visit({ customerName: null }), MASTER)[0].title.startsWith('?'), true);
+  });
+});
+
+
+// 2026-09-08：診間也有兩格名字了。日／週那一列跟月曆一樣是「她自己看」的
+// 地方，一格只放得下幾個字，所以印簡寫；設定頁與試算表印全名。
+describe('那一列的診間印簡寫', () => {
+  test('有簡寫就印簡寫', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '營養點滴', roomId: 'r-iv2' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, '.2');
+  });
+
+  test('沒設簡寫就退回全名 —— 治療室本來就夠短', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'r-3' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, '治3');
+  });
+
+  test('診間被刪掉了就是 null，不要印一個猜的', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'gone' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, null);
   });
 });

@@ -134,7 +134,7 @@ test('J-B6 標成未到 → 不扣次數，時段還回去，但未到獨立計�
       date: past, status: 'confirmed',
       slots: [slot({
         courseId: 'course-iv-laser', entitlementId: 'ent-a-vein',
-        startsAt: '14:00', endsAt: '15:00', roomId: 'room-ilib4',
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10',
       })],
     }),
   ]);
@@ -169,9 +169,9 @@ test('J-A12 做了兩段、第三段沒做 → 只扣兩次（ADR-0025）', asyn
       id: 'visit-a3', customerId: 'cust-a', customerName: '客戶A',
       date: past, status: 'confirmed',
       slots: [
-        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '09:00', endsAt: '10:00', roomId: 'room-ilib4' }),
-        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '10:15', endsAt: '11:15', roomId: 'room-ilib4' }),
-        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '11:30', endsAt: '12:30', roomId: 'room-ilib4' }),
+        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '09:00', endsAt: '10:00', roomId: 'room-iv10' }),
+        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '10:15', endsAt: '11:15', roomId: 'room-iv10' }),
+        slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a-vein', startsAt: '11:30', endsAt: '12:30', roomId: 'room-iv10' }),
       ],
     }),
   ]);

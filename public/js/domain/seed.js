@@ -9,25 +9,45 @@
 import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.js';
 
 export const SEED = {
+  // 空間。**2026-09-08 她重畫過一次**，三種類型、都沒有 4 號：
+  //
+  //   治療室  治2 治3 治5 治8
+  //   點滴室  點滴2 3 5 6 7 8 9 10        簡寫 .2 …… .10
+  //   VIP室   VIP2 3 5 6 7                簡寫 vip2 …… vip7
+  //
+  // **簡寫裡的數字就是房號**（她指名的）—— 她走到那扇門前面看到的是門上的
+  // 號碼，畫面上要是同一個數字。治療室本來就只有兩三個字，所以沒有簡寫
+  // （空的就退回全名，同器材的 `SIS`）。
+  //
+  // 簡寫**是另一格不是改名**：試算表、稽核紀錄、既有來訪讀的都是全名，
+  // 而 `.2` 單獨出現在稽核紀錄上沒有人看得懂。哪裡印哪一個只寫在
+  // `domain/naming.js` 的 `nameOf()`。
+  //
+  // **床位那一層拿掉了**（她選的：「取消任何床位區分」）。舊資料上點滴8
+  // 還有 A／B，清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
+  //
+  // 2026-08-19 她確認過「治7、治9、治10、點滴2、點滴8、ILIB4 也都還在」，
+  // 2026-09-08 這一輪把治7／治9／治10／ILIB4 拿掉了（ILIB4 有個 4）。
+  // **既有資料庫不會自己跟上**（`loadSeed()` 只建不覆蓋），那一步由資料健檢
+  // 的「診間清單跟建議的不一樣」負責。
   rooms: [
-    { id: 'room-t2', name: '治2', type: '治療室', beds: [] },
-    { id: 'room-t3', name: '治3', type: '治療室', beds: [] },
-    { id: 'room-t5', name: '治5', type: '治療室', beds: [] },
-    { id: 'room-t7', name: '治7', type: '治療室', beds: [] },
-    { id: 'room-t8', name: '治8', type: '治療室', beds: [] },
-    { id: 'room-t9', name: '治9', type: '治療室', beds: [] },
-    { id: 'room-t10', name: '治10', type: '治療室', beds: [] },
-    { id: 'room-iv2', name: '點滴2', type: '點滴室', beds: [] },
-    { id: 'room-iv3', name: '點滴3', type: '點滴室', beds: [] },
-    { id: 'room-iv5', name: '點滴5', type: '點滴室', beds: [] },
-    { id: 'room-iv6', name: '點滴6', type: '點滴室', beds: [] },
-    { id: 'room-iv7', name: '點滴7', type: '點滴室', beds: [] },
-    // 公司系統畫面上看到「點滴室8 / 床A」分兩行，所以這間確定有床位。
-    // 其餘幾間有沒有床位待確認，先留空。
-    { id: 'room-iv8', name: '點滴8', type: '點滴室', beds: ['A', 'B'] },
-    { id: 'room-iv9', name: '點滴9', type: '點滴室', beds: [] },
-    { id: 'room-iv10', name: '點滴10', type: '點滴室', beds: [] },
-    { id: 'room-ilib4', name: 'ILIB4', type: 'ILIB室', beds: [] },
+    { id: 'room-t2', name: '治2', type: '治療室' },
+    { id: 'room-t3', name: '治3', type: '治療室' },
+    { id: 'room-t5', name: '治5', type: '治療室' },
+    { id: 'room-t8', name: '治8', type: '治療室' },
+    { id: 'room-iv2', name: '點滴2', type: '點滴室', shortName: '.2' },
+    { id: 'room-iv3', name: '點滴3', type: '點滴室', shortName: '.3' },
+    { id: 'room-iv5', name: '點滴5', type: '點滴室', shortName: '.5' },
+    { id: 'room-iv6', name: '點滴6', type: '點滴室', shortName: '.6' },
+    { id: 'room-iv7', name: '點滴7', type: '點滴室', shortName: '.7' },
+    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8' },
+    { id: 'room-iv9', name: '點滴9', type: '點滴室', shortName: '.9' },
+    { id: 'room-iv10', name: '點滴10', type: '點滴室', shortName: '.10' },
+    { id: 'room-vip2', name: 'VIP2', type: 'VIP室', shortName: 'vip2' },
+    { id: 'room-vip3', name: 'VIP3', type: 'VIP室', shortName: 'vip3' },
+    { id: 'room-vip5', name: 'VIP5', type: 'VIP室', shortName: 'vip5' },
+    { id: 'room-vip6', name: 'VIP6', type: 'VIP室', shortName: 'vip6' },
+    { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7' },
   ],
 
   // 2026-08-19 從她的行事曆與口述補齊。
@@ -199,7 +219,9 @@ export const SEED = {
       // 貼給客人的那一句不能寫 `ILIB` —— 客戶看不懂那三個字母。
       id: 'course-iv-laser', name: 'ILIB', shortName: 'IL', lineName: '靜脈雷射',
       category: 'C', durationMin: 60,
-      assigns: 'room', allowedRoomTypes: ['ILIB室', '治療室', '點滴室'], allowedRoomIds: [],
+      // `ILIB室` 那個類型 2026-09-08 拿掉了（唯一那一間是 ILIB4，它有個 4）。
+      // 她給的優先順序是 `.10、治2、治3`，本來就排在點滴室與治療室。
+      assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {

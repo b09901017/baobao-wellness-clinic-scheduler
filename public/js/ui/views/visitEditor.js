@@ -610,9 +610,13 @@ function roomField(all, course, slot, i) {
       note: allowedIds.has(s.roomId) ? '' : '不常用',
     }));
 
+  // **比的是診間，不是診間＋床位**（2026-09-08）。床位那一層取消之後選項上
+  // 只有 `r-iv8|`，而舊來訪身上是 `r-iv8|A` —— 拿它去比的話一顆都不會按著，
+  // 而她一存檔那一段的診間就被清成 null 了（畫面上什麼都不會說）。
+  // 存回去時 `bed` 跟著變成 null，那正是她要的「連舊資料一起清掉」。
   return f.chips({
     name: `s${i}-room`, label: '診間', quiet: true,
-    value: slot.roomId ? roomKey(slot.roomId, slot.bed) : null,
+    value: slot.roomId ? roomKey(slot.roomId, null) : null,
     options,
   });
 }

@@ -112,6 +112,18 @@ export const CHECKS = [
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
   },
   {
+    id: 'roomList',
+    label: '診間清單跟建議的不一樣',
+    hint: '2026-09-08 重畫過一次：治療室只有 2 3 5 8、多了 VIP 室、一間 4 號都沒有，'
+      + '而月曆那一格印的是簡寫',
+  },
+  {
+    id: 'slotBeds',
+    label: '來訪上還記著床位',
+    hint: '床位那一層取消了（一間就是一個資源）。舊來訪身上那個 A／B 留著的話，'
+      + '撞期判斷會把同一間的兩個人當成不衝突',
+  },
+  {
     id: 'equipmentNames',
     label: '器材的名字跟建議的不一樣',
     hint: '額度的名字讀器材的全名（`復能-SIS(60)`）、月曆讀別稱（`IN(60)`）——'
@@ -869,6 +881,130 @@ function withoutId({ id, ...rest }) {
 }
 
 /**
+ * 2026-09-08 之前種子上有、現在沒有的那幾間。
+ *
+ * 治7／治9／治10 不在她新的治療室清單裡（只有 2 3 5 8），
+ * ILIB4 那一間有個 4 —— 而她說「均無 4 號」。
+ *
+ * **只認得出種子建過的那幾間**：她自己加的診間一間都不會被列出來。
+ */
+const LEGACY_ROOMS = [
+  { id: 'room-t7', name: '治7' },
+  { id: 'room-t9', name: '治9' },
+  { id: 'room-t10', name: '治10' },
+  { id: 'room-ilib4', name: 'ILIB4' },
+];
+
+/**
+ * 十七、診間清單跟建議的不一樣。
+ *
+ * 三種形狀，一種一個 `mode`：
+ *
+ *   add    種子有、她沒有            → 建起來（VIP 那五間）
+ *   drop   種子拿掉了、她還開著       → 刪掉（治7／治9／治10／ILIB4）
+ *   short  種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
+ *
+ * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
+ * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
+ *
+ * `drop` 那一種要講清楚代價：**既有來訪上那幾筆會印不出診間名字**
+ * （她 2026-09-08 知道並且選了）。刪掉走的是這個 app 既有的刪除，
+ * 進「已刪除項目」，還原得回來。
+ */
+function checkRoomList(ctx) {
+  const out = [];
+  const byId = ctx.roomsById ?? {};
+
+  // **一間種子診間都沒有的主檔不念「少了誰」。** 那不是「少了 VIP 室」，
+  // 那是一份她自己從零建起來的清單（測試夾具就是），而拿建議清單去念它
+  // 會一次冒出十七列。同 `checkSeedEquipment()` 那道護欄的判斷。
+  const seeded = (SEED.rooms ?? []).some((row) => byId[row.id]);
+
+  for (const row of SEED.rooms ?? []) {
+    const mine = byId[row.id];
+    if (!mine) {
+      if (!seeded) continue;
+      out.push({
+        severity: 'attention',
+        title: row.name,
+        detail: '建議清單上有這一間，你的診間主檔沒有',
+        link: '#/settings/rooms',
+        fix: {
+          kind: 'applyRoom', mode: 'add', roomId: row.id, label: row.name,
+          data: { ...withoutId(row), active: true },
+        },
+      });
+      continue;
+    }
+    if (mine.deletedAt) continue;
+
+    // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
+    const short = String(mine.shortName ?? '').trim();
+    if (row.shortName && !short) {
+      out.push({
+        severity: 'attention',
+        title: mine.name ?? row.name,
+        detail: `簡寫填上「${row.shortName}」`,
+        link: '#/settings/rooms',
+        fix: {
+          kind: 'applyRoom', mode: 'short', roomId: row.id,
+          label: mine.name ?? row.name, shortName: row.shortName,
+        },
+      });
+    }
+  }
+
+  for (const row of LEGACY_ROOMS) {
+    const mine = byId[row.id];
+    // 她自己改過名字就不動 —— 那代表她把那一間拿去當別的用了
+    if (!mine || mine.deletedAt || String(mine.name ?? '').trim() !== row.name) continue;
+    out.push({
+      severity: 'attention',
+      title: mine.name,
+      detail: '新的清單上沒有這一間了',
+      link: '#/settings/rooms',
+      fix: { kind: 'applyRoom', mode: 'drop', roomId: row.id, label: mine.name },
+    });
+  }
+
+  return out;
+}
+
+/**
+ * 十八、來訪上還記著床位。
+ *
+ * 「取消任何床位區分」（她 2026-09-08）。主檔那一頁與排班的選項已經沒有床位了，
+ * 但**既有來訪身上那個 `A` 還在** —— 而 `conflictWarnings()` 的撞期判斷比的是
+ * 「同一間**而且**同一床」，所以那幾筆會把同一間同一個時間的兩個人當成不衝突。
+ *
+ * 她選的是「連舊資料一起清掉」，而那是一次不可逆的改寫，所以它要
+ * **看得到、按得到**：列出來、她按了才清。載入時偷偷改等於一次沒有人按過的寫入。
+ *
+ * 一筆來訪一個 finding（不是一段一個）：她要處理的是那一筆，
+ * 而一筆裡兩段都有床位時列兩次只是同一件事說兩遍。
+ */
+function checkSlotBeds(ctx) {
+  return (ctx.visits ?? [])
+    .filter((v) => !v.deletedAt && (v.slots ?? []).some((s) => s.bed))
+    .map((visit) => {
+      const beds = [...new Set((visit.slots ?? []).map((s) => s.bed).filter(Boolean))];
+      const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      return {
+        severity: 'attention',
+        title: `${who}・${visit.date}`,
+        detail: `清掉床位 ${beds.join('、')}`,
+        link: '#/calendar',
+        fix: {
+          kind: 'clearBeds',
+          visitId: visit.id,
+          label: `${who}・${visit.date}`,
+          slots: (visit.slots ?? []).map((s) => ({ ...s, bed: null })),
+        },
+      };
+    });
+}
+
+/**
  * 2026-09-08 之前種子上那兩台器材的名字。**只認得出這一代。**
  *
  * 那一輪把兩格名字的分工定下來（她選的）：
@@ -1011,6 +1147,8 @@ function checkSeedDurations(ctx) {
 }
 
 const RUNNERS = {
+  roomList: checkRoomList,
+  slotBeds: checkSlotBeds,
   equipmentNames: checkEquipmentNames,
   courseAssigns: checkCourseAssigns,
   counts: checkCounts,

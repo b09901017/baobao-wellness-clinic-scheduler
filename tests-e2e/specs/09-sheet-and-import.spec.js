@@ -32,7 +32,7 @@ function reportSeed() {
       date: addDays(TODAY, -10), status: 'done',
       slots: [slot({
         courseId: 'course-iv-laser', entitlementId: 'ent-vein',
-        startsAt: '14:00', endsAt: '15:00', roomId: 'room-ilib4', attended: true,
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10', attended: true,
       })],
     }),
     visit({
@@ -40,7 +40,7 @@ function reportSeed() {
       date: addDays(TODAY, 6), status: 'pending_confirm',
       slots: [slot({
         courseId: 'course-iv-laser', entitlementId: 'ent-vein',
-        startsAt: '14:00', endsAt: '15:00', roomId: 'room-ilib4',
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10',
       })],
     }),
   ];

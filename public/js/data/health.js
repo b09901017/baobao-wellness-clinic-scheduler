@@ -130,6 +130,46 @@ function opFor(fix) {
     };
   }
 
+  // 診間清單對到建議的樣子（2026-09-08）。三種形狀走同一個 kind，
+  // 因為她在畫面上要處理的是同一件事：「把診間主檔對一次答案」。
+  //
+  // **刪掉走的是這個 app 既有的軟刪除**：進「已刪除項目」，還原得回來。
+  // 既有來訪身上還指著它 —— 那幾筆從此印不出診間名字，她 2026-09-08 選的。
+  if (fix?.kind === 'applyRoom') {
+    const roomPath = 'config/app/rooms';
+    if (fix.mode === 'add') {
+      return {
+        op: 'create', path: roomPath, id: fix.roomId, data: fix.data,
+        note: '資料健檢：補上建議清單裡有、主檔沒有的診間',
+      };
+    }
+    if (fix.mode === 'drop') {
+      return {
+        op: 'softDelete', path: roomPath, id: fix.roomId,
+        reason: '資料健檢：新的診間清單上沒有這一間',
+        note: '資料健檢：刪掉新清單上沒有的診間',
+      };
+    }
+    return {
+      op: 'update', path: roomPath, id: fix.roomId,
+      changes: { shortName: fix.shortName },
+      note: '資料健檢：診間補上簡寫',
+    };
+  }
+
+  // 清掉來訪上的床位（2026-09-08：一間就是一個資源）。
+  // **整包 slots 寫回去**：時段是內嵌陣列，Firestore 沒辦法只改其中一格。
+  // `checkSlotBeds()` 已經把那一份算好了（只有 `bed` 變成 null，其餘原封不動）。
+  if (fix?.kind === 'clearBeds') {
+    return {
+      op: 'update',
+      path: 'visits',
+      id: fix.visitId,
+      changes: { slots: fix.slots },
+      note: '資料健檢：清掉來訪上的床位',
+    };
+  }
+
   // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
   // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
   if (fix?.kind === 'renameEquipment') {

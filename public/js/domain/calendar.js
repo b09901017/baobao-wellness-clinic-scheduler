@@ -13,7 +13,7 @@
 
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
-import { slotName } from './naming.js';
+import { slotName, nameOf } from './naming.js';
 import { isActive, statusClass } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
@@ -156,7 +156,9 @@ export function agendaFor(
         endsAt: slot.endsAt ?? '',
         courseName: slot.courseName ?? '',
         courseLabel: master ? slotName(slot, master, 'short') : null,
-        room: roomsById[slot.roomId]?.name ?? null,
+        // **印簡寫**（2026-09-08）：這一列跟月曆一樣是「她自己看」的地方，
+        // 一格只放得下幾個字。沒設簡寫就退回全名（`nameOf()`）。
+        room: roomsById[slot.roomId] ? nameOf(roomsById[slot.roomId], 'short') : null,
         bed: slot.bed ?? null,
         therapist: staffById[slot.therapistId]?.name ?? null,
         roomId: slot.roomId ?? null,

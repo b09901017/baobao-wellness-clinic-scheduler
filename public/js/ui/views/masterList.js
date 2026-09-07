@@ -70,18 +70,26 @@ function alertLookFields(r) {
 }
 
 const editors = {
+  // 診間。**2026-09-08 床位那一格拿掉了**（她選的：「取消任何床位區分」），
+  // 換成簡寫 —— 月曆與日／週那一列印簡寫，這一頁與試算表印全名。
   rooms: {
-    blank: { name: '', type: ROOM_TYPES[0], beds: [] },
-    summary: (r) => `${r.type}${r.beds?.length ? ` · 床位 ${r.beds.join('、')}` : ''}`,
+    blank: { name: '', type: ROOM_TYPES[0], shortName: null },
+    summary: (r) => `${r.type}${r.shortName ? ` · ${r.shortName}` : ''}`,
     fields: (r) => [
-      f.text({ name: 'name', label: '診間名稱', value: r.name, placeholder: '治3' }),
+      f.text({ name: 'name', label: '診間名稱', value: r.name, placeholder: '點滴3' }),
       f.select({ name: 'type', label: '類型', value: r.type, options: ROOM_TYPES }),
       f.text({
-        name: 'beds', label: '床位', value: (r.beds ?? []).join('、'), placeholder: 'A、B',
-        hint: '用頓號分隔。留空代表整間就是一個資源；有床位時同一間的不同床可以同時有人。',
+        name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '.3',
+        hint: '月曆那一格印它，一格只放得下幾個字。留空就印全名。'
+          + '數字就是門上那個號碼（點滴3 → .3、VIP3 → vip3）。',
       }),
     ],
-    parse: (v) => ({ name: v.name.trim(), type: v.type, beds: f.parseList(v.beds) }),
+    // **`beds` 不在這裡**：舊資料上那一格留著（畫得出既有來訪的「點滴8A」），
+    // 但這一頁再也不寫它 —— 寫 `beds: []` 等於她一按儲存就把舊資料清掉，
+    // 而清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
+    parse: (v) => ({
+      name: v.name.trim(), type: v.type, shortName: v.shortName.trim() || null,
+    }),
   },
 
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
