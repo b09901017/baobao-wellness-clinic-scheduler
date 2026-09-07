@@ -106,7 +106,10 @@ function checkCard(check) {
   const clean = check.count === 0;
 
   return `
-    <details class="card" ${clean ? '' : 'open'}>
+    ${/* `data-check` 是給測試用的：一頁上有十九項，而「這一項給不給一鍵修正」
+           是逐項的規矩（例：品項錯配刻意不給）。沒有它就只能數整頁的按鈕，
+           而那個數字會被別項的修正弄髒。 */''}
+    <details class="card" data-check="${esc(check.id)}" ${clean ? '' : 'open'}>
       <summary class="card__title">
         ${esc(check.label)}
         ${clean
