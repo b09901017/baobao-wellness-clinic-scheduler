@@ -12,8 +12,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  parseIcs, timeOf, importJson, reportText, classifyEvent, roomOf,
+  parseIcs, timeOf, importJson, reportText, classifyEvent, roomOf, TOKENS,
 } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
+import { SEED } from '../public/js/domain/seed.js';
 
 const ics = (...events) => ['BEGIN:VCALENDAR', ...events, 'END:VCALENDAR'].join('\r\n');
 const vevent = (...lines) => ['BEGIN:VEVENT', ...lines, 'END:VEVENT'].join('\r\n');
@@ -368,5 +369,42 @@ describe('2026-08-27 那一批補上的寫法', () => {
     assert.equal(noEvidence.ivProductName, '護肝排毒');
     assert.equal(noEvidence.startsAt, null, '退回品項不代表也編一個時間出來（ADR-0011）');
     assert.equal(fromCalendar.ivProductName, '雪顏亮彩');
+  });
+});
+
+
+// 產檔那一側吐出來的課程名與器材名，**要跟主檔上的全名一字不差**。
+//
+// `domain/mergeImport.js` 的 `byName()` 是精確比對、不做模糊。對不上的時候：
+//
+//   課程對不上 → **整筆額度與它底下的每一段都匯不進去**
+//   器材對不上 → 那一格留空
+//
+// 而畫面上只寫「N 處對不到主檔」—— 看起來像資料本來就不齊，不像改名的後遺症。
+// 這一條踩過兩次：課程 2026-09-06 從「靜脈」正名成 ILIB（那一次的症狀是
+// 「1 位客戶 0 筆額度 0 筆來訪」，而且是 E2E 抓到的，不是這裡）、
+// 器材 2026-09-08 從「超磁場」改名成 SIS。
+describe('簡寫表吐出來的名字對得上主檔', () => {
+  const courseNames = new Set(SEED.courses.map((c) => c.name));
+  const equipNames = new Set(SEED.equipment.map((e) => e.name));
+
+  test('每一條的課程名都在課程主檔上', () => {
+    const bad = TOKENS.map(([, course]) => course).filter((c) => !courseNames.has(c));
+    assert.deepEqual([...new Set(bad)], [],
+      '這幾個課程名主檔上沒有 —— 匯進去的時候整筆額度會被丟掉');
+  });
+
+  test('每一條的器材名都在器材主檔上', () => {
+    const bad = TOKENS.map(([, , equip]) => equip).filter((e) => e && !equipNames.has(e));
+    assert.deepEqual([...new Set(bad)], [],
+      '這幾個器材名主檔上沒有 —— 匯進去的時候那一格會留空');
+  });
+
+  test('ILIB 那一條認得舊寫法，但吐出來的是新名字', () => {
+    const [re, course] = TOKENS.find(([, c]) => c === 'ILIB');
+    assert.equal(course, 'ILIB');
+    for (const raw of ['ILIB 60mins', 'IL', '靜脈雷射']) {
+      assert.ok(re.test(raw), `舊表上的「${raw}」要認得出來`);
+    }
   });
 });

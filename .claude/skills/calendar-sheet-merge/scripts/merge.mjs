@@ -43,12 +43,15 @@ const { KIND_LABEL } = await repoModule('public/js/domain/mergeImport.js');
 export const VARIANTS = [['啟', '啓'], ['惠', '慧'], ['崴', '威'], ['喩', '喻'], ['珮', '佩']];
 
 /** 簡寫 → [課程, 器材]。由上到下比，一句話可以命中好幾個。 */
+//
+// **課程與器材那兩格都要跟主檔上的全名一字不差。** `mergeImport.js` 的
+// `byName()` 是精確比對、不做模糊 —— 對不上的時候課程那一格會讓**整筆額度與
+// 它底下的每一段都匯不進去**（畫面上只寫「N 處對不到主檔」），器材那一格
+// 則是那一格留空。兩次改名都踩過：課程 2026-09-06 從「靜脈」正名成 ILIB，
+// 器材 2026-09-08 從「超磁場」改名成 SIS。
 export const TOKENS = [
-  [/ILIB|IL(?![A-Za-z])|靜脈/i, '靜脈', null],
+  [/ILIB|IL(?![A-Za-z])|靜脈/i, 'ILIB', null],
   [/INDIBA|IN(?![A-Za-z])/i, '復能', 'INDIBA'],
-  // 器材那一格要跟主檔上的**全名**一字不差，不然 `mergeImport.js` 匯進去時
-  // 那一格會留空並報一句「主檔裡沒有這個器材」。2026-09-08 那一台從
-  // 「超磁場」改名成「SIS」（全名＝她叫它的名字）。
   [/SIS|超磁/i, '復能', 'SIS'],
   [/高\s*能|高\s*60|雷射/i, '復能', '高能量雷射'],
   [/復能|賦能/, '復能', null],
@@ -66,10 +69,10 @@ export const TOKENS = [
 
 /** 舊表的療程列名稱 ↔ 行事曆簡寫算不算同一件事 */
 const SAME = (course, want) => course === want
+  || (course === 'ILIB' && /ILIB|靜脈/i.test(want))
   || (course === '復能' && /復能|賦能/.test(want))
   || (course === '健檢' && want.includes('健檢'))
-  || (course === '二返' && /二返|功能醫學/.test(want))
-  || (course === '靜脈' && /靜脈|ILIB/.test(want));
+  || (course === '二返' && /二返|功能醫學/.test(want));
 
 export const normVariant = (s) => VARIANTS.reduce((acc, [a, b]) => acc.split(b).join(a), String(s ?? ''));
 

@@ -108,17 +108,20 @@ const mergeFile = (over = {}) => ({
       chartNo: '3157',
       entitlements: [
         // `key` 是這份檔案裡的代號，時段靠 `entitlementKey` 指回來
-        { key: 'vein', label: '靜脈', courseName: '靜脈', totalQty: 20, type: 'single' },
+        // **課程名要跟主檔一字不差**（`byName()` 不做模糊比對）。那個課程
+        // 2026-09-06 從「靜脈」正名成 ILIB —— 這一份夾具停在舊名字，
+        // 而症狀是「1 位客戶 0 筆額度 0 筆來訪」，畫面上只寫「3 處對不到主檔」。
+        { key: 'vein', label: 'ILIB(60)', courseName: 'ILIB', totalQty: 20, type: 'single' },
       ],
       visits: [
         {
           date: addDays(TODAY, -20),
-          slots: [{ courseName: '靜脈', entitlementKey: 'vein', startsAt: '14:00', endsAt: '15:00' }],
+          slots: [{ courseName: 'ILIB', entitlementKey: 'vein', startsAt: '14:00', endsAt: '15:00' }],
           status: 'done',
         },
         {
           date: addDays(TODAY, 10),
-          slots: [{ courseName: '靜脈', entitlementKey: 'vein', startsAt: '14:00', endsAt: '15:00' }],
+          slots: [{ courseName: 'ILIB', entitlementKey: 'vein', startsAt: '14:00', endsAt: '15:00' }],
           status: 'done', // ← 舊表上未來的預約也有打勾
         },
       ],

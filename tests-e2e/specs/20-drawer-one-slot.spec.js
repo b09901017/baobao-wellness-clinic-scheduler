@@ -57,11 +57,14 @@ function seedThreeSlots() {
   ];
 }
 
-/** 日檢視的那一天。抽屜那條路另外測 —— 這裡要的是三列同時看得到。 */
-async function openDayView(app, page) {
+/**
+ * 那一天的抽屜。**`[data-day]` 只存在於月檢視的格子上** —— 切到日檢視之後
+ * 那個屬性整個不見（日檢視畫的是時間軸，不是格子），所以這裡不切檢視。
+ *
+ * 抽屜裡那一份清單跟日檢視是同一支 `dayHtml()`，所以要盯的東西一模一樣。
+ */
+async function openDayDrawer(app, page) {
   await app.go('/calendar');
-  await page.locator('[data-view="day"]').click();
-  await app.settled();
   await page.locator(`[data-day="${DAY}"]`).first().click();
   await page.waitForTimeout(700);
 }
@@ -69,7 +72,7 @@ async function openDayView(app, page) {
 test('同一天三段：一段一列，點哪一列就只看哪一段', async ({ app, page }) => {
   await app.seed(seedThreeSlots());
   await app.signIn('/calendar');
-  await openDayView(app, page);
+  await openDayDrawer(app, page);
 
   const rows = page.locator('[data-open^="visit:v-three:"]');
   await expect(rows, '一筆來訪三個時段要畫成三列').toHaveCount(3);
@@ -111,7 +114,7 @@ test('月檢視一段一條，而且印得出那一段是哪一台', async ({ ap
 test('長按一列，選單要講清楚底下那幾顆動的是整筆', async ({ app, page }) => {
   await app.seed(seedThreeSlots());
   await app.signIn('/calendar');
-  await openDayView(app, page);
+  await openDayDrawer(app, page);
 
   const row = page.locator('[data-open^="visit:v-three:"]').first();
   await row.scrollIntoViewIfNeeded();
