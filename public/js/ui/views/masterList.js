@@ -70,18 +70,26 @@ function alertLookFields(r) {
 }
 
 const editors = {
+  // 診間。**2026-09-08 床位那一格拿掉了**（她選的：「取消任何床位區分」），
+  // 換成簡寫 —— 月曆與日／週那一列印簡寫，這一頁與試算表印全名。
   rooms: {
-    blank: { name: '', type: ROOM_TYPES[0], beds: [] },
-    summary: (r) => `${r.type}${r.beds?.length ? ` · 床位 ${r.beds.join('、')}` : ''}`,
+    blank: { name: '', type: ROOM_TYPES[0], shortName: null },
+    summary: (r) => `${r.type}${r.shortName ? ` · ${r.shortName}` : ''}`,
     fields: (r) => [
-      f.text({ name: 'name', label: '診間名稱', value: r.name, placeholder: '治3' }),
+      f.text({ name: 'name', label: '診間名稱', value: r.name, placeholder: '點滴3' }),
       f.select({ name: 'type', label: '類型', value: r.type, options: ROOM_TYPES }),
       f.text({
-        name: 'beds', label: '床位', value: (r.beds ?? []).join('、'), placeholder: 'A、B',
-        hint: '用頓號分隔。留空代表整間就是一個資源；有床位時同一間的不同床可以同時有人。',
+        name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '.3',
+        hint: '月曆那一格印它，一格只放得下幾個字。留空就印全名。'
+          + '數字就是門上那個號碼（點滴3 → .3、VIP3 → vip3）。',
       }),
     ],
-    parse: (v) => ({ name: v.name.trim(), type: v.type, beds: f.parseList(v.beds) }),
+    // **`beds` 不在這裡**：舊資料上那一格留著（畫得出既有來訪的「點滴8A」），
+    // 但這一頁再也不寫它 —— 寫 `beds: []` 等於她一按儲存就把舊資料清掉，
+    // 而清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
+    parse: (v) => ({
+      name: v.name.trim(), type: v.type, shortName: v.shortName.trim() || null,
+    }),
   },
 
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
@@ -215,6 +223,7 @@ const editors = {
     blank: {
       name: '', durationMin: 60, category: 'C', assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      preferredRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
       needsTreatmentForm: true,
       needsRecord: false,
@@ -257,6 +266,16 @@ const editors = {
         name: 'allowedRoomTypes', label: '可用的診間類型',
         values: r.allowedRoomTypes ?? [], options: ROOM_TYPES,
         hint: '只在「選診間」時有效。',
+      }),
+      // 常用診間（`orderedRoomsForCourse()`）。**這是排序不是限制** ——
+      // 沒勾的那幾間照樣選得到，只是排在「其他診間」底下。
+      f.checkboxes({
+        name: 'preferredRoomIds', label: '常用診間',
+        values: r.preferredRoomIds ?? [],
+        options: (all?.rooms ?? []).filter((x) => !x.deletedAt)
+          .map((x) => ({ value: x.id, label: x.name })),
+        hint: '勾起來的排在最前面。這是順序不是限制 —— 沒勾的照樣選得到，'
+          + '只是收在「其他診間」底下。上面那一排勾不到的診間，勾了也不會出現。',
       }),
       f.toggle({
         name: 'requiresEquipment', label: '來訪時要選器材（擇一池）',
@@ -330,6 +349,7 @@ const editors = {
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
       // 指定診間是例外覆寫，這個表單不動它，保留原值
       allowedRoomIds: v.assigns === 'room' ? (prev?.allowedRoomIds ?? []) : [],
+      preferredRoomIds: v.assigns === 'room' ? (v.preferredRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
       requiresDoctor: !!v.requiresDoctor,

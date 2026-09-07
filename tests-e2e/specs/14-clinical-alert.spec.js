@@ -142,6 +142,10 @@ test.describe('警示', () => {
 
     await page.locator('[data-pick="cust-e"]').first().click();
     await page.waitForTimeout(600);
+    // **額度那一排在「挑日子」之後才畫**（`dayPanel()`）——
+    // 少了這一步 `[data-ent]` 根本不存在，而那一下只會靜靜地等到逾時。
+    await page.locator(`[data-day="${TODAY}"]`).first().click();
+    await page.waitForTimeout(400);
     await page.locator('[data-ent="ent-e-recovery"]').click();
     await app.settled();
 
@@ -157,10 +161,10 @@ test.describe('警示', () => {
     await page.locator('[data-equipment="eq-indiba"]').click();
     await expect(page.locator('[data-eqnotice]')).toBeEmpty();
 
-    // 選了超磁場 → 跳出來，而且講得出原因與建議
+    // 選了 SIS → 跳出來，而且講得出原因與建議
     await page.locator('[data-equipment="eq-sis"]').click();
     const notice = page.locator('[data-eqnotice] .warn--hard');
-    await expect(notice).toContainText('超磁場');
+    await expect(notice).toContainText('SIS');
     await expect(notice).toContainText('體內金屬');
     await expect(notice).toContainText('建議改用 INDIBA');
   });

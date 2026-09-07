@@ -32,7 +32,7 @@ const MASTER = {
   // 所以「三選一」是前兩台（這份主檔只有兩台），「四選一」是全部三台。
   equipment: [
     { id: 'eq-indiba', name: 'INDIBA', courseId: 'c-recovery' },
-    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
+    { id: 'eq-sis', name: 'SIS', courseId: 'c-recovery' },
     { id: 'eq-ilib', name: 'ILIB', courseId: 'c-ilib' },
   ],
   ivProducts: [
@@ -101,7 +101,7 @@ describe('買了什麼：選了之後草稿變成什麼', () => {
     assert.equal(e.courseId, null);
     assert.deepEqual(e.optionEquipmentIds, ['eq-indiba', 'eq-sis']);
     assert.equal(e.durationMin, 60, '預設時長也要幫她帶進來');
-    assert.equal(e.label, '復能 - 二選一（60）');
+    assert.equal(e.label, '復能-二選一(60)');
   });
 
   test('營養品是第三種型態，沒有課程也沒有器材', () => {
@@ -592,18 +592,18 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
   test('換一種：名字跟著變', () => {
     const pool = from(buy.POOL_PICK);
     const single = buy.afterDetail(pool, { optionEquipmentIds: ['eq-sis'] }, MASTER);
-    assert.equal(single.label, '復能 - SIS（60）', '單買一台也帶著分類，而且用別稱');
+    assert.equal(single.label, '復能-SIS(60)', '單買一台也帶著分類，後半是器材的全名');
 
     const four = buy.afterDetail(single, {
       optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-ilib'],
     }, MASTER);
-    assert.equal(four.label, '復能 - 三選一（60）');
+    assert.equal(four.label, '復能-三選一(60)');
   });
 
   test('換幾分鐘：名字跟著變', () => {
     const pool = from(buy.POOL_PICK);
     const half = buy.afterDetail(pool, { durationMin: 30 }, MASTER);
-    assert.equal(half.label, '復能 - 二選一（30）');
+    assert.equal(half.label, '復能-二選一(30)');
   });
 
   test('她自己打過的名字照樣不被覆蓋', () => {
@@ -616,7 +616,7 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
     const ilib = from('c-ilib');
     assert.equal(ilib.type, 'single');
     assert.equal(ilib.durationMin, 60, '預設帶課程的時長');
-    assert.equal(ilib.label, 'ILIB（60）');
+    assert.equal(ilib.label, 'ILIB(60)');
 
     const html = buy.fields(ilib, MASTER);
     assert.ok(html.includes('幾分鐘'));

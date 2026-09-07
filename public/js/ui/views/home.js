@@ -1131,7 +1131,7 @@ async function loadWhoDetails(ctx) {
   try {
     // 課程與器材是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
     // 四個畫面共用同一支 `visitReadHtml()`，少帶這兩份的話這一頁會寫「復能」
-    // 而日曆上寫「復能(SIS)」。
+    // 而日曆上寫「SIS(60)」。
     const [visits, rooms, staff, courses, equipment] = await Promise.all([
       ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
       config.listAll('rooms'),

@@ -5,7 +5,20 @@
 
 import { ALERT_COLORS, ALERT_FILLS } from './clinicalFlags.js';
 
-export const ROOM_TYPES = ['治療室', '點滴室', 'ILIB室'];
+/**
+ * 空間有三種。**2026-09-08 她重畫過一次**：
+ *
+ *   治療室  治2 治3 治5 治8
+ *   點滴室  點滴2 3 5 6 7 8 9 10
+ *   VIP室   VIP2 3 5 6 7
+ *
+ * **都沒有 4 號**，而簡寫裡的數字就是房號（`.2`、`vip2`、`治2`）。
+ *
+ * `ILIB室` 拿掉了：唯一那一間是 `ILIB4`，它有個 4；而 ILIB 這個課程本來就
+ * 排在點滴室與治療室（她給的優先順序是 `.10、治2、治3`）。既有來訪還指著
+ * 那一間 —— 刪掉它是資料健檢那一列的事，不是這裡的事。
+ */
+export const ROOM_TYPES = ['治療室', '點滴室', 'VIP室'];
 
 /**
  * `config/staff` 上的角色。
@@ -210,16 +223,17 @@ function positiveInt(v) {
 }
 
 const validators = {
+  /**
+   * 診間。**2026-09-08 之後沒有床位這一層了**（她選的：「取消任何床位區分」）。
+   *
+   * 舊資料上那一格還在（只有點滴8 有 A／B），所以這裡**不驗也不擋** ——
+   * 擋下來的話她一進設定頁改個名字就存不回去。清掉既有那幾筆是資料健檢
+   * 「來訪上還記著床位」那一列的事。
+   */
   rooms(r) {
-    const errors = [];
+    const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('診間名稱不可空白');
     if (!ROOM_TYPES.includes(r.type)) errors.push('請選擇診間類型');
-    const beds = r.beds ?? [];
-    if (!Array.isArray(beds)) errors.push('床位格式錯誤');
-    else {
-      if (beds.some(isBlank)) errors.push('床位名稱不可空白');
-      if (new Set(beds).size !== beds.length) errors.push('床位名稱不可重複');
-    }
     return errors;
   },
 
@@ -316,12 +330,16 @@ const validators = {
 
     const types = r.allowedRoomTypes ?? [];
     const ids = r.allowedRoomIds ?? [];
+    // 常用診間（`orderedRoomsForCourse()`）。**只是順序不是限制**，所以這裡
+    // 不驗那幾個 id 排不排得進去 —— 排不進去的那一間畫不出來就是了。
+    const pref = r.preferredRoomIds ?? [];
+    if (!Array.isArray(pref)) errors.push('常用診間格式錯誤');
     if (r.assigns === 'room') {
       if (types.length === 0 && ids.length === 0) {
         errors.push('選診間的課程要指定可用的診間類型，或直接指定幾間');
       }
       if (types.some((t) => !ROOM_TYPES.includes(t))) errors.push('診間類型不合法');
-    } else if (types.length || ids.length) {
+    } else if (types.length || ids.length || pref.length) {
       errors.push('不選診間的課程不該設定診間限制');
     }
 
@@ -484,23 +502,19 @@ export function validate(type, record, context = {}) {
 }
 
 /**
- * 診間 × 床位 攤平成排班時可選的資源。
- * 沒有床位的診間就是它自己一個選項。
+ * 排班時可選的空間。**一間就是一個選項。**
+ *
+ * 2026-09-08 之前這裡會把有床位的診間攤成好幾個（`點滴8A`、`點滴8B`）。
+ * 她那天說「取消任何床位區分」，所以那一層拿掉了 —— 舊資料上的 `beds`
+ * 一個字都不影響這裡，不然那兩個選項還是會冒出來。
+ *
+ * `bed: null` 那一格留著：呼叫端（`roomKey()`、`parseRoomKey()`）與時段上的
+ * 欄位都還在，而既有來訪身上那個 `A` 要畫得出來。
  */
 export function roomSlots(rooms) {
-  const out = [];
-  for (const room of rooms) {
-    if (room.deletedAt || room.active === false) continue;
-    const beds = room.beds ?? [];
-    if (!beds.length) {
-      out.push({ roomId: room.id, bed: null, label: room.name });
-    } else {
-      for (const bed of beds) {
-        out.push({ roomId: room.id, bed, label: `${room.name}${bed}` });
-      }
-    }
-  }
-  return out;
+  return (rooms ?? [])
+    .filter((room) => room && !room.deletedAt && room.active !== false)
+    .map((room) => ({ roomId: room.id, bed: null, label: room.name }));
 }
 
 /**
@@ -518,7 +532,13 @@ export function equipmentForCourse(courseId, equipment = []) {
   return mine.length ? mine : alive;
 }
 
-/** 某個課程能選哪些診間。allowedRoomIds 有值時蓋過類型規則。 */
+/**
+ * 某個課程能選哪些診間。allowedRoomIds 有值時蓋過類型規則。
+ *
+ * **這一支回答的是「能不能」。** 「誰排前面」是另一個問題，在
+ * `orderedRoomsForCourse()` —— 兩件事混在一個欄位裡的話，她一放寬限制，
+ * 順序就跟著散掉。
+ */
 export function roomsForCourse(course, rooms) {
   if (course?.assigns !== 'room') return [];
   const alive = rooms.filter((r) => !r.deletedAt && r.active !== false);
@@ -528,6 +548,42 @@ export function roomsForCourse(course, rooms) {
 
   const types = course.allowedRoomTypes ?? [];
   return types.length ? alive.filter((r) => types.includes(r.type)) : alive;
+}
+
+/**
+ * 某個課程的診間，**常用的排前面**。
+ *
+ * 她 2026-09-08：
+ *
+ * > 預約 EECP 時 → 下拉選單優先置頂顯示：治5、治8
+ * > 預約 ILIB 時 → 優先置頂顯示：.10、治2、治3
+ *
+ * **這是排序不是限制。** 課程主檔上三個欄位回答三個不同的問題：
+ *
+ *   `allowedRoomTypes`  這個課程能排在哪一類空間
+ *   `allowedRoomIds`    例外：只有這幾間（**硬限制**，例：EECP 只能治5、治8）
+ *   `preferredRoomIds`  這幾間排最前面（**只是順序**）
+ *
+ * 三個都留著是刻意的：她之後在設定裡把 EECP 的硬限制放寬時，順序還在。
+ *
+ * **推薦裡排不進去的那幾間不出現，也不會因此變成允許** ——
+ * 那會讓「常用」變成第二條放寬限制的路，而她不會知道是哪一條在算數。
+ * 排不進去的原因有兩種（不在允許範圍、已經被刪掉），兩種的答案一樣。
+ *
+ * 壓表與來訪編輯器兩個入口共用 —— 各排一次的話，同一個課程在兩個畫面上
+ * 第一顆丸子不一樣，她不會知道哪個算數。
+ */
+export function orderedRoomsForCourse(course, rooms) {
+  const allowed = roomsForCourse(course, rooms);
+  const wanted = (course?.preferredRoomIds ?? [])
+    .filter((id) => allowed.some((r) => r.id === id));
+  if (!wanted.length) return allowed;
+
+  const rank = new Map(wanted.map((id, i) => [id, i]));
+  // `sort()` 在現代 JS 是穩定的，所以沒被點名的那幾間維持主檔上的順序
+  return [...allowed].sort(
+    (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+  );
 }
 
 /**

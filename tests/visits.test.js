@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 
 import {
   VISIT_STATUSES, INITIAL_STATUS, describeStatus, nextStatuses, canTransition,
@@ -15,7 +15,7 @@ import {
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
-  courseForEquipment, picksEquipment,
+  courseForEquipment, picksEquipment, slotsToShow, assignsFor,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -445,6 +445,30 @@ describe('會擋下儲存的（errors）', () => {
                 roomId: null, therapistId: 'st-tw', endsAt: '15:00' }],
     });
     assert.ok(validateVisit(v, ctx()).errors.some((e) => e.includes('器材')));
+  });
+
+  // 這個洞跟上面那一條是同一件事的另一半：問的是**課程**要不要記器材，
+  // 而四選一的預設課程是 ILIB（`requiresEquipment` 是 false）。
+  // 於是一段扣著四選一、卻沒有器材的來訪存得進資料庫 —— 而那一筆之後在
+  // 月檢視、試算表上都印不出是哪一台，額度的池成員檢查也沒有 id 可以比。
+  test('擇一池沒選器材一律擋，不管推出來的課程是哪一個', () => {
+    const ilibPool = { id: 'e-pool4', type: 'pool', label: '復能-四選一(60)',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis'], totalQty: 5, durationMin: 60,
+      doneCount: 0, bookedCount: 0 };
+    const v = visit({
+      slots: [{ ...visit().slots[0], entitlementId: 'e-pool4',
+                // ILIB 那個課程不需要選器材，但這一段扣的是一筆池
+                courseId: 'c-iv-laser', roomId: 'r-t3', therapistId: null, endsAt: '15:00' }],
+    });
+    const withIlib = ctx({
+      entitlements: [...ENTS, ilibPool],
+      courses: [...COURSES, { id: 'c-iv-laser', name: 'ILIB', durationMin: 60, assigns: 'room',
+        allowedRoomTypes: ['治療室'], allowedRoomIds: [], requiresEquipment: false, category: 'C' }],
+    });
+    const { errors } = validateVisit(v, withIlib);
+    assert.ok(errors.some((e) => e.includes('器材')), errors.join('｜'));
+    // 講得出是哪一筆額度 —— 「ILIB 每次都要記錄器材」是一句她看不懂的話
+    assert.ok(errors.some((e) => e.includes('復能-四選一(60)')), errors.join('｜'));
   });
 
   test('營養點滴沒選品項也存不了', () => {
@@ -992,6 +1016,32 @@ describe('器材決定那一段算哪一個課程', () => {
       assert.deepEqual(out.map((c) => c.name), ['復能', 'ILIB']);
     });
 
+    // 她 2026-09-08：「選三選一或四選一…系統均只強制彈出診間，未切換為指派治療師」。
+    //
+    // 根因就在這裡：預設課程是「池上第一台器材指到的那一個」，而池上的順序
+    // 來自主檔讀回來的順序，`data/repo.js` 的 `list()` 沒有 orderBy ——
+    // Firestore 回的是文件 id 升冪，`eq-ilib` 剛好排在最前面。
+    // 於是四選一的預設課程是 ILIB（要診間），她還沒選器材，畫面就替她答錯了。
+    test('四選一：不管 ILIB 排第幾，復能都是第一個', () => {
+      const ilibFirst = pool(['eq-ilib', 'eq-indiba', 'eq-laser', 'eq-sis']);
+      assert.deepEqual(
+        coursesForEntitlement(ilibFirst, COURSES2, EQ).map((c) => c.name), ['復能', 'ILIB'],
+      );
+    });
+
+    test('器材主檔的順序換掉，答案一樣 —— 預設不可以看讀取順序', () => {
+      const reversed = [...EQ].reverse();
+      const p = pool(['eq-ilib', 'eq-sis']);
+      assert.equal(coursesForEntitlement(p, COURSES2, EQ)[0].name, '復能');
+      assert.equal(coursesForEntitlement(p, COURSES2, reversed)[0].name, '復能');
+    });
+
+    test('池裡根本沒有復能的話不要硬塞 —— 單買 ILIB 的池就是 ILIB', () => {
+      assert.deepEqual(
+        coursesForEntitlement(pool(['eq-ilib']), COURSES2, EQ).map((c) => c.name), ['ILIB'],
+      );
+    });
+
     test('單買一台就是那一台的課程', () => {
       assert.deepEqual(
         coursesForEntitlement(pool(['eq-ilib']), COURSES2, EQ).map((c) => c.name), ['ILIB'],
@@ -1052,4 +1102,134 @@ describe('器材決定那一段算哪一個課程', () => {
       assert.equal(picksEquipment(null, null), false);
     });
   });
+});
+
+// 她 2026-09-08：
+//
+// > 我在日曆點開詳情的時候，為甚麼我點的是復能(INDIBA)，
+// > 但是卻會一次呈現三個復能(INDIBA)、復能(超磁場)、靜脈(IL)？
+//
+// 排班的原子單位是來訪（SPEC 第 4.4 節），所以同一位客戶同一天壓三次
+// 是**一筆來訪三個時段**。日／週檢視那一份清單是一段一列的，
+// 但點下去給的是整筆 —— 那一下把「我點的是哪一段」丟掉了。
+describe('讀取卡片要畫哪幾段', () => {
+  const v = {
+    id: 'v1',
+    slots: [
+      { startsAt: '09:00', endsAt: '09:30', courseName: '復能' },
+      { startsAt: '10:00', endsAt: '10:30', courseName: '復能' },
+      { startsAt: '11:00', endsAt: '12:00', courseName: 'ILIB' },
+    ],
+  };
+
+  test('沒指定就是全部 —— 另外三頁列的本來就是整筆來訪', () => {
+    const out = slotsToShow(v);
+    assert.deepEqual(out.slots.map((s) => s.index), [0, 1, 2]);
+    assert.equal(out.hidden, 0);
+    assert.equal(out.focused, false);
+  });
+
+  test('指定了就只有那一段，其餘算成「還有幾段」', () => {
+    const out = slotsToShow(v, 1);
+    assert.deepEqual(out.slots.map((s) => s.index), [1]);
+    assert.equal(out.slots[0].slot.startsAt, '10:00');
+    assert.equal(out.hidden, 2);
+    assert.equal(out.focused, true);
+  });
+
+  test('第 0 段也算數 —— 0 是一個合法的 index，不是「沒指定」', () => {
+    const out = slotsToShow(v, 0);
+    assert.deepEqual(out.slots.map((s) => s.index), [0]);
+    assert.equal(out.hidden, 2);
+  });
+
+  // 這一條是這一支存在的第二個理由：指到一個不存在的段落時**退回全部**。
+  // 畫成空白的話她會以為那一筆壞了，而畫太多只是回到修好之前的樣子。
+  test('指到一個不存在的段落就退回全部，不要畫成空的', () => {
+    for (const bad of [9, -1, 1.5, '1', NaN, null, undefined]) {
+      const out = slotsToShow(v, bad);
+      assert.equal(out.slots.length, 3, `focusSlot=${String(bad)} 應該退回全部`);
+      assert.equal(out.hidden, 0);
+    }
+  });
+
+  test('只有一段的來訪指定第 0 段：畫得出來，而且沒有「還有幾段」', () => {
+    const one = { id: 'v2', slots: [v.slots[0]] };
+    const out = slotsToShow(one, 0);
+    assert.equal(out.slots.length, 1);
+    assert.equal(out.hidden, 0);
+    assert.equal(out.focused, true);
+  });
+
+  test('一段都沒有的來訪不會炸', () => {
+    assert.deepEqual(slotsToShow({ id: 'v3', slots: [] }, 0),
+      { slots: [], hidden: 0, focused: false });
+    assert.deepEqual(slotsToShow(null), { slots: [], hidden: 0, focused: false });
+  });
+});
+
+
+// 她 2026-09-08 的第二點：「三選一 / 四選一器材動態連動」。
+//
+// 指派是**課程說了算**，而擇一池的課程是選到的那一台器材推出來的（ADR-0075）。
+// 所以在她挑器材之前，「這一段要治療師還是治療室」是**還沒有答案**的 ——
+// 畫一排出來等於替她答了。
+describe('這一段現在要指派什麼', () => {
+  const recovery = { id: 'c-recovery', assigns: 'therapist', requiresEquipment: true };
+  const ilib = { id: 'c-ilib', assigns: 'room', requiresEquipment: false };
+  const cardio = { id: 'c-cardio', assigns: 'none' };
+  const poolEnt = { type: 'pool', optionEquipmentIds: ['eq-sis', 'eq-ilib'] };
+
+  test('擇一池還沒選器材：答不出來', () => {
+    assert.equal(assignsFor(poolEnt, recovery, null), null);
+    assert.equal(assignsFor(poolEnt, ilib, null), null);
+  });
+
+  test('選了復能那三台之一就是治療師', () => {
+    assert.equal(assignsFor(poolEnt, recovery, 'eq-sis'), 'therapist');
+  });
+
+  test('四選一選到 ILIB 就是治療室', () => {
+    assert.equal(assignsFor(poolEnt, ilib, 'eq-ilib'), 'room');
+  });
+
+  // 單買 ILIB 是那個課程的 single 額度，它身上沒有器材可以選，
+  // 所以一開始就答得出來 —— 不可以被上面那條「還沒選器材」擋住。
+  test('不用選器材的課程一開始就答得出來', () => {
+    assert.equal(assignsFor({ type: 'single', courseId: 'c-ilib' }, ilib, null), 'room');
+    assert.equal(assignsFor({ type: 'single' }, cardio, null), 'none');
+  });
+
+  test('n返 沒有額度，照樣答得出來', () => {
+    assert.equal(assignsFor(null, ilib, null), 'room');
+  });
+
+  test('課程認不出來就是「都不用」，不要回 undefined', () => {
+    assert.equal(assignsFor(null, null, null), 'none');
+    assert.equal(assignsFor({ type: 'single' }, { id: 'x' }, null), 'none');
+  });
+});
+
+// 指派規則只有一份實作。畫面自己比 `course.assigns` 的話，會出現
+// 「畫面上要她選治療師、存進去的卻是一段要診間的 ILIB」——
+// 而那要等到她看試算表才會發現。
+//
+// 比的是 `course.assigns`（一個**課程物件**上的那一格），不是 `v.assigns`
+// —— 設定頁的課程編輯器本來就是那個欄位被**設定**的地方（`masterList.js`），
+// 它不在這條規則的範圍裡。
+test('沒有一個畫面自己去比 course.assigns', () => {
+  const dir = new URL('../public/js/ui/', import.meta.url);
+  const offenders = [];
+  const walk = (rel) => {
+    for (const name of readdirSync(new URL(rel, dir))) {
+      const next = `${rel}${name}`;
+      if (statSync(new URL(next, dir)).isDirectory()) walk(`${next}/`);
+      else if (name.endsWith('.js')) {
+        const src = readFileSync(new URL(next, dir), 'utf8');
+        if (/\bcourse\??\.assigns\s*===/.test(src)) offenders.push(next);
+      }
+    }
+  };
+  walk('');
+  assert.deepEqual(offenders, [], `這幾支自己比了 assigns，要改走 assignsFor()：${offenders}`);
 });

@@ -197,6 +197,36 @@ test('呼叫端可以自己指定顏色組 —— 來訪要跟行事備註排在
   assert.equal(rows[1].bars[0].kind, 'kind-visit');
 });
 
+// 2026-09-08：月檢視改成**一段一條**（同一位客戶同一天三段就是三條）。
+// 同一天、同樣長的那幾條，靠 `sortKey` 排 —— 沒有它的話會落到最後那一條
+// 「照標題排」，於是 `IL` `IN` `SIS` 照筆畫走，跟她那一天的順序無關。
+test('同一天同樣長的，照 sortKey 排不照標題排', () => {
+  const at = (id, title, sortKey) => ({
+    ...ev({ id, title, startDate: '2026-08-03', endDate: '2026-08-03' }), sortKey,
+  });
+  // 標題的順序是 SIS → IL → IN，時間的順序是 IN → SIS → IL
+  const rows = layoutMonth(
+    [at('a', 'SIS', '10:00'), at('b', 'IL', '14:00'), at('c', 'IN', '09:00')], WEEKS,
+  );
+  assert.deepEqual(rows[1].bars.map((x) => x.title), ['IN', 'SIS', 'IL']);
+});
+
+test('沒有 sortKey 的照舊比標題 —— 跨天的行事備註一個字都不變', () => {
+  const a = ev({ id: 'a', title: 'B', startDate: '2026-08-03', endDate: '2026-08-03' });
+  const b = ev({ id: 'b', title: 'A', startDate: '2026-08-03', endDate: '2026-08-03' });
+  assert.deepEqual(
+    layoutMonth([a, b], WEEKS)[1].bars.map((x) => x.title), ['A', 'B'],
+  );
+});
+
+test('有 sortKey 的排在沒有 sortKey 的前面 —— 兩種混在同一天時順序仍然固定', () => {
+  const timed = { ...ev({ id: 't', title: 'SIS', startDate: '2026-08-03', endDate: '2026-08-03' }), sortKey: '10:00' };
+  const plain = ev({ id: 'p', title: 'A', startDate: '2026-08-03', endDate: '2026-08-03' });
+  const one = layoutMonth([timed, plain], WEEKS)[1].bars.map((x) => x.id);
+  const two = layoutMonth([plain, timed], WEEKS)[1].bars.map((x) => x.id);
+  assert.deepEqual(one, two);
+});
+
 test('排版順序固定 —— 換裝置回來看到的要一樣', () => {
   const a = ev({ id: 'a', title: '甲', startDate: '2026-08-03', endDate: '2026-08-03' });
   const b = ev({ id: 'b', title: '乙', startDate: '2026-08-03', endDate: '2026-08-05' });

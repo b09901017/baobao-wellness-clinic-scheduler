@@ -1,66 +1,59 @@
 // 一段來訪在畫面上要唸成什麼。純函式。
 //
-// 她 2026-09-06：
+// 她 2026-09-08：
 //
-// > 日曆以及要通知客戶的 line 草稿等等，就是要寫特定哪一項，而不是說甚麼三選一
-// > 四選一，而是特定什麼可以寫復能(sis) 或是 ILIB 這樣，這樣客戶和我才清楚
+// > app 中只會出現 在額度那邊寫復能-三選一(30)，月曆寫SIS(30)，草稿寫復能
 //
-// > 月檢視寫器材名，其餘寫全名，然後其實可以器材名寫 "SIS" 以及全名寫 "復能(SIS)"，
-// > 然後設定可以多一個名稱檢視表？就是可以設定課程的全名以及別稱……
-// > 以及如果是 line 草稿要怎麼寫名稱等等
+// ## 全站只有三種字
 //
-// ## 為什麼這一支存在
+// | 誰在看 | 哪裡 | 例 | 誰算的 |
+// |---|---|---|---|
+// | 她（當初買了什麼） | 加購、客戶詳情、壓表的額度丸子、試算表、稽核 | `復能-三選一(30)` | `entitlements.js` 的 `poolName()` + `timedLabel()` |
+// | 她（那天做了什麼） | 月檢視、日／週那一列、讀取卡片、來訪編輯器抬頭 | `SIS(30)` | 這一支的 `slotName(…, 'short')` |
+// | 客戶 | LINE 草稿 | `復能`、`靜脈雷射` | 這一支的 `slotName(…, 'line')` |
 //
-// 額度叫什麼是「當初買了什麼」（`復能四選一(60)`），一段叫什麼是
-// **「那天真的做了什麼」**（`復能(SIS)`）。兩件事。日曆上寫「復能」而她那天
-// 真的做的是超磁場 —— 客戶看不懂，她過幾週也認不出來。
+// 所以**這一支只有兩種寫法**：第三種字是額度的名字，那不是一段來訪的事。
 //
-// ## 三種寫法，一份資料
+// ## 「一般」那一種是怎麼消失的（2026-09-08）
 //
-// 三個地方能放的字數差很多（月檢視一小條、讀取卡片一整列、LINE 一句話），
-// 所以每一筆主檔有三格名字，而**組法只有這一支**。
+// 2026-09-06 那一輪把一段的名字拆成三種寫法，中間那一種叫「一般」，
+// 印的是 `復能(SIS)`。它只活在三個地方：日／週檢視那一列的副標、讀取卡片、
+// 來訪編輯器每一段的抬頭。
 //
-//   short  月檢視     有器材就只印器材，接上幾分鐘  `SIS(60)`
-//   full   一般       課程全名(器材別稱)            `復能(SIS)`
-//   line   LINE 草稿  **只有課程**                  `復能`
+// 她 2026-09-08 說那三個地方也印月曆那一種：
 //
-// ## 月檢視為什麼要接分鐘（2026-09-07）
+// > 我不希望出現復能(器材)，靜脈(IL)等其他格式，只會有以下這六種
+//
+// 讀取卡片底下本來就有一行「扣 復能-三選一(30)」（ADR-0077 第五點），
+// 所以那一張卡片上兩行合起來仍然講得完整：那天做了什麼、扣的是哪一筆。
+//
+// ADR-0077 的立論一條都沒有被推翻 —— **三個地方三種讀者**還是成立的，
+// 只是「她自己看」的那兩個地方（月檢視與讀取卡片）用同一種寫法就夠了。
+//
+// ## 月檢視為什麼要接分鐘
 //
 // > 希望可以在月檢視能看出來，分的出來，不用記復能(SIS)而是記 SIS(60)
 //
 // 同一台機器有 30 與 60 兩種規格，而它們是**兩筆不同的額度**
-//（`復能 - SIS（30）` 與 `復能 - SIS（60）`）。少了那個數字，月檢視上兩者
-// 長得一模一樣，她要點開才知道那天排的是哪一種。
+//（`復能-SIS(30)` 與 `復能-SIS(60)`）。少了那個數字，兩者長得一模一樣。
 //
 // **只有「這個課程有兩種以上規格」時才接**（`durationChoicesOf()`）——
 // 健檢永遠是 120 分，寫出來只是把那一格擠掉一個字。
 // 括號用半形：一格是七分之一個螢幕寬，全形括號等於少看到一個字。
 //
-// ## LINE 草稿一個器材字都不寫（2026-09-07，ADR-0077）
-//
-// 她的原話：
-//
-// > 我和客人的草稿只會有復能或靜脈雷射
-// > 然後我自己看月曆會是當天我壓的器材
-//
-// 所以 `line` 那一格**不接器材那一半**，`復能 - 三選一（60）` 那天壓了超磁場，
-// 貼給客人的還是「復能」。器材主檔上的 `lineName` 因此再也畫不出來，
-// 設定 → 名稱怎麼寫那一頁的器材列也就不給那一格了 —— 一個永遠不會出現的
-// 輸入框比沒有還糟。
-//
-// 2026-09-06 那一版寫的是「LINE 草稿預設同一般」，那一條被這裡推翻了。
+// **有沒有器材都要接。** 單買 ILIB 那一段身上沒有器材（ILIB 課程的
+// `requiresEquipment` 是 false），而她列的第六種正是 `ILIB(30/60) -> IL(30/60)`。
 
 import { durationChoicesOf } from './masterData.js';
 import { toMinutes, isValidTime } from './visitTime.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
-/** 三種情境。設定頁那張預覽表照這個順序畫。 */
-export const NAME_CONTEXTS = ['short', 'full', 'line'];
+/** 兩種情境。設定頁那張表照這個順序畫。 */
+export const NAME_CONTEXTS = ['short', 'line'];
 
 export const CONTEXT_LABELS = {
-  short: '月檢視',
-  full: '一般',
+  short: '月曆',
   line: 'LINE 草稿',
 };
 
@@ -69,7 +62,7 @@ export const CONTEXT_LABELS = {
  *
  * 退回鏈是**兩份不一樣**的，因為那兩半在句子裡的位置不同：
  *
- *   課程  full → 全名；short/line → 自己那一格，空的退回全名
+ *   課程  short → 別稱，空的退回全名；line → LINE 名，空的退回全名
  *   器材  一律別稱退回全名
  *
  * 器材沒有 `line` 這一種：LINE 草稿一個器材字都不寫（ADR-0077），
@@ -77,7 +70,7 @@ export const CONTEXT_LABELS = {
  * 呼叫端不用先判斷是哪一種。
  *
  * @param {{name?:string, shortName?:string, lineName?:string}|null} row
- * @param {'short'|'full'|'line'} context
+ * @param {'short'|'line'} context
  * @param {{as?: 'course'|'equipment'}} [opts]
  */
 export function nameOf(row, context, { as = 'course' } = {}) {
@@ -86,54 +79,64 @@ export function nameOf(row, context, { as = 'course' } = {}) {
   const line = trimmed(row?.lineName);
 
   if (as === 'equipment') return short;
-  if (context === 'short') return short;
-  if (context === 'line') return line || full;
-  return full;
+  return context === 'line' ? (line || full) : short;
 }
 
 /**
  * 一段來訪要唸成什麼。**這一支是唯一的一份。**
  *
- * 四條共同的規則：
+ * 四條規則：
  *
- * 1. **沒有器材就只有課程那一半。** 健檢、二返、營養點滴一個字都不會變。
- * 2. **LINE 草稿一律只有課程那一半**（ADR-0077），連查都不查器材。
- * 3. **器材與課程是同一件事時不加括號。** ILIB 那一台在主檔上跟課程同名，
- *    所以是 `ILIB` 不是 `ILIB(ILIB)`，也不是 `ILIB(IL)` —— 她指名這件事。
- *    比的是**全名**：別稱設成 `IL` 之後那兩半印出來就不一樣了，拿印出來的
- *    比會漏掉。
- * 4. **課程先查主檔，查不到才退回 `slot.courseName` 快照。** 匯進來的舊來訪
+ * 1. **LINE 草稿只有課程那一半**（ADR-0077），連查都不查器材。
+ * 2. **她自己看的那一種印器材的別稱**，沒有器材就印課程的別稱 ——
+ *    健檢、二返、單買 ILIB 一個字都不會變。
+ * 3. **課程先查主檔，查不到才退回 `slot.courseName` 快照。** 匯進來的舊來訪
  *    （ADR-0011）與被刪掉的課程都還印得出名字。
+ * 4. **認不得的情境退回她自己看的那一種**，不要吐空字串 ——
+ *    漏改一個呼叫端的症狀會是「那一列整個沒有名字」，那比多印幾個字糟得多。
+ *
+ * 2026-09-08 之前這裡還有一種「課程全名(器材別稱)」的接法（`復能(SIS)`）。
+ * 她明確不要，所以那一段連同它的 `sameThing()` 一起拿掉了 ——
+ * `ILIB(IL)` 那個問題也就不存在了。
  *
  * @param {{courseId?:string, courseName?:string, equipmentId?:string}} slot
  * @param {{courses?:object[], equipment?:object[]}} master
- * @param {'short'|'full'|'line'} [context]
+ * @param {'short'|'line'} [context]
  */
-export function slotName(slot, { courses = [], equipment = [] } = {}, context = 'full') {
+export function slotName(slot, { courses = [], equipment = [] } = {}, context = 'short') {
   const course = (courses ?? []).find((c) => c.id === slot?.courseId) ?? null;
-  const courseHalf = course
-    ? nameOf(course, context, { as: 'course' })
-    : trimmed(slot?.courseName);
+  const snapshot = trimmed(slot?.courseName);
+
+  // **n返 的名字不在主檔上。** 它借二返那個課程（ADR-0063），而畫面上要印的是
+  // 返數 —— `nthSlotFields()` 已經把「三返」寫進快照了，所以這裡優先讀它。
+  //
+  // 判準跟 `isNthSlot()` 一樣是「`followupNth` 有沒有被填過」，不是它合不合法。
+  // **不 import `nthFollowup.js`**：那一支經由 `followups.js` → `entitlements.js`
+  // 繞回這裡，會變成循環。這裡要的只是「這一段是不是 n返」，一個欄位就答得出來。
+  //
+  // 快照是空的（資料壞了）就退回主檔 —— 印成空白比印「二返」糟。
+  // 二返本身不走這條路（它的 `followupNth` 是 null），所以主檔改名之後
+  // 已經排出去的二返照樣跟著改名。
+  if (slot?.followupNth != null && slot.followupNth !== '' && snapshot) return snapshot;
 
   // 貼給客人的那一句只講課程。器材是她自己要認的東西（ADR-0077）。
-  if (context === 'line') return courseHalf;
+  if (context === 'line') {
+    return course ? nameOf(course, 'line', { as: 'course' }) : snapshot;
+  }
 
   const eq = slot?.equipmentId
     ? ((equipment ?? []).find((x) => x.id === slot.equipmentId) ?? null)
     : null;
-  if (!eq) return courseHalf;
 
-  const eqHalf = nameOf(eq, context, { as: 'equipment' });
-  if (!eqHalf) return courseHalf;
-  // 月檢視只放得下幾個字，而她真正要認的是「哪一台、幾分鐘」
-  if (context === 'short') return withMinutes(eqHalf, slot, course);
-  if (!courseHalf) return eqHalf;
-  if (eqHalf === courseHalf || sameThing(eq, course)) return courseHalf;
-  return `${courseHalf}(${eqHalf})`;
+  const base = (eq ? nameOf(eq, 'short', { as: 'equipment' }) : '')
+    || (course ? nameOf(course, 'short', { as: 'course' }) : '')
+    || snapshot;
+
+  return base ? withMinutes(base, slot, course) : '';
 }
 
 /**
- * 月檢視那一格後面要不要接分鐘。
+ * 後面要不要接分鐘。
  *
  * 兩個條件都成立才接：
  *
@@ -141,6 +144,9 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
  *    數字不提供任何資訊，而那一格每一個字都很貴。
  * 2. **算得出這一段多長**（起訖時間都有）。匯進來的舊來訪沒有時間
  *    （ADR-0011），那時候不要補一個猜的 —— 同 `timedLabel()` 的判斷。
+ *
+ * **不問有沒有器材**（2026-09-08）：單買 ILIB 那一段身上沒有器材，
+ * 而她要的第六種正是 `IL(60)`。
  */
 function withMinutes(base, slot, course) {
   if (durationChoicesOf(course).length < 2) return base;
@@ -151,25 +157,16 @@ function withMinutes(base, slot, course) {
 }
 
 /**
- * 這一台器材與這個課程是不是同一件事。
- *
- * 只有 ILIB 是：它同時是一個課程與器材主檔上的第四台（ADR-0075），
- * 兩邊的**全名**一樣。復能那三台不是 —— 器材叫超磁場、課程叫復能。
- */
-function sameThing(eq, course) {
-  const a = trimmed(eq?.name);
-  return Boolean(a) && a === trimmed(course?.name);
-}
-
-/**
  * 一筆來訪要唸成什麼（好幾段時接起來）。
  *
- * 同一個名字只印一次 —— 同一天兩段點滴不該印兩次。
- * 月檢視那一格只放得下一個，呼叫端自己取第一個。
+ * 同一個名字只印一次 —— LINE 草稿上同一天兩段點滴不該說兩次。
+ *
+ * **月檢視不再用這一支**：那裡改成一段一條色條（`domain/calendar.js` 的
+ * `monthBars()`），而在那裡去重是錯的 —— 兩段點滴就是兩條。
  *
  * @returns {string[]} 去重之後，照時段的順序
  */
-export function visitNames(visit, master, context = 'full') {
+export function visitNames(visit, master, context = 'short') {
   const seen = new Set();
   const out = [];
   for (const slot of visit?.slots ?? []) {

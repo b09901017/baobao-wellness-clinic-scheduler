@@ -439,7 +439,7 @@ test('購買名稱裡的醫療禁忌字眼會被認出來，並說得出沒設�
   assert.equal(hit.length, 1);
   assert.equal(hit[0].where, 'B2 購買名稱');
   assert.equal(hit[0].term, '體內金屬');
-  assert.deepEqual(hit[0].warns.sort(), ['超磁場', '高能量雷射']);
+  assert.deepEqual(hit[0].warns.sort(), ['SIS', '高能量雷射']);
 });
 
 test('要找的字從主檔的器材推出來，不寫死在匯入器裡', () => {
