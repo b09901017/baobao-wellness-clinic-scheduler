@@ -176,10 +176,14 @@ test('N3 客戶詳情：三返接在健檢那張卡底下，而且那一排額�
 });
 
 test('N4 日曆上看得到「三返」', async ({ app, page }) => {
+  // **日期要落在月檢視畫得出來的那六週裡。** 今天是 8/29，八月那一格
+  // 從 7/27 排到 9/6 —— 2026-09-20 那一天根本沒有 `[data-day]` 可以點，
+  // 而症狀是那一下靜靜地什麼都沒開。
+  const NTH_DAY = addDays(TODAY, 2);
   await app.seed(seedAfterSecond([
     visit({
       id: 'v-n-3rd', customerId: 'cust-n', customerName: '客戶N',
-      date: '2026-09-20', status: 'confirmed',
+      date: NTH_DAY, status: 'confirmed',
       slots: [slot({
         courseId: 'course-followup', entitlementId: null, followupNth: 3,
         startsAt: '15:00', endsAt: '15:30', roomId: 'room-t3',
@@ -190,8 +194,10 @@ test('N4 日曆上看得到「三返」', async ({ app, page }) => {
   await app.signIn('/calendar');
   await page.waitForTimeout(500);
 
-  await page.locator('[data-day="2026-09-20"]').first().click();
+  await page.locator(`[data-day="${NTH_DAY}"]`).first().click();
   await page.waitForTimeout(600);
+  // n返 借二返那個課程，所以名字**只在快照上** —— 讀主檔的話這一列會寫「二返」，
+  // 而同一位客戶同一天有二返又有三返時兩列會長得一模一樣。
   await expect(page.locator('body')).toContainText('三返');
 });
 

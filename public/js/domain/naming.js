@@ -107,6 +107,18 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
   const course = (courses ?? []).find((c) => c.id === slot?.courseId) ?? null;
   const snapshot = trimmed(slot?.courseName);
 
+  // **n返 的名字不在主檔上。** 它借二返那個課程（ADR-0063），而畫面上要印的是
+  // 返數 —— `nthSlotFields()` 已經把「三返」寫進快照了，所以這裡優先讀它。
+  //
+  // 判準跟 `isNthSlot()` 一樣是「`followupNth` 有沒有被填過」，不是它合不合法。
+  // **不 import `nthFollowup.js`**：那一支經由 `followups.js` → `entitlements.js`
+  // 繞回這裡，會變成循環。這裡要的只是「這一段是不是 n返」，一個欄位就答得出來。
+  //
+  // 快照是空的（資料壞了）就退回主檔 —— 印成空白比印「二返」糟。
+  // 二返本身不走這條路（它的 `followupNth` 是 null），所以主檔改名之後
+  // 已經排出去的二返照樣跟著改名。
+  if (slot?.followupNth != null && slot.followupNth !== '' && snapshot) return snapshot;
+
   // 貼給客人的那一句只講課程。器材是她自己要認的東西（ADR-0077）。
   if (context === 'line') {
     return course ? nameOf(course, 'line', { as: 'course' }) : snapshot;

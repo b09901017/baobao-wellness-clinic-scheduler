@@ -361,3 +361,42 @@ describe('設定頁那六列', () => {
     assert.match(src, /slotName\(slot, master, 'line'\)/);
   });
 });
+
+// n返（三返、四返…）**不在主檔上**：它借二返那個課程，而畫面上要印的是返數
+//（`domain/nthFollowup.js` 的 `nthSlotFields()` 把它寫進 `courseName` 快照）。
+//
+// 這一條是 2026-09-08 補的。在那之前日曆上一段三返印的是「二返」——
+// 同一位客戶同一天有二返又有三返時，兩列長得一模一樣。
+// E2E 的 N4 從寫下來就一直是紅的，而它盯的正是這件事。
+describe('n返 印的是返數不是課程', () => {
+  const master = { courses: SEED.courses, equipment: SEED.equipment };
+  const nth = (over = {}) => ({
+    courseId: 'course-followup', courseName: '三返', followupNth: 3,
+    entitlementId: null, startsAt: '15:00', endsAt: '15:30', ...over,
+  });
+
+  test('月曆與 LINE 草稿都印「三返」', () => {
+    assert.equal(slotName(nth(), master, 'short'), '三返');
+    assert.equal(slotName(nth(), master, 'line'), '三返');
+  });
+
+  test('四返也一樣', () => {
+    assert.equal(slotName(nth({ courseName: '四返', followupNth: 4 }), master, 'short'), '四返');
+  });
+
+  // 二返走的是額度那條路（`followupNth` 是 null），它照舊讀主檔 ——
+  // 主檔改名之後，已經排出去的二返要跟著改名。
+  test('二返不受影響，照舊讀主檔', () => {
+    const second = { courseId: 'course-followup', courseName: '舊名字', entitlementId: 'e1' };
+    assert.equal(slotName(second, master, 'short'), '二返');
+  });
+
+  test('返數填了但快照是空的 → 退回主檔，不要印成空白', () => {
+    assert.equal(slotName(nth({ courseName: '' }), master, 'short'), '二返');
+  });
+
+  test('返數那一格是空字串就不算 n返（同 `isNthSlot()` 的判斷）', () => {
+    const blank = { courseId: 'course-followup', courseName: '舊名字', followupNth: '' };
+    assert.equal(slotName(blank, master, 'short'), '二返');
+  });
+});
