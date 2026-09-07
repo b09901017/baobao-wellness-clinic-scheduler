@@ -130,6 +130,23 @@ function opFor(fix) {
     };
   }
 
+  // 課程的指派改成建議值（她 2026-09-08 的三條規則）。
+  // **診間限制要一起清**：`validate('courses')` 擋著「不選診間的課程不該設定
+  // 診間限制」，只改 `assigns` 的話那一筆之後她一進設定頁就存不下去。
+  if (fix?.kind === 'setAssigns') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: {
+        assigns: fix.assigns,
+        allowedRoomTypes: fix.allowedRoomTypes ?? [],
+        allowedRoomIds: fix.allowedRoomIds ?? [],
+      },
+      note: '資料健檢：課程的指派改成建議值',
+    };
+  }
+
   // 課程補上可選時長（ADR-0077）。**只寫那一格**，課程的其餘欄位一個都不碰。
   if (fix?.kind === 'setDurations') {
     return {

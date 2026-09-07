@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES,
+  validate, roomSlots, roomsForCourse, MASTER_TYPES, ROOM_TYPES, ASSIGNS,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
@@ -361,10 +361,59 @@ describe('種子資料', () => {
     assert.deepEqual(withDoctor, ['二返']);
   });
 
-  test('二返同時要診間和醫師 —— 所以醫師不能塞進單選的 assigns', () => {
+  // 醫師走的是 `requiresDoctor` / `picksDoctor()` 那條路，不是 `assigns`
+  // —— `assigns` 是單選的，而一段可以同時要空間和醫師（ADR-0026、0058）。
+  test('醫師不塞進單選的 assigns', () => {
     const followup = SEED.courses.find((c) => c.name === '二返');
-    assert.equal(followup.assigns, 'room');
     assert.equal(followup.requiresDoctor, true);
+    assert.ok(!ASSIGNS.includes('doctor'));
+    assert.deepEqual(SEED.courses.filter((c) => c.assigns === 'doctor'), []);
+  });
+
+  // 她 2026-09-08 的三條規則。**這一張表就是那三條規則的白紙黑字版** ——
+  // 種子改錯一格，她建的新資料庫就會在壓表時問她一個不該問的問題。
+  //
+  //   物理治療師  復能（多選一選到 INDIBA／SIS／高能量雷射 時也算）
+  //   治療室      營養點滴、EECP、ILIB
+  //   醫師        門診類（A 類一律選得到）
+  //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
+  test('每一個課程要指派什麼', () => {
+    const want = {
+      'course-recovery': 'therapist',
+      'course-pt-consult': 'therapist',
+      'course-iv-drip': 'room',
+      'course-eecp': 'room',
+      'course-iv-laser': 'room',
+      'course-checkup': 'none',
+      'course-fitness': 'none',
+      'course-inbody': 'none',
+      'course-nutrition-consult': 'none',
+      'course-rehab': 'none',
+      'course-followup': 'none',
+      'course-cardio': 'none',
+    };
+    const got = Object.fromEntries(SEED.courses.map((c) => [c.id, c.assigns]));
+    assert.deepEqual(got, want);
+  });
+
+  // `validate('courses')` 擋著「不選診間的課程不該設定診間限制」——
+  // 改了 assigns 卻忘了清那兩格的話，種子本身就存不下去。
+  test('不指派空間的課程身上沒有診間限制', () => {
+    for (const c of SEED.courses) {
+      if (c.assigns === 'room') continue;
+      assert.deepEqual((c.allowedRoomTypes ?? []), [], `${c.name} 還留著診間類型`);
+      assert.deepEqual((c.allowedRoomIds ?? []), [], `${c.name} 還留著指定診間`);
+    }
+  });
+
+  test('種子的每一個課程都通得過驗證', () => {
+    for (const c of SEED.courses) {
+      const { id, ...row } = c;
+      assert.deepEqual(
+        validate('courses', { id, ...row }, { existing: SEED.courses, courses: SEED.courses }),
+        [], `${c.name} 存不下去`,
+      );
+    }
   });
 
   test('體內金屬只擋超磁場與高能量雷射', () => {

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十五項檢查都在，順序固定', () => {
+  test('十六項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 15);
+    assert.equal(result.checks.length, 16);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -976,5 +976,81 @@ describe('課程沒填可選時長', () => {
 
   test('種子上沒有可選時長的課程本來就不在名單裡', () => {
     assert.deepEqual(go([{ ...SEED.courses.find((c) => c.id === 'course-checkup') }]), []);
+  });
+});
+
+// ---------- 十六、課程的指派跟建議的不一樣（她 2026-09-08 的三條規則）----------
+//
+// `loadSeed()` 只建不覆蓋（她可能改過了），所以改種子資料對她**現有的**
+// 資料庫一點作用都沒有。這一列就是那一步。
+//
+// **只認得出「還停在舊種子那一代」的**：她自己改成第三種值是一個決定，
+// 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）。
+// 不然這一列會變成一個關不掉的提醒，而關不掉的提醒她第三天就不看了。
+describe('課程的指派跟建議的不一樣', () => {
+  const go = (courses) => run({ master: { ...MASTER, courses } }).checks
+    .find((c) => c.id === 'courseAssigns').findings;
+
+  /** 2026-09-08 之前的樣子：那六個都指派治療室。 */
+  const legacy = (id) => ({
+    ...SEED.courses.find((c) => c.id === id),
+    assigns: 'room',
+    allowedRoomTypes: ['治療室'],
+    allowedRoomIds: [],
+  });
+
+  test('還停在舊的那一個列出來，而且改得起來', () => {
+    const [f] = go([legacy('course-checkup')]);
+    assert.equal(f.title, '健檢');
+    assert.equal(f.fix.kind, 'setAssigns');
+    assert.equal(f.fix.courseId, 'course-checkup');
+    assert.equal(f.fix.assigns, 'none');
+    // 不指派空間的課程身上不可以留著診間限制，不然那一筆存不下去
+    assert.deepEqual(f.fix.allowedRoomTypes, []);
+    assert.deepEqual(f.fix.allowedRoomIds, []);
+  });
+
+  test('六個都算數', () => {
+    const ids = ['course-checkup', 'course-fitness', 'course-inbody',
+      'course-nutrition-consult', 'course-rehab', 'course-followup'];
+    assert.equal(go(ids.map(legacy)).length, 6);
+  });
+
+  test('已經是建議值就不再提', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('她自己改成第三種值就不動 —— 那是一個決定', () => {
+    assert.deepEqual(go([{ ...legacy('course-checkup'), assigns: 'therapist' }]), []);
+  });
+
+  test('沒有要改的那幾個課程本來就不在名單裡', () => {
+    assert.deepEqual(go([SEED.courses.find((c) => c.id === 'course-recovery')]), []);
+    assert.deepEqual(go([SEED.courses.find((c) => c.id === 'course-eecp')]), []);
+  });
+
+  test('她的主檔裡沒有那個課程就不念', () => {
+    assert.deepEqual(go([]), []);
+  });
+
+  test('刪掉的課程不念', () => {
+    assert.deepEqual(go([{ ...legacy('course-checkup'), deletedAt: 'x' }]), []);
+  });
+
+  // 那一支通用的覆蓋測試只看得到它那份快照長出來的三種 kind，
+  // 所以這一種要自己確認一次 —— 少補一列的話按鈕會印成別項的文案，
+  // 按下去 `copyFor()` 直接丟例外，整頁變成「讀取失敗」。
+  test('這一種修正在畫面那兩張表上查得到', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/health.js', import.meta.url), 'utf8');
+    assert.ok(src.includes("setAssigns: 'courseAssigns'"), 'KIND_TO_CHECK 少了 setAssigns');
+    assert.ok(src.includes('  courseAssigns: {'), 'FIX_COPY 少了 courseAssigns');
+  });
+
+  test('修正寫進去的是主檔那三格，一筆來訪都不動', () => {
+    const [f] = go([legacy('course-rehab')]);
+    assert.deepEqual(Object.keys(f.fix).sort(), [
+      'allowedRoomIds', 'allowedRoomTypes', 'assigns', 'courseId',
+      'fromLabel', 'kind', 'label', 'toLabel',
+    ]);
   });
 });

@@ -107,11 +107,23 @@ export const SEED = {
     { id: 'prod-gaba', name: 'GABA' },
   ],
 
+  // 課程。**要指派什麼由她 2026-09-08 那三條規則決定**：
+  //
+  //   物理治療師  復能（INDIBA／SIS／高能量雷射，多選一選到這三者也算）
+  //   治療室      營養點滴、EECP、ILIB
+  //   醫師        門診類（A 類一律選得到，見 `picksDoctor()`）
+  //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
+  //
+  // 2026-09-08 之前健檢、體適能、身體組成、營養諮詢、復健科醫師門診與二返
+  // 六個都指派著治療室。既有資料庫不會自己跟上（`loadSeed()` 只建不覆蓋），
+  // 那一步由資料健檢的「課程的指派跟建議的不一樣」負責。
   courses: [
     // ---- A 類：三系統＋電話 ----
     {
       id: 'course-rehab', name: '復健科醫師門診', category: 'A', durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
+      // （`picksDoctor()`），所以這裡什麼都不用指派。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
     },
     {
@@ -124,7 +136,8 @@ export const SEED = {
       // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
       // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
       id: 'course-followup', name: '二返', category: 'A', durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
       // 唯一一個不用簽療程單的課程（2026-08-23 使用者確認）。它是回院聽報告，
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
@@ -140,7 +153,8 @@ export const SEED = {
       // 健檢做完要再約一次二返聽報告（SPEC 第 7 節規則 8）。配對記在這裡而不是
       // 寫死在程式碼裡：課程是她自己在主檔建的，id 猜不得。見 ADR-0022。
       id: 'course-checkup', name: '健檢', category: 'B', durationMin: 120,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 需要空間的只有營養點滴、EECP、ILIB 三個（她 2026-09-08）。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       followupCourseId: 'course-followup',
     },
@@ -189,12 +203,12 @@ export const SEED = {
     // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----
     {
       id: 'course-inbody', name: '身體組成分析', category: null, durationMin: 20,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
       id: 'course-fitness', name: '體適能檢查分析', category: null, durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
@@ -204,7 +218,7 @@ export const SEED = {
     },
     {
       id: 'course-nutrition-consult', name: '營養師諮詢', category: null, durationMin: 20,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       // 諮詢完要打一份諮詢紀錄（ADR-0066）
       needsRecord: true,

@@ -21,7 +21,7 @@ import {
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
-import { clinicalTerms, durationChoicesOf } from './masterData.js';
+import { clinicalTerms, durationChoicesOf, ASSIGN_LABELS } from './masterData.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -110,6 +110,12 @@ export const CHECKS = [
     label: '器材主檔少了一台',
     hint: '「四選一」那一顆丸子要有一台不屬於復能的器材才畫得出來'
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
+  },
+  {
+    id: 'courseAssigns',
+    label: '課程的指派跟建議的不一樣',
+    hint: '健檢、體適能、身體組成、營養諮詢、門診與二返都不需要治療室 ——'
+      + ' 還指派著治療室的話，壓表時會多問一個不該問的問題，而她會隨便挑一間',
   },
   {
     id: 'seedDuration',
@@ -857,6 +863,58 @@ function withoutId({ id, ...rest }) {
 }
 
 /**
+ * 2026-09-08 之前種子上那六個課程的指派。**只認得出這一代。**
+ *
+ * 她 2026-09-08 給的三條規則把「需要治療室」收斂成營養點滴、EECP、ILIB 三個，
+ * 其餘（健檢、體適能、身體組成分析、營養諮詢、門診、二返）都不需要空間。
+ * 但 `data/config.js` 的 `loadSeed()` 只建不覆蓋（她可能改過了），
+ * 所以改種子資料對她**現有的**資料庫一點作用都沒有 —— 這一列就是那一步。
+ */
+const LEGACY_ASSIGNS = {
+  'course-checkup': 'room',
+  'course-fitness': 'room',
+  'course-inbody': 'room',
+  'course-nutrition-consult': 'room',
+  'course-rehab': 'room',
+  'course-followup': 'room',
+};
+
+/**
+ * 十六、課程的指派跟建議的不一樣。
+ *
+ * **只在她那一格還停在舊種子那一代的時候報。** 她自己改成第三種值是一個決定，
+ * 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）
+ * —— 不然這一列會變成一個關不掉的提醒，而關不掉的提醒她第三天就不看了。
+ *
+ * 修正**連診間限制一起清**：`validate('courses')` 擋著「不選診間的課程不該
+ * 設定診間限制」，只改 `assigns` 的話那一筆之後她一進設定頁就存不下去。
+ */
+function checkCourseAssigns(ctx) {
+  return (SEED.courses ?? [])
+    .filter((row) => LEGACY_ASSIGNS[row.id] && LEGACY_ASSIGNS[row.id] !== row.assigns)
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ row, mine }) =>
+      mine && !mine.deletedAt && mine.assigns === LEGACY_ASSIGNS[row.id])
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `現在是「${ASSIGN_LABELS[mine.assigns] ?? mine.assigns}」，`
+        + `建議改成「${ASSIGN_LABELS[row.assigns] ?? row.assigns}」`,
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setAssigns',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        assigns: row.assigns,
+        allowedRoomTypes: row.allowedRoomTypes ?? [],
+        allowedRoomIds: row.allowedRoomIds ?? [],
+        fromLabel: ASSIGN_LABELS[mine.assigns] ?? mine.assigns,
+        toLabel: ASSIGN_LABELS[row.assigns] ?? row.assigns,
+      },
+    }));
+}
+
+/**
  * 十五、課程沒填可選時長。
  *
  * 她 2026-09-07：「目前就復能的那四個先預設有 30 60 這兩個時長，
@@ -890,6 +948,7 @@ function checkSeedDurations(ctx) {
 }
 
 const RUNNERS = {
+  courseAssigns: checkCourseAssigns,
   counts: checkCounts,
   followups: checkFollowups,
   orphans: checkOrphans,

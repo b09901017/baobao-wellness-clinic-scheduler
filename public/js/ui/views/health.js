@@ -258,6 +258,24 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  // 她 2026-09-08 的三條規則。**每一句都只講真的會發生的事**（ADR-0070）——
+  // 改的是主檔那一格，既有來訪身上的診間一個字都不會動。
+  courseAssigns: {
+    button: () => '改成建議值',
+    all: (n) => `一次改這 ${n} 個課程`,
+    one: (fix) => ({
+      title: `把「${fix.label}」改成「${fix.toLabel}」？`,
+      lines: [
+        `現在是「${fix.fromLabel}」`,
+        '之後壓表與來訪編輯器上，這個課程不再問你要哪一間',
+        '已經排出去的來訪一筆都不會動 —— 上面那個診間留著，只是畫面上不再顯示',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 個課程的指派都改成建議值？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.fromLabel} → ${fix.toLabel}`),
+    }),
+  },
   seedDuration: {
     button: () => '填上 30／60',
     all: (n) => `一次填這 ${n} 個課程`,
@@ -300,6 +318,7 @@ const KIND_TO_CHECK = {
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',
   setDurations: 'seedDuration',
+  setAssigns: 'courseAssigns',
 };
 
 /**
