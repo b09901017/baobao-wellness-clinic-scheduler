@@ -16,7 +16,8 @@ import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, courseForEquipment, picksEquipment, applyStatus, NOTE_MAX,
+  coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
+  applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { counts, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
@@ -330,6 +331,7 @@ function slotCard(ctx, draft, slot, i) {
     ? []
     : coursesForEntitlement(ent, all.courses, all.equipment);
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
+  const assigns = assignsFor(ent, course, slot.equipmentId);
   const nthExams = nthExamChoices(ctx, draft);
 
   return `
@@ -395,8 +397,15 @@ function slotCard(ctx, draft, slot, i) {
       ${picksEquipment(ent, course) ? equipmentField(customer, ent, all, slot, i) : ''}
       ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
-      ${course?.assigns === 'room' ? roomField(all, course, slot, i) : ''}
-      ${course?.assigns === 'therapist'
+      ${/* 要治療師還是治療室，由她挑的那一台器材推出來（ADR-0075）。挑之前
+             那個問題沒有答案，所以兩排都不畫、只留一句話 —— 壓表那一頁走的是
+             同一支 `assignsFor()`，兩邊各判斷一次會出現「畫面上要她選治療師、
+             存進去的卻是一段要診間的 ILIB」。 */''}
+      ${assigns === null ? `
+        <p class="field__hint">先選上面那一台 ——
+          ${esc(ent?.label ?? '這一筆')} 要治療師還是治療室，看那天用的是哪一種。</p>` : ''}
+      ${assigns === 'room' ? roomField(all, course, slot, i) : ''}
+      ${assigns === 'therapist'
         ? f.chips({
             name: `s${i}-staff`, label: '治療師', value: slot.therapistId, quiet: true,
             options: staffWithRole(all.staff, THERAPIST_ROLE)
@@ -644,6 +653,9 @@ function readDraft(ctx, form, draft) {
     }
 
     const course = all.courses.find((c) => c.id === courseId) ?? null;
+    // 畫欄位那一邊走的是同一支（`slotCard()`）—— 兩邊各判斷一次的話，
+    // 會出現「畫面上沒有診間那一排、存進去卻帶著一個舊的 roomId」。
+    const assigns = assignsFor(ent, course, equipmentId);
     const startsAt = v[`s${i}-start`] || slot.startsAt;
     const durationMin = ent?.durationMin ?? course?.durationMin ?? 60;
 
@@ -656,10 +668,10 @@ function readDraft(ctx, form, draft) {
       ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
-      ...(course?.assigns === 'room'
+      ...(assigns === 'room'
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
-      therapistId: course?.assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
+      therapistId: assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
       doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
       // 不是二返就一定是 null —— 帶著一個不相干的 id 會讓試算表把註記
       // 寫到別人底下。沒被畫出來時 `v[...]` 是 undefined，那時要留原值
@@ -712,7 +724,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
     ivProductId: null,
     startsAt,
     endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
-    ...(course?.assigns === 'room'
+    ...(assignsFor(null, course, null) === 'room'
       ? parseRoomKey(v[`s${i}-room`])
       : { roomId: null, bed: null }),
     therapistId: null,
