@@ -300,6 +300,52 @@ export function visitCourseLabel(visit) {
 }
 
 /**
+ * 讀取卡片要畫哪幾段。
+ *
+ * 她 2026-09-08：
+ *
+ * > 我在日曆點開詳情的時候，為甚麼我點的是復能(INDIBA)，
+ * > 但是卻會一次呈現三個復能(INDIBA)、復能(超磁場)、靜脈(IL)？
+ *
+ * 排班的原子單位是**來訪**（SPEC 第 4.4 節）：同一位客戶同一天壓第二次，
+ * 壓表那一頁會併進同一筆來訪。所以她眼裡的「三筆」在資料庫上是
+ * 一筆來訪、三個時段，而讀取卡片一直是把整筆畫出來的。
+ *
+ * 日／週檢視那一份清單**是一段一列**的（`domain/calendar.js` 的 `agendaFor()`
+ * 一路算出了 `slotIndex`），只是畫成按鈕的那一下把它丟掉了。這一支就是把
+ * 那個 index 接回來的地方。
+ *
+ * ## 為什麼是一支 domain 而不是在畫面上判斷
+ *
+ * `visitReadHtml()` 是**四個畫面共用**的（ADR-0018、0056），而另外三頁
+ * （客戶詳情、待辦中心、進度追蹤）列的本來就是整筆來訪 —— 它們是對的，
+ * 不可以跟著變。所以「畫哪幾段」是一條規則，規則寫在 domain。
+ *
+ * ## 兩條刻意的退路
+ *
+ * 1. **沒指定就是全部。** `undefined` 是「沒有人告訴我是哪一段」，
+ *    不是「第 0 段」—— 另外三頁一個字都不用改。
+ * 2. **指到一個不存在的段落也退回全部。** 畫成空白的話她會以為那一筆壞了，
+ *    而畫太多只是回到修好之前的樣子。兩種錯法的代價差很多。
+ *
+ * @param {{slots?: object[]}|null} visit
+ * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
+ * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
+ *   `hidden` 是「這一天還有幾段沒畫」，呼叫端拿它畫那一行「還有另外 N 段」。
+ */
+export function slotsToShow(visit, focusSlot = null) {
+  const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
+  const every = { slots: all, hidden: 0, focused: false };
+
+  // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
+  if (!Number.isInteger(focusSlot)) return every;
+  const one = all[focusSlot];
+  if (!one) return every;
+
+  return { slots: [one], hidden: all.length - 1, focused: true };
+}
+
+/**
  * 這一段在畫面上要顯示成哪一個狀態。
  *
  * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答
@@ -526,7 +572,20 @@ export function coursesForEntitlement(entitlement, courses = [], equipment = [])
   }
   // 一台都推不出課程就退回舊行為（ADR-0005）—— 舊資料的器材身上沒有
   // `courseId`，而那時候「擇一池的課程」就是唯一那個要選器材的課程。
-  return out.length ? out : alive.filter((c) => c.requiresEquipment);
+  if (!out.length) return alive.filter((c) => c.requiresEquipment);
+
+  // **「家」排第一**（2026-09-08）。呼叫端拿 `[0]` 當「她還沒挑器材時的預設」，
+  // 而上面那一圈的順序來自 `optionEquipmentIds`，也就是主檔讀回來的順序 ——
+  // `data/repo.js` 的 `list()` 沒有 orderBy，Firestore 回的是文件 id 升冪，
+  // 於是 `eq-ilib` 剛好排在最前面。結果是四選一的預設課程變成 ILIB（要診間），
+  // 她還沒選器材，畫面就已經替她答了一個錯的（她 2026-09-08 回報的那件事）。
+  //
+  // 判準是 `requiresEquipment` 而不是名字：擇一池的「家」就是那個要選器材的
+  // 課程，跟 `buy.js` 的 `poolCourseOf()` 問的是同一句話。
+  // **池裡根本沒有它的時候不要硬塞**（單買 ILIB 的池就是 ILIB）。
+  const homeAt = out.findIndex((c) => c.requiresEquipment);
+  if (homeAt > 0) out.unshift(...out.splice(homeAt, 1));
+  return out;
 }
 
 /**
@@ -541,6 +600,37 @@ export function coursesForEntitlement(entitlement, courses = [], equipment = [])
  */
 export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
+
+/**
+ * 這一段**現在**要指派什麼。`null` = 還答不出來。
+ *
+ * 她 2026-09-08：
+ *
+ * > 三選一 / 四選一器材動態連動：當器材選擇 INDIBA、SIS 或 高能量雷射 時
+ * > → 必須且只能選擇「物理治療師」。當四選一器材選擇 ILIB 時 → 「治療室」。
+ *
+ * 指派是**課程說了算**，而擇一池的課程是選到的那一台器材推出來的（ADR-0075）。
+ * 所以在她挑器材之前，這個問題**沒有答案** —— 而現在的畫面會照著預設課程
+ * 畫一排出來，等於替她答了一個她還沒回答的問題。
+ *
+ * 回 `null` 的時候呼叫端該做的是「先說一句話，兩排都不畫」，
+ * 不是挑一個預設值：挑一個就回到這個 bug 本身。
+ *
+ * **不用選器材的課程一開始就答得出來**（單買 ILIB 的 single 額度、二返、
+ * n返），所以那一道門要問 `picksEquipment()` 而不是「是不是池」。
+ *
+ * 兩個入口共用（壓表、來訪編輯器）—— 各判斷一次的話，會出現「畫面上要她選
+ * 治療師、存進去的卻是一段要診間的 ILIB」。
+ *
+ * @param {object|null} entitlement 這一段扣的那一筆
+ * @param {object|null} course 已經由 `courseForEquipment()` 推好的那一個
+ * @param {string|null} equipmentId 她挑了哪一台
+ * @returns {'therapist'|'room'|'none'|null}
+ */
+export function assignsFor(entitlement, course, equipmentId) {
+  if (picksEquipment(entitlement, course) && !equipmentId) return null;
+  return course?.assigns ?? 'none';
+}
 
 /**
  * 這一段選了這台器材，那它算哪一個課程。
@@ -656,8 +746,17 @@ function visitErrors(visit, {
       }
     }
 
-    if (!imported && course?.requiresEquipment && !slot.equipmentId) {
-      errors.push(`${at}：${course.name} 每次都要記錄用了哪一種器材`);
+    // **問的是「這一段要不要記器材」，不是「課程要不要」**（2026-09-08）。
+    // 四選一那一筆池選到 ILIB 時課程會換成 ILIB，而它的 `requiresEquipment`
+    // 是 false —— 只看課程的話，一段扣著四選一、卻沒有器材的來訪存得進去。
+    // 那一筆之後在月檢視與試算表上都印不出是哪一台，額度的池成員檢查
+    // 也沒有 id 可以比。閘門只有一個：`picksEquipment()`（ADR-0075）。
+    //
+    // 訊息裡寫**額度**不寫課程：「ILIB 每次都要記錄器材」是一句她看不懂的話，
+    // 而她剛剛按的那一顆丸子上寫的就是額度的名字。
+    if (!imported && picksEquipment(ent, course) && !slot.equipmentId) {
+      const what = ent?.label ?? course?.name ?? '這一段';
+      errors.push(`${at}：${what} 每次都要記錄用了哪一種器材`);
     }
     if (!imported && course?.requiresIvProduct && !slot.ivProductId) {
       errors.push(`${at}：${course.name} 每次都要記錄施打的品項`);

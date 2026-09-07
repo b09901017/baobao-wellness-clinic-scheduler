@@ -33,7 +33,7 @@ const CUSTOMER = () => ({
   entitlements: [
     {
       key: 'r7', type: 'pool', label: '復能(1小時)', totalQty: 20, courseName: null,
-      optionEquipmentNames: ['INDIBA', '超磁場', '高能量雷射'], productName: null,
+      optionEquipmentNames: ['INDIBA', 'SIS', '高能量雷射'], productName: null,
     },
     {
       key: 'r8', type: 'single', label: 'ILIB 60mins', totalQty: 12, courseName: 'ILIB',
@@ -46,7 +46,7 @@ const CUSTOMER = () => ({
     slots: [
       {
         entitlementKey: 'r7', courseName: '復能', startsAt: '13:00', endsAt: '14:00',
-        roomName: null, therapistName: '騰崴', equipmentName: '超磁場', ivProductName: null,
+        roomName: null, therapistName: '騰崴', equipmentName: 'SIS', ivProductName: null,
         confidence: 'high', evidence: '1~3.客戶A SIS治A',
       },
       {
@@ -565,7 +565,7 @@ describe('行事曆上的雜事分三類', () => {
 //
 // 舊表沒有「永久限制」這個欄位，那幾句話寫在購買名稱或空白處，合併檔照抄進備註。
 // 匯進來之後 `customer.flags` 是空的，而擋器材是拿 flags 去比對的 ——
-// 沒有那個標記，超磁場與高能量雷射不會被擋下來，那是唯一會造成實際傷害的一條。
+// 沒有那個標記，SIS 與高能量雷射不會被提醒，那是唯一會造成實際傷害的一條。
 //
 // 這一段 2026-08-23 從 tests/legacy-import.test.js 搬過來：那條路的入口拿掉了，
 // 而**這條路以前根本沒有這個提示**。搬過來不是為了保住覆蓋率，是因為
@@ -580,7 +580,7 @@ describe('文字裡的醫療禁忌要在匯入前講出來', () => {
     const hits = metal().contraindications;
     assert.equal(hits.length, 1);
     assert.equal(hits[0].term, '體內金屬');
-    assert.deepEqual(hits[0].warns.sort(), ['超磁場', '高能量雷射']);
+    assert.deepEqual(hits[0].warns.sort(), ['SIS', '高能量雷射']);
   });
 
   test('備註裡的也算 —— 舊表的空白處就是寫在那裡', () => {

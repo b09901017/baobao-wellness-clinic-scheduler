@@ -35,8 +35,8 @@ const say = (id, templates, vars) => fill(textFor(id, templates), vars);
  * @param {{date:string, slots:{startsAt:string, endsAt:string}[]}[]} visits
  *   這次要問的來訪
  * @param {{templates?: object, master?: object}} [o]
- *   `master`：課程與器材主檔。給了之後那一段寫的是**她那天真的做了什麼**
- *   （`復能(SIS)`），不是額度的名字。沒給就退回時段上的課程名快照（ADR-0075、`13`）。
+ *   `master`：課程與器材主檔。給了之後那一段寫的是**課程**（`復能`、`靜脈雷射`）——
+ *   貼給客人的那一句一個器材字都不寫（ADR-0077）。沒給就退回時段上的課程名快照。
  * @returns {string} 可以直接貼進 LINE 的文字
  */
 export function confirmMessage(customer, visits, { templates = {}, master = {} } = {}) {
@@ -89,8 +89,8 @@ function slotLines(visits = [], master = {}) {
       date: v.date,
       startsAt: s?.startsAt ?? '',
       endsAt: s?.endsAt ?? '',
-      // 貼給客戶的那一句寫**那天真的做了什麼**（`13`）：她點的是四選一，
-      // 但客戶要看到的是「復能(SIS)」。
+      // 貼給客戶的那一句**只講課程**（ADR-0077）：她點的是四選一、那天壓了
+      // 超磁場，客戶看到的仍然是「復能」。客戶不需要知道是哪一台。
       courseName: slotName(s, master, 'line'),
     })))
     .sort((a, b) => a.date.localeCompare(b.date)

@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
-  agendaFor, summaryByDate, WEEKDAY_HEADERS, VIEWS,
+  agendaFor, summaryByDate, monthBars, WEEKDAY_HEADERS, VIEWS,
 } from '../public/js/domain/calendar.js';
 
 const visit = (over = {}) => ({
@@ -21,7 +21,7 @@ const visit = (over = {}) => ({
 });
 
 const CTX = {
-  roomsById: { 'r-3': { name: '治3' } },
+  roomsById: { 'r-3': { name: '治3' }, 'r-iv2': { name: '點滴2', shortName: '.2' } },
   staffById: { s1: { name: '治療師甲' }, s2: { name: '治療師乙' } },
 };
 
@@ -314,5 +314,175 @@ describe('一週的起點只有一個', () => {
         `${rel} 的 lead 沒有跟著週一起算 —— 月初那幾格會整排錯開`,
       );
     }
+  });
+});
+
+// 她 2026-09-08：
+//
+// > 我在日曆點開詳情的時候，為甚麼我點的是復能(INDIBA)，但是卻會一次呈現三個
+//
+// 日／週檢視那一份清單是**一段一列**的，而 `agendaFor()` 一路算出了 `slotIndex`。
+// 這個 bug 的全部內容就是：畫成按鈕的那一下把它丟掉了。
+//
+// 這一支盯兩件事：算出來的那個 index 是對的，以及**四個接線的地方都走同一支
+// `parseOpen()`**。四份 `split(':')` 遲早有一份忘了取第三格。
+describe('點一列＝點那一段', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+
+  test('一筆三段就是三列，index 照時段的順序', () => {
+    const rows = agendaFor([visit({
+      slots: [
+        { startsAt: '09:00', endsAt: '09:30', courseName: '復能' },
+        { startsAt: '11:00', endsAt: '12:00', courseName: 'ILIB' },
+        { startsAt: '10:00', endsAt: '10:30', courseName: '復能' },
+      ],
+    })], '2026-09-18', CTX);
+
+    assert.equal(rows.length, 3);
+    // 列照時間排，但 index 記的是它在 `slots` 裡的位置 —— 兩者不一樣，
+    // 而拿排序後的名次當 index 會讓她點到別段。
+    assert.deepEqual(rows.map((r) => r.startsAt), ['09:00', '10:00', '11:00']);
+    assert.deepEqual(rows.map((r) => r.slotIndex), [0, 2, 1]);
+  });
+
+  test('日／週那一列的 data-open 帶得出是哪一段', () => {
+    assert.match(
+      read('js/ui/views/calendar.js'),
+      /open: `visit:\$\{r\.visitId\}:\$\{r\.slotIndex\}`/,
+      'visitRow() 的 data-open 少了第三格 —— 點一段會看到整筆',
+    );
+  });
+
+  test('四個接線的地方都走 parseOpen()，沒有人自己 split', () => {
+    const src = read('js/ui/views/calendar.js');
+    const parsed = src.match(/parseOpen\(btn\.dataset\.open\)/g) ?? [];
+    assert.equal(parsed.length, 4,
+      '抽屜點一下／抽屜長按／週日點一下／週日長按，四個都要走 parseOpen()');
+    assert.equal(
+      (src.match(/dataset\.open\.split\(/g) ?? []).length, 0,
+      '有人自己 split data-open —— 那一份遲早會忘了取第三格',
+    );
+  });
+
+  test('讀取卡片收得到 focusSlot，而且沒帶就是全部', () => {
+    const src = read('js/ui/views/calendar.js');
+    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
+    // 另外三頁（客戶詳情、待辦中心、進度追蹤）共用這一支，它們一個字都不改
+    for (const rel of ['js/ui/views/customerDetail.js', 'js/ui/views/home.js',
+      'js/ui/views/progress.js']) {
+      assert.equal(
+        read(rel).includes('focusSlot'), false,
+        `${rel} 列的是整筆來訪，不該帶 focusSlot`,
+      );
+    }
+  });
+});
+
+
+// 2026-09-08，她主動要的：
+//
+// > 同一位客戶同一天三段，月檢視上只畫一條色條、而且只印第一段的名字
+//
+// 一段一條。id 要唯一（`layoutMonth()` 拿它當 key），順序照時間（`sortKey`）。
+describe('月檢視一段一條', () => {
+  const MASTER = {
+    courses: [
+      { id: 'c-recovery', name: '復能', durationChoices: [30, 60] },
+      { id: 'c-ilib', name: 'ILIB', shortName: 'IL', durationChoices: [30, 60] },
+    ],
+    equipment: [
+      { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'c-recovery' },
+      { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'c-recovery' },
+      { id: 'eq-ilib', name: 'ILIB', shortName: 'IL', courseId: 'c-ilib' },
+    ],
+  };
+
+  const threeSlots = visit({
+    slots: [
+      { startsAt: '09:00', endsAt: '09:30', courseId: 'c-recovery', equipmentId: 'eq-indiba' },
+      { startsAt: '10:00', endsAt: '10:30', courseId: 'c-recovery', equipmentId: 'eq-sis' },
+      { startsAt: '11:00', endsAt: '12:00', courseId: 'c-ilib' },
+    ],
+  });
+
+  test('三段畫三條，每一條印那一段用的那一台', () => {
+    const bars = monthBars(threeSlots, MASTER);
+    assert.equal(bars.length, 3);
+    assert.equal(bars[0].title, '客戶一·IN(30)');
+    assert.equal(bars[1].title, '客戶一·SIS(30)');
+    // 第三段身上沒有器材（單買 ILIB 那種），所以只比開頭 ——
+    // 後面那個 `(60)` 是 `01` 那一支的事（`withMinutes()` 現在只在有器材時才接）。
+    assert.match(bars[2].title, /^客戶一·IL/);
+  });
+
+  test('id 一段一個 —— 三條同 id 會在排版時互相蓋掉', () => {
+    assert.deepEqual(monthBars(threeSlots, MASTER).map((b) => b.id),
+      ['v1:0', 'v1:1', 'v1:2']);
+  });
+
+  test('sortKey 是那一段的開始時間', () => {
+    assert.deepEqual(monthBars(threeSlots, MASTER).map((b) => b.sortKey),
+      ['09:00', '10:00', '11:00']);
+  });
+
+  // 同一天兩段點滴以前只印一次（`visitNames()` 會去重）。改成一段一條之後
+  // 兩段就是兩條 —— 那正是她要看到的。
+  test('同一天做兩次同樣的就是兩條，不去重', () => {
+    const twice = visit({
+      slots: [
+        { startsAt: '09:00', endsAt: '10:00', courseId: 'c-ilib' },
+        { startsAt: '14:00', endsAt: '15:00', courseId: 'c-ilib' },
+      ],
+    });
+    assert.equal(monthBars(twice, MASTER).length, 2);
+  });
+
+  test('一段都沒有的來訪仍然畫得出來 —— 不然那一天整個不見', () => {
+    const bars = monthBars(visit({ slots: [] }), MASTER);
+    assert.equal(bars.length, 1);
+    assert.equal(bars[0].title, '客戶一');
+    assert.equal(bars[0].id, 'v1');
+    assert.equal(bars[0].sortKey, null);
+  });
+
+  test('狀態的顏色與已刪除的旗標每一條都帶著', () => {
+    const gone = visit({ status: 'cancelled', deletedAt: 'x' });
+    for (const bar of monthBars(gone, MASTER)) {
+      assert.equal(bar.kind, 'status-cancelled');
+      assert.equal(bar.deletedAt, 'x');
+      assert.equal(bar.category, 'visit');
+      assert.equal(bar.startDate, '2026-09-18');
+      assert.equal(bar.endDate, '2026-09-18');
+    }
+  });
+
+  test('沒有名字的客戶印一個問號，不是 undefined', () => {
+    assert.equal(monthBars(visit({ customerName: null }), MASTER)[0].title.startsWith('?'), true);
+  });
+});
+
+
+// 2026-09-08：診間也有兩格名字了。日／週那一列跟月曆一樣是「她自己看」的
+// 地方，一格只放得下幾個字，所以印簡寫；設定頁與試算表印全名。
+describe('那一列的診間印簡寫', () => {
+  test('有簡寫就印簡寫', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '營養點滴', roomId: 'r-iv2' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, '.2');
+  });
+
+  test('沒設簡寫就退回全名 —— 治療室本來就夠短', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'r-3' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, '治3');
+  });
+
+  test('診間被刪掉了就是 null，不要印一個猜的', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'gone' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, null);
   });
 });

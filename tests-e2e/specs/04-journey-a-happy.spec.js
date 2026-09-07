@@ -155,7 +155,8 @@ test('J-A10b A 類（門診）確認後才長出 Examine 與耀聖', async ({ ap
   await page.locator('[data-ent="ent-a-rehab"]').click();
   await page.waitForTimeout(300);
   await page.locator('[data-time]').first().click();
-  await page.locator('[data-room]').first().click();
+  // 門診要的是**醫師，不是空間**（她 2026-09-08）—— 診間那一排不再出現
+  await expect(page.locator('[data-room]')).toHaveCount(0);
   await page.locator('[data-doctor]').first().click();
   await page.locator('[data-add]').click();
 

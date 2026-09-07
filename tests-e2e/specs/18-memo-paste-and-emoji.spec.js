@@ -175,7 +175,7 @@ test.describe('備忘錄：捲動、貼上、emoji', () => {
     await app.signIn('/calendar');
 
     await page.click(`[data-day="${TODAY}"]`);
-    await page.click('[data-open="visit:v1"]');
+    await page.click('[data-open^="visit:v1:"]');
 
     const hint = page.locator('.pbhint').first();
     await expect(hint).toBeVisible();

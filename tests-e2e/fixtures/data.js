@@ -283,7 +283,7 @@ export function scenarioBrokenCounts() {
       date: addDays(TODAY, -10), status: 'done',
       slots: [slot({
         courseId: 'course-iv-laser', entitlementId: 'ent-e-vein',
-        startsAt: '14:00', endsAt: '15:00', roomId: 'room-ilib4',
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10',
       })],
     }),
   ];

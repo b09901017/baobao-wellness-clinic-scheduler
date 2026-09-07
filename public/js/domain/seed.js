@@ -9,25 +9,45 @@
 import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.js';
 
 export const SEED = {
+  // 空間。**2026-09-08 她重畫過一次**，三種類型、都沒有 4 號：
+  //
+  //   治療室  治2 治3 治5 治8
+  //   點滴室  點滴2 3 5 6 7 8 9 10        簡寫 .2 …… .10
+  //   VIP室   VIP2 3 5 6 7                簡寫 vip2 …… vip7
+  //
+  // **簡寫裡的數字就是房號**（她指名的）—— 她走到那扇門前面看到的是門上的
+  // 號碼，畫面上要是同一個數字。治療室本來就只有兩三個字，所以沒有簡寫
+  // （空的就退回全名，同器材的 `SIS`）。
+  //
+  // 簡寫**是另一格不是改名**：試算表、稽核紀錄、既有來訪讀的都是全名，
+  // 而 `.2` 單獨出現在稽核紀錄上沒有人看得懂。哪裡印哪一個只寫在
+  // `domain/naming.js` 的 `nameOf()`。
+  //
+  // **床位那一層拿掉了**（她選的：「取消任何床位區分」）。舊資料上點滴8
+  // 還有 A／B，清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
+  //
+  // 2026-08-19 她確認過「治7、治9、治10、點滴2、點滴8、ILIB4 也都還在」，
+  // 2026-09-08 這一輪把治7／治9／治10／ILIB4 拿掉了（ILIB4 有個 4）。
+  // **既有資料庫不會自己跟上**（`loadSeed()` 只建不覆蓋），那一步由資料健檢
+  // 的「診間清單跟建議的不一樣」負責。
   rooms: [
-    { id: 'room-t2', name: '治2', type: '治療室', beds: [] },
-    { id: 'room-t3', name: '治3', type: '治療室', beds: [] },
-    { id: 'room-t5', name: '治5', type: '治療室', beds: [] },
-    { id: 'room-t7', name: '治7', type: '治療室', beds: [] },
-    { id: 'room-t8', name: '治8', type: '治療室', beds: [] },
-    { id: 'room-t9', name: '治9', type: '治療室', beds: [] },
-    { id: 'room-t10', name: '治10', type: '治療室', beds: [] },
-    { id: 'room-iv2', name: '點滴2', type: '點滴室', beds: [] },
-    { id: 'room-iv3', name: '點滴3', type: '點滴室', beds: [] },
-    { id: 'room-iv5', name: '點滴5', type: '點滴室', beds: [] },
-    { id: 'room-iv6', name: '點滴6', type: '點滴室', beds: [] },
-    { id: 'room-iv7', name: '點滴7', type: '點滴室', beds: [] },
-    // 公司系統畫面上看到「點滴室8 / 床A」分兩行，所以這間確定有床位。
-    // 其餘幾間有沒有床位待確認，先留空。
-    { id: 'room-iv8', name: '點滴8', type: '點滴室', beds: ['A', 'B'] },
-    { id: 'room-iv9', name: '點滴9', type: '點滴室', beds: [] },
-    { id: 'room-iv10', name: '點滴10', type: '點滴室', beds: [] },
-    { id: 'room-ilib4', name: 'ILIB4', type: 'ILIB室', beds: [] },
+    { id: 'room-t2', name: '治2', type: '治療室' },
+    { id: 'room-t3', name: '治3', type: '治療室' },
+    { id: 'room-t5', name: '治5', type: '治療室' },
+    { id: 'room-t8', name: '治8', type: '治療室' },
+    { id: 'room-iv2', name: '點滴2', type: '點滴室', shortName: '.2' },
+    { id: 'room-iv3', name: '點滴3', type: '點滴室', shortName: '.3' },
+    { id: 'room-iv5', name: '點滴5', type: '點滴室', shortName: '.5' },
+    { id: 'room-iv6', name: '點滴6', type: '點滴室', shortName: '.6' },
+    { id: 'room-iv7', name: '點滴7', type: '點滴室', shortName: '.7' },
+    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8' },
+    { id: 'room-iv9', name: '點滴9', type: '點滴室', shortName: '.9' },
+    { id: 'room-iv10', name: '點滴10', type: '點滴室', shortName: '.10' },
+    { id: 'room-vip2', name: 'VIP2', type: 'VIP室', shortName: 'vip2' },
+    { id: 'room-vip3', name: 'VIP3', type: 'VIP室', shortName: 'vip3' },
+    { id: 'room-vip5', name: 'VIP5', type: 'VIP室', shortName: 'vip5' },
+    { id: 'room-vip6', name: 'VIP6', type: 'VIP室', shortName: 'vip6' },
+    { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7' },
   ],
 
   // 2026-08-19 從她的行事曆與口述補齊。
@@ -51,15 +71,30 @@ export const SEED = {
     { id: 'staff-dr-li', name: '李', role: '醫師' },
   ],
 
-  // 器材。**每一台記著「用這台的那一段算哪一個課程」**（ADR-0075）——
+  // 器材。**兩格名字回答兩個不同的問題**（2026-09-08）：
+  //
+  //   全名   她叫它什麼           SIS、INDIBA、高能量雷射、ILIB
+  //   別稱   月曆那一格的縮寫     （空）、IN、（空）、IL
+  //
+  // 額度的名字讀全名（`復能-INDIBA(60)`），月曆讀別稱（`IN(60)`）——
+  // 那正是她 2026-09-08 列的六種與它們的簡寫。夠短的就不必有別稱。
+  //
+  // **每一台還記著「用這台的那一段算哪一個課程」**（ADR-0075）——
   // 復能四選一是一筆額度、四台器材，而 ILIB 那一台要的是診間、
   // 其餘三台要的是物理治療師。指派是課程說了算，所以課程要由器材推。
   //
   // ILIB 是 2026-09-06 補進來的第四台：在那之前它只是一個課程（靜脈），
   // 而擇一池的選項是器材，所以它進不了四選一。
   equipment: [
-    { id: 'eq-indiba', name: 'INDIBA', courseId: 'course-recovery', contraindications: [] },
-    { id: 'eq-sis', name: '超磁場', shortName: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
+    // 別稱 `IN` 是 2026-09-08 補的：月曆一格放不下 `INDIBA(60)` 六個字，
+    // 而她列的第三種就是 `復能-INDIBA(30/60) -> IN(30/60)` —— 額度讀全名、
+    // 月曆讀別稱，這一台正是那兩格會不一樣的那一台。
+    { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'course-recovery', contraindications: [] },
+    // **全名就是她叫它的名字**（2026-09-08）：她自己講的、寫的、記的都是 SIS，
+    // 而額度的名字讀的是全名（`復能-SIS(60)`）。別稱是**月曆上那一格的縮寫**，
+    // SIS 本來就夠短，所以它沒有別稱。既有資料庫上這一台還叫「超磁場」——
+    // 改名那一步由資料健檢的「器材的名字跟建議的不一樣」負責。
+    { id: 'eq-sis', name: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
     { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'] },
     // 別稱跟它那個課程一樣是 `IL`（她自己記的寫法）。月檢視印的是器材別稱，
     // 所以四選一那一筆排到 ILIB 的那一天，日曆上就是 `IL`。
@@ -78,7 +113,13 @@ export const SEED = {
   // 另外兩個是她自己的流程筆記裡就有的（「預約系統註記（第一針或血管難打）」），
   // 其餘由她自己在設定裡加。
   clinicalFlags: [
-    { id: 'cf-metal', name: '體內金屬', hint: '超磁場與高能量雷射要提醒，建議改用 INDIBA' },
+    // **紅・實心**是這一份裡最醒目的畫法，而她的原話是「血管難打、體內有金屬
+    // 可以最明顯」。2026-09-06 加這一層的時候只填了名字與說明，於是它畫出來
+    // 跟其餘警示一樣是茶色空心 —— 手冊與 E2E 都寫著它該是紅實心，資料上卻
+    // 一直沒有。既有資料庫不會自己跟上（`loadSeed()` 只建不覆蓋），
+    // 要的話到 設定 → 警示 改一下就有。
+    { id: 'cf-metal', name: '體內金屬', color: 'red', fill: 'solid',
+      hint: 'SIS 與高能量雷射要提醒，建議改用 INDIBA' },
     { id: 'cf-veins', name: '血管難打', hint: '點滴與抽血要多留時間，先問慣用手' },
     { id: 'cf-first', name: '第一針', hint: '第一次施打，事前多講一次流程' },
   ],
@@ -107,11 +148,23 @@ export const SEED = {
     { id: 'prod-gaba', name: 'GABA' },
   ],
 
+  // 課程。**要指派什麼由她 2026-09-08 那三條規則決定**：
+  //
+  //   物理治療師  復能（INDIBA／SIS／高能量雷射，多選一選到這三者也算）
+  //   治療室      營養點滴、EECP、ILIB
+  //   醫師        門診類（A 類一律選得到，見 `picksDoctor()`）
+  //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
+  //
+  // 2026-09-08 之前健檢、體適能、身體組成、營養諮詢、復健科醫師門診與二返
+  // 六個都指派著治療室。既有資料庫不會自己跟上（`loadSeed()` 只建不覆蓋），
+  // 那一步由資料健檢的「課程的指派跟建議的不一樣」負責。
   courses: [
     // ---- A 類：三系統＋電話 ----
     {
       id: 'course-rehab', name: '復健科醫師門診', category: 'A', durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
+      // （`picksDoctor()`），所以這裡什麼都不用指派。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
     },
     {
@@ -124,7 +177,8 @@ export const SEED = {
       // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
       // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
       id: 'course-followup', name: '二返', category: 'A', durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
       // 唯一一個不用簽療程單的課程（2026-08-23 使用者確認）。它是回院聽報告，
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
@@ -140,7 +194,8 @@ export const SEED = {
       // 健檢做完要再約一次二返聽報告（SPEC 第 7 節規則 8）。配對記在這裡而不是
       // 寫死在程式碼裡：課程是她自己在主檔建的，id 猜不得。見 ADR-0022。
       id: 'course-checkup', name: '健檢', category: 'B', durationMin: 120,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      // 需要空間的只有營養點滴、EECP、ILIB 三個（她 2026-09-08）。
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       followupCourseId: 'course-followup',
     },
@@ -170,17 +225,30 @@ export const SEED = {
       // 貼給客人的那一句不能寫 `ILIB` —— 客戶看不懂那三個字母。
       id: 'course-iv-laser', name: 'ILIB', shortName: 'IL', lineName: '靜脈雷射',
       category: 'C', durationMin: 60,
-      assigns: 'room', allowedRoomTypes: ['ILIB室', '治療室', '點滴室'], allowedRoomIds: [],
+      // `ILIB室` 那個類型 2026-09-08 拿掉了（唯一那一間是 ILIB4，它有個 4）。
+      // 她給的優先順序是 `.10、治2、治3`，本來就排在點滴室與治療室。
+      assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'], allowedRoomIds: [],
+      // 她 2026-09-08 給的優先順序：`.10、治2、治3`。**只是順序不是限制** ——
+      // 其餘的治療室與點滴室照樣選得到。
+      preferredRoomIds: ['room-iv10', 'room-t2', 'room-t3'],
       requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {
-      // SPEC 第 7 節規則 2：EECP 只能在治5、治8
+      // SPEC 第 7 節規則 2：EECP 只能在治5、治8。
+      // `preferredRoomIds` 跟它**同時填著**是刻意的（2026-09-08）：
+      // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
       id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 30,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
     },
     {
       // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）
+      //
+      // 她 2026-09-08 說營養點滴要優先顯示 `.2` 至 `.10` —— **那本來就成立**：
+      // `allowedRoomTypes` 是點滴室，所以那八間本來就排在最前面、其餘收在
+      // 「其他診間」底下。`preferredRoomIds` 刻意留空：全部都是推薦等於沒有
+      // 推薦，而多一份名單就多一個「她之後加一間點滴室卻忘了加進去」的機會。
       id: 'course-iv-drip', name: '營養點滴', category: 'C', durationMin: 60,
       assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,
@@ -189,12 +257,12 @@ export const SEED = {
     // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----
     {
       id: 'course-inbody', name: '身體組成分析', category: null, durationMin: 20,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
       id: 'course-fitness', name: '體適能檢查分析', category: null, durationMin: 30,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
@@ -204,7 +272,7 @@ export const SEED = {
     },
     {
       id: 'course-nutrition-consult', name: '營養師諮詢', category: null, durationMin: 20,
-      assigns: 'room', allowedRoomTypes: ['治療室'], allowedRoomIds: [],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       // 諮詢完要打一份諮詢紀錄（ADR-0066）
       needsRecord: true,
@@ -221,9 +289,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-inbody', label: '身體組成分析', qty: 4, durationMin: 20, frequencyRule: '每季一次' },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能 - 三選一（60）', qty: 12, durationMin: 60,
+        { type: 'pool', label: '復能-三選一(60)', qty: 12, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 20, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 20, durationMin: 60 },
       ],
     },
     {
@@ -237,9 +305,9 @@ export const SEED = {
         { type: 'single', courseId: 'course-pt-consult', label: '物理治療師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-nutrition-consult', label: '營養師諮詢', qty: 4, durationMin: 20 },
         { type: 'single', courseId: 'course-fitness', label: '體適能檢查分析', qty: 4, durationMin: 30, frequencyRule: '每季一次' },
-        { type: 'pool', label: '復能 - 三選一（60）', qty: 20, durationMin: 60,
+        { type: 'pool', label: '復能-三選一(60)', qty: 20, durationMin: 60,
           optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'] },
-        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB（60）', qty: 12, durationMin: 60 },
+        { type: 'single', courseId: 'course-iv-laser', label: 'ILIB(60)', qty: 12, durationMin: 60 },
       ],
     },
   ],

@@ -251,10 +251,15 @@ function layoutWeek(events, week, maxLanes) {
     })
     .filter((p) => p.startIdx <= p.endIdx)
     // 長的排上面、早開始的排前面。順序固定，她換裝置回來看到的排版才一樣。
+    //
+    // `sortKey` 是 2026-09-08 加的：月檢視改成一段一條之後，同一天會有好幾條
+    // 同樣長的來訪，而它們要照**那天的時間**排。少了這一層就會落到最後那一條
+    // 「照標題排」，於是 `IL` `IN` `SIS` 照筆畫走，跟她那一天的順序無關。
     .sort(
       (a, b) =>
         a.startIdx - b.startIdx ||
         b.endIdx - b.startIdx - (a.endIdx - a.startIdx) ||
+        bySortKey(a.event, b.event) ||
         String(a.event.title).localeCompare(String(b.event.title), 'zh-TW'),
     );
 
@@ -286,6 +291,22 @@ function layoutWeek(events, week, maxLanes) {
   }
 
   return { bars, more };
+}
+
+/**
+ * 選填的 `sortKey`（月檢視的來訪帶的是那一段的開始時間）。
+ *
+ * **有的排在沒有的前面**，而不是當成空字串比 —— 兩種混在同一天時
+ * （一段來訪 + 一件跨天的行事備註）順序才是固定的，不會因為餵進來的
+ * 先後而換位置。
+ */
+function bySortKey(a, b) {
+  const x = a?.sortKey ?? null;
+  const y = b?.sortKey ?? null;
+  if (x === y) return 0;
+  if (x === null) return 1;
+  if (y === null) return -1;
+  return String(x).localeCompare(String(y));
 }
 
 function firstFreeLane(lanes, piece) {

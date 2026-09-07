@@ -328,8 +328,8 @@ function homeCourseOf(options, courses = []) {
  *
  * | 池裡 | 叫什麼 | 為什麼 |
  * |---|---|---|
- * | 一台 | `復能 - SIS` | 前半是分類（`homeCourseOf()`），後半是那一台的**別稱** |
- * | N 台 | `復能 - 三選一` | N 是真的有幾台 |
+ * | 一台 | `復能-SIS` | 前半是分類（`homeCourseOf()`），後半是那一台的**全名** |
+ * | N 台 | `復能-三選一` | N 是真的有幾台 |
  *
  * 她 2026-09-07 指名這個格式：
  *
@@ -339,9 +339,10 @@ function homeCourseOf(options, courses = []) {
  *
  * - **單買一台也帶著「復能」**。以前叫 `超磁場(60)`，跟三選一那一筆並排時
  *   看不出是同一類東西 —— 而它們扣的是同一種次數、走的是同一條排班路。
- * - **用別稱不是全名**（`SIS` 不是 `超磁場`）。她自己講的、寫的都是 SIS，
- *   而別稱正是「她怎麼叫這個東西」那一格（`domain/naming.js`）。
- *   沒設別稱的（高能量雷射、INDIBA）自己退回全名。
+ * - **後半是器材的全名**，而器材的全名就是「她叫它什麼」（2026-09-08 她選的：
+ *   那一台從「超磁場」改名成 `SIS`）。別稱那一格留給**月曆** —— 那裡一格只
+ *   放得下幾個字，所以 INDIBA 在月曆上是 `IN`，但額度仍然是 `復能-INDIBA(60)`。
+ *   兩邊都讀別稱的話，她列的第三種會變成 `復能-IN(60)`。
  *
  * **數字是算出來的不是寫死的**：她之後在主檔多加一台，「四選一」自己會變成
  * 「五選一」，一行程式都不用改。
@@ -358,8 +359,12 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
 
   const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
   const only = options.length === 1 ? options[0] : null;
+  // **單買一台用器材的全名**（2026-09-08）。器材主檔上兩格名字回答兩個問題：
+  // 全名是「她叫它什麼」（SIS、INDIBA、高能量雷射），別稱是「月曆那一格的
+  // 縮寫」（IN）。她列的六種用的是前者，月曆用的是後者 ——
+  // 兩邊都讀別稱的話，第三種會變成 `復能-IN(60)`。
   const what = only
-    ? nameOf(only, 'short', { as: 'equipment' })
+    ? String(only.name ?? '').trim()
     : `${countWord(options.length)}選一`;
 
   if (!what) return home;
@@ -369,7 +374,9 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
   // 舊資料捏得出來。
   const sameThing = only && String(only.name ?? '').trim() === home;
   if (!home || home === what || sameThing) return sameThing ? home : what;
-  return `${home} - ${what}`;
+  // **破折號兩邊不留空格**（2026-09-08 她指名的格式：`復能-三選一(60)`）。
+  // 上一代是 `復能 - 三選一（60）`，`legacyPoolNames()` 認得出來。
+  return `${home}-${what}`;
 }
 
 /**
@@ -380,11 +387,15 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
  * 不可以被一顆按鈕改掉**（同 ADR-0050 的判斷）—— 所以那一列只認得出
  * 這幾種形狀，其餘一律不列。
  *
- * 三代格式：
+ * 四代格式：
  *
- *   `復能`          最早：擇一池一律叫課程名
- *   `復能三選一`     算得出名字、但還沒有時長的中間狀態
- *   `超磁場`         2026-09-06：單買一台叫器材**全名**（現在改叫別稱了）
+ *   `復能`            最早：擇一池一律叫課程名
+ *   `復能三選一`       算得出名字、但還沒有時長的中間狀態
+ *   `超磁場`           2026-09-06：單買一台叫器材全名，而那時候它還叫超磁場
+ *   `復能 - 三選一`    2026-09-07：破折號兩邊有空格，時長用全形括號
+ *
+ * 時長那一半由呼叫端自己補（`checkPoolLabels()` 半形與全形都試），
+ * 所以這裡只回不帶時長的那幾種。
  *
  * @returns {string[]} 去重、去空白
  */
@@ -397,10 +408,15 @@ export function legacyPoolNames(optionEquipmentIds = [], equipment = [], courses
   const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
   const out = new Set([home]);
   if (options.length === 1) {
+    const short = nameOf(options[0], 'short', { as: 'equipment' });
     out.add(String(options[0].name ?? '').trim());
-    out.add(nameOf(options[0], 'short', { as: 'equipment' }));
+    out.add(short);
+    // 2026-09-07 那一版：破折號兩邊有空格
+    if (home && short) out.add(`${home} - ${short}`);
   } else if (home) {
-    out.add(`${home}${countWord(options.length)}選一`);
+    const what = `${countWord(options.length)}選一`;
+    out.add(`${home}${what}`);
+    out.add(`${home} - ${what}`);
   }
   return [...out].filter(Boolean);
 }
@@ -411,15 +427,17 @@ export function legacyPoolNames(optionEquipmentIds = [], equipment = [], courses
  * 括號裡只有數字，沒有「分鐘」—— 她自己寫的就是 `sis(60)x5`，
  * 而那一格旁邊的標籤已經說了那是分鐘。
  *
- * **全形括號**（2026-09-07 她指名的格式）。半形的那一版還在既有資料上，
- * 資料健檢那一列認得出來（`legacyPoolNames()` 的呼叫端）。
+ * **半形括號**（2026-09-08 她寫的格式：`復能-三選一(30)`）。跟月曆那一格
+ * 接分鐘的寫法一致 —— 同一個數字在兩個畫面上用兩種括號，看起來像兩種東西。
+ * 全形的那一版（2026-09-07）還在既有資料上，資料健檢那一列認得出來
+ *（`legacyPoolNames()` 的呼叫端半形與全形都試）。
  *
  * 沒有時長就不加括號（同 `tieredLabel()` 的判斷：**不要補一個猜的**）。
  */
 export function timedLabel(name, durationMin) {
   const base = String(name ?? '').trim();
   const n = Number(durationMin);
-  return base && Number.isInteger(n) && n > 0 ? `${base}（${n}）` : base;
+  return base && Number.isInteger(n) && n > 0 ? `${base}(${n})` : base;
 }
 
 

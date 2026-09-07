@@ -178,6 +178,8 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
   expect(body).toContain('排成了 護心抗老');
 
   // **不給一鍵修正** —— Abovee 上那一筆也要跟著改，那不是 app 做得到的事
-  const fixable = await page.locator('#view [data-fix]').count();
+  // **只數那一項的**：一頁上有十九項，而別項（例如「來訪上還記著床位」）
+  // 本來就給得出一鍵修正 —— 數整頁的按鈕會被它們弄髒。
+  const fixable = await page.locator('#view [data-check="ivMismatch"] [data-fix]').count();
   expect(fixable).toBe(0);
 });

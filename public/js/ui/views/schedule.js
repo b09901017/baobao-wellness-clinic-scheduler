@@ -46,7 +46,7 @@ import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
-  picksEquipment, NOTE_MAX,
+  picksEquipment, assignsFor, NOTE_MAX,
   acceptsMoreSlots, withExtraSlot,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
@@ -59,7 +59,7 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  roomSlots, roomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
+  roomSlots, orderedRoomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
   THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { splitFlags } from '../../domain/customers.js';
@@ -1207,6 +1207,7 @@ function entFields(row, picked) {
 
   const { all } = ctx;
   const course = effectiveCourse(picked);
+  const assigns = assignsFor(picked.entitlement, course, view.equipmentId);
   const half = halfBlocked(row, view.day);
 
   return `
@@ -1238,8 +1239,13 @@ function entFields(row, picked) {
 
     ${picksEquipment(picked.entitlement, course) ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all, picked) : ''}
-    ${course.assigns === 'therapist' ? therapistField(all) : ''}
-    ${course.assigns === 'room' ? roomField(all, course) : ''}
+    ${/* 指派要治療師還是治療室，由**她挑的那一台器材**推出來（ADR-0075）。
+           挑之前那個問題沒有答案，所以兩排都不畫、只留一句話 ——
+           照預設課程畫一排出來等於替她答了一個她還沒回答的問題，
+           而四選一的預設課程剛好是要診間的 ILIB（她 2026-09-08 回報的那件事）。 */''}
+    ${assigns === null ? undecidedHint(picked) : ''}
+    ${assigns === 'therapist' ? therapistField(all) : ''}
+    ${assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all) : ''}
     ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
 }
@@ -1468,6 +1474,24 @@ function ivField(all, picked) {
     </div>`;
 }
 
+/**
+ * 「先選上面那一台」。
+ *
+ * 擇一池還沒挑器材時，「這一段要治療師還是治療室」還沒有答案
+ * （`assignsFor()` 回 `null`）。**兩排都不畫，但要留一句話** ——
+ * 什麼都不出現跟「這一種不用指派」長得一模一樣，而她會直接按下去。
+ *
+ * 講的是那一顆額度丸子上寫的字（她剛剛按的那一顆），不是課程名 ——
+ * 「復能 每次都要選器材」對著一個她沒看到的字講話。
+ */
+function undecidedHint(picked) {
+  const what = picked?.entitlement?.label ?? '這一筆';
+  return `
+    <p class="field__hint" style="margin: 0 0 var(--space-4)">
+      先選上面那一台 —— ${esc(what)} 要治療師還是治療室，看那天用的是哪一種。
+    </p>`;
+}
+
 function therapistField(all) {
   // 治療師的選單只列治療師 —— 跑出三位醫師來的話，她要點到第三個字才發現
   // 點錯人（ADR-0026，`staffWithRole()` 是唯一的入口）。
@@ -1595,18 +1619,26 @@ function pickIvIfBought(picked) {
 }
 
 /**
- * 診間。這個課程常用的放前面當泡泡，其餘的收在底下 ——
- * 十五間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
+ * 診間。這個課程排得進去的放前面，其餘的收在底下 ——
+ * 十七間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
+ *
+ * **前面那一排的順序由 `orderedRoomsForCourse()` 決定**（她 2026-09-08 要的
+ * 「優先置頂」）：EECP 是治5、治8，ILIB 是 `.10`、治2、治3。
+ * 來訪編輯器走的是同一支 —— 各排一次的話，同一個課程在兩個畫面上第一顆
+ * 丸子不一樣，她不會知道哪個算數。
  */
 function roomField(all, course) {
-  const allowed = new Set(roomsForCourse(course, all.rooms).map((r) => r.id));
+  const ordered = orderedRoomsForCourse(course, all.rooms);
+  const rank = new Map(ordered.map((r, i) => [r.id, i]));
   const slots = roomSlots(all.rooms);
   const chip = (s) => `
     <button class="chip" type="button" aria-pressed="${keyOf(s) === view.roomKey}"
             data-room="${esc(keyOf(s))}">${esc(s.label)}</button>`;
 
-  const primary = slots.filter((s) => allowed.has(s.roomId));
-  const rest = slots.filter((s) => !allowed.has(s.roomId));
+  const primary = slots
+    .filter((s) => rank.has(s.roomId))
+    .sort((a, b) => rank.get(a.roomId) - rank.get(b.roomId));
+  const rest = slots.filter((s) => !rank.has(s.roomId));
 
   return `
     <div class="fieldgroup">
@@ -1723,13 +1755,13 @@ function refreshNth() {
 
 /** 選一顆丸子：只改按下去的樣子。再點一次同一顆就取消。 */
 function pickOne(attr, key, value) {
-  // 換器材前先記住這一段現在算哪一個課程 —— 四選一換到 ILIB 時它會變，
-  // 而「變了沒」決定要重畫整塊還是只換一句話。
+  // 換器材前先記住「這一段現在算哪一個課程、要指派什麼」——
+  // 那兩件事任何一件變了都要重畫整塊，沒變就只換一句話。
   const row = attr === 'equipment' ? selectedRow() : null;
   const picked = row
     ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null)
     : null;
-  const before = picked ? (effectiveCourse(picked)?.id ?? null) : null;
+  const before = picked ? assignKeyOf(picked) : null;
 
   view[key] = view[key] === value ? null : value;
   press(`[data-${attr}]`, attr, view[key]);
@@ -1742,16 +1774,18 @@ function pickOne(attr, key, value) {
  *
  * 兩種情況，代價差很多：
  *
- * - **課程也跟著換了**（四選一從 SIS 換到 ILIB）→ 治療師那一排要變成診間那一排，
- *   所以整塊欄位重畫。跟 `pickCourse()` 走同一條路。
- * - **課程沒變**（三選一裡換一台）→ 只換那一句提醒。整塊重畫會閃一下，
+ * - **要指派的東西變了** → 整塊欄位重畫。兩種都算：課程換了（四選一從 SIS
+ *   換到 ILIB，治療師那一排要變成診間那一排），以及**從「還不知道」變成
+ *   知道了**（她挑第一台的那一下，`assignsFor()` 從 `null` 變成 therapist ——
+ *   課程 id 一個字都沒變，只比課程的話那一排永遠不會出現）。
+ * - **都沒變**（三選一裡換一台）→ 只換那一句提醒。整塊重畫會閃一下，
  *   而她一位客戶要點五六下（ADR-0038）。
  */
-function afterEquipmentPick(row, picked, beforeCourseId) {
+function afterEquipmentPick(row, picked, beforeKey) {
   const fields = deckEl()?.querySelector('[data-entfields]');
   if (!fields) return;
 
-  if ((effectiveCourse(picked)?.id ?? null) !== beforeCourseId) {
+  if (assignKeyOf(picked) !== beforeKey) {
     // 課程換了 → 跟著課程走的那幾格（治療師、診間、醫師）全部重挑。
     // 留著舊的話，一段 ILIB 會帶著上一台復能挑的治療師存進去。
     Object.assign(view, { therapistId: null, roomKey: null, doctorId: null });
@@ -1761,6 +1795,12 @@ function afterEquipmentPick(row, picked, beforeCourseId) {
 
   const host = deckEl()?.querySelector('[data-eqnotice]');
   if (host) host.innerHTML = equipmentNoticeHtml(row, equipmentOptionsFor(picked));
+}
+
+/** 「這一段算哪個課程、要指派什麼」的指紋。變了就重畫整塊欄位。 */
+function assignKeyOf(picked) {
+  const course = effectiveCourse(picked);
+  return `${course?.id ?? ''}|${assignsFor(picked?.entitlement, course, view.equipmentId)}`;
 }
 
 function press(selector, attr, value) {
@@ -1885,6 +1925,9 @@ async function addSlot() {
   // **存下去的課程也要走 effectiveCourse()**（ADR-0075）—— 只在畫欄位那一邊
   // 推導的話，畫面上要她選診間、存進去的卻是一段要治療師的復能。
   const course = effectiveCourse(picked);
+  // 存下去的指派也走同一支。畫欄位那一邊與這裡各判斷一次的話，
+  // 會出現「畫面上要她選治療師、存進去的卻是一段要診間的 ILIB」。
+  const assigns = assignsFor(picked.entitlement, course, view.equipmentId);
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
 
   // n返 的三樣東西（沒有額度、返數、哪一次健檢）由 `nthSlotFields()` 給 ——
@@ -1911,9 +1954,9 @@ async function addSlot() {
     ivProductId: course.requiresIvProduct ? (view.equipmentId ?? null) : null,
     startsAt: view.startsAt,
     endsAt: endOf(view.startsAt, picked.durationMin),
-    roomId: course.assigns === 'room' ? (roomId || null) : null,
-    bed: course.assigns === 'room' ? (bed || null) : null,
-    therapistId: course.assigns === 'therapist' ? (view.therapistId ?? null) : null,
+    roomId: assigns === 'room' ? (roomId || null) : null,
+    bed: assigns === 'room' ? (bed || null) : null,
+    therapistId: assigns === 'therapist' ? (view.therapistId ?? null) : null,
     doctorId: picksDoctor(course) ? (view.doctorId ?? null) : null,
     // 這一段二返接在哪一次健檢後面。不是二返就一定是 null ——
     // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下。

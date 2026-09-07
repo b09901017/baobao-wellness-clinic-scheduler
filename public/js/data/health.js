@@ -66,7 +66,7 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
- * - `renamePool`：以前買的復能額度改成新的名字（`復能 - 三選一（60）`）。
+ * - `renamePool`：以前買的復能額度改成新的名字（`復能-三選一(60)`）。
  *   **只改 label**，而且只改得動認得出「歷代自動名字」的那幾筆。
  * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
  *   客戶身上那個字在壓表卡片牆上什麼都不會出現。
@@ -127,6 +127,75 @@ function opFor(fix) {
       path: 'config/app/clinicalFlags',
       data: fix.data,
       note: '資料健檢：器材上的提醒詞補進警示名單',
+    };
+  }
+
+  // 診間清單對到建議的樣子（2026-09-08）。三種形狀走同一個 kind，
+  // 因為她在畫面上要處理的是同一件事：「把診間主檔對一次答案」。
+  //
+  // **刪掉走的是這個 app 既有的軟刪除**：進「已刪除項目」，還原得回來。
+  // 既有來訪身上還指著它 —— 那幾筆從此印不出診間名字，她 2026-09-08 選的。
+  if (fix?.kind === 'applyRoom') {
+    const roomPath = 'config/app/rooms';
+    if (fix.mode === 'add') {
+      return {
+        op: 'create', path: roomPath, id: fix.roomId, data: fix.data,
+        note: '資料健檢：補上建議清單裡有、主檔沒有的診間',
+      };
+    }
+    if (fix.mode === 'drop') {
+      return {
+        op: 'softDelete', path: roomPath, id: fix.roomId,
+        reason: '資料健檢：新的診間清單上沒有這一間',
+        note: '資料健檢：刪掉新清單上沒有的診間',
+      };
+    }
+    return {
+      op: 'update', path: roomPath, id: fix.roomId,
+      changes: { shortName: fix.shortName },
+      note: '資料健檢：診間補上簡寫',
+    };
+  }
+
+  // 清掉來訪上的床位（2026-09-08：一間就是一個資源）。
+  // **整包 slots 寫回去**：時段是內嵌陣列，Firestore 沒辦法只改其中一格。
+  // `checkSlotBeds()` 已經把那一份算好了（只有 `bed` 變成 null，其餘原封不動）。
+  if (fix?.kind === 'clearBeds') {
+    return {
+      op: 'update',
+      path: 'visits',
+      id: fix.visitId,
+      changes: { slots: fix.slots },
+      note: '資料健檢：清掉來訪上的床位',
+    };
+  }
+
+  // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
+  // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
+  if (fix?.kind === 'renameEquipment') {
+    return {
+      op: 'update',
+      path: 'config/app/equipment',
+      id: fix.equipmentId,
+      changes: { name: fix.name, shortName: fix.shortName ?? null },
+      note: '資料健檢：器材的名字改成建議值',
+    };
+  }
+
+  // 課程的指派改成建議值（她 2026-09-08 的三條規則）。
+  // **診間限制要一起清**：`validate('courses')` 擋著「不選診間的課程不該設定
+  // 診間限制」，只改 `assigns` 的話那一筆之後她一進設定頁就存不下去。
+  if (fix?.kind === 'setAssigns') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: {
+        assigns: fix.assigns,
+        allowedRoomTypes: fix.allowedRoomTypes ?? [],
+        allowedRoomIds: fix.allowedRoomIds ?? [],
+      },
+      note: '資料健檢：課程的指派改成建議值',
     };
   }
 
