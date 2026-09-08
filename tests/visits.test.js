@@ -15,7 +15,7 @@ import {
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
-  courseForEquipment, picksEquipment, slotsToShow, assignsFor,
+  courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1232,4 +1232,40 @@ test('沒有一個畫面自己去比 course.assigns', () => {
   };
   walk('');
   assert.deepEqual(offenders, [], `這幾支自己比了 assigns，要改走 assignsFor()：${offenders}`);
+});
+
+
+// 她 2026-09-08 選了「六個課程全部改」，而那一題的答案裡寫著：
+//
+// > 既有來訪身上的 `roomId` 留著不動、**畫面上不畫**
+//
+// 少了這一條，她那幾百筆既有的健檢、門診、二返在日／週那一列與四頁共用的
+// 讀取卡片上照樣印著「治3」—— 正是那個答案要避免的事。
+describe('這一段在畫面上要不要印診間', () => {
+  const room = { id: 'c-iv', assigns: 'room' };
+  const none = { id: 'c-checkup', assigns: 'none' };
+  const therapist = { id: 'c-recovery', assigns: 'therapist' };
+  const courses = [room, none, therapist];
+
+  test('要診間的課程照印', () => {
+    assert.equal(showsRoom({ courseId: 'c-iv', roomId: 'r1' }, courses), true);
+  });
+
+  test('不要診間的課程不印 —— 既有資料上那個 roomId 一個字都不動', () => {
+    assert.equal(showsRoom({ courseId: 'c-checkup', roomId: 'r1' }, courses), false);
+    assert.equal(showsRoom({ courseId: 'c-recovery', roomId: 'r1' }, courses), false);
+  });
+
+  // **認不出課程就照印。** 匯進來的舊來訪、被刪掉的課程都走這一條 ——
+  // 少印一個診間比印錯一個糟：她會以為那一筆的資料掉了。
+  test('認不出課程就照印', () => {
+    assert.equal(showsRoom({ courseId: 'gone', roomId: 'r1' }, courses), true);
+    assert.equal(showsRoom({ courseId: 'c-iv', roomId: 'r1' }, []), true);
+    assert.equal(showsRoom({ roomId: 'r1' }, courses), true);
+  });
+
+  test('本來就沒有診間的那一段一律回 false，呼叫端不用先問一次', () => {
+    assert.equal(showsRoom({ courseId: 'c-iv' }, courses), false);
+    assert.equal(showsRoom(null, courses), false);
+  });
 });

@@ -602,6 +602,35 @@ export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
 
 /**
+ * 這一段在畫面上要不要印診間。
+ *
+ * 她 2026-09-08 把健檢、體適能、身體組成、營養諮詢、門診與二返六個課程改成
+ * 「都不用」（ADR-0079），而那一題的答案裡寫著：
+ *
+ * > 既有來訪身上的 `roomId` 留著不動、**畫面上不畫**
+ *
+ * 資料一個字都不動是刻意的（改既有的幾百筆是一次沒有人按過的寫入），
+ * 所以「不畫」這件事只能發生在畫的時候 —— 也就是這一支。
+ *
+ * ## 它跟 `assignsFor()` 問的不是同一句話
+ *
+ * `assignsFor()` 是**壓表當下**的問題：「現在要請她挑治療師還是治療室？」
+ * 所以擇一池還沒挑器材時它回 `null`。這一支是**畫已經存下去的那一段**：
+ * 課程早就定了（`courseForEquipment()` 在存檔那一刻就跑過），所以只問課程。
+ *
+ * **認不出課程就照印。** 匯進來的舊來訪（ADR-0011）與被刪掉的課程都走這一條
+ * —— 少印一個診間比多印一個糟：她會以為那一筆的資料掉了。
+ *
+ * @param {{courseId?:string, roomId?:string}|null} slot
+ * @param {object[]} courses 課程主檔（含已刪除的，呼叫端本來就是這樣讀）
+ */
+export function showsRoom(slot, courses = []) {
+  if (!slot?.roomId) return false;
+  const course = (courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  return course ? course.assigns === 'room' : true;
+}
+
+/**
  * 這一段**現在**要指派什麼。`null` = 還答不出來。
  *
  * 她 2026-09-08：

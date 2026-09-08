@@ -472,6 +472,27 @@ describe('那一列的診間印簡寫', () => {
     assert.equal(row.room, '.2');
   });
 
+  // ADR-0079：健檢那六個課程改成「都不用」之後，既有來訪身上的 `roomId`
+  // 留著不動 —— 不畫這件事只能發生在畫的時候（`showsRoom()`）。
+  test('不要診間的課程一律不印，資料上那個 id 一個字都不動', () => {
+    const master = {
+      courses: [{ id: 'c-checkup', name: '健檢', assigns: 'none' }],
+      equipment: [],
+    };
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '09:00', endsAt: '11:00', courseId: 'c-checkup', roomId: 'r-3' }],
+    })], '2026-09-18', { ...CTX, master });
+    assert.equal(row.room, null, '健檢不該印診間');
+    assert.equal(row.roomId, 'r-3', '資料上那個 id 照樣帶出來');
+  });
+
+  test('沒給 master 就照印 —— 認不出課程時少印比多印糟', () => {
+    const [row] = agendaFor([visit({
+      slots: [{ startsAt: '09:00', endsAt: '11:00', courseId: 'c-checkup', roomId: 'r-3' }],
+    })], '2026-09-18', CTX);
+    assert.equal(row.room, '治3');
+  });
+
   test('沒設簡寫就退回全名 —— 治療室本來就夠短', () => {
     const [row] = agendaFor([visit({
       slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'r-3' }],

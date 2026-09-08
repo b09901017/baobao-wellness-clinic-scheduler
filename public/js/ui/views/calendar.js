@@ -38,7 +38,7 @@ import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from
 import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
-  applyStatus, visitActions, slotsToShow,
+  applyStatus, visitActions, slotsToShow, showsRoom,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
@@ -1409,7 +1409,12 @@ export function visitReadHtml(visit, data) {
     ${slots.map(({ slot: s }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
       // 這一張卡片也是「她自己看」的地方。沒設簡寫就退回全名。
-      const room = data.roomsById[s.roomId] ? nameOf(data.roomsById[s.roomId], 'short') : null;
+      //
+      // **不要診間的課程一律不印**（`showsRoom()`，ADR-0079）—— 四個畫面
+      // 共用這一支，所以四頁一起不印。認不出課程就照印。
+      const room = showsRoom(s, data.master?.courses ?? null) && data.roomsById[s.roomId]
+        ? nameOf(data.roomsById[s.roomId], 'short')
+        : null;
       const therapist = data.staffById[s.therapistId]?.name ?? null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
       return `
