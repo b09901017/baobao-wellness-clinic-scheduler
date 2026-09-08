@@ -1,6 +1,6 @@
 # 客人說不行的那一段標成取消，不要從陣列裡刪掉
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`ui/views/home.js` 的確認動線（`const keep = (v.slots ?? []).filter(...)`）
 

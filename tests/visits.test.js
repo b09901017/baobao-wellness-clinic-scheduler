@@ -16,7 +16,7 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
-  visitStatusFrom,
+  visitStatusFrom, applyConfirmation,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1591,5 +1591,73 @@ describe('長按一列時，取消的是那一段還是一整天（ADR-0081）',
         assert.ok(n <= 5, `${status} / ${slotIndex} 有 ${n} 顆`);
       }
     }
+  });
+});
+
+describe('客人回覆之後那一筆長什麼樣（applyConfirmation）', () => {
+  const v = (over = {}) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'pending_confirm',
+    followupNote: '禮拜一再問問', followupAt: '2026-09-15',
+    slots: [
+      { entitlementId: 'e1', courseId: 'c-recovery', startsAt: '10:30' },
+      { entitlementId: 'e2', courseId: 'c-checkup', startsAt: '11:30' },
+      { entitlementId: 'e3', courseId: 'c-recovery', startsAt: '13:00' },
+    ],
+    ...over,
+  });
+
+  test('客人說不行的那一段標成取消，**不要從陣列裡刪掉**', () => {
+    // 刪掉的話沒有紀錄它曾經被壓過，也不會長出「取消 Abovee」——
+    // 而她真的在 Abovee 上壓過那一格。
+    const next = applyConfirmation(v(), new Set([1]), 'T');
+    assert.equal(next.slots.length, 3, '一段都不可以消失');
+    assert.equal(next.slots[1].status, 'cancelled');
+    assert.equal(next.slots[1].startsAt, '11:30', '當初壓了幾點要留著');
+  });
+
+  test('其餘那幾段談定了', () => {
+    const next = applyConfirmation(v(), new Set([1]), 'T');
+    assert.equal(next.slots[0].status, 'confirmed');
+    assert.equal(next.slots[2].status, 'confirmed');
+    assert.equal(next.status, 'confirmed');
+    assert.equal(next.confirmedAt, 'T');
+  });
+
+  test('一段都沒退 → 整筆確認', () => {
+    const next = applyConfirmation(v(), new Set(), 'T');
+    assert.equal(next.status, 'confirmed');
+    assert.ok(next.slots.every((s) => s.status === 'confirmed'));
+  });
+
+  test('全部退掉 → 整筆取消，時段照樣留著', () => {
+    const next = applyConfirmation(v(), new Set([0, 1, 2]), 'T');
+    assert.equal(next.status, 'cancelled');
+    assert.equal(next.slots.length, 3);
+    assert.equal(next.cancelledAt, 'T');
+    assert.equal(next.released, true, '那幾個時段放出去給人遞補');
+    assert.match(next.cancelReason, /不行/);
+  });
+
+  test('「禮拜一再問問」兩種結果都要收掉', () => {
+    for (const rejected of [new Set(), new Set([0, 1, 2])]) {
+      const next = applyConfirmation(v(), rejected, 'T');
+      assert.equal(next.followupNote, null);
+      assert.equal(next.followupAt, null);
+    }
+  });
+
+  test('之前就取消掉的那一段維持取消，不會被確認救回來', () => {
+    const before = v();
+    before.slots[0] = { ...before.slots[0], status: 'cancelled' };
+    const next = applyConfirmation(before, new Set(), 'T');
+    assert.equal(next.slots[0].status, 'cancelled');
+    assert.equal(next.status, 'confirmed');
+  });
+
+  test('不動到原本那一份', () => {
+    const before = v();
+    applyConfirmation(before, new Set([0]), 'T');
+    assert.equal(before.status, 'pending_confirm');
+    assert.ok(!('status' in before.slots[0]));
   });
 });

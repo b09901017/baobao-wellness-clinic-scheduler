@@ -509,6 +509,69 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
 }
 
 /**
+ * 這一段還算數嗎。**取消掉的不算**（ADR-0081）。
+ *
+ * 全站問「哪幾段還算數」都走這一支 —— 各寫一次 `s.status !== 'cancelled'`
+ * 的話，遲早有一處忘了，而症狀是一段已經取消的來訪還在要求她簽療程單。
+ */
+export const isLiveSlot = (slot) => slot?.status !== 'cancelled';
+
+/** 一筆來訪裡還算數的那幾段。 */
+export const liveSlots = (visit) => (visit?.slots ?? []).filter(isLiveSlot);
+
+/**
+ * 客人回覆之後，那一筆來訪長什麼樣。
+ *
+ * ## 客人說不行的那一段標成取消，**不要從陣列裡刪掉**（ADR-0081）
+ *
+ * 2026-09-08 之前這一段寫在 `ui/views/home.js` 裡，而且是
+ * `slots.filter((_, i) => !rejected.has(...))` —— 把那一段整個刪掉。三個後果：
+ *
+ * 1. 沒有紀錄它曾經被壓過，而她真的在 Abovee 上壓過那一格
+ * 2. **不會長出「取消 Abovee」** —— 那一格會一直被佔著，同事看得到、她忘記收
+ * 3. 稽核紀錄上看不出那一段去哪了
+ *
+ * 規則搬進 domain 的第二個理由：SPEC 第 10 節說規則不寫在 UI 事件處理器裡，
+ * 而這一條是「客人的回覆怎麼變成資料」，是整個 app 裡最不可逆的一次寫入。
+ *
+ * @param {object} visit 還在等回覆的那一筆
+ * @param {Set<number>} rejected 客人說不行的是第幾段（從 0 起算）
+ * @param {string} at ISO 時間
+ * @returns {object} 新的那一筆（原本那一份一個字都不動）
+ */
+export function applyConfirmation(visit, rejected = new Set(), at = new Date().toISOString()) {
+  const slots = (visit?.slots ?? []).map((slot, i) => {
+    // 之前就取消掉的維持取消 —— 確認救不回一個已經定案的決定
+    if (slot?.status === 'cancelled') return slot;
+    return { ...slot, status: rejected.has(i) ? 'cancelled' : 'confirmed' };
+  });
+
+  const next = {
+    ...visit,
+    slots,
+    // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
+    // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
+    followupNote: null,
+    followupAt: null,
+    statusAt: at,
+  };
+
+  const status = visitStatusFrom(next) ?? visit?.status ?? null;
+  if (status === 'cancelled') {
+    return {
+      ...next,
+      status,
+      cancelledAt: at,
+      cancelReason: '客人說這個時間不行',
+      // 整天都不行的那幾個時段放出去給人遞補（跟長按取消不一樣：
+      // 那一種是她自己要改，這一種是客人真的來不了）
+      released: true,
+    };
+  }
+  return { ...next, status, confirmedAt: at };
+}
+
+/**
  * 收尾：把一筆來訪標成已完成或未到，並逐段記下哪幾段真的做了。
  *
  * 純函式，回傳新的來訪 —— 規則不寫在 UI 的事件處理器裡（SPEC 第 10 節）。

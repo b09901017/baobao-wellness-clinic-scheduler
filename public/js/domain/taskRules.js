@@ -19,7 +19,7 @@
 // docs/adr/0041-the-sheet-is-the-registration.md。
 
 import { addDays } from './dates.js';
-import { visitCourseLabel } from './visits.js';
+import { visitCourseLabel, isLiveSlot } from './visits.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -392,7 +392,50 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   for (const t of wanted.values()) {
     if (t.kind === RECORD_TASK_KIND || acceptsNewTasks(visit.status)) create.push(t);
   }
+
+  // ---------- 整筆還活著，但其中一段取消了（ADR-0081） ----------
+  //
+  // 她 2026-09-08 要「只取消某一段」。那一格是**真的在 Abovee 上壓過**的
+  // （來訪存在就代表壓過了，ADR-0041 的整個前提），所以要回去放掉 ——
+  // 跟整筆取消要做的事一模一樣，只是範圍小一點。
+  //
+  // **這一段不可以搬到上面 `gone` 那一段裡去。** 那一段跑的時候每一段都是
+  // `cancelled`（`applyStatus()` 整天取消會逐段標），而這裡問的是
+  // 「整筆還活著時哪幾段沒了」—— 兩個問題的答案在整筆取消時剛好相反。
+  create.push(...cancelTasksForDeadSlots(visit, existingTasks, coursesById, today));
+
   return { create, update, remove };
+}
+
+/**
+ * 整筆還活著，但有幾段被取消掉了 —— 那幾段壓在哪個系統，就要回去放掉哪一個。
+ *
+ * **同一個系統只長一張**（`already` 那道，含已經勾掉的）：她回去一次收兩格，
+ * 而每一段各一張的話，取消一整天的三段復能會冒出三張一模一樣的待辦。
+ */
+function cancelTasksForDeadSlots(visit, existingTasks, coursesById, today) {
+  const dead = (visit.slots ?? []).filter((s) => !isLiveSlot(s));
+  if (!dead.length) return [];
+
+  const already = new Set(
+    (existingTasks ?? [])
+      .filter((t) => !t.deletedAt && isCancelKind(t.kind))
+      .map((t) => t.kind),
+  );
+
+  const out = [];
+  for (const slot of dead) {
+    const system = bookingSystemFor(coursesById[slot.courseId]?.category);
+    const kind = cancelKindFor(system);
+    if (already.has(kind)) continue;
+    already.add(kind);
+    out.push(cancelTask(
+      visit, kind,
+      `${visit.date} 有一段取消了，回去把 ${system} 上壓的那個時段放掉`,
+      today,
+    ));
+  }
+  return out;
 }
 
 /** 回頭去把已經佔住的東西放掉。這件事沒有寬限期，越快越好。 */
