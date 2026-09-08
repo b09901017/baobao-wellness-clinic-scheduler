@@ -12,6 +12,10 @@
 //    各寫死一次，所以在健檢上錯了兩次。
 
 import { test, describe } from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+import { fromRoot } from './helpers/paths.js';
 import assert from 'node:assert/strict';
 
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
@@ -509,6 +513,46 @@ describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', (
     assert.match(before.join('\n'), /3 個時段會退回去/);
     assert.ok(!before.join('\n').includes('這一段'));
   });
+
+  // ---- 一次取消同一天的好幾段（批次取消，ADR-0082）----
+  //
+  // 批次取消一次收掉十幾段，其中好幾段可能落在同一天。以前這裡只收得下
+  // **一個** index，呼叫端只好挑第一個傳進來 —— 於是「剩下的 N 段」算的是
+  // 「除了第一段以外還活著幾段」，把同一批要取消的其他段也算成了剩下的。
+  //
+  // 她看到「剩下的 2 段不受影響」，存完卻只剩 1 段。那一句話正是這一道確認框
+  // 存在的理由（跨多個 commit 給不出復原），講錯就等於沒有煞車。
+
+  test('同一天挑兩段：剩下的段數不算那兩段', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /剩下的 1 段/);
+    assert.ok(!lines.includes('剩下的 2 段'), '同一批要取消的那幾段不可以算成「剩下的」');
+  });
+
+  test('挑好幾段時講的是「這 2 段」，不是「這一段」', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /這 2 段會退回去/);
+    assert.ok(!lines.includes('這一段會退回去'));
+  });
+
+  test('挑好幾段時，掛號那幾張講的是那幾段的系統聯集', () => {
+    // 0 是健檢（B 類 → Examine）、1 是二返（A 類 → Abovee）
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /取消 Examine/);
+    assert.match(lines, /取消 Abovee/);
+  });
+
+  test('整天的段都挑滿了就退回整天那一種話', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1, 2] }).join('\n');
+    assert.match(lines, /那一天就整筆取消了/);
+    assert.ok(!lines.includes('不受影響'));
+  });
+
+  test('挑到一個不存在的段落就當它不存在，不要憑空多算一段', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [1, 9] }).join('\n');
+    assert.match(lines, /這一段會退回去/);
+    assert.match(lines, /剩下的 2 段/);
+  });
 });
 
 const NL = String.fromCharCode(10);
@@ -537,5 +581,44 @@ describe('客人退掉的那一段不再承諾任何掛號（ADR-0081）', () =>
       ],
     };
     assert.deepEqual(pendingRegistrations(v, COURSES).sort(), ['Examine', '耀聖']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * **「按下去會發生什麼」那幾句只寫在 `domain/consequences.js`**（ADR-0070）。
+ *
+ * 批次取消那一頁自己寫了一次「十秒後自動同步到試算表」，而那個十秒是
+ * `data/sheetSync.js` 的 `QUIET_MS` —— 改了那個常數，四個入口跟著改，
+ * 自己寫的那一句不會。這條掃原始碼，因為那種分岔在畫面上看不出來：
+ * 兩邊都印得出一句話，只是其中一句已經不是真的了。
+ */
+describe('畫面不自己寫後果那幾句', () => {
+  const MINE = [
+    '十秒後自動同步到試算表',
+    '改期不是改日期，是取消後重新排一筆',
+    '次數也會還回來',
+  ];
+
+  test('那幾句一個字都沒有出現在 ui/ 底下', () => {
+    const files = execFileSync('git', ['ls-files', 'public/js/ui'], { encoding: 'utf8' })
+      .split(NL).filter((f) => f.endsWith('.js'));
+
+    const offenders = [];
+    for (const rel of files) {
+      const src = readFileSync(fromRoot() + rel, 'utf8');
+      src.split(NL).forEach((line, i) => {
+        // 註解裡提到它是在解釋，不是在畫它
+        const code = line.trim();
+        if (code.startsWith('//') || code.startsWith('*')) return;
+        for (const said of MINE) {
+          if (code.includes(said)) offenders.push(`${rel}:${i + 1}　${code}`);
+        }
+      });
+    }
+
+    assert.deepEqual(offenders, [],
+      `這幾句要走 domain/consequences.js，不要自己寫一次：${NL}${offenders.join(NL)}`);
   });
 });

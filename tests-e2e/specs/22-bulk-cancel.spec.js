@@ -9,6 +9,8 @@
 //   2. 清單模式逐段勾、「整天選起來」一次勾一天
 //   3. 確認框**列出每一段**（跨多個 commit 給不出復原，那一道就是煞車）
 //   4. 存完那幾段真的暗掉，**沒被選到的那一段一個字都不動**
+//   5. 確認框上的**數字要對**（同一天挑兩段時，「剩下的」不算那兩段）
+//   6. 多選模式吃返回鍵（畫面上多出來一層東西，就多一筆退得掉的紀錄）
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
@@ -138,6 +140,54 @@ test('挑兩段取消：確認框列出每一段，存完那兩段暗掉、第�
   await expect(page.locator('[data-slot]'), '取消掉的那幾段不再列在可以取消的清單裡')
     .toHaveCount(1);
   await expect(page.locator('[data-slot]')).toContainText('10:00');
+});
+
+test('同一天挑兩段：確認框講的剩餘段數要對', async ({ app, page }) => {
+  await open(app, page);
+  await pickCustomer(page);
+
+  // 11 號那一天有兩段，兩段都挑起來
+  await page.locator(`[data-day-all="${D1}"]`).click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.bulkbar__count')).toContainText('選了 2 段');
+
+  await page.locator('[data-go]').click();
+  await expect(app.dialog()).toBeVisible();
+
+  const said = await app.dialogText();
+  // 那一天只有這兩段，兩段都挑了 = 整天沒了。以前這裡會說「剩下的 1 段
+  // 不受影響」—— 它把同一批要取消的另一段也算成了剩下的。
+  expect(said, '整天挑滿了就要講整天那種話').toContain('那一天就整筆取消了');
+  expect(said, '沒有東西「不受影響」').not.toContain('不受影響');
+  expect(said, '兩段就說兩段').toContain('這 2 段會退回去');
+
+  await app.cancelDialog();
+});
+
+test('多選模式吃返回鍵，而且不會整個跳出這一頁', async ({ app, page }) => {
+  await open(app, page);
+  await pickCustomer(page);
+
+  await page.locator('[data-mode="month"]').click();
+  await page.waitForTimeout(500);
+
+  // 長按進多選
+  const cell = page.locator(`[data-day="${D1}"]`);
+  const box = await cell.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  await expect(page.locator('.bulkhint')).toContainText('多選中');
+
+  // 返回鍵 = 退出多選，**不是**離開這一頁
+  await page.goBack();
+  await page.waitForTimeout(600);
+
+  await expect(page.locator('.bulkhint'), '多選那一層要被返回鍵收掉').toHaveCount(0);
+  expect(page.url(), '人還在這一頁').toContain('#/schedule/cancel');
+  await expect(page.locator('[data-day]'), '月曆還在').not.toHaveCount(0);
 });
 
 test('月曆模式：點一天攤開那一天，長按進多選', async ({ app, page }) => {

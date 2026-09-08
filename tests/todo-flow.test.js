@@ -365,4 +365,69 @@ describe('只看她點的那一段（focusSlot）', () => {
     assert.ok(kinds(0).some((k) => k.startsWith('簽療程單（這一天不用簽')));
     assert.ok(kinds(1).includes('簽療程單'));
   });
+
+  // ---- 真的已經長出來的那幾張也要跟著那一段走 ----
+  //
+  // 上面那幾條全部傳 `tasks: []`，所以它們只走得到「還沒發生」那條路。
+  // 而客人一確認，掛號那兩張就**真的**進了 `tasks` 集合 —— 那條路以前
+  // 完全沒有被收窄過：點復能那一段照樣看得到健檢那一張。
+  //
+  // 任務身上**沒有段落**（`tasksForVisit()` 是逐段算完去重的），所以歸屬
+  // 只能推：**這一段自己就長得出這一種嗎？** 長得出來就是它的。
+
+  const withTasks = (focusSlot, tasks) =>
+    todosForVisit(v, { tasks, coursesById: COURSES, focusSlot }).map((r) => r.kind);
+
+  const examine = { id: 't1', visitId: 'v1', kind: 'Examine', done: true, dueDate: '2026-09-19' };
+  const record = { id: 't2', visitId: 'v1', kind: '寫紀錄', done: false, dueDate: '2026-09-20' };
+
+  test('已經長出來的掛號跟著二返那一段，不出現在健檢那一段', () => {
+    assert.ok(withTasks(0, [examine]).includes('Examine'), '二返是 A 類，Examine 是它的');
+    assert.ok(!withTasks(1, [examine]).includes('Examine'), '健檢那一段長不出 Examine');
+  });
+
+  test('已經長出來的「寫紀錄」也跟著那一段走', () => {
+    assert.ok(withTasks(0, [record]).includes('寫紀錄'));
+    assert.ok(!withTasks(1, [record]).includes('寫紀錄'), '健檢沒勾 needsRecord');
+  });
+
+  test('沒帶 focusSlot 時真任務一張都不少（另外三頁一個字都不變）', () => {
+    const out = withTasks(null, [examine, record]);
+    assert.ok(out.includes('Examine'));
+    assert.ok(out.includes('寫紀錄'));
+  });
+
+  test('認不得歸屬的一律留著 —— 靜默收掉比多列一張糟', () => {
+    // 她自己加的、或已經拿掉的那幾種（`RETIRED_KINDS`）身上沒有課程可以推。
+    const manual = { id: 't3', visitId: 'v1', kind: '跟廠商拿東西', done: false };
+    assert.ok(withTasks(0, [manual]).includes('跟廠商拿東西'));
+    assert.ok(withTasks(1, [manual]).includes('跟廠商拿東西'));
+  });
+
+  test('健檢那條鏈跟著健檢那一段', () => {
+    // 鏈上那三張（追蹤報告、寄報告、約二返）是健檢額度長出來的，
+    // 判準走課程主檔上的 `followupCourseId`（`followupCourseIdOf()`）。
+    const paired = {
+      ...COURSES,
+      'c-checkup': { ...COURSES['c-checkup'], followupCourseId: 'c-followup' },
+    };
+    const chain = { id: 't4', visitId: 'v1', kind: '追蹤健檢報告', done: false };
+    const at = (i) => todosForVisit(v, { tasks: [chain], coursesById: paired, focusSlot: i })
+      .map((r) => r.kind);
+    assert.ok(at(1).includes('追蹤健檢報告'), '健檢那一段長得出這條鏈');
+    assert.ok(!at(0).includes('追蹤健檢報告'), '二返那一段跟這條鏈沒關係');
+  });
+
+  test('取消 X 那幾張跟著它要收的那個系統', () => {
+    // 二返是 A 類：壓在 Abovee，確認後才去 Examine 與耀聖登記。
+    // 健檢是 B 類：**壓表就壓在 Examine**。所以「取消 Examine」兩段都認得，
+    // 真正分得開的是 Abovee —— 健檢那一段從來沒在上面壓過。
+    const abovee = { id: 't5', visitId: 'v1', kind: '取消 Abovee', done: false };
+    assert.ok(withTasks(0, [abovee]).includes('取消 Abovee'));
+    assert.ok(!withTasks(1, [abovee]).includes('取消 Abovee'));
+
+    const examine = { id: 't6', visitId: 'v1', kind: '取消 Examine', done: false };
+    assert.ok(withTasks(0, [examine]).includes('取消 Examine'), 'A 類確認後會去 Examine 登記');
+    assert.ok(withTasks(1, [examine]).includes('取消 Examine'), 'B 類壓表就壓在 Examine');
+  });
 });

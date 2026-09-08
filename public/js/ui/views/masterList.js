@@ -216,7 +216,7 @@ const editors = {
       f.text({ name: 'name', label: '品項名稱', value: r.name, placeholder: '護肝排毒' }),
       f.text({
         name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '雪',
-        hint: '日曆上那一段印它（「嘉玲・雪・.10」），一格只放得下幾個字。'
+        hint: '日曆上那一段印它（「王小明・雪・.10」），一格只放得下幾個字。'
           + '留空就印全名。貼給客人的那一句不受影響，那裡只講課程。',
       }),
     ],

@@ -78,6 +78,8 @@ function expand() {
 
 ## 測試
 
-- E2E：`tests-e2e/specs/` 加一支，量抽屜在收合的**第一幀**位置不高於
-  起始位置（`getBoundingClientRect().top` 不變小）
+- E2E：`tests-e2e/specs/24-layout-reach.spec.js` 的 D1（2026-09-08）。
+  先架 `requestAnimationFrame` 取樣再按叉叉（反過來的話第一幀已經過去了），
+  然後斷言每一幀的 `top` 都不比起點高。突變測試（把那一層 rAF 拿掉）會報
+  「往上跳了 699px」—— 數字本身就是證據
 - 既有的 `10-offline.spec.js` 那幾支抽屜互動要維持綠的

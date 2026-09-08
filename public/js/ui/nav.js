@@ -32,6 +32,17 @@
 //
 // 所以改成：畫面那邊只管維護 `stack`（現在疊著哪幾層），這一支在**微任務**裡
 // 跟瀏覽器紀錄對一次帳 —— 一個 tick 裡開開關關幾次都無所謂，對帳只看最後的結果。
+//
+// ## handle 會失效，而且只有這一支知道
+//
+// 畫面常常把 `pushLayer()` 回來的東西存在模組層的變數裡（壓表的 `monthLayer`、
+// 日曆的 `deckLayer`），下次要推之前先看「已經有一層了嗎」。而**換頁會把整個
+// stack 清掉** —— 那是對的（那幾筆紀錄現在在新頁面的下面），但畫面那個變數
+// 不會知道，於是它永遠是真的，永遠不再推新的一層。
+//
+// 症狀：離開壓表再回來，返回鍵直接跳出整頁而不是退回選月份，而且**一句錯誤
+// 訊息都沒有**。所以每一條把層拿掉的路都要經過 `drop()`，handle 那邊問
+// `layer.active`，不要問 `layer` 是不是 null。
 
 /** 現在畫面上疊著哪幾層，由下往上。 */
 const stack = [];
@@ -54,6 +65,18 @@ let routeDepth = 0;
 
 let wired = false;
 
+/**
+ * 從 stack 拿掉一層，**而且標成作廢**。
+ *
+ * 每一條拿掉的路都要走它 —— 少走一條，那條路上的 handle 就會一直說自己還在。
+ */
+function drop(layer) {
+  layer.closed = true;
+  const i = stack.indexOf(layer);
+  if (i >= 0) stack.splice(i, 1);
+  return layer;
+}
+
 function wire() {
   if (wired) return;
   wired = true;
@@ -62,7 +85,7 @@ function wire() {
     physical = window.history.state?.__layer ?? 0;
 
     // 退到哪一層就收掉它上面的每一層。她可能長按返回鍵一次退兩層。
-    while (stack.length > physical) stack.pop().onPop();
+    while (stack.length > physical) drop(stack[stack.length - 1]).onPop();
 
     schedule();
   });
@@ -70,8 +93,11 @@ function wire() {
   // 換頁（換路由）時把還開著的層忘掉。它們自己會被 hashchange 收掉
   // （`sheet.js` / `card.js` 都有那個監聽），而且**那一路不可以退紀錄** ——
   // 它們的那幾筆現在在新頁面的下面，退掉會把換頁一起退掉。
+  //
+  // **忘掉也要標作廢**：手上還抓著 handle 的畫面（壓表的 `monthLayer`）
+  // 要問得出「我那一層還在嗎」，不然它回來時不會再推一層。
   window.addEventListener('hashchange', () => {
-    stack.length = 0;
+    while (stack.length) drop(stack[stack.length - 1]);
     physical = window.history.state?.__layer ?? 0;
   });
 }
@@ -108,7 +134,9 @@ function reconcile() {
  * 畫面上疊了一層東西。
  *
  * @param {Function} onPop 按返回鍵時把這一層收掉。由畫面自己關掉時不會被呼叫。
- * @returns {{pop: Function}} `pop()` 給「用叉叉或手勢關掉」那條路用。
+ * @returns {{pop: Function, active: boolean}} `pop()` 給「用叉叉或手勢關掉」
+ *   那條路用；`active` 是「我那一層還在嗎」——
+ *   **存著 handle 的畫面一律問它，不要問 handle 是不是 null**（見檔頭）。
  */
 export function pushLayer(onPop) {
   wire();
@@ -117,11 +145,10 @@ export function pushLayer(onPop) {
   schedule();
 
   return {
+    get active() { return !layer.closed; },
     pop() {
       if (layer.closed) return;
-      layer.closed = true;
-      const i = stack.indexOf(layer);
-      if (i >= 0) stack.splice(i, 1);
+      drop(layer);
       schedule();
     },
   };
@@ -198,7 +225,7 @@ export function pushScreen(key, restore) {
 export function popScreens() {
   const before = stack.length;
   for (let i = stack.length - 1; i >= 0; i -= 1) {
-    if (stack[i].screenKey) stack.splice(i, 1);
+    if (stack[i].screenKey) drop(stack[i]);
   }
   if (stack.length !== before) schedule();
 }
