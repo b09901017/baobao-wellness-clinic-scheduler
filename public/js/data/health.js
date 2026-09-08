@@ -182,6 +182,18 @@ function opFor(fix) {
     };
   }
 
+  // 器材指到課程（2026-09-06 才加的欄位，`loadSeed()` 只建不覆蓋所以補不到）。
+  // **只寫那一格**：名字與要提醒的狀況一個都不碰。
+  if (fix?.kind === 'setEquipmentCourse') {
+    return {
+      op: 'update',
+      path: 'config/app/equipment',
+      id: fix.equipmentId,
+      changes: { courseId: fix.courseId },
+      note: '資料健檢：器材指到建議的課程',
+    };
+  }
+
   // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
   // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
   if (fix?.kind === 'renameEquipment') {

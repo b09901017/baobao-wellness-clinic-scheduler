@@ -178,6 +178,22 @@ function indexFixes(result) {
  * （SPEC 第 6.5 節）—— 兩種修正動的是不同的東西，用同一段字就等於沒講。
  */
 const FIX_COPY = {
+  equipmentCourse: {
+    button: () => '指過去',
+    all: (n) => `一次補這 ${n} 台`,
+    one: (fix) => ({
+      title: `把「${fix.label}」指到「${fix.courseLabel}」？`,
+      lines: [
+        '「用這台的那一段算哪一個課程」是排班時判斷要治療師還是治療室的依據',
+        '沒填的話四選一選到 ILIB 也不會變成選診間，而畫面上跟做對了長得一模一樣',
+        '器材的名字與要提醒的狀況一個都不會動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 台都指到建議的課程？`,
+      lines: fixes.map((fix) => `${fix.label} → ${fix.courseLabel}`),
+    }),
+  },
   visitStatusDerived: {
     button: () => '重推一次',
     all: (n) => `一次重推這 ${n} 筆`,
@@ -408,6 +424,7 @@ const FIX_COPY = {
 
 const KIND_TO_CHECK = {
   restatVisit: 'visitStatusDerived',
+  setEquipmentCourse: 'equipmentCourse',
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',

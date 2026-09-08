@@ -113,6 +113,12 @@ export const CHECKS = [
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
   },
   {
+    id: 'equipmentCourse',
+    label: '器材沒有指到課程',
+    hint: '「用這台的那一段算哪一個課程」沒填的話，四選一選到 ILIB 也不會變成選診間'
+      + ' —— 畫面上跟做對了長得一模一樣',
+  },
+  {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
     hint: '2026-09-08 重畫過一次：治療室只有 2 3 5 8、多了 VIP 室、一間 4 號都沒有，'
@@ -882,6 +888,56 @@ function checkSeedEquipment(ctx) {
     }));
 }
 
+/**
+ * 十四之二、器材沒有指到課程。
+ *
+ * **她 2026-09-08 回報的那件事的根因就是這一列。** 她說：
+ *
+ * > 我選 IN/SIS/高能量雷射並沒有讓我選治療師…就固定成只能選治療師，
+ * > 我點 ILIB 的時候也沒有變成選診間？
+ *
+ * 而壓表與來訪編輯器**早就共用同一支 `assignsFor()` 了**（ADR-0079，
+ * 還有一支測試盯著沒有畫面自己比 `course.assigns`）。壞掉的不是程式：
+ *
+ * `assignsFor()` 的答案來自課程，而擇一池的課程是**器材身上的 `courseId`**
+ * 推出來的（`courseForEquipment()`）。那個欄位是 2026-09-06 才加的，而
+ * `data/config.js` 的 `loadSeed()` **只建不覆蓋**（`existingIds.has(row.id)`
+ * 就整筆跳過，連欄位都不合併）。所以既有資料庫上那幾台身上沒有它：
+ *
+ *   1. `courseForEquipment()` 推不出來 → 維持原來的課程（復能）
+ *   2. `coursesForEntitlement()` 一台都推不出來 → 退回舊行為 → 只有復能
+ *   3. 四選一那一池永遠只有復能一個課程 → 指派永遠是治療師
+ *
+ * 現有的兩列都抓不到：`seedEquipment` 只在那一列**整個不存在**時才報，
+ * `equipmentNames` 只看名字兩格。
+ *
+ * **只在那一格是空的時候報**（同 `checkSeedDurations()`）：她自己指到別的
+ * 課程是一個決定，不可以被一顆按鈕改回去。
+ *
+ * **那個課程要真的存在才報**（同 `checkSeedEquipment()` 那道護欄）——
+ * 自己從零建主檔、一個種子 id 都沒有的資料庫不會被念一整排。
+ */
+function checkEquipmentCourse(ctx) {
+  return (SEED.equipment ?? [])
+    .filter((row) => row.courseId && ctx.coursesById[row.courseId])
+    .map((row) => ({ row, mine: ctx.equipmentById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && !mine.courseId)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `指到「${ctx.coursesById[row.courseId]?.name ?? row.courseId}」`
+        + ' —— 沒填的話這一台排出來的那一段算不出是哪個課程，指派也就跟著錯',
+      link: '#/settings/equipment',
+      fix: {
+        kind: 'setEquipmentCourse',
+        equipmentId: row.id,
+        label: mine.name ?? row.name,
+        courseId: row.courseId,
+        courseLabel: ctx.coursesById[row.courseId]?.name ?? row.courseId,
+      },
+    }));
+}
+
 /** 種子的一列去掉 id —— `repo.create()` 收的是資料，id 另外給。 */
 function withoutId({ id, ...rest }) {
   return rest;
@@ -1193,6 +1249,7 @@ function checkVisitStatusDerived(ctx) {
 
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
+  equipmentCourse: checkEquipmentCourse,
   roomList: checkRoomList,
   slotBeds: checkSlotBeds,
   equipmentNames: checkEquipmentNames,
