@@ -10,7 +10,8 @@
 //
 //   1. 日檢視上那一天是**三列**（一段一列）
 //   2. 點第二列，卡片上**只有第二段**，而且講得出「還有另外 2 段」
-//   3. 按了「看全部」才三段都出來
+//   3. 那一行**不是按鈕** —— 她 2026-09-08 說「純粹且僅呈現該時段課程的資訊」，
+//      所以「看全部」拿掉了（ADR-0080 第三點的其他做法那一節就是這個選項）
 //
 // 加上月檢視那一格是**三條色條**（2026-09-08 她主動要的），
 // 以及長按那一列時，選單抬頭要講清楚底下那幾顆動的是**整筆**。
@@ -88,12 +89,23 @@ test('同一天三段：一段一列，點哪一列就只看哪一段', async ({
   await expect(card, '點的是 SIS 那一段，不該看到 09:00 那一段').not.toContainText('09:00');
   await expect(card, '也不該看到 11:00 那一段').not.toContainText('11:00');
 
-  // 「這天他還來做什麼」是她會問的問題，所以要留一條看得到的路
-  const more = card.locator('[data-showall]');
-  await expect(more).toContainText('還有另外 2 段');
-  await more.click();
-  await expect(card.locator('.readslot'), '按了「看全部」才三段都出來').toHaveCount(3);
-  await expect(card.locator('[data-showall]'), '全部都畫出來之後那一行要消失').toHaveCount(0);
+  // 「這天他還來做什麼」仍然講得出來，但只是一行字 —— 按不下去
+  await expect(card.locator('.readmore')).toContainText('還有另外 2 段');
+  await expect(card.locator('[data-showall]'), '「看全部」拿掉了').toHaveCount(0);
+  await expect(card.locator('.readslot'), '那一張卡從頭到尾只有一段').toHaveCount(1);
+});
+
+// 她 2026-09-08：「會顯示『這一天的代辦』但其實不是這一天，現在已經是一項
+// 一項分開來看了，所以應該要叫做這一項的代辦之類的」
+test('點一段時，那一塊的抬頭是「這一項的待辦」', async ({ app, page }) => {
+  await app.seed(seedThreeSlots());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await page.locator('[data-open^="visit:v-three:"]').nth(1).click();
+  await page.waitForTimeout(900);
+
+  await expect(page.locator('.taskmirror__head')).toContainText('這一項的待辦');
 });
 
 test('月檢視一段一條，而且印得出那一段是哪一台', async ({ app, page }) => {
