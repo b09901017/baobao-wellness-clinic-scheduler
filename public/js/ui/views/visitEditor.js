@@ -397,10 +397,14 @@ function slotCard(ctx, draft, slot, i) {
       ${/* 只有一個選項時不畫丸子（一顆孤零零的丸子看起來像可以取消），
              課程名由上面那一行的抬頭講 —— SPEC 第 8.3 節那張圖就是
              `10:30–11:30  物理賦能  剩 11/12`。 */''}
-      ${/* n返 沒有課程可以挑（它借二返那一個），所以整排不畫 ——
-             以前這裡只問 `length === 1`，於是 n返 會多出一排**空的**「課程」，
-             而一排沒有東西的丸子看起來像壞掉。 */''}
-      ${nth || courseChoices.length === 1
+      ${/* **判準是「不到兩個選項就不畫」。** 兩種情況都收在這一句話裡：
+             n返 沒有課程可以挑（它借二返那一個），擇一池的課程由器材推出來
+             （ADR-0075）—— 兩者算出來都是空陣列。
+
+             2026-09-09 之前這裡問的是 `=== 1`，於是空陣列走進去畫了一個
+             「課程」標籤加一列什麼都沒有的丸子（她 2026-09-08 回報的
+             「為什麼會多一個空白的課程」）。`f.chips()` 現在自己也擋一層。 */''}
+      ${nth || courseChoices.length <= 1
         ? ''
         : f.chips({
             name: `s${i}-course`, label: '課程', value: slot.courseId,
@@ -421,6 +425,11 @@ function slotCard(ctx, draft, slot, i) {
             name: `s${i}-staff`, label: '治療師', value: slot.therapistId, quiet: true,
             options: staffWithRole(all.staff, THERAPIST_ROLE)
               .map((x) => ({ value: x.id, label: x.name })),
+            // 一個治療師都沒有時要講出為什麼 —— 空的那一排整個消失的話，
+            // 她會以為這一段不用選人。壓表那一頁講的是同一句話。
+            hint: staffWithRole(all.staff, THERAPIST_ROLE).length
+              ? ''
+              : '主檔裡還沒有治療師，到「設定 → 治療師與醫師」新增。',
           })
         : ''}
       ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
@@ -595,7 +604,7 @@ function equipmentField(customer, ent, all, slot, i) {
 
   return `
     ${f.chips({
-      name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
+      name: `s${i}-equip`, label: '器材', value: slot.equipmentId,
       options: options.map((eq) => ({ value: eq.id, label: eq.name })),
     })}
     ${flagsUi.noticeBlock({
