@@ -155,7 +155,23 @@ describe('一人一天一筆（issue 04）', () => {
   );
 
   test('日曆新增時先找同一天那一筆', () => {
-    assert.match(SRC, /sameDayVisitFor\(customerVisits, customer\.id/);
+    assert.match(SRC, /sameDayState\(customerVisits, customer\.id, day\)/);
+  });
+
+  // **兩軸審查各自獨立抓到的那一個**：`existing ?? merging` 再一律
+  // `withNewSlot()`，於是改一筆既有的來訪也會被偷偷接上一段空的。
+  test('要編哪一筆、要不要接新的一段，走 domain 那一支', () => {
+    assert.match(SRC, /const target = editorTarget\(\{ existing, open: sameDay\.open \}\);/);
+    assert.match(SRC, /target\.addSlot \? withNewSlot\(base, entitlements, all, settings\) : \{ \.\.\.base \}/);
+  });
+
+  test('那一天已經結案時要講一句 —— 壓表早就講得出來，日曆以前什麼都不說', () => {
+    assert.match(SRC, /closedToday: target\.merged \|\| existing \? \[\] : sameDay\.closed/);
+    assert.match(SRC, /function closedNote\(ctx\)/);
+  });
+
+  test('只改一段時「來訪日期」不給改 —— 它是整筆的', () => {
+    assert.match(SRC, /\$\{wholeVisit \|\| isNew \? `/);
   });
 
   test('壓表走同一支，不自己比一份狀態清單', () => {
@@ -167,7 +183,7 @@ describe('一人一天一筆（issue 04）', () => {
   });
 
   test('併進來時只有新加的那一段改得動', () => {
-    assert.match(SRC, /merging \? \[base\.slots\.length\] : null/);
+    assert.match(SRC, /target\.merged \? \[base\.slots\.length\] : null/);
   });
 
   test('Abovee 那一道問的是「有沒有新的時段」，不是「這筆來訪是新的」', () => {
@@ -241,19 +257,25 @@ describe('兩道確認框的順序（issue 10）', () => {
     assert.match(code, /data-errors/);
   });
 
-  test('第一道走 domain，畫面不自己組句子', () => {
-    assert.match(code, /const review = reviewWarnings\(warnings\);/);
-    assert.match(code, /consequences: review\.lines/);
+  // **兩個入口共用一支**（`confirmReview()`）。各自把 `reviewWarnings()` 的
+  // 四個欄位攤開餵進 `confirmAction()` 的話，遲早有一邊漏掉 `cancelLabel`，
+  // 而那顆按鈕就會變回意思模糊的「取消」。
+  test('第一道走共用那一支，畫面不自己組句子', () => {
+    assert.match(code, /if \(!await confirmReview\(warnings\)\) return;/);
+    assert.ok(!code.includes('confirmLabel: review.'), '把欄位攤開就是第二份實作');
   });
 
   test('第一道排在 Abovee 那一道前面', () => {
-    const a = code.indexOf('reviewWarnings(warnings)');
+    const a = code.indexOf('confirmReview(warnings)');
     const b = code.indexOf('bookingConsequences({');
     assert.ok(a > 0 && b > 0 && a < b, '順序反了');
   });
 
-  test('沒有 warnings 就不跳第一道', () => {
-    assert.match(code, /if \(review && !await confirmAction\(/);
+  test('沒有 warnings 就不跳第一道 —— 閘門在 confirmReview() 裡', () => {
+    const dlg = readFileSync(
+      new URL('../public/js/ui/components/dialog.js', import.meta.url), 'utf8',
+    );
+    assert.match(dlg, /if \(!said\) return true;/);
   });
 
   test('兩顆按鈕都講出按下去會怎樣', () => {

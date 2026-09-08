@@ -224,16 +224,67 @@ export function acceptsMoreSlots(status) {
  * @param {{excludeVisitId?: string|null}} [opts] 她正在改的那一筆不算它自己
  * @returns {object|null}
  */
-export function sameDayVisitFor(visits, customerId, date, { excludeVisitId = null } = {}) {
-  if (!customerId || !date) return null;
-  return (visits ?? []).find(
+export function sameDayVisitFor(visits, customerId, date, opts = {}) {
+  return sameDayState(visits, customerId, date, opts).open;
+}
+
+/**
+ * 那一天的兩種答案：**收得下的那一筆**，與**已經結案的那幾筆**。
+ *
+ * 兩個要分開回，因為「沒有那一筆」與「有，但那一天已經結案了」在畫面上
+ * 是兩句不同的話（ADR-0083 決定三）：前者安靜地開新的一筆，後者要講出
+ * 「9/15 那一天已經結案了，這是新的一筆」。
+ *
+ * 只回 `open` 的話那兩種分不出來 —— 而分不出來的代價是她從日曆排第二次時
+ * 畫面什麼都不說，然後在日曆上看到同一天兩塊，又回到這一輪要修的那件事。
+ *
+ * @returns {{open: object|null, closed: object[]}}
+ */
+export function sameDayState(visits, customerId, date, { excludeVisitId = null } = {}) {
+  if (!customerId || !date) return { open: null, closed: [] };
+
+  const mine = (visits ?? []).filter(
     (v) => v
       && v.customerId === customerId
       && v.date === date
       && v.id !== excludeVisitId
-      && isActive(v)
-      && acceptsMoreSlots(v.status),
-  ) ?? null;
+      && isActive(v),
+  );
+
+  return {
+    open: mine.find((v) => acceptsMoreSlots(v.status)) ?? null,
+    // 已完成／未到的那幾筆。**已取消的不算** —— `isActive()` 已經濾掉了，
+    // 而「那一天取消過一筆」不是「那一天結案了」，她照樣可以安靜地再排。
+    closed: mine.filter((v) => !acceptsMoreSlots(v.status)),
+  };
+}
+
+/**
+ * 打開來訪編輯器時，**要編哪一筆、要不要接一段新的**。
+ *
+ * 這一支存在的理由是 2026-09-09 的一個真 bug：那個判斷寫成
+ * `const base = existing ?? merging; base ? withNewSlot(base) : blankVisit()`
+ * —— 於是**改一筆既有的來訪也會被偷偷接上一段空的時段**。那一段不會被畫
+ * 出來（`editSlots` 只有她點的那一段），但它會被存進去、把整天的狀態拖回
+ * 「待確認」，而 `validateVisit()` 又擋著說「第 N 段：要選一個課程」——
+ * 一個指著畫面上不存在的東西的錯誤訊息。
+ *
+ * 三條路各自要什麼，寫成一句話就不會再混在一起：
+ *
+ * | 進來的方式 | 編哪一筆 | 接新的一段？ |
+ * |---|---|---|
+ * | 改一筆既有的（`existing`） | 那一筆 | **不接** |
+ * | 新增，而那一天已經有收得下的 | 那一筆 | 接 |
+ * | 新增，那一天沒有 | 空的一筆 | 接（`blankVisit()` 自己帶一段）|
+ *
+ * @param {{existing?: object|null, open?: object|null}} o
+ * @returns {{visit: object|null, addSlot: boolean, merged: boolean}}
+ *   `visit` 是 `null` 代表要開一筆全新的。
+ */
+export function editorTarget({ existing = null, open = null } = {}) {
+  if (existing) return { visit: existing, addSlot: false, merged: false };
+  if (open) return { visit: open, addSlot: true, merged: true };
+  return { visit: null, addSlot: true, merged: false };
 }
 
 /**
@@ -249,18 +300,20 @@ export function sameDayVisitFor(visits, customerId, date, { excludeVisitId = nul
  * 已經長出來的登記任務不動：`syncTasksForVisit()` 本來就不會因為狀態往回走
  * 而收掉既有任務（見那一支的檔頭），所以她已經做掉的 Examine 不會被洗掉。
  *
+ * **那一句話跟著時段走**（ADR-0084），所以這一支不再收 `note` ——
+ * 整筆那一格只留給還沒被搬過的舊資料，一個呼叫端都不會再寫它。
+ *
  * @param {object} visit 同一天已經有的那一筆
- * @param {object} slot 要加上去的時段
- * @param {{note?: string|null}} [opts] 「這一次記一句」，沒給就留原本那一句
+ * @param {object} slot 要加上去的時段（自己帶著 `note`）
  * @returns {{visit: object, reopened: boolean}} reopened = 有沒有退回等客戶回覆
  */
-export function withExtraSlot(visit, slot, { note } = {}) {
+export function withExtraSlot(visit, slot) {
   const reopened = visit.status === 'confirmed';
   return {
     reopened,
     visit: {
       ...visit,
-      note: note === undefined ? (visit.note ?? null) : note,
+      note: visit.note ?? null,
       // **既有那幾段先把自己現在的狀態落下來**（ADR-0081）：整筆退回「待確認」
       // 之後，沒有 `slot.status` 的舊時段會跟著退回去 —— 而她其實已經跟客人
       // 談定那兩段了。落下來之後確認動線只會問新加的這一段。
@@ -613,6 +666,22 @@ export function withSlotStatuses(visit) {
 }
 
 /**
+ * 這一段要顯示哪一句話。**讀法只有這一支。**
+ *
+ * 新資料是 `slot.note`（ADR-0084）。**還沒被搬過的舊資料退回整筆那一句** ——
+ * 它本來就是那一天的，所以那一天的每一段都印得出它；她存過一次之後
+ * （`withSlotNotes()`）就收斂到第一段，其餘那幾段自己安靜下來。
+ *
+ * 三個地方讀它：日／週那一列的夾板（`agendaFor()` 的 `hasNote`）、
+ * 讀取卡片的「記的話」、以及編輯器的那一格。各寫一次的話會出現
+ * 「那一列亮著夾板、點開卻沒有字」。
+ */
+export function slotNoteOf(visit, slot) {
+  const own = String(slot?.note ?? '').trim();
+  return own || String(visit?.note ?? '').trim() || null;
+}
+
+/**
  * 舊資料那一句「記的話」搬到第一段。
  *
  * 她 2026-09-09：「不要是一整天的…我希望是每一筆都可以有他的記一句。」
@@ -638,7 +707,12 @@ export function withSlotNotes(visit) {
   const text = String(visit?.note ?? '').trim();
   const slots = visit?.slots ?? [];
   if (!text || !slots.length) return visit;
-  if (slots.some((s) => String(s?.note ?? '').trim())) return visit;
+  // **只看第一段有沒有被佔住**，不是「有沒有任何一段有字」。
+  // 問「任何一段」的話會漏掉一種真的會發生的順序：一筆舊來訪還帶著整天
+  // 那一句，她從壓表併了一段新的進來並且替那一段記了字 —— 那時候搬移就
+  // 永遠被擋住，而 `visitReadHtml()` 又只在「一段都沒有字」時才退回整筆，
+  // 於是那句話還在 Firestore 裡、畫面上卻不見了。
+  if (String(slots[0]?.note ?? '').trim()) return visit;
 
   return {
     ...visit,

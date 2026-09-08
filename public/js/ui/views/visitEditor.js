@@ -16,11 +16,12 @@ import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
-  coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor, sameDayVisitFor,
+  coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
+  sameDayState, editorTarget, slotNoteOf,
   applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences, reviewWarnings } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -39,7 +40,7 @@ import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../..
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
@@ -130,13 +131,19 @@ async function boot(el, {
     //
     // 收不下（那一天已經結案／取消）就照樣開新的一筆，並且講出來：
     // 那是唯一一種同一天會有第二筆的情況。
-    const merging = existing
-      ? null
-      : sameDayVisitFor(customerVisits, customer.id, isValidDate(date) ? date : todayISO());
+    const day = isValidDate(date) ? date : (existing?.date ?? todayISO());
+    const sameDay = existing
+      ? { open: null, closed: [] }
+      : sameDayState(customerVisits, customer.id, day);
 
-    const base = existing ?? merging;
+    // **要編哪一筆、要不要接一段新的，只有一句話**（ADR-0083）。
+    // 2026-09-09 之前這裡寫成 `existing ?? merging` 再一律 `withNewSlot()`，
+    // 於是**改一筆既有的來訪也會被偷偷接上一段空的** —— 那一段不會被畫出來
+    // 卻會被存進去，而 `validateVisit()` 擋著說「第 N 段：要選一個課程」。
+    const target = editorTarget({ existing, open: sameDay.open });
+    const base = target.visit;
     const draft = base
-      ? withNewSlot(base, entitlements, all, settings)
+      ? (target.addSlot ? withNewSlot(base, entitlements, all, settings) : { ...base })
       : blankVisit(customer, entitlements, all, settings, date);
     const sameDayVisits = await visitsData.listByDate(draft.date);
 
@@ -150,14 +157,18 @@ async function boot(el, {
       // **跟「有沒有新的時段」是兩件事** —— 併進既有那一筆時文件是舊的，
       // 但那一段是全新的，Abovee 那一道照樣要問。
       isNewDoc: !base,
-      merged: Boolean(merging),
+      merged: target.merged,
+      // **那一天已經結案了，這是新的一筆**（ADR-0083 決定三）。壓表那一頁
+      // 早就講得出這一句，日曆這條路以前什麼都不說 —— 而那正是「同一天
+      // 為什麼有兩塊」最需要一句解釋的時候。
+      closedToday: target.merged || existing ? [] : sameDay.closed,
       // 哪幾段畫得出來、改得動（`isEditable()`）。
       //   改一段  → 就那一段
       //   併進來  → 只有剛剛加上去的那一段
       //   其餘    → 全部
       editSlots: existing && Number.isInteger(slotIndex) && existing.slots?.[slotIndex]
         ? [slotIndex]
-        : (merging ? [base.slots.length] : null),
+        : (target.merged ? [base.slots.length] : null),
       // 「＋新增一個時段」給不給。**改一段時不給**（她要的），
       // 新增時給 —— 她 2026-09-09：「新增的時候…我希望一樣可以一次新增多筆多個時段」。
       canAddSlots: !existing,
@@ -279,9 +290,14 @@ function paint(ctx, draft) {
       ${/* **「記一句」不在這裡了**（ADR-0084）。它搬到每一段身上，收在那一段
              抬頭列右邊那顆夾板後面 —— 她 2026-09-09：「我希望是每一筆都可以有
              他的記一句，而不要是一整天的」。 */''}
-      <section class="card ${embedded ? 'card--bare' : ''}">
-        ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
-      </section>
+      ${closedNote(ctx)}
+      ${/* **只改一段時日期不給改**（ADR-0085）。日期是整筆的 —— 改了那一天
+             剩下那幾段也跟著搬，而她點進來要改的只有這一段。要整天改期就是
+             取消 + 重排（SPEC 第 7 節規則 10）。 */''}
+      ${wholeVisit || isNew ? `
+        <section class="card ${embedded ? 'card--bare' : ''}">
+          ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
+        </section>` : ''}
 
       ${/* **只畫改得動的那幾段**（ADR-0085）。她從日曆點的是一段，那就只有
              那一段；併進既有那一天時只有剛加上去的那一段。其餘原封不動地
@@ -385,6 +401,28 @@ function paint(ctx, draft) {
 
 
 /**
+ * 「那一天已經結案了，這是新的一筆」。
+ *
+ * 只有一種情況會出現（ADR-0083 決定三）：她從日曆替某位客戶排某一天，
+ * 而那一天既有的那一筆已經標成已完成或未到 —— 那時候併不進去，只能開新的。
+ *
+ * **這是唯一一句「說明文字」在這一輪被加回來的地方**，而它過得了
+ * issue 11 的判準：不講的話她會在日曆上看到同一天兩塊，而畫面什麼都沒說。
+ */
+function closedNote(ctx) {
+  const rows = ctx.closedToday ?? [];
+  if (!rows.length) return '';
+
+  const what = [...new Set(rows.map((v) => describeStatus(v.status)))].join('、');
+  return `
+    <section class="card ${ctx.embedded ? 'card--bare' : ''}">
+      <p class="field__hint" style="margin: 0">
+        ${esc(shortDate(rows[0].date))} 那一天已經是「${esc(what)}」了，所以這是新的一筆。
+      </p>
+    </section>`;
+}
+
+/**
  * 一個時段。
  *
  * **選項一律用丸子，不是下拉選單**（2026-08-24）。SPEC 第 8.2 節寫的
@@ -434,11 +472,11 @@ function slotCard(ctx, draft, slot, i) {
       ${/* 右上角那兩顆。**記一句排在 × 前面** —— 破壞性的那一顆永遠在最外側
              （同 `visitActions()` 的規矩），而她的拇指是從右邊進來的。 */''}
       <div class="slotcard__tools">
-        ${slotNote.toggle({ name: `s${i}-note`, on: Boolean(String(slot.note ?? '').trim()) })}
+        ${slotNote.toggle({ name: `s${i}-note`, on: Boolean(slotNoteOf(draft, slot)) })}
         ${slotXButton(ctx, draft, slot, i)}
       </div>
 
-      ${slotNote.html({ name: `s${i}-note`, value: slot.note, maxlength: NOTE_MAX })}
+      ${slotNote.html({ name: `s${i}-note`, value: slotNoteOf(draft, slot), maxlength: NOTE_MAX })}
 
       ${slot.status === 'cancelled' ? `
         <p class="field__hint" style="margin: 0 0 var(--space-3)">
@@ -936,13 +974,7 @@ async function submit(ctx, draft) {
   // **第一道：這幾段先看一下。** 超過次數、還沒選治療師那一類。
   // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
   // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
-  const review = reviewWarnings(warnings);
-  if (review && !await confirmAction({
-    title: review.title,
-    consequences: review.lines,
-    confirmLabel: review.confirmLabel,
-    cancelLabel: review.cancelLabel,
-  })) return;
+  if (!await confirmReview(warnings)) return;
 
   // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。

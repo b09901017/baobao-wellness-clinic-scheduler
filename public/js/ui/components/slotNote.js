@@ -119,12 +119,18 @@ export function wire(root, { signal } = {}) {
       : btn.closest('[data-slotnote]');
     if (!box) return;
 
-    open(box);
+    open(root, box);
   }, { signal });
 }
 
-/** 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。 */
-function open(box) {
+/**
+ * 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。
+ *
+ * **那顆夾板從 `root` 底下找，不是 `document`** —— 抽屜與整頁可能同時掛著
+ * 兩塊同名的（`s0-note` 在來訪編輯器與壓表卡片上都存在），而 `document`
+ * 找到的是先出現在 DOM 裡的那一顆，不一定是她按的那一顆。
+ */
+function open(root, box) {
   box.dataset.open = 'true';
   const peek = box.querySelector('.slotnote__peek');
   const field = box.querySelector('.slotnote__box');
@@ -133,7 +139,7 @@ function open(box) {
   if (peek) peek.hidden = true;
   if (field) field.hidden = false;
 
-  const pin = document.querySelector(
+  const pin = root.querySelector(
     `[data-slotnote-toggle="${CSS.escape(box.dataset.slotnote)}"]`,
   );
   if (pin) pin.setAttribute('aria-expanded', 'true');

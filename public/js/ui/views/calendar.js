@@ -38,6 +38,7 @@ import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from
 import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
+  slotNoteOf,
   applyStatus, visitActions, slotsToShow, showsRoom,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
@@ -1451,8 +1452,10 @@ export function visitReadHtml(visit, data) {
            整天共用一句本來就是事實，而它還沒被 `withSlotNotes()` 搬過去。
            只畫一段時（ADR-0080）就是那一段的，四頁共用同一支。 */''}
     ${(() => {
-      const shown = slots.map(({ slot: s }) => String(s?.note ?? '').trim()).filter(Boolean);
-      const lines = shown.length ? shown : [String(visit.note ?? '').trim()].filter(Boolean);
+      // 讀法只有 `slotNoteOf()` 一支（ADR-0084）：新資料是那一段的，
+      // 還沒被搬過的舊資料退回整筆那一句。**去重**是因為後者在同一張卡片上
+      // 畫兩段時會是同一句話。
+      const lines = [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
       return lines.length ? `
         <div class="readrow">
           <span class="readrow__k">記的話</span>

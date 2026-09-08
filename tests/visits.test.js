@@ -16,7 +16,7 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
-  sameDayVisitFor,
+  sameDayVisitFor, sameDayState, editorTarget,
   visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
   statusForCard,
   NOTE_MAX,
@@ -1855,12 +1855,24 @@ describe('舊的那一句話搬到第一段（withSlotNotes）', () => {
     assert.deepEqual(withSlotNotes(once), once);
   });
 
-  test('已經有段記了字就一個字都不動 —— 那是新資料', () => {
+  // **問的是「第一段被佔住了嗎」，不是「有沒有任何一段有字」。**
+  // 問後者的話會漏掉一種真的會發生的順序：一筆舊來訪還帶著整天那一句，
+  // 她從壓表併了一段新的進來並且替那一段記了字 —— 那時候搬移就永遠被
+  // 擋住，而讀取卡片又只在「一段都沒有字」時才退回整筆，於是那句話還在
+  // Firestore 裡、畫面上卻不見了。
+  test('別段有字不影響搬移 —— 第一段還空著就照樣搬', () => {
     const src = v({ note: '舊的', slots: [{ courseId: 'a' }, { courseId: 'b', note: '新的' }] });
     const out = withSlotNotes(src);
-    assert.equal(out.note, '舊的', '新資料不會有 visit.note，有的話不要亂搬');
-    assert.equal(out.slots[0].note, undefined);
-    assert.equal(out.slots[1].note, '新的');
+    assert.equal(out.slots[0].note, '舊的');
+    assert.equal(out.slots[1].note, '新的', '別段一個字都不動');
+    assert.equal(out.note, null);
+  });
+
+  test('第一段已經有字就不動 —— 搬過去會蓋掉她寫的', () => {
+    const src = v({ note: '舊的', slots: [{ courseId: 'a', note: '第一段自己的' }, { courseId: 'b' }] });
+    const out = withSlotNotes(src);
+    assert.equal(out.note, '舊的');
+    assert.equal(out.slots[0].note, '第一段自己的');
   });
 
   test('整筆沒有那一句就什麼都不做', () => {
@@ -1949,5 +1961,72 @@ describe('卡片抬頭要講那一段的狀態（statusForCard）', () => {
   test('整筆取消蓋過那一段（同 slotStatus()）', () => {
     const dead = { status: 'cancelled', slots: [{ courseId: 'a', status: 'confirmed' }] };
     assert.equal(statusForCard(dead, 0), 'cancelled');
+  });
+});
+
+// **2026-09-09 的一個真 bug**（兩軸審查各自獨立抓到）：那個判斷寫成
+// `const base = existing ?? merging; base ? withNewSlot(base) : blankVisit()`
+// —— 於是改一筆既有的來訪也會被偷偷接上一段空的時段。它不會被畫出來
+// （只畫她點的那一段），但會被存進去、把整天的狀態拖回「待確認」，
+// 而 `validateVisit()` 又擋著說「第 N 段：要選一個課程」。
+describe('打開編輯器時要編哪一筆、要不要接一段新的（editorTarget）', () => {
+  const v = { id: 'v1', slots: [{ courseId: 'a' }] };
+  const other = { id: 'v2', slots: [{ courseId: 'b' }] };
+
+  test('改一筆既有的 → 那一筆，**不接新的一段**', () => {
+    assert.deepEqual(editorTarget({ existing: v }), { visit: v, addSlot: false, merged: false });
+  });
+
+  test('既有的優先 —— 同一天就算有別的收得下的也不併', () => {
+    const out = editorTarget({ existing: v, open: other });
+    assert.equal(out.visit, v);
+    assert.equal(out.addSlot, false);
+  });
+
+  test('新增、那一天已經有收得下的 → 併進去並接一段', () => {
+    assert.deepEqual(editorTarget({ open: other }), { visit: other, addSlot: true, merged: true });
+  });
+
+  test('新增、那一天什麼都沒有 → 開一筆全新的', () => {
+    assert.deepEqual(editorTarget({}), { visit: null, addSlot: true, merged: false });
+    assert.deepEqual(editorTarget(), { visit: null, addSlot: true, merged: false });
+  });
+});
+
+describe('那一天的兩種答案（sameDayState）', () => {
+  const mk = (over) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-15', status: 'confirmed',
+    slots: [{ courseId: 'a' }], ...over,
+  });
+
+  test('收得下的那一筆回在 open', () => {
+    const out = sameDayState([mk()], 'c1', '2026-09-15');
+    assert.equal(out.open.id, 'v1');
+    assert.deepEqual(out.closed, []);
+  });
+
+  test('已完成／未到的回在 closed，而 open 是 null', () => {
+    for (const status of ['done', 'no_show']) {
+      const out = sameDayState([mk({ status })], 'c1', '2026-09-15');
+      assert.equal(out.open, null);
+      assert.equal(out.closed.length, 1, status);
+    }
+  });
+
+  test('已取消的兩邊都不算 —— 那不是「結案」，她可以安靜地再排', () => {
+    const out = sameDayState([mk({ status: 'cancelled' })], 'c1', '2026-09-15');
+    assert.equal(out.open, null);
+    assert.deepEqual(out.closed, []);
+  });
+
+  test('一筆結案、一筆還收得下時兩邊都有', () => {
+    const out = sameDayState([mk({ status: 'done' }), mk({ id: 'v2' })], 'c1', '2026-09-15');
+    assert.equal(out.open.id, 'v2');
+    assert.equal(out.closed.length, 1);
+  });
+
+  test('沒給客戶或日期就兩邊都空', () => {
+    assert.deepEqual(sameDayState([mk()], null, '2026-09-15'), { open: null, closed: [] });
+    assert.deepEqual(sameDayState([mk()], 'c1', null), { open: null, closed: [] });
   });
 });

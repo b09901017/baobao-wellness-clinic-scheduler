@@ -50,7 +50,7 @@ import {
   picksEquipment, assignsFor, NOTE_MAX,
   acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
-import { bookingConsequences, reviewWarnings } from '../../domain/consequences.js';
+import { bookingConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
@@ -70,7 +70,7 @@ import {
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import { icon } from '../icons.js';
 import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
@@ -426,25 +426,31 @@ function rowsOf(batch, data) {
 }
 
 /**
- * 讀一批、算出這一頁要的東西，順手把新加入的人寫回去。
+ * 把新加入的那幾位存回去。**只有真的多出人時才寫** —— 每次進來都寫一次
+ * 等於她每次打開壓表都產生一筆稽核紀錄，而稽核是拿來查「誰改了什麼」的。
  *
- * **只有真的多出人時才寫**：每次進來都寫一次等於她每次打開壓表都產生一筆
- * 稽核紀錄，而稽核是拿來查「誰改了什麼」的。
- *
- * 寫失敗不擋畫面 —— 那幾位照樣畫得出來，只是這一次沒存進去，下次再試。
+ * 寫失敗不擋畫面：那幾位照樣畫得出來，只是這一次沒存進去，下次再試。
  * 為了一個順序的欄位讓整頁打不開是本末倒置。
  */
-async function contextFor(el, batch, data) {
-  const { rows, queue, added } = rowsOf(batch, data);
-  if (added.length) {
-    try {
-      await batchesData.saveProgress(batch.id, queue, batch.cursor ?? null);
-    } catch {
-      /* 畫得出來就好，下次再寫 */
-    }
+async function catchUpQueue(batch, queue, added) {
+  if (!added.length) return;
+  try {
+    await batchesData.saveProgress(batch.id, queue, batch.cursor ?? null);
+  } catch {
+    /* 畫得出來就好，下次再寫 */
   }
-  // `shown` 不在這裡給：`paintBatch()` 是整頁重畫所以清空，`reload()` 要留著
-  // 她捲到的位置對應的那一份。
+}
+
+/**
+ * 這一頁手上要有的那一份。**它會寫入**（`catchUpQueue()`）——
+ * 名字裡的「catchUp」是刻意的：這一支不是純粹的投影。
+ *
+ * `shown` 不在這裡給：`paintBatch()` 是整頁重畫所以清空，`reload()` 要留著
+ * 她捲到的位置對應的那一份。
+ */
+async function contextAfterCatchUp(el, batch, data) {
+  const { rows, queue, added } = rowsOf(batch, data);
+  await catchUpQueue(batch, queue, added);
   return { el, batch: { ...batch, queue }, rows, ...data };
 }
 
@@ -475,7 +481,7 @@ async function paintBatch(el) {
   }
 
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...(await contextFor(el, batch, data)), shown: [] };
+  ctx = { ...(await contextAfterCatchUp(el, batch, data)), shown: [] };
   mount();
 }
 
@@ -494,7 +500,7 @@ async function reload() {
     return true;
   }
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...ctx, ...(await contextFor(ctx.el, batch, data)) };
+  ctx = { ...ctx, ...(await contextAfterCatchUp(ctx.el, batch, data)) };
   return false;
 }
 
@@ -2090,13 +2096,7 @@ async function addSlot() {
   // **從來沒有顯示過 warnings** —— `validateVisit()` 的第二個回傳值一直被
   // 丟掉，所以「排完這次會超過總次數」「還沒選治療師」在她最常用的那一頁
   // 一次都沒有出現過。來訪編輯器走的是同一支。
-  const review = reviewWarnings(warnings);
-  if (review && !await confirmAction({
-    title: review.title,
-    consequences: review.lines,
-    confirmLabel: review.confirmLabel,
-    cancelLabel: review.cancelLabel,
-  })) return;
+  if (!await confirmReview(warnings)) return;
 
   // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號。
   // 抬頭壓在哪個系統、底下會發生什麼，全部由 `domain/consequences.js` 算 ——

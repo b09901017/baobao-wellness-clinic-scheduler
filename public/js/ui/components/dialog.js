@@ -3,6 +3,7 @@
 // SPEC 第 6.5 節：確認框要顯示具體後果，不要只有「確定嗎？」。
 // 所以 consequences 是必填的，不給就沒有東西可以顯示。
 
+import { reviewWarnings } from '../../domain/consequences.js';
 import { pushLayer } from '../nav.js';
 import { esc } from './form.js';
 
@@ -22,6 +23,27 @@ let openDialog = null;
  * @param {boolean} [opts.danger] 破壞性操作，按鈕變紅
  * @returns {Promise<boolean>}
  */
+/**
+ * 存檔前那一道「這幾段先看一下」（ADR-0086）。
+ *
+ * **兩個入口共用**（壓表、來訪編輯器）。呼叫端只回答「要不要往下走」——
+ * 兩邊各自把 `reviewWarnings()` 的四個欄位攤開餵進 `confirmAction()` 的話，
+ * 遲早有一邊漏掉 `cancelLabel`，而那顆按鈕就會變回意思模糊的「取消」。
+ *
+ * @param {string[]} warnings `validateVisit()` 回的那一份
+ * @returns {Promise<boolean>} 沒有話要講就直接 `true`，不跳任何框
+ */
+export async function confirmReview(warnings) {
+  const said = reviewWarnings(warnings);
+  if (!said) return true;
+  return confirmAction({
+    title: said.title,
+    consequences: said.lines,
+    confirmLabel: said.confirmLabel,
+    cancelLabel: said.cancelLabel,
+  });
+}
+
 export function confirmAction({
   title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false,
 }) {

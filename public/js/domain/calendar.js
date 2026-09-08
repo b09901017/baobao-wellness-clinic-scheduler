@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass, showsRoom, slotStatus } from './visits.js';
+import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -180,8 +180,9 @@ export function agendaFor(
         // `normalize()`：空字串與 null 在查詢上是兩件事）。
         // **那一段身上有沒有字**（ADR-0084）。以前讀的是整筆的 `visit.note`，
         // 於是她一天三段只在其中一段記了字，三列都會亮那顆夾板。
-        // 舊資料退回整筆 —— 那時候整天共用一句本來就是事實。
-        hasNote: Boolean(String(slot?.note ?? visit.note ?? '').trim()),
+        // 讀法只有 `slotNoteOf()` 一支 —— 各寫一次的話會出現「那一列亮著
+        // 夾板、點開卻沒有字」。
+        hasNote: Boolean(slotNoteOf(visit, slot)),
         clashes: [],
       });
     });

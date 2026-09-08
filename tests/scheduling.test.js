@@ -1054,14 +1054,14 @@ describe('壓表也要先講「這幾段先看一下」', () => {
     assert.match(SRC, /const \{ errors, warnings \} = validateVisit\(visit, \{/);
   });
 
-  test('走同一支 reviewWarnings()，不自己組句子', () => {
-    assert.match(SRC, /const review = reviewWarnings\(warnings\);/);
-    assert.match(SRC, /consequences: review\.lines/);
+  test('走跟來訪編輯器同一支 confirmReview()', () => {
+    assert.match(SRC, /if \(!await confirmReview\(warnings\)\) return;/);
+    assert.ok(!SRC.includes('confirmLabel: review.'), '把欄位攤開就是第二份實作');
   });
 
   test('排在 Abovee 那一道前面', () => {
-    const a = SRC.indexOf('reviewWarnings(warnings)');
-    const b = SRC.indexOf('bookingConsequences({\n    visit,');
+    const a = SRC.indexOf('confirmReview(warnings)');
+    const b = SRC.indexOf('bookingConsequences({');
     assert.ok(a > 0 && b > a, '順序反了');
   });
 });

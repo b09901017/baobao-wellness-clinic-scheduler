@@ -41,7 +41,7 @@
 import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
 import * as customersData from '../../data/customers.js';
-import { todosForVisit } from '../../domain/todoFlow.js';
+import { todosForVisit, SHARED_TODO_LABEL } from '../../domain/todoFlow.js';
 import { urgency, RECORD_TASK_KIND } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
 
@@ -86,23 +86,22 @@ function rowHtml(row, today) {
   //
   // 記號用第三個字元（`·`）而不是第三種顏色：這一塊只給看不給勾，
   // 而 `✓`／`○` 兩個字元本來就是為了不放勾選框才選的。
+  // **這一張是那一天幾段共用的。** 任務綁的是一整筆來訪（掛號是一天去一次），
+  // 所以她點第二段看到的跟點第一段看到的是同一張，勾掉一次就兩邊都掉。
+  // 規則與那句話都在 `domain/todoFlow.js`，這裡只把它畫出來。
+  const shared = row.shared
+    ? `<span class="taskmirror__shared">${esc(SHARED_TODO_LABEL)}</span>`
+    : '';
+
   if (row.pending) {
     return `
       <li class="taskmirror__row is-pending">
         <span class="taskmirror__mark" aria-hidden="true">·</span>
-        <span class="taskmirror__kind">${esc(row.kind)}${row.shared
-          ? '<span class="taskmirror__shared">這一天共用</span>' : ''}</span>
+        <span class="taskmirror__kind">${esc(row.kind)}${shared}</span>
         <span class="visually-hidden">還沒長出來</span>
         <span class="taskmirror__due">${esc(pendingNote(row.kind))}</span>
       </li>`;
   }
-
-  // **這一張是那一天幾段共用的。** 任務綁的是一整筆來訪（掛號是一天去一次），
-  // 所以她點第二段看到的跟點第一段看到的是同一張，勾掉一次就兩邊都掉。
-  // 她 2026-09-09 問到並且說要標。規則在 `todosForVisit()`，這裡只把它畫出來。
-  const shared = row.shared
-    ? '<span class="taskmirror__shared">這一天共用</span>'
-    : '';
 
   return `
     <li class="taskmirror__row ${row.done ? 'is-done' : ''}">

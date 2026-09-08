@@ -111,9 +111,26 @@ describe('那一句話搬到時段之後，四個地方要跟著改', () => {
     assert.match(src, /note: null,\n    slots: \[withNote\],/);
   });
 
-  test('日曆那一列的夾板逐段算', () => {
-    const src = read('domain/calendar.js');
-    assert.match(src, /hasNote: Boolean\(String\(slot\?\.note \?\? visit\.note/);
+  test('日曆那一列的夾板逐段算，而且讀法只有一支', () => {
+    assert.match(read('domain/calendar.js'), /hasNote: Boolean\(slotNoteOf\(visit, slot\)\)/);
+  });
+
+  // 三個地方讀那一句話。各寫一次的話會出現「那一列亮著夾板、點開卻沒有字」。
+  test('三個讀的地方都走 slotNoteOf()', () => {
+    for (const p of ['domain/calendar.js', 'ui/views/calendar.js', 'ui/views/visitEditor.js']) {
+      assert.match(read(p), /slotNoteOf\(/, `${p} 自己讀了 note`);
+    }
+  });
+
+  test('沒有人自己寫 `slot.note ?? visit.note`', () => {
+    for (const p of ['domain/calendar.js', 'ui/views/calendar.js', 'ui/views/visitEditor.js']) {
+      const code = read(p)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(String.fromCharCode(10))
+        .filter((l) => !l.trim().startsWith('//'))
+        .join(String.fromCharCode(10));
+      assert.ok(!/slot\?*\.note \?\? visit\.note/.test(code), `${p} 自己退回整筆`);
+    }
   });
 
   test('存檔那一個路口兩件事都做', () => {

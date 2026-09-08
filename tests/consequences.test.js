@@ -79,15 +79,19 @@ describe('把一段併進同一天已經有的來訪', () => {
     assert.equal(after.confirmedAt, null);
   });
 
-  test('沒給 note 就留原本那一句，不要清成 null', () => {
+  // 那一句話 2026-09-09 搬到時段上了（ADR-0084），所以這一支不再收 `note`。
+  // 整筆那一格只留給還沒被搬過的舊資料 —— **原封不動帶著走**，
+  // 清掉的話她那一句在被 `withSlotNotes()` 搬到第一段之前就先不見了。
+  test('整筆那一句原封不動 —— 它只留給還沒搬過的舊資料', () => {
     const before = { ...visit('pending_confirm', [slot('c-checkup')]), note: '她說下午比較好' };
     assert.equal(withExtraSlot(before, slot('c-checkup')).visit.note, '她說下午比較好');
   });
 
-  test('給了 note 就換掉，給空的就清掉', () => {
-    const before = { ...visit('pending_confirm', [slot('c-checkup')]), note: '舊的' };
-    assert.equal(withExtraSlot(before, slot('c-checkup'), { note: '新的' }).visit.note, '新的');
-    assert.equal(withExtraSlot(before, slot('c-checkup'), { note: null }).visit.note, null);
+  test('新加的那一段帶著自己的那一句', () => {
+    const before = visit('pending_confirm', [slot('c-checkup')]);
+    const { visit: after } = withExtraSlot(before, { ...slot('c-recovery'), note: '這一段的' });
+    assert.equal(after.slots[1].note, '這一段的');
+    assert.equal(after.slots[0].note, undefined, '別段一個字都不動');
   });
 
   test('原本的時段一個都不會少', () => {
