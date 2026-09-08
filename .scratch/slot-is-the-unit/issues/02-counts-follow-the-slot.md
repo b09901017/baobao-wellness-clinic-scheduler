@@ -1,6 +1,6 @@
 # 次數逐段算，取消的那一段把次數還回去
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`docs/adr/0004`（三支要一起改）、`docs/adr/0025`
 

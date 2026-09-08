@@ -37,10 +37,25 @@ export { durationChoicesOf };
  */
 export function slotOutcome(visit, slot) {
   if (!visit || visit.deletedAt) return null;
+  // cancelled：時段已經還回去了。**這一條要排在讀 `slot.status` 之前** ——
+  // 2026-09-08 之前的 app 只寫整筆，一格停在 `confirmed` 的舊時段不可以
+  // 讓那一段一直佔著次數（同 `visits.js` 的 `slotStatus()`）。
+  if (visit.status === 'cancelled') return null;
+
+  // **時段自己那一格先算數**（ADR-0081）。她 2026-09-08 要「只取消某一段」，
+  // 而取消掉的那一段要把次數還回去 —— 回 `null` 就是「不佔任何次數」，
+  // 跟整筆取消同一種答案。多開一種回傳值的話，每一個 switch 都要多一條，
+  // 而漏掉的那一條會無聲地把取消掉的那一段算進次數。
+  const own = slot?.status ?? null;
+  if (own === 'cancelled') return null;
+  if (own === 'done' || own === 'no_show') return own;
+  if (own === 'pending_confirm' || own === 'confirmed') return 'booked';
+
+  // 舊資料：從整筆推。**這一段跟 2026-09-08 之前一模一樣。**
   if (visit.status === 'done') return slot?.attended === false ? 'no_show' : 'done';
   if (visit.status === 'no_show') return 'no_show';
   if (visit.status === 'pending_confirm' || visit.status === 'confirmed') return 'booked';
-  return null; // cancelled：時段已經還回去了
+  return null;
 }
 
 /**
