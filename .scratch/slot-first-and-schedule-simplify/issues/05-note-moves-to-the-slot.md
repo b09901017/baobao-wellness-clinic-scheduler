@@ -1,6 +1,6 @@
 # 「記一句」搬到時段上，收在一顆 ▤ 後面
 
-Status: todo
+Status: done
 來源：使用者，2026-09-09（第三題）
 動工前先讀：`SPEC.md` 第 5.3 節（要改）、`ui/views/calendar.js` 的 `noteMarks()`
 

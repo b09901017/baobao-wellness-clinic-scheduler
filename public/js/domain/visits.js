@@ -589,6 +589,41 @@ export function withSlotStatuses(visit) {
 }
 
 /**
+ * 舊資料那一句「記的話」搬到第一段。
+ *
+ * 她 2026-09-09：「不要是一整天的…我希望是每一筆都可以有他的記一句。」
+ * SPEC 第 5.3 節寫著 `note` 是「這一天」的，她明確說以那次為準（ADR-0084）。
+ *
+ * ## 為什麼是「搬」不是「複製」
+ *
+ * 複製到每一段的話，一句話會在畫面上出現三次，而她改了其中一段之後
+ * 另外兩段還是舊的 —— 那是三份會對不起來的資料。搬到第一段之後
+ * `visit.note` 清成 null，往後沒有人再寫它。
+ *
+ * 搬到**第一段**（照陣列順序，不是第一個活著的段）：那一句多半是壓表當下
+ * 記的，而壓表是從第一段開始壓的。搬錯的代價是她把那一句剪到別段，
+ * 而不搬的代價是那句話永遠沒有位置可以顯示。
+ *
+ * ## 時機與冪等
+ *
+ * 跟 `withSlotStatuses()` 同一個路口（`data/visits.js` 的 `save()`）——
+ * 她存過一次就補齊。搬完 `visit.note` 是 null，所以再存不會再搬；
+ * 而**任何一段已經有字**就代表這是新資料，一個字都不動。
+ */
+export function withSlotNotes(visit) {
+  const text = String(visit?.note ?? '').trim();
+  const slots = visit?.slots ?? [];
+  if (!text || !slots.length) return visit;
+  if (slots.some((s) => String(s?.note ?? '').trim())) return visit;
+
+  return {
+    ...visit,
+    note: null,
+    slots: slots.map((slot, i) => (i === 0 ? { ...slot, note: text } : slot)),
+  };
+}
+
+/**
  * 客人回覆之後，那一筆來訪長什麼樣。
  *
  * ## 客人說不行的那一段標成取消，**不要從陣列裡刪掉**（ADR-0081）
@@ -1084,6 +1119,12 @@ function visitErrors(visit, {
       errors.push(
         `${at}：返數要是 ${MIN_NTH} 到 ${MAX_NTH} 之間的整數 —— 二返走額度那條路，不是這裡`,
       );
+    }
+
+    // 那一段身上那一句話（ADR-0084）。**擋在 domain 而不是只靠 maxlength**：
+    // 貼上一大段字時瀏覽器會直接截斷，而她看不出被截掉了。
+    if (String(slot.note ?? '').length > NOTE_MAX) {
+      errors.push(`${at}：記的那一句最多 ${NOTE_MAX} 個字`);
     }
 
     const course = coursesById[slot.courseId];

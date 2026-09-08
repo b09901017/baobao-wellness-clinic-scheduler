@@ -4579,6 +4579,9 @@ button.mark::after {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  /* 右上角那兩顆（記一句、×）疊在上面，讓出它們的寬度 —— 不讓的話
+     課程名會跑到它們底下。58px = 28 + 2 + 28。 */
+  padding-right: 58px;
   margin-bottom: var(--space-3);
 }
 
@@ -4628,9 +4631,6 @@ button.mark::after {
 }
 
 .slothead__x {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
   width: 28px;
   height: 28px;
   display: flex;
@@ -4649,6 +4649,105 @@ button.mark::after {
   content: '';
   position: absolute;
   inset: -8px;
+}
+
+/* 一段時段身上那一句話（ADR-0084）。三種狀態，而版面的規矩只有兩條：
+   **空的不佔位、有字的一定看得到。**
+
+   後者是這個樣式表自己的規矩（見底下 `.advanced` 那一段：「收起來的東西
+   不能安靜地生效」）—— 所以收起來不是消失，是縮成一行。 */
+.slotnote {
+  margin: 0 0 var(--space-3);
+}
+
+/* 收起來的那一行。長得像字不像欄位 —— 它就是她寫的那句話。 */
+.slotnote__peek {
+  display: block;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-dim);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.slotnote__box textarea {
+  width: 100%;
+  min-height: 62px;
+  resize: vertical;
+}
+
+/* 抬頭列上那一顆夾板。**跟那顆 × 一樣大、一樣淡** —— 兩顆並排時
+   任何一顆比較重都會變成「這顆比較該按」，而它們一個是記事、一個是取消。 */
+.slotnote__pin {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 有字。**這就是「這一段寫過東西」的訊號** —— 底下那一行淡字講內容，
+   這一顆讓她掃一眼就知道哪幾段有。 */
+.slotnote__pin.is-on {
+  color: var(--accent);
+}
+
+/* 待辦中心那一句（「問過了、客人還沒回」）與壓表卡片上那一句。
+   兩邊都是「一顆夾板 + 一塊展開的東西」，只是夾板擺的位置不同。 */
+.fnote,
+.deck__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.fnote > .slotnote,
+.deck__note > .slotnote {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 一顆夾板一個人待在那裡的時候要有最小高度，不然那一列會塌成 0 */
+.fnote > .slotnote:empty,
+.deck__note > .slotnote:empty {
+  min-height: 28px;
+}
+
+.fnote__form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.fnote__form input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 那兩顆的家。以前只有 × 一顆，所以它是 position: absolute 掛在卡片右上角；
+   兩顆之後改成一格 flex，`.slothead` 讓出右邊的位置給它。 */
+.slotcard__tools {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 /* ---------- 表單：主體與背景 ---------- */

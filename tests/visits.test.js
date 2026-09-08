@@ -17,7 +17,8 @@ import {
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
   sameDayVisitFor,
-  visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses,
+  visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
+  NOTE_MAX,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1830,5 +1831,76 @@ describe('新加的一段是「還沒問客人」，不是繼承整筆的（ADR-
     const at = src.indexOf('function blankSlot(');
     assert.ok(at > 0);
     assert.match(src.slice(at, src.indexOf('\n}', at)), /status: INITIAL_STATUS/);
+  });
+});
+
+// 她 2026-09-09：「不要是一整天的…我希望是每一筆都可以有他的記一句。」
+//
+// SPEC 第 5.3 節寫著 `note` 是「這一天的」，她明確說以這次為準。
+// 舊資料走 A 方案（她選的）：**下次存那一筆時搬到第一段**，跟
+// `withSlotStatuses()` 同一個時機、同一個路口（`data/visits.js` 的 `save()`）。
+describe('舊的那一句話搬到第一段（withSlotNotes）', () => {
+  const v = (over) => ({ status: 'confirmed', slots: [{ courseId: 'a' }, { courseId: 'b' }], ...over });
+
+  test('整筆那一句搬到第一段，整筆清成 null', () => {
+    const out = withSlotNotes(v({ note: '她說下午比較好' }));
+    assert.equal(out.slots[0].note, '她說下午比較好');
+    assert.equal(out.slots[1].note, undefined, '不要複製到每一段 —— 一句話出現兩次');
+    assert.equal(out.note, null);
+  });
+
+  test('冪等 —— 搬過一次就不會再搬', () => {
+    const once = withSlotNotes(v({ note: '她說下午比較好' }));
+    assert.deepEqual(withSlotNotes(once), once);
+  });
+
+  test('已經有段記了字就一個字都不動 —— 那是新資料', () => {
+    const src = v({ note: '舊的', slots: [{ courseId: 'a' }, { courseId: 'b', note: '新的' }] });
+    const out = withSlotNotes(src);
+    assert.equal(out.note, '舊的', '新資料不會有 visit.note，有的話不要亂搬');
+    assert.equal(out.slots[0].note, undefined);
+    assert.equal(out.slots[1].note, '新的');
+  });
+
+  test('整筆沒有那一句就什麼都不做', () => {
+    const src = v();
+    assert.deepEqual(withSlotNotes(src), src);
+    assert.deepEqual(withSlotNotes(v({ note: '   ' })), v({ note: '   ' }));
+  });
+
+  test('一段都沒有的來訪不會爆', () => {
+    const src = { status: 'confirmed', note: '一句話', slots: [] };
+    assert.deepEqual(withSlotNotes(src), src);
+  });
+
+  test('不動到原本那一份', () => {
+    const src = v({ note: '原句' });
+    withSlotNotes(src);
+    assert.equal(src.note, '原句');
+    assert.equal(src.slots[0].note, undefined);
+  });
+});
+
+describe('一段身上那一句話存不存得下去', () => {
+  const base = {
+    customerId: 'c1', date: '2026-09-15', status: 'pending_confirm',
+    slots: [{ entitlementId: 'e1', courseId: 'c-checkup', startsAt: '09:00', endsAt: '10:00' }],
+  };
+  const ctx = {
+    customer: { id: 'c1' },
+    courses: [{ id: 'c-checkup', name: '健檢', durationMin: 60 }],
+    entitlements: [{ id: 'e1', type: 'single', courseId: 'c-checkup', totalQty: 5 }],
+    equipment: [], rooms: [], staff: [], ivProducts: [],
+  };
+
+  test('太長擋下來，而且講得出是第幾段', () => {
+    const long = { ...base, slots: [{ ...base.slots[0], note: 'x'.repeat(NOTE_MAX + 1) }] };
+    const { errors } = validateVisit(long, ctx);
+    assert.ok(errors.some((e) => e.includes('第 1 個時段') && e.includes(String(NOTE_MAX))), errors.join('｜'));
+  });
+
+  test('剛好那麼長存得下去', () => {
+    const ok = { ...base, slots: [{ ...base.slots[0], note: 'x'.repeat(NOTE_MAX) }] };
+    assert.deepEqual(validateVisit(ok, ctx).errors, []);
   });
 });

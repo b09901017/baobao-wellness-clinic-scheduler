@@ -38,6 +38,7 @@ import {
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import * as slotNote from '../components/slotNote.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
@@ -272,13 +273,11 @@ function paint(ctx, draft) {
     ${locked ? lockedCard(embedded) : ''}
 
     <form data-form ${locked ? 'inert' : ''}>
+      ${/* **「記一句」不在這裡了**（ADR-0084）。它搬到每一段身上，收在那一段
+             抬頭列右邊那顆夾板後面 —— 她 2026-09-09：「我希望是每一筆都可以有
+             他的記一句，而不要是一整天的」。 */''}
       <section class="card ${embedded ? 'card--bare' : ''}">
         ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
-        ${f.text({
-          name: 'note', label: '這一次記一句', value: draft.note ?? '',
-          placeholder: '例：她說下午比較好', maxlength: NOTE_MAX,
-          hint: '跟著這一筆來訪，不是掛在客戶身上 —— 那是備註，在客戶那一頁改。',
-        })}
       </section>
 
       ${/* **只畫改得動的那幾段**（ADR-0085）。她從日曆點的是一段，那就只有
@@ -322,13 +321,18 @@ function paint(ctx, draft) {
 
   const form = el.querySelector('[data-form]');
   f.wireChips(form);
+  // 展開那一句話。`form` 每次 `paint()` 都被換掉，所以不必給 signal。
+  slotNote.wire(form);
 
   form.addEventListener('change', async (e) => {
-    // 這一句話不影響畫面上算出來的任何東西，所以不要為了它重畫。
+    // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
     // 重畫會在她打完字、手指正要按下「儲存」的那一刻把那顆按鈕換掉 ——
     // 按下去與放開落在兩個不同的元素上，那一下就不算數（其餘欄位都是用點的，
     // 點完本來就會重畫，碰不到這個問題）。
-    if (e.target.name === 'note') return;
+    //
+    // **2026-09-09 起是逐段的**（`s0-note`、`s1-note`…，ADR-0084）。
+    // 只比 `=== 'note'` 的話那個豁免會整個失效，而症狀是「打完字按儲存沒反應」。
+    if (/^s\d+-note$/.test(e.target.name ?? '')) return;
 
     const next = readDraft(ctx, form, draft);
     if (e.target.name === 'date' && next.date !== draft.date) {
@@ -431,8 +435,16 @@ function slotCard(ctx, draft, slot, i) {
           : (course
             ? `<span class="slothead__what">${esc(slotName(slot, all, 'short'))}</span>`
             : '<span class="app__spacer"></span>')}
+      </div>
+
+      ${/* 右上角那兩顆。**記一句排在 × 前面** —— 破壞性的那一顆永遠在最外側
+             （同 `visitActions()` 的規矩），而她的拇指是從右邊進來的。 */''}
+      <div class="slotcard__tools">
+        ${slotNote.toggle({ name: `s${i}-note`, on: Boolean(String(slot.note ?? '').trim()) })}
         ${slotXButton(ctx, draft, slot, i)}
       </div>
+
+      ${slotNote.html({ name: `s${i}-note`, value: slot.note, maxlength: NOTE_MAX })}
 
       ${slot.status === 'cancelled' ? `
         <p class="field__hint" style="margin: 0 0 var(--space-3)">
@@ -799,6 +811,9 @@ function readDraft(ctx, form, draft) {
       ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
+      // 那一段身上那一句話（ADR-0084）。收起來的時候 textarea 照樣在 DOM 裡，
+      // 所以讀得到 —— `hidden` 的是包住它的 `<label>`。
+      note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
       ...(assigns === 'room'
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
@@ -821,7 +836,9 @@ function readDraft(ctx, form, draft) {
   return {
     ...draft,
     date: v.date || draft.date,
-    note: String(key(v, 'note', draft.note) ?? '').trim() || null,
+    // **整筆那一句不再從表單讀** —— 那個欄位 2026-09-09 拿掉了（ADR-0084）。
+    // 舊資料的值靠 `...draft` 原封帶著，由 `save()` 的 `withSlotNotes()`
+    // 搬到第一段。在這裡清成 null 的話，她只是打開改個時間就把那句話弄丟了。
     slots,
   };
 }
@@ -851,6 +868,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   return {
     ...slot,
     ...nthSlotFields({ nth, examVisitId, courseId }),
+    note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
     equipmentId: null,
     ivProductId: null,
     startsAt,

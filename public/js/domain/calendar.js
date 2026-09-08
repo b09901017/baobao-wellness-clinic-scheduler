@@ -178,7 +178,10 @@ export function agendaFor(
         //
         // 空字串是「沒有」不是「有一段空的」（同 `domain/notes.js` 的
         // `normalize()`：空字串與 null 在查詢上是兩件事）。
-        hasNote: Boolean(String(visit.note ?? '').trim()),
+        // **那一段身上有沒有字**（ADR-0084）。以前讀的是整筆的 `visit.note`，
+        // 於是她一天三段只在其中一段記了字，三列都會亮那顆夾板。
+        // 舊資料退回整筆 —— 那時候整天共用一句本來就是事實。
+        hasNote: Boolean(String(slot?.note ?? visit.note ?? '').trim()),
         clashes: [],
       });
     });

@@ -1446,11 +1446,18 @@ export function visitReadHtml(visit, data) {
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
 
 
-    ${visit.note ? `
-      <div class="readrow">
-        <span class="readrow__k">記的話</span>
-        <span class="readrow__v">${esc(visit.note)}</span>
-      </div>` : ''}
+    ${/* **那一段身上那一句**（ADR-0084）。舊來訪退回整筆那一個 —— 那時候
+           整天共用一句本來就是事實，而它還沒被 `withSlotNotes()` 搬過去。
+           只畫一段時（ADR-0080）就是那一段的，四頁共用同一支。 */''}
+    ${(() => {
+      const shown = slots.map(({ slot: s }) => String(s?.note ?? '').trim()).filter(Boolean);
+      const lines = shown.length ? shown : [String(visit.note ?? '').trim()].filter(Boolean);
+      return lines.length ? `
+        <div class="readrow">
+          <span class="readrow__k">記的話</span>
+          <span class="readrow__v">${lines.map((t) => esc(t)).join('<br />')}</span>
+        </div>` : '';
+    })()}
 
     ${mirrorHtml({
       visit,

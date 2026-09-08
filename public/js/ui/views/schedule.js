@@ -69,6 +69,7 @@ import {
   todayISO, addDays, shortDate, lastDayOf, monthLabel,
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import * as slotNote from '../components/slotNote.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
 import { chip as markChip } from '../components/marks.js';
@@ -678,6 +679,9 @@ function openDeck() {
 
   node.addEventListener('click', onDeckClick);
   node.addEventListener('change', onDeckChange);
+  // 展開那一句話。`node` 整個被拿掉時監聽跟著消失，所以不必給 signal
+  // （卡片的內容重畫走 `fillDeck()`，換的是 node 底下的東西）。
+  slotNote.wire(node);
 
   ctx.el.appendChild(node);
   // 返回鍵要關掉這一層，不是跳走整頁（ADR-0048）
@@ -1211,12 +1215,14 @@ function dayPanel(row) {
 
       <div data-entfields>${entFields(row, picked)}</div>
 
-      <label class="field">
-        <span class="field__label">這一次記一句</span>
-        <input type="text" data-note maxlength="${NOTE_MAX}"
-               value="${esc(sameDay?.note ?? '')}"
-               placeholder="例：她說下午比較好" />
-      </label>
+      ${/* **這一句是那一段的，不是那一天的**（ADR-0084）。所以：
+             一、收在一顆夾板後面（她 2026-09-09：「不然感覺會很占版面」）
+             二、**不預填 `sameDay.note`** —— 那是別段的字，她一按記錄就
+                 被複製到這一段身上了。元件與來訪編輯器共用。 */''}
+      <div class="deck__note">
+        ${slotNote.toggle({ name: 'note' })}
+        ${slotNote.html({ name: 'note', maxlength: NOTE_MAX })}
+      </div>
 
       <div class="errors" data-errors hidden></div>
       <button class="btn btn--primary btn--wide" type="button" data-add
@@ -2049,20 +2055,22 @@ async function addSlot() {
     ...(nthPart ?? {}),
   };
 
-  const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;
+  const note = deckEl()?.querySelector('[name="note"]')?.value?.trim() || null;
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
   // 規則在 `domain/visits.js`：收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
+  // 那一句話跟著這一段走（ADR-0084），不再是整筆的
+  const withNote = { ...slot, note };
   const sameDay = sameDayVisit(selected, view.day);
-  const merged = sameDay ? withExtraSlot(sameDay, slot, { note }) : null;
+  const merged = sameDay ? withExtraSlot(sameDay, withNote) : null;
   const visit = merged?.visit ?? {
     customerId: selected.customerId,
     customerName: selected.customerName,
     date: view.day,
     status: INITIAL_STATUS,
     confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
-    note,
-    slots: [slot],
+    note: null,
+    slots: [withNote],
   };
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
