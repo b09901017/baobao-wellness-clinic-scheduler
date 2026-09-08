@@ -48,7 +48,7 @@ import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
   picksEquipment, assignsFor, NOTE_MAX,
-  acceptsMoreSlots, withExtraSlot,
+  acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
@@ -1741,8 +1741,9 @@ const keyOf = (s) => `${s.roomId}|${s.bed ?? ''}`;
  * 收不下就是回 `null`，呼叫端照「新的一筆」那條路走。
  */
 function sameDayVisit(row, date) {
-  return (ctx.queueInput.visitsBy[row.customerId] ?? [])
-    .find((v) => v.date === date && isActive(v) && acceptsMoreSlots(v.status)) ?? null;
+  // 判斷在 domain（ADR-0083）—— 日曆那條路走的是同一支。兩份的話遲早有一份
+  // 漏掉一個狀態，而症狀是同一位客戶同一天長出兩塊獨立的東西。
+  return sameDayVisitFor(ctx.queueInput.visitsBy[row.customerId] ?? [], row.customerId, date);
 }
 
 /** 同一天已經結案的那幾筆。只拿來在畫面上講一句，不是併入的對象。 */

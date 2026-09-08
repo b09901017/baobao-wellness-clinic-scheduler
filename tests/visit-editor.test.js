@@ -97,3 +97,96 @@ describe('那一排為什麼是空的', () => {
     assert.match(slotCard, /主檔裡還沒有治療師/, '壓表那一頁講得出來，這裡也要');
   });
 });
+
+// 她 2026-09-08：「就請讓我只能修改這一個時段的東西，而不是讓我還可以新增
+// 還可以修其他時段的東西」。
+//
+// 每一條進得了編輯器的路**本來就知道是哪一段**（日／週那一列的 `data-open`
+// 從 ADR-0080 起就是三格），只是進去之後把那個數字丟掉了。
+describe('改一筆來訪＝改那一段（issue 07）', () => {
+  const CAL = readFileSync(
+    new URL('../public/js/ui/views/calendar.js', import.meta.url), 'utf8',
+  );
+
+  test('mountEdit() 收得到 slotIndex', () => {
+    assert.match(SRC, /export async function mountEdit\(el, \{ visitId, slotIndex = null/);
+  });
+
+  test('讀取卡片上的鉛筆把她點的那一段帶過去', () => {
+    const at = CAL.indexOf("kind: 'visit', visitId: visit.id, date: visit.date, backDate: date");
+    assert.ok(at > 0, '找不到讀取卡片的鉛筆');
+    assert.match(CAL.slice(at, at + 120), /slotIndex: focus/);
+  });
+
+  test('長按選單的「改這一筆」也帶', () => {
+    const at = CAL.indexOf("if (action === 'edit')");
+    assert.ok(at > 0);
+    assert.match(CAL.slice(at, at + 300), /slotIndex/);
+  });
+
+  test('抽屜那一層轉手時不可以掉', () => {
+    assert.match(CAL, /visitEditor\.mountEdit\(host, \{ visitId: spec\.visitId, slotIndex: spec\.slotIndex/);
+  });
+
+  test('沒畫出來的那一段整個回原本那一個物件，不是重組一份', () => {
+    const at = SRC.indexOf('function readDraft(');
+    const body = SRC.slice(at, at + 1600);
+    assert.match(body, /if \(!isEditable\(ctx, i\)\) return slot;/,
+      '重組的話 attended／status 那幾格會被底下寫死的 null 清掉');
+  });
+
+  test('只畫一段時「＋新增一個時段」不出現', () => {
+    assert.match(SRC, /ctx\.canAddSlots \? `/);
+    assert.match(SRC, /canAddSlots: !existing/);
+  });
+
+  test('整筆的狀態卡與危險區只在整筆都在畫面上時出現', () => {
+    assert.match(SRC, /const wholeVisit = !isNew && !ctx\.editSlots;/);
+    assert.match(SRC, /\$\{wholeVisit \? statusCard\(/);
+    assert.match(SRC, /\$\{wholeVisit \? dangerZone\(/);
+  });
+});
+
+// 她 2026-09-08：「為什麼同一個人可以來訪一次裡面有兩項 然後又可以同一天
+// 再來訪一次然後一項？」—— 壓表會併、日曆不查，同一件事兩種樣子。
+describe('一人一天一筆（issue 04）', () => {
+  const SCH = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+
+  test('日曆新增時先找同一天那一筆', () => {
+    assert.match(SRC, /sameDayVisitFor\(customerVisits, customer\.id/);
+  });
+
+  test('壓表走同一支，不自己比一份狀態清單', () => {
+    const at = SCH.indexOf('function sameDayVisit(row, date)');
+    assert.ok(at > 0);
+    const body = SCH.slice(at, SCH.indexOf('\n}', at));
+    assert.match(body, /sameDayVisitFor\(/);
+    assert.ok(!body.includes('acceptsMoreSlots('), '兩份判斷遲早有一份漏掉一個狀態');
+  });
+
+  test('併進來時只有新加的那一段改得動', () => {
+    assert.match(SRC, /merging \? \[base\.slots\.length\] : null/);
+  });
+
+  test('Abovee 那一道問的是「有沒有新的時段」，不是「這筆來訪是新的」', () => {
+    assert.match(SRC, /if \(hasNewSlots\(ctx, draft\)\) \{/);
+    assert.ok(!SRC.includes('if (isNew) {'), 'isNew 在併進來的時候是 false，那一道會整個不問');
+  });
+
+  test('確認框只列這一次新加的那幾段', () => {
+    assert.match(SRC, /draft\.slots\.slice\(ctx\.storedSlotCount \?\? 0\)/);
+  });
+
+  test('那顆 × 逐段問「存過了沒」，不是問整筆', () => {
+    const at = SRC.indexOf('function slotXButton(');
+    const body = SRC.slice(at, SRC.indexOf(String.fromCharCode(10) + '}', at))
+      // 註解裡照樣講得到 `ctx.isNew` —— 那一段就是在解釋為什麼不能問它
+      .split(String.fromCharCode(10))
+      .filter((l) => !l.trim().startsWith('//'))
+      .join(String.fromCharCode(10));
+    assert.match(body, /i < \(ctx\.storedSlotCount \?\? 0\)/);
+    assert.ok(!body.includes('ctx.isNew'), '新加的那一段走取消那條路會長出一張假的「取消 Abovee」');
+  });
+});

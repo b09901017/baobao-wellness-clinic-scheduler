@@ -16,7 +16,8 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
-  visitStatusFrom, applyConfirmation, cancellableSlots,
+  sameDayVisitFor,
+  visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1742,5 +1743,92 @@ describe('哪幾段取消得掉（批次取消專區）', () => {
     ]));
     assert.deepEqual(out.map((x) => x.index), [1, 2]);
     assert.equal(out[0].slot.startsAt, '11:30');
+  });
+});
+
+// 她 2026-09-08：「為什麼同一個人可以來訪一次裡面有兩項 然後又可以同一天
+// 再來訪一次然後一項？不是應該是這個人 今天有三個時段嗎？」
+//
+// 「一天一筆」從來沒有被擋過（`firestore.rules` 沒擋、`validateVisit()` 也沒擋，
+// ADR-0081 已經寫過）。真正發生的是**兩條路行為不一樣**：壓表會併，
+// 日曆的 `blankVisit()` 完全不查。判斷從壓表那一頁搬進 domain，兩邊共用。
+describe('同一天收得下新時段的那一筆（sameDayVisitFor）', () => {
+  const v = (over) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-15', status: 'confirmed',
+    slots: [{ courseId: 'c-a' }], ...over,
+  });
+
+  test('待確認的收得下', () => {
+    const rows = [v({ status: 'pending_confirm' })];
+    assert.equal(sameDayVisitFor(rows, 'c1', '2026-09-15')?.id, 'v1');
+  });
+
+  test('已確認的收得下', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-15')?.id, 'v1');
+  });
+
+  for (const status of ['done', 'no_show', 'cancelled']) {
+    test(`${status} 的收不下 —— 那一天已經結案了，再併進去那一段會當場被算成做完或沒來`, () => {
+      assert.equal(sameDayVisitFor([v({ status })], 'c1', '2026-09-15'), null);
+    });
+  }
+
+  test('已刪除的收不下', () => {
+    assert.equal(sameDayVisitFor([v({ deletedAt: 'x' })], 'c1', '2026-09-15'), null);
+  });
+
+  test('別人的那一筆不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c2', '2026-09-15'), null);
+  });
+
+  test('別天的那一筆不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-16'), null);
+  });
+
+  test('兩筆都收得下時回第一筆 —— 答案要穩定', () => {
+    const rows = [v(), v({ id: 'v2' })];
+    assert.equal(sameDayVisitFor(rows, 'c1', '2026-09-15').id, 'v1');
+  });
+
+  test('要排除的那一筆（她正在改的就是它）不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-15', { excludeVisitId: 'v1' }), null);
+  });
+
+  test('日期或客戶沒給就回 null，不要亂猜一筆出來', () => {
+    assert.equal(sameDayVisitFor([v()], null, '2026-09-15'), null);
+    assert.equal(sameDayVisitFor([v()], 'c1', null), null);
+    assert.equal(sameDayVisitFor(null, 'c1', '2026-09-15'), null);
+  });
+});
+
+// 併進既有那一天時，新加的那一段**不可以繼承整筆的狀態**。
+// `withSlotStatuses()` 是「舊資料補齊」用的，它看到沒有 status 的時段就
+// 退回整筆那一個 —— 對舊資料是對的，對一段剛剛才加上去的時間是錯的。
+describe('新加的一段是「還沒問客人」，不是繼承整筆的（ADR-0081）', () => {
+  test('沒有 status 的新時段會被 withSlotStatuses() 標成已確認 —— 所以呼叫端一定要自己寫', () => {
+    const out = withSlotStatuses({
+      status: 'confirmed',
+      slots: [{ courseId: 'a', status: 'confirmed' }, { courseId: 'b' }],
+    });
+    assert.equal(out.slots[1].status, 'confirmed',
+      '這一條釘住的是那個陷阱本身：不自己寫就會變成已確認');
+  });
+
+  test('寫了 pending_confirm 就不會被蓋掉，整筆跟著退回待確認', () => {
+    const v = {
+      status: 'confirmed',
+      slots: [{ courseId: 'a', status: 'confirmed' }, { courseId: 'b', status: 'pending_confirm' }],
+    };
+    assert.equal(withSlotStatuses(v).slots[1].status, 'pending_confirm');
+    assert.equal(visitStatusFrom(v), 'pending_confirm');
+  });
+
+  test('來訪編輯器加的那一段有寫 status', () => {
+    const src = readFileSync(
+      new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8',
+    );
+    const at = src.indexOf('function blankSlot(');
+    assert.ok(at > 0);
+    assert.match(src.slice(at, src.indexOf('\n}', at)), /status: INITIAL_STATUS/);
   });
 });

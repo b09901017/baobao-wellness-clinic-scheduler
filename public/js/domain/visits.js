@@ -197,6 +197,46 @@ export function acceptsMoreSlots(status) {
 }
 
 /**
+ * 同一位客戶那一天**收得下新時段**的那一筆。沒有就是 `null`。
+ *
+ * ## 為什麼這一支要存在
+ *
+ * 她 2026-09-08：「為什麼同一個人可以來訪一次裡面有兩項，然後又可以同一天
+ * 再來訪一次然後一項？不是應該是這個人 今天有三個時段嗎？」
+ *
+ * 「一天一筆」從來沒有被擋過（Rules 沒擋、`validateVisit()` 也沒擋，
+ * ADR-0081 的背景寫過）。真正發生的是**兩條路行為不一樣**：壓表那一頁
+ * 會找同一天的併進去，日曆的 `blankVisit()` 完全不查、一律開新的一筆。
+ * 所以同一件事有兩種樣子，而規則她看不出來 —— 那正是她說的「不合理」。
+ *
+ * 判斷搬到這裡，兩個入口共用。各寫一份的話遲早有一份漏掉一個狀態，
+ * 而症狀是日曆上同一位客戶同一天長出兩塊獨立的東西。
+ *
+ * ## 收不下的那幾種是刻意的
+ *
+ * 已完成／未到／已取消的那一天**已經發生過了**，再併一段進去會當場被算成
+ * 做完或沒來（`acceptsMoreSlots()` 的檔頭）。那時候開新的一筆是對的 ——
+ * 這是唯一一種同一天會有第二筆的情況，呼叫端要講出來。
+ *
+ * @param {object[]} visits 這位客戶的來訪（呼叫端本來就有這一份）
+ * @param {string|null} customerId
+ * @param {string|null} date 'YYYY-MM-DD'
+ * @param {{excludeVisitId?: string|null}} [opts] 她正在改的那一筆不算它自己
+ * @returns {object|null}
+ */
+export function sameDayVisitFor(visits, customerId, date, { excludeVisitId = null } = {}) {
+  if (!customerId || !date) return null;
+  return (visits ?? []).find(
+    (v) => v
+      && v.customerId === customerId
+      && v.date === date
+      && v.id !== excludeVisitId
+      && isActive(v)
+      && acceptsMoreSlots(v.status),
+  ) ?? null;
+}
+
+/**
  * 把一段併進同一天已經有的那一筆來訪。
  *
  * **併進一筆已確認的來訪會把整筆退回「等客戶回覆」。** 一筆來訪只有一個狀態，

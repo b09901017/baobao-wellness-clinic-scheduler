@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('二十三項檢查都在，順序固定', () => {
+  test('二十四項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 23);
+    assert.equal(result.checks.length, 24);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1380,5 +1380,41 @@ describe('課程的名字跟建議的不一樣', () => {
 
   test('她自己刪掉的課程不再提', () => {
     assert.deepEqual(go(legacy({ deletedAt: 'x' })), []);
+  });
+});
+
+// 2026-09-09 之後兩個入口都會併進同一筆（ADR-0083），所以不會再長出新的。
+// 這一項掃的是既有資料，而且**只列不修** —— 合併要搬時段、刪掉一筆、重算
+// 次數、重推任務，而其中一筆可能是刻意分開的（上午那一場已經 done 了）。
+describe('同一位客戶同一天有兩筆來訪', () => {
+  const two = [
+    { id: 'v1', customerId: 'c1', customerName: '王小明', date: '2026-09-15', status: 'confirmed', slots: [{ courseId: 'a' }] },
+    { id: 'v2', customerId: 'c1', customerName: '王小明', date: '2026-09-15', status: 'done', slots: [{ courseId: 'b' }, { courseId: 'c' }] },
+  ];
+
+  test('兩筆就列出來，而且講得出總共幾段', () => {
+    const rows = findingsOf(run({ visits: two }), 'sameDayVisits');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /王小明・2026-09-15/);
+    assert.match(rows[0].detail, /2 筆/);
+    assert.match(rows[0].detail, /3 段/);
+  });
+
+  test('一天一筆不列', () => {
+    assert.deepEqual(findingsOf(run({ visits: [two[0]] }), 'sameDayVisits'), []);
+  });
+
+  test('同一天但不同人不算', () => {
+    const rows = findingsOf(run({ visits: [two[0], { ...two[1], customerId: 'c2' }] }), 'sameDayVisits');
+    assert.deepEqual(rows, []);
+  });
+
+  test('已刪除的那一筆不算', () => {
+    const rows = findingsOf(run({ visits: [two[0], { ...two[1], deletedAt: 'x' }] }), 'sameDayVisits');
+    assert.deepEqual(rows, []);
+  });
+
+  test('只列不修 —— 合併掉會把已完成那一場拖回待確認', () => {
+    assert.equal(findingsOf(run({ visits: two }), 'sameDayVisits')[0].fix, null);
   });
 });

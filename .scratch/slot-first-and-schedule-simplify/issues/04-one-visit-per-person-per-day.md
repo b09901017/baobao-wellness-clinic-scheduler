@@ -1,6 +1,6 @@
 # 一人一天一筆：日曆新增也要併進同一天
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求二 a/b/c/d）＋ 2026-09-09 的共識（Option B）
 動工前先讀：`docs/adr/0081`、`SPEC.md` 第 4.4 節、`domain/visits.js` 的 `withExtraSlot()`
 

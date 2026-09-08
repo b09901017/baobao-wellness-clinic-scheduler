@@ -869,8 +869,10 @@ function openDetail(el, data, hit, date, repaint) {
     canEdit: true,
     onEdit: () => {
       closeCard();
+      // **她點的是哪一段就改哪一段**（ADR-0085）。這張卡片本來就只畫那一段
+      // （ADR-0080），鉛筆按下去卻攤開整天是同一個 bug 的另一半。
       openEditor(el, data, {
-        kind: 'visit', visitId: visit.id, date: visit.date, backDate: date,
+        kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: focus,
       });
     },
   });
@@ -1033,8 +1035,9 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
 
 async function runVisitAction(el, data, visit, action, backDate, slotIndex = null) {
   if (action === 'edit') {
+    // 長按的也是一列，而一列就是一段（ADR-0081）—— 跟卡片上的鉛筆同一條路。
     openEditor(el, data, {
-      kind: 'visit', visitId: visit.id, date: visit.date, backDate,
+      kind: 'visit', visitId: visit.id, date: visit.date, backDate, slotIndex,
     });
     return;
   }
@@ -1552,7 +1555,7 @@ function mountEditor(el, data, sheet, spec) {
     if (spec.id) eventEditor.mountEdit(host, { id: spec.id, ...opts });
     else eventEditor.mountNew(host, { date: spec.date, ...opts });
   } else if (spec.visitId) {
-    visitEditor.mountEdit(host, { visitId: spec.visitId, ...opts });
+    visitEditor.mountEdit(host, { visitId: spec.visitId, slotIndex: spec.slotIndex ?? null, ...opts });
   } else {
     visitEditor.mountNew(host, { customerId: spec.customerId, date: spec.date, ...opts });
   }
