@@ -553,13 +553,15 @@ function wireForm(el, ctx, record, state) {
   if (!isNew) wireDangerZone(ctx, record);
 
   // 三選一那一層的生死。三條關閉的路（選一個、按取消、按返回鍵）都經過這裡。
-  if (state.sheetDate && !daySheetLayer) {
+  // `.active` 不是 `!daySheetLayer`：換頁會把 stack 清掉而這個變數不會
+  // 跟著變 null，那時候三選一就再也疊不上一層（見 `ui/nav.js` 檔頭）。
+  if (state.sheetDate && !daySheetLayer?.active) {
     daySheetLayer = pushLayer(() => {
       daySheetLayer = null;
       // 返回鍵：收掉三選一，那一天不動。
       paintForm(ctx, record, { ...state, ...readForm(form), sheetDate: null });
     });
-  } else if (!state.sheetDate && daySheetLayer) {
+  } else if (!state.sheetDate && daySheetLayer?.active) {
     daySheetLayer.pop();
     daySheetLayer = null;
   }

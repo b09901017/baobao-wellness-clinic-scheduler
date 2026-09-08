@@ -356,7 +356,10 @@ export function visitCourseLabel(visit, master = null) {
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
  * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
- *   `hidden` 是「這一天還有幾段沒畫」，呼叫端拿它畫那一行「還有另外 N 段」。
+ *   `hidden` 是「這一天還有幾段沒畫」。**現在沒有人畫它** —— 2026-09-08
+ *   那一行連同「看全部」一起拿掉了（她：「純粹且僅呈現該時段課程的資訊」）。
+ *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
+ *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
 export function slotsToShow(visit, focusSlot = null) {
   const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));

@@ -1,4 +1,4 @@
-// 客戶預約批次取消專區。
+// 來訪的批次取消專區。
 //
 // 她 2026-09-08：
 //
@@ -42,6 +42,7 @@ import { timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { wireLongPress } from '../components/actions.js';
+import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
 
@@ -59,6 +60,16 @@ const state = {
 };
 
 let ctx = null;
+
+/**
+ * 多選那一層。**畫面上多出來一層東西，就多一筆返回鍵退得掉的紀錄**
+ * （`ui/nav.js` 的整個前提）—— 沒有它的話，她長按進了多選，按返回鍵是
+ * 整個跳出這一頁，剛剛點的十幾天全部沒了。
+ *
+ * 存起來的 handle 一律問 `.active`，不問它是不是 null（`tests/nav.test.js`
+ * 有一條原始碼掃描盯著）。
+ */
+let multiLayer = null;
 
 const keyOf = (visitId, index) => `${visitId}:${index}`;
 
@@ -78,6 +89,10 @@ export async function render(el) {
   }
 
   state.month ??= todayISO().slice(0, 7);
+  // `state` 活得比這一頁久（她從別的畫面繞回來時想接著剛剛那一位），
+  // 但**多選那一層活不過換頁** —— nav 換頁時會把 stack 清光。留著 `multi`
+  // 的話，回來看到的是多選中的橫幅，而返回鍵按了沒反應。
+  setMulti(false);
   if (state.customerId) await loadVisits();
   paint();
 }
@@ -180,7 +195,7 @@ function searchHtml() {
               ${icon('right', { size: 17 })}
             </button></li>`).join('')}
         </ul>` : ''}
-      ${q ? '' : '<p class="muted">打名字找人，這裡會列出他那個月的預約。</p>'}
+      ${q ? '' : '<p class="muted">打名字找人，這裡會列出他那個月的來訪。</p>'}
     </section>`;
 }
 
@@ -215,7 +230,7 @@ function pickedHtml() {
       ${rows.length
         ? (state.mode === 'list' ? listHtml(rows) : monthHtml(rows))
         : `<p class="muted">${esc(customer?.name ?? '')}${
-            esc(monthLabel(state.month))}沒有可以取消的預約。換個月看看。</p>`}
+            esc(monthLabel(state.month))}沒有可以取消的來訪。換個月看看。</p>`}
     </section>`;
 }
 
@@ -291,7 +306,7 @@ function dayCell(cell, days) {
             type="button" role="gridcell"
             ${n ? `data-day="${esc(cell.date)}" data-longpress` : 'disabled'}
             aria-pressed="${on}"
-            aria-label="${esc(shortDate(cell.date))}${n ? `，${n} 段` : '，沒有預約'}">
+            aria-label="${esc(shortDate(cell.date))}${n ? `，${n} 段` : '，沒有來訪'}">
       <span class="bulkcal__n num">${Number(cell.date.slice(-2))}</span>
       ${n ? `<span class="bulkcal__dot" aria-hidden="true">${n > 1 ? n : ''}</span>` : ''}
     </button>`;
@@ -334,7 +349,7 @@ function wire() {
       state.customerId = btn.dataset.pick;
       state.picked.clear();
       state.openDay = null;
-      state.multi = false;
+      setMulti(false);
       await loadVisits();
       paint();
     }),
@@ -343,6 +358,7 @@ function wire() {
   el.querySelector('[data-clear]')?.addEventListener('click', () => {
     state.customerId = null;
     state.picked.clear();
+    setMulti(false);
     ctx.visits = [];
     paint();
   });
@@ -360,6 +376,8 @@ function wire() {
     btn.addEventListener('click', () => {
       state.mode = btn.dataset.mode;
       state.openDay = null;
+      // 清單模式沒有多選這回事，那一層留著的話返回鍵會按不出東西
+      setMulti(false);
       paint();
     }),
   );
@@ -367,7 +385,7 @@ function wire() {
   el.querySelectorAll('[data-slot]').forEach((btn) =>
     btn.addEventListener('click', () => {
       toggle(btn.dataset.slot);
-      paint();
+      repaintPick(btn.dataset.slot);
     }),
   );
 
@@ -391,7 +409,7 @@ function wire() {
   const grid = el.querySelector('.bulkcal');
   if (grid) {
     wireLongPress(grid, '[data-day]', (btn) => {
-      state.multi = true;
+      setMulti(true);
       state.openDay = null;
       toggleDay(btn.dataset.day);
       paint();
@@ -399,16 +417,93 @@ function wire() {
   }
 
   el.querySelector('[data-multi-off]')?.addEventListener('click', () => {
-    state.multi = false;
+    setMulti(false);
     paint();
   });
 
   el.querySelector('[data-go]')?.addEventListener('click', () => run());
 }
 
+/**
+ * 進／出多選，**而且同時管那一層**。
+ *
+ * 三條出去的路都走它：右上角那顆「完成」、返回鍵、以及換人／換月／換模式
+ * （那時候多選已經沒有意義了）。各寫一次的話，總有一條會把層留在那裡，
+ * 而症狀是「返回鍵按了一下沒反應」。
+ */
+function setMulti(on) {
+  state.multi = on;
+  if (on) {
+    if (!multiLayer?.active) {
+      multiLayer = pushLayer(() => {
+        state.multi = false;
+        paint();
+      });
+    }
+    return;
+  }
+  multiLayer?.pop();
+  multiLayer = null;
+}
+
 function toggle(key) {
   if (state.picked.has(key)) state.picked.delete(key);
   else state.picked.add(key);
+}
+
+/**
+ * 勾一段**只換真的變了的那三塊**，不整頁重來（ADR-0038）。
+ *
+ * 她一次要點十幾下，而整頁重畫的代價是閃一下加捲回最上面。還有第二個代價：
+ * **節點是新的，CSS 的過場根本跑不起來** —— `.bulkrow__box` 上那條
+ * `transition` 寫了也等於沒寫，瀏覽器沒有起點可以動。
+ *
+ * 三塊：那一列自己、它那一天的格子（月曆模式下的半選／全選要跟著變）、
+ * 底下那一條。整天選起來（`toggleDay()`）仍然走 `paint()` —— 那一下本來就
+ * 換掉一整天，而且只有一下。
+ */
+function repaintPick(key) {
+  const row = rowsOfMonth().find((r) => r.key === key);
+  if (!row) return;
+  const on = state.picked.has(key);
+
+  // 屬性比對不用選擇器 —— key 裡有冒號，湊選擇器要另外跳脫
+  const btn = [...ctx.el.querySelectorAll('[data-slot]')].find((b) => b.dataset.slot === key);
+  if (btn) {
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    const box = btn.querySelector('.bulkrow__box');
+    if (box) box.innerHTML = on ? icon('check', { size: 14 }) : '';
+  }
+
+  repaintDayCell(row.visit.date);
+  repaintBar();
+}
+
+/** 月曆上那一格的全選／半選。清單模式下沒有那一格，那就什麼都不用做。 */
+function repaintDayCell(date) {
+  const cell = [...ctx.el.querySelectorAll('[data-day]')].find((b) => b.dataset.day === date);
+  if (!cell) return;
+  const items = rowsOfMonth().filter((r) => r.visit.date === date);
+  const all = allPicked(items);
+  cell.classList.toggle('is-on', all);
+  cell.classList.toggle('is-some', !all && items.some((r) => state.picked.has(r.key)));
+  cell.setAttribute('aria-pressed', String(all));
+}
+
+/** 底下那一條。**沒選就整條拿掉** —— 留一條寫著 0 的比不畫還吵。 */
+function repaintBar() {
+  const picked = rowsOfMonth().filter((r) => state.picked.has(r.key));
+  const old = ctx.el.querySelector('.bulkbar');
+
+  if (!picked.length) {
+    old?.remove();
+    return;
+  }
+  if (old) old.remove();
+  ctx.el.insertAdjacentHTML('beforeend', barHtml(picked));
+  // 重畫過的節點沒有監聽器了，這一顆要自己接回去
+  ctx.el.querySelector('[data-go]')?.addEventListener('click', () => run());
 }
 
 /** 整天選起來／整天放掉。已經全選就是放掉，其餘一律變成全選。 */
@@ -458,14 +553,21 @@ async function run() {
 
   // 後果那幾句**一個字都不自己寫**：走 `cancelConsequences()`，逐筆算完去重
   // （同一種只講一次）。那正是「提醒集中派生」要的東西。
+  //
+  // **那一筆要取消哪幾段一起傳進去。** 只傳第一段的話，「剩下的 N 段」會把
+  // 同一批要取消的其他段也算成剩下的 —— 她看到「剩下的 2 段不受影響」，
+  // 存完只剩 1 段。挑滿整天要講整天那種話，也由 domain 判斷（這裡比一次
+  // `at.length === slots.length` 就是第二份會分岔的規則）。
+  //
+  // 試算表那一句也走它：`sheetSyncOn` 進去，`SHEET_LINE` 出來。在這裡自己
+  // 寫一次的話，`data/sheetSync.js` 的 QUIET_MS 改了這一頁不會跟著改。
   const said = new Set();
   for (const { visit, at } of byVisit.values()) {
-    const lines = at.length === (visit.slots ?? []).length
-      ? cancelConsequences({ visit, coursesById, tasks })
-      : cancelConsequences({ visit, coursesById, tasks, slotIndex: at[0] });
+    const lines = cancelConsequences({
+      visit, coursesById, tasks, slotIndex: at, sheetSyncOn: isConfigured(ctx.settings),
+    });
     for (const line of lines) said.add(line);
   }
-  if (isConfigured(ctx.settings)) said.add('十秒後自動同步到試算表');
 
   const ok = await confirmAction({
     title: `取消這 ${picked.length} 段？`,

@@ -3935,16 +3935,6 @@ button.mark::after {
   color: var(--text-mute);
 }
 
-/* 「這一天還有另外 2 段」。
-   2026-09-08 之前這是一顆「看全部」的按鈕（ADR-0080 第三點）。她那天說
-   「純粹且僅呈現該時段課程的資訊」，所以按鈕拿掉了 —— 剩下的這一行
-   回答的仍然是「這天他還來做什麼」，只是不再把另外兩段攤在同一張卡上。 */
-.readmore {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-2xs);
-  color: var(--text-mute);
-}
-
 /* 確認畫面裡的一筆時段。點一下切成「客人說不行」，其餘照樣成立。 */
 .slotrow {
   display: flex;
@@ -4293,6 +4283,26 @@ button.mark::after {
 }
 
 /* 兩格並排。手機上一格大約 150px，放得下「高能量雷射」那種長度。 */
+/* 展開的那幾格是**鉛筆叫出來的**，所以要看得出來是從那一列長出來的。
+   淡入加一點點往下的位移就夠了（同 `.nthfields`）。
+
+   **不做 0fr→1fr 的高度動畫**：這一列是整段重畫出來的（`paint(ctx)`），
+   節點是新的，瀏覽器沒有起點可以動 —— `transition` 寫了也不會跑，
+   要動只能是 `animation`。而入場的高度動畫在「兩格」與「一格」
+   （器材那幾列沒有 LINE）會是兩種速度，抖給她看不如不做。
+
+   `prefers-reduced-motion` 由檔案底部對 `*` 那一段接手。 */
+@keyframes namerow-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.namerow.is-editing > .namerow__fields,
+.namerow.is-editing > .namerow__preview,
+.namerow.is-editing > .namerow__actions {
+  animation: namerow-in var(--motion-base) var(--ease-out);
+}
+
 .namerow__fields {
   display: flex;
   gap: var(--space-2);
@@ -6417,6 +6427,21 @@ summary {
   margin-bottom: 0;
 }
 
+/* 切過去那一排丸子淡入。**不要橫向滑入** —— 那一排自己就是左右捲的
+   （`.chiprow`），滑入會跟她的手勢打架，看起來像捲錯了。
+
+   `hidden` 是 `display: none`，而 `display` 動不了；但元素從 none 變成畫得出來
+   的那一刻 CSS 動畫會重新跑一次，所以這裡用 `animation` 不用 `transition`。
+   兩個 panel 都留在 DOM 裡（拿掉節點的話她切一下就把掛好的課程清光了）。 */
+@keyframes hang-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pbedit__hang > [data-hang-panel]:not([hidden]) {
+  animation: hang-in var(--motion-fast) var(--ease-out);
+}
+
 /* 分段切換。兩顆貼在一起、共用一個底槽 —— 它講的是「同一件事的兩面」，
    而不是兩個各自獨立的按鈕。 */
 .seg {
@@ -6722,8 +6747,20 @@ summary {
  */
 
 /* 一天一小段。日期靠左，「整天選起來」靠右 —— 那一顆是這一頁最省手指的路。 */
+/* 攤開的那一天。它是**點那一格叫出來的**，所以從那一格底下長出來 ——
+   同 `.nthfields` 與 `.namerow`，淡入加一點往下的位移。
+   高度動畫一樣不做：一天一段與一天四段會是兩種速度。 */
+@keyframes bulkday-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
 .bulkday {
   margin-top: var(--space-4);
+}
+
+.bulkday--open {
+  animation: bulkday-in var(--motion-base) var(--ease-out);
 }
 
 .bulkday__head {
