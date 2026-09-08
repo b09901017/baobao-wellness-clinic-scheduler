@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  validate, roomSlots, roomsForCourse, orderedRoomsForCourse,
+  validate, roomSlots, roomsForCourse, orderedRoomsForCourse, orderedRoomSlots,
   MASTER_TYPES, ROOM_TYPES, ASSIGNS,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
+  picksDoctor,
   partnerNames, MASTER_LABELS,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
@@ -354,14 +355,55 @@ describe('這個課程的診間怎麼排', () => {
     assert.deepEqual(pref('course-iv-laser'), ['點滴10', '治2', '治3']);
   });
 
+  // 兩個畫面都要「排好序的那一份選項 ＋ 每一顆是不是常用」，而它們原本各自
+  // 拿 `orderedRoomsForCourse()` 組一次 rank Map、各自對 `roomSlots()` 重排 ——
+  // 一邊切 primary/rest、一邊用 Infinity 墊底。同一件事寫了兩次。
+  describe('排好序的診間選項', () => {
+    const rooms = [
+      { id: 'iv2', name: '點滴2', type: '點滴室' },
+      { id: 'iv10', name: '點滴10', type: '點滴室' },
+      { id: 't2', name: '治2', type: '治療室' },
+    ];
+    const course = { assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
+      preferredRoomIds: ['iv10'] };
+
+    test('排得進去的排前面，推薦的又在最前面', () => {
+      assert.deepEqual(orderedRoomSlots(course, rooms).map((s) => s.label),
+        ['點滴10', '點滴2', '治2']);
+    });
+
+    test('每一顆都說得出自己是不是排得進去', () => {
+      assert.deepEqual(orderedRoomSlots(course, rooms).map((s) => s.usual),
+        [true, true, false]);
+    });
+
+    test('帶著 roomSlots() 給的那幾格 —— 呼叫端不用再湊一次', () => {
+      const [first] = orderedRoomSlots(course, rooms);
+      assert.equal(first.roomId, 'iv10');
+      assert.equal(first.bed, null);
+    });
+
+    test('不選診間的課程：一顆都排不進去，但選項照樣列得出來', () => {
+      const out = orderedRoomSlots({ assigns: 'none' }, rooms);
+      assert.equal(out.length, 3);
+      assert.deepEqual(out.map((s) => s.usual), [false, false, false]);
+    });
+
+    test('沒有診間就是空的', () => {
+      assert.deepEqual(orderedRoomSlots(course, []), []);
+    });
+  });
+
   // 兩個入口各排一次的話，同一個課程在兩個畫面上第一顆丸子不一樣。
   test('壓表與來訪編輯器都走同一支排序', () => {
     for (const rel of ['js/ui/views/schedule.js', 'js/ui/views/visitEditor.js']) {
       const src = readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
-      assert.match(src, /orderedRoomsForCourse\(/, `${rel} 沒有走排序那一支`);
+      assert.match(src, /orderedRoomSlots\(/, `${rel} 沒有走排序那一支`);
+      // 自己組 rank Map、自己對 roomSlots() 重排，就是把一半的排序搬回畫面
+      assert.ok(!/roomSlots\(all\.rooms\)/.test(src), `${rel} 還在自己攤平診間`);
       assert.ok(
-        !/roomsForCourse\(/.test(src.replace(/orderedRoomsForCourse\(/g, '')),
-        `${rel} 還在自己用 roomsForCourse() 排 —— 順序會跟另一頁不一樣`,
+        !/orderedRoomsForCourse\(/.test(src.replace(/orderedRoomSlots\(/g, '')),
+        `${rel} 還在自己排一次 —— 順序會跟另一頁不一樣`,
       );
     }
   });
@@ -494,6 +536,20 @@ describe('種子資料', () => {
   test('只有二返預設要選醫師，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
     assert.deepEqual(withDoctor, ['二返']);
+  });
+
+  // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到
+  // （`picksDoctor()`，ADR-0058）。而「一行都沒改」正是最容易沒有人盯的那種：
+  // 有人把它改回「只看 requiresDoctor」的話，復健科與心臟科會安靜地選不到醫師。
+  test('A 類一律選得到醫師，不用逐課程勾', () => {
+    for (const c of SEED.courses.filter((x) => x.category === 'A')) {
+      assert.equal(picksDoctor(c), true, c.name);
+    }
+    assert.equal(picksDoctor({ category: 'A' }), true, '連旗標都沒有也算');
+    assert.equal(picksDoctor({ category: 'C', requiresDoctor: true }), true, '旗標是非 A 類的例外開關');
+    assert.equal(picksDoctor({ category: 'C' }), false);
+    assert.equal(picksDoctor({ category: null }), false);
+    assert.equal(picksDoctor(null), false);
   });
 
   // 醫師走的是 `requiresDoctor` / `picksDoctor()` 那條路，不是 `assigns`

@@ -59,7 +59,7 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  roomSlots, orderedRoomsForCourse, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
+  orderedRoomSlots, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
   THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { splitFlags } from '../../domain/customers.js';
@@ -1243,7 +1243,7 @@ function entFields(row, picked) {
            挑之前那個問題沒有答案，所以兩排都不畫、只留一句話 ——
            照預設課程畫一排出來等於替她答了一個她還沒回答的問題，
            而四選一的預設課程剛好是要診間的 ILIB（她 2026-09-08 回報的那件事）。 */''}
-    ${assigns === null ? undecidedHint(picked) : ''}
+    ${assigns === null ? f.undecidedHint(picked.entitlement?.label) : ''}
     ${assigns === 'therapist' ? therapistField(all) : ''}
     ${assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all) : ''}
@@ -1474,24 +1474,6 @@ function ivField(all, picked) {
     </div>`;
 }
 
-/**
- * 「先選上面那一台」。
- *
- * 擇一池還沒挑器材時，「這一段要治療師還是治療室」還沒有答案
- * （`assignsFor()` 回 `null`）。**兩排都不畫，但要留一句話** ——
- * 什麼都不出現跟「這一種不用指派」長得一模一樣，而她會直接按下去。
- *
- * 講的是那一顆額度丸子上寫的字（她剛剛按的那一顆），不是課程名 ——
- * 「復能 每次都要選器材」對著一個她沒看到的字講話。
- */
-function undecidedHint(picked) {
-  const what = picked?.entitlement?.label ?? '這一筆';
-  return `
-    <p class="field__hint" style="margin: 0 0 var(--space-4)">
-      先選上面那一台 —— ${esc(what)} 要治療師還是治療室，看那天用的是哪一種。
-    </p>`;
-}
-
 function therapistField(all) {
   // 治療師的選單只列治療師 —— 跑出三位醫師來的話，她要點到第三個字才發現
   // 點錯人（ADR-0026，`staffWithRole()` 是唯一的入口）。
@@ -1622,23 +1604,21 @@ function pickIvIfBought(picked) {
  * 診間。這個課程排得進去的放前面，其餘的收在底下 ——
  * 十七間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
  *
- * **前面那一排的順序由 `orderedRoomsForCourse()` 決定**（她 2026-09-08 要的
+ * **前面那一排的順序由 `orderedRoomSlots()` 決定**（她 2026-09-08 要的
  * 「優先置頂」）：EECP 是治5、治8，ILIB 是 `.10`、治2、治3。
  * 來訪編輯器走的是同一支 —— 各排一次的話，同一個課程在兩個畫面上第一顆
  * 丸子不一樣，她不會知道哪個算數。
  */
 function roomField(all, course) {
-  const ordered = orderedRoomsForCourse(course, all.rooms);
-  const rank = new Map(ordered.map((r, i) => [r.id, i]));
-  const slots = roomSlots(all.rooms);
+  // 排好序、每一顆帶著「排不排得進去」的那一份，只算在 `orderedRoomSlots()`
+  // —— 來訪編輯器讀的是同一支。
+  const slots = orderedRoomSlots(course, all.rooms);
   const chip = (s) => `
     <button class="chip" type="button" aria-pressed="${keyOf(s) === view.roomKey}"
             data-room="${esc(keyOf(s))}">${esc(s.label)}</button>`;
 
-  const primary = slots
-    .filter((s) => rank.has(s.roomId))
-    .sort((a, b) => rank.get(a.roomId) - rank.get(b.roomId));
-  const rest = slots.filter((s) => !rank.has(s.roomId));
+  const primary = slots.filter((s) => s.usual);
+  const rest = slots.filter((s) => !s.usual);
 
   return `
     <div class="fieldgroup">

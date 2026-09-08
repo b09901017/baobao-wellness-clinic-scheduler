@@ -587,6 +587,26 @@ export function orderedRoomsForCourse(course, rooms) {
 }
 
 /**
+ * 排班時那一排診間丸子：**排好序的選項，每一顆說得出自己是不是排得進去。**
+ *
+ * 壓表與來訪編輯器要的是同一份東西，而它們原本各自拿 `orderedRoomsForCourse()`
+ * 組一次 rank Map、各自對 `roomSlots()` 重排 —— 一邊切 primary／rest、
+ * 一邊用 `Infinity` 墊底。CLAUDE.md 寫著「排序只寫在 `orderedRoomsForCourse()`」，
+ * 而實際上有一半在畫面上。這一支把那一半也收回來。
+ *
+ * `usual` 是「這個課程排得進去嗎」。**排不進去的不藏起來**（她偶爾真的會排到
+ * 別間，ADR-0002），呼叫端拿它決定要收進「其他診間」還是標一句「不常用」。
+ *
+ * @returns {{roomId:string, bed:null, label:string, usual:boolean}[]}
+ */
+export function orderedRoomSlots(course, rooms) {
+  const rank = new Map(orderedRoomsForCourse(course, rooms).map((r, i) => [r.id, i]));
+  return roomSlots(rooms)
+    .map((s) => ({ ...s, usual: rank.has(s.roomId) }))
+    .sort((a, b) => (rank.get(a.roomId) ?? Infinity) - (rank.get(b.roomId) ?? Infinity));
+}
+
+/**
  * 這個課程給不給她挑時長 —— 也就是「它有沒有兩種以上的規格」。
  *
  * 名單記在**課程主檔**上（`durationChoices`），不寫死課程名字 ——

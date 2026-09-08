@@ -83,6 +83,18 @@ export function nameOf(row, context, { as = 'course' } = {}) {
 }
 
 /**
+ * 一筆主檔的**全名**。
+ *
+ * 全名是「她叫它什麼」（`SIS`、`INDIBA`、`點滴2`）—— 額度的名字、主檔清單、
+ * 試算表、稽核紀錄讀的都是它，而月曆讀的是別稱（`nameOf(…, 'short')`）。
+ *
+ * 2026-09-08 拿掉 `full` 那一種情境之後，這一支沒有對應的存取器，於是
+ * `String(x.name ?? '').trim()` 散在三個檔案裡。取名字這件事只有一支，
+ * 那一支就是這裡。
+ */
+export const fullNameOf = (row) => trimmed(row?.name);
+
+/**
  * 一段來訪要唸成什麼。**這一支是唯一的一份。**
  *
  * 四條規則：

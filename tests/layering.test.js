@@ -147,3 +147,33 @@ test('/ui/views 的委派監聽不掛在整頁的 el 上', () => {
     `這些畫面把委派監聽掛在整頁的 el 上，重畫一次就多一顆：${offenders.join(', ')}`,
   );
 });
+
+// **`/ui` 不可以跟 `/ui/components` 借規則。**
+//
+// 2026-09-08 那一輪踩過一次：擇一池「哪幾台屬於復能、鄰居課程是誰」這條規則
+// 住在 `ui/components/buy.js`，而第二個消費端出現的那一天（設定 →「名稱怎麼寫」
+// 那六列）那一頁只好從一個 UI 元件 import 規則 —— SPEC 第 10 節說規則住 domain。
+//
+// 判準不是「不可以 import 元件」（畫面當然會用元件），而是**那幾支純函式**：
+// 名字裡帶著領域概念、算的是資料不是 HTML。列成白名單比寫一條聰明的規則可靠。
+test('擇一池那幾條規則住在 /domain，不住在 /ui/components', () => {
+  const RULES = [
+    'poolCourseOf', 'poolChoices', 'poolSiblingCourseIds', 'idsForPoolKind', 'poolPickOf',
+  ];
+  const domain = readFileSync(join(JS_ROOT, 'domain', 'entitlements.js'), 'utf8');
+  for (const name of RULES) {
+    assert.ok(domain.includes(`export function ${name}(`), `${name} 應該住在 domain`);
+  }
+
+  const offenders = [];
+  for (const file of filesUnder(join(JS_ROOT, 'ui'))) {
+    const rel = toPosix(file.slice(JS_ROOT.length));
+    const src = readFileSync(file, 'utf8');
+    // 只看 import 那幾行 —— 檔案裡提到名字（註解）不算
+    for (const line of src.split('\n')) {
+      if (!/from\s+['"].*components\/buy\.js['"]/.test(line)) continue;
+      if (RULES.some((name) => line.includes(name))) offenders.push(`${rel}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `這幾行跟 UI 元件借了規則：${offenders.join('；')}`);
+});

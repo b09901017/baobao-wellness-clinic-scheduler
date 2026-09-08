@@ -6,6 +6,7 @@
 import * as config from '../../data/config.js';
 import {
   MASTER_LABELS, ROOM_TYPES, STAFF_ROLES, ASSIGNS, ASSIGN_LABELS, validate,
+  roomsForCourse,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
 } from '../../domain/masterData.js';
@@ -269,13 +270,17 @@ const editors = {
       }),
       // 常用診間（`orderedRoomsForCourse()`）。**這是排序不是限制** ——
       // 沒勾的那幾間照樣選得到，只是排在「其他診間」底下。
+      //
+      // **候選只有這個課程排得進去的那幾間**（`roomsForCourse()`）：勾一間它
+      // 排不進去的診間，那一顆永遠不會出現在壓表上 —— 一顆按得下去卻什麼都
+      // 不會發生的勾選框，比沒有還糟。上面那一排改了，這一排跟著變。
       f.checkboxes({
         name: 'preferredRoomIds', label: '常用診間',
         values: r.preferredRoomIds ?? [],
-        options: (all?.rooms ?? []).filter((x) => !x.deletedAt)
+        options: roomsForCourse(r, (all?.rooms ?? []).filter((x) => !x.deletedAt))
           .map((x) => ({ value: x.id, label: x.name })),
         hint: '勾起來的排在最前面。這是順序不是限制 —— 沒勾的照樣選得到，'
-          + '只是收在「其他診間」底下。上面那一排勾不到的診間，勾了也不會出現。',
+          + '只是收在「其他診間」底下。這裡只列得出上面那一排選得到的診間。',
       }),
       f.toggle({
         name: 'requiresEquipment', label: '來訪時要選器材（擇一池）',

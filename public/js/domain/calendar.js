@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass } from './visits.js';
+import { isActive, statusClass, showsRoom } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -158,7 +158,13 @@ export function agendaFor(
         courseLabel: master ? slotName(slot, master, 'short') : null,
         // **印簡寫**（2026-09-08）：這一列跟月曆一樣是「她自己看」的地方，
         // 一格只放得下幾個字。沒設簡寫就退回全名（`nameOf()`）。
-        room: roomsById[slot.roomId] ? nameOf(roomsById[slot.roomId], 'short') : null,
+        //
+        // **不要診間的課程一律不印**（`showsRoom()`，ADR-0079）：那六個課程
+        // 改成「都不用」之後，既有來訪身上的 `roomId` 留著不動 —— 不畫這件事
+        // 只能發生在畫的時候。認不出課程（沒給 `master`、匯進來的舊來訪）就照印。
+        room: showsRoom(slot, master?.courses ?? null) && roomsById[slot.roomId]
+          ? nameOf(roomsById[slot.roomId], 'short')
+          : null,
         bed: slot.bed ?? null,
         therapist: staffById[slot.therapistId]?.name ?? null,
         roomId: slot.roomId ?? null,

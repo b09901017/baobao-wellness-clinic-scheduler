@@ -16,6 +16,7 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+import { slotName } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
@@ -285,18 +286,32 @@ export function formSlotIndexes(visit, coursesById = {}) {
 /**
  * 這一筆來訪那天做什麼，講成一句話。
  *
- * 同一個課程只印一次 —— 那天做兩節復能就是「復能」，不是「復能、復能」。
- * 名字讀 `slot.courseName`（來訪身上的快照），主檔改名不影響已經排出去的。
+ * 同一個名字只印一次 —— 那天做兩節 SIS 就是「SIS」，不是「SIS、SIS」。
+ *
+ * ## 帶主檔就講顯示名稱（2026-09-08）
+ *
+ * 這一支以前一律讀 `slot.courseName`，而 `CLAUDE.md` 寫著那一格是
+ * **快照不是顯示名稱** —— 症狀是同一筆來訪在客戶詳情那一列寫「復能」、
+ * 在日曆上寫「SIS(60)」，而她會以為那是兩筆。ADR-0078 的後果那一節記過
+ * 這條分岔，這裡把它收掉：**呼叫端手上有主檔就傳進來**，走的是跟日曆
+ * 同一支 `slotName()`。
+ *
+ * **沒帶就退回快照**，所以既有呼叫端一個字都不用改。稽核紀錄刻意不帶
+ *（`domain/audit.js`）：那一份記的是**當時寫下去的字**，主檔之後改名，
+ * 歷史紀錄不該跟著變。
  *
  * **一個時段都認不出來時退回「N 段」**，不要回空字串：她在「跟客人確認時間」
  * 那一排丸子上看到空白，會以為那顆丸子壞了。
  *
- * 兩個畫面共用：客戶詳情的來訪列，與待辦中心「跟客人確認時間」那一排丸子
- *（她的原話是「9/14(一)復能、營養針」）。兩份寫法遲早會有一份忘了去重。
+ * @param {object} visit
+ * @param {{courses?:object[], equipment?:object[]}|null} [master]
  */
-export function visitCourseLabel(visit) {
-  const names = [...new Set((visit?.slots ?? []).map((s) => s.courseName).filter(Boolean))];
-  return names.join('、') || `${(visit?.slots ?? []).length} 段`;
+export function visitCourseLabel(visit, master = null) {
+  const slots = visit?.slots ?? [];
+  const names = [...new Set(
+    slots.map((s) => (master ? slotName(s, master, 'short') : s.courseName)).filter(Boolean),
+  )];
+  return names.join('、') || `${slots.length} 段`;
 }
 
 /**
@@ -600,6 +615,35 @@ export function coursesForEntitlement(entitlement, courses = [], equipment = [])
  */
 export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
+
+/**
+ * 這一段在畫面上要不要印診間。
+ *
+ * 她 2026-09-08 把健檢、體適能、身體組成、營養諮詢、門診與二返六個課程改成
+ * 「都不用」（ADR-0079），而那一題的答案裡寫著：
+ *
+ * > 既有來訪身上的 `roomId` 留著不動、**畫面上不畫**
+ *
+ * 資料一個字都不動是刻意的（改既有的幾百筆是一次沒有人按過的寫入），
+ * 所以「不畫」這件事只能發生在畫的時候 —— 也就是這一支。
+ *
+ * ## 它跟 `assignsFor()` 問的不是同一句話
+ *
+ * `assignsFor()` 是**壓表當下**的問題：「現在要請她挑治療師還是治療室？」
+ * 所以擇一池還沒挑器材時它回 `null`。這一支是**畫已經存下去的那一段**：
+ * 課程早就定了（`courseForEquipment()` 在存檔那一刻就跑過），所以只問課程。
+ *
+ * **認不出課程就照印。** 匯進來的舊來訪（ADR-0011）與被刪掉的課程都走這一條
+ * —— 少印一個診間比多印一個糟：她會以為那一筆的資料掉了。
+ *
+ * @param {{courseId?:string, roomId?:string}|null} slot
+ * @param {object[]} courses 課程主檔（含已刪除的，呼叫端本來就是這樣讀）
+ */
+export function showsRoom(slot, courses = []) {
+  if (!slot?.roomId) return false;
+  const course = (courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  return course ? course.assigns === 'room' : true;
+}
 
 /**
  * 這一段**現在**要指派什麼。`null` = 還答不出來。

@@ -136,7 +136,7 @@ export function customerReport({
     }
   }
 
-  const blocks = taskBlocks(tasks, used);
+  const blocks = taskBlocks(tasks, used, { courses, equipment });
   rows.push([], ['備註', customer?.notes ?? '']);
   rows.push([], ['TODO（還沒做的）'], ...taskRows(blocks.todo, '死線'));
   rows.push([], ['FINISHED（做完的）'], ...taskRows(blocks.finished, '完成'));
@@ -377,7 +377,8 @@ export function syncBundle({
       followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById }),
       // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
       // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
-      tasks: taskBlocks(tasksBy[customer.id] ?? [], visits),
+      tasks: taskBlocks(tasksBy[customer.id] ?? [], visits,
+        { courses: master.courses ?? [], equipment: master.equipment ?? [] }),
       // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
       log: dates.map((date) => ({
         date,
@@ -594,7 +595,7 @@ function bookingsOf(visits, entitlementId, dates) {
  * 而死線是它的前一天，兩個差一天最容易看錯人。來訪找不到（獨立待辦、
  * 來訪被刪了）才退回用死線。
  */
-function taskBlocks(tasks, visits) {
+function taskBlocks(tasks, visits, master = null) {
   const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
@@ -602,7 +603,7 @@ function taskBlocks(tasks, visits) {
     // 哪一天、哪一場走 `taskRules.js` 的 `taskLine()` —— 客戶詳情與待辦中心
     // 讀的是同一支。以前這裡自己算了一次同樣的東西，而「日期取來訪那一天
     // 不是死線」這個判斷只要有兩份，就會有一份差一天。
-    const { date, what } = taskLine(t, visitById[t.visitId]);
+    const { date, what } = taskLine(t, visitById[t.visitId], master);
     return {
       label: [date ? monthDay(date) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',

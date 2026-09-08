@@ -13,6 +13,13 @@
 //
 // 要勾的地方一個都沒有變：待辦中心、客戶詳情，還有日曆上那一列長按。
 //
+// ## 抬頭寫的是「這一天」不是「這一場」
+//
+// 2026-09-08 之後讀取卡片點一段就只畫那一段（ADR-0080），但**這一塊仍然是
+// 整筆來訪的**：`todosForVisit()` 收的是來訪，而掛號、療程單、寫紀錄那幾張
+// 本來就綁著一整筆。抬頭要說清楚它涵蓋的範圍，不然她會以為那幾張只跟
+// 她剛剛點的那一段有關。
+//
 // ## 它長在四個畫面上，那是刻意的
 //
 // 這一塊接在 `visitReadHtml()` 裡面，而那一支是日曆、客戶詳情、待辦中心、
@@ -51,7 +58,7 @@ export function mirrorHtml({ visit, tasks, coursesById = {}, today } = {}) {
 
   return `
     <div class="taskmirror">
-      <div class="taskmirror__head">這一場的待辦</div>
+      <div class="taskmirror__head">這一天的待辦</div>
       <ul class="taskmirror__list">
         ${rows.map((r) => rowHtml(r, today)).join('')}
       </ul>

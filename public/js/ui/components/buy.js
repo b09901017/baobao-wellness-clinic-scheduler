@@ -27,7 +27,9 @@
 import * as f from './form.js';
 import {
   TIER_PRESETS, tieredLabel, itemisedLabel, validateEntitlement,
-  poolName, timedLabel, durationChoicesOf, countWord,
+  poolName, timedLabel, durationChoicesOf,
+  POOL_SET_HOME, POOL_SET_ALL, poolCourseOf, poolChoices, poolSiblingCourseIds,
+  idsForPoolKind, poolPickOf,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
@@ -43,8 +45,7 @@ import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 export const POOL_PICK = '__pool__';
 
 /** 「哪一種」那一排裡的兩顆整組。其餘每一台器材各一顆，值就是器材 id。 */
-export const POOL_SET_HOME = '__set_home__';
-export const POOL_SET_ALL = '__set_all__';
+
 
 /** 同上，代表營養品的那一顆。選了它才會冒出「哪一種」那一排。 */
 export const PRODUCT_PICK = '__product__';
@@ -168,27 +169,6 @@ function courseChips(master) {
   const rest = out.filter((x, i) => i === poolAt || !siblings.has(x.value));
   const at = rest.findIndex((x) => x.value === POOL_PICK);
   return [...rest.slice(0, at + 1), ...moved, ...rest.slice(at + 1)];
-}
-
-/**
- * 擇一池那個課程的「鄰居」是哪幾個課程。
- *
- * 四選一裡那幾台器材身上的 `courseId`，扣掉復能自己那一個 —— 現在就是
- * ILIB 那一個。空的（她還沒把 ILIB 建成器材）就回空的，那時候
- * 資料健檢的「器材主檔少了一台」會講這件事。
- *
- * 設定 →「名稱怎麼寫」那一頁也問同一句話（她那六種的第六種就是這裡回的
- * 那一個課程），所以它 export 出去 —— 兩邊各判斷一次的話，她之後多接一台
- * 新器材、指到一個新課程時，加購那一排跟著變而名稱那一頁沒有。
- */
-export function poolSiblingCourseIds(master = {}) {
-  const home = poolCourseOf(master);
-  const ids = new Set();
-  for (const eq of master.equipment ?? []) {
-    if (eq.deletedAt || eq.active === false) continue;
-    if (eq.courseId && eq.courseId !== home?.id) ids.add(eq.courseId);
-  }
-  return ids;
 }
 
 /**
@@ -525,87 +505,6 @@ function detailRow(e, master) {
 }
 
 // ---------- 復能：哪一種 → 幾分鐘 ----------
-
-/**
- * 「復能」是哪一個課程。**不寫死名字** —— 判準是「排班時要選器材」，
- * 跟 `picksEquipment()` 問的是同一件事。
- *
- * 有兩個以上就取第一個：那時候這一排本來就講不清楚，而她會在主檔上看到問題。
- */
-export function poolCourseOf(master = {}) {
-  return (master.courses ?? []).find((c) => !c.deletedAt && c.requiresEquipment) ?? null;
-}
-
-/**
- * 「哪一種」那一排有哪幾顆。她 2026-09-07 指名的五顆：
- *
- * > 三選一/四選一/高能量雷射/SIS/INDIBA
- *
- * 前面是**整組**（三選一、四選一），後面是**單買一台**。順序是刻意的：
- * 方案裡的那一項就是三選一，她最常買的排最前面（同 `ivChoicesFor()` 的判斷）。
- *
- * 兩組整組的定義：
- *
- * - **三選一** = 復能那個課程自己的器材（`courseId` 指到它的那幾台）
- * - **四選一** = 全部還在用的器材（多出來的就是 ILIB）
- *
- * 兩組一樣大時只留一顆 —— 畫兩顆一模一樣的丸子等於在問一個沒有答案的問題。
- * 一台器材都沒有指到課程（舊資料）時，「整組」就是全部，只有一顆。
- *
- * **單買那一排只有復能自己的器材**，ILIB 不在裡面：它在「買了什麼」那一排
- * 自己有一顆（就在復能隔壁），而單買 ILIB 是那個課程的 `single` 額度 ——
- * 它要的是診間不是治療師，跟池裡那三台不是同一種東西。同一件事給兩條路買，
- * 兩邊算出來的次數會對不起來。
- *
- * 丸子上印的是器材的**全名**，跟 `poolName()` 算出來的名字同一份 ——
- * 按下去之後名字變成什麼，按之前就看得到。（別稱那一格留給月曆，
- * 那裡 INDIBA 是 `IN`，但這一排要印 `INDIBA`，見 2026-09-08 那一輪。）
- */
-export function poolChoices(master = {}) {
-  const equipment = (master.equipment ?? []).filter((e) => !e.deletedAt && e.active !== false);
-  const home = poolCourseOf(master);
-  const tagged = equipment.filter((e) => e.courseId);
-
-  const mine = home && tagged.length
-    ? equipment.filter((e) => e.courseId === home.id)
-    : equipment;
-  const homeIds = mine.map((e) => e.id);
-  const allIds = equipment.map((e) => e.id);
-
-  const sets = [];
-  if (homeIds.length > 1) sets.push({ value: POOL_SET_HOME, ids: homeIds });
-  if (allIds.length > homeIds.length && allIds.length > 1) {
-    sets.push({ value: POOL_SET_ALL, ids: allIds });
-  }
-
-  return {
-    sets: sets.map((x) => ({ ...x, label: `${countWord(x.ids.length)}選一` })),
-    singles: mine.map((eq) => ({
-      value: eq.id,
-      ids: [eq.id],
-      label: String(eq.name ?? '').trim(),
-    })),
-  };
-}
-
-/** 那一顆的值 → 要存進去的那一串器材 id。認不得的回 null（呼叫端當成沒選）。 */
-export function idsForPoolKind(value, master = {}) {
-  if (!value || value === '__null__') return null;
-  const { sets, singles } = poolChoices(master);
-  return [...sets, ...singles].find((x) => x.value === value)?.ids ?? null;
-}
-
-/**
- * 現在按著的是哪一顆。**比的是那一串 id，不是記她按了什麼** ——
- * 從方案展開出來的額度身上只有 ids，而她點進去調整時那一排也要按對。
- */
-export function poolPickOf(e, master = {}) {
-  const mine = [...(e?.optionEquipmentIds ?? [])].sort().join('|');
-  if (!mine) return null;
-  const { sets, singles } = poolChoices(master);
-  return [...sets, ...singles]
-    .find((x) => [...x.ids].sort().join('|') === mine)?.value ?? null;
-}
 
 /**
  * 「哪一種」那一排。

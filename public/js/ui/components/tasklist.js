@@ -33,9 +33,13 @@ import { icon } from '../icons.js';
  *   **算不出來就傳 null，那一列什麼都不說** —— 斷言「還沒約」會讓她照著去多約一場。
  * @param {string} [opts.actions] 「詳情 ›」左邊要不要再插一顆按鈕（例：去壓表）
  * @param {boolean} [opts.link] 要不要那顆「詳情 ›」。預設要
+ * @param {object|null} [opts.master] 課程與器材主檔。帶了那一列就講**顯示名稱**
+ *   （`SIS(60)`），跟日曆同一種寫法；沒帶退回快照（`visitCourseLabel()`）。
  */
-export function taskRow(task, visit = null, { booking = null, actions = '', link = true } = {}) {
-  const line = taskLine(task, visit);
+export function taskRow(task, visit = null, {
+  booking = null, actions = '', link = true, master = null,
+} = {}) {
+  const line = taskLine(task, visit, master);
   // 來訪找不到（獨立待辦、來訪被刪了）就什麼都不接：右邊那顆丸子已經在講
   // 死線了，這裡再印一次死線只是把同一件事講兩遍，而且看起來像來訪日。
   const tail = line.fromDue

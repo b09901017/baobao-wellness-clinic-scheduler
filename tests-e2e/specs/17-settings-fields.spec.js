@@ -241,3 +241,42 @@ test('S10 變數丸子插在游標處，不是接在最後面', async ({ app, pa
 
   await expect(page.locator('[data-text="confirm"]')).toHaveValue('A{name}B');
 });
+
+// 「常用診間」是 2026-09-08 加的第三個欄位（ADR-0079）。
+//
+// **它是順序不是限制** —— 勾起來的排在最前面，沒勾的照樣選得到。
+// 候選只有這個課程排得進去的那幾間：勾一間它排不進去的，那一顆永遠不會出現
+// 在壓表上，而一顆按得下去卻什麼都不會發生的勾選框比沒有還糟。
+test('S11 常用診間存得下去、讀得回來，而且只列得出排得進去的那幾間', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/courses');
+
+  // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有那八間
+  await page.locator('[data-edit="course-iv-drip"]').click();
+  const boxes = page.locator('input[name="preferredRoomIds"]');
+  await expect(boxes).toHaveCount(8);
+  await expect(page.locator('input[name="preferredRoomIds"][value="room-t2"]'),
+    '治療室排不進營養點滴，不該列得出來').toHaveCount(0);
+
+  await page.locator('input[name="preferredRoomIds"][value="room-iv10"]').check();
+  await page.click('button[type="submit"]');
+  await app.settled();
+  await page.waitForTimeout(600);
+
+  const course = await app.readDoc('config/app/courses', 'course-iv-drip');
+  expect(course.preferredRoomIds, '真的存進去了').toContain('room-iv10');
+
+  // 再打開一次，畫面上那一格還勾著
+  await page.locator('[data-edit="course-iv-drip"]').click();
+  await expect(page.locator('input[name="preferredRoomIds"][value="room-iv10"]')).toBeChecked();
+});
+
+// 種子上 EECP 與 ILIB 的常用診間就是她給的那幾間，而壓表那一排照著它排。
+test('S12 不指派診間的課程沒有「常用診間」那一排', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/courses');
+
+  // 健檢 2026-09-08 改成「都不用」，所以那一排一顆候選都沒有
+  await page.locator('[data-edit="course-checkup"]').click();
+  await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(0);
+});

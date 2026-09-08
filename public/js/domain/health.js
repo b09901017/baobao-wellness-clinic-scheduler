@@ -22,6 +22,7 @@ import {
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
 import { clinicalTerms, durationChoicesOf, ASSIGN_LABELS } from './masterData.js';
+import { fullNameOf } from './naming.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
@@ -896,7 +897,7 @@ const LEGACY_ROOMS = [
 ];
 
 /**
- * 十七、診間清單跟建議的不一樣。
+ * 十五、診間清單跟建議的不一樣。
  *
  * 三種形狀，一種一個 `mode`：
  *
@@ -957,7 +958,7 @@ function checkRoomList(ctx) {
   for (const row of LEGACY_ROOMS) {
     const mine = byId[row.id];
     // 她自己改過名字就不動 —— 那代表她把那一間拿去當別的用了
-    if (!mine || mine.deletedAt || String(mine.name ?? '').trim() !== row.name) continue;
+    if (!mine || mine.deletedAt || fullNameOf(mine) !== row.name) continue;
     out.push({
       severity: 'attention',
       title: mine.name,
@@ -971,7 +972,7 @@ function checkRoomList(ctx) {
 }
 
 /**
- * 十八、來訪上還記著床位。
+ * 十六、來訪上還記著床位。
  *
  * 「取消任何床位區分」（她 2026-09-08）。主檔那一頁與排班的選項已經沒有床位了，
  * 但**既有來訪身上那個 `A` 還在** —— 而 `conflictWarnings()` 的撞期判斷比的是
@@ -1079,7 +1080,7 @@ const LEGACY_ASSIGNS = {
 };
 
 /**
- * 十六、課程的指派跟建議的不一樣。
+ * 十八、課程的指派跟建議的不一樣。
  *
  * **只在她那一格還停在舊種子那一代的時候報。** 她自己改成第三種值是一個決定，
  * 不可以被一顆按鈕改回去（同 `checkPoolLabels()` 那條「她自己打的名字不動」）
@@ -1114,7 +1115,7 @@ function checkCourseAssigns(ctx) {
 }
 
 /**
- * 十五、課程沒填可選時長。
+ * 十九、課程沒填可選時長。
  *
  * 她 2026-09-07：「目前就復能的那四個先預設有 30 60 這兩個時長，
  * 其他的就預設沒有沒關係」。種子上復能與 ILIB 都是 `[30, 60]`，
