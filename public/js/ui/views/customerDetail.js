@@ -189,6 +189,9 @@ function reload(ctx) {
 function paint(ctx) {
   const { el, customer, entitlements, visits, tasks, equipment, clinicalFlags, notes } = ctx;
   const today = todayISO();
+  // 那幾列的名字走顯示名稱（`SIS(60)`），跟日曆同一種寫法 —— 讀快照的話
+  // 同一筆來訪在這一頁寫「復能」、在日曆上寫「SIS(60)」（ADR-0078）。
+  const master = { courses: ctx.courses ?? [], equipment: equipment ?? [] };
   const flags = rules.splitFlags(customer, clinicalFlags);
   const partners = rules.partnersOf(customer);
   const marks = readMarks(customer);
@@ -265,7 +268,8 @@ function paint(ctx) {
     ${!visits.length
       ? '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'
       : (showVisits ? `
-        <ul class="link-list">${visits.slice(0, RECENT_VISITS).map(visitRow).join('')}</ul>
+        <ul class="link-list">${visits.slice(0, RECENT_VISITS)
+          .map((v) => visitRow(v, master)).join('')}</ul>
         ${visits.length > RECENT_VISITS
           ? `<p style="margin: var(--space-2) 0 0">
                <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 筆</button></p>`
@@ -279,7 +283,7 @@ function paint(ctx) {
 
     ${/* 上面剛結束的是一排 28px 的小丸子，視覺重量很輕 ——
            `.section` 自己的上邊界在這裡不夠，兩塊會黏在一起 */''}
-    <div data-taskblock style="margin-top: var(--space-5)">${taskBlock(tasks, visits)}</div>
+    <div data-taskblock style="margin-top: var(--space-5)">${taskBlock(tasks, visits, master)}</div>
 
     <div class="footlinks">
       <button class="footlink" type="button" data-msgs>
@@ -295,6 +299,7 @@ function paint(ctx) {
 
 function wire(ctx, { today, marks }) {
   const { el, entitlements, visits } = ctx;
+  const master = { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] };
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
@@ -335,7 +340,7 @@ function wire(ctx, { today, marks }) {
     if (tab) {
       taskTab = tab.dataset.taskTab;
       const box = el.querySelector('[data-taskblock]');
-      if (box) box.innerHTML = taskBlock(ctx.tasks, ctx.visits);
+      if (box) box.innerHTML = taskBlock(ctx.tasks, ctx.visits, master);
       return;
     }
 
@@ -420,7 +425,7 @@ function wire(ctx, { today, marks }) {
     const sheet = openSheet({
       title: '全部來訪',
       note: `${visits.length} 筆，新的在上面。`,
-      body: `<ul class="link-list">${visits.map(visitRow).join('')}</ul>`,
+      body: `<ul class="link-list">${visits.map((v) => visitRow(v, master)).join('')}</ul>`,
     });
     sheet.el.querySelectorAll('[data-visit]').forEach((btn) =>
       btn.addEventListener('click', () => openVisitCard(ctx, btn.dataset.visit)),
@@ -964,12 +969,15 @@ async function fixCounts(ctx, entId) {
  *
  * 點下去跟任務列右邊那顆「詳情」走同一支（`openVisitCard()`，唯讀）。
  * 這是 ADR-0056 的另一半：留一條繞得過去的路，等於那個決定只做了一半。
+ *
+ * **帶主檔**：那一格印的是顯示名稱（`SIS(60)`），跟日曆同一種寫法 ——
+ * 讀快照的話同一筆來訪在這一頁寫「復能」、在日曆上寫「SIS(60)」。
  */
-function visitRow(v) {
+function visitRow(v, master = null) {
   return `
     <li><button class="row-link" type="button" data-visit="${esc(v.id)}">
       <span class="link-list__label num">${esc(shortDate(v.date))}
-        <span class="muted">${esc(visitCourseLabel(v))}</span>
+        <span class="muted">${esc(visitCourseLabel(v, master))}</span>
       </span>
       <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
     </button></li>`;
@@ -985,14 +993,14 @@ function visitRow(v) {
  * 混在同一串裡的話，一位做完十次療程的客戶那六格會被已完成的塞滿，
  * 而她要看的「還沒做的那兩件」被擠進「看全部」裡面去了。
  */
-function taskBlock(tasks, visits = []) {
+function taskBlock(tasks, visits = [], master = null) {
   const open = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
   const rows = taskTab === 'done' ? done : open;
   // 來訪這一頁本來就有了（`ctx.visits`），所以一次讀取都不用多加 ——
   // 任務身上沒有來訪日與課程名，也不該有（`data/tasks.js` 的檔頭）。
   const visitById = new Map(visits.map((v) => [v.id, v]));
-  const row = (t) => taskRow(t, visitById.get(t.visitId) ?? null);
+  const row = (t) => taskRow(t, visitById.get(t.visitId) ?? null, { master });
 
   return `
     <div class="section">
@@ -1777,10 +1785,12 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 function openAllTasks(ctx) {
   const rows = ctx.tasks.filter((t) => (taskTab === 'done' ? t.done : !t.done));
   const visitById = new Map(ctx.visits.map((v) => [v.id, v]));
+  const master = { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] };
   const sheet = openSheet({
     title: `全部任務・${taskTab === 'done' ? '已完成' : '未完成'}`,
     body: `<div class="tasklist">${
-      rows.map((t) => taskRow(t, visitById.get(t.visitId) ?? null)).join('')}</div>`,
+      rows.map((t) => taskRow(t, visitById.get(t.visitId) ?? null, { master }))
+        .join('')}</div>`,
   });
   sheet.el.querySelectorAll('[data-task]').forEach((btn) =>
     btn.addEventListener('click', () => {

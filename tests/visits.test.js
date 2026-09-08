@@ -1303,3 +1303,68 @@ describe('這一段在畫面上要不要印診間', () => {
     assert.equal(showsRoom(null, courses), false);
   });
 });
+
+
+// ADR-0078 的後果那一節記著一條分岔：`visitCourseLabel()` 讀的是
+// `slot.courseName` **快照**，而 CLAUDE.md 寫著「快照不是顯示名稱」。
+// 症狀是同一筆來訪在客戶詳情那一列寫「復能」、在日曆上寫「SIS(60)」。
+describe('一筆來訪講成一句話', () => {
+  const master = {
+    courses: [
+      { id: 'c-recovery', name: '復能' },
+      { id: 'c-ilib', name: 'ILIB', shortName: 'IL' },
+    ],
+    equipment: [
+      { id: 'eq-sis', name: 'SIS', courseId: 'c-recovery' },
+      { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'c-recovery' },
+    ],
+  };
+  const v = {
+    slots: [
+      { courseId: 'c-recovery', courseName: '復能', equipmentId: 'eq-sis' },
+      { courseId: 'c-ilib', courseName: 'ILIB' },
+    ],
+  };
+
+  test('帶了主檔就講顯示名稱，跟日曆上那一列同一種寫法', () => {
+    assert.equal(visitCourseLabel(v, master), 'SIS、IL');
+  });
+
+  test('同一台只講一次 —— 那天做兩節 SIS 就是「SIS」', () => {
+    const twice = { slots: [v.slots[0], { ...v.slots[0] }] };
+    assert.equal(visitCourseLabel(twice, master), 'SIS');
+  });
+
+  // **沒帶主檔就退回快照**（稽核紀錄走這一條：那一份記的是當時寫下去的字）。
+  test('沒帶主檔就退回快照 —— 既有呼叫端一個字都不用改', () => {
+    assert.equal(visitCourseLabel(v), '復能、ILIB');
+  });
+
+  test('主檔裡查不到那個課程也退回快照', () => {
+    const gone = { slots: [{ courseId: 'gone', courseName: '舊課程' }] };
+    assert.equal(visitCourseLabel(gone, master), '舊課程');
+  });
+
+  test('一個都認不出來就講「N 段」，不要吐空字串', () => {
+    assert.equal(visitCourseLabel({ slots: [{}, {}] }, master), '2 段');
+    assert.equal(visitCourseLabel({ slots: [] }, master), '0 段');
+  });
+});
+
+
+// ADR-0078 的後果那一節記過這條分岔，2026-09-08 收掉了。
+// 這一支盯著它不會再長回來：**手上有主檔的呼叫端一定要傳**。
+test('會講「那天做了什麼」的畫面都帶著主檔', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+  for (const rel of ['js/ui/views/customerDetail.js', 'js/ui/views/home.js']) {
+    const src = read(rel);
+    for (const [, args] of src.matchAll(/visitCourseLabel\(([^)]*)\)/g)) {
+      assert.ok(args.includes(','), `${rel} 有一處 visitCourseLabel() 沒帶主檔：(${args})`);
+    }
+  }
+
+  // **稽核紀錄刻意不帶**：那一份記的是當時寫下去的字，主檔之後改名，
+  // 歷史紀錄不該跟著變。改這一行之前先想清楚那件事。
+  const audit = read('js/domain/audit.js');
+  assert.match(audit, /visitCourseLabel\(d\)/, '稽核要維持讀快照');
+});
