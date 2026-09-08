@@ -6407,6 +6407,71 @@ summary {
   margin-bottom: var(--space-3);
 }
 
+/* 「掛在哪」：課程與合作機構收成一行（2026-09-08）。
+   兩排各自一個標籤加一排丸子＝四行，收成分段切換之後是兩行 ——
+   省下來的正是把「存起來」擠出畫面的那兩行。 */
+.pbedit__hang > [data-hang-panel] .fieldgroup__label {
+  display: none;
+}
+.pbedit__hang > [data-hang-panel] .fieldgroup {
+  margin-bottom: 0;
+}
+
+/* 分段切換。兩顆貼在一起、共用一個底槽 —— 它講的是「同一件事的兩面」，
+   而不是兩個各自獨立的按鈕。 */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+
+.seg__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+/* 視覺上 30px，感應範圍撐到 44（同 .drawer__grip、.namerow__edit）。 */
+.seg__btn::after {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
+}
+
+.seg__btn[aria-selected='true'] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(36 31 26 / 8%);
+}
+
+/* 選了幾個。**沒選就整個不印**（空字串）—— 一顆「0」看起來像一個可以按的
+   數字，而她要的只是「那一邊有沒有東西」。 */
+.seg__n {
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+.seg__btn[aria-selected='true'] .seg__n {
+  color: var(--accent);
+}
+.seg__n:empty {
+  display: none;
+}
+
 .pbedit__title {
   width: 100%;
   margin-bottom: var(--space-3);
