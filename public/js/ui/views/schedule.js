@@ -105,6 +105,14 @@ const view = {
 let ctx = null;
 
 /**
+ * 「進到某一個月」那一層。返回鍵要退回選月份，不是跳走整個壓表（ADR-0048）。
+ *
+ * 卡片組（deck）自己還會再疊一層，所以層次是：選月份 → 那一個月 → 卡片組，
+ * 返回鍵一層一層退。
+ */
+let monthLayer = null;
+
+/**
  * 從別的畫面指定「進去就打開這一位」。待辦中心的「壓表登記」點一個人名走這條路
  * （`.scratch/todo-declutter/issues/04`）。
  *
@@ -182,6 +190,7 @@ async function openPending(el, { month, customerId, entitlementId, followupForVi
 
   if (found) {
     view.batchId = found.id;
+    if (!monthLayer) monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
     await paintBatch(el);
     return;
   }
@@ -190,38 +199,57 @@ async function openPending(el, { month, customerId, entitlementId, followupForVi
 
 // ---------- 起點：選月份 ----------
 
+/**
+ * 起點：**點一個月就直接進去**（2026-09-08）。
+ *
+ * 她的原話：「移除頁面中『還沒壓完的』冗餘區塊。使用者只需點選目標月份，
+ * 即可直接進入該月的壓表主畫面。」
+ *
+ * ## 批次的**資料**留著，**詞**消失
+ *
+ * `batches` 集合照樣寫，因為它負責兩件她要的事：**凍結客戶順序**
+ * （換裝置回來順序不會跳掉，ADR-0001 的 Consequences）與**記進度**
+ * （「已壓 5 / 23」那一條）。拿掉的只有畫面上「批次」這個概念 ——
+ * 沒有「開始這一批」、沒有「還沒壓完的」清單、沒有「結束這一批」。
+ *
+ * 點下去走的是 `enterMonth()`：**那個月已經有一批在跑就接著用**，
+ * 沒有才開一批。那條判斷本來就在（`openPending()`），只是以前要她自己
+ * 從兩個入口挑一個。
+ *
+ * ## 月份給三個
+ *
+ * 以前只有本月與下個月 —— 她要壓十月的表時十一月按不出來。
+ */
 async function paintStart(el) {
-  const active = await batchesData.listActive();
   const today = todayISO();
-  const months = [today.slice(0, 7), addMonths(today, 1).slice(0, 7)];
+  const months = [0, 1, 2].map((n) => addMonths(today, n).slice(0, 7));
 
   el.innerHTML = `
     <div class="page">
-      <h1 class="page__title">壓表</h1>
+      ${/* 批次取消的入口。跟待辦那一頁的「備忘錄」同一顆、同一個位置 ——
+           她指名要「風格比照 SOP/備忘錄按鈕」。 */''}
+      <div class="page__row">
+        <h1 class="page__title">壓表</h1>
+        <span class="footlinks footlinks--inline">
+          <a class="footlink" href="#/schedule/cancel">${icon('close', { size: 15 })}批次取消</a>
+        </span>
+      </div>
       <p class="page__lead">一個人壓完再換下一個</p>
     </div>
 
     <section class="card">
       <h2 class="card__title">要壓哪個月</h2>
-      <p class="card__note">開始之後會照「限制多的先看」排好，但那只是預設順序 ——
-        想先弄誰就點誰，也可以整個換一種排法。</p>
-      <div class="chips" role="group">
-        ${months.map((m, i) => `
-          <button class="chip" type="button" role="button"
-                  aria-pressed="${i === 0}" data-month="${esc(m)}">${esc(monthLabel(m))}
-            <span class="num dim">&nbsp;${esc(m)}</span></button>`).join('')}
-      </div>
-      <p style="margin-top: var(--space-4)">
-        <button class="btn btn--primary btn--wide" type="button" data-start>開始這一批</button>
-      </p>
+      <p class="card__note">點一個月就進去。裡面會照「限制多的先看」排好，
+        但那只是預設順序 —— 想先弄誰就點誰，也可以整個換一種排法。</p>
+      <ul class="link-list">
+        ${months.map((m) => `
+          <li><button class="row-link" type="button" data-month="${esc(m)}">
+            <span class="link-list__label">${esc(monthLabel(m))}壓表
+              <span class="num dim">${esc(m)}</span></span>
+            ${icon('right', { size: 17 })}
+          </button></li>`).join('')}
+      </ul>
     </section>
-
-    ${active.length ? `
-      <section class="card">
-        <h2 class="card__title">還沒壓完的<span class="muted"> ${active.length}</span></h2>
-        <ul class="link-list">${active.map(openRow).join('')}</ul>
-        <p class="card__note">進度存在雲端，換一台裝置打開就接著上次的位置繼續。</p>
-      </section>` : ''}
 
     <section class="card">
       <h2 class="card__title">臨時空出一格？</h2>
@@ -230,36 +258,45 @@ async function paintStart(el) {
       <a class="btn" href="#/schedule/backfill">時段反查</a>
     </section>`;
 
-  let picked = months[0];
   el.querySelectorAll('[data-month]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      picked = btn.dataset.month;
-      el.querySelectorAll('[data-month]').forEach((b) =>
-        b.setAttribute('aria-pressed', String(b === btn)));
-    }),
-  );
-
-  el.querySelector('[data-start]').addEventListener('click', () => startBatch(el, picked));
-
-  el.querySelectorAll('[data-open-batch]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      view.batchId = btn.dataset.openBatch;
-      view.customerId = null;
-      resetPicks();
-      render(el);
-    }),
+    btn.addEventListener('click', () => enterMonth(el, btn.dataset.month)),
   );
 }
 
-/** 「還沒壓完的」那一段裡的一列。 */
-function openRow(b) {
-  const p = progressOf(b);
-  return `<li><button class="row-link" type="button" data-open-batch="${esc(b.id)}">
-    <span class="link-list__label">${esc(monthLabel(b.targetMonth))}壓表
-      <span class="num dim">${esc(b.targetMonth)}</span></span>
-    <span class="badge">已壓 ${p.handled} / ${p.total}</span>
-    ${b.lastDeviceHint ? `<span class="badge">上次在${esc(b.lastDeviceHint)}</span>` : ''}
-  </button></li>`;
+/**
+ * 進去某一個月。
+ *
+ * **那個月已經有一批在跑就接著用**，不要再開一批 —— 兩批同一個月會讓
+ * 「已壓 5 / 23」變成兩個各自算的數字，而進度是存在雲端跨裝置接續的。
+ *
+ * 疊一層（`pushLayer()`）：**返回鍵要退回選月份那一頁**，不是跳走整個壓表
+ * （ADR-0048）。左上角那條「‹ 壓表」走的是同一支，兩條路一個行為。
+ */
+async function enterMonth(el, month) {
+  el.innerHTML = '<p class="muted">算佇列中…</p>';
+  const active = await batchesData.listActive();
+  const found = active.find((b) => b.targetMonth === month);
+
+  view.customerId = null;
+  resetPicks();
+
+  if (found) {
+    view.batchId = found.id;
+    monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
+    await paintBatch(el);
+    return;
+  }
+  await startBatch(el, month);
+}
+
+/** 退回選月份那一頁。左上角那條「‹ 壓表」與返回鍵共用。 */
+function leaveMonth(el, { fromBack = false } = {}) {
+  if (!fromBack) monthLayer?.pop();
+  monthLayer = null;
+  view.batchId = null;
+  view.customerId = null;
+  resetPicks();
+  render(el);
 }
 
 /**
@@ -267,6 +304,9 @@ function openRow(b) {
  * @param {boolean} [opts.keepCustomer] 別的畫面指名了要打開誰，開完不要把它清掉
  */
 async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
+  // 進到某一個月就疊一層（`enterMonth()` 的另一半：那邊是「接著用」，
+  // 這邊是「新開一批」，兩條路都要退得回選月份那一頁）
+  if (!monthLayer) monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
   el.innerHTML = '<p class="muted">算佇列中…</p>';
   const data = await loadAll(targetMonth);
   const rows = buildCustomerQueue({ ...data.queueInput, targetMonth });
@@ -277,7 +317,7 @@ async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
       <p class="card__note">所有在服務中的客戶身上都沒有剩餘次數了。
         先去客戶那邊看看是不是該加購，或是有額度沒展開。</p>
       <button class="btn" type="button" data-back>回上一步</button></div>`;
-    el.querySelector('[data-back]').addEventListener('click', () => render(el));
+    el.querySelector('[data-back]').addEventListener('click', () => leaveMonth(el));
     return;
   }
 
@@ -455,6 +495,8 @@ function paintPage() {
   const p = progressOf(batch);
 
   ctx.el.querySelector('[data-page]').innerHTML = `
+    <button class="backlink" type="button" data-leave>${icon('left', { size: 17 })}壓表</button>
+
     <div class="page">
       <h1 class="page__title">${esc(monthLabel(batch.targetMonth))}壓表</h1>
       <p class="page__lead num">${esc(batch.targetMonth)}・已壓 ${p.handled} / ${p.total} 位</p>
@@ -483,11 +525,7 @@ function paintPage() {
 
     <p class="muted" data-sortnote style="margin: 0 0 var(--space-3)">${sortNote()}</p>
 
-    <div class="cardgrid" data-wall></div>
-
-    <div class="footlinks">
-      <button class="footlink" type="button" data-close>結束這一批</button>
-    </div>`;
+    <div class="cardgrid" data-wall></div>`;
 
   paintWall();
 }
@@ -541,7 +579,7 @@ function onPageClick(e) {
   const pick = e.target.closest('[data-pick]');
   if (pick) return openDeckAt(pick.dataset.pick);
 
-  if (e.target.closest('[data-close]')) return closeBatch();
+  if (e.target.closest('[data-leave]')) return leaveMonth(ctx.el);
   return null;
 }
 
@@ -2072,27 +2110,4 @@ async function mark(state) {
   }
 }
 
-async function closeBatch() {
-  const p = progressOf(ctx.batch);
-  const ok = await confirmAction({
-    title: '結束這一批？',
-    consequences: [
-      `已壓 ${p.handled} / ${p.total}，還有 ${p.pending} 位沒處理`,
-      '已經記下的來訪與任務都會留著，不受影響',
-      '結束之後不會再出現在「還沒壓完的」清單裡',
-    ],
-    confirmLabel: '結束',
-    danger: p.pending > 0,
-  });
-  if (!ok) return;
 
-  try {
-    await toast.withSaveState(() => batchesData.finish(ctx.batch.id), { success: '這批結束了' });
-    view.batchId = null;
-    view.customerId = null;
-    resetPicks();
-    render(ctx.el);
-  } catch {
-    /* 已處理 */
-  }
-}

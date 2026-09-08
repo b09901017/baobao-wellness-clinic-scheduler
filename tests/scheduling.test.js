@@ -6,6 +6,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   monthRange, entitlementCovers, pendingFor, buildCustomerQueue, customerPools,
@@ -826,5 +827,57 @@ describe('某一個月的時間問到誰（customersToAskForMonth）', () => {
       },
     });
     assert.deepEqual(rows.map((r) => r.state), ['never', 'notThisMonth', 'asked']);
+  });
+});
+
+// 她 2026-09-08：「移除頁面中『還沒壓完的』冗餘區塊…移除『結束這一批』的
+// 按鈕，畢竟已經沒有第幾批的概念了」。批次的**資料**留著（凍結順序與進度），
+// 只有畫面上那個詞消失。
+describe('壓表那一頁的形狀', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+  const NL = String.fromCharCode(10);
+
+  /**
+   * 去掉註解之後的原始碼。
+   *
+   * **註解裡照樣講得到那幾個詞** —— 這一輪的改動說明就寫著「拿掉了『結束
+   * 這一批』」。要盯的是它們不再被畫出來，不是不再被提到。
+   */
+  const CODE = SRC.split(NL)
+    .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+    .join(NL);
+
+  test('「結束這一批」與「還沒壓完的」畫不出來了', () => {
+    for (const word of ['結束這一批', '還沒壓完的', '開始這一批']) {
+      assert.ok(!CODE.includes(word), `畫面上還有「${word}」`);
+    }
+  });
+
+  test('點月份直接進去 —— 沒有第二顆按鈕', () => {
+    assert.match(SRC, /data-month="/);
+    assert.ok(!SRC.includes('data-start'));
+  });
+
+  test('那個月已經有一批在跑就接著用，不要再開一批', () => {
+    const at = SRC.indexOf('async function enterMonth(');
+    assert.ok(at > 0, '找不到 enterMonth()');
+    const body = SRC.slice(at, at + 800);
+    assert.match(body, /listActive\(\)/);
+    assert.match(body, /targetMonth === month/);
+  });
+
+  test('返回鍵要退回選月份，不是跳走整個壓表', () => {
+    assert.match(SRC, /monthLayer = pushLayer\(/);
+    assert.match(SRC, /data-leave/);
+  });
+
+  test('批次的資料層留著 —— 只是沒有畫面呼叫 finish()', () => {
+    assert.ok(!SRC.includes('batchesData.finish'));
+    const data = readFileSync(
+      new URL('../public/js/data/batches.js', import.meta.url), 'utf8',
+    );
+    assert.match(data, /export const finish/, '資料層那一支不要刪掉');
   });
 });

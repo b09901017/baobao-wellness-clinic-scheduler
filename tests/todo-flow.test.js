@@ -257,3 +257,112 @@ describe('這一場走到哪了（todosForVisit）', () => {
     assert.deepEqual(todosForVisit(base({ deletedAt: '2026-09-01' }), { today: TODAY }), []);
   });
 });
+
+describe('還沒發生的那幾張也要列出來（她 2026-09-08：「我發現沒有寫記錄?」）', () => {
+  const COURSES = {
+    'c-followup': { id: 'c-followup', name: '二返', category: 'A', needsTreatmentForm: false, needsRecord: true },
+    'c-recovery': { id: 'c-recovery', name: '復能', category: 'C' },
+  };
+  const kinds = (visit, tasks = []) =>
+    todosForVisit(visit, { tasks, coursesById: COURSES }).map((r) => r.kind);
+  const rowOf = (visit, kind, tasks = []) =>
+    todosForVisit(visit, { tasks, coursesById: COURSES }).find((r) => r.kind === kind);
+
+  const v = (status, slots) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-20', status, slots,
+  });
+
+  test('課程勾了「做完要寫紀錄」→ 那一場還沒做完也列得出來，標成還沒發生', () => {
+    // `recordTasksForVisit()` 要那一場做完才長（ADR-0066），所以在那之前
+    // 它**真的不存在**。但她要看的是「這一場的全部」（2026-09-04 的原話），
+    // 所以列出來、標成還沒發生。
+    const row = rowOf(v('confirmed', [{ courseId: 'c-followup' }]), '寫紀錄');
+    assert.ok(row, '要列得出來');
+    assert.equal(row.done, false);
+    assert.equal(row.pending, true, '標成「還沒發生」');
+  });
+
+  test('沒有課程要寫紀錄就不要列 —— 那是一件不會發生的事', () => {
+    assert.ok(!kinds(v('confirmed', [{ courseId: 'c-recovery' }])).includes('寫紀錄'));
+  });
+
+  test('真的長出來之後走那一張任務，不要變成兩列', () => {
+    const done = v('done', [{ courseId: 'c-followup' }]);
+    const task = {
+      id: 't1', visitId: 'v1', kind: '寫紀錄', done: false, dueDate: '2026-09-20',
+    };
+    const rows = todosForVisit(done, { tasks: [task], coursesById: COURSES });
+    assert.equal(rows.filter((r) => r.kind === '寫紀錄').length, 1);
+    assert.equal(rows.find((r) => r.kind === '寫紀錄').pending, undefined,
+      '真的那一張不是「還沒發生」');
+  });
+
+  test('掛號那一族在客人確認之前也列得出來', () => {
+    // `acceptsNewTasks()` 要 confirmed 才長（ADR-0027），所以待確認的那一筆
+    // 上面一張都沒有 —— 但她要看得到「等一下會有這兩張」。
+    const waiting = v('pending_confirm', [{ courseId: 'c-followup' }]);
+    assert.ok(kinds(waiting).includes('Examine'));
+    assert.ok(kinds(waiting).includes('耀聖'));
+    assert.equal(rowOf(waiting, 'Examine').pending, true);
+  });
+
+  test('確認之後真的長出來了就不要再多一列', () => {
+    const ok = v('confirmed', [{ courseId: 'c-followup' }]);
+    const task = { id: 't1', visitId: 'v1', kind: 'Examine', done: true, dueDate: '2026-09-19' };
+    const rows = todosForVisit(ok, { tasks: [task], coursesById: COURSES });
+    assert.equal(rows.filter((r) => r.kind === 'Examine').length, 1);
+    assert.equal(rows.find((r) => r.kind === 'Examine').done, true);
+  });
+
+  test('取消掉的那一筆一列都不推導（只剩取消 X 那幾張）', () => {
+    const gone = v('cancelled', [{ courseId: 'c-followup' }]);
+    assert.deepEqual(kinds(gone), []);
+  });
+
+  test('取消掉的那一段不長出它的待辦', () => {
+    const one = v('confirmed', [
+      { courseId: 'c-followup', status: 'cancelled' },
+      { courseId: 'c-recovery', status: 'confirmed' },
+    ]);
+    assert.ok(!kinds(one).includes('寫紀錄'));
+    assert.ok(!kinds(one).includes('Examine'));
+  });
+});
+
+describe('只看她點的那一段（focusSlot）', () => {
+  const COURSES = {
+    'c-followup': { id: 'c-followup', name: '二返', category: 'A', needsTreatmentForm: false, needsRecord: true },
+    'c-checkup': { id: 'c-checkup', name: '健檢', category: 'B' },
+  };
+  const v = {
+    id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+    slots: [{ courseId: 'c-followup' }, { courseId: 'c-checkup' }],
+  };
+  const kinds = (focusSlot) =>
+    todosForVisit(v, { tasks: [], coursesById: COURSES, focusSlot }).map((r) => r.kind);
+
+  test('點二返那一段 → 看得到它的掛號與寫紀錄', () => {
+    const out = kinds(0);
+    assert.ok(out.includes('Examine'));
+    assert.ok(out.includes('寫紀錄'));
+  });
+
+  test('點健檢那一段 → 看不到二返那一段的掛號與寫紀錄', () => {
+    // 健檢是 B 類，確認後沒有後續登記
+    const out = kinds(1);
+    assert.ok(!out.includes('Examine'));
+    assert.ok(!out.includes('寫紀錄'));
+  });
+
+  test('沒帶 focusSlot 就是整筆（另外三頁一個字都不變）', () => {
+    const out = kinds(null);
+    assert.ok(out.includes('Examine'));
+    assert.ok(out.includes('寫紀錄'));
+  });
+
+  test('簽療程單那一列跟著那一段走', () => {
+    // 二返不用簽（`needsTreatmentForm: false`），健檢要簽
+    assert.ok(kinds(0).some((k) => k.startsWith('簽療程單（這一天不用簽')));
+    assert.ok(kinds(1).includes('簽療程單'));
+  });
+});

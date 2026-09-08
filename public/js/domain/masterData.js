@@ -298,8 +298,17 @@ const validators = {
       : [];
   },
 
+  /**
+   * 營養點滴品項。**2026-09-08 多了一格簡寫**：日曆上那一段印的是品項
+   * 不是課程（`domain/naming.js`），而月曆一格放不下「雪顏亮彩」。
+   *
+   * 跟診間、器材、課程共用 `nameVariants()` —— 上限 12 字同一個理由：
+   * 別稱是給窄的地方用的。
+   */
   ivProducts(r) {
-    return isBlank(r.name) ? ['品項名稱不可空白'] : [];
+    const errors = [...nameVariants(r)];
+    if (isBlank(r.name)) errors.push('品項名稱不可空白');
+    return errors;
   },
 
   products(r) {

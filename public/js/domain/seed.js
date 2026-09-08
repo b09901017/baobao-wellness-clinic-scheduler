@@ -166,6 +166,9 @@ export const SEED = {
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
+      // 她 2026-09-08：「除了二返、營養諮詢之外，復健科門診也要事後寫記錄」。
+      // 逐課程不逐類別（ADR-0066）—— 同樣 A 類的心臟科評估就不用。
+      needsRecord: true,
     },
     {
       // SPEC 第 7 節規則 3：心臟科評估不佔診間

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十九項檢查都在，順序固定', () => {
+  test('二十三項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 19);
+    assert.equal(result.checks.length, 23);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1220,5 +1220,165 @@ describe('來訪上還記著床位', () => {
     assert.ok(src.includes("clearBeds: 'slotBeds'"));
     assert.ok(src.includes('  roomList: {'));
     assert.ok(src.includes('  slotBeds: {'));
+  });
+});
+
+describe('來訪的狀態跟它的時段對不起來（ADR-0081）', () => {
+  const withSlots = (status, slotStatuses) => visit({
+    id: 'v-derived', status,
+    slots: slotStatuses.map((st) => ({ entitlementId: 'ent-1', courseId: 'course-1', status: st })),
+  });
+
+  test('整筆說已確認、底下有一段還在等 → 報，而且說得出兩邊各是什麼', () => {
+    const rows = findingsOf(
+      run({ visits: [withSlots('confirmed', ['confirmed', 'pending_confirm'])] }),
+      'visitStatusDerived',
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].fix.status, 'pending_confirm');
+    assert.match(rows[0].detail, /已確認/);
+  });
+
+  test('對得起來的不報', () => {
+    const rows = findingsOf(
+      run({ visits: [withSlots('confirmed', ['confirmed', 'confirmed'])] }),
+      'visitStatusDerived',
+    );
+    assert.deepEqual(rows, []);
+  });
+
+  test('一段都沒有 status 的舊來訪不報 —— 推出來的必然等於它自己', () => {
+    const legacy = visit({
+      id: 'v-legacy', status: 'confirmed',
+      slots: [{ entitlementId: 'ent-1', courseId: 'course-1' }],
+    });
+    assert.deepEqual(findingsOf(run({ visits: [legacy] }), 'visitStatusDerived'), []);
+  });
+});
+
+describe('器材沒有指到課程', () => {
+  const go = (master) => run({ master }).checks
+    .find((c) => c.id === 'equipmentCourse').findings;
+
+  const stripped = (ids) => ({
+    courses: SEED.courses,
+    equipment: SEED.equipment.map((e) => (ids.includes(e.id)
+      // eslint-disable-next-line no-unused-vars
+      ? Object.fromEntries(Object.entries(e).filter(([k]) => k !== 'courseId'))
+      : e)),
+  });
+
+  test('那一格是空的就列出來，而且填得回去', () => {
+    // 這就是她 2026-09-08 回報的根因：`courseId` 是 2026-09-06 才加的欄位，
+    // 而 `loadSeed()` 只建不覆蓋 —— 既有資料庫上那幾台身上沒有它，
+    // 於是四選一永遠推不出 ILIB，指派永遠卡在治療師。
+    const rows = go(stripped(['eq-ilib']));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, 'ILIB');
+    assert.equal(rows[0].fix.kind, 'setEquipmentCourse');
+    assert.equal(rows[0].fix.equipmentId, 'eq-ilib');
+    assert.equal(rows[0].fix.courseId, 'course-iv-laser');
+  });
+
+  test('好幾台都空的就一台一列', () => {
+    assert.equal(go(stripped(['eq-ilib', 'eq-sis', 'eq-indiba'])).length, 3);
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go({ courses: SEED.courses, equipment: SEED.equipment }), []);
+  });
+
+  test('她自己指到別的課程就不動 —— 那是一個決定', () => {
+    assert.deepEqual(go({
+      courses: SEED.courses,
+      equipment: SEED.equipment.map(
+        (e) => (e.id === 'eq-ilib' ? { ...e, courseId: 'course-eecp' } : e),
+      ),
+    }), []);
+  });
+
+  test('她自己刪掉的那一台不再提', () => {
+    assert.deepEqual(go({
+      courses: SEED.courses,
+      equipment: SEED.equipment.map((e) => (e.id === 'eq-ilib'
+        ? { ...e, courseId: undefined, deletedAt: 'x' }
+        : e)),
+    }), []);
+  });
+
+  test('那個課程不存在就不報 —— 那是「整份主檔都是她自己建的」', () => {
+    assert.deepEqual(go({
+      courses: SEED.courses.filter((c) => c.id !== 'course-iv-laser'),
+      equipment: stripped(['eq-ilib']).equipment,
+    }), []);
+  });
+});
+
+describe('課程的「做完要不要寫紀錄」跟建議的不一樣', () => {
+  const go = (courses) => run({ master: { courses, equipment: SEED.equipment } })
+    .checks.find((c) => c.id === 'courseRecord').findings;
+
+  const without = (id) => SEED.courses.map((c) => (c.id === id
+    // eslint-disable-next-line no-unused-vars
+    ? Object.fromEntries(Object.entries(c).filter(([k]) => k !== 'needsRecord'))
+    : c));
+
+  test('那一格從來沒設過就列出來，而且勾得回去', () => {
+    const rows = go(without('course-rehab'));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, '復健科醫師門診');
+    assert.equal(rows[0].fix.kind, 'setNeedsRecord');
+    assert.equal(rows[0].fix.courseId, 'course-rehab');
+    assert.equal(rows[0].fix.needsRecord, true);
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('**她自己關掉的不報** —— false 與「從來沒設過」在資料上分得出來', () => {
+    assert.deepEqual(go(SEED.courses.map(
+      (c) => (c.id === 'course-rehab' ? { ...c, needsRecord: false } : c),
+    )), []);
+  });
+
+  test('她自己刪掉的課程不再提', () => {
+    assert.deepEqual(go(without('course-rehab').map(
+      (c) => (c.id === 'course-rehab' ? { ...c, deletedAt: 'x' } : c),
+    )), []);
+  });
+});
+
+describe('課程的名字跟建議的不一樣', () => {
+  const go = (courses) => run({ master: { courses, equipment: SEED.equipment } })
+    .checks.find((c) => c.id === 'courseNames').findings;
+
+  // 2026-09-06 之前 ILIB 那個課程叫「靜脈」，而且兩格別稱都是空的
+  const legacy = (over = {}) => SEED.courses.map((c) => (c.id === 'course-iv-laser'
+    ? { ...c, name: '靜脈', shortName: null, lineName: null, ...over }
+    : c));
+
+  test('還停在「靜脈」那一代就列出來，三格一起改回去', () => {
+    const rows = go(legacy());
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, '靜脈');
+    assert.equal(rows[0].fix.kind, 'renameCourse');
+    assert.equal(rows[0].fix.name, 'ILIB');
+    assert.equal(rows[0].fix.shortName, 'IL');
+    assert.equal(rows[0].fix.lineName, '靜脈雷射');
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('三格只要有一格是她自己改過的就不動', () => {
+    assert.deepEqual(go(legacy({ shortName: '靜' })), [], '別稱改過了');
+    assert.deepEqual(go(legacy({ name: '經皮靜脈雷射' })), [], '全名改過了');
+    assert.deepEqual(go(legacy({ lineName: '雷射' })), [], 'LINE 名改過了');
+  });
+
+  test('她自己刪掉的課程不再提', () => {
+    assert.deepEqual(go(legacy({ deletedAt: 'x' })), []);
   });
 });

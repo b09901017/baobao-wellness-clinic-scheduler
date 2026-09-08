@@ -3873,6 +3873,13 @@ button.mark::after {
   text-decoration-thickness: 1px;
 }
 
+/* **還沒長出來的那幾張**：列出來（她要看到「這一場的全部」），
+   但要跟「還沒做」分得出來 —— 那一種是她現在就該去做的。
+   用透明度不用第三種顏色：這一塊只有兩個色階，多一種會變成在分類。 */
+.taskmirror__row.is-pending {
+  opacity: 0.55;
+}
+
 .taskmirror__mark {
   flex: none;
   width: 1em;
@@ -3928,31 +3935,14 @@ button.mark::after {
   color: var(--text-mute);
 }
 
-/* 「這一天還有另外 2 段 —— 看全部」。
-   點一列只看那一段（`slotsToShow()`），但「這天他還來做什麼」是她會問的
-   問題，所以要留一條看得到的路。整條寬、靠左，跟上面那幾張時段卡對齊 ——
-   它是那一疊的延續，不是一顆獨立的動作按鈕。 */
+/* 「這一天還有另外 2 段」。
+   2026-09-08 之前這是一顆「看全部」的按鈕（ADR-0080 第三點）。她那天說
+   「純粹且僅呈現該時段課程的資訊」，所以按鈕拿掉了 —— 剩下的這一行
+   回答的仍然是「這天他還來做什麼」，只是不再把另外兩段攤在同一張卡上。 */
 .readmore {
-  display: block;
-  width: 100%;
-  /* 觸控優先：最小點擊區 44px（SPEC 第 1 節）。13px 的字加上下 8px 的
-     padding 只有 37px —— 而這一顆是「看全部」唯一的入口。 */
-  min-height: var(--tap-min);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-2);
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  color: var(--text-dim);
-  background: none;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.readmore:hover {
-  color: var(--text);
-  border-color: var(--border-soft);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
 }
 
 /* 確認畫面裡的一筆時段。點一下切成「客人說不行」，其餘照樣成立。 */
@@ -4210,27 +4200,113 @@ button.mark::after {
 /* 設定 → 名稱怎麼寫。一列 = 她列的六種之一（或其他課程之一）：
    月曆那一格、LINE 那一格、兩種寫法的預覽。
    2026-09-08 之前是「課程一張卡、器材縮排掛在底下」，現在是平的六列。 */
+/* 設定 → 名稱怎麼寫。**預設只給看**，點鉛筆才就地展開（2026-09-08）。
+   在那之前是十幾列、每列兩個輸入框一次全部攤開 —— 她要找的
+   「這個東西現在叫什麼」被埋在一堆邊框裡。 */
 .namerow {
-  padding: var(--space-3) 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--border-soft);
 }
 .namerow:first-child {
   padding-top: 0;
   border-top: none;
 }
-.namerow__head {
-  font-weight: 600;
-  margin-bottom: var(--space-2);
+
+/* 展開的那一列自己有底色，一眼看得出「我正在改這一列」。 */
+.namerow.is-editing {
+  margin: 0 calc(-1 * var(--space-3));
+  padding: var(--space-4) var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-top-color: transparent;
 }
+
+.namerow__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.namerow__head {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+/* 視覺上是一支 32px 的小鉛筆，感應範圍靠 ::after 撐到 44px（同 .drawer__grip）。 */
+.namerow__edit {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.namerow__edit::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.namerow__edit:hover,
+.namerow__edit[aria-expanded='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 讀的那一列：兩種寫法各一格。標籤留著不省 —— 那兩個字就是「誰在看」，
+   而這一頁整件事就是「同一個東西在三個地方寫法不一樣」。 */
+.namerow__reads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-2) 0 0;
+}
+.namerow__read {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.namerow__read dt {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+.namerow__read dd {
+  margin: 0;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.namerow__note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
 /* 兩格並排。手機上一格大約 150px，放得下「高能量雷射」那種長度。 */
 .namerow__fields {
   display: flex;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .namerow__fields .field {
   flex: 1;
   min-width: 0;
   margin-bottom: 0;
+}
+.namerow__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .namerow__preview {
   margin: var(--space-2) 0 0;
@@ -6331,6 +6407,71 @@ summary {
   margin-bottom: var(--space-3);
 }
 
+/* 「掛在哪」：課程與合作機構收成一行（2026-09-08）。
+   兩排各自一個標籤加一排丸子＝四行，收成分段切換之後是兩行 ——
+   省下來的正是把「存起來」擠出畫面的那兩行。 */
+.pbedit__hang > [data-hang-panel] .fieldgroup__label {
+  display: none;
+}
+.pbedit__hang > [data-hang-panel] .fieldgroup {
+  margin-bottom: 0;
+}
+
+/* 分段切換。兩顆貼在一起、共用一個底槽 —— 它講的是「同一件事的兩面」，
+   而不是兩個各自獨立的按鈕。 */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+
+.seg__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+/* 視覺上 30px，感應範圍撐到 44（同 .drawer__grip、.namerow__edit）。 */
+.seg__btn::after {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
+}
+
+.seg__btn[aria-selected='true'] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(36 31 26 / 8%);
+}
+
+/* 選了幾個。**沒選就整個不印**（空字串）—— 一顆「0」看起來像一個可以按的
+   數字，而她要的只是「那一邊有沒有東西」。 */
+.seg__n {
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+.seg__btn[aria-selected='true'] .seg__n {
+  color: var(--accent);
+}
+.seg__n:empty {
+  display: none;
+}
+
 .pbedit__title {
   width: 100%;
   margin-bottom: var(--space-3);
@@ -6569,4 +6710,215 @@ summary {
 
 .pblines--tight li::before {
   top: 0.8em;
+}
+
+/* ---------- 批次取消專區（`ui/views/bulkCancel.js`，ADR-0082） ----------
+ *
+ * 出國或請假的時候一次收掉十幾段。這一頁**只取消不給改** ——
+ * 改一筆仍然只有日曆（ADR-0056）。
+ *
+ * 版面刻意跟客戶那邊「看這個月的進度」一樣（她指名比照那一頁）：
+ * 換月那一條、一天一小段、一段一列。新的只有月曆那一格與底下那一條。
+ */
+
+/* 一天一小段。日期靠左，「整天選起來」靠右 —— 那一顆是這一頁最省手指的路。 */
+.bulkday {
+  margin-top: var(--space-4);
+}
+
+.bulkday__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.bulkday__date {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.bulkday__all {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+/* 一段一列。整列都可以點 —— 一個 12px 的勾選框在手機上按不準。 */
+.bulkrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease;
+}
+
+.bulkrow:last-child {
+  border-bottom: none;
+}
+
+.bulkrow.is-on {
+  background: var(--accent-soft);
+}
+
+.bulkrow__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent-text);
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+
+.bulkrow.is-on .bulkrow__box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bulkrow__what {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* 月曆那一格。**七欄固定**，跟日曆的月檢視同一個骨架。 */
+.bulkcal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-top: var(--space-3);
+}
+
+.bulkcal__wd {
+  padding-bottom: var(--space-1);
+  color: var(--text-mute);
+  font-size: var(--text-2xs);
+  text-align: center;
+}
+
+.bulkcal__day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 1px;
+  min-height: var(--tap-min);
+  padding: var(--space-1) 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-out);
+}
+
+/* 沒有預約的那幾天按不下去 —— 畫得淡，但不要整個看不見（她要認得出月份的形狀）。 */
+.bulkcal__day[disabled] {
+  background: transparent;
+  color: var(--text-mute);
+  cursor: default;
+}
+
+.bulkcal__day.is-out {
+  opacity: 0.4;
+}
+
+/* 攤開的那一天。**只有外框**，底色留給「選起來」—— 兩件事要分得出來。 */
+.bulkcal__day.is-open {
+  border-color: var(--accent);
+}
+
+.bulkcal__day.is-on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 選了一半：那一天有幾段選了、幾段沒選。 */
+.bulkcal__day.is-some {
+  background: var(--accent-soft);
+}
+
+.bulkcal__day:active:not([disabled]) {
+  transform: scale(0.94);
+}
+
+.bulkcal__n {
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+/* 有幾段。一段就只是一個點，兩段以上才寫數字 ——
+   「1」跟那一格上面的日期擠在一起會看成兩個數字。 */
+.bulkcal__dot {
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--tea);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bulkcal__day.is-on .bulkcal__dot {
+  background: var(--accent-text);
+  color: var(--accent);
+}
+
+/* 多選中那一條。**要看得出模式變了** —— 沒有提示的模式切換是這個 app 不做的事。 */
+.bulkhint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--tea-soft);
+  color: var(--tea);
+  font-size: var(--text-sm);
+}
+
+/* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。 */
+.bulkbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) calc(-1 * var(--gutter)) 0;
+  padding: var(--space-3) var(--gutter);
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -2px 12px rgb(36 31 26 / 6%);
+}
+
+.bulkbar__count {
+  font-size: var(--text-sm);
+  font-weight: 600;
 }

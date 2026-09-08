@@ -47,7 +47,6 @@ function seedTwoTiers() {
 async function openWall(app, page) {
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
 }
 

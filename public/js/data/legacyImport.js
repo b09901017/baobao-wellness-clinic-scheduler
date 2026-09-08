@@ -4,7 +4,7 @@
 import * as repo from './repo.js';
 import * as config from './config.js';
 import * as customers from './customers.js';
-import { recount } from '../domain/visits.js';
+import { recount, withSlotStatuses } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
 import { todayISO } from '../domain/dates.js';
 
@@ -71,7 +71,9 @@ export async function importPlan(plan, { coursesById = null } = {}) {
   // key → 真正的 id。子集合的路徑需要父文件的 id，所以 id 必須先於寫入存在。
   const idByKey = new Map(plan.entitlements.map((e) => [e.key, repo.newId(entPath(customerId))]));
 
-  const visits = plan.visits.map((visit) => ({
+  // 匯進來的每一段也要帶狀態（ADR-0081）。**這一條路不走 `save()`**
+  // （它一次寫一整包），所以那個路口補不到它 —— 要在這裡自己補一次。
+  const visits = plan.visits.map((visit) => withSlotStatuses({
     id: repo.newId(VISITS),
     ...visit,
     customerId,

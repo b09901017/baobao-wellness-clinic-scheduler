@@ -37,7 +37,6 @@ function seedFourInOne() {
 async function openDeck(app, page) {
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
   await page.waitForTimeout(600);
@@ -115,7 +114,6 @@ test('ILIB 的診間照她給的順序置頂', async ({ app, page }) => {
   await app.signIn('/');
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
   await page.waitForTimeout(600);

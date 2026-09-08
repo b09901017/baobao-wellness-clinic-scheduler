@@ -10,7 +10,8 @@
 //
 //   1. 日檢視上那一天是**三列**（一段一列）
 //   2. 點第二列，卡片上**只有第二段**，而且講得出「還有另外 2 段」
-//   3. 按了「看全部」才三段都出來
+//   3. 那一行**不是按鈕** —— 她 2026-09-08 說「純粹且僅呈現該時段課程的資訊」，
+//      所以「看全部」拿掉了（ADR-0080 第三點的其他做法那一節就是這個選項）
 //
 // 加上月檢視那一格是**三條色條**（2026-09-08 她主動要的），
 // 以及長按那一列時，選單抬頭要講清楚底下那幾顆動的是**整筆**。
@@ -88,12 +89,23 @@ test('同一天三段：一段一列，點哪一列就只看哪一段', async ({
   await expect(card, '點的是 SIS 那一段，不該看到 09:00 那一段').not.toContainText('09:00');
   await expect(card, '也不該看到 11:00 那一段').not.toContainText('11:00');
 
-  // 「這天他還來做什麼」是她會問的問題，所以要留一條看得到的路
-  const more = card.locator('[data-showall]');
-  await expect(more).toContainText('還有另外 2 段');
-  await more.click();
-  await expect(card.locator('.readslot'), '按了「看全部」才三段都出來').toHaveCount(3);
-  await expect(card.locator('[data-showall]'), '全部都畫出來之後那一行要消失').toHaveCount(0);
+  // 「這天他還來做什麼」仍然講得出來，但只是一行字 —— 按不下去
+  await expect(card.locator('.readmore')).toContainText('還有另外 2 段');
+  await expect(card.locator('[data-showall]'), '「看全部」拿掉了').toHaveCount(0);
+  await expect(card.locator('.readslot'), '那一張卡從頭到尾只有一段').toHaveCount(1);
+});
+
+// 她 2026-09-08：「會顯示『這一天的代辦』但其實不是這一天，現在已經是一項
+// 一項分開來看了，所以應該要叫做這一項的代辦之類的」
+test('點一段時，那一塊的抬頭是「這一項的待辦」', async ({ app, page }) => {
+  await app.seed(seedThreeSlots());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await page.locator('[data-open^="visit:v-three:"]').nth(1).click();
+  await page.waitForTimeout(900);
+
+  await expect(page.locator('.taskmirror__head')).toContainText('這一項的待辦');
 });
 
 test('月檢視一段一條，而且印得出那一段是哪一台', async ({ app, page }) => {
@@ -109,26 +121,69 @@ test('月檢視一段一條，而且印得出那一段是哪一台', async ({ ap
   await expect(bars.filter({ hasText: 'IL' }).first()).toBeVisible();
 });
 
-// ADR-0060：長按一列＝直接做。但那幾顆動的是**整筆**來訪，而她長按的是一列。
-// 這一句話比事後復原便宜得多（她 2026-09-08 說的「誤觸改動」）。
-test('長按一列，選單要講清楚底下那幾顆動的是整筆', async ({ app, page }) => {
+/**
+ * 長按第 n 列。
+ *
+ * **用真的滑鼠事件**：`wireLongPress()` 只認 `isPrimary` 的主鍵，
+ * `dispatchEvent('pointerdown')` 造出來的那一顆過不了那道門。
+ * 按住要超過 `HOLD_MS`（450），中間不可以動超過 SLOP（8px）。
+ */
+async function longPressRow(page, index) {
+  const row = page.locator('[data-open^="visit:v-three:"]').nth(index);
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(900);
+  await page.mouse.up();
+}
+
+// ADR-0060：長按一列＝直接做。ADR-0081 之後那一列真的只動那一段，
+// 所以抬頭講的是**她長按的是哪一段**，不再是「底下這幾顆動的是整筆」
+//（那一句是在替 ADR-0080 第四點那個 bug 道歉）。
+test('長按一列，選單講得出她按的是哪一段', async ({ app, page }) => {
   await app.seed(seedThreeSlots());
   await app.signIn('/calendar');
   await openDayDrawer(app, page);
 
-  const row = page.locator('[data-open^="visit:v-three:"]').first();
-  await row.scrollIntoViewIfNeeded();
-  const box = await row.boundingBox();
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
+  await longPressRow(page, 0);
 
-  // **用真的滑鼠事件**：`wireLongPress()` 只認 `isPrimary` 的主鍵，
-  // `dispatchEvent('pointerdown')` 造出來的那一顆過不了那道門。
-  // 按住要超過 `HOLD_MS`（450），中間不可以動超過 SLOP（8px）。
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.waitForTimeout(900);
-  await page.mouse.up();
+  await expect(page.locator('.actions__sub')).toContainText('第 1 段（共 3 段）');
 
-  await expect(page.locator('.actions__sub')).toContainText('這一天共 3 段');
+  const menu = page.locator('.drawer--actions');
+  await expect(menu, '要有只取消那一段的那一顆').toContainText('取消這一段');
+  await expect(menu, '整天那一顆也要留著，而且說得出幾段').toContainText('取消一整天（3 段）');
+});
+
+// 她 2026-09-08：「僅能取消被選中的該筆時段來訪，嚴禁一次連帶將該客戶
+// 當天的所有時段預約全部取消！」（ADR-0081）
+test('取消這一段，那一天剩下的兩段一個字都不動', async ({ app, page }) => {
+  await app.seed(seedThreeSlots());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  // 第二列是 SIS 那一段
+  await longPressRow(page, 1);
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said, '一個字都不要提整天的段數').not.toMatch(/3 個時段/);
+  expect(said, '要講出剩下幾段不受影響').toMatch(/剩下的 2 段/);
+  await app.ok();
+
+  // 存完之後 `refreshAfterAction()` 會**自己把同一天的抽屜開回來**
+  //（她在日曆上的心裡狀態是「就是那一天」，ADR-0020），所以這裡不要再點一次
+  // —— 那一下會被還在的灰底擋掉。
+  await page.waitForTimeout(1500);
+
+  // 三列都還在（取消掉的那一段畫出來但暗掉，ADR-0061），
+  // 而只有一列是取消掉的那一種。
+  const rows = page.locator('[data-open^="visit:v-three:"]');
+  await expect(rows, '取消一段不可以讓那一列消失').toHaveCount(3);
+  // 一列的 class 是 `statusClass()` 給的（`.timerow.status-cancelled`）
+  await expect(
+    page.locator('.timerow.status-cancelled'),
+    '只有她點的那一段暗掉，另外兩段照舊',
+  ).toHaveCount(1);
 });

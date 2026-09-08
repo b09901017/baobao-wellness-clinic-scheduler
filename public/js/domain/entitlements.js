@@ -37,10 +37,25 @@ export { durationChoicesOf };
  */
 export function slotOutcome(visit, slot) {
   if (!visit || visit.deletedAt) return null;
+  // cancelled：時段已經還回去了。**這一條要排在讀 `slot.status` 之前** ——
+  // 2026-09-08 之前的 app 只寫整筆，一格停在 `confirmed` 的舊時段不可以
+  // 讓那一段一直佔著次數（同 `visits.js` 的 `slotStatus()`）。
+  if (visit.status === 'cancelled') return null;
+
+  // **時段自己那一格先算數**（ADR-0081）。她 2026-09-08 要「只取消某一段」，
+  // 而取消掉的那一段要把次數還回去 —— 回 `null` 就是「不佔任何次數」，
+  // 跟整筆取消同一種答案。多開一種回傳值的話，每一個 switch 都要多一條，
+  // 而漏掉的那一條會無聲地把取消掉的那一段算進次數。
+  const own = slot?.status ?? null;
+  if (own === 'cancelled') return null;
+  if (own === 'done' || own === 'no_show') return own;
+  if (own === 'pending_confirm' || own === 'confirmed') return 'booked';
+
+  // 舊資料：從整筆推。**這一段跟 2026-09-08 之前一模一樣。**
   if (visit.status === 'done') return slot?.attended === false ? 'no_show' : 'done';
   if (visit.status === 'no_show') return 'no_show';
   if (visit.status === 'pending_confirm' || visit.status === 'confirmed') return 'booked';
-  return null; // cancelled：時段已經還回去了
+  return null;
 }
 
 /**
@@ -100,6 +115,39 @@ export function counts(entitlement, visits, entitlementId) {
     noShow,
     remaining: total - done - booked,
   };
+}
+
+/**
+ * 次數，**把手上這一份還沒存的草稿也算進去**。
+ *
+ * 她 2026-09-08：
+ *
+ * > 第一個時段排了某課程（例如客戶僅有 1 堂 INDIBA 額度），在同一介面選擇
+ * > 第二個時段時，必須扣除剛剛已暫排的額度，不得讓額度仍顯示為 1 且重複選取。
+ *
+ * 在這之前，額度那一排丸子上的數字是 `counts(e, customerVisits, e.id)` ——
+ * 而 `customerVisits` 是**已經存好的**那些。草稿上那幾段不在裡面，
+ * 所以三段都選同一筆額度時，三顆丸子都寫「剩 1」。
+ *
+ * **驗證那一側其實早就算對了**（`entitlementWarnings()` 把這一筆算進去），
+ * 只有畫面上那個數字沒跟上。所以這一支把那個組法收成一份，
+ * 兩個地方走同一條 —— 各組一次的話遲早有一邊忘了濾掉自己那一筆，
+ * 而症狀是「剩餘一直少一次」。
+ *
+ * **不擋。** 顯示得出 0 甚至負的，但存得下去（ADR-0074：2026-09-06 之後
+ * 整個 app 都沒有硬性阻擋了）——「今天先做了、之後再補加購」是真的會發生的事，
+ * 而提醒那一句已經在 `validateVisit()` 裡了。
+ *
+ * @param {object} entitlement
+ * @param {object[]} customerVisits 這位客戶已經存好的全部來訪
+ * @param {object|null} draft 手上這一份（可以還沒有 id）
+ * @param {string} entitlementId
+ */
+export function countsWithDraft(entitlement, customerVisits = [], draft, entitlementId) {
+  if (!draft) return counts(entitlement, customerVisits, entitlementId);
+  // 改一筆既有來訪時要**先把舊的那一份拿掉**，不然它會被算兩次
+  const withDraft = [...(customerVisits ?? []).filter((v) => v.id !== draft.id), draft];
+  return counts(entitlement, withDraft, entitlementId);
 }
 
 /** 剩幾次以內算「快用完」，客戶總覽的篩選用。 */

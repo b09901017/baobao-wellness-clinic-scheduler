@@ -234,22 +234,7 @@ function editCardHtml(p) {
              value="${esc(draft.title ?? '')}" placeholder="標題" aria-label="標題"
              enterkeyhint="next" autocomplete="off" />
 
-      ${f.chips({
-        name: 'courseIds', label: '掛哪些課程', value: draft.courseIds ?? [], multi: true,
-        quiet: true,
-        options: ctx.courses.map((c) => ({ value: c.id, label: c.name })),
-      })}
-
-      ${/* 掛合作機構（ADR-0076）。掛了的那一份會在**帶著那個標記的客戶**身上
-           浮出來。**沒有機構就整排不畫** —— 一排永遠按不下去的丸子只是噪音。
-
-           `.pbcard--edit > *` 那一條（每一項都要 flex: none）自動蓋到這一排：
-           它是 `f.chips()` 吐的 `.fieldgroup`，跟上面那一排同一種節點。 */''}
-      ${(ctx.partners ?? []).length ? f.chips({
-        name: 'partners', label: '掛哪些合作機構', value: draft.partners ?? [], multi: true,
-        quiet: true,
-        options: ctx.partners.map((name) => ({ value: name, label: name })),
-      }) : ''}
+      ${hangHtml(draft)}
 
       <textarea class="pbedit__body" data-body maxlength="${MAX_BODY}"
                 aria-label="內容" placeholder="一行一件事就好"
@@ -265,6 +250,61 @@ function editCardHtml(p) {
             ${icon('trash', { size: 16 })}刪掉</button>`}
       </div>
     </article>`;
+}
+
+/**
+ * 「掛在哪」：課程與合作機構收成**一行**，上面一個分段切換。
+ *
+ * 她 2026-09-08：
+ *
+ * > 新增合作機構支援後，表單垂直高度被拉長，導致「儲存按鈕」被擠到視窗
+ * > 下方需要額外滾動。將「掛課程」與「掛機構」重構至同一行。
+ *
+ * 兩排各自有一個標籤加一排丸子，也就是**四行**。收成分段切換之後是兩行，
+ * 省下來的正是把「存起來」擠出畫面的那兩行。
+ *
+ * ## 三件不可以做的事
+ *
+ * 1. **兩種還是可以同時掛。** 切換的是「現在在編哪一種」，不是「只能掛一種」。
+ * 2. **切過去之後，前一種選了什麼不可以被清掉。** 所以兩個
+ *    `<input type="hidden">` **都留在 DOM 裡**（`readEditor()` 讀的就是它們），
+ *    只是丸子那一排 `hidden`。拿掉節點的話她切一下就把掛好的課程清光了。
+ * 3. **沒有合作機構時整個分段控制不畫** —— 一顆永遠按不下去的分頁只是噪音
+ *    （同這一支既有的規矩）。那時候就是原本那一排課程。
+ *
+ * 選了幾個印在分頁上：不然切過去之前她不知道那一邊有沒有東西。
+ */
+function hangHtml(draft) {
+  const courseChips = f.chips({
+    name: 'courseIds', label: '掛哪些課程', value: draft.courseIds ?? [], multi: true,
+    quiet: true,
+    options: ctx.courses.map((c) => ({ value: c.id, label: c.name })),
+  });
+
+  // 掛合作機構（ADR-0076）。掛了的那一份會在**帶著那個標記的客戶**身上浮出來。
+  if (!(ctx.partners ?? []).length) return courseChips;
+
+  const partnerChips = f.chips({
+    name: 'partners', label: '掛哪些合作機構', value: draft.partners ?? [], multi: true,
+    quiet: true,
+    options: ctx.partners.map((name) => ({ value: name, label: name })),
+  });
+
+  const tab = (key, label, n) => `
+    <button class="seg__btn" type="button" role="tab" data-hang="${key}"
+            aria-selected="${key === 'courseIds'}">
+      ${esc(label)}<span class="seg__n" data-hang-n="${key}">${n || ''}</span>
+    </button>`;
+
+  return `
+    <div class="fieldgroup pbedit__hang">
+      <div class="seg" role="tablist" aria-label="掛在哪">
+        ${tab('courseIds', '掛課程', (draft.courseIds ?? []).length)}
+        ${tab('partners', '掛機構', (draft.partners ?? []).length)}
+      </div>
+      <div data-hang-panel="courseIds">${courseChips}</div>
+      <div data-hang-panel="partners" hidden>${partnerChips}</div>
+    </div>`;
 }
 
 /**
@@ -465,6 +505,8 @@ function mountEditor() {
   card.querySelector('[data-chip="courseIds"][aria-pressed="true"]')
     ?.scrollIntoView({ block: 'nearest', inline: 'center' });
 
+  wireHang(card);
+
   const body = card.querySelector('[data-body]');
   if (!body) return;
 
@@ -538,6 +580,46 @@ function mountEditor() {
     // `insertAtCursor()` 會把焦點留在輸入框、游標留在插進去的字後面，
     // 並且手動發一次 `input`（`maxlength` 與其他監聽靠它）。
     f.insertAtCursor(body, btn.dataset.emoji);
+  });
+}
+
+/**
+ * 「掛在哪」那兩個分頁。
+ *
+ * **只換 `hidden` 與 `aria-selected`，不重畫任何 HTML** —— 重畫會把
+ * `f.wireChips()` 掛好的委派連同節點一起換掉，而且會洗掉她選到一半的那一排
+ * （同壓表那一頁的規矩，ADR-0038）。
+ *
+ * 計數跟著丸子走：那幾排是 `quiet` 的（不派 change），所以自己接一次 click。
+ */
+function wireHang(card) {
+  const seg = card.querySelector('.seg');
+  if (!seg) return;
+
+  const counts = () => {
+    for (const key of ['courseIds', 'partners']) {
+      const box = card.querySelector(`input[type="hidden"][name="${key}"]`);
+      const n = f.splitMulti(box?.value).length;
+      const dot = card.querySelector(`[data-hang-n="${key}"]`);
+      if (dot) dot.textContent = n || '';
+    }
+  };
+
+  seg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-hang]');
+    if (!btn) return;
+    const picked = btn.dataset.hang;
+    seg.querySelectorAll('[data-hang]').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.hang === picked)));
+    card.querySelectorAll('[data-hang-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.hangPanel !== picked;
+    });
+  });
+
+  // 丸子是 quiet 的，所以計數要自己接。掛在卡片上，委派 ——
+  // 那一排每次重畫（收合「換一款」）之後照樣接得到。
+  card.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-chip]')) counts();
   });
 }
 

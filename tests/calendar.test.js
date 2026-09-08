@@ -8,6 +8,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { statusClass } from '../public/js/domain/visits.js';
+
 import {
   weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
   agendaFor, summaryByDate, monthBars, WEEKDAY_HEADERS, VIEWS,
@@ -506,4 +508,90 @@ describe('那一列的診間印簡寫', () => {
     })], '2026-09-18', CTX);
     assert.equal(row.room, null);
   });
+});
+
+describe('日曆逐段上色（ADR-0081）', () => {
+  const v = {
+    id: 'v1', customerId: 'c1', customerName: '王小明', date: '2026-09-20',
+    status: 'confirmed',
+    slots: [
+      { startsAt: '10:30', endsAt: '11:30', courseName: '復能', status: 'confirmed' },
+      { startsAt: '11:30', endsAt: '12:00', courseName: '復能', status: 'cancelled' },
+    ],
+  };
+
+  test('月檢視：取消掉的那一條自己暗掉，其餘不動', () => {
+    const bars = monthBars(v, {});
+    assert.equal(bars.length, 2);
+    assert.notEqual(bars[0].kind, bars[1].kind, '兩條的顏色要分得出來');
+    assert.equal(bars[1].kind, statusClass('cancelled'));
+  });
+
+  test('日／週那一列：每一列帶自己那一段的狀態', () => {
+    const rows = agendaFor([v], '2026-09-20', { includeCancelled: true });
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].status, 'confirmed');
+    assert.equal(rows[1].status, 'cancelled');
+  });
+
+  test('舊來訪（沒有 slot.status）每一列還是整筆那一個', () => {
+    const legacy = { ...v, slots: [{ startsAt: '10:30', courseName: '復能' }] };
+    assert.equal(agendaFor([legacy], '2026-09-20')[0].status, 'confirmed');
+    assert.equal(monthBars(legacy, {})[0].kind, statusClass('confirmed'));
+  });
+});
+
+// 她 2026-09-08：「我修改課程設定的，例如要不要簽療程單或是寫記錄，
+// 這個提醒不會更新誒？」
+//
+// 集中派生本身沒問題（`domain/consequences.js` 全部是純函式、全部現算），
+// 壞的是**三個畫面漏傳 `coursesById`**：待辦中心兩處、進度追蹤一處。
+//
+// 沒傳的話 `formSlotIndexes(visit, {})` 拿不到課程，而 `needsForm(undefined)`
+// 回 `true`（沒有欄位就是要簽）—— 於是那三頁**一律**寫「簽療程單」，
+// 就算她已經把那個課程的開關關掉了。
+//
+// **展開（`...data`）算數**：日曆與客戶詳情把整包 ctx 攤進去，而那一包裡
+// 本來就有。所以那一種呼叫端改成要求「這個檔案裡真的有組過那一份」——
+// 進度追蹤壞掉時整支檔案一次都沒出現過 `coursesById`，這一條抓得到它。
+test('每一個開讀取卡片的畫面都帶著 coursesById 與 master', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+  const PAGES = [
+    'js/ui/views/calendar.js',
+    'js/ui/views/customerDetail.js',
+    'js/ui/views/home.js',
+    'js/ui/views/progress.js',
+  ];
+
+  const CALL = 'visitReadHtml(';
+
+  for (const rel of PAGES) {
+    const src = read(rel);
+    let at = src.indexOf(CALL);
+    let found = 0;
+
+    while (at >= 0) {
+      // 那一支自己的定義（`export function visitReadHtml(`）不算，
+      // 註解裡提到的 `visitReadHtml()` 也不算（那一種括號裡是空的）
+      const isDefinition = src.slice(Math.max(0, at - 20), at).includes('function');
+      const isProse = src[at + CALL.length] === ')';
+      if (!isDefinition && !isProse) {
+        const args = src.slice(at, at + 700);
+        const spreads = args.includes('...');
+        found += 1;
+
+        for (const key of ['coursesById', 'master']) {
+          const ok = args.includes(key) || (spreads && src.includes(`${key}:`));
+          assert.ok(ok, `${rel} 有一處 visitReadHtml() 拿不到 ${key}`
+            + (key === 'coursesById'
+              ? ' —— 那一頁會一律說「簽療程單」，不管她把那個勾關掉了沒有'
+              : ' —— 那一頁會寫「復能」而日曆上寫「SIS(60)」'));
+        }
+      }
+      at = src.indexOf(CALL, at + 1);
+    }
+
+    // 這一支測試最危險的失敗方式是「一個呼叫端都沒找到、於是永遠綠」
+    assert.ok(found > 0, `${rel} 找不到任何 visitReadHtml() 呼叫端 —— 這支測試失效了`);
+  }
 });

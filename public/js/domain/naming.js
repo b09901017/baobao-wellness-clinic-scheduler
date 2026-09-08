@@ -43,6 +43,16 @@
 //
 // **有沒有器材都要接。** 單買 ILIB 那一段身上沒有器材（ILIB 課程的
 // `requiresEquipment` 是 false），而她列的第六種正是 `ILIB(30/60) -> IL(30/60)`。
+//
+// ## 營養點滴印的是品項（2026-09-08）
+//
+// > 可以把這個營養點滴的品項寫出來，就不用寫營養點滴了，
+// > 而是像這樣，誰，品項，診間（嘉玲/雪顏亮彩/.10）
+// > 然後其中每個營養點滴的品項都可以有簡寫（像是雪顏亮彩可以簡稱雪）
+//
+// 所以「她自己看」那一種的順序是 **品項 → 器材 → 課程**，三者都讀別稱。
+// **貼給客人的那一句不變**：那裡只講課程（ADR-0077），品項跟器材一樣
+// 是她自己要認的東西。
 
 import { durationChoicesOf } from './masterData.js';
 import { toMinutes, isValidTime } from './visitTime.js';
@@ -115,7 +125,9 @@ export const fullNameOf = (row) => trimmed(row?.name);
  * @param {{courses?:object[], equipment?:object[]}} master
  * @param {'short'|'line'} [context]
  */
-export function slotName(slot, { courses = [], equipment = [] } = {}, context = 'short') {
+export function slotName(
+  slot, { courses = [], equipment = [], ivProducts = [] } = {}, context = 'short',
+) {
   const course = (courses ?? []).find((c) => c.id === slot?.courseId) ?? null;
   const snapshot = trimmed(slot?.courseName);
 
@@ -136,11 +148,24 @@ export function slotName(slot, { courses = [], equipment = [] } = {}, context = 
     return course ? nameOf(course, 'line', { as: 'course' }) : snapshot;
   }
 
+  // **營養點滴印的是那天打的品項**（她 2026-09-08）：
+  //
+  // > 可以把這個營養點滴的品項寫出來，就不用寫營養點滴了，
+  // > 而是像這樣，誰，品項，診間（嘉玲/雪顏亮彩/.10）
+  //
+  // 品項排在器材前面只是為了把順序釘死 —— 一個課程不會同時要選器材又要選
+  // 品項（`validate('courses')` 擋著）。**兩邊都印簡寫**（她那天定的），
+  // 沒設簡寫就退回全名，跟器材與診間同一條規矩（`nameOf()`）。
+  const iv = slot?.ivProductId
+    ? ((ivProducts ?? []).find((x) => x.id === slot.ivProductId) ?? null)
+    : null;
+
   const eq = slot?.equipmentId
     ? ((equipment ?? []).find((x) => x.id === slot.equipmentId) ?? null)
     : null;
 
-  const base = (eq ? nameOf(eq, 'short', { as: 'equipment' }) : '')
+  const base = (iv ? nameOf(iv, 'short', { as: 'equipment' }) : '')
+    || (eq ? nameOf(eq, 'short', { as: 'equipment' }) : '')
     || (course ? nameOf(course, 'short', { as: 'course' }) : '')
     || snapshot;
 
