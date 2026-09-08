@@ -215,9 +215,10 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
   const scoped = scopeTo(visit, focusSlot);
 
+  const mine = ownedKinds(scoped, visit, coursesById);
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
-    .filter((t) => belongsToScope(t.kind, visit, scoped, coursesById))
+    .filter((t) => mine(t.kind))
     .map((t) => ({
       key: t.id,
       kind: t.kind,
@@ -299,7 +300,7 @@ function scopeTo(visit, focusSlot) {
 }
 
 /**
- * 一張**已經長出來的**任務算不算她點的那一段的。
+ * 回一支「這一種算不算她點的那一段的」。
  *
  * ## 任務身上沒有段落，所以只能推
  *
@@ -323,10 +324,14 @@ function scopeTo(visit, focusSlot) {
  * 「它屬於這一段嗎」—— 答不出來就留著。靜默收掉一張她真的還沒做的事，
  * 比多列一張糟得多（同 `syncFollowupTasks()` 那一圈的理由）。
  */
-function belongsToScope(kind, visit, scoped, coursesById) {
-  if (scoped === visit) return true;
-  if (kindsOf(scoped, coursesById).has(kind)) return true;
-  return !kindsOf(visit, coursesById).has(kind);
+function ownedKinds(scoped, visit, coursesById) {
+  // 沒收窄就一張都不用濾。另外三頁走的就是這一條。
+  if (scoped === visit) return () => true;
+
+  // 兩份都只算一次 —— 每一列各算一次的話，一張卡片會把整筆來訪掃過十幾遍
+  const here = kindsOf(scoped, coursesById);
+  const anywhere = kindsOf(visit, coursesById);
+  return (kind) => here.has(kind) || !anywhere.has(kind);
 }
 
 /** 這幾段長得出哪幾種任務。 */
