@@ -1746,15 +1746,20 @@ async function loadTaskVisits(ctx) {
   if (!ids.length) return;
 
   try {
-    const [visits, rooms, staff, courses, equipment] = await Promise.all([
+    const [visits, rooms, staff, courses, equipment, ivProducts] = await Promise.all([
       visitsData.getMany(ids),
       config.listAll('rooms'),
       config.listAll('staff'),
       config.listAll('courses', { includeDeleted: true }),
       config.listAll('equipment', { includeDeleted: true }),
+      // 那一段印的是品項不是課程（2026-09-08，`slotName()`）
+      config.listAll('ivProducts', { includeDeleted: true }),
     ]);
     taskVisits = {
-      visits, roomsById: byId(rooms), staffById: byId(staff), master: { courses, equipment },
+      visits,
+      roomsById: byId(rooms),
+      staffById: byId(staff),
+      master: { courses, equipment, ivProducts },
     };
   } catch {
     // 讀不到就當這一段不存在：少一個數字，不是少一頁。
@@ -2606,7 +2611,7 @@ async function renderConfirm(el) {
   //（`domain/consequences.js`）—— 哪幾張登記待辦會長出來、要不要簽療程單，
   // 兩件都看課程。含已刪除的：主檔把課程刪掉，不代表已經排出去的那幾筆
   // 就不用去掛號了（同 `data/visits.js` 的 taskOps）。
-  const [pending, settings, courses, equipment, playbooks, templates, customers] =
+  const [pending, settings, courses, equipment, ivProducts, playbooks, templates, customers] =
     await Promise.all([
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
@@ -2615,6 +2620,8 @@ async function renderConfirm(el) {
     // 但「跟客人確認時間」那一排丸子印的是那天做了什麼（`SIS(60)`），
     // 而那一半是從器材主檔來的。
     config.listAll('equipment', { includeDeleted: true }),
+    // 那一排丸子上營養點滴印的是**品項**（2026-09-08，`slotName()`）
+    config.listAll('ivProducts', { includeDeleted: true }),
     // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
     // 的地方** —— 她按下那一列的時候，正在打那則訊息。
     // 讀不到就不畫那一塊，跟這一頁其他幾份補資料同一個判斷。
@@ -2633,7 +2640,7 @@ async function renderConfirm(el) {
     settings,
     today,
     playbooks,
-    master: { courses, equipment },
+    master: { courses, equipment, ivProducts },
     customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
     templates,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),

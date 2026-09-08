@@ -104,7 +104,8 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff, courses, equipment, playbooks, customers] =
+    const [visits, events, notes, rooms, staff, courses, equipment, ivProducts,
+      playbooks, customers] =
       await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
@@ -119,6 +120,9 @@ async function load() {
       // 器材主檔：一段要唸成什麼要它（`domain/naming.js`）——「SIS(60)」的
       // 括號裡那一半就是從這裡來的。含已刪除的，理由同課程。
       config.listAll('equipment', { includeDeleted: true }),
+      // 營養點滴品項：那一段印的是品項不是課程（2026-09-08，`slotName()`）。
+      // 含已刪除的 —— 她停用一款之後，既有那幾段照樣要印得出名字。
+      config.listAll('ivProducts', { includeDeleted: true }),
       // 備忘錄（ADR-0067）。點開一筆來訪時，那一份的前幾行會浮在卡片底下。
       // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
       // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
@@ -141,7 +145,7 @@ async function load() {
         coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
         // 一段要唸成什麼要的是**陣列**（`domain/naming.js`）。跟上面那張表
         // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
-        master: { courses, equipment },
+        master: { courses, equipment, ivProducts },
         customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
       },
     };

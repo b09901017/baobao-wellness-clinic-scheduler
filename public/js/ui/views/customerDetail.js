@@ -576,7 +576,7 @@ function paintMessages(sheet, ctx, today, month, invite, templates = {}) {
   const list = messagesFor({
     customer: ctx.customer, visits: ctx.visits, today, formLink: link, templates,
     // 那一段寫「那天真的做了什麼」（`13`）
-    master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
+    master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [] },
   });
   const shown = link ? list : list.filter((m) => m.id !== 'ask');
 
@@ -1764,7 +1764,7 @@ function openVisitCard(ctx, visitId) {
       coursesById: byId(ctx.courses ?? []),
       // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
       // 少帶這一份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
-      master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] },
+      master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [] },
       // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
       // 不必像日曆那樣點開才去讀那一位。
       entitlementsById: byId(ctx.entitlements ?? []),

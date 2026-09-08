@@ -240,7 +240,11 @@ function candidateCard(row, slot, ctx) {
         id: `offer-${row.customerId}`,
         text: offerSlotMessage({ name: row.customerName }, slot, {
           templates: ctx.templates ?? {},
-          master: { courses: ctx.all?.courses ?? [], equipment: ctx.all?.equipment ?? [] },
+          master: {
+            courses: ctx.all?.courses ?? [],
+            equipment: ctx.all?.equipment ?? [],
+            ivProducts: ctx.all?.ivProducts ?? [],
+          },
         }),
         collapsed: true,
         label: '先看一下邀約訊息',
