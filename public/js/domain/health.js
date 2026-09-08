@@ -28,7 +28,7 @@ import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
-import { VISIT_STATUSES, isActive } from './visits.js';
+import { VISIT_STATUSES, isActive, visitStatusFrom, describeStatus } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
@@ -135,6 +135,12 @@ export const CHECKS = [
     label: '課程的指派跟建議的不一樣',
     hint: '健檢、體適能、身體組成、營養諮詢、門診與二返都不需要治療室 ——'
       + ' 還指派著治療室的話，壓表時會多問一個不該問的問題，而她會隨便挑一間',
+  },
+  {
+    id: 'visitStatusDerived',
+    label: '來訪的狀態跟它的時段對不起來',
+    hint: '整筆寫著「已確認」，底下卻有一段還是待確認 ——'
+      + ' 日曆上的顏色與待辦中心那一列會各講各的',
   },
   {
     id: 'seedDuration',
@@ -1147,7 +1153,46 @@ function checkSeedDurations(ctx) {
     }));
 }
 
+/**
+ * 二十、來訪的狀態跟它的時段對不起來。
+ *
+ * `visit.status` 是**從時段推出來又存起來的**（ADR-0081）。存一份推導值是
+ * 刻意的重複 —— 索引、Rules、試算表、備份四個地方讀它 —— 而刻意的重複
+ * 就要有一列盯著它。
+ *
+ * 對不起來的來源有兩種：有人繞過前端改了 Firestore，或某一支忘了重推。
+ * 兩種的答案一樣：**重推一次**。
+ *
+ * **一段都沒有 `status` 的舊來訪不報**：那時候推出來的必然等於它自己
+ * （`visitStatusFrom()` 是冪等的），所以真的對不起來才會被列出來。
+ */
+function checkVisitStatusDerived(ctx) {
+  return (ctx.visits ?? [])
+    .filter((v) => !v.deletedAt && (v.slots ?? []).some((s) => s?.status))
+    .map((visit) => ({ visit, want: visitStatusFrom(visit) }))
+    .filter(({ visit, want }) => want && want !== visit.status)
+    .map(({ visit, want }) => {
+      const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      return {
+        severity: 'mismatch',
+        title: `來訪 ${visit.date}・${who}`,
+        detail: `整筆寫著「${describeStatus(visit.status)}」，`
+          + `底下那幾段加起來是「${describeStatus(want)}」`,
+        link: '#/calendar',
+        fix: {
+          kind: 'restatVisit',
+          visitId: visit.id,
+          label: `${who}・${visit.date}`,
+          status: want,
+          fromLabel: describeStatus(visit.status),
+          toLabel: describeStatus(want),
+        },
+      };
+    });
+}
+
 const RUNNERS = {
+  visitStatusDerived: checkVisitStatusDerived,
   roomList: checkRoomList,
   slotBeds: checkSlotBeds,
   equipmentNames: checkEquipmentNames,

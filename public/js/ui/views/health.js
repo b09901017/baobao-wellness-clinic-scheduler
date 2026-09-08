@@ -178,6 +178,21 @@ function indexFixes(result) {
  * （SPEC 第 6.5 節）—— 兩種修正動的是不同的東西，用同一段字就等於沒講。
  */
 const FIX_COPY = {
+  visitStatusDerived: {
+    button: () => '重推一次',
+    all: (n) => `一次重推這 ${n} 筆`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的狀態照時段重推一次？`,
+      lines: [
+        `整筆從「${fix.fromLabel}」改成「${fix.toLabel}」`,
+        '時段一個字都不動 —— 對不起來的是整筆那一格，不是那幾段',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 筆的狀態都重推一次？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.fromLabel} → ${fix.toLabel}`),
+    }),
+  },
   counts: {
     button: () => '改成重算值',
     all: (n) => `一次修正這 ${n} 筆`,
@@ -392,6 +407,7 @@ const FIX_COPY = {
 };
 
 const KIND_TO_CHECK = {
+  restatVisit: 'visitStatusDerived',
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',

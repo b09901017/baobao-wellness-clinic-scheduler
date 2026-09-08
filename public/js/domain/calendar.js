@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass, showsRoom } from './visits.js';
+import { isActive, statusClass, showsRoom, slotStatus } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -147,7 +147,10 @@ export function agendaFor(
         visitId: visit.id,
         customerId: visit.customerId,
         customerName: visit.customerName ?? '（沒有名字）',
-        status: visit.status,
+        // **這一列是一段，所以狀態也是那一段自己的**（ADR-0081）。
+        // 舊來訪沒有 `slot.status`，`slotStatus()` 退回整筆那一個 ——
+        // 那幾百筆畫出來一個字都不會變。
+        status: slotStatus(visit, slot) ?? visit.status,
         slotIndex: index,
         startsAt: slot.startsAt ?? '',
         // 匯入的舊來訪沒有時間（ADR-0011）。顯示交給 timeLabel()，
@@ -220,27 +223,39 @@ export function monthBars(visit, master = {}) {
   const name = visit?.customerName ?? '?';
   const base = {
     category: 'visit',
-    kind: statusClass(visit?.status) || 'kind-visit',
     startDate: visit?.date,
     endDate: visit?.date,
     deletedAt: visit?.deletedAt ?? null,
   };
 
+  /**
+   * **顏色也是一段一個**（ADR-0081）。她那天三段裡取消了一段時，
+   * 月檢視上要看得出來是哪一條沒了 —— 整條都照整筆上色的話，
+   * 那一天看起來像什麼事都沒發生。
+   *
+   * 不開第八種顏色（ADR-0039：色相已經用完了）—— 取消掉的那一段走
+   * 既有的「畫出來但暗掉」（ADR-0061），只是現在逐段暗掉。
+   */
+  const kindOf = (slot) =>
+    statusClass(slot ? (slotStatus(visit, slot) ?? visit?.status) : visit?.status)
+    || 'kind-visit';
+
   // 姓名與課程之間用**半形**間隔號。一格手機上放得下四個多字 ——
   // 全形的空白或「・」等於整整少看到一個字，而被切掉時那一顆懸在邊緣的
   // 全形符號比半形的顯眼得多。
-  const bar = (id, course, sortKey) => ({
+  const bar = (id, course, sortKey, slot) => ({
     ...base,
     id,
+    kind: kindOf(slot),
     title: course ? `${name}·${course}` : name,
     sortKey,
   });
 
   const slots = visit?.slots ?? [];
-  if (!slots.length) return [bar(visit?.id, '', null)];
+  if (!slots.length) return [bar(visit?.id, '', null, null)];
 
   return slots.map((slot, i) =>
-    bar(`${visit.id}:${i}`, slotName(slot, master, 'short'), slot.startsAt ?? null));
+    bar(`${visit.id}:${i}`, slotName(slot, master, 'short'), slot.startsAt ?? null, slot));
 }
 
 /**

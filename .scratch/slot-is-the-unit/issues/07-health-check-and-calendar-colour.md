@@ -1,6 +1,6 @@
 # 日曆逐段上色，資料健檢多一列盯著推導對不對得起來
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`docs/adr/0039`（六種顏色）、`docs/adr/0061`（取消的畫出來但暗掉）、`docs/adr/0080`
 
