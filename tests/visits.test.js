@@ -544,7 +544,25 @@ describe('只提醒不阻擋的（warnings）', () => {
     assert.ok(!warnings.some((w) => w.includes('客戶乙')));
   });
 
-  test('同一間但不同床位不算撞 —— 床位才是最小單位', () => {
+  // **床位那一層 2026-09-08 取消了**（ADR-0079）：一間就是一個資源。
+  // `conflictWarnings()` 的 `sameRoom` 一行都沒有動 —— `bed` 清成 null 之後
+  // 它自然退化成只比診間，而那正是取消床位之後對的行為。
+  test('清掉床位之後，同一間同一個時間排兩個人會被標出來', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
+                roomId: 'r-iv8', bed: null, endsAt: '15:00' }],
+    });
+    const other = {
+      id: 'v-other', customerName: '客戶乙', status: 'confirmed',
+      slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: null }],
+    };
+    const { warnings } = validateVisit(mine, ctx({ sameDayVisits: [other] }));
+    assert.ok(warnings.some((w) => w.includes('客戶乙')), warnings.join('｜'));
+  });
+
+  // 舊資料上那一格還在（資料健檢的「來訪上還記著床位」清掉之前）。
+  // 那幾筆照舊按「同一間**而且**同一床」比 —— 改那一行的話它們會變成假警報。
+  test('還帶著床位的舊資料照舊：不同床不算撞', () => {
     const mine = visit({
       slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
                 roomId: 'r-iv8', bed: 'A', endsAt: '15:00' }],
@@ -554,6 +572,22 @@ describe('只提醒不阻擋的（warnings）', () => {
       slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: 'B' }],
     };
     assert.deepEqual(validateVisit(mine, ctx({ sameDayVisits: [other] })).warnings, []);
+  });
+
+  // ADR-0079：那六個課程改成「都不用」之後，既有來訪身上的 roomId 留著不動。
+  // **只提醒不擋**（ADR-0002）—— 擋下來的話她連改一個時間都存不回去。
+  test('不需要診間的課程帶著 roomId：只提醒不擋', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], entitlementId: 'e-inbody', courseId: 'c-inbody',
+                roomId: 'r-t3', endsAt: '14:20' }],
+    });
+    const noRoom = ctx({
+      courses: COURSES.map((c) => (c.id === 'c-inbody'
+        ? { ...c, assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [] } : c)),
+    });
+    const { errors, warnings } = validateVisit(mine, noRoom);
+    assert.deepEqual(errors, [], '不可以擋');
+    assert.ok(warnings.some((w) => w.includes('不需要診間')), warnings.join('｜'));
   });
 
   test('同一位治療師同一時段已經排了別人', () => {

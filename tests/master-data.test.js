@@ -8,6 +8,7 @@ import {
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   staffWithRole, THERAPIST_ROLE, DOCTOR_ROLE, STAFF_ROLES, clinicalTerms, ivChoicesFor,
+  picksDoctor,
   partnerNames, MASTER_LABELS,
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
@@ -535,6 +536,20 @@ describe('種子資料', () => {
   test('只有二返預設要選醫師，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
     assert.deepEqual(withDoctor, ['二返']);
+  });
+
+  // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到
+  // （`picksDoctor()`，ADR-0058）。而「一行都沒改」正是最容易沒有人盯的那種：
+  // 有人把它改回「只看 requiresDoctor」的話，復健科與心臟科會安靜地選不到醫師。
+  test('A 類一律選得到醫師，不用逐課程勾', () => {
+    for (const c of SEED.courses.filter((x) => x.category === 'A')) {
+      assert.equal(picksDoctor(c), true, c.name);
+    }
+    assert.equal(picksDoctor({ category: 'A' }), true, '連旗標都沒有也算');
+    assert.equal(picksDoctor({ category: 'C', requiresDoctor: true }), true, '旗標是非 A 類的例外開關');
+    assert.equal(picksDoctor({ category: 'C' }), false);
+    assert.equal(picksDoctor({ category: null }), false);
+    assert.equal(picksDoctor(null), false);
   });
 
   // 醫師走的是 `requiresDoctor` / `picksDoctor()` 那條路，不是 `assigns`
