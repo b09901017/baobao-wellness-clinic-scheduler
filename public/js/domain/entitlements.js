@@ -535,7 +535,7 @@ export function legacyPoolNames(optionEquipmentIds = [], equipment = [], courses
 }
 
 /**
- * 帶時長的顯示名稱：`'復能 - SIS'` + `60` → `'復能 - SIS（60）'`。
+ * 帶時長的顯示名稱：`'復能-SIS'` + `60` → `'復能-SIS(60)'`。
  *
  * 括號裡只有數字，沒有「分鐘」—— 她自己寫的就是 `sis(60)x5`，
  * 而那一格旁邊的標籤已經說了那是分鐘。

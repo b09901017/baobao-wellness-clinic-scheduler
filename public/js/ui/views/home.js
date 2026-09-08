@@ -2603,8 +2603,9 @@ async function renderConfirm(el) {
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
-    // 貼給客戶那一句要寫**她那天真的做了什麼**（`復能(SIS)`，`13`），
-    // 而括號裡那一半是從器材主檔來的。
+    // 貼給客戶那一句只講**課程**（`復能`、`靜脈雷射`，ADR-0077），
+    // 但「跟客人確認時間」那一排丸子印的是那天做了什麼（`SIS(60)`），
+    // 而那一半是從器材主檔來的。
     config.listAll('equipment', { includeDeleted: true }),
     // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
     // 的地方** —— 她按下那一列的時候，正在打那則訊息。
