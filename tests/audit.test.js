@@ -454,3 +454,41 @@ test('休假的稽核不會寫成行事備註', () => {
     '新增行事備註「高齡演講」',
   );
 });
+
+describe('取消其中一段講得出是哪一段（ADR-0081）', () => {
+  const slot = (status) => ({ courseId: 'c1', courseName: '復能', status });
+  const event = (before, after) => ({
+    targetPath: 'visits',
+    action: 'visits.update',
+    before: { date: '2026-09-20', status: 'confirmed', slots: before },
+    after: { date: '2026-09-20', status: 'confirmed', slots: after },
+  });
+
+  test('整筆的狀態沒變，但有一段取消了 → 講出來', () => {
+    const e = event(
+      [slot('confirmed'), slot('confirmed'), slot('confirmed')],
+      [slot('confirmed'), slot('cancelled'), slot('confirmed')],
+    );
+    const line = describeParts(e).text;
+    assert.match(line, /取消了/);
+    assert.match(line, /1 段/);
+  });
+
+  test('一次取消兩段就說兩段', () => {
+    const e = event(
+      [slot('confirmed'), slot('confirmed'), slot('confirmed')],
+      [slot('cancelled'), slot('cancelled'), slot('confirmed')],
+    );
+    assert.match(describeParts(e).text, /2 段/);
+  });
+
+  test('整筆一起取消時走原本那一條（狀態變化才是主角）', () => {
+    const e = {
+      targetPath: 'visits',
+      action: 'visits.update',
+      before: { date: '2026-09-20', status: 'confirmed', slots: [slot('confirmed')] },
+      after: { date: '2026-09-20', status: 'cancelled', slots: [slot('cancelled')] },
+    };
+    assert.match(describeParts(e).text, /改成/);
+  });
+});

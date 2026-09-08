@@ -333,6 +333,18 @@ const monthLabel = (month) => {
   return Number.isFinite(m) && m ? `${m} 月` : null;
 };
 
+/**
+ * 這一次存檔多取消了幾段。
+ *
+ * 只數**多出來的**：那一筆本來就有一段是取消的時候，改別的欄位不該讓稽核
+ * 說「取消了 1 段」。數不出來（欄位不是陣列）回 0 —— 不確定就不講。
+ */
+function cancelledMore(change) {
+  const dead = (list) => (Array.isArray(list) ? list : [])
+    .filter((s) => s?.status === 'cancelled').length;
+  return Math.max(0, dead(change?.after) - dead(change?.before));
+}
+
 /** 這一筆來訪的那幾項。課程名走 `visitCourseLabel()`，不要在這裡再去重一次。 */
 const courses = (d) => ((d.slots ?? []).length ? visitCourseLabel(d) : null);
 
@@ -412,6 +424,21 @@ const SENTENCES = [
       text: bits(
         when(d.date), courses(d),
         `改成${formatField('status', f.find((x) => x.key === 'status').after)}`,
+      ),
+    }),
+  },
+  // 取消其中一段（ADR-0081）。**排在狀態變化後面**：整天一起取消時
+  // 每一段也會變成 cancelled，但那一則的主角是整筆的狀態，不是段數。
+  //
+  // 講得出「取消了幾段」是這一條存在的理由 —— 少了它，逐段取消在稽核上
+  // 只會是一行「修改來訪・時段」，而她回頭查的正是「那一段是什麼時候不見的」。
+  {
+    when: (e, f) => coll(e) === 'visits' && f.some((x) => x.key === 'slots')
+      && cancelledMore(f.find((x) => x.key === 'slots')) > 0,
+    say: (e, f, d) => ({
+      text: bits(
+        when(d.date), courses(d),
+        `取消了其中 ${cancelledMore(f.find((x) => x.key === 'slots'))} 段`,
       ),
     }),
   },

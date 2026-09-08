@@ -818,3 +818,34 @@ describe('版本對不上要講出她該做什麼', () => {
     assert.ok(!lines.some((l) => l.includes('重新貼一次')));
   });
 });
+
+describe('那一天的符號逐段算（ADR-0081）', () => {
+  const build = (slots, status) => customerReport({
+    customer: customer(),
+    entitlements: [ent()],
+    visits: [visit({ status, slots })],
+  });
+
+  test('一筆已完成、其中一段沒來 → 那一格看得出兩種結果', () => {
+    // 2026-09-08 之前這裡讀的是**整筆**的狀態，所以兩段都印 ✓ ——
+    // `mark()` 自己的註解寫著這件事還沒做。
+    const { rows } = build([
+      { entitlementId: 'e1', attended: true, status: 'done' },
+      { entitlementId: 'e1', attended: false, status: 'no_show' },
+    ], 'done');
+    assert.equal(rowOf(rows, '復能').at(-1), '✓✗');
+  });
+
+  test('取消掉的那一段不印符號', () => {
+    const { rows } = build([
+      { entitlementId: 'e1', status: 'confirmed' },
+      { entitlementId: 'e1', status: 'cancelled' },
+    ], 'confirmed');
+    assert.equal(rowOf(rows, '復能').at(-1), '△', '只剩活著的那一段');
+  });
+
+  test('舊資料（沒有 slot.status）印出來的字一個都沒變', () => {
+    const { rows } = build([{ entitlementId: 'e1' }, { entitlementId: 'e1' }], 'done');
+    assert.equal(rowOf(rows, '復能').at(-1), '✓2');
+  });
+});

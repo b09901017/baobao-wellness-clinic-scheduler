@@ -16,7 +16,7 @@
 
 import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
-import { isActive, markFor, MARK_ORDER, MARK_LEGEND } from './visits.js';
+import { isActive, markFor, slotStatus, MARK_ORDER, MARK_LEGEND } from './visits.js';
 import { pairsOf } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
@@ -169,18 +169,27 @@ const taskRows = (items, kind) =>
  * 舊表的勾選格看不出這件事，對帳時就會少一次。兩次的狀態還可能不一樣
  * （一段做了、一段沒到），所以是逐種符號各自算，不是挑一個代表。
  *
- * 之後時段各自帶結果時（見 .scratch/visit-lifecycle/issues/07），
- * 要改的只有下面那一行 `markFor(v.status)` —— 換成看那一段自己的結果。
+ * ## 2026-09-08：真的逐段算了（ADR-0081）
+ *
+ * 這一支以前讀的是 `markFor(v.status)` —— **整筆**的狀態。所以一筆標
+ * 「已完成」、其中一段 `attended: false` 的來訪，兩段都印 ✓，而她在
+ * 對帳的時候看到的次數是對的、符號是錯的。上一版的註解自己寫著這件事
+ * 還沒做，這裡把它補上：符號走 `slotStatus()`，跟日曆與讀取卡片同一支。
+ *
+ * **取消掉的那一段沒有符號**（`markFor('cancelled')` 本來就是空字串），
+ * 所以它自然不會被算進去 —— 那正是對的：那一段沒發生。
  */
 function mark(visits, entitlementId, date) {
   const tally = new Map();
 
   for (const v of visits) {
     if (v.date !== date) continue;
-    const symbol = markFor(v.status);
-    if (!symbol) continue;
-    const hits = (v.slots ?? []).filter((s) => s.entitlementId === entitlementId).length;
-    if (hits) tally.set(symbol, (tally.get(symbol) ?? 0) + hits);
+    for (const slot of v.slots ?? []) {
+      if (slot.entitlementId !== entitlementId) continue;
+      const symbol = markFor(slotStatus(v, slot));
+      if (!symbol) continue;
+      tally.set(symbol, (tally.get(symbol) ?? 0) + 1);
+    }
   }
 
   return MARK_ORDER

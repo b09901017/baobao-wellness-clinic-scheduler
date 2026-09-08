@@ -1,6 +1,6 @@
 # 試算表逐段印符號（順手修既有 bug）、稽核講得出是哪一段
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`domain/sheetReport.js` 的 `mark()` 註解、`docs/adr/0062`
 
