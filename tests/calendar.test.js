@@ -8,6 +8,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { statusClass } from '../public/js/domain/visits.js';
+
 import {
   weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
   agendaFor, summaryByDate, monthBars, WEEKDAY_HEADERS, VIEWS,
@@ -505,5 +507,36 @@ describe('那一列的診間印簡寫', () => {
       slots: [{ startsAt: '10:00', endsAt: '11:00', courseName: '健檢', roomId: 'gone' }],
     })], '2026-09-18', CTX);
     assert.equal(row.room, null);
+  });
+});
+
+describe('日曆逐段上色（ADR-0081）', () => {
+  const v = {
+    id: 'v1', customerId: 'c1', customerName: '王小明', date: '2026-09-20',
+    status: 'confirmed',
+    slots: [
+      { startsAt: '10:30', endsAt: '11:30', courseName: '復能', status: 'confirmed' },
+      { startsAt: '11:30', endsAt: '12:00', courseName: '復能', status: 'cancelled' },
+    ],
+  };
+
+  test('月檢視：取消掉的那一條自己暗掉，其餘不動', () => {
+    const bars = monthBars(v, {});
+    assert.equal(bars.length, 2);
+    assert.notEqual(bars[0].kind, bars[1].kind, '兩條的顏色要分得出來');
+    assert.equal(bars[1].kind, statusClass('cancelled'));
+  });
+
+  test('日／週那一列：每一列帶自己那一段的狀態', () => {
+    const rows = agendaFor([v], '2026-09-20', { includeCancelled: true });
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].status, 'confirmed');
+    assert.equal(rows[1].status, 'cancelled');
+  });
+
+  test('舊來訪（沒有 slot.status）每一列還是整筆那一個', () => {
+    const legacy = { ...v, slots: [{ startsAt: '10:30', courseName: '復能' }] };
+    assert.equal(agendaFor([legacy], '2026-09-20')[0].status, 'confirmed');
+    assert.equal(monthBars(legacy, {})[0].kind, statusClass('confirmed'));
   });
 });

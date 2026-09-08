@@ -170,6 +170,18 @@ function opFor(fix) {
     };
   }
 
+  // 重推一次整筆的狀態（ADR-0081）。**只寫 `status` 一格** ——
+  // 時段一個字都不碰：對不起來的是推導值，不是那幾段。
+  if (fix?.kind === 'restatVisit') {
+    return {
+      op: 'update',
+      path: 'visits',
+      id: fix.visitId,
+      changes: { status: fix.status },
+      note: '資料健檢：整筆的狀態照時段重推一次',
+    };
+  }
+
   // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
   // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
   if (fix?.kind === 'renameEquipment') {

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('十九項檢查都在，順序固定', () => {
+  test('二十項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 19);
+    assert.equal(result.checks.length, 20);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1220,5 +1220,38 @@ describe('來訪上還記著床位', () => {
     assert.ok(src.includes("clearBeds: 'slotBeds'"));
     assert.ok(src.includes('  roomList: {'));
     assert.ok(src.includes('  slotBeds: {'));
+  });
+});
+
+describe('來訪的狀態跟它的時段對不起來（ADR-0081）', () => {
+  const withSlots = (status, slotStatuses) => visit({
+    id: 'v-derived', status,
+    slots: slotStatuses.map((st) => ({ entitlementId: 'ent-1', courseId: 'course-1', status: st })),
+  });
+
+  test('整筆說已確認、底下有一段還在等 → 報，而且說得出兩邊各是什麼', () => {
+    const rows = findingsOf(
+      run({ visits: [withSlots('confirmed', ['confirmed', 'pending_confirm'])] }),
+      'visitStatusDerived',
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].fix.status, 'pending_confirm');
+    assert.match(rows[0].detail, /已確認/);
+  });
+
+  test('對得起來的不報', () => {
+    const rows = findingsOf(
+      run({ visits: [withSlots('confirmed', ['confirmed', 'confirmed'])] }),
+      'visitStatusDerived',
+    );
+    assert.deepEqual(rows, []);
+  });
+
+  test('一段都沒有 status 的舊來訪不報 —— 推出來的必然等於它自己', () => {
+    const legacy = visit({
+      id: 'v-legacy', status: 'confirmed',
+      slots: [{ entitlementId: 'ent-1', courseId: 'course-1' }],
+    });
+    assert.deepEqual(findingsOf(run({ visits: [legacy] }), 'visitStatusDerived'), []);
   });
 });

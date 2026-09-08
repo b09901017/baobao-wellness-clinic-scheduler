@@ -21,7 +21,7 @@ import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
-  visitCourseLabel, describeConfirmed, NOTE_MAX,
+  visitCourseLabel, describeConfirmed, applyConfirmation, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -2896,33 +2896,17 @@ async function applyConfirm(ctx) {
 
   const customerVisits = await visitsData.listByCustomer(drawer.customerId);
 
-  const writes = visits.map((v) => {
-    const keep = (v.slots ?? []).filter((_, i) => !rejected.has(`${v.id}:${i}`));
-
-    // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
-    // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
-    if (!keep.length) {
-      return {
-        ...v,
-        status: 'cancelled',
-        cancelledAt: at,
-        statusAt: at,
-        cancelReason: '客人說這個時間不行',
-        released: true,
-        followupNote: null,
-        followupAt: null,
-      };
-    }
-    return {
-      ...v,
-      slots: keep,
-      status: 'confirmed',
-      confirmedAt: at,
-      statusAt: at,
-      followupNote: null,
-      followupAt: null,
-    };
-  });
+  // 規則在 `domain/visits.js` 的 `applyConfirmation()`（SPEC 第 10 節）。
+  // 這裡只把畫面上的 key（`v.id:i`）換成那一筆自己的段落編號。
+  //
+  // **客人說不行的那一段標成取消，不是從陣列裡刪掉**（ADR-0081）——
+  // 刪掉的話沒有紀錄它曾經被壓過，也不會長出「取消 Abovee」，
+  // 而她真的在 Abovee 上壓過那一格。
+  const writes = visits.map((v) => applyConfirmation(
+    v,
+    new Set((v.slots ?? []).map((_, i) => i).filter((i) => rejected.has(`${v.id}:${i}`))),
+    at,
+  ));
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
   const summary = describeConfirmed(visits, rejected);

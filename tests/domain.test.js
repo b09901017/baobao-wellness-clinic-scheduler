@@ -327,6 +327,69 @@ describe('逐段的結果（客人只做一半就走）', () => {
     assert.equal(slotOutcome(null, on), null);
   });
 
+  // ---------- 時段自己帶狀態之後（ADR-0081） ----------
+
+  test('slotOutcome 先看時段自己那一格', () => {
+    const v = { status: 'confirmed' };
+    assert.equal(slotOutcome(v, { entitlementId: 'e1', status: 'cancelled' }), null,
+      '這一段取消了，次數要還回去');
+    assert.equal(slotOutcome(v, { entitlementId: 'e1', status: 'done' }), 'done');
+    assert.equal(slotOutcome(v, { entitlementId: 'e1', status: 'no_show' }), 'no_show');
+    assert.equal(slotOutcome(v, { entitlementId: 'e1', status: 'pending_confirm' }), 'booked');
+  });
+
+  test('整筆取消蓋過一格停在 confirmed 的舊時段', () => {
+    // 舊版的 app 只寫整筆。那一段不可以因為自己那一格還寫著 confirmed
+    // 就一直佔著次數。
+    assert.equal(slotOutcome({ status: 'cancelled' }, { entitlementId: 'e1', status: 'confirmed' }),
+      null);
+  });
+
+  test('三段裡取消中間那一段，次數退回一次', () => {
+    const ent = { totalQty: 10 };
+    const v = {
+      id: 'v1', status: 'confirmed',
+      slots: [
+        { entitlementId: 'e1', status: 'confirmed' },
+        { entitlementId: 'e1', status: 'cancelled' },
+        { entitlementId: 'e1', status: 'confirmed' },
+      ],
+    };
+    const c = counts(ent, [v], 'e1');
+    assert.equal(c.booked, 2);
+    assert.equal(c.remaining, 8);
+  });
+
+  test('取消掉的那一段不會被算成未到 —— 未到是她看得到的一個數字', () => {
+    const ent = { totalQty: 10 };
+    const v = {
+      id: 'v1', status: 'done',
+      slots: [
+        { entitlementId: 'e1', status: 'done', attended: true },
+        { entitlementId: 'e1', status: 'cancelled' },
+      ],
+    };
+    const c = counts(ent, [v], 'e1');
+    assert.equal(c.done, 1);
+    assert.equal(c.noShow, 0, '取消不是未到');
+    assert.equal(c.remaining, 9);
+  });
+
+  test('舊資料（沒有 slot.status）算出來的數字一格都不變', () => {
+    const ent = { totalQty: 10 };
+    const legacy = [
+      { id: 'a', status: 'done', slots: [{ entitlementId: 'e1', attended: true }, { entitlementId: 'e1', attended: false }] },
+      { id: 'b', status: 'confirmed', slots: [{ entitlementId: 'e1' }] },
+      { id: 'c', status: 'cancelled', slots: [{ entitlementId: 'e1' }] },
+      { id: 'd', status: 'no_show', slots: [{ entitlementId: 'e1' }] },
+    ];
+    const c = counts(ent, legacy, 'e1');
+    assert.equal(c.done, 1);
+    assert.equal(c.noShow, 2);
+    assert.equal(c.booked, 1);
+    assert.equal(c.remaining, 8);
+  });
+
   test('對帳跟著逐段算，不會因為改法而永遠對不起來', () => {
     // reconcile 與 counts 只能有一份實作（ADR-0004）
     const r = reconcile({ totalQty: 10, doneCount: 2, bookedCount: 0 }, [half], 'e1');
