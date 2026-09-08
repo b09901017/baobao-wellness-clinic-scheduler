@@ -1,6 +1,6 @@
 # 文件跟上
 
-Status: todo
+Status: done
 來源：CLAUDE.md 的「容易漏掉的連動」
 
 ## 要改的
