@@ -77,9 +77,14 @@ export async function render(el) {
  *
  * 順序照她列的：兩種整組、三台單買、最後 ILIB。
  *
- * @returns {{key:string, title:string, slot:object, type:?string, id:?string,
- *            hasLine:boolean, note:?string}[]}
- *   `type`/`id` 是空的就代表那一列只給看（沒有一筆主檔可以存字）。
+ * 回的是兩種形狀，靠 `type` 分：
+ *
+ *   整組（只給看） `{ key, title, pool, note }`      —— 沒有一筆主檔可以存字
+ *   一筆主檔       `{ key, title, slot, type, id, hasLine }`
+ *
+ * `key` 是那一列在畫面上的身分（`data-row`），重畫預覽時照它找 —— 不照位置對。
+ *
+ * @returns {object[]}
  */
 function rehabRows(master) {
   const { courses, equipment } = master;
@@ -165,6 +170,7 @@ function paint(ctx) {
     <section class="card" data-namecard>
       <h2 class="card__title">其他課程</h2>
       ${otherCourses(master).map((c) => nameRow({
+        key: `courses:${c.id}`,
         title: c.name,
         type: 'courses',
         row: c,
@@ -182,15 +188,16 @@ function paint(ctx) {
 function rehabRowHtml(row, master) {
   if (!row.type) {
     return `
-      <div class="namerow">
+      <div class="namerow" data-row="${esc(row.key)}">
         <div class="namerow__head">${esc(row.title)}</div>
-        <p class="namerow__preview">${poolPreview(row.pool, master)}</p>
+        <p class="namerow__preview" data-preview>${poolPreview(row.pool, master)}</p>
         <p class="namerow__preview">${esc(row.note ?? '')}</p>
       </div>`;
   }
 
   const rows = row.type === 'courses' ? master.courses : master.equipment;
   return nameRow({
+    key: row.key,
     title: row.title,
     type: row.type,
     row: rows.find((r) => r.id === row.id),
@@ -207,7 +214,7 @@ function rehabRowHtml(row, master) {
  * 所以器材的 `lineName` 一輩子都畫不出來。留著一個永遠不會出現在任何地方的
  * 輸入框比沒有還糟 —— 她會填，然後找不到它在哪裡。
  */
-function nameRow({ title, type, row, hasLine, slot, master }) {
+function nameRow({ key, title, type, row, hasLine, slot, master }) {
   if (!row) return '';
 
   const line = hasLine ? `
@@ -218,7 +225,8 @@ function nameRow({ title, type, row, hasLine, slot, master }) {
         </label>` : '';
 
   return `
-    <div class="namerow" data-name="${esc(type)}:${esc(row.id)}">
+    <div class="namerow" data-row="${esc(key ?? `${type}:${row.id}`)}"
+         data-name="${esc(type)}:${esc(row.id)}">
       <div class="namerow__head">${esc(title)}</div>
       <div class="namerow__fields">
         <label class="field">
@@ -312,31 +320,26 @@ function wire(ctx, master) {
 /**
  * 每一列的預覽重算一次。
  *
- * **整組那兩列也要**：它們沒有 `data-name`（改不動），但它們印的正是底下
- * 那幾列的別稱組起來的樣子 —— 只重畫有輸入框的那幾列，她改了 SIS 之後
- * 「三選一」那一列會停在舊的字。所以整頁重畫，而不是一張卡一張卡。
+ * **整組那兩列也要**：它們沒有輸入框（改不動），但它們印的正是底下那幾列的
+ * 別稱組起來的樣子 —— 只重畫有輸入框的那幾列，她改了 SIS 之後「三選一」
+ * 那一列會停在舊的字。所以整頁重畫，而不是一張卡一張卡。
+ *
+ * **照 `data-row` 找，不照位置對。** 以前這裡拿 `cards[0]` 與 `holders[i]`
+ * 去跟 `rehabRows()` 對位 —— 之後多一列、少一列、或換個順序，預覽就會畫到
+ * 別列上，而畫面上看起來只是「那一列的字怪怪的」。
  */
 function repaintPreviews(root, ctx, master) {
-  const rows = rehabRows(master);
-  const cards = root.querySelectorAll('[data-namecard]');
-  const rehabCard = cards[0];
+  const paint = (key, html) => {
+    const line = root.querySelector(`[data-row="${CSS.escape(key)}"] [data-preview]`);
+    if (line) line.innerHTML = html;
+  };
 
-  if (rehabCard) {
-    const holders = rehabCard.querySelectorAll('.namerow');
-    rows.forEach((row, i) => {
-      const target = holders[i]?.querySelector('.namerow__preview');
-      if (!target) return;
-      target.innerHTML = row.type ? previewText(row.slot, master) : poolPreview(row.pool, master);
-    });
+  for (const row of rehabRows(master)) {
+    paint(row.key, row.type ? previewText(row.slot, master) : poolPreview(row.pool, master));
   }
 
-  for (const holder of root.querySelectorAll('[data-name]')) {
-    const [type, id] = holder.dataset.name.split(':');
-    if (type !== 'courses') continue;
-    const course = ctx.courses.find((c) => c.id === id) ?? null;
-    const line = holder.querySelector('[data-preview]');
-    if (course && line) {
-      line.innerHTML = previewText({ courseId: course.id, courseName: course.name }, master);
-    }
+  for (const course of otherCourses(master)) {
+    paint(`courses:${course.id}`,
+      previewText({ courseId: course.id, courseName: course.name }, master));
   }
 }

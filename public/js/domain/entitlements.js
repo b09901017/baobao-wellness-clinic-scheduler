@@ -4,7 +4,7 @@
 // 導致取消改期後數字與現實脫節 —— 這裡不重蹈覆轍。
 
 import { validateProduct } from './products.js';
-import { nameOf } from './naming.js';
+import { nameOf, fullNameOf } from './naming.js';
 import { durationChoicesOf } from './masterData.js';
 
 // 搬到 `masterData.js` 了（`domain/naming.js` 也要問同一件事，而它不能
@@ -357,14 +357,14 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
     .filter(Boolean);
   if (!options.length) return '';
 
-  const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
+  const home = fullNameOf(homeCourseOf(options, courses));
   const only = options.length === 1 ? options[0] : null;
   // **單買一台用器材的全名**（2026-09-08）。器材主檔上兩格名字回答兩個問題：
   // 全名是「她叫它什麼」（SIS、INDIBA、高能量雷射），別稱是「月曆那一格的
   // 縮寫」（IN）。她列的六種用的是前者，月曆用的是後者 ——
   // 兩邊都讀別稱的話，第三種會變成 `復能-IN(60)`。
   const what = only
-    ? String(only.name ?? '').trim()
+    ? fullNameOf(only)
     : `${countWord(options.length)}選一`;
 
   if (!what) return home;
@@ -372,7 +372,7 @@ export function poolName(optionEquipmentIds = [], equipment = [], courses = []) 
   // 比的一樣是**全名**，不然別稱 `IL` 會讓它印成「ILIB - IL」。
   // 這一種在畫面上按不出來（單買那一排沒有 ILIB），但方案範本與匯進來的
   // 舊資料捏得出來。
-  const sameThing = only && String(only.name ?? '').trim() === home;
+  const sameThing = only && fullNameOf(only) === home;
   if (!home || home === what || sameThing) return sameThing ? home : what;
   // **破折號兩邊不留空格**（2026-09-08 她指名的格式：`復能-三選一(60)`）。
   // 上一代是 `復能 - 三選一（60）`，`legacyPoolNames()` 認得出來。
@@ -468,7 +468,7 @@ export function poolChoices(master = {}) {
     singles: mine.map((eq) => ({
       value: eq.id,
       ids: [eq.id],
-      label: String(eq.name ?? '').trim(),
+      label: fullNameOf(eq),
     })),
   };
 }
@@ -518,11 +518,11 @@ export function legacyPoolNames(optionEquipmentIds = [], equipment = [], courses
     .filter(Boolean);
   if (!options.length) return [];
 
-  const home = String(homeCourseOf(options, courses)?.name ?? '').trim();
+  const home = fullNameOf(homeCourseOf(options, courses));
   const out = new Set([home]);
   if (options.length === 1) {
     const short = nameOf(options[0], 'short', { as: 'equipment' });
-    out.add(String(options[0].name ?? '').trim());
+    out.add(fullNameOf(options[0]));
     out.add(short);
     // 2026-09-07 那一版：破折號兩邊有空格
     if (home && short) out.add(`${home} - ${short}`);

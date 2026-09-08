@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  validate, roomSlots, roomsForCourse, orderedRoomsForCourse,
+  validate, roomSlots, roomsForCourse, orderedRoomsForCourse, orderedRoomSlots,
   MASTER_TYPES, ROOM_TYPES, ASSIGNS,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
@@ -354,14 +354,55 @@ describe('這個課程的診間怎麼排', () => {
     assert.deepEqual(pref('course-iv-laser'), ['點滴10', '治2', '治3']);
   });
 
+  // 兩個畫面都要「排好序的那一份選項 ＋ 每一顆是不是常用」，而它們原本各自
+  // 拿 `orderedRoomsForCourse()` 組一次 rank Map、各自對 `roomSlots()` 重排 ——
+  // 一邊切 primary/rest、一邊用 Infinity 墊底。同一件事寫了兩次。
+  describe('排好序的診間選項', () => {
+    const rooms = [
+      { id: 'iv2', name: '點滴2', type: '點滴室' },
+      { id: 'iv10', name: '點滴10', type: '點滴室' },
+      { id: 't2', name: '治2', type: '治療室' },
+    ];
+    const course = { assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
+      preferredRoomIds: ['iv10'] };
+
+    test('排得進去的排前面，推薦的又在最前面', () => {
+      assert.deepEqual(orderedRoomSlots(course, rooms).map((s) => s.label),
+        ['點滴10', '點滴2', '治2']);
+    });
+
+    test('每一顆都說得出自己是不是排得進去', () => {
+      assert.deepEqual(orderedRoomSlots(course, rooms).map((s) => s.usual),
+        [true, true, false]);
+    });
+
+    test('帶著 roomSlots() 給的那幾格 —— 呼叫端不用再湊一次', () => {
+      const [first] = orderedRoomSlots(course, rooms);
+      assert.equal(first.roomId, 'iv10');
+      assert.equal(first.bed, null);
+    });
+
+    test('不選診間的課程：一顆都排不進去，但選項照樣列得出來', () => {
+      const out = orderedRoomSlots({ assigns: 'none' }, rooms);
+      assert.equal(out.length, 3);
+      assert.deepEqual(out.map((s) => s.usual), [false, false, false]);
+    });
+
+    test('沒有診間就是空的', () => {
+      assert.deepEqual(orderedRoomSlots(course, []), []);
+    });
+  });
+
   // 兩個入口各排一次的話，同一個課程在兩個畫面上第一顆丸子不一樣。
   test('壓表與來訪編輯器都走同一支排序', () => {
     for (const rel of ['js/ui/views/schedule.js', 'js/ui/views/visitEditor.js']) {
       const src = readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
-      assert.match(src, /orderedRoomsForCourse\(/, `${rel} 沒有走排序那一支`);
+      assert.match(src, /orderedRoomSlots\(/, `${rel} 沒有走排序那一支`);
+      // 自己組 rank Map、自己對 roomSlots() 重排，就是把一半的排序搬回畫面
+      assert.ok(!/roomSlots\(all\.rooms\)/.test(src), `${rel} 還在自己攤平診間`);
       assert.ok(
-        !/roomsForCourse\(/.test(src.replace(/orderedRoomsForCourse\(/g, '')),
-        `${rel} 還在自己用 roomsForCourse() 排 —— 順序會跟另一頁不一樣`,
+        !/orderedRoomsForCourse\(/.test(src.replace(/orderedRoomSlots\(/g, '')),
+        `${rel} 還在自己排一次 —— 順序會跟另一頁不一樣`,
       );
     }
   });

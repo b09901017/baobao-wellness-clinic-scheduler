@@ -32,7 +32,7 @@ import { splitFlags } from '../../domain/customers.js';
 import { slotName } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
-  roomSlots, orderedRoomsForCourse, staffWithRole, picksDoctor, ivChoicesFor,
+  orderedRoomSlots, staffWithRole, picksDoctor, ivChoicesFor,
   THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
@@ -401,9 +401,7 @@ function slotCard(ctx, draft, slot, i) {
              那個問題沒有答案，所以兩排都不畫、只留一句話 —— 壓表那一頁走的是
              同一支 `assignsFor()`，兩邊各判斷一次會出現「畫面上要她選治療師、
              存進去的卻是一段要診間的 ILIB」。 */''}
-      ${assigns === null ? `
-        <p class="field__hint">先選上面那一台 ——
-          ${esc(ent?.label ?? '這一筆')} 要治療師還是治療室，看那天用的是哪一種。</p>` : ''}
+      ${assigns === null ? f.undecidedHint(ent?.label) : ''}
       ${assigns === 'room' ? roomField(all, course, slot, i) : ''}
       ${assigns === 'therapist'
         ? f.chips({
@@ -595,24 +593,18 @@ function doctorField(all, slot, i) {
 }
 
 function roomField(all, course, slot, i) {
-  // 排得進去的排前面，而**它們自己的順序由 `orderedRoomsForCourse()` 決定**
+  // 排好序、每一顆帶著「排不排得進去」的那一份，只算在 `orderedRoomSlots()`
   //（她 2026-09-08 要的「優先置頂」：EECP 是治5、治8，ILIB 是 `.10`、治2、治3）。
   // 壓表那一頁走的是同一支 —— 兩邊各排一次的話，同一個課程在兩個畫面上
   // 第一顆丸子不一樣，她不會知道哪個算數。
-  const ordered = orderedRoomsForCourse(course, all.rooms);
-  const rank = new Map(ordered.map((r, idx) => [r.id, idx]));
-  const slots = roomSlots(all.rooms);
-
+  //
   // 排不進去的不藏起來（她偶爾真的會排到別間），但要標出來 ——
   // 診間有十七間，排錯順序等於每次都要從頭掃。
-  const options = slots
-    .slice()
-    .sort((a, b) => (rank.get(a.roomId) ?? Infinity) - (rank.get(b.roomId) ?? Infinity))
-    .map((s) => ({
-      value: roomKey(s.roomId, s.bed),
-      label: s.label,
-      note: rank.has(s.roomId) ? '' : '不常用',
-    }));
+  const options = orderedRoomSlots(course, all.rooms).map((s) => ({
+    value: roomKey(s.roomId, s.bed),
+    label: s.label,
+    note: s.usual ? '' : '不常用',
+  }));
 
   // **比的是診間，不是診間＋床位**（2026-09-08）。床位那一層取消之後選項上
   // 只有 `r-iv8|`，而舊來訪身上是 `r-iv8|A` —— 拿它去比的話一顆都不會按著，
