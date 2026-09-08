@@ -178,6 +178,21 @@ function indexFixes(result) {
  * （SPEC 第 6.5 節）—— 兩種修正動的是不同的東西，用同一段字就等於沒講。
  */
 const FIX_COPY = {
+  courseRecord: {
+    button: () => '勾起來',
+    all: (n) => `一次勾這 ${n} 個`,
+    one: (fix) => ({
+      title: `「${fix.label}」做完之後要寫紀錄？`,
+      lines: [
+        '那一場結案之後，待辦會多一張「寫紀錄」，死線是**來訪那一天**',
+        '已經結案的那幾筆不會補長出來 —— 只影響之後的',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `這 ${fixes.length} 個課程做完之後都要寫紀錄？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
   equipmentCourse: {
     button: () => '指過去',
     all: (n) => `一次補這 ${n} 台`,
@@ -425,6 +440,7 @@ const FIX_COPY = {
 const KIND_TO_CHECK = {
   restatVisit: 'visitStatusDerived',
   setEquipmentCourse: 'equipmentCourse',
+  setNeedsRecord: 'courseRecord',
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',

@@ -149,6 +149,12 @@ export const CHECKS = [
       + ' 日曆上的顏色與待辦中心那一列會各講各的',
   },
   {
+    id: 'courseRecord',
+    label: '課程的「做完要不要寫紀錄」跟建議的不一樣',
+    hint: '復健科醫師門診做完要去曜聖補一份紀錄 —— 沒勾的話那一場結案時'
+      + '不會長出「寫紀錄」，而畫面上看不出少了什麼',
+  },
+  {
     id: 'seedDuration',
     label: '課程沒填可選時長',
     hint: '復能與 ILIB 有 30 與 60 兩種規格。沒填的話加購時「幾分鐘」那一排不出現，'
@@ -1247,8 +1253,38 @@ function checkVisitStatusDerived(ctx) {
     });
 }
 
+/**
+ * 二十一、課程的「做完要不要寫紀錄」跟建議的不一樣。
+ *
+ * 她 2026-09-08：「除了二返、營養諮詢之外，復健科門診也要事後寫記錄，
+ * 幫我預設這三個都要寫紀錄」。種子改好了，但 `loadSeed()` 只建不覆蓋。
+ *
+ * **只認「從來沒設過」（`undefined`），不認 `false`。** 那兩種在資料上分得
+ * 出來，而 `false` 是她自己關掉的 —— 不可以被一顆按鈕改回去（同
+ * `checkSeedDurations()` 那條）。這一條是這一列唯一需要小心的地方。
+ */
+function checkCourseRecord(ctx) {
+  return (SEED.courses ?? [])
+    .filter((row) => row.needsRecord === true)
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && mine.needsRecord === undefined)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: '做完那一場之後要去曜聖補一份紀錄 —— 勾起來才會長出「寫紀錄」',
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setNeedsRecord',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        needsRecord: true,
+      },
+    }));
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
+  courseRecord: checkCourseRecord,
   equipmentCourse: checkEquipmentCourse,
   roomList: checkRoomList,
   slotBeds: checkSlotBeds,

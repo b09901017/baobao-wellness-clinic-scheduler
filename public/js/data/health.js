@@ -182,6 +182,17 @@ function opFor(fix) {
     };
   }
 
+  // 課程做完要不要寫紀錄（ADR-0066）。**只寫那一格**。
+  if (fix?.kind === 'setNeedsRecord') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: { needsRecord: fix.needsRecord },
+      note: '資料健檢：課程改成做完要寫紀錄',
+    };
+  }
+
   // 器材指到課程（2026-09-06 才加的欄位，`loadSeed()` 只建不覆蓋所以補不到）。
   // **只寫那一格**：名字與要提醒的狀況一個都不碰。
   if (fix?.kind === 'setEquipmentCourse') {

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('二十一項檢查都在，順序固定', () => {
+  test('二十二項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 21);
+    assert.equal(result.checks.length, 22);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1311,5 +1311,40 @@ describe('器材沒有指到課程', () => {
       courses: SEED.courses.filter((c) => c.id !== 'course-iv-laser'),
       equipment: stripped(['eq-ilib']).equipment,
     }), []);
+  });
+});
+
+describe('課程的「做完要不要寫紀錄」跟建議的不一樣', () => {
+  const go = (courses) => run({ master: { courses, equipment: SEED.equipment } })
+    .checks.find((c) => c.id === 'courseRecord').findings;
+
+  const without = (id) => SEED.courses.map((c) => (c.id === id
+    // eslint-disable-next-line no-unused-vars
+    ? Object.fromEntries(Object.entries(c).filter(([k]) => k !== 'needsRecord'))
+    : c));
+
+  test('那一格從來沒設過就列出來，而且勾得回去', () => {
+    const rows = go(without('course-rehab'));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, '復健科醫師門診');
+    assert.equal(rows[0].fix.kind, 'setNeedsRecord');
+    assert.equal(rows[0].fix.courseId, 'course-rehab');
+    assert.equal(rows[0].fix.needsRecord, true);
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('**她自己關掉的不報** —— false 與「從來沒設過」在資料上分得出來', () => {
+    assert.deepEqual(go(SEED.courses.map(
+      (c) => (c.id === 'course-rehab' ? { ...c, needsRecord: false } : c),
+    )), []);
+  });
+
+  test('她自己刪掉的課程不再提', () => {
+    assert.deepEqual(go(without('course-rehab').map(
+      (c) => (c.id === 'course-rehab' ? { ...c, deletedAt: 'x' } : c),
+    )), []);
   });
 });
