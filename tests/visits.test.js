@@ -1661,3 +1661,35 @@ describe('客人回覆之後那一筆長什麼樣（applyConfirmation）', () =>
     assert.ok(!('status' in before.slots[0]));
   });
 });
+
+describe('取消掉的那一段不用簽療程單（ADR-0081）', () => {
+  const BY_ID = {
+    'c-recovery': { id: 'c-recovery', name: '復能' },
+    'c-followup': { id: 'c-followup', name: '二返', needsTreatmentForm: false },
+  };
+
+  test('取消掉的那一段不列進去', () => {
+    const v = {
+      slots: [
+        { courseId: 'c-recovery', status: 'cancelled' },
+        { courseId: 'c-recovery', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(formSlotIndexes(v, BY_ID), [1], '索引仍然是原本那一格的位置');
+  });
+
+  test('剩下的全是二返 → 那一天不用簽，但照樣要結案', () => {
+    const v = {
+      slots: [
+        { courseId: 'c-recovery', status: 'cancelled' },
+        { courseId: 'c-followup', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(formSlotIndexes(v, BY_ID), []);
+  });
+
+  test('沒有 status 的舊來訪一個字都沒變', () => {
+    const v = { slots: [{ courseId: 'c-recovery' }, { courseId: 'c-followup' }] };
+    assert.deepEqual(formSlotIndexes(v, BY_ID), [0]);
+  });
+});

@@ -194,7 +194,11 @@ export function dueDateFor(visitDate) {
  */
 export function tasksForVisit(visit, coursesById) {
   const kinds = new Set();
+  // **取消掉的那一段不算**（ADR-0081）：二返取消掉之後就不用去 Examine
+  // 與耀聖掛號了。這一支同時被拿來比對「哪些還該留著」，所以那一張
+  // 沒做完的也會跟著被收掉 —— 那正是對的。
   for (const slot of visit.slots ?? []) {
+    if (!isLiveSlot(slot)) continue;
     const course = coursesById[slot.courseId];
     if (!course) continue;
     for (const kind of tasksForCategory(course.category)) kinds.add(kind);
@@ -257,7 +261,9 @@ export function recordTasksForVisit(visit, coursesById = {}) {
  * 印一句對不上的理由，她下次看稽核紀錄會查錯方向。
  */
 function needsRecord(visit, coursesById = {}) {
-  return (visit?.slots ?? []).some((s) => coursesById[s.courseId]?.needsRecord === true);
+  // 取消掉的那一段沒有紀錄要寫 —— 那一場沒發生（ADR-0081）
+  return (visit?.slots ?? [])
+    .some((s) => isLiveSlot(s) && coursesById[s.courseId]?.needsRecord === true);
 }
 
 /**

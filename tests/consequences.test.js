@@ -510,3 +510,32 @@ describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', (
     assert.ok(!before.join('\n').includes('這一段'));
   });
 });
+
+const NL = String.fromCharCode(10);
+
+describe('客人退掉的那一段不再承諾任何掛號（ADR-0081）', () => {
+  test('退掉的是 A 類那一段 → 不要說「待辦會多一張 Examine」', () => {
+    const v = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+      slots: [
+        { courseId: 'c-followup', status: 'cancelled' },
+        { courseId: 'c-recovery', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(pendingRegistrations(v, COURSES), []);
+    const lines = confirmConsequences([v], COURSES).join(NL);
+    assert.ok(!lines.includes('Examine'));
+    assert.ok(!lines.includes('耀聖'));
+  });
+
+  test('還活著的那一段是 A 類就照樣講', () => {
+    const v = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+      slots: [
+        { courseId: 'c-recovery', status: 'cancelled' },
+        { courseId: 'c-followup', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(pendingRegistrations(v, COURSES).sort(), ['Examine', '耀聖']);
+  });
+});

@@ -11,7 +11,7 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import * as tasksData from './tasks.js';
 import * as customersData from './customers.js';
-import { touchedEntitlementIds, recount } from '../domain/visits.js';
+import { touchedEntitlementIds, recount, withSlotStatuses } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
@@ -128,7 +128,10 @@ function payloadOf(visit) {
 export async function save(visit, customerVisits = []) {
   const id = visit.id ?? repo.newId(PATH);
   const previous = customerVisits.find((v) => v.id === id) ?? null;
-  const next = { ...visit, id };
+  // **每一段都補上狀態**（ADR-0081）。寫入是唯一的路口，補在這裡就不會有
+  // 哪個呼叫端忘了 —— 而少補的那一筆之後逐段取消時，其他段要靠整筆的狀態
+  // 去猜，偏偏整筆的狀態正在被改。
+  const next = withSlotStatuses({ ...visit, id });
   const after = [...customerVisits.filter((v) => v.id !== id), next];
 
   const ops = [

@@ -27,7 +27,9 @@
 import {
   bookingSystemFor, tasksForCategory, bookingSystemsForVisit, isCancelKind, cancelKindFor,
 } from './taskRules.js';
-import { describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes } from './visits.js';
+import {
+  describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
+} from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
 } from './followups.js';
@@ -50,7 +52,9 @@ const SHEET_LINE = '十秒後自動同步到試算表';
  */
 export function bookingSystemLabel(visit, coursesById = {}) {
   const names = [...new Set(
-    (visit?.slots ?? []).map((s) => bookingSystemFor(coursesById[s.courseId]?.category)),
+    (visit?.slots ?? [])
+      .filter(isLiveSlot)
+      .map((s) => bookingSystemFor(coursesById[s.courseId]?.category)),
   )];
   return names.join(' 與 ');
 }
@@ -64,7 +68,10 @@ export function bookingSystemLabel(visit, coursesById = {}) {
  */
 export function pendingRegistrations(visit, coursesById = {}) {
   const kinds = new Set();
-  for (const slot of visit?.slots ?? []) {
+  // **客人退掉的那一段不算**（ADR-0081）。確認動線把它標成取消而不是刪掉，
+  // 所以這裡要濾 —— 不濾的話她會看到「待辦會多一張 Examine」，
+  // 而那一張永遠不會出現（`tasksForVisit()` 也濾了）。
+  for (const slot of (visit?.slots ?? []).filter(isLiveSlot)) {
     for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) kinds.add(kind);
   }
   return [...kinds];

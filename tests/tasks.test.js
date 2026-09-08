@@ -12,6 +12,7 @@ import {
   acceptsNewTasks,
   acceptsRecordTasks,
   recordTasksForVisit,
+  tasksForVisit,
   isCancelKind,
   cancelKindFor,
   taskLine,
@@ -595,5 +596,47 @@ describe('一段取消掉，回去把那個時段放掉（ADR-0081）', () => {
     const kinds = create.map((t) => t.kind);
     assert.ok(kinds.includes('取消 Abovee'));
     assert.ok(kinds.includes('取消 Examine'));
+  });
+});
+
+describe('取消掉的那一段不再要求她做任何事（ADR-0081）', () => {
+  const COURSES = {
+    'c-recovery': { id: 'c-recovery', name: '復能', category: 'C' },
+    'c-followup': { id: 'c-followup', name: '二返', category: 'A', needsTreatmentForm: false, needsRecord: true },
+    'c-checkup': { id: 'c-checkup', name: '健檢', category: 'B' },
+  };
+
+  test('掛號那一族只看還算數的那幾段', () => {
+    // 二返（A 類）取消掉之後就不用去 Examine 與耀聖掛號了
+    const v = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+      slots: [
+        { courseId: 'c-followup', status: 'cancelled' },
+        { courseId: 'c-recovery', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(tasksForVisit(v, COURSES).map((t) => t.kind), []);
+  });
+
+  test('還有一段是 A 類的話照樣要掛號', () => {
+    const v = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+      slots: [
+        { courseId: 'c-followup', status: 'cancelled' },
+        { courseId: 'c-followup', status: 'confirmed' },
+      ],
+    };
+    assert.deepEqual(tasksForVisit(v, COURSES).map((t) => t.kind).sort(), ['Examine', '耀聖']);
+  });
+
+  test('那一段取消了就沒有紀錄要寫', () => {
+    const v = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'done',
+      slots: [
+        { courseId: 'c-followup', status: 'cancelled' },
+        { courseId: 'c-recovery', status: 'done' },
+      ],
+    };
+    assert.deepEqual(recordTasksForVisit(v, COURSES), []);
   });
 });

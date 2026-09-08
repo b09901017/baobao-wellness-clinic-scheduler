@@ -286,7 +286,10 @@ export function needsForm(course) {
  */
 export function formSlotIndexes(visit, coursesById = {}) {
   return (visit?.slots ?? [])
-    .map((slot, i) => (needsForm(coursesById[slot.courseId]) ? i : -1))
+    // **取消掉的那一段不用簽**（ADR-0081）—— 客人那天沒做那一項。
+    // 回的仍然是**原本那一格的索引**：收尾畫面拿它逐段打勾，
+    // 濾掉之後重編號的話她會在錯的那一段上簽名。
+    .map((slot, i) => (isLiveSlot(slot) && needsForm(coursesById[slot.courseId]) ? i : -1))
     .filter((i) => i >= 0);
 }
 
@@ -518,6 +521,29 @@ export const isLiveSlot = (slot) => slot?.status !== 'cancelled';
 
 /** 一筆來訪裡還算數的那幾段。 */
 export const liveSlots = (visit) => (visit?.slots ?? []).filter(isLiveSlot);
+
+/**
+ * 每一段都補上狀態。**寫進資料庫之前跑一次。**
+ *
+ * 舊資料零遷移是刻意的（ADR-0081）：沒有 `slot.status` 的來訪照樣讀得出來。
+ * 但她**存過一次**的那一筆就該補齊 —— 不補的話，那一筆之後每一次
+ * 逐段取消都要靠整筆的狀態去猜其他段是什麼，而整筆的狀態正在被改。
+ *
+ * 補的值走 `slotStatus()`，所以「已完成 + `attended: false`」會補成
+ * `no_show`，跟她看到的一模一樣。
+ *
+ * **她自己填過的那一格不動。** 這一支只補空的。
+ *
+ * 放在 domain 而不是 `data/visits.js` 裡面：它是一條規則（「一段沒有狀態
+ * 的時候它是什麼」），而 `data/` 那一層只負責在 `save()` 那個唯一的路口
+ * 呼叫它 —— 每一個呼叫端各補一次的話，遲早有一個忘了。
+ */
+export function withSlotStatuses(visit) {
+  const slots = (visit?.slots ?? []).map((slot) => (slot?.status
+    ? slot
+    : { ...slot, status: slotStatus(visit, slot) ?? visit?.status ?? INITIAL_STATUS }));
+  return { ...visit, slots };
+}
 
 /**
  * 客人回覆之後，那一筆來訪長什麼樣。

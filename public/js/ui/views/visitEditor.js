@@ -286,6 +286,13 @@ function paint(ctx, draft) {
     }),
   );
 
+  // 既有的來訪：那一格真的在 Abovee 上壓過，所以是**取消**不是刪掉（ADR-0081）。
+  // 走的是跟日曆長按選單同一支 `applyStatus()` 與同一份後果說明 ——
+  // 兩邊各寫一次的話遲早有一邊少講一句。
+  el.querySelectorAll('[data-cancel-slot]').forEach((btn) =>
+    btn.addEventListener('click', () => cancelOneSlot(ctx, draft, Number(btn.dataset.cancelSlot))),
+  );
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     submit(ctx, readDraft(ctx, form, draft));
@@ -353,11 +360,13 @@ function slotCard(ctx, draft, slot, i) {
           : (course
             ? `<span class="slothead__what">${esc(slotName(slot, all, 'short'))}</span>`
             : '<span class="app__spacer"></span>')}
-        ${draft.slots.length > 1
-          ? `<button class="slothead__x" type="button" data-del-slot="${i}"
-                     aria-label="移除第 ${i + 1} 段">${icon('close', { size: 15, width: 2 })}</button>`
-          : ''}
+        ${slotXButton(ctx, draft, slot, i)}
       </div>
+
+      ${slot.status === 'cancelled' ? `
+        <p class="field__hint" style="margin: 0 0 var(--space-3)">
+          這一段取消了 —— 時段退回去了，次數也還回來了。那一天剩下的照舊。
+        </p>` : ''}
 
       ${f.chips({
         name: `s${i}-ent`, label: '額度', value: nth ? NTH_PICK : slot.entitlementId,
@@ -413,6 +422,28 @@ function slotCard(ctx, draft, slot, i) {
       ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
     </section>`;
+}
+
+/**
+ * 那一段右上角那顆 ×。**新的來訪與既有的來訪意思不一樣。**
+ *
+ * - **還沒存過**（`isNew`）：整段拿掉就好。它從來沒有被壓過，沒有東西要收。
+ * - **已經存過**：那一格是**真的在 Abovee 上壓過**的，所以 × 是
+ *   「取消這一段」不是「刪掉這一段」（ADR-0081）。刪掉的話沒有紀錄它
+ *   曾經被壓過，也不會長出「取消 Abovee」—— 那正是確認動線修掉的同一個 bug。
+ *
+ * 已經取消掉的那一段不再給 × ：它已經是終點了。
+ * 只有一段時也不給 —— 要取消整筆走底下的狀態卡，那裡問得比較清楚。
+ */
+function slotXButton(ctx, draft, slot, i) {
+  if (draft.slots.length <= 1 || slot.status === 'cancelled') return '';
+
+  const [attr, label] = ctx.isNew
+    ? ['data-del-slot', `移除第 ${i + 1} 段`]
+    : ['data-cancel-slot', `取消第 ${i + 1} 段`];
+
+  return `<button class="slothead__x" type="button" ${attr}="${i}"
+                  aria-label="${esc(label)}">${icon('close', { size: 15, width: 2 })}</button>`;
 }
 
 /**
@@ -897,6 +928,41 @@ function wireStatus(ctx, draft) {
       }
     }),
   );
+}
+
+/**
+ * 取消其中一段（既有來訪的 ×）。
+ *
+ * **讀的是 `draft` 不是表單**，跟底下那張狀態卡同一個作法：這一下是一個
+ * 狀態決定，不是一次編輯。她如果剛好改了幾格還沒存，那幾格不會跟著寫進去。
+ */
+async function cancelOneSlot(ctx, draft, slotIndex) {
+  if (!Number.isInteger(slotIndex) || !draft.slots[slotIndex]) return;
+
+  const ok = await confirmAction({
+    title: `取消第 ${slotIndex + 1} 段？`,
+    consequences: cancelConsequences({
+      visit: draft,
+      coursesById: coursesByIdOf(ctx.all),
+      tasks: await visitTasks(draft),
+      sheetSyncOn: isConfigured(ctx.settings),
+      slotIndex,
+    }),
+    confirmLabel: '取消這一段',
+    danger: true,
+  });
+  if (!ok) return;
+
+  const next = applyStatus(draft, 'cancelled', { slotIndex });
+  try {
+    await toast.withSaveState(() => visitsData.save(next, ctx.customerVisits), {
+      success: '這一段取消了',
+      key: `visit:save:${next.id}`,
+    });
+    leave(ctx);
+  } catch {
+    /* 已處理 */
+  }
 }
 
 // ---------- 已完成的更正流程 ----------
