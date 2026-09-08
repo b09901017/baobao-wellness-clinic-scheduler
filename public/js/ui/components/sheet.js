@@ -342,14 +342,40 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
     settleAt(0);
   }
 
-  /** 收起來：從現在的位置一路滑出去，灰底同時淡掉。拖到底與按叉叉共用。 */
+  /**
+   * 收起來：從現在的位置一路滑出去，灰底同時淡掉。拖到底與按叉叉共用。
+   *
+   * ## 為什麼要多包一層 rAF（2026-09-08）
+   *
+   * 她回報「關閉抽屜時會先往上微跳一下，才往下滑動收合」。
+   *
+   * `goTall()` 做兩件事：加上 `.drawer--tall`（面板變滿高，**上緣往上跑
+   * `peekY`**），然後 `setY(peekY + y)` 把它推回原位補償。看起來應該沒有變化。
+   *
+   * 但 `goTall()` 裡面有**兩次 `getBoundingClientRect()`** —— 那會強制瀏覽器
+   * 算一次樣式，而那一刻 class 已經加上去了、`--sheet-y` 還是舊值。
+   * 於是過場的**起點**被定在「已經變高、還沒補位移」那個位置，
+   * 比她看到的高 `peekY`。接著同一輪就 `settleAt()`，補償那一次 `setY()`
+   * 從來沒有被畫出來過 —— 結果就是先往上跳，再往下滑。
+   *
+   * 隔一幀再開始過場，補償就落地了，起點才是她看到的位置。
+   * `expand()` 一直是這樣寫的（它多包了一層 rAF），兩支對照著看就知道差在哪。
+   *
+   * **灰底也搬進 rAF 裡**：留在外面的話它會比面板早一幀開始淡，
+   * 而那一幀看起來就是「背景先閃一下」。
+   *
+   * 這一支是**三個東西共用**的（抽屜、長按的快捷選單、待辦中心的收尾抽屜），
+   * 所以改這一支就是「全域檢查所有 Bottom Sheet」那件事。
+   */
   let dismissing = false;
   function dismiss() {
     if (dismissing) return;
     dismissing = true;
     goTall();
-    backdrop?.classList.add('drawer-backdrop--out');
-    settleAt(fullH + 40, () => onDismissed?.());
+    requestAnimationFrame(() => {
+      backdrop?.classList.add('drawer-backdrop--out');
+      settleAt(fullH + 40, () => onDismissed?.());
+    });
   }
 
   function playIn() {
