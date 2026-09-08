@@ -1,6 +1,6 @@
 # ADR、SPEC、CONTEXT 與 CLAUDE.md 一起跟上
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`docs/agents/domain.md`（ADR 慣例）
 
