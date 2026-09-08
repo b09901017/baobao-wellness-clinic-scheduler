@@ -149,6 +149,12 @@ export const CHECKS = [
       + ' 日曆上的顏色與待辦中心那一列會各講各的',
   },
   {
+    id: 'courseNames',
+    label: '課程的名字跟建議的不一樣',
+    hint: 'ILIB 那個課程 2026-09-06 正名過。還停在「靜脈」的話，'
+      + '額度、月曆、LINE 草稿三個地方寫的都是舊字',
+  },
+  {
     id: 'courseRecord',
     label: '課程的「做完要不要寫紀錄」跟建議的不一樣',
     hint: '復健科醫師門診做完要去曜聖補一份紀錄 —— 沒勾的話那一場結案時'
@@ -1282,8 +1288,58 @@ function checkCourseRecord(ctx) {
     }));
 }
 
+/**
+ * 2026-09-06 之前種子上那個課程的三格名字。**只認得出這一代。**
+ *
+ * 她 2026-09-08：「只要 line 是靜脈雷射就好，我不想在其他地方看到『靜脈』，
+ * 像是好像目前有課程名稱叫做『靜脈』？如果是舊資料庫的問題那沒關係」。
+ *
+ * 是舊資料庫的問題：種子上早就是 `ILIB` / `IL` / `靜脈雷射` 了，
+ * 而 `loadSeed()` 只建不覆蓋。
+ *
+ * `null` 代表「那一格是空的」。
+ */
+const LEGACY_COURSES = {
+  'course-iv-laser': { name: '靜脈', shortName: null, lineName: null },
+};
+
+/**
+ * 二十二、課程的名字跟建議的不一樣。形狀照抄 `checkEquipmentNames()`。
+ *
+ * **三格要同時還停在舊的才報**：她自己改過其中一格就是一個決定，
+ * 不可以被一顆按鈕改回去。
+ */
+function checkCourseNames(ctx) {
+  const same = (a, b) => (String(a ?? '').trim() || null) === (b ?? null);
+
+  return (SEED.courses ?? [])
+    .filter((row) => LEGACY_COURSES[row.id])
+    .map((row) => ({ row, was: LEGACY_COURSES[row.id], mine: ctx.coursesById[row.id] }))
+    .filter(({ was, mine }) => mine && !mine.deletedAt
+      && same(mine.name, was.name)
+      && same(mine.shortName, was.shortName)
+      && same(mine.lineName, was.lineName))
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `全名改成「${row.name}」、月曆簡寫「${row.shortName ?? '（空）'}」、`
+        + `LINE 草稿「${row.lineName ?? '（空）'}」`,
+      link: '#/settings/naming',
+      fix: {
+        kind: 'renameCourse',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        name: row.name,
+        shortName: row.shortName ?? null,
+        lineName: row.lineName ?? null,
+        fromName: mine.name ?? '',
+      },
+    }));
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
+  courseNames: checkCourseNames,
   courseRecord: checkCourseRecord,
   equipmentCourse: checkEquipmentCourse,
   roomList: checkRoomList,

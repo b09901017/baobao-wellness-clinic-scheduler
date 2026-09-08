@@ -182,6 +182,18 @@ function opFor(fix) {
     };
   }
 
+  // 課程改名（2026-09-06 ILIB 正名）。**三格一起寫**，其餘欄位一個都不碰 ——
+  // 指派、類別、可選時長都是她自己的設定。
+  if (fix?.kind === 'renameCourse') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: { name: fix.name, shortName: fix.shortName ?? null, lineName: fix.lineName ?? null },
+      note: '資料健檢：課程的名字改成建議值',
+    };
+  }
+
   // 課程做完要不要寫紀錄（ADR-0066）。**只寫那一格**。
   if (fix?.kind === 'setNeedsRecord') {
     return {

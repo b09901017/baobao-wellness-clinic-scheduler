@@ -178,6 +178,23 @@ function indexFixes(result) {
  * （SPEC 第 6.5 節）—— 兩種修正動的是不同的東西，用同一段字就等於沒講。
  */
 const FIX_COPY = {
+  courseNames: {
+    button: () => '改成建議值',
+    all: (n) => `一次改這 ${n} 個`,
+    one: (fix) => ({
+      title: `把「${fix.fromName}」改名成「${fix.name}」？`,
+      lines: [
+        `額度與主檔寫「${fix.name}」、月曆寫「${fix.shortName ?? '（空）'}」、`
+          + `貼給客人的那一句寫「${fix.lineName ?? '（空）'}」`,
+        '**既有來訪與額度身上的名字是購買當下的快照，不會跟著改**',
+        '課程的類別、指派與可選時長一個都不會動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 個課程都改成建議的名字？`,
+      lines: fixes.map((fix) => `${fix.fromName} → ${fix.name}`),
+    }),
+  },
   courseRecord: {
     button: () => '勾起來',
     all: (n) => `一次勾這 ${n} 個`,
@@ -441,6 +458,7 @@ const KIND_TO_CHECK = {
   restatVisit: 'visitStatusDerived',
   setEquipmentCourse: 'equipmentCourse',
   setNeedsRecord: 'courseRecord',
+  renameCourse: 'courseNames',
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',

@@ -68,9 +68,9 @@ const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
 describe('形狀', () => {
-  test('二十二項檢查都在，順序固定', () => {
+  test('二十三項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 22);
+    assert.equal(result.checks.length, 23);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1346,5 +1346,39 @@ describe('課程的「做完要不要寫紀錄」跟建議的不一樣', () => {
     assert.deepEqual(go(without('course-rehab').map(
       (c) => (c.id === 'course-rehab' ? { ...c, deletedAt: 'x' } : c),
     )), []);
+  });
+});
+
+describe('課程的名字跟建議的不一樣', () => {
+  const go = (courses) => run({ master: { courses, equipment: SEED.equipment } })
+    .checks.find((c) => c.id === 'courseNames').findings;
+
+  // 2026-09-06 之前 ILIB 那個課程叫「靜脈」，而且兩格別稱都是空的
+  const legacy = (over = {}) => SEED.courses.map((c) => (c.id === 'course-iv-laser'
+    ? { ...c, name: '靜脈', shortName: null, lineName: null, ...over }
+    : c));
+
+  test('還停在「靜脈」那一代就列出來，三格一起改回去', () => {
+    const rows = go(legacy());
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, '靜脈');
+    assert.equal(rows[0].fix.kind, 'renameCourse');
+    assert.equal(rows[0].fix.name, 'ILIB');
+    assert.equal(rows[0].fix.shortName, 'IL');
+    assert.equal(rows[0].fix.lineName, '靜脈雷射');
+  });
+
+  test('種子完整就一項都不報', () => {
+    assert.deepEqual(go(SEED.courses), []);
+  });
+
+  test('三格只要有一格是她自己改過的就不動', () => {
+    assert.deepEqual(go(legacy({ shortName: '靜' })), [], '別稱改過了');
+    assert.deepEqual(go(legacy({ name: '經皮靜脈雷射' })), [], '全名改過了');
+    assert.deepEqual(go(legacy({ lineName: '雷射' })), [], 'LINE 名改過了');
+  });
+
+  test('她自己刪掉的課程不再提', () => {
+    assert.deepEqual(go(legacy({ deletedAt: 'x' })), []);
   });
 });
