@@ -295,6 +295,25 @@ export function checkboxes({ name, label, values = [], options, hint = '' }) {
     </fieldset>`;
 }
 
+/**
+ * 「還答不出來」的那一句。
+ *
+ * 擇一池還沒挑器材時，「要治療師還是治療室」沒有答案（`assignsFor()` 回
+ * `null`）—— 兩排都不畫，但**要留一句話**：什麼都不出現跟「這一種不用指派」
+ * 長得一模一樣，而她會直接按下去。
+ *
+ * 壓表與來訪編輯器兩個入口共用。規則早就共用了（`assignsFor()`），
+ * 這一句話原本各寫一次 —— 改一個字要改兩處。
+ *
+ * @param {string} what 她剛剛按的那一顆額度丸子上的字
+ */
+export function undecidedHint(what) {
+  return `
+    <p class="field__hint" style="margin: 0 0 var(--space-4)">
+      先選上面那一台 —— ${esc(what || '這一筆')} 要治療師還是治療室，看那天用的是哪一種。
+    </p>`;
+}
+
 export function toggle({ name, label, value = false, hint = '' }) {
   return `
     <label class="choice choice--row">

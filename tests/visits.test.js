@@ -15,7 +15,7 @@ import {
   statusClass, shortStatus, markFor, MARK_ORDER, MARK_LEGEND, STATUS_VIEW_ORDER,
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
-  courseForEquipment, picksEquipment, slotsToShow, assignsFor,
+  courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -544,7 +544,25 @@ describe('只提醒不阻擋的（warnings）', () => {
     assert.ok(!warnings.some((w) => w.includes('客戶乙')));
   });
 
-  test('同一間但不同床位不算撞 —— 床位才是最小單位', () => {
+  // **床位那一層 2026-09-08 取消了**（ADR-0079）：一間就是一個資源。
+  // `conflictWarnings()` 的 `sameRoom` 一行都沒有動 —— `bed` 清成 null 之後
+  // 它自然退化成只比診間，而那正是取消床位之後對的行為。
+  test('清掉床位之後，同一間同一個時間排兩個人會被標出來', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
+                roomId: 'r-iv8', bed: null, endsAt: '15:00' }],
+    });
+    const other = {
+      id: 'v-other', customerName: '客戶乙', status: 'confirmed',
+      slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: null }],
+    };
+    const { warnings } = validateVisit(mine, ctx({ sameDayVisits: [other] }));
+    assert.ok(warnings.some((w) => w.includes('客戶乙')), warnings.join('｜'));
+  });
+
+  // 舊資料上那一格還在（資料健檢的「來訪上還記著床位」清掉之前）。
+  // 那幾筆照舊按「同一間**而且**同一床」比 —— 改那一行的話它們會變成假警報。
+  test('還帶著床位的舊資料照舊：不同床不算撞', () => {
     const mine = visit({
       slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
                 roomId: 'r-iv8', bed: 'A', endsAt: '15:00' }],
@@ -554,6 +572,22 @@ describe('只提醒不阻擋的（warnings）', () => {
       slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: 'B' }],
     };
     assert.deepEqual(validateVisit(mine, ctx({ sameDayVisits: [other] })).warnings, []);
+  });
+
+  // ADR-0079：那六個課程改成「都不用」之後，既有來訪身上的 roomId 留著不動。
+  // **只提醒不擋**（ADR-0002）—— 擋下來的話她連改一個時間都存不回去。
+  test('不需要診間的課程帶著 roomId：只提醒不擋', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], entitlementId: 'e-inbody', courseId: 'c-inbody',
+                roomId: 'r-t3', endsAt: '14:20' }],
+    });
+    const noRoom = ctx({
+      courses: COURSES.map((c) => (c.id === 'c-inbody'
+        ? { ...c, assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [] } : c)),
+    });
+    const { errors, warnings } = validateVisit(mine, noRoom);
+    assert.deepEqual(errors, [], '不可以擋');
+    assert.ok(warnings.some((w) => w.includes('不需要診間')), warnings.join('｜'));
   });
 
   test('同一位治療師同一時段已經排了別人', () => {
@@ -1232,4 +1266,105 @@ test('沒有一個畫面自己去比 course.assigns', () => {
   };
   walk('');
   assert.deepEqual(offenders, [], `這幾支自己比了 assigns，要改走 assignsFor()：${offenders}`);
+});
+
+
+// 她 2026-09-08 選了「六個課程全部改」，而那一題的答案裡寫著：
+//
+// > 既有來訪身上的 `roomId` 留著不動、**畫面上不畫**
+//
+// 少了這一條，她那幾百筆既有的健檢、門診、二返在日／週那一列與四頁共用的
+// 讀取卡片上照樣印著「治3」—— 正是那個答案要避免的事。
+describe('這一段在畫面上要不要印診間', () => {
+  const room = { id: 'c-iv', assigns: 'room' };
+  const none = { id: 'c-checkup', assigns: 'none' };
+  const therapist = { id: 'c-recovery', assigns: 'therapist' };
+  const courses = [room, none, therapist];
+
+  test('要診間的課程照印', () => {
+    assert.equal(showsRoom({ courseId: 'c-iv', roomId: 'r1' }, courses), true);
+  });
+
+  test('不要診間的課程不印 —— 既有資料上那個 roomId 一個字都不動', () => {
+    assert.equal(showsRoom({ courseId: 'c-checkup', roomId: 'r1' }, courses), false);
+    assert.equal(showsRoom({ courseId: 'c-recovery', roomId: 'r1' }, courses), false);
+  });
+
+  // **認不出課程就照印。** 匯進來的舊來訪、被刪掉的課程都走這一條 ——
+  // 少印一個診間比印錯一個糟：她會以為那一筆的資料掉了。
+  test('認不出課程就照印', () => {
+    assert.equal(showsRoom({ courseId: 'gone', roomId: 'r1' }, courses), true);
+    assert.equal(showsRoom({ courseId: 'c-iv', roomId: 'r1' }, []), true);
+    assert.equal(showsRoom({ roomId: 'r1' }, courses), true);
+  });
+
+  test('本來就沒有診間的那一段一律回 false，呼叫端不用先問一次', () => {
+    assert.equal(showsRoom({ courseId: 'c-iv' }, courses), false);
+    assert.equal(showsRoom(null, courses), false);
+  });
+});
+
+
+// ADR-0078 的後果那一節記著一條分岔：`visitCourseLabel()` 讀的是
+// `slot.courseName` **快照**，而 CLAUDE.md 寫著「快照不是顯示名稱」。
+// 症狀是同一筆來訪在客戶詳情那一列寫「復能」、在日曆上寫「SIS(60)」。
+describe('一筆來訪講成一句話', () => {
+  const master = {
+    courses: [
+      { id: 'c-recovery', name: '復能' },
+      { id: 'c-ilib', name: 'ILIB', shortName: 'IL' },
+    ],
+    equipment: [
+      { id: 'eq-sis', name: 'SIS', courseId: 'c-recovery' },
+      { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'c-recovery' },
+    ],
+  };
+  const v = {
+    slots: [
+      { courseId: 'c-recovery', courseName: '復能', equipmentId: 'eq-sis' },
+      { courseId: 'c-ilib', courseName: 'ILIB' },
+    ],
+  };
+
+  test('帶了主檔就講顯示名稱，跟日曆上那一列同一種寫法', () => {
+    assert.equal(visitCourseLabel(v, master), 'SIS、IL');
+  });
+
+  test('同一台只講一次 —— 那天做兩節 SIS 就是「SIS」', () => {
+    const twice = { slots: [v.slots[0], { ...v.slots[0] }] };
+    assert.equal(visitCourseLabel(twice, master), 'SIS');
+  });
+
+  // **沒帶主檔就退回快照**（稽核紀錄走這一條：那一份記的是當時寫下去的字）。
+  test('沒帶主檔就退回快照 —— 既有呼叫端一個字都不用改', () => {
+    assert.equal(visitCourseLabel(v), '復能、ILIB');
+  });
+
+  test('主檔裡查不到那個課程也退回快照', () => {
+    const gone = { slots: [{ courseId: 'gone', courseName: '舊課程' }] };
+    assert.equal(visitCourseLabel(gone, master), '舊課程');
+  });
+
+  test('一個都認不出來就講「N 段」，不要吐空字串', () => {
+    assert.equal(visitCourseLabel({ slots: [{}, {}] }, master), '2 段');
+    assert.equal(visitCourseLabel({ slots: [] }, master), '0 段');
+  });
+});
+
+
+// ADR-0078 的後果那一節記過這條分岔，2026-09-08 收掉了。
+// 這一支盯著它不會再長回來：**手上有主檔的呼叫端一定要傳**。
+test('會講「那天做了什麼」的畫面都帶著主檔', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+  for (const rel of ['js/ui/views/customerDetail.js', 'js/ui/views/home.js']) {
+    const src = read(rel);
+    for (const [, args] of src.matchAll(/visitCourseLabel\(([^)]*)\)/g)) {
+      assert.ok(args.includes(','), `${rel} 有一處 visitCourseLabel() 沒帶主檔：(${args})`);
+    }
+  }
+
+  // **稽核紀錄刻意不帶**：那一份記的是當時寫下去的字，主檔之後改名，
+  // 歷史紀錄不該跟著變。改這一行之前先想清楚那件事。
+  const audit = read('js/domain/audit.js');
+  assert.match(audit, /visitCourseLabel\(d\)/, '稽核要維持讀快照');
 });

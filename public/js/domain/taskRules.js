@@ -433,9 +433,11 @@ function cancelTask(visit, kind, note, today) {
  * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
  *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
  *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
+ * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
+ *   （跟日曆同一種寫法），沒帶就退回時段上的快照（`visitCourseLabel()`）。
  * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
  */
-export function taskLine(task, visit = null) {
+export function taskLine(task, visit = null, master = null) {
   const hasVisit = Boolean(visit?.date);
   return {
     kind: task?.kind ?? '',
@@ -443,7 +445,7 @@ export function taskLine(task, visit = null) {
     fromDue: !hasVisit,
     // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
     // 不要在這裡再寫一次。沒有時段就沒有東西可講。
-    what: (visit?.slots ?? []).length ? visitCourseLabel(visit) : '',
+    what: (visit?.slots ?? []).length ? visitCourseLabel(visit, master) : '',
   };
 }
 

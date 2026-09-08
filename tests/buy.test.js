@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import * as buy from '../public/js/ui/components/buy.js';
+import * as ent from '../public/js/domain/entitlements.js';
 import { fromRoot } from './helpers/paths.js';
 
 const MASTER = {
@@ -82,7 +83,7 @@ describe('買了什麼：復能與 ILIB 並排', () => {
     const noIlib = { ...MASTER, equipment: MASTER.equipment.filter((e) => e.id !== 'eq-ilib') };
     const names = order(noIlib);
     assert.ok(names.includes('復能') && names.includes('ILIB'));
-    assert.deepEqual(buy.poolChoices(noIlib).sets.map((x) => x.label), ['二選一']);
+    assert.deepEqual(ent.poolChoices(noIlib).sets.map((x) => x.label), ['二選一']);
   });
 });
 
@@ -550,7 +551,7 @@ describe('原始碼守衛：兩個一個字就會壞掉的地方', () => {
 // 「二選一」與「三選一」—— **數字是算出來的**，她多加一台就自己會變。
 describe('加購復能：哪一種 → 幾分鐘', () => {
   test('哪一種：整組排前面，單買一台接在後面並且隔一條線', () => {
-    const { sets, singles } = buy.poolChoices(MASTER);
+    const { sets, singles } = ent.poolChoices(MASTER);
     assert.deepEqual(sets.map((x) => x.label), ['二選一', '三選一']);
     assert.deepEqual(sets[0].ids, ['eq-indiba', 'eq-sis']);
     assert.deepEqual(sets[1].ids, ['eq-indiba', 'eq-sis', 'eq-ilib']);
@@ -569,24 +570,24 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
       ...MASTER,
       equipment: MASTER.equipment.filter((e) => e.courseId === 'c-recovery'),
     };
-    assert.deepEqual(buy.poolChoices(onlyRecovery).sets.map((x) => x.label), ['二選一']);
+    assert.deepEqual(ent.poolChoices(onlyRecovery).sets.map((x) => x.label), ['二選一']);
   });
 
   test('一台器材都沒有指到課程（舊資料）時，整組就是全部', () => {
     const old = { ...MASTER, equipment: MASTER.equipment.map(({ courseId, ...r }) => r) };
-    const { sets } = buy.poolChoices(old);
+    const { sets } = ent.poolChoices(old);
     assert.equal(sets.length, 1);
     assert.deepEqual(sets[0].ids, ['eq-indiba', 'eq-sis', 'eq-ilib']);
   });
 
   test('按著的是哪一顆，比的是那一串 id 不是她按過什麼', () => {
     // 從方案展開出來的額度身上只有 ids，點進去調整時那一排也要按對
-    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-indiba'] }, MASTER),
-      buy.POOL_SET_HOME);
-    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis'] }, MASTER), 'eq-sis');
-    assert.equal(buy.poolPickOf({ optionEquipmentIds: [] }, MASTER), null);
+    assert.equal(ent.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-indiba'] }, MASTER),
+      ent.POOL_SET_HOME);
+    assert.equal(ent.poolPickOf({ optionEquipmentIds: ['eq-sis'] }, MASTER), 'eq-sis');
+    assert.equal(ent.poolPickOf({ optionEquipmentIds: [] }, MASTER), null);
     // 她在進階設定裡自己勾了一個怪組合 → 一顆都不按，而不是亂按一顆
-    assert.equal(buy.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-ilib'] }, MASTER), null);
+    assert.equal(ent.poolPickOf({ optionEquipmentIds: ['eq-sis', 'eq-ilib'] }, MASTER), null);
   });
 
   test('換一種：名字跟著變', () => {
@@ -633,7 +634,7 @@ describe('加購復能：哪一種 → 幾分鐘', () => {
 
   test('讀表單：那一顆的值換回真正要存的那一串 id', () => {
     const form = { elements: { poolKind: {}, durationMin: {} } };
-    const out = buy.read(form, { poolKind: buy.POOL_SET_ALL, durationMin: '30' }, MASTER);
+    const out = buy.read(form, { poolKind: ent.POOL_SET_ALL, durationMin: '30' }, MASTER);
     assert.deepEqual(out.optionEquipmentIds, ['eq-indiba', 'eq-sis', 'eq-ilib']);
     assert.equal(out.durationMin, 30);
 

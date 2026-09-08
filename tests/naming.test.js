@@ -346,9 +346,13 @@ describe('設定頁那六列', () => {
         `那六列不可以寫死「${word}」—— 她多接一台器材時這一頁要自己跟上`,
       );
     }
-    // 判準跟加購那一排問的是同一句話（ADR-0075）
+    // 判準跟加購那一排問的是同一句話（ADR-0075），而那兩支住在 domain
     assert.match(src, /poolChoices\(/);
     assert.match(src, /poolSiblingCourseIds\(/);
+    assert.ok(
+      src.includes("from '../../domain/entitlements.js'"),
+      '那幾條規則要從 domain 借，不是從 ui/components/buy.js',
+    );
   });
 
   test('器材那幾列沒有 LINE 那一格（ADR-0077）', () => {

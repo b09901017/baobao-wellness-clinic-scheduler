@@ -50,7 +50,7 @@ export async function render(el) {
       config.listAll('rooms'),
       config.listAll('staff'),
       // 那一段叫什麼（`domain/naming.js`）—— 讀取卡片四個畫面共用同一支，
-      // 少帶這兩份的話這一頁會寫「復能」而日曆上寫「復能(SIS)」。
+      // 少帶這兩份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
       config.listAll('courses', { includeDeleted: true }),
       config.listAll('equipment', { includeDeleted: true }),
     ]);

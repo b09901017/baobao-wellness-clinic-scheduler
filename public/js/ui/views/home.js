@@ -1059,6 +1059,8 @@ function whoBodyHtml(ctx) {
 
   const rows = d.tasks.map((t) => sharedTaskRow(t, d.visits?.get(t.visitId) ?? null, {
     booking: d.bookings.get(t.id) ?? null,
+    // 那一列的名字走顯示名稱（`SIS(60)`），跟日曆同一種寫法（ADR-0078）
+    master: d.master ?? null,
     // 「去壓表」只有「約二返」那幾列有：項目與「哪一次健檢的」都先選好，
     // 她只要挑日期跟時間（同任務那一頁那一顆，共用 `bookFollowup()`）。
     actions: t.kind === FOLLOWUP_TASK_KIND && t.customerId && !t.done
@@ -2601,8 +2603,9 @@ async function renderConfirm(el) {
     visitsData.listByStatus('pending_confirm'),
     config.getSettings(),
     config.listAll('courses', { includeDeleted: true }),
-    // 貼給客戶那一句要寫**她那天真的做了什麼**（`復能(SIS)`，`13`），
-    // 而括號裡那一半是從器材主檔來的。
+    // 貼給客戶那一句只講**課程**（`復能`、`靜脈雷射`，ADR-0077），
+    // 但「跟客人確認時間」那一排丸子印的是那天做了什麼（`SIS(60)`），
+    // 而那一半是從器材主檔來的。
     config.listAll('equipment', { includeDeleted: true }),
     // 備忘錄的「事前」那一節（ADR-0067）。**這一頁是「飯後打針」真正該出現
     // 的地方** —— 她按下那一列的時候，正在打那則訊息。
@@ -2679,7 +2682,7 @@ function confirmCard(
       <div class="chips" style="margin-top: var(--space-3)">
         ${visits.map((v) => `
           <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>&nbsp;${
-            esc(visitCourseLabel(v))}</span>`).join('')}
+            esc(visitCourseLabel(v, master))}</span>`).join('')}
       </div>
 
       ${/* 擺在那一句話與訊息範本中間：她的動線是

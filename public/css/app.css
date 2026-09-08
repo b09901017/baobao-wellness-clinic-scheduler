@@ -3935,6 +3935,9 @@ button.mark::after {
 .readmore {
   display: block;
   width: 100%;
+  /* 觸控優先：最小點擊區 44px（SPEC 第 1 節）。13px 的字加上下 8px 的
+     padding 只有 37px —— 而這一顆是「看全部」唯一的入口。 */
+  min-height: var(--tap-min);
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-2);
   font: inherit;
