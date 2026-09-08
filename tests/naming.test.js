@@ -515,3 +515,47 @@ test('每一個組 master 的地方都帶著 courses、equipment 與 ivProducts'
   }
   assert.ok(total >= 6, `只找到 ${total} 份 master —— 這支測試可能失效了`);
 });
+
+// 設定 →「名稱怎麼寫」2026-09-08 改成「先給看，點鉛筆才展開」。
+// 她的原話：「此檢視狀態不呈現大量輸入框，不造成視覺負擔。」
+describe('名稱怎麼寫那一頁的形狀', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/naming.js', import.meta.url), 'utf8',
+  );
+
+  test('讀的那一列一個輸入框都沒有', () => {
+    const at = SRC.indexOf('function readForms(');
+    assert.ok(at > 0, '找不到 readForms()');
+    const body = SRC.slice(at, SRC.indexOf('/**', at + 10));
+    assert.ok(!body.includes('<input'), '讀的那一列不可以有輸入框');
+  });
+
+  test('每一列都有一支鉛筆，而且說得出它要改什麼', () => {
+    assert.match(SRC, /data-edit=/);
+    assert.match(SRC, /aria-expanded=/);
+    assert.match(SRC, /aria-label=/);
+  });
+
+  test('**按存起來才寫**，不是離開輸入框就寫', () => {
+    assert.match(SRC, /data-save/);
+    assert.ok(!SRC.includes("addEventListener('focusout'"),
+      'focusout 存檔會在兩個輸入框之間跳的時候存兩次');
+  });
+
+  test('一次只開一列', () => {
+    assert.match(SRC, /ctx\.editingKey = ctx\.editingKey === next \? null : next/);
+  });
+
+  test('取消要退回原值 —— 手上那一份主檔是就地改的', () => {
+    assert.match(SRC, /const revert = /);
+    assert.match(SRC, /data-cancel/);
+  });
+
+  test('打字仍然不重畫（會洗掉輸入法的組字狀態）', () => {
+    const at = SRC.indexOf("root.addEventListener('input'");
+    assert.ok(at > 0);
+    const body = SRC.slice(at, at + 300);
+    assert.ok(!body.includes('paint(ctx)'), 'input 事件裡不可以整頁重畫');
+    assert.match(body, /repaintPreviews/);
+  });
+});

@@ -4200,27 +4200,113 @@ button.mark::after {
 /* 設定 → 名稱怎麼寫。一列 = 她列的六種之一（或其他課程之一）：
    月曆那一格、LINE 那一格、兩種寫法的預覽。
    2026-09-08 之前是「課程一張卡、器材縮排掛在底下」，現在是平的六列。 */
+/* 設定 → 名稱怎麼寫。**預設只給看**，點鉛筆才就地展開（2026-09-08）。
+   在那之前是十幾列、每列兩個輸入框一次全部攤開 —— 她要找的
+   「這個東西現在叫什麼」被埋在一堆邊框裡。 */
 .namerow {
-  padding: var(--space-3) 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--border-soft);
 }
 .namerow:first-child {
   padding-top: 0;
   border-top: none;
 }
-.namerow__head {
-  font-weight: 600;
-  margin-bottom: var(--space-2);
+
+/* 展開的那一列自己有底色，一眼看得出「我正在改這一列」。 */
+.namerow.is-editing {
+  margin: 0 calc(-1 * var(--space-3));
+  padding: var(--space-4) var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-top-color: transparent;
 }
+
+.namerow__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.namerow__head {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+/* 視覺上是一支 32px 的小鉛筆，感應範圍靠 ::after 撐到 44px（同 .drawer__grip）。 */
+.namerow__edit {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.namerow__edit::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.namerow__edit:hover,
+.namerow__edit[aria-expanded='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 讀的那一列：兩種寫法各一格。標籤留著不省 —— 那兩個字就是「誰在看」，
+   而這一頁整件事就是「同一個東西在三個地方寫法不一樣」。 */
+.namerow__reads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-2) 0 0;
+}
+.namerow__read {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.namerow__read dt {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+.namerow__read dd {
+  margin: 0;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.namerow__note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
 /* 兩格並排。手機上一格大約 150px，放得下「高能量雷射」那種長度。 */
 .namerow__fields {
   display: flex;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .namerow__fields .field {
   flex: 1;
   min-width: 0;
   margin-bottom: 0;
+}
+.namerow__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .namerow__preview {
   margin: var(--space-2) 0 0;

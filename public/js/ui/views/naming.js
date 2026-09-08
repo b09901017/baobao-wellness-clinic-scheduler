@@ -69,7 +69,17 @@ export async function render(el) {
     return;
   }
 
-  paint({ el, courses, equipment });
+  // 每一列打開之前的樣子。按「取消」或改點別列時要退回它 ——
+  // 手上那一份主檔是**就地改**的（預覽靠它），不留一份原值的話，
+  // 她按了取消，畫面上那一列還是新的字。
+  const saved = new Map();
+  for (const [type, rows] of [['courses', courses], ['equipment', equipment]]) {
+    for (const r of rows) {
+      saved.set(`${type}:${r.id}`, { shortName: r.shortName ?? null, lineName: r.lineName ?? null });
+    }
+  }
+
+  paint({ el, courses, equipment, saved, editingKey: null });
 }
 
 /**
@@ -148,6 +158,7 @@ function otherCourses(master) {
 function paint(ctx) {
   const { el, courses, equipment } = ctx;
   const master = { courses, equipment };
+  const open = ctx.editingKey ?? null;
 
   el.innerHTML = `
     <div data-namingroot>
@@ -156,15 +167,15 @@ function paint(ctx) {
     <div class="page">
       <h1 class="page__title">名稱怎麼寫</h1>
       <p class="page__lead">同一個東西在三個地方寫法不一樣：<b>額度</b>是當初買了什麼，
-        <b>月曆</b>一格只放得下幾個字，<b>LINE 草稿</b>要她跟客人都看得懂。
-        全名在課程與器材那兩頁改。</p>
+        <b>月曆</b>一格只放得下幾個字，<b>LINE 草稿</b>要你跟客人都看得懂。
+        點右邊的鉛筆改一列，全名在課程與器材那兩頁改。</p>
     </div>
 
     <section class="card" data-namecard>
       <h2 class="card__title">復能與 ILIB</h2>
       <p class="muted" style="margin: 0 0 var(--space-3)">就是這六種。
         前兩種是一種買法，名字跟著那天用的器材走，所以只給看。</p>
-      ${rehabRows(master).map((row) => rehabRowHtml(row, master)).join('')}
+      ${rehabRows(master).map((row) => rehabRowHtml(row, master, open)).join('')}
     </section>
 
     <section class="card" data-namecard>
@@ -177,6 +188,7 @@ function paint(ctx) {
         hasLine: true,
         slot: { courseId: c.id, courseName: c.name },
         master,
+        editing: open === `courses:${c.id}`,
       })).join('')}
     </section>
     </div>`;
@@ -185,13 +197,17 @@ function paint(ctx) {
 }
 
 /** 那六列。前兩列沒有輸入框，其餘走 `nameRow()`。 */
-function rehabRowHtml(row, master) {
+function rehabRowHtml(row, master, editingKey) {
+  // 前兩列（三選一／四選一）**沒有鉛筆**：它們是一種買法，背後沒有一筆主檔
+  // 可以存字（ADR-0078 第五點）。名字跟著那天用的器材走，所以改底下那幾列。
   if (!row.type) {
     return `
-      <div class="namerow" data-row="${esc(row.key)}">
-        <div class="namerow__head">${esc(row.title)}</div>
+      <div class="namerow namerow--read" data-row="${esc(row.key)}">
+        <div class="namerow__top">
+          <span class="namerow__head">${esc(row.title)}</span>
+        </div>
         <p class="namerow__preview" data-preview>${poolPreview(row.pool, master)}</p>
-        <p class="namerow__preview">${esc(row.note ?? '')}</p>
+        <p class="namerow__note">${esc(row.note ?? '')}</p>
       </div>`;
   }
 
@@ -204,38 +220,103 @@ function rehabRowHtml(row, master) {
     hasLine: row.hasLine,
     slot: row.slot,
     master,
+    editing: editingKey === row.key,
   });
 }
 
 /**
- * 一列：名字、一到兩格、兩種寫法的預覽。
+ * 一列：**預設只給看**，點右邊那支鉛筆才就地展開。
  *
- * **器材那幾列沒有 LINE 那一格**（ADR-0077）：貼給客人的那一句只講課程，
- * 所以器材的 `lineName` 一輩子都畫不出來。留著一個永遠不會出現在任何地方的
- * 輸入框比沒有還糟 —— 她會填，然後找不到它在哪裡。
+ * 她 2026-09-08：
+ *
+ * > 以簡潔、具有呼吸感的排版，呈現所有既有課程的「一般名稱」、「月曆簡寫」、
+ * > 「LINE 寫法」。此檢視狀態不呈現大量輸入框，不造成視覺負擔。
+ *
+ * 在這之前這一頁是**十幾列、每列兩個輸入框**一次全部攤開 —— 她要找的
+ * 「這個東西現在叫什麼」被埋在一堆邊框裡。
+ *
+ * ## 讀的那一列只回答一句話
+ *
+ * ```
+ * 復能-INDIBA                         ✎
+ * 月曆 IN    LINE 復能
+ * ```
+ *
+ * 標籤（`月曆`／`LINE`）留著不省：那兩個字就是「誰在看」，
+ * 而這一頁整件事就是「同一個東西在三個地方寫法不一樣」。
+ *
+ * ## 一次只開一列
+ *
+ * 開第二列時第一列自己收起來 —— 兩列同時開著就回到原本那個滿頁輸入框的樣子。
+ *
+ * @param {{editing: boolean}} state
  */
-function nameRow({ key, title, type, row, hasLine, slot, master }) {
+function nameRow({ key, title, type, row, hasLine, slot, master, editing }) {
   if (!row) return '';
 
+  const id = key ?? `${type}:${row.id}`;
+  return `
+    <div class="namerow ${editing ? 'is-editing' : ''}" data-row="${esc(id)}"
+         data-name="${esc(type)}:${esc(row.id)}">
+      <div class="namerow__top">
+        <span class="namerow__head">${esc(title)}</span>
+        <button class="namerow__edit" type="button" data-edit="${esc(id)}"
+                aria-expanded="${editing}"
+                aria-label="${editing ? '收起' : '改'}「${esc(title)}」的寫法">
+          ${icon(editing ? 'close' : 'pencil', { size: 16 })}
+        </button>
+      </div>
+      ${editing
+        ? editFields({ row, hasLine, slot, master })
+        : readForms(slot, master, hasLine, row)}
+    </div>`;
+}
+
+/**
+ * 讀的那一列：兩種寫法各一格，**沒有任何輸入框**。
+ *
+ * 器材那幾列的 LINE 也印出來（她 2026-09-08 要「所有課程項目」都看得到
+ * 三種寫法），但**它不是那一台器材的字，是它屬於的課程的字** ——
+ * 所以那一格底下多一句話說清楚要去哪裡改（ADR-0077 沒有被推翻：
+ * 貼給客人的那一句從來不講是哪一台機器）。
+ */
+function readForms(slot, master, hasLine, row) {
+  return `
+    <dl class="namerow__reads">
+      <div class="namerow__read">
+        <dt>月曆</dt>
+        <dd>${esc(slotName(slot, master, 'short')) || '<span class="dim">—</span>'}</dd>
+      </div>
+      <div class="namerow__read">
+        <dt>LINE</dt>
+        <dd>${esc(slotName(slot, master, 'line')) || '<span class="dim">—</span>'}</dd>
+      </div>
+    </dl>
+    ${hasLine || !row ? '' : `
+      <p class="namerow__note">LINE 那一句寫的是它屬於的課程 —— 要改到下面「其他課程」那一區</p>`}`;
+}
+
+/** 展開之後那幾格。**離開輸入框不存**，按「存起來」才寫進去。 */
+function editFields({ row, hasLine, slot, master }) {
   const line = hasLine ? `
-        <label class="field">
-          <span class="field__label">LINE</span>
-          <input type="text" data-line value="${esc(row.lineName ?? '')}"
-                 placeholder="${esc(row.name)}" maxlength="12" />
-        </label>` : '';
+      <label class="field">
+        <span class="field__label">LINE 草稿</span>
+        <input type="text" data-line value="${esc(row.lineName ?? '')}"
+               placeholder="${esc(row.name)}" maxlength="12" />
+      </label>` : '';
 
   return `
-    <div class="namerow" data-row="${esc(key ?? `${type}:${row.id}`)}"
-         data-name="${esc(type)}:${esc(row.id)}">
-      <div class="namerow__head">${esc(title)}</div>
-      <div class="namerow__fields">
-        <label class="field">
-          <span class="field__label">月曆</span>
-          <input type="text" data-short value="${esc(row.shortName ?? '')}"
-                 placeholder="${esc(row.name)}" maxlength="12" />
-        </label>${line}
-      </div>
-      <p class="namerow__preview" data-preview>${previewText(slot, master)}</p>
+    <div class="namerow__fields">
+      <label class="field">
+        <span class="field__label">月曆簡寫</span>
+        <input type="text" data-short value="${esc(row.shortName ?? '')}"
+               placeholder="${esc(row.name)}" maxlength="12" />
+      </label>${line}
+    </div>
+    <p class="namerow__preview" data-preview>${previewText(slot, master)}</p>
+    <div class="namerow__actions">
+      <button class="btn btn--primary btn--sm" type="button" data-save>存起來</button>
+      <button class="btn btn--sm" type="button" data-cancel>取消</button>
     </div>`;
 }
 
@@ -275,9 +356,9 @@ function wire(ctx, master) {
   /**
    * 這一列改過的值先寫回手上那一份主檔，預覽才跟得上。
    *
-   * 器材那幾列沒有 LINE 那一格（`nameRow()`），所以那一格**不存在**時
-   * `lineName` 一個字都不要動 —— 寫成 `null` 等於一打開這一頁就把她
-   * 以前設過的東西清掉，而畫面上什麼都不會說。
+   * 器材那幾列沒有 LINE 那一格（`editFields()`），所以那一格**不存在**時
+   * `lineName` 一個字都不要動 —— 寫成 `null` 等於一按存檔就把她以前設過的
+   * 東西清掉，而畫面上什麼都不會說。
    */
   const apply = (holder) => {
     const [type, id] = holder.dataset.name.split(':');
@@ -290,6 +371,15 @@ function wire(ctx, master) {
     return { type, id, row, hasLine: Boolean(lineBox) };
   };
 
+  /** 那一列的值退回她打開之前的樣子（按了取消、或存完之後收起來）。 */
+  const revert = (holder) => {
+    const [type, id] = (holder?.dataset.name ?? '').split(':');
+    const rows = type === 'courses' ? ctx.courses : ctx.equipment;
+    const row = rows.find((r) => r.id === id);
+    const saved = ctx.saved.get(`${type}:${id}`);
+    if (row && saved) Object.assign(row, saved);
+  };
+
   // 打字**不重畫** —— 重畫會洗掉游標與輸入法的組字狀態。
   // **整頁的預覽都要跟著換**：改了 SIS 的別稱，上面「三選一」那一列的
   // `IN/SIS/高能量雷射` 也會變。
@@ -299,21 +389,56 @@ function wire(ctx, master) {
     repaintPreviews(root, ctx, master);
   });
 
-  // 離開那一格才寫進去。**每打一個字就存一次**會把稽核紀錄灌成一長串
-  // （SPEC 第 6.2 節：每一次寫入都留 before / after）。
-  root.addEventListener('focusout', async (ev) => {
+  root.addEventListener('click', async (ev) => {
+    // ---- 鉛筆：開這一列，順手把上一列收起來 ----
+    const pencil = ev.target.closest('[data-edit]');
+    if (pencil) {
+      const next = pencil.dataset.edit;
+      // 開著的那一列如果還沒存就退回原值 —— 點鉛筆離開不是一種儲存
+      const openHolder = root.querySelector('.namerow.is-editing');
+      if (openHolder) revert(openHolder);
+      ctx.editingKey = ctx.editingKey === next ? null : next;
+      paint(ctx);
+      // 展開之後游標直接落在第一格：她點鉛筆就是要打字
+      ctx.el.querySelector('.namerow.is-editing [data-short]')?.focus();
+      return;
+    }
+
+    if (ev.target.closest('[data-cancel]')) {
+      const holder = ev.target.closest('[data-name]');
+      revert(holder);
+      ctx.editingKey = null;
+      paint(ctx);
+      return;
+    }
+
+    // ---- 存起來 ----
+    //
+    // **按了才寫。** 以前這裡是 `focusout` 就存，而就地展開之後焦點會在
+    // 兩個輸入框之間跳 —— 那會存兩次，稽核紀錄上多一筆什麼都沒改的紀錄
+    // （SPEC 第 6.2 節：每一次寫入都留 before / after）。
+    if (!ev.target.closest('[data-save]')) return;
     const holder = ev.target.closest('[data-name]');
-    if (!holder || !ev.target.matches('[data-short], [data-line]')) return;
-    const hit = apply(holder);
+    const hit = holder && apply(holder);
     if (!hit) return;
 
-    await toast.withSaveState(
-      () => config.update(hit.type, hit.id, {
-        shortName: hit.row.shortName,
-        ...(hit.hasLine ? { lineName: hit.row.lineName } : {}),
-      }),
-      { success: '改好了', key: `naming:${hit.type}:${hit.id}` },
-    );
+    try {
+      await toast.withSaveState(
+        () => config.update(hit.type, hit.id, {
+          shortName: hit.row.shortName,
+          ...(hit.hasLine ? { lineName: hit.row.lineName } : {}),
+        }),
+        { success: '改好了', key: `naming:${hit.type}:${hit.id}` },
+      );
+      // 存成功了，這一份就是新的原值
+      ctx.saved.set(`${hit.type}:${hit.id}`, {
+        shortName: hit.row.shortName, lineName: hit.row.lineName,
+      });
+      ctx.editingKey = null;
+      paint(ctx);
+    } catch {
+      /* 已處理 —— 那一列留在展開的狀態，她改的字還在 */
+    }
   });
 }
 
