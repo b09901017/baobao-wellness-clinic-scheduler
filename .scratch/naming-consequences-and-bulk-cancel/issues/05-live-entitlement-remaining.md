@@ -1,6 +1,6 @@
 # 同一張表單裡排第二段時，額度要扣掉剛剛暫排的
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 5a）
 
 ## 她要的
@@ -36,10 +36,15 @@ counts(e, [...customerVisits.filter((v) => v.id !== draft.id), draft], e.id)
 `countsWithDraft(entitlement, customerVisits, draft)` —— 兩個呼叫端
 （驗證與畫面）走同一支，各組一次的話遲早有一邊忘了濾掉自己。
 
-## 壓表那一頁也要
+## 壓表那一頁**不用改**（動工時查出來的）
 
-`ui/views/schedule.js` 的額度丸子（`paintRecord()` 那一帶）同樣的問題。
-**兩個入口共用同一支**。
+那一頁是**一次記一段**：`view` 上只有一個 `entitlementId`／`startsAt`／
+`equipmentId`，而且每存一段就 `reload()` 重讀，`pool.remaining` 跟著重算。
+所以「同一張表單裡的第二段」在那裡不存在 —— 規劃時寫「兩個入口都要改」
+是我推測錯了。
+
+`countsWithDraft()` 仍然放在 domain：驗證那一側（`entitlementWarnings()`）
+本來就在組同一份東西，兩邊共用一支才不會分岔。
 
 ## 邊界：不要擋
 

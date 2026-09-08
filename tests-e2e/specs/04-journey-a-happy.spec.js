@@ -32,7 +32,6 @@ function seedForBooking() {
 async function openDeck(app, page) {
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await expect(page.locator('#view')).toContainText('客戶A');
   await page.locator('[data-pick="cust-a"]').first().click();

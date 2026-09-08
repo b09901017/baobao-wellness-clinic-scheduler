@@ -13,7 +13,7 @@
 
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
-import { counts, slotOutcome } from './entitlements.js';
+import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
 import { slotName } from './naming.js';
@@ -797,6 +797,31 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
 }
 
 /**
+ * 這一筆來訪裡，哪幾段**現在取消得掉**。批次取消專區那一頁用。
+ *
+ * 判準走 `canTransition()`，**不要在畫面上另外列一份** —— 兩份清單遲早有
+ * 一份會准一個狀態機不准的轉移，而 Rules 不擋狀態機（ADR-0006），
+ * 所以那一下會真的寫進去。同 `visitActions()` 的規矩。
+ *
+ * 兩層都要過：
+ *
+ *   整筆   `canTransition(visit.status, 'cancelled')` —— 已完成、未到、
+ *          已取消的那一天已經發生過了，不給
+ *   逐段   已經取消掉的那一段不再給（ADR-0081：那是終點）
+ *
+ * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
+ *   呼叫端拿它去 `applyStatus(v, 'cancelled', { slotIndex })`，
+ *   濾掉之後重編號的話會取消到別段。
+ */
+export function cancellableSlots(visit) {
+  if (!visit || visit.deletedAt) return [];
+  if (!canTransition(visit.status, 'cancelled')) return [];
+  return (visit.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => isLiveSlot(slot));
+}
+
+/**
  * 這筆額度可以排哪些課程。
  *
  * single 的額度自己記著課程，一對一。
@@ -824,6 +849,12 @@ export function coursesForEntitlement(entitlement, courses = [], equipment = [])
   }
   // 一台都推不出課程就退回舊行為（ADR-0005）—— 舊資料的器材身上沒有
   // `courseId`，而那時候「擇一池的課程」就是唯一那個要選器材的課程。
+  //
+  // **這條退路是「全有或全無」的，那是刻意的。** 一池裡有的器材填了
+  // `courseId`、有的沒填時，沒填的那幾台**默默算成推得出來的第一個課程**
+  // —— 四選一少填 ILIB 那一台的話，選它會被當成復能（要治療師）。
+  // 不在這裡補救是因為這一支答不出「那一台到底屬於誰」；資料健檢的
+  // 「器材沒有指到課程」會把空的那幾台一台一列列出來，讓她按一下補回去。
   if (!out.length) return alive.filter((c) => c.requiresEquipment);
 
   // **「家」排第一**（2026-09-08）。呼叫端拿 `[0]` 當「她還沒挑器材時的預設」，
@@ -1169,8 +1200,9 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
   const out = [];
   const entsById = byId(entitlements);
 
-  // 把這一筆算進去，才知道存下去之後會不會超用
-  const withThis = [...customerVisits.filter((v) => v.id !== visit.id), visit];
+  // 把這一筆算進去，才知道存下去之後會不會超用。**組法只有一支**
+  // （`countsWithDraft()`）—— 額度那一排丸子上的數字走的也是它，
+  // 各組一次的話畫面會說「剩 1」而這裡說「會超過總次數」。
   const used = new Set();
 
   for (const slot of visit.slots ?? []) {
@@ -1178,7 +1210,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
     if (!ent || used.has(ent.id)) continue;
     used.add(ent.id);
 
-    const c = counts(ent, withThis, ent.id);
+    const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
       out.push(`「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`);
     }

@@ -95,7 +95,7 @@ export const isCancelKind = (kind) => String(kind ?? '').startsWith(CANCEL_PREFI
 export const CATEGORY_OPTIONS = [
   { value: 'A', label: 'A · 門診', hint: '復健科、心臟科、二返' },
   { value: 'B', label: 'B · 健檢', hint: '健檢' },
-  { value: 'C', label: 'C · 療程', hint: '復能、靜脈、EECP、營養點滴' },
+  { value: 'C', label: 'C · 療程', hint: '復能、ILIB、EECP、營養點滴' },
   { value: null, label: '不用掛號', hint: 'Inbody、諮詢類、體適能分析' },
 ];
 

@@ -117,6 +117,39 @@ export function counts(entitlement, visits, entitlementId) {
   };
 }
 
+/**
+ * 次數，**把手上這一份還沒存的草稿也算進去**。
+ *
+ * 她 2026-09-08：
+ *
+ * > 第一個時段排了某課程（例如客戶僅有 1 堂 INDIBA 額度），在同一介面選擇
+ * > 第二個時段時，必須扣除剛剛已暫排的額度，不得讓額度仍顯示為 1 且重複選取。
+ *
+ * 在這之前，額度那一排丸子上的數字是 `counts(e, customerVisits, e.id)` ——
+ * 而 `customerVisits` 是**已經存好的**那些。草稿上那幾段不在裡面，
+ * 所以三段都選同一筆額度時，三顆丸子都寫「剩 1」。
+ *
+ * **驗證那一側其實早就算對了**（`entitlementWarnings()` 把這一筆算進去），
+ * 只有畫面上那個數字沒跟上。所以這一支把那個組法收成一份，
+ * 兩個地方走同一條 —— 各組一次的話遲早有一邊忘了濾掉自己那一筆，
+ * 而症狀是「剩餘一直少一次」。
+ *
+ * **不擋。** 顯示得出 0 甚至負的，但存得下去（ADR-0074：2026-09-06 之後
+ * 整個 app 都沒有硬性阻擋了）——「今天先做了、之後再補加購」是真的會發生的事，
+ * 而提醒那一句已經在 `validateVisit()` 裡了。
+ *
+ * @param {object} entitlement
+ * @param {object[]} customerVisits 這位客戶已經存好的全部來訪
+ * @param {object|null} draft 手上這一份（可以還沒有 id）
+ * @param {string} entitlementId
+ */
+export function countsWithDraft(entitlement, customerVisits = [], draft, entitlementId) {
+  if (!draft) return counts(entitlement, customerVisits, entitlementId);
+  // 改一筆既有來訪時要**先把舊的那一份拿掉**，不然它會被算兩次
+  const withDraft = [...(customerVisits ?? []).filter((v) => v.id !== draft.id), draft];
+  return counts(entitlement, withDraft, entitlementId);
+}
+
 /** 剩幾次以內算「快用完」，客戶總覽的篩選用。 */
 export const LOW_REMAINING = 2;
 

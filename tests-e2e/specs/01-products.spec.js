@@ -205,7 +205,6 @@ test('J-E10 壓表時品項預設就是她買的那一款，其餘要按「換�
 
   await app.go('/schedule');
   await page.locator(`[data-month="${DRIP_MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-i"]').first().click();
   await page.waitForTimeout(600);

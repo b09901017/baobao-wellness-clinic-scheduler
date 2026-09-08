@@ -172,7 +172,6 @@ test('T6 八月壓九月的表 → 用得到九月那一份（collectionFor）',
   await app.signIn('/schedule');
 
   await page.locator('[data-month="2026-09"]').click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
   await page.waitForTimeout(900);
@@ -201,7 +200,6 @@ test('T6b 壓八月的表 → 九月那一份不可以被拿來硬算，而且�
   await app.signIn('/schedule');
 
   await page.locator('[data-month="2026-08"]').click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
   await page.waitForTimeout(900);

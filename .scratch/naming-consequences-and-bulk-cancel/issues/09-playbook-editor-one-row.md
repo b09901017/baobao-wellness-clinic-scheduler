@@ -1,6 +1,6 @@
 # 備忘錄編輯：掛課程與掛機構收成一行，存檔鈕不再被擠下去
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 8）
 動工前先讀：`ui/views/playbook.js` 的 `editCardHtml()`、
 CLAUDE.md 那一列「備忘錄編輯那張卡的版面」

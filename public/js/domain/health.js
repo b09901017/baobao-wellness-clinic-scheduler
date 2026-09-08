@@ -113,6 +113,12 @@ export const CHECKS = [
       + ' —— 少了 ILIB 那一台，加購那一排只剩三選一，而畫面上看不出少了什麼',
   },
   {
+    id: 'equipmentCourse',
+    label: '器材沒有指到課程',
+    hint: '「用這台的那一段算哪一個課程」沒填的話，四選一選到 ILIB 也不會變成選診間'
+      + ' —— 畫面上跟做對了長得一模一樣',
+  },
+  {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
     hint: '2026-09-08 重畫過一次：治療室只有 2 3 5 8、多了 VIP 室、一間 4 號都沒有，'
@@ -141,6 +147,18 @@ export const CHECKS = [
     label: '來訪的狀態跟它的時段對不起來',
     hint: '整筆寫著「已確認」，底下卻有一段還是待確認 ——'
       + ' 日曆上的顏色與待辦中心那一列會各講各的',
+  },
+  {
+    id: 'courseNames',
+    label: '課程的名字跟建議的不一樣',
+    hint: 'ILIB 那個課程 2026-09-06 正名過。還停在「靜脈」的話，'
+      + '額度、月曆、LINE 草稿三個地方寫的都是舊字',
+  },
+  {
+    id: 'courseRecord',
+    label: '課程的「做完要不要寫紀錄」跟建議的不一樣',
+    hint: '復健科醫師門診做完要去曜聖補一份紀錄 —— 沒勾的話那一場結案時'
+      + '不會長出「寫紀錄」，而畫面上看不出少了什麼',
   },
   {
     id: 'seedDuration',
@@ -882,6 +900,56 @@ function checkSeedEquipment(ctx) {
     }));
 }
 
+/**
+ * 十四之二、器材沒有指到課程。
+ *
+ * **她 2026-09-08 回報的那件事的根因就是這一列。** 她說：
+ *
+ * > 我選 IN/SIS/高能量雷射並沒有讓我選治療師…就固定成只能選治療師，
+ * > 我點 ILIB 的時候也沒有變成選診間？
+ *
+ * 而壓表與來訪編輯器**早就共用同一支 `assignsFor()` 了**（ADR-0079，
+ * 還有一支測試盯著沒有畫面自己比 `course.assigns`）。壞掉的不是程式：
+ *
+ * `assignsFor()` 的答案來自課程，而擇一池的課程是**器材身上的 `courseId`**
+ * 推出來的（`courseForEquipment()`）。那個欄位是 2026-09-06 才加的，而
+ * `data/config.js` 的 `loadSeed()` **只建不覆蓋**（`existingIds.has(row.id)`
+ * 就整筆跳過，連欄位都不合併）。所以既有資料庫上那幾台身上沒有它：
+ *
+ *   1. `courseForEquipment()` 推不出來 → 維持原來的課程（復能）
+ *   2. `coursesForEntitlement()` 一台都推不出來 → 退回舊行為 → 只有復能
+ *   3. 四選一那一池永遠只有復能一個課程 → 指派永遠是治療師
+ *
+ * 現有的兩列都抓不到：`seedEquipment` 只在那一列**整個不存在**時才報，
+ * `equipmentNames` 只看名字兩格。
+ *
+ * **只在那一格是空的時候報**（同 `checkSeedDurations()`）：她自己指到別的
+ * 課程是一個決定，不可以被一顆按鈕改回去。
+ *
+ * **那個課程要真的存在才報**（同 `checkSeedEquipment()` 那道護欄）——
+ * 自己從零建主檔、一個種子 id 都沒有的資料庫不會被念一整排。
+ */
+function checkEquipmentCourse(ctx) {
+  return (SEED.equipment ?? [])
+    .filter((row) => row.courseId && ctx.coursesById[row.courseId])
+    .map((row) => ({ row, mine: ctx.equipmentById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && !mine.courseId)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `指到「${ctx.coursesById[row.courseId]?.name ?? row.courseId}」`
+        + ' —— 沒填的話這一台排出來的那一段算不出是哪個課程，指派也就跟著錯',
+      link: '#/settings/equipment',
+      fix: {
+        kind: 'setEquipmentCourse',
+        equipmentId: row.id,
+        label: mine.name ?? row.name,
+        courseId: row.courseId,
+        courseLabel: ctx.coursesById[row.courseId]?.name ?? row.courseId,
+      },
+    }));
+}
+
 /** 種子的一列去掉 id —— `repo.create()` 收的是資料，id 另外給。 */
 function withoutId({ id, ...rest }) {
   return rest;
@@ -1191,8 +1259,89 @@ function checkVisitStatusDerived(ctx) {
     });
 }
 
+/**
+ * 二十一、課程的「做完要不要寫紀錄」跟建議的不一樣。
+ *
+ * 她 2026-09-08：「除了二返、營養諮詢之外，復健科門診也要事後寫記錄，
+ * 幫我預設這三個都要寫紀錄」。種子改好了，但 `loadSeed()` 只建不覆蓋。
+ *
+ * **只認「從來沒設過」（`undefined`），不認 `false`。** 那兩種在資料上分得
+ * 出來，而 `false` 是她自己關掉的 —— 不可以被一顆按鈕改回去（同
+ * `checkSeedDurations()` 那條）。這一條是這一列唯一需要小心的地方。
+ */
+function checkCourseRecord(ctx) {
+  return (SEED.courses ?? [])
+    .filter((row) => row.needsRecord === true)
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && mine.needsRecord === undefined)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: '做完那一場之後要去曜聖補一份紀錄 —— 勾起來才會長出「寫紀錄」',
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setNeedsRecord',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        needsRecord: true,
+      },
+    }));
+}
+
+/**
+ * 2026-09-06 之前種子上那個課程的三格名字。**只認得出這一代。**
+ *
+ * 她 2026-09-08：「只要 line 是靜脈雷射就好，我不想在其他地方看到『靜脈』，
+ * 像是好像目前有課程名稱叫做『靜脈』？如果是舊資料庫的問題那沒關係」。
+ *
+ * 是舊資料庫的問題：種子上早就是 `ILIB` / `IL` / `靜脈雷射` 了，
+ * 而 `loadSeed()` 只建不覆蓋。
+ *
+ * `null` 代表「那一格是空的」。
+ */
+const LEGACY_COURSES = {
+  'course-iv-laser': { name: '靜脈', shortName: null, lineName: null },
+};
+
+/**
+ * 二十二、課程的名字跟建議的不一樣。形狀照抄 `checkEquipmentNames()`。
+ *
+ * **三格要同時還停在舊的才報**：她自己改過其中一格就是一個決定，
+ * 不可以被一顆按鈕改回去。
+ */
+function checkCourseNames(ctx) {
+  const same = (a, b) => (String(a ?? '').trim() || null) === (b ?? null);
+
+  return (SEED.courses ?? [])
+    .filter((row) => LEGACY_COURSES[row.id])
+    .map((row) => ({ row, was: LEGACY_COURSES[row.id], mine: ctx.coursesById[row.id] }))
+    .filter(({ was, mine }) => mine && !mine.deletedAt
+      && same(mine.name, was.name)
+      && same(mine.shortName, was.shortName)
+      && same(mine.lineName, was.lineName))
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `全名改成「${row.name}」、月曆簡寫「${row.shortName ?? '（空）'}」、`
+        + `LINE 草稿「${row.lineName ?? '（空）'}」`,
+      link: '#/settings/naming',
+      fix: {
+        kind: 'renameCourse',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        name: row.name,
+        shortName: row.shortName ?? null,
+        lineName: row.lineName ?? null,
+        fromName: mine.name ?? '',
+      },
+    }));
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
+  courseNames: checkCourseNames,
+  courseRecord: checkCourseRecord,
+  equipmentCourse: checkEquipmentCourse,
   roomList: checkRoomList,
   slotBeds: checkSlotBeds,
   equipmentNames: checkEquipmentNames,

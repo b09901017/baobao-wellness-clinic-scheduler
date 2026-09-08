@@ -206,11 +206,21 @@ const editors = {
     parse: (v) => ({ name: v.name.trim() }),
   },
 
+  // 營養點滴品項。**2026-09-08 多了一格簡寫**：日曆上那一段印的是品項不是
+  // 課程（她的原話：「就不用寫營養點滴了，而是像這樣，誰，品項，診間」），
+  // 而月曆一格放不下「雪顏亮彩」。作法照抄診間那一列。
   ivProducts: {
-    blank: { name: '' },
-    summary: () => '營養點滴品項',
-    fields: (r) => [f.text({ name: 'name', label: '品項名稱', value: r.name, placeholder: '護肝排毒' })],
-    parse: (v) => ({ name: v.name.trim() }),
+    blank: { name: '', shortName: null },
+    summary: (r) => (r.shortName ? `月曆寫「${r.shortName}」` : '營養點滴品項'),
+    fields: (r) => [
+      f.text({ name: 'name', label: '品項名稱', value: r.name, placeholder: '護肝排毒' }),
+      f.text({
+        name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '雪',
+        hint: '日曆上那一段印它（「嘉玲・雪・.10」），一格只放得下幾個字。'
+          + '留空就印全名。貼給客人的那一句不受影響，那裡只講課程。',
+      }),
+    ],
+    parse: (v) => ({ name: v.name.trim(), shortName: v.shortName.trim() || null }),
   },
 
   products: {

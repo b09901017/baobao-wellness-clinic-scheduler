@@ -1,6 +1,6 @@
 # 選 ILIB 沒變成選診間：根因是器材身上沒有 courseId
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 4）
 動工前先讀：`docs/adr/0075`、`docs/adr/0079`、`data/config.js` 的 `loadSeed()`
 

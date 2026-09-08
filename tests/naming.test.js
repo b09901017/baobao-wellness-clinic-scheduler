@@ -404,3 +404,158 @@ describe('n返 印的是返數不是課程', () => {
     assert.equal(slotName(blank, master, 'short'), '二返');
   });
 });
+
+describe('營養點滴在日曆上寫的是品項（她 2026-09-08）', () => {
+  // > 我希望在日曆那邊，可以把這個營養點滴的品項寫出來，就不用寫營養點滴了，
+  // > 而是像這樣，誰，品項，診間（嘉玲/雪顏亮彩/.10）
+  // > 然後其中每個營養點滴的品項都可以有簡寫（像是雪顏亮彩可以簡稱雪）
+  //
+  // 她那天定下來：**月曆與日／週那一列兩邊都印簡寫**。
+  const IV = {
+    ...MASTER,
+    courses: [
+      ...MASTER.courses,
+      { id: 'c-iv', name: '營養點滴', shortName: '點滴', lineName: '點滴', requiresIvProduct: true },
+    ],
+    ivProducts: [
+      { id: 'iv-snow', name: '雪顏亮彩', shortName: '雪' },
+      { id: 'iv-liver', name: '護肝排毒' },
+    ],
+  };
+  const drip = (over = {}) => ({ courseId: 'c-iv', ...over });
+
+  test('印品項的簡寫，不印課程', () => {
+    assert.equal(slotName(drip({ ivProductId: 'iv-snow' }), IV, 'short'), '雪');
+  });
+
+  test('沒設簡寫的品項退回它的全名', () => {
+    assert.equal(slotName(drip({ ivProductId: 'iv-liver' }), IV, 'short'), '護肝排毒');
+  });
+
+  test('還沒選品項的那一段照樣印課程 —— 不要吐空字串', () => {
+    assert.equal(slotName(drip(), IV, 'short'), '點滴');
+  });
+
+  test('主檔裡查不到那個品項時退回課程', () => {
+    assert.equal(slotName(drip({ ivProductId: 'iv-gone' }), IV, 'short'), '點滴');
+  });
+
+  test('**LINE 草稿一個字都不變** —— 貼給客人的那一句只講課程', () => {
+    assert.equal(slotName(drip({ ivProductId: 'iv-snow' }), IV, 'line'), '點滴');
+  });
+
+  test('沒帶 ivProducts 的呼叫端退回課程，不會炸', () => {
+    assert.equal(slotName(drip({ ivProductId: 'iv-snow' }), MASTER, 'short'), '');
+    const noIv = { courses: IV.courses, equipment: IV.equipment };
+    assert.equal(slotName(drip({ ivProductId: 'iv-snow' }), noIv, 'short'), '點滴');
+  });
+
+  test('器材那一條不受影響（復能仍然印器材）', () => {
+    assert.equal(
+      slotName({ courseId: 'c-recovery', equipmentId: 'eq-sis' }, IV, 'short'),
+      'SIS',
+    );
+  });
+
+  test('品項排在器材前面 —— 一段不會同時有這兩樣，但順序要定得死', () => {
+    // `requiresEquipment` 與 `requiresIvProduct` 不會同時為真
+    //（`validate('courses')` 擋著），所以這一條只是把順序釘住。
+    const both = { courseId: 'c-iv', ivProductId: 'iv-snow', equipmentId: 'eq-sis' };
+    assert.equal(slotName(both, IV, 'short'), '雪');
+  });
+});
+
+describe('品項的簡寫存不存得下去', () => {
+  test('12 字以內存得下', () => {
+    assert.deepEqual(validate('ivProducts', { name: '雪顏亮彩', shortName: '雪' }), []);
+  });
+
+  test('沒填簡寫也存得下 —— 它是選填的', () => {
+    assert.deepEqual(validate('ivProducts', { name: '護肝排毒' }), []);
+  });
+
+  test('超過 12 字擋下來（同診間、器材、課程）', () => {
+    const errors = validate('ivProducts', { name: '雪顏亮彩', shortName: '一二三四五六七八九十一二三' });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /12 字/);
+  });
+});
+
+// `slotName()` 的 master 從兩份變三份（2026-09-08：營養點滴印品項）。
+// 漏掉一個呼叫端的症狀是**那一頁的點滴仍然寫「營養點滴」**，而別頁寫「雪」
+// —— 她會以為那是兩種東西。這一支盯著每一個組 master 的地方都帶了三份。
+test('每一個組 master 的地方都帶著 courses、equipment 與 ivProducts', () => {
+  const read = (rel) => readFileSync(new URL(`../public/${rel}`, import.meta.url), 'utf8');
+  const PAGES = [
+    'js/ui/views/backfill.js',
+    'js/ui/views/calendar.js',
+    'js/ui/views/customerDetail.js',
+    'js/ui/views/customersBulk.js',
+    'js/ui/views/home.js',
+    'js/ui/views/progress.js',
+  ];
+
+  let total = 0;
+  for (const rel of PAGES) {
+    const src = read(rel);
+    let at = src.indexOf('master: {');
+    while (at >= 0) {
+      const lit = src.slice(at, at + 260);
+      // **不是每一個叫 master 的東西都餵給 `slotName()`**：日曆上「給營養品」
+      // 那一顆傳的是 `{ products }`（`givableBags()` 用的）。判準是
+      // 「有沒有 courses」—— 有的才是命名那一種。
+      if (lit.includes('courses')) {
+        total += 1;
+        for (const key of ['equipment', 'ivProducts']) {
+          assert.ok(lit.includes(key), `${rel} 有一份 master 少了 ${key}`);
+        }
+      }
+      at = src.indexOf('master: {', at + 1);
+    }
+  }
+  assert.ok(total >= 6, `只找到 ${total} 份 master —— 這支測試可能失效了`);
+});
+
+// 設定 →「名稱怎麼寫」2026-09-08 改成「先給看，點鉛筆才展開」。
+// 她的原話：「此檢視狀態不呈現大量輸入框，不造成視覺負擔。」
+describe('名稱怎麼寫那一頁的形狀', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/naming.js', import.meta.url), 'utf8',
+  );
+
+  test('讀的那一列一個輸入框都沒有', () => {
+    const at = SRC.indexOf('function readForms(');
+    assert.ok(at > 0, '找不到 readForms()');
+    const body = SRC.slice(at, SRC.indexOf('/**', at + 10));
+    assert.ok(!body.includes('<input'), '讀的那一列不可以有輸入框');
+  });
+
+  test('每一列都有一支鉛筆，而且說得出它要改什麼', () => {
+    assert.match(SRC, /data-edit=/);
+    assert.match(SRC, /aria-expanded=/);
+    assert.match(SRC, /aria-label=/);
+  });
+
+  test('**按存起來才寫**，不是離開輸入框就寫', () => {
+    assert.match(SRC, /data-save/);
+    assert.ok(!SRC.includes("addEventListener('focusout'"),
+      'focusout 存檔會在兩個輸入框之間跳的時候存兩次');
+  });
+
+  test('一次只開一列', () => {
+    assert.match(SRC, /ctx\.editingKey = ctx\.editingKey === next \? null : next/);
+  });
+
+  test('取消要退回原值 —— 手上那一份主檔是就地改的', () => {
+    assert.match(SRC, /const revert = /);
+    assert.match(SRC, /data-cancel/);
+  });
+
+  test('打字仍然不重畫（會洗掉輸入法的組字狀態）', () => {
+    const at = SRC.indexOf("root.addEventListener('input'");
+    assert.ok(at > 0);
+    const body = SRC.slice(at, at + 300);
+    assert.ok(!body.includes('paint(ctx)'), 'input 事件裡不可以整頁重畫');
+    assert.match(body, /repaintPreviews/);
+  });
+});

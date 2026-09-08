@@ -13,7 +13,7 @@ import {
   equipmentNotices,
 } from '../public/js/domain/contraindications.js';
 import {
-  counts, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
+  counts, countsWithDraft, isOverused, reconcile, expandPlan, slotOutcome, sortPools, offCount,
   validateEntitlement, tieredLabel, TIER_PRESETS, itemisedLabel, isProduct, schedulable,
   summarize, lowRemaining,
 } from '../public/js/domain/entitlements.js';
@@ -636,5 +636,47 @@ describe('營養點滴的顯示名稱', () => {
   test('沒有品項就是課程本來的名字 —— 不要留一個沒有右半邊的破折號', () => {
     assert.equal(itemisedLabel('營養點滴', null), '營養點滴');
     assert.equal(itemisedLabel('營養點滴', '  '), '營養點滴');
+  });
+});
+
+describe('同一張表單裡排第二段時，額度要扣掉剛剛暫排的', () => {
+  const ent = { id: 'e1', totalQty: 1 };
+  const saved = [];
+
+  test('草稿裡兩段同一筆「剩 1」的額度 → 第二顆丸子寫剩 0', () => {
+    const draft = {
+      id: null, status: 'pending_confirm',
+      slots: [{ entitlementId: 'e1' }, { entitlementId: 'e1' }],
+    };
+    assert.equal(countsWithDraft(ent, saved, draft, 'e1').remaining, -1,
+      '兩段都排上去就是超用了 —— 顯示得出來，但不擋');
+    assert.equal(countsWithDraft(ent, saved, { ...draft, slots: [draft.slots[0]] }, 'e1').remaining, 0);
+  });
+
+  test('改一筆既有來訪時不會把自己算兩次', () => {
+    const existing = {
+      id: 'v1', status: 'confirmed', slots: [{ entitlementId: 'e1' }],
+    };
+    // 手上那一份還沒改動 → 算出來要跟存檔前一模一樣
+    assert.equal(countsWithDraft(ent, [existing], existing, 'e1').remaining, 0);
+  });
+
+  test('把那一段換掉別的額度之後，次數要還回來', () => {
+    const existing = { id: 'v1', status: 'confirmed', slots: [{ entitlementId: 'e1' }] };
+    const moved = { ...existing, slots: [{ entitlementId: 'e2' }] };
+    assert.equal(countsWithDraft(ent, [existing], moved, 'e1').remaining, 1);
+  });
+
+  test('沒有草稿時跟 counts() 一模一樣', () => {
+    const visits = [{ id: 'v1', status: 'confirmed', slots: [{ entitlementId: 'e1' }] }];
+    assert.deepEqual(countsWithDraft(ent, visits, null, 'e1'), counts(ent, visits, 'e1'));
+  });
+
+  test('取消掉的那一段不佔（走同一支 slotOutcome）', () => {
+    const draft = {
+      id: null, status: 'pending_confirm',
+      slots: [{ entitlementId: 'e1', status: 'cancelled' }],
+    };
+    assert.equal(countsWithDraft(ent, saved, draft, 'e1').remaining, 1);
   });
 });

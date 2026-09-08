@@ -5,6 +5,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   normalize, bodyOf, validatePlaybook, linesOf, previewOf, deckOrder, matches,
@@ -306,5 +307,45 @@ describe('掛合作機構的那幾份', () => {
       playbooksForVisit(playbooks, visit).map((p) => p.id),
       playbooksFor({ playbooks, visit }).map((p) => p.id),
     );
+  });
+});
+
+// 她 2026-09-08：「新增合作機構支援後，表單垂直高度被拉長，導致『儲存按鈕』
+// 被擠到視窗下方需要額外滾動。」兩排各自一個標籤加一排丸子＝四行，
+// 收成分段切換之後是兩行。
+describe('備忘錄編輯：掛課程與掛機構收成一行', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/playbook.js', import.meta.url), 'utf8',
+  );
+  const NL = String.fromCharCode(10);
+  /** 一支函式的本體，切在它自己那個收合大括號。 */
+  const bodyOf = (name) => {
+    const at = SRC.indexOf(`function ${name}(`);
+    assert.ok(at > 0, `找不到 ${name}()`);
+    return SRC.slice(at, SRC.indexOf(`${NL}}`, at));
+  };
+
+  test('兩排的 hidden input 都留在 DOM 裡', () => {
+    // 切過去就把節點拿掉的話，她切一下就把掛好的課程清光了 ——
+    // `readEditor()` 讀的就是那兩個 input。
+    const body = bodyOf('hangHtml');
+    assert.match(body, /data-hang-panel="courseIds"/);
+    assert.match(body, /data-hang-panel="partners"/);
+    assert.match(body, /hidden>/, '沒選中的那一邊是 hidden，不是拿掉');
+  });
+
+  test('沒有合作機構時整個分段控制不畫', () => {
+    assert.match(bodyOf('hangHtml'), /return courseChips;/);
+  });
+
+  test('切換**不重畫 HTML** —— 只換 hidden 與 aria-selected', () => {
+    const body = bodyOf('wireHang');
+    assert.ok(!body.includes('innerHTML'), '重畫會洗掉她選到一半的那一排');
+    assert.match(body, /aria-selected/);
+    assert.match(body, /panel\.hidden/);
+  });
+
+  test('選了幾個要看得到 —— 切過去之前她不知道那一邊有沒有東西', () => {
+    assert.match(bodyOf('wireHang'), /data-hang-n/);
   });
 });

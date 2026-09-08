@@ -182,6 +182,41 @@ function opFor(fix) {
     };
   }
 
+  // 課程改名（2026-09-06 ILIB 正名）。**三格一起寫**，其餘欄位一個都不碰 ——
+  // 指派、類別、可選時長都是她自己的設定。
+  if (fix?.kind === 'renameCourse') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: { name: fix.name, shortName: fix.shortName ?? null, lineName: fix.lineName ?? null },
+      note: '資料健檢：課程的名字改成建議值',
+    };
+  }
+
+  // 課程做完要不要寫紀錄（ADR-0066）。**只寫那一格**。
+  if (fix?.kind === 'setNeedsRecord') {
+    return {
+      op: 'update',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      changes: { needsRecord: fix.needsRecord },
+      note: '資料健檢：課程改成做完要寫紀錄',
+    };
+  }
+
+  // 器材指到課程（2026-09-06 才加的欄位，`loadSeed()` 只建不覆蓋所以補不到）。
+  // **只寫那一格**：名字與要提醒的狀況一個都不碰。
+  if (fix?.kind === 'setEquipmentCourse') {
+    return {
+      op: 'update',
+      path: 'config/app/equipment',
+      id: fix.equipmentId,
+      changes: { courseId: fix.courseId },
+      note: '資料健檢：器材指到建議的課程',
+    };
+  }
+
   // 器材改名（2026-09-08：全名＝她叫它的名字、別稱＝月曆縮寫）。
   // **只寫那兩格**，器材的課程與要提醒的狀況一個都不碰。
   if (fix?.kind === 'renameEquipment') {

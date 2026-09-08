@@ -104,7 +104,8 @@ async function load() {
   const from = rangeOf(state.view, moveBy(state.view, state.date, -1));
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
-    const [visits, events, notes, rooms, staff, courses, equipment, playbooks, customers] =
+    const [visits, events, notes, rooms, staff, courses, equipment, ivProducts,
+      playbooks, customers] =
       await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
@@ -119,6 +120,9 @@ async function load() {
       // 器材主檔：一段要唸成什麼要它（`domain/naming.js`）——「SIS(60)」的
       // 括號裡那一半就是從這裡來的。含已刪除的，理由同課程。
       config.listAll('equipment', { includeDeleted: true }),
+      // 營養點滴品項：那一段印的是品項不是課程（2026-09-08，`slotName()`）。
+      // 含已刪除的 —— 她停用一款之後，既有那幾段照樣要印得出名字。
+      config.listAll('ivProducts', { includeDeleted: true }),
       // 備忘錄（ADR-0067）。點開一筆來訪時，那一份的前幾行會浮在卡片底下。
       // `data/playbooks.js` 有行程內快取，所以一個 session 只真的讀一次。
       // **讀不到不擋日曆** —— 那一塊不畫就是了，它是提醒不是這一頁的主體。
@@ -141,7 +145,7 @@ async function load() {
         coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
         // 一段要唸成什麼要的是**陣列**（`domain/naming.js`）。跟上面那張表
         // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
-        master: { courses, equipment },
+        master: { courses, equipment, ivProducts },
         customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
       },
     };
@@ -840,12 +844,10 @@ function openDetail(el, data, hit, date, repaint) {
   // 課程配到的那幾份（`playbooksFor()` 的退路）—— 少一塊提醒比整張卡壞掉好。
   const customer = data.customersById?.[visit.customerId] ?? null;
 
-  // 她點的是哪一段。按了「看全部」就變回 null，那一下只重畫卡片的內容
-  // （`card.update()`），不重開一張 —— 重開等於畫面閃一下，而 `openCard()`
-  // 第一行就是 `closeCard()`（ADR-0073 為這件事付過帳）。
-  let focus = slotIndex;
-  // 任務與額度是 `fillMirror()` 非同步補上的。存在這裡，「看全部」重畫時
-  // 才不會把已經讀回來的那一塊又變回空的。
+  // 她點的是哪一段。**2026-09-08 之後這一格不會再變回 null** ——
+  // 「看全部」那顆拿掉了（她的原話：「純粹且僅呈現該時段課程的資訊」）。
+  const focus = slotIndex;
+  // 任務與額度是 `fillMirror()` 非同步補上的。
   let tasks;
   let extra = {};
 
@@ -869,13 +871,6 @@ function openDetail(el, data, hit, date, repaint) {
       closeCard();
       openEditor(el, data, {
         kind: 'visit', visitId: visit.id, date: visit.date, backDate: date,
-      });
-    },
-    // `card.update()` 之後也會被呼叫一次，所以這一顆重畫完照樣接得回來。
-    onMount: (box) => {
-      box.querySelector('[data-showall]')?.addEventListener('click', () => {
-        focus = null;
-        card.update(paint());
       });
     },
   });
@@ -1448,9 +1443,7 @@ export function visitReadHtml(visit, data) {
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
 
     ${hidden ? `
-      <button class="readmore" type="button" data-showall>
-        這一天還有另外 ${hidden} 段 —— 看全部
-      </button>` : ''}
+      <p class="readmore">這一天還有另外 ${hidden} 段</p>` : ''}
 
     ${visit.note ? `
       <div class="readrow">
@@ -1463,6 +1456,9 @@ export function visitReadHtml(visit, data) {
       tasks: data.tasks,
       coursesById: data.coursesById ?? {},
       today: data.today ?? todayISO(),
+      // 她點的是哪一段 —— 帶了之後那一塊只列那一段的，抬頭也跟著變成
+      // 「這一項的待辦」（她 2026-09-08 指名的字）
+      focusSlot: data?.focusSlot ?? null,
     })}`;
 }
 

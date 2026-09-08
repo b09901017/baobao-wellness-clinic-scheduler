@@ -53,6 +53,8 @@ export async function render(el) {
       // 少帶這兩份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
       config.listAll('courses', { includeDeleted: true }),
       config.listAll('equipment', { includeDeleted: true }),
+      // 營養點滴那一段印的是**品項**（2026-09-08，`slotName()`）
+      config.listAll('ivProducts', { includeDeleted: true }),
     ]);
   } catch (err) {
     el.innerHTML = `${backLink()}
@@ -67,7 +69,12 @@ export async function render(el) {
     customers: customers.filter((c) => c.active !== false),
     roomsById: byId(master[0]),
     staffById: byId(master[1]),
-    master: { courses: master[2], equipment: master[3] },
+    // **這一份少了的話，讀取卡片會一律說「簽療程單」**：`formSlotIndexes()`
+    // 拿不到課程時 `needsForm(undefined)` 回 true（沒有欄位就是要簽），
+    // 於是她在課程主檔上關掉的那個勾在這一頁完全沒有作用。
+    // 有一支測試盯著四個呼叫端都拿得到它。
+    coursesById: byId(master[2]),
+    master: { courses: master[2], equipment: master[3], ivProducts: master[4] },
   };
 
   await paint(ctx);

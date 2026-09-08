@@ -1,6 +1,6 @@
 # 抽屜收合前會先往上跳一下
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 9）
 動工前先讀：`ui/components/sheet.js` 的 `wireDrag()`、`docs/adr/0021`
 

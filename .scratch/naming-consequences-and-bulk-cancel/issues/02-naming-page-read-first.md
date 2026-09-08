@@ -1,6 +1,6 @@
 # 名稱怎麼寫：先給看，點鉛筆才展開那一列
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 2）
 動工前先讀：`ui/views/naming.js` 整支、`docs/adr/0077`、`docs/adr/0078`
 
