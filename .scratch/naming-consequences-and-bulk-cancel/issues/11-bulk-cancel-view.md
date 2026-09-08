@@ -125,7 +125,8 @@ Status: done
 
 ## 八、動畫（點到為止）
 
-- 月曆某一天展開／收起：`grid-template-rows` 0fr → 1fr，`--motion-base`
+- 月曆某一天展開：入場淡入＋往下位移，`--motion-base`
+  （~~0fr → 1fr~~：那一塊是整段重畫的，`transition` 跑不起來，見 `13`）
 - 長按進多選：那一格 `scale(0.96)` 一下彈回，`--motion-fast`
 - 勾選：核取方塊本身的漸變，不要整列閃
 

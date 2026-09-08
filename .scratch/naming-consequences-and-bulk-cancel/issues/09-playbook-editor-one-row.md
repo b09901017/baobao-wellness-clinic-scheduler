@@ -62,6 +62,11 @@ CLAUDE.md 寫著：卡片裡除了內文那一格，每一項都 `flex: none`，
 
 - 標準手機視窗（Playwright 的 `phone` project）下，展開編輯不用捲動就看得到
   「存起來」—— **這一條是她要的那件事，要有 E2E**
+  → `tests-e2e/specs/24-layout-reach.spec.js` 的 E1（2026-09-08）。
+  `toBeVisible()` 對「在 overflow 裡被切掉」是綠的，所以那一條自己量框：
+  按鈕要落在卡片與視窗兩個範圍裡，而且卡片不該需要捲。
+  E2 盯兩個 hidden input 都留在 DOM 裡（拿掉節點的話她切一下就把掛好的
+  課程清光了），存完回頭讀 `courseIds` 確認
 - 切到合作機構再切回來，課程選的那幾顆還在
 - 存檔之後兩種都寫進去了
 - 沒有合作機構時不畫分段控制
