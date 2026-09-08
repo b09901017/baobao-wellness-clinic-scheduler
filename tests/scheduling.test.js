@@ -1041,3 +1041,27 @@ describe('rowsOf() 要把新加入的人也畫出來（issue 02）', () => {
     assert.match(SRC, /added\.length/);
   });
 });
+
+// 這一頁 2026-09-09 之前**從來沒有顯示過 `validateVisit()` 的 warnings** ——
+// 第二個回傳值一直被丟掉。所以「排完這次會超過總次數」「還沒選治療師」
+// 在她最常用的那一頁一次都沒有出現過（ADR-0086）。
+describe('壓表也要先講「這幾段先看一下」', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+
+  test('warnings 有被接起來', () => {
+    assert.match(SRC, /const \{ errors, warnings \} = validateVisit\(visit, \{/);
+  });
+
+  test('走同一支 reviewWarnings()，不自己組句子', () => {
+    assert.match(SRC, /const review = reviewWarnings\(warnings\);/);
+    assert.match(SRC, /consequences: review\.lines/);
+  });
+
+  test('排在 Abovee 那一道前面', () => {
+    const a = SRC.indexOf('reviewWarnings(warnings)');
+    const b = SRC.indexOf('bookingConsequences({\n    visit,');
+    assert.ok(a > 0 && b > a, '順序反了');
+  });
+});

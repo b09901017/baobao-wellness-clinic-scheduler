@@ -50,7 +50,7 @@ import {
   picksEquipment, assignsFor, NOTE_MAX,
   acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
-import { bookingConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, reviewWarnings } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
@@ -2074,7 +2074,7 @@ async function addSlot() {
   };
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
-  const { errors } = validateVisit(visit, {
+  const { errors, warnings } = validateVisit(visit, {
     customer: { flags: selected.flags ?? [] },
     entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
@@ -2085,6 +2085,18 @@ async function addSlot() {
 
   showErrors(errors);
   if (errors.length) return;
+
+  // **第一道：這幾段先看一下**（ADR-0086）。這一頁 2026-09-09 之前
+  // **從來沒有顯示過 warnings** —— `validateVisit()` 的第二個回傳值一直被
+  // 丟掉，所以「排完這次會超過總次數」「還沒選治療師」在她最常用的那一頁
+  // 一次都沒有出現過。來訪編輯器走的是同一支。
+  const review = reviewWarnings(warnings);
+  if (review && !await confirmAction({
+    title: review.title,
+    consequences: review.lines,
+    confirmLabel: review.confirmLabel,
+    cancelLabel: review.cancelLabel,
+  })) return;
 
   // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號。
   // 抬頭壓在哪個系統、底下會發生什麼，全部由 `domain/consequences.js` 算 ——
