@@ -72,7 +72,6 @@ function seedAfterSecond(extra = []) {
 async function openDeck(app, page) {
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-n"]').first().click();
   await page.waitForTimeout(600);
@@ -213,7 +212,6 @@ test('N5 一位**沒有做完健檢**的客戶，那一顆丸子整顆不出現'
   await app.signIn('/');
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-x"]').first().click();
   await page.waitForTimeout(600);

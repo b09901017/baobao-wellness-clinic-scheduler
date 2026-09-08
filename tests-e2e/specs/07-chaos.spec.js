@@ -137,7 +137,6 @@ test('C12 連點 5 次「加這一筆」→ 只寫進去一筆（防重複提交
   await app.signIn('/schedule');
 
   await page.locator('[data-month="2026-09"]').click();
-  await page.locator('[data-start]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
   await page.waitForTimeout(700);
