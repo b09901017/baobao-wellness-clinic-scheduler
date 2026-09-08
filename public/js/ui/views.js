@@ -8,6 +8,7 @@ import * as preferences from './views/preferences.js';
 import * as templates from './views/templates.js';
 import * as home from './views/home.js';
 import * as schedule from './views/schedule.js';
+import * as bulkCancel from './views/bulkCancel.js';
 import * as customers from './views/customers.js';
 import * as customersBulk from './views/customersBulk.js';
 import * as customerDetail from './views/customerDetail.js';
@@ -82,6 +83,8 @@ register('/visits/:id', {
   render: (el, id) => visitEditor.renderEdit(el, id),
 });
 register('/schedule/backfill', { title: '時段反查', nav: false, render: backfill.render });
+// 批次取消（ADR-0082）。**只取消不給改** —— 改一筆仍然只有日曆（ADR-0056）。
+register('/schedule/cancel', { title: '批次取消', nav: false, render: bulkCancel.render });
 
 // 備忘錄／SOP。**不進導覽列**（ADR-0067）：入口在待辦那一頁的右上角，
 // 跟客戶頁的「看這個月的進度」同一顆。五格變六格會讓每一格從 20% 掉到 16.6%，

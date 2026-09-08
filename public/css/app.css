@@ -6711,3 +6711,214 @@ summary {
 .pblines--tight li::before {
   top: 0.8em;
 }
+
+/* ---------- 批次取消專區（`ui/views/bulkCancel.js`，ADR-0082） ----------
+ *
+ * 出國或請假的時候一次收掉十幾段。這一頁**只取消不給改** ——
+ * 改一筆仍然只有日曆（ADR-0056）。
+ *
+ * 版面刻意跟客戶那邊「看這個月的進度」一樣（她指名比照那一頁）：
+ * 換月那一條、一天一小段、一段一列。新的只有月曆那一格與底下那一條。
+ */
+
+/* 一天一小段。日期靠左，「整天選起來」靠右 —— 那一顆是這一頁最省手指的路。 */
+.bulkday {
+  margin-top: var(--space-4);
+}
+
+.bulkday__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.bulkday__date {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.bulkday__all {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-2xs);
+  cursor: pointer;
+}
+
+/* 一段一列。整列都可以點 —— 一個 12px 的勾選框在手機上按不準。 */
+.bulkrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease;
+}
+
+.bulkrow:last-child {
+  border-bottom: none;
+}
+
+.bulkrow.is-on {
+  background: var(--accent-soft);
+}
+
+.bulkrow__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent-text);
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+
+.bulkrow.is-on .bulkrow__box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bulkrow__what {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* 月曆那一格。**七欄固定**，跟日曆的月檢視同一個骨架。 */
+.bulkcal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-top: var(--space-3);
+}
+
+.bulkcal__wd {
+  padding-bottom: var(--space-1);
+  color: var(--text-mute);
+  font-size: var(--text-2xs);
+  text-align: center;
+}
+
+.bulkcal__day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 1px;
+  min-height: var(--tap-min);
+  padding: var(--space-1) 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-out);
+}
+
+/* 沒有預約的那幾天按不下去 —— 畫得淡，但不要整個看不見（她要認得出月份的形狀）。 */
+.bulkcal__day[disabled] {
+  background: transparent;
+  color: var(--text-mute);
+  cursor: default;
+}
+
+.bulkcal__day.is-out {
+  opacity: 0.4;
+}
+
+/* 攤開的那一天。**只有外框**，底色留給「選起來」—— 兩件事要分得出來。 */
+.bulkcal__day.is-open {
+  border-color: var(--accent);
+}
+
+.bulkcal__day.is-on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 選了一半：那一天有幾段選了、幾段沒選。 */
+.bulkcal__day.is-some {
+  background: var(--accent-soft);
+}
+
+.bulkcal__day:active:not([disabled]) {
+  transform: scale(0.94);
+}
+
+.bulkcal__n {
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+/* 有幾段。一段就只是一個點，兩段以上才寫數字 ——
+   「1」跟那一格上面的日期擠在一起會看成兩個數字。 */
+.bulkcal__dot {
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--tea);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bulkcal__day.is-on .bulkcal__dot {
+  background: var(--accent-text);
+  color: var(--accent);
+}
+
+/* 多選中那一條。**要看得出模式變了** —— 沒有提示的模式切換是這個 app 不做的事。 */
+.bulkhint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--tea-soft);
+  color: var(--tea);
+  font-size: var(--text-sm);
+}
+
+/* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。 */
+.bulkbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) calc(-1 * var(--gutter)) 0;
+  padding: var(--space-3) var(--gutter);
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -2px 12px rgb(36 31 26 / 6%);
+}
+
+.bulkbar__count {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

@@ -16,7 +16,7 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
-  visitStatusFrom, applyConfirmation,
+  visitStatusFrom, applyConfirmation, cancellableSlots,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1691,5 +1691,56 @@ describe('取消掉的那一段不用簽療程單（ADR-0081）', () => {
   test('沒有 status 的舊來訪一個字都沒變', () => {
     const v = { slots: [{ courseId: 'c-recovery' }, { courseId: 'c-followup' }] };
     assert.deepEqual(formSlotIndexes(v, BY_ID), [0]);
+  });
+});
+
+describe('哪幾段取消得掉（批次取消專區）', () => {
+  const v = (status, slots) => ({ id: 'v1', date: '2026-09-20', status, slots });
+
+  test('還沒發生的那幾段選得起來', () => {
+    const out = cancellableSlots(v('confirmed', [
+      { startsAt: '10:30' }, { startsAt: '11:30' },
+    ]));
+    assert.deepEqual(out.map((x) => x.index), [0, 1]);
+  });
+
+  test('已經取消掉的那一段選不起來', () => {
+    const out = cancellableSlots(v('confirmed', [
+      { startsAt: '10:30', status: 'cancelled' }, { startsAt: '11:30' },
+    ]));
+    assert.deepEqual(out.map((x) => x.index), [1]);
+  });
+
+  test('**判準是狀態機，不是「看起來像過去的」**', () => {
+    // 判準走 `canTransition()`，不要在畫面上另外列一份：兩份清單遲早
+    // 有一份會准一個狀態機不准的轉移，而 Rules 不擋狀態機（ADR-0006）。
+    //
+    // 已完成是終點（`TRANSITIONS.done` 是空的），所以不給。
+    // **未到給** —— `TRANSITIONS.no_show` 是 `['confirmed', 'cancelled']`，
+    // 那是刻意的一條回頭路（她標錯了、或那一天後來整個取消掉）。
+    assert.deepEqual(cancellableSlots(v('done', [{ startsAt: '10:30' }])), []);
+    assert.equal(cancellableSlots(v('no_show', [{ startsAt: '10:30' }])).length, 1);
+  });
+
+  test('整筆已經取消的也選不起來', () => {
+    assert.deepEqual(cancellableSlots(v('cancelled', [{ startsAt: '10:30' }])), []);
+  });
+
+  test('已刪除的一段都不給', () => {
+    assert.deepEqual(cancellableSlots({ ...v('confirmed', [{}]), deletedAt: 'x' }), []);
+  });
+
+  test('待確認的照樣取消得掉', () => {
+    assert.equal(cancellableSlots(v('pending_confirm', [{ startsAt: '09:00' }])).length, 1);
+  });
+
+  test('回的每一段都帶著它自己的索引 —— 呼叫端要拿它去 applyStatus()', () => {
+    const out = cancellableSlots(v('confirmed', [
+      { startsAt: '10:30', status: 'cancelled' },
+      { startsAt: '11:30' },
+      { startsAt: '13:00' },
+    ]));
+    assert.deepEqual(out.map((x) => x.index), [1, 2]);
+    assert.equal(out[0].slot.startsAt, '11:30');
   });
 });

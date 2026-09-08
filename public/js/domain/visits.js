@@ -797,6 +797,31 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
 }
 
 /**
+ * 這一筆來訪裡，哪幾段**現在取消得掉**。批次取消專區那一頁用。
+ *
+ * 判準走 `canTransition()`，**不要在畫面上另外列一份** —— 兩份清單遲早有
+ * 一份會准一個狀態機不准的轉移，而 Rules 不擋狀態機（ADR-0006），
+ * 所以那一下會真的寫進去。同 `visitActions()` 的規矩。
+ *
+ * 兩層都要過：
+ *
+ *   整筆   `canTransition(visit.status, 'cancelled')` —— 已完成、未到、
+ *          已取消的那一天已經發生過了，不給
+ *   逐段   已經取消掉的那一段不再給（ADR-0081：那是終點）
+ *
+ * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
+ *   呼叫端拿它去 `applyStatus(v, 'cancelled', { slotIndex })`，
+ *   濾掉之後重編號的話會取消到別段。
+ */
+export function cancellableSlots(visit) {
+  if (!visit || visit.deletedAt) return [];
+  if (!canTransition(visit.status, 'cancelled')) return [];
+  return (visit.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => isLiveSlot(slot));
+}
+
+/**
  * 這筆額度可以排哪些課程。
  *
  * single 的額度自己記著課程，一對一。

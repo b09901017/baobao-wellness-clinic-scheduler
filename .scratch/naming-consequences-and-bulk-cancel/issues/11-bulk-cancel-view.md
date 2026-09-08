@@ -1,6 +1,6 @@
 # 客戶預約批次取消專區
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 10）
 依賴：**地基那一支要先合**（`.scratch/slot-is-the-unit/`）——
 逐段取消是這一頁的基本操作

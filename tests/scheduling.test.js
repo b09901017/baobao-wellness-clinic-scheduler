@@ -837,6 +837,7 @@ describe('壓表那一頁的形狀', () => {
   const SRC = readFileSync(
     new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
   );
+  const NL = String.fromCharCode(10);
 
   /**
    * 去掉註解之後的原始碼。
