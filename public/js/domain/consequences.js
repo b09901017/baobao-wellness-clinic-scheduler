@@ -325,10 +325,40 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @returns {string[]}
  */
 export function cancelConsequences({
-  visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false,
+  visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
 }) {
   const lines = [];
-  const slots = (visit?.slots ?? []).length;
+  const all = visit?.slots ?? [];
+  const slots = all.length;
+
+  // ---------- 只取消一段（ADR-0081） ----------
+  //
+  // 她 2026-09-08：「僅能取消被選中的該筆時段來訪」。所以這幾句話**不可以
+  // 提到整天的段數** —— 她看到「3 個時段會退回去」會以為自己按錯了那一顆。
+  const one = Number.isInteger(slotIndex) ? all[slotIndex] : null;
+  if (one) {
+    // 這一段取消掉之後，那一天還剩幾段活著。全部沒了就是整筆取消 ——
+    // 那時候要講的是整天那一種話，不然她會以為那一天還在。
+    const left = all.filter((sl, i) => i !== slotIndex && sl?.status !== 'cancelled').length;
+
+    lines.push('這一段會退回去，次數也會還回來');
+    if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
+    else lines.push('那一天就整筆取消了 —— 這是最後一段');
+
+    // **只講那一段用得到的系統。** 一天同時有健檢（Examine）與復能（Abovee）時，
+    // 取消復能那一段跟 Examine 一點關係都沒有 —— 講了她會白跑一趟。
+    const system = bookingSystemFor(coursesById[one.courseId]?.category);
+    const already = new Set(
+      (tasks ?? []).filter((t) => !t.deletedAt && isCancelKind(t.kind)).map((t) => t.kind),
+    );
+    if (!already.has(cancelKindFor(system))) {
+      lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
+    }
+
+    lines.push('改期不是改日期，是取消後重新排一筆');
+    if (sheetSyncOn) lines.push(SHEET_LINE);
+    return lines;
+  }
 
   lines.push(removing
     ? `這是標記刪除，資料不會真的消失；${slots} 個時段會退回去，次數也會還回來`

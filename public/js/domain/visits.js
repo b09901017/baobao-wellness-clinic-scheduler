@@ -642,9 +642,21 @@ function settle(visit, { at, reason = null }) {
  * @param {{today: string}} o
  * @returns {{id:string, label:string, icon?:string, tone?:string}[]}
  */
-export function visitActions(visit, { today } = {}) {
+export function visitActions(visit, { today, slotIndex = null } = {}) {
   const next = nextStatuses(visit?.status);
   const out = [];
+
+  // **她長按的是一列，而一列就是一段**（ADR-0081）。以前這裡只有一顆
+  // 「取消這一筆」，取消的是那一天全部 —— 她 2026-09-08 說那是誤觸。
+  //
+  // 只在真的分得出兩件事的時候才多一顆：那一天只有一段時，
+  // 「這一段」與「一整天」是同一件事，兩顆並排只會讓她猶豫。
+  const slots = visit?.slots ?? [];
+  const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
+  const canCancelOne = one
+    && slots.length > 1
+    && one.status !== 'cancelled'
+    && next.includes('cancelled');
 
   if (next.includes('confirmed')) {
     out.push({
@@ -672,8 +684,24 @@ export function visitActions(visit, { today } = {}) {
     out.push({ id: 'edit', label: '改這一筆', icon: 'pencil' });
   }
 
+  // 最常按的在最上面（這一支既有的規矩）：她點的就是這一段
+  if (canCancelOne) {
+    out.push({
+      id: 'cancel-slot',
+      label: '取消這一段',
+      note: '那一天剩下的照舊',
+      icon: 'close',
+      tone: 'danger',
+    });
+  }
+
   if (next.includes('cancelled')) {
-    out.push({ id: 'cancelled', label: '取消這一筆', icon: 'close', tone: 'danger' });
+    out.push({
+      id: 'cancelled',
+      label: canCancelOne ? `取消一整天（${slots.length} 段）` : '取消這一筆',
+      icon: 'close',
+      tone: 'danger',
+    });
   }
 
   return out;

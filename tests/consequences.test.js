@@ -468,3 +468,45 @@ describe('取消一筆來訪會發生什麼', () => {
     assert.ok(on.some((l) => l.includes('試算表')));
   });
 });
+
+describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', () => {
+  const v = {
+    id: 'v1', status: 'confirmed', date: '2026-09-20',
+    slots: [
+      { courseId: 'c-checkup', entitlementId: 'e1' },
+      { courseId: 'c-followup', entitlementId: 'e2' },
+      { courseId: 'c-checkup', entitlementId: 'e3' },
+    ],
+  };
+
+  test('只取消一段時，一個字都不要講到「整天」', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: 1 }).join('\n');
+    assert.ok(!lines.includes('3 個時段'), '不可以說整筆的段數');
+    assert.match(lines, /這一段/);
+  });
+
+  test('要講出那一天剩下幾段不受影響', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: 1 }).join('\n');
+    assert.match(lines, /剩下的 2 段/);
+  });
+
+  test('只取消一段時，掛號那一張只講那一段用得到的系統', () => {
+    // 那一天同時有健檢（B 類 → Examine）與二返（A 類 → Abovee）。
+    // 取消二返那一段跟 Examine 一點關係都沒有 —— 講了她會白跑一趟。
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: 1 }).join('\n');
+    assert.match(lines, /取消 Abovee/);
+    assert.ok(!lines.includes('Examine'), '健檢那兩段還在，不要叫她去收 Examine');
+  });
+
+  test('最後一段也取消掉時，話要換成整天那一種', () => {
+    const two = { ...v, slots: [v.slots[0], { ...v.slots[1], status: 'cancelled' }] };
+    const lines = cancelConsequences({ visit: two, coursesById: COURSES, slotIndex: 0 }).join('\n');
+    assert.match(lines, /那一天就整筆取消了/);
+  });
+
+  test('沒帶 slotIndex 時一個字都沒有變', () => {
+    const before = cancelConsequences({ visit: v, coursesById: COURSES });
+    assert.match(before.join('\n'), /3 個時段會退回去/);
+    assert.ok(!before.join('\n').includes('這一段'));
+  });
+});

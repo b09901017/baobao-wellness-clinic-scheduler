@@ -983,8 +983,8 @@ function openNoteCard(el, data, id, date, repaint) {
 // 客戶詳情的次數是 `counts()` 現算的 —— 沒有第二份資料要同步。
 
 /** 長按一列之後跳出來的那一張。三種東西各一份清單，全部在 domain。 */
-function openQuickActions(el, data, { what, id }, backDate) {
-  if (what === 'visit') return visitQuickActions(el, data, id, backDate);
+function openQuickActions(el, data, { what, id, slotIndex }, backDate) {
+  if (what === 'visit') return visitQuickActions(el, data, id, backDate, slotIndex);
   if (what === 'note') return noteQuickActions(el, data, id, backDate);
   return eventQuickActions(el, data, id, backDate);
 }
@@ -1002,11 +1002,13 @@ async function refreshAfterAction(el, backDate) {
   if (backDate && state.data) openDay(el, state.data, backDate);
 }
 
-function visitQuickActions(el, data, id, backDate) {
+function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   const visit = data.visits.find((v) => v.id === id);
   if (!visit) return;
 
-  const items = visitActions(visit, { today: todayISO() });
+  // **她長按的是一列，而一列就是一段**（ADR-0081）。`slotIndex` 帶進去之後
+  // 那張選單上會多一顆「取消這一段」—— 有哪幾顆仍然只寫在 domain。
+  const items = visitActions(visit, { today: todayISO(), slotIndex });
   if (!items.length) {
     // 終點（已完成／已取消）沒有東西可做。**講出來**，不要跳一張空選單 ——
     // 靜靜什麼都不發生比講一句話糟（SPEC 第 6.9 節）。
@@ -1014,21 +1016,27 @@ function visitQuickActions(el, data, id, backDate) {
     return;
   }
 
-  // **長按的是一列，但這幾顆動的是一整筆。** 同一位客戶同一天壓三次是一筆
-  // 來訪三個時段（SPEC 第 4.4 節），所以「取消這一筆」取消的是那一天全部。
-  // 她 2026-09-08 說的「誤觸改動」就是這件事 —— 一段話講清楚比事後復原好。
+  // **抬頭要講清楚她長按的是哪一段。** 2026-09-08 之前這裡寫的是
+  // 「這一天共 N 段，底下這幾顆動的是整筆」—— 那是在替一個 bug 道歉
+  //（ADR-0080 第四點）。現在「取消這一段」真的只動那一段，所以抬頭改成
+  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。
+  //
   // 只在真的不只一段時才講：每一次都寫「共 1 段」等於把那一行變成裝飾。
-  const n = (visit.slots ?? []).length;
+  const slots = visit.slots ?? [];
+  const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
+  const which = one && slots.length > 1
+    ? `・第 ${slotIndex + 1} 段（共 ${slots.length} 段）`
+    : '';
+
   openActions({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${shortDate(visit.date)}・${describeStatus(visit.status)}${
-      n > 1 ? `・這一天共 ${n} 段，底下這幾顆動的是整筆` : ''}`,
+    subtitle: `${shortDate(visit.date)}・${describeStatus(visit.status)}${which}`,
     items,
-    onPick: (action) => runVisitAction(el, data, visit, action, backDate),
+    onPick: (action) => runVisitAction(el, data, visit, action, backDate, slotIndex),
   });
 }
 
-async function runVisitAction(el, data, visit, action, backDate) {
+async function runVisitAction(el, data, visit, action, backDate, slotIndex = null) {
   if (action === 'edit') {
     openEditor(el, data, {
       kind: 'visit', visitId: visit.id, date: visit.date, backDate,
@@ -1049,7 +1057,10 @@ async function runVisitAction(el, data, visit, action, backDate) {
   // 跟來訪編輯器的狀態卡是**同一份**（ADR-0056：改得動一筆來訪的只有日曆，
   // 而這兩個入口都算在那一個入口裡）。以前兩邊各寫一次「Abovee／Examine／耀聖」
   // 三個並列 —— 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
-  if (action === 'cancelled') {
+  // 取消一段與取消一整天走同一條路，差別只有帶不帶 `slotIndex`（ADR-0081）。
+  // 兩道確認的話遲早有一道少講一句。
+  const onlyOne = action === 'cancel-slot';
+  if (onlyOne || action === 'cancelled') {
     // 會被收掉哪幾張要問這一筆的任務。點下去才讀 —— 日曆是她每天開十幾次的
     // 一頁，為了一道確認框先把整月的任務讀回來是白費的。
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
@@ -1059,14 +1070,18 @@ async function runVisitAction(el, data, visit, action, backDate) {
     } catch {
       /* 少講兩句，不擋 */
     }
+    const at = onlyOne ? slotIndex : null;
     const ok = await confirmAction({
-      title: `取消${visit.customerName ?? ''}這一筆來訪？`,
+      title: onlyOne
+        ? `取消${visit.customerName ?? ''}這一段？`
+        : `取消${visit.customerName ?? ''}這一筆來訪？`,
       consequences: cancelConsequences({
         visit,
         coursesById: data.coursesById ?? {},
         tasks,
+        slotIndex: at,
       }),
-      confirmLabel: '取消這筆來訪',
+      confirmLabel: onlyOne ? '取消這一段' : '取消這筆來訪',
       danger: true,
     });
     if (!ok) return;
@@ -1075,13 +1090,15 @@ async function runVisitAction(el, data, visit, action, backDate) {
   try {
     // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
     const customerVisits = await visitsData.listByCustomer(visit.customerId);
-    const next = applyStatus(visit, action);
+    const next = onlyOne
+      ? applyStatus(visit, 'cancelled', { slotIndex })
+      : applyStatus(visit, action);
     // 快捷選單自己會在回呼之前把節點移除，所以**快速**連點本來就落空了。
     // 但「長按 → 選 → 還在存 → 再長按 → 再選」這條慢路徑沒有東西擋，
     // 而改一筆來訪只有日曆這一個入口（ADR-0056）—— 另外三個存來訪的地方
     // （待辦中心、壓表、來訪編輯器）都有 key，就這裡沒有。
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
-      success: `已改成「${describeStatus(action)}」`,
+      success: onlyOne ? '這一段取消了' : `已改成「${describeStatus(action)}」`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);

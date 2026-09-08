@@ -1545,3 +1545,51 @@ describe('結案時兩邊講同一句話（closeVisit 也寫 slot.status）', ()
     assert.equal(next.status, 'no_show');
   });
 });
+
+describe('長按一列時，取消的是那一段還是一整天（ADR-0081）', () => {
+  const three = (over = {}) => ({
+    status: 'confirmed', date: '2026-09-20',
+    slots: [{ startsAt: '10:30' }, { startsAt: '11:30' }, { startsAt: '13:00' }],
+    ...over,
+  });
+  const ids = (visit, opts) => visitActions(visit, { today: '2026-09-05', ...opts }).map((a) => a.id);
+
+  test('點的是一列，所以「取消這一段」排在「取消一整天」前面', () => {
+    const out = ids(three(), { slotIndex: 1 });
+    assert.ok(out.includes('cancel-slot'), '要有只取消那一段的那一顆');
+    assert.ok(out.includes('cancelled'), '整天那一顆也要留著');
+    assert.ok(out.indexOf('cancel-slot') < out.indexOf('cancelled'),
+      '最常按的在最上面');
+  });
+
+  test('一整天只有一段時不分兩顆 —— 那時候兩顆是同一件事', () => {
+    const one = three({ slots: [{ startsAt: '10:30' }] });
+    const out = ids(one, { slotIndex: 0 });
+    assert.ok(!out.includes('cancel-slot'));
+    assert.ok(out.includes('cancelled'));
+  });
+
+  test('沒帶 slotIndex（另外三頁）維持原樣，一顆都不多', () => {
+    assert.deepEqual(ids(three()), ids(three(), { slotIndex: null }));
+    assert.ok(!ids(three()).includes('cancel-slot'));
+  });
+
+  test('已經取消掉的那一段不再給「取消這一段」', () => {
+    const v = three({ slots: [{ startsAt: '10:30', status: 'cancelled' }, { startsAt: '11:30' }] });
+    assert.ok(!ids(v, { slotIndex: 0 }).includes('cancel-slot'));
+    assert.ok(ids(v, { slotIndex: 1 }).includes('cancel-slot'));
+  });
+
+  test('指到一個不存在的段落就當作沒指定', () => {
+    assert.ok(!ids(three(), { slotIndex: 9 }).includes('cancel-slot'));
+  });
+
+  test('仍然最多五顆', () => {
+    for (const status of VISIT_STATUSES) {
+      for (const slotIndex of [null, 0, 1, 2]) {
+        const n = visitActions(three({ status }), { today: '2026-09-05', slotIndex }).length;
+        assert.ok(n <= 5, `${status} / ${slotIndex} 有 ${n} 顆`);
+      }
+    }
+  });
+});
