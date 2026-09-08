@@ -509,6 +509,46 @@ describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', (
     assert.match(before.join('\n'), /3 個時段會退回去/);
     assert.ok(!before.join('\n').includes('這一段'));
   });
+
+  // ---- 一次取消同一天的好幾段（批次取消，ADR-0082）----
+  //
+  // 批次取消一次收掉十幾段，其中好幾段可能落在同一天。以前這裡只收得下
+  // **一個** index，呼叫端只好挑第一個傳進來 —— 於是「剩下的 N 段」算的是
+  // 「除了第一段以外還活著幾段」，把同一批要取消的其他段也算成了剩下的。
+  //
+  // 她看到「剩下的 2 段不受影響」，存完卻只剩 1 段。那一句話正是這一道確認框
+  // 存在的理由（跨多個 commit 給不出復原），講錯就等於沒有煞車。
+
+  test('同一天挑兩段：剩下的段數不算那兩段', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /剩下的 1 段/);
+    assert.ok(!lines.includes('剩下的 2 段'), '同一批要取消的那幾段不可以算成「剩下的」');
+  });
+
+  test('挑好幾段時講的是「這 2 段」，不是「這一段」', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /這 2 段會退回去/);
+    assert.ok(!lines.includes('這一段會退回去'));
+  });
+
+  test('挑好幾段時，掛號那幾張講的是那幾段的系統聯集', () => {
+    // 0 是健檢（B 類 → Examine）、1 是二返（A 類 → Abovee）
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1] }).join('\n');
+    assert.match(lines, /取消 Examine/);
+    assert.match(lines, /取消 Abovee/);
+  });
+
+  test('整天的段都挑滿了就退回整天那一種話', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1, 2] }).join('\n');
+    assert.match(lines, /那一天就整筆取消了/);
+    assert.ok(!lines.includes('不受影響'));
+  });
+
+  test('挑到一個不存在的段落就當它不存在，不要憑空多算一段', () => {
+    const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [1, 9] }).join('\n');
+    assert.match(lines, /這一段會退回去/);
+    assert.match(lines, /剩下的 2 段/);
+  });
 });
 
 const NL = String.fromCharCode(10);

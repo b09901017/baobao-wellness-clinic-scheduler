@@ -329,6 +329,7 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @param {object[]} [o.tasks] 這一筆來訪身上現有的任務（含已完成的）
  * @param {boolean} [o.removing] 走的是刪除不是取消
  * @param {boolean} [o.sheetSyncOn]
+ * @param {number|number[]} [o.slotIndex] 只取消其中哪幾段。不帶就是整筆。
  * @returns {string[]}
  */
 export function cancelConsequences({
@@ -338,27 +339,39 @@ export function cancelConsequences({
   const all = visit?.slots ?? [];
   const slots = all.length;
 
-  // ---------- 只取消一段（ADR-0081） ----------
+  // ---------- 只取消其中幾段（ADR-0081、0082） ----------
   //
   // 她 2026-09-08：「僅能取消被選中的該筆時段來訪」。所以這幾句話**不可以
   // 提到整天的段數** —— 她看到「3 個時段會退回去」會以為自己按錯了那一顆。
-  const one = Number.isInteger(slotIndex) ? all[slotIndex] : null;
-  if (one) {
-    // 這一段取消掉之後，那一天還剩幾段活著。全部沒了就是整筆取消 ——
+  //
+  // **收得下一段也收得下好幾段。** 批次取消一次可能挑走同一天的兩段，而
+  // 「剩下幾段」一定要把同一批的其他段也算進去 —— 只傳第一段進來的話，
+  // 她會看到「剩下的 2 段不受影響」然後存完剩 1 段。挑到不存在的段落一律
+  // 當它不存在（同 `slotsToShow()` 的退路）。
+  const picked = new Set(
+    (Array.isArray(slotIndex) ? slotIndex : [slotIndex])
+      .filter((i) => Number.isInteger(i) && all[i]),
+  );
+
+  if (picked.size) {
+    // 這幾段取消掉之後，那一天還剩幾段活著。全部沒了就是整筆取消 ——
     // 那時候要講的是整天那一種話，不然她會以為那一天還在。
-    const left = all.filter((sl, i) => i !== slotIndex && sl?.status !== 'cancelled').length;
+    const left = all.filter((sl, i) => !picked.has(i) && isLiveSlot(sl)).length;
 
-    lines.push('這一段會退回去，次數也會還回來');
+    lines.push(picked.size === 1
+      ? '這一段會退回去，次數也會還回來'
+      : `這 ${picked.size} 段會退回去，次數也會還回來`);
     if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
-    else lines.push('那一天就整筆取消了 —— 這是最後一段');
+    else lines.push('那一天就整筆取消了 —— 沒有剩下的段');
 
-    // **只講那一段用得到的系統。** 一天同時有健檢（Examine）與復能（Abovee）時，
+    // **只講那幾段用得到的系統。** 一天同時有健檢（Examine）與復能（Abovee）時，
     // 取消復能那一段跟 Examine 一點關係都沒有 —— 講了她會白跑一趟。
-    const system = bookingSystemFor(coursesById[one.courseId]?.category);
     const already = new Set(
       (tasks ?? []).filter((t) => !t.deletedAt && isCancelKind(t.kind)).map((t) => t.kind),
     );
-    if (!already.has(cancelKindFor(system))) {
+    const mine = { ...visit, slots: [...picked].map((i) => all[i]) };
+    for (const system of bookingSystemsForVisit(mine, coursesById)) {
+      if (already.has(cancelKindFor(system))) continue;
       lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
     }
 

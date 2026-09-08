@@ -10,9 +10,12 @@
 // 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
 
 import {
-  isCancelKind, RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
+  isCancelKind, cancelKindFor, bookingSystemsForVisit,
+  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
 } from './taskRules.js';
-import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
+import {
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
+} from './followups.js';
 import { dayOf } from './dates.js';
 import { formSlotIndexes } from './visits.js';
 
@@ -207,8 +210,14 @@ export function groupByDoneDay(tasks = []) {
 export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot = null } = {}) {
   if (!visit || visit.deletedAt) return [];
 
+  // **她點的是哪一段**（ADR-0080 那條線延伸過來）。沒帶就是整筆 ——
+  // 客戶詳情、待辦中心、進度追蹤列的本來就是整筆，它們一個字都不用改。
+  // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
+  const scoped = scopeTo(visit, focusSlot);
+
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
+    .filter((t) => belongsToScope(t.kind, visit, scoped, coursesById))
     .map((t) => ({
       key: t.id,
       kind: t.kind,
@@ -219,11 +228,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
 
   // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
   if (visit.status === 'cancelled') return sortRows(rows);
-
-  // **她點的是哪一段**（ADR-0080 那條線延伸過來）。沒帶就是整筆 ——
-  // 客戶詳情、待辦中心、進度追蹤列的本來就是整筆，它們一個字都不用改。
-  // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
-  const scoped = scopeTo(visit, focusSlot);
 
   // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
   //
@@ -292,6 +296,59 @@ function scopeTo(visit, focusSlot) {
   if (!Number.isInteger(focusSlot)) return visit;
   const one = (visit.slots ?? [])[focusSlot];
   return one ? { ...visit, slots: [one] } : visit;
+}
+
+/**
+ * 一張**已經長出來的**任務算不算她點的那一段的。
+ *
+ * ## 任務身上沒有段落，所以只能推
+ *
+ * `tasksForVisit()` 是逐段算完**去重**的（一天兩段健檢只長一張 Examine），
+ * 所以任務上沒有、也不該有「第幾段」。歸屬只能問一句：
+ * **這一段自己就長得出這一種嗎？**
+ *
+ * 四族全部走既有的判斷，這裡一條規則都不自己寫：
+ *
+ * | 種類 | 誰答的 |
+ * |---|---|
+ * | 掛號（Examine、耀聖） | `tasksForVisit()` |
+ * | 寫紀錄 | `recordTasksForVisit()`（借 `pendingRecordTasks()`） |
+ * | 取消 X | `bookingSystemsForVisit()`（它刻意不濾取消掉的段，所以取消掉的那一段照樣認得回自己那一張） |
+ * | 健檢那條鏈 | 課程主檔上的 `followupCourseId` |
+ *
+ * ## 推不出來的一律留著
+ *
+ * 她自己加的、或已經拿掉的那幾種（`RETIRED_KINDS`）身上沒有課程可以推。
+ * 那幾張**在整筆上也歸不到任何一段**，所以判準是「它屬於**別**段嗎」而不是
+ * 「它屬於這一段嗎」—— 答不出來就留著。靜默收掉一張她真的還沒做的事，
+ * 比多列一張糟得多（同 `syncFollowupTasks()` 那一圈的理由）。
+ */
+function belongsToScope(kind, visit, scoped, coursesById) {
+  if (scoped === visit) return true;
+  if (kindsOf(scoped, coursesById).has(kind)) return true;
+  return !kindsOf(visit, coursesById).has(kind);
+}
+
+/** 這幾段長得出哪幾種任務。 */
+function kindsOf(visit, coursesById) {
+  const out = new Set();
+  for (const t of tasksForVisit(visit, coursesById)) out.add(t.kind);
+  for (const t of pendingRecordTasks(visit, coursesById)) out.add(t.kind);
+  // 取消 X 那幾張有**兩個**來源（`syncTasksForVisit()` 的那兩圈）：壓表登記
+  // 本身，加上她確認之後真的去登記過的那幾個。少算第二種的話，A 類那一段
+  // 認不回自己的「取消 Examine」。
+  //
+  // 問之前先把 `status` 拿掉：取消掉的那一段昨天佔的時段還在那裡，
+  // 而 `tasksForVisit()` 會濾掉它（同 `bookingSystemsForVisit()` 刻意不濾的理由）。
+  const asLive = { ...visit, slots: (visit.slots ?? []).map((s) => ({ ...s, status: null })) };
+  for (const system of bookingSystemsForVisit(visit, coursesById)) out.add(cancelKindFor(system));
+  for (const t of tasksForVisit(asLive, coursesById)) out.add(cancelKindFor(t.kind));
+  // 鏈上那三張是健檢額度長出來的，而「這是不是健檢」寫在課程主檔上
+  // （`followupCourseIdOf()`：刻意不從名字比對，見 domain/followups.js）。
+  if ((visit.slots ?? []).some((s) => followupCourseIdOf(coursesById[s?.courseId]))) {
+    for (const k of [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND]) out.add(k);
+  }
+  return out;
 }
 
 /**

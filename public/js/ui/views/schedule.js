@@ -110,6 +110,10 @@ let ctx = null;
  * 卡片組（deck）自己還會再疊一層，所以層次是：選月份 → 那一個月 → 卡片組，
  * 返回鍵一層一層退。
  */
+// 進到某一個月時疊的那一層。**問它的時候一律問 `.active`** ——
+// 換頁會把 nav 的 stack 清光，而這個變數不會跟著變成 null（見 `ui/nav.js`
+// 檔頭）。問 `!monthLayer` 的話，離開壓表再回來就再也不推新的一層，
+// 返回鍵會直接跳出整頁。
 let monthLayer = null;
 
 /**
@@ -190,7 +194,7 @@ async function openPending(el, { month, customerId, entitlementId, followupForVi
 
   if (found) {
     view.batchId = found.id;
-    if (!monthLayer) monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
+    ensureMonthLayer(el);
     await paintBatch(el);
     return;
   }
@@ -282,11 +286,23 @@ async function enterMonth(el, month) {
 
   if (found) {
     view.batchId = found.id;
-    monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
+    ensureMonthLayer(el);
     await paintBatch(el);
     return;
   }
   await startBatch(el, month);
+}
+
+/**
+ * 進到某一個月就疊一層，**已經疊著就不要再疊**。
+ *
+ * 三條路都經過這裡（接著用、新開一批、從別的畫面指名一位客戶），而且
+ * 判斷只有這一份：問 `monthLayer?.active` 不問 `monthLayer` —— 換頁清掉
+ * stack 之後那個變數還是舊的 handle，看起來像「已經有一層了」。
+ */
+function ensureMonthLayer(el) {
+  if (monthLayer?.active) return;
+  monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
 }
 
 /** 退回選月份那一頁。左上角那條「‹ 壓表」與返回鍵共用。 */
@@ -306,7 +322,7 @@ function leaveMonth(el, { fromBack = false } = {}) {
 async function startBatch(el, targetMonth, { keepCustomer = false } = {}) {
   // 進到某一個月就疊一層（`enterMonth()` 的另一半：那邊是「接著用」，
   // 這邊是「新開一批」，兩條路都要退得回選月份那一頁）
-  if (!monthLayer) monthLayer = pushLayer(() => leaveMonth(el, { fromBack: true }));
+  ensureMonthLayer(el);
   el.innerHTML = '<p class="muted">算佇列中…</p>';
   const data = await loadAll(targetMonth);
   const rows = buildCustomerQueue({ ...data.queueInput, targetMonth });
