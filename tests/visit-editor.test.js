@@ -140,10 +140,16 @@ describe('改一筆來訪＝改那一段（issue 07）', () => {
     assert.match(SRC, /canAddSlots: !existing/);
   });
 
-  test('整筆的狀態卡與危險區只在整筆都在畫面上時出現', () => {
-    assert.match(SRC, /const wholeVisit = !isNew && !ctx\.editSlots;/);
-    assert.match(SRC, /\$\{wholeVisit \? statusCard\(/);
-    assert.match(SRC, /\$\{wholeVisit \? dangerZone\(/);
+  // **收進一摺，不是藏起來。** 藏起來會違反 ADR-0060：長按選單是捷徑不是
+  // 唯一的路，而「取消一整天」與「刪除這一筆」在別的地方點不到。
+  test('整筆的那幾顆收進一摺，只改一段時預設收著', () => {
+    assert.match(SRC, /<details class="advanced" \$\{wholeVisit \? 'open' : ''\}>/);
+    assert.match(SRC, /這一天整筆的/);
+  });
+
+  test('但它們照樣接得起來 —— 收著不等於不存在', () => {
+    assert.match(SRC, /if \(!isNew && !locked\) wireStatus\(ctx, draft\);/);
+    assert.match(SRC, /if \(!isNew\) wireDangerZone\(ctx, draft\);/);
   });
 });
 

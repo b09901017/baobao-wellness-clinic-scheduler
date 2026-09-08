@@ -40,6 +40,20 @@ async function openVisitEditor(app, page, date, visitId) {
   await page.waitForTimeout(700);
   await page.locator('[data-card-edit]').click();
   await page.waitForTimeout(900);
+  // 整筆的那幾顆（狀態、刪除）2026-09-09 收進一摺了（ADR-0085）——
+  // 她點的是一段，那幾顆動的是整天，混在欄位裡講不通。**收著不是藏著**：
+  // 藏起來會違反 ADR-0060（長按是捷徑，不是唯一的路）。
+  await openWholeVisitFold(page);
+}
+
+/** 把「這一天整筆的」那一摺打開。收著的時候底下那幾顆點不到。 */
+async function openWholeVisitFold(page) {
+  const fold = page.locator('details.advanced');
+  if (await fold.count() === 0) return;
+  if (await fold.first().getAttribute('open') === null) {
+    await fold.locator('summary').first().click();
+    await page.waitForTimeout(250);
+  }
 }
 
 test('J-B1 從日曆取消一筆已確認的來訪 → 次數回補、產生「取消 Abovee」', async ({ app, page }) => {

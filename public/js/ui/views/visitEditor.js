@@ -322,12 +322,22 @@ function paint(ctx, draft) {
       </section>
     </form>
 
-    ${/* **整筆的那幾顆只在整筆都在畫面上時才出現。** 她點一段進來改的時候
-           看到「取消這一筆來訪」是講不通的 —— 那一顆動的是那一天全部
-           （她 2026-09-08：「而不是讓我還可以…修其他時段的東西」）。
-           整筆的狀態仍然改得動，路在日曆上長按那一列（ADR-0056、0060）。 */''}
-    ${wholeVisit ? statusCard(draft, embedded) : ''}
-    ${wholeVisit ? dangerZone(embedded) : ''}`;
+    ${/* **整筆的那幾顆收進一摺，但不可以拿掉。**
+           她點一段進來改的時候，「取消這一筆來訪」跟那幾格欄位混在一起是
+           講不通的 —— 那一顆動的是那一天全部（她 2026-09-08：「而不是讓我
+           還可以…修其他時段的東西」）。
+
+           但**藏起來就違反 ADR-0060**：長按選單是捷徑，不是唯一的路，
+           而取消整天與刪除這一筆在別的地方點不到。收進一摺兩件事都成立
+           —— 走的是這個樣式表既有的 `.advanced`。 */''}
+    ${isNew ? '' : `
+      <details class="advanced" ${wholeVisit ? 'open' : ''}>
+        <summary class="advanced__head">這一天整筆的</summary>
+        <div class="advanced__body">
+          ${statusCard(draft, embedded)}
+          ${dangerZone(embedded)}
+        </div>
+      </details>`}`;
 
   el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -395,8 +405,8 @@ function paint(ctx, draft) {
   if (ctx.submitted) f.showErrors(el, errors);
 
   if (locked) wireUnlock(ctx, draft);
-  if (wholeVisit && !locked) wireStatus(ctx, draft);
-  if (wholeVisit) wireDangerZone(ctx, draft);
+  if (!isNew && !locked) wireStatus(ctx, draft);
+  if (!isNew) wireDangerZone(ctx, draft);
 }
 
 

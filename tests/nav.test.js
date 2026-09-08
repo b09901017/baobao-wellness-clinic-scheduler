@@ -123,6 +123,69 @@ describe('pushLayer 的 handle 知道自己還在不在', () => {
  * 沒有錯誤訊息，而且只在「離開這一頁再回來」之後才會發生。
  * 三個畫面存著 handle（壓表兩個、本輪可用性一個），每多一個就多一次機會。
  */
+// **兩道接在一起的確認框**（ADR-0086：先「這幾段先看一下」，按了才問 Abovee）。
+//
+// `history.go()` 是非同步的，它排在後面才跑 —— 而在它回來之前，第二道
+// 已經開好了。分不出「她按了返回鍵」與「我們自己退的」的話，那一下 popstate
+// 會把**第二道**收掉，而症狀是：她按了「知道了，繼續」，Abovee 那道閃一下
+// 就沒了，那筆來訪從頭到尾沒有被記錄，一句話都不說（SPEC 第 6.9 節）。
+describe('我們自己叫的那一趟 go 回來時不可以收掉新疊的層', () => {
+  beforeEach(async () => {
+    window.history.state = null;
+    fire('hashchange');
+    pushed.length = 0;
+    await tick();
+  });
+
+  test('關掉第一道、開第二道，第二道要活著', async () => {
+    const first = pushLayer(() => {});
+    await tick();
+    assert.equal(pushed.at(-1), 1);
+
+    // 她按了「知道了，繼續」：第一道自己關掉（排一趟 go）
+    first.pop();
+    await tick();
+
+    // 第二道在 go 回來之前就開好了
+    let secondPopped = false;
+    const second = pushLayer(() => { secondPopped = true; });
+    await tick();
+
+    // 現在那一趟 go 才回來。瀏覽器回報的是**退到第 1 層**那一格。
+    window.history.state = { __layer: 1 };
+    fire('popstate');
+    await tick();
+
+    assert.equal(secondPopped, false, '第二道被那一趟 go 吃掉了');
+    assert.equal(second.active, true);
+  });
+
+  test('她**真的**按返回鍵時照樣收得掉', async () => {
+    let popped = false;
+    pushLayer(() => { popped = true; });
+    await tick();
+
+    window.history.state = { __layer: 0 };
+    fire('popstate');
+    await tick();
+
+    assert.equal(popped, true, '真的返回鍵不可以被當成我們自己叫的');
+  });
+
+  test('一次退兩層照樣兩層都收', async () => {
+    const seen = [];
+    pushLayer(() => seen.push('a'));
+    pushLayer(() => seen.push('b'));
+    await tick();
+
+    window.history.state = { __layer: 0 };
+    fire('popstate');
+    await tick();
+
+    assert.deepEqual(seen, ['b', 'a'], '由上往下收');
+  });
+});
+
 describe('沒有人拿 layer handle 當布林值用', () => {
   // `nav.js` 自己是實作，它當然摸得到那個旗標
   const FILES = execFileSync('git', ['ls-files', 'public/js/ui'], { encoding: 'utf8' })
