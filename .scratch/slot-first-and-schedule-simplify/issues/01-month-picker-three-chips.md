@@ -1,6 +1,6 @@
 # 選月份那一頁：三顆大丸子一橫排，其餘全部拿掉
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求一 a）＋ 2026-09-09（跨年標年份）
 動工前先讀：`ui/views/schedule.js` 的 `paintStart()`、`app.css` 的 `.row-link`
 

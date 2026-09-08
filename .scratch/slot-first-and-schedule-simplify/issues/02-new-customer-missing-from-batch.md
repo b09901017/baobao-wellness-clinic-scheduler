@@ -1,6 +1,6 @@
 # 新增的客人在當月壓表看不到 —— 凍結的是順序，不是名單
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求一 b）
 動工前先讀：`docs/adr/0001` 的 Consequences、`ui/views/schedule.js` 的 `rowsOf()`
 

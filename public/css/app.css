@@ -4141,6 +4141,58 @@ button.mark::after {
   font-size: var(--text-lg);
 }
 
+/* 「要壓哪個月」那三顆。**一橫排、等寬、一個箭頭都沒有**（2026-09-09）——
+   她的原話是「9 10 11 月就好…為什麼會有兩個 > 的箭頭？」。
+   `.link-list` 那一套會長兩顆箭頭（標記一顆、`.row-link::after` 一顆），
+   所以這一排不重用它，自己一組。
+
+   年份那一行只有跨年那幾顆才印（`monthChoices()` 決定），所以它不佔固定高度
+   —— 三顆用 `align-items: stretch` 對齊底線，同年那兩顆自然是空的。 */
+.monthpick {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+}
+
+.monthpick__one {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.monthpick__one:active {
+  background: var(--surface-2);
+}
+
+.monthpick__m {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* 「2027」。比月份小兩階、淡一階 —— 它是註腳，不是第二個標題。 */
+.monthpick__year {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
 /* 整列可點。手機上目標越大越好，不要只有右邊一顆小箭頭。 */
 .row-link {
   flex: 1;
@@ -4165,17 +4217,27 @@ button.mark::after {
   font-size: var(--text-lg);
 }
 
-/* 回上一頁。跟 .row-link 長得像，但不可以帶那個往前的箭頭 —— 方向要是對的。 */
+/* 回上一頁。跟 .row-link 長得像，但不可以帶那個往前的箭頭 —— 方向要是對的。
+
+   **按鈕的重置也要在這裡。** 全站 29 個 backlink 有一個是 `<button>`
+   （壓表退回選月份那一顆：它退的是 `pushLayer()` 疊的一層，不是一個網址，
+   所以不能是 `<a>`）。少了這四行，那一顆會頂著瀏覽器預設的灰底、邊框與
+   系統字 —— 她 2026-09-08 說的「有點太突兀」就是這個。 */
 .backlink {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   min-height: 36px;
   margin-bottom: var(--space-1);
+  padding: 0;
+  font: inherit;
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text-dim);
   text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
 }
 
 /* ---------- 表單 ---------- */

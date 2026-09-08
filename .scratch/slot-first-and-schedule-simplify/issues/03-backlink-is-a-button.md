@@ -1,6 +1,6 @@
 # 左上角那顆「‹ 壓表」是全站唯一的 <button class="backlink">
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求一 c）
 
 ## 她要的

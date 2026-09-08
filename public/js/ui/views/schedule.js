@@ -40,6 +40,7 @@ import * as eventsData from '../../data/events.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
+  monthChoices, mergeIntoQueue,
   strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
@@ -65,7 +66,7 @@ import {
 import { splitFlags } from '../../domain/customers.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
-  todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
+  todayISO, addDays, shortDate, lastDayOf, monthLabel,
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -225,8 +226,7 @@ async function openPending(el, { month, customerId, entitlementId, followupForVi
  * 以前只有本月與下個月 —— 她要壓十月的表時十一月按不出來。
  */
 async function paintStart(el) {
-  const today = todayISO();
-  const months = [0, 1, 2].map((n) => addMonths(today, n).slice(0, 7));
+  const months = monthChoices(todayISO());
 
   el.innerHTML = `
     <div class="page">
@@ -238,29 +238,28 @@ async function paintStart(el) {
           <a class="footlink" href="#/schedule/cancel">${icon('close', { size: 15 })}批次取消</a>
         </span>
       </div>
-      <p class="page__lead">一個人壓完再換下一個</p>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">要壓哪個月</h2>
-      <p class="card__note">點一個月就進去。裡面會照「限制多的先看」排好，
-        但那只是預設順序 —— 想先弄誰就點誰，也可以整個換一種排法。</p>
-      <ul class="link-list">
-        ${months.map((m) => `
-          <li><button class="row-link" type="button" data-month="${esc(m)}">
-            <span class="link-list__label">${esc(monthLabel(m))}壓表
-              <span class="num dim">${esc(m)}</span></span>
-            ${icon('right', { size: 17 })}
-          </button></li>`).join('')}
-      </ul>
-    </section>
+    ${/* **三顆一橫排，一個箭頭都沒有**（2026-09-09）。她的原話：
+         「太多多餘的文字了 不需要任何說明 也不需要說是 2026-09，
+          只要顯示要壓那個月，9 10 11 月就好，然後為什麼會有兩個 > 的箭頭？」
 
-    <section class="card">
-      <h2 class="card__title">臨時空出一格？</h2>
-      <p class="card__note">輸入日期、時間與課程，把補得上的人列出來 ——
-        用的是跟這裡同一套順序，不會兩個畫面給你兩種答案。</p>
-      <a class="btn" href="#/schedule/backfill">時段反查</a>
-    </section>`;
+         兩個箭頭是 `.link-list` 那一套來的：標記上寫死一顆 `icon('right')`，
+         而 `.row-link::after` 自己又長一顆。丸子版本兩顆都不要 ——
+         一顆按鈕不需要箭頭說明它可以按。
+
+         年份要不要印是一條規則，算在 `monthChoices()` 裡（跨年那幾顆才印）。 */''}
+    <div class="monthpick">
+      ${months.map((m) => `
+        <button class="monthpick__one" type="button" data-month="${esc(m.month)}">
+          <span class="monthpick__m">${esc(m.label)}</span>
+          ${m.year ? `<span class="monthpick__year num">${esc(m.year)}</span>` : ''}
+        </button>`).join('')}
+    </div>
+
+    <p class="footlinks">
+      <a class="footlink" href="#/schedule/backfill">${icon('search', { size: 15 })}時段反查</a>
+    </p>`;
 
   el.querySelectorAll('[data-month]').forEach((btn) =>
     btn.addEventListener('click', () => enterMonth(el, btn.dataset.month)),
@@ -386,26 +385,66 @@ async function loadAll(targetMonth) {
 }
 
 /**
- * 把凍結的佇列與現算的即時資訊疊起來。
+ * 把凍結的佇列與現算的即時資訊疊起來，並且**把新符合資格的人接進來**。
  *
- * 順序凍結：照 batch.queue 的順序排，不重新排序。即時資訊照樣現算 ——
+ * 順序凍結：照 `batch.queue` 的順序排，不重新排序。即時資訊照樣現算 ——
  * 剩幾次、這個月排了幾天、那個月問到的時間，每次打開都要是真的。
+ *
+ * **凍結的是順序，不是名單**（她 2026-09-08：「九月進去…我這時候新增客人了，
+ * 我不能同樣在 9 月壓表看到他？」）。這一支以前把客戶清單 filter 成
+ * `batch.queue` 的那幾位，於是開批之後才新增的客人**永遠**進不去。
+ * ADR-0001 的 Consequences 只授權凍結順序，規則在 `mergeIntoQueue()`。
+ *
+ * @returns {{rows: object[], queue: object[], added: string[]}}
+ *   `added` 非空時呼叫端要把 `queue` 寫回去 —— 不寫的話「已壓 5 / 23」
+ *   的分母跟牆上的人數對不起來，而那個數字她會看。
  */
 function rowsOf(batch, data) {
-  const ids = new Set((batch.queue ?? []).map((q) => q.customerId));
-  const live = new Map(
-    buildCustomerQueue({
-      ...data.queueInput,
-      targetMonth: batch.targetMonth,
-      customers: data.queueInput.customers.filter((c) => ids.has(c.id)),
-      includeUsedUp: true,
-    }).map((r) => [r.customerId, r]),
-  );
+  // **全部客戶都現算一次**，不先 filter。`startBatch()` 本來就是這樣算的，
+  // 而這裡要同時回答兩個問題：既有那幾位現在怎麼樣、現在還有誰符合資格。
+  const all = buildCustomerQueue({
+    ...data.queueInput,
+    targetMonth: batch.targetMonth,
+    includeUsedUp: true,
+  });
+  const live = new Map(all.map((r) => [r.customerId, r]));
 
-  return (batch.queue ?? []).map((q) => ({
-    ...q,
-    ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
-  }));
+  // 新加入的門檻跟開批那一刻同一道：身上還有剩的才算（`buildCustomerQueue()`
+  // 預設的那一條）。**已經在佇列裡的用完了照樣留著** —— 處理到一半人從畫面上
+  // 消失是最難懂的一種畫面，所以上面才傳 includeUsedUp。
+  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0));
+
+  return {
+    queue,
+    added,
+    rows: queue.map((q) => ({
+      ...q,
+      ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
+    })),
+  };
+}
+
+/**
+ * 讀一批、算出這一頁要的東西，順手把新加入的人寫回去。
+ *
+ * **只有真的多出人時才寫**：每次進來都寫一次等於她每次打開壓表都產生一筆
+ * 稽核紀錄，而稽核是拿來查「誰改了什麼」的。
+ *
+ * 寫失敗不擋畫面 —— 那幾位照樣畫得出來，只是這一次沒存進去，下次再試。
+ * 為了一個順序的欄位讓整頁打不開是本末倒置。
+ */
+async function contextFor(el, batch, data) {
+  const { rows, queue, added } = rowsOf(batch, data);
+  if (added.length) {
+    try {
+      await batchesData.saveProgress(batch.id, queue, batch.cursor ?? null);
+    } catch {
+      /* 畫得出來就好，下次再寫 */
+    }
+  }
+  // `shown` 不在這裡給：`paintBatch()` 是整頁重畫所以清空，`reload()` 要留著
+  // 她捲到的位置對應的那一份。
+  return { el, batch: { ...batch, queue }, rows, ...data };
 }
 
 // ---------- 批次 ----------
@@ -435,7 +474,7 @@ async function paintBatch(el) {
   }
 
   const data = await loadAll(batch.targetMonth);
-  ctx = { el, batch, rows: rowsOf(batch, data), shown: [], ...data };
+  ctx = { ...(await contextFor(el, batch, data)), shown: [] };
   mount();
 }
 
@@ -454,7 +493,7 @@ async function reload() {
     return true;
   }
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...ctx, batch, rows: rowsOf(batch, data), ...data };
+  ctx = { ...ctx, ...(await contextFor(ctx.el, batch, data)) };
   return false;
 }
 
@@ -846,6 +885,12 @@ function custCard(row, isSelected) {
     ? `<span class="badge badge--ok">壓了 ${row.scheduledThisMonth} 天</span>`
     : '<span class="badge badge--soon">還沒壓</span>');
 
+  // **開批之後才進來的那幾位**（`mergeIntoQueue()`）。順序是凍結的，所以他們
+  // 一定排在最後面 —— 不標的話那看起來像排序算錯了。
+  const late = row.joinedLate
+    ? '<span class="badge badge--soon">新加入</span>'
+    : '';
+
   return `
     <button class="card queue-row ${isSelected ? 'queue-row--on' : ''}"
             type="button" data-pick="${esc(row.customerId)}"
@@ -855,7 +900,7 @@ function custCard(row, isSelected) {
           <span class="row__title">${esc(row.customerName ?? '?')}</span>
           ${alertChips(row)}
         </span>
-        ${state}
+        ${late}${state}
       </span>
     </button>`;
 }
