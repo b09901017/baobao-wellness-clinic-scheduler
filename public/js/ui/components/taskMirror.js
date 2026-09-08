@@ -13,12 +13,19 @@
 //
 // 要勾的地方一個都沒有變：待辦中心、客戶詳情，還有日曆上那一列長按。
 //
-// ## 抬頭寫的是「這一天」不是「這一場」
+// ## 抬頭跟著範圍走
 //
-// 2026-09-08 之後讀取卡片點一段就只畫那一段（ADR-0080），但**這一塊仍然是
-// 整筆來訪的**：`todosForVisit()` 收的是來訪，而掛號、療程單、寫紀錄那幾張
-// 本來就綁著一整筆。抬頭要說清楚它涵蓋的範圍，不然她會以為那幾張只跟
-// 她剛剛點的那一段有關。
+// 她 2026-09-08：「會顯示『這一天的代辦』但其實不是這一天，現在已經是一項
+// 一項分開來看了，所以應該要叫做這一項的代辦之類的」。
+//
+// 所以抬頭有兩種，而**兩種都是真的**：
+//
+//   帶了 `focusSlot`（日曆點一段） → 「這一項的待辦」，內容也真的只有那一段
+//   沒帶（另外三頁列整筆）         → 「這一天的待辦」
+//
+// 一律改成「這一項」是錯的：客戶詳情、待辦中心、進度追蹤列的本來就是整筆
+// 來訪，那三頁寫「這一項」會變成另一句假話。範圍由 `todosForVisit()` 決定，
+// 抬頭只是把它講出來。
 //
 // ## 它長在四個畫面上，那是刻意的
 //
@@ -35,7 +42,7 @@ import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
 import * as customersData from '../../data/customers.js';
 import { todosForVisit } from '../../domain/todoFlow.js';
-import { urgency } from '../../domain/taskRules.js';
+import { urgency, RECORD_TASK_KIND } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
 
 /**
@@ -48,17 +55,19 @@ import { shortDate } from '../../domain/dates.js';
  * @param {string} o.today
  * @returns {string} HTML。沒有東西可以畫時回空字串
  */
-export function mirrorHtml({ visit, tasks, coursesById = {}, today } = {}) {
+export function mirrorHtml({ visit, tasks, coursesById = {}, today, focusSlot = null } = {}) {
   if (!Array.isArray(tasks)) return '';
 
-  const rows = todosForVisit(visit, { tasks, coursesById, today });
+  const rows = todosForVisit(visit, { tasks, coursesById, today, focusSlot });
   // 一件都沒有就整塊不畫。**不要留一個空殼** —— 一個永遠空的區塊會讓她
   // 以為那裡壞了（同 `playbookHint.js` 的規矩）。
   if (!rows.length) return '';
 
+  const focused = Number.isInteger(focusSlot) && Boolean((visit?.slots ?? [])[focusSlot]);
+
   return `
     <div class="taskmirror">
-      <div class="taskmirror__head">這一天的待辦</div>
+      <div class="taskmirror__head">${focused ? '這一項的待辦' : '這一天的待辦'}</div>
       <ul class="taskmirror__list">
         ${rows.map((r) => rowHtml(r, today)).join('')}
       </ul>
@@ -71,6 +80,22 @@ function rowHtml(row, today) {
   const late = !row.done && row.dueDate && today && urgency(row.dueDate, today) === 'overdue';
   const when = !row.done && row.dueDate ? shortDate(row.dueDate) : '';
 
+  // **還沒發生的那幾張**（`todosForVisit()` 的 `pending`）：她 2026-09-08 問
+  // 「我發現沒有寫記錄？」—— 那一張在那一場做完之前真的不存在（ADR-0066）。
+  // 列出來但要講清楚它還沒長出來，不然她會去找它在哪裡然後找不到。
+  //
+  // 記號用第三個字元（`·`）而不是第三種顏色：這一塊只給看不給勾，
+  // 而 `✓`／`○` 兩個字元本來就是為了不放勾選框才選的。
+  if (row.pending) {
+    return `
+      <li class="taskmirror__row is-pending">
+        <span class="taskmirror__mark" aria-hidden="true">·</span>
+        <span class="taskmirror__kind">${esc(row.kind)}</span>
+        <span class="visually-hidden">還沒長出來</span>
+        <span class="taskmirror__due">${esc(pendingNote(row.kind))}</span>
+      </li>`;
+  }
+
   return `
     <li class="taskmirror__row ${row.done ? 'is-done' : ''}">
       <span class="taskmirror__mark" aria-hidden="true">${row.done ? '✓' : '○'}</span>
@@ -78,6 +103,14 @@ function rowHtml(row, today) {
       <span class="visually-hidden">${row.done ? '已完成' : '還沒做'}</span>
       ${when ? `<span class="taskmirror__due num ${late ? 'is-late' : ''}">${esc(when)}</span>` : ''}
     </li>`;
+}
+
+/**
+ * 那一張什麼時候才會長出來。**兩個時機各一句**（ADR-0027、0066）——
+ * 寫「還沒發生」而不講是等什麼，等於沒講。
+ */
+function pendingNote(kind) {
+  return kind === RECORD_TASK_KIND ? '那一場做完才有' : '客人說可以才有';
 }
 
 /**

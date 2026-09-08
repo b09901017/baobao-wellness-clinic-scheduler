@@ -9,7 +9,9 @@
 //
 // 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
 
-import { isCancelKind, RECORD_TASK_KIND } from './taskRules.js';
+import {
+  isCancelKind, RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
+} from './taskRules.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 import { dayOf } from './dates.js';
 import { formSlotIndexes } from './visits.js';
@@ -202,7 +204,7 @@ export function groupByDoneDay(tasks = []) {
  * @returns {{key:string, kind:string, done:boolean, dueDate:string|null,
  *            derived:boolean}[]}
  */
-export function todosForVisit(visit, { tasks = [], coursesById = {} } = {}) {
+export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot = null } = {}) {
   if (!visit || visit.deletedAt) return [];
 
   const rows = (tasks ?? [])
@@ -217,6 +219,11 @@ export function todosForVisit(visit, { tasks = [], coursesById = {} } = {}) {
 
   // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
   if (visit.status === 'cancelled') return sortRows(rows);
+
+  // **她點的是哪一段**（ADR-0080 那條線延伸過來）。沒帶就是整筆 ——
+  // 客戶詳情、待辦中心、進度追蹤列的本來就是整筆，它們一個字都不用改。
+  // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
+  const scoped = scopeTo(visit, focusSlot);
 
   // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
   //
@@ -237,7 +244,7 @@ export function todosForVisit(visit, { tasks = [], coursesById = {} } = {}) {
   //
   // 日子還沒到也列（同上：她要看到這一場的**全部**），只是還沒勾。
   const closed = visit.status === 'done' || visit.status === 'no_show';
-  const needsForm = formSlotIndexes(visit, coursesById).length > 0;
+  const needsForm = formSlotIndexes(scoped, coursesById).length > 0;
   rows.push({
     key: 'close',
     kind: needsForm ? '簽療程單' : '簽療程單（這一天不用簽，但要結案）',
@@ -246,7 +253,59 @@ export function todosForVisit(visit, { tasks = [], coursesById = {} } = {}) {
     derived: true,
   });
 
+  // ---------- 還沒發生、但一定會發生的那幾張 ----------
+  //
+  // 她 2026-09-08：「我發現沒有寫記錄？我發現我修改課程設定的例如要不要簽
+  // 療程單或是寫記錄 這個提醒不會更新誒？」
+  //
+  // 「寫紀錄」與掛號那一族**在那個時機到之前真的不存在**（ADR-0027、0066）——
+  // 不是漏列。但她 2026-09-04 就講過要看的是「**這一場的全部**」，
+  // 所以這裡把它們補成「還沒發生」的一列。
+  //
+  // **只補真的會發生的**（ADR-0070）：課程沒勾「做完要寫紀錄」就不要列，
+  // 那是在講一件不會發生的事。判斷全部走 `taskRules.js` 的既有規則，
+  // 這裡一條都不自己寫 —— 她改了課程主檔上那個勾，這一列跟著變。
+  const already = new Set(rows.map((r) => r.kind));
+  for (const t of [...tasksForVisit(scoped, coursesById),
+    ...pendingRecordTasks(scoped, coursesById)]) {
+    if (already.has(t.kind)) continue;
+    already.add(t.kind);
+    rows.push({
+      key: `pending:${t.kind}`,
+      kind: t.kind,
+      done: false,
+      dueDate: t.dueDate ?? null,
+      derived: true,
+      // 呼叫端拿它畫得淡一點、旁邊寫一句「到時候才會長出來」
+      pending: true,
+    });
+  }
+
   return sortRows(rows);
+}
+
+/**
+ * 只留她點的那一段。**沒指定、或指到一個不存在的段落就回整筆**
+ * —— 兩條退路跟 `slotsToShow()` 一模一樣（畫成空的比畫太多糟）。
+ */
+function scopeTo(visit, focusSlot) {
+  if (!Number.isInteger(focusSlot)) return visit;
+  const one = (visit.slots ?? [])[focusSlot];
+  return one ? { ...visit, slots: [one] } : visit;
+}
+
+/**
+ * 「做完之後要寫的那一張」，**不看那一場做完了沒**。
+ *
+ * `recordTasksForVisit()` 刻意看狀態（ADR-0066：那一場沒做完就沒有東西可以
+ * 寫），所以它答不出「等一下會有這一張」。這裡借它的另一半判斷 ——
+ * 課程主檔上那個勾 —— 而那一半是 `needsRecord()`，不對外開放。
+ *
+ * 拿「假裝那一場做完了」去問它是刻意的：閘門只有一個（`acceptsRecordTasks()`），
+ * 而在這裡另寫一份「哪些課程要寫紀錄」就會有兩份會分岔的判斷。
+ */
+function pendingRecordTasks(visit, coursesById) {
+  return recordTasksForVisit({ ...visit, status: 'done' }, coursesById);
 }
 
 /** 照 `orderOf()`（＝她做事的順序）。同一階的照種類穩定排。 */

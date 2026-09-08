@@ -1,6 +1,6 @@
 # 提醒集中派生：先修好三個漏傳主檔的畫面，再清點全站
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求 6）
 動工前先讀：`domain/consequences.js` 整支、`docs/adr/0070`
 

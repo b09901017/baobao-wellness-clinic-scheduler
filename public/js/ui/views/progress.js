@@ -67,6 +67,11 @@ export async function render(el) {
     customers: customers.filter((c) => c.active !== false),
     roomsById: byId(master[0]),
     staffById: byId(master[1]),
+    // **這一份少了的話，讀取卡片會一律說「簽療程單」**：`formSlotIndexes()`
+    // 拿不到課程時 `needsForm(undefined)` 回 true（沒有欄位就是要簽），
+    // 於是她在課程主檔上關掉的那個勾在這一頁完全沒有作用。
+    // 有一支測試盯著四個呼叫端都拿得到它。
+    coursesById: byId(master[2]),
     master: { courses: master[2], equipment: master[3] },
   };
 

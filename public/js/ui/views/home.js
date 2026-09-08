@@ -1187,7 +1187,13 @@ function openWhoVisit(visitId) {
   }
   const html = (tasks, extra = {}) => visitReadHtml(visit, {
     ...extra,
-    roomsById: d.rooms, staffById: d.staff, master: d.master, tasks, today: todayISO(),
+    roomsById: d.rooms,
+    staffById: d.staff,
+    master: d.master,
+    // 少了這一份，那一塊會一律說「簽療程單」（見 `progress.js` 那一段的說明）
+    coursesById: byId(d.master?.courses ?? []),
+    tasks,
+    today: todayISO(),
   });
   // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
   fillMirror(openCard({
@@ -2093,6 +2099,8 @@ function openTaskVisit(visitId) {
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
     master: taskVisits.master,
+    // 少了這一份，那一塊會一律說「簽療程單」（見 `progress.js` 那一段的說明）
+    coursesById: byId(taskVisits.master?.courses ?? []),
     tasks,
     today: todayISO(),
   });

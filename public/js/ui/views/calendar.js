@@ -1463,6 +1463,9 @@ export function visitReadHtml(visit, data) {
       tasks: data.tasks,
       coursesById: data.coursesById ?? {},
       today: data.today ?? todayISO(),
+      // 她點的是哪一段 —— 帶了之後那一塊只列那一段的，抬頭也跟著變成
+      // 「這一項的待辦」（她 2026-09-08 指名的字）
+      focusSlot: data?.focusSlot ?? null,
     })}`;
 }
 

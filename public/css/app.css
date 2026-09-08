@@ -3873,6 +3873,13 @@ button.mark::after {
   text-decoration-thickness: 1px;
 }
 
+/* **還沒長出來的那幾張**：列出來（她要看到「這一場的全部」），
+   但要跟「還沒做」分得出來 —— 那一種是她現在就該去做的。
+   用透明度不用第三種顏色：這一塊只有兩個色階，多一種會變成在分類。 */
+.taskmirror__row.is-pending {
+  opacity: 0.55;
+}
+
 .taskmirror__mark {
   flex: none;
   width: 1em;
