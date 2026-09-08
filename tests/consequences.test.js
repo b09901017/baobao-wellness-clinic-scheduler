@@ -12,6 +12,10 @@
 //    各寫死一次，所以在健檢上錯了兩次。
 
 import { test, describe } from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+import { fromRoot } from './helpers/paths.js';
 import assert from 'node:assert/strict';
 
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
@@ -577,5 +581,44 @@ describe('客人退掉的那一段不再承諾任何掛號（ADR-0081）', () =>
       ],
     };
     assert.deepEqual(pendingRegistrations(v, COURSES).sort(), ['Examine', '耀聖']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * **「按下去會發生什麼」那幾句只寫在 `domain/consequences.js`**（ADR-0070）。
+ *
+ * 批次取消那一頁自己寫了一次「十秒後自動同步到試算表」，而那個十秒是
+ * `data/sheetSync.js` 的 `QUIET_MS` —— 改了那個常數，四個入口跟著改，
+ * 自己寫的那一句不會。這條掃原始碼，因為那種分岔在畫面上看不出來：
+ * 兩邊都印得出一句話，只是其中一句已經不是真的了。
+ */
+describe('畫面不自己寫後果那幾句', () => {
+  const MINE = [
+    '十秒後自動同步到試算表',
+    '改期不是改日期，是取消後重新排一筆',
+    '次數也會還回來',
+  ];
+
+  test('那幾句一個字都沒有出現在 ui/ 底下', () => {
+    const files = execFileSync('git', ['ls-files', 'public/js/ui'], { encoding: 'utf8' })
+      .split(NL).filter((f) => f.endsWith('.js'));
+
+    const offenders = [];
+    for (const rel of files) {
+      const src = readFileSync(fromRoot() + rel, 'utf8');
+      src.split(NL).forEach((line, i) => {
+        // 註解裡提到它是在解釋，不是在畫它
+        const code = line.trim();
+        if (code.startsWith('//') || code.startsWith('*')) return;
+        for (const said of MINE) {
+          if (code.includes(said)) offenders.push(`${rel}:${i + 1}　${code}`);
+        }
+      });
+    }
+
+    assert.deepEqual(offenders, [],
+      `這幾句要走 domain/consequences.js，不要自己寫一次：${NL}${offenders.join(NL)}`);
   });
 });

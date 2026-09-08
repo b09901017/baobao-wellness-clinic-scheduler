@@ -1416,7 +1416,7 @@ function openNoteEditor(el, data, spec) {
  *          coursesById?:object, today?:string, focusSlot?:number|null}} data
  */
 export function visitReadHtml(visit, data) {
-  const { slots, hidden } = slotsToShow(visit, data?.focusSlot ?? null);
+  const { slots } = slotsToShow(visit, data?.focusSlot ?? null);
   return `
     ${slots.map(({ slot: s }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
@@ -1442,8 +1442,6 @@ export function visitReadHtml(visit, data) {
         </div>`;
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
 
-    ${hidden ? `
-      <p class="readmore">這一天還有另外 ${hidden} 段</p>` : ''}
 
     ${visit.note ? `
       <div class="readrow">
