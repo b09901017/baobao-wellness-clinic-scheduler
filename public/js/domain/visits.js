@@ -221,7 +221,14 @@ export function withExtraSlot(visit, slot, { note } = {}) {
     visit: {
       ...visit,
       note: note === undefined ? (visit.note ?? null) : note,
-      slots: [...(visit.slots ?? []), slot],
+      // **既有那幾段先把自己現在的狀態落下來**（ADR-0081）：整筆退回「待確認」
+      // 之後，沒有 `slot.status` 的舊時段會跟著退回去 —— 而她其實已經跟客人
+      // 談定那兩段了。落下來之後確認動線只會問新加的這一段。
+      slots: [
+        ...(visit.slots ?? []).map((s) => ({ ...s, status: slotStatus(visit, s) ?? visit.status })),
+        // 新加的這一段還沒問過客人 —— 整筆退回「待確認」就是這樣推出來的
+        { ...slot, status: slot?.status ?? INITIAL_STATUS },
+      ],
       ...(reopened
         // confirmedAt 一起清掉 —— 留著的話詳情頁會寫「客戶已確認」的時間戳，
         // 而那一筆現在是待確認的。
@@ -375,10 +382,71 @@ export function slotsToShow(visit, focusSlot = null) {
  * @returns {string|null} VISIT_STATUSES 裡的一個，或 null（已刪除）
  */
 export function slotStatus(visit, slot) {
+  if (!visit || visit.deletedAt) return null;
+
+  // **整筆取消蓋過時段上還沒定案的那一格。** 2026-09-08 之前的 app 只寫整筆，
+  // 而一格停在 `confirmed` 的舊時段不可以推翻它 —— 那一段會一直佔著次數。
+  // 刪掉與取消是同一種「什麼都沒發生」，所以兩條擺在一起。
+  if (visit.status === 'cancelled') return 'cancelled';
+
+  // 時段自己說了算（ADR-0081）。認不得的值當成沒寫過 —— 退回舊的推法
+  // 比吐一個沒有人認得的狀態好。
+  const own = slot?.status ?? null;
+  if (own && VISIT_STATUSES.includes(own)) return own;
+
+  // 舊資料：從整筆推。**這一段跟 2026-09-08 之前一模一樣**，
+  // 所以那幾百筆來訪一個字都不用改。
   const outcome = slotOutcome(visit, slot);
   if (outcome === 'done' || outcome === 'no_show') return outcome;
-  if (visit?.deletedAt) return null;
+  return visit.status ?? null;
+}
+
+/**
+ * 整筆的狀態是**從時段推出來的**（ADR-0081）。
+ *
+ * 她 2026-09-08：「本來就應該可以只取消某一段或是可以一起取消整天啊？」
+ * 排班的原子單位因此下移到時段，來訪退化成「那一天的容器」。
+ *
+ * **推出來的值照樣存進文件**，因為有四個地方讀 `visit.status` 而它們都不該
+ * 為這件事動：`firestore.indexes.json` 的複合索引、`firestore.rules` 的
+ * `validVisit()`、試算表報表、備份還原。存一份推導出來的值是刻意的重複，
+ * 資料健檢有一列盯著它有沒有對不起來。
+ *
+ * 由「還沒定案」往「定案」比，**第一個對上的算數** —— 順序就是她做事的順序
+ * （同 `dayReview.js` 的 `STAGES`）：
+ *
+ *   1  全部取消              → cancelled
+ *   2  有一段還沒問過客人    → pending_confirm
+ *   3  有一段談定了          → confirmed
+ *   4  有一段做了            → done
+ *   5  其餘                  → no_show
+ *
+ * 第 4、5 條把 `closeVisit()` 那句「一段都沒做就是整筆未到」原封不動接了過來。
+ *
+ * **舊資料上是冪等的**：沒有 `slot.status` 的來訪，每一段都退回整筆那一個，
+ * 所以推出來的還是它自己。一段都沒有時也維持原本那一個 —— 吐 `null` 的話
+ * 呼叫端會寫一個沒有狀態的來訪進去，而 Rules 會擋下來（畫面上看不出為什麼）。
+ */
+export function visitStatusFrom(visit) {
+  const slots = visit?.slots ?? [];
+  if (!slots.length) return visit?.status ?? null;
+
+  const each = slots.map((slot) => slotStatus(visit, slot));
+  if (each.every((x) => x === 'cancelled')) return 'cancelled';
+  if (each.includes('pending_confirm')) return 'pending_confirm';
+  if (each.includes('confirmed')) return 'confirmed';
+  if (each.includes('done')) return 'done';
+  if (each.includes('no_show')) return 'no_show';
   return visit?.status ?? null;
+}
+
+/**
+ * 一段蓋上新的狀態。整筆改狀態時**已經取消掉的那一段不會被救回來** ——
+ * 取消是定案，而她按的「客戶說可以」講的是還在談的那幾段。
+ */
+function stampSlot(slot, to) {
+  if (to !== 'cancelled' && slot?.status === 'cancelled') return slot;
+  return { ...slot, status: to };
 }
 
 /**
@@ -459,11 +527,21 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
  * @param {string} at ISO 時間
  */
 export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
-  const slots = (visit?.slots ?? []).map((slot, i) => ({
-    ...slot,
-    attended: attended[i] ?? true,
-  }));
-  const anyAttended = slots.some((s) => s.attended);
+  const slots = (visit?.slots ?? []).map((slot, i) => {
+    // **取消掉的那一段不參與收尾** —— 那天它本來就不會發生（ADR-0081）。
+    // 蓋過去的話它會被算成「沒來」，而未到是會被她看到的一個數字。
+    if (slot?.status === 'cancelled') return slot;
+    const did = attended[i] ?? true;
+    // 兩個欄位一起寫：`attended` 是 ADR-0025 的，既有資料與對帳讀它；
+    // `status` 是 ADR-0081 的。少寫一邊就會有一個畫面講另一句話。
+    return { ...slot, attended: did, status: did ? 'done' : 'no_show' };
+  });
+
+  const live = slots.filter((s) => s?.status !== 'cancelled');
+  // 每一段都先取消掉了才走到這裡：那一天就是取消，不是未到
+  if (!live.length) return { ...visit, slots, status: 'cancelled', statusAt: at };
+
+  const anyAttended = live.some((s) => s.attended);
 
   return {
     ...visit,
@@ -491,14 +569,56 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  * @param {{at?: string, reason?: string|null}} [o] reason 只有取消才用得到
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
-export function applyStatus(visit, to, { at = new Date().toISOString(), reason = null } = {}) {
+export function applyStatus(
+  visit, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
+) {
+  const slots = visit?.slots ?? [];
+
+  // ---------- 只動一段（ADR-0081） ----------
+  //
+  // 她 2026-09-08：「僅能取消被選中的該筆時段來訪，嚴禁一次連帶將該客戶
+  // 當天的所有時段預約全部取消！」
+  //
+  // **指到一個不存在的段落什麼都不做。** 退回去改整筆是最壞的一種答案 ——
+  // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
+  // 兩種錯法的代價差很多。
+  if (Number.isInteger(slotIndex)) {
+    if (!slots[slotIndex]) return visit;
+    return settle(
+      { ...visit, slots: slots.map((s, i) => (i === slotIndex ? { ...s, status: to } : s)) },
+      { at, reason },
+    );
+  }
+
+  // ---------- 一整天 ----------
   let next = to === 'done' || to === 'no_show'
-    ? closeVisit(visit, (visit?.slots ?? []).map(() => to === 'done'), at)
-    : { ...visit, status: to, statusAt: at };
+    ? closeVisit(visit, slots.map(() => to === 'done'), at)
+    : { ...visit, slots: slots.map((s) => stampSlot(s, to)), status: to, statusAt: at };
 
   if (to === 'confirmed') next = { ...next, confirmedAt: at };
   if (to === 'cancelled') {
     next = { ...next, cancelledAt: at, cancelReason: reason, released: false };
+  }
+  return next;
+}
+
+/**
+ * 時段改過之後，整筆的狀態重推一次。
+ *
+ * **沒變就不要蓋時間戳**：三段取消掉第一段時整筆還是「已確認」，
+ * 而那一刻沒有任何狀態轉換發生 —— 蓋上去的話稽核紀錄會多一筆
+ * 「狀態從已確認改成已確認」，而她在找的是真正變過的那幾次。
+ */
+function settle(visit, { at, reason = null }) {
+  const derived = visitStatusFrom(visit) ?? visit.status ?? null;
+  if (derived === visit.status) return visit;
+
+  const next = { ...visit, status: derived, statusAt: at };
+  if (derived === 'confirmed') next.confirmedAt = at;
+  if (derived === 'cancelled') {
+    next.cancelledAt = at;
+    next.cancelReason = reason;
+    next.released = false;
   }
   return next;
 }

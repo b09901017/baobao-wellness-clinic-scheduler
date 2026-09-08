@@ -16,6 +16,7 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
+  visitStatusFrom,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1367,4 +1368,180 @@ test('會講「那天做了什麼」的畫面都帶著主檔', () => {
   // 歷史紀錄不該跟著變。改這一行之前先想清楚那件事。
   const audit = read('js/domain/audit.js');
   assert.match(audit, /visitCourseLabel\(d\)/, '稽核要維持讀快照');
+});
+
+
+// ---------- 時段才是原子單位（ADR-0081） ----------
+//
+// 2026-08-20 的 ADR-0025 只把「結果」搬到時段上（`attended`），
+// 待確認／已確認／已取消留在整筆。它當時的理由是「同一天的時段是一起壓、
+// 一起問的」—— 那句話對**確認**成立，對**取消**不成立：取消是事後一段一段
+// 發生的（機器壞了、治療師請假、只想改那一段）。
+//
+// 所以整條生命週期搬到 `slot.status`，而 `visit.status` 改成推導出來的。
+// **舊資料零遷移**：沒有 `slot.status` 就退回整筆，答案要跟 2026-09-08 一模一樣。
+
+describe('整筆的狀態由時段推出來（visitStatusFrom）', () => {
+  const v = (statuses, over = {}) => ({
+    id: 'v1', status: 'confirmed', date: '2026-09-10',
+    slots: statuses.map((status, i) => ({ entitlementId: 'e' + i, status })),
+    ...over,
+  });
+
+  test('全部取消 → 整筆取消', () => {
+    assert.equal(visitStatusFrom(v(['cancelled', 'cancelled'])), 'cancelled');
+  });
+
+  test('有一段還沒問過客人 → 整筆待確認', () => {
+    assert.equal(visitStatusFrom(v(['confirmed', 'pending_confirm'])), 'pending_confirm');
+    // 這正是「併一段進已確認的來訪」要的效果 —— 不必特別寫 reopened
+    assert.equal(visitStatusFrom(v(['done', 'pending_confirm'])), 'pending_confirm');
+  });
+
+  test('都談定了、還沒發生 → 已確認', () => {
+    assert.equal(visitStatusFrom(v(['confirmed', 'confirmed'])), 'confirmed');
+    assert.equal(visitStatusFrom(v(['confirmed', 'cancelled'])), 'confirmed');
+  });
+
+  test('有一段做了 → 已完成（取消掉的那幾段不算數）', () => {
+    assert.equal(visitStatusFrom(v(['done', 'no_show'])), 'done');
+    assert.equal(visitStatusFrom(v(['done', 'cancelled'])), 'done');
+  });
+
+  test('一段都沒做 → 未到', () => {
+    assert.equal(visitStatusFrom(v(['no_show', 'no_show'])), 'no_show');
+    assert.equal(visitStatusFrom(v(['no_show', 'cancelled'])), 'no_show');
+  });
+
+  test('舊資料沒有 slot.status 時，推出來的就是它現在那一個（冪等）', () => {
+    for (const status of VISIT_STATUSES) {
+      const legacy = {
+        id: 'old', status,
+        slots: [{ entitlementId: 'e1' }, { entitlementId: 'e2' }],
+      };
+      assert.equal(visitStatusFrom(legacy), status, status + ' 被推成別的了');
+    }
+  });
+
+  test('舊來訪身上 attended 的讀法一個字都不變', () => {
+    const closed = {
+      id: 'old', status: 'done',
+      slots: [{ entitlementId: 'e1', attended: true }, { entitlementId: 'e2', attended: false }],
+    };
+    assert.equal(visitStatusFrom(closed), 'done');
+  });
+
+  test('一段都沒有時維持原本那一個 —— 不要吐 null', () => {
+    assert.equal(visitStatusFrom({ status: 'confirmed', slots: [] }), 'confirmed');
+  });
+});
+
+describe('一段自己的狀態（slotStatus 讀 slot.status）', () => {
+  test('時段自己說了算', () => {
+    const v = { status: 'confirmed', slots: [] };
+    assert.equal(slotStatus(v, { status: 'cancelled' }), 'cancelled');
+    assert.equal(slotStatus(v, { status: 'pending_confirm' }), 'pending_confirm');
+    assert.equal(slotStatus(v, { status: 'done' }), 'done');
+  });
+
+  test('整筆取消蓋過時段上還沒定案的那一格', () => {
+    // 舊版的 app 只寫整筆。那時候寫下去的 cancelled 不可以被一格
+    // 停在 confirmed 的時段推翻，不然那一段會一直佔著次數。
+    const v = { status: 'cancelled', slots: [] };
+    assert.equal(slotStatus(v, { status: 'confirmed' }), 'cancelled');
+  });
+
+  test('已刪除的仍然沒有狀態', () => {
+    assert.equal(slotStatus({ status: 'confirmed', deletedAt: 'x' }, { status: 'confirmed' }), null);
+  });
+});
+
+describe('只取消其中一段（applyStatus 的 slotIndex）', () => {
+  const v = () => ({
+    id: 'v1', status: 'confirmed', date: '2026-09-10',
+    slots: [
+      { entitlementId: 'e1', startsAt: '10:30' },
+      { entitlementId: 'e2', startsAt: '11:30' },
+      { entitlementId: 'e3', startsAt: '13:00' },
+    ],
+  });
+
+  test('只有那一段變成取消，其餘兩段一個字都不動', () => {
+    const next = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 1, reason: '機器壞了' });
+    assert.equal(next.slots[1].status, 'cancelled');
+    assert.equal(next.slots[0].startsAt, '10:30');
+    assert.equal(next.slots[2].startsAt, '13:00');
+    assert.ok(next.slots[0].status !== 'cancelled');
+    assert.ok(next.slots[2].status !== 'cancelled');
+  });
+
+  test('還有段活著，整筆維持已確認 —— 不會被一段拖成取消', () => {
+    const next = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 1 });
+    assert.equal(next.status, 'confirmed');
+  });
+
+  test('最後一段也取消掉 → 整筆才變成取消', () => {
+    let next = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 0 });
+    next = applyStatus(next, 'cancelled', { at: 'T', slotIndex: 1 });
+    assert.equal(next.status, 'confirmed');
+    next = applyStatus(next, 'cancelled', { at: 'T', slotIndex: 2 });
+    assert.equal(next.status, 'cancelled');
+    assert.equal(next.cancelledAt, 'T');
+  });
+
+  test('不動到原本那一份', () => {
+    const before = v();
+    applyStatus(before, 'cancelled', { at: 'T', slotIndex: 0 });
+    assert.equal(before.status, 'confirmed');
+    assert.ok(!('status' in before.slots[0]));
+  });
+
+  test('沒帶 slotIndex 就是一整天 —— 每一段都取消', () => {
+    const next = applyStatus(v(), 'cancelled', { at: 'T', reason: '出國' });
+    assert.equal(next.status, 'cancelled');
+    assert.ok(next.slots.every((s) => s.status === 'cancelled'));
+    assert.equal(next.cancelReason, '出國');
+  });
+
+  test('整筆改狀態時，已經取消掉的那一段不會被救回來', () => {
+    const one = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 1 });
+    const all = applyStatus(one, 'confirmed', { at: 'T2' });
+    assert.equal(all.slots[1].status, 'cancelled', '那一段已經取消了');
+    assert.equal(all.slots[0].status, 'confirmed');
+    assert.equal(all.status, 'confirmed');
+  });
+
+  test('指到一個不存在的段落什麼都不做 —— 畫錯比整筆改掉好', () => {
+    const before = v();
+    assert.deepEqual(applyStatus(before, 'cancelled', { at: 'T', slotIndex: 9 }), before);
+  });
+});
+
+describe('結案時兩邊講同一句話（closeVisit 也寫 slot.status）', () => {
+  const v = (over = {}) => ({
+    id: 'v1', status: 'confirmed', date: '2026-09-10',
+    slots: [{ entitlementId: 'e1' }, { entitlementId: 'e2' }],
+    ...over,
+  });
+
+  test('做了的那一段兩個欄位都寫', () => {
+    const next = closeVisit(v(), [true, false], 'T');
+    assert.deepEqual(next.slots.map((s) => s.attended), [true, false]);
+    assert.deepEqual(next.slots.map((s) => s.status), ['done', 'no_show']);
+    assert.equal(next.status, 'done');
+  });
+
+  test('取消掉的那一段不參與收尾，也不會被算成沒來', () => {
+    const one = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 0 });
+    const next = closeVisit(one, [true, true], 'T2');
+    assert.equal(next.slots[0].status, 'cancelled', '取消的維持取消');
+    assert.equal(next.slots[1].status, 'done');
+    assert.equal(next.status, 'done');
+  });
+
+  test('活著的那幾段都沒做 → 整筆未到（取消的不算）', () => {
+    const one = applyStatus(v(), 'cancelled', { at: 'T', slotIndex: 0 });
+    const next = closeVisit(one, [true, false], 'T2');
+    assert.equal(next.status, 'no_show');
+  });
 });

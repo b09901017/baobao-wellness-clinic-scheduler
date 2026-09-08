@@ -1,6 +1,6 @@
 # 時段帶狀態，來訪的狀態改成推導
 
-Status: todo
+Status: done
 PR: 1（地基）
 動工前先讀：`docs/adr/0025`、`domain/visits.js` 的 `applyStatus()` 與 `closeVisit()`
 
