@@ -107,3 +107,58 @@ describe('開機時蓋上去的那一段', () => {
     }
   });
 });
+
+// 這一輪動到 UI 的地方（名稱怎麼寫、備忘錄的分段切換、批次取消、抽屜收合）
+// 都要守住同一條線：**用既有的動作 token，不新增第四種時長。**
+//
+// 新增一個 motion token 的代價是淺色深色兩份都要改（CLAUDE.md 那一列），
+// 而且下一個人會不知道該用哪一個。三段時長對到三件事，那個對照表就是判準。
+describe('動作與觸控的底線', () => {
+  const CSS = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+  const TOKENS = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8');
+
+  test('只有三種時長，一種曲線', () => {
+    const names = [...TOKENS.matchAll(/--motion-[a-z]+:/g)].map((m) => m[0]);
+    assert.deepEqual([...new Set(names)].sort(),
+      ['--motion-base:', '--motion-fast:', '--motion-slow:']);
+  });
+
+  // **只盯這一輪加的那幾塊。** 樣式表裡還有九條 2026-08 寫死的秒數
+  // （`0.16s`、`0.15s` 那些），把它們一起改是一次沒有人要求的重構，
+  // 而且會動到每一個畫面的手感。這一支要防的是**新的**再長出來。
+  test('這一輪新加的過場都走 --motion-*', () => {
+    const BLOCKS = ['.namerow__edit', '.seg__btn', '.bulkrow', '.bulkrow__box', '.bulkcal__day'];
+    for (const cls of BLOCKS) {
+      const at = CSS.indexOf(`${cls} {`);
+      assert.ok(at > 0, `找不到 ${cls}`);
+      const body = CSS.slice(at, CSS.indexOf('}', at));
+      if (!body.includes('transition:')) continue;
+      assert.match(body, /var\(--motion-/, `${cls} 的過場要用 --motion-*`);
+    }
+  });
+
+  test('`prefers-reduced-motion` 那一段還在，而且是對 * 生效的', () => {
+    assert.match(CSS, /@media \(prefers-reduced-motion: reduce\)/);
+    assert.match(CSS, /transition-duration: 0\.01ms !important/);
+  });
+
+  test('這一輪新加的過場沒有人用 !important 蓋掉它', () => {
+    // 蓋掉的話那一段動畫在她開了「減少動態效果」之後照樣會動
+    const forced = [...CSS.matchAll(/transition[^;]*!important/g)].map((m) => m[0]);
+    assert.deepEqual(forced.filter((t) => !t.includes('0.01ms')), []);
+  });
+
+  test('新加的可點元素都撐得到 44px', () => {
+    // 視覺上可以小，靠 ::after 把感應範圍撐回去（`.drawer__grip` 的做法）
+    for (const cls of ['.namerow__edit', '.seg__btn']) {
+      const at = CSS.indexOf(`${cls}::after`);
+      assert.ok(at > 0, `${cls} 少了撐開感應範圍的 ::after`);
+    }
+    // 這幾種本來就給得起整列的高度
+    for (const cls of ['.bulkrow', '.bulkcal__day']) {
+      const at = CSS.indexOf(`${cls} {`);
+      const body = CSS.slice(at, at + 500);
+      assert.match(body, /min-height: var\(--tap-min\)/, `${cls} 要有 --tap-min`);
+    }
+  });
+});
