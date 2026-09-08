@@ -47,8 +47,9 @@
 
 import * as config from '../../data/config.js';
 import { slotName } from '../../domain/naming.js';
-import { poolName } from '../../domain/entitlements.js';
-import { poolChoices, poolCourseOf, poolSiblingCourseIds } from '../components/buy.js';
+import {
+  poolName, poolChoices, poolCourseOf, poolSiblingCourseIds,
+} from '../../domain/entitlements.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';

@@ -31,6 +31,7 @@ import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
+  poolCourseOf,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import {
@@ -1530,7 +1531,7 @@ function advancedDigest(e, isNew, master) {
  */
 /** 這一筆的「幾分鐘」要問哪一個課程。擇一池問復能，其餘問它自己。 */
 function durationCourse(e, master) {
-  if (e?.type === 'pool') return buy.poolCourseOf(master);
+  if (e?.type === 'pool') return poolCourseOf(master);
   return (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
 }
 
