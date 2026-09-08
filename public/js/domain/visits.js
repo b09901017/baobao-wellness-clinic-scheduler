@@ -448,6 +448,30 @@ export function slotStatus(visit, slot) {
 }
 
 /**
+ * 一張卡片的抬頭要印哪一個狀態。
+ *
+ * 她 2026-09-09：「狀態是不是每個時段都有的，不會彼此因為是一整天同一個人
+ * 所以會互相影響？」
+ *
+ * 資料從 ADR-0081 起就是逐段的，但讀取卡片與長按選單的抬頭還在印整筆那一個。
+ * 而那個落差**是真的會發生的**：她加兩段沒問過客人的進去，整筆就退回
+ * 「待確認」（`withExtraSlot()` / `visitStatusFrom()`）—— 這時候點早上那段
+ * 已經談定的，抬頭會寫「已壓表，等客戶回覆」。
+ *
+ * **沒帶就是整筆**：客戶詳情、待辦中心、進度追蹤列的本來就是整筆來訪
+ * （同 `slotsToShow()`）。指到一個不存在的段落也退回整筆 —— 印一個猜的
+ * 比印錯那一段的好。
+ *
+ * @param {object} visit
+ * @param {number|null} [slotIndex]
+ * @returns {string|null}
+ */
+export function statusForCard(visit, slotIndex = null) {
+  const slot = Number.isInteger(slotIndex) ? (visit?.slots ?? [])[slotIndex] : null;
+  return (slot ? slotStatus(visit, slot) : null) ?? visit?.status ?? null;
+}
+
+/**
  * 整筆的狀態是**從時段推出來的**（ADR-0081）。
  *
  * 她 2026-09-08：「本來就應該可以只取消某一段或是可以一起取消整天啊？」

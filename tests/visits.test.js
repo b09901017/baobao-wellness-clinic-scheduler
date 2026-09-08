@@ -18,6 +18,7 @@ import {
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
   sameDayVisitFor,
   visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
+  statusForCard,
   NOTE_MAX,
 } from '../public/js/domain/visits.js';
 
@@ -1902,5 +1903,51 @@ describe('一段身上那一句話存不存得下去', () => {
   test('剛好那麼長存得下去', () => {
     const ok = { ...base, slots: [{ ...base.slots[0], note: 'x'.repeat(NOTE_MAX) }] };
     assert.deepEqual(validateVisit(ok, ctx).errors, []);
+  });
+});
+
+// 她 2026-09-09：「狀態是不是每個時段都有的，不會彼此因為是一整天同一個人
+// 所以會互相影響？」
+//
+// 資料早就逐段了（ADR-0081），畫面還在印整筆。而那個落差是真的會發生的：
+// 加兩段沒問過客人的進去 → 整筆退回「待確認」→ 她點早上那段已確認的，
+// 抬頭卻寫「等客戶回覆」。
+describe('卡片抬頭要講那一段的狀態（statusForCard）', () => {
+  const v = {
+    status: 'pending_confirm',
+    slots: [
+      { courseId: 'a', status: 'confirmed' },
+      { courseId: 'b', status: 'cancelled' },
+      { courseId: 'c', status: 'pending_confirm' },
+    ],
+  };
+
+  test('點第 1 段：那一段是已確認，就算整筆退回了待確認', () => {
+    assert.equal(statusForCard(v, 0), 'confirmed');
+  });
+
+  test('點第 2 段：已取消', () => {
+    assert.equal(statusForCard(v, 1), 'cancelled');
+  });
+
+  test('沒帶就是整筆 —— 另外三頁列的本來就是整筆來訪', () => {
+    assert.equal(statusForCard(v, null), 'pending_confirm');
+    assert.equal(statusForCard(v), 'pending_confirm');
+  });
+
+  test('指到一個不存在的段落也退回整筆（同 slotsToShow() 的退路）', () => {
+    assert.equal(statusForCard(v, 9), 'pending_confirm');
+    assert.equal(statusForCard(v, -1), 'pending_confirm');
+  });
+
+  test('舊來訪（沒有 slot.status）逐段問也是整筆那一個', () => {
+    const old = { status: 'confirmed', slots: [{ courseId: 'a' }, { courseId: 'b' }] };
+    assert.equal(statusForCard(old, 0), 'confirmed');
+    assert.equal(statusForCard(old, 1), 'confirmed');
+  });
+
+  test('整筆取消蓋過那一段（同 slotStatus()）', () => {
+    const dead = { status: 'cancelled', slots: [{ courseId: 'a', status: 'confirmed' }] };
+    assert.equal(statusForCard(dead, 0), 'cancelled');
   });
 });

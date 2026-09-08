@@ -190,3 +190,34 @@ describe('一人一天一筆（issue 04）', () => {
     assert.ok(!body.includes('ctx.isNew'), '新加的那一段走取消那條路會長出一張假的「取消 Abovee」');
   });
 });
+
+// 她 2026-09-09：「我也根本不需要知道這天還有另外多少個時段，不需要。」
+describe('畫面上一律講那一段（issue 06）', () => {
+  const CAL2 = readFileSync(
+    new URL('../public/js/ui/views/calendar.js', import.meta.url), 'utf8',
+  );
+  const code = CAL2
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(String.fromCharCode(10))
+    .filter((l) => !l.trim().startsWith('//'))
+    .join(String.fromCharCode(10));
+
+  test('讀取卡片抬頭印那一段的狀態', () => {
+    assert.match(code, /describeStatus\(statusForCard\(visit, focus\)\)/);
+  });
+
+  test('長按選單抬頭也是', () => {
+    assert.match(code, /describeStatus\(statusForCard\(visit, slotIndex\)\)/);
+  });
+
+  test('「共 N 段」一個字都不剩', () => {
+    assert.ok(!/共 \$\{slots\.length\} 段/.test(code));
+  });
+
+  test('但「取消一整天（N 段）」那個數字留著 —— 那是煞車不是資訊', () => {
+    const dom = readFileSync(
+      new URL('../public/js/domain/visits.js', import.meta.url), 'utf8',
+    );
+    assert.match(dom, /取消一整天（\$\{slots\.length\} 段）/);
+  });
+});

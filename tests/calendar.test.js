@@ -258,7 +258,10 @@ describe('取消的來訪（ADR-0061）', () => {
 });
 
 describe('每天的摘要', () => {
-  test('數來訪、數時段，等回覆的另外數', () => {
+  // **`pending` 數的是段數不是筆數**（2026-09-09，ADR-0085）。狀態本來就
+  // 逐段（ADR-0081），而月檢視底下畫的也是一段一條色條 —— 兩個數字用不同
+  // 的單位算，頂端寫「1 待確認」底下卻有兩條琥珀色。
+  test('數來訪、數時段，等回覆的逐段數', () => {
     const summary = summaryByDate([
       visit(),
       visit({ id: 'v2', customerName: '客戶二', status: 'pending_confirm',
@@ -268,9 +271,19 @@ describe('每天的摘要', () => {
 
     assert.equal(summary['2026-09-18'].visits, 2);
     assert.equal(summary['2026-09-18'].slots, 3);
-    assert.equal(summary['2026-09-18'].pending, 1);
+    assert.equal(summary['2026-09-18'].pending, 2, '那一筆的兩段都還沒問過');
     assert.deepEqual(summary['2026-09-18'].names, ['客戶一', '客戶二']);
     assert.equal(summary['2026-09-19'].visits, 1);
+  });
+
+  test('同一筆裡只有一段沒問過時，數的是 1 不是 2', () => {
+    const summary = summaryByDate([
+      visit({ id: 'v9', status: 'pending_confirm', slots: [
+        { startsAt: '09:00', status: 'confirmed' },
+        { startsAt: '10:30', status: 'pending_confirm' },
+      ] }),
+    ]);
+    assert.equal(summary['2026-09-18'].pending, 1);
   });
 
   test('取消與刪除的不算，沒有那天就是沒有那個鍵', () => {

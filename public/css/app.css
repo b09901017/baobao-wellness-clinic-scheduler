@@ -4651,6 +4651,17 @@ button.mark::after {
   inset: -8px;
 }
 
+/* 「這一天共用」。任務綁的是一整筆來訪，所以同一張會出現在那幾段的卡片上
+   —— 標出來她才知道勾掉一次兩邊都會掉。跟著種類名走，不自成一欄。 */
+.taskmirror__shared {
+  margin-left: var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
 /* 一段時段身上那一句話（ADR-0084）。三種狀態，而版面的規矩只有兩條：
    **空的不佔位、有字的一定看得到。**
 

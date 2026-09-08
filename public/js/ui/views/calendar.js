@@ -37,7 +37,7 @@ import {
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
 import {
-  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
+  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
   applyStatus, visitActions, slotsToShow, showsRoom,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
@@ -862,7 +862,7 @@ function openDetail(el, data, hit, date, repaint) {
 
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
+    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
     // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
     // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
     body: html(undefined),
@@ -1016,18 +1016,20 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   // **抬頭要講清楚她長按的是哪一段。** 2026-09-08 之前這裡寫的是
   // 「這一天共 N 段，底下這幾顆動的是整筆」—— 那是在替一個 bug 道歉
   //（ADR-0080 第四點）。現在「取消這一段」真的只動那一段，所以抬頭改成
-  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。
+  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。抬頭印的
+  // 狀態也換成那一段自己的（ADR-0085）—— 整筆那一個在這裡是錯的。
   //
-  // 只在真的不只一段時才講：每一次都寫「共 1 段」等於把那一行變成裝飾。
+  // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
+  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那個數字留著**：
+  // 那不是資訊，是煞車（ADR-0070，她 2026-09-09 明確說可以）。
   const slots = visit.slots ?? [];
-  const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
-  const which = one && slots.length > 1
-    ? `・第 ${slotIndex + 1} 段（共 ${slots.length} 段）`
+  const which = Number.isInteger(slotIndex) && slots.length > 1 && slots[slotIndex]
+    ? `・第 ${slotIndex + 1} 段`
     : '';
 
   openActions({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${shortDate(visit.date)}・${describeStatus(visit.status)}${which}`,
+    subtitle: `${shortDate(visit.date)}・${describeStatus(statusForCard(visit, slotIndex))}${which}`,
     items,
     onPick: (action) => runVisitAction(el, data, visit, action, backDate, slotIndex),
   });
