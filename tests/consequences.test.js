@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
 import {
   bookingSystemLabel, pendingRegistrations, bookingConsequences, confirmConsequences,
-  closeConsequences, untickConsequences, cancelConsequences,
+  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -620,5 +620,30 @@ describe('畫面不自己寫後果那幾句', () => {
 
     assert.deepEqual(offenders, [],
       `這幾句要走 domain/consequences.js，不要自己寫一次：${NL}${offenders.join(NL)}`);
+  });
+});
+
+// 存檔前那一道「這幾段先看一下」（ADR-0070 的同一條線：只講真的會發生的事）。
+describe('先看一下那一道（reviewWarnings）', () => {
+  test('一句都沒有就不用問 —— 呼叫端拿 null 當閘門', () => {
+    assert.equal(reviewWarnings([]), null);
+    assert.equal(reviewWarnings(), null);
+    assert.equal(reviewWarnings(['', '   ']), null, '空字串不算一件事');
+  });
+
+  test('句子照抄，不重寫一遍', () => {
+    const said = reviewWarnings(['「復能-三選一(60)」排完這次會超過總次數', '第 2 個時段還沒選治療師']);
+    assert.deepEqual(said.lines, ['「復能-三選一(60)」排完這次會超過總次數', '第 2 個時段還沒選治療師']);
+  });
+
+  test('抬頭講出幾件', () => {
+    assert.equal(reviewWarnings(['一件事']).title, '這一段先看一下');
+    assert.equal(reviewWarnings(['a', 'b', 'c']).title, '這 3 件先看一下');
+  });
+
+  test('兩顆按鈕都講出按下去會怎樣，不是「確定／取消」', () => {
+    const said = reviewWarnings(['x']);
+    assert.equal(said.confirmLabel, '知道了，繼續');
+    assert.equal(said.cancelLabel, '回去改');
   });
 });

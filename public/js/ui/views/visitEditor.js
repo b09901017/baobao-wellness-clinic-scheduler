@@ -20,7 +20,7 @@ import {
   applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences, reviewWarnings } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -244,7 +244,7 @@ function paint(ctx, draft) {
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   const wholeVisit = !isNew && !ctx.editSlots;
 
-  const { errors, warnings } = validateVisit(draft, {
+  const { errors } = validateVisit(draft, {
     customer,
     entitlements,
     courses: all.courses,
@@ -266,8 +266,11 @@ function paint(ctx, draft) {
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
         ${flagsUi.detailChips(splitFlags(customer, all.clinicalFlags), { rows: all.clinicalFlags })}
       </div>
+      ${/* **提醒那一塊不在這裡了**（2026-09-09）。她的原話：「所以新增來訪的
+             這個表單最上面就不需要還有一個提醒了」—— 那幾句話改成存檔前
+             跳一道（`submit()`），而且只在真的有話要講的時候跳。
+             errors 留著：那是擋著不讓存的，不是提醒。 */''}
       <div class="errors" data-errors hidden></div>
-      ${warnings.length ? warningsHtml(warnings, embedded) : ''}
     </section>
 
     ${locked ? lockedCard(embedded) : ''}
@@ -298,9 +301,8 @@ function paint(ctx, draft) {
           <button class="btn btn--primary" type="submit">${hasNewSlots(ctx, draft) ? '記錄這次來訪' : '儲存'}</button>
           <button class="btn" type="button" data-cancel-edit>取消</button>
         </div>
-        ${ctx.submitted && errors.length
-          ? '<p class="muted">上面紅色的問題要先處理才存得下去。</p>'
-          : ''}
+        ${/* 「上面紅色的問題要先處理才存得下去」拿掉了（2026-09-09）——
+               紅色的那幾行自己就在說這件事，而她要的是少一點字。 */''}
       </section>
     </form>
 
@@ -381,14 +383,6 @@ function paint(ctx, draft) {
   if (wholeVisit) wireDangerZone(ctx, draft);
 }
 
-function warningsHtml(warnings, embedded = false) {
-  return `
-    <div class="card ${embedded ? 'card--flat' : ''}">
-      <h3 class="card__title">提醒</h3>
-      <ul class="muted">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
-      <p class="muted">這些都只是提醒，不會擋著不讓你存 —— app 看不到同事在 Abovee 上壓的東西。</p>
-    </div>`;
-}
 
 /**
  * 一個時段。
@@ -927,7 +921,7 @@ async function submit(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
 
-  const { errors } = validateVisit(draft, {
+  const { errors, warnings } = validateVisit(draft, {
     customer, entitlements,
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
     staff: all.staff, ivProducts: all.ivProducts,
@@ -938,6 +932,17 @@ async function submit(ctx, draft) {
     el.querySelector('[data-errors]')?.scrollIntoView({ block: 'center' });
     return;
   }
+
+  // **第一道：這幾段先看一下。** 超過次數、還沒選治療師那一類。
+  // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
+  // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
+  const review = reviewWarnings(warnings);
+  if (review && !await confirmAction({
+    title: review.title,
+    consequences: review.lines,
+    confirmLabel: review.confirmLabel,
+    cancelLabel: review.cancelLabel,
+  })) return;
 
   // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。

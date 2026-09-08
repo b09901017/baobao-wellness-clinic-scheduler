@@ -78,6 +78,43 @@ export function pendingRegistrations(visit, coursesById = {}) {
 }
 
 /**
+ * 存檔前那一道「這幾段先看一下」。
+ *
+ * 她 2026-09-08：
+ *
+ * > 我希望當我按下紀錄這「些」來訪…可以先提醒那個時段會導致超過次數、
+ * > 那個時段沒有選醫生診間等等，**如果沒有就可以不用提醒**。然後我按下
+ * > 了解之類的，才會再跳出壓 abovee 了嗎 的那些提醒。
+ *
+ * 所以這是**兩道**不是一道，而且第一道只在真的有東西要講的時候出現。
+ *
+ * **句子不在這裡組。** `validateVisit()` 的 warnings 本來就是完整的句子
+ * （「『復能-三選一(60)』排完這次會超過總次數」），照抄就好 —— 在這裡
+ * 重寫一遍等於同一件事有兩種說法，而她會以為那是兩件事。
+ *
+ * 回 `null` 代表**不用問**（一句提醒都沒有）。呼叫端拿它當閘門，
+ * 不要自己數 `warnings.length` —— 「幾句話算需要問」是一條規則。
+ *
+ * @param {string[]} warnings `validateVisit()` 回的那一份
+ * @returns {{title: string, lines: string[], confirmLabel: string,
+ *            cancelLabel: string}|null}
+ */
+export function reviewWarnings(warnings = []) {
+  const lines = (warnings ?? []).filter((w) => String(w ?? '').trim());
+  if (!lines.length) return null;
+
+  return {
+    // 講**幾件**，不要只寫「有一些提醒」—— 她要知道等一下要看幾行。
+    title: lines.length === 1 ? '這一段先看一下' : `這 ${lines.length} 件先看一下`,
+    lines,
+    // 兩顆都講出按下去會怎樣。「確定／取消」在這一道是模糊的：
+    // 這一道不是在問「要不要存」，是在問「你看過了嗎」。
+    confirmLabel: '知道了，繼續',
+    cancelLabel: '回去改',
+  };
+}
+
+/**
  * 「已經在 X 壓好表了嗎？」那一道確認要講的話。
  *
  * 只回**後果**那幾行，不回「誰、什麼時候、做什麼」那一行 —— 那一行要把課程、

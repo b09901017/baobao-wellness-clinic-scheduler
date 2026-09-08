@@ -221,3 +221,46 @@ describe('畫面上一律講那一段（issue 06）', () => {
     assert.match(dom, /取消一整天（\$\{slots\.length\} 段）/);
   });
 });
+
+// 她 2026-09-08：「我希望當我按下紀錄這『些』來訪…可以先提醒那個時段會導致
+// 超過次數、那個時段沒有選醫生診間等等，如果沒有就可以不用提醒。然後我按下
+// 了解之類的，才會再跳出壓 abovee 了嗎 的那些提醒。」
+describe('兩道確認框的順序（issue 10）', () => {
+  const code = SRC
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(String.fromCharCode(10))
+    .filter((l) => !l.trim().startsWith('//'))
+    .join(String.fromCharCode(10));
+
+  test('表單最上面那張「提醒」卡整個不見了', () => {
+    assert.ok(!code.includes('warningsHtml'), '她說「最上面就不需要還有一個提醒了」');
+    assert.ok(!code.includes("card__title\">提醒"));
+  });
+
+  test('errors 那一塊留著 —— 那是擋著不讓存的，不是提醒', () => {
+    assert.match(code, /data-errors/);
+  });
+
+  test('第一道走 domain，畫面不自己組句子', () => {
+    assert.match(code, /const review = reviewWarnings\(warnings\);/);
+    assert.match(code, /consequences: review\.lines/);
+  });
+
+  test('第一道排在 Abovee 那一道前面', () => {
+    const a = code.indexOf('reviewWarnings(warnings)');
+    const b = code.indexOf('bookingConsequences({');
+    assert.ok(a > 0 && b > 0 && a < b, '順序反了');
+  });
+
+  test('沒有 warnings 就不跳第一道', () => {
+    assert.match(code, /if \(review && !await confirmAction\(/);
+  });
+
+  test('兩顆按鈕都講出按下去會怎樣', () => {
+    const dom = readFileSync(
+      new URL('../public/js/domain/consequences.js', import.meta.url), 'utf8',
+    );
+    assert.match(dom, /confirmLabel: '知道了，繼續'/);
+    assert.match(dom, /cancelLabel: '回去改'/);
+  });
+});

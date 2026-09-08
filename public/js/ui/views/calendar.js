@@ -216,12 +216,12 @@ function paint(el, data) {
       }).join('')}
     </div>
 
-    <p class="footnote">
-      ${icon('info', { size: 14 })}
-      <span>這裡只有你自己排的。同事在 Abovee 壓的看不到 ——
-        空的格子不代表那個時段真的空著。</span>
-    </p>
+    ${/* 「這裡只有你自己排的、同事在 Abovee 壓的看不到」那一句 2026-09-09
+           拿掉了。她的原話：「我發現很多的提醒都會提到『app 看不到同事在
+           abovee 壓的東西』…這個提醒完全是多餘的，全域請掉」。
 
+           那件事本身沒有變（SPEC 第 4.7 節），只是不必在她每天開十幾次的
+           那一頁上重複講。 */''}
     <p class="footnote">
       ${icon('todo', { size: 14 })}
       <span>長按一列可以直接改。</span>
@@ -514,8 +514,7 @@ function dayHtml(data, date, today) {
   // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
   // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
   if (!merged.length && !allDay.length && !todos.length) {
-    return `<p class="muted" style="margin: 0">這天還沒有東西 ——
-      但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
+    return '<p class="muted" style="margin: 0">這天還沒有東西。</p>';
   }
 
   const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');

@@ -1,6 +1,6 @@
 # 「記錄這些來訪」：先講會出事的那幾段，按了了解才問 Abovee
 
-Status: todo
+Status: done
 來源：使用者，2026-09-08（需求三 2d）＋ 2026-09-09 確認順序
 動工前先讀：`docs/adr/0070`（一句話只能講真的會發生的事）、`domain/consequences.js`
 

@@ -22,7 +22,9 @@ let openDialog = null;
  * @param {boolean} [opts.danger] 破壞性操作，按鈕變紅
  * @returns {Promise<boolean>}
  */
-export function confirmAction({ title, consequences, confirmLabel = '確定', danger = false }) {
+export function confirmAction({
+  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false,
+}) {
   // 參數名打錯了要當場講出來。
   //
   // 這裡以前是直接對 `consequences` 做 `.map()`，所以傳錯名字（例如寫成 `body`）
@@ -61,7 +63,7 @@ export function confirmAction({ title, consequences, confirmLabel = '確定', da
           ${consequences.map((c) => `<li>${esc(c)}</li>`).join('')}
         </ul>
         <div class="dialog__actions">
-          <button class="btn" type="button" data-cancel>取消</button>
+          <button class="btn" type="button" data-cancel>${esc(cancelLabel)}</button>
           <button class="btn ${danger ? 'btn--danger' : 'btn--primary'}" type="button" data-ok>
             ${esc(confirmLabel)}
           </button>
