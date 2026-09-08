@@ -13,7 +13,7 @@
 
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
-import { counts, slotOutcome } from './entitlements.js';
+import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
 import { slotName } from './naming.js';
@@ -1175,8 +1175,9 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
   const out = [];
   const entsById = byId(entitlements);
 
-  // 把這一筆算進去，才知道存下去之後會不會超用
-  const withThis = [...customerVisits.filter((v) => v.id !== visit.id), visit];
+  // 把這一筆算進去，才知道存下去之後會不會超用。**組法只有一支**
+  // （`countsWithDraft()`）—— 額度那一排丸子上的數字走的也是它，
+  // 各組一次的話畫面會說「剩 1」而這裡說「會超過總次數」。
   const used = new Set();
 
   for (const slot of visit.slots ?? []) {
@@ -1184,7 +1185,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
     if (!ent || used.has(ent.id)) continue;
     used.add(ent.id);
 
-    const c = counts(ent, withThis, ent.id);
+    const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
       out.push(`「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`);
     }

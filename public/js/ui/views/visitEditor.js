@@ -19,7 +19,7 @@ import {
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
-import { counts, schedulable } from '../../domain/entitlements.js';
+import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
@@ -372,7 +372,11 @@ function slotCard(ctx, draft, slot, i) {
         name: `s${i}-ent`, label: '額度', value: nth ? NTH_PICK : slot.entitlementId,
         options: [
           ...entitlements.map((e) => {
-            const c = counts(e, customerVisits, e.id);
+            // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
+            // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
+            // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
+            // 兩個地方會給出不一樣的數字。
+            const c = countsWithDraft(e, customerVisits, draft, e.id);
             return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
           }),
           // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
