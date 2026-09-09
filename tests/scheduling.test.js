@@ -13,7 +13,7 @@ import {
   strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
   customersToAskForMonth,
   customersToBook,
-  sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS,
+  sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS, monthChoices, mergeIntoQueue,
 } from '../public/js/domain/scheduling.js';
 
 const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
@@ -879,5 +879,189 @@ describe('壓表那一頁的形狀', () => {
       new URL('../public/js/data/batches.js', import.meta.url), 'utf8',
     );
     assert.match(data, /export const finish/, '資料層那一支不要刪掉');
+  });
+});
+
+// ---------- 選月份那一排（issue 01） ----------
+
+describe('要壓哪個月：三顆丸子（monthChoices）', () => {
+  test('本月加後面兩個月', () => {
+    const out = monthChoices('2026-09-09');
+    assert.deepEqual(out.map((m) => m.month), ['2026-09', '2026-10', '2026-11']);
+  });
+
+  test('每一顆的字是「N 月」，不帶 YYYY-MM', () => {
+    assert.deepEqual(monthChoices('2026-09-09').map((m) => m.label), ['9月', '10月', '11月']);
+  });
+
+  test('同一年的一顆年份都不標 —— 每顆都標等於把它變成裝飾', () => {
+    assert.deepEqual(monthChoices('2026-09-09').map((m) => m.year), [null, null, null]);
+  });
+
+  test('跨年時只有跨過去的那幾顆標年份', () => {
+    const out = monthChoices('2026-12-01');
+    assert.deepEqual(out.map((m) => m.month), ['2026-12', '2027-01', '2027-02']);
+    assert.deepEqual(out.map((m) => m.year), [null, '2027', '2027']);
+  });
+
+  test('月底也算得對 —— 1/31 的下一個月是 2 月，不是 3 月', () => {
+    assert.deepEqual(monthChoices('2026-01-31').map((m) => m.month), ['2026-01', '2026-02', '2026-03']);
+  });
+});
+
+describe('選月份那一頁的版面（issue 01）', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+  const NL = String.fromCharCode(10);
+
+  /**
+   * 真的畫得出來的那些字。
+   *
+   * **區塊註解也要拿掉**，不只是 `//` 那種：這一頁的說明寫在
+   * `${/* … *\/''}` 裡面，而那一段本身就在講「兩個箭頭是 .link-list
+   * 那一套來的」。盯的是它們不再被畫出來，不是不再被提到。
+   */
+  const strip = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split(NL)
+    .filter((l) => !l.trim().startsWith('//'))
+    .join(NL);
+
+  const start = strip(
+    SRC.slice(SRC.indexOf('async function paintStart('), SRC.indexOf('async function enterMonth(')),
+  );
+
+  test('三顆丸子一橫排，不是 link-list', () => {
+    assert.match(start, /monthpick/, '要用新的丸子版面');
+    assert.ok(!start.includes('link-list'), '那是有箭頭的清單版面');
+    assert.ok(!start.includes('row-link'), '.row-link::after 會自己長一個箭頭出來');
+  });
+
+  test('一個箭頭都不畫 —— 她問「為什麼會有兩個 > 」', () => {
+    assert.ok(!/icon\('right'/.test(start), '按鈕不需要箭頭說明它可以按');
+  });
+
+  test('不印 2026-09', () => {
+    assert.ok(!start.includes('esc(m)'), '那一格印的是 YYYY-MM');
+  });
+
+  test('說明文字全部拿掉', () => {
+    assert.ok(!start.includes('一個人壓完再換下一個'));
+    assert.ok(!start.includes('限制多的先看'));
+    assert.ok(!start.includes('把補得上的人列出來'));
+  });
+});
+
+// ---------- 新加入的人接在最後面（issue 02） ----------
+//
+// ADR-0001 的 Consequences 只授權凍結**順序**：「狀態隨時推導保持正確，
+// 順序凍結是為了讓她換裝置回來時不會發現順序跳掉。」
+// 而 `rowsOf()` 把它寫成了凍結**名單** —— 批次開了之後才新增的客人
+// 永遠進不去，不是排在後面，是不存在。
+
+describe('新符合資格的人接在佇列最後面（mergeIntoQueue）', () => {
+  const q = (...ids) => ({
+    targetMonth: '2026-09',
+    queue: ids.map((id) => ({ customerId: id, customerName: id, state: 'pending', skippedReason: null })),
+  });
+  const row = (id) => ({ customerId: id, customerName: id });
+
+  test('既有的順序一個字都不動', () => {
+    const out = mergeIntoQueue(q('c3', 'c1', 'c2'), [row('c1'), row('c2'), row('c3')]);
+    assert.deepEqual(out.queue.map((x) => x.customerId), ['c3', 'c1', 'c2']);
+    assert.deepEqual(out.added, []);
+  });
+
+  test('既有那幾筆的進度帶著走 —— 已經壓完的不可以退回 pending', () => {
+    const batch = q('c1', 'c2');
+    batch.queue[0].state = 'done';
+    batch.queue[1] = { ...batch.queue[1], state: 'skipped', skippedReason: '手動跳過' };
+    const out = mergeIntoQueue(batch, [row('c1'), row('c2')]);
+    assert.equal(out.queue[0].state, 'done');
+    assert.equal(out.queue[1].state, 'skipped');
+    assert.equal(out.queue[1].skippedReason, '手動跳過');
+  });
+
+  test('新的接在最後面，而且標得出來是哪幾位', () => {
+    const out = mergeIntoQueue(q('c1', 'c2'), [row('c1'), row('c2'), row('c9')]);
+    assert.deepEqual(out.queue.map((x) => x.customerId), ['c1', 'c2', 'c9']);
+    assert.deepEqual(out.added, ['c9']);
+    assert.equal(out.queue[2].state, 'pending');
+    assert.equal(out.queue[2].joinedLate, true, '重整之後那顆丸子還要在');
+  });
+
+  test('既有那幾位身上不會冒出 joinedLate', () => {
+    const out = mergeIntoQueue(q('c1'), [row('c1'), row('c9')]);
+    assert.equal(out.queue[0].joinedLate, undefined);
+  });
+
+  test('好幾位新的照傳進來的順序（那一份已經照分數排好了）', () => {
+    const out = mergeIntoQueue(q('c1'), [row('c1'), row('c8'), row('c9')]);
+    assert.deepEqual(out.queue.map((x) => x.customerId), ['c1', 'c8', 'c9']);
+    assert.deepEqual(out.added, ['c8', 'c9']);
+  });
+
+  test('沒有新的人時 added 是空的 —— 呼叫端靠它決定要不要寫入', () => {
+    assert.deepEqual(mergeIntoQueue(q('c1'), [row('c1')]).added, []);
+  });
+
+  test('已經在佇列裡、但這個月次數用完的那一位留著', () => {
+    // `rowsOf()` 撈現況時傳 includeUsedUp: true，所以他仍然在 rows 裡；
+    // 就算不在，也不可以把他從凍結的佇列上拿掉（處理到一半人不見最難懂）。
+    const out = mergeIntoQueue(q('c1', 'c2'), [row('c1')]);
+    assert.deepEqual(out.queue.map((x) => x.customerId), ['c1', 'c2']);
+  });
+
+  test('壞掉的 batch 不會炸，也不會生出一個空的佇列', () => {
+    assert.deepEqual(mergeIntoQueue(null, [row('c1')]).queue.map((x) => x.customerId), ['c1']);
+    assert.deepEqual(mergeIntoQueue(q('c1'), null).queue.map((x) => x.customerId), ['c1']);
+  });
+
+  test('名字跟著現況更新 —— 她改過名字的那一位不要停在舊的', () => {
+    const out = mergeIntoQueue(q('c1'), [{ customerId: 'c1', customerName: '新名字' }]);
+    assert.equal(out.queue[0].customerName, '新名字');
+  });
+});
+
+describe('rowsOf() 要把新加入的人也畫出來（issue 02）', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+
+  test('走 mergeIntoQueue()，不自己 filter 一份名單', () => {
+    const at = SRC.indexOf('function rowsOf(');
+    assert.ok(at > 0, '找不到 rowsOf()');
+    const body = SRC.slice(at, at + 1400);
+    assert.match(body, /mergeIntoQueue\(/);
+    assert.ok(!body.includes('ids.has(c.id)'), '那一行就是把新客人擋在外面的地方');
+  });
+
+  test('多出人的時候才寫回 batch —— 每次進來都寫等於每次開都產生一筆稽核', () => {
+    assert.match(SRC, /added\.length/);
+  });
+});
+
+// 這一頁 2026-09-09 之前**從來沒有顯示過 `validateVisit()` 的 warnings** ——
+// 第二個回傳值一直被丟掉。所以「排完這次會超過總次數」「還沒選治療師」
+// 在她最常用的那一頁一次都沒有出現過（ADR-0086）。
+describe('壓表也要先講「這幾段先看一下」', () => {
+  const SRC = readFileSync(
+    new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8',
+  );
+
+  test('warnings 有被接起來', () => {
+    assert.match(SRC, /const \{ errors, warnings \} = validateVisit\(visit, \{/);
+  });
+
+  test('走跟來訪編輯器同一支 confirmReview()', () => {
+    assert.match(SRC, /if \(!await confirmReview\(warnings\)\) return;/);
+    assert.ok(!SRC.includes('confirmLabel: review.'), '把欄位攤開就是第二份實作');
+  });
+
+  test('排在 Abovee 那一道前面', () => {
+    const a = SRC.indexOf('confirmReview(warnings)');
+    const b = SRC.indexOf('bookingConsequences({');
+    assert.ok(a > 0 && b > a, '順序反了');
   });
 });

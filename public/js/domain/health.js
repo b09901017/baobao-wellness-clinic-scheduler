@@ -61,6 +61,11 @@ export const CHECKS = [
     hint: '日期已過但還沒結案的來訪、標成已完成卻一段都沒做的，以及不在合法清單內的狀態',
   },
   {
+    id: 'sameDayVisits',
+    label: '同一天有兩筆來訪',
+    hint: '同一位客戶同一天記了兩筆 —— 現在只會有一筆（ADR-0083），這是舊資料',
+  },
+  {
     id: 'overused',
     label: '額度超用',
     hint: '已排 + 已完成超過總次數',
@@ -1337,8 +1342,49 @@ function checkCourseNames(ctx) {
     }));
 }
 
+/**
+ * 同一位客戶同一天有兩筆來訪。
+ *
+ * **只列不修**（同 `checkDuplicateAvailability()` 的判斷）。2026-09-09 之後
+ * 兩個入口都會併進同一筆（ADR-0083），所以不會再長出新的；這一項掃的是
+ * 既有資料。
+ *
+ * 不自動合併的理由跟那一項一樣，只是更硬：合併要搬時段、刪掉一筆來訪、
+ * 重算次數、重推任務，而**其中一筆可能是刻意分開的**（那一天她先做完了
+ * 一場、下午又臨時排了一場，前一筆是 `done`）。合併掉的話那一場的
+ * 「已完成」會被拖回「待確認」，而次數跟著退回去。
+ *
+ * 所以這裡只回答「這幾天長得不一樣，去看一眼」。
+ */
+function checkSameDayVisits(ctx) {
+  const byKey = new Map();
+  for (const v of ctx.visits ?? []) {
+    if (!v || v.deletedAt || !v.customerId || !v.date) continue;
+    const key = `${v.customerId}|${v.date}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), v]);
+  }
+
+  const out = [];
+  for (const [key, rows] of byKey) {
+    if (rows.length < 2) continue;
+    const [customerId] = key.split('|');
+    const who = rows[0].customerName ?? nameOf(ctx, customerId);
+    out.push({
+      severity: 'attention',
+      title: `${who}・${rows[0].date}`,
+      detail: `這一天記了 ${rows.length} 筆來訪（共 ${
+        rows.reduce((n, v) => n + (v.slots ?? []).length, 0)
+      } 段）。現在同一天只會有一筆，這是舊資料。`,
+      link: '#/calendar',
+      fix: null,
+    });
+  }
+  return out;
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
+  sameDayVisits: checkSameDayVisits,
   courseNames: checkCourseNames,
   courseRecord: checkCourseRecord,
   equipmentCourse: checkEquipmentCourse,

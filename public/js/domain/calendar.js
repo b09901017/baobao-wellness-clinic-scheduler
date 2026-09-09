@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass, showsRoom, slotStatus } from './visits.js';
+import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -178,7 +178,11 @@ export function agendaFor(
         //
         // 空字串是「沒有」不是「有一段空的」（同 `domain/notes.js` 的
         // `normalize()`：空字串與 null 在查詢上是兩件事）。
-        hasNote: Boolean(String(visit.note ?? '').trim()),
+        // **那一段身上有沒有字**（ADR-0084）。以前讀的是整筆的 `visit.note`，
+        // 於是她一天三段只在其中一段記了字，三列都會亮那顆夾板。
+        // 讀法只有 `slotNoteOf()` 一支 —— 各寫一次的話會出現「那一列亮著
+        // 夾板、點開卻沒有字」。
+        hasNote: Boolean(slotNoteOf(visit, slot)),
         clashes: [],
       });
     });
@@ -296,8 +300,9 @@ function byStart(a, b) {
  * 每一天有多少事。週檢視與月檢視的格子用。
  *
  * @returns {Record<string, {visits:number, slots:number, names:string[], pending:number}>}
- *   pending 是還在等客戶回覆的筆數 —— 那是最危險的狀態（SPEC 第 4.1 節），
- *   在月檢視上也要看得見。
+ *   pending 是還在等客戶回覆的**段數** —— 那是最危險的狀態（SPEC 第 4.1 節），
+ *   在月檢視上也要看得見。逐段數是因為狀態本來就逐段（ADR-0081）：
+ *   一天三段只有一段沒問過的時候，「1」是對的、「3」不是。
  */
 export function summaryByDate(visits) {
   const out = {};
@@ -307,7 +312,11 @@ export function summaryByDate(visits) {
     day.visits += 1;
     day.slots += (visit.slots ?? []).length;
     day.names.push(visit.customerName ?? '（沒有名字）');
-    if (visit.status === 'pending_confirm') day.pending += 1;
+    // **逐段數**（ADR-0085）。整筆那一個是推導出來的，一段沒問過就整筆
+    // 待確認 —— 那會讓月檢視頂端寫「3 待確認」而底下只有一條琥珀色條。
+    // 舊來訪沒有 `slot.status`，`slotStatus()` 退回整筆，數出來一樣。
+    day.pending += (visit.slots ?? [])
+      .filter((slot) => slotStatus(visit, slot) === 'pending_confirm').length;
   }
   for (const day of Object.values(out)) {
     day.names.sort((a, b) => a.localeCompare(b, 'zh-TW'));

@@ -304,7 +304,17 @@ test('N7 什麼都用完的客戶：日曆上照樣加得了三返', async ({ ap
   await page.locator('input[name="s0-start"]').fill('15:00');
   await page.waitForTimeout(400);
   await page.locator('button[type="submit"]').click();
+
+  // **兩道**（ADR-0086）：先「這幾段先看一下」（這一段還沒選醫師），
+  // 按了才問 Abovee。這一條同時釘著 `ui/nav.js` 的那個 race ——
+  // 第一道關掉時排的 `history.go()` 曾經會把第二道無聲地收掉。
   await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText(), '先看一下那一道要講出什麼沒填').toContain('先看一下');
+  await app.ok();
+  await page.waitForTimeout(500);
+
+  await expect(app.dialog(), '按過第一道才問 Abovee，而且它不可以被吃掉').toBeVisible();
+  expect(await app.dialogText()).toContain('Abovee');
   await app.ok();
   await page.waitForTimeout(2500);
 

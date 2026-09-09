@@ -15,7 +15,7 @@ import { counts, isProduct } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive } from './visits.js';
 import { overlaps, toMinutes } from './visitTime.js';
-import { daysBetween, isValidDate, lastDayOf } from './dates.js';
+import { addMonths, daysBetween, isValidDate, lastDayOf, monthLabel } from './dates.js';
 import { readMarks } from './customerMarks.js';
 import { bookingSystemFor } from './taskRules.js';
 
@@ -33,6 +33,41 @@ export function monthRange(targetMonth) {
   if (!y || !m || m < 1 || m > 12) return null;
   const pad = (n) => String(n).padStart(2, '0');
   return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(lastDayOf(y, m))}` };
+}
+
+/** 選月份那一排給幾顆。她要壓十月的表時十一月要按得出來，所以不是兩顆。 */
+const MONTH_CHOICES = 3;
+
+/**
+ * 「要壓哪個月」那一排。
+ *
+ * 回的是**畫得出來的形狀**，不是一串字串 —— 年份要不要標是一條規則
+ * （見下），寫在畫面上的話那一頁改版就會掉。
+ *
+ * **年份只在跟第一顆不同年時才標**（她 2026-09-09：「如果跨年，可以有小標註
+ * 是 2027」）。每一顆都標等於把那一格變成裝飾，而她要的是「只要顯示要壓那個月」。
+ *
+ * @param {string} todayISO 'YYYY-MM-DD'
+ * @param {number} [count]
+ * @returns {{month:string, label:string, year:string|null}[]}
+ */
+export function monthChoices(todayISO, count = MONTH_CHOICES) {
+  // **從當月一號往後推**，不是從今天。1/31 加一個月在 `addMonths()` 是
+  // 2/28（它自己夾住了），但月底那幾天連推兩次容易讀錯 —— 從一號推，
+  // 每一步都只有一個答案。
+  const first = `${String(todayISO ?? '').slice(0, 7)}-01`;
+  const base = isValidDate(first) ? first : null;
+  if (!base) return [];
+
+  const months = [];
+  for (let n = 0; n < count; n += 1) months.push(addMonths(base, n).slice(0, 7));
+
+  const baseYear = months[0].slice(0, 4);
+  return months.map((month) => ({
+    month,
+    label: monthLabel(month),
+    year: month.slice(0, 4) === baseYear ? null : month.slice(0, 4),
+  }));
 }
 
 /**
@@ -674,6 +709,64 @@ export function progressOf(batch) {
   const done = queue.filter((q) => q.state === 'done').length;
   const skipped = queue.filter((q) => q.state === 'skipped').length;
   return { total: queue.length, done, skipped, handled: done + skipped, pending: queue.length - done - skipped };
+}
+
+/**
+ * 把「現在還符合資格的人」併回一個開著的佇列。
+ *
+ * ## 凍結的是順序，不是名單
+ *
+ * ADR-0001 的 Consequences 只授權了前者：
+ *
+ * > 狀態隨時推導保持正確，**順序**凍結是為了讓她換裝置回來時不會發現順序跳掉。
+ *
+ * 而畫面那一邊把它做成了凍結名單 —— 九月那一批是 9/1 開的，9/8 新增的客人
+ * **永遠**進不去（不是排在後面，是不存在）。她 2026-09-08 回報的就是這件事。
+ *
+ * ## 三條規矩
+ *
+ * - **既有那幾筆原封不動**（順序、`state`、`skippedReason` 全部帶著走）——
+ *   已經壓完的退回 `pending` 等於把她做過的事洗掉
+ * - **名字跟著現況更新**：她改過名字的那一位不要停在開批那一刻的舊名字
+ * - **新的一律接在最後面**，照 `rows` 傳進來的順序（那一份已經照分數排好了）。
+ *   插進中間會讓她昨天壓到一半的位置整個跑掉
+ *
+ * **不在佇列裡也不在 rows 裡的那一位不會被拿掉。** 處理到一半人從畫面上
+ * 消失是最難懂的一種畫面（同 `computeShown()` 裡「選中的那位一定留著」）。
+ *
+ * @param {object|null} batch
+ * @param {{customerId:string, customerName?:string}[]} rows 現在符合資格的
+ * @returns {{queue: object[], added: string[]}} added 空的時候呼叫端不要寫入
+ */
+export function mergeIntoQueue(batch, rows) {
+  const queue = batch?.queue ?? [];
+  const live = new Map((rows ?? []).map((r) => [r.customerId, r]));
+  const known = new Set(queue.map((q) => q.customerId));
+
+  const kept = queue.map((q) => {
+    const now = live.get(q.customerId);
+    return now?.customerName ? { ...q, customerName: now.customerName } : q;
+  });
+
+  const added = (rows ?? [])
+    .map((r) => r.customerId)
+    .filter((id) => id && !known.has(id));
+
+  return {
+    queue: [
+      ...kept,
+      ...added.map((id) => ({
+        customerId: id,
+        customerName: live.get(id)?.customerName ?? null,
+        state: 'pending',
+        skippedReason: null,
+        // **存下來，不是只在併進來的那一次算**：她重整之後那顆丸子還要在，
+        // 不然「為什麼這個人排在最後面」又變成一個沒有答案的問題。
+        joinedLate: true,
+      })),
+    ],
+    added,
+  };
 }
 
 /** 標記某一位的狀態。回傳新的 queue，不改原本的。 */

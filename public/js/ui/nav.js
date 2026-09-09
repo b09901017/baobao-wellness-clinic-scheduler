@@ -48,6 +48,19 @@
 const stack = [];
 
 /**
+ * 我們自己剛叫的那一趟 `history.go()` 要退到第幾層。沒有就是 `null`。
+ *
+ * `go()` 是非同步的，而在它回來之前畫面可能又疊了一層（兩道接在一起的
+ * 確認框）。分不出「她按了返回鍵」與「我們自己退的」的話，新疊的那一層
+ * 會被當成該收掉的那一層 —— 見 popstate 那一段。
+ *
+ * **存的是目標深度，不是計數器。** 計數器會卡住：`go()` 不一定回得來
+ * （退無可退時瀏覽器什麼都不做），而卡住的計數器會把她**真的**按的返回鍵
+ * 一起吃掉 —— 那比原本的 bug 更糟。目標深度對不上就當成是她按的。
+ */
+let goTarget = null;
+
+/**
  * 瀏覽器紀錄裡目前有幾層（也就是 `history.state.__layer`）。
  * 對帳就是把它推成等於 `stack.length`。
  */
@@ -84,6 +97,28 @@ function wire() {
   window.addEventListener('popstate', () => {
     physical = window.history.state?.__layer ?? 0;
 
+    // **這一下是我們自己叫的嗎**（`reconcile()` 的 `history.go`）。
+    //
+    // `history.go()` 是非同步的，它排在後面才跑 —— 而在它回來之前，畫面
+    // 可能又開了新的一層。**兩道接在一起的確認框就是這條路**（ADR-0086：
+    // 先「這幾段先看一下」，按了才問 Abovee）：第一道關掉時排了一次 go，
+    // 第二道在它回來之前就開好了，於是那一下 popstate 把**第二道**收掉。
+    //
+    // 症狀最壞的地方是它一句話都不說：她按了「知道了，繼續」，Abovee 那道
+    // 閃一下就沒了，而那筆來訪從頭到尾沒有被記錄（SPEC 第 6.9 節）。
+    //
+    // 所以我們自己叫的那一下**只對帳，不收層** —— 收哪幾層由 `stack` 說了算，
+    // 而 `stack` 在那一趟 go 排隊的時候已經是新的了。
+    //
+    // 判準是「退到的深度就是我們要的，而且 stack 在那之後長高了」。
+    // 兩個條件都要：只比深度的話，她**真的**按返回鍵那一下會被吃掉。
+    const mine = goTarget !== null && physical === goTarget && stack.length > physical;
+    goTarget = null;
+    if (mine) {
+      schedule();
+      return;
+    }
+
     // 退到哪一層就收掉它上面的每一層。她可能長按返回鍵一次退兩層。
     while (stack.length > physical) drop(stack[stack.length - 1]).onPop();
 
@@ -99,6 +134,10 @@ function wire() {
   window.addEventListener('hashchange', () => {
     while (stack.length) drop(stack[stack.length - 1]);
     physical = window.history.state?.__layer ?? 0;
+    // **換頁把那一趟也忘掉。** `go()` 不一定回得來（退無可退時瀏覽器什麼都
+    // 不做），而一個沒有人來認領的目標深度會在下一頁把她真的按的返回鍵
+    // 吃掉一次 —— 那比原本要修的 bug 更糟。
+    goTarget = null;
   });
 }
 
@@ -120,6 +159,8 @@ function reconcile() {
     // 多的一次退到位，不要一層一個 back。
     const n = physical - want;
     physical = want;
+    // 記著這一趟要退到哪一層：它回來的時候不可以收掉在那之後才疊的（見 popstate）。
+    goTarget = want;
     window.history.go(-n);
     return;
   }

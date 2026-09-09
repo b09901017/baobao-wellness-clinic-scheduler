@@ -37,7 +37,8 @@ import {
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
 import {
-  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER,
+  describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
+  slotNoteOf,
   applyStatus, visitActions, slotsToShow, showsRoom,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
@@ -216,12 +217,12 @@ function paint(el, data) {
       }).join('')}
     </div>
 
-    <p class="footnote">
-      ${icon('info', { size: 14 })}
-      <span>這裡只有你自己排的。同事在 Abovee 壓的看不到 ——
-        空的格子不代表那個時段真的空著。</span>
-    </p>
+    ${/* 「這裡只有你自己排的、同事在 Abovee 壓的看不到」那一句 2026-09-09
+           拿掉了。她的原話：「我發現很多的提醒都會提到『app 看不到同事在
+           abovee 壓的東西』…這個提醒完全是多餘的，全域請掉」。
 
+           那件事本身沒有變（SPEC 第 4.7 節），只是不必在她每天開十幾次的
+           那一頁上重複講。 */''}
     <p class="footnote">
       ${icon('todo', { size: 14 })}
       <span>長按一列可以直接改。</span>
@@ -514,8 +515,7 @@ function dayHtml(data, date, today) {
   // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
   // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
   if (!merged.length && !allDay.length && !todos.length) {
-    return `<p class="muted" style="margin: 0">這天還沒有東西 ——
-      但同事在 Abovee 壓的看不到，空的不代表真的空著。</p>`;
+    return '<p class="muted" style="margin: 0">這天還沒有東西。</p>';
   }
 
   const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
@@ -862,15 +862,17 @@ function openDetail(el, data, hit, date, repaint) {
 
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
+    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
     // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
     // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
     body: html(undefined),
     canEdit: true,
     onEdit: () => {
       closeCard();
+      // **她點的是哪一段就改哪一段**（ADR-0085）。這張卡片本來就只畫那一段
+      // （ADR-0080），鉛筆按下去卻攤開整天是同一個 bug 的另一半。
       openEditor(el, data, {
-        kind: 'visit', visitId: visit.id, date: visit.date, backDate: date,
+        kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: focus,
       });
     },
   });
@@ -1014,18 +1016,20 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   // **抬頭要講清楚她長按的是哪一段。** 2026-09-08 之前這裡寫的是
   // 「這一天共 N 段，底下這幾顆動的是整筆」—— 那是在替一個 bug 道歉
   //（ADR-0080 第四點）。現在「取消這一段」真的只動那一段，所以抬頭改成
-  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。
+  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。抬頭印的
+  // 狀態也換成那一段自己的（ADR-0085）—— 整筆那一個在這裡是錯的。
   //
-  // 只在真的不只一段時才講：每一次都寫「共 1 段」等於把那一行變成裝飾。
+  // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
+  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那個數字留著**：
+  // 那不是資訊，是煞車（ADR-0070，她 2026-09-09 明確說可以）。
   const slots = visit.slots ?? [];
-  const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
-  const which = one && slots.length > 1
-    ? `・第 ${slotIndex + 1} 段（共 ${slots.length} 段）`
+  const which = Number.isInteger(slotIndex) && slots.length > 1 && slots[slotIndex]
+    ? `・第 ${slotIndex + 1} 段`
     : '';
 
   openActions({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${shortDate(visit.date)}・${describeStatus(visit.status)}${which}`,
+    subtitle: `${shortDate(visit.date)}・${describeStatus(statusForCard(visit, slotIndex))}${which}`,
     items,
     onPick: (action) => runVisitAction(el, data, visit, action, backDate, slotIndex),
   });
@@ -1033,8 +1037,9 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
 
 async function runVisitAction(el, data, visit, action, backDate, slotIndex = null) {
   if (action === 'edit') {
+    // 長按的也是一列，而一列就是一段（ADR-0081）—— 跟卡片上的鉛筆同一條路。
     openEditor(el, data, {
-      kind: 'visit', visitId: visit.id, date: visit.date, backDate,
+      kind: 'visit', visitId: visit.id, date: visit.date, backDate, slotIndex,
     });
     return;
   }
@@ -1443,11 +1448,20 @@ export function visitReadHtml(visit, data) {
     }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
 
 
-    ${visit.note ? `
-      <div class="readrow">
-        <span class="readrow__k">記的話</span>
-        <span class="readrow__v">${esc(visit.note)}</span>
-      </div>` : ''}
+    ${/* **那一段身上那一句**（ADR-0084）。舊來訪退回整筆那一個 —— 那時候
+           整天共用一句本來就是事實，而它還沒被 `withSlotNotes()` 搬過去。
+           只畫一段時（ADR-0080）就是那一段的，四頁共用同一支。 */''}
+    ${(() => {
+      // 讀法只有 `slotNoteOf()` 一支（ADR-0084）：新資料是那一段的，
+      // 還沒被搬過的舊資料退回整筆那一句。**去重**是因為後者在同一張卡片上
+      // 畫兩段時會是同一句話。
+      const lines = [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
+      return lines.length ? `
+        <div class="readrow">
+          <span class="readrow__k">記的話</span>
+          <span class="readrow__v">${lines.map((t) => esc(t)).join('<br />')}</span>
+        </div>` : '';
+    })()}
 
     ${mirrorHtml({
       visit,
@@ -1552,7 +1566,7 @@ function mountEditor(el, data, sheet, spec) {
     if (spec.id) eventEditor.mountEdit(host, { id: spec.id, ...opts });
     else eventEditor.mountNew(host, { date: spec.date, ...opts });
   } else if (spec.visitId) {
-    visitEditor.mountEdit(host, { visitId: spec.visitId, ...opts });
+    visitEditor.mountEdit(host, { visitId: spec.visitId, slotIndex: spec.slotIndex ?? null, ...opts });
   } else {
     visitEditor.mountNew(host, { customerId: spec.customerId, date: spec.date, ...opts });
   }

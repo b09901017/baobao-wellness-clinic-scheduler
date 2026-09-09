@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
 import {
   bookingSystemLabel, pendingRegistrations, bookingConsequences, confirmConsequences,
-  closeConsequences, untickConsequences, cancelConsequences,
+  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -79,15 +79,19 @@ describe('把一段併進同一天已經有的來訪', () => {
     assert.equal(after.confirmedAt, null);
   });
 
-  test('沒給 note 就留原本那一句，不要清成 null', () => {
+  // 那一句話 2026-09-09 搬到時段上了（ADR-0084），所以這一支不再收 `note`。
+  // 整筆那一格只留給還沒被搬過的舊資料 —— **原封不動帶著走**，
+  // 清掉的話她那一句在被 `withSlotNotes()` 搬到第一段之前就先不見了。
+  test('整筆那一句原封不動 —— 它只留給還沒搬過的舊資料', () => {
     const before = { ...visit('pending_confirm', [slot('c-checkup')]), note: '她說下午比較好' };
     assert.equal(withExtraSlot(before, slot('c-checkup')).visit.note, '她說下午比較好');
   });
 
-  test('給了 note 就換掉，給空的就清掉', () => {
-    const before = { ...visit('pending_confirm', [slot('c-checkup')]), note: '舊的' };
-    assert.equal(withExtraSlot(before, slot('c-checkup'), { note: '新的' }).visit.note, '新的');
-    assert.equal(withExtraSlot(before, slot('c-checkup'), { note: null }).visit.note, null);
+  test('新加的那一段帶著自己的那一句', () => {
+    const before = visit('pending_confirm', [slot('c-checkup')]);
+    const { visit: after } = withExtraSlot(before, { ...slot('c-recovery'), note: '這一段的' });
+    assert.equal(after.slots[1].note, '這一段的');
+    assert.equal(after.slots[0].note, undefined, '別段一個字都不動');
   });
 
   test('原本的時段一個都不會少', () => {
@@ -620,5 +624,30 @@ describe('畫面不自己寫後果那幾句', () => {
 
     assert.deepEqual(offenders, [],
       `這幾句要走 domain/consequences.js，不要自己寫一次：${NL}${offenders.join(NL)}`);
+  });
+});
+
+// 存檔前那一道「這幾段先看一下」（ADR-0070 的同一條線：只講真的會發生的事）。
+describe('先看一下那一道（reviewWarnings）', () => {
+  test('一句都沒有就不用問 —— 呼叫端拿 null 當閘門', () => {
+    assert.equal(reviewWarnings([]), null);
+    assert.equal(reviewWarnings(), null);
+    assert.equal(reviewWarnings(['', '   ']), null, '空字串不算一件事');
+  });
+
+  test('句子照抄，不重寫一遍', () => {
+    const said = reviewWarnings(['「復能-三選一(60)」排完這次會超過總次數', '第 2 個時段還沒選治療師']);
+    assert.deepEqual(said.lines, ['「復能-三選一(60)」排完這次會超過總次數', '第 2 個時段還沒選治療師']);
+  });
+
+  test('抬頭講出幾件', () => {
+    assert.equal(reviewWarnings(['一件事']).title, '這一段先看一下');
+    assert.equal(reviewWarnings(['a', 'b', 'c']).title, '這 3 件先看一下');
+  });
+
+  test('兩顆按鈕都講出按下去會怎樣，不是「確定／取消」', () => {
+    const said = reviewWarnings(['x']);
+    assert.equal(said.confirmLabel, '知道了，繼續');
+    assert.equal(said.cancelLabel, '回去改');
   });
 });
