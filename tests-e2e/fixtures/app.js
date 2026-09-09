@@ -19,6 +19,73 @@ import {
 } from './emulator.js';
 import { TODAY } from './data.js';
 
+/**
+ * **登入一次就好：把 Firebase 的登入狀態抄起來，之後的測試直接寫回去。**
+ *
+ * 為什麼不能用 Playwright 的 `storageState`：它存的是 cookie ＋ localStorage，
+ * 而 Firebase JS SDK 的登入狀態**存在 IndexedDB**（`firebaseLocalStorageDb`
+ * 的 `firebaseLocalStorage`，key 是 `firebase:authUser:<apiKey>:[DEFAULT]`）。
+ * 2026-09-09 實際問過一次登入完的頁面：`localStorage` 是空的、cookie 也是空的。
+ *
+ * 所以走的是「把那幾筆抄下來，開機前寫回去」。量到的：一次真的登入
+ * （開彈窗 → 載入 → 點 → 等殼）大約 1 秒，193 支就是 3 分鐘。
+ *
+ * **這一份是每個 worker 一份**（module 層變數），跟命名空間一樣。
+ *
+ * **壞掉會大聲。** 寫回去的格式不對（例如升了一版 firebase、key 變了）的話
+ * app 會停在登入頁，而 `signIn()` 等的是 `.app__nav` —— 30 秒逾時，
+ * 訊息看得懂。它不會安靜地變成「沒登入但測試照樣過」。
+ */
+let authSnapshot = null;
+
+const AUTH_DB = 'firebaseLocalStorageDb';
+const AUTH_STORE = 'firebaseLocalStorage';
+
+/** 把 IndexedDB 裡那幾筆登入狀態讀出來。 */
+function readAuthSnapshot(page) {
+  return page.evaluate(async ({ db: dbName, store }) => {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open(dbName);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    if (!db.objectStoreNames.contains(store)) { db.close(); return []; }
+    const rows = await new Promise((res, rej) => {
+      const r = db.transaction(store, 'readonly').objectStore(store).getAll();
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    db.close();
+    return rows;
+  }, { db: AUTH_DB, store: AUTH_STORE });
+}
+
+/**
+ * 開機前把登入狀態寫回 IndexedDB。
+ *
+ * 用 `addInitScript` 而不是 `evaluate`：它在**頁面自己的任何程式跑之前**執行，
+ * 所以 Firebase SDK 初始化、去 IndexedDB 找登入狀態的時候，那幾筆已經在了。
+ */
+function primeAuth(page, rows) {
+  return page.addInitScript(({ db: dbName, store, rows: data }) => {
+    const open = indexedDB.open(dbName, 1);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains(store)) {
+        db.createObjectStore(store, { keyPath: 'fbase_key' });
+      }
+    };
+    open.onsuccess = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains(store)) { db.close(); return; }
+      const tx = db.transaction(store, 'readwrite');
+      const os = tx.objectStore(store);
+      for (const row of data) os.put(row);
+      tx.oncomplete = () => db.close();
+    };
+  }, { db: AUTH_DB, store: AUTH_STORE, rows });
+}
+
 /** 已知會出現、而且不代表壞掉的 console 訊息。 */
 const BENIGN = [
   /Service Worker registration blocked by Playwright/i,
@@ -156,8 +223,32 @@ export const test = base.extend({
         return docs.length;
       },
 
-      /** 打開 app 並登入。回來時已經在待辦中心（或指定的那一頁）。 */
+      /**
+       * 打開 app 並登入。回來時已經在待辦中心（或指定的那一頁）。
+       *
+       * **這個 worker 的第一個測試才真的走一次登入彈窗**，走完把 Firebase
+       * 存在 IndexedDB 的那幾筆抄起來（見 `authSnapshot`）；之後每一個測試
+       * 直接在開機前寫回去，省掉開彈窗／等它載入／點那一下 —— 量到約 1 秒，
+       * 193 支就是 3 分鐘。
+       *
+       * **想測「沒有權限的人」的話不要用這一支。** `00-smoke` 的 S3 是自己
+       * 從 `page.goto()` 開始走一次真的登入的，刻意不經過這裡 —— 把登入
+       * 變快很容易連「沒登入」那個狀態也一起跳過，那一支就會假綠。
+       * 所以這裡動的只有 `signIn()` 自己，**沒有**在 context 上掛任何東西。
+       */
       async signIn(hash = '/') {
+        if (authSnapshot?.length) {
+          await primeAuth(page, authSnapshot);
+          await page.goto(`${APP_ORIGIN}/#${hash}`);
+          await helpers.sameNamespace();
+          // 寫回去的格式不對的話 app 會停在登入頁，這一行 30 秒逾時 ——
+          // 看得懂的錯，不是靜默。
+          await page.waitForSelector('.app__nav', { timeout: 30_000 });
+          await page.waitForSelector('#view', { timeout: 10_000 });
+          await helpers.settled();
+          return helpers;
+        }
+
         await page.goto(`${APP_ORIGIN}/#${hash}`);
         await page.waitForSelector('[data-signin]', { timeout: 30_000 });
         await helpers.sameNamespace();
@@ -176,6 +267,9 @@ export const test = base.extend({
         await page.waitForSelector('.app__nav', { timeout: 30_000 });
         await page.waitForSelector('#view', { timeout: 10_000 });
         await helpers.settled();
+
+        // 這個 worker 的第一次登入 —— 把狀態抄起來給後面的測試用。
+        authSnapshot = await readAuthSnapshot(page);
         return helpers;
       },
 
