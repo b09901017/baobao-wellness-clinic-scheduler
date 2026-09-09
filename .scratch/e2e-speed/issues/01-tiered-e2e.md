@@ -86,13 +86,19 @@ config 那句「`CI=1` 會自動轉成無頭並開三個 worker」是**過期的
 而不是 25 分鐘。改一個 UI 元件（`components/buy.js`）選 3 支。
 改 ADR 或 SPEC 只跑 `00-smoke`。
 
-## 一個要先做、但不在這支 issue 裡的
+## CI 上本來就有測試（我一度看走眼）
 
-`.github/workflows/` 底下**只有 `deploy.yml`，沒有跑測試的 workflow**。
-所以「全量交給 CI」目前是一句空話 —— 全量只會跑在她的機器上，19.6 分鐘。
+`deploy.yml` 的名字就是「測試與部署」，它每支 PR 都跑：單元測試、Rules，
+以及三支 E2E（`00-smoke`、`07-chaos`、`10-offline`）。**缺的只有全量那 21 支**，
+而且檔案裡寫著那是刻意的：「全套二十幾分鐘，值得做，但不值得擋住每一次 push」。
 
-先把測試接上 CI（PR 上跑 `npm test` ＋ rules ＋ 全量 E2E），比省下那
-144 秒的固定等待、甚至比平行化都重要：它把「全跑」整個搬離她的桌機。
+所以這一輪加的是 `.github/workflows/e2e-full.yml`，只在兩個時機跑全量：
+**PR 進 `main`**（那邊有真客戶資料）與**她自己按**（`workflow_dispatch`）。
+推 develop 上 staging 那條路一個字都沒動 —— 那裡是假資料，不值得等 21 分鐘。
+
+**沒有把 PR 那三支換成 `--related`**：`related.js` 認不出來的檔案會退回全跑，
+而那條規則放在 CI 上的意思是「某天某支 PR 突然要跑 21 分鐘」。
+本機退回全跑只是慢，CI 上退回全跑是每個人都在等。
 
 ## 沒做的
 
