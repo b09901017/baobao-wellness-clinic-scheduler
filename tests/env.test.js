@@ -8,15 +8,19 @@
 //
 //   1. `envOf()` 認得出三種網址，而且**預覽頻道跟著它的專案走**
 //   2. 三份 config 的 projectId 沒有互相抄錯
-//   3. 模擬器那一份的 projectId 跟 `start-emulators.sh`、E2E fixture 一致 ——
+//   3. 模擬器那一份的 projectId **三邊算的是同一支推導**（`projectIdFor()`）——
 //      對不上的話 app 讀到的是一個空的命名空間，畫面全空但**沒有任何錯誤**，
 //      而那種症狀查起來會花掉一個下午
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-import { envOf, ENV, firebaseConfig, usingEmulator, envBanner } from '../public/js/firebase-config.js';
+import {
+  envOf, ENV, firebaseConfig, usingEmulator, envBanner, projectIdFor,
+} from '../public/js/firebase-config.js';
 
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
@@ -24,6 +28,10 @@ const CONFIG_SRC = read('public/js/firebase-config.js');
 const EMULATOR_SH = read('tests-e2e/start-emulators.sh');
 const E2E_FIXTURE = read('tests-e2e/fixtures/emulator.js');
 const FIREBASERC = JSON.parse(read('.firebaserc'));
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
+
+/** 把註解拿掉再問 —— 註解裡出現的字串不算數（見底下 measurementId 那一條）。 */
+const codeOf = (src) => src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** 從 config 原始碼裡把某一個環境的 projectId 挖出來。 */
 function projectIdOf(env) {
@@ -74,7 +82,9 @@ describe('envOf()：哪個網址算哪個環境', () => {
 
 describe('三份 config', () => {
   test('三個環境的 projectId 各不相同', () => {
-    const ids = ['prod', 'staging', 'emulator'].map(projectIdOf);
+    // 模擬器那一份**不再是寫死的字串**（一個 worker 一個命名空間），
+    // 所以它要用同一支推導算出來，不能再從原始碼挖。
+    const ids = [projectIdOf('prod'), projectIdOf('staging'), projectIdFor(0)];
     assert.equal(new Set(ids).size, 3, `有兩個環境指到同一個專案：${ids.join(', ')}`);
   });
 
@@ -82,7 +92,7 @@ describe('三份 config', () => {
     // Console 複製過來的 staging config 帶著它，很容易連著貼進去。
     // **註解不算**：那一段解釋的正是「為什麼把它拿掉」，跟 tokens.test.js
     // 的「深色沒有 @media 複本」是同一個處理方式。
-    const code = CONFIG_SRC.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const code = codeOf(CONFIG_SRC);
     assert.equal(
       /measurementId/.test(code),
       false,
@@ -100,36 +110,111 @@ describe('三份 config', () => {
   });
 });
 
-describe('模擬器那一份要三邊一致', () => {
-  const emulatorId = projectIdOf('emulator');
+describe('模擬器的命名空間：三邊算的是同一支推導', () => {
+  // 以前這裡盯的是「三個字串相等」。那擋得住手滑改錯一邊，但擋不住
+  // **一個 worker 一個命名空間** —— 那時候三邊的值本來就不再是同一個字串。
+  //
+  // 所以改成盯**推導**：三邊都呼叫 `projectIdFor()`，而且同樣的輸入
+  // 給同樣的輸出。有這一支在，對不上會直接紅 —— 不用從「畫面空的」
+  // 開始猜，而猜著猜著就會加一層「先等兩秒再試」那種補丁。
 
-  test('是 demo- 開頭', () => {
+  test('0 號回 base，而且是 demo- 開頭', () => {
     // Firebase 看到這個前綴才會進入完全離線模式：沒被模擬到的服務會直接報錯，
     // 而不是安靜地打到真的專案上。體檢報告 §2.7 盲區六。
-    assert.match(emulatorId, /^demo-/, `模擬器的 projectId 要用 demo- 開頭，現在是 ${emulatorId}`);
+    const base = projectIdFor(0);
+    assert.match(base, /^demo-/, `模擬器的 projectId 要用 demo- 開頭，現在是 ${base}`);
   });
 
-  test('start-emulators.sh 的 --project 跟它一樣', () => {
-    // 腳本把 id 放在一個變數裡再帶進 --project，所以分兩段問：
-    // id 有沒有出現，以及它有沒有真的被當成 --project 傳出去。
-    assert.ok(
-      EMULATOR_SH.includes(`"${emulatorId}"`) || EMULATOR_SH.includes(`'${emulatorId}'`),
-      `start-emulators.sh 裡找不到 ${emulatorId}`,
+  test('每一號 worker 各自一個命名空間，而且都是 demo- 開頭', () => {
+    // 撞在一起 = 兩個 worker 共用一份 Firestore = 互相洗掉對方的資料，
+    // 而症狀是隨機幾支「畫面空的」，看起來像 flaky。
+    const ids = [0, 1, 2, 3, 4, 5, 6, 7].map(projectIdFor);
+    assert.equal(new Set(ids).size, ids.length, `有兩號 worker 指到同一個命名空間：${ids.join(', ')}`);
+    for (const id of ids) assert.match(id, /^demo-/, `${id} 不是 demo- 開頭`);
+  });
+
+  test('認不得的輸入一律退回 base —— 不要猜一個新的命名空間出來', () => {
+    // 猜一個出來，就是製造那個沒有任何線索的空白畫面。
+    // `''` 與 `undefined` 是真的會發生的：環境變數沒設、shell 沒帶參數。
+    const base = projectIdFor(0);
+    for (const bad of [undefined, null, '', '  ', 'abc', -1, 1.5, NaN, {}]) {
+      assert.equal(projectIdFor(bad), base, `${String(bad)} 應該退回 ${base}`);
+    }
+  });
+
+  test('字串跟數字給同一個答案', () => {
+    // shell 那條路拿到的是 argv（字串），fixture 拿到的是環境變數（也是字串），
+    // 而測試裡是數字。三邊算出來的一定要一樣。
+    for (const n of [0, 1, 2, 3]) {
+      assert.equal(projectIdFor(String(n)), projectIdFor(n), `'${n}' 跟 ${n} 算出不同答案`);
+    }
+  });
+
+  test('同一個輸入永遠同一個輸出', () => {
+    // 純函式。帶時間戳或亂數進去的話，app 跟 fixture 會各自算到不同的命名空間。
+    assert.equal(projectIdFor(2), projectIdFor(2));
+    assert.equal(projectIdFor(2), 'demo-scheduler-w2');
+  });
+
+  test('app 那一份是算出來的，不是寫死的字串', () => {
+    const code = codeOf(CONFIG_SRC);
+    assert.match(
+      code,
+      /projectId:\s*projectIdFor\(/,
+      'firebase-config.js 的 emulator config 要呼叫 projectIdFor()',
+    );
+    assert.equal(
+      /projectId:\s*'demo-/.test(code),
+      false,
+      'firebase-config.js 又把模擬器的 projectId 寫死了 —— 那樣 worker 1 以後會去讀 0 號的資料',
+    );
+  });
+
+  test('E2E fixture 也是 import 同一支算的', () => {
+    const code = codeOf(E2E_FIXTURE);
+    assert.match(
+      code,
+      /import \{[^}]*\bprojectIdFor\b[^}]*\} from '\.\.\/\.\.\/public\/js\/firebase-config\.js'/,
+      'tests-e2e/fixtures/emulator.js 要 import firebase-config.js 的 projectIdFor()',
+    );
+    assert.match(code, /PROJECT_ID = projectIdFor\(/, 'PROJECT_ID 要用 projectIdFor() 算');
+    assert.equal(
+      /'demo-/.test(code),
+      false,
+      'tests-e2e/fixtures/emulator.js 又寫死了一份 demo- 字串',
+    );
+  });
+
+  test('start-emulators.sh 的 --project 也是算出來的', () => {
+    assert.equal(
+      /demo-/.test(EMULATOR_SH.replace(/^#[^\n]*$/gm, '')),
+      false,
+      'start-emulators.sh 又把命名空間寫死了',
     );
     assert.match(
       EMULATOR_SH,
-      /--project\s+("?\$\{?PROJECT\}?"?|demo-[a-z0-9-]+)/,
-      'start-emulators.sh 沒有把那個 id 當成 --project 傳出去',
+      /PROJECT="\$\(node tests-e2e\/project-id\.mjs 0\)"/,
+      'start-emulators.sh 要從 tests-e2e/project-id.mjs 拿 0 號的命名空間',
+    );
+    assert.match(
+      EMULATOR_SH,
+      /--project\s+"\$\{?PROJECT\}?"/,
+      'start-emulators.sh 沒有把算出來的值當成 --project 傳出去',
     );
   });
 
-  test('E2E fixture 的 PROJECT_ID 跟它一樣', () => {
-    // 對不上的症狀特別壞：fixture 把資料塞進 A 命名空間，app 讀 B，
-    // 畫面全空但沒有任何錯誤訊息。
-    assert.ok(
-      E2E_FIXTURE.includes(`PROJECT_ID = '${emulatorId}'`),
-      `tests-e2e/fixtures/emulator.js 的 PROJECT_ID 跟 ${emulatorId} 對不上`,
-    );
+  test('**真的跑一次** shell 那條路：它跟 projectIdFor() 給同一個答案', () => {
+    // 這一條才是「三邊算的是同一支」的證明 —— 上面那幾條讀的是原始碼，
+    // 讀得到 `projectIdFor(` 不代表它真的接得起來（import 路徑打錯、
+    // 檔案被搬走、export 改名都讀不出來）。所以這裡真的執行 shell 用的那條路。
+    for (const n of [0, 1, 3]) {
+      const out = execFileSync(
+        process.execPath,
+        ['tests-e2e/project-id.mjs', String(n)],
+        { cwd: ROOT, encoding: 'utf8' },
+      );
+      assert.equal(out, projectIdFor(n), `shell 那條路算 ${n} 號算出 ${out}，跟 projectIdFor() 對不上`);
+    }
   });
 
   test('start-emulators.sh 沒有寫死某一台機器的 JAVA_HOME', () => {

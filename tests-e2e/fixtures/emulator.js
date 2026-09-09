@@ -10,19 +10,41 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
+import { projectIdFor } from '../../public/js/firebase-config.js';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 
 /**
- * 模擬器的專案 id。**三個地方要一模一樣**：這裡、`start-emulators.sh` 的
- * `--project`，以及 `public/js/firebase-config.js` 的 emulator config。
+ * 這個 worker 的命名空間。**一個 worker 一份 Firestore**，所以平行跑的時候
+ * 每個測試開頭那個 `clearFirestore()` 只洗掉自己的。
  *
- * 對不上的症狀特別壞：fixture 把資料塞進 A 命名空間、app 讀 B，
- * 於是每一個測試都是「畫面空的」，而且**沒有任何錯誤訊息**。
- * `tests/env.test.js` 盯著這三邊。
+ * 三個地方要算出同一個值（這裡、`start-emulators.sh`、app 的 config），
+ * 而**三邊呼叫的是同一支 `projectIdFor()`** —— 以前是各寫死一份字串，
+ * 對不上時 fixture 塞進 A、app 讀 B，每個測試都是「畫面空的」而且沒有
+ * 任何錯誤訊息。`tests/env.test.js` 盯著沒有人自己寫死。
  *
- * `demo-` 開頭是刻意的：Firebase 看到這個前綴才會進入完全離線模式。
+ * **用 `TEST_PARALLEL_INDEX` 不是 `TEST_WORKER_INDEX`。** 前者是 0..workers-1
+ * 的槽號，同時在跑的 worker 一人一個；後者在 worker 重啟（測試失敗後）時會一直
+ * 往上加，於是每重啟一次就長出一個新的命名空間 —— 隔離照樣成立，但模擬器裡
+ * 會堆一堆再也沒人看的資料，而重試的那一次讀到的是全新的空資料庫。
  */
-export const PROJECT_ID = 'demo-scheduler';
+export const PROJECT_ID = projectIdFor(process.env.TEST_PARALLEL_INDEX);
+
+/**
+ * 建帳號／清帳號要打哪一個命名空間。**永遠是 0 號，跟 `PROJECT_ID` 不一樣。**
+ *
+ * Auth 模擬器的 `getProjectIdByApiKey()` 把 api key 丟掉，一律回
+ * `--project` 那個預設專案（firebase-tools 的 `emulator/auth/server.js`）——
+ * 也就是說**瀏覽器那側的 Auth 根本分不了專案**，不管 app 的 config 寫哪一個
+ * projectId，登入都落在 0 號那一份裡。
+ *
+ * 這對我們是好事：全部 worker 共用同一個 uid，而 `ensureUser()` 是冪等的、
+ * 也沒有人呼叫 `clearAuth()`，所以不會互相打架。真正要隔離的是 Firestore
+ * （白名單 `allowedUsers/{uid}` 是 Firestore 文件，跟著 `PROJECT_ID` 走）。
+ *
+ * 這裡寫成 `projectIdFor(0)` 而不是 `PROJECT_ID`：打錯的話會清掉一個空的
+ * 命名空間，然後每個 worker 都登不進去。
+ */
+export const AUTH_PROJECT_ID = projectIdFor(0);
 export const AUTH_HOST = 'http://127.0.0.1:9099';
 export const APP_ORIGIN = 'http://127.0.0.1:5000';
 
@@ -77,7 +99,7 @@ export async function ensureUser({ uid = 'e2e-manager-uid', email = 'manager@exa
 
 /** 把 Auth 模擬器整個清空。每一個測試檔開頭跑一次就好。 */
 export async function clearAuth() {
-  await fetch(`${AUTH_HOST}/emulator/v1/projects/${PROJECT_ID}/accounts`, { method: 'DELETE' });
+  await fetch(`${AUTH_HOST}/emulator/v1/projects/${AUTH_PROJECT_ID}/accounts`, { method: 'DELETE' });
 }
 
 // ---------- 資料 ----------
