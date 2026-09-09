@@ -35,13 +35,19 @@ test('C1+C2+C3+C4 隨手記灌各種髒字串：不白屏、不執行、存得�
 
   for (const [what, text] of NASTY) {
     await page.locator('[data-quick]').click();
-    await page.waitForTimeout(300);
+    await app.layer('[data-quicktext]');
     await page.locator('[data-quicktext]').fill(text);
-    await page.locator('[data-quicktext]').press('Enter').catch(() => {});
-    await page.locator('.drawer [type="submit"], .drawer [data-save]').first().click().catch(() => {});
-    await page.waitForTimeout(900);
+
+    // **Enter 就是送出**（`ui/views/home.js` 的 keydown：`preventDefault()` 之後
+    // 直接喊 `save()`）。以前這裡在 Enter 後面還補一顆「保險起見」的送出鈕，
+    // 而那一下每一輪要等 **8.5 秒** —— 存完之後「復原」那個 toast
+    // （`ui/toast.js` 的 `UNDO_MS = 8000`）壓在鈕上面，Playwright 要等它自己
+    // 消失才點得到。六輪 51 秒，換來的是一下**根本沒有事情要做**的點擊。
+    await page.locator('[data-quicktext]').press('Enter');
+    await app.saved();
+
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
+    await expect(page.locator('.drawer'), '抽屜要收掉，下一輪才點得到泡泡').toHaveCount(0);
 
     // 沒有被當成程式碼執行
     const pwned = await page.evaluate(() => window.__pwned === 1);
@@ -116,7 +122,7 @@ test('C3c 客戶姓名裡的髒字串在每一頁都是文字', async ({ app, pa
   // 名字被當成標籤解析的話，那句話會顯示不完整。
   await app.go('/customers/cust-x');
   await page.locator('[data-danger]').click();
-  await page.waitForTimeout(500);
+  await app.layer('[data-delete]');
   await page.locator('[data-delete]').click();
   await expect(app.dialog()).toBeVisible();
 
@@ -139,12 +145,12 @@ test('C12 連點 5 次「加這一筆」→ 只寫進去一筆（防重複提交
   await page.locator('[data-month="2026-09"]').click();
   await app.settled();
   await page.locator('[data-pick="cust-a"]').first().click();
-  await page.waitForTimeout(700);
+  await app.layer('[data-day="2026-09-03"]');
 
   await page.locator('[data-day="2026-09-03"]').first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent="ent-a"]');
   await page.locator('[data-ent="ent-a"]').click();
-  await page.waitForTimeout(300);
+  await app.layer('[data-time]');
   await page.locator('[data-time]').first().click();
   await page.locator('[data-equipment="eq-indiba"]').click();
   await page.locator('[data-therapist="staff-tw"]').click();
@@ -152,10 +158,20 @@ test('C12 連點 5 次「加這一筆」→ 只寫進去一筆（防重複提交
   await page.locator('[data-add]').click();
   await expect(app.dialog()).toBeVisible();
 
-  // 對確認鈕連點 5 下
+  // 對確認鈕連點 5 下。
+  //
+  // **短逾時是必要的，不是圖快。** 第一下之後確認框就關了，剩下四下
+  // **點不到東西才是對的**；用預設的 `actionTimeout`（15 秒）等於每一下
+  // 白等 15 秒、四下 60 秒，而 `.catch()` 把逾時整個吞掉 —— 看起來只會像
+  // 「這支測試就是慢」，看不出 60 秒全花在等一個本來就不該在的東西。
+  //
+  // **測試的力道一點都沒少**：防重複提交壞掉的話那顆鈕還在，這四下照樣
+  // 點得到、照樣寫進第二筆，下面那兩句斷言照樣紅。
   const ok = page.locator('.dialog-backdrop [data-ok]');
-  for (let i = 0; i < 5; i += 1) await ok.click({ force: true }).catch(() => {});
-  await page.waitForTimeout(3000);
+  for (let i = 0; i < 5; i += 1) {
+    await ok.click({ force: true, timeout: 1_000 }).catch(() => {});
+  }
+  await app.saved();
 
   const visits = (await app.readAll('visits')).filter((v) => !v.deletedAt);
   console.log('[C12] 連點 5 次之後的來訪筆數 =', visits.length,
@@ -174,9 +190,12 @@ test('C13 連點 5 次「一鍵修正」→ 不會重複扣加', async ({ app, p
 
   await page.locator('[data-fix]').first().click();
   await expect(app.dialog()).toBeVisible();
+  // 短逾時的理由同 C12：第一下之後確認框就關了，剩下四下點不到才是對的。
   const ok = page.locator('.dialog-backdrop [data-ok]');
-  for (let i = 0; i < 5; i += 1) await ok.click({ force: true }).catch(() => {});
-  await page.waitForTimeout(2500);
+  for (let i = 0; i < 5; i += 1) {
+    await ok.click({ force: true, timeout: 1_000 }).catch(() => {});
+  }
+  await app.saved();
 
   const ent = await app.readDoc('customers/cust-e/entitlements', 'ent-e-vein');
   expect(ent.doneCount).toBe(1);
@@ -189,7 +208,9 @@ test('C11 跳過必填直接送出 → 擋下來，而且訊息指得出是哪�
 
   // 什麼都不填直接存
   await page.locator('[data-save], button[type="submit"]').first().click();
-  await page.waitForTimeout(800);
+  // 等「講出是哪一格沒填」那句話真的出現 —— 那就是這一步該發生的事。
+  await expect.poll(async () => app.text(), { timeout: 10_000 })
+    .toMatch(/姓名|不可空白|先選/);
 
   const body = await app.text();
   console.log('[C11] 空表單送出之後 =', JSON.stringify(body.slice(0, 400)));
@@ -210,8 +231,7 @@ test('C26 打一個不存在的網址 → 不白屏', async ({ app, page }) => {
     '/settings/not-a-real-type',
     '/todo/not-a-real-group',
   ]) {
-    await page.evaluate((h) => { window.location.hash = h; }, hash);
-    await page.waitForTimeout(1200);
+    await app.go(hash);
     const body = await page.locator('#view').innerText();
     console.log(`[C26] ${hash} → ${JSON.stringify(body.slice(0, 90))}`);
     expect(body.trim().length, `${hash} 不該是空白`).toBeGreaterThan(2);
@@ -234,11 +254,9 @@ test('C24 抽屜／卡片／確認框開著時按返回鍵 → 關掉那一層�
 
   const day = addDays(TODAY, 3);
   await page.locator(`[data-day="${day}"]`).first().click();
-  await page.waitForTimeout(700);
   await expect(page.locator('.drawer')).toBeVisible();
 
   await page.goBack();
-  await page.waitForTimeout(800);
   await expect(page.locator('.drawer'), '返回鍵要收掉抽屜').toHaveCount(0);
   expect(page.url(), '不該離開日曆').toContain('#/calendar');
 });
@@ -250,9 +268,9 @@ test('C25 快速開關抽屜五次再換頁 → 層次對帳不會錯亂', async
   const day = addDays(TODAY, 3);
   for (let i = 0; i < 5; i += 1) {
     await page.locator(`[data-day="${day}"]`).first().click();
-    await page.waitForTimeout(250);
+    await expect(page.locator('.drawer')).toBeVisible();
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(250);
+    await expect(page.locator('.drawer')).toHaveCount(0);
   }
 
   await app.go('/customers');
@@ -261,7 +279,12 @@ test('C25 快速開關抽屜五次再換頁 → 層次對帳不會錯亂', async
 
   // 再按一次返回鍵應該回到日曆，不是回到某一層殘留的抽屜
   await page.goBack();
+  // **這一個固定等待是留著的。** 這一步要證明的是「**沒有**一層殘留的抽屜
+  // 冒出來」，而證明某件事沒有發生天生需要等一段時間 —— 沒有任何「該發生的
+  // 事」可以等（見 issue 02 列的兩種不要換掉的等待）。換成等 locator 的話
+  // 等到的是「現在沒有」，而不是「一秒之內都沒有」。
   await page.waitForTimeout(1000);
+  await expect(page.locator('.drawer'), '返回之後不該有殘留的抽屜').toHaveCount(0);
   console.log('[C25] 返回之後的網址 =', page.url());
 });
 
@@ -300,8 +323,7 @@ test('C23 遍歷每一頁：沒有未捕獲例外、沒有白屏', async ({ app,
 
   const empty = [];
   for (const hash of pages) {
-    await page.evaluate((h) => { window.location.hash = h; }, hash);
-    await page.waitForTimeout(1100);
+    await app.go(hash);
     const body = await page.locator('#view').innerText();
     if (body.trim().length < 5 || body.includes('這一頁出錯了')) {
       empty.push([hash, body.slice(0, 120)]);
