@@ -36,7 +36,7 @@ const PENDING = {
   '03-health-and-counts.spec.js': 1,
   '04-journey-a-happy.spec.js': 15,
   '06-time-travel.spec.js': 6,
-  '07-chaos.spec.js': 17,
+  '07-chaos.spec.js': 1,
   '08-ux-audit.spec.js': 12,
   '09-sheet-and-import.spec.js': 4,
   '10-offline.spec.js': 7,
