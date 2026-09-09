@@ -3,7 +3,8 @@
 // 三件事是自動的，每一個測試都吃得到：
 //
 //   1. **每個測試前清空 Firestore**，再塞這個測試自己的資料。
-//      （workers 一定要是 1，見 playwright.config.js）
+//      （**一個 worker 一個命名空間**，所以清空只清得到自己那一份；
+//      隔離怎麼做見 playwright.config.js 的檔頭）
 //   2. **蒐集 console error 與未捕獲例外**。測試結束時如果有沒被宣告預期的，
 //      直接讓那個測試紅掉 —— 靜默的 console error 正是「畫面看起來正常、
 //      其實壞了」的那一種 bug。
