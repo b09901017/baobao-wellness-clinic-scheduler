@@ -1,1 +1,21 @@
+# 工作目錄一律 LF，**不管誰的 core.autocrlf 設成什麼**。
+#
+# 這個 repo 有二十幾支測試是**掃原始碼**的（`tests/nav.test.js` 掃 layer handle、
+# `tests/number-fields.test.js` 掃 min/step、`tests/slot-note.test.js` 掃壓表那一段…），
+# 而它們的樣式裡帶著換行符（`/note: null,` 換行 `    slots: [withNote],/` 那種）。
+#
+# Windows 預設 `core.autocrlf=true`，新 checkout 出來的檔案是 CRLF，那個樣式就
+# **永遠對不上**。版本庫裡存的一直都是 LF，是 checkout 那一下轉的。
+#
+# **症狀特別壞**：CI 跑在 Linux（LF）上所以永遠是綠的，只有 Windows 上新 clone
+# 或切分支之後才紅，而錯誤訊息長得像「這段程式被改壞了」。2026-09-09 在一個乾淨的
+# worktree 上就踩到一次，三支測試紅，查了才知道跟程式無關。
+#
+# 已經變成 CRLF 的工作目錄要清一次：
+#
+#     git rm --cached -r . && git reset --hard
+#
+# 這個 repo 沒有任何必須是 CRLF 的檔案（沒有 .bat / .cmd / .ps1）。
+* text=auto eol=lf
+
 graphify-out/graph.json merge=graphify
