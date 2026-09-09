@@ -1,0 +1,70 @@
+name: 全量 E2E
+
+# **這一支刻意跟 `deploy.yml` 分開，而且刻意不擋 staging。**
+#
+# `deploy.yml` 每支 PR 都跑單元測試、Rules 與三支 E2E（煙霧／混沌／離線）——
+# 那三支擋掉的是最貴的災難，而且快。全套 193 支要 21 分鐘（`workers: 1`，
+# 每一支都會把 Firestore 清空），把它塞進那條路等於每次推 develop 都要等
+# 21 分鐘才上 staging。
+#
+# 所以全量只在兩個時機跑：
+#
+#   1. **PR 進 `main`** —— 那一邊有真客戶資料，值得等
+#   2. **她自己按** —— 本機全跑要佔住電腦 21 分鐘而且期間不能改 `public/`
+#      （service worker 的殼會被換掉）。按一下丟給這裡，去做別的事
+#
+# 推 develop（上 staging）刻意不跑：那裡是假資料，而且 `deploy.yml` 那三支
+# 已經擋著整頁白屏那一類。
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-full:
+    runs-on: ubuntu-latest
+    # 21 分鐘是本機量到的；CI 這台機器核心少，留兩倍餘裕。
+    # 沒有這一行的話卡住會吃滿 GitHub 預設的 6 小時。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # Firestore 模擬器是 Java 寫的
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: 全量端對端（193 支）
+        env:
+          CI: '1'
+        # 用 `npm ci` 裝好的那一支 firebase-tools（devDependency 的 ^15），
+        # 不要另外 npx 拉一個 —— 模擬器這條路跟部署那條無關（它不碰
+        # serviceusage，所以不受 `deploy.yml` 那個版本釘子影響），
+        # 而且本機跟 CI 跑的是同一個版本才對得起來。
+        #
+        # `emulators:exec` 自己起、自己關，不需要背景程序。
+        # projectId 是 `demo-` 開頭 → 完全離線，不需要任何憑證。
+        run: |
+          npx firebase emulators:exec \
+            --project demo-scheduler \
+            --only auth,firestore,hosting \
+            "npx playwright test --project=phone"
+
+      # **失敗才留。** trace 裡有每一步的畫面、DOM、console 與網路，
+      # 下載回來 `npx playwright show-trace` 就能一步一步倒帶。
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: 全量-e2e-證據
+          path: .artifacts/
+          retention-days: 7

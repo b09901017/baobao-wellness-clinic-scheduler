@@ -122,8 +122,17 @@ npm install                 # 只裝測試與維運腳本要用的東西
 npm test                    # domain 純函式測試與分層守衛，不用模擬器
 npm run test:rules          # Security Rules，會自己起一個模擬器再關掉
 npm run emulators           # 本機跑 Auth + Firestore + Hosting
-npm run test:e2e            # 端對端。**要先把上面那行的模擬器跑起來**
+npm run verify              # 日常就用這個：單元測試 ＋ 這次改動相關的 E2E
+npm run test:e2e:related    # 只跑相關的那幾支
+npm run test:e2e:smoke      # 只跑 00-smoke（地基通不通）
+npm run test:e2e            # 全部，無頭。**要先把 emulators 那行跑起來**
+npm run test:e2e:watch      # 全部，看得到瀏覽器（慢一倍）
 ```
+
+E2E **全跑一次 20 分鐘（無頭）／25 分鐘（headed）**，所以日常不要全跑：
+`--related` 會拿 git 的差異去查 `tests-e2e/related.js`，只挑摸得到那幾個檔案的
+spec（外加永遠會跑的 `00-smoke`）。認不出來的檔案一律退回全跑，
+所以**漏列的代價是多跑幾支，不是安靜地少跑一支**。全量交給 CI 與上線前。
 
 本機一律連模擬器，專案 id 是 `demo-scheduler`（`demo-` 開頭讓 Firebase 進入
 完全離線模式）。**要 staging 或正式環境的操作看
