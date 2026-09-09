@@ -32,6 +32,11 @@ Status: todo
 
 ## 動工順序（這個順序本身就是防補丁的設計）
 
+0. **`git fetch origin`，從最新的 `origin/develop` 開分支。** 這一輪的 E2E 分級
+   （PR #82）也動了 `tests-e2e/fixtures/app.js` 的 `settled()` —— 從舊的點開會
+   在合回去的時候撞在同一支函式上。**已經開下去了就 rebase，不要重做。**
+   解衝突時 `settled()` 要留 develop 那份（認得五種佔位字、連續三次才算穩）；
+   留錯的話 `tests/e2e-waits.test.js` 會紅（它要求 fixture 一個固定等待都沒有）。
 1. **先改測試，再改東西。** `tests/env.test.js` 現在盯的是「三個字串相等」，
    要改成盯**同一支推導**：三邊都從一支共用的 `projectIdFor(workerIndex)`
    算出來，測試斷言三邊呼叫的是同一支、而且同樣的輸入給同樣的輸出。
