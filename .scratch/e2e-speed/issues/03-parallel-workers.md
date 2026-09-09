@@ -1,9 +1,43 @@
 # E2E 平行化：一個 worker 一個模擬器命名空間
 
-Status: todo
+Status: todo —— **隔離做完了（PR #84），平行沒開，`workers` 還是 1**
 來源：使用者，2026-09-09（「本機全跑 21 分鐘」）
 動工前先讀：`playwright.config.js` 的檔頭、`tests-e2e/fixtures/emulator.js` 的 `PROJECT_ID`、`tests/env.test.js`
-**建議用一支獨立分支做，失敗就整支丟掉。**
+
+## 2026-09-09 量到的：不要再重跑一次同樣的實驗
+
+前置的隔離**已經合併了**（一個 worker 一個 projectId，見下面「動工順序」1 與 3）。
+所以下一個人要做的**不是**再把 `workers` 調成 3 看看 —— 那已經量過了：
+
+| | 通過 | 紅 | 時間 |
+|---|---|---|---|
+| `workers: 1` | 193 | 0 | 23.9 分鐘 |
+| `workers: 3` | 183 | **10** | 14.2 分鐘 |
+
+快 40%，但十支紅掉的全跑當不了關卡，所以沒開。
+**十支沒有一支是資料串台** —— 命名空間是好的，那十支在 `workers: 1` 下
+重跑 60 條全過。十支是三種形狀：
+
+| 幾支 | 形狀 | 長什麼樣 |
+|---|---|---|
+| 6 | **連不上／載不起來** | `page.goto` 30 秒逾時 ×3、等不到 `[data-signin]`／`.app__nav` ×2、Firestore 說 client is offline ×1 |
+| 1 | **寫入卡住** | `app.saved()` 撞到 `PENDING_MS`，toast 停在「還沒送出去」（`19-untick` U4） |
+| 3 | **畫面沒畫完** | `settled()` 20 秒等不到穩 ×1（`21-pool-assignment`）＋ `settled()` 太早放行 ×2（`11-todo-drawer` D4 等不到「約二返」、`16-record-task` R3 課程名沒補上 —— R3 正是 `settled()` 註解裡寫的那個金絲雀） |
+
+## 真正的瓶頸是這兩個（要下手就從這裡）
+
+1. **那一顆 Firestore 模擬器是單一 Java 行程。** 每個測試開頭都要清空 ＋ 塞種子，
+   三個 worker 就是三份工作排隊等同一個行程 —— 上面那 6 支「連不上」與 1 支
+   「寫入卡住」都是這樣來的。
+2. **app 的 Firebase SDK 每個測試都從 gstatic CDN 重抓一次。**
+   每個測試一個新的瀏覽器 context ＝ 一份新的 HTTP 快取，所以 SDK 是真的重抓。
+   worker 越多同時打出去的請求越多，抓不到就是整支紅
+   （`ERR_SOCKET_NOT_CONNECTED`，症狀是等不到 `[data-signin]`）——
+   `workers: 1` 那次全跑也被這個弄紅過一支。
+
+**不要用調 `settled()` 的次數或打開 retries 來讓它變綠。** 那是拿墊子蓋住訊號，
+而 CLAUDE.md 說固定等待兩邊都錯：順的時候白等，慢一拍的時候讀到還沒重畫的畫面。
+這兩個瓶頸解掉之後，開平行只要改 `playwright.config.js` 一行。
 
 ## 現在為什麼只能一個 worker
 
