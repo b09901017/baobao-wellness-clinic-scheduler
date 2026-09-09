@@ -120,6 +120,11 @@ jobs:
         with:
           name: e2e-證據
           path: .artifacts/
+          # **一定要。** `upload-artifact@v4` 預設把「隱藏檔」整個排掉，
+          # 而 `.artifacts/` 是一個點開頭的目錄 —— 底下所有東西都算隱藏。
+          # 沒有這一行，失敗時它會印一句 warning 說「找不到檔案」然後
+          # **綠著結束**，於是那次失敗一張截圖一份 trace 都沒留下來。
+          include-hidden-files: true
           retention-days: 7
 
   deploy:
