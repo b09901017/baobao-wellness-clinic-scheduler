@@ -55,7 +55,7 @@ test('J-E4 從首頁那張卡勾掉 → 會問「給了哪些」，而且寫進 
 
   // 預設全部打勾 → 直接按「都給了，記起來」
   await page.locator('[data-give-ok]').click();
-  await page.waitForTimeout(1200);
+  await app.saved();
 
   const ent = await app.readDoc('customers/cust-c/entitlements', 'ent-c-prod');
   expect(ent.deliveries, '交付要寫進額度').toHaveLength(1);
@@ -76,7 +76,7 @@ test('J-E5 只給一部分 → 提醒不勾掉，文字換成剩下的那幾款'
   await page.locator('[data-give="prod-linengkang"]').click();
   await page.locator('[data-give="prod-gaba"]').click();
   await page.locator('[data-give-ok]').click();
-  await page.waitForTimeout(1200);
+  await app.saved();
 
   const ent = await app.readDoc('customers/cust-c/entitlements', 'ent-c-prod');
   expect(ent.deliveries[0].productIds).toHaveLength(2);
@@ -115,7 +115,9 @@ test('J-E6 🔴 從 #/todo/notes 勾掉營養品提醒，不會問「給了哪�
 
   await expect(page.locator('[data-note="note-c-give"]')).toBeVisible();
   await page.locator('[data-note="note-c-give"]').click();
-  await page.waitForTimeout(1500);
+  // 那張問話面板出來了才問得下去。以前它不出現就是這一支要抓的 bug，
+  // 所以這裡等的是**面板**，不是一段秒數。
+  await app.layer('[data-give-ok]');
 
   // 第一件事：這一頁到底有沒有問。以前它直接寫進去，面板根本不會出現。
   const asked = await page.locator('[data-give-ok]').count();
@@ -125,7 +127,7 @@ test('J-E6 🔴 從 #/todo/notes 勾掉營養品提醒，不會問「給了哪�
   // 第二件事：答完之後那筆紀錄真的進得去。逐項預設全部打勾，
   // 所以直接按「都給了，記起來」就好 —— 跟 J-E4 走同一條路。
   await page.locator('[data-give-ok]').click();
-  await page.waitForTimeout(1200);
+  await app.saved();
 
   const ent = await app.readDoc('customers/cust-c/entitlements', 'ent-c-prod');
   const note = await app.readDoc('notes', 'note-c-give');
@@ -149,9 +151,9 @@ test('J-E9 🟡 日曆待辦卡：只給一部分，卡片卻說已經勾掉了'
 
   // 點那一天 → 底部滑出 → 點那一筆待辦 → 浮出讀取卡片
   await page.locator(`[data-day="${GIVE_DATE}"]`).first().click();
-  await page.waitForTimeout(600);
+  await app.layer('[data-open^="note:"]');
   await page.locator('[data-open^="note:"]').first().click();
-  await page.waitForTimeout(600);
+  await app.layer('.popcard');
 
   await expect(page.locator('[data-tick]')).toContainText('做完了，勾掉');
   await page.locator('[data-tick]').click();
@@ -160,7 +162,7 @@ test('J-E9 🟡 日曆待辦卡：只給一部分，卡片卻說已經勾掉了'
   await expect(page.locator('[data-sheet-title]')).toContainText('給了什麼');
   await page.locator('[data-give="prod-gaba"]').click();
   await page.locator('[data-give-ok]').click();
-  await page.waitForTimeout(1200);
+  await app.saved();
 
   const note = await app.readDoc('notes', 'note-c-give');
   expect(note.done, '資料庫：沒給完就不勾掉').toBe(false);
@@ -207,12 +209,15 @@ test('J-E10 壓表時品項預設就是她買的那一款，其餘要按「換�
   await page.locator(`[data-month="${DRIP_MONTH}"]`).click();
   await app.settled();
   await page.locator('[data-pick="cust-i"]').first().click();
-  await page.waitForTimeout(600);
+  await app.layer(`[data-day="${DRIP_DAY}"]`);
 
   await page.locator(`[data-day="${DRIP_DAY}"]`).first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent="ent-i-drip"]');
   await page.locator('[data-ent="ent-i-drip"]').click();
-  await page.waitForTimeout(300);
+  // 選了額度之後那一排品項丸子才長出來。**壓表這一側是 `[data-ivproduct]`**，
+  // 來訪編輯器那一側才是 `[data-chip="s0-iv"]`（J-E11）—— 同一件事兩個入口
+  // 兩種寫法，等錯一個不存在的選擇器就是跑滿 15 秒再紅在無關的那一句上。
+  await app.layer('[data-ivproduct]');
 
   // 買的那一款已經選好了
   await expect(page.locator('[data-ivproduct="iv-liver"]'))
@@ -246,7 +251,10 @@ test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一�
   // 換成別款
   await page.locator('[data-chip-more]').click();
   await page.locator('[data-chip="s0-iv"][data-chip-value="iv-heart"]').click();
-  await page.waitForTimeout(300);
+  await expect(
+    page.locator('[data-chip="s0-iv"][data-chip-value="iv-heart"]'),
+    '換一款＝那顆丸子被按下去（壓表不重畫整頁，只換 aria-pressed，ADR-0038）',
+  ).toHaveAttribute('aria-pressed', 'true');
 
   // **那一句提醒 2026-09-09 從表單上方搬到存檔前那一道**（ADR-0086）——
   // 她的原話是「所以新增來訪的這個表單最上面就不需要還有一個提醒了」。
@@ -258,8 +266,7 @@ test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一�
 
   // **存得下去** —— 這不是錯誤，是一句提醒
   await app.ok();
-  await app.settled();
-  await page.waitForTimeout(1200);
+  await app.saved();
 
   const saved = await app.readDoc('visits', 'v-i-drip');
   expect(saved.slots[0].ivProductId, '她的決定要記得下來').toBe('iv-heart');

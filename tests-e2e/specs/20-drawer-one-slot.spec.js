@@ -68,7 +68,9 @@ function seedThreeSlots() {
 async function openDayDrawer(app, page) {
   await app.go('/calendar');
   await page.locator(`[data-day="${DAY}"]`).first().click();
-  await page.waitForTimeout(700);
+  // 抽屜裡那幾列出來了才算開好。固定 700ms 是猜的 —— 慢一拍就會點在
+  // 還沒接好監聽的節點上，而那一下什麼都不會發生（沒有錯誤訊息）。
+  await app.layer('[data-open^="visit:"]');
 }
 
 test('同一天三段：一段一列，點哪一列就只看哪一段', async ({ app, page }) => {
@@ -81,10 +83,9 @@ test('同一天三段：一段一列，點哪一列就只看哪一段', async ({
 
   // 點第二列（SIS 那一段）
   await rows.nth(1).click();
-  await page.waitForTimeout(700);
+  await app.layer('.popcard');
 
   const card = page.locator('.popcard');
-  await expect(card).toBeVisible();
   await expect(card.locator('.readslot'), '只該畫她點的那一段').toHaveCount(1);
   await expect(card.locator('.readslot')).toContainText('10:00');
   await expect(card, '點的是 SIS 那一段，不該看到 09:00 那一段').not.toContainText('09:00');
@@ -106,7 +107,7 @@ test('點一段時，那一塊的抬頭是「這一項的待辦」', async ({ ap
   await openDayDrawer(app, page);
 
   await page.locator('[data-open^="visit:v-three:"]').nth(1).click();
-  await page.waitForTimeout(900);
+  await app.layer('.popcard');
 
   await expect(page.locator('.taskmirror__head')).toContainText('這一項的待辦');
 });
@@ -137,7 +138,10 @@ async function longPressRow(page, index) {
   const box = await row.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(900);
+  // **按住直到選單真的升起來**，不要按固定的秒數。HOLD_MS 是 450，
+  // 而 900 是「多留一倍保險」猜出來的 —— 負載一高照樣不夠，順的時候白等。
+  // `pointerup` 只 clear 計時器，不會關掉已經開好的選單，所以放手是安全的。
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
   await page.mouse.up();
 }
 
@@ -183,7 +187,7 @@ test('取消這一段，那一天剩下的兩段一個字都不動', async ({ ap
   // 存完之後 `refreshAfterAction()` 會**自己把同一天的抽屜開回來**
   //（她在日曆上的心裡狀態是「就是那一天」，ADR-0020），所以這裡不要再點一次
   // —— 那一下會被還在的灰底擋掉。
-  await page.waitForTimeout(1500);
+  await app.saved();
 
   // 三列都還在（取消掉的那一段畫出來但暗掉，ADR-0061），
   // 而只有一列是取消掉的那一種。

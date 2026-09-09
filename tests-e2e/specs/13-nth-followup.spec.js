@@ -74,7 +74,8 @@ async function openDeck(app, page) {
   await page.locator(`[data-month="${MONTH}"]`).click();
   await app.settled();
   await page.locator('[data-pick="cust-n"]').first().click();
-  await page.waitForTimeout(600);
+  // 那張卡片牆推上來了才點得到日子
+  await app.layer('[data-day]');
 }
 
 test('N1 壓表：「＋ n返」選得到，預設是三返，而且存得下去', async ({ app, page }) => {
@@ -83,7 +84,7 @@ test('N1 壓表：「＋ n返」選得到，預設是三返，而且存得下去
   await openDeck(app, page);
 
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent]');
 
   // 那一顆在「做什麼」那一排的最後面，而且寫著「不扣次數」
   const chip = page.locator('[data-ent="__nth__"]');
@@ -91,7 +92,8 @@ test('N1 壓表：「＋ n返」選得到，預設是三返，而且存得下去
   await expect(chip).toContainText('不扣次數');
 
   await chip.click();
-  await page.waitForTimeout(300);
+  // 選了 n返 之後才長出返數那一排
+  await app.layer('[data-nth]');
 
   // 只有一次健檢 → 那一次自動選好，返數預設三返（二返算 2）
   await expect(page.locator('[data-nth="3"]')).toHaveAttribute('aria-pressed', 'true');
@@ -108,7 +110,7 @@ test('N1 壓表：「＋ n返」選得到，預設是三返，而且存得下去
   const dialog = await app.dialogText();
   expect(dialog, '三返是加約的 —— 這一句一定要講').toContain('不扣任何次數');
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   // ---- 存進去的形狀 ----
   const saved = (await app.readAll('visits'))
@@ -130,13 +132,13 @@ test('N2 **次數一個都沒有變**，二返那一條鏈也沒被動到', asyn
   await openDeck(app, page);
 
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent="__nth__"]');
   await page.locator('[data-ent="__nth__"]').click();
-  await page.waitForTimeout(300);
+  await app.layer('[data-time]');
   await page.locator('[data-time]').first().click();
   await page.locator('[data-add]').click();
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const exam = await app.readDoc('customers/cust-n/entitlements', 'ent-n-exam');
   const second = await app.readDoc('customers/cust-n/entitlements', 'ent-n-2nd');
@@ -191,10 +193,9 @@ test('N4 日曆上看得到「三返」', async ({ app, page }) => {
     }),
   ]));
   await app.signIn('/calendar');
-  await page.waitForTimeout(500);
 
   await page.locator(`[data-day="${NTH_DAY}"]`).first().click();
-  await page.waitForTimeout(600);
+  await app.layer('.drawer__body');
   // n返 借二返那個課程，所以名字**只在快照上** —— 讀主檔的話這一列會寫「二返」，
   // 而同一位客戶同一天有二返又有三返時兩列會長得一模一樣。
   await expect(page.locator('body')).toContainText('三返');
@@ -214,9 +215,9 @@ test('N5 一位**沒有做完健檢**的客戶，那一顆丸子整顆不出現'
   await page.locator(`[data-month="${MONTH}"]`).click();
   await app.settled();
   await page.locator('[data-pick="cust-x"]').first().click();
-  await page.waitForTimeout(600);
+  await app.layer(`[data-day="${PICK_DAY}"]`);
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent]');
 
   // 畫成 disabled 的話她每次都會試一下 —— 整顆不畫
   await expect(page.locator('[data-ent="__nth__"]')).toHaveCount(0);
@@ -237,9 +238,9 @@ test('N6 加第二場：預設變成四返', async ({ app, page }) => {
   await app.signIn('/');
   await openDeck(app, page);
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
-  await page.waitForTimeout(400);
+  await app.layer('[data-ent="__nth__"]');
   await page.locator('[data-ent="__nth__"]').click();
-  await page.waitForTimeout(300);
+  await app.layer('[data-nth]');
 
   await expect(page.locator('[data-nth="4"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-exam="v-n-exam"]'), '已經有二返與三返了')
@@ -279,30 +280,32 @@ test('N7 什麼都用完的客戶：日曆上照樣加得了三返', async ({ ap
     }),
   ]);
   await app.signIn('/calendar');
-  await page.waitForTimeout(500);
 
   // 日曆 → 點那一天 → 抽屜抬頭的「＋」→ 新增來訪 → 選人
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
-  await page.waitForTimeout(600);
+  await app.layer('[data-addmenu-toggle]');
   await page.locator('[data-addmenu-toggle]').click();
   await page.locator('[data-add="visit"]').click();
-  await page.waitForTimeout(500);
+  await app.layer('[data-pick="cust-u"]');
   await page.locator('[data-pick="cust-u"]').click();
-  await page.waitForTimeout(1500);
+  await app.layer('[data-chip="s0-ent"]');
 
   // 額度那一排：兩筆都用完了，但「＋ n返」照樣在
   const chip = page.locator('[data-chip="s0-ent"][data-chip-value="__nth__"]');
   await expect(chip, '身上沒有剩餘次數不代表接不了三返').toBeVisible();
   await chip.click();
-  await page.waitForTimeout(600);
+  await app.layer('[data-chip="s0-nth"]');
 
   await expect(page.locator('[data-chip="s0-nth"][data-chip-value="3"]'))
     .toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-chip="s0-exam-nth"][data-chip-value="v-u-exam"]').click();
-  await page.waitForTimeout(300);
+  await expect(page.locator('[data-chip="s0-exam-nth"][data-chip-value="v-u-exam"]'))
+    .toHaveAttribute('aria-pressed', 'true');
 
   await page.locator('input[name="s0-start"]').fill('15:00');
-  await page.waitForTimeout(400);
+  // 填進去了才送。**沒有「結束時間」那一格**（那是算出來的），所以要問的是
+  // 這一格自己 —— 以前那 400ms 是在替一個不存在的欄位等連動。
+  await expect(page.locator('input[name="s0-start"]')).toHaveValue('15:00');
   await page.locator('button[type="submit"]').click();
 
   // **兩道**（ADR-0086）：先「這幾段先看一下」（這一段還沒選醫師），
@@ -311,12 +314,12 @@ test('N7 什麼都用完的客戶：日曆上照樣加得了三返', async ({ ap
   await expect(app.dialog()).toBeVisible();
   expect(await app.dialogText(), '先看一下那一道要講出什麼沒填').toContain('先看一下');
   await app.ok();
-  await page.waitForTimeout(500);
-
-  await expect(app.dialog(), '按過第一道才問 Abovee，而且它不可以被吃掉').toBeVisible();
-  expect(await app.dialogText()).toContain('Abovee');
+  // **第二道是接著長出來的**，不是同一張 —— 所以等的是「內容換了」，
+  // 不是一段秒數（以前那 500ms 一慢就會讀到還沒換掉的第一道）。
+  await expect(app.dialog(), '按過第一道才問 Abovee，而且它不可以被吃掉')
+    .toContainText('Abovee');
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const saved = (await app.readAll('visits')).find((v) => v.date === PICK_DAY && !v.deletedAt);
   expect(saved, '存得下去 —— 這一整輪就是為了這一行').toBeTruthy();
@@ -361,7 +364,7 @@ test('J-N7 三返做完也會長出「寫紀錄」—— 它跟著二返的設�
   await page.locator('[data-open="v-v-nth"]').click();
   await expect(page.locator('.drawer')).toContainText('寫紀錄');
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(1800);
+  await app.saved();
 
   const record = (await app.readAll('tasks'))
     .filter((t) => !t.deletedAt)

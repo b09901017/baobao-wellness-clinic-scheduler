@@ -48,7 +48,7 @@ async function closeExam(app, page) {
   await page.locator('[data-open="visit-b-exam1"]').click();
   await expect(page.locator('[data-apply]')).toBeVisible();
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(1800);
+  await app.saved();
 }
 
 /** 勾掉某一種待辦（走待辦中心那一頁的多選 + 標成完成）。 */
@@ -57,14 +57,15 @@ async function tick(app, page, kind) {
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 }
 
 /** 從「已完成」那一格點回來（不按確認，讓呼叫端自己決定）。 */
 async function startUntick(app, page, kind) {
   await app.go(`/todo/${encodeURIComponent(kind)}`);
   await page.locator('[data-task-tab="done"]').click();
-  await page.waitForTimeout(400);
+  // 那一格裡的「拿回來」出現了才點得到。固定 400ms 是猜的。
+  await app.layer('[data-untick]');
   await page.locator('[data-untick]').first().click();
 }
 
@@ -104,7 +105,9 @@ test.describe('拿回一張待辦要先講清楚', () => {
 
     await startUntick(app, page, '追蹤健檢報告');
     await app.cancelDialog();
-    await page.waitForTimeout(800);
+    // 按取消不寫任何東西，所以沒有「存完了」可以等 —— 等確認框真的收掉就夠。
+    // 以前那 800ms 是在替一件不會發生的寫入留時間。
+    await expect(app.dialog()).toHaveCount(0);
 
     const live = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
     expect(live.find((t) => t.kind === '追蹤健檢報告').done).toBe(true);
@@ -120,7 +123,7 @@ test.describe('拿回一張待辦要先講清楚', () => {
 
     await startUntick(app, page, '追蹤健檢報告');
     await app.ok();
-    await page.waitForTimeout(2000);
+    await app.saved();
 
     const live = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
     const report = live.find((t) => t.kind === '追蹤健檢報告');
@@ -164,7 +167,7 @@ test.describe('拿回一張待辦要先講清楚', () => {
     expect(said).not.toContain('取消二返');
 
     await app.ok();
-    await page.waitForTimeout(2000);
+    await app.saved();
 
     // 那一筆二返來訪真的一個字都沒被動到
     const kept = await app.readDoc('visits', 'visit-b-2nd');
@@ -200,7 +203,9 @@ test.describe('拿回一張待辦要先講清楚', () => {
     await app.signIn('/');
 
     await startUntick(app, page, 'Examine');
-    await page.waitForTimeout(1500);
+    // **這一支要證明「沒有確認框」**，而證明不存在需要等到「該發生的事發生了」。
+    // 沒有確認框就是直接寫下去，所以等那一趟寫入結束 —— 比等 1500ms 硬。
+    await app.saved();
 
     await expect(app.dialog()).toHaveCount(0);
     const live = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
@@ -216,11 +221,11 @@ test.describe('拿回一張待辦要先講清楚', () => {
     await expect(page.locator('.popcard')).toBeVisible();
     // 讀取卡片沒有取消那一顆 —— 走鉛筆進編輯器（ADR-0056）
     await page.locator('[data-card-edit]').click();
-    await page.waitForTimeout(600);
+    await app.layer('form[data-form]');
     // 整筆的那幾顆收進「這一天整筆的」那一摺（ADR-0085）——
     // 她點的是一段，而那一顆動的是整天。收著不是藏著（ADR-0060）。
     await page.locator('details.advanced summary').first().click();
-    await page.waitForTimeout(250);
+    await expect(page.locator('details.advanced').first()).toHaveAttribute('open', '');
     await page.locator('[data-status="cancelled"]').click();
 
     await expect(app.dialog()).toBeVisible();
@@ -315,7 +320,9 @@ test.describe('讀取卡片上的「這一場的待辦」', () => {
     await page.click(`[data-day="${DAY}"]`);
     await page.locator('[data-open^="visit:visit-a:"]').click();
     await expect(page.locator('.popcard')).toBeVisible();
-    await page.waitForTimeout(900);
+    // 卡片裡那一段（`.readslot`）畫出來了，代表 `visitReadHtml()` 整支跑完 ——
+    // 「這一場的待辦」那一塊跟它是同一次 render，所以這時候問得準。
+    await expect(page.locator('.popcard .readslot').first()).toBeVisible();
     // 一個空殼會讓她以為那裡壞了
     await expect(page.locator('.taskmirror')).toHaveCount(0);
   });
@@ -352,7 +359,7 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
   /** 打開那一天的抽屜，點開一筆待辦的讀取卡片。 */
   async function openTodoCard(app, page, id = 'n-today') {
     await page.locator(`[data-day="${TODAY}"]`).first().click();
-    await page.waitForTimeout(600);
+    await app.layer(`[data-open="note:${id}"]`);
     await page.locator(`[data-open="note:${id}"]`).click();
     await expect(page.locator('.popcard')).toBeVisible();
   }
@@ -367,11 +374,12 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
 
     await expect(page.locator('[data-tick]')).toContainText('做完了，勾掉');
     await page.locator('[data-tick]').click();
-    await page.waitForTimeout(1500);
+    await app.saved();
 
     await expect(page.locator('.popcard'), '勾完那一張卡片要收掉').toHaveCount(0);
     // **不會有第二張。** 以前這裡會浮出一張寫著「拿回來，還沒做」的新卡片。
-    await page.waitForTimeout(1200);
+    // 「第二張沒有浮出來」要留一段時間才問得準，但 `saved()` 已經等到寫入
+    // 結束＋畫面穩下來了 —— 那一張如果要浮，這時候已經浮了。
     await expect(page.locator('.popcard')).toHaveCount(0);
     await expect(page.locator('[data-tick]')).toHaveCount(0);
 
@@ -386,7 +394,7 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
     await openTodoCard(app, page);
 
     await page.locator('[data-tick]').click();
-    await page.waitForTimeout(1500);
+    await app.saved();
 
     // 抽屜留在原地 —— 她可能還想看那一天的其他東西
     await expect(page.locator('.drawer')).toBeVisible();
@@ -410,7 +418,7 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
 
     await expect(page.locator('[data-tick]')).toContainText('拿回來，還沒做');
     await page.locator('[data-tick]').click();
-    await page.waitForTimeout(1500);
+    await app.saved();
 
     await expect(page.locator('.popcard')).toHaveCount(0);
     await expect(page.locator('.drawer')).toBeVisible();
@@ -433,11 +441,21 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
     await app.signIn('/calendar');
 
     await page.locator(`[data-day="${TODAY}"]`).first().click();
-    await page.waitForTimeout(600);
+    await app.layer('[data-open^="note:"]');
 
     const body = page.locator('.drawer__body');
     await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    await page.waitForTimeout(300);
+    // 捲動停下來了才量。**不要固定等** —— 平滑捲動慢一拍時量到的是半路上
+    // 那個值，而這一支整支的判準就是「捲到哪裡」。
+    await body.evaluate((el) => new Promise((done) => {
+      let last = -1;
+      const tick = () => {
+        if (el.scrollTop === last) { done(); return; }
+        last = el.scrollTop;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }));
     const before = await body.evaluate((el) => el.scrollTop);
     expect(before, '這一支要有東西可捲才問得出問題').toBeGreaterThan(0);
 
@@ -445,7 +463,7 @@ test.describe('日曆抽屜裡勾一件待辦', () => {
     await page.locator('[data-open^="note:"]').last().click();
     await expect(page.locator('.popcard')).toBeVisible();
     await page.locator('[data-tick]').click();
-    await page.waitForTimeout(1500);
+    await app.saved();
 
     const after = await body.evaluate((el) => el.scrollTop);
     expect(after, '勾一筆隨手記不該把她捲回最上面').toBeGreaterThan(0);
