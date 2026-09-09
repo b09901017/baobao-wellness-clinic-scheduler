@@ -17,6 +17,7 @@ import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
+  sameDayState, editorTarget, slotNoteOf,
   applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
@@ -38,7 +39,8 @@ import {
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
-import { confirmAction } from '../components/dialog.js';
+import * as slotNote from '../components/slotNote.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
@@ -75,13 +77,22 @@ export async function mountNew(el, { customerId, date = null, ...rest } = {}) {
   await boot(el, { customerId, date, ...rest });
 }
 
-/** 掛進抽屜裡的修改。 */
-export async function mountEdit(el, { visitId, ...rest } = {}) {
-  await boot(el, { visitId, ...rest });
+/**
+ * 掛進抽屜裡的修改。
+ *
+ * `slotIndex` = 她點的是哪一段（ADR-0085）。帶了就**只畫那一段**，
+ * 也不給「＋新增一個時段」—— 她的原話是「就請讓我只能修改這一個時段的東西，
+ * 而不是讓我還可以新增還可以修其他時段的東西」。
+ *
+ * 沒帶就照舊全部：網址那條路（`renderEdit()`）沒有段落資訊，畫成空的比
+ * 畫太多糟（同 `slotsToShow()` 的兩條退路）。
+ */
+export async function mountEdit(el, { visitId, slotIndex = null, ...rest } = {}) {
+  await boot(el, { visitId, slotIndex, ...rest });
 }
 
 async function boot(el, {
-  customerId = null, visitId = null, date = null,
+  customerId = null, visitId = null, date = null, slotIndex = null,
   embedded = false, onDone = null, onCancel = null,
 }) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -114,12 +125,54 @@ async function boot(el, {
       return;
     }
 
-    const draft = existing ? { ...existing } : blankVisit(customer, entitlements, all, settings, date);
+    // **同一天已經有一筆就接著編輯它**（ADR-0083）。壓表那一頁一直是這樣做的，
+    // 日曆這條路以前完全不查，於是同一位客戶同一天會長出兩筆獨立的來訪 ——
+    // 而規則她看不出來（她 2026-09-08 問的「為什麼可以同一天再來訪一次」）。
+    //
+    // 收不下（那一天已經結案／取消）就照樣開新的一筆，並且講出來：
+    // 那是唯一一種同一天會有第二筆的情況。
+    const day = isValidDate(date) ? date : (existing?.date ?? todayISO());
+    const sameDay = existing
+      ? { open: null, closed: [] }
+      : sameDayState(customerVisits, customer.id, day);
+
+    // **要編哪一筆、要不要接一段新的，只有一句話**（ADR-0083）。
+    // 2026-09-09 之前這裡寫成 `existing ?? merging` 再一律 `withNewSlot()`，
+    // 於是**改一筆既有的來訪也會被偷偷接上一段空的** —— 那一段不會被畫出來
+    // 卻會被存進去，而 `validateVisit()` 擋著說「第 N 段：要選一個課程」。
+    const target = editorTarget({ existing, open: sameDay.open });
+    const base = target.visit;
+    const draft = base
+      ? (target.addSlot ? withNewSlot(base, entitlements, all, settings) : { ...base })
+      : blankVisit(customer, entitlements, all, settings, date);
     const sameDayVisits = await visitsData.listByDate(draft.date);
 
     ctx = {
       el, customer, entitlements, all, settings, customerVisits, sameDayVisits,
-      isNew: !existing, unlockReason: null, embedded, onDone, onCancel,
+      isNew: !existing,
+      // **存下去之前那一筆有幾段。** `hasNewSlots()` 拿它比 —— 時段身上沒有 id，
+      // 而新的一律接在尾巴，所以段數比得出「這裡面有沒有還沒壓過的」。
+      storedSlotCount: base?.slots?.length ?? 0,
+      // 這一筆來訪的文件是新的嗎（存檔走 create 還是 update）。
+      // **跟「有沒有新的時段」是兩件事** —— 併進既有那一筆時文件是舊的，
+      // 但那一段是全新的，Abovee 那一道照樣要問。
+      isNewDoc: !base,
+      merged: target.merged,
+      // **那一天已經結案了，這是新的一筆**（ADR-0083 決定三）。壓表那一頁
+      // 早就講得出這一句，日曆這條路以前什麼都不說 —— 而那正是「同一天
+      // 為什麼有兩塊」最需要一句解釋的時候。
+      closedToday: target.merged || existing ? [] : sameDay.closed,
+      // 哪幾段畫得出來、改得動（`isEditable()`）。
+      //   改一段  → 就那一段
+      //   併進來  → 只有剛剛加上去的那一段
+      //   其餘    → 全部
+      editSlots: existing && Number.isInteger(slotIndex) && existing.slots?.[slotIndex]
+        ? [slotIndex]
+        : (target.merged ? [base.slots.length] : null),
+      // 「＋新增一個時段」給不給。**改一段時不給**（她要的），
+      // 新增時給 —— 她 2026-09-09：「新增的時候…我希望一樣可以一次新增多筆多個時段」。
+      canAddSlots: !existing,
+      unlockReason: null, embedded, onDone, onCancel,
     };
     paint(ctx, draft);
   } catch (err) {
@@ -166,7 +219,26 @@ function blankSlot(entitlement, all, settings, startsAt) {
     therapistId: null,
     doctorId: null,
     attended: null,
+    // **新加的一段一定是「還沒問客人」**（ADR-0081）。不寫的話
+    // `withSlotStatuses()` 會讓它繼承整筆的狀態 —— 併進一筆已確認的來訪時，
+    // 那一段會被靜默標成談定了，而她根本還沒跟客人講過這個時間。
+    // 壓表那一頁的 `withExtraSlot()` 做的是同一件事。
+    status: INITIAL_STATUS,
   };
+}
+
+/**
+ * 既有的那一筆，尾巴接上一段空的。
+ *
+ * 併進同一天時走這條（`boot()`）。時間接在最後一段結束的 N 分鐘後 ——
+ * 跟「＋新增一個時段」同一條算法，各算一次的話兩個入口的預設會不一樣。
+ */
+function withNewSlot(visit, entitlements, all, settings) {
+  const slots = visit.slots ?? [];
+  const last = slots[slots.length - 1];
+  const gap = settings.slotGapMin ?? DEFAULT_GAP_MIN;
+  const startsAt = last && isValidTime(last.endsAt) ? nextStart(last.endsAt, gap) : '09:00';
+  return { ...visit, slots: [...slots, blankSlot(entitlements[0], all, settings, startsAt)] };
 }
 
 // ---------- 畫面 ----------
@@ -180,8 +252,10 @@ function leave(ctx) {
 function paint(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew, embedded } = ctx;
   const locked = isLocked(draft.status) && !ctx.unlockReason;
+  // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
+  const wholeVisit = !isNew && !ctx.editSlots;
 
-  const { errors, warnings } = validateVisit(draft, {
+  const { errors } = validateVisit(draft, {
     customer,
     entitlements,
     courses: all.courses,
@@ -203,42 +277,67 @@ function paint(ctx, draft) {
         <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
         ${flagsUi.detailChips(splitFlags(customer, all.clinicalFlags), { rows: all.clinicalFlags })}
       </div>
+      ${/* **提醒那一塊不在這裡了**（2026-09-09）。她的原話：「所以新增來訪的
+             這個表單最上面就不需要還有一個提醒了」—— 那幾句話改成存檔前
+             跳一道（`submit()`），而且只在真的有話要講的時候跳。
+             errors 留著：那是擋著不讓存的，不是提醒。 */''}
       <div class="errors" data-errors hidden></div>
-      ${warnings.length ? warningsHtml(warnings, embedded) : ''}
     </section>
 
     ${locked ? lockedCard(embedded) : ''}
 
     <form data-form ${locked ? 'inert' : ''}>
-      <section class="card ${embedded ? 'card--bare' : ''}">
-        ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
-        ${f.text({
-          name: 'note', label: '這一次記一句', value: draft.note ?? '',
-          placeholder: '例：她說下午比較好', maxlength: NOTE_MAX,
-          hint: '跟著這一筆來訪，不是掛在客戶身上 —— 那是備註，在客戶那一頁改。',
-        })}
-      </section>
+      ${/* **「記一句」不在這裡了**（ADR-0084）。它搬到每一段身上，收在那一段
+             抬頭列右邊那顆夾板後面 —— 她 2026-09-09：「我希望是每一筆都可以有
+             他的記一句，而不要是一整天的」。 */''}
+      ${closedNote(ctx)}
+      ${/* **只改一段時日期不給改**（ADR-0085）。日期是整筆的 —— 改了那一天
+             剩下那幾段也跟著搬，而她點進來要改的只有這一段。要整天改期就是
+             取消 + 重排（SPEC 第 7 節規則 10）。 */''}
+      ${wholeVisit || isNew ? `
+        <section class="card ${embedded ? 'card--bare' : ''}">
+          ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
+        </section>` : ''}
 
-      ${draft.slots.map((slot, i) => slotCard(ctx, draft, slot, i)).join('')}
+      ${/* **只畫改得動的那幾段**（ADR-0085）。她從日曆點的是一段，那就只有
+             那一段；併進既有那一天時只有剛加上去的那一段。其餘原封不動地
+             跟著 `readDraft()` 走 —— 「這一天還有另外幾段」一個字都不講，
+             她 2026-09-09 明確說不需要知道。 */''}
+      ${draft.slots
+        .map((slot, i) => (isEditable(ctx, i) ? slotCard(ctx, draft, slot, i) : ''))
+        .join('')}
 
-      <section class="card ${embedded ? 'card--bare' : ''}">
-        <p><button class="btn" type="button" data-add-slot>＋ 新增一個時段</button></p>
-        <p class="muted">預設接在上一段結束的 ${ctx.settings.slotGapMin ?? DEFAULT_GAP_MIN} 分鐘後。</p>
-      </section>
+      ${ctx.canAddSlots ? `
+        <section class="card ${embedded ? 'card--bare' : ''}">
+          <p><button class="btn" type="button" data-add-slot>＋ 新增一個時段</button></p>
+        </section>` : ''}
 
       <section class="card ${embedded ? 'card--bare' : ''}">
         <div class="form__actions">
-          <button class="btn btn--primary" type="submit">${isNew ? '記錄這次來訪' : '儲存'}</button>
+          <button class="btn btn--primary" type="submit">${hasNewSlots(ctx, draft) ? '記錄這次來訪' : '儲存'}</button>
           <button class="btn" type="button" data-cancel-edit>取消</button>
         </div>
-        ${ctx.submitted && errors.length
-          ? '<p class="muted">上面紅色的問題要先處理才存得下去。</p>'
-          : ''}
+        ${/* 「上面紅色的問題要先處理才存得下去」拿掉了（2026-09-09）——
+               紅色的那幾行自己就在說這件事，而她要的是少一點字。 */''}
       </section>
     </form>
 
-    ${isNew ? '' : statusCard(draft, embedded)}
-    ${isNew ? '' : dangerZone(embedded)}`;
+    ${/* **整筆的那幾顆收進一摺，但不可以拿掉。**
+           她點一段進來改的時候，「取消這一筆來訪」跟那幾格欄位混在一起是
+           講不通的 —— 那一顆動的是那一天全部（她 2026-09-08：「而不是讓我
+           還可以…修其他時段的東西」）。
+
+           但**藏起來就違反 ADR-0060**：長按選單是捷徑，不是唯一的路，
+           而取消整天與刪除這一筆在別的地方點不到。收進一摺兩件事都成立
+           —— 走的是這個樣式表既有的 `.advanced`。 */''}
+    ${isNew ? '' : `
+      <details class="advanced" ${wholeVisit ? 'open' : ''}>
+        <summary class="advanced__head">這一天整筆的</summary>
+        <div class="advanced__body">
+          ${statusCard(draft, embedded)}
+          ${dangerZone(embedded)}
+        </div>
+      </details>`}`;
 
   el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -250,13 +349,18 @@ function paint(ctx, draft) {
 
   const form = el.querySelector('[data-form]');
   f.wireChips(form);
+  // 展開那一句話。`form` 每次 `paint()` 都被換掉，所以不必給 signal。
+  slotNote.wire(form);
 
   form.addEventListener('change', async (e) => {
-    // 這一句話不影響畫面上算出來的任何東西，所以不要為了它重畫。
+    // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
     // 重畫會在她打完字、手指正要按下「儲存」的那一刻把那顆按鈕換掉 ——
     // 按下去與放開落在兩個不同的元素上，那一下就不算數（其餘欄位都是用點的，
     // 點完本來就會重畫，碰不到這個問題）。
-    if (e.target.name === 'note') return;
+    //
+    // **2026-09-09 起是逐段的**（`s0-note`、`s1-note`…，ADR-0084）。
+    // 只比 `=== 'note'` 的話那個豁免會整個失效，而症狀是「打完字按儲存沒反應」。
+    if (/^s\d+-note$/.test(e.target.name ?? '')) return;
 
     const next = readDraft(ctx, form, draft);
     if (e.target.name === 'date' && next.date !== draft.date) {
@@ -269,12 +373,11 @@ function paint(ctx, draft) {
     paint(ctx, next);
   });
 
-  el.querySelector('[data-add-slot]').addEventListener('click', () => {
-    const next = readDraft(ctx, form, draft);
-    const last = next.slots[next.slots.length - 1];
-    const gap = ctx.settings.slotGapMin ?? DEFAULT_GAP_MIN;
-    const startsAt = last && isValidTime(last.endsAt) ? nextStart(last.endsAt, gap) : '09:00';
-    next.slots.push(blankSlot(entitlements[0], all, ctx.settings, startsAt));
+  el.querySelector('[data-add-slot]')?.addEventListener('click', () => {
+    const next = withNewSlot(readDraft(ctx, form, draft), entitlements, all, ctx.settings);
+    // 新加的那一段當然要畫得出來 —— 併進既有那一天時 `editSlots` 是一份名單，
+    // 不接上去的話她按了「新增一個時段」而畫面上什麼都不會多。
+    if (ctx.editSlots) ctx.editSlots = [...ctx.editSlots, next.slots.length - 1];
     paint(ctx, next);
   });
 
@@ -306,13 +409,27 @@ function paint(ctx, draft) {
   if (!isNew) wireDangerZone(ctx, draft);
 }
 
-function warningsHtml(warnings, embedded = false) {
+
+/**
+ * 「那一天已經結案了，這是新的一筆」。
+ *
+ * 只有一種情況會出現（ADR-0083 決定三）：她從日曆替某位客戶排某一天，
+ * 而那一天既有的那一筆已經標成已完成或未到 —— 那時候併不進去，只能開新的。
+ *
+ * **這是唯一一句「說明文字」在這一輪被加回來的地方**，而它過得了
+ * issue 11 的判準：不講的話她會在日曆上看到同一天兩塊，而畫面什麼都沒說。
+ */
+function closedNote(ctx) {
+  const rows = ctx.closedToday ?? [];
+  if (!rows.length) return '';
+
+  const what = [...new Set(rows.map((v) => describeStatus(v.status)))].join('、');
   return `
-    <div class="card ${embedded ? 'card--flat' : ''}">
-      <h3 class="card__title">提醒</h3>
-      <ul class="muted">${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
-      <p class="muted">這些都只是提醒，不會擋著不讓你存 —— app 看不到同事在 Abovee 上壓的東西。</p>
-    </div>`;
+    <section class="card ${ctx.embedded ? 'card--bare' : ''}">
+      <p class="field__hint" style="margin: 0">
+        ${esc(shortDate(rows[0].date))} 那一天已經是「${esc(what)}」了，所以這是新的一筆。
+      </p>
+    </section>`;
 }
 
 /**
@@ -360,8 +477,16 @@ function slotCard(ctx, draft, slot, i) {
           : (course
             ? `<span class="slothead__what">${esc(slotName(slot, all, 'short'))}</span>`
             : '<span class="app__spacer"></span>')}
+      </div>
+
+      ${/* 右上角那兩顆。**記一句排在 × 前面** —— 破壞性的那一顆永遠在最外側
+             （同 `visitActions()` 的規矩），而她的拇指是從右邊進來的。 */''}
+      <div class="slotcard__tools">
+        ${slotNote.toggle({ name: `s${i}-note`, on: Boolean(slotNoteOf(draft, slot)) })}
         ${slotXButton(ctx, draft, slot, i)}
       </div>
+
+      ${slotNote.html({ name: `s${i}-note`, value: slotNoteOf(draft, slot), maxlength: NOTE_MAX })}
 
       ${slot.status === 'cancelled' ? `
         <p class="field__hint" style="margin: 0 0 var(--space-3)">
@@ -397,10 +522,14 @@ function slotCard(ctx, draft, slot, i) {
       ${/* 只有一個選項時不畫丸子（一顆孤零零的丸子看起來像可以取消），
              課程名由上面那一行的抬頭講 —— SPEC 第 8.3 節那張圖就是
              `10:30–11:30  物理賦能  剩 11/12`。 */''}
-      ${/* n返 沒有課程可以挑（它借二返那一個），所以整排不畫 ——
-             以前這裡只問 `length === 1`，於是 n返 會多出一排**空的**「課程」，
-             而一排沒有東西的丸子看起來像壞掉。 */''}
-      ${nth || courseChoices.length === 1
+      ${/* **判準是「不到兩個選項就不畫」。** 兩種情況都收在這一句話裡：
+             n返 沒有課程可以挑（它借二返那一個），擇一池的課程由器材推出來
+             （ADR-0075）—— 兩者算出來都是空陣列。
+
+             2026-09-09 之前這裡問的是 `=== 1`，於是空陣列走進去畫了一個
+             「課程」標籤加一列什麼都沒有的丸子（她 2026-09-08 回報的
+             「為什麼會多一個空白的課程」）。`f.chips()` 現在自己也擋一層。 */''}
+      ${nth || courseChoices.length <= 1
         ? ''
         : f.chips({
             name: `s${i}-course`, label: '課程', value: slot.courseId,
@@ -421,6 +550,11 @@ function slotCard(ctx, draft, slot, i) {
             name: `s${i}-staff`, label: '治療師', value: slot.therapistId, quiet: true,
             options: staffWithRole(all.staff, THERAPIST_ROLE)
               .map((x) => ({ value: x.id, label: x.name })),
+            // 一個治療師都沒有時要講出為什麼 —— 空的那一排整個消失的話，
+            // 她會以為這一段不用選人。壓表那一頁講的是同一句話。
+            hint: staffWithRole(all.staff, THERAPIST_ROLE).length
+              ? ''
+              : '主檔裡還沒有治療師，到「設定 → 治療師與醫師」新增。',
           })
         : ''}
       ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
@@ -442,9 +576,14 @@ function slotCard(ctx, draft, slot, i) {
 function slotXButton(ctx, draft, slot, i) {
   if (draft.slots.length <= 1 || slot.status === 'cancelled') return '';
 
-  const [attr, label] = ctx.isNew
-    ? ['data-del-slot', `移除第 ${i + 1} 段`]
-    : ['data-cancel-slot', `取消第 ${i + 1} 段`];
+  // **逐段問，不是問整筆。** 併進既有那一天時這張表單上同時有兩種段：
+  // 前面那幾段真的在 Abovee 上壓過（× 是取消），剛剛加上去的那一段
+  // 連存都還沒存過（× 是移除）。問 `ctx.isNew` 的話後者會走進取消那條路，
+  // 而 `applyStatus()` 會替一段從來不存在的時段長出一張「取消 Abovee」。
+  const stored = i < (ctx.storedSlotCount ?? 0);
+  const [attr, label] = stored
+    ? ['data-cancel-slot', `取消第 ${i + 1} 段`]
+    : ['data-del-slot', `移除第 ${i + 1} 段`];
 
   return `<button class="slothead__x" type="button" ${attr}="${i}"
                   aria-label="${esc(label)}">${icon('close', { size: 15, width: 2 })}</button>`;
@@ -595,7 +734,7 @@ function equipmentField(customer, ent, all, slot, i) {
 
   return `
     ${f.chips({
-      name: `s${i}-equip`, label: '器材', value: slot.equipmentId, quiet: true,
+      name: `s${i}-equip`, label: '器材', value: slot.equipmentId,
       options: options.map((eq) => ({ value: eq.id, label: eq.name })),
     })}
     ${flagsUi.noticeBlock({
@@ -661,6 +800,17 @@ function readDraft(ctx, form, draft) {
   const coursesById = Object.fromEntries(all.courses.map((c) => [c.id, c]));
 
   const slots = draft.slots.map((slot, i) => {
+    // **沒有被畫出來的那幾段一個欄位都不碰**（ADR-0085）。
+    //
+    // 底下那一段是靠 `key()` 保留原值的：欄位沒畫出來時 `v[...]` 是
+    // `undefined`，`key()` 就退回舊值。但那只有**列得出名字的欄位**受保護，
+    // 而那一段身上還有 `attended`、`status`、`followupNth` 這些沒有欄位的格子
+    // —— 它們會被 `...slot` 帶過去，卻擋不住底下那幾行寫死的 `null`
+    // （`equipmentId`、`therapistId`、`followupNth` 都有）。
+    //
+    // 所以整段回原本那一個物件，不是「小心地重組一份一樣的」。
+    if (!isEditable(ctx, i)) return slot;
+
     const entitlementId = key(v, `s${i}-ent`, isNthSlot(slot) ? NTH_PICK : slot.entitlementId);
 
     // n返 走另一條路：沒有額度、沒有課程可以挑（借二返那個），
@@ -703,6 +853,9 @@ function readDraft(ctx, form, draft) {
       ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
+      // 那一段身上那一句話（ADR-0084）。收起來的時候 textarea 照樣在 DOM 裡，
+      // 所以讀得到 —— `hidden` 的是包住它的 `<label>`。
+      note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
       ...(assigns === 'room'
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
@@ -725,7 +878,9 @@ function readDraft(ctx, form, draft) {
   return {
     ...draft,
     date: v.date || draft.date,
-    note: String(key(v, 'note', draft.note) ?? '').trim() || null,
+    // **整筆那一句不再從表單讀** —— 那個欄位 2026-09-09 拿掉了（ADR-0084）。
+    // 舊資料的值靠 `...draft` 原封帶著，由 `save()` 的 `withSlotNotes()`
+    // 搬到第一段。在這裡清成 null 的話，她只是打開改個時間就把那句話弄丟了。
     slots,
   };
 }
@@ -755,6 +910,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   return {
     ...slot,
     ...nthSlotFields({ nth, examVisitId, courseId }),
+    note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
     equipmentId: null,
     ivProductId: null,
     startsAt,
@@ -767,6 +923,41 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   };
 }
 
+/**
+ * 這一張表單裡有沒有**還沒被壓過**的時段。
+ *
+ * Abovee 那一道確認（SPEC 第 7 節規則 11）以前問的是 `isNew` —— 那是
+ * 「這筆來訪的文件是新的嗎」。併進既有那一天之後那個問題就答錯了：
+ * 文件是舊的、而那一段是全新的，她**確實**要先去 Abovee 把它壓住。
+ *
+ * 順手補上一個一直都在的洞：既有那一筆按「＋新增一個時段」加一段，
+ * 以前一道確認都沒有。
+ *
+ * 判準是 `slot.id` 之外唯一站得住的東西：**存下去之前它就在文件裡了嗎**。
+ * 時段沒有 id，所以拿「原本那一筆有幾段」比 —— 新的一律接在尾巴
+ * （`withNewSlot()` 與「＋新增一個時段」都是），所以索引比得出來。
+ */
+function hasNewSlots(ctx, draft) {
+  const before = ctx.storedSlotCount ?? 0;
+  return (draft.slots ?? []).length > before;
+}
+
+/**
+ * 這一段現在編輯得動嗎。
+ *
+ * `ctx.editSlots` 是**哪幾段畫得出來**：
+ *
+ * - `null`　　　全部（網址那條路進來的、以及一筆全新的來訪）
+ * - `[2]`　　　她從日曆點的那一段（ADR-0085）
+ * - `[3, 4]`　　併進既有那一天時，只有新加的那幾段
+ *
+ * 判斷只有這一支，畫欄位與讀回表單走同一句話 —— 兩邊各判斷一次的話，
+ * 會出現「畫面上沒有那一段、存進去卻把它清掉了」。
+ */
+function isEditable(ctx, i) {
+  return !ctx.editSlots || ctx.editSlots.includes(i);
+}
+
 // 沒被畫出來的欄位讀回來是 undefined，那時要保留原值而不是清成 null
 function key(values, name, fallback) {
   return name in values ? values[name] : fallback;
@@ -775,10 +966,10 @@ function key(values, name, fallback) {
 // ---------- 儲存 ----------
 
 async function submit(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew } = ctx;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
 
-  const { errors } = validateVisit(draft, {
+  const { errors, warnings } = validateVisit(draft, {
     customer, entitlements,
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
     staff: all.staff, ivProducts: all.ivProducts,
@@ -790,13 +981,18 @@ async function submit(ctx, draft) {
     return;
   }
 
+  // **第一道：這幾段先看一下。** 超過次數、還沒選治療師那一類。
+  // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
+  // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
+  if (!await confirmReview(warnings)) return;
+
   // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。
   //
   // 抬頭與後果由 `domain/consequences.js` 算：這裡以前寫死「Abovee」，
   // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemFor()`），
   // 只是沒有人用它。壓表那一頁走的是同一支。
-  if (isNew) {
+  if (hasNewSlots(ctx, draft)) {
     const said = bookingConsequences({
       visit: draft,
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
@@ -805,9 +1001,10 @@ async function submit(ctx, draft) {
     const ok = await confirmAction({
       title: said.title,
       consequences: [
-        ...draft.slots.map((s) => slotSummary(s, all)),
+        // **只列這一次新加的那幾段。** 併進既有那一天時，前面那幾段她早就
+        // 壓過也早就問過客人了，列出來會讓這一道看起來像在問全部。
+        ...draft.slots.slice(ctx.storedSlotCount ?? 0).map((s) => slotSummary(s, all)),
         ...said.lines,
-        'app 看不到同事壓的東西，診間有沒有被佔用要以那邊為準',
       ],
       confirmLabel: '已確認，記錄',
     });
@@ -822,7 +1019,7 @@ async function submit(ctx, draft) {
     // 存一筆來訪會動到額度的計數欄位，做兩次就多扣一次（新增的那條路有二次確認
     // 擋著，改的那條沒有）。同一位客戶的同一天鎖在一起就夠了。
     const id = await toast.withSaveState(() => visitsData.save(payload, customerVisits), {
-      success: isNew ? '已記錄' : '已儲存',
+      success: hasNewSlots(ctx, draft) ? '已記錄' : '已儲存',
       key: `visit:save:${payload.id ?? `${payload.customerId}:${payload.date}`}`,
     });
     leave(ctx);

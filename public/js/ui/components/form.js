@@ -175,6 +175,26 @@ export function chips({
   name, label, value, options, hint = '', quiet = false, multi = false,
   tuckAfter = null, moreLabel = '換一款',
 }) {
+  // **一顆選項都沒有就不畫那一排。** 一個「課程」標籤底下一列空白，在畫面上
+  // 跟壞掉一模一樣 —— 而呼叫端算出空陣列是有正當理由的（擇一池的課程由
+  // 器材推出來，ADR-0075，所以那一排刻意沒有選項）。
+  //
+  // 擋在這裡而不是每個呼叫端各判斷一次：這條不是某一頁的規矩，
+  // 是「一排零顆的丸子」在任何一頁都是錯的。
+  //
+  // **但給了 `hint` 的話那一句要留著。** 空的理由分兩種：「這一排本來就不該
+  // 出現」（擇一池的課程）與「主檔裡還沒有人」—— 後者整排消失的話，
+  // 她會以為那個欄位不用填，而不是去設定裡補一個人。
+  if (!(options ?? []).length) {
+    return hint
+      ? `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">${esc(label)}</span>
+      <span class="field__hint">${esc(hint)}</span>
+    </div>`
+      : '';
+  }
+
   const picked = multi ? new Set(value ?? []) : null;
   const current = value ?? null;
   const isOn = (v) => (multi ? picked.has(v) : current === v);

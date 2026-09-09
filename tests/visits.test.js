@@ -16,7 +16,10 @@ import {
   visitsToClose, visitsToConfirm, closeVisit, slotStatus, needsForm, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyStatus, visitActions,
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
-  visitStatusFrom, applyConfirmation, cancellableSlots,
+  sameDayVisitFor, sameDayState, editorTarget,
+  visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
+  statusForCard,
+  NOTE_MAX,
 } from '../public/js/domain/visits.js';
 
 const COURSES = [
@@ -1742,5 +1745,288 @@ describe('哪幾段取消得掉（批次取消專區）', () => {
     ]));
     assert.deepEqual(out.map((x) => x.index), [1, 2]);
     assert.equal(out[0].slot.startsAt, '11:30');
+  });
+});
+
+// 她 2026-09-08：「為什麼同一個人可以來訪一次裡面有兩項 然後又可以同一天
+// 再來訪一次然後一項？不是應該是這個人 今天有三個時段嗎？」
+//
+// 「一天一筆」從來沒有被擋過（`firestore.rules` 沒擋、`validateVisit()` 也沒擋，
+// ADR-0081 已經寫過）。真正發生的是**兩條路行為不一樣**：壓表會併，
+// 日曆的 `blankVisit()` 完全不查。判斷從壓表那一頁搬進 domain，兩邊共用。
+describe('同一天收得下新時段的那一筆（sameDayVisitFor）', () => {
+  const v = (over) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-15', status: 'confirmed',
+    slots: [{ courseId: 'c-a' }], ...over,
+  });
+
+  test('待確認的收得下', () => {
+    const rows = [v({ status: 'pending_confirm' })];
+    assert.equal(sameDayVisitFor(rows, 'c1', '2026-09-15')?.id, 'v1');
+  });
+
+  test('已確認的收得下', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-15')?.id, 'v1');
+  });
+
+  for (const status of ['done', 'no_show', 'cancelled']) {
+    test(`${status} 的收不下 —— 那一天已經結案了，再併進去那一段會當場被算成做完或沒來`, () => {
+      assert.equal(sameDayVisitFor([v({ status })], 'c1', '2026-09-15'), null);
+    });
+  }
+
+  test('已刪除的收不下', () => {
+    assert.equal(sameDayVisitFor([v({ deletedAt: 'x' })], 'c1', '2026-09-15'), null);
+  });
+
+  test('別人的那一筆不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c2', '2026-09-15'), null);
+  });
+
+  test('別天的那一筆不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-16'), null);
+  });
+
+  test('兩筆都收得下時回第一筆 —— 答案要穩定', () => {
+    const rows = [v(), v({ id: 'v2' })];
+    assert.equal(sameDayVisitFor(rows, 'c1', '2026-09-15').id, 'v1');
+  });
+
+  test('要排除的那一筆（她正在改的就是它）不算', () => {
+    assert.equal(sameDayVisitFor([v()], 'c1', '2026-09-15', { excludeVisitId: 'v1' }), null);
+  });
+
+  test('日期或客戶沒給就回 null，不要亂猜一筆出來', () => {
+    assert.equal(sameDayVisitFor([v()], null, '2026-09-15'), null);
+    assert.equal(sameDayVisitFor([v()], 'c1', null), null);
+    assert.equal(sameDayVisitFor(null, 'c1', '2026-09-15'), null);
+  });
+});
+
+// 併進既有那一天時，新加的那一段**不可以繼承整筆的狀態**。
+// `withSlotStatuses()` 是「舊資料補齊」用的，它看到沒有 status 的時段就
+// 退回整筆那一個 —— 對舊資料是對的，對一段剛剛才加上去的時間是錯的。
+describe('新加的一段是「還沒問客人」，不是繼承整筆的（ADR-0081）', () => {
+  test('沒有 status 的新時段會被 withSlotStatuses() 標成已確認 —— 所以呼叫端一定要自己寫', () => {
+    const out = withSlotStatuses({
+      status: 'confirmed',
+      slots: [{ courseId: 'a', status: 'confirmed' }, { courseId: 'b' }],
+    });
+    assert.equal(out.slots[1].status, 'confirmed',
+      '這一條釘住的是那個陷阱本身：不自己寫就會變成已確認');
+  });
+
+  test('寫了 pending_confirm 就不會被蓋掉，整筆跟著退回待確認', () => {
+    const v = {
+      status: 'confirmed',
+      slots: [{ courseId: 'a', status: 'confirmed' }, { courseId: 'b', status: 'pending_confirm' }],
+    };
+    assert.equal(withSlotStatuses(v).slots[1].status, 'pending_confirm');
+    assert.equal(visitStatusFrom(v), 'pending_confirm');
+  });
+
+  test('來訪編輯器加的那一段有寫 status', () => {
+    const src = readFileSync(
+      new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8',
+    );
+    const at = src.indexOf('function blankSlot(');
+    assert.ok(at > 0);
+    assert.match(src.slice(at, src.indexOf('\n}', at)), /status: INITIAL_STATUS/);
+  });
+});
+
+// 她 2026-09-09：「不要是一整天的…我希望是每一筆都可以有他的記一句。」
+//
+// SPEC 第 5.3 節寫著 `note` 是「這一天的」，她明確說以這次為準。
+// 舊資料走 A 方案（她選的）：**下次存那一筆時搬到第一段**，跟
+// `withSlotStatuses()` 同一個時機、同一個路口（`data/visits.js` 的 `save()`）。
+describe('舊的那一句話搬到第一段（withSlotNotes）', () => {
+  const v = (over) => ({ status: 'confirmed', slots: [{ courseId: 'a' }, { courseId: 'b' }], ...over });
+
+  test('整筆那一句搬到第一段，整筆清成 null', () => {
+    const out = withSlotNotes(v({ note: '她說下午比較好' }));
+    assert.equal(out.slots[0].note, '她說下午比較好');
+    assert.equal(out.slots[1].note, undefined, '不要複製到每一段 —— 一句話出現兩次');
+    assert.equal(out.note, null);
+  });
+
+  test('冪等 —— 搬過一次就不會再搬', () => {
+    const once = withSlotNotes(v({ note: '她說下午比較好' }));
+    assert.deepEqual(withSlotNotes(once), once);
+  });
+
+  // **問的是「第一段被佔住了嗎」，不是「有沒有任何一段有字」。**
+  // 問後者的話會漏掉一種真的會發生的順序：一筆舊來訪還帶著整天那一句，
+  // 她從壓表併了一段新的進來並且替那一段記了字 —— 那時候搬移就永遠被
+  // 擋住，而讀取卡片又只在「一段都沒有字」時才退回整筆，於是那句話還在
+  // Firestore 裡、畫面上卻不見了。
+  test('別段有字不影響搬移 —— 第一段還空著就照樣搬', () => {
+    const src = v({ note: '舊的', slots: [{ courseId: 'a' }, { courseId: 'b', note: '新的' }] });
+    const out = withSlotNotes(src);
+    assert.equal(out.slots[0].note, '舊的');
+    assert.equal(out.slots[1].note, '新的', '別段一個字都不動');
+    assert.equal(out.note, null);
+  });
+
+  test('第一段已經有字就不動 —— 搬過去會蓋掉她寫的', () => {
+    const src = v({ note: '舊的', slots: [{ courseId: 'a', note: '第一段自己的' }, { courseId: 'b' }] });
+    const out = withSlotNotes(src);
+    assert.equal(out.note, '舊的');
+    assert.equal(out.slots[0].note, '第一段自己的');
+  });
+
+  test('整筆沒有那一句就什麼都不做', () => {
+    const src = v();
+    assert.deepEqual(withSlotNotes(src), src);
+    assert.deepEqual(withSlotNotes(v({ note: '   ' })), v({ note: '   ' }));
+  });
+
+  test('一段都沒有的來訪不會爆', () => {
+    const src = { status: 'confirmed', note: '一句話', slots: [] };
+    assert.deepEqual(withSlotNotes(src), src);
+  });
+
+  test('不動到原本那一份', () => {
+    const src = v({ note: '原句' });
+    withSlotNotes(src);
+    assert.equal(src.note, '原句');
+    assert.equal(src.slots[0].note, undefined);
+  });
+});
+
+describe('一段身上那一句話存不存得下去', () => {
+  const base = {
+    customerId: 'c1', date: '2026-09-15', status: 'pending_confirm',
+    slots: [{ entitlementId: 'e1', courseId: 'c-checkup', startsAt: '09:00', endsAt: '10:00' }],
+  };
+  const ctx = {
+    customer: { id: 'c1' },
+    courses: [{ id: 'c-checkup', name: '健檢', durationMin: 60 }],
+    entitlements: [{ id: 'e1', type: 'single', courseId: 'c-checkup', totalQty: 5 }],
+    equipment: [], rooms: [], staff: [], ivProducts: [],
+  };
+
+  test('太長擋下來，而且講得出是第幾段', () => {
+    const long = { ...base, slots: [{ ...base.slots[0], note: 'x'.repeat(NOTE_MAX + 1) }] };
+    const { errors } = validateVisit(long, ctx);
+    assert.ok(errors.some((e) => e.includes('第 1 個時段') && e.includes(String(NOTE_MAX))), errors.join('｜'));
+  });
+
+  test('剛好那麼長存得下去', () => {
+    const ok = { ...base, slots: [{ ...base.slots[0], note: 'x'.repeat(NOTE_MAX) }] };
+    assert.deepEqual(validateVisit(ok, ctx).errors, []);
+  });
+});
+
+// 她 2026-09-09：「狀態是不是每個時段都有的，不會彼此因為是一整天同一個人
+// 所以會互相影響？」
+//
+// 資料早就逐段了（ADR-0081），畫面還在印整筆。而那個落差是真的會發生的：
+// 加兩段沒問過客人的進去 → 整筆退回「待確認」→ 她點早上那段已確認的，
+// 抬頭卻寫「等客戶回覆」。
+describe('卡片抬頭要講那一段的狀態（statusForCard）', () => {
+  const v = {
+    status: 'pending_confirm',
+    slots: [
+      { courseId: 'a', status: 'confirmed' },
+      { courseId: 'b', status: 'cancelled' },
+      { courseId: 'c', status: 'pending_confirm' },
+    ],
+  };
+
+  test('點第 1 段：那一段是已確認，就算整筆退回了待確認', () => {
+    assert.equal(statusForCard(v, 0), 'confirmed');
+  });
+
+  test('點第 2 段：已取消', () => {
+    assert.equal(statusForCard(v, 1), 'cancelled');
+  });
+
+  test('沒帶就是整筆 —— 另外三頁列的本來就是整筆來訪', () => {
+    assert.equal(statusForCard(v, null), 'pending_confirm');
+    assert.equal(statusForCard(v), 'pending_confirm');
+  });
+
+  test('指到一個不存在的段落也退回整筆（同 slotsToShow() 的退路）', () => {
+    assert.equal(statusForCard(v, 9), 'pending_confirm');
+    assert.equal(statusForCard(v, -1), 'pending_confirm');
+  });
+
+  test('舊來訪（沒有 slot.status）逐段問也是整筆那一個', () => {
+    const old = { status: 'confirmed', slots: [{ courseId: 'a' }, { courseId: 'b' }] };
+    assert.equal(statusForCard(old, 0), 'confirmed');
+    assert.equal(statusForCard(old, 1), 'confirmed');
+  });
+
+  test('整筆取消蓋過那一段（同 slotStatus()）', () => {
+    const dead = { status: 'cancelled', slots: [{ courseId: 'a', status: 'confirmed' }] };
+    assert.equal(statusForCard(dead, 0), 'cancelled');
+  });
+});
+
+// **2026-09-09 的一個真 bug**（兩軸審查各自獨立抓到）：那個判斷寫成
+// `const base = existing ?? merging; base ? withNewSlot(base) : blankVisit()`
+// —— 於是改一筆既有的來訪也會被偷偷接上一段空的時段。它不會被畫出來
+// （只畫她點的那一段），但會被存進去、把整天的狀態拖回「待確認」，
+// 而 `validateVisit()` 又擋著說「第 N 段：要選一個課程」。
+describe('打開編輯器時要編哪一筆、要不要接一段新的（editorTarget）', () => {
+  const v = { id: 'v1', slots: [{ courseId: 'a' }] };
+  const other = { id: 'v2', slots: [{ courseId: 'b' }] };
+
+  test('改一筆既有的 → 那一筆，**不接新的一段**', () => {
+    assert.deepEqual(editorTarget({ existing: v }), { visit: v, addSlot: false, merged: false });
+  });
+
+  test('既有的優先 —— 同一天就算有別的收得下的也不併', () => {
+    const out = editorTarget({ existing: v, open: other });
+    assert.equal(out.visit, v);
+    assert.equal(out.addSlot, false);
+  });
+
+  test('新增、那一天已經有收得下的 → 併進去並接一段', () => {
+    assert.deepEqual(editorTarget({ open: other }), { visit: other, addSlot: true, merged: true });
+  });
+
+  test('新增、那一天什麼都沒有 → 開一筆全新的', () => {
+    assert.deepEqual(editorTarget({}), { visit: null, addSlot: true, merged: false });
+    assert.deepEqual(editorTarget(), { visit: null, addSlot: true, merged: false });
+  });
+});
+
+describe('那一天的兩種答案（sameDayState）', () => {
+  const mk = (over) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-15', status: 'confirmed',
+    slots: [{ courseId: 'a' }], ...over,
+  });
+
+  test('收得下的那一筆回在 open', () => {
+    const out = sameDayState([mk()], 'c1', '2026-09-15');
+    assert.equal(out.open.id, 'v1');
+    assert.deepEqual(out.closed, []);
+  });
+
+  test('已完成／未到的回在 closed，而 open 是 null', () => {
+    for (const status of ['done', 'no_show']) {
+      const out = sameDayState([mk({ status })], 'c1', '2026-09-15');
+      assert.equal(out.open, null);
+      assert.equal(out.closed.length, 1, status);
+    }
+  });
+
+  test('已取消的兩邊都不算 —— 那不是「結案」，她可以安靜地再排', () => {
+    const out = sameDayState([mk({ status: 'cancelled' })], 'c1', '2026-09-15');
+    assert.equal(out.open, null);
+    assert.deepEqual(out.closed, []);
+  });
+
+  test('一筆結案、一筆還收得下時兩邊都有', () => {
+    const out = sameDayState([mk({ status: 'done' }), mk({ id: 'v2' })], 'c1', '2026-09-15');
+    assert.equal(out.open.id, 'v2');
+    assert.equal(out.closed.length, 1);
+  });
+
+  test('沒給客戶或日期就兩邊都空', () => {
+    assert.deepEqual(sameDayState([mk()], null, '2026-09-15'), { open: null, closed: [] });
+    assert.deepEqual(sameDayState([mk()], 'c1', null), { open: null, closed: [] });
   });
 });

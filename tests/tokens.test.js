@@ -162,3 +162,33 @@ describe('動作與觸控的底線', () => {
     }
   });
 });
+
+// 她 2026-09-08：「壓表點月份進去，左上角的那個返回 壓表 有點太突兀了，
+// 請參考其他頁面的那個返回。」
+//
+// 根因不在那一頁：`.backlink` 全站 29 個地方，28 個是 `<a>`、一個是 `<button>`，
+// 而那條規則沒有寫按鈕的重置 —— `<a>` 不需要，`<button>` 頂著瀏覽器預設的
+// 灰底、邊框與系統字。
+//
+// **壓表那一頁必須是 `<button>`**：它退的是 `pushLayer()` 疊的一層，
+// 不是一個網址（`view.batchId` 不在網址裡）。改成 `<a>` 會讓左上角與返回鍵
+// 走兩條不同的路，而 ADR-0048 要的是同一條。所以修的是 CSS。
+describe('返回那一條在 <button> 上也要長得一樣（issue 03）', () => {
+  const CSS = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+  const at = CSS.indexOf('.backlink {');
+  const body = CSS.slice(at, CSS.indexOf('}', at));
+
+  test('找得到 .backlink', () => {
+    assert.ok(at > 0);
+  });
+
+  for (const prop of ['background', 'border', 'padding', 'font:']) {
+    test(`有 ${prop} —— 少了它 <button> 會長出瀏覽器預設的樣子`, () => {
+      assert.ok(body.includes(prop), `.backlink 少了 ${prop}`);
+    });
+  }
+
+  test('不可以自己長一個往前的箭頭 —— 方向要是對的', () => {
+    assert.ok(!CSS.includes('.backlink::after'));
+  });
+});

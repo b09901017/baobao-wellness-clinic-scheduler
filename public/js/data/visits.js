@@ -11,7 +11,7 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import * as tasksData from './tasks.js';
 import * as customersData from './customers.js';
-import { touchedEntitlementIds, recount, withSlotStatuses } from '../domain/visits.js';
+import { touchedEntitlementIds, recount, withSlotNotes, withSlotStatuses } from '../domain/visits.js';
 import { syncTasksForVisit } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
@@ -131,7 +131,9 @@ export async function save(visit, customerVisits = []) {
   // **每一段都補上狀態**（ADR-0081）。寫入是唯一的路口，補在這裡就不會有
   // 哪個呼叫端忘了 —— 而少補的那一筆之後逐段取消時，其他段要靠整筆的狀態
   // 去猜，偏偏整筆的狀態正在被改。
-  const next = withSlotStatuses({ ...visit, id });
+  // 兩件「她存過一次就補齊」的事走同一個路口：每一段補上狀態（ADR-0081）、
+  // 舊資料那一句話搬到第一段（ADR-0084）。補在這裡就不會有哪個呼叫端忘了。
+  const next = withSlotNotes(withSlotStatuses({ ...visit, id }));
   const after = [...customerVisits.filter((v) => v.id !== id), next];
 
   const ops = [

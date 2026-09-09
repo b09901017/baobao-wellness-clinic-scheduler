@@ -17,7 +17,7 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
 import { dayOf } from './dates.js';
-import { formSlotIndexes } from './visits.js';
+import { formSlotIndexes, liveSlots } from './visits.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -169,6 +169,18 @@ export function groupByDoneDay(tasks = []) {
 // ---------------------------------------------------------------------------
 
 /**
+ * 「這一天幾段共用同一張」那一句。
+ *
+ * **字在這裡而不是在畫面上**：`taskMirror.js` 是唯一會畫它的地方，但這句話
+ * 講的是一條規則（任務綁一整筆來訪），而規則住在 domain。
+ *
+ * **`taskLine()` 刻意不帶它。** 那一支給的是任務清單那三頁（客戶詳情、
+ * 待辦中心、試算表），而那三頁列的本來就是整筆來訪的任務 —— 在那裡寫
+ * 「這一天共用」是廢話，因為那裡沒有「這一段」這個概念。
+ */
+export const SHARED_TODO_LABEL = '這一天共用';
+
+/**
  * 這一筆來訪走到哪了 —— 它身上的每一件待辦與各自做完了沒。
  *
  * 來訪的讀取卡片用（`ui/views/calendar.js` 的 `visitReadHtml()`，四個畫面共用）。
@@ -215,6 +227,18 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
   const scoped = scopeTo(visit, focusSlot);
 
+  // **這一天不只一段的時候，這幾張是那幾段共用的。**
+  //
+  // 任務綁的是一整筆來訪（掛號是一天去一次，不是一段去一次 ——
+  // `tasksForVisit()` 的檔頭），確認與簽療程單也是。所以她點第二段看到的
+  // 「Examine」跟點第一段看到的是**同一張**，勾掉一次就兩邊都掉。
+  //
+  // 她 2026-09-09 問到這件事並且說要標出來。**只在真的不只一段時標** ——
+  // 每一次都寫「這一天共用」等於把那一行變成裝飾（同 `visitActions()` 那條）。
+  const shared = Number.isInteger(focusSlot)
+    && Boolean((visit.slots ?? [])[focusSlot])
+    && liveSlots(visit).length > 1;
+
   const mine = ownedKinds(scoped, visit, coursesById);
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
@@ -225,6 +249,7 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
       done: Boolean(t.done),
       dueDate: t.dueDate ?? null,
       derived: false,
+      shared,
     }));
 
   // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
@@ -242,6 +267,7 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
     done: visit.status !== 'pending_confirm',
     dueDate: null,
     derived: true,
+    shared,
   });
 
   // ⑤ 簽療程單。**整筆都不用簽的那一天照樣要結案**（只有二返的那一天），
@@ -256,6 +282,7 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
     done: closed,
     dueDate: null,
     derived: true,
+    shared,
   });
 
   // ---------- 還沒發生、但一定會發生的那幾張 ----------
@@ -281,6 +308,7 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
       done: false,
       dueDate: t.dueDate ?? null,
       derived: true,
+      shared,
       // 呼叫端拿它畫得淡一點、旁邊寫一句「到時候才會長出來」
       pending: true,
     });

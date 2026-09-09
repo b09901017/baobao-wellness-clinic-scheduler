@@ -228,10 +228,16 @@ export function makeCustomer(i, today, { months }) {
   const poolIds = pool.data.optionEquipmentIds ?? ['eq-indiba'];
   const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
   const howMany = Math.floor(rand() * 9);
+  // **同一位客戶同一天只會有一筆**（ADR-0083）。日期是亂數挑的，所以會撞 ——
+  // 撞到就跳過那一筆，不要把兩筆記在同一天。資料健檢有一列盯著這件事，
+  // 而一份假資料一打開就報紅字，她就沒辦法拿健檢當回歸的判準了。
+  const usedDates = new Set();
 
   for (let n = 0; n < howMany; n += 1) {
     const offset = Math.floor(rand() * months * 30) - Math.floor(months * 22);
     const date = addDays(today, offset);
+    if (usedDates.has(date)) continue;
+    usedDates.add(date);
     const past = date < today;
     const vid = `${id}-visit-${n}`;
 

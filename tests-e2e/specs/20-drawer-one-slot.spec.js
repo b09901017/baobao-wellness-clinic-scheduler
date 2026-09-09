@@ -151,10 +151,15 @@ test('長按一列，選單講得出她按的是哪一段', async ({ app, page }
 
   await longPressRow(page, 0);
 
-  await expect(page.locator('.actions__sub')).toContainText('第 1 段（共 3 段）');
+  // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
+  // 另外多少個時段，不需要」（ADR-0085）。抬頭只講**哪一段**。
+  const sub = page.locator('.actions__sub');
+  await expect(sub).toContainText('第 1 段');
+  await expect(sub, '那天有幾段不要講').not.toContainText('共 3 段');
 
   const menu = page.locator('.drawer--actions');
   await expect(menu, '要有只取消那一段的那一顆').toContainText('取消這一段');
+  // **這個數字留著**：它不是資訊，是煞車 —— 要按的是真的會取消三段的那一顆。
   await expect(menu, '整天那一顆也要留著，而且說得出幾段').toContainText('取消一整天（3 段）');
 });
 

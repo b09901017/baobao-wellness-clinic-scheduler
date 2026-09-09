@@ -248,10 +248,16 @@ test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一�
   await page.locator('[data-chip="s0-iv"][data-chip-value="iv-heart"]').click();
   await page.waitForTimeout(300);
 
-  await expect(page.locator('#view')).toContainText('跟買的不一樣');
+  // **那一句提醒 2026-09-09 從表單上方搬到存檔前那一道**（ADR-0086）——
+  // 她的原話是「所以新增來訪的這個表單最上面就不需要還有一個提醒了」。
+  await expect(page.locator('#view'), '表單上不再常駐提醒').not.toContainText('跟買的不一樣');
+
+  await page.locator('button[type="submit"]').first().click();
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText(), '那一句要在第一道裡').toContain('跟買的不一樣');
 
   // **存得下去** —— 這不是錯誤，是一句提醒
-  await page.locator('button[type="submit"]').first().click();
+  await app.ok();
   await app.settled();
   await page.waitForTimeout(1200);
 

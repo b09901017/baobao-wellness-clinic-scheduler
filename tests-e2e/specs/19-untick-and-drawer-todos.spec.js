@@ -217,6 +217,10 @@ test.describe('拿回一張待辦要先講清楚', () => {
     // 讀取卡片沒有取消那一顆 —— 走鉛筆進編輯器（ADR-0056）
     await page.locator('[data-card-edit]').click();
     await page.waitForTimeout(600);
+    // 整筆的那幾顆收進「這一天整筆的」那一摺（ADR-0085）——
+    // 她點的是一段，而那一顆動的是整天。收著不是藏著（ADR-0060）。
+    await page.locator('details.advanced summary').first().click();
+    await page.waitForTimeout(250);
     await page.locator('[data-status="cancelled"]').click();
 
     await expect(app.dialog()).toBeVisible();

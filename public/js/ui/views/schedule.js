@@ -40,6 +40,7 @@ import * as eventsData from '../../data/events.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
+  monthChoices, mergeIntoQueue,
   strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
@@ -47,7 +48,7 @@ import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
   picksEquipment, assignsFor, NOTE_MAX,
-  acceptsMoreSlots, withExtraSlot,
+  acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
@@ -65,10 +66,11 @@ import {
 import { splitFlags } from '../../domain/customers.js';
 import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
-  todayISO, addMonths, addDays, shortDate, lastDayOf, monthLabel,
+  todayISO, addDays, shortDate, lastDayOf, monthLabel,
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
-import { confirmAction } from '../components/dialog.js';
+import * as slotNote from '../components/slotNote.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import { icon } from '../icons.js';
 import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
@@ -225,8 +227,7 @@ async function openPending(el, { month, customerId, entitlementId, followupForVi
  * 以前只有本月與下個月 —— 她要壓十月的表時十一月按不出來。
  */
 async function paintStart(el) {
-  const today = todayISO();
-  const months = [0, 1, 2].map((n) => addMonths(today, n).slice(0, 7));
+  const months = monthChoices(todayISO());
 
   el.innerHTML = `
     <div class="page">
@@ -238,29 +239,28 @@ async function paintStart(el) {
           <a class="footlink" href="#/schedule/cancel">${icon('close', { size: 15 })}批次取消</a>
         </span>
       </div>
-      <p class="page__lead">一個人壓完再換下一個</p>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">要壓哪個月</h2>
-      <p class="card__note">點一個月就進去。裡面會照「限制多的先看」排好，
-        但那只是預設順序 —— 想先弄誰就點誰，也可以整個換一種排法。</p>
-      <ul class="link-list">
-        ${months.map((m) => `
-          <li><button class="row-link" type="button" data-month="${esc(m)}">
-            <span class="link-list__label">${esc(monthLabel(m))}壓表
-              <span class="num dim">${esc(m)}</span></span>
-            ${icon('right', { size: 17 })}
-          </button></li>`).join('')}
-      </ul>
-    </section>
+    ${/* **三顆一橫排，一個箭頭都沒有**（2026-09-09）。她的原話：
+         「太多多餘的文字了 不需要任何說明 也不需要說是 2026-09，
+          只要顯示要壓那個月，9 10 11 月就好，然後為什麼會有兩個 > 的箭頭？」
 
-    <section class="card">
-      <h2 class="card__title">臨時空出一格？</h2>
-      <p class="card__note">輸入日期、時間與課程，把補得上的人列出來 ——
-        用的是跟這裡同一套順序，不會兩個畫面給你兩種答案。</p>
-      <a class="btn" href="#/schedule/backfill">時段反查</a>
-    </section>`;
+         兩個箭頭是 `.link-list` 那一套來的：標記上寫死一顆 `icon('right')`，
+         而 `.row-link::after` 自己又長一顆。丸子版本兩顆都不要 ——
+         一顆按鈕不需要箭頭說明它可以按。
+
+         年份要不要印是一條規則，算在 `monthChoices()` 裡（跨年那幾顆才印）。 */''}
+    <div class="monthpick">
+      ${months.map((m) => `
+        <button class="monthpick__one" type="button" data-month="${esc(m.month)}">
+          <span class="monthpick__m">${esc(m.label)}</span>
+          ${m.year ? `<span class="monthpick__year num">${esc(m.year)}</span>` : ''}
+        </button>`).join('')}
+    </div>
+
+    <p class="footlinks">
+      <a class="footlink" href="#/schedule/backfill">${icon('search', { size: 15 })}時段反查</a>
+    </p>`;
 
   el.querySelectorAll('[data-month]').forEach((btn) =>
     btn.addEventListener('click', () => enterMonth(el, btn.dataset.month)),
@@ -386,26 +386,72 @@ async function loadAll(targetMonth) {
 }
 
 /**
- * 把凍結的佇列與現算的即時資訊疊起來。
+ * 把凍結的佇列與現算的即時資訊疊起來，並且**把新符合資格的人接進來**。
  *
- * 順序凍結：照 batch.queue 的順序排，不重新排序。即時資訊照樣現算 ——
+ * 順序凍結：照 `batch.queue` 的順序排，不重新排序。即時資訊照樣現算 ——
  * 剩幾次、這個月排了幾天、那個月問到的時間，每次打開都要是真的。
+ *
+ * **凍結的是順序，不是名單**（她 2026-09-08：「九月進去…我這時候新增客人了，
+ * 我不能同樣在 9 月壓表看到他？」）。這一支以前把客戶清單 filter 成
+ * `batch.queue` 的那幾位，於是開批之後才新增的客人**永遠**進不去。
+ * ADR-0001 的 Consequences 只授權凍結順序，規則在 `mergeIntoQueue()`。
+ *
+ * @returns {{rows: object[], queue: object[], added: string[]}}
+ *   `added` 非空時呼叫端要把 `queue` 寫回去 —— 不寫的話「已壓 5 / 23」
+ *   的分母跟牆上的人數對不起來，而那個數字她會看。
  */
 function rowsOf(batch, data) {
-  const ids = new Set((batch.queue ?? []).map((q) => q.customerId));
-  const live = new Map(
-    buildCustomerQueue({
-      ...data.queueInput,
-      targetMonth: batch.targetMonth,
-      customers: data.queueInput.customers.filter((c) => ids.has(c.id)),
-      includeUsedUp: true,
-    }).map((r) => [r.customerId, r]),
-  );
+  // **全部客戶都現算一次**，不先 filter。`startBatch()` 本來就是這樣算的，
+  // 而這裡要同時回答兩個問題：既有那幾位現在怎麼樣、現在還有誰符合資格。
+  const all = buildCustomerQueue({
+    ...data.queueInput,
+    targetMonth: batch.targetMonth,
+    includeUsedUp: true,
+  });
+  const live = new Map(all.map((r) => [r.customerId, r]));
 
-  return (batch.queue ?? []).map((q) => ({
-    ...q,
-    ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
-  }));
+  // 新加入的門檻跟開批那一刻同一道：身上還有剩的才算（`buildCustomerQueue()`
+  // 預設的那一條）。**已經在佇列裡的用完了照樣留著** —— 處理到一半人從畫面上
+  // 消失是最難懂的一種畫面，所以上面才傳 includeUsedUp。
+  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0));
+
+  return {
+    queue,
+    added,
+    rows: queue.map((q) => ({
+      ...q,
+      ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
+    })),
+  };
+}
+
+/**
+ * 把新加入的那幾位存回去。**只有真的多出人時才寫** —— 每次進來都寫一次
+ * 等於她每次打開壓表都產生一筆稽核紀錄，而稽核是拿來查「誰改了什麼」的。
+ *
+ * 寫失敗不擋畫面：那幾位照樣畫得出來，只是這一次沒存進去，下次再試。
+ * 為了一個順序的欄位讓整頁打不開是本末倒置。
+ */
+async function catchUpQueue(batch, queue, added) {
+  if (!added.length) return;
+  try {
+    await batchesData.saveProgress(batch.id, queue, batch.cursor ?? null);
+  } catch {
+    /* 畫得出來就好，下次再寫 */
+  }
+}
+
+/**
+ * 這一頁手上要有的那一份。**它會寫入**（`catchUpQueue()`）——
+ * 名字裡的「catchUp」是刻意的：這一支不是純粹的投影。
+ *
+ * `shown` 不在這裡給：`paintBatch()` 是整頁重畫所以清空，`reload()` 要留著
+ * 她捲到的位置對應的那一份。
+ */
+async function contextAfterCatchUp(el, batch, data) {
+  const { rows, queue, added } = rowsOf(batch, data);
+  await catchUpQueue(batch, queue, added);
+  return { el, batch: { ...batch, queue }, rows, ...data };
 }
 
 // ---------- 批次 ----------
@@ -435,7 +481,7 @@ async function paintBatch(el) {
   }
 
   const data = await loadAll(batch.targetMonth);
-  ctx = { el, batch, rows: rowsOf(batch, data), shown: [], ...data };
+  ctx = { ...(await contextAfterCatchUp(el, batch, data)), shown: [] };
   mount();
 }
 
@@ -454,7 +500,7 @@ async function reload() {
     return true;
   }
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...ctx, batch, rows: rowsOf(batch, data), ...data };
+  ctx = { ...ctx, ...(await contextAfterCatchUp(ctx.el, batch, data)) };
   return false;
 }
 
@@ -639,6 +685,9 @@ function openDeck() {
 
   node.addEventListener('click', onDeckClick);
   node.addEventListener('change', onDeckChange);
+  // 展開那一句話。`node` 整個被拿掉時監聽跟著消失，所以不必給 signal
+  // （卡片的內容重畫走 `fillDeck()`，換的是 node 底下的東西）。
+  slotNote.wire(node);
 
   ctx.el.appendChild(node);
   // 返回鍵要關掉這一層，不是跳走整頁（ADR-0048）
@@ -846,6 +895,12 @@ function custCard(row, isSelected) {
     ? `<span class="badge badge--ok">壓了 ${row.scheduledThisMonth} 天</span>`
     : '<span class="badge badge--soon">還沒壓</span>');
 
+  // **開批之後才進來的那幾位**（`mergeIntoQueue()`）。順序是凍結的，所以他們
+  // 一定排在最後面 —— 不標的話那看起來像排序算錯了。
+  const late = row.joinedLate
+    ? '<span class="badge badge--soon">新加入</span>'
+    : '';
+
   return `
     <button class="card queue-row ${isSelected ? 'queue-row--on' : ''}"
             type="button" data-pick="${esc(row.customerId)}"
@@ -855,7 +910,7 @@ function custCard(row, isSelected) {
           <span class="row__title">${esc(row.customerName ?? '?')}</span>
           ${alertChips(row)}
         </span>
-        ${state}
+        ${late}${state}
       </span>
     </button>`;
 }
@@ -1166,12 +1221,14 @@ function dayPanel(row) {
 
       <div data-entfields>${entFields(row, picked)}</div>
 
-      <label class="field">
-        <span class="field__label">這一次記一句</span>
-        <input type="text" data-note maxlength="${NOTE_MAX}"
-               value="${esc(sameDay?.note ?? '')}"
-               placeholder="例：她說下午比較好" />
-      </label>
+      ${/* **這一句是那一段的，不是那一天的**（ADR-0084）。所以：
+             一、收在一顆夾板後面（她 2026-09-09：「不然感覺會很占版面」）
+             二、**不預填 `sameDay.note`** —— 那是別段的字，她一按記錄就
+                 被複製到這一段身上了。元件與來訪編輯器共用。 */''}
+      <div class="deck__note">
+        ${slotNote.toggle({ name: 'note' })}
+        ${slotNote.html({ name: 'note', maxlength: NOTE_MAX })}
+      </div>
 
       <div class="errors" data-errors hidden></div>
       <button class="btn btn--primary btn--wide" type="button" data-add
@@ -1696,8 +1753,9 @@ const keyOf = (s) => `${s.roomId}|${s.bed ?? ''}`;
  * 收不下就是回 `null`，呼叫端照「新的一筆」那條路走。
  */
 function sameDayVisit(row, date) {
-  return (ctx.queueInput.visitsBy[row.customerId] ?? [])
-    .find((v) => v.date === date && isActive(v) && acceptsMoreSlots(v.status)) ?? null;
+  // 判斷在 domain（ADR-0083）—— 日曆那條路走的是同一支。兩份的話遲早有一份
+  // 漏掉一個狀態，而症狀是同一位客戶同一天長出兩塊獨立的東西。
+  return sameDayVisitFor(ctx.queueInput.visitsBy[row.customerId] ?? [], row.customerId, date);
 }
 
 /** 同一天已經結案的那幾筆。只拿來在畫面上講一句，不是併入的對象。 */
@@ -2003,24 +2061,26 @@ async function addSlot() {
     ...(nthPart ?? {}),
   };
 
-  const note = deckEl()?.querySelector('[data-note]')?.value?.trim() || null;
+  const note = deckEl()?.querySelector('[name="note"]')?.value?.trim() || null;
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
   // 規則在 `domain/visits.js`：收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
+  // 那一句話跟著這一段走（ADR-0084），不再是整筆的
+  const withNote = { ...slot, note };
   const sameDay = sameDayVisit(selected, view.day);
-  const merged = sameDay ? withExtraSlot(sameDay, slot, { note }) : null;
+  const merged = sameDay ? withExtraSlot(sameDay, withNote) : null;
   const visit = merged?.visit ?? {
     customerId: selected.customerId,
     customerName: selected.customerName,
     date: view.day,
     status: INITIAL_STATUS,
     confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
-    note,
-    slots: [slot],
+    note: null,
+    slots: [withNote],
   };
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
-  const { errors } = validateVisit(visit, {
+  const { errors, warnings } = validateVisit(visit, {
     customer: { flags: selected.flags ?? [] },
     entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
@@ -2031,6 +2091,12 @@ async function addSlot() {
 
   showErrors(errors);
   if (errors.length) return;
+
+  // **第一道：這幾段先看一下**（ADR-0086）。這一頁 2026-09-09 之前
+  // **從來沒有顯示過 warnings** —— `validateVisit()` 的第二個回傳值一直被
+  // 丟掉，所以「排完這次會超過總次數」「還沒選治療師」在她最常用的那一頁
+  // 一次都沒有出現過。來訪編輯器走的是同一支。
+  if (!await confirmReview(warnings)) return;
 
   // SPEC 第 7 節規則 11：app 看不到 Abovee，這道確認就是她手寫的那兩個驚嘆號。
   // 抬頭壓在哪個系統、底下會發生什麼，全部由 `domain/consequences.js` 算 ——

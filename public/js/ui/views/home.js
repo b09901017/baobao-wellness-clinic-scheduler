@@ -57,6 +57,7 @@ import { describeSync } from '../../domain/sheetReport.js';
 import { openCard } from '../components/card.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import * as f from '../components/form.js';
+import * as slotNote from '../components/slotNote.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
@@ -2716,22 +2717,45 @@ function confirmCard(
 }
 
 /**
- * 「問過了，在等」那一句。直接是一個輸入框，不是一顆「加備註」按鈕 ——
- * 她人在 LINE 裡，多一次點擊就會變成「算了等一下再記」，然後就忘了
- * （同 notesCard() 的理由）。
+ * 「問過了，在等」那一句。
  *
  * 寫完那一列看得出問過了：卡片換一個底、天數改成從問的那天算。
  * **但它還在清單上** —— 事情還沒完，移走就等於忘記。
+ *
+ * ## 2026-09-09：收進一顆夾板後面
+ *
+ * 她：「一樣，有需要的時候點一個 icon 或是什麼再展開填就好，不然感覺會很占版面。」
+ *
+ * **這推翻了它原本的理由**，而原本那個理由是她自己給的（2026-08 那一輪）：
+ * 「直接是一個輸入框，不是一顆『加備註』按鈕 —— 她人在 LINE 裡，多一次點擊
+ * 就會變成『算了等一下再記』，然後就忘了。」
+ *
+ * 兩件事都成立，差別是**現在這一列上有幾樣東西**：那時候一列只有名字與天數，
+ * 現在還有課程、段數與那幾顆動作。她看到的是一頁二十列各帶一個空輸入框。
+ *
+ * 展開的行為與那一句話的樣子跟時段那一句**共用同一支**
+ * （`ui/components/slotNote.js`）—— 兩份的話遲早有一邊忘了改 `aria-expanded`。
+ *
+ * **這一句仍然是整天的**（`visit.followupNote`，一位客戶好幾天共用一句），
+ * 跟時段身上那一句（ADR-0084）是兩回事：這一句記的是「這通電話追到哪了」，
+ * 而電話一天打一通。
  */
 function followupForm(customerId, name, note) {
   return `
-    <form data-followup="${esc(customerId)}"
-          style="display: flex; gap: var(--space-2); margin-top: var(--space-3)">
-      <input type="text" name="text" maxlength="${NOTE_MAX}" value="${esc(note ?? '')}"
-             style="flex: 1; min-width: 0" placeholder="問了還沒回？記一句…"
-             aria-label="${esc(name)}・問過了要記的一句話" />
-      <button class="btn" type="submit">${note ? '改' : '記'}</button>
-    </form>`;
+    <div class="fnote">
+      ${slotNote.toggle({ name: `fnote-${customerId}`, on: Boolean(String(note ?? '').trim()) })}
+      ${slotNote.disclosure({
+        name: `fnote-${customerId}`,
+        peek: note ?? '',
+        body: `
+          <form class="slotnote__box fnote__form" data-followup="${esc(customerId)}" hidden>
+            <input type="text" name="text" maxlength="${NOTE_MAX}" value="${esc(note ?? '')}"
+                   placeholder="問了還沒回？記一句…"
+                   aria-label="${esc(name)}・問過了要記的一句話" />
+            <button class="btn" type="submit">${note ? '改' : '記'}</button>
+          </form>`,
+      })}
+    </div>`;
 }
 
 /**
@@ -2831,6 +2855,9 @@ function wireConfirm(ctx) {
       saveFollowupNote(ctx, form.dataset.followup, form.querySelector('[name=text]').value);
     }),
   );
+
+  // 展開那一句話。這一塊每次重畫都換掉整個 `el` 底下的內容，所以不必給 signal。
+  slotNote.wire(el);
 
   el.querySelector('[data-apply]')?.addEventListener('click', () => applyConfirm(ctx));
 }
