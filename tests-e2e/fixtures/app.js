@@ -3,7 +3,8 @@
 // 三件事是自動的，每一個測試都吃得到：
 //
 //   1. **每個測試前清空 Firestore**，再塞這個測試自己的資料。
-//      （workers 一定要是 1，見 playwright.config.js）
+//      （**一個 worker 一個命名空間**，所以清空只清得到自己那一份；
+//      隔離怎麼做見 playwright.config.js 的檔頭）
 //   2. **蒐集 console error 與未捕獲例外**。測試結束時如果有沒被宣告預期的，
 //      直接讓那個測試紅掉 —— 靜默的 console error 正是「畫面看起來正常、
 //      其實壞了」的那一種 bug。
@@ -13,7 +14,8 @@
 import { test as base, expect } from '@playwright/test';
 
 import {
-  clearFirestore, seedDocs, ensureUser, allowUser, readDoc, readAll, APP_ORIGIN,
+  clearFirestore, seedDocs, ensureUser, allowUser, readDoc, readAll,
+  APP_ORIGIN, PROJECT_ID, WORKER_INDEX,
 } from './emulator.js';
 import { TODAY } from './data.js';
 
@@ -56,7 +58,33 @@ const BENIGN = [
 const isBenign = (text, url = '') =>
   BENIGN.some((re) => re.test(text) || (url && re.test(url)));
 
+/**
+ * 各頁面「還在讀」時填的佔位字。**畫面上出現這幾個字就不算畫完。**
+ *
+ * 少一個的症狀特別壞：斷言讀到的是那三四個字，而錯誤訊息長得像
+ * 「應該要有『次數對帳』，實際是『掃描中…』」—— 看起來像 app 壞了，
+ * 其實是測試問得太早。`tests/e2e-waits.test.js` 掃 `public/js/` 盯著這張表。
+ */
+// **只放畫進 `#view` 的**。toast 那一族（「儲存中…」「送出中…」）不算 ——
+// 那是 `app.saved()` 在判的，而 `#view.textContent` 本來就讀不到 toast。
+const PLACEHOLDERS = ['載入中…', '掃描中…', '讀取中…', '找人中…', '算佇列中…'];
+
 export const test = base.extend({
+  /**
+   * 告訴這個瀏覽器它是第幾號 worker。**掛在 context 這一層，不是某個 fixture。**
+   *
+   * `firebase-config.js` 讀 `window.__E2E_WORKER` 去算要連哪一個模擬器命名空間，
+   * 而 `addInitScript()` 保證它在任何 app 程式跑之前就已經在了。
+   *
+   * 掛在 `app` fixture 上會漏掉自己 `page.goto()` 的測試（`00-smoke` 的 S3
+   * 就是），而漏掉的症狀是那一頁悄悄去讀 0 號的資料 —— 畫面看起來很正常，
+   * 只是資料是別人的。
+   */
+  context: async ({ context }, use) => {
+    await context.addInitScript((w) => { window.__E2E_WORKER = w; }, WORKER_INDEX);
+    await use(context);
+  },
+
   // 刻意**沒有** seed 這個 option fixture。
   //
   // 試過 `seed: [[], { option: true }]` + `test.use({ seed: [...] })`，
@@ -132,6 +160,7 @@ export const test = base.extend({
       async signIn(hash = '/') {
         await page.goto(`${APP_ORIGIN}/#${hash}`);
         await page.waitForSelector('[data-signin]', { timeout: 30_000 });
+        await helpers.sameNamespace();
 
         const [popup] = await Promise.all([
           page.waitForEvent('popup'),
@@ -150,25 +179,117 @@ export const test = base.extend({
         return helpers;
       },
 
+      /**
+       * **app 跟 fixture 真的在同一個模擬器命名空間嗎。**
+       *
+       * 這是整件事唯一會大聲的地方。對不上的話 fixture 把種子塞進 A、
+       * app 去 B 讀，於是每一個測試都是「畫面空的」而且**沒有任何錯誤訊息**——
+       * 因為「命名空間裡沒東西」跟「這位客戶本來就沒資料」在畫面上長得一樣。
+       * 沒有這一支，查起來就只能猜，而猜著猜著會加一層「先等兩秒再試」。
+       *
+       * 問的是 app **自己載進去的那一份** config（同一個網址 = 同一個模組實體），
+       * 不是照著規則在這裡再推論一次。
+       */
+      async sameNamespace() {
+        const seen = await page.evaluate(
+          () => import('/js/firebase-config.js').then((m) => m.firebaseConfig.projectId),
+        );
+        if (seen !== PROJECT_ID) {
+          throw new Error(
+            `app 跟種子不在同一個模擬器命名空間：app 讀的是 ${seen}，`
+            + `種子塞在 ${PROJECT_ID}（第 ${WORKER_INDEX} 號 worker）。`
+            + '這種狀況下畫面會全空而且沒有任何錯誤 —— 先檢查 addInitScript 有沒有掛上。',
+          );
+        }
+      },
+
       /** 換到某一頁，並等它畫完（不再是「載入中…」）。 */
       async go(hash) {
         await page.evaluate((h) => { window.location.hash = h; }, hash);
         await helpers.settled();
       },
 
-      /** 等畫面不再是載入中。 */
+      /**
+       * 等畫面不再是載入中，**而且不再動了**。
+       *
+       * 兩件事一起判，因為它們會互相掩護：
+       *
+       * 1. **不可以停在佔位字上。** `PLACEHOLDERS` 那幾個字是各頁面「還在讀」
+       *    時填的。以前這裡只認得「載入中…」，而資料健檢那一頁用的是
+       *    **「掃描中…」**（`ui/views/health.js:26`）—— 於是 `03-health-and-counts`
+       *    整支讀到的是那三個字。這個洞一直都在，只是被底下那個固定等待
+       *    加上 `retries: 1` 蓋著，2026-09-09 兩層墊子一起拿掉才露出來。
+       *
+       * 2. **要等它不再重畫。** 好幾頁是「先畫出來、數字等資料回來再補」
+       *    （`views/calendar.js:161`）。以前這裡是 `waitForTimeout(350)`。
+       *
+       * 固定 350ms 兩邊都錯：順的時候白等（一次全跑幾百次 `go()`／`signIn()`／
+       * `reload()`），慢一拍的時候不夠 —— 那就是「重跑就過」的 flaky 來源。
+       *
+       * 改成**連續 3 次量到一樣才算穩**。3 是刻意的：`polling` 是 120ms，
+       * 所以最快也要 ~360ms 才回得來 —— **不會比原本那 350ms 早**，
+       * 而畫面還在動的時候它會一直等下去。降到 2 次（~240ms）會讓
+       * 「第二段 render 在 300ms 才到」的那幾頁讀到只畫了一半的畫面
+       *（`16-record-task` 的 R3 就是這樣紅的：課程名還沒補上去）。
+       */
       async settled() {
+        await page.evaluate(() => { window.__e2eSettle = { len: -1, same: 0 }; });
         await page.waitForFunction(
-          () => {
+          (marks) => {
+            const st = window.__e2eSettle;
             const v = document.querySelector('#view');
-            if (!v) return false;
+            if (!v) { st.same = 0; return false; }
             const t = v.textContent ?? '';
-            return t.trim().length > 0 && !t.includes('載入中…');
+            if (!t.trim() || marks.some((m) => t.includes(m))) { st.same = 0; return false; }
+            const now = v.innerHTML.length;
+            if (now === st.len) st.same += 1; else { st.len = now; st.same = 0; }
+            return st.same >= 3;
           },
-          { timeout: 20_000 },
+          PLACEHOLDERS,
+          { timeout: 20_000, polling: 120 },
         );
-        // 讓「先畫出來、數字等資料回來再補」那幾塊補完
-        await page.waitForTimeout(350);
+      },
+
+      /**
+       * 等一次寫入真的結束。**取代存檔後那一串 `waitForTimeout(2500)`。**
+       *
+       * 判準是 `ui/toast.js` 的狀態機：`withSaveState()` 一開始喊
+       * 「儲存中…」（`timeout: 0`，不會自己消失），成功換成「已儲存」、
+       * 失敗換成「儲存失敗：…」、太久換成「還沒送出去…」。
+       *
+       * 所以「寫完了」＝ toast 離開「儲存中」。固定等待兩邊都錯：
+       * 模擬器順的時候 2500ms 有 2000ms 是白等的，而它慢一拍的時候
+       * 2500ms 不夠，接下來那一句斷言就會讀到還沒重畫的畫面。
+       *
+       * **失敗要大聲。** 以前 `waitForTimeout(2500)` 之後畫面上停著
+       * 「儲存失敗：…」，測試照樣往下跑，紅在後面某一句莫名其妙的斷言上。
+       */
+      async saved({ timeout = 20_000 } = {}) {
+        const toast = page.locator('#toast');
+        // 先等它進到「儲存中…」。有些路徑（純本機、或者根本沒寫入）快到
+        // 看不見那一格 —— 那不是錯，所以短逾時就放過去。
+        await toast.filter({ hasText: '儲存中' })
+          .waitFor({ state: 'attached', timeout: 3_000 })
+          .catch(() => {});
+
+        await expect(toast, '寫入沒有結束 —— toast 還停在「儲存中…」')
+          .not.toContainText('儲存中', { timeout });
+
+        const said = (await toast.textContent()) ?? '';
+        if (said.includes('儲存失敗')) throw new Error(`寫入失敗了：${said.trim()}`);
+        if (said.includes('還沒送出去')) throw new Error(`寫入逾時（PENDING_MS）：${said.trim()}`);
+
+        await helpers.settled();
+      },
+
+      /**
+       * 等某一層（抽屜、卡片、面板）真的推上來了。
+       * **取代點一下之後那一串 `waitForTimeout(700)`。**
+       *
+       * @param {string} selector 那一層裡面一定會有的東西
+       */
+      async layer(selector, { timeout = 15_000 } = {}) {
+        await expect(page.locator(selector).first()).toBeVisible({ timeout });
       },
 
       /** 重新整理整個 app（測跨日、測快取用）。 */

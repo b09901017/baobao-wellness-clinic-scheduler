@@ -1,0 +1,60 @@
+# 一個測試一個命名空間，就不用清空了
+
+Status: todo
+來源：2026-09-09，量到每個測試有約 3.5 秒的固定成本
+動工前先讀：`tests-e2e/fixtures/emulator.js` 的 `clearFirestore()` 與 `projectIdFor()`、`tests-e2e/fixtures/app.js` 的 `app` fixture
+**做這一支之前先做 04**（那一支不碰共用程式，這一支碰得很深）。
+
+## 現在每個測試開頭做什麼
+
+```
+ensureUser()      → 打一次 Auth 模擬器
+clearFirestore()  → 清空，然後**寫一顆 canary、等 60ms、讀回來確認它活著**
+allowUser(uid)    → 塞白名單
+```
+
+那個 canary 迴圈不是多餘的（`clearFirestore()` 的檔頭記著：清空是非同步的，
+晚到的那一次會把剛塞好的種子一起洗掉，而症狀只是「畫面上什麼都沒有」）。
+但它每個測試至少 0.3～0.5 秒，193 支就是 **1～1.5 分鐘**，而且是**為了清一個
+本來就該是空的東西**。
+
+## 想法
+
+issue 03 已經把 `projectId` 從寫死的字串變成算出來的（`projectIdFor(index)`），
+而且 app 那側靠 `addInitScript` 拿到自己的號碼。**再往前一步：號碼從「第幾個
+worker」變成「第幾個測試」。**
+
+每個測試拿到一個沒人用過的命名空間 → **它本來就是空的** → `clearFirestore()`
+連同那個 canary 迴圈整個不用跑。
+
+Playwright 的 `context` fixture 是**每個測試一份**，所以 `addInitScript` 那條路
+已經是對的形狀了，只是餵進去的值要換。
+
+## 三個要先確認的（不要假設）
+
+1. **Firestore 模擬器吃得下 193 個命名空間嗎。** 它是單一 Java 行程，資料在記憶體。
+   193 個各塞幾十份文件會不會把它撐爆 —— **先量，不要猜**。撐不住的話退回
+   「每 N 個測試換一個」，或者跑完一支 spec 就把它用過的清掉。
+2. **`initializeTestEnvironment()` 每個測試建一次的代價。** 現在是模組層快取一份
+   （`let env = null`）。換成每個測試一份的話，那個建立成本可能吃掉省下來的。
+   **量了再決定**：省 0.4 秒但建立要 0.5 秒的話這一支就白做了。
+3. **Auth 不跟著換。** `AUTH_PROJECT_ID` 是寫死 `projectIdFor(0)` 的，理由在
+   `emulator.js` 的註解裡（Auth 模擬器 `getProjectIdByApiKey()` 把 api key 丟掉，
+   一律回 `--project` 那個預設專案 —— **瀏覽器那側的 Auth 根本分不了專案**）。
+   這一支不要動它。白名單 `allowedUsers/{uid}` 是 Firestore 文件，會跟著新命名空間走，
+   所以 `allowUser()` 照樣要呼叫。
+
+## 危險的地方
+
+**這件事壞掉的症狀跟 issue 03 一樣：畫面全空，而且沒有任何錯誤訊息。**
+
+好消息是那道守衛已經在了 —— `app.sameNamespace()`（`fixtures/app.js`）會在
+`signIn()` 的時候問 app「你讀的是哪一個命名空間」，對不上就丟一個講得很清楚的錯。
+**這一支動的時候那道守衛一個字都不要動**，它是唯一會大聲的東西。
+
+## 值多少
+
+估每個測試省 0.3～0.5 秒 × 193 ＝ **1～1.5 分鐘**（全套 21.5 分鐘的 5～7%）。
+
+**這是四支裡最不划算的一支**，而且動得最深。第 2 點量出來不划算的話就直接關掉
+這支 issue，寫下量到的數字 —— 那也是個結果。

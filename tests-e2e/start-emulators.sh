@@ -3,11 +3,20 @@
 #
 # **專案 id 用 `demo-` 開頭是刻意的。** Firebase 看到這個前綴才會進入完全離線
 # 模式：任何沒被模擬到的服務會直接報錯，而不是安靜地打到真的專案上。
-# 這個值要跟 `public/js/firebase-config.js` 的 emulator config 與
-# `tests-e2e/fixtures/emulator.js` 的 PROJECT_ID 一致，`tests/env.test.js` 盯著。
+#
+# **這個值不寫死，是算出來的。** 唯一的推導在 `public/js/firebase-config.js`
+# 的 `projectIdFor()`，三邊（這裡、E2E fixture、app 自己）呼叫同一支 ——
+# 以前三邊各寫一份字串，對不上時 fixture 塞進 A、app 讀 B，每個 E2E 都是
+# 「畫面空的」而且沒有任何錯誤訊息。`tests/env.test.js` 會真的跑一次這條路。
+#
+# 這裡帶 0 ＝ 預設的那一份。**平行跑的時候不必開 N 個模擬器**：Firestore
+# 模擬器本來就一顆裝得下多個 projectId，worker 1 以後那幾份是第一次被寫到時
+# 自己長出來的。Auth 那側分不了專案（見 fixtures/emulator.js 的
+# AUTH_PROJECT_ID），而那不影響隔離 —— 要隔離的是 Firestore。
 set -euo pipefail
 
-PROJECT="demo-scheduler"
+cd "$(dirname "$0")/.."
+PROJECT="$(node tests-e2e/project-id.mjs 0)"
 
 # Java 找不到才提示，**不要寫死某一台機器的路徑** —— 那樣換一台電腦或進 CI
 # 就壞，而錯誤訊息只會說「找不到 java」，看不出是這一行造成的。
@@ -18,7 +27,6 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
-cd "$(dirname "$0")/.."
 exec npx firebase emulators:start \
   --only auth,firestore,hosting \
   --project "$PROJECT"

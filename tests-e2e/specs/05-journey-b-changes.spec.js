@@ -35,11 +35,11 @@ function seedConfirmedRehab() {
 async function openVisitEditor(app, page, date, visitId) {
   await app.go('/calendar');
   await page.locator(`[data-day="${date}"]`).first().click();
-  await page.waitForTimeout(700);
+  await app.layer(`[data-open^="visit:${visitId}:"]`);
   await page.locator(`[data-open^="visit:${visitId}:"]`).first().click();
-  await page.waitForTimeout(700);
+  await app.layer('[data-card-edit]');
   await page.locator('[data-card-edit]').click();
-  await page.waitForTimeout(900);
+  await app.layer('form[data-form]');
   // 整筆的那幾顆（狀態、刪除）2026-09-09 收進一摺了（ADR-0085）——
   // 她點的是一段，那幾顆動的是整天，混在欄位裡講不通。**收著不是藏著**：
   // 藏起來會違反 ADR-0060（長按是捷徑，不是唯一的路）。
@@ -52,7 +52,7 @@ async function openWholeVisitFold(page) {
   if (await fold.count() === 0) return;
   if (await fold.first().getAttribute('open') === null) {
     await fold.locator('summary').first().click();
-    await page.waitForTimeout(250);
+    await expect(fold.first()).toHaveAttribute('open', '');
   }
 }
 
@@ -71,7 +71,7 @@ test('J-B1 從日曆取消一筆已確認的來訪 → 次數回補、產生「�
   console.log('[J-B1] 取消確認框 =\n' + dialog);
   expect(dialog, '要講出改期不是改日期').toMatch(/改期|重新排/);
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const v = await app.readDoc('visits', 'visit-a1');
   expect(v.status).toBe('cancelled');
@@ -104,7 +104,7 @@ test('J-B2 沒勾掉的登記任務直接收走，勾掉的才變成「取消 X�
   await openVisitEditor(app, page, FUTURE, 'visit-a1');
   await page.locator('[data-status="cancelled"]').click();
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const all = await app.readAll('tasks');
   const live = all.filter((t) => !t.deletedAt).map((t) => t.kind).sort();
@@ -123,11 +123,11 @@ test('J-B3 同一筆存兩次，取消任務只長一張', async ({ app, page })
   await openVisitEditor(app, page, FUTURE, 'visit-a1');
   await page.locator('[data-status="cancelled"]').click();
   await app.ok();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
-  // 再存一次（改一下備註）
+  // 再存一次（改一下備註）。**開不起來是預期之一**（那一筆已經取消了），
+  // 所以 catch 掉；開起來的話 `openVisitEditor()` 自己等到欄位出現。
   await openVisitEditor(app, page, FUTURE, 'visit-a1').catch(() => {});
-  await page.waitForTimeout(500);
 
   const cancels = (await app.readAll('tasks'))
     .filter((t) => !t.deletedAt && t.kind === '取消 Abovee');
@@ -156,11 +156,11 @@ test('J-B6 標成未到 → 不扣次數，時段還回去，但未到獨立計�
 
   // 收尾抽屜：把唯一那一段點成「沒做」→ 整筆記成未到
   await page.locator('[data-open="visit-a2"]').click();
-  await page.waitForTimeout(600);
+  await app.layer('[data-slot="0"]');
   await page.locator('[data-slot="0"]').click();
   await expect(page.locator('[data-apply]')).toContainText('未到');
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const v = await app.readDoc('visits', 'visit-a2');
   expect(v.status).toBe('no_show');
@@ -192,11 +192,11 @@ test('J-A12 做了兩段、第三段沒做 → 只扣兩次（ADR-0025）', asyn
   await app.signIn('/todo/close');
 
   await page.locator('[data-open="visit-a3"]').click();
-  await page.waitForTimeout(600);
+  await app.layer('[data-slot="2"]');
   await page.locator('[data-slot="2"]').click();   // 第三段沒做
   await expect(page.locator('[data-apply]')).toContainText('2 段');
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   const ent = await app.readDoc('customers/cust-a/entitlements', 'ent-a-vein');
   expect(ent.doneCount, '做了幾段就扣幾次').toBe(2);
@@ -218,8 +218,8 @@ test('L17+L18 客戶詳情與待辦中心的來訪列**沒有**鉛筆（ADR-0056
   // 日曆：唯一有鉛筆的地方
   await app.go('/calendar');
   await page.locator(`[data-day="${FUTURE}"]`).first().click();
-  await page.waitForTimeout(700);
+  await app.layer('[data-open^="visit:visit-a1:"]');
   await page.locator(`[data-open^="visit:visit-a1:"]`).first().click();
-  await page.waitForTimeout(700);
+  await app.layer('.popcard');
   await expect(page.locator('[data-card-edit]'), '日曆的讀取卡片要有鉛筆').toHaveCount(1);
 });

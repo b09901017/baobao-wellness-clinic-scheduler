@@ -33,11 +33,23 @@ staging 上被點過 —— 只有急件這樣做。
 
 她自己的 `.xlsx`／`.ics`／截圖放 **`.local/references/`**（`xlsx/`、`ics/`、`images/` 三格）。`.gitignore` 第 57 行的 `/.local/` 擋著，驗證方式是 `git check-ignore -v <路徑>` —— **擋沒擋住從畫面上看不出來**，所以每次新開一個資料夾都要真的跑一次。不要另外開名字：多一個要記得加進 `.gitignore` 的地方，漏掉一次就是真實客戶健康資訊進了版控。
 
+## 測試怎麼跑
+
+日常驗收 `npm run verify`（單元測試 ＋ 這次改動相關的那幾支 E2E）。**不要每次全跑 E2E** —— 無頭 24 分鐘、headed 25 分鐘，而她在等。全量交給 CI 與上線前。
+
+哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去（`tests/e2e-related.test.js` 盯著）。認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。
+
+E2E 裡**不要用 `page.waitForTimeout()`**，等 locator 的狀態：`app.layer(選擇器)` 等一層推上來、`app.saved()` 等一次寫入結束（讀 `ui/toast.js` 的狀態機，寫失敗會大聲）、`app.settled()` 等一頁畫完。固定等待兩邊都錯 —— 順的時候白等，慢一拍的時候讀到還沒重畫的畫面，而**兩種症狀都不指向那一行**。`tests/e2e-waits.test.js` 盯著，還沒清完的那幾支在它的 `PENDING` 裡而且只准變短。
+
+修 bug 先寫一支重現得出來的失敗測試。**改 domain 規則、狀態機推導、跨模組資料結構的那幾次，動工前先在 `.scratch/<feature-slug>/issues/` 開一支 issue**；純文案與 CSS 不用。
+
+交付時條列一份**她可以照順序點的手動驗收清單** —— 是「你可以怎麼點」（`日曆 → 點那一格 → 點那一列 → 按鉛筆`），不是「我修好了什麼」。**寫的人要真的走過那條路**：同一件事在兩個入口的選擇器常常不一樣（壓表的品項丸子是 `[data-ivproduct]`、來訪編輯器是 `[data-chip="s0-iv"]`），沒走過的清單會叫她去點一個不存在的東西。
+
 ## 容易漏掉的連動
 
 | 改了這個 | 一定要一起檢查 |
 |---|---|
-| `/domain` 的業務規則 | `SPEC.md` 對應章節。推翻既有決定就補一支 ADR，不要改掉舊的 |
+| `/domain` 的業務規則 | `SPEC.md` 對應章節。推翻既有決定就補一支 ADR，不要改掉舊的。**新長出來的連動關係要回來補進這張表** —— 不補的話它的價值會隨每一輪重構衰減，而下一輪又得從頭清查一次 |
 | `public/` 底下任何檔案 | `public/sw.js` 的 `SHELL` 清單與 `VERSION`（測試只盯清單，不盯版號） |
 | 做完一個開發步驟 | `README.md` 開發狀態表打勾 |
 | 新增集合、欄位、要排序的查詢 | `firestore.rules` 要開洞（預設全拒），`firestore.indexes.json` 要補索引 |
@@ -95,7 +107,7 @@ staging 上被點過 —— 只有急件這樣做。
 | 一段來訪要選哪一款營養點滴品項 | 只寫在 `domain/masterData.js` 的 `ivChoicesFor()`（**壓表與來訪編輯器兩個入口共用**）：買的那一款排第一顆而且預設選好，其餘收在「換一款」後面。**不硬擋** —— 換了只多一句提醒（`domain/visits.js` 的 `assignmentWarnings()`），因為「今天 A 剛好用完先打了 B」是真的會發生的事（ADR-0002；醫療禁忌是全站唯一的硬性阻擋）。已經存進去的錯配由資料健檢的 `ivMismatch` 列出來，不自動改 |
 | 「今天做了什麼」的分段 | `domain/dayReview.js` 的 `STAGES`，**由上到下比、第一個對上的算數**，而陣列的順序就是她做事的順序。所以要把一種從別段分出來時，改的是**前面那一段的條件**，不是把新的一段插到前面去（④登記掛號排掉「寫紀錄」就是這樣做的）|
 | UI 文案、新的詞 | 用 `CONTEXT.md` 的詞，不要用它標 _Avoid_ 的同義詞 |
-| 哪個網址算哪個環境 | 只寫在 `public/js/firebase-config.js` 的 `envOf()`。**模擬器那一份的 `projectId` 要跟三個地方一致**：這裡、`tests-e2e/start-emulators.sh` 的 `--project`、`tests-e2e/fixtures/emulator.js` 的 `PROJECT_ID`。對不上的症狀特別壞 —— fixture 塞進 A 命名空間、app 讀 B，每個 E2E 都是「畫面空的」而且**沒有錯誤訊息**。`tests/env.test.js` 盯著三邊。環境設定與部署指令見 `docs/STAGING.md` |
+| 哪個網址算哪個環境 | 只寫在 `public/js/firebase-config.js` 的 `envOf()`。**模擬器那一份的 `projectId` 是算出來的，不是寫死的**：唯一的推導是同一支檔案的 `projectIdFor(worker)`，三邊都呼叫它 —— `tests-e2e/start-emulators.sh`（經 `tests-e2e/project-id.mjs`，bash import 不動 ES module）、`tests-e2e/fixtures/emulator.js` 的 `PROJECT_ID`、以及 app 自己（讀 `window.__E2E_WORKER`，E2E 用 `context.addInitScript()` 塞）。**不要在任何一邊寫死一份 `demo-` 字串** —— 對不上的症狀特別壞：fixture 塞進 A 命名空間、app 讀 B，每個 E2E 都是「畫面空的」而且**沒有錯誤訊息**。`tests/env.test.js` 盯著三邊算的是同一支（而且真的跑一次 shell 那條路），`app.sameNamespace()` 在每次登入後再問一次。環境設定與部署指令見 `docs/STAGING.md` |
 | `data/backup.js` 的 `exportAll()` 加一個集合 | `scripts/restore-backup.mjs` 的 `SECTIONS` 要跟著加一列，否則還原完會**少一整類資料**，而且要等到她去找那一類東西才會發現（`notes` 與 `events` 已經被漏掉過一次，見那支檔案的檔頭；`playbooks` 是 2026-09-03 加的，兩邊同時加）。`tests/restore-backup.test.js` 盯著兩邊 |
 | 寫入的等待與失敗文案 | 只寫在 `ui/toast.js`。**Firestore 的寫入 Promise 離線時既不 resolve 也不 reject**，所以 `catch` 接不到離線 —— 那條路走的是 `PENDING_MS` 的逾時，而它換上的那句話**不可以說「失敗」**（資料已經在本機快取裡，說失敗她會再存一次）。常駐的離線提示是另一件事，在 `ui/net.js` 與殼上的 `.netbar`。`tests-e2e/specs/10-offline.spec.js` 盯著 |
 | 一個會建立新資料的按鈕 | `toast.withSaveState()` 要傳 `key`。`tests/save-guards.test.js` 會掃出漏掉的，豁免要寫在它的 `ALLOWED` 裡並附理由 |
