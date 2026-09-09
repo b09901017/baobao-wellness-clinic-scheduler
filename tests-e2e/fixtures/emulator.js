@@ -30,6 +30,16 @@ import { doc, setDoc, writeBatch } from 'firebase/firestore';
 export const PROJECT_ID = projectIdFor(process.env.TEST_PARALLEL_INDEX);
 
 /**
+ * 這個 worker 的號碼，**原封不動地**傳給瀏覽器那側（`fixtures/app.js` 的
+ * `context.addInitScript()`）。
+ *
+ * 刻意不在這裡先正規化成數字：兩邊要餵給 `projectIdFor()` 的是同一個值，
+ * 中間多一道自己寫的轉換，就多一個「兩邊算出不同命名空間」的機會。
+ * （`projectIdFor()` 收字串收數字給同一個答案，`tests/env.test.js` 盯著。）
+ */
+export const WORKER_INDEX = process.env.TEST_PARALLEL_INDEX ?? 0;
+
+/**
  * 建帳號／清帳號要打哪一個命名空間。**永遠是 0 號，跟 `PROJECT_ID` 不一樣。**
  *
  * Auth 模擬器的 `getProjectIdByApiKey()` 把 api key 丟掉，一律回

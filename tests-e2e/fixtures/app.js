@@ -13,7 +13,8 @@
 import { test as base, expect } from '@playwright/test';
 
 import {
-  clearFirestore, seedDocs, ensureUser, allowUser, readDoc, readAll, APP_ORIGIN,
+  clearFirestore, seedDocs, ensureUser, allowUser, readDoc, readAll,
+  APP_ORIGIN, PROJECT_ID, WORKER_INDEX,
 } from './emulator.js';
 import { TODAY } from './data.js';
 
@@ -68,6 +69,21 @@ const isBenign = (text, url = '') =>
 const PLACEHOLDERS = ['載入中…', '掃描中…', '讀取中…', '找人中…', '算佇列中…'];
 
 export const test = base.extend({
+  /**
+   * 告訴這個瀏覽器它是第幾號 worker。**掛在 context 這一層，不是某個 fixture。**
+   *
+   * `firebase-config.js` 讀 `window.__E2E_WORKER` 去算要連哪一個模擬器命名空間，
+   * 而 `addInitScript()` 保證它在任何 app 程式跑之前就已經在了。
+   *
+   * 掛在 `app` fixture 上會漏掉自己 `page.goto()` 的測試（`00-smoke` 的 S3
+   * 就是），而漏掉的症狀是那一頁悄悄去讀 0 號的資料 —— 畫面看起來很正常，
+   * 只是資料是別人的。
+   */
+  context: async ({ context }, use) => {
+    await context.addInitScript((w) => { window.__E2E_WORKER = w; }, WORKER_INDEX);
+    await use(context);
+  },
+
   // 刻意**沒有** seed 這個 option fixture。
   //
   // 試過 `seed: [[], { option: true }]` + `test.use({ seed: [...] })`，
@@ -143,6 +159,7 @@ export const test = base.extend({
       async signIn(hash = '/') {
         await page.goto(`${APP_ORIGIN}/#${hash}`);
         await page.waitForSelector('[data-signin]', { timeout: 30_000 });
+        await helpers.sameNamespace();
 
         const [popup] = await Promise.all([
           page.waitForEvent('popup'),
@@ -159,6 +176,30 @@ export const test = base.extend({
         await page.waitForSelector('#view', { timeout: 10_000 });
         await helpers.settled();
         return helpers;
+      },
+
+      /**
+       * **app 跟 fixture 真的在同一個模擬器命名空間嗎。**
+       *
+       * 這是整件事唯一會大聲的地方。對不上的話 fixture 把種子塞進 A、
+       * app 去 B 讀，於是每一個測試都是「畫面空的」而且**沒有任何錯誤訊息**——
+       * 因為「命名空間裡沒東西」跟「這位客戶本來就沒資料」在畫面上長得一樣。
+       * 沒有這一支，查起來就只能猜，而猜著猜著會加一層「先等兩秒再試」。
+       *
+       * 問的是 app **自己載進去的那一份** config（同一個網址 = 同一個模組實體），
+       * 不是照著規則在這裡再推論一次。
+       */
+      async sameNamespace() {
+        const seen = await page.evaluate(
+          () => import('/js/firebase-config.js').then((m) => m.firebaseConfig.projectId),
+        );
+        if (seen !== PROJECT_ID) {
+          throw new Error(
+            `app 跟種子不在同一個模擬器命名空間：app 讀的是 ${seen}，`
+            + `種子塞在 ${PROJECT_ID}（第 ${WORKER_INDEX} 號 worker）。`
+            + '這種狀況下畫面會全空而且沒有任何錯誤 —— 先檢查 addInitScript 有沒有掛上。',
+          );
+        }
       },
 
       /** 換到某一頁，並等它畫完（不再是「載入中…」）。 */
