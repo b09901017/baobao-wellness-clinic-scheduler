@@ -4631,6 +4631,13 @@ button.mark::after {
 }
 
 .slothead__x {
+  /* **`position: relative`是這一顆的命。** 底下那個 `::after` 是把 28px 的
+     視覺撐回 44px 觸控區用的，而它是 `position: absolute` —— 少了這一行，
+     它會去貼最近的那個定位祖先，也就是 `.slotcard__tools`（那一格本身是
+     absolute）。結果是**這一顆的感應範圍蓋住整格**，包含左邊那顆夾板：
+     她想替這一段記一句，按下去跳出來的是「取消第 N 段？」。
+     破壞性的那一顆吃掉旁邊那一顆，是這個形狀裡最貴的一種錯法。 */
+  position: relative;
   width: 28px;
   height: 28px;
   display: flex;
@@ -4697,6 +4704,8 @@ button.mark::after {
 /* 抬頭列上那一顆夾板。**跟那顆 × 一樣大、一樣淡** —— 兩顆並排時
    任何一顆比較重都會變成「這顆比較該按」，而它們一個是記事、一個是取消。 */
 .slotnote__pin {
+  /* 同 `.slothead__x`：撐開層要貼在自己身上。 */
+  position: relative;
   width: 28px;
   height: 28px;
   display: flex;
@@ -4713,6 +4722,13 @@ button.mark::after {
 
 /* 有字。**這就是「這一段寫過東西」的訊號** —— 底下那一行淡字講內容，
    這一顆讓她掃一眼就知道哪幾段有。 */
+/* 視覺 28px，感應範圍撐回 44px —— 同 `.slothead__x`、SPEC 第 1 節。 */
+.slotnote__pin::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
 .slotnote__pin.is-on {
   color: var(--accent);
 }
@@ -4758,7 +4774,11 @@ button.mark::after {
   right: var(--space-3);
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* **兩顆 28px 的視覺、各自撐到 44px，所以中間要留 16px。**
+     少於 16px 時兩個感應範圍會疊起來，而疊到的那一段由後面那顆（×）贏
+     —— 夾板的右半邊會變成「按下去會取消這一段」。gap 是 2px 的時候
+     夾板整顆都在 × 的感應範圍裡面。 */
+  gap: var(--space-4);
 }
 
 /* ---------- 表單：主體與背景 ---------- */
