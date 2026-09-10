@@ -1187,7 +1187,7 @@ async function loadWhoDetails(ctx) {
  * 點下去用同一支再開一張只有那一段的。她 2026-09-10 指名要留先看到
  * 「那一天有哪幾段 ＋ 那一天的待辦」這一層。
  */
-function openWhoVisit(visitId, focus = null) {
+function openWhoVisit(visitId) {
   const d = whoDrawer;
   const visit = d?.visits?.get(visitId);
   if (!visit) {
@@ -1196,7 +1196,15 @@ function openWhoVisit(visitId, focus = null) {
       : '那一天的資料還在讀，等一下再按一次');
     return;
   }
-  const html = (tasks, extra = {}) => visitReadHtml(visit, {
+
+  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
+  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
+  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
+  let focus = null;
+  let tasks;
+  let extra = {};
+
+  const paint = () => visitReadHtml(visit, {
     ...extra,
     roomsById: d.rooms,
     staffById: d.staff,
@@ -1207,16 +1215,30 @@ function openWhoVisit(visitId, focus = null) {
     today: todayISO(),
     focusSlot: focus,
   });
+
+  // 整筆那一個是推導出來的 —— 加一段沒問過客人的進去就會退回「待確認」，
+  // 而她點的可能是早上那段已經談定的（ADR-0085）。
+  const sub = () => esc(describeStatus(statusForCard(visit, focus)));
+
+  const html = (nextTasks, nextExtra = {}) => {
+    tasks = nextTasks;
+    extra = nextExtra;
+    return paint();
+  };
+
   // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
-  fillMirror(openCard({
+  const card = openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
-    // 整筆那一個是推導出來的 —— 加一段沒問過客人的進去就會退回「待確認」，
-    // 而她點的可能是早上那段已經談定的（ADR-0085）。
-    subtitle: esc(describeStatus(statusForCard(visit, focus))),
+    subtitle: sub(),
     body: html(undefined),
     // 每重畫一次都要重掛：`card.update()` 換掉整塊 body，舊節點連同監聽一起沒了。
-    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openWhoVisit(visitId, i)),
-  }), visit, html);
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => {
+      focus = i;
+      card.update(paint(), { subtitle: sub() });
+    }),
+  });
+
+  fillMirror(card, visit, html);
 }
 
 /**
@@ -2106,7 +2128,7 @@ function taskRow(t, today) {
  * 她在這一頁做的事是「去 Examine 掛號」，不是改班（她的原話：「不懂什麼情況
  * 點完詳情進去後會需要修改？」）。要改一筆來訪只有日曆一個入口，見 ADR-0056。
  */
-function openTaskVisit(visitId, focus = null) {
+function openTaskVisit(visitId) {
   const visit = taskVisits?.visits.get(visitId);
   if (!visit) {
     // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
@@ -2117,7 +2139,12 @@ function openTaskVisit(visitId, focus = null) {
     return;
   }
 
-  const html = (tasks, extra = {}) => visitReadHtml(visit, {
+  // 她點到哪一段了。就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
+  let focus = null;
+  let tasks;
+  let extra = {};
+
+  const paint = () => visitReadHtml(visit, {
     ...extra,
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
@@ -2129,13 +2156,27 @@ function openTaskVisit(visitId, focus = null) {
     // 沒帶就是那一天全部，而每一段自己是一列（ADR-0080）。同 `openWhoVisit()`。
     focusSlot: focus,
   });
-  fillMirror(openCard({
+
+  // 整筆那一個是推導出來的（ADR-0085），同 `openWhoVisit()` 那一段的說明。
+  const sub = () => esc(describeStatus(statusForCard(visit, focus)));
+
+  const html = (nextTasks, nextExtra = {}) => {
+    tasks = nextTasks;
+    extra = nextExtra;
+    return paint();
+  };
+
+  const card = openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
-    // 整筆那一個是推導出來的（ADR-0085），同 `openWhoVisit()` 那一段的說明。
-    subtitle: esc(describeStatus(statusForCard(visit, focus))),
+    subtitle: sub(),
     body: html(undefined),
-    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openTaskVisit(visitId, i)),
-  }), visit, html);
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => {
+      focus = i;
+      card.update(paint(), { subtitle: sub() });
+    }),
+  });
+
+  fillMirror(card, visit, html);
 }
 
 function badgeClass(state) {

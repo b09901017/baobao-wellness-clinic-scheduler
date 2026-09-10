@@ -873,9 +873,11 @@ function openDetail(el, data, hit, date, repaint) {
   // 課程配到的那幾份（`playbooksFor()` 的退路）—— 少一塊提醒比整張卡壞掉好。
   const customer = data.customersById?.[visit.customerId] ?? null;
 
-  // 她點的是哪一段。**2026-09-08 之後這一格不會再變回 null** ——
-  // 「看全部」那顆拿掉了（她的原話：「純粹且僅呈現該時段課程的資訊」）。
-  const focus = slotIndex;
+  // 她點的是哪一段。日曆上每一條路都帶著它（`visitRow()` 的 data-open 有第三格），
+  // 所以這裡幾乎一定是個整數。**但不要假設它是** —— `parseOpen()` 認不出第三格
+  // 時會回 null，而那時候 `visitReadHtml()` 畫的是可以點的一列。少接那一圈的話
+  // 那幾列會長著箭頭卻什麼都不會發生，而畫面上看起來完全正常。
+  let focus = slotIndex;
   // 任務與額度是 `fillMirror()` 非同步補上的。
   let tasks;
   let extra = {};
@@ -917,6 +919,15 @@ function openDetail(el, data, hit, date, repaint) {
         kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: focus,
       });
     },
+    // 沒指定哪一段時那幾列點得下去（ADR-0080）。**就地換掉，不重開一張卡**
+    // —— `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下。
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => {
+      focus = i;
+      card.update(paint(), {
+        subtitle: `${esc(shortDate(visit.date))}・${
+          esc(describeStatus(statusForCard(visit, focus)))}`,
+      });
+    }),
   });
 
   // **接一次就好，不要走 `onMount`。** 那一顆長在 `.popcard__actions` 裡，
@@ -1515,13 +1526,13 @@ export function visitReadHtml(visit, data) {
         : '';
       return `
         <${tag} class="readslot${tappable ? ' readslot--tap' : ''}"${attrs}>
-          <div class="readslot__when num">${esc(timeLabel(s))}</div>
+          <span class="readslot__when num">${esc(timeLabel(s))}</span>
           ${/* **那天真的做了什麼**：她點的是四選一，這裡要寫「SIS(60)」——
                 跟月曆同一種寫法（2026-09-08 她選的）。底下那一行「扣 …」寫的
                 才是當初買了什麼，兩行合起來就是完整的一句話。
                 四個畫面共用這一支，所以四頁一起改（ADR-0018、0056）。 */''}
-          <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
-            where ? `・${esc(where)}` : ''}</div>
+          <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
+            where ? `・${esc(where)}` : ''}</span>
           ${fromLine(s, data)}
         </${tag}>`;
     }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
@@ -1575,7 +1586,7 @@ function fromLine(slot, data) {
     ? String(data?.entitlementsById?.[slot.entitlementId]?.label ?? '').trim()
     : '';
   if (!label) return '';
-  return `<div class="readslot__from">扣 ${esc(label)}</div>`;
+  return `<span class="readslot__from">扣 ${esc(label)}</span>`;
 }
 
 function eventReadHtml(event) {

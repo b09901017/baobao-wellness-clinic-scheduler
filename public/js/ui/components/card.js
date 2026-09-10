@@ -93,10 +93,23 @@ export function openCard({
   const api = {
     el: card,
     close,
-    update(html) {
+    /**
+     * 就地換掉內容。**不要用「關掉再開一張」代替它** —— `openCard()` 第一行
+     * 就是 `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳，
+     * ADR-0080 為卡片裡的換頁再講過一次）。
+     *
+     * `subtitle` 是選填的：讀取卡片在卡片裡換段落時，抬頭底下那一行講的是
+     * **哪一段的狀態**，跟著 body 一起變（ADR-0085）。沒帶就不動它。
+     * 開的時候沒給 subtitle 的話那個節點根本不存在，所以這裡問過才寫。
+     */
+    update(html, { subtitle: nextSub } = {}) {
       const box = root.querySelector('[data-card-body]');
       if (!box) return;
       box.innerHTML = html;
+      if (nextSub !== undefined) {
+        const sub = root.querySelector('[data-card-sub]');
+        if (sub) sub.innerHTML = nextSub;
+      }
       onMount?.(card);
     },
   };

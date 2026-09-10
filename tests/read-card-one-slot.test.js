@@ -45,12 +45,61 @@ describe('沒指定哪一段時，每一段自己是一列', () => {
     );
   });
 
+  test('那一列裡面是 span 不是 div —— button 只收 phrasing content', () => {
+    const src = read('js/ui/views/calendar.js');
+    for (const cls of ['readslot__when', 'readslot__what', 'readslot__from']) {
+      assert.equal(
+        src.includes(`<div class="${cls}`), false,
+        `${cls} 還是 <div>，而點得下去的那一種外面是 <button>`,
+      );
+    }
+    // 換成 span 之後那三格要自己 block，不然整列會擠成一行。
+    //
+    // **刻意一個正規表示式都沒有**（同 `tip-red-lines.test.js` 的檔頭）：
+    // 反斜線在寫檔的路上被吃掉一個是這個 repo 反覆踩到的坑，而症狀是
+    // 「樣式明明在、測試卻紅」或更糟的「刪光了照樣綠」。
+    const css = read('css/app.css');
+    for (const cls of ['readslot__when', 'readslot__what', 'readslot__from']) {
+      const at = css.indexOf(`.${cls} {`);
+      assert.ok(at > 0, `找不到 .${cls} 那一段 —— 這支測試失效了`);
+      const block = css.slice(at, css.indexOf('}', at));
+      assert.ok(block.includes('display: block'),
+        `.${cls} 少了 display: block —— 三格會擠成一行`);
+    }
+  });
+
   test('她點進來的那一段不再是按鈕', () => {
     const src = read('js/ui/views/calendar.js');
     // `focused` 為真＝她已經指名了那一段，那一列點下去只會重開同一張卡片。
     assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
     assert.match(src, /const tappable = !focused && slots\.length > 1;/,
       '「這一列點不點得下去」要由 slotsToShow() 的 focused 決定，不要另外推一次');
+  });
+});
+
+// ADR-0073 為畫面閃一下付過帳，ADR-0080 為**卡片裡的換頁**再講了一次：
+// 「按了就地重畫（`card.update()`），不重開一張卡 —— `openCard()` 第一行
+// 就是 `closeCard()`」。那一節後來連同「看全部」一起拿掉了，但那個理由沒有變，
+// 而這一支長出來的四個接線正是同一種「在卡片裡換內容」。
+describe('在卡片裡換段落是就地重畫，不是關掉再開一張', () => {
+  test('四個接線都走 card.update()，沒有人再 openCard() 一次', () => {
+    for (const rel of [...OTHER_THREE, 'js/ui/views/calendar.js']) {
+      const src = read(rel);
+      // `wireReadSlots(...)` 的回呼裡出現的一定是 `card.update(`
+      for (const m of src.matchAll(/wireReadSlots\(cardEl, \(i\) => \{[\s\S]{0,240}?\}\)/g)) {
+        assert.match(m[0], /card\.update\(/,
+          `${rel} 的那一圈重開了一張卡 —— openCard() 第一行就是 closeCard()，畫面會閃一下`);
+      }
+      assert.ok(src.includes('wireReadSlots(cardEl, (i) => {'), `${rel} 沒有接那一圈`);
+    }
+  });
+
+  test('`card.update()` 換得動副標 —— 不然抬頭會停在整天那一個', () => {
+    assert.match(
+      read('js/ui/components/card.js'),
+      /update\(html, \{ subtitle: nextSub \} = \{\}\)/,
+      '就地重畫時副標不跟著換，等於她點了第二段而抬頭還在講整天（ADR-0085）',
+    );
   });
 });
 

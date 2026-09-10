@@ -314,15 +314,36 @@ function wire(ctx, data, visits) {
  * canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
  * 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
  */
-function openVisitCard(ctx, visit, focus = null) {
-  const html = (tasks, extra = {}) =>
-    visitReadHtml(visit, { ...ctx, ...extra, tasks, focusSlot: focus });
-  fillMirror(openCard({
+function openVisitCard(ctx, visit) {
+  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
+  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
+  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
+  let focus = null;
+  // 任務與額度是 `fillMirror()` 非同步補上的（同日曆的 `openDetail()`）。
+  let tasks;
+  let extra = {};
+
+  const paint = () => visitReadHtml(visit, { ...ctx, ...extra, tasks, focusSlot: focus });
+  const sub = () =>
+    `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`;
+
+  const html = (nextTasks, nextExtra = {}) => {
+    tasks = nextTasks;
+    extra = nextExtra;
+    return paint();
+  };
+
+  const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
-    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
+    subtitle: sub(),
     body: html(undefined),
     canEdit: false,
     // 每重畫一次都要重掛：`card.update()` 換掉整塊 body，舊節點連同監聽一起沒了。
-    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openVisitCard(ctx, visit, i)),
-  }), visit, html);
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => {
+      focus = i;
+      card.update(paint(), { subtitle: sub() });
+    }),
+  });
+
+  fillMirror(card, visit, html);
 }
