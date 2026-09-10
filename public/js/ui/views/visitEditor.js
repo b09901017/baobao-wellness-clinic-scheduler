@@ -1030,14 +1030,15 @@ async function submit(ctx, draft) {
 }
 
 function slotSummary(slot, all) {
-  const course = all.courses.find((c) => c.id === slot.courseId);
   const room = all.rooms.find((r) => r.id === slot.roomId);
   const staff = all.staff.find((s) => s.id === slot.therapistId);
   const doctor = all.staff.find((s) => s.id === slot.doctorId);
   const where = room ? `${room.name}${slot.bed ?? ''}` : staff?.name ?? '';
   // 醫師接在診間後面而不是取代它：二返同時要診間和醫師，只印一個就少了一半。
   const who = doctor ? ` ${doctor.name}醫師` : '';
-  return `${timeLabel(slot)} ${course?.name ?? ''}${where ? ` ${where}` : ''}${who}`;
+  // 這道確認是她自己在看的，所以印「那天做了什麼」（`SIS(30)`）——
+  // 課程全名那一格是額度在講的話（ADR-0078），兩者不是同一種字
+  return `${timeLabel(slot)} ${slotName(slot, all, 'short')}${where ? ` ${where}` : ''}${who}`;
 }
 
 // ---------- 狀態 ----------
