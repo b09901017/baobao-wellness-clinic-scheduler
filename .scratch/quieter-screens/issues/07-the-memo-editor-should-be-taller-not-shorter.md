@@ -1,6 +1,6 @@
 # 07 備忘錄：一按鉛筆反而變矮
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`、`docs/adr/0069`、`docs/adr/0060`
 
 ## 她要的
