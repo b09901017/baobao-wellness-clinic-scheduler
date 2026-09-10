@@ -43,7 +43,7 @@ export function openCard({
           ${subtitle ? `<p class="popcard__sub" data-card-sub>${subtitle}</p>` : ''}
         </div>
         ${canEdit ? `
-          <button class="popcard__icon" type="button" data-card-edit aria-label="改這一筆">
+          <button class="popcard__icon" type="button" data-card-edit aria-label="改這一段">
             ${icon('pencil', { size: 17 })}
           </button>` : ''}
         <button class="popcard__icon" type="button" data-card-close aria-label="關閉">

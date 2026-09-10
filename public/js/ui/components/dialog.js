@@ -47,6 +47,60 @@ export async function confirmReview(warnings) {
 export function confirmAction({
   title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false,
 }) {
+  return ask({
+    title,
+    consequences,
+    buttons: [
+      { key: 'cancel', label: cancelLabel, attr: 'data-cancel', cls: 'btn' },
+      { key: 'ok', label: confirmLabel, attr: 'data-ok', cls: `btn ${danger ? 'btn--danger' : 'btn--primary'}` },
+    ],
+    // 預設焦點在「取消」：按 Enter 不可以誤觸破壞性操作
+    focus: 'cancel',
+  }).then((key) => key === 'ok');
+}
+
+/**
+ * 三選一以上的確認框。**關掉它（Escape、返回鍵、點背景）回 `null`，
+ * 不是任何一個選項** —— 那是它存在的整個理由。
+ *
+ * `confirmAction()` 的取消鍵、Escape、返回鍵、點背景四條路全部回 `false`，
+ * 所以它分不出「她按了不要了」與「她只是手滑按到返回鍵」。備忘錄的
+ * 「改到一半要不要存」（2026-09-10）需要分得出來：把「不要了」接在 `false` 上，
+ * 一個誤觸的返回手勢就會把她打了半天的字丟掉 —— 而且一個字都不說。
+ *
+ * @param {object} o
+ * @param {string} o.title
+ * @param {string[]} o.consequences 每一個選項會造成什麼（SPEC 6.5）
+ * @param {{key: string, label: string, tone?: 'primary'|'danger'}[]} o.choices
+ *   由左到右。**預設焦點在 `tone: 'primary'` 的那一顆**，沒有就在最後一顆 ——
+ *   按 Enter 不可以落在會丟東西的那一顆上。
+ * @returns {Promise<string|null>} 按到的那一顆的 key；關掉是 null
+ */
+export function chooseAction({ title, consequences, choices = [] }) {
+  if (!Array.isArray(choices) || choices.length < 2) {
+    throw new Error('chooseAction 至少要兩個選項 —— 只有一個的話該用 confirmAction');
+  }
+  const tone = { primary: 'btn--primary', danger: 'btn--danger' };
+  return ask({
+    title,
+    consequences,
+    buttons: choices.map((c) => ({
+      key: c.key,
+      label: c.label,
+      attr: `data-choice="${esc(c.key)}"`,
+      cls: `btn ${tone[c.tone] ?? ''}`.trim(),
+    })),
+    focus: (choices.find((c) => c.tone === 'primary') ?? choices.at(-1)).key,
+  });
+}
+
+/**
+ * 兩種確認框共用的那一份：畫、接返回鍵與 Escape、收尾。
+ *
+ * 回按到的那一顆的 key；**關掉（Escape、返回鍵、點背景、被下一個擠掉）一律回 `null`**。
+ * `confirmAction()` 把 null 與 'cancel' 都當成 false，所以它的行為一個字都沒變。
+ */
+function ask({ title, consequences, buttons, focus }) {
   // 參數名打錯了要當場講出來。
   //
   // 這裡以前是直接對 `consequences` 做 `.map()`，所以傳錯名字（例如寫成 `body`）
@@ -85,10 +139,10 @@ export function confirmAction({
           ${consequences.map((c) => `<li>${esc(c)}</li>`).join('')}
         </ul>
         <div class="dialog__actions">
-          <button class="btn" type="button" data-cancel>${esc(cancelLabel)}</button>
-          <button class="btn ${danger ? 'btn--danger' : 'btn--primary'}" type="button" data-ok>
-            ${esc(confirmLabel)}
-          </button>
+          ${buttons.map((b) => `
+            <button class="${b.cls}" type="button" ${b.attr} data-key="${esc(b.key)}">
+              ${esc(b.label)}
+            </button>`).join('')}
         </div>
       </div>`;
 
@@ -96,14 +150,14 @@ export function confirmAction({
 
     // 對話框也吃返回鍵，而且**返回等於取消**。這一顆很重要：破壞性操作的
     // 二次確認如果被返回鍵略過，那顆「刪除」會在她以為自己取消了的時候執行。
-    const layer = pushLayer(() => finish(false, { fromBack: true }));
+    const layer = pushLayer(() => finish(null, { fromBack: true }));
 
     // Esc 那一顆掛在 document 上，所以**不管從哪一條路關掉都要拆掉它**。
     // 以前只有「真的按了 Esc」那一條會拆，於是用叉叉或按鈕關掉的每一次
     // 都在 document 上多留一顆監聽 —— 這個 repo 已經修過三次同一種
     // 「監聽越掛越多」，而那三次都是只有把畫面真的開開關關才看得到。
     const onKey = (e) => {
-      if (e.key === 'Escape') finish(false);
+      if (e.key === 'Escape') finish(null);
     };
 
     /**
@@ -114,7 +168,7 @@ export function confirmAction({
      *
      * 做成冪等的：連點確認鈕、或是「按了確定之後 Esc 又進來」都只算一次。
      *
-     * @param {boolean} answer
+     * @param {string|null} answer 按到的那一顆的 key；關掉是 null
      * @param {{fromBack?: boolean}} [opts]
      *   fromBack：這一下是返回鍵按的，紀錄已經退掉了，不要再退一次。
      */
@@ -128,17 +182,18 @@ export function confirmAction({
       resolve(answer);
     };
 
-    el.querySelector('[data-cancel]').addEventListener('click', () => finish(false));
-    el.querySelector('[data-ok]').addEventListener('click', () => finish(true));
+    for (const btn of el.querySelectorAll('[data-key]')) {
+      btn.addEventListener('click', () => finish(btn.dataset.key));
+    }
     // 點背景等於取消。破壞性操作不會因為誤觸背景而執行。
     el.addEventListener('click', (e) => {
-      if (e.target === el) finish(false);
+      if (e.target === el) finish(null);
     });
     document.addEventListener('keydown', onKey);
 
     document.body.appendChild(el);
     openDialog = { el, finish };
-    el.querySelector('[data-cancel]').focus();
+    el.querySelector(`[data-key="${CSS.escape(focus)}"]`)?.focus();
   });
 }
 
@@ -154,5 +209,5 @@ export function confirmAction({
 function close() {
   const prev = openDialog;
   openDialog = null;
-  prev?.finish(false);
+  prev?.finish(null);
 }

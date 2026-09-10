@@ -330,7 +330,7 @@ export function checkboxes({ name, label, values = [], options, hint = '' }) {
 export function undecidedHint(what) {
   return `
     <p class="field__hint" style="margin: 0 0 var(--space-4)">
-      先選上面那一台 —— ${esc(what || '這一筆')} 要治療師還是治療室，看那天用的是哪一種。
+      先選上面那一台 —— ${esc(what || '這一段')} 要治療師還是治療室，看那天用的是哪一種。
     </p>`;
 }
 

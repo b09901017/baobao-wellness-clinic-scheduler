@@ -21,6 +21,7 @@ import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { tip } from '../components/tip.js';
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">掃描中…</p>';
@@ -98,7 +99,6 @@ function checkTile(check) {
     <div class="check ${cls}">
       <div class="check__n">${check.count}</div>
       <div class="check__label">${esc(check.label)}</div>
-      <div class="check__note">${esc(check.hint)}</div>
     </div>`;
 }
 
@@ -110,13 +110,16 @@ function checkCard(check) {
            是逐項的規矩（例：品項錯配刻意不給）。沒有它就只能數整頁的按鈕，
            而那個數字會被別項的修正弄髒。 */''}
     <details class="card" data-check="${esc(check.id)}" ${clean ? '' : 'open'}>
+      ${/* 那一句說明以前印了**兩次**：上面的磚塊一次、這裡展開一次。
+             2026-09-10 只留一份，收進標題旁邊的 `?`（issue 09）—— 磚塊那一排是
+             「一眼看有沒有事」，數字與名稱就夠了。`?` 長在 `<summary>` 裡，
+             `tip.js` 的點擊處理會 preventDefault，所以點它不會順便把這一塊展開。 */''}
       <summary class="card__title">
-        ${esc(check.label)}
+        ${esc(check.label)}${tip(check.hint)}
         ${clean
           ? '<span class="badge badge--ok">沒問題</span>'
           : `<span class="badge badge--overdue">${check.count}</span>`}
       </summary>
-      <p class="muted">${esc(check.hint)}</p>
       ${clean ? '' : findingsHtml(check)}
     </details>`;
 }
@@ -146,7 +149,7 @@ function findingHtml(finding) {
       </div>
       <div class="muted">${esc(finding.detail)}</div>
       <p>
-        ${finding.link ? `<a class="btn" href="${esc(finding.link)}">看這一筆</a>` : ''}
+        ${finding.link ? `<a class="btn" href="${esc(finding.link)}">去看看</a>` : ''}
         ${finding.fix && index !== null
           ? `<button class="btn btn--primary" type="button" data-fix="${index}">
                ${esc(buttonLabel(finding.fix))}</button>`

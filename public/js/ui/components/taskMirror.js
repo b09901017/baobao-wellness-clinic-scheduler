@@ -41,7 +41,8 @@
 import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
 import * as customersData from '../../data/customers.js';
-import { todosForVisit, SHARED_TODO_LABEL } from '../../domain/todoFlow.js';
+import { todosForVisit, SHARED_TODO_LABEL, SHARED_TODO_NOTE } from '../../domain/todoFlow.js';
+import { tip } from './tip.js';
 import { urgency, RECORD_TASK_KIND } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
 
@@ -89,8 +90,11 @@ function rowHtml(row, today) {
   // **這一張是那一天幾段共用的。** 任務綁的是一整筆來訪（掛號是一天去一次），
   // 所以她點第二段看到的跟點第一段看到的是同一張，勾掉一次就兩邊都掉。
   // 規則與那句話都在 `domain/todoFlow.js`，這裡只把它畫出來。
+  //
+  // 2026-09-10 那個標籤收進一顆 `?`（issue 09）：她說它「占版面」而且讀起來像寫錯。
+  // 那件事是真的，只是不必常駐 —— 名字還是「這一天共用」，點開才講會發生什麼。
   const shared = row.shared
-    ? `<span class="taskmirror__shared">${esc(SHARED_TODO_LABEL)}</span>`
+    ? tip(SHARED_TODO_NOTE, { label: SHARED_TODO_LABEL })
     : '';
 
   if (row.pending) {

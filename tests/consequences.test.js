@@ -509,7 +509,7 @@ describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', (
   test('最後一段也取消掉時，話要換成整天那一種', () => {
     const two = { ...v, slots: [v.slots[0], { ...v.slots[1], status: 'cancelled' }] };
     const lines = cancelConsequences({ visit: two, coursesById: COURSES, slotIndex: 0 }).join('\n');
-    assert.match(lines, /那一天就整筆取消了/);
+    assert.match(lines, /那一天就整個取消了/);
   });
 
   test('沒帶 slotIndex 時一個字都沒有變', () => {
@@ -548,7 +548,7 @@ describe('取消一段 vs 取消一整天，講的話不一樣（ADR-0081）', (
 
   test('整天的段都挑滿了就退回整天那一種話', () => {
     const lines = cancelConsequences({ visit: v, coursesById: COURSES, slotIndex: [0, 1, 2] }).join('\n');
-    assert.match(lines, /那一天就整筆取消了/);
+    assert.match(lines, /那一天就整個取消了/);
     assert.ok(!lines.includes('不受影響'));
   });
 
@@ -601,7 +601,7 @@ describe('客人退掉的那一段不再承諾任何掛號（ADR-0081）', () =>
 describe('畫面不自己寫後果那幾句', () => {
   const MINE = [
     '十秒後自動同步到試算表',
-    '改期不是改日期，是取消後重新排一筆',
+    '改期不是改日期，是取消後重新排一次',
     '次數也會還回來',
   ];
 
@@ -641,7 +641,7 @@ describe('先看一下那一道（reviewWarnings）', () => {
   });
 
   test('抬頭講出幾件', () => {
-    assert.equal(reviewWarnings(['一件事']).title, '這一段先看一下');
+    assert.equal(reviewWarnings(['一件事']).title, '這一件先看一下');
     assert.equal(reviewWarnings(['a', 'b', 'c']).title, '這 3 件先看一下');
   });
 

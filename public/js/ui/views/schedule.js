@@ -51,6 +51,7 @@ import {
   acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
+import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
@@ -72,6 +73,7 @@ import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
 import { confirmAction, confirmReview } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
@@ -579,13 +581,14 @@ function paintPage() {
                 data-filter="${x.id}">${esc(x.label)}
           <span class="num dim">${ctx.rows.filter(x.match).length}</span></button>`).join('')}
       <span class="chiprow__sep" aria-hidden="true"></span>
-      <span class="chiprow__lead">排序</span>
+      ${/* 排序那一句 2026-09-10 從牆的抬頭底下（常駐一整行）收進「排序」旁邊的 `?`
+             （issue 09）。外面包一層 `data-sortnote` 是為了換排序時只換這一顆 ——
+             她點排序丸子的那一下會先把開著的泡泡關掉，不會留一張過期的。 */''}
+      <span class="chiprow__lead">排序<span data-sortnote>${tip(sortNote())}</span></span>
       ${QUEUE_SORTS.map((s) => `
         <button class="chip chip--sm" type="button" aria-pressed="${s.id === view.sort}"
                 data-sort="${esc(s.id)}">${esc(s.label)}</button>`).join('')}
     </div>
-
-    <p class="muted" data-sortnote style="margin: 0 0 var(--space-3)">${sortNote()}</p>
 
     <div class="cardgrid" data-wall></div>`;
 
@@ -597,7 +600,8 @@ function sortNote() {
     return '順序是算出來的預設值 —— 限制多的排前面。想先弄誰就點誰。';
   }
   const label = QUEUE_SORTS.find((s) => s.id === view.sort)?.label ?? '';
-  return `照「${esc(label)}」排。一樣的那幾位仍然照預設順序。`;
+  // 不在這裡逃脫：這一句現在是 `tip()` 的純文字，逃脫是那一支的責任
+  return `照「${label}」排。一樣的那幾位仍然照預設順序。`;
 }
 
 /** 只重畫牆。搜尋框在外面，所以打字的游標不會被洗掉。 */
@@ -620,7 +624,7 @@ function pressChips() {
   page.querySelectorAll('[data-sort]').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.sort === view.sort)));
   const note = page.querySelector('[data-sortnote]');
-  if (note) note.innerHTML = sortNote();
+  if (note) note.innerHTML = tip(sortNote());
 }
 
 function onPageClick(e) {
@@ -1165,7 +1169,10 @@ function recordedSlots(row) {
       out.push({
         visitId: v.id,
         date: v.date,
-        label: `${shortDate(v.date)} ${timeLabel(s)} ${s.courseName ?? ''}${who ? `・${who}` : ''}`.trim(),
+        // 這一串留在她自己的畫面上，所以印「那天做了什麼」（`SIS(30)`）——
+        // 快照那一格會寫成「復能」，而月曆上同一段寫的是 SIS(30)（ADR-0078）
+        label: `${shortDate(v.date)} ${timeLabel(s)} ${
+          slotName(s, ctx.all, 'short')}${who ? `・${who}` : ''}`.trim(),
       });
     }
   }
@@ -1256,10 +1263,10 @@ function dayTally(sameDay, closed) {
  */
 function addNote(sameDay, closed) {
   if (sameDay && sameDay.status === 'confirmed') {
-    return '這一段會併進同一天那一筆，那一筆會退回「等客戶回覆」—— 這一段還沒問過客人。';
+    return '這一段會併進同一天已經有的來訪，那一天會退回「等客戶回覆」—— 這一段還沒問過客人。';
   }
   if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
-  if (closed.length) return '這天那一筆已經結案了，所以這一段會另開一筆新的來訪。';
+  if (closed.length) return '這天已經結案了，所以這一段會另開一次新的來訪。';
   return '存下去會記到日曆上，標成「待確認」，待辦會多一張「跟客人確認時間」。';
 }
 
@@ -2119,7 +2126,9 @@ async function addSlot() {
   const ok = await confirmAction({
     title: said.title,
     consequences: [
-      `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
+      // 這道確認是她自己在看的，印的是那天做了什麼（`SIS(30)`）不是課程全名
+      `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${
+        slotName(slot, all, 'short')}`,
       ...(linkedExam ? [
         `接在 ${shortDate(linkedExam.date)} 那一次健檢後面`,
         '待辦上那一張「約二返」會自己收掉',

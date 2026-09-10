@@ -41,6 +41,7 @@ import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../d
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
+import { tip } from '../components/tip.js';
 import { visitReadHtml } from './calendar.js';
 import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
@@ -191,7 +192,9 @@ function paint(ctx) {
   const today = todayISO();
   // 那幾列的名字走顯示名稱（`SIS(60)`），跟日曆同一種寫法 —— 讀快照的話
   // 同一筆來訪在這一頁寫「復能」、在日曆上寫「SIS(60)」（ADR-0078）。
-  const master = { courses: ctx.courses ?? [], equipment: equipment ?? [] };
+  const master = {
+    courses: ctx.courses ?? [], equipment: equipment ?? [], ivProducts: ctx.ivProducts ?? [],
+  };
   const flags = rules.splitFlags(customer, clinicalFlags);
   const partners = rules.partnersOf(customer);
   const marks = readMarks(customer);
@@ -233,7 +236,7 @@ function paint(ctx) {
       ? marksUi.row(marks, { large: true })
       : '<p class="muted" style="margin: 0">還沒有備註。客戶臨時提的小事記在這裡，顏色自己分。</p>'}
 
-    <div data-monthblock>${monthBlock(visits, today)}</div>
+    <div data-monthblock>${monthBlock(visits, today, master)}</div>
 
     ${availability.sectionHtml(ctx.availability, today)}
 
@@ -299,7 +302,9 @@ function paint(ctx) {
 
 function wire(ctx, { today, marks }) {
   const { el, entitlements, visits } = ctx;
-  const master = { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] };
+  const master = {
+    courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [],
+  };
 
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
@@ -320,7 +325,7 @@ function wire(ctx, { today, marks }) {
     if (stepped) {
       detailMonth = stepped;
       const box = el.querySelector('[data-monthblock]');
-      if (box) box.innerHTML = monthBlock(ctx.visits, today);
+      if (box) box.innerHTML = monthBlock(ctx.visits, today, master);
       return;
     }
     const day = e.target.closest('[data-visit]');
@@ -461,13 +466,15 @@ function contactLine(c) {
  * 所以程式沒寫錯 —— 是標題與規格從一開始就對不起來。2026-08-24 定案：
  * **標題說哪個月就只有哪個月**，往右一格自己去看下個月。
  */
-function monthBlock(visits, today) {
+function monthBlock(visits, today, master = {}) {
   const month = detailMonth ?? today.slice(0, 7);
   const { rows } = buildProgress({
     customers: [{ id: '_', name: '_' }],
     // buildProgress 是照 customerId 分組的，這裡只有一位 —— 全部認成他。
     visits: visits.map((v) => ({ ...v, customerId: '_' })),
     month,
+    // 那幾列印的是「那天做了什麼」（`SIS(30)`），跟進度追蹤同一支 `dayFor()`
+    master,
   });
   const row = rows[0] ?? null;
 
@@ -1016,9 +1023,12 @@ function taskBlock(tasks, visits = [], master = null) {
       // ADR-0027 與 ADR-0066：任務現在有**兩個**時機。這是 CLAUDE.md 點名的
       // 那幾句之一，改「什麼時候產生」的規則時要一起改。
       // 用她的詞，不要寫「系統登記」。
-      ? `<p class="muted" style="margin: 0">還沒有任務。
-          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；
-          要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。</p>`
+      //
+      // 2026-09-10：那三行收進一顆 `?`（issue 09）。**「還沒有任務。」自己留著** ——
+      // 空狀態是這一塊唯一的內容，藏起來就變成一片空白；要收的只有底下的說明。
+      ? `<p class="muted" style="margin: 0">還沒有任務。${tip(
+          '勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；'
+          + '要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。')}</p>`
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
@@ -1785,7 +1795,9 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 function openAllTasks(ctx) {
   const rows = ctx.tasks.filter((t) => (taskTab === 'done' ? t.done : !t.done));
   const visitById = new Map(ctx.visits.map((v) => [v.id, v]));
-  const master = { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [] };
+  const master = {
+    courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [],
+  };
   const sheet = openSheet({
     title: `全部任務・${taskTab === 'done' ? '已完成' : '未完成'}`,
     body: `<div class="tasklist">${

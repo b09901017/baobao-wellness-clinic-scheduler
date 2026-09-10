@@ -362,7 +362,11 @@ describe('只看她點的那一段（focusSlot）', () => {
 
   test('簽療程單那一列跟著那一段走', () => {
     // 二返不用簽（`needsTreatmentForm: false`），健檢要簽
-    assert.ok(kinds(0).some((k) => k.startsWith('簽療程單（這一天不用簽')));
+    // 點的是二返那一段、那一段不用簽 —— 句子講「這一段」。以前這裡斷言的是
+    // 「這一天不用簽」，而同一天的健檢要簽：那支斷言把 bug 寫成了預期（ADR-0087）。
+    assert.ok(kinds(0).some((k) => k.startsWith('簽療程單（這一段不用簽')), kinds(0).join('、'));
+    // 沒帶 focusSlot 看的是整天：健檢那一段要簽，所以整天是「簽療程單」
+    assert.ok(kinds(null).includes('簽療程單'), kinds(null).join('、'));
     assert.ok(kinds(1).includes('簽療程單'));
   });
 

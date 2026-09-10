@@ -629,6 +629,11 @@ textarea {
 /* 永久限制永遠跟著客戶名字顯示，不可摺疊隱藏 —— SPEC 4.3 */
 .flag {
   display: inline-flex;
+  /* **掉進 `flex-direction: column` 的容器裡不要被 stretch 拉滿整行。**
+     2026-09-10 壓表卡片牆上的合作機構丸子就是這樣變成 273px 的（別的地方
+     都是 60px）。真正的修正在 `partnerChips()`（它現在自己帶包裝），
+     這一行是保險 —— 這種 bug 從畫面上分不出是哪一個容器造成的。 */
+  align-self: flex-start;
   align-items: center;
   min-height: 21px;
   padding: 0 7px;
@@ -668,19 +673,18 @@ textarea {
 
 /* 合作機構（ADR-0076）。**不是永久限制** —— 它不擋、不影響排班，
    只是「這一次要多跟一家講一聲」。所以畫法要跟警示分得出來：
-   那一排是實心／外框的語意色，這一顆是中性的方框加一個小前綴，
-   掃過去一眼就知道它是另一種東西。**不開新色相**（ADR-0039）—— 借 --accent。 */
+   那一排是實心／外框的語意色，這一顆是中性的方框加一個直角。
+   掃過去一眼就知道它是另一種東西。**不開新色相**（ADR-0039）—— 借 --accent。
+
+   2026-09-10 之前這裡還有一個 `::before` 塞了一個「＋」當前綴，理由是
+   「加一個小前綴讓它跟警示分得出來」。她說那個符號讀起來像一顆可以按的
+   新增鈕（「不需要 + 自然美」）—— 而顏色與圓角已經分得出來了。 */
 .flag--partner {
   color: var(--accent);
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--accent);
   border-radius: 4px;
   font-weight: 600;
-}
-.flag--partner::before {
-  content: '＋';
-  margin-right: 2px;
-  opacity: 0.7;
 }
 
 /* 卡片牆上姓名底下那一排。牆上一張卡只有姓名、這一排、壓了沒。 */
@@ -689,6 +693,12 @@ textarea {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 3px;
+}
+
+/* 合作機構那一排（`partnerChips()`）。它常常接在警示那一排後面，兩排之間
+   不需要再多一個 `margin-top` —— 那會讓只有機構、沒有警示的那幾位多出一格空白。 */
+.blockchips--partner {
+  margin-top: 0;
 }
 
 .stars {
@@ -700,22 +710,44 @@ textarea {
 
 /* ---------- 分段切換 ---------- */
 
+/* 底槽。**兩種分段切換共用這一份** —— 另一種只多一個 `.seg--tabs`
+   修飾詞（縮到內容寬），見那一段。
+
+   窄到真的塞不下時**整條橫捲，不折行**：折行會把底下整片內容往下推，
+   而她開那一頁是為了掃底下那一片。 */
 .seg {
   display: flex;
   gap: 2px;
   padding: 2px;
   background: var(--surface-2);
   border-radius: var(--radius-pill);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
+.seg::-webkit-scrollbar { display: none; }
+
+/* `white-space: nowrap` 是這一顆的整個重點，不要拿掉。
+
+   它是 `flex: 1 1 0`，而 flex item 的 `min-width` 預設是 `auto`
+   ＝ min-content。**中文可以逐字斷行，所以 min-content 是一個字寬** ——
+   少了 nowrap，容器一擠它就折成兩行，而且看起來像是「按鈕不夠長」。
+   左右留白 `--space-4` 是她要的「適當留白當緩衝」（2026-09-10）。
+
+   `flex: 1 1 0` 是**等寬**（`.kindpick` 那一段的註解就是在 opt out 這件事），
+   而 `min-width: max-content` 是它的地板：有位置的時候大家一樣寬，
+   真的擠不下時最長的那一顆先拿到它需要的寬度，整條橫捲。
+   兩條都在，才會既等寬又不折行。 */
 .seg__item {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: max-content;
   min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 var(--space-3);
+  white-space: nowrap;
+  padding: 0 var(--space-4);
   font: inherit;
   font-size: var(--text-xs);
   font-weight: 600;
@@ -6419,7 +6451,9 @@ summary {
      底下留半個螢幕的空白，而那半個螢幕什麼都沒有在講。
      `stretch` 讓同一疊裡的每一張一樣高（照最長的那一張），
      再長就在卡片裡面捲。 */
-  max-height: 72dvh;
+  /* 78 不是 72（2026-09-10）：她「希望可以預設那個備忘錄可以長一點」。
+     抬頭、丸子那一排、圓點加起來大約 130px，在 667px 高的手機上也還放得下。 */
+  max-height: 78dvh;
   padding: 2px var(--gutter) var(--space-3);
   overflow-x: auto;
   overflow-y: hidden;
@@ -6440,7 +6474,11 @@ summary {
  * 有了確定的高度，卡片裡每一項都放得下，只有內文那一格在裡面捲。 */
 .pbdeck[data-editing='true'] {
   scroll-snap-type: none;
-  height: min(62dvh, 560px);
+  /* **跟讀的那一面同一個上限，不再比它矮**（2026-09-10）。
+     以前是 `min(62dvh, 560px)`，理由是底下那一排「存起來／取消／刪掉」在鍵盤
+     上來之後一定要還在畫面上。那一排搬到卡片頂端之後鍵盤推不走它 ——
+     她看到的「我點鉛筆修改的時候他就會變短」就是那個舊天花板。 */
+  height: 78dvh;
   max-height: none;
 }
 
@@ -6525,6 +6563,20 @@ summary {
 .pbcard__edit:active {
   transform: scale(0.94);
   background: var(--surface-2);
+}
+
+/* 長按之後：同一顆變成紅色垃圾桶，再點一下才跳刪除確認（2026-09-10）。
+   顏色全部是現成的 token（`--overdue-bg` 淺色深色兩份都有，ADR-0055）。 */
+.pbcard__edit--armed {
+  border-color: var(--danger);
+  background: var(--overdue-bg);
+  color: var(--danger);
+  animation: pbedit-arm var(--motion-base) var(--ease-out);
+}
+
+@keyframes pbedit-arm {
+  from { transform: scale(0.8); }
+  to   { transform: scale(1); }
 }
 
 .pbcard__courses {
@@ -6634,15 +6686,20 @@ summary {
   animation: hang-in var(--motion-fast) var(--ease-out);
 }
 
-/* 分段切換。兩顆貼在一起、共用一個底槽 —— 它講的是「同一件事的兩面」，
-   而不是兩個各自獨立的按鈕。 */
-.seg {
+/* 分段切換的**第二種**：縮到內容寬，兩顆貼在一起、共用一個底槽 ——
+   它講的是「同一件事的兩面」，而不是兩個各自獨立的按鈕。
+   底槽本身由上面的 `.seg` 給，這裡只寫「跟那一版不一樣的地方」。
+
+   ## 為什麼是修飾詞而不是另一份 `.seg`
+
+   2026-09-10 之前這裡真的是第二份 `.seg`，而它把上面那一份的 `display: flex`
+   安靜地蓋掉了（同權重、後面贏）。代價落在**另一版**身上：`.seg__item` 是
+   `flex: 1 1 0` + `min-width: auto`，而**中文的 min-content 是一個字** ——
+   容器一縮到內容寬，「依客戶」「還沒發連結」就被壓成兩行。
+   她的原話：「依客戶這三個字都被迫換行了」。`tests/css-shadowing.test.js` 盯著。 */
+.seg--tabs {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
   margin-bottom: var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
 }
 
 .seg__btn {
@@ -6690,8 +6747,10 @@ summary {
 }
 
 .pbedit__title {
-  width: 100%;
-  margin-bottom: var(--space-3);
+  /* 跟垃圾桶、存檔鈕排在同一行（`.pbedit__head`），吃掉剩下的寬度 */
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   padding: var(--space-2) 0;
   border: none;
   border-bottom: 1px solid var(--border);
@@ -6824,16 +6883,61 @@ summary {
   background: var(--surface-2);
 }
 
-.pbedit__actions {
+/* 編輯中那一張的頂端：標題、垃圾桶、存檔鈕一行（2026-09-10）。
+   `.pbcard--edit > *` 的 `flex: none` 也管到它 —— 它不准被壓扁。
+
+   `gap` 是 16px 不是 8px：兩顆 32px 的按鈕各自用 `::after` 往外撐 6px 到 44，
+   中間少於 12px 兩個感應範圍就會疊，而疊到的那一段由後面那顆贏 ——
+   手指按在垃圾桶的右緣，跳出來的會是「存起來」。 */
+.pbedit__head {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
-.pbedit__del {
-  margin-left: auto;
-  color: var(--danger);
+/* 跟讀的那一面的鉛筆同一個尺寸與手感，換的只是顏色 —— 她的原話是
+   「點修改之後，就可以變成用儲存的那個 icon」，所以它要長得像「同一顆變了」。 */
+.pbedit__icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+
+.pbedit__icon::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.pbedit__icon:active {
+  transform: scale(0.94);
+}
+
+.pbedit__icon--save {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 刪掉的第二條路（ADR-0060）。**刻意低調**：沒有框、灰色 ——
+   它跟存檔鈕並排，長得一樣搶眼的話她存檔時會猶豫一下。 */
+.pbedit__icon--del {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-mute);
 }
 
 .pbempty {
@@ -7130,7 +7234,28 @@ summary {
   font-size: var(--text-sm);
 }
 
-/* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。 */
+/* 批次取消整頁。**存在的理由只有底下那一條** —— 見 `.bulkbar`。
+   直排 ＋ 至少一個視窗高，那一條才有辦法用 `margin-top: auto` 排到底。
+
+   直排會讓每一個直接子元素變成 flex item（拉滿整行），而這一頁的直接子元素
+   本來就都是滿版的區塊 —— 只有 `.backlink` 是 `inline-flex`，所以它要
+   `align-self: flex-start`，不然那顆返回鍵的感應範圍會橫跨一整行。 */
+.bulkpage {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.bulkpage > .backlink {
+  align-self: flex-start;
+}
+
+/* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
+
+   `margin-top: auto` 是它不再懸空的整個修正（2026-09-10）：sticky 只會在
+   捲動時把元素**釘住**，不會把它往下**推**。頁面撐不滿一個視窗時，它就停在
+   內容正下方，而它身上那一整套（上緣邊線、往上打的陰影）講的是「我貼在畫面
+   底部」—— 貼不到底的時候那些訊號就變成「一條浮在空氣上的橫條」。 */
 .bulkbar {
   position: sticky;
   bottom: 0;
@@ -7139,7 +7264,11 @@ summary {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin: var(--space-4) calc(-1 * var(--gutter)) 0;
+  /* 底下那個簡寫的第一格是 `auto`，那就是它不再懸空的整個修正。
+     **不要換回 `var(--space-4)`**（2026-09-10 之前的值）。
+     而且它必須寫在簡寫裡：margin 簡寫會把上緣那一格一起重設，
+     所以另外補一行是沒有用的。上下的呼吸感由自己的 padding 給。 */
+  margin: auto calc(-1 * var(--gutter)) 0;
   padding: var(--space-3) var(--gutter);
   padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
@@ -7150,4 +7279,164 @@ summary {
 .bulkbar__count {
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+/* ---------- 說明泡泡（ui/components/tip.js） ----------
+
+   她 2026-09-10：「小小的迷你的說明小泡泡，點了之後才會小小的在旁邊浮出說明…
+   有點像是對話泡泡的那種泡泡有一個小尖角的…動畫很可愛流暢」。
+
+   **大膽的地方只有一個：泡泡是從那一顆裡長出來的。** `transform-origin` 綁在
+   小尖角上（`--tip-origin`，由 JS 量好），而不是泡泡的正中間 —— 縮放的原點在
+   她按的那一點，看起來就是那顆 `?` 吐出了一個對話框。其餘全部沿用既有的語彙：
+   茶色、紙白、`--radius-sm`、`--shadow-2`，不開新的色相（ADR-0039）。
+
+   `--ease-pop` 帶一點點回彈 —— 那是「可愛」的全部來源。只用在長出來的那一下，
+   收回去走 `--ease-out`：回彈兩次就變成晃了。 */
+
+.tip {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 4px;
+  padding: 0;
+  vertical-align: -2px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--tea-soft);
+  color: var(--tea);
+  font: 700 11px/1 var(--font-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--motion-fast) var(--ease-out),
+              background-color var(--motion-base) var(--ease-out),
+              color var(--motion-base) var(--ease-out);
+}
+
+/* 16px 看起來小，按起來要 44px：往外撐 14px。貼在自己身上（`position: relative`），
+   不然會去貼上層某個盒子，症狀是「按到旁邊那一顆」（CLAUDE.md 的連動表）。 */
+.tip::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+}
+
+.tip--help::before {
+  content: '?';
+  transform: translateY(0.5px);
+}
+
+.tip:active {
+  transform: scale(0.86);
+}
+
+/* 開著的那一顆反白：她看得出來那個泡泡是從哪一顆出來的 */
+.tip--help[aria-expanded='true'] {
+  background: var(--tea);
+  color: var(--tip-bg);
+}
+
+.tip--warn {
+  background: var(--soon-bg);
+  color: var(--soon);
+}
+
+.tip--warn[aria-expanded='true'] {
+  background: var(--soon);
+  color: var(--tip-bg);
+}
+
+.tip:focus-visible {
+  outline: 2px solid var(--tea);
+  outline-offset: 2px;
+}
+
+.tip__bubble {
+  position: fixed;
+  z-index: 80;
+  max-width: min(264px, calc(100vw - 20px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tip-line);
+  border-radius: var(--radius-sm);
+  background: var(--tip-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-xs);
+  /* 400 不是 500：思源黑體的 500 在 12px 上看起來就是粗體，
+     一句說明被加粗等於在喊 —— 她要的是「小小的」 */
+  font-weight: 400;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  transform-origin: var(--tip-origin, 50% 0);
+  opacity: 0;
+  transform: scale(0.72);
+  transition: opacity var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+  pointer-events: none;
+}
+
+.tip__bubble[data-state='open'] {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity var(--motion-fast) var(--ease-out),
+              transform var(--motion-slow) var(--ease-pop);
+  pointer-events: auto;
+}
+
+.tip__text {
+  display: block;
+}
+
+/* 小尖角。**兩層疊，不是旋轉的方塊**：旋轉的方塊會在泡泡的邊線上留一道縫。
+   `::before` 是邊線的顏色、大一格；`::after` 是底色、小一格而且往泡泡裡
+   多壓 1px，剛好蓋掉小尖角底下那一段邊線 —— 泡泡與小尖角看起來是同一塊。 */
+.tip__tail {
+  position: absolute;
+  left: var(--tip-tail-x, 50%);
+  width: 0;
+  height: 0;
+}
+
+.tip__tail::before,
+.tip__tail::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  border-style: solid;
+  border-color: transparent;
+}
+
+.tip__bubble[data-side='below'] .tip__tail { top: -1px; }
+.tip__bubble[data-side='above'] .tip__tail { bottom: -1px; }
+
+.tip__bubble[data-side='below'] .tip__tail::before {
+  bottom: 0;
+  margin-left: -7px;
+  border-width: 0 7px 7px;
+  border-bottom-color: var(--tip-line);
+}
+
+.tip__bubble[data-side='below'] .tip__tail::after {
+  bottom: -1px;
+  margin-left: -6px;
+  border-width: 0 6px 6px;
+  border-bottom-color: var(--tip-bg);
+}
+
+.tip__bubble[data-side='above'] .tip__tail::before {
+  top: 0;
+  margin-left: -7px;
+  border-width: 7px 7px 0;
+  border-top-color: var(--tip-line);
+}
+
+.tip__bubble[data-side='above'] .tip__tail::after {
+  top: -1px;
+  margin-left: -6px;
+  border-width: 6px 6px 0;
+  border-top-color: var(--tip-bg);
 }

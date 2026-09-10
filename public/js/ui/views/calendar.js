@@ -58,6 +58,7 @@ import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 // 看到哪一天留在模組層：點進一筆來訪再退回來，她要回到原本那一頁而不是今天。
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
@@ -208,7 +209,11 @@ function paint(el, data) {
 
     ${shows('visit') ? legendHtml() : ''}
 
-    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}</p>
+    ${/* 「長按一列可以直接改」以前是頁尾一整行、每次開日曆都在（她一天開十幾次）。
+           2026-09-10 收進這一行後面的 `?`（issue 09）—— 掛在數有幾筆的那一行，
+           因為它講的就是底下那幾列。 */''}
+    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}${
+      tip('長按一列可以直接改。')}</p>
 
     <div class="swipe noscroll-bar" data-swipe>
       ${PANES.map((offset) => {
@@ -223,11 +228,6 @@ function paint(el, data) {
 
            那件事本身沒有變（SPEC 第 4.7 節），只是不必在她每天開十幾次的
            那一頁上重複講。 */''}
-    <p class="footnote">
-      ${icon('todo', { size: 14 })}
-      <span>長按一列可以直接改。</span>
-    </p>
-
     ${fabHtml()}`;
 
   wire(el, data);
@@ -1009,7 +1009,8 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   if (!items.length) {
     // 終點（已完成／已取消）沒有東西可做。**講出來**，不要跳一張空選單 ——
     // 靜靜什麼都不發生比講一句話糟（SPEC 第 6.9 節）。
-    toast.info(`這一筆是「${describeStatus(visit.status)}」，已經是終點了`);
+    // 講她長按的那一段自己的狀態（ADR-0085），而且不說「這一筆」（ADR-0087）
+    toast.info(`這一段是「${describeStatus(statusForCard(visit, slotIndex))}」，已經是終點了`);
     return;
   }
 
@@ -1074,14 +1075,14 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     const ok = await confirmAction({
       title: onlyOne
         ? `取消${visit.customerName ?? ''}這一段？`
-        : `取消${visit.customerName ?? ''}這一筆來訪？`,
+        : `取消${visit.customerName ?? ''}這一整天的來訪？`,
       consequences: cancelConsequences({
         visit,
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex: at,
       }),
-      confirmLabel: onlyOne ? '取消這一段' : '取消這筆來訪',
+      confirmLabel: onlyOne ? '取消這一段' : '取消這一整天',
       danger: true,
     });
     if (!ok) return;
@@ -1098,7 +1099,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 而改一筆來訪只有日曆這一個入口（ADR-0056）—— 另外三個存來訪的地方
     // （待辦中心、壓表、來訪編輯器）都有 key，就這裡沒有。
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
-      success: onlyOne ? '這一段取消了' : `已改成「${describeStatus(action)}」`,
+      success: onlyOne ? '這一段取消了' : `這一天改成「${describeStatus(action)}」`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);
@@ -1445,7 +1446,7 @@ export function visitReadHtml(visit, data) {
             where ? `・${esc(where)}` : ''}</div>
           ${fromLine(s, data)}
         </div>`;
-    }).join('') || '<p class="muted">這筆沒有任何時段。</p>'}
+    }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
 
 
     ${/* **那一段身上那一句**（ADR-0084）。舊來訪退回整筆那一個 —— 那時候
@@ -1539,7 +1540,7 @@ function mountEditor(el, data, sheet, spec) {
   // 抬頭再寫一次等於用掉一整行講同一件事。她在這裡要確認的是「排到哪一天」。
   sheet.setTitle(kind === 'event'
     ? (isNew ? '新增行事備註' : '行事備註')
-    : `${shortDate(spec.date)} ${isNew ? '排一筆' : '的來訪'}`);
+    : `${shortDate(spec.date)} ${isNew ? '排時段' : '的來訪'}`);
   sheet.setNote('');
   sheet.setActions('');
   // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——

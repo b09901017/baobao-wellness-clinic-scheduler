@@ -60,6 +60,10 @@
   --motion-base: 180ms;
   --motion-slow: 300ms;
   --ease-out: cubic-bezier(0.22, 0.85, 0.3, 1);
+  /* 長出來那一下帶一點點回彈。**只給說明泡泡用**（`ui/components/tip.js`）——
+     她要的是「動畫很可愛流暢」，而那個「可愛」就是這一點點過頭再回來。
+     收回去照樣走 --ease-out：回彈兩次就變成晃了。 */
+  --ease-pop: cubic-bezier(0.34, 1.36, 0.64, 1);
 
   --radius-sm: 10px;
   --radius: 14px;
@@ -105,6 +109,11 @@
   /* 茶：已排未上、次要強調 */
   --tea: #a4703c;
   --tea-soft: #f5e9dc;
+
+  /* 說明泡泡（`ui/components/tip.js`）。比紙底浮起一層、邊線帶一點茶色 ——
+     它是從那顆茶色的 `?` 裡長出來的，顏色要看得出是同一家。 */
+  --tip-bg: #fffdf9;
+  --tip-line: #eadfce;
 
   /* 狀態色。逾期紅、今明黃、其餘灰 —— SPEC 8.1 */
   --overdue: #a63a2a;
@@ -255,6 +264,10 @@
 
     --tea: #d8a46a;
     --tea-soft: #35291b;
+
+    /* 說明泡泡：介於 --surface 與 --surface-2 之間，浮在卡片上看得出是一層 */
+    --tip-bg: #2a251d;
+    --tip-line: #463d31;
 
     --overdue: #e8877a;
     --overdue-bg: #3a211c;

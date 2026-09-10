@@ -23,6 +23,7 @@ import {
 import * as banUi from '../components/ban.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 
 /**
@@ -290,7 +291,10 @@ function paintForm(ctx, record, draft = null, month = null) {
     <div class="errors" data-errors hidden></div>
 
     <div class="section">
-      <h2 class="section__title">${esc(monthLabel(`${state.month}-01`))}</h2>
+      ${/* 「點最上面那一排…」那一句 2026-09-10 收進月份旁邊的 `?`（issue 09）——
+             一次性的教學，以前在月曆底下佔一整行。 */''}
+      <h2 class="section__title">${esc(monthLabel(`${state.month}-01`))}${
+        tip('點最上面那一排可以一次擋掉整個月的某一天（例：每個禮拜五）。')}</h2>
       ${
         // **既有的那一份不給換月份**：一份綁一段有效期（ADR-0053），把 9 月那一份
         // 改成 10 月，壓 9 月的表就會突然找不到那一份。要記 10 月的話回上一頁
@@ -309,8 +313,6 @@ function paintForm(ctx, record, draft = null, month = null) {
       </div>
       <div class="pickcal__grid">${cells.map((c) => cellHtml(c, state)).join('')}</div>
     </div>
-    <p class="muted dim" style="margin: var(--space-2) 0 0; font-size: var(--text-2xs)">
-      點最上面那一排可以一次擋掉整個月的某一天（例：每個禮拜五）。</p>
 
     <div class="section">
       <h2 class="section__title">存起來會變成</h2>

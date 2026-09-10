@@ -21,6 +21,7 @@ import { visitReadHtml } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 /** 看哪一個月。留在模組層：從別的頁回來時她想看到剛剛那個月。 */
 let month = null;
@@ -112,7 +113,11 @@ async function paint(ctx) {
   // 有人在這中間又按了箭頭，讓他畫 —— 這一輪的結果已經過期了
   if (round !== painting) return;
 
-  const data = buildProgress({ customers: ctx.customers, visits, month: target });
+  // 主檔帶進去，那幾列才印得出「那天做了什麼」（`SIS(30)`）而不是快照裡的
+  // 「復能」—— 名字在 `dayFor()` 算好（`domain/progress.js`），這一層不自己算。
+  const data = buildProgress({
+    customers: ctx.customers, visits, month: target, master: ctx.master,
+  });
   el.innerHTML = bodyHtml(data, ctx, target);
   wire(ctx, data, visits);
 }
@@ -152,20 +157,17 @@ function bodyHtml(data, ctx, target) {
         </span>`).join('')}
     </p>
 
-    <p class="muted" style="margin: 0 0 var(--space-3)">${esc(summaryLine(data))}</p>
+    ${/* 頁尾那三行 2026-09-10 收進摘要這一行後面的 `?`（issue 09）。
+           **「見 ADR-0061」拿掉了** —— 那是給寫程式的人看的編號，印給她看本身就是寫錯。 */''}
+    <p class="muted" style="margin: 0 0 var(--space-3)">${esc(summaryLine(data))}${tip(
+      '這一頁只給看的，改東西要到日曆。取消掉的時段不畫 —— 這一頁問的是「這個月做了多少」，'
+      + '而取消的那一次沒有發生。日曆上看得到它，只是暗掉的。')}</p>
 
     ${data.rows.length
       ? `<div class="cardgrid">${data.rows.map(customerCard).join('')}</div>`
       : ''}
 
-    ${idleHtml(data.idle)}
-
-    <p class="footnote">
-      ${icon('info', { size: 14 })}
-      <span>這一頁只給看的，改東西要到日曆。
-        取消掉的時段不畫 —— 這一頁問的是「這個月做了多少」，
-        而取消的那一次沒有發生。（日曆上看得到它，只是暗掉的，見 ADR-0061。）</span>
-    </p>`;
+    ${idleHtml(data.idle)}`;
 }
 
 function summaryLine(data) {
@@ -232,7 +234,7 @@ function slotHtml(slot) {
     <span class="progslot ${esc(statusClass(slot.status))}">
       <span class="progslot__bar" aria-hidden="true"></span>
       <span class="progslot__when num">${esc(timeLabel(slot))}</span>
-      <span class="progslot__what">${esc(slot.courseName ?? '（沒有課程）')}</span>
+      <span class="progslot__what">${esc(slot.name || '（沒有課程）')}</span>
       <span class="progslot__state">${esc(markFor(slot.status))} ${
         esc(shortStatus(slot.status))}</span>
     </span>`;

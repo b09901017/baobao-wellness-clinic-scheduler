@@ -105,7 +105,8 @@ export function reviewWarnings(warnings = []) {
 
   return {
     // 講**幾件**，不要只寫「有一些提醒」—— 她要知道等一下要看幾行。
-    title: lines.length === 1 ? '這一段先看一下' : `這 ${lines.length} 件先看一下`,
+    // 「這一件」不是「這一段」：在來訪表單上「這一段」一定會被讀成時段（ADR-0087）
+    title: lines.length === 1 ? '這一件先看一下' : `這 ${lines.length} 件先看一下`,
     lines,
     // 兩顆都講出按下去會怎樣。「確定／取消」在這一道是模糊的：
     // 這一道不是在問「要不要存」，是在問「你看過了嗎」。
@@ -141,13 +142,13 @@ export function bookingConsequences({ visit, coursesById = {}, merge = null, she
     // 這一句是這一輪的重點：不講的話她會以為新加的那一段也是談定的
     // （見 `.scratch/followup-and-products/issues/05`）。
     lines.push(
-      `那一筆本來是「${describeStatus('confirmed')}」，`
+      `那一天本來是「${describeStatus('confirmed')}」，`
       + `會退回「${describeStatus(INITIAL_STATUS)}」—— 這一段還沒問過客人`,
     );
     lines.push('待辦會重新出現一張「跟客人確認時間」');
   } else {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
-    lines.push('那一筆本來就在等客戶回覆，待辦上那一列不變');
+    lines.push('那一天本來就在等客戶回覆，待辦上那一列不變');
   }
 
   const later = pendingRegistrations(visit, coursesById);
@@ -226,9 +227,9 @@ export function closeConsequences({
   const lines = [];
 
   if (doneCount) {
-    lines.push(`日曆上這一筆改成「${shortStatus('done')}」，做了的那 ${doneCount} 段扣掉次數`);
+    lines.push(`日曆上這一天改成「${shortStatus('done')}」，做了的那 ${doneCount} 段扣掉次數`);
   } else {
-    lines.push(`日曆上這一筆改成「${shortStatus('no_show')}」，次數不扣`);
+    lines.push(`日曆上這一天改成「${shortStatus('no_show')}」，次數不扣`);
   }
 
   // 健檢結案才長「追蹤健檢報告」（ADR-0042：報告要兩三週，報告沒到就不可能約）。
@@ -311,7 +312,7 @@ export function untickConsequences({ task, preview } = {}) {
   if (booked) {
     lines.push(
       `${shortDate(booked.visit.date)} 那一場二返已經約好了 —— `
-      + '那一筆來訪不會被動到，只有上面那幾張待辦會被收走',
+      + '那一天的來訪不會被動到，只有上面那幾張待辦會被收走',
     );
   }
 
@@ -399,7 +400,7 @@ export function cancelConsequences({
       ? '這一段會退回去，次數也會還回來'
       : `這 ${picked.size} 段會退回去，次數也會還回來`);
     if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
-    else lines.push('那一天就整筆取消了 —— 沒有剩下的段');
+    else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 
     // **只講那幾段用得到的系統。** 一天同時有健檢（Examine）與復能（Abovee）時，
     // 取消復能那一段跟 Examine 一點關係都沒有 —— 講了她會白跑一趟。
@@ -412,14 +413,16 @@ export function cancelConsequences({
       lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
     }
 
-    lines.push('改期不是改日期，是取消後重新排一筆');
+    lines.push('改期不是改日期，是取消後重新排一次');
     if (sheetSyncOn) lines.push(SHEET_LINE);
     return lines;
   }
 
+  // **第一句就講範圍**（ADR-0087）：按鈕寫「取消一整天」，以前跳出來的第一句
+  // 卻只講「3 個時段」—— 她得自己推出那是整天。
   lines.push(removing
-    ? `這是標記刪除，資料不會真的消失；${slots} 個時段會退回去，次數也會還回來`
-    : `${slots} 個時段會退回去，次數也會還回來`);
+    ? `這是標記刪除，資料不會真的消失；這一整天的 ${slots} 個時段會退回去，次數也會還回來`
+    : `這一整天的 ${slots} 個時段會退回去，次數也會還回來`);
 
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
@@ -460,7 +463,7 @@ export function cancelConsequences({
     );
   }
 
-  lines.push('改期不是改日期，是取消後重新排一筆');
+  lines.push('改期不是改日期，是取消後重新排一次');
   lines.push(removing
     ? '可以在設定 → 已刪除項目 還原'
     : '取消後不能復原成已確認，但日曆上還看得到它（暗掉的那一列）');

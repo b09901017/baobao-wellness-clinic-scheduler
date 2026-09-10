@@ -7,6 +7,11 @@ import { renderGate, renderShell } from './ui/shell.js';
 import * as sheetSync from './data/sheetSync.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
+import { install as installTips } from './ui/components/tip.js';
+
+// 說明泡泡的委派掛在 document 上，**開機接一次就好** —— 每一頁、每一次重畫
+// 長出來的那幾顆 `?` 都不用各自接。各自接的話，漏接一頁就是「那一顆點了沒反應」。
+installTips();
 
 const root = document.getElementById('root');
 
