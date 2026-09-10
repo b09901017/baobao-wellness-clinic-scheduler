@@ -1182,7 +1182,7 @@ function openWhoVisit(visitId) {
   const visit = d?.visits?.get(visitId);
   if (!visit) {
     toast.info(d?.visits
-      ? '找不到這一筆來訪，可能已經刪掉了'
+      ? '找不到這一天的來訪，可能已經刪掉了'
       : '那一天的資料還在讀，等一下再按一次');
     return;
   }
@@ -2095,7 +2095,7 @@ function openTaskVisit(visitId) {
     // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
     // 而無聲什麼都不發生更糟 —— 講出來是哪一種情況。
     toast.info(taskVisits
-      ? '找不到這一筆來訪，可能已經刪掉了'
+      ? '找不到這一天的來訪，可能已經刪掉了'
       : '那一天的資料還在讀，等一下再按一次');
     return;
   }
@@ -3136,7 +3136,7 @@ function closeRow(visit, coursesById, today) {
 
       ${visit.status === 'pending_confirm' ? `
         <p class="card__note" style="margin-top: var(--space-3)">
-          這一筆到現在還是「${esc(describeStatus(visit.status))}」—— 那天過了，
+          這一天到現在還是「${esc(describeStatus(visit.status))}」—— 那天過了，
           要嘛她來了要嘛沒來，兩種都在下面結掉。</p>` : ''}
     </div>`;
 }

@@ -427,7 +427,7 @@ function closedNote(ctx) {
   return `
     <section class="card ${ctx.embedded ? 'card--bare' : ''}">
       <p class="field__hint" style="margin: 0">
-        ${esc(shortDate(rows[0].date))} 那一天已經是「${esc(what)}」了，所以這是新的一筆。
+        ${esc(shortDate(rows[0].date))} 那一天已經是「${esc(what)}」了，所以這是另外一次來訪。
       </p>
     </section>`;
 }
@@ -1050,7 +1050,7 @@ function statusCard(draft, embedded = false) {
       <section class="card ${bare}">
         <h2 class="card__title">狀態</h2>
         <p class="muted">${esc(describeStatus(draft.status))}。這是終點，不會再往下走。
-          要改期就取消後重新排一筆（SPEC 第 7 節規則 10）。</p>
+          要改期就取消後重新排一次（SPEC 第 7 節規則 10）。</p>
       </section>`;
   }
   return `
@@ -1096,14 +1096,14 @@ function wireStatus(ctx, draft) {
         // （ADR-0056）。以前兩邊各寫一次「Abovee／Examine／耀聖」三個並列，
         // 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
         const ok = await confirmAction({
-          title: '取消這筆來訪？',
+          title: '取消這一整天的來訪？',
           consequences: cancelConsequences({
             visit: draft,
             coursesById: coursesByIdOf(ctx.all),
             tasks: await visitTasks(draft),
             sheetSyncOn: isConfigured(ctx.settings),
           }),
-          confirmLabel: '取消這筆來訪',
+          confirmLabel: '取消這一整天',
           danger: true,
         });
         if (!ok) return;
@@ -1171,7 +1171,7 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
 function lockedCard(embedded = false) {
   return `
     <section class="card ${embedded ? 'card--bare' : ''}">
-      <h2 class="card__title">這筆已經完成，是唯讀的</h2>
+      <h2 class="card__title">這一天已經完成，是唯讀的</h2>
       <p class="muted">已完成的來訪不能直接改（SPEC 第 6.4 節）。要更正請填理由，
         理由會跟著這次修改一起留在稽核紀錄裡。</p>
       <label class="field">
@@ -1199,7 +1199,7 @@ function wireUnlock(ctx, draft) {
 function dangerZone(embedded = false) {
   return `
     <section class="card danger ${embedded ? 'card--bare' : ''}">
-      <h2 class="card__title">刪除這筆紀錄</h2>
+      <h2 class="card__title">刪除這一天的紀錄</h2>
       <p class="muted">誤建才用刪除。客人改時間或不來，請用上面的狀態按鈕，
         那些會留下為什麼。</p>
       <p><button class="btn btn--danger" type="button" data-delete>刪除</button></p>
@@ -1209,7 +1209,7 @@ function dangerZone(embedded = false) {
 function wireDangerZone(ctx, draft) {
   ctx.el.querySelector('[data-delete]').addEventListener('click', async () => {
     const ok = await confirmAction({
-      title: '刪除這筆來訪紀錄？',
+      title: '刪除這一天的來訪紀錄？',
       consequences: [
         ...cancelConsequences({
           visit: draft,
