@@ -198,6 +198,11 @@ export const COVERAGE = {
     'public/js/domain/naming.js', 'public/js/domain/entitlements.js',
     'public/js/domain/masterData.js', 'public/js/ui/views/naming.js',
   ],
+  // 說明泡泡（issue 08／09）。元件本身與掛了 `?` 的那兩頁。
+  '26-tip': [
+    'public/js/ui/components/tip.js', 'public/js/ui/views/naming.js',
+    'public/js/ui/views/health.js',
+  ],
   '24-layout-reach': [
     'public/css/', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/playbook.js',

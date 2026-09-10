@@ -7280,3 +7280,163 @@ summary {
   font-size: var(--text-sm);
   font-weight: 600;
 }
+
+/* ---------- 說明泡泡（ui/components/tip.js） ----------
+
+   她 2026-09-10：「小小的迷你的說明小泡泡，點了之後才會小小的在旁邊浮出說明…
+   有點像是對話泡泡的那種泡泡有一個小尖角的…動畫很可愛流暢」。
+
+   **大膽的地方只有一個：泡泡是從那一顆裡長出來的。** `transform-origin` 綁在
+   小尖角上（`--tip-origin`，由 JS 量好），而不是泡泡的正中間 —— 縮放的原點在
+   她按的那一點，看起來就是那顆 `?` 吐出了一個對話框。其餘全部沿用既有的語彙：
+   茶色、紙白、`--radius-sm`、`--shadow-2`，不開新的色相（ADR-0039）。
+
+   `--ease-pop` 帶一點點回彈 —— 那是「可愛」的全部來源。只用在長出來的那一下，
+   收回去走 `--ease-out`：回彈兩次就變成晃了。 */
+
+.tip {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 4px;
+  padding: 0;
+  vertical-align: -2px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--tea-soft);
+  color: var(--tea);
+  font: 700 11px/1 var(--font-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--motion-fast) var(--ease-out),
+              background-color var(--motion-base) var(--ease-out),
+              color var(--motion-base) var(--ease-out);
+}
+
+/* 16px 看起來小，按起來要 44px：往外撐 14px。貼在自己身上（`position: relative`），
+   不然會去貼上層某個盒子，症狀是「按到旁邊那一顆」（CLAUDE.md 的連動表）。 */
+.tip::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+}
+
+.tip--help::before {
+  content: '?';
+  transform: translateY(0.5px);
+}
+
+.tip:active {
+  transform: scale(0.86);
+}
+
+/* 開著的那一顆反白：她看得出來那個泡泡是從哪一顆出來的 */
+.tip--help[aria-expanded='true'] {
+  background: var(--tea);
+  color: var(--tip-bg);
+}
+
+.tip--warn {
+  background: var(--soon-bg);
+  color: var(--soon);
+}
+
+.tip--warn[aria-expanded='true'] {
+  background: var(--soon);
+  color: var(--tip-bg);
+}
+
+.tip:focus-visible {
+  outline: 2px solid var(--tea);
+  outline-offset: 2px;
+}
+
+.tip__bubble {
+  position: fixed;
+  z-index: 80;
+  max-width: min(264px, calc(100vw - 20px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tip-line);
+  border-radius: var(--radius-sm);
+  background: var(--tip-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-xs);
+  /* 400 不是 500：思源黑體的 500 在 12px 上看起來就是粗體，
+     一句說明被加粗等於在喊 —— 她要的是「小小的」 */
+  font-weight: 400;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  transform-origin: var(--tip-origin, 50% 0);
+  opacity: 0;
+  transform: scale(0.72);
+  transition: opacity var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+  pointer-events: none;
+}
+
+.tip__bubble[data-state='open'] {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity var(--motion-fast) var(--ease-out),
+              transform var(--motion-slow) var(--ease-pop);
+  pointer-events: auto;
+}
+
+.tip__text {
+  display: block;
+}
+
+/* 小尖角。**兩層疊，不是旋轉的方塊**：旋轉的方塊會在泡泡的邊線上留一道縫。
+   `::before` 是邊線的顏色、大一格；`::after` 是底色、小一格而且往泡泡裡
+   多壓 1px，剛好蓋掉小尖角底下那一段邊線 —— 泡泡與小尖角看起來是同一塊。 */
+.tip__tail {
+  position: absolute;
+  left: var(--tip-tail-x, 50%);
+  width: 0;
+  height: 0;
+}
+
+.tip__tail::before,
+.tip__tail::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  border-style: solid;
+  border-color: transparent;
+}
+
+.tip__bubble[data-side='below'] .tip__tail { top: -1px; }
+.tip__bubble[data-side='above'] .tip__tail { bottom: -1px; }
+
+.tip__bubble[data-side='below'] .tip__tail::before {
+  bottom: 0;
+  margin-left: -7px;
+  border-width: 0 7px 7px;
+  border-bottom-color: var(--tip-line);
+}
+
+.tip__bubble[data-side='below'] .tip__tail::after {
+  bottom: -1px;
+  margin-left: -6px;
+  border-width: 0 6px 6px;
+  border-bottom-color: var(--tip-bg);
+}
+
+.tip__bubble[data-side='above'] .tip__tail::before {
+  top: 0;
+  margin-left: -7px;
+  border-width: 7px 7px 0;
+  border-top-color: var(--tip-line);
+}
+
+.tip__bubble[data-side='above'] .tip__tail::after {
+  top: -1px;
+  margin-left: -6px;
+  border-width: 6px 6px 0;
+  border-top-color: var(--tip-bg);
+}

@@ -73,6 +73,7 @@ import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
 import { confirmAction, confirmReview } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
@@ -580,13 +581,14 @@ function paintPage() {
                 data-filter="${x.id}">${esc(x.label)}
           <span class="num dim">${ctx.rows.filter(x.match).length}</span></button>`).join('')}
       <span class="chiprow__sep" aria-hidden="true"></span>
-      <span class="chiprow__lead">排序</span>
+      ${/* 排序那一句 2026-09-10 從牆的抬頭底下（常駐一整行）收進「排序」旁邊的 `?`
+             （issue 09）。外面包一層 `data-sortnote` 是為了換排序時只換這一顆 ——
+             她點排序丸子的那一下會先把開著的泡泡關掉，不會留一張過期的。 */''}
+      <span class="chiprow__lead">排序<span data-sortnote>${tip(sortNote())}</span></span>
       ${QUEUE_SORTS.map((s) => `
         <button class="chip chip--sm" type="button" aria-pressed="${s.id === view.sort}"
                 data-sort="${esc(s.id)}">${esc(s.label)}</button>`).join('')}
     </div>
-
-    <p class="muted" data-sortnote style="margin: 0 0 var(--space-3)">${sortNote()}</p>
 
     <div class="cardgrid" data-wall></div>`;
 
@@ -598,7 +600,8 @@ function sortNote() {
     return '順序是算出來的預設值 —— 限制多的排前面。想先弄誰就點誰。';
   }
   const label = QUEUE_SORTS.find((s) => s.id === view.sort)?.label ?? '';
-  return `照「${esc(label)}」排。一樣的那幾位仍然照預設順序。`;
+  // 不在這裡逃脫：這一句現在是 `tip()` 的純文字，逃脫是那一支的責任
+  return `照「${label}」排。一樣的那幾位仍然照預設順序。`;
 }
 
 /** 只重畫牆。搜尋框在外面，所以打字的游標不會被洗掉。 */
@@ -621,7 +624,7 @@ function pressChips() {
   page.querySelectorAll('[data-sort]').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.sort === view.sort)));
   const note = page.querySelector('[data-sortnote]');
-  if (note) note.innerHTML = sortNote();
+  if (note) note.innerHTML = tip(sortNote());
 }
 
 function onPageClick(e) {
