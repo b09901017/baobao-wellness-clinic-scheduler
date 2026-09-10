@@ -1,6 +1,6 @@
 # 02 批次取消的搜尋結果長了兩顆箭頭
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`
 
 ## 她要的

@@ -1,6 +1,6 @@
 # 04 合作機構那顆丸子多一個「＋」，而且在壓表上拉滿整行
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`、`docs/adr/0076-a-memo-can-hang-on-a-partner.md`
 
 ## 她要的

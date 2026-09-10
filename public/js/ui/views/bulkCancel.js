@@ -190,9 +190,11 @@ function searchHtml() {
       ${hits.length ? `
         <ul class="link-list">
           ${hits.map((c) => `
+            ${/* 箭頭由 `.row-link::after` 畫。這裡再手寫一顆就是兩顆 ——
+                   她 2026-09-10 看到的就是那個（同一個坑 8 月在「要壓哪個月」
+                   那三顆上踩過一次，見 app.css 的 `.monthpick` 那一段）。 */''}
             <li><button class="row-link" type="button" data-pick="${esc(c.id)}">
               <span class="link-list__label">${esc(c.name)}</span>
-              ${icon('right', { size: 17 })}
             </button></li>`).join('')}
         </ul>` : ''}
       ${q ? '' : '<p class="muted">打名字找人，這裡會列出他那個月的來訪。</p>'}
