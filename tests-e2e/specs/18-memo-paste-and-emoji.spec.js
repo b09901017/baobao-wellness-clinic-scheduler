@@ -217,7 +217,8 @@ test.describe('備忘錄：捲動、貼上、emoji', () => {
 
     await expect(page.locator('[data-emoji]').first()).toBeInViewport();
     await expect(page.locator('[data-save]')).toBeInViewport();
-    await expect(page.locator('[data-cancel]')).toBeInViewport();
+    // 「取消」2026-09-10 拿掉了（點外面才問），底下那一排整個不存在
+    await expect(page.locator('.pbedit__actions')).toHaveCount(0);
   });
 
   test('M9 全形括號的代碼也清得掉', async ({ app, page }) => {

@@ -35,6 +35,7 @@ import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
+import { slotName } from '../../domain/naming.js';
 import * as playbooksData from '../../data/playbooks.js';
 import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
@@ -1132,21 +1133,23 @@ async function loadWhoDetails(ctx) {
   const ids = d.tasks.map((t) => t.visitId).filter(Boolean);
 
   try {
-    // 課程與器材是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
-    // 四個畫面共用同一支 `visitReadHtml()`，少帶這兩份的話這一頁會寫「復能」
-    // 而日曆上寫「SIS(60)」。
-    const [visits, rooms, staff, courses, equipment] = await Promise.all([
+    // 課程、器材與品項是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
+    // 四個畫面共用同一支 `visitReadHtml()`，少帶的話這一頁會寫「復能」
+    // 而日曆上寫「SIS(60)」。**三份都要帶**：少了品項那一段點滴這一頁會寫
+    // 「營養點滴」而別頁寫「雪」。
+    const [visits, rooms, staff, courses, equipment, ivProducts] = await Promise.all([
       ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
       config.listAll('rooms'),
       config.listAll('staff'),
       config.listAll('courses', { includeDeleted: true }),
       config.listAll('equipment', { includeDeleted: true }),
+      config.listAll('ivProducts', { includeDeleted: true }),
     ]);
     if (whoDrawer !== d) return;   // 她已經關掉、或換了一位
     d.visits = visits;
     d.rooms = byId(rooms);
     d.staff = byId(staff);
-    d.master = { courses, equipment };
+    d.master = { courses, equipment, ivProducts };
   } catch {
     return;
   }
@@ -1795,7 +1798,9 @@ function fillVisitInfo(el) {
   for (const node of el.querySelectorAll('[data-taskwhen]')) {
     const visit = taskVisits.visits.get(node.dataset.taskwhen);
     if (!visit) continue;
-    const line = taskLine({}, visit);
+    // 第三個參數帶了主檔才講得出「那天做了什麼」（`SIS(30)`）——
+    // 不帶的話底下那一支 `visitCourseLabel` 退回快照，會寫成「復能」（ADR-0078）
+    const line = taskLine({}, visit, taskVisits.master);
     const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
     if (!text) continue;
     node.textContent = text;
@@ -2794,7 +2799,7 @@ function drawerHtml(ctx) {
             <button class="slotrow ${no ? 'slotrow--no' : ''}" type="button" data-slot="${esc(r.key)}">
               <span class="slotrow__main">
                 <span class="slotrow__when">${esc(shortDate(r.visit.date))} ${esc(timeLabel(r.slot))}</span>
-                <span class="slotrow__what">${esc(r.slot.courseName ?? '')}</span>
+                <span class="slotrow__what">${esc(slotName(r.slot, ctx.master, 'short'))}</span>
                 ${r.visit.note ? `<span class="muted dim">備註：${esc(r.visit.note)}</span>` : ''}
               </span>
               <span class="badge ${no ? 'badge--overdue' : 'badge--ok'}">${no ? '客人說不行' : '可以'}</span>
@@ -2979,7 +2984,7 @@ async function applyConfirm(ctx) {
     );
     drawer = null;
     await renderConfirm(ctx.el);
-    showConfirmed(summary, said);
+    showConfirmed(summary, said, ctx.master);
   } catch {
     /* 已處理 */
   }
@@ -2996,7 +3001,7 @@ async function applyConfirm(ctx) {
  * 走既有的 `openCard()`，不新開一種浮層 —— 這個 app 的浮層已經有三種了
  *（抽屜、卡片、對話框，ADR-0048）。
  */
-function showConfirmed(summary, said = []) {
+function showConfirmed(summary, said = [], master = {}) {
   if (!summary.rows.length) return; // 整批都退掉了，toast 那一句已經講完了
 
   const card = openCard({
@@ -3009,7 +3014,7 @@ function showConfirmed(summary, said = []) {
         ${summary.rows.map((r) => `
           <li><span class="link-list__label num">${esc(shortDate(r.date))}
             ${esc(timeLabel(r.slot))}
-            <span class="muted">${esc(r.slot.courseName ?? '')}</span></span></li>`).join('')}
+            <span class="muted">${esc(slotName(r.slot, master, 'short'))}</span></span></li>`).join('')}
       </ul>
       ${said.length ? `
         <ul class="dialog__list" style="margin: var(--space-3) 0 0">
@@ -3038,16 +3043,21 @@ async function renderClose(el) {
   const today = todayISO();
   // 課程主檔是為了「這一段要不要簽療程單」。二返不用簽，其餘都要 ——
   // 判斷在 domain/visits.js 的 needsForm()，這一頁不自己認課程名字。
-  const [unclosed, courses, settings] = await Promise.all([
+  const [unclosed, courses, equipment, ivProducts, settings] = await Promise.all([
     visitsData.listUnclosed(today),
     // 含已刪除的：她停用一個課程，那幾筆還沒結案的來訪照樣要問得出「要不要簽單」
     config.listAll('courses', { includeDeleted: true }),
+    // 那幾排丸子印的是「那天做了什麼」（`SIS(30)`、`雪`）——
+    // 只讀課程的話卡片上會寫「復能」，而月曆上同一段寫的是 SIS(30)（ADR-0078）
+    config.listAll('equipment', { includeDeleted: true }),
+    config.listAll('ivProducts', { includeDeleted: true }),
     config.getSettings(),
   ]);
   paintClose({
     el,
     rows: visitsToClose(unclosed, today),
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    master: { courses, equipment, ivProducts },
     today,
     settings,
     // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
@@ -3057,7 +3067,7 @@ async function renderClose(el) {
 }
 
 function paintClose(ctx) {
-  const { el, rows, coursesById, today } = ctx;
+  const { el, rows, coursesById, master, today } = ctx;
 
   el.innerHTML = `
     ${backLink()}
@@ -3069,7 +3079,8 @@ function paintClose(ctx) {
     </div>
 
     ${rows.length
-      ? `<div class="stack">${rows.map((v) => closeRow(v, coursesById, today)).join('')}</div>`
+      ? `<div class="stack">${
+        rows.map((v) => closeRow(v, coursesById, today, master)).join('')}</div>`
       : ''}
 
     ${drawer ? closeDrawerHtml(ctx) : ''}`;
@@ -3101,7 +3112,7 @@ function formMarks(visit, coursesById) {
   };
 }
 
-function closeRow(visit, coursesById, today) {
+function closeRow(visit, coursesById, today, master = {}) {
   const late = daysBetween(visit.date, today);
   const slots = visit.slots ?? [];
   // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記
@@ -3126,7 +3137,7 @@ function closeRow(visit, coursesById, today) {
 
       <div class="chips" style="margin-top: var(--space-3)">
         ${slots.map((sl, i) => `<span class="badge num">${esc(timeLabel(sl))}　${
-          esc(sl.courseName ?? '')}${
+          esc(slotName(sl, master, 'short'))}${
           form.mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
       </div>
 
@@ -3173,7 +3184,7 @@ function closeDrawerHtml(ctx) {
               <button class="slotrow ${missed ? 'slotrow--no' : ''}" type="button" data-slot="${i}">
                 <span class="slotrow__main">
                   <span class="slotrow__when">${esc(timeLabel(sl))}</span>
-                  <span class="slotrow__what">${esc(sl.courseName ?? '')}${
+                  <span class="slotrow__what">${esc(slotName(sl, ctx.master, 'short'))}${
                     form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
                 </span>
                 <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
