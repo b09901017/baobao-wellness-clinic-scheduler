@@ -37,12 +37,14 @@ import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
-import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
+import {
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard,
+} from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
 import { tip } from '../components/tip.js';
-import { visitReadHtml } from './calendar.js';
+import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
@@ -1763,23 +1765,41 @@ function openVisitCard(ctx, visitId) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
 
-  openCard({
+  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
+  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
+  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
+  let focus = null;
+
+  // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
+  // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
+  const body = () => visitReadHtml(visit, {
+    roomsById: byId(ctx.rooms ?? []),
+    staffById: byId(ctx.staff ?? []),
+    coursesById: byId(ctx.courses ?? []),
+    // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
+    // 少帶這一份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
+    master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [] },
+    // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
+    // 不必像日曆那樣點開才去讀那一位。
+    entitlementsById: byId(ctx.entitlements ?? []),
+    tasks: ctx.tasks ?? [],
+    today: todayISO(),
+    // **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁列的是
+    // 整筆來訪，所以第一張沒帶 —— 那時候每一段自己是一列。
+    focusSlot: focus,
+  });
+
+  // 整筆那一個是**推導出來的**：加一段沒問過客人的進去就會退回「待確認」，
+  // 而她點的可能是早上那段已經談定的（ADR-0085）。
+  const sub = () => esc(describeStatus(statusForCard(visit, focus)));
+
+  const card = openCard({
     title: shortDate(visit.date),
-    subtitle: esc(describeStatus(visit.status)),
-    // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
-    // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
-    body: visitReadHtml(visit, {
-      roomsById: byId(ctx.rooms ?? []),
-      staffById: byId(ctx.staff ?? []),
-      coursesById: byId(ctx.courses ?? []),
-      // 那一段叫什麼（`domain/naming.js`）—— 四個畫面共用同一支，
-      // 少帶這一份的話這一頁會寫「復能」而日曆上寫「SIS(60)」。
-      master: { courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [] },
-      // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
-      // 不必像日曆那樣點開才去讀那一位。
-      entitlementsById: byId(ctx.entitlements ?? []),
-      tasks: ctx.tasks ?? [],
-      today: todayISO(),
+    subtitle: sub(),
+    body: body(),
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => {
+      focus = i;
+      card.update(body(), { subtitle: sub() });
     }),
   });
 }

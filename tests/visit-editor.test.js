@@ -140,16 +140,26 @@ describe('改一筆來訪＝改那一段（issue 07）', () => {
     assert.match(SRC, /canAddSlots: !existing/);
   });
 
-  // **收進一摺，不是藏起來。** 藏起來會違反 ADR-0060：長按選單是捷徑不是
-  // 唯一的路，而「取消一整天」與「刪除這一筆」在別的地方點不到。
-  test('整筆的那幾顆收進一摺，只改一段時預設收著', () => {
-    assert.match(SRC, /<details class="advanced" \$\{wholeVisit \? 'open' : ''\}>/);
-    assert.match(SRC, /這一天整筆的/);
+  // **2026-09-10 改成真的拿掉**（`.scratch/quieter-screens/issues/10`）。
+  //
+  // 以前這一摺是收起來的（`<details>` 不加 open），理由是 ADR-0060：長按選單
+  // 是捷徑不是唯一的路，而「取消一整天」與「刪除這一筆」在別的地方點不到。
+  // 但 ADR-0085 說的是「帶了 slotIndex 就**沒有**整筆的狀態卡與危險區」，
+  // 而摺起來不算拿掉 —— 她點一段進來改，畫面最底下照樣有一顆動整天的。
+  //
+  // 第二條路改成日曆讀取卡片底下那一顆「改這一天」，所以兩支 ADR 都成立。
+  // 那一顆由 `tests/read-card-one-slot.test.js` 盯著。
+  test('只改一段時，整筆的那幾顆一個都不畫', () => {
+    // 比的是那一摺的標記，不是那四個字 —— 她的原話裡就有那四個字，
+    // 而它是這一段程式為什麼長這樣的理由，不可以被一支測試逼著刪掉。
+    assert.equal(SRC.includes('<summary class="advanced__head">這一天整筆的'), false,
+      '摺起來不算拿掉（ADR-0085）—— 她點的是早上那一段，那兩顆動的是整天');
+    assert.match(SRC, /\$\{wholeVisit \? `\s*\$\{statusCard\(draft, embedded\)\}/);
   });
 
-  test('但它們照樣接得起來 —— 收著不等於不存在', () => {
-    assert.match(SRC, /if \(!isNew && !locked\) wireStatus\(ctx, draft\);/);
-    assert.match(SRC, /if \(!isNew\) wireDangerZone\(ctx, draft\);/);
+  test('沒畫出來就不接線 —— 接在 null 上會讓整頁停在「載入中…」', () => {
+    assert.match(SRC, /if \(wholeVisit && !locked\) wireStatus\(ctx, draft\);/);
+    assert.match(SRC, /if \(wholeVisit\) wireDangerZone\(ctx, draft\);/);
   });
 });
 

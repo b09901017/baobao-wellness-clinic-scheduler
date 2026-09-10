@@ -3939,7 +3939,10 @@ button.mark::after {
 }
 
 
-/* 一次來訪的每一個時段。時間是她在掃的東西，所以它比課程名字大。 */
+/* 一次來訪的每一個時段。時間是她在掃的東西，所以它比課程名字大。
+
+   底下三格是 `<span>` 不是 `<div>`：點得下去的那一種外面是 `<button>`，
+   而 button 的內容模型只收 phrasing content。所以那三格自己 `display: block`。 */
 .readslot {
   padding: var(--space-3);
   margin-bottom: var(--space-2);
@@ -3948,20 +3951,58 @@ button.mark::after {
 }
 
 .readslot__when {
+  display: block;
   font-size: var(--text-lg);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .readslot__what {
+  display: block;
   margin-top: 2px;
   font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
+/* 沒指定哪一段時，每一段自己是一列**可以點的**（ADR-0080）：客戶詳情、
+   待辦中心、進度追蹤列的是整筆來訪，點一列浮出只有那一段的卡片。
+
+   它是 `<button>`，所以要把瀏覽器的預設整組扳回來（`.readslot` 本身是
+   `<div>` 的樣子）。箭頭走 `::after` 而不是手寫一顆 `icon('right')`——
+   兩顆並排的那個 bug 這個 repo 踩過兩次（`tests/chips-and-chevrons.test.js`）。*/
+.readslot--tap {
+  display: block;
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  padding-right: calc(var(--space-3) + 14px);
+}
+
+.readslot--tap::after {
+  content: '›';
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-mute);
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+/* 底色本來就是 `--surface-2`，所以按下去換不了顏色 —— 走 `.actionrow:active`
+   那一種縮一點點的手法（同一份樣式表既有的規矩）。 */
+.readslot--tap:active {
+  transform: scale(0.99);
+}
+
 /* 「扣 復能 - 三選一（60）」。比上面那一行再淡一階 —— 它回答的是
    「這一次從哪裡扣」，不是「那天做了什麼」，而她先看的是後者。 */
 .readslot__from {
+  display: block;
   margin-top: 2px;
   font-size: var(--text-xs);
   color: var(--text-mute);

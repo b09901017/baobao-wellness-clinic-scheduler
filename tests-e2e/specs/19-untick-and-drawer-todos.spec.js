@@ -219,13 +219,12 @@ test.describe('拿回一張待辦要先講清楚', () => {
     await page.click(`[data-day="${EXAM_DATE}"]`);
     await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
     await expect(page.locator('.popcard')).toBeVisible();
-    // 讀取卡片沒有取消那一顆 —— 走鉛筆進編輯器（ADR-0056）
-    await page.locator('[data-card-edit]').click();
+    // 讀取卡片沒有取消那一顆 —— 要進編輯器（ADR-0056）。
+    // **走「改這一天」不是鉛筆**：鉛筆開的是只有那一段的（ADR-0085），
+    // 而這裡要取消的是整天。整天那幾顆 2026-09-10 從編輯器裡拿掉、
+    // 搬到讀取卡片底下那一顆（ADR-0088）。
+    await page.locator('[data-edit-day]').click();
     await app.layer('form[data-form]');
-    // 整筆的那幾顆收進「這一天整筆的」那一摺（ADR-0085）——
-    // 她點的是一段，而那一顆動的是整天。收著不是藏著（ADR-0060）。
-    await page.locator('details.advanced summary').first().click();
-    await expect(page.locator('details.advanced').first()).toHaveAttribute('open', '');
     await page.locator('[data-status="cancelled"]').click();
 
     await expect(app.dialog()).toBeVisible();

@@ -216,6 +216,16 @@ export const COVERAGE = {
     'public/js/ui/components/slotNote.js', 'public/js/ui/components/form.js',
     'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',
   ],
+  // 讀取卡片單段化（issue 10）。`visitReadHtml()` 是**四個畫面共用**的
+  // （ADR-0018、0056），所以那四支 view 底下改一行都該跑這一支 ——
+  // 單元那一側全部是原始碼掃描（calendar.js 進不了 node）。
+  '27-read-card-one-slot': [
+    'public/js/domain/visits.js', 'public/js/domain/progress.js',
+    'public/js/ui/components/card.js', 'public/js/ui/components/taskMirror.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/progress.js',
+    'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/ui/views/visitEditor.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
