@@ -20,6 +20,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { fromRoot, toPosix } from './helpers/paths.js';
+import { NAME_CONTEXTS } from '../public/js/domain/naming.js';
 
 const UI = fromRoot('public/js/ui');
 
@@ -97,5 +98,34 @@ describe('留下來的三句（不講會出錯的那幾句）', () => {
   test('確認框裡的後果句還在 domain', () => {
     const src = readFileSync(fromRoot('public/js/domain/consequences.js'), 'utf8');
     assert.match(src, /export function bookingConsequences/);
+  });
+});
+
+// 設定 →「名稱怎麼寫」那一格的副標，2026-09-10 之前還寫著
+// 「月檢視、一般、LINE 三種寫法」—— 而「一般」那一種（`復能(SIS)`）
+// 在 ADR-0078 就拿掉了（`NAME_CONTEXTS` 從三種變兩種）。
+//
+// 一句在講不存在的東西的說明，比沒有說明糟：她會去那一頁上找第三種。
+// 而這一句**沒有任何測試擋著** —— `naming.test.js` 釘的是 `NAME_CONTEXTS`
+// 這個常數，畫面上那一行怎麼寫沒有人管。
+describe('那一格副標要跟 NAME_CONTEXTS 對得上', () => {
+  const NUM = { 1: '一', 2: '兩', 3: '三', 4: '四' };
+  const tile = FILES.find((f) => f.path === 'ui/views/settings.js')
+    .code.split(NL).find((l) => l.includes("'#/settings/naming'"));
+
+  test('找得到那一格', () => {
+    assert.ok(tile, '設定頁少了「名稱怎麼寫」那一格');
+  });
+
+  test('不提「一般」—— 那一種已經沒有了（ADR-0078）', () => {
+    assert.ok(!tile.includes('一般'), tile.trim());
+    assert.ok(!tile.includes('月檢視'), '那一種現在叫「月曆」（CONTEXT_LABELS）');
+  });
+
+  test('講的種類數就是 NAME_CONTEXTS 的長度', () => {
+    assert.ok(
+      tile.includes(`${NUM[NAME_CONTEXTS.length]}種`),
+      `NAME_CONTEXTS 現在有 ${NAME_CONTEXTS.length} 種，副標沒跟上：${tile.trim()}`,
+    );
   });
 });
