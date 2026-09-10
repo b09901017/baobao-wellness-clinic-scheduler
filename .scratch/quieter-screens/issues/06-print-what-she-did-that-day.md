@@ -1,6 +1,6 @@
 # 06 她自己看的地方一律印「那天做了什麼」
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`、`docs/adr/0077`、`docs/adr/0078`
 
 ## 她要的
