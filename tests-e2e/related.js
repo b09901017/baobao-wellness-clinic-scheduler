@@ -202,6 +202,15 @@ export const COVERAGE = {
     'public/css/', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/playbook.js',
   ],
+  // 來訪編輯器那三支 ADR（0083 一天一筆、0084 記一句在段上、0085 改一段）。
+  // **`domain/visits.js` 與 `visitEditor.js` 是它的主場** —— 那兩支底下改一行
+  // 就該跑這一支，因為單元那一側大半是原始碼掃描（見這支 spec 的檔頭）。
+  '25-visit-editor-one-slot': [
+    'public/js/domain/visits.js', 'public/js/domain/consequences.js',
+    'public/js/domain/entitlements.js', 'public/js/data/visits.js',
+    'public/js/ui/components/slotNote.js', 'public/js/ui/components/form.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
