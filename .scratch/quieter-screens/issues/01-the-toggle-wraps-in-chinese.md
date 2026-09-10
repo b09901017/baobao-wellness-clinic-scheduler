@@ -1,6 +1,6 @@
 # 01 分段切換器把中文壓成兩行
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`
 
 ## 她要的

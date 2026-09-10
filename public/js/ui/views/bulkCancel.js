@@ -220,7 +220,7 @@ function pickedHtml() {
           ${icon('right', { size: 18 })}</button>
       </div>
 
-      <div class="seg" role="tablist" aria-label="怎麼看">
+      <div class="seg seg--tabs" role="tablist" aria-label="怎麼看">
         <button class="seg__btn" type="button" role="tab" data-mode="list"
                 aria-selected="${state.mode === 'list'}">清單</button>
         <button class="seg__btn" type="button" role="tab" data-mode="month"

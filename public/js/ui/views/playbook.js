@@ -298,7 +298,7 @@ function hangHtml(draft) {
 
   return `
     <div class="fieldgroup pbedit__hang">
-      <div class="seg" role="tablist" aria-label="掛在哪">
+      <div class="seg seg--tabs" role="tablist" aria-label="掛在哪">
         ${tab('courseIds', '掛課程', (draft.courseIds ?? []).length)}
         ${tab('partners', '掛機構', (draft.partners ?? []).length)}
       </div>

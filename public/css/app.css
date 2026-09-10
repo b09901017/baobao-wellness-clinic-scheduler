@@ -700,22 +700,44 @@ textarea {
 
 /* ---------- 分段切換 ---------- */
 
+/* 底槽。**兩種分段切換共用這一份** —— 另一種只多一個 `.seg--tabs`
+   修飾詞（縮到內容寬），見那一段。
+
+   窄到真的塞不下時**整條橫捲，不折行**：折行會把底下整片內容往下推，
+   而她開那一頁是為了掃底下那一片。 */
 .seg {
   display: flex;
   gap: 2px;
   padding: 2px;
   background: var(--surface-2);
   border-radius: var(--radius-pill);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
+.seg::-webkit-scrollbar { display: none; }
+
+/* `white-space: nowrap` 是這一顆的整個重點，不要拿掉。
+
+   它是 `flex: 1 1 0`，而 flex item 的 `min-width` 預設是 `auto`
+   ＝ min-content。**中文可以逐字斷行，所以 min-content 是一個字寬** ——
+   少了 nowrap，容器一擠它就折成兩行，而且看起來像是「按鈕不夠長」。
+   左右留白 `--space-4` 是她要的「適當留白當緩衝」（2026-09-10）。
+
+   `flex: 1 1 0` 是**等寬**（`.kindpick` 那一段的註解就是在 opt out 這件事），
+   而 `min-width: max-content` 是它的地板：有位置的時候大家一樣寬，
+   真的擠不下時最長的那一顆先拿到它需要的寬度，整條橫捲。
+   兩條都在，才會既等寬又不折行。 */
 .seg__item {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: max-content;
   min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 var(--space-3);
+  white-space: nowrap;
+  padding: 0 var(--space-4);
   font: inherit;
   font-size: var(--text-xs);
   font-weight: 600;
@@ -6634,15 +6656,20 @@ summary {
   animation: hang-in var(--motion-fast) var(--ease-out);
 }
 
-/* 分段切換。兩顆貼在一起、共用一個底槽 —— 它講的是「同一件事的兩面」，
-   而不是兩個各自獨立的按鈕。 */
-.seg {
+/* 分段切換的**第二種**：縮到內容寬，兩顆貼在一起、共用一個底槽 ——
+   它講的是「同一件事的兩面」，而不是兩個各自獨立的按鈕。
+   底槽本身由上面的 `.seg` 給，這裡只寫「跟那一版不一樣的地方」。
+
+   ## 為什麼是修飾詞而不是另一份 `.seg`
+
+   2026-09-10 之前這裡真的是第二份 `.seg`，而它把上面那一份的 `display: flex`
+   安靜地蓋掉了（同權重、後面贏）。代價落在**另一版**身上：`.seg__item` 是
+   `flex: 1 1 0` + `min-width: auto`，而**中文的 min-content 是一個字** ——
+   容器一縮到內容寬，「依客戶」「還沒發連結」就被壓成兩行。
+   她的原話：「依客戶這三個字都被迫換行了」。`tests/css-shadowing.test.js` 盯著。 */
+.seg--tabs {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
   margin-bottom: var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
 }
 
 .seg__btn {
