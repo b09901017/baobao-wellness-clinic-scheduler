@@ -1,6 +1,6 @@
 # 10 另外三頁也改成「點哪一段就看哪一段」
 
-Status: todo
+Status: done
 Blocked by: 05, 06, 09
 動工前先讀：`.scratch/quieter-screens/spec.md`、`docs/adr/0080`、`docs/adr/0085`、`docs/adr/0056`
 

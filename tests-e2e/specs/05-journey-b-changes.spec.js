@@ -31,36 +31,34 @@ function seedConfirmedRehab() {
   ];
 }
 
-/** 從日曆打開那一筆來訪的編輯器。**這是唯一的入口**（ADR-0056）。 */
-async function openVisitEditor(app, page, date, visitId) {
+/** 日曆上點開那一筆來訪的讀取卡片。**這是唯一的入口**（ADR-0056）。 */
+async function openVisitCard(app, page, date, visitId) {
   await app.go('/calendar');
   await page.locator(`[data-day="${date}"]`).first().click();
   await app.layer(`[data-open^="visit:${visitId}:"]`);
   await page.locator(`[data-open^="visit:${visitId}:"]`).first().click();
   await app.layer('[data-card-edit]');
-  await page.locator('[data-card-edit]').click();
-  await app.layer('form[data-form]');
-  // 整筆的那幾顆（狀態、刪除）2026-09-09 收進一摺了（ADR-0085）——
-  // 她點的是一段，那幾顆動的是整天，混在欄位裡講不通。**收著不是藏著**：
-  // 藏起來會違反 ADR-0060（長按是捷徑，不是唯一的路）。
-  await openWholeVisitFold(page);
 }
 
-/** 把「這一天整筆的」那一摺打開。收著的時候底下那幾顆點不到。 */
-async function openWholeVisitFold(page) {
-  const fold = page.locator('details.advanced');
-  if (await fold.count() === 0) return;
-  if (await fold.first().getAttribute('open') === null) {
-    await fold.locator('summary').first().click();
-    await expect(fold.first()).toHaveAttribute('open', '');
-  }
+/**
+ * 打開**整天**那一張編輯器（狀態卡與危險區在裡面）。
+ *
+ * 2026-09-10 之前這裡走的是鉛筆＋把「這一天整筆的」那一摺點開。ADR-0088
+ * 把那一摺整塊拿掉了 —— 鉛筆開的是只有那一段的（ADR-0085），而整天那幾顆
+ * 搬到讀取卡片底下那一顆「改這一天」。**這裡要的是整天那一張**：
+ * 這幾支測的是「取消一整天會怎樣」。
+ */
+async function openDayEditor(app, page, date, visitId) {
+  await openVisitCard(app, page, date, visitId);
+  await page.locator('[data-edit-day]').click();
+  await app.layer('form[data-form]');
 }
 
 test('J-B1 從日曆取消一筆已確認的來訪 → 次數回補、產生「取消 Abovee」', async ({ app, page }) => {
   await app.seed(seedConfirmedRehab());
   await app.signIn('/');
 
-  await openVisitEditor(app, page, FUTURE, 'visit-a1');
+  await openDayEditor(app, page, FUTURE, 'visit-a1');
   await expect(page.locator('[data-status="cancelled"]')).toBeVisible();
 
   await page.locator('[data-cancel-reason]').fill('客人要改時間');
@@ -101,7 +99,7 @@ test('J-B2 沒勾掉的登記任務直接收走，勾掉的才變成「取消 X�
   ]);
   await app.signIn('/');
 
-  await openVisitEditor(app, page, FUTURE, 'visit-a1');
+  await openDayEditor(app, page, FUTURE, 'visit-a1');
   await page.locator('[data-status="cancelled"]').click();
   await app.ok();
   await app.saved();
@@ -120,14 +118,14 @@ test('J-B3 同一筆存兩次，取消任務只長一張', async ({ app, page })
   await app.seed(seedConfirmedRehab());
   await app.signIn('/');
 
-  await openVisitEditor(app, page, FUTURE, 'visit-a1');
+  await openDayEditor(app, page, FUTURE, 'visit-a1');
   await page.locator('[data-status="cancelled"]').click();
   await app.ok();
   await app.saved();
 
   // 再存一次（改一下備註）。**開不起來是預期之一**（那一筆已經取消了），
-  // 所以 catch 掉；開起來的話 `openVisitEditor()` 自己等到欄位出現。
-  await openVisitEditor(app, page, FUTURE, 'visit-a1').catch(() => {});
+  // 所以 catch 掉；開起來的話 `openDayEditor()` 自己等到欄位出現。
+  await openDayEditor(app, page, FUTURE, 'visit-a1').catch(() => {});
 
   const cancels = (await app.readAll('tasks'))
     .filter((t) => !t.deletedAt && t.kind === '取消 Abovee');
