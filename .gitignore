@@ -69,3 +69,6 @@ graphify-out/
 # 「這台機器怎麼開專案」，不是專案本身。她兩台裝置的設定本來就該各自不同，
 # 同 ADR-0055 對主題的判斷。
 .vscode/
+
+# agent 的 worktree（`.claude/worktrees/`）是另一個 git repo，不進版控
+.claude/worktrees/
