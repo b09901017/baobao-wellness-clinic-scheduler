@@ -16,6 +16,7 @@ import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import { candidatesFor, strongestReason, monthRange } from '../../domain/scheduling.js';
 import { offerSlotMessage } from '../../domain/messages.js';
+import { slotName } from '../../domain/naming.js';
 import { endOf, isValidTime } from '../../domain/visitTime.js';
 import { todayISO, addDays, shortDate, isValidDate } from '../../domain/dates.js';
 import { splitFlags } from '../../domain/customers.js';
@@ -178,10 +179,19 @@ async function load(date) {
 // ---------- 結果 ----------
 
 function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
+  const master = {
+    courses: ctx.all?.courses ?? [],
+    equipment: ctx.all?.equipment ?? [],
+    ivProducts: ctx.all?.ivProducts ?? [],
+  };
+  // 這一段是**假的** —— 那一格還沒有人補。`courseId` 一定要填：
+  // 少了它 `slotName(…, 'line')` 在主檔裡找不到課程、退回快照，
+  // 於是**貼給客人的 LINE 會寫「ILIB」而不是「靜脈雷射」**（ADR-0077）。
   const slot = {
     date: form.date,
     startsAt: form.startsAt,
     endsAt,
+    courseId: course.id,
     courseName: course.name,
   };
 
@@ -189,7 +199,9 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
     <section class="card">
       <h2 class="card__title">
         ${esc(shortDate(form.date))} ${esc(form.startsAt)}${endsAt ? `–${esc(endsAt)}` : ''}
-        ${esc(course.name)}
+        ${/* 抬頭是她自己看的，印那天做了什麼（`IL(60)`）；底下那則邀約訊息
+             是貼給客人的，印課程（`靜脈雷射`）。同一段兩種字（ADR-0078）*/
+          esc(slotName(slot, master, 'short'))}
         <span class="badge ${candidates.length ? 'badge--ok' : 'badge--overdue'}">
           ${candidates.length} 位可以補</span>
       </h2>
@@ -198,12 +210,12 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
         : '<p>沒有人補得上這一格。</p>'}
     </section>
 
-    ${candidates.map((row) => candidateCard(row, slot, ctx)).join('')}
+    ${candidates.map((row) => candidateCard(row, slot, ctx, master)).join('')}
 
     ${excluded.length ? excludedHtml(excluded) : ''}`;
 }
 
-function candidateCard(row, slot, ctx) {
+function candidateCard(row, slot, ctx, master) {
   const strongest = strongestReason(row);
 
   return `
@@ -240,11 +252,7 @@ function candidateCard(row, slot, ctx) {
         id: `offer-${row.customerId}`,
         text: offerSlotMessage({ name: row.customerName }, slot, {
           templates: ctx.templates ?? {},
-          master: {
-            courses: ctx.all?.courses ?? [],
-            equipment: ctx.all?.equipment ?? [],
-            ivProducts: ctx.all?.ivProducts ?? [],
-          },
+          master,
         }),
         collapsed: true,
         label: '先看一下邀約訊息',
