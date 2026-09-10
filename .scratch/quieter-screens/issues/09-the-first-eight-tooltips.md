@@ -1,6 +1,6 @@
 # 09 首波轉換：每天看得到的那八處
 
-Status: todo
+Status: done
 Blocked by: 08
 動工前先讀：`.scratch/quieter-screens/spec.md`、本目錄的 `08`
 

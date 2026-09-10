@@ -1,6 +1,6 @@
 # 08 說明改成點了才浮出來的小泡泡（元件本身）
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`
 
 ## 她要的

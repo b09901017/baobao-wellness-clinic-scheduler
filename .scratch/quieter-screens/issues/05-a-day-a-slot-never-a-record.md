@@ -1,6 +1,6 @@
 # 05 三個詞、三個意思：這一段、這一天，而「筆」不上畫面
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`、`docs/adr/0081`、`docs/adr/0083`、`docs/adr/0085`
 
 ## 她要的
