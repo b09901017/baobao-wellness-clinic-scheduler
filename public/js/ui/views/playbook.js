@@ -39,7 +39,8 @@ import {
   sanitizeLinePaste, describeCleanup, hasLineCodes, EMOJI_ROW,
 } from '../../domain/lineText.js';
 import * as f from '../components/form.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, chooseAction } from '../components/dialog.js';
+import { wireLongPress } from '../components/actions.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
 
@@ -53,6 +54,13 @@ let spy = null;
 
 /** 一張新的、還沒存進去的。id 用這個字串認得出來。 */
 const NEW_ID = '__new__';
+
+/**
+ * 「改到一半要不要存」那一道正在問。**Escape 會同時打到這一頁與對話框** ——
+ * 焦點還在輸入框裡時，keydown 先冒到這一頁、再冒到 document 上的對話框 ——
+ * 少了這一格就會連跳兩道一模一樣的框。
+ */
+let leaving = false;
 
 // ---------------------------------------------------------------------------
 // 進場
@@ -208,7 +216,10 @@ function cardHtml(p) {
     <article class="pbcard" data-card="${esc(p.id)}" tabindex="-1">
       <header class="pbcard__head">
         <h2 class="pbcard__title">${esc(titleOf(p))}</h2>
-        <button class="pbcard__edit" type="button" data-edit="${esc(p.id)}"
+        ${/* 點一下是改；**長按它變成紅色垃圾桶**，再點一下才跳刪除確認
+               （她 2026-09-10 要的）。那不是唯一的路 —— 編輯中右上角還有一顆
+               （ADR-0060：長按是捷徑，每一顆都要另外有一條點得到的路）。 */''}
+        <button class="pbcard__edit" type="button" data-edit="${esc(p.id)}" data-longpress
                 aria-label="改「${esc(titleOf(p))}」">${icon('pencil', { size: 18 })}</button>
       </header>
       ${names ? `<p class="pbcard__courses">${esc(names)}</p>` : ''}
@@ -221,6 +232,21 @@ function cardHtml(p) {
  *
  * **不換頁、不開抽屜。** 換頁會讓她失去「我正在看第三張」這件事，
  * 而那正是卡牌的全部價值。
+ *
+ * ## 存起來在右上角，底下沒有任何一排按鈕（2026-09-10）
+ *
+ * 她：「"存起來" 可以放在這個備忘錄的右上角就是原本鉛筆的地方」「取消也移除，
+ * 改成我點擊其他地方就會跳出儲存還是取消」「這樣拉長且下面那排清掉，希望讓
+ * 文字輸入框就可以大一點長一點」。
+ *
+ * 底下那一排（存起來／取消／刪掉）以前是**整張卡變矮的原因**：手機鍵盤一上來
+ * 可見高度掉到一半，而那一排一定要還在畫面上，所以 `.pbdeck[data-editing]`
+ * 被寫死成 62dvh —— 比讀的時候還矮。按鈕搬到頂端之後鍵盤推不走它，
+ * 那個天花板就沒有存在理由了。
+ *
+ * 存檔鈕在**最右邊**（鉛筆原本的位置），垃圾桶在它左邊而且是灰的 ——
+ * 兩顆中間留 16px，44px 的感應範圍才不會疊（疊到的那一段由後面那顆贏）。
+ * 新的那一份沒有垃圾桶：還沒存進去，沒有東西可以刪。
  */
 function editCardHtml(p) {
   const draft = ctx.editing.draft;
@@ -230,9 +256,16 @@ function editCardHtml(p) {
     <article class="pbcard pbcard--edit" data-card="${esc(p.id)}">
       <div class="errors" data-errors hidden></div>
 
-      <input class="pbedit__title" type="text" data-title maxlength="${MAX_TITLE}"
-             value="${esc(draft.title ?? '')}" placeholder="標題" aria-label="標題"
-             enterkeyhint="next" autocomplete="off" />
+      <div class="pbedit__head">
+        <input class="pbedit__title" type="text" data-title maxlength="${MAX_TITLE}"
+               value="${esc(draft.title ?? '')}" placeholder="標題" aria-label="標題"
+               enterkeyhint="next" autocomplete="off" />
+        ${isNew ? '' : `
+          <button class="pbedit__icon pbedit__icon--del" type="button" data-del
+                  aria-label="刪掉「${esc(titleOf(p))}」">${icon('trash', { size: 17 })}</button>`}
+        <button class="pbedit__icon pbedit__icon--save" type="button" data-save
+                aria-label="存起來">${icon('check', { size: 18, width: 2.2 })}</button>
+      </div>
 
       ${hangHtml(draft)}
 
@@ -241,14 +274,6 @@ function editCardHtml(p) {
                 rows="10">${esc(bodyOf(draft))}</textarea>
 
       ${emojiRowHtml()}
-
-      <div class="pbedit__actions">
-        <button class="btn btn--primary" type="button" data-save>存起來</button>
-        <button class="btn" type="button" data-cancel>取消</button>
-        ${isNew ? '' : `
-          <button class="btn btn--ghost pbedit__del" type="button" data-del>
-            ${icon('trash', { size: 16 })}刪掉</button>`}
-      </div>
     </article>`;
 }
 
@@ -358,11 +383,36 @@ function wire() {
     repaintStage();
   });
 
+  // Escape ＝ 點外面：沒改過直接收掉，改過才問。掛在 `page` 上而不是 document ——
+  // `page` 每次整頁重畫都是新節點，監聽跟著它一起消失，不會愈掛愈多。
+  page.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !ctx.editing) return;
+    e.preventDefault();
+    leaveEdit();
+  });
+
+  // 長按鉛筆 → 那一顆原地變成紅色垃圾桶。`wireLongPress()` 自己會吃掉放手那一下
+  // 的 click，所以不會同時進到編輯。
+  wireLongPress(page, '.pbcard__edit[data-edit]', (btn) => armDelete(btn));
+
   if (ctx.searchOpen) search?.focus();
   if (ctx.editing) mountEditor();
 }
 
 function onClick(e) {
+  // **編輯中點到那一張卡以外的地方 ＝ 要離開。** 這一下只負責「離開編輯」，
+  // 不順便做它原本會做的事（滑到別張、開搜尋）—— 先把手上這一張收好，
+  // 她再點一次就是了。反過來的話，存檔失敗的那一次她已經在看別張卡了。
+  if (ctx.editing && !e.target.closest('.pbcard--edit')) {
+    leaveEdit();
+    return undefined;
+  }
+
+  // 長按過的那一顆已經是紅色垃圾桶了：這一下是「刪掉」。點到別的地方就變回鉛筆。
+  const armed = e.target.closest('[data-armed="true"]');
+  if (armed) return removeOne(armed.dataset.edit);
+  disarm();
+
   const goto = e.target.closest('[data-goto]');
   if (goto) return focusCard(goto.dataset.goto);
 
@@ -371,8 +421,7 @@ function onClick(e) {
 
   if (e.target.closest('[data-new]')) return addOne();
   if (e.target.closest('[data-save]')) return saveEditing();
-  if (e.target.closest('[data-cancel]')) return cancelEdit();
-  if (e.target.closest('[data-del]')) return removeEditing();
+  if (e.target.closest('[data-del]')) return removeOne(ctx.editing?.id);
   if (e.target.closest('[data-search-toggle]')) return toggleSearch();
   return undefined;
 }
@@ -682,8 +731,93 @@ function cancelEdit() {
   if (back) focusCard(back, 'auto');
 }
 
-async function removeEditing() {
-  const p = ctx.rows.find((x) => x.id === ctx.editing?.id);
+/**
+ * 畫面上打的跟打開時的不一樣嗎。
+ *
+ * 比的是**她看得到的那幾格**：標題、內文（`bodyOf()` 就是塞進輸入框的那一份，
+ * 它會 trim，所以這邊也 trim —— 不然尾巴多一個換行就被當成改過）、掛了哪些
+ * 課程與機構。新的那一份跟「什麼都沒有」比：按了右下角那顆、一個字都沒打就點
+ * 外面，不該跳一道框問她要不要存一份空的。
+ */
+function isDirty() {
+  if (!ctx.editing) return false;
+  const now = readEditor();
+  const was = ctx.editing.id === NEW_ID
+    ? { title: '', body: '', courseIds: [], partners: [] }
+    : ctx.rows.find((x) => x.id === ctx.editing.id) ?? {};
+  const same = (a = [], b = []) => a.length === b.length && a.every((x) => b.includes(x));
+  return String(now.title ?? '') !== String(was.title ?? '')
+    || String(now.body ?? '').trim() !== bodyOf(was)
+    || !same(now.courseIds ?? [], was.courseIds ?? [])
+    || !same(now.partners ?? [], was.partners ?? []);
+}
+
+/**
+ * 點外面、按 Escape：要離開編輯了。
+ *
+ * **沒改過就直接收掉，一句話都不問。** 每點一次外面都跳一道框，比留一顆
+ * 「取消」還煩 —— 而她拿掉「取消」就是為了少一件事。
+ *
+ * 改過才問，而且是**三選一**：存起來、不要了、或者把框關掉（Escape、返回鍵、
+ * 點背景）＝ 繼續改。最後那一種不可以被當成「不要了」—— 一個誤觸的返回手勢
+ * 會把她打了半天的字丟掉，所以這裡不能用 `confirmAction()` 的 true/false。
+ */
+async function leaveEdit() {
+  if (leaving) return;
+  if (!isDirty()) {
+    cancelEdit();
+    return;
+  }
+  leaving = true;
+  try {
+    const pick = await chooseAction({
+      title: '這一份改到一半',
+      consequences: [
+        '存起來：卡片上就是剛剛打的字。',
+        '不要了：回到按鉛筆之前的樣子，剛剛打的字不會留下來。',
+      ],
+      choices: [
+        { key: 'discard', label: '不要了' },
+        { key: 'save', label: '存起來', tone: 'primary' },
+      ],
+    });
+    if (pick === 'save') await saveEditing();
+    else if (pick === 'discard') cancelEdit();
+    // null：她把框關掉了 —— 繼續改，什麼都不動
+  } finally {
+    leaving = false;
+  }
+}
+
+/** 長按那一下：鉛筆原地換成紅色垃圾桶。**只換那一顆，整疊不重畫**（ADR-0038）。 */
+function armDelete(btn) {
+  if (ctx.editing) return;
+  disarm();
+  const p = ctx.rows.find((x) => x.id === btn.dataset.edit);
+  if (!p) return;
+  btn.dataset.armed = 'true';
+  btn.classList.add('pbcard__edit--armed');
+  btn.setAttribute('aria-label', `刪掉「${titleOf(p)}」`);
+  btn.innerHTML = icon('trash', { size: 18 });
+}
+
+/** 變回鉛筆。點到別的地方、刪除確認按了「取消」都走這一支。 */
+function disarm() {
+  for (const btn of ctx.el.querySelectorAll('[data-armed="true"]')) {
+    const p = ctx.rows.find((x) => x.id === btn.dataset.edit);
+    delete btn.dataset.armed;
+    btn.classList.remove('pbcard__edit--armed');
+    btn.setAttribute('aria-label', `改「${titleOf(p)}」`);
+    btn.innerHTML = icon('pencil', { size: 18 });
+  }
+}
+
+/**
+ * 刪掉一份。**兩條路共用這一支**：編輯中右上角那顆垃圾桶、讀的時候長按鉛筆
+ * 變出來的那一顆（ADR-0060）。兩份寫法的話，確認框上那兩句後果遲早有一邊漏改。
+ */
+async function removeOne(id) {
+  const p = ctx.rows.find((x) => x.id === id);
   if (!p) return;
 
   const ok = await confirmAction({
@@ -695,7 +829,10 @@ async function removeEditing() {
     confirmLabel: '刪掉',
     danger: true,
   });
-  if (!ok) return;
+  if (!ok) {
+    disarm();
+    return;
+  }
 
   try {
     await toast.withSaveState(() => playbooksData.remove(p.id, '在備忘錄裡刪掉'), {

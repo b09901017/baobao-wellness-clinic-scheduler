@@ -6419,7 +6419,9 @@ summary {
      底下留半個螢幕的空白，而那半個螢幕什麼都沒有在講。
      `stretch` 讓同一疊裡的每一張一樣高（照最長的那一張），
      再長就在卡片裡面捲。 */
-  max-height: 72dvh;
+  /* 78 不是 72（2026-09-10）：她「希望可以預設那個備忘錄可以長一點」。
+     抬頭、丸子那一排、圓點加起來大約 130px，在 667px 高的手機上也還放得下。 */
+  max-height: 78dvh;
   padding: 2px var(--gutter) var(--space-3);
   overflow-x: auto;
   overflow-y: hidden;
@@ -6440,7 +6442,11 @@ summary {
  * 有了確定的高度，卡片裡每一項都放得下，只有內文那一格在裡面捲。 */
 .pbdeck[data-editing='true'] {
   scroll-snap-type: none;
-  height: min(62dvh, 560px);
+  /* **跟讀的那一面同一個上限，不再比它矮**（2026-09-10）。
+     以前是 `min(62dvh, 560px)`，理由是底下那一排「存起來／取消／刪掉」在鍵盤
+     上來之後一定要還在畫面上。那一排搬到卡片頂端之後鍵盤推不走它 ——
+     她看到的「我點鉛筆修改的時候他就會變短」就是那個舊天花板。 */
+  height: 78dvh;
   max-height: none;
 }
 
@@ -6525,6 +6531,20 @@ summary {
 .pbcard__edit:active {
   transform: scale(0.94);
   background: var(--surface-2);
+}
+
+/* 長按之後：同一顆變成紅色垃圾桶，再點一下才跳刪除確認（2026-09-10）。
+   顏色全部是現成的 token（`--overdue-bg` 淺色深色兩份都有，ADR-0055）。 */
+.pbcard__edit--armed {
+  border-color: var(--danger);
+  background: var(--overdue-bg);
+  color: var(--danger);
+  animation: pbedit-arm var(--motion-base) var(--ease-out);
+}
+
+@keyframes pbedit-arm {
+  from { transform: scale(0.8); }
+  to   { transform: scale(1); }
 }
 
 .pbcard__courses {
@@ -6690,8 +6710,10 @@ summary {
 }
 
 .pbedit__title {
-  width: 100%;
-  margin-bottom: var(--space-3);
+  /* 跟垃圾桶、存檔鈕排在同一行（`.pbedit__head`），吃掉剩下的寬度 */
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   padding: var(--space-2) 0;
   border: none;
   border-bottom: 1px solid var(--border);
@@ -6824,16 +6846,61 @@ summary {
   background: var(--surface-2);
 }
 
-.pbedit__actions {
+/* 編輯中那一張的頂端：標題、垃圾桶、存檔鈕一行（2026-09-10）。
+   `.pbcard--edit > *` 的 `flex: none` 也管到它 —— 它不准被壓扁。
+
+   `gap` 是 16px 不是 8px：兩顆 32px 的按鈕各自用 `::after` 往外撐 6px 到 44，
+   中間少於 12px 兩個感應範圍就會疊，而疊到的那一段由後面那顆贏 ——
+   手指按在垃圾桶的右緣，跳出來的會是「存起來」。 */
+.pbedit__head {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
-.pbedit__del {
-  margin-left: auto;
-  color: var(--danger);
+/* 跟讀的那一面的鉛筆同一個尺寸與手感，換的只是顏色 —— 她的原話是
+   「點修改之後，就可以變成用儲存的那個 icon」，所以它要長得像「同一顆變了」。 */
+.pbedit__icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+
+.pbedit__icon::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.pbedit__icon:active {
+  transform: scale(0.94);
+}
+
+.pbedit__icon--save {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 刪掉的第二條路（ADR-0060）。**刻意低調**：沒有框、灰色 ——
+   它跟存檔鈕並排，長得一樣搶眼的話她存檔時會猶豫一下。 */
+.pbedit__icon--del {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-mute);
 }
 
 .pbempty {
