@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
-  INITIAL_STATUS, describeStatus, statusClass, nextStatuses, isLocked, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, statusForCard, nextStatuses, isLocked, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, editorTarget, slotNoteOf,
   applyStatus, NOTE_MAX,
@@ -255,6 +255,18 @@ function paint(ctx, draft) {
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   const wholeVisit = !isNew && !ctx.editSlots;
 
+  // **抬頭那顆 badge 印她正在改的那一段的狀態**（ADR-0085）。
+  //
+  // 她 2026-09-10：「日曆新增來訪為什麼會出現這一天整筆的，下面那個狀態
+  // 應該是這個時段的吧？」—— 整筆那一個是**推導出來的**（`visitStatusFrom()`），
+  // 所以她把一段沒問過客人的併進一筆已確認的來訪時，抬頭會退回「待確認」，
+  // 而她點進來改的那一段早上就談定了。
+  //
+  // 只畫一段的時候才印那一段的；整筆都在畫面上（或新增好幾段）時印整筆的
+  // —— 那時候「這一段」沒有答案，挑一個就是在猜。
+  const headSlot = ctx.editSlots?.length === 1 ? ctx.editSlots[0] : null;
+  const headStatus = statusForCard(draft, headSlot);
+
   const { errors } = validateVisit(draft, {
     customer,
     entitlements,
@@ -274,7 +286,7 @@ function paint(ctx, draft) {
     <section class="card ${embedded ? 'card--bare' : ''}">
       <div class="row__title">
         ${esc(customer.name)}
-        <span class="badge ${statusClass(draft.status)}">${esc(describeStatus(draft.status))}</span>
+        <span class="badge ${statusClass(headStatus)}">${esc(describeStatus(headStatus))}</span>
         ${flagsUi.detailChips(splitFlags(customer, all.clinicalFlags), { rows: all.clinicalFlags })}
       </div>
       ${/* **提醒那一塊不在這裡了**（2026-09-09）。她的原話：「所以新增來訪的
@@ -322,22 +334,20 @@ function paint(ctx, draft) {
       </section>
     </form>
 
-    ${/* **整筆的那幾顆收進一摺，但不可以拿掉。**
-           她點一段進來改的時候，「取消這一筆來訪」跟那幾格欄位混在一起是
-           講不通的 —— 那一顆動的是那一天全部（她 2026-09-08：「而不是讓我
-           還可以…修其他時段的東西」）。
+    ${/* **只改一段的時候，整筆的那幾顆一個都不畫**（ADR-0085，2026-09-10）。
 
-           但**藏起來就違反 ADR-0060**：長按選單是捷徑，不是唯一的路，
-           而取消整天與刪除這一筆在別的地方點不到。收進一摺兩件事都成立
-           —— 走的是這個樣式表既有的 `.advanced`。 */''}
-    ${isNew ? '' : `
-      <details class="advanced" ${wholeVisit ? 'open' : ''}>
-        <summary class="advanced__head">這一天整筆的</summary>
-        <div class="advanced__body">
-          ${statusCard(draft, embedded)}
-          ${dangerZone(embedded)}
-        </div>
-      </details>`}`;
+           那一支 ADR 白紙黑字寫「帶了 slotIndex 就沒有整筆的狀態卡與危險區」，
+           但程式一直只是把它們收進一摺（`<details>` 不加 open）。摺起來不算
+           拿掉：她點一段進來改，畫面最底下卻有一顆「取消這一天」與一顆「刪除」
+           —— 那兩顆動的是那一天全部，而她剛剛點的是早上那一段。
+
+           **第二條路在日曆的讀取卡片上**：那張卡片底下多一顆「改這一天」
+           （`calendar.js` 的 `openDetail()`），按下去開的就是這一張整天的。
+           所以 ADR-0060（長按是捷徑，不是唯一的路）照樣成立，而那一支
+           ADR 一個字都沒有改。 */''}
+    ${wholeVisit ? `
+      ${statusCard(draft, embedded)}
+      ${dangerZone(embedded)}` : ''}`;
 
   el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -405,8 +415,11 @@ function paint(ctx, draft) {
   if (ctx.submitted) f.showErrors(el, errors);
 
   if (locked) wireUnlock(ctx, draft);
-  if (!isNew && !locked) wireStatus(ctx, draft);
-  if (!isNew) wireDangerZone(ctx, draft);
+  if (wholeVisit && !locked) wireStatus(ctx, draft);
+  // **畫出來了才接。** 只改一段時那一塊整個不 render（ADR-0085），
+  // 而 `wireDangerZone()` 裡面是 `querySelector('[data-delete]')` 直接接 ——
+  // 接在 null 上會讓整頁停在「載入中…」，一句錯誤訊息都沒有。
+  if (wholeVisit) wireDangerZone(ctx, draft);
 }
 
 

@@ -37,12 +37,14 @@ import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
-import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../domain/visits.js';
+import {
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard,
+} from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
 import { tip } from '../components/tip.js';
-import { visitReadHtml } from './calendar.js';
+import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
 import { messagesFor } from '../../domain/messages.js';
@@ -1759,13 +1761,15 @@ function wireEntitlementDanger(ctx, record) {
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
  */
-function openVisitCard(ctx, visitId) {
+function openVisitCard(ctx, visitId, focus = null) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
 
   openCard({
     title: shortDate(visit.date),
-    subtitle: esc(describeStatus(visit.status)),
+    // 整筆那一個是**推導出來的**：加一段沒問過客人的進去就會退回「待確認」，
+    // 而她點的可能是早上那段已經談定的（ADR-0085）。
+    subtitle: esc(describeStatus(statusForCard(visit, focus))),
     // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
     // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
     body: visitReadHtml(visit, {
@@ -1780,7 +1784,14 @@ function openVisitCard(ctx, visitId) {
       entitlementsById: byId(ctx.entitlements ?? []),
       tasks: ctx.tasks ?? [],
       today: todayISO(),
+      // **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁列的是
+      // 整筆來訪，所以第一張沒帶 —— 那時候每一段自己是一列，點下去用同一支
+      // 再開一張只有那一段的。
+      focusSlot: focus,
     }),
+    // 這一頁不走 `fillMirror()`，所以 body 不會重畫 —— 接一次就夠。
+    // 走 `onMount` 是為了跟另外兩頁同一種寫法（那兩頁會重畫）。
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openVisitCard(ctx, visitId, i)),
   });
 }
 

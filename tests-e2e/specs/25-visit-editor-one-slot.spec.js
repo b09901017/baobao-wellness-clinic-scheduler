@@ -145,11 +145,18 @@ test('V1 鉛筆進來只有那一段，而且沒有「＋新增一個時段」',
     '改一段時不給加新的 —— 她點進來要改的就是這一段',
   ).toHaveCount(0);
 
-  // 整筆那幾顆**不可以拿掉**（ADR-0060：長按是捷徑，不是唯一的路），
-  // 但要收在一摺裡、預設收著 —— 跟這一段的欄位混在一起是講不通的。
-  const fold = page.locator('details.advanced');
-  await expect(fold, '整筆那幾顆要留著').toHaveCount(1);
-  await expect(fold, '但改一段時預設收著').not.toHaveAttribute('open', /.*/);
+  // 整筆那幾顆**一個都不畫**（ADR-0088，2026-09-10）。
+  //
+  // 2026-09-09 的第一版是收在一摺裡、預設收著 —— 理由是 ADR-0060
+  //（長按是捷徑，不是唯一的路），而那兩顆在別的地方點不到。但 ADR-0085
+  // 寫的是「沒有整筆的狀態卡與危險區」，而**摺著不算沒有**：她點早上那一段
+  // 進來改，畫面最底下照樣有一顆動整天的取消和一顆刪除。
+  //
+  // 第二條路搬到日曆讀取卡片底下那一顆「改這一天」（`[data-edit-day]`），
+  // 由 `tests-e2e/specs/27-read-card-one-slot.spec.js` 盯著它真的開得出整天那一張。
+  await expect(page.locator('details.advanced'), '摺起來不算拿掉').toHaveCount(0);
+  await expect(page.locator('[data-status]'), '狀態按鈕動的是整天').toHaveCount(0);
+  await expect(page.locator('[data-delete]'), '刪除動的也是整天').toHaveCount(0);
 
   // 那顆 × 在**存過的**段上是「取消」不是「移除」（ADR-0081）
   await expect(page.locator('[data-cancel-slot="1"]'), '存過的那一段：取消').toHaveCount(1);

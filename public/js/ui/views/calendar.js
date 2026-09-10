@@ -651,6 +651,35 @@ function parseOpen(value) {
 }
 
 /**
+ * 讀取卡片上那幾列的接線。**另外三頁用的**（客戶詳情、待辦中心、進度追蹤）
+ * —— 它們列的是整筆來訪，所以 `visitReadHtml()` 會把每一段畫成可以點的一列
+ * （ADR-0080），而點下去要重開一張只有那一段的卡片。
+ *
+ * 日曆自己不用它：那條路進來就帶著 `slotIndex`，卡片上本來就只有一段。
+ *
+ * **接線在這裡而不是那三頁各寫一份**，理由跟 `parseOpen()` 只有一支一樣：
+ * 三份 `split(':')` 遲早有一份忘了取第三格，而症狀是「點下去看到整天」——
+ * 那正是這一支要修掉的 bug。`tests/read-card-one-slot.test.js` 盯著。
+ *
+ * 卡片每重畫一次（`fillMirror()` 補上任務與額度）都要重掛：`card.update()`
+ * 換掉整塊 body，舊節點連同監聽一起沒了。所以呼叫端接的是 `openCard()` 的
+ * `onMount` —— 它在開的時候與每一次 `update()` 之後都會被呼叫。
+ *
+ * @param {HTMLElement} cardEl `openCard()` 給的那個 `.popcard`
+ * @param {(slotIndex: number) => void} onPick
+ */
+export function wireReadSlots(cardEl, onPick) {
+  cardEl?.querySelectorAll('.readslot[data-open]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const hit = parseOpen(btn.dataset.open);
+      // 認不出是哪一段就什麼都不做。**不要退回「開整天」** —— 那是她
+      // 剛剛點這一列想擺脫的東西。
+      if (hit && Number.isInteger(hit.slotIndex)) onPick(hit.slotIndex);
+    }),
+  );
+}
+
+/**
  * 點一天，從底部滑出那一天的內容。**月曆整片留在原地**。
  *
  * 原本點一天是整頁切到日檢視 —— 那等於把「我在看八月」這個脈絡整個換掉，
@@ -860,12 +889,25 @@ function openDetail(el, data, hit, date, repaint) {
     return paint();
   };
 
+  // 「改這一天」。**只有日曆有**（ADR-0056），跟備忘錄那一塊同一個理由。
+  //
+  // 它是 2026-09-10 拿掉來訪編輯器那一摺「這一天整筆的」之後補上的第二條路
+  // （ADR-0060：長按是捷徑，不是唯一的路）。摺起來不算拿掉 —— ADR-0085
+  // 白紙黑字寫「帶了 slotIndex 就沒有整筆的狀態卡與危險區」，而那一摺
+  // 就長在那裡。所以那兩件事搬到這裡：按下去開的是**沒有 slotIndex** 的
+  // 編輯器，也就是整天那一張（日期、全部時段、狀態卡、刪除）。
+  //
+  // 鉛筆那顆仍然是「改這一段」，兩顆分得開才講得清楚範圍（ADR-0087）。
+  const editDay = `
+    <button class="btn" type="button" data-edit-day>改這一天</button>`;
+
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
     subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
     // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
     // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
     body: html(undefined),
+    actions: editDay,
     canEdit: true,
     onEdit: () => {
       closeCard();
@@ -875,6 +917,16 @@ function openDetail(el, data, hit, date, repaint) {
         kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: focus,
       });
     },
+  });
+
+  // **接一次就好，不要走 `onMount`。** 那一顆長在 `.popcard__actions` 裡，
+  // 而 `card.update()`（`fillMirror()` 補上任務時）只換 body —— 這個節點
+  // 活得比每一次重畫久，掛進 onMount 會每重畫一次多一組監聽。
+  card.el.querySelector('[data-edit-day]')?.addEventListener('click', () => {
+    closeCard();
+    openEditor(el, data, {
+      kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: null,
+    });
   });
 
   fillMirror(card, visit, html);
@@ -1422,9 +1474,18 @@ function openNoteEditor(el, data, spec) {
  *          coursesById?:object, today?:string, focusSlot?:number|null}} data
  */
 export function visitReadHtml(visit, data) {
-  const { slots } = slotsToShow(visit, data?.focusSlot ?? null);
+  const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null);
+  // **她已經指名那一段的時候，那一列點不下去**：卡片上就是那一段，
+  // 再點一次只會重開一張一模一樣的。同一天只有一段的時候也一樣 ——
+  // 那時候「這一天」與「這一段」是同一件事（`visitStatusFrom()` 直接抄它），
+  // 給一個什麼都不會變的點擊區只會讓她以為自己漏看了什麼。
+  //
+  // 「點不點得下去」跟著 `slotsToShow()` 的 `focused` 走，**不要另外推一次**
+  //（例如問 `data.focusSlot` 是不是整數）—— 指到一個不存在的段落時那一支
+  // 會退回全部，而自己推的那一份會以為只有一段。
+  const tappable = !focused && slots.length > 1;
   return `
-    ${slots.map(({ slot: s }) => {
+    ${slots.map(({ slot: s, index }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
       // 這一張卡片也是「她自己看」的地方。沒設簡寫就退回全名。
       //
@@ -1435,8 +1496,15 @@ export function visitReadHtml(visit, data) {
         : null;
       const therapist = data.staffById[s.therapistId]?.name ?? null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
+      // 點得下去的那一種畫成按鈕，`data-open` 的格式跟日／週那一列**一模一樣**
+      // —— 接線那一側走的是同一支 `parseOpen()`（`wireReadSlots()`），
+      // 四頁四份 `split(':')` 遲早有一份忘了取第三格（ADR-0080）。
+      const tag = tappable ? 'button' : 'div';
+      const attrs = tappable
+        ? ` type="button" data-open="visit:${esc(visit.id)}:${index}"`
+        : '';
       return `
-        <div class="readslot">
+        <${tag} class="readslot${tappable ? ' readslot--tap' : ''}"${attrs}>
           <div class="readslot__when num">${esc(timeLabel(s))}</div>
           ${/* **那天真的做了什麼**：她點的是四選一，這裡要寫「SIS(60)」——
                 跟月曆同一種寫法（2026-09-08 她選的）。底下那一行「扣 …」寫的
@@ -1445,7 +1513,7 @@ export function visitReadHtml(visit, data) {
           <div class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</div>
           ${fromLine(s, data)}
-        </div>`;
+        </${tag}>`;
     }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
 
 

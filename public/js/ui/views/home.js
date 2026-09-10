@@ -21,7 +21,7 @@ import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
-  visitCourseLabel, describeConfirmed, applyConfirmation, NOTE_MAX,
+  visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -70,7 +70,7 @@ import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
-import { visitReadHtml } from './calendar.js';
+import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
 
 const esc = f.esc;
@@ -1179,8 +1179,15 @@ async function loadWhoDetails(ctx) {
   d.sheet.update(whoBodyHtml(ctx));
 }
 
-/** 抽屜裡那顆「詳情 ›」。**唯讀，沒有鉛筆**（ADR-0056）。 */
-function openWhoVisit(visitId) {
+/**
+ * 抽屜裡那顆「詳情 ›」。**唯讀，沒有鉛筆**（ADR-0056）。
+ *
+ * **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁點的是人名，
+ * 列的是整筆來訪，所以第一張沒帶 `focus` —— 那時候每一段自己是一列，
+ * 點下去用同一支再開一張只有那一段的。她 2026-09-10 指名要留先看到
+ * 「那一天有哪幾段 ＋ 那一天的待辦」這一層。
+ */
+function openWhoVisit(visitId, focus = null) {
   const d = whoDrawer;
   const visit = d?.visits?.get(visitId);
   if (!visit) {
@@ -1198,12 +1205,17 @@ function openWhoVisit(visitId) {
     coursesById: byId(d.master?.courses ?? []),
     tasks,
     today: todayISO(),
+    focusSlot: focus,
   });
   // 先畫，那一場的待辦讀回來再補進去（`fillMirror()` 的檔頭）
   fillMirror(openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
-    subtitle: esc(describeStatus(visit.status)),
+    // 整筆那一個是推導出來的 —— 加一段沒問過客人的進去就會退回「待確認」，
+    // 而她點的可能是早上那段已經談定的（ADR-0085）。
+    subtitle: esc(describeStatus(statusForCard(visit, focus))),
     body: html(undefined),
+    // 每重畫一次都要重掛：`card.update()` 換掉整塊 body，舊節點連同監聽一起沒了。
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openWhoVisit(visitId, i)),
   }), visit, html);
 }
 
@@ -2094,7 +2106,7 @@ function taskRow(t, today) {
  * 她在這一頁做的事是「去 Examine 掛號」，不是改班（她的原話：「不懂什麼情況
  * 點完詳情進去後會需要修改？」）。要改一筆來訪只有日曆一個入口，見 ADR-0056。
  */
-function openTaskVisit(visitId) {
+function openTaskVisit(visitId, focus = null) {
   const visit = taskVisits?.visits.get(visitId);
   if (!visit) {
     // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
@@ -2114,11 +2126,15 @@ function openTaskVisit(visitId) {
     coursesById: byId(taskVisits.master?.courses ?? []),
     tasks,
     today: todayISO(),
+    // 沒帶就是那一天全部，而每一段自己是一列（ADR-0080）。同 `openWhoVisit()`。
+    focusSlot: focus,
   });
   fillMirror(openCard({
     title: `${visit.customerName ?? ''}・${shortDate(visit.date)}`,
-    subtitle: esc(describeStatus(visit.status)),
+    // 整筆那一個是推導出來的（ADR-0085），同 `openWhoVisit()` 那一段的說明。
+    subtitle: esc(describeStatus(statusForCard(visit, focus))),
     body: html(undefined),
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openTaskVisit(visitId, i)),
   }), visit, html);
 }
 

@@ -368,28 +368,32 @@ describe('點一列＝點那一段', () => {
     );
   });
 
-  test('四個接線的地方都走 parseOpen()，沒有人自己 split', () => {
+  // 2026-09-10 多了第五個：讀取卡片上那幾列（`wireReadSlots()`）。
+  // 另外三頁列的是整筆來訪，所以那一支把每一段畫成可以點的一列 ——
+  // 接線走的是**同一支** `parseOpen()`，見 `tests/read-card-one-slot.test.js`。
+  test('五個接線的地方都走 parseOpen()，沒有人自己 split', () => {
     const src = read('js/ui/views/calendar.js');
     const parsed = src.match(/parseOpen\(btn\.dataset\.open\)/g) ?? [];
-    assert.equal(parsed.length, 4,
-      '抽屜點一下／抽屜長按／週日點一下／週日長按，四個都要走 parseOpen()');
+    assert.equal(parsed.length, 5,
+      '抽屜點一下／抽屜長按／週日點一下／週日長按／讀取卡片那幾列，'
+      + '五個都要走 parseOpen()');
     assert.equal(
       (src.match(/dataset\.open\.split\(/g) ?? []).length, 0,
       '有人自己 split data-open —— 那一份遲早會忘了取第三格',
     );
   });
 
+  // **這一條 2026-09-10 反過來了。**
+  //
+  // 以前它釘的是「另外三頁列的是整筆來訪，不該帶 focusSlot」—— 那句話在
+  // 2026-09-08 是對的，但她 2026-09-10 說「我還是希望大部分都先改成呈現
+  // 這一段的詳情而不是這一整天的」。三頁現在都帶得出來（沒帶＝那一天全部，
+  // 而每一段自己是一列），細節在 `tests/read-card-one-slot.test.js`。
   test('讀取卡片收得到 focusSlot，而且沒帶就是全部', () => {
     const src = read('js/ui/views/calendar.js');
     assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
-    // 另外三頁（客戶詳情、待辦中心、進度追蹤）共用這一支，它們一個字都不改
-    for (const rel of ['js/ui/views/customerDetail.js', 'js/ui/views/home.js',
-      'js/ui/views/progress.js']) {
-      assert.equal(
-        read(rel).includes('focusSlot'), false,
-        `${rel} 列的是整筆來訪，不該帶 focusSlot`,
-      );
-    }
+    assert.match(src, /const tappable = !focused && slots\.length > 1;/,
+      '沒指定哪一段的時候，每一段要是可以點的一列');
   });
 });
 

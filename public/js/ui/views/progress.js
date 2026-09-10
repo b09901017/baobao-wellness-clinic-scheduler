@@ -12,12 +12,14 @@ import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import { buildProgress, PROGRESS_STATUSES } from '../../domain/progress.js';
-import { statusClass, shortStatus, markFor, describeStatus } from '../../domain/visits.js';
+import {
+  statusClass, shortStatus, markFor, describeStatus, statusForCard,
+} from '../../domain/visits.js';
 import { monthRange } from '../../domain/scheduling.js';
 import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { openCard } from '../components/card.js';
-import { visitReadHtml } from './calendar.js';
+import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
@@ -292,16 +294,35 @@ function wire(ctx, data, visits) {
   ctx.el.querySelectorAll('[data-visit]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const visit = visits.find((v) => v.id === btn.dataset.visit);
-      if (!visit) return;
-      // canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
-      // 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
-      const html = (tasks, extra = {}) => visitReadHtml(visit, { ...ctx, ...extra, tasks });
-      fillMirror(openCard({
-        title: visit.customerName ?? '（沒有名字）',
-        subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(visit.status))}`,
-        body: html(undefined),
-        canEdit: false,
-      }), visit, html);
+      if (visit) openVisitCard(ctx, visit);
     }),
   );
+}
+
+/**
+ * 那一筆的讀取卡片。**先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。
+ *
+ * 她 2026-09-10：「我還是希望大部分都先改成呈現這一段的詳情而不是這一整天的」。
+ * 這一頁列的是整筆來訪，所以第一張卡片沒有 `focusSlot` —— 那時候
+ * `visitReadHtml()` 把每一段畫成可以點的一列，點下去就用同一支再開一張
+ * 只有那一段的（`focus` 帶進去）。她指名要留的那一層（先看到那一天有哪幾段
+ * ＋ 那一天的待辦）就是沒帶 `focus` 的那一張。
+ *
+ * 副標走 `statusForCard()`：整筆那一個是**推導出來的**，她加一段沒問過客人的
+ * 進去就會退回「待確認」，而她點的可能是早上那段已經談定的（ADR-0085）。
+ *
+ * canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
+ * 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
+ */
+function openVisitCard(ctx, visit, focus = null) {
+  const html = (tasks, extra = {}) =>
+    visitReadHtml(visit, { ...ctx, ...extra, tasks, focusSlot: focus });
+  fillMirror(openCard({
+    title: visit.customerName ?? '（沒有名字）',
+    subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
+    body: html(undefined),
+    canEdit: false,
+    // 每重畫一次都要重掛：`card.update()` 換掉整塊 body，舊節點連同監聽一起沒了。
+    onMount: (cardEl) => wireReadSlots(cardEl, (i) => openVisitCard(ctx, visit, i)),
+  }), visit, html);
 }
