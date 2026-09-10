@@ -1,8 +1,13 @@
 # 接手這一輪：讓畫面安靜下來
 
 規格在 `spec.md` 與 `issues/` 那十支。這一份只記**做到哪**。
-**這一份只放在 `claude/quieter-screens-layout`（PR #97）這一支上**（見「記帳」）。
-最後更新：2026-09-10（第二個帳號收工時）
+最後更新：2026-09-10（十支全部做完）
+
+## 這一輪收工了
+
+十支 issue 的 `Status:` 全部是 `done`。#97～#101 都合進 develop、#102 上了正式。
+最後一支（10）在 `claude/read-card-one-slot`，PR 見下。收尾三件事也做完了：
+`CLAUDE.md` 的連動表補了六條、`SPEC.md` 第 4.4 節跟著改、補了 ADR-0088。
 
 ## 狀態一覽
 
@@ -13,11 +18,26 @@
 | 07 備忘錄編輯 | ✅ 相關 E2E 66 全過 | #99 `claude/memo-editor-taller` | v113 |
 | 05 用詞統一 | ✅ 相關 E2E 182 過（1 flaky 是 Google Fonts 網路，與改動無關） | #100 `claude/day-slot-words` | v115 |
 | 08＋09 Tooltip | ✅ 全量 E2E 205 過；那 1 支 flaky（T2）是**真 bug**，修正與 T4 已補在同一支，驗證結果見 #101 的留言 | #101 `claude/tooltip-component` | v114 |
-| 10 讀取卡片單段化 | ⬜ **下一個 session 做** | | |
+| 10 讀取卡片單段化 | ✅ 相關 E2E 全過（新增 `27-read-card-one-slot`，5 支） | `claude/read-card-one-slot` | v117 |
 
 每一支 PR 的內文都有她可以照順序點的手動驗收清單。
 
-## 接手第一件事
+## 這一輪學到的（10 那一支）
+
+- **develop 上有一支 E2E 連 parse 都過不了**：`15-playbook.spec.js` 裡
+  `'三樓報到
+改成四樓'` 的反斜線在寫檔的路上被吃掉，變成字串中間一個真的換行。
+  症狀是**整個 run 一支都沒跑**（不是「15 紅」），而單元測試全綠、
+  沒有人在那個目錄跑 `node --check`。c4c3eff（#99）帶進來的，已修（`5d7cbd7`）。
+- **`scripts/e2e.mjs --related` 比的是本機的 `develop` ref**，不是 `origin/develop`。
+  本機那一支停在幾天前的話它會說「62 個檔案 → 全跑」。動工前
+  `git branch -f develop origin/develop`。
+- **舊的斷言又把待修的行為寫成預期**，這一輪第三次了：
+  `calendar.test.js` 釘著「另外三頁不該帶 `focusSlot`」、
+  `visit-editor.test.js` 釘著「那一摺要在」、`05` 與 `19` 兩支 E2E 各自
+  寫了「把那一摺點開」的 helper。改之前先問它斷言的是不是她要改掉的行為。
+
+## 已經做完的：合併（留著當紀錄）
 
 ### 一、合併（她點過 staging 之後）
 
@@ -45,7 +65,7 @@ powershell -NoProfile -Command 'Get-NetTCPConnection -State Listen -LocalPort 40
 要一起收掉的：來訪編輯器帶了 slotIndex 時「這一天整筆的」那一塊整個拿掉（ADR-0085 的落差，談定改程式），
 「改這一天的狀態」另外留一條點得到的路（ADR-0060）。
 
-### 四、收尾
+### 四、收尾（已完成）
 
 - 補 `CLAUDE.md`「容易漏掉的連動」：
   - `partnerChips()` 自己帶包裝（不可以裸接在 `alertChips()` 後面）
@@ -59,8 +79,9 @@ powershell -NoProfile -Command 'Get-NetTCPConnection -State Listen -LocalPort 40
 
 ## 記帳
 
-`.scratch/quieter-screens/` **只在 #97 這一支上改**（臨時 worktree：`.claude/worktrees/pr97-scratch`）。
-#97 合進 develop 之後，其他分支 rebase 上來就能正常改它。
+`.scratch/quieter-screens/` 在 #97 合進 develop 之後就直接在 develop 上，
+10 那一支正常改它。這一輪開的 worktree（`.claude/worktrees/` 底下四個
+＋ `issue05-words`）都可以清掉了：`git worktree list` 看得到。
 
 ## 這一輪學到的
 
@@ -83,24 +104,11 @@ powershell -NoProfile -Command 'Get-NetTCPConnection -State Listen -LocalPort 40
 
 ---
 
-# 貼給新 session 的開場
+# 這一輪結束了，不需要開場提示詞
 
-```
-接手 baobao-wellness-clinic-scheduler 的一輪改動（.scratch/quieter-screens/）的最後一段。
+十支全部 `done`，收尾三件事也做完了。下一輪是 README 開發狀態表的第 28 步「多帳號」，
+那是另一輪的事，跟這一份沒有關係。
 
-先讀，照順序：
-1. CLAUDE.md —— 規則是硬的
-2. HANDOFF：git fetch origin && git show origin/claude/quieter-screens-layout:.scratch/quieter-screens/HANDOFF.md
-   （#97 合進 develop 之後就直接在 develop 上的 .scratch/quieter-screens/ 裡）
-3. 同一支上的 spec.md 與 issues/10-the-read-card-draws-the-slot-she-tapped.md
-
-現況：01–09 都做完了，PR #97～#101 都開了（每一支內文有手動驗收清單）。剩下：
-- 先看 #97～#101 合了沒；沒合完的話照 HANDOFF「一、合併」處理 sw.js 那一行的衝突
-- issue 10（等 #98、#100、#101 合進 develop 之後，從最新的 develop 開分支）
-- 收尾：補 CLAUDE.md 的連動表（HANDOFF「四」列好了）、跑 /matt-code-review
-
-規矩：一支 issue 一個 commit；PR 基底 develop；先寫失敗測試再修；日常 npm run verify；
-同一時間只跑一組 E2E、每一組從自己的目錄起模擬器；動到 public/ 要加 sw.js 的 VERSION；
-交付附一份她可以照順序點的手動驗收清單（寫的人要真的走過）；
-額度快到時先收尾、更新 HANDOFF、給新的開場提示詞。
-```
+留著沒做的只有一件，而且**是刻意留的**：issue 08 的盤點裡還有一批常駐說明沒轉成
+說明泡泡（談定的是「先做元件 ＋ 最划算的八處，其餘按畫面分批」）。那份清單在
+`issues/08-a-tooltip-is-a-speech-bubble.md` 裡。
