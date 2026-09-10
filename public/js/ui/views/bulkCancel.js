@@ -154,17 +154,26 @@ function slotLine(row) {
 function paint() {
   const picked = state.customerId ? rowsOfMonth().filter((r) => state.picked.has(r.key)) : [];
 
+  // 整頁包一層是為了底下那一條：`.bulkbar` 是 `position: sticky; bottom: 0`，
+  // 而 **sticky 不會把元素往下推** —— 只勾一天時整頁撐不滿一個視窗，它就停在
+  // 內容正下方，底下還有半個螢幕空白卻帶著邊線與往上打的陰影。
+  // 她 2026-09-10：「這個區域很突兀，有種懸空的感覺」。
+  //
+  // `.bulkpage` 是 `min-height: 100dvh` 的直排，底下那一條 `margin-top: auto`
+  // 就排到底了；捲得動的時候 sticky 照樣把它釘住。
   ctx.el.innerHTML = `
-    ${backLink()}
+    <div class="bulkpage">
+      ${backLink()}
 
-    <div class="page">
-      <h1 class="page__title">批次取消</h1>
-      <p class="page__lead">出國或請假的時候，一次把那幾段收掉。
-        這一頁只取消，要改時間去日曆。</p>
-    </div>
+      <div class="page">
+        <h1 class="page__title">批次取消</h1>
+        <p class="page__lead">出國或請假的時候，一次把那幾段收掉。
+          這一頁只取消，要改時間去日曆。</p>
+      </div>
 
-    ${state.customerId ? pickedHtml() : searchHtml()}
-    ${picked.length ? barHtml(picked) : ''}`;
+      ${state.customerId ? pickedHtml() : searchHtml()}
+      ${picked.length ? barHtml(picked) : ''}
+    </div>`;
 
   wire();
 }
@@ -190,9 +199,11 @@ function searchHtml() {
       ${hits.length ? `
         <ul class="link-list">
           ${hits.map((c) => `
+            ${/* 箭頭由 `.row-link::after` 畫。這裡再手寫一顆就是兩顆 ——
+                   她 2026-09-10 看到的就是那個（同一個坑 8 月在「要壓哪個月」
+                   那三顆上踩過一次，見 app.css 的 `.monthpick` 那一段）。 */''}
             <li><button class="row-link" type="button" data-pick="${esc(c.id)}">
               <span class="link-list__label">${esc(c.name)}</span>
-              ${icon('right', { size: 17 })}
             </button></li>`).join('')}
         </ul>` : ''}
       ${q ? '' : '<p class="muted">打名字找人，這裡會列出他那個月的來訪。</p>'}
@@ -220,7 +231,7 @@ function pickedHtml() {
           ${icon('right', { size: 18 })}</button>
       </div>
 
-      <div class="seg" role="tablist" aria-label="怎麼看">
+      <div class="seg seg--tabs" role="tablist" aria-label="怎麼看">
         <button class="seg__btn" type="button" role="tab" data-mode="list"
                 aria-selected="${state.mode === 'list'}">清單</button>
         <button class="seg__btn" type="button" role="tab" data-mode="month"

@@ -202,12 +202,24 @@ export function noticeBlock({ customer, equipment, options = [], size = 18 }) {
  * **它不產生任何待辦**（她 2026-09-06 選的），所以這顆丸子就是全部的提醒 ——
  * 那正是它必須在每一個看得到客戶名字的地方都出現的理由。
  *
+ * ## 它自己帶一層包裝，跟 `alertChips()` 一樣
+ *
+ * 2026-09-10 之前這一支回的是**裸的**幾顆 `<span class="flag">`，而四個呼叫端
+ * 都是把它接在 `alertChips()` 那一份 `.blockchips` 的**後面**。落進
+ * `flex-direction: column` 的容器裡時，預設的 `align-items: stretch`
+ * 就把它拉滿整行 —— 她 2026-09-10：「那個綠色框框是一直延伸的誒？」
+ *
+ * 實測（390px）：壓表卡片牆那一顆 273px，另外三個呼叫端 60px。
+ * **同一支 code、同一份 CSS，壞的只有一個容器** —— 所以從畫面上看不出是誰的錯。
+ * 修在這裡而不是那個容器上，是因為下一個呼叫端還是會踩到。
+ *
  * @param {string[]} partners 這位客戶掛的那幾家（`partnersOf()`）
  */
 export function partnerChips(partners = []) {
   const mine = (partners ?? []).filter(Boolean);
   if (!mine.length) return '';
-  return mine.map((x) => `<span class="flag flag--partner">${esc(x)}</span>`).join('');
+  return `<span class="blockchips blockchips--partner">${
+    mine.map((x) => `<span class="flag flag--partner">${esc(x)}</span>`).join('')}</span>`;
 }
 
 /**
