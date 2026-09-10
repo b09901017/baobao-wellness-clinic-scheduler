@@ -120,7 +120,11 @@ test('J-A9+A10 確認 → confirmed，而且這時候才長出登記任務', asy
   const drawer = await page.locator('.drawer').innerText();
   console.log('[J-A9] 確認抽屜 =\n' + drawer);
   expect(drawer, '要攤開日期時間').toContain('9/3');
-  expect(drawer).toContain('復能');
+  // **印那天做了什麼（`IN(60)`），不是課程名（「復能」）**（issue 06，ADR-0078）。
+  // 她 2026-09-10：「目前都是寫 "9/10(四) 09:00-09:30 復能"…我希望這些都可以
+  // 像是在月曆寫得那樣」。這一段用的是 INDIBA，所以月曆上寫的是 IN(60)。
+  expect(drawer, '那一段要印器材與分鐘').toContain('IN(60)');
+  expect(drawer, '不可以退回課程名').not.toMatch(/09:00–10:00 復能/);
 
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2500);

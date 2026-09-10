@@ -157,7 +157,9 @@ describe('每一段自己的狀態', () => {
         slot({ courseName: '下午', startsAt: '14:00' }),
       ],
     })]);
-    assert.deepEqual(rows[0].days[0].slots.map((s) => s.courseName),
+    // 那一格印的是「那天做了什麼」（`dayFor()` 算好的 `name`），
+    // 沒帶主檔時退回快照 —— 這裡看的是順序，不是名字怎麼算的
+    assert.deepEqual(rows[0].days[0].slots.map((s) => s.name),
       ['早上', '下午', '沒時間']);
   });
 
@@ -168,7 +170,7 @@ describe('每一段自己的狀態', () => {
         slot({ courseName: '二', startsAt: null }),
       ],
     })]);
-    assert.deepEqual(rows[0].days[0].slots.map((s) => s.courseName), ['一', '二']);
+    assert.deepEqual(rows[0].days[0].slots.map((s) => s.name), ['一', '二']);
   });
 });
 

@@ -51,6 +51,7 @@ import {
   acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
+import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
@@ -1168,7 +1169,10 @@ function recordedSlots(row) {
       out.push({
         visitId: v.id,
         date: v.date,
-        label: `${shortDate(v.date)} ${timeLabel(s)} ${s.courseName ?? ''}${who ? `・${who}` : ''}`.trim(),
+        // 這一串留在她自己的畫面上，所以印「那天做了什麼」（`SIS(30)`）——
+        // 快照那一格會寫成「復能」，而月曆上同一段寫的是 SIS(30)（ADR-0078）
+        label: `${shortDate(v.date)} ${timeLabel(s)} ${
+          slotName(s, ctx.all, 'short')}${who ? `・${who}` : ''}`.trim(),
       });
     }
   }
@@ -1259,10 +1263,10 @@ function dayTally(sameDay, closed) {
  */
 function addNote(sameDay, closed) {
   if (sameDay && sameDay.status === 'confirmed') {
-    return '這一段會併進同一天那一筆，那一筆會退回「等客戶回覆」—— 這一段還沒問過客人。';
+    return '這一段會併進同一天已經有的來訪，那一天會退回「等客戶回覆」—— 這一段還沒問過客人。';
   }
   if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
-  if (closed.length) return '這天那一筆已經結案了，所以這一段會另開一筆新的來訪。';
+  if (closed.length) return '這天已經結案了，所以這一段會另開一次新的來訪。';
   return '存下去會記到日曆上，標成「待確認」，待辦會多一張「跟客人確認時間」。';
 }
 
@@ -2122,7 +2126,9 @@ async function addSlot() {
   const ok = await confirmAction({
     title: said.title,
     consequences: [
-      `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${course.name}`,
+      // 這道確認是她自己在看的，印的是那天做了什麼（`SIS(30)`）不是課程全名
+      `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${
+        slotName(slot, all, 'short')}`,
       ...(linkedExam ? [
         `接在 ${shortDate(linkedExam.date)} 那一次健檢後面`,
         '待辦上那一張「約二返」會自己收掉',

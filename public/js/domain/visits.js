@@ -946,7 +946,9 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   }
 
   if (!isLocked(visit?.status) && visit?.status !== 'cancelled') {
-    out.push({ id: 'edit', label: '改這一筆', icon: 'pencil' });
+    // **講她按下去真的會改到的範圍**（ADR-0087）：帶了 slotIndex 開的是只有
+    // 那一段的編輯器（ADR-0085），沒帶才是整天。
+    out.push({ id: 'edit', label: one ? '改這一段' : '改這一天', icon: 'pencil' });
   }
 
   // 最常按的在最上面（這一支既有的規矩）：她點的就是這一段
@@ -963,7 +965,7 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   if (next.includes('cancelled')) {
     out.push({
       id: 'cancelled',
-      label: canCancelOne ? `取消一整天（${slots.length} 段）` : '取消這一筆',
+      label: canCancelOne ? `取消一整天（${slots.length} 段）` : '取消這一天',
       icon: 'close',
       tone: 'danger',
     });
@@ -1508,7 +1510,7 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
         const sameTherapist = slot.therapistId && slot.therapistId === theirs.therapistId;
 
         const who = other.customerId === visit.customerId
-          ? `${other.customerName ?? '這位客戶'}自己的另一筆來訪`
+          ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
           : (other.customerName ?? '另一位客戶');
 
         if (sameRoom) {

@@ -45,6 +45,9 @@ async function centred(page, id) {
   }, id);
 }
 
+/** 點這一張卡以外的地方。抬頭那一行一定在頁面裡、一定不在卡片裡。 */
+const tapOutside = (page) => page.click('.pbtop .page__title');
+
 test.describe('備忘錄／SOP', () => {
   test('P1 待辦頁右上角進得去，而且導覽列一個字都沒變', async ({ app, page }) => {
     await app.seed([...masterDocs()]);
@@ -164,21 +167,73 @@ test.describe('備忘錄／SOP', () => {
     await page.click('[data-edit="pb-rehab"]');
     await expect(page.locator('[data-fab]')).not.toBeVisible();
 
-    await page.click('[data-cancel]');
+    // 「取消」拿掉了（2026-09-10）：沒改過就點外面，直接收掉
+    await tapOutside(page);
     await expect(page.locator('[data-fab]')).toBeVisible();
   });
 
-  test('P8 取消不會留下任何東西', async ({ app, page }) => {
+  // ---- 點外面（2026-09-10）----
+  //
+  // 她：「取消也移除，改成我點擊其他地方就會跳出儲存還是取消」。
+  // 四種結局各一支：沒改過、不要了、存起來、以及**把框關掉＝繼續改**。
+  // 最後那一種是這一段最容易寫壞的：確認框的取消鍵、Escape、返回鍵、點背景
+  // 全部回 false，把「不要了」接在 false 上的話，手滑一下她打的字就沒了。
+
+  test('P8 改到一半點外面 → 選「不要了」，一個字都不會留下', async ({ app, page }) => {
     await app.seed([...masterDocs(), REHAB]);
     await app.signIn('/playbook');
 
     await page.click('[data-edit="pb-rehab"]');
     await page.fill('[data-body]', '打到一半反悔了');
-    await page.click('[data-cancel]');
+    await tapOutside(page);
+    await expect(app.dialog()).toBeVisible();
+    await page.locator('.dialog-backdrop [data-choice="discard"]').click();
 
     await expect(page.locator('.pbcard--edit')).toHaveCount(0);
     await expect(page.locator('.pbcard__body')).toContainText('三樓報到');
     await expect(page.locator('.pbcard__body')).not.toContainText('反悔');
+  });
+
+  test('P8b 沒改過就點外面 → 直接收掉，一道框都不跳', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await expect(page.locator('.pbcard--edit')).toBeVisible();
+    await tapOutside(page);
+
+    await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+    await expect(app.dialog(), '每點一次外面都跳框，比留一顆取消還煩').toHaveCount(0);
+  });
+
+  test('P8c 改到一半點外面 → 把框關掉＝繼續改，打的字都還在', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await page.fill('[data-body]', '還在打的這一句');
+    await tapOutside(page);
+    await expect(app.dialog()).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(app.dialog()).toHaveCount(0);
+    await expect(page.locator('.pbcard--edit'), '關掉框不是「不要了」').toBeVisible();
+    await expect(page.locator('[data-body]')).toHaveValue('還在打的這一句');
+  });
+
+  test('P8d 改到一半點外面 → 選「存起來」，卡片上是新的字', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await page.fill('[data-body]', '三樓報到
+改成四樓');
+    await tapOutside(page);
+    await page.locator('.dialog-backdrop [data-choice="save"]').click();
+    await app.saved();
+
+    await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+    await expect(page.locator('.pbcard__body')).toContainText('改成四樓');
   });
 
   test('P9 放大鏡 → 卡牌與丸子兩邊一起篩，收起來就還原', async ({ app, page }) => {
@@ -221,6 +276,34 @@ test.describe('備忘錄／SOP', () => {
     // 軟刪除：在「已刪除項目」裡看得到
     await app.go('/settings/trash');
     await expect(page.locator('#view')).toContainText('復健科流程');
+  });
+
+  test('P10b 長按鉛筆 → 那一顆變成紅色垃圾桶，點它才跳刪除確認', async ({ app, page }) => {
+    // 她 2026-09-10：「刪掉這個功能可以放在長按那個鉛筆後，那個鉛筆就會變成紅色的
+    // 垃圾桶 然後點他會跳出確認刪掉」。第二條路是編輯中右上角那一顆（P10，ADR-0060）。
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/playbook');
+
+    // **用真的滑鼠事件**：`wireLongPress()` 只認 isPrimary 的主鍵。
+    // 按住直到它真的變了，不要按固定的秒數（HOLD_MS 是 450）。
+    const pencil = page.locator('[data-edit="pb-rehab"]');
+    const box = await pencil.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(pencil).toHaveAttribute('data-armed', 'true', { timeout: 5_000 });
+    await page.mouse.up();
+
+    // 放手那一下被吃掉了：沒有進到編輯，也還沒跳確認
+    await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+    await expect(app.dialog(), '還沒點它，不可以先跳確認').toHaveCount(0);
+
+    await pencil.click();
+    await expect(app.dialog()).toBeVisible();
+    await app.cancelDialog();
+
+    // 按了取消：變回鉛筆，東西都還在
+    await expect(pencil).not.toHaveAttribute('data-armed', 'true');
+    await expect(page.locator('.pbcard__title')).toHaveText('復健科流程');
   });
 
   test('P11 這一頁上**一個勾選框都沒有**（ADR-0067）', async ({ app, page }) => {

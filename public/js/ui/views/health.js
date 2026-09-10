@@ -149,7 +149,7 @@ function findingHtml(finding) {
       </div>
       <div class="muted">${esc(finding.detail)}</div>
       <p>
-        ${finding.link ? `<a class="btn" href="${esc(finding.link)}">看這一筆</a>` : ''}
+        ${finding.link ? `<a class="btn" href="${esc(finding.link)}">去看看</a>` : ''}
         ${finding.fix && index !== null
           ? `<button class="btn btn--primary" type="button" data-fix="${index}">
                ${esc(buttonLabel(finding.fix))}</button>`

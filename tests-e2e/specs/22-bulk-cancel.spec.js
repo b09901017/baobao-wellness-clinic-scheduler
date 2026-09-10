@@ -157,7 +157,7 @@ test('同一天挑兩段：確認框講的剩餘段數要對', async ({ app, pag
   const said = await app.dialogText();
   // 那一天只有這兩段，兩段都挑了 = 整天沒了。以前這裡會說「剩下的 1 段
   // 不受影響」—— 它把同一批要取消的另一段也算成了剩下的。
-  expect(said, '整天挑滿了就要講整天那種話').toContain('那一天就整筆取消了');
+  expect(said, '整天挑滿了就要講整天那種話').toContain('那一天就整個取消了');
   expect(said, '沒有東西「不受影響」').not.toContain('不受影響');
   expect(said, '兩段就說兩段').toContain('這 2 段會退回去');
 

@@ -113,7 +113,11 @@ async function paint(ctx) {
   // 有人在這中間又按了箭頭，讓他畫 —— 這一輪的結果已經過期了
   if (round !== painting) return;
 
-  const data = buildProgress({ customers: ctx.customers, visits, month: target });
+  // 主檔帶進去，那幾列才印得出「那天做了什麼」（`SIS(30)`）而不是快照裡的
+  // 「復能」—— 名字在 `dayFor()` 算好（`domain/progress.js`），這一層不自己算。
+  const data = buildProgress({
+    customers: ctx.customers, visits, month: target, master: ctx.master,
+  });
   el.innerHTML = bodyHtml(data, ctx, target);
   wire(ctx, data, visits);
 }
@@ -230,7 +234,7 @@ function slotHtml(slot) {
     <span class="progslot ${esc(statusClass(slot.status))}">
       <span class="progslot__bar" aria-hidden="true"></span>
       <span class="progslot__when num">${esc(timeLabel(slot))}</span>
-      <span class="progslot__what">${esc(slot.courseName ?? '（沒有課程）')}</span>
+      <span class="progslot__what">${esc(slot.name || '（沒有課程）')}</span>
       <span class="progslot__state">${esc(markFor(slot.status))} ${
         esc(shortStatus(slot.status))}</span>
     </span>`;

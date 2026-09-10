@@ -289,7 +289,11 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   const needsForm = formSlotIndexes(scoped, coursesById).length > 0;
   rows.push({
     key: 'close',
-    kind: needsForm ? '簽療程單' : '簽療程單（這一天不用簽，但要結案）',
+    // 「不用簽」是用 `scoped` 算的（點了某一段就只有那一段），所以句子也要講那一段 ——
+    // 寫「這一天」的話，同一天別段要簽時她會以為整天都不用（ADR-0087）。
+    kind: needsForm
+      ? '簽療程單'
+      : `簽療程單（${Number.isInteger(focusSlot) && visit?.slots?.[focusSlot] ? '這一段' : '這一天'}不用簽，但要結案）`,
     done: closed,
     dueDate: null,
     derived: true,
