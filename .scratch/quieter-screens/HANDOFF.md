@@ -2,7 +2,7 @@
 
 規格在 `spec.md` 與 `issues/` 那十支。這一份只記**做到哪**。
 **這一份只放在 `claude/quieter-screens-layout`（PR #97）這一支上**（見「記帳」）。
-最後更新：2026-09-10（第二個帳號；07、05、Tooltip 三組 E2E 排隊中）
+最後更新：2026-09-10（第二個帳號；#99 開了，05 與 Tooltip 兩組 E2E 跑中）
 
 ## 狀態一覽
 
@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 01–04 版面小修 | ✅ PR #97 | `claude/quieter-screens-layout` | v111 |
 | 06 名稱一律 short | ✅ PR #98 | `claude/naming-short-everywhere` | v112 |
-| 07 備忘錄編輯 | 🟡 已 commit（c4c3eff）、**未 push**；E2E 跑中 | worktree `.claude/worktrees/agent-a1b92a33eb014e9d8`、`claude/memo-editor-taller` | v113 |
+| 07 備忘錄編輯 | ✅ PR #99（相關 E2E 66 支全過） | `claude/memo-editor-taller` | v113 |
 | 08＋09 Tooltip | 🟡 已 commit 已 push、`.scratch` 已拿掉；**全量 E2E 排隊中** | 主工作區、`claude/tooltip-component` | v114 |
 | 05 用詞統一 | 🟡 已 commit 已 push（5624d93）、單元 2266 綠；**相關 E2E 排隊中** | worktree `.claude/worktrees/issue05-words`、`claude/day-slot-words` | v115 |
 | 10 讀取卡片單段化 | ⬜ 未開始（等 05 06 09 合進 develop） | | |
@@ -28,7 +28,7 @@ E2E 的 app 是模擬器 hosting（`127.0.0.1:5000`）在服務，**服務的是
 powershell -NoProfile -Command 'Get-NetTCPConnection -State Listen -LocalPort 4000,4400,4500,5000,8080,9099,9150 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force }'
 ```
 
-### 二、07：E2E 綠了就 push、開 PR，並在這一支把 07 的 Status 改 done
+### 二、07：✅ 已完成（PR #99、Status 已改 done）—— 下面留著當驗收清單的參考
 
 PR 內文要講：sw.js v113；不帶 `.scratch`；`dialog.js` 抽出 `ask()`（`confirmAction()` 行為不變）＋ 新增
 `chooseAction()`（關掉回 null ＝ 繼續改）；返回鍵刻意沒接（issue 07 的 Comments）。
