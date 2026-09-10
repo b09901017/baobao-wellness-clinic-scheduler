@@ -165,14 +165,25 @@ function close({ refocus = false } = {}) {
   btn.removeAttribute('aria-describedby');
   if (refocus && btn.isConnected) btn.focus();
 
+  // **還沒長出來就被收掉的那一張，馬上拿掉。** 打開是下一幀才切到 open
+  // （transition 要有起點），在那一幀之前關掉的話，樣式從頭到尾沒變 ——
+  // 沒有 transition、就沒有 transitionend，那張看不見的泡泡會永遠留在 body 上。
+  // E2E 26-tip 的 T2 偶爾紅就是這個：Escape 按得比那一幀快（T4 釘住它）。
+  const wasOpen = bubble.dataset.state === 'open';
+  delete bubble.dataset.state;
+  if (!wasOpen) {
+    bubble.remove();
+    return;
+  }
+
   // 收的時候也有一小段動畫；`prefers-reduced-motion` 那一段會把 transition 歸零，
   // 所以**不用 setTimeout 等它**（tokens.css 的檔頭說過：那條路繞得過那一段）
-  delete bubble.dataset.state;
   bubble.addEventListener('transitionend', () => bubble.remove(), { once: true });
-  // 保險：沒有 transition 可以結束的時候（被歸零、或瀏覽器跳過）也要拿掉
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (getComputedStyle(bubble).transitionDuration.split(',').every((d) => parseFloat(d) === 0)) {
-      bubble.remove();
-    }
-  }));
+  // 保險：transition 沒有真的跑起來（被歸零、瀏覽器跳過）也要拿掉。問的是
+  // 「身上還有沒有動畫在跑」，不是去猜 transition-duration 的數字 ——
+  // 第一版猜數字，而「還沒開始就被取消」那一種的數字不是 0。
+  requestAnimationFrame(() => {
+    const running = bubble.getAnimations ? bubble.getAnimations().length : 0;
+    if (!running) bubble.remove();
+  });
 }

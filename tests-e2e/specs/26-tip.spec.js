@@ -92,3 +92,19 @@ test('T3 資料健檢：那一句只印一次；點標題裡的 ? 不會順便�
   await expect(first.locator('summary .tip')).toHaveAttribute('aria-expanded', 'false');
   await expect(second.locator('summary .tip')).toHaveAttribute('aria-expanded', 'true');
 });
+
+test('T4 開了馬上關（還沒長出來就收）也要真的拿掉 —— 不可以留一張看不見的在 body 上', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/naming');
+  await app.settled();
+
+  // 在**同一個 task 裡**點開再按 Escape：打開是「下一幀」才切到 open，這一下保證比
+  // 那一幀快，不靠運氣。修之前那一張的樣式從頭到尾沒變 —— 沒有 transition、
+  // 也就沒有 transitionend，它會永遠留在 body 上（T2 偶爾紅就是這個）。
+  await page.evaluate(() => {
+    document.querySelector('.page__title .tip').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await expect(bubble(page)).toHaveCount(0);
+  await expect(page.locator('.page__title .tip')).toHaveAttribute('aria-expanded', 'false');
+});
