@@ -7,7 +7,7 @@
 // 那段字在收起來的時候真的不在畫面上、以及它自己關得掉。
 //
 // 動畫與位置那幾件事沒辦法在這裡量（要有版面），那些在
-// `tests-e2e/specs/20-tip.spec.js`。
+// `tests-e2e/specs/26-tip.spec.js`。
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,8 +17,9 @@ import { tip, KINDS } from '../public/js/ui/components/tip.js';
 
 const CSS = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '');
-const TOKENS = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '');
+// **tokens.css 不去註解。**「淺色」那個分段標記本身就寫在註解裡 —— 去掉之後
+// 找不到它，淺色那一段會切成空字串，token 寫對了照樣紅（第一版就是這樣寫壞的）。
+const TOKENS = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8');
 
 describe('沒話講就不佔位置', () => {
   test('空字串、空白、undefined 一律回空字串', () => {
