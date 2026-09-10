@@ -226,8 +226,7 @@ test.describe('備忘錄／SOP', () => {
     await app.signIn('/playbook');
 
     await page.click('[data-edit="pb-rehab"]');
-    await page.fill('[data-body]', '三樓報到
-改成四樓');
+    await page.fill('[data-body]', '三樓報到\n改成四樓');
     await tapOutside(page);
     await page.locator('.dialog-backdrop [data-choice="save"]').click();
     await app.saved();
