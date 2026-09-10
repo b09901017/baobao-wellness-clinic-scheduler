@@ -52,6 +52,7 @@ import {
 } from '../../domain/entitlements.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
 
 export async function render(el) {
@@ -165,10 +166,11 @@ function paint(ctx) {
     <a class="backlink" href="#/settings">${icon('left', { size: 17 })}設定</a>
 
     <div class="page">
-      <h1 class="page__title">名稱怎麼寫</h1>
-      <p class="page__lead">同一個東西在三個地方寫法不一樣：<b>額度</b>是當初買了什麼，
-        <b>月曆</b>一格只放得下幾個字，<b>LINE 草稿</b>要你跟客人都看得懂。
-        點右邊的鉛筆改一列，全名在課程與器材那兩頁改。</p>
+      ${/* 那三行 lead 2026-09-10 收進標題旁邊的 `?`（issue 09）——
+             全站最長的一段抬頭說明，而底下那張表本身就講得出三種寫法。 */''}
+      <h1 class="page__title">名稱怎麼寫${tip(
+        '同一個東西在三個地方寫法不一樣：額度是當初買了什麼，月曆一格只放得下幾個字，'
+        + 'LINE 草稿要你跟客人都看得懂。點右邊的鉛筆改一列，全名在課程與器材那兩頁改。')}</h1>
     </div>
 
     <section class="card" data-namecard>

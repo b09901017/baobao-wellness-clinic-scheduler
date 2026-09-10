@@ -41,6 +41,7 @@ import { describeStatus, statusClass, isActive, visitCourseLabel } from '../../d
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
 import { progressDayHtml, tallyHtml } from './progress.js';
+import { tip } from '../components/tip.js';
 import { visitReadHtml } from './calendar.js';
 import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
@@ -1016,9 +1017,12 @@ function taskBlock(tasks, visits = [], master = null) {
       // ADR-0027 與 ADR-0066：任務現在有**兩個**時機。這是 CLAUDE.md 點名的
       // 那幾句之一，改「什麼時候產生」的規則時要一起改。
       // 用她的詞，不要寫「系統登記」。
-      ? `<p class="muted" style="margin: 0">還沒有任務。
-          勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；
-          要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。</p>`
+      //
+      // 2026-09-10：那三行收進一顆 `?`（issue 09）。**「還沒有任務。」自己留著** ——
+      // 空狀態是這一塊唯一的內容，藏起來就變成一片空白；要收的只有底下的說明。
+      ? `<p class="muted" style="margin: 0">還沒有任務。${tip(
+          '勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；'
+          + '要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。')}</p>`
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"

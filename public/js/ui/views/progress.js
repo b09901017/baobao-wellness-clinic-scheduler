@@ -21,6 +21,7 @@ import { visitReadHtml } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 /** 看哪一個月。留在模組層：從別的頁回來時她想看到剛剛那個月。 */
 let month = null;
@@ -152,20 +153,17 @@ function bodyHtml(data, ctx, target) {
         </span>`).join('')}
     </p>
 
-    <p class="muted" style="margin: 0 0 var(--space-3)">${esc(summaryLine(data))}</p>
+    ${/* 頁尾那三行 2026-09-10 收進摘要這一行後面的 `?`（issue 09）。
+           **「見 ADR-0061」拿掉了** —— 那是給寫程式的人看的編號，印給她看本身就是寫錯。 */''}
+    <p class="muted" style="margin: 0 0 var(--space-3)">${esc(summaryLine(data))}${tip(
+      '這一頁只給看的，改東西要到日曆。取消掉的時段不畫 —— 這一頁問的是「這個月做了多少」，'
+      + '而取消的那一次沒有發生。日曆上看得到它，只是暗掉的。')}</p>
 
     ${data.rows.length
       ? `<div class="cardgrid">${data.rows.map(customerCard).join('')}</div>`
       : ''}
 
-    ${idleHtml(data.idle)}
-
-    <p class="footnote">
-      ${icon('info', { size: 14 })}
-      <span>這一頁只給看的，改東西要到日曆。
-        取消掉的時段不畫 —— 這一頁問的是「這個月做了多少」，
-        而取消的那一次沒有發生。（日曆上看得到它，只是暗掉的，見 ADR-0061。）</span>
-    </p>`;
+    ${idleHtml(data.idle)}`;
 }
 
 function summaryLine(data) {

@@ -181,6 +181,17 @@ export function groupByDoneDay(tasks = []) {
 export const SHARED_TODO_LABEL = '這一天共用';
 
 /**
+ * 那一顆 `?` 點開之後講的話（2026-09-10，issue 09）。
+ *
+ * 她問：「這一天共用根本不用寫吧？單純誤導使用者且占版面」。**它沒寫錯** ——
+ * 任務只掛 `visitId`，勾一次同一天每一段都掉 —— 但它不必每天佔著版面講。
+ * 所以標籤收進一顆小泡泡（`SHARED_TODO_LABEL` 變成那一顆的名字），
+ * 這一句是點開之後的那一句。規則與它的說法住在一起，畫面不自己寫。
+ */
+export const SHARED_TODO_NOTE =
+  '這一張是這一天幾段共用的 —— 在這一段勾掉，同一天另外那幾段也會跟著掉。';
+
+/**
  * 這一筆來訪走到哪了 —— 它身上的每一件待辦與各自做完了沒。
  *
  * 來訪的讀取卡片用（`ui/views/calendar.js` 的 `visitReadHtml()`，四個畫面共用）。

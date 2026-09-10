@@ -58,6 +58,7 @@ import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 // 看到哪一天留在模組層：點進一筆來訪再退回來，她要回到原本那一頁而不是今天。
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
@@ -208,7 +209,11 @@ function paint(el, data) {
 
     ${shows('visit') ? legendHtml() : ''}
 
-    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}</p>
+    ${/* 「長按一列可以直接改」以前是頁尾一整行、每次開日曆都在（她一天開十幾次）。
+           2026-09-10 收進這一行後面的 `?`（issue 09）—— 掛在數有幾筆的那一行，
+           因為它講的就是底下那幾列。 */''}
+    <p class="muted" style="margin: 0 0 var(--space-2)">${countLine(data, state.date)}${
+      tip('長按一列可以直接改。')}</p>
 
     <div class="swipe noscroll-bar" data-swipe>
       ${PANES.map((offset) => {
@@ -223,11 +228,6 @@ function paint(el, data) {
 
            那件事本身沒有變（SPEC 第 4.7 節），只是不必在她每天開十幾次的
            那一頁上重複講。 */''}
-    <p class="footnote">
-      ${icon('todo', { size: 14 })}
-      <span>長按一列可以直接改。</span>
-    </p>
-
     ${fabHtml()}`;
 
   wire(el, data);
