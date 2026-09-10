@@ -154,17 +154,26 @@ function slotLine(row) {
 function paint() {
   const picked = state.customerId ? rowsOfMonth().filter((r) => state.picked.has(r.key)) : [];
 
+  // 整頁包一層是為了底下那一條：`.bulkbar` 是 `position: sticky; bottom: 0`，
+  // 而 **sticky 不會把元素往下推** —— 只勾一天時整頁撐不滿一個視窗，它就停在
+  // 內容正下方，底下還有半個螢幕空白卻帶著邊線與往上打的陰影。
+  // 她 2026-09-10：「這個區域很突兀，有種懸空的感覺」。
+  //
+  // `.bulkpage` 是 `min-height: 100dvh` 的直排，底下那一條 `margin-top: auto`
+  // 就排到底了；捲得動的時候 sticky 照樣把它釘住。
   ctx.el.innerHTML = `
-    ${backLink()}
+    <div class="bulkpage">
+      ${backLink()}
 
-    <div class="page">
-      <h1 class="page__title">批次取消</h1>
-      <p class="page__lead">出國或請假的時候，一次把那幾段收掉。
-        這一頁只取消，要改時間去日曆。</p>
-    </div>
+      <div class="page">
+        <h1 class="page__title">批次取消</h1>
+        <p class="page__lead">出國或請假的時候，一次把那幾段收掉。
+          這一頁只取消，要改時間去日曆。</p>
+      </div>
 
-    ${state.customerId ? pickedHtml() : searchHtml()}
-    ${picked.length ? barHtml(picked) : ''}`;
+      ${state.customerId ? pickedHtml() : searchHtml()}
+      ${picked.length ? barHtml(picked) : ''}
+    </div>`;
 
   wire();
 }

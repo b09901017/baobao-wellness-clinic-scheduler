@@ -26,7 +26,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { partnerChips, alertChips } from '../public/js/ui/components/flags.js';
 
 const VIEWS = new URL('../public/js/ui/views/', import.meta.url);
-const CSS = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8');
+// **註解要先去掉。** 這幾支問的是「CSS 裡有沒有這一條宣告」，而這份 CSS 的
+// 註解本身就在討論那些宣告（`margin-top: auto` 那一句就長在註解裡）——
+// 不去掉的話，把宣告刪光只留註解也會全綠。
+const CSS = readFileSync(new URL('../public/css/app.css', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('一列只有一顆箭頭', () => {
   test('`.row-link` 那幾列沒有人自己再畫一顆 icon(\'right\')', () => {
@@ -94,5 +98,46 @@ describe('丸子不會被容器拉開', () => {
     assert.match(block[0], /align-self:\s*flex-start/,
       '這是保險：以後任何一個呼叫端把它丟進 column flex 都不會再被拉滿整行，'
       + '而**這種 bug 從畫面上分不出是誰的錯**');
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+// 批次取消底下那一條不可以懸空。
+//
+// `.bulkbar` 是 `position: sticky; bottom: 0`，而 **sticky 只會在捲動時把元素
+// 釘住，不會把它往下推**。只勾一天時整頁撐不滿一個視窗，它就停在內容正下方 ——
+// 實測 390×844 下它停在 y=395，底下還有 450px 空白，卻帶著上緣邊線與往上打的
+// 陰影。那一整套講的是「我貼在畫面底部」，貼不到底就變成一條浮在空氣上的橫條。
+// 她 2026-09-10：「這個區域很突兀，有種懸空的感覺?版面很怪?」
+//
+// 修正是兩格：`.bulkpage` 是至少一個視窗高的直排，`.bulkbar` 的 margin-top 是
+// `auto`。**後者一定要寫在 margin 簡寫裡** —— 另外補一行 `margin-top: auto`
+// 會被同一條規則後面的簡寫重設掉（改的時候真的踩過一次）。
+
+describe('批次取消底下那一條貼得到底', () => {
+  test('`.bulkpage` 是至少一個視窗高的直排', () => {
+    const block = CSS.match(/^\.bulkpage \{[^}]*\}/m);
+    assert.ok(block, '`.bulkpage` 那一條規則不見了？整頁的包裝是那一條給的');
+    assert.match(block[0], /flex-direction:\s*column/);
+    assert.match(block[0], /min-height:\s*100dvh/);
+  });
+
+  test('`.bulkbar` 的 margin-top 是 auto，而且寫在簡寫裡', () => {
+    const block = CSS.match(/^\.bulkbar \{[^}]*\}/m);
+    assert.ok(block, '`.bulkbar` 那一條規則不見了？');
+    // 最後一個決定 margin-top 的宣告要給 auto
+    const decls = [...block[0].matchAll(/margin(-top)?\s*:\s*([^;]+);/g)];
+    assert.ok(decls.length, '一個 margin 宣告都沒有？');
+    const last = decls.at(-1)[2].trim().split(/\s+/)[0];
+    assert.equal(last, 'auto',
+      'margin 簡寫會把 margin-top 一起重設 —— 所以 auto 必須在最後一個'
+      + '決定 margin-top 的宣告裡，不能另外補一行');
+  });
+
+  test('返回鍵不會因為直排而橫跨一整行', () => {
+    assert.match(CSS, /\.bulkpage > \.backlink \{[^}]*align-self:\s*flex-start/,
+      '`.backlink` 是 inline-flex，變成 flex item 之後會被 stretch 拉滿 ——'
+      + '那顆按鈕的感應範圍就橫跨一整行了');
   });
 });

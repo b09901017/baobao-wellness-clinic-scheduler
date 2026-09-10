@@ -1,6 +1,6 @@
 # 03 批次取消的底條浮在半空
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/quieter-screens/spec.md`
 
 ## 她要的
