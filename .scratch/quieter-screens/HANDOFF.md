@@ -1,127 +1,99 @@
 # 接手這一輪：讓畫面安靜下來
 
-貼給新 session 的開場提示詞在最下面。這一份是狀態，不是規格 —— 規格全部在
-`.scratch/quieter-screens/spec.md` 與 `issues/` 底下那十支。
+規格在 `.scratch/quieter-screens/spec.md` 與 `issues/` 那十支。這一份只記**做到哪**。
+最後更新：2026-09-10（換了一個帳號接手之後）
 
-## 已經完成
+## 狀態一覽
 
 | issue | 狀態 | 在哪 |
 |---|---|---|
-| 01 切換器折行 | ✅ done | PR #97 |
-| 02 兩顆 › | ✅ done | PR #97 |
-| 03 底條懸空 | ✅ done | PR #97 |
-| 04 自然美丸子 | ✅ done | PR #97 |
+| 01–04 版面小修 | ✅ PR #97 已開 | `claude/quieter-screens-layout`（已 push，sw.js v111） |
+| 06 名稱一律 short | ✅ 已 commit，**未 push、未開 PR** | 本機 worktree `.claude/worktrees/agent-a709c9f4e317f5f99`，分支 `claude/naming-short-everywhere`（sw.js v112） |
+| 07 備忘錄編輯 | 🟡 **程式寫完、未 commit** | 本機 worktree `.claude/worktrees/agent-a1b92a33eb014e9d8`，分支 `claude/memo-editor-taller`（sw.js v113） |
+| 08 Tooltip 元件 | 🔴 紅燈 | `claude/tooltip-component`（已 push）：只有 `tests/tip.test.js`，元件還沒寫 |
+| 05 用詞統一 | ⬜ 未開始 | |
+| 09 首波八處 | ⬜ 未開始（Blocked by 08） | |
+| 10 讀取卡片單段化 | ⬜ 未開始（Blocked by 05 06 09） | |
 
-**PR #97**（`claude/quieter-screens-layout` → `develop`）已開，等她點過。
-`npm test` 2262 支全綠、相關 E2E 82 支全過（14.0m）。
+## 接手第一件事
 
-## 進行中（背景 agent，可能已經做完）
-
-| issue | 分支（本機 worktree） |
-|---|---|
-| 06 名稱一律 short | `claude/naming-short-everywhere` |
-| 07 備忘錄編輯 | `claude/memo-editor-taller` |
-
-兩支都在 `.claude/worktrees/` 底下自己的 worktree 裡，從 `origin/develop` 開的，
-**沒有 push、沒有開 PR**。接手的人第一件事是去看它們做完了沒：
+兩個 worktree 裡的東西**只在這台電腦上**，先看一眼還在不在：
 
 ```
-git branch --list 'claude/naming-short-everywhere' 'claude/memo-editor-taller'
-git log --oneline origin/develop..claude/naming-short-everywhere
-git log --oneline origin/develop..claude/memo-editor-taller
+git -C .claude/worktrees/agent-a709c9f4e317f5f99 log --oneline -1     # 06
+git -C .claude/worktrees/agent-a1b92a33eb014e9d8 status --short       # 07
 ```
 
-有 commit 的話：跑一次 `npm test`，讀 diff，確認 issue 的判準都滿足了，再開 PR。
-沒有 commit 的話當它沒發生過，自己做。
+**同一時間只能跑一組 E2E**（會搶模擬器的 port）。在 worktree 裡跑 `CI=1 npm run test:e2e:related`。
 
-## 卡在紅燈的那一支
+### 06 還差
 
-**issue 08（Tooltip 元件）** 在 `claude/tooltip-component`（已 push）。
+1. 相關 E2E
+2. `04-journey-a-happy.spec.js` 的 J-A9 很可能會紅：它斷言確認抽屜 `toContain('復能')`，
+   而那一段是 INDIBA（簡稱 `IN`）。06 之後抽屜印的是 `IN(60)` 之類。
+   **那支斷言寫的是她要改掉的舊行為** —— 改斷言，不是改回程式
+3. push、開 PR（基底 develop）
 
-那支分支上只有一個 commit：`tests/tip.test.js`，**整支是紅的** ——
-`public/js/ui/components/tip.js` 還不存在。這是 TDD 的紅燈階段，故意留著的。
+### 07 還差
 
-設計方向已經定了，寫進測試裡了，照著做就好：
+1. `npm test`、相關 E2E
+2. Status 改 done、commit、push、開 PR
 
-- **視覺一律沿用既有語彙**，不開新的色相：`--tea` / `--tea-soft` / `--surface` /
-  `--border` / `--radius-sm` / `--shadow-2` / `--text-xs`
-- **說明那一種不畫 SVG**：16px 圓、`--tea-soft` 底、`--tea` 的 `?`，700 / 11px。
-  一個字形在 16px 下比線條清楚（既有的 `icon('info')` 其實畫成驚嘆號的形狀，
-  點在下面、豎在上面 —— 那是另一件事，這一輪不動它）
-- **提醒那一種**用既有的 `icon('alert')`（三角形）
-- **大膽度只花在一個地方**：`transform-origin` 綁在小尖角上（`--tip-origin`），
-  泡泡從她按的那一顆長出來，不是憑空淡入。時長沿用 `--motion-base`
-- 想加一個 `--ease-pop`（帶一點回彈）給那個「可愛」的手感的話：
-  **motion token 放在 tokens.css 的「淺色」標記之前**，那裡的東西不需要深色版
-  （`tests/tokens.test.js` 只管標記之後的）。issue 08 原本寫「不要另開一組」，
-  要開就在 commit 裡講清楚為什麼
-- 小尖角**兩層疊**（`::before` 邊線色、`::after` 底色，差 1px），
-  不要用旋轉的方塊 —— 那會在邊線上留一道縫
-- **不要 `pushLayer()`**：它太輕，不值得佔一格瀏覽器紀錄。
-  點外面、Escape、`hashchange` 要關掉，一次只開一張
-- 位置：測量之後夾在視窗內，小尖角跟著位移量一起移，撞到底就翻到上面
+07 已經寫進程式的設計（照著驗就好，不要重新設計）：
 
-## 還沒開始
+- 編輯卡頂端一排：標題 ＋ 灰色垃圾桶（`data-del`）＋ 墨綠存檔鈕（`data-save`，最右邊＝鉛筆原本的位置），中間 16px；底下那一排拿掉
+- `.pbdeck` 讀與編輯都是 78dvh（以前編輯是 62dvh，比讀的時候矮）
+- 點卡片以外的地方或 Escape：沒改過直接收；改過跳 `chooseAction()` 三選一（存起來／不要了／關掉＝繼續改）
+- 讀的狀態長按鉛筆 → 原地變紅色垃圾桶（`data-armed="true"`），再點才跳刪除確認
+- `dialog.js` 抽出共用的 `ask()`：`confirmAction()` 行為不變，新增 `chooseAction()`
+- 返回鍵維持原樣（沒接），理由在 issue 07 的 Comments
 
-| issue | 難度 |
-|---|---|
-| 05 用詞統一（20 處 ＋ 2 個真 bug） | 中。動 domain 文案，要補一支 ADR（下一個編號 0087） |
-| 09 首波八處轉換 | 小，但 Blocked by 08 |
-| 10 讀取卡片單段化 | **這一輪最大最危險的一支**。Blocked by 05, 06, 09 |
+### 08
 
-## 這一輪談定的六個決定（不要重新討論）
+設計方向寫死在 issue 08 與 `tests/tip.test.js` 裡：視覺沿用既有 token；說明用 16px
+`--tea-soft` 圓底的 `?` 字形（不畫 SVG），提醒用既有的 `icon('alert')`；泡泡的
+`transform-origin` 綁在小尖角上（`--tip-origin`）；小尖角兩層疊；不用 `pushLayer()`；
+點外面、Escape、`hashchange` 關掉，一次一張。
 
-1. **第三條 (d)**：三頁改成「每一段自己一列，點了才看細節」，但先看到的仍然是
-   那一天有哪幾段 ＋ 那一天的待辦
-2. **第二條**：先做元件 ＋ 最划算的那八處，其餘按畫面分批
-3. **第七條 d**：刪掉要有兩條路（長按鉛筆 ＋ 編輯狀態右上角一顆低調的垃圾桶），
-   ADR-0060 不動
-4. **PR 切法**：五個 PR，小的先出（實際六支）
-5. **ADR-0085 的落差**：改程式（真的拿掉那一塊），舊 ADR 一個字不改
-6. **「這一天共用」**：改成 tooltip，點了才講（它沒寫錯，它在講一件真的事）
+## 這一輪學到的
+
+- **背景 agent 會一起吃額度。** 上一個 session 同時開了三支盤點、兩支實作，全部撞到上限死在半路，成果只剩沒 commit 的檔案。額度吃緊時寧可自己一支一支做
+- **動了 `public/` 一定要加 sw.js 的 VERSION，而且平行的 PR 要各用不同號碼** —— 同一個號碼 git 不會衝突，但後合的那個不會再清一次快取，她在 staging 上看到的會是「沒變」
+- `.claude/worktrees/` 要在 `.gitignore` 裡，不然 `git add -A` 會把 worktree 當成 gitlink 加進去（兩支分支都補了）
+
+## 談定的六個決定（不要重新討論）
+
+1. 第三條 (d)：三頁改成「每一段自己一列，點了才看細節」，先看到的仍然是那一天有哪幾段 ＋ 那一天的待辦
+2. 第二條：先做元件 ＋ 最划算的八處，其餘按畫面分批
+3. 第七條 d：刪掉兩條路（長按鉛筆 ＋ 編輯中右上角的垃圾桶），ADR-0060 不動
+4. 分多個 PR，小的先出
+5. ADR-0085 的落差：改程式（真的拿掉那一塊），舊 ADR 不改
+6. 「這一天共用」：改成 tooltip
 
 ## 交付前
 
-- 每一支 issue 的 `Status:` 都是 `done`
-- **回去補 `CLAUDE.md` 的「容易漏掉的連動」那張表**：這一輪長出來的新連動至少有
-  「改 `partnerChips()` 的畫法」「加一段常駐說明文字」兩條
-- 05 要補的那支 ADR 寫了，舊的 0081 / 0083 / 0085 一個字都沒改
-- 全部合完之後跑一次 `/matt-code-review`
+- 每支 issue 的 Status 都是 done
+- 補 CLAUDE.md「容易漏掉的連動」：至少「`partnerChips()` 自己帶包裝」「要分得出『不要了』與『手滑關掉』的確認框用 `chooseAction()`」「平行 PR 的 sw.js VERSION 要不同號」
+- 05 補 ADR-0087，舊的 0081／0083／0085 不改
+- 全部合完跑 `/matt-code-review`
 
 ---
 
 # 貼給新 session 的開場
 
 ```
-接手 baobao-wellness-clinic-scheduler 的一輪改動。
+接手 baobao-wellness-clinic-scheduler 的一輪改動（.scratch/quieter-screens/）。
 
-先讀這三份，照順序：
-1. CLAUDE.md（專案根目錄）—— 規則是硬的，尤其「容易漏掉的連動」那張表
-2. .scratch/quieter-screens/HANDOFF.md —— 這一輪做到哪了、哪幾件已經談定
-3. .scratch/quieter-screens/spec.md 與 issues/ 底下那十支
+先讀，照順序：
+1. CLAUDE.md —— 規則是硬的
+2. .scratch/quieter-screens/HANDOFF.md —— 做到哪、接手第一件事、哪六件已經談定
+3. .scratch/quieter-screens/spec.md 與 issues/ 那十支
 
-上一個 session 做完 01–04（PR #97 已開），06 與 07 分給背景 agent 做了
-（分支在，可能已經有 commit，HANDOFF 第一節寫了怎麼確認），
-08 停在 TDD 的紅燈（分支 claude/tooltip-component 上有一支整支紅的
-tests/tip.test.js，元件還沒寫）。
+然後照 HANDOFF 的「接手第一件事」：先把 06 與 07 收尾開 PR（兩個都在本機 worktree 裡），
+再把 08 的紅燈變綠，接著 09、05、10。
 
-請從這裡接下去：
-
-一、先確認 06 與 07 那兩支背景 agent 的成果。有 commit 就跑 npm test、
-    讀 diff、對 issue 的判準，然後各開一個 PR（基底 develop）。
-    沒有就自己做。
-
-二、把 08 的紅燈變綠 —— 寫 public/js/ui/components/tip.js 與它的 CSS。
-    設計方向已經定死在 HANDOFF 裡與測試裡了，不要重新設計。
-
-三、接著 09、05、10（10 要等 05 06 09）。
-
-規矩：
-- 一支 issue 一個 commit，PR 基底一律 develop 不是 main
-- 先寫重現得出來的失敗測試再修，不要先改 code 再補測試
-- 日常驗收 npm run verify，不要全跑 E2E（無頭 24 分鐘，而她在等）
-- 交付時給一份她可以照順序點的手動驗收清單，而且寫的人要真的走過那條路
-- 動到 domain 規則或狀態機那幾支，做完一支就換一個 session
-
-全部合完之後跑 /matt-code-review。
+規矩：一支 issue 一個 commit；PR 基底 develop；先寫失敗測試再修；日常 npm run verify、
+不要全跑 E2E、同一時間只跑一組 E2E；動到 public/ 要加 sw.js 的 VERSION 而且跟別的 PR 不同號；
+交付附一份她可以照順序點的手動驗收清單（寫的人要真的走過那條路）；
+額度快到時先收尾、更新 HANDOFF、給新的開場提示詞。全部合完跑 /matt-code-review。
 ```
