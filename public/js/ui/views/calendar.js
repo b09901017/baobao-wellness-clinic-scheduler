@@ -51,7 +51,7 @@ import { hintHtml } from '../components/playbookHint.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
 import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
 import { cancelConsequences } from '../../domain/consequences.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmWithReason } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
@@ -1112,6 +1112,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   // 要取消一整天走壓表的批次取消（ADR-0082）。一天只有一段時取消那一段就是
   // 取消那一天 —— `settle()` 會把整筆推成 cancelled。
   const onlyOne = action === 'cancel-slot';
+  let reason = null;
   if (onlyOne) {
     // 會被收掉哪幾張要問這一筆的任務。點下去才讀 —— 日曆是她每天開十幾次的
     // 一頁，為了一道確認框先把整月的任務讀回來是白費的。
@@ -1122,7 +1123,10 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     } catch {
       /* 少講兩句，不擋 */
     }
-    const ok = await confirmAction({
+    // **那一格「為什麼」跟著搬到這裡**（ADR-0089）。它以前長在來訪編輯器的
+    // 整天狀態卡上，而那一塊整個拿掉了 —— 不搬的話 `cancelReason` 會變成
+    // 一個再也沒有人寫得進去的欄位，稽核紀錄上從此只看得到「取消了」。
+    const said = await confirmWithReason({
       title: `取消${visit.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
         visit,
@@ -1132,15 +1136,17 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       }),
       confirmLabel: '取消這一段',
       danger: true,
+      field: { label: '為什麼（選填）', placeholder: '客人要改時間' },
     });
-    if (!ok) return;
+    if (!said.ok) return;
+    reason = said.reason;
   }
 
   try {
     // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
     const customerVisits = await visitsData.listByCustomer(visit.customerId);
     const next = onlyOne
-      ? applyStatus(visit, 'cancelled', { slotIndex })
+      ? applyStatus(visit, 'cancelled', { slotIndex, reason })
       : applyStatus(visit, action);
     // 快捷選單自己會在回呼之前把節點移除，所以**快速**連點本來就落空了。
     // 但「長按 → 選 → 還在存 → 再長按 → 再選」這條慢路徑沒有東西擋，

@@ -226,6 +226,17 @@ export const COVERAGE = {
     'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
     'public/js/ui/views/visitEditor.js',
   ],
+  // 「一天只是一個抬頭」（ADR-0089）。讀取卡片是四個畫面共用的，
+  // 所以那四支 view 底下改一行都該跑這一支。
+  '29-slot-first': [
+    'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
+    'public/js/domain/playbook.js', 'public/js/domain/progress.js',
+    'public/js/ui/components/taskMirror.js', 'public/js/ui/components/playbookHint.js',
+    'public/js/ui/components/dialog.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/progress.js',
+    'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/ui/views/visitEditor.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

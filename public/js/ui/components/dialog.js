@@ -56,7 +56,7 @@ export function confirmAction({
     ],
     // 預設焦點在「取消」：按 Enter 不可以誤觸破壞性操作
     focus: 'cancel',
-  }).then((key) => key === 'ok');
+  }).then(({ key }) => key === 'ok');
 }
 
 /**
@@ -91,7 +91,38 @@ export function chooseAction({ title, consequences, choices = [] }) {
       cls: `btn ${tone[c.tone] ?? ''}`.trim(),
     })),
     focus: (choices.find((c) => c.tone === 'primary') ?? choices.at(-1)).key,
-  });
+  }).then(({ key }) => key);
+}
+
+/**
+ * 「確定要嗎？順便講一句為什麼。」
+ *
+ * **只有取消一段來訪在用。** 2026-09-12 之前那一格長在來訪編輯器的整天狀態卡
+ * 上（`[data-cancel-reason]`），而那一整塊跟著 ADR-0089 拿掉了 ——
+ * 取消的路從此只剩長按選單。那一格不跟著搬的話，`cancelReason` 會變成一個
+ * 再也沒有人寫得進去的欄位，而稽核紀錄上從此只看得到「取消了」。
+ *
+ * 選填：她不填就是 `null`，跟以前一樣。
+ *
+ * @param {object} o
+ * @param {string} o.title
+ * @param {string[]} o.consequences
+ * @param {{label: string, placeholder?: string, maxlength?: number}} o.field
+ * @returns {Promise<{ok: boolean, reason: string|null}>}
+ */
+export function confirmWithReason({
+  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false, field,
+}) {
+  return ask({
+    title,
+    consequences,
+    field,
+    buttons: [
+      { key: 'cancel', label: cancelLabel, attr: 'data-cancel', cls: 'btn' },
+      { key: 'ok', label: confirmLabel, attr: 'data-ok', cls: `btn ${danger ? 'btn--danger' : 'btn--primary'}` },
+    ],
+    focus: 'cancel',
+  }).then(({ key, value }) => ({ ok: key === 'ok', reason: key === 'ok' ? value : null }));
 }
 
 /**
@@ -100,7 +131,7 @@ export function chooseAction({ title, consequences, choices = [] }) {
  * 回按到的那一顆的 key；**關掉（Escape、返回鍵、點背景、被下一個擠掉）一律回 `null`**。
  * `confirmAction()` 把 null 與 'cancel' 都當成 false，所以它的行為一個字都沒變。
  */
-function ask({ title, consequences, buttons, focus }) {
+function ask({ title, consequences, buttons, focus, field = null }) {
   // 參數名打錯了要當場講出來。
   //
   // 這裡以前是直接對 `consequences` 做 `.map()`，所以傳錯名字（例如寫成 `body`）
@@ -138,6 +169,12 @@ function ask({ title, consequences, buttons, focus }) {
         <ul class="dialog__list">
           ${consequences.map((c) => `<li>${esc(c)}</li>`).join('')}
         </ul>
+        ${field ? `
+          <label class="field">
+            <span class="field__label">${esc(field.label)}</span>
+            <input type="text" data-dialog-field maxlength="${Number(field.maxlength ?? 120)}"
+                   placeholder="${esc(field.placeholder ?? '')}" />
+          </label>` : ''}
         <div class="dialog__actions">
           ${buttons.map((b) => `
             <button class="${b.cls}" type="button" ${b.attr} data-key="${esc(b.key)}">
@@ -147,6 +184,12 @@ function ask({ title, consequences, buttons, focus }) {
       </div>`;
 
     let settled = false;
+    // **那一格的值要在節點被移除之前讀走。** `finish()` 裡第一件事就是
+    // `el.remove()`，之後 `querySelector()` 還找得到節點但那已經是一棵離線的樹，
+    // 讀起來沒問題 —— 真正會出事的是有人改成先 resolve 再 remove。
+    // 寫成一支現讀的函式比在每一個出口各抄一次安全。
+    const readField = () => el.querySelector('[data-dialog-field]')?.value?.trim() || null;
+    let value = null;
 
     // 對話框也吃返回鍵，而且**返回等於取消**。這一顆很重要：破壞性操作的
     // 二次確認如果被返回鍵略過，那顆「刪除」會在她以為自己取消了的時候執行。
@@ -175,11 +218,12 @@ function ask({ title, consequences, buttons, focus }) {
     const finish = (answer, { fromBack = false } = {}) => {
       if (settled) return;
       settled = true;
+      value = readField();
       document.removeEventListener('keydown', onKey);
       if (!fromBack) layer.pop();
       el.remove();
       if (openDialog?.el === el) openDialog = null;
-      resolve(answer);
+      resolve({ key: answer, value });
     };
 
     for (const btn of el.querySelectorAll('[data-key]')) {
