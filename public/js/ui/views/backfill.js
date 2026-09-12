@@ -203,11 +203,10 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
              是貼給客人的，印課程（`靜脈雷射`）。同一段兩種字（ADR-0078）*/
           esc(slotName(slot, master, 'short'))}
         <span class="badge ${candidates.length ? 'badge--ok' : 'badge--overdue'}">
-          ${candidates.length} 位可以補</span>
+          ${candidates.length} 位可以補</span>${candidates.length ? tip(
+          '依壓表同一套優先序排。順序只是建議，跳著問沒關係。') : ''}
       </h2>
-      ${candidates.length
-        ? '<p class="muted">依壓表同一套優先序排。順序只是建議，跳著問沒關係。</p>'
-        : '<p>沒有人補得上這一格。</p>'}
+      ${candidates.length ? '' : '<p>沒有人補得上這一格。</p>'}
     </section>
 
     ${candidates.map((row) => candidateCard(row, slot, ctx, master)).join('')}
@@ -272,8 +271,8 @@ function candidateCard(row, slot, ctx, master) {
 function excludedHtml(excluded) {
   return `
     <details class="card">
-      <summary class="card__title">沒列進來的<span class="muted"> ${excluded.length}</span></summary>
-      <p class="muted">有買這個課程、但這一格輪不到他的人。沒買這個課程的不會出現在這裡。</p>
+      <summary class="card__title">沒列進來的<span class="muted"> ${excluded.length}</span>${tip(
+        '有買這個課程、但這一格輪不到他的人。沒買這個課程的不會出現在這裡。')}</summary>
       <ul class="link-list">
         ${excluded
           .map(

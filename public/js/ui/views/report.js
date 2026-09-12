@@ -22,6 +22,7 @@ import * as message from '../components/message.js';
 import { saveText, dated } from '../components/download.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 /** 報表往回涵蓋多久的來訪。她的方案會籍是一年，涵蓋一年才看得到整份療程。 */
 const LOOKBACK_DAYS = 400;
@@ -83,9 +84,9 @@ function paint(el, data) {
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <section class="card">
-      <h2 class="card__title">試算表報表</h2>
-      <p class="muted">把資料排成試算表的樣子，複製之後在試算表選一格貼上就是一張表。
-        單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。</p>
+      <h2 class="card__title">試算表報表${tip(
+        '把資料排成試算表的樣子，複製之後在試算表選一格貼上就是一張表。'
+        + '單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。')}</h2>
 
       <label class="field">
         <span class="field__label">要哪一份</span>

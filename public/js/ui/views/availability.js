@@ -646,9 +646,9 @@ async function submit(ctx, record, next) {
 function dangerZone() {
   return `
     <section class="card danger">
-      <h2 class="card__title">刪除這次的詢問結果</h2>
-      <p class="muted">問錯人、記錯了才用刪除。過期的不用刪 —— 它會自己變灰，
-        而且留著看得出上次是什麼時候問的。</p>
+      <h2 class="card__title">刪除這次的詢問結果${tip(
+        '問錯人、記錯了才用刪除。過期的不用刪 —— 它會自己變灰，'
+        + '而且留著看得出上次是什麼時候問的。')}</h2>
       <p><button class="btn btn--danger" type="button" data-del-avail>刪除</button></p>
     </section>`;
 }

@@ -174,9 +174,8 @@ function paint(ctx) {
     </div>
 
     <section class="card" data-namecard>
-      <h2 class="card__title">復能與 ILIB</h2>
-      <p class="muted" style="margin: 0 0 var(--space-3)">就是這六種。
-        前兩種是一種買法，名字跟著那天用的器材走，所以只給看。</p>
+      <h2 class="card__title">復能與 ILIB${tip(
+        '就是這六種。前兩種是一種買法，名字跟著那天用的器材走，所以只給看。')}</h2>
       ${rehabRows(master).map((row) => rehabRowHtml(row, master, open)).join('')}
     </section>
 

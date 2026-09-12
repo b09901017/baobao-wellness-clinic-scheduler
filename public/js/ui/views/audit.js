@@ -15,6 +15,7 @@ import {
 } from '../../domain/audit.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 /** 整頁一次載入幾筆。她要找的通常是剛剛發生的事，不是三個月前的。 */
 const PAGE_SIZE = 100;
@@ -46,9 +47,9 @@ export async function render(el) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">稽核紀錄<span class="muted"> 最近 ${events.length} 筆</span></h2>
-      <p class="muted">每一次寫入都會留下一筆，改不掉也刪不掉。
-        這裡只能看 —— 要改回去請到那筆資料上編輯，那樣才會再留一筆紀錄。</p>
+      <h2 class="card__title">稽核紀錄<span class="muted"> 最近 ${events.length} 筆</span>${tip(
+        '每一次寫入都會留下一筆，改不掉也刪不掉。這裡只能看 —— 要改回去請到那筆資料上編輯，'
+        + '那樣才會再留一筆紀錄。')}</h2>
     </section>
     ${events.length ? listHtml(events, { nameOf }) : '<p class="muted">還沒有任何變更紀錄。</p>'}`;
 }
@@ -84,9 +85,7 @@ export function wireSection(el, load) {
     try {
       const events = await load();
       body.innerHTML = events.length
-        ? `${listHtml(events)}
-           <p class="muted">收的是這位客戶本人、他的額度、可用性與來訪的變更。
-             任務的變更在它所屬的來訪底下看得到。</p>`
+        ? listHtml(events)
         : '<p class="muted">沒有變更紀錄。</p>';
     } catch (err) {
       // 失敗要能再試一次，所以把旗標放回去

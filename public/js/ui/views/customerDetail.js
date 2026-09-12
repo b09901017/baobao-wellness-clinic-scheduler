@@ -1714,8 +1714,8 @@ function readEntitlement(form, master = {}) {
 function entitlementDanger() {
   return `
     <section class="card danger" style="margin-top: var(--space-5)">
-      <h2 class="card__title">刪除這筆額度</h2>
-      <p class="muted">刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。</p>
+      <h2 class="card__title">刪除這筆額度${tip(
+        '刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。')}</h2>
       <p style="margin-bottom: 0">
         <button class="btn btn--danger" type="button" data-del-ent>刪除</button></p>
     </section>`;

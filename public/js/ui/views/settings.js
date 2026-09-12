@@ -104,15 +104,15 @@ export async function render(el) {
     </section>
 
     <section class="card">
-      <h2 class="card__title">匯出備份</h2>
-      <p class="muted">匯出全部資料為一個 JSON 檔，含已刪除的資料 ——
-        備份漏掉軟刪除的東西就救不回誤刪。建議每個月存一份到雲端硬碟。</p>
+      <h2 class="card__title">匯出備份${tip(
+        '匯出全部資料為一個 JSON 檔，含已刪除的資料 —— 備份漏掉軟刪除的東西就救不回誤刪。'
+        + '建議每個月存一份到雲端硬碟。')}</h2>
       <label class="choice choice--row">
         <input type="checkbox" data-with-audit />
-        <span>含稽核紀錄</span>
+        <span>含稽核紀錄${tip(
+          '稽核紀錄是每一次寫入的完整 before / after，累積起來可能比其他資料加起來還大，'
+          + '手機下載會等比較久。')}</span>
       </label>
-      <p class="muted">稽核紀錄是每一次寫入的完整 before / after，
-        累積起來可能比其他資料加起來還大，手機下載會等比較久。</p>
       <p><button class="btn" type="button" data-export>匯出</button></p>
     </section>`;
 
@@ -144,8 +144,8 @@ function tile(href, label, meta) {
 function seedCard() {
   return `
     <section class="card">
-      <h2 class="card__title">還沒有任何主檔</h2>
-      <p class="muted">可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。</p>
+      <h2 class="card__title">還沒有任何主檔${tip(
+        '可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
       <p><button class="btn btn--primary" type="button" data-seed>載入種子資料</button></p>
     </section>`;
 }
