@@ -64,6 +64,22 @@
   `visits.test.js` 三條、`visit-editor.test.js` 三條、`read-card-one-slot`
   三條。改之前先問它斷言的是不是她要改掉的行為。
 
+## 審查之後改的（`/matt-code-review`，兩軸各七條）
+
+**Standards**：`SPEC.md` 第 4.4 節沒跟著 ADR-0089 改（連動表第一列）、
+`visitActions()` 自己寫了一次 live-slot 判斷、`focusFor()` 的 JSDoc 插進
+`slotsToShow()` 的中間、`Number(dataset.slot)` 兩頁各一份、
+`confirmWithReason()` 的 `maxlength ?? 120` 是憑空的上限、
+ADR-0089 說「兩支舊 ADR 一個字都沒有改」講得太滿。
+
+**Spec**：確認抽屜那一句「哪一段客人說不行就點它一下」收過頭了
+（**沒看到就會整批確認** —— issue 08 自己那條判準）、`<summary>` 裡不可以
+放 `tip()`（而那兩段本來就在一摺底下）、`audit.js` 那一段字是被刪掉不是
+收起來、issue 09 要的字串測試沒寫、`muted dim` 一段都沒收沒有留下紀錄。
+
+**issue 08 的做法跟當初寫的不一樣** —— 沒有 `.explain` 這個 class，
+換成棘輪 ＋ 每一條的理由，說明寫在那一支 issue 裡。
+
 ## 談定的決定（不要重新討論）
 
 1. 整天那幾顆全部拿掉，改日期與刪除這一天**都不要了**，取消整天走壓表的批次取消
