@@ -13,19 +13,19 @@
 //
 // 要勾的地方一個都沒有變：待辦中心、客戶詳情，還有日曆上那一列長按。
 //
-// ## 抬頭跟著範圍走
+// ## 它只長在「這一段」那一張上
 //
 // 她 2026-09-08：「會顯示『這一天的代辦』但其實不是這一天，現在已經是一項
-// 一項分開來看了，所以應該要叫做這一項的代辦之類的」。
+// 一項分開來看了，所以應該要叫做這一項的代辦之類的」。當時的答案是抬頭兩種
+// 說法各自成立（帶了段落就「這一項」，沒帶就「這一天」）。
 //
-// 所以抬頭有兩種，而**兩種都是真的**：
+// **2026-09-12 那一半沒有了。** 她：「如果是一整天的詳情，那也請不要呈現
+// "這一天的待辦"和SOP，直接呈現那幾個分段讓我點就好，點進去再呈現那項的
+// 詳情」。所以沒指定哪一段的那一張是**一張目錄**，這一塊整塊不畫，
+// 抬頭也只剩「這一項的待辦」一種說法。
 //
-//   帶了 `focusSlot`（日曆點一段） → 「這一項的待辦」，內容也真的只有那一段
-//   沒帶（另外三頁列整筆）         → 「這一天的待辦」
-//
-// 一律改成「這一項」是錯的：客戶詳情、待辦中心、進度追蹤列的本來就是整筆
-// 來訪，那三頁寫「這一項」會變成另一句假話。範圍由 `todosForVisit()` 決定，
-// 抬頭只是把它講出來。
+// 「那一天只有一段」不算目錄 —— `focusFor()` 會把它解成第 0 段
+// （那時候「這一天」與「這一段」是同一件事）。
 //
 // ## 它長在四個畫面上，那是刻意的
 //
@@ -59,16 +59,20 @@ import { shortDate } from '../../domain/dates.js';
 export function mirrorHtml({ visit, tasks, coursesById = {}, today, focusSlot = null } = {}) {
   if (!Array.isArray(tasks)) return '';
 
+  // **整天那一張只是目錄**（2026-09-12）：只列那幾段讓她點，一件待辦都不畫。
+  // 呼叫端進來之前已經走過 `focusFor()`，所以「那一天只有一段」在這裡是
+  // 帶著 0 進來的，不會掉進這一條。
+  const focused = Number.isInteger(focusSlot) && Boolean((visit?.slots ?? [])[focusSlot]);
+  if (!focused) return '';
+
   const rows = todosForVisit(visit, { tasks, coursesById, today, focusSlot });
   // 一件都沒有就整塊不畫。**不要留一個空殼** —— 一個永遠空的區塊會讓她
   // 以為那裡壞了（同 `playbookHint.js` 的規矩）。
   if (!rows.length) return '';
 
-  const focused = Number.isInteger(focusSlot) && Boolean((visit?.slots ?? [])[focusSlot]);
-
   return `
     <div class="taskmirror">
-      <div class="taskmirror__head">${focused ? '這一項的待辦' : '這一天的待辦'}</div>
+      <div class="taskmirror__head">這一項的待辦</div>
       <ul class="taskmirror__list">
         ${rows.map((r) => rowHtml(r, today)).join('')}
       </ul>

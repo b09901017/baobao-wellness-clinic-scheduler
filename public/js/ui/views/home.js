@@ -22,6 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
+  focusFor,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -1184,8 +1185,11 @@ async function loadWhoDetails(ctx) {
  *
  * **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁點的是人名，
  * 列的是整筆來訪，所以第一張沒帶 `focus` —— 那時候每一段自己是一列，
- * 點下去用同一支再開一張只有那一段的。她 2026-09-10 指名要留先看到
- * 「那一天有哪幾段 ＋ 那一天的待辦」這一層。
+ * 點下去用同一支再開一張只有那一段的。
+ *
+ * **那一張只是目錄**（2026-09-12）：待辦與 SOP 都等她點進某一段才出現。
+ * 一天只有一段時 `focusFor()` 直接解成那一段 —— 一張只有一列的目錄
+ * 是講不通的。
  */
 function openWhoVisit(visitId) {
   const d = whoDrawer;
@@ -1197,10 +1201,12 @@ function openWhoVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
-  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
-  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = null;
+  // 她點到哪一段了。這一頁點的是人名，所以進來沒有段落 —— 但那一天只有一段
+  // 的時候，那一段就是那一天（`focusFor()`），不然會畫成一張只有一列的空目錄。
+  //
+  // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
+  // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
+  let focus = focusFor(visit, null);
   let tasks;
   let extra = {};
 
@@ -2139,8 +2145,10 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
-  let focus = null;
+  // 她點到哪一段了。任務綁的是一整天（掛號是一天去一次），所以這條路沒有段落
+  // —— 一天只有一段時 `focusFor()` 把它解成那一段，其餘畫成一張目錄。
+  // 就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
+  let focus = focusFor(visit, null);
   let tasks;
   let extra = {};
 

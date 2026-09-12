@@ -39,7 +39,7 @@ import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
   slotNoteOf,
-  applyStatus, visitActions, slotsToShow, showsRoom,
+  applyStatus, visitActions, slotsToShow, showsRoom, focusFor,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
@@ -877,15 +877,19 @@ function openDetail(el, data, hit, date, repaint) {
   // 所以這裡幾乎一定是個整數。**但不要假設它是** —— `parseOpen()` 認不出第三格
   // 時會回 null，而那時候 `visitReadHtml()` 畫的是可以點的一列。少接那一圈的話
   // 那幾列會長著箭頭卻什麼都不會發生，而畫面上看起來完全正常。
-  let focus = slotIndex;
+  // 那一天只有一段時，「這一天」與「這一段」是同一件事 —— `focusFor()`
+  // 把它解成第 0 段，不然單段那一天會畫成一張只有一列的空目錄（2026-09-12）。
+  let focus = focusFor(visit, slotIndex);
   // 任務與額度是 `fillMirror()` 非同步補上的。
   let tasks;
   let extra = {};
 
   // SOP 那一塊**只浮她點的那一段的**（2026-09-12）。整天那一張一份都不浮 ——
-  // 那一張只是目錄（見底下 `visitReadHtml()` 的檔頭）。
+  // 那一張只是目錄：只列那幾段讓她點，待辦與 SOP 都等她點進去才出現。
   const paint = () => visitReadHtml(visit, { ...data, ...extra, tasks, focusSlot: focus })
-    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus });
+    + (Number.isInteger(focus)
+      ? hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus })
+      : '');
 
   const html = (nextTasks, nextExtra = {}) => {
     tasks = nextTasks;
@@ -1487,7 +1491,18 @@ function openNoteEditor(el, data, spec) {
  * 她：「我還是希望大部分都先改成呈現這一段的詳情而不是這一整天的」。
  * 所以沒帶 `focusSlot` 而且不只一段時，每一段畫成帶 `data-open` 的按鈕，
  * 點下去用同一支再開一張只有那一段的（接線走 `wireReadSlots()`）。
- * **她指名要留先看到「那一天有哪幾段」這一層**，所以第一張仍然是全部。
+ *
+ * ## 「沒帶那一張只是目錄」（2026-09-12）
+ *
+ * 她：「如果是一整天的詳情，那也請不要呈現"這一天的待辦"和SOP，直接呈現
+ * 那幾個分段讓我點就好，點進去再呈現那項的詳情」。
+ *
+ * 所以那一張上**只有那幾段**：待辦那一塊（`mirrorHtml()`）整塊不畫、
+ * SOP 那一塊（接在這一支外面）也不畫、底下那一列「記的話」收進每一段自己
+ * 那一列裡。點進某一段才是詳情。
+ *
+ * 呼叫端進來之前先走 `focusFor()`：那一天只有一段時它解成第 0 段 ——
+ * **一張只有一列的目錄是講不通的**，那時候「這一天」與「這一段」是同一件事。
  *
  * 卡片副標由呼叫端印，一律走 `statusForCard(visit, focus)` ——
  * 整筆那一個是推導出來的（ADR-0085）。
@@ -1536,6 +1551,10 @@ export function visitReadHtml(visit, data) {
           <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</span>
           ${fromLine(s, data)}
+          ${/* **目錄那一張上，那一句話長在自己那一列裡**（2026-09-12）。
+                底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
+                單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
+          ${tappable ? slotNoteLine(visit, s) : ''}
         </${tag}>`;
     }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
 
@@ -1547,7 +1566,12 @@ export function visitReadHtml(visit, data) {
       // 讀法只有 `slotNoteOf()` 一支（ADR-0084）：新資料是那一段的，
       // 還沒被搬過的舊資料退回整筆那一句。**去重**是因為後者在同一張卡片上
       // 畫兩段時會是同一句話。
-      const lines = [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
+      //
+      // **目錄那一張不印這一列** —— 那時候每一句話已經在自己那一列裡了
+      //（2026-09-12），合起來再印一次會多出一塊講同樣的話。
+      const lines = tappable
+        ? []
+        : [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
       return lines.length ? `
         <div class="readrow">
           <span class="readrow__k">記的話</span>
@@ -1589,6 +1613,20 @@ function fromLine(slot, data) {
     : '';
   if (!label) return '';
   return `<span class="readslot__from">扣 ${esc(label)}</span>`;
+}
+
+/**
+ * 目錄那一張上，那一段身上那一句話（ADR-0084）。
+ *
+ * **只有列得出好幾段的時候才用**：單段那一張底下本來就有一列「記的話」，
+ * 兩邊一起印就是同一句話講兩次。
+ *
+ * 沒有字就一個像素都不佔 —— 同 `slotNote.js` 那一條規矩。
+ */
+function slotNoteLine(visit, slot) {
+  const text = String(slotNoteOf(visit, slot) ?? '').trim();
+  if (!text) return '';
+  return `<span class="readslot__note">${esc(text)}</span>`;
 }
 
 function eventReadHtml(event) {

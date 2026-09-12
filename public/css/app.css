@@ -4032,6 +4032,16 @@ button.mark::after {
   color: var(--text-mute);
 }
 
+/* 目錄那一張上，那一段身上那一句話（ADR-0084）。跟「扣 …」同一階淡，
+   但斜體 —— 那一行是資料，這一行是她自己寫的字。 */
+.readslot__note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--text-dim);
+}
+
 /* 確認畫面裡的一筆時段。點一下切成「客人說不行」，其餘照樣成立。 */
 .slotrow {
   display: flex;

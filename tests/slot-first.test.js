@@ -57,3 +57,40 @@ describe('進度追蹤與客戶詳情：畫面上就分得出段來點', () => {
     }
   });
 });
+
+describe('一整天那一張只是目錄', () => {
+  // 她 2026-09-12：「如果是一整天的詳情，那也請不要呈現"這一天的待辦"和SOP，
+  // 直接呈現那幾個分段讓我點就好，點進去再呈現那項的詳情」。
+  test('沒指定哪一段時，待辦那一塊整塊不畫', () => {
+    const src = code('ui/components/taskMirror.js');
+    assert.match(src, /if \(!focused\) return '';/,
+      '整天那一張還在畫待辦 —— 那一張只是目錄');
+  });
+
+  test('抬頭只剩一種說法', () => {
+    const src = read('ui/components/taskMirror.js');
+    assert.ok(!src.includes("'這一天的待辦'"),
+      '「這一天的待辦」不會再出現了 —— 那一塊只長在單段那一張上');
+    assert.match(code('ui/components/taskMirror.js'), /這一項的待辦/);
+  });
+
+  test('SOP 也一樣：整天那一張一份都不浮', () => {
+    const src = code('ui/views/calendar.js');
+    assert.match(src, /Number\.isInteger\(focus\)\s*\?\s*hintHtml/,
+      'SOP 那一塊沒有跟著段落走 —— 目錄那一張會浮出整天的');
+  });
+
+  test('一天只有一段時，那一段就是那一天（不會變成一張空目錄）', () => {
+    assert.match(code('domain/visits.js'), /export function focusFor\(/,
+      '少了這一支，單段那一天會畫成一張只有一列、什麼都沒有的目錄');
+  });
+
+  test('四個入口都走 focusFor()', () => {
+    for (const rel of [
+      'ui/views/calendar.js', 'ui/views/progress.js',
+      'ui/views/home.js', 'ui/views/customerDetail.js',
+    ]) {
+      assert.match(code(rel), /focusFor\(/, `${rel} 沒有走 focusFor()`);
+    }
+  });
+});

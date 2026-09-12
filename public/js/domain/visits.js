@@ -459,6 +459,33 @@ export function visitCourseLabel(visit, master = null) {
  *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
  *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
+/**
+ * 這張卡片實際上在講哪一段。
+ *
+ * 她 2026-09-12：「如果是一整天的詳情，那也請不要呈現"這一天的待辦"和SOP，
+ * 直接呈現那幾個分段讓我點就好」。所以沒指定哪一段的那一張變成**一張目錄**
+ * —— 而一張只有一列的目錄是講不通的：那一天只有一段的時候，
+ * 「這一天」與「這一段」本來就是同一件事（`visitStatusFrom()` 直接抄它）。
+ *
+ * 所以規則是：**指名了就是那一段；沒指名而且只有一段，那一段就是答案；
+ * 其餘回 null（那才是一張真的目錄）。**
+ *
+ * 指到一個不存在的段落**不要當成指名**（同 `slotsToShow()` 的退路）——
+ * 那一天有三段時它退回目錄，她再點一次就好。
+ *
+ * 四個畫面的讀取卡片都走這一支（日曆、客戶詳情、待辦中心、進度追蹤）。
+ * 各寫一份的話遲早有一頁把單段那一天畫成一張空目錄。
+ *
+ * @param {{slots?: object[]}|null} visit
+ * @param {number|null} [focusSlot]
+ * @returns {number|null}
+ */
+export function focusFor(visit, focusSlot = null) {
+  const slots = visit?.slots ?? [];
+  if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
+  return slots.length === 1 ? 0 : null;
+}
+
 export function slotsToShow(visit, focusSlot = null) {
   const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
   const every = { slots: all, hidden: 0, focused: false };

@@ -38,7 +38,7 @@ import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
 import {
-  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard,
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor,
 } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -1773,7 +1773,10 @@ function openVisitCard(ctx, visitId, slotIndex = null) {
   //
   // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
   // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
-  let focus = slotIndex;
+  //
+  // 那一天只有一段時，那一段就是那一天（`focusFor()`）—— 不然來訪紀錄那一列
+  // 點下去會是一張只有一列的空目錄。
+  let focus = focusFor(visit, slotIndex);
 
   // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
   // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。

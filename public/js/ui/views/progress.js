@@ -13,7 +13,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import { buildProgress, PROGRESS_STATUSES } from '../../domain/progress.js';
 import {
-  statusClass, shortStatus, markFor, describeStatus, statusForCard,
+  statusClass, shortStatus, markFor, describeStatus, statusForCard, focusFor,
 } from '../../domain/visits.js';
 import { monthRange } from '../../domain/scheduling.js';
 import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
@@ -334,7 +334,9 @@ function openVisitCard(ctx, visit, slotIndex = null) {
   // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
   // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
   //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = slotIndex;
+  // 那一天只有一段時，那一段就是那一天（`focusFor()`）——
+  // 不然單段那一天會畫成一張只有一列的空目錄。
+  let focus = focusFor(visit, slotIndex);
   // 任務與額度是 `fillMirror()` 非同步補上的（同日曆的 `openDetail()`）。
   let tasks;
   let extra = {};
