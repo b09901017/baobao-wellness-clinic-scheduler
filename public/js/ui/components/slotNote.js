@@ -148,7 +148,6 @@ export function wire(root, { signal } = {}) {
   }, { signal });
 }
 
-/** 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。 */
 /**
  * 收起來。**不是把那一句藏起來** —— 有字的時候縮成一行，沒字才真的零高度
  *（`app.css` 的 `.advanced` 那條規矩：收起來的東西不能安靜地生效）。
@@ -192,6 +191,7 @@ function pinOf(root, box) {
   return root.querySelector(`[data-slotnote-toggle="${CSS.escape(box.dataset.slotnote)}"]`);
 }
 
+/** 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。 */
 function open(root, box) {
   box.dataset.slotnoteOpen = 'true';
   const peek = box.querySelector('.slotnote__peek');
