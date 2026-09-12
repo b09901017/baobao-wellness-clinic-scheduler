@@ -25,6 +25,16 @@
 // `manual`（攤開的書）是備忘錄／SOP，**不要拿來用**：那一顆綁課程、勾不掉，
 // 跟這一句是兩種東西。
 
+// ## 狀態記在 `data-slotnote-open`，不是 `data-open`
+//
+// 2026-09-12 之前它叫 `data-open`，而「跟客人確認時間」那一頁的 `data-open`
+// 指的是**這一列是哪位客戶**（`wireConfirm()` 用 `querySelectorAll('[data-open]')`
+// 接線）。她點進記一句的輸入框那一下冒泡上去，那一頁就以為她按了某位客戶的
+// 確認鈕 —— 抬頭印出「的 0 段」，而她打的字一個都沒存進去。
+//
+// **元件會被插進任何一頁，所以它不可以佔用頁面身上的名字。**
+// `tests/slot-note.test.js` 掃 `components/` 底下每一支盯著。
+
 import { esc } from './form.js';
 import { icon } from '../icons.js';
 
@@ -69,7 +79,7 @@ export function disclosure({ name, peek = '', body }) {
   const text = String(peek ?? '');
 
   return `
-    <div class="slotnote" data-slotnote="${esc(name)}" data-open="false">
+    <div class="slotnote" data-slotnote="${esc(name)}" data-slotnote-open="false">
       ${/* 收起來時那一行。**有字才畫** —— 沒字的時候一個像素都不佔，
              這一句就是她說的「不然感覺會很占版面」的答案。 */''}
       <button class="slotnote__peek" type="button" data-slotnote-toggle
@@ -131,7 +141,7 @@ export function wire(root, { signal } = {}) {
  * 找到的是先出現在 DOM 裡的那一顆，不一定是她按的那一顆。
  */
 function open(root, box) {
-  box.dataset.open = 'true';
+  box.dataset.slotnoteOpen = 'true';
   const peek = box.querySelector('.slotnote__peek');
   const field = box.querySelector('.slotnote__box');
   // textarea 或 input 都收 —— 待辦中心那一句是一行的 `<input>`

@@ -11,9 +11,11 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { html, toggle, disclosure } from '../public/js/ui/components/slotNote.js';
+import { fromRoot } from './helpers/paths.js';
 
 const read = (p) => readFileSync(new URL(`../public/js/${p}`, import.meta.url), 'utf8');
 
@@ -89,6 +91,52 @@ describe('展開的行為只有一份', () => {
       assert.ok(!/slotnote__peek/.test(src), `${p} 自己動了收起來那一行`);
       assert.ok(!/data-slotnote-toggle/.test(src.replace(/slotNote\.\w+\(/g, '')),
         `${p} 自己接了那顆夾板`);
+    }
+  });
+});
+
+describe('元件不可以佔用頁面身上的屬性', () => {
+  // 這一條是 2026-09-12 那個 bug 的化石。
+  //
+  // `disclosure()` 本來把展開狀態記成 `data-open="false"`，而「跟客人確認時間」
+  // 那一頁的 `data-open` 指的是**這一列是哪位客戶**（`wireConfirm()` 用
+  // `querySelectorAll('[data-open]')` 接線）。於是她點進記一句的輸入框那一下
+  // 冒泡上去，那一頁以為她按了某位客戶的確認鈕 —— `dataset.open` 收到字串
+  // `"false"`，找不到人，抽屜抬頭印出「的 0 段」，而她打的字一個都沒存進去。
+  //
+  // 日曆沒發作只是因為它所有 `[data-open]` 都先過 `parseOpen()`，
+  // 認不出沒有冒號的值就回 null —— **同一個坑擋過一次，只是擋在日曆那一側。**
+  //
+  // 所以規矩訂在這裡：**共用元件產出的 HTML 不可以帶裸的 `data-open`。**
+  // 元件會被插進任何一頁，而每一頁的 `data-open` 有它自己的意思。
+  // 要記自己的狀態就用自己的名字（`data-slotnote-open`）。
+  const OWNED_BY_THE_PAGE = ['data-open'];
+
+  test('記一句那一塊沒有帶著頁面的 data-open', () => {
+    for (const out of [
+      html({ name: 's0-note', value: '一句話', maxlength: 200 }),
+      disclosure({ name: 'fnote-c1', peek: '', body: '<form class="slotnote__box" hidden></form>' }),
+      toggle({ name: 's0-note', on: true }),
+    ]) {
+      for (const attr of OWNED_BY_THE_PAGE) {
+        assert.ok(!out.includes(attr),
+          `記一句那一塊帶著 ${attr} —— 頁面上的 [${attr}] 接線會把它當成自己的一列`);
+      }
+    }
+  });
+
+  test('components/ 底下沒有人寫裸的 data-open', () => {
+    const dir = fromRoot('public/js/ui/components/');
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+      const src = readFileSync(join(dir, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(String.fromCharCode(10))
+        .filter((l) => !l.trim().startsWith('//'))
+        .join(String.fromCharCode(10));
+      for (const attr of OWNED_BY_THE_PAGE) {
+        assert.ok(!src.includes(`${attr}=`),
+          `components/${file} 寫了 ${attr}= —— 那個名字是頁面的，元件要用自己的`);
+      }
     }
   });
 });
