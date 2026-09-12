@@ -65,22 +65,17 @@ function seedTwoSlots() {
   ];
 }
 
-test('看這個月進度：先看到那一天有哪幾段，點一段才看那一段', async ({ app, page }) => {
+// **2026-09-12 起這一頁不必先看整天**（ADR-0089）：每一段自己是一顆按鈕，
+// 點下去就直接是那一段（她：「盡量能讓使用者一開始分段點就分段點」）。
+// 「先看到那一天有哪幾段」那一層還在，只是那一張變成純目錄，而且要從
+// 待辦中心那條「點人名」的路才走得到 —— 那一層在 `29-slot-first` 的 S2。
+test('看這個月進度：點哪一段就直接看哪一段', async ({ app, page }) => {
   await app.seed(seedTwoSlots());
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
-  await app.layer('.popcard');
-
-  const card = page.locator('.popcard');
-  // 她指名要留的那一層：先看到那一天有哪幾段
-  await expect(card.locator('.readslot'), '第一張列的是那一天全部').toHaveCount(2);
-  // 而每一段自己是一列可以點的
-  await expect(card.locator('.readslot[data-open]'), '每一段都要點得下去').toHaveCount(2);
-
-  // 點下午那一段（第二列）
-  await card.locator('.readslot[data-open]').nth(1).click();
+  // 點下午那一段
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
 
   const one = page.locator('.popcard');
@@ -99,16 +94,18 @@ test('副標印的是那一段的狀態，不是整筆推導出來的', async ({
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
+  // 早上那一段已經談定、下午那一段還沒問過 —— 整筆推出來是「待確認」
+  await page.locator('[data-visit="v-two"][data-slot="0"]').click();
   await app.layer('.popcard');
+  await expect(page.locator('.popcard__sub'), '她點的是早上那段已經談定的')
+    .toContainText('客戶已確認');
 
-  const sub = page.locator('.popcard__sub');
-  await expect(sub, '沒指定哪一段時印的是整筆的').toContainText('已壓表，等客戶回覆');
-
-  // 點早上那一段
-  await page.locator('.popcard .readslot[data-open]').first().click();
+  await page.locator('[data-card-close]').click();
+  await expect(page.locator('.popcard')).toHaveCount(0);
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
-  await expect(sub, '她點的是早上那段已經談定的').toContainText('客戶已確認');
+  await expect(page.locator('.popcard__sub'), '下午那一段還沒問過客人')
+    .toContainText('已壓表，等客戶回覆');
 });
 
 // ADR-0056：改得動一筆來訪的只有日曆。三頁一起長出可以點的一列，
@@ -118,9 +115,7 @@ test('進度追蹤點到最後一段也沒有鉛筆', async ({ app, page }) => {
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
-  await app.layer('.popcard');
-  await page.locator('.popcard .readslot[data-open]').nth(1).click();
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
 
   await expect(page.locator('.popcard [data-card-edit]'), '這一頁是唯讀的').toHaveCount(0);
