@@ -2907,9 +2907,12 @@ button.mark::after {
 
 /* ---------- 進度追蹤 ---------- */
 /*
- * 一位客戶一張卡，卡裡一天一組。整組可以點（浮出讀取模式的卡片），
- * 所以感應範圍是整塊，不是某一行字 —— 同一格裡兩種點擊結果本身就是問題
- * （ADR-0020）。
+ * 一位客戶一張卡，卡裡一天一組，**一段一顆按鈕**（2026-09-12）。
+ *
+ * 2026-09-12 之前整天是一顆大按鈕，點哪裡都一樣。她的原話：「盡量能讓使用者
+ * 一開始分段點就分段點…希望不要點進去就是一整天的」。所以可以點的是每一段，
+ * 日期那一列是抬頭不是選項 —— 同一格裡兩種點擊結果本身就是問題（ADR-0020），
+ * 而 button 裡面本來也放不了 button。
  */
 .progdays {
   display: flex;
@@ -2924,14 +2927,7 @@ button.mark::after {
   gap: 3px;
   width: 100%;
   padding: var(--space-2) 0 var(--space-2) 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-  border: none;
   border-top: 1px solid var(--border-soft);
-  cursor: pointer;
-  touch-action: manipulation;
 }
 
 .progday:first-child {
@@ -2959,11 +2955,39 @@ button.mark::after {
   white-space: nowrap;
 }
 
+/*
+ * 可以點的那一顆。**`position: relative` 是給底下那一層撐觸控區用的** ——
+ * 少了它 `::after` 會去貼上層某個盒子，而症狀是按到旁邊那一段
+ * （`.slothead__x` 蓋住「記一句」那顆夾板就是這個坑）。
+ */
 .progslot {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
   min-height: 26px;
+  padding: 3px 0;
+  position: relative;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 兩段之間至少 44px 的感應範圍分得開：上下各撐 6px，加上 26px 的本體與
+   3px 的內距就是 44 —— 不能再往外撐，撐到的那一段由後面那一顆贏。 */
+.progslot::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+
+.progslot:active {
+  background: var(--surface-2);
 }
 
 /* 左邊那條就是狀態的顏色，跟日曆的日檢視同一個做法。 */

@@ -217,29 +217,42 @@ export function tallyHtml(tally) {
  * 一位客戶的一天。客戶詳情同時 import 兩邊，撞名會讓人以為是同一件事。
  * （`.scratch/customer-detail-rework/issues/02`）—— 她要的就是「跟看這個月的
  * 進度那邊呈現的一樣」，而同一件事畫成兩種樣子會讓她以為是兩份資料。
+ *
+ * ## 點的是一段，不是一天（2026-09-12）
+ *
+ * 她：「盡量能讓使用者一開始分段點就分段點…希望不要點進去就是一整天的」。
+ *
+ * 所以**一天那一組不是按鈕了，每一段自己是**。日期那一列是抬頭不是選項 ——
+ * 同一格裡兩種點擊結果本身就是問題（ADR-0020），而 button 裡面本來也放不了
+ * button（內容模型只收 phrasing content，同 ADR-0088 的最後一條）。
+ *
+ * `data-slot` 印的是 **`slot.index`**（它在 `visit.slots` 裡的位置），
+ * 不是畫出來的第幾列 —— `dayFor()` 依開始時間排過序，兩個數字不一樣，
+ * 而拿錯的那一個會開到別段。
  */
 export function progressDayHtml(day) {
   return `
-    <button class="progday" type="button" data-visit="${esc(day.visitId)}">
-      <span class="progday__head">
+    <div class="progday">
+      <div class="progday__head">
         <span class="progday__date num">${esc(shortDate(day.date))}</span>
         ${day.statusAt
           ? `<span class="progday__at num">${esc(whenLabel(day.statusAt))} 更新</span>`
           : ''}
-      </span>
-      ${day.slots.map(slotHtml).join('')}
-    </button>`;
+      </div>
+      ${day.slots.map((slot) => slotHtml(slot, day.visitId)).join('')}
+    </div>`;
 }
 
-function slotHtml(slot) {
+function slotHtml(slot, visitId) {
   return `
-    <span class="progslot ${esc(statusClass(slot.status))}">
+    <button class="progslot ${esc(statusClass(slot.status))}" type="button"
+            data-visit="${esc(visitId)}" data-slot="${slot.index}">
       <span class="progslot__bar" aria-hidden="true"></span>
       <span class="progslot__when num">${esc(timeLabel(slot))}</span>
       <span class="progslot__what">${esc(slot.name || '（沒有課程）')}</span>
       <span class="progslot__state">${esc(markFor(slot.status))} ${
         esc(shortStatus(slot.status))}</span>
-    </span>`;
+    </button>`;
 }
 
 /**
@@ -294,19 +307,22 @@ function wire(ctx, data, visits) {
   ctx.el.querySelectorAll('[data-visit]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const visit = visits.find((v) => v.id === btn.dataset.visit);
-      if (visit) openVisitCard(ctx, visit);
+      // 她點的就是一段（`progressDayHtml()` 一段一顆按鈕，2026-09-12）。
+      // 認不出來就退回整天那一張目錄 —— 那一張列的就是這幾段。
+      const slot = Number(btn.dataset.slot);
+      if (visit) openVisitCard(ctx, visit, Number.isInteger(slot) ? slot : null);
     }),
   );
 }
 
 /**
- * 那一筆的讀取卡片。**先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。
+ * 那一筆的讀取卡片。**畫她點的那一段**（ADR-0080）。
  *
- * 她 2026-09-10：「我還是希望大部分都先改成呈現這一段的詳情而不是這一整天的」。
- * 這一頁列的是整筆來訪，所以第一張卡片沒有 `focusSlot` —— 那時候
- * `visitReadHtml()` 把每一段畫成可以點的一列，點下去就用同一支再開一張
- * 只有那一段的（`focus` 帶進去）。她指名要留的那一層（先看到那一天有哪幾段
- * ＋ 那一天的待辦）就是沒帶 `focus` 的那一張。
+ * 她 2026-09-12：「盡量能讓使用者一開始分段點就分段點」—— 所以這一頁的
+ * 每一段自己是一顆按鈕，`slotIndex` 進來就直接是那一段的詳情。
+ *
+ * **沒帶就是那一天的目錄**：只列那幾段讓她點，沒有待辦也沒有 SOP
+ *（她 2026-09-12 的 b）。那條路現在只有「認不出是哪一段」時才走得到。
  *
  * 副標走 `statusForCard()`：整筆那一個是**推導出來的**，她加一段沒問過客人的
  * 進去就會退回「待確認」，而她點的可能是早上那段已經談定的（ADR-0085）。
@@ -314,11 +330,11 @@ function wire(ctx, data, visits) {
  * canEdit 是 false：這一頁不給改。要改她會自己去日曆（2026-08-25 起那是
  * 唯一的入口，ADR-0056），而那是一個明確的決定，不是在對帳的時候手滑。
  */
-function openVisitCard(ctx, visit) {
+function openVisitCard(ctx, visit, slotIndex = null) {
   // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
   // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
   //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = null;
+  let focus = slotIndex;
   // 任務與額度是 `fillMirror()` 非同步補上的（同日曆的 `openDetail()`）。
   let tasks;
   let extra = {};

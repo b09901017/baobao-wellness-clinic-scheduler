@@ -332,7 +332,10 @@ function wire(ctx, { today, marks }) {
     }
     const day = e.target.closest('[data-visit]');
     if (day) {
-      openVisitCard(ctx, day.dataset.visit);
+      // 「這個月」那一塊一段一顆按鈕（`progressDayHtml()`，2026-09-12）。
+      // `data-slot` 是它在 `visit.slots` 裡的位置，不是畫出來的第幾列。
+      const slot = Number(day.dataset.slot);
+      openVisitCard(ctx, day.dataset.visit, Number.isInteger(slot) ? slot : null);
       return;
     }
 
@@ -1761,14 +1764,16 @@ function wireEntitlementDanger(ctx, record) {
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
  */
-function openVisitCard(ctx, visitId) {
+function openVisitCard(ctx, visitId, slotIndex = null) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
 
-  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
-  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
-  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = null;
+  // 她點到哪一段了。「這個月」那一塊一段一顆按鈕（2026-09-12），所以這裡
+  // 多半是個整數；來訪紀錄那一列與任務列的「詳情」沒有段落，進來是 null。
+  //
+  // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
+  // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
+  let focus = slotIndex;
 
   // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
   // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
@@ -1784,8 +1789,8 @@ function openVisitCard(ctx, visitId) {
     entitlementsById: byId(ctx.entitlements ?? []),
     tasks: ctx.tasks ?? [],
     today: todayISO(),
-    // **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁列的是
-    // 整筆來訪，所以第一張沒帶 —— 那時候每一段自己是一列。
+    // **她點的那一段**（ADR-0080）。沒帶的那幾條路（來訪紀錄那一列、
+    // 任務列的「詳情」）進來的是一張目錄：只列那幾段讓她點。
     focusSlot: focus,
   });
 
