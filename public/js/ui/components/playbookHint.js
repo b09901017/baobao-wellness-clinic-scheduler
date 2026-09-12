@@ -41,10 +41,14 @@ import { playbooksFor, previewOf } from '../../domain/playbook.js';
  * @param {object[]} o.playbooks 全部的備忘錄
  * @param {object} o.visit 那一筆來訪（要有 slots）
  * @param {object} [o.customer] 這位客戶。掛合作機構的那幾份要靠它（ADR-0076）
+ * @param {number|null} [o.focusSlot] 她點的是哪一段。帶了就**只浮那一段的**
+ *   （2026-09-12：「我點這一項，應該只需要出現這一項的SOP」），
+ *   而且掛機構的那幾份也不浮 —— 規則在 `playbooksFor()`，這裡只把它傳下去
  * @returns {string} HTML
  */
-export function hintHtml({ playbooks = [], visit = null, customer = null }) {
-  return playbooksFor({ playbooks, visit, customer }).map(blockHtml).filter(Boolean).join('');
+export function hintHtml({ playbooks = [], visit = null, customer = null, focusSlot = null }) {
+  return playbooksFor({ playbooks, visit, customer, focusSlot })
+    .map(blockHtml).filter(Boolean).join('');
 }
 
 /**

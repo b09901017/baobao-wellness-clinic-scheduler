@@ -18,7 +18,7 @@
 //     她加一段沒問過客人的進去就會退回「待確認」
 //   * 來訪編輯器帶了 slotIndex 時，「這一天整筆的」那一摺**整塊不存在**
 //     （以前只是收起來，而 ADR-0085 寫的是沒有）。第二條路是日曆讀取卡片
-//     底下那一顆「改這一天」（ADR-0060）
+//     底下那一顆「改這一天」（ADR-0060）——— **那一顆 2026-09-12 拿掉了**（ADR-0089）
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
@@ -65,22 +65,17 @@ function seedTwoSlots() {
   ];
 }
 
-test('看這個月進度：先看到那一天有哪幾段，點一段才看那一段', async ({ app, page }) => {
+// **2026-09-12 起這一頁不必先看整天**（ADR-0089）：每一段自己是一顆按鈕，
+// 點下去就直接是那一段（她：「盡量能讓使用者一開始分段點就分段點」）。
+// 「先看到那一天有哪幾段」那一層還在，只是那一張變成純目錄，而且要從
+// 待辦中心那條「點人名」的路才走得到 —— 那一層在 `29-slot-first` 的 S2。
+test('看這個月進度：點哪一段就直接看哪一段', async ({ app, page }) => {
   await app.seed(seedTwoSlots());
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
-  await app.layer('.popcard');
-
-  const card = page.locator('.popcard');
-  // 她指名要留的那一層：先看到那一天有哪幾段
-  await expect(card.locator('.readslot'), '第一張列的是那一天全部').toHaveCount(2);
-  // 而每一段自己是一列可以點的
-  await expect(card.locator('.readslot[data-open]'), '每一段都要點得下去').toHaveCount(2);
-
-  // 點下午那一段（第二列）
-  await card.locator('.readslot[data-open]').nth(1).click();
+  // 點下午那一段
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
 
   const one = page.locator('.popcard');
@@ -99,16 +94,18 @@ test('副標印的是那一段的狀態，不是整筆推導出來的', async ({
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
+  // 早上那一段已經談定、下午那一段還沒問過 —— 整筆推出來是「待確認」
+  await page.locator('[data-visit="v-two"][data-slot="0"]').click();
   await app.layer('.popcard');
+  await expect(page.locator('.popcard__sub'), '她點的是早上那段已經談定的')
+    .toContainText('客戶已確認');
 
-  const sub = page.locator('.popcard__sub');
-  await expect(sub, '沒指定哪一段時印的是整筆的').toContainText('已壓表，等客戶回覆');
-
-  // 點早上那一段
-  await page.locator('.popcard .readslot[data-open]').first().click();
+  await page.locator('[data-card-close]').click();
+  await expect(page.locator('.popcard')).toHaveCount(0);
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
-  await expect(sub, '她點的是早上那段已經談定的').toContainText('客戶已確認');
+  await expect(page.locator('.popcard__sub'), '下午那一段還沒問過客人')
+    .toContainText('已壓表，等客戶回覆');
 });
 
 // ADR-0056：改得動一筆來訪的只有日曆。三頁一起長出可以點的一列，
@@ -118,9 +115,7 @@ test('進度追蹤點到最後一段也沒有鉛筆', async ({ app, page }) => {
   await app.signIn('/calendar');
   await app.go('/customers/progress');
 
-  await page.locator('[data-visit="v-two"]').first().click();
-  await app.layer('.popcard');
-  await page.locator('.popcard .readslot[data-open]').nth(1).click();
+  await page.locator('[data-visit="v-two"][data-slot="1"]').click();
   await app.layer('.popcard');
 
   await expect(page.locator('.popcard [data-card-edit]'), '這一頁是唯讀的').toHaveCount(0);
@@ -154,18 +149,20 @@ test('從日曆點一段按鉛筆：畫面上找不到整天的狀態卡與刪�
   await expect(page.locator('.row__title .badge').first()).toContainText('客戶已確認');
 });
 
-// 拿掉那一摺之後「取消整天」與「刪除」只剩長按一條路，而長按是捷徑不是
-// 唯一的路（ADR-0060）。第二條路是讀取卡片底下那一顆。
-test('「改這一天」那一顆開的是整天那一張', async ({ app, page }) => {
+// **2026-09-12：整天那一張沒有入口了**（ADR-0089）。她：「並且也不需要出現
+// 改這一整天的按鈕，如果要改我也會一項一項改」，而追問「改整天的日期」與
+// 「刪除這一天」要不要留路時回答「整個拿掉，兩件事都不要了」。
+test('讀取卡片底下沒有「改這一天」，鉛筆開的那一張也沒有整天那幾顆', async ({ app, page }) => {
   await app.seed(seedTwoSlots());
   await app.signIn('/calendar');
   await openVisitCardOnCalendar(app, page, 0);
 
-  await page.locator('.popcard [data-edit-day]').click();
+  await expect(page.locator('.popcard [data-edit-day]'), '那一顆拿掉了').toHaveCount(0);
+
+  await page.locator('.popcard [data-card-edit]').click();
   await app.layer('[data-form]');
 
-  await expect(page.locator('[data-delete]'), '整天那一張才有刪除').toHaveCount(1);
-  await expect(page.locator('[data-status]').first(), '整天那一張才改得動狀態').toBeVisible();
-  // 整天的那一張畫得出兩段（只改一段時只畫一段）
-  await expect(page.locator('[data-form] .slothead'), '整天那一張兩段都要在').toHaveCount(2);
+  await expect(page.locator('[data-delete]'), '刪除這一天沒有路了').toHaveCount(0);
+  await expect(page.locator('[data-status]'), '整天的狀態卡也不在了').toHaveCount(0);
+  await expect(page.locator('[data-form] .slothead'), '鉛筆開的只有那一段').toHaveCount(1);
 });
