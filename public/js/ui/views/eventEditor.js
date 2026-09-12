@@ -16,6 +16,7 @@ import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -83,8 +84,8 @@ function html(e, { isNew, embedded = false }) {
       <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
 
       <div class="page">
-        <h1 class="page__title">${isNew ? '新增行事備註' : '行事備註'}</h1>
-        <p class="page__lead">不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。</p>
+        <h1 class="page__title">${isNew ? '新增行事備註' : '行事備註'}${tip(
+          '不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。')}</h1>
       </div>`}
 
     <section class="card ${embedded ? 'card--bare' : ''}">
@@ -154,8 +155,8 @@ function html(e, { isNew, embedded = false }) {
     ${isNew ? '' : `
       <section class="card danger ${embedded ? 'card--bare' : ''}">
         <h2 class="card__title">刪掉這筆</h2>
-        <p class="card__note">刪除只是標記，設定 → 已刪除項目裡還原得回來。</p>
-        <button class="btn btn--danger" type="button" data-delete>刪掉</button>
+        <p><button class="btn btn--danger" type="button" data-delete>刪掉</button>${tip(
+          '刪除只是標記，設定 → 已刪除項目裡還原得回來。')}</p>
       </section>`}`;
 }
 
@@ -169,7 +170,9 @@ function html(e, { isNew, embedded = false }) {
 function colourField(e) {
   return `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">顏色　可以不挑</span>
+      <span class="fieldgroup__label">顏色　可以不挑${tip(
+        `日曆上這一筆會用這個顏色。${isLeave(e)
+          ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}`)}</span>
       <div class="swatches" role="group" aria-label="顏色">
         <button class="swatch swatch--auto ${kindClass(e.category)}" type="button"
                 data-colour="" aria-pressed="${!e.color}" aria-label="跟著類別"
@@ -179,8 +182,6 @@ function colourField(e) {
                   aria-pressed="${c.id === e.color}" aria-label="${esc(c.label)}"
                   style="--mark: var(--evcolor-${c.id})"></button>`).join('')}
       </div>
-      <p class="field__hint">日曆上這一筆會用這個顏色。${
-        isLeave(e) ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}</p>
     </div>`;
 }
 

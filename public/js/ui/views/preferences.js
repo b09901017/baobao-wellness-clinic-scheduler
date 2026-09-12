@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from '../../domain/seed.js';
 import * as f from '../components/form.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 const WEIGHTS = [
   { key: 'w1', label: 'w1 · 限制越多越優先', hint: '可用天數越少排越前面' },
@@ -29,11 +30,9 @@ export async function render(el) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">待排佇列的排序權重</h2>
-      <p class="muted">
-        分數 = w1×限制 + w2×喜好 + w3×急迫 + w4×間隔。
-        排序只是建議，每張卡片都會用人話寫出理由，你隨時可以跳著處理。
-      </p>
+      <h2 class="card__title">待排佇列的排序權重${tip(
+        '分數 = w1×限制 + w2×喜好 + w3×急迫 + w4×間隔。'
+        + '排序只是建議，每張卡片都會用人話寫出理由，你隨時可以跳著處理。')}</h2>
       <div class="errors" data-errors hidden></div>
       <form data-form>
         ${WEIGHTS.map((w) =>

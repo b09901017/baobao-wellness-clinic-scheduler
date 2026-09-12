@@ -284,8 +284,8 @@ function paintForm(ctx, record, draft = null, month = null) {
 
     <div class="page">
       <h1 class="page__title">${isNew ? '記' : '改'}${
-        esc(monthLabel(`${state.month}-01`))}不能的時間</h1>
-      <p class="page__lead">點掉他不方便的日子就好。什麼都不點就是「這個月都可以」。</p>
+        esc(monthLabel(`${state.month}-01`))}不能的時間${tip(
+        '點掉他不方便的日子就好。什麼都不點就是「這個月都可以」。')}</h1>
     </div>
 
     <div class="errors" data-errors hidden></div>
@@ -646,9 +646,9 @@ async function submit(ctx, record, next) {
 function dangerZone() {
   return `
     <section class="card danger">
-      <h2 class="card__title">刪除這次的詢問結果</h2>
-      <p class="muted">問錯人、記錯了才用刪除。過期的不用刪 —— 它會自己變灰，
-        而且留著看得出上次是什麼時候問的。</p>
+      <h2 class="card__title">刪除這次的詢問結果${tip(
+        '問錯人、記錯了才用刪除。過期的不用刪 —— 它會自己變灰，'
+        + '而且留著看得出上次是什麼時候問的。')}</h2>
       <p><button class="btn btn--danger" type="button" data-del-avail>刪除</button></p>
     </section>`;
 }

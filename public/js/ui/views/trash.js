@@ -15,6 +15,7 @@ import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -35,8 +36,8 @@ export async function render(el) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">已刪除項目</h2>
-      <p class="muted">系統從不真的刪除資料。這裡的每一筆都能還原。</p>
+      <h2 class="card__title">已刪除項目${tip(
+        '系統從不真的刪除資料。這裡的每一筆都能還原。')}</h2>
     </section>
     ${withRows.length === 0 ? '<p class="muted">沒有已刪除的項目。</p>' : ''}
     ${withRows

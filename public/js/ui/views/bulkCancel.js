@@ -44,6 +44,7 @@ import { confirmAction } from '../components/dialog.js';
 import { wireLongPress } from '../components/actions.js';
 import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
 
 /** 她挑的那一位、在看哪個月、選了哪幾段。換人就整個重來。 */
@@ -166,9 +167,8 @@ function paint() {
       ${backLink()}
 
       <div class="page">
-        <h1 class="page__title">批次取消</h1>
-        <p class="page__lead">出國或請假的時候，一次把那幾段收掉。
-          這一頁只取消，要改時間去日曆。</p>
+        <h1 class="page__title">批次取消${tip(
+          '出國或請假的時候，一次把那幾段收掉。這一頁只取消，要改時間去日曆。')}</h1>
       </div>
 
       ${state.customerId ? pickedHtml() : searchHtml()}

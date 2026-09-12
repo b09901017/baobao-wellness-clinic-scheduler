@@ -4542,21 +4542,15 @@ button.mark::after {
   padding-bottom: 9px;
 }
 
-/* 勾勾框與標籤永遠在同一行，說明才換到底下。 */
+/* 勾勾框與標籤永遠在同一行。**說明 2026-09-12 收進標籤旁邊那一顆 `?`**，
+   所以不再有「換到底下那一行」這件事。 */
 .choice--row > input {
   flex: 0 0 auto;
 }
 
-.choice--row > span:not(.field__hint) {
+.choice--row > span {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.choice--row > .field__hint {
-  flex: 1 1 100%;
-  margin-top: 2px;
-  /* 對齊上面那個標籤，而不是對齊勾勾框 */
-  padding-left: calc(20px + var(--space-2));
 }
 
 .choice input {
@@ -5103,6 +5097,19 @@ button.mark::after {
   color: var(--text-mute);
 }
 
+/* 那一列 ＋ 右邊那顆 `?`。**泡泡擺在 `<a>` 外面**（互動元素不可以互相包，
+   見 `tasklist.js` 的 `wayRow()`），所以外面多一層 flex 把它們排在一起。 */
+.wayrow-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.wayrow-row > .wayrow {
+  flex: 1;
+  min-width: 0;
+}
+
 .wayrow {
   display: flex;
   align-items: center;
@@ -5115,7 +5122,7 @@ button.mark::after {
   transition: background var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out);
 }
 
-.wayrow:first-child {
+.wayrow-row:first-child > .wayrow {
   border-top: none;
 }
 
@@ -5150,12 +5157,6 @@ button.mark::after {
 .wayrow__note {
   font-size: var(--text-xs);
   color: var(--text-dim);
-}
-
-/* 為什麼不能在這裡勾。一行就好 —— 解釋比按鈕長會讓人不敢按。 */
-.wayrow__hint {
-  font-size: var(--text-2xs);
-  color: var(--text-mute);
 }
 
 /* 勾一筆的回饋。**只有顏色與打勾會動，位置一動都不動** ——
