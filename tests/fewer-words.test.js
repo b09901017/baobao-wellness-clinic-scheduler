@@ -31,6 +31,32 @@ import { fromRoot, toPosix } from './helpers/paths.js';
 const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note'];
 
 /**
+ * 欄位說明（`components/form.js` 的 `hint` 參數）2026-09-12 起畫成標籤旁邊
+ * 那一顆 `?`，所以剩下的都是**手寫**的那幾段。同一個棘輪，只准變少。
+ */
+const FIELD_HINT_KEEP = {
+  // 整支檔案都是禁忌與警示那一種，連 tip.js 都不可以 import
+  'ui/components/flags.js': 6,
+  // `hint` 那一條共用的退路：一排丸子的選項是空的時候那一句要留在畫面上
+  // （整排消失的話她會以為那個欄位不用填），以及 `undecidedHint()`（ADR-0079）
+  'ui/components/form.js': 2,
+  // 「改成 0 就是不要那一項」—— 講的是寫進去的東西
+  'ui/components/planTweak.js': 1,
+  // 「從日曆拿掉只是清掉日期」—— 同上
+  'ui/views/calendar.js': 1,
+  // 整支檔案連 tip.js 都不可以 import（同 flags.js）
+  'ui/views/customersBulk.js': 1,
+  // 休假與行事備註差在哪、結束日不同就是跨天 —— 兩句都會改變她挑哪一個
+  'ui/views/eventEditor.js': 3,
+  // Apps Script 的網址與 token 要怎麼填 —— 藏起來她會填錯，而那是一次性設定
+  'ui/views/report.js': 2,
+  // 「這裡是加約的二返」「沒有它試算表印不出位置」「跟買的不一樣」
+  'ui/views/schedule.js': 3,
+  // 「那一天已經是 X 了，所以這是另外一次來訪」（ADR-0083）、「這一段取消了」
+  'ui/views/visitEditor.js': 2,
+};
+
+/**
  * 還留著幾段，以及**為什麼**。
  *
  * 這幾個數字只准變小。要改大的話先問：那一段真的是「資料」或「紅線」嗎？
@@ -58,7 +84,7 @@ const KEEP = {
   'ui/views/schedule.js': 5,
 };
 
-const counts = () => {
+const counts = (classes = CLASSES) => {
   const out = {};
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -67,7 +93,7 @@ const counts = () => {
       if (!name.endsWith('.js')) continue;
       const src = readFileSync(full, 'utf8');
       let n = 0;
-      for (const c of CLASSES) {
+      for (const c of classes) {
         // `class="page__lead"` 與 `class="page__lead num"` 都算
         n += src.split(`class="${c}"`).length - 1;
         n += src.split(`class="${c} `).length - 1;
@@ -94,6 +120,16 @@ describe('常駐說明只准變少', () => {
     const extra = Object.keys(now).filter((f) => !(f in KEEP));
     assert.deepEqual(extra, [],
       '這幾支長出了常駐說明 —— 收進 `tip()`，真的收不進去就寫進 KEEP 並附理由');
+  });
+
+  test('手寫的欄位說明也只准變少', () => {
+    const now2 = counts(['field__hint']);
+    for (const [file, max] of Object.entries(FIELD_HINT_KEEP)) {
+      assert.ok((now2[file] ?? 0) <= max, `${file} 現在有 ${now2[file]} 段（上限 ${max}）`);
+    }
+    const extra = Object.keys(now2).filter((f) => !(f in FIELD_HINT_KEEP));
+    assert.deepEqual(extra, [],
+      '這幾支自己手寫了欄位說明 —— `form.js` 的 `hint` 參數已經畫成一顆 `?` 了');
   });
 
   test('總數只准往下', () => {

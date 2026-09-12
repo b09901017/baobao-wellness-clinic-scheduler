@@ -170,7 +170,9 @@ function html(e, { isNew, embedded = false }) {
 function colourField(e) {
   return `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">顏色　可以不挑</span>
+      <span class="fieldgroup__label">顏色　可以不挑${tip(
+        `日曆上這一筆會用這個顏色。${isLeave(e)
+          ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}`)}</span>
       <div class="swatches" role="group" aria-label="顏色">
         <button class="swatch swatch--auto ${kindClass(e.category)}" type="button"
                 data-colour="" aria-pressed="${!e.color}" aria-label="跟著類別"
@@ -180,8 +182,6 @@ function colourField(e) {
                   aria-pressed="${c.id === e.color}" aria-label="${esc(c.label)}"
                   style="--mark: var(--evcolor-${c.id})"></button>`).join('')}
       </div>
-      <p class="field__hint">日曆上這一筆會用這個顏色。${
-        isLeave(e) ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}</p>
     </div>`;
 }
 

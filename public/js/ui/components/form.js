@@ -2,6 +2,20 @@
 //
 // 全站 input 至少 16px（iOS 上小於 16px 會觸發自動放大），
 // 最小點擊區 44px，這些都寫在 css/app.css 裡。
+//
+// ## 欄位說明收在標籤旁邊那一顆 `?`（2026-09-12）
+//
+// 她：「我看起來大部分都是新手說明，這些不需要，占版面，讓畫面很雜很頭痛，
+// 都縮成用Tooltip」。`hint` 這個參數**一個呼叫端都沒有改** —— 六十幾處
+// 只是換了畫法。
+//
+// **兩個例外留在畫面上**，因為它們藏起來之後她按下去的結果會不一樣：
+// 一排丸子的選項是空的時候那一句（她會以為那個欄位不用填），
+// 以及 `undecidedHint()`（擇一池還沒挑器材，ADR-0079）。
+//
+// `tip.js` 反過來 import 這一支的 `esc` —— **兩支互相 import 是可以的**，
+// 因為兩邊都只在函式裡用對方，模組求值的時候誰都沒有呼叫誰。
+import { tip } from './tip.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -13,10 +27,9 @@ export { esc };
 export function text({ name, label, value = '', placeholder = '', hint = '', maxlength = null }) {
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <input type="text" name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}"
              ${maxlength ? `maxlength="${Number(maxlength)}"` : ''} />
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
@@ -41,10 +54,9 @@ export function text({ name, label, value = '', placeholder = '', hint = '', max
 export function number({ name, label, value = '', min = 0, step = 1, hint = '' }) {
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <input type="number" name="${name}" value="${esc(value)}" min="${min}" step="${esc(step)}"
              inputmode="${step === 1 ? 'numeric' : 'decimal'}" />
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
@@ -68,27 +80,24 @@ export function timeStepFor(value) {
 export function date({ name, label, value = '', hint = '' }) {
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <input type="date" name="${name}" value="${esc(value ?? '')}" />
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
 export function time({ name, label, value = '', hint = '' }) {
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <input type="time" name="${name}" value="${esc(value ?? '')}" step="${timeStepFor(value)}" />
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
 export function textarea({ name, label, value = '', placeholder = '', rows = 3, hint = '' }) {
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <textarea name="${name}" rows="${rows}" placeholder="${esc(placeholder)}">${esc(value ?? '')}</textarea>
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
@@ -96,9 +105,8 @@ export function textarea({ name, label, value = '', placeholder = '', rows = 3, 
 export function readonly({ label, value, hint = '' }) {
   return `
     <div class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <div class="field__static">${esc(value)}</div>
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </div>`;
 }
 
@@ -123,9 +131,8 @@ export function select({ name, label, value, options, hint = '' }) {
     .join('');
   return `
     <label class="field">
-      <span class="field__label">${esc(label)}</span>
+      <span class="field__label">${esc(label)}${tip(hint)}</span>
       <select name="${name}">${opts}</select>
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </label>`;
 }
 
@@ -227,12 +234,11 @@ export function chips({
 
   return `
     <div class="fieldgroup" ${tucks ? "data-tuck='closed'" : ''}>
-      <span class="fieldgroup__label">${esc(label)}</span>
+      <span class="fieldgroup__label">${esc(label)}${tip(hint)}</span>
       <div class="chiprow">${items}${more}</div>
       <input type="hidden" name="${name}"
              value="${multi ? esc([...picked].join(MULTI_SEP)) : (current === null ? '__null__' : esc(current))}"
              ${multi ? 'data-chip-multi' : ''} ${quiet ? 'data-chip-quiet' : ''} />
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </div>`;
 }
 
@@ -309,9 +315,8 @@ export function checkboxes({ name, label, values = [], options, hint = '' }) {
     .join('');
   return `
     <fieldset class="field">
-      <legend class="field__label">${esc(label)}</legend>
+      <legend class="field__label">${esc(label)}${tip(hint)}</legend>
       <div class="choices">${boxes}</div>
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
     </fieldset>`;
 }
 
@@ -338,8 +343,7 @@ export function toggle({ name, label, value = false, hint = '' }) {
   return `
     <label class="choice choice--row">
       <input type="checkbox" name="${name}"${value ? ' checked' : ''} />
-      <span>${esc(label)}</span>
-      ${hint ? `<span class="field__hint">${esc(hint)}</span>` : ''}
+      <span>${esc(label)}${tip(hint)}</span>
     </label>`;
 }
 
