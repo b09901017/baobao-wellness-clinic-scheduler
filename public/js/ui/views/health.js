@@ -53,13 +53,13 @@ function paint(el, result) {
 
     <div class="page">
       <div class="page__row">
-        <h1 class="page__title">資料健檢</h1>
+        <h1 class="page__title">資料健檢${tip(
+          '發現的問題只會顯示出來。正解不需要判斷的那幾項才有「修正」可以按，'
+          + '其餘一律不會自動改任何資料。')}</h1>
         ${badge
           ? `<span class="badge badge--overdue">${esc(badge)}</span>`
           : '<span class="badge badge--ok">全部對得起來</span>'}
       </div>
-      <p class="page__lead">發現的問題只會顯示出來。正解不需要判斷的那幾項才有
-        「修正」可以按，其餘一律不會自動改任何資料。</p>
     </div>
 
     <div class="checks" style="margin-bottom: var(--space-5)">

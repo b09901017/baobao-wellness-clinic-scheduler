@@ -22,6 +22,7 @@ import { shortDate } from '../../domain/dates.js';
 import { previewTaskChange } from '../../data/visits.js';
 import { confirmAction } from './dialog.js';
 import { icon } from '../icons.js';
+import { tip } from './tip.js';
 
 /**
  * @param {object} task
@@ -86,16 +87,25 @@ export function taskRow(task, visit = null, {
  * 跟上面那種勾得掉的列之間要有一條分隔線，見 `app.css` 的 `.tasklist__wayto`。
  */
 export function wayRow({ label, note = '', hint = '', href, count = null }) {
+  // **那一句 `hint` 2026-09-12 收進一顆 `?`**（她：「這些請幫我全域檢查，
+  // 我看起來大部分都是新手說明，這些不需要，占版面」）。
+  //
+  // 它**擺在 `<a>` 外面**：`tip()` 產出的是一顆 `<button>`，而 button 放進
+  // anchor 裡是內容模型的錯（互動元素不可以互相包）。`tip` 的 click 走
+  // capture 而且 `preventDefault()`，所以放進去「看起來會動」—— 那正是
+  // 這種錯最難發現的原因。
   return `
-    <a class="wayrow" href="${esc(href)}">
-      <span class="wayrow__main">
-        <span class="wayrow__label">${esc(label)}${
-          count == null ? '' : `<span class="wayrow__n num">${count}</span>`}</span>
-        ${note ? `<span class="wayrow__note">${esc(note)}</span>` : ''}
-        ${hint ? `<span class="wayrow__hint">${esc(hint)}</span>` : ''}
-      </span>
-      ${icon('right', { size: 18 })}
-    </a>`;
+    <div class="wayrow-row">
+      <a class="wayrow" href="${esc(href)}">
+        <span class="wayrow__main">
+          <span class="wayrow__label">${esc(label)}${
+            count == null ? '' : `<span class="wayrow__n num">${count}</span>`}</span>
+          ${note ? `<span class="wayrow__note">${esc(note)}</span>` : ''}
+        </span>
+        ${icon('right', { size: 18 })}
+      </a>
+      ${tip(hint)}
+    </div>`;
 }
 
 /**

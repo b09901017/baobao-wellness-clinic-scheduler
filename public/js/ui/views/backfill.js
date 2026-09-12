@@ -23,6 +23,7 @@ import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as message from '../components/message.js';
 import * as toast from '../toast.js';
 
@@ -72,9 +73,8 @@ function paintForm(el, ctx, result = null) {
     <a class="backlink" href="#/schedule">${icon('left', { size: 19 })}壓表</a>
 
     <div class="page">
-      <h1 class="page__title">時段反查</h1>
-      <p class="page__lead">臨時空出一格時，誰可以補。用的是跟壓表同一套順序 ——
-        不會兩個畫面給你兩種答案。</p>
+      <h1 class="page__title">時段反查${tip(
+        '臨時空出一格時，誰可以補。用的是跟壓表同一套順序 —— 不會兩個畫面給你兩種答案。')}</h1>
     </div>
 
     <section class="card">

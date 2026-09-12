@@ -9,6 +9,7 @@ import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { esc } from '../components/form.js';
+import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
 import { signOutNow } from '../session.js';
 import { saveText, dated } from '../components/download.js';
@@ -40,15 +41,14 @@ export async function render(el) {
 
   el.innerHTML = `
     <div class="page">
-      <h1 class="page__title">設定</h1>
-      <p class="page__lead">診間與治療師都在這裡自己加，沒有寫死在程式碼裡。</p>
+      <h1 class="page__title">設定${tip(
+        '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。')}</h1>
     </div>
 
     ${empty ? seedCard() : ''}
 
     <section class="card card--flat">
-      <h2 class="card__title">主檔</h2>
-      <p class="card__note">這些都能自己加、自己改。</p>
+      <h2 class="card__title">主檔${tip('這些都能自己加、自己改。')}</h2>
       <div class="tilegrid">
         ${MASTER_TYPES.map((t) => tile(
           `#/settings/${t}`, MASTER_LABELS[t], `${cache[t].length} 筆`,
@@ -57,8 +57,7 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">規則</h2>
-      <p class="card__note">改了會影響之後產生的東西。</p>
+      <h2 class="card__title">規則${tip('改了會影響之後產生的東西。')}</h2>
       <div class="tilegrid">
         ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
         ${tile('#/settings/templates', 'LINE 回覆模板',
@@ -69,17 +68,16 @@ export async function render(el) {
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
       </div>
       <details style="margin-top: var(--space-3)">
-        <summary class="muted">任務規則綁在課程的類別上</summary>
+        <summary class="muted">任務規則綁在課程的類別上${tip(
+          '不逐課程設定。要改某個課程產生哪些任務，去改它的類別。')}</summary>
         <ul class="muted" style="margin-top: var(--space-2)">
           ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
         </ul>
-        <p class="card__note">不逐課程設定。要改某個課程產生哪些任務，去改它的類別。</p>
       </details>
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">資料</h2>
-      <p class="card__note">出事時能回頭看的東西。</p>
+      <h2 class="card__title">資料${tip('出事時能回頭看的東西。')}</h2>
       <div class="tilegrid">
         ${tile('#/settings/health', '資料健檢', '對帳與異常')}
         ${tile('#/settings/audit', '稽核紀錄', '每一次寫入的 before / after')}
@@ -90,21 +88,18 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">外觀</h2>
-      <p class="card__note">記在這一台裝置上，兩台各自設定。</p>
+      <h2 class="card__title">外觀${tip(
+        '記在這一台裝置上，兩台各自設定。「跟著系統」是 Android 的 設定 → 顯示 → 深色主題，'
+        + 'iPad 的 設定 → 螢幕顯示與亮度。')}</h2>
       <div class="chiprow" data-theme-pick>
         ${THEME_CHOICES.map((c) => `
           <button class="chip" type="button" data-theme-set="${c.value}"
                   aria-pressed="${readTheme() === c.value}">${esc(c.label)}</button>`).join('')}
       </div>
-      <p class="card__note" style="margin-top: var(--space-2)">
-        「跟著系統」是 Android 的 設定 → 顯示 → 深色主題，
-        iPad 的 設定 → 螢幕顯示與亮度。</p>
     </section>
 
     <section class="card">
-      <h2 class="card__title">帳號</h2>
-      <p class="card__note">登出之後資料都還在雲端，重新登入就看得到。</p>
+      <h2 class="card__title">帳號${tip('登出之後資料都還在雲端，重新登入就看得到。')}</h2>
       <button class="btn" type="button" data-signout>登出</button>
     </section>
 

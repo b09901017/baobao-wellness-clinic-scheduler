@@ -5069,6 +5069,19 @@ button.mark::after {
   color: var(--text-mute);
 }
 
+/* 那一列 ＋ 右邊那顆 `?`。**泡泡擺在 `<a>` 外面**（互動元素不可以互相包，
+   見 `tasklist.js` 的 `wayRow()`），所以外面多一層 flex 把它們排在一起。 */
+.wayrow-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.wayrow-row > .wayrow {
+  flex: 1;
+  min-width: 0;
+}
+
 .wayrow {
   display: flex;
   align-items: center;
@@ -5081,7 +5094,7 @@ button.mark::after {
   transition: background var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out);
 }
 
-.wayrow:first-child {
+.wayrow-row:first-child > .wayrow {
   border-top: none;
 }
 
@@ -5116,12 +5129,6 @@ button.mark::after {
 .wayrow__note {
   font-size: var(--text-xs);
   color: var(--text-dim);
-}
-
-/* 為什麼不能在這裡勾。一行就好 —— 解釋比按鈕長會讓人不敢按。 */
-.wayrow__hint {
-  font-size: var(--text-2xs);
-  color: var(--text-mute);
 }
 
 /* 勾一筆的回饋。**只有顏色與打勾會動，位置一動都不動** ——

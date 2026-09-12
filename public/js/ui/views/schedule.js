@@ -1029,9 +1029,8 @@ function recordPanel(row) {
         <button class="btn btn--dark btn--wide" type="button" data-done>
           ${entry?.state === 'done' ? '下一位 →' : '這位壓完了，下一位 →'}</button>
         <button class="btn btn--wide" type="button" data-skip>跳過</button>
+        ${tip(`按下去之後，${row.customerName} 會出現在待辦的「跟客人確認時間」。`)}
       </div>
-      <p class="card__note" style="margin: var(--space-3) 0 0">
-        按下去之後，${esc(row.customerName)} 會出現在待辦的「跟客人確認時間」。</p>
       ${entry?.skippedReason ? `<p class="muted">跳過的理由：${esc(entry.skippedReason)}</p>` : ''}
     </section>`;
 }

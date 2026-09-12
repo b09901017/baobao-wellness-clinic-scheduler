@@ -21,6 +21,7 @@ import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import { pushScreen } from '../nav.js';
 
 const esc = f.esc;
@@ -626,8 +627,8 @@ function paintList(el, type, all) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">${MASTER_LABELS[type]}<span class="muted"> ${rows.length}</span></h2>
-      ${ed.lead ? `<p class="card__note">${esc(ed.lead)}</p>` : ''}
+      <h2 class="card__title">${MASTER_LABELS[type]}<span class="muted"> ${rows.length}</span>${
+        ed.lead ? tip(ed.lead) : ''}</h2>
       <p><button class="btn btn--primary" type="button" data-new>新增</button></p>
     </section>
     ${rows.length === 0 ? '<p class="muted">還沒有資料。</p>' : ''}

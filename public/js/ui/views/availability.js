@@ -284,8 +284,8 @@ function paintForm(ctx, record, draft = null, month = null) {
 
     <div class="page">
       <h1 class="page__title">${isNew ? '記' : '改'}${
-        esc(monthLabel(`${state.month}-01`))}不能的時間</h1>
-      <p class="page__lead">點掉他不方便的日子就好。什麼都不點就是「這個月都可以」。</p>
+        esc(monthLabel(`${state.month}-01`))}不能的時間${tip(
+        '點掉他不方便的日子就好。什麼都不點就是「這個月都可以」。')}</h1>
     </div>
 
     <div class="errors" data-errors hidden></div>

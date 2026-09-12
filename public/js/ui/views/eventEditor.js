@@ -16,6 +16,7 @@ import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 
@@ -83,8 +84,8 @@ function html(e, { isNew, embedded = false }) {
       <a class="backlink" href="#/calendar">${icon('left', { size: 19 })}日曆</a>
 
       <div class="page">
-        <h1 class="page__title">${isNew ? '新增行事備註' : '行事備註'}</h1>
-        <p class="page__lead">不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。</p>
+        <h1 class="page__title">${isNew ? '新增行事備註' : '行事備註'}${tip(
+          '不綁客戶、不產生任務、不扣次數。這是唯一可以跨天的東西。')}</h1>
       </div>`}
 
     <section class="card ${embedded ? 'card--bare' : ''}">
@@ -154,8 +155,8 @@ function html(e, { isNew, embedded = false }) {
     ${isNew ? '' : `
       <section class="card danger ${embedded ? 'card--bare' : ''}">
         <h2 class="card__title">刪掉這筆</h2>
-        <p class="card__note">刪除只是標記，設定 → 已刪除項目裡還原得回來。</p>
-        <button class="btn btn--danger" type="button" data-delete>刪掉</button>
+        <p><button class="btn btn--danger" type="button" data-delete>刪掉</button>${tip(
+          '刪除只是標記，設定 → 已刪除項目裡還原得回來。')}</p>
       </section>`}`;
 }
 
