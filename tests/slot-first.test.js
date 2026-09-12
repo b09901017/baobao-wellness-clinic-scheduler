@@ -94,3 +94,21 @@ describe('一整天那一張只是目錄', () => {
     }
   });
 });
+
+describe('「這一天共用」整個拿掉', () => {
+  // 她 2026-09-12：「這一項的代辦中的內容不需要再有小Tooltip說明這一張是這天
+  // 共用的，完全沒必要，全部刪除」。
+  //
+  // **那句話沒有寫錯**：任務只掛 `visitId`，所以在早上那一段勾掉 Examine，
+  // 下午那一段也會跟著掉。這是知情的取捨 —— 事實還在，畫面上不再講。
+  test('全站搜不到 SHARED_TODO', () => {
+    for (const rel of ['domain/todoFlow.js', 'ui/components/taskMirror.js']) {
+      assert.ok(!read(rel).includes('SHARED_TODO'), `${rel} 還留著那個標籤`);
+    }
+  });
+
+  test('那一塊不再算 shared', () => {
+    assert.ok(!code('domain/todoFlow.js').includes('shared,'),
+      'todosForVisit() 還在每一列身上掛 shared');
+  });
+});
