@@ -271,8 +271,11 @@ function candidateCard(row, slot, ctx, master) {
 function excludedHtml(excluded) {
   return `
     <details class="card">
-      <summary class="card__title">沒列進來的<span class="muted"> ${excluded.length}</span>${tip(
-        '有買這個課程、但這一格輪不到他的人。沒買這個課程的不會出現在這裡。')}</summary>
+      ${/* **這一段不收進泡泡**：它本來就在一摺 `<details>` 底下，不是常駐說明，
+             而 `<summary>` 跟 `<a>` 一樣是互動元素 —— 裡面放 `tip()` 產出的
+             button 是內容模型的錯（同 `tasklist.js` 的 `wayRow()`）。 */''}
+      <summary class="card__title">沒列進來的<span class="muted"> ${excluded.length}</span></summary>
+      <p class="muted">有買這個課程、但這一格輪不到他的人。沒買這個課程的不會出現在這裡。</p>
       <ul class="link-list">
         ${excluded
           .map(

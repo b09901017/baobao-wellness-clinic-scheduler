@@ -85,7 +85,12 @@ export function wireSection(el, load) {
     try {
       const events = await load();
       body.innerHTML = events.length
-        ? listHtml(events)
+        // **這一段不收進泡泡**：它長在一摺 `<details>` 底下（`sectionHtml()`），
+        // 展開才看得到，本來就不是常駐說明；而那一摺的 `<summary>` 是互動元素，
+        // 裡面放 `tip()` 產出的 button 是內容模型的錯。
+        ? `${listHtml(events)}
+           <p class="muted">收的是這位客戶本人、他的額度、可用性與來訪的變更。
+             任務的變更在它所屬的來訪底下看得到。</p>`
         : '<p class="muted">沒有變更紀錄。</p>';
     } catch (err) {
       // 失敗要能再試一次，所以把旗標放回去

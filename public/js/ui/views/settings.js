@@ -68,11 +68,13 @@ export async function render(el) {
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
       </div>
       <details style="margin-top: var(--space-3)">
-        <summary class="muted">任務規則綁在課程的類別上${tip(
-          '不逐課程設定。要改某個課程產生哪些任務，去改它的類別。')}</summary>
+        ${/* 同 `backfill.js`：`<summary>` 是互動元素，裡面不可以放 `tip()`，
+               而這一段本來就在一摺底下。 */''}
+        <summary class="muted">任務規則綁在課程的類別上</summary>
         <ul class="muted" style="margin-top: var(--space-2)">
           ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
         </ul>
+        <p class="card__note">不逐課程設定。要改某個課程產生哪些任務，去改它的類別。</p>
       </details>
     </section>
 

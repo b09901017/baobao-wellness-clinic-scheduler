@@ -76,13 +76,55 @@ const KEEP = {
   'ui/views/customersBulk.js': 2,
   // 「客戶自己填的，看過沒問題就按下去」＋筆數 —— 空狀態與資料
   'ui/views/formInbox.js': 1,
-  // 九段：今天沒有待辦（空狀態）、還沒簽的筆數、她壓表時記的那一句、
-  // 「次數只扣打勾的那幾段」（寫進去的東西）、那一天現在還是什麼狀態…
-  'ui/views/home.js': 9,
+  // 十段：今天沒有待辦（空狀態）、還沒簽的筆數、她壓表時記的那一句、
+  // 「次數只扣打勾的那幾段」與「哪一段客人說不行就點它一下」（兩句都是
+  // 寫進去的東西 —— 沒看到就會整批確認）、那一天現在還是什麼狀態…
+  'ui/views/home.js': 10,
   // 五段：沒有剩餘次數了（空狀態）、月份讀不出來（錯誤）、去記時間那顆按鈕、
   // 「併進同一天」（紅線 5）
   'ui/views/schedule.js': 5,
+  // 「不逐課程設定」那一句長在一摺 `<details>` 底下 —— 展開才看得到，
+  // 本來就不是常駐說明，而 `<summary>` 是互動元素，裡面放不了 `tip()`
+  'ui/views/settings.js': 1,
 };
+
+/**
+ * `muted dim` 她也點名了，而盤完之後**一段都沒有收** —— 那不是漏掉，
+ * 是它十四處全部都是**資料的第二行**，不是說明：
+ *
+ *   額度到期日、「來自方案 X」、「單項加購」、營養品的名字提示、
+ *   確認面板上她自己寫的那一句備註、待辦那一天列不完時的筆數、
+ *   排在這裡的理由（那是算出來的）
+ *
+ * 收起來等於把資料藏進一顆 `?`。這一份清單就是那次盤點的紀錄 ——
+ * **要改大之前先問：那一段真的是說明嗎？**
+ */
+const MUTED_DIM_KEEP = {
+  'ui/components/buy.js': 1,
+  'ui/views/bought.js': 1,
+  'ui/views/customerDetail.js': 5,
+  'ui/views/customers.js': 1,
+  'ui/views/formInbox.js': 2,
+  'ui/views/home.js': 3,
+  'ui/views/schedule.js': 1,
+};
+
+/**
+ * 這一輪真的收起來的那幾段字：**每一段都要出現在某一支的 `tip()` 呼叫裡，
+ * 而且不可以再出現在那幾個 class 底下**（issue 09 的判準）。
+ *
+ * 抽樣而不是全列：全列等於把每一句話抄兩份，而抄錯的那一份會安靜地放行。
+ */
+const MOVED = [
+  ['ui/views/settings.js', '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。'],
+  ['ui/views/health.js', '發現的問題只會顯示出來。'],
+  ['ui/views/bulkCancel.js', '出國或請假的時候，一次把那幾段收掉。'],
+  ['ui/views/eventEditor.js', '不綁客戶、不產生任務、不扣次數。'],
+  ['ui/views/audit.js', '每一次寫入都會留下一筆，改不掉也刪不掉。'],
+  ['ui/views/trash.js', '系統從不真的刪除資料。'],
+  ['ui/views/preferences.js', '分數 = w1×限制 + w2×喜好 + w3×急迫 + w4×間隔。'],
+  ['ui/views/report.js', '把資料排成試算表的樣子'],
+];
 
 const counts = (classes = CLASSES) => {
   const out = {};
@@ -130,6 +172,30 @@ describe('常駐說明只准變少', () => {
     const extra = Object.keys(now2).filter((f) => !(f in FIELD_HINT_KEEP));
     assert.deepEqual(extra, [],
       '這幾支自己手寫了欄位說明 —— `form.js` 的 `hint` 參數已經畫成一顆 `?` 了');
+  });
+
+  test('`muted dim` 那十四處是資料不是說明', () => {
+    const now3 = counts(['muted dim']);
+    for (const [file, max] of Object.entries(MUTED_DIM_KEEP)) {
+      assert.ok((now3[file] ?? 0) <= max, `${file} 現在有 ${now3[file]} 段（上限 ${max}）`);
+    }
+    const extra = Object.keys(now3).filter((f) => !(f in MUTED_DIM_KEEP));
+    assert.deepEqual(extra, [], '這幾支長出了新的 `muted dim` —— 它是資料的第二行，不是說明');
+  });
+
+  test('收起來的那幾段字真的在 tip() 裡，而且不在原本那個 class 底下', () => {
+    for (const [file, phrase] of MOVED) {
+      const src = readFileSync(fromRoot(`public/js/${file}`), 'utf8');
+      assert.ok(src.includes(phrase), `${file} 裡找不到「${phrase}」—— 這一條要跟著改`);
+      const at = src.indexOf(phrase);
+      const before = src.slice(Math.max(0, at - 400), at);
+      assert.ok(before.includes('tip('),
+        `${file} 的「${phrase}」不在 tip() 的呼叫裡`);
+      for (const c of CLASSES) {
+        assert.ok(!before.includes(`class="${c}"`),
+          `${file} 的「${phrase}」還掛在 .${c} 底下`);
+      }
+    }
   });
 
   test('總數只准往下', () => {

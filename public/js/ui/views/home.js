@@ -2842,8 +2842,7 @@ function drawerHtml(ctx) {
         <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
         <div class="drawer__head">
           <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段${tip(
-            '確認之後會自動排進日曆，並且產生該做的登記。'
-            + '哪一段客人說不行就點它一下，其餘的照樣成立。')}</h2>
+            '確認之後會自動排進日曆，並且產生該做的登記。')}</h2>
         </div>
         ${note
           // 這張面板蓋住了底下那張卡，她自己寫的那一句要跟著進來，
@@ -2852,6 +2851,12 @@ function drawerHtml(ctx) {
           : ''}
         ${/* 那一句 2026-09-12 收進抬頭旁邊的 `?` —— 底下那顆按鈕自己就寫著
                「確認 N 段，加進日曆」，而這一行每天都在。 */''}
+
+        ${/* **這一句不收進泡泡。** 它是「怎麼退掉某一段」畫面上唯一的指示，
+               而底下那顆按鈕寫的是「確認 N 段，加進日曆」—— 她沒看到這一句
+               就會整批確認，那正是 issue 08 那條紅線的判準：
+               「這一句藏起來之後，她按下去的結果會不會跟她以為的不一樣？」 */''}
+        <p class="drawer__note">哪一段客人說不行就點它一下，其餘的照樣成立。</p>
 
         <div class="drawer__body">
         ${rows.map((r) => {
