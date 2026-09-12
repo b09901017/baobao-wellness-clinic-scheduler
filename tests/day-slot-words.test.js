@@ -35,13 +35,22 @@ describe('長按選單講的範圍跟它真的會動到的一樣', () => {
     assert.ok(labels(TWO(), 0).includes('改這一段'), labels(TWO(), 0).join('、'));
   });
 
-  test('沒帶 slotIndex 的「改」開的是整天，所以寫「改這一天」', () => {
-    assert.ok(labels(TWO(), null).includes('改這一天'), labels(TWO(), null).join('、'));
+  // 2026-09-12：整天那幾顆全部拿掉了（ADR-0089）。她：「也不要取消一整天，
+  // 畢竟如果我真的要取消一整天，我可以從壓表那邊刪」。
+  test('認不出是哪一段時，連「改」都不給 —— 整天那一張沒有入口了', () => {
+    assert.ok(!labels(TWO(), null).includes('改這一天'), labels(TWO(), null).join('、'));
+    assert.ok(!labels(TWO(), null).some((l) => l.startsWith('改')), labels(TWO(), null).join('、'));
   });
 
-  test('那一天只有一段時，取消那一顆寫「取消這一天」', () => {
+  test('那一天只有一段時照樣取消得掉，而且寫「取消這一段」', () => {
     const one = visit([slot()]);
-    assert.ok(labels(one, 0).includes('取消這一天'), labels(one, 0).join('、'));
+    assert.ok(labels(one, 0).includes('取消這一段'), labels(one, 0).join('、'));
+  });
+
+  test('沒有一顆在講「一整天」', () => {
+    for (const [v, i] of [[TWO(), 0], [TWO(), null], [visit([slot()]), 0]]) {
+      for (const label of labels(v, i)) assert.doesNotMatch(label, /一整天/, label);
+    }
   });
 
   test('哪一顆都不寫「筆」', () => {

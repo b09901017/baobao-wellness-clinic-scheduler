@@ -148,7 +148,7 @@ describe('那三頁接上那一層', () => {
   });
 });
 
-describe('來訪編輯器：抬頭與那一摺', () => {
+describe('來訪編輯器：抬頭與整筆那幾塊', () => {
   const SRC = () => read('js/ui/views/visitEditor.js');
 
   test('抬頭那顆 badge 印的是那一段的狀態', () => {
@@ -161,30 +161,36 @@ describe('來訪編輯器：抬頭與那一摺', () => {
     );
   });
 
-  test('只改一段時「這一天整筆的」那一摺整塊不 render', () => {
+  // 2026-09-12（ADR-0089）：那兩塊從「只在整筆都在畫面上時畫」變成
+  // **完全不畫**。她說改整天的日期與刪除這一天都不要了。
+  test('整筆的狀態卡與危險區整塊不在了', () => {
     const src = SRC();
     assert.equal(src.includes('<summary class="advanced__head">這一天整筆的</summary>'), false,
-      'ADR-0085 說帶了 slotIndex 就沒有整筆的狀態卡與危險區 —— 摺起來不算拿掉');
-    assert.match(src, /\$\{wholeVisit \? `[\s\S]{0,200}statusCard\(draft, embedded\)/,
-      '整筆的狀態卡與危險區只在整筆都在畫面上的時候畫');
+      '摺起來不算拿掉');
+    assert.ok(!src.includes('function statusCard'), '整天的狀態卡還在');
+    assert.ok(!src.includes('function dangerZone'), '危險區還在');
   });
 
-  test('危險區沒畫出來的時候不接線', () => {
-    assert.match(SRC(), /if \(wholeVisit\) wireDangerZone\(ctx, draft\);/,
-      '沒 render 卻照樣 querySelector(\'[data-delete]\') 會整頁炸掉');
+  test('那兩塊的接線也跟著沒了 —— 接在 null 上會讓整頁停在「載入中…」', () => {
+    const src = SRC();
+    assert.ok(!src.includes('wireStatus('));
+    assert.ok(!src.includes('wireDangerZone('));
   });
 });
 
-describe('「改這一天」還有一條點得到的路（ADR-0060）', () => {
-  test('日曆的讀取卡片底下留著那一顆', () => {
-    const src = read('js/ui/views/calendar.js');
-    assert.match(src, /data-edit-day/,
-      '拿掉那一摺之後，取消整天與刪除只剩長按一條路 —— 長按是捷徑不是唯一的路');
-    // 開的是**沒有 slotIndex** 的編輯器，那才是整天那一張
-    assert.match(src, /data-edit-day[\s\S]{0,900}slotIndex: null/);
+// **2026-09-12：那一顆也拿掉了**（ADR-0089）。
+//
+// 它 2026-09-10 長出來是為了滿足 ADR-0060（長按是捷徑不是唯一的路）——
+// 那時候「取消一整天」與「刪除這一天」還是她要的功能。她 2026-09-12 說
+// 那一顆不要（「如果要改我也會一項一項改」），追問那兩件事要不要留路時
+// 回答「整個拿掉，兩件事都不要了」。取消一整天走壓表的批次取消（ADR-0082）。
+describe('整天那一顆不在了（ADR-0089）', () => {
+  test('日曆的讀取卡片底下沒有那一顆', () => {
+    assert.equal(read('js/ui/views/calendar.js').includes('data-edit-day'), false,
+      '那一顆還在 —— 她說不需要改整天的按鈕');
   });
 
-  test('那一顆只在日曆上 —— 另外三頁沒有鉛筆（ADR-0056）', () => {
+  test('四頁都沒有（另外三頁本來就沒有鉛筆，ADR-0056）', () => {
     for (const rel of OTHER_THREE) {
       assert.equal(read(rel).includes('data-edit-day'), false,
         `${rel} 長出了一條改得動來訪的路`);

@@ -17,7 +17,7 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
 import { dayOf } from './dates.js';
-import { formSlotIndexes, liveSlots } from './visits.js';
+import { formSlotIndexes } from './visits.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -168,28 +168,18 @@ export function groupByDoneDay(tasks = []) {
 // 一筆來訪身上的整份待辦
 // ---------------------------------------------------------------------------
 
-/**
- * 「這一天幾段共用同一張」那一句。
+/*
+ * ## 「這一天共用」那一句去哪了（2026-09-12）
  *
- * **字在這裡而不是在畫面上**：`taskMirror.js` 是唯一會畫它的地方，但這句話
- * 講的是一條規則（任務綁一整筆來訪），而規則住在 domain。
+ * 它被標了兩次又收了兩次：2026-09-09 加上標籤（她問「勾一次為什麼兩邊都掉」）、
+ * 2026-09-10 收進一顆 `?`（她：「單純誤導使用者且占版面」）、
+ * 2026-09-12 整個刪掉（她：「完全沒必要，全部刪除」）。
  *
- * **`taskLine()` 刻意不帶它。** 那一支給的是任務清單那三頁（客戶詳情、
- * 待辦中心、試算表），而那三頁列的本來就是整筆來訪的任務 —— 在那裡寫
- * 「這一天共用」是廢話，因為那裡沒有「這一段」這個概念。
+ * **那句話從頭到尾沒有寫錯，而且那件事還在發生**：任務只掛 `visitId`
+ *（`tasksForVisit()` 收整筆、逐段跑完去重），所以在早上那一段勾掉 Examine，
+ * 下午那一段也會跟著掉。**畫面上從此不講這件事是一個知情的取捨** ——
+ * 她看過三個版本才這樣決定的。規則本身一行都沒有變。
  */
-export const SHARED_TODO_LABEL = '這一天共用';
-
-/**
- * 那一顆 `?` 點開之後講的話（2026-09-10，issue 09）。
- *
- * 她問：「這一天共用根本不用寫吧？單純誤導使用者且占版面」。**它沒寫錯** ——
- * 任務只掛 `visitId`，勾一次同一天每一段都掉 —— 但它不必每天佔著版面講。
- * 所以標籤收進一顆小泡泡（`SHARED_TODO_LABEL` 變成那一顆的名字），
- * 這一句是點開之後的那一句。規則與它的說法住在一起，畫面不自己寫。
- */
-export const SHARED_TODO_NOTE =
-  '這一張是這一天幾段共用的 —— 在這一段勾掉，同一天另外那幾段也會跟著掉。';
 
 /**
  * 這一筆來訪走到哪了 —— 它身上的每一件待辦與各自做完了沒。
@@ -238,18 +228,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
   const scoped = scopeTo(visit, focusSlot);
 
-  // **這一天不只一段的時候，這幾張是那幾段共用的。**
-  //
-  // 任務綁的是一整筆來訪（掛號是一天去一次，不是一段去一次 ——
-  // `tasksForVisit()` 的檔頭），確認與簽療程單也是。所以她點第二段看到的
-  // 「Examine」跟點第一段看到的是**同一張**，勾掉一次就兩邊都掉。
-  //
-  // 她 2026-09-09 問到這件事並且說要標出來。**只在真的不只一段時標** ——
-  // 每一次都寫「這一天共用」等於把那一行變成裝飾（同 `visitActions()` 那條）。
-  const shared = Number.isInteger(focusSlot)
-    && Boolean((visit.slots ?? [])[focusSlot])
-    && liveSlots(visit).length > 1;
-
   const mine = ownedKinds(scoped, visit, coursesById);
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
@@ -260,7 +238,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
       done: Boolean(t.done),
       dueDate: t.dueDate ?? null,
       derived: false,
-      shared,
     }));
 
   // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
@@ -278,7 +255,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
     done: visit.status !== 'pending_confirm',
     dueDate: null,
     derived: true,
-    shared,
   });
 
   // ⑤ 簽療程單。**整筆都不用簽的那一天照樣要結案**（只有二返的那一天），
@@ -297,7 +273,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
     done: closed,
     dueDate: null,
     derived: true,
-    shared,
   });
 
   // ---------- 還沒發生、但一定會發生的那幾張 ----------
@@ -323,7 +298,6 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
       done: false,
       dueDate: t.dueDate ?? null,
       derived: true,
-      shared,
       // 呼叫端拿它畫得淡一點、旁邊寫一句「到時候才會長出來」
       pending: true,
     });

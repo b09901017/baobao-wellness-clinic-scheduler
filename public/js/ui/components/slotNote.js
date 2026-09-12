@@ -12,6 +12,9 @@
 //   ② 點下去      就地展開 textarea，自動聚焦，夾板轉主色
 //   ③ 有字收起    夾板主色 + 底下一行淡字，點那一行也展開
 //
+// **再點一下夾板就收起來**（她 2026-09-12：「我也希望可以關掉」）。
+// 收起來那一行印的是**現在框裡的字**，不是當初 render 的那一份。
+//
 // **收起來不是藏起來。** 這個 repo 自己的規矩寫在 `app.css` 的 `.advanced`：
 // 「摺疊的標題要講出裡面被動過幾樣 —— 收起來的東西不能安靜地生效。」
 // 所以第三種狀態一定看得到那句話，只是縮成一行。
@@ -24,6 +27,16 @@
 //
 // `manual`（攤開的書）是備忘錄／SOP，**不要拿來用**：那一顆綁課程、勾不掉，
 // 跟這一句是兩種東西。
+
+// ## 狀態記在 `data-slotnote-open`，不是 `data-open`
+//
+// 2026-09-12 之前它叫 `data-open`，而「跟客人確認時間」那一頁的 `data-open`
+// 指的是**這一列是哪位客戶**（`wireConfirm()` 用 `querySelectorAll('[data-open]')`
+// 接線）。她點進記一句的輸入框那一下冒泡上去，那一頁就以為她按了某位客戶的
+// 確認鈕 —— 抬頭印出「的 0 段」，而她打的字一個都沒存進去。
+//
+// **元件會被插進任何一頁，所以它不可以佔用頁面身上的名字。**
+// `tests/slot-note.test.js` 掃 `components/` 底下每一支盯著。
 
 import { esc } from './form.js';
 import { icon } from '../icons.js';
@@ -69,7 +82,7 @@ export function disclosure({ name, peek = '', body }) {
   const text = String(peek ?? '');
 
   return `
-    <div class="slotnote" data-slotnote="${esc(name)}" data-open="false">
+    <div class="slotnote" data-slotnote="${esc(name)}" data-slotnote-open="false">
       ${/* 收起來時那一行。**有字才畫** —— 沒字的時候一個像素都不佔，
              這一句就是她說的「不然感覺會很占版面」的答案。 */''}
       <button class="slotnote__peek" type="button" data-slotnote-toggle
@@ -90,10 +103,17 @@ export function toggle({ name, on = false }) {
   return `
     <button class="slotnote__pin ${on ? 'is-on' : ''}" type="button"
             data-slotnote-toggle="${esc(name)}" aria-expanded="false"
-            aria-label="${on ? '改這一段記的話' : '替這一段記一句'}"
-            title="${on ? '改這一段記的話' : '替這一段記一句'}">
+            aria-label="${pinLabel(on)}" title="${pinLabel(on)}">
       ${icon('book', { size: 15 })}
     </button>`;
+}
+
+/**
+ * 那顆夾板叫什麼。**`close()` 收起來之後也要改它** —— 她剛剛打了第一句話，
+ * 那一顆就不再是「替這一段記一句」了。兩個地方讀同一支，不要各寫一份。
+ */
+function pinLabel(on) {
+  return on ? '改這一段記的話' : '替這一段記一句';
 }
 
 /**
@@ -119,19 +139,61 @@ export function wire(root, { signal } = {}) {
       : btn.closest('[data-slotnote]');
     if (!box) return;
 
-    open(root, box);
+    // **點第二下收起來**（她 2026-09-12：「我也希望可以關掉」）。
+    //
+    // 收起來那一行（`.slotnote__peek`）只有在收起來的時候才在畫面上，
+    // 所以展開狀態下按得到的只有抬頭那顆夾板 —— 兩者共用這一個判斷是安全的。
+    if (box.dataset.slotnoteOpen === 'true') close(root, box);
+    else open(root, box);
   }, { signal });
 }
 
 /**
- * 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。
+ * 收起來。**不是把那一句藏起來** —— 有字的時候縮成一行，沒字才真的零高度
+ *（`app.css` 的 `.advanced` 那條規矩：收起來的東西不能安靜地生效）。
  *
- * **那顆夾板從 `root` 底下找，不是 `document`** —— 抽屜與整頁可能同時掛著
- * 兩塊同名的（`s0-note` 在來訪編輯器與壓表卡片上都存在），而 `document`
- * 找到的是先出現在 DOM 裡的那一顆，不一定是她按的那一顆。
+ * 三件事跟著現在框裡的字走，不是跟著當初 render 的那一份：收起來那一行的
+ * 內容、它佔不佔位、還有夾板的顏色與名字。她剛打完第一句話就收起來的時候，
+ * 讀舊的那一份等於畫面在說謊。
+ *
+ * **值不寫回任何地方**：這一支只換 `hidden`，那一句話仍然由呼叫端存檔時
+ * 從 textarea 讀走（來訪編輯器的 `readDraft()`、確認那一頁的 submit）。
  */
+function close(root, box) {
+  box.dataset.slotnoteOpen = 'false';
+  const peek = box.querySelector('.slotnote__peek');
+  const field = box.querySelector('.slotnote__box');
+  const area = box.querySelector('textarea, input[type="text"]');
+  const text = String(area?.value ?? '').trim();
+
+  if (field) field.hidden = true;
+  if (peek) {
+    // `textContent` 不是 `innerHTML` —— 她打的字裡有 `<` 也照樣是字
+    peek.textContent = text;
+    peek.hidden = !text;
+  }
+
+  const pin = pinOf(root, box);
+  if (pin) {
+    pin.setAttribute('aria-expanded', 'false');
+    pin.classList.toggle('is-on', Boolean(text));
+    pin.setAttribute('aria-label', pinLabel(Boolean(text)));
+    pin.title = pinLabel(Boolean(text));
+  }
+}
+
+/**
+ * 那一塊對應的夾板。**從 `root` 底下找，不是 `document`** —— 抽屜與整頁
+ * 可能同時掛著兩塊同名的（`s0-note` 在來訪編輯器與壓表卡片上都存在），
+ * 而 `document` 找到的是先出現在 DOM 裡的那一顆，不一定是她按的那一顆。
+ */
+function pinOf(root, box) {
+  return root.querySelector(`[data-slotnote-toggle="${CSS.escape(box.dataset.slotnote)}"]`);
+}
+
+/** 展開某一塊，游標放到最後面（改既有那一句時她多半是要接著寫）。 */
 function open(root, box) {
-  box.dataset.open = 'true';
+  box.dataset.slotnoteOpen = 'true';
   const peek = box.querySelector('.slotnote__peek');
   const field = box.querySelector('.slotnote__box');
   // textarea 或 input 都收 —— 待辦中心那一句是一行的 `<input>`
@@ -139,9 +201,7 @@ function open(root, box) {
   if (peek) peek.hidden = true;
   if (field) field.hidden = false;
 
-  const pin = root.querySelector(
-    `[data-slotnote-toggle="${CSS.escape(box.dataset.slotnote)}"]`,
-  );
+  const pin = pinOf(root, box);
   if (pin) pin.setAttribute('aria-expanded', 'true');
 
   if (area) {

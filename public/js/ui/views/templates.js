@@ -24,6 +24,7 @@ import {
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
 
 const esc = f.esc;
@@ -49,9 +50,10 @@ function paint(el, stored) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">LINE 回覆模板</h2>
-      <p class="muted">按下複製之前產生的那幾句話。改完立刻生效，
-        ${changed ? `目前改過 ${changed} 則。` : '目前都是預設值。'}</p>
+      <h2 class="card__title">LINE 回覆模板${tip(
+        '按下複製之前產生的那幾句話。改完立刻生效。')}</h2>
+      ${/* 改過幾則是**資料**，留在畫面上（`tests/fewer-words.test.js` 的判準）。 */''}
+      <p class="muted">${changed ? `目前改過 ${changed} 則。` : '目前都是預設值。'}</p>
       <div class="errors" data-errors hidden></div>
 
       ${TEMPLATES.map((t) => cardHtml(t, stored)).join('')}

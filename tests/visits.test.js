@@ -984,10 +984,22 @@ describe('長按一筆來訪有哪幾顆（visitActions）', () => {
   const ids = (visit, today = '2026-09-05') =>
     visitActions(visit, { today }).map((a) => a.id);
 
-  test('待確認、日子還沒到：確認、改、取消', () => {
+  // 2026-09-12（ADR-0089）：整天那幾顆拿掉了，而「改」與「取消」都要知道
+  // 是哪一段。沒帶 slotIndex 時只剩不必挑段的那幾顆。
+  test('沒帶哪一段：只剩「客戶說可以」', () => {
     assert.deepEqual(
       ids({ status: 'pending_confirm', date: '2026-09-20' }),
-      ['confirmed', 'edit', 'cancelled'],
+      ['confirmed'],
+    );
+  });
+
+  test('帶了哪一段：確認、改這一段、取消這一段', () => {
+    assert.deepEqual(
+      visitActions(
+        { status: 'pending_confirm', date: '2026-09-20', slots: [{ startsAt: '10:00' }] },
+        { today: '2026-09-05', slotIndex: 0 },
+      ).map((a) => a.id),
+      ['confirmed', 'edit', 'cancel-slot'],
     );
   });
 
@@ -1557,24 +1569,26 @@ describe('長按一列時，取消的是那一段還是一整天（ADR-0081）',
   });
   const ids = (visit, opts) => visitActions(visit, { today: '2026-09-05', ...opts }).map((a) => a.id);
 
-  test('點的是一列，所以「取消這一段」排在「取消一整天」前面', () => {
+  // **整天那一顆 2026-09-12 拿掉了**（ADR-0089）。她：「也不要取消一整天，
+  // 畢竟如果我真的要取消一整天，我可以從壓表那邊刪」（批次取消，ADR-0082）。
+  test('點的是一列，取消的就只有那一段', () => {
     const out = ids(three(), { slotIndex: 1 });
     assert.ok(out.includes('cancel-slot'), '要有只取消那一段的那一顆');
-    assert.ok(out.includes('cancelled'), '整天那一顆也要留著');
-    assert.ok(out.indexOf('cancel-slot') < out.indexOf('cancelled'),
-      '最常按的在最上面');
+    assert.ok(!out.includes('cancelled'), '整天那一顆不該再出現');
   });
 
-  test('一整天只有一段時不分兩顆 —— 那時候兩顆是同一件事', () => {
+  test('一整天只有一段時照樣給那一顆 —— 取消那一段就是取消那一天', () => {
     const one = three({ slots: [{ startsAt: '10:30' }] });
     const out = ids(one, { slotIndex: 0 });
-    assert.ok(!out.includes('cancel-slot'));
-    assert.ok(out.includes('cancelled'));
+    assert.ok(out.includes('cancel-slot'),
+      '少了它，單段那一天會一顆取消都沒有');
+    assert.ok(!out.includes('cancelled'));
   });
 
-  test('沒帶 slotIndex（另外三頁）維持原樣，一顆都不多', () => {
-    assert.deepEqual(ids(three()), ids(three(), { slotIndex: null }));
-    assert.ok(!ids(three()).includes('cancel-slot'));
+  test('沒帶 slotIndex（認不出是哪一段）就一顆取消都不給', () => {
+    const out = ids(three());
+    assert.ok(!out.includes('cancel-slot'));
+    assert.ok(!out.includes('cancelled'));
   });
 
   test('已經取消掉的那一段不再給「取消這一段」', () => {

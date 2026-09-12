@@ -23,6 +23,7 @@ import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
 import * as f from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import * as message from '../components/message.js';
 import * as toast from '../toast.js';
 
@@ -72,9 +73,8 @@ function paintForm(el, ctx, result = null) {
     <a class="backlink" href="#/schedule">${icon('left', { size: 19 })}壓表</a>
 
     <div class="page">
-      <h1 class="page__title">時段反查</h1>
-      <p class="page__lead">臨時空出一格時，誰可以補。用的是跟壓表同一套順序 ——
-        不會兩個畫面給你兩種答案。</p>
+      <h1 class="page__title">時段反查${tip(
+        '臨時空出一格時，誰可以補。用的是跟壓表同一套順序 —— 不會兩個畫面給你兩種答案。')}</h1>
     </div>
 
     <section class="card">
@@ -203,11 +203,10 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
              是貼給客人的，印課程（`靜脈雷射`）。同一段兩種字（ADR-0078）*/
           esc(slotName(slot, master, 'short'))}
         <span class="badge ${candidates.length ? 'badge--ok' : 'badge--overdue'}">
-          ${candidates.length} 位可以補</span>
+          ${candidates.length} 位可以補</span>${candidates.length ? tip(
+          '依壓表同一套優先序排。順序只是建議，跳著問沒關係。') : ''}
       </h2>
-      ${candidates.length
-        ? '<p class="muted">依壓表同一套優先序排。順序只是建議，跳著問沒關係。</p>'
-        : '<p>沒有人補得上這一格。</p>'}
+      ${candidates.length ? '' : '<p>沒有人補得上這一格。</p>'}
     </section>
 
     ${candidates.map((row) => candidateCard(row, slot, ctx, master)).join('')}
@@ -272,6 +271,9 @@ function candidateCard(row, slot, ctx, master) {
 function excludedHtml(excluded) {
   return `
     <details class="card">
+      ${/* **這一段不收進泡泡**：它本來就在一摺 `<details>` 底下，不是常駐說明，
+             而 `<summary>` 跟 `<a>` 一樣是互動元素 —— 裡面放 `tip()` 產出的
+             button 是內容模型的錯（同 `tasklist.js` 的 `wayRow()`）。 */''}
       <summary class="card__title">沒列進來的<span class="muted"> ${excluded.length}</span></summary>
       <p class="muted">有買這個課程、但這一格輪不到他的人。沒買這個課程的不會出現在這裡。</p>
       <ul class="link-list">

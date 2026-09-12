@@ -38,11 +38,11 @@ import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
 import {
-  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard,
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor,
 } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
-import { progressDayHtml, tallyHtml } from './progress.js';
+import { progressDayHtml, tallyHtml, pickedSlot } from './progress.js';
 import { tip } from '../components/tip.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { openCard } from '../components/card.js';
@@ -332,7 +332,10 @@ function wire(ctx, { today, marks }) {
     }
     const day = e.target.closest('[data-visit]');
     if (day) {
-      openVisitCard(ctx, day.dataset.visit);
+      // 「這個月」那一塊一段一顆按鈕（`progressDayHtml()`，2026-09-12）。
+      // `data-slot` 是它在 `visit.slots` 裡的位置，不是畫出來的第幾列 ——
+      // 讀法只有 `pickedSlot()` 一支，兩頁共用（同 `parseOpen()` 的規矩）。
+      openVisitCard(ctx, day.dataset.visit, pickedSlot(day));
       return;
     }
 
@@ -1714,8 +1717,8 @@ function readEntitlement(form, master = {}) {
 function entitlementDanger() {
   return `
     <section class="card danger" style="margin-top: var(--space-5)">
-      <h2 class="card__title">刪除這筆額度</h2>
-      <p class="muted">刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。</p>
+      <h2 class="card__title">刪除這筆額度${tip(
+        '刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。')}</h2>
       <p style="margin-bottom: 0">
         <button class="btn btn--danger" type="button" data-del-ent>刪除</button></p>
     </section>`;
@@ -1761,14 +1764,19 @@ function wireEntitlementDanger(ctx, record) {
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
  */
-function openVisitCard(ctx, visitId) {
+function openVisitCard(ctx, visitId, slotIndex = null) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
 
-  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
-  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
-  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = null;
+  // 她點到哪一段了。「這個月」那一塊一段一顆按鈕（2026-09-12），所以這裡
+  // 多半是個整數；來訪紀錄那一列與任務列的「詳情」沒有段落，進來是 null。
+  //
+  // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
+  // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
+  //
+  // 那一天只有一段時，那一段就是那一天（`focusFor()`）—— 不然來訪紀錄那一列
+  // 點下去會是一張只有一列的空目錄。
+  let focus = focusFor(visit, slotIndex);
 
   // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
   // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
@@ -1784,8 +1792,8 @@ function openVisitCard(ctx, visitId) {
     entitlementsById: byId(ctx.entitlements ?? []),
     tasks: ctx.tasks ?? [],
     today: todayISO(),
-    // **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁列的是
-    // 整筆來訪，所以第一張沒帶 —— 那時候每一段自己是一列。
+    // **她點的那一段**（ADR-0080）。沒帶的那幾條路（來訪紀錄那一列、
+    // 任務列的「詳情」）進來的是一張目錄：只列那幾段讓她點。
     focusSlot: focus,
   });
 

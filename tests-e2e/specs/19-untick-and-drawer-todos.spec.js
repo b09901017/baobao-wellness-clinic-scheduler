@@ -217,15 +217,17 @@ test.describe('拿回一張待辦要先講清楚', () => {
     await app.signIn('/calendar');
 
     await page.click(`[data-day="${EXAM_DATE}"]`);
-    await page.locator('[data-open^="visit:visit-b-exam1:"]').click();
-    await expect(page.locator('.popcard')).toBeVisible();
-    // 讀取卡片沒有取消那一顆 —— 要進編輯器（ADR-0056）。
-    // **走「改這一天」不是鉛筆**：鉛筆開的是只有那一段的（ADR-0085），
-    // 而這裡要取消的是整天。整天那幾顆 2026-09-10 從編輯器裡拿掉、
-    // 搬到讀取卡片底下那一顆（ADR-0088）。
-    await page.locator('[data-edit-day]').click();
-    await app.layer('form[data-form]');
-    await page.locator('[data-status="cancelled"]').click();
+    // **取消只剩長按那一條路**（ADR-0089，2026-09-12）：讀取卡片沒有取消那一顆，
+    // 鉛筆開的是只有那一段的，而「改這一天」與整天的狀態卡都拿掉了。
+    // 那一天只有一段，所以取消那一段就是取消那一天。
+    const row = page.locator('[data-open^="visit:visit-b-exam1:"]').first();
+    await row.scrollIntoViewIfNeeded();
+    const box = await row.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+    await page.mouse.up();
+    await page.locator('.actionrow', { hasText: '取消這一段' }).click();
 
     await expect(app.dialog()).toBeVisible();
     const said = await app.dialogText();

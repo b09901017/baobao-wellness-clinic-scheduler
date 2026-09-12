@@ -182,10 +182,30 @@ export function matches(playbook, query) {
  *
  * **拿不到客戶時只回課程配到的那幾份**，不要整個回空 ——
  * 少一份提醒比整塊消失好。
+ *
+ * ## 她點的是哪一段（2026-09-12）
+ *
+ * > 我點這一項，應該只需要出現這一項的SOP，不需要出現一整天的所有有關連到的SOP
+ *
+ * 所以 `focusSlot` 帶了就**只比那一段的課程**，而且**掛機構的那幾份也不浮**
+ * —— 她點的是一段，而那一家機構不屬於任何一段（2026-09-12 談定）。
+ *
+ * **沒帶就是整筆** —— 「跟客人確認時間」那一頁走的是一位客戶好幾天
+ *（`hintForVisits()`），那裡沒有「哪一段」這個問題。
+ * 指到一個不存在的段落也退回整筆，同 `slotsToShow()` 的兩條退路。
+ *
+ * 那一段沒有課程時回空的，**不要退回整天** —— 退回去就是她剛剛想擺脫的東西。
  */
-export function playbooksFor({ playbooks = [], visit = null, customer = null } = {}) {
-  const courseIds = new Set((visit?.slots ?? []).map((s) => s?.courseId).filter(Boolean));
-  const partners = new Set((customer?.partners ?? []).map(trimmed).filter(Boolean));
+export function playbooksFor(
+  { playbooks = [], visit = null, customer = null, focusSlot = null } = {},
+) {
+  const one = Number.isInteger(focusSlot) ? (visit?.slots ?? [])[focusSlot] ?? null : null;
+  const slots = one ? [one] : (visit?.slots ?? []);
+  const courseIds = new Set(slots.map((s) => s?.courseId).filter(Boolean));
+  // 機構是「這一位客戶」的事，不是「這一段」的 —— 指名了哪一段就不比它
+  const partners = one
+    ? new Set()
+    : new Set((customer?.partners ?? []).map(trimmed).filter(Boolean));
   if (!courseIds.size && !partners.size) return [];
 
   return (playbooks ?? []).filter((p) => {

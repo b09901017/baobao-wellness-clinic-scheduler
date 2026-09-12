@@ -39,7 +39,7 @@ import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
   slotNoteOf,
-  applyStatus, visitActions, slotsToShow, showsRoom,
+  applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
@@ -51,7 +51,7 @@ import { hintHtml } from '../components/playbookHint.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
 import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
 import { cancelConsequences } from '../../domain/consequences.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmWithReason } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
@@ -877,13 +877,19 @@ function openDetail(el, data, hit, date, repaint) {
   // 所以這裡幾乎一定是個整數。**但不要假設它是** —— `parseOpen()` 認不出第三格
   // 時會回 null，而那時候 `visitReadHtml()` 畫的是可以點的一列。少接那一圈的話
   // 那幾列會長著箭頭卻什麼都不會發生，而畫面上看起來完全正常。
-  let focus = slotIndex;
+  // 那一天只有一段時，「這一天」與「這一段」是同一件事 —— `focusFor()`
+  // 把它解成第 0 段，不然單段那一天會畫成一張只有一列的空目錄（2026-09-12）。
+  let focus = focusFor(visit, slotIndex);
   // 任務與額度是 `fillMirror()` 非同步補上的。
   let tasks;
   let extra = {};
 
+  // SOP 那一塊**只浮她點的那一段的**（2026-09-12）。整天那一張一份都不浮 ——
+  // 那一張只是目錄：只列那幾段讓她點，待辦與 SOP 都等她點進去才出現。
   const paint = () => visitReadHtml(visit, { ...data, ...extra, tasks, focusSlot: focus })
-    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer });
+    + (Number.isInteger(focus)
+      ? hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus })
+      : '');
 
   const html = (nextTasks, nextExtra = {}) => {
     tasks = nextTasks;
@@ -891,25 +897,16 @@ function openDetail(el, data, hit, date, repaint) {
     return paint();
   };
 
-  // 「改這一天」。**只有日曆有**（ADR-0056），跟備忘錄那一塊同一個理由。
-  //
-  // 它是 2026-09-10 拿掉來訪編輯器那一摺「這一天整筆的」之後補上的第二條路
-  // （ADR-0060：長按是捷徑，不是唯一的路）。摺起來不算拿掉 —— ADR-0085
-  // 白紙黑字寫「帶了 slotIndex 就沒有整筆的狀態卡與危險區」，而那一摺
-  // 就長在那裡。所以那兩件事搬到這裡：按下去開的是**沒有 slotIndex** 的
-  // 編輯器，也就是整天那一張（日期、全部時段、狀態卡、刪除）。
-  //
-  // 鉛筆那顆仍然是「改這一段」，兩顆分得開才講得清楚範圍（ADR-0087）。
-  const editDay = `
-    <button class="btn" type="button" data-edit-day>改這一天</button>`;
-
+  // **底下沒有「改這一天」那一顆了**（2026-09-12，ADR-0089）。她的原話：
+  // 「並且也不需要出現改這一整天的按鈕，如果要改我也會一項一項改」。
+  // 那一顆 2026-09-10 才長出來（ADR-0088），開的是整天那一張（日期、狀態卡、
+  // 刪除）—— 那三件事跟著它一起收掉了，取消整天的第二條路是壓表的批次取消。
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
     subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
     // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
     // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
     body: html(undefined),
-    actions: editDay,
     canEdit: true,
     onEdit: () => {
       closeCard();
@@ -928,16 +925,6 @@ function openDetail(el, data, hit, date, repaint) {
           esc(describeStatus(statusForCard(visit, focus)))}`,
       });
     }),
-  });
-
-  // **接一次就好，不要走 `onMount`。** 那一顆長在 `.popcard__actions` 裡，
-  // 而 `card.update()`（`fillMirror()` 補上任務時）只換 body —— 這個節點
-  // 活得比每一次重畫久，掛進 onMount 會每重畫一次多一組監聽。
-  card.el.querySelector('[data-edit-day]')?.addEventListener('click', () => {
-    closeCard();
-    openEditor(el, data, {
-      kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: null,
-    });
   });
 
   fillMirror(card, visit, html);
@@ -1084,8 +1071,8 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   // 狀態也換成那一段自己的（ADR-0085）—— 整筆那一個在這裡是錯的。
   //
   // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
-  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那個數字留著**：
-  // 那不是資訊，是煞車（ADR-0070，她 2026-09-09 明確說可以）。
+  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那一顆 2026-09-12 也
+  // 拿掉了**（ADR-0089）：要取消一整天走壓表的批次取消。
   const slots = visit.slots ?? [];
   const which = Number.isInteger(slotIndex) && slots.length > 1 && slots[slotIndex]
     ? `・第 ${slotIndex + 1} 段`
@@ -1117,14 +1104,16 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
 
   // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
   //
-  // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`，
-  // 跟來訪編輯器的狀態卡是**同一份**（ADR-0056：改得動一筆來訪的只有日曆，
-  // 而這兩個入口都算在那一個入口裡）。以前兩邊各寫一次「Abovee／Examine／耀聖」
-  // 三個並列 —— 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
-  // 取消一段與取消一整天走同一條路，差別只有帶不帶 `slotIndex`（ADR-0081）。
-  // 兩道確認的話遲早有一道少講一句。
+  // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`。以前兩邊
+  // 各寫一次「Abovee／Examine／耀聖」三個並列 —— 而 `bookingSystemsForVisit()`
+  // 早就答得出來是哪一個。
+  //
+  // **只剩「取消這一段」這一種**（2026-09-12，ADR-0089）：整天那一顆拿掉了，
+  // 要取消一整天走壓表的批次取消（ADR-0082）。一天只有一段時取消那一段就是
+  // 取消那一天 —— `settle()` 會把整筆推成 cancelled。
   const onlyOne = action === 'cancel-slot';
-  if (onlyOne || action === 'cancelled') {
+  let reason = null;
+  if (onlyOne) {
     // 會被收掉哪幾張要問這一筆的任務。點下去才讀 —— 日曆是她每天開十幾次的
     // 一頁，為了一道確認框先把整月的任務讀回來是白費的。
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
@@ -1134,28 +1123,30 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     } catch {
       /* 少講兩句，不擋 */
     }
-    const at = onlyOne ? slotIndex : null;
-    const ok = await confirmAction({
-      title: onlyOne
-        ? `取消${visit.customerName ?? ''}這一段？`
-        : `取消${visit.customerName ?? ''}這一整天的來訪？`,
+    // **那一格「為什麼」跟著搬到這裡**（ADR-0089）。它以前長在來訪編輯器的
+    // 整天狀態卡上，而那一塊整個拿掉了 —— 不搬的話 `cancelReason` 會變成
+    // 一個再也沒有人寫得進去的欄位，稽核紀錄上從此只看得到「取消了」。
+    const said = await confirmWithReason({
+      title: `取消${visit.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
         visit,
         coursesById: data.coursesById ?? {},
         tasks,
-        slotIndex: at,
+        slotIndex,
       }),
-      confirmLabel: onlyOne ? '取消這一段' : '取消這一整天',
+      confirmLabel: '取消這一段',
       danger: true,
+      field: { label: '為什麼（選填）', placeholder: '客人要改時間', maxlength: NOTE_MAX },
     });
-    if (!ok) return;
+    if (!said.ok) return;
+    reason = said.reason;
   }
 
   try {
     // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
     const customerVisits = await visitsData.listByCustomer(visit.customerId);
     const next = onlyOne
-      ? applyStatus(visit, 'cancelled', { slotIndex })
+      ? applyStatus(visit, 'cancelled', { slotIndex, reason })
       : applyStatus(visit, action);
     // 快捷選單自己會在回呼之前把節點移除，所以**快速**連點本來就落空了。
     // 但「長按 → 選 → 還在存 → 再長按 → 再選」這條慢路徑沒有東西擋，
@@ -1485,7 +1476,18 @@ function openNoteEditor(el, data, spec) {
  * 她：「我還是希望大部分都先改成呈現這一段的詳情而不是這一整天的」。
  * 所以沒帶 `focusSlot` 而且不只一段時，每一段畫成帶 `data-open` 的按鈕，
  * 點下去用同一支再開一張只有那一段的（接線走 `wireReadSlots()`）。
- * **她指名要留先看到「那一天有哪幾段」這一層**，所以第一張仍然是全部。
+ *
+ * ## 「沒帶那一張只是目錄」（2026-09-12）
+ *
+ * 她：「如果是一整天的詳情，那也請不要呈現"這一天的待辦"和SOP，直接呈現
+ * 那幾個分段讓我點就好，點進去再呈現那項的詳情」。
+ *
+ * 所以那一張上**只有那幾段**：待辦那一塊（`mirrorHtml()`）整塊不畫、
+ * SOP 那一塊（接在這一支外面）也不畫、底下那一列「記的話」收進每一段自己
+ * 那一列裡。點進某一段才是詳情。
+ *
+ * 呼叫端進來之前先走 `focusFor()`：那一天只有一段時它解成第 0 段 ——
+ * **一張只有一列的目錄是講不通的**，那時候「這一天」與「這一段」是同一件事。
  *
  * 卡片副標由呼叫端印，一律走 `statusForCard(visit, focus)` ——
  * 整筆那一個是推導出來的（ADR-0085）。
@@ -1534,6 +1536,10 @@ export function visitReadHtml(visit, data) {
           <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</span>
           ${fromLine(s, data)}
+          ${/* **目錄那一張上，那一句話長在自己那一列裡**（2026-09-12）。
+                底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
+                單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
+          ${tappable ? slotNoteLine(visit, s) : ''}
         </${tag}>`;
     }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
 
@@ -1545,7 +1551,12 @@ export function visitReadHtml(visit, data) {
       // 讀法只有 `slotNoteOf()` 一支（ADR-0084）：新資料是那一段的，
       // 還沒被搬過的舊資料退回整筆那一句。**去重**是因為後者在同一張卡片上
       // 畫兩段時會是同一句話。
-      const lines = [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
+      //
+      // **目錄那一張不印這一列** —— 那時候每一句話已經在自己那一列裡了
+      //（2026-09-12），合起來再印一次會多出一塊講同樣的話。
+      const lines = tappable
+        ? []
+        : [...new Set(slots.map(({ slot: s }) => slotNoteOf(visit, s)).filter(Boolean))];
       return lines.length ? `
         <div class="readrow">
           <span class="readrow__k">記的話</span>
@@ -1587,6 +1598,20 @@ function fromLine(slot, data) {
     : '';
   if (!label) return '';
   return `<span class="readslot__from">扣 ${esc(label)}</span>`;
+}
+
+/**
+ * 目錄那一張上，那一段身上那一句話（ADR-0084）。
+ *
+ * **只有列得出好幾段的時候才用**：單段那一張底下本來就有一列「記的話」，
+ * 兩邊一起印就是同一句話講兩次。
+ *
+ * 沒有字就一個像素都不佔 —— 同 `slotNote.js` 那一條規矩。
+ */
+function slotNoteLine(visit, slot) {
+  const text = String(slotNoteOf(visit, slot) ?? '').trim();
+  if (!text) return '';
+  return `<span class="readslot__note">${esc(text)}</span>`;
 }
 
 function eventReadHtml(event) {

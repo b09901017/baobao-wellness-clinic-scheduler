@@ -9,6 +9,7 @@ import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { esc } from '../components/form.js';
+import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
 import { signOutNow } from '../session.js';
 import { saveText, dated } from '../components/download.js';
@@ -40,15 +41,14 @@ export async function render(el) {
 
   el.innerHTML = `
     <div class="page">
-      <h1 class="page__title">設定</h1>
-      <p class="page__lead">診間與治療師都在這裡自己加，沒有寫死在程式碼裡。</p>
+      <h1 class="page__title">設定${tip(
+        '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。')}</h1>
     </div>
 
     ${empty ? seedCard() : ''}
 
     <section class="card card--flat">
-      <h2 class="card__title">主檔</h2>
-      <p class="card__note">這些都能自己加、自己改。</p>
+      <h2 class="card__title">主檔${tip('這些都能自己加、自己改。')}</h2>
       <div class="tilegrid">
         ${MASTER_TYPES.map((t) => tile(
           `#/settings/${t}`, MASTER_LABELS[t], `${cache[t].length} 筆`,
@@ -57,8 +57,7 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">規則</h2>
-      <p class="card__note">改了會影響之後產生的東西。</p>
+      <h2 class="card__title">規則${tip('改了會影響之後產生的東西。')}</h2>
       <div class="tilegrid">
         ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
         ${tile('#/settings/templates', 'LINE 回覆模板',
@@ -69,6 +68,8 @@ export async function render(el) {
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
       </div>
       <details style="margin-top: var(--space-3)">
+        ${/* 同 `backfill.js`：`<summary>` 是互動元素，裡面不可以放 `tip()`，
+               而這一段本來就在一摺底下。 */''}
         <summary class="muted">任務規則綁在課程的類別上</summary>
         <ul class="muted" style="margin-top: var(--space-2)">
           ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
@@ -78,8 +79,7 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">資料</h2>
-      <p class="card__note">出事時能回頭看的東西。</p>
+      <h2 class="card__title">資料${tip('出事時能回頭看的東西。')}</h2>
       <div class="tilegrid">
         ${tile('#/settings/health', '資料健檢', '對帳與異常')}
         ${tile('#/settings/audit', '稽核紀錄', '每一次寫入的 before / after')}
@@ -90,34 +90,31 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">外觀</h2>
-      <p class="card__note">記在這一台裝置上，兩台各自設定。</p>
+      <h2 class="card__title">外觀${tip(
+        '記在這一台裝置上，兩台各自設定。「跟著系統」是 Android 的 設定 → 顯示 → 深色主題，'
+        + 'iPad 的 設定 → 螢幕顯示與亮度。')}</h2>
       <div class="chiprow" data-theme-pick>
         ${THEME_CHOICES.map((c) => `
           <button class="chip" type="button" data-theme-set="${c.value}"
                   aria-pressed="${readTheme() === c.value}">${esc(c.label)}</button>`).join('')}
       </div>
-      <p class="card__note" style="margin-top: var(--space-2)">
-        「跟著系統」是 Android 的 設定 → 顯示 → 深色主題，
-        iPad 的 設定 → 螢幕顯示與亮度。</p>
     </section>
 
     <section class="card">
-      <h2 class="card__title">帳號</h2>
-      <p class="card__note">登出之後資料都還在雲端，重新登入就看得到。</p>
+      <h2 class="card__title">帳號${tip('登出之後資料都還在雲端，重新登入就看得到。')}</h2>
       <button class="btn" type="button" data-signout>登出</button>
     </section>
 
     <section class="card">
-      <h2 class="card__title">匯出備份</h2>
-      <p class="muted">匯出全部資料為一個 JSON 檔，含已刪除的資料 ——
-        備份漏掉軟刪除的東西就救不回誤刪。建議每個月存一份到雲端硬碟。</p>
+      <h2 class="card__title">匯出備份${tip(
+        '匯出全部資料為一個 JSON 檔，含已刪除的資料 —— 備份漏掉軟刪除的東西就救不回誤刪。'
+        + '建議每個月存一份到雲端硬碟。')}</h2>
       <label class="choice choice--row">
         <input type="checkbox" data-with-audit />
-        <span>含稽核紀錄</span>
+        <span>含稽核紀錄${tip(
+          '稽核紀錄是每一次寫入的完整 before / after，累積起來可能比其他資料加起來還大，'
+          + '手機下載會等比較久。')}</span>
       </label>
-      <p class="muted">稽核紀錄是每一次寫入的完整 before / after，
-        累積起來可能比其他資料加起來還大，手機下載會等比較久。</p>
       <p><button class="btn" type="button" data-export>匯出</button></p>
     </section>`;
 
@@ -149,8 +146,8 @@ function tile(href, label, meta) {
 function seedCard() {
   return `
     <section class="card">
-      <h2 class="card__title">還沒有任何主檔</h2>
-      <p class="muted">可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。</p>
+      <h2 class="card__title">還沒有任何主檔${tip(
+        '可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
       <p><button class="btn btn--primary" type="button" data-seed>載入種子資料</button></p>
     </section>`;
 }

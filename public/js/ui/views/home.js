@@ -22,6 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
+  focusFor,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -66,6 +67,7 @@ import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
@@ -1184,8 +1186,11 @@ async function loadWhoDetails(ctx) {
  *
  * **先給那一天有哪幾段，點某一段才看那一段**（ADR-0080）。這一頁點的是人名，
  * 列的是整筆來訪，所以第一張沒帶 `focus` —— 那時候每一段自己是一列，
- * 點下去用同一支再開一張只有那一段的。她 2026-09-10 指名要留先看到
- * 「那一天有哪幾段 ＋ 那一天的待辦」這一層。
+ * 點下去用同一支再開一張只有那一段的。
+ *
+ * **那一張只是目錄**（2026-09-12）：待辦與 SOP 都等她點進某一段才出現。
+ * 一天只有一段時 `focusFor()` 直接解成那一段 —— 一張只有一列的目錄
+ * 是講不通的。
  */
 function openWhoVisit(visitId) {
   const d = whoDrawer;
@@ -1197,10 +1202,12 @@ function openWhoVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。**在卡片裡就地換掉**，不是關掉再開一張 ——
-  // `openCard()` 第一行就是 `closeCard()`，重開等於畫面閃一下
-  //（ADR-0073 為那個閃爍付過帳，ADR-0080 為卡片裡的換頁再講過一次）。
-  let focus = null;
+  // 她點到哪一段了。這一頁點的是人名，所以進來沒有段落 —— 但那一天只有一段
+  // 的時候，那一段就是那一天（`focusFor()`），不然會畫成一張只有一列的空目錄。
+  //
+  // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
+  // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
+  let focus = focusFor(visit, null);
   let tasks;
   let extra = {};
 
@@ -1924,8 +1931,7 @@ function paintTasks(ctx) {
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">${esc(meta.title)}</h1>
-      <p class="page__lead">${esc(meta.lead)}</p>
+      <h1 class="page__title">${esc(meta.title)}${tip(meta.lead)}</h1>
     </div>
 
     <div class="seg" role="group" style="margin-bottom: var(--space-4)">
@@ -2139,8 +2145,10 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
-  let focus = null;
+  // 她點到哪一段了。任務綁的是一整天（掛號是一天去一次），所以這條路沒有段落
+  // —— 一天只有一段時 `focusFor()` 把它解成那一段，其餘畫成一張目錄。
+  // 就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
+  let focus = focusFor(visit, null);
   let tasks;
   let extra = {};
 
@@ -2422,9 +2430,9 @@ function paintAsk(ctx) {
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">問這輪的時間</h1>
-      <p class="page__lead">發一條連結讓客戶自己點，或者照舊自己問、問到之後
-        記進客戶頁的「不能的時間」。<strong>看的是那個月問到了沒，跟他身上還剩幾次無關。</strong></p>
+      <h1 class="page__title">問這輪的時間${tip(
+        '發一條連結讓客戶自己點，或者照舊自己問、問到之後記進客戶頁的「不能的時間」。'
+        + '看的是那個月問到了沒，跟他身上還剩幾次無關。')}</h1>
     </div>
 
     ${/* 月份切換。排版照客戶詳情的「不能的時間」（她指名的參考）：
@@ -2718,8 +2726,9 @@ function paintConfirm(ctx) {
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">跟客人確認時間</h1>
-      <p class="page__lead">壓好了、還沒問過本人的有 ${groups.length} 位。問完回來按打勾。</p>
+      <h1 class="page__title">跟客人確認時間${tip('問完回來按打勾。')}</h1>
+      ${/* 數字是資料不是說明，留在畫面上（`tests/fewer-words.test.js` 的判準）。 */''}
+      <p class="page__lead num">壓好了、還沒問過本人的有 ${groups.length} 位。</p>
     </div>
 
     ${groups.length ? `
@@ -2840,14 +2849,22 @@ function drawerHtml(ctx) {
       <div class="drawer" role="dialog" aria-modal="true" aria-label="確認 ${esc(name)} 的時段">
         <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
         <div class="drawer__head">
-          <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段</h2>
+          <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段${tip(
+            '確認之後會自動排進日曆，並且產生該做的登記。')}</h2>
         </div>
         ${note
           // 這張面板蓋住了底下那張卡，她自己寫的那一句要跟著進來，
           // 否則「上次問到哪」在最需要它的那一刻反而看不到。
           ? `<p class="card__asked" style="margin-top: 0">上次問過：${esc(note)}</p>`
           : ''}
-        <p class="drawer__note">確認之後會自動排進日曆，並且產生該做的登記。</p>
+        ${/* 那一句 2026-09-12 收進抬頭旁邊的 `?` —— 底下那顆按鈕自己就寫著
+               「確認 N 段，加進日曆」，而這一行每天都在。 */''}
+
+        ${/* **這一句不收進泡泡。** 它是「怎麼退掉某一段」畫面上唯一的指示，
+               而底下那顆按鈕寫的是「確認 N 段，加進日曆」—— 她沒看到這一句
+               就會整批確認，那正是 issue 08 那條紅線的判準：
+               「這一句藏起來之後，她按下去的結果會不會跟她以為的不一樣？」 */''}
+        <p class="drawer__note">哪一段客人說不行就點它一下，其餘的照樣成立。</p>
 
         <div class="drawer__body">
         ${rows.map((r) => {
@@ -2863,8 +2880,6 @@ function drawerHtml(ctx) {
             </button>`;
         }).join('')}
 
-        <p class="card__note" style="margin-top: var(--space-3)">
-          哪一段客人說不行就點它一下，其餘的照樣成立。</p>
         </div>
 
         <div class="drawer__actions">

@@ -15,6 +15,7 @@ import {
 } from '../../domain/audit.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
+import { tip } from '../components/tip.js';
 
 /** 整頁一次載入幾筆。她要找的通常是剛剛發生的事，不是三個月前的。 */
 const PAGE_SIZE = 100;
@@ -46,9 +47,9 @@ export async function render(el) {
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
     <section class="card">
-      <h2 class="card__title">稽核紀錄<span class="muted"> 最近 ${events.length} 筆</span></h2>
-      <p class="muted">每一次寫入都會留下一筆，改不掉也刪不掉。
-        這裡只能看 —— 要改回去請到那筆資料上編輯，那樣才會再留一筆紀錄。</p>
+      <h2 class="card__title">稽核紀錄<span class="muted"> 最近 ${events.length} 筆</span>${tip(
+        '每一次寫入都會留下一筆，改不掉也刪不掉。這裡只能看 —— 要改回去請到那筆資料上編輯，'
+        + '那樣才會再留一筆紀錄。')}</h2>
     </section>
     ${events.length ? listHtml(events, { nameOf }) : '<p class="muted">還沒有任何變更紀錄。</p>'}`;
 }
@@ -84,6 +85,9 @@ export function wireSection(el, load) {
     try {
       const events = await load();
       body.innerHTML = events.length
+        // **這一段不收進泡泡**：它長在一摺 `<details>` 底下（`sectionHtml()`），
+        // 展開才看得到，本來就不是常駐說明；而那一摺的 `<summary>` 是互動元素，
+        // 裡面放 `tip()` 產出的 button 是內容模型的錯。
         ? `${listHtml(events)}
            <p class="muted">收的是這位客戶本人、他的額度、可用性與來訪的變更。
              任務的變更在它所屬的來訪底下看得到。</p>`

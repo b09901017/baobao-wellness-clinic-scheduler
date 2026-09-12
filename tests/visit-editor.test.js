@@ -140,26 +140,25 @@ describe('改一筆來訪＝改那一段（issue 07）', () => {
     assert.match(SRC, /canAddSlots: !existing/);
   });
 
-  // **2026-09-10 改成真的拿掉**（`.scratch/quieter-screens/issues/10`）。
+  // 這一段的歷史：2026-09-10 把整筆那兩塊從「摺起來」改成「帶了 slotIndex
+  // 就不畫」（ADR-0085／0088），第二條路是日曆讀取卡片底下那一顆「改這一天」。
   //
-  // 以前這一摺是收起來的（`<details>` 不加 open），理由是 ADR-0060：長按選單
-  // 是捷徑不是唯一的路，而「取消一整天」與「刪除這一筆」在別的地方點不到。
-  // 但 ADR-0085 說的是「帶了 slotIndex 就**沒有**整筆的狀態卡與危險區」，
-  // 而摺起來不算拿掉 —— 她點一段進來改，畫面最底下照樣有一顆動整天的。
-  //
-  // 第二條路改成日曆讀取卡片底下那一顆「改這一天」，所以兩支 ADR 都成立。
-  // 那一顆由 `tests/read-card-one-slot.test.js` 盯著。
-  test('只改一段時，整筆的那幾顆一個都不畫', () => {
+  // **2026-09-12 整個拿掉**（ADR-0089）。她：「並且也不需要出現改這一整天的
+  // 按鈕，如果要改我也會一項一項改」，追問之後「整個拿掉，兩件事都不要了」。
+  // 取消一整天的第二條路是壓表的批次取消（ADR-0082），改日期與刪除這一天
+  // 她說不要了。
+  test('整筆的那幾顆一顆都不畫了', () => {
     // 比的是那一摺的標記，不是那四個字 —— 她的原話裡就有那四個字，
     // 而它是這一段程式為什麼長這樣的理由，不可以被一支測試逼著刪掉。
     assert.equal(SRC.includes('<summary class="advanced__head">這一天整筆的'), false,
-      '摺起來不算拿掉（ADR-0085）—— 她點的是早上那一段，那兩顆動的是整天');
-    assert.match(SRC, /\$\{wholeVisit \? `\s*\$\{statusCard\(draft, embedded\)\}/);
+      '摺起來不算拿掉（ADR-0085）');
+    assert.ok(!SRC.includes('function statusCard'), '整天的狀態卡還在');
+    assert.ok(!SRC.includes('function dangerZone'), '危險區還在');
   });
 
   test('沒畫出來就不接線 —— 接在 null 上會讓整頁停在「載入中…」', () => {
-    assert.match(SRC, /if \(wholeVisit && !locked\) wireStatus\(ctx, draft\);/);
-    assert.match(SRC, /if \(wholeVisit\) wireDangerZone\(ctx, draft\);/);
+    assert.ok(!SRC.includes('wireStatus('), '那一塊不在了，接線也不該在');
+    assert.ok(!SRC.includes('wireDangerZone('), '那一塊不在了，接線也不該在');
   });
 });
 
@@ -246,11 +245,15 @@ describe('畫面上一律講那一段（issue 06）', () => {
     assert.ok(!/共 \$\{slots\.length\} 段/.test(code));
   });
 
-  test('但「取消一整天（N 段）」那個數字留著 —— 那是煞車不是資訊', () => {
+  // 那個數字本來是煞車（要按的是真的會取消五段的按鈕，ADR-0070）——
+  // **2026-09-12 連那一顆一起拿掉了**（ADR-0089），所以連煞車都不需要了。
+  test('「取消一整天（N 段）」那一顆不在了', () => {
     const dom = readFileSync(
       new URL('../public/js/domain/visits.js', import.meta.url), 'utf8',
     );
-    assert.match(dom, /取消一整天（\$\{slots\.length\} 段）/);
+    // 比的是那一顆真的會產生的字串，不是那四個字 —— 檔頭寫著它為什麼被
+    // 拿掉，而那段歷史不可以被一支測試逼著刪掉。
+    assert.ok(!dom.includes('取消一整天（${slots.length} 段）'), '整天那一顆還在');
   });
 });
 
