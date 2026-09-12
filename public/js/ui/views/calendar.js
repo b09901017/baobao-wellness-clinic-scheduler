@@ -882,8 +882,10 @@ function openDetail(el, data, hit, date, repaint) {
   let tasks;
   let extra = {};
 
+  // SOP 那一塊**只浮她點的那一段的**（2026-09-12）。整天那一張一份都不浮 ——
+  // 那一張只是目錄（見底下 `visitReadHtml()` 的檔頭）。
   const paint = () => visitReadHtml(visit, { ...data, ...extra, tasks, focusSlot: focus })
-    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer });
+    + hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus });
 
   const html = (nextTasks, nextExtra = {}) => {
     tasks = nextTasks;
