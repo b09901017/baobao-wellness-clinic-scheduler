@@ -65,3 +65,43 @@ test('N1 確認那一頁記一句：不會跳出確認面板，而且字真的�
   expect(saved.followupNote, '那一句要真的寫進去').toBe('禮拜一再問問');
   await expect(page.locator('.drawer-backdrop')).toHaveCount(0);
 });
+
+test('N2 再點一下夾板：收起來，字還在', async ({ app, page }) => {
+  await app.seed(seedPending());
+  await app.signIn('/todo/confirm');
+  await expect(page.locator('#view')).toContainText('客戶A');
+
+  const pin = page.locator('[data-slotnote-toggle="fnote-cust-a"]');
+  const box = page.locator('[data-followup="cust-a"]');
+  const peek = page.locator('.slotnote__peek');
+
+  await pin.click();
+  await expect(box).toBeVisible();
+  await box.locator('input[name="text"]').fill('禮拜一再問問');
+
+  // **這一下以前等於沒反應** —— `wire()` 只呼叫 open()
+  await pin.click();
+  await expect(box, '再點一下要收起來').toBeHidden();
+  await expect(pin).toHaveAttribute('aria-expanded', 'false');
+  await expect(peek, '有字的一定看得到（收起來是縮成一行，不是藏起來）').toBeVisible();
+  await expect(peek, '印的是現在框裡的字，不是當初畫出來的那一份').toHaveText('禮拜一再問問');
+
+  // 再點開，她打到一半的字還在
+  await pin.click();
+  await expect(box.locator('input[name="text"]')).toHaveValue('禮拜一再問問');
+});
+
+test('N2b 沒打字就收起來：那一行一個像素都不佔', async ({ app, page }) => {
+  await app.seed(seedPending());
+  await app.signIn('/todo/confirm');
+  await expect(page.locator('#view')).toContainText('客戶A');
+
+  const pin = page.locator('[data-slotnote-toggle="fnote-cust-a"]');
+  await pin.click();
+  await pin.click();
+
+  await expect(
+    page.locator('.slotnote__peek'),
+    '沒字的時候那一行不畫（她：不然感覺會很占版面）',
+  ).toBeHidden();
+});

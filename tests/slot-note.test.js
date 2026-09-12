@@ -95,6 +95,32 @@ describe('展開的行為只有一份', () => {
   });
 });
 
+describe('點第二下要收起來', () => {
+  // 她 2026-09-12：「我發現現在記一句是要點icon才能開啟，但是我也希望可以關掉，
+  // 就是再點一下就可以關掉」。
+  //
+  // 展開與收起來**只能有一份**（`wire()`），所以這裡掃的是「那一支問了現在
+  // 是開還是關」。真的點得下去在 `tests-e2e/specs/28-note-box.spec.js` 的 N2
+  // —— 掃描擋得住「有人把那一段刪掉」，擋不住「還在但行為是錯的」。
+  const src = read('ui/components/slotNote.js');
+
+  test('`wire()` 兩條路都走得到', () => {
+    assert.match(src, /function close\(/, '只有 open() 的話點第二下等於沒反應');
+    assert.match(src, /slotnoteOpen/, '開關狀態要記在自己的名字上');
+  });
+
+  test('收起來的時候 peek 印的是現在框裡的字，不是當初 render 的那一份', () => {
+    const body = src.slice(src.indexOf('function close('));
+    assert.match(body, /area\?*\.value|value/,
+      '收起來那一行要讀現在的值 —— 不然她打完收起來會看到舊的那一句');
+  });
+
+  test('空的收起來不佔位', () => {
+    const body = src.slice(src.indexOf('function close('));
+    assert.match(body, /peek\.hidden/, '沒字的時候那一行要收掉（她：不然感覺會很占版面）');
+  });
+});
+
 describe('元件不可以佔用頁面身上的屬性', () => {
   // 這一條是 2026-09-12 那個 bug 的化石。
   //

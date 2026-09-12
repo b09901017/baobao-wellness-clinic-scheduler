@@ -1,6 +1,6 @@
 # 02 記一句再點一下要收得起來
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`
 
 ## 她要的
