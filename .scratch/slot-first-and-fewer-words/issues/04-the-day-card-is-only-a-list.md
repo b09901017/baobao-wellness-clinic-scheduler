@@ -1,6 +1,6 @@
 # 04 一整天那一張只是目錄，不是詳情
 
-Status: todo
+Status: done
 Blocked by: 06
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、`docs/adr/0080`、`docs/adr/0018`
 

@@ -1,6 +1,6 @@
 # 07 「這一天」不再是可以動的東西
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、`docs/adr/0088`、`docs/adr/0085`、`docs/adr/0060`、`docs/adr/0082`
 
 ## 她要的

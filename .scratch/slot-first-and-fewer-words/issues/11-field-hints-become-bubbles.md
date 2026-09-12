@@ -1,6 +1,6 @@
 # 11 表單欄位的說明收進泡泡
 
-Status: todo
+Status: done
 Blocked by: 08
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、本目錄的 `08`
 

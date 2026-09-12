@@ -1,6 +1,6 @@
 # 06 進度追蹤與客戶詳情：畫面上就分得出段來點
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、`docs/adr/0080`、`docs/adr/0056`
 
 ## 她要的

@@ -1,6 +1,6 @@
 # 09 她點名的那幾個 class 收進說明泡泡
 
-Status: todo
+Status: done
 Blocked by: 08
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、本目錄的 `08`
 

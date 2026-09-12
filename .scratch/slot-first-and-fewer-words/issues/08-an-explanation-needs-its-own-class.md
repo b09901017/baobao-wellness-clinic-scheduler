@@ -1,6 +1,6 @@
 # 08 說明段落先有自己的 class
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、`.scratch/quieter-screens/issues/08`
 
 ## 她要的

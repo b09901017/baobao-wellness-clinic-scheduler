@@ -1,6 +1,6 @@
 # 03 SOP 只出現她點的那一段的
 
-Status: todo
+Status: done
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`、`docs/adr/0080`、`docs/adr/0076`
 
 ## 她要的

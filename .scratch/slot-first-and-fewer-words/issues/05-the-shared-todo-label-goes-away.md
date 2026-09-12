@@ -1,6 +1,6 @@
 # 05 「這一天共用」整個拿掉
 
-Status: todo
+Status: done
 Blocked by: 04
 動工前先讀：`.scratch/slot-first-and-fewer-words/spec.md`
 
