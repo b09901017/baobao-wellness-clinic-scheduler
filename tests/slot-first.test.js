@@ -50,11 +50,16 @@ describe('進度追蹤與客戶詳情：畫面上就分得出段來點', () => {
       '整天還是一顆按鈕 —— 裡面那幾顆段落按鈕會是無效的 HTML');
   });
 
-  test('兩頁的接線都把那一段帶進去', () => {
+  test('兩頁的接線都把那一段帶進去，而且讀法只有一支', () => {
+    // `pickedSlot()` 住在 `progress.js`，客戶詳情 import 它 —— 兩份
+    // `Number(dataset.slot)` 遲早有一份忘了問 `Number.isInteger()`
+    assert.match(code('ui/views/progress.js'), /export function pickedSlot\(/);
     for (const rel of ['ui/views/progress.js', 'ui/views/customerDetail.js']) {
-      assert.match(code(rel), /dataset\.slot/,
-        `${rel} 沒有讀 data-slot —— 那一頁點下去仍然是整天`);
+      assert.match(code(rel), /pickedSlot\(/,
+        `${rel} 沒有走 pickedSlot() —— 那一頁點下去仍然是整天`);
     }
+    assert.ok(!code('ui/views/customerDetail.js').includes('dataset.slot'),
+      '客戶詳情自己讀了 data-slot —— 那一份遲早會跟另一頁分岔');
   });
 });
 

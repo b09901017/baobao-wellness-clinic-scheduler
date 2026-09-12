@@ -459,6 +459,18 @@ export function visitCourseLabel(visit, master = null) {
  *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
  *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
+export function slotsToShow(visit, focusSlot = null) {
+  const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
+  const every = { slots: all, hidden: 0, focused: false };
+
+  // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
+  if (!Number.isInteger(focusSlot)) return every;
+  const one = all[focusSlot];
+  if (!one) return every;
+
+  return { slots: [one], hidden: all.length - 1, focused: true };
+}
+
 /**
  * 這張卡片實際上在講哪一段。
  *
@@ -484,18 +496,6 @@ export function focusFor(visit, focusSlot = null) {
   const slots = visit?.slots ?? [];
   if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
   return slots.length === 1 ? 0 : null;
-}
-
-export function slotsToShow(visit, focusSlot = null) {
-  const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
-  const every = { slots: all, hidden: 0, focused: false };
-
-  // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
-  if (!Number.isInteger(focusSlot)) return every;
-  const one = all[focusSlot];
-  if (!one) return every;
-
-  return { slots: [one], hidden: all.length - 1, focused: true };
 }
 
 /**
@@ -994,10 +994,10 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     out.push({
       id: 'cancel-slot',
       label: '取消這一段',
-      // 那一天只有一段時就別說「剩下的」—— 沒有剩下的
-      note: slots.filter((s) => s?.status !== 'cancelled').length > 1
-        ? '那一天剩下的照舊'
-        : '',
+      // 那一天只有一段時就別說「剩下的」—— 沒有剩下的。
+      // **走 `liveSlots()`**：「哪幾段還算數」全站只有那一支（`isLiveSlot()` 的
+      // 檔頭：各寫一次 `s.status !== 'cancelled'` 的話，遲早有一處忘了）。
+      note: liveSlots(visit).length > 1 ? '那一天剩下的照舊' : '',
       icon: 'close',
       tone: 'danger',
     });

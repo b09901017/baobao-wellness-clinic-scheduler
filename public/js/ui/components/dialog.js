@@ -106,8 +106,13 @@ export function chooseAction({ title, consequences, choices = [] }) {
  *
  * @param {object} o
  * @param {string} o.title
- * @param {string[]} o.consequences
- * @param {{label: string, placeholder?: string, maxlength?: number}} o.field
+ * @param {string[]} o.consequences 每一個選項會造成什麼（SPEC 6.5）
+ * @param {string} [o.confirmLabel]
+ * @param {string} [o.cancelLabel]
+ * @param {boolean} [o.danger] 確認那一顆畫成破壞性的
+ * @param {{label: string, placeholder?: string, maxlength: number}} o.field
+ *   `maxlength` **由呼叫端帶進來**，這一支不決定業務上限（同 `slotNote.js`
+ *   的規矩）—— 取消理由帶的是 `NOTE_MAX`
  * @returns {Promise<{ok: boolean, reason: string|null}>}
  */
 export function confirmWithReason({
@@ -172,7 +177,7 @@ function ask({ title, consequences, buttons, focus, field = null }) {
         ${field ? `
           <label class="field">
             <span class="field__label">${esc(field.label)}</span>
-            <input type="text" data-dialog-field maxlength="${Number(field.maxlength ?? 120)}"
+            <input type="text" data-dialog-field maxlength="${Number(field.maxlength)}"
                    placeholder="${esc(field.placeholder ?? '')}" />
           </label>` : ''}
         <div class="dialog__actions">

@@ -42,7 +42,7 @@ import {
 } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
-import { progressDayHtml, tallyHtml } from './progress.js';
+import { progressDayHtml, tallyHtml, pickedSlot } from './progress.js';
 import { tip } from '../components/tip.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { openCard } from '../components/card.js';
@@ -333,9 +333,9 @@ function wire(ctx, { today, marks }) {
     const day = e.target.closest('[data-visit]');
     if (day) {
       // 「這個月」那一塊一段一顆按鈕（`progressDayHtml()`，2026-09-12）。
-      // `data-slot` 是它在 `visit.slots` 裡的位置，不是畫出來的第幾列。
-      const slot = Number(day.dataset.slot);
-      openVisitCard(ctx, day.dataset.visit, Number.isInteger(slot) ? slot : null);
+      // `data-slot` 是它在 `visit.slots` 裡的位置，不是畫出來的第幾列 ——
+      // 讀法只有 `pickedSlot()` 一支，兩頁共用（同 `parseOpen()` 的規矩）。
+      openVisitCard(ctx, day.dataset.visit, pickedSlot(day));
       return;
     }
 

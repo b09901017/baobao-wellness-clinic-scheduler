@@ -39,7 +39,7 @@ import { givableBags } from '../../domain/products.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
   slotNoteOf,
-  applyStatus, visitActions, slotsToShow, showsRoom, focusFor,
+  applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
@@ -1136,7 +1136,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       }),
       confirmLabel: '取消這一段',
       danger: true,
-      field: { label: '為什麼（選填）', placeholder: '客人要改時間' },
+      field: { label: '為什麼（選填）', placeholder: '客人要改時間', maxlength: NOTE_MAX },
     });
     if (!said.ok) return;
     reason = said.reason;

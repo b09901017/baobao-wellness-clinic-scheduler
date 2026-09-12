@@ -243,6 +243,20 @@ export function progressDayHtml(day) {
     </div>`;
 }
 
+/**
+ * 那一顆按鈕講的是哪一段。**兩頁共用一支**（進度追蹤與客戶詳情）——
+ * 兩份 `Number(dataset.slot)` 遲早有一份忘了問 `Number.isInteger()`，
+ * 而 `NaN` 一路傳下去會變成「退回整天」，正是這一輪要修掉的東西。
+ * 同 `parseOpen()` 只有一支的理由。
+ *
+ * @param {HTMLElement|null} el 帶著 `data-slot` 的那一顆
+ * @returns {number|null} 認不出來回 null（呼叫端會退回那一天的目錄）
+ */
+export function pickedSlot(el) {
+  const n = Number(el?.dataset?.slot);
+  return Number.isInteger(n) ? n : null;
+}
+
 function slotHtml(slot, visitId) {
   return `
     <button class="progslot ${esc(statusClass(slot.status))}" type="button"
@@ -309,8 +323,7 @@ function wire(ctx, data, visits) {
       const visit = visits.find((v) => v.id === btn.dataset.visit);
       // 她點的就是一段（`progressDayHtml()` 一段一顆按鈕，2026-09-12）。
       // 認不出來就退回整天那一張目錄 —— 那一張列的就是這幾段。
-      const slot = Number(btn.dataset.slot);
-      if (visit) openVisitCard(ctx, visit, Number.isInteger(slot) ? slot : null);
+      if (visit) openVisitCard(ctx, visit, pickedSlot(btn));
     }),
   );
 }
