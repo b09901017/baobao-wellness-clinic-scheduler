@@ -472,6 +472,33 @@ export function slotsToShow(visit, focusSlot = null) {
 }
 
 /**
+ * 這張卡片實際上在講哪一段。
+ *
+ * 她 2026-09-12：「如果是一整天的詳情，那也請不要呈現"這一天的待辦"和SOP，
+ * 直接呈現那幾個分段讓我點就好」。所以沒指定哪一段的那一張變成**一張目錄**
+ * —— 而一張只有一列的目錄是講不通的：那一天只有一段的時候，
+ * 「這一天」與「這一段」本來就是同一件事（`visitStatusFrom()` 直接抄它）。
+ *
+ * 所以規則是：**指名了就是那一段；沒指名而且只有一段，那一段就是答案；
+ * 其餘回 null（那才是一張真的目錄）。**
+ *
+ * 指到一個不存在的段落**不要當成指名**（同 `slotsToShow()` 的退路）——
+ * 那一天有三段時它退回目錄，她再點一次就好。
+ *
+ * 四個畫面的讀取卡片都走這一支（日曆、客戶詳情、待辦中心、進度追蹤）。
+ * 各寫一份的話遲早有一頁把單段那一天畫成一張空目錄。
+ *
+ * @param {{slots?: object[]}|null} visit
+ * @param {number|null} [focusSlot]
+ * @returns {number|null}
+ */
+export function focusFor(visit, focusSlot = null) {
+  const slots = visit?.slots ?? [];
+  if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
+  return slots.length === 1 ? 0 : null;
+}
+
+/**
  * 這一段在畫面上要顯示成哪一個狀態。
  *
  * 和 `slotOutcome()` 差在一件事：那一支是**計數**用的，只回答
@@ -916,15 +943,20 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   const next = nextStatuses(visit?.status);
   const out = [];
 
-  // **她長按的是一列，而一列就是一段**（ADR-0081）。以前這裡只有一顆
-  // 「取消這一筆」，取消的是那一天全部 —— 她 2026-09-08 說那是誤觸。
+  // **她長按的是一列，而一列就是一段**（ADR-0081）。以前這裡有兩顆：
+  // 「取消這一段」與「取消一整天（N 段）」。
   //
-  // 只在真的分得出兩件事的時候才多一顆：那一天只有一段時，
-  // 「這一段」與「一整天」是同一件事，兩顆並排只會讓她猶豫。
+  // **整天那一顆 2026-09-12 拿掉了**（ADR-0089）。她的原話：「也不要取消
+  // 一整天，畢竟如果我真的要取消一整天，我可以從壓表那邊刪」——
+  // 那條路是批次取消（ADR-0082），而它本來就是為了這件事開的門。
+  //
+  // 所以只剩一顆，而且**不再問「那一天有幾段」**：一天只有一段時，
+  // 取消那一段就是取消那一天（最後一段取消掉時 `settle()` 會把整筆推成
+  // cancelled，`cancelledAt` 與 `released` 都設得對）。少了這一句的話，
+  // 單段那一天會變成一顆取消都沒有。
   const slots = visit?.slots ?? [];
   const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
   const canCancelOne = one
-    && slots.length > 1
     && one.status !== 'cancelled'
     && next.includes('cancelled');
 
@@ -950,10 +982,11 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     });
   }
 
-  if (!isLocked(visit?.status) && visit?.status !== 'cancelled') {
-    // **講她按下去真的會改到的範圍**（ADR-0087）：帶了 slotIndex 開的是只有
-    // 那一段的編輯器（ADR-0085），沒帶才是整天。
-    out.push({ id: 'edit', label: one ? '改這一段' : '改這一天', icon: 'pencil' });
+  if (!isLocked(visit?.status) && visit?.status !== 'cancelled' && one) {
+    // **改得動的只有一段**（ADR-0089）。以前沒帶 slotIndex 時這一顆是
+    // 「改這一天」，開的是整天那一張（日期、狀態卡、刪除）——
+    // 那一張 2026-09-12 整個收掉了，所以認不出是哪一段時就不給這一顆。
+    out.push({ id: 'edit', label: '改這一段', icon: 'pencil' });
   }
 
   // 最常按的在最上面（這一支既有的規矩）：她點的就是這一段
@@ -961,16 +994,10 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     out.push({
       id: 'cancel-slot',
       label: '取消這一段',
-      note: '那一天剩下的照舊',
-      icon: 'close',
-      tone: 'danger',
-    });
-  }
-
-  if (next.includes('cancelled')) {
-    out.push({
-      id: 'cancelled',
-      label: canCancelOne ? `取消一整天（${slots.length} 段）` : '取消這一天',
+      // 那一天只有一段時就別說「剩下的」—— 沒有剩下的。
+      // **走 `liveSlots()`**：「哪幾段還算數」全站只有那一支（`isLiveSlot()` 的
+      // 檔頭：各寫一次 `s.status !== 'cancelled'` 的話，遲早有一處忘了）。
+      note: liveSlots(visit).length > 1 ? '那一天剩下的照舊' : '',
       icon: 'close',
       tone: 'danger',
     });

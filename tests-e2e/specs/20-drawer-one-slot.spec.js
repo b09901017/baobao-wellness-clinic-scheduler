@@ -163,8 +163,10 @@ test('長按一列，選單講得出她按的是哪一段', async ({ app, page }
 
   const menu = page.locator('.drawer--actions');
   await expect(menu, '要有只取消那一段的那一顆').toContainText('取消這一段');
-  // **這個數字留著**：它不是資訊，是煞車 —— 要按的是真的會取消三段的那一顆。
-  await expect(menu, '整天那一顆也要留著，而且說得出幾段').toContainText('取消一整天（3 段）');
+  // **整天那一顆 2026-09-12 拿掉了**（ADR-0089）。她：「也不要取消一整天，
+  // 畢竟如果我真的要取消一整天，我可以從壓表那邊刪」。
+  await expect(menu, '整天那一顆不該再出現').not.toContainText('取消一整天');
+  await expect(menu, '也不該有改整天的那一顆').not.toContainText('改這一天');
 });
 
 // 她 2026-09-08：「僅能取消被選中的該筆時段來訪，嚴禁一次連帶將該客戶

@@ -13,19 +13,19 @@
 //
 // 要勾的地方一個都沒有變：待辦中心、客戶詳情，還有日曆上那一列長按。
 //
-// ## 抬頭跟著範圍走
+// ## 它只長在「這一段」那一張上
 //
 // 她 2026-09-08：「會顯示『這一天的代辦』但其實不是這一天，現在已經是一項
-// 一項分開來看了，所以應該要叫做這一項的代辦之類的」。
+// 一項分開來看了，所以應該要叫做這一項的代辦之類的」。當時的答案是抬頭兩種
+// 說法各自成立（帶了段落就「這一項」，沒帶就「這一天」）。
 //
-// 所以抬頭有兩種，而**兩種都是真的**：
+// **2026-09-12 那一半沒有了。** 她：「如果是一整天的詳情，那也請不要呈現
+// "這一天的待辦"和SOP，直接呈現那幾個分段讓我點就好，點進去再呈現那項的
+// 詳情」。所以沒指定哪一段的那一張是**一張目錄**，這一塊整塊不畫，
+// 抬頭也只剩「這一項的待辦」一種說法。
 //
-//   帶了 `focusSlot`（日曆點一段） → 「這一項的待辦」，內容也真的只有那一段
-//   沒帶（另外三頁列整筆）         → 「這一天的待辦」
-//
-// 一律改成「這一項」是錯的：客戶詳情、待辦中心、進度追蹤列的本來就是整筆
-// 來訪，那三頁寫「這一項」會變成另一句假話。範圍由 `todosForVisit()` 決定，
-// 抬頭只是把它講出來。
+// 「那一天只有一段」不算目錄 —— `focusFor()` 會把它解成第 0 段
+// （那時候「這一天」與「這一段」是同一件事）。
 //
 // ## 它長在四個畫面上，那是刻意的
 //
@@ -41,8 +41,7 @@
 import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
 import * as customersData from '../../data/customers.js';
-import { todosForVisit, SHARED_TODO_LABEL, SHARED_TODO_NOTE } from '../../domain/todoFlow.js';
-import { tip } from './tip.js';
+import { todosForVisit } from '../../domain/todoFlow.js';
 import { urgency, RECORD_TASK_KIND } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
 
@@ -59,16 +58,20 @@ import { shortDate } from '../../domain/dates.js';
 export function mirrorHtml({ visit, tasks, coursesById = {}, today, focusSlot = null } = {}) {
   if (!Array.isArray(tasks)) return '';
 
+  // **整天那一張只是目錄**（2026-09-12）：只列那幾段讓她點，一件待辦都不畫。
+  // 呼叫端進來之前已經走過 `focusFor()`，所以「那一天只有一段」在這裡是
+  // 帶著 0 進來的，不會掉進這一條。
+  const focused = Number.isInteger(focusSlot) && Boolean((visit?.slots ?? [])[focusSlot]);
+  if (!focused) return '';
+
   const rows = todosForVisit(visit, { tasks, coursesById, today, focusSlot });
   // 一件都沒有就整塊不畫。**不要留一個空殼** —— 一個永遠空的區塊會讓她
   // 以為那裡壞了（同 `playbookHint.js` 的規矩）。
   if (!rows.length) return '';
 
-  const focused = Number.isInteger(focusSlot) && Boolean((visit?.slots ?? [])[focusSlot]);
-
   return `
     <div class="taskmirror">
-      <div class="taskmirror__head">${focused ? '這一項的待辦' : '這一天的待辦'}</div>
+      <div class="taskmirror__head">這一項的待辦</div>
       <ul class="taskmirror__list">
         ${rows.map((r) => rowHtml(r, today)).join('')}
       </ul>
@@ -87,21 +90,11 @@ function rowHtml(row, today) {
   //
   // 記號用第三個字元（`·`）而不是第三種顏色：這一塊只給看不給勾，
   // 而 `✓`／`○` 兩個字元本來就是為了不放勾選框才選的。
-  // **這一張是那一天幾段共用的。** 任務綁的是一整筆來訪（掛號是一天去一次），
-  // 所以她點第二段看到的跟點第一段看到的是同一張，勾掉一次就兩邊都掉。
-  // 規則與那句話都在 `domain/todoFlow.js`，這裡只把它畫出來。
-  //
-  // 2026-09-10 那個標籤收進一顆 `?`（issue 09）：她說它「占版面」而且讀起來像寫錯。
-  // 那件事是真的，只是不必常駐 —— 名字還是「這一天共用」，點開才講會發生什麼。
-  const shared = row.shared
-    ? tip(SHARED_TODO_NOTE, { label: SHARED_TODO_LABEL })
-    : '';
-
   if (row.pending) {
     return `
       <li class="taskmirror__row is-pending">
         <span class="taskmirror__mark" aria-hidden="true">·</span>
-        <span class="taskmirror__kind">${esc(row.kind)}${shared}</span>
+        <span class="taskmirror__kind">${esc(row.kind)}</span>
         <span class="visually-hidden">還沒長出來</span>
         <span class="taskmirror__due">${esc(pendingNote(row.kind))}</span>
       </li>`;
@@ -110,7 +103,7 @@ function rowHtml(row, today) {
   return `
     <li class="taskmirror__row ${row.done ? 'is-done' : ''}">
       <span class="taskmirror__mark" aria-hidden="true">${row.done ? '✓' : '○'}</span>
-      <span class="taskmirror__kind">${esc(row.kind)}${shared}</span>
+      <span class="taskmirror__kind">${esc(row.kind)}</span>
       <span class="visually-hidden">${row.done ? '已完成' : '還沒做'}</span>
       ${when ? `<span class="taskmirror__due num ${late ? 'is-late' : ''}">${esc(when)}</span>` : ''}
     </li>`;

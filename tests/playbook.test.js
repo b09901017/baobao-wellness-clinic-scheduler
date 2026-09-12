@@ -258,6 +258,60 @@ describe('它不是待辦', () => {
 });
 
 
+// 她 2026-09-12：「我點這一項，應該只需要出現這一項的SOP，不需要出現一整天的
+// 所有有關連到的SOP」。同一天兩段兩個課程，兩份 SOP 一起浮出來是真的會發生的
+//（`playbooksFor()` 吃的是整筆來訪的每一段）。
+//
+// **掛合作機構的那幾份也一起收掉**（2026-09-12 談定）：她點的是一段，
+// 而那一家機構不屬於任何一段。
+describe('她點的是哪一段', () => {
+  const playbooks = [
+    { id: 'p-drip', title: '營養點滴', courseIds: ['c-drip'], body: 'x' },
+    { id: 'p-rehab', title: '復能', courseIds: ['c-rehab'], body: 'y' },
+    { id: 'p-nb', title: '自然美對接', partners: ['自然美'], body: 'z' },
+  ];
+  const twoSlots = { slots: [{ courseId: 'c-drip' }, { courseId: 'c-rehab' }] };
+  const withNb = { partners: ['自然美'] };
+
+  test('帶了第幾段就只回那一段的', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit: twoSlots, customer: withNb, focusSlot: 1 })
+        .map((p) => p.id),
+      ['p-rehab'],
+    );
+  });
+
+  test('帶了第幾段時，掛機構的那幾份不浮', () => {
+    const out = playbooksFor({ playbooks, visit: twoSlots, customer: withNb, focusSlot: 0 });
+    assert.deepEqual(out.map((p) => p.id), ['p-drip']);
+  });
+
+  test('沒帶就是整筆的每一段 ＋ 機構（另外三個入口靠這條退路）', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit: twoSlots, customer: withNb }).map((p) => p.id),
+      ['p-drip', 'p-rehab', 'p-nb'],
+    );
+  });
+
+  test('指到一個不存在的段落退回整筆 —— 同 slotsToShow() 的退路', () => {
+    assert.deepEqual(
+      playbooksFor({ playbooks, visit: twoSlots, customer: withNb, focusSlot: 9 })
+        .map((p) => p.id),
+      ['p-drip', 'p-rehab', 'p-nb'],
+    );
+  });
+
+  test('那一段沒有課程就一份都不回，不要退回整天', () => {
+    assert.deepEqual(
+      playbooksFor({
+        playbooks, visit: { slots: [{ courseId: null }, { courseId: 'c-rehab' }] },
+        customer: withNb, focusSlot: 0,
+      }),
+      [],
+    );
+  });
+});
+
 // ADR-0076：備忘錄也可以掛合作機構。**它仍然不綁某一位客戶** ——
 // 綁的是一家機構（跟課程一樣是主檔上的東西），差別只有它是**透過客戶**浮出來的。
 describe('掛合作機構的那幾份', () => {

@@ -436,39 +436,27 @@ describe('只看她點的那一段（focusSlot）', () => {
   });
 });
 
-// 她 2026-09-09：掛號那一族是一天一張，會同時出現在那幾段的卡片上。
-// 「這一天共用」那一句是她要的 —— 不標的話她會以為勾掉這一張只影響這一段。
-describe('那一張是不是那一天幾段共用的', () => {
+// 掛號那一族是一天一張，會同時出現在那幾段的卡片上 —— 那件事沒有變，
+// 變的是畫面上不再講它（2026-09-12）。
+describe('「這一天共用」那一句拿掉了（2026-09-12）', () => {
+  // 她：「這一項的代辦中的內容不需要再有小Tooltip說明這一張是這天共用的，
+  // 完全沒必要，全部刪除」。
+  //
+  // 這一段原本有五條在釘「什麼時候該標」。**那幾條釘的是一個她已經看過三次
+  // 並且決定不要的行為**，所以整塊換成一條：那一格不存在了。
+  //
+  // 事實本身沒有變（任務只掛 `visitId`，勾一次同一天每一段都掉），
+  // 由 `tasksForVisit()` 那一側的測試盯著。
   const v = (slots) => ({
     id: 'v1', customerId: 'c1', date: '2026-09-15', status: 'pending_confirm', slots,
   });
-  const two = v([{ courseId: 'c-a' }, { courseId: 'c-a' }]);
-  const one = v([{ courseId: 'c-a' }]);
 
-  test('點了一段、而那一天不只一段 → 標', () => {
-    const rows = todosForVisit(two, { tasks: [], coursesById: {}, focusSlot: 0 });
+  test('每一列身上都沒有 shared 這一格', () => {
+    const rows = todosForVisit(
+      v([{ courseId: 'c-a' }, { courseId: 'c-a' }]),
+      { tasks: [], coursesById: {}, focusSlot: 0 },
+    );
     assert.ok(rows.length);
-    assert.ok(rows.every((r) => r.shared === true), JSON.stringify(rows));
-  });
-
-  test('那一天只有一段 → 不標（每次都寫等於把那一行變成裝飾）', () => {
-    const rows = todosForVisit(one, { tasks: [], coursesById: {}, focusSlot: 0 });
-    assert.ok(rows.every((r) => !r.shared));
-  });
-
-  test('沒點段（另外三頁列整筆）→ 不標', () => {
-    const rows = todosForVisit(two, { tasks: [], coursesById: {} });
-    assert.ok(rows.every((r) => !r.shared));
-  });
-
-  test('取消掉的那一段不算 —— 剩一段活著就不是共用', () => {
-    const mixed = v([{ courseId: 'c-a' }, { courseId: 'c-a', status: 'cancelled' }]);
-    const rows = todosForVisit(mixed, { tasks: [], coursesById: {}, focusSlot: 0 });
-    assert.ok(rows.every((r) => !r.shared));
-  });
-
-  test('指到一個不存在的段落 → 不標（那時候畫的是整筆）', () => {
-    const rows = todosForVisit(two, { tasks: [], coursesById: {}, focusSlot: 9 });
-    assert.ok(rows.every((r) => !r.shared));
+    assert.ok(rows.every((r) => !('shared' in r)), JSON.stringify(rows));
   });
 });

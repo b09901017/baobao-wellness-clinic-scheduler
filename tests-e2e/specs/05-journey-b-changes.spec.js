@@ -31,40 +31,41 @@ function seedConfirmedRehab() {
   ];
 }
 
-/** 日曆上點開那一筆來訪的讀取卡片。**這是唯一的入口**（ADR-0056）。 */
-async function openVisitCard(app, page, date, visitId) {
+/**
+ * 長按那一列 → 「取消這一段」。**取消的路只剩這一條**（ADR-0089，2026-09-12）：
+ * 「改這一天」那一顆與整天的狀態卡都拿掉了，而那一天只有一段時，
+ * 取消那一段就是取消那一天。
+ *
+ * **用真的滑鼠事件**：`wireLongPress()` 只認 `isPrimary` 的主鍵，
+ * `dispatchEvent('pointerdown')` 造出來的那一顆過不了那道門。
+ */
+async function longPressCancel(app, page, date, visitId) {
   await app.go('/calendar');
   await page.locator(`[data-day="${date}"]`).first().click();
   await app.layer(`[data-open^="visit:${visitId}:"]`);
-  await page.locator(`[data-open^="visit:${visitId}:"]`).first().click();
-  await app.layer('[data-card-edit]');
-}
 
-/**
- * 打開**整天**那一張編輯器（狀態卡與危險區在裡面）。
- *
- * 2026-09-10 之前這裡走的是鉛筆＋把「這一天整筆的」那一摺點開。ADR-0088
- * 把那一摺整塊拿掉了 —— 鉛筆開的是只有那一段的（ADR-0085），而整天那幾顆
- * 搬到讀取卡片底下那一顆「改這一天」。**這裡要的是整天那一張**：
- * 這幾支測的是「取消一整天會怎樣」。
- */
-async function openDayEditor(app, page, date, visitId) {
-  await openVisitCard(app, page, date, visitId);
-  await page.locator('[data-edit-day]').click();
-  await app.layer('form[data-form]');
+  const row = page.locator(`[data-open^="visit:${visitId}:"]`).first();
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  // 按住直到選單真的升起來，不要按固定的秒數
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+  await expect(app.dialog()).toBeVisible();
 }
 
 test('J-B1 從日曆取消一筆已確認的來訪 → 次數回補、產生「取消 Abovee」', async ({ app, page }) => {
   await app.seed(seedConfirmedRehab());
   await app.signIn('/');
 
-  await openDayEditor(app, page, FUTURE, 'visit-a1');
-  await expect(page.locator('[data-status="cancelled"]')).toBeVisible();
+  await longPressCancel(app, page, FUTURE, 'visit-a1');
 
-  await page.locator('[data-cancel-reason]').fill('客人要改時間');
-  await page.locator('[data-status="cancelled"]').click();
-
-  await expect(app.dialog()).toBeVisible();
+  // 「為什麼」那一格跟著取消搬到確認框裡（ADR-0089）—— 不搬的話
+  // `cancelReason` 會變成一個再也沒有人寫得進去的欄位。
+  await page.locator('[data-dialog-field]').fill('客人要改時間');
   const dialog = await app.dialogText();
   console.log('[J-B1] 取消確認框 =\n' + dialog);
   expect(dialog, '要講出改期不是改日期').toMatch(/改期|重新排/);
@@ -99,8 +100,7 @@ test('J-B2 沒勾掉的登記任務直接收走，勾掉的才變成「取消 X�
   ]);
   await app.signIn('/');
 
-  await openDayEditor(app, page, FUTURE, 'visit-a1');
-  await page.locator('[data-status="cancelled"]').click();
+  await longPressCancel(app, page, FUTURE, 'visit-a1');
   await app.ok();
   await app.saved();
 
@@ -118,14 +118,15 @@ test('J-B3 同一筆存兩次，取消任務只長一張', async ({ app, page })
   await app.seed(seedConfirmedRehab());
   await app.signIn('/');
 
-  await openDayEditor(app, page, FUTURE, 'visit-a1');
-  await page.locator('[data-status="cancelled"]').click();
+  await longPressCancel(app, page, FUTURE, 'visit-a1');
   await app.ok();
   await app.saved();
 
-  // 再存一次（改一下備註）。**開不起來是預期之一**（那一筆已經取消了），
-  // 所以 catch 掉；開起來的話 `openDayEditor()` 自己等到欄位出現。
-  await openDayEditor(app, page, FUTURE, 'visit-a1').catch(() => {});
+  // 再取消一次。**做不到是預期之一**（那一筆已經取消了，長按選單會直接
+  // 說「已經是終點了」），所以整條 catch 掉 —— 這一支問的是「就算她再按一次，
+  // 取消任務也只長一張」。
+  await longPressCancel(app, page, FUTURE, 'visit-a1').catch(() => {});
+  await app.ok().catch(() => {});
 
   const cancels = (await app.readAll('tasks'))
     .filter((t) => !t.deletedAt && t.kind === '取消 Abovee');
