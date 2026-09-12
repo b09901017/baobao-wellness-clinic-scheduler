@@ -226,6 +226,15 @@ export const COVERAGE = {
     'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
     'public/js/ui/views/visitEditor.js',
   ],
+  // 「記一句」那一塊本身（四個入口共用）。`home.js` 在裡面是因為
+  // 2026-09-12 那個 bug 的另一半在確認那一頁的接線上。
+  '28-note-box': [
+    'public/js/ui/components/slotNote.js',
+    'public/js/ui/views/home.js',
+    'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js',
+    'public/js/data/visits.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
