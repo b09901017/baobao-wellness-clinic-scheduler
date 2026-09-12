@@ -158,7 +158,9 @@ const SPOTS = [
   },
   {
     file: 'js/ui/views/visitEditor.js',
-    from: 'function slotSummary(', to: '// ---------- 狀態 ----------',
+    // 終點本來是「// ---------- 狀態 ----------」，而那一節 2026-09-12
+    // 整塊拿掉了（ADR-0089）。改盯它自己的結尾。
+    from: 'function slotSummary(', to: 'const coursesByIdOf',
     must: 'slotName(', mustNot: 'course?.name',
     what: '來訪編輯器存檔前那道確認',
   },

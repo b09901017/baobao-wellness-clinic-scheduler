@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
-  INITIAL_STATUS, describeStatus, statusClass, statusForCard, nextStatuses, isLocked, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, statusForCard, isLocked, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, editorTarget, slotNoteOf,
   applyStatus, NOTE_MAX,
@@ -253,6 +253,10 @@ function paint(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew, embedded } = ctx;
   const locked = isLocked(draft.status) && !ctx.unlockReason;
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
+  //
+  // 2026-09-12 起它只剩一個用途：**日期那一格給不給改**。整筆的狀態卡與
+  // 危險區整塊拿掉了（ADR-0089），而網址那條路（`renderEdit()`）仍然畫得出
+  // 整天那一張 —— 它沒有任何畫面上的連結，所以不算「一條路」。
   const wholeVisit = !isNew && !ctx.editSlots;
 
   // **抬頭那顆 badge 印她正在改的那一段的狀態**（ADR-0085）。
@@ -334,20 +338,16 @@ function paint(ctx, draft) {
       </section>
     </form>
 
-    ${/* **只改一段的時候，整筆的那幾顆一個都不畫**（ADR-0085，2026-09-10）。
+    ${/* **整筆的那幾顆一顆都不畫了**（2026-09-12，ADR-0089）。
 
-           那一支 ADR 白紙黑字寫「帶了 slotIndex 就沒有整筆的狀態卡與危險區」，
-           但程式一直只是把它們收進一摺（`<details>` 不加 open）。摺起來不算
-           拿掉：她點一段進來改，畫面最底下卻有一顆「取消這一天」與一顆「刪除」
-           —— 那兩顆動的是那一天全部，而她剛剛點的是早上那一段。
+           2026-09-10 那一版是「帶了 slotIndex 就不畫」（ADR-0085／0088），
+           而第二條路是日曆讀取卡片底下那一顆「改這一天」。她 2026-09-12 說
+           那一顆也不要：「如果要改我也會一項一項改」，而追問「改整天的日期」
+           與「刪除這一天」要不要留路時回答「整個拿掉，兩件事都不要了」。
 
-           **第二條路在日曆的讀取卡片上**：那張卡片底下多一顆「改這一天」
-           （`calendar.js` 的 `openDetail()`），按下去開的就是這一張整天的。
-           所以 ADR-0060（長按是捷徑，不是唯一的路）照樣成立，而那一支
-           ADR 一個字都沒有改。 */''}
-    ${wholeVisit ? `
-      ${statusCard(draft, embedded)}
-      ${dangerZone(embedded)}` : ''}`;
+           取消一整天的第二條路是**壓表的批次取消**（ADR-0082）——
+           她自己指的那一條：「我可以從壓表那邊刪」。整筆的狀態仍然改得動的
+           只剩逐段：長按某一列的「取消這一段」，以及簽療程單那條逐段的路。 */''}`;
 
   el.querySelector('[data-back]')?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -415,11 +415,6 @@ function paint(ctx, draft) {
   if (ctx.submitted) f.showErrors(el, errors);
 
   if (locked) wireUnlock(ctx, draft);
-  if (wholeVisit && !locked) wireStatus(ctx, draft);
-  // **畫出來了才接。** 只改一段時那一塊整個不 render（ADR-0085），
-  // 而 `wireDangerZone()` 裡面是 `querySelector('[data-delete]')` 直接接 ——
-  // 接在 null 上會讓整頁停在「載入中…」，一句錯誤訊息都沒有。
-  if (wholeVisit) wireDangerZone(ctx, draft);
 }
 
 
@@ -1054,34 +1049,7 @@ function slotSummary(slot, all) {
   return `${timeLabel(slot)} ${slotName(slot, all, 'short')}${where ? ` ${where}` : ''}${who}`;
 }
 
-// ---------- 狀態 ----------
-
-function statusCard(draft, embedded = false) {
-  const bare = embedded ? 'card--bare' : '';
-  const options = nextStatuses(draft.status);
-  if (!options.length) {
-    return `
-      <section class="card ${bare}">
-        <h2 class="card__title">狀態</h2>
-        <p class="muted">${esc(describeStatus(draft.status))}。這是終點，不會再往下走。
-          要改期就取消後重新排一次（SPEC 第 7 節規則 10）。</p>
-      </section>`;
-  }
-  return `
-    <section class="card ${bare}">
-      <h2 class="card__title">狀態</h2>
-      <p class="muted">現在是「${esc(describeStatus(draft.status))}」。</p>
-      <p>${options
-        .map((s) => `<button class="btn" type="button" data-status="${s}">${describeStatus(s)}</button>`)
-        .join(' ')}</p>
-      <label class="field">
-        <span class="field__label">取消理由（選填）</span>
-        <input type="text" data-cancel-reason placeholder="客人要改時間" />
-      </label>
-    </section>`;
-}
-
-/** 課程主檔的 id → 課程。這一支檔案裡有三個地方要它。 */
+/** 課程主檔的 id → 課程。 */
 const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) => [c.id, c]));
 
 /**
@@ -1097,52 +1065,6 @@ async function visitTasks(draft) {
   } catch {
     return [];
   }
-}
-
-function wireStatus(ctx, draft) {
-  ctx.el.querySelectorAll('[data-status]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      const to = btn.dataset.status;
-      const reason = ctx.el.querySelector('[data-cancel-reason]')?.value?.trim() || null;
-
-      if (to === 'cancelled') {
-        // 那幾句話走 `domain/consequences.js`，跟日曆的長按選單是**同一份**
-        // （ADR-0056）。以前兩邊各寫一次「Abovee／Examine／耀聖」三個並列，
-        // 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
-        const ok = await confirmAction({
-          title: '取消這一整天的來訪？',
-          consequences: cancelConsequences({
-            visit: draft,
-            coursesById: coursesByIdOf(ctx.all),
-            tasks: await visitTasks(draft),
-            sheetSyncOn: isConfigured(ctx.settings),
-          }),
-          confirmLabel: '取消這一整天',
-          danger: true,
-        });
-        if (!ok) return;
-      }
-
-      // 換狀態之後長什麼樣全部在 `domain/visits.js` 的 `applyStatus()` ——
-      // 這一段與日曆的快捷選單（ADR-0060）共用同一份。兩邊各寫一次的話，
-      // 遲早有一邊忘了補 `cancelledAt`，而那一筆從此在稽核紀錄裡看不出
-      // 是什麼時候取消的。收尾（done／no_show）在那裡整筆一起標，
-      // 要逐段分開記走待辦中心的「簽療程單」（ADR-0025）。
-      const next = applyStatus(draft, to, { reason });
-
-      try {
-        await toast.withSaveState(() => visitsData.save(next, ctx.customerVisits), {
-          success: `已改成「${describeStatus(to)}」`,
-          // 存來訪的四個地方都要有 key（同一支檔案上面那個存檔鈕也有）——
-          // 取消那一條有二次確認框擋著，其餘幾個轉移沒有。
-          key: `visit:save:${next.id}`,
-        });
-        leave(ctx);
-      } catch {
-        /* 已處理 */
-      }
-    }),
-  );
 }
 
 /**
@@ -1205,47 +1127,5 @@ function wireUnlock(ctx, draft) {
     }
     ctx.unlockReason = reason;
     paint(ctx, draft);
-  });
-}
-
-// ---------- 刪除 ----------
-
-function dangerZone(embedded = false) {
-  return `
-    <section class="card danger ${embedded ? 'card--bare' : ''}">
-      <h2 class="card__title">刪除這一天的紀錄</h2>
-      <p class="muted">誤建才用刪除。客人改時間或不來，請用上面的狀態按鈕，
-        那些會留下為什麼。</p>
-      <p><button class="btn btn--danger" type="button" data-delete>刪除</button></p>
-    </section>`;
-}
-
-function wireDangerZone(ctx, draft) {
-  ctx.el.querySelector('[data-delete]').addEventListener('click', async () => {
-    const ok = await confirmAction({
-      title: '刪除這一天的來訪紀錄？',
-      consequences: [
-        ...cancelConsequences({
-          visit: draft,
-          coursesById: coursesByIdOf(ctx.all),
-          tasks: await visitTasks(draft),
-          removing: true,
-          sheetSyncOn: isConfigured(ctx.settings),
-        }),
-        '如果是客人不來或改時間，用「取消」比較好 —— 那會留下理由',
-      ],
-      confirmLabel: '刪除',
-      danger: true,
-    });
-    if (!ok) return;
-
-    try {
-      await toast.withSaveState(() => visitsData.remove(draft, ctx.customerVisits), {
-        success: '已刪除',
-      });
-      leave(ctx);
-    } catch {
-      /* 已處理 */
-    }
   });
 }

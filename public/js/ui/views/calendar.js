@@ -897,25 +897,16 @@ function openDetail(el, data, hit, date, repaint) {
     return paint();
   };
 
-  // 「改這一天」。**只有日曆有**（ADR-0056），跟備忘錄那一塊同一個理由。
-  //
-  // 它是 2026-09-10 拿掉來訪編輯器那一摺「這一天整筆的」之後補上的第二條路
-  // （ADR-0060：長按是捷徑，不是唯一的路）。摺起來不算拿掉 —— ADR-0085
-  // 白紙黑字寫「帶了 slotIndex 就沒有整筆的狀態卡與危險區」，而那一摺
-  // 就長在那裡。所以那兩件事搬到這裡：按下去開的是**沒有 slotIndex** 的
-  // 編輯器，也就是整天那一張（日期、全部時段、狀態卡、刪除）。
-  //
-  // 鉛筆那顆仍然是「改這一段」，兩顆分得開才講得清楚範圍（ADR-0087）。
-  const editDay = `
-    <button class="btn" type="button" data-edit-day>改這一天</button>`;
-
+  // **底下沒有「改這一天」那一顆了**（2026-09-12，ADR-0089）。她的原話：
+  // 「並且也不需要出現改這一整天的按鈕，如果要改我也會一項一項改」。
+  // 那一顆 2026-09-10 才長出來（ADR-0088），開的是整天那一張（日期、狀態卡、
+  // 刪除）—— 那三件事跟著它一起收掉了，取消整天的第二條路是壓表的批次取消。
   const card = openCard({
     title: visit.customerName ?? '（沒有名字）',
     subtitle: `${esc(shortDate(visit.date))}・${esc(describeStatus(statusForCard(visit, focus)))}`,
     // **先畫，不等任務讀回來。** 她點下去要的是「那天幾點、誰、做什麼」，
     // 為了底下那一小塊讓整張卡片慢半秒是本末倒置。
     body: html(undefined),
-    actions: editDay,
     canEdit: true,
     onEdit: () => {
       closeCard();
@@ -934,16 +925,6 @@ function openDetail(el, data, hit, date, repaint) {
           esc(describeStatus(statusForCard(visit, focus)))}`,
       });
     }),
-  });
-
-  // **接一次就好，不要走 `onMount`。** 那一顆長在 `.popcard__actions` 裡，
-  // 而 `card.update()`（`fillMirror()` 補上任務時）只換 body —— 這個節點
-  // 活得比每一次重畫久，掛進 onMount 會每重畫一次多一組監聽。
-  card.el.querySelector('[data-edit-day]')?.addEventListener('click', () => {
-    closeCard();
-    openEditor(el, data, {
-      kind: 'visit', visitId: visit.id, date: visit.date, backDate: date, slotIndex: null,
-    });
   });
 
   fillMirror(card, visit, html);
@@ -1090,8 +1071,8 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   // 狀態也換成那一段自己的（ADR-0085）—— 整筆那一個在這裡是錯的。
   //
   // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
-  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那個數字留著**：
-  // 那不是資訊，是煞車（ADR-0070，她 2026-09-09 明確說可以）。
+  // 另外多少個時段，不需要」。**「取消一整天（N 段）」那一顆 2026-09-12 也
+  // 拿掉了**（ADR-0089）：要取消一整天走壓表的批次取消。
   const slots = visit.slots ?? [];
   const which = Number.isInteger(slotIndex) && slots.length > 1 && slots[slotIndex]
     ? `・第 ${slotIndex + 1} 段`
@@ -1123,14 +1104,15 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
 
   // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
   //
-  // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`，
-  // 跟來訪編輯器的狀態卡是**同一份**（ADR-0056：改得動一筆來訪的只有日曆，
-  // 而這兩個入口都算在那一個入口裡）。以前兩邊各寫一次「Abovee／Examine／耀聖」
-  // 三個並列 —— 而 `bookingSystemsForVisit()` 早就答得出來是哪一個。
-  // 取消一段與取消一整天走同一條路，差別只有帶不帶 `slotIndex`（ADR-0081）。
-  // 兩道確認的話遲早有一道少講一句。
+  // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`。以前兩邊
+  // 各寫一次「Abovee／Examine／耀聖」三個並列 —— 而 `bookingSystemsForVisit()`
+  // 早就答得出來是哪一個。
+  //
+  // **只剩「取消這一段」這一種**（2026-09-12，ADR-0089）：整天那一顆拿掉了，
+  // 要取消一整天走壓表的批次取消（ADR-0082）。一天只有一段時取消那一段就是
+  // 取消那一天 —— `settle()` 會把整筆推成 cancelled。
   const onlyOne = action === 'cancel-slot';
-  if (onlyOne || action === 'cancelled') {
+  if (onlyOne) {
     // 會被收掉哪幾張要問這一筆的任務。點下去才讀 —— 日曆是她每天開十幾次的
     // 一頁，為了一道確認框先把整月的任務讀回來是白費的。
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
@@ -1140,18 +1122,15 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     } catch {
       /* 少講兩句，不擋 */
     }
-    const at = onlyOne ? slotIndex : null;
     const ok = await confirmAction({
-      title: onlyOne
-        ? `取消${visit.customerName ?? ''}這一段？`
-        : `取消${visit.customerName ?? ''}這一整天的來訪？`,
+      title: `取消${visit.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
         visit,
         coursesById: data.coursesById ?? {},
         tasks,
-        slotIndex: at,
+        slotIndex,
       }),
-      confirmLabel: onlyOne ? '取消這一段' : '取消這一整天',
+      confirmLabel: '取消這一段',
       danger: true,
     });
     if (!ok) return;

@@ -112,3 +112,35 @@ describe('「這一天共用」整個拿掉', () => {
       'todosForVisit() 還在每一列身上掛 shared');
   });
 });
+
+describe('「這一天」不再是可以動的東西', () => {
+  // 她 2026-09-12：「並且也不需要出現改這一整天的按鈕，如果要改我也會一項一項改」，
+  // 追問之後：「整個拿掉，兩件事都不要了，也不要取消一整天，畢竟如果我真的要
+  // 取消一整天，我可以從壓表那邊刪」。
+  test('讀取卡片上沒有「改這一天」那一顆', () => {
+    const src = code('ui/views/calendar.js');
+    assert.ok(!src.includes('data-edit-day'), '那一顆還在');
+    assert.ok(!src.includes('改這一天'), '還有地方在講「改這一天」');
+  });
+
+  test('長按選單只剩一顆取消，而且講的是這一段', () => {
+    const src = code('domain/visits.js');
+    assert.ok(!src.includes('取消一整天'), '整天那一顆還在');
+    assert.match(src, /label: '取消這一段'/);
+  });
+
+  test('一天只有一段時照樣取消得掉', () => {
+    // `canCancelOne` 以前要 `slots.length > 1` —— 整天那一顆拿掉之後，
+    // 單段那一天會變成一顆取消都沒有。
+    const src = code('domain/visits.js');
+    const block = src.slice(src.indexOf('export function visitActions'));
+    assert.ok(!/slots\.length > 1/.test(block.slice(0, block.indexOf('return out;'))),
+      '還在用「不只一段」當條件 —— 單段那一天會一顆取消都沒有');
+  });
+
+  test('來訪編輯器裡沒有整天的狀態卡與危險區', () => {
+    const src = code('ui/views/visitEditor.js');
+    assert.ok(!src.includes('function dangerZone'), '危險區還在');
+    assert.ok(!src.includes('function statusCard'), '整天的狀態卡還在');
+  });
+});
