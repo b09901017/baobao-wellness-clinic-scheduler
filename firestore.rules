@@ -129,7 +129,11 @@ service cloud.firestore {
             || d.purchaseId is string)
         && (!d.keys().hasAny(['sourcePlanQty'])
             || d.sourcePlanQty == null
-            || (d.sourcePlanQty is int && d.sourcePlanQty > 0));
+            || (d.sourcePlanQty is int && d.sourcePlanQty > 0))
+        // 買了幾套（`expandPlan()` 的快照，ADR-0090）。同 sourcePlanQty 那一條。
+        && (!d.keys().hasAny(['sourcePlanSets'])
+            || d.sourcePlanSets == null
+            || (d.sourcePlanSets is int && d.sourcePlanSets > 0));
     }
 
     match /customers/{customerId} {

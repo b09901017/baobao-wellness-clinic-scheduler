@@ -282,6 +282,10 @@ export function expandPlan(plan, quantity = 1, {
     // 存數字不存布林：「15 次（方案本來 20）」講得出改成什麼，布林只講得出「改過」。
     // 同 sourcePlanName 的理由 —— 快照，不回頭問範本。
     sourcePlanQty: (item.qty ?? 0) * quantity,
+    // **買了幾套**，快照。以前沒有存在任何地方，要知道只能拿 sourcePlanQty 除以範本 ——
+    // 舊試算表當年就是用除法反推數量出事的。客戶抬頭那一行（`purchaseHeadline()`）讀它，
+    // 見 ADR-0090。
+    sourcePlanSets: plan ? quantity : null,
     purchaseId,
     purchasedAt,
     expiresAt,

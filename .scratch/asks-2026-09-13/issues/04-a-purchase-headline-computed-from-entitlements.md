@@ -1,6 +1,6 @@
 # 一行「買了什麼」，由額度算出來
 
-Status: todo
+Status: done
 來源：`../spec.md` 第一 a、b，她的第 6、8 題
 動工前先讀：ADR-0003（範本沒有版本、展開後脫鉤）、ADR-0004（次數現算）、ADR-0078（只有三種名字）、
 `domain/purchases.js`、`domain/entitlements.js` 的 `expandPlan()`、`poolName()`、`timedLabel()`、

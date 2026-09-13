@@ -240,6 +240,13 @@ describe('R5 額度（validEntitlement）', () => {
     await assertFails(setDoc(entPath('e-items-bad'), ent({ type: 'product', items: 'GABA' })));
   });
 
+  test('R5.7b 買了幾套（sourcePlanSets，ADR-0090）必須是正整數或 null', async () => {
+    await assertSucceeds(setDoc(entPath('e-sets'), ent({ sourcePlanName: '新8萬方案', sourcePlanSets: 2 })));
+    await assertSucceeds(setDoc(entPath('e-sets-null'), ent({ sourcePlanSets: null })));
+    await assertFails(setDoc(entPath('e-sets-0'), ent({ sourcePlanSets: 0 })));
+    await assertFails(setDoc(entPath('e-sets-str'), ent({ sourcePlanSets: '2' })));
+  });
+
   test('R5.8 collection group 讀得到（客戶總覽靠它）', async () => {
     await assertSucceeds(getDocs(collectionGroup(allowed, 'entitlements')));
   });
