@@ -185,7 +185,7 @@ function paint(el, data) {
     <div class="calbar">
       <button class="calbar__nav" type="button" data-move="-1" aria-label="上一頁">
         ${icon('left', { size: 15 })}</button>
-      <h1 class="calbar__title">${esc(titleOf(state.view, state.date))}</h1>
+      <h1 class="calbar__title">${esc(titleOf(state.view, state.date, today))}</h1>
       <button class="calbar__nav" type="button" data-move="1" aria-label="下一頁">
         ${icon('right', { size: 15 })}</button>
       <div class="seg" role="group" style="flex: 0 0 auto">
@@ -379,8 +379,9 @@ function weekHtml(data, date, today) {
         return `
           <section class="card ${weekend ? 'weekday--weekend' : ''}" style="padding: 0; overflow: hidden">
             <button class="weekday__head" type="button" data-day="${d}">
-              <span class="weekday__n num ${d === today ? 'weekday__n--today' : ''}">
-                ${Number(d.slice(8))}</span>
+              ${/* 寫 `9/7` 不是 `7`（她 2026-09-13：「下面要寫日期像是9/7 9/8 而不是只寫7 8」）——
+                    標題只寫「9月 W2」，起訖日期靠這一格講 */''}
+              <span class="weekday__n num ${d === today ? 'weekday__n--today' : ''}">${Number(d.slice(5, 7))}/${Number(d.slice(8))}</span>
               <span style="font-size: var(--text-sm); font-weight: 700; color: var(--text-dim)">
                 週${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
@@ -1758,6 +1759,7 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
 }
 
 // ---------- 事件 ----------
+
 
 function wire(el, data) {
   // 箭頭跟左右滑走同一條路 —— 一個閃「載入中」另一個不閃，會像兩個不同的功能

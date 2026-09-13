@@ -1,6 +1,6 @@
 # 日曆標題只寫月、第幾週，週檢視每一天寫 9/7
 
-Status: todo
+Status: done
 來源：`../spec.md` 第三 a，她的第 7 題
 動工前先讀：`domain/calendar.js` 的 `titleOf()`、`weekDays()`、`monthWeeks()`；`ui/views/calendar.js` 的 `paint()`、`weekHtml()`
 

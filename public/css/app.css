@@ -2629,6 +2629,9 @@ button.mark::after {
 .weekday__n {
   min-width: 26px;
   height: 26px;
+  /* 寫的是 `9/7` 不是 `7`（2026-09-13），今天那一顆底色會變成膠囊，兩邊要留一點 */
+  padding: 0 6px;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;

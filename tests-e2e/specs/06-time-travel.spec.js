@@ -264,19 +264,21 @@ test('T14 跨年與閏年：2/29 與 12/31 都畫得出來', async ({ app, page 
   await app.signIn('/calendar');
 
   // 日曆為了左右滑會同時畫上／下一個月，所以同一天會有不只一顆
+  // 標題 2026-09-13 起只寫月，不是今年才帶年份（`.scratch/asks-2026-09-13/issues/09`）——
+  // 「今天」被撥到那一年，所以這裡是「2月」
   await app.travelTo('2028-02-28');
-  expect(await app.text()).toContain('2028 年 2 月');
+  await expect(page.locator('.calbar__title')).toHaveText('2月');
   expect(
     await page.locator('[data-day="2028-02-29"]').count(),
     '閏日要畫得出來',
   ).toBeGreaterThan(0);
 
   await app.travelTo('2026-12-31');
-  expect(await app.text()).toContain('2026 年 12 月');
+  await expect(page.locator('.calbar__title')).toHaveText('12月');
   expect(await page.locator('[data-day="2026-12-31"]').count()).toBeGreaterThan(0);
 
-  // 往後翻一個月要進到 2027 年 1 月
+  // 往後翻一個月要進到 2027 年 1 月 —— 不是今年了，標題帶年份
   await page.locator('[data-move="1"], [data-offset="1"]').first().click();
   await page.waitForTimeout(900);
-  expect(await app.text(), '跨年要跨得過去').toContain('2027 年 1 月');
+  await expect(page.locator('.calbar__title'), '跨年要跨得過去，而且看得出是哪一年').toHaveText('2027年1月');
 });
