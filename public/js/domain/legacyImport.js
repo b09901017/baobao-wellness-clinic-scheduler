@@ -34,6 +34,7 @@ import { contraindicationHints } from './contraindications.js';
 import { equipmentForCourse } from './masterData.js';
 import { followupPlanEntries } from './followups.js';
 import { itemisedLabel } from './entitlements.js';
+import { MAX_MARK_LENGTH, toCustomerFields } from './customerMarks.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -357,6 +358,210 @@ function leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }) {
   return out;
 }
 
+// ---------- B2「購買名稱」那一格 ----------
+
+/**
+ * 認得的購買通路。**照她真的寫過的字列**（2026-09-13 讀她那份 xlsx：只有這兩種）。
+ * 新的通路出現時加在這裡；認不得的整格退回 leftover，不猜。
+ */
+export const PURCHASE_CHANNELS = ['顧客會', 'H2U導客'];
+
+/** B2 的 `8` 是 8 萬方案，其餘數字一律是健檢金額（她 2026-09-13 的第 2 題）。 */
+const PLAN_NUMBER = 8;
+
+/**
+ * 舊表 B2「購買名稱」拆成購買日、通路、方案與套數、健檢、寫在字裡的加購、剩下的字。
+ *
+ * 她 2026-09-13：
+ *
+ * > 我寫0617 顧客會-8+5 (其中0617代表6/17買的，8代表8萬方案(8+8代表8萬方案買了兩套)
+ * > 5(0.75/12) 代表+5(0.75/12)萬健檢
+ *
+ * > 新就是新 8 萬方案
+ *
+ * 實際的寫法比那一句多（`docs/legacy/README.md` 第 6 節、`.scratch/asks-2026-09-13/issues/07` 那張表）：
+ * 日期在後面的（`新-8萬-顧客會8/24`）、數字前面沒有破折號的（`0723顧客會12`）、
+ * 加購寫在字裡的（`only sis(60)x10`）、括號裡是微調的、破折號後面是一句醫療註記的、
+ * 整格手寫的。
+ *
+ * **這一支只讀字，不判斷對不對** —— 驗證（套數跟 D 欄對不對得上、「新」跟範本對不對得上）
+ * 在 `planForSheet()`，那裡才看得到 D 欄。這裡只把「字面上就講不通」的講出來。
+ *
+ * **讀不懂的一個字都不丟**：全部進 `leftover`，原文照抄（這個檔案開頭的第二條原則）。
+ *
+ * @param {string} raw B2 那一格
+ * @param {number} year 表頭沒寫年份，由呼叫端補
+ * @returns {{date:string|null, channel:string|null,
+ *            plan:{newTemplate:boolean, sets:number}|null, exams:string[],
+ *            extras:{text:string, qty:number}[], leftover:string, problems:string[]}}
+ */
+export function parsePurchaseCell(raw, year) {
+  const out = { date: null, channel: null, plan: null, exams: [], extras: [], leftover: '', problems: [] };
+  let s = normalize(raw)
+    .replace(/[（]/g, '(').replace(/[）]/g, ')')
+    .replace(/[＋]/g, '+').replace(/[－—–]/g, '-')
+    .replace(/[ｘＸ×＊]/g, 'x');
+  if (!s) return out;
+
+  // 日期：開頭的 MMDD，或任何位置的 M/D
+  const dateAt = (m, d) => {
+    const iso = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return isValidDate(iso) ? iso : null;
+  };
+  const head = s.match(/^(\d{2})(\d{2})(?!\d)/);
+  if (head) {
+    out.date = dateAt(Number(head[1]), Number(head[2]));
+    if (out.date) s = s.slice(head[0].length);
+  } else {
+    const slash = s.match(/(\d{1,2})\/(\d{1,2})/);
+    if (slash) {
+      out.date = dateAt(Number(slash[1]), Number(slash[2]));
+      if (out.date) s = `${s.slice(0, slash.index)} ${s.slice(slash.index + slash[0].length)}`;
+    }
+  }
+
+  // 「新」只認緊接在日期後面、或整格開頭的那一個 —— 註記裡的「新」字不算
+  let isNew = false;
+  const fresh = s.match(/^\s*新\s*-?\s*/);
+  if (fresh) {
+    isNew = true;
+    s = s.slice(fresh[0].length);
+  }
+
+  for (const channel of PURCHASE_CHANNELS) {
+    if (s.includes(channel)) {
+      out.channel = channel;
+      s = s.replace(channel, ' ');
+      break;
+    }
+  }
+
+  // 剩下的：去掉頭尾的分隔，照 + 切
+  s = s.replace(/^[\s-]+/, '').replace(/[\s-]+$/, '').trim();
+  const leftovers = [];
+  let sets = 0;
+
+  for (const piece of s ? s.split('+') : []) {
+    const token = piece.replace(/^[\s-]+/, '').trim();
+    if (!token) continue;
+
+    // 數字後面可以接括號（微調）或空一格接一句話（`5 欠尾款3萬`）—— 數字照讀，其餘進 leftover
+    const number = token.match(/^(\d+(?:\.\d+)?)\s*萬?\s*(?:\((.*?)\)?)?(?:\s+(.+))?$/);
+    if (number) {
+      const n = Number(number[1]);
+      if (n === PLAN_NUMBER) sets += 1;
+      else out.exams.push(`${number[1]}萬`);
+      if (number[2]?.trim()) leftovers.push(number[2].trim());
+      if (number[3]?.trim()) leftovers.push(number[3].trim());
+      continue;
+    }
+
+    const extra = token.match(/^(?:only\s*)?(.+?)\s*x\s*(\d+)\s*堂?$/i);
+    if (extra) {
+      out.extras.push({ text: extra[1].trim(), qty: Number(extra[2]) });
+      continue;
+    }
+
+    leftovers.push(token);
+  }
+
+  if (sets) out.plan = { newTemplate: isNew, sets };
+  else if (isNew) out.problems.push('寫了「新」但沒有方案的數字 —— 可能是打錯，匯入時要問她');
+  // 用 + 接回去：切的時候拿掉的就是 +，讀不懂的那一段要是原文（`A+B再說` 不可以變成 `A B再說`）
+  out.leftover = leftovers.join('+');
+  return out;
+}
+
+/**
+ * 舊表的兩份 8 萬方案。**用舊表自己的列名寫**，不讀 app 的方案主檔 ——
+ * 這一支只在 skill 那一側跑（ADR-0047 之後 app 裡沒有貼試算表那一頁），
+ * 而 skill 看不到她的主檔。
+ *
+ * 次數是她那份 xlsx 最前面兩張模板分頁上的（2026-09-13 讀的）：
+ * 舊 8 萬（復健門診 2、復能 20、ILIB 12）與新 8 萬（復健門診 6、復能 12、ILIB 20）。
+ * 名字是**快照**（ADR-0003），她說「新就是新 8 萬方案」。
+ */
+export const LEGACY_PLANS = Object.freeze([
+  Object.freeze({
+    name: '8萬方案', newTemplate: false,
+    rows: Object.freeze({
+      Inbody: 4, 復健門診: 2, 物理諮詢: 4, 營養諮詢: 4, 體適能分析: 4, '復能(1小時)': 20, 'ILIB 60mins': 12,
+    }),
+  }),
+  Object.freeze({
+    name: '新8萬方案', newTemplate: true,
+    rows: Object.freeze({
+      Inbody: 4, 復健門診: 6, 物理諮詢: 4, 營養諮詢: 4, 體適能分析: 4, '復能(1小時)': 12, 'ILIB 60mins': 20,
+    }),
+  }),
+]);
+
+/**
+ * 這一張表的第 2–8 列是不是一份方案，是哪一份、幾套。**拿 D 欄的應有次數驗 B2**。
+ *
+ * 她 2026-09-13：「所有的方案課程加購都可以再用各種課程的應有次數去驗證一次，
+ * 然後合併的時候也可以再問我一次」。所以：
+ *
+ * - D 欄剛好是某一份的整數倍 → 照 D 欄（那是當初真的建進去的次數）。跟 B2 寫的不一樣就講
+ * - D 欄不是整數倍（微調過）→ 照 B2 的套數，挑對得上最多列的那一份
+ * - B2 沒寫方案但 D 欄剛好是整數倍 → 當成方案，而且講（合併時要問）
+ *
+ * @returns {{template: object|null, sets: number|null, problems: string[]}}
+ */
+function legacyPlanFor(parsed, purchase) {
+  const problems = [];
+  const expectedOf = (label) => toQty(parsed.items.find((i) => i.label === label)?.expected) ?? 0;
+  const exactOf = (t) => {
+    const ratios = Object.entries(t.rows).map(([label, q]) => expectedOf(label) / q);
+    const n = ratios[0];
+    return Number.isInteger(n) && n > 0 && ratios.every((x) => x === n) ? n : null;
+  };
+  const hits = LEGACY_PLANS.map((t) => ({ t, n: exactOf(t) })).filter((x) => x.n);
+  const said = purchase.plan;
+
+  if (said) {
+    const hit = hits.find((x) => x.t.newTemplate === said.newTemplate) ?? hits[0] ?? null;
+    if (hit) {
+      if (hit.t.newTemplate !== said.newTemplate) {
+        problems.push(said.newTemplate
+          ? `購買名稱寫了「新」，但第 2–8 列的應有次數是「${hit.t.name}」的，照應有次數匯`
+          : `購買名稱沒寫「新」，但第 2–8 列的應有次數是「${hit.t.name}」的，照應有次數匯`);
+      }
+      if (hit.n !== said.sets) {
+        problems.push(`購買名稱寫 ${said.sets} 套，但第 2–8 列的應有次數是 ${hit.n} 套，照應有次數匯`);
+      }
+      return { template: hit.t, sets: hit.n, problems };
+    }
+
+    const score = (t) => Object.entries(t.rows)
+      .filter(([label, q]) => expectedOf(label) === q * said.sets).length;
+    const ranked = LEGACY_PLANS
+      .map((t) => ({ t, s: score(t) }))
+      .sort((a, b) => b.s - a.s || (a.t.newTemplate === said.newTemplate ? -1 : 1));
+    if (ranked[0].s > 0) {
+      if (ranked[0].t.newTemplate !== said.newTemplate) {
+        problems.push(`購買名稱${said.newTemplate ? '寫了' : '沒寫'}「新」，但第 2–8 列的應有次數比較像「${ranked[0].t.name}」`);
+      }
+      return { template: ranked[0].t, sets: said.sets, problems };
+    }
+    problems.push(`購買名稱寫了 ${said.sets} 套 8 萬方案，但第 2–8 列的應有次數對不上任何一份，那幾列當成加購匯`);
+    return { template: null, sets: null, problems };
+  }
+
+  if (hits.length) {
+    const [hit] = hits;
+    problems.push(`購買名稱沒寫方案，但第 2–8 列的應有次數剛好是「${hit.t.name}」× ${hit.n}，當成方案匯`);
+    return { template: hit.t, sets: hit.n, problems };
+  }
+  return { template: null, sets: null, problems };
+}
+
+/** `SIS(60min)`、`sis(60)` → `sis60`。寫在 B2 字裡的加購跟 C 欄的列名比對用。 */
+const looseName = (v) => String(v ?? '').toLowerCase()
+  // 「任選」是她講擇一池的說法（`復能任選(30)` 那一列叫 `復能(30min)`，2026-09-13 真檔上看到的）
+  .replace(/mins?|分鐘|分|堂|only|任選/g, '')
+  .replace(/[\s()（）\-_]/g, '');
+
 // ---------- 一張工作表 → 要寫進去的東西 ----------
 
 const IMPORT_SOURCE = 'legacy-sheet';
@@ -440,6 +645,15 @@ export function planForSheet(parsed, {
   // 沒有欄位可放的手寫註記（A11 的器材偏好、B14 的待辦、A15 的排班習慣…）。
   // 原文照抄，一個字都不改寫 —— 讀不懂不是丟掉的理由（SPEC 第 4.3 節）。
   notes.push(...parsed.leftovers.map((x) => x.text));
+
+  // B2「購買名稱」拆成購買日、通路、方案與套數（`.scratch/asks-2026-09-13/issues/07`）。
+  // 讀不懂的字（括號裡的微調、醫療註記、手寫句子）原文進備註，**排在最前面** ——
+  // 那是她寫在客戶名字旁邊的那一格，比 A11 那種角落裡的註記重要。
+  const purchase = parsePurchaseCell(parsed.source, year);
+  if (purchase.leftover) notes.unshift(purchase.leftover);
+  const purchaseProblems = [...purchase.problems];
+  const legacy = legacyPlanFor(parsed, purchase);
+  purchaseProblems.push(...legacy.problems);
 
   // ---------- 額度 ----------
 
@@ -595,6 +809,70 @@ export function planForSheet(parsed, {
   //
   // 不歸任何一列管，所以不進 byRow：報告上那張逐列對帳表講的是舊表的每一列
   // 讀出了什麼，而二返在舊表上沒有列。
+  // ---------- 購買日、方案、驗證 ----------
+  //
+  // 第 2–8 列（會乘套數的那七列）是方案的就帶方案名、套數與「方案本來幾次」，
+  // 其餘是加購。**totalQty 照舊是 D 欄** —— 跟範本不一樣就是微調過（`isTweaked()` 看得出來）。
+  const planKeys = new Set();
+  if (legacy.template) {
+    for (const [label, base] of Object.entries(legacy.template.rows)) {
+      const item = parsed.items.find((i) => i.label === label);
+      const made = item ? byRow.get(item.row) : null;
+      for (const key of made?.keys ?? []) {
+        const e = entitlements.find((x) => x.key === key);
+        if (!e) continue;
+        planKeys.add(key);
+        e.doc.sourcePlanName = legacy.template.name;
+        e.doc.sourcePlanSets = legacy.sets;
+        e.doc.sourcePlanQty = base * legacy.sets;
+        if (e.doc.totalQty !== base * legacy.sets) {
+          purchaseProblems.push(`第 ${item.row} 列 ${label}：方案本來 ${base * legacy.sets} 次，這裡寫 ${e.doc.totalQty} 次（微調過）`);
+        }
+      }
+    }
+  }
+  for (const e of entitlements) {
+    e.doc.purchasedAt = purchase.date;
+    e.doc.purchaseKey = planKeys.has(e.key) ? 'plan' : 'extras';
+  }
+
+  // 健檢：B2 寫的金額要在第 9 列那一格找得到
+  const examRows = parsed.items.filter((i) => i.label.includes(CHECKUP_WORD) && (toQty(i.expected) ?? 0) > 0);
+  const tierOf = (label) => label.match(/(\d+(?:\.\d+)?)\s*萬/)?.[1] ?? null;
+  const mentioned = new Set();
+  for (const tier of purchase.exams) {
+    const row = examRows.find((i) => `${tierOf(i.label)}萬` === tier);
+    if (row) mentioned.add(row.row);
+    else {
+      purchaseProblems.push(examRows.length
+        ? `購買名稱寫了 ${tier}健檢，但健檢那一列是「${examRows.map((i) => i.label).join('、')}」`
+        : `購買名稱寫了 ${tier}健檢，但沒有任何一列健檢有應有次數`);
+    }
+  }
+
+  // 寫在字裡的加購：要找得到次數一樣、名字對得上的那一列
+  const planRows = new Set(parsed.items
+    .filter((i) => [...(byRow.get(i.row)?.keys ?? [])].some((k) => planKeys.has(k)))
+    .map((i) => i.row));
+  for (const extra of purchase.extras) {
+    const want = looseName(extra.text);
+    const row = parsed.items.find((i) => !planRows.has(i.row)
+      && toQty(i.expected) === extra.qty
+      && (looseName(i.label).includes(want) || want.includes(looseName(i.label))));
+    if (row) mentioned.add(row.row);
+    else purchaseProblems.push(`購買名稱寫了 ${extra.text}x${extra.qty}，但找不到應有次數 ${extra.qty} 的那一列`);
+  }
+
+  // D 欄有次數、B2 一個字都沒提 —— 只是提醒（應有次數才是建進去的東西）
+  for (const item of parsed.items) {
+    if (planRows.has(item.row) || mentioned.has(item.row)) continue;
+    if (item.label.startsWith(PRODUCT_PREFIX)) continue;
+    const qty = toQty(item.expected) ?? 0;
+    if (qty > 0 && parsed.source) {
+      purchaseProblems.push(`「${item.label}」應有 ${qty} 次，購買名稱沒提到（照應有次數匯，只是提醒）`);
+    }
+  }
+
   const paired = followupPlanEntries(entitlements, courses, { importedFrom: stamp });
   entitlements.push(...paired);
 
@@ -722,6 +1000,14 @@ export function planForSheet(parsed, {
 
   if (parsed.followupNote) notes.push(parsed.followupNote);
 
+  // 一則超過上限的備註照原文收（讀不懂不是丟掉的理由），但要講 ——
+  // 匯進去之後她一按「編輯」，那一則就存不下去（`validateMarks()`）。
+  for (const m of marksFrom(notes)) {
+    if (m.text.length > MAX_MARK_LENGTH) {
+      problem('備註', m.text, `這一則超過 ${MAX_MARK_LENGTH} 個字，匯進去之後編輯時要先拆成幾則才存得下去`);
+    }
+  }
+
   return {
     sheetName: parsed.sheetName,
     customerName: parsed.customerName,
@@ -731,19 +1017,23 @@ export function planForSheet(parsed, {
       name: parsed.customerName,
       phone: null,
       lineId: null,
-      source: parsed.source || null,
-      purchasedAt: null,
+      // 通路（`顧客會`），不是整格原文 —— 原文拆出來讀不懂的那一段已經在備註裡了
+      source: purchase.channel,
+      purchasedAt: purchase.date,
       membershipExpiresAt: null,
       priority: 0,
       flags: [],
-      // 原文照抄，一個字都不改寫
-      notes: notes.join('\n'),
+      // 原文照抄，一個字都不改寫。**備註是真相，notes 是它的鏡像**（ADR-0019）
+      // 寫入的形狀只有 `toCustomerFields()` 一份（marks 與 notes 鏡像同一次算出來）
+      ...customerFieldsFrom(marksFrom(notes)),
       active: true,
       importedFrom: stamp,
     },
     entitlements,
     visits,
     problems,
+    // B2 拿應有次數驗過一次、對不上的那幾條。**合併時要逐條問她**
+    purchaseProblems,
     skippedRows,
     leftovers: parsed.leftovers,
     contraindications: contraindicationHints([
@@ -786,6 +1076,26 @@ export function planForSheet(parsed, {
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
     },
   };
+}
+
+/**
+ * 備註那幾行變成帶顏色的備註。**有「尾款」兩個字的預設紅色**（她 2026-09-13：
+ * 「尾款欠多少的預設用紅色的備註」）。顏色只是預設值，不綁任何行為（ADR-0019）。
+ *
+ * 一格裡的換行拆成好幾則 —— `notes` 是用換行接起來的鏡像，兩邊要講同一件事。
+ */
+/** `toCustomerFields()` 沒有備註時 notes 是 null；舊表匯入一直寫空字串，下游（試算表、健檢）認的是它。 */
+function customerFieldsFrom(marks) {
+  const { marks: list, notes } = toCustomerFields(marks);
+  return { marks: list, notes: notes ?? '' };
+}
+
+function marksFrom(lines) {
+  return lines
+    .flatMap((line) => String(line ?? '').split('\n'))
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text) => ({ text, color: text.includes('尾款') ? 'red' : 'grey' }));
 }
 
 /**
@@ -903,6 +1213,7 @@ function emptyPlan(parsed, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
+    purchaseProblems: [],
     skippedRows: [],
     leftovers: [],
     contraindications: [],

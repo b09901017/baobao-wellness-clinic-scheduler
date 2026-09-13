@@ -90,20 +90,55 @@ export function moveBy(view, date, steps) {
 }
 
 /**
+ * 一週算哪個月的第幾週：**那一週有四天以上落在哪個月就算哪個月**。
+ *
+ * 她 2026-09-13：「週也是，可以寫第幾週這樣就不會變...或是9月w1 w2 w3 w4 等等」，
+ * 跨月那一週（8/31–9/6）怎麼算她同意這一條。一週從禮拜一開始（`weekStart()`），
+ * 所以「四天以上」就是**週四落在哪個月** —— 第幾週也就是那個月的第幾個週四。
+ *
+ * @param {string} date 那一週裡的任何一天
+ * @returns {{year:number, month:number, n:number}|null}
+ */
+export function weekOfMonth(date) {
+  const start = weekStart(date);
+  if (!start) return null;
+  const thursday = addDays(start, 3);
+  const [year, month, day] = thursday.split('-').map(Number);
+  return { year, month, n: Math.ceil(day / 7) };
+}
+
+/**
  * 標頭那一行字。
  *
- * 日檢視不放年份 —— 390px 上「2026 年 8/19(三)」會斷成兩行，而年份是她
- * 最不需要確認的一項（她永遠知道今年是哪一年）。要跨年時月份本身就講清楚了。
+ * 她 2026-09-13：「光是2026年就會占掉手機版的版面導致後面都會變...，就不知道到底是哪一月」。
+ * 375 寬時「2026 年 8 月」剛好塞滿 119px，10–12 月就被截；週標題「8/24(一) – 8/30(日)」
+ * 在 375 與 414 都被截成「8/24(一) –…」。
+ *
+ * | 檢視 | 寫法 | 例 |
+ * |---|---|---|
+ * | 月 | 月份；**不是今年才寫年份** | `9月`、`2027年1月` |
+ * | 週 | 那一週歸屬的月份＋第幾週（`weekOfMonth()`） | `9月 W2` |
+ * | 日 | 日期 | `9/18(五)` |
+ *
+ * 不是今年才寫年份：從 12 月滑到 1 月時分得出來，而平常一個字都不佔。
+ * **「今年」由呼叫端傳**（純函式才測得了）；沒傳就當作跟那一天同一年 ——
+ * 憑空多出一個年份比少一個糟。
+ *
+ * 週那一段的起訖日期不在標題上 —— 底下每一天的抬頭寫著 `9/7`（issue 09）。
  */
-export function titleOf(view, date) {
+export function titleOf(view, date, today = null) {
   if (!isValidDate(date)) return '';
   if (view === 'day') return shortDate(date);
+
+  const thisYear = isValidDate(today) ? Number(today.slice(0, 4)) : null;
+  const label = (year, month) => (thisYear == null || year === thisYear ? `${month}月` : `${year}年${month}月`);
+
   if (view === 'week') {
-    const days = weekDays(date);
-    return `${shortDate(days[0])} – ${shortDate(days[6])}`;
+    const w = weekOfMonth(date);
+    return `${label(w.year, w.month)} W${w.n}`;
   }
-  const [y, m] = date.split('-');
-  return `${y} 年 ${Number(m)} 月`;
+  const [y, m] = date.split('-').map(Number);
+  return label(y, m);
 }
 
 /**

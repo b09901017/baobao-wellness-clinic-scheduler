@@ -201,3 +201,49 @@ test('取消這一段，那一天剩下的兩段一個字都不動', async ({ ap
     '只有她點的那一段暗掉，另外兩段照舊',
   ).toHaveCount(1);
 });
+
+// ---------------------------------------------------------------------------
+// 取消一段之後，每一段的「這一項的待辦」（`.scratch/asks-2026-09-13/issues/03`）。
+//
+// 她 2026-09-13：「我一天幫A押三個時段，然後我取消了其中一段後，其他兩段的這一項的待辦
+// 就多了"取消Aobvee" ? 這個待辦只應該出現在被取消的那邊吧」
+// ——「原本的那些一樣有然後灰掉然後多了取消」。
+
+/** 在抽屜裡點第 n 列，等那一張卡片的待辦讀回來。 */
+async function openSlotCard(app, page, index) {
+  await page.locator('[data-open^="visit:v-three:"]').nth(index).click();
+  await app.layer('.popcard');
+  // 待辦要多打一趟網路才補得進來（`fillMirror()`）—— 等那一塊真的出現
+  await app.layer('.popcard .taskmirror');
+}
+
+test('取消中間那段：另外兩段看不到「取消 Abovee」，被取消的那一段原本的待辦灰掉', async ({ app, page }) => {
+  await app.seed(seedThreeSlots());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await longPressRow(page, 1);
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+  await app.layer('[data-open^="visit:v-three:"]');
+
+  for (const index of [0, 2]) {
+    await openSlotCard(app, page, index);
+    await expect(page.locator('.popcard .taskmirror'), `第 ${index + 1} 段沒有被取消，不該有取消類的待辦`)
+      .not.toContainText('取消 Abovee');
+    await expect(page.locator('.popcard .taskmirror__row.is-void'), '活著的那一段一列都不灰')
+      .toHaveCount(0);
+    await page.locator('[data-card-close]').click();
+    await expect(page.locator('.popcard')).toHaveCount(0);
+  }
+
+  await openSlotCard(app, page, 1);
+  const mirror = page.locator('.popcard .taskmirror');
+  await expect(mirror, '被取消的那一段看得到它自己的取消待辦').toContainText('取消 Abovee');
+  await expect(mirror.locator('.taskmirror__row.is-void', { hasText: '跟客人確認時間' }),
+    '原本的待辦照樣列，只是灰掉').toHaveCount(1);
+  await expect(mirror.locator('.taskmirror__row:not(.is-void)', { hasText: '取消 Abovee' }),
+    '取消那一張不灰 —— 那是她現在要去做的事').toHaveCount(1);
+});

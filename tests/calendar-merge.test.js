@@ -408,3 +408,93 @@ describe('簡寫表吐出來的名字對得上主檔', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 合併檔 v2（`.scratch/asks-2026-09-13/issues/08`）。skill 與 app 是一份契約，
+// 兩邊講的版本不一樣時，app 會整份拒收 —— 所以直接比兩邊的字串。
+
+import { FORMAT as APP_FORMAT } from '../public/js/domain/mergeImport.js';
+
+describe('合併檔 v2：skill 產出的跟 app 認得的是同一版', () => {
+  const base = (over = {}) => ({
+    plans: [], events: [], unreadable: [], span: ['2026-06-01', '2026-09-30'],
+    leftover: { calendarOnly: [], future: [], personal: [] },
+    ambiguous: [], renames: {}, year: 2026, ...over,
+  });
+
+  test('format 跟 app 的 FORMAT 一樣', () => {
+    assert.equal(importJson(base()).format, APP_FORMAT);
+  });
+
+  test('客戶帶購買日、帶顏色的備註、購買名稱對不上的那幾條；額度帶方案與套數', () => {
+    const plan = {
+      sheetName: '客戶A', customerName: '客戶A', source: '0617 顧客會-8', skip: null, days: [],
+      customer: {
+        name: '客戶A', source: '顧客會', purchasedAt: '2026-06-17', notes: '欠尾款3萬',
+        marks: [{ text: '欠尾款3萬', color: 'red' }],
+      },
+      purchaseProblems: ['購買名稱寫 2 套，但第 2–8 列的應有次數是 1 套，照應有次數匯'],
+      entitlements: [{
+        key: 'r7', productName: null,
+        doc: {
+          type: 'pool', label: '復能(1小時)', totalQty: 20, courseId: null, optionEquipmentIds: ['eq-sis'],
+          purchasedAt: '2026-06-17', sourcePlanName: '8萬方案', sourcePlanSets: 1, sourcePlanQty: 20, purchaseKey: 'plan',
+        },
+      }],
+    };
+    const [c] = importJson(base({ plans: [plan] })).customers;
+    assert.equal(c.purchasedAt, '2026-06-17');
+    assert.deepEqual(c.marks, [{ text: '欠尾款3萬', color: 'red' }]);
+    assert.deepEqual(c.purchaseProblems, plan.purchaseProblems);
+    assert.deepEqual(
+      (({ purchasedAt, sourcePlanName, sourcePlanSets, sourcePlanQty, purchaseKey }) =>
+        ({ purchasedAt, sourcePlanName, sourcePlanSets, sourcePlanQty, purchaseKey }))(c.entitlements[0]),
+      { purchasedAt: '2026-06-17', sourcePlanName: '8萬方案', sourcePlanSets: 1, sourcePlanQty: 20, purchaseKey: 'plan' },
+    );
+  });
+
+  test('報告多一段 ⓪c，每一條都列出來', () => {
+    const plan = {
+      sheetName: '客戶A', customerName: '客戶A', source: '0617 顧客會-8', skip: null, days: [], forms: [],
+      customer: { name: '客戶A' }, entitlements: [], problems: [],
+      purchaseProblems: ['購買名稱寫 2 套，但第 2–8 列的應有次數是 1 套，照應有次數匯'],
+    };
+    const text = reportText(base({ plans: [plan] }));
+    assert.match(text, /⓪c 購買名稱對不上的/);
+    assert.match(text, /應有次數是 1 套/);
+  });
+});
+
+// issue 08 的判準：「skill 那支腳本在測試裡跑一次（去識別化的 `docs/legacy/samples/`），
+// 輸出 `format: 'baobao-merge/v2'`」—— 手寫的物件餵不出 B2 那十幾種真的寫法。
+import { reconcile } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
+import { mkdtempSync, writeFileSync as writeFile } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+import { fromRoot as rootOf } from './helpers/paths.js';
+
+describe('拿去識別化的樣本真的跑一次 skill', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'merge-samples-'));
+  const icsPath = joinPath(dir, 'empty.ics');
+  writeFile(icsPath, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n');
+  const r = reconcile({ sheetsDir: rootOf('docs/legacy/samples'), icsPath, year: 2026, today: '2026-09-13' });
+  const json = importJson(r);
+
+  test('輸出的是 app 認得的 v2', () => {
+    assert.equal(json.format, APP_FORMAT);
+    assert.ok(json.customers.length > 10);
+  });
+
+  test('B2 拆得出購買日與通路（0522 顧客會 -8）', () => {
+    const a = json.customers.find((c) => c.sheetName === '客戶A');
+    assert.equal(a.purchasedAt, '2026-05-22');
+    assert.equal(a.source, '顧客會');
+    assert.ok(a.entitlements.some((e) => e.sourcePlanName === '8萬方案' && e.sourcePlanSets === 1));
+  });
+
+  test('每一位的通路都不是整格原文（不含日期數字）', () => {
+    for (const c of json.customers) {
+      assert.ok(!/\d{4}/.test(c.source ?? ''), `${c.sheetName} 的 source 還是原文：${c.source}`);
+    }
+  });
+});

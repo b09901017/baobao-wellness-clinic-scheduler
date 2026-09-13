@@ -246,6 +246,15 @@ export const COVERAGE = {
     'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
     'public/js/ui/views/visitEditor.js',
   ],
+  '30-purchase-headline': [
+    'public/js/domain/purchases.js', 'public/js/domain/entitlements.js',
+    'public/js/domain/naming.js', 'public/js/ui/views/customers.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/bought.js',
+  ],
+  '31-calendar-title': [
+    'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/components/sheet.js', 'public/css/',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

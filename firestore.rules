@@ -129,7 +129,11 @@ service cloud.firestore {
             || d.purchaseId is string)
         && (!d.keys().hasAny(['sourcePlanQty'])
             || d.sourcePlanQty == null
-            || (d.sourcePlanQty is int && d.sourcePlanQty > 0));
+            || (d.sourcePlanQty is int && d.sourcePlanQty > 0))
+        // 買了幾套（`expandPlan()` 的快照，ADR-0090）。同 sourcePlanQty 那一條。
+        && (!d.keys().hasAny(['sourcePlanSets'])
+            || d.sourcePlanSets == null
+            || (d.sourcePlanSets is int && d.sourcePlanSets > 0));
     }
 
     match /customers/{customerId} {
@@ -201,7 +205,10 @@ service cloud.firestore {
         && d.kind.size() > 0
         && d.dueDate is string
         && d.dueDate.size() == 10
-        && d.done is bool;
+        && d.done is bool
+        // 取消類的待辦收的是哪幾段（`domain/taskRules.js` 的 `cancelTasksFor()`）。
+        // 選填：只有取消類有，而且 2026-09-13 之前的沒有。這一層只擋形狀。
+        && (!('slotIndexes' in d) || d.slotIndexes is list);
     }
 
     match /tasks/{taskId} {

@@ -702,7 +702,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
   const nameOf = (raw) => displayName(raw, { renames: r.renames, sheetName: sheetOf.get(raw) ?? '' });
 
   return {
-    format: 'baobao-merge/v1',
+    // v2（2026-09-13）：多了購買日、方案與套數、帶顏色的備註、購買名稱對不上的那幾條。
+    // **只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格**，而畫面看起來跟匯好了一樣。
+    format: 'baobao-merge/v2',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
@@ -725,8 +727,14 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
         sheetName: p.sheetName,
         name: displayName(p.customer?.name ?? p.customerName, { renames: r.renames, sheetName: p.sheetName }),
         rawName: p.customer?.name ?? p.customerName,
+        // 通路（`顧客會`），不是 B2 整格原文 —— 那一格已經被 `parsePurchaseCell()` 拆開了
         source: p.customer?.source ?? null,
+        purchasedAt: p.customer?.purchasedAt ?? null,
         notes: p.customer?.notes ?? '',
+        // 帶顏色的備註。有「尾款」的那一則是紅色（她 2026-09-13）。`notes` 是它的鏡像
+        marks: p.customer?.marks ?? [],
+        // B2 拿應有次數驗過一次、對不上的那幾條。**合併時要逐條問她**（她：「合併的時候也可以再問我一次」）
+        purchaseProblems: p.purchaseProblems ?? [],
         entitlements: p.entitlements.filter((e) => !derived.has(e.key)).map((e) => ({
           key: e.key,
           type: e.doc.type,
@@ -736,6 +744,12 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
           optionEquipmentNames: (e.doc.optionEquipmentIds ?? [])
             .map((id) => SEED.equipment.find((x) => x.id === id)?.name ?? id),
           productName: e.productName,
+          purchasedAt: e.doc.purchasedAt ?? null,
+          sourcePlanName: e.doc.sourcePlanName ?? null,
+          sourcePlanSets: e.doc.sourcePlanSets ?? null,
+          sourcePlanQty: e.doc.sourcePlanQty ?? null,
+          // 同一次購買共用一個 key，app 寫入時換成真的 purchaseId
+          purchaseKey: e.doc.purchaseKey ?? null,
         })),
         visits: p.days.map((d) => ({
           date: d.date,
@@ -821,6 +835,13 @@ function sheetProblems(r) {
   })));
 }
 
+/** B2 驗證對不上的那幾條，攤平成一列一筆。 */
+function purchaseProblems(r) {
+  return (r.plans ?? []).flatMap((p) => (p.purchaseProblems ?? []).map((why) => ({
+    name: p.customerName || p.sheetName, raw: p.source ?? '', why,
+  })));
+}
+
 export function reportText(r) {
   const L = [];
   const slots = r.plans.flatMap((p) => p.days.flatMap((d) => d.filled));
@@ -866,6 +887,7 @@ export function reportText(r) {
   L.push(`   ⑤ 未來的預約　${r.leftover.future.length}`);
   L.push(`   ⑥ 對不到客戶的　${r.leftover.personal.length}　（這一段是清單不是問題，慢慢挑）`);
   if (sheetProblems(r).length) L.push(`   ⓪b 舊表本身讀到的問題　${sheetProblems(r).length}`);
+  if (purchaseProblems(r).length) L.push(`   ⓪c 購買名稱對不上的　${purchaseProblems(r).length}　← 合併時逐條問她`);
   L.push('');
 
   // 一位客戶整批對不上，幾乎一定是名字的問題（行事曆上叫暱稱、打錯字、只寫姓）。
@@ -914,6 +936,25 @@ export function reportText(r) {
         L.push(`   ── ${short(who)}`);
       }
       L.push(`      ${x.where ? `${x.where}｜` : ''}${x.raw ? `「${short(x.raw)}」｜` : ''}${x.why}`);
+    }
+    L.push('');
+  }
+
+  // B2「購買名稱」拿應有次數驗過一次（`planForSheet()` 的 `purchaseProblems`）。
+  // 她 2026-09-13：「所有的方案課程加購都可以再用各種課程的應有次數去驗證一次，
+  // 然後合併的時候也可以再問我一次」—— 所以這一段每一條都要問，不要替她決定。
+  const bought = purchaseProblems(r);
+  if (bought.length) {
+    L.push(`━━━ ⓪c 購買名稱對不上的 ${bought.length} 筆 ━━━`);
+    L.push('   B2 寫的方案、套數、健檢、加購，拿 D 欄的應有次數對一次。對不上的列在這裡，');
+    L.push('   匯進去的是 D 欄那一份 —— 每一條都要問她哪一邊對。', '');
+    let who = '';
+    for (const x of bought) {
+      if (x.name !== who) {
+        who = x.name;
+        L.push(`   ── ${short(who)}${x.raw ? `（B2：「${short(x.raw)}」）` : ''}`);
+      }
+      L.push(`      ${x.why}`);
     }
     L.push('');
   }

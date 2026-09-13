@@ -103,41 +103,11 @@ describe('丸子不會被容器拉開', () => {
 
 // ---------------------------------------------------------------------------
 
-// 批次取消底下那一條不可以懸空。
+// 批次取消底下那一條不可以懸空 —— **這裡以前有三條掃 CSS 字串的測試，拿掉了。**
 //
-// `.bulkbar` 是 `position: sticky; bottom: 0`，而 **sticky 只會在捲動時把元素
-// 釘住，不會把它往下推**。只勾一天時整頁撐不滿一個視窗，它就停在內容正下方 ——
-// 實測 390×844 下它停在 y=395，底下還有 450px 空白，卻帶著上緣邊線與往上打的
-// 陰影。那一整套講的是「我貼在畫面底部」，貼不到底就變成一條浮在空氣上的橫條。
-// 她 2026-09-10：「這個區域很突兀，有種懸空的感覺?版面很怪?」
+// 它們釘的是 2026-09-10 那一版的做法（`.bulkpage` 是 `100dvh`、`.bulkbar` 的
+// margin-top 是 `auto`），而那一版沒有修好：那一條照樣停在離導覽列 44px 的地方，
+// 三條測試全綠。字串對了不等於畫面對了。
 //
-// 修正是兩格：`.bulkpage` 是至少一個視窗高的直排，`.bulkbar` 的 margin-top 是
-// `auto`。**後者一定要寫在 margin 簡寫裡** —— 另外補一行 `margin-top: auto`
-// 會被同一條規則後面的簡寫重設掉（改的時候真的踩過一次）。
-
-describe('批次取消底下那一條貼得到底', () => {
-  test('`.bulkpage` 是至少一個視窗高的直排', () => {
-    const block = CSS.match(/^\.bulkpage \{[^}]*\}/m);
-    assert.ok(block, '`.bulkpage` 那一條規則不見了？整頁的包裝是那一條給的');
-    assert.match(block[0], /flex-direction:\s*column/);
-    assert.match(block[0], /min-height:\s*100dvh/);
-  });
-
-  test('`.bulkbar` 的 margin-top 是 auto，而且寫在簡寫裡', () => {
-    const block = CSS.match(/^\.bulkbar \{[^}]*\}/m);
-    assert.ok(block, '`.bulkbar` 那一條規則不見了？');
-    // 最後一個決定 margin-top 的宣告要給 auto
-    const decls = [...block[0].matchAll(/margin(-top)?\s*:\s*([^;]+);/g)];
-    assert.ok(decls.length, '一個 margin 宣告都沒有？');
-    const last = decls.at(-1)[2].trim().split(/\s+/)[0];
-    assert.equal(last, 'auto',
-      'margin 簡寫會把 margin-top 一起重設 —— 所以 auto 必須在最後一個'
-      + '決定 margin-top 的宣告裡，不能另外補一行');
-  });
-
-  test('返回鍵不會因為直排而橫跨一整行', () => {
-    assert.match(CSS, /\.bulkpage > \.backlink \{[^}]*align-self:\s*flex-start/,
-      '`.backlink` 是 inline-flex，變成 flex item 之後會被 stretch 拉滿 ——'
-      + '那顆按鈕的感應範圍就橫跨一整行了');
-  });
-});
+// 現在盯著它的是 `tests-e2e/specs/22-bulk-cancel.spec.js` 最後那幾條，
+// 量的是那一條、導覽列與最後一列**畫出來的位置**（`.scratch/asks-2026-09-13/issues/01`）。

@@ -14,6 +14,7 @@ import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as rules from '../../domain/customers.js';
 import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
+import { purchaseHeadline } from '../../domain/purchases.js';
 import { customerPools } from '../../domain/scheduling.js';
 import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
@@ -61,14 +62,22 @@ export async function render(el) {
   let equipment;
   let clinicalFlags;
   let visits;
+  let plans;
+  let courses;
+  let ivProducts;
   try {
-    [rows, entsBy, equipment, clinicalFlags, visits] = await Promise.all([
+    [rows, entsBy, equipment, clinicalFlags, visits, plans, courses, ivProducts] = await Promise.all([
       data.list(),
       data.entitlementsByCustomer(),
       config.listAll('equipment'),
       // 臨床提醒（ADR-0064）。跟另外幾份同一趟拿，不多一輪往返。
       config.listAll('clinicalFlags'),
       visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKAHEAD_DAYS)),
+      // 抬頭那一行「買了什麼」要的（`purchaseHeadline()`，ADR-0090）：
+      // 方案主檔是套數的退路，課程與品項是簡寫的來源。
+      config.listAll('plans'),
+      config.listAll('courses'),
+      config.listAll('ivProducts'),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
@@ -76,7 +85,10 @@ export async function render(el) {
     return;
   }
 
-  const ctx = { rows, entsBy, equipment, clinicalFlags, today, visitsBy: byCustomer(visits, today) };
+  const ctx = {
+    rows, entsBy, equipment, clinicalFlags, today, visitsBy: byCustomer(visits, today),
+    master: { plans, equipment, courses, ivProducts },
+  };
 
   el.innerHTML = `
     <div class="page">
@@ -294,6 +306,8 @@ function card(c, ctx) {
   const sum = summarize(ents);
   const flags = rules.splitFlags(c, ctx.clinicalFlags);
   const marks = readMarks(c);
+  // 名字底下那一行：買了什麼（ADR-0090）。上次／下次 2026-09-13 拿掉了，排序照樣靠 `byCustomer()`
+  const meta = purchaseHeadline(c, ents, ctx.master);
   let { pools } = customerPools({ entitlements: ents });
 
   // 點了課程丸就把那一項提到最上面 —— 她現在問的就是它
@@ -314,7 +328,7 @@ function card(c, ctx) {
             ${flagsUi.partnerChips(rules.partnersOf(c))}
             ${c.active === false ? '<span class="badge">已停用</span>' : ''}
           </div>
-          <div class="hero__meta">${esc(metaLine(c, ctx))}</div>
+          ${meta ? `<div class="hero__meta hero__meta--clamp">${esc(meta)}</div>` : ''}
         </div>
         ${icon('right', { size: 16 })}
       </div>
@@ -362,16 +376,6 @@ function poolLine(p) {
       </span>
       <span class="poolline__n">${p.remaining}</span>
     </div>`;
-}
-
-/** 上次來訪、下次預約、購買通路。SPEC 第 8.5 節要求的那幾欄。 */
-function metaLine(c, ctx) {
-  const seen = ctx.visitsBy[c.id] ?? {};
-  const parts = [];
-  parts.push(seen.last ? `上次 ${shortDate(seen.last)}` : `${LOOKBACK_DAYS} 天內沒來過`);
-  if (seen.next) parts.push(`下次 ${shortDate(seen.next)}`);
-  if (c.source) parts.push(c.source);
-  return parts.join('・');
 }
 
 // ---------- 新增客戶 ----------
