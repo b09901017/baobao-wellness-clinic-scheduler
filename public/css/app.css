@@ -5842,6 +5842,74 @@ summary {
   .weekgrid .card {
     margin-bottom: 0;
   }
+
+  /* 七欄時一列改成直排（`.scratch/asks-2026-09-13/issues/11`）。
+     她 2026-09-13：「如果是橫的顯示(ipad) 他會變成好擠，所有字都會變成直得顯示?」
+     一列是「左邊 42px 時間欄 ＋ 色棒 ＋ 內容」，那是給手機一整排寬度設計的 —— 1024 寬時
+     一天一欄只有 92px，名字那一格剩 29px，所以一字一行（2026-09-13 量的）。
+
+     **不做橫向滑**：週檢視本身左右滑就是換一週（ADR-0020），裡面再放一層橫向捲動，
+     兩個手勢會打架。所以留著七欄，把一列的方向轉過來：時間一行在上、色棒變左邊框、
+     名字一行、課程一行，超過就省略。日檢視與手機的週檢視一個像素都不動。 */
+  .weekgrid .timerow {
+    position: relative;
+    flex-direction: column;
+    gap: 0;
+    padding-left: 7px;
+  }
+
+  .weekgrid .timerow__bar {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: var(--space-1);
+    margin: 0;
+  }
+
+  .weekgrid .timerow__clock {
+    display: flex;
+    gap: 2px;
+    width: auto;
+    padding: var(--space-2) var(--space-2) 0;
+    text-align: left;
+  }
+
+  .weekgrid .timerow__to::before {
+    content: '–';
+  }
+
+  .weekgrid .timerow__body {
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
+  .weekgrid .timerow__title,
+  .weekgrid .timerow__sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .weekgrid .timerow__title {
+    font-size: var(--text-sm);
+  }
+
+  /* 右邊那一顆狀態徽章在九十幾像素裡放不下，顏色已經在左邊那一條上了（圖例在上面） */
+  .weekgrid .timerow__body .row > :not(.row__main) {
+    display: none;
+  }
+
+  .weekgrid .weekday__head {
+    padding: var(--space-2);
+    gap: var(--space-1);
+  }
+
+  .weekgrid .weekday__head {
+    flex-wrap: wrap;
+  }
+
+  .weekgrid .weekday__head > * {
+    white-space: nowrap;
+  }
 }
 
 /* 月檢視在手機上一格 9px，看得到有東西但看不出是誰 —— 那種畫面只會讓她再點一次。 */

@@ -1,6 +1,6 @@
 # iPad 橫式週檢視：七欄裡的字不再一字一行
 
-Status: todo
+Status: done
 來源：`../spec.md` 第三 c
 動工前先讀：SPEC 第 8.6 節（週：iPad 橫式變七欄）、ADR-0020（左右滑換週）、
 `app.css` 的 `.weekgrid`（≥900px）、`.timerow`、`.timerow__clock`、`ui/views/calendar.js` 的 `weekHtml()`、`agendaRow()`

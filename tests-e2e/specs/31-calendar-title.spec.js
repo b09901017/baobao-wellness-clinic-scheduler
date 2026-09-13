@@ -114,3 +114,46 @@ test('面板開著按返回鍵：面板收掉，人還在日曆', async ({ app, 
   await expect(page.locator('[data-pick-month]')).toHaveCount(0);
   expect(page.url()).toContain('#/calendar');
 });
+
+// ---------- 11 iPad 橫式的週檢視 ----------
+
+function seedWeek() {
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-w', name: '王小明' }),
+    entitlement('cust-w', {
+      id: 'ent-w', label: '復能-三選一(60)', type: 'pool', durationMin: 60,
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'], totalQty: 10,
+    }),
+    visit({
+      id: 'v-w', customerId: 'cust-w', customerName: '王小明', date: TODAY, status: 'confirmed',
+      slots: [slot({ courseId: 'course-recovery', entitlementId: 'ent-w', startsAt: '09:00', endsAt: '10:00', equipmentId: 'eq-indiba', therapistId: 'staff-tw' })],
+    }),
+  ];
+}
+
+for (const width of [1024, 1180]) {
+  test(`iPad 橫式 ${width}：週檢視的名字一行放得下，不是一字一行`, async ({ app, page }) => {
+    await page.setViewportSize({ width, height: 768 });
+    await openCalendar(app, page, seedWeek());
+    await switchView(app, page, 'week');
+
+    const titleEl = page.locator('.swipe__pane[data-offset="0"] .weekgrid .timerow__title').first();
+    await expect(titleEl).toContainText('王小明');
+    const box = await titleEl.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
+      return { width: r.width, lines: Math.round(r.height / lh) };
+    });
+    expect(box.width, '名字那一格至少要放得下三四個字').toBeGreaterThanOrEqual(60);
+    expect(box.lines, '一行就好').toBe(1);
+  });
+}
+
+test('手機的週檢視一個像素都沒動：時間仍然在左邊那一欄', async ({ app, page }) => {
+  await openCalendar(app, page, seedWeek());
+  await switchView(app, page, 'week');
+  const clock = page.locator('.swipe__pane[data-offset="0"] .weekgrid .timerow__clock').first();
+  const width = await clock.evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBe(42);
+});
