@@ -1,6 +1,6 @@
 # 舊表 B2：拆出購買日、通路、方案與套數，剩下的字進備註
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` 第一 a-1，她的第 1、2、3 題
 動工前先讀：`docs/legacy/README.md` 第 1 節與第 6 節的「B2 也不只有購買通路」、
