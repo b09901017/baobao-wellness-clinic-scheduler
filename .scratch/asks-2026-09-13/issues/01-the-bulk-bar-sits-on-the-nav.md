@@ -1,6 +1,6 @@
 # 批次取消底下那一條貼在導覽列上
 
-Status: todo
+Status: done
 來源：`../spec.md` 第二 a
 動工前先讀：ADR-0082（批次取消）、`ui/views/bulkCancel.js` 的 `paint()` 與 `repaintBar()`、
 `app.css` 的 `.app__main`、`.bulkpage`、`.bulkbar`、`tests/chips-and-chevrons.test.js` 那一段

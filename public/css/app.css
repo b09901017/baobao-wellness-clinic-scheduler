@@ -7311,7 +7311,11 @@ summary {
 }
 
 /* 批次取消整頁。**存在的理由只有底下那一條** —— 見 `.bulkbar`。
-   直排 ＋ 至少一個視窗高，那一條才有辦法用 `margin-top: auto` 排到底。
+
+   直排 ＋ 至少撐滿**捲動區**，那一條才有辦法用 `margin-top: auto` 排到底。
+   **撐滿的是捲動區，不是螢幕**：2026-09-10 那一版寫 `100dvh`，而捲動區是
+   螢幕扣掉導覽列（與測試環境的橫幅）再扣掉上下留白 —— 永遠比螢幕矮，
+   於是一天兩段的清單也捲得動 205px（2026-09-13 量的）。
 
    直排會讓每一個直接子元素變成 flex item（拉滿整行），而這一頁的直接子元素
    本來就都是滿版的區塊 —— 只有 `.backlink` 是 `inline-flex`，所以它要
@@ -7319,19 +7323,31 @@ summary {
 .bulkpage {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: 100%;
 }
 
 .bulkpage > .backlink {
   align-self: flex-start;
 }
 
+/* 那一條出現的時候，捲動區不留底下那塊留白。
+
+   **這才是它懸空的主因**（`.scratch/asks-2026-09-13/issues/01`）。`.app__main`
+   底下留 `--space-7`（44px）讓出導覽列，而 sticky 的 `bottom: 0` 是從捲動區的
+   **內容邊**算的 —— 那一條永遠停在留白上緣，離導覽列 44px，清單從那個縫裡
+   繼續往下捲，所以勾選列一下從它底下露出來、一下又被它蓋住。
+   9/10 那一次只修了「撐不滿」那一半，而盯著它的測試是掃 CSS 字串的，
+   所以綠著。現在盯著它的是 `22-bulk-cancel` 那幾條**量位置**的 E2E。
+
+   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。 */
+.app__main:has(.bulkbar) {
+  padding-bottom: 0;
+}
+
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
 
-   `margin-top: auto` 是它不再懸空的整個修正（2026-09-10）：sticky 只會在
-   捲動時把元素**釘住**，不會把它往下**推**。頁面撐不滿一個視窗時，它就停在
-   內容正下方，而它身上那一整套（上緣邊線、往上打的陰影）講的是「我貼在畫面
-   底部」—— 貼不到底的時候那些訊號就變成「一條浮在空氣上的橫條」。 */
+   `margin-top: auto` 讓它在頁面撐不滿的時候排到底；上面那一條讓「底」真的是
+   導覽列的頂。兩條少一條都會懸空。 */
 .bulkbar {
   position: sticky;
   bottom: 0;
@@ -7340,10 +7356,8 @@ summary {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* 底下那個簡寫的第一格是 `auto`，那就是它不再懸空的整個修正。
-     **不要換回 `var(--space-4)`**（2026-09-10 之前的值）。
-     而且它必須寫在簡寫裡：margin 簡寫會把上緣那一格一起重設，
-     所以另外補一行是沒有用的。上下的呼吸感由自己的 padding 給。 */
+  /* 簡寫的第一格是 `auto`，而且必須寫在簡寫裡：margin 簡寫會把上緣那一格
+     一起重設，另外補一行是沒有用的。上下的呼吸感由自己的 padding 給。 */
   margin: auto calc(-1 * var(--gutter)) 0;
   padding: var(--space-3) var(--gutter);
   padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
