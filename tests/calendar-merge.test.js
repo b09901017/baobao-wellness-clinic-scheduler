@@ -464,3 +464,37 @@ describe('合併檔 v2：skill 產出的跟 app 認得的是同一版', () => {
     assert.match(text, /應有次數是 1 套/);
   });
 });
+
+// issue 08 的判準：「skill 那支腳本在測試裡跑一次（去識別化的 `docs/legacy/samples/`），
+// 輸出 `format: 'baobao-merge/v2'`」—— 手寫的物件餵不出 B2 那十幾種真的寫法。
+import { reconcile } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
+import { mkdtempSync, writeFileSync as writeFile } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+import { fromRoot as rootOf } from './helpers/paths.js';
+
+describe('拿去識別化的樣本真的跑一次 skill', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'merge-samples-'));
+  const icsPath = joinPath(dir, 'empty.ics');
+  writeFile(icsPath, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n');
+  const r = reconcile({ sheetsDir: rootOf('docs/legacy/samples'), icsPath, year: 2026, today: '2026-09-13' });
+  const json = importJson(r);
+
+  test('輸出的是 app 認得的 v2', () => {
+    assert.equal(json.format, APP_FORMAT);
+    assert.ok(json.customers.length > 10);
+  });
+
+  test('B2 拆得出購買日與通路（0522 顧客會 -8）', () => {
+    const a = json.customers.find((c) => c.sheetName === '客戶A');
+    assert.equal(a.purchasedAt, '2026-05-22');
+    assert.equal(a.source, '顧客會');
+    assert.ok(a.entitlements.some((e) => e.sourcePlanName === '8萬方案' && e.sourcePlanSets === 1));
+  });
+
+  test('每一位的通路都不是整格原文（不含日期數字）', () => {
+    for (const c of json.customers) {
+      assert.ok(!/\d{4}/.test(c.source ?? ''), `${c.sheetName} 的 source 還是原文：${c.source}`);
+    }
+  });
+});

@@ -132,7 +132,7 @@ function seedWeek() {
   ];
 }
 
-for (const width of [1024, 1180]) {
+for (const width of [1024, 1180, 1366]) {
   test(`iPad 橫式 ${width}：週檢視的名字一行放得下，不是一字一行`, async ({ app, page }) => {
     await page.setViewportSize({ width, height: 768 });
     await openCalendar(app, page, seedWeek());
@@ -145,10 +145,28 @@ for (const width of [1024, 1180]) {
       const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
       return { width: r.width, lines: Math.round(r.height / lh) };
     });
-    expect(box.width, '名字那一格至少要放得下三四個字').toBeGreaterThanOrEqual(60);
+    expect(box.width, '名字那一格至少 70px（issue 11 的判準）').toBeGreaterThanOrEqual(70);
     expect(box.lines, '一行就好').toBe(1);
+
+    // 「週一」的「週」七欄時收掉：`10/12 週一` 在九十幾像素裡會斷行
+    const head = page.locator('.swipe__pane[data-offset="0"] .weekgrid .weekday__head').first();
+    const headLines = await head.evaluate((el) => {
+      // 只比有字的那幾個（中間那個撐開用的空 span 高度是 0，上緣本來就不一樣）的垂直中心
+      const mid = (c) => { const r = c.getBoundingClientRect(); return r.top + r.height / 2; };
+      const texts = [...el.children].filter((c) => c.textContent.trim());
+      return texts.every((c) => Math.abs(mid(c) - mid(texts[0])) < 6);
+    });
+    expect(headLines, '日期與星期幾在同一行').toBe(true);
   });
 }
+
+test('iPad 橫式：日檢視一個像素都沒動，時間仍然在左邊那一欄', async ({ app, page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openCalendar(app, page, seedWeek());
+  await switchView(app, page, 'day');
+  const clock = page.locator('.swipe__pane[data-offset="0"] .timerow__clock').first();
+  expect(await clock.evaluate((el) => el.getBoundingClientRect().width)).toBe(42);
+});
 
 test('手機的週檢視一個像素都沒動：時間仍然在左邊那一欄', async ({ app, page }) => {
   await openCalendar(app, page, seedWeek());

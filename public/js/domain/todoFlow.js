@@ -10,7 +10,7 @@
 // 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
 
 import {
-  isCancelKind, bookingSystemFor, tasksForCategory, CANCEL_PREFIX,
+  isCancelKind, bookingSystemFor, tasksForCategory, systemOfCancelKind,
   RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
 } from './taskRules.js';
 import {
@@ -418,7 +418,7 @@ function ownedKinds(scoped, visit, coursesById) {
 function ownsCancel(task, visit, index, coursesById) {
   if (Array.isArray(task.slotIndexes)) return task.slotIndexes.includes(index);
 
-  const system = String(task.kind).slice(CANCEL_PREFIX.length);
+  const system = systemOfCancelKind(task.kind);
   const slots = visit.slots ?? [];
   const uses = (s) => {
     const category = coursesById[s?.courseId]?.category;

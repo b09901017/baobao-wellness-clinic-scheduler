@@ -2184,6 +2184,8 @@ button.mark::after {
 /* 標題本身是一顆按鈕（`.scratch/asks-2026-09-13/issues/10`）。**長得跟以前的標題一樣** ——
    只多一顆往下的小箭頭講「這裡按得下去」。字的樣子全部從 `.calbar__title` 繼承。 */
 .calbar__pick {
+  /* 觸控區撐到 44px，撐開的那一層貼在自己身上（CLAUDE.md「一顆小圖示按鈕的觸控區」） */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -2195,6 +2197,12 @@ button.mark::after {
   border: 0;
   cursor: pointer;
   touch-action: manipulation;
+}
+
+.calbar__pick::after {
+  content: '';
+  position: absolute;
+  inset: -9px -4px;
 }
 
 .calbar__pick > svg {
@@ -5870,7 +5878,7 @@ summary {
     display: flex;
     gap: 2px;
     width: auto;
-    padding: var(--space-2) var(--space-2) 0;
+    padding: var(--space-2) var(--space-1) 0;
     text-align: left;
   }
 
@@ -5879,7 +5887,7 @@ summary {
   }
 
   .weekgrid .timerow__body {
-    padding: 0 var(--space-2) var(--space-2);
+    padding: 0 var(--space-1) var(--space-2);
   }
 
   .weekgrid .timerow__title,
@@ -5899,16 +5907,16 @@ summary {
   }
 
   .weekgrid .weekday__head {
-    padding: var(--space-2);
+    padding: var(--space-2) var(--space-1);
     gap: var(--space-1);
-  }
-
-  .weekgrid .weekday__head {
-    flex-wrap: wrap;
   }
 
   .weekgrid .weekday__head > * {
     white-space: nowrap;
+  }
+
+  .weekgrid .weekday__pre {
+    display: none;
   }
 }
 

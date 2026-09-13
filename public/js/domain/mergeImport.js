@@ -17,6 +17,7 @@ import { followupPlanEntries } from './followups.js';
 import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { syncTasksForVisit } from './taskRules.js';
+import { toCustomerFields } from './customerMarks.js';
 
 /**
  * 合併檔的格式。**v2（2026-09-13）多了購買日、方案與套數、帶顏色的備註**
@@ -329,13 +330,11 @@ function visitDoc({ name, date, status, slots, stamp }) {
   };
 }
 
-/** v2 的備註。形狀不對的一則丟掉（沒有字的、不是物件的），顏色交給 `readMarks()` 認。 */
+/** v2 的備註。寫入的形狀只有 `toCustomerFields()` 一份；v1 沒有 marks 就只寫 notes。 */
 function marksOf(entry) {
   if (!Array.isArray(entry.marks)) return { notes: entry.notes ?? '' };
-  const marks = entry.marks
-    .filter((m) => m && typeof m.text === 'string' && m.text.trim())
-    .map((m) => ({ text: m.text.trim(), color: typeof m.color === 'string' ? m.color : 'grey' }));
-  return { marks, notes: marks.map((m) => m.text).join('\n') };
+  const { marks, notes } = toCustomerFields(entry.marks);
+  return { marks, notes: notes ?? '' };
 }
 
 function emptyPlan(entry, { skip = null, problems = [] } = {}) {

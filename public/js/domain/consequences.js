@@ -25,7 +25,7 @@
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor,
+  bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -410,8 +410,13 @@ export function cancelConsequences({
     //
     // 一天同時有健檢（Examine）與復能（Abovee）時，取消復能那一段跟 Examine 一點關係
     // 都沒有 —— 那一支本來就只收取消掉的那幾段。
+    //
+    // **挑走的是那一天剩下的每一段時，存下去就是整天取消**（`applyStatus()` 推得出整筆
+    // cancelled），`cancelTasksFor()` 走的是整天那一條 —— 這裡也要照那一條問，不然
+    // 歷史資料裡勾掉的登記（例如舊的「Abovee」任務）框上不講、存完卻多一張。
     const after = {
       ...visit,
+      ...(left ? {} : { status: 'cancelled' }),
       slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
     };
     lines.push(...cancelTaskLines(after, tasks, coursesById));
@@ -474,18 +479,13 @@ export function cancelConsequences({
  * 「待辦會多一張『取消 X』」那幾句。**由真的會長出來的那一份推**（`cancelTasksFor()`）——
  * 畫面上的後果只能講真的會發生的事（ADR-0070）。
  *
- * 壓表登記與確認後的登記是兩句話：前者是「那個時段放掉」，後者是「那一筆登記取消掉」。
+ * 壓表登記與確認後的登記是兩句話：前者是「那個時段放掉」，後者是「那一段的登記取消掉」。
  *
  * @param {object} after 取消之後的那一筆來訪
  */
 function cancelTaskLines(after, tasks, coursesById) {
-  return cancelTasksFor(after, tasks ?? [], coursesById).map((t) => {
-    const system = t.kind.replace(/^取消 /, '');
-    const booked = t.slotIndexes.some(
-      (i) => bookingSystemFor(coursesById[after.slots?.[i]?.courseId]?.category) === system,
-    );
-    return booked
-      ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
-      : `待辦會多一張「${t.kind}」—— 回去把那一筆登記取消掉`;
-  });
+  return cancelTasksFor(after, tasks ?? [], coursesById).map((t) => (cancelsBooking(after, t, coursesById)
+    ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
+    // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
+    : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
 }

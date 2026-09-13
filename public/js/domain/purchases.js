@@ -27,12 +27,6 @@ import { isProduct, countWord, timedLabel } from './entitlements.js';
 import { fullNameOf } from './naming.js';
 import { isValidDate, daysBetween, addDays } from './dates.js';
 
-/** 沒有方案名的那幾筆叫什麼。 */
-export const SINGLE_LABEL = '單項加購';
-
-/** 什麼都對不上的那一組叫什麼。 */
-export const UNKNOWN_LABEL = '不知道哪裡來的';
-
 /**
  * 這一筆屬於哪一組。**三層退路**：
  *
@@ -60,65 +54,6 @@ export function groupKey(e) {
  */
 export const isTweaked = (e) =>
   e?.sourcePlanQty != null && e.sourcePlanQty !== (e?.totalQty ?? 0);
-
-/**
- * 把一位客戶的額度收成幾組購買。
- *
- * **營養品不進來**（ADR-0057：它不是額度那一排的東西，論的是月不是次），
- * 呼叫端自己一段畫。
- *
- * 順序：**購買日新的在前面**。沒有購買日的排最後 —— 那幾筆是舊資料，
- * 她要找的東西不會在那裡。
- *
- * @param {object[]} entitlements 一位客戶的全部額度
- * @returns {{key:string, label:string, purchasedAt:string|null, purchaseId:string|null,
- *            rows:object[], tweaked:boolean, unknown:boolean}[]}
- */
-export function groupPurchases(entitlements = []) {
-  const groups = new Map();
-  const orphans = [];
-
-  for (const e of entitlements ?? []) {
-    if (!e || e.deletedAt || isProduct(e)) continue;
-    const key = groupKey(e);
-    if (!key) {
-      orphans.push(e);
-      continue;
-    }
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(e);
-  }
-
-  const out = [...groups.entries()].map(([key, rows]) => ({
-    key,
-    label: String(rows[0]?.sourcePlanName ?? '').trim() || SINGLE_LABEL,
-    purchasedAt: rows[0]?.purchasedAt ?? null,
-    // 一整組共用一個 id，所以改購買日一次改整組。沒有 id 的那幾組不給改。
-    purchaseId: rows[0]?.purchaseId ?? null,
-    rows,
-    tweaked: rows.some(isTweaked),
-    unknown: false,
-  }));
-
-  out.sort((a, b) => {
-    if (!a.purchasedAt !== !b.purchasedAt) return a.purchasedAt ? -1 : 1;
-    if (a.purchasedAt !== b.purchasedAt) return a.purchasedAt < b.purchasedAt ? 1 : -1;
-    return a.label.localeCompare(b.label, 'zh-TW');
-  });
-
-  if (orphans.length) {
-    out.push({
-      key: 'unknown',
-      label: UNKNOWN_LABEL,
-      purchasedAt: null,
-      purchaseId: null,
-      rows: orphans,
-      tweaked: false,
-      unknown: true,
-    });
-  }
-  return out;
-}
 
 /** 營養品那一段。一次購買一筆（ADR-0059），所以不分組。 */
 export const productsOf = (entitlements = []) =>
@@ -257,8 +192,8 @@ export function setsOf(rows = [], plans = []) {
   return n;
 }
 
-/** `2026-07-23` → `0723`。 */
-const mmdd = (date) => (isValidDate(date) ? `${date.slice(5, 7)}${date.slice(8, 10)}` : '');
+/** `2026-07-23` → `0723`。客戶抬頭與「買過什麼」那一張的日期都是這種寫法。 */
+export const purchaseDayLabel = (date) => (isValidDate(date) ? `${date.slice(5, 7)}${date.slice(8, 10)}` : '');
 
 const byDate = (a, b) => {
   const x = isValidDate(a?.purchasedAt) ? a.purchasedAt : '9999-99-99';
@@ -280,7 +215,7 @@ function itemsLine(rows, master) {
 
   const groups = new Map();
   for (const r of [...rows].filter(planNameOf).sort(byDate)) {
-    const key = r.purchaseId ? `id:${r.purchaseId}` : `plan:${planNameOf(r)}|${r.purchasedAt ?? ''}`;
+    const key = groupKey(r);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
@@ -329,7 +264,7 @@ export function purchaseHeadline(customer, entitlements = [], master = {}) {
   if (!rows.length) return '';
 
   const anchor = rows.filter(planNameOf).length ? rows.filter(planNameOf) : rows;
-  const date = mmdd([...anchor].sort(byDate)[0]?.purchasedAt);
+  const date = purchaseDayLabel([...anchor].sort(byDate)[0]?.purchasedAt);
   const source = String(customer?.source ?? '').trim();
   return [date, source, itemsLine(rows, master)].filter(Boolean).join(' ');
 }
@@ -342,7 +277,7 @@ export function purchaseHeadline(customer, entitlements = [], master = {}) {
  * 有微調才列「本來 N → 現在 M」。
  *
  * 配出來的二返**在那一天的 `rows` 裡**（改日期要跟著移），但不進摘要。
- * 沒有購買日的收在最後一張（`unknown`）—— 一筆都不丟，同 `groupPurchases()` 的規矩。
+ * 沒有購買日的收在最後一張（`unknown`）—— 一筆都不丟。
  *
  * @returns {{key:string, date:string|null, summary:string,
  *            tweaks:{name:string, from:number, to:number}[], rows:object[], unknown:boolean}[]}

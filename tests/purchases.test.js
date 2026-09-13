@@ -8,8 +8,8 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  groupKey, groupPurchases, productsOf, isTweaked,
-  dateChangePatch, describeDateChange, SINGLE_LABEL, UNKNOWN_LABEL,
+  groupKey, productsOf, isTweaked,
+  dateChangePatch, describeDateChange,
 } from '../public/js/domain/purchases.js';
 
 const e = (over) => ({ id: 'x', label: 'x', totalQty: 1, ...over });
@@ -38,7 +38,9 @@ describe('這一筆屬於哪一組', () => {
   });
 });
 
-describe('收成幾組', () => {
+// 2026-09-13 起「買過什麼」一天一張（`purchaseDays()`），一次購買一組的 `groupPurchases()` 拿掉了。
+// 那一支釘著的不變量搬到這裡：**一筆都不可以被丟掉**、營養品與刪掉的不進來。
+describe('收成幾天（不變量）', () => {
   const rows = [
     e({ id: '1', purchaseId: 'P1', sourcePlanName: '8萬方案', purchasedAt: '2026-03-12', label: '健檢', totalQty: 2, sourcePlanQty: 2 }),
     e({ id: '2', purchaseId: 'P1', sourcePlanName: '8萬方案', purchasedAt: '2026-03-12', label: '復能三選一(60)', totalQty: 15, sourcePlanQty: 20 }),
@@ -48,55 +50,32 @@ describe('收成幾組', () => {
     e({ id: '6', type: 'product', label: '營養品(5000)', totalQty: 2 }),
     e({ id: '7', label: '刪掉的', deletedAt: 'x' }),
   ];
+  const days = () => purchaseDays(rows, {});
 
   test('購買日新的在前面，沒有日期的排最後', () => {
-    assert.deepEqual(
-      groupPurchases(rows).map((g) => g.purchasedAt),
-      ['2026-06-01', '2026-03-12', '2025-01-05', null],
-    );
+    assert.deepEqual(days().map((d) => d.date), ['2026-06-01', '2026-03-12', '2025-01-05', null]);
   });
 
-  test('沒有方案名的那一組叫「單項加購」', () => {
-    assert.equal(groupPurchases(rows)[0].label, SINGLE_LABEL);
-  });
-
-  test('什麼都對不上的收進最後一組，一筆都不會掉', () => {
-    const last = groupPurchases(rows).at(-1);
-    assert.equal(last.label, UNKNOWN_LABEL);
+  test('什麼都對不上的收進最後一張，一筆都不會掉', () => {
+    const last = days().at(-1);
     assert.equal(last.unknown, true);
     assert.deepEqual(last.rows.map((r) => r.id), ['5']);
-
-    const kept = groupPurchases(rows).flatMap((g) => g.rows).map((r) => r.id);
-    assert.deepEqual(kept.sort(), ['1', '2', '3', '4', '5']);
+    assert.deepEqual(days().flatMap((d) => d.rows).map((r) => r.id).sort(), ['1', '2', '3', '4', '5']);
   });
 
   test('營養品不進來 —— 它不是額度那一排的東西（ADR-0057）', () => {
-    assert.ok(!groupPurchases(rows).some((g) => g.rows.some((r) => r.id === '6')));
+    assert.ok(!days().some((d) => d.rows.some((r) => r.id === '6')));
     assert.deepEqual(productsOf(rows).map((r) => r.id), ['6']);
   });
 
   test('刪掉的不進來，也不進營養品那一段', () => {
-    assert.ok(!groupPurchases(rows).some((g) => g.rows.some((r) => r.id === '7')));
+    assert.ok(!days().some((d) => d.rows.some((r) => r.id === '7')));
     assert.ok(!productsOf(rows).some((r) => r.id === '7'));
   });
 
-  test('那一組有任何一筆跟方案不一樣就標「微調過」', () => {
-    const [, plan] = groupPurchases(rows);
-    assert.equal(plan.label, '8萬方案');
-    assert.equal(plan.tweaked, true);
-    assert.equal(groupPurchases(rows)[2].tweaked, false, '筋骨強身那一組沒動過');
-  });
-
-  test('只有 purchaseId 的那幾組才給改日期', () => {
-    const [single, plan, old_] = groupPurchases(rows);
-    assert.ok(single.purchaseId);
-    assert.ok(plan.purchaseId);
-    assert.equal(old_.purchaseId, null, '2026-09-06 之前的那幾筆沒有 id，不給改');
-  });
-
   test('空的就是空的', () => {
-    assert.deepEqual(groupPurchases([]), []);
-    assert.deepEqual(groupPurchases(), []);
+    assert.deepEqual(purchaseDays([], {}), []);
+    assert.deepEqual(purchaseDays(), []);
   });
 });
 

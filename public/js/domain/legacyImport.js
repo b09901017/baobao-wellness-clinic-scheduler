@@ -34,7 +34,7 @@ import { contraindicationHints } from './contraindications.js';
 import { equipmentForCourse } from './masterData.js';
 import { followupPlanEntries } from './followups.js';
 import { itemisedLabel } from './entitlements.js';
-import { MAX_MARK_LENGTH } from './customerMarks.js';
+import { MAX_MARK_LENGTH, toCustomerFields } from './customerMarks.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -445,12 +445,14 @@ export function parsePurchaseCell(raw, year) {
     const token = piece.replace(/^[\s-]+/, '').trim();
     if (!token) continue;
 
-    const number = token.match(/^(\d+(?:\.\d+)?)\s*萬?\s*(?:\((.*?)\)?)?$/);
+    // 數字後面可以接括號（微調）或空一格接一句話（`5 欠尾款3萬`）—— 數字照讀，其餘進 leftover
+    const number = token.match(/^(\d+(?:\.\d+)?)\s*萬?\s*(?:\((.*?)\)?)?(?:\s+(.+))?$/);
     if (number) {
       const n = Number(number[1]);
       if (n === PLAN_NUMBER) sets += 1;
       else out.exams.push(`${number[1]}萬`);
       if (number[2]?.trim()) leftovers.push(number[2].trim());
+      if (number[3]?.trim()) leftovers.push(number[3].trim());
       continue;
     }
 
@@ -465,7 +467,8 @@ export function parsePurchaseCell(raw, year) {
 
   if (sets) out.plan = { newTemplate: isNew, sets };
   else if (isNew) out.problems.push('寫了「新」但沒有方案的數字 —— 可能是打錯，匯入時要問她');
-  out.leftover = leftovers.join(' ');
+  // 用 + 接回去：切的時候拿掉的就是 +，讀不懂的那一段要是原文（`A+B再說` 不可以變成 `A B再說`）
+  out.leftover = leftovers.join('+');
   return out;
 }
 
@@ -806,14 +809,6 @@ export function planForSheet(parsed, {
   //
   // 不歸任何一列管，所以不進 byRow：報告上那張逐列對帳表講的是舊表的每一列
   // 讀出了什麼，而二返在舊表上沒有列。
-  // 一則超過上限的備註照原文收（讀不懂不是丟掉的理由），但要講 ——
-  // 匯進去之後她一按「編輯」，那一則就存不下去（`validateMarks()`）。
-  for (const m of marksFrom(notes)) {
-    if (m.text.length > MAX_MARK_LENGTH) {
-      problem('備註', m.text, `這一則超過 ${MAX_MARK_LENGTH} 個字，匯進去之後編輯時要先拆成幾則才存得下去`);
-    }
-  }
-
   // ---------- 購買日、方案、驗證 ----------
   //
   // 第 2–8 列（會乘套數的那七列）是方案的就帶方案名、套數與「方案本來幾次」，
@@ -1005,6 +1000,14 @@ export function planForSheet(parsed, {
 
   if (parsed.followupNote) notes.push(parsed.followupNote);
 
+  // 一則超過上限的備註照原文收（讀不懂不是丟掉的理由），但要講 ——
+  // 匯進去之後她一按「編輯」，那一則就存不下去（`validateMarks()`）。
+  for (const m of marksFrom(notes)) {
+    if (m.text.length > MAX_MARK_LENGTH) {
+      problem('備註', m.text, `這一則超過 ${MAX_MARK_LENGTH} 個字，匯進去之後編輯時要先拆成幾則才存得下去`);
+    }
+  }
+
   return {
     sheetName: parsed.sheetName,
     customerName: parsed.customerName,
@@ -1021,8 +1024,8 @@ export function planForSheet(parsed, {
       priority: 0,
       flags: [],
       // 原文照抄，一個字都不改寫。**備註是真相，notes 是它的鏡像**（ADR-0019）
-      marks: marksFrom(notes),
-      notes: marksFrom(notes).map((m) => m.text).join('\n'),
+      // 寫入的形狀只有 `toCustomerFields()` 一份（marks 與 notes 鏡像同一次算出來）
+      ...customerFieldsFrom(marksFrom(notes)),
       active: true,
       importedFrom: stamp,
     },
@@ -1081,6 +1084,12 @@ export function planForSheet(parsed, {
  *
  * 一格裡的換行拆成好幾則 —— `notes` 是用換行接起來的鏡像，兩邊要講同一件事。
  */
+/** `toCustomerFields()` 沒有備註時 notes 是 null；舊表匯入一直寫空字串，下游（試算表、健檢）認的是它。 */
+function customerFieldsFrom(marks) {
+  const { marks: list, notes } = toCustomerFields(marks);
+  return { marks: list, notes: notes ?? '' };
+}
+
 function marksFrom(lines) {
   return lines
     .flatMap((line) => String(line ?? '').split('\n'))

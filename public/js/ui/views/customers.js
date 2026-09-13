@@ -306,7 +306,8 @@ function card(c, ctx) {
   const sum = summarize(ents);
   const flags = rules.splitFlags(c, ctx.clinicalFlags);
   const marks = readMarks(c);
-  const meta = metaLine(c, ctx);
+  // 名字底下那一行：買了什麼（ADR-0090）。上次／下次 2026-09-13 拿掉了，排序照樣靠 `byCustomer()`
+  const meta = purchaseHeadline(c, ents, ctx.master);
   let { pools } = customerPools({ entitlements: ents });
 
   // 點了課程丸就把那一項提到最上面 —— 她現在問的就是它
@@ -375,20 +376,6 @@ function poolLine(p) {
       </span>
       <span class="poolline__n">${p.remaining}</span>
     </div>`;
-}
-
-/**
- * 名字底下那一行：**買了什麼**（`0723 顧客會 新8萬方案x2+EECPx40`，ADR-0090）。
- *
- * 以前是「上次・下次・購買通路」（SPEC 第 8.5 節當初要的）。她 2026-09-13：
- * 「我希望不用寫上次，下次麼時候來」。上次／下次仍然算著 —— 「最近來過／最久沒來」
- * 那兩顆排序靠它（`byCustomer()`），只是不印了。壓表客戶牆的「距上次 N 天」是另一支，
- * 她指名要留。
- *
- * 字怎麼組只寫在 `domain/purchases.js`，客戶詳情的抬頭讀同一支。
- */
-function metaLine(c, ctx) {
-  return purchaseHeadline(c, ctx.entsBy[c.id] ?? [], ctx.master);
 }
 
 // ---------- 新增客戶 ----------

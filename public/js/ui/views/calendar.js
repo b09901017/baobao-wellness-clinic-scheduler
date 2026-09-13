@@ -388,8 +388,9 @@ function weekHtml(data, date, today) {
               ${/* 寫 `9/7` 不是 `7`（她 2026-09-13：「下面要寫日期像是9/7 9/8 而不是只寫7 8」）——
                     標題只寫「9月 W2」，起訖日期靠這一格講 */''}
               <span class="weekday__n num ${d === today ? 'weekday__n--today' : ''}">${Number(d.slice(5, 7))}/${Number(d.slice(8))}</span>
-              <span style="font-size: var(--text-sm); font-weight: 700; color: var(--text-dim)">
-                週${weekdayLabel(d)}</span>
+              <span style="font-size: var(--text-sm); font-weight: 700; color: var(--text-dim)">${
+                /* 七欄時「週」字收掉（`.weekday__pre`）：`10/12 週一` 在九十幾像素裡會斷行 */''
+              }<span class="weekday__pre">週</span>${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
               <span class="num muted">${total ? `${total} 筆` : ''}</span>
             </button>
@@ -1827,7 +1828,6 @@ function pickerTitle() {
 /** 面板裡那一塊。月檢視是十二個月，其餘是一個小月曆。 */
 function pickerHtml(cursor, today) {
   const [year, month] = cursor.split('-').map(Number);
-  const thisYear = Number(today.slice(0, 4));
   const stepper = (label) => `
     <div class="datepick__bar">
       <button class="calbar__nav" type="button" data-pick-step="-1" aria-label="往前">
@@ -1852,7 +1852,8 @@ function pickerHtml(cursor, today) {
   }
 
   const ym = cursor.slice(0, 7);
-  const label = year === thisYear ? `${month}月` : `${year}年${month}月`;
+  // 翻頁那一格跟標題同一支（`titleOf()`）—— 兩邊各寫一次「不是今年才帶年份」遲早分岔
+  const label = titleOf('month', cursor, today);
   const weeks = monthWeeks(ym);
   const heads = `<div class="datepick__row datepick__row--head">
       ${state.view === 'week' ? '<span class="datepick__wk"></span>' : ''}

@@ -89,6 +89,10 @@ export const CANCEL_PREFIX = '取消 ';
 export const cancelKindFor = (kind) => `${CANCEL_PREFIX}${kind}`;
 export const isCancelKind = (kind) => String(kind ?? '').startsWith(CANCEL_PREFIX);
 
+/** `取消 Abovee` → `Abovee`。前綴只寫在 `CANCEL_PREFIX` 一個地方。 */
+export const systemOfCancelKind = (kind) =>
+  (isCancelKind(kind) ? String(kind).slice(CANCEL_PREFIX.length) : null);
+
 // null 是明確的「不用掛號」，不是漏填。Inbody、物理諮詢、營養諮詢、
 // 體適能分析都屬於這一類。設定頁必須把這件事顯示出來，
 // 而不是讓使用者看到一片空白自己猜。
@@ -471,12 +475,24 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   return out;
 }
 
-/** 那一張的說明。**壓表**與**確認後的登記**是兩句話 —— 她要去做的事不一樣。 */
-function cancelNote(visit, kind, { whole, coursesById, at }) {
-  const system = kind.slice(CANCEL_PREFIX.length);
-  const booked = at.some(
-    (i) => bookingSystemFor(coursesById[visit.slots?.[i]?.courseId]?.category) === system,
+/**
+ * 這一張「取消 X」收的是**壓表登記**，還是**確認之後的登記**。兩種要去做的事不一樣
+ * （放掉時段／取消那一段的登記），說明與確認框那一句都照它分 —— 只寫在這裡。
+ *
+ * @param {object} visit
+ * @param {{kind:string, slotIndexes:number[]}} task
+ */
+export function cancelsBooking(visit, task, coursesById = {}) {
+  const system = systemOfCancelKind(task?.kind);
+  return (task?.slotIndexes ?? []).some(
+    (i) => bookingSystemFor(coursesById[visit?.slots?.[i]?.courseId]?.category) === system,
   );
+}
+
+/** 那一張的說明。 */
+function cancelNote(visit, kind, { whole, coursesById, at }) {
+  const system = systemOfCancelKind(kind);
+  const booked = cancelsBooking(visit, { kind, slotIndexes: at }, coursesById);
   if (whole) {
     return booked
       ? `${visit.date} 的來訪取消了，回去把 ${system} 上壓的時段放掉`

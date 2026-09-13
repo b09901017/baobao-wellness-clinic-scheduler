@@ -29,7 +29,7 @@
 import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import {
-  purchaseDays, productsOf, dateChangePatch, describeDateChange,
+  purchaseDays, productsOf, dateChangePatch, describeDateChange, purchaseDayLabel,
 } from '../../domain/purchases.js';
 import { unitOf } from '../components/buy.js';
 import { deliveryState } from '../../domain/products.js';
@@ -118,7 +118,7 @@ function paint(ctx) {
  * 等於把品項清單換個樣子放回來，而她說不要列品項。
  */
 function groupHtml(g) {
-  const when = g.date ? `${g.date.slice(5, 7)}${g.date.slice(8, 10)}` : '沒有日期';
+  const when = purchaseDayLabel(g.date) || '沒有日期';
   return `
     <section class="card" data-group="${esc(g.key)}">
       <div class="row" style="align-items: baseline; gap: var(--space-2)">

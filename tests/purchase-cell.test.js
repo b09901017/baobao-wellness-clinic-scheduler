@@ -112,6 +112,16 @@ describe('B2 購買名稱怎麼讀', () => {
     assert.equal(p('0617 顧客會-8+欠尾款3萬').leftover, '欠尾款3萬');
   });
 
+  test('讀不懂的那一段是原文 —— 裡面的 + 不可以被吃掉', () => {
+    assert.equal(p('客戶自己說要A+B再說').leftover, '客戶自己說要A+B再說');
+  });
+
+  test('數字後面空一格接一句話：數字照讀，那一句進 leftover（5 萬健檢不可以被吞掉）', () => {
+    const out = p('0617 顧客會-8+5 欠尾款3萬');
+    assert.deepEqual(out.exams, ['5萬']);
+    assert.equal(out.leftover, '欠尾款3萬');
+  });
+
   test('空的就是空的', () => {
     const out = p('');
     assert.equal(out.date, null);

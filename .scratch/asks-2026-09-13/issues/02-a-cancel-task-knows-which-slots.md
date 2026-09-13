@@ -60,7 +60,7 @@ const already = new Set(existingTasks.filter((t) => !t.deletedAt && isCancelKind
 
 - 取消第 0 段、勾掉、再取消第 2 段 → **第二張「取消 Abovee」長出來**，`slotIndexes: [2]`
 - 一次批次取消同一天兩段 → 一張，`slotIndexes` 兩段都在
-- 整天取消 → 每個系統一張，`slotIndexes` 是那一天的每一段
+- 整天取消 → 每個系統一張，`slotIndexes` 是那一天**用得到那個系統的**每一段（2026-09-13 實作時收窄：寫成「每一段」的話，健檢那一段會被記進「取消 Abovee」，畫面上它就會掛到健檢那一段）
 - 二返＋復能，Examine 已勾，只取消二返 → 「取消 Abovee」與「取消 Examine」都長，`slotIndexes: [0]`；
   **只取消復能那一段不會長「取消 Examine」**
 - Examine 還沒勾，只取消二返（而且那一天沒有別段 A 類）→ 不長「取消 Examine」，那張沒勾的 Examine 照舊被收掉
@@ -72,3 +72,7 @@ const already = new Set(existingTasks.filter((t) => !t.deletedAt && isCancelKind
 
 第 5 題：一天兩段 A 類、Examine 那一張只有一個勾，其中一段是**後來才加的**（勾 Examine 的時候它還不在）
 —— 取消那一段時要不要收 Examine？暫定：要（照她「每一段都是可以分別取消的」）。
+
+## Comments
+
+- 2026-09-13 審查：推翻了 ADR-0041「同一種取消任務只長一張」的一部分，補了 ADR-0091。
