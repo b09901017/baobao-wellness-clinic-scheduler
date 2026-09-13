@@ -90,6 +90,19 @@ function rowHtml(row, today) {
   //
   // 記號用第三個字元（`·`）而不是第三種顏色：這一塊只給看不給勾，
   // 而 `✓`／`○` 兩個字元本來就是為了不放勾選框才選的。
+  // **那一段取消了**（`todosForVisit()` 的 `void`，`.scratch/asks-2026-09-13/issues/03`）。
+  // 她 2026-09-13：「原本的那些一樣有然後灰掉然後多了取消」。灰掉、**不劃線** ——
+  // 劃線是「做完了」，灰是「不會發生了」。做過的那幾張照樣帶著它的 ✓（那件事真的做過），
+  // 死線不印（不會有人去趕它）。
+  if (row.void) {
+    return `
+      <li class="taskmirror__row is-void">
+        <span class="taskmirror__mark" aria-hidden="true">${row.done ? '✓' : '○'}</span>
+        <span class="taskmirror__kind">${esc(row.kind)}</span>
+        <span class="visually-hidden">這一段取消了，不會做</span>
+      </li>`;
+  }
+
   if (row.pending) {
     return `
       <li class="taskmirror__row is-pending">

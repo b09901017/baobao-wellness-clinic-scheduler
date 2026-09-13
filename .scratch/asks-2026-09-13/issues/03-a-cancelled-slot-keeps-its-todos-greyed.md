@@ -1,6 +1,6 @@
 # 「這一項的待辦」：取消類只在它收的那一段，被取消的那一段原本的待辦灰掉
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md` 第二 b，她補的 a、b、c
 動工前先讀：`domain/todoFlow.js` 的 `todosForVisit()`、`ownedKinds()`、`kindsOf()`；

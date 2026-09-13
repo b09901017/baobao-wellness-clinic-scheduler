@@ -3936,6 +3936,14 @@ button.mark::after {
   opacity: 0.55;
 }
 
+/* **那一段取消了**：原本的待辦照樣列，灰掉（`.scratch/asks-2026-09-13/issues/03`）。
+   **不劃線** —— 劃線是 `.is-done`「做完了」，這一種是「不會發生了」。
+   比 `.is-pending` 再淡一階：那一種等一下會長出來，這一種永遠不會。 */
+.taskmirror__row.is-void {
+  color: var(--text-mute);
+  opacity: 0.5;
+}
+
 .taskmirror__mark {
   flex: none;
   width: 1em;

@@ -10,14 +10,14 @@
 // 見 docs/adr/0043-the-todo-centre-follows-the-flow.md。
 
 import {
-  isCancelKind, cancelKindFor, bookingSystemsForVisit,
+  isCancelKind, bookingSystemFor, tasksForCategory, CANCEL_PREFIX,
   RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
 } from './taskRules.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
 import { dayOf } from './dates.js';
-import { formSlotIndexes } from './visits.js';
+import { formSlotIndexes, slotStatus } from './visits.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -226,22 +226,77 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // **她點的是哪一段**（ADR-0080 那條線延伸過來）。沒帶就是整筆 ——
   // 客戶詳情、待辦中心、進度追蹤列的本來就是整筆，它們一個字都不用改。
   // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
-  const scoped = scopeTo(visit, focusSlot);
+  const slot = Number.isInteger(focusSlot) ? (visit.slots ?? [])[focusSlot] : null;
+  if (!slot) return wholeDayTodos(visit, { tasks, coursesById });
 
-  const mine = ownedKinds(scoped, visit, coursesById);
+  // ## 那一段被取消了（`.scratch/asks-2026-09-13/issues/03`）
+  //
+  // 她 2026-09-13：「可以留著但是就是灰掉就好」「原本的那些一樣有然後灰掉然後多了取消」。
+  // 所以原本的待辦照「它還活著的話」列出來、每一列帶 `void`（畫面灰掉，**不劃線** ——
+  // 劃線是「做完了」，灰是「不會發生了」），取消類照常。整天取消也走這一條：
+  // 那時候每一段都是取消掉的（`slotStatus()`）。
+  const voided = slotStatus(visit, slot) === 'cancelled';
+
+  // 「它還活著的話」那一份。活著的段本來就長這樣；取消掉的那一段拿它算原本的待辦。
+  // **歸屬也用它算**：二返那一段取消了之後，它的 Examine 仍然是**它的** ——
+  // 用只看活著的段去問的話，那一張找不到主人，會掉進「推不出來的一律留著」
+  // 而跑到同一天的復能那一段上。
+  const asLive = { ...visit, slots: (visit.slots ?? []).map((s) => ({ ...s, status: null })) };
+  const mineLive = { ...asLive, slots: [asLive.slots[focusSlot]] };
+  const scoped = voided ? mineLive : { ...visit, slots: [slot] };
+
+  const mine = ownedKinds(mineLive, asLive, coursesById);
+  const rows = [];
+  for (const t of tasks ?? []) {
+    if (t.deletedAt || t.visitId !== visit.id) continue;
+    // 取消類**不問課程，問它收的是哪幾段**（issue 02 的 `slotIndexes`）
+    if (isCancelKind(t.kind)) {
+      if (ownsCancel(t, visit, focusSlot, coursesById)) rows.push(taskRow(t, false));
+      continue;
+    }
+    if (mine(t.kind)) rows.push(taskRow(t, voided));
+  }
+
+  rows.push(...derivedRows(visit, scoped, { coursesById, focused: true, voided }));
+  rows.push(...pendingRows(scoped, rows, { coursesById, voided }));
+  return sortRows(rows);
+}
+
+/** 沒指定哪一段：整筆（另外三頁走這一條，2026-09-13 之前的行為一個字都沒動）。 */
+function wholeDayTodos(visit, { tasks, coursesById }) {
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
-    .filter((t) => mine(t.kind))
-    .map((t) => ({
-      key: t.id,
-      kind: t.kind,
-      done: Boolean(t.done),
-      dueDate: t.dueDate ?? null,
-      derived: false,
-    }));
+    .map((t) => taskRow(t, false));
 
   // 取消掉的那一筆只剩「取消 X」那幾張還算數 —— 確認與簽單都不會再發生了。
   if (visit.status === 'cancelled') return sortRows(rows);
+
+  rows.push(...derivedRows(visit, visit, { coursesById, focused: false, voided: false }));
+  rows.push(...pendingRows(visit, rows, { coursesById, voided: false }));
+  return sortRows(rows);
+}
+
+function taskRow(t, voided) {
+  const row = {
+    key: t.id,
+    kind: t.kind,
+    done: Boolean(t.done),
+    dueDate: t.dueDate ?? null,
+    derived: false,
+  };
+  if (voided) row.void = true;
+  return row;
+}
+
+/**
+ * 推導的那兩列：跟客人確認時間、簽療程單。
+ *
+ * @param {object} visit 整筆（狀態從它讀）
+ * @param {object} scoped 要算哪幾段（點了某一段就只有那一段；取消掉的那一段是「它還活著的話」）
+ */
+function derivedRows(visit, scoped, { coursesById, focused, voided }) {
+  const rows = [];
+  const mark = (row) => (voided ? { ...row, void: true } : row);
 
   // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
   //
@@ -249,13 +304,16 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // 所有代辦都列出來，然後完成的不要消失，而是淡掉劃掉，但我還是需要知道
   // 這一場的所有代辦。」所以這一列不會因為客人已經回覆就整列消失 ——
   // 那會讓一張已確認的卡片看起來像從來沒問過人。
-  rows.push({
+  //
+  // 整天取消之後整筆的狀態是 `cancelled`，那時候「問過了沒」看 `confirmedAt`。
+  rows.push(mark({
     key: 'confirm',
     kind: '跟客人確認時間',
-    done: visit.status !== 'pending_confirm',
+    done: visit.status !== 'pending_confirm'
+      && (visit.status !== 'cancelled' || Boolean(visit.confirmedAt)),
     dueDate: null,
     derived: true,
-  });
+  }));
 
   // ⑤ 簽療程單。**整筆都不用簽的那一天照樣要結案**（只有二返的那一天），
   // 所以這一列跟「有沒有段要簽」無關 —— 那只影響它印哪一句。
@@ -263,20 +321,27 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // 日子還沒到也列（同上：她要看到這一場的**全部**），只是還沒勾。
   const closed = visit.status === 'done' || visit.status === 'no_show';
   const needsForm = formSlotIndexes(scoped, coursesById).length > 0;
-  rows.push({
+  rows.push(mark({
     key: 'close',
     // 「不用簽」是用 `scoped` 算的（點了某一段就只有那一段），所以句子也要講那一段 ——
     // 寫「這一天」的話，同一天別段要簽時她會以為整天都不用（ADR-0087）。
     kind: needsForm
       ? '簽療程單'
-      : `簽療程單（${Number.isInteger(focusSlot) && visit?.slots?.[focusSlot] ? '這一段' : '這一天'}不用簽，但要結案）`,
+      : `簽療程單（${focused ? '這一段' : '這一天'}不用簽，但要結案）`,
     done: closed,
     dueDate: null,
     derived: true,
-  });
+  }));
 
-  // ---------- 還沒發生、但一定會發生的那幾張 ----------
-  //
+  return rows;
+}
+
+/**
+ * 還沒發生、但一定會發生的那幾張。
+ *
+ * 已經有的那幾種不再多一列；取消掉的那一段列出來也是灰的（沒有「還沒長出來」這回事）。
+ */
+function pendingRows(scoped, have, { coursesById, voided }) {
   // 她 2026-09-08：「我發現沒有寫記錄？我發現我修改課程設定的例如要不要簽
   // 療程單或是寫記錄 這個提醒不會更新誒？」
   //
@@ -287,33 +352,24 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   // **只補真的會發生的**（ADR-0070）：課程沒勾「做完要寫紀錄」就不要列，
   // 那是在講一件不會發生的事。判斷全部走 `taskRules.js` 的既有規則，
   // 這裡一條都不自己寫 —— 她改了課程主檔上那個勾，這一列跟著變。
-  const already = new Set(rows.map((r) => r.kind));
-  for (const t of [...tasksForVisit(scoped, coursesById),
-    ...pendingRecordTasks(scoped, coursesById)]) {
+  const already = new Set(have.map((r) => r.kind));
+  const out = [];
+  for (const t of [...tasksForVisit(scoped, coursesById), ...pendingRecordTasks(scoped, coursesById)]) {
     if (already.has(t.kind)) continue;
     already.add(t.kind);
-    rows.push({
+    const row = {
       key: `pending:${t.kind}`,
       kind: t.kind,
       done: false,
       dueDate: t.dueDate ?? null,
       derived: true,
-      // 呼叫端拿它畫得淡一點、旁邊寫一句「到時候才會長出來」
-      pending: true,
-    });
+    };
+    // 呼叫端拿 `pending` 畫得淡一點、旁邊寫一句「到時候才會長出來」
+    if (voided) row.void = true;
+    else row.pending = true;
+    out.push(row);
   }
-
-  return sortRows(rows);
-}
-
-/**
- * 只留她點的那一段。**沒指定、或指到一個不存在的段落就回整筆**
- * —— 兩條退路跟 `slotsToShow()` 一模一樣（畫成空的比畫太多糟）。
- */
-function scopeTo(visit, focusSlot) {
-  if (!Number.isInteger(focusSlot)) return visit;
-  const one = (visit.slots ?? [])[focusSlot];
-  return one ? { ...visit, slots: [one] } : visit;
+  return out;
 }
 
 /**
@@ -331,7 +387,6 @@ function scopeTo(visit, focusSlot) {
  * |---|---|
  * | 掛號（Examine、耀聖） | `tasksForVisit()` |
  * | 寫紀錄 | `recordTasksForVisit()`（借 `pendingRecordTasks()`） |
- * | 取消 X | `bookingSystemsForVisit()`（它刻意不濾取消掉的段，所以取消掉的那一段照樣認得回自己那一張） |
  * | 健檢那條鏈 | 課程主檔上的 `followupCourseId` |
  *
  * ## 推不出來的一律留著
@@ -342,29 +397,46 @@ function scopeTo(visit, focusSlot) {
  * 比多列一張糟得多（同 `syncFollowupTasks()` 那一圈的理由）。
  */
 function ownedKinds(scoped, visit, coursesById) {
-  // 沒收窄就一張都不用濾。另外三頁走的就是這一條。
-  if (scoped === visit) return () => true;
-
   // 兩份都只算一次 —— 每一列各算一次的話，一張卡片會把整筆來訪掃過十幾遍
   const here = kindsOf(scoped, coursesById);
   const anywhere = kindsOf(visit, coursesById);
   return (kind) => here.has(kind) || !anywhere.has(kind);
 }
 
-/** 這幾段長得出哪幾種任務。 */
+/**
+ * 一張「取消 X」是不是這一段的。
+ *
+ * **有 `slotIndexes` 就照它**（issue 02）—— 那一張自己記著它收的是哪幾段，不用猜。
+ *
+ * 沒有的是 2026-09-13 之前長出來的。退路三層，一層比一層寬：
+ *
+ *   1. 那一天**取消掉的**、用得到那個系統的段
+ *   2. 那一天用得到那個系統的段（那一天沒有段取消，卻有這一張 —— 以前「改整天的日期」
+ *      那條路會長出這種，ADR-0089 拿掉了）
+ *   3. 每一段 —— 靜默藏掉一張她還沒做的事，比多列一張糟
+ */
+function ownsCancel(task, visit, index, coursesById) {
+  if (Array.isArray(task.slotIndexes)) return task.slotIndexes.includes(index);
+
+  const system = String(task.kind).slice(CANCEL_PREFIX.length);
+  const slots = visit.slots ?? [];
+  const uses = (s) => {
+    const category = coursesById[s?.courseId]?.category;
+    return bookingSystemFor(category) === system || tasksForCategory(category).includes(system);
+  };
+  const at = (pred) => slots.map((s, i) => (pred(s) ? i : -1)).filter((i) => i >= 0);
+
+  const dead = at((s) => slotStatus(visit, s) === 'cancelled' && uses(s));
+  if (dead.length) return dead.includes(index);
+  const any = at(uses);
+  return any.length ? any.includes(index) : true;
+}
+
+/** 這幾段長得出哪幾種任務（取消類不在這裡問，見 `ownsCancel()`）。 */
 function kindsOf(visit, coursesById) {
   const out = new Set();
   for (const t of tasksForVisit(visit, coursesById)) out.add(t.kind);
   for (const t of pendingRecordTasks(visit, coursesById)) out.add(t.kind);
-  // 取消 X 那幾張有**兩個**來源（`syncTasksForVisit()` 的那兩圈）：壓表登記
-  // 本身，加上她確認之後真的去登記過的那幾個。少算第二種的話，A 類那一段
-  // 認不回自己的「取消 Examine」。
-  //
-  // 問之前先把 `status` 拿掉：取消掉的那一段昨天佔的時段還在那裡，
-  // 而 `tasksForVisit()` 會濾掉它（同 `bookingSystemsForVisit()` 刻意不濾的理由）。
-  const asLive = { ...visit, slots: (visit.slots ?? []).map((s) => ({ ...s, status: null })) };
-  for (const system of bookingSystemsForVisit(visit, coursesById)) out.add(cancelKindFor(system));
-  for (const t of tasksForVisit(asLive, coursesById)) out.add(cancelKindFor(t.kind));
   // 鏈上那三張是健檢額度長出來的，而「這是不是健檢」寫在課程主檔上
   // （`followupCourseIdOf()`：刻意不從名字比對，見 domain/followups.js）。
   if ((visit.slots ?? []).some((s) => followupCourseIdOf(coursesById[s?.courseId]))) {
@@ -395,5 +467,11 @@ function sortRows(rows) {
     .map((x) => x.r);
 }
 
-/** 排序用的鍵：推導的那兩列用它們自己的 id，任務用種類。 */
-const keyOf = (row) => (row.derived ? row.key : row.kind);
+/**
+ * 排序用的鍵：推導的那兩列（確認、簽單）用它們自己的 id，其餘一律用種類。
+ *
+ * 「還沒發生」那幾列也是推導的，但它們的 key 是 `pending:耀聖` —— 拿那個去問 `orderOf()`
+ * 永遠對不到，於是它們一律排到最後，連取消類都排在它們前面。以前只有活著的段會有
+ * 「還沒發生」的列，看不太出來；被取消的那一段灰掉整份之後就很明顯（2026-09-13）。
+ */
+const keyOf = (row) => (row.key === 'confirm' || row.key === 'close' ? row.key : row.kind);

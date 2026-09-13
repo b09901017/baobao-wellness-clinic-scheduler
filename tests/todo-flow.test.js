@@ -422,7 +422,12 @@ describe('只看她點的那一段（focusSlot）', () => {
     assert.ok(!at(0).includes('追蹤健檢報告'), '二返那一段跟這條鏈沒關係');
   });
 
-  test('取消 X 那幾張跟著它要收的那個系統', () => {
+  test('舊的「取消 X」（沒記段落、那一天也沒有段取消）退回照系統分', () => {
+    // **這一條只剩舊資料會走到。** 2026-09-13 之前它斷言的是「兩段都活著也看得到
+    // 取消任務」，而那正是她回報的 bug 的形狀（取消一段、另外兩段多了「取消 Abovee」）。
+    // 現在取消類帶著 `slotIndexes`（issue 02），畫面不用猜；這裡留下的只是
+    // 「推不出是哪一段」時的退路 —— 靜默藏掉比多列一張糟。
+    //
     // 二返是 A 類：壓在 Abovee，確認後才去 Examine 與耀聖登記。
     // 健檢是 B 類：**壓表就壓在 Examine**。所以「取消 Examine」兩段都認得，
     // 真正分得開的是 Abovee —— 健檢那一段從來沒在上面壓過。
@@ -460,3 +465,110 @@ describe('「這一天共用」那一句拿掉了（2026-09-12）', () => {
     assert.ok(rows.every((r) => !('shared' in r)), JSON.stringify(rows));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 「這一項的待辦」：取消類只在它收的那一段，被取消的那一段原本的待辦灰掉
+// （`.scratch/asks-2026-09-13/issues/03`）。
+//
+// 她 2026-09-13：「我一天幫A押三個時段，然後我取消了其中一段後，其他兩段的這一項的待辦
+// 就多了"取消Aobvee" ? 這個待辦只應該出現在被取消的那邊吧」，以及「可以留著但是就是灰掉就好」
+// 「原本的那些一樣有然後灰掉然後多了取消」。
+
+describe('取消之後的「這一項的待辦」', () => {
+  const COURSES = {
+    'c-recovery': { id: 'c-recovery', name: '復能', category: 'C', needsTreatmentForm: true },
+    'c-followup': { id: 'c-followup', name: '二返', category: 'A', needsTreatmentForm: false, needsRecord: true },
+  };
+  const day = (statuses, over = {}) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed', confirmedAt: 'x',
+    slots: statuses.map(([courseId, status]) => ({ courseId, status })),
+    ...over,
+  });
+  const rowsAt = (visit, tasks, i) => todosForVisit(visit, { tasks, coursesById: COURSES, focusSlot: i });
+  const kinds = (rows) => rows.map((r) => r.kind);
+
+  const three = day([['c-recovery', 'confirmed'], ['c-recovery', 'cancelled'], ['c-recovery', 'confirmed']]);
+  const abovee = { id: 't1', visitId: 'v1', kind: '取消 Abovee', done: false, slotIndexes: [1] };
+
+  test('一天三段取消中間那段：另外兩段看不到「取消 Abovee」', () => {
+    assert.ok(!kinds(rowsAt(three, [abovee], 0)).includes('取消 Abovee'));
+    assert.ok(!kinds(rowsAt(three, [abovee], 2)).includes('取消 Abovee'));
+  });
+
+  test('被取消的那一段：「取消 Abovee」照常，不灰', () => {
+    const row = rowsAt(three, [abovee], 1).find((r) => r.kind === '取消 Abovee');
+    assert.ok(row);
+    assert.ok(!row.void);
+  });
+
+  test('被取消的那一段：原本的待辦照樣列，全部灰掉', () => {
+    const rows = rowsAt(three, [abovee], 1);
+    const others = rows.filter((r) => r.kind !== '取消 Abovee');
+    assert.ok(others.some((r) => r.kind === '跟客人確認時間'));
+    assert.ok(others.some((r) => r.kind === '簽療程單'),
+      '照活著的時候算 —— 取消掉的那一段不是「不用簽」');
+    assert.ok(others.every((r) => r.void === true), JSON.stringify(others));
+  });
+
+  test('取消類排在最後', () => {
+    assert.equal(kinds(rowsAt(three, [abovee], 1)).at(-1), '取消 Abovee');
+  });
+
+  test('還沒長出來的那幾列照流程排，不會掉到取消類後面', () => {
+    const rows = kinds(rowsAt(mixed, mixedTasks, 0));
+    assert.ok(rows.indexOf('耀聖') < rows.indexOf('取消 Abovee'), rows.join('、'));
+    assert.ok(rows.indexOf('寫紀錄') < rows.indexOf('取消 Abovee'), rows.join('、'));
+  });
+
+  test('活著的那兩段一列都不灰', () => {
+    assert.ok(rowsAt(three, [abovee], 0).every((r) => !r.void));
+  });
+
+  const mixed = day([['c-followup', 'cancelled'], ['c-recovery', 'confirmed']]);
+  const mixedTasks = [
+    { id: 'e', visitId: 'v1', kind: 'Examine', done: true },
+    { id: 'y', visitId: 'v1', kind: '耀聖', done: true },
+    { id: 'ca', visitId: 'v1', kind: '取消 Abovee', done: false, slotIndexes: [0] },
+    { id: 'ce', visitId: 'v1', kind: '取消 Examine', done: false, slotIndexes: [0] },
+  ];
+
+  test('二返那一段取消了：它的 Examine、耀聖、寫紀錄灰掉，兩張取消照常', () => {
+    const rows = rowsAt(mixed, mixedTasks, 0);
+    const byKind = Object.fromEntries(rows.map((r) => [r.kind, r]));
+    for (const k of ['Examine', '耀聖', '寫紀錄']) {
+      assert.ok(byKind[k], `${k} 要列出來`);
+      assert.equal(byKind[k].void, true, `${k} 要灰掉`);
+    }
+    assert.equal(byKind.Examine.done, true, '已經做過的照樣帶著它的勾');
+    assert.ok(byKind['取消 Abovee'] && !byKind['取消 Abovee'].void);
+    assert.ok(byKind['取消 Examine'] && !byKind['取消 Examine'].void);
+  });
+
+  test('復能那一段還活著：二返那一段的 Examine 與取消類都不出現', () => {
+    const out = kinds(rowsAt(mixed, mixedTasks, 1));
+    assert.ok(!out.includes('Examine'), '二返取消了，Examine 是它的，不是復能的');
+    assert.ok(!out.includes('耀聖'));
+    assert.ok(!out.includes('取消 Abovee'));
+    assert.ok(!out.includes('取消 Examine'));
+  });
+
+  test('整天取消、點其中一段：不再是只剩取消 —— 原本的灰掉加上取消', () => {
+    const gone = day([['c-recovery', 'cancelled'], ['c-recovery', 'cancelled']], { status: 'cancelled' });
+    const t = { id: 't', visitId: 'v1', kind: '取消 Abovee', done: false, slotIndexes: [0, 1] };
+    const rows = rowsAt(gone, [t], 0);
+    assert.ok(rows.some((r) => r.kind === '跟客人確認時間' && r.void));
+    assert.ok(rows.some((r) => r.kind === '取消 Abovee' && !r.void));
+  });
+
+  test('沒記段落的舊「取消 Abovee」：跟著那一天取消掉的段', () => {
+    const legacy = { id: 'old', visitId: 'v1', kind: '取消 Abovee', done: false };
+    assert.ok(kinds(rowsAt(three, [legacy], 1)).includes('取消 Abovee'));
+    assert.ok(!kinds(rowsAt(three, [legacy], 0)).includes('取消 Abovee'));
+  });
+
+  test('沒帶 focusSlot 時一張都不少（另外三頁一個字都不變）', () => {
+    const out = kinds(todosForVisit(three, { tasks: [abovee], coursesById: COURSES }));
+    assert.ok(out.includes('取消 Abovee'));
+  });
+});
+
