@@ -1,6 +1,6 @@
 # 合併檔 v2：購買日、方案、套數、帶顏色的備註，app 與 skill 兩邊一起
 
-Status: todo
+Status: done
 Blocked by: 07
 來源：`../spec.md` 第一 a-1
 動工前先讀：`.claude/skills/calendar-sheet-merge/SKILL.md` 的「合併檔」一節、`scripts/merge.mjs`（組 `customers[]` 那一段）、

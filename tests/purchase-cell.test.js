@@ -216,6 +216,12 @@ describe('B2 進額度', () => {
     assert.doesNotMatch(said(p), /sis\(60\)/i);
   });
 
+  test('「復能任選(30)」對得上「復能(30min)」那一列（任選是她講擇一池的說法）', () => {
+    const p = planOf(sheet('0821新 - 顧客會-8+復能任選(30)x10堂', NEW, [',,復能(30min),10,0,FALSE']));
+    assert.doesNotMatch(said(p), /復能任選/);
+    assert.doesNotMatch(said(p), /復能\(30min\)/);
+  });
+
   test('寫在字裡的加購找不到那一列 → 講出來', () => {
     const p = planOf(sheet('0901 顧客會 sis(60)x5', [0, 0, 0, 0, 0, 0, 0], [',,EECP,40,0,FALSE']));
     assert.match(said(p), /sis\(60\)x5/);

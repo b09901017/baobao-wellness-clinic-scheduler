@@ -555,7 +555,8 @@ function legacyPlanFor(parsed, purchase) {
 
 /** `SIS(60min)`、`sis(60)` → `sis60`。寫在 B2 字裡的加購跟 C 欄的列名比對用。 */
 const looseName = (v) => String(v ?? '').toLowerCase()
-  .replace(/mins?|分鐘|分|堂|only/g, '')
+  // 「任選」是她講擇一池的說法（`復能任選(30)` 那一列叫 `復能(30min)`，2026-09-13 真檔上看到的）
+  .replace(/mins?|分鐘|分|堂|only|任選/g, '')
   .replace(/[\s()（）\-_]/g, '');
 
 // ---------- 一張工作表 → 要寫進去的東西 ----------

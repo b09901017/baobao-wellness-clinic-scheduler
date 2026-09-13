@@ -277,7 +277,25 @@ function summaryCard(s, plans, extraProblems) {
           <p class="muted">對不到的東西一律留空或整筆不匯入，不會猜一個填進去。
             先去主檔把它建起來，再貼一次會比較完整。</p>
         </details>` : '<p class="muted">每一樣都對得到你的主檔。</p>'}
+      ${purchaseProblemsHtml(plans)}
     </section>`;
+}
+
+/**
+ * B2「購買名稱」拿應有次數驗過一次、對不上的那幾條（合併檔 v2，
+ * `.scratch/asks-2026-09-13/issues/08`）。**預設展開**：她說「合併的時候也可以再問我一次」，
+ * 而匯進去的是應有次數那一份 —— 收起來的話她不會知道有幾位的方案是照 D 欄匯的。
+ */
+function purchaseProblemsHtml(plans) {
+  const rows = plans.filter((p) => !p.skip && p.purchaseProblems?.length);
+  if (!rows.length) return '';
+  const n = rows.reduce((sum, p) => sum + p.purchaseProblems.length, 0);
+  return `
+    <details open data-purchase-problems>
+      <summary>${n} 條購買名稱跟應有次數對不上（照應有次數匯）</summary>
+      <ul class="tight">${rows.map((p) => p.purchaseProblems.map((why) =>
+    `<li>${esc(p.customerName)}｜${esc(why)}</li>`).join('')).join('')}</ul>
+    </details>`;
 }
 
 function lowCard(plans) {

@@ -18,7 +18,15 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { syncTasksForVisit } from './taskRules.js';
 
-export const FORMAT = 'baobao-merge/v1';
+/**
+ * 合併檔的格式。**v2（2026-09-13）多了購買日、方案與套數、帶顏色的備註**
+ * （`.scratch/asks-2026-09-13/issues/08`）。只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，
+ * 而畫面看起來跟匯好了一樣 —— 所以升版。
+ */
+export const FORMAT = 'baobao-merge/v2';
+
+/** 還收得下的舊版。v1 的檔案照舊匯得進去，少的那幾格一律 null。 */
+export const FORMATS = Object.freeze(['baobao-merge/v1', FORMAT]);
 
 const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const alive = (list) => (list ?? []).filter((x) => !x.deletedAt);
@@ -43,7 +51,7 @@ export function validateFile(json) {
   const warnings = [];
 
   if (!json || typeof json !== 'object') return { errors: ['這不是一份合併檔（讀不出 JSON）'], warnings };
-  if (json.format !== FORMAT) {
+  if (!FORMATS.includes(json.format)) {
     errors.push(`格式不對：需要 ${FORMAT}，這份是「${json.format ?? '沒有寫'}」`);
     return { errors, warnings };
   }
@@ -162,8 +170,15 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         totalQty: Number(e.totalQty) || 0,
         durationMin: course?.durationMin ?? null,
         frequencyRule: course?.frequencyRule ?? null,
-        sourcePlanName: null,
-        purchasedAt: null,
+        // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
+        // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
+        sourcePlanName: e.sourcePlanName ?? null,
+        sourcePlanSets: e.sourcePlanSets ?? null,
+        sourcePlanQty: e.sourcePlanQty ?? null,
+        // 同一次購買共用一個 id（「買過什麼」與客戶抬頭靠它與購買日分組）。
+        // 檔案裡只是一個暗號（`plan`／`extras`），換成這位客戶自己的字串，不寫進 purchaseKey
+        purchaseId: e.purchaseKey ? `import:${name}:${e.purchaseKey}` : null,
+        purchasedAt: e.purchasedAt ?? null,
         expiresAt: null,
         doneCount: 0,
         bookedCount: 0,
@@ -223,14 +238,18 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       phone: null,
       lineId: null,
       source: entry.source || null,
-      purchasedAt: null,
+      purchasedAt: entry.purchasedAt ?? null,
       membershipExpiresAt: null,
       priority: 0,
       flags: [],
-      notes: entry.notes ?? '',
+      // v2 帶的是帶顏色的備註（有「尾款」的是紅色）。**marks 是真相，notes 是鏡像**（ADR-0019）。
+      // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
+      ...marksOf(entry),
       active: true,
       importedFrom: stamp,
     },
+    // B2 拿應有次數驗過一次、對不上的那幾條。匯入那一頁每位客戶要列出來
+    purchaseProblems: Array.isArray(entry.purchaseProblems) ? entry.purchaseProblems : [],
     entitlements,
     visits,
     problems,
@@ -310,6 +329,15 @@ function visitDoc({ name, date, status, slots, stamp }) {
   };
 }
 
+/** v2 的備註。形狀不對的一則丟掉（沒有字的、不是物件的），顏色交給 `readMarks()` 認。 */
+function marksOf(entry) {
+  if (!Array.isArray(entry.marks)) return { notes: entry.notes ?? '' };
+  const marks = entry.marks
+    .filter((m) => m && typeof m.text === 'string' && m.text.trim())
+    .map((m) => ({ text: m.text.trim(), color: typeof m.color === 'string' ? m.color : 'grey' }));
+  return { marks, notes: marks.map((m) => m.text).join('\n') };
+}
+
 function emptyPlan(entry, { skip = null, problems = [] } = {}) {
   return {
     sheetName: entry.sheetName ?? '',
@@ -320,6 +348,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     entitlements: [],
     visits: [],
     problems,
+    purchaseProblems: [],
     contraindications: [],
     counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
   };
