@@ -1,6 +1,6 @@
 # 取消類的待辦記得它收的是哪幾段
 
-Status: todo
+Status: done
 來源：`../spec.md` 第二 b，以及她補的 c 與第 5 題
 動工前先讀：ADR-0081（時段才是原子單位）、ADR-0070（後果只能講真的會發生的事）、
 `domain/taskRules.js` 的 `syncTasksForVisit()` 與 `cancelTasksForDeadSlots()`、

@@ -201,7 +201,10 @@ service cloud.firestore {
         && d.kind.size() > 0
         && d.dueDate is string
         && d.dueDate.size() == 10
-        && d.done is bool;
+        && d.done is bool
+        // 取消類的待辦收的是哪幾段（`domain/taskRules.js` 的 `cancelTasksFor()`）。
+        // 選填：只有取消類有，而且 2026-09-13 之前的沒有。這一層只擋形狀。
+        && (!('slotIndexes' in d) || d.slotIndexes is list);
     }
 
     match /tasks/{taskId} {

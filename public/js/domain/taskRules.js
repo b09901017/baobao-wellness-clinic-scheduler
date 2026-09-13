@@ -19,7 +19,7 @@
 // docs/adr/0041-the-sheet-is-the-registration.md。
 
 import { addDays } from './dates.js';
-import { visitCourseLabel, isLiveSlot } from './visits.js';
+import { visitCourseLabel, isLiveSlot, slotStatus } from './visits.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -309,44 +309,11 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   const gone = visit.deletedAt || visit.status === 'cancelled';
 
   if (gone) {
-    // 同一種取消任務只長一張。這一支每次存檔都會跑，而取消任務不受來訪現況管轄
-    // （上面 auto 那一段濾掉它們），所以沒有這一道，存兩次就是兩張。
-    const already = new Set(
-      (existingTasks ?? [])
-        .filter((t) => !t.deletedAt && isCancelKind(t.kind))
-        .map((t) => t.kind),
-    );
-
-    // kind → 那一句說明。用 Map 是為了讓下面兩個來源自然去重：
-    // 一筆健檢的壓表登記在 Examine，而它身上也可能有一張已經勾掉的 Examine 任務。
-    const wanted = new Map();
-
-    // 1. 壓表登記本身。**來訪存在就代表她已經在那個系統上把時段佔住了**
-    //    —— app 裡的來訪從「已壓表」開始（SPEC 第 4.1 節），所以不需要任何
-    //    任務來證明她壓過。取消時那個時段要放回去。
-    for (const system of bookingSystemsForVisit(visit, coursesById)) {
-      wanted.set(
-        cancelKindFor(system),
-        `${visit.date} 的來訪取消了，回去把 ${system} 上壓的時段放掉`,
-      );
-    }
-
-    // 2. 已經勾完成的登記任務。打電話做過就是做過了，沒有東西要收回來。
+    // 沒做的就不用做了，做過的留著（做過的那幾張由 `cancelTasksFor()` 決定要不要收回來）。
     for (const t of auto) {
-      if (t.done && REGISTRATION_KINDS.includes(t.kind)) {
-        wanted.set(
-          cancelKindFor(t.kind),
-          `${visit.date} 的來訪取消了，回去把 ${t.kind} 的登記取消掉`,
-        );
-      } else if (!t.done) {
-        remove.push({ id: t.id, reason: '來訪已取消' });
-      }
+      if (!t.done) remove.push({ id: t.id, reason: '來訪已取消' });
     }
-
-    for (const [kind, note] of wanted) {
-      if (already.has(kind)) continue;
-      create.push(cancelTask(visit, kind, note, today));
-    }
+    create.push(...cancelTasksFor(visit, existingTasks, coursesById, today));
     return { create, update, remove };
   }
 
@@ -408,44 +375,120 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // **這一段不可以搬到上面 `gone` 那一段裡去。** 那一段跑的時候每一段都是
   // `cancelled`（`applyStatus()` 整天取消會逐段標），而這裡問的是
   // 「整筆還活著時哪幾段沒了」—— 兩個問題的答案在整筆取消時剛好相反。
-  create.push(...cancelTasksForDeadSlots(visit, existingTasks, coursesById, today));
+  create.push(...cancelTasksFor(visit, existingTasks, coursesById, today));
 
   return { create, update, remove };
 }
 
 /**
- * 整筆還活著，但有幾段被取消掉了 —— 那幾段壓在哪個系統，就要回去放掉哪一個。
+ * 一張取消類的待辦收的是哪幾段（`visit.slots` 裡的位置）。
  *
- * **同一個系統只長一張**（`already` 那道，含已經勾掉的）：她回去一次收兩格，
- * 而每一段各一張的話，取消一整天的三段復能會冒出三張一模一樣的待辦。
+ * **沒記的舊任務當成那一天的每一段** —— 2026-09-13 之前長出來的那幾張身上
+ * 沒有這一格，而它們當時的意思就是「那一天那個系統」。當成蓋住整天，
+ * 就不會因為這一次改版在舊資料上多長一張一模一樣的。
  */
-function cancelTasksForDeadSlots(visit, existingTasks, coursesById, today) {
-  const dead = (visit.slots ?? []).filter((s) => !isLiveSlot(s));
+export function cancelSlotsOf(task, visit) {
+  if (Array.isArray(task?.slotIndexes)) return task.slotIndexes;
+  return (visit?.slots ?? []).map((_, i) => i);
+}
+
+/**
+ * 這一筆來訪取消掉的那幾段，還欠哪幾張「取消 X」。**整天取消與只取消幾段走同一支。**
+ *
+ * ## 逐段，不逐天（`.scratch/asks-2026-09-13/issues/02`）
+ *
+ * 以前的去重是「同一個系統，含已經勾掉的，只准一張」。它想擋的是「一次取消三段就長
+ * 三張」，但它分不出「同一次取消的三段」和「上禮拜取消的那一段」—— 第一張勾掉之後
+ * 隔天再取消另一段，一張都不長，那一格在 Abovee 上永遠沒人去放（2026-09-13 實跑）。
+ *
+ * 所以每一張記著自己收的是哪幾段（`slotIndexes`），而一段**還沒被任何一張蓋到**
+ * 才需要新的一張。同一次存檔取消的幾段收成同一張 —— 她回去一次收兩格。
+ *
+ * ## 一段要收哪幾個系統
+ *
+ *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemFor()`）。來訪存在就代表
+ *      壓過了（ADR-0041），不需要任何任務來證明
+ *   2. **確認之後的登記**（Examine、耀聖）：那一段自己長得出那一種、**而且那一張
+ *      已經勾掉了**才收 —— 沒勾就是沒登記過，沒有東西要收
+ *
+ * 第 2 條以前只有整天取消才做。她 2026-09-13 給的事實是「Examine 上是一段登記一筆」，
+ * 暫定「每一段都是可以分別取消的」。**這一題她還沒定案**（issue 02 的「還沒定的」）。
+ *
+ * 整天取消多一條退路：勾掉的登記待辦裡，**沒有任何一段長得出它**的（課程主檔改過、
+ * 或是歷史資料裡的「Abovee」任務）照舊收，算在每一段上 —— 登記過就是登記過了。
+ *
+ * **確認框講的那一句也走這一支**（`consequences.js` 的 `cancelConsequences()`，ADR-0070）。
+ *
+ * @param {object} visit 存檔後的來訪
+ * @param {object[]} existingTasks 這一筆來訪現有的任務
+ * @returns {object[]} 要新建的取消類任務（帶 `slotIndexes`）
+ */
+export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, today = null) {
+  const slots = visit?.slots ?? [];
+  const whole = Boolean(visit?.deletedAt) || visit?.status === 'cancelled';
+  const dead = slots
+    .map((slot, i) => (whole || slotStatus(visit, slot) === 'cancelled' ? i : -1))
+    .filter((i) => i >= 0);
   if (!dead.length) return [];
 
-  const already = new Set(
-    (existingTasks ?? [])
-      .filter((t) => !t.deletedAt && isCancelKind(t.kind))
-      .map((t) => t.kind),
+  const alive = (existingTasks ?? []).filter((t) => !t.deletedAt);
+  const registered = new Set(
+    alive.filter((t) => t.done && REGISTRATION_KINDS.includes(t.kind)).map((t) => t.kind),
   );
 
+  // kind → 那幾段。Map 保住順序：壓表登記在前、確認後的登記在後（同以前 `wanted` 的順序）。
+  const wanted = new Map();
+  const want = (kind, i) => {
+    if (!wanted.has(kind)) wanted.set(kind, new Set());
+    wanted.get(kind).add(i);
+  };
+
+  for (const i of dead) {
+    want(cancelKindFor(bookingSystemFor(coursesById[slots[i]?.courseId]?.category)), i);
+  }
+  for (const i of dead) {
+    const course = coursesById[slots[i]?.courseId];
+    for (const kind of tasksForCategory(course?.category)) {
+      if (registered.has(kind)) want(cancelKindFor(kind), i);
+    }
+  }
+  if (whole) {
+    const claimed = new Set([...wanted.keys()]);
+    for (const kind of registered) {
+      if (!claimed.has(cancelKindFor(kind))) for (const i of dead) want(cancelKindFor(kind), i);
+    }
+  }
+
   const out = [];
-  for (const slot of dead) {
-    const system = bookingSystemFor(coursesById[slot.courseId]?.category);
-    const kind = cancelKindFor(system);
-    if (already.has(kind)) continue;
-    already.add(kind);
-    out.push(cancelTask(
-      visit, kind,
-      `${visit.date} 有一段取消了，回去把 ${system} 上壓的那個時段放掉`,
-      today,
-    ));
+  for (const [kind, at] of wanted) {
+    const covered = new Set(
+      alive.filter((t) => t.kind === kind).flatMap((t) => cancelSlotsOf(t, visit)),
+    );
+    const left = [...at].filter((i) => !covered.has(i)).sort((a, b) => a - b);
+    if (!left.length) continue;
+    out.push(cancelTask(visit, kind, cancelNote(visit, kind, { whole, coursesById, at: left }), today, left));
   }
   return out;
 }
 
+/** 那一張的說明。**壓表**與**確認後的登記**是兩句話 —— 她要去做的事不一樣。 */
+function cancelNote(visit, kind, { whole, coursesById, at }) {
+  const system = kind.slice(CANCEL_PREFIX.length);
+  const booked = at.some(
+    (i) => bookingSystemFor(coursesById[visit.slots?.[i]?.courseId]?.category) === system,
+  );
+  if (whole) {
+    return booked
+      ? `${visit.date} 的來訪取消了，回去把 ${system} 上壓的時段放掉`
+      : `${visit.date} 的來訪取消了，回去把 ${system} 的登記取消掉`;
+  }
+  return booked
+    ? `${visit.date} 有一段取消了，回去把 ${system} 上壓的那個時段放掉`
+    : `${visit.date} 有一段取消了，回去把 ${system} 上那一段的登記取消掉`;
+}
+
 /** 回頭去把已經佔住的東西放掉。這件事沒有寬限期，越快越好。 */
-function cancelTask(visit, kind, note, today) {
+function cancelTask(visit, kind, note, today, slotIndexes) {
   const deadline = dueDateFor(visit.date);
   return {
     visitId: visit.id ?? null,
@@ -457,6 +500,7 @@ function cancelTask(visit, kind, note, today) {
     doneAt: null,
     note,
     autoGenerated: true,
+    slotIndexes,
   };
 }
 
