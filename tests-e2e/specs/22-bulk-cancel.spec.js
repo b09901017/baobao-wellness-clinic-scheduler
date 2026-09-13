@@ -222,3 +222,130 @@ test('月曆模式：點一天攤開那一天，長按進多選', async ({ app, 
   await page.waitForTimeout(400);
   await expect(page.locator('.bulkbar__count')).toContainText('選了 3 段');
 });
+
+// ---------------------------------------------------------------------------
+// 底下那一條貼在導覽列上（`.scratch/asks-2026-09-13/issues/01`）。
+//
+// 她 2026-09-13：「他還是有懸空感，視覺上看起來好像壞掉了……他好像也會遮到最下面的勾選」。
+//
+// 9/10 那一次的修正是用**掃 CSS 原始碼**盯的（有沒有 `margin-top: auto`），所以它綠著，
+// 畫面照樣懸空：那一條停在離導覽列 44px 的地方，清單從那個縫裡繼續往下捲。
+// **這幾條一律量畫出來的位置**，不看 CSS 寫了什麼。
+
+/** 十天、一天兩段 —— 撐得滿好幾個螢幕。 */
+function seedLong() {
+  const out = [
+    ...masterDocs(),
+    customer({ id: 'cust-b', name: '王小明' }),
+    entitlement('cust-b', {
+      id: 'ent-pool', label: '復能-三選一(30)', type: 'pool',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'],
+      totalQty: 40, bookedCount: 20, durationMin: 30,
+    }),
+  ];
+  for (let i = 0; i < 10; i += 1) {
+    out.push(visit({
+      id: `v-long-${i}`, customerId: 'cust-b', customerName: '王小明',
+      date: `${MONTH}-${String(2 + i * 2).padStart(2, '0')}`, status: 'confirmed',
+      slots: [
+        slot({ courseId: 'course-recovery', entitlementId: 'ent-pool', startsAt: '09:00', endsAt: '09:30', equipmentId: 'eq-indiba' }),
+        slot({ courseId: 'course-recovery', entitlementId: 'ent-pool', startsAt: '10:00', endsAt: '10:30', equipmentId: 'eq-sis' }),
+      ],
+    }));
+  }
+  return out;
+}
+
+async function openWith(app, page, docs) {
+  await app.seed(docs);
+  await app.signIn('/schedule');
+  await app.go('/schedule/cancel');
+  await page.locator('[data-q]').fill('王小明');
+  await page.locator('[data-pick]').first().click();
+  await app.settled();
+}
+
+/** 那一條、導覽列、捲動區、最後一列，四樣東西在畫面上的位置。 */
+function measure(page) {
+  return page.evaluate(() => {
+    const box = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    const view = document.querySelector('#view');
+    const bar = document.querySelector('.bulkbar');
+    const rows = [...document.querySelectorAll('[data-slot]')];
+    return {
+      bar: box(bar),
+      barInPage: Boolean(bar?.closest('.bulkpage')),
+      nav: box(document.querySelector('.app__nav')),
+      view: { ...box(view), scrollH: view.scrollHeight, clientH: view.clientHeight },
+      lastRow: box(rows.at(-1)),
+      innerHeight: window.innerHeight,
+    };
+  });
+}
+
+const scrollView = (page, to) => page.evaluate((where) => {
+  const v = document.querySelector('#view');
+  v.scrollTop = where === 'end' ? v.scrollHeight : where;
+}, to);
+
+test('勾一段：那一條貼在導覽列上，短清單也不會多出可以捲的空白', async ({ app, page }) => {
+  await open(app, page);
+  await pickCustomer(page);
+
+  await page.locator('[data-slot]').first().click();
+  await expect(page.locator('.bulkbar')).toBeVisible();
+
+  const m = await measure(page);
+  expect(m.barInPage, '勾一段走的那條路也要插在 .bulkpage 裡 —— 兩條路兩種 DOM 是這個 bug 的一半')
+    .toBe(true);
+  expect(Math.abs(m.bar.bottom - m.nav.top), `那一條的底 ${m.bar.bottom} 要貼在導覽列的頂 ${m.nav.top}`)
+    .toBeLessThanOrEqual(1);
+  expect(m.view.scrollH, '兩天三段撐不滿一個螢幕 —— 不該捲得動')
+    .toBeLessThanOrEqual(m.view.clientH + 1);
+});
+
+test('整天選起來：同一個位置（兩條路長一樣）', async ({ app, page }) => {
+  await open(app, page);
+  await pickCustomer(page);
+
+  await page.locator(`[data-day-all="${D1}"]`).click();
+  await expect(page.locator('.bulkbar')).toBeVisible();
+
+  const m = await measure(page);
+  expect(m.barInPage).toBe(true);
+  expect(Math.abs(m.bar.bottom - m.nav.top)).toBeLessThanOrEqual(1);
+});
+
+test('長清單：捲到一半沒有縫，捲到底最後一列完整露出來', async ({ app, page }) => {
+  await openWith(app, page, seedLong());
+  await page.locator('[data-slot]').first().click();
+  await expect(page.locator('.bulkbar')).toBeVisible();
+
+  await scrollView(page, 300);
+  const mid = await measure(page);
+  expect(Math.abs(mid.bar.bottom - mid.nav.top),
+    '捲到一半時那一條跟導覽列之間有縫，清單就會從縫裡露出來（她說的「遮到最下面的勾選」）')
+    .toBeLessThanOrEqual(1);
+
+  await scrollView(page, 'end');
+  const end = await measure(page);
+  expect(end.lastRow.bottom, '捲到底時最後一列要在那一條上面，不是被它蓋住')
+    .toBeLessThanOrEqual(end.bar.top + 1);
+  expect(Math.abs(end.bar.bottom - end.nav.top)).toBeLessThanOrEqual(1);
+});
+
+test('iPad 寬（導覽列在左邊）：那一條貼在畫面底', async ({ app, page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openWith(app, page, seedLong());
+  await page.locator('[data-slot]').first().click();
+  await expect(page.locator('.bulkbar')).toBeVisible();
+
+  await scrollView(page, 200);
+  const m = await measure(page);
+  expect(Math.abs(m.bar.bottom - m.view.bottom), `那一條的底 ${m.bar.bottom} 要貼在捲動區的底 ${m.view.bottom}`)
+    .toBeLessThanOrEqual(1);
+});

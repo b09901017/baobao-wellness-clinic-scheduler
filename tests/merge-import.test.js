@@ -669,3 +669,63 @@ describe('looseDocs() 是那個分歧點', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// 合併檔 v2：購買日、方案與套數、帶顏色的備註（`.scratch/asks-2026-09-13/issues/08`）。
+//
+// 她 2026-09-13：「也希望你幫我調整完後也幫我去修改合併的那個skill，讓他們相容」。
+
+describe('合併檔 v2', () => {
+  const V2 = () => ({
+    ...CUSTOMER(),
+    source: '顧客會',
+    purchasedAt: '2026-05-22',
+    marks: [{ text: '病歷號 9001', color: 'grey' }, { text: '欠尾款3萬', color: 'red' }],
+    purchaseProblems: ['購買名稱寫 2 套，但應有次數是 1 套，照應有次數匯'],
+    entitlements: CUSTOMER().entitlements.map((e) => ({
+      ...e,
+      purchasedAt: '2026-05-22',
+      sourcePlanName: '8萬方案',
+      sourcePlanSets: 1,
+      sourcePlanQty: e.totalQty,
+      purchaseKey: 'plan',
+    })),
+  });
+
+  test('格式是 v2，v1 的檔案照樣收', () => {
+    assert.equal(FORMAT, 'baobao-merge/v2');
+    assert.deepEqual(validateFile(FILE()).errors, []);
+    assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v1' }).errors, []);
+    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v3' }).errors.length);
+  });
+
+  test('客戶帶購買日、通路與帶顏色的備註；notes 是備註的鏡像', () => {
+    const p = plan(V2());
+    assert.equal(p.customer.purchasedAt, '2026-05-22');
+    assert.equal(p.customer.source, '顧客會');
+    assert.deepEqual(p.customer.marks, [{ text: '病歷號 9001', color: 'grey' }, { text: '欠尾款3萬', color: 'red' }]);
+    assert.equal(p.customer.notes, '病歷號 9001\n欠尾款3萬');
+  });
+
+  test('額度帶購買日、方案名、套數，同一次購買同一個 purchaseId', () => {
+    const p = plan(V2());
+    const docs = p.entitlements.filter((e) => !e.doc.followupForEntitlementKey).map((e) => e.doc);
+    assert.ok(docs.every((d) => d.purchasedAt === '2026-05-22'));
+    assert.ok(docs.every((d) => d.sourcePlanName === '8萬方案' && d.sourcePlanSets === 1));
+    assert.equal(new Set(docs.map((d) => d.purchaseId)).size, 1);
+    assert.ok(docs[0].purchaseId);
+    assert.ok(docs.every((d) => !('purchaseKey' in d)), '那個 key 只是檔案裡的暗號，不寫進資料庫');
+  });
+
+  test('購買名稱對不上的那幾條帶出來，匯入那一頁要列', () => {
+    assert.deepEqual(plan(V2()).purchaseProblems, ['購買名稱寫 2 套，但應有次數是 1 套，照應有次數匯']);
+  });
+
+  test('v1 的客戶：沒有的欄位一律 null，備註從 notes 讀', () => {
+    const p = plan(CUSTOMER());
+    assert.equal(p.customer.purchasedAt, null);
+    assert.equal(p.customer.marks, undefined, 'v1 沒有 marks 就不寫 —— readMarks() 會從 notes 拆');
+    assert.ok(p.entitlements.every((e) => e.doc.sourcePlanName === null && e.doc.purchasedAt === null));
+    assert.deepEqual(p.purchaseProblems, []);
+  });
+});

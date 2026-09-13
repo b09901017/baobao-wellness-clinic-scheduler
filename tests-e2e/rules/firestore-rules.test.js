@@ -240,6 +240,13 @@ describe('R5 額度（validEntitlement）', () => {
     await assertFails(setDoc(entPath('e-items-bad'), ent({ type: 'product', items: 'GABA' })));
   });
 
+  test('R5.7b 買了幾套（sourcePlanSets，ADR-0090）必須是正整數或 null', async () => {
+    await assertSucceeds(setDoc(entPath('e-sets'), ent({ sourcePlanName: '新8萬方案', sourcePlanSets: 2 })));
+    await assertSucceeds(setDoc(entPath('e-sets-null'), ent({ sourcePlanSets: null })));
+    await assertFails(setDoc(entPath('e-sets-0'), ent({ sourcePlanSets: 0 })));
+    await assertFails(setDoc(entPath('e-sets-str'), ent({ sourcePlanSets: '2' })));
+  });
+
   test('R5.8 collection group 讀得到（客戶總覽靠它）', async () => {
     await assertSucceeds(getDocs(collectionGroup(allowed, 'entitlements')));
   });
@@ -545,6 +552,24 @@ describe('R10 表單邀請與回覆（唯一讓沒登入的人寫得進來的地
 });
 
 // ---------- 主檔 ----------
+
+describe('R10b 待辦（validTask）', () => {
+  const task = (over = {}) => stamped({
+    customerId: 'c1', kind: '取消 Abovee', dueDate: '2026-09-19', done: false, ...over,
+  });
+
+  test('R10b.1 取消類帶著它收的是哪幾段（slotIndexes）寫得進去', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'tasks', 't-slots'), task({ slotIndexes: [0, 2] })));
+  });
+
+  test('R10b.2 沒有 slotIndexes 的（舊的、或不是取消類的）照樣寫得進去', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'tasks', 't-plain'), task({ kind: 'Examine' })));
+  });
+
+  test('R10b.3 slotIndexes 不是陣列就擋掉', async () => {
+    await assertFails(setDoc(doc(allowed, 'tasks', 't-bad'), task({ slotIndexes: '0,2' })));
+  });
+});
 
 describe('R11 主檔（config）', () => {
   test('R11.1 白名單內讀寫得了，但刪不掉', async () => {

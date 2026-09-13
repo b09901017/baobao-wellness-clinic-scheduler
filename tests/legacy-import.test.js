@@ -241,13 +241,18 @@ test('沒有客戶名稱的工作表整張跳過', () => {
   assert.equal(p.skip, '沒有客戶名稱');
 });
 
-test('客戶的購買名稱帶過去，不含任何指回範本的欄位', () => {
+test('購買名稱拆開帶過去（通路、購買日、方案名快照），不含任何指回範本的欄位', () => {
+  // 2026-09-13 之前這一條斷言的是「source 是 B2 整格原文、sourcePlanName 一律 null」。
+  // 她要客戶抬頭印「0522 顧客會 8萬方案」（`.scratch/asks-2026-09-13/issues/07`），
+  // 所以 B2 拆成通路與購買日、第 2–8 列帶方案名 —— **但仍然是快照**（ADR-0003），
+  // 不是指回範本的 id。
   const p = plan();
-  assert.equal(p.customer.source, '0522 顧客會-8');
-  for (const e of p.entitlements) {
-    assert.equal(e.doc.sourcePlanName, null);
-    assert.ok(!('sourcePlanId' in e.doc));
-  }
+  assert.equal(p.customer.source, '顧客會');
+  assert.equal(p.customer.purchasedAt, '2026-05-22');
+  const planRows = p.entitlements.filter((e) => e.doc.sourcePlanName);
+  assert.equal(planRows.length, 7);
+  assert.ok(planRows.every((e) => e.doc.sourcePlanName === '8萬方案'));
+  for (const e of p.entitlements) assert.ok(!('sourcePlanId' in e.doc));
 });
 
 // ---------- 拿真的舊表跑過之後補的 ----------

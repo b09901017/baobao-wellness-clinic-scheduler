@@ -25,7 +25,7 @@
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, tasksForCategory, bookingSystemsForVisit, isCancelKind, cancelKindFor,
+  bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -402,16 +402,24 @@ export function cancelConsequences({
     if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 
-    // **只講那幾段用得到的系統。** 一天同時有健檢（Examine）與復能（Abovee）時，
-    // 取消復能那一段跟 Examine 一點關係都沒有 —— 講了她會白跑一趟。
-    const already = new Set(
-      (tasks ?? []).filter((t) => !t.deletedAt && isCancelKind(t.kind)).map((t) => t.kind),
-    );
-    const mine = { ...visit, slots: [...picked].map((i) => all[i]) };
-    for (const system of bookingSystemsForVisit(mine, coursesById)) {
-      if (already.has(cancelKindFor(system))) continue;
-      lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
-    }
+    // **會多哪幾張，問真的會長出它們的那一支**（`cancelTasksFor()`，ADR-0070）。
+    // 以前這裡自己用 `bookingSystemsForVisit()` 算一次，於是兩件事分岔了：
+    // 上次那一段的「取消 Abovee」勾掉之後，這裡說「已經有了」而真的會多一張；
+    // 只取消二返那一段時，這裡不講 Examine 而真的會長「取消 Examine」
+    // （`.scratch/asks-2026-09-13/issues/02`）。
+    //
+    // 一天同時有健檢（Examine）與復能（Abovee）時，取消復能那一段跟 Examine 一點關係
+    // 都沒有 —— 那一支本來就只收取消掉的那幾段。
+    //
+    // **挑走的是那一天剩下的每一段時，存下去就是整天取消**（`applyStatus()` 推得出整筆
+    // cancelled），`cancelTasksFor()` 走的是整天那一條 —— 這裡也要照那一條問，不然
+    // 歷史資料裡勾掉的登記（例如舊的「Abovee」任務）框上不講、存完卻多一張。
+    const after = {
+      ...visit,
+      ...(left ? {} : { status: 'cancelled' }),
+      slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
+    };
+    lines.push(...cancelTaskLines(after, tasks, coursesById));
 
     lines.push('改期不是改日期，是取消後重新排一次');
     if (sheetSyncOn) lines.push(SHEET_LINE);
@@ -429,14 +437,9 @@ export function cancelConsequences({
   // **講出是哪一個系統。** 一筆來訪可以同時有健檢（Examine）與復能（Abovee），
   // 那時候兩個都要講，因為她真的要去兩個地方收。
   //
-  // **已經有那一張就不要再承諾一次。** `syncTasksForVisit()` 的 `gone` 那一段
-  // 有一道 `already` 擋著同一種只長一張 —— 已經取消過再刪掉的那一次，
-  // 不會多長任何東西，而畫面上說「會多一張」就是在講一件不會發生的事。
-  const already = new Set(alive.filter((t) => isCancelKind(t.kind)).map((t) => t.kind));
-  for (const system of bookingSystemsForVisit(visit, coursesById)) {
-    if (already.has(cancelKindFor(system))) continue;
-    lines.push(`待辦會多一張「取消 ${system}」—— 回去把那個時段放掉`);
-  }
+  // **問真的會長出它們的那一支**（`cancelTasksFor()`）：已經有那一張的不再承諾一次，
+  // 勾過的 Examine／耀聖要收也講得出來 —— 兩件事都只寫在那裡。
+  lines.push(...cancelTaskLines({ ...visit, status: 'cancelled' }, tasks, coursesById));
 
   const live = alive.filter((t) => !t.done);
 
@@ -470,4 +473,19 @@ export function cancelConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 「待辦會多一張『取消 X』」那幾句。**由真的會長出來的那一份推**（`cancelTasksFor()`）——
+ * 畫面上的後果只能講真的會發生的事（ADR-0070）。
+ *
+ * 壓表登記與確認後的登記是兩句話：前者是「那個時段放掉」，後者是「那一段的登記取消掉」。
+ *
+ * @param {object} after 取消之後的那一筆來訪
+ */
+function cancelTaskLines(after, tasks, coursesById) {
+  return cancelTasksFor(after, tasks ?? [], coursesById).map((t) => (cancelsBooking(after, t, coursesById)
+    ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
+    // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
+    : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
 }

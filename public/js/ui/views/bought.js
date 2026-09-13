@@ -15,11 +15,21 @@
 //
 // 所以這一頁**不畫剩餘次數**：兩個地方講同一件事，遲早有一邊落後（ADR-0004）。
 //
+// ## 一天一張（2026-09-13）
+//
+// 她：「不要把方案品項都列出來，只要像小標題那樣呈現就好，就是哪個方案幾套，加購甚麼多少」，
+// 以及「在買了甚麼那邊可以照你建議的這樣分」（照日期分）。所以一張卡片是一天，抬頭是那一天的
+// 摘要（跟客戶抬頭同一支的項目段，ADR-0090），微調過的才在底下列一行「本來 → 現在」。
+//
+// 以前一次購買（`purchaseId`）一張、每一筆額度一列 —— 建新客戶時每一筆加購各自一個購買 id，
+// 同一天會冒出好幾張。
+//
 // 分組與日期怎麼移只寫在 `domain/purchases.js`。
 
 import * as data from '../../data/customers.js';
+import * as config from '../../data/config.js';
 import {
-  groupPurchases, productsOf, isTweaked, dateChangePatch, describeDateChange,
+  purchaseDays, productsOf, dateChangePatch, describeDateChange, purchaseDayLabel,
 } from '../../domain/purchases.js';
 import { unitOf } from '../components/buy.js';
 import { deliveryState } from '../../domain/products.js';
@@ -36,11 +46,22 @@ export async function render(el, id) {
 
   let customer;
   let entitlements;
+  let master;
   try {
-    [customer, entitlements] = await Promise.all([
+    let plans;
+    let equipment;
+    let courses;
+    let ivProducts;
+    [customer, entitlements, plans, equipment, courses, ivProducts] = await Promise.all([
       data.get(id),
       data.listEntitlements(id),
+      // 摘要那一行的簡寫與套數要的（`purchaseDays()`，ADR-0090）
+      config.listAll('plans'),
+      config.listAll('equipment'),
+      config.listAll('courses'),
+      config.listAll('ivProducts'),
     ]);
+    master = { plans, equipment, courses, ivProducts };
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
     return;
@@ -53,12 +74,12 @@ export async function render(el, id) {
     return;
   }
 
-  paint({ el, id, customer, entitlements });
+  paint({ el, id, customer, entitlements, master });
 }
 
 function paint(ctx) {
-  const { el, id, customer, entitlements } = ctx;
-  const groups = groupPurchases(entitlements);
+  const { el, id, customer, entitlements, master } = ctx;
+  const groups = purchaseDays(entitlements, master);
   const products = productsOf(entitlements);
 
   // 委派掛在這一層，不掛在整頁的 `el` 上 —— `#view` 重畫一次就會多一顆，
@@ -90,48 +111,40 @@ function paint(ctx) {
 }
 
 /**
- * 一組購買。
+ * 一天一張。抬頭是**日期 → 那一天買了什麼**；日期排最前面是因為她認的就是那個
+ * ——「七月那一次買的」。日期寫 `0723`，跟客戶抬頭同一種寫法。
  *
- * 抬頭上是**日期 → 名字 → 微調過**。日期排最前面是因為她認的就是那個
- * ——「三月那一次買的」。
+ * 底下**只有微調過的才有字**（「本來 20 → 23」）。沒改過的一列都不多 —— 同一個數字講兩遍
+ * 等於把品項清單換個樣子放回來，而她說不要列品項。
  */
 function groupHtml(g) {
+  const when = purchaseDayLabel(g.date) || '沒有日期';
   return `
     <section class="card" data-group="${esc(g.key)}">
       <div class="row" style="align-items: baseline; gap: var(--space-2)">
-        ${g.purchaseId && !g.unknown
-          ? `<button class="footlink" type="button" data-editdate="${esc(g.key)}">
-               ${esc(g.purchasedAt ?? '沒有日期')} ${icon('pencil', { size: 13 })}</button>`
-          : `<span class="muted">${esc(g.purchasedAt ?? '沒有日期')}</span>`}
-        <h2 class="card__title" style="margin: 0; flex: 1">${esc(g.label)}</h2>
-        ${g.tweaked ? '<span class="badge badge--soon">微調過</span>' : ''}
+        ${g.unknown
+          ? `<span class="muted num">${esc(when)}</span>`
+          : `<button class="footlink num" type="button" data-editdate="${esc(g.key)}">
+               ${esc(when)} ${icon('pencil', { size: 13 })}</button>`}
+        <h2 class="card__title" style="margin: 0; flex: 1">${esc(g.summary || '（沒有名稱）')}</h2>
+        ${g.tweaks.length ? '<span class="badge badge--soon">微調過</span>' : ''}
       </div>
 
       <div data-dateform="${esc(g.key)}" hidden></div>
 
-      <ul class="roster">
-        ${g.rows.map(rowHtml).join('')}
-      </ul>
+      ${g.tweaks.length ? `
+        <ul class="roster">
+          ${g.tweaks.map(tweakHtml).join('')}
+        </ul>` : ''}
     </section>`;
 }
 
-/**
- * 一列。**改過的才印「方案本來 N 次」** —— 沒改過的印出來等於把同一個數字
- * 講兩遍（同 `components/planTweak.js` 的 `noteFor()`）。
- */
-function rowHtml(e) {
-  const notes = [
-    isTweaked(e) ? `方案本來 ${e.sourcePlanQty} 次` : null,
-    e.followupForEntitlementId ? '健檢配出來的' : null,
-  ].filter(Boolean);
-
+/** 微調過的一項：`三選一(60)　本來 24 → 27`。 */
+function tweakHtml(t) {
   return `
-    <li class="roster__row">
-      <span class="roster__main">
-        <span class="roster__name">${esc(e.label || '（沒有名稱）')}</span>
-        ${notes.length ? `<span class="roster__note">${esc(notes.join('　'))}</span>` : ''}
-      </span>
-      <span class="num" style="font-weight: 700">${esc(e.totalQty ?? 0)} ${esc(unitOf(e))}</span>
+    <li class="roster__row" data-tweak>
+      <span class="roster__main"><span class="roster__name">${esc(t.name)}</span></span>
+      <span class="num">本來 ${esc(t.from)} → <strong>${esc(t.to)}</strong></span>
     </li>`;
 }
 
@@ -173,7 +186,7 @@ function wire(ctx) {
   // 而換頁換不掉它（`tests/layering.test.js` 盯著這個名字）。
   const root = ctx.el.querySelector('[data-boughtroot]');
   if (!root) return;
-  const groups = groupPurchases(ctx.entitlements);
+  const groups = purchaseDays(ctx.entitlements, ctx.master);
   const groupOf = (key) => groups.find((g) => g.key === key) ?? null;
 
   const openAt = (key) => {
@@ -181,7 +194,7 @@ function wire(ctx) {
     const host = root.querySelector(`[data-dateform="${CSS.escape(key)}"]`);
     if (!g || !host) return;
     editing = key;
-    host.innerHTML = dateFormHtml(g, g.purchasedAt);
+    host.innerHTML = dateFormHtml(g, g.date);
     host.hidden = false;
     host.querySelector('[data-newdate]')?.focus();
   };

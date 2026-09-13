@@ -103,9 +103,12 @@ describe('翻頁', () => {
 describe('標題', () => {
   test('三種檢視各自講得清楚是哪一段', () => {
     // 日檢視不放年份：390px 上會斷成兩行，而年份是最不需要確認的一項
-    assert.equal(titleOf('day', '2026-09-18'), '9/18(五)');
-    assert.equal(titleOf('week', '2026-09-18'), '9/14(一) – 9/20(日)');
-    assert.equal(titleOf('month', '2026-09-18'), '2026 年 9 月');
+    // 2026-09-13 她：「光是2026年就會占掉手機版的版面導致後面都會變...，就不知道到底是哪一月，
+    // 然後週也是，可以寫第幾週這樣就不會變...或是9月w1 w2 w3 w4 等等」
+    // （`.scratch/asks-2026-09-13/issues/09`）
+    assert.equal(titleOf('day', '2026-09-18', '2026-09-13'), '9/18(五)');
+    assert.equal(titleOf('week', '2026-09-18', '2026-09-13'), '9月 W3');
+    assert.equal(titleOf('month', '2026-09-18', '2026-09-13'), '9月');
   });
 });
 
@@ -612,3 +615,48 @@ test('每一個開讀取卡片的畫面都帶著 coursesById 與 master', () => 
     assert.ok(found > 0, `${rel} 找不到任何 visitReadHtml() 呼叫端 —— 這支測試失效了`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 標題只寫月、第幾週（`.scratch/asks-2026-09-13/issues/09`）
+
+import { weekOfMonth } from '../public/js/domain/calendar.js';
+
+describe('第幾週（weekOfMonth）', () => {
+  test('那一週有四天以上落在哪個月就算哪個月（她同意的規則）', () => {
+    // 8/31–9/6：週四是 9/3 → 9 月的第 1 週
+    assert.deepEqual(weekOfMonth('2026-08-31'), { year: 2026, month: 9, n: 1 });
+    assert.deepEqual(weekOfMonth('2026-09-06'), { year: 2026, month: 9, n: 1 });
+    // 9/28–10/4：週四是 10/1 → 10 月的第 1 週
+    assert.deepEqual(weekOfMonth('2026-09-30'), { year: 2026, month: 10, n: 1 });
+  });
+
+  test('9/7 那一週是 9 月第 2 週、9/21 那一週是第 4 週', () => {
+    assert.equal(weekOfMonth('2026-09-07').n, 2);
+    assert.equal(weekOfMonth('2026-09-21').n, 4);
+  });
+
+  test('跨年那一週也照週四算（2026-12-28 那一週的週四是 12/31）', () => {
+    assert.deepEqual(weekOfMonth('2027-01-02'), { year: 2026, month: 12, n: 5 });
+  });
+});
+
+describe('標題（titleOf）', () => {
+  test('月：今年只寫月，不是今年才寫年份', () => {
+    assert.equal(titleOf('month', '2026-12-01', '2026-09-13'), '12月');
+    assert.equal(titleOf('month', '2027-01-05', '2026-09-13'), '2027年1月');
+  });
+
+  test('週：跨月那一週寫它歸屬的那個月', () => {
+    assert.equal(titleOf('week', '2026-08-31', '2026-09-13'), '9月 W1');
+    assert.equal(titleOf('week', '2026-09-28', '2026-09-13'), '10月 W1');
+  });
+
+  test('週：不是今年也寫年份', () => {
+    assert.equal(titleOf('week', '2027-01-06', '2026-09-13'), '2027年1月 W1');
+  });
+
+  test('沒給今天就當作跟那一天同一年（不要憑空多出年份）', () => {
+    assert.equal(titleOf('month', '2027-01-05'), '1月');
+  });
+});
+

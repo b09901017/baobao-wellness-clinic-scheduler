@@ -139,7 +139,10 @@ export const updateEntitlement = (customerId, id, changes) =>
  */
 export const updateEntitlements = (customerId, patches = []) =>
   repo.commit(patches.map((p) => ({
-    op: 'update', path: entPath(customerId), id: p.id, data: p.changes,
+    // **update 讀的是 `changes`，不是 `data`**（`repo.commit()`）。2026-09-06 到 09-13 這裡寫的是
+    // `data:`，於是改購買日一次都沒存成功過：寫進去的只有 updatedAt，稽核那一筆還因為
+    // `after: undefined` 整批被 Firestore 拒收（`tests/commit-ops.test.js` 盯著）。
+    op: 'update', path: entPath(customerId), id: p.id, changes: p.changes,
   })));
 export const removeEntitlement = (customerId, id, reason) =>
   repo.softDelete(entPath(customerId), id, reason);

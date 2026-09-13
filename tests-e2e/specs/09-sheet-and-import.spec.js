@@ -196,3 +196,40 @@ test('J-C11 行事曆雜事：寫了同事名字的一律退回行事備註，�
   expect(body).toContain('跟騰崴確認器材');
   expect(body).toContain('記得叫貨');
 });
+
+// 合併檔 v2（`.scratch/asks-2026-09-13/issues/08`）：購買日、方案與套數、帶顏色的備註。
+// 她：「也希望你幫我調整完後也幫我去修改合併的那個skill，讓他們相容」。
+test('J-C12 合併檔 v2：匯進來的客戶抬頭印得出買了什麼，尾款那一則是紅色', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+
+  const v2 = mergeFile({ format: 'baobao-merge/v2', eventCandidates: [] });
+  Object.assign(v2.customers[0], {
+    source: '顧客會',
+    purchasedAt: '2026-06-17',
+    marks: [{ text: '欠尾款3萬', color: 'red' }],
+    purchaseProblems: ['購買名稱寫 2 套，但第 2–8 列的應有次數是 1 套，照應有次數匯'],
+  });
+  Object.assign(v2.customers[0].entitlements[0], {
+    purchasedAt: '2026-06-17', sourcePlanName: '8萬方案', sourcePlanSets: 1, sourcePlanQty: 20, purchaseKey: 'plan',
+  });
+
+  await page.locator('[data-json]').fill(JSON.stringify(v2));
+  await page.locator('[data-load]').click();
+  await app.settled();
+  await expect(page.locator('[data-purchase-problems]'), '對不上的那幾條要在匯入之前看得到')
+    .toContainText('應有次數是 1 套');
+
+  await page.locator('[data-run]').click();
+  if (await app.dialog().count()) await app.ok();
+  await expect.poll(async () => (await app.readAll('customers')).filter((c) => !c.deletedAt).length,
+    { timeout: 20_000 }).toBe(1);
+
+  const [c] = (await app.readAll('customers')).filter((x) => !x.deletedAt);
+  expect(c.purchasedAt).toBe('2026-06-17');
+  expect(c.source).toBe('顧客會');
+  expect(c.marks).toEqual([{ text: '欠尾款3萬', color: 'red' }]);
+
+  await app.go(`/customers/${c.id}`);
+  await expect(page.locator('.hero__meta')).toHaveText('0617 顧客會 8萬方案');
+});

@@ -133,6 +133,9 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
   （見 `findings.md`）。但如果數量對不上，要問。
 - **年份**、**跨年的批次**。
 - **她說「這個之後再確認」的**：記下來，不要卡住其他部分。
+- **報告的 ⓪c（購買名稱對不上的）每一條都要問**。她 2026-09-13：「所有的方案課程加購都可以
+  再用各種課程的應有次數去驗證一次，然後合併的時候也可以再問我一次」。匯進去的是應有次數
+  那一份，但哪一邊對由她決定。B2 怎麼讀見 `references/answers.md` 的 2026-09-13 那一節。
 
 ## 合併檔（`import.json`）
 
@@ -140,11 +143,15 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v1'
+format: 'baobao-merge/v2'          （app 也收 v1：少的那幾格一律 null）
 calendar: { file, span, events }
-customers[]: { sheetName, name, source, notes,
+customers[]: { sheetName, name, source, purchasedAt, notes,
+               marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
+               purchaseProblems[]: string,            （v2：B2 拿應有次數驗過、對不上的那幾條）
                entitlements[]: { key, type, label, totalQty, courseName,
-                                 optionEquipmentNames[], productName },
+                                 optionEquipmentNames[], productName,
+                                 purchasedAt, sourcePlanName, sourcePlanSets, sourcePlanQty,
+                                 purchaseKey },       （v2：同一次購買同一個 key）
                visits[]:       { date, status:'done',
                                  slots[]: { entitlementKey, courseName,
                                             startsAt, endsAt, roomName, therapistName,

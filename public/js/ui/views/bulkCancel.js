@@ -512,7 +512,10 @@ function repaintBar() {
     return;
   }
   if (old) old.remove();
-  ctx.el.insertAdjacentHTML('beforeend', barHtml(picked));
+  // **插在 `.bulkpage` 裡面，跟 `paint()` 同一個位置。** 以前插在 `ctx.el`
+  // 最後面：勾一段走這裡、整天選起來走 `paint()`，同一條橫幅兩種 DOM ——
+  // 外面那一種排不到 `margin-top: auto` 的底（`.scratch/asks-2026-09-13/issues/01`）。
+  (ctx.el.querySelector('.bulkpage') ?? ctx.el).insertAdjacentHTML('beforeend', barHtml(picked));
   // 重畫過的節點沒有監聽器了，這一顆要自己接回去
   ctx.el.querySelector('[data-go]')?.addEventListener('click', () => run());
 }

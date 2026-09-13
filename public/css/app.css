@@ -1535,6 +1535,15 @@ button.mark::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* 客戶頁卡片上那一行「買了什麼」最多兩行（ADR-0090）。一位客戶買得多的時候
+   那一串會有四五十個字，整串攤開會把底下的額度細條一路往下推 —— 點進詳情才看全部。 */
+.hero__meta--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .hero__flags {
   display: flex;
   flex-wrap: wrap;
@@ -2172,6 +2181,139 @@ button.mark::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* 標題本身是一顆按鈕（`.scratch/asks-2026-09-13/issues/10`）。**長得跟以前的標題一樣** ——
+   只多一顆往下的小箭頭講「這裡按得下去」。字的樣子全部從 `.calbar__title` 繼承。 */
+.calbar__pick {
+  /* 觸控區撐到 44px，撐開的那一層貼在自己身上（CLAUDE.md「一顆小圖示按鈕的觸控區」） */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.calbar__pick::after {
+  content: '';
+  position: absolute;
+  inset: -9px -4px;
+}
+
+.calbar__pick > svg {
+  flex: none;
+  color: var(--text-mute);
+}
+
+/* 點標題浮出來的那一張：翻頁那一列、十二個月、小月曆。 */
+.datepick__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.datepick__label {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.datepick__months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.datepick__cell {
+  min-height: 44px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+/* 小月曆的一列。週檢視時整列是一顆按鈕，前面多一格「W2」。 */
+.datepick__row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+}
+
+.datepick__row--week {
+  grid-template-columns: 3.2em repeat(7, 1fr);
+  cursor: pointer;
+}
+
+.datepick__row--head {
+  min-height: 28px;
+}
+
+.datepick__row--head:has(.datepick__wk) {
+  grid-template-columns: 3.2em repeat(7, 1fr);
+}
+
+.datepick__wd,
+.datepick__wk {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+.datepick__day {
+  font-size: var(--text-sm);
+}
+
+.datepick__day--tap {
+  min-height: 44px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.datepick__day.is-out {
+  color: var(--text-mute);
+}
+
+.datepick__day.is-today,
+.datepick__cell.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 現在看的那一個：月份、那一週整列、那一天，同一種底色 */
+.datepick__cell[aria-pressed='true'],
+.datepick__row--week[aria-pressed='true'],
+.datepick__day--tap[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.datepick__row--week[aria-pressed='true'] .datepick__day,
+.datepick__row--week[aria-pressed='true'] .datepick__wk {
+  color: inherit;
+}
+
 .calbar__nav {
   width: 32px;
   height: 32px;
@@ -2620,6 +2762,9 @@ button.mark::after {
 .weekday__n {
   min-width: 26px;
   height: 26px;
+  /* 寫的是 `9/7` 不是 `7`（2026-09-13），今天那一顆底色會變成膠囊，兩邊要留一點 */
+  padding: 0 6px;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3934,6 +4079,14 @@ button.mark::after {
    用透明度不用第三種顏色：這一塊只有兩個色階，多一種會變成在分類。 */
 .taskmirror__row.is-pending {
   opacity: 0.55;
+}
+
+/* **那一段取消了**：原本的待辦照樣列，灰掉（`.scratch/asks-2026-09-13/issues/03`）。
+   **不劃線** —— 劃線是 `.is-done`「做完了」，這一種是「不會發生了」。
+   比 `.is-pending` 再淡一階：那一種等一下會長出來，這一種永遠不會。 */
+.taskmirror__row.is-void {
+  color: var(--text-mute);
+  opacity: 0.5;
 }
 
 .taskmirror__mark {
@@ -5697,6 +5850,74 @@ summary {
   .weekgrid .card {
     margin-bottom: 0;
   }
+
+  /* 七欄時一列改成直排（`.scratch/asks-2026-09-13/issues/11`）。
+     她 2026-09-13：「如果是橫的顯示(ipad) 他會變成好擠，所有字都會變成直得顯示?」
+     一列是「左邊 42px 時間欄 ＋ 色棒 ＋ 內容」，那是給手機一整排寬度設計的 —— 1024 寬時
+     一天一欄只有 92px，名字那一格剩 29px，所以一字一行（2026-09-13 量的）。
+
+     **不做橫向滑**：週檢視本身左右滑就是換一週（ADR-0020），裡面再放一層橫向捲動，
+     兩個手勢會打架。所以留著七欄，把一列的方向轉過來：時間一行在上、色棒變左邊框、
+     名字一行、課程一行，超過就省略。日檢視與手機的週檢視一個像素都不動。 */
+  .weekgrid .timerow {
+    position: relative;
+    flex-direction: column;
+    gap: 0;
+    padding-left: 7px;
+  }
+
+  .weekgrid .timerow__bar {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: var(--space-1);
+    margin: 0;
+  }
+
+  .weekgrid .timerow__clock {
+    display: flex;
+    gap: 2px;
+    width: auto;
+    padding: var(--space-2) var(--space-1) 0;
+    text-align: left;
+  }
+
+  .weekgrid .timerow__to::before {
+    content: '–';
+  }
+
+  .weekgrid .timerow__body {
+    padding: 0 var(--space-1) var(--space-2);
+  }
+
+  .weekgrid .timerow__title,
+  .weekgrid .timerow__sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .weekgrid .timerow__title {
+    font-size: var(--text-sm);
+  }
+
+  /* 右邊那一顆狀態徽章在九十幾像素裡放不下，顏色已經在左邊那一條上了（圖例在上面） */
+  .weekgrid .timerow__body .row > :not(.row__main) {
+    display: none;
+  }
+
+  .weekgrid .weekday__head {
+    padding: var(--space-2) var(--space-1);
+    gap: var(--space-1);
+  }
+
+  .weekgrid .weekday__head > * {
+    white-space: nowrap;
+  }
+
+  .weekgrid .weekday__pre {
+    display: none;
+  }
 }
 
 /* 月檢視在手機上一格 9px，看得到有東西但看不出是誰 —— 那種畫面只會讓她再點一次。 */
@@ -7311,7 +7532,11 @@ summary {
 }
 
 /* 批次取消整頁。**存在的理由只有底下那一條** —— 見 `.bulkbar`。
-   直排 ＋ 至少一個視窗高，那一條才有辦法用 `margin-top: auto` 排到底。
+
+   直排 ＋ 至少撐滿**捲動區**，那一條才有辦法用 `margin-top: auto` 排到底。
+   **撐滿的是捲動區，不是螢幕**：2026-09-10 那一版寫 `100dvh`，而捲動區是
+   螢幕扣掉導覽列（與測試環境的橫幅）再扣掉上下留白 —— 永遠比螢幕矮，
+   於是一天兩段的清單也捲得動 205px（2026-09-13 量的）。
 
    直排會讓每一個直接子元素變成 flex item（拉滿整行），而這一頁的直接子元素
    本來就都是滿版的區塊 —— 只有 `.backlink` 是 `inline-flex`，所以它要
@@ -7319,19 +7544,31 @@ summary {
 .bulkpage {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: 100%;
 }
 
 .bulkpage > .backlink {
   align-self: flex-start;
 }
 
+/* 那一條出現的時候，捲動區不留底下那塊留白。
+
+   **這才是它懸空的主因**（`.scratch/asks-2026-09-13/issues/01`）。`.app__main`
+   底下留 `--space-7`（44px）讓出導覽列，而 sticky 的 `bottom: 0` 是從捲動區的
+   **內容邊**算的 —— 那一條永遠停在留白上緣，離導覽列 44px，清單從那個縫裡
+   繼續往下捲，所以勾選列一下從它底下露出來、一下又被它蓋住。
+   9/10 那一次只修了「撐不滿」那一半，而盯著它的測試是掃 CSS 字串的，
+   所以綠著。現在盯著它的是 `22-bulk-cancel` 那幾條**量位置**的 E2E。
+
+   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。 */
+.app__main:has(.bulkbar) {
+  padding-bottom: 0;
+}
+
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
 
-   `margin-top: auto` 是它不再懸空的整個修正（2026-09-10）：sticky 只會在
-   捲動時把元素**釘住**，不會把它往下**推**。頁面撐不滿一個視窗時，它就停在
-   內容正下方，而它身上那一整套（上緣邊線、往上打的陰影）講的是「我貼在畫面
-   底部」—— 貼不到底的時候那些訊號就變成「一條浮在空氣上的橫條」。 */
+   `margin-top: auto` 讓它在頁面撐不滿的時候排到底；上面那一條讓「底」真的是
+   導覽列的頂。兩條少一條都會懸空。 */
 .bulkbar {
   position: sticky;
   bottom: 0;
@@ -7340,10 +7577,8 @@ summary {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* 底下那個簡寫的第一格是 `auto`，那就是它不再懸空的整個修正。
-     **不要換回 `var(--space-4)`**（2026-09-10 之前的值）。
-     而且它必須寫在簡寫裡：margin 簡寫會把上緣那一格一起重設，
-     所以另外補一行是沒有用的。上下的呼吸感由自己的 padding 給。 */
+  /* 簡寫的第一格是 `auto`，而且必須寫在簡寫裡：margin 簡寫會把上緣那一格
+     一起重設，另外補一行是沒有用的。上下的呼吸感由自己的 padding 給。 */
   margin: auto calc(-1 * var(--gutter)) 0;
   padding: var(--space-3) var(--gutter);
   padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));

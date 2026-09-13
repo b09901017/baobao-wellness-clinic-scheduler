@@ -47,6 +47,7 @@ import { tip } from '../components/tip.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { openCard } from '../components/card.js';
 import { todayISO, shortDate, addMonths, monthLabel } from '../../domain/dates.js';
+import { purchaseHeadline } from '../../domain/purchases.js';
 import { messagesFor } from '../../domain/messages.js';
 import { formLink, inviteState } from '../../domain/availabilityForm.js';
 import * as invitesData from '../../data/formInvites.js';
@@ -205,6 +206,8 @@ function paint(ctx) {
   // 而營養品永遠是滿的 —— 沒有任何一筆來訪扣得掉它。
   const pools = entitlements.filter((e) => !isProduct(e));
   const bought = entitlements.filter(isProduct);
+  // 名字底下那一行：買了什麼（ADR-0090）。跟客戶頁的卡片同一支。
+  const headline = purchaseHeadline(customer, entitlements, { ...master, plans: ctx.plans ?? [] });
 
   el.innerHTML = `
     <div data-detailpage>
@@ -216,7 +219,7 @@ function paint(ctx) {
           <h1 class="hero__name">${esc(customer.name)}
             ${customer.priority ? `<span class="stars">${'★'.repeat(customer.priority)}</span>` : ''}
           </h1>
-          <p class="hero__meta">${esc(contactLine(customer))}</p>
+          ${headline ? `<p class="hero__meta">${esc(headline)}</p>` : ''}
         </div>
         <button class="btn btn--sm" type="button" data-edit>編輯</button>
       </div>
@@ -450,15 +453,6 @@ function wire(ctx, { today, marks }) {
 }
 
 // ---------- 抬頭與這個月 ----------
-
-function contactLine(c) {
-  const parts = [];
-  if (c.phone) parts.push(c.phone);
-  if (c.lineId) parts.push(`LINE ${c.lineId}`);
-  if (c.source) parts.push(c.source);
-  if (c.purchasedAt) parts.push(`${c.purchasedAt} 購買`);
-  return parts.length ? parts.join('・') : '沒有聯絡方式';
-}
 
 /**
  * 那一個月排了什麼。**一天一組、一段一列**，跟「看這個月的進度」那一頁
