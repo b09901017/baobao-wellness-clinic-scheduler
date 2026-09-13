@@ -1,6 +1,6 @@
 # 點日曆標題跳到某個月、某一週、某一天
 
-Status: todo
+Status: done
 Blocked by: 09
 來源：`../spec.md` 第三 b
 動工前先讀：ADR-0020（日曆不換頁）、`ui/components/sheet.js`、`ui/nav.js`（`pushLayer`）、

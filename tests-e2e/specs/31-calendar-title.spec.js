@@ -58,3 +58,59 @@ test('往後滑到明年一月，標題帶年份', async ({ app, page }) => {
   }
   await expect(title(page)).toHaveText('2027年1月');
 });
+
+// ---------- 10 點標題跳日期 ----------
+
+test('月檢視：點標題選一個月', async ({ app, page }) => {
+  await openCalendar(app, page);
+  await title(page).locator('button').click();
+  await app.layer('[data-pick-month]');
+
+  await expect(page.locator('[data-pick-month]')).toHaveCount(12);
+  await page.locator('[data-pick-month="2026-11"]').click();
+  await app.settled();
+  await expect(title(page)).toHaveText('11月');
+  await expect(page.locator('[data-pick-month]'), '選完面板收掉').toHaveCount(0);
+});
+
+test('月檢視：年份往後一年再選一月', async ({ app, page }) => {
+  await openCalendar(app, page);
+  await title(page).locator('button').click();
+  await app.layer('[data-pick-month]');
+  await page.locator('[data-pick-step="1"]').click();
+  await page.locator('[data-pick-month="2027-01"]').click();
+  await app.settled();
+  await expect(title(page)).toHaveText('2027年1月');
+});
+
+test('週檢視：點標題，點一整列選那一週', async ({ app, page }) => {
+  await openCalendar(app, page);
+  await switchView(app, page, 'week');
+  await title(page).locator('button').click();
+  await app.layer('[data-pick-week]');
+
+  await page.locator('[data-pick-week="2026-08-10"]').click();
+  await app.settled();
+  await expect(title(page)).toHaveText('8月 W2');
+  await expect(page.locator('.swipe__pane[data-offset="0"] .weekday__n').first()).toHaveText('8/10');
+});
+
+test('日檢視：點標題，點一天', async ({ app, page }) => {
+  await openCalendar(app, page);
+  await switchView(app, page, 'day');
+  await title(page).locator('button').click();
+  await app.layer('[data-pick-day]');
+
+  await page.locator('[data-pick-day="2026-08-20"]').click();
+  await app.settled();
+  await expect(title(page)).toHaveText('8/20(四)');
+});
+
+test('面板開著按返回鍵：面板收掉，人還在日曆', async ({ app, page }) => {
+  await openCalendar(app, page);
+  await title(page).locator('button').click();
+  await app.layer('[data-pick-month]');
+  await page.goBack();
+  await expect(page.locator('[data-pick-month]')).toHaveCount(0);
+  expect(page.url()).toContain('#/calendar');
+});

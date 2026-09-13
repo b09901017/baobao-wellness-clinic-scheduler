@@ -2181,6 +2181,131 @@ button.mark::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* 標題本身是一顆按鈕（`.scratch/asks-2026-09-13/issues/10`）。**長得跟以前的標題一樣** ——
+   只多一顆往下的小箭頭講「這裡按得下去」。字的樣子全部從 `.calbar__title` 繼承。 */
+.calbar__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.calbar__pick > svg {
+  flex: none;
+  color: var(--text-mute);
+}
+
+/* 點標題浮出來的那一張：翻頁那一列、十二個月、小月曆。 */
+.datepick__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.datepick__label {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.datepick__months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.datepick__cell {
+  min-height: 44px;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+/* 小月曆的一列。週檢視時整列是一顆按鈕，前面多一格「W2」。 */
+.datepick__row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+}
+
+.datepick__row--week {
+  grid-template-columns: 3.2em repeat(7, 1fr);
+  cursor: pointer;
+}
+
+.datepick__row--head {
+  min-height: 28px;
+}
+
+.datepick__row--head:has(.datepick__wk) {
+  grid-template-columns: 3.2em repeat(7, 1fr);
+}
+
+.datepick__wd,
+.datepick__wk {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+.datepick__day {
+  font-size: var(--text-sm);
+}
+
+.datepick__day--tap {
+  min-height: 44px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.datepick__day.is-out {
+  color: var(--text-mute);
+}
+
+.datepick__day.is-today,
+.datepick__cell.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 現在看的那一個：月份、那一週整列、那一天，同一種底色 */
+.datepick__cell[aria-pressed='true'],
+.datepick__row--week[aria-pressed='true'],
+.datepick__day--tap[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.datepick__row--week[aria-pressed='true'] .datepick__day,
+.datepick__row--week[aria-pressed='true'] .datepick__wk {
+  color: inherit;
+}
+
 .calbar__nav {
   width: 32px;
   height: 32px;

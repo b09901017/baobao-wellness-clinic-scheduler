@@ -32,7 +32,7 @@ import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
 import {
   VIEWS, VIEW_LABELS, WEEKDAY_HEADERS,
-  rangeOf, moveBy, titleOf, weekDays, monthWeeks, agendaFor, summaryByDate, monthBars,
+  rangeOf, moveBy, titleOf, weekDays, weekStart, weekOfMonth, monthWeeks, agendaFor, summaryByDate, monthBars,
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
@@ -41,7 +41,7 @@ import {
   slotNoteOf,
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
-import { todayISO, shortDate, weekdayLabel } from '../../domain/dates.js';
+import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
 import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
@@ -185,7 +185,13 @@ function paint(el, data) {
     <div class="calbar">
       <button class="calbar__nav" type="button" data-move="-1" aria-label="上一頁">
         ${icon('left', { size: 15 })}</button>
-      <h1 class="calbar__title">${esc(titleOf(state.view, state.date, today))}</h1>
+      ${/* 點標題跳到某個月／某一週／某一天（`.scratch/asks-2026-09-13/issues/10`）。
+             `h1` 留著（這一頁的標題），按鈕包在裡面。 */''}
+      <h1 class="calbar__title">
+        <button class="calbar__pick" type="button" data-pick-date aria-haspopup="dialog">
+          <span>${esc(titleOf(state.view, state.date, today))}</span>${icon('down', { size: 14 })}
+        </button>
+      </h1>
       <button class="calbar__nav" type="button" data-move="1" aria-label="下一頁">
         ${icon('right', { size: 15 })}</button>
       <div class="seg" role="group" style="flex: 0 0 auto">
@@ -1760,12 +1766,135 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
 
 // ---------- 事件 ----------
 
+// ---------- 點標題跳到某個月、某一週、某一天 ----------
+
+/**
+ * 點標題浮出來的那一張面板。**同一個小月曆，點哪裡算數跟著檢視走**
+ * （`.scratch/asks-2026-09-13/issues/10`）。
+ *
+ * 她 2026-09-13：「我希望點calbar__title那邊點了之後可以選日期，但是在月曆那邊可以選的是月，
+ * 週那邊可以選週，日那邊可以選日 ? 這樣不知道會不會很奇怪?」—— 不奇怪，一般日曆 app 都是這樣。
+ *
+ * | 檢視 | 面板 | 按下去 |
+ * |---|---|---|
+ * | 月 | 年份左右切換＋十二個月 | 那個月 |
+ * | 週 | 年月左右切換＋小月曆，**一整列是一顆** | 那一週的禮拜一 |
+ * | 日 | 年月左右切換＋小月曆，一天一顆 | 那一天 |
+ *
+ * **不用系統原生的選擇器**：iOS Safari 沒有選週的，而它的週數是一年裡的第幾週，
+ * 不是「9月 W2」（`weekOfMonth()`）。
+ *
+ * 面板疊在日曆上面，不換頁（ADR-0020），返回鍵收得掉（`openSheet()` 自己推一層）。
+ * 選完走 `render()` 重讀 —— 跳得遠的時候隔壁三格的資料本來就不在手上。
+ */
+function openDatePicker(el) {
+  const today = todayISO();
+  // 月檢視翻的是年，其餘翻的是月
+  let cursor = state.view === 'month' ? `${state.date.slice(0, 4)}-01-01` : `${state.date.slice(0, 7)}-01`;
+
+  const sheet = openSheet({ title: pickerTitle(), body: pickerHtml(cursor, today) });
+
+  // 委派掛在 `sheet.el`：翻頁走 `sheet.update()` 換掉的是裡面那一塊，`sheet.el` 還是同一個
+  // 節點 —— 掛在裡面的話每翻一次就要重掛（`components/actions.js` 檔頭記過那個坑）。
+  sheet.el.addEventListener('click', (e) => {
+    const step = e.target.closest('[data-pick-step]');
+    if (step) {
+      const n = Number(step.dataset.pickStep);
+      cursor = state.view === 'month' ? addMonths(cursor, n * 12) : addMonths(cursor, n);
+      sheet.update(pickerHtml(cursor, today));
+      return;
+    }
+    const month = e.target.closest('[data-pick-month]');
+    const week = e.target.closest('[data-pick-week]');
+    const day = e.target.closest('[data-pick-day]');
+    const picked = month ? `${month.dataset.pickMonth}-01`
+      : week ? week.dataset.pickWeek
+        : day ? day.dataset.pickDay
+          : null;
+    if (!picked) return;
+    state.date = picked;
+    closeSheet();
+    render(el);
+  });
+}
+
+function pickerTitle() {
+  if (state.view === 'month') return '跳到哪個月';
+  if (state.view === 'week') return '跳到哪一週';
+  return '跳到哪一天';
+}
+
+/** 面板裡那一塊。月檢視是十二個月，其餘是一個小月曆。 */
+function pickerHtml(cursor, today) {
+  const [year, month] = cursor.split('-').map(Number);
+  const thisYear = Number(today.slice(0, 4));
+  const stepper = (label) => `
+    <div class="datepick__bar">
+      <button class="calbar__nav" type="button" data-pick-step="-1" aria-label="往前">
+        ${icon('left', { size: 15 })}</button>
+      <span class="datepick__label num">${esc(label)}</span>
+      <button class="calbar__nav" type="button" data-pick-step="1" aria-label="往後">
+        ${icon('right', { size: 15 })}</button>
+    </div>`;
+
+  if (state.view === 'month') {
+    const current = state.date.slice(0, 7);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `
+      ${stepper(`${year}年`)}
+      <div class="datepick__months">
+        ${Array.from({ length: 12 }, (_, i) => {
+          const ym = `${year}-${pad(i + 1)}`;
+          return `<button class="datepick__cell ${ym === today.slice(0, 7) ? 'is-today' : ''}" type="button"
+                    data-pick-month="${ym}" aria-pressed="${ym === current}">${i + 1}月</button>`;
+        }).join('')}
+      </div>`;
+  }
+
+  const ym = cursor.slice(0, 7);
+  const label = year === thisYear ? `${month}月` : `${year}年${month}月`;
+  const weeks = monthWeeks(ym);
+  const heads = `<div class="datepick__row datepick__row--head">
+      ${state.view === 'week' ? '<span class="datepick__wk"></span>' : ''}
+      ${WEEKDAY_HEADERS.map((w) => `<span class="datepick__wd">${esc(w)}</span>`).join('')}
+    </div>`;
+
+  if (state.view === 'week') {
+    const currentStart = weekStart(state.date);
+    return `
+      ${stepper(label)}
+      ${heads}
+      ${weeks.map((row) => {
+        const w = weekOfMonth(row[0].date);
+        const wk = w.month === month ? `W${w.n}` : `${w.month}月W${w.n}`;
+        return `
+          <button class="datepick__row datepick__row--week" type="button"
+                  data-pick-week="${row[0].date}" aria-pressed="${row[0].date === currentStart}">
+            <span class="datepick__wk num">${esc(wk)}</span>
+            ${row.map((c) => `<span class="datepick__day num ${c.inMonth ? '' : 'is-out'} ${c.date === today ? 'is-today' : ''}">${Number(c.date.slice(8))}</span>`).join('')}
+          </button>`;
+      }).join('')}`;
+  }
+
+  return `
+    ${stepper(label)}
+    ${heads}
+    ${weeks.map((row) => `
+      <div class="datepick__row">
+        ${row.map((c) => `
+          <button class="datepick__day datepick__day--tap num ${c.inMonth ? '' : 'is-out'} ${c.date === today ? 'is-today' : ''}"
+                  type="button" data-pick-day="${c.date}" aria-pressed="${c.date === state.date}"
+                  aria-label="${esc(shortDate(c.date))}">${Number(c.date.slice(8))}</button>`).join('')}
+      </div>`).join('')}`;
+}
 
 function wire(el, data) {
   // 箭頭跟左右滑走同一條路 —— 一個閃「載入中」另一個不閃，會像兩個不同的功能
   el.querySelectorAll('[data-move]').forEach((btn) =>
     btn.addEventListener('click', () => slide(el, data, Number(btn.dataset.move))),
   );
+
+  el.querySelector('[data-pick-date]')?.addEventListener('click', () => openDatePicker(el));
 
   el.querySelector('[data-today]')?.addEventListener('click', () => {
     state.date = todayISO();
