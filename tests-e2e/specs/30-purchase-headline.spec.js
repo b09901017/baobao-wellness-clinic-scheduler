@@ -81,3 +81,46 @@ test('電話還找得到人（欄位留著，只是不上抬頭）', async ({ ap
   await page.locator('[data-search]').fill(PHONE);
   await expect(page.locator('a.card[href="#/customers/cust-h"]')).toBeVisible();
 });
+
+// ---------- 買過什麼：一天一張（issue 06） ----------
+
+test('買過什麼：一天一張，抬頭是那一天的摘要，新的在上面', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/customers/cust-h/bought');
+  await app.go('/customers/cust-h/bought');
+
+  const cards = page.locator('[data-group]');
+  await expect(cards, '7/23 那一天的方案與加購收成一張，9/1 另一張').toHaveCount(2);
+  await expect(cards.nth(0)).toContainText('0901');
+  await expect(cards.nth(0)).toContainText('SIS(60)x5');
+  await expect(cards.nth(1)).toContainText('0723');
+  await expect(cards.nth(1)).toContainText('新8萬方案x2+EECPx40');
+  await expect(cards.nth(1), '她：「不要把方案品項都列出來」').not.toContainText('ILIB(60)');
+});
+
+test('買過什麼：微調過的才列一行「本來 → 現在」', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/customers/cust-h/bought');
+  await app.go('/customers/cust-h/bought');
+
+  const day = page.locator('[data-group]').nth(1);
+  await expect(day.locator('[data-tweak]')).toHaveCount(1);
+  await expect(day.locator('[data-tweak]')).toContainText('三選一(60)');
+  await expect(day.locator('[data-tweak]')).toContainText('24');
+  await expect(day.locator('[data-tweak]')).toContainText('27');
+});
+
+test('買過什麼：改 7/23 那一張的日期，那一天每一筆都跟著移', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/customers/cust-h/bought');
+  await app.go('/customers/cust-h/bought');
+
+  const day = page.locator('[data-group]').nth(1);
+  await day.locator('[data-editdate]').click();
+  await page.locator('[data-newdate]').fill('2026-07-20');
+  await page.locator('[data-savedate]').click();
+  await app.saved();
+
+  await expect(page.locator('[data-group]').nth(1)).toContainText('0720');
+  await expect(page.locator('[data-group]').nth(1)).toContainText('EECPx40');
+});

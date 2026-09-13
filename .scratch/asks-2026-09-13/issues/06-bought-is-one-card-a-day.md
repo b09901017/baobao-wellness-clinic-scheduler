@@ -1,6 +1,6 @@
 # 「買過什麼」一天一張，只寫摘要
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` 第一 b，她的第 8 題
 動工前先讀：`ui/views/bought.js`、`domain/purchases.js` 的 `groupPurchases()`、`dateChangePatch()`
