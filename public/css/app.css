@@ -1535,6 +1535,15 @@ button.mark::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* 客戶頁卡片上那一行「買了什麼」最多兩行（ADR-0090）。一位客戶買得多的時候
+   那一串會有四五十個字，整串攤開會把底下的額度細條一路往下推 —— 點進詳情才看全部。 */
+.hero__meta--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .hero__flags {
   display: flex;
   flex-wrap: wrap;

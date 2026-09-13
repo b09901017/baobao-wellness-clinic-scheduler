@@ -237,6 +237,11 @@ export const COVERAGE = {
   ],
   // 「一天只是一個抬頭」（ADR-0089）。讀取卡片是四個畫面共用的，
   // 所以那四支 view 底下改一行都該跑這一支。
+  '30-purchase-headline': [
+    'public/js/domain/purchases.js', 'public/js/domain/entitlements.js',
+    'public/js/domain/naming.js', 'public/js/ui/views/customers.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/bought.js',
+  ],
   '29-slot-first': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
     'public/js/domain/playbook.js', 'public/js/domain/progress.js',

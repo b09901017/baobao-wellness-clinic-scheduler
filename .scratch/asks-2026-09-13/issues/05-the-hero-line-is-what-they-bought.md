@@ -1,6 +1,6 @@
 # 客戶清單與詳情的抬頭換成「買了什麼」
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` 第一 a，她補的 d
 動工前先讀：`ui/views/customers.js` 的 `metaLine()`、`ui/views/customerDetail.js` 的 `contactLine()`、SPEC 第 8.5 節
