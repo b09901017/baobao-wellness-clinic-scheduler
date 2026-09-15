@@ -82,10 +82,13 @@ describe('B2 購買名稱怎麼讀', () => {
       [{ text: 'sis(60)', qty: 5 }, { text: 'ILIB(60)', qty: 5 }]);
   });
 
-  test('寫了「新」卻沒有方案數字 → 講出來（她說那一種應該是打錯）', () => {
+  // 9/13 她說那一種是打錯，9/14 那一批又問了三次 —— 回答過就不再問。
+  // D 欄剛好是新範本的那一種還是要講，那一條在 planForSheet() 那一側（legacy-new-shapes.test.js）。
+  test('寫了「新」卻沒有方案數字 → 不問（她 9/13：打錯），只留一個旗子', () => {
     const out = p('0820新 - 顧客會-only sis(60)x10');
     assert.equal(out.plan, null);
-    assert.ok(out.problems.some((x) => x.includes('新')), JSON.stringify(out.problems));
+    assert.deepEqual(out.problems, []);
+    assert.equal(out.newWithoutPlan, true);
   });
 
   test('括號裡的微調原文留下來', () => {

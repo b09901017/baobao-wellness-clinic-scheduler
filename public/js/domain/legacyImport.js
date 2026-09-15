@@ -33,8 +33,8 @@ import { isValidDate, lastDayOf } from './dates.js';
 import { contraindicationHints } from './contraindications.js';
 import { equipmentForCourse } from './masterData.js';
 import { followupPlanEntries } from './followups.js';
-import { itemisedLabel } from './entitlements.js';
-import { MAX_MARK_LENGTH, toCustomerFields } from './customerMarks.js';
+import { itemisedLabel, idsForPoolKind, POOL_SET_ALL } from './entitlements.js';
+import { MAX_MARK_LENGTH, MAX_MARKS, toCustomerFields } from './customerMarks.js';
 
 // ---------- 工作表幾何 ----------
 //
@@ -113,6 +113,124 @@ export const SHEET_COURSE_ALIASES = Object.freeze({
 const POOL_LABELS = ['復能(1小時)', '復能（1小時）', '復能'];
 
 /**
+ * 帶時長、帶器材的列名長什麼樣子。2026-09-14 那一批多出來的寫法
+ * （`.scratch/merge-answers-2026-09-14/issues/01`）：
+ *
+ * | 舊表寫 | 是什麼 |
+ * |---|---|
+ * | `復能(1小時)`、`復能(30分）`、`復能(30min)` | 復能擇一池，沒寫幾選一就是三選一 |
+ * | `復能四選一(30)`、`復能三選一(60)` | 照寫的 |
+ * | `任選(30min)` | 擇一池，**沒寫幾選一** —— 她 9/15：之後個別問 |
+ * | `SIS(60min)`、`INDIBA(30)`、`高能(60)` | 只有那一台的池（ADR-0075：單買一台就是一台的池） |
+ * | `ILIB 30`、`ILIB (60mins)`、`ILIB 60mins` | ILIB 那個課程 |
+ *
+ * **時長要進額度的 `durationMin`**：30 分與 60 分是兩種東西，塌成課程的預設值的話，
+ * 她之後排出來的每一段長度都是錯的，而畫面上看不出來。
+ *
+ * @returns {{kind:'pool'|'single', course:string, only:string|null, set:'home'|'all'|null,
+ *            undecided:boolean, durationMin:number|null}|null}
+ *   不是這幾種就回 null，照舊走 `SHEET_COURSE_ALIASES` 那張對照表
+ */
+export function rowShape(label) {
+  const s = normalize(label).replace(/（/g, '(').replace(/）/g, ')');
+  if (s === '復能') {
+    return { kind: 'pool', course: '復能', only: null, set: null, undecided: false, durationMin: null };
+  }
+
+  const pool = /^(復能|賦能)?\s*(任選)?\s*(三選一|四選一)?\s*\(\s*(\d+)\s*(小時|mins?|分鐘?)?\s*\)$/i.exec(s);
+  if (pool && (pool[1] || pool[2] || pool[3])) {
+    return {
+      kind: 'pool',
+      course: '復能',
+      only: null,
+      set: { 四選一: 'all', 三選一: 'home' }[pool[3]] ?? null,
+      undecided: Boolean(pool[2]) && !pool[3],
+      durationMin: /小時/.test(pool[5] ?? '') ? Number(pool[4]) * 60 : Number(pool[4]),
+    };
+  }
+
+  const one = /^(SIS|超磁場?|INDIBA|IN|高能量雷射|高能)\s*\(\s*(\d+)\s*(mins?|分鐘?)?\s*\)$/i.exec(s);
+  if (one) {
+    // 輸出的是**器材主檔的全名**（ADR-0078），不是她寫的簡寫
+    const only = /^(SIS|超磁)/i.test(one[1]) ? 'SIS' : /^IN/i.test(one[1]) ? 'INDIBA' : '高能量雷射';
+    return { kind: 'pool', course: '復能', only, set: null, undecided: false, durationMin: Number(one[2]) };
+  }
+
+  const ilib = /^ILIB\s*\(?\s*(\d+)\s*(mins?|分鐘?)?\s*\)?$/i.exec(s);
+  if (ilib) {
+    return { kind: 'single', course: 'ILIB', only: null, set: null, undecided: false, durationMin: Number(ilib[1]) };
+  }
+  return null;
+}
+
+/**
+ * 一個字的點滴品項（她 2026-09-15）。舊表第 14 列、第 13 列與行事曆上都這樣寫。
+ *
+ * **只收這三個字**：多收一個就多一種把別的東西讀成品項的機會 ——
+ * 行事曆上「腸胃鏡」的腸不是腸道修復。
+ */
+export const IV_SHORTHAND = Object.freeze({ 雪: '雪顏亮彩', 肝: '護肝排毒', 腸: '腸道修復' });
+
+/** 簡寫換成全名；不是那三個字就原樣回去（兩個字的「護肝」「雪顏」照舊靠前綴比對）。 */
+const expandIv = (s) => IV_SHORTHAND[normalize(s)] ?? normalize(s);
+
+/**
+ * 擇一池有哪幾台。
+ *
+ * - 只有一台（`SIS(60min)`）→ 那一台
+ * - 四選一 → 全部還在用的器材，組法借 `idsForPoolKind()`，**不另寫一份**
+ * - 其餘（`復能(1小時)`、三選一、沒寫的 `任選`）→ 復能自己的那幾台，不含 ILIB（ADR-0075）
+ */
+function poolIdsFor(shape, course, { equipment = [], courses = [] }) {
+  if (shape?.only) {
+    const hit = equipment.find((e) => !e.deletedAt && normalize(e.name).toLowerCase() === shape.only.toLowerCase());
+    return hit ? [hit.id] : [];
+  }
+  if (shape?.set === 'all') {
+    return idsForPoolKind(POOL_SET_ALL, { equipment, courses })
+      ?? equipment.filter((e) => !e.deletedAt && e.active !== false).map((e) => e.id);
+  }
+  return equipmentForCourse(course?.id ?? null, equipment).map((e) => e.id);
+}
+
+// ---------- 警示與合作機構 ----------
+
+/**
+ * 舊表文字裡看得出來的警示。她 2026-09-07：「體內金屬類、血管難打類自動變警示」，
+ * 而**否定句一個都不可以長出來** —— 「沒有金屬」讀成有金屬，卡片牆上那顆假的丸子本身就是錯的資訊。
+ *
+ * 判準看的是同一句裡、那個字**前面**有沒有否定詞，不是整格有沒有「金屬」兩個字。
+ * 名字只從主檔的警示名單裡挑（ADR-0074：客戶身上存的是字串，主檔上沒有的字畫不出來）。
+ */
+const FLAG_PATTERNS = [
+  { flag: '體內金屬', re: /金屬|合金|鋼釘|鋼板/ },
+  { flag: '血管難打', re: /血管細|血管難打|難上針|難打針/ },
+];
+/** 否定詞在前（「沒有金屬」）或在後（「金屬已取出」）都算否定 —— 後面那一種最容易漏。 */
+const NEGATED_BEFORE = /(無|沒有|沒|不是)\s*$/;
+const NEGATED_AFTER = /^\s*(已經?取出|已經?拿掉|已經?拆掉|取出了|拿掉了|拆掉了)/;
+
+export function flagsFromText(texts, clinicalFlags = []) {
+  const names = new Set((clinicalFlags ?? []).filter((f) => !f.deletedAt).map((f) => normalize(f.name)));
+  return FLAG_PATTERNS
+    .filter(({ flag }) => names.has(flag))
+    .filter(({ re }) => texts.some((t) => String(t ?? '').split(/[，,。；;！!\n]/).some((clause) => {
+      const m = re.exec(clause);
+      return m && !NEGATED_BEFORE.test(clause.slice(0, m.index))
+        && !NEGATED_AFTER.test(clause.slice(m.index + m[0].length));
+    })))
+    .map(({ flag }) => flag);
+}
+
+/** 文字裡出現了合作機構的名字（ADR-0076）。一樣只認主檔上有的。 */
+export function partnersFromText(texts, partners = []) {
+  return (partners ?? [])
+    .filter((x) => !x.deletedAt && normalize(x.name))
+    .map((x) => normalize(x.name))
+    .filter((name) => texts.some((t) => String(t ?? '').includes(name)));
+}
+
+/**
  * 第 9 列的健檢。名稱裡混著金額等級，後面還可能再接項目：
  * `0.75萬健檢`、`x萬健檢`（金額未定）、`5萬健檢(心臟)`、`5萬健檢(腸道)`。
  * 所以是「含有」不是「結尾是」—— 用 endsWith 會把後面帶括號的兩種整列丟掉。
@@ -122,8 +240,26 @@ const CHECKUP_WORD = '健檢';
 /** 第 11 列的營養點滴，後面可能接項目：`營養點滴（腸道）`。 */
 const IV_DRIP_PREFIX = '營養點滴';
 
+/** 她也寫「營養針」（2026-09-07 回答過）。課程照樣是營養點滴。 */
+const IV_DRIP_LABELS = [IV_DRIP_PREFIX, '營養針'];
+
 /** 第 12 列，例：`營養品(12000)`。不佔時段、不排班、不產生額度。 */
 const PRODUCT_PREFIX = '營養品';
+
+/**
+ * 她也寫「營養素」（2026-09-07）。**營養品不排班**（ADR-0057）——
+ * 認成營養點滴的話，那位客戶會多出一堆排不掉的次數。
+ */
+const PRODUCT_LABELS = [PRODUCT_PREFIX, '營養素'];
+
+const isProductRow = (label) => PRODUCT_LABELS.some((x) => label.startsWith(x));
+const isIvRow = (label) => IV_DRIP_LABELS.some((x) => label.startsWith(x));
+
+/** 表頭的 `9月7日`／`9/7` → 備註裡用的 `9/7`。讀不出來就原樣。 */
+function shortDate(raw) {
+  const m = DATE_RE.exec(normalize(raw));
+  return m ? `${Number(m[2])}/${Number(m[3])}` : normalize(raw);
+}
 
 const normalize = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
 
@@ -297,15 +433,28 @@ export function parseSheet(text, { sheetName = '' } = {}) {
 
   // 第 13、14 列：二返註記與當日品項簡寫。整列收下來，別自作聰明只挑一格 ——
   // 但兩列都可能已經被 TODO 區塊佔走，那時候這裡什麼都不該讀。
-  const followupCells = FOLLOWUP_ROW < blockRow
-    ? (grid[FOLLOWUP_ROW] ?? []).map(normalize).filter(Boolean)
-    : [];
+  const dateCols = new Set(dateColumns.map((d) => d.col));
   const ivShorthand = {};
   if (IV_SHORTHAND_ROW < blockRow) {
     for (const { col } of dateColumns) {
       const v = cell(IV_SHORTHAND_ROW, col);
       if (v) ivShorthand[col] = v;
     }
+  }
+  // 第 13 列那一格只寫了一個字的品項（雪、肝、腸）→ 那是品項，不是二返註記。
+  // 2026-09-14 那一批有一張表把品項寫到第 13 列來了，於是「腸 肝 腸 肝」整串進了備註。
+  // 沒有日期的那一格也寫了一個字的，是她多寫的 —— 不進備註，但要在報告上講。
+  const followupCells = [];
+  const strayIvShorthand = [];
+  if (FOLLOWUP_ROW < blockRow) {
+    (grid[FOLLOWUP_ROW] ?? []).forEach((raw, col) => {
+      const v = normalize(raw);
+      if (!v) return;
+      if (!IV_SHORTHAND[v]) followupCells.push(v);
+      else if (!dateCols.has(col)) strayIvShorthand.push({ cell: `${colLetter(col)}${FOLLOWUP_ROW + 1}`, text: v });
+      else if (!ivShorthand[col]) ivShorthand[col] = v;
+      else followupCells.push(v);
+    });
   }
 
   return {
@@ -316,6 +465,7 @@ export function parseSheet(text, { sheetName = '' } = {}) {
     items,
     followupNote: followupCells.join(' '),
     ivShorthand,
+    strayIvShorthand,
     leftovers: leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }),
   };
 }
@@ -333,15 +483,19 @@ export function parseSheet(text, { sheetName = '' } = {}) {
  * 她要能一眼看出「這張表上的字有沒有全部進去」，而不是自己一格一格對。
  */
 function leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }) {
-  const dateCols = new Set(dateColumns.map((d) => d.col));
+  const dateOf = new Map(dateColumns.map((d) => [d.col, d.raw]));
+  const labelled = (r) => Boolean(cell(r, COL_LABEL));
 
   const wasRead = (r, c) => {
     if (r === HEADER_ROW) return true;
     if (r === NAME_CELL[0] && (c === NAME_CELL[1] || c === SOURCE_CELL[1])) return true;
     if (r === FOLLOWUP_ROW) return true;
-    if (r === IV_SHORTHAND_ROW) return dateCols.has(c);
-    if (r >= FIRST_ITEM_ROW && r <= lastItemRow) {
-      return (c >= COL_DETAIL && c <= COL_ACTUAL) || dateCols.has(c);
+    if (r === IV_SHORTHAND_ROW) return dateOf.has(c);
+    // 療程列裡，B–E 欄與日期欄**只有在那一列有療程名稱時**才算讀過（那是明細、次數與勾選格）。
+    // 沒有名稱的那一列，日期欄裡寫的是一句手寫註記（「欠30」「療程單有簽…」）——
+    // 2026-09-14 以前這裡把整列日期欄都當成讀過，那幾句話就安靜地不見了。
+    if (r >= FIRST_ITEM_ROW && r <= lastItemRow && labelled(r)) {
+      return (c >= COL_DETAIL && c <= COL_ACTUAL) || dateOf.has(c);
     }
     return false;
   };
@@ -352,7 +506,8 @@ function leftoverCells(grid, cell, { dateColumns, lastItemRow, blockRow }) {
       const text = cell(r, c);
       // 沒被讀到的勾選框不是註記，是排在日期欄外面的空框。撿起來只會洗版。
       if (!text || wasRead(r, c) || readCheckbox(text) !== null) continue;
-      out.push({ cell: `${colLetter(c)}${r + 1}`, text });
+      // 寫在日期欄裡的，那一天就是它的上下文 —— 進備註時要帶著（「9/7 欠30」）
+      out.push({ cell: `${colLetter(c)}${r + 1}`, text, date: dateOf.get(c) ?? null });
     }
   }
   return out;
@@ -396,7 +551,9 @@ const PLAN_NUMBER = 8;
  *            extras:{text:string, qty:number}[], leftover:string, problems:string[]}}
  */
 export function parsePurchaseCell(raw, year) {
-  const out = { date: null, channel: null, plan: null, exams: [], extras: [], leftover: '', problems: [] };
+  const out = {
+    date: null, channel: null, plan: null, exams: [], extras: [], leftover: '', problems: [], newWithoutPlan: false,
+  };
   let s = normalize(raw)
     .replace(/[（]/g, '(').replace(/[）]/g, ')')
     .replace(/[＋]/g, '+').replace(/[－—–]/g, '-')
@@ -420,9 +577,10 @@ export function parsePurchaseCell(raw, year) {
     }
   }
 
-  // 「新」只認緊接在日期後面、或整格開頭的那一個 —— 註記裡的「新」字不算
+  // 「新」只認緊接在日期後面、或整格開頭的那一個 —— 註記裡的「新」字不算。
+  // 日期與「新」之間可以夾一個破折號（`0824-新顧客會-8`，2026-09-14 那一批）
   let isNew = false;
-  const fresh = s.match(/^\s*新\s*-?\s*/);
+  const fresh = s.match(/^\s*-?\s*新\s*-?\s*/);
   if (fresh) {
     isNew = true;
     s = s.slice(fresh[0].length);
@@ -445,8 +603,9 @@ export function parsePurchaseCell(raw, year) {
     const token = piece.replace(/^[\s-]+/, '').trim();
     if (!token) continue;
 
-    // 數字後面可以接括號（微調）或空一格接一句話（`5 欠尾款3萬`）—— 數字照讀，其餘進 leftover
-    const number = token.match(/^(\d+(?:\.\d+)?)\s*萬?\s*(?:\((.*?)\)?)?(?:\s+(.+))?$/);
+    // 數字後面可以接括號（微調）或空一格接一句話（`5 欠尾款3萬`）—— 數字照讀，其餘進 leftover。
+    // 健檢也會寫全（`5萬健檢（尾款欠…）`，2026-09-14 那一批）
+    const number = token.match(/^(\d+(?:\.\d+)?)\s*萬?\s*(?:健檢)?\s*(?:\((.*?)\)?)?(?:\s+(.+))?$/);
     if (number) {
       const n = Number(number[1]);
       if (n === PLAN_NUMBER) sets += 1;
@@ -466,7 +625,9 @@ export function parsePurchaseCell(raw, year) {
   }
 
   if (sets) out.plan = { newTemplate: isNew, sets };
-  else if (isNew) out.problems.push('寫了「新」但沒有方案的數字 —— 可能是打錯，匯入時要問她');
+  // 寫了「新」卻沒有方案數字：她 2026-09-13 回答過「應該只是打錯」，**回答過就不再問**
+  // （9/14 那一批又問了三次）。留一個旗子 —— D 欄剛好是新範本的那一種，`legacyPlanFor()` 照樣會講
+  else if (isNew) out.newWithoutPlan = true;
   // 用 + 接回去：切的時候拿掉的就是 +，讀不懂的那一段要是原文（`A+B再說` 不可以變成 `A B再說`）
   out.leftover = leftovers.join('+');
   return out;
@@ -558,8 +719,9 @@ function legacyPlanFor(parsed, purchase) {
 
 /** `SIS(60min)`、`sis(60)` → `sis60`。寫在 B2 字裡的加購跟 C 欄的列名比對用。 */
 const looseName = (v) => String(v ?? '').toLowerCase()
-  // 「任選」是她講擇一池的說法（`復能任選(30)` 那一列叫 `復能(30min)`，2026-09-13 真檔上看到的）
-  .replace(/mins?|分鐘|分|堂|only|任選/g, '')
+  // 「任選」是她講擇一池的說法（`復能任選(30)` 那一列叫 `復能(30min)`，2026-09-13 真檔上看到的）。
+  // 幾選一也拿掉：B2 寫 `復能四選一(30)`、那一列只寫 `復能(30min)`（2026-09-14）—— 幾選一另外讀
+  .replace(/mins?|分鐘|分|堂|only|任選|三選一|四選一/g, '')
   .replace(/[\s()（）\-_]/g, '');
 
 // ---------- 一張工作表 → 要寫進去的東西 ----------
@@ -610,6 +772,8 @@ export function planForSheet(parsed, {
   equipment = [],
   ivProducts = [],
   plans = [],
+  clinicalFlags = [],
+  partners = [],
   existingCustomers = [],
   year = new Date().getFullYear(),
   importedAt = null,
@@ -644,7 +808,11 @@ export function planForSheet(parsed, {
 
   // 沒有欄位可放的手寫註記（A11 的器材偏好、B14 的待辦、A15 的排班習慣…）。
   // 原文照抄，一個字都不改寫 —— 讀不懂不是丟掉的理由（SPEC 第 4.3 節）。
-  notes.push(...parsed.leftovers.map((x) => x.text));
+  // 寫在日期欄裡的前面帶那一天（「9/7 欠30」），不然她看不出那句話講的是哪一次。
+  notes.push(...parsed.leftovers.map((x) => (x.date ? `${shortDate(x.date)} ${x.text}` : x.text)));
+  for (const s of parsed.strayIvShorthand ?? []) {
+    problem(s.cell, s.text, '第 13 列這一格寫了一個字的品項，但上面沒有日期，沒有匯入');
+  }
 
   // B2「購買名稱」拆成購買日、通路、方案與套數（`.scratch/asks-2026-09-13/issues/07`）。
   // 讀不懂的字（括號裡的微調、醫療註記、手寫句子）原文進備註，**排在最前面** ——
@@ -660,6 +828,8 @@ export function planForSheet(parsed, {
   const entitlements = [];
   /** @type {Map<number, {keys: string[], course: object|null, kind: string}>} 列 → 這一列產生了什麼 */
   const byRow = new Map();
+  /** 寫了「任選」卻沒寫幾選一的那幾列。B2 字裡有寫的話會被補上，剩下的才問 */
+  const undecided = [];
 
   for (const item of parsed.items) {
     const checks = item.checks.filter((c) => readCheckbox(c.value) === true).length;
@@ -667,7 +837,7 @@ export function planForSheet(parsed, {
     const actual = toQty(item.actual);
 
     // 第 12 列的營養品：只記錄與顯示，不佔時段、不排班、不產生額度（CONTEXT.md）
-    if (item.label.startsWith(PRODUCT_PREFIX)) {
+    if (isProductRow(item.label)) {
       const line = [item.label, item.detail].filter(Boolean).join('：');
       notes.push(line);
       if (checks) problem(`第 ${item.row} 列`, item.label, `勾了 ${checks} 次，但營養品不排班，沒有匯入成來訪`);
@@ -678,7 +848,7 @@ export function planForSheet(parsed, {
     }
 
     // 第 11 列的營養點滴：B 欄拆成每個品項各一筆額度（各自計次，不合併）
-    if (item.label.startsWith(IV_DRIP_PREFIX)) {
+    if (isIvRow(item.label)) {
       const course = resolveCourse(IV_DRIP_PREFIX, courses);
       if (!course) {
         problem(`第 ${item.row} 列`, item.label, '對不到任何課程，這一列沒有匯入');
@@ -738,16 +908,16 @@ export function planForSheet(parsed, {
       continue;
     }
 
-    // 第 7 列的復能：擇一池，換的是器材不是課程
-    const isPool = POOL_LABELS.includes(item.label);
-    const course = resolveCourse(isPool ? '復能' : item.label, courses)
+    // 第 7 列的復能：擇一池，換的是器材不是課程。帶時長、只寫一台的新寫法見 `rowShape()`
+    const shape = rowShape(item.label);
+    const isPool = shape ? shape.kind === 'pool' : POOL_LABELS.includes(item.label);
+    const course = resolveCourse(shape?.course ?? (isPool ? '復能' : item.label), courses)
       ?? (item.label.includes(CHECKUP_WORD) ? resolveCourse(CHECKUP_WORD, courses) : null);
 
     // 這一池有哪幾台，從**課程**推（ADR-0075）——「所有器材」在 ILIB 補成
     // 第四台之後就不對了：舊表的「復能(1小時)」講的是那三台，不含 ILIB。
-    const poolEquipmentIds = isPool
-      ? equipmentForCourse(course?.id ?? null, equipment).map((e) => e.id)
-      : [];
+    const poolEquipmentIds = isPool ? poolIdsFor(shape, course, { equipment, courses }) : [];
+    if (shape?.undecided) undecided.push(item);
 
     if (!course) {
       problem(`第 ${item.row} 列`, item.label,
@@ -787,20 +957,23 @@ export function planForSheet(parsed, {
     }
 
     if (isPool && !poolEquipmentIds.length) {
-      problem(`第 ${item.row} 列`, item.label, '主檔裡一台器材都沒有，擇一池建不起來');
+      problem(`第 ${item.row} 列`, item.label, shape?.only
+        ? `主檔裡沒有「${shape.only}」這台器材，這一列建不起來`
+        : '主檔裡一台器材都沒有，擇一池建不起來');
       continue;
     }
 
     const key = keyOf(item.row);
+    const durationMin = shape?.durationMin ?? null;
     entitlements.push({
       key,
       productName: null,
       productId: null,
       doc: isPool
-        ? entitlementDoc({ label: item.label, course, totalQty: qty, stamp, poolEquipmentIds })
-        : entitlementDoc({ label: item.label, course, totalQty: qty, stamp }),
+        ? entitlementDoc({ label: item.label, course, totalQty: qty, stamp, poolEquipmentIds, durationMin })
+        : entitlementDoc({ label: item.label, course, totalQty: qty, stamp, durationMin }),
     });
-    byRow.set(item.row, { keys: [key], course, kind: isPool ? 'pool' : 'single' });
+    byRow.set(item.row, { keys: [key], course, kind: isPool ? 'pool' : 'single', shape });
   }
 
   // 健檢配二返。舊表的 C 欄只有 11 個固定療程列，二返不在裡面（它是第 13 列的
@@ -854,19 +1027,36 @@ export function planForSheet(parsed, {
   const planRows = new Set(parsed.items
     .filter((i) => [...(byRow.get(i.row)?.keys ?? [])].some((k) => planKeys.has(k)))
     .map((i) => i.row));
+  const settled = new Set();
   for (const extra of purchase.extras) {
     const want = looseName(extra.text);
     const row = parsed.items.find((i) => !planRows.has(i.row)
       && toQty(i.expected) === extra.qty
       && (looseName(i.label).includes(want) || want.includes(looseName(i.label))));
-    if (row) mentioned.add(row.row);
-    else purchaseProblems.push(`購買名稱寫了 ${extra.text}x${extra.qty}，但找不到應有次數 ${extra.qty} 的那一列`);
+    if (!row) {
+      purchaseProblems.push(`購買名稱寫了 ${extra.text}x${extra.qty}，但找不到應有次數 ${extra.qty} 的那一列`);
+      continue;
+    }
+    mentioned.add(row.row);
+    // B2 字裡寫了幾選一、那一列沒寫：照 B2 組池（`復能四選一(30)x10` 對 `復能(30min)`，2026-09-14）
+    const made = byRow.get(row.row);
+    const set = /四選一/.test(extra.text) ? 'all' : /三選一/.test(extra.text) ? 'home' : null;
+    if (made?.kind === 'pool' && set && !made.shape?.set && !made.shape?.only) {
+      const ids = poolIdsFor({ set }, made.course, { equipment, courses });
+      for (const e of entitlements.filter((x) => made.keys.includes(x.key))) e.doc.optionEquipmentIds = ids;
+      settled.add(row.row);
+    }
+  }
+
+  // 寫了「任選」卻沒寫幾選一、B2 也沒講的：先照三選一，但要講（她 2026-09-15：之後個別問）
+  for (const item of undecided.filter((x) => !settled.has(x.row))) {
+    purchaseProblems.push(`「${item.label}」沒寫是三選一還是四選一，先照三選一匯（還沒定，之後再問她）`);
   }
 
   // D 欄有次數、B2 一個字都沒提 —— 只是提醒（應有次數才是建進去的東西）
   for (const item of parsed.items) {
     if (planRows.has(item.row) || mentioned.has(item.row)) continue;
-    if (item.label.startsWith(PRODUCT_PREFIX)) continue;
+    if (isProductRow(item.label)) continue;
     const qty = toQty(item.expected) ?? 0;
     if (qty > 0 && parsed.source) {
       purchaseProblems.push(`「${item.label}」應有 ${qty} 次，購買名稱沒提到（照應有次數匯，只是提醒）`);
@@ -882,6 +1072,8 @@ export function planForSheet(parsed, {
   const assumedYears = new Set();
   /** 第幾列的勾選變成了幾個時段。報告要拿它跟舊表的數字並排。 */
   const importedByRow = new Map();
+  /** 第 14 列（或第 13 列）的簡寫被營養點滴那一段拿去用過的日期欄 */
+  const usedShorthandCols = new Set();
 
   // 先一欄一欄讀出「這一欄是哪一天、勾了哪幾列」，再依日期歸戶。
   //
@@ -941,6 +1133,7 @@ export function planForSheet(parsed, {
 
       if (made.kind === 'iv') {
         const shorthand = parsed.ivShorthand[col] ?? '';
+        usedShorthandCols.add(col);
         const picked = pickIvEntitlement(shorthand, entitlements, made.keys);
         if (!picked) {
           problem(`第 ${item.row} 列 ${raw}`, shorthand,
@@ -950,7 +1143,10 @@ export function planForSheet(parsed, {
           continue;
         }
         entitlementKey = picked.key;
-        ivProductId = picked.productId;
+        // 合計的那一筆額度身上沒有品項（B 欄沒寫明細），但那一天的簡寫還是講得出是哪一款
+        ivProductId = picked.productId ?? (shorthand
+          ? ivProducts.find((x) => !x.deletedAt && normalize(x.name).startsWith(expandIv(shorthand)))?.id ?? null
+          : null);
         // 品項留空有兩種：B 欄根本沒寫明細（退回一筆合計額度，上面已經講過了），
         // 以及寫了但主檔裡沒有。只有後者要在每一天再提醒一次。
         if (!picked.productId && picked.productName) {
@@ -998,15 +1194,29 @@ export function planForSheet(parsed, {
       `這些日期沒有寫年份，一律當成 ${year} 年。年份錯了整批來訪就會掉到別的地方`);
   }
 
+  // 第 14 列寫了字、那天卻沒有營養點滴拿去用（「EECP體驗」）→ 那是一句註記，不是品項
+  for (const [col, text] of Object.entries(parsed.ivShorthand)) {
+    if (usedShorthandCols.has(Number(col))) continue;
+    const raw = parsed.dateColumns.find((d) => d.col === Number(col))?.raw;
+    notes.push(`${shortDate(raw)} ${text}`);
+  }
+
   if (parsed.followupNote) notes.push(parsed.followupNote);
 
-  // 一則超過上限的備註照原文收（讀不懂不是丟掉的理由），但要講 ——
+  // 一則超過上限的備註先照句子切（她 2026-09-15），切不下去的照原文收，但要講 ——
   // 匯進去之後她一按「編輯」，那一則就存不下去（`validateMarks()`）。
-  for (const m of marksFrom(notes)) {
+  const marks = marksFrom(notes);
+  for (const m of marks) {
     if (m.text.length > MAX_MARK_LENGTH) {
       problem('備註', m.text, `這一則超過 ${MAX_MARK_LENGTH} 個字，匯進去之後編輯時要先拆成幾則才存得下去`);
     }
   }
+  if (marks.length > MAX_MARKS) {
+    problem('備註', '', `一共 ${marks.length} 則，app 一位客戶最多 ${MAX_MARKS} 則，匯進去之後編輯時要先刪掉幾則`);
+  }
+
+  // 警示與合作機構（她 2026-09-07：自動帶；否定句不算）。看的是她寫的字，不是備註裡加工過的字
+  const said = [parsed.source, parsed.followupNote, ...parsed.leftovers.map((x) => x.text)];
 
   return {
     sheetName: parsed.sheetName,
@@ -1022,10 +1232,11 @@ export function planForSheet(parsed, {
       purchasedAt: purchase.date,
       membershipExpiresAt: null,
       priority: 0,
-      flags: [],
+      flags: flagsFromText(said, clinicalFlags),
+      partners: partnersFromText(said, partners),
       // 原文照抄，一個字都不改寫。**備註是真相，notes 是它的鏡像**（ADR-0019）
       // 寫入的形狀只有 `toCustomerFields()` 一份（marks 與 notes 鏡像同一次算出來）
-      ...customerFieldsFrom(marksFrom(notes)),
+      ...customerFieldsFrom(marks),
       active: true,
       importedFrom: stamp,
     },
@@ -1095,7 +1306,42 @@ function marksFrom(lines) {
     .flatMap((line) => String(line ?? '').split('\n'))
     .map((text) => text.trim())
     .filter(Boolean)
+    .flatMap(splitLong)
     .map((text) => ({ text, color: text.includes('尾款') ? 'red' : 'grey' }));
+}
+
+/**
+ * 超過上限的一則照句子切。她 2026-09-15：「照句號、驚嘆號、分號切成幾則」。
+ *
+ * 太短的碎片（`20?!年。` 被驚嘆號切出來的 `年。`）接回前一則；一句話本身還是太長就照逗號裝箱；
+ * 再切不下去就原文照收，由呼叫端在報告上講 —— 讀不懂不是丟掉的理由。**一個字都不改、不砍**。
+ */
+function splitLong(text) {
+  if (text.length <= MAX_MARK_LENGTH) return [text];
+  const sentences = [];
+  for (const piece of text.split(/(?<=[。！!；;])/)) {
+    if (!piece) continue;
+    if (sentences.length && piece.trim().length < 4) sentences[sentences.length - 1] += piece;
+    else sentences.push(piece);
+  }
+  return sentences
+    .flatMap((s) => (s.length <= MAX_MARK_LENGTH ? [s] : packByComma(s)))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** 照逗號把一句話裝成幾箱，每一箱不超過上限（單一段本身就超過的，那一箱照樣超過）。 */
+function packByComma(text) {
+  const out = [];
+  let box = '';
+  for (const seg of text.split(/(?<=[，,、])/)) {
+    if (box && (box + seg).length > MAX_MARK_LENGTH) {
+      out.push(box);
+      box = seg;
+    } else box += seg;
+  }
+  if (box) out.push(box);
+  return out;
 }
 
 /**
@@ -1125,14 +1371,15 @@ function nameExtras(name) {
   return out;
 }
 
-function entitlementDoc({ label, course, totalQty, stamp, poolEquipmentIds = null }) {
+function entitlementDoc({ label, course, totalQty, stamp, poolEquipmentIds = null, durationMin = null }) {
   return {
     type: poolEquipmentIds ? 'pool' : 'single',
     label,
     courseId: poolEquipmentIds ? null : course.id,
     optionEquipmentIds: poolEquipmentIds,
     totalQty,
-    durationMin: course.durationMin ?? null,
+    // 列名寫了時長（`復能(30分）`、`ILIB 30`）就照它，沒寫才是課程的預設值
+    durationMin: durationMin ?? course.durationMin ?? null,
     frequencyRule: course.frequencyRule ?? null,
     // 舊表沒有記是哪個方案展開的，所以沒有快照可寫。null = 單項加購（SPEC 第 5.3 節）
     sourcePlanName: null,
@@ -1150,8 +1397,10 @@ function pickIvEntitlement(shorthand, entitlements, keys) {
   const candidates = entitlements.filter((e) => keys.includes(e.key));
   if (!shorthand) return candidates.length === 1 ? candidates[0] : null;
 
+  // 一個字的（肝、雪、腸）先換成全名，其餘照舊靠前綴（護肝、雪顏）
+  const wanted = expandIv(shorthand);
   const hits = candidates.filter(
-    (e) => e.productName && (e.productName.startsWith(shorthand) || shorthand.startsWith(e.productName)),
+    (e) => e.productName && (e.productName.startsWith(wanted) || wanted.startsWith(e.productName)),
   );
   if (hits.length === 1) return hits[0];
   if (!hits.length && candidates.length === 1) return candidates[0];

@@ -144,12 +144,20 @@ test('同名的客戶整位跳過，重複貼不會建出第二份', () => {
   assert.equal(p.counts.slots, 0);
 });
 
-test('擇一池的器材不到兩種就建不起來', () => {
-  const entry = CUSTOMER();
-  entry.entitlements[0].optionEquipmentNames = ['INDIBA'];
-  const p = plan(entry);
-  assert.ok(why(p).some((w) => w.includes('擇一池')));
-  assert.ok(!p.entitlements.some((e) => e.doc.type === 'pool'));
+// ADR-0075：單買一台 SIS 就是「這一池裡只有一台」。這一條以前寫著「不到兩種就建不起來」，
+// 於是單買 SIS 的客戶就算 skill 產得出來也匯不進去（`.scratch/merge-answers-2026-09-14/issues/02`）。
+test('擇一池只有一台也建得起來，一台都沒有才擋', () => {
+  const one = CUSTOMER();
+  one.entitlements[0].optionEquipmentNames = ['SIS'];
+  const p = plan(one);
+  const pool = p.entitlements.find((e) => e.doc.type === 'pool');
+  assert.deepEqual(pool?.doc.optionEquipmentIds, ['eq-sis']);
+
+  const none = CUSTOMER();
+  none.entitlements[0].optionEquipmentNames = [];
+  const q = plan(none);
+  assert.ok(why(q).some((w) => w.includes('擇一池')));
+  assert.ok(!q.entitlements.some((e) => e.doc.type === 'pool'));
 });
 
 test('時間不詳的時段照樣匯入（ADR-0011），而且驗證得過', () => {
@@ -591,9 +599,9 @@ describe('文字裡的醫療禁忌要在匯入前講出來', () => {
     assert.equal(p.contraindications[0]?.term, '體內金屬');
   });
 
-  test('認出來也不會自動設定永久限制', () => {
-    // 「手有金屬」是禁忌，「金屬已取出」不是，兩句話都含有「金屬」。
-    // 那是她的判斷（ADR-0002）。
+  test('app 這一側不自己判警示：檔案沒帶 flags 就是空的（判準只在產檔那側，ADR-0092）', () => {
+    // 「手有金屬」要帶、「金屬已取出」不帶 —— 那個判斷只能有一份，在 legacyImport.js 的
+    // flagsFromText()。這一側再判一次的話，兩邊遲早講不一樣的話。
     assert.deepEqual(metal().customer.flags, []);
   });
 
@@ -692,11 +700,11 @@ describe('合併檔 v2', () => {
     })),
   });
 
-  test('格式是 v2，v1 的檔案照樣收', () => {
-    assert.equal(FORMAT, 'baobao-merge/v2');
+  test('v1、v2 的檔案照樣收，認不得的版本整份擋', () => {
     assert.deepEqual(validateFile(FILE()).errors, []);
     assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v1' }).errors, []);
-    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v3' }).errors.length);
+    assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v2' }).errors, []);
+    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v9' }).errors.length);
   });
 
   test('客戶帶購買日、通路與帶顏色的備註；notes 是備註的鏡像', () => {
@@ -727,5 +735,41 @@ describe('合併檔 v2', () => {
     assert.equal(p.customer.marks, undefined, 'v1 沒有 marks 就不寫 —— readMarks() 會從 notes 拆');
     assert.ok(p.entitlements.every((e) => e.doc.sourcePlanName === null && e.doc.purchasedAt === null));
     assert.deepEqual(p.purchaseProblems, []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 合併檔 v3（`.scratch/merge-answers-2026-09-14/issues/02`）：時長、警示、合作機構。
+
+describe('合併檔 v3', () => {
+  test('格式是 v3', () => {
+    assert.equal(FORMAT, 'baobao-merge/v3');
+  });
+
+  test('額度帶時長：30 分的就是 30，沒寫的退回課程', () => {
+    const entry = CUSTOMER();
+    entry.entitlements[0].durationMin = 30;
+    const p = plan(entry);
+    assert.equal(p.entitlements.find((e) => e.key === 'r7').doc.durationMin, 30);
+    assert.equal(p.entitlements.find((e) => e.key === 'r8').doc.durationMin,
+      SEED.courses.find((c) => c.name === 'ILIB').durationMin, '沒寫就是課程的時長（v1、v2 照舊）');
+  });
+
+  test('警示與合作機構原樣寫到客戶身上（客戶身上存的是字串，ADR-0074、0076）', () => {
+    const p = plan({ ...CUSTOMER(), flags: ['體內金屬'], partners: ['某合作機構'] });
+    assert.deepEqual(p.customer.flags, ['體內金屬']);
+    assert.deepEqual(p.customer.partners, ['某合作機構']);
+  });
+
+  test('v1、v2 沒有這兩格就是空的', () => {
+    const p = plan(CUSTOMER());
+    assert.deepEqual(p.customer.flags, []);
+    assert.deepEqual(p.customer.partners, []);
+  });
+
+  test('亂塞的值不寫進去（只收字串陣列）', () => {
+    const p = plan({ ...CUSTOMER(), flags: '體內金屬', partners: [1, '', '某合作機構'] });
+    assert.deepEqual(p.customer.flags, []);
+    assert.deepEqual(p.customer.partners, ['某合作機構']);
   });
 });

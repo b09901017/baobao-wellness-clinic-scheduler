@@ -14,6 +14,7 @@ import {
   parseIvBreakdown,
   readCheckbox,
   planForSheet,
+  flagsFromText,
 } from '../public/js/domain/legacyImport.js';
 import { statusFor } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -461,10 +462,13 @@ test('要找的字從主檔的器材推出來，不寫死在匯入器裡', () =>
   assert.deepEqual(p.contraindications[0].warns, ['震波']);
 });
 
-test('認出禁忌字眼也不會自動設定永久限制', () => {
-  // 「手有金屬」是禁忌，「金屬已取出」不是，兩句話都含有「金屬」。
-  // 那是她的判斷，不是匯入器的（ADR-0002）。
-  assert.deepEqual(metalPlan().customer.flags, []);
+test('警示只照主檔的名單帶，而且「金屬已取出」一個都不長（ADR-0092）', () => {
+  // 以前這一條是「一律不自動設定」—— 那時候體內金屬會硬性擋器材（ADR-0074 之前），填錯的代價是排不進去。
+  // 現在警示不擋任何東西，她 2026-09-07 說金屬類自動帶。但「手有金屬」要帶、「金屬已取出」不帶，
+  // 兩句話都含有「金屬」—— 判準看的是否定詞。
+  assert.deepEqual(metalPlan().customer.flags, [], '沒給主檔的警示名單就不帶（主檔上沒有的字畫不出來）');
+  assert.deepEqual(flagsFromText(['手有金屬'], SEED.clinicalFlags), ['體內金屬']);
+  assert.deepEqual(flagsFromText(['手術的金屬已取出'], SEED.clinicalFlags), []);
 });
 
 test('金額等級還沒填的健檢照樣建額度，但要講一聲', () => {

@@ -233,3 +233,43 @@ test('J-C12 合併檔 v2：匯進來的客戶抬頭印得出買了什麼，尾�
   await app.go(`/customers/${c.id}`);
   await expect(page.locator('.hero__meta')).toHaveText('0617 顧客會 8萬方案');
 });
+
+// 合併檔 v3（`.scratch/merge-answers-2026-09-14/issues/02`）：只有一台器材的擇一池、額度的時長、警示與合作機構。
+// 那三格以前都進不來：單買 SIS 被擋掉（「擇一池的器材不到兩種」）、30 分塌成課程的 60、flags 寫死成空的。
+test('J-C13 合併檔 v3：單買一台的池匯得進去、時長照檔案、警示與合作機構寫到客戶身上', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+
+  const v3 = mergeFile({ format: 'baobao-merge/v3', eventCandidates: [] });
+  Object.assign(v3.customers[0], { flags: ['體內金屬'], partners: ['自然美'] });
+  v3.customers[0].entitlements.push({
+    key: 'sis', type: 'pool', label: 'SIS(30)', totalQty: 5, durationMin: 30,
+    courseName: null, optionEquipmentNames: ['SIS'],
+  });
+  v3.customers[0].visits[0].slots.push({
+    courseName: '復能', entitlementKey: 'sis', startsAt: '15:15', endsAt: '15:45', equipmentName: 'SIS',
+  });
+
+  await page.locator('[data-json]').fill(JSON.stringify(v3));
+  await page.locator('[data-load]').click();
+  await app.settled();
+  expect(await app.text(), '只有一台的池不可以被擋掉').not.toContain('擇一池一台器材都對不到');
+
+  await page.locator('[data-run]').click();
+  if (await app.dialog().count()) await app.ok();
+  await expect.poll(async () => (await app.readAll('customers')).filter((c) => !c.deletedAt).length,
+    { timeout: 20_000 }).toBe(1);
+
+  const [c] = (await app.readAll('customers')).filter((x) => !x.deletedAt);
+  expect(c.flags).toEqual(['體內金屬']);
+  expect(c.partners).toEqual(['自然美']);
+
+  const pool = (await app.readAll(`customers/${c.id}/entitlements`)).find((e) => e.label === 'SIS(30)');
+  expect(pool?.optionEquipmentIds, '只有 SIS 一台').toEqual(['eq-sis']);
+  expect(pool?.durationMin, '30 分鐘不可以塌成課程的 60').toBe(30);
+
+  await expect.poll(async () => (await app.readAll('visits')).filter((v) => !v.deletedAt)
+    .flatMap((v) => v.slots ?? [])
+    .some((s) => s.entitlementId === pool.id && s.equipmentId === 'eq-sis'),
+  { timeout: 20_000 }).toBe(true);
+});
