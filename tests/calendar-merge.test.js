@@ -289,11 +289,12 @@ describe('2026-08-27 那一批補上的寫法', () => {
   });
 
   // 她也會直接把點滴室寫出來（`腸道點滴.9`、`IL（點3`），而原本只認得 `治N` 與 `IL.N`。
-  test('直接寫出來的點滴室也算數，但裸數字不算', () => {
+  // 「裸數字不認」那一條 2026-09-15 被她推翻了：`.N` 就是點滴 N（calendar-merge-answers.test.js）。
+  test('直接寫出來的點滴室也算數', () => {
     assert.equal(roomOf('2.客戶A腸道點滴.9+問日期'), '點滴9');
     assert.equal(roomOf('13：30IL（點3'), '點滴3');
     assert.equal(roomOf('IL治2'), '治2', '治療室優先，不要被後面的字搶走');
-    assert.equal(roomOf('2.客戶A.雪顏.2'), null, '裸數字意思不明，留空');
+    assert.equal(roomOf('2.客戶A.雪顏.2'), '點滴2', '她 9/15：.N 就是點滴 N');
     assert.equal(roomOf('不能排點滴，沒有醫生'), null);
   });
 

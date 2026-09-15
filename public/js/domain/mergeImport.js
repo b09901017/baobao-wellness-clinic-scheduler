@@ -20,14 +20,28 @@ import { syncTasksForVisit } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
 
 /**
- * 合併檔的格式。**v2（2026-09-13）多了購買日、方案與套數、帶顏色的備註**
- * （`.scratch/asks-2026-09-13/issues/08`）。只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，
- * 而畫面看起來跟匯好了一樣 —— 所以升版。
+ * 合併檔的格式。
+ *
+ * - **v2（2026-09-13）** 多了購買日、方案與套數、帶顏色的備註（`.scratch/asks-2026-09-13/issues/08`）
+ * - **v3（2026-09-15）** 多了額度的時長、客戶的警示與合作機構（`.scratch/merge-answers-2026-09-14/issues/02`）
+ *
+ * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v2';
+export const FORMAT = 'baobao-merge/v3';
 
-/** 還收得下的舊版。v1 的檔案照舊匯得進去，少的那幾格一律 null。 */
-export const FORMATS = Object.freeze(['baobao-merge/v1', FORMAT]);
+/** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
+export const FORMATS = Object.freeze(['baobao-merge/v1', 'baobao-merge/v2', FORMAT]);
+
+/** 額度的時長：正整數才算數，其餘當沒寫。 */
+const minutesOf = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
+
+/**
+ * 警示與合作機構：客戶身上存的是**字串**（ADR-0074、ADR-0076），所以只收字串陣列。
+ * 其餘形狀一律當成沒有 —— 寫一個非陣列進 `flags`，壓表卡片牆那一排會整個畫不出來。
+ */
+const stringList = (v) => (Array.isArray(v)
+  ? [...new Set(v.filter((x) => typeof x === 'string').map(norm).filter(Boolean))]
+  : []);
 
 const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const alive = (list) => (list ?? []).filter((x) => !x.deletedAt);
@@ -156,8 +170,10 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       if (!eq) problem(e.label, eqName, '主檔裡沒有這個器材，擇一池少一個選項');
       else optionIds.push(eq.id);
     }
-    if (e.type === 'pool' && optionIds.length < 2) {
-      problem(e.label, (e.optionEquipmentNames ?? []).join('、'), '擇一池的器材不到兩種，這一筆額度沒有匯入');
+    // **一台也算數**（ADR-0075）：單買一台 SIS 就是「這一池裡只有一台」。這裡以前寫著
+    // 「不到兩種就不匯」，於是單買一台的客戶就算產檔那側寫得出來也匯不進去。零台仍然擋。
+    if (e.type === 'pool' && optionIds.length < 1) {
+      problem(e.label, (e.optionEquipmentNames ?? []).join('、'), '擇一池一台器材都對不到，這一筆額度沒有匯入');
       continue;
     }
     entitlements.push({
@@ -169,7 +185,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         courseId: e.type === 'pool' ? null : course?.id ?? null,
         optionEquipmentIds: e.type === 'pool' ? optionIds : null,
         totalQty: Number(e.totalQty) || 0,
-        durationMin: course?.durationMin ?? null,
+        // v3 帶時長（舊表的 `復能(30分）`、`ILIB 30`）。沒帶就是課程的時長，跟以前一樣
+        durationMin: minutesOf(e.durationMin) ?? course?.durationMin ?? null,
         frequencyRule: course?.frequencyRule ?? null,
         // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
         // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
@@ -242,7 +259,10 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       purchasedAt: entry.purchasedAt ?? null,
       membershipExpiresAt: null,
       priority: 0,
-      flags: [],
+      // v3 帶警示與合作機構：產檔那側照舊表的字判好的（她 2026-09-07：自動帶、否定句不算，ADR-0092）。
+      // v1、v2 沒有就是空的，跟以前一樣
+      flags: stringList(entry.flags),
+      partners: stringList(entry.partners),
       // v2 帶的是帶顏色的備註（有「尾款」的是紅色）。**marks 是真相，notes 是鏡像**（ADR-0019）。
       // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
       ...marksOf(entry),
@@ -255,9 +275,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     visits,
     problems,
     // 舊表沒有「永久限制」這個欄位，所以那幾句話寫在購買名稱或空白處，而合併檔
-    // 把它們原封不動收進 `notes`。**匯進來之後 `customer.flags` 是空的**，
-    // 而擋器材是拿 flags 去比對的 —— 沒有那個標記，超磁場與高能量雷射不會被擋，
-    // 那是整個系統唯一會造成實際傷害的一條。只提示不自動填（ADR-0002）。
+    // 把它們原封不動收進 `notes`。v3 起產檔那側會替金屬類、血管類帶上警示（ADR-0092），
+    // 但判準只認得那兩類的寫法 —— 其餘的字眼照樣只在這裡提示，要她自己去點。
     contraindications: contraindicationHints([
       { where: '購買名稱', text: entry.source },
       { where: '備註', text: entry.notes },
