@@ -105,7 +105,7 @@ const mergeFile = (over = {}) => ({
   customers: [
     {
       name: '王小明',
-      chartNo: '3157',
+      chartNo: '1234',
       entitlements: [
         // `key` 是這份檔案裡的代號，時段靠 `entitlementKey` 指回來
         // **課程名要跟主檔一字不差**（`byName()` 不做模糊比對）。那個課程

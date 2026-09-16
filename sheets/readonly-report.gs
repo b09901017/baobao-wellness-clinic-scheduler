@@ -551,7 +551,7 @@ function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
 }
 
 /**
- * 客戶名字直接拿來當分頁名。舊表匯進來的名字裡可能有斜線（`名字(高能/sis)3157`），
+ * 客戶名字直接拿來當分頁名。舊表匯進來的名字裡可能有斜線（`名字(高能/sis)1234`），
  * 而分頁名不吃那些字元 —— 換成減號，並留住原名在分頁裡面的標題列。
  */
 function sheetNameFor(name) {
