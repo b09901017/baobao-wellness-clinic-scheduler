@@ -1,6 +1,6 @@
 # 資料健檢要列出「匯進來、名字保留原樣」的那幾筆
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md`（報告 §4.5）
 動工前先讀：`domain/health.js` 的 `checkPoolLabels()`（同一種做法）、`ui/views/health.js`

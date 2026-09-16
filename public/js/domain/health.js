@@ -17,7 +17,7 @@
 // 與備註的舊說法改名（docs/adr/0050-the-health-can-rename-an-imported-note.md）。
 
 import {
-  counts, reconcile, isOverused, schedulable, poolName, timedLabel, legacyPoolNames,
+  counts, reconcile, isOverused, schedulable, poolName, timedLabel, legacyPoolNames, autoLabel,
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
@@ -105,6 +105,12 @@ export const CHECKS = [
     label: '復能額度還叫舊名字',
     hint: '以前買的那幾筆叫「復能」或「復能 - 三選一（60）」，新的叫「復能-三選一(60)」'
       + ' —— 同一位客戶身上兩種名字並排，看起來像兩種東西',
+  },
+  {
+    id: 'importedLabel',
+    label: '匯進來的額度還叫舊表的名字',
+    hint: '匯入時算不出 app 的寫法（健檢的金額與部位、營養針、EECP體驗），'
+      + '所以原字留著等妳自己改 —— 改一筆少一列',
   },
   {
     id: 'alertTerm',
@@ -275,6 +281,9 @@ function prepare(snapshot, today) {
     equipment: alive(master.equipment),
     courses: alive(master.courses),
     clinicalFlags: alive(master.clinicalFlags),
+    // `autoLabel()` 要的是**陣列**（它自己 `find()`），而上面那幾個 `*ById`
+    // 是給「指到的東西還在不在」用的 —— 兩種形狀，不要互相將就。
+    ivProducts: alive(master.ivProducts),
   };
 }
 
@@ -843,6 +852,41 @@ function checkPoolLabels(ctx) {
 }
 
 /**
+ * 十二之二、匯進來的額度還叫舊表的名字。
+ *
+ * 匯入時算得出 app 寫法的已經改掉了（ADR-0095），這一列收的是**算不出來、
+ * 所以原字留著**的那幾筆：`12萬健檢`、`5萬健檢(腸道)`、`營養針`、`EECP體驗`。
+ * 她 2026-09-16：「讓我之後逐筆改」。
+ *
+ * **沒有修正鈕。** 保留原字正是因為算出來的會掉字 —— 一鍵改掉等於把匯入時
+ * 刻意留下來的東西洗掉（同 `checkPoolLabels()` 那句「她自己打的名字不可以被
+ * 一顆按鈕改掉」，只是這一次連按鈕都不該存在）。
+ *
+ * **只看匯進來的那幾筆**（`importedFrom`）。她自己在 app 裡建的額度本來就
+ * 可以取任何名字，列出來只會是一頁她永遠不會處理的雜訊。
+ *
+ * **配出來的二返也不看**（`followupForEntitlementId`）。它的名字是 app 自己
+ * 接的（`followupDraft()` 的 `二返（12萬健檢）`），不是舊表的字 —— 拿
+ * `autoLabel()` 去比它一定不一樣（那一支算出來的是「二返」），而那 12 筆
+ * 沒有任何東西要她改。
+ */
+function checkImportedLabels(ctx) {
+  const master = { courses: ctx.courses, equipment: ctx.equipment, ivProducts: ctx.ivProducts };
+
+  return ctx.entitlements
+    .filter((e) => !e.deletedAt && e.importedFrom && !e.followupForEntitlementId)
+    .map((e) => ({ e, want: autoLabel(e, master) }))
+    .filter(({ e, want }) => want && want !== String(e.label ?? '').trim())
+    .map(({ e, want }) => ({
+      severity: 'attention',
+      title: `${nameOf(ctx, e.customerId)}・${e.label}`,
+      detail: `匯入時算出來的是「${want}」，但那樣會掉字，所以原字留著 —— 要改的話自己改`,
+      link: `#/customers/${e.customerId}`,
+      fix: null,
+    }));
+}
+
+/**
  * 十三、器材上的提醒詞不在警示名單裡。
  *
  * ADR-0074 之後，客戶身上的字要進得了警示主檔才畫得到（`splitFlags()` 拿那份
@@ -1404,6 +1448,7 @@ const RUNNERS = {
   ivMismatch: checkIvMismatch,
   chartNo: checkChartNo,
   poolLabel: checkPoolLabels,
+  importedLabel: checkImportedLabels,
   alertTerm: checkAlertTerms,
   seedEquipment: checkSeedEquipment,
   seedDuration: checkSeedDurations,

@@ -22,6 +22,8 @@ const MASTER = {
     { id: 'c-recovery', name: '復能', requiresEquipment: true },
     { id: 'c-checkup', name: '健檢', durationMin: 120, followupCourseId: 'c-followup' },
     { id: 'c-followup', name: '二返', durationMin: 30 },
+    { id: 'c-inbody', name: '身體組成分析', durationMin: 20 },
+    { id: 'c-iv', name: '營養點滴', durationMin: 60, requiresIvProduct: true },
   ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
@@ -67,10 +69,58 @@ function snapshot(over = {}) {
 const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
+describe('匯進來的額度還叫舊表的名字（ADR-0095）', () => {
+  const imported = (over) => ({
+    id: 'e-imp', customerId: 'cus-1', type: 'single', totalQty: 4,
+    doneCount: 0, bookedCount: 0, importedFrom: '合併檔 2026-09-16', ...over,
+  });
+
+  test('算不出來、原字留著的那幾筆要列出來', () => {
+    const r = run({ entitlements: [imported({ label: '12萬健檢', courseId: 'c-checkup', tier: null })] });
+    const rows = findingsOf(r, 'importedLabel');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /健檢/);
+  });
+
+  test('那一列沒有修正鈕 —— 一鍵改掉等於把匯入時刻意留下來的東西洗掉', () => {
+    const r = run({ entitlements: [imported({ label: '營養針', courseId: 'c-iv' })] });
+    assert.equal(findingsOf(r, 'importedLabel').every((f) => f.fix === null), true);
+  });
+
+  test('改好了就少一列', () => {
+    const r = run({ entitlements: [imported({ label: '身體組成分析', courseId: 'c-inbody' })] });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('她自己在 app 裡建的額度不列 —— 判準是 importedFrom', () => {
+    const r = run({
+      entitlements: [imported({ label: '我自己取的名字', courseId: 'c-inbody', importedFrom: null })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('配出來的二返不列 —— 那個名字是 app 自己接的，不是舊表的字', () => {
+    const r = run({
+      entitlements: [imported({
+        id: 'e-fu', label: '二返（12萬健檢）', courseId: 'c-followup',
+        followupForEntitlementId: 'e-imp',
+      })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('健檢帶著 tier 時算出來的就是原名，所以不列', () => {
+    const r = run({
+      entitlements: [imported({ label: '12萬健檢', courseId: 'c-checkup', tier: '12萬' })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+});
+
 describe('形狀', () => {
-  test('二十四項檢查都在，順序固定', () => {
+  test('二十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 24);
+    assert.equal(result.checks.length, 25);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
