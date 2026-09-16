@@ -28,7 +28,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 
 import { fromRoot } from './helpers/paths.js';
 
@@ -159,37 +159,76 @@ test('沒有任何被追蹤的檔案帶著「姓名黏著病歷編號」的字�
 });
 
 /**
- * 真的那份名單在 `.local/aliases.json`（gitignore，見 .gitignore 最後一段）。
+ * 真名的名單從哪裡來。**兩個來源，愈完整愈好。**
  *
+ * 1. `nicknames` 的鍵與值 —— 但那一份只有**有暱稱的那幾位**
+ *    （2026-09-16 實測：6 位、19 個字串）
+ * 2. **合併檔裡的客戶名單**（`import-*.json` 的 `customers[]`）—— 那是最完整的
+ *    一份（同一天的 import 有 28 位、52 個字串），而且就在她那台機器上
+ *
+ * 只有第 1 個來源時，**綠燈只代表那 6 位沒進版控**。
+ *
+ * 一個字的不掃（`陳`、`際`）—— 單字在中文裡到處都是，掃了只會得到一頁誤判。
+ */
+function realNames(dir) {
+  const names = new Set();
+
+  try {
+    const { nicknames = {} } = JSON.parse(readFileSync(`${dir}aliases.json`, 'utf8'));
+    for (const n of [...Object.keys(nicknames), ...Object.values(nicknames).flat()]) {
+      if (typeof n === 'string') names.add(n.trim());
+    }
+  } catch (err) {
+    // 讀不動就講出來，不要靜靜地變成綠燈 —— 那比沒有這條測試更糟。
+    assert.fail(`${dir}aliases.json 讀不動：${err.message}`);
+  }
+
+  // 合併檔。沒有就算了 —— 別名表那一份照樣掃得到一部分。
+  for (const file of readdirSync(dir)) {
+    if (!/^import-.*[.]json$/.test(file)) continue;
+    try {
+      const { customers = [] } = JSON.parse(readFileSync(`${dir}${file}`, 'utf8'));
+      for (const c of customers) {
+        for (const key of ['name', 'rawName', 'sheetName']) {
+          if (typeof c?.[key] === 'string') names.add(c[key].trim());
+        }
+      }
+    } catch {
+      // 一份讀不動不要擋住其他份
+    }
+  }
+
+  return [...names].filter((n) => n.length >= 2);
+}
+
+/**
  * **測試本身一個真名都不能寫** —— 那樣等於為了防止 commit 真名而 commit 一次真名。
- * 所以改成：有那份檔案的機器上才驗得到，沒有就跳過並講清楚為什麼。
+ * 所以改成：有那份名單的機器上才驗得到，沒有就跳過並講清楚為什麼。
  * 上面那條形狀檢查不需要名單，兩條是互補的，不是二選一。
  */
 test('別名表裡的真名沒有出現在任何被追蹤的檔案裡', (t) => {
-  const aliases = `${ROOT}.local/aliases.json`;
-  if (!existsSync(aliases)) {
+  // **兩個位置都試。** `.local/references/` 是現在的（skill 那一側寫在那裡），
+  // `.local/` 是舊的 —— 2026-09-16 之前這裡只看舊的那一個，於是這條測試在她
+  // 那台機器上**一直是跳過的**，而 2026-09-08 那次外洩正是它該擋的那一種。
+  const dir = [`${ROOT}.local/references/`, `${ROOT}.local/`]
+    .find((d) => existsSync(`${d}aliases.json`));
+
+  if (!dir) {
     // **這是三條裡唯一擋得住 2026-09-08 那種外洩的**（名字沒有黏著數字，
     // 上面那條形狀檢查看不到它）。所以跳過的時候要把話講完整 ——
     // 一句「skipped」會讓人以為掃過了。
-    t.skip('.local/aliases.json 不在這台機器上（它刻意不進版控），'
+    t.skip('aliases.json 不在這台機器上（它刻意不進版控），'
       + '所以「真名有沒有進版控」這一條這次沒有掃。'
       + '2026-09-08 那次外洩就是這條沒跑到 —— 出貨的 UI 文案裡帶著一位真實客戶的名字。'
-      + '要驗它：把那份別名表放到 .local/ 底下再跑一次 npm test。');
+      + '要驗它：把那份別名表放到 .local/references/ 底下再跑一次 npm test。');
     return;
   }
 
-  let names;
-  try {
-    const { nicknames = {} } = JSON.parse(readFileSync(aliases, 'utf8'));
-    // 全名與行事曆上的叫法都要擋。只寫一個字的（`陳`、`際`）不掃 ——
-    // 單字在中文裡到處都是，掃了只會得到一頁誤判。
-    names = [...new Set([...Object.keys(nicknames), ...Object.values(nicknames).flat()])]
-      .filter((n) => typeof n === 'string' && n.trim().length >= 2)
-      .map((n) => n.trim());
-  } catch (err) {
-    // 讀不動就講出來，不要靜靜地變成綠燈 —— 那比沒有這條測試更糟。
-    assert.fail(`.local/aliases.json 讀不動：${err.message}`);
-  }
+  const names = realNames(dir);
+
+  // **掃了幾個名字要講出來。** 只讀 `nicknames` 是 19 個、加上合併檔是 52 個，
+  // 而那兩種綠燈的意思完全不一樣 —— 不講的話「過了」看起來永遠一樣有力。
+  t.diagnostic(`這一次掃了 ${names.length} 個名字`);
 
   const offenders = [];
   for (const rel of trackedFiles()) {

@@ -1,6 +1,6 @@
 # 真名掃描在這台機器上一直跳過，而且就算跑也只掃得到一小部分
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §2.4）
 動工前先讀：`tests/no-secrets.test.js`、`SPEC.md` 第 10 節、
 `.claude/skills/calendar-sheet-merge/SKILL.md` 的別名表那一段
