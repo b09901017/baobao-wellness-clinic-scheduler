@@ -1,6 +1,6 @@
 # 清掉已完成的待辦之後，同一筆來訪再存一次，那幾張會重新長出來
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §2.2）
 動工前先讀：`docs/adr/0091`（一張取消待辦知道自己收哪幾段）、`SPEC.md` 第 6.1 節（永不硬刪除）、
 `domain/taskRules.js` 的 `syncTasksForVisit()`／`cancelTasksFor()`
