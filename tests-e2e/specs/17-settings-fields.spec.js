@@ -280,3 +280,41 @@ test('S12 不指派診間的課程沒有「常用診間」那一排', async ({ a
   await page.locator('[data-edit="course-checkup"]').click();
   await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(0);
 });
+
+// 「同時幾位」是 2026-09-16 加的（ADR-0094）。一間裝得下幾個人決定撞期
+// 講不講話，所以它存得下去、讀得回來這件事要真的在瀏覽器上問一次。
+test('S13 診間的「同時幾位」：留空是 1，填 2 存得下去也讀得回來', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/rooms');
+
+  await page.locator('[data-edit="room-iv8"]').click();
+  await expect(page.locator('input[name="capacity"]')).toBeVisible();
+
+  // `min="1" step="1"`：2 是合法的（踩過三次的那個坑，見檔頭）
+  await page.fill('input[name="capacity"]', '2');
+  expect(await validOf(page, 'input[name="capacity"]')).toBe(true);
+
+  await page.click('button[type="submit"]');
+  await app.settled();
+  await page.waitForTimeout(600);
+
+  const saved = await app.readDoc('config/app/rooms', 'room-iv8');
+  expect(saved.capacity, '存進去的是數字不是字串').toBe(2);
+
+  await page.locator('[data-edit="room-iv8"]').click();
+  await expect(page.locator('input[name="capacity"]')).toHaveValue('2');
+});
+
+test('S14 留空存得下去 —— 沒填就是 1，不是錯誤', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/settings/rooms');
+
+  await page.locator('[data-edit="room-t2"]').click();
+  await page.fill('input[name="capacity"]', '');
+  await page.click('button[type="submit"]');
+  await app.settled();
+  await page.waitForTimeout(600);
+
+  const saved = await app.readDoc('config/app/rooms', 'room-t2');
+  expect(saved.capacity).toBe(null);
+});
