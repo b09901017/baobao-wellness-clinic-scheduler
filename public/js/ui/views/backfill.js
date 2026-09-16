@@ -18,6 +18,7 @@ import { candidatesFor, strongestReason, monthRange } from '../../domain/schedul
 import { offerSlotMessage } from '../../domain/messages.js';
 import { slotName } from '../../domain/naming.js';
 import { endOf, isValidTime } from '../../domain/visitTime.js';
+import { slotMinutes } from '../../domain/visits.js';
 import { todayISO, addDays, shortDate, isValidDate } from '../../domain/dates.js';
 import { splitFlags } from '../../domain/customers.js';
 import * as flagsUi from '../components/flags.js';
@@ -111,11 +112,20 @@ function hintFor(date, today) {
   return date < today ? '這是過去的日期' : shortDate(date);
 }
 
-/** 時段的結束時間用課程時長推出來，她不用再打一次。 */
+/**
+ * 時段的結束時間用課程時長推出來，她不用再打一次。
+ *
+ * 補登這一頁只填日期、時間、課程 —— 沒有額度也沒有品項那一排，所以
+ * `slotMinutes()` 在這裡就是課程那一格。照樣走它是因為全站只有那一支
+ * （ADR-0098）：哪天課程的時長改成別的算法，這裡不用記得跟。
+ *
+ * **課程身上沒有時長就回 null**（不要退回 60）：那是「猜不出來」，
+ * 而填一個猜的結束時間比留空糟。
+ */
 function endOfSlot(course) {
   const start = form?.startsAt;
   if (!isValidTime(start) || !course?.durationMin) return null;
-  return endOf(start, course.durationMin);
+  return endOf(start, slotMinutes({ course }));
 }
 
 async function search(el, ctx) {

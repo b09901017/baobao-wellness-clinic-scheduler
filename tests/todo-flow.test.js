@@ -15,6 +15,7 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
 import { TASK_KINDS, cancelKindFor, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
+import { visitStatusFrom } from '../public/js/domain/visits.js';
 
 describe('流程的段', () => {
   test('七段，編號就是流程的第幾步', () => {
@@ -443,6 +444,65 @@ describe('只看她點的那一段（focusSlot）', () => {
 
 // 掛號那一族是一天一張，會同時出現在那幾段的卡片上 —— 那件事沒有變，
 // 變的是畫面上不再講它（2026-09-12）。
+describe('「跟客人確認時間」與「簽療程單」照那一段算（ADR-0097）', () => {
+  // 她 2026-09-16：「如果這天A已經有兩個已確認的時段如果我新增一個來訪
+  // 那原本已確認的那兩個的那一項的待辦中的跟客人確認時間 就會被取消打勾？」
+  //
+  // 整筆那個 status 是推導的（由「還沒定案」往「定案」比），所以加一段
+  // 還沒問過客人的進去，整筆就退回 pending_confirm —— 那是對的
+  // （`.scratch/prelaunch-fixes-2026-09-16/issues/08`），錯的是這兩列讀了它。
+  const COURSES = { 'c-rehab': { id: 'c-rehab', name: '復能', category: 'C' } };
+  const day = (...statuses) => {
+    const visit = {
+      id: 'v1',
+      customerId: 'c1',
+      date: '2026-09-20',
+      confirmedAt: statuses.includes('confirmed') ? '2026-09-15T00:00:00Z' : null,
+      slots: statuses.map((status) => ({ courseId: 'c-rehab', status })),
+    };
+    return { ...visit, status: visitStatusFrom(visit) };
+  };
+  const row = (visit, focusSlot, key) =>
+    todosForVisit(visit, { tasks: [], coursesById: COURSES, focusSlot })
+      .find((r) => r.key === key);
+
+  test('兩段已確認，加一段沒問過的 → 那兩段照樣打勾，新的那一段沒有', () => {
+    const v = day('confirmed', 'confirmed', 'pending_confirm');
+    assert.equal(v.status, 'pending_confirm', '整筆退回待確認（issue 08 的行為，對的）');
+    assert.equal(row(v, 0, 'confirm').done, true, '第 0 段早就談定了');
+    assert.equal(row(v, 1, 'confirm').done, true, '第 1 段早就談定了');
+    assert.equal(row(v, 2, 'confirm').done, false, '第 2 段還沒問過');
+  });
+
+  test('簽療程單那一列也照那一段算', () => {
+    const v = day('done', 'confirmed');
+    assert.equal(v.status, 'confirmed');
+    assert.equal(row(v, 0, 'close').done, true, '第 0 段做完了');
+    assert.equal(row(v, 1, 'close').done, false, '第 1 段還沒');
+  });
+
+  test('未到那一段的簽療程單也算結案了', () => {
+    const v = day('no_show', 'confirmed');
+    assert.equal(row(v, 0, 'close').done, true);
+  });
+
+  test('沒帶 focusSlot 時一個字都不變（另外三頁列的本來就是整筆）', () => {
+    const v = day('confirmed', 'confirmed', 'pending_confirm');
+    assert.equal(row(v, null, 'confirm').done, false, '整筆還是待確認');
+    assert.equal(row(v, null, 'close').done, false);
+  });
+
+  test('舊資料（時段上沒有 status）退回整筆 —— 一個字都不變', () => {
+    const old = {
+      id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+      slots: [{ courseId: 'c-rehab' }, { courseId: 'c-rehab' }],
+    };
+    assert.equal(row(old, 0, 'confirm').done, true);
+    assert.equal(row(old, 1, 'confirm').done, true);
+    assert.equal(row(old, 0, 'close').done, false);
+  });
+});
+
 describe('「這一天共用」那一句拿掉了（2026-09-12）', () => {
   // 她：「這一項的代辦中的內容不需要再有小Tooltip說明這一張是這天共用的，
   // 完全沒必要，全部刪除」。

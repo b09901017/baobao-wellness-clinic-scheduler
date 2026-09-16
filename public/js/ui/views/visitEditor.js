@@ -18,7 +18,7 @@ import {
   INITIAL_STATUS, describeStatus, statusClass, statusForCard, isLocked, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
-  applyStatus, NOTE_MAX,
+  applyStatus, slotMinutes, NOTE_MAX,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
@@ -202,15 +202,22 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
 
 function blankSlot(entitlement, all, settings, startsAt) {
   const course = coursesForEntitlement(entitlement, all.courses, all.equipment)[0] ?? null;
-  const durationMin = entitlement?.durationMin ?? course?.durationMin ?? 60;
+  // 買的時候就定下來的那一款先選好 —— 不選存不下去，而只有一個正確答案的
+  // 時候讓她多點一下沒有任何意義（`ivChoicesFor()`）。
+  const ivProductId = course?.requiresIvProduct ? (entitlement?.ivProductId ?? null) : null;
+  // **那一針要打多久由品項說了算**（`slotMinutes()`，ADR-0098）：一般 120 分、
+  // 護心抗老 180 分。這裡自己算一份的話，畫面上寫 180、存進去 120。
+  const durationMin = slotMinutes({
+    entitlement,
+    course,
+    ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
+  });
   return {
     entitlementId: entitlement?.id ?? null,
     courseId: course?.id ?? null,
     courseName: course?.name ?? null,
     equipmentId: null,
-    // 買的時候就定下來的那一款先選好 —— 不選存不下去，而只有一個正確答案的
-    // 時候讓她多點一下沒有任何意義（`ivChoicesFor()`）。
-    ivProductId: course?.requiresIvProduct ? (entitlement?.ivProductId ?? null) : null,
+    ivProductId,
     startsAt,
     endsAt: endOf(startsAt, durationMin),
     roomId: null,
@@ -875,7 +882,15 @@ function readDraft(ctx, form, draft) {
     // 會出現「畫面上沒有診間那一排、存進去卻帶著一個舊的 roomId」。
     const assigns = assignsFor(ent, course, equipmentId);
     const startsAt = v[`s${i}-start`] || slot.startsAt;
-    const durationMin = ent?.durationMin ?? course?.durationMin ?? 60;
+    // **她換了一款品項，結束時間要跟著變**（`slotMinutes()`，ADR-0098）。
+    // `endsAt` 從來不是她填的欄位，每次存檔都是推導出來的，所以換一款
+    // 護心抗老那一段就從 120 變 180。
+    const ivProductId = course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null;
+    const durationMin = slotMinutes({
+      entitlement: ent,
+      course,
+      ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
+    });
 
     return {
       ...slot,
@@ -883,7 +898,7 @@ function readDraft(ctx, form, draft) {
       courseId,
       courseName: course?.name ?? null,
       equipmentId: picksEquipment(ent, course) ? (v[`s${i}-equip`] ?? null) : null,
-      ivProductId: course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null,
+      ivProductId,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
       // 那一段身上那一句話（ADR-0084）。收起來的時候 textarea 照樣在 DOM 裡，
@@ -938,6 +953,9 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   const course = all.courses.find((c) => c.id === courseId) ?? null;
 
   const startsAt = v[`s${i}-start`] || slot.startsAt;
+  // **n返 不走 `slotMinutes()`**：它借二返那個課程，身上沒有額度也沒有品項
+  // （`domain/nthFollowup.js`），所以那一支沒有東西可以加 —— 而它答不出來時
+  // 退的是 60，這裡要的是 30。走過去只會把這一格的預設值靜默換掉。
   const durationMin = course?.durationMin ?? 30;
 
   return {

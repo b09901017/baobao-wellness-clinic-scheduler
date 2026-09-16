@@ -635,7 +635,12 @@ export function visitsToConfirm(visits = [], today) {
  *
  * 這裡只回事實（誰、哪一天、幾點、做什麼、退掉幾段），排版是畫面的事。
  *
- * @param {object[]} visits 這位客戶還在等回覆的那幾筆
+ * **只算這一次從「待確認」走出去的那幾段**（ADR-0097）—— 跟抽屜列出來的是同一份。
+ * 她在日曆上先確認掉早上那一段、抽屜裡只剩下午那一段時，把早上那段也列進來
+ * 會變成「確認 1 段」按下去、卡片寫「已確認 2 段」；而早就取消掉的那一段
+ * 列進來是在說一段不會發生的已經確認了。
+ *
+ * @param {object[]} visits 這位客戶還在等回覆的那幾筆（寫入之前的）
  * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
  * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
  */
@@ -645,6 +650,7 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
 
   for (const v of visits ?? []) {
     (v.slots ?? []).forEach((slot, i) => {
+      if (slotStatus(v, slot) !== 'pending_confirm') return;
       if (rejected.has(`${v.id}:${i}`)) {
         dropped += 1;
         return;
@@ -863,7 +869,8 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  *
  * @param {object} visit
  * @param {string} to 要換成哪一個狀態
- * @param {{at?: string, reason?: string|null}} [o] reason 只有取消才用得到
+ * @param {{at?: string, reason?: string|null, slotIndex?: number|null}} [o]
+ *   `slotIndex` 帶了就只動那一段（ADR-0081、0097）；`reason` 只有取消才用得到
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
 export function applyStatus(
@@ -875,6 +882,10 @@ export function applyStatus(
   //
   // 她 2026-09-08：「僅能取消被選中的該筆時段來訪，嚴禁一次連帶將該客戶
   // 當天的所有時段預約全部取消！」
+  //
+  // **確認 2026-09-16 起也走這一條**（ADR-0097）。她：「能不能我那個時段說確認
+  // 就那個時段確認就好」。在那之前只有取消帶 `slotIndex`，而長按選單上「客戶
+  // 說可以」走的是下面整天那一段 —— 於是那一下把當天每一段都蓋成已確認。
   //
   // **指到一個不存在的段落什麼都不做。** 退回去改整筆是最壞的一種答案 ——
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
@@ -956,11 +967,32 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   // 單段那一天會變成一顆取消都沒有。
   const slots = visit?.slots ?? [];
   const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
-  const canCancelOne = one
-    && one.status !== 'cancelled'
-    && next.includes('cancelled');
 
-  if (next.includes('confirmed')) {
+  // **狀態那幾顆問的是她長按的那一段**（ADR-0097）。她 2026-09-16：
+  // 「能不能我那個時段說確認就那個時段確認就好」。
+  //
+  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），所以拿它問「這一段
+  // 能不能確認」會答錯兩次：一段已經談定、另一段還沒問時整筆是「待確認」，
+  // 於是**談定那一段身上也長出一顆「客戶說可以」**；而一段已完成、另一段還在
+  // 等回覆時整筆也是「待確認」，那一顆會出現在一個 `TRANSITIONS` 不准的轉移上。
+  //
+  // 認不出是哪一段時退回整筆 —— `visitActions()` 是匯出的，而沒有 `slotIndex`
+  // 的呼叫端問的本來就是那一天。
+  //
+  // **兩層都要准**（同 `cancellableSlots()`）：那一段自己准、**整筆也准**。
+  // 只問那一段的話，客人做了一段就走的那一天（一段已完成、一段未到，整筆
+  // 已完成）長按沒做的那一段會長出「客戶說可以」與「取消這一段」——
+  // `no_show` 自己准那兩個轉移，但整筆已經是唯讀鎖定區（SPEC 第 6.4 節），
+  // 按下去會把已完成的那一天退回已確認，而且不用填更正理由。
+  const ownNext = one
+    ? nextStatuses(slotStatus(visit, one)).filter((to) => next.includes(to))
+    : next;
+
+  // 取消那一顆也走同一份（`nextStatuses('cancelled')` 是空的，所以
+  // 「已經取消掉的那一段不再給」是它自己就答得出來的，不用再比一次 `status`）。
+  const canCancelOne = Boolean(one) && ownNext.includes('cancelled');
+
+  if (ownNext.includes('confirmed')) {
     out.push({
       id: 'confirmed',
       label: '客戶說可以',
@@ -1121,6 +1153,41 @@ export function showsRoom(slot, courses = []) {
   if (!slot?.roomId) return false;
   const course = (courses ?? []).find((c) => c.id === slot.courseId) ?? null;
   return course ? course.assigns === 'room' : true;
+}
+
+/** 大於 0 的整數分鐘才算數；空的、0、負的、看不懂的一律當成沒填。 */
+function minutesOrNull(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * 這一段要排多久。**全站只有這一支**（ADR-0098）。
+ *
+ * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
+ * 那邊要多一個時間」。
+ *
+ * 順序是 **品項 → 額度 → 課程 → 60**，而品項排在額度前面是刻意的：
+ * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
+ * 是 `entitlementDoc()`（匯入）與 `buy.js`（加購）建額度時抄課程預設值抄進去的。
+ * 排在後面的話，改了主檔既有額度照樣是舊的那個數字，而她看不出為什麼。
+ *
+ * **只有要選品項的課程才問品項那一句**（`requiresIvProduct`）。復能與 ILIB
+ * 身上永遠沒有 `ivProduct`，多問一句不會錯，但寫死「只有點滴」讓讀的人知道
+ * 這一條規則的範圍。
+ *
+ * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
+ * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
+ *
+ * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o
+ * @returns {number} 分鐘
+ */
+export function slotMinutes({ entitlement = null, course = null, ivProduct = null } = {}) {
+  const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
+  return fromProduct
+    ?? minutesOrNull(entitlement?.durationMin)
+    ?? minutesOrNull(course?.durationMin)
+    ?? 60;
 }
 
 /**

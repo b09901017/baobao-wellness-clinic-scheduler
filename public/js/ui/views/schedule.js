@@ -47,7 +47,7 @@ import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
-  picksEquipment, assignsFor, NOTE_MAX,
+  picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
   acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { bookingConsequences } from '../../domain/consequences.js';
@@ -1326,6 +1326,26 @@ function leaveTitles(iso) {
     .join('、');
 }
 
+/**
+ * 她現在選的這一段要排多久。**每次都重問** —— 品項換得掉，而護心抗老是 180 分
+ * 而不是課程的 120 分（`slotMinutes()`，ADR-0098）。
+ *
+ * 壓表把品項存在 `view.equipmentId`（同一格兩用，見 `onDeckClick()` 的對照表）。
+ */
+function pickedMinutes(picked) {
+  const course = effectiveCourse(picked);
+  const ivProduct = course?.requiresIvProduct
+    ? ((ctx.all.ivProducts ?? []).find((x) => x.id === view.equipmentId) ?? null)
+    : null;
+  return slotMinutes({ entitlement: picked?.entitlement ?? null, course, ivProduct });
+}
+
+/** 「　120 分鐘」。算不出來就一個像素都不佔。 */
+function minsLabel(picked) {
+  const n = picked ? pickedMinutes(picked) : null;
+  return n ? `　${n} 分鐘` : '';
+}
+
 /** 跟著課程走的那幾欄。沒選課程時只留一句話，不留一堆空欄位。 */
 function entFields(row, picked) {
   if (!picked) return '<p class="muted" style="margin: 0 0 var(--space-4)">先選上面要做什麼。</p>';
@@ -1338,10 +1358,13 @@ function entFields(row, picked) {
   return `
     <div class="fieldgroup">
       ${/* 時長要問**額度**不是課程（`04`）：她買的是「超磁場(30)」，
-             印課程的 60 分鐘會讓她照著排錯一段。`picked.durationMin` 已經是
-             `ent.durationMin ?? course.durationMin` 算好的那一個。 */''}
-      <span class="fieldgroup__label">幾點開始${
-        picked.durationMin ? `　${picked.durationMin} 分鐘` : ''}</span>
+             印課程的 60 分鐘會讓她照著排錯一段。2026-09-16 起**品項又排在
+             額度前面**（護心抗老 180 分，ADR-0098），所以這裡問的是
+             `pickedMinutes()` —— 那一支跟存檔那一行是同一支。
+             包一層 `[data-slotmins]` 是因為換一款品項時只換這一句，
+             整塊重畫會閃一下而她一位客戶要點五六下（ADR-0038）。 */''}
+      <span class="fieldgroup__label">幾點開始<span data-slotmins>${
+        minsLabel(picked)}</span></span>
       <div class="chiprow noscroll-bar">
         ${timeChoices().map((t) => {
           // 落在他說不行的那半天。標起來，但**不 disable** —— 唯一會鎖住選項的
@@ -1872,7 +1895,22 @@ function pickOne(attr, key, value) {
   view[key] = view[key] === value ? null : value;
   press(`[data-${attr}]`, attr, view[key]);
 
+  // 換一款品項只換「幾點開始　N 分鐘」那一句（ADR-0098）：那是畫面上唯一
+  // 跟著品項變的東西，而整塊重畫會閃一下（ADR-0038）。
+  if (attr === 'ivproduct') refreshSlotMins();
+
   if (picked) afterEquipmentPick(row, picked, before);
+}
+
+/** 換一款品項之後把那一句分鐘數重算。 */
+function refreshSlotMins() {
+  const host = deckEl()?.querySelector('[data-slotmins]');
+  if (!host) return;
+  const row = selectedRow();
+  const picked = row
+    ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null)
+    : null;
+  host.textContent = picked ? minsLabel(picked) : '';
 }
 
 /**
@@ -2059,7 +2097,9 @@ async function addSlot() {
     equipmentId: picksEquipment(picked.entitlement, course) ? (view.equipmentId ?? null) : null,
     ivProductId: course.requiresIvProduct ? (view.equipmentId ?? null) : null,
     startsAt: view.startsAt,
-    endsAt: endOf(view.startsAt, picked.durationMin),
+    // 畫面上那一句與存進去的長度走同一支（`pickedMinutes()`，ADR-0098）——
+    // 各算一份的話，她看到 180 分、資料庫裡是 120 分。
+    endsAt: endOf(view.startsAt, pickedMinutes(picked)),
     roomId: assigns === 'room' ? (roomId || null) : null,
     bed: assigns === 'room' ? (bed || null) : null,
     therapistId: assigns === 'therapist' ? (view.therapistId ?? null) : null,

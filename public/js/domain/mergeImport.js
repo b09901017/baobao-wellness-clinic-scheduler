@@ -20,6 +20,7 @@ import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
 import { DOCTOR_ROLE } from './masterData.js';
+import { slotMinutes } from './visits.js';
 
 /**
  * 合併檔的格式。
@@ -476,7 +477,10 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       roomId: null,
       therapistId: null,
       startsAt: start,
-      endsAt: start ? addMinutes(start, course.durationMin ?? 60) : null,
+      // 候選清單補的那幾段只知道「哪一天、哪個課程」（ADR-0011），沒有品項 ——
+      // 所以 `slotMinutes()` 在這裡就是課程那一格。照樣走它是因為全站只有
+      // 那一支（ADR-0098）。
+      endsAt: start ? addMinutes(start, slotMinutes({ course })) : null,
       bed: null,
       attended: status !== 'confirmed',
     };
