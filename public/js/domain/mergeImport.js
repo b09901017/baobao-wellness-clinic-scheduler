@@ -16,7 +16,7 @@ import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
 import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
-import { syncTasksForVisit } from './taskRules.js';
+import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
 
 /**
@@ -645,9 +645,11 @@ export function eventDocs(candidates, stamp = null) {
 /**
  * 這批計畫會長出幾筆登記待辦。
  *
- * **判斷不在這裡。** 呼叫的是每次存來訪都在跑的那一支（`syncTasksForVisit()`，
- * 它自己會問 `acceptsNewTasks()`），這裡只負責數 —— 在 UI 上再判斷一次
- * 「哪一種來訪會長任務」，就是第二份實作，而它一定會跟真正寫入的那一份跑掉。
+ * **判斷不在這裡。** 呼叫的是寫入端在跑的那一支（`importedTasksFor()`），
+ * 這裡只負責數 —— 在 UI 上再判斷一次「哪一種來訪會長任務」，就是第二份實作，
+ * 而它一定會跟真正寫入的那一份跑掉。2026-09-16 就跑掉過一次：兩邊都呼叫
+ * `syncTasksForVisit()`，數字是對的，但**那 18 張全部是掛在已經發生的來訪上的
+ * 「寫紀錄」**，而確認框拿這個數字去寫「還沒發生的那幾筆會產生 N 筆登記待辦」。
  *
  * 這個數字是給確認框看的：那一頁本來寫著「不會產生任何待辦任務」，
  * 而那句話對未來的預約是錯的（`.scratch/first-real-import/issues/04`）。
@@ -660,7 +662,7 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
   return plans
     .filter((p) => !p.skip)
     .reduce((n, p) => n + p.visits.reduce(
-      (m, v) => m + syncTasksForVisit(v, [], { coursesById, today }).create.length, 0,
+      (m, v) => m + importedTasksFor(v, { coursesById, today }).length, 0,
     ), 0);
 }
 

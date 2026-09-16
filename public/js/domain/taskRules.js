@@ -385,6 +385,43 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
 }
 
 /**
+ * **匯進來的**一筆來訪要長哪些任務。
+ *
+ * 只有一條規則：**已經發生的那一筆一張都不長。**
+ *
+ * 那些事在舊系統裡早就做完了 —— Examine 與耀聖上的登記她去年就登記過，
+ * 二返與門診的紀錄也早就寫進耀聖了。照常產生會長出一批**一出生就逾期**的
+ * 紅字，而待辦中心頂端那個數字正是她每天第一眼看的東西。
+ *
+ * 她 2026-09-16 的原話：
+ *
+ * > 對於未來的要長，對於過去的如果不會有問題的話就不長，或是當已完成，
+ * > 都可以，但是對於未來發生的還沒到的都要長
+ *
+ * **「已經發生了嗎」不在這裡判斷。** 那是 `domain/mergeImport.js` 的
+ * `statusFor()` 的工作（依匯入當下的日期，ADR-0029），而它的答案就寫在
+ * `visit.status` 上：`done` ＝ 已經發生、`confirmed` ＝ 還沒發生。
+ * 在這裡再比一次日期等於同一條規則有兩份實作，而兩份會在「檔案自己
+ * 寫著 confirmed」那一種上給出不同的答案。
+ *
+ * **不是「濾掉寫紀錄那一種」。** 掛號那一族本來就被 `acceptsNewTasks()` 擋著，
+ * 所以今天看起來只有紀錄那一族受影響 —— 但下一種任務長出來的時候，
+ * 照種類寫的濾法會漏掉它，照「已經發生了嗎」寫的不會。
+ *
+ * 見 `docs/adr/0093-an-imported-visit-grows-no-tasks.md`。
+ *
+ * @param {object} visit 匯進來的那一筆（狀態已經由 `statusFor()` 判好）
+ * @param {{coursesById?: Record<string, object>, today?: string}} ctx
+ * @returns {object[]} 要建立的任務
+ */
+export function importedTasksFor(visit, { coursesById = {}, today } = {}) {
+  // 「這一場已經發生了嗎」跟「那一場做完了嗎」在匯進來的資料上是同一個問題，
+  // 而那個判斷只有一份 —— 借它，不要在這裡再寫一次 `=== 'done'`。
+  if (acceptsRecordTasks(visit?.status)) return [];
+  return syncTasksForVisit(visit, [], { coursesById, today }).create;
+}
+
+/**
  * 一張取消類的待辦收的是哪幾段（`visit.slots` 裡的位置）。
  *
  * **沒記的舊任務當成那一天的每一段** —— 2026-09-13 之前長出來的那幾張身上

@@ -5,7 +5,7 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import * as customers from './customers.js';
 import { recount, withSlotStatuses } from '../domain/visits.js';
-import { syncTasksForVisit } from '../domain/taskRules.js';
+import { importedTasksFor } from '../domain/taskRules.js';
 import { todayISO } from '../domain/dates.js';
 
 const CUSTOMERS = 'customers';
@@ -49,15 +49,18 @@ export async function loadContext() {
  * 危險得多，因為沒有人會發現 —— 這正是 repo.commit() 存在的理由。所以塞不進
  * 一個 batch 時我們選擇拒絕，不選擇分批。
  *
- * **任務逐筆問一次 `acceptsNewTasks()`，不是整批一律不產生。**
- * 已經發生的那些一筆都不長 —— 那些掛號在舊系統裡早就做完了，照常產生會長出
- * 幾百筆逾期任務把待辦中心淹掉。但同一份檔案裡會夾著**還沒發生**的預約
- * （ADR-0029），而一筆「未來 + 已確認」的來訪正好就是 ADR-0027 說該長任務的那一種：
- * 她要去公司另外兩個系統登記、要確認當天出席簽療程單，那些事是真的還沒做。
+ * **已經發生的那一筆一張任務都不長，還沒發生的照常長。**
+ * 那些掛號在舊系統裡早就做完了，紀錄也早就寫進耀聖了 —— 照常產生會長出
+ * 一批一出生就逾期的紅字把待辦中心淹掉。但同一份檔案裡會夾著**還沒發生**的
+ * 預約（ADR-0029），而一筆「未來 + 已確認」的來訪正好就是 ADR-0027 說該長
+ * 任務的那一種：她要去公司另外兩個系統登記、要確認當天出席簽療程單。
  *
- * 判斷不在這裡寫第二次 —— 這裡呼叫的是每次存來訪都在跑的那一支
- * （`domain/taskRules.js` 的 `syncTasksForVisit()`，它自己會問 `acceptsNewTasks()`）。
- * 所以匯入不是「多開一個特例」，是**停止繞過**那條既有的規則。
+ * 判斷不在這裡寫第二次 —— 這裡呼叫的是 `domain/taskRules.js` 的
+ * `importedTasksFor()`，而匯入頁那個數字（`countNewTasks()`）呼叫的是同一支。
+ * 2026-09-16 之前這裡直接呼叫 `syncTasksForVisit()`，而紀錄那一族**刻意不走**
+ * `acceptsNewTasks()`（ADR-0066）—— 於是她那份 import 會長出 18 張
+ * 一出生就逾期的「寫紀錄」，而畫面上那句話寫著「已經發生的一筆都不會長」。
+ * 見 `docs/adr/0093-an-imported-visit-grows-no-tasks.md`。
  *
  * @param {ReturnType<import('../domain/legacyImport.js').planForSheet>} plan
  * @param {{coursesById?: Record<string, object>}} [opts] importAll() 讀一次往下傳，省往返
@@ -95,7 +98,7 @@ export async function importPlan(plan, { coursesById = null } = {}) {
   const today = todayISO();
   const courses = coursesById ?? await loadCoursesById();
   const tasks = visits.flatMap(
-    (visit) => syncTasksForVisit(visit, [], { coursesById: courses, today }).create,
+    (visit) => importedTasksFor(visit, { coursesById: courses, today }),
   );
 
   const ops = [

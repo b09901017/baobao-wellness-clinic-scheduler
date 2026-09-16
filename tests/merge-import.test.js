@@ -13,6 +13,7 @@ import {
   summarize, countNewTasks,
   groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
+import { importedTasksFor, syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { validateVisit } from '../public/js/domain/visits.js';
 
@@ -464,6 +465,105 @@ test('未來的門診會長出 Examine 與耀聖 —— 那兩件是真的還沒
 test('整位跳過的客戶不算待辦', () => {
   const skipped = plan(FUTURE(), { today: '2026-08-21', existingCustomers: [{ id: 'c1', name: '客戶A' }] });
   assert.equal(countNewTasks([skipped], { courses: SEED.courses, today: '2026-08-21' }), 0);
+});
+
+// ---------- 已經發生的那一筆一張都不長（ADR-0093、報告 §1.1） ----------
+//
+// 2026-09-16 實跑她那份 import：`countNewTasks()` 回 18，而那 18 張**全部是
+// 「寫紀錄」、全部掛在已經發生的來訪上**（9 張二返 ＋ 9 張復健科醫師門診），
+// 死線 5/21 到 9/15。確認框卻印著「還沒發生的那幾筆會產生 18 筆登記待辦；
+// 已經發生的一筆都不會長」—— 每一半都是反的。
+//
+// 為什麼以前的測試沒抓到：底下那個「過去的來訪」用的課程沒有 `needsRecord`。
+
+/** 一位客戶，六月做過一次二返（`needsRecord: true`），沒有任何未來的來訪。 */
+const PAST_RECORD = () => ({
+  sheetName: '客戶A',
+  name: '客戶A',
+  source: null,
+  notes: null,
+  entitlements: [{
+    key: 'ck', type: 'single', label: '健檢', totalQty: 1,
+    courseName: '健檢', optionEquipmentNames: [], productName: null,
+  }],
+  // 健檢一展開就配一筆二返（`followupPlanEntries()`），所以這一段對得到額度
+  visits: [{
+    date: '2026-06-18',
+    status: 'done',
+    slots: [{
+      entitlementKey: 'ck-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30',
+      roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+      confidence: 'high', evidence: '（編的）',
+    }],
+  }],
+});
+
+describe('匯進來的來訪會長出什麼任務', () => {
+  const TODAY = '2026-09-16';
+  const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
+
+  test('這份 fixture 真的匯得進去（不是因為解析失敗才數到 0）', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    assert.equal(p.skip, null);
+    assert.equal(p.visits.length, 1, `problems: ${JSON.stringify(p.problems)}`);
+    assert.equal(p.visits[0].status, 'done');
+    assert.equal(p.counts.future, 0);
+  });
+
+  test('已經發生的那一筆一張都不長 —— 那一份紀錄她早就寫進耀聖了', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    assert.equal(countNewTasks([p], { courses: SEED.courses, today: TODAY }), 0);
+    assert.deepEqual(
+      p.visits.flatMap((v) => importedTasksFor(v, { coursesById, today: TODAY })),
+      [],
+    );
+  });
+
+  test('一出生就逾期的紅字一張都不可以有', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    const overdue = p.visits
+      .flatMap((v) => importedTasksFor(v, { coursesById, today: TODAY }))
+      .filter((t) => t.dueDate < TODAY);
+    assert.deepEqual(overdue.map((t) => `${t.kind}・${t.dueDate}`), []);
+  });
+
+  test('這一條不是「濾掉寫紀錄」—— 同一筆來訪正常存檔時照樣長得出來', () => {
+    // 她自己記完一場二返，那一張「寫紀錄」是真的要做的事（ADR-0066）
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    const visit = { id: 'v1', customerId: 'c1', ...p.visits[0] };
+    const { create } = syncTasksForVisit(visit, [], { coursesById, today: TODAY });
+    assert.deepEqual(create.map((t) => t.kind), [RECORD_TASK_KIND]);
+  });
+
+  test('還沒發生的那一筆照舊長掛號任務', () => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'r9', type: 'single', label: '復健科醫師門診', totalQty: 2,
+      courseName: '復健科醫師門診', optionEquipmentNames: [], productName: null,
+    });
+    entry.visits.push({
+      date: '2026-09-30',
+      status: 'done',
+      slots: [{
+        entitlementKey: 'r9', courseName: '復健科醫師門診', startsAt: '10:00', endsAt: '10:30',
+        roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+        confidence: 'high', evidence: '10.復健',
+      }],
+    });
+    const p = plan(entry, { today: '2026-08-21' });
+    const ahead = p.visits.find((v) => v.date === '2026-09-30');
+    assert.equal(ahead.status, 'confirmed');
+    assert.deepEqual(
+      importedTasksFor(ahead, { coursesById, today: '2026-08-21' }).map((t) => t.kind).sort(),
+      ['Examine', '耀聖'],
+    );
+    // **復健科醫師門診也有 `needsRecord`**，而未來那一筆不可以長出它
+    assert.equal(
+      importedTasksFor(ahead, { coursesById, today: '2026-08-21' })
+        .some((t) => t.kind === RECORD_TASK_KIND),
+      false,
+    );
+  });
 });
 
 // ---------- 二返（GitHub issue #15） ----------
