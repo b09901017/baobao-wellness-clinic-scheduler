@@ -454,6 +454,29 @@ export function cancelSlotsOf(task, visit) {
 }
 
 /**
+ * 這一筆來訪裡，**已經談定的那幾段**現在長得出哪幾種掛號任務（ADR-0097）。
+ *
+ * 跟 `tasksForVisit()` 的差別只有一句：那一支問「這一天該有哪幾種」（不看狀態，
+ * 因為它同時被拿來比對哪些還該留著），這一支問「**現在**哪幾種可以無中生有」。
+ *
+ * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
+ * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
+ *
+ * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
+ * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
+ * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
+ */
+function confirmedKinds(visit, coursesById) {
+  const out = new Set();
+  for (const slot of visit?.slots ?? []) {
+    if (!isLiveSlot(slot)) continue;
+    if (!acceptsNewTasks(slotStatus(visit, slot))) continue;
+    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) out.add(kind);
+  }
+  return out;
+}
+
+/**
  * 這一筆來訪取消掉的那幾段，還欠哪幾張「取消 X」。**整天取消與只取消幾段走同一支。**
  *
  * ## 逐段，不逐天（`.scratch/asks-2026-09-13/issues/02`）
@@ -484,29 +507,6 @@ export function cancelSlotsOf(task, visit) {
  * @param {object[]} existingTasks 這一筆來訪現有的任務
  * @returns {object[]} 要新建的取消類任務（帶 `slotIndexes`）
  */
-/**
- * 這一筆來訪裡，**已經談定的那幾段**現在長得出哪幾種掛號任務（ADR-0097）。
- *
- * 跟 `tasksForVisit()` 的差別只有一句：那一支問「這一天該有哪幾種」（不看狀態，
- * 因為它同時被拿來比對哪些還該留著），這一支問「**現在**哪幾種可以無中生有」。
- *
- * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
- * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
- *
- * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
- * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
- * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
- */
-function confirmedKinds(visit, coursesById) {
-  const out = new Set();
-  for (const slot of visit?.slots ?? []) {
-    if (!isLiveSlot(slot)) continue;
-    if (!acceptsNewTasks(slotStatus(visit, slot))) continue;
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) out.add(kind);
-  }
-  return out;
-}
-
 export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, today = null) {
   const slots = visit?.slots ?? [];
   const whole = Boolean(visit?.deletedAt) || visit?.status === 'cancelled';

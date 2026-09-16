@@ -3648,7 +3648,6 @@ async function clearDone(el, done) {
 
 // ---------- 小工具 ----------
 
-/** @returns {Map<string, object[]>} 客戶 id → 他的來訪 */
 /**
  * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
  *
@@ -3672,6 +3671,7 @@ function asPending(visit) {
   return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
 }
 
+/** @returns {Map<string, object[]>} 客戶 id → 他的來訪 */
 function byCustomer(visits) {
   const out = new Map();
   for (const v of visits) {

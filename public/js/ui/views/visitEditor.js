@@ -953,8 +953,10 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   const course = all.courses.find((c) => c.id === courseId) ?? null;
 
   const startsAt = v[`s${i}-start`] || slot.startsAt;
-  // n返 借二返那個課程，身上沒有額度也沒有品項（`domain/nthFollowup.js`）。
-  const durationMin = slotMinutes({ course }) || 30;
+  // **n返 不走 `slotMinutes()`**：它借二返那個課程，身上沒有額度也沒有品項
+  // （`domain/nthFollowup.js`），所以那一支沒有東西可以加 —— 而它答不出來時
+  // 退的是 60，這裡要的是 30。走過去只會把這一格的預設值靜默換掉。
+  const durationMin = course?.durationMin ?? 30;
 
   return {
     ...slot,
