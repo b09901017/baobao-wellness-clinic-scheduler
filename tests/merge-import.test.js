@@ -566,6 +566,65 @@ describe('匯進來的來訪會長出什麼任務', () => {
   });
 });
 
+// ---------- 誰：醫師與治療師是兩個欄位（ADR-0026、報告 §2.3） ----------
+//
+// 產檔那側只有一格「誰」（行事曆上的「*許」寫在 `therapistName`），
+// 而 2026-09-16 之前這一側不看角色 —— 她那份 import 的 9 段二返裡有 8 段
+// 把醫師寫進了 `therapistId`，`doctorId` 連 `null` 都沒有。
+
+describe('那一格「誰」要看角色', () => {
+  const DOCTOR = SEED.staff.find((x) => x.role === '醫師').name;
+  const THERAPIST = SEED.staff.find((x) => x.role === '物理治療師').name;
+  const staffById = Object.fromEntries(SEED.staff.map((x) => [x.id, x]));
+
+  const withWho = (who) => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'ck', type: 'single', label: '健檢', totalQty: 1,
+      courseName: '健檢', optionEquipmentNames: [], productName: null,
+    });
+    entry.visits.push({
+      date: '2026-07-17',
+      status: 'done',
+      slots: [{
+        entitlementKey: 'ck-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30',
+        roomName: null, therapistName: who, equipmentName: null, ivProductName: null,
+        confidence: 'high', evidence: '（編的）',
+      }],
+    });
+    return plan(entry, { today: '2026-09-16' });
+  };
+
+  const followupSlot = (p) => p.visits.find((v) => v.date === '2026-07-17').slots[0];
+
+  test('是醫師就進 doctorId，治療師那一格留空', () => {
+    const slot = followupSlot(withWho(DOCTOR));
+    assert.equal(staffById[slot.doctorId]?.role, '醫師');
+    assert.equal(slot.therapistId, null);
+  });
+
+  test('是治療師就照舊進 therapistId，醫師那一格是 null 不是漏掉', () => {
+    const slot = followupSlot(withWho(THERAPIST));
+    assert.equal(staffById[slot.therapistId]?.role, '物理治療師');
+    assert.equal(slot.doctorId, null);
+  });
+
+  test('沒寫誰的時候兩格都是 null，而且不報問題', () => {
+    const p = plan(CUSTOMER(), { today: '2026-09-16' });
+    const slot = p.visits[0].slots[1]; // ILIB 那一段沒有治療師
+    assert.equal(slot.therapistId, null);
+    assert.equal(slot.doctorId, null);
+    assert.equal(why(p).some((x) => x.includes('治療師')), false);
+  });
+
+  test('對不到主檔照舊講一聲，而且講的是「治療師」（她在行事曆上寫那個字的位置）', () => {
+    const p = withWho('不存在的人');
+    assert.ok(why(p).some((x) => x.includes('主檔裡沒有這個治療師')));
+    assert.equal(followupSlot(p).therapistId, null);
+    assert.equal(followupSlot(p).doctorId, null);
+  });
+});
+
 // ---------- 二返（GitHub issue #15） ----------
 //
 // 行事曆上有、試算表沒有的 27 筆來訪裡，15 筆補不進來，訊息是

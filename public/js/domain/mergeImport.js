@@ -18,6 +18,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
+import { DOCTOR_ROLE } from './masterData.js';
 
 /**
  * 合併檔的格式。
@@ -297,7 +298,19 @@ export function planForCustomer(entry, ctx = {}, json = null) {
   };
 }
 
-/** 器材、品項、診間、治療師：名字對得到就填，對不到就講一聲留空。 */
+/**
+ * 器材、品項、診間、人：名字對得到就填，對不到就講一聲留空。
+ *
+ * **人要看角色。** 行事曆上「*許」寫在同一格裡（產檔那側的 `therapistName`），
+ * 而那是一位醫師 —— 醫師與治療師在時段上是**兩個欄位**（ADR-0026）。
+ *
+ * 2026-09-16 之前這裡不看角色，於是她那份 import 的 9 段二返裡有 8 段把醫師
+ * 寫進了 `therapistId`，而 `doctorId` 這一格連 `null` 都沒有。三個後果：
+ * 試算表那一格印成「7/17 二返」（`sheetReport.js` 讀的是 `doctorId`，
+ * 而空括號在她的寫法裡是「還沒約」的意思，ADR-0026）；她一改那一段再存，
+ * `visitEditor.js` 因為二返不指派治療師而把 `therapistId` 清成 null ——
+ * **名字安靜地不見了**；撞期判斷刻意不比醫師，但那 8 段是當成治療師比的。
+ */
 function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, problem, where) {
   const pick = (list, value, what) => {
     if (!norm(value)) return null;
@@ -305,11 +318,20 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
     if (!hit) problem(where, value, `主檔裡沒有這個${what}，這個時段的欄位留空`);
     return hit?.id ?? null;
   };
+
+  // 產檔那側只有一格「誰」。對得到主檔才分得出角色 —— 對不到時
+  // 講的那一句要照舊說「治療師」，因為那是她在行事曆上寫那個字的位置。
+  const whoName = norm(slot.therapistName);
+  const who = whoName ? byName(staff, whoName) : null;
+  if (whoName && !who) problem(where, whoName, '主檔裡沒有這個治療師，這個時段的欄位留空');
+  const isDoctor = who?.role === DOCTOR_ROLE;
+
   return {
     equipmentId: pick(equipment, slot.equipmentName, '器材'),
     ivProductId: pick(ivProducts, slot.ivProductName, '營養點滴品項'),
     roomId: pick(rooms, slot.roomName, '診間'),
-    therapistId: pick(staff, slot.therapistName, '治療師'),
+    therapistId: isDoctor ? null : (who?.id ?? null),
+    doctorId: isDoctor ? who.id : null,
   };
 }
 
