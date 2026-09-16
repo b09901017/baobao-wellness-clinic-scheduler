@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor,
+  focusFor, slotStatus,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -2720,7 +2720,12 @@ async function renderConfirm(el) {
 
 function paintConfirm(ctx) {
   const { el, pending, settings, today, playbooks, templates, master, customersById } = ctx;
-  const groups = [...byCustomer(pending).entries()];
+  // 一段還沒問過的都沒有的那一位不列（ADR-0097）。`visitsToConfirm()` 讀的是
+  // 整筆那一格，而它是**推導出來又存起來的** —— 對不起來的舊資料會在這裡
+  // 變成一張「壓了 0 段」的空卡。那種資料由資料健檢的「整筆的狀態跟時段
+  // 對不起來」那一列負責，不是這一頁。
+  const groups = [...byCustomer(pending).entries()]
+    .filter(([, visits]) => visits.some((v) => pendingSlotsOf(v).length));
   const noReplyDays = settings.noReplyDays ?? 3;
 
   el.innerHTML = `
@@ -2751,7 +2756,10 @@ function confirmCard(
 ) {
   const name = visits[0].customerName ?? '（沒有名字）';
   const state = waitState(visits, today, noReplyDays);
-  const slots = visits.flatMap((v) => v.slots ?? []);
+  // **只算還沒問過的那幾段**（ADR-0097）。她在日曆上確認掉的那一段從這一頁收掉，
+  // 而那一天照樣留著 —— 另一段還沒問。
+  const pending = visits.map(asPending).filter((v) => (v.slots ?? []).length);
+  const slots = pending.flatMap((v) => v.slots ?? []);
 
   return `
     <div class="card ${state.asked ? 'card--asked' : ''}" style="margin: 0">
@@ -2767,7 +2775,7 @@ function confirmCard(
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${visits.map((v) => `
+        ${pending.map((v) => `
           <span class="badge"><span class="num">${esc(shortDate(v.date))}</span>&nbsp;${
             esc(visitCourseLabel(v, master))}</span>`).join('')}
       </div>
@@ -2780,7 +2788,9 @@ function confirmCard(
 
       ${message.box({
         id: customerId,
-        text: confirmMessage({ name }, visits, { templates, master }),
+        // 貼給客人的那一句也只講還沒問的那幾段 —— 已經談定的再問一次，
+        // 客人會以為她記錯了。
+        text: confirmMessage({ name }, pending, { templates, master }),
         collapsed: true,
         buttonLabel: '複製 LINE 確認訊息',
       })}
@@ -2838,10 +2848,18 @@ function followupForm(customerId, name, note) {
 function drawerHtml(ctx) {
   const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
   const name = visits[0]?.customerName ?? '';
+  // **只列還沒問過的那幾段**（ADR-0097）。`key` 裡的數字是**原本那個陣列**的
+  // 索引，不是列出來的第幾列 —— `applyConfirm()` 拿它去組 `applyConfirmation()`
+  // 的 `rejected`，重編號的話她點「客人說不行」的會是別段。
   const rows = visits.flatMap((v) =>
-    (v.slots ?? []).map((s, i) => ({ visit: v, slot: s, key: `${v.id}:${i}` })),
+    pendingSlotsOf(v).map(({ slot, index }) => ({ visit: v, slot, key: `${v.id}:${index}` })),
   );
   const okCount = rows.filter((r) => !drawer.rejected.has(r.key)).length;
+  // 已經談定、所以不在這一張上的那幾段。有它們的話「全部退回未確認」是假話 ——
+  // 那幾段不會被動到（`applyConfirmation()` 只改這一張上的那幾格）。
+  const settled = visits.some(
+    (v) => (v.slots ?? []).some((sl) => slotStatus(v, sl) === 'confirmed'),
+  );
   const note = followupNoteOf(visits);
 
   return `
@@ -2884,7 +2902,9 @@ function drawerHtml(ctx) {
 
         <div class="drawer__actions">
           <button class="btn btn--primary" type="button" data-apply>
-            ${okCount ? `確認 ${okCount} 段，加進日曆` : '全部退回未確認'}</button>
+            ${okCount
+              ? `確認 ${okCount} 段，加進日曆`
+              : (settled ? `退掉這 ${rows.length} 段` : '全部退回未確認')}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
@@ -3629,6 +3649,29 @@ async function clearDone(el, done) {
 // ---------- 小工具 ----------
 
 /** @returns {Map<string, object[]>} 客戶 id → 他的來訪 */
+/**
+ * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
+ *
+ * 她 2026-09-16：「我這邊確認了某個時段客戶已確認後 待辦那邊的這個時段就可以
+ * 收掉」。日曆上確認得掉單獨一段之後（ADR-0097），那一天還留在
+ * `visitsToConfirm()` 裡是對的 —— 另一段還沒問。要收掉的是這一頁列出來的那幾列。
+ *
+ * **回的是索引不是重編號的陣列。** `applyConfirm()` 把畫面上的 key 換成
+ * `applyConfirmation()` 要的段落編號，而那個編號是對**原本那個陣列**算的 ——
+ * 濾掉之後重編號的話，她點「客人說不行」的會是別段（同 `cancellableSlots()`
+ * 與 `progressDayHtml()` 的 `data-slot`）。
+ */
+function pendingSlotsOf(visit) {
+  return (visit?.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
+}
+
+/** 只留還沒問過的那幾段的一份複本。**只給顯示與訊息用** —— 索引在這裡不成立。 */
+function asPending(visit) {
+  return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
+}
+
 function byCustomer(visits) {
   const out = new Map();
   for (const v of visits) {

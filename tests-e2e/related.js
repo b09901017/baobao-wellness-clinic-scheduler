@@ -266,6 +266,12 @@ export const COVERAGE = {
     'public/js/domain/health.js', 'public/js/ui/views.js',
     'public/js/ui/views/visitEditor.js',
   ],
+  // 確認也是逐段的（2026-09-16，ADR-0097）
+  '34-confirm-one-slot': [
+    'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
+    'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/home.js', 'public/js/data/visits.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

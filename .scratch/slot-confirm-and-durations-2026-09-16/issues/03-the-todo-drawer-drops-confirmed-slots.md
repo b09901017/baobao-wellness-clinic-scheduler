@@ -1,6 +1,6 @@
 # 待辦中心的確認抽屜還列著已經確認掉的那幾段
 
-Status: todo
+Status: done
 Blocked by: 01
 來源：`../spec.md`
 動工前先讀：`ui/views/home.js` 的 `paintConfirm()`／`confirmCard()`／`drawerHtml()`、
