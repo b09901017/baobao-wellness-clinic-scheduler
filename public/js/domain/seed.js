@@ -243,7 +243,26 @@ export const SEED = {
       // SPEC 第 7 節規則 2：EECP 只能在治5、治8。
       // `preferredRoomIds` 跟它**同時填著**是刻意的（2026-09-08）：
       // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
-      id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 30,
+      //
+      // **2026-09-16 從 30 分改成 60 分。** 她：「體驗30正式課60」。
+      // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
+      // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
+      id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 60,
+      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t8'],
+      requiresEquipment: false, frequencyRule: null,
+    },
+    {
+      // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
+      // 預設30分鐘，這樣匯入的也可以對應到了」。
+      //
+      // **名字要跟舊表寫的一字不差**（`EECP體驗`，舊表第 14 列）——
+      // `legacyImport.js` 的 `resolveCourse()` 是精確比對，對不上的話那一段
+      // 匯不進來。`SPEC.md` 第 4.4 節她自己記的實際紀錄也是這四個字
+      //（`14:45–15:15  EECP 體驗`）。
+      //
+      // 機器就那兩間，所以限制與順序跟正式課一模一樣。
+      id: 'course-eecp-trial', name: 'EECP體驗', category: 'C', durationMin: 30,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,

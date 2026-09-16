@@ -1,6 +1,6 @@
 # EECP：正式課 60 分，另開一門體驗課 30 分
 
-Status: todo
+Status: done
 來源：`../spec.md`（保留第 2 題）
 動工前先讀：`domain/seed.js` 的 `courses`、`docs/adr/0079`（EECP 只能在治5、治8）、
 `docs/課程與待辦對照表.md`、`SPEC.md` 第 7 節規則 2
