@@ -412,7 +412,22 @@ describe('狀態異常', () => {
     const result = run({ visits: [visit({ date: '2026-09-01', status: 'confirmed' })] });
     const [f] = findingsOf(result, 'visitStatus');
     assert.equal(f.severity, 'attention');
-    assert.equal(f.link, '#/visits/v1');
+    // **2026-09-16 起沒有「去看看」**：那一顆以前指整天的編輯器，而那一頁
+    // 做不到這一列要她做的事（整天的狀態卡 2026-09-12 拿掉了）。
+    // 真正的出口是待辦中心的「簽療程單」。
+    assert.equal(f.link, null);
+  });
+
+  test('來訪相關的那幾列一顆「去看看」都沒有', () => {
+    const result = run({
+      visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
+      tasks: [task({ dueDate: '2026-09-01' })],
+    });
+    for (const id of ['orphans', 'visitStatus', 'conflicts', 'overdueTasks']) {
+      const rows = findingsOf(result, id);
+      assert.ok(rows.every((f) => f.link === null || !String(f.link).startsWith('#/visits/')),
+        `${id} 還指著整天的編輯器`);
+    }
   });
 
   test('日期已過還在等回覆也要報', () => {

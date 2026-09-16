@@ -1,6 +1,6 @@
 # 壓表與資料健檢都通到整天的編輯器
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §2.1）
 動工前先讀：`docs/adr/0056`（只有日曆改得動一筆來訪）、`docs/adr/0085`、`docs/adr/0089`
 

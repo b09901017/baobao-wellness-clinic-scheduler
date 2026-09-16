@@ -33,6 +33,21 @@ import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
 /**
+ * ## 來訪相關的那幾列沒有「去看看」（2026-09-16，她定的：「整顆拿掉」）
+ *
+ * 那一顆以前指 `#/visits/:id`，而那條路由是 `visitEditor.renderEdit()`
+ * —— **整天全部的段、日期欄、每一段的 ×**。ADR-0056 說一筆來訪改得動的地方
+ * 只有日曆，ADR-0085 說只改她點的那一段，ADR-0089 說改整天的日期一條路都沒有；
+ * 那幾個決定在那一頁上全部不成立。
+ *
+ * 而且最需要出口的那一列（「日期已過但還是已確認，該標已完成或未到了」）
+ * 在那一頁上**做不到那件事** —— 整天的狀態卡 2026-09-12 拿掉了，
+ * 那一列真正的出口是待辦中心的「簽療程單」。
+ *
+ * 所以那幾列的 `link` 是 `null`，而 `detail` 要自己把話講完整。
+ * 其餘三種留著：`#/customers/:id`（資料過期）、`#/calendar`（狀態跟時段對不起來）、
+ * `#/`（逾期任務）。
+ *
  * 檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
  * id 會出現在網址與稽核訊息裡，不要改。
  *
@@ -406,7 +421,7 @@ function checkOrphans(ctx) {
   };
 
   for (const visit of ctx.visits) {
-    const link = `#/visits/${visit.id}`;
+    const link = null;
     const who = visit.customerName ?? nameOf(ctx, visit.customerId);
     const head = `來訪 ${visit.date}・${who}`;
 
@@ -445,7 +460,7 @@ function checkOrphans(ctx) {
   for (const task of ctx.tasks) {
     const who = task.customerName ?? nameOf(ctx, task.customerId);
     const head = `任務 ${task.kind}・${who}`;
-    const link = task.visitId ? `#/visits/${task.visitId}` : null;
+    const link = null;
 
     push(refState(task.customerId, ctx.customersById), {
       title: head, what: '這筆任務指向的客戶', link,
@@ -501,7 +516,7 @@ function checkVisitStatus(ctx) {
         severity: 'mismatch',
         title: `來訪 ${visit.date}・${who}`,
         detail: `狀態「${visit.status ?? '（空的）'}」不在合法清單內`,
-        link: `#/visits/${visit.id}`,
+        link: null,
         fix: null,
       });
       continue;
@@ -515,7 +530,7 @@ function checkVisitStatus(ctx) {
         detail: visit.status === 'confirmed'
           ? '日期已過但還是「客戶已確認」，該標已完成或未到了'
           : '日期已過但還在等客戶回覆，該結案了',
-        link: `#/visits/${visit.id}`,
+        link: null,
         fix: null,
       });
     }
@@ -530,7 +545,7 @@ function checkVisitStatus(ctx) {
         severity: 'mismatch',
         title: `來訪 ${visit.date}・${who}`,
         detail: '標成「已完成」但每一段都記成沒做，次數一次都沒扣。該標成未到嗎？',
-        link: `#/visits/${visit.id}`,
+        link: null,
         fix: null,
       });
     }
@@ -612,7 +627,7 @@ function checkConflicts(ctx) {
             `${a.slot.startsAt}–${a.slot.endsAt} ${a.visit.customerName ?? nameOf(ctx, a.visit.customerId)}`
             + ` 與 ${b.slot.startsAt}–${b.slot.endsAt} ${b.visit.customerName ?? nameOf(ctx, b.visit.customerId)}`
             + ' 撞在一起',
-          link: `#/visits/${a.visit.id}`,
+          link: null,
           fix: null,
         });
       }
@@ -631,7 +646,7 @@ function checkOverdueTasks(ctx) {
       severity: 'attention',
       title: `${t.kind}・${t.customerName ?? nameOf(ctx, t.customerId)}`,
       detail: `死線 ${t.dueDate} 已經過了`,
-      link: t.visitId ? `#/visits/${t.visitId}` : '#/',
+      link: '#/',
       fix: null,
     }));
 }
@@ -784,7 +799,7 @@ function checkIvMismatch(ctx) {
         severity: 'attention',
         title: `來訪 ${visit.date}・${who}・第 ${i + 1} 個時段`,
         detail: `買的是 ${name(bought)}，排成了 ${name(slot.ivProductId)}`,
-        link: `#/visits/${visit.id}`,
+        link: null,
         fix: null,
       });
     });

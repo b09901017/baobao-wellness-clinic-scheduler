@@ -1017,10 +1017,18 @@ function recordPanel(row) {
 
     <section class="card">
       <h3 class="card__title">這個月壓好的<span class="muted"> ${recorded.length}</span></h3>
+      ${/* **整列不給點**（2026-09-16，她定的）。這一列以前是 `<a href="#/visits/:id">`，
+             而那條路由是 `visitEditor.renderEdit()` —— **整天全部的段、日期欄、
+             每一段的 ×**。ADR-0056 說一筆來訪改得動的地方只有日曆，而
+             `CLAUDE.md` 寫著「`renderEdit()` 那條網址留著，沒有任何畫面上的
+             連結，不算一條路」—— 實際上有兩個入口，其中一個在她最常用的這一頁。
+
+             第二個後果跟編輯無關：那張編輯器存完或按「取消」都是
+             `go('/customers/:id')`，所以她點進去看一眼、按取消，就被帶離壓表，
+             卡片組那一層沒了。 */''}
       ${recorded.length
-        ? `<ul class="link-list">${recorded.map((s) => `
-            <li><a href="#/visits/${esc(s.visitId)}">
-              <span class="link-list__label num">${esc(s.label)}</span></a></li>`).join('')}</ul>`
+        ? `<ul class="link-list link-list--flat">${recorded.map((s) => `
+            <li><span class="link-list__label num">${esc(s.label)}</span></li>`).join('')}</ul>`
         : '<p class="muted">還沒記。在 Abovee 或 Examine 壓完之後回來記一筆。</p>'}
     </section>
 

@@ -255,11 +255,11 @@ export const COVERAGE = {
     'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/components/sheet.js', 'public/css/',
   ],
-  // 上線前健檢報告第一、二章的重現測試（2026-09-16）。**現在是紅的、刻意的。**
-  '99-prelaunch-repro': [
-    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js',
-    'public/js/ui/views/calendar.js', 'public/js/ui/views.js',
-    'public/js/domain/visits.js',
+  // 壓表與資料健檢不可以通到整天的編輯器（2026-09-16，報告 §2.1）
+  '32-no-door-to-the-whole-day-editor': [
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/health.js',
+    'public/js/domain/health.js', 'public/js/ui/views.js',
+    'public/js/ui/views/visitEditor.js',
   ],
 };
 
