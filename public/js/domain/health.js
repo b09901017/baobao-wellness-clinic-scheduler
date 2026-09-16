@@ -195,6 +195,18 @@ export const CHECKS = [
       + '不會長出「寫紀錄」，而畫面上看不出少了什麼',
   },
   {
+    id: 'courseDuration',
+    label: '課程的時長跟建議的不一樣',
+    hint: 'EECP 2026-09-16 從 30 改成 60（體驗課是另一門）、營養點滴從 60 改成 120。'
+      + '`loadSeed()` 只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
+  },
+  {
+    id: 'ivProductDuration',
+    label: '點滴品項沒填時長',
+    hint: '護心抗老要打 180 分。那一格空著的話它跟著課程走（120 分），'
+      + '而排出去的那一段會短一個小時',
+  },
+  {
     id: 'seedDuration',
     label: '課程沒填可選時長',
     hint: '復能與 ILIB 有 30 與 60 兩種規格。沒填的話加購時「幾分鐘」那一排不出現，'
@@ -1383,6 +1395,69 @@ function checkCourseRecord(ctx) {
 }
 
 /**
+ * 二十四、課程的時長跟建議的不一樣（ADR-0098、issue 06）。
+ *
+ * `loadSeed()` **只建不覆蓋**，所以 2026-09-16 那兩個改動（EECP 30→60、
+ * 營養點滴 60→120）在既有資料庫上一格都不會變。症狀最壞的地方是
+ * **改好了、上線了、畫面上看起來什麼都沒發生** —— 要到某天排了一段點滴、
+ * 發現只佔一小時才知道。
+ *
+ * **這一列比的是值，不是「有沒有填過」**（`durationMin` 是必填的，沒有空的
+ * 狀態）。所以她真的可能自己改過 —— `detail` 把兩個數字都印出來，讓她自己
+ * 決定按不按（同 `checkPoolLabels()` 那條「她自己打的名字不動」的精神）。
+ */
+function checkCourseDuration(ctx) {
+  return (SEED.courses ?? [])
+    .map((row) => ({ row, mine: ctx.coursesById[row.id] }))
+    .filter(({ row, mine }) => mine && !mine.deletedAt
+      && Number.isInteger(row.durationMin)
+      && Number(mine.durationMin) !== row.durationMin)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `現在是 ${mine.durationMin ?? '（空的）'} 分，建議 ${row.durationMin} 分`
+        + '。自己改過的就不用管',
+      link: '#/settings/courses',
+      fix: {
+        kind: 'setCourseDuration',
+        courseId: row.id,
+        label: mine.name ?? row.name,
+        from: mine.durationMin ?? null,
+        durationMin: row.durationMin,
+      },
+    }));
+}
+
+/**
+ * 二十五、點滴品項沒填時長（ADR-0098）。
+ *
+ * 她 2026-09-16：「一般120分，護心抗老180分」。品項身上那一格是 2026-09-16
+ * 才加的，而 `loadSeed()` 只建不覆蓋。
+ *
+ * **只在她那一格是空的時候報**（同 `checkSeedDurations()`）：她自己填了
+ * 別的數字是一個決定，不可以被一顆按鈕改回去。
+ */
+function checkIvProductDuration(ctx) {
+  const mineById = byId(ctx.ivProducts ?? []);
+  return (SEED.ivProducts ?? [])
+    .filter((row) => Number.isInteger(row.durationMin))
+    .map((row) => ({ row, mine: mineById[row.id] }))
+    .filter(({ mine }) => mine && !mine.deletedAt && mine.durationMin == null)
+    .map(({ row, mine }) => ({
+      severity: 'attention',
+      title: mine.name ?? row.name,
+      detail: `這一款要打 ${row.durationMin} 分。空著的話它跟著「營養點滴」走`,
+      link: '#/settings/ivProducts',
+      fix: {
+        kind: 'setIvDuration',
+        ivProductId: row.id,
+        label: mine.name ?? row.name,
+        durationMin: row.durationMin,
+      },
+    }));
+}
+
+/**
  * 2026-09-06 之前種子上那個課程的三格名字。**只認得出這一代。**
  *
  * 她 2026-09-08：「只要 line 是靜脈雷射就好，我不想在其他地方看到『靜脈』，
@@ -1498,4 +1573,6 @@ const RUNNERS = {
   alertTerm: checkAlertTerms,
   seedEquipment: checkSeedEquipment,
   seedDuration: checkSeedDurations,
+  courseDuration: checkCourseDuration,
+  ivProductDuration: checkIvProductDuration,
 };

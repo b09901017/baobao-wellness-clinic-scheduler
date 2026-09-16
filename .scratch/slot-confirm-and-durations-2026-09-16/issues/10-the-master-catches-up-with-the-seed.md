@@ -1,6 +1,6 @@
 # 主檔跟不上種子：既有資料庫不會拿到 EECP 體驗課與新的時長
 
-Status: todo
+Status: done
 Blocked by: 06, 07
 來源：`../spec.md`
 動工前先讀：`data/config.js` 的 `loadSeed()`、`domain/health.js` 的

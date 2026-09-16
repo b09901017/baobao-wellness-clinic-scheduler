@@ -1,6 +1,6 @@
 # 讀取卡片上「跟客人確認時間」與「簽療程單」讀的是整筆
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/adr/0081`、`.scratch/prelaunch-fixes-2026-09-16/issues/08`
 （**它是對的，不要 revert**）、`domain/todoFlow.js` 的 `todosForVisit()`／`derivedRows()`

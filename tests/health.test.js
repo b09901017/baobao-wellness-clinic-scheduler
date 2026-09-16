@@ -117,10 +117,57 @@ describe('匯進來的額度還叫舊表的名字（ADR-0095）', () => {
   });
 });
 
+describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
+  // `loadSeed()` **只建不覆蓋**，所以 2026-09-16 那幾個改動（EECP 30→60、
+  // 營養點滴 60→120、護心抗老 180）在既有資料庫上一格都不會變 ——
+  // 而症狀是「改好了、上線了、畫面上看起來什麼都沒發生」。
+  const withMaster = (over) => run({ master: { ...MASTER, ...over } });
+
+  test('課程的時長跟建議的不一樣就報，帶著兩個數字', () => {
+    const r = withMaster({ courses: [{ id: 'course-eecp', name: 'EECP', durationMin: 30 }] });
+    const rows = findingsOf(r, 'courseDuration');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /30 分/);
+    assert.match(rows[0].detail, /60 分/);
+    assert.equal(rows[0].fix.kind, 'setCourseDuration');
+    assert.equal(rows[0].fix.durationMin, 60);
+  });
+
+  test('一樣就不報', () => {
+    const r = withMaster({ courses: [{ id: 'course-eecp', name: 'EECP', durationMin: 60 }] });
+    assert.deepEqual(findingsOf(r, 'courseDuration'), []);
+  });
+
+  test('主檔沒有那一門課就不報 —— 那是「載入預設資料」的事', () => {
+    const r = withMaster({ courses: [] });
+    assert.deepEqual(findingsOf(r, 'courseDuration'), []);
+  });
+
+  test('點滴品項那一格空著就報', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-heart', name: '護心抗老' }] });
+    const rows = findingsOf(r, 'ivProductDuration');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].fix.kind, 'setIvDuration');
+    assert.equal(rows[0].fix.durationMin, 180);
+  });
+
+  // 她自己填了別的數字是一個決定，不可以被一顆按鈕改回去
+  //（同 `checkSeedDurations()` 與 `checkPoolLabels()` 那兩條）。
+  test('她自己填過就不報，就算填的不是 180', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-heart', name: '護心抗老', durationMin: 240 }] });
+    assert.deepEqual(findingsOf(r, 'ivProductDuration'), []);
+  });
+
+  test('種子上沒填時長的那幾款不報', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-liver', name: '護肝排毒' }] });
+    assert.deepEqual(findingsOf(r, 'ivProductDuration'), []);
+  });
+});
+
 describe('形狀', () => {
-  test('二十五項檢查都在，順序固定', () => {
+  test('二十七項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 25);
+    assert.equal(result.checks.length, 27);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
