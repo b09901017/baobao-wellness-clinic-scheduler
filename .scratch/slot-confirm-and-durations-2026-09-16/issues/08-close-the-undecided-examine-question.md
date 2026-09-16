@@ -1,6 +1,6 @@
 # 把「只取消一段時 Examine／耀聖要不要收，她還沒定案」從四份文件拿掉
 
-Status: todo
+Status: done
 來源：`../spec.md`（保留第 1 題）
 動工前先讀：`docs/adr/0091`、`domain/taskRules.js` 的 `cancelTasksFor()`
 
