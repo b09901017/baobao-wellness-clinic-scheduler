@@ -1,6 +1,6 @@
 # 一間診間裝得下幾個人
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §4.3）
 動工前先讀：`docs/adr/0079` 第六條（床位那一層取消）、
 `domain/visits.js` 的 `conflictWarnings()`、`domain/health.js` 的 `checkConflicts()`

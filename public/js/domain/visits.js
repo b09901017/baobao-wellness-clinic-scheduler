@@ -1530,39 +1530,74 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
     if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
     const at = `第 ${i + 1} 個時段`;
 
+    // 那一天別人排的、跟這一段撞在一起的每一格
+    const clashes = [];
     for (const other of sameDayVisits) {
       if (other.id === visit.id || !isActive(other)) continue;
-
       for (const theirs of other.slots ?? []) {
         if (!isValidTime(theirs.startsAt) || !isValidTime(theirs.endsAt)) continue;
+        if (!isLiveSlot(theirs)) continue;
         if (!overlaps(slot, theirs)) continue;
+        clashes.push({ other, theirs });
+      }
+    }
+    if (!clashes.length) continue;
 
-        const sameRoom = slot.roomId && slot.roomId === theirs.roomId
-          && (slot.bed ?? null) === (theirs.bed ?? null);
-        const sameTherapist = slot.therapistId && slot.therapistId === theirs.therapistId;
+    const whoOf = ({ other }) => (other.customerId === visit.customerId
+      ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
+      : (other.customerName ?? '另一位客戶'));
 
-        const who = other.customerId === visit.customerId
-          ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
-          : (other.customerName ?? '另一位客戶');
+    // ---------- 診間：算人頭，不是兩兩比（ADR-0094） ----------
+    //
+    // 一間**裝得下幾個人**寫在主檔上（`capacity`，預設 1）。點滴8 填 2 之後，
+    // 一對夫妻同時排進去就不再跳話 —— 而第三個人照樣會。
+    //
+    // 2026-09-08 拿掉床位那一層時（ADR-0079 第六條），這裡的 `sameRoom` 一行都
+    // 沒動，於是它退化成「只比診間」—— 對每一間只裝一個人的診間是對的，
+    // 對點滴8 不是：資料健檢會**永遠**多一列，而她每排第二個人都多一道確認框。
+    if (slot.roomId) {
+      const room = rooms.find((r) => r.id === slot.roomId) ?? null;
+      const inRoom = clashes.filter((c) => c.theirs.roomId === slot.roomId);
+      const capacity = roomCapacityOf(room);
+      if (inRoom.length + 1 > capacity) {
+        const names = [...new Set(inRoom.map(whoOf))].join('、');
+        out.push(capacity > 1
+          ? `${at}：${roomName(slot.roomId)} ${slot.startsAt}–${slot.endsAt} 這個時間`
+            + `已經有 ${inRoom.length} 位（最多 ${capacity} 位）：${names}`
+          : `${at}：${roomName(slot.roomId)} ${inRoom[0].theirs.startsAt}–`
+            + `${inRoom[0].theirs.endsAt} 已經排了 ${whoOf(inRoom[0])}`);
+      }
+    }
 
-        if (sameRoom) {
-          out.push(
-            `${at}：${roomName(slot.roomId)}${slot.bed ?? ''} ${theirs.startsAt}–${theirs.endsAt} `
-            + `已經排了 ${who}`,
-          );
-        }
-        if (sameTherapist) {
-          out.push(
-            `${at}：${staffName(slot.therapistId)} ${theirs.startsAt}–${theirs.endsAt} `
-            + `已經排了 ${who}`,
-          );
-        }
+    // ---------- 治療師：一個人同一個時間就是一個人 ----------
+    if (slot.therapistId) {
+      for (const c of clashes) {
+        if (c.theirs.therapistId !== slot.therapistId) continue;
+        out.push(
+          `${at}：${staffName(slot.therapistId)} ${c.theirs.startsAt}–${c.theirs.endsAt} `
+          + `已經排了 ${whoOf(c)}`,
+        );
       }
     }
   }
 
   return out;
 }
+
+/**
+ * 一間診間同一個時間裝得下幾個人。**沒填就是 1**（ADR-0094）。
+ *
+ * 2026-09-08 床位那一層拿掉時（ADR-0079 第六條）的前提是「一間就是一個資源」，
+ * 而點滴8 不是 —— 她的 9 月壓表白紙上有一對夫妻同時排在 `IL 8A` 與 `IL 8B`。
+ * 床位那一層她不要（「目前的確不需要床位，都寫 .8」），要的是**這一間裝得下兩個人**。
+ *
+ * 判斷只有這一支：撞期提醒（`conflictWarnings()`）與資料健檢的「衝突殘留」
+ * （`domain/health.js` 的 `checkConflicts()`）都呼叫它。
+ */
+export const roomCapacityOf = (room) => {
+  const n = Number(room?.capacity);
+  return Number.isInteger(n) && n > 0 ? n : 1;
+};
 
 /** 每季一次那種限制。只說「上次是什麼時候、距今幾天」，不換算季度也不阻擋。 */
 function frequencyWarnings(visit, { courses = [], entitlements = [], customerVisits = [] }) {

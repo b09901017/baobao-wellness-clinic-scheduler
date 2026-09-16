@@ -529,22 +529,41 @@ describe('衝突殘留', () => {
     assert.match(f.detail, /撞在一起/);
   });
 
-  test('同診間要連床位一起看，不同床不算撞', () => {
-    const sameBed = run({
-      visits: [
-        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
-        other({ slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
-      ],
-    });
-    assert.equal(findingsOf(sameBed, 'conflicts').length, 1);
-
-    const otherBed = run({
+  // **2026-09-16 起算人頭**（ADR-0094）。床位那一層 2026-09-08 就拿掉了，
+  // 而這裡一直照「同一間**而且**同一床」比 —— 舊資料上帶著 A／B 的那幾筆
+  // 永遠不算撞，而一間真的裝得下兩個人的點滴8 反而永遠算撞（模擬匯入之後
+  // 第一天就有那一列，而且沒有修正鈕、關不掉）。
+  test('一間只裝一個人時：同一間、同一個時間就是撞（不管床位那一格）', () => {
+    const result = run({
       visits: [
         visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
         other({ slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'B' })] }),
       ],
     });
-    assert.equal(findingsOf(otherBed, 'conflicts').length, 0);
+    assert.equal(findingsOf(result, 'conflicts').length, 1);
+  });
+
+  test('裝得下兩個人的診間：兩位不列', () => {
+    const result = run({
+      master: { ...MASTER, rooms: [{ id: 'r-3', name: '點滴8', capacity: 2 }] },
+      visits: [
+        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+      ],
+    });
+    assert.deepEqual(findingsOf(result, 'conflicts'), []);
+  });
+
+  test('裝得下兩個人的診間：第三位照樣列', () => {
+    const result = run({
+      master: { ...MASTER, rooms: [{ id: 'r-3', name: '點滴8', capacity: 2 }] },
+      visits: [
+        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ id: 'v-third', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+      ],
+    });
+    assert.ok(findingsOf(result, 'conflicts').length > 0);
   });
 
   test('取消的來訪不算 —— 時段已經還回去了', () => {

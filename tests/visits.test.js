@@ -564,9 +564,38 @@ describe('只提醒不阻擋的（warnings）', () => {
     assert.ok(warnings.some((w) => w.includes('客戶乙')), warnings.join('｜'));
   });
 
-  // 舊資料上那一格還在（資料健檢的「來訪上還記著床位」清掉之前）。
-  // 那幾筆照舊按「同一間**而且**同一床」比 —— 改那一行的話它們會變成假警報。
-  test('還帶著床位的舊資料照舊：不同床不算撞', () => {
+  // **2026-09-16 起換成算人頭**（ADR-0094）。床位那一層 2026-09-08 就拿掉了
+  // （ADR-0079 第六條），而這裡一直照「同一間**而且**同一床」比 ——
+  // 於是舊資料上帶著 A／B 的那幾筆永遠不算撞，而一間真的裝得下兩個人的
+  // 點滴8 反而永遠算撞。兩件事的答案都在主檔的 `capacity` 上。
+  test('裝得下兩個人的診間：兩位不講話', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
+                roomId: 'r-iv8', bed: null, endsAt: '15:00' }],
+    });
+    const other = {
+      id: 'v-other', customerName: '客戶乙', status: 'confirmed',
+      slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: null }],
+    };
+    const rooms = [{ id: 'r-iv8', name: '點滴8', capacity: 2 }];
+    assert.deepEqual(validateVisit(mine, ctx({ sameDayVisits: [other], rooms })).warnings, []);
+  });
+
+  test('第三個人照樣講一句，而且講得出「最多幾位」', () => {
+    const mine = visit({
+      slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
+                roomId: 'r-iv8', bed: null, endsAt: '15:00' }],
+    });
+    const others = ['客戶乙', '客戶丙'].map((name, i) => ({
+      id: `v-other-${i}`, customerName: name, status: 'confirmed',
+      slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: null }],
+    }));
+    const rooms = [{ id: 'r-iv8', name: '點滴8', capacity: 2 }];
+    const { warnings } = validateVisit(mine, ctx({ sameDayVisits: others, rooms }));
+    assert.ok(warnings.some((w) => w.includes('最多 2 位')), warnings.join('｜'));
+  });
+
+  test('沒填「幾個人」就是一個人 —— 既有的每一間行為都不變', () => {
     const mine = visit({
       slots: [{ ...visit().slots[0], courseId: 'c-iv', ivProductId: 'iv-liver',
                 roomId: 'r-iv8', bed: 'A', endsAt: '15:00' }],
@@ -575,7 +604,9 @@ describe('只提醒不阻擋的（warnings）', () => {
       id: 'v-other', customerName: '客戶乙', status: 'confirmed',
       slots: [{ startsAt: '14:00', endsAt: '15:00', roomId: 'r-iv8', bed: 'B' }],
     };
-    assert.deepEqual(validateVisit(mine, ctx({ sameDayVisits: [other] })).warnings, []);
+    // 床位那一層已經沒了，所以「不同床」不再是不撞的理由
+    const { warnings } = validateVisit(mine, ctx({ sameDayVisits: [other] }));
+    assert.ok(warnings.some((w) => w.includes('客戶乙')), warnings.join('｜'));
   });
 
   // ADR-0079：那六個課程改成「都不用」之後，既有來訪身上的 roomId 留著不動。

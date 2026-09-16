@@ -75,8 +75,9 @@ const editors = {
   // 診間。**2026-09-08 床位那一格拿掉了**（她選的：「取消任何床位區分」），
   // 換成簡寫 —— 月曆與日／週那一列印簡寫，這一頁與試算表印全名。
   rooms: {
-    blank: { name: '', type: ROOM_TYPES[0], shortName: null },
-    summary: (r) => `${r.type}${r.shortName ? ` · ${r.shortName}` : ''}`,
+    blank: { name: '', type: ROOM_TYPES[0], shortName: null, capacity: null },
+    summary: (r) => `${r.type}${r.shortName ? ` · ${r.shortName}` : ''}`
+      + `${Number(r.capacity) > 1 ? ` · 同時 ${r.capacity} 位` : ''}`,
     fields: (r) => [
       f.text({ name: 'name', label: '診間名稱', value: r.name, placeholder: '點滴3' }),
       f.select({ name: 'type', label: '類型', value: r.type, options: ROOM_TYPES }),
@@ -85,12 +86,25 @@ const editors = {
         hint: '月曆那一格印它，一格只放得下幾個字。留空就印全名。'
           + '數字就是門上那個號碼（點滴3 → .3、VIP3 → vip3）。',
       }),
+      // **`min` 與 `step` 要跟 domain 的驗證講同一句話**（CLAUDE.md 那條，
+      // 踩過三次）：`step="1"`，不要寫「通常是 N 的倍數」。
+      f.number({
+        name: 'capacity', label: '同時幾位', value: r.capacity ?? '', min: 1, step: 1,
+        placeholder: '1',
+        hint: '這一間同一個時間裝得下幾個人。留空就是 1。'
+          + '點滴8 放得下兩位（她 2026-09-16：「目前的確不需要床位，都寫 .8」）'
+          + ' —— 填了 2 之後，一對夫妻同時排進去就不會再跳撞期的提醒，而第三位照樣會。',
+      }),
     ],
     // **`beds` 不在這裡**：舊資料上那一格留著（畫得出既有來訪的「點滴8A」），
     // 但這一頁再也不寫它 —— 寫 `beds: []` 等於她一按儲存就把舊資料清掉，
     // 而清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
     parse: (v) => ({
-      name: v.name.trim(), type: v.type, shortName: v.shortName.trim() || null,
+      name: v.name.trim(),
+      type: v.type,
+      shortName: v.shortName.trim() || null,
+      // 空白 → `null`（＝1）。寫 1 進去也可以，兩種在 `roomCapacityOf()` 是同一件事
+      capacity: String(v.capacity ?? '').trim() === '' ? null : Number(v.capacity),
     }),
   },
 

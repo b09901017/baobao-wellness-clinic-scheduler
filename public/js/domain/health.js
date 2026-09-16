@@ -28,7 +28,9 @@ import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
-import { VISIT_STATUSES, isActive, visitStatusFrom, describeStatus } from './visits.js';
+import {
+  VISIT_STATUSES, isActive, visitStatusFrom, describeStatus, roomCapacityOf,
+} from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
@@ -588,6 +590,14 @@ function checkOverused(ctx) {
 // 只看她自己排的來訪彼此之間。跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節），
 // 所以這裡找到的一定是她自己重複排的 —— 那是真的要處理的東西。
 
+/** 那一間、跟 `a` 這一格時間重疊的**總人數**（含 `a` 自己）。 */
+function countInRoom(slots, a, roomId) {
+  return slots.filter(
+    (x) => x.slot.roomId === roomId
+      && (x === a || (x.visit.id !== a.visit.id && overlaps(a.slot, x.slot))),
+  ).length;
+}
+
 function checkConflicts(ctx) {
   const out = [];
   const byDate = {};
@@ -611,13 +621,21 @@ function checkConflicts(ctx) {
         if (a.visit.id === b.visit.id) continue;
         if (!overlaps(a.slot, b.slot)) continue;
 
+        // **診間算人頭**（ADR-0094）：一間裝得下幾個人寫在主檔上（預設 1）。
+        // 兩兩比的前提是「一間就是一個資源」，而點滴8 不是 —— 她的 9 月壓表
+        // 白紙上有一對夫妻同時排在那一間。**容量是幾就准幾個人同時在**，
+        // 所以這裡問的是「加上這一格之後超過了嗎」。
+        //
+        // `bed` 不比了（床位那一層 2026-09-08 拿掉，ADR-0079 第六條）：
+        // 照舊比的話，舊資料上帶著 A／B 的那幾筆永遠不算撞。
+        const room = a.slot.roomId ? (ctx.roomsById[a.slot.roomId] ?? null) : null;
         const sameRoom = a.slot.roomId && a.slot.roomId === b.slot.roomId
-          && (a.slot.bed ?? null) === (b.slot.bed ?? null);
+          && countInRoom(slots, a, a.slot.roomId) > roomCapacityOf(room);
         const sameTherapist = a.slot.therapistId && a.slot.therapistId === b.slot.therapistId;
         if (!sameRoom && !sameTherapist) continue;
 
         const what = sameRoom
-          ? `${ctx.roomsById[a.slot.roomId]?.name ?? '某診間'}${a.slot.bed ?? ''}`
+          ? `${ctx.roomsById[a.slot.roomId]?.name ?? '某診間'}`
           : `${ctx.staffById[a.slot.therapistId]?.name ?? '某治療師'}`;
 
         out.push({
