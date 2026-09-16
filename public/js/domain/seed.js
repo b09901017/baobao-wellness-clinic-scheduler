@@ -40,7 +40,10 @@ export const SEED = {
     { id: 'room-iv5', name: '點滴5', type: '點滴室', shortName: '.5' },
     { id: 'room-iv6', name: '點滴6', type: '點滴室', shortName: '.6' },
     { id: 'room-iv7', name: '點滴7', type: '點滴室', shortName: '.7' },
-    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8' },
+    // **同一個時間裝得下兩位**（ADR-0094）。她的 9 月壓表白紙上有一對夫妻
+    // 同時排在 `IL 8A` 與 `IL 8B`，而床位那一層她不要（2026-09-16：
+    //「目前的確不需要床位，都寫 .8」）。其餘每一間沒填就是 1。
+    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2 },
     { id: 'room-iv9', name: '點滴9', type: '點滴室', shortName: '.9' },
     { id: 'room-iv10', name: '點滴10', type: '點滴室', shortName: '.10' },
     { id: 'room-vip2', name: 'VIP2', type: 'VIP室', shortName: 'vip2' },

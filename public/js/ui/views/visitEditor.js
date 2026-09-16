@@ -17,7 +17,7 @@ import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, statusForCard, isLocked, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
-  sameDayState, editorTarget, slotNoteOf,
+  sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, NOTE_MAX,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
@@ -158,10 +158,9 @@ async function boot(el, {
       // 但那一段是全新的，Abovee 那一道照樣要問。
       isNewDoc: !base,
       merged: target.merged,
-      // **那一天已經結案了，這是新的一筆**（ADR-0083 決定三）。壓表那一頁
-      // 早就講得出這一句，日曆這條路以前什麼都不說 —— 而那正是「同一天
-      // 為什麼有兩塊」最需要一句解釋的時候。
-      closedToday: target.merged || existing ? [] : sameDay.closed,
+      // **那一天的那一句話 2026-09-16 改成每次重畫都算一次**（`sameDayNote()`）。
+      // 以前是在這裡算好一份 `closedToday` —— 那對「開表單那一刻」是對的，
+      // 但她改了日期之後那一句就在講另一天的事（報告 §1.2b）。
       // 哪幾段畫得出來、改得動（`isEditable()`）。
       //   改一段  → 就那一段
       //   併進來  → 只有剛剛加上去的那一段
@@ -250,14 +249,14 @@ function leave(ctx) {
 }
 
 function paint(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew, embedded } = ctx;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNewDoc, embedded } = ctx;
   const locked = isLocked(draft.status) && !ctx.unlockReason;
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   //
   // 2026-09-12 起它只剩一個用途：**日期那一格給不給改**。整筆的狀態卡與
   // 危險區整塊拿掉了（ADR-0089），而網址那條路（`renderEdit()`）仍然畫得出
   // 整天那一張 —— 它沒有任何畫面上的連結，所以不算「一條路」。
-  const wholeVisit = !isNew && !ctx.editSlots;
+  const wholeVisit = !ctx.isNew && !ctx.editSlots;
 
   // **抬頭那顆 badge 印她正在改的那一段的狀態**（ADR-0085）。
   //
@@ -306,11 +305,24 @@ function paint(ctx, draft) {
       ${/* **「記一句」不在這裡了**（ADR-0084）。它搬到每一段身上，收在那一段
              抬頭列右邊那顆夾板後面 —— 她 2026-09-09：「我希望是每一筆都可以有
              他的記一句，而不要是一整天的」。 */''}
-      ${closedNote(ctx)}
-      ${/* **只改一段時日期不給改**（ADR-0085）。日期是整筆的 —— 改了那一天
-             剩下那幾段也跟著搬，而她點進來要改的只有這一段。要整天改期就是
-             取消 + 重排（SPEC 第 7 節規則 10）。 */''}
-      ${wholeVisit || isNew ? `
+      ${sameDayNote(ctx, draft)}
+      ${/* **日期只有在這一筆來訪是全新的時候才給改。**
+             這一格寫回去的是**整筆**的日期（`readDraft()`），所以草稿指向一份
+             既有的文件時，改它就是把那一天原本那幾段一起搬走 —— 而存檔前那道
+             確認只列新加的那一段，她看不出來（報告 §1.2，2026-09-16 實跑：
+             `v-one` 從 8/29 變成 8/30，原本那一段跟著走了）。
+
+             以前問的是 `isNew`（「她按的是新增嗎」），而**併進同一天既有那一筆
+             時它也是 true** —— 那正是漏掉的那一種。改成問 `isNewDoc`
+             （「這份文件是新的嗎」），四條路各自回到該有的答案：
+
+               全新的一筆   → 給改（她從日曆點的那一天不一定對）
+               併進既有那天 → 不給（改到的是別人的日期）
+               改一段       → 不給（ADR-0085）
+               網址那條路   → 給（`renderEdit()`，沒有畫面上的入口）
+
+             要換日子而那一天已經有一段時走哪一條，見 `submit()` 的合併那一段。 */''}
+      ${wholeVisit || isNewDoc ? `
         <section class="card ${embedded ? 'card--bare' : ''}">
           ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
         </section>` : ''}
@@ -419,24 +431,37 @@ function paint(ctx, draft) {
 
 
 /**
- * 「那一天已經結案了，這是新的一筆」。
+ * 那一天的一句話。**只有全新的那一筆才講**（既有那一筆的日期改不動了）。
  *
- * 只有一種情況會出現（ADR-0083 決定三）：她從日曆替某位客戶排某一天，
- * 而那一天既有的那一筆已經標成已完成或未到 —— 那時候併不進去，只能開新的。
+ * 一格兩種話，而它們互斥（`sameDayState()` 的 `open` 與 `closed`）：
  *
- * **這是唯一一句「說明文字」在這一輪被加回來的地方**，而它過得了
- * issue 11 的判準：不講的話她會在日曆上看到同一天兩塊，而畫面什麼都沒說。
+ * | 她挑的那一天 | 講什麼 | 為什麼非講不可 |
+ * |---|---|---|
+ * | 已經有一筆收得下的 | 存下去會加進那一天的那一筆 | 存進去之後只有一筆，而畫面上看起來像新的一筆 |
+ * | 已經結案（已完成／未到）| 這是另外一次來訪（ADR-0083 決定三）| 同一天兩塊，不講的話她不知道為什麼 |
+ *
+ * **這一句不可以收進 `tip()`**：它講的是**按下去會寫成什麼**，
+ * 而點了才浮出來的東西等於她沒看到（`tests/tip-red-lines.test.js` 的紅線）。
+ *
+ * 併進去這件事在**存檔時**才發生（`mergedPayload()`）—— 所以日期照樣改得動，
+ * 她挑錯一天不會被卡住。畫面先講，然後照講的做。
  */
-function closedNote(ctx) {
-  const rows = ctx.closedToday ?? [];
-  if (!rows.length) return '';
+function sameDayNote(ctx, draft) {
+  if (!ctx.isNewDoc) return '';
 
-  const what = [...new Set(rows.map((v) => describeStatus(v.status)))].join('、');
+  const { open, closed } = sameDayState(ctx.customerVisits, ctx.customer.id, draft.date);
+  const line = open
+    ? `${esc(shortDate(draft.date))} 已經有一段了，存下去會加進那一天的那一筆。`
+    : (closed.length
+      ? `${esc(shortDate(closed[0].date))} 那一天已經是「${
+        esc([...new Set(closed.map((v) => describeStatus(v.status)))].join('、'))
+      }」了，所以這是另外一次來訪。`
+      : '');
+  if (!line) return '';
+
   return `
     <section class="card ${ctx.embedded ? 'card--bare' : ''}">
-      <p class="field__hint" style="margin: 0">
-        ${esc(shortDate(rows[0].date))} 那一天已經是「${esc(what)}」了，所以這是另外一次來訪。
-      </p>
+      <p class="field__hint" style="margin: 0">${line}</p>
     </section>`;
 }
 
@@ -973,11 +998,57 @@ function key(values, name, fallback) {
 
 // ---------- 儲存 ----------
 
+/**
+ * 這一份草稿存下去之後，真正要寫進資料庫的是哪一筆。
+ *
+ * **「新的那幾段一律走 `withExtraSlot()`」只有這一支。** 兩條路進得來：
+ *
+ * | 進來的方式 | `isNewDoc` | 併到哪一筆 |
+ * |---|---|---|
+ * | 開表單那一刻那一天就有收得下的（`boot()`）| `false` | 草稿本身就是那一筆 |
+ * | 開表單時那一天是空的，**她改了日期**（報告 §1.2b）| `true` | 現在才算得出來 |
+ *
+ * 第二條以前不存在：併不併是 `boot()` 開表單那一刻決定的，改日期只重讀了
+ * 撞期用的 `sameDayVisits`，沒有重問 `sameDayState()` —— 於是同一位客戶
+ * 同一天兩筆，ADR-0083 破功，而資料健檢會把它列成「這是舊資料」。
+ *
+ * **走 `withExtraSlot()` 不是自己接陣列**（ADR-0081、`.scratch/coverage-gaps/issues/03`）：
+ * 那一支會把整筆退回「待確認」並清掉 `confirmedAt`，同時讓既有那幾段先把
+ * 自己現在的狀態落下來 —— 不然一段從沒問過客人的時間會被靜默標成談定了，
+ * 而且待辦中心不會叫她去問（`visitsToConfirm()` 看的是整筆狀態）。
+ *
+ * @returns {{visit: object, reopened: boolean}}
+ */
+function mergedPayload(ctx, draft) {
+  const before = ctx.storedSlotCount ?? 0;
+  const base = ctx.isNewDoc
+    ? sameDayVisitFor(ctx.customerVisits, ctx.customer.id, draft.date)
+    : { ...draft, slots: (draft.slots ?? []).slice(0, before) };
+
+  if (!base) return { visit: draft, reopened: false };
+
+  const fresh = (draft.slots ?? []).slice(ctx.isNewDoc ? 0 : before);
+  if (!fresh.length) return { visit: draft, reopened: false };
+
+  let reopened = false;
+  const visit = fresh.reduce((v, slot) => {
+    const step = withExtraSlot(v, slot);
+    reopened = reopened || step.reopened;
+    return step.visit;
+  }, base);
+
+  return { visit, reopened };
+}
+
 async function submit(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
 
-  const { errors, warnings } = validateVisit(draft, {
+  // **先算出真的會被寫下去的是哪一筆**（ADR-0083）。驗證與那兩道確認問的
+  // 都要是它 —— 拿草稿去驗的話，併進去之後才會撞在一起的那幾段驗不出來。
+  const merged = mergedPayload(ctx, draft);
+
+  const { errors, warnings } = validateVisit(merged.visit, {
     customer, entitlements,
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
     staff: all.staff, ivProducts: all.ivProducts,
@@ -1020,8 +1091,8 @@ async function submit(ctx, draft) {
   }
 
   const payload = ctx.unlockReason
-    ? { ...draft, lastCorrection: { at: new Date().toISOString(), reason: ctx.unlockReason } }
-    : draft;
+    ? { ...merged.visit, lastCorrection: { at: new Date().toISOString(), reason: ctx.unlockReason } }
+    : merged.visit;
 
   try {
     // 存一筆來訪會動到額度的計數欄位，做兩次就多扣一次（新增的那條路有二次確認

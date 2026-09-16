@@ -234,6 +234,10 @@ const validators = {
     const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('診間名稱不可空白');
     if (!ROOM_TYPES.includes(r.type)) errors.push('請選擇診間類型');
+    // 同一個時間裝得下幾個人（ADR-0094）。**沒填就是 1**，所以空白不是錯誤。
+    if (r.capacity != null && !(Number.isInteger(Number(r.capacity)) && Number(r.capacity) > 0)) {
+      errors.push('「同時幾位」要是大於 0 的整數');
+    }
     return errors;
   },
 

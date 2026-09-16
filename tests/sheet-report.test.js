@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   customerReport, toTSV, toCSV, READONLY_NOTICE, syncBundle, describeSync,
-  equipmentCells,
+  equipmentCells, slotNoteCells,
 } from '../public/js/domain/sheetReport.js';
 import { MARK_LEGEND } from '../public/js/domain/visits.js';
 
@@ -205,7 +205,7 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
     generatedAt: '2026/8/10',
   });
 
-  assert.equal(bundle.format, 4);
+  assert.equal(bundle.format, 5);
   assert.equal(bundle.sheets.length, 1);
 
   const sheet = bundle.sheets[0];
@@ -847,5 +847,63 @@ describe('那一天的符號逐段算（ADR-0081）', () => {
   test('舊資料（沒有 slot.status）印出來的字一個都沒變', () => {
     const { rows } = build([{ entitlementId: 'e1' }, { entitlementId: 'e1' }], 'done');
     assert.equal(rowOf(rows, '復能').at(-1), '✓2');
+  });
+});
+
+// ---------- 那一段記了什麼（格式 5、ADR-0096） ----------
+//
+// 起點是「家屬用本人的名額」：app 裡沒有地方寫「實際來的是誰」，而她
+// 2026-09-16 選的是寫在那一段的記一句（ADR-0084）並且推上試算表 ——
+// 「希望是可以⋯⋯記在當天那一列的下面」。
+//
+// **同一個模子的第二次用**（第一次是格式 4 的 `equipmentNotes`），所以它
+// 也不塞進 `followupNotes`：`.gs` 把那一份全部畫在同一列，同一個 `dateIndex`
+// 後面的會蓋掉前面的。
+
+describe('那一段記了什麼（slotNotes）', () => {
+  const DATES = ['2026-09-10', '2026-09-20'];
+  const ent = { id: 'e1', type: 'single', courseId: 'c-recovery', label: '復能-SIS(60)', totalQty: 4 };
+  const withNote = (over = {}) => ({
+    id: 'v1', customerId: 'cus-1', customerName: '客戶A', date: '2026-09-10',
+    status: 'done',
+    slots: [{
+      courseId: 'c-recovery', entitlementId: 'e1', startsAt: '09:00', endsAt: '10:00',
+      note: '女兒代打', status: 'done', ...over,
+    }],
+  });
+
+  test('記了字的那一段會出現在那一天的欄位上', () => {
+    const cells = slotNoteCells(ent, [withNote()], DATES);
+    assert.deepEqual(cells, [{ dateIndex: 0, text: '女兒代打' }]);
+  });
+
+  test('沒記字的額度一列都不畫', () => {
+    const cells = slotNoteCells(ent, [withNote({ note: null })], DATES);
+    assert.deepEqual(cells, []);
+  });
+
+  test('取消掉的那一段不印 —— 那一場沒發生', () => {
+    const cells = slotNoteCells(ent, [withNote({ status: 'cancelled' })], DATES);
+    assert.deepEqual(cells, []);
+  });
+
+  test('舊資料那一句還在整筆上時也印得出來（ADR-0084 的退路）', () => {
+    const v = withNote({ note: null });
+    v.note = '她說想換一台';
+    assert.deepEqual(slotNoteCells(ent, [v], DATES), [{ dateIndex: 0, text: '她說想換一台' }]);
+  });
+
+  test('同一天兩段都記了字 → 同一格，換行接起來', () => {
+    const v = withNote();
+    v.slots.push({
+      courseId: 'c-recovery', entitlementId: 'e1', startsAt: '11:00', endsAt: '12:00',
+      note: '提早十分鐘到', status: 'done',
+    });
+    assert.deepEqual(slotNoteCells(ent, [v], DATES), [{ dateIndex: 0, text: '女兒代打\n提早十分鐘到' }]);
+  });
+
+  test('別筆額度的那一段不算在這一列上', () => {
+    const v = withNote({ entitlementId: 'e2' });
+    assert.deepEqual(slotNoteCells(ent, [v], DATES), []);
   });
 });

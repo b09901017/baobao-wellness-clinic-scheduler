@@ -128,7 +128,7 @@ function paint(el, ctx) {
         </div>` : ''}
     </section>
 
-    ${file ? contraindicationCard(s) : ''}
+    ${file ? contraindicationCard(s, plans) : ''}
     ${file ? summaryCard(s, plans, extraProblems) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
@@ -236,19 +236,26 @@ function errorsCard() {
  * 不自動填 flags：「手有金屬」要提醒、「金屬已取出」不用，而兩句話都有「金屬」，
  * 那是她的判斷（ADR-0002）。
  */
-function contraindicationCard(s) {
+function contraindicationCard(s, plans = []) {
   const rows = s?.contraindications ?? [];
   if (!rows.length) return '';
+  // v3 的檔案已經照舊表的字帶上了一部分警示（ADR-0092）。哪幾位已經帶上要講清楚 ——
+  // 不講的話她會以為還要自己去設，或反過來以為這一張卡上的全部都設好了。
+  const flagsOf = (name) => plans.find((p) => p.customerName === name)?.customer?.flags ?? [];
   return `
     <section class="card card--danger">
       <h2 class="card__title">這 ${rows.length} 位的文字裡提到要注意的狀況</h2>
       <ul class="tight">
-        ${rows.map((x) => `<li><b>${esc(x.customerName)}</b>：${esc(x.terms.join('、'))}
-          ${x.warns.length ? `<span class="muted">（排 ${esc(x.warns.join('、'))} 時會多一句提醒）</span>` : ''}</li>`).join('')}
+        ${rows.map((x) => {
+    const set = flagsOf(x.customerName);
+    return `<li><b>${esc(x.customerName)}</b>：${esc(x.terms.join('、'))}
+          ${set.length ? `<span class="muted">（已經帶上警示：${esc(set.join('、'))}）</span>` : ''}
+          ${x.warns.length ? `<span class="muted">（排 ${esc(x.warns.join('、'))} 時會多一句提醒）</span>` : ''}</li>`;
+  }).join('')}
       </ul>
-      <p class="muted"><b>匯入不會自動設定永久限制。</b>匯完請到這幾位的客戶詳情頁自己設 ——
-        沒設的話壓表卡片牆上那顆丸子不會出現，你在診間就看不到這件事。
-        不自動填是因為「手有金屬」要提醒、「金屬已取出」不用，而兩句話都有「金屬」。</p>
+      <p class="muted"><b>只有金屬類、血管類會自動帶上警示</b>，而且「沒有金屬」「金屬已取出」這種否定句不算。
+        其餘的字眼不會自動設定 —— 沒寫「已經帶上」的那幾位，匯完請到客戶詳情頁自己設，
+        沒設的話壓表卡片牆上那顆丸子不會出現，你在診間就看不到這件事。</p>
     </section>`;
 }
 
@@ -476,7 +483,7 @@ function repaintLooseCounts(el) {
  * 「一筆待辦都不會長」的理由。
  *
  * **會不會長是看課程的類別，不是看有沒有未來的來訪**（`countNewTasks()` 問的是
- * `syncTasksForVisit()`）。這兩件事以前被寫成同一句，於是未來那幾筆全是 C 類
+ * `importedTasksFor()`）。這兩件事以前被寫成同一句，於是未來那幾筆全是 C 類
  * （復能、靜脈、EECP、營養點滴 —— 她大部分的量）的時候，這一頁上面才剛說
  * 「來訪裡有 N 筆的日期在今天之後」，兩段之後就說「這次沒有還沒發生的來訪」。
  * 同一頁自打嘴巴比不講還糟。
@@ -504,7 +511,7 @@ function runCard(s, tasks) {
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
         （算進已排未上，次數還不會扣）。</p>
       <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
-        那些掛號在舊系統早就做完了。${noTaskWhy(s, tasks)}</p>
+        那些掛號與紀錄在舊系統早就做完了。${noTaskWhy(s, tasks)}</p>
     </section>`;
 }
 

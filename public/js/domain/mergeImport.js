@@ -13,21 +13,37 @@
 
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
-import { followupPlanEntries } from './followups.js';
+import { followupPlanEntries, followupCourseIdOf } from './followups.js';
+import { importedLabel, tierFromLegacyLabel } from './entitlements.js';
 import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
-import { syncTasksForVisit } from './taskRules.js';
+import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
+import { DOCTOR_ROLE } from './masterData.js';
 
 /**
- * 合併檔的格式。**v2（2026-09-13）多了購買日、方案與套數、帶顏色的備註**
- * （`.scratch/asks-2026-09-13/issues/08`）。只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，
- * 而畫面看起來跟匯好了一樣 —— 所以升版。
+ * 合併檔的格式。
+ *
+ * - **v2（2026-09-13）** 多了購買日、方案與套數、帶顏色的備註（`.scratch/asks-2026-09-13/issues/08`）
+ * - **v3（2026-09-15）** 多了額度的時長、客戶的警示與合作機構（`.scratch/merge-answers-2026-09-14/issues/02`）
+ *
+ * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v2';
+export const FORMAT = 'baobao-merge/v3';
 
-/** 還收得下的舊版。v1 的檔案照舊匯得進去，少的那幾格一律 null。 */
-export const FORMATS = Object.freeze(['baobao-merge/v1', FORMAT]);
+/** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
+export const FORMATS = Object.freeze(['baobao-merge/v1', 'baobao-merge/v2', FORMAT]);
+
+/** 額度的時長：正整數才算數，其餘當沒寫。 */
+const minutesOf = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
+
+/**
+ * 警示與合作機構：客戶身上存的是**字串**（ADR-0074、ADR-0076），所以只收字串陣列。
+ * 其餘形狀一律當成沒有 —— 寫一個非陣列進 `flags`，壓表卡片牆那一排會整個畫不出來。
+ */
+const stringList = (v) => (Array.isArray(v)
+  ? [...new Set(v.filter((x) => typeof x === 'string').map(norm).filter(Boolean))]
+  : []);
 
 const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const alive = (list) => (list ?? []).filter((x) => !x.deletedAt);
@@ -156,36 +172,68 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       if (!eq) problem(e.label, eqName, '主檔裡沒有這個器材，擇一池少一個選項');
       else optionIds.push(eq.id);
     }
-    if (e.type === 'pool' && optionIds.length < 2) {
-      problem(e.label, (e.optionEquipmentNames ?? []).join('、'), '擇一池的器材不到兩種，這一筆額度沒有匯入');
+    // **一台也算數**（ADR-0075）：單買一台 SIS 就是「這一池裡只有一台」。這裡以前寫著
+    // 「不到兩種就不匯」，於是單買一台的客戶就算產檔那側寫得出來也匯不進去。零台仍然擋。
+    if (e.type === 'pool' && optionIds.length < 1) {
+      problem(e.label, (e.optionEquipmentNames ?? []).join('、'), '擇一池一台器材都對不到，這一筆額度沒有匯入');
       continue;
     }
+    // 買的是哪一款營養點滴（ADR-0059 的相反面：額度記得住品項，排班時才預設得出來）。
+    // **對不到就留空，不要猜** —— 同 `resolveAssignments()` 的判準。
+    // 2026-09-16 之前這一格根本不存在：`productName` 只留在計畫物件上，
+    // 而寫入端只寫 `doc`，所以「買的那一款排第一顆、預設選好」
+    //（`ivChoicesFor()`）與「品項跟買的不一樣」（`assignmentWarnings()`、
+    // 資料健檢的 `ivMismatch`）對匯進來的那幾筆全部看不到。
+    let ivProductId = null;
+    if (norm(e.productName)) {
+      const item = byName(ivProducts, e.productName);
+      if (item) ivProductId = item.id;
+      else problem(e.label, e.productName, '主檔裡沒有這個營養點滴品項，這筆額度不記買了哪一款');
+    }
+
+    // 健檢的等級（`12萬健檢` 的 `12萬`）。合併檔 v3 沒有帶這一格，而 ADR-0054
+    // 說它住在額度上 —— 解析得出來就補上，認不出來（`x萬健檢`）就留空不要猜。
+    // 哪一種課程有等級：**「做完還要再約一次」的那一種**（健檢）。
+    // 判斷借 `followupCourseIdOf()` —— `ui/components/buy.js` 決定要不要畫
+    // 那一排「幾萬的」時問的是同一支，兩邊各比一次 `followupCourseId`
+    // 遲早有一邊漏掉。
+    const tier = followupCourseIdOf(course) ? tierFromLegacyLabel(e.label, course.name) : null;
+
+    const doc = {
+      type: e.type === 'pool' ? 'pool' : 'single',
+      label: e.label,
+      courseId: e.type === 'pool' ? null : course?.id ?? null,
+      optionEquipmentIds: e.type === 'pool' ? optionIds : null,
+      // 買的那一款。沒買特定品項（舊表寫的是「營養針」那種）就是 null，
+      // 而 `ivChoicesFor()` 看到 null 會退回「全部列出來」—— 那是對的。
+      ivProductId,
+      totalQty: Number(e.totalQty) || 0,
+      // v3 帶時長（舊表的 `復能(30分）`、`ILIB 30`）。沒帶就是課程的時長，跟以前一樣
+      durationMin: minutesOf(e.durationMin) ?? course?.durationMin ?? null,
+      frequencyRule: course?.frequencyRule ?? null,
+      // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
+      // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
+      sourcePlanName: e.sourcePlanName ?? null,
+      sourcePlanSets: e.sourcePlanSets ?? null,
+      sourcePlanQty: e.sourcePlanQty ?? null,
+      // 同一次購買共用一個 id（「買過什麼」與客戶抬頭靠它與購買日分組）。
+      // 檔案裡只是一個暗號（`plan`／`extras`），換成這位客戶自己的字串，不寫進 purchaseKey
+      purchaseId: e.purchaseKey ? `import:${name}:${e.purchaseKey}` : null,
+      purchasedAt: e.purchasedAt ?? null,
+      expiresAt: null,
+      doneCount: 0,
+      bookedCount: 0,
+      lastReconciledAt: null,
+      importedFrom: stamp,
+      ...(tier ? { tier } : {}),
+    };
+
     entitlements.push({
       key: e.key,
       productName: e.productName ?? null,
-      doc: {
-        type: e.type === 'pool' ? 'pool' : 'single',
-        label: e.label,
-        courseId: e.type === 'pool' ? null : course?.id ?? null,
-        optionEquipmentIds: e.type === 'pool' ? optionIds : null,
-        totalQty: Number(e.totalQty) || 0,
-        durationMin: course?.durationMin ?? null,
-        frequencyRule: course?.frequencyRule ?? null,
-        // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
-        // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
-        sourcePlanName: e.sourcePlanName ?? null,
-        sourcePlanSets: e.sourcePlanSets ?? null,
-        sourcePlanQty: e.sourcePlanQty ?? null,
-        // 同一次購買共用一個 id（「買過什麼」與客戶抬頭靠它與購買日分組）。
-        // 檔案裡只是一個暗號（`plan`／`extras`），換成這位客戶自己的字串，不寫進 purchaseKey
-        purchaseId: e.purchaseKey ? `import:${name}:${e.purchaseKey}` : null,
-        purchasedAt: e.purchasedAt ?? null,
-        expiresAt: null,
-        doneCount: 0,
-        bookedCount: 0,
-        lastReconciledAt: null,
-        importedFrom: stamp,
-      },
+      // **匯進來的名字改成 app 的寫法**（ADR-0095）。算不出來的保留她原本的字 ——
+      // 那幾筆由資料健檢列出來讓她逐筆改。
+      doc: { ...doc, label: importedLabel(doc, { courses, equipment, ivProducts }) },
     });
   }
   // 健檢配二返：買幾次健檢就有幾次二返（GitHub issue #15、ADR-0022）。
@@ -242,7 +290,10 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       purchasedAt: entry.purchasedAt ?? null,
       membershipExpiresAt: null,
       priority: 0,
-      flags: [],
+      // v3 帶警示與合作機構：產檔那側照舊表的字判好的（她 2026-09-07：自動帶、否定句不算，ADR-0092）。
+      // v1、v2 沒有就是空的，跟以前一樣
+      flags: stringList(entry.flags),
+      partners: stringList(entry.partners),
       // v2 帶的是帶顏色的備註（有「尾款」的是紅色）。**marks 是真相，notes 是鏡像**（ADR-0019）。
       // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
       ...marksOf(entry),
@@ -255,9 +306,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     visits,
     problems,
     // 舊表沒有「永久限制」這個欄位，所以那幾句話寫在購買名稱或空白處，而合併檔
-    // 把它們原封不動收進 `notes`。**匯進來之後 `customer.flags` 是空的**，
-    // 而擋器材是拿 flags 去比對的 —— 沒有那個標記，超磁場與高能量雷射不會被擋，
-    // 那是整個系統唯一會造成實際傷害的一條。只提示不自動填（ADR-0002）。
+    // 把它們原封不動收進 `notes`。v3 起產檔那側會替金屬類、血管類帶上警示（ADR-0092），
+    // 但判準只認得那兩類的寫法 —— 其餘的字眼照樣只在這裡提示，要她自己去點。
     contraindications: contraindicationHints([
       { where: '購買名稱', text: entry.source },
       { where: '備註', text: entry.notes },
@@ -278,7 +328,19 @@ export function planForCustomer(entry, ctx = {}, json = null) {
   };
 }
 
-/** 器材、品項、診間、治療師：名字對得到就填，對不到就講一聲留空。 */
+/**
+ * 器材、品項、診間、人：名字對得到就填，對不到就講一聲留空。
+ *
+ * **人要看角色。** 行事曆上「*許」寫在同一格裡（產檔那側的 `therapistName`），
+ * 而那是一位醫師 —— 醫師與治療師在時段上是**兩個欄位**（ADR-0026）。
+ *
+ * 2026-09-16 之前這裡不看角色，於是她那份 import 的 9 段二返裡有 8 段把醫師
+ * 寫進了 `therapistId`，而 `doctorId` 這一格連 `null` 都沒有。三個後果：
+ * 試算表那一格印成「7/17 二返」（`sheetReport.js` 讀的是 `doctorId`，
+ * 而空括號在她的寫法裡是「還沒約」的意思，ADR-0026）；她一改那一段再存，
+ * `visitEditor.js` 因為二返不指派治療師而把 `therapistId` 清成 null ——
+ * **名字安靜地不見了**；撞期判斷刻意不比醫師，但那 8 段是當成治療師比的。
+ */
 function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, problem, where) {
   const pick = (list, value, what) => {
     if (!norm(value)) return null;
@@ -286,11 +348,20 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
     if (!hit) problem(where, value, `主檔裡沒有這個${what}，這個時段的欄位留空`);
     return hit?.id ?? null;
   };
+
+  // 產檔那側只有一格「誰」。對得到主檔才分得出角色 —— 對不到時
+  // 講的那一句要照舊說「治療師」，因為那是她在行事曆上寫那個字的位置。
+  const whoName = norm(slot.therapistName);
+  const who = whoName ? byName(staff, whoName) : null;
+  if (whoName && !who) problem(where, whoName, '主檔裡沒有這個治療師，這個時段的欄位留空');
+  const isDoctor = who?.role === DOCTOR_ROLE;
+
   return {
     equipmentId: pick(equipment, slot.equipmentName, '器材'),
     ivProductId: pick(ivProducts, slot.ivProductName, '營養點滴品項'),
     roomId: pick(rooms, slot.roomName, '診間'),
-    therapistId: pick(staff, slot.therapistName, '治療師'),
+    therapistId: isDoctor ? null : (who?.id ?? null),
+    doctorId: isDoctor ? who.id : null,
   };
 }
 
@@ -626,9 +697,11 @@ export function eventDocs(candidates, stamp = null) {
 /**
  * 這批計畫會長出幾筆登記待辦。
  *
- * **判斷不在這裡。** 呼叫的是每次存來訪都在跑的那一支（`syncTasksForVisit()`，
- * 它自己會問 `acceptsNewTasks()`），這裡只負責數 —— 在 UI 上再判斷一次
- * 「哪一種來訪會長任務」，就是第二份實作，而它一定會跟真正寫入的那一份跑掉。
+ * **判斷不在這裡。** 呼叫的是寫入端在跑的那一支（`importedTasksFor()`），
+ * 這裡只負責數 —— 在 UI 上再判斷一次「哪一種來訪會長任務」，就是第二份實作，
+ * 而它一定會跟真正寫入的那一份跑掉。2026-09-16 就跑掉過一次：兩邊都呼叫
+ * `syncTasksForVisit()`，數字是對的，但**那 18 張全部是掛在已經發生的來訪上的
+ * 「寫紀錄」**，而確認框拿這個數字去寫「還沒發生的那幾筆會產生 N 筆登記待辦」。
  *
  * 這個數字是給確認框看的：那一頁本來寫著「不會產生任何待辦任務」，
  * 而那句話對未來的預約是錯的（`.scratch/first-real-import/issues/04`）。
@@ -641,7 +714,7 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
   return plans
     .filter((p) => !p.skip)
     .reduce((n, p) => n + p.visits.reduce(
-      (m, v) => m + syncTasksForVisit(v, [], { coursesById, today }).create.length, 0,
+      (m, v) => m + importedTasksFor(v, { coursesById, today }).length, 0,
     ), 0);
 }
 

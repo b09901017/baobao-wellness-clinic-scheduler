@@ -36,9 +36,14 @@ description: >
 
 ## 兩條鐵則
 
-**一、真實客戶資料一格都不能進 repo。** 姓名、健康資訊、匯出的 TSV、報告、別名表，
-全部只放本次工作階段的暫存區（系統提示裡那個 scratchpad 路徑）。
+**一、真實客戶資料一格都不能進 repo。** 姓名、健康資訊、匯出的 TSV、報告、別名表、決定檔、問卷，
+全部只放本次工作階段的暫存區（系統提示裡那個 scratchpad 路徑）或 `.local/references/`
+（`.gitignore` 的 `/.local/` 擋著，新開一個檔就跑一次 `git check-ignore -v <路徑>`）。
 `scripts/xlsx-to-tsv.py` 會拒絕寫進 repo。理由見 `SPEC.md` 第 10 節：進了 git 歷史就拿不掉。
+
+**repo 裡的例子、註解、測試一律假名，健康註記也要改寫。** 2026-09-15 那一輪，一個真名差點從
+`merge.mjs` 的註解進去，是 `tests/no-secrets.test.js` 抓到的 —— 但它只抓得到「名字黏著數字」。
+改完之後拿舊表分頁名（真名）自己掃一次 `git diff` 與新檔，同一輪就另外掃出一個早就 commit 進去的名。
 
 **二、不猜。** 對不上的東西一律列出來讓她判斷，不要為了讓數字好看而配對。
 補錯一筆時間，在畫面上跟補對了長得一模一樣 —— 她永遠不會發現。漏補只是維持現狀。
@@ -78,22 +83,71 @@ python3 .claude/skills/calendar-sheet-merge/scripts/xlsx-to-tsv.py <xlsx> <暫�
 當成別位客戶而整筆放棄）；`therapistAliases` 是給輸出用的 —— **合併檔裡一定要寫主檔的
 正式名字**，送「新穎」「LU」過去，app 對不到主檔，那個欄位就會留空。
 
-放在 `.local/aliases.json`（已經 gitignore）。腳本自己會處理的不用寫進去：
+放在 `.local/references/aliases.json`（`/.local/` 擋著）。腳本自己會處理的不用寫進去：
 去姓（王陳小明→陳小明，假名）、括號裡的配偶名字、異體字（啟↔啓、惠↔慧、崴↔威）。
 
-**這個容器會被回收，所以跑完一定要用 SendUserFile 把 `aliases.json` 交還給她**，
-並告訴她下次連同 .ics/.xlsx 一起給你。她手上有這張表，下次就不用重講一遍。
+**在會被回收的容器裡跑的話，跑完一定要用 SendUserFile 把 `aliases.json` 與 `merge-decisions.json`
+交還給她**，並告訴她下次連同 .ics/.xlsx 一起給你。在她自己的電腦上跑，它們就留在 `.local/references/`。
+她手上有這兩份，下次就不用重講一遍。
 
 ### 4. 跑對帳
 
 ```bash
 node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
   --sheets <暫存區>/real --ics <ics 檔> --year <年> \
-  --aliases .local/aliases.json --today <今天> --out <暫存區>/out
+  --aliases .local/references/aliases.json \
+  --decisions .local/references/merge-decisions.json \
+  --today <今天> --out <暫存區>/out
 ```
 
 產出兩個檔：`report.txt`（給她看的對帳報告）與 `import.json`（貼進 app 的合併檔，
-格式見下面）。兩個都要用 SendUserFile 交給她。
+格式見下面）。兩個都要交給她（容器裡用 SendUserFile，本機放 `.local/references/`）。
+
+**交件之前拿 app 自己的匯入程式驗一次**：`domain/mergeImport.js` 的 `validateFile()` 與
+`planForCustomer()`（主檔用 `SEED`）。skill 產得出來、app 收不下的東西在畫面上只會寫「N 處對不到主檔」。
+
+### 4b. 她回答過的決定（決定檔）
+
+規則寫進 `references/answers.md`；**一位一位的決定**（這一天是誰、補不補、幾點、這筆額度其實是什麼）
+寫進 `.local/references/merge-decisions.json`，下一批用 `--decisions` 自動套用 —— 她 2026-09-15：
+「要記錄我回報你的內容，讓下次就不用再回報同樣的事」。有真名，只放 `.local/`。
+
+```json
+{
+  "customers": {
+    "<分頁名>": {
+      "noPlan": "<為什麼方案不算>",
+      "entitlements": [
+        { "row": 9, "label": "1.2萬健檢", "qty": 1, "durationMin": 30, "only": "SIS", "set": "四選一", "plan": false },
+        { "row": 7, "split": [{ "qty": 20 }, { "qty": 3, "set": "三選一", "plan": false }] },
+        { "rows": [7, 8], "merge": { "qty": 30, "set": "四選一", "durationMin": 60, "label": "…" } },
+        { "add": { "key": "gift-cardio", "course": "心臟科評估", "qty": 1, "purchasedAt": "2026-08-11" } }
+      ],
+      "slots": [
+        { "date": "2026-06-18", "course": "ILIB", "nth": 1, "set": { "fromEvent": "<行事曆原文>", "startsAt": "09:30", "room": "點滴10", "equipment": "SIS", "therapist": "…", "iv": "…", "entitlement": "r7:2", "durationMin": 30 } },
+        { "date": "2026-09-16", "course": "復能", "clear": true },
+        { "date": "2026-08-05", "add": { "course": "二返", "fromEvent": "<行事曆原文>", "entitlement": "r9-followup" } }
+      ],
+      "skipEvents": [{ "date": "2026-09-10", "title": "<行事曆原文>" }],
+      "notes": { "add": [{ "text": "…", "color": "red" }], "drop": ["<備註原文>"] },
+      "flags": ["體內金屬"], "partners": ["自然美"],
+      "dropProblems": ["<purchaseProblems 裡的一段字>"]
+    }
+  },
+  "events": [
+    { "date": "2026-09-13", "title": "休", "kind": "leave", "startDate": "2026-09-14", "endDate": "2026-09-14" },
+    { "date": "2026-09-23", "title": "<行事曆原文>", "skip": "<為什麼不匯>" }
+  ]
+}
+```
+
+- 對人用**分頁名**、對事件用**日期＋行事曆原文**、對時段用**日期＋課程＋第幾段**。`_why` 開頭的欄位是給人看的，程式不讀
+- 拆出來的額度 key 是 `r<列>:2`、`r<列>:3`；配出來的二返是 `r<健檢那一列>-followup`（app 匯入時會配出同一個 key）
+- **額度的決定在配對之前套、時段的決定在配對之後套**：併掉的那一列，它底下的時段要先指到新的那一筆
+- **對不到對象的決定排在報告 ⓪d 最前面**。下一批她改過舊表之後最容易發生，
+  而一條安靜失效的決定跟沒有決定長得一模一樣 —— 重新問她，不要刪掉那一條就算了
+- 她說「**保留**」的題目：照她這次先給的答案寫進決定檔，**同時**整理進下一份問卷，
+  每一題附上「這次先照什麼做」。保留不是定案
 
 ### 5. 讀報告，把該問的問掉
 
@@ -102,6 +156,8 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 | 段 | 是什麼 | 她要做什麼 |
 |---|---|---|
 | ⓪b 舊表本身讀到的問題 | 讀她的舊表時發現的，跟行事曆無關（沒寫年份、勾了但不排班、勾得比買的多） | 掃過去。有幾種是「這一格沒進去」，有幾種是「匯進去之後資料健檢會報」 |
+| ⓪c 購買名稱對不上的 | B2 寫的方案、健檢、加購拿 D 欄的應有次數驗過，對不上的 | 每一條都要問（`answers.md` 回答過的那一種除外） |
+| ⓪d 照她之前的決定改的 | 決定檔套用了什麼；**找不到對象的排最前面** | 找不到的要重新問 |
 | ① 兩邊講的不是同一件事 | 試算表勾 A、行事曆寫 B | 判斷哪邊對。通常是行事曆 |
 | ② 行事曆有、試算表沒勾 | **最嚴重**：做了但忘記打勾，次數少算 | 逐筆確認要不要補一筆來訪 |
 | ③ 試算表有、行事曆沒有 | 沒記行事曆，或**勾錯人** | 看有沒有標 `⇄ 可能勾錯人` |
@@ -136,6 +192,11 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 - **報告的 ⓪c（購買名稱對不上的）每一條都要問**。她 2026-09-13：「所有的方案課程加購都可以
   再用各種課程的應有次數去驗證一次，然後合併的時候也可以再問我一次」。匯進去的是應有次數
   那一份，但哪一邊對由她決定。B2 怎麼讀見 `references/answers.md` 的 2026-09-13 那一節。
+  **`answers.md` 已經回答過的那一種不要再問**（例：寫了「新」卻沒方案數字＝打錯）。
+- **問題多的時候做成一份問卷 HTML 給她點**（放 `.local/references/`，不發布到網路 —— 有真名與健康資訊）。
+  每一題附行事曆原文與舊表的格子、標「建議」但不預先選、可以寫備註、可以複製回報 JSON。
+  2026-09-14 那一批 93 題她一次答完。她回報的 JSON 原檔也留在 `.local/references/`。
+- **報告 ⓪d 有找不到對象的決定**：多半是舊表或行事曆改過了，重新問。
 
 ## 合併檔（`import.json`）
 
@@ -143,15 +204,16 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v2'          （app 也收 v1：少的那幾格一律 null）
+format: 'baobao-merge/v3'          （app 也收 v1、v2：少的那幾格退回以前的值）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
                purchaseProblems[]: string,            （v2：B2 拿應有次數驗過、對不上的那幾條）
-               entitlements[]: { key, type, label, totalQty, courseName,
+               flags[]: string, partners[]: string,   （v3：金屬類／血管類與合作機構名自動帶，否定句不算，ADR-0092）
+               entitlements[]: { key, type, label, totalQty, durationMin, courseName,
                                  optionEquipmentNames[], productName,
                                  purchasedAt, sourcePlanName, sourcePlanSets, sourcePlanQty,
-                                 purchaseKey },       （v2：同一次購買同一個 key）
+                                 purchaseKey },       （v2：同一次購買同一個 key；v3：durationMin，30 分與 60 分是兩種東西）
                visits[]:       { date, status:'done',
                                  slots[]: { entitlementKey, courseName,
                                             startsAt, endsAt, roomName, therapistName,
@@ -219,4 +281,5 @@ app 那一側的待辦在 `.scratch/legacy-calendar-merge/issues/`（已結案�
 ## 兩份參考
 
 - `references/shorthand.md` —— 她的速記語法：時間、器材、診間、治療師、品項怎麼寫
-- `references/findings.md` —— 2026-08-19 那次的實測結果與踩過的坑
+- `references/findings.md` —— 每一次拿真檔跑的實測結果與踩過的坑
+- `references/answers.md` —— 她拍板過的規則，**問過就不要再問**（逐位的決定在 `.local/references/merge-decisions.json`）
