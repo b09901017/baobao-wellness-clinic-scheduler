@@ -58,7 +58,7 @@ const copyFor = (fix) => FIX_COPY[KIND_TO_CHECK[fix?.kind]] ?? FIX_COPY.counts;
 
 - `npm test`（把 `renameChartNo: 'chartNo'` 那一行拿掉會紅，訊息是
   「KIND_TO_CHECK 少了 renameChartNo —— 按鈕會印成別項的文案，按下去會爆」）
-- 瀏覽器：先讓某位客戶身上有一則「姓名欄的編號：3157」的備註 →
+- 瀏覽器：先讓某位客戶身上有一則「姓名欄的編號：1234」的備註 →
   設定 → 資料健檢 → 「備註寫著舊的說法」→ 按鈕寫「改成「病歷號」」，
-  按下去跳確認框，按確定之後那則備註變成「病歷號 3157」，
+  按下去跳確認框，按確定之後那則備註變成「病歷號 1234」，
   客戶身上的 `marks` 與 `notes` 兩個欄位一起改（ADR-0050）
