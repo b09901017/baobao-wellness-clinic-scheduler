@@ -1,6 +1,6 @@
 # 匯入的營養點滴額度沒有記是哪一款
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §3.1）
 動工前先讀：`domain/masterData.js` 的 `ivChoicesFor()`、`docs/adr/0002`（只提示不擋）
 

@@ -177,6 +177,19 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       problem(e.label, (e.optionEquipmentNames ?? []).join('、'), '擇一池一台器材都對不到，這一筆額度沒有匯入');
       continue;
     }
+    // 買的是哪一款營養點滴（ADR-0059 的相反面：額度記得住品項，排班時才預設得出來）。
+    // **對不到就留空，不要猜** —— 同 `resolveAssignments()` 的判準。
+    // 2026-09-16 之前這一格根本不存在：`productName` 只留在計畫物件上，
+    // 而寫入端只寫 `doc`，所以「買的那一款排第一顆、預設選好」
+    //（`ivChoicesFor()`）與「品項跟買的不一樣」（`assignmentWarnings()`、
+    // 資料健檢的 `ivMismatch`）對匯進來的那幾筆全部看不到。
+    let ivProductId = null;
+    if (norm(e.productName)) {
+      const item = byName(ivProducts, e.productName);
+      if (item) ivProductId = item.id;
+      else problem(e.label, e.productName, '主檔裡沒有這個營養點滴品項，這筆額度不記買了哪一款');
+    }
+
     entitlements.push({
       key: e.key,
       productName: e.productName ?? null,
@@ -185,6 +198,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         label: e.label,
         courseId: e.type === 'pool' ? null : course?.id ?? null,
         optionEquipmentIds: e.type === 'pool' ? optionIds : null,
+        // 買的那一款。沒買特定品項（舊表寫的是「營養針」那種）就是 null，
+        // 而 `ivChoicesFor()` 看到 null 會退回「全部列出來」—— 那是對的。
+        ivProductId,
         totalQty: Number(e.totalQty) || 0,
         // v3 帶時長（舊表的 `復能(30分）`、`ILIB 30`）。沒帶就是課程的時長，跟以前一樣
         durationMin: minutesOf(e.durationMin) ?? course?.durationMin ?? null,

@@ -16,6 +16,7 @@ import {
 import { importedTasksFor, syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { validateVisit } from '../public/js/domain/visits.js';
+import { ivChoicesFor } from '../public/js/domain/masterData.js';
 
 const CTX = {
   courses: SEED.courses,
@@ -563,6 +564,45 @@ describe('匯進來的來訪會長出什麼任務', () => {
         .some((t) => t.kind === RECORD_TASK_KIND),
       false,
     );
+  });
+});
+
+// ---------- 營養點滴額度記得住買的是哪一款（報告 §3.1） ----------
+
+describe('營養點滴額度身上的 ivProductId', () => {
+  const PRODUCT = SEED.ivProducts[0];
+
+  const withIv = (productName) => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'iv', type: 'single', label: `營養點滴 - ${productName ?? ''}`.trim(), totalQty: 10,
+      courseName: '營養點滴', optionEquipmentNames: [], productName: productName ?? null,
+    });
+    return plan(entry, { today: '2026-09-16' });
+  };
+  const ivDoc = (p) => p.entitlements.find((e) => e.key === 'iv').doc;
+
+  test('買的那一款對得到主檔就記下來', () => {
+    assert.equal(ivDoc(withIv(PRODUCT.name)).ivProductId, PRODUCT.id);
+  });
+
+  test('記下來之後排班時那一款排第一顆', () => {
+    const choices = ivChoicesFor(ivDoc(withIv(PRODUCT.name)), SEED.ivProducts);
+    assert.deepEqual(choices.primary.map((x) => x.id), [PRODUCT.id]);
+  });
+
+  test('舊表沒寫品項的（「營養針」那種）是 null，而且不報問題', () => {
+    const p = withIv(null);
+    assert.equal(ivDoc(p).ivProductId, null);
+    assert.equal(why(p).some((x) => x.includes('營養點滴品項')), false);
+    // null 時 `ivChoicesFor()` 退回全部列出來 —— 那是對的，不是壞掉
+    assert.ok(ivChoicesFor(ivDoc(p), SEED.ivProducts).primary.length > 1);
+  });
+
+  test('對不到主檔就留空並講一聲 —— 不要猜一個她沒買的品項', () => {
+    const p = withIv('不存在的品項');
+    assert.equal(ivDoc(p).ivProductId, null);
+    assert.ok(why(p).some((x) => x.includes('主檔裡沒有這個營養點滴品項')));
   });
 });
 
