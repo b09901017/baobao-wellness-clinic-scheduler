@@ -1,6 +1,6 @@
 # 匯入會長出一批一出生就逾期的「寫紀錄」，而確認框講的是相反的話
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §1.1）
 動工前先讀：`docs/adr/0066`（紀錄是來訪之後才出生的任務）、`SPEC.md` 第 6.10 節、
 `data/legacyImport.js` 的檔頭、`domain/taskRules.js` 的 `syncTasksForVisit()`

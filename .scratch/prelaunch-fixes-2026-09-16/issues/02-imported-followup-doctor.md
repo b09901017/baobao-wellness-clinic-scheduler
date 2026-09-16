@@ -1,6 +1,6 @@
 # 匯入的二返，醫師被寫進治療師那一格
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §2.3）
 動工前先讀：`docs/adr/0026`（醫師是可指派的人）、`docs/adr/0058`（門診一律選得到醫師）、
 `domain/masterData.js` 的 `picksDoctor()`、`DOCTOR_ROLE`
