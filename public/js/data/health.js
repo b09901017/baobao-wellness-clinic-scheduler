@@ -257,6 +257,19 @@ function opFor(fix) {
     };
   }
 
+  // 種子資料裡有、主檔沒有的那一門課（`EECP體驗`，2026-09-16）。
+  // **id 用種子上的那一個**（同 `addEquipment`）—— 隨機生一個的話下一次健檢
+  // 還是會說少一門，而且會再建出第二門。
+  if (fix?.kind === 'addCourse') {
+    return {
+      op: 'create',
+      path: 'config/app/courses',
+      id: fix.courseId,
+      data: fix.data,
+      note: '資料健檢：把種子裡的課程建起來',
+    };
+  }
+
   // 課程的時長（EECP 2026-09-16 從 30 改成 60、營養點滴從 60 改成 120，
   // ADR-0098）。`loadSeed()` 只建不覆蓋，所以既有主檔補不到。
   // **只寫那一格**：可選時長、指派、名字一個都不碰。

@@ -100,8 +100,10 @@ test('C1 長按上午那一段說「客戶說可以」，下午那一段還是�
     page.locator('.timerow.status-confirmed'),
     '只有她長按的那一段談定了',
   ).toHaveCount(1);
+  // **class 是 `statusClass()` 給的**，而 `pending_confirm` 那一個叫
+  // `status-pending`（`STATUS_VIEW`）—— 不是狀態字串本身。
   await expect(
-    page.locator('.timerow.status-pending_confirm'),
+    page.locator('.timerow.status-pending'),
     '下午那一段一個字都沒動',
   ).toHaveCount(1);
 });
@@ -118,7 +120,9 @@ test('C2 已經談定的那一段，長按選單上沒有「客戶說可以」',
     '那一段已經談定了 —— 拿整筆的狀態問會在這裡長出一顆',
   ).not.toContainText('客戶說可以');
 
-  await page.locator('.actionrow', { hasText: '先不要' }).click();
+  // 「先不要，回去」不是一列，是選單自己那一顆（`actions.js` 的 `[data-actions-close]`）
+  await page.locator('[data-actions-close]').click();
+  await expect(page.locator('.drawer--actions')).toHaveCount(0);
 
   await longPressRow(page, 1);
   await expect(
@@ -138,19 +142,21 @@ test('C3 讀取卡片：談定那一段的「跟客人確認時間」打勾，�
 
   await rows.nth(0).click();
   await app.layer('.popcard');
-  const done = page.locator('.taskmirror li', { hasText: '跟客人確認時間' });
-  await expect(done, '那一段早就談定了').toHaveClass(/done/);
+  const done = page.locator('.taskmirror__row', { hasText: '跟客人確認時間' });
+  await expect(done, '那一段早就談定了').toHaveClass(/is-done/);
 
-  await page.keyboard.press('Escape');
-  await app.settled();
+  // 那張卡用它自己那顆 ×（`card.js` 的 `[data-card-close]`）。關掉之後底下
+  // 那張抽屜還在 —— `openDayDrawer()` 會重新 `go('/calendar')`，那一下會被
+  // 還沒關掉的卡片擋住。
+  await page.locator('[data-card-close]').click();
+  await expect(page.locator('.popcard')).toHaveCount(0);
 
-  await openDayDrawer(app, page);
   await page.locator('[data-open^="visit:v-two:"]').nth(1).click();
   await app.layer('.popcard');
   await expect(
-    page.locator('.taskmirror li', { hasText: '跟客人確認時間' }),
+    page.locator('.taskmirror__row', { hasText: '跟客人確認時間' }),
     '這一段還沒問過 —— 整筆退回待確認不可以害另一段跟著退回',
-  ).not.toHaveClass(/done/);
+  ).not.toHaveClass(/is-done/);
 });
 
 // ---------- 03：待辦中心的確認抽屜只列還沒談定的那幾段 ----------

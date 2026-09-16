@@ -195,6 +195,12 @@ export const CHECKS = [
       + '不會長出「寫紀錄」，而畫面上看不出少了什麼',
   },
   {
+    id: 'seedCourse',
+    label: '課程主檔少了一門',
+    hint: '種子資料裡有、你的主檔沒有。「載入種子資料」那顆只在整份主檔是空的時候'
+      + '才畫得出來，所以既有資料庫上新加的課程一條路都沒有',
+  },
+  {
     id: 'courseDuration',
     label: '課程的時長跟建議的不一樣',
     hint: 'EECP 2026-09-16 從 30 改成 60（體驗課是另一門）、營養點滴從 60 改成 120。'
@@ -1395,6 +1401,41 @@ function checkCourseRecord(ctx) {
 }
 
 /**
+ * 二十三之二、課程主檔少了一門（issue 12）。
+ *
+ * **`ui/views/settings.js` 的「載入種子資料」只在整份主檔是空的時候才畫**
+ * （`${empty ? seedCard() : ''}`）。所以種子新加一門課之後，既有資料庫上
+ * 那一門**一條路都沒有** —— 而症狀跟「本來就沒有那一種」長得一模一樣
+ * （同 `checkSeedEquipment()` 檔頭講的 ILIB 那一台）。
+ *
+ * 2026-09-16 那一門 `EECP體驗` 就是第一個踩到的（ADR-0098 那一輪的 issue 06）。
+ *
+ * **護欄跟器材那一列同一個理由**：自己從零建主檔、一個種子 id 都沒有的資料庫
+ * （測試夾具就是）不可以被念 —— 那時候缺的不是一門課，是整份主檔。
+ * 她自己刪掉的也不算（比的是含已刪除的那一份 `coursesById`）。
+ */
+function checkSeedCourse(ctx) {
+  const seeded = (SEED.courses ?? []).some((row) => ctx.coursesById[row.id]);
+  if (!seeded) return [];
+
+  return (SEED.courses ?? [])
+    .filter((row) => !ctx.coursesById[row.id])
+    .map((row) => ({
+      severity: 'attention',
+      title: row.name,
+      detail: `${row.durationMin} 分。種子資料裡有這一門，你的課程主檔沒有 ——`
+        + '「載入種子資料」那顆只在主檔是空的時候才出得來',
+      link: '#/settings/courses',
+      fix: {
+        kind: 'addCourse',
+        label: row.name,
+        courseId: row.id,
+        data: { ...withoutId(row), active: true },
+      },
+    }));
+}
+
+/**
  * 二十四、課程的時長跟建議的不一樣（ADR-0098、issue 06）。
  *
  * `loadSeed()` **只建不覆蓋**，所以 2026-09-16 那兩個改動（EECP 30→60、
@@ -1573,6 +1614,7 @@ const RUNNERS = {
   alertTerm: checkAlertTerms,
   seedEquipment: checkSeedEquipment,
   seedDuration: checkSeedDurations,
+  seedCourse: checkSeedCourse,
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,
 };

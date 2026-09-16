@@ -423,6 +423,22 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label}：${fix.fromLabel} → ${fix.toLabel}`),
     }),
   },
+  seedCourse: {
+    button: () => '把這一門建起來',
+    all: (n) => `一次建這 ${n} 門`,
+    one: (fix) => ({
+      title: `把「${fix.label}」建進課程主檔？`,
+      lines: [
+        '種子資料裡有這一門，你的課程主檔沒有',
+        '「載入種子資料」那顆只在整份主檔是空的時候才出得來，所以只能從這裡建',
+        '建起來之後可以到設定 → 課程改時長、診間與名字',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 門都建進課程主檔？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
   // `loadSeed()` 只建不覆蓋，所以主檔的時長改了既有資料庫不會跟（ADR-0098）。
   // **這兩列的語氣不一樣**：課程那一列比的是值（她可能自己改過），
   // 品項那一列只在空著時才報（填了就是她的決定）。
@@ -504,6 +520,7 @@ const KIND_TO_CHECK = {
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',
   setDurations: 'seedDuration',
+  addCourse: 'seedCourse',
   setCourseDuration: 'courseDuration',
   setIvDuration: 'ivProductDuration',
   setAssigns: 'courseAssigns',

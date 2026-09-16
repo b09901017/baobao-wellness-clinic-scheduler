@@ -143,6 +143,31 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
     assert.deepEqual(findingsOf(r, 'courseDuration'), []);
   });
 
+  // 「載入種子資料」那顆只在整份主檔是空的時候才畫得出來
+  // （`ui/views/settings.js`），所以種子新加一門課之後既有資料庫一條路都沒有。
+  test('種子有、主檔沒有的那一門課列得出來，而且 id 用種子的', () => {
+    const r = withMaster({
+      courses: [
+        { id: 'course-eecp', name: 'EECP', durationMin: 60 },
+        { id: 'c-recovery', name: '復能', requiresEquipment: true },
+      ],
+    });
+    const rows = findingsOf(r, 'seedCourse');
+    const trial = rows.find((f) => f.fix.courseId === 'course-eecp-trial');
+    assert.ok(trial, 'EECP體驗 要列得出來');
+    assert.equal(trial.fix.kind, 'addCourse');
+    assert.equal(trial.fix.data.name, 'EECP體驗');
+    assert.equal(trial.fix.data.durationMin, 30);
+    assert.equal(trial.fix.data.active, true);
+    assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
+  });
+
+  // 自己從零建主檔、一個種子 id 都沒有的資料庫（測試夾具就是）不可以被念 ——
+  // 那時候缺的不是一門課，是整份主檔（同 `checkSeedEquipment()` 的護欄）。
+  test('一個種子 id 都沒有的主檔一列都不報', () => {
+    assert.deepEqual(findingsOf(run(), 'seedCourse'), []);
+  });
+
   test('點滴品項那一格空著就報', () => {
     const r = withMaster({ ivProducts: [{ id: 'iv-heart', name: '護心抗老' }] });
     const rows = findingsOf(r, 'ivProductDuration');
@@ -165,9 +190,9 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
 });
 
 describe('形狀', () => {
-  test('二十七項檢查都在，順序固定', () => {
+  test('二十八項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 27);
+    assert.equal(result.checks.length, 28);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
