@@ -935,11 +935,11 @@ describe('那天做什麼', () => {
 describe('確認之後成立的是哪幾段', () => {
   const visits = [
     {
-      id: 'v2', customerName: '王小明', date: '2026-09-23',
+      id: 'v2', customerName: '王小明', date: '2026-09-23', status: 'pending_confirm',
       slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '復能' }],
     },
     {
-      id: 'v1', customerName: '王小明', date: '2026-09-14',
+      id: 'v1', customerName: '王小明', date: '2026-09-14', status: 'pending_confirm',
       slots: [
         { startsAt: '11:30', endsAt: '12:30', courseName: '營養點滴' },
         { startsAt: '10:30', endsAt: '11:30', courseName: '復能' },
@@ -966,6 +966,31 @@ describe('確認之後成立的是哪幾段', () => {
     const { rows, rejected } = describeConfirmed(visits, new Set(['v1:0', 'v1:1', 'v2:0']));
     assert.deepEqual(rows, []);
     assert.equal(rejected, 3);
+  });
+
+  // 她在日曆上先確認掉早上那一段（ADR-0097），抽屜裡只剩下午那一段 ——
+  // 按下「確認 1 段」之後那張卡片寫「已確認 2 段」是假話。
+  describe('早就談定或取消掉的那一段不在這一次裡（ADR-0097）', () => {
+    const day = {
+      id: 'v3', customerName: '王小明', date: '2026-09-30', status: 'pending_confirm',
+      slots: [
+        { startsAt: '09:00', endsAt: '09:30', courseName: '復健科醫師門診', status: 'confirmed' },
+        { startsAt: '14:00', endsAt: '15:00', courseName: '復能', status: 'pending_confirm' },
+        { startsAt: '16:00', endsAt: '17:00', courseName: '復能', status: 'cancelled' },
+      ],
+    };
+
+    test('確認：只列這一次從待確認變成已確認的那一段', () => {
+      const { rows, rejected } = describeConfirmed([day], new Set());
+      assert.deepEqual(rows.map((r) => r.slot.startsAt), ['14:00']);
+      assert.equal(rejected, 0);
+    });
+
+    test('把僅剩那一段退掉：一段都沒確認，卡片不畫', () => {
+      const { rows, rejected } = describeConfirmed([day], new Set(['v3:1']));
+      assert.deepEqual(rows, [], '早上那一段不是這一次確認的');
+      assert.equal(rejected, 1);
+    });
   });
 });
 
@@ -1728,6 +1753,24 @@ describe('長按一列說「客戶已確認」，確認的是那一段（ADR-009
   test('取消掉的那一段不給', () => {
     const v = settled('pending_confirm', 'cancelled');
     assert.ok(!ids(v, 1).includes('confirmed'));
+  });
+
+  // 客人做了一段就走（ADR-0025）：`closeVisit()` 之後第 1 段是 no_show、整筆是 done。
+  // no_show → confirmed／cancelled 是**那一段自己**准的轉移，但整筆已經是唯讀鎖定區
+  // （SPEC 第 6.4 節）—— 2026-09-16 之前這裡一顆都沒有，按下「客戶說可以」
+  // 會把已完成的那一天退回已確認，而且不用填更正理由。
+  test('結案的那一天（一段做了、一段沒做），長按沒做的那一段一顆狀態都不給', () => {
+    const v = settled('done', 'no_show');
+    assert.equal(v.status, 'done', '整筆是已完成');
+    assert.deepEqual(ids(v, 1), []);
+    assert.deepEqual(ids(v, 0), []);
+  });
+
+  test('整天都沒到的那一天照舊給（跟 2026-09-16 之前一樣）', () => {
+    const v = settled('no_show', 'no_show');
+    assert.equal(v.status, 'no_show');
+    assert.ok(ids(v, 0).includes('confirmed'));
+    assert.ok(ids(v, 0).includes('cancel-slot'));
   });
 
   test('沒帶哪一段時維持整筆的判斷', () => {

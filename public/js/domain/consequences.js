@@ -26,9 +26,11 @@
 
 import {
   bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
+  confirmedKinds,
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
+  slotStatus, applyConfirmation,
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -184,21 +186,45 @@ function nthLabels(visit) {
  * **不是「加進日曆」** —— 那一筆壓表的時候就已經在日曆上了，這一步改的是
  * 顏色不是有沒有。寫成「加進日曆」會讓她以為在這之前日曆上是空的。
  *
- * @param {object[]} visits 這一次確認掉的那幾筆
+ * **只講這一次從「待確認」走出去的那幾段**（ADR-0097，同 `describeConfirmed()`）。
+ * 她在日曆上先確認掉 A 類那一段時，那一段的 Examine／耀聖當場就長了 ——
+ * 抽屜裡確認下午那一段再說一次「待辦會多一張 Examine」是假話（ADR-0070）。
+ * 所以「會多哪幾張」問的是真的那道閘門（`taskRules.js` 的 `confirmedKinds()`）：
+ * 寫進去之後長得出來、寫進去之前還長不出來的那幾種。
+ *
+ * @param {object[]} visits 這位客戶還在等回覆的那幾筆（**寫入之前的**）
  * @param {Record<string, object>} coursesById
  * @param {boolean} [sheetSyncOn]
+ * @param {Set<string>} [rejected] 抽屜裡被退掉的那幾段，key 是 `${visit.id}:${索引}`
  */
-export function confirmConsequences(visits = [], coursesById = {}, sheetSyncOn = false) {
+export function confirmConsequences(
+  visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(),
+) {
   // 用短的那一版（`shortStatus`）不用完整那一句：她看的是日曆，而日曆的圖例
   // 上寫的就是「待確認」「已確認」。同一件事在兩個地方用兩種講法會讓她多想一秒。
   const lines = [`日曆上這幾段從「${shortStatus(INITIAL_STATUS)}」變成「${shortStatus('confirmed')}」`];
 
-  const later = [...new Set(visits.flatMap((v) => pendingRegistrations(v, coursesById)))];
-  if (later.length) lines.push(`待辦會多${later.map((k) => `一張「${k}」`).join('、')}`);
+  // 這一次真的有段談定的那幾天，寫進去之後長什麼樣。**走真的那一支**
+  // （`applyConfirmation()`，`home.js` 存的就是它的結果），不在這裡再推一次。
+  const settled = [];
+  for (const before of visits ?? []) {
+    const all = (before.slots ?? []).map((_, i) => i);
+    const out = new Set(all.filter((i) => rejected.has(`${before.id}:${i}`)));
+    const confirming = all.filter((i) => !out.has(i)
+      && slotStatus(before, before.slots[i]) === 'pending_confirm');
+    if (confirming.length) settled.push({ before, after: applyConfirmation(before, out) });
+  }
+
+  const later = new Set();
+  for (const { before, after } of settled) {
+    const had = confirmedKinds(before, coursesById);
+    for (const kind of confirmedKinds(after, coursesById)) if (!had.has(kind)) later.add(kind);
+  }
+  if (later.size) lines.push(`待辦會多${[...later].map((k) => `一張「${k}」`).join('、')}`);
 
   // 二返不用簽療程單（`needsForm()`），所以整批都是二返的那一天不要講這一句 ——
   // 那一筆照樣要結案，但她那天不用拿單子給客人簽。
-  if (visits.some((v) => formSlotIndexes(v, coursesById).length)) {
+  if (settled.some(({ after }) => formSlotIndexes(after, coursesById).length)) {
     lines.push('來訪當天會多一張「簽療程單」');
   }
 

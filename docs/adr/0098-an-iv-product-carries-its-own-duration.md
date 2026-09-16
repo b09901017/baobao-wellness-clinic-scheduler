@@ -37,7 +37,7 @@
 **時長掛在品項上（選填），而且順序是 品項 → 額度 → 課程 → 60。**
 
 推導只有一支：`domain/visits.js` 的 `slotMinutes({ entitlement, course, ivProduct })`。
-五個呼叫端共用 —— 來訪編輯器的 `blankSlot()` 與 `readSlot()`、壓表組時段、
+五個呼叫端共用 —— 來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
 匯入補的那幾段、補登。產檔那側（`.claude/skills/calendar-sheet-merge/scripts/merge.mjs`
 的 `endOf()`）照同一個順序寫了第二份，兩邊不一樣的話匯進去那一段的長度會跟
 她在 app 裡重存一次之後不一樣。

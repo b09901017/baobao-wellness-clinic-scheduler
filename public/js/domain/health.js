@@ -204,7 +204,7 @@ export const CHECKS = [
     id: 'courseDuration',
     label: '課程的時長跟建議的不一樣',
     hint: 'EECP 2026-09-16 從 30 改成 60（體驗課是另一門）、營養點滴從 60 改成 120。'
-      + '`loadSeed()` 只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
+      + '「載入種子資料」只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
   },
   {
     id: 'ivProductDuration',

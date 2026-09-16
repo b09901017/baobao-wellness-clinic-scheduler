@@ -1046,8 +1046,9 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
 export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '' } = {}) {
   const courseByName = new Map(SEED.courses.map((c) => [c.name, c]));
   const ivByName = new Map(SEED.ivProducts.map((x) => [x.name, x]));
-  // 結束時間：她決定過這一段幾分鐘就照那個，其次是**品項**（護心抗老 180 分，
-  // ADR-0098），再來是額度的時長（`復能(30分）` 那一種是 30），最後才是課程。
+  // 結束時間：**品項**排第一（護心抗老 180 分，ADR-0098，只有營養點滴會問），
+  // 其次是她決定過這一段幾分鐘就照那個，再來是額度的時長（`復能(30分）` 那一種
+  // 是 30），最後才是課程。
   //
   // **品項排在額度前面**跟 app 那一側的 `slotMinutes()` 同一個順序、同一個理由：
   // 營養點滴沒有可選時長，所以額度上那一格從來不是她挑的 —— 是建額度時抄課程

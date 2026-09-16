@@ -3048,12 +3048,21 @@ async function applyConfirm(ctx) {
   ));
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
+  // **兩支收的都是寫入之前的那幾筆**，而且只講抽屜上那幾段（ADR-0097）：
+  // 早上那一段在日曆上早就談定時，它的登記早就長了，不可以再說一次「會多一張」。
   const summary = describeConfirmed(visits, rejected);
   const said = confirmConsequences(
-    writes.filter((v) => v.status === 'confirmed'),
+    visits,
     ctx.coursesById ?? {},
     isConfigured(ctx.settings),
+    rejected,
   );
+  // 有一天在抽屜上的每一段都被退掉了。**問抽屜上那幾段，不問整筆的狀態** ——
+  // 同一天早就談定的一段會讓整筆停在「已確認」，而她剛剛退掉的是這張上的全部。
+  const droppedDay = visits.some((v) => {
+    const mine = pendingSlotsOf(v);
+    return mine.length > 0 && mine.every(({ index }) => rejected.has(`${v.id}:${index}`));
+  });
 
   try {
     await toast.withSaveState(
@@ -3063,7 +3072,7 @@ async function applyConfirm(ctx) {
         for (const v of writes) await visitsData.save(v, customerVisits);
       },
       {
-        success: writes.some((v) => v.status === 'cancelled')
+        success: droppedDay
           ? '記好了，客人說不行的那幾段已經退掉'
           : '確認了，已排進日曆',
         // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）

@@ -635,7 +635,12 @@ export function visitsToConfirm(visits = [], today) {
  *
  * 這裡只回事實（誰、哪一天、幾點、做什麼、退掉幾段），排版是畫面的事。
  *
- * @param {object[]} visits 這位客戶還在等回覆的那幾筆
+ * **只算這一次從「待確認」走出去的那幾段**（ADR-0097）—— 跟抽屜列出來的是同一份。
+ * 她在日曆上先確認掉早上那一段、抽屜裡只剩下午那一段時，把早上那段也列進來
+ * 會變成「確認 1 段」按下去、卡片寫「已確認 2 段」；而早就取消掉的那一段
+ * 列進來是在說一段不會發生的已經確認了。
+ *
+ * @param {object[]} visits 這位客戶還在等回覆的那幾筆（寫入之前的）
  * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
  * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
  */
@@ -645,6 +650,7 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
 
   for (const v of visits ?? []) {
     (v.slots ?? []).forEach((slot, i) => {
+      if (slotStatus(v, slot) !== 'pending_confirm') return;
       if (rejected.has(`${v.id}:${i}`)) {
         dropped += 1;
         return;
@@ -972,7 +978,15 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   //
   // 認不出是哪一段時退回整筆 —— `visitActions()` 是匯出的，而沒有 `slotIndex`
   // 的呼叫端問的本來就是那一天。
-  const ownNext = one ? nextStatuses(slotStatus(visit, one)) : next;
+  //
+  // **兩層都要准**（同 `cancellableSlots()`）：那一段自己准、**整筆也准**。
+  // 只問那一段的話，客人做了一段就走的那一天（一段已完成、一段未到，整筆
+  // 已完成）長按沒做的那一段會長出「客戶說可以」與「取消這一段」——
+  // `no_show` 自己准那兩個轉移，但整筆已經是唯讀鎖定區（SPEC 第 6.4 節），
+  // 按下去會把已完成的那一天退回已確認，而且不用填更正理由。
+  const ownNext = one
+    ? nextStatuses(slotStatus(visit, one)).filter((to) => next.includes(to))
+    : next;
 
   // 取消那一顆也走同一份（`nextStatuses('cancelled')` 是空的，所以
   // 「已經取消掉的那一段不再給」是它自己就答得出來的，不用再比一次 `status`）。
@@ -1162,7 +1176,7 @@ function minutesOrNull(v) {
  * 身上永遠沒有 `ivProduct`，多問一句不會錯，但寫死「只有點滴」讓讀的人知道
  * 這一條規則的範圍。
  *
- * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readSlot()`、壓表組時段、
+ * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
  * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
  *
  * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o

@@ -465,8 +465,12 @@ export function cancelSlotsOf(task, visit) {
  * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
  * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
  * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
+ *
+ * **匯出是給確認抽屜那幾句話用的**（`consequences.js` 的 `confirmConsequences()`，
+ * ADR-0070）：「待辦會多一張 Examine」要跟真的會長的那一張走同一段身體 ——
+ * 同一天早上那一段早就談定時，那一張已經長過了。
  */
-function confirmedKinds(visit, coursesById) {
+export function confirmedKinds(visit, coursesById = {}) {
   const out = new Set();
   for (const slot of visit?.slots ?? []) {
     if (!isLiveSlot(slot)) continue;
@@ -496,7 +500,7 @@ function confirmedKinds(visit, coursesById) {
  *      已經勾掉了**才收 —— 沒勾就是沒登記過，沒有東西要收
  *
  * 第 2 條以前只有整天取消才做。她 2026-09-13 給的事實是「Examine 上是一段登記一筆」，
- * 暫定「每一段都是可以分別取消的」。**這一題她還沒定案**（issue 02 的「還沒定的」）。
+ * 2026-09-16 定案：「收，但是就只收那個時段的」（ADR-0091）。
  *
  * 整天取消多一條退路：勾掉的登記待辦裡，**沒有任何一段長得出它**的（課程主檔改過、
  * 或是歷史資料裡的「Abovee」任務）照舊收，算在每一段上 —— 登記過就是登記過了。

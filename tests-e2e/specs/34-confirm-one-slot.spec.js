@@ -180,6 +180,49 @@ test('C4 待辦中心：談定的那一段收掉了，抽屜裡只剩沒問過�
   await expect(page.locator('.drawer'), '上午那一段已經談定了').not.toContainText('09:00');
 });
 
+// 按下去之後那張卡片也只講抽屜上那幾段。上午那一段（A 類）在日曆上確認的那一刻
+// Examine／耀聖就長了 —— 再說一次「待辦會多一張 Examine」是假話（ADR-0070）。
+test('C6 確認抽屜上僅剩那一段：卡片寫 1 段，不說會多 Examine', async ({ app, page }) => {
+  await app.seed(seedTwoSlots({ first: 'confirmed' }));
+  await app.signIn('/');
+  await app.go('/todo/confirm');
+  await app.settled();
+
+  await page.locator('[data-open="cust-x"]').click();
+  await expect(page.locator('[data-apply]')).toContainText('確認 1 段');
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  const card = page.locator('.popcard');
+  await expect(card).toBeVisible();
+  await expect(card.locator('[data-card-sub]'), '她按的是「確認 1 段」').toHaveText('1 段');
+  await expect(card, '上午那一段不是這一次確認的').not.toContainText('09:00');
+  await expect(card, '那兩張早就長了').not.toContainText('Examine');
+
+  const saved = await app.readDoc('visits', 'v-two');
+  expect(saved.slots.map((s) => s.status)).toEqual(['confirmed', 'confirmed']);
+});
+
+test('C7 把抽屜上僅剩那一段退掉：講的是退掉，上午那一段照舊', async ({ app, page }) => {
+  await app.seed(seedTwoSlots({ first: 'confirmed' }));
+  await app.signIn('/');
+  await app.go('/todo/confirm');
+  await app.settled();
+
+  await page.locator('[data-open="cust-x"]').click();
+  await page.locator('.drawer .slotrow').first().click();
+  await expect(page.locator('[data-apply]')).toContainText('退掉這 1 段');
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  // 整筆停在「已確認」（上午那一段談定了），但她這一下退掉的是這張上的全部
+  await expect(page.locator('#toast')).toContainText('退掉');
+  await expect(page.locator('.popcard'), '一段都沒確認，不畫「已確認」那張卡').toHaveCount(0);
+
+  const saved = await app.readDoc('visits', 'v-two');
+  expect(saved.slots.map((s) => s.status)).toEqual(['confirmed', 'cancelled']);
+});
+
 // ---------- 04：那一段確認了，那一段的掛號才長出來 ----------
 
 test('C5 確認 C 類那一段不長掛號，確認 A 類那一段才長', async ({ app, page }) => {
