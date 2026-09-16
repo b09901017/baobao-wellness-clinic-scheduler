@@ -35,20 +35,26 @@ import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
 
 /**
- * ## 來訪相關的那幾列沒有「去看看」（2026-09-16，她定的：「整顆拿掉」）
+ * ## 「去看看」只剩指向主檔設定的那幾顆（2026-09-16）
  *
- * 那一顆以前指 `#/visits/:id`，而那條路由是 `visitEditor.renderEdit()`
- * —— **整天全部的段、日期欄、每一段的 ×**。ADR-0056 說一筆來訪改得動的地方
- * 只有日曆，ADR-0085 說只改她點的那一段，ADR-0089 說改整天的日期一條路都沒有；
- * 那幾個決定在那一頁上全部不成立。
+ * 2026-09-16 先拿掉的是指 `#/visits/:id` 的那幾顆：那條路由是
+ * `visitEditor.renderEdit()` —— **整天全部的段、日期欄、每一段的 ×**。
+ * ADR-0056 說一筆來訪改得動的地方只有日曆，ADR-0085 說只改她點的那一段，
+ * ADR-0089 說改整天的日期一條路都沒有；那幾個決定在那一頁上全部不成立。
  *
- * 而且最需要出口的那一列（「日期已過但還是已確認，該標已完成或未到了」）
- * 在那一頁上**做不到那件事** —— 整天的狀態卡 2026-09-12 拿掉了，
- * 那一列真正的出口是待辦中心的「簽療程單」。
+ * 同一天稍晚她看到剩下的那幾顆，說：
  *
- * 所以那幾列的 `link` 是 `null`，而 `detail` 要自己把話講完整。
- * 其餘三種留著：`#/customers/:id`（資料過期）、`#/calendar`（狀態跟時段對不起來）、
- * `#/`（逾期任務）。
+ * > 資料健檢中同一天有兩筆來訪以及逾期任務 資料過期都還有去看看的按鈕？
+ * > 可以不用有 應該說去看看這個按鈕都不要了
+ *
+ * 她點名的三列剛好各佔一種（`#/calendar`、`#/`、`#/customers/:id`），
+ * 所以那三類 13 顆全部拿掉。**留下來的只有 `#/settings/*`**，因為那幾列的
+ * 出口就是那一頁：「器材主檔少了一台」把她帶去建那一台，拿掉之後那一列
+ * 就是「講了問題卻沒有任何出口」。
+ *
+ * 拿掉出口的那幾列，**`detail` 要自己把話講完整**（沒有一鍵修正的更要）——
+ * 那一列從此是她唯一的資訊來源。`tests/health.test.js` 盯著：
+ * 每一個 finding 的 `link` 要嘛是 `null`，要嘛以 `#/settings/` 開頭。
  *
  * 檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
  * id 會出現在網址與稽核訊息裡，不要改。
@@ -327,7 +333,7 @@ function checkCounts(ctx) {
         detail:
           `計數欄位是 已完成 ${rec.stored.done}、已排未上 ${rec.stored.booked}，`
           + `從來訪重算是 已完成 ${rec.actual.done}、已排未上 ${rec.actual.booked}`,
-        link: `#/customers/${customer.id}`,
+        link: null,
         // 真相永遠是 visits（ADR-0004），所以這一項有明確正解，可以一鍵修正。
         fix: {
           kind: 'recount',
@@ -367,7 +373,7 @@ function checkFollowups(ctx) {
         title: `${customer.name}・${miss.source.label}`,
         detail: `健檢有 ${miss.source.totalQty ?? 0} 次，但身上沒有對應的二返額度 ——`
           + '二返記不進來，「約二返」的待辦也不會長出來',
-        link: `#/customers/${customer.id}`,
+        link: null,
         // 次數就是健檢的次數，不需要任何判斷，所以這一項可以一鍵補。
         fix: {
           kind: 'addFollowup',
@@ -386,8 +392,8 @@ function checkFollowups(ctx) {
         severity: 'attention',
         title: `${customer.name}・${bad.followup.label}`,
         detail: `健檢是 ${bad.expected} 次，二返卻是 ${bad.actual} 次。`
-          + '故意給的就不用管，不是的話到客戶詳情頁改二返那一筆的總次數',
-        link: `#/customers/${customer.id}`,
+          + '故意給的就不用管，不是的話到「客戶」那一頁點開她，改二返那一筆的總次數',
+        link: null,
         fix: null,
       });
     }
@@ -575,8 +581,8 @@ function checkOverused(ctx) {
         title: `${customer.name}・${e.label}`,
         detail: `共 ${c.total} 次，已完成 ${c.done}、已排未上 ${c.booked}，超出 ${
           c.done + c.booked - c.total
-        } 次`,
-        link: `#/customers/${customer.id}`,
+        } 次。故意的就不用管，不是的話到「客戶」那一頁點開她，加購或改那一筆的總次數`,
+        link: null,
         fix: null,
       });
     }
@@ -668,8 +674,8 @@ function checkOverdueTasks(ctx) {
     .map((t) => ({
       severity: 'attention',
       title: `${t.kind}・${t.customerName ?? nameOf(ctx, t.customerId)}`,
-      detail: `死線 ${t.dueDate} 已經過了`,
-      link: '#/',
+      detail: `死線 ${t.dueDate} 已經過了。到「待辦」首頁那一列勾掉，或改一個做得到的死線`,
+      link: null,
       fix: null,
     }));
 }
@@ -702,9 +708,9 @@ function checkStaleAvailability(ctx) {
       severity: 'attention',
       title: customer.name,
       detail: collections.length
-        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排`
-        : `從來沒收集過可用性，還有 ${remaining} 次沒排`,
-      link: `#/customers/${customer.id}`,
+        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問她一次`
+        : `從來沒收集過可用性，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問她一次`,
+      link: null,
       fix: null,
     });
   }
@@ -751,8 +757,8 @@ function checkDuplicateAvailability(ctx) {
         title: `${customer.name}・${monthLabel(`${group.month}-01`)}`,
         detail: `記了 ${group.records.length} 份：${
           group.records.map((c) => summarizeCollection(c)).join('；')
-        }。壓表只會用到其中一份，留一份就好。`,
-        link: `#/customers/${customer.id}`,
+        }。壓表只會用到其中一份 —— 到「客戶」那一頁點開她，在「不能的時間」把多的那幾份刪掉。`,
+        link: null,
         fix: null,
       });
     }
@@ -778,7 +784,7 @@ function checkChartNo(ctx) {
       title: customer.name,
       detail: `${stale.map((m) => m.text).join('、')} → ${
         next.filter((m) => m.text.startsWith(CHART_NO_PREFIX)).map((m) => m.text).join('、')}`,
-      link: `#/customers/${customer.id}`,
+      link: null,
       fix: {
         kind: 'renameChartNo',
         customerId: customer.id,
@@ -874,7 +880,7 @@ function checkPoolLabels(ctx) {
       severity: 'attention',
       title: `${nameOf(ctx, e.customerId)}・${now}`,
       detail: `改成「${want}」`,
-      link: `#/customers/${e.customerId}`,
+      link: null,
       fix: {
         kind: 'renamePool',
         customerId: e.customerId,
@@ -918,8 +924,9 @@ function checkImportedLabels(ctx) {
     .map(({ e, want }) => ({
       severity: 'attention',
       title: `${nameOf(ctx, e.customerId)}・${e.label}`,
-      detail: `匯入時算出來的是「${want}」，但那樣會掉字，所以原字留著 —— 要改的話自己改`,
-      link: `#/customers/${e.customerId}`,
+      detail: `匯入時算出來的是「${want}」，但那樣會掉字，所以原字留著 ——`
+        + ' 要改的話到「客戶」那一頁點開她，在那一筆額度上改',
+      link: null,
       fix: null,
     }));
 }
@@ -1155,7 +1162,7 @@ function checkSlotBeds(ctx) {
         severity: 'attention',
         title: `${who}・${visit.date}`,
         detail: `清掉床位 ${beds.join('、')}`,
-        link: '#/calendar',
+        link: null,
         fix: {
           kind: 'clearBeds',
           visitId: visit.id,
@@ -1333,7 +1340,7 @@ function checkVisitStatusDerived(ctx) {
         title: `來訪 ${visit.date}・${who}`,
         detail: `整筆寫著「${describeStatus(visit.status)}」，`
           + `底下那幾段加起來是「${describeStatus(want)}」`,
-        link: '#/calendar',
+        link: null,
         fix: {
           kind: 'restatVisit',
           visitId: visit.id,
@@ -1456,8 +1463,9 @@ function checkSameDayVisits(ctx) {
       title: `${who}・${rows[0].date}`,
       detail: `這一天記了 ${rows.length} 筆來訪（共 ${
         rows.reduce((n, v) => n + (v.slots ?? []).length, 0)
-      } 段）。現在同一天只會有一筆，這是舊資料。`,
-      link: '#/calendar',
+      } 段）。現在同一天只會有一筆，這是舊資料 —— 只列出來，不自動合併`
+        + '（其中一筆可能是刻意分開的）。',
+      link: null,
       fix: null,
     });
   }

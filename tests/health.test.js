@@ -267,7 +267,9 @@ describe('次數對帳', () => {
     assert.deepEqual(f.fix.to, { done: 1, booked: 0 });
     assert.equal(f.fix.customerId, 'cus-1');
     assert.equal(f.fix.entitlementId, 'e1');
-    assert.equal(f.link, '#/customers/cus-1');
+    // 「去看看」2026-09-16 拿掉了（她：「去看看這個按鈕都不要了」）——
+    // 這一列有一鍵修正，出口本來就在那顆按鈕上。
+    assert.equal(f.link, null);
   });
 
   test('對得起來就不報', () => {
@@ -418,16 +420,33 @@ describe('狀態異常', () => {
     assert.equal(f.link, null);
   });
 
-  test('來訪相關的那幾列一顆「去看看」都沒有', () => {
+  // 她 2026-09-16：「資料健檢中同一天有兩筆來訪以及逾期任務 資料過期都還有
+  // 去看看的按鈕？可以不用有 應該說去看看這個按鈕都不要了」。
+  //
+  // 定案：**只剩指向主檔設定的那幾顆**（那幾列唯一的出口 ——「器材主檔少了
+  // 一台」把她帶去建那一台）。這一條掃的是**每一個 check 的每一列**，
+  // 不是點名那四種 —— 點名的話新加一列又會多一顆出來。
+  test('「去看看」要嘛沒有，要嘛指主檔設定', () => {
     const result = run({
       visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
       tasks: [task({ dueDate: '2026-09-01' })],
     });
-    for (const id of ['orphans', 'visitStatus', 'conflicts', 'overdueTasks']) {
-      const rows = findingsOf(result, id);
-      assert.ok(rows.every((f) => f.link === null || !String(f.link).startsWith('#/visits/')),
-        `${id} 還指著整天的編輯器`);
-    }
+    const bad = result.checks.flatMap((c) => c.findings
+      .filter((f) => f.link != null && !String(f.link).startsWith('#/settings/'))
+      .map((f) => `${c.id}：${f.link}`));
+    assert.deepEqual(bad, [], '拿掉出口的話 detail 要自己把話講完整');
+  });
+
+  // 沒有一鍵修正、又沒有出口的那幾列，`detail` 是她唯一的資訊來源。
+  test('沒有修正鈕又沒有連結的那幾列，detail 要講得出去哪裡做什麼', () => {
+    const result = run({
+      visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
+      tasks: [task({ dueDate: '2026-09-01' })],
+    });
+    const thin = result.checks.flatMap((c) => c.findings
+      .filter((f) => !f.fix && f.link == null && String(f.detail ?? '').length < 12)
+      .map((f) => `${c.id}：${f.detail}`));
+    assert.deepEqual(thin, []);
   });
 
   test('日期已過還在等回覆也要報', () => {

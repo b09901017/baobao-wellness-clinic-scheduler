@@ -1,6 +1,6 @@
 # 資料健檢的「去看看」只留通往主檔設定的那幾顆
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`domain/health.js` 的檔頭（2026-09-16 那一段要改寫）、
 `.scratch/prelaunch-fixes-2026-09-16/issues/10`、`docs/常見問題.md:194`
