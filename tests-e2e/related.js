@@ -255,6 +255,11 @@ export const COVERAGE = {
     'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/components/sheet.js', 'public/css/',
   ],
+  // 清掉已完成的待辦之後再存一次，那幾張不可以重長（2026-09-16，報告 §2.2）
+  '33-cleared-tasks-do-not-regrow': [
+    'public/js/domain/taskRules.js', 'public/js/data/tasks.js',
+    'public/js/data/visits.js', 'public/js/ui/views/visitEditor.js',
+  ],
   // 壓表與資料健檢不可以通到整天的編輯器（2026-09-16，報告 §2.1）
   '32-no-door-to-the-whole-day-editor': [
     'public/js/ui/views/schedule.js', 'public/js/ui/views/health.js',
