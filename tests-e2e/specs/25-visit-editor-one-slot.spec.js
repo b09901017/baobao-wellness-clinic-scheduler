@@ -22,7 +22,7 @@
 // 那個症狀（一天三段、只記一段、三列全亮）它抓不到。這裡兩種形狀都問一次。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
 
 const DAY = TODAY;
 
@@ -111,10 +111,11 @@ function seedOneConfirmedVisit() {
  * `[data-day]` 只在月檢視的格子上（日檢視畫的是時間軸，沒有格子），
  * 所以這裡不切檢視 —— 抽屜裡那一份清單跟日檢視是同一支 `dayHtml()`。
  */
-async function openDay(app, page) {
+async function openDay(app, page, day = DAY) {
   await app.go('/calendar');
-  await page.locator(`[data-day="${DAY}"]`).first().click();
-  await app.layer('[data-open^="visit:"]');
+  await page.locator(`[data-day="${day}"]`).first().click();
+  // 那一天沒有來訪時等的是抽屜本身（`[data-open^="visit:"]` 一個都不會有）
+  await app.layer(day === DAY ? '[data-open^="visit:"]' : '[data-addmenu-toggle]');
 }
 
 /** 點第 n 列 → 讀取卡片 → 按鉛筆 → 編輯器。回來時編輯器已經畫好了。 */
@@ -259,6 +260,47 @@ test('V4 併進已確認的那一天，新的那一段是「待確認」不是�
     saved.slots[1].status,
     '新的那一段還沒問過客人 —— 繼承「已確認」等於靜默替她談定了一個時間，而且開始佔次數',
   ).toBe('pending_confirm');
+});
+
+// ---------- 二之二、日期只有在這一筆來訪是全新的時候才給改（報告 §1.2） ----------
+//
+// 併進同一天既有那一筆時，編輯器以前照樣畫出「來訪日期」（那條路 `isNew` 是
+// true）。改成別天再存，**那一天原本那幾段會一起搬走**，而存檔前那道 Abovee
+// 確認只列新加的那一段 —— 她看不出來。
+
+test('V4c 併進既有那一天時不畫日期欄', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page);
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await expect(page.locator('.slotcard'), '只有新的那一段改得動').toHaveCount(1);
+  await expect(
+    page.locator('input[name="date"]'),
+    '改了它，那一天原本那幾段會一起搬走，而確認框只列新的那一段',
+  ).toHaveCount(0);
+});
+
+test('V4d 那一天什麼都沒有時，日期照樣給改', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page, addDays(DAY, 2));
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await expect(
+    page.locator('input[name="date"]'),
+    '從日曆點的那一天不一定對 —— 全新的一筆要挑得到日子',
+  ).toHaveCount(1);
 });
 
 // **這一支現在是紅的，而且是刻意留著的。**

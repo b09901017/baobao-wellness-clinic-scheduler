@@ -250,14 +250,14 @@ function leave(ctx) {
 }
 
 function paint(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNew, embedded } = ctx;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNewDoc, embedded } = ctx;
   const locked = isLocked(draft.status) && !ctx.unlockReason;
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   //
   // 2026-09-12 起它只剩一個用途：**日期那一格給不給改**。整筆的狀態卡與
   // 危險區整塊拿掉了（ADR-0089），而網址那條路（`renderEdit()`）仍然畫得出
   // 整天那一張 —— 它沒有任何畫面上的連結，所以不算「一條路」。
-  const wholeVisit = !isNew && !ctx.editSlots;
+  const wholeVisit = !ctx.isNew && !ctx.editSlots;
 
   // **抬頭那顆 badge 印她正在改的那一段的狀態**（ADR-0085）。
   //
@@ -307,10 +307,23 @@ function paint(ctx, draft) {
              抬頭列右邊那顆夾板後面 —— 她 2026-09-09：「我希望是每一筆都可以有
              他的記一句，而不要是一整天的」。 */''}
       ${closedNote(ctx)}
-      ${/* **只改一段時日期不給改**（ADR-0085）。日期是整筆的 —— 改了那一天
-             剩下那幾段也跟著搬，而她點進來要改的只有這一段。要整天改期就是
-             取消 + 重排（SPEC 第 7 節規則 10）。 */''}
-      ${wholeVisit || isNew ? `
+      ${/* **日期只有在這一筆來訪是全新的時候才給改。**
+             這一格寫回去的是**整筆**的日期（`readDraft()`），所以草稿指向一份
+             既有的文件時，改它就是把那一天原本那幾段一起搬走 —— 而存檔前那道
+             確認只列新加的那一段，她看不出來（報告 §1.2，2026-09-16 實跑：
+             `v-one` 從 8/29 變成 8/30，原本那一段跟著走了）。
+
+             以前問的是 `isNew`（「她按的是新增嗎」），而**併進同一天既有那一筆
+             時它也是 true** —— 那正是漏掉的那一種。改成問 `isNewDoc`
+             （「這份文件是新的嗎」），四條路各自回到該有的答案：
+
+               全新的一筆   → 給改（她從日曆點的那一天不一定對）
+               併進既有那天 → 不給（改到的是別人的日期）
+               改一段       → 不給（ADR-0085）
+               網址那條路   → 給（`renderEdit()`，沒有畫面上的入口）
+
+             要換日子而那一天已經有一段時走哪一條，見 `submit()` 的合併那一段。 */''}
+      ${wholeVisit || isNewDoc ? `
         <section class="card ${embedded ? 'card--bare' : ''}">
           ${f.date({ name: 'date', label: '來訪日期', value: draft.date })}
         </section>` : ''}

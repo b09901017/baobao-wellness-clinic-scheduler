@@ -47,45 +47,6 @@ async function addVisitFor(app, page, customerId) {
   await app.layer('.slotcard');
 }
 
-// ---------- §1.2 併進同一天既有那一筆時，日期欄還在 ----------
-
-test('P1 併進同一天既有那一筆時，不可以畫出「來訪日期」', async ({ app, page }) => {
-  await app.seed(seedOpenVisit());
-  await app.signIn('/calendar');
-  await openDay(app, page, DAY);
-  await addVisitFor(app, page, 'cust-y');
-
-  // 確認真的併進來了（只畫新的那一段）
-  await expect(page.locator('.slotcard'), '只有新的那一段改得動').toHaveCount(1);
-
-  // ADR-0085：只改一段時日期不給改。ADR-0089：改整天的日期一條路都沒有。
-  // 她按的是「新增」，而那條路 `isNew` 是 true，於是日期欄照樣畫出來。
-  await expect(
-    page.locator('input[name="date"]'),
-    '改了它，那一天原本那幾段會一起搬走，而存檔前那一道只列新的那一段',
-  ).toHaveCount(0);
-});
-
-test('P2 併進來之後改日期，原本那一段不可以跟著搬走', async ({ app, page }) => {
-  await app.seed(seedOpenVisit());
-  await app.signIn('/calendar');
-  await openDay(app, page, DAY);
-  await addVisitFor(app, page, 'cust-y');
-
-  const dateField = page.locator('input[name="date"]');
-  if (await dateField.count()) {
-    await dateField.fill(NEXT);
-    await app.settled();
-  }
-
-  await page.locator('button[type="submit"]').first().click();
-  await app.ok();
-  await app.saved();
-
-  const saved = await app.readDoc('visits', 'v-one');
-  expect(saved.date, `原本那一段是 ${DAY} 的，她只是在那一天加一段`).toBe(DAY);
-});
-
 // ---------- §1.2b 反過來：改日期會長出「同一天第二筆」 ----------
 
 test('P3 從空的那一天新增、把日期改到他已經有一段的那一天：不可以長出第二筆', async ({ app, page }) => {
