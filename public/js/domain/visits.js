@@ -863,7 +863,8 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  *
  * @param {object} visit
  * @param {string} to 要換成哪一個狀態
- * @param {{at?: string, reason?: string|null}} [o] reason 只有取消才用得到
+ * @param {{at?: string, reason?: string|null, slotIndex?: number|null}} [o]
+ *   `slotIndex` 帶了就只動那一段（ADR-0081、0097）；`reason` 只有取消才用得到
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
 export function applyStatus(
@@ -875,6 +876,10 @@ export function applyStatus(
   //
   // 她 2026-09-08：「僅能取消被選中的該筆時段來訪，嚴禁一次連帶將該客戶
   // 當天的所有時段預約全部取消！」
+  //
+  // **確認 2026-09-16 起也走這一條**（ADR-0097）。她：「能不能我那個時段說確認
+  // 就那個時段確認就好」。在那之前只有取消帶 `slotIndex`，而長按選單上「客戶
+  // 說可以」走的是下面整天那一段 —— 於是那一下把當天每一段都蓋成已確認。
   //
   // **指到一個不存在的段落什麼都不做。** 退回去改整筆是最壞的一種答案 ——
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
@@ -956,11 +961,24 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   // 單段那一天會變成一顆取消都沒有。
   const slots = visit?.slots ?? [];
   const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
-  const canCancelOne = one
-    && one.status !== 'cancelled'
-    && next.includes('cancelled');
 
-  if (next.includes('confirmed')) {
+  // **狀態那幾顆問的是她長按的那一段**（ADR-0097）。她 2026-09-16：
+  // 「能不能我那個時段說確認就那個時段確認就好」。
+  //
+  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），所以拿它問「這一段
+  // 能不能確認」會答錯兩次：一段已經談定、另一段還沒問時整筆是「待確認」，
+  // 於是**談定那一段身上也長出一顆「客戶說可以」**；而一段已完成、另一段還在
+  // 等回覆時整筆也是「待確認」，那一顆會出現在一個 `TRANSITIONS` 不准的轉移上。
+  //
+  // 認不出是哪一段時退回整筆 —— `visitActions()` 是匯出的，而沒有 `slotIndex`
+  // 的呼叫端問的本來就是那一天。
+  const ownNext = one ? nextStatuses(slotStatus(visit, one)) : next;
+
+  // 取消那一顆也走同一份（`nextStatuses('cancelled')` 是空的，所以
+  // 「已經取消掉的那一段不再給」是它自己就答得出來的，不用再比一次 `status`）。
+  const canCancelOne = Boolean(one) && ownNext.includes('cancelled');
+
+  if (ownNext.includes('confirmed')) {
     out.push({
       id: 'confirmed',
       label: '客戶說可以',

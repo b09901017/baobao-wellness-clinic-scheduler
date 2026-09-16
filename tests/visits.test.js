@@ -1642,6 +1642,89 @@ describe('長按一列時，取消的是那一段還是一整天（ADR-0081）',
   });
 });
 
+describe('長按一列說「客戶已確認」，確認的是那一段（ADR-0097）', () => {
+  // 她 2026-09-16：「如果在新增同一個人兩段來訪，然後我只長按其中一段，
+  // 說客戶已確認，會變成整天的都變成已確認，能不能我那個時段說確認就那個時段確認就好」
+  const two = (a, b) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-20',
+    slots: [{ startsAt: '10:30', status: a }, { startsAt: '11:30', status: b }],
+    status: null,
+  });
+  const settled = (a, b) => {
+    const v = two(a, b);
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const ids = (visit, slotIndex) =>
+    visitActions(visit, { today: '2026-09-05', slotIndex }).map((x) => x.id);
+
+  test('已經談定的那一段不再給「客戶說可以」，還沒問的那一段給', () => {
+    const v = settled('confirmed', 'pending_confirm');
+    assert.equal(v.status, 'pending_confirm', '整筆是待確認（一段還沒問）');
+    assert.ok(!ids(v, 0).includes('confirmed'), '第 0 段已經談定了');
+    assert.ok(ids(v, 1).includes('confirmed'), '第 1 段還沒問過');
+  });
+
+  test('已經做完的那一段不給 —— TRANSITIONS 不准 done → confirmed', () => {
+    const v = settled('pending_confirm', 'done');
+    assert.equal(v.status, 'pending_confirm');
+    assert.ok(!ids(v, 1).includes('confirmed'),
+      '整筆還是待確認，但那一段已經是終點了');
+  });
+
+  test('取消掉的那一段不給', () => {
+    const v = settled('pending_confirm', 'cancelled');
+    assert.ok(!ids(v, 1).includes('confirmed'));
+  });
+
+  test('沒帶哪一段時維持整筆的判斷', () => {
+    assert.ok(ids(settled('pending_confirm', 'confirmed')).includes('confirmed'));
+    assert.ok(!ids(settled('confirmed', 'confirmed')).includes('confirmed'));
+  });
+
+  test('確認第 1 段不會動到第 0 段', () => {
+    const v = settled('pending_confirm', 'pending_confirm');
+    const next = applyStatus(v, 'confirmed', { slotIndex: 1, at: 'T' });
+    assert.equal(next.slots[0].status, 'pending_confirm', '第 0 段一個字都沒變');
+    assert.equal(next.slots[1].status, 'confirmed');
+    assert.equal(next.status, 'pending_confirm', '整筆還是待確認 —— 第 0 段還沒問');
+  });
+
+  test('最後一段確認完，整筆才推成已確認', () => {
+    const v = settled('confirmed', 'pending_confirm');
+    const next = applyStatus(v, 'confirmed', { slotIndex: 1, at: 'T' });
+    assert.equal(next.status, 'confirmed');
+    assert.equal(next.confirmedAt, 'T');
+  });
+
+  test('仍然最多五顆', () => {
+    for (const a of VISIT_STATUSES) {
+      for (const b of VISIT_STATUSES) {
+        for (const slotIndex of [null, 0, 1]) {
+          const n = visitActions(settled(a, b), { today: '2026-09-05', slotIndex }).length;
+          assert.ok(n <= 5, `${a}/${b}/${slotIndex} 有 ${n} 顆`);
+        }
+      }
+    }
+  });
+
+  test('只給 TRANSITIONS 准的轉移 —— 逐段也一樣（ADR-0006）', () => {
+    for (const a of VISIT_STATUSES) {
+      for (const b of VISIT_STATUSES) {
+        const v = settled(a, b);
+        for (const slotIndex of [0, 1]) {
+          const own = slotStatus(v, v.slots[slotIndex]);
+          const allowed = new Set(nextStatuses(own));
+          for (const act of visitActions(v, { today: '2026-09-05', slotIndex })) {
+            if (VISIT_STATUSES.includes(act.id)) {
+              assert.ok(allowed.has(act.id), `${a}/${b} 第 ${slotIndex} 段（${own}） → ${act.id}`);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
 describe('客人回覆之後那一筆長什麼樣（applyConfirmation）', () => {
   const v = (over = {}) => ({
     id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'pending_confirm',
