@@ -295,8 +295,9 @@ test('S13 診間的「同時幾位」：留空是 1，填 2 存得下去也讀�
   expect(await validOf(page, 'input[name="capacity"]')).toBe(true);
 
   await page.click('button[type="submit"]');
-  await app.settled();
-  await page.waitForTimeout(600);
+  // **等寫入真的結束**（`app.saved()` 讀 toast 的狀態機），不要固定等一段時間
+  // —— `tests/e2e-waits.test.js` 盯著，而且固定等待兩邊都錯。
+  await app.saved();
 
   const saved = await app.readDoc('config/app/rooms', 'room-iv8');
   expect(saved.capacity, '存進去的是數字不是字串').toBe(2);
@@ -312,8 +313,7 @@ test('S14 留空存得下去 —— 沒填就是 1，不是錯誤', async ({ app
   await page.locator('[data-edit="room-t2"]').click();
   await page.fill('input[name="capacity"]', '');
   await page.click('button[type="submit"]');
-  await app.settled();
-  await page.waitForTimeout(600);
+  await app.saved();
 
   const saved = await app.readDoc('config/app/rooms', 'room-t2');
   expect(saved.capacity).toBe(null);
