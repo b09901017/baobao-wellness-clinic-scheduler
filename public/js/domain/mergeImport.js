@@ -13,7 +13,7 @@
 
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
-import { followupPlanEntries } from './followups.js';
+import { followupPlanEntries, followupCourseIdOf } from './followups.js';
 import { importedLabel, tierFromLegacyLabel } from './entitlements.js';
 import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
@@ -193,7 +193,11 @@ export function planForCustomer(entry, ctx = {}, json = null) {
 
     // 健檢的等級（`12萬健檢` 的 `12萬`）。合併檔 v3 沒有帶這一格，而 ADR-0054
     // 說它住在額度上 —— 解析得出來就補上，認不出來（`x萬健檢`）就留空不要猜。
-    const tier = course?.followupCourseId ? tierFromLegacyLabel(e.label, course.name) : null;
+    // 哪一種課程有等級：**「做完還要再約一次」的那一種**（健檢）。
+    // 判斷借 `followupCourseIdOf()` —— `ui/components/buy.js` 決定要不要畫
+    // 那一排「幾萬的」時問的是同一支，兩邊各比一次 `followupCourseId`
+    // 遲早有一邊漏掉。
+    const tier = followupCourseIdOf(course) ? tierFromLegacyLabel(e.label, course.name) : null;
 
     const doc = {
       type: e.type === 'pool' ? 'pool' : 'single',
