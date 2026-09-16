@@ -1,6 +1,6 @@
 # 佳璐與 LuLu 是同一個人
 
-Status: todo
+Status: done
 來源：`../spec.md`（保留第 4 題）
 動工前先讀：`.claude/skills/calendar-sheet-merge/references/shorthand.md`、
 `.scratch/prelaunch-fixes-2026-09-16/spec.md`（2026-09-16 那一條「先當作視同一個人」）
