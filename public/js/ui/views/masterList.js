@@ -225,8 +225,11 @@ const editors = {
   // 課程（她的原話：「就不用寫營養點滴了，而是像這樣，誰，品項，診間」），
   // 而月曆一格放不下「雪顏亮彩」。作法照抄診間那一列。
   ivProducts: {
-    blank: { name: '', shortName: null },
-    summary: (r) => (r.shortName ? `月曆寫「${r.shortName}」` : '營養點滴品項'),
+    blank: { name: '', shortName: null, durationMin: null },
+    summary: (r) => [
+      r.durationMin ? `${r.durationMin} 分` : null,
+      r.shortName ? `月曆寫「${r.shortName}」` : null,
+    ].filter(Boolean).join(' · ') || '營養點滴品項',
     fields: (r) => [
       f.text({ name: 'name', label: '品項名稱', value: r.name, placeholder: '護肝排毒' }),
       f.text({
@@ -234,8 +237,20 @@ const editors = {
         hint: '日曆上那一段印它（「王小明・雪・.10」），一格只放得下幾個字。'
           + '留空就印全名。貼給客人的那一句不受影響，那裡只講課程。',
       }),
+      // **`step` 要是 1**（CLAUDE.md 那一條）：HTML 的 step 從 min 起算，
+      // 寫 `step: 30` 的話 180 存得下去但 190 存不下去，而瀏覽器擋在 submit
+      // 之前 —— domain 的驗證跑都沒跑到，畫面上只有一個沒人看得懂的泡泡。
+      f.number({
+        name: 'durationMin', label: '這一款要打多久（分鐘）',
+        value: r.durationMin ?? '', min: 1, step: 1,
+        hint: '空的就跟著「營養點滴」那個課程走。通常是 30 的倍數。',
+      }),
     ],
-    parse: (v) => ({ name: v.name.trim(), shortName: v.shortName.trim() || null }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      shortName: v.shortName.trim() || null,
+      durationMin: v.durationMin === '' || v.durationMin == null ? null : Number(v.durationMin),
+    }),
   },
 
   products: {

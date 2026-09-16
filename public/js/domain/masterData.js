@@ -312,6 +312,11 @@ const validators = {
   ivProducts(r) {
     const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('品項名稱不可空白');
+    // 時長是**選填**的（ADR-0098）：空的就跟著課程走（一般 120 分）。
+    // 填了就要能用 —— 一個存得下去卻算不出結束時間的數字比空的糟。
+    if (r.durationMin != null && r.durationMin !== '' && !positiveInt(r.durationMin)) {
+      errors.push('時長必須是大於 0 的整數分鐘');
+    }
     return errors;
   },
 

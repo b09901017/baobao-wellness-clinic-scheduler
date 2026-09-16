@@ -1141,6 +1141,41 @@ export function showsRoom(slot, courses = []) {
   return course ? course.assigns === 'room' : true;
 }
 
+/** 大於 0 的整數分鐘才算數；空的、0、負的、看不懂的一律當成沒填。 */
+function minutesOrNull(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * 這一段要排多久。**全站只有這一支**（ADR-0098）。
+ *
+ * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
+ * 那邊要多一個時間」。
+ *
+ * 順序是 **品項 → 額度 → 課程 → 60**，而品項排在額度前面是刻意的：
+ * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
+ * 是 `entitlementDoc()`（匯入）與 `buy.js`（加購）建額度時抄課程預設值抄進去的。
+ * 排在後面的話，改了主檔既有額度照樣是舊的那個數字，而她看不出為什麼。
+ *
+ * **只有要選品項的課程才問品項那一句**（`requiresIvProduct`）。復能與 ILIB
+ * 身上永遠沒有 `ivProduct`，多問一句不會錯，但寫死「只有點滴」讓讀的人知道
+ * 這一條規則的範圍。
+ *
+ * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readSlot()`、壓表組時段、
+ * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
+ *
+ * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o
+ * @returns {number} 分鐘
+ */
+export function slotMinutes({ entitlement = null, course = null, ivProduct = null } = {}) {
+  const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
+  return fromProduct
+    ?? minutesOrNull(entitlement?.durationMin)
+    ?? minutesOrNull(course?.durationMin)
+    ?? 60;
+}
+
 /**
  * 這一段**現在**要指派什麼。`null` = 還答不出來。
  *

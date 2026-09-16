@@ -1,6 +1,6 @@
 # 營養點滴的時長跟著品項走，不是跟著課程
 
-Status: todo
+Status: done
 來源：`../spec.md`（保留第 3 題）。**這一輪最大的一支。**
 動工前先讀：`domain/seed.js` 的 `ivProducts`／`course-iv-drip`、
 `domain/masterData.js` 的 `ivChoicesFor()`、`domain/visitTime.js` 的 `endOf()`、

@@ -18,9 +18,10 @@ import {
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
   sameDayVisitFor, sameDayState, editorTarget,
   visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
-  statusForCard,
+  statusForCard, slotMinutes,
   NOTE_MAX,
 } from '../public/js/domain/visits.js';
+import { SEED } from '../public/js/domain/seed.js';
 
 const COURSES = [
   { id: 'c-rehab', name: '復健科醫師門診', durationMin: 30, assigns: 'room',
@@ -1255,6 +1256,59 @@ describe('讀取卡片要畫哪幾段', () => {
 // 指派是**課程說了算**，而擇一池的課程是選到的那一台器材推出來的（ADR-0075）。
 // 所以在她挑器材之前，「這一段要治療師還是治療室」是**還沒有答案**的 ——
 // 畫一排出來等於替她答了。
+describe('這一段要排多久（slotMinutes，ADR-0098）', () => {
+  // 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項
+  // 設定那邊要多一個時間」。
+  const DRIP = { id: 'c-iv', name: '營養點滴', durationMin: 120, requiresIvProduct: true };
+  const POOL = { id: 'c-recovery', name: '復能', durationMin: 60 };
+  const HEART = { id: 'iv-heart', name: '護心抗老', durationMin: 180 };
+  const LIVER = { id: 'iv-liver', name: '護肝排毒' };
+
+  test('護心抗老 180 分，其餘品項跟著課程走', () => {
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: HEART }), 180);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: LIVER }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: null }), 120);
+  });
+
+  // **品項排在額度前面。** 營養點滴沒有 durationChoices，所以額度上那一格
+  // 從來不是她挑的 —— 是建額度時抄課程預設值抄進去的（她那份產檔裡的點滴
+  // 額度全被烙上 60）。排在後面的話，改了主檔既有額度照樣是 60。
+  test('額度上烙著 60 的舊點滴，選護心抗老照樣 180', () => {
+    assert.equal(
+      slotMinutes({ entitlement: { durationMin: 60 }, course: DRIP, ivProduct: HEART }),
+      180,
+    );
+  });
+
+  test('不用選品項的課程不問品項那一句 —— 額度優先', () => {
+    assert.equal(slotMinutes({ entitlement: { durationMin: 30 }, course: POOL }), 30);
+    // 復能身上不會有品項，但就算硬塞一個也不算數
+    assert.equal(slotMinutes({ entitlement: null, course: POOL, ivProduct: HEART }), 60);
+  });
+
+  test('三格都沒有就是 60', () => {
+    assert.equal(slotMinutes({}), 60);
+    assert.equal(slotMinutes(), 60);
+  });
+
+  test('0、負數、看不懂的一律當成沒填', () => {
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: 0 } }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: -30 } }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: '一百八' } }), 120);
+    assert.equal(slotMinutes({ entitlement: { durationMin: 0 }, course: POOL }), 60);
+  });
+
+  test('種子：營養點滴 120 分、護心抗老 180 分，其餘品項不填', () => {
+    const drip = SEED.courses.find((c) => c.id === 'course-iv-drip');
+    assert.equal(drip.durationMin, 120);
+    const heart = SEED.ivProducts.find((x) => x.id === 'iv-heart');
+    assert.equal(heart.durationMin, 180);
+    const others = SEED.ivProducts.filter((x) => x.id !== 'iv-heart');
+    assert.deepEqual(others.map((x) => x.durationMin ?? null), others.map(() => null),
+      '空的就是「跟著課程走」—— 填一份跟課程一樣的數字，改課程時會有一堆沒跟上的');
+  });
+});
+
 describe('這一段現在要指派什麼', () => {
   const recovery = { id: 'c-recovery', assigns: 'therapist', requiresEquipment: true };
   const ilib = { id: 'c-ilib', assigns: 'room', requiresEquipment: false };
