@@ -1040,17 +1040,6 @@ function mergedPayload(ctx, draft) {
   return { visit, reopened };
 }
 
-/**
- * 她挑的那一天，這位客戶已經有一筆收得下的來訪嗎。
- *
- * **只有全新的那一筆要問**（既有那一筆的日期改不動了，issue 06）。
- * 回 `null` 代表那一天是空的。
- */
-function mergeTargetFor(ctx, draft) {
-  if (!ctx.isNewDoc) return null;
-  return sameDayVisitFor(ctx.customerVisits, ctx.customer.id, draft.date);
-}
-
 async function submit(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
