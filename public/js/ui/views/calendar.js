@@ -1075,7 +1075,8 @@ function visitQuickActions(el, data, id, backDate, slotIndex = null) {
   // **抬頭要講清楚她長按的是哪一段。** 2026-09-08 之前這裡寫的是
   // 「這一天共 N 段，底下這幾顆動的是整筆」—— 那是在替一個 bug 道歉
   //（ADR-0080 第四點）。現在「取消這一段」真的只動那一段，所以抬頭改成
-  // 講**哪一段**，而剩下那幾顆（確認、改、簽療程單）仍然是整筆的。抬頭印的
+  // 講**哪一段**。「簽療程單」那一顆仍然通到待辦中心那張逐段抽屜（它不寫狀態），
+  // 其餘每一顆 2026-09-16 起都只動那一段（ADR-0097）。抬頭印的
   // 狀態也換成那一段自己的（ADR-0085）—— 整筆那一個在這裡是錯的。
   //
   // 「共 N 段」2026-09-09 拿掉了 —— 她的原話是「我也根本不需要知道這天還有
@@ -1153,15 +1154,27 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   try {
     // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
     const customerVisits = await visitsData.listByCustomer(visit.customerId);
-    const next = onlyOne
-      ? applyStatus(visit, 'cancelled', { slotIndex, reason })
-      : applyStatus(visit, action);
+    // **每一顆都只動她長按的那一段**（ADR-0097）。2026-09-16 之前只有取消
+    // 那一條帶了 `slotIndex`，於是「客戶說可以」走下面那一行、
+    // `applyStatus()` 的整天分支把那一天每一段都蓋成已確認 —— 她的原話：
+    // 「會變成整天的都變成已確認」。
+    //
+    // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
+    // 不必挑段的那幾顆。
+    const next = applyStatus(visit, onlyOne ? 'cancelled' : action, {
+      ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
+      reason,
+    });
     // 快捷選單自己會在回呼之前把節點移除，所以**快速**連點本來就落空了。
     // 但「長按 → 選 → 還在存 → 再長按 → 再選」這條慢路徑沒有東西擋，
     // 而改一筆來訪只有日曆這一個入口（ADR-0056）—— 另外三個存來訪的地方
     // （待辦中心、壓表、來訪編輯器）都有 key，就這裡沒有。
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
-      success: onlyOne ? '這一段取消了' : `這一天改成「${describeStatus(action)}」`,
+      // **講「這一段」不講「這一天」**（ADR-0087、0097）：現在改的就只有那一段，
+      // 而她剛剛按的那一列也只有那一段。認不出是哪一段的那條路才是整天。
+      success: onlyOne
+        ? '這一段取消了'
+        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}改成「${describeStatus(action)}」`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);

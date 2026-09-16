@@ -117,10 +117,82 @@ describe('匯進來的額度還叫舊表的名字（ADR-0095）', () => {
   });
 });
 
+describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
+  // `loadSeed()` **只建不覆蓋**，所以 2026-09-16 那幾個改動（EECP 30→60、
+  // 營養點滴 60→120、護心抗老 180）在既有資料庫上一格都不會變 ——
+  // 而症狀是「改好了、上線了、畫面上看起來什麼都沒發生」。
+  const withMaster = (over) => run({ master: { ...MASTER, ...over } });
+
+  test('課程的時長跟建議的不一樣就報，帶著兩個數字', () => {
+    const r = withMaster({ courses: [{ id: 'course-eecp', name: 'EECP', durationMin: 30 }] });
+    const rows = findingsOf(r, 'courseDuration');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /30 分/);
+    assert.match(rows[0].detail, /60 分/);
+    assert.equal(rows[0].fix.kind, 'setCourseDuration');
+    assert.equal(rows[0].fix.durationMin, 60);
+  });
+
+  test('一樣就不報', () => {
+    const r = withMaster({ courses: [{ id: 'course-eecp', name: 'EECP', durationMin: 60 }] });
+    assert.deepEqual(findingsOf(r, 'courseDuration'), []);
+  });
+
+  test('主檔沒有那一門課就不報 —— 那是「載入預設資料」的事', () => {
+    const r = withMaster({ courses: [] });
+    assert.deepEqual(findingsOf(r, 'courseDuration'), []);
+  });
+
+  // 「載入種子資料」那顆只在整份主檔是空的時候才畫得出來
+  // （`ui/views/settings.js`），所以種子新加一門課之後既有資料庫一條路都沒有。
+  test('種子有、主檔沒有的那一門課列得出來，而且 id 用種子的', () => {
+    const r = withMaster({
+      courses: [
+        { id: 'course-eecp', name: 'EECP', durationMin: 60 },
+        { id: 'c-recovery', name: '復能', requiresEquipment: true },
+      ],
+    });
+    const rows = findingsOf(r, 'seedCourse');
+    const trial = rows.find((f) => f.fix.courseId === 'course-eecp-trial');
+    assert.ok(trial, 'EECP體驗 要列得出來');
+    assert.equal(trial.fix.kind, 'addCourse');
+    assert.equal(trial.fix.data.name, 'EECP體驗');
+    assert.equal(trial.fix.data.durationMin, 30);
+    assert.equal(trial.fix.data.active, true);
+    assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
+  });
+
+  // 自己從零建主檔、一個種子 id 都沒有的資料庫（測試夾具就是）不可以被念 ——
+  // 那時候缺的不是一門課，是整份主檔（同 `checkSeedEquipment()` 的護欄）。
+  test('一個種子 id 都沒有的主檔一列都不報', () => {
+    assert.deepEqual(findingsOf(run(), 'seedCourse'), []);
+  });
+
+  test('點滴品項那一格空著就報', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-heart', name: '護心抗老' }] });
+    const rows = findingsOf(r, 'ivProductDuration');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].fix.kind, 'setIvDuration');
+    assert.equal(rows[0].fix.durationMin, 180);
+  });
+
+  // 她自己填了別的數字是一個決定，不可以被一顆按鈕改回去
+  //（同 `checkSeedDurations()` 與 `checkPoolLabels()` 那兩條）。
+  test('她自己填過就不報，就算填的不是 180', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-heart', name: '護心抗老', durationMin: 240 }] });
+    assert.deepEqual(findingsOf(r, 'ivProductDuration'), []);
+  });
+
+  test('種子上沒填時長的那幾款不報', () => {
+    const r = withMaster({ ivProducts: [{ id: 'iv-liver', name: '護肝排毒' }] });
+    assert.deepEqual(findingsOf(r, 'ivProductDuration'), []);
+  });
+});
+
 describe('形狀', () => {
-  test('二十五項檢查都在，順序固定', () => {
+  test('二十八項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 25);
+    assert.equal(result.checks.length, 28);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -267,7 +339,9 @@ describe('次數對帳', () => {
     assert.deepEqual(f.fix.to, { done: 1, booked: 0 });
     assert.equal(f.fix.customerId, 'cus-1');
     assert.equal(f.fix.entitlementId, 'e1');
-    assert.equal(f.link, '#/customers/cus-1');
+    // 「去看看」2026-09-16 拿掉了（她：「去看看這個按鈕都不要了」）——
+    // 這一列有一鍵修正，出口本來就在那顆按鈕上。
+    assert.equal(f.link, null);
   });
 
   test('對得起來就不報', () => {
@@ -418,16 +492,33 @@ describe('狀態異常', () => {
     assert.equal(f.link, null);
   });
 
-  test('來訪相關的那幾列一顆「去看看」都沒有', () => {
+  // 她 2026-09-16：「資料健檢中同一天有兩筆來訪以及逾期任務 資料過期都還有
+  // 去看看的按鈕？可以不用有 應該說去看看這個按鈕都不要了」。
+  //
+  // 定案：**只剩指向主檔設定的那幾顆**（那幾列唯一的出口 ——「器材主檔少了
+  // 一台」把她帶去建那一台）。這一條掃的是**每一個 check 的每一列**，
+  // 不是點名那四種 —— 點名的話新加一列又會多一顆出來。
+  test('「去看看」要嘛沒有，要嘛指主檔設定', () => {
     const result = run({
       visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
       tasks: [task({ dueDate: '2026-09-01' })],
     });
-    for (const id of ['orphans', 'visitStatus', 'conflicts', 'overdueTasks']) {
-      const rows = findingsOf(result, id);
-      assert.ok(rows.every((f) => f.link === null || !String(f.link).startsWith('#/visits/')),
-        `${id} 還指著整天的編輯器`);
-    }
+    const bad = result.checks.flatMap((c) => c.findings
+      .filter((f) => f.link != null && !String(f.link).startsWith('#/settings/'))
+      .map((f) => `${c.id}：${f.link}`));
+    assert.deepEqual(bad, [], '拿掉出口的話 detail 要自己把話講完整');
+  });
+
+  // 沒有一鍵修正、又沒有出口的那幾列，`detail` 是她唯一的資訊來源。
+  test('沒有修正鈕又沒有連結的那幾列，detail 要講得出去哪裡做什麼', () => {
+    const result = run({
+      visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
+      tasks: [task({ dueDate: '2026-09-01' })],
+    });
+    const thin = result.checks.flatMap((c) => c.findings
+      .filter((f) => !f.fix && f.link == null && String(f.detail ?? '').length < 12)
+      .map((f) => `${c.id}：${f.detail}`));
+    assert.deepEqual(thin, []);
   });
 
   test('日期已過還在等回覆也要報', () => {

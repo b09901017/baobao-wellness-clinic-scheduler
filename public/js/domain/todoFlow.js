@@ -257,7 +257,17 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
     if (mine(t.kind)) rows.push(taskRow(t, voided));
   }
 
-  rows.push(...derivedRows(visit, scoped, { coursesById, focused: true, voided }));
+  // **推導那兩列照她點的那一段算**（ADR-0097）。整筆那個 status 是推導的，
+  // 所以同一天加一段還沒問過客人的進去，整筆就退回「待確認」—— 那是對的
+  // （`prelaunch-fixes-2026-09-16/issues/08`），但拿它去判「這一段問過了沒」，
+  // 早就談定的那幾段會跟著退回未打勾（她 2026-09-16 報的正是這件事）。
+  //
+  // **取消掉的那一段退回整筆。** 它的 `slot.status` 已經被蓋成 `cancelled`，
+  // 那一格再也答不出「它被取消之前談定了沒」（時段上沒有 `confirmedAt`）——
+  // 整筆那個 `confirmedAt` 是唯一還問得到的東西，而那一列本來就是灰的。
+  rows.push(...derivedRows(visit, scoped, {
+    coursesById, focused: true, voided, own: voided ? null : slotStatus(visit, slot),
+  }));
   rows.push(...pendingRows(scoped, rows, { coursesById, voided }));
   return sortRows(rows);
 }
@@ -291,12 +301,17 @@ function taskRow(t, voided) {
 /**
  * 推導的那兩列：跟客人確認時間、簽療程單。
  *
- * @param {object} visit 整筆（狀態從它讀）
+ * @param {object} visit 整筆（`own` 沒給時狀態從它讀）
  * @param {object} scoped 要算哪幾段（點了某一段就只有那一段；取消掉的那一段是「它還活著的話」）
+ * @param {{own?: string|null}} o `own` = 她點的那一段自己的狀態（ADR-0097）。
+ *   沒給就是整筆 —— 另外三頁列的本來就是整筆來訪，取消掉的那一段也走這一條
  */
-function derivedRows(visit, scoped, { coursesById, focused, voided }) {
+function derivedRows(visit, scoped, { coursesById, focused, voided, own = null }) {
   const rows = [];
   const mark = (row) => (voided ? { ...row, void: true } : row);
+  // 「這一列問的是哪一個狀態」只算一次 —— 兩列各寫一份的話，遲早有一列漏掉
+  // `own` 而又回去讀整筆，而那正是 2026-09-16 那個 bug 的形狀。
+  const status = own ?? visit.status;
 
   // ①→③ 跟客人確認時間。**從來訪推導**（ADR-0001），不是任務。
   //
@@ -306,11 +321,13 @@ function derivedRows(visit, scoped, { coursesById, focused, voided }) {
   // 那會讓一張已確認的卡片看起來像從來沒問過人。
   //
   // 整天取消之後整筆的狀態是 `cancelled`，那時候「問過了沒」看 `confirmedAt`。
+  //
+  // 指名了哪一段時讀的是**那一段**的狀態（ADR-0097）—— 見上面 `status`。
   rows.push(mark({
     key: 'confirm',
     kind: '跟客人確認時間',
-    done: visit.status !== 'pending_confirm'
-      && (visit.status !== 'cancelled' || Boolean(visit.confirmedAt)),
+    done: status !== 'pending_confirm'
+      && (status !== 'cancelled' || Boolean(visit.confirmedAt)),
     dueDate: null,
     derived: true,
   }));
@@ -319,7 +336,7 @@ function derivedRows(visit, scoped, { coursesById, focused, voided }) {
   // 所以這一列跟「有沒有段要簽」無關 —— 那只影響它印哪一句。
   //
   // 日子還沒到也列（同上：她要看到這一場的**全部**），只是還沒勾。
-  const closed = visit.status === 'done' || visit.status === 'no_show';
+  const closed = status === 'done' || status === 'no_show';
   const needsForm = formSlotIndexes(scoped, coursesById).length > 0;
   rows.push(mark({
     key: 'close',

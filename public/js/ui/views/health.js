@@ -423,6 +423,57 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label}：${fix.fromLabel} → ${fix.toLabel}`),
     }),
   },
+  seedCourse: {
+    button: () => '把這一門建起來',
+    all: (n) => `一次建這 ${n} 門`,
+    one: (fix) => ({
+      title: `把「${fix.label}」建進課程主檔？`,
+      lines: [
+        '種子資料裡有這一門，你的課程主檔沒有',
+        '「載入種子資料」那顆只在整份主檔是空的時候才出得來，所以只能從這裡建',
+        '建起來之後可以到設定 → 課程改時長、診間與名字',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 門都建進課程主檔？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
+  // `loadSeed()` 只建不覆蓋，所以主檔的時長改了既有資料庫不會跟（ADR-0098）。
+  // **這兩列的語氣不一樣**：課程那一列比的是值（她可能自己改過），
+  // 品項那一列只在空著時才報（填了就是她的決定）。
+  courseDuration: {
+    button: () => '改成建議值',
+    all: (n) => `一次改這 ${n} 個課程`,
+    one: (fix) => ({
+      title: `把「${fix.label}」改成 ${fix.durationMin} 分？`,
+      lines: [
+        `現在是 ${fix.from ?? '（空的）'} 分`,
+        '之後排這個課程時，結束時間照新的算',
+        '已經排出去的來訪一筆都不會動 —— 那幾段的長度是當時寫下去的',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 個課程的時長都改成建議值？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.from ?? '（空的）'} → ${fix.durationMin} 分`),
+    }),
+  },
+  ivProductDuration: {
+    button: (fix) => `填上 ${fix.durationMin} 分`,
+    all: (n) => `一次填這 ${n} 款`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的時長填成 ${fix.durationMin} 分？`,
+      lines: [
+        '那一格空著的話，這一款跟著「營養點滴」那個課程走',
+        '之後排這一款時，結束時間照這個算',
+        '已經排出去的來訪一筆都不會動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 款的時長都填上？`,
+      lines: fixes.map((fix) => `${fix.label} → ${fix.durationMin} 分`),
+    }),
+  },
   seedDuration: {
     button: () => '填上 30／60',
     all: (n) => `一次填這 ${n} 個課程`,
@@ -469,6 +520,9 @@ const KIND_TO_CHECK = {
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',
   setDurations: 'seedDuration',
+  addCourse: 'seedCourse',
+  setCourseDuration: 'courseDuration',
+  setIvDuration: 'ivProductDuration',
   setAssigns: 'courseAssigns',
   renameEquipment: 'equipmentNames',
   applyRoom: 'roomList',

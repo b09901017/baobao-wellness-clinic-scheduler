@@ -71,7 +71,7 @@ const already = new Set(existingTasks.filter((t) => !t.deletedAt && isCancelKind
 ## 還沒定的（要再問她）
 
 第 5 題：一天兩段 A 類、Examine 那一張只有一個勾，其中一段是**後來才加的**（勾 Examine 的時候它還不在）
-—— 取消那一段時要不要收 Examine？暫定：要（照她「每一段都是可以分別取消的」）。
+—— 取消那一段時要不要收 Examine？**2026-09-16 定案：要，而且只收那一段**（她：「收，但是就只收那個時段的」）。暫定值＝定案，程式一行都沒改。
 
 ## Comments
 

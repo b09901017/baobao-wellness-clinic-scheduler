@@ -588,6 +588,41 @@ describe('客人退掉的那一段不再承諾任何掛號（ADR-0081）', () =>
   });
 });
 
+describe('確認抽屜只講這一次真的會發生的（ADR-0097）', () => {
+  // 她在日曆上先確認掉 A 類那一段（那一刻 Examine／耀聖就長出來了），再到待辦中心
+  // 確認下午那一段 —— 卡片上說「待辦會多一張 Examine」是假話（ADR-0070）。
+  const day = (a, b, courses = ['c-followup', 'c-recovery']) => ({
+    id: 'v1', customerId: 'cust1', date: '2026-08-27', status: 'pending_confirm', confirmedAt: null,
+    slots: [
+      { ...slot(courses[0]), status: a },
+      { ...slot(courses[1], '14:00'), status: b },
+    ],
+  });
+
+  test('A 類那一段早就談定了 → 確認下午的 C 類，不說會多 Examine／耀聖', () => {
+    const lines = confirmConsequences([day('confirmed', 'pending_confirm')], COURSES).join(NL);
+    assert.ok(!lines.includes('Examine'), lines);
+    assert.ok(!lines.includes('耀聖'), lines);
+  });
+
+  test('A 類那一段是這一次確認的 → 照樣講', () => {
+    const lines = confirmConsequences([day('pending_confirm', 'confirmed')], COURSES).join(NL);
+    assert.ok(lines.includes('Examine') && lines.includes('耀聖'), lines);
+  });
+
+  test('A 類那一段在抽屜裡被退掉 → 不講', () => {
+    const lines = confirmConsequences(
+      [day('pending_confirm', 'pending_confirm')], COURSES, false, new Set(['v1:0']),
+    ).join(NL);
+    assert.ok(!lines.includes('Examine'), lines);
+  });
+
+  test('兩段都是 A 類、一段早就談定 → 那一種已經長過了（一種只長一張）', () => {
+    const v = day('confirmed', 'pending_confirm', ['c-followup', 'c-followup']);
+    assert.ok(!confirmConsequences([v], COURSES).join(NL).includes('Examine'));
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 /**

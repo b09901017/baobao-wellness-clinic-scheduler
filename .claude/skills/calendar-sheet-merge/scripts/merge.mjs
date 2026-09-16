@@ -57,7 +57,11 @@ export const TOKENS = [
   [/SIS|超磁/i, '復能', 'SIS'],
   [/高\s*能|高\s*60|雷射/i, '復能', '高能量雷射'],
   [/復能|賦能/, '復能', null],
-  [/EECP/i, 'EECP', null],
+  // **體驗課排在正式課前面，而且正式課那一條要排除它。** 第 88 行收的是
+  // **全部**命中的 token，`EECP體驗` 同時命中兩條的話那一天會長出兩段。
+  // 2026-09-16 起體驗是一門自己的課程（30 分，正式課 60 分）。
+  [/EECP\s*體驗/i, 'EECP體驗', null],
+  [/EECP(?!\s*體驗)/i, 'EECP', null],
   [/二返|2返|功能醫學/, '二返', null],
   [/健檢/, '健檢', null],
   // `王小明13`、`8：50王小明13+Line`（假名）：13健檢是「付 1 萬換 3 萬的健檢」（她 2026-09-15），不是 13 萬。
@@ -1041,10 +1045,21 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
  */
 export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '' } = {}) {
   const courseByName = new Map(SEED.courses.map((c) => [c.name, c]));
-  // 結束時間：她決定過這一段幾分鐘就照那個，其次是額度的時長（`復能(30分）` 那一種是 30），最後才是課程
-  const endOf = (start, courseName, minutes = null) => (start
-    ? addMin(start, minutes ?? courseByName.get(courseName)?.durationMin ?? 60)
-    : null);
+  const ivByName = new Map(SEED.ivProducts.map((x) => [x.name, x]));
+  // 結束時間：**品項**排第一（護心抗老 180 分，ADR-0098，只有營養點滴會問），
+  // 其次是她決定過這一段幾分鐘就照那個，再來是額度的時長（`復能(30分）` 那一種
+  // 是 30），最後才是課程。
+  //
+  // **品項排在額度前面**跟 app 那一側的 `slotMinutes()` 同一個順序、同一個理由：
+  // 營養點滴沒有可選時長，所以額度上那一格從來不是她挑的 —— 是建額度時抄課程
+  // 預設值抄進去的。兩邊不一樣的話，匯進去之後那一段的長度會跟她在 app 裡
+  // 重存一次之後不一樣，而畫面上看不出為什麼。
+  const endOf = (start, courseName, minutes = null, ivName = null) => {
+    if (!start) return null;
+    const course = courseByName.get(courseName);
+    const fromIv = course?.requiresIvProduct ? ivByName.get(ivName)?.durationMin : null;
+    return addMin(start, fromIv ?? minutes ?? course?.durationMin ?? 60);
+  };
   const ivNameOf = (id) => SEED.ivProducts.find((x) => x.id === id)?.name ?? null;
   // 候選清單靠名字認人（`addExtraVisits()` 拿它去找那位客戶的計畫），
   // 所以這裡要跟 customers[].name 用同一套清理 —— 一邊清了一邊沒清，
@@ -1112,21 +1127,25 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
         visits: p.days.filter((d) => d.filled.length).map((d) => ({
           date: d.date,
           status: 'done',
-          slots: d.filled.map((f) => ({
+          slots: d.filled.map((f) => {
+            // 那一天用了哪一款要先算出來 —— `endsAt` 問它（護心抗老 180 分）
+            const ivProductName = f.match?.ivProductName ?? ivNameOf(f.slot.ivProductId)
+              ?? productOf.get(f.slot.entitlementKey) ?? null;
+            return {
             entitlementKey: f.slot.entitlementKey,
             courseName: f.slot.courseName,
             startsAt: f.match?.startsAt ?? null,
             endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName,
-              f.match?.durationMin ?? minutesOf.get(f.slot.entitlementKey)),
+              f.match?.durationMin ?? minutesOf.get(f.slot.entitlementKey), ivProductName),
             roomName: f.match?.room ?? null,
             therapistName: f.match?.therapistName ?? null,
             // 併進四選一的那一列（ILIB）記成選了那一台，蓋過行事曆上讀到的
             equipmentName: f.slot.forceEquipment ?? f.match?.equipmentName ?? null,
-            ivProductName: f.match?.ivProductName ?? ivNameOf(f.slot.ivProductId)
-              ?? productOf.get(f.slot.entitlementKey) ?? null,
+            ivProductName,
             confidence: f.match?.confidence ?? null,
             evidence: f.match?.evidence ?? null,
-          })),
+            };
+          }),
         })),
       };
     }),

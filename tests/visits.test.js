@@ -18,9 +18,10 @@ import {
   courseForEquipment, picksEquipment, slotsToShow, assignsFor, showsRoom,
   sameDayVisitFor, sameDayState, editorTarget,
   visitStatusFrom, applyConfirmation, cancellableSlots, withSlotStatuses, withSlotNotes,
-  statusForCard,
+  statusForCard, slotMinutes,
   NOTE_MAX,
 } from '../public/js/domain/visits.js';
+import { SEED } from '../public/js/domain/seed.js';
 
 const COURSES = [
   { id: 'c-rehab', name: '復健科醫師門診', durationMin: 30, assigns: 'room',
@@ -934,11 +935,11 @@ describe('那天做什麼', () => {
 describe('確認之後成立的是哪幾段', () => {
   const visits = [
     {
-      id: 'v2', customerName: '王小明', date: '2026-09-23',
+      id: 'v2', customerName: '王小明', date: '2026-09-23', status: 'pending_confirm',
       slots: [{ startsAt: '14:00', endsAt: '15:00', courseName: '復能' }],
     },
     {
-      id: 'v1', customerName: '王小明', date: '2026-09-14',
+      id: 'v1', customerName: '王小明', date: '2026-09-14', status: 'pending_confirm',
       slots: [
         { startsAt: '11:30', endsAt: '12:30', courseName: '營養點滴' },
         { startsAt: '10:30', endsAt: '11:30', courseName: '復能' },
@@ -965,6 +966,31 @@ describe('確認之後成立的是哪幾段', () => {
     const { rows, rejected } = describeConfirmed(visits, new Set(['v1:0', 'v1:1', 'v2:0']));
     assert.deepEqual(rows, []);
     assert.equal(rejected, 3);
+  });
+
+  // 她在日曆上先確認掉早上那一段（ADR-0097），抽屜裡只剩下午那一段 ——
+  // 按下「確認 1 段」之後那張卡片寫「已確認 2 段」是假話。
+  describe('早就談定或取消掉的那一段不在這一次裡（ADR-0097）', () => {
+    const day = {
+      id: 'v3', customerName: '王小明', date: '2026-09-30', status: 'pending_confirm',
+      slots: [
+        { startsAt: '09:00', endsAt: '09:30', courseName: '復健科醫師門診', status: 'confirmed' },
+        { startsAt: '14:00', endsAt: '15:00', courseName: '復能', status: 'pending_confirm' },
+        { startsAt: '16:00', endsAt: '17:00', courseName: '復能', status: 'cancelled' },
+      ],
+    };
+
+    test('確認：只列這一次從待確認變成已確認的那一段', () => {
+      const { rows, rejected } = describeConfirmed([day], new Set());
+      assert.deepEqual(rows.map((r) => r.slot.startsAt), ['14:00']);
+      assert.equal(rejected, 0);
+    });
+
+    test('把僅剩那一段退掉：一段都沒確認，卡片不畫', () => {
+      const { rows, rejected } = describeConfirmed([day], new Set(['v3:1']));
+      assert.deepEqual(rows, [], '早上那一段不是這一次確認的');
+      assert.equal(rejected, 1);
+    });
   });
 });
 
@@ -1255,6 +1281,59 @@ describe('讀取卡片要畫哪幾段', () => {
 // 指派是**課程說了算**，而擇一池的課程是選到的那一台器材推出來的（ADR-0075）。
 // 所以在她挑器材之前，「這一段要治療師還是治療室」是**還沒有答案**的 ——
 // 畫一排出來等於替她答了。
+describe('這一段要排多久（slotMinutes，ADR-0098）', () => {
+  // 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項
+  // 設定那邊要多一個時間」。
+  const DRIP = { id: 'c-iv', name: '營養點滴', durationMin: 120, requiresIvProduct: true };
+  const POOL = { id: 'c-recovery', name: '復能', durationMin: 60 };
+  const HEART = { id: 'iv-heart', name: '護心抗老', durationMin: 180 };
+  const LIVER = { id: 'iv-liver', name: '護肝排毒' };
+
+  test('護心抗老 180 分，其餘品項跟著課程走', () => {
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: HEART }), 180);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: LIVER }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: null }), 120);
+  });
+
+  // **品項排在額度前面。** 營養點滴沒有 durationChoices，所以額度上那一格
+  // 從來不是她挑的 —— 是建額度時抄課程預設值抄進去的（她那份產檔裡的點滴
+  // 額度全被烙上 60）。排在後面的話，改了主檔既有額度照樣是 60。
+  test('額度上烙著 60 的舊點滴，選護心抗老照樣 180', () => {
+    assert.equal(
+      slotMinutes({ entitlement: { durationMin: 60 }, course: DRIP, ivProduct: HEART }),
+      180,
+    );
+  });
+
+  test('不用選品項的課程不問品項那一句 —— 額度優先', () => {
+    assert.equal(slotMinutes({ entitlement: { durationMin: 30 }, course: POOL }), 30);
+    // 復能身上不會有品項，但就算硬塞一個也不算數
+    assert.equal(slotMinutes({ entitlement: null, course: POOL, ivProduct: HEART }), 60);
+  });
+
+  test('三格都沒有就是 60', () => {
+    assert.equal(slotMinutes({}), 60);
+    assert.equal(slotMinutes(), 60);
+  });
+
+  test('0、負數、看不懂的一律當成沒填', () => {
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: 0 } }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: -30 } }), 120);
+    assert.equal(slotMinutes({ course: DRIP, ivProduct: { durationMin: '一百八' } }), 120);
+    assert.equal(slotMinutes({ entitlement: { durationMin: 0 }, course: POOL }), 60);
+  });
+
+  test('種子：營養點滴 120 分、護心抗老 180 分，其餘品項不填', () => {
+    const drip = SEED.courses.find((c) => c.id === 'course-iv-drip');
+    assert.equal(drip.durationMin, 120);
+    const heart = SEED.ivProducts.find((x) => x.id === 'iv-heart');
+    assert.equal(heart.durationMin, 180);
+    const others = SEED.ivProducts.filter((x) => x.id !== 'iv-heart');
+    assert.deepEqual(others.map((x) => x.durationMin ?? null), others.map(() => null),
+      '空的就是「跟著課程走」—— 填一份跟課程一樣的數字，改課程時會有一堆沒跟上的');
+  });
+});
+
 describe('這一段現在要指派什麼', () => {
   const recovery = { id: 'c-recovery', assigns: 'therapist', requiresEquipment: true };
   const ilib = { id: 'c-ilib', assigns: 'room', requiresEquipment: false };
@@ -1637,6 +1716,107 @@ describe('長按一列時，取消的是那一段還是一整天（ADR-0081）',
       for (const slotIndex of [null, 0, 1, 2]) {
         const n = visitActions(three({ status }), { today: '2026-09-05', slotIndex }).length;
         assert.ok(n <= 5, `${status} / ${slotIndex} 有 ${n} 顆`);
+      }
+    }
+  });
+});
+
+describe('長按一列說「客戶已確認」，確認的是那一段（ADR-0097）', () => {
+  // 她 2026-09-16：「如果在新增同一個人兩段來訪，然後我只長按其中一段，
+  // 說客戶已確認，會變成整天的都變成已確認，能不能我那個時段說確認就那個時段確認就好」
+  const two = (a, b) => ({
+    id: 'v1', customerId: 'c1', date: '2026-09-20',
+    slots: [{ startsAt: '10:30', status: a }, { startsAt: '11:30', status: b }],
+    status: null,
+  });
+  const settled = (a, b) => {
+    const v = two(a, b);
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const ids = (visit, slotIndex) =>
+    visitActions(visit, { today: '2026-09-05', slotIndex }).map((x) => x.id);
+
+  test('已經談定的那一段不再給「客戶說可以」，還沒問的那一段給', () => {
+    const v = settled('confirmed', 'pending_confirm');
+    assert.equal(v.status, 'pending_confirm', '整筆是待確認（一段還沒問）');
+    assert.ok(!ids(v, 0).includes('confirmed'), '第 0 段已經談定了');
+    assert.ok(ids(v, 1).includes('confirmed'), '第 1 段還沒問過');
+  });
+
+  test('已經做完的那一段不給 —— TRANSITIONS 不准 done → confirmed', () => {
+    const v = settled('pending_confirm', 'done');
+    assert.equal(v.status, 'pending_confirm');
+    assert.ok(!ids(v, 1).includes('confirmed'),
+      '整筆還是待確認，但那一段已經是終點了');
+  });
+
+  test('取消掉的那一段不給', () => {
+    const v = settled('pending_confirm', 'cancelled');
+    assert.ok(!ids(v, 1).includes('confirmed'));
+  });
+
+  // 客人做了一段就走（ADR-0025）：`closeVisit()` 之後第 1 段是 no_show、整筆是 done。
+  // no_show → confirmed／cancelled 是**那一段自己**准的轉移，但整筆已經是唯讀鎖定區
+  // （SPEC 第 6.4 節）—— 2026-09-16 之前這裡一顆都沒有，按下「客戶說可以」
+  // 會把已完成的那一天退回已確認，而且不用填更正理由。
+  test('結案的那一天（一段做了、一段沒做），長按沒做的那一段一顆狀態都不給', () => {
+    const v = settled('done', 'no_show');
+    assert.equal(v.status, 'done', '整筆是已完成');
+    assert.deepEqual(ids(v, 1), []);
+    assert.deepEqual(ids(v, 0), []);
+  });
+
+  test('整天都沒到的那一天照舊給（跟 2026-09-16 之前一樣）', () => {
+    const v = settled('no_show', 'no_show');
+    assert.equal(v.status, 'no_show');
+    assert.ok(ids(v, 0).includes('confirmed'));
+    assert.ok(ids(v, 0).includes('cancel-slot'));
+  });
+
+  test('沒帶哪一段時維持整筆的判斷', () => {
+    assert.ok(ids(settled('pending_confirm', 'confirmed')).includes('confirmed'));
+    assert.ok(!ids(settled('confirmed', 'confirmed')).includes('confirmed'));
+  });
+
+  test('確認第 1 段不會動到第 0 段', () => {
+    const v = settled('pending_confirm', 'pending_confirm');
+    const next = applyStatus(v, 'confirmed', { slotIndex: 1, at: 'T' });
+    assert.equal(next.slots[0].status, 'pending_confirm', '第 0 段一個字都沒變');
+    assert.equal(next.slots[1].status, 'confirmed');
+    assert.equal(next.status, 'pending_confirm', '整筆還是待確認 —— 第 0 段還沒問');
+  });
+
+  test('最後一段確認完，整筆才推成已確認', () => {
+    const v = settled('confirmed', 'pending_confirm');
+    const next = applyStatus(v, 'confirmed', { slotIndex: 1, at: 'T' });
+    assert.equal(next.status, 'confirmed');
+    assert.equal(next.confirmedAt, 'T');
+  });
+
+  test('仍然最多五顆', () => {
+    for (const a of VISIT_STATUSES) {
+      for (const b of VISIT_STATUSES) {
+        for (const slotIndex of [null, 0, 1]) {
+          const n = visitActions(settled(a, b), { today: '2026-09-05', slotIndex }).length;
+          assert.ok(n <= 5, `${a}/${b}/${slotIndex} 有 ${n} 顆`);
+        }
+      }
+    }
+  });
+
+  test('只給 TRANSITIONS 准的轉移 —— 逐段也一樣（ADR-0006）', () => {
+    for (const a of VISIT_STATUSES) {
+      for (const b of VISIT_STATUSES) {
+        const v = settled(a, b);
+        for (const slotIndex of [0, 1]) {
+          const own = slotStatus(v, v.slots[slotIndex]);
+          const allowed = new Set(nextStatuses(own));
+          for (const act of visitActions(v, { today: '2026-09-05', slotIndex })) {
+            if (VISIT_STATUSES.includes(act.id)) {
+              assert.ok(allowed.has(act.id), `${a}/${b} 第 ${slotIndex} 段（${own}） → ${act.id}`);
+            }
+          }
+        }
       }
     }
   });

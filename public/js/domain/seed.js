@@ -134,8 +134,12 @@ export const SEED = {
     { id: 'partner-nb', name: '自然美' },
   ],
 
+  // 營養點滴品項。**`durationMin` 是選填的**（ADR-0098）：填了就是那一針要打
+  // 多久，空的就跟著課程走（一般 120 分）。她 2026-09-16：「一般120分，
+  // 護心抗老180分」。行事曆上她刻意設過結束時間的 4 筆點滴全部是 120 分
+  //（雪顏亮彩 ×3、護肝排毒 ×1），護心抗老一筆都沒有。
   ivProducts: [
-    { id: 'iv-heart', name: '護心抗老' },
+    { id: 'iv-heart', name: '護心抗老', durationMin: 180 },
     { id: 'iv-liver', name: '護肝排毒' },
     { id: 'iv-gut', name: '腸道修復' },
     { id: 'iv-sulic', name: '速利清' },
@@ -243,7 +247,26 @@ export const SEED = {
       // SPEC 第 7 節規則 2：EECP 只能在治5、治8。
       // `preferredRoomIds` 跟它**同時填著**是刻意的（2026-09-08）：
       // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
-      id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 30,
+      //
+      // **2026-09-16 從 30 分改成 60 分。** 她：「體驗30正式課60」。
+      // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
+      // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
+      id: 'course-eecp', name: 'EECP', category: 'C', durationMin: 60,
+      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t8'],
+      requiresEquipment: false, frequencyRule: null,
+    },
+    {
+      // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
+      // 預設30分鐘，這樣匯入的也可以對應到了」。
+      //
+      // **名字要跟舊表寫的一字不差**（`EECP體驗`，舊表第 14 列）——
+      // `legacyImport.js` 的 `resolveCourse()` 是精確比對，對不上的話那一段
+      // 匯不進來。`SPEC.md` 第 4.4 節她自己記的實際紀錄也是這四個字
+      //（`14:45–15:15  EECP 體驗`）。
+      //
+      // 機器就那兩間，所以限制與順序跟正式課一模一樣。
+      id: 'course-eecp-trial', name: 'EECP體驗', category: 'C', durationMin: 30,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
@@ -255,7 +278,11 @@ export const SEED = {
       // `allowedRoomTypes` 是點滴室，所以那八間本來就排在最前面、其餘收在
       // 「其他診間」底下。`preferredRoomIds` 刻意留空：全部都是推薦等於沒有
       // 推薦，而多一份名單就多一個「她之後加一間點滴室卻忘了加進去」的機會。
-      id: 'course-iv-drip', name: '營養點滴', category: 'C', durationMin: 60,
+      // **2026-09-16 從 60 分改成 120 分**（她：「一般120分」）。9/16 早上那個
+      // 60 是暫定值（「這個先保留先當作60分鐘，兩小時的先當作排了兩段」），
+      // 而「兩小時排兩段」那一句因此也不成立了 —— 一針 120 分就是一段 120 分。
+      // 打 180 分的那一款由品項身上那一格說了算（`slotMinutes()`，ADR-0098）。
+      id: 'course-iv-drip', name: '營養點滴', category: 'C', durationMin: 120,
       assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,
     },
