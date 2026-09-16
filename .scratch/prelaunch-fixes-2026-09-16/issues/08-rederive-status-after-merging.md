@@ -1,6 +1,6 @@
 # 日曆併進「已確認」的那一天，整筆的狀態沒有跟著時段重推
 
-Status: todo
+Status: done
 Blocked by: 06, 07
 來源：`../spec.md`（報告 §1.3）；已知，`.scratch/coverage-gaps/issues/03` 寫過
 動工前先讀：`.scratch/coverage-gaps/issues/03`、`docs/adr/0081`（時段才是原子單位）、

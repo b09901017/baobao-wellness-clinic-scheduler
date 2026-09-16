@@ -1,6 +1,6 @@
 # 從空的那一天新增、把日期改到他已經有一段的那一天 → 同一天兩筆
 
-Status: todo
+Status: done
 Blocked by: 06
 來源：`../spec.md`（報告 §1.2b）
 動工前先讀：`docs/adr/0083`（一天就是一筆）、`domain/visits.js` 的 `sameDayState()`／`editorTarget()`

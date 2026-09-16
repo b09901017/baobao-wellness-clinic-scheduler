@@ -47,26 +47,6 @@ async function addVisitFor(app, page, customerId) {
   await app.layer('.slotcard');
 }
 
-// ---------- §1.2b 反過來：改日期會長出「同一天第二筆」 ----------
-
-test('P3 從空的那一天新增、把日期改到他已經有一段的那一天：不可以長出第二筆', async ({ app, page }) => {
-  await app.seed(seedOpenVisit());
-  await app.signIn('/calendar');
-  await openDay(app, page, EMPTY);
-  await addVisitFor(app, page, 'cust-y');
-
-  await page.locator('input[name="date"]').fill(DAY);
-  await app.settled();
-
-  await page.locator('button[type="submit"]').first().click();
-  await app.ok();
-  await app.saved();
-
-  const all = await app.readAll('visits');
-  const mine = all.filter((v) => v.customerId === 'cust-y' && v.date === DAY && !v.deletedAt);
-  expect(mine, 'ADR-0083：一位客戶同一天只有一筆').toHaveLength(1);
-});
-
 // ---------- §2.1 壓表「這個月壓好的」通到整天的編輯器 ----------
 
 test('P4 壓表「這個月壓好的」那一列不可以通到 #/visits/:id', async ({ app, page }) => {

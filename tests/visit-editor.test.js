@@ -180,9 +180,16 @@ describe('一人一天一筆（issue 04）', () => {
     assert.match(SRC, /target\.addSlot \? withNewSlot\(base, entitlements, all, settings\) : \{ \.\.\.base \}/);
   });
 
+  // **2026-09-16 起那一句每次重畫都算一次**（`sameDayNote()`）：以前是在
+  // `boot()` 算好一份 `closedToday`，而她改了日期之後那一句就在講另一天的事。
   test('那一天已經結案時要講一句 —— 壓表早就講得出來，日曆以前什麼都不說', () => {
-    assert.match(SRC, /closedToday: target\.merged \|\| existing \? \[\] : sameDay\.closed/);
-    assert.match(SRC, /function closedNote\(ctx\)/);
+    assert.match(SRC, /function sameDayNote\(ctx, draft\)/);
+    assert.match(SRC, /sameDayState\(ctx\.customerVisits, ctx\.customer\.id, draft\.date\)/);
+    assert.match(SRC, /所以這是另外一次來訪/);
+  });
+
+  test('那一天已經有一段時也要講一句 —— 存下去只會有一筆（ADR-0083）', () => {
+    assert.match(SRC, /存下去會加進那一天的那一筆/);
   });
 
   // **2026-09-16 判準從 `isNew` 換成 `isNewDoc`**（報告 §1.2）：
