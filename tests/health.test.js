@@ -294,14 +294,14 @@ describe('品項跟買的不一樣', () => {
 describe('備註寫著舊的說法（ADR-0050）', () => {
   const withMarks = (marks) => run({ customers: [customer({ marks })] });
 
-  test('「姓名欄的編號：3157」列出來，而且給得出改成什麼', () => {
-    const result = withMarks([{ text: '姓名欄的編號：3157', color: 'grey' }]);
+  test('「姓名欄的編號：1234」列出來，而且給得出改成什麼', () => {
+    const result = withMarks([{ text: '姓名欄的編號：1234', color: 'grey' }]);
     const [f] = findingsOf(result, 'chartNo');
     assert.ok(f, '應該要報');
     assert.equal(f.fix.kind, 'renameChartNo');
-    assert.deepEqual(f.fix.changes.marks, [{ text: '病歷號 3157', color: 'grey' }]);
+    assert.deepEqual(f.fix.changes.marks, [{ text: '病歷號 1234', color: 'grey' }]);
     // notes 是那幾則接起來的純文字，試算表報表讀的是它 —— 兩個欄位要一起寫
-    assert.equal(f.fix.changes.notes, '病歷號 3157');
+    assert.equal(f.fix.changes.notes, '病歷號 1234');
   });
 
   test('顏色與其他備註原封不動', () => {
@@ -317,7 +317,7 @@ describe('備註寫著舊的說法（ADR-0050）', () => {
   });
 
   test('已經是新說法的不報 —— 改過一次就不該再出現', () => {
-    const result = withMarks([{ text: '病歷號 3157', color: 'grey' }]);
+    const result = withMarks([{ text: '病歷號 1234', color: 'grey' }]);
     assert.equal(findingsOf(result, 'chartNo').length, 0);
   });
 
@@ -919,7 +919,7 @@ describe('同一個月有兩份不能的時間', () => {
 describe('畫面認得每一種修正', () => {
   // 三種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法
   const result = run({
-    customers: [customer({ marks: [{ text: '姓名欄的編號：3157', color: 'grey' }] })],
+    customers: [customer({ marks: [{ text: '姓名欄的編號：1234', color: 'grey' }] })],
     entitlements: [
       ent({ doneCount: 5 }),
       ent({ id: 'e-chk', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),

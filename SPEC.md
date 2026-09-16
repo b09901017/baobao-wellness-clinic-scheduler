@@ -9,7 +9,7 @@
 
 ### 使用者
 
-一位在「東森栢馥」任職的**健康管理師**。工作內容是幫購買健康方案的客戶安排各種療程課程，並在公司的預約系統上完成登記。
+一位**健康管理師**。工作內容是幫購買健康方案的客戶安排各種療程課程，並在公司的預約系統上完成登記。
 
 - 目前**只有她一個人使用**，架構要能在之後開放給同事（多帳號）。
 - 這是**私人工具**，不是公司專案。資料含客戶健康資訊。
@@ -1654,7 +1654,7 @@ score = w1 × (1 − 可用天數 / 當月天數)        // 限制越多越優�
 | 形態 | **PWA，觸控優先，響應式** | Android 手機與 iPad 各約一半。以容器寬度切三段版型（<600 / 600–899 / ≥900），不是偵測裝置型號 —— iPad Split View 會讓寬度改變。要有離線快取，訊號差時仍打得開（讀取用快取，寫入排隊重試）。 |
 | 後端 | **Firebase**（Firestore + Auth + Security Rules + Hosting） | 使用者指定。Firestore 免費額度對此規模綽綽有餘。 |
 | 排程／背景工作 | 盡量放在 client（app 開啟時執行對帳） | Cloud Functions 需要 Blaze 方案（此規模費用趨近於零，但要綁信用卡）。**先不用 Functions**，等真的需要定時觸發再說。 |
-| 部署 | **Firebase Hosting + GitHub Actions** | `firebase init hosting:github` 建好 workflow，push 就自動部署。維護者多用手機開發，不能依賴本機跑 `firebase deploy`。私有 repo 每月 2000 分鐘免費 Actions 額度，此專案用不到零頭。 |
+| 部署 | **Firebase Hosting + GitHub Actions** | `firebase init hosting:github` 建好 workflow，push 就自動部署。維護者多用手機開發，不能依賴本機跑 `firebase deploy`。公開 repo 用標準 runner 不計 Actions 分鐘。 |
 | 試算表同步 | Apps Script 定時讀 Firestore → 寫回既有格式 | **單向輸出，試算表設為唯讀** |
 | 行事曆 | app 內建；ICS 訂閱為選配 | TimeTree 無穩定寫入管道，且 app 已滿足「工作／私人分離」需求 |
 
@@ -1722,7 +1722,7 @@ serviceAccountKey.json
 
 #### 其他
 
-- Repo 保持 private（保護的是你的程式碼，不是客戶資料，但仍然值得）
+- Repo 是公開的 —— 上面「絕對不能 commit 的」推上去就公開。推之前要看什麼寫在 `CLAUDE.md` 的「上線」那一段
 - Firestore Security Rules 必須寫，**絕不使用測試模式的全開規則**（那個預設 30 天後失效，但期間內是全世界可讀寫）
 - Firebase Auth 限定白名單帳號；未來開放同事時用自訂 claim 或白名單集合控管
 - Rules 要有測試。Firebase Emulator Suite 可以在本機驗證「未登入讀不到」「A 使用者改不了 B 的資料」
