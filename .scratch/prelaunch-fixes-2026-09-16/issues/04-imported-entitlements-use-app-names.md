@@ -1,6 +1,6 @@
 # 匯入的額度沿用舊表的寫法，跟她之後加購的並排
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §4.5）
 動工前先讀：`docs/adr/0078`（全站只有三種名字）、`docs/adr/0054`（健檢的等級在額度上）、
 `domain/entitlements.js` 的 `poolName()`／`timedLabel()`／`tieredLabel()`／`itemisedLabel()`、

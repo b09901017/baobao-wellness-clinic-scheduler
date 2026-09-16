@@ -14,6 +14,7 @@
 import { isValidDate } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { followupPlanEntries } from './followups.js';
+import { importedLabel, tierFromLegacyLabel } from './entitlements.js';
 import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
@@ -190,36 +191,45 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       else problem(e.label, e.productName, '主檔裡沒有這個營養點滴品項，這筆額度不記買了哪一款');
     }
 
+    // 健檢的等級（`12萬健檢` 的 `12萬`）。合併檔 v3 沒有帶這一格，而 ADR-0054
+    // 說它住在額度上 —— 解析得出來就補上，認不出來（`x萬健檢`）就留空不要猜。
+    const tier = course?.followupCourseId ? tierFromLegacyLabel(e.label, course.name) : null;
+
+    const doc = {
+      type: e.type === 'pool' ? 'pool' : 'single',
+      label: e.label,
+      courseId: e.type === 'pool' ? null : course?.id ?? null,
+      optionEquipmentIds: e.type === 'pool' ? optionIds : null,
+      // 買的那一款。沒買特定品項（舊表寫的是「營養針」那種）就是 null，
+      // 而 `ivChoicesFor()` 看到 null 會退回「全部列出來」—— 那是對的。
+      ivProductId,
+      totalQty: Number(e.totalQty) || 0,
+      // v3 帶時長（舊表的 `復能(30分）`、`ILIB 30`）。沒帶就是課程的時長，跟以前一樣
+      durationMin: minutesOf(e.durationMin) ?? course?.durationMin ?? null,
+      frequencyRule: course?.frequencyRule ?? null,
+      // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
+      // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
+      sourcePlanName: e.sourcePlanName ?? null,
+      sourcePlanSets: e.sourcePlanSets ?? null,
+      sourcePlanQty: e.sourcePlanQty ?? null,
+      // 同一次購買共用一個 id（「買過什麼」與客戶抬頭靠它與購買日分組）。
+      // 檔案裡只是一個暗號（`plan`／`extras`），換成這位客戶自己的字串，不寫進 purchaseKey
+      purchaseId: e.purchaseKey ? `import:${name}:${e.purchaseKey}` : null,
+      purchasedAt: e.purchasedAt ?? null,
+      expiresAt: null,
+      doneCount: 0,
+      bookedCount: 0,
+      lastReconciledAt: null,
+      importedFrom: stamp,
+      ...(tier ? { tier } : {}),
+    };
+
     entitlements.push({
       key: e.key,
       productName: e.productName ?? null,
-      doc: {
-        type: e.type === 'pool' ? 'pool' : 'single',
-        label: e.label,
-        courseId: e.type === 'pool' ? null : course?.id ?? null,
-        optionEquipmentIds: e.type === 'pool' ? optionIds : null,
-        // 買的那一款。沒買特定品項（舊表寫的是「營養針」那種）就是 null，
-        // 而 `ivChoicesFor()` 看到 null 會退回「全部列出來」—— 那是對的。
-        ivProductId,
-        totalQty: Number(e.totalQty) || 0,
-        // v3 帶時長（舊表的 `復能(30分）`、`ILIB 30`）。沒帶就是課程的時長，跟以前一樣
-        durationMin: minutesOf(e.durationMin) ?? course?.durationMin ?? null,
-        frequencyRule: course?.frequencyRule ?? null,
-        // v2 帶得出購買日與方案（skill 那一側從 B2 拆出來的，`legacyImport.js` 的
-        // `parsePurchaseCell()`）。v1 沒有就是 null，跟以前一模一樣。
-        sourcePlanName: e.sourcePlanName ?? null,
-        sourcePlanSets: e.sourcePlanSets ?? null,
-        sourcePlanQty: e.sourcePlanQty ?? null,
-        // 同一次購買共用一個 id（「買過什麼」與客戶抬頭靠它與購買日分組）。
-        // 檔案裡只是一個暗號（`plan`／`extras`），換成這位客戶自己的字串，不寫進 purchaseKey
-        purchaseId: e.purchaseKey ? `import:${name}:${e.purchaseKey}` : null,
-        purchasedAt: e.purchasedAt ?? null,
-        expiresAt: null,
-        doneCount: 0,
-        bookedCount: 0,
-        lastReconciledAt: null,
-        importedFrom: stamp,
-      },
+      // **匯進來的名字改成 app 的寫法**（ADR-0095）。算不出來的保留她原本的字 ——
+      // 那幾筆由資料健檢列出來讓她逐筆改。
+      doc: { ...doc, label: importedLabel(doc, { courses, equipment, ivProducts }) },
     });
   }
   // 健檢配二返：買幾次健檢就有幾次二返（GitHub issue #15、ADR-0022）。

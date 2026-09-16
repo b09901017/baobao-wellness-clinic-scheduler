@@ -567,6 +567,101 @@ describe('匯進來的來訪會長出什麼任務', () => {
   });
 });
 
+// ---------- 匯進來的額度用 app 的寫法（ADR-0095、報告 §4.5） ----------
+//
+// 她 2026-09-16：「能不能幫我全部匯進去的時候都一併改名，改成新版 app 的寫法」
+// ＋「這 15 筆⋯⋯讓我之後逐筆改」。所以**算得出來才改，算不出來保留原字**。
+
+describe('匯進來的額度叫什麼', () => {
+  const one = (e) => {
+    const entry = CUSTOMER();
+    entry.entitlements = [e];
+    entry.visits = [];
+    return plan(entry, { today: '2026-09-16' }).entitlements[0]?.doc ?? null;
+  };
+  const single = (label, courseName, extra = {}) =>
+    one({ key: 'x', type: 'single', label, totalQty: 4, courseName,
+      optionEquipmentNames: [], productName: null, ...extra });
+  const pool = (label, names, durationMin) =>
+    one({ key: 'x', type: 'pool', label, totalQty: 4, courseName: null,
+      optionEquipmentNames: names, productName: null, durationMin });
+
+  test('擇一池：名字完全由器材與時長決定', () => {
+    assert.equal(pool('復能(1小時)', ['INDIBA', 'SIS', '高能量雷射'], 60).label, '復能-三選一(60)');
+    assert.equal(pool('任選(30min)', ['INDIBA', 'SIS', '高能量雷射'], 30).label, '復能-三選一(30)');
+    assert.equal(pool('復能(30min)', ['INDIBA', 'SIS', '高能量雷射', 'ILIB'], 30).label, '復能-四選一(30)');
+    assert.equal(pool('SIS(60min)', ['SIS'], 60).label, '復能-SIS(60)');
+    assert.equal(pool('INDIBA(30)', ['INDIBA'], 30).label, '復能-INDIBA(30)');
+  });
+
+  test('池子裡幾台就叫幾選一 —— 不看舊名字寫什麼', () => {
+    // 舊表寫「三選一」但實際上池子裡有四台：照池子算
+    assert.equal(pool('復能三選一(60)', ['INDIBA', 'SIS', '高能量雷射', 'ILIB'], 60).label, '復能-四選一(60)');
+  });
+
+  test('分得出時長的課程（ILIB）帶著時長', () => {
+    assert.equal(single('ILIB 60mins', 'ILIB', { durationMin: 60 }).label, 'ILIB(60)');
+    assert.equal(single('ILIB (60mins)', 'ILIB', { durationMin: 60 }).label, 'ILIB(60)');
+    assert.equal(single('ILIB 30', 'ILIB', { durationMin: 30 }).label, 'ILIB(30)');
+  });
+
+  test('舊表的別稱換成正式名稱（SPEC 第 3 節那張表）', () => {
+    assert.equal(single('Inbody', '身體組成分析').label, '身體組成分析');
+    assert.equal(single('復健門診', '復健科醫師門診').label, '復健科醫師門診');
+    assert.equal(single('物理諮詢', '物理治療師諮詢').label, '物理治療師諮詢');
+    assert.equal(single('營養諮詢', '營養師諮詢').label, '營養師諮詢');
+    assert.equal(single('體適能分析', '體適能檢查分析').label, '體適能檢查分析');
+  });
+
+  test('本來就對的不動', () => {
+    assert.equal(single('EECP', 'EECP').label, 'EECP');
+    assert.equal(single('心臟科評估', '心臟科評估').label, '心臟科評估');
+  });
+
+  describe('算不出來的保留她原本的字 —— 那幾筆她要自己逐筆改', () => {
+    test('健檢：金額與部位都留著，而且把等級解析進 tier（ADR-0054）', () => {
+      const a = single('12萬健檢', '健檢');
+      assert.equal(a.label, '12萬健檢');
+      assert.equal(a.tier, '12萬');
+
+      const b = single('5萬健檢(腸道)', '健檢');
+      assert.equal(b.label, '5萬健檢(腸道)', '「(腸道)」算不出來，整串留著');
+      assert.equal(b.tier, '5萬');
+
+      const c = single('0.75萬健檢', '健檢');
+      assert.equal(c.label, '0.75萬健檢');
+      assert.equal(c.tier, '0.75萬');
+    });
+
+    test('健檢：等級認不出來就不要猜一個金額', () => {
+      const x = single('x萬健檢', '健檢');
+      assert.equal(x.label, 'x萬健檢');
+      assert.equal(x.tier, undefined);
+    });
+
+    test('營養點滴：舊表寫「營養針」「營養點滴（腸道）」的那幾筆不改', () => {
+      assert.equal(single('營養針', '營養點滴').label, '營養針');
+      assert.equal(single('營養點滴（腸道）', '營養點滴').label, '營養點滴（腸道）');
+    });
+
+    test('「EECP體驗」的「體驗」是她寫的東西，不是 EECP 的別稱', () => {
+      assert.equal(single('EECP體驗', 'EECP').label, 'EECP體驗');
+    });
+  });
+
+  test('配出來的二返沿用健檢的名字 —— 健檢沒改名，所以二返也不會變', () => {
+    const entry = CUSTOMER();
+    entry.entitlements = [{
+      key: 'ck', type: 'single', label: '12萬健檢', totalQty: 2,
+      courseName: '健檢', optionEquipmentNames: [], productName: null,
+    }];
+    entry.visits = [];
+    const p = plan(entry, { today: '2026-09-16' });
+    const followup = p.entitlements.find((e) => e.doc.followupForEntitlementKey === 'ck');
+    assert.equal(followup.doc.label, '二返（12萬健檢）');
+  });
+});
+
 // ---------- 營養點滴額度記得住買的是哪一款（報告 §3.1） ----------
 
 describe('營養點滴額度身上的 ivProductId', () => {

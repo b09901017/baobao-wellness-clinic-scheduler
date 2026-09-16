@@ -3,7 +3,7 @@
 // 次數在「已完成」才扣，未到不扣但獨立計數。現行試算表在排定時就扣，
 // 導致取消改期後數字與現實脫節 —— 這裡不重蹈覆轍。
 
-import { validateProduct } from './products.js';
+import { validateProduct, itemsOf, productLabel } from './products.js';
 import { nameOf, fullNameOf } from './naming.js';
 import { durationChoicesOf } from './masterData.js';
 
@@ -620,6 +620,137 @@ export function itemisedLabel(courseName, itemName) {
   const name = String(courseName ?? '').trim();
   const item = String(itemName ?? '').trim();
   return item ? `${name} - ${item}` : name;
+}
+
+/**
+ * 一筆額度**自動**會叫什麼。選什麼就叫什麼，她一個字都不用打。
+ *
+ * 2026-09-16 從 `ui/components/buy.js` 搬過來：它是規則不是畫面
+ *（「這一池叫幾選一」「健檢的等級接在前面」），而第二個消費端出現的那一天
+ * （匯入時一併改名，ADR-0095）它就得從一個 UI 元件借規則 —— SPEC 第 10 節
+ * 說規則住 `/domain`。同 `poolName()` 2026-09-08 搬家的理由。
+ *
+ * 四種接法各有各的來源：擇一池是器材推出來的（`poolName()`）、
+ * 營養點滴是課程名＋品項（`itemisedLabel()`）、分得出時長的課程名字裡帶著它
+ * （`timedLabel()`）、健檢是等級＋課程名（`tieredLabel()`，ADR-0054）。
+ *
+ * @param {object} e 額度（可以是還沒存的草稿）
+ * @param {{courses?: object[], equipment?: object[], ivProducts?: object[], products?: object[]}} master
+ * @returns {string} 算不出來時回空字串 —— **不要補一個猜的**
+ */
+export function autoLabel(e, master = {}) {
+  // 一次購買一筆，名字裡帶金額與那幾款 —— 她的舊表就是那樣寫的
+  // （`營養品(5000) : 夜態美+速體淨…`）。規則只在 `domain/products.js`。
+  if (e?.type === 'product') return itemsOf(e, master).length ? productLabel(e, undefined, master) : '';
+
+  // 擇一池：一台就叫那一台，多台叫「復能三選一」，後面接時長。
+  // 名字**算出來的**（`poolName()`）—— 她多加一台器材，「四選一」自己會變。
+  if (e?.type === 'pool') {
+    return timedLabel(
+      poolName(e.optionEquipmentIds ?? [], master.equipment ?? [], master.courses ?? []),
+      e.durationMin,
+    );
+  }
+
+  const course = (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
+  if (!course) return '';
+  if (course.requiresIvProduct) {
+    const item = (master.ivProducts ?? []).find((p) => p.id === e.ivProductId)?.name ?? '';
+    return itemisedLabel(course.name, item);
+  }
+  // 分得出時長的課程（ILIB）名字裡帶著它 —— 她身上會同時有 ILIB(30) 與 ILIB(60)
+  if (durationChoicesOf(course).length) return timedLabel(course.name, e?.durationMin);
+  return tieredLabel(e?.tier, course.name);
+}
+
+/**
+ * 她自己打過的顯示名稱。**沒改過就回 `null`**，讓呼叫端重新帶一個自動的。
+ *
+ * 「改過」的判準是「跟自動帶的那一個不一樣」。這一支是為了讓「換課程」
+ * 「換等級」「換品項」三條路用同一個判斷：三邊各寫一次，遲早有一邊
+ * 把她打的字蓋掉。
+ */
+export function keptLabel(e, master) {
+  const auto = autoLabel(e, master);
+  return e?.label && e.label !== auto ? e.label : null;
+}
+
+/**
+ * 舊試算表的療程列名 → 方案文宣的正式名稱（`SPEC.md` 第 3 節那張表）。
+ *
+ * **只收「同一個東西的兩種寫法」**，不收任何帶著額外資訊的字：
+ * `EECP體驗` 不在這裡（「體驗」是她寫的東西，不是 EECP 的別稱）。
+ */
+const LEGACY_COURSE_SPELLINGS = Object.freeze({
+  Inbody: '身體組成分析',
+  復健門診: '復健科醫師門診',
+  物理諮詢: '物理治療師諮詢',
+  營養諮詢: '營養師諮詢',
+  體適能分析: '體適能檢查分析',
+});
+
+/** `12萬健檢` → `12萬`。認不出來回 `null` —— **不要猜一個金額**（ADR-0054）。 */
+export function tierFromLegacyLabel(label, courseName) {
+  const text = String(label ?? '').trim();
+  const name = String(courseName ?? '').trim();
+  if (!name || !text.includes(name)) return null;
+  const head = text.slice(0, text.indexOf(name));
+  return /^\d+(\.\d+)?萬$/.test(head) ? head : null;
+}
+
+/**
+ * 匯進來的一筆額度叫什麼。
+ *
+ * 她 2026-09-16：「能不能幫我全部匯進去的時候都一併改名，改成新版 app 的寫法」。
+ * 匯進來的名字沿用舊表（`復能(1小時)`、`Inbody`、`ILIB 60mins`），而她之後在
+ * app 裡加購的會叫 `復能-三選一(60)`、`身體組成分析`、`ILIB(60)`（ADR-0078）——
+ * **同一位客戶身上兩種名字並排，看起來像兩種東西。**
+ *
+ * ## 算得出來才改，算不出來保留她原本的字
+ *
+ * 她同一句話的後半：「這 15 筆⋯⋯讓我之後逐筆改」。所以這一支**寧可不改**：
+ *
+ * | 形狀 | 改成 | 為什麼算得出來 |
+ * |---|---|---|
+ * | 擇一池 | `poolName()` + 時長 | 名字 100% 由器材與時長決定，舊字帶不了別的 |
+ * | 分得出時長的課程（ILIB）| `timedLabel()` | 同上 |
+ * | 舊表的別稱（`Inbody`…）| 正式名稱 | 對照表上的兩個字講的是同一件事 |
+ * | 其餘 | **原字不動** | `12萬健檢`、`5萬健檢(腸道)`、`營養針`、`EECP體驗` 都帶著算不出來的字 |
+ *
+ * 健檢那幾筆再多做一件事：把 `12萬` 解析進 `tier`（ADR-0054 要的那一格，
+ * 合併檔 v3 沒有帶）。那樣名字**一個字都不會變**（`tieredLabel('12萬','健檢')`
+ * 就是 `12萬健檢`），而結構補上了。
+ *
+ * **這一支只在匯入那一刻跑。** 她之後在 app 裡改過的名字一個字都不可以被碰
+ * （`keptLabel()`）—— CLAUDE.md：「她自己打的名字不可以被一顆按鈕改掉」。
+ *
+ * 見 `docs/adr/0095-imported-entitlements-take-the-apps-names.md`。
+ *
+ * @param {object} doc 已經組好的額度（`type`、`courseId`、`optionEquipmentIds`、`durationMin`、`label`）
+ * @param {{courses?: object[], equipment?: object[], ivProducts?: object[]}} master
+ * @returns {string} 要用的名字。算不出來時回原本那一個
+ */
+export function importedLabel(doc, master = {}) {
+  const original = String(doc?.label ?? '').trim();
+  const auto = autoLabel(doc, master);
+  if (!auto) return original;
+  // 本來就一樣（`EECP`、`心臟科評估`、`營養點滴 - 護肝排毒`）
+  if (auto === original) return original;
+
+  // 擇一池：名字完全由器材與時長決定
+  if (doc?.type === 'pool') return auto;
+
+  const course = (master.courses ?? []).find((c) => c.id === doc?.courseId) ?? null;
+  if (!course) return original;
+
+  // 分得出時長的課程（ILIB 30／ILIB (60mins)）
+  if (durationChoicesOf(course).length) return auto;
+
+  // 舊表的別稱。**只認對照表上那幾個** —— 比不上就保留原字，
+  // 因為「原字比正式名稱多出來的部分」正是她要自己逐筆看的東西
+  if (LEGACY_COURSE_SPELLINGS[original] === course.name) return auto;
+
+  return original;
 }
 
 export function validateEntitlement(e, { courses = [], equipment = [], products = [] } = {}) {

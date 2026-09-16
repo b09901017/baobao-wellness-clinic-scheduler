@@ -27,13 +27,17 @@
 import * as f from './form.js';
 import {
   TIER_PRESETS, tieredLabel, itemisedLabel, validateEntitlement,
-  poolName, timedLabel, durationChoicesOf,
+  poolName, timedLabel, durationChoicesOf, autoLabel, keptLabel,
   POOL_SET_HOME, POOL_SET_ALL, poolCourseOf, poolChoices, poolSiblingCourseIds,
   idsForPoolKind, poolPickOf,
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
 import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
+
+// **這兩支 2026-09-16 搬進 `domain/entitlements.js`**（規則不是畫面，ADR-0095）。
+// 這裡轉出去是為了既有的呼叫端不用一次全改 —— 新的呼叫端直接讀 domain 那一支。
+export { autoLabel, keptLabel };
 
 /**
  * 「買了什麼」那一排裡代表擇一池的那一顆。它不是課程，所以借不到課程 id。
@@ -303,50 +307,6 @@ function withItemNames(e, master) {
   if (e?.type !== 'product' || !Array.isArray(e.items)) return e;
   const byId = new Map((master.products ?? []).map((p) => [p.id, p.name]));
   return { ...e, items: e.items.map((x) => ({ ...x, name: byId.get(x.productId) ?? x.name ?? '' })) };
-}
-
-/**
- * 自動帶的顯示名稱。選什麼就叫什麼，她一個字都不用打。
- *
- * 三種接法各有各的來源：健檢是等級＋課程名（ADR-0054）、營養點滴是
- * 課程名＋品項（`itemisedLabel()`，跟舊資料匯進來的那幾筆同一支）、
- * 營養品就是那一款的名字。
- */
-export function autoLabel(e, master) {
-  // 一次購買一筆，名字裡帶金額與那幾款 —— 她的舊表就是那樣寫的
-  // （`營養品(5000) : 夜態美+速體淨…`）。規則只在 `domain/products.js`。
-  if (e?.type === 'product') return itemsOf(e).length ? productLabel(e) : '';
-
-  // 擇一池：一台就叫那一台，多台叫「復能三選一」，後面接時長。
-  // 名字**算出來的**（`poolName()`）—— 她多加一台器材，「四選一」自己會變。
-  if (e?.type === 'pool') {
-    return timedLabel(
-      poolName(e.optionEquipmentIds ?? [], master.equipment ?? [], master.courses ?? []),
-      e.durationMin,
-    );
-  }
-
-  const course = (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null;
-  if (!course) return '';
-  if (course.requiresIvProduct) {
-    const item = (master.ivProducts ?? []).find((p) => p.id === e.ivProductId)?.name ?? '';
-    return itemisedLabel(course.name, item);
-  }
-  // 分得出時長的課程（ILIB）名字裡帶著它 —— 她身上會同時有 ILIB(30) 與 ILIB(60)
-  if (durationChoicesOf(course).length) return timedLabel(course.name, e?.durationMin);
-  return tieredLabel(e?.tier, course.name);
-}
-
-/**
- * 她自己打過的顯示名稱。**沒改過就回 `null`**，讓呼叫端重新帶一個自動的。
- *
- * 「改過」的判準是「跟自動帶的那一個不一樣」。這一支是為了讓「換課程」
- * 「換等級」「換品項」三條路用同一個判斷：三邊各寫一次，遲早有一邊
- * 把她打的字蓋掉。
- */
-export function keptLabel(e, master) {
-  const auto = autoLabel(e, master);
-  return e?.label && e.label !== auto ? e.label : null;
 }
 
 /**
