@@ -1502,3 +1502,21 @@ describe('同一位客戶同一天有兩筆來訪', () => {
     assert.equal(findingsOf(run({ visits: two }), 'sameDayVisits')[0].fix, null);
   });
 });
+
+// 整筆還活著、其中一段取消了（ADR-0081）。排班時的提醒不算它，這裡也不能算
+// —— 兩邊不一樣的話她會看到一列「按了修正也不會消失」的假警報。
+describe('衝突殘留：取消掉的那一段不算', () => {
+  test('同一間、同一個時間，但其中一段是取消的 → 不列', () => {
+    const mine = visit({
+      status: 'confirmed',
+      slots: [{ ...visit().slots[0], therapistId: null, roomId: 'r-3', status: 'confirmed' }],
+    });
+    const theirs = {
+      id: 'v-other', customerId: 'cus-2', customerName: '客戶乙', date: mine.date,
+      status: 'confirmed',
+      slots: [{ ...visit().slots[0], therapistId: null, roomId: 'r-3', status: 'cancelled' }],
+    };
+    assert.deepEqual(runHealthCheck(snapshot({ visits: [mine, theirs] }), TODAY)
+      .checks.find((c) => c.id === 'conflicts').findings, []);
+  });
+});

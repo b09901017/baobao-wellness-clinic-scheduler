@@ -29,7 +29,7 @@ import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime } from './visitTime.js';
 import {
-  VISIT_STATUSES, isActive, visitStatusFrom, describeStatus, roomCapacityOf,
+  VISIT_STATUSES, isActive, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus,
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
@@ -608,9 +608,14 @@ function checkConflicts(ctx) {
 
   for (const [date, visits] of Object.entries(byDate)) {
     // 攤平成時段清單再兩兩比，避免四層迴圈讀不懂
+    // **取消掉的那一段不算**（ADR-0081）：那一格已經還回去了。整筆取消的
+    // 那幾筆上面已經濾掉（`isActive()`），這裡濾的是「整筆還活著、其中一段
+    // 取消了」的那一種 —— 排班時的提醒（`conflictWarnings()`）也是這樣問的，
+    // 兩邊不一樣的話她會看到一列「按了修正也不會消失」的假警報。
     const slots = visits.flatMap((visit) =>
       (visit.slots ?? [])
         .filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt))
+        .filter((s) => slotStatus(visit, s) !== 'cancelled')
         .map((slot) => ({ visit, slot })),
     );
 
