@@ -46,6 +46,30 @@ export function listByVisit(visitId) {
   return repo.list(PATH, { wheres: [where('visitId', '==', visitId)] });
 }
 
+/**
+ * 某一筆來訪的任務，**連軟刪除的一起**。來訪存檔時拿來比對的那一份。
+ *
+ * ## 為什麼比對要看得到被清掉的那幾張
+ *
+ * 「清掉這 N 筆」與已完成那一列的垃圾桶都是軟刪除（SPEC 第 6.1 節）。
+ * 而 `syncTasksForVisit()` 問的是「這一件事**有沒有人做過**」——
+ * 做過了就是做過了，那一列被清掉只代表她不想再看到它。
+ *
+ * 2026-09-16 之前比對走 `listByVisit()`，而 `repo.list()` 一律濾掉
+ * `deletedAt` —— 於是清掉之後同一筆來訪再存一次，做過的那幾張會重新長出來：
+ *
+ *   取消一段 → 「取消 Abovee」勾掉 → 清掉 → 那一天結案 → **又一張，死線已經過了**
+ *   A 類已確認 → Examine、耀聖勾掉 → 清掉 → 改那一段的時間 → **又各一張**
+ *
+ * 而那幾張假的待辦會叫她**再去 Examine 掛一次號**，或回 Abovee 放掉一個
+ * 可能已經被別人排進去的時段（報告 §2.2）。
+ *
+ * **只給比對用。** 待辦中心那幾頁照舊走 `listByVisit()` —— 她清掉的就是要消失。
+ */
+export function listByVisitForSync(visitId) {
+  return repo.listWithDeleted(PATH, { wheres: [where('visitId', '==', visitId)] });
+}
+
 /** 某位客戶的全部任務。客戶詳情頁的任務歷史用。 */
 export function listByCustomer(customerId) {
   return repo.list(PATH, { wheres: [where('customerId', '==', customerId)] });

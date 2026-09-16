@@ -4393,6 +4393,18 @@ button.mark::after {
   flex: 1;
 }
 
+/* 點不下去的那一種（壓表的「這個月壓好的」，2026-09-16）。
+   它以前是連結，而那條路通到整天的編輯器（ADR-0056／0085／0089 那一串決定
+   在那裡都不成立）。拿掉連結之後那一列只剩文字，所以高度與行高要自己撐 ——
+   不撐的話那一排會塌成沒有間距的一團。 */
+.link-list--flat .link-list__label {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .link-list a::after {
   content: '›';
   margin-left: var(--space-3);

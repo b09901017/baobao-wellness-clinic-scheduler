@@ -197,10 +197,14 @@ export async function restore(visit, customerVisits = []) {
  *
  * 課程刻意連已刪除的一起讀：主檔把課程刪掉，不代表已經排出去的來訪就不用去掛號了。
  * 少讀那一筆的代價是任務被靜默移除，那正是這個 app 要解決的問題。
+ *
+ * **任務也是**（`listByVisitForSync()`，2026-09-16）：她在待辦中心「清掉」的
+ * 那幾張是軟刪除，而比對問的是「這件事有沒有人做過」—— 看不到它們的話，
+ * 同一筆來訪再存一次就會把已經做過的登記與取消重新長一次。
  */
 async function taskOps(visit, { isNew = false, visitsAfter = null } = {}) {
   const [existing, courses] = await Promise.all([
-    isNew ? [] : tasksData.listByVisit(visit.id),
+    isNew ? [] : tasksData.listByVisitForSync(visit.id),
     config.listAll('courses', { includeDeleted: true }),
   ]);
 

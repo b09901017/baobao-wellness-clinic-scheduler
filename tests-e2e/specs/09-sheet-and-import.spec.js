@@ -264,7 +264,13 @@ test('J-C13 合併檔 v3：單買一台的池匯得進去、時長照檔案、�
   expect(c.flags).toEqual(['體內金屬']);
   expect(c.partners).toEqual(['自然美']);
 
-  const pool = (await app.readAll(`customers/${c.id}/entitlements`)).find((e) => e.label === 'SIS(30)');
+  // **名字改成 app 的寫法**（2026-09-16，ADR-0095）：舊表寫 `SIS(30)`，
+  // 而她在 app 裡加購同一筆會叫 `復能-SIS(30)` —— 同一位客戶身上兩種名字
+  // 並排看起來像兩種東西。擇一池的名字 100% 由器材與時長決定，所以改得掉。
+  const ents = await app.readAll(`customers/${c.id}/entitlements`);
+  const pool = ents.find((e) => e.type === 'pool');
+  expect(pool?.label, '匯進來的名字用 app 的寫法').toBe('復能-SIS(30)');
+  expect(ents.some((e) => e.label === 'SIS(30)'), '舊表那個寫法不可以留著').toBe(false);
   expect(pool?.optionEquipmentIds, '只有 SIS 一台').toEqual(['eq-sis']);
   expect(pool?.durationMin, '30 分鐘不可以塌成課程的 60').toBe(30);
 

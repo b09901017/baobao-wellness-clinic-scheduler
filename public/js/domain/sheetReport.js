@@ -16,7 +16,9 @@
 
 import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
-import { isActive, markFor, slotStatus, MARK_ORDER, MARK_LEGEND } from './visits.js';
+import {
+  isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, MARK_ORDER, MARK_LEGEND,
+} from './visits.js';
 import { pairsOf } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
@@ -276,8 +278,14 @@ function csvCell(value) {
  * 是 ILIB sis indiba 等等」。**不塞進 `followupNotes`** —— `.gs` 把那一份
  * 全部畫在同一列，同一個 `dateIndex` 後面的會蓋掉前面的，而一位客戶同一天
  * 做了健檢又做了四選一是會發生的。
+ *
+ * 5（2026-09-16）：每一筆額度底下多一列「那一段記了什麼」（`slotNotes`）。
+ * 起點是「家屬用本人的名額」—— app 裡沒有地方寫「實際來的是誰」，而她
+ * 2026-09-16 選的是寫在那一段的記一句（ADR-0084）並且推上試算表：
+ * 「希望是可以⋯⋯記在當天那一列的下面」。**同一個模子的第二次用**，
+ * 理由跟格式 4 一模一樣，所以它也不塞進 `followupNotes`。
  */
-export const SYNC_FORMAT = 4;
+export const SYNC_FORMAT = 5;
 
 /**
  * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
@@ -343,6 +351,17 @@ export function syncBundle({
       }))
       .filter((x) => x.cells.length);
 
+    // 「那一段記了什麼」（格式 5 起）。跟上面那一份同一個形狀、同一個理由 ——
+    // `.gs` 把它畫在那一列的正下方。**每一筆額度都問**（不像器材那一份只問
+    // 得選的擇一池）：一句話可以記在任何一段上。
+    const slotNotes = scheduled
+      .map((e, rowIndex) => ({
+        rowIndex,
+        label: e.label ?? '',
+        cells: slotNoteCells(e, visits, dates),
+      }))
+      .filter((x) => x.cells.length);
+
     return {
       name: customer.name ?? '',
       source: customer.source ?? '',
@@ -353,6 +372,7 @@ export function syncBundle({
       dateLabels: dates.map(shortDate),
       rows,
       equipmentNotes,
+      slotNotes,
       // 營養品自己一區（格式 3 起）。它以前混在 `rows` 裡，而那幾個數字欄
       // 印的是月數 —— 一個都看不懂。這一區帶金額、哪幾款、哪天給了。
       products: alive.filter(isProduct).map((e) => {
@@ -449,6 +469,35 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
       }
     }
     if (names.length) out.push({ dateIndex, text: names.join('、') });
+  });
+  return out;
+}
+
+/**
+ * 那一段記了什麼（格式 5 起）。形狀跟 `equipmentCells()` 一模一樣。
+ *
+ * 讀那一句走 `domain/visits.js` 的 `slotNote()` —— **唯一那一支**，
+ * 而且舊資料退回整筆那一句（`visit.note`）的規則也在它裡面（ADR-0084）。
+ *
+ * **取消掉的那一段不印**：那一場沒發生，而那一格印出來的東西會讓她以為它發生了。
+ *
+ * 同一天同一筆額度有兩段都記了字時用換行接起來 —— 同 `followupNotes()` 的理由
+ * （同一個 `dateIndex` 只能回一筆，不然 `.gs` 那側後面的會蓋掉前面的）。
+ */
+export function slotNoteCells(entitlement, visits, dates) {
+  const out = [];
+  dates.forEach((date, dateIndex) => {
+    const lines = [];
+    for (const v of visits) {
+      if (v.date !== date) continue;
+      for (const slot of v.slots ?? []) {
+        if (slot.entitlementId !== entitlement.id) continue;
+        if (!isLiveSlot(slot)) continue;
+        const text = slotNote(v, slot);
+        if (text && !lines.includes(text)) lines.push(text);
+      }
+    }
+    if (lines.length) out.push({ dateIndex, text: lines.join('\n') });
   });
   return out;
 }

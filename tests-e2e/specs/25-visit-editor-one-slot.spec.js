@@ -22,7 +22,7 @@
 // 那個症狀（一天三段、只記一段、三列全亮）它抓不到。這裡兩種形狀都問一次。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
 
 const DAY = TODAY;
 
@@ -111,10 +111,11 @@ function seedOneConfirmedVisit() {
  * `[data-day]` 只在月檢視的格子上（日檢視畫的是時間軸，沒有格子），
  * 所以這裡不切檢視 —— 抽屜裡那一份清單跟日檢視是同一支 `dayHtml()`。
  */
-async function openDay(app, page) {
+async function openDay(app, page, day = DAY) {
   await app.go('/calendar');
-  await page.locator(`[data-day="${DAY}"]`).first().click();
-  await app.layer('[data-open^="visit:"]');
+  await page.locator(`[data-day="${day}"]`).first().click();
+  // 那一天沒有來訪時等的是抽屜本身（`[data-open^="visit:"]` 一個都不會有）
+  await app.layer(day === DAY ? '[data-open^="visit:"]' : '[data-addmenu-toggle]');
 }
 
 /** 點第 n 列 → 讀取卡片 → 按鉛筆 → 編輯器。回來時編輯器已經畫好了。 */
@@ -261,24 +262,127 @@ test('V4 併進已確認的那一天，新的那一段是「待確認」不是�
   ).toBe('pending_confirm');
 });
 
-// **這一支現在是紅的，而且是刻意留著的。**
+// ---------- 二之二、日期只有在這一筆來訪是全新的時候才給改（報告 §1.2） ----------
 //
-// 時段那一層兩個入口都對（上面那一支綠的），壞的是整筆那一格：
+// 併進同一天既有那一筆時，編輯器以前照樣畫出「來訪日期」（那條路 `isNew` 是
+// true）。改成別天再存，**那一天原本那幾段會一起搬走**，而存檔前那道 Abovee
+// 確認只列新加的那一段 —— 她看不出來。
+
+test('V4c 併進既有那一天時不畫日期欄', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page);
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await expect(page.locator('.slotcard'), '只有新的那一段改得動').toHaveCount(1);
+  await expect(
+    page.locator('input[name="date"]'),
+    '改了它，那一天原本那幾段會一起搬走，而確認框只列新的那一段',
+  ).toHaveCount(0);
+});
+
+test('V4d 那一天什麼都沒有時，日期照樣給改', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page, addDays(DAY, 2));
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await expect(
+    page.locator('input[name="date"]'),
+    '從日曆點的那一天不一定對 —— 全新的一筆要挑得到日子',
+  ).toHaveCount(1);
+});
+
+// ---------- 二之三、改日期不可以長出「同一天第二筆」（報告 §1.2b） ----------
+//
+// 併不併以前是 `boot()` 開表單那一刻決定的，改日期只重讀了撞期用的
+// `sameDayVisits`，沒有重問 `sameDayState()` —— 於是同一位客戶同一天兩筆，
+// ADR-0083 破功，而資料健檢那一列的說明寫著「這是舊資料」，它卻是新的。
+//
+// **合併在存檔時發生**（`mergedPayload()`），所以日期照樣改得動：
+// 她挑錯一天不會被卡在一張改不回去的表單裡。畫面先講，然後照講的做。
+
+test('V4e 從空的那一天新增、把日期改到他已經有一段的那一天：只會有一筆', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page, addDays(DAY, 2));
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await page.locator('input[name="date"]').fill(DAY);
+  await app.settled();
+
+  // **先講，再做。** 這一句是紅線（它講的是按下去會寫成什麼），
+  // 所以它常駐在畫面上，不收進 tip()。
+  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+
+  await page.locator('button[type="submit"]').first().click();
+
+  // **第一道問的是合併之後的那一筆。** 新的那一段預設 09:00，而那一天原本
+  // 那一段是 09:00–09:20 —— 拿草稿去驗的話這一句永遠講不出來。
+  expect(await app.dialogText()).toContain('時間重疊');
+  await app.ok();
+
+  await app.ok();   // 第二道：Abovee
+  await app.saved();
+
+  const all = await app.readAll('visits');
+  const mine = all.filter((v) => v.customerId === 'cust-y' && v.date === DAY && !v.deletedAt);
+  expect(mine, 'ADR-0083：一位客戶同一天只有一筆').toHaveLength(1);
+  expect(mine[0].id, '併進既有那一筆，不是另外開一筆').toBe('v-one');
+  expect(mine[0].slots, '那一段接在同一筆的後面').toHaveLength(2);
+  expect(mine[0].status, '新的那一段還沒問過客人 —— 整筆退回待確認').toBe('pending_confirm');
+});
+
+test('V4f 日期改回一個空的日子，那一句話要跟著消失', async ({ app, page }) => {
+  await app.seed(seedOneConfirmedVisit());
+  await app.signIn('/calendar');
+  await openDay(app, page, addDays(DAY, 2));
+
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-y"]').click();
+  await app.layer('.slotcard');
+
+  await page.locator('input[name="date"]').fill(DAY);
+  await app.settled();
+  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+
+  // 挑錯一天不可以把她卡住 —— 日期照樣改得動
+  await page.locator('input[name="date"]').fill(addDays(DAY, 3));
+  await app.settled();
+  await expect(page.locator('body')).not.toContainText('存下去會加進那一天的那一筆');
+});
+
+// **2026-09-16 修好了**（`.scratch/prelaunch-fixes-2026-09-16/issues/08`）。
+//
+// 以前同一件事兩個入口兩種結果：
 //
 //   壓表  → `withExtraSlot()` 把整筆退回「待確認」，`confirmedAt` 一起清掉
 //   日曆  → `withNewSlot()` 一個字都沒碰 `visit.status`
 //
 // 而 `visit.status` 是推導出來又存起來的，四個地方讀它（索引、Rules、
-// 試算表、備份）。停在「已確認」的後果是那一筆查不到、待辦中心不會叫她
-// 去問新加的那一段，而資料健檢會把它列成「狀態跟時段對不起來」——
-// 那一列是拿來抓歷史髒資料的，不該是 app 自己每次併段都生一筆。
+// 試算表、備份）。停在「已確認」的後果是那一筆查不到、**待辦中心不會叫她
+// 去問新加的那一段**（`visitsToConfirm()` 看的是整筆狀態），而資料健檢會把
+// 它列成「狀態跟時段對不起來」—— 那一列是拿來抓歷史髒資料的。
 //
-// 定案與做法在 `.scratch/coverage-gaps/issues/03`。**修好的那天這一支會
-// 轉紅**（`test.fail()` 的測試通過時 Playwright 讓整份紅），所以忘不掉 ——
-// 修的人記得把這個標記拿掉。
-test('V4b 併進之後整筆的狀態要跟著時段重推（issues/03，還沒修）', async ({ app, page }) => {
-  test.fail(true, '日曆這條路沒走 withExtraSlot()，見 .scratch/coverage-gaps/issues/03');
-
+// 現在兩條路都走 `withExtraSlot()`，而那一支只在 `mergedPayload()` 被呼叫。
+test('V4b 併進之後整筆的狀態要跟著時段重推', async ({ app, page }) => {
   await app.seed(seedOneConfirmedVisit());
   await app.signIn('/calendar');
   await openDay(app, page);

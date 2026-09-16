@@ -180,13 +180,24 @@ describe('一人一天一筆（issue 04）', () => {
     assert.match(SRC, /target\.addSlot \? withNewSlot\(base, entitlements, all, settings\) : \{ \.\.\.base \}/);
   });
 
+  // **2026-09-16 起那一句每次重畫都算一次**（`sameDayNote()`）：以前是在
+  // `boot()` 算好一份 `closedToday`，而她改了日期之後那一句就在講另一天的事。
   test('那一天已經結案時要講一句 —— 壓表早就講得出來，日曆以前什麼都不說', () => {
-    assert.match(SRC, /closedToday: target\.merged \|\| existing \? \[\] : sameDay\.closed/);
-    assert.match(SRC, /function closedNote\(ctx\)/);
+    assert.match(SRC, /function sameDayNote\(ctx, draft\)/);
+    assert.match(SRC, /sameDayState\(ctx\.customerVisits, ctx\.customer\.id, draft\.date\)/);
+    assert.match(SRC, /所以這是另外一次來訪/);
   });
 
+  test('那一天已經有一段時也要講一句 —— 存下去只會有一筆（ADR-0083）', () => {
+    assert.match(SRC, /存下去會加進那一天的那一筆/);
+  });
+
+  // **2026-09-16 判準從 `isNew` 換成 `isNewDoc`**（報告 §1.2）：
+  // 併進同一天既有那一筆時 `isNew` 也是 true，所以那條路照樣畫得出日期欄，
+  // 而改它會把那一天原本那幾段一起搬走。細節在同一支測試檔的
+  //「日期那一格給不給改」那一組。
   test('只改一段時「來訪日期」不給改 —— 它是整筆的', () => {
-    assert.match(SRC, /\$\{wholeVisit \|\| isNew \? `/);
+    assert.match(SRC, /\$\{wholeVisit \|\| isNewDoc \? `/);
   });
 
   test('壓表走同一支，不自己比一份狀態清單', () => {
@@ -223,6 +234,20 @@ describe('一人一天一筆（issue 04）', () => {
 });
 
 // 她 2026-09-09：「我也根本不需要知道這天還有另外多少個時段，不需要。」
+describe('日期那一格給不給改（報告 §1.2）', () => {
+  test('條件問的是「這份文件是新的嗎」，不是「她按的是新增嗎」', () => {
+    // `isNew: !existing` 對**併進同一天既有那一筆**也是 true —— 那條路
+    // 改日期會把那一天原本那幾段一起搬走。
+    assert.doesNotMatch(SRC, /wholeVisit \|\| isNew/,
+      '問 isNew 的話，併進既有那一天時日期欄照樣畫得出來');
+    assert.match(SRC, /wholeVisit \|\| isNewDoc/);
+  });
+
+  test('那一格寫回去的是整筆的日期 —— 所以它只能在新文件上出現', () => {
+    assert.match(SRC, /date: v\.date \|\| draft\.date/);
+  });
+});
+
 describe('畫面上一律講那一段（issue 06）', () => {
   const CAL2 = readFileSync(
     new URL('../public/js/ui/views/calendar.js', import.meta.url), 'utf8',

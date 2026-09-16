@@ -13,8 +13,10 @@ import {
   summarize, countNewTasks,
   groupCandidates, defaultPicks,
 } from '../public/js/domain/mergeImport.js';
+import { importedTasksFor, syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { validateVisit } from '../public/js/domain/visits.js';
+import { ivChoicesFor } from '../public/js/domain/masterData.js';
 
 const CTX = {
   courses: SEED.courses,
@@ -464,6 +466,298 @@ test('未來的門診會長出 Examine 與耀聖 —— 那兩件是真的還沒
 test('整位跳過的客戶不算待辦', () => {
   const skipped = plan(FUTURE(), { today: '2026-08-21', existingCustomers: [{ id: 'c1', name: '客戶A' }] });
   assert.equal(countNewTasks([skipped], { courses: SEED.courses, today: '2026-08-21' }), 0);
+});
+
+// ---------- 已經發生的那一筆一張都不長（ADR-0093、報告 §1.1） ----------
+//
+// 2026-09-16 實跑她那份 import：`countNewTasks()` 回 18，而那 18 張**全部是
+// 「寫紀錄」、全部掛在已經發生的來訪上**（9 張二返 ＋ 9 張復健科醫師門診），
+// 死線 5/21 到 9/15。確認框卻印著「還沒發生的那幾筆會產生 18 筆登記待辦；
+// 已經發生的一筆都不會長」—— 每一半都是反的。
+//
+// 為什麼以前的測試沒抓到：底下那個「過去的來訪」用的課程沒有 `needsRecord`。
+
+/** 一位客戶，六月做過一次二返（`needsRecord: true`），沒有任何未來的來訪。 */
+const PAST_RECORD = () => ({
+  sheetName: '客戶A',
+  name: '客戶A',
+  source: null,
+  notes: null,
+  entitlements: [{
+    key: 'ck', type: 'single', label: '健檢', totalQty: 1,
+    courseName: '健檢', optionEquipmentNames: [], productName: null,
+  }],
+  // 健檢一展開就配一筆二返（`followupPlanEntries()`），所以這一段對得到額度
+  visits: [{
+    date: '2026-06-18',
+    status: 'done',
+    slots: [{
+      entitlementKey: 'ck-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30',
+      roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+      confidence: 'high', evidence: '（編的）',
+    }],
+  }],
+});
+
+describe('匯進來的來訪會長出什麼任務', () => {
+  const TODAY = '2026-09-16';
+  const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
+
+  test('這份 fixture 真的匯得進去（不是因為解析失敗才數到 0）', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    assert.equal(p.skip, null);
+    assert.equal(p.visits.length, 1, `problems: ${JSON.stringify(p.problems)}`);
+    assert.equal(p.visits[0].status, 'done');
+    assert.equal(p.counts.future, 0);
+  });
+
+  test('已經發生的那一筆一張都不長 —— 那一份紀錄她早就寫進耀聖了', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    assert.equal(countNewTasks([p], { courses: SEED.courses, today: TODAY }), 0);
+    assert.deepEqual(
+      p.visits.flatMap((v) => importedTasksFor(v, { coursesById, today: TODAY })),
+      [],
+    );
+  });
+
+  test('一出生就逾期的紅字一張都不可以有', () => {
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    const overdue = p.visits
+      .flatMap((v) => importedTasksFor(v, { coursesById, today: TODAY }))
+      .filter((t) => t.dueDate < TODAY);
+    assert.deepEqual(overdue.map((t) => `${t.kind}・${t.dueDate}`), []);
+  });
+
+  test('這一條不是「濾掉寫紀錄」—— 同一筆來訪正常存檔時照樣長得出來', () => {
+    // 她自己記完一場二返，那一張「寫紀錄」是真的要做的事（ADR-0066）
+    const p = plan(PAST_RECORD(), { today: TODAY });
+    const visit = { id: 'v1', customerId: 'c1', ...p.visits[0] };
+    const { create } = syncTasksForVisit(visit, [], { coursesById, today: TODAY });
+    assert.deepEqual(create.map((t) => t.kind), [RECORD_TASK_KIND]);
+  });
+
+  test('還沒發生的那一筆照舊長掛號任務', () => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'r9', type: 'single', label: '復健科醫師門診', totalQty: 2,
+      courseName: '復健科醫師門診', optionEquipmentNames: [], productName: null,
+    });
+    entry.visits.push({
+      date: '2026-09-30',
+      status: 'done',
+      slots: [{
+        entitlementKey: 'r9', courseName: '復健科醫師門診', startsAt: '10:00', endsAt: '10:30',
+        roomName: null, therapistName: null, equipmentName: null, ivProductName: null,
+        confidence: 'high', evidence: '10.復健',
+      }],
+    });
+    const p = plan(entry, { today: '2026-08-21' });
+    const ahead = p.visits.find((v) => v.date === '2026-09-30');
+    assert.equal(ahead.status, 'confirmed');
+    assert.deepEqual(
+      importedTasksFor(ahead, { coursesById, today: '2026-08-21' }).map((t) => t.kind).sort(),
+      ['Examine', '耀聖'],
+    );
+    // **復健科醫師門診也有 `needsRecord`**，而未來那一筆不可以長出它
+    assert.equal(
+      importedTasksFor(ahead, { coursesById, today: '2026-08-21' })
+        .some((t) => t.kind === RECORD_TASK_KIND),
+      false,
+    );
+  });
+});
+
+// ---------- 匯進來的額度用 app 的寫法（ADR-0095、報告 §4.5） ----------
+//
+// 她 2026-09-16：「能不能幫我全部匯進去的時候都一併改名，改成新版 app 的寫法」
+// ＋「這 15 筆⋯⋯讓我之後逐筆改」。所以**算得出來才改，算不出來保留原字**。
+
+describe('匯進來的額度叫什麼', () => {
+  const one = (e) => {
+    const entry = CUSTOMER();
+    entry.entitlements = [e];
+    entry.visits = [];
+    return plan(entry, { today: '2026-09-16' }).entitlements[0]?.doc ?? null;
+  };
+  const single = (label, courseName, extra = {}) =>
+    one({ key: 'x', type: 'single', label, totalQty: 4, courseName,
+      optionEquipmentNames: [], productName: null, ...extra });
+  const pool = (label, names, durationMin) =>
+    one({ key: 'x', type: 'pool', label, totalQty: 4, courseName: null,
+      optionEquipmentNames: names, productName: null, durationMin });
+
+  test('擇一池：名字完全由器材與時長決定', () => {
+    assert.equal(pool('復能(1小時)', ['INDIBA', 'SIS', '高能量雷射'], 60).label, '復能-三選一(60)');
+    assert.equal(pool('任選(30min)', ['INDIBA', 'SIS', '高能量雷射'], 30).label, '復能-三選一(30)');
+    assert.equal(pool('復能(30min)', ['INDIBA', 'SIS', '高能量雷射', 'ILIB'], 30).label, '復能-四選一(30)');
+    assert.equal(pool('SIS(60min)', ['SIS'], 60).label, '復能-SIS(60)');
+    assert.equal(pool('INDIBA(30)', ['INDIBA'], 30).label, '復能-INDIBA(30)');
+  });
+
+  test('池子裡幾台就叫幾選一 —— 不看舊名字寫什麼', () => {
+    // 舊表寫「三選一」但實際上池子裡有四台：照池子算
+    assert.equal(pool('復能三選一(60)', ['INDIBA', 'SIS', '高能量雷射', 'ILIB'], 60).label, '復能-四選一(60)');
+  });
+
+  test('分得出時長的課程（ILIB）帶著時長', () => {
+    assert.equal(single('ILIB 60mins', 'ILIB', { durationMin: 60 }).label, 'ILIB(60)');
+    assert.equal(single('ILIB (60mins)', 'ILIB', { durationMin: 60 }).label, 'ILIB(60)');
+    assert.equal(single('ILIB 30', 'ILIB', { durationMin: 30 }).label, 'ILIB(30)');
+  });
+
+  test('舊表的別稱換成正式名稱（SPEC 第 3 節那張表）', () => {
+    assert.equal(single('Inbody', '身體組成分析').label, '身體組成分析');
+    assert.equal(single('復健門診', '復健科醫師門診').label, '復健科醫師門診');
+    assert.equal(single('物理諮詢', '物理治療師諮詢').label, '物理治療師諮詢');
+    assert.equal(single('營養諮詢', '營養師諮詢').label, '營養師諮詢');
+    assert.equal(single('體適能分析', '體適能檢查分析').label, '體適能檢查分析');
+  });
+
+  test('本來就對的不動', () => {
+    assert.equal(single('EECP', 'EECP').label, 'EECP');
+    assert.equal(single('心臟科評估', '心臟科評估').label, '心臟科評估');
+  });
+
+  describe('算不出來的保留她原本的字 —— 那幾筆她要自己逐筆改', () => {
+    test('健檢：金額與部位都留著，而且把等級解析進 tier（ADR-0054）', () => {
+      const a = single('12萬健檢', '健檢');
+      assert.equal(a.label, '12萬健檢');
+      assert.equal(a.tier, '12萬');
+
+      const b = single('5萬健檢(腸道)', '健檢');
+      assert.equal(b.label, '5萬健檢(腸道)', '「(腸道)」算不出來，整串留著');
+      assert.equal(b.tier, '5萬');
+
+      const c = single('0.75萬健檢', '健檢');
+      assert.equal(c.label, '0.75萬健檢');
+      assert.equal(c.tier, '0.75萬');
+    });
+
+    test('健檢：等級認不出來就不要猜一個金額', () => {
+      const x = single('x萬健檢', '健檢');
+      assert.equal(x.label, 'x萬健檢');
+      assert.equal(x.tier, undefined);
+    });
+
+    test('營養點滴：舊表寫「營養針」「營養點滴（腸道）」的那幾筆不改', () => {
+      assert.equal(single('營養針', '營養點滴').label, '營養針');
+      assert.equal(single('營養點滴（腸道）', '營養點滴').label, '營養點滴（腸道）');
+    });
+
+    test('「EECP體驗」的「體驗」是她寫的東西，不是 EECP 的別稱', () => {
+      assert.equal(single('EECP體驗', 'EECP').label, 'EECP體驗');
+    });
+  });
+
+  test('配出來的二返沿用健檢的名字 —— 健檢沒改名，所以二返也不會變', () => {
+    const entry = CUSTOMER();
+    entry.entitlements = [{
+      key: 'ck', type: 'single', label: '12萬健檢', totalQty: 2,
+      courseName: '健檢', optionEquipmentNames: [], productName: null,
+    }];
+    entry.visits = [];
+    const p = plan(entry, { today: '2026-09-16' });
+    const followup = p.entitlements.find((e) => e.doc.followupForEntitlementKey === 'ck');
+    assert.equal(followup.doc.label, '二返（12萬健檢）');
+  });
+});
+
+// ---------- 營養點滴額度記得住買的是哪一款（報告 §3.1） ----------
+
+describe('營養點滴額度身上的 ivProductId', () => {
+  const PRODUCT = SEED.ivProducts[0];
+
+  const withIv = (productName) => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'iv', type: 'single', label: `營養點滴 - ${productName ?? ''}`.trim(), totalQty: 10,
+      courseName: '營養點滴', optionEquipmentNames: [], productName: productName ?? null,
+    });
+    return plan(entry, { today: '2026-09-16' });
+  };
+  const ivDoc = (p) => p.entitlements.find((e) => e.key === 'iv').doc;
+
+  test('買的那一款對得到主檔就記下來', () => {
+    assert.equal(ivDoc(withIv(PRODUCT.name)).ivProductId, PRODUCT.id);
+  });
+
+  test('記下來之後排班時那一款排第一顆', () => {
+    const choices = ivChoicesFor(ivDoc(withIv(PRODUCT.name)), SEED.ivProducts);
+    assert.deepEqual(choices.primary.map((x) => x.id), [PRODUCT.id]);
+  });
+
+  test('舊表沒寫品項的（「營養針」那種）是 null，而且不報問題', () => {
+    const p = withIv(null);
+    assert.equal(ivDoc(p).ivProductId, null);
+    assert.equal(why(p).some((x) => x.includes('營養點滴品項')), false);
+    // null 時 `ivChoicesFor()` 退回全部列出來 —— 那是對的，不是壞掉
+    assert.ok(ivChoicesFor(ivDoc(p), SEED.ivProducts).primary.length > 1);
+  });
+
+  test('對不到主檔就留空並講一聲 —— 不要猜一個她沒買的品項', () => {
+    const p = withIv('不存在的品項');
+    assert.equal(ivDoc(p).ivProductId, null);
+    assert.ok(why(p).some((x) => x.includes('主檔裡沒有這個營養點滴品項')));
+  });
+});
+
+// ---------- 誰：醫師與治療師是兩個欄位（ADR-0026、報告 §2.3） ----------
+//
+// 產檔那側只有一格「誰」（行事曆上的「*許」寫在 `therapistName`），
+// 而 2026-09-16 之前這一側不看角色 —— 她那份 import 的 9 段二返裡有 8 段
+// 把醫師寫進了 `therapistId`，`doctorId` 連 `null` 都沒有。
+
+describe('那一格「誰」要看角色', () => {
+  const DOCTOR = SEED.staff.find((x) => x.role === '醫師').name;
+  const THERAPIST = SEED.staff.find((x) => x.role === '物理治療師').name;
+  const staffById = Object.fromEntries(SEED.staff.map((x) => [x.id, x]));
+
+  const withWho = (who) => {
+    const entry = CUSTOMER();
+    entry.entitlements.push({
+      key: 'ck', type: 'single', label: '健檢', totalQty: 1,
+      courseName: '健檢', optionEquipmentNames: [], productName: null,
+    });
+    entry.visits.push({
+      date: '2026-07-17',
+      status: 'done',
+      slots: [{
+        entitlementKey: 'ck-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30',
+        roomName: null, therapistName: who, equipmentName: null, ivProductName: null,
+        confidence: 'high', evidence: '（編的）',
+      }],
+    });
+    return plan(entry, { today: '2026-09-16' });
+  };
+
+  const followupSlot = (p) => p.visits.find((v) => v.date === '2026-07-17').slots[0];
+
+  test('是醫師就進 doctorId，治療師那一格留空', () => {
+    const slot = followupSlot(withWho(DOCTOR));
+    assert.equal(staffById[slot.doctorId]?.role, '醫師');
+    assert.equal(slot.therapistId, null);
+  });
+
+  test('是治療師就照舊進 therapistId，醫師那一格是 null 不是漏掉', () => {
+    const slot = followupSlot(withWho(THERAPIST));
+    assert.equal(staffById[slot.therapistId]?.role, '物理治療師');
+    assert.equal(slot.doctorId, null);
+  });
+
+  test('沒寫誰的時候兩格都是 null，而且不報問題', () => {
+    const p = plan(CUSTOMER(), { today: '2026-09-16' });
+    const slot = p.visits[0].slots[1]; // ILIB 那一段沒有治療師
+    assert.equal(slot.therapistId, null);
+    assert.equal(slot.doctorId, null);
+    assert.equal(why(p).some((x) => x.includes('治療師')), false);
+  });
+
+  test('對不到主檔照舊講一聲，而且講的是「治療師」（她在行事曆上寫那個字的位置）', () => {
+    const p = withWho('不存在的人');
+    assert.ok(why(p).some((x) => x.includes('主檔裡沒有這個治療師')));
+    assert.equal(followupSlot(p).therapistId, null);
+    assert.equal(followupSlot(p).doctorId, null);
+  });
 });
 
 // ---------- 二返（GitHub issue #15） ----------

@@ -22,6 +22,8 @@ const MASTER = {
     { id: 'c-recovery', name: '復能', requiresEquipment: true },
     { id: 'c-checkup', name: '健檢', durationMin: 120, followupCourseId: 'c-followup' },
     { id: 'c-followup', name: '二返', durationMin: 30 },
+    { id: 'c-inbody', name: '身體組成分析', durationMin: 20 },
+    { id: 'c-iv', name: '營養點滴', durationMin: 60, requiresIvProduct: true },
   ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
@@ -67,10 +69,58 @@ function snapshot(over = {}) {
 const run = (over) => runHealthCheck(snapshot(over), TODAY);
 const findingsOf = (result, id) => result.checks.find((c) => c.id === id).findings;
 
+describe('匯進來的額度還叫舊表的名字（ADR-0095）', () => {
+  const imported = (over) => ({
+    id: 'e-imp', customerId: 'cus-1', type: 'single', totalQty: 4,
+    doneCount: 0, bookedCount: 0, importedFrom: '合併檔 2026-09-16', ...over,
+  });
+
+  test('算不出來、原字留著的那幾筆要列出來', () => {
+    const r = run({ entitlements: [imported({ label: '12萬健檢', courseId: 'c-checkup', tier: null })] });
+    const rows = findingsOf(r, 'importedLabel');
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /健檢/);
+  });
+
+  test('那一列沒有修正鈕 —— 一鍵改掉等於把匯入時刻意留下來的東西洗掉', () => {
+    const r = run({ entitlements: [imported({ label: '營養針', courseId: 'c-iv' })] });
+    assert.equal(findingsOf(r, 'importedLabel').every((f) => f.fix === null), true);
+  });
+
+  test('改好了就少一列', () => {
+    const r = run({ entitlements: [imported({ label: '身體組成分析', courseId: 'c-inbody' })] });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('她自己在 app 裡建的額度不列 —— 判準是 importedFrom', () => {
+    const r = run({
+      entitlements: [imported({ label: '我自己取的名字', courseId: 'c-inbody', importedFrom: null })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('配出來的二返不列 —— 那個名字是 app 自己接的，不是舊表的字', () => {
+    const r = run({
+      entitlements: [imported({
+        id: 'e-fu', label: '二返（12萬健檢）', courseId: 'c-followup',
+        followupForEntitlementId: 'e-imp',
+      })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+
+  test('健檢帶著 tier 時算出來的就是原名，所以不列', () => {
+    const r = run({
+      entitlements: [imported({ label: '12萬健檢', courseId: 'c-checkup', tier: '12萬' })],
+    });
+    assert.deepEqual(findingsOf(r, 'importedLabel'), []);
+  });
+});
+
 describe('形狀', () => {
-  test('二十四項檢查都在，順序固定', () => {
+  test('二十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 24);
+    assert.equal(result.checks.length, 25);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -362,7 +412,22 @@ describe('狀態異常', () => {
     const result = run({ visits: [visit({ date: '2026-09-01', status: 'confirmed' })] });
     const [f] = findingsOf(result, 'visitStatus');
     assert.equal(f.severity, 'attention');
-    assert.equal(f.link, '#/visits/v1');
+    // **2026-09-16 起沒有「去看看」**：那一顆以前指整天的編輯器，而那一頁
+    // 做不到這一列要她做的事（整天的狀態卡 2026-09-12 拿掉了）。
+    // 真正的出口是待辦中心的「簽療程單」。
+    assert.equal(f.link, null);
+  });
+
+  test('來訪相關的那幾列一顆「去看看」都沒有', () => {
+    const result = run({
+      visits: [visit({ date: '2026-09-01', status: 'confirmed' })],
+      tasks: [task({ dueDate: '2026-09-01' })],
+    });
+    for (const id of ['orphans', 'visitStatus', 'conflicts', 'overdueTasks']) {
+      const rows = findingsOf(result, id);
+      assert.ok(rows.every((f) => f.link === null || !String(f.link).startsWith('#/visits/')),
+        `${id} 還指著整天的編輯器`);
+    }
   });
 
   test('日期已過還在等回覆也要報', () => {
@@ -464,22 +529,41 @@ describe('衝突殘留', () => {
     assert.match(f.detail, /撞在一起/);
   });
 
-  test('同診間要連床位一起看，不同床不算撞', () => {
-    const sameBed = run({
-      visits: [
-        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
-        other({ slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
-      ],
-    });
-    assert.equal(findingsOf(sameBed, 'conflicts').length, 1);
-
-    const otherBed = run({
+  // **2026-09-16 起算人頭**（ADR-0094）。床位那一層 2026-09-08 就拿掉了，
+  // 而這裡一直照「同一間**而且**同一床」比 —— 舊資料上帶著 A／B 的那幾筆
+  // 永遠不算撞，而一間真的裝得下兩個人的點滴8 反而永遠算撞（模擬匯入之後
+  // 第一天就有那一列，而且沒有修正鈕、關不掉）。
+  test('一間只裝一個人時：同一間、同一個時間就是撞（不管床位那一格）', () => {
+    const result = run({
       visits: [
         visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'A' })] }),
         other({ slots: [slot({ therapistId: null, roomId: 'r-3', bed: 'B' })] }),
       ],
     });
-    assert.equal(findingsOf(otherBed, 'conflicts').length, 0);
+    assert.equal(findingsOf(result, 'conflicts').length, 1);
+  });
+
+  test('裝得下兩個人的診間：兩位不列', () => {
+    const result = run({
+      master: { ...MASTER, rooms: [{ id: 'r-3', name: '點滴8', capacity: 2 }] },
+      visits: [
+        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+      ],
+    });
+    assert.deepEqual(findingsOf(result, 'conflicts'), []);
+  });
+
+  test('裝得下兩個人的診間：第三位照樣列', () => {
+    const result = run({
+      master: { ...MASTER, rooms: [{ id: 'r-3', name: '點滴8', capacity: 2 }] },
+      visits: [
+        visit({ status: 'confirmed', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+        other({ id: 'v-third', slots: [slot({ therapistId: null, roomId: 'r-3' })] }),
+      ],
+    });
+    assert.ok(findingsOf(result, 'conflicts').length > 0);
   });
 
   test('取消的來訪不算 —— 時段已經還回去了', () => {
@@ -1416,5 +1500,23 @@ describe('同一位客戶同一天有兩筆來訪', () => {
 
   test('只列不修 —— 合併掉會把已完成那一場拖回待確認', () => {
     assert.equal(findingsOf(run({ visits: two }), 'sameDayVisits')[0].fix, null);
+  });
+});
+
+// 整筆還活著、其中一段取消了（ADR-0081）。排班時的提醒不算它，這裡也不能算
+// —— 兩邊不一樣的話她會看到一列「按了修正也不會消失」的假警報。
+describe('衝突殘留：取消掉的那一段不算', () => {
+  test('同一間、同一個時間，但其中一段是取消的 → 不列', () => {
+    const mine = visit({
+      status: 'confirmed',
+      slots: [{ ...visit().slots[0], therapistId: null, roomId: 'r-3', status: 'confirmed' }],
+    });
+    const theirs = {
+      id: 'v-other', customerId: 'cus-2', customerName: '客戶乙', date: mine.date,
+      status: 'confirmed',
+      slots: [{ ...visit().slots[0], therapistId: null, roomId: 'r-3', status: 'cancelled' }],
+    };
+    assert.deepEqual(runHealthCheck(snapshot({ visits: [mine, theirs] }), TODAY)
+      .checks.find((c) => c.id === 'conflicts').findings, []);
   });
 });
