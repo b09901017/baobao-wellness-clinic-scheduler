@@ -120,8 +120,9 @@ test('C2 已經談定的那一段，長按選單上沒有「客戶說可以」',
     '那一段已經談定了 —— 拿整筆的狀態問會在這裡長出一顆',
   ).not.toContainText('客戶說可以');
 
-  // 「先不要，回去」不是一列，是選單自己那一顆（`actions.js` 的 `[data-actions-close]`）
-  await page.locator('[data-actions-close]').click();
+  // 「先不要，回去」不是一列，是選單自己那一顆（`actions.js` 的 `[data-actions-close]`）。
+  // **那個屬性有兩個節點**：抽屜頂端那條 grip 也帶著它，所以要指名那一顆。
+  await page.locator('button.actions__cancel').click();
   await expect(page.locator('.drawer--actions')).toHaveCount(0);
 
   await longPressRow(page, 1);
