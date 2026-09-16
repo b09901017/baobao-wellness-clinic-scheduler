@@ -376,8 +376,18 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 紀錄那一族的閘門已經在 `recordTasksForVisit()` 裡走過了（那一支
   // 沒做完就回空陣列），所以它進得了 `wanted` 就代表可以產生。
   // 在這裡再判斷一次等於同一條規則有兩份實作。
+  //
+  // 掛號那一族的閘門是**逐段**的（ADR-0097）。整筆那個 `status` 是推導出來的，
+  // 所以兩段裡確認了一段時它停在 `pending_confirm` —— 拿它當閘門的話那一段的
+  // Examine／耀聖一張都不長，而她已經可以去 Abovee 壓那一格了。
+  // 下午那一段一直沒回覆的話，早上那一段的登記就永遠不長。
+  //
+  // **`tasksForVisit()` 不看狀態這件事不能動**（那一支的檔頭寫著）：它同時被
+  // 拿來比對「哪些還該留著」，跟著狀態變的話來訪一結案，她還沒做完的 Examine
+  // 就會被靜默收掉。所以閘門只擋 `create` 這一圈。
+  const born = confirmedKinds(visit, coursesById);
   for (const t of wanted.values()) {
-    if (t.kind === RECORD_TASK_KIND || acceptsNewTasks(visit.status)) create.push(t);
+    if (t.kind === RECORD_TASK_KIND || born.has(t.kind)) create.push(t);
   }
 
   // ---------- 整筆還活著，但其中一段取消了（ADR-0081） ----------
@@ -474,6 +484,29 @@ export function cancelSlotsOf(task, visit) {
  * @param {object[]} existingTasks 這一筆來訪現有的任務
  * @returns {object[]} 要新建的取消類任務（帶 `slotIndexes`）
  */
+/**
+ * 這一筆來訪裡，**已經談定的那幾段**現在長得出哪幾種掛號任務（ADR-0097）。
+ *
+ * 跟 `tasksForVisit()` 的差別只有一句：那一支問「這一天該有哪幾種」（不看狀態，
+ * 因為它同時被拿來比對哪些還該留著），這一支問「**現在**哪幾種可以無中生有」。
+ *
+ * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
+ * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
+ *
+ * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
+ * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
+ * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
+ */
+function confirmedKinds(visit, coursesById) {
+  const out = new Set();
+  for (const slot of visit?.slots ?? []) {
+    if (!isLiveSlot(slot)) continue;
+    if (!acceptsNewTasks(slotStatus(visit, slot))) continue;
+    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) out.add(kind);
+  }
+  return out;
+}
+
 export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, today = null) {
   const slots = visit?.slots ?? [];
   const whole = Boolean(visit?.deletedAt) || visit?.status === 'cancelled';
