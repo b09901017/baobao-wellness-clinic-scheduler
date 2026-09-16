@@ -1,6 +1,6 @@
 # 記一句要推上試算表，畫在那一天那一列的下面
 
-Status: todo
+Status: done
 來源：`../spec.md`（報告 §4.7）
 動工前先讀：`docs/adr/0084`（那一句話屬於時段）、
 `domain/sheetReport.js` 的 `SYNC_FORMAT`／`equipmentNotes`／`followupNotes`、

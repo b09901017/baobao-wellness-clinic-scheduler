@@ -30,7 +30,7 @@
 var TOKEN_PROPERTY = 'SYNC_TOKEN';
 var DATA_SHEET = '_data';
 /** 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。 */
-var SUPPORTED_FORMAT = 4;
+var SUPPORTED_FORMAT = 5;
 
 // ---------- 版面 ----------
 //
@@ -224,8 +224,16 @@ function renderCustomer(ss, data, bundle) {
 
     var note = equipmentNoteAt(data, n);
     if (note) {
-      rows.push(equipmentNoteLine(note, head.length));
+      rows.push(noteLine(note, head.length));
       meta.push(null);   // null = 註記列，不上色也沒有數字
+    }
+
+    // 「那一段記了什麼」（格式 5）。接在器材那一列後面，同樣夾在它那一筆
+    // 額度的正下方 —— 她 2026-09-16 要的：「記在當天那一列的下面」。
+    var said = noteRowAt(data.slotNotes, n);
+    if (said) {
+      rows.push(noteLine(said, head.length));
+      meta.push(null);
     }
   }
 
@@ -295,15 +303,25 @@ function colourForMark(mark) {
  * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一列都不畫。
  */
 function equipmentNoteAt(data, rowIndex) {
-  var notes = data.equipmentNotes || [];
-  for (var i = 0; i < notes.length; i++) {
-    if (notes[i].rowIndex === rowIndex) return notes[i];
+  return noteRowAt(data.equipmentNotes, rowIndex);
+}
+
+/**
+ * 第 n 筆額度底下的那一列註記。**兩種註記共用一支**（器材那一份與
+ * 「那一段記了什麼」那一份形狀一模一樣：`{rowIndex, label, cells}`）。
+ *
+ * 舊格式沒有那一份時傳進來的是 undefined —— 那時候一列都不畫。
+ */
+function noteRowAt(notes, rowIndex) {
+  var list = notes || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].rowIndex === rowIndex) return list[i];
   }
   return null;
 }
 
-/** 那一列的內容：前五欄留白，日期欄放器材的別稱。 */
-function equipmentNoteLine(note, width) {
+/** 那一列的內容：前五欄留白，日期欄放那一格的字。 */
+function noteLine(note, width) {
   var line = [];
   for (var i = 0; i < width; i++) line.push('');
   for (var c = 0; c < note.cells.length; c++) {
