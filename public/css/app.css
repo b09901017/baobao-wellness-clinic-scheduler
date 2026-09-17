@@ -9395,3 +9395,440 @@ body.has-abl {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   療程單（issue 14，ADR-0105）
+   設定 → 療程單：搜人名、一位一頁的卡片；拍照之後那一層外殼借 `.abl`
+   ========================================================================== */
+
+.tsheets__search {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.tsheets__search input {
+  width: 100%;
+}
+
+.tsheets__empty {
+  margin: var(--space-6) 0;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.tsheets__people {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.tsheets__people > li + li {
+  border-top: 1px solid var(--border-soft);
+}
+
+.tsheets__person {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.tsheets__person svg {
+  color: var(--text-mute);
+}
+
+.tsheets__person--none {
+  grid-template-columns: minmax(0, 1fr) auto;
+  color: var(--text-dim);
+}
+
+.tsheets__name {
+  font-weight: 650;
+}
+
+.tsheets__meta {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.tsheets__cards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* 一張療程單：左邊一張直式的縮圖（紙是直的），右邊三行 */
+.tsheet {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  margin: 0;
+  padding: var(--space-3);
+}
+
+.tsheet__photo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 118px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.tsheet__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tsheet__photo--missing {
+  cursor: default;
+  border-style: dashed;
+}
+
+.tsheet__photo--missing span {
+  padding: var(--space-1);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-mute);
+}
+
+.tsheet__spin {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: tsheet-spin 0.8s linear infinite;
+}
+
+@keyframes tsheet-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tsheet__body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+
+.tsheet__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.tsheet__facts {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.tsheet__taken {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.tsheet__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* ---------- 拍完之後那一層：一張照片一張卡 ---------- */
+
+.tsl {
+  grid-template-rows: auto 1fr;
+}
+
+.tsc {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.tsc__top {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.tsc__photo {
+  width: 64px;
+  height: 86px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.tsc__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tsc__heading {
+  min-width: 0;
+}
+
+.tsc__who {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+
+.tsc__what {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.tsc__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.tsc__tag--new,
+.tsc__tag--ok {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tsc__part {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.tsc__label,
+.tsc__sublabel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+
+.tsc__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tsc__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.tsc__say {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* 會改變寫進去的東西（換掉哪一張、舊照片會被刪）—— 常駐，不收進 ? */
+.tsc__warn {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--soon-bg);
+  border-radius: var(--radius-sm);
+}
+
+.tsc__find input {
+  width: 100%;
+}
+
+.tsc__problems {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--overdue);
+}
+
+.tsc__fail {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-radius: var(--radius-sm);
+}
+
+.tsc__save {
+  width: 100%;
+  min-height: var(--tap-min);
+}
+
+.tsc--saved {
+  gap: 0;
+  padding: var(--space-3) var(--space-4);
+  box-shadow: none;
+}
+
+.tsc--saved .tsc__photo {
+  width: 48px;
+  height: 64px;
+}
+
+.tsc--saved .tsc__top {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+}
+
+/* 每一列：序號、日期、有沒有簽、勾的器材；右邊一顆「照片上寫的是」 */
+.tsr__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tsr {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tsr:last-child {
+  border-bottom: 0;
+}
+
+.tsr__line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tsr__main {
+  display: grid;
+  grid-template-columns: 2em 5.4em 3em minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-1) 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.tsr__seq {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.tsr__date {
+  font-weight: 600;
+}
+
+.tsr__date small {
+  margin-left: 4px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--text-mute);
+}
+
+.tsr--nodate .tsr__date {
+  font-size: var(--text-sm);
+  color: var(--overdue);
+}
+
+.tsr__sign {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.tsr__sign.is-on {
+  color: var(--accent);
+}
+
+.tsr__eq {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tsr.is-open {
+  margin: var(--space-2) calc(var(--space-2) * -1);
+  padding: 0 var(--space-2);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-bottom-color: transparent;
+}
+
+.tsr__edit {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-1) 0 var(--space-3);
+}
+
+.tsr__field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.tsr__field input {
+  max-width: 14rem;
+}
+
+.tsr__drop {
+  justify-self: start;
+  color: var(--overdue);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tsheet__spin {
+    animation: none;
+  }
+}

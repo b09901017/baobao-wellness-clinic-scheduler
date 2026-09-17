@@ -435,6 +435,27 @@ describe('誰與做了什麼分成兩半', () => {
     '幫 小芳 記住 Abovee 上的寫法「林芳芳」');
   });
 
+  test('療程單：新增、換了照片（多了幾列）、刪掉各一句；名字身上就有（issue 14）', () => {
+    const path = 'customers/c1/treatmentSheets/s1';
+    const sheet = { customerName: '客戶A', courseName: '復能', rows: [{}, {}], photoPath: 'a.jpg' };
+    assert.equal(describeEvent(ev('customers/c1/treatmentSheets.create', null, sheet, path)),
+      '新增療程單 客戶A・復能・2 列');
+    // 句型跟其餘掛客戶的那幾句一樣（「動詞 客戶A・細節」）—— 照人分組那一格去掉名字之後才讀得通
+    assert.equal(describeEvent(ev('customers/c1/treatmentSheets.update', sheet,
+      { rows: [{}, {}, {}, {}, {}], photoPath: 'b.jpg', photoAt: '2026-09-17T01:00:00Z' }, path)),
+    '換了療程單的照片 客戶A・復能・多了 3 列');
+    assert.equal(joinParts({ ...describeParts(ev('customers/c1/treatmentSheets.update', sheet,
+      { rows: [{}, {}, {}, {}, {}], photoPath: 'b.jpg' }, path)), who: null }), '換了療程單的照片 復能・多了 3 列');
+    assert.equal(describeEvent(ev('customers/c1/treatmentSheets.update', sheet,
+      { rows: [{}, {}], photoPath: 'b.jpg' }, path)),
+    '換了療程單的照片 客戶A・復能');
+    assert.equal(describeEvent(ev('customers/c1/treatmentSheets.softDelete', sheet, { deletedAt: 'server' }, path)),
+      '刪掉療程單 客戶A・復能');
+    // 刪不掉的舊照片檔再刪一次：不是她做的事，不要講得像她換了照片
+    assert.equal(describeEvent(ev('customers/c1/treatmentSheets.update', { ...sheet, stalePhotoPaths: ['a.jpg'] },
+      { stalePhotoPaths: [] }, path)), '清掉被取代的舊照片 客戶A・復能 療程單');
+  });
+
   test('掛不到任何人的那幾則 who 是 null', () => {
     const parts = describeParts(ev('config/app/courses.create', null,
       { name: '復能' }, 'config/app/courses/c1'));

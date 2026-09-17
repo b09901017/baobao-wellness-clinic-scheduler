@@ -9,6 +9,7 @@ import * as visits from '../../data/visits.js';
 import * as eventsData from '../../data/events.js';
 import * as notesData from '../../data/notes.js';
 import * as playbooksData from '../../data/playbooks.js';
+import * as sheetsData from '../../data/treatmentSheets.js';
 import { linesOf } from '../../domain/playbook.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
@@ -85,7 +86,7 @@ export async function render(el) {
 async function loadGroups() {
   const [
     master, deletedCustomers, deletedEnts, aliveCustomers,
-    deletedVisits, deletedAvail, deletedEvents, deletedNotes, deletedPlaybooks,
+    deletedVisits, deletedAvail, deletedEvents, deletedNotes, deletedPlaybooks, deletedSheets,
   ] = await Promise.all([
     Promise.all(
       MASTER_TYPES.map(async (type) => ({
@@ -107,6 +108,7 @@ async function loadGroups() {
     eventsData.listDeleted(),
     notesData.listDeleted(),
     playbooksData.listDeleted(),
+    sheetsData.listDeleted(),
   ]);
 
   const nameOf = new Map(
@@ -170,6 +172,16 @@ async function loadGroups() {
         note: `${linesOf(p).length} 行`,
         deletedAt: p.deletedAt,
         restore: () => playbooksData.restore(p.id),
+      })),
+    },
+    {
+      label: '療程單',
+      rows: deletedSheets.map((sheet) => ({
+        // 照片檔刪一整張的時候留著（ADR-0101），所以還原回來照片也在
+        name: `${sheet.customerName || nameOf.get(sheet.customerId) || '（客戶已刪除）'}・${sheet.courseName || '療程單'}`,
+        note: `${(sheet.rows ?? []).length} 列`,
+        deletedAt: sheet.deletedAt,
+        restore: () => sheetsData.restore(sheet),
       })),
     },
     {

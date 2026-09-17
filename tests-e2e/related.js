@@ -315,6 +315,13 @@ export const COVERAGE = {
     'public/js/domain/audit.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
     'tests-e2e/fixtures/ai/',
   ],
+  // 療程單的存放與搜尋（issue 14，ADR-0105）。Storage 模擬器的設定在 firebase.json
+  '42-treatment-sheets': [
+    'public/js/domain/treatmentSheets.js', 'public/js/data/treatmentSheets.js', 'public/js/ui/components/sheetConfirm.js',
+    'public/js/ui/views/treatmentSheets.js', 'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
+    'public/js/ui/components/seen.js', 'public/js/domain/identify.js', 'public/js/ui/views/trash.js',
+    'public/js/ui/views/settings.js', 'public/js/data/backup.js', 'firebase.json', 'tests-e2e/fixtures/ai/',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
@@ -343,7 +350,7 @@ export function pick(files = []) {
     if (!file) continue;
 
     // Rules 有自己的一套測試（`npm run test:rules`），不是 E2E 的事。
-    if (file === 'firestore.rules' || file === 'firestore.indexes.json') {
+    if (file === 'firestore.rules' || file === 'firestore.indexes.json' || file === 'storage.rules') {
       rules = true;
       continue;
     }

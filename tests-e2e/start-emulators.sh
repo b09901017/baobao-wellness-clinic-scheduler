@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# 啟動 Firebase 模擬器（Auth + Firestore + Functions + Hosting）。
+# 啟動 Firebase 模擬器（Auth + Firestore + Functions + Hosting + Storage）。
+#
+# Storage 是療程單的照片（ADR-0105）。它的 Rules 跨服務讀 Firestore 的白名單，
+# 所以兩個要一起開 —— 少了 storage 的話 app 照樣起得來，只是存療程單那一下會
+# 一直轉圈（SDK 對連不上的模擬器會重試到逾時），看起來不像這一行造成的。
 #
 # **專案 id 用 `demo-` 開頭是刻意的。** Firebase 看到這個前綴才會進入完全離線
 # 模式：任何沒被模擬到的服務會直接報錯，而不是安靜地打到真的專案上。
@@ -36,5 +40,5 @@ if [ ! -d functions/node_modules ]; then
 fi
 
 exec npx firebase emulators:start \
-  --only auth,firestore,functions,hosting \
+  --only auth,firestore,functions,hosting,storage \
   --project "$PROJECT"

@@ -85,7 +85,7 @@ if (SMOKE) {
     filters = specs;
   }
   if (rules) {
-    console.log('⚠  firestore.rules／indexes 動過了 —— 記得另外跑 `npm run test:rules`。\n');
+    console.log('⚠  firestore.rules／storage.rules／indexes 動過了 —— 記得另外跑 `npm run test:rules`。\n');
   }
   if (!all && specs.length === 1) {
     console.log('（只有 00-smoke —— 這次的改動沒有 E2E 摸得到的東西。）\n');

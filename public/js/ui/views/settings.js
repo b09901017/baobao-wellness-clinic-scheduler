@@ -6,6 +6,7 @@
 import * as config from '../../data/config.js';
 import * as backup from '../../data/backup.js';
 import * as aiUsage from '../../data/aiUsage.js';
+import * as sheetsData from '../../data/treatmentSheets.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
@@ -46,6 +47,15 @@ export async function render(el) {
   try {
     const usage = await aiUsage.readMonth(monthKey());
     aiMeta = `這個月估計 ${formatUsd(usage?.estUsd ?? 0)}`;
+  } catch {
+    /* 退回那一句 */
+  }
+
+  // 療程單那一格的副標。同上：讀不到就不寫數字
+  let sheetMeta = '拍起來存著，搜名字看得到';
+  try {
+    const sheets = await sheetsData.listAll();
+    if (sheets.length) sheetMeta = `${new Set(sheets.map((s) => s.customerId)).size} 位・${sheets.length} 張`;
   } catch {
     /* 退回那一句 */
   }
@@ -97,6 +107,7 @@ export async function render(el) {
         ${tile('#/settings/trash', '已刪除項目', '刪除只是標記，還原得回來')}
         ${tile('#/settings/report', '試算表報表', '產生後貼回去，或讓它自己推')}
         ${tile('#/settings/merge', '舊資料匯入', '貼上對照過行事曆的合併檔')}
+        ${tile('#/settings/treatment-sheets', '療程單', sheetMeta)}
         ${tile('#/settings/ai', 'AI 用量', aiMeta)}
       </div>
     </section>
