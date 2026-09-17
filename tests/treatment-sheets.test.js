@@ -123,6 +123,15 @@ describe('同一張還是新的一張', () => {
     assert.equal(matchSheet(sheet(8), [other, old])?.id, 's1');
     assert.equal(matchSheet(sheet(8), [other, { ...old, deletedAt: 'x' }]), null);
   });
+
+  // 「新版」會把那一張的舊照片真的刪掉（ADR-0101）。兩張都對得上就是拿不準 —— 挑第一張等於替她決定刪哪一張
+  test('那一位有兩張都對得上（營養點滴兩款同幾天開始、照片上沒認出品項）→ 拿不準，一張都不挑', () => {
+    const drip = (id, iv) => ({ id, ...sheet(3, { courseIds: ['course-iv-drip'], ivProductIds: [iv] }) });
+    const incoming = sheet(5, { courseIds: ['course-iv-drip'], ivProductIds: [] });
+    assert.equal(matchSheet(incoming, [drip('s-snow', 'iv-snow'), drip('s-liver', 'iv-liver')]), null);
+    // 認出品項的話只剩一張對得上
+    assert.equal(matchSheet({ ...incoming, ivProductIds: ['iv-liver'] }, [drip('s-snow', 'iv-snow'), drip('s-liver', 'iv-liver')])?.id, 's-liver');
+  });
 });
 
 describe('照片上的字 → 一張療程單', () => {
