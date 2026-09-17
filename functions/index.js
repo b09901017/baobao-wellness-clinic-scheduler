@@ -57,7 +57,8 @@ export const extract = onCall(
     serviceAccount: 'ai-extract@',
     enforceAppCheck: true,
     maxInstances: 2,
-    timeoutSeconds: 60,
+    // 模型含重試最多 100 秒（`lib/geminiModel.js`），留時間記帳
+    timeoutSeconds: 120,
     memory: '512MiB',
   },
   async (request) => {

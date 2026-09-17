@@ -22,8 +22,8 @@ import { initFirebase } from './firebase.js';
 import { appCheckSiteKey, firebaseConfig, projectIdFor, usingEmulator } from '../firebase-config.js';
 
 const REGION = 'asia-east1';
-/** 模型最多想 50 秒、Function 60 秒，再多留一點給網路。 */
-const TIMEOUT_MS = 75_000;
+/** 模型含重試最多 100 秒、Function 120 秒，再多留一點給網路。 */
+const TIMEOUT_MS = 130_000;
 
 /** 辨識沒做到的原因。畫面照這幾種講話。 */
 export class AiError extends Error {

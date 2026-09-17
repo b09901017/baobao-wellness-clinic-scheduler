@@ -14,8 +14,19 @@ import { MODEL } from './pricing.js';
  */
 export const THINKING_LEVEL = 'LOW';
 
-/** 模型叫多久還沒回來就放棄。比 Function 的 60 秒短，才來得及記帳。 */
-const MODEL_TIMEOUT_MS = 50_000;
+/**
+ * 一次呼叫（含重試）最多等多久。比 Function 的 120 秒短，才來得及記帳。
+ *
+ * 2026-09-17 考試量到的：中位數 7 秒，但同時送三張時有四成被 429 擋下
+ * （3.8 Flash 在 Standard PayGo 是大家共用的額度），沒被擋的也有幾張超過 50 秒。
+ */
+const MODEL_DEADLINE_MS = 100_000;
+
+/**
+ * 被限流（429）或 Google 那一側暫時出錯時，退避再試。**只重試「沒有算到錢」的那幾種**：
+ * 429／5xx 是在模型跑之前就被擋下來的。每一次重試都還在同一次預留的額度裡（`guard.js`）。
+ */
+export const RETRY = Object.freeze({ attempts: 3, initialDelay: 2, maxDelay: 10, httpStatusCodes: [429, 500, 502, 503, 504] });
 
 export function makeGeminiModel({
   project = process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT,
@@ -42,7 +53,8 @@ export function makeGeminiModel({
           responseJsonSchema: schema,
           maxOutputTokens,
           thinkingConfig: { thinkingLevel },
-          abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+          abortSignal: AbortSignal.timeout(MODEL_DEADLINE_MS),
+          httpOptions: { retryOptions: RETRY },
         },
       });
       return { text: res.text ?? '', usage: usageOf(res.usageMetadata) };

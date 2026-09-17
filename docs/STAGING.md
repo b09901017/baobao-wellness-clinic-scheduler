@@ -292,6 +292,13 @@ npx firebase deploy --only functions --project staging
 
 Function 的程式改了才要重新部署；只改 `public/` 的話推 `develop`／`main` 就好。
 
+第一次部署時 firebase-tools 會**自己再開兩個 API**（`firebaseextensions`、`eventarc`），最後還會說
+「沒有清理規則」—— 舊的容器映像會一直累積、每個月多一點點錢。補一次（只保留一天內的）：
+
+```bash
+npx firebase functions:artifacts:setpolicy --project staging --location asia-east1 --force
+```
+
 部署完驗一次「沒登入的人叫不動」：
 
 ```bash
