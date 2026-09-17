@@ -257,3 +257,24 @@ test('A4 存到第二位失敗、修好再按一次 → 兩次標的壓完都在
   ]);
   expect((await app.readDoc('config/app/staff', 'staff-zn')).aboveeNames).toEqual(['陳美玲']);
 });
+
+// 「去日曆（照片不會留著）」是她自己點的換頁。換網址時瀏覽器也會先發一下 popstate，
+// 那一下會被當成返回鍵、叫這一層問「還有 N 段沒記」—— 接著換頁把這一層收掉，那一道確認框卻留在日曆上
+test('A5 有勾起來還沒記的，點「對不上」那一列的去日曆 → 停在日曆那一天，沒有留下「還有 N 段沒記」', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-check']);
+
+  await row(page, 'a1').locator('[data-abl-open]').click();
+  await row(page, 'a1').locator('[data-abl-who="cust-wang"]').click();
+  await row(page, 'a1').locator('[data-abl-check]').click();
+  await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await row(page, 'a0').locator('[data-abl-day="2026-09-12"]').click();
+  await expect(page).toHaveURL(/#\/calendar$/);
+  await app.settled();
+  await expect(page.locator('.abl')).toHaveCount(0);
+  await expect(page.locator('.dialog-backdrop')).toHaveCount(0);
+});

@@ -73,6 +73,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const showAllRooms = new Set();
 
   const urlOf = (i) => photos[i]?.url ?? null;
+  /** 打開這一層時的網址。分得出「返回鍵」與「換頁」（`requestClose()`）。 */
+  const openedAt = window.location.hash;
 
   const root = document.createElement('div');
   root.className = 'abl';
@@ -614,6 +616,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   async function requestClose({ fromBack = false } = {}) {
     if (closed) return true;
+    // **換頁不是返回鍵**：「去日曆」換網址時瀏覽器也會先發一下 popstate，`nav.js` 照返回鍵叫到這裡。
+    // 網址已經不是打開這一層時的那一個了 → 不問（按鈕上寫了「照片不會留著」），直接收。
+    // 問了的話，緊接著的 hashchange 會把這一層收掉，那一道確認框卻留在日曆上
+    if (fromBack && window.location.hash !== openedAt) {
+      close({ fromBack: true });
+      return true;
+    }
     const pending = items.filter((i) => i.checked && !savedKeys.has(i.key)).length;
     if (pending && !running) {
       const pick = await chooseAction({
