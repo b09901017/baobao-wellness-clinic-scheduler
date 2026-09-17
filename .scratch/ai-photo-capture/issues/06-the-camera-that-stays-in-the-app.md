@@ -1,6 +1,6 @@
 # 拍照元件：app 內取景、系統相機、相簿
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md`
 動工前先讀：`ui/nav.js` 的 `pushLayer()`（**存起來的 handle 一律問 `.active`**，CLAUDE.md 那一列）、

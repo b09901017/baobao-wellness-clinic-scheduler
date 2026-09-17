@@ -284,6 +284,11 @@ export const COVERAGE = {
     'public/js/domain/aiUsage.js', 'public/js/data/aiUsage.js', 'public/js/ui/views/aiUsage.js',
     'public/js/ui/views/settings.js', 'public/js/data/ai.js', 'functions/',
   ],
+  // 拍照元件（issue 06）
+  '37-camera': [
+    'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
+    'public/js/ui/components/seen.js', 'public/js/data/ai.js', 'public/js/domain/aiUsage.js',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
