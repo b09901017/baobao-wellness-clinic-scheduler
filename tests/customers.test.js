@@ -7,7 +7,7 @@ import {
   isValidDate, lastDayOf, addDays, addMonths, daysBetween,
 } from '../public/js/domain/dates.js';
 import {
-  validate, warnings, membershipExpiry, membershipState, splitFlags, partnersOf,
+  validate, warnings, fieldWarnings, membershipExpiry, membershipState, splitFlags, partnersOf,
   splitFlagsForEdit, mergeFlags, MAX_PRIORITY, EXPIRING_SOON_DAYS,
 } from '../public/js/domain/customers.js';
 import { contraindicationTerms } from '../public/js/domain/contraindications.js';
@@ -129,6 +129,18 @@ describe('客戶提示（只提示不阻擋）', () => {
   test('沒有電話也沒有 LINE 會提醒，因為之後問時間會找不到人', () => {
     const list = warnings({ id: 'z', name: '新客戶' }, []);
     assert.ok(list.some((w) => w.includes('LINE')));
+  });
+
+  test('每一句貼在它講的那一格（issue 08）：句子跟 warnings() 一字不差，順序也一樣', () => {
+    const c = { id: 'c', name: '王小姐' };
+    const byField = fieldWarnings(c, existing);
+    assert.equal(byField.name, warnings(c, existing)[0]);
+    assert.equal(byField.contact, warnings(c, existing)[1]);
+    assert.deepEqual(warnings(c, existing), [byField.name, byField.contact]);
+  });
+
+  test('沒事的那一格是 null（畫面不佔位）', () => {
+    assert.deepEqual(fieldWarnings({ id: 'z', name: '新客戶', phone: '0900' }, existing), { name: null, contact: null });
   });
 });
 

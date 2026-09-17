@@ -13,19 +13,18 @@ import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import * as visitsData from '../../data/visits.js';
 import * as rules from '../../domain/customers.js';
-import { summarize, expandPlan, isProduct } from '../../domain/entitlements.js';
+import { summarize, isProduct } from '../../domain/entitlements.js';
 import { purchaseHeadline } from '../../domain/purchases.js';
 import { customerPools } from '../../domain/scheduling.js';
-import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { readMarks } from '../../domain/customerMarks.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
-import { todayISO, addDays, shortDate } from '../../domain/dates.js';
+import { todayISO, addDays } from '../../domain/dates.js';
 import * as f from '../components/form.js';
+import { blankDraft, mountCustomerForm } from '../components/customerForm.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
-import * as buy from '../components/buy.js';
-import { openBuySheet } from '../components/buySheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back as goBack } from '../nav.js';
@@ -392,7 +391,7 @@ export async function renderNew(el) {
   let products;
   let partners;
   try {
-    // 課程／品項／營養品是底下那一段「加購」要的（同一張表，`components/buy.js`）。
+    // 課程／品項／營養品是「加購」要的（同一張表，`components/buy.js`）。
     // 跟另外三份同一趟拿，不多一輪往返。
     [plans, existing, equipment, clinicalFlags, courses, ivProducts, products, partners] =
       await Promise.all([
@@ -407,102 +406,11 @@ export async function renderNew(el) {
     return;
   }
 
-  const usable = plans.filter((p) => p.active !== false);
-
-  const draft = {
-    name: '',
-    phone: '',
-    lineId: '',
-    source: '',
-    purchasedAt: todayISO(),
-    priority: 0,
-    flags: [],
-    partners: [],
-    marks: [],
-    planId: null,
-    quantity: 1,
-    // 方案之外多買的。建立之前都只是草稿，一個字都還沒寫進去。
-    extras: [],
-  };
-
-  paintNew(el, draft, usable, existing, clinicalTerms(clinicalFlags), {
-    courses, equipment, ivProducts, products, partners: partnerNames(partners),
-  });
-}
-
-// 這幾個欄位一動，畫面上算出來的東西就變了。
-//
-// **只有「方案」那一排會重畫整頁**，因為選了方案才會多出「購買數量」那一格。
-// 另外兩個各自只換一小塊，而那兩塊裡面**沒有任何可以點的東西** ——
-// 這一條不是為了省效能，是為了不吃掉她的下一次點擊：
-//
-// `change` 在**離開欄位的那一刻**才發生，而她離開欄位的方式通常就是去點下一個
-// 東西。整頁重畫會在那一下點擊送達之前把目標換掉，於是「打完名字點方案」
-// 的第一下永遠沒有反應（ADR-0038 講的是同一件事）。
-const RECOMPUTE_ON = ['planId', 'quantity', 'name'];
-
-/**
- * 買了幾份方案。**0 是合法的** —— 她的原話是「購買方案的數量可以是0，
- * 因為有人會單買加購的療程」。
- *
- * 0 不等於「不選方案」：她選了方案又打 0，畫面要承認她做了這件事
- *（預覽那一塊會講出來），而不是偷偷把方案清掉。
- */
-const planQuantity = (raw) => {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 1;
-};
-
-function paintNew(el, draft, plans, existing, alerts, master) {
-  const plan = plans.find((p) => p.id === draft.planId) ?? null;
-  const qty = planQuantity(draft.quantity);
-  const preview = qty > 0 ? expandPlan(plan, qty) : [];
-
   el.innerHTML = `
     <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
-    <section class="card">
+    <section class="card cform-card">
       <h2 class="card__title">新增客戶</h2>
-      <div class="errors" data-errors hidden></div>
-      <form data-form>
-        ${f.text({ name: 'name', label: '姓名', value: draft.name, placeholder: '王小姐' })}
-        ${f.text({ name: 'phone', label: '電話', value: draft.phone })}
-        ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId })}
-        ${f.text({
-          name: 'source', label: '購買通路', value: draft.source,
-          placeholder: '0522 顧客會-8', hint: '試算表 B2 那一欄的購買名稱。',
-        })}
-        ${f.date({ name: 'purchasedAt', label: '購買日', value: draft.purchasedAt })}
-        ${f.chips({
-          name: 'priority', label: '喜好程度', value: String(draft.priority),
-          options: priorityOptions(),
-          hint: '0 代表還沒評。',
-        })}
-        <div data-flags></div>
-        <div data-partners></div>
-
-        <div class="fieldgroup">
-          <span class="fieldgroup__label">備註　客戶臨時提的小事，顏色自己分</span>
-          <div data-marks></div>
-        </div>
-
-        <h3 class="card__title" style="margin-top: var(--space-5)">買了什麼</h3>
-        ${f.chips({
-          name: 'planId', label: '方案', value: draft.planId,
-          options: [{ value: null, label: '不選方案' },
-                    ...plans.map((p) => ({ value: p.id, label: p.name }))],
-          hint: '之後改範本不會動到這位客戶。',
-        })}
-        ${plan ? f.number({ name: 'quantity', label: '購買數量', value: draft.quantity, min: 1 }) : ''}
-
-        <div data-preview>${previewHtml(plan, preview, qty)}</div>
-        ${extrasHtml(draft.extras)}
-        <div data-warnings>${warningsHtml(draftToCustomer(draft), existing)}</div>
-
-        <div class="form__actions">
-          <button class="btn btn--primary" type="submit">建立客戶</button>
-          <button class="btn" type="button" data-cancel>取消</button>
-        </div>
-      </form>
+      <div data-newcustomer></div>
     </section>`;
 
   const leave = () => goBack('/customers');
@@ -510,200 +418,28 @@ function paintNew(el, draft, plans, existing, alerts, master) {
     e.preventDefault();
     leave();
   });
-  el.querySelector('[data-cancel]').addEventListener('click', leave);
 
-  const form = el.querySelector('[data-form]');
-
-  marksUi.mount(el.querySelector('[data-marks]'), {
-    marks: draft.marks,
-    onChange: (list) => {
-      draft.marks = list;
-    },
-  });
-
-  flagsUi.mount(el.querySelector('[data-flags]'), {
-    flags: draft.flags,
-    alerts,
-    onChange: (list) => {
-      draft.flags = list;
-    },
-  });
-
-  // 合作機構（ADR-0076）。跟客戶詳情的編輯表單同一支。
-  flagsUi.mountPartners(el.querySelector('[data-partners]'), {
-    partners: draft.partners,
-    options: master.partners ?? [],
-    onChange: (list) => {
-      draft.partners = list;
-    },
-  });
-
-  // 丸子換掉了方案與喜好程度那兩個下拉。掛在 `form` 上就好 ——
-  // 它每次重畫都會被換掉，沒有人需要記得拆它。
-  f.wireChips(form);
-
-  const repaint = (next) => paintNew(el, next, plans, existing, alerts, master);
-  const swap = (sel, html) => {
-    const box = el.querySelector(sel);
-    if (box) box.innerHTML = html;
-  };
-
-  form.addEventListener('change', (e) => {
-    if (!RECOMPUTE_ON.includes(e.target.name)) return;
-    const next = { ...draft, ...f.readForm(form) };
-    Object.assign(draft, next);
-
-    // 方案換了才重畫整頁：選了方案才會多出「購買數量」那一格
-    if (e.target.name === 'planId') {
-      repaint(next);
-      return;
-    }
-    const nextPlan = plans.find((p) => p.id === next.planId) ?? null;
-    const nextQty = planQuantity(next.quantity);
-    if (e.target.name === 'quantity') {
-      swap('[data-preview]', previewHtml(nextPlan, nextQty > 0 ? expandPlan(nextPlan, nextQty) : [], nextQty));
-    } else {
-      swap('[data-warnings]', warningsHtml(draftToCustomer(next), existing));
-    }
-  });
-
-  form.addEventListener('click', (e) => {
-    if (e.target.closest('[data-addextra]')) {
-      // 面板裡改的是它自己的草稿，按「加進來」才回到這一頁的名單上
-      openBuySheet(master, (item) => repaint({
-        ...draft, ...f.readForm(form), extras: [...draft.extras, item],
-      }));
-      return;
-    }
-    const drop = e.target.closest('[data-dropextra]');
-    if (drop) {
-      const at = Number(drop.dataset.dropextra);
-      repaint({
-        ...draft,
-        ...f.readForm(form),
-        extras: draft.extras.filter((_, i) => i !== at),
-      });
-    }
-  });
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const values = { ...draft, ...f.readForm(form) };
-    const customer = draftToCustomer(values);
-
-    const errors = [...rules.validate(customer), ...validateMarks(values.marks)];
-    f.showErrors(el, errors);
-    if (errors.length) return;
-
-    const quantity = planQuantity(values.quantity);
-    // 數量 0 就不展開方案。**不是把方案清掉** —— 展開 0 次會建出一串
-    // 總次數是 0 的額度，而那幾筆之後只會在她的畫面上礙事。
-    const chosen = quantity > 0 ? (plans.find((p) => p.id === values.planId) ?? null) : null;
-
-    try {
-      const id = await toast.withSaveState(
-        () => data.createWithPlan(customer, {
-          plan: chosen,
-          quantity,
+  // 表單本體是共用元件（issue 08）：拍訂購單那一層的小鉛筆開的是同一張
+  mountCustomerForm(el.querySelector('[data-newcustomer]'), {
+    draft: blankDraft(todayISO()),
+    plans: plans.filter((p) => p.active !== false),
+    existing,
+    alerts: clinicalTerms(clinicalFlags),
+    master: { courses, equipment, ivProducts, products, partners: partnerNames(partners) },
+    onCancel: leave,
+    onSubmit: async ({ customer, plan, quantity, extras }) => {
+      try {
+        const id = await toast.withSaveState(
           // 加購跟方案展開的那幾筆走同一個 commit，加購的健檢才配得到二返
           // （ADR-0022，`data/customers.js` 的 `createWithPlan()` 檔頭）。
-          extras: values.extras.map(
-            (x) => buy.toEntitlement(x, { purchasedAt: customer.purchasedAt ?? null }),
-          ),
-        }),
-        // 連點兩下就是兩位同名客戶，各自展開一整份方案額度。
-        { success: '已建立', key: 'customer:create' },
-      );
-      go(`/customers/${id}`);
-    } catch {
-      /* withSaveState 已顯示錯誤與重試 */
-    }
+          () => data.createWithPlan(customer, { plan, quantity, extras }),
+          // 連點兩下就是兩位同名客戶，各自展開一整份方案額度。
+          { success: '已建立', key: 'customer:create' },
+        );
+        go(`/customers/${id}`);
+      } catch {
+        /* withSaveState 已顯示錯誤與重試 */
+      }
+    },
   });
-}
-
-/**
- * 「加購」那一段。跟客戶詳情的加購是**同一張表**（`components/buy.js`），
- * 只是這裡列的是還沒寫進去的草稿 —— 建立之前一個字都還沒進資料庫。
- */
-function extrasHtml(extras) {
-  return `
-    <div class="fieldgroup">
-      <span class="fieldgroup__label">加購　方案之外多買的</span>
-      ${extras.length ? `
-        <ul class="roster">
-          ${extras.map((x, i) => `
-            <li class="roster__row">
-              <span class="roster__main">
-                <span class="roster__name">${esc(x.label || '（沒有名稱）')}</span>
-                <span class="roster__note">${esc(x.totalQty ?? 0)} ${esc(buy.unitOf(x))}</span>
-              </span>
-              <button class="roster__x" type="button" data-dropextra="${i}"
-                      aria-label="拿掉">${icon('close', { size: 15, width: 2 })}</button>
-            </li>`).join('')}
-        </ul>` : '<p class="muted" style="margin: 0 0 var(--space-2)">還沒加購。</p>'}
-      <button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>
-    </div>`;
-}
-
-function priorityOptions() {
-  return Array.from({ length: rules.MAX_PRIORITY + 1 }, (_, i) => ({
-    value: String(i),
-    label: i === 0 ? '0 · 還沒評' : `${i} ${'★'.repeat(i)}`,
-  }));
-}
-
-/**
- * 會籍到期日刻意不在這張表單裡（ADR-0019）—— 實務上沒有會籍這件事。
- * 欄位本身留在資料上，舊資料照樣讀得到，只是不再有人填它。
- */
-function draftToCustomer(d) {
-  return {
-    name: String(d.name ?? '').trim(),
-    phone: String(d.phone ?? '').trim() || null,
-    lineId: String(d.lineId ?? '').trim() || null,
-    source: String(d.source ?? '').trim() || null,
-    purchasedAt: d.purchasedAt || null,
-    membershipExpiresAt: null,
-    priority: Number(d.priority) || 0,
-    flags: d.flags ?? [],
-    partners: d.partners ?? [],
-    // marks 與 notes 永遠一起寫，不要有只改到一邊的路徑
-    ...toCustomerFields(d.marks),
-  };
-}
-
-function previewHtml(plan, preview, qty) {
-  if (!plan) {
-    return `<p class="muted">沒有選方案，底下可以一項一項加購。</p>`;
-  }
-  // 她選了方案又打 0。**畫面要承認她做了這件事** —— 偷偷把方案當成沒選，
-  // 等於她之後永遠不知道那一格為什麼沒有作用。
-  if (qty === 0) {
-    return `<p class="muted">數量是 0，「${esc(plan.name)}」不會展開任何額度。
-      底下的加購還是會建。</p>`;
-  }
-  if (!preview.length) {
-    return `<p class="muted">「${esc(plan.name)}」還沒有任何項目，
-      建立後這位客戶會是零額度。先去設定 → 方案範本 補齊項目。</p>`;
-  }
-  return `
-    <div class="card card--flat">
-      <h3 class="card__title">會展開這些額度</h3>
-      <ul class="muted" style="margin-bottom: 0">
-        ${preview
-          .map((e) => `<li>${esc(e.label)} <b>${e.totalQty}</b> 次</li>`)
-          .join('')}
-      </ul>
-    </div>`;
-}
-
-function warningsHtml(customer, existing) {
-  const list = rules.warnings(customer, existing);
-  if (!list.length) return '';
-  return `
-    <div class="card card--flat">
-      <h3 class="card__title">提醒</h3>
-      <ul class="muted">${list.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
-      <p class="muted" style="margin-bottom: 0">這些只是提醒，不會擋著不讓你存。</p>
-    </div>`;
 }

@@ -294,6 +294,11 @@ export const COVERAGE = {
     'public/js/domain/photoPlan.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/legacyImport.js',
   ],
+  // 新增客戶畫面重畫（issue 08，ADR-0102）
+  '39-new-customer-form': [
+    'public/js/ui/components/customerForm.js', 'public/js/ui/components/flags.js',
+    'public/js/ui/views/customers.js', 'public/js/domain/customers.js', 'public/js/ui/components/tip.js',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',

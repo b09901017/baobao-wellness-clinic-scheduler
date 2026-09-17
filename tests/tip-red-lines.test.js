@@ -45,10 +45,11 @@ function tipCalls(src) {
 describe('這幾支檔案根本不用說明泡泡', () => {
   // 整支檔案都是「會改變寫入結果」的那一種 —— 連 import 都不該有
   for (const rel of [
-    'ui/components/flags.js',        // 禁忌紅框（noticeBlock）
+    // `ui/components/flags.js` 與 `ui/views/customers.js` 2026-09-17 拿掉了（ADR-0102）：
+    // 那兩支裡真正的紅線只有禁忌紅框（noticeBlock，在壓表與來訪編輯器）與數量 0 那一句，
+    // 前者不在新增客戶那一頁、後者她指名收成 ⚠。整支禁掉會把純說明一起卡住。
     'ui/views/mergeImport.js',       // 哪幾位已經帶上警示、其餘要自己設…
     'ui/views/customersBulk.js',     // 已經建立 N 位、失敗的那一位…
-    'ui/views/customers.js',         // 方案數量是 0、不會展開任何額度…
   ]) {
     test(rel, () => {
       assert.ok(!read(rel).includes('components/tip.js'),

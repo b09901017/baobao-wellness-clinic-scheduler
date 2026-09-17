@@ -1,6 +1,6 @@
 # 新增客戶畫面重畫
 
-Status: todo
+Status: done
 **跟 09 一起出貨**（她 2026-09-17：「4＋5 一起」）
 來源：`../spec.md`
 動工前先讀：`ui/views/customers.js`（`paintNew()` 約 452 行起、`previewHtml()`、`warningsHtml()` 約 701 行）、
