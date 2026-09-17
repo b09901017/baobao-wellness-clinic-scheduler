@@ -219,3 +219,41 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   const added = (await app.readAll('visits')).filter((v) => !EXISTING.includes(v.id));
   expect(added.map((v) => `${v.customerId} ${v.date} ${v.slots.length}`)).toEqual(['cust-wang 2026-09-22 1']);
 });
+
+// 存到一半停下來、再按一次接著記：**第一次已經標好的壓完不可以被第二次蓋回去**。
+// 第二次算壓完用的是打開這一層時讀的那一份清單 —— 沒跟著更新的話，寫回去的整份 queue 裡
+// 第一次那幾位又是「還沒壓」。讓第二位穩定寫失敗：額度的 tier 超過 Rules 的長度，修掉再按一次就過
+test('A4 存到第二位失敗、修好再按一次 → 兩次標的壓完都在，治療師的寫法也在', async ({ app, page }) => {
+  test.info().annotations.push({ type: 'allow-console-errors', description: '刻意讓第二位的寫入被 Rules 擋' });
+  const data = seed().map((d) => (d.id === 'l-eecp' ? { ...d, data: { ...d.data, tier: 'x'.repeat(25) } } : d));
+  await app.seed(data);
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-left', 'aboveeList-right']);
+
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await row(page, 'a0').locator('[data-abl-therapist="staff-zn"]').click();
+  await page.locator('[data-abl-save]').click();
+  await app.ok();
+  // 照客戶排：客戶A 先記好、李小華那一天被擋
+  await expect(page.locator('.abl__why')).toContainText('李小華 那一天沒記', { timeout: 20_000 });
+  const first = await app.readDoc('batches', 'b-sep');
+  expect(first.queue.find((q) => q.customerId === 'cust-a').state).toBe('done');
+
+  const res = await fetch(`${DOCS}/customers/cust-lee/entitlements/l-eecp?updateMask.fieldPaths=tier`, {
+    method: 'PATCH', headers: { ...OWNER, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { tier: { nullValue: null } } }),
+  });
+  expect(res.ok).toBe(true);
+
+  await page.locator('[data-abl-save]').click();
+  await app.ok();
+  await app.saved();
+  await expect(page.locator('.abl')).toHaveCount(0);
+
+  const batch = await app.readDoc('batches', 'b-sep');
+  expect(batch.queue.map((q) => [q.customerId, q.state])).toEqual([
+    ['cust-wang', 'done'], ['cust-lee', 'done'], ['cust-a', 'done'], ['cust-chen', 'done'],
+  ]);
+  expect((await app.readDoc('config/app/staff', 'staff-zn')).aboveeNames).toEqual(['陳美玲']);
+});

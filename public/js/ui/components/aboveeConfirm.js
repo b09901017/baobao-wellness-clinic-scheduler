@@ -67,6 +67,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let failure = null;
   let closed = false;
   const savedKeys = new Set();
+  /** 這一層記好的每一位每一天（跨好幾次按「記錄」）。標壓完照它算。 */
+  const savedDays = [];
   let savedCount = 0;
   const showAllRooms = new Set();
 
@@ -543,6 +545,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         g.items.forEach((i) => savedKeys.add(i.key));
         savedCount += g.items.length;
         doneNow.push({ customerId: g.customerId, date: g.date });
+        savedDays.push({ customerId: g.customerId, date: g.date });
         if (!closed) paintBody();
       }
       return doneNow.length;
@@ -555,33 +558,50 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       toast.hide();
     }
 
-    // 記好的那幾位才記住寫法、標壓完（失敗那一位之後再按一次就接著做）
-    const savedIds = new Set(doneNow.map((d) => d.customerId));
-    try {
-      for (const a of aliasWrites(
-        items.filter((i) => savedKeys.has(i.key) && savedIds.has(i.customerId) && i.staffPickText && (i.therapistId || i.doctorId))
-          .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
-        ctx.master.staff,
-      )) {
+    // 記好的那幾位才記住寫法、標壓完。**算的是到目前為止記好的全部**（不只這一次），
+    // 而且**寫好一次就更新手上那一份** —— 再按一次時是拿它算的：沒更新的話，寫回去的整份
+    // queue／aboveeNames 是打開這一層時讀的那一份，上一次標好的壓完會被蓋回「還沒壓」。
+    // 已經寫過的算出來是空的（`aliasWrites()`、`queueMarksAfter()` 都跳過），沒寫成的下一次補
+    const missed = new Set();
+    for (const a of aliasWrites(
+      items.filter((i) => savedKeys.has(i.key) && i.staffPickText && (i.therapistId || i.doctorId))
+        .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
+      ctx.master.staff,
+    )) {
+      try {
         // eslint-disable-next-line no-await-in-loop
         await config.update('staff', a.id, a.changes);
+        const staff = ctx.master.staff.map((s) => (s.id === a.id ? { ...s, ...a.changes } : s));
+        ctx = { ...ctx, master: { ...ctx.master, staff } };
+      } catch {
+        missed.add('治療師在 Abovee 上的寫法');
       }
-      for (const m of queueMarksAfter(doneNow, batches)) {
+    }
+    for (const m of queueMarksAfter(savedDays, batches)) {
+      try {
         // eslint-disable-next-line no-await-in-loop
         await batchesData.saveProgress(m.batchId, m.queue, m.cursor);
+        batches = batches.map((b) => (b.id === m.batchId ? { ...b, queue: m.queue } : b));
+      } catch {
+        missed.add('壓表清單上的壓完');
       }
-    } catch {
-      /* 來訪已經記好了；寫法與壓完下次再補，不擋 */
     }
 
     running = false;
-    if (closed) return;
+    // 來訪已經記好了，這兩件沒寫成不擋 —— 但**要講**：確認框上說了會做
+    const missedLine = missed.size ? `；${[...missed].join('、')}沒記上，到壓表那一頁手動補` : '';
+    if (closed) {
+      if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
+      return;
+    }
     const left = items.some((i) => i.checked && !savedKeys.has(i.key));
     if (!failure && !left) {
       close();
-      toast.info(`記好了 ${savedCount} 段`);
+      if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
+      else toast.info(`記好了 ${savedCount} 段`);
       return;
     }
+    if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
     paintBody();
   }
 
