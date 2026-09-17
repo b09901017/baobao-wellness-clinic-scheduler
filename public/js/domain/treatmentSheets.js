@@ -328,9 +328,15 @@ export function lastSignedDate(sheet) {
   return dates.length ? dates[dates.length - 1] : null;
 }
 
-/** 照片檔的路徑。一次拍照一個檔名，**不覆蓋**（`storage.rules` 不准 update）。 */
-export function photoPathFor(customerId, sheetId, takenAtMs) {
-  return `treatmentSheets/${customerId}/${sheetId}/${takenAtMs}.jpg`;
+/**
+ * 照片檔的路徑。一次存一個檔名，**不覆蓋**（`storage.rules` 擋同名再傳一次）。
+ *
+ * 檔名是拍照時間＋一段隨機字：**只靠時間不夠** —— 時間一樣（時鐘停著、兩台裝置同一毫秒）的話，
+ * 第二次上傳撞到第一次的檔名，Rules 擋下來，畫面上講的是「沒有權限」，看不出是檔名撞了。
+ * E2E 的時鐘是停著的，T5 就是這樣紅的。
+ */
+export function photoPathFor(customerId, sheetId, takenAtMs, nonce) {
+  return `treatmentSheets/${customerId}/${sheetId}/${takenAtMs}-${nonce}.jpg`;
 }
 
 // ---------- 簽了的有沒有記、記了的有沒有簽（issue 15）----------

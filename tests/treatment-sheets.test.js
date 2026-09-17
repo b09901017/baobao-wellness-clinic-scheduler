@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  MAX_PHOTO_BYTES, SAME_SHEET_ROWS, fillYears, headerYear, lastSignedDate, matchSheet, parseRowDate,
+  MAX_PHOTO_BYTES, SAME_SHEET_ROWS, fillYears, photoPathFor, headerYear, lastSignedDate, matchSheet, parseRowDate,
   readSheet, rowsAdded, sameSheet, sheetCourses, sheetFields, validateSheet,
 } from '../public/js/domain/treatmentSheets.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -219,6 +219,16 @@ describe('照片上的字 → 一張療程單', () => {
     assert.equal(lastSignedDate({ rows: [row('2026-07-01'), row('2026-08-25'), row('2026-09-01', { signed: false })] }), '2026-08-25');
     assert.equal(lastSignedDate({ rows: [] }), null);
   });
+});
+
+test('照片檔名：時間一樣也不會撞（storage.rules 不准覆蓋）', () => {
+  const a = photoPathFor('c1', 's1', 1758100000000, 'ab12cd34');
+  const b = photoPathFor('c1', 's1', 1758100000000, 'ef56ab78');
+  assert.equal(a, 'treatmentSheets/c1/s1/1758100000000-ab12cd34.jpg');
+  assert.notEqual(a, b);
+  // firestore.rules 認的檔名形狀收得下這個（最後一段只要求「不含斜線、.jpg 結尾」）
+  assert.ok(readFileSync(fromRoot('firestore.rules'), 'utf8').includes("'/[^/]+/[^/]+[.]jpg$'"));
+  assert.match(a.split('/').pop(), /^[^/]+[.]jpg$/);
 });
 
 test('照片大小上限：storage.rules 與 domain 講同一個數字', () => {

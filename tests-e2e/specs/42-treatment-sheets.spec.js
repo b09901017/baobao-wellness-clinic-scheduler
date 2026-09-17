@@ -196,6 +196,27 @@ test('T3 名字跟編號對不上 → 不挑人，選了才存得了；新的一
   expect(await storedUnder('treatmentSheets/cust-wang/s-old/')).toEqual([OLD_PHOTO]);
 });
 
+test('T5 同一張連著換兩次（時鐘停著）→ 兩次都換得上去：照片檔名不能只靠時間', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/settings/treatment-sheets');
+
+  for (const round of [1, 2]) {
+    // eslint-disable-next-line no-await-in-loop
+    await photograph(page, ['treatmentSheet-eecp8']);
+    // eslint-disable-next-line no-await-in-loop
+    await expect(card(page, 'p0').locator('.tsc__tag'), `第 ${round} 次`).toHaveText('新版');
+    // eslint-disable-next-line no-await-in-loop
+    await card(page, 'p0').locator('[data-tsc-save]').click();
+    // eslint-disable-next-line no-await-in-loop
+    await app.saved();
+    // eslint-disable-next-line no-await-in-loop
+    await expect(page.locator('.tsl')).toHaveCount(0);
+  }
+  const files = await storedUnder('treatmentSheets/cust-wang/s-old/');
+  expect(files, '換了兩次還是只剩一個檔案').toHaveLength(1);
+  expect((await app.readDoc('customers/cust-wang/treatmentSheets', 's-old')).photoPath).toBe(files[0]);
+});
+
 test('T4 那一位的頁面：看得到縮圖、點開全螢幕；照片不在的那一張講出來；刪掉一整張照片留著', async ({ app, page }) => {
   test.info().annotations.push({ type: 'allow-console-errors', description: '刻意少一個照片檔：瀏覽器會印那一次 404' });
   await app.seed(seed([sheet('s-gone', {

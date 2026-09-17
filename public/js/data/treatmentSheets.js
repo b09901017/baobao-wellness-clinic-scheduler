@@ -26,6 +26,9 @@ import { MAX_PHOTO_BYTES, photoPathFor } from '../domain/treatmentSheets.js';
 
 const pathOf = (customerId) => `customers/${customerId}/treatmentSheets`;
 
+/** 檔名後面那一段隨機字（`photoPathFor()` 說為什麼不能只靠時間）。 */
+const nonce = () => globalThis.crypto.randomUUID().slice(0, 8);
+
 let storage = null;
 
 function bucket() {
@@ -121,7 +124,7 @@ async function removePhoto(photoPath) {
  */
 export async function create(fields, blob, { takenAt = Date.now() } = {}) {
   const id = repo.newId(pathOf(fields.customerId));
-  const photoPath = photoPathFor(fields.customerId, id, takenAt);
+  const photoPath = photoPathFor(fields.customerId, id, takenAt, nonce());
   await upload(photoPath, blob);
   try {
     await repo.commit([{
@@ -145,7 +148,7 @@ export async function create(fields, blob, { takenAt = Date.now() } = {}) {
  */
 export async function replace(existing, fields, blob, { takenAt = Date.now() } = {}) {
   const path = pathOf(existing.customerId);
-  const photoPath = photoPathFor(existing.customerId, existing.id, takenAt);
+  const photoPath = photoPathFor(existing.customerId, existing.id, takenAt, nonce());
   await upload(photoPath, blob);
   try {
     await repo.commit([{
