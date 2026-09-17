@@ -885,6 +885,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 - **Firestore Security Rules 直接禁止 `delete` 操作**，只允許 `update` 標記。
 - 清單查詢一律過濾 `deletedAt == null`。
 - 設定頁提供「已刪除項目」檢視，可還原。
+- 唯一的例外是療程單被新版取代時的**舊照片檔**（文件本身照舊軟刪除）：[ADR-0101](docs/adr/0101-photos-and-privacy.md)。
 
 ### 6.2 稽核紀錄（append-only）
 
@@ -1653,7 +1654,8 @@ score = w1 × (1 − 可用天數 / 當月天數)        // 限制越多越優�
 | 前端 | **原生 HTML / CSS / JS**，不用 React | 維護者只熟 HTML/CSS/JS，明確表示看不懂 React。不要引入 build pipeline。需要一點結構可用 Alpine.js。 |
 | 形態 | **PWA，觸控優先，響應式** | Android 手機與 iPad 各約一半。以容器寬度切三段版型（<600 / 600–899 / ≥900），不是偵測裝置型號 —— iPad Split View 會讓寬度改變。要有離線快取，訊號差時仍打得開（讀取用快取，寫入排隊重試）。 |
 | 後端 | **Firebase**（Firestore + Auth + Security Rules + Hosting） | 使用者指定。Firestore 免費額度對此規模綽綽有餘。 |
-| 排程／背景工作 | 盡量放在 client（app 開啟時執行對帳） | Cloud Functions 需要 Blaze 方案（此規模費用趨近於零，但要綁信用卡）。**先不用 Functions**，等真的需要定時觸發再說。 |
+| 排程／背景工作 | 盡量放在 client（app 開啟時執行對帳） | 沒有定時觸發的伺服器程式。 |
+| 伺服器程式 | **只有一支 Cloud Function：拍照辨識**（`functions/`） | AI 要在伺服器叫，防護與上限見 [ADR-0100](docs/adr/0100-the-first-server-code-and-its-five-locks.md)；AI 能做到哪裡見 [ADR-0099](docs/adr/0099-ai-only-copies-the-words.md)。 |
 | 部署 | **Firebase Hosting + GitHub Actions** | `firebase init hosting:github` 建好 workflow，push 就自動部署。維護者多用手機開發，不能依賴本機跑 `firebase deploy`。公開 repo 用標準 runner 不計 Actions 分鐘。 |
 | 試算表同步 | Apps Script 定時讀 Firestore → 寫回既有格式 | **單向輸出，試算表設為唯讀** |
 | 行事曆 | app 內建；ICS 訂閱為選配 | TimeTree 無穩定寫入管道，且 app 已滿足「工作／私人分離」需求 |
@@ -1726,6 +1728,7 @@ serviceAccountKey.json
 - Firestore Security Rules 必須寫，**絕不使用測試模式的全開規則**（那個預設 30 天後失效，但期間內是全世界可讀寫）
 - Firebase Auth 限定白名單帳號；未來開放同事時用自訂 claim 或白名單集合控管
 - Rules 要有測試。Firebase Emulator Suite 可以在本機驗證「未登入讀不到」「A 使用者改不了 B 的資料」
+- 照片送不送 AI、存不存、療程單照片什麼時候真的刪：[ADR-0101](docs/adr/0101-photos-and-privacy.md)
 
 ---
 

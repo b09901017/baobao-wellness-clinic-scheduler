@@ -1,6 +1,6 @@
 # 三支 ADR：AI 只抄字、第一支伺服器程式、照片與隱私
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/agents/domain.md`（ADR 慣例）、`docs/adr/0002`（app 是記錄者）、
 `docs/adr/0047`（舊資料只有一條路進得來）、`SPEC.md` 第 4.10 節與第 10 節（技術棧、資安）
