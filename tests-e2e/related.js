@@ -307,6 +307,14 @@ export const COVERAGE = {
     'public/js/domain/photoPlan.js', 'public/js/domain/legacyImport.js', 'public/js/domain/purchases.js',
     'public/js/data/customers.js', 'tests-e2e/fixtures/ai/',
   ],
+  // 拍 Abovee → 一次新增很多來訪（issue 11～13）
+  '41-abovee': [
+    'public/js/domain/aboveeImport.js', 'public/js/domain/abovee.js', 'public/js/domain/identify.js',
+    'public/js/domain/slotDraft.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/masterData.js',
+    'public/js/domain/audit.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
+    'tests-e2e/fixtures/ai/',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
