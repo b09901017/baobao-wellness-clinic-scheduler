@@ -248,3 +248,29 @@ test('O3 名字跟既有客戶一樣：兩顆都沒預選時按不下去；選�
   expect(added.every((e) => e.purchasedAt === '2026-09-03' && e.sourcePlanSets === 1)).toBe(true);
   expect(new Set(added.map((e) => e.purchaseId)).size, '一次加購是一次購買').toBe(1);
 });
+
+// 「還有沒建的就離開 → 先問一句照片不會留著」（spec「暫定」）。**有一張正在建立的時候也要問**：
+// 以前只要有一張卡在存，按 × 就不問直接收 —— 慢網路下她按了第一位的建立、接著按 ×，第二位就沒了
+test('O4 第一位還在建立（沒網路）時按 × → 照樣問「還有 1 位沒建立」；留下來、網路回來之後建好', async ({ app, page }) => {
+  test.info().annotations.push({ type: 'allow-console-errors', description: '刻意離線：Firestore 會印連不上' });
+  await app.seed([...masterDocs()]);
+  await app.signIn('/customers');
+  await photograph(page, ['orderForm-jingu', 'orderForm-checkup']);
+  await expect(page.locator('.ocdeck .ocard-host')).toHaveCount(2);
+
+  const first = cardAt(page, 0);
+  await first.locator('[data-oc-nameok]').click();
+  await page.context().setOffline(true);
+  await first.locator('[data-oc-create]').click();
+  await expect(page.locator('#toast')).toContainText('儲存中');
+
+  await page.locator('[data-oc-close]').click();
+  await expect(app.dialog()).toContainText('還有 1 位沒建立');
+  await page.locator('.dialog-backdrop [data-choice="stay"]').click();
+  await expect(page.locator('.ocdeck')).toBeVisible();
+
+  await page.context().setOffline(false);
+  await app.saved({ timeout: 30_000 });
+  expect((await app.readAll('customers')).map((c) => c.name)).toEqual(['王小明']);
+  await expect(page.locator('.ocdeck')).toBeVisible();
+});

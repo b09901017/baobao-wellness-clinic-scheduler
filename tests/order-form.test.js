@@ -269,4 +269,14 @@ describe('確認卡：建立按得下去嗎', () => {
     ]);
     assert.equal(s.line, '建好了 1 位；李小華 沒建立；還有 1 位沒按建立');
   });
+
+  test('正在建立的那一張不算「沒按建立」—— 離開前問的那一句要跟標題講同一個數字', () => {
+    const s = summaryOf([
+      { draft: { name: '王小明' }, state: 'saving' },
+      { draft: { name: '李小華' }, state: 'open' },
+    ]);
+    assert.equal(s.left, 1);
+    assert.equal(s.saving, 1);
+    assert.equal(s.line, '王小明 正在建立；還有 1 位沒按建立');
+  });
 });
