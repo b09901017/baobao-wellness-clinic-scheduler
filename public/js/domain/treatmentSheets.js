@@ -17,7 +17,8 @@
 
 import { identifyCustomer } from './identify.js';
 import { normalizeAlias } from './masterData.js';
-import { isValidDate } from './dates.js';
+import { isValidDate, shortDate } from './dates.js';
+import { courseForEquipment, isLiveSlot, needsForm, shortStatus, slotStatus } from './visits.js';
 import { EQUIPMENT_ALIASES, FLYER_COURSE_ALIASES } from './photoPlan.js';
 import { SHEET_COURSE_ALIASES } from './legacyImport.js';
 
@@ -330,4 +331,161 @@ export function lastSignedDate(sheet) {
 /** 照片檔的路徑。一次拍照一個檔名，**不覆蓋**（`storage.rules` 不准 update）。 */
 export function photoPathFor(customerId, sheetId, takenAtMs) {
   return `treatmentSheets/${customerId}/${sheetId}/${takenAtMs}.jpg`;
+}
+
+// ---------- 簽了的有沒有記、記了的有沒有簽（issue 15）----------
+//
+// CONTEXT「療程單」：簽了療程單和來訪的「已完成」講的是同一件事，對不上的地方就是她漏記或記錯的地方。
+// **只列不修**（ADR-0007、0056）：這一支回一份清單，改來訪是日曆的事。
+
+/** 四種對不上。順序就是畫面上排的順序：她最在意的（漏記了）排第一。 */
+export const COMPARE_KINDS = Object.freeze(['missing', 'notClosed', 'equipment', 'unsigned']);
+
+/**
+ * 一張療程單跟那一位的來訪比一次。
+ *
+ * - **比對區間**：第一列的日期 ～ **最後一列有簽名的那一天**（含）。照片兩三個月才拍一次，
+ *   比到今天的話最後一次簽名之後的每一段都會變成「單子上沒有」—— 整頁假警報，第三次之後她就不看了
+ * - 有簽的每一列 → 那一天那一位還算數的段裡找課程對得上的（勾了器材的走 `courseForEquipment()`，
+ *   沒勾的比療程單的課程）；**先配器材也一樣的**，再配只有課程一樣的 —— 不然兩列兩段會交叉配成兩件「器材不一樣」
+ * - 同一天簽兩列就要有兩段
+ * - 不用簽療程單的課程（二返，`needsForm()`）不參與；營養點滴那一張有品項時，別款的段不參與
+ *
+ * | kind | 條件 |
+ * |---|---|
+ * | missing | 簽了、app 那一天找不到對得上的段 —— 她最在意的（漏記） |
+ * | notClosed | 簽了、有那一段，但它不是已完成 |
+ * | equipment | 已完成，但 app 記的器材不在單子勾的那幾台裡 |
+ * | unsigned | 區間內 app 說做完了、單子上那一天沒有簽 |
+ *
+ * @param {object} sheet 一張療程單（`rows` 的日期已經補好年份）
+ * @param {object[]} visits 來訪（可以混著別位的，這裡照 `customerId` 濾）
+ * @param {{courses: object[], equipment: object[]}} master
+ * @returns {{sheetId: string|null, from: string|null, to: string|null, matched: number, issues: object[]}}
+ */
+export function compareSheet(sheet, visits = [], { courses = [], equipment = [] } = {}) {
+  const rows = (sheet?.rows ?? []).filter((r) => isValidDate(r?.date));
+  const signed = rows.filter((r) => r.signed);
+  const result = { sheetId: sheet?.id ?? null, from: null, to: null, matched: 0, issues: [] };
+  if (!sheet?.customerId || !signed.length) return result;
+
+  const from = rows.map((r) => r.date).sort()[0];
+  const to = signed.map((r) => r.date).sort().at(-1);
+  const courseSet = new Set(sheet.courseIds ?? []);
+  const ivs = sheet.ivProductIds ?? [];
+  const byId = new Map((courses ?? []).map((c) => [c.id, c]));
+  const counts = (s) => courseSet.has(s?.courseId) && needsForm(byId.get(s.courseId))
+    && (!ivs.length || !s.ivProductId || ivs.includes(s.ivProductId));
+
+  // 那一天還算數的段（取消的、刪掉的、別位的、不用簽的都不算）
+  const slotsOn = new Map();
+  for (const v of visits ?? []) {
+    if (!v || v.deletedAt || v.customerId !== sheet.customerId || !(v.date >= from && v.date <= to)) continue;
+    (v.slots ?? []).forEach((s, index) => {
+      const status = slotStatus(v, s);
+      if (!isLiveSlot(s) || status === 'cancelled' || !counts(s)) return;
+      if (!slotsOn.has(v.date)) slotsOn.set(v.date, []);
+      slotsOn.get(v.date).push({ visit: v, slot: s, index, status, used: false });
+    });
+  }
+
+  const rowCourses = (r) => {
+    const fromEq = (r.equipmentIds ?? []).map((id) => courseForEquipment(id, equipment, null)).filter(Boolean);
+    return fromEq.length ? fromEq : [...courseSet];
+  };
+  const issue = (kind, date, extra = {}) => ({ kind, date, ...extra });
+
+  const byDate = new Map();
+  for (const r of signed) {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r);
+  }
+
+  for (const [date, list] of byDate) {
+    const candidates = slotsOn.get(date) ?? [];
+    const pairs = list.map((r) => ({ row: r, hit: null }));
+    // 一、器材也一樣的
+    for (const p of pairs) {
+      const eqs = p.row.equipmentIds ?? [];
+      if (!eqs.length) continue;
+      p.hit = candidates.find((c) => !c.used && rowCourses(p.row).includes(c.slot.courseId) && eqs.includes(c.slot.equipmentId)) ?? null;
+      if (p.hit) p.hit.used = true;
+    }
+    // 二、只有課程一樣的
+    for (const p of pairs.filter((x) => !x.hit)) {
+      p.hit = candidates.find((c) => !c.used && rowCourses(p.row).includes(c.slot.courseId)) ?? null;
+      if (p.hit) p.hit.used = true;
+    }
+
+    for (const { row: r, hit } of pairs) {
+      const sheetEquipmentIds = [...(r.equipmentIds ?? [])];
+      if (!hit) {
+        result.issues.push(issue('missing', date, { seq: r.seq ?? '', courseId: rowCourses(r)[0] ?? null, sheetEquipmentIds }));
+        continue;
+      }
+      const at = { seq: r.seq ?? '', visitId: hit.visit.id, slotIndex: hit.index, courseId: hit.slot.courseId,
+        appEquipmentId: hit.slot.equipmentId ?? null, sheetEquipmentIds, status: hit.status };
+      if (hit.status !== 'done') result.issues.push(issue('notClosed', date, at));
+      else if (sheetEquipmentIds.length && hit.slot.equipmentId && !sheetEquipmentIds.includes(hit.slot.equipmentId)) {
+        result.issues.push(issue('equipment', date, at));
+      } else result.matched += 1;
+    }
+  }
+
+  for (const [date, list] of slotsOn) {
+    for (const c of list) {
+      if (c.used || c.status !== 'done') continue;
+      result.issues.push(issue('unsigned', date, {
+        visitId: c.visit.id, slotIndex: c.index, courseId: c.slot.courseId, appEquipmentId: c.slot.equipmentId ?? null,
+        sheetEquipmentIds: [], status: c.status,
+      }));
+    }
+  }
+
+  result.issues.sort((a, b) => a.date.localeCompare(b.date) || COMPARE_KINDS.indexOf(a.kind) - COMPARE_KINDS.indexOf(b.kind));
+  return { ...result, from, to };
+}
+
+/** 卡片底下那一行：「比到 8/25(二)：對得上 12 次・要你看 2 件」。 */
+export function compareLine({ to = null, matched = 0, issues = [] } = {}) {
+  if (!to) return '還沒有簽名的列，沒得比';
+  return `比到 ${shortDate(to)}：對得上 ${matched} 次${issues.length ? `・要你看 ${issues.length} 件` : ''}`;
+}
+
+/**
+ * 「全部比對一次」：每一位的每一張，只留有要看的那幾位（照名字排）。**不是自動跑的** ——
+ * 她兩三個月拍一次，不值得每次打開那一頁都讀一輪來訪。
+ *
+ * @returns {{customerId: string, customerName: string, issues: number, sheets: object[]}[]}
+ */
+export function compareAll(sheets = [], visits = [], master = {}) {
+  const people = new Map();
+  for (const sheet of (sheets ?? []).filter((s) => s && !s.deletedAt)) {
+    const r = compareSheet(sheet, visits, master);
+    if (!r.issues.length) continue;
+    const p = people.get(sheet.customerId) ?? { customerId: sheet.customerId, customerName: sheet.customerName ?? '', issues: 0, sheets: [] };
+    p.issues += r.issues.length;
+    p.sheets.push({ ...r, courseName: sheet.courseName ?? '' });
+    people.set(sheet.customerId, p);
+  }
+  return [...people.values()].sort((a, b) => a.customerName.localeCompare(b.customerName, 'zh-TW'));
+}
+
+/**
+ * 一件對不上的講成一句話。器材印她叫它的名字（全名），課程沒有器材時印課程名。
+ * 狀態走 `shortStatus()`（全站同一組字）。
+ */
+export function issueSentence(issue, { courses = [], equipment = [] } = {}) {
+  const eqName = (id) => (equipment ?? []).find((e) => e.id === id)?.name ?? null;
+  const courseName = (courses ?? []).find((c) => c.id === issue?.courseId)?.name ?? '';
+  const sheetEq = (issue?.sheetEquipmentIds ?? []).map(eqName).filter(Boolean).join('＋');
+  const what = sheetEq || courseName;
+  const day = shortDate(issue?.date);
+  switch (issue?.kind) {
+    case 'missing': return `${day} 簽了 ${what}，app 沒有這一段`;
+    case 'notClosed': return `${day} 簽了 ${what}，app 上還是「${shortStatus(issue.status)}」`;
+    case 'equipment': return `${day} 單子勾的是 ${sheetEq}，app 記的是 ${eqName(issue.appEquipmentId) ?? '？'}`;
+    case 'unsigned': return `${day} app 記 ${eqName(issue.appEquipmentId) ?? courseName} 做完了，單子上這一天沒有簽`;
+    default: return day;
+  }
 }

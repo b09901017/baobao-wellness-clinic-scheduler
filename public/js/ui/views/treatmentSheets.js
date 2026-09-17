@@ -8,12 +8,19 @@
 // - `#/settings/treatment-sheets/:customerId`：那一位的療程單，一張一張卡
 // 兩頁右下角都有一顆相機（`camera.js` → `sheetConfirm.js`）。
 //
+// 比對（issue 15）：每一張卡底下一行「比到 8/25：對得上 12 次・要你看 2 件」，點開是那幾件、各連到日曆那一天。
+// **這兩頁沒有任何一顆按鈕改得到來訪**（ADR-0007 只列不修、ADR-0056 改來訪只有日曆）。
+// 「全部比對一次」是她按了才跑 —— 兩三個月拍一次，不值得每次打開都讀一輪來訪。
+//
 // 規則在 `domain/treatmentSheets.js`，讀寫在 `data/treatmentSheets.js`。這一支只畫與接線。
 
 import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import * as sheetsData from '../../data/treatmentSheets.js';
-import { lastSignedDate, sheetLabel } from '../../domain/treatmentSheets.js';
+import * as visitsData from '../../data/visits.js';
+import {
+  compareAll, compareLine, compareSheet, issueSentence, lastSignedDate, sheetLabel,
+} from '../../domain/treatmentSheets.js';
 import { normalizeName } from '../../domain/identify.js';
 import { shortDate, todayISO } from '../../domain/dates.js';
 import { openCamera } from '../components/camera.js';
@@ -23,7 +30,9 @@ import { esc } from '../components/form.js';
 import { openPhoto } from '../components/seen.js';
 import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
+import { go } from '../router.js';
 import * as toast from '../toast.js';
+import { showDate } from './calendar.js';
 
 // 搜尋框打的字留在模組層：點進一位再按返回，她剛剛找的那幾個字還在
 const view = { search: '' };
@@ -105,6 +114,12 @@ export async function render(el) {
       <span class="visually-hidden">找人</span>
       <input type="search" data-sheet-search value="${esc(view.search)}" placeholder="找人：姓名" autocomplete="off" />
     </label>
+    ${data.sheets.length ? `
+      <div class="tsheets__compareall">
+        <button class="btn" type="button" data-sheet-compare-all>全部比對一次</button>
+        ${tip('拿每一張療程單上簽了的列，跟那一位記在 app 裡的來訪比一次。只比到每一張最後一次簽名的那一天。')}
+      </div>
+      <div data-sheet-compare-result></div>` : ''}
     <div data-sheet-people></div>
     ${fab()}`;
 
@@ -148,6 +163,7 @@ export async function render(el) {
     paintPeople();
   });
   el.querySelector('[data-sheet-camera]').addEventListener('click', () => photograph(el, () => render(el)));
+  el.querySelector('[data-sheet-compare-all]')?.addEventListener('click', (e) => compareEveryone(el, data, e.currentTarget));
 
   // 上一次沒刪掉的舊照片檔（`data/treatmentSheets.js` 的 `replace()`），打開這一頁時再刪一次
   for (const s of data.sheets.filter((x) => (x.stalePhotoPaths ?? []).length)) {
@@ -168,6 +184,8 @@ export async function renderPerson(el, customerId) {
     return;
   }
   const customer = data.customers.find((c) => c.id === customerId) ?? null;
+  // 比對要那一位的來訪。讀不到不擋整頁：卡片照畫，那一行講讀不到
+  const visits = await visitsData.listByCustomer(customerId).catch(() => null);
   const sheets = data.sheets
     .filter((s) => s.customerId === customerId)
     .sort((a, b) => `${a.courseName}|${firstDate(a)}`.localeCompare(`${b.courseName}|${firstDate(b)}`, 'zh-TW'));
@@ -178,7 +196,7 @@ export async function renderPerson(el, customerId) {
     <div class="page">
       <h1 class="page__title">${esc(customer?.name ?? '找不到這位客戶')}</h1>
     </div>
-    ${sheets.length ? `<div class="tsheets__cards">${sheets.map((s) => cardHtml(s, data.master)).join('')}</div>`
+    ${sheets.length ? `<div class="tsheets__cards">${sheets.map((s) => cardHtml(s, data.master, visits)).join('')}</div>`
     : '<p class="tsheets__empty">這一位還沒有療程單。右下角的相機拍一張。</p>'}
     ${fab()}</div>`;
   const page = el.querySelector('[data-sheet-page]');
@@ -186,6 +204,21 @@ export async function renderPerson(el, customerId) {
   page.querySelector('[data-sheet-camera]').addEventListener('click', () => photograph(el, () => renderPerson(el, customerId)));
 
   page.addEventListener('click', async (e) => {
+    const day = e.target.closest('[data-sheet-day]');
+    if (day) {
+      // 日曆那一天：這一頁不是一層，直接換頁（返回鍵回到這一位）
+      showDate(day.dataset.sheetDay);
+      go('/calendar');
+      return;
+    }
+    const more = e.target.closest('[data-sheet-compare]');
+    if (more) {
+      const list = page.querySelector(`[data-sheet-issues="${CSS.escape(more.dataset.sheetCompare)}"]`);
+      const open = more.getAttribute('aria-expanded') !== 'true';
+      more.setAttribute('aria-expanded', String(open));
+      if (list) list.hidden = !open;
+      return;
+    }
     const photo = e.target.closest('[data-sheet-photo]');
     if (photo && photo.dataset.url) {
       openPhoto(photo.dataset.url, '');
@@ -217,7 +250,7 @@ export async function renderPerson(el, customerId) {
 
 const firstDate = (sheet) => (sheet.rows ?? []).map((r) => r.date).filter(Boolean).sort()[0] ?? '';
 
-function cardHtml(sheet, master) {
+function cardHtml(sheet, master, visits) {
   const last = lastSignedDate(sheet);
   const taken = dayOf(sheet.photoAt);
   const first = firstDate(sheet);
@@ -230,11 +263,55 @@ function cardHtml(sheet, master) {
         <p class="tsheet__facts num">${first ? `${esc(shortDate(first))} 起・` : ''}${(sheet.rows ?? []).length} 列${
   last ? `・最後簽名 ${esc(shortDate(last))}` : ''}</p>
         ${taken ? `<p class="tsheet__taken">照片是 ${esc(shortDate(taken))} 拍的</p>` : ''}
+        ${compareHtml(sheet, master, visits)}
         <div class="tsheet__actions">
           <button class="btn btn--sm btn--ghost" type="button" data-sheet-delete="${esc(sheet.id)}">刪掉這一張</button>
         </div>
       </div>
     </article>`;
+}
+
+/** 卡片底下那一行，有要看的就是一顆按鈕、點開那幾件。 */
+function compareHtml(sheet, master, visits) {
+  if (!visits) return '<p class="tsheet__compare tsheet__compare--none">讀不到來訪，沒辦法比對</p>';
+  const result = compareSheet(sheet, visits, master);
+  const line = compareLine(result);
+  if (!result.issues.length) return `<p class="tsheet__compare${result.to ? ' tsheet__compare--ok' : ''}">${esc(line)}</p>`;
+  return `
+    <button class="tsheet__compare tsheet__compare--look" type="button" data-sheet-compare="${esc(sheet.id)}" aria-expanded="false">
+      <span>${esc(line)}</span>${icon('down', { size: 16 })}</button>
+    <ul class="tsheet__issues" data-sheet-issues="${esc(sheet.id)}" hidden>
+      ${result.issues.map((i) => `
+        <li class="tsheet__issue tsheet__issue--${esc(i.kind)}">
+          <span>${esc(issueSentence(i, master))}</span>
+          <button class="btn btn--sm" type="button" data-sheet-day="${esc(i.date)}">去日曆 ${esc(shortDate(i.date))}</button>
+        </li>`).join('')}
+    </ul>`;
+}
+
+/** 「全部比對一次」：讀有療程單的那幾位在區間內的來訪，列出哪幾位有要看的。 */
+async function compareEveryone(el, data, button) {
+  const holder = el.querySelector('[data-sheet-compare-result]');
+  const dates = data.sheets.flatMap((s) => (s.rows ?? []).map((r) => r.date)).filter(Boolean).sort();
+  if (!holder || !dates.length) return;
+  button.disabled = true;
+  holder.innerHTML = '<p class="tsheets__empty">讀取中…</p>';
+  try {
+    const visits = await visitsData.listBetween(dates[0], dates[dates.length - 1]);
+    const people = compareAll(data.sheets, visits, data.master);
+    holder.innerHTML = people.length
+      ? `<ul class="tsheets__people tsheets__people--look">${people.map((p) => `
+          <li><a class="tsheets__person" href="#/settings/treatment-sheets/${encodeURIComponent(p.customerId)}" data-sheet-look="${esc(p.customerId)}">
+            <span class="tsheets__name">${esc(p.customerName)}</span>
+            <span class="tsheets__meta tsheets__meta--look num">要你看 ${p.issues} 件</span>
+            ${icon('right', { size: 17 })}
+          </a></li>`).join('')}</ul>`
+      : '<p class="tsheets__allgood">每一張都對得上（各自比到最後一次簽名那一天）。</p>';
+  } catch (err) {
+    holder.innerHTML = `<p class="tsheets__empty">讀不到來訪：${esc(err.message)}</p>`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function removeSheet(el, sheet, customerId, master) {

@@ -322,6 +322,11 @@ export const COVERAGE = {
     'public/js/ui/components/seen.js', 'public/js/domain/identify.js', 'public/js/ui/views/trash.js',
     'public/js/ui/views/settings.js', 'public/js/data/backup.js', 'firebase.json', 'tests-e2e/fixtures/ai/',
   ],
+  // 療程單比對（issue 15）。比對讀來訪的狀態與器材，連到日曆那一天
+  '43-treatment-compare': [
+    'public/js/domain/treatmentSheets.js', 'public/js/ui/views/treatmentSheets.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/ui/views/calendar.js', 'public/js/domain/dates.js',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
