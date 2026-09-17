@@ -113,6 +113,15 @@ function wire() {
     // 判準是「退到的深度就是我們要的，而且 stack 在那之後長高了」。
     // 兩個條件都要：只比深度的話，她**真的**按返回鍵那一下會被吃掉。
     const mine = goTarget !== null && physical === goTarget && stack.length > physical;
+
+    // **還在路上的那一趟**（2026-09-17，issue 09）：兩層在不同的微任務裡收掉（確認框按「離開」，
+    // 接著底下那一層），`reconcile()` 會排兩趟 go，而瀏覽器兩趟都會走完。第一趟停在中途那一格時
+    // 深度比目標高、stack 也沒有長高 —— 那不是「還差一格」，是第二趟還沒到。這時候再對帳會多退一次，
+    // 三格一退就退出 app 了。所以只記下現在在哪一格，等下一個 popstate。
+    //
+    // stack 長高了（中途又疊了一層）就不是這一種，照下面的舊路走。
+    if (goTarget !== null && physical > goTarget && stack.length <= goTarget) return;
+
     goTarget = null;
     if (mine) {
       schedule();
@@ -120,7 +129,12 @@ function wire() {
     }
 
     // 退到哪一層就收掉它上面的每一層。她可能長按返回鍵一次退兩層。
-    while (stack.length > physical) drop(stack[stack.length - 1]).onPop();
+    // **只收按下去那一刻疊著的**：被收的那一層可能在 onPop 裡問一句（拍訂購單的「還有 N 位沒建立」），
+    // 那一道確認框是新疊的，不可以被同一圈收掉（2026-09-17，issue 09）
+    // 上面那一層的 onPop 可能順手收掉下面那一層 —— 已經收掉的不再叫一次
+    for (const layer of stack.slice(physical).reverse()) {
+      if (!layer.closed) drop(layer).onPop();
+    }
 
     schedule();
   });
