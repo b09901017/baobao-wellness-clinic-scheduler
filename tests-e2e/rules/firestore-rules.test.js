@@ -584,6 +584,28 @@ describe('R11 主檔（config）', () => {
   });
 });
 
+describe('R13 AI 用量（ADR-0100）', () => {
+  test('R13.1 白名單內讀得到，但寫不進去 —— 改小這個數字就等於繞過每月上限', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'aiUsage', '2026-09'), { estUsd: 3, calls: 10 });
+      await setDoc(doc(ctx.firestore(), 'aiUsage', '2026-09', 'calls', 'c1'), { kind: 'orderForm', outcome: 'ok' });
+    });
+    await assertSucceeds(getDoc(doc(allowed, 'aiUsage', '2026-09')));
+    await assertSucceeds(getDocs(collection(allowed, 'aiUsage', '2026-09', 'calls')));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-09'), stamped({ estUsd: 0, calls: 0 })));
+    await assertFails(updateDoc(doc(allowed, 'aiUsage', '2026-09'), { estUsd: 0 }));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-10'), stamped({ estUsd: 0 })));
+    await assertFails(deleteDoc(doc(allowed, 'aiUsage', '2026-09')));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-09', 'calls', 'c2'), { kind: 'orderForm' }));
+  });
+
+  test('R13.2 外人讀不到', async () => {
+    await assertFails(getDoc(doc(stranger, 'aiUsage', '2026-09')));
+    await assertFails(getDoc(doc(anon, 'aiUsage', '2026-09')));
+    await assertFails(getDocs(collection(stranger, 'aiUsage', '2026-09', 'calls')));
+  });
+});
+
 // ---------- 這一份測試自己的完整性 ----------
 
 describe('R12 白名單與 domain 對得上', () => {

@@ -7763,3 +7763,703 @@ summary {
   border-width: 6px 6px 0;
   border-top-color: var(--tip-bg);
 }
+
+/* ---------- 設定 → AI 用量（issue 05，ADR-0100）----------
+   一個大數字、一條進度條、兩行事實。金額一律等寬數字，上下對得齊。 */
+.aiuse__big {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.aiuse__usd {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.aiuse__cap {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.aiuse__meter {
+  height: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.aiuse__meter > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--motion-slow) var(--ease-out);
+}
+
+.aiuse__meter--warn > span {
+  background: var(--overdue);
+}
+
+.aiuse__facts {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-3) 0 0;
+}
+
+.aiuse__facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.aiuse__facts dt {
+  color: var(--text-dim);
+}
+
+.aiuse__facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.aiuse__paused {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--overdue);
+  background: var(--overdue-bg);
+  border-radius: var(--radius-sm);
+}
+
+.aiuse__kinds,
+.aiuse__recent {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aiuse__kinds li,
+.aiuse__recent li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+}
+
+.aiuse__kinds li:first-child,
+.aiuse__recent li:first-child {
+  border-top: 0;
+}
+
+.aiuse__recent li {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.aiuse__num,
+.aiuse__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.aiuse__time {
+  text-align: left;
+}
+
+.aiuse__call--blocked .aiuse__outcome,
+.aiuse__call--failed .aiuse__outcome {
+  color: var(--overdue);
+}
+
+.aiuse__pause {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* ---------- 拍照那一層（issue 06，ui/components/camera.js）----------
+   招牌是取景框的四個「紙角」：直的一張紙（訂購單、療程單、文宣），或橫的一個螢幕（Abovee）。
+   框上方用明體寫這一種單子的名字 —— 她在拍的是一張紙，那張紙叫什麼。
+   其他一律安靜：深色底、一顆快門、底下一排縮圖。 */
+.cam {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto auto;
+  height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  color: var(--camera-fg);
+  background: var(--camera-bg);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-slow) var(--ease-out);
+}
+
+.cam--in {
+  opacity: 1;
+  transform: none;
+}
+
+.cam--leaving {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+}
+
+body.has-cam {
+  overflow: hidden;
+}
+
+.cam__top {
+  display: grid;
+  grid-template-columns: var(--tap-min) 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: calc(env(safe-area-inset-top) + var(--space-2)) var(--space-3) var(--space-2);
+}
+
+.cam__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.cam__icon,
+.cam__side,
+.cam__send,
+.cam__big {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.cam__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border-radius: 50%;
+}
+
+.cam__send {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--camera-bg);
+  background: var(--camera-guide);
+  border-radius: var(--radius-pill);
+}
+
+.cam__send:disabled {
+  opacity: 0.6;
+}
+
+.cam__stage {
+  position: relative;
+  min-height: 0;
+  margin: 0 var(--space-3);
+  overflow: hidden;
+  background: #000;
+  border-radius: var(--radius-lg);
+}
+
+.cam__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--motion-slow) var(--ease-out);
+}
+
+.cam--live .cam__video {
+  opacity: 1;
+}
+
+/* 紙角：一張 A4 直式（或 16:10 的螢幕）置中，四個角各一個 L */
+.cam__frame {
+  --corner: 28px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(78%, calc((100dvh - 320px) * 0.707));
+  aspect-ratio: 1 / 1.414;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.cam__frame--wide {
+  width: 88%;
+  aspect-ratio: 16 / 10;
+}
+
+.cam__frame i {
+  position: absolute;
+  width: var(--corner);
+  height: var(--corner);
+  border: 3px solid var(--camera-guide);
+  filter: drop-shadow(0 0 6px rgb(0 0 0 / 45%));
+}
+
+.cam__frame i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 8px; }
+.cam__frame i:nth-child(2) { top: 0; right: 0; border-bottom: 0; border-left: 0; border-top-right-radius: 8px; }
+.cam__frame i:nth-child(3) { bottom: 0; left: 0; border-top: 0; border-right: 0; border-bottom-left-radius: 8px; }
+.cam__frame i:nth-child(4) { right: 0; bottom: 0; border-top: 0; border-left: 0; border-bottom-right-radius: 8px; }
+
+.cam--fallback .cam__frame {
+  display: none;
+}
+
+/* 快門：紙角往內收一下，畫面閃一層淡光 */
+.cam--snap .cam__frame {
+  animation: cam-snap var(--motion-slow) var(--ease-pop);
+}
+
+.cam__flash {
+  position: absolute;
+  inset: 0;
+  background: var(--camera-fg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cam--snap .cam__flash {
+  animation: cam-flash 260ms var(--ease-out);
+}
+
+@keyframes cam-snap {
+  40% { transform: translate(-50%, -50%) scale(0.965); }
+}
+
+@keyframes cam-flash {
+  0% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+.cam__fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  text-align: center;
+  background: var(--camera-bg);
+}
+
+.cam__fallback[hidden] {
+  display: none;
+}
+
+.cam__fallback-say {
+  max-width: 22em;
+  margin: 0 auto;
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--camera-dim);
+}
+
+.cam__fallback-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.cam__big {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  min-width: 112px;
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--text-sm);
+  border: 1px solid var(--camera-line);
+  border-radius: var(--radius-lg);
+}
+
+.cam__say {
+  min-height: 1.6em;
+  margin: var(--space-2) var(--space-4) 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--camera-dim);
+  text-align: center;
+}
+
+.cam__say:empty {
+  visibility: hidden;
+}
+
+.cam__tray {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.cam__tray[hidden] {
+  display: none;
+}
+
+.cam__thumb {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 72px;
+  border-radius: var(--radius-sm);
+  animation: cam-drop var(--motion-slow) var(--ease-pop);
+}
+
+.cam__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 1px solid var(--camera-line);
+  border-radius: inherit;
+}
+
+.cam__thumb[data-state='sending'] img {
+  opacity: 0.55;
+}
+
+.cam__thumb[data-state='failed'] img,
+.cam__thumb[data-state='unreadable'] img {
+  outline: 2px solid var(--overdue);
+  outline-offset: -2px;
+}
+
+@keyframes cam-drop {
+  from { opacity: 0; transform: translateY(-18px) scale(0.9); }
+}
+
+/* 拿掉那一張的 ×。撐觸控區的 ::after 貼在自己身上，所以要 position: absolute／relative 其中一個 */
+.cam__x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--camera-bg);
+  background: var(--camera-fg);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cam__x::after {
+  content: '';
+  position: absolute;
+  inset: -11px;
+}
+
+.cam__spin,
+.cam__ok,
+.cam__bad {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.cam__spin {
+  border: 2px solid var(--camera-line);
+  border-top-color: var(--camera-fg);
+  animation: cam-spin 800ms linear infinite;
+}
+
+.cam__ok {
+  color: var(--camera-bg);
+  background: var(--camera-guide);
+}
+
+.cam__bad {
+  color: var(--camera-fg);
+  background: var(--overdue);
+}
+
+@keyframes cam-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cam__controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.cam__side {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: var(--tap-min);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--camera-dim);
+}
+
+.cam__side:disabled,
+.cam__big:disabled,
+.cam__shutter:disabled {
+  opacity: 0.35;
+}
+
+.cam__shutter {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  background: none;
+  border: 3px solid var(--camera-fg);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cam__shutter span {
+  width: 60px;
+  height: 60px;
+  background: var(--camera-fg);
+  border-radius: 50%;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.cam__shutter:active span {
+  transform: scale(0.88);
+}
+
+/* 拿不到相機時中間那兩顆大按鈕就是全部的路，底下那一排不要再重複一次 */
+.cam--fallback .cam__controls {
+  display: none;
+}
+
+.cam :focus-visible {
+  outline: 2px solid var(--camera-guide);
+  outline-offset: 2px;
+}
+
+/* iPad 橫式：取景在左、控制在右 */
+@media (min-width: 900px) and (orientation: landscape) {
+  .cam {
+    grid-template-columns: 1fr 132px;
+    grid-template-rows: auto 1fr auto auto;
+  }
+
+  .cam__top { grid-column: 1 / -1; }
+  .cam__stage { grid-row: 2 / 5; margin-bottom: var(--space-4); }
+  .cam__say { grid-column: 2; grid-row: 3; margin: 0 var(--space-2); text-align: left; }
+  .cam__tray { grid-column: 2; grid-row: 4; flex-direction: column; overflow: auto; }
+
+  .cam__controls {
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-rows: 1fr auto 1fr;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) 0;
+  }
+
+  .cam__frame { width: min(60%, calc((100dvh - 180px) * 0.707)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cam,
+  .cam__thumb,
+  .cam--snap .cam__frame,
+  .cam--snap .cam__flash,
+  .cam__spin {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ---------- 「照片上寫的是」（ui/components/seen.js）---------- */
+.seen {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.seen span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seen::after {
+  content: '';
+  position: absolute;
+  inset: -9px -2px;
+}
+
+.seenview {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  height: 100dvh;
+  color: var(--camera-fg);
+  background: var(--camera-bg);
+}
+
+.seenview__scroll {
+  overflow: auto;
+  touch-action: pinch-zoom pan-x pan-y;
+}
+
+.seenview__img {
+  display: block;
+  max-width: 100%;
+  margin: auto;
+}
+
+.seenview--zoom .seenview__img {
+  width: 200%;
+  max-width: none;
+}
+
+.seenview__close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  right: var(--space-2);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  color: var(--camera-fg);
+  background: rgb(0 0 0 / 45%);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.seenview__caption {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) calc(env(safe-area-inset-bottom) + var(--space-3));
+  font-size: var(--text-sm);
+  color: var(--camera-dim);
+  text-align: center;
+}
+
+.seenview__caption strong {
+  color: var(--camera-fg);
+}
+
+/* ---------- 拍方案文宣 → 方案編輯器（issue 07）---------- */
+.newrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.photohead {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.photohead__img {
+  width: 64px;
+  height: 86px;
+  padding: 0;
+  overflow: hidden;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.photohead__img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photohead__seen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.photohead__label {
+  width: 100%;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+
+.pool__seen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.pool--unresolved {
+  border-color: var(--overdue);
+  box-shadow: inset 3px 0 0 var(--overdue);
+}
+
+.pool__unresolved {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--overdue);
+}

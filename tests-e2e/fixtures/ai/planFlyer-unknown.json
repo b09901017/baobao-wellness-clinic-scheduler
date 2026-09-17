@@ -1,0 +1,14 @@
+{
+  "_why": "文宣上有一項主檔沒有的課程：那一項要空著、看得到原字、存不下去（issue 07）",
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "title": "試做方案",
+    "priceText": "$50,000",
+    "membershipText": "會籍 6 個月",
+    "items": [
+      { "category": "物理賦能課程", "text": "高能量雷射 或 超磁場 或 INDIBA", "detailText": "共計60min", "quantityText": "10" },
+      { "category": "其他", "text": "冷凍減脂", "detailText": "45min", "quantityText": "3" }
+    ]
+  }
+}

@@ -27,6 +27,9 @@ const PATHS = {
   down: '<path d="M6 9.5l6 6 6-6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/>',
   alert: '<path d="M12 3.5l8.5 15.5h-17z"/><path d="M12 9.5v4M12 16.5h.01"/>',
+  // 拍照帶入（issue 06）
+  camera: '<path d="M4 8.5h3.2L9 6h6l1.8 2.5H20v10H4z"/><circle cx="12" cy="13.3" r="3.4"/>',
+  images: '<rect x="3.5" y="5.5" width="14" height="12" rx="1.5"/><path d="M6.5 3.5h14v12"/><path d="M5.5 15l3.5-3.5 3 3 2-2 3.5 3.5"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5M12 16h.01"/>',
   message: '<path d="M4 6.5h16v11H9l-5 3.5z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.4l3.4 2"/>',

@@ -41,6 +41,13 @@ export const GLOBAL = [
 ];
 
 /**
+ * GLOBAL 裡面的例外：拍照辨識的假抄字（`fixtures/ai/`）。它們住在 fixtures 底下
+ * （Function 的假模型照那個路徑讀），但只有拍照那幾支讀得到 —— 改一份假抄字
+ * 就全跑二十幾分鐘，會讓人不想加新的假抄字。
+ */
+export const NOT_GLOBAL = ['tests-e2e/fixtures/ai/'];
+
+/**
  * 不影響 E2E 的：文件、ADR、issue、單元測試自己。
  * （`firestore.rules` 例外處理，見 `pick()` —— 它要跑的是 `test:rules`。）
  */
@@ -266,6 +273,27 @@ export const COVERAGE = {
     'public/js/domain/health.js', 'public/js/ui/views.js',
     'public/js/ui/views/visitEditor.js',
   ],
+  // 拍照辨識那一支 Function 的五道防護（ADR-0100）。`functions/` 底下每一支都算：
+  // 模擬器跑的就是那個資料夾。`firebase.json` 在這裡是因為 functions 模擬器的設定在裡面
+  // （hosting 那一段改了照樣有 00-smoke 盯著）。
+  '35-ai-guard': [
+    'functions/', 'public/js/data/ai.js', 'tests-e2e/fixtures/ai/', 'firebase.json',
+  ],
+  // 設定 → AI 用量（issue 05）
+  '36-ai-usage': [
+    'public/js/domain/aiUsage.js', 'public/js/data/aiUsage.js', 'public/js/ui/views/aiUsage.js',
+    'public/js/ui/views/settings.js', 'public/js/data/ai.js', 'functions/',
+  ],
+  // 拍照元件（issue 06）
+  '37-camera': [
+    'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
+    'public/js/ui/components/seen.js', 'public/js/data/ai.js', 'public/js/domain/aiUsage.js',
+  ],
+  // 拍方案文宣 → 方案範本（issue 07）
+  '38-photo-plan': [
+    'public/js/domain/photoPlan.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/legacyImport.js',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
@@ -301,7 +329,7 @@ export function pick(files = []) {
 
     if (hits(file, IGNORED)) continue;
 
-    if (hits(file, GLOBAL)) {
+    if (hits(file, GLOBAL) && !hits(file, NOT_GLOBAL)) {
       all = true;
       why.push(`${file} 是共用底座 → 全跑`);
       continue;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 啟動 Firebase 模擬器（Auth + Firestore + Hosting）。
+# 啟動 Firebase 模擬器（Auth + Firestore + Functions + Hosting）。
 #
 # **專案 id 用 `demo-` 開頭是刻意的。** Firebase 看到這個前綴才會進入完全離線
 # 模式：任何沒被模擬到的服務會直接報錯，而不是安靜地打到真的專案上。
@@ -27,6 +27,14 @@ if ! command -v java >/dev/null 2>&1; then
   exit 1
 fi
 
+# 拍照辨識那一支 Function 的套件（ADR-0100）。它有自己的 package.json，
+# 根目錄的 `npm ci` 裝不到 —— 少了它模擬器照樣起得來，只是 Functions 那一格
+# 會印一長串 import 錯誤，而 E2E 的症狀是「辨識一直失敗」，看不出是這一行。
+if [ ! -d functions/node_modules ]; then
+  echo "functions/ 的套件還沒裝，先裝一次（npm --prefix functions ci）…" >&2
+  npm --prefix functions ci --no-audit --no-fund
+fi
+
 exec npx firebase emulators:start \
-  --only auth,firestore,hosting \
+  --only auth,firestore,functions,hosting \
   --project "$PROJECT"

@@ -647,6 +647,19 @@ const SENTENCES = [
     say: () => ({ lead: '刪掉客戶', text: '' }),
   },
 
+  // ---- AI 用量的設定（`config/ai`，ADR-0100）----
+  // 兩格一起改的時候暫停那一句是主角：她回頭查的通常是「AI 什麼時候被關掉的」。
+  {
+    // 真的換了開關才算（第一次建那一份時 `paused: false` 不是「打開」）
+    when: (e, f) => e?.targetPath === 'config/ai'
+      && f.some((x) => x.key === 'paused' && Boolean(x.before) !== Boolean(x.after)),
+    say: (e, f) => ({ text: f.find((x) => x.key === 'paused').after ? '暫停 AI' : '打開 AI' }),
+  },
+  {
+    when: (e, f) => e?.targetPath === 'config/ai' && f.some((x) => x.key === 'monthlyCapUsd'),
+    say: (e, f) => ({ text: `把 AI 每月上限改成 US$${f.find((x) => x.key === 'monthlyCapUsd').after}` }),
+  },
+
   // ---- 其餘（設定主檔那些）----
   {
     when: (e) => opOf(e) === 'create',

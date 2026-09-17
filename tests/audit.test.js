@@ -417,6 +417,15 @@ describe('誰與做了什麼分成兩半', () => {
     assert.match(line, /少了 9\/17/);
   });
 
+  test('AI 用量的設定：改上限、暫停、打開各一句（issue 05）', () => {
+    assert.equal(describeEvent(ev('config.update', { monthlyCapUsd: 10 }, { monthlyCapUsd: 20 }, 'config/ai')),
+      '把 AI 每月上限改成 US$20');
+    assert.equal(describeEvent(ev('config.update', { paused: false }, { paused: true }, 'config/ai')), '暫停 AI');
+    assert.equal(describeEvent(ev('config.update', { paused: true }, { paused: false }, 'config/ai')), '打開 AI');
+    assert.equal(describeEvent(ev('config.create', null, { monthlyCapUsd: 5, paused: false }, 'config/ai')),
+      '把 AI 每月上限改成 US$5');
+  });
+
   test('掛不到任何人的那幾則 who 是 null', () => {
     const parts = describeParts(ev('config/app/courses.create', null,
       { name: '復能' }, 'config/app/courses/c1'));
