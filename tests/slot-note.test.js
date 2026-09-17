@@ -179,10 +179,12 @@ describe('那一句話搬到時段之後，四個地方要跟著改', () => {
     assert.ok(!src.includes('sameDay?.note'), '那是別段的字，複製過來就多一份對不起來的資料');
   });
 
+  // 組時段 2026-09-17 搬進 `domain/slotDraft.js`（issue 10）：壓表把那一句交給它，它寫進時段
   test('壓表：那一句寫進時段，不寫進整筆', () => {
-    const src = read('ui/views/schedule.js');
-    assert.match(src, /const withNote = \{ \.\.\.slot, note \};/);
-    assert.match(src, /note: null,\n    slots: \[withNote\],/);
+    assert.match(read('ui/views/schedule.js'), /note: deckEl\(\)\?\.querySelector\('\[name="note"\]'\)/);
+    const draft = read('domain/slotDraft.js').replace(/\r\n/g, '\n');
+    assert.match(draft, /\n    note,\n/);
+    assert.match(draft, /note: null,\n      slots: \[slot\],/);
   });
 
   test('日曆那一列的夾板逐段算，而且讀法只有一支', () => {

@@ -1,6 +1,6 @@
 # 組一段時段只有一支
 
-Status: todo
+Status: done
 來源：`../spec.md`（13 的前置）
 動工前先讀：`ui/views/schedule.js:2051` 的 `addSlot()`（組時段在 `:2093`）、同一支的 `courseOptions()`（`:1453`）、
 `effectiveCourse()`（`:1560`）、`pickedMinutes()`（`:1335`）、`sameDayVisit()`（`:1792`）；
@@ -51,3 +51,12 @@ Status: todo
 - `addSlot()` 裡不再出現 `assignsFor(`、`nthSlotFields(`、`effectiveCourse(` —— 有測試掃原始碼盯著，
   照 `tests/chips-and-chevrons.test.js` 的做法
 - **這一支 diff 裡有沒有任何一行，讓壓表存進去的時段跟改之前不一樣？**
+
+## 實作時跟上面不一樣的地方
+
+- **「擇一池還沒選器材」不進 `slotFromPicks()` 的 `errors`**：那一句現在由 `validateVisit()` 講
+  （「第 1 個時段：復能-四選一(60) 每次都要記錄用了哪一種器材」），搬進來的話壓表那一頁的字會變 ——
+  跟「行為一個像素都不變」衝突。`slotFromPicks()` 回 `assigns: null`，治療師與診間兩格都是 null（不挑預設值），
+  13 存之前一樣要跑 `validateVisit()`
+- 新段多了明寫的 `status` 與 `note`：存進去的值跟以前一樣（以前是 `withExtraSlot()`／`withSlotStatuses()` 補上的）
+- `tests/slot-note.test.js` 有一條掃的是「那一句寫進時段」的**寫法位置**，跟著搬到 `slotDraft.js`；不變量沒改
