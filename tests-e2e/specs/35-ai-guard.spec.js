@@ -8,25 +8,9 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  TINY_JPEG_BASE64, callExtractRaw, fakeAiCalls, idTokenFor, queueAi,
+  TINY_JPEG_BASE64, callExtractRaw, extractInApp, fakeAiCalls, idTokenFor, queueAi,
 } from '../fixtures/ai/index.js';
 import { monthKey } from '../../functions/lib/guard.js';
-
-/** 在 app 裡叫一次 `data/ai.js` 的 `extract()`，回 `{ ok, data }` 或 `{ ok: false, reason }`。 */
-async function extractInApp(page, kind = 'planFlyer') {
-  return page.evaluate(async (k) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 40; canvas.height = 30;
-    canvas.getContext('2d').fillRect(0, 0, 20, 15);
-    const blob = await new Promise((r) => { canvas.toBlob(r, 'image/jpeg', 0.8); });
-    const { extract } = await import('/js/data/ai.js');
-    try {
-      return { ok: true, data: await extract(k, blob) };
-    } catch (e) {
-      return { ok: false, reason: e.reason ?? String(e) };
-    }
-  }, kind);
-}
 
 // **Function 用的是真的時鐘**，不是測試固定的「今天」（那個只在瀏覽器裡）
 const thisMonth = () => monthKey(new Date());

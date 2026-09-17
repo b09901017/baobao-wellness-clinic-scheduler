@@ -5,9 +5,11 @@
 
 import * as config from '../../data/config.js';
 import * as backup from '../../data/backup.js';
+import * as aiUsage from '../../data/aiUsage.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
+import { formatUsd, monthKey } from '../../domain/aiUsage.js';
 import { esc } from '../components/form.js';
 import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
@@ -37,6 +39,15 @@ export async function render(el) {
     changedTemplates = TEMPLATES.filter((t) => isCustom(t.id, stored)).length;
   } catch {
     /* 那一格印「都是預設值」 */
+  }
+
+  // AI 用量那一格的副標。讀不到就不寫數字 —— 同上，一格副標不值得擋住整頁。
+  let aiMeta = '拍照辨識花了多少、上限與暫停';
+  try {
+    const usage = await aiUsage.readMonth(monthKey());
+    aiMeta = `這個月估計 ${formatUsd(usage?.estUsd ?? 0)}`;
+  } catch {
+    /* 退回那一句 */
   }
 
   el.innerHTML = `
@@ -86,6 +97,7 @@ export async function render(el) {
         ${tile('#/settings/trash', '已刪除項目', '刪除只是標記，還原得回來')}
         ${tile('#/settings/report', '試算表報表', '產生後貼回去，或讓它自己推')}
         ${tile('#/settings/merge', '舊資料匯入', '貼上對照過行事曆的合併檔')}
+        ${tile('#/settings/ai', 'AI 用量', aiMeta)}
       </div>
     </section>
 

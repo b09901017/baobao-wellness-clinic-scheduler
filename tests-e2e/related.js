@@ -279,6 +279,11 @@ export const COVERAGE = {
   '35-ai-guard': [
     'functions/', 'public/js/data/ai.js', 'tests-e2e/fixtures/ai/', 'firebase.json',
   ],
+  // 設定 → AI 用量（issue 05）
+  '36-ai-usage': [
+    'public/js/domain/aiUsage.js', 'public/js/data/aiUsage.js', 'public/js/ui/views/aiUsage.js',
+    'public/js/ui/views/settings.js', 'public/js/data/ai.js', 'functions/',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',

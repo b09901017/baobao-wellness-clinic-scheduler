@@ -65,3 +65,22 @@ export async function callExtractRaw({ idToken = null, appCheck = true, data }) 
   try { body = await res.json(); } catch { body = null; }
   return { status: res.status, body };
 }
+
+/**
+ * 在 app 裡叫一次 `data/ai.js` 的 `extract()`（用一張瀏覽器畫出來的小 JPEG）。
+ * 回 `{ ok: true, data }` 或 `{ ok: false, reason }`。
+ */
+export async function extractInApp(page, kind = 'planFlyer') {
+  return page.evaluate(async (k) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 40; canvas.height = 30;
+    canvas.getContext('2d').fillRect(0, 0, 20, 15);
+    const blob = await new Promise((r) => { canvas.toBlob(r, 'image/jpeg', 0.8); });
+    const { extract } = await import('/js/data/ai.js');
+    try {
+      return { ok: true, data: await extract(k, blob) };
+    } catch (e) {
+      return { ok: false, reason: e.reason ?? String(e) };
+    }
+  }, kind);
+}

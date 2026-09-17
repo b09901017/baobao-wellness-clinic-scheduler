@@ -1,6 +1,6 @@
 # 設定 → AI 用量
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md`
 動工前先讀：`ui/views/settings.js:81`（「資料」那一區）、`ui/components/tip.js`、

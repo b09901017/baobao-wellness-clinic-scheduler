@@ -24,6 +24,7 @@ import * as calendar from './views/calendar.js';
 import * as report from './views/report.js';
 import * as mergeImport from './views/mergeImport.js';
 import * as playbook from './views/playbook.js';
+import * as aiUsage from './views/aiUsage.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
 
 register('/', { title: '待辦', icon: 'todo', render: home.render });
@@ -107,6 +108,7 @@ register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.r
 register('/settings/merge', { title: '舊資料匯入', nav: false, render: mergeImport.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/templates', { title: 'LINE 回覆模板', nav: false, render: templates.render });
+register('/settings/ai', { title: 'AI 用量', nav: false, render: aiUsage.render });
 register('/settings/:type', {
   title: '主檔', nav: false,
   render: (el, type) => masterList.render(el, type),
