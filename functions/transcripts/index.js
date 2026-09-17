@@ -93,6 +93,25 @@ export function sanitizeBySchema(schema, value) {
 /** 那一種單子的抄字，照格式重組一份。 */
 export function sanitize(kind, value) {
   const out = sanitizeBySchema(schemaFor(kind), value);
+  if (kind === 'aboveeList') alignAboveeRows(value, out);
   // 共同兩格一定要有：畫面靠 `readable` 決定要不要講「這張看起來不是訂購單」
   return { ...out, readable: out.readable === true, unreadable: out.unreadable ?? [] };
+}
+
+/**
+ * Abovee 的列是「第幾格」對「第幾欄」（`domain/aboveeImport.js` 的 `tableOf()`）。
+ * 上面那一圈丟掉九欄以外的欄位名稱時，**每一列同一個位置的那一格也要丟** ——
+ * 只丟名稱的話後面的格子整排往左擠，電話那一格會變成「課程」送到手機上。
+ */
+function alignAboveeRows(raw, out) {
+  if (!Array.isArray(raw?.rows) || !Array.isArray(out.rows)) return;
+  const columns = Array.isArray(raw.columns) ? raw.columns : [];
+  const kept = columns
+    .map((c, i) => (sanitizeBySchema(aboveeList.schema.properties.columns.items, c) === undefined ? -1 : i))
+    .filter((i) => i >= 0);
+  // 一格壞掉（null、物件）也不可以被濾掉 —— 濾掉一樣是錯位。換成空字串，跟「那一格空白」同一種
+  const cell = (v) => sanitizeBySchema({ type: 'string' }, v) ?? '';
+  out.rows = raw.rows
+    .filter((cells) => Array.isArray(cells))
+    .map((cells) => kept.filter((i) => i < cells.length).map((i) => cell(cells[i])));
 }
