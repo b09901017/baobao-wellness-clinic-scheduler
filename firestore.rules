@@ -409,6 +409,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------- AI 用量（ADR-0100）----------
+    // 只有那一支 Cloud Function 寫得進去（Admin SDK 不經過 Rules）。
+    // 瀏覽器**一個字都寫不進去** —— 能改小這個數字，就等於能繞過每月上限。
+    // 裡面沒有照片、沒有抄出來的字（ADR-0101），所以白名單的人讀得到就好。
+    match /aiUsage/{month} {
+      allow read: if allowed();
+      allow write: if false;
+
+      match /calls/{callId} {
+        allow read: if allowed();
+        allow write: if false;
+      }
+    }
+
     // ---------- 其餘一律拒絕 ----------
     // 沒有明確允許的路徑就是不能碰。新增集合時要回來這裡開洞，
     // 這是刻意的：忘記開規則會壞掉，但不會外洩。

@@ -1,0 +1,10 @@
+{
+  "_why": "模型不照 responseJsonSchema 走、多吐了 id 與狀態的時候，送到前端的抄字不可以有它們（ADR-0099）",
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "courseId": "course-sis",
+    "status": "confirmed",
+    "customerId": "c-1"
+  }
+}

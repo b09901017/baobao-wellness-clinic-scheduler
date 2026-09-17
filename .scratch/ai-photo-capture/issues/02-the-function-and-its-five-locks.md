@@ -1,6 +1,6 @@
 # Cloud Function 地基與五道防護
 
-Status: todo
+Status: done
 Blocked by: 01
 來源：`../spec.md`（「架構」「防護五道」「只有她做得到的事」）
 動工前先讀：01 產出的三支 ADR、`firebase.json`、`firestore.rules` 開頭的 `allowed()`、

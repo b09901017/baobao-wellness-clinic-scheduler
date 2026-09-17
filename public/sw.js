@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v128';
+const VERSION = 'v129';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -28,6 +28,7 @@ const SHELL = [
   '/js/app.js',
   '/js/firebase-config.js',
   '/js/data/firebase.js',
+  '/js/data/ai.js',
   '/js/data/auth.js',
   '/js/data/repo.js',
   '/js/data/events.js',

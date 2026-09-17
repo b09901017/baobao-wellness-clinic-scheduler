@@ -40,9 +40,15 @@ Vertex AI User（叫 Gemini）與 Cloud Datastore User（讀白名單與設定�
 | 4 | 額度爆掉 | 我們自己數：每月估計花費上限（她在設定頁調，程式裡另有天花板）、每天次數上限、一次一張、每張大小上限、`maxInstances: 2`、暫停開關 |
 | 5 | Google 那一層 | US$10 預算警示，50／90／100% 寄信 |
 
-第 4 道是**先預留再叫**：transaction 裡讀這個月的合計，加上這一次最多可能花多少
-（輸入上限 ＋ `maxOutputTokens` 全用完），超過上限就拒絕；沒超過就先記上去，
-回來之後換成實際值。所以並發的兩次呼叫不會一起溜過上限。失敗也記 —— token 照樣收錢。
+第 4 道是**先預留再叫**：transaction 裡讀這個月的合計（含還在跑的那幾次的預留），
+**已經到上限就拒絕**；還沒到就先把這一次最多可能花的（輸入估多一點 ＋ `maxOutputTokens`
+全用完）記上去，回來之後換成實際值。所以並發的兩次呼叫不會一起溜過上限。
+失敗也記 —— token 照樣收錢。
+
+判準是「已經到了沒」而不是「加上這一次會不會超過」：後者會讓一個比一次預留額還小的
+上限（例如她試著填 US$0.01）連第一次都叫不出去，而設定頁上看到的是「一次都沒用、卻被擋」。
+代價是最多超過上限一點點 —— 同時在跑的那一兩次（`maxInstances: 2`）的實際花費，
+一張不到台幣 1 元。
 
 ### 數字
 
@@ -81,7 +87,7 @@ Vertex AI User（叫 Gemini）與 Cloud Datastore User（讀白名單與設定�
 - **模型只走 global 端點，不保證處理區域**（2026-09-17 查 Agent Platform 的 locations 文件：
   3.8、3.7、3.6 Flash 只在 global region，沒有 data residency）。Function 在 `asia-east1`，
   但照片實際在哪裡被模型處理不知道。照片與隱私另見 ADR-0101
-- `firebase.json` 多了 functions 與模擬器；模擬器裡**不叫 Gemini**，照圖片雜湊回
+- `firebase.json` 多了 functions 與模擬器；模擬器裡**不叫 Gemini**，照 E2E 排好的名字回
   `tests-e2e/fixtures/ai/` 的假抄字，五道防護照樣跑
 - `aiUsage/{YYYY-MM}` 只有 Function 寫得進去（Rules 寫 `false`），瀏覽器改不小數字；
   它不進備份（沒有還原的價值）

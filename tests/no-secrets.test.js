@@ -45,6 +45,12 @@ const MARKERS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /"type"\s*:\s*"service_account"/,
   /"private_key_id"\s*:/,
+  // 服務帳號 JSON 另一格一定會有的：只貼了半份也抓得到
+  /"client_x509_cert_url"\s*:\s*"https:\/\/www\.googleapis\.com\/robot\//,
+  // Anthropic 的 API key 的形狀。
+  // **刻意不掃 `AIza`**：`public/js/firebase-config.js` 的前端 apiKey 就長那樣，
+  // 而且本來就該 commit（SPEC 第 10 節）。拍照辨識不用任何 key（ADR-0100）。
+  /sk-ant-[A-Za-z0-9_-]{20,}/,
 ];
 
 test('沒有任何被追蹤的檔案含有私鑰或服務帳號憑證', () => {
