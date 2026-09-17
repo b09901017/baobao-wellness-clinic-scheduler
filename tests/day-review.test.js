@@ -162,6 +162,22 @@ describe('照她的流程分段', () => {
     assert.deepEqual(idsOf(review), ['customer']);
   });
 
+  test('療程單：新增與換照片落在「客戶與額度」；清掉舊照片檔收進「另外 N 則」（issue 14）', () => {
+    const at = (action, o) => ({ ...ev(action, o), targetPath: 'customers/abc/treatmentSheets/s1' });
+    const review = reviewOf([
+      at('customers/abc/treatmentSheets.create', { before: null, after: { customerName: '客戶A', courseName: '復能', rows: [] } }),
+      at('customers/abc/treatmentSheets.update', {
+        before: { customerName: '客戶A', courseName: '復能', rows: [], photoPath: 'a' }, after: { photoPath: 'b', rows: [{}] },
+      }),
+      at('customers/abc/treatmentSheets.update', {
+        before: { customerName: '客戶A', courseName: '復能', stalePhotoPaths: ['a'] }, after: { stalePhotoPaths: [] },
+      }),
+    ]);
+    assert.deepEqual(idsOf(review), ['customer']);
+    assert.equal(textsOf(review, 'customer').length, 2);
+    assert.equal(review.hidden, 1);
+  });
+
   // 2026-09-04 她決定設定那一段收進「另外 N 則」。**那一段仍然在 STAGES 上**
   // —— 那一則還是有它的段，只是這一頁不印。
   test('主檔設定收進「另外 N 則」', () => {

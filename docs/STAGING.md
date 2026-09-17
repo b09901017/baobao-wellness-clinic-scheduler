@@ -252,6 +252,23 @@ done
    50／90／100% 寄信。**只寄信，不會停** —— 真正的上限是設定 → AI 用量那一格
 6. **Storage**（療程單照片）：Firebase Console → Storage → 以正式版模式建預設 bucket，位置
    **US-EAST1**（staging 建在那裡，兩邊一樣；之後改不了）
+6b. **第一次推 Storage Rules**（bucket 建好之後馬上做）。正式版模式建出來的 bucket 是「全部拒絕」，
+   沒推的話療程單那一頁存照片會一直說沒有權限：
+
+   ```bash
+   npx --yes firebase-tools@13 deploy --only storage --project $PROJECT
+   ```
+
+   看到 `released rules storage.rules to firebase.storage` 就好了（staging 2026-09-17 推過）。
+   之後 `storage.rules` 改了由 CI 推（`deploy.yml` 的「部署 Storage Rules」那一步）。
+
+   **CI 那一步要多一個角色**：firebase-tools 13 推 Storage Rules 之前會先問 serviceusage
+   「Storage 的 API 開了沒」（跟「三之二」講的 14 版推 Firestore 那個檢查是同一種）。
+   CI 那把服務帳號（`firebase-adminsdk-…`）沒有那個權限的話，那一步 403、整個 deploy job 紅
+   （Hosting 與 Firestore Rules 已經推上去了，只有照片的 Rules 沒更新）。
+   2026-09-17 查的：**staging 那把有**（`roles/editor`），**正式那把沒有**。
+   所以正式環境要補一個角色 —— Google Cloud Console → IAM → 找 `firebase-adminsdk` 那一個 →
+   編輯 → 新增角色「Service Usage Consumer」（`roles/serviceusage.serviceUsageConsumer`）
 7. **關掉 Gemini 的記憶體快取**（ADR-0101「Google 那一側」）。預設會把照片與抄出來的字在
    記憶體裡留 24 小時，關掉之後不留：
 
@@ -346,6 +363,9 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
 
+**療程單的照片不在備份裡**（ADR-0101）：還原的是抄出來的列，照片檔要是原本那個專案的
+Storage 裡還在就看得到，不在的那一張卡會寫「照片不在備份裡」—— 那是預期的，有紙本正本。
+
 想先不碰 staging 的話，對著模擬器演練也一樣算數：
 
 ```bash
@@ -365,9 +385,9 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
 ## 六、本機
 
 ```bash
-npm run emulators   # Auth + Firestore + Functions + Hosting，開在 127.0.0.1:5000
+npm run emulators   # Auth + Firestore + Functions + Hosting + Storage，開在 127.0.0.1:5000
 npm test            # 純函式測試與靜態守衛，不用模擬器
-npm run test:rules  # Security Rules，會自己起一個模擬器（要先關掉別的）
+npm run test:rules  # Firestore 與 Storage 的 Rules，會自己起一組模擬器（要先關掉別的）
 npm run test:e2e    # Playwright，要模擬器在跑
 ```
 
@@ -396,6 +416,9 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
       （突然多出一堆＝新版寫壞了東西）
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**
       有沒有寫進 [操作手冊](./操作手冊.md) 的最後一節
+- [ ] 拍照功能第一次進 `main` → 正式環境照「三之三」做完了嗎：尤其 **6 建 bucket、6b 推一次
+      Storage Rules、CI 那把補 Service Usage Consumer** —— 少一樣，`deploy` job 的
+      「部署 Storage Rules」那一步會紅，療程單在正式環境存不了照片
 
 > **2026-09-06 那一輪**：`SYNC_FORMAT` 從 3 跳到 4（試算表多了「這一天用了哪一台」
 > 的註記），所以 `.gs` **一定要重貼並重新部署**。另外還有三步要她自己做一次

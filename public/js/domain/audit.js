@@ -33,6 +33,7 @@ const COLLECTION_LABELS = {
   events: '行事備註',
   notes: '隨手記',
   playbooks: '備忘錄',
+  treatmentSheets: '療程單',
   formInvites: '時間表單連結',
   formResponses: '客戶填的時間',
   batches: '壓表批次',
@@ -108,6 +109,13 @@ const FIELD_LABELS = {
   startTime: '開始時間',
   endTime: '結束時間',
   text: '內容',
+  // 療程單（ADR-0105）。`courseIds` 跟備忘錄共用底下那一格
+  ivProductIds: '營養點滴品項',
+  rows: '簽了的列',
+  photoPath: '照片',
+  photoAt: '拍照時間',
+  stalePhotoPaths: '還沒刪掉的舊照片',
+  headerDate: '表頭日期',
   // 備忘錄的那一大塊字（ADR-0069）。少了它稽核上會印出英文欄位名。
   body: '內文',
   courseIds: '掛哪些課程',
@@ -668,6 +676,31 @@ const SENTENCES = [
     say: (e, f, d) => ({
       text: `幫 ${d.name ?? ''} 記住 Abovee 上的寫法${addedAliases(f).map(quoted).join('')}`,
     }),
+  },
+
+  // ---- 療程單（issue 14，ADR-0105）----
+  // 名字與課程名是快照（`customerName`、`courseName`），不用再問一次。
+  // 她回頭查的是「那一張的照片什麼時候換的、那一次多了幾列」。
+  {
+    when: (e) => coll(e) === 'treatmentSheets' && opOf(e) === 'create',
+    say: (e, f, d) => ({ lead: '新增療程單', text: bits(d.courseName, `${(d.rows ?? []).length} 列`) }),
+  },
+  {
+    when: (e) => coll(e) === 'treatmentSheets' && opOf(e) === 'softDelete',
+    say: (e, f, d) => ({ lead: '刪掉療程單', text: d.courseName ?? '' }),
+  },
+  {
+    when: (e, f) => coll(e) === 'treatmentSheets' && f.some((x) => x.key === 'photoPath'),
+    say: (e, f, d) => {
+      const rows = f.find((x) => x.key === 'rows');
+      const more = rows ? (rows.after ?? []).length - (rows.before ?? []).length : 0;
+      return { lead: '換了療程單的照片', text: bits(d.courseName, more > 0 ? `多了 ${more} 列` : null) };
+    },
+  },
+  {
+    // 上一次沒刪掉的舊照片檔再刪一次（`data/treatmentSheets.js` 的 `sweepStale()`）
+    when: (e, f) => coll(e) === 'treatmentSheets' && f.length > 0 && f.every((x) => x.key === 'stalePhotoPaths'),
+    say: (e, f, d) => ({ lead: '清掉被取代的舊照片', text: bits(d.courseName ? `${d.courseName} 療程單` : '療程單') }),
   },
 
   // ---- 其餘（設定主檔那些）----

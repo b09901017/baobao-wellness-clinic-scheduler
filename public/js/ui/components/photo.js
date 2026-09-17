@@ -88,9 +88,9 @@ async function headInfo(blob) {
   }
 }
 
-function canvasToJpeg(canvas) {
+function canvasToJpeg(canvas, quality = QUALITY) {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', QUALITY);
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', quality);
   });
 }
 
@@ -118,23 +118,28 @@ function looksBlank(ctx, w, h) {
 
 /**
  * 一張相簿或系統相機給的照片 → 送 AI 的那一張 JPEG。
+ *
+ * `longEdge`／`quality` 只有療程單要存的那一張會改（ADR-0105）：送 AI 的那一張大於
+ * `storage.rules` 的上限時，再縮一次才傳得上去。
+ *
  * @param {Blob} file
+ * @param {{longEdge?: number, quality?: number}} [o]
  * @returns {Promise<{blob: Blob, width: number, height: number}>}
  */
-export async function shrinkPhoto(file) {
+export async function shrinkPhoto(file, { longEdge = LONG_EDGE, quality = QUALITY } = {}) {
   const info = await headInfo(file);
   const natural = info ? orientedSize(info) : null;
 
   // 第一條路：解碼時就縮（Chrome、Android）。量得到原始大小才走 —— 不知道比例就不知道要縮成多少
   if (natural && typeof createImageBitmap === 'function') {
-    const target = fitLongEdge(natural.width, natural.height);
+    const target = fitLongEdge(natural.width, natural.height, longEdge);
     try {
       const bmp = await createImageBitmap(file, {
         resizeWidth: target.width, resizeHeight: target.height, resizeQuality: 'high', imageOrientation: 'from-image',
       });
       // 不支援 resize 的瀏覽器會安靜地給原尺寸 —— 那一張不可以直接畫
       if (bmp.width === target.width && bmp.height === target.height) {
-        const out = drawTo(bmp, target);
+        const out = drawTo(bmp, target, quality);
         bmp.close?.();
         return out;
       }
@@ -147,8 +152,8 @@ export async function shrinkPhoto(file) {
   // 第二條路：<img> 解碼（瀏覽器自己會照 EXIF 轉），只畫進目標尺寸的 canvas
   const { img, url } = await loadImg(file);
   try {
-    const target = fitLongEdge(img.naturalWidth, img.naturalHeight);
-    return await drawTo(img, target);
+    const target = fitLongEdge(img.naturalWidth, img.naturalHeight, longEdge);
+    return await drawTo(img, target, quality);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -159,7 +164,7 @@ export async function shrinkFrame(video) {
   return drawTo(video, fitLongEdge(video.videoWidth, video.videoHeight));
 }
 
-async function drawTo(source, { width, height }) {
+async function drawTo(source, { width, height }, quality = QUALITY) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -170,7 +175,7 @@ async function drawTo(source, { width, height }) {
   if (looksBlank(ctx, Math.min(width, 64), Math.min(height, 64)) && looksBlank(ctx, width, height)) {
     throw new Error('blank');
   }
-  const blob = await canvasToJpeg(canvas);
+  const blob = await canvasToJpeg(canvas, quality);
   canvas.width = 0; // 讓 iOS 早點還記憶體
   return { blob, width, height };
 }

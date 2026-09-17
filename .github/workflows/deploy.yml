@@ -184,3 +184,18 @@ jobs:
             --project "${{ steps.target.outputs.project }}" \
             --non-interactive
           rm -f "$RUNNER_TEMP/sa.json"
+
+      # 療程單照片的 Rules（ADR-0101、0105）。**另外一步**，不跟 Firestore 擠同一行：
+      # 那個專案還沒建 Storage 的預設 bucket 時這一步會紅，而 Firestore 的 Rules 照樣要推上去。
+      # 第一次（每個專案一次）先照 docs/STAGING.md「三之三」建 bucket、從本機推一次。
+      - name: 部署 Storage Rules
+        env:
+          SA_JSON: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+        run: |
+          echo "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes ${{ env.FIREBASE_TOOLS }} deploy \
+            --only storage \
+            --project "${{ steps.target.outputs.project }}" \
+            --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"

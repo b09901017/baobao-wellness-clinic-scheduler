@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Cloud Storage 的安全防線（ADR-0101、0105）。前端可以被繞過，這裡不行。
+//
+// 現在只放一種東西：**療程單的照片**。訂購單、Abovee、方案文宣的照片一律不存（ADR-0101），
+// 所以其餘路徑一律拒絕 —— 沒有 match 的路徑本來就是拒絕，不另外寫一條萬用的。
+//
+// 白名單跟 `firestore.rules` 是**同一份** `allowedUsers/{uid}`（跨服務讀 Firestore）。
+// 另開一份的話，她在 Firestore 拿掉一個人，那個人照樣看得到療程單的照片。
+//
+// 第一次部署怎麼做見 `docs/STAGING.md`「Storage Rules」。
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function allowed() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/allowedUsers/$(request.auth.uid));
+    }
+
+    // treatmentSheets/{客戶}/{療程單}/{拍照時間}.jpg
+    match /treatmentSheets/{customerId}/{sheetId}/{file} {
+      allow read: if allowed();
+
+      // 只收瀏覽器縮好、重新編碼過的 JPEG。1572864 = 1.5MB（`domain/treatmentSheets.js`
+      // 的 `MAX_PHOTO_BYTES`，測試盯著兩邊一樣）。
+      //
+      // 一次拍照一個檔名，**不覆蓋**：覆蓋的話上傳到一半斷線，舊的那一張就沒了。
+      // **擋覆蓋的是 `resource == null`，不是 `update`** —— Storage 的 Rules 把
+      // 「同一個檔名再傳一次」算成 create（update 只管改 metadata），
+      // 只寫 `allow update: if false` 的話照樣蓋得過去（Rules 測試 S2.3 抓到的）。
+      allow create: if allowed()
+        && resource == null
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size <= 1572864;
+
+      allow update: if false;
+
+      // 真的刪只有一種時機：被新版取代的舊照片檔，而且是新的傳上去、文件更新之後（ADR-0101）。
+      // Rules 分不出「什麼時機」，那一條由 `data/treatmentSheets.js` 的順序守著。
+      allow delete: if allowed();
+    }
+  }
+}

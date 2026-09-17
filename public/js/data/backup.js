@@ -30,7 +30,7 @@ export const BACKUP_VERSION = 2;
 export async function exportAll({ includeAudit = false } = {}) {
   const [
     master, settings, customers, entitlements, availability, visits, tasks, batches,
-    notes, events, formInvites, formResponses, playbooks,
+    notes, events, formInvites, formResponses, playbooks, treatmentSheets,
   ] = await Promise.all([
     exportMaster(),
     config.getSettings(),
@@ -45,6 +45,7 @@ export async function exportAll({ includeAudit = false } = {}) {
     repo.listWithDeleted('formInvites'),
     repo.listWithDeleted('formResponses'),
     repo.listWithDeleted('playbooks'),
+    repo.listGroup('treatmentSheets', { includeDeleted: true }),
   ]);
 
   const data = {
@@ -72,6 +73,9 @@ export async function exportAll({ includeAudit = false } = {}) {
     // 而她要等到去翻某一份流程才會發現 —— 那正是 notes 與 events
     // 被漏掉過一次的症狀。`scripts/restore-backup.mjs` 的 SECTIONS 要一起加。
     playbooks,
+    // 療程單抄出來的列（ADR-0105）。**照片不進備份**（ADR-0101）：有紙本正本，而備份檔是 JSON。
+    // 還原完那一張卡講得出「照片不在」。子集合，同額度攤平存。
+    treatmentSheets: treatmentSheets.map(withCustomerId),
   };
 
   if (includeAudit) data.audit = await repo.listWithDeleted('audit', { order: ['at', 'asc'] });
@@ -101,6 +105,7 @@ const LABELS = {
   formResponses: '表單回覆',
   config: '主檔',
   playbooks: '備忘錄',
+  treatmentSheets: '療程單',
   audit: '稽核紀錄',
 };
 
@@ -128,6 +133,7 @@ function countsOf(data) {
     events: data.events.length,
     formInvites: data.formInvites.length,
     formResponses: data.formResponses.length,
+    treatmentSheets: data.treatmentSheets.length,
     config: Object.values(data.config).reduce((n, rows) => n + rows.length, 0),
     audit: data.audit?.length ?? 0,
   };

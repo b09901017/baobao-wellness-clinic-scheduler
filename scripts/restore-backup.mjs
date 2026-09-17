@@ -72,6 +72,8 @@ export const SECTIONS = [
   { key: 'formInvites', path: () => 'formInvites' },
   { key: 'formResponses', path: () => 'formResponses' },
   { key: 'playbooks', path: () => 'playbooks' },
+  // 照片檔不在備份裡（ADR-0101）；文件的 photoPath 照樣寫回去，卡片上講「照片不在」
+  { key: 'treatmentSheets', path: (r) => `customers/${r.customerId}/treatmentSheets`, parent: 'customerId' },
 ];
 
 // ---------------------------------------------------------------------------

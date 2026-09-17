@@ -1,6 +1,6 @@
 # 療程單的存放與搜尋
 
-Status: todo
+Status: done
 Blocked by: 03、06、11
 來源：`../spec.md`
 動工前先讀：01 的照片與隱私 ADR、`CONTEXT.md:469`（療程單）、`ui/views/settings.js:81`（「資料」那一區）、
@@ -84,3 +84,27 @@ Cloud Storage 從 2026-02-03 起要 Blaze（她本來就是），這個 repo 還
 - 沒登入或不在白名單 → Storage 讀寫都被擋（rules 測試）
 - `npm run restore` 演練：還原完療程單的文件都在（照片不在是預期的，畫面上那一張卡講「照片不在備份裡」）
 - **這一支有沒有任何一條路，讓 AI 決定「這是同一張」？**
+
+## 實作時跟上面不一樣的地方
+
+- **列上的器材存的是 `equipmentIds`（她確認過的器材 id），不是 `ticked[]`**：比對（15）要拿它走 `courseForEquipment()`，
+  原字（`IN`、`超磁場`）只在確認卡上給她看，不進資料庫。另外存了 `customerId`／`customerName`／`courseName` 的快照
+  （稽核那一句講得出是誰的哪一張、「全部比對一次」照 `customerId` 找來訪）、`ivProductIds`（營養點滴一款一張，
+  她的照片上兩款是兩張 —— 不分品項的話兩張會互相說對方「單子上沒有」）、`stalePhotoPaths`（見下）
+- **舊照片刪不掉時記在 `stalePhotoPaths`**，下次打開療程單那一頁再刪一次：新版的文件已經指到新照片了，
+  最後那一下斷線不算存失敗，但也不可以安靜地留著一份身分資訊在雲端（ADR-0101）
+- **年份沒有表頭時從拍照那一天往回推**（判準只寫了表頭）：她的物理賦能那幾張沒有表頭日期，全部空著的話一張要填八格
+- **「同一張」拿不準一律是新的一張**（既有的一列都沒有、新拍的比較短）：新版會刪照片，新的一張什麼都不刪。寫進 ADR-0105
+- **一張療程單一張卡，不是一種課程一張卡**：EECP 40 堂是兩張紙、兩張照片，併成一張卡就只看得到其中一張的照片
+- **認不出人時多一格「打名字找」**：13 的 `none` 不給選人，但療程單的姓名考試只有 8/11，
+  名字讀錯、那一位身上又沒有病歷號時，沒有這一格就存不下去。候選照舊不預選（ADR-0103）
+- **稽核那一句照 `joinParts()` 的句型**：「換了療程單的照片 客戶A・復能・多了 3 列」，不是判準寫的
+  「幫 客戶A 換了…」—— 其餘掛客戶的句子都是「動詞 名字・細節」，照人分組那一格去掉名字才讀得通
+- **Storage 的 Rules 擋覆蓋要寫 `resource == null`**，只寫 `allow update: if false` 擋不住（Storage 把同名再傳一次算成 create）
+- **`npm run test:rules` 改成一支一支跑**（`--test-concurrency=1`）：Storage 的 Rules 跨服務讀同一份 `allowedUsers`，
+  兩支平行跑時 Firestore 那一支清資料會把 Storage 那一支的白名單清掉
+- **CI 多兩件**：`deploy.yml` 多一步「部署 Storage Rules」；`e2e-full.yml` 的模擬器補開 functions 與 storage
+  （拍照那幾支 35～42 在全量 E2E 上本來就起不來 —— A 組留下來的）。正式環境 CI 那把服務帳號少 serviceusage 的權限，
+  寫進 `docs/STAGING.md`「三之三」6b 與上線前檢查表
+- **Storage 的 SDK 接在 `data/treatmentSheets.js`，不是 `data/firebase.js`**：跟 `data/ai.js` 接 Functions 同一個做法
+  （用到才初始化）；`data/firebase.js` 在 E2E 的「共用底座」清單上，動它就是全跑
