@@ -8987,3 +8987,411 @@ body.has-cam {
     transition: none;
   }
 }
+
+/* ---------- 拍 Abovee → 確認層（issue 13，ui/components/aboveeConfirm.js）----------
+   從壓表頁往上長出來的一整層。讀起來像她手上那張時刻表：左邊一欄大一號的時間（等寬數字），
+   右邊是誰、那天做什麼、一個小標。一天一組，組名用明體。
+   一列只回答「要不要記」；細節點開才長出來（原地展開，不換頁）。 */
+body.has-abl {
+  overflow: hidden;
+}
+
+.abl {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100dvh;
+  background: var(--bg);
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-slow) var(--ease-out);
+}
+
+.abl--in {
+  opacity: 1;
+  transform: none;
+}
+
+.abl__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: max(var(--space-2), env(safe-area-inset-top)) var(--gutter) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.abl__close {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  flex: none;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.abl__heading {
+  min-width: 0;
+}
+
+.abl__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.abl__sum {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.abl__body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: var(--space-3) var(--gutter) var(--space-6);
+}
+
+.abl__body > * {
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.abl__loading,
+.abl__empty {
+  margin-top: var(--space-5);
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.abl__photos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.abl__thumb {
+  width: 64px;
+  height: 44px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.abl__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 左右兩張怎麼對上的 —— 常駐的一句，會改變寫進去的東西 */
+.abl__pairing {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.abl__pairing--warn {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  background: var(--soon-bg);
+  border-radius: var(--radius-sm);
+}
+
+.abl__group {
+  margin-bottom: var(--space-5);
+}
+
+.abl__day {
+  margin: 0 0 var(--space-1);
+  padding-bottom: var(--space-1);
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.abl__group--look .abl__day {
+  color: var(--overdue);
+}
+
+.abl__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.abl-row {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.abl-row__line {
+  display: grid;
+  grid-template-columns: var(--tap-min) minmax(0, 1fr);
+  align-items: center;
+}
+
+/* 勾：一顆圓，勾起來是實心的綠 */
+.abl-row__check {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  color: transparent;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.abl-row__check::before {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.abl-row__check svg {
+  position: relative;
+}
+
+.abl-row__check[aria-checked='true'] {
+  color: var(--accent-text);
+}
+
+.abl-row__check[aria-checked='true']::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.abl-row__check:disabled {
+  cursor: default;
+}
+
+.abl-row__check:disabled::before {
+  border-style: dashed;
+  background: transparent;
+}
+
+.abl-row__main {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: var(--space-2) 0 var(--space-2) var(--space-1);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.abl-row__time {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「要你看」那一組不照日期分，所以日期寫在時間上面 */
+.abl-row__date {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--text-mute);
+}
+
+.abl-row__who {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.abl-row__what {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.abl-row__tag {
+  padding: 1px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.abl-row--new .abl-row__tag,
+.abl-row--saved .abl-row__tag {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.abl-row--mismatch .abl-row__tag,
+.abl-row--unknown .abl-row__tag {
+  color: var(--overdue);
+  background: var(--overdue-bg);
+}
+
+/* 已經記了、已取消、記好了：退到背景，一眼略過 */
+.abl-row--recorded .abl-row__main,
+.abl-row--cancelled .abl-row__main,
+.abl-row--saved .abl-row__main {
+  opacity: 0.55;
+}
+
+.abl-row__hint {
+  margin: -4px 0 var(--space-2) calc(var(--tap-min) + var(--space-1));
+  font-size: var(--text-xs);
+  color: var(--overdue);
+}
+
+.abl-row.is-open {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  border-bottom-color: transparent;
+  margin: var(--space-2) calc(var(--space-2) * -1);
+  padding: 0 var(--space-2);
+}
+
+.abl-row__detail {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-4) calc(var(--tap-min) + var(--space-1));
+}
+
+.abl-row__seen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.abl-row__seenlabel,
+.abl-row__picklabel {
+  width: 100%;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+
+.abl-row__pick {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.abl-row__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 被別的二返約走的那一次：看得到、按不下去，但不劃線（劃線會把 9/3 讀成別的字） */
+.abl-chip:disabled {
+  text-decoration: none;
+}
+
+.abl-row__say {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.abl-row__learn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+
+.abl-row__problems,
+.abl-row__warnings {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.abl-row__problems {
+  color: var(--overdue);
+}
+
+.abl-row__warnings {
+  color: var(--soon);
+}
+
+.abl__bar {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--gutter) max(var(--space-3), env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+  box-shadow: 0 -6px 16px rgb(0 0 0 / 6%);
+}
+
+.abl__bar > * {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.abl__why {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.abl__save {
+  min-height: var(--tap-min);
+}
+
+@media (max-width: 420px) {
+  .abl-row__main {
+    grid-template-columns: 3.2em minmax(0, 1fr) auto;
+  }
+
+  .abl-row__what {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .abl,
+  .abl-row__check::before {
+    transition: none;
+  }
+}

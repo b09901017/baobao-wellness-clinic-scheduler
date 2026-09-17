@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v132';
+const VERSION = 'v133';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -40,6 +40,10 @@ const SHELL = [
   '/js/ui/components/orderConfirm.js',
   '/js/domain/orderForm.js',
   '/js/domain/slotDraft.js',
+  '/js/domain/identify.js',
+  '/js/domain/abovee.js',
+  '/js/domain/aboveeImport.js',
+  '/js/ui/components/aboveeConfirm.js',
   '/js/domain/transcripts.js',
   '/js/data/auth.js',
   '/js/data/repo.js',

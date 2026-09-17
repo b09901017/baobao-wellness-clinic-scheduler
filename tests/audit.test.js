@@ -426,6 +426,15 @@ describe('誰與做了什麼分成兩半', () => {
       '把 AI 每月上限改成 US$5');
   });
 
+  test('記住 Abovee 上的寫法：講出記住了哪一個（issue 12）', () => {
+    assert.equal(describeEvent(ev('config/app/staff.update',
+      { name: '小芳', aboveeNames: [] }, { name: '小芳', aboveeNames: ['陳小芳'] }, 'config/app/staff/s1')),
+    '幫 小芳 記住 Abovee 上的寫法「陳小芳」');
+    assert.equal(describeEvent(ev('config/app/staff.update',
+      { name: '小芳', aboveeNames: ['陳小芳'] }, { name: '小芳', aboveeNames: ['陳小芳', '林芳芳'] }, 'config/app/staff/s1')),
+    '幫 小芳 記住 Abovee 上的寫法「林芳芳」');
+  });
+
   test('掛不到任何人的那幾則 who 是 null', () => {
     const parts = describeParts(ev('config/app/courses.create', null,
       { name: '復能' }, 'config/app/courses/c1'));

@@ -79,6 +79,9 @@ import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { openCamera } from '../components/camera.js';
+import { openAboveeConfirm } from '../components/aboveeConfirm.js';
+import { showDate } from './calendar.js';
 
 const esc = f.esc;
 
@@ -591,7 +594,12 @@ function paintPage() {
                 data-sort="${esc(s.id)}">${esc(s.label)}</button>`).join('')}
     </div>
 
-    <div class="cardgrid" data-wall></div>`;
+    <div class="cardgrid" data-wall></div>
+
+    <div class="fab">
+      <button class="fab__main" type="button" data-abovee aria-label="拍 Abovee">
+        ${icon('camera', { size: 24, width: 2 })}</button>
+    </div>`;
 
   paintWall();
 }
@@ -647,7 +655,44 @@ function onPageClick(e) {
   if (pick) return openDeckAt(pick.dataset.pick);
 
   if (e.target.closest('[data-leave]')) return leaveMonth(ctx.el);
+  if (e.target.closest('[data-abovee]')) return photographAbovee();
   return null;
+}
+
+/**
+ * 拍 Abovee → 一次記很多段（issue 13，ADR-0104）。右下角那一顆相機；確認層從這一頁往上長出來，
+ * 不換網址。記好之後重讀、只重畫這一頁（她捲到哪裡留在哪裡）。
+ */
+function photographAbovee() {
+  openCamera({
+    kind: 'aboveeList',
+    // 她 9/17：「讓我一次上傳兩張圖片，也接受上傳一張」（左右兩半）
+    max: 2,
+    onDone: (photos, { release }) => openAboveeConfirm({
+      photos,
+      release,
+      ctx: {
+        customers: ctx.queueInput.customers,
+        entitlementsBy: ctx.queueInput.entitlementsBy,
+        visitsBy: ctx.queueInput.visitsBy,
+        master: {
+          courses: ctx.all.courses, equipment: ctx.all.equipment, rooms: ctx.all.rooms,
+          staff: ctx.all.staff, ivProducts: ctx.all.ivProducts,
+        },
+        today: ctx.today,
+      },
+      onFinish: async ({ saved }) => {
+        // 換頁收起來的（去日曆看「對不上」那一天）不重畫 —— 會蓋掉新的那一頁
+        if (!saved || !window.location.hash.startsWith('#/schedule')) return;
+        if (await reload()) return;
+        paintPage();
+      },
+      onOpenDay: (date) => {
+        showDate(date);
+        go('/calendar');
+      },
+    }),
+  });
 }
 
 function onPageInput(e) {
