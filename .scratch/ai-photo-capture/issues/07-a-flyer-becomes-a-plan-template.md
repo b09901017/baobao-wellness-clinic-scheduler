@@ -1,6 +1,6 @@
 # 拍方案文宣 → 方案範本
 
-Status: todo
+Status: done
 Blocked by: 03、06
 來源：`../spec.md`
 動工前先讀：`ui/views/masterList.js:661`（「新增」那一顆）與它的方案編輯器、

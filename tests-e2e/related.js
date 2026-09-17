@@ -289,6 +289,11 @@ export const COVERAGE = {
     'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
     'public/js/ui/components/seen.js', 'public/js/data/ai.js', 'public/js/domain/aiUsage.js',
   ],
+  // 拍方案文宣 → 方案範本（issue 07）
+  '38-photo-plan': [
+    'public/js/domain/photoPlan.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/legacyImport.js',
+  ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',

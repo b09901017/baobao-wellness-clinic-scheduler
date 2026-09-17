@@ -84,3 +84,29 @@ export async function extractInApp(page, kind = 'planFlyer') {
     }
   }, kind);
 }
+
+/**
+ * 產生一張「照片」給相簿那條路用：有花紋（整張一個顏色會被當成空白），可以帶 EXIF 方向。
+ * 內容是漸層，不是任何真的單子 —— 辨識回什麼由 `queueAi()` 決定。
+ */
+export async function fakePhoto(name, { width = 1200, height = 900, orientation = null } = {}) {
+  const { default: sharp } = await import('sharp');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const raw = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 3;
+      raw[i] = (x * 255) / width;
+      raw[i + 1] = (y * 255) / height;
+      raw[i + 2] = ((x ^ y) & 32) ? 220 : 90;
+    }
+  }
+  let img = sharp(raw, { raw: { width, height, channels: 3 } });
+  if (orientation) img = img.withMetadata({ orientation });
+  fakePhoto.dir ??= mkdtempSync(join(tmpdir(), 'ai-e2e-'));
+  const file = join(fakePhoto.dir, name);
+  writeFileSync(file, await img.jpeg({ quality: 88 }).toBuffer());
+  return file;
+}
