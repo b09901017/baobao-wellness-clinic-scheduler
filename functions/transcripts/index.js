@@ -72,10 +72,15 @@ export function sanitizeBySchema(schema, value) {
       if (!Array.isArray(value)) return [];
       return value.map((v) => sanitizeBySchema(schema.items, v)).filter((v) => v !== undefined);
     }
-    case 'string':
-      if (typeof value === 'string') return value;
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-      return undefined;
+    case 'string': {
+      let s;
+      if (typeof value === 'string') s = value;
+      else if (typeof value === 'number' && Number.isFinite(value)) s = String(value);
+      else return undefined;
+      // 列舉以外的字丟掉：Abovee 那九欄以外的欄位名稱不可以混進來
+      if (Array.isArray(schema.enum) && !schema.enum.includes(s)) return undefined;
+      return s;
+    }
     case 'boolean':
       return typeof value === 'boolean' ? value : undefined;
     case 'number':

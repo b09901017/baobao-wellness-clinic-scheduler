@@ -1,6 +1,6 @@
 # 四種單子的抄字格式
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md`（「抄字格式的三條規矩」）
 動工前先讀：01 的「AI 只抄字」ADR、`tests/sheet-script.test.js`（兩邊講同一句話的盯法）、

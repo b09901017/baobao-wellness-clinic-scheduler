@@ -29,6 +29,7 @@ const SHELL = [
   '/js/firebase-config.js',
   '/js/data/firebase.js',
   '/js/data/ai.js',
+  '/js/domain/transcripts.js',
   '/js/data/auth.js',
   '/js/data/repo.js',
   '/js/data/events.js',
