@@ -133,6 +133,8 @@ export const COVERAGE = {
     'public/js/domain/followups.js', 'public/js/data/tasks.js',
     'public/js/ui/components/tasklist.js', 'public/js/ui/components/taskMirror.js',
     'public/js/ui/views/home.js',
+    // 「今天做了什麼」的分段（home 那一頁畫它；00-smoke 的 S4 也盯著，CORE 永遠跑）
+    'public/js/domain/dayReview.js',
   ],
   '12-ask-by-month': [
     'public/js/domain/availability.js', 'public/js/domain/availabilityForm.js',
@@ -278,6 +280,8 @@ export const COVERAGE = {
   // （hosting 那一段改了照樣有 00-smoke 盯著）。
   '35-ai-guard': [
     'functions/', 'public/js/data/ai.js', 'tests-e2e/fixtures/ai/', 'firebase.json',
+    // 抄字格式 domain 那一份（跟 `functions/transcripts/` 一模一樣，`tests/ai-transcripts.test.js` 盯著）
+    'public/js/domain/transcripts.js',
   ],
   // 設定 → AI 用量（issue 05）
   '36-ai-usage': [
