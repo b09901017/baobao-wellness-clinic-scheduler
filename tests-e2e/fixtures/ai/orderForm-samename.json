@@ -1,0 +1,16 @@
+{
+  "_why": "訂購單（假的）：客戶A 回來再買一套筋骨強身，名字跟既有客戶一樣。09 用它盯同名那兩顆都不預選",
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "customerName": "客戶A",
+    "formMonth": "2026年09月",
+    "handwrittenDates": ["9/3"],
+    "packages": [{ "printedName": "8萬筋骨強身", "quantity": "1", "noteText": "" }],
+    "checkupTicked": [],
+    "handwrittenRows": [],
+    "unpaid": "5000",
+    "obNote": "",
+    "stickyNotes": []
+  }
+}

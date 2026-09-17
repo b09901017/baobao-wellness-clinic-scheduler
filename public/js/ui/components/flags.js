@@ -32,6 +32,7 @@
 // 而症狀是「那顆丸子在這一頁有、那一頁沒有」。見 ADR-0076。
 
 import { esc, parseList } from './form.js';
+import { tip } from './tip.js';
 import { splitFlagsForEdit, mergeFlags } from '../../domain/customers.js';
 import { noticeSentence } from '../../domain/contraindications.js';
 import { lookup, styleFor } from '../../domain/clinicalFlags.js';
@@ -119,26 +120,26 @@ export function mount(host, { flags = [], alerts = [], onChange }) {
   const value = () => mergeFlags([...picked], others);
   const emit = () => onChange?.(value());
 
+  // 說明都收在標籤旁邊那一顆 `?`（ADR-0102）。沒有警示可以點的時候那一句是**空狀態**，
+  // 留在畫面上 —— 一排空的丸子她會以為這一格不用填。
   host.innerHTML = `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">永久限制　跟著這位客戶一輩子的條件</span>
+      <span class="fieldgroup__label">永久限制${tip(
+        '跟著這位客戶一輩子的條件。警示不會擋任何東西，它只是讓你壓表的時候一眼看得到；'
+        + '要加新的、或改它的顏色，到設定 → 警示。')}</span>
       ${alerts.length ? `
         <div class="chiprow noscroll-bar" role="group" aria-label="警示">
           ${alerts.map((t) => `
             <button class="chip chip--sm chip--soft" type="button"
                     aria-pressed="${picked.has(t)}" data-alert="${esc(t)}">${esc(t)}</button>`).join('')}
-        </div>
-        <p class="field__hint"><b>不會擋任何東西</b>，它只是讓你壓表的時候一眼看得到。
-          要加新的、或改它的顏色，到設定 → 警示。</p>` : `
-        <p class="field__hint">還沒有任何警示。到設定 → 警示把「體內金屬」「血管難打」
-          這種加進去，之後就點得到了。</p>`}
+        </div>` : `
+        <p class="fieldgroup__empty">還沒有任何警示。到設定 → 警示加進去，之後就點得到了。</p>`}
 
       <label class="field">
-        <span class="field__label">其他限制</span>
+        <span class="field__label">其他限制${tip(
+          '用頓號分隔。這一欄只是提醒，也不會出現在壓表的卡片牆上 —— 要出現在那裡的話用上面那一排。')}</span>
         <input type="text" data-others value="${esc(others.join('、'))}"
                placeholder="固定禮拜五不行" />
-        <span class="field__hint">用頓號分隔。這一欄只是提醒，
-          <b>也不會出現在壓表的卡片牆上</b> —— 要出現在那裡的話用上面那一排。</span>
       </label>
     </div>`;
 
@@ -249,18 +250,18 @@ export function mountPartners(host, { partners = [], options = [], onChange }) {
 
   host.innerHTML = `
     <div class="fieldgroup">
-      <span class="fieldgroup__label">合作機構　這位客戶要跟誰一起約</span>
+      <span class="fieldgroup__label">合作機構${tip(
+        '這位客戶要跟誰一起約。壓完表記得跟他們的專員說一聲；不會產生任何待辦 —— '
+        + '這顆丸子會跟著名字出現在壓表與待辦上。')}</span>
       ${options.length ? `
         <div class="chiprow noscroll-bar" role="group" aria-label="合作機構">
           ${options.map((t) => `
             <button class="chip chip--sm" type="button"
                     aria-pressed="${picked.has(t)}" data-partner="${esc(t)}">${esc(t)}</button>`).join('')}
-        </div>
-        <p class="field__hint">壓完表記得跟他們的專員說一聲。
-          <b>不會產生任何待辦</b> —— 這顆丸子會跟著名字出現在壓表與待辦上。</p>` : `
-        <p class="field__hint">還沒有合作機構。到設定 → 合作機構加一筆，之後就點得到了。</p>`}
+        </div>` : `
+        <p class="fieldgroup__empty">還沒有合作機構。到設定 → 合作機構加一筆，之後就點得到了。</p>`}
       ${orphans.length ? `
-        <p class="field__hint">主檔上已經沒有的：${esc(orphans.join('、'))}（照樣留著）</p>` : ''}
+        <p class="fieldgroup__empty">主檔上已經沒有的：${esc(orphans.join('、'))}（照樣留著）</p>` : ''}
     </div>`;
 
   host.querySelectorAll('[data-partner]').forEach((btn) =>

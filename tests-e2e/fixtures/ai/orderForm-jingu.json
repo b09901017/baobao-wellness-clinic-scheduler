@@ -1,0 +1,16 @@
+{
+  "_why": "訂購單（假的）：王小明，筋骨強身 ×1 ＋ 手寫任選(30) ×10，尚欠尾款 0。09 用它走一次長按那一條路",
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "customerName": "王小明",
+    "formMonth": "2026年08月",
+    "handwrittenDates": ["8/27"],
+    "packages": [{ "printedName": "8萬筋骨強身", "quantity": "1", "noteText": "" }],
+    "checkupTicked": [],
+    "handwrittenRows": [{ "text": "任選(30)", "quantity": "10" }],
+    "unpaid": "0",
+    "obNote": "",
+    "stickyNotes": []
+  }
+}

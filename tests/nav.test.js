@@ -186,6 +186,64 @@ describe('我們自己叫的那一趟 go 回來時不可以收掉新疊的層', 
   });
 });
 
+// 2026-09-17（issue 09）：確認框收掉退一格、接著那一層也收掉再退一格 —— 兩趟 go 排在不同的微任務裡。
+// **瀏覽器會把兩趟都走完**（HTML 規格的 traversal queue，Chromium 照做），而第一趟停在中途那一格時
+// popstate 回報的深度比目標高一格。以前那一下被當成「還差一格」又叫了一次 go，於是共退三格：
+// 拍訂購單的確認層按「離開」直接退出了 app。
+describe('連著收兩層：第一趟 go 停在中途時不再多退一次', () => {
+  beforeEach(async () => {
+    window.history.state = null;
+    fire('hashchange');
+    pushed.length = 0;
+    await tick();
+  });
+
+  test('返回鍵收掉的那一層在 onPop 裡開了新的一層（「還有 N 位沒建立」）→ 新的那一層活著', async () => {
+    let asked = null;
+    pushLayer(() => { asked = pushLayer(() => {}); });
+    await tick();
+
+    window.history.state = null;
+    fire('popstate');
+    await tick();
+
+    assert.equal(asked?.active, true, '返回鍵那一圈只收按下去那一刻疊著的層');
+    assert.equal(pushed.at(-1), 1, '新的那一層有自己的一筆紀錄');
+  });
+
+  test('收確認框、再收底下那一層 → 只退兩格', async () => {
+    const goes = [];
+    const realGo = window.history.go;
+    window.history.go = (n) => goes.push(n);
+    try {
+      const deck = pushLayer(() => {});
+      const dialog = pushLayer(() => {});
+      await tick();
+
+      dialog.pop();
+      await tick();
+      deck.pop();
+      await tick();
+      assert.deepEqual(goes, [-1, -1]);
+
+      // 第一趟回來：停在第 1 層那一格
+      window.history.state = { __layer: 1 };
+      fire('popstate');
+      await tick();
+      assert.deepEqual(goes, [-1, -1], '第一趟還在路上的那一格不是「還差一格」');
+
+      // 第二趟回來：到底了
+      window.history.state = null;
+      fire('popstate');
+      await tick();
+      assert.deepEqual(goes, [-1, -1]);
+      assert.equal(pushed.length, 2, '也沒有多推一筆');
+    } finally {
+      window.history.go = realGo;
+    }
+  });
+});
+
 describe('沒有人拿 layer handle 當布林值用', () => {
   // `nav.js` 自己是實作，它當然摸得到那個旗標
   const FILES = execFileSync('git', ['ls-files', 'public/js/ui'], { encoding: 'utf8' })

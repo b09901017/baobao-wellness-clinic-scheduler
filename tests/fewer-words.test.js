@@ -35,8 +35,7 @@ const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'no
  * 那一顆 `?`，所以剩下的都是**手寫**的那幾段。同一個棘輪，只准變少。
  */
 const FIELD_HINT_KEEP = {
-  // 整支檔案都是禁忌與警示那一種，連 tip.js 都不可以 import
-  'ui/components/flags.js': 6,
+  // `ui/components/flags.js` 2026-09-17 降到 0（ADR-0102）：全部收進 `?`
   // `hint` 那一條共用的退路：一排丸子的選項是空的時候那一句要留在畫面上
   // （整排消失的話她會以為那個欄位不用填），以及 `undecidedHint()`（ADR-0079）
   'ui/components/form.js': 2,
