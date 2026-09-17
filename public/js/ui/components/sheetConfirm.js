@@ -447,17 +447,19 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     card.message = '';
     repaint(card);
 
+    // 等太久時那一句：預設的「已經存在這台裝置上了」只對 Firestore 成立，照片還在路上
+    const slow = '照片還在傳 —— 訊號不好會久一點，傳好之前先不要收起來';
     try {
       const blob = await keepable(card.photo.blob);
       if (existing) {
         await toast.withSaveState(() => sheetsData.replace(existing, fields, blob), {
           success: `換好了 ${fields.customerName} 的 ${fields.courseName} 療程單`,
-          key: `treatmentSheet:${card.key}`, undoable: false,
+          key: `treatmentSheet:${card.key}`, undoable: false, slow,
         });
       } else {
         await toast.withSaveState(() => sheetsData.create(fields, blob), {
           success: `存好了 ${fields.customerName} 的 ${fields.courseName} 療程單`,
-          key: `treatmentSheet:${card.key}`, undoable: false,
+          key: `treatmentSheet:${card.key}`, undoable: false, slow,
         });
       }
       card.state = 'saved';
