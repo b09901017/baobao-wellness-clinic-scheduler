@@ -18,7 +18,8 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as config from '../../data/config.js';
 import {
-  entitlementChoices, examChoices, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites, staffFrom } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor } from '../../domain/visits.js';
@@ -101,11 +102,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   async function start() {
     const transcripts = photos.map((p) => p.transcript);
-    const dates = transcripts.flatMap((t) => (t?.rows ?? []).flatMap((r) => r))
-      .map((s) => String(s ?? '').match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/))
-      .filter(Boolean)
-      .map((m) => `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`)
-      .sort();
+    // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀
+    const dates = aboveeDatesIn(transcripts);
     try {
       // 壓表那一頁只讀了那個月的來訪；照片上的日子可能跨到下個月 —— 補讀，不然「已經記了」會被當成新的
       const [extra, active] = await Promise.all([
@@ -125,11 +123,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (closed) return;
 
     ({ pairing, counts: sizes, items } = readAbovee(transcripts, ctx));
-    attention = new Set(items.filter(needsLook).map((i) => i.key));
+    // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
+    attention = new Set(items.filter(needsAttention).map((i) => i.key));
     paintBody();
   }
-
-  const needsLook = (i) => !i.cancelled && (i.kind === 'mismatch' || (i.kind === 'unknown' && i.who.how !== 'none'));
 
   // ---------- 畫 ----------
 
@@ -239,11 +236,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function slotOf(item) {
     if (!item.customerId) return null;
-    return slotFromPicks({
-      entitlementId: item.entitlementId, equipmentId: item.equipmentId, ivProductId: item.ivProductId,
-      startsAt: item.startsAt, roomId: item.roomId, therapistId: item.therapistId, doctorId: item.doctorId,
-      followupForVisitId: item.followupForVisitId,
-    }, {
+    // 跟存檔（`planAbovee()`）交給 `slotFromPicks()` 的是同一份 —— 另組一份的話，列上印的名字會跟存下去的不一樣
+    return slotFromPicks(picksOf(item), {
       courses: ctx.master.courses, equipment: ctx.master.equipment, ivProducts: ctx.master.ivProducts,
       entitlements: ctx.entitlementsBy[item.customerId] ?? [], visits: ctx.visitsBy[item.customerId] ?? [],
     });
