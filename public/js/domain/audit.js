@@ -62,6 +62,7 @@ const FIELD_LABELS = {
   deletedAt: '刪除標記',
   purchasedAt: '購買日',
   membershipExpiresAt: '會籍到期日',
+  aboveeNames: 'Abovee 上的寫法',
   date: '日期',
   status: '狀態',
   slots: '時段',
@@ -660,6 +661,15 @@ const SENTENCES = [
     say: (e, f) => ({ text: `把 AI 每月上限改成 US$${f.find((x) => x.key === 'monthlyCapUsd').after}` }),
   },
 
+  // ---- 治療師記住 Abovee 上的寫法（issue 12）----
+  // 拍 Abovee 存檔時一起寫的；她回頭查的是「那個字為什麼自動認成這一位」
+  {
+    when: (e, f) => coll(e) === 'staff' && opOf(e) === 'update' && addedAliases(f).length > 0,
+    say: (e, f, d) => ({
+      text: `幫 ${d.name ?? ''} 記住 Abovee 上的寫法${addedAliases(f).map(quoted).join('')}`,
+    }),
+  },
+
   // ---- 其餘（設定主檔那些）----
   {
     when: (e) => opOf(e) === 'create',
@@ -687,6 +697,14 @@ const SENTENCES = [
 ];
 
 /** `'customers/c1/entitlements.update'` → `'entitlements'`。 */
+/** 這一次多記住的 Abovee 寫法（拿掉的不講 —— 那是她在主檔上自己改的，「改了」那一句接得住）。 */
+const addedAliases = (fields) => {
+  const f = fields.find((x) => x.key === 'aboveeNames');
+  if (!f || !Array.isArray(f.after)) return [];
+  const before = new Set(Array.isArray(f.before) ? f.before : []);
+  return f.after.filter((a) => !before.has(a));
+};
+
 const coll = (event) =>
   String(event?.action ?? '').split('.')[0].split('/').filter(Boolean).pop() ?? '';
 

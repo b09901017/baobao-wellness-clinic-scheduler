@@ -12,6 +12,7 @@
 
 import { readMarks } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
+import { normalizeAlias } from './masterData.js';
 
 const PREFIXES = [CHART_NO_PREFIX, OLD_CHART_NO_PREFIX].map((p) => p.trim());
 
@@ -26,10 +27,11 @@ export const sameChartNo = (a, b) => {
   return Boolean(x) && x === normalizeChartNo(b);
 };
 
-/** 名字去掉所有空白（含全形空白）、全形半形一致、英文不分大小寫。 */
-export function normalizeName(raw) {
-  return String(raw ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-}
+/**
+ * 名字去掉所有空白（含全形空白）、全形半形一致、英文不分大小寫。
+ * 跟治療師「Abovee 上的寫法」是同一個比法（`masterData.js` 的 `normalizeAlias()`），只寫一份。
+ */
+export const normalizeName = normalizeAlias;
 
 export const sameName = (a, b) => {
   const x = normalizeName(a);

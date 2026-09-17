@@ -114,16 +114,28 @@ const editors = {
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
   // 二返的醫師選單只列醫師（domain/masterData.js 的 staffWithRole）。
   staff: {
-    blank: { name: '', role: STAFF_ROLES[0] },
-    summary: (r) => r.role,
+    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [] },
+    summary: (r) => [r.role, r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null]
+      .filter(Boolean).join(' · '),
     fields: (r) => [
       f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
       }),
+      // issue 12：拍 Abovee 時服務資源那一格寫的是全名，認不出來的記在這裡
+      f.text({
+        name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
+        placeholder: '陳小芳',
+        hint: '拍 Abovee 時服務資源那一格怎麼寫這個人。好幾種用頓號分開。'
+          + '全名結尾就是這個名字的（陳小芳 → 小芳）不用填，認得出來。',
+      }),
     ],
-    parse: (v) => ({ name: v.name.trim(), role: v.role }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      role: v.role,
+      aboveeNames: String(v.aboveeNames ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean),
+    }),
   },
 
   equipment: {

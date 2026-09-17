@@ -194,6 +194,25 @@ describe('治療師與醫師（ADR-0026）', () => {
     assert.ok(validate('staff', { name: '某人', role: '護理師' }).length);
   });
 
+  // issue 12：Abovee 上的寫法。兩位同一個寫法的話，認得出來卻是錯的人
+  test('Abovee 上的寫法：不可空白；兩位不可以同一個，講得出是跟誰撞', () => {
+    const existing = [
+      { id: 'a', name: '小芳', role: THERAPIST_ROLE, aboveeNames: ['陳小芳'] },
+      { id: 'b', name: '刪掉的', role: THERAPIST_ROLE, aboveeNames: ['林美'], deletedAt: 'x' },
+    ];
+    assert.deepEqual(validate('staff', { name: '欣穎', role: THERAPIST_ROLE, aboveeNames: ['黃欣穎'] }, { existing }), []);
+    assert.deepEqual(validate('staff', { name: '欣穎', role: THERAPIST_ROLE }, { existing }), [], '沒有這一格 = 空的');
+    assert.ok(validate('staff', { name: '欣穎', role: THERAPIST_ROLE, aboveeNames: [' '] }, { existing }).length);
+    assert.deepEqual(
+      validate('staff', { id: 'c', name: '欣穎', role: THERAPIST_ROLE, aboveeNames: ['陳 小芳'] }, { existing }),
+      ['Abovee 上的寫法「陳 小芳」已經是「小芳」的了'],
+    );
+    assert.deepEqual(validate('staff', { id: 'a', name: '小芳', role: THERAPIST_ROLE, aboveeNames: ['陳小芳'] }, { existing }), [],
+      '自己不跟自己撞');
+    assert.deepEqual(validate('staff', { name: '欣穎', role: THERAPIST_ROLE, aboveeNames: ['林美'] }, { existing }), [],
+      '已刪除的不算');
+  });
+
   test('治療師的選單不會跑出醫師來 —— 選錯人是實際傷害', () => {
     assert.deepEqual(staffWithRole(STAFF, THERAPIST_ROLE).map((s) => s.name), ['騰崴']);
   });

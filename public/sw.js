@@ -41,6 +41,7 @@ const SHELL = [
   '/js/domain/orderForm.js',
   '/js/domain/slotDraft.js',
   '/js/domain/identify.js',
+  '/js/domain/abovee.js',
   '/js/domain/transcripts.js',
   '/js/data/auth.js',
   '/js/data/repo.js',

@@ -1,6 +1,6 @@
 # 治療師主檔「Abovee 上的寫法」與服務資源的認法
 
-Status: todo
+Status: done
 Blocked by: 11
 來源：`../spec.md`
 動工前先讀：`domain/masterData.js:244` 的 `validators.staff()`、`ui/views/masterList.js` 的治療師編輯器、
@@ -58,3 +58,10 @@ Abovee 右半邊跟 app 主檔講的是同一批東西，寫法不一樣（例�
   - `SIS 60` → SIS、60；`二返60` → 二返課程；`XYZ 30` → `null`
 - 兩位治療師填同一個 Abovee 寫法 → 存不下去、講得出是跟誰撞
 - **這一支有沒有任何一條路，讓一個 Abovee 上的名字被認成兩位裡面的某一位、而她沒選？**
+
+## 實作時跟上面不一樣的地方
+
+- 判準的「`陳小芳` → `小芳`；主檔另有一位 `小芳芳` 時 → `null`（兩位都是結尾）」這個例子本身不成立：
+  `陳小芳` 的結尾不是 `小芳芳`。測試改用另一位叫 `芳` 的治療師（`小芳` 與 `芳` 都是結尾 → `null`），判的是同一件事
+- 名字與寫法的比法只有一份：`masterData.js` 的 `normalizeAlias()`，11 的 `identify.js` 也改成用它
+- `courseFrom()` 一律帶著同名的那一台器材（`ILIB 60` → eq-ilib）：四選一那一筆要知道選的是哪一台，單買 ILIB 的用不到

@@ -209,6 +209,15 @@ function nameVariants(r) {
   return errors;
 }
 
+/**
+ * 兩個 Abovee 上的寫法是不是同一個：去空白、全形半形一致、英文不分大小寫。
+ * 認人（`domain/identify.js` 的 `normalizeName()`）用的就是這一支。
+ */
+export function normalizeAlias(raw) {
+  return String(raw ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+}
+const sameAlias = (a, b) => Boolean(normalizeAlias(a)) && normalizeAlias(a) === normalizeAlias(b);
+
 /** 同一份清單裡不可以有兩個同名的（已刪除的不算）。 */
 function duplicateName(record, existing) {
   const name = String(record.name ?? '').trim();
@@ -241,11 +250,24 @@ const validators = {
     return errors;
   },
 
-  staff(r) {
+  staff(r, { existing = [] } = {}) {
     const errors = [];
     // 不寫「治療師姓名」—— 這份清單現在也放醫師，而那兩個詞不可以混用。
     if (isBlank(r.name)) errors.push('姓名不可空白');
     if (!STAFF_ROLES.includes(r.role)) errors.push('請選擇角色');
+
+    // Abovee 上的寫法（issue 12）。沒有這一格 = 空的，既有資料一筆都不用搬。
+    // **兩位不可以同一個寫法**：拍 Abovee 時那個字會直接認成其中一位，而那一位是錯的
+    const aliases = r.aboveeNames ?? [];
+    if (!Array.isArray(aliases)) errors.push('Abovee 上的寫法格式錯誤');
+    else if (aliases.some(isBlank)) errors.push('Abovee 上的寫法不可空白');
+    else {
+      for (const alias of aliases) {
+        const owner = (existing ?? []).find((e) => e.id !== r.id && !e.deletedAt
+          && (e.aboveeNames ?? []).some((a) => sameAlias(a, alias)));
+        if (owner) errors.push(`Abovee 上的寫法「${alias}」已經是「${owner.name}」的了`);
+      }
+    }
     return errors;
   },
 
