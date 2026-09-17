@@ -31,8 +31,8 @@ import { seenChip, wireSeen } from './seen.js';
 
 /** 認不得人的那幾種，畫面上講一句為什麼（ADR-0103）。 */
 const WHY_UNKNOWN = {
-  numberOnly: '客戶編號對上了，名字不一樣 —— 是這一位嗎？',
-  conflict: '名字跟客戶編號指到不同的人，選一位',
+  numberOnly: '病歷號對上了，名字不一樣 —— 是這一位嗎？',
+  conflict: '名字跟病歷號指到不同的人，選一位',
   ambiguous: '同名的有好幾位，選一位',
   none: '認不出是哪一位，找一下',
 };
