@@ -18,7 +18,8 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as config from '../../data/config.js';
 import {
-  entitlementChoices, examChoices, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites, staffFrom } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor } from '../../domain/visits.js';
@@ -67,10 +68,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let failure = null;
   let closed = false;
   const savedKeys = new Set();
+  /** 這一層記好的每一位每一天（跨好幾次按「記錄」）。標壓完照它算。 */
+  const savedDays = [];
   let savedCount = 0;
   const showAllRooms = new Set();
 
   const urlOf = (i) => photos[i]?.url ?? null;
+  /** 打開這一層時的網址。分得出「返回鍵」與「換頁」（`requestClose()`）。 */
+  const openedAt = window.location.hash;
 
   const root = document.createElement('div');
   root.className = 'abl';
@@ -97,11 +102,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   async function start() {
     const transcripts = photos.map((p) => p.transcript);
-    const dates = transcripts.flatMap((t) => (t?.rows ?? []).flatMap((r) => r))
-      .map((s) => String(s ?? '').match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/))
-      .filter(Boolean)
-      .map((m) => `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`)
-      .sort();
+    // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀
+    const dates = aboveeDatesIn(transcripts);
     try {
       // 壓表那一頁只讀了那個月的來訪；照片上的日子可能跨到下個月 —— 補讀，不然「已經記了」會被當成新的
       const [extra, active] = await Promise.all([
@@ -121,11 +123,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (closed) return;
 
     ({ pairing, counts: sizes, items } = readAbovee(transcripts, ctx));
-    attention = new Set(items.filter(needsLook).map((i) => i.key));
+    // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
+    attention = new Set(items.filter(needsAttention).map((i) => i.key));
     paintBody();
   }
-
-  const needsLook = (i) => !i.cancelled && (i.kind === 'mismatch' || (i.kind === 'unknown' && i.who.how !== 'none'));
 
   // ---------- 畫 ----------
 
@@ -235,11 +236,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function slotOf(item) {
     if (!item.customerId) return null;
-    return slotFromPicks({
-      entitlementId: item.entitlementId, equipmentId: item.equipmentId, ivProductId: item.ivProductId,
-      startsAt: item.startsAt, roomId: item.roomId, therapistId: item.therapistId, doctorId: item.doctorId,
-      followupForVisitId: item.followupForVisitId,
-    }, {
+    // 跟存檔（`planAbovee()`）交給 `slotFromPicks()` 的是同一份 —— 另組一份的話，列上印的名字會跟存下去的不一樣
+    return slotFromPicks(picksOf(item), {
       courses: ctx.master.courses, equipment: ctx.master.equipment, ivProducts: ctx.master.ivProducts,
       entitlements: ctx.entitlementsBy[item.customerId] ?? [], visits: ctx.visitsBy[item.customerId] ?? [],
     });
@@ -543,6 +541,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         g.items.forEach((i) => savedKeys.add(i.key));
         savedCount += g.items.length;
         doneNow.push({ customerId: g.customerId, date: g.date });
+        savedDays.push({ customerId: g.customerId, date: g.date });
         if (!closed) paintBody();
       }
       return doneNow.length;
@@ -555,33 +554,50 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       toast.hide();
     }
 
-    // 記好的那幾位才記住寫法、標壓完（失敗那一位之後再按一次就接著做）
-    const savedIds = new Set(doneNow.map((d) => d.customerId));
-    try {
-      for (const a of aliasWrites(
-        items.filter((i) => savedKeys.has(i.key) && savedIds.has(i.customerId) && i.staffPickText && (i.therapistId || i.doctorId))
-          .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
-        ctx.master.staff,
-      )) {
+    // 記好的那幾位才記住寫法、標壓完。**算的是到目前為止記好的全部**（不只這一次），
+    // 而且**寫好一次就更新手上那一份** —— 再按一次時是拿它算的：沒更新的話，寫回去的整份
+    // queue／aboveeNames 是打開這一層時讀的那一份，上一次標好的壓完會被蓋回「還沒壓」。
+    // 已經寫過的算出來是空的（`aliasWrites()`、`queueMarksAfter()` 都跳過），沒寫成的下一次補
+    const missed = new Set();
+    for (const a of aliasWrites(
+      items.filter((i) => savedKeys.has(i.key) && i.staffPickText && (i.therapistId || i.doctorId))
+        .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
+      ctx.master.staff,
+    )) {
+      try {
         // eslint-disable-next-line no-await-in-loop
         await config.update('staff', a.id, a.changes);
+        const staff = ctx.master.staff.map((s) => (s.id === a.id ? { ...s, ...a.changes } : s));
+        ctx = { ...ctx, master: { ...ctx.master, staff } };
+      } catch {
+        missed.add('治療師在 Abovee 上的寫法');
       }
-      for (const m of queueMarksAfter(doneNow, batches)) {
+    }
+    for (const m of queueMarksAfter(savedDays, batches)) {
+      try {
         // eslint-disable-next-line no-await-in-loop
         await batchesData.saveProgress(m.batchId, m.queue, m.cursor);
+        batches = batches.map((b) => (b.id === m.batchId ? { ...b, queue: m.queue } : b));
+      } catch {
+        missed.add('壓表清單上的壓完');
       }
-    } catch {
-      /* 來訪已經記好了；寫法與壓完下次再補，不擋 */
     }
 
     running = false;
-    if (closed) return;
+    // 來訪已經記好了，這兩件沒寫成不擋 —— 但**要講**：確認框上說了會做
+    const missedLine = missed.size ? `；${[...missed].join('、')}沒記上，到壓表那一頁手動補` : '';
+    if (closed) {
+      if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
+      return;
+    }
     const left = items.some((i) => i.checked && !savedKeys.has(i.key));
     if (!failure && !left) {
       close();
-      toast.info(`記好了 ${savedCount} 段`);
+      if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
+      else toast.info(`記好了 ${savedCount} 段`);
       return;
     }
+    if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
     paintBody();
   }
 
@@ -594,6 +610,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   async function requestClose({ fromBack = false } = {}) {
     if (closed) return true;
+    // **換頁不是返回鍵**：「去日曆」換網址時瀏覽器也會先發一下 popstate，`nav.js` 照返回鍵叫到這裡。
+    // 網址已經不是打開這一層時的那一個了 → 不問（按鈕上寫了「照片不會留著」），直接收。
+    // 問了的話，緊接著的 hashchange 會把這一層收掉，那一道確認框卻留在日曆上
+    if (fromBack && window.location.hash !== openedAt) {
+      close({ fromBack: true });
+      return true;
+    }
     const pending = items.filter((i) => i.checked && !savedKeys.has(i.key)).length;
     if (pending && !running) {
       const pick = await chooseAction({

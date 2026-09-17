@@ -219,9 +219,14 @@ export function sameSheet(existing, incoming) {
   return true;
 }
 
-/** 那一位的療程單裡，`incoming` 是哪一張的新版。沒有就 null。 */
+/**
+ * 那一位的療程單裡，`incoming` 是哪一張的新版。沒有就 null。
+ * **對得上的不只一張也是 null**：營養點滴兩款同幾天開始、照片上又沒認出品項時兩張都像 ——
+ * 挑第一張等於替她決定刪掉哪一張的照片（「新版」會真的刪，ADR-0101）。
+ */
 export function matchSheet(incoming, sheets = []) {
-  return (sheets ?? []).find((s) => sameSheet(s, incoming)) ?? null;
+  const hits = (sheets ?? []).filter((s) => sameSheet(s, incoming));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /** 新版比舊的多了幾列（少了是負的）。 */

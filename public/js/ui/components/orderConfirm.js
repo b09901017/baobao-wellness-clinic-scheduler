@@ -629,8 +629,10 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
   async function requestClose({ fromBack = false } = {}) {
     if (closed) return true;
     const s = summaryOf(cards);
+    // 正在建立的那一張不算（它會建好，`summaryOf()` 不把它算進 left），**但別張照樣要問**：
+    // 以前只要有一張在存就整個不問，慢網路下按了第一位的建立、接著按 ×，第二位就不見了
     const pending = s.left + s.failed;
-    if (pending && !cards.some((x) => x.state === 'saving')) {
+    if (pending) {
       const pickd = await chooseAction({
         title: `還有 ${pending} 位沒建立`,
         consequences: [s.line, '照片與辨識出來的字都不會留著，離開之後要重拍。'],

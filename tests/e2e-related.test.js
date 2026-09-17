@@ -93,3 +93,11 @@ test('改到 spec 自己就跑它自己', () => {
   assert.equal(r.all, false);
   assert.ok(r.specs.includes('22-bulk-cancel'));
 });
+
+// 這兩支以前沒登記，改一行就全跑二十幾分鐘（2026-09-18 審查時補上）
+test('「今天做了什麼」的分段與抄字格式那一份有登記，不會退回全跑', () => {
+  for (const file of ['public/js/domain/dayReview.js', 'public/js/domain/transcripts.js']) {
+    const r = pick([file]);
+    assert.equal(r.all, false, r.why.join('、'));
+  }
+});

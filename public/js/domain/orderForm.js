@@ -481,11 +481,16 @@ const union = (a, b) => [...new Set([...a, ...b].map((x) => String(x).trim()).fi
 export function summaryOf(cards = []) {
   const done = cards.filter((c) => c.state === 'done');
   const failed = cards.filter((c) => c.state === 'failed');
-  const left = cards.length - done.length - failed.length;
+  // 按了建立、還沒回來的：它會建好，不是「沒按建立」（離開前問的那一句不可以把它算進去）
+  const saving = cards.filter((c) => c.state === 'saving');
+  const left = cards.length - done.length - failed.length - saving.length;
   const nameOf = (c) => clean(c.draft?.name) || '認不出名字的那一位';
   const parts = [];
   if (done.length) parts.push(`建好了 ${done.length} 位`);
+  if (saving.length) parts.push(`${saving.map(nameOf).join('、')} 正在建立`);
   if (failed.length) parts.push(`${failed.map(nameOf).join('、')} 沒建立`);
   if (left) parts.push(`還有 ${left} 位沒按建立`);
-  return { done: done.length, failed: failed.length, left, line: parts.join('；') || '一位都還沒建' };
+  return {
+    done: done.length, failed: failed.length, saving: saving.length, left, line: parts.join('；') || '一位都還沒建',
+  };
 }

@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeDate, aboveeStart, mergeAboveePhotos, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, needsAttention, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { INITIAL_STATUS } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -233,4 +233,35 @@ describe('直接標成壓完（她 9/17）', () => {
       queue: [{ customerId: 'c-wang', state: 'done', skippedReason: null }, { customerId: 'c-chen', state: 'done' }],
     }]);
   });
+});
+
+// 確認層以前自己寫了一份：「要你看 N 段」算已取消的對不上，底下「要你看」那一組卻不排它 ——
+// 抬頭說 2 段、底下只有 1 列。兩邊一律問同一支
+describe('要你看的是哪幾列：抬頭的數字與底下那一組問同一支', () => {
+  const item = (o) => ({ kind: 'new', cancelled: false, who: { how: 'both' }, ...o });
+
+  test('對不上、認不得（除了 app 裡沒有的）要看；已取消的一律不用', () => {
+    assert.equal(needsAttention(item({ kind: 'mismatch' })), true);
+    assert.equal(needsAttention(item({ kind: 'unknown', who: { how: 'conflict' } })), true);
+    assert.equal(needsAttention(item({ kind: 'unknown', who: { how: 'none' } })), false);
+    assert.equal(needsAttention(item({ kind: 'mismatch', cancelled: true })), false);
+    assert.equal(needsAttention(item({ kind: 'new' })), false);
+  });
+
+  test('summarizeAbovee 的 attention 就是 needsAttention 數出來的', () => {
+    const items = [item({ kind: 'mismatch' }), item({ kind: 'mismatch', cancelled: true }), item({ kind: 'unknown', who: { how: 'ambiguous' } })];
+    assert.equal(summarizeAbovee(items).attention, items.filter(needsAttention).length);
+    assert.equal(summarizeAbovee(items).attention, 2);
+  });
+});
+
+// 確認層補讀「照片上那幾天」的來訪，以前用自己的正規表示式只認四位數的年 —— 民國年那幾天沒補讀，
+// 跨到下個月的「已經記了」會被當成新的
+test('照片上讀得到的日期：跟 aboveeDate() 同一種讀法（民國年也認），排好不重複', () => {
+  const t = (rows) => ({ columns: ['預約日期', '姓名'], rows });
+  assert.deepEqual(
+    aboveeDatesIn([t([['115/10/02', '王小明'], ['2026-09-30', '客戶A']]), t([['2026-09-30', '李小華'], ['', '09:00 - 10:15']])]),
+    ['2026-09-30', '2026-10-02'],
+  );
+  assert.deepEqual(aboveeDatesIn([]), []);
 });

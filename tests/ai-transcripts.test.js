@@ -153,6 +153,27 @@ describe('Function 回傳前照格式重組', () => {
     assert.deepEqual(out.columns, ['姓名', '課程']);
   });
 
+  // domain 照「第幾欄」把欄位名稱對到那一列的格子（`aboveeImport.js` 的 `tableOf()`）。
+  // 只丟欄位名稱不丟格子的話，電話那一格會往左擠進「課程」
+  test('Abovee 丟掉一欄時，每一列同一個位置的格子也一起丟 —— 後面的格子不可以錯位', () => {
+    const out = sanitize('aboveeList', {
+      readable: true,
+      unreadable: [],
+      columns: ['姓名', '電話', '課程', 42, '診間'],
+      rows: [['王小明', '0912345678', 'SIS 60', '?', '.8'], ['客戶A', '0987654321', 'ILIB']],
+    });
+    assert.deepEqual(out.columns, ['姓名', '課程', '診間']);
+    assert.deepEqual(out.rows, [['王小明', 'SIS 60', '.8'], ['客戶A', 'ILIB']]);
+    assert.ok(!JSON.stringify(out).includes('0912345678'), '電話那一格不可以留下來');
+  });
+
+  test('Abovee 列裡有一格是 null → 換成空字串，不是被濾掉（濾掉一樣會錯位）', () => {
+    const out = sanitize('aboveeList', {
+      readable: true, unreadable: [], columns: ['姓名', '病歷號', '課程'], rows: [['王小明', null, 'SIS 60'], 'x'],
+    });
+    assert.deepEqual(out.rows, [['王小明', '', 'SIS 60']]);
+  });
+
   test('readable 不是 true 就是 false；共同兩格一定在', () => {
     assert.deepEqual(sanitize('planFlyer', { readable: 'yes' }), { readable: false, unreadable: [] });
   });

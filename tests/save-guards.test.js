@@ -156,3 +156,29 @@ describe('報告 §2.2 點名的那幾條路', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// 等太久時換上的那一句（`toast.js` 的 `queued()`）說「已經存在這台裝置上了，連上網路會自動補送」。
+// **那只對 Firestore 成立**（寫入先進本機快取）。照片是傳到 Storage：傳到一半的照片不在這台裝置上，
+// 她這時候收起來就沒了 —— 而確認層收起來前問的正是「照片不會留著」，兩句話互相打架。
+// ---------------------------------------------------------------------------
+
+describe('傳照片的寫入，等太久時不可以說「已經存在這台裝置上了」', () => {
+  const UPLOADS = /sheetsData\.(create|replace)\s*\(/;
+
+  test('每一個包著傳照片的 withSaveState 都自己帶 slow 那一句', () => {
+    const bad = [];
+    let seen = 0;
+    for (const file of filesUnder(UI_ROOT)) {
+      const rel = toPosix(file.slice(UI_ROOT.length));
+      for (const call of callsIn(readFileSync(file, 'utf8'))) {
+        if (!UPLOADS.test(call.text)) continue;
+        seen += 1;
+        // `slow: '…'` 或簡寫的 `slow,`
+        if (!/\bslow\s*[:,}]/.test(call.text)) bad.push(`${rel}:${call.line}`);
+      }
+    }
+    assert.ok(seen > 0, '一個傳照片的寫入都沒掃到 —— 這支測試盯錯東西了');
+    assert.deepEqual(bad, [], `這幾個傳照片的寫入等太久時會說「已經存在這台裝置上了」：\n${bad.join('\n')}`);
+  });
+});

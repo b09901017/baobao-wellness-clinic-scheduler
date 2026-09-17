@@ -419,6 +419,10 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 - [ ] 拍照功能第一次進 `main` → 正式環境照「三之三」做完了嗎：尤其 **6 建 bucket、6b 推一次
       Storage Rules、CI 那把補 Service Usage Consumer** —— 少一樣，`deploy` job 的
       「部署 Storage Rules」那一步會紅，療程單在正式環境存不了照片
+- [ ] 同一次還有兩件 CI 不會替你做的：**4 的正式金鑰填進 `firebase-config.js` 的
+      `APP_CHECK_SITE_KEYS.prod`**（現在是 `null`）、**從本機部署一次 Function**
+      （「部署那一支 Function」，`--project` 換成正式）。少一樣的話正式站的相機按鈕照樣看得到，
+      但每一次辨識都被擋 —— 沒有金鑰是「驗證不過」，沒有 Function 是「辨識失敗」
 
 > **2026-09-06 那一輪**：`SYNC_FORMAT` 從 3 跳到 4（試算表多了「這一天用了哪一台」
 > 的註記），所以 `.gs` **一定要重貼並重新部署**。另外還有三步要她自己做一次

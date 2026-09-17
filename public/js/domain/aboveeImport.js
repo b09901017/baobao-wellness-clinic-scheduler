@@ -240,6 +240,20 @@ export function readAbovee(transcripts, ctx) {
   return { pairing, counts: sizes, items };
 }
 
+/**
+ * 這一列要不要排進「要你看」：對不上、或認不得人而且有得選（`none` 沒有候選，選不了）。
+ * **已取消的一律不用**。確認層底下那一組與最上面那個數字都問這一支 —— 各寫一份的時候
+ * 抬頭算了已取消的對不上、底下沒排，兩邊差一列。
+ */
+export const needsAttention = (item) => !item?.cancelled
+  && (item?.kind === 'mismatch' || (item?.kind === 'unknown' && item?.who?.how !== 'none'));
+
+/** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
+export function aboveeDatesIn(transcripts = []) {
+  const cells = (transcripts ?? []).flatMap((t) => (t?.rows ?? []).flatMap((r) => (Array.isArray(r) ? r : [])));
+  return [...new Set(cells.map(aboveeDate).filter(Boolean))].sort();
+}
+
 /** 最上面那一行：新的幾段、已經記了幾段、要你看幾段。 */
 export function summarizeAbovee(items = []) {
   const count = (fn) => items.filter(fn).length;
@@ -247,7 +261,7 @@ export function summarizeAbovee(items = []) {
     total: items.length,
     new: count((i) => i.kind === 'new' && !i.cancelled),
     recorded: count((i) => i.kind === 'recorded'),
-    attention: count((i) => (i.kind === 'unknown' && !i.cancelled && i.who.how !== 'none') || i.kind === 'mismatch'),
+    attention: count(needsAttention),
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),
   };

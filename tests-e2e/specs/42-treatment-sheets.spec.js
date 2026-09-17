@@ -183,7 +183,8 @@ test('T3 名字跟編號對不上 → 不挑人，選了才存得了；新的一
 
   const c = card(page, 'p0');
   await expect(c.locator('.tsc__who')).toHaveText('還不知道是誰');
-  await expect(c).toContainText('客戶編號對上了，名字不一樣');
+  // 跟 Abovee 那一層同一種講法（CONTEXT：「客戶編號」是 _Avoid_）
+  await expect(c).toContainText('病歷號對上了，名字不一樣');
   await expect(c.locator('[data-tsc-save]')).toBeDisabled();
   await c.locator('[data-tsc-who="cust-wang"]').click();
   await expect(card(page, 'p0').locator('.tsc__who')).toHaveText('王小明');

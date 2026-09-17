@@ -729,7 +729,6 @@ const SENTENCES = [
   },
 ];
 
-/** `'customers/c1/entitlements.update'` → `'entitlements'`。 */
 /** 這一次多記住的 Abovee 寫法（拿掉的不講 —— 那是她在主檔上自己改的，「改了」那一句接得住）。 */
 const addedAliases = (fields) => {
   const f = fields.find((x) => x.key === 'aboveeNames');
@@ -738,6 +737,7 @@ const addedAliases = (fields) => {
   return f.after.filter((a) => !before.has(a));
 };
 
+/** `'customers/c1/entitlements.update'` → `'entitlements'`。 */
 const coll = (event) =>
   String(event?.action ?? '').split('.')[0].split('/').filter(Boolean).pop() ?? '';
 

@@ -31,8 +31,8 @@ import { seenChip, wireSeen } from './seen.js';
 
 /** 認不得人的那幾種，畫面上講一句為什麼（ADR-0103）。 */
 const WHY_UNKNOWN = {
-  numberOnly: '客戶編號對上了，名字不一樣 —— 是這一位嗎？',
-  conflict: '名字跟客戶編號指到不同的人，選一位',
+  numberOnly: '病歷號對上了，名字不一樣 —— 是這一位嗎？',
+  conflict: '名字跟病歷號指到不同的人，選一位',
   ambiguous: '同名的有好幾位，選一位',
   none: '認不出是哪一位，找一下',
 };
@@ -447,17 +447,19 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     card.message = '';
     repaint(card);
 
+    // 等太久時那一句：預設的「已經存在這台裝置上了」只對 Firestore 成立，照片還在路上
+    const slow = '照片還在傳 —— 訊號不好會久一點，傳好之前先不要收起來';
     try {
       const blob = await keepable(card.photo.blob);
       if (existing) {
         await toast.withSaveState(() => sheetsData.replace(existing, fields, blob), {
           success: `換好了 ${fields.customerName} 的 ${fields.courseName} 療程單`,
-          key: `treatmentSheet:${card.key}`, undoable: false,
+          key: `treatmentSheet:${card.key}`, undoable: false, slow,
         });
       } else {
         await toast.withSaveState(() => sheetsData.create(fields, blob), {
           success: `存好了 ${fields.customerName} 的 ${fields.courseName} 療程單`,
-          key: `treatmentSheet:${card.key}`, undoable: false,
+          key: `treatmentSheet:${card.key}`, undoable: false, slow,
         });
       }
       card.state = 'saved';
