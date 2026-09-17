@@ -45,6 +45,12 @@ const MARKERS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /"type"\s*:\s*"service_account"/,
   /"private_key_id"\s*:/,
+  // 服務帳號 JSON 另一格一定會有的：只貼了半份也抓得到
+  /"client_x509_cert_url"\s*:\s*"https:\/\/www\.googleapis\.com\/robot\//,
+  // Anthropic 的 API key 的形狀。
+  // **刻意不掃 `AIza`**：`public/js/firebase-config.js` 的前端 apiKey 就長那樣，
+  // 而且本來就該 commit（SPEC 第 10 節）。拍照辨識不用任何 key（ADR-0100）。
+  /sk-ant-[A-Za-z0-9_-]{20,}/,
 ];
 
 test('沒有任何被追蹤的檔案含有私鑰或服務帳號憑證', () => {
@@ -129,6 +135,9 @@ const NOT_A_NAME = new Set([
   // 課程名、品項名與副詞都不可能是人名，而那幾句是
   // `.scratch/slot-confirm-and-durations-2026-09-16/` 整輪的前提 —— 同上面那幾條的理由。
   '體驗', '正式課', '預設', '一般', '護心抗老', '目前都是', '也有發現',
+  // 2026-09-17 拍照帶入那一輪：Abovee 課程欄印的是「二返60」、方案文宣寫「共計60min」。
+  // 課程名與量詞不可能是人名，而解析器要吃的就是這兩種原字（`.scratch/ai-photo-capture/`）。
+  '二返', '共計',
 ]);
 
 test('沒有任何被追蹤的檔案帶著「姓名黏著病歷編號」的字串', () => {

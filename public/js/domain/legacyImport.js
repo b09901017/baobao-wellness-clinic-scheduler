@@ -1305,7 +1305,8 @@ function customerFieldsFrom(marks) {
   return { marks: list, notes: notes ?? '' };
 }
 
-function marksFrom(lines) {
+/** 拍訂購單（`orderForm.js`）的便利貼與尾款也走這一支：「尾款」紅色是同一條規則。 */
+export function marksFrom(lines) {
   return lines
     .flatMap((line) => String(line ?? '').split('\n'))
     .map((text) => text.trim())

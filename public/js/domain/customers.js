@@ -87,21 +87,30 @@ export function validate(c) {
  * @returns {string[]}
  */
 export function warnings(c, existing = []) {
-  const out = [];
-  const name = String(c.name ?? '').trim();
+  const { name, contact } = fieldWarnings(c, existing);
+  return [name, contact].filter(Boolean);
+}
 
+/**
+ * 同一組提醒，**照它講的是哪一格分開**（issue 08）：新增客戶那一頁把每一句
+ * 收成那一格旁邊的一顆 ⚠，存檔前那一道再把 `warnings()` 整份講一次（ADR-0102）。
+ * 兩份句子是同一支算的 —— 畫面上的 ⚠ 與存檔前講的不會是兩種說法。
+ *
+ * @returns {{name: string|null, contact: string|null}}
+ */
+export function fieldWarnings(c, existing = []) {
+  const name = String(c.name ?? '').trim();
   const sameName = existing.filter(
     (e) => e.id !== c.id && !e.deletedAt && String(e.name ?? '').trim() === name,
   );
-  if (name && sameName.length) {
-    out.push(`已經有 ${sameName.length} 位客戶也叫「${name}」，確認不是同一個人嗎？`);
-  }
-
-  if (isBlank(c.phone) && isBlank(c.lineId)) {
-    out.push('沒有電話也沒有 LINE，之後問時間會找不到人');
-  }
-
-  return out;
+  return {
+    name: name && sameName.length
+      ? `已經有 ${sameName.length} 位客戶也叫「${name}」，確認不是同一個人嗎？`
+      : null,
+    contact: isBlank(c.phone) && isBlank(c.lineId)
+      ? '沒有電話也沒有 LINE，之後問時間會找不到人'
+      : null,
+  };
 }
 
 /**

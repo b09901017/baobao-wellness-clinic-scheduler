@@ -139,9 +139,13 @@ const inFlight = new Map();
  *
  *   勾掉、還原這種「做兩次結果一樣」的動作不用給 key：全域鎖住一次一個寫入
  *   會讓她連續勾三筆待辦時後兩筆安靜地不見，那比連點嚴重得多。
+ *
+ *   `slow` 是等太久時換上的那一句。預設的「已經存在這台裝置上了」**只對 Firestore 成立**
+ *   （寫入先進本機快取）；傳照片到 Storage 的那幾條要自己給一句 —— 傳到一半的照片不在這台裝置上，
+ *   她這時候收起來就沒了（`tests/save-guards.test.js` 盯著）。
  * @template T
  */
-export function withSaveState(fn, { pending, success, undoable = true, key = null } = {}) {
+export function withSaveState(fn, { pending, success, undoable = true, key = null, slow } = {}) {
   if (key !== null) {
     const running = inFlight.get(key);
     if (running) return running;
@@ -154,21 +158,21 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
     // 而且離線時它會一直飛到網路回來（見 PENDING_MS 的說明）。
     // 這裡換掉的只有畫面上那一句，因為「儲存中…」停在那裡三分鐘等於沒說話。
     let settled = false;
-    const slow = setTimeout(() => {
-      if (!settled) queued();
+    const timer = setTimeout(() => {
+      if (!settled) queued(slow);
     }, PENDING_MS);
 
     try {
       const { result, undo } = await withUndo(fn);
       settled = true;
-      clearTimeout(slow);
+      clearTimeout(timer);
       saved(success, undoable ? undo : null);
       return result;
     } catch (err) {
       settled = true;
-      clearTimeout(slow);
+      clearTimeout(timer);
       failed(`儲存失敗：${err.message}`, () =>
-        withSaveState(fn, { pending, success, undoable, key }));
+        withSaveState(fn, { pending, success, undoable, key, slow }));
       throw err;
     }
   })();

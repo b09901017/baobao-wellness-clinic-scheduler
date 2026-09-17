@@ -1,0 +1,5 @@
+{
+  "_why": "模型那一側失敗（逾時、被拒）。token 照樣收錢，用量要記成 failed",
+  "fail": "model",
+  "usage": { "inputTokens": 1800, "outputTokens": 0 }
+}

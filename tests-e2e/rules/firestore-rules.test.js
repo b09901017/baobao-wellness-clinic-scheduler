@@ -413,6 +413,41 @@ describe('R9 本輪可用性（validAvailability）', () => {
   });
 });
 
+// ---------- 療程單（issue 14，ADR-0105）----------
+
+describe('R9b 療程單（validTreatmentSheet）', () => {
+  const s = (over = {}) => stamped({
+    customerId: 'c1', courseIds: ['course-eecp'], rows: [{ seq: '1', date: '2026-07-28', signed: true, equipmentIds: [] }],
+    photoPath: 'treatmentSheets/c1/s1/1758100000000.jpg', ...over,
+  });
+  const p = (id, as = allowed) => doc(as, 'customers', 'c1', 'treatmentSheets', id);
+
+  test('R9b.1 白名單內寫得進去、外人碰不到', async () => {
+    await assertSucceeds(setDoc(p('s1'), s()));
+    await assertSucceeds(getDoc(p('s1')));
+    await assertFails(getDoc(p('s1', stranger)));
+    await assertFails(getDoc(p('s1', anon)));
+    await assertFails(setDoc(p('s2', stranger), s()));
+  });
+
+  test('R9b.2 不是一張療程單的東西被擋：沒有課程、列不是陣列、照片路徑指到別的地方', async () => {
+    await assertFails(setDoc(p('s3'), s({ courseIds: [] })));
+    await assertFails(setDoc(p('s4'), s({ rows: 'x' })));
+    await assertFails(setDoc(p('s5'), s({ photoPath: 'orderForms/c1/x.jpg' })));
+    await assertFails(setDoc(p('s6'), s({ customerId: 'c2' })));
+  });
+
+  test('R9b.3 不能硬刪', async () => {
+    await assertSucceeds(setDoc(p('s7'), s()));
+    await assertFails(deleteDoc(p('s7')));
+  });
+
+  test('R9b.4 collection group 讀得到（療程單那一頁要一次列出每一位的）', async () => {
+    await assertSucceeds(getDocs(collectionGroup(allowed, 'treatmentSheets')));
+    await assertFails(getDocs(collectionGroup(stranger, 'treatmentSheets')));
+  });
+});
+
 // ---------- 客戶自己填的表單：整份 Rules 唯一對外開的洞 ----------
 
 describe('R10 表單邀請與回覆（唯一讓沒登入的人寫得進來的地方）', () => {
@@ -581,6 +616,28 @@ describe('R11 主檔（config）', () => {
 
   test('R11.2 外人碰不到', async () => {
     await assertFails(getDocs(collection(stranger, 'config', 'app', 'courses')));
+  });
+});
+
+describe('R13 AI 用量（ADR-0100）', () => {
+  test('R13.1 白名單內讀得到，但寫不進去 —— 改小這個數字就等於繞過每月上限', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'aiUsage', '2026-09'), { estUsd: 3, calls: 10 });
+      await setDoc(doc(ctx.firestore(), 'aiUsage', '2026-09', 'calls', 'c1'), { kind: 'orderForm', outcome: 'ok' });
+    });
+    await assertSucceeds(getDoc(doc(allowed, 'aiUsage', '2026-09')));
+    await assertSucceeds(getDocs(collection(allowed, 'aiUsage', '2026-09', 'calls')));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-09'), stamped({ estUsd: 0, calls: 0 })));
+    await assertFails(updateDoc(doc(allowed, 'aiUsage', '2026-09'), { estUsd: 0 }));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-10'), stamped({ estUsd: 0 })));
+    await assertFails(deleteDoc(doc(allowed, 'aiUsage', '2026-09')));
+    await assertFails(setDoc(doc(allowed, 'aiUsage', '2026-09', 'calls', 'c2'), { kind: 'orderForm' }));
+  });
+
+  test('R13.2 外人讀不到', async () => {
+    await assertFails(getDoc(doc(stranger, 'aiUsage', '2026-09')));
+    await assertFails(getDoc(doc(anon, 'aiUsage', '2026-09')));
+    await assertFails(getDocs(collection(stranger, 'aiUsage', '2026-09', 'calls')));
   });
 });
 

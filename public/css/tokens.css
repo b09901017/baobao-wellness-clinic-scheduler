@@ -225,6 +225,14 @@
   --shadow-2: 0 4px 14px rgb(36 31 26 / 9%);
   --shadow-3: 0 18px 44px rgb(36 31 26 / 20%);
   --shadow-fab: 0 8px 20px rgb(47 93 76 / 30%);
+
+  /* 拍照那一層（issue 06）。**兩種主題都是深色**：取景要看得清楚，而拍照時她在看紙不是看 app。
+     底色是主色壓暗的墨綠黑，不是純黑 —— 收起來回到 app 時不會像關燈。 */
+  --camera-bg: #0e1412;
+  --camera-fg: #f3efe7;
+  --camera-dim: rgb(243 239 231 / 62%);
+  --camera-line: rgb(243 239 231 / 18%);
+  --camera-guide: #9fd4bf;
   --shadow-drawer: 0 -8px 30px rgb(36 31 26 / 18%);
 }
 
@@ -331,5 +339,12 @@
     --shadow-2: 0 4px 14px rgb(0 0 0 / 38%);
     --shadow-3: 0 18px 44px rgb(0 0 0 / 55%);
     --shadow-fab: 0 8px 20px rgb(0 0 0 / 50%);
+
+  /* 拍照那一層：跟淺色一樣（本來就是深色的） */
+  --camera-bg: #0e1412;
+  --camera-fg: #f3efe7;
+  --camera-dim: rgb(243 239 231 / 62%);
+  --camera-line: rgb(243 239 231 / 18%);
+  --camera-guide: #9fd4bf;
     --shadow-drawer: 0 -8px 30px rgb(0 0 0 / 55%);
 }

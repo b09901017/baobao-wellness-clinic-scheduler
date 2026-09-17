@@ -21,6 +21,11 @@ keys/
 # 環境變數（Firebase 前端 config 不是密鑰，可以直接 commit，不需要放這裡）
 .env*
 
+# Cloud Functions 的本機密鑰與舊式設定。拍照辨識那一支刻意沒有任何 key
+# （以服務帳號執行，ADR-0100）—— 這兩行是「哪天有人照教學塞了一把進來」的保險。
+.secret.local
+functions/.runtimeconfig.json
+
 # === Firebase 工具產物 ===
 .firebase/
 firebase-debug.log*

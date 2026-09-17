@@ -23,6 +23,9 @@ import * as toast from '../toast.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { pushScreen } from '../nav.js';
+import { openCamera } from '../components/camera.js';
+import { seenChip, wireSeen } from '../components/seen.js';
+import { planDraftFrom } from '../../domain/photoPlan.js';
 
 const esc = f.esc;
 
@@ -111,16 +114,28 @@ const editors = {
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
   // 二返的醫師選單只列醫師（domain/masterData.js 的 staffWithRole）。
   staff: {
-    blank: { name: '', role: STAFF_ROLES[0] },
-    summary: (r) => r.role,
+    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [] },
+    summary: (r) => [r.role, r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null]
+      .filter(Boolean).join(' · '),
     fields: (r) => [
       f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
       }),
+      // issue 12：拍 Abovee 時服務資源那一格寫的是全名，認不出來的記在這裡
+      f.text({
+        name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
+        placeholder: '陳小芳',
+        hint: '拍 Abovee 時服務資源那一格怎麼寫這個人。好幾種用頓號分開。'
+          + '全名結尾就是這個名字的（陳小芳 → 小芳）不用填，認得出來。',
+      }),
     ],
-    parse: (v) => ({ name: v.name.trim(), role: v.role }),
+    parse: (v) => ({
+      name: v.name.trim(),
+      role: v.role,
+      aboveeNames: String(v.aboveeNames ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean),
+    }),
   },
 
   equipment: {
@@ -415,10 +430,11 @@ const editors = {
     blank: { name: '', membershipMonths: 12, note: '', items: [] },
     summary: (r) => `${r.items?.length ?? 0} 個項目 · 會籍 ${r.membershipMonths ?? '?'} 個月`,
     fields: (r, all) => [
+      photoHead(r),
       f.text({ name: 'name', label: '方案名稱', value: r.name, placeholder: '筋骨強身' }),
       f.number({ name: 'membershipMonths', label: '會籍（月）', value: r.membershipMonths, min: 1 }),
       f.text({ name: 'note', label: '備註', value: r.note ?? '', placeholder: '總價 288,000，限本人' }),
-      itemsField(r.items ?? [], all),
+      itemsField(r.items ?? [], all, r.__seen),
     ],
     parse: (v) => ({
       name: v.name.trim(),
@@ -454,22 +470,51 @@ const editors = {
 // 驗證一律呼叫 domain 的 validate()，這裡不另寫一套 —— SPEC 第 6.7 節的雙層是
 // 「前端一次、Rules 一次」，不是「UI 一次、domain 一次」。
 
-function itemsField(items, all) {
+/**
+ * 從文宣照片帶進來的那一張（issue 07）：最上面一張縮圖，旁邊是照片上的方案名、價格、會籍。
+ * 手打的那一張沒有 `__photo`，一個像素都不佔。`__` 開頭的那幾格只活在草稿裡，存檔讀的是表單。
+ */
+function photoHead(r) {
+  if (!r.__photo) return '';
+  const s = r.__seenPlan ?? {};
+  return `
+    <div class="photohead">
+      <button type="button" class="photohead__img" data-seen-text="${esc(s.title || '文宣')}"
+              data-seen-photo="${esc(r.__photo)}" aria-label="看那一張文宣">
+        <img src="${esc(r.__photo)}" alt="" />
+      </button>
+      <div class="photohead__seen">
+        <span class="photohead__label">照片上寫的是</span>
+        ${seenChip(s.title, { photo: r.__photo })}
+        ${seenChip(s.priceText, { photo: r.__photo })}
+        ${seenChip(s.membershipText, { photo: r.__photo })}
+      </div>
+    </div>`;
+}
+
+function itemsField(items, all, seen = null) {
   return `
     <fieldset class="field">
       <legend class="field__label">項目<span class="muted"> ${items.length}</span></legend>
       ${items.length
-        ? items.map((it, i) => itemCard(it, i, items.length, all)).join('')
+        ? items.map((it, i) => itemCard(it, i, items.length, all, seen?.[i] ?? null)).join('')
         : '<p class="muted">還沒有項目。方案至少要有一個項目才存得進去。</p>'}
       <p><button class="btn" type="button" data-add-item>＋ 新增項目</button></p>
     </fieldset>`;
 }
 
-function itemCard(it, i, total, all) {
+function itemCard(it, i, total, all, seen = null) {
   const isPool = it.type === 'pool';
+  const photo = seen?.photo ?? null;
 
   return `
-    <div class="pool" data-item="${i}">
+    <div class="pool${seen?.unresolved ? ' pool--unresolved' : ''}" data-item="${i}">
+      ${seen ? `
+        <div class="pool__seen">
+          ${seenChip([seen.text, seen.detailText].filter(Boolean).join(' '), { photo })}
+          ${seenChip(seen.quantityText ? `×${seen.quantityText}` : '', { photo })}
+          ${seen.unresolved ? '<span class="pool__unresolved">認不出是哪一個課程，選一個</span>' : ''}
+        </div>` : ''}
       <div class="pool__head">
         <span>第 ${i + 1} 個項目</span>
         <span class="pool__actions">
@@ -570,16 +615,21 @@ function readItems(v) {
 }
 
 function wirePlanItems({ form, all, data, readDraft, repaint }) {
+  // 從照片帶進來的那一張：每一項的原字（`__seen`）要跟著項目一起加、刪、搬，
+  // 不然搬了一項之後小丸子印的是隔壁那一項的原字
   form.querySelector('[data-add-item]')?.addEventListener('click', () => {
     const next = readDraft();
     next.items = [...next.items, planItem({ ...BLANK_PLAN_ITEM })];
+    if (next.__seen) next.__seen = [...next.__seen, null];
     repaint(next, next.items.length - 1);
   });
 
   form.querySelectorAll('[data-del-item]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const next = readDraft();
-      next.items = next.items.filter((_, i) => i !== Number(btn.dataset.delItem));
+      const drop = Number(btn.dataset.delItem);
+      next.items = next.items.filter((_, i) => i !== drop);
+      if (next.__seen) next.__seen = next.__seen.filter((_, i) => i !== drop);
       repaint(next);
     }),
   );
@@ -593,6 +643,11 @@ function wirePlanItems({ form, all, data, readDraft, repaint }) {
       const items = [...next.items];
       [items[from], items[to]] = [items[to], items[from]];
       next.items = items;
+      if (next.__seen) {
+        const seen = [...next.__seen];
+        [seen[from], seen[to]] = [seen[to], seen[from]];
+        next.__seen = seen;
+      }
       // 停留在被移動的那一項，不是停在原本的位置
       repaint({ ...next }, to);
     }),
@@ -658,7 +713,11 @@ function paintList(el, type, all) {
     <section class="card">
       <h2 class="card__title">${MASTER_LABELS[type]}<span class="muted"> ${rows.length}</span>${
         ed.lead ? tip(ed.lead) : ''}</h2>
-      <p><button class="btn btn--primary" type="button" data-new>新增</button></p>
+      <p class="newrow">
+        <button class="btn btn--primary" type="button" data-new>新增</button>
+        ${type === 'plans' ? `<button class="btn btn--icon" type="button" data-photo-plan
+            aria-label="拍方案文宣">${icon('camera', { size: 20 })}<span>拍文宣</span></button>` : ''}
+      </p>
     </section>
     ${rows.length === 0 ? '<p class="muted">還沒有資料。</p>' : ''}
     ${rows
@@ -688,6 +747,24 @@ function paintList(el, type, all) {
   el.querySelector('[data-new]').addEventListener('click', () =>
     paintForm(el, type, all, null),
   );
+  // 拍方案文宣（issue 07）：辨識完開的是**同一張方案編輯器**，事先填好 ——
+  // 另做一張確認表遲早會跟這一張分岔。存檔與驗證都走原本那一條。
+  el.querySelector('[data-photo-plan]')?.addEventListener('click', () => {
+    openCamera({
+      kind: 'planFlyer',
+      max: 1,
+      onDone: ([photo], { release }) => {
+        const { plan, seen } = planDraftFrom(photo.transcript, all);
+        paintForm(el, type, all, null, {
+          ...plan,
+          __photo: photo.url,
+          __seenPlan: seen,
+          __seen: seen.items.map((s) => ({ ...s, photo: photo.url })),
+          __release: release,
+        });
+      },
+    });
+  });
   el.querySelectorAll('[data-edit]').forEach((btn) =>
     btn.addEventListener('click', () =>
       paintForm(el, type, all, rows.find((r) => r.id === btn.dataset.edit)),
@@ -734,7 +811,10 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
     ${isNew ? '' : dangerZone(record)}`;
 
   // 原地換掉整頁 → 疊一層，返回鍵退得回那一份主檔清單而不是離開設定。
-  const back = pushScreen(`master-${type}`, () => render(el, type));
+  // 從照片帶進來的那一張：離開這一張（按返回、取消、存好）照片就收掉（ADR-0101 不存）
+  const leave = pushScreen(`master-${type}`, () => { data.__release?.(); render(el, type); });
+  const back = () => { data.__release?.(); leave(); };
+  if (data.__photo) wireSeen(el.querySelector('[data-form]'));
   el.querySelector('[data-back]').addEventListener('click', (e) => {
     e.preventDefault();
     back();

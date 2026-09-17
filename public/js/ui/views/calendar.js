@@ -66,6 +66,15 @@ import { tip } from '../components/tip.js';
 // 而 `openDay()` 需要一份新的資料（ADR-0020：她的下一個動作八成是看同一天的別筆）。
 const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null };
 
+/**
+ * 從別的畫面指定「進日曆時停在哪一天」（那一格標著）。拍 Abovee 那一層的「對不上」連過來用
+ * （issue 13）—— 那一段要在這裡改，那一層不改（ADR-0056）。
+ */
+export function showDate(date) {
+  state.date = date;
+  state.day = date;
+}
+
 /** 頂端那一排可勾選的篩選。一種一個顏色，關掉就不顯示。 */
 const KINDS = [
   // 這顆是開關不是狀態，所以用中性色 —— 來訪本身的顏色由狀態決定（見圖例）

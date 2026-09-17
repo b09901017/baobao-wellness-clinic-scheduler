@@ -1,0 +1,69 @@
+{
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "title": "EECP 體外反搏療程單",
+    "headerDate": "115.5.14",
+    "customerName": "王小明",
+    "customerNumber": "00001234",
+    "totalText": "共40堂",
+    "rows": [
+      {
+        "seq": "1",
+        "date": "7/1",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "2",
+        "date": "7/3",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "3",
+        "date": "7/8",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "4",
+        "date": "7/10",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "5",
+        "date": "7/15",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "6",
+        "date": "7/17",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "7",
+        "date": "7/22",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "8",
+        "date": "7/24",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      }
+    ]
+  }
+}

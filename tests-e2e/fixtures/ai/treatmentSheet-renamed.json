@@ -1,0 +1,26 @@
+{
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "title": "EECP 體外反搏療程單",
+    "headerDate": "115.8.3",
+    "customerName": "王曉明",
+    "customerNumber": "00001234",
+    "rows": [
+      {
+        "seq": "1",
+        "date": "8/3",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "2",
+        "date": "8/5",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      }
+    ]
+  }
+}

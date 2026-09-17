@@ -152,7 +152,8 @@ getComputedStyle matchMedia DOMParser XMLHttpRequest AbortController Event Custo
 Node Element HTMLElement HTMLInputElement Image Audio Option Text CSS
 IntersectionObserver ResizeObserver MutationObserver PerformanceObserver performance
 caches indexedDB crypto self structuredClone reportError atob btoa TextEncoder TextDecoder
-clients skipWaiting registration importScripts`.split(/\s+/));
+clients skipWaiting registration importScripts
+createImageBitmap ImageCapture`.split(/\s+/));
 
 const NODE_GLOBALS = new Set(
   Object.getOwnPropertyNames(globalThis).filter((name) => /^[A-Za-z_$]/.test(name)),

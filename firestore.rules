@@ -152,6 +152,35 @@ service cloud.firestore {
         allow create, update: if allowed() && keepsExistingId() && validAvailability();
         allow delete: if false;
       }
+
+      match /treatmentSheets/{sheetId} {
+        allow read:   if allowed();
+        allow create, update: if allowed() && keepsExistingId() && validTreatmentSheet(customerId);
+        allow delete: if false;
+      }
+    }
+
+    // 療程單（ADR-0105）。只驗形狀：日期補得對不對、器材認得對不對是她在確認卡上看過的。
+    // 兩條多驗一步：
+    // - `customerId` 要跟路徑上的一樣 —— 那一格是冗餘存的（「全部比對一次」照它找來訪），
+    //   寫歪了的話比對會拿另一位的來訪去比，而畫面上看起來是認得的
+    // - 照片路徑只能指到 `treatmentSheets/{同一位}/` 底下 —— storage.rules 只開那個資料夾，
+    //   指到別處的話那一張卡會一直講「照片不在」
+    function validTreatmentSheet(customerId) {
+      let d = request.resource.data;
+      return d.customerId == customerId
+        && d.courseIds is list
+        && d.courseIds.size() > 0
+        && d.rows is list
+        && (!d.keys().hasAny(['photoPath'])
+            || d.photoPath == null
+            || (d.photoPath is string
+                && d.photoPath.matches('^treatmentSheets/' + customerId + '/[^/]+/[^/]+[.]jpg$')));
+    }
+
+    // 療程單那一頁要一次列出每一位的（collection group 查詢），同 entitlements。只開 read。
+    match /{path=**}/treatmentSheets/{sheetId} {
+      allow read: if allowed();
     }
 
     // 「已刪除項目」要跨客戶找回被刪掉的收集，那是 collection group 查詢，
@@ -407,6 +436,20 @@ service cloud.firestore {
       // 收下（takenAt）與丟掉（deletedAt）都只有她做得到。
       allow update: if allowed() && keepsExistingId();
       allow delete: if false;
+    }
+
+    // ---------- AI 用量（ADR-0100）----------
+    // 只有那一支 Cloud Function 寫得進去（Admin SDK 不經過 Rules）。
+    // 瀏覽器**一個字都寫不進去** —— 能改小這個數字，就等於能繞過每月上限。
+    // 裡面沒有照片、沒有抄出來的字（ADR-0101），所以白名單的人讀得到就好。
+    match /aiUsage/{month} {
+      allow read: if allowed();
+      allow write: if false;
+
+      match /calls/{callId} {
+        allow read: if allowed();
+        allow write: if false;
+      }
     }
 
     // ---------- 其餘一律拒絕 ----------

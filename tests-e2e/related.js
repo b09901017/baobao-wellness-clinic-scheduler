@@ -41,6 +41,13 @@ export const GLOBAL = [
 ];
 
 /**
+ * GLOBAL 裡面的例外：拍照辨識的假抄字（`fixtures/ai/`）。它們住在 fixtures 底下
+ * （Function 的假模型照那個路徑讀），但只有拍照那幾支讀得到 —— 改一份假抄字
+ * 就全跑二十幾分鐘，會讓人不想加新的假抄字。
+ */
+export const NOT_GLOBAL = ['tests-e2e/fixtures/ai/'];
+
+/**
  * 不影響 E2E 的：文件、ADR、issue、單元測試自己。
  * （`firestore.rules` 例外處理，見 `pick()` —— 它要跑的是 `test:rules`。）
  */
@@ -79,7 +86,7 @@ export const COVERAGE = {
     'public/js/domain/confirmations.js', 'public/js/domain/progress.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
     'public/js/ui/components/form.js', 'public/js/ui/components/dialog.js',
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/calendar.js', 'public/js/ui/views/progress.js',
     'public/js/ui/views/home.js',
   ],
@@ -95,7 +102,7 @@ export const COVERAGE = {
     'public/js/domain/dates.js', 'public/js/domain/availability.js',
     'public/js/domain/visitTime.js', 'public/js/domain/followups.js',
     'public/js/domain/calendar.js', 'public/js/ui/views/home.js',
-    'public/js/ui/views/calendar.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
     'public/js/ui/views/availability.js',
   ],
   '07-chaos': [
@@ -103,7 +110,7 @@ export const COVERAGE = {
     'public/js/domain/notes.js', 'public/js/ui/components/form.js',
     'public/js/ui/components/note.js', 'public/js/ui/toast.js',
     'public/js/ui/views/customers.js', 'public/js/ui/views/customersBulk.js',
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js',
   ],
   '08-ux-audit': [
@@ -126,6 +133,8 @@ export const COVERAGE = {
     'public/js/domain/followups.js', 'public/js/data/tasks.js',
     'public/js/ui/components/tasklist.js', 'public/js/ui/components/taskMirror.js',
     'public/js/ui/views/home.js',
+    // 「今天做了什麼」的分段（home 那一頁畫它；00-smoke 的 S4 也盯著，CORE 永遠跑）
+    'public/js/domain/dayReview.js',
   ],
   '12-ask-by-month': [
     'public/js/domain/availability.js', 'public/js/domain/availabilityForm.js',
@@ -139,14 +148,14 @@ export const COVERAGE = {
     'public/js/domain/nthFollowup.js', 'public/js/domain/naming.js',
     'public/js/domain/visits.js', 'public/js/domain/followups.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',
   ],
   '14-clinical-alert': [
     'public/js/domain/clinicalFlags.js', 'public/js/domain/contraindications.js',
     'public/js/domain/customerMarks.js', 'public/js/ui/components/flags.js',
     'public/js/ui/components/marks.js', 'public/js/ui/views/masterList.js',
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/customerDetail.js',
   ],
   '15-playbook': [
     'public/js/domain/playbook.js', 'public/js/data/playbooks.js',
@@ -186,13 +195,13 @@ export const COVERAGE = {
   '21-pool-assignment': [
     'public/js/domain/visits.js', 'public/js/domain/masterData.js',
     'public/js/domain/contraindications.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/home.js',
   ],
   '22-bulk-cancel': [
     'public/js/domain/visits.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
   ],
   '23-naming-read-first': [
     'public/js/domain/naming.js', 'public/js/domain/entitlements.js',
@@ -232,7 +241,7 @@ export const COVERAGE = {
     'public/js/ui/components/slotNote.js',
     'public/js/ui/views/home.js',
     'public/js/ui/views/visitEditor.js',
-    'public/js/ui/views/schedule.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
     'public/js/data/visits.js',
   ],
   // 「一天只是一個抬頭」（ADR-0089）。讀取卡片是四個畫面共用的，
@@ -262,9 +271,65 @@ export const COVERAGE = {
   ],
   // 壓表與資料健檢不可以通到整天的編輯器（2026-09-16，報告 §2.1）
   '32-no-door-to-the-whole-day-editor': [
-    'public/js/ui/views/schedule.js', 'public/js/ui/views/health.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/health.js',
     'public/js/domain/health.js', 'public/js/ui/views.js',
     'public/js/ui/views/visitEditor.js',
+  ],
+  // 拍照辨識那一支 Function 的五道防護（ADR-0100）。`functions/` 底下每一支都算：
+  // 模擬器跑的就是那個資料夾。`firebase.json` 在這裡是因為 functions 模擬器的設定在裡面
+  // （hosting 那一段改了照樣有 00-smoke 盯著）。
+  '35-ai-guard': [
+    'functions/', 'public/js/data/ai.js', 'tests-e2e/fixtures/ai/', 'firebase.json',
+    // 抄字格式 domain 那一份（跟 `functions/transcripts/` 一模一樣，`tests/ai-transcripts.test.js` 盯著）
+    'public/js/domain/transcripts.js',
+  ],
+  // 設定 → AI 用量（issue 05）
+  '36-ai-usage': [
+    'public/js/domain/aiUsage.js', 'public/js/data/aiUsage.js', 'public/js/ui/views/aiUsage.js',
+    'public/js/ui/views/settings.js', 'public/js/data/ai.js', 'functions/',
+  ],
+  // 拍照元件（issue 06）
+  '37-camera': [
+    'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
+    'public/js/ui/components/seen.js', 'public/js/data/ai.js', 'public/js/domain/aiUsage.js',
+  ],
+  // 拍方案文宣 → 方案範本（issue 07）
+  '38-photo-plan': [
+    'public/js/domain/photoPlan.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/legacyImport.js',
+  ],
+  // 新增客戶畫面重畫（issue 08，ADR-0102）
+  '39-new-customer-form': [
+    'public/js/ui/components/customerForm.js', 'public/js/ui/components/flags.js',
+    'public/js/ui/views/customers.js', 'public/js/domain/customers.js', 'public/js/ui/components/tip.js',
+  ],
+  // 拍訂購單 → 新增客戶／加購（issue 09）
+  '40-order-form': [
+    'public/js/domain/orderForm.js', 'public/js/ui/components/orderConfirm.js',
+    'public/js/ui/components/customerForm.js', 'public/js/ui/views/customers.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/ui/components/actions.js',
+    'public/js/domain/photoPlan.js', 'public/js/domain/legacyImport.js', 'public/js/domain/purchases.js',
+    'public/js/data/customers.js', 'tests-e2e/fixtures/ai/',
+  ],
+  // 拍 Abovee → 一次新增很多來訪（issue 11～13）
+  '41-abovee': [
+    'public/js/domain/aboveeImport.js', 'public/js/domain/abovee.js', 'public/js/domain/identify.js',
+    'public/js/domain/slotDraft.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/masterData.js',
+    'public/js/domain/audit.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
+    'tests-e2e/fixtures/ai/',
+  ],
+  // 療程單的存放與搜尋（issue 14，ADR-0105）。Storage 模擬器的設定在 firebase.json
+  '42-treatment-sheets': [
+    'public/js/domain/treatmentSheets.js', 'public/js/data/treatmentSheets.js', 'public/js/ui/components/sheetConfirm.js',
+    'public/js/ui/views/treatmentSheets.js', 'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
+    'public/js/ui/components/seen.js', 'public/js/domain/identify.js', 'public/js/ui/views/trash.js',
+    'public/js/ui/views/settings.js', 'public/js/data/backup.js', 'firebase.json', 'tests-e2e/fixtures/ai/',
+  ],
+  // 療程單比對（issue 15）。比對讀來訪的狀態與器材，連到日曆那一天
+  '43-treatment-compare': [
+    'public/js/domain/treatmentSheets.js', 'public/js/ui/views/treatmentSheets.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/ui/views/calendar.js', 'public/js/domain/dates.js',
   ],
   // 確認也是逐段的（2026-09-16，ADR-0097）
   '34-confirm-one-slot': [
@@ -294,14 +359,14 @@ export function pick(files = []) {
     if (!file) continue;
 
     // Rules 有自己的一套測試（`npm run test:rules`），不是 E2E 的事。
-    if (file === 'firestore.rules' || file === 'firestore.indexes.json') {
+    if (file === 'firestore.rules' || file === 'firestore.indexes.json' || file === 'storage.rules') {
       rules = true;
       continue;
     }
 
     if (hits(file, IGNORED)) continue;
 
-    if (hits(file, GLOBAL)) {
+    if (hits(file, GLOBAL) && !hits(file, NOT_GLOBAL)) {
       all = true;
       why.push(`${file} 是共用底座 → 全跑`);
       continue;

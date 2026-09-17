@@ -147,7 +147,8 @@ const STAGES = [
     id: 'customer',
     label: '客戶與額度',
     n: '⑨',
-    match: (e) => ['customers', 'entitlements'].includes(collectionOf(e)),
+    // 療程單（ADR-0105）也在這一段：它是那一位客戶身上的一份紀錄，跟額度同一種「她拿到了什麼」。
+    match: (e) => ['customers', 'entitlements', 'treatmentSheets'].includes(collectionOf(e)),
     // **這一段是她點名的那一段**（2026-09-04）：「像是對帳過了、已排未上 0->1
     // 這種都沒必要，這類別只需要留新增客戶、新增額度這兩個就好」。
     //
@@ -162,10 +163,13 @@ const STAGES = [
     //
     // 濾掉的是**來訪的副作用**：`bookedCount` 0→1 是那筆來訪造成的，
     // 而那筆來訪就在上面幾列（②壓表）；「對帳過了」同理。
+    //   療程單換了照片                   她兩三個月拍一次，那一則就是「這一次拍了」；
+    //                                  清掉沒刪成的舊照片檔不是她做的事，濾掉
     keep: (e, f) => {
       const op = opOf(e);
       if (op === 'create' || op === 'softDelete') return true;
       if (collectionOf(e) === 'entitlements') return f.some((x) => x.key === 'deliveries');
+      if (collectionOf(e) === 'treatmentSheets') return f.some((x) => x.key === 'photoPath');
       return f.some((x) => CUSTOMER_FIELDS.has(x.key));
     },
   },

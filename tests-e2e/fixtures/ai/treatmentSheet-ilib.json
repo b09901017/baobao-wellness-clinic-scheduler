@@ -1,0 +1,34 @@
+{
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "title": "筋骨強身",
+    "courseText": "經皮靜脈雷射課程 60min",
+    "headerDate": "115.6.2",
+    "customerName": "李小華",
+    "customerNumber": "",
+    "rows": [
+      {
+        "seq": "1",
+        "date": "6/5",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "2",
+        "date": "6/12",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      },
+      {
+        "seq": "3",
+        "date": "6/19",
+        "signed": true,
+        "staffSigned": true,
+        "deducted": true
+      }
+    ]
+  }
+}

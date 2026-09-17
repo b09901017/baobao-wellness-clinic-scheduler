@@ -46,16 +46,17 @@ import {
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
-  INITIAL_STATUS, validateVisit, isActive, coursesForEntitlement, courseForEquipment,
+  validateVisit, isActive, coursesForEntitlement, courseForEquipment,
   picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
-  acceptsMoreSlots, withExtraSlot, sameDayVisitFor,
+  acceptsMoreSlots, sameDayVisitFor,
 } from '../../domain/visits.js';
+import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
-  nthSlotFields, MIN_NTH, MAX_NTH,
+  MIN_NTH, MAX_NTH,
 } from '../../domain/nthFollowup.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
@@ -65,7 +66,7 @@ import {
   THERAPIST_ROLE, DOCTOR_ROLE,
 } from '../../domain/masterData.js';
 import { splitFlags } from '../../domain/customers.js';
-import { endOf, isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
+import { isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addDays, shortDate, lastDayOf, monthLabel,
 } from '../../domain/dates.js';
@@ -78,6 +79,9 @@ import { chip as markChip } from '../components/marks.js';
 import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
+import { openCamera } from '../components/camera.js';
+import { openAboveeConfirm } from '../components/aboveeConfirm.js';
+import { showDate } from './calendar.js';
 
 const esc = f.esc;
 
@@ -590,7 +594,12 @@ function paintPage() {
                 data-sort="${esc(s.id)}">${esc(s.label)}</button>`).join('')}
     </div>
 
-    <div class="cardgrid" data-wall></div>`;
+    <div class="cardgrid" data-wall></div>
+
+    <div class="fab">
+      <button class="fab__main" type="button" data-abovee aria-label="拍 Abovee">
+        ${icon('camera', { size: 24, width: 2 })}</button>
+    </div>`;
 
   paintWall();
 }
@@ -646,7 +655,44 @@ function onPageClick(e) {
   if (pick) return openDeckAt(pick.dataset.pick);
 
   if (e.target.closest('[data-leave]')) return leaveMonth(ctx.el);
+  if (e.target.closest('[data-abovee]')) return photographAbovee();
   return null;
+}
+
+/**
+ * 拍 Abovee → 一次記很多段（issue 13，ADR-0104）。右下角那一顆相機；確認層從這一頁往上長出來，
+ * 不換網址。記好之後重讀、只重畫這一頁（她捲到哪裡留在哪裡）。
+ */
+function photographAbovee() {
+  openCamera({
+    kind: 'aboveeList',
+    // 她 9/17：「讓我一次上傳兩張圖片，也接受上傳一張」（左右兩半）
+    max: 2,
+    onDone: (photos, { release }) => openAboveeConfirm({
+      photos,
+      release,
+      ctx: {
+        customers: ctx.queueInput.customers,
+        entitlementsBy: ctx.queueInput.entitlementsBy,
+        visitsBy: ctx.queueInput.visitsBy,
+        master: {
+          courses: ctx.all.courses, equipment: ctx.all.equipment, rooms: ctx.all.rooms,
+          staff: ctx.all.staff, ivProducts: ctx.all.ivProducts,
+        },
+        today: ctx.today,
+      },
+      onFinish: async ({ saved }) => {
+        // 換頁收起來的（去日曆看「對不上」那一天）不重畫 —— 會蓋掉新的那一頁
+        if (!saved || !window.location.hash.startsWith('#/schedule')) return;
+        if (await reload()) return;
+        paintPage();
+      },
+      onOpenDay: (date) => {
+        showDate(date);
+        go('/calendar');
+      },
+    }),
+  });
 }
 
 function onPageInput(e) {
@@ -2053,85 +2099,42 @@ async function addSlot() {
   if (!selected || !view.day) return;
 
   const { all } = ctx;
-  const options = courseOptions(selected);
-  const picked = options.find((o) => o.entitlementId === view.entitlementId);
-
-  if (!picked) return showErrors(['先選要做什麼']);
-  if (!isValidTime(view.startsAt)) return showErrors(['先選幾點開始']);
-  // n返 的兩格在這裡先擋，不要等 `validateVisit()` ——
-  // 那一支講的是「第 1 個時段：……」，而她在這一頁看到的是一張卡片，
-  // 沒有「第幾個時段」這個概念。
-  if (picked.isNth && !view.nth) return showErrors(['先選第幾返']);
-  if (picked.isNth && !view.followupForVisitId) {
-    return showErrors(['先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印']);
-  }
-
-  // **存下去的課程也要走 effectiveCourse()**（ADR-0075）—— 只在畫欄位那一邊
-  // 推導的話，畫面上要她選診間、存進去的卻是一段要治療師的復能。
-  const course = effectiveCourse(picked);
-  // 存下去的指派也走同一支。畫欄位那一邊與這裡各判斷一次的話，
-  // 會出現「畫面上要她選治療師、存進去的卻是一段要診間的 ILIB」。
-  const assigns = assignsFor(picked.entitlement, course, view.equipmentId);
+  const picked = courseOptions(selected).find((o) => o.entitlementId === view.entitlementId);
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
 
-  // n返 的三樣東西（沒有額度、返數、哪一次健檢）由 `nthSlotFields()` 給 ——
-  // 兩個入口共用同一支，各自組一次的話遲早有一個忘了把 `entitlementId`
-  // 設成 null，而那一段會被算進某一筆額度的次數裡。
-  const nthPart = picked.isNth
-    ? nthSlotFields({
-      nth: view.nth,
-      examVisitId: view.followupForVisitId,
-      courseId: courseIdForNth(
-        (ctx.queueInput.visitsBy[selected.customerId] ?? [])
-          .find((x) => x.id === view.followupForVisitId) ?? null,
-        ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
-        Object.fromEntries(all.courses.map((c) => [c.id, c])),
-      ) ?? course.id,
-    })
-    : null;
-
-  const slot = {
-    entitlementId: picked.entitlementId,
-    courseId: course.id,
-    courseName: course.name,
-    equipmentId: picksEquipment(picked.entitlement, course) ? (view.equipmentId ?? null) : null,
-    ivProductId: course.requiresIvProduct ? (view.equipmentId ?? null) : null,
+  // **組一段時段只有一支**（`domain/slotDraft.js`，issue 10）：課程由器材決定、指派誰、
+  // n返 的三樣、時長、新段的狀態都在那裡。這一頁只把她按了什麼交過去 ——
+  // 各組一次的話，畫面上要她選治療師、存進去的卻是一段要診間的 ILIB。
+  // 「前面那幾道先擋」的句子也在那一支（她在這一頁看到的是一張卡片，沒有「第幾個時段」）。
+  const customerVisitsNow = ctx.queueInput.visitsBy[selected.customerId] ?? [];
+  const { slot, errors: early } = slotFromPicks({
+    // 額度那一排上沒有這一顆（用完了、n返 沒有健檢可接）就等於沒選
+    entitlementId: picked && !picked.isNth ? picked.entitlementId : null,
+    isNth: Boolean(picked?.isNth),
+    // 器材與營養點滴品項存在同一格（`onDeckClick()` 的對照表）
+    equipmentId: view.equipmentId ?? null,
+    ivProductId: view.equipmentId ?? null,
     startsAt: view.startsAt,
-    // 畫面上那一句與存進去的長度走同一支（`pickedMinutes()`，ADR-0098）——
-    // 各算一份的話，她看到 180 分、資料庫裡是 120 分。
-    endsAt: endOf(view.startsAt, pickedMinutes(picked)),
-    roomId: assigns === 'room' ? (roomId || null) : null,
-    bed: assigns === 'room' ? (bed || null) : null,
-    therapistId: assigns === 'therapist' ? (view.therapistId ?? null) : null,
-    doctorId: picksDoctor(course) ? (view.doctorId ?? null) : null,
-    // 這一段二返接在哪一次健檢後面。不是二返就一定是 null ——
-    // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下。
-    followupForVisitId: picked.entitlement?.followupForEntitlementId
-      ? (view.followupForVisitId ?? null)
-      : null,
-    attended: null,
-    // n返 覆蓋掉上面那幾樣。**放在最後不是隨便放的** —— 上面那一份是
-    // 「一段普通的來訪」的形狀，這一份只換掉真的不一樣的三樣。
-    ...(nthPart ?? {}),
-  };
-
-  const note = deckEl()?.querySelector('[name="note"]')?.value?.trim() || null;
+    roomId: roomId || null,
+    bed: bed || null,
+    therapistId: view.therapistId ?? null,
+    doctorId: view.doctorId ?? null,
+    nth: view.nth ?? null,
+    followupForVisitId: view.followupForVisitId ?? null,
+    // 那一句話跟著這一段走（ADR-0084），不再是整筆的
+    note: deckEl()?.querySelector('[name="note"]')?.value?.trim() || null,
+  }, {
+    courses: all.courses,
+    equipment: all.equipment,
+    ivProducts: all.ivProducts,
+    entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
+    visits: customerVisitsNow,
+  });
+  if (early.length) return showErrors(early);
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
-  // 規則在 `domain/visits.js`：收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
-  // 那一句話跟著這一段走（ADR-0084），不再是整筆的
-  const withNote = { ...slot, note };
-  const sameDay = sameDayVisit(selected, view.day);
-  const merged = sameDay ? withExtraSlot(sameDay, withNote) : null;
-  const visit = merged?.visit ?? {
-    customerId: selected.customerId,
-    customerName: selected.customerName,
-    date: view.day,
-    status: INITIAL_STATUS,
-    confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null,
-    note: null,
-    slots: [withNote],
-  };
+  // 收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
+  const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisitsNow);
 
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
   const { errors, warnings } = validateVisit(visit, {

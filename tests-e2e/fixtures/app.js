@@ -113,6 +113,12 @@ const BENIGN = [
   // 權限被 Rules 擋掉走的是另一條路（SDK 會丟 permission-denied，
   // 而畫面上那句話有各自的測試在盯），不會被這一條蓋掉。
   /\/google\.firestore\.v1\.Firestore\/(Write|Listen)\/channel/,
+  // **拍照辨識那一支 Function 回 4xx／500 是一種回答，不是 app 壞了**（ADR-0100）。
+  // 暫停中、超過上限、辨識失敗都是用 HTTP 狀態碼回來的，瀏覽器會自己印一句沒頭沒尾的
+  // 「Failed to load resource」—— 那一句只有 `location().url` 認得出來。
+  // 畫面有沒有把原因講對，由拍照那幾支 spec 自己斷言（例如「AI 暫停中」）。
+  // 範圍只有那一支的網址。
+  /^http:\/\/127\.0\.0\.1:5001\/[^/]+\/asia-east1\/extract$/,
 ];
 
 /**

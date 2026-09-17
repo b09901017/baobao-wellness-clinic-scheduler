@@ -1,0 +1,19 @@
+{
+  "_why": "方案文宣（筋骨強身那一張的版面）。沒有個資。07 用它走一次：七個項目、次數 6／4／4／4／4／12／20",
+  "transcript": {
+    "readable": true,
+    "unreadable": [],
+    "title": "筋骨強身",
+    "priceText": "$288,000",
+    "membershipText": "會籍 1 年(限本人)",
+    "items": [
+      { "category": "醫療專業諮詢", "text": "復健科醫師門診", "detailText": "30min", "quantityText": "6" },
+      { "category": "醫療專業諮詢", "text": "物理治療師諮詢", "detailText": "20min", "quantityText": "4" },
+      { "category": "醫療專業諮詢", "text": "營養師諮詢", "detailText": "20min", "quantityText": "4" },
+      { "category": "健康檢測", "text": "身體組成分析", "detailText": "每季一次", "quantityText": "4" },
+      { "category": "健康檢測", "text": "體適能檢查分析", "detailText": "每季一次", "quantityText": "4" },
+      { "category": "物理賦能課程", "text": "高能量雷射 或 超磁場 或 INDIBA", "detailText": "共計60min", "quantityText": "12" },
+      { "category": "物理賦能課程", "text": "經皮靜脈雷射", "detailText": "60min (不可更換項目)", "quantityText": "20" }
+    ]
+  }
+}
