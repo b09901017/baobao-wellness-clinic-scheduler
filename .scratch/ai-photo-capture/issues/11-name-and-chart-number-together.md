@@ -1,6 +1,6 @@
 # 認人：人名＋病歷號交叉比對
 
-Status: todo
+Status: done
 來源：`../spec.md`（13、14 共用）
 動工前先讀：`CONTEXT.md:75`（病歷號）、`docs/adr/0050`、`domain/legacyImport.js:1358` 的 `CHART_NO_PREFIX`、
 `domain/health.js` 的 `checkChartNo`、`domain/customerMarks.js`
