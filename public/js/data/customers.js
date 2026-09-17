@@ -120,9 +120,13 @@ export async function createEntitlement(customerId, data, opts = {}) {
  * 與營養品（要配提醒），漏掉任何一種都要等她幾週後才會發現。
  */
 export async function addEntitlements(customerId, dataList = [], opts = {}) {
-  if (!dataList.length) return [];
+  const { customerChanges = null } = opts;
+  if (!dataList.length && !customerChanges) return [];
   const { writes } = await entitlementWrites(customerId, dataList, opts);
-  return repo.commit(writes);
+  // 拍訂購單加購到既有客戶（issue 09）：尾款那則紅色備註、便利貼上的警示跟額度**同一個 commit** ——
+  // 分開寫的話額度建好、備註失敗，她按重試就多一整份額度
+  const also = customerChanges ? [{ op: 'update', path: PATH, id: customerId, changes: customerChanges }] : [];
+  return repo.commit([...writes, ...also]);
 }
 export const updateEntitlement = (customerId, id, changes) =>
   repo.update(entPath(customerId), id, changes);

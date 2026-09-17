@@ -8487,7 +8487,7 @@ body.has-cam {
   font-size: var(--text-md);
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: var(--accent-text);
+  color: var(--accent);
 }
 
 .cform__pair {
@@ -8566,4 +8566,424 @@ body.has-cam {
 
 .cform__bar .btn--primary {
   min-width: 120px;
+}
+
+/* ---------- 拍訂購單 → 確認卡（issue 09，ui/components/orderConfirm.js）----------
+   借壓表的卡片組（.deck）：同一種滑法、同一種頭。卡上是一張「帳」：
+   左邊一欄明體小標（是誰、顧客會、方案、加購、尾款），右邊是讀出來的值與原字丸子。
+   行與行之間只靠一條髮絲線 —— 五行都要一眼掃完，不再套卡片。
+   建好之後蓋一個章：她桌上那疊訂購單是紙，章是那個世界裡「這張處理過了」的記號。 */
+.fab__dot--ink {
+  background: var(--camera-bg);
+  color: var(--camera-fg);
+}
+
+/* 長按懸浮鈕：外圈慢慢亮起來，0.45s 跟 actions.js 的 HOLD_MS 對齊 —— 亮滿的那一刻相機就開了 */
+.fab__main.is-pressing {
+  transform: scale(0.94);
+  box-shadow: var(--shadow-fab), 0 0 0 7px var(--accent-soft);
+  transition: transform 0.12s ease, box-shadow 0.45s linear;
+}
+
+.ocard-host {
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.ocard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 100%;
+}
+
+.ocard__danger {
+  margin: 0;
+}
+
+.ocard__danger p {
+  margin: 0;
+}
+
+.ocard__danger-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.ocard__quote {
+  font-size: var(--text-sm);
+}
+
+.ocard__photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+
+.ocard__photo {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.ocard__thumb {
+  width: 54px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+.ocard__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ocard__attached {
+  max-width: 11em;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.ocard__link {
+  position: relative;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ocard__link::after {
+  content: '';
+  position: absolute;
+  inset: -12px -8px;
+}
+
+.ocard__ledger {
+  margin: 0;
+}
+
+.ocard__row {
+  display: grid;
+  grid-template-columns: 4.2em minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ocard__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding-top: 3px;
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-mute);
+}
+
+.ocard__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.ocard__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.ocard__main {
+  font-size: var(--text-md);
+  font-weight: 650;
+  color: var(--text);
+}
+
+.ocard__name {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  letter-spacing: 0.06em;
+}
+
+.ocard__times {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.ocard__owed {
+  color: var(--overdue);
+}
+
+.ocard__none,
+.ocard__sub {
+  font-size: var(--text-sm);
+  color: var(--text-mute);
+}
+
+.ocard__missing,
+.ocard__warn {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--overdue);
+}
+
+.ocard__nameok svg {
+  margin-right: 2px;
+}
+
+/* 同名：兩顆（或更多）一樣重，都不預選。第二行是「買過什麼」，分得出是哪一位 */
+.ocard__choices {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.ocard__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ocard__choice span {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.ocard__choice[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ocard__list {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ocard__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.ocard__itemname {
+  font-weight: 600;
+}
+
+.ocard__n {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.ocard__unresolved {
+  padding: var(--space-3);
+  background: var(--overdue-bg);
+  border-radius: var(--radius);
+}
+
+.ocard__subtitle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  letter-spacing: 0.1em;
+  color: var(--overdue);
+}
+
+.ocard__kind {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.ocard__acts {
+  display: flex;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+.ocard__unreadable {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+/* 底下那一條釘住：卡捲到哪裡都按得到「建立」。按不下去的理由就寫在按鈕上面，不收進泡泡 ——
+   她要知道差哪一步才按得下去 */
+.ocard__bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: auto calc(var(--space-4) * -1) 0;
+  padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+}
+
+.ocard__why {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.ocard__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ocard__go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-height: var(--tap-min);
+}
+
+/* 章：明體、雙框、斜一點。蓋下去的那一下只有一次，縮放 1.25 → 1 */
+.ocard__stamp {
+  position: absolute;
+  top: var(--space-2);
+  right: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 6px 14px;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  border: 3px double var(--accent);
+  border-radius: 6px;
+  transform: rotate(-8deg);
+  opacity: 0.9;
+  pointer-events: none;
+  animation: ocard-stamp var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes ocard-stamp {
+  from {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.25);
+  }
+}
+
+.ocard--done .ocard__ledger,
+.ocard--done .ocard__photos {
+  opacity: 0.62;
+}
+
+/* 小鉛筆：08 的表單開在一層裡（跟卡片組同一層，後開的疊在上面；加一項的抽屜與確認框又在它上面） */
+.ocedit {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100dvh;
+  background: var(--bg);
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-slow) var(--ease-out);
+}
+
+.ocedit--in {
+  opacity: 1;
+  transform: none;
+}
+
+.ocedit__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: max(var(--space-2), env(safe-area-inset-top)) var(--gutter) var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ocedit__title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.ocedit__close {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.ocedit__body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-3) var(--gutter) 0;
+}
+
+.ocedit__body .cform-card {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.cform__addon {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ocard__stamp,
+  .ocedit {
+    animation: none;
+    transition: none;
+  }
 }

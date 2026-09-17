@@ -26,6 +26,9 @@ import { blankDraft, mountCustomerForm } from '../components/customerForm.js';
 import * as marksUi from '../components/marks.js';
 import * as flagsUi from '../components/flags.js';
 import * as toast from '../toast.js';
+import { openCamera } from '../components/camera.js';
+import { openOrderConfirm } from '../components/orderConfirm.js';
+import { wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
 import { back as goBack } from '../nav.js';
 
@@ -64,8 +67,10 @@ export async function render(el) {
   let plans;
   let courses;
   let ivProducts;
+  let products;
+  let partners;
   try {
-    [rows, entsBy, equipment, clinicalFlags, visits, plans, courses, ivProducts] = await Promise.all([
+    [rows, entsBy, equipment, clinicalFlags, visits, plans, courses, ivProducts, products, partners] = await Promise.all([
       data.list(),
       data.entitlementsByCustomer(),
       config.listAll('equipment'),
@@ -77,6 +82,9 @@ export async function render(el) {
       config.listAll('plans'),
       config.listAll('courses'),
       config.listAll('ivProducts'),
+      // 拍訂購單（issue 09）：加購那一張表與「單子上的字認出合作機構」要的
+      config.listAll('products'),
+      config.listAll('partners'),
     ]);
   } catch (err) {
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
@@ -86,7 +94,7 @@ export async function render(el) {
 
   const ctx = {
     rows, entsBy, equipment, clinicalFlags, today, visitsBy: byCustomer(visits, today),
-    master: { plans, equipment, courses, ivProducts },
+    master: { plans, equipment, courses, ivProducts, products, clinicalFlags, partners },
   };
 
   el.innerHTML = `
@@ -119,6 +127,10 @@ export async function render(el) {
 
     <div class="fab" data-fab>
       <div class="fab__menu" hidden data-fabmenu>
+        <button class="fab__item" type="button" data-orderform>
+          <span>拍訂購單</span>
+          <span class="fab__dot fab__dot--ink">${icon('camera', { size: 18 })}</span>
+        </button>
         <button class="fab__item" type="button" data-bulk>
           <span>快速建立一群</span>
           <span class="fab__dot fab__dot--tea">${icon('people', { size: 18 })}</span>
@@ -128,7 +140,7 @@ export async function render(el) {
           <span class="fab__dot">${icon('plus', { size: 18, width: 2.2 })}</span>
         </button>
       </div>
-      <button class="fab__main" type="button" data-fabtoggle aria-label="新增"
+      <button class="fab__main" type="button" data-fabtoggle aria-label="新增（長按直接拍訂購單）"
               aria-expanded="false">
         ${icon('plus', { size: 24, width: 2.2 })}
       </button>
@@ -190,6 +202,31 @@ export async function render(el) {
 
   el.querySelector('[data-new]').addEventListener('click', () => go('/customers/new'));
   el.querySelector('[data-bulk]').addEventListener('click', () => go('/customers/bulk'));
+
+  // 拍訂購單（issue 09）：選單那一項是點得到的那條路，長按懸浮鈕是捷徑（ADR-0060）
+  const orderForms = () => {
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    fab.dataset.open = 'false';
+    openCamera({
+      kind: 'orderForm',
+      max: 10,
+      onDone: (photos, { release }) => openOrderConfirm({
+        photos,
+        release,
+        master: ctx.master,
+        existing: ctx.rows,
+        entsBy: ctx.entsBy,
+        // 建好的人要出現在清單上。換頁收掉的（`hashchange`）就不畫 —— 清單是非同步畫的，
+        // 畫完會蓋掉新的那一頁
+        onFinish: ({ done }) => {
+          if (done && /^#\/customers\/?$/.test(window.location.hash)) render(el);
+        },
+      }),
+    });
+  };
+  el.querySelector('[data-orderform]').addEventListener('click', orderForms);
+  wireLongPress(fab, '[data-fabtoggle]', orderForms);
 }
 
 /** 課程丸：實際上有人還有剩餘次數的那幾種，多的排前面。 */

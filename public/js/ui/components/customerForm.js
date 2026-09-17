@@ -51,6 +51,22 @@ export function draftToCustomer(d) {
   };
 }
 
+/**
+ * 表單上的值 → 要建的那一份購買。**新增頁與拍訂購單的「建立」共用** ——
+ * 各組一次的話，遲早有一邊忘了「數量 0 不展開方案」。
+ */
+export function purchaseOf(values, plans = []) {
+  const customer = draftToCustomer(values);
+  const quantity = planQuantity(values.quantity);
+  // 數量 0 就不展開方案。**不是把方案清掉** —— 展開 0 次會建出一串
+  // 總次數是 0 的額度，而那幾筆之後只會在她的畫面上礙事。
+  const plan = quantity > 0 ? (plans.find((p) => p.id === values.planId) ?? null) : null;
+  const extras = (values.extras ?? []).map(
+    (x) => buy.toEntitlement(x, { purchasedAt: customer.purchasedAt ?? null }),
+  );
+  return { customer, plan, quantity, extras };
+}
+
 /** 一張空白的草稿。 */
 export function blankDraft(today) {
   return {
@@ -85,6 +101,10 @@ function priorityOptions() {
  * @param {{courses, equipment, ivProducts, products, partners}} opts.master
  * @param {string} [opts.head] 表單最上面多一塊 HTML（訂購單那一層放照片與原字）
  * @param {string} [opts.submitLabel]
+ * @param {boolean} [opts.review] 送出前問不問存檔前那一道（ADR-0102）。訂購單那一層的小鉛筆給 false：
+ *   它只改草稿，真的建立在確認卡上，同名那一句由卡上那兩顆問
+ * @param {string|null} [opts.addOnTo] 加購到哪一位（名字）。給了就沒有「是誰」、購買通路與喜好程度 ——
+ *   那幾格是那一位身上本來就有的，這一次購買改不到
  * @param {(result: {values: object, customer: object, plan: object|null, quantity: number, extras: object[]}) => Promise<void>|void} opts.onSubmit
  * @param {Function} [opts.onCancel]
  * @param {(draft: object) => void} [opts.onDraft] 每改一次交出目前的草稿（訂購單那一層要記住）
@@ -93,7 +113,7 @@ function priorityOptions() {
 export function mountCustomerForm(host, opts) {
   const {
     plans, existing, alerts, master, head = '', submitLabel = '建立客戶',
-    onSubmit, onCancel, onDraft,
+    review = true, addOnTo = null, onSubmit, onCancel, onDraft,
   } = opts;
   const draft = { ...blankDraft(''), ...opts.draft };
 
@@ -107,6 +127,7 @@ export function mountCustomerForm(host, opts) {
         ${head}
         <div class="errors" data-errors hidden></div>
 
+        ${addOnTo ? `<p class="cform__addon">加購到 <b>${esc(addOnTo)}</b></p>` : `
         <section class="cform__group" aria-labelledby="cf-who">
           <h3 class="cform__title" id="cf-who">是誰</h3>
           <label class="field">
@@ -120,12 +141,12 @@ export function mountCustomerForm(host, opts) {
             </label>
             ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId })}
           </div>
-        </section>
+        </section>`}
 
         <section class="cform__group" aria-labelledby="cf-bought">
           <h3 class="cform__title" id="cf-bought">買了什麼</h3>
           <div class="cform__pair">
-            ${f.text({
+            ${addOnTo ? '' : f.text({
               name: 'source', label: '購買通路', value: draft.source,
               placeholder: '0522 顧客會-8', hint: '試算表 B2 那一欄的購買名稱。',
             })}
@@ -156,7 +177,7 @@ export function mountCustomerForm(host, opts) {
             <span class="fieldgroup__label">備註${tip('客戶臨時提的小事，顏色自己分。')}</span>
             <div data-cf-marks></div>
           </div>
-          ${f.chips({
+          ${addOnTo ? '' : f.chips({
             name: 'priority', label: '喜好程度', value: String(draft.priority),
             options: priorityOptions(),
           })}
@@ -252,21 +273,9 @@ export function mountCustomerForm(host, opts) {
       if (errors.length) return;
 
       // 存檔前那一道（ADR-0086、0102）：⚠ 收起來的那幾句，按下去之前一定再講一次
-      if (!await confirmReview(rules.warnings(customer, existing))) return;
+      if (review && !await confirmReview(rules.warnings(customer, existing))) return;
 
-      const quantity = planQuantity(values.quantity);
-      // 數量 0 就不展開方案。**不是把方案清掉** —— 展開 0 次會建出一串
-      // 總次數是 0 的額度，而那幾筆之後只會在她的畫面上礙事。
-      const plan = quantity > 0 ? (plans.find((p) => p.id === values.planId) ?? null) : null;
-      await onSubmit?.({
-        values,
-        customer,
-        plan,
-        quantity,
-        extras: values.extras.map(
-          (x) => buy.toEntitlement(x, { purchasedAt: customer.purchasedAt ?? null }),
-        ),
-      });
+      await onSubmit?.({ values, ...purchaseOf(values, plans) });
     });
   };
 

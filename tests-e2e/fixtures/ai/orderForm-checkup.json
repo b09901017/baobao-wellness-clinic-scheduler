@@ -1,0 +1,19 @@
+{
+  "_why": "訂購單（假的）：李小華，筋骨強身 ×2 ＋ 功醫健檢勾 12萬，尚欠尾款 3萬，便利貼寫合作機構與體內金屬",
+  "transcript": {
+    "readable": true,
+    "unreadable": ["OB專員備註那一格被便利貼蓋住"],
+    "customerName": "李小華",
+    "formMonth": "2026年08月",
+    "handwrittenDates": ["0827"],
+    "packages": [
+      { "printedName": "8萬筋骨強身", "quantity": "2", "noteText": "" },
+      { "printedName": "功醫健檢", "quantity": "1", "noteText": "" }
+    ],
+    "checkupTicked": ["12萬"],
+    "handwrittenRows": [],
+    "unpaid": "3萬",
+    "obNote": "",
+    "stickyNotes": ["自然美 介紹", "手有體內金屬"]
+  }
+}

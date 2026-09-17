@@ -14,7 +14,7 @@
 // 回傳兩份：`plan` 是要存的東西（跟手打的一模一樣），`seen` 是畫面上「照片上寫的是」要印的原字。
 
 import { SHEET_COURSE_ALIASES, rowShape } from './legacyImport.js';
-import { autoLabel } from './entitlements.js';
+import { autoLabel, idsForPoolKind, POOL_SET_ALL, POOL_SET_HOME } from './entitlements.js';
 import { planItem } from './masterData.js';
 
 /** 文宣上的正式名稱 → 主檔課程名。舊表那一份（`SHEET_COURSE_ALIASES`）也一起查。 */
@@ -91,6 +91,13 @@ export function shapeOf(text, durationMin, master) {
   if (shape?.kind === 'pool' && shape.only) {
     const eq = equipmentByName(shape.only, master.equipment);
     if (eq) return { type: 'pool', optionEquipmentIds: [eq.id] };
+  }
+  // 「任選(30)」「三選一(60)」：復能自己的那幾台（ADR-0075）；四選一是全部還在用的器材。
+  // 沒寫幾選一的「任選」先照三選一 —— 跟舊表匯入同一個決定（她 2026-09-15：之後個別問）。
+  // 組法借加購那一排的 `idsForPoolKind()`，跟 `legacyImport.js` 的 `poolIdsFor()` 同一份
+  if (shape?.kind === 'pool' && !shape.only) {
+    const ids = idsForPoolKind(shape.set === 'all' ? POOL_SET_ALL : POOL_SET_HOME, master);
+    if (ids?.length) return { type: 'pool', optionEquipmentIds: ids };
   }
   if (shape?.kind === 'single') {
     const c = courseByName(shape.course, master.courses);

@@ -37,6 +37,8 @@ const SHELL = [
   '/js/ui/components/seen.js',
   '/js/domain/photoPlan.js',
   '/js/ui/components/customerForm.js',
+  '/js/ui/components/orderConfirm.js',
+  '/js/domain/orderForm.js',
   '/js/domain/transcripts.js',
   '/js/data/auth.js',
   '/js/data/repo.js',
