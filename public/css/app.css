@@ -9547,12 +9547,33 @@ body.has-abl {
   color: var(--text-mute);
 }
 
+/* 比對那一塊與底下那一排跨整張卡：擠在縮圖旁邊那一欄的話，一句話要折成三行 */
+.tsheet__wide,
+.tsheet__actions {
+  grid-column: 1 / -1;
+}
+
+.tsheet__wide:empty {
+  display: none;
+}
+
 .tsheet__actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
-  margin-top: var(--space-1);
+  margin-top: calc(var(--space-2) * -1);
+}
+
+.tsheets__label {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+
+.tsheets__label--look {
+  color: var(--overdue);
 }
 
 /* ---------- 拍完之後那一層：一張照片一張卡 ---------- */
@@ -9860,7 +9881,7 @@ body.has-abl {
 }
 
 .tsheet__compare {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--text-dim);
 }

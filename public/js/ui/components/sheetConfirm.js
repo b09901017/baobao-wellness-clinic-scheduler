@@ -60,6 +60,7 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     draft: readSheet(p.transcript, ctx),
     picked: false,
     finding: false,
+    allCourses: false,
     query: '',
     openRow: null,
     state: 'open',
@@ -172,10 +173,10 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
       </section>`;
   }
 
-  function chips(list) {
+  function chips(list, extra = '') {
     return `<span class="tsc__chips">${list.map((c) => `
       <button class="chip chip--sm" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}">${esc(c.label)}${
-  c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`).join('')}</span>`;
+  c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`).join('')}${extra}</span>`;
   }
 
   function whoHtml(card, who) {
@@ -216,9 +217,15 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
   function courseHtml(card) {
     const { draft } = card;
     const seen = seenChip(draft.courseText, { photo: card.photo.url });
-    const rows = [chips(courses.map((c) => ({
+    // 認出來了就只畫選好的那幾顆＋「其他課程」：十幾顆課程一字排開，她要找的那一顆反而看不到
+    const shown = draft.courseIds.length && !card.allCourses
+      ? courses.filter((c) => draft.courseIds.includes(c.id))
+      : courses;
+    const more = shown.length < courses.length
+      ? '<button class="chip chip--sm chip--more" type="button" data-tsc-allcourses>其他課程</button>' : '';
+    const rows = [chips(shown.map((c) => ({
       attr: 'data-tsc-course', value: c.id, label: c.name, on: draft.courseIds.includes(c.id),
-    })))];
+    })), more)];
     // 營養點滴一款一張：品項選得到，不選也存得下去（比對時就不分品項）
     const drip = draft.courseIds.map((id) => courses.find((c) => c.id === id)).some((c) => c?.requiresIvProduct);
     if (drip) {
@@ -322,6 +329,7 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     const { draft } = card;
 
     if (t.matches('[data-tsc-save]')) { save(card); return; }
+    if (t.matches('[data-tsc-allcourses]')) { card.allCourses = true; repaint(card); return; }
     if (t.matches('[data-tsc-find]')) { card.finding = true; repaint(card); focusQuery(card); return; }
     if (t.dataset.tscWho) {
       card.draft = { ...draft, customerId: t.dataset.tscWho };

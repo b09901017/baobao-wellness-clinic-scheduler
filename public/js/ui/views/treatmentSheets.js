@@ -137,7 +137,7 @@ export async function render(el) {
       holder.innerHTML = `<p class="tsheets__empty">沒有叫「${esc(view.search)}」的客戶。</p>`;
       return;
     }
-    holder.innerHTML = `<ul class="tsheets__people">${people.map((c) => {
+    holder.innerHTML = `${want ? '' : `<p class="tsheets__label">有療程單的 ${people.length} 位</p>`}<ul class="tsheets__people">${people.map((c) => {
       const mine = byCustomer.get(c.id) ?? [];
       if (!mine.length) {
         return `<li class="tsheets__person tsheets__person--none"><span>${esc(c.name)}</span><span class="tsheets__meta">還沒有療程單</span></li>`;
@@ -263,10 +263,10 @@ function cardHtml(sheet, master, visits) {
         <p class="tsheet__facts num">${first ? `${esc(shortDate(first))} 起・` : ''}${(sheet.rows ?? []).length} 列${
   last ? `・最後簽名 ${esc(shortDate(last))}` : ''}</p>
         ${taken ? `<p class="tsheet__taken">照片是 ${esc(shortDate(taken))} 拍的</p>` : ''}
-        ${compareHtml(sheet, master, visits)}
-        <div class="tsheet__actions">
-          <button class="btn btn--sm btn--ghost" type="button" data-sheet-delete="${esc(sheet.id)}">刪掉這一張</button>
-        </div>
+      </div>
+      <div class="tsheet__wide">${compareHtml(sheet, master, visits)}</div>
+      <div class="tsheet__actions">
+        <button class="btn btn--sm btn--ghost" type="button" data-sheet-delete="${esc(sheet.id)}">刪掉這一張</button>
       </div>
     </article>`;
 }
@@ -300,7 +300,7 @@ async function compareEveryone(el, data, button) {
     const visits = await visitsData.listBetween(dates[0], dates[dates.length - 1]);
     const people = compareAll(data.sheets, visits, data.master);
     holder.innerHTML = people.length
-      ? `<ul class="tsheets__people tsheets__people--look">${people.map((p) => `
+      ? `<p class="tsheets__label tsheets__label--look">比對：有要你看的 ${people.length} 位</p><ul class="tsheets__people tsheets__people--look">${people.map((p) => `
           <li><a class="tsheets__person" href="#/settings/treatment-sheets/${encodeURIComponent(p.customerId)}" data-sheet-look="${esc(p.customerId)}">
             <span class="tsheets__name">${esc(p.customerName)}</span>
             <span class="tsheets__meta tsheets__meta--look num">要你看 ${p.issues} 件</span>
