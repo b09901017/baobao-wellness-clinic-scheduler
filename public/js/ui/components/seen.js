@@ -34,15 +34,24 @@ export function wireSeen(root) {
   return () => root.removeEventListener('click', onClick);
 }
 
-/** 全螢幕看一張照片。點兩下放大到兩倍；兩指縮放交給瀏覽器（`touch-action`）。 */
+/**
+ * 全螢幕看一張照片。點兩下放大到兩倍；兩指縮放交給瀏覽器（`touch-action`）。
+ *
+ * 左上角那一顆轉 90°（她 2026-09-18：「有時候我的照片是橫的，我想要直得看比較方便」，
+ * `.scratch/asks-2026-09-18/issues/05`）。**CSS 轉，照片本身一個位元都不動** ——
+ * 療程單的照片在 Storage，用 canvas 重畫要另外開 bucket 的 CORS。**不記住**（她同意），
+ * 收起再打開是原本的方向。轉與放大兩兩互斥：疊在一起的位置很容易算錯。
+ */
 export function openPhoto(url, caption = '') {
   const el = document.createElement('div');
   el.className = 'seenview';
+  el.dataset.turn = '0';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
   el.setAttribute('aria-label', '照片');
   el.innerHTML = `
     <button class="seenview__close" type="button" data-seenview-close aria-label="收起">${icon('close', { size: 22 })}</button>
+    <button class="seenview__turn" type="button" data-seenview-turn aria-label="轉 90°">${icon('turn', { size: 22 })}</button>
     <div class="seenview__scroll" data-seenview-scroll>
       <img class="seenview__img" src="${esc(url)}" alt="${esc(caption ? `照片（原字：${caption}）` : '照片')}" />
     </div>
@@ -62,8 +71,15 @@ export function openPhoto(url, caption = '') {
   document.addEventListener('keydown', onKey);
 
   el.querySelector('[data-seenview-close]').addEventListener('click', () => close());
+  el.querySelector('[data-seenview-turn]').addEventListener('click', () => {
+    el.dataset.turn = String((Number(el.dataset.turn) + 1) % 4);
+    el.classList.remove('seenview--zoom');
+  });
   const img = el.querySelector('img');
-  img.addEventListener('dblclick', () => el.classList.toggle('seenview--zoom'));
+  img.addEventListener('dblclick', () => {
+    el.dataset.turn = '0';
+    el.classList.toggle('seenview--zoom');
+  });
   el.querySelector('[data-seenview-close]').focus({ preventScroll: true });
   return { close: () => close() };
 }

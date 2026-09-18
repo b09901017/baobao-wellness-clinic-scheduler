@@ -1,6 +1,6 @@
 # 看照片的時候可以轉 90°
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 05 條
 動工前先讀：`ui/components/seen.js` 的 `openPhoto()`、`app.css` 的 `.seenview`、ADR-0101（哪幾種照片存）
 

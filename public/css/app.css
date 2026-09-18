@@ -8409,10 +8409,40 @@ body.has-cam {
   max-width: none;
 }
 
-.seenview__close {
+/* 轉 90°（`seen.js` 的 `openPhoto()`）。只有橫躺的那兩種（90°、270°）要換尺寸：
+   寬高對調之後，照片的「寬」要塞進畫面的高、「高」要塞進畫面的寬 —— 用容器單位
+   （`cqh`／`cqw`）講這句話，捲動區自己當那個容器。
+   版面上的框沒有跟著轉（橫躺時它比畫面寬），所以**用絕對定位置中**、捲動關掉 ——
+   用 grid 置中的話，寬過容器的框會退回靠左對齊，轉完的照片整張偏到右邊去。 */
+.seenview:not([data-turn='0']) .seenview__scroll {
+  container-type: size;
+  position: relative;
+  overflow: hidden;
+}
+
+.seenview:not([data-turn='0']) .seenview__img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: 100cqw;
+  max-height: 100cqh;
+  transform: translate(-50%, -50%) rotate(var(--seen-turn));
+}
+
+.seenview[data-turn='1'] .seenview__img,
+.seenview[data-turn='3'] .seenview__img {
+  max-width: 100cqh;
+  max-height: 100cqw;
+}
+
+.seenview[data-turn='1'] { --seen-turn: 90deg; }
+.seenview[data-turn='2'] { --seen-turn: 180deg; }
+.seenview[data-turn='3'] { --seen-turn: 270deg; }
+
+.seenview__close,
+.seenview__turn {
   position: absolute;
   top: calc(env(safe-area-inset-top) + var(--space-2));
-  right: var(--space-2);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -8424,6 +8454,9 @@ body.has-cam {
   border-radius: 50%;
   cursor: pointer;
 }
+
+.seenview__close { right: var(--space-2); }
+.seenview__turn { left: var(--space-2); }
 
 .seenview__caption {
   margin: 0;
