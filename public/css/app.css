@@ -4284,11 +4284,16 @@ button.mark::after {
    所以跟懸浮鈕站同一條基準線（`.fab` 的 66px），**靠左**、右邊讓出懸浮鈕那一欄
    （54px 是 `.fab__main` 的寬）。置中的話，長訊息會把「復原」推到懸浮鈕上 ——
    同一個問題往上搬一層。沒有懸浮鈕的頁也站在這裡：每次都在同一個地方，她才找得到。
-   盯著的是 `24-layout-reach` 的 F1、F2（量位置）。 */
+
+   **底下有一條釘住的按鈕時再讓出那一條的高度**（`--toast-lift`）：新增客戶的
+   「取消／建立客戶」、批次取消那一條。存失敗的那一句（帶「重試」）不會自己消失，
+   蓋在「建立客戶」上就是一直蓋著。
+   盯著的是 `24-layout-reach` 的 F1、F2、F3（量位置）。 */
 .toast {
+  --toast-base: 66px;
   position: fixed;
   left: var(--gutter);
-  bottom: calc(66px + env(safe-area-inset-bottom));
+  bottom: calc(var(--toast-base) + var(--toast-lift, 0px) + env(safe-area-inset-bottom));
   max-width: calc(100vw - 2 * var(--gutter) - 54px - var(--space-3));
   display: flex;
   align-items: center;
@@ -4302,11 +4307,21 @@ button.mark::after {
   z-index: 25;
 }
 
+/* 那一條量起來 67px（按鈕 42、上下各 12、一條框線），多留 1px */
+body:has(.cform__bar, .bulkbar) > .toast {
+  --toast-lift: 68px;
+}
+
+/* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
+.toast > .btn {
+  flex: none;
+}
+
 /* 導覽列在側邊的時候底下是空的，回到底部置中（懸浮鈕在右下角，碰不到） */
 @media (min-width: 900px) {
   .toast {
+    --toast-base: var(--space-5);
     left: 50%;
-    bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
     transform: translateX(-50%);
     max-width: min(92vw, 480px);
   }

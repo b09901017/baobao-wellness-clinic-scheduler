@@ -285,5 +285,25 @@ for (const vp of [{ width: 414, height: 896, label: '手機' }, { width: 1024, h
     const fab = await rectOf(page, '.fab__main');
     const apart = toast.right <= fab.left || toast.bottom <= fab.top || toast.top >= fab.bottom;
     expect(apart, `toast ${JSON.stringify(toast)} 跟懸浮鈕 ${JSON.stringify(fab)} 疊在一起`).toBe(true);
+    const undo = await rectOf(page, '#toast [data-undo]');
+    expect(undo.bottom - undo.top, '訊息再長縮的也是字，「復原」不可以被擠成兩行').toBeLessThan(50);
+  });
+
+  test(`F3 ${vp.label}：新增客戶那一頁，存失敗的那一句不會蓋在「取消／建立客戶」上`, async ({ app, page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await app.seed([...masterDocs()]);
+    await app.signIn('/customers/new');
+    await expect(page.locator('.cform__bar')).toBeVisible();
+
+    // 帶「重試」的那一句不會自己消失 —— 蓋住的話就是一直蓋著
+    await page.evaluate(async () => {
+      const toast = await import('/js/ui/toast.js');
+      toast.failed('儲存失敗：網路斷了，這一句也寫得長一點看它會不會往下長', () => {});
+    });
+    await expect(page.locator('#toast [data-retry]')).toBeVisible();
+
+    const toast = await rectOf(page, '#toast');
+    const bar = await rectOf(page, '.cform__bar');
+    expect(toast.bottom, `toast 的底 ${toast.bottom} 要在那一條的頂 ${bar.top} 上面`).toBeLessThanOrEqual(bar.top);
   });
 }
