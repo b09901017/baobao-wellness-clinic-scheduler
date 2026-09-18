@@ -890,10 +890,14 @@ function readDraft(ctx, form, draft) {
     // 切過來的那一下品項那一排還沒畫出來，照讀會讀到空的；兩筆點滴額度 A → B 時
     // 那一排畫著 A，照讀會讓一段扣著 B 的來訪帶著 A 的品項與時長存進去
     //（`.scratch/asks-2026-09-18/issues/03`）。
+    //
+    // **沒換額度時只在那一排沒畫出來才退回買的那一款**（`key()`）。畫出來但空著的
+    // 是真的空著 —— 匯入的舊資料沒有品項，照 `??` 補的話她改個時間，那一段就被
+    // 靜默填上一款、結束時間跟著變。
     const bought = ent?.ivProductId ?? null;
     const ivProductId = !course?.requiresIvProduct ? null
       : entitlementId !== slot.entitlementId ? bought
-        : (v[`s${i}-iv`] ?? bought);
+        : key(v, `s${i}-iv`, bought);
     const durationMin = slotMinutes({
       entitlement: ent,
       course,

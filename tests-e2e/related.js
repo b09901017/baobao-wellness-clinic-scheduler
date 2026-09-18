@@ -30,6 +30,8 @@ export const GLOBAL = [
   'public/js/ui/router.js',
   'public/js/ui/views.js',
   'public/js/ui/session.js',
+  // 導覽列的圖示就是它畫的 —— 它壞了每一頁的殼都壞
+  'public/js/ui/icons.js',
   'public/js/data/repo.js',
   'public/js/data/firebase.js',
   'public/js/data/auth.js',
@@ -202,6 +204,8 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
     'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
+    // 那一條貼在導覽列上是量出來的位置
+    'public/css/',
   ],
   '23-naming-read-first': [
     'public/js/domain/naming.js', 'public/js/domain/entitlements.js',
@@ -215,6 +219,8 @@ export const COVERAGE = {
   '24-layout-reach': [
     'public/css/', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/playbook.js',
+    // toast 不蓋導覽列、懸浮鈕與新增客戶那一條（F1–F3）
+    'public/js/ui/toast.js', 'public/js/ui/components/customerForm.js', 'public/js/ui/views/customers.js',
   ],
   // 來訪編輯器那三支 ADR（0083 一天一筆、0084 記一句在段上、0085 改一段）。
   // **`domain/visits.js` 與 `visitEditor.js` 是它的主場** —— 那兩支底下改一行
@@ -292,6 +298,8 @@ export const COVERAGE = {
   '37-camera': [
     'public/js/ui/components/camera.js', 'public/js/ui/components/photo.js',
     'public/js/ui/components/seen.js', 'public/js/data/ai.js', 'public/js/domain/aiUsage.js',
+    // 看照片轉 90°（C7）量的是 CSS 畫出來的位置
+    'public/css/',
   ],
   // 拍方案文宣 → 方案範本（issue 07）
   '38-photo-plan': [
@@ -302,6 +310,8 @@ export const COVERAGE = {
   '39-new-customer-form': [
     'public/js/ui/components/customerForm.js', 'public/js/ui/components/flags.js',
     'public/js/ui/views/customers.js', 'public/js/domain/customers.js', 'public/js/ui/components/tip.js',
+    // 取消／建立客戶那一條貼在導覽列上（N9）是量出來的位置
+    'public/css/',
   ],
   // 拍訂購單 → 新增客戶／加購（issue 09）
   '40-order-form': [

@@ -7625,6 +7625,17 @@ summary {
   border-bottom-right-radius: 0;
 }
 
+/* 手機上那一條坐在導覽列上，而導覽列已經讓過 Home 指示條一次了（它自己的
+   `padding-bottom`）—— 那一條再讓一次，iPhone 上按鈕底下就多一塊 34px 的空白。
+   toast 的 `--toast-lift`（68px）也是照這個高度算的。iPad 導覽在側邊，那一條
+   真的在畫面最底下，照舊要讓。 */
+@media (max-width: 899px) {
+  .app__main .bulkbar,
+  .app__main .cform__bar {
+    padding-bottom: var(--space-3);
+  }
+}
+
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
 
    `margin-top: auto` 讓它在頁面撐不滿的時候排到底；上面那一條讓「底」真的是
@@ -8414,13 +8425,13 @@ body.has-cam {
    （`cqh`／`cqw`）講這句話，捲動區自己當那個容器。
    版面上的框沒有跟著轉（橫躺時它比畫面寬），所以**用絕對定位置中**、捲動關掉 ——
    用 grid 置中的話，寬過容器的框會退回靠左對齊，轉完的照片整張偏到右邊去。 */
-.seenview:not([data-turn='0']) .seenview__scroll {
+.seenview:not([data-seenview-angle='0']) .seenview__scroll {
   container-type: size;
   position: relative;
   overflow: hidden;
 }
 
-.seenview:not([data-turn='0']) .seenview__img {
+.seenview:not([data-seenview-angle='0']) .seenview__img {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -8429,15 +8440,15 @@ body.has-cam {
   transform: translate(-50%, -50%) rotate(var(--seen-turn));
 }
 
-.seenview[data-turn='1'] .seenview__img,
-.seenview[data-turn='3'] .seenview__img {
+.seenview[data-seenview-angle='1'] .seenview__img,
+.seenview[data-seenview-angle='3'] .seenview__img {
   max-width: 100cqh;
   max-height: 100cqw;
 }
 
-.seenview[data-turn='1'] { --seen-turn: 90deg; }
-.seenview[data-turn='2'] { --seen-turn: 180deg; }
-.seenview[data-turn='3'] { --seen-turn: 270deg; }
+.seenview[data-seenview-angle='1'] { --seen-turn: 90deg; }
+.seenview[data-seenview-angle='2'] { --seen-turn: 180deg; }
+.seenview[data-seenview-angle='3'] { --seen-turn: 270deg; }
 
 .seenview__close,
 .seenview__turn {

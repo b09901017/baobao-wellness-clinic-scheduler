@@ -542,12 +542,10 @@ test('V9 從復能切到點滴那一筆：買的那一款已經選好，結束�
   await expect(page.locator('.slothead__end').first(), '09:00 ＋ 180 分').toHaveText('12:00');
 
   await page.locator('button[type="submit"]').first().click();
-  await expect(app.dialog()).toBeVisible();
-  // 有提醒的話 `confirmReview()` 先問（這一段沒選診間），接著才是 Abovee 那一道
-  if (!(await app.dialogText()).includes('Abovee')) {
-    await app.ok();
-    await expect(app.dialog()).toContainText('Abovee');
-  }
+  // 先是 `confirmReview()` 的提醒（這一段沒選診間，不擋），接著才是 Abovee 那一道
+  await expect(app.dialog()).toContainText('還沒選診間');
+  await app.ok();
+  await expect(app.dialog()).toContainText('Abovee');
   await app.ok();
   await app.saved();
   const [saved] = await app.readAll('visits');
@@ -582,4 +580,25 @@ test('V9c 沒換額度、她在「換一款」裡挑了別的：改時間之後�
   await page.locator('input[name="s0-start"]').dispatchEvent('change');
   await expect(page.locator('.slothead__end').first(), '護肝排毒跟著課程走 120 分').toHaveText('12:00');
   await expect(ivPicked(page), '不可以被買的那一款蓋回去').toHaveAttribute('data-chip-value', 'iv-liver');
+});
+
+test('V9d 匯入的舊資料沒有品項：改個時間不會被靜默補上買的那一款', async ({ app, page }) => {
+  await app.seed([
+    ...seedTwoDrips(),
+    visit({
+      id: 'v-old', customerId: 'cust-d', customerName: '客戶D', date: DAY, status: 'confirmed',
+      importedFrom: 'legacy',
+      slots: [slot({ courseId: 'course-iv-drip', entitlementId: 'ent-c-heart', startsAt: '09:00', endsAt: '11:00' })],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditorForSlot(app, page, 'v-old', 0);
+  await expect(page.locator('[data-chip="s0-iv"]').first()).toBeVisible();
+  await expect(ivPicked(page), '舊資料本來就沒有品項').toHaveCount(0);
+
+  await page.locator('input[name="s0-start"]').fill('10:00');
+  await page.locator('input[name="s0-start"]').dispatchEvent('change');
+  await expect(page.locator('.slothead__end').first()).toHaveText('12:00');
+  await expect(ivPicked(page), '畫出來但空著的是真的空著 —— 不替她挑').toHaveCount(0);
 });

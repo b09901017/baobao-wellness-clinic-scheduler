@@ -1975,25 +1975,25 @@ function wire(el, data) {
 
   // 懸浮鈕上的「新增」沒有指定哪一天，就用她現在看著的那一天 —— 剛點開過的那一天
   // 只有還在畫面上才算數（domain 的 newItemDate，issue 02）。三顆共用這一個。
-  const target = () => newItemDate(state.view, state.date, state.day);
+  const dateForNew = () => newItemDate(state.view, state.date, state.day);
 
   el.querySelector('[data-new-event]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
-    openEditor(el, data, { kind: 'event', date: target() });
+    openEditor(el, data, { kind: 'event', date: dateForNew() });
   });
 
   el.querySelector('[data-new-note]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
-    openNoteEditor(el, data, { date: target() });
+    openNoteEditor(el, data, { date: dateForNew() });
   });
 
   el.querySelector('[data-new-visit]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
     const sheet = openSheet({ title: '', body: '', onClose: closeCard });
-    pickCustomer(el, data, sheet, target());
+    pickCustomer(el, data, sheet, dateForNew());
   });
 
   wireSwipe(el, data);

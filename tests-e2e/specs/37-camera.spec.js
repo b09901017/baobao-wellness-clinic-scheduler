@@ -208,11 +208,20 @@ test('C7 看照片：轉 90° 之後橫的變直的、整張在畫面裡；轉�
 
   const turn = page.locator('[data-seenview-turn]');
   await turn.click();
-  await expect.poll(async () => (await measureView(page)).h > (await measureView(page)).w, '轉一次變直的').toBe(true);
+  await expect.poll(async () => {
+    const m = await measureView(page);
+    return m.h > m.w;
+  }, '轉一次變直的').toBe(true);
   const upright = await measureView(page);
   expect(upright.inside, '整張都在畫面裡').toBe(true);
   expect(upright.scrolls, '不多出一塊可以捲的空白').toBe(false);
   expect(upright.h, '直的時候比橫著看大（她要的就是這個）').toBeGreaterThan(flat.w * 0.99);
+
+  // 轉過之後點兩下不理 —— 跳回橫的會讓她以為轉壞了（放大交給兩指）
+  await page.locator('.seenview__img').dblclick();
+  const still = await measureView(page);
+  expect(Math.abs(still.w - upright.w) < 2 && Math.abs(still.h - upright.h) < 2, '點兩下之後還是直的、大小不變')
+    .toBe(true);
 
   await turn.click();
   await turn.click();
