@@ -7572,9 +7572,24 @@ summary {
    9/10 那一次只修了「撐不滿」那一半，而盯著它的測試是掃 CSS 字串的，
    所以綠著。現在盯著它的是 `22-bulk-cancel` 那幾條**量位置**的 E2E。
 
-   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。 */
-.app__main:has(.bulkbar) {
+   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。
+
+   **新增客戶那一條（`.cform__bar`）是同一個形狀**（`.scratch/asks-2026-09-18/issues/04`），
+   所以收在同一條規則裡。它包在一張卡片裡，卡片底下的 `margin-bottom` 是捲到底時
+   多浮出來的那一段，一起拿掉；卡片的底邊與底下兩個圓角也拿掉 —— 那一條已經貼著
+   導覽列了，再墊一條 1px 的框線就是一條縫。拍訂購單那一層的同一張表單不在
+   `.app__main` 裡，本來就貼齊（`.ocedit__body`）。盯著的是 `39-new-customer-form`
+   的 N9（量位置）。 */
+.app__main:has(.bulkbar),
+.app__main:has(.cform__bar) {
   padding-bottom: 0;
+}
+
+.app__main > .cform-card {
+  margin-bottom: 0;
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。

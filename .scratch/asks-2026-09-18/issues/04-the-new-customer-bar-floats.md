@@ -1,6 +1,6 @@
 # 新增客戶那一排「取消／建立客戶」懸空
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 04 條
 動工前先讀：`.scratch/asks-2026-09-13/issues/01-the-bulk-bar-sits-on-the-nav.md`（同一個形狀）、
 `app.css` 的 `.app__main`、`.app__main:has(.bulkbar)`、`.cform__bar`、`.ocedit__body`、

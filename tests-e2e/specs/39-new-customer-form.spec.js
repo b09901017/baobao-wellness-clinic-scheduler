@@ -104,3 +104,48 @@ test('N5 mountCustomerForm() 掛在一個空的 <div> 裡、帶一份草稿 → 
   });
   expect(values).toEqual({ name: '王小明', source: '0827 顧客會', lineId: 'wang', purchasedAt: '2026-08-27' });
 });
+
+// 她 2026-09-18：「新增一位客戶那邊的，取消以及建立客戶的那排按鈕懸空了，很像之前壓表批次取消那時候發生的事」
+// （`.scratch/asks-2026-09-18/issues/04`）。同一個形狀：sticky 的 `bottom: 0` 從捲動區的內容邊算，
+// `.app__main` 底下留給導覽列的那 44px（iPad 30px）讓那一條永遠停在留白上緣。
+// **量畫出來的位置，不掃 CSS**（批次取消 9/10 那次掃字串的測試綠著、畫面照樣懸空）。
+
+function measureBar(page) {
+  return page.evaluate(() => {
+    const box = (el) => el && el.getBoundingClientRect();
+    const bar = box(document.querySelector('.cform__bar'));
+    const nav = box(document.querySelector('.app__nav'));
+    const view = document.querySelector('#view');
+    const rows = [...document.querySelectorAll('.cform .fieldgroup, .cform .field')];
+    // 手機導覽在下面，底就是它的頂；iPad 導覽在側邊，底就是畫面底
+    const floor = nav.top > window.innerHeight / 2 ? nav.top : window.innerHeight;
+    return { barTop: bar.top, barBottom: bar.bottom, floor, lastRowBottom: box(rows.at(-1)).bottom,
+      scrollH: view.scrollHeight, clientH: view.clientHeight };
+  });
+}
+
+const scrollView = (page, to) => page.evaluate((where) => {
+  const v = document.querySelector('#view');
+  v.scrollTop = where === 'end' ? v.scrollHeight : where;
+}, to);
+
+for (const vp of [{ width: 414, height: 896, label: '手機' }, { width: 1024, height: 768, label: 'iPad' }]) {
+  test(`N9 ${vp.label}：取消／建立客戶那一條貼在底上 —— 捲到一半沒有縫，捲到底最後一排完整露出來`, async ({ app, page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await app.seed([...masterDocs()]);
+    await app.signIn('/customers/new');
+    await expect(page.locator('.cform__bar')).toBeVisible();
+
+    await scrollView(page, 300);
+    const mid = await measureBar(page);
+    expect(mid.scrollH, '這一頁比一個畫面長，才有「捲到一半」').toBeGreaterThan(mid.clientH);
+    expect(Math.abs(mid.barBottom - mid.floor), `捲到一半：那一條的底 ${mid.barBottom}、底線 ${mid.floor}`)
+      .toBeLessThanOrEqual(1);
+
+    await scrollView(page, 'end');
+    const end = await measureBar(page);
+    expect(Math.abs(end.barBottom - end.floor), `捲到底：那一條的底 ${end.barBottom}、底線 ${end.floor}`)
+      .toBeLessThanOrEqual(1);
+    expect(end.lastRowBottom, '最後一排在那一條上面，不是被它蓋住').toBeLessThanOrEqual(end.barTop + 1);
+  });
+}
