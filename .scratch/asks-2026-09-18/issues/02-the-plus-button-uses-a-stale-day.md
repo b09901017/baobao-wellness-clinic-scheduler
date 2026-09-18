@@ -1,6 +1,6 @@
 # 日曆「＋」帶到先前點過的舊日期
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 02 條
 動工前先讀：`ui/views/calendar.js` 的 `state`（檔頭那段註解：`day` 是刻意留著的）、`wire()` 裡那三顆
 `data-new-*`、`domain/calendar.js` 的 `rangeOf()`
