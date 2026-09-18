@@ -4275,13 +4275,26 @@ button.mark::after {
   border-radius: var(--radius-sm);
 }
 
-/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9 */
+/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9
+
+   **手機上它不可以碰到導覽列，也不可以碰到懸浮鈕**（`.scratch/asks-2026-09-18/issues/01`）。
+   她 2026-09-18：「存完客戶想點『壓表』分頁，結果點到 toast 的『復原』，把剛建的客戶整個刪掉了」
+   —— 那時它是 `bottom: 22px`，而導覽列有 58px 高，「復原」整顆疊在「壓表」「日曆」上。
+
+   所以跟懸浮鈕站同一條基準線（`.fab` 的 66px），**靠左**、右邊讓出懸浮鈕那一欄
+   （54px 是 `.fab__main` 的寬）。置中的話，長訊息會把「復原」推到懸浮鈕上 ——
+   同一個問題往上搬一層。沒有懸浮鈕的頁也站在這裡：每次都在同一個地方，她才找得到。
+
+   **底下有一條釘住的按鈕時再讓出那一條的高度**（`--toast-lift`）：新增客戶的
+   「取消／建立客戶」、批次取消那一條。存失敗的那一句（帶「重試」）不會自己消失，
+   蓋在「建立客戶」上就是一直蓋著。
+   盯著的是 `24-layout-reach` 的 F1、F2、F3（量位置）。 */
 .toast {
+  --toast-base: 66px;
   position: fixed;
-  left: 50%;
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  max-width: min(92vw, 480px);
+  left: var(--gutter);
+  bottom: calc(var(--toast-base) + var(--toast-lift, 0px) + env(safe-area-inset-bottom));
+  max-width: calc(100vw - 2 * var(--gutter) - 54px - var(--space-3));
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -4292,6 +4305,35 @@ button.mark::after {
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   z-index: 25;
+}
+
+/* 那一條量起來 67px（按鈕 42、上下各 12、一條框線），多留 1px */
+body:has(.cform__bar, .bulkbar) > .toast {
+  --toast-lift: 68px;
+}
+
+/* **面板開著的時候到最上面。** 導覽列被面板蓋住了，底下是面板自己的那幾列 ——
+   她下一下八成是點同一天的另一段（ADR-0020），站在 66px 就擋在那一列上 8 秒
+   （`34-confirm-one-slot` 的 C5：確認完下午那一段、接著長按上午那一段，按到的是 toast）。
+   最上面是面板上緣之上、變暗的那一塊。F4 量著。 */
+body:has(> .drawer-backdrop) > .toast {
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  bottom: auto;
+}
+
+/* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
+.toast > .btn {
+  flex: none;
+}
+
+/* 導覽列在側邊的時候底下是空的，回到底部置中（懸浮鈕在右下角，碰不到） */
+@media (min-width: 900px) {
+  .toast {
+    --toast-base: var(--space-5);
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(92vw, 480px);
+  }
 }
 
 .visually-hidden {
@@ -7572,9 +7614,35 @@ summary {
    9/10 那一次只修了「撐不滿」那一半，而盯著它的測試是掃 CSS 字串的，
    所以綠著。現在盯著它的是 `22-bulk-cancel` 那幾條**量位置**的 E2E。
 
-   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。 */
-.app__main:has(.bulkbar) {
+   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。
+
+   **新增客戶那一條（`.cform__bar`）是同一個形狀**（`.scratch/asks-2026-09-18/issues/04`），
+   所以收在同一條規則裡。它包在一張卡片裡，卡片底下的 `margin-bottom` 是捲到底時
+   多浮出來的那一段，一起拿掉；卡片的底邊與底下兩個圓角也拿掉 —— 那一條已經貼著
+   導覽列了，再墊一條 1px 的框線就是一條縫。拍訂購單那一層的同一張表單不在
+   `.app__main` 裡，本來就貼齊（`.ocedit__body`）。盯著的是 `39-new-customer-form`
+   的 N9（量位置）。 */
+.app__main:has(.bulkbar),
+.app__main:has(.cform__bar) {
   padding-bottom: 0;
+}
+
+.app__main > .cform-card {
+  margin-bottom: 0;
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 手機上那一條坐在導覽列上，而導覽列已經讓過 Home 指示條一次了（它自己的
+   `padding-bottom`）—— 那一條再讓一次，iPhone 上按鈕底下就多一塊 34px 的空白。
+   toast 的 `--toast-lift`（68px）也是照這個高度算的。iPad 導覽在側邊，那一條
+   真的在畫面最底下，照舊要讓。 */
+@media (max-width: 899px) {
+  .app__main .bulkbar,
+  .app__main .cform__bar {
+    padding-bottom: var(--space-3);
+  }
 }
 
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
@@ -8361,10 +8429,40 @@ body.has-cam {
   max-width: none;
 }
 
-.seenview__close {
+/* 轉 90°（`seen.js` 的 `openPhoto()`）。只有橫躺的那兩種（90°、270°）要換尺寸：
+   寬高對調之後，照片的「寬」要塞進畫面的高、「高」要塞進畫面的寬 —— 用容器單位
+   （`cqh`／`cqw`）講這句話，捲動區自己當那個容器。
+   版面上的框沒有跟著轉（橫躺時它比畫面寬），所以**用絕對定位置中**、捲動關掉 ——
+   用 grid 置中的話，寬過容器的框會退回靠左對齊，轉完的照片整張偏到右邊去。 */
+.seenview:not([data-seenview-angle='0']) .seenview__scroll {
+  container-type: size;
+  position: relative;
+  overflow: hidden;
+}
+
+.seenview:not([data-seenview-angle='0']) .seenview__img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: 100cqw;
+  max-height: 100cqh;
+  transform: translate(-50%, -50%) rotate(var(--seen-turn));
+}
+
+.seenview[data-seenview-angle='1'] .seenview__img,
+.seenview[data-seenview-angle='3'] .seenview__img {
+  max-width: 100cqh;
+  max-height: 100cqw;
+}
+
+.seenview[data-seenview-angle='1'] { --seen-turn: 90deg; }
+.seenview[data-seenview-angle='2'] { --seen-turn: 180deg; }
+.seenview[data-seenview-angle='3'] { --seen-turn: 270deg; }
+
+.seenview__close,
+.seenview__turn {
   position: absolute;
   top: calc(env(safe-area-inset-top) + var(--space-2));
-  right: var(--space-2);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -8376,6 +8474,9 @@ body.has-cam {
   border-radius: 50%;
   cursor: pointer;
 }
+
+.seenview__close { right: var(--space-2); }
+.seenview__turn { left: var(--space-2); }
 
 .seenview__caption {
   margin: 0;

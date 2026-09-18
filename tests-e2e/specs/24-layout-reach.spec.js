@@ -233,3 +233,94 @@ test('E4 「存起來」在右上角，底下那一排整個不見了', async ({
   expect(geo.gap, '兩顆並排中間至少留 16px，不然兩個 44px 的感應範圍會疊')
     .toBeGreaterThanOrEqual(16);
 });
+
+// ---------------------------------------------------------------------------
+// 3. toast 不可以蓋在導覽列或懸浮鈕上（`.scratch/asks-2026-09-18/issues/01`）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-09-18：「存完客戶想點『壓表』分頁，結果點到 toast 的『復原』，把剛建的客戶整個刪掉了」。
+// 那時 toast 是 `bottom: 22px`，手機的導覽列有 58px 高 —— 「復原」整顆疊在「壓表」「日曆」上。
+// 往上搬還不夠：六頁有懸浮鈕，置中的長訊息會把「復原」推到懸浮鈕上，同一個問題往上搬一層。
+
+const rectOf = (page, sel) => page.evaluate((s) => {
+  const r = document.querySelector(s)?.getBoundingClientRect();
+  return r ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null;
+}, sel);
+
+test('F1 建好客戶的那一條 toast 在導覽列上面，每一格導覽都按得到', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/customers/new');
+  await page.locator('[data-cf-form] input[name="name"]').fill('客戶A');
+  await page.locator('[data-cf-form] input[name="phone"]').fill('0911111111');
+  await page.locator('.cform__bar button[type="submit"]').click();
+  await expect(page.locator('#toast [data-undo]')).toBeVisible();
+
+  const toast = await rectOf(page, '#toast');
+  const nav = await rectOf(page, '.app__nav');
+  expect(toast.bottom, `toast 的底 ${toast.bottom} 要在導覽列的頂 ${nav.top} 上面`).toBeLessThanOrEqual(nav.top);
+
+  // 每一格導覽的正中間按下去，按到的是那一格 —— 不是「復原」
+  const hits = await page.evaluate(() => [...document.querySelectorAll('.app__nav a')].map((a) => {
+    const r = a.getBoundingClientRect();
+    return Boolean(document.elementFromPoint((r.left + r.right) / 2, r.top + 4)?.closest('.app__nav'));
+  }));
+  expect(hits.every(Boolean), '導覽列最上緣那一條也按得到').toBe(true);
+});
+
+for (const vp of [{ width: 414, height: 896, label: '手機' }, { width: 1024, height: 768, label: 'iPad' }]) {
+  test(`F2 ${vp.label}：長訊息的 toast 也不會蓋到懸浮鈕`, async ({ app, page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await app.seed([...masterDocs()]);
+    await app.signIn('/customers');
+    await expect(page.locator('.fab__main').first()).toBeVisible();
+
+    // 最長的那一種：一句話外加「復原」。走 app 自己的那一份模組（同一個網址＝同一個實例）
+    await page.evaluate(async () => {
+      const toast = await import('/js/ui/toast.js');
+      toast.saved('已儲存，這一句故意寫得很長很長，看它換行之後會不會伸到右下角的懸浮鈕上面', async () => {});
+    });
+    await expect(page.locator('#toast [data-undo]')).toBeVisible();
+
+    const toast = await rectOf(page, '#toast');
+    const fab = await rectOf(page, '.fab__main');
+    const apart = toast.right <= fab.left || toast.bottom <= fab.top || toast.top >= fab.bottom;
+    expect(apart, `toast ${JSON.stringify(toast)} 跟懸浮鈕 ${JSON.stringify(fab)} 疊在一起`).toBe(true);
+    const undo = await rectOf(page, '#toast [data-undo]');
+    expect(undo.bottom - undo.top, '訊息再長縮的也是字，「復原」不可以被擠成兩行').toBeLessThan(50);
+  });
+
+  test(`F3 ${vp.label}：新增客戶那一頁，存失敗的那一句不會蓋在「取消／建立客戶」上`, async ({ app, page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await app.seed([...masterDocs()]);
+    await app.signIn('/customers/new');
+    await expect(page.locator('.cform__bar')).toBeVisible();
+
+    // 帶「重試」的那一句不會自己消失 —— 蓋住的話就是一直蓋著
+    await page.evaluate(async () => {
+      const toast = await import('/js/ui/toast.js');
+      toast.failed('儲存失敗：網路斷了，這一句也寫得長一點看它會不會往下長', () => {});
+    });
+    await expect(page.locator('#toast [data-retry]')).toBeVisible();
+
+    const toast = await rectOf(page, '#toast');
+    const bar = await rectOf(page, '.cform__bar');
+    expect(toast.bottom, `toast 的底 ${toast.bottom} 要在那一條的頂 ${bar.top} 上面`).toBeLessThanOrEqual(bar.top);
+  });
+}
+
+test('F4 面板開著的時候 toast 在最上面，不擋面板裡的任何一列', async ({ app, page }) => {
+  await app.seed(seedOneVisit());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-open^="visit:"]');
+
+  await page.evaluate(async () => {
+    const toast = await import('/js/ui/toast.js');
+    toast.saved('這一段改成已確認', async () => {});
+  });
+  await expect(page.locator('#toast [data-undo]')).toBeVisible();
+
+  const toast = await rectOf(page, '#toast');
+  const drawer = await rectOf(page, '.drawer');
+  expect(toast.bottom, `toast 的底 ${toast.bottom} 要在面板的頂 ${drawer.top} 上面`).toBeLessThanOrEqual(drawer.top);
+});

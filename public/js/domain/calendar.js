@@ -81,6 +81,22 @@ export function rangeOf(view, date) {
   return weeks.length ? { from: weeks[0][0].date, to: weeks[weeks.length - 1][6].date } : null;
 }
 
+/**
+ * 懸浮鈕上的「新增」（來訪、行事備註、待辦）帶哪一天。
+ *
+ * `day` 是她剛剛點開過的那一天 —— 關掉面板之後那一格還標著，所以它**刻意不清**。
+ * 但換檢視、左右滑、按「今天」都只動 `date`，於是它可能是好幾頁以前的事：
+ * 她 2026-09-18 在月檢視誤點 8/5、關掉、切到日檢視的今天按「＋」，帶進來的是 8/5，
+ * 而且一句提示都沒有（`.scratch/asks-2026-09-18/issues/02`）。
+ *
+ * 所以點過的那一天**只有在畫面現在畫得出來的範圍裡**才算數。日檢視的範圍只有一天，
+ * 等於永遠是畫面上那一天；月檢視裡還標著的那一格照樣算（她同意的）。
+ */
+export function newItemDate(view, date, day) {
+  const range = rangeOf(view, date);
+  return day && range && day >= range.from && day <= range.to ? day : date;
+}
+
 /** 上一頁／下一頁。日是一天、週是七天、月是一個月。 */
 export function moveBy(view, date, steps) {
   if (!isValidDate(date)) return date;

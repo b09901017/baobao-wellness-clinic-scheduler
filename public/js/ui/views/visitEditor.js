@@ -885,7 +885,19 @@ function readDraft(ctx, form, draft) {
     // **她換了一款品項，結束時間要跟著變**（`slotMinutes()`，ADR-0098）。
     // `endsAt` 從來不是她填的欄位，每次存檔都是推導出來的，所以換一款
     // 護心抗老那一段就從 120 變 180。
-    const ivProductId = course?.requiresIvProduct ? (v[`s${i}-iv`] ?? null) : null;
+    //
+    // **換了額度就是那一筆買的那一款**（同 `blankSlot()` 與壓表選額度那一下）。
+    // 切過來的那一下品項那一排還沒畫出來，照讀會讀到空的；兩筆點滴額度 A → B 時
+    // 那一排畫著 A，照讀會讓一段扣著 B 的來訪帶著 A 的品項與時長存進去
+    //（`.scratch/asks-2026-09-18/issues/03`）。
+    //
+    // **沒換額度時只在那一排沒畫出來才退回買的那一款**（`key()`）。畫出來但空著的
+    // 是真的空著 —— 匯入的舊資料沒有品項，照 `??` 補的話她改個時間，那一段就被
+    // 靜默填上一款、結束時間跟著變。
+    const bought = ent?.ivProductId ?? null;
+    const ivProductId = !course?.requiresIvProduct ? null
+      : entitlementId !== slot.entitlementId ? bought
+        : key(v, `s${i}-iv`, bought);
     const durationMin = slotMinutes({
       entitlement: ent,
       course,

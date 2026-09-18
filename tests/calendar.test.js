@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { statusClass } from '../public/js/domain/visits.js';
 
 import {
-  weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
+  weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf, newItemDate,
   agendaFor, summaryByDate, monthBars, WEEKDAY_HEADERS, VIEWS,
 } from '../public/js/domain/calendar.js';
 
@@ -97,6 +97,36 @@ describe('翻頁', () => {
 
   test('月底翻月不會跳過月份', () => {
     assert.equal(moveBy('month', '2026-01-31', 1), '2026-02-28');
+  });
+});
+
+// 她 2026-09-18：「在月檢視誤點了某一天 → 開的抽屜關掉、沒存 → 切回日檢視看另一天（例如今天）
+// →按「+」→「新增來訪」→ 挑客戶。結果彈出的表單抬頭寫著先前誤點的那個舊日期」
+// （`.scratch/asks-2026-09-18/issues/02`）
+describe('懸浮鈕的「新增」帶哪一天', () => {
+  test('日檢視：永遠是畫面上那一天，不管之前點開過哪一天', () => {
+    assert.equal(newItemDate('day', '2026-08-29', '2026-08-05'), '2026-08-29');
+    assert.equal(newItemDate('day', '2026-08-29', '2026-08-29'), '2026-08-29');
+  });
+
+  test('週檢視：點過的那天在這一週就用它，不在就用畫面那一週', () => {
+    assert.equal(newItemDate('week', '2026-09-18', '2026-09-16'), '2026-09-16');
+    assert.equal(newItemDate('week', '2026-09-18', '2026-09-09'), '2026-09-18');
+  });
+
+  test('月檢視：還標著的那一格照樣算數（她同意的）；翻到別的月就不算', () => {
+    assert.equal(newItemDate('month', '2026-08-29', '2026-08-05'), '2026-08-05');
+    assert.equal(newItemDate('month', '2026-09-29', '2026-08-05'), '2026-09-29');
+  });
+
+  test('沒點過任何一天：畫面那一天', () => {
+    for (const view of VIEWS) assert.equal(newItemDate(view, '2026-09-18', null), '2026-09-18');
+  });
+
+  test('三顆「新增」都走這一支，沒有人再自己寫 state.day ?? state.date', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/calendar.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /state\.day\s*\?\?\s*state\.date/);
+    assert.equal((src.match(/newItemDate\(/g) ?? []).length, 1, '算一次、三顆共用');
   });
 });
 
