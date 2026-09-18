@@ -1,6 +1,6 @@
 # 來訪編輯器換到點滴那一筆額度，買的那一款沒有選好
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 03 條
 動工前先讀：ADR-0098（時長的順序：品項 → 額度 → 課程 → 60）、`domain/masterData.js` 的 `ivChoicesFor()`、
 `ui/views/visitEditor.js` 的 `blankSlot()` 與 `readDraft()`、`ui/views/schedule.js` 選額度那一段
