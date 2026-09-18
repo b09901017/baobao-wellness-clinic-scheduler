@@ -307,3 +307,20 @@ for (const vp of [{ width: 414, height: 896, label: '手機' }, { width: 1024, h
     expect(toast.bottom, `toast 的底 ${toast.bottom} 要在那一條的頂 ${bar.top} 上面`).toBeLessThanOrEqual(bar.top);
   });
 }
+
+test('F4 面板開著的時候 toast 在最上面，不擋面板裡的任何一列', async ({ app, page }) => {
+  await app.seed(seedOneVisit());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-open^="visit:"]');
+
+  await page.evaluate(async () => {
+    const toast = await import('/js/ui/toast.js');
+    toast.saved('這一段改成已確認', async () => {});
+  });
+  await expect(page.locator('#toast [data-undo]')).toBeVisible();
+
+  const toast = await rectOf(page, '#toast');
+  const drawer = await rectOf(page, '.drawer');
+  expect(toast.bottom, `toast 的底 ${toast.bottom} 要在面板的頂 ${drawer.top} 上面`).toBeLessThanOrEqual(drawer.top);
+});

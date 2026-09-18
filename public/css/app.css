@@ -4312,6 +4312,15 @@ body:has(.cform__bar, .bulkbar) > .toast {
   --toast-lift: 68px;
 }
 
+/* **面板開著的時候到最上面。** 導覽列被面板蓋住了，底下是面板自己的那幾列 ——
+   她下一下八成是點同一天的另一段（ADR-0020），站在 66px 就擋在那一列上 8 秒
+   （`34-confirm-one-slot` 的 C5：確認完下午那一段、接著長按上午那一段，按到的是 toast）。
+   最上面是面板上緣之上、變暗的那一塊。F4 量著。 */
+body:has(> .drawer-backdrop) > .toast {
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  bottom: auto;
+}
+
 /* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
 .toast > .btn {
   flex: none;
