@@ -4275,13 +4275,21 @@ button.mark::after {
   border-radius: var(--radius-sm);
 }
 
-/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9 */
+/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9
+
+   **手機上它不可以碰到導覽列，也不可以碰到懸浮鈕**（`.scratch/asks-2026-09-18/issues/01`）。
+   她 2026-09-18：「存完客戶想點『壓表』分頁，結果點到 toast 的『復原』，把剛建的客戶整個刪掉了」
+   —— 那時它是 `bottom: 22px`，而導覽列有 58px 高，「復原」整顆疊在「壓表」「日曆」上。
+
+   所以跟懸浮鈕站同一條基準線（`.fab` 的 66px），**靠左**、右邊讓出懸浮鈕那一欄
+   （54px 是 `.fab__main` 的寬）。置中的話，長訊息會把「復原」推到懸浮鈕上 ——
+   同一個問題往上搬一層。沒有懸浮鈕的頁也站在這裡：每次都在同一個地方，她才找得到。
+   盯著的是 `24-layout-reach` 的 F1、F2（量位置）。 */
 .toast {
   position: fixed;
-  left: 50%;
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  max-width: min(92vw, 480px);
+  left: var(--gutter);
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  max-width: calc(100vw - 2 * var(--gutter) - 54px - var(--space-3));
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -4292,6 +4300,16 @@ button.mark::after {
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   z-index: 25;
+}
+
+/* 導覽列在側邊的時候底下是空的，回到底部置中（懸浮鈕在右下角，碰不到） */
+@media (min-width: 900px) {
+  .toast {
+    left: 50%;
+    bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    max-width: min(92vw, 480px);
+  }
 }
 
 .visually-hidden {

@@ -1,6 +1,6 @@
 # toast 蓋在底部導覽列上，誤觸「復原」
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 01 條
 動工前先讀：`ui/toast.js` 的檔頭（SPEC 6.3、6.9）、`app.css` 的 `.toast`、`.app__nav`、`.fab`，
 ADR-0073 那張表「底部 toast 上的『復原』」那一列（它只規定不擋路、8 秒後自己消失，位置沒有規定）
