@@ -1746,6 +1746,11 @@ export async function renderGroup(el, group) {
   if (group === 'forms') return formInbox.render(el);
   if (group === 'book') return renderBook(el);
 
+  if (group !== taskTabGroup) {
+    taskTab = 'open';
+    taskTabGroup = group;
+  }
+
   const [open, done] = await Promise.all([tasksData.listOpen(), tasksData.listDone()]);
   const today = todayISO();
 
@@ -1923,6 +1928,12 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 
 /** 未完成／已完成。存在模組裡不進網址 —— 它是看法，不是位置（同隨手記那一頁）。 */
 let taskTab = 'open';
+/**
+ * `taskTab` 是哪一個分類的。**換到別的分類就回到未完成**：Examine 那一頁切到已完成之後
+ * 點耀聖，不可以直接停在已完成、把還沒做的那一張藏起來（prelaunch-audit-2026-09-23/issues/11）。
+ * 同一個分類重畫（拿回來、刪一張、清掉之後）照樣留著。
+ */
+let taskTabGroup = null;
 
 function paintTasks(ctx) {
   const { el, today, meta } = ctx;

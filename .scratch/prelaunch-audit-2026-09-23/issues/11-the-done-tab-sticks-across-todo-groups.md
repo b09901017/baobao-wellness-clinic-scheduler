@@ -1,6 +1,6 @@
 # 待辦分類頁的「已完成」分頁會黏住
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`ui/views/home.js` 的 `renderGroup()`（`:1730`）與 `paintTasks()`、`let taskTab`（`:1925`）
 

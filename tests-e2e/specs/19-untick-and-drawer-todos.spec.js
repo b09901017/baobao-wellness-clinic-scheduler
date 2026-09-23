@@ -540,3 +540,42 @@ test.describe('哪一筆底下寫了字', () => {
     await expect(rowOf(page, 'visit-note').locator('.badge')).toBeVisible();
   });
 });
+
+// ---------- 「已完成」那一格不可以黏到別的分類（prelaunch-audit-2026-09-23/issues/11） ----------
+
+test.describe('分類頁的未完成／已完成', () => {
+  const seedTabs = () => [
+    ...masterDocs(),
+    customer({ id: 'cust-t', name: '客戶A' }),
+    task({ id: 't-ex1', customerId: 'cust-t', customerName: '客戶A', kind: 'Examine', dueDate: TODAY, done: true, doneAt: `${TODAY}T01:00:00.000Z` }),
+    task({ id: 't-ex2', customerId: 'cust-t', customerName: '客戶A', kind: 'Examine', dueDate: TODAY, done: true, doneAt: `${TODAY}T02:00:00.000Z` }),
+    task({ id: 't-yao', customerId: 'cust-t', customerName: '客戶A', kind: '耀聖', dueDate: addDays(TODAY, 1) }),
+  ];
+
+  test('U11 Examine 切到已完成 → 回待辦 → 點耀聖：停在未完成，看得到那一張', async ({ app, page }) => {
+    await app.seed(seedTabs());
+    await app.signIn('/');
+    await app.go(`/todo/${encodeURIComponent('Examine')}`);
+    await page.locator('[data-task-tab="done"]').click();
+    await app.layer('[data-untick]');
+
+    await app.go('/todo');
+    await app.go(`/todo/${encodeURIComponent('耀聖')}`);
+    await expect(page.locator('[data-task-tab][aria-pressed="true"]')).toHaveAttribute('data-task-tab', 'open');
+    await expect(page.locator('[data-task="t-yao"]')).toBeVisible();
+  });
+
+  test('U12 在已完成那一格拿回一張：照樣停在已完成', async ({ app, page }) => {
+    await app.seed(seedTabs());
+    await app.signIn('/');
+    await app.go(`/todo/${encodeURIComponent('Examine')}`);
+    await page.locator('[data-task-tab="done"]').click();
+    await app.layer('[data-untick]');
+    await expect(page.locator('[data-untick]')).toHaveCount(2);
+
+    await page.locator('[data-untick]').first().click();
+    await app.saved();
+    await expect(page.locator('[data-task-tab][aria-pressed="true"]')).toHaveAttribute('data-task-tab', 'done');
+    await expect(page.locator('[data-untick]')).toHaveCount(1);
+  });
+});
