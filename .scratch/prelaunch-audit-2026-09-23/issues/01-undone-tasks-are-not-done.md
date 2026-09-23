@@ -1,6 +1,6 @@
 # 復原過的、系統收掉的任務被當成「做過了」
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`.scratch/prelaunch-fixes-2026-09-16/issues/09-cleared-tasks-must-still-count.md`（這一條的起點）、
 `docs/adr/0091`、`docs/adr/0070`、`domain/undo.js`、`domain/taskRules.js` 的 `syncTasksForVisit()`／`cancelTasksFor()`

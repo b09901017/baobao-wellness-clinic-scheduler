@@ -560,7 +560,7 @@ async function run() {
   // 會被收掉哪幾張要問那幾筆的任務。**點下去才讀**，讀不到就少講那幾句。
   let tasks = [];
   try {
-    tasks = (await Promise.all([...byVisit.keys()].map((id) => tasksData.listByVisit(id)))).flat();
+    tasks = (await Promise.all([...byVisit.keys()].map((id) => tasksData.listByVisitForSync(id)))).flat();
   } catch {
     /* 少講幾句，不擋 */
   }

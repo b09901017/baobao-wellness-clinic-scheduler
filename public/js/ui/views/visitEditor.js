@@ -1162,7 +1162,7 @@ const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) =
 async function visitTasks(draft) {
   if (!draft?.id) return [];
   try {
-    return await tasksData.listByVisit(draft.id);
+    return await tasksData.listByVisitForSync(draft.id);
   } catch {
     return [];
   }

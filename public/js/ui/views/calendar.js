@@ -1137,7 +1137,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
     let tasks = [];
     try {
-      tasks = await tasksData.listByVisit(visit.id);
+      tasks = await tasksData.listByVisitForSync(visit.id);
     } catch {
       /* 少講兩句，不擋 */
     }
