@@ -579,3 +579,21 @@ test.describe('分類頁的未完成／已完成', () => {
     await expect(page.locator('[data-untick]')).toHaveCount(1);
   });
 });
+
+test('U11b 同一個分類切到已完成 → 去日曆繞一圈 → 回來：回到未完成', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-t', name: '客戶A' }),
+    task({ id: 't-ex1', customerId: 'cust-t', customerName: '客戶A', kind: 'Examine', dueDate: TODAY, done: true, doneAt: `${TODAY}T01:00:00.000Z` }),
+    task({ id: 't-ex2', customerId: 'cust-t', customerName: '客戶A', kind: 'Examine', dueDate: addDays(TODAY, 1) }),
+  ]);
+  await app.signIn('/');
+  await app.go(`/todo/${encodeURIComponent('Examine')}`);
+  await page.locator('[data-task-tab="done"]').click();
+  await app.layer('[data-untick]');
+
+  await app.go('/calendar');
+  await app.go(`/todo/${encodeURIComponent('Examine')}`);
+  await expect(page.locator('[data-task-tab][aria-pressed="true"]')).toHaveAttribute('data-task-tab', 'open');
+  await expect(page.locator('[data-task="t-ex2"]')).toBeVisible();
+});
