@@ -1,6 +1,6 @@
 # 文件、`related.js` 登記、審查點到的小整理
 
-Status: todo
+Status: done
 Blocked by: 15, 16, 17, 18, 19, 20, 21, 22, 23
 來源：`../spec.md`（第二輪）；PR #129 審查的 Standards 軸
 動工前先讀：CLAUDE.md「文件分工」與「容易漏掉的連動」、`tests-e2e/related.js`、`CONTEXT.md`
@@ -47,3 +47,30 @@ CLAUDE.md：「新長出來的連動關係要回來補進這張表 —— 不補
 - `npm test` 綠；`tests/e2e-related.test.js` 綠
 - `rg "ponytail" public/js` 沒有結果
 - 連動表每一條這一輪動到的規則都找得到
+
+## 做了什麼（2026-09-23）
+
+**文件**
+- SPEC §4.8 補分頁命名規則；§5 來訪的 `customerName` 註解（16）與刪客戶那一條（17）跟著改
+- `sheetReport.js`：`sheetNames()` 搬到 `syncBundle()` 的 JSDoc 前面，`ponytail:` 改成「已知的限制：」
+- issue 03、04、05、07、12 補「做了什麼」
+- 連動表：15（「任務什麼時候產生」那一列補 `registrationsWhenSettled()` 與種子）、16／23（「客戶改名」）、17（「刪掉一位客戶」）、
+  21（「一列任務要顯示什麼」）、18／19（「存一筆來訪時手上那一份是舊的」）；README 第 30 步補第二輪
+- 「佔著」→「壓著」在 17 就改了
+
+**`related.js`**：46 ← `nav.js`、`bulkCancel.js`、`home.js`、`taskRules.js`；34 ← `consequences.js`、`visitTime.js`；
+25 ← `taskRules.js`；44 ← `schedule.js`、`saveEach.js`（18 那一支）；22 ← `saveEach.js`
+
+**小整理**
+- `rebookSlot()` 與 `deleteBlockers()` 的狀態清單改用 `acceptsMoreSlots()`
+- `updateWithSnapshots()` 註解與程式碼對齊（250 筆上限、一次切 240）
+- `cancelSlotsOf()`：檔頭 02 的時候就寫了「取消類收的、掛號類掛的」，不改名
+- **`seenTasks()` 的循環 import 沒搬**：兩邊都只在函式本體裡用、檔頭註解寫著；搬出去要多一支模組、`sw.js` 的 SHELL、
+  `related.js` 與三份文件（CLAUDE.md、SPEC、ADR-0106）的位置，換來的是零行為變化
+
+**測試**
+- `tests/consequences.test.js`：`rebookSlot()` 回來的那一筆四種情境，整筆 = `visitStatusFrom()`、新那一段**算出來的**狀態是待確認、
+  整天是待確認。第一版只比「整筆 = 推導」—— 改走 `applyStatus()` 時兩邊都是「已取消」，照樣綠；補上後兩條會紅（實跑過）。
+  `rebookSlot()` 的註解寫清楚不要改走 `applyStatus()`
+- E2E `33` 的 T3：清掉的掛號（帶 `slotIndexes`）→ 改期 → 新那一段確認 → 清掉的兩張不重長、新的那一段長自己的，
+  而改期那一道講得出「會再多一張 Examine、一張耀聖」

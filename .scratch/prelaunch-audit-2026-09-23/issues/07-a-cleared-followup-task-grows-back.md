@@ -44,3 +44,8 @@ Blocked by: 01
 - 三張都清掉之後再存：一張都不長
 - 「拿回來」那一條（K1～K5，`docs/邊界測試清單.md`）行為不變
 - 復原掉的（沒勾過的）鏈上任務：照 01 當成不存在，該長的照長
+
+## 做了什麼（2026-09-23）
+
+健檢鏈的比對（`followups.js` 的 `syncFollowupTasks()`）也走 `seenTasks()`（ADR-0106）；data 層改讀連軟刪除的
+`tasks.js` 的 `listByCustomerForSync()`。測試：`tests/followups.test.js`。

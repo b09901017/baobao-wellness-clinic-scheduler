@@ -231,6 +231,7 @@ export const COVERAGE = {
     'public/js/domain/entitlements.js', 'public/js/data/visits.js',
     'public/js/ui/components/slotNote.js', 'public/js/ui/components/form.js',
     'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/taskRules.js',
   ],
   // 讀取卡片單段化（issue 10）。`visitReadHtml()` 是**四個畫面共用**的
   // （ADR-0018、0056），所以那四支 view 底下改一行都該跑這一支 ——
@@ -347,8 +348,9 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
     'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js', 'public/js/data/visits.js',
+    'public/js/domain/consequences.js', 'public/js/domain/visitTime.js',
   ],
-  // 拿了舊的那一份去寫、去畫（prelaunch-audit-2026-09-23 的 03、04、10）
+  // 拿了舊的那一份去寫、去畫（prelaunch-audit-2026-09-23 的 03、04、10、18、19、20）
   '44-stale-copies': [
     'public/js/data/visits.js', 'public/js/ui/toast.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js', 'public/js/domain/visits.js',
@@ -356,10 +358,12 @@ export const COVERAGE = {
   ],
   // 試算表推送在路上時又寫了一筆（prelaunch-audit-2026-09-23/issues/05）
   '45-sheet-push-race': ['public/js/data/sheetSync.js', 'public/js/ui/views/calendar.js'],
-  // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08）
+  // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',
-    'public/js/ui/components/dialog.js',
+    'public/js/ui/components/dialog.js', 'public/js/ui/nav.js', 'public/js/ui/views/bulkCancel.js',
+    // D1b：改名之後在簽療程單結案，任務的名字對齊來訪那一份
+    'public/js/ui/views/home.js', 'public/js/domain/taskRules.js',
   ],
 };
 

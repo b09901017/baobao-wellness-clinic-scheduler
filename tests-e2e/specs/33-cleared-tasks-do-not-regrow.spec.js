@@ -97,3 +97,46 @@ test('T2 沒清掉的那幾張行為一個字都沒變', async ({ app, page }) =
   expect(alive.map((t) => t.kind).sort(), '本來就在的那兩張留著，不多也不少')
     .toEqual(['Examine', '耀聖']);
 });
+
+test('T3 清掉的掛號 → 改時間（改期）→ 新那一段確認：清掉的不重長，新的那一段長自己的', async ({ app, page }) => {
+  const seed = seedClearedTasks();
+  // 02 之後長出來的掛號都帶 `slotIndexes`（ADR-0107）—— 沒帶的舊任務會被當成蓋住整天
+  for (const doc of seed.filter((d) => d.path === 'tasks')) doc.data.slotIndexes = [0];
+  await app.seed(seed);
+  await app.signIn('/calendar');
+
+  const openDay = async () => {
+    await page.locator(`[data-day="${TODAY}"]`).first().click();
+    await app.layer('[data-open^="visit:"]');
+  };
+  await openDay();
+  await page.locator('[data-open="visit:v-rehab:0"]').click();
+  await app.layer('.popcard');
+  await page.locator('[data-card-edit]').click();
+  await app.layer('.slotcard');
+  await page.locator('input[name="s0-start"]').fill('16:00');
+  await page.locator('button[type="submit"]').first().click();
+  // 「這幾件先看一下」（沒選醫師那一類）先按過去，停在改期那一道
+  while ((await app.dialogText()).includes('先看一下')) await app.ok();
+  expect(await app.dialogText(), '新那一段談定了真的會長（issues/15）').toContain('會再多一張「Examine」、一張「耀聖」');
+  await app.ok();
+  await app.saved();
+
+  // 長按新接在尾巴的那一段 → 客戶說可以
+  await openDay();
+  const row = page.locator('[data-open="visit:v-rehab:1"]');
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+  await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+  await app.saved();
+
+  const tasks = await app.readAll('tasks');
+  const reg = (t) => ['Examine', '耀聖'].includes(t.kind);
+  expect(tasks.filter((t) => reg(t) && t.deletedAt).map((t) => t.id).sort(), '清掉的那兩張還是清掉的').toEqual(['t-0', 't-1']);
+  expect(tasks.filter((t) => reg(t) && !t.deletedAt).map((t) => [t.kind, t.slotIndexes]).sort(), '新的那一段長自己的')
+    .toEqual([['Examine', [1]], ['耀聖', [1]]]);
+});

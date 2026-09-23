@@ -795,7 +795,7 @@ describe('挑走那一天剩下的每一段 = 整天取消，框上講的跟長�
 // 她 2026-09-23：「我希望會提醒回 Abovee／Examine／耀聖改時間以及回去取消已經掛好的號等等」
 // 選的是 A：舊那一段標成取消、新的時間接在尾巴一段待確認（SPEC 第 7 節規則 10）。
 
-import { rebookSlot } from '../public/js/domain/visits.js';
+import { rebookSlot, visitStatusFrom, slotStatus } from '../public/js/domain/visits.js';
 import { rebookConsequences } from '../public/js/domain/consequences.js';
 
 describe('改這一段改了時間或課程 → 取消＋重新排', () => {
@@ -819,6 +819,23 @@ describe('改這一段改了時間或課程 → 取消＋重新排', () => {
     assert.ok(rebookSlot(before, 0, { ...before.slots[0], courseId: 'c-recovery' }));
     const pending = settled({ status: 'pending_confirm' });
     assert.ok(rebookSlot(pending, 0, { ...pending.slots[0], startsAt: '16:00' }));
+  });
+
+  test('回來的那一筆，整筆的狀態＝ visitStatusFrom()（四種都釘住；不要改走 applyStatus()）', () => {
+    const rehab = (startsAt, status) => ({ courseId: 'c-rehab', entitlementId: 'e1', startsAt, endsAt: startsAt.replace(':00', ':30'), status });
+    const day = (status, slots) => ({ ...settled(), status, slots });
+    for (const [name, before, index] of [
+      ['一天一段已確認', day('confirmed', [rehab('14:00', 'confirmed')]), 0],
+      ['一天一段待確認', day('pending_confirm', [rehab('14:00', 'pending_confirm')]), 0],
+      ['兩段改第二段', day('confirmed', [rehab('10:00', 'confirmed'), rehab('14:00', 'confirmed')]), 1],
+      ['已確認＋已取消', day('confirmed', [rehab('10:00', 'confirmed'), rehab('14:00', 'cancelled')]), 0],
+    ]) {
+      const after = rebookSlot(before, index, { ...before.slots[index], startsAt: '16:00', endsAt: '16:30' });
+      assert.equal(after.status, visitStatusFrom(after), name);
+      // 看**算出來的**狀態，不看那一格字：整筆被推成已取消時，那一格寫著待確認也是死的
+      assert.equal(slotStatus(after, after.slots.at(-1)), 'pending_confirm', `${name}：新那一段是活的`);
+      assert.equal(after.status, 'pending_confirm', `${name}：整天退回待確認`);
+    }
   });
 
   test('只改治療師、醫師、診間、記一句 → 不用（原地改）', () => {

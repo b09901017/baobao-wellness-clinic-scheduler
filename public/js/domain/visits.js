@@ -347,6 +347,10 @@ export function withExtraSlot(visit, slot) {
  * 不影響外面那幾個系統，原地改（她 2026-09-08：「如果沒有就可以不用提醒」）。
  * 已完成／未到／已取消的那一段是更正，不是改期。
  *
+ * **不要改走 `applyStatus(…, 'cancelled', { slotIndex })`**（審查建議過，2026-09-23 實跑過）：
+ * 一天只有一段時它會先把整筆推成「已取消」，接上來的新那一段跟著變成死的。直接標那一段
+ * 再 `withExtraSlot()`，整筆的狀態才會等於 `visitStatusFrom()`（`tests/consequences.test.js` 釘著四種）。
+ *
  * @param {object} before 存下去之前那一筆
  * @param {number} index 她改的是哪一段
  * @param {object} next 那一段改完之後的樣子
@@ -355,7 +359,7 @@ export function withExtraSlot(visit, slot) {
 export function rebookSlot(before, index, next) {
   const old = before?.slots?.[index];
   if (!old || !next) return null;
-  if (!['pending_confirm', 'confirmed'].includes(slotStatus(before, old))) return null;
+  if (!acceptsMoreSlots(slotStatus(before, old))) return null;
   if ((old.startsAt ?? null) === (next.startsAt ?? null) && old.courseId === next.courseId) return null;
 
   const marked = {

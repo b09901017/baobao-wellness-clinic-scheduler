@@ -289,18 +289,6 @@ function csvCell(value) {
 export const SYNC_FORMAT = 5;
 
 /**
- * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
- * 漏推一次下一次會補回來，不需要在兩邊維護「哪些變了」。
- *
- * @param {object} ctx
- * @param {object[]} ctx.customers
- * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
- * @param {Record<string, object[]>} ctx.visitsBy       客戶 id → 來訪
- * @param {string} ctx.today
- * @param {object} [ctx.master] config.loadAll() 的結果，用來把 id 換成名字（治療師在 staff 底下）
- * @param {string} [ctx.generatedAt]
- */
-/**
  * 每一位客戶在試算表上那一張分頁叫什麼。**只有真的撞名的那幾位加尾巴**，其餘一個字都不變。
  *
  * 分頁名就是客戶名（`.gs` 的 `sheetNameFor()`），而同名只提醒、照樣存得下去（ADR-0102）——
@@ -310,7 +298,7 @@ export const SYNC_FORMAT = 5;
  *
  * 分頁名最長 90 字：尾巴接在截過的名字後面，截字不會把兩位截回同一個。
  *
- * ponytail: 比的是去掉頭尾空白的名字，不是 `.gs` 換掉 `/:*?[]'` 之後的 ——
+ * 已知的限制：比的是去掉頭尾空白的名字，不是 `.gs` 換掉 `/:*?[]'` 之後的 ——
  * 「A/B」與「A-B」兩位還是會撞，真的遇到再照 `sheetNameFor()` 的規則比。
  *
  * @returns {Map<string, string>} 客戶 id → 分頁名
@@ -338,6 +326,18 @@ function sheetNames(customers) {
   return out;
 }
 
+/**
+ * 推給 Apps Script 的整包內容。**整包**是刻意的 —— 它是冪等的，
+ * 漏推一次下一次會補回來，不需要在兩邊維護「哪些變了」。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.customers
+ * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
+ * @param {Record<string, object[]>} ctx.visitsBy       客戶 id → 來訪
+ * @param {string} ctx.today
+ * @param {object} [ctx.master] config.loadAll() 的結果，用來把 id 換成名字（治療師在 staff 底下）
+ * @param {string} [ctx.generatedAt]
+ */
 export function syncBundle({
   customers = [], entitlementsBy = {}, visitsBy = {}, tasksBy = {}, today,
   master = {}, generatedAt = '',
