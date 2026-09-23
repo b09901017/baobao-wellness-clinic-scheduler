@@ -3033,7 +3033,7 @@ async function applyConfirm(ctx) {
   const rejected = drawer.rejected;
   const at = new Date().toISOString();
 
-  const customerVisits = await visitsData.listByCustomer(drawer.customerId);
+  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
 
   // 規則在 `domain/visits.js` 的 `applyConfirmation()`（SPEC 第 10 節）。
   // 這裡只把畫面上的 key（`v.id:i`）換成那一筆自己的段落編號。
@@ -3068,8 +3068,15 @@ async function applyConfirm(ctx) {
     await toast.withSaveState(
       async () => {
         // 一筆一筆存：每一筆各自要重算次數與任務，硬塞進同一個 commit
-        // 會超過 Firestore 一批 500 個操作的上限
-        for (const v of writes) await visitsData.save(v, customerVisits);
+        // 會超過 Firestore 一批 500 個操作的上限。
+        //
+        // **存完一筆就把它換進手上那一份**（同 `bulkCancel.js`）：下一筆算次數讀的就是它。
+        // 不換的話，先存的那一天被退掉時，存第二天看到的第一天還佔著一次，
+        // 錯的數字就寫回額度上（prelaunch-audit-2026-09-23/issues/03）。
+        for (const v of writes) {
+          await visitsData.save(v, customerVisits);
+          customerVisits = [...customerVisits.filter((x) => x.id !== v.id), v];
+        }
       },
       {
         success: droppedDay

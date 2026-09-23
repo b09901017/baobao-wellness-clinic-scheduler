@@ -4,7 +4,7 @@
 // 被另一台裝置、被同一個迴圈的上一筆、或被「復原」。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
 
 const rehab = (startsAt, status = 'pending_confirm') => ({
   ...slot({ courseId: 'course-rehab', entitlementId: 'ent-rehab', startsAt, endsAt: startsAt.replace(':00', ':30') }),
@@ -74,4 +74,36 @@ test('S2 沒有別人改過 → 照常存得進去', async ({ app, page }) => {
   await app.saved();
 
   expect((await app.readDoc('visits', 'v-s')).slots[0].status).toBe('confirmed');
+});
+
+// ---------- 03：確認抽屜一次存好幾天，次數拿舊清單算 ----------
+
+test('S3 同一筆額度兩天待確認，退掉比較早那一天 → 已排只剩 1', async ({ app, page }) => {
+  const inbody = (id, date) => visit({
+    id, customerId: 'cust-s', customerName: '王小明', date,
+    slots: [{
+      ...slot({ courseId: 'course-inbody', entitlementId: 'ent-inbody', startsAt: '10:00', endsAt: '10:20' }),
+      status: 'pending_confirm',
+    }],
+  });
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-s', name: '王小明' }),
+    entitlement('cust-s', {
+      id: 'ent-inbody', label: '身體組成分析', type: 'single',
+      courseId: 'course-inbody', totalQty: 10, bookedCount: 2, durationMin: 20,
+    }),
+    inbody('v-early', addDays(TODAY, 3)),
+    inbody('v-late', addDays(TODAY, 10)),
+  ]);
+  await app.signIn('/');
+  await app.go('/todo/confirm');
+
+  await page.locator('[data-open="cust-s"]').click();
+  await page.locator('[data-slot="v-early:0"]').click();
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  const ent = await app.readDoc('customers/cust-s/entitlements', 'ent-inbody');
+  expect(ent.bookedCount, '存第二天時拿的是第一天還沒退掉的那一份').toBe(1);
 });

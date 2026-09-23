@@ -1,6 +1,6 @@
 # 確認抽屜一次存好幾天，次數快取拿舊清單算
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/adr/0004`（次數的真相是來訪，額度上的數字是快取）、`data/visits.js` 的 `save()`／`countOps()`、
 `ui/views/bulkCancel.js:600-607`（同一件事已經做對的那一份）
