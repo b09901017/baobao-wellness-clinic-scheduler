@@ -209,7 +209,7 @@ describe('她自己看的那幾處走的是 slotName()，不是快照', () => {
 describe('拿得到主檔才算得出名字', () => {
   test('待辦任務列第二行要把 master 傳給 taskLine()', () => {
     const body = region(read('js/ui/views/home.js'), 'function fillVisitInfo(', 'let followupBookings');
-    assert.match(body, /taskLine\(\{\}, visit, taskVisits\.master\)/,
+    assert.match(body, /taskLine\(task, visit, taskVisits\.master\)/,
       'taskLine() 第三個參數沒傳，那一行會讀快照');
   });
 

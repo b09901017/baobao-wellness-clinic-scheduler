@@ -432,6 +432,32 @@ describe('一列任務要講的三件事', () => {
     assert.equal(line.date, null);
     assert.equal(line.kind, '耀聖');
   });
+
+  // 21：帶 `slotIndexes` 的只講那幾段（ADR-0107）。同一天分兩次確認會有兩張 Examine，
+  // 印整筆的課程的話兩張長得一模一樣
+  const day = visit({
+    date: '2026-10-05',
+    slots: [
+      { courseName: '門診', startsAt: '10:00', endsAt: '10:30' },
+      { courseName: '復能', startsAt: '11:00', endsAt: '12:00', status: 'cancelled' },
+      { courseName: '門診', startsAt: '15:00', endsAt: '15:30' },
+    ],
+  });
+
+  test('同一天兩張 Examine 各自印出它掛的那一段', () => {
+    assert.equal(taskLine({ ...t, slotIndexes: [0] }, day).what, '10:00 門診');
+    assert.equal(taskLine({ ...t, slotIndexes: [2] }, day).what, '15:00 門診');
+    assert.equal(taskLine({ ...t, slotIndexes: [0, 2] }, day).what, '10:00 門診、15:00 門診');
+  });
+
+  test('取消類掛的是取消掉的那一段 —— 不可以濾掉取消的', () => {
+    assert.equal(taskLine({ kind: '取消 Abovee', slotIndexes: [1] }, day).what, '11:00 復能');
+  });
+
+  test('沒有 slotIndexes（舊任務、獨立待辦）照舊講整筆', () => {
+    assert.equal(taskLine(t, day).what, '門診、復能');
+    assert.equal(taskLine({ ...t, slotIndexes: [9] }, day).what, '門診、復能', '指到不存在的段就退回整筆');
+  });
 });
 
 

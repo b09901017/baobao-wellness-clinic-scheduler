@@ -1808,6 +1808,8 @@ async function loadTaskVisits(ctx) {
     ]);
     taskVisits = {
       visits,
+      // 「哪一天的什麼」那一行要那一張任務本身：帶 `slotIndexes` 的只講它掛的那幾段（issues/21）
+      tasks: byId([...ctx.open, ...ctx.done]),
       roomsById: byId(rooms),
       staffById: byId(staff),
       master: { courses, equipment, ivProducts },
@@ -1843,11 +1845,13 @@ function fillVisitInfo(el) {
   //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
   // 死線是它的前一天，兩個差一天最容易看錯人。
   for (const node of el.querySelectorAll('[data-taskwhen]')) {
-    const visit = taskVisits.visits.get(node.dataset.taskwhen);
+    // key 是**任務 id** 不是來訪 id：同一天兩張 Examine 各自掛不同的段，印的也要不同（issues/21）
+    const task = taskVisits.tasks[node.dataset.taskwhen];
+    const visit = taskVisits.visits.get(task?.visitId);
     if (!visit) continue;
     // 第三個參數帶了主檔才講得出「那天做了什麼」（`SIS(30)`）——
     // 不帶的話底下那一支 `visitCourseLabel` 退回快照，會寫成「復能」（ADR-0078）
-    const line = taskLine({}, visit, taskVisits.master);
+    const line = taskLine(task, visit, taskVisits.master);
     const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
     if (!text) continue;
     node.textContent = text;
@@ -2056,7 +2060,7 @@ function doneRow(t) {
         <span class="note__main">
           <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
           ${/* 勾掉之後長得不一樣會讓她以為那是另一種東西，所以這一格也補 */''}
-          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
+          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
         </span>
         <span class="notetags">
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
@@ -2124,7 +2128,7 @@ function taskRow(t, today) {
           ${/* 「這是哪一天的什麼」。那一列上面已經有四樣東西了，再擠一串會爆版，
                  所以放第二行。等來訪讀回來才填得上（同「N 項」，`fillVisitInfo()`），
                  讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
-          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
+          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>

@@ -1,6 +1,6 @@
 # 待辦那一列印出它掛的是哪一段
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）
 動工前先讀：`docs/adr/0107`、`docs/adr/0091`、`domain/taskRules.js` 的 `taskLine()`、`domain/visits.js` 的 `visitCourseLabel()`／`slotName()`、
 `domain/visitTime.js` 的 `timeLabel()`、CLAUDE.md「一列任務要顯示什麼」那一列
@@ -40,3 +40,16 @@ K：照建議 —— 帶 `slotIndexes` 的那幾張，只印那幾段的時間�
 - 試算表只是字變、格式沒變 —— **不升 `SYNC_FORMAT`**（`.gs` 照單全收那一格字串）
 - `tests/tasks.test.js`（`taskLine()`）與 `tests/sheet-script.test.js` 各補一條；CLAUDE.md「一列任務要顯示什麼」那一列補「帶段落的只講那幾段」
 - 同一支 PR 還沒合：ADR-0107「後果」補一句「兩張各自印出它掛的那幾段」
+
+## 做了什麼（2026-09-23）
+
+- `taskLine()`：`task.slotIndexes` 指到的段存在時，`what` 是每一段「開始時間 名字」用「、」接（時間走 `timeLabel()`、
+  名字走 `visitCourseLabel()` 單段那一種），不濾取消的；沒有或全部指不到 → 照舊整筆
+- 待辦中心：`[data-taskwhen]` 改用**任務 id** 當 key，`loadTaskVisits()` 把那一頁的任務收進 `taskVisits.tasks`，
+  `fillVisitInfo()` 呼叫 `taskLine(task, visit, master)`。客戶詳情（`tasklist.js`）、試算表（`sheetReport.js`）、
+  刪除確認框本來就把任務傳進去，不用改
+- 試算表只是字變、格式沒變，**沒有升 `SYNC_FORMAT`**
+- CLAUDE.md「一列任務要顯示什麼」與 ADR-0107「後果」各補一句
+
+測試：`tests/tasks.test.js`、`tests/sheet-report.test.js`（試算表 TODO 那一格的字在這一支測，`sheet-script` 管的是 `.gs`）、
+`tests/slot-names-everywhere.test.js` 的原始碼掃描跟著改、E2E `34` 的 C10（沒修 home.js 之前紅）。

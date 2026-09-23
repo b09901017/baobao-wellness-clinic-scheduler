@@ -456,6 +456,23 @@ test('TODO 與 FINISHED 分兩塊，日期取來訪那一天而且不黏在一�
   assert.equal(finished[0].kind, '打電話');
 });
 
+test('同一天兩張 Examine 各自印出它掛的那一段（issues/21）—— 字變、格式不變', () => {
+  const slot = (courseName, startsAt) => ({ entitlementId: 'e1', courseName, startsAt, endsAt: startsAt.replace(':00', ':30') });
+  const bundle = syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: '門診', totalQty: 6 }] },
+    visitsBy: { c1: [{ id: 'v1', date: '2026-10-05', status: 'confirmed', slots: [slot('門診', '10:00'), slot('門診', '15:00')] }] },
+    tasksBy: {
+      c1: [
+        { id: 't1', visitId: 'v1', kind: 'Examine', dueDate: '2026-10-04', done: false, slotIndexes: [0] },
+        { id: 't2', visitId: 'v1', kind: 'Examine', dueDate: '2026-10-04', done: false, slotIndexes: [1] },
+      ],
+    },
+    today: '2026-10-01',
+  });
+  assert.deepEqual(bundle.sheets[0].tasks.todo.map((t) => t.label).sort(), ['10/5 10:00 門診', '10/5 15:00 門診']);
+});
+
 test('獨立待辦沒有來訪可以查，退回用死線，不要印 undefined', () => {
   const bundle = syncBundle({
     customers: [{ id: 'c1', name: '客戶A' }],

@@ -20,6 +20,7 @@
 
 import { addDays } from './dates.js';
 import { visitCourseLabel, isLiveSlot, slotStatus } from './visits.js';
+import { timeLabel } from './visitTime.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -695,19 +696,29 @@ function cancelTask(visit, kind, note, today, slotIndexes) {
  * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
  *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
  *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
+ * **帶 `slotIndexes` 的只講那幾段**（prelaunch-audit-2026-09-23/issues/21）：每一段「開始時間 名字」，
+ * 幾段用「、」接（`10:00 門診、15:00 門診`）。同一天分兩次確認會有兩張 Examine（ADR-0107），
+ * 逐段取消也是（ADR-0091）—— 印整筆的課程的話兩張長得一模一樣。取消類掛的是取消掉的段，
+ * 所以**不濾取消的**。沒有 `slotIndexes`（舊任務、獨立待辦）照舊講整筆。
+ *
  * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
  *   （跟日曆同一種寫法），沒帶就退回時段上的快照（`visitCourseLabel()`）。
  * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
  */
 export function taskLine(task, visit = null, master = null) {
   const hasVisit = Boolean(visit?.date);
+  const slots = visit?.slots ?? [];
+  const mine = (task?.slotIndexes ?? []).filter((i) => slots[i]);
   return {
     kind: task?.kind ?? '',
     date: hasVisit ? visit.date : (task?.dueDate ?? null),
     fromDue: !hasVisit,
     // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
     // 不要在這裡再寫一次。沒有時段就沒有東西可講。
-    what: (visit?.slots ?? []).length ? visitCourseLabel(visit, master) : '',
+    what: mine.length
+      ? mine.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
+        visitCourseLabel({ slots: [slots[i]] }, master)}`).join('、')
+      : (slots.length ? visitCourseLabel(visit, master) : ''),
   };
 }
 
