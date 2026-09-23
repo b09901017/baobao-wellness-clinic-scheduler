@@ -200,6 +200,28 @@ test('S3c 壓表開著時另一台在同一天加了一段 → 這台再壓一�
   expect(saved.slots.map((s) => s.startsAt), '另一台加的那一段沒被蓋掉').toEqual(['09:00', '11:00', '15:00']);
 });
 
+test('S3d 批次取消開著時另一台在同一天加了一段 → 取消原本那一段，新加的那一段還在', async ({ app, page }) => {
+  await app.seed(seedOneSlot());
+  await app.signIn('/schedule');
+  await page.locator('a[href="#/schedule/cancel"]').click();
+  await page.locator('[data-q]').fill('王小明');
+  await page.locator('[data-pick]').first().click();
+  await app.layer('[data-slot]');
+  await page.locator('[data-slot]').first().click();
+
+  await seedDocs([visit({
+    id: 'v-s', customerId: 'cust-s', customerName: '王小明', date: TODAY,
+    slots: [rehab('09:00'), rehab('11:00')],
+  })]);
+
+  await page.locator('[data-go]').click();
+  await app.ok();
+  await app.saved();
+
+  const saved = await app.readDoc('visits', 'v-s');
+  expect(saved.slots.map((s) => s.status), '另一台加的那一段沒被蓋掉').toEqual(['cancelled', 'pending_confirm']);
+});
+
 // ---------- 10：按了「復原」，開著的那一天抽屜還是舊資料 ----------
 
 test('S4 長按說可以 → 復原 → 同一天的抽屜還開著，而且那一段又是待確認', async ({ app, page }) => {

@@ -1140,6 +1140,28 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     return;
   }
 
+  // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
+  //
+  // **套在剛讀回來的那一份上，不是抽屜手上那一份**（prelaunch-audit-2026-09-23/issues/19）：
+  // 另一台在抽屜打開之後加的段接在尾巴（ADR-0091），`slotIndex` 指的還是同一段，
+  // 而整筆寫回去時那一段才不會被蓋掉。**套之前再問一次准不准** —— 那一段在
+  // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
+  // 在確認框**之前**讀：確認框講的後果與真的寫下去的是同一份（ADR-0070）；
+  // 框開著的那幾秒被別台搶先，`ifUpdatedAt` 會擋下來、底下重讀。
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listByCustomer(visit.customerId);
+  } catch (err) {
+    toast.failed(`讀不到最新的資料：${err.message}`);
+    return;
+  }
+  const fresh = customerVisits.find((v) => v.id === visit.id);
+  if (!fresh || !visitActions(fresh, { today: todayISO(), slotIndex }).some((i) => i.id === action)) {
+    toast.info(`${Number.isInteger(slotIndex) ? '這一段' : '這一天'}剛剛在別的地方改過了，換成最新的樣子`);
+    await refreshAfterAction(el, backDate);
+    return;
+  }
+
   // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
   //
   // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`。以前兩邊
@@ -1165,9 +1187,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 整天狀態卡上，而那一塊整個拿掉了 —— 不搬的話 `cancelReason` 會變成
     // 一個再也沒有人寫得進去的欄位，稽核紀錄上從此只看得到「取消了」。
     const said = await confirmWithReason({
-      title: `取消${visit.customerName ?? ''}這一段？`,
+      title: `取消${fresh.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
-        visit,
+        visit: fresh,
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex,
@@ -1181,8 +1203,6 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   }
 
   try {
-    // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
-    const customerVisits = await visitsData.listByCustomer(visit.customerId);
     // **每一顆都只動她長按的那一段**（ADR-0097）。2026-09-16 之前只有取消
     // 那一條帶了 `slotIndex`，於是「客戶說可以」走下面那一行、
     // `applyStatus()` 的整天分支把那一天每一段都蓋成已確認 —— 她的原話：
@@ -1190,18 +1210,6 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    //
-    // **套在剛讀回來的那一份上，不是抽屜手上那一份**（prelaunch-audit-2026-09-23/issues/19）：
-    // 另一台在抽屜打開之後加的段接在尾巴（ADR-0091），`slotIndex` 指的還是同一段，
-    // 而整筆寫回去時那一段才不會被蓋掉。**套之前再問一次准不准** —— 那一段在
-    // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
-    const fresh = customerVisits.find((v) => v.id === visit.id);
-    const wanted = onlyOne ? 'cancel-slot' : action;
-    if (!fresh || !visitActions(fresh, { today: todayISO(), slotIndex }).some((i) => i.id === wanted)) {
-      toast.info('這一段剛剛在別的地方改過了，換成最新的樣子');
-      await refreshAfterAction(el, backDate);
-      return;
-    }
     const next = applyStatus(fresh, onlyOne ? 'cancelled' : action, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,

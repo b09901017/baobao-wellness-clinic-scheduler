@@ -702,7 +702,7 @@ function openDanger(ctx) {
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
     // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
-    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還佔著。規則在 `deleteBlockers()`
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`
     const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
     if (block.visits.length || block.tasks.length || block.notes.length) {
       const master = liveMaster(ctx);

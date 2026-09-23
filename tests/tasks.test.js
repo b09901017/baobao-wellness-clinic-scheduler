@@ -1077,6 +1077,13 @@ describe('掛號那一族逐段長', () => {
   });
   const kindsAt = (create) => create.filter((t) => !isCancelKind(t.kind)).map((t) => [t.kind, t.slotIndexes]);
 
+  test('來訪換了名字：沒做的任務跟著換，做完的留著當時的名字（改名的規則）', () => {
+    const v = { ...day([at('c-rehab', 'confirmed')]), customerName: '王大明' };
+    const existing = [reg('Examine', [0]), reg('耀聖', [0], { done: false, doneAt: null })];
+    const { update } = syncTasksForVisit(v, existing, cx);
+    assert.deepEqual(update.filter((u) => u.changes.customerName).map((u) => u.id), ['t-耀聖-0']);
+  });
+
   test('同一次存檔談定兩段 A 類 → Examine、耀聖各一張，蓋兩段', () => {
     const { create } = syncTasksForVisit(day([at('c-rehab', 'confirmed'), at('c-cardio', 'confirmed', '14:00')]), [], cx);
     assert.deepEqual(kindsAt(create), [['Examine', [0, 1]], ['耀聖', [0, 1]]]);

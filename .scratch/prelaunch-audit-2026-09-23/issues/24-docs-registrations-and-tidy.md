@@ -74,3 +74,19 @@ CLAUDE.md：「新長出來的連動關係要回來補進這張表 —— 不補
   `rebookSlot()` 的註解寫清楚不要改走 `applyStatus()`
 - E2E `33` 的 T3：清掉的掛號（帶 `slotIndexes`）→ 改期 → 新那一段確認 → 清掉的兩張不重長、新的那一段長自己的，
   而改期那一道講得出「會再多一張 Examine、一張耀聖」
+
+## 審查之後的微調（2026-09-23，`/matt-code-review develop...HEAD`）
+
+- 日曆長按：重讀挪到確認框**之前**，框講的後果與寫下去的是同一份（ADR-0070）；拿掉永遠等於 `action` 的 `wanted`；
+  沒指定段的那條路講「這一天」
+- **批次取消也套在剛讀回來的那一份上**（19 沒點名，但 CLAUDE.md 那一句是通則）：確認框之前重讀，選的段取消不掉了就講一句、
+  換成新的樣子。E2E `44` 的 S3d（沒修之前是「剛剛在別的地方被改過」）
+- 批次取消存到一半的那一句「N 筆來訪」→「N 天」（ADR-0087）
+- `syncTasksForVisit()` 的名字只對齊**還沒做的**任務 —— 16 讓過去的來訪也改名之後，結案那一下會把勾過的任務一起改名，
+  跟 09「做完的留著當時的名字」相反。`tests/tasks.test.js` 補一條
+- `seed-staging.mjs`：`registrationTasks()` 挪到 `makeCustomer()` 的 JSDoc 前面（15 疊出來的，跟 24 修的是同一個形狀）；
+  `taskLine()` 的新段落挪出 `@param visit`；`registrationsWhenSettled()` 補 `@param coursesById`；註解裡的「佔著」→「壓著」
+
+沒改、刻意的：三處「這一份舊了」的判斷各寫各的（日曆問 `visitActions()`、確認抽屜問抽屜上那幾段還是不是待確認、
+簽療程單問能不能結案＋段數）—— 三個問題本來就不一樣；`acceptsMoreSlots()` 拿來當「還沒結案」是 16、24 指名的；
+`listByVisitForSync` 讀不到當空陣列那三處各一行，不值得一支包裝。

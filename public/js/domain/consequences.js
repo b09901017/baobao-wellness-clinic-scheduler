@@ -55,6 +55,7 @@ const SHEET_LINE = '十秒後自動同步到試算表';
  * @param {object} visit
  * @param {number[]} indexes 會談定的是第幾段
  * @param {object[]} [tasks] 這一筆身上現有的任務（連軟刪除的，`listByVisitForSync()`）
+ * @param {Record<string, object>} [coursesById]
  * @returns {string[]} 任務種類，照 `newRegistrations()` 的順序
  */
 function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}) {

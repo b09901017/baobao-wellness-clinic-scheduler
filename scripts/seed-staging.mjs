@@ -183,13 +183,6 @@ function extraEntitlement(extra, { purchaseId, purchasedAt }) {
 }
 
 /**
- * 一位假客戶連同他的額度、來訪、任務、隨手記。
- *
- * 來訪的狀態**照日期判**，跟 `domain/mergeImport.js` 的 `statusFor()` 同一個
- * 判斷（ADR-0029）：過去的是已完成、未來的是已確認或待確認。
- * 隨手猜一個狀態出來的話，資料健檢會滿江紅，那份假資料就沒有人想用。
- */
-/**
  * 一筆種子來訪的登記任務。**照規則產生，不自己編一個 kind**：寫死一個種類正是
  * 2026-08-23 退休的「Abovee」還留在假資料裡的原因 —— 種子跟規則各寫一次，
  * 規則改了種子不會跟。
@@ -203,6 +196,13 @@ export function registrationTasks(vid, data, coursesById) {
     .map((t, k) => ({ id: `${vid}-task-${k}`, data: t }));
 }
 
+/**
+ * 一位假客戶連同他的額度、來訪、任務、隨手記。
+ *
+ * 來訪的狀態**照日期判**，跟 `domain/mergeImport.js` 的 `statusFor()` 同一個
+ * 判斷（ADR-0029）：過去的是已完成、未來的是已確認或待確認。
+ * 隨手猜一個狀態出來的話，資料健檢會滿江紅，那份假資料就沒有人想用。
+ */
 export function makeCustomer(i, today, { months }) {
   // 每一位自己一條序列（見 `rng()` 的說明）。
   const rand = rng(1000 + i);

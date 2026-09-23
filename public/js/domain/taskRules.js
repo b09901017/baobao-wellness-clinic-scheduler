@@ -399,7 +399,8 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
       changes.slotIndexes = alive;
     }
     if (t.dueDate !== want.dueDate) changes.dueDate = want.dueDate;
-    if ((t.customerName ?? null) !== (visit.customerName ?? null)) {
+    // 名字只對齊還沒做的 —— 做完的留著當時的名字（改名那一條規則，`renameTargets()`）
+    if (!t.done && (t.customerName ?? null) !== (visit.customerName ?? null)) {
       changes.customerName = visit.customerName ?? null;
     }
     if (Object.keys(changes).length) update.push({ id: t.id, changes });
@@ -692,15 +693,15 @@ function cancelTask(visit, kind, note, today, slotIndexes) {
  *（`cancelTask()` 在今天早於死線時直接用今天），反推出來的日期會有一部分
  * 是錯的，而錯的日期看起來跟對的一模一樣。
  *
- * @param {object} task
- * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
- *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
- *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
  * **帶 `slotIndexes` 的只講那幾段**（prelaunch-audit-2026-09-23/issues/21）：每一段「開始時間 名字」，
  * 幾段用「、」接（`10:00 門診、15:00 門診`）。同一天分兩次確認會有兩張 Examine（ADR-0107），
  * 逐段取消也是（ADR-0091）—— 印整筆的課程的話兩張長得一模一樣。取消類掛的是取消掉的段，
  * 所以**不濾取消的**。沒有 `slotIndexes`（舊任務、獨立待辦）照舊講整筆。
  *
+ * @param {object} task
+ * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
+ *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
+ *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
  * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
  *   （跟日曆同一種寫法），沒帶就退回時段上的快照（`visitCourseLabel()`）。
  * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}

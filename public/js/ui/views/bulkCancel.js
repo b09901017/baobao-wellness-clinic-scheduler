@@ -558,8 +558,23 @@ function toggleDay(date) {
  * （SPEC 第 6.9 節）。
  */
 async function run() {
-  const picked = rowsOfMonth().filter((r) => state.picked.has(r.key));
-  if (!picked.length) return;
+  const wanted = rowsOfMonth().filter((r) => state.picked.has(r.key)).map((r) => r.key);
+  if (!wanted.length) return;
+
+  // **套在剛讀回來的那一份上**（同日曆長按，prelaunch-audit-2026-09-23/issues/19）：另一台在
+  // 這一頁打開之後替同一天加的段接在尾巴（ADR-0091），整筆寫回去時才不會被蓋掉。在確認框
+  // 之前讀，確認框講的與寫下去的是同一份（ADR-0070）。她選的某一段在新的那一份裡已經
+  // 取消不掉了（別的地方取消或結案了）→ 不寫，講一句、換成新的樣子。讀不到就照手上那一份，
+  // `ifUpdatedAt` 照樣擋得住
+  const fresh = await visitsData.listByCustomer(state.customerId).catch(() => null);
+  if (fresh) ctx.visits = fresh;
+  const picked = rowsOfMonth().filter((r) => wanted.includes(r.key));
+  if (picked.length !== wanted.length) {
+    for (const key of wanted) if (!picked.some((r) => r.key === key)) state.picked.delete(key);
+    toast.info('有幾段剛剛在別的地方改過了，換成最新的樣子');
+    paint();
+    return;
+  }
 
   const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
 
@@ -627,7 +642,8 @@ async function run() {
     state.picked.clear();
   } catch {
     // 已經成功的那幾筆**留著**，講出還剩幾筆
-    if (saved.size) toast.info(`取消了 ${saved.size} 筆來訪，還有 ${byVisit.size - saved.size} 筆沒成功，再試一次`);
+    // 一筆來訪就是一天（ADR-0083）—— 畫面上的單位只有段與天（ADR-0087）
+    if (saved.size) toast.info(`取消了 ${saved.size} 天，還有 ${byVisit.size - saved.size} 天沒成功，再試一次`);
   }
 
   await loadVisits();
