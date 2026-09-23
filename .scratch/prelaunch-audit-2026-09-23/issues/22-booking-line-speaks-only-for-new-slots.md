@@ -39,4 +39,5 @@ ADR-0070：畫面上的後果只能講真的會發生的事，而且跟真的寫
 點下去才讀 `listByVisitForSync()`（讀不到當沒有）；來訪編輯器傳 `storedSlotCount` 之後那幾段與 `visitTasks(ctx.stored)`。
 `pendingRegistrations()` 沒人用了，刪掉（連它的測試；ADR-0081 那一條改成問 `confirmConsequences()`）。
 
-測試：`tests/consequences.test.js` 三條，每一條都跟「存下去 → 新的那幾段確認 → 真的長了什麼」直接比。
+測試：`tests/consequences.test.js` 三條，每一條都跟「存下去 → 新的那幾段確認 → 真的長了什麼」直接比；
+E2E `34` 的 C11（壓表那一頁真的點一次：加身體組成不講、再加門診才講；拿 22 之前的程式碼跑是紅的）。

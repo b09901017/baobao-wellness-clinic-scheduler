@@ -348,7 +348,7 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
     'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js', 'public/js/data/visits.js',
-    'public/js/domain/consequences.js', 'public/js/domain/visitTime.js',
+    'public/js/domain/consequences.js', 'public/js/domain/visitTime.js', 'public/js/ui/views/schedule.js',
   ],
   // 拿了舊的那一份去寫、去畫（prelaunch-audit-2026-09-23 的 03、04、10、18、19、20）
   '44-stale-copies': [
