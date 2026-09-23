@@ -240,12 +240,16 @@ export function renameTargets({ visits = [], tasks = [], notes = [] } = {}, toda
  *
  * - 還沒結案的來訪：待確認、已確認（已完成／未到／已取消是歷史，不擋）
  * - 還沒做的待辦
+ * - 還沒勾的隨手記，不管有沒有日期（她 2026-09-23，issues/17）：有日期的就是日曆上「待辦」
+ *   那一類（ADR-0044）與營養品提醒，沒日期的在隨手記那一頁掛著他的名字
  *
- * @returns {{visits: object[], tasks: object[]}}
+ * @returns {{visits: object[], tasks: object[], notes: object[]}}
  */
-export function deleteBlockers({ visits = [], tasks = [] } = {}) {
+export function deleteBlockers({ visits = [], tasks = [], notes = [] } = {}) {
+  const open = (x) => !x.deletedAt && !x.done;
   return {
-    visits: visits.filter((v) => !v.deletedAt && ['pending_confirm', 'confirmed'].includes(v.status)),
-    tasks: tasks.filter((t) => !t.deletedAt && !t.done),
+    visits: visits.filter((v) => !v.deletedAt && acceptsMoreSlots(v.status)),
+    tasks: tasks.filter(open),
+    notes: notes.filter(open),
   };
 }

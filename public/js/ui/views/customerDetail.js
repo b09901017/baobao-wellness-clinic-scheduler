@@ -703,33 +703,40 @@ function openDanger(ctx) {
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
     // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
     // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還佔著。規則在 `deleteBlockers()`
-    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks });
-    if (block.visits.length || block.tasks.length) {
+    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
+    if (block.visits.length || block.tasks.length || block.notes.length) {
       const master = liveMaster(ctx);
       const lineOf = (t) => {
         const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
         return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
       };
+      const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
+        n.date ? `・${shortDate(n.date)}` : ''}`;
+      // 「去批次取消」打開**今天以後最早**那一天的月份（issues/17）。已經過了、還沒結案的
+      // 那幾筆該去簽療程單 —— 擋著的全部都是那種時，這一顆本身就是錯的路
+      const ahead = block.visits.map((v) => v.date).filter((d) => d >= todayISO()).sort()[0];
       const goCancel = await confirmAction({
         title: `「${customer.name}」還刪不掉`,
         consequences: [
           ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
           ...block.tasks.map(lineOf),
+          ...block.notes.map(noteOf),
           '——',
           ...(block.visits.length
-            ? ['那幾段在 Abovee 上還佔著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
+            ? ['那幾段在 Abovee 上還壓著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
             : []),
           ...(block.tasks.length ? ['待辦做完勾掉'] : []),
+          ...(block.notes.length ? ['隨手記勾掉或刪掉'] : []),
           '都收掉之後再回來刪',
         ],
-        confirmLabel: block.visits.length ? '去批次取消' : '知道了',
+        confirmLabel: ahead ? '去批次取消' : '知道了',
         cancelLabel: '先不要',
       });
-      if (goCancel && block.visits.length) {
+      if (goCancel && ahead) {
         // 確認框收掉時排的那一趟 history.go() 回來之前換頁，會被它退掉（`whenSettled()`）
         closeSheet();
         await whenSettled();
-        openBulkCancel(ctx.id, block.visits.map((v) => v.date).sort()[0].slice(0, 7));
+        openBulkCancel(ctx.id, ahead.slice(0, 7));
         go('/schedule/cancel');
       }
       return;

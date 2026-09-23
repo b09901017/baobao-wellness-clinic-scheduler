@@ -450,6 +450,19 @@ describe('刪掉客戶之前還掛著他的事', () => {
 
   test('都收掉了 → 刪得掉', () => {
     const out = deleteBlockers({ visits: [{ id: 'd', status: 'done' }], tasks: [{ id: 't', done: true }] });
-    assert.equal(out.visits.length + out.tasks.length, 0);
+    assert.equal(out.visits.length + out.tasks.length + out.notes.length, 0);
+  });
+
+  // 17：她 2026-09-23「這位客戶身上所有還沒勾的都擋，不管有沒有日期」
+  test('還沒勾的隨手記也擋 —— 有日期的（日曆上的待辦、營養品提醒）與沒日期的都算', () => {
+    const out = deleteBlockers({
+      notes: [
+        { id: 'plain', done: false, date: null },
+        { id: 'dated', done: false, date: '2026-10-01' },
+        { id: 'ticked', done: true },
+        { id: 'gone', done: false, deletedAt: 'x' },
+      ],
+    });
+    assert.deepEqual(out.notes.map((n) => n.id), ['plain', 'dated']);
   });
 });

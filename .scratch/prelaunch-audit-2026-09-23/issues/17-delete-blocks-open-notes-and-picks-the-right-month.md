@@ -1,6 +1,6 @@
 # 刪客戶：還沒勾的隨手記也擋；「去批次取消」跳對月份
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）、08 的延伸
 動工前先讀：`issues/08`、`docs/adr/0109`、`domain/customers.js` 的 `deleteBlockers()`、
 `ui/views/customerDetail.js` 的 `openDanger()`（`[data-delete]` 那一段）、`ui/views/bulkCancel.js` 的 `openFor()`、
@@ -35,3 +35,15 @@ E2E `46-customer-rename-and-delete` 的 D3、D4
 - 擋著的是「上個月沒結案的一筆＋下個月一筆」→「去批次取消」打開的是**下個月**
 - 擋著的只有上個月沒結案的 → 按鈕是「知道了」，不換頁
 - `tests/customers.test.js` 補 `deleteBlockers()` 的隨手記；E2E 46 補隨手記與月份各一條
+
+## 做了什麼（2026-09-23）
+
+- `deleteBlockers({ visits, tasks, notes })` 多回 `notes`（還沒勾、沒刪的，不管有沒有日期）；來訪那一條改用 `acceptsMoreSlots()`
+  （24 點名的那一份重複順手收掉）。確認框多列 `隨手記「前 12 個字…」・日期`，尾巴多一句「隨手記勾掉或刪掉」
+- 月份：取擋著的來訪裡今天以後最早那一天；一筆都沒有 → 按鈕是「知道了」、不換頁。
+  查的時候發現批次取消其實**列得出**已經過了、還沒結案的那一段（`cancellableSlots()` 只看狀態不看日期）——
+  但確認框本來就請她把那一種拿去簽療程單，所以方向照舊
+- 「在 Abovee 上還佔著」改成「還壓著」（CONTEXT.md 把「佔位」列為 _Avoid_，24 點名的）
+- ADR-0109 與 CLAUDE.md「刪掉一位客戶」那一列直接改（同一支 PR 還沒合）
+
+測試：`tests/customers.test.js`、E2E `46` 的 D3b（隨手記）、D3c（跳下個月）、D3d（只有過去的 → 知道了）。

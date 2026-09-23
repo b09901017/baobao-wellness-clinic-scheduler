@@ -6,6 +6,7 @@ import { test, expect } from '../fixtures/app.js';
 import {
   masterDocs, customer, entitlement, visit, slot, task, note, TODAY, addDays,
 } from '../fixtures/data.js';
+import { seedDocs } from '../fixtures/emulator.js';
 
 const rehab = (startsAt) => ({
   ...slot({ courseId: 'course-rehab', entitlementId: 'ent-r', startsAt, endsAt: startsAt.replace(':00', ':30'), doctorId: 'staff-dr-xia' }),
@@ -111,6 +112,67 @@ test('D3 還有今天的來訪與沒做的待辦 → 刪不掉，列出來，一
   await expect(page.locator('#view'), '帶著那一位進來').toContainText('王小明');
   await expect(page.locator('#view'), '那一天那一段列著，勾得到').toContainText('14:00');
   expect((await app.readDoc('customers', 'cust-n')).deletedAt ?? null, '什麼都沒刪').toBeNull();
+});
+
+test('D3b 只有一則沒勾、沒日期的隨手記 → 刪不掉，列得出那一則；勾掉之後刪得掉（issues/17）', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-q', name: '客戶A', phone: '0900000000' }),
+    note({ id: 'n-q', text: '問他要不要加購', customerId: 'cust-q', customerName: '客戶A' }),
+  ]);
+  await app.signIn('/customers/cust-q');
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  const said = await app.dialogText();
+  expect(said).toContain('還刪不掉');
+  expect(said).toContain('隨手記「問他要不要加購」');
+  await expect(page.locator('.dialog-backdrop [data-ok]'), '沒有來訪就沒有批次取消可去').toHaveText('知道了');
+  await app.ok();
+  expect((await app.readDoc('customers', 'cust-q')).deletedAt ?? null).toBeNull();
+
+  await seedDocs([note({ id: 'n-q', text: '問他要不要加購', customerId: 'cust-q', customerName: '客戶A', done: true, doneAt: TODAY })]);
+  await app.reload();
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  await expect(app.dialog()).toContainText('標記刪除');
+});
+
+test('D3c 擋著的是上個月沒結案的一筆＋下個月一筆 →「去批次取消」打開下個月（issues/17）', async ({ app, page }) => {
+  const nextMonth = '2026-09-10';
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-q', name: '客戶A', phone: '0900000000' }),
+    visit({ id: 'v-old', customerId: 'cust-q', customerName: '客戶A', date: addDays(TODAY, -7), status: 'confirmed', slots: [rehab('10:00')] }),
+    visit({ id: 'v-next', customerId: 'cust-q', customerName: '客戶A', date: nextMonth, status: 'confirmed', slots: [rehab('16:00')] }),
+  ]);
+  await app.signIn('/customers/cust-q');
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  await expect(page.locator('.dialog-backdrop [data-ok]')).toHaveText('去批次取消');
+  await app.ok();
+
+  await expect(page).toHaveURL(/#\/schedule\/cancel$/);
+  await app.settled();
+  await expect(page.locator('#view'), '下個月那一段').toContainText('16:00');
+  await expect(page.locator('#view'), '不是已經過了的那個月').not.toContainText('10:00');
+});
+
+test('D3d 擋著的只有已經過了、還沒結案的 → 按鈕是「知道了」，不換頁（issues/17）', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-q', name: '客戶A', phone: '0900000000' }),
+    visit({ id: 'v-old', customerId: 'cust-q', customerName: '客戶A', date: addDays(TODAY, -7), status: 'confirmed', slots: [rehab('10:00')] }),
+  ]);
+  await app.signIn('/customers/cust-q');
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  expect(await app.dialogText()).toContain('簽療程單');
+  await expect(page.locator('.dialog-backdrop [data-ok]')).toHaveText('知道了');
+  await app.ok();
+  await expect(page).toHaveURL(/#\/customers\/cust-q/);
 });
 
 test('D4 身上沒有還掛著的事 → 照舊刪得掉', async ({ app, page }) => {
