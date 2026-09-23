@@ -347,6 +347,11 @@ export const COVERAGE = {
     'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js', 'public/js/data/visits.js',
   ],
+  // 拿了舊的那一份去寫、去畫（prelaunch-audit-2026-09-23 的 03、04、10）
+  '44-stale-copies': [
+    'public/js/data/visits.js', 'public/js/ui/toast.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

@@ -138,7 +138,9 @@ export async function save(visit, customerVisits = []) {
 
   const ops = [
     previous
-      ? { op: 'update', path: PATH, id, changes: payloadOf(next) }
+      // **手上那一份是什麼時候讀的一起帶下去**：整筆寫回去會把別的地方剛加的那一段蓋掉，
+      // `repo.commit()` 看到文件在那之後被改過就不寫（prelaunch-audit-2026-09-23/issues/04）
+      ? { op: 'update', path: PATH, id, changes: payloadOf(next), ifUpdatedAt: visit.updatedAt ?? null }
       : { op: 'create', path: PATH, id, data: payloadOf(next) },
     ...countOps(visit.customerId, [previous, next], after),
     ...(await taskOps(next, { isNew: !previous, visitsAfter: after })),

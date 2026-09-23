@@ -1,6 +1,6 @@
 # 拿畫面上的舊來訪去改，會蓋掉別台剛存的
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`data/visits.js` 的 `save()`（整筆 `update` 寫回去）、`data/repo.js` 的 `commit()`
 相關：03、10
