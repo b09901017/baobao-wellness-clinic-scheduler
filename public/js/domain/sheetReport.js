@@ -23,6 +23,7 @@ import { pairsOf } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
+import { chartNosOf } from './identify.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
@@ -299,6 +300,44 @@ export const SYNC_FORMAT = 5;
  * @param {object} [ctx.master] config.loadAll() 的結果，用來把 id 換成名字（治療師在 staff 底下）
  * @param {string} [ctx.generatedAt]
  */
+/**
+ * 每一位客戶在試算表上那一張分頁叫什麼。**只有真的撞名的那幾位加尾巴**，其餘一個字都不變。
+ *
+ * 分頁名就是客戶名（`.gs` 的 `sheetNameFor()`），而同名只提醒、照樣存得下去（ADR-0102）——
+ * 第二位會把第一位剛畫好的那一張清掉重畫（prelaunch-audit-2026-09-23/issues/06）。
+ * 尾巴先用病歷號（她認得），沒有或也撞了就用 id 的前幾碼。**每次推都要一樣**，
+ * 不然 `removeStaleSheets()` 每次都刪掉重建 —— 所以不能用排序的位置。
+ *
+ * 分頁名最長 90 字：尾巴接在截過的名字後面，截字不會把兩位截回同一個。
+ *
+ * ponytail: 比的是去掉頭尾空白的名字，不是 `.gs` 換掉 `/:*?[]'` 之後的 ——
+ * 「A/B」與「A-B」兩位還是會撞，真的遇到再照 `sheetNameFor()` 的規則比。
+ *
+ * @returns {Map<string, string>} 客戶 id → 分頁名
+ */
+function sheetNames(customers) {
+  const byName = new Map();
+  for (const c of customers) {
+    const key = String(c.name ?? '').trim();
+    byName.set(key, [...(byName.get(key) ?? []), c]);
+  }
+  const out = new Map();
+  for (const [name, group] of byName) {
+    if (group.length === 1) {
+      out.set(group[0].id, group[0].name ?? '');
+      continue;
+    }
+    const firstNo = (c) => chartNosOf(c)[0] ?? null;
+    const nos = group.map(firstNo);
+    for (const c of group) {
+      const no = firstNo(c);
+      const tail = no && nos.filter((x) => x === no).length === 1 ? no : String(c.id).slice(0, 6);
+      out.set(c.id, `${name.slice(0, 88 - tail.length)}（${tail}）`);
+    }
+  }
+  return out;
+}
+
 export function syncBundle({
   customers = [], entitlementsBy = {}, visitsBy = {}, tasksBy = {}, today,
   master = {}, generatedAt = '',
@@ -316,6 +355,7 @@ export function syncBundle({
     .slice()
     .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-TW'));
 
+  const tabName = sheetNames(sorted);
   const sheets = sorted.map((customer) => {
     const visits = (visitsBy[customer.id] ?? [])
       .filter((v) => isActive(v) && isValidDate(v.date));
@@ -363,7 +403,7 @@ export function syncBundle({
       .filter((x) => x.cells.length);
 
     return {
-      name: customer.name ?? '',
+      name: tabName.get(customer.id),
       source: customer.source ?? '',
       membershipExpiresAt: customer.membershipExpiresAt ?? '',
       flags: customer.flags ?? [],

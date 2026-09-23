@@ -1,6 +1,6 @@
 # 同名客戶在試算表上互相蓋掉
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/adr/0102`（同名只提醒、照樣存得下去）、`domain/sheetReport.js` 的 `syncBundle()`、
 `sheets/readonly-report.gs` 的 `sheetNameFor()`／`resetSheet()`／`removeStaleSheets()`、
@@ -37,3 +37,9 @@ CLAUDE.md「試算表的 `SYNC_FORMAT`」那一列
 - 兩位同名：試算表上兩張分頁，各自的額度與來訪對得上
 - 只有一位叫那個名字：分頁名跟以前一模一樣
 - 推第二次：兩張分頁都還在（沒有被當成過期的刪掉又長回來）
+
+## 做了什麼（2026-09-23）
+
+選了**只改 `name` 的值、不升 `SYNC_FORMAT`** 那一條 —— 她不用回試算表重貼 `.gs`。
+`syncBundle()` 裡的 `sheetNames()`：只有撞名的那幾位加尾巴（先病歷號，沒有或也撞了就用 id 前 6 碼），
+分頁抬頭也跟著印有尾巴的那一個（剛好讓她分得出是哪一位）。單元測試在 `tests/sheet-script.test.js`（跑真的 `.gs`）。

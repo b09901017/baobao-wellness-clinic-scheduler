@@ -524,3 +524,41 @@ test('`.gs` 的 SUPPORTED_FORMAT 要跟 app 的 SYNC_FORMAT 一樣', () => {
     '改了 SYNC_FORMAT 就要一起改 `.gs`，而且她要回試算表重新部署那份指令碼',
   );
 });
+
+// ---------- 同名客戶（prelaunch-audit-2026-09-23/issues/06） ----------
+//
+// 分頁名就是客戶名。新增頁對同名只提醒、照樣存得下去（ADR-0102），於是第二位的
+// resetSheet() 找到剛畫好的那一張、整張清掉重畫 —— 回報卻是 `sheets: 2`。
+
+describe('同名的客戶各自一張分頁', () => {
+  const twins = (customers) => syncBundle({
+    customers,
+    entitlementsBy: {}, visitsBy: {}, tasksBy: {},
+    today: '2026-08-10', generatedAt: 'x', master: {},
+  });
+
+  test('兩位同名 → 兩張分頁，推第二次兩張都還在', () => {
+    const b = twins([
+      { id: 'aaaa1111', name: '王小明', notes: '病歷號 1234' },
+      { id: 'bbbb2222', name: '王小明' },
+      { id: 'cccc3333', name: '客戶A' },
+    ]);
+    const app = loadAppsScript();
+    assert.equal(app.post({ token: 'secret', bundle: b }).ok, true);
+    const names = () => app.ss.getSheets().map((s) => s.name).filter((n) => !n.startsWith('_')).sort();
+    const first = names();
+    assert.equal(first.filter((n) => n.startsWith('王小明')).length, 2, first.join('、'));
+    assert.ok(first.includes('客戶A'), '只有一位叫那個名字：分頁名一個字都不變');
+
+    assert.equal(app.post({ token: 'secret', bundle: b }).ok, true);
+    assert.deepEqual(names(), first, '尾巴每次推都一樣，不會被當成過期的刪掉');
+  });
+
+  test('尾巴先用病歷號，沒有就用 id 的前幾碼', () => {
+    const b = twins([
+      { id: 'aaaa1111', name: '王小明', notes: '病歷號 1234' },
+      { id: 'bbbb2222', name: '王小明' },
+    ]);
+    assert.deepEqual(b.sheets.map((s) => s.name).sort(), ['王小明（1234）', '王小明（bbbb22）'].sort());
+  });
+});
