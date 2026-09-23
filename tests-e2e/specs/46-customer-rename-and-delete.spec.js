@@ -52,6 +52,32 @@ test('D1 改名 → 今天的來訪、還沒做的待辦、隨手記一起換；
   await expect(page.locator('#view')).not.toContainText('王小明');
 });
 
+test('D1b 改名 → 結案昨天還沒結案那一筆 → 待辦與新長的「寫紀錄」還是新名字（issues/16）', async ({ app, page }) => {
+  const yesterday = addDays(TODAY, -1);
+  await app.seed([
+    ...seedPerson(),
+    visit({ id: 'v-y', customerId: 'cust-n', customerName: '王小明', date: yesterday, status: 'confirmed', slots: [rehab('10:00')] }),
+    task({ id: 't-y', customerId: 'cust-n', customerName: '王小明', kind: 'Examine', dueDate: addDays(yesterday, -1), visitId: 'v-y' }),
+  ]);
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-edit]').click();
+  await app.settled();
+  await page.locator('input[name="name"]').fill('王大明');
+  await page.locator('button[type="submit"]').click();
+  await app.saved();
+  expect((await app.readDoc('visits', 'v-y')).customerName, '還沒結案的不算歷史').toBe('王大明');
+
+  await app.go('/todo/close');
+  await page.locator('[data-open="v-y"]').click();
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  const tasks = (await app.readAll('tasks')).filter((t) => t.visitId === 'v-y' && !t.deletedAt);
+  expect(tasks.map((t) => t.kind).sort()).toEqual(['Examine', '寫紀錄']);
+  for (const t of tasks) expect(t.customerName, t.kind).toBe('王大明');
+});
+
 test('D2 改成跟另一位一樣的名字 → 同名那一句照樣問', async ({ app, page }) => {
   await app.seed([...seedPerson(), customer({ id: 'cust-other', name: '客戶A', phone: '0911111111' })]);
   await app.signIn('/customers/cust-n');

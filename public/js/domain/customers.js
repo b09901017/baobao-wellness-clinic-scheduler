@@ -6,6 +6,7 @@
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
 import { clinicalTerms } from './masterData.js';
+import { acceptsMoreSlots } from './visits.js';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -207,6 +208,10 @@ export function splitFlags(customer, clinicalFlags = []) {
  * - **今天以後的來訪、還沒做的任務、還沒勾的隨手記**一起換
  * - 過去的來訪與做完的留著當時的名字（那是歷史）
  *
+ * **過去的來訪還掛著沒做完的事就不算歷史**（她 2026-09-23，issues/16）：還沒結案（待確認、已確認），
+ * 或身上有一張還沒做的任務。不換的話，那一筆一結案 `syncTasksForVisit()` 就把任務的名字
+ * 對齊來訪身上那一份 —— 待辦變回舊名字，新長的「寫紀錄」也是舊名字。
+ *
  * 壓表批次的卡片不在這裡：它畫的時候就拿客戶本人的名字蓋掉佇列上那一份（`mergeIntoQueue()`）。
  *
  * @param {{visits?: object[], tasks?: object[], notes?: object[]}} own 這位客戶的
@@ -216,8 +221,10 @@ export function splitFlags(customer, clinicalFlags = []) {
  */
 export function renameTargets({ visits = [], tasks = [], notes = [] } = {}, today, name) {
   const stale = (x) => !x.deletedAt && (x.customerName ?? null) !== name;
+  const openWork = new Set(tasks.filter((t) => !t.done && !t.deletedAt).map((t) => t.visitId));
+  const live = (v) => v.date >= today || acceptsMoreSlots(v.status) || openWork.has(v.id);
   return [
-    ...visits.filter((v) => stale(v) && v.date >= today).map((v) => ({ path: 'visits', id: v.id })),
+    ...visits.filter((v) => stale(v) && live(v)).map((v) => ({ path: 'visits', id: v.id })),
     ...tasks.filter((t) => stale(t) && !t.done).map((t) => ({ path: 'tasks', id: t.id })),
     ...notes.filter((n) => stale(n) && !n.done).map((n) => ({ path: 'notes', id: n.id })),
   ];

@@ -1356,7 +1356,8 @@ function paintEdit(ctx) {
     if (errors.length) return;
 
     // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
-    // 而且今天以後的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 —— 規則在 `renameTargets()`
+    // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
+    // 規則在 `renameTargets()`
     const renamed = changes.name !== (ctx.customer.name ?? '');
     if (renamed) {
       const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;

@@ -1,6 +1,6 @@
 # 改名：還掛著沒做完的事的那幾筆來訪，不管日期一起換
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）、09 的延伸
 動工前先讀：`issues/09`、`domain/customers.js` 的 `renameTargets()`、`domain/taskRules.js` 的 `syncTasksForVisit()`
 （把任務名字對齊來訪那一行）、`ui/views/customerDetail.js` 的 `ownSnapshots()`、E2E `46-customer-rename-and-delete` 的 D1、D2
@@ -39,3 +39,10 @@ Status: todo
 - 一筆已完成、沒有待辦的上個月來訪：改名之後還是客戶A（歷史）
 - 一筆上個月的已完成來訪、身上還掛著一張沒勾的「寫紀錄」：改名之後來訪與待辦都是王大明
 - `tests/customers.test.js` 補這三條；E2E 46 補一條「改名 → 結案昨天那一筆 → 待辦還是新名字」
+
+## 做了什麼（2026-09-23）
+
+`renameTargets()` 的來訪那一條改成：今天以後的，**或**還沒結案的（`acceptsMoreSlots()`），**或**身上有一張沒做、沒刪的任務。
+已結案、沒有沒做完的任務的過去來訪照舊不換。註解與 CLAUDE.md「客戶改名」那一列跟著改（SPEC 那一節在 24 一起改）。
+
+測試：`tests/customers.test.js` 三條、E2E `46` 的 D1b（改名 → 結案昨天那一筆 → Examine 與新長的「寫紀錄」都是新名字；沒修之前是舊名字）。

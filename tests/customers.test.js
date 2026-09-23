@@ -371,7 +371,7 @@ describe('改名時一起換的快照', () => {
   test('今天以後的來訪、還沒做的任務、還沒勾的隨手記', () => {
     const out = renameTargets({
       visits: [
-        { id: 'past', date: '2026-09-22', customerName: '王小明' },
+        { id: 'past', date: '2026-09-22', status: 'done', customerName: '王小明' },
         { id: 'today', date: today, customerName: '王小明' },
         { id: 'later', date: '2026-10-01', customerName: '王小明' },
         { id: 'gone', date: '2026-10-02', customerName: '王小明', deletedAt: 'x' },
@@ -390,6 +390,32 @@ describe('改名時一起換的快照', () => {
       { path: 'tasks', id: 'open' },
       { path: 'notes', id: 'n-open' },
     ]);
+  });
+
+  // 16：「還掛著沒做完的事」的那幾筆不管日期一起換 —— 它們還不算歷史。不換的話
+  // 結案那一下 `syncTasksForVisit()` 把任務名字對齊來訪身上那一份，待辦又變回舊名字
+  test('昨天還沒結案的那一筆一起換', () => {
+    const out = renameTargets({
+      visits: [{ id: 'y', date: '2026-09-22', status: 'confirmed', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'y', kind: 'Examine', done: false, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, [{ path: 'visits', id: 'y' }, { path: 'tasks', id: 't' }]);
+  });
+
+  test('上個月已完成、身上沒有待辦的 → 留著當時的名字', () => {
+    const out = renameTargets({
+      visits: [{ id: 'old', date: '2026-08-20', status: 'done', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'old', kind: '寫紀錄', done: true, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, []);
+  });
+
+  test('上個月已完成、身上還掛著一張沒勾的「寫紀錄」→ 來訪與待辦都換', () => {
+    const out = renameTargets({
+      visits: [{ id: 'old', date: '2026-08-20', status: 'done', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'old', kind: '寫紀錄', done: false, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, [{ path: 'visits', id: 'old' }, { path: 'tasks', id: 't' }]);
   });
 
   test('已經是新名字的不用再寫一次', () => {
