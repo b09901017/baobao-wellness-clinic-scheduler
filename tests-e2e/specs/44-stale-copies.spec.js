@@ -107,3 +107,23 @@ test('S3 同一筆額度兩天待確認，退掉比較早那一天 → 已排只
   const ent = await app.readDoc('customers/cust-s/entitlements', 'ent-inbody');
   expect(ent.bookedCount, '存第二天時拿的是第一天還沒退掉的那一份').toBe(1);
 });
+
+// ---------- 10：按了「復原」，開著的那一天抽屜還是舊資料 ----------
+
+test('S4 長按說可以 → 復原 → 同一天的抽屜還開著，而且那一段又是待確認', async ({ app, page }) => {
+  await app.seed(seedOneSlot());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await longPressRow(page, 0);
+  await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+  await app.saved();
+  await page.locator('#toast [data-undo]').click();
+  await expect(page.locator('#toast')).toContainText('已復原');
+  expect((await app.readDoc('visits', 'v-s')).slots[0].status).toBe('pending_confirm');
+
+  await expect(page.locator('[data-open^="visit:v-s:"]'), '停在同一天').toHaveCount(1);
+  await expect(page.locator('.timerow.status-pending'), '抽屜上那一段畫的是復原之後的').toHaveCount(1);
+  await longPressRow(page, 0);
+  await expect(page.locator('.drawer--actions')).toContainText('客戶說可以');
+});

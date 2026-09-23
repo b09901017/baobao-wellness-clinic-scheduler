@@ -53,7 +53,7 @@ import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
 import { cancelConsequences } from '../../domain/consequences.js';
 import { confirmAction, confirmWithReason } from '../components/dialog.js';
 import * as toast from '../toast.js';
-import { openSheet, closeSheet } from '../components/sheet.js';
+import { openSheet, closeSheet, isSheetOpen } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
@@ -64,7 +64,9 @@ import { tip } from '../components/tip.js';
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
 // `data` 是最後一次畫出來的那一份。長按改完狀態之後要重讀再把同一天重開 ——
 // 而 `openDay()` 需要一份新的資料（ADR-0020：她的下一個動作八成是看同一天的別筆）。
-const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null };
+// `openDay`：開著的那一天抽屜（`{ date }`，`openDay()` 設、那一張關掉時清）。比的是物件本身
+// 不是日期 —— 抽屜收起來的動畫播完才叫 `onClose`，那時候同一天的新抽屜可能已經開了。
+const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null, openDay: null };
 
 /**
  * 從別的畫面指定「進日曆時停在哪一天」（那一格標著）。拍 Abovee 那一層的「對不上」連過來用
@@ -94,6 +96,11 @@ let epoch = 0;
 
 export async function render(el) {
   const mine = ++epoch;
+  // **重畫的時候那一天的抽屜還開著**，只有一條路：按了 toast 上的「復原」（`router.reload()`）。
+  // 抽屜手上那一份 `data` 是打開那一刻傳進去的，不換掉的話長按選單還以為那一段是
+  // 復原之前的樣子（prelaunch-audit-2026-09-23/issues/10）。畫完之後照
+  // `refreshAfterAction()` 的作法收掉、開回同一天。
+  const reopen = isSheetOpen() ? state.openDay?.date : null;
   state.date ??= todayISO();
   el.innerHTML = '<p class="muted">載入中…</p>';
 
@@ -105,6 +112,12 @@ export async function render(el) {
     return;
   }
   paint(el, result.value);
+  // 直接換一張（`openSheet()` 自己會把上一張不播動畫地拿掉）—— 兩張同時在畫面上滑，
+  // 長按會落在正在收起來的那一張上
+  if (reopen && state.data) {
+    closeCard();
+    openDay(el, state.data, reopen);
+  }
 }
 
 /**
@@ -733,9 +746,14 @@ function openDay(el, data, date) {
     // 空的那一天要講的那句話搬進 dayHtml() 的空狀態裡。
     body: dayHtml(data, date, today),
     tools: addMenuHtml(),
-    onClose: closeCard,
+    onClose: () => {
+      if (state.openDay === mine) state.openDay = null;
+      closeCard();
+    },
     onMount: wireRows,
   });
+  const mine = { date };
+  state.openDay = mine;
 
   /**
    * 那一天就地重畫。**讀的是抽屜手上那一份 `data`**，不是 `state.data`
