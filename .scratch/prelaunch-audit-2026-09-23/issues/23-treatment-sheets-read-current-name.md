@@ -1,6 +1,6 @@
 # 改名時療程單那一頁跟著變，表單邀請不變
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）、09 的延伸
 動工前先讀：`issues/09`、`domain/treatmentSheets.js` 的 `compareAll()`、`ui/views/treatmentSheets.js` 的 `compareEveryone()`、
 `domain/availabilityForm.js` 的 `newInvite()`、`data/publicForm.js`
@@ -32,3 +32,11 @@ Status: todo
 - 客戶A 有一張療程單 → 改名王大明 →「全部比對一次」那一塊印王大明，而且照王大明排序
 - 客戶A 有一份這個月的表單邀請 → 改名之後打開那張表單，還是客戶A
 - `tests/treatment-sheets.test.js` 補一條
+
+## 做了什麼（2026-09-23）
+
+- `compareAll(sheets, visits, master, customers)`：名字從客戶本人查，查不到才退回療程單上的快照，排序跟著用現在的名字；
+  `ui/views/treatmentSheets.js` 把 `data.customers`（那一頁本來就讀了）傳進去。那一頁其他地方本來就讀本人
+- 表單邀請一行程式都沒改；CLAUDE.md「客戶改名」那一列寫清楚療程單讀本人、**表單邀請刻意不換**與理由
+
+測試：`tests/treatment-compare.test.js`（`compareAll()` 的測試在這一支，不在 `treatment-sheets.test.js`）。

@@ -467,14 +467,24 @@ export function compareLine({ to = null, matched = 0, issues = [] } = {}) {
  * 「全部比對一次」：每一位的每一張，只留有要看的那幾位（照名字排）。**不是自動跑的** ——
  * 她兩三個月拍一次，不值得每次打開那一頁都讀一輪來訪。
  *
+ * **名字讀客戶本人的**，查不到才退回療程單上的快照（prelaunch-audit-2026-09-23/issues/23）——
+ * 改名之後主清單早就是新名字，這一塊印舊的就是兩個人。
+ *
+ * @param {object[]} [customers] 客戶清單（拿名字）
  * @returns {{customerId: string, customerName: string, issues: number, sheets: object[]}[]}
  */
-export function compareAll(sheets = [], visits = [], master = {}) {
+export function compareAll(sheets = [], visits = [], master = {}, customers = []) {
+  const nameOf = new Map((customers ?? []).map((c) => [c.id, c.name]));
   const people = new Map();
   for (const sheet of (sheets ?? []).filter((s) => s && !s.deletedAt)) {
     const r = compareSheet(sheet, visits, master);
     if (!r.issues.length) continue;
-    const p = people.get(sheet.customerId) ?? { customerId: sheet.customerId, customerName: sheet.customerName ?? '', issues: 0, sheets: [] };
+    const p = people.get(sheet.customerId) ?? {
+      customerId: sheet.customerId,
+      customerName: nameOf.get(sheet.customerId) ?? sheet.customerName ?? '',
+      issues: 0,
+      sheets: [],
+    };
     p.issues += r.issues.length;
     p.sheets.push({ ...r, courseName: sheet.courseName ?? '' });
     people.set(sheet.customerId, p);

@@ -298,7 +298,7 @@ async function compareEveryone(el, data, button) {
   holder.innerHTML = '<p class="tsheets__empty">讀取中…</p>';
   try {
     const visits = await visitsData.listBetween(dates[0], dates[dates.length - 1]);
-    const people = compareAll(data.sheets, visits, data.master);
+    const people = compareAll(data.sheets, visits, data.master, data.customers);
     holder.innerHTML = people.length
       ? `<p class="tsheets__label tsheets__label--look">比對：有要你看的 ${people.length} 位</p><ul class="tsheets__people tsheets__people--look">${people.map((p) => `
           <li><a class="tsheets__person" href="#/settings/treatment-sheets/${encodeURIComponent(p.customerId)}" data-sheet-look="${esc(p.customerId)}">
