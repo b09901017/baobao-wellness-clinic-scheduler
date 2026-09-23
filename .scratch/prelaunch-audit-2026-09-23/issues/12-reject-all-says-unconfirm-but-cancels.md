@@ -1,6 +1,6 @@
 # 確認抽屜的「全部退回未確認」其實是取消
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`ui/views/home.js` 的 `drawerHtml()`（`:2906-2907` 那三種字）與 `applyConfirm()`、
 `domain/visits.js` 的 `applyConfirmation()`、`domain/consequences.js`、`docs/adr/0070`、`CONTEXT.md`（用詞）

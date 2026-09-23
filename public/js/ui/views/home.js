@@ -45,7 +45,7 @@ import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
-import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
+import { confirmConsequences, closeConsequences, cancelConsequences } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
@@ -2855,11 +2855,6 @@ function drawerHtml(ctx) {
     pendingSlotsOf(v).map(({ slot, index }) => ({ visit: v, slot, key: `${v.id}:${index}` })),
   );
   const okCount = rows.filter((r) => !drawer.rejected.has(r.key)).length;
-  // 已經談定、所以不在這一張上的那幾段。有它們的話「全部退回未確認」是假話 ——
-  // 那幾段不會被動到（`applyConfirmation()` 只改這一張上的那幾格）。
-  const settled = visits.some(
-    (v) => (v.slots ?? []).some((sl) => slotStatus(v, sl) === 'confirmed'),
-  );
   const note = followupNoteOf(visits);
 
   return `
@@ -2904,7 +2899,9 @@ function drawerHtml(ctx) {
           <button class="btn btn--primary" type="button" data-apply>
             ${okCount
               ? `確認 ${okCount} 段，加進日曆`
-              : (settled ? `退掉這 ${rows.length} 段` : '全部退回未確認')}</button>
+              // **講實話：這是取消**（標成取消、長「取消 Abovee」）。以前寫「全部退回未確認」，
+              // 讀起來像「先放回去之後再問」（prelaunch-audit-2026-09-23/issues/12）
+              : `客人都不行，取消這 ${rows.length} 段`}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
@@ -3024,14 +3021,41 @@ async function openNotesFor(customerId) {
  *
  * - 一整天都被退掉 → 那一筆轉 cancelled，**時段留著不刪** ——
  *   當初壓了什麼是要留下來的紀錄，而且 Rules 也不收沒有時段的來訪。
- * - 只退掉其中幾段 → 把那幾段移出來訪，其餘轉 confirmed。
+ * - 只退掉其中幾段 → 那幾段標成取消（ADR-0081），其餘轉 confirmed。
  *   任務會跟著收（見 domain/taskRules.js 的規則矩陣）。
+ * - 抽屜上一段「可以」都沒有 → 全部是取消，而且給不出復原，所以先問一次。
  * - 一段都沒退 → 整筆轉 confirmed。
  */
 async function applyConfirm(ctx) {
   const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
   const rejected = drawer.rejected;
   const at = new Date().toISOString();
+
+  // **一段「可以」都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
+  // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
+  // 同批次取消那一頁的作法（逐筆算完去重），不在這裡另寫一份（ADR-0070）。
+  const pending = visits.map((v) => ({ v, at: pendingSlotsOf(v).map(({ index }) => index) }))
+    .filter(({ at }) => at.length);
+  const count = pending.reduce((n, { at }) => n + at.length, 0);
+  if (count && pending.every(({ v, at }) => at.every((i) => rejected.has(`${v.id}:${i}`)))) {
+    const said = new Set();
+    for (const { v, at } of pending) {
+      // 讀不到任務就少講那幾句，不擋（同日曆的取消那一道）
+      const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
+      const lines = cancelConsequences({
+        visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: at,
+        sheetSyncOn: isConfigured(ctx.settings),
+      });
+      for (const line of lines) said.add(line);
+    }
+    const ok = await confirmAction({
+      title: `客人都不行，取消這 ${count} 段？`,
+      consequences: [...said],
+      confirmLabel: `取消這 ${count} 段`,
+      danger: true,
+    });
+    if (!ok) return;
+  }
 
   let customerVisits = await visitsData.listByCustomer(drawer.customerId);
 

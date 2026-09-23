@@ -211,8 +211,11 @@ test('C7 把抽屜上僅剩那一段退掉：講的是退掉，上午那一段�
 
   await page.locator('[data-open="cust-x"]').click();
   await page.locator('.drawer .slotrow').first().click();
-  await expect(page.locator('[data-apply]')).toContainText('退掉這 1 段');
+  // 一段「可以」都沒有就是取消，不可逆 —— 先問一次（prelaunch-audit-2026-09-23/issues/12）
+  await expect(page.locator('[data-apply]')).toContainText('取消這 1 段');
   await page.locator('[data-apply]').click();
+  await expect(app.dialog(), '上午那一段不受影響').toContainText('剩下的 1 段不受影響');
+  await app.ok();
   await app.saved();
 
   // 整筆停在「已確認」（上午那一段談定了），但她這一下退掉的是這張上的全部
@@ -221,6 +224,34 @@ test('C7 把抽屜上僅剩那一段退掉：講的是退掉，上午那一段�
 
   const saved = await app.readDoc('visits', 'v-two');
   expect(saved.slots.map((s) => s.status)).toEqual(['confirmed', 'cancelled']);
+});
+
+// 以前寫「全部退回未確認」，按下去卻是整天取消、時段放出去、長「取消 Abovee」，
+// 而且沒有再問一次（prelaunch-audit-2026-09-23/issues/12）。
+test('C8 抽屜上每一段都是「客人說不行」：按鈕講取消，先問一次，講得出會長「取消 Abovee」', async ({ app, page }) => {
+  await app.seed(seedTwoSlots());
+  await app.signIn('/');
+  await app.go('/todo/confirm');
+
+  await page.locator('[data-open="cust-x"]').click();
+  await page.locator('.drawer .slotrow').nth(0).click();
+  await page.locator('.drawer .slotrow').nth(1).click();
+  await expect(page.locator('[data-apply]')).toContainText('客人都不行，取消這 2 段');
+  await expect(page.locator('[data-apply]')).not.toContainText('退回');
+
+  await page.locator('[data-apply]').click();
+  await expect(app.dialog()).toContainText('取消 Abovee');
+  await expect(app.dialog()).toContainText('那一天就整個取消了');
+  await app.cancelDialog();
+  expect((await app.readDoc('visits', 'v-two')).status, '按「先不要」什麼都沒寫').toBe('pending_confirm');
+
+  await page.locator('[data-apply]').click();
+  await app.ok();
+  await app.saved();
+  const saved = await app.readDoc('visits', 'v-two');
+  expect(saved.slots.map((sl) => sl.status)).toEqual(['cancelled', 'cancelled']);
+  const kinds = (await app.readAll('tasks')).filter((t) => !t.deletedAt).map((t) => t.kind);
+  expect(kinds).toContain('取消 Abovee');
 });
 
 // ---------- 04：那一段確認了，那一段的掛號才長出來 ----------
