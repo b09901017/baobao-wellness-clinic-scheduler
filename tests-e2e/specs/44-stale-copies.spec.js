@@ -5,6 +5,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
+import { seedDocs } from '../fixtures/emulator.js';
 
 const rehab = (startsAt, status = 'pending_confirm') => ({
   ...slot({ courseId: 'course-rehab', entitlementId: 'ent-rehab', startsAt, endsAt: startsAt.replace(':00', ':30') }),
@@ -42,13 +43,12 @@ async function longPressRow(page, index) {
 
 // ---------- 04：另一台剛加了一段，這一台拿舊的那一份去寫 ----------
 
-test('S1 日曆開著時另一台加了一段 → 長按說可以不會把那一段蓋掉', async ({ app, page }) => {
+test('S1 日曆開著時另一台加了一段 → 長按說可以套在新的那一份上，那一段還在', async ({ app, page }) => {
   await app.seed(seedOneSlot());
   await app.signIn('/calendar');
   await openDayDrawer(app, page);
 
   // 另一台（手機）在壓表替同一天加了一段 11:00。seedDocs 會換掉 updatedAt，跟真的寫入一樣。
-  const { seedDocs } = await import('../fixtures/emulator.js');
   await seedDocs([visit({
     id: 'v-s', customerId: 'cust-s', customerName: '王小明', date: TODAY,
     slots: [rehab('09:00'), rehab('11:00')],
@@ -56,12 +56,31 @@ test('S1 日曆開著時另一台加了一段 → 長按說可以不會把那一
 
   await longPressRow(page, 0);
   await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+  await app.saved();
 
-  await expect(page.locator('#toast'), '擋下來而且講人話').toContainText('別的地方被改過');
-  await expect(page.locator('#toast [data-retry]'), '重試拿的還是同一份舊的').toHaveCount(0);
-
+  // 19：拿剛讀回來的那一份去套（04 當時只做到擋下來）
   const saved = await app.readDoc('visits', 'v-s');
   expect(saved.slots.map((s) => s.startsAt), '手機加的那一段還在').toEqual(['09:00', '11:00']);
+  expect(saved.slots.map((s) => s.status), '只動她長按的那一段').toEqual(['confirmed', 'pending_confirm']);
+});
+
+test('S1b 另一台把那一段取消了 → 長按說可以不寫，講一句，抽屜換成新的樣子', async ({ app, page }) => {
+  await app.seed(seedOneSlot());
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await seedDocs([visit({
+    id: 'v-s', customerId: 'cust-s', customerName: '王小明', date: TODAY, status: 'cancelled',
+    slots: [rehab('09:00', 'cancelled')],
+  })]);
+
+  await longPressRow(page, 0);
+  await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+
+  await expect(page.locator('#toast')).toContainText('剛剛在別的地方改過');
+  expect((await app.readDoc('visits', 'v-s')).slots[0].status, '沒有寫').toBe('cancelled');
+  await expect(page.locator('.timerow.status-pending'), '抽屜畫的是新的那一份').toHaveCount(0);
+  await expect(page.locator('[data-open^="visit:v-s:"]'), '停在同一天').toHaveCount(1);
 });
 
 test('S2 沒有別人改過 → 照常存得進去', async ({ app, page }) => {
@@ -106,6 +125,79 @@ test('S3 同一筆額度兩天待確認，退掉比較早那一天 → 已排只
 
   const ent = await app.readDoc('customers/cust-s/entitlements', 'ent-inbody');
   expect(ent.bookedCount, '存第二天時拿的是第一天還沒退掉的那一份').toBe(1);
+});
+
+test('S3b 確認抽屜開著時另一台在同一天加了一段 → 新加的那一段照舊待確認', async ({ app, page }) => {
+  const day = addDays(TODAY, 3);
+  const inbody = (startsAt) => ({
+    ...slot({ courseId: 'course-inbody', entitlementId: 'ent-inbody', startsAt, endsAt: startsAt.replace(':00', ':20') }),
+    status: 'pending_confirm',
+  });
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-s', name: '王小明' }),
+    entitlement('cust-s', {
+      id: 'ent-inbody', label: '身體組成分析', type: 'single',
+      courseId: 'course-inbody', totalQty: 10, bookedCount: 1, durationMin: 20,
+    }),
+    visit({ id: 'v-c', customerId: 'cust-s', customerName: '王小明', date: day, slots: [inbody('10:00')] }),
+  ]);
+  await app.signIn('/');
+  await app.go('/todo/confirm');
+  await page.locator('[data-open="cust-s"]').click();
+  await app.layer('[data-apply]');
+
+  await seedDocs([visit({
+    id: 'v-c', customerId: 'cust-s', customerName: '王小明', date: day,
+    slots: [inbody('10:00'), inbody('14:00')],
+  })]);
+
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  const saved = await app.readDoc('visits', 'v-c');
+  expect(saved.slots.map((s) => s.status), '她沒問過的那一段不會被標成談定').toEqual(['confirmed', 'pending_confirm']);
+});
+
+test('S3c 壓表開著時另一台在同一天加了一段 → 這台再壓一段，三段都在', async ({ app, page }) => {
+  const day = '2026-09-14';
+  const inbody = (startsAt) => ({
+    ...slot({ courseId: 'course-inbody', entitlementId: 'ent-inbody', startsAt, endsAt: startsAt.replace(':00', ':20') }),
+    status: 'pending_confirm',
+  });
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-s', name: '王小明' }),
+    entitlement('cust-s', {
+      id: 'ent-inbody', label: '身體組成分析', type: 'single',
+      courseId: 'course-inbody', totalQty: 10, bookedCount: 1, durationMin: 20,
+    }),
+    visit({ id: 'v-p', customerId: 'cust-s', customerName: '王小明', date: day, slots: [inbody('09:00')] }),
+  ]);
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator('[data-month="2026-09"]').click();
+  await app.settled();
+  await page.locator('[data-pick="cust-s"]').first().click();
+  await app.layer('[data-day]');
+  await page.locator(`[data-day="${day}"]`).first().click();
+  await app.layer('[data-ent="ent-inbody"]');
+  await page.locator('[data-ent="ent-inbody"]').click();
+  await page.locator('[data-time="15:00"]').click();
+
+  await seedDocs([visit({
+    id: 'v-p', customerId: 'cust-s', customerName: '王小明', date: day,
+    slots: [inbody('09:00'), inbody('11:00')],
+  })]);
+
+  await page.locator('[data-add]').click();
+  // 存檔前的確認（先看一下那幾段 → 壓好表了嗎），有幾道按幾道
+  while (!(await app.dialogText()).includes('已確認，記錄')) await app.ok();
+  await app.ok();
+  await app.saved();
+
+  const saved = await app.readDoc('visits', 'v-p');
+  expect(saved.slots.map((s) => s.startsAt), '另一台加的那一段沒被蓋掉').toEqual(['09:00', '11:00', '15:00']);
 });
 
 // ---------- 10：按了「復原」，開著的那一天抽屜還是舊資料 ----------

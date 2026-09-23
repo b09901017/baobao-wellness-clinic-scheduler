@@ -1190,7 +1190,19 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    const next = applyStatus(visit, onlyOne ? 'cancelled' : action, {
+    //
+    // **套在剛讀回來的那一份上，不是抽屜手上那一份**（prelaunch-audit-2026-09-23/issues/19）：
+    // 另一台在抽屜打開之後加的段接在尾巴（ADR-0091），`slotIndex` 指的還是同一段，
+    // 而整筆寫回去時那一段才不會被蓋掉。**套之前再問一次准不准** —— 那一段在
+    // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
+    const fresh = customerVisits.find((v) => v.id === visit.id);
+    const wanted = onlyOne ? 'cancel-slot' : action;
+    if (!fresh || !visitActions(fresh, { today: todayISO(), slotIndex }).some((i) => i.id === wanted)) {
+      toast.info('這一段剛剛在別的地方改過了，換成最新的樣子');
+      await refreshAfterAction(el, backDate);
+      return;
+    }
+    const next = applyStatus(fresh, onlyOne ? 'cancelled' : action, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,
     });
@@ -1207,8 +1219,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);
-  } catch {
-    /* 已處理 */
+  } catch (err) {
+    // toast 已經講了；兩次讀之間的空檔被別台搶先時，把抽屜換成新的那一份
+    if (err?.name === 'StaleWriteError') await refreshAfterAction(el, backDate);
   }
 }
 

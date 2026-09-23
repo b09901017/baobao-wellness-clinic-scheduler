@@ -1,6 +1,6 @@
 # 日曆長按、簽療程單、確認抽屜、壓表：拿剛讀回來的那一份去套
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）、04 的第一層（當時沒做）
 動工前先讀：`issues/04`、`data/repo.js` 的 `StaleWriteError`／`commit()` 的 `ifUpdatedAt`、`domain/visits.js` 的 `visitActions()`／`applyStatus()`／
 `applyConfirmation()`／`closeVisit()`、E2E `44-stale-copies`
@@ -39,3 +39,16 @@ Status: todo
 - 另一台把那一段取消了 → 長按「客戶說可以」→ 不寫，講一句，抽屜換成新的樣子
 - 確認抽屜：另一台在同一天加了一段 → 確認抽屜上那幾段 → 新加的那一段照舊待確認，沒被蓋掉
 - 壓表：另一台在同一天加了一段 → 這台再壓一段 → 三段都在
+
+## 做了什麼（2026-09-23）
+
+四處都改成從剛讀回來的 `customerVisits` 找同一筆再套，套之前再問一次准不准：
+
+- 日曆長按（`calendar.js` 的 `runVisitAction()`）：`visitActions(fresh, { slotIndex })` 裡還有那一顆才套；
+  沒有 → 「這一段剛剛在別的地方改過了」＋ `refreshAfterAction()`。兩次讀之間被搶先（`StaleWriteError`）也重讀
+- 確認抽屜（`home.js` 的 `applyConfirm()`）：抽屜上那幾段在新的那一份裡都還是待確認才套；
+  `applyConfirmation()` 多收第 4 個參數 `asked`（抽屜上問過的那幾段）—— 別台接在尾巴的那一段照舊待確認
+- 簽療程單（`applyClose()`）：新的那一份還能結案、段數沒變才套（`closeVisit()` 會把沒問到的段當成有做）
+- 壓表（`schedule.js` 的 `addSlot()`）：`visitWithSlot()` 併進剛讀回來的那一份
+
+測試：`tests/visits.test.js`（`asked`）、E2E `44` 的 S1（改成存得進去、還是 2 段）、S1b、S3b、S3c。

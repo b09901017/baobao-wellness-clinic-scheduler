@@ -811,12 +811,18 @@ export function withSlotNotes(visit) {
  * @param {object} visit 還在等回覆的那一筆
  * @param {Set<number>} rejected 客人說不行的是第幾段（從 0 起算）
  * @param {string} at ISO 時間
+ * @param {Set<number>|null} [asked] 抽屜上問過的是第幾段。**套在剛讀回來的那一份上時要給**
+ *   （prelaunch-audit-2026-09-23/issues/19）：另一台在抽屜打開之後接在尾巴的那一段
+ *   她沒問過客人，不給的話它會被一起標成談定。沒給＝每一段都問過了
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
-export function applyConfirmation(visit, rejected = new Set(), at = new Date().toISOString()) {
+export function applyConfirmation(
+  visit, rejected = new Set(), at = new Date().toISOString(), asked = null,
+) {
   const slots = (visit?.slots ?? []).map((slot, i) => {
     // 之前就取消掉的維持取消 —— 確認救不回一個已經定案的決定
     if (slot?.status === 'cancelled') return slot;
+    if (asked && !asked.has(i)) return slot;
     return { ...slot, status: rejected.has(i) ? 'cancelled' : 'confirmed' };
   });
 

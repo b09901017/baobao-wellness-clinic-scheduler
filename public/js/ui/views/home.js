@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus,
+  focusFor, slotStatus, canTransition,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -3078,11 +3078,28 @@ async function applyConfirm(ctx) {
   // **客人說不行的那一段標成取消，不是從陣列裡刪掉**（ADR-0081）——
   // 刪掉的話沒有紀錄它曾經被壓過，也不會長出「取消 Abovee」，
   // 而她真的在 Abovee 上壓過那一格。
-  const writes = visits.map((v) => applyConfirmation(
-    v,
-    new Set((v.slots ?? []).map((_, i) => i).filter((i) => rejected.has(`${v.id}:${i}`))),
-    at,
-  ));
+  //
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19），而且只動抽屜上
+  // 那幾段 —— 另一台在抽屜打開之後接在尾巴的那一段她沒問過客人。抽屜上有一段在
+  // 新的那一份裡已經不是待確認（別的地方談定或取消了），整張抽屜就是舊的：不寫，重畫。
+  const writes = [];
+  for (const v of visits) {
+    const asked = pendingSlotsOf(v).map(({ index }) => index);
+    const fresh = customerVisits.find((x) => x.id === v.id);
+    if (!fresh || asked.some((i) => !fresh.slots?.[i]
+        || slotStatus(fresh, fresh.slots[i]) !== 'pending_confirm')) {
+      toast.info('這幾段剛剛在別的地方改過了，換成最新的樣子');
+      drawer = null;
+      await renderConfirm(ctx.el);
+      return;
+    }
+    writes.push(applyConfirmation(
+      fresh,
+      new Set(asked.filter((i) => rejected.has(`${v.id}:${i}`))),
+      at,
+      new Set(asked),
+    ));
+  }
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
   // **兩支收的都是寫入之前的那幾筆**，而且只講抽屜上那幾段（ADR-0097）：
@@ -3425,9 +3442,20 @@ async function applyClose(ctx) {
   const visit = ctx.rows.find((v) => v.id === drawer.visitId);
   if (!visit) return;
 
-  const attended = (visit.slots ?? []).map((_, i) => !drawer.missed.has(i));
-  const next = closeVisit(visit, attended);
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。那一筆在別的地方
+  // 已經結案、被取消，或多了一段抽屜上沒畫的（`closeVisit()` 會把沒問到的段當成有做）
+  // —— 這張抽屜就是舊的：不寫，重畫。
+  const fresh = customerVisits.find((v) => v.id === visit.id);
+  if (!fresh || !canTransition(fresh.status, 'done')
+      || (fresh.slots ?? []).length !== (visit.slots ?? []).length) {
+    toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
+    drawer = null;
+    await renderClose(ctx.el);
+    return;
+  }
+  const attended = (fresh.slots ?? []).map((_, i) => !drawer.missed.has(i));
+  const next = closeVisit(fresh, attended);
 
   try {
     // 結案就是扣次數的那一下，做兩次會多扣一次

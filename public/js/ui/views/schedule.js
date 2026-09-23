@@ -2134,9 +2134,11 @@ async function addSlot() {
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
   // 收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
-  const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisitsNow);
-
+  //
+  // **併進剛讀回來的那一份**，不是打開這一頁時的（prelaunch-audit-2026-09-23/issues/19）：
+  // 另一台在那之後替同一天加的一段，整筆寫回去時才不會被蓋掉。
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
+  const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisits);
   const { errors, warnings } = validateVisit(visit, {
     customer: { flags: selected.flags ?? [] },
     entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
