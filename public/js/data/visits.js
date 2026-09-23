@@ -242,7 +242,7 @@ async function followupOps(visit, visitsAfter, coursesById) {
 
   const [entitlements, tasks, settings] = await Promise.all([
     customersData.listEntitlements(visit.customerId),
-    tasksData.listByCustomer(visit.customerId),
+    tasksData.listByCustomerForSync(visit.customerId),
     config.getSettings(),
   ]);
 
@@ -357,7 +357,7 @@ async function chainPlans(changed = []) {
     // eslint-disable-next-line no-await-in-loop
     const [entitlements, tasks, visits] = await Promise.all([
       customersData.listEntitlements(customerId),
-      tasksData.listByCustomer(customerId),
+      tasksData.listByCustomerForSync(customerId),
       listByCustomer(customerId),
     ]);
 

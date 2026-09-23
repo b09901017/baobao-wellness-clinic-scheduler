@@ -1,6 +1,6 @@
 # 清掉已完成的「約二返」後，它會長回來而且逾期
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：01（這一支照用它的規則）、`docs/adr/0042`、`docs/adr/0065`、
 `domain/followups.js` 的 `syncFollowupTasks()`／`keepsOpen()`／`stationFor()`、`data/visits.js` 的 `followupOps()`／`chainPlans()`
