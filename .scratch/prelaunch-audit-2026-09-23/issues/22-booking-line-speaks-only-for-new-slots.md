@@ -1,6 +1,6 @@
 # 新增時的確認框只講這次新加的那幾段會長什麼
 
-Status: todo
+Status: done
 Blocked by: 15
 來源：`../spec.md`（第二輪）
 動工前先讀：`domain/consequences.js` 的 `bookingConsequences()`／`pendingRegistrations()`、15 做出來的那一支「這幾段談定了會長什麼」、
@@ -31,3 +31,12 @@ ADR-0070：畫面上的後果只能講真的會發生的事，而且跟真的寫
 - 同一天再加一段門診 → 「會再多一張「Examine」、一張「耀聖」」
 - 全新的一天、一段門診 → 同上
 - `tests/consequences.test.js` 補這三條，並且跟「存下去 → 新的那幾段確認 → 真的長了什麼」直接比
+
+## 做了什麼（2026-09-23）
+
+`bookingConsequences()` 多收 `added`（這次新加的是第幾段，沒給＝全部）與 `tasks`（那一筆身上的任務），
+「等客人說可以之後」那一句改問 15 那一支 `registrationsWhenSettled()`。壓表傳最後一段、併進既有那一天時
+點下去才讀 `listByVisitForSync()`（讀不到當沒有）；來訪編輯器傳 `storedSlotCount` 之後那幾段與 `visitTasks(ctx.stored)`。
+`pendingRegistrations()` 沒人用了，刪掉（連它的測試；ADR-0081 那一條改成問 `confirmConsequences()`）。
+
+測試：`tests/consequences.test.js` 三條，每一條都跟「存下去 → 新的那幾段確認 → 真的長了什麼」直接比。

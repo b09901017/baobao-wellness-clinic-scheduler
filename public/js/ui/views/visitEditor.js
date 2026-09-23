@@ -1131,6 +1131,9 @@ async function submit(ctx, draft) {
       visit: draft,
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
       sheetSyncOn: isConfigured(ctx.settings),
+      // 「會再多一張 Examine」只講這次新加的那幾段（issues/22）
+      added: draft.slots.map((_, i) => i).slice(ctx.storedSlotCount ?? 0),
+      tasks: await visitTasks(ctx.stored),
     });
     const ok = await confirmAction({
       title: said.title,

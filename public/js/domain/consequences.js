@@ -25,7 +25,7 @@
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
+  bookingSystemFor, isCancelKind, cancelTasksFor, cancelsBooking,
   newRegistrations,
 } from './taskRules.js';
 import {
@@ -91,24 +91,6 @@ export function bookingSystemLabel(visit, coursesById = {}) {
 }
 
 /**
- * 這一筆來訪確認之後會長出哪幾種登記待辦。
- *
- * 講的是**還沒發生但會發生**的事，所以只有真的有東西時才講 ——
- * 健檢（B 類）的 `onConfirm` 是空的，硬寫一句「等客人確認之後才產生」
- * 就是在講一件不會發生的事，而那正是她說看不懂的那一句。
- */
-export function pendingRegistrations(visit, coursesById = {}) {
-  const kinds = new Set();
-  // **客人退掉的那一段不算**（ADR-0081）。確認動線把它標成取消而不是刪掉，
-  // 所以這裡要濾 —— 不濾的話她會看到「待辦會多一張 Examine」，
-  // 而那一張永遠不會出現（`tasksForVisit()` 也濾了）。
-  for (const slot of (visit?.slots ?? []).filter(isLiveSlot)) {
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) kinds.add(kind);
-  }
-  return [...kinds];
-}
-
-/**
  * 存檔前那一道「這幾段先看一下」。
  *
  * 她 2026-09-08：
@@ -158,9 +140,13 @@ export function reviewWarnings(warnings = []) {
  * @param {Record<string, object>} o.coursesById
  * @param {{reopened: boolean}|null} [o.merge] 併進同一天既有的那一筆時給，否則 null
  * @param {boolean} [o.sheetSyncOn] 試算表同步有沒有設定好
+ * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
+ * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @returns {{title: string, lines: string[]}}
  */
-export function bookingConsequences({ visit, coursesById = {}, merge = null, sheetSyncOn = false }) {
+export function bookingConsequences({
+  visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [],
+}) {
   const where = bookingSystemLabel(visit, coursesById);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
@@ -182,10 +168,13 @@ export function bookingConsequences({ visit, coursesById = {}, merge = null, she
     lines.push('那一天本來就在等客戶回覆，待辦上那一列不變');
   }
 
-  const later = pendingRegistrations(visit, coursesById);
-  if (later.length) {
-    lines.push(`等客人說可以之後，待辦會再多${later.map((k) => `一張「${k}」`).join('、')}`);
-  }
+  // **只講這次新加的那幾段談定之後會長的**（prelaunch-audit-2026-09-23/issues/22）。
+  // 逐段掛號（ADR-0107）之後，整筆有什麼就講什麼兩頭都錯：門診那一段早就掛好號的
+  // 那一天加一段復能，它會說「會再多一張 Examine」；再加一段門診，它講對是碰巧。
+  const later = registrationsWhenSettled(
+    visit, added ?? (visit?.slots ?? []).map((_, i) => i), tasks, coursesById,
+  );
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
   // n返 是加約的，**不扣任何次數**。這一句是她最會擔心的那件事：
   // 整套系統的核心焦慮就是次數對不對得起來，而一場「不用先加購」的來訪

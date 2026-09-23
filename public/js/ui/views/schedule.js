@@ -35,6 +35,7 @@
 import * as config from '../../data/config.js';
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
+import * as tasksData from '../../data/tasks.js';
 import * as batchesData from '../../data/batches.js';
 import * as eventsData from '../../data/events.js';
 import { isConfigured } from '../../data/sheetSync.js';
@@ -2166,6 +2167,10 @@ async function addSlot() {
     coursesById,
     merge: merged ? { reopened: merged.reopened } : null,
     sheetSyncOn: isConfigured(ctx.settings),
+    // 「會再多一張 Examine」只講新加的這一段（issues/22）：那一天早就掛好號的段不再講一次。
+    // 任務點下去才讀，讀不到就當沒有（只會多講一句）
+    added: [visit.slots.length - 1],
+    tasks: merged ? await tasksData.listByVisitForSync(visit.id).catch(() => []) : [],
   });
 
   // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，
