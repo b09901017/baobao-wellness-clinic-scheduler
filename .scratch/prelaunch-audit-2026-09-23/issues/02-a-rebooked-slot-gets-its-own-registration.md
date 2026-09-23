@@ -1,6 +1,6 @@
 # 同一天取消一段再補排，新那一段不長掛號
 
-Status: todo（動工前問她一句，見「要她確認的」）
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/adr/0091`（「Examine 上是一段登記一筆」）、`docs/adr/0097`（確認逐段）、`docs/adr/0083`（一天一筆）、
 `domain/taskRules.js` 的 `tasksForVisit()`／`syncTasksForVisit()`／`confirmedKinds()`／`cancelTasksFor()`、
@@ -61,3 +61,15 @@ Status: todo（動工前問她一句，見「要她確認的」）
 - 同一天同時確認兩段 A 類：長的張數照她的答案
 - 取消沒掛號的那一段：**不長**「取消 Examine」
 - 舊資料（任務沒有 `slotIndexes`）存一次：一張都不多長
+
+## 她的回答（2026-09-23）
+
+> 掛兩筆，待辦一張
+
+## 做了什麼
+
+`taskRules.js` 的 `newRegistrations()`（逐段長、同一次談定的收成一張、帶 `slotIndexes`）；
+`syncTasksForVisit()` 逐段比留不留（還沒掛的那一張縮成還要掛的段）；`cancelTasksFor()` 問那一段自己那一張；
+`todoFlow.js` 照 `slotIndexes` 歸屬；`confirmConsequences()` 走 `newRegistrations()`（home.js 帶任務進去）。
+`confirmedKinds()` 沒有人用了，刪掉。ADR-0107。測試：`tests/tasks.test.js`、`tests/todo-flow.test.js`、
+`tests/consequences.test.js`、E2E `34` C9。

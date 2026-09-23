@@ -3086,11 +3086,17 @@ async function applyConfirm(ctx) {
   // **兩支收的都是寫入之前的那幾筆**，而且只講抽屜上那幾段（ADR-0097）：
   // 早上那一段在日曆上早就談定時，它的登記早就長了，不可以再說一次「會多一張」。
   const summary = describeConfirmed(visits, rejected);
+  // 「待辦會多一張 Examine」要跟真的會長的那一張對得上（ADR-0070）—— 掛號逐段長，
+  // 早就掛過的段不再多講，所以要那幾筆身上的任務（讀不到就當沒有，只會多講一句）
+  const tasksByVisit = Object.fromEntries(await Promise.all(visits.map(async (v) => [
+    v.id, await tasksData.listByVisitForSync(v.id).catch(() => []),
+  ])));
   const said = confirmConsequences(
     visits,
     ctx.coursesById ?? {},
     isConfigured(ctx.settings),
     rejected,
+    tasksByVisit,
   );
   // 有一天在抽屜上的每一段都被退掉了。**問抽屜上那幾段，不問整筆的狀態** ——
   // 同一天早就談定的一段會讓整筆停在「已確認」，而她剛剛退掉的是這張上的全部。

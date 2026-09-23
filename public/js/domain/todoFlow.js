@@ -254,6 +254,13 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
       if (ownsCancel(t, visit, focusSlot, coursesById)) rows.push(taskRow(t, false));
       continue;
     }
+    // 掛號那一族也記著它掛的是哪幾段（prelaunch-audit-2026-09-23/issues/02）——
+    // 同一天可以有兩張 Examine（早上掛好的、下午補排還沒掛的），照它自己記的歸。
+    // 沒有的是舊任務，退回「這一段長不長得出這一種」
+    if (Array.isArray(t.slotIndexes)) {
+      if (t.slotIndexes.includes(focusSlot)) rows.push(taskRow(t, voided));
+      continue;
+    }
     if (mine(t.kind)) rows.push(taskRow(t, voided));
   }
 

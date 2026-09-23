@@ -189,8 +189,9 @@ export function dueDateFor(visitDate) {
  * 兩件事分開是刻意的：這一支同時被用來比對現有的任務（哪些還該留著），
  * 而那個比對不可以跟著狀態變，否則來訪一結案，她還沒做完的登記就會被靜默收掉。
  *
- * 同一次來訪裡有多個時段時，同名任務只產生一次 —— 她不需要為了同一天
- * 掛兩次 Examine。
+ * 這一支答的是**這一天該有哪幾種**（一種一個範本）。掛號那一族**幾張、蓋哪幾段**
+ * 不在這裡：Examine 上是一段登記一筆（她 2026-09-13），同一次談定的幾段收成一張
+ * （2026-09-23）—— 見 `newRegistrations()`。
  *
  * @param {{id:string, customerId:string, customerName:string, date:string,
  *          slots:{courseId:string}[]}} visit
@@ -354,10 +355,14 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 兩族併成一份來比對：掛號那一族（Examine、耀聖）與紀錄那一族（寫紀錄）。
   // 併起來是因為比對的邏輯一模一樣 —— 差別全部在**什麼時候長得出來**，
   // 而那由各自的閘門回答，見底下那一段。
+  //
+  // **掛號那一族逐段比**（prelaunch-audit-2026-09-23/issues/02）：一張蓋的是它自己的
+  // `slotIndexes`（舊的沒有就是整天，`cancelSlotsOf()`），那幾段都不再需要它才收掉。
   const wanted = new Map(
     [...tasksForVisit(visit, coursesById), ...recordTasksForVisit(visit, coursesById)]
       .map((t) => [t.kind, t]),
   );
+  const wantsAt = registrationSlots(visit, coursesById);
 
   // 「課程還在，只是那一場沒做完」跟「課程被移出來訪了」是兩種情況，
   // 而收掉的理由要分得出來 —— 印一句對不上的話，她下次查稽核會查錯方向。
@@ -367,23 +372,31 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
 
   for (const t of auto) {
     const want = wanted.get(t.kind);
-    if (!want) {
+    // 這幾段裡還有哪幾段需要它（掛號那一族；紀錄那一族一天一張，不看段）
+    const alive = want && wantsAt.has(t.kind)
+      ? cancelSlotsOf(t, visit).filter((i) => wantsAt.get(t.kind).wants.has(i))
+      : null;
+    if (!want || alive?.length === 0) {
       // 沒做的就不用做了，做過的留著。
       if (!t.done && !t.deletedAt) {
-        remove.push({
-          id: t.id,
-          reason: t.kind === RECORD_TASK_KIND && stillWantsRecord
-            ? '那一場沒有做完，沒有紀錄要寫'
-            : '來訪裡已經沒有需要這個任務的課程',
-        });
+        let reason = '來訪裡已經沒有需要這個任務的課程';
+        if (want && alive) reason = '它掛的那幾段已經不需要這個任務了';
+        else if (t.kind === RECORD_TASK_KIND && stillWantsRecord) reason = '那一場沒有做完，沒有紀錄要寫';
+        remove.push({ id: t.id, reason });
       }
       continue;
     }
     // **這一種已經有人做過了**（就算那一列被清掉了），所以不再長一張新的。
-    wanted.delete(t.kind);
+    // 掛號那一族「長不長」逐段問，在底下的 `newRegistrations()`。
+    if (!alive) wanted.delete(t.kind);
     if (t.deletedAt) continue;
 
     const changes = {};
+    // 還沒掛的那一張，蓋的段裡有幾段取消了 → 只剩還要掛的那幾段。不縮的話她之後勾掉它，
+    // 取消掉的那一段會被當成掛過、長一張「取消 Examine」叫她去收一個沒掛過的號
+    if (!t.done && Array.isArray(t.slotIndexes) && alive && alive.length !== t.slotIndexes.length) {
+      changes.slotIndexes = alive;
+    }
     if (t.dueDate !== want.dueDate) changes.dueDate = want.dueDate;
     if ((t.customerName ?? null) !== (visit.customerName ?? null)) {
       changes.customerName = visit.customerName ?? null;
@@ -407,9 +420,9 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // **`tasksForVisit()` 不看狀態這件事不能動**（那一支的檔頭寫著）：它同時被
   // 拿來比對「哪些還該留著」，跟著狀態變的話來訪一結案，她還沒做完的 Examine
   // 就會被靜默收掉。所以閘門只擋 `create` 這一圈。
-  const born = confirmedKinds(visit, coursesById);
+  create.push(...newRegistrations(visit, existingTasks, coursesById));
   for (const t of wanted.values()) {
-    if (t.kind === RECORD_TASK_KIND || born.has(t.kind)) create.push(t);
+    if (t.kind === RECORD_TASK_KIND) create.push(t);
   }
 
   // ---------- 整筆還活著，但其中一段取消了（ADR-0081） ----------
@@ -464,7 +477,7 @@ export function importedTasksFor(visit, { coursesById = {}, today } = {}) {
 }
 
 /**
- * 一張取消類的待辦收的是哪幾段（`visit.slots` 裡的位置）。
+ * 一張帶段落的待辦（取消類收的、掛號類掛的）是哪幾段（`visit.slots` 裡的位置）。
  *
  * **沒記的舊任務當成那一天的每一段** —— 2026-09-13 之前長出來的那幾張身上
  * 沒有這一格，而它們當時的意思就是「那一天那個系統」。當成蓋住整天，
@@ -476,28 +489,53 @@ export function cancelSlotsOf(task, visit) {
 }
 
 /**
- * 這一筆來訪裡，**已經談定的那幾段**現在長得出哪幾種掛號任務（ADR-0097）。
- *
- * 跟 `tasksForVisit()` 的差別只有一句：那一支問「這一天該有哪幾種」（不看狀態，
- * 因為它同時被拿來比對哪些還該留著），這一支問「**現在**哪幾種可以無中生有」。
+ * 掛號那一族，每一種**哪幾段該有**（`wants`，活著的段、不看狀態）、**哪幾段現在長得出來**
+ * （`born`，那一段談定了，ADR-0097）。
  *
  * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
  * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
  *
  * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
- * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
- * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
+ * `acceptsNewTasks('done')` 是 false，所以不長新的；`pending_confirm → done`
+ * （她補記一筆已經上完的課）同理。
  *
- * **匯出是給確認抽屜那幾句話用的**（`consequences.js` 的 `confirmConsequences()`，
- * ADR-0070）：「待辦會多一張 Examine」要跟真的會長的那一張走同一段身體 ——
- * 同一天早上那一段早就談定時，那一張已經長過了。
+ * @returns {Map<string, {wants: Set<number>, born: Set<number>}>}
  */
-export function confirmedKinds(visit, coursesById = {}) {
-  const out = new Set();
-  for (const slot of visit?.slots ?? []) {
-    if (!isLiveSlot(slot)) continue;
-    if (!acceptsNewTasks(slotStatus(visit, slot))) continue;
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) out.add(kind);
+function registrationSlots(visit, coursesById = {}) {
+  const out = new Map();
+  (visit?.slots ?? []).forEach((slot, i) => {
+    if (!isLiveSlot(slot)) return;
+    const confirmed = acceptsNewTasks(slotStatus(visit, slot));
+    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) {
+      if (!out.has(kind)) out.set(kind, { wants: new Set(), born: new Set() });
+      out.get(kind).wants.add(i);
+      if (confirmed) out.get(kind).born.add(i);
+    }
+  });
+  return out;
+}
+
+/**
+ * 這一次存檔要**新長**哪幾張掛號待辦（Examine、耀聖）。**逐段**（prelaunch-audit-2026-09-23/issues/02）：
+ *
+ * - 一段談定了、還沒被任何一張（含已勾、清掉的，`seenTasks()`）蓋到，才需要新的
+ * - 同一次存檔談定的幾段收成同一張 —— 她 2026-09-23：Examine 上掛兩筆、**待辦一張**
+ * - 每一張記著它掛的是哪幾段（`slotIndexes`）；沒有的是舊任務，當成蓋住整天（`cancelSlotsOf()`），
+ *   所以舊資料存一次一張都不多長
+ *
+ * 以前是「一天一種一張」：同一天早上掛過號，下午取消重排的那一段談定了一張都不長，
+ * 她被叫去 Examine 取消舊的號，卻沒有人叫她替新的時間掛號。
+ *
+ * **確認抽屜那一句也走這一支**（`consequences.js` 的 `confirmConsequences()`，ADR-0070）。
+ */
+export function newRegistrations(visit, existingTasks = [], coursesById = {}) {
+  const templates = new Map(tasksForVisit(visit, coursesById).map((t) => [t.kind, t]));
+  const seen = seenTasks(existingTasks).filter((t) => t.autoGenerated);
+  const out = [];
+  for (const [kind, { born }] of registrationSlots(visit, coursesById)) {
+    const covered = new Set(seen.filter((t) => t.kind === kind).flatMap((t) => cancelSlotsOf(t, visit)));
+    const left = [...born].filter((i) => !covered.has(i)).sort((a, b) => a - b);
+    if (left.length && templates.has(kind)) out.push({ ...templates.get(kind), slotIndexes: left });
   }
   return out;
 }
@@ -549,6 +587,11 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   const registered = new Set(
     seen.filter((t) => t.done && REGISTRATION_KINDS.includes(t.kind)).map((t) => t.kind),
   );
+  // **那一段自己那一張勾掉了才算掛過**（02）：同一天兩段 A 類只掛了其中一段時，
+  // 取消沒掛的那一段不長「取消 Examine」。舊任務沒有 slotIndexes → 整天都算
+  const registeredAt = (kind, i) => seen.some(
+    (t) => t.done && t.kind === kind && cancelSlotsOf(t, visit).includes(i),
+  );
 
   // kind → 那幾段。Map 保住順序：壓表登記在前、確認後的登記在後（同以前 `wanted` 的順序）。
   const wanted = new Map();
@@ -563,7 +606,7 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   for (const i of dead) {
     const course = coursesById[slots[i]?.courseId];
     for (const kind of tasksForCategory(course?.category)) {
-      if (registered.has(kind)) want(cancelKindFor(kind), i);
+      if (registeredAt(kind, i)) want(cancelKindFor(kind), i);
     }
   }
   if (whole) {

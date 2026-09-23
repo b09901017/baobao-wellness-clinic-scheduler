@@ -26,7 +26,7 @@
 
 import {
   bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
-  confirmedKinds,
+  newRegistrations,
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -189,16 +189,19 @@ function nthLabels(visit) {
  * **只講這一次從「待確認」走出去的那幾段**（ADR-0097，同 `describeConfirmed()`）。
  * 她在日曆上先確認掉 A 類那一段時，那一段的 Examine／耀聖當場就長了 ——
  * 抽屜裡確認下午那一段再說一次「待辦會多一張 Examine」是假話（ADR-0070）。
- * 所以「會多哪幾張」問的是真的那道閘門（`taskRules.js` 的 `confirmedKinds()`）：
- * 寫進去之後長得出來、寫進去之前還長不出來的那幾種。
+ * 所以「會多哪幾張」問的是真的會長它們的那一支（`taskRules.js` 的 `newRegistrations()`）——
+ * 掛號逐段長（prelaunch-audit-2026-09-23/issues/02）：同一天早上那一段掛過號，
+ * 確認下午那一段照樣會多一張。
  *
  * @param {object[]} visits 這位客戶還在等回覆的那幾筆（**寫入之前的**）
  * @param {Record<string, object>} coursesById
  * @param {boolean} [sheetSyncOn]
  * @param {Set<string>} [rejected] 抽屜裡被退掉的那幾段，key 是 `${visit.id}:${索引}`
+ * @param {Record<string, object[]>} [tasksByVisit] 那幾筆身上現有的任務（連軟刪除的，
+ *   `listByVisitForSync()`）。沒給就當沒有 —— 只有舊任務（沒有 `slotIndexes`）會因此多講一句
  */
 export function confirmConsequences(
-  visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(),
+  visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(), tasksByVisit = {},
 ) {
   // 用短的那一版（`shortStatus`）不用完整那一句：她看的是日曆，而日曆的圖例
   // 上寫的就是「待確認」「已確認」。同一件事在兩個地方用兩種講法會讓她多想一秒。
@@ -217,8 +220,13 @@ export function confirmConsequences(
 
   const later = new Set();
   for (const { before, after } of settled) {
-    const had = confirmedKinds(before, coursesById);
-    for (const kind of confirmedKinds(after, coursesById)) if (!had.has(kind)) later.add(kind);
+    // 只講**這一次才談定**的那幾段長出來的 —— 沒給任務時，早就談定的段看起來也像沒掛過
+    const now = new Set((after.slots ?? []).map((_, i) => i).filter((i) =>
+      slotStatus(before, before.slots[i]) === 'pending_confirm'
+      && slotStatus(after, after.slots[i]) === 'confirmed'));
+    for (const t of newRegistrations(after, tasksByVisit[before.id] ?? [], coursesById)) {
+      if (t.slotIndexes.some((i) => now.has(i))) later.add(t.kind);
+    }
   }
   if (later.size) lines.push(`待辦會多${[...later].map((k) => `一張「${k}」`).join('、')}`);
 
