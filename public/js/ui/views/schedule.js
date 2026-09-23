@@ -35,6 +35,7 @@
 import * as config from '../../data/config.js';
 import * as customersData from '../../data/customers.js';
 import * as visitsData from '../../data/visits.js';
+import * as tasksData from '../../data/tasks.js';
 import * as batchesData from '../../data/batches.js';
 import * as eventsData from '../../data/events.js';
 import { isConfigured } from '../../data/sheetSync.js';
@@ -2134,9 +2135,11 @@ async function addSlot() {
 
   // 同一天已經有來訪就併進去 —— 排班的原子單位是來訪（SPEC 第 4.4 節）。
   // 收不收得下、要不要退回等客戶回覆，都不在這一頁判斷。
-  const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisitsNow);
-
+  //
+  // **併進剛讀回來的那一份**，不是打開這一頁時的（prelaunch-audit-2026-09-23/issues/19）：
+  // 另一台在那之後替同一天加的一段，整筆寫回去時才不會被蓋掉。
   const customerVisits = await visitsData.listByCustomer(selected.customerId);
+  const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisits);
   const { errors, warnings } = validateVisit(visit, {
     customer: { flags: selected.flags ?? [] },
     entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
@@ -2164,6 +2167,10 @@ async function addSlot() {
     coursesById,
     merge: merged ? { reopened: merged.reopened } : null,
     sheetSyncOn: isConfigured(ctx.settings),
+    // 「會再多一張 Examine」只講新加的這一段（issues/22）：那一天早就掛好號的段不再講一次。
+    // 任務點下去才讀，讀不到就當沒有（只會多講一句）
+    added: [visit.slots.length - 1],
+    tasks: merged ? await tasksData.listByVisitForSync(visit.id).catch(() => []) : [],
   });
 
   // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，

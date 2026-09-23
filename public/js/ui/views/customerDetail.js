@@ -65,11 +65,13 @@ import {
   deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
   deliveryNoteFor, undelivered,
 } from '../../domain/products.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
-import { back, popScreens, pushScreen } from '../nav.js';
+import { openFor as openBulkCancel } from './bulkCancel.js';
+import { taskLine } from '../../domain/taskRules.js';
+import { back, popScreens, pushScreen, whenSettled } from '../nav.js';
 
 const esc = f.esc;
 
@@ -699,6 +701,47 @@ function openDanger(ctx) {
   });
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
+    // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`
+    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
+    if (block.visits.length || block.tasks.length || block.notes.length) {
+      const master = liveMaster(ctx);
+      const lineOf = (t) => {
+        const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
+        return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
+      };
+      const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
+        n.date ? `・${shortDate(n.date)}` : ''}`;
+      // 「去批次取消」打開**今天以後最早**那一天的月份（issues/17）。已經過了、還沒結案的
+      // 那幾筆該去簽療程單 —— 擋著的全部都是那種時，這一顆本身就是錯的路
+      const ahead = block.visits.map((v) => v.date).filter((d) => d >= todayISO()).sort()[0];
+      const goCancel = await confirmAction({
+        title: `「${customer.name}」還刪不掉`,
+        consequences: [
+          ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
+          ...block.tasks.map(lineOf),
+          ...block.notes.map(noteOf),
+          '——',
+          ...(block.visits.length
+            ? ['那幾段在 Abovee 上還壓著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
+            : []),
+          ...(block.tasks.length ? ['待辦做完勾掉'] : []),
+          ...(block.notes.length ? ['隨手記勾掉或刪掉'] : []),
+          '都收掉之後再回來刪',
+        ],
+        confirmLabel: ahead ? '去批次取消' : '知道了',
+        cancelLabel: '先不要',
+      });
+      if (goCancel && ahead) {
+        // 確認框收掉時排的那一趟 history.go() 回來之前換頁，會被它退掉（`whenSettled()`）
+        closeSheet();
+        await whenSettled();
+        openBulkCancel(ctx.id, ahead.slice(0, 7));
+        go('/schedule/cancel');
+      }
+      return;
+    }
+
     const ok = await confirmAction({
       title: `刪除「${customer.name}」？`,
       consequences: [
@@ -1319,8 +1362,22 @@ function paintEdit(ctx) {
     f.showErrors(el, errors);
     if (errors.length) return;
 
+    // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
+    // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
+    // 規則在 `renameTargets()`
+    const renamed = changes.name !== (ctx.customer.name ?? '');
+    if (renamed) {
+      const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;
+      if (said && !await confirmReview([said])) return;
+    }
+
     try {
-      await toast.withSaveState(() => data.update(ctx.id, changes), {
+      await toast.withSaveState(async () => {
+        const targets = renamed
+          ? rules.renameTargets(await ownSnapshots(ctx.id), todayISO(), changes.name)
+          : [];
+        await data.updateWithSnapshots(ctx.id, changes, targets);
+      }, {
         success: '已儲存', key: `customer:update:${ctx.id}`,
       });
       reload(ctx);
@@ -1328,6 +1385,16 @@ function paintEdit(ctx) {
       /* 已處理 */
     }
   });
+}
+
+/** 這位客戶身上帶著名字快照的那幾份（改名時要跟著換哪幾份由 `renameTargets()` 決定）。 */
+async function ownSnapshots(customerId) {
+  const [visits, tasks, notes] = await Promise.all([
+    visitsData.listByCustomer(customerId),
+    tasksData.listByCustomer(customerId),
+    notesData.listByCustomer(customerId),
+  ]);
+  return { visits, tasks, notes };
 }
 
 // ---------- 額度編輯 ----------

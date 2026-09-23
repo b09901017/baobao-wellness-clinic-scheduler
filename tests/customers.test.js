@@ -358,3 +358,111 @@ describe('合作機構', () => {
     assert.deepEqual(partnersOf(c), ['自然美']);
   });
 });
+
+// ---------- 改名時哪幾份快照跟著換（prelaunch-audit-2026-09-23/issues/09） ----------
+//
+// 來訪、任務、隨手記身上存的是當時的名字（快照）。她 2026-09-23 選 A：改名時把
+// 今天以後的來訪、還沒做的待辦、還沒勾的隨手記一起換掉；過去的與做完的留著當時的名字。
+
+import { renameTargets } from '../public/js/domain/customers.js';
+
+describe('改名時一起換的快照', () => {
+  const today = '2026-09-23';
+  test('今天以後的來訪、還沒做的任務、還沒勾的隨手記', () => {
+    const out = renameTargets({
+      visits: [
+        { id: 'past', date: '2026-09-22', status: 'done', customerName: '王小明' },
+        { id: 'today', date: today, customerName: '王小明' },
+        { id: 'later', date: '2026-10-01', customerName: '王小明' },
+        { id: 'gone', date: '2026-10-02', customerName: '王小明', deletedAt: 'x' },
+      ],
+      tasks: [
+        { id: 'open', done: false, customerName: '王小明' },
+        { id: 'done', done: true, customerName: '王小明' },
+      ],
+      notes: [
+        { id: 'n-open', done: false, customerName: '王小明' },
+        { id: 'n-done', done: true, customerName: '王小明' },
+      ],
+    }, today, '王大明');
+    assert.deepEqual(out, [
+      { path: 'visits', id: 'today' }, { path: 'visits', id: 'later' },
+      { path: 'tasks', id: 'open' },
+      { path: 'notes', id: 'n-open' },
+    ]);
+  });
+
+  // 16：「還掛著沒做完的事」的那幾筆不管日期一起換 —— 它們還不算歷史。不換的話
+  // 結案那一下 `syncTasksForVisit()` 把任務名字對齊來訪身上那一份，待辦又變回舊名字
+  test('昨天還沒結案的那一筆一起換', () => {
+    const out = renameTargets({
+      visits: [{ id: 'y', date: '2026-09-22', status: 'confirmed', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'y', kind: 'Examine', done: false, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, [{ path: 'visits', id: 'y' }, { path: 'tasks', id: 't' }]);
+  });
+
+  test('上個月已完成、身上沒有待辦的 → 留著當時的名字', () => {
+    const out = renameTargets({
+      visits: [{ id: 'old', date: '2026-08-20', status: 'done', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'old', kind: '寫紀錄', done: true, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, []);
+  });
+
+  test('上個月已完成、身上還掛著一張沒勾的「寫紀錄」→ 來訪與待辦都換', () => {
+    const out = renameTargets({
+      visits: [{ id: 'old', date: '2026-08-20', status: 'done', customerName: '王小明' }],
+      tasks: [{ id: 't', visitId: 'old', kind: '寫紀錄', done: false, customerName: '王小明' }],
+    }, today, '王大明');
+    assert.deepEqual(out, [{ path: 'visits', id: 'old' }, { path: 'tasks', id: 't' }]);
+  });
+
+  test('已經是新名字的不用再寫一次', () => {
+    assert.deepEqual(renameTargets({ visits: [{ id: 'v', date: today, customerName: '王大明' }] }, today, '王大明'), []);
+  });
+});
+
+// ---------- 刪掉客戶之前先擋（prelaunch-audit-2026-09-23/issues/08） ----------
+//
+// 刪除只寫客戶本人那一份，來訪、任務讀的時候不問客戶還在不在 —— 日曆、確認、簽療程單、
+// 掛號待辦上會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還佔著。
+// 她 2026-09-23 選 A：還掛著東西就先擋，列出來請她先收掉。
+
+import { deleteBlockers } from '../public/js/domain/customers.js';
+
+describe('刪掉客戶之前還掛著他的事', () => {
+  test('還沒結案的來訪（待確認、已確認）與還沒做的待辦', () => {
+    const out = deleteBlockers({
+      visits: [
+        { id: 'p', status: 'pending_confirm' },
+        { id: 'c', status: 'confirmed' },
+        { id: 'd', status: 'done' },
+        { id: 'n', status: 'no_show' },
+        { id: 'x', status: 'cancelled' },
+        { id: 'gone', status: 'confirmed', deletedAt: 'x' },
+      ],
+      tasks: [{ id: 'open', done: false }, { id: 'done', done: true }],
+    });
+    assert.deepEqual(out.visits.map((v) => v.id), ['p', 'c']);
+    assert.deepEqual(out.tasks.map((t) => t.id), ['open']);
+  });
+
+  test('都收掉了 → 刪得掉', () => {
+    const out = deleteBlockers({ visits: [{ id: 'd', status: 'done' }], tasks: [{ id: 't', done: true }] });
+    assert.equal(out.visits.length + out.tasks.length + out.notes.length, 0);
+  });
+
+  // 17：她 2026-09-23「這位客戶身上所有還沒勾的都擋，不管有沒有日期」
+  test('還沒勾的隨手記也擋 —— 有日期的（日曆上的待辦、營養品提醒）與沒日期的都算', () => {
+    const out = deleteBlockers({
+      notes: [
+        { id: 'plain', done: false, date: null },
+        { id: 'dated', done: false, date: '2026-10-01' },
+        { id: 'ticked', done: true },
+        { id: 'gone', done: false, deletedAt: 'x' },
+      ],
+    });
+    assert.deepEqual(out.notes.map((n) => n.id), ['plain', 'dated']);
+  });
+});

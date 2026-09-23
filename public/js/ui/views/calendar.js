@@ -64,7 +64,9 @@ import { tip } from '../components/tip.js';
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
 // `data` 是最後一次畫出來的那一份。長按改完狀態之後要重讀再把同一天重開 ——
 // 而 `openDay()` 需要一份新的資料（ADR-0020：她的下一個動作八成是看同一天的別筆）。
-const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null };
+// `openDay`：開著的那一天抽屜（`{ date, refresh }`，`openDay()` 設、那一張關掉時清）。比的是物件本身
+// 不是日期 —— 抽屜收起來的動畫播完才叫 `onClose`，那時候同一天的新抽屜可能已經開了。
+const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null, openDay: null };
 
 /**
  * 從別的畫面指定「進日曆時停在哪一天」（那一格標著）。拍 Abovee 那一層的「對不上」連過來用
@@ -105,6 +107,11 @@ export async function render(el) {
     return;
   }
   paint(el, result.value);
+  // **重畫的時候那一天的抽屜還開著**（按了 toast 上的「復原」→ `router.reload()`、
+  // 讀取卡片收掉時）：抽屜手上那一份 `data` 是打開那一刻傳進去的，不換掉的話長按選單
+  // 還以為那一段是復原之前的樣子（prelaunch-audit-2026-09-23/issues/10）。
+  // 就地換、就地重畫 —— 不收掉重開（那會重播滑上來的動畫、捲回最上面，也會蓋掉她正在填的表單）
+  state.openDay?.refresh(state.data);
 }
 
 /**
@@ -532,13 +539,14 @@ function dayHtml(data, date, today) {
   // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
   // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
   if (!merged.length && !allDay.length && !todos.length) {
-    return '<p class="muted" style="margin: 0">這天還沒有東西。</p>';
+    return '<p class="muted" style="margin: 0" data-daylist>這天還沒有東西。</p>';
   }
 
   const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
 
+  // `data-daylist`：抽屜現在畫的是這一天的清單（不是被編輯器接走了），見 `openDay()` 的 `refresh()`
   return `
-    <div class="timeline">
+    <div class="timeline" data-daylist>
       ${pinned}
       ${pinned && merged.length ? '<hr class="timeline__split" />' : ''}
       ${merged.map((item) => (item.kind === 'visit'
@@ -733,9 +741,21 @@ function openDay(el, data, date) {
     // 空的那一天要講的那句話搬進 dayHtml() 的空狀態裡。
     body: dayHtml(data, date, today),
     tools: addMenuHtml(),
-    onClose: closeCard,
+    onClose: () => {
+      if (state.openDay === mine) state.openDay = null;
+      closeCard();
+    },
     onMount: wireRows,
   });
+  const mine = {
+    date,
+    refresh(fresh) {
+      data = fresh;
+      // 抽屜被編輯器接走了（點一筆 → 鉛筆）就不重畫 —— 蓋掉的會是她正在填的表單
+      if (sheet.el.querySelector('[data-daylist]')) repaint();
+    },
+  };
+  state.openDay = mine;
 
   /**
    * 那一天就地重畫。**讀的是抽屜手上那一份 `data`**，不是 `state.data`
@@ -1120,6 +1140,28 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     return;
   }
 
+  // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
+  //
+  // **套在剛讀回來的那一份上，不是抽屜手上那一份**（prelaunch-audit-2026-09-23/issues/19）：
+  // 另一台在抽屜打開之後加的段接在尾巴（ADR-0091），`slotIndex` 指的還是同一段，
+  // 而整筆寫回去時那一段才不會被蓋掉。**套之前再問一次准不准** —— 那一段在
+  // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
+  // 在確認框**之前**讀：確認框講的後果與真的寫下去的是同一份（ADR-0070）；
+  // 框開著的那幾秒被別台搶先，`ifUpdatedAt` 會擋下來、底下重讀。
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listByCustomer(visit.customerId);
+  } catch (err) {
+    toast.failed(`讀不到最新的資料：${err.message}`);
+    return;
+  }
+  const fresh = customerVisits.find((v) => v.id === visit.id);
+  if (!fresh || !visitActions(fresh, { today: todayISO(), slotIndex }).some((i) => i.id === action)) {
+    toast.info(`${Number.isInteger(slotIndex) ? '這一段' : '這一天'}剛剛在別的地方改過了，換成最新的樣子`);
+    await refreshAfterAction(el, backDate);
+    return;
+  }
+
   // 取消照樣走二次確認。長按省掉的是找到那一筆的四層點擊，不是那個決定本身。
   //
   // 那幾句話走 `domain/consequences.js` 的 `cancelConsequences()`。以前兩邊
@@ -1137,7 +1179,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
     let tasks = [];
     try {
-      tasks = await tasksData.listByVisit(visit.id);
+      tasks = await tasksData.listByVisitForSync(visit.id);
     } catch {
       /* 少講兩句，不擋 */
     }
@@ -1145,9 +1187,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 整天狀態卡上，而那一塊整個拿掉了 —— 不搬的話 `cancelReason` 會變成
     // 一個再也沒有人寫得進去的欄位，稽核紀錄上從此只看得到「取消了」。
     const said = await confirmWithReason({
-      title: `取消${visit.customerName ?? ''}這一段？`,
+      title: `取消${fresh.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
-        visit,
+        visit: fresh,
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex,
@@ -1161,8 +1203,6 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   }
 
   try {
-    // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
-    const customerVisits = await visitsData.listByCustomer(visit.customerId);
     // **每一顆都只動她長按的那一段**（ADR-0097）。2026-09-16 之前只有取消
     // 那一條帶了 `slotIndex`，於是「客戶說可以」走下面那一行、
     // `applyStatus()` 的整天分支把那一天每一段都蓋成已確認 —— 她的原話：
@@ -1170,7 +1210,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    const next = applyStatus(visit, onlyOne ? 'cancelled' : action, {
+    const next = applyStatus(fresh, onlyOne ? 'cancelled' : action, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,
     });
@@ -1187,8 +1227,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);
-  } catch {
-    /* 已處理 */
+  } catch (err) {
+    // toast 已經講了；兩次讀之間的空檔被別台搶先時，把抽屜換成新的那一份
+    if (err?.name === 'StaleWriteError') await refreshAfterAction(el, backDate);
   }
 }
 
@@ -1703,7 +1744,9 @@ function mountEditor(el, data, sheet, spec) {
     },
     onCancel: () => {
       closeSheet();
-      if (backDate) openDay(el, data, backDate);
+      // 讀 `state.data` 不讀掛上編輯器那一刻的 `data`（prelaunch-audit-2026-09-23/issues/20）：
+      // 編輯器開著時按了復原，`render()` 換掉的是 `state.data`，手上這一份還是舊的
+      if (backDate) openDay(el, state.data ?? data, backDate);
     },
   };
 

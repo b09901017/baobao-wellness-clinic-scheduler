@@ -1882,6 +1882,13 @@ describe('客人回覆之後那一筆長什麼樣（applyConfirmation）', () =>
     assert.equal(next.status, 'confirmed');
   });
 
+  test('只動抽屜上問過的那幾段 —— 別台剛接在後面的那一段照舊待確認（issue 19）', () => {
+    // 抽屜打開時只有前兩段；套的是剛讀回來的那一份，第三段是另一台在那之後加的
+    const next = applyConfirmation(v(), new Set([1]), 'T', new Set([0, 1]));
+    assert.deepEqual(next.slots.map((s) => s.status), ['confirmed', 'cancelled', undefined]);
+    assert.equal(next.status, 'pending_confirm', '還有一段沒問過，整筆停在待確認');
+  });
+
   test('不動到原本那一份', () => {
     const before = v();
     applyConfirmation(before, new Set([0]), 'T');

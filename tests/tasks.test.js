@@ -17,6 +17,7 @@ import {
   cancelKindFor,
   taskLine,
   RECORD_TASK_KIND,
+  seenTasks,
 } from '../public/js/domain/taskRules.js';
 import { confirmMessage } from '../public/js/domain/messages.js';
 import { shortDate, weekdayLabel } from '../public/js/domain/dates.js';
@@ -430,6 +431,32 @@ describe('一列任務要講的三件事', () => {
     const line = taskLine({ kind: '耀聖' }, null);
     assert.equal(line.date, null);
     assert.equal(line.kind, '耀聖');
+  });
+
+  // 21：帶 `slotIndexes` 的只講那幾段（ADR-0107）。同一天分兩次確認會有兩張 Examine，
+  // 印整筆的課程的話兩張長得一模一樣
+  const day = visit({
+    date: '2026-10-05',
+    slots: [
+      { courseName: '門診', startsAt: '10:00', endsAt: '10:30' },
+      { courseName: '復能', startsAt: '11:00', endsAt: '12:00', status: 'cancelled' },
+      { courseName: '門診', startsAt: '15:00', endsAt: '15:30' },
+    ],
+  });
+
+  test('同一天兩張 Examine 各自印出它掛的那一段', () => {
+    assert.equal(taskLine({ ...t, slotIndexes: [0] }, day).what, '10:00 門診');
+    assert.equal(taskLine({ ...t, slotIndexes: [2] }, day).what, '15:00 門診');
+    assert.equal(taskLine({ ...t, slotIndexes: [0, 2] }, day).what, '10:00 門診、15:00 門診');
+  });
+
+  test('取消類掛的是取消掉的那一段 —— 不可以濾掉取消的', () => {
+    assert.equal(taskLine({ kind: '取消 Abovee', slotIndexes: [1] }, day).what, '11:00 復能');
+  });
+
+  test('沒有 slotIndexes（舊任務、獨立待辦）照舊講整筆', () => {
+    assert.equal(taskLine(t, day).what, '門診、復能');
+    assert.equal(taskLine({ ...t, slotIndexes: [9] }, day).what, '門診、復能', '指到不存在的段就退回整筆');
   });
 });
 
@@ -903,7 +930,9 @@ describe('軟刪除的任務照樣算在比對裡', () => {
     }];
     const { update, create } = syncTasksForVisit(visit, existing, ctx2);
     assert.deepEqual(update, []);
-    assert.ok(!create.some((t) => t.kind === 'Examine'), '它還在，只是被清掉了');
+    // 沒勾過就被刪掉的只可能是復原或系統收掉的（「清掉」只有已完成那一格有）——
+    // 那件事沒有人做過，所以要重新長一張（prelaunch-audit-2026-09-23/issues/01）
+    assert.ok(create.some((t) => t.kind === 'Examine'), '沒勾過的刪掉就是不存在');
   });
 
   test('沒刪掉的那幾張行為一個字都沒變', () => {
@@ -943,5 +972,160 @@ describe('比對用的那一份要連軟刪除的一起讀', () => {
 
   test('待辦中心那幾頁照舊走 listByVisit() —— 她清掉的就是要消失', () => {
     assert.match(DATA_TASKS, /export function listByVisit\(visitId\) \{\s*\n\s*return repo\.list\(/);
+  });
+});
+
+// ---------- 復原過的、系統收掉的不算做過（prelaunch-audit-2026-09-23/issues/01） ----------
+//
+// 軟刪除有三種來源，只有「清掉」（已勾）是真的做過了。復原（`inverseOps()` 把新增的那幾張
+// softDelete）與系統收掉（`syncTasksForVisit()` 的 remove）身上都是 `done: false`。
+
+describe('軟刪除的只有勾過的算做過', () => {
+  const C = { 'c-rehab': { category: 'A' }, 'c-recovery': { category: 'C' }, 'c-followup': { category: 'A', needsRecord: true } };
+  const cx = { coursesById: C, today: '2026-09-16' };
+  const slotAt = (courseId, status) => ({ courseId, entitlementId: 'e1', startsAt: '09:00', endsAt: '10:00', status });
+  const day = (slots, status) => ({
+    id: 'v1', customerId: 'c1', customerName: '客戶A', date: '2026-09-20', status: status ?? visitStatusFrom({ slots }), slots,
+  });
+  // `repo.commit()` 替 create 配 id；復原把它們 softDelete（reason 復原、done 照舊 false）
+  const born = (create) => create.map((t, i) => ({ ...t, id: `t${i}` }));
+  const undone = (tasks) => tasks.map((t) => ({ ...t, deletedAt: '2026-09-16' }));
+
+  test('確認 → 復原 → 再確認：Examine、耀聖各長一張', () => {
+    const first = syncTasksForVisit(day([slotAt('c-rehab', 'confirmed')]), [], cx).create;
+    assert.deepEqual(first.map((t) => t.kind).sort(), ['Examine', '耀聖'].sort());
+    const again = syncTasksForVisit(day([slotAt('c-rehab', 'confirmed')]), undone(born(first)), cx);
+    assert.deepEqual(again.create.map((t) => t.kind).sort(), ['Examine', '耀聖'].sort());
+    assert.deepEqual(again.update, [], '刪掉的那幾張一個字都不動');
+  });
+
+  test('結案 → 復原 → 再結案：寫紀錄長一張', () => {
+    const doneDay = day([slotAt('c-followup', 'done')]);
+    const first = syncTasksForVisit(doneDay, [], cx).create;
+    assert.ok(first.some((t) => t.kind === RECORD_TASK_KIND));
+    const again = syncTasksForVisit(doneDay, undone(born(first)), cx).create;
+    assert.deepEqual(again.map((t) => t.kind), [RECORD_TASK_KIND]);
+  });
+
+  test('取消這一段 → 復原 → 再取消：「取消 Abovee」長一張', () => {
+    const cut = day([slotAt('c-recovery', 'cancelled'), slotAt('c-recovery', 'confirmed')]);
+    const first = syncTasksForVisit(cut, [], cx).create;
+    assert.deepEqual(first.map((t) => t.kind), ['取消 Abovee']);
+    const again = syncTasksForVisit(cut, undone(born(first)), cx).create;
+    assert.deepEqual(again.map((t) => [t.kind, t.slotIndexes]), [['取消 Abovee', [0]]]);
+  });
+
+  test('A 類換成 C 類（系統收掉）再換回 A 類：Examine、耀聖重新長', () => {
+    const tasks = born(syncTasksForVisit(day([slotAt('c-rehab', 'confirmed')]), [], cx).create);
+    const swapped = syncTasksForVisit(day([slotAt('c-recovery', 'confirmed')]), tasks, cx);
+    assert.equal(swapped.remove.length, 2);
+    const gone = new Set(swapped.remove.map((r) => r.id));
+    const after = tasks.map((t) => (gone.has(t.id) ? { ...t, deletedAt: '2026-09-16' } : t));
+    const back = syncTasksForVisit(day([slotAt('c-rehab', 'confirmed')]), after, cx).create;
+    assert.deepEqual(back.map((t) => t.kind).sort(), ['Examine', '耀聖'].sort());
+  });
+
+  test('復原掉的 Examine 沒掛過號 —— 取消那一段不長「取消 Examine」', () => {
+    const cut = day([slotAt('c-rehab', 'cancelled')], 'cancelled');
+    const existing = [{ id: 't1', visitId: 'v1', kind: 'Examine', done: true, doneAt: '2026-09-16', autoGenerated: true, deletedAt: '2026-09-16' }];
+    // 勾過又被刪掉的（「清掉」）照樣算掛過
+    assert.ok(syncTasksForVisit(cut, existing, cx).create.some((t) => t.kind === '取消 Examine'));
+    // 沒勾過就被刪掉的不算
+    const never = [{ ...existing[0], done: false, doneAt: null }];
+    assert.ok(!syncTasksForVisit(cut, never, cx).create.some((t) => t.kind === '取消 Examine'));
+  });
+
+  test('seenTasks()：沒刪掉的全部、刪掉的只有勾過的', () => {
+    const rows = [
+      { id: 'a', done: false },
+      { id: 'b', done: true },
+      { id: 'c', done: true, deletedAt: 'x' },
+      { id: 'd', done: false, deletedAt: 'x' },
+    ];
+    assert.deepEqual(seenTasks(rows).map((t) => t.id), ['a', 'b', 'c']);
+  });
+});
+
+// 確認框與真的寫入要讀同一份（ADR-0070）。確認框讀的是不含軟刪除的那一支的話，
+// 清掉過的 Examine 在框上看不到、寫下去卻長出「取消 Examine」。
+describe('取消的確認框讀比對用的那一份', () => {
+  for (const file of ['ui/views/calendar.js', 'ui/views/visitEditor.js', 'ui/views/bulkCancel.js']) {
+    test(file, () => {
+      const src = readFileSync(new URL(`../public/js/${file}`, import.meta.url), 'utf8');
+      assert.ok(!/tasksData\.listByVisit\(/.test(src), '確認框要讀 listByVisitForSync()');
+      assert.match(src, /tasksData\.listByVisitForSync\(/);
+    });
+  }
+});
+
+// ---------- 掛號那一族也逐段（prelaunch-audit-2026-09-23/issues/02） ----------
+//
+// 她 2026-09-13：「Examine 上是一段登記一筆，不會是一天一筆」；2026-09-23：同一天兩段 A 類
+// 是**掛兩筆、待辦一張**。所以每一張記著它掛的是哪幾段（`slotIndexes`），同一次存檔談定的
+// 幾段收成同一張；之後同一天補排的那一段談定了，另外長一張。
+
+describe('掛號那一族逐段長', () => {
+  const C = { 'c-rehab': { category: 'A' }, 'c-cardio': { category: 'A' }, 'c-recovery': { category: 'C' } };
+  const cx = { coursesById: C, today: '2026-09-16' };
+  const at = (courseId, status, startsAt = '09:00') => ({ courseId, entitlementId: 'e1', startsAt, endsAt: startsAt, status });
+  const day = (slots) => ({
+    id: 'v1', customerId: 'c1', customerName: '客戶A', date: '2026-09-20', status: visitStatusFrom({ slots }), slots,
+  });
+  const reg = (kind, slotIndexes, over = {}) => ({
+    id: `t-${kind}-${slotIndexes.join('')}`, visitId: 'v1', kind, slotIndexes,
+    done: true, doneAt: '2026-09-15', autoGenerated: true, dueDate: '2026-09-19', customerName: '客戶A', ...over,
+  });
+  const kindsAt = (create) => create.filter((t) => !isCancelKind(t.kind)).map((t) => [t.kind, t.slotIndexes]);
+
+  test('來訪換了名字：沒做的任務跟著換，做完的留著當時的名字（改名的規則）', () => {
+    const v = { ...day([at('c-rehab', 'confirmed')]), customerName: '王大明' };
+    const existing = [reg('Examine', [0]), reg('耀聖', [0], { done: false, doneAt: null })];
+    const { update } = syncTasksForVisit(v, existing, cx);
+    assert.deepEqual(update.filter((u) => u.changes.customerName).map((u) => u.id), ['t-耀聖-0']);
+  });
+
+  test('同一次存檔談定兩段 A 類 → Examine、耀聖各一張，蓋兩段', () => {
+    const { create } = syncTasksForVisit(day([at('c-rehab', 'confirmed'), at('c-cardio', 'confirmed', '14:00')]), [], cx);
+    assert.deepEqual(kindsAt(create), [['Examine', [0, 1]], ['耀聖', [0, 1]]]);
+  });
+
+  test('取消 10:00 那一段、同一天補一段 15:00 談定 → 那一段自己長一張 Examine、一張耀聖', () => {
+    const v = day([at('c-recovery', 'confirmed', '08:00'), at('c-rehab', 'cancelled', '10:00'), at('c-rehab', 'confirmed', '15:00')]);
+    const existing = [reg('Examine', [1]), reg('耀聖', [1], { done: false, doneAt: null }), reg('取消 Examine', [1], { done: false })];
+    const { create } = syncTasksForVisit(v, existing, cx);
+    assert.deepEqual(kindsAt(create), [['Examine', [2]], ['耀聖', [2]]]);
+  });
+
+  test('取消沒掛號的那一段 → 不長「取消 Examine」', () => {
+    // 早上那一段掛好了（勾掉），下午那一段的 Examine 還沒掛（沒勾）
+    const v = day([at('c-rehab', 'confirmed'), at('c-cardio', 'cancelled', '14:00')]);
+    const existing = [reg('Examine', [0]), reg('Examine', [1], { id: 't-open', done: false, doneAt: null })];
+    const { create, remove } = syncTasksForVisit(v, existing, cx);
+    assert.ok(!create.some((t) => t.kind === '取消 Examine'), '下午那一段沒掛過號');
+    assert.deepEqual(remove.map((r) => r.id), ['t-open'], '沒掛的那一張不用掛了');
+  });
+
+  test('一張蓋兩段、還沒掛；其中一段取消了 → 那一張只剩另一段', () => {
+    const v = day([at('c-rehab', 'confirmed'), at('c-cardio', 'cancelled', '14:00')]);
+    const existing = [reg('Examine', [0, 1], { id: 't-both', done: false, doneAt: null })];
+    const { update, remove, create } = syncTasksForVisit(v, existing, cx);
+    assert.deepEqual(remove, []);
+    assert.deepEqual(update, [{ id: 't-both', changes: { slotIndexes: [0] } }]);
+    assert.ok(!create.some((t) => t.kind === '取消 Examine'));
+  });
+
+  test('舊資料（沒有 slotIndexes）當成蓋住整天 —— 補一段談定也一張都不多長', () => {
+    const v = day([at('c-rehab', 'confirmed'), at('c-cardio', 'confirmed', '14:00')]);
+    const legacy = [{ ...reg('Examine', [0]), slotIndexes: undefined }, { ...reg('耀聖', [0]), slotIndexes: undefined }];
+    const { create, update } = syncTasksForVisit(v, legacy, cx);
+    assert.deepEqual(kindsAt(create), []);
+    assert.deepEqual(update, [], '舊的那幾張不補 slotIndexes');
+  });
+
+  test('確認抽屜那一句跟真的會長的走同一份：同一天早上掛過，確認下午那一段照樣說會多一張', async () => {
+    const { confirmConsequences } = await import('../public/js/domain/consequences.js');
+    const before = day([at('c-rehab', 'confirmed'), at('c-cardio', 'pending_confirm', '14:00')]);
+    const lines = confirmConsequences([before], C, false, new Set(), { v1: [reg('Examine', [0]), reg('耀聖', [0])] });
+    assert.ok(lines.some((l) => l.includes('Examine') && l.includes('耀聖')), lines.join('\n'));
   });
 });

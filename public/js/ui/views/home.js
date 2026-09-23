@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus,
+  focusFor, slotStatus, canTransition,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -45,7 +45,7 @@ import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
-import { confirmConsequences, closeConsequences } from '../../domain/consequences.js';
+import { confirmConsequences, closeConsequences, cancelConsequences } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
@@ -70,6 +70,7 @@ import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { saveEach } from '../saveEach.js';
 import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
@@ -1746,6 +1747,11 @@ export async function renderGroup(el, group) {
   if (group === 'forms') return formInbox.render(el);
   if (group === 'book') return renderBook(el);
 
+  if (group !== taskTabGroup) {
+    taskTab = 'open';
+    taskTabGroup = group;
+  }
+
   const [open, done] = await Promise.all([tasksData.listOpen(), tasksData.listDone()]);
   const today = todayISO();
 
@@ -1802,6 +1808,8 @@ async function loadTaskVisits(ctx) {
     ]);
     taskVisits = {
       visits,
+      // 「哪一天的什麼」那一行要那一張任務本身：帶 `slotIndexes` 的只講它掛的那幾段（issues/21）
+      tasks: byId([...ctx.open, ...ctx.done]),
       roomsById: byId(rooms),
       staffById: byId(staff),
       master: { courses, equipment, ivProducts },
@@ -1837,11 +1845,13 @@ function fillVisitInfo(el) {
   //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
   // 死線是它的前一天，兩個差一天最容易看錯人。
   for (const node of el.querySelectorAll('[data-taskwhen]')) {
-    const visit = taskVisits.visits.get(node.dataset.taskwhen);
+    // key 是**任務 id** 不是來訪 id：同一天兩張 Examine 各自掛不同的段，印的也要不同（issues/21）
+    const task = taskVisits.tasks[node.dataset.taskwhen];
+    const visit = taskVisits.visits.get(task?.visitId);
     if (!visit) continue;
     // 第三個參數帶了主檔才講得出「那天做了什麼」（`SIS(30)`）——
     // 不帶的話底下那一支 `visitCourseLabel` 退回快照，會寫成「復能」（ADR-0078）
-    const line = taskLine({}, visit, taskVisits.master);
+    const line = taskLine(task, visit, taskVisits.master);
     const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
     if (!text) continue;
     node.textContent = text;
@@ -1923,6 +1933,14 @@ const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 
 /** 未完成／已完成。存在模組裡不進網址 —— 它是看法，不是位置（同隨手記那一頁）。 */
 let taskTab = 'open';
+/**
+ * `taskTab` 是哪一個分類的。**換到別的分類、或離開再回來就回到未完成**：Examine 那一頁切到
+ * 已完成之後點耀聖（或去日曆繞一圈再回來），不可以直接停在已完成、把還沒做的那一張藏起來
+ * （prelaunch-audit-2026-09-23/issues/11）。同一個分類重畫（拿回來、刪一張、清掉、復原之後）
+ * 照樣留著 —— 那幾條路不換網址，所以換網址就忘掉。
+ */
+let taskTabGroup = null;
+window.addEventListener('hashchange', () => { taskTabGroup = null; });
 
 function paintTasks(ctx) {
   const { el, today, meta } = ctx;
@@ -2042,7 +2060,7 @@ function doneRow(t) {
         <span class="note__main">
           <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
           ${/* 勾掉之後長得不一樣會讓她以為那是另一種東西，所以這一格也補 */''}
-          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
+          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
         </span>
         <span class="notetags">
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
@@ -2110,7 +2128,7 @@ function taskRow(t, today) {
           ${/* 「這是哪一天的什麼」。那一列上面已經有四樣東西了，再擠一串會爆版，
                  所以放第二行。等來訪讀回來才填得上（同「N 項」，`fillVisitInfo()`），
                  讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
-          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.visitId)}" hidden></span>` : ''}
+          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
           ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
@@ -2855,11 +2873,6 @@ function drawerHtml(ctx) {
     pendingSlotsOf(v).map(({ slot, index }) => ({ visit: v, slot, key: `${v.id}:${index}` })),
   );
   const okCount = rows.filter((r) => !drawer.rejected.has(r.key)).length;
-  // 已經談定、所以不在這一張上的那幾段。有它們的話「全部退回未確認」是假話 ——
-  // 那幾段不會被動到（`applyConfirmation()` 只改這一張上的那幾格）。
-  const settled = visits.some(
-    (v) => (v.slots ?? []).some((sl) => slotStatus(v, sl) === 'confirmed'),
-  );
   const note = followupNoteOf(visits);
 
   return `
@@ -2904,7 +2917,9 @@ function drawerHtml(ctx) {
           <button class="btn btn--primary" type="button" data-apply>
             ${okCount
               ? `確認 ${okCount} 段，加進日曆`
-              : (settled ? `退掉這 ${rows.length} 段` : '全部退回未確認')}</button>
+              // **講實話：這是取消**（標成取消、長「取消 Abovee」）。以前寫「全部退回未確認」，
+              // 讀起來像「先放回去之後再問」（prelaunch-audit-2026-09-23/issues/12）
+              : `客人都不行，取消這 ${rows.length} 段`}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
@@ -3024,8 +3039,9 @@ async function openNotesFor(customerId) {
  *
  * - 一整天都被退掉 → 那一筆轉 cancelled，**時段留著不刪** ——
  *   當初壓了什麼是要留下來的紀錄，而且 Rules 也不收沒有時段的來訪。
- * - 只退掉其中幾段 → 把那幾段移出來訪，其餘轉 confirmed。
+ * - 只退掉其中幾段 → 那幾段標成取消（ADR-0081），其餘轉 confirmed。
  *   任務會跟著收（見 domain/taskRules.js 的規則矩陣）。
+ * - 抽屜上一段「可以」都沒有 → 全部是取消，而且給不出復原，所以先問一次。
  * - 一段都沒退 → 整筆轉 confirmed。
  */
 async function applyConfirm(ctx) {
@@ -3033,7 +3049,33 @@ async function applyConfirm(ctx) {
   const rejected = drawer.rejected;
   const at = new Date().toISOString();
 
-  const customerVisits = await visitsData.listByCustomer(drawer.customerId);
+  // **一段「可以」都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
+  // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
+  // 同批次取消那一頁的作法（逐筆算完去重），不在這裡另寫一份（ADR-0070）。
+  const pending = visits.map((v) => ({ v, at: pendingSlotsOf(v).map(({ index }) => index) }))
+    .filter(({ at }) => at.length);
+  const count = pending.reduce((n, { at }) => n + at.length, 0);
+  if (count && pending.every(({ v, at }) => at.every((i) => rejected.has(`${v.id}:${i}`)))) {
+    const said = new Set();
+    for (const { v, at } of pending) {
+      // 讀不到任務就少講那幾句，不擋（同日曆的取消那一道）
+      const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
+      const lines = cancelConsequences({
+        visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: at,
+        sheetSyncOn: isConfigured(ctx.settings),
+      });
+      for (const line of lines) said.add(line);
+    }
+    const ok = await confirmAction({
+      title: `客人都不行，取消這 ${count} 段？`,
+      consequences: [...said],
+      confirmLabel: `取消這 ${count} 段`,
+      danger: true,
+    });
+    if (!ok) return;
+  }
+
+  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
 
   // 規則在 `domain/visits.js` 的 `applyConfirmation()`（SPEC 第 10 節）。
   // 這裡只把畫面上的 key（`v.id:i`）換成那一筆自己的段落編號。
@@ -3041,21 +3083,44 @@ async function applyConfirm(ctx) {
   // **客人說不行的那一段標成取消，不是從陣列裡刪掉**（ADR-0081）——
   // 刪掉的話沒有紀錄它曾經被壓過，也不會長出「取消 Abovee」，
   // 而她真的在 Abovee 上壓過那一格。
-  const writes = visits.map((v) => applyConfirmation(
-    v,
-    new Set((v.slots ?? []).map((_, i) => i).filter((i) => rejected.has(`${v.id}:${i}`))),
-    at,
-  ));
+  //
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19），而且只動抽屜上
+  // 那幾段 —— 另一台在抽屜打開之後接在尾巴的那一段她沒問過客人。抽屜上有一段在
+  // 新的那一份裡已經不是待確認（別的地方談定或取消了），整張抽屜就是舊的：不寫，重畫。
+  const writes = [];
+  for (const v of visits) {
+    const asked = pendingSlotsOf(v).map(({ index }) => index);
+    const fresh = customerVisits.find((x) => x.id === v.id);
+    if (!fresh || asked.some((i) => !fresh.slots?.[i]
+        || slotStatus(fresh, fresh.slots[i]) !== 'pending_confirm')) {
+      toast.info('這幾段剛剛在別的地方改過了，換成最新的樣子');
+      drawer = null;
+      await renderConfirm(ctx.el);
+      return;
+    }
+    writes.push(applyConfirmation(
+      fresh,
+      new Set(asked.filter((i) => rejected.has(`${v.id}:${i}`))),
+      at,
+      new Set(asked),
+    ));
+  }
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
   // **兩支收的都是寫入之前的那幾筆**，而且只講抽屜上那幾段（ADR-0097）：
   // 早上那一段在日曆上早就談定時，它的登記早就長了，不可以再說一次「會多一張」。
   const summary = describeConfirmed(visits, rejected);
+  // 「待辦會多一張 Examine」要跟真的會長的那一張對得上（ADR-0070）—— 掛號逐段長，
+  // 早就掛過的段不再多講，所以要那幾筆身上的任務（讀不到就當沒有，只會多講一句）
+  const tasksByVisit = Object.fromEntries(await Promise.all(visits.map(async (v) => [
+    v.id, await tasksData.listByVisitForSync(v.id).catch(() => []),
+  ])));
   const said = confirmConsequences(
     visits,
     ctx.coursesById ?? {},
     isConfigured(ctx.settings),
     rejected,
+    tasksByVisit,
   );
   // 有一天在抽屜上的每一段都被退掉了。**問抽屜上那幾段，不問整筆的狀態** ——
   // 同一天早就談定的一段會讓整筆停在「已確認」，而她剛剛退掉的是這張上的全部。
@@ -3064,13 +3129,17 @@ async function applyConfirm(ctx) {
     return mine.length > 0 && mine.every(({ index }) => rejected.has(`${v.id}:${index}`));
   });
 
+  // 存好的那幾筆，重試時跳過（`saveEach()`，issues/18）
+  const saved = new Set();
   try {
     await toast.withSaveState(
-      async () => {
-        // 一筆一筆存：每一筆各自要重算次數與任務，硬塞進同一個 commit
-        // 會超過 Firestore 一批 500 個操作的上限
-        for (const v of writes) await visitsData.save(v, customerVisits);
-      },
+      // **存完一筆就把它換進手上那一份**（同 `bulkCancel.js`）：下一筆算次數讀的就是它。
+      // 不換的話，先存的那一天被退掉時，存第二天看到的第一天還佔著一次，
+      // 錯的數字就寫回額度上（prelaunch-audit-2026-09-23/issues/03）。
+      () => saveEach(writes, async (v) => {
+        await visitsData.save(v, customerVisits);
+        customerVisits = [...customerVisits.filter((x) => x.id !== v.id), v];
+      }, saved),
       {
         success: droppedDay
           ? '記好了，客人說不行的那幾段已經退掉'
@@ -3375,9 +3444,20 @@ async function applyClose(ctx) {
   const visit = ctx.rows.find((v) => v.id === drawer.visitId);
   if (!visit) return;
 
-  const attended = (visit.slots ?? []).map((_, i) => !drawer.missed.has(i));
-  const next = closeVisit(visit, attended);
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。那一筆在別的地方
+  // 已經結案、被取消，或多了一段抽屜上沒畫的（`closeVisit()` 會把沒問到的段當成有做）
+  // —— 這張抽屜就是舊的：不寫，重畫。
+  const fresh = customerVisits.find((v) => v.id === visit.id);
+  if (!fresh || !canTransition(fresh.status, 'done')
+      || (fresh.slots ?? []).length !== (visit.slots ?? []).length) {
+    toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
+    drawer = null;
+    await renderClose(ctx.el);
+    return;
+  }
+  const attended = (fresh.slots ?? []).map((_, i) => !drawer.missed.has(i));
+  const next = closeVisit(fresh, attended);
 
   try {
     // 結案就是扣次數的那一下，做兩次會多扣一次

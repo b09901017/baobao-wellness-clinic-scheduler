@@ -98,6 +98,24 @@ export async function getOne(path, id) {
 }
 
 /**
+ * 拿舊的那一份去寫，而那一份在別的地方已經被改過了。
+ *
+ * `update` 是把呼叫端手上那一份的欄位寫回去 —— 手上那一份是打開畫面那一刻讀的，
+ * 另一台裝置在那之後加了一段，寫回去就把那一段蓋掉了（prelaunch-audit-2026-09-23/issues/04）。
+ * **重試也沒用**：重試拿的還是同一份舊的，所以 toast 不給重試鈕。
+ */
+export class StaleWriteError extends Error {
+  constructor() {
+    super('剛剛在別的地方被改過，重新整理再改一次');
+    this.name = 'StaleWriteError';
+  }
+}
+
+/** 兩個 `updatedAt` 是不是同一刻。讀不到（舊資料、還沒回到伺服器的那一筆）就不擋。 */
+const sameStamp = (now, held) =>
+  now == null || held == null || (now.isEqual ? now.isEqual(held) : now === held);
+
+/**
  * 一次原子寫入多筆資料，每一筆各自附一則稽核。
  *
  * 這是這一層唯一真正在寫入的地方，底下的 create / update / softDelete 都是它的包裝。
@@ -130,6 +148,11 @@ export async function commit(ops) {
     const before = befores[i];
     if (o.op !== 'create' && !before.exists()) {
       throw new Error(`${o.path}/${o.id} 不存在`);
+    }
+    // `ifUpdatedAt`：呼叫端手上那一份是什麼時候的。比對用的是上面本來就讀了的
+    // `before`，所以不多打一次讀取（離線時照樣從本機快取讀）。
+    if (o.op === 'update' && !sameStamp(before.get('updatedAt'), o.ifUpdatedAt)) {
+      throw new StaleWriteError();
     }
 
     let after;

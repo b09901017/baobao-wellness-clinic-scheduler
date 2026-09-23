@@ -1064,3 +1064,47 @@ describe('寄報告給醫師（第二站的第二張）', () => {
     for (const u of update) assert.equal(u.changes.customerName, '新名字');
   });
 });
+
+// ---------- 清掉之後的鏈上任務（prelaunch-audit-2026-09-23/issues/07） ----------
+//
+// 同 ADR-0106：勾過又被清掉（軟刪除）的照樣算做過；沒勾過就被刪掉的（復原、系統收掉）不算。
+// 以前 `mine` 自己濾 `!t.deletedAt`、而 `data/visits.js` 讀的也是不含軟刪除的那一份 ——
+// 清掉已完成的「約二返」之後，任何一筆來訪再存一次，它就長回來而且逾期。
+
+describe('清掉的鏈上任務照樣算做過', () => {
+  const exam = visit('v1', '2026-08-01', 'ent-checkup');
+  const cleared = (t) => ({ ...t, done: true, doneAt: '2026-08-19T02:00:00.000Z', deletedAt: '2026-08-29' });
+  const rep = cleared(report({ id: 'tr' }));
+  const send = cleared(task({ id: 'ts', kind: SEND_REPORT_TASK_KIND }));
+  const book = cleared(task({ id: 'tb', kind: FOLLOWUP_TASK_KIND }));
+
+  test('約二返清掉了（報告、寄報告還在已完成）→ 不長回來', () => {
+    const { create } = sync({ visits: [exam], tasks: [{ ...rep, deletedAt: null }, { ...send, deletedAt: null }, book] });
+    assert.deepEqual(create, []);
+  });
+
+  test('三張都清掉 → 一張都不長', () => {
+    const { create, update, remove } = sync({ visits: [exam], tasks: [rep, send, book] });
+    assert.deepEqual(create, []);
+    assert.deepEqual(update, [], '軟刪除的一個字都不改');
+    assert.deepEqual(remove, []);
+  });
+
+  test('復原掉的（沒勾過）照樣當成不存在 —— 該長的照長', () => {
+    const undone = { ...report({ id: 'tr' }), deletedAt: '2026-08-29' };
+    const { create } = sync({ visits: [exam], tasks: [undone] });
+    assert.deepEqual(create.map((t) => t.kind), [REPORT_TASK_KIND]);
+  });
+});
+
+describe('健檢鏈比對讀連軟刪除的那一份', () => {
+  test('followupOps() 與 chainPlans() 都走 listByCustomerForSync()', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../public/js/data/visits.js', import.meta.url), 'utf8');
+    assert.ok(!src.includes('tasksData.listByCustomer('), '不含軟刪除的那一支看不到清掉的約二返');
+    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 2);
+    const tasks = readFileSync(new URL('../public/js/data/tasks.js', import.meta.url), 'utf8');
+    const at = tasks.indexOf('export function listByCustomerForSync(');
+    assert.match(tasks.slice(at, at + 200), /repo\.listWithDeleted\(/);
+  });
+});

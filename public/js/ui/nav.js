@@ -209,6 +209,25 @@ export function pushLayer(onPop) {
   };
 }
 
+/**
+ * 等收層那一趟 `history.go()` 回來。
+ *
+ * 確認框按下去之後**馬上**換頁的話，確認框收掉時排的那一趟 go 會晚到、把換頁退掉
+ * （刪客戶被擋下來時「去批次取消」那一顆，prelaunch-audit-2026-09-23/issues/08）。
+ * 中間有一次寫入的那幾條路（存完才換頁）本來就等到了。最多等一秒，不會卡住。
+ */
+export function whenSettled() {
+  const until = Date.now() + 1000;
+  return new Promise((resolve) => {
+    const check = () => {
+      if ((goTarget === null && !scheduled && physical === stack.length) || Date.now() > until) resolve();
+      else setTimeout(check, 16);
+    };
+    // 對帳排在微任務裡（`schedule()`），先讓它跑
+    queueMicrotask(check);
+  });
+}
+
 /** `router.go()` 每推一筆路由就叫一次。 */
 export function noteRoutePush() {
   routeDepth += 1;

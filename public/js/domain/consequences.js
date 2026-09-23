@@ -25,8 +25,8 @@
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, tasksForCategory, isCancelKind, cancelTasksFor, cancelsBooking,
-  confirmedKinds,
+  bookingSystemFor, isCancelKind, cancelTasksFor, cancelsBooking,
+  newRegistrations,
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -38,9 +38,39 @@ import {
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel } from './nthFollowup.js';
 import { shortDate } from './dates.js';
+import { timeLabel } from './visitTime.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
+
+/**
+ * **這幾段談定了，掛號待辦會多哪幾種。** 把那幾段假設成已確認，去問存檔時真的在跑的
+ * 那一支（`newRegistrations()`），只留掛到那幾段的（ADR-0070：後果跟寫入共用同一段身體）。
+ *
+ * 三道確認框共用：確認抽屜（這一次談定的那幾段）、改期（新接在尾巴那一段）、
+ * 壓表與來訪編輯器新增（這次新加的那幾段）。以前後兩道各自照課程類別再推一次
+ * （`tasksForCategory()`），逐段掛號（ADR-0107）之後兩頭都會講錯
+ * （prelaunch-audit-2026-09-23/issues/15、22）。
+ *
+ * @param {object} visit
+ * @param {number[]} indexes 會談定的是第幾段
+ * @param {object[]} [tasks] 這一筆身上現有的任務（連軟刪除的，`listByVisitForSync()`）
+ * @param {Record<string, object>} [coursesById]
+ * @returns {string[]} 任務種類，照 `newRegistrations()` 的順序
+ */
+function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}) {
+  const at = new Set(indexes);
+  const settled = {
+    ...visit,
+    slots: (visit?.slots ?? []).map((s, i) => (at.has(i) ? { ...s, status: 'confirmed' } : s)),
+  };
+  return newRegistrations(settled, tasks, coursesById)
+    .filter((t) => t.slotIndexes.some((i) => at.has(i)))
+    .map((t) => t.kind);
+}
+
+/** 「待辦會多一張 X、一張 Y」 */
+const moreTasks = (kinds) => kinds.map((k) => `一張「${k}」`).join('、');
 
 /**
  * 這一筆來訪動到了哪幾個系統的壓表登記，寫成一句人看得懂的話。
@@ -59,24 +89,6 @@ export function bookingSystemLabel(visit, coursesById = {}) {
       .map((s) => bookingSystemFor(coursesById[s.courseId]?.category)),
   )];
   return names.join(' 與 ');
-}
-
-/**
- * 這一筆來訪確認之後會長出哪幾種登記待辦。
- *
- * 講的是**還沒發生但會發生**的事，所以只有真的有東西時才講 ——
- * 健檢（B 類）的 `onConfirm` 是空的，硬寫一句「等客人確認之後才產生」
- * 就是在講一件不會發生的事，而那正是她說看不懂的那一句。
- */
-export function pendingRegistrations(visit, coursesById = {}) {
-  const kinds = new Set();
-  // **客人退掉的那一段不算**（ADR-0081）。確認動線把它標成取消而不是刪掉，
-  // 所以這裡要濾 —— 不濾的話她會看到「待辦會多一張 Examine」，
-  // 而那一張永遠不會出現（`tasksForVisit()` 也濾了）。
-  for (const slot of (visit?.slots ?? []).filter(isLiveSlot)) {
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) kinds.add(kind);
-  }
-  return [...kinds];
 }
 
 /**
@@ -129,9 +141,13 @@ export function reviewWarnings(warnings = []) {
  * @param {Record<string, object>} o.coursesById
  * @param {{reopened: boolean}|null} [o.merge] 併進同一天既有的那一筆時給，否則 null
  * @param {boolean} [o.sheetSyncOn] 試算表同步有沒有設定好
+ * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
+ * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @returns {{title: string, lines: string[]}}
  */
-export function bookingConsequences({ visit, coursesById = {}, merge = null, sheetSyncOn = false }) {
+export function bookingConsequences({
+  visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [],
+}) {
   const where = bookingSystemLabel(visit, coursesById);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
@@ -153,10 +169,13 @@ export function bookingConsequences({ visit, coursesById = {}, merge = null, she
     lines.push('那一天本來就在等客戶回覆，待辦上那一列不變');
   }
 
-  const later = pendingRegistrations(visit, coursesById);
-  if (later.length) {
-    lines.push(`等客人說可以之後，待辦會再多${later.map((k) => `一張「${k}」`).join('、')}`);
-  }
+  // **只講這次新加的那幾段談定之後會長的**（prelaunch-audit-2026-09-23/issues/22）。
+  // 逐段掛號（ADR-0107）之後，整筆有什麼就講什麼兩頭都錯：門診那一段早就掛好號的
+  // 那一天加一段復能，它會說「會再多一張 Examine」；再加一段門診，它講對是碰巧。
+  const later = registrationsWhenSettled(
+    visit, added ?? (visit?.slots ?? []).map((_, i) => i), tasks, coursesById,
+  );
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
   // n返 是加約的，**不扣任何次數**。這一句是她最會擔心的那件事：
   // 整套系統的核心焦慮就是次數對不對得起來，而一場「不用先加購」的來訪
@@ -189,16 +208,19 @@ function nthLabels(visit) {
  * **只講這一次從「待確認」走出去的那幾段**（ADR-0097，同 `describeConfirmed()`）。
  * 她在日曆上先確認掉 A 類那一段時，那一段的 Examine／耀聖當場就長了 ——
  * 抽屜裡確認下午那一段再說一次「待辦會多一張 Examine」是假話（ADR-0070）。
- * 所以「會多哪幾張」問的是真的那道閘門（`taskRules.js` 的 `confirmedKinds()`）：
- * 寫進去之後長得出來、寫進去之前還長不出來的那幾種。
+ * 所以「會多哪幾張」問的是真的會長它們的那一支（`taskRules.js` 的 `newRegistrations()`）——
+ * 掛號逐段長（prelaunch-audit-2026-09-23/issues/02）：同一天早上那一段掛過號，
+ * 確認下午那一段照樣會多一張。
  *
  * @param {object[]} visits 這位客戶還在等回覆的那幾筆（**寫入之前的**）
  * @param {Record<string, object>} coursesById
  * @param {boolean} [sheetSyncOn]
  * @param {Set<string>} [rejected] 抽屜裡被退掉的那幾段，key 是 `${visit.id}:${索引}`
+ * @param {Record<string, object[]>} [tasksByVisit] 那幾筆身上現有的任務（連軟刪除的，
+ *   `listByVisitForSync()`）。沒給就當沒有 —— 只有舊任務（沒有 `slotIndexes`）會因此多講一句
  */
 export function confirmConsequences(
-  visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(),
+  visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(), tasksByVisit = {},
 ) {
   // 用短的那一版（`shortStatus`）不用完整那一句：她看的是日曆，而日曆的圖例
   // 上寫的就是「待確認」「已確認」。同一件事在兩個地方用兩種講法會讓她多想一秒。
@@ -217,10 +239,13 @@ export function confirmConsequences(
 
   const later = new Set();
   for (const { before, after } of settled) {
-    const had = confirmedKinds(before, coursesById);
-    for (const kind of confirmedKinds(after, coursesById)) if (!had.has(kind)) later.add(kind);
+    // 只講**這一次才談定**的那幾段長出來的 —— 沒給任務時，早就談定的段看起來也像沒掛過
+    const now = (after.slots ?? []).map((_, i) => i).filter((i) =>
+      slotStatus(before, before.slots[i]) === 'pending_confirm'
+      && slotStatus(after, after.slots[i]) === 'confirmed');
+    for (const k of registrationsWhenSettled(after, now, tasksByVisit[before.id], coursesById)) later.add(k);
   }
-  if (later.size) lines.push(`待辦會多${[...later].map((k) => `一張「${k}」`).join('、')}`);
+  if (later.size) lines.push(`待辦會多${moreTasks([...later])}`);
 
   // 二返不用簽療程單（`needsForm()`），所以整批都是二返的那一天不要講這一句 ——
   // 那一筆照樣要結案，但她那天不用拿單子給客人簽。
@@ -499,6 +524,44 @@ export function cancelConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 「改這一段」改了時間或課程（`visits.js` 的 `rebookSlot()`，ADR-0108）存下去之前那一道。
+ *
+ * 她 2026-09-23：「我希望會提醒回 Abovee／Examine／耀聖改時間以及回去取消已經掛好的號等等」。
+ * 要回去做什麼**由真的會長出來的那一份推**（`cancelTaskLines()` → `cancelTasksFor()`）——
+ * 沒掛過號的系統不講（ADR-0070）。
+ *
+ * @param {object} o
+ * @param {object} o.before 存下去之前那一筆
+ * @param {object} o.after `rebookSlot()` 回的那一筆（舊那一段取消、新的接在尾巴）
+ * @param {number} o.index 她改的是哪一段
+ * @param {object[]} [o.tasks] 這一筆身上的任務（連軟刪除的，`listByVisitForSync()`）
+ * @returns {{title: string, lines: string[]}}
+ */
+export function rebookConsequences({
+  before, after, index, tasks = [], coursesById = {}, sheetSyncOn = false,
+}) {
+  const old = before?.slots?.[index];
+  const fresh = after?.slots?.[after.slots.length - 1];
+  const settled = slotStatus(before, old) === 'confirmed';
+  const lines = [
+    `原本那一段（${timeLabel(old)}）會取消，日曆上變灰`,
+    `新的那一段（${timeLabel(fresh)}）接在後面，標成「${shortStatus(INITIAL_STATUS)}」`
+      + (settled ? ' —— 原本談定過了，要再問客人一次' : ''),
+    ...cancelTaskLines(after, tasks, coursesById),
+  ];
+  // 新那一段談定之後真的會長的（`registrationsWhenSettled()`）—— 舊的掛號待辦沒有
+  // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
+  const later = registrationsWhenSettled(after, [after.slots.length - 1], tasks, coursesById);
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+  lines.push('改期不是改日期，是取消後重新排一次');
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  return {
+    title: `新的時間在 ${bookingSystemFor(coursesById[fresh?.courseId]?.category)} 壓好了嗎？`,
+    lines,
+  };
 }
 
 /**

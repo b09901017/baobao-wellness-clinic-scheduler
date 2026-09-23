@@ -171,7 +171,8 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
     } catch (err) {
       settled = true;
       clearTimeout(timer);
-      failed(`儲存失敗：${err.message}`, () =>
+      // 別的地方剛改過（`repo.js` 的 `StaleWriteError`）：重試拿的還是同一份舊的，不給重試鈕
+      failed(`儲存失敗：${err.message}`, err?.name === 'StaleWriteError' ? undefined : () =>
         withSaveState(fn, { pending, success, undoable, key, slow }));
       throw err;
     }
