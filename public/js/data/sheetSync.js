@@ -40,7 +40,13 @@ const ERROR_KEY = 'sheetSync.lastError';
 const SKIPPED_KEY = 'sheetSync.lastSkipped';
 
 let timer = null;
+/** 路上那一份：`{ at, promise }`，`at` 是它開始打包時的 `version`。 */
 let inFlight = null;
+/**
+ * 寫入的號碼，`schedule()` 每一次加一。路上那一份是**哪幾筆寫入之後**打包的，
+ * 靠它分得出來（prelaunch-audit-2026-09-23/issues/05）。
+ */
+let version = 0;
 
 const read = (key) => {
   try {
@@ -131,11 +137,17 @@ export async function buildBundle() {
  *                    at?: string, sheets?: number|null, skipped?: string[]}>}
  */
 export function push() {
-  inFlight ??= run().finally(() => { inFlight = null; });
-  return inFlight;
+  if (inFlight?.at === version) return inFlight.promise;
+  // **路上那一份是這幾筆寫入之前打包的**：等它回來再推一次，不要拿它的結果當這一次的。
+  // 以前直接回 inFlight，而它成功之後還把待推標記清掉 —— 後來那筆要等下一次寫入才上得去。
+  if (inFlight) return inFlight.promise.then(() => push());
+  const at = version;
+  const promise = run(at).finally(() => { inFlight = null; });
+  inFlight = { at, promise };
+  return promise;
 }
 
-async function run() {
+async function run(packedAt) {
   const settings = await config.getSettings();
   // 「沒有開」不是失敗，不留失敗痕跡 —— 那張卡本來就會說它沒開。
   if (!isConfigured(settings)) return { ok: false, off: true, error: '還沒設定試算表的網址與密鑰' };
@@ -176,7 +188,8 @@ async function run() {
   // 就是為了講話的：那幾位的次數還是上一次的，而畫面上看起來跟推好了一模一樣。
   const skipped = Array.isArray(reply.skipped) ? reply.skipped : [];
   write(LAST_KEY, at);
-  write(DIRTY_KEY, null);
+  // 打包之後又有寫入的話待推標記留著 —— `push()` 會再推一次，萬一沒推成，下次開 app 補
+  if (version === packedAt) write(DIRTY_KEY, null);
   write(ERROR_KEY, null);
   write(SKIPPED_KEY, skipped.length ? JSON.stringify({ at, names: skipped }) : null);
   return { ok: true, at, sheets: reply.sheets ?? null, skipped };
@@ -184,6 +197,7 @@ async function run() {
 
 /** 安靜 QUIET_MS 之後推一次。連續存十幾筆只會換來一次推送。 */
 export function schedule() {
+  version += 1;
   write(DIRTY_KEY, '1');
   clearTimeout(timer);
   timer = setTimeout(() => {

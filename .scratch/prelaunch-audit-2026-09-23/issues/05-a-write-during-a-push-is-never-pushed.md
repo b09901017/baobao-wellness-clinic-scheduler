@@ -1,6 +1,6 @@
 # 試算表推送在路上時又寫一筆，那一筆永遠推不上去
 
-Status: todo
+Status: done
 來源：`../spec.md`
 動工前先讀：`docs/adr/0013`（推，不是拉）、`data/sheetSync.js` 全檔
 
