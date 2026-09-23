@@ -1,6 +1,6 @@
 # 存好幾筆存到一半失敗，按重試不會被自己擋
 
-Status: todo
+Status: done
 Blocked by: 19
 來源：`../spec.md`（第二輪）
 動工前先讀：`ui/toast.js` 的 `withSaveState()`（失敗時的重試鈕）、`ui/views/home.js` 的 `applyConfirm()`、
@@ -31,3 +31,11 @@ Blocked by: 19
 
 - 單元：兩筆、第二筆第一次丟錯 → 重試 → `save` 被呼叫的順序是「1、2（丟錯）、2」，不是「1、2、1」
 - 批次取消：存到一半失敗之後，toast 上的重試與頁面上的「還有 N 筆沒成功，再試一次」兩條路都只存剩下的
+
+## 做了什麼（2026-09-23）
+
+新的一支 `public/js/ui/saveEach.js`：`saveEach(items, save, saved)` 逐筆存、存好的記進 `saved`，重試跳過。
+`saved` 在閉包外面建一次，所以 toast 的重試沿用同一個。確認抽屜（`home.js` 的 `applyConfirm()`）與
+批次取消（`bulkCancel.js` 的 `run()`）都走它；批次取消那一句「還有 N 筆沒成功」讀 `saved.size`。
+頁面上那條「再試一次」本來就只存剩下的（失敗後 `loadVisits()` 重讀，存好的段已經不在可取消的清單上）。
+`sw.js` 的 SHELL 補了它、`related.js` 登記在 22、44。測試：`tests/save-each.test.js`。

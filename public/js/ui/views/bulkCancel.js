@@ -46,6 +46,7 @@ import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
+import { saveEach } from '../saveEach.js';
 
 /** 她挑的那一位、在看哪個月、選了哪幾段。換人就整個重來。 */
 const state = {
@@ -607,19 +608,17 @@ async function run() {
   });
   if (!ok) return;
 
-  let done = 0;
+  // 存好的那幾筆，toast 的重試跳過（`saveEach()`，prelaunch-audit-2026-09-23/issues/18）
+  const saved = new Set();
   try {
-    await toast.withSaveState(async () => {
-      for (const { visit, at } of byVisit.values()) {
-        // 逐段套用，整筆的狀態由 `applyStatus()` 自己推（ADR-0081）
-        let next = visit;
-        for (const slotIndex of at) next = applyStatus(next, 'cancelled', { slotIndex });
-        // 手上那一份要跟著更新：下一筆算次數時讀的就是它
-        ctx.visits = [...ctx.visits.filter((v) => v.id !== next.id), next];
-        await visitsData.save(next, ctx.visits);
-        done += 1;
-      }
-    }, {
+    await toast.withSaveState(() => saveEach([...byVisit.values()], async ({ visit, at }) => {
+      // 逐段套用，整筆的狀態由 `applyStatus()` 自己推（ADR-0081）
+      let next = visit;
+      for (const slotIndex of at) next = applyStatus(next, 'cancelled', { slotIndex });
+      // 手上那一份要跟著更新：下一筆算次數時讀的就是它
+      ctx.visits = [...ctx.visits.filter((v) => v.id !== next.id), next];
+      await visitsData.save(next, ctx.visits);
+    }, saved), {
       success: `取消了 ${picked.length} 段`,
       // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）
       undoable: false,
@@ -628,7 +627,7 @@ async function run() {
     state.picked.clear();
   } catch {
     // 已經成功的那幾筆**留著**，講出還剩幾筆
-    if (done) toast.info(`取消了 ${done} 筆來訪，還有 ${byVisit.size - done} 筆沒成功，再試一次`);
+    if (saved.size) toast.info(`取消了 ${saved.size} 筆來訪，還有 ${byVisit.size - saved.size} 筆沒成功，再試一次`);
   }
 
   await loadVisits();

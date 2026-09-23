@@ -204,6 +204,7 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
     'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
+    'public/js/ui/saveEach.js',
     // 那一條貼在導覽列上是量出來的位置
     'public/css/',
   ],
@@ -351,6 +352,7 @@ export const COVERAGE = {
   '44-stale-copies': [
     'public/js/data/visits.js', 'public/js/ui/toast.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/saveEach.js',
   ],
   // 試算表推送在路上時又寫了一筆（prelaunch-audit-2026-09-23/issues/05）
   '45-sheet-push-race': ['public/js/data/sheetSync.js', 'public/js/ui/views/calendar.js'],

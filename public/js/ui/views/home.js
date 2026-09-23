@@ -70,6 +70,7 @@ import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { saveEach } from '../saveEach.js';
 import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
@@ -3124,20 +3125,17 @@ async function applyConfirm(ctx) {
     return mine.length > 0 && mine.every(({ index }) => rejected.has(`${v.id}:${index}`));
   });
 
+  // 存好的那幾筆，重試時跳過（`saveEach()`，issues/18）
+  const saved = new Set();
   try {
     await toast.withSaveState(
-      async () => {
-        // 一筆一筆存：每一筆各自要重算次數與任務，硬塞進同一個 commit
-        // 會超過 Firestore 一批 500 個操作的上限。
-        //
-        // **存完一筆就把它換進手上那一份**（同 `bulkCancel.js`）：下一筆算次數讀的就是它。
-        // 不換的話，先存的那一天被退掉時，存第二天看到的第一天還佔著一次，
-        // 錯的數字就寫回額度上（prelaunch-audit-2026-09-23/issues/03）。
-        for (const v of writes) {
-          await visitsData.save(v, customerVisits);
-          customerVisits = [...customerVisits.filter((x) => x.id !== v.id), v];
-        }
-      },
+      // **存完一筆就把它換進手上那一份**（同 `bulkCancel.js`）：下一筆算次數讀的就是它。
+      // 不換的話，先存的那一天被退掉時，存第二天看到的第一天還佔著一次，
+      // 錯的數字就寫回額度上（prelaunch-audit-2026-09-23/issues/03）。
+      () => saveEach(writes, async (v) => {
+        await visitsData.save(v, customerVisits);
+        customerVisits = [...customerVisits.filter((x) => x.id !== v.id), v];
+      }, saved),
       {
         success: droppedDay
           ? '記好了，客人說不行的那幾段已經退掉'
