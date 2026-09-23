@@ -1736,7 +1736,9 @@ function mountEditor(el, data, sheet, spec) {
     },
     onCancel: () => {
       closeSheet();
-      if (backDate) openDay(el, data, backDate);
+      // 讀 `state.data` 不讀掛上編輯器那一刻的 `data`（prelaunch-audit-2026-09-23/issues/20）：
+      // 編輯器開著時按了復原，`render()` 換掉的是 `state.data`，手上這一份還是舊的
+      if (backDate) openDay(el, state.data ?? data, backDate);
     },
   };
 

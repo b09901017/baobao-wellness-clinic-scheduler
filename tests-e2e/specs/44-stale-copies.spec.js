@@ -219,3 +219,32 @@ test('S4 長按說可以 → 復原 → 同一天的抽屜還開著，而且那�
   await longPressRow(page, 0);
   await expect(page.locator('.drawer--actions')).toContainText('客戶說可以');
 });
+
+test('S4b 說可以 → 點同一天另一段 → 鉛筆 → 復原 → 編輯器按取消 → 抽屜畫的是復原之後的（issues/20）', async ({ app, page }) => {
+  const [master, cust, ent] = [masterDocs(), ...seedOneSlot().slice(-3, -1)];
+  await app.seed([
+    ...master, cust, ent,
+    visit({ id: 'v-s', customerId: 'cust-s', customerName: '王小明', date: TODAY, slots: [rehab('09:00'), rehab('11:00')] }),
+  ]);
+  await app.signIn('/calendar');
+  await openDayDrawer(app, page);
+
+  await longPressRow(page, 0);
+  await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+  await app.saved();
+
+  // 編輯器接走了那一天的抽屜，這時候按復原
+  await page.locator('[data-open^="visit:v-s:"]').nth(1).click();
+  await page.locator('[data-card-edit]').click();
+  await app.layer('[data-cancel-edit]');
+  await page.locator('#toast [data-undo]').click();
+  await expect(page.locator('#toast')).toContainText('已復原');
+  // 復原之後那一趟重讀要先落地（`render()` 換掉抽屜手上那一份）—— 不等的話它晚到，
+  // 剛好替重開的抽屜補上新資料，蓋住這個 bug
+  await app.settled();
+  await page.locator('[data-cancel-edit]').click();
+
+  await expect(page.locator('.timerow.status-pending'), '兩段都是待確認').toHaveCount(2);
+  await longPressRow(page, 0);
+  await expect(page.locator('.drawer--actions')).toContainText('客戶說可以');
+});

@@ -1,6 +1,6 @@
 # 日曆編輯器按取消，重開的那一天抽屜是新的資料
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）、10 的延伸
 動工前先讀：`issues/10`、`ui/views/calendar.js` 的 `openDay()`（`refresh()`）與掛編輯器的那一段（`onCancel`）
 
@@ -25,3 +25,11 @@ Status: todo
 
 - 上面那個情境：取消之後長按那一段，選單上有「客戶說可以」
 - E2E 44 補一條（S4 的延伸）
+
+## 做了什麼（2026-09-23）
+
+`mountEditor()` 的 `onCancel` 改成 `openDay(el, state.data ?? data, backDate)`。同一支檔案裡其他把同一天開回來的地方
+（`refreshAfterAction()`、點一天）本來就讀新的那一份；隨手記編輯器取消時不重開抽屜，沒有這個問題。
+
+測試：E2E `44` 的 S4b。第一版沒等復原之後那一趟重讀就按取消，重讀晚到、剛好替重開的抽屜補上新資料，
+測試假綠 —— 所以按取消之前先 `app.settled()`。
