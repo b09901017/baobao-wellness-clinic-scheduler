@@ -65,7 +65,7 @@ import {
   deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
   deliveryNoteFor, undelivered,
 } from '../../domain/products.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
@@ -1319,8 +1319,21 @@ function paintEdit(ctx) {
     f.showErrors(el, errors);
     if (errors.length) return;
 
+    // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
+    // 而且今天以後的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 —— 規則在 `renameTargets()`
+    const renamed = changes.name !== (ctx.customer.name ?? '');
+    if (renamed) {
+      const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;
+      if (said && !await confirmReview([said])) return;
+    }
+
     try {
-      await toast.withSaveState(() => data.update(ctx.id, changes), {
+      await toast.withSaveState(async () => {
+        const targets = renamed
+          ? rules.renameTargets(await ownSnapshots(ctx.id), todayISO(), changes.name)
+          : [];
+        await data.updateWithSnapshots(ctx.id, changes, targets);
+      }, {
         success: '已儲存', key: `customer:update:${ctx.id}`,
       });
       reload(ctx);
@@ -1328,6 +1341,16 @@ function paintEdit(ctx) {
       /* 已處理 */
     }
   });
+}
+
+/** 這位客戶身上帶著名字快照的那幾份（改名時要跟著換哪幾份由 `renameTargets()` 決定）。 */
+async function ownSnapshots(customerId) {
+  const [visits, tasks, notes] = await Promise.all([
+    visitsData.listByCustomer(customerId),
+    tasksData.listByCustomer(customerId),
+    notesData.listByCustomer(customerId),
+  ]);
+  return { visits, tasks, notes };
 }
 
 // ---------- 額度編輯 ----------

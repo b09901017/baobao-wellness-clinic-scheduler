@@ -1,0 +1,67 @@
+// 客戶改名、刪掉客戶之後，身上掛著他的那幾份（`.scratch/prelaunch-audit-2026-09-23/issues/09`、`08`）。
+//
+// 來訪、任務、隨手記身上存的是當時的名字；它們讀的時候也不問客戶還在不在。
+
+import { test, expect } from '../fixtures/app.js';
+import {
+  masterDocs, customer, entitlement, visit, slot, task, note, TODAY, addDays,
+} from '../fixtures/data.js';
+
+const rehab = (startsAt) => ({
+  ...slot({ courseId: 'course-rehab', entitlementId: 'ent-r', startsAt, endsAt: startsAt.replace(':00', ':30'), doctorId: 'staff-dr-xia' }),
+  status: 'confirmed',
+});
+
+function seedPerson() {
+  const past = addDays(TODAY, -7);
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-n', name: '王小明', phone: '0900000000' }),
+    entitlement('cust-n', {
+      id: 'ent-r', label: '復健科醫師門診', type: 'single', courseId: 'course-rehab', totalQty: 6, bookedCount: 2, durationMin: 30,
+    }),
+    visit({ id: 'v-past', customerId: 'cust-n', customerName: '王小明', date: past, status: 'done', slots: [{ ...rehab('10:00'), status: 'done' }] }),
+    visit({ id: 'v-today', customerId: 'cust-n', customerName: '王小明', date: TODAY, status: 'confirmed', slots: [rehab('14:00')] }),
+    task({ id: 't-open', customerId: 'cust-n', customerName: '王小明', kind: 'Examine', dueDate: addDays(TODAY, -1), visitId: 'v-today' }),
+    task({ id: 't-done', customerId: 'cust-n', customerName: '王小明', kind: 'Examine', dueDate: addDays(past, -1), visitId: 'v-past', done: true, doneAt: past }),
+    note({ id: 'n-open', text: '問他要不要加購', customerId: 'cust-n', customerName: '王小明' }),
+  ];
+}
+
+// ---------- 09：改名 ----------
+
+test('D1 改名 → 今天的來訪、還沒做的待辦、隨手記一起換；過去的與做完的留著當時的名字', async ({ app, page }) => {
+  await app.seed(seedPerson());
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-edit]').click();
+  await app.settled();
+  await page.locator('input[name="name"]').fill('王大明');
+  await page.locator('button[type="submit"]').click();
+  await app.saved();
+
+  const nameOf = async (path, id) => (await app.readDoc(path, id)).customerName;
+  expect(await nameOf('visits', 'v-today')).toBe('王大明');
+  expect(await nameOf('tasks', 't-open')).toBe('王大明');
+  expect(await nameOf('notes', 'n-open')).toBe('王大明');
+  expect(await nameOf('visits', 'v-past'), '歷史留著當時的名字').toBe('王小明');
+  expect(await nameOf('tasks', 't-done'), '做完的留著當時的名字').toBe('王小明');
+
+  await app.go(`/todo/${encodeURIComponent('Examine')}`);
+  await expect(page.locator('#view')).toContainText('王大明');
+  await expect(page.locator('#view')).not.toContainText('王小明');
+});
+
+test('D2 改成跟另一位一樣的名字 → 同名那一句照樣問', async ({ app, page }) => {
+  await app.seed([...seedPerson(), customer({ id: 'cust-other', name: '客戶A', phone: '0911111111' })]);
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-edit]').click();
+  await app.settled();
+  await page.locator('input[name="name"]').fill('客戶A');
+  await page.locator('button[type="submit"]').click();
+
+  await expect(app.dialog()).toContainText('也叫「客戶A」');
+  await app.cancelDialog();
+  expect((await app.readDoc('customers', 'cust-n')).name, '按了回去改就什麼都沒寫').toBe('王小明');
+});

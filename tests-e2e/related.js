@@ -354,6 +354,11 @@ export const COVERAGE = {
   ],
   // 試算表推送在路上時又寫了一筆（prelaunch-audit-2026-09-23/issues/05）
   '45-sheet-push-race': ['public/js/data/sheetSync.js', 'public/js/ui/views/calendar.js'],
+  // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08）
+  '46-customer-rename-and-delete': [
+    'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',
+    'public/js/ui/components/dialog.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

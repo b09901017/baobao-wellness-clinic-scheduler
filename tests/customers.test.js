@@ -358,3 +358,41 @@ describe('合作機構', () => {
     assert.deepEqual(partnersOf(c), ['自然美']);
   });
 });
+
+// ---------- 改名時哪幾份快照跟著換（prelaunch-audit-2026-09-23/issues/09） ----------
+//
+// 來訪、任務、隨手記身上存的是當時的名字（快照）。她 2026-09-23 選 A：改名時把
+// 今天以後的來訪、還沒做的待辦、還沒勾的隨手記一起換掉；過去的與做完的留著當時的名字。
+
+import { renameTargets } from '../public/js/domain/customers.js';
+
+describe('改名時一起換的快照', () => {
+  const today = '2026-09-23';
+  test('今天以後的來訪、還沒做的任務、還沒勾的隨手記', () => {
+    const out = renameTargets({
+      visits: [
+        { id: 'past', date: '2026-09-22', customerName: '王小明' },
+        { id: 'today', date: today, customerName: '王小明' },
+        { id: 'later', date: '2026-10-01', customerName: '王小明' },
+        { id: 'gone', date: '2026-10-02', customerName: '王小明', deletedAt: 'x' },
+      ],
+      tasks: [
+        { id: 'open', done: false, customerName: '王小明' },
+        { id: 'done', done: true, customerName: '王小明' },
+      ],
+      notes: [
+        { id: 'n-open', done: false, customerName: '王小明' },
+        { id: 'n-done', done: true, customerName: '王小明' },
+      ],
+    }, today, '王大明');
+    assert.deepEqual(out, [
+      { path: 'visits', id: 'today' }, { path: 'visits', id: 'later' },
+      { path: 'tasks', id: 'open' },
+      { path: 'notes', id: 'n-open' },
+    ]);
+  });
+
+  test('已經是新名字的不用再寫一次', () => {
+    assert.deepEqual(renameTargets({ visits: [{ id: 'v', date: today, customerName: '王大明' }] }, today, '王大明'), []);
+  });
+});

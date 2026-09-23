@@ -1,6 +1,6 @@
 # 客戶改名字，日曆與待辦還是舊名字
 
-Status: todo（先問她選哪一個方向）
+Status: done
 來源：`../spec.md`
 動工前先讀：`ui/views/customerDetail.js` 基本資料編輯那一段（`data.update(ctx.id, changes)`）、
 `domain/taskRules.js` 的 `syncTasksForVisit()`（存來訪時會順手更新任務上的名字）
@@ -42,3 +42,14 @@ Status: todo（先問她選哪一個方向）
 - 改名之後：日曆、待辦、隨手記、壓表卡片都印新名字
 - 稽核紀錄照樣看得出是從什麼改成什麼
 - 同名提醒（ADR-0102）在改名時照樣會跳
+
+## 她選的（2026-09-23）
+
+A：改名時一起改（今天以後的來訪、還沒做的待辦、還沒勾的隨手記；過去的與做完的留著當時的名字）。
+
+## 做了什麼
+
+`domain/customers.js` 的 `renameTargets()`、`data/customers.js` 的 `updateWithSnapshots()`（同一個 commit）、
+客戶詳情的基本資料存檔接線，改名時同名那一句照樣問（`fieldWarnings().name` → `confirmReview()`）。
+壓表批次的卡片本來就拿客戶本人的名字畫（`mergeIntoQueue()` 與 `schedule.js` 的那一段），不用動。
+測試：`tests/customers.test.js`、E2E `46` D1、D2。

@@ -593,7 +593,8 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 // visits/{id}
 {
-  customerId, customerName,   // 冗餘存名字，避免清單頁 N+1 讀取
+  customerId, customerName,   // 冗餘存名字，避免清單頁 N+1 讀取。改名時今天以後的來訪、還沒做的任務、
+                              // 還沒勾的隨手記跟著換（`renameTargets()`），過去的留著當時的名字
   date,                       // 'YYYY-MM-DD'
   status,                     // 'pending_confirm' | 'confirmed'
                               // | 'done' | 'no_show' | 'cancelled'

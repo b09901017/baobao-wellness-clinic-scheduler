@@ -196,3 +196,29 @@ export function splitFlags(customer, clinicalFlags = []) {
     others: flags.filter((f) => !known.has(f)),
   };
 }
+
+/**
+ * 改名時，哪幾份**名字快照**要跟著換（prelaunch-audit-2026-09-23/issues/09）。
+ *
+ * 來訪、任務、隨手記身上存的是當時的名字（`customerName`）。只改客戶本人那一份的話，
+ * 日曆與待辦上還是舊名字 —— 同名的兩位，她改其中一位的名字想分開他們，
+ * 日曆上照樣撞在一起。她 2026-09-23 選的：
+ *
+ * - **今天以後的來訪、還沒做的任務、還沒勾的隨手記**一起換
+ * - 過去的來訪與做完的留著當時的名字（那是歷史）
+ *
+ * 壓表批次的卡片不在這裡：它畫的時候就拿客戶本人的名字蓋掉佇列上那一份（`mergeIntoQueue()`）。
+ *
+ * @param {{visits?: object[], tasks?: object[], notes?: object[]}} own 這位客戶的
+ * @param {string} today
+ * @param {string} name 新名字
+ * @returns {{path: string, id: string}[]}
+ */
+export function renameTargets({ visits = [], tasks = [], notes = [] } = {}, today, name) {
+  const stale = (x) => !x.deletedAt && (x.customerName ?? null) !== name;
+  return [
+    ...visits.filter((v) => stale(v) && v.date >= today).map((v) => ({ path: 'visits', id: v.id })),
+    ...tasks.filter((t) => stale(t) && !t.done).map((t) => ({ path: 'tasks', id: t.id })),
+    ...notes.filter((n) => stale(n) && !n.done).map((n) => ({ path: 'notes', id: n.id })),
+  ];
+}
