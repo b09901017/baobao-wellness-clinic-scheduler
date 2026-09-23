@@ -331,6 +331,40 @@ export function withExtraSlot(visit, slot) {
   };
 }
 
+/**
+ * **改期＝取消＋重新排**（SPEC 第 7 節規則 10，ADR-0108）。
+ *
+ * 「改這一段」改了一段**待確認或已確認**的開始時間或課程時：舊那一段標成取消（它在 Abovee
+ * 上壓過，掛過號的話 Examine／耀聖上也有），新的時間接在尾巴一段**待確認**（要再問客人一次）。
+ * 以前是原地改掉，狀態照樣「已確認」，而沒有任何一張待辦叫她回 Abovee 改時間、
+ * 回 Examine／耀聖把舊的號取消（prelaunch-audit-2026-09-23/issues/13）。
+ *
+ * 取消掉的那一段會長「取消 X」、新的那一段談定了會長新的掛號 —— 兩條路都是既有的
+ * （`cancelTasksFor()`、`newRegistrations()`），這一支一條任務規則都不加。
+ * 接在尾巴走 `withExtraSlot()`（段落的位置穩得住，ADR-0091）。
+ *
+ * **只有開始時間與課程算**（器材推出來的課程也是課程）。治療師、醫師、診間、記一句
+ * 不影響外面那幾個系統，原地改（她 2026-09-08：「如果沒有就可以不用提醒」）。
+ * 已完成／未到／已取消的那一段是更正，不是改期。
+ *
+ * @param {object} before 存下去之前那一筆
+ * @param {number} index 她改的是哪一段
+ * @param {object} next 那一段改完之後的樣子
+ * @returns {object|null} 要存的那一筆；不用改期就回 null（照原地改）
+ */
+export function rebookSlot(before, index, next) {
+  const old = before?.slots?.[index];
+  if (!old || !next) return null;
+  if (!['pending_confirm', 'confirmed'].includes(slotStatus(before, old))) return null;
+  if ((old.startsAt ?? null) === (next.startsAt ?? null) && old.courseId === next.courseId) return null;
+
+  const marked = {
+    ...before,
+    slots: before.slots.map((s, i) => (i === index ? { ...s, status: 'cancelled' } : s)),
+  };
+  return withExtraSlot(marked, { ...next, status: INITIAL_STATUS }).visit;
+}
+
 // ---------- 收尾（客人來了沒、療程單簽了沒） ----------
 
 /**

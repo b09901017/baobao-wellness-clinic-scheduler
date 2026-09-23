@@ -49,7 +49,7 @@ function seedClearedTasks() {
   ];
 }
 
-test('T1 清掉之後改那一段的時間再存：Examine 與耀聖不可以重新長出來', async ({ app, page }) => {
+test('T1 清掉之後那一段再存一次：Examine 與耀聖不可以重新長出來', async ({ app, page }) => {
   await app.seed(seedClearedTasks());
   await app.signIn('/calendar');
 
@@ -60,7 +60,9 @@ test('T1 清掉之後改那一段的時間再存：Examine 與耀聖不可以重
   await page.locator('[data-card-edit]').click();
   await app.layer('.slotcard');
 
-  await page.locator('input[name="s0-start"]').fill('15:00');
+  // 記一句話再存（改時間 2026-09-23 起是取消＋重新排，ADR-0108 —— 這一支問的是同一段再存一次）
+  await page.locator('[data-slotnote-toggle="s0-note"]').click();
+  await page.locator('textarea[name="s0-note"]').fill('客人會晚到');
   await page.locator('button[type="submit"]').first().click();
   await app.saved();
 
@@ -71,7 +73,7 @@ test('T1 清掉之後改那一段的時間再存：Examine 與耀聖不可以重
   ).toEqual([]);
 });
 
-test('T2 沒清掉的那幾張行為一個字都沒變（死線跟著搬）', async ({ app, page }) => {
+test('T2 沒清掉的那幾張行為一個字都沒變', async ({ app, page }) => {
   const seed = seedClearedTasks();
   for (const doc of seed.filter((d) => d.path === 'tasks')) doc.data.deletedAt = null;
 
@@ -85,7 +87,9 @@ test('T2 沒清掉的那幾張行為一個字都沒變（死線跟著搬）', as
   await page.locator('[data-card-edit]').click();
   await app.layer('.slotcard');
 
-  await page.locator('input[name="s0-start"]').fill('15:00');
+  // 記一句話再存（改時間 2026-09-23 起是取消＋重新排，ADR-0108 —— 這一支問的是同一段再存一次）
+  await page.locator('[data-slotnote-toggle="s0-note"]').click();
+  await page.locator('textarea[name="s0-note"]').fill('客人會晚到');
   await page.locator('button[type="submit"]').first().click();
   await app.saved();
 

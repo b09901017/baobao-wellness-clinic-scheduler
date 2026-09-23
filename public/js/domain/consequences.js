@@ -38,6 +38,7 @@ import {
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel } from './nthFollowup.js';
 import { shortDate } from './dates.js';
+import { timeLabel } from './visitTime.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -507,6 +508,44 @@ export function cancelConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 「改這一段」改了時間或課程（`visits.js` 的 `rebookSlot()`，ADR-0108）存下去之前那一道。
+ *
+ * 她 2026-09-23：「我希望會提醒回 Abovee／Examine／耀聖改時間以及回去取消已經掛好的號等等」。
+ * 要回去做什麼**由真的會長出來的那一份推**（`cancelTaskLines()` → `cancelTasksFor()`）——
+ * 沒掛過號的系統不講（ADR-0070）。
+ *
+ * @param {object} o
+ * @param {object} o.before 存下去之前那一筆
+ * @param {object} o.after `rebookSlot()` 回的那一筆（舊那一段取消、新的接在尾巴）
+ * @param {number} o.index 她改的是哪一段
+ * @param {object[]} [o.tasks] 這一筆身上的任務（連軟刪除的，`listByVisitForSync()`）
+ * @returns {{title: string, lines: string[]}}
+ */
+export function rebookConsequences({
+  before, after, index, tasks = [], coursesById = {}, sheetSyncOn = false,
+}) {
+  const old = before?.slots?.[index];
+  const fresh = after?.slots?.[after.slots.length - 1];
+  const settled = slotStatus(before, old) === 'confirmed';
+  const lines = [
+    `原本那一段（${timeLabel(old)}）會取消，日曆上變灰`,
+    `新的那一段（${timeLabel(fresh)}）接在後面，標成「${shortStatus(INITIAL_STATUS)}」`
+      + (settled ? ' —— 原本談定過了，要再問客人一次' : ''),
+    ...cancelTaskLines(after, tasks, coursesById),
+  ];
+  const later = tasksForCategory(coursesById[fresh?.courseId]?.category);
+  if (later.length) {
+    lines.push(`等客人說可以之後，待辦會再多${later.map((k) => `一張「${k}」`).join('、')}`);
+  }
+  lines.push('改期不是改日期，是取消後重新排一次');
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  return {
+    title: `新的時間在 ${bookingSystemFor(coursesById[fresh?.courseId]?.category)} 壓好了嗎？`,
+    lines,
+  };
 }
 
 /**

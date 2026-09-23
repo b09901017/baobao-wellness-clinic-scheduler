@@ -19,9 +19,10 @@ import {
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, NOTE_MAX,
+  rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -171,6 +172,8 @@ async function boot(el, {
       // 「＋新增一個時段」給不給。**改一段時不給**（她要的），
       // 新增時給 —— 她 2026-09-09：「新增的時候…我希望一樣可以一次新增多筆多個時段」。
       canAddSlots: !existing,
+      // 打開那一刻的那一筆。改了一段的時間或課程時拿它判斷要不要改期（`rebookSlot()`）
+      stored: existing,
       unlockReason: null, embedded, onDone, onCancel,
     };
     paint(ctx, draft);
@@ -1078,7 +1081,13 @@ async function submit(ctx, draft) {
   // 都要是它 —— 拿草稿去驗的話，併進去之後才會撞在一起的那幾段驗不出來。
   const merged = mergedPayload(ctx, draft);
 
-  const { errors, warnings } = validateVisit(merged.visit, {
+  // **改期＝取消＋重新排**（ADR-0108）：她點的那一段是待確認／已確認、而她改了開始時間或課程，
+  // 舊那一段取消、新的接在尾巴待確認。其餘（治療師、診間、記一句）照舊原地改。
+  const at = ctx.stored && ctx.editSlots?.length === 1 ? ctx.editSlots[0] : null;
+  const rebooked = at === null ? null : rebookSlot(ctx.stored, at, merged.visit.slots?.[at]);
+  const toSave = rebooked ?? merged.visit;
+
+  const { errors, warnings } = validateVisit(toSave, {
     customer, entitlements,
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
     staff: all.staff, ivProducts: all.ivProducts,
@@ -1101,7 +1110,23 @@ async function submit(ctx, draft) {
   // 抬頭與後果由 `domain/consequences.js` 算：這裡以前寫死「Abovee」，
   // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemFor()`），
   // 只是沒有人用它。壓表那一頁走的是同一支。
-  if (hasNewSlots(ctx, draft)) {
+  if (rebooked) {
+    // 要回 Abovee／Examine／耀聖做什麼，由真的會長出來的那幾張推（`rebookConsequences()`）
+    const said = rebookConsequences({
+      before: ctx.stored,
+      after: rebooked,
+      index: at,
+      tasks: await visitTasks(ctx.stored),
+      coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
+      sheetSyncOn: isConfigured(ctx.settings),
+    });
+    const ok = await confirmAction({
+      title: said.title,
+      consequences: [slotSummary(rebooked.slots[rebooked.slots.length - 1], all), ...said.lines],
+      confirmLabel: '取消原本那一段，排新的',
+    });
+    if (!ok) return;
+  } else if (hasNewSlots(ctx, draft)) {
     const said = bookingConsequences({
       visit: draft,
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
@@ -1121,14 +1146,15 @@ async function submit(ctx, draft) {
   }
 
   const payload = ctx.unlockReason
-    ? { ...merged.visit, lastCorrection: { at: new Date().toISOString(), reason: ctx.unlockReason } }
-    : merged.visit;
+    ? { ...toSave, lastCorrection: { at: new Date().toISOString(), reason: ctx.unlockReason } }
+    : toSave;
 
   try {
     // 存一筆來訪會動到額度的計數欄位，做兩次就多扣一次（新增的那條路有二次確認
     // 擋著，改的那條沒有）。同一位客戶的同一天鎖在一起就夠了。
     const id = await toast.withSaveState(() => visitsData.save(payload, customerVisits), {
-      success: hasNewSlots(ctx, draft) ? '已記錄' : '已儲存',
+      success: rebooked ? '原本那一段取消了，新的時間待確認'
+        : (hasNewSlots(ctx, draft) ? '已記錄' : '已儲存'),
       key: `visit:save:${payload.id ?? `${payload.customerId}:${payload.date}`}`,
     });
     leave(ctx);
