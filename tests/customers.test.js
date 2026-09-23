@@ -396,3 +396,34 @@ describe('改名時一起換的快照', () => {
     assert.deepEqual(renameTargets({ visits: [{ id: 'v', date: today, customerName: '王大明' }] }, today, '王大明'), []);
   });
 });
+
+// ---------- 刪掉客戶之前先擋（prelaunch-audit-2026-09-23/issues/08） ----------
+//
+// 刪除只寫客戶本人那一份，來訪、任務讀的時候不問客戶還在不在 —— 日曆、確認、簽療程單、
+// 掛號待辦上會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還佔著。
+// 她 2026-09-23 選 A：還掛著東西就先擋，列出來請她先收掉。
+
+import { deleteBlockers } from '../public/js/domain/customers.js';
+
+describe('刪掉客戶之前還掛著他的事', () => {
+  test('還沒結案的來訪（待確認、已確認）與還沒做的待辦', () => {
+    const out = deleteBlockers({
+      visits: [
+        { id: 'p', status: 'pending_confirm' },
+        { id: 'c', status: 'confirmed' },
+        { id: 'd', status: 'done' },
+        { id: 'n', status: 'no_show' },
+        { id: 'x', status: 'cancelled' },
+        { id: 'gone', status: 'confirmed', deletedAt: 'x' },
+      ],
+      tasks: [{ id: 'open', done: false }, { id: 'done', done: true }],
+    });
+    assert.deepEqual(out.visits.map((v) => v.id), ['p', 'c']);
+    assert.deepEqual(out.tasks.map((t) => t.id), ['open']);
+  });
+
+  test('都收掉了 → 刪得掉', () => {
+    const out = deleteBlockers({ visits: [{ id: 'd', status: 'done' }], tasks: [{ id: 't', done: true }] });
+    assert.equal(out.visits.length + out.tasks.length, 0);
+  });
+});

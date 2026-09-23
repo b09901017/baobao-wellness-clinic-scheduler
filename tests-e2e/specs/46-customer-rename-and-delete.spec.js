@@ -65,3 +65,44 @@ test('D2 改成跟另一位一樣的名字 → 同名那一句照樣問', async 
   await app.cancelDialog();
   expect((await app.readDoc('customers', 'cust-n')).name, '按了回去改就什麼都沒寫').toBe('王小明');
 });
+
+// ---------- 08：刪客戶之前先擋 ----------
+
+test('D3 還有今天的來訪與沒做的待辦 → 刪不掉，列出來，一鍵帶到批次取消那一位那個月', async ({ app, page }) => {
+  await app.seed(seedPerson());
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  const said = await app.dialogText();
+  expect(said).toContain('還刪不掉');
+  expect(said).toContain('Examine');
+  expect(said).toContain('批次取消');
+  await app.ok();
+
+  await expect(page).toHaveURL(/#\/schedule\/cancel$/);
+  await app.settled();
+  await expect(page.locator('#view'), '帶著那一位進來').toContainText('王小明');
+  await expect(page.locator('#view'), '那一天那一段列著，勾得到').toContainText('14:00');
+  expect((await app.readDoc('customers', 'cust-n')).deletedAt ?? null, '什麼都沒刪').toBeNull();
+});
+
+test('D4 身上沒有還掛著的事 → 照舊刪得掉', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-q', name: '客戶A', phone: '0900000000' }),
+    visit({
+      id: 'v-q', customerId: 'cust-q', customerName: '客戶A', date: addDays(TODAY, -3), status: 'done',
+      slots: [{ ...rehab('10:00'), status: 'done' }],
+    }),
+  ]);
+  await app.signIn('/customers/cust-q');
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  await expect(app.dialog()).toContainText('標記刪除');
+  await app.ok();
+  await app.saved();
+  expect((await app.readDoc('customers', 'cust-q')).deletedAt, '刪掉了').toBeTruthy();
+  await expect(page, '回到客戶清單').toHaveURL(/#\/customers$/);
+});

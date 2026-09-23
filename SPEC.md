@@ -890,6 +890,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 - **Firestore Security Rules 直接禁止 `delete` 操作**，只允許 `update` 標記。
 - 清單查詢一律過濾 `deletedAt == null`。
 - 設定頁提供「已刪除項目」檢視，可還原。
+- **客戶身上還有待確認／已確認的來訪、或還沒做的待辦時刪不掉**：確認框列出來，請她先收掉（`deleteBlockers()`，ADR-0109）。刪除只寫客戶本人那一份，不先擋的話日曆與待辦上會留著一個點不進去的人，而那幾格在 Abovee 上還佔著。
 - 唯一的例外是療程單被新版取代時的**舊照片檔**（文件本身照舊軟刪除）：[ADR-0101](docs/adr/0101-photos-and-privacy.md)。
 
 ### 6.2 稽核紀錄（append-only）

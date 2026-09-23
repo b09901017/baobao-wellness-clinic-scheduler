@@ -63,6 +63,18 @@ const state = {
 let ctx = null;
 
 /**
+ * 從別的畫面帶著一位客戶、一個月份進來。刪客戶被擋下來時用（`customerDetail.js`，
+ * prelaunch-audit-2026-09-23/issues/08）—— 她要去收的就是那一位那幾天。
+ */
+export function openFor(customerId, month) {
+  state.customerId = customerId;
+  state.month = month;
+  state.mode = 'list';
+  state.picked.clear();
+  state.openDay = null;
+}
+
+/**
  * 多選那一層。**畫面上多出來一層東西，就多一筆返回鍵退得掉的紀錄**
  * （`ui/nav.js` 的整個前提）—— 沒有它的話，她長按進了多選，按返回鍵是
  * 整個跳出這一頁，剛剛點的十幾天全部沒了。

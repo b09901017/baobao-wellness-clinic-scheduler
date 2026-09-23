@@ -69,7 +69,9 @@ import { confirmAction, confirmReview } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
-import { back, popScreens, pushScreen } from '../nav.js';
+import { openFor as openBulkCancel } from './bulkCancel.js';
+import { taskLine } from '../../domain/taskRules.js';
+import { back, popScreens, pushScreen, whenSettled } from '../nav.js';
 
 const esc = f.esc;
 
@@ -699,6 +701,40 @@ function openDanger(ctx) {
   });
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
+    // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還佔著。規則在 `deleteBlockers()`
+    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks });
+    if (block.visits.length || block.tasks.length) {
+      const master = liveMaster(ctx);
+      const lineOf = (t) => {
+        const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
+        return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
+      };
+      const goCancel = await confirmAction({
+        title: `「${customer.name}」還刪不掉`,
+        consequences: [
+          ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
+          ...block.tasks.map(lineOf),
+          '——',
+          ...(block.visits.length
+            ? ['那幾段在 Abovee 上還佔著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
+            : []),
+          ...(block.tasks.length ? ['待辦做完勾掉'] : []),
+          '都收掉之後再回來刪',
+        ],
+        confirmLabel: block.visits.length ? '去批次取消' : '知道了',
+        cancelLabel: '先不要',
+      });
+      if (goCancel && block.visits.length) {
+        // 確認框收掉時排的那一趟 history.go() 回來之前換頁，會被它退掉（`whenSettled()`）
+        closeSheet();
+        await whenSettled();
+        openBulkCancel(ctx.id, block.visits.map((v) => v.date).sort()[0].slice(0, 7));
+        go('/schedule/cancel');
+      }
+      return;
+    }
+
     const ok = await confirmAction({
       title: `刪除「${customer.name}」？`,
       consequences: [

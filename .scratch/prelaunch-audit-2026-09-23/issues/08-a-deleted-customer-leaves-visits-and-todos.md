@@ -1,6 +1,6 @@
 # 刪掉客戶後，他未來的來訪與待辦都還在
 
-Status: todo（先問她選哪一個方向）
+Status: done
 來源：`../spec.md`
 動工前先讀：`ui/views/customerDetail.js` 的 `openDanger()`（刪除那一道確認）、`docs/adr/0041`（來訪存在就代表壓過了）、
 `boundary-checklist` 那一輪記的「壓表批次裡已刪除客戶的卡片」
@@ -46,3 +46,13 @@ Status: todo（先問她選哪一個方向）
 - 刪除確認框講的每一句都是真的會發生的事（ADR-0070）
 - 刪除之後日曆、待辦、簽療程單上**不會**留著一個點進去是「找不到這位客戶」的人
 - 還原（設定 → 已刪除項目）之後行為講得通
+
+## 她選的（2026-09-23）
+
+A：刪除之前先擋。
+
+## 做了什麼
+
+`domain/customers.js` 的 `deleteBlockers()`；客戶詳情「刪除」那一顆先問它，擋著就列出那幾件、給一顆「去批次取消」
+（`bulkCancel.js` 的 `openFor()` 選好那一位那個月）。確認框按下去馬上換頁會被確認框自己那一趟 `history.go()` 退掉，
+所以 `ui/nav.js` 多一支 `whenSettled()`。ADR-0109。測試：`tests/customers.test.js`、E2E `46` D3、D4。

@@ -222,3 +222,23 @@ export function renameTargets({ visits = [], tasks = [], notes = [] } = {}, toda
     ...notes.filter((n) => stale(n) && !n.done).map((n) => ({ path: 'notes', id: n.id })),
   ];
 }
+
+/**
+ * 刪掉這位客戶之前，還掛著他的哪幾件事（prelaunch-audit-2026-09-23/issues/08）。
+ *
+ * 刪除只寫客戶本人那一份。來訪、任務是頂層集合，讀的時候不問客戶還在不在 ——
+ * 日曆、跟客人確認時間、簽療程單、掛號待辦上會留著一個點進去是「找不到這位客戶」的人，
+ * 而那幾格在 Abovee 上還佔著、撞期也照樣算他。她 2026-09-23 選的：**還掛著東西就先擋**，
+ * 列出來請她先收掉（每一步都看得到、給得出復原），不替她一次收一大批。
+ *
+ * - 還沒結案的來訪：待確認、已確認（已完成／未到／已取消是歷史，不擋）
+ * - 還沒做的待辦
+ *
+ * @returns {{visits: object[], tasks: object[]}}
+ */
+export function deleteBlockers({ visits = [], tasks = [] } = {}) {
+  return {
+    visits: visits.filter((v) => !v.deletedAt && ['pending_confirm', 'confirmed'].includes(v.status)),
+    tasks: tasks.filter((t) => !t.deletedAt && !t.done),
+  };
+}
