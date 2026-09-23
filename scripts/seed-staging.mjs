@@ -32,7 +32,7 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import { expandPlan, poolName, timedLabel } from '../public/js/domain/entitlements.js';
 // 任務照規則產生，不自己編一個種類。
-import { tasksForVisit, acceptsNewTasks } from '../public/js/domain/taskRules.js';
+import { newRegistrations } from '../public/js/domain/taskRules.js';
 
 const PROD_PROJECT = 'wellness-clinic-scheduler';
 // **正式那兩個別名一定要在這裡。** 少了它們，`--project prod` 會原封不動地
@@ -189,6 +189,20 @@ function extraEntitlement(extra, { purchaseId, purchasedAt }) {
  * 判斷（ADR-0029）：過去的是已完成、未來的是已確認或待確認。
  * 隨手猜一個狀態出來的話，資料健檢會滿江紅，那份假資料就沒有人想用。
  */
+/**
+ * 一筆種子來訪的登記任務。**照規則產生，不自己編一個 kind**：寫死一個種類正是
+ * 2026-08-23 退休的「Abovee」還留在假資料裡的原因 —— 種子跟規則各寫一次，
+ * 規則改了種子不會跟。
+ *
+ * 走 app 存檔時那一支（`newRegistrations()`）：逐段、每一張帶 `slotIndexes`（ADR-0107）。
+ * 沒帶的會被當成蓋住整天（`cancelSlotsOf()`），她在 staging 上改期之後新那一段
+ * 談定了一張都不長（prelaunch-audit-2026-09-23/issues/15）。
+ */
+export function registrationTasks(vid, data, coursesById) {
+  return newRegistrations({ ...data, id: vid }, [], coursesById)
+    .map((t, k) => ({ id: `${vid}-task-${k}`, data: t }));
+}
+
 export function makeCustomer(i, today, { months }) {
   // 每一位自己一條序列（見 `rng()` 的說明）。
   const rand = rng(1000 + i);
@@ -272,13 +286,7 @@ export function makeCustomer(i, today, { months }) {
     };
     visits.push({ id: vid, data });
 
-    // 登記任務**照規則產生，不自己編一個 kind**。寫死一個種類正是
-    // 2026-08-23 退休的「Abovee」還留在假資料裡的原因 —— 種子跟規則各寫一次，
-    // 規則改了種子不會跟。
-    if (acceptsNewTasks(status)) {
-      tasksForVisit({ ...data, id: vid }, coursesById)
-        .forEach((t, k) => tasks.push({ id: `${vid}-task-${k}`, data: t }));
-    }
+    tasks.push(...registrationTasks(vid, data, coursesById));
   }
 
   // 計數欄位要跟來訪對得起來，否則資料健檢第一項就滿江紅。

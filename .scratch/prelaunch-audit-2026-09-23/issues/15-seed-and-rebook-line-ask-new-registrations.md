@@ -1,6 +1,6 @@
 # 種子資料與改期確認框都問 `newRegistrations()`
 
-Status: todo
+Status: done
 來源：`../spec.md`（第二輪）
 動工前先讀：`docs/adr/0107`、`domain/taskRules.js` 的 `newRegistrations()`／`cancelSlotsOf()`、
 `domain/consequences.js` 的 `rebookConsequences()`、`scripts/seed-staging.mjs` 的登記任務那一段、`tests/seed-staging.test.js`
@@ -44,3 +44,14 @@ Status: todo
 - 改期確認框講的「會再多一張 X」＝ 真的走一次「改期 → 存 → 新那一段確認 → 存」長出來的那幾種（單元測試直接比兩邊）
 - 換成不長掛號的課程（C 類）時，那一句不出現
 - `rg "tasksForCategory" public/js/domain/consequences.js` 不再被拿來講「會多哪幾張」
+
+## 做了什麼（2026-09-23）
+
+- 種子：登記任務抽成 `scripts/seed-staging.mjs` 的 `registrationTasks()`，走 `newRegistrations()`，每一張帶 `slotIndexes`。
+  查的時候發現種子現在只種復能／ILIB（C 類），一張登記都不長 —— 所以測試直接拿一筆 A 類去問那一支，不看種子的產出
+- 確認框：`consequences.js` 多一支私有的 `registrationsWhenSettled(visit, indexes, tasks)`（把那幾段假設成已確認去問
+  `newRegistrations()`，只留掛到那幾段的）。改期那一句與確認抽屜那一句都走它；22 的新增那一句接著用
+- 舊任務的退路沒動：舊的掛號待辦沒有 `slotIndexes` 時新那一段一張都不長，所以那一句也不講
+
+測試：`tests/consequences.test.js`（三種任務狀態各比一次「會再多一張」＝ 真的走一次改期 → 存 → 確認 → 存；C 類不講）、
+`tests/seed-staging.test.js`。

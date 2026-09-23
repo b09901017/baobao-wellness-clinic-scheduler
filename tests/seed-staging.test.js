@@ -14,7 +14,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeCustomer, fakeName } from '../scripts/seed-staging.mjs';
+import { makeCustomer, fakeName, registrationTasks } from '../scripts/seed-staging.mjs';
 import { RULE_KINDS, dayStatus } from '../public/js/domain/availability.js';
 import { RETIRED_KINDS } from '../public/js/domain/todoFlow.js';
 import { TASK_KINDS } from '../public/js/domain/taskRules.js';
@@ -73,6 +73,19 @@ describe('任務', () => {
   test('產生出來的都是現在還在用的那幾種', () => {
     const kinds = [...new Set(every((p) => p.tasks).map((t) => t.data.kind))];
     for (const k of kinds) assert.ok(TASK_KINDS.includes(k), `不該出現的種類：${k}`);
+  });
+
+  test('登記任務逐段、帶 slotIndexes（ADR-0107）—— 不然改期之後新那一段一張都不長', () => {
+    // 種子現在只種復能／ILIB（C 類，不長登記），所以拿一筆 A 類的直接問那一支
+    const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
+    const rehab = (status) => ({ courseId: 'course-rehab', entitlementId: 'e1', startsAt: '10:00', endsAt: '10:30', status });
+    const data = {
+      customerId: 'c1', customerName: '客戶A', date: TODAY, status: 'pending_confirm',
+      slots: [rehab('confirmed'), rehab('pending_confirm')],
+    };
+    const tasks = registrationTasks('v1', data, coursesById);
+    assert.ok(tasks.length, '談定的那一段要長登記');
+    for (const t of tasks) assert.deepEqual(t.data.slotIndexes, [0], t.data.kind);
   });
 
   test('只有已確認的來訪才有登記任務（ADR-0027）', () => {

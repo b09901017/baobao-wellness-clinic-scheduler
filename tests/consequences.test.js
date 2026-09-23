@@ -832,4 +832,36 @@ describe('改這一段改了時間或課程 → 取消＋重新排', () => {
     for (const t of create) assert.ok(said.includes(t.kind), t.kind);
     assert.ok(!create.some((t) => ['Examine', '耀聖'].includes(t.kind)), '新的那一段還沒談定，不長掛號');
   });
+
+  // 15：「等客人說可以之後，待辦會再多一張 X」跟真的走一次「改期 → 存 → 新那一段確認 → 存」一樣
+  const saidLater = (lines) => {
+    const line = lines.find((l) => l.startsWith('等客人說可以之後')) ?? '';
+    return [...line.matchAll(/「([^」]+)」/g)].map((m) => m[1]).sort();
+  };
+  const grownLater = (before, after, tasks) => {
+    const saved = [...tasks, ...syncTasks(after, tasks, { coursesById: C, today: '2026-09-18' }).create];
+    const confirmed = applyStatusFor(after, 'confirmed', { slotIndex: after.slots.length - 1 });
+    return syncTasks(confirmed, saved, { coursesById: C, today: '2026-09-18' }).create
+      .map((t) => t.kind).filter((k) => !k.startsWith('取消')).sort();
+  };
+
+  for (const [name, tasks] of [
+    ['掛號待辦帶 slotIndexes', [ticked('Examine'), ticked('耀聖')]],
+    ['舊的掛號待辦（沒有 slotIndexes，當成蓋住整天）', [ticked('Examine'), ticked('耀聖')].map(({ slotIndexes, ...t }) => t)],
+    ['還沒有任何待辦', []],
+  ]) {
+    test(`「會再多一張」＝ 新那一段談定之後真的長的：${name}`, () => {
+      const before = settled();
+      const after = rebookSlot(before, 0, { ...before.slots[0], startsAt: '16:00', endsAt: '16:30' });
+      const { lines } = rebookConsequences({ before, after, index: 0, tasks, coursesById: C });
+      assert.deepEqual(saidLater(lines), grownLater(before, after, tasks));
+    });
+  }
+
+  test('換成不長掛號的課程（C 類）→ 那一句不出現', () => {
+    const before = settled();
+    const after = rebookSlot(before, 0, { ...before.slots[0], courseId: 'c-recovery' });
+    const { lines } = rebookConsequences({ before, after, index: 0, tasks: [], coursesById: C });
+    assert.deepEqual(saidLater(lines), []);
+  });
 });

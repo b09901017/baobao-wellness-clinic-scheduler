@@ -44,6 +44,34 @@ import { timeLabel } from './visitTime.js';
 const SHEET_LINE = '十秒後自動同步到試算表';
 
 /**
+ * **這幾段談定了，掛號待辦會多哪幾種。** 把那幾段假設成已確認，去問存檔時真的在跑的
+ * 那一支（`newRegistrations()`），只留掛到那幾段的（ADR-0070：後果跟寫入共用同一段身體）。
+ *
+ * 三道確認框共用：確認抽屜（這一次談定的那幾段）、改期（新接在尾巴那一段）、
+ * 壓表與來訪編輯器新增（這次新加的那幾段）。以前後兩道各自照課程類別再推一次
+ * （`tasksForCategory()`），逐段掛號（ADR-0107）之後兩頭都會講錯
+ * （prelaunch-audit-2026-09-23/issues/15、22）。
+ *
+ * @param {object} visit
+ * @param {number[]} indexes 會談定的是第幾段
+ * @param {object[]} [tasks] 這一筆身上現有的任務（連軟刪除的，`listByVisitForSync()`）
+ * @returns {string[]} 任務種類，照 `newRegistrations()` 的順序
+ */
+function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}) {
+  const at = new Set(indexes);
+  const settled = {
+    ...visit,
+    slots: (visit?.slots ?? []).map((s, i) => (at.has(i) ? { ...s, status: 'confirmed' } : s)),
+  };
+  return newRegistrations(settled, tasks, coursesById)
+    .filter((t) => t.slotIndexes.some((i) => at.has(i)))
+    .map((t) => t.kind);
+}
+
+/** 「待辦會多一張 X、一張 Y」 */
+const moreTasks = (kinds) => kinds.map((k) => `一張「${k}」`).join('、');
+
+/**
  * 這一筆來訪動到了哪幾個系統的壓表登記，寫成一句人看得懂的話。
  *
  * 一筆來訪可以同時有健檢（Examine）與復能（Abovee）—— 那時候兩個都要講，
@@ -222,14 +250,12 @@ export function confirmConsequences(
   const later = new Set();
   for (const { before, after } of settled) {
     // 只講**這一次才談定**的那幾段長出來的 —— 沒給任務時，早就談定的段看起來也像沒掛過
-    const now = new Set((after.slots ?? []).map((_, i) => i).filter((i) =>
+    const now = (after.slots ?? []).map((_, i) => i).filter((i) =>
       slotStatus(before, before.slots[i]) === 'pending_confirm'
-      && slotStatus(after, after.slots[i]) === 'confirmed'));
-    for (const t of newRegistrations(after, tasksByVisit[before.id] ?? [], coursesById)) {
-      if (t.slotIndexes.some((i) => now.has(i))) later.add(t.kind);
-    }
+      && slotStatus(after, after.slots[i]) === 'confirmed');
+    for (const k of registrationsWhenSettled(after, now, tasksByVisit[before.id], coursesById)) later.add(k);
   }
-  if (later.size) lines.push(`待辦會多${[...later].map((k) => `一張「${k}」`).join('、')}`);
+  if (later.size) lines.push(`待辦會多${moreTasks([...later])}`);
 
   // 二返不用簽療程單（`needsForm()`），所以整批都是二返的那一天不要講這一句 ——
   // 那一筆照樣要結案，但她那天不用拿單子給客人簽。
@@ -536,10 +562,10 @@ export function rebookConsequences({
       + (settled ? ' —— 原本談定過了，要再問客人一次' : ''),
     ...cancelTaskLines(after, tasks, coursesById),
   ];
-  const later = tasksForCategory(coursesById[fresh?.courseId]?.category);
-  if (later.length) {
-    lines.push(`等客人說可以之後，待辦會再多${later.map((k) => `一張「${k}」`).join('、')}`);
-  }
+  // 新那一段談定之後真的會長的（`registrationsWhenSettled()`）—— 舊的掛號待辦沒有
+  // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
+  const later = registrationsWhenSettled(after, [after.slots.length - 1], tasks, coursesById);
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return {
