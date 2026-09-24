@@ -60,3 +60,11 @@ PR：1（`claude/asks-0924e-tips`）
 - `tests/tip-red-lines.test.js`：`home.js`／`schedule.js` 必須還有 `tip()` 呼叫 —— 拿掉之後各自還剩幾顆要確認
 - `SPEC.md` 待辦中心那一段（「一列三行」那一條提到收進 `?`）
 - `sw.js` VERSION → v140
+
+## 做完時留下的
+
+- `4a3857e`。E2E `29-slot-first` S2c 收緊（那一頁與客戶詳情的待辦列一顆 `?` 都沒有）、新增 S2d（追蹤健檢報告、簽療程單、逾期三頁沒有；Examine 那一顆還在）。
+  兩支都先在舊的 code 上跑過一次確認是紅的。`npm run verify` 32 支 260 條全綠。
+- `tasklist.js` 的 `wayRow()` 拿掉 `hint` 參數與 `tip` import（沒有呼叫端了）；外面那一層 `.wayrow-row` 留著（分隔線掛在它身上）。
+- CLAUDE.md「任務什麼時候產生」那一列原本要求四句文案跟著改，三句拿掉了 → 改成只剩壓表「加這一筆」與 `consequences.js`。
+- 原始碼掃描那支測試連註解都掃：兩次是我自己的註解引用了拿掉的那句話而紅，改寫註解，不是放寬測試。

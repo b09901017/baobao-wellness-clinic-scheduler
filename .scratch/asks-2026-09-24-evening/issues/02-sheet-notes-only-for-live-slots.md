@@ -1,6 +1,6 @@
 # 試算表：二返註記只在健檢 ✓ 那一欄、器材那一列不印取消的段
 
-Status: todo
+Status: done
 來源：`../spec.md` 二c、二e、Q3
 PR：2（`claude/asks-0924e-sheet`）
 動工前先讀：ADR-0112、ADR-0026、`domain/sheetReport.js` 的 `followupNotes()`／`usedOn()`／`examOn()`／`bookingsOf()`／`equipmentCells()`、
@@ -50,3 +50,9 @@ PR：2（`claude/asks-0924e-sheet`）
 
 #129–#131 牽連到試算表的**只有這一條**。待辦區（`taskLine()` 的 `what`）、同名分頁（#129 06）、推送補推（#129 05）、
 改名都已經跟上了。
+
+## 做完時留下的
+
+- PR 2（`claude/asks-0924e-sheet`）的 `4b799a3`。`usedOn()` 拿掉，`examOn()` 改問 `usedAndDone()`；`bookingsOf()` 的 `mine()` 多一條 `holdsExam()`
+  （醫師那一格也只從佔著的那幾場找）；`equipmentCells()` 跳過 `slotStatus()` 是 cancelled 的。
+- 「連結指到一次取消的健檢」那一場二返：現在哪一欄底下都不印。那是資料有問題（#131 起新的連結存不進去），不在報表上展開。

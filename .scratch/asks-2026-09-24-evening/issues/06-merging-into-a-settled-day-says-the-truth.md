@@ -1,6 +1,6 @@
 # 併進已確認那一天：原本談定的段不動，只有新的這一段待確認
 
-Status: todo
+Status: done
 來源：`../spec.md` 第四 1、Q6
 PR：3（`claude/asks-0924e-abovee`）
 動工前先讀：ADR-0070、ADR-0081、ADR-0097、ADR-0104 第 2 點、`domain/visits.js` 的 `withExtraSlot()`／`pendingSlotsOf()`、
@@ -34,3 +34,8 @@ ADR-0104 第 2 點寫的是當時的說法；決定本身（要講出來）不�
 - 日曆新增：同上？
 - 拍 Abovee：同上（07 之後）？
 - 存完之後日曆那一天：原本那一段還是已確認、新那一段待確認 —— 跟剛剛講的一樣？
+
+## 做完時留下的
+
+- PR 3（`claude/asks-0924e-abovee`）的 `c267ff1`。`consequences.js` 的 `settledDayLine()`；`bookingConsequences()` 與 `schedule.js` 的 `addNote()` 讀它。
+- `consequences.js` 不再用 `describeStatus()`，import 拿掉。

@@ -1,6 +1,6 @@
 # 拍 Abovee 的確認框走 `consequences.js`，跟其他入口講一樣的話
 
-Status: todo
+Status: done
 Blocked by: 06
 來源：`../spec.md` 第三、Q10（9/17 審查留下、她沒決定的那一件；這一輪策略她同意了）
 PR：3（`claude/asks-0924e-abovee`）
@@ -39,3 +39,8 @@ PR：3（`claude/asks-0924e-abovee`）
 - 勾一列上週的（補登）：確認框講它會直接在「簽療程單」，而且**不講**會多掛號？
 - 全部都是復能（C 類）：確認框沒有掛號那一句？
 - 畫面那一支一個字的後果都不自己組？
+
+## 做完時留下的
+
+- `32c60e8`。`registrationsWhenSettled()` 傳空的 `tasks`：拍 Abovee 那一層沒讀任務，而只問新接在尾巴的那幾段 —— 那幾段不可能已經被任何一張蓋到。
+- 沒有加試算表那一句（`sheetSyncOn`）：那一層拿不到設定，別的入口也只有在設定好時才講。

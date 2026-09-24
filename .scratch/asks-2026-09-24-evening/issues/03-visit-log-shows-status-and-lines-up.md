@@ -1,6 +1,6 @@
 # 試算表：來訪紀錄不寫取消的段、每一段標狀態、日期自己一行
 
-Status: todo
+Status: done
 來源：`../spec.md` 二a、二b、Q2
 PR：2（`claude/asks-0924e-sheet`）
 動工前先讀：`domain/sheetReport.js` 的 `syncBundle()` 的 `log`、`sheets/readonly-report.gs` 的 `renderNotes()`、
@@ -42,3 +42,12 @@ PR：2（`claude/asks-0924e-sheet`）
 - 日期自己一行，底下每一段對齊？
 - 14:00 那一段排在 09:00 那一段後面，就算它在 `slots` 裡是第一個？
 - `.gs` 收到格式 5 → 拒收、講出要重貼；收到 6 → 照畫？
+
+## 做完時留下的
+
+- 跟 04 **同一個 commit**（`84c44ba`）：同一次升版，拆開的話中間那個 commit 的 `.gs` 與 app 版本對不上。
+- 狀態的字用 `shortStatus()`（待確認／已確認／已完成／未到），不是 `describeStatus()`（「已壓表，等客戶回覆」太長）。
+- `.gs` 改成**一行一列**（日期一列、粗體；每一段一列），不是一格塞好幾行：合併儲存格不一定會自己長高。
+- **順手修到的**：`.gs` 以前用 `filter(String)` 濾掉空格，`String(null)` 是真值 —— 沒有器材、品項的兩格被 join 成空的，
+  「復能　　　治3」中間多兩個全形空白。這也是她說「排版跑掉」的原因之一。
+- `tests/sheet-report.test.js` 裡有一條寫死 `format === 5`，改成 6。

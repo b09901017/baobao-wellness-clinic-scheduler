@@ -1,6 +1,6 @@
 # 手動貼上那一格講它少了什麼
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` Q7、第四 2
 PR：2（`claude/asks-0924e-sheet`）
@@ -24,3 +24,7 @@ PR：2（`claude/asks-0924e-sheet`）
 
 - 設定 → 試算表報表：手動那一塊有一顆 `?`，點開講得出少了哪三樣？
 - 這一句**不改變寫入結果**（它是 help，不是紅線那一種）？
+
+## 做完時留下的
+
+- `b52b93c`：`report.js` 那一顆 `?` 多一句；`tests/report-manual-tip.test.js`。檔頭那段在 `84c44ba` 裡。

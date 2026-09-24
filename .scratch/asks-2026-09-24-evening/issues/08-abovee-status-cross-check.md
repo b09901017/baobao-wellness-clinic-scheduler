@@ -1,6 +1,6 @@
 # 拍 Abovee：預約狀態跟 app 對一次（只講不改）
 
-Status: todo
+Status: done
 來源：`../spec.md` 第三、Q5
 PR：3（`claude/asks-0924e-abovee`）
 動工前先讀：ADR-0056、ADR-0104、ADR-0108、`domain/aboveeImport.js` 的 `existingAt()`／`resolveItem()`／`needsAttention()`／`summarizeAbovee()`、
@@ -48,3 +48,10 @@ Abovee 的「預約狀態」那一欄有三種字：`課程完成`、`確認前�
 - Abovee 上課程完成、app 上 9/20 那一段還開著：講「還沒簽療程單」？
 - 兩邊都取消：不排進「要你看」？
 - 存檔：這幾種一段都不會被寫進去？
+
+## 做完時留下的
+
+- `84994dd`。`existingAt()`／`aboveeState()`／`crossCheck()`／`mismatchSay()`；ADR-0116；E2E `41-abovee` A6（舊 code 上紅過）。
+- 兩條舊測試寫的正是被她改掉的那條規則（「已取消的一律不用看」）—— 改測試，不是改 code 去迎合它。
+- 兩邊都取消的那一列不算進「已經記了 N 段」（它是已取消）。
+- 邊界測試清單補 M12、操作手冊一行連到 ADR。

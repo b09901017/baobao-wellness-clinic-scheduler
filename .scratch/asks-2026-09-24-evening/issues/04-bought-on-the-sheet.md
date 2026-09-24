@@ -1,6 +1,6 @@
 # 試算表：「買過什麼」一天一行
 
-Status: todo
+Status: done
 Blocked by: 03（同一次升版）
 來源：`../spec.md` 二d、Q4
 PR：2（`claude/asks-0924e-sheet`）
@@ -41,3 +41,9 @@ ADR-0090 說第四種名字（`SIS(60)`）**只住在兩個地方**：客戶抬�
 - 微調過的那一天帶「本來 N → M」，沒微調的沒有括號？
 - 客戶只買營養品：這一段不出現？
 - CLAUDE.md「客戶抬頭那一行、買過什麼」那一列改成三個地方？
+
+## 做完時留下的
+
+- `84c44ba`（跟 03 同一個）。`sheetReport.js` 的 `purchaseLines()` 直接吃 `purchaseDays()`；ADR-0115。
+- 摘要跟那一頁一字不差 —— 單買的會帶次數（`ILIB(60)x12`），我第一版的測試寫錯了預期，照 app 的改。
+- `.gs` 的 `renderPurchases()` 在二返註記與營養品中間，底下只空一列。
