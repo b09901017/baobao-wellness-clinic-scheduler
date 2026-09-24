@@ -424,15 +424,13 @@ function renderNotes(sheet, data, top, width) {
   //
   // **一行一列，不是一格塞好幾行**：合併儲存格不一定會自己長高，一格塞四行常常只看得到第一行。
   // 取消的段 app 那側就不送了（她選「不寫」）；狀態的字也是 app 給的，這裡不另寫一份對照。
-  var lines = [];
-  var isDay = [];
+  var lines = [];   // { text, day }：day 是日期那一列（粗體）
   for (var i = 0; i < data.log.length; i++) {
     var day = data.log[i];
-    lines.push(day.label);
-    isDay.push(true);
+    lines.push({ text: day.label, day: true });
     for (var j = 0; j < day.items.length; j++) {
       var it = day.items[j];
-      lines.push('　' + [
+      lines.push({ day: false, text: '　' + [
         it.status,
         it.time,
         it.course,
@@ -443,13 +441,12 @@ function renderNotes(sheet, data, top, width) {
         it.doctor ? it.doctor + '醫師' : '',
       // **不是 `filter(String)`**：`String(null)` 是 'null'（真值），沒有器材、沒有品項的那兩格
       // 以前留在陣列裡、被 join 印成空的 —— 「復能　　　治3」中間多兩個全形空白，也是對不齊的原因之一
-      ].filter(function (x) { return x != null && x !== ''; }).join('　'));
-      isDay.push(false);
+      ].filter(function (x) { return x != null && x !== ''; }).join('　') });
     }
   }
-  var end = noteBlock(sheet, row, width, '來訪紀錄', lines);
+  var end = noteBlock(sheet, row, width, '來訪紀錄', lines.map(function (l) { return l.text; }));
   for (var k = 0; k < lines.length; k++) {
-    if (isDay[k]) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
+    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
   }
   return end;
 }

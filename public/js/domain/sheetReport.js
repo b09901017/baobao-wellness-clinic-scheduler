@@ -476,7 +476,8 @@ export function syncBundle({
         items: visits
           .filter((v) => v.date === date)
           .flatMap((v) => (v.slots ?? [])
-            .filter((slot) => slotStatus(v, slot) !== 'cancelled')
+            // 整天取消的上面已經濾掉了（`isActive()`），這裡只看那一段（同 `slotNoteCells()`）
+            .filter(isLiveSlot)
             .map((slot) => ({ v, slot })))
           .sort((a, b) => String(a.slot.startsAt ?? '99:99').localeCompare(String(b.slot.startsAt ?? '99:99')))
           .map(({ v, slot }) => ({
@@ -553,7 +554,7 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
         if (slot.entitlementId !== entitlement.id || !slot.equipmentId) continue;
         // **取消的那一段不印**：9/12 SIS 取消、INDIBA 做了，以前印「SIS、IND」—— 那一格只有一個 ✓
         //（`.scratch/asks-2026-09-24-evening/issues/02`）。未到的照印：那一格是 ✗，約的是哪一台有用
-        if (slotStatus(v, slot) === 'cancelled') continue;
+        if (!isLiveSlot(slot)) continue;
         const eq = equipment.find((x) => x.id === slot.equipmentId) ?? null;
         const name = eq ? variantName(eq, 'short', { as: 'equipment' }) : '';
         if (name && !names.includes(name)) names.push(name);
@@ -726,15 +727,15 @@ function takeUnlinked(guessed, linked, i) {
  * 約好了（`.scratch/asks-2026-09-24-evening/issues/02`）。
  */
 function bookingsOf(visits, entitlementId, dates) {
-  const mine = (v, s) => s.entitlementId === entitlementId && !s.followupForVisitId && holdsExam(v, s);
-  const unlinkedOn = (d) => visits.some((v) => v.date === d && (v.slots ?? []).some((s) => mine(v, s)));
+  const heldUnlinked = (v, s) => s.entitlementId === entitlementId && !s.followupForVisitId && holdsExam(v, s);
+  const unlinkedOn = (d) => visits.some((v) => v.date === d && (v.slots ?? []).some((s) => heldUnlinked(v, s)));
   return dates
     .filter(unlinkedOn)
     .map((date) => ({
       date,
       doctorId: visits
         .filter((v) => v.date === date)
-        .flatMap((v) => (v.slots ?? []).filter((s) => mine(v, s)))
+        .flatMap((v) => (v.slots ?? []).filter((s) => heldUnlinked(v, s)))
         .find((slot) => slot.doctorId)?.doctorId ?? null,
     }));
 }
