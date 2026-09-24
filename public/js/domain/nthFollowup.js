@@ -41,7 +41,7 @@
 //
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
-import { followupCourseIdOf } from './followups.js';
+import { followupCourseIdOf, usedAndDone, holdsExam } from './followups.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -121,7 +121,8 @@ export function isExamVisit(visit, examIds) {
  * 可以接 n返 的健檢來訪，**日期舊的在前**（回訪是照順序約掉的）。
  *
  * **只有已完成的算**：沒做完的健檢沒有報告可以再聽一次。這一條跟二返
- *（`domain/followups.js` 的 `doneVisitsFor()`）是同一個判斷。
+ *（`domain/followups.js` 的 `usedAndDone()`）是同一個判斷 —— **問健檢那一段**，
+ * 不問整筆（ADR-0112：健檢取消了、同一天 SIS 做了時整筆是已完成）。
  *
  * @param {object[]} entitlements 這位客戶的額度
  * @param {Record<string, object>} coursesById 課程主檔，含已刪除的
@@ -132,7 +133,7 @@ export function examVisits(entitlements = [], coursesById = {}, visits = []) {
   if (!examIds.size) return [];
 
   return (visits ?? [])
-    .filter((v) => v && !v.deletedAt && v.status === 'done' && isExamVisit(v, examIds))
+    .filter((v) => [...examIds].some((id) => usedAndDone(v, id)))
     .slice()
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -170,7 +171,7 @@ export function courseIdForNth(examVisit, entitlements = [], coursesById = {}) {
  * - **二返**：時段扣掉那一筆二返額度（`entitlementId`），返數固定是 2
  * - **n返**：時段身上有 `followupNth`，沒有額度
  *
- * 已取消／已刪除的來訪不算 —— 那一場沒發生（同 `claimedExams()` 的判斷）。
+ * 取消、未到的那一段不算 —— 那一場沒發生（同 `claimedExams()` 的判斷，`holdsExam()`）。
  *
  * @param {string} examVisitId 那一次健檢的來訪 id
  * @param {object[]} visits 這位客戶的全部來訪
@@ -182,9 +183,8 @@ export function followupsOfExam(examVisitId, visits = [], followupEntitlementIds
   const out = [];
 
   for (const v of visits ?? []) {
-    if (!v || v.deletedAt || v.status === 'cancelled') continue;
-    for (const slot of v.slots ?? []) {
-      if (slot?.followupForVisitId !== examVisitId) continue;
+    for (const slot of v?.slots ?? []) {
+      if (slot?.followupForVisitId !== examVisitId || !holdsExam(v, slot)) continue;
 
       if (isNthSlot(slot)) {
         const nth = nthOf(slot);

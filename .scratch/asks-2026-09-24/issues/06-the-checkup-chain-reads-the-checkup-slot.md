@@ -1,6 +1,6 @@
 # 健檢那條鏈看健檢那一段
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` 第 06 條（第三點 b、R3、R4、Q4「排查會不會讓流程亂掉」）
 動工前先讀：ADR-0042、ADR-0065、`domain/followups.js` 的 `doneVisitsFor()`／`claimedExams()`／`bookingForExam()`／
@@ -39,3 +39,10 @@ Blocked by: 04
 - 二返未到：同上，可以重約一場接回同一次健檢？
 - 健檢那一段先結、同一天別段還開著：追蹤健檢報告**現在就長**？
 - `owed()`（還欠幾次）一個字都沒改（它本來就逐段）？
+
+## 實作時跟上面不一樣的地方
+
+- 兩支 helper 放在 `followups.js`：`usedAndDone(visit, entitlementId)`、`holdsExam(visit, slot)`，都走
+  `slotOutcome()`（不 import `visits.js` —— `visits → nthFollowup → followups` 已經是一條鏈，再接回去就是循環）。
+- 多改一處：試算表的二返註記（`sheetReport.js` 的 `bookingsByExam()` 走 `holdsExam()`；照位置猜的 `bookingsOf()`
+  只猜**沒連結**的舊資料 —— 不然被取消的那一場會被猜回去）。
