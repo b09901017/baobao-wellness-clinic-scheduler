@@ -1,6 +1,6 @@
 # 待辦列三行、說明收進 `?`
 
-Status: todo
+Status: done
 Blocked by: 08
 來源：`../spec.md` 第 09 條（第四點 b、c，Q5、Q6）
 動工前先讀：`ui/views/home.js` 的 `taskRow()`、`ui/components/tasklist.js` 的 `taskRow()`、`ui/components/tip.js`、
@@ -47,3 +47,12 @@ Blocked by: 08
   749（追蹤報告）、654（`station.note` 照抄）。
 - `taskLine()` 08 搬到 `todoFlow.js`。多回一份 `lines[]`，**`what` 留著給試算表**（TODO 區一格一行，不能變多行）。
 - 「同名」比的是**那一天的每一段**，不是這一張蓋的那幾段：判準那一條「10:00 門診、15:00 門診各一張 Examine」每一張只蓋一段。
+
+## 做完時留下的
+
+- `taskLine()` 多回 `lines[]`（`todoFlow.js` 的 `linesOf()`），`what` 沒動（試算表）。兩個畫面塞 `lines.join('\n')` 的純文字，
+  `.row__lines`／`.note__lines` 是 `white-space: pre-line` —— 不拼 HTML。
+- `tasklist.js` 的 `?` 擺在 `button.note` **外面**（button 裡放不了 button），在「詳情 ›」左邊。分類頁那一列在 `<label>` 裡，
+  跟 `form.js` 的欄位標籤同一種放法，緊貼著種類。
+- 「已完成」那一格（`doneRow()`）的「N 項」key 也換成任務 id —— 08 換了 `fillVisitInfo()` 的 key，這一格不換就一直是空的。
+- 沒有 `note` 的系統任務（掛號、寫紀錄）`tip('')` 回空字串，一個像素都不佔。

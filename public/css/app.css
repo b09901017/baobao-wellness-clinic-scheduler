@@ -1344,16 +1344,21 @@ textarea {
   line-height: 1.5;
 }
 
-/* 一列任務的後半段：「Examine・9/1(一)・二返」的那一串。
+/* 一列任務底下那幾行：**一段一行**「9/24(四) SIS(60)」（issues/09，`taskLine()` 的 `lines`）。
    **淡一級** —— 種類才是她在掃的東西，日期與項目是用來認人的線索。
-   她的原話：「資訊量太少……讓使用者一眼就知道這是哪天的什麼任務」。 */
-.note__sub {
+   `pre-line`：畫面塞的是一行一段的純文字（換行接起來），不拼 HTML。 */
+.note__lines,
+.row__lines {
+  display: block;
+  white-space: pre-line;
+  font-size: var(--text-xs);
+  line-height: 1.45;
   color: var(--text-mute);
   font-weight: 400;
 }
 
-/* 取消類任務身上那一句（「回去把 Examine 上壓的時段放掉」）。
-   自己一行 —— 它是一句話，不是標籤。 */
+/* 她自己在任務上寫的那一句。自己一行 —— 它是一句話，不是標籤。
+   系統寫的那一句（「回去把 Examine 上壓的時段放掉」）2026-09-24 收進 `?`（issues/09）。 */
 .note__note {
   display: block;
   margin-top: 2px;
@@ -4447,6 +4452,28 @@ body:has(> .drawer-backdrop) > .toast {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* 待辦中心那一列的第二行：種類、N 項、死線、約二返約了沒（issues/09）。
+   她：「希望可以換行，不要直接接在名字後面，也盡量不要換行，就是能在同一行就在同一行」——
+   所以自己一行，每一顆 `nowrap`，真的放不下才整顆換到下一行。 */
+.row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+.row__tags .badge {
+  white-space: nowrap;
+}
+
+/* 系統寫的那一句的 `?`（issues/09）。它在 `button.note` 外面（button 裡放不了 button），
+   所以自己置中，跟「詳情 ›」之間留一點 —— 兩顆的觸控範圍不疊（CLAUDE.md 那一條）。 */
+.taskrow > .tip {
+  align-self: center;
+  margin: 0 var(--space-3);
 }
 
 .link-list {

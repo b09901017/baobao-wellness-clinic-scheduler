@@ -16,7 +16,7 @@ import {
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
-import { dayOf } from './dates.js';
+import { dayOf, shortDate } from './dates.js';
 import { formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel } from './visits.js';
 import { timeLabel } from './visitTime.js';
 
@@ -466,7 +466,8 @@ export function taskSlots(task, visit, coursesById = {}) {
  *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
  * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
  *   （跟日曆同一種寫法），也才推得出舊任務是哪一段；沒帶就退回時段上的快照（`visitCourseLabel()`）。
- * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
+ * @returns {{kind: string, date: string|null, fromDue: boolean, what: string, lines: string[]}}
+ *   `what` 是一行（試算表 TODO 區一格一行）；`lines` 是畫面上那幾行小字，見底下
  */
 export function taskLine(task, visit = null, master = null) {
   const hasVisit = Boolean(visit?.date);
@@ -485,7 +486,27 @@ export function taskLine(task, visit = null, master = null) {
       ? mine.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
         visitCourseLabel({ slots: [slots[i]] }, master)}`).join('、')
       : (slots.length ? visitCourseLabel(visit, master) : ''),
+    lines: hasVisit ? linesOf(visit, mine.length ? mine : slots.map((_, i) => i), master) : [],
   };
+}
+
+/**
+ * 畫面上那幾行小字：**一段一行**，「9/24(四) SIS(60)」—— 日期與項目，不寫時間。
+ *
+ * 她 2026-09-24：「如果有兩項…也換行呈現出來不要只呈現一個也不要都擠一起，並且可以只寫日期和項目就好，
+ * 不用寫時間，具體的可以看詳情」。**同一天有另一段同名時才補時間**（Q5：「只在這種時候補上時間」）——
+ * 10:00 門診、15:00 門診各一張 Examine 時，兩張不補的話長得一模一樣。比的是**那一天的每一段**，
+ * 不是這一張蓋的那幾段。待辦中心分類頁與 `tasklist.js` 兩個畫面共用。
+ */
+function linesOf(visit, at, master) {
+  const slots = visit?.slots ?? [];
+  const day = shortDate(visit.date);
+  if (!slots.length) return [day];
+  const names = slots.map((s) => visitCourseLabel({ slots: [s] }, master));
+  return at.map((i) => {
+    const twin = names.some((n, j) => j !== i && n === names[i]);
+    return [day, twin ? timeLabel({ startsAt: slots[i].startsAt }) : '', names[i]].filter(Boolean).join(' ');
+  });
 }
 
 /** `taskSlots()` 的前半：真的認得到的那幾段（可能是空的）。 */
