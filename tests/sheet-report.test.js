@@ -924,3 +924,95 @@ describe('那一段記了什麼（slotNotes）', () => {
     assert.deepEqual(slotNoteCells(ent, [v], DATES), []);
   });
 });
+
+// ---------- 2026-09-24 晚（`.scratch/asks-2026-09-24-evening/issues/02–04`） ----------
+
+describe('02 二返註記與器材那一列只看還算數的段', () => {
+  // 她：「我發現有時候會沒有打勾二返的地方，下面註記二返()…是不是其他的像是sis in il等等的也會有這個問題?」
+  // Q3：「跟舊表和 app 的「約二返」同一個時機」—— 健檢那一段做完了才算那一欄
+  const COURSES = [
+    { id: 'course-checkup', name: '健檢', followupCourseId: 'course-followup' },
+    { id: 'course-followup', name: '二返' },
+  ];
+  const ENTS = [
+    { id: 'e-chk', label: '健檢', courseId: 'course-checkup', totalQty: 2 },
+    { id: 'e-fu', label: '二返', courseId: 'course-followup', followupForEntitlementId: 'e-chk', totalQty: 2 },
+    { id: 'e1', label: '復能', totalQty: 12 },
+  ];
+  const notesOf = (visits) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: ENTS },
+    visitsBy: { c1: visits },
+    today: TODAY,
+    master: { courses: COURSES },
+  }).sheets[0].followupNotes;
+  const day = (id, date, ...slots) => ({ id, date, status: 'done', slots });
+
+  test('健檢那一段取消了、同一天復能做了：那一欄底下沒有 二返()', () => {
+    assert.deepEqual(notesOf([day('v1', '2026-09-10',
+      { entitlementId: 'e-chk', status: 'cancelled' },
+      { entitlementId: 'e1', status: 'done' })]), []);
+  });
+
+  test('健檢未到（✗）：底下沒有 二返() —— 那一次健檢沒有發生', () => {
+    assert.deepEqual(notesOf([day('v1', '2026-09-10',
+      { entitlementId: 'e-chk', status: 'no_show' },
+      { entitlementId: 'e1', status: 'done' })]), []);
+  });
+
+  test('健檢還沒做（△，下週）：底下沒有 二返()', () => {
+    assert.deepEqual(notesOf([{ id: 'v1', date: '2026-09-25', status: 'confirmed',
+      slots: [{ entitlementId: 'e-chk', status: 'confirmed' }] }]), []);
+  });
+
+  test('健檢 ✓、二返取消了：照樣印 二返()（還沒約，ADR-0112）', () => {
+    assert.deepEqual(notesOf([
+      day('v1', '2026-09-01', { entitlementId: 'e-chk', status: 'done' }),
+      { id: 'v2', date: '2026-09-20', status: 'cancelled',
+        slots: [{ entitlementId: 'e-fu', followupForVisitId: 'v1', status: 'cancelled' }] },
+    ]), [{ dateIndex: 0, text: '二返()' }]);
+  });
+
+  test('連結指到一次取消的健檢：那一場二返不會掛在空的那一欄底下', () => {
+    const notes = notesOf([
+      day('v1', '2026-09-01',
+        { entitlementId: 'e-chk', status: 'cancelled' },
+        { entitlementId: 'e1', status: 'done' }),
+      { id: 'v2', date: '2026-09-20', status: 'confirmed',
+        slots: [{ entitlementId: 'e-fu', followupForVisitId: 'v1', status: 'confirmed' }] },
+    ]);
+    assert.deepEqual(notes, []);
+  });
+
+  test('舊資料（沒有連結）：一場取消的二返不會被照位置猜成約好了', () => {
+    assert.deepEqual(notesOf([
+      day('v1', '2026-09-01', { entitlementId: 'e-chk' }),
+      day('v2', '2026-09-08',
+        { entitlementId: 'e-fu', status: 'cancelled' },
+        { entitlementId: 'e1', status: 'done' }),
+    ]), [{ dateIndex: 0, text: '二返()' }]);
+  });
+
+  test('器材那一列：SIS 取消、INDIBA 做了 → 只印 INDIBA', () => {
+    const EQUIPMENT = [
+      { id: 'eq-sis', name: '超磁場', shortName: 'SIS' },
+      { id: 'eq-indiba', name: 'INDIBA' },
+    ];
+    const pool = { id: 'e-four', type: 'pool', label: '復能四選一(60)', totalQty: 10,
+      optionEquipmentIds: ['eq-sis', 'eq-indiba'] };
+    const v = { id: 'v1', date: '2026-09-12', status: 'done', slots: [
+      { entitlementId: 'e-four', equipmentId: 'eq-sis', status: 'cancelled' },
+      { entitlementId: 'e-four', equipmentId: 'eq-indiba', status: 'done' },
+    ] };
+    assert.deepEqual(equipmentCells(pool, [v], ['2026-09-12'], EQUIPMENT), [{ dateIndex: 0, text: 'INDIBA' }]);
+  });
+
+  test('器材那一列：未到的照印 —— 那一格是 ✗，印哪一台是有用的', () => {
+    const EQUIPMENT = [{ id: 'eq-sis', name: '超磁場', shortName: 'SIS' }, { id: 'eq-indiba', name: 'INDIBA' }];
+    const pool = { id: 'e-four', type: 'pool', label: '復能四選一(60)', totalQty: 10,
+      optionEquipmentIds: ['eq-sis', 'eq-indiba'] };
+    const v = { id: 'v1', date: '2026-09-12', status: 'no_show',
+      slots: [{ entitlementId: 'e-four', equipmentId: 'eq-sis', status: 'no_show' }] };
+    assert.deepEqual(equipmentCells(pool, [v], ['2026-09-12'], EQUIPMENT), [{ dateIndex: 0, text: 'SIS' }]);
+  });
+});

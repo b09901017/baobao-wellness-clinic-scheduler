@@ -19,7 +19,7 @@ import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import {
   isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, MARK_ORDER, MARK_LEGEND,
 } from './visits.js';
-import { pairsOf, holdsExam } from './followups.js';
+import { pairsOf, holdsExam, usedAndDone } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -201,11 +201,16 @@ function mark(visits, entitlementId, date) {
     .join('');
 }
 
-/** 那一天有沒有用到這筆額度。二返註記要靠它找出健檢是哪一欄。 */
-function usedOn(visits, entitlementId, date) {
-  return visits.some(
-    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
-  );
+/**
+ * 那一天做完的那一次健檢（用這筆額度的那一段做完了）。二返註記靠它找出健檢是哪一欄。
+ *
+ * **問那一段，不問那一天有沒有用到這筆額度**（ADR-0112 的 `usedAndDone()`，跟 app 的「約二返」同一個時機）。
+ * 以前問的是後者：健檢那一段取消了、同一天復能做了，那一格空的、底下照印 `二返()`；
+ * ○／△（還沒做）與 ✗（沒來）的底下也印（`.scratch/asks-2026-09-24-evening/issues/02`）。
+ * 她 2026-09-24 晚選的：「跟舊表和 app 的『約二返』同一個時機」—— 舊表上是健檢打勾了才寫 `二返()`。
+ */
+function examOn(visits, entitlementId, date) {
+  return (visits ?? []).find((v) => v.date === date && usedAndDone(v, entitlementId)) ?? null;
 }
 
 /** `7/13`。舊表的二返註記就是這個格式，沒有星期。 */
@@ -503,6 +508,9 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
       if (v.date !== date) continue;
       for (const slot of v.slots ?? []) {
         if (slot.entitlementId !== entitlement.id || !slot.equipmentId) continue;
+        // **取消的那一段不印**：9/12 SIS 取消、INDIBA 做了，以前印「SIS、IND」—— 那一格只有一個 ✓
+        //（`.scratch/asks-2026-09-24-evening/issues/02`）。未到的照印：那一格是 ✗，約的是哪一台有用
+        if (slotStatus(v, slot) === 'cancelled') continue;
         const eq = equipment.find((x) => x.id === slot.equipmentId) ?? null;
         const name = eq ? variantName(eq, 'short', { as: 'equipment' }) : '';
         if (name && !names.includes(name)) names.push(name);
@@ -592,7 +600,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
     const guessedFor = new Set(linked.keys());
 
     dates
-      .filter((d) => usedOn(visits, pair.source.id, d))
+      .filter((d) => examOn(visits, pair.source.id, d))
       .forEach((date, i) => {
         const exam = examOn(visits, pair.source.id, date);
         // 連結找得到就用連結的；找不到才退回照位置，而且**已經被連結認領掉的
@@ -654,13 +662,6 @@ function bookingsByExam(visits, followupEntitlementId) {
   return out;
 }
 
-/** 那一天用掉這筆額度的那一筆來訪。二返註記要靠它把日期換成健檢的 id。 */
-function examOn(visits, entitlementId, date) {
-  return (visits ?? []).find(
-    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
-  ) ?? null;
-}
-
 /** 照位置配的退路：第 i 個，但已經被連結認領掉的那幾場跳過。 */
 function takeUnlinked(guessed, linked, i) {
   const taken = new Set([...linked.values()].map((b) => b.date));
@@ -677,18 +678,21 @@ function takeUnlinked(guessed, linked, i) {
  * **只猜沒連結的那幾場**（舊資料）。連結過的（`followupForVisitId`）由 `bookingsByExam()`
  * 照連結配；它被取消或未到時那一次健檢要印 `二返()`（ADR-0112）—— 讓這一支再把那一場猜回去，
  * 那一次被取消的二返就又出現在健檢底下了。
+ *
+ * **沒連結的那幾場也只猜佔著的**（`holdsExam()`）：舊資料上一場取消的二返，照位置猜的話會被當成
+ * 約好了（`.scratch/asks-2026-09-24-evening/issues/02`）。
  */
 function bookingsOf(visits, entitlementId, dates) {
-  const unlinkedOn = (d) => visits.some((v) => v.date === d
-    && (v.slots ?? []).some((s) => s.entitlementId === entitlementId && !s.followupForVisitId));
+  const mine = (v, s) => s.entitlementId === entitlementId && !s.followupForVisitId && holdsExam(v, s);
+  const unlinkedOn = (d) => visits.some((v) => v.date === d && (v.slots ?? []).some((s) => mine(v, s)));
   return dates
     .filter(unlinkedOn)
     .map((date) => ({
       date,
       doctorId: visits
         .filter((v) => v.date === date)
-        .flatMap((v) => v.slots ?? [])
-        .find((slot) => slot.entitlementId === entitlementId && slot.doctorId)?.doctorId ?? null,
+        .flatMap((v) => (v.slots ?? []).filter((s) => mine(v, s)))
+        .find((slot) => slot.doctorId)?.doctorId ?? null,
     }));
 }
 
