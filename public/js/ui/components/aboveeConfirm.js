@@ -20,7 +20,7 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites, staffFrom } from '../../domain/abovee.js';
@@ -248,6 +248,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function tagOf(item) {
     if (savedKeys.has(item.key)) return 'saved';
+    // 對不上排在已取消前面：Abovee 上取消了、app 上還活著的那一列要看得出來（ADR-0116）
+    if (item.kind === 'mismatch') return 'mismatch';
     if (item.cancelled) return 'cancelled';
     return item.kind;
   }
@@ -301,11 +303,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
     if (item.kind === 'recorded') {
-      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">這一段 app 裡已經有了，不用再記。</p></div>`;
+      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${item.cancelled
+        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p></div>`;
     }
     if (item.kind === 'mismatch') {
+      // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
       return `<div class="abl-row__detail">${seen}
-        <p class="abl-row__say">${esc(shortDate(item.date))} ${esc(item.startsAt)} app 裡已經有一段，但做的不一樣。
+        <p class="abl-row__say">${esc(shortDate(item.date))} ${esc(item.startsAt)} ${esc(mismatchSay(item))}
           這裡不改 —— 要改的話去日曆那一天。</p>
         ${onOpenDay ? `<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
           去日曆 ${esc(shortDate(item.date))}（照片不會留著）</button>` : ''}
