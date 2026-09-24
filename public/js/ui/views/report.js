@@ -84,9 +84,13 @@ function paint(el, data) {
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <section class="card">
+      ${/* 最後一句是她 2026-09-24 晚要的提醒（「沒再用了，但是那邊可以有一個tooltip提醒」）：
+            手動這條從來沒有來訪紀錄，後來的「記一句」「買過什麼」也只有自動同步才有
+           （`.scratch/asks-2026-09-24-evening/issues/05`）。 */''}
       <h2 class="card__title">試算表報表${tip(
         '把資料排成試算表的樣子，複製之後在試算表選一格貼上就是一張表。'
-        + '單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。')}</h2>
+        + '單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。'
+        + '這裡貼出來的沒有來訪紀錄、記一句、買過什麼 —— 那幾樣只有底下的自動同步才有。')}</h2>
 
       <label class="field">
         <span class="field__label">要哪一份</span>
