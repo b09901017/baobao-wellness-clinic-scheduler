@@ -198,8 +198,9 @@ test('S2b 只掛下午那一段的 Examine：三個入口的「詳情」都直�
   await onlyAfternoon('客戶詳情');
 });
 
-test('S2c 取消兩段的那一張：一段一行小字，系統寫的那一句收進 ?（asks-2026-09-24/issues/09）', async ({ app, page }) => {
+test('S2c 取消兩段的那一張：一段一行小字，系統寫的那一句不畫、連 ? 都沒有（asks-2026-09-24-evening/issues/01）', async ({ app, page }) => {
   // 她：「他會寫 : 2026-9-24 有一段取消了..........其實完全不用寫，畢竟標題就寫了取消above」
+  // 9/24 晚：「c改時間/取消"2026-09-08的來訪取消了....放掉"不需要，是多餘的」—— 連收進 ? 都不要
   const said = `${DAY} 有一段取消了，回去把 Abovee 上壓的那個時段放掉`;
   const both = {
     path: 'tasks', id: 'task-cx',
@@ -215,10 +216,57 @@ test('S2c 取消兩段的那一張：一段一行小字，系統寫的那一句�
   await expect(lines).toBeVisible();
   expect((await lines.innerText()).split('\n').filter(Boolean), '兩段兩行').toHaveLength(2);
   await expect(page.locator('#view'), '系統那一句不再常駐').not.toContainText('有一段取消了');
+  // 那一顆 ? 以前夾在種類與「N 項」兩顆標籤中間；頁標題那一顆（「來訪取消後，要回去…」）也拿掉了
+  await expect(page.locator('#view .tip'), '改時間／取消這一頁一顆 ? 都沒有').toHaveCount(0);
 
   await app.go('/customers/cust-x');
   await expect(page.locator('.note__lines').first()).toBeVisible();
   await expect(page.locator('#view'), '客戶詳情也一樣').not.toContainText('有一段取消了');
+  await expect(page.locator('.taskrow .tip'), '客戶詳情的待辦那幾列沒有 ?').toHaveCount(0);
+});
+
+test('S2d 跟標題講同一件事的 ? 拿掉，Examine 那一顆留著（asks-2026-09-24-evening/issues/01）', async ({ app, page }) => {
+  // 她：「a追蹤健檢報告那邊的待辦，不需要提醒"健檢做完了，去問報告出來沒" 這是多餘的話」
+  // 「b簽療程單那邊寫的"有幾段到現在還是.....沒來就打叉"看不懂且沒必要，是多餘的」
+  const past = addDays(DAY, -2);
+  await app.seed([
+    ...seedTwoCourses(),
+    task({
+      id: 'task-report', customerId: 'cust-x', customerName: '王小明',
+      kind: '追蹤健檢報告', dueDate: addDays(DAY, 10), note: '健檢做完了，去問報告出來了沒',
+    }),
+    task({
+      id: 'task-exam', customerId: 'cust-x', customerName: '王小明',
+      kind: 'Examine', dueDate: addDays(DAY, 3), visitId: 'v-two',
+    }),
+    // 日子過了還是「待確認」的那一段 —— 以前簽療程單那張卡上會多一顆 ?
+    visit({
+      id: 'v-past', customerId: 'cust-x', customerName: '王小明', date: past, status: 'pending_confirm',
+      slots: [{
+        ...slot({ courseId: 'course-recovery', entitlementId: 'ent-pool', startsAt: '10:00', endsAt: '10:30',
+          equipmentId: 'eq-sis', therapistId: 'staff-tw' }),
+        status: 'pending_confirm',
+      }],
+    }),
+  ]);
+
+  await app.signIn(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await expect(page.locator('#view')).toContainText('王小明');
+  await expect(page.locator('#view .tip'), '追蹤健檢報告：標題與那一列都沒有 ?').toHaveCount(0);
+  await expect(page.locator('#view')).not.toContainText('健檢做完了');
+
+  await app.go('/todo/close');
+  await expect(page.locator('[data-open="v-past"]')).toBeVisible();
+  await expect(page.locator('#view .tip'), '簽療程單：標題與卡上都沒有 ?').toHaveCount(0);
+
+  await app.go('/todo/overdue');
+  await expect(page.locator('#view')).toContainText('王小明');
+  await expect(page.locator('.page__title .tip'), '逾期的：「死線已經過去了」拿掉').toHaveCount(0);
+
+  // Examine 那一句是另一個系統上的步驟，不是在重講標題 —— 留著
+  await app.go('/todo/Examine');
+  await expect(page.locator('#view')).toContainText('王小明');
+  await expect(page.locator('.page__title .tip')).toHaveCount(1);
 });
 
 // ---------- SOP 跟著段走 ----------

@@ -5386,8 +5386,9 @@ body:has(> .drawer-backdrop) > .toast {
   color: var(--text-mute);
 }
 
-/* 那一列 ＋ 右邊那顆 `?`。**泡泡擺在 `<a>` 外面**（互動元素不可以互相包，
-   見 `tasklist.js` 的 `wayRow()`），所以外面多一層 flex 把它們排在一起。 */
+/* 那一列外面那一層。右邊那顆 `?` 2026-09-24 拿掉了（ADR-0114），這一層留著：
+   `:first-child` 的分隔線掛在它身上，而之後要在右邊加東西也得擺在 `<a>` 外面
+   （互動元素不可以互相包，見 `tasklist.js` 的 `wayRow()`）。 */
 .wayrow-row {
   display: flex;
   align-items: center;

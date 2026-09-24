@@ -1066,15 +1066,9 @@ function taskBlock(tasks, visits = [], master = null) {
 
     ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
     ${!tasks.length
-      // ADR-0027 與 ADR-0066：任務現在有**兩個**時機。這是 CLAUDE.md 點名的
-      // 那幾句之一，改「什麼時候產生」的規則時要一起改。
-      // 用她的詞，不要寫「系統登記」。
-      //
-      // 2026-09-10：那三行收進一顆 `?`（issue 09）。**「還沒有任務。」自己留著** ——
-      // 空狀態是這一塊唯一的內容，藏起來就變成一片空白；要收的只有底下的說明。
-      ? `<p class="muted" style="margin: 0">還沒有任務。${tip(
-          '勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；'
-          + '要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。')}</p>`
+      // **「還沒有任務。」自己留著** —— 空狀態是這一塊唯一的內容，藏起來就變成一片空白。
+      // 旁邊那一顆 `?`（「勾掉…之後才長出來」）2026-09-10 收起來、2026-09-24 晚拿掉（ADR-0114）。
+      ? '<p class="muted" style="margin: 0">還沒有任務。</p>'
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
