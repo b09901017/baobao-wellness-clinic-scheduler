@@ -16,10 +16,11 @@
 
 import { counts, isProduct } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
+import { purchaseDays, purchaseDayLabel } from './purchases.js';
 import {
-  isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, MARK_ORDER, MARK_LEGEND,
+  isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, shortStatus, MARK_ORDER, MARK_LEGEND,
 } from './visits.js';
-import { pairsOf, holdsExam } from './followups.js';
+import { pairsOf, holdsExam, usedAndDone } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -35,10 +36,13 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
 /**
  * 一位客戶一張表：療程項目 × 日期的矩陣，底下接二返註記、備註與 TODO / FINISHED。
  *
- * 這是**手動貼上**那條路（`#/settings/report`）。自動推送走的是 `syncBundle()`，
- * 但兩條路必須長一樣 —— 同一份報表因為走哪條路而長得不同，
- * 她會以為其中一條壞了。所以兩邊共用同一組 `mark()` / `followupNotes()` /
- * `taskBlocks()`，這裡只負責把它們攤成格子。
+ * 這是**手動貼上**那條路（`#/settings/report`）。自動推送走的是 `syncBundle()`。
+ * 兩邊共用同一組 `mark()` / `followupNotes()` / `equipmentCells()` / `taskBlocks()` ——
+ * 矩陣、二返與器材註記、TODO 的**算法**一定一樣，這裡只負責把它們攤成格子。
+ *
+ * **但這條路比較少**：沒有來訪紀錄、記一句（格式 5）、買過什麼（格式 6）。她 2026-09-24 說
+ * 「沒再用了」，所以不補；畫面上那一格的 `?` 講出來少了什麼
+ *（`.scratch/asks-2026-09-24-evening/issues/05`）。哪天要補，照 `syncBundle()` 那三份攤。
  *
  * @param {object} ctx
  * @param {object} ctx.customer
@@ -201,11 +205,16 @@ function mark(visits, entitlementId, date) {
     .join('');
 }
 
-/** 那一天有沒有用到這筆額度。二返註記要靠它找出健檢是哪一欄。 */
-function usedOn(visits, entitlementId, date) {
-  return visits.some(
-    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
-  );
+/**
+ * 那一天做完的那一次健檢（用這筆額度的那一段做完了）。二返註記靠它找出健檢是哪一欄。
+ *
+ * **問那一段，不問那一天有沒有用到這筆額度**（ADR-0112 的 `usedAndDone()`，跟 app 的「約二返」同一個時機）。
+ * 以前問的是後者：健檢那一段取消了、同一天復能做了，那一格空的、底下照印 `二返()`；
+ * ○／△（還沒做）與 ✗（沒來）的底下也印（`.scratch/asks-2026-09-24-evening/issues/02`）。
+ * 她 2026-09-24 晚選的：「跟舊表和 app 的『約二返』同一個時機」—— 舊表上是健檢打勾了才寫 `二返()`。
+ */
+function examOn(visits, entitlementId, date) {
+  return (visits ?? []).find((v) => v.date === date && usedAndDone(v, entitlementId)) ?? null;
 }
 
 /** `7/13`。舊表的二返註記就是這個格式，沒有星期。 */
@@ -285,8 +294,13 @@ function csvCell(value) {
  * 2026-09-16 選的是寫在那一段的記一句（ADR-0084）並且推上試算表：
  * 「希望是可以⋯⋯記在當天那一列的下面」。**同一個模子的第二次用**，
  * 理由跟格式 4 一模一樣，所以它也不塞進 `followupNotes`。
+ *
+ * 6（2026-09-24）：來訪紀錄每一段多一格 `status`（取消的段不再送），`.gs` 把日期自己排一行、
+ * 底下一段一行；每一位多一份 `purchases`（「買過什麼」一天一行，ADR-0115）。她的原話：
+ * 「能不能就是第一行是日期，然後換行後在寫每一段」「app中買過什麼那邊的資訊，我也想在試算表中看到」
+ *（`.scratch/asks-2026-09-24-evening/issues/03、04`）。
  */
-export const SYNC_FORMAT = 5;
+export const SYNC_FORMAT = 6;
 
 /**
  * 每一位客戶在試算表上那一張分頁叫什麼。**只有真的撞名的那幾位加尾巴**，其餘一個字都不變。
@@ -413,6 +427,8 @@ export function syncBundle({
       rows,
       equipmentNotes,
       slotNotes,
+      // 「買過什麼」一天一行（格式 6，ADR-0115）。畫在營養品那一區上面
+      purchases: purchaseLines(alive, master),
       // 營養品自己一區（格式 3 起）。它以前混在 `rows` 裡，而那幾個數字欄
       // 印的是月數 —— 一個都看不懂。這一區帶金額、哪幾款、哪天給了。
       products: alive.filter(isProduct).map((e) => {
@@ -449,12 +465,24 @@ export function syncBundle({
       tasks: taskBlocks(tasksBy[customer.id] ?? [], visits,
         { courses: master.courses ?? [], equipment: master.equipment ?? [] }),
       // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
+      //
+      // **取消的段不寫、每一段帶它自己的狀態、照開始時間排**（格式 6，
+      // `.scratch/asks-2026-09-24-evening/issues/03`）。她：「如果取消了可以標註或是就不寫，
+      // 也可以在這些來訪紀錄中標記狀態嗎?」→「不寫」—— 跟整天取消本來就不進來同一條。
+      // 照時間排是因為新的段一律接在尾巴（`hasNewSlots()` 靠它），改期之後順序不是時間的順序。
       log: dates.map((date) => ({
         date,
         label: shortDate(date),
         items: visits
           .filter((v) => v.date === date)
-          .flatMap((v) => (v.slots ?? []).map((slot) => ({
+          .flatMap((v) => (v.slots ?? [])
+            // 整天取消的上面已經濾掉了（`isActive()`），這裡只看那一段（同 `slotNoteCells()`）
+            .filter(isLiveSlot)
+            .map((slot) => ({ v, slot })))
+          .sort((a, b) => String(a.slot.startsAt ?? '99:99').localeCompare(String(b.slot.startsAt ?? '99:99')))
+          .map(({ v, slot }) => ({
+            // 字跟日曆、客戶詳情同一組（`STATUS_VIEW` 的 short）
+            status: shortStatus(slotStatus(v, slot)),
             course: slot.courseName ?? nameOf('courses', slot.courseId) ?? '',
             time: timeLabel(slot),
             equipment: nameOf('equipment', slot.equipmentId),
@@ -465,7 +493,7 @@ export function syncBundle({
             // 醫師和治療師都住在 staff 底下，但它們是兩種人，各印各的 ——
             // 二返有醫師沒有治療師，復能反過來（CONTEXT.md）。
             doctor: nameOf('staff', slot.doctorId),
-          }))),
+          })),
       })).filter((d) => d.items.length),
     };
   });
@@ -478,6 +506,27 @@ export function syncBundle({
     legend: MARK_LEGEND,
     sheets,
   };
+}
+
+/**
+ * 「買過什麼」那一段，一天一行：`0723　新8萬方案　（微調：SIS(60) 本來 20 → 23）`。
+ *
+ * **跟 app 那一頁同一支算**（`purchaseDays()`）：日期、摘要、微調一個字都不自己組 ——
+ * 同一件事兩份算法，遲早有一份少了微調或套數（ADR-0115）。營養品不在這裡（它自己一區），
+ * 沒有購買日的收在最後一行，寫「沒有日期」（同那一頁）。那一行在這裡組好，`.gs` 一個字都不組。
+ *
+ * @param {object[]} entitlements 那一位還活著的額度
+ * @param {object} master `config.loadAll()`（`plans`、`equipment`、`courses`、`ivProducts`）
+ * @returns {string[]}
+ */
+export function purchaseLines(entitlements = [], master = {}) {
+  return purchaseDays(entitlements, master).map((d) => {
+    const when = d.unknown ? '沒有日期' : purchaseDayLabel(d.date);
+    const tweaks = d.tweaks.length
+      ? `（微調：${d.tweaks.map((t) => `${t.name} 本來 ${t.from} → ${t.to}`).join('、')}）`
+      : '';
+    return [when, d.summary || '（沒有名稱）', tweaks].filter(Boolean).join('　');
+  });
 }
 
 /**
@@ -503,6 +552,9 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
       if (v.date !== date) continue;
       for (const slot of v.slots ?? []) {
         if (slot.entitlementId !== entitlement.id || !slot.equipmentId) continue;
+        // **取消的那一段不印**：9/12 SIS 取消、INDIBA 做了，以前印「SIS、IND」—— 那一格只有一個 ✓
+        //（`.scratch/asks-2026-09-24-evening/issues/02`）。未到的照印：那一格是 ✗，約的是哪一台有用
+        if (!isLiveSlot(slot)) continue;
         const eq = equipment.find((x) => x.id === slot.equipmentId) ?? null;
         const name = eq ? variantName(eq, 'short', { as: 'equipment' }) : '';
         if (name && !names.includes(name)) names.push(name);
@@ -592,7 +644,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
     const guessedFor = new Set(linked.keys());
 
     dates
-      .filter((d) => usedOn(visits, pair.source.id, d))
+      .filter((d) => examOn(visits, pair.source.id, d))
       .forEach((date, i) => {
         const exam = examOn(visits, pair.source.id, date);
         // 連結找得到就用連結的；找不到才退回照位置，而且**已經被連結認領掉的
@@ -654,13 +706,6 @@ function bookingsByExam(visits, followupEntitlementId) {
   return out;
 }
 
-/** 那一天用掉這筆額度的那一筆來訪。二返註記要靠它把日期換成健檢的 id。 */
-function examOn(visits, entitlementId, date) {
-  return (visits ?? []).find(
-    (v) => v.date === date && (v.slots ?? []).some((s) => s.entitlementId === entitlementId),
-  ) ?? null;
-}
-
 /** 照位置配的退路：第 i 個，但已經被連結認領掉的那幾場跳過。 */
 function takeUnlinked(guessed, linked, i) {
   const taken = new Set([...linked.values()].map((b) => b.date));
@@ -677,18 +722,21 @@ function takeUnlinked(guessed, linked, i) {
  * **只猜沒連結的那幾場**（舊資料）。連結過的（`followupForVisitId`）由 `bookingsByExam()`
  * 照連結配；它被取消或未到時那一次健檢要印 `二返()`（ADR-0112）—— 讓這一支再把那一場猜回去，
  * 那一次被取消的二返就又出現在健檢底下了。
+ *
+ * **沒連結的那幾場也只猜佔著的**（`holdsExam()`）：舊資料上一場取消的二返，照位置猜的話會被當成
+ * 約好了（`.scratch/asks-2026-09-24-evening/issues/02`）。
  */
 function bookingsOf(visits, entitlementId, dates) {
-  const unlinkedOn = (d) => visits.some((v) => v.date === d
-    && (v.slots ?? []).some((s) => s.entitlementId === entitlementId && !s.followupForVisitId));
+  const heldUnlinked = (v, s) => s.entitlementId === entitlementId && !s.followupForVisitId && holdsExam(v, s);
+  const unlinkedOn = (d) => visits.some((v) => v.date === d && (v.slots ?? []).some((s) => heldUnlinked(v, s)));
   return dates
     .filter(unlinkedOn)
     .map((date) => ({
       date,
       doctorId: visits
         .filter((v) => v.date === date)
-        .flatMap((v) => v.slots ?? [])
-        .find((slot) => slot.entitlementId === entitlementId && slot.doctorId)?.doctorId ?? null,
+        .flatMap((v) => (v.slots ?? []).filter((s) => heldUnlinked(v, s)))
+        .find((slot) => slot.doctorId)?.doctorId ?? null,
     }));
 }
 
