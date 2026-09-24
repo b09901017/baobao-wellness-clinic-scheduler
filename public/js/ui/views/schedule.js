@@ -52,7 +52,7 @@ import {
   acceptsMoreSlots, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
-import { bookingConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, settledDayLine } from '../../domain/consequences.js';
 import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
@@ -1316,7 +1316,9 @@ function dayTally(sameDay, closed) {
  */
 function addNote(sameDay, closed) {
   if (sameDay && sameDay.status === 'confirmed') {
-    return '這一段會併進同一天已經有的來訪，那一天會退回「等客戶回覆」—— 這一段還沒問過客人。';
+    // 同一句跟確認框共用（`consequences.js`）。以前這裡說整天都變回等客戶回覆 ——
+    // 原本談定的那幾段其實不動（`.scratch/asks-2026-09-24-evening/issues/06`）
+    return `這一段會併進同一天已經有的來訪。${settledDayLine()}。`;
   }
   if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
   if (closed.length) return '這天已經結案了，所以這一段會另開一次新的來訪。';

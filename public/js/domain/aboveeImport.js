@@ -18,7 +18,7 @@
 import { identifyCustomer, normalizeChartNo, normalizeName } from './identify.js';
 import { courseFrom, roomFrom, staffFrom } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
-import { coursesForEntitlement, isActive, isLiveSlot } from './visits.js';
+import { coursesForEntitlement, isActive, isLiveSlot, shortStatus, slotStatus } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE } from './masterData.js';
@@ -152,15 +152,87 @@ export function examChoices(customerId, entitlement, ctx) {
   return pair ? examChoicesFor(pair, ctx.visitsBy?.[customerId] ?? []) : [];
 }
 
-/** 那一天那一個開始時間 app 裡已經有的段。 */
+/**
+ * 那一天那一個開始時間 app 裡已經有的段。**活著的優先**；沒有活著的才回取消掉的（`live: false`）——
+ * 以前只找活著的，app 上取消掉、Abovee 上還掛著的那一段就被當成「新的」（ADR-0116）。
+ * 整天取消的那一筆也看。「活著」走既有的兩支（`isActive()` 看整筆、`isLiveSlot()` 看那一段），不另寫一份。
+ */
 function existingAt(customerId, date, startsAt, ctx) {
+  let gone = null;
   for (const visit of ctx.visitsBy?.[customerId] ?? []) {
-    if (!isActive(visit) || visit.date !== date) continue;
-    const slots = (visit.slots ?? []).map((slot, index) => ({ slot, index }))
-      .filter(({ slot }) => isLiveSlot(slot) && slot.startsAt === startsAt);
-    if (slots.length) return { visit, slots };
+    if (!visit || visit.deletedAt || visit.date !== date) continue;
+    const here = (visit.slots ?? [])
+      .map((slot, index) => ({ slot, index, status: slotStatus(visit, slot) }))
+      .filter(({ slot }) => slot.startsAt === startsAt);
+    const live = isActive(visit) ? here.filter(({ slot }) => isLiveSlot(slot)) : [];
+    if (live.length) return { visit, slots: live, live: true };
+    if (here.length && !gone) gone = { visit, slots: here, live: false };
   }
-  return null;
+  return gone;
+}
+
+/**
+ * Abovee 那一格（「預約狀態」）講的是哪一種。**只認兩個字**：取消、完成；其餘（確認前往…）都是還掛著。
+ * 「確認前往」不拿來比 —— 那是客人跟 Abovee 說的，不是她問過的那一句（ADR-0104 第 3 點）。
+ */
+export function aboveeState(statusText) {
+  const text = clean(statusText);
+  if (/取消/.test(text)) return 'cancelled';
+  if (/完成/.test(text)) return 'done';
+  return 'booked';
+}
+
+/**
+ * 同一格上 app 那一段跟 Abovee 那一格比一次（ADR-0116）。**只講不改**：回的是這一列是什麼，
+ * 不是要改成什麼。回 `null` ＝ 那不是同一段，照新的一段走。
+ *
+ * **課程不一樣的不算同一段**：Abovee 上 10:00 的 ILIB 取消了、app 上 10:00 是 SIS —— 那是兩段不同的東西。
+ * 反過來 app 上 10:00 那一段取消了、Abovee 上同一格是別的課程，照新的一段走，**但不預設打勾**
+ *（`resolveItem()` 的 `appCancelledHere`）：可能是她在 Abovee 上換了課程，也可能是課程那一格抄錯了。
+ *
+ * @param {'cancelled'|'done'|'booked'} aboveeSays `aboveeState()`
+ * @param {{live: boolean, slots: object[]}} found `existingAt()`
+ * @param {object[]} sameCourse `found.slots` 裡課程（與器材）跟這一列一樣的那幾段
+ */
+function crossCheck(aboveeSays, found, sameCourse) {
+  if (!found.live) {
+    if (!sameCourse.length) return null;
+    return aboveeSays === 'cancelled' ? { kind: 'recorded' } : { kind: 'mismatch', reason: 'appCancelled' };
+  }
+  if (!sameCourse.length) return aboveeSays === 'cancelled' ? null : { kind: 'mismatch', reason: 'course' };
+  const statuses = sameCourse.map((x) => x.status);
+  if (aboveeSays === 'cancelled') return { kind: 'mismatch', reason: 'aboveeCancelled', appStatus: statuses[0] };
+  if (aboveeSays === 'done' && !statuses.includes('done')) {
+    return statuses.includes('no_show')
+      ? { kind: 'mismatch', reason: 'appNoShow', appStatus: 'no_show' }
+      : { kind: 'mismatch', reason: 'notClosed', appStatus: statuses[0] };
+  }
+  return { kind: 'recorded' };
+}
+
+/**
+ * 「新的」那一列另外要講的一句。現在只有一種：app 上這個時間有一段取消了、課程跟這一列不一樣 ——
+ * 可能是她在 Abovee 上換了課程，也可能是課程那一格抄錯了，所以不預設打勾（ADR-0116）。
+ */
+export function newRowSay(item) {
+  return item?.kind === 'new' && item.appCancelledHere
+    ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
+    : '';
+}
+
+/**
+ * 「對不上」那一列要講的那一句。句子在這裡，畫面只畫（`aboveeConfirm.js`）。
+ * 狀態的字走 `shortStatus()`（跟日曆同一組），Abovee 那一側照原字印。
+ */
+export function mismatchSay(item) {
+  const app = item?.appStatus ? shortStatus(item.appStatus) : '';
+  switch (item?.reason) {
+    case 'aboveeCancelled': return `Abovee 上取消了，app 上還是「${app}」。`;
+    case 'appCancelled': return `app 上取消了，Abovee 上還在（「${item.statusText}」）—— 回 Abovee 放掉那個時段。`;
+    case 'appNoShow': return `Abovee 上是「${item.statusText}」，app 上記「${app}」。`;
+    case 'notClosed': return `Abovee 上是「${item.statusText}」，app 上還是「${app}」—— 還沒簽療程單。`;
+    default: return 'app 裡已經有一段，但做的不一樣。';
+  }
 }
 
 /**
@@ -171,17 +243,23 @@ export function resolveItem(item, customerId, ctx) {
   const next = {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
+    // 換一個人重算時，上一位的比對結果不可以留著
+    reason: null, appStatus: null, appCancelledHere: false,
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
     const course = next.course;
-    const same = course && at.slots.some(({ slot }) => slot.courseId === course.courseId
+    const same = at.slots.filter(({ slot }) => Boolean(course) && slot.courseId === course.courseId
       && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
-    next.existing = { visitId: at.visit.id, date: at.visit.date };
-    // 對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
-    return { ...next, kind: same ? 'recorded' : 'mismatch', checked: false };
+    // 預約狀態也比一次（ADR-0116）。對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
+    const verdict = crossCheck(aboveeState(next.statusText), at, same);
+    if (verdict) {
+      return { ...next, ...verdict, existing: { visitId: at.visit.id, date: at.visit.date }, checked: false };
+    }
+    // 課程不一樣、但 app 上這個時間有一段取消了：照新的一段走，**不預設打勾**（見 `crossCheck()`）
+    next.appCancelledHere = !at.live;
   }
 
   const course = next.course;
@@ -203,7 +281,7 @@ export function resolveItem(item, customerId, ctx) {
   // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）
   const future = Boolean(next.date) && next.date >= ctx.today;
   const recognized = item.who?.customer?.id === next.customerId;
-  const checked = recognized && !next.cancelled && future;
+  const checked = recognized && !next.cancelled && future && !next.appCancelledHere;
   return { ...next, kind: 'new', checked };
 }
 
@@ -228,7 +306,7 @@ export function readAbovee(transcripts, ctx) {
       date: aboveeDate(row.date),
       startsAt: aboveeStart(row.time),
       statusText: clean(row.status),
-      cancelled: /取消/.test(clean(row.status)),
+      cancelled: aboveeState(row.status) === 'cancelled',
       who,
       course: courseFrom(row.course, ctx.master),
       roomId: roomFrom(row.room, row.resource, rooms)?.id ?? null,
@@ -243,11 +321,15 @@ export function readAbovee(transcripts, ctx) {
 
 /**
  * 這一列要不要排進「要你看」：對不上、或認不得人而且有得選（`none` 沒有候選，選不了）。
- * **已取消的一律不用**。確認層底下那一組與最上面那個數字都問這一支 —— 各寫一份的時候
+ * 確認層底下那一組與最上面那個數字都問這一支 —— 各寫一份的時候
  * 抬頭算了已取消的對不上、底下沒排，兩邊差一列。
+ *
+ * **Abovee 上已取消的：認不得人的不用看，對不上的要看**（ADR-0116）。以前已取消的一律跳過，
+ * 於是 Abovee 上取消了、app 上還活著的那一段她看不到。課程不一樣的那種 `crossCheck()` 已經當成新的了，
+ * 不會排進來喊。
  */
-export const needsAttention = (item) => !item?.cancelled
-  && (item?.kind === 'mismatch' || (item?.kind === 'unknown' && item?.who?.how !== 'none'));
+export const needsAttention = (item) => item?.kind === 'mismatch'
+  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
 export function aboveeDatesIn(transcripts = []) {
@@ -261,7 +343,8 @@ export function summarizeAbovee(items = []) {
   return {
     total: items.length,
     new: count((i) => i.kind === 'new' && !i.cancelled),
-    recorded: count((i) => i.kind === 'recorded'),
+    // 兩邊都取消的那一列不算「已經記了」—— 它是已取消（ADR-0116）
+    recorded: count((i) => i.kind === 'recorded' && !i.cancelled),
     attention: count(needsAttention),
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),

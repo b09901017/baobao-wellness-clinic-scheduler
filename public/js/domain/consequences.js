@@ -29,7 +29,7 @@ import {
   newRegistrations,
 } from './taskRules.js';
 import {
-  describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
+  shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
   slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm,
 } from './visits.js';
 import {
@@ -70,8 +70,35 @@ function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}, 
     .map((t) => t.kind);
 }
 
-/** 「待辦會多一張 X、一張 Y」 */
-const moreTasks = (kinds) => kinds.map((k) => `一張「${k}」`).join('、');
+/**
+ * 「待辦會多一張 X、一張 Y」。同一種出現好幾次就合起來講（「3 張『Examine』」）——
+ * 拍 Abovee 那一道一次講好幾天（`aboveeConsequences()`），其餘入口一種只會出現一次，字跟以前一樣。
+ */
+function moreTasks(kinds) {
+  const counts = new Map();
+  for (const k of kinds) counts.set(k, (counts.get(k) ?? 0) + 1);
+  return [...counts].map(([k, n]) => (n === 1 ? `一張「${k}」` : `${n} 張「${k}」`)).join('、');
+}
+
+/**
+ * **補登過去那一天**：確認那一列只收今天以後（`visitsToConfirm()`），那一天直接在「簽療程單」。
+ * 判斷借確認那一列的那一支，它改了這裡跟著改。壓表／日曆新增與拍 Abovee 兩道共用。
+ */
+const pastDay = (visit, today) => Boolean(today)
+  && !visitsToConfirm([{ ...visit, status: INITIAL_STATUS }], today).length;
+
+/**
+ * 一段併進**已經談定**的那一天時要講的那一句。**三個地方共用**：壓表「加這一筆」底下、
+ * 壓表與日曆新增的確認框（`bookingConsequences()`）、拍 Abovee 的確認框（`aboveeConsequences()`）。
+ *
+ * 以前講「那一天本來是已確認，會退回待確認」—— 整筆那個 `status` 是推導的（ADR-0081），
+ * `withExtraSlot()` 先把原本那幾段的狀態落下來，日曆上它們照樣是已確認、確認抽屜也只問新那一段
+ *（ADR-0097）。講「退回」是一件不會發生的事（ADR-0070）。她 2026-09-24 晚選了這個說法
+ *（`.scratch/asks-2026-09-24-evening/issues/06`）。
+ */
+export function settledDayLine() {
+  return `那一天原本談定的段不動，新的這一段是「${shortStatus(INITIAL_STATUS)}」—— 還沒問過客人`;
+}
 
 /**
  * 這一筆來訪動到了哪幾個系統的壓表登記，寫成一句人看得懂的話。
@@ -153,10 +180,8 @@ export function bookingConsequences({
   const where = bookingSystemLabel(visit, coursesById);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
-  // **補登過去那一天**：確認那一列只收今天以後（`visitsToConfirm()`），那一天直接在「簽療程單」
-  // （`visitsToClose()`）。講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）。
-  // 判斷借確認那一列的那一支，它改了這一句跟著改
-  const past = Boolean(today) && !visitsToConfirm([{ ...visit, status: INITIAL_STATUS }], today).length;
+  // 補登過去那一天講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）
+  const past = pastDay(visit, today);
   const toClose = '那一天已經過了，待辦上直接出現在「簽療程單」';
 
   if (!merge) {
@@ -165,11 +190,8 @@ export function bookingConsequences({
   } else if (merge.reopened) {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
     // 這一句是這一輪的重點：不講的話她會以為新加的那一段也是談定的
-    // （見 `.scratch/followup-and-products/issues/05`）。
-    lines.push(
-      `那一天本來是「${describeStatus('confirmed')}」，`
-      + `會退回「${describeStatus(INITIAL_STATUS)}」—— 這一段還沒問過客人`,
-    );
+    // （見 `.scratch/followup-and-products/issues/05`）。**不講「退回」**：原本那幾段沒有被退回（06）
+    lines.push(settledDayLine());
     lines.push(past ? toClose : '待辦會重新出現一張「跟客人確認時間」');
   } else {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
@@ -194,6 +216,60 @@ export function bookingConsequences({
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
   return { title: `已經在 ${where} 壓好表了嗎？`, lines };
+}
+
+/**
+ * 拍 Abovee 存檔前那一道確認（ADR-0104 第 2 點：十幾段只問一次，一次講完）。
+ *
+ * 以前這幾句寫在 `ui/components/aboveeConfirm.js` 裡，於是壓表與日曆新增後來跟上的兩件它都沒跟上：
+ * 「等客人說可以之後會再多一張 X」（prelaunch-audit-2026-09-23/issues/22）、補登過去那一天
+ * 直接在簽療程單（ADR-0113 那一批）。現在判斷一條都不另寫：過了沒借 `visitsToConfirm()`、
+ * 會多哪幾張借 `registrationsWhenSettled()`、併進談定那一天借 `settledDayLine()`
+ *（`.scratch/asks-2026-09-24-evening/issues/07`）。
+ *
+ * **合起來講**，不是一組一段 —— 十幾段各講三句她會閉著眼睛按。掛號照種類合計。
+ *
+ * @param {object} o
+ * @param {{customerId: string, customerName: string, date: string, visit: object,
+ *          items: object[], reopened: boolean}[]} o.groups `planAbovee()` 的那幾組（還沒記的）
+ * @param {Record<string, object>} o.coursesById
+ * @param {string|null} o.today
+ * @param {Record<string, object[]>} [o.tasksByVisit] 併進既有那一天的那幾筆身上現有的任務（`listByVisitForSync()`）——
+ *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
+ * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
+ * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
+ * @returns {{title: string, lines: string[]}}
+ */
+export function aboveeConsequences({
+  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [],
+}) {
+  const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
+  const people = new Set(groups.map((g) => g.customerId)).size;
+  const ahead = groups.filter((g) => !pastDay(g.visit, today));
+  const past = groups.length - ahead.length;
+
+  const lines = [
+    `${people} 位・${groups.length} 天・${n} 段`,
+    '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
+  ];
+  if (ahead.length) lines.push(`今天起的 ${ahead.length} 天會出現在待辦的「跟客人確認時間」`);
+  if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
+  for (const g of groups.filter((x) => x.reopened)) {
+    lines.push(`${g.customerName} ${shortDate(g.date)}：${settledDayLine()}`);
+  }
+
+  // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
+  const later = ahead.flatMap((g) => {
+    const count = (g.visit?.slots ?? []).length;
+    const added = Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
+    return registrationsWhenSettled(g.visit, added, tasksByVisit[g.visit?.id] ?? [], coursesById, today);
+  });
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+
+  for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
+  for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
+
+  return { title: `記錄這 ${n} 段？`, lines };
 }
 
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */

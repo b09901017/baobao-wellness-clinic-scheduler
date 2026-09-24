@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, needsAttention, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { INITIAL_STATUS } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -240,18 +240,20 @@ describe('直接標成壓完（她 9/17）', () => {
 describe('要你看的是哪幾列：抬頭的數字與底下那一組問同一支', () => {
   const item = (o) => ({ kind: 'new', cancelled: false, who: { how: 'both' }, ...o });
 
-  test('對不上、認不得（除了 app 裡沒有的）要看；已取消的一律不用', () => {
+  test('對不上、認不得（除了 app 裡沒有的）要看；Abovee 上已取消的：認不得人的不用、對不上的要看', () => {
     assert.equal(needsAttention(item({ kind: 'mismatch' })), true);
     assert.equal(needsAttention(item({ kind: 'unknown', who: { how: 'conflict' } })), true);
     assert.equal(needsAttention(item({ kind: 'unknown', who: { how: 'none' } })), false);
-    assert.equal(needsAttention(item({ kind: 'mismatch', cancelled: true })), false);
+    // 2026-09-24 晚（ADR-0116）：以前已取消的一律不用 —— Abovee 上取消了、app 上還活著的那一段她就看不到
+    assert.equal(needsAttention(item({ kind: 'mismatch', cancelled: true })), true);
+    assert.equal(needsAttention(item({ kind: 'unknown', cancelled: true, who: { how: 'conflict' } })), false);
     assert.equal(needsAttention(item({ kind: 'new' })), false);
   });
 
   test('summarizeAbovee 的 attention 就是 needsAttention 數出來的', () => {
     const items = [item({ kind: 'mismatch' }), item({ kind: 'mismatch', cancelled: true }), item({ kind: 'unknown', who: { how: 'ambiguous' } })];
     assert.equal(summarizeAbovee(items).attention, items.filter(needsAttention).length);
-    assert.equal(summarizeAbovee(items).attention, 2);
+    assert.equal(summarizeAbovee(items).attention, 3);
   });
 });
 
@@ -264,4 +266,97 @@ test('照片上讀得到的日期：跟 aboveeDate() 同一種讀法（民國年
     ['2026-09-30', '2026-10-02'],
   );
   assert.deepEqual(aboveeDatesIn([]), []);
+});
+
+describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => {
+  // 她 2026-09-24 晚：「其實拍 Abovee上面也有標已取消等等的標記…其實也可以當作某一方面的交叉驗證?」
+  // Abovee 那一欄三種字：課程完成、確認前往、已取消。**這一層一段都不改**（ADR-0056）
+  const ilibSlot = (over) => ({ entitlementId: 'ch-ilib', courseId: 'course-iv-laser', startsAt: '09:00', endsAt: '10:00', ...over });
+  const withChen = (...visits) => ctx({ visitsBy: { ...VISITS, 'c-chen': [...VISITS['c-chen'], ...visits] } });
+  const read = (row, c = ctx()) => readAbovee([{ ...left, rows: [row] }], c).items[0];
+
+  test('app 上取消了、Abovee 上還是確認前往：不是新的、不勾、要你看、講得出要回 Abovee 放掉', () => {
+    // 改期（ADR-0108）之後最常見：app 上舊時間取消了，Abovee 還沒改。以前這一列是「新的」而且預設打勾
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.kind, 'mismatch');
+    assert.equal(item.reason, 'appCancelled');
+    assert.equal(item.checked, false);
+    assert.equal(needsAttention(item), true);
+    assert.match(mismatchSay(item), /app 上取消了.*回 Abovee 放掉/);
+    assert.deepEqual(planAbovee([{ ...item, checked: true }], c).groups, [], '這一列一段都不會被寫進去');
+  });
+
+  test('只取消了那一段（同一天別段還在）也一樣', () => {
+    const c = withChen({ id: 'v-ch21', customerId: 'c-chen', date: '2026-09-21', status: 'confirmed',
+      slots: [ilibSlot({ status: 'cancelled' }), ilibSlot({ startsAt: '14:00', endsAt: '15:00', status: 'confirmed' })] });
+    const item = read(['確認前往', '2026-09-21', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.reason, 'appCancelled');
+  });
+
+  test('Abovee 上已取消、app 上還活著：以前整列跳過，現在要你看', () => {
+    const item = read(['已取消', '2026-09-15', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60']);
+    assert.equal(item.kind, 'mismatch');
+    assert.equal(item.reason, 'aboveeCancelled');
+    assert.equal(needsAttention(item), true);
+    assert.equal(mismatchSay(item), 'Abovee 上取消了，app 上還是「待確認」。');
+  });
+
+  test('兩邊都取消：一致，不排進要你看', () => {
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const item = read(['已取消', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.kind, 'recorded');
+    assert.equal(needsAttention(item), false);
+    assert.equal(summarizeAbovee([item]).recorded, 0, '「已經記了 N 段」不算取消的');
+  });
+
+  test('Abovee 上課程完成、app 上還開著：講還沒簽療程單', () => {
+    const item = read(['課程完成', '2026-09-12', '11:00 - 12:15', '陳大文', '00009999', 'ILIB 60']);
+    assert.equal(item.reason, 'notClosed');
+    assert.equal(mismatchSay(item), 'Abovee 上是「課程完成」，app 上還是「已確認」—— 還沒簽療程單。');
+  });
+
+  test('Abovee 上課程完成、app 上記未到', () => {
+    const c = withChen({ id: 'v-ch22', customerId: 'c-chen', date: '2026-09-22', status: 'no_show',
+      slots: [ilibSlot({ status: 'no_show' })] });
+    const item = read(['課程完成', '2026-09-22', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.reason, 'appNoShow');
+    assert.match(mismatchSay(item), /app 上記「未到」/);
+  });
+
+  test('確認前往不拿來比：app 上待確認是常態，已經記了', () => {
+    const item = read(['確認前往', '2026-09-15', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60']);
+    assert.equal(item.kind, 'recorded');
+    assert.equal(needsAttention(item), false);
+  });
+
+  test('課程不一樣就不是同一段：Abovee 上 ILIB 取消了、app 上同一時間是 SIS → 不是對不上', () => {
+    const item = read(['已取消', '2026-09-12', '09:00 - 10:15', '客戶A', '', 'INDIBA 60']);
+    assert.notEqual(item.kind, 'mismatch');
+    assert.equal(needsAttention(item), false);
+    assert.equal(item.checked, false);
+  });
+
+  test('app 上取消的是另一個課程、Abovee 上這一格還掛著 → 照新的一段走，但不預設打勾、講一句為什麼', () => {
+    // 審查抓到的：課程那一格抄錯的話，這一列就是她取消掉的那一段 —— 打勾就加回來了
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled', courseId: 'course-recovery', equipmentId: 'eq-sis' })] });
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.kind, 'new');
+    assert.equal(item.checked, false);
+    assert.match(newRowSay(item), /app 上這個時間有一段取消了/);
+    assert.equal(newRowSay(read(['確認前往', '2026-09-25', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c)), '',
+      '那個時間沒有取消掉的段就不講');
+  });
+
+  test('換一個人重算：上一位的比對結果不留著', () => {
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    const other = resolveItem(item, 'c-wang', c);
+    assert.equal(other.kind, 'new');
+    assert.equal(other.reason, null);
+  });
 });

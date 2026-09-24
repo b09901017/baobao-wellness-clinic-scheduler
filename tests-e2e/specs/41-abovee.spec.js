@@ -278,3 +278,38 @@ test('A5 有勾起來還沒記的，點「對不上」那一列的去日曆 → 
   await expect(page.locator('.abl')).toHaveCount(0);
   await expect(page.locator('.dialog-backdrop')).toHaveCount(0);
 });
+
+test('A6 預約狀態對一次（ADR-0116）：app 上取消了的不是新的、Abovee 上取消了的排進要你看', async ({ app, page }) => {
+  // 她 2026-09-24 晚：「拍 Abovee上面也有標已取消等等的標記…其實也可以當作某一方面的交叉驗證?」
+  const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null, note: null };
+  const sis = (over) => ({
+    entitlementId: null, courseId: 'course-recovery', courseName: '復能', equipmentId: 'eq-sis',
+    startsAt: '09:00', endsAt: '10:00', roomId: null, bed: null, therapistId: null, doctorId: null,
+    ivProductId: null, attended: null, followupForVisitId: null, note: null, ...over,
+  });
+  await app.seed([
+    ...seed(),
+    // a0：Abovee 上 9/10 09:00 王小明 SIS 還是「確認前往」，app 上那一段取消了（還沒回 Abovee 放掉）
+    { path: 'visits', id: 'v-w10', data: { ...base, customerId: 'cust-wang', customerName: '王小明', date: '2026-09-10',
+      status: 'cancelled', slots: [sis({ entitlementId: 'w-pool', status: 'cancelled' })] } },
+    // a7：Abovee 上 9/16 09:00 客戶A SIS「已取消」，app 上那一段還是已確認
+    { path: 'visits', id: 'v-a16', data: { ...base, customerId: 'cust-a', customerName: '客戶A', date: '2026-09-16',
+      status: 'confirmed', slots: [sis({ entitlementId: 'a-pool', status: 'confirmed' })] } },
+  ]);
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-left', 'aboveeList-right']);
+
+  await expect(page.locator('.abl__sum')).toContainText('要你看 2 段');
+
+  await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('對不上');
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toBeDisabled();
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await expect(row(page, 'a0').locator('.abl-row__say')).toContainText('app 上取消了');
+  await expect(row(page, 'a0').locator('.abl-row__say')).toContainText('回 Abovee 放掉');
+
+  await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('對不上');
+  await row(page, 'a7').locator('[data-abl-open]').click();
+  await expect(row(page, 'a7').locator('.abl-row__say')).toContainText('Abovee 上取消了，app 上還是「已確認」');
+});

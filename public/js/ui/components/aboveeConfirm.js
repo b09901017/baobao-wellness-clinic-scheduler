@@ -16,10 +16,12 @@
 
 import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
+import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
+import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites, staffFrom } from '../../domain/abovee.js';
@@ -67,6 +69,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let openKey = null;
   let batches = [];
   let running = false;
+  /** 按了記錄、確認框還沒出來（先讀併進那幾天的任務）—— 連點兩下不可以跳兩個框 */
+  let asking = false;
   let failure = null;
   let closed = false;
   const savedKeys = new Set();
@@ -247,6 +251,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function tagOf(item) {
     if (savedKeys.has(item.key)) return 'saved';
+    // 對不上排在已取消前面：Abovee 上取消了、app 上還活著的那一列要看得出來（ADR-0116）
+    if (item.kind === 'mismatch') return 'mismatch';
     if (item.cancelled) return 'cancelled';
     return item.kind;
   }
@@ -275,6 +281,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           </button>
         </div>
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
+        ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
+        ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
       </li>`;
   }
@@ -300,11 +308,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
     if (item.kind === 'recorded') {
-      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">這一段 app 裡已經有了，不用再記。</p></div>`;
+      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${item.cancelled
+        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p></div>`;
     }
     if (item.kind === 'mismatch') {
+      // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
       return `<div class="abl-row__detail">${seen}
-        <p class="abl-row__say">${esc(shortDate(item.date))} ${esc(item.startsAt)} app 裡已經有一段，但做的不一樣。
+        <p class="abl-row__say">${esc(shortDate(item.date))} ${esc(item.startsAt)} ${esc(mismatchSay(item))}
           這裡不改 —— 要改的話去日曆那一天。</p>
         ${onOpenDay ? `<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
           去日曆 ${esc(shortDate(item.date))}（照片不會留著）</button>` : ''}
@@ -505,27 +515,47 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const p = plan();
     const groups = p.groups.filter((g) => g.items.every((i) => !savedKeys.has(i.key)));
     const n = groups.reduce((sum, g) => sum + g.items.length, 0);
-    if (!n || running) return;
+    if (!n || running || asking) return;
+    asking = true;
+    try {
+      await record(groups, n);
+    } finally {
+      asking = false;
+    }
+  }
 
+  /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
+  async function record(groups, n) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
       ctx.master.staff,
     );
     const marks = queueMarksAfter(groups.map((g) => ({ customerId: g.customerId, date: g.date })), batches);
-    const people = new Set(groups.map((g) => g.customerId)).size;
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
 
+    // 句子一個字都不在這裡組（`consequences.js`，asks-2026-09-24-evening/issues/07）——
+    // 以前在這裡，壓表與日曆新增後來跟上的「會多幾張掛號」「補登過去那一天」它都沒跟上。
+    // 這裡只把 id 換成名字交過去。併進既有那一天的，先讀那一筆身上的任務（同壓表那一道，
+    // `schedule.js` 的 `listByVisitForSync()`）—— 舊任務蓋住整天，不讀的話會講一張不會長的
+    const merging = groups.map((g) => g.visit?.id).filter(Boolean);
+    const tasksByVisit = Object.fromEntries(await Promise.all(merging.map(async (id) => (
+      [id, await tasksData.listByVisitForSync(id).catch(() => [])]))));
+    if (closed) return;
+    const said = aboveeConsequences({
+      groups,
+      coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
+      today: ctx.today,
+      tasksByVisit,
+      aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
+      marks: marks.map((m) => ({
+        names: m.customerIds.map(nameOf),
+        month: monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? ''),
+      })),
+    });
     const ok = await confirmAction({
-      title: `記錄這 ${n} 段？`,
-      consequences: [
-        `${people} 位・${groups.length} 天・${n} 段`,
-        '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
-        ...groups.filter((g) => g.reopened).map((g) =>
-          `${g.customerName} ${shortDate(g.date)} 那一天已經確認過，併進去之後整天退回待確認`),
-        ...aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((x) => `以後 Abovee 上的「${x}」都認成 ${a.name}`)),
-        ...marks.map((m) => `${m.customerIds.map(nameOf).join('、')} 在 ${monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? '')}壓表清單上標成壓完`),
-      ],
+      title: said.title,
+      consequences: said.lines,
       confirmLabel: '已確認，記錄',
     });
     if (!ok || closed) return;
