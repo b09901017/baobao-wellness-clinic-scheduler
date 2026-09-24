@@ -702,3 +702,12 @@ describe('09 待辦列三行：名字／標籤／一段一行小字', () => {
     }
   });
 });
+
+describe('排查時找到的（第二批）', () => {
+  test('客戶詳情「看全部」那張面板的「詳情 ›」接上了', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/customerDetail.js', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('function openAllTasks'), src.indexOf('async function toggleTask'));
+    assert.ok(body.includes("querySelectorAll('[data-task-visit]')"), '那一顆沒有接線');
+    assert.ok(body.includes('btn.dataset.taskId'), '要帶是哪一張（issues/08）');
+  });
+});

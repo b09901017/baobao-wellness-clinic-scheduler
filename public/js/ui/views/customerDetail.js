@@ -1908,6 +1908,11 @@ function openAllTasks(ctx) {
       toggleTask(ctx, btn.dataset.task);
     }),
   );
+  // 「詳情 ›」以前在這張面板上**畫了卻沒接**（點了沒反應，2026-09-24 排查時找到、她說接上）。
+  // 卡片疊在面板上面、不先收面板 —— 同依客戶抽屜那一顆，返回鍵回到這一份清單
+  sheet.el.querySelectorAll('[data-task-visit]').forEach((btn) =>
+    btn.addEventListener('click', () => openVisitCard(ctx, btn.dataset.taskVisit, null, btn.dataset.taskId)),
+  );
 }
 
 /**
