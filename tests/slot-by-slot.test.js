@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
+  visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots,
 } from '../public/js/domain/visits.js';
 
 const statuses = (v) => v.slots.map((s) => slotStatus(v, s));
@@ -44,5 +45,52 @@ describe('01 改狀態之前先把每一段的狀態補齊', () => {
     const next = applyStatus(v, 'confirmed', { slotIndex: 0, at: 'T' });
     assert.deepEqual(statuses(next), ['confirmed', 'no_show']);
     assert.equal(next.status, 'confirmed');
+  });
+});
+
+describe('02 未到只能退回簽療程單；長按每一顆都問那一段', () => {
+  // 她 2026-09-24：「未到可以改成退回簽療程單之類的，或可以改成其實有到這樣」
+  const day = (...each) => {
+    const v = { id: 'v', date: '2026-09-20', slots: each.map((status) => ({ courseId: 'c', status })) };
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const ids = (v, slotIndex) => visitActions(v, { today: '2026-09-24', slotIndex }).map((a) => a.id);
+
+  test('長按未到的那一段：只有「退回簽療程單」', () => {
+    assert.deepEqual(ids(day('no_show', 'no_show'), 0), ['reopen']);
+    // 客人做了一段就走：整筆已完成，沒做的那一段照樣退得回去 —— 已完成那一段一個字都不動
+    assert.deepEqual(ids(day('done', 'no_show'), 1), ['reopen']);
+    assert.deepEqual(ids(day('no_show', 'confirmed'), 0), ['reopen']);
+  });
+
+  test('退回之後只有那一段變成已確認，那一天回到簽療程單的清單上', () => {
+    const next = applyStatus(day('done', 'no_show'), 'confirmed', { slotIndex: 1, at: 'T' });
+    assert.deepEqual(next.slots.map((s) => s.status), ['done', 'confirmed']);
+    assert.equal(next.slots[1].attended, null, '「沒做」那一格一起清掉 —— 它現在還沒結案');
+    assert.equal(next.status, 'confirmed');
+    assert.equal(visitsToClose([next], '2026-09-24').length, 1);
+  });
+
+  test('未到不再准「取消」—— 人沒來是已經發生的事', () => {
+    assert.deepEqual(nextStatuses('no_show'), ['confirmed']);
+  });
+
+  test('長按已取消的那一段：沒有「去簽療程單」、沒有「改這一段」', () => {
+    assert.deepEqual(ids(day('cancelled', 'confirmed'), 0), []);
+  });
+
+  test('長按已完成的那一段：一顆都沒有', () => {
+    assert.deepEqual(ids(day('done', 'confirmed'), 0), []);
+  });
+
+  test('「去簽療程單」只給還開著、日子到了的那一段', () => {
+    const v = day('confirmed', 'no_show');
+    assert.ok(ids(v, 0).includes('close'));
+    assert.ok(!ids(v, 1).includes('close'));
+  });
+
+  test('批次取消：一天裡已經未到／已完成的那一段不給取消', () => {
+    const v = day('confirmed', 'no_show', 'done', 'pending_confirm');
+    assert.deepEqual(cancellableSlots(v).map((x) => x.index), [0, 3]);
   });
 });

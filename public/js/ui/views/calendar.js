@@ -1210,7 +1210,11 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    const next = applyStatus(fresh, onlyOne ? 'cancelled' : action, {
+    //
+    // 「退回簽療程單」寫進去的是已確認（ADR-0111：`TRANSITIONS.no_show` 唯一的那一條）——
+    // 那一段回到簽療程單的清單上，「其實有到」在那裡打勾。
+    const to = onlyOne ? 'cancelled' : (action === 'reopen' ? 'confirmed' : action);
+    const next = applyStatus(fresh, to, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,
     });
@@ -1223,7 +1227,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       // 而她剛剛按的那一列也只有那一段。認不出是哪一段的那條路才是整天。
       success: onlyOne
         ? '這一段取消了'
-        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}改成「${describeStatus(action)}」`,
+        : action === 'reopen'
+          ? '這一段退回簽療程單了'
+          : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}改成「${describeStatus(to)}」`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);

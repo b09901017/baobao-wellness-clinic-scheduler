@@ -1,6 +1,6 @@
 # 未到只能「退回簽療程單」；長按選單每一顆都問那一段
 
-Status: todo
+Status: done
 Blocked by: 01
 來源：`../spec.md` 第 02 條（第二點 a、R1、Q3）
 動工前先讀：ADR-0060、ADR-0097（issue 14 那兩層交集）、`domain/visits.js` 的 `TRANSITIONS`、`visitActions()`、`cancellableSlots()`、
