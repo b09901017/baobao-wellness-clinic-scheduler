@@ -29,7 +29,7 @@ import {
   newRegistrations,
 } from './taskRules.js';
 import {
-  describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
+  shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
   slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm,
 } from './visits.js';
 import {
@@ -72,6 +72,19 @@ function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}, 
 
 /** 「待辦會多一張 X、一張 Y」 */
 const moreTasks = (kinds) => kinds.map((k) => `一張「${k}」`).join('、');
+
+/**
+ * 一段併進**已經談定**的那一天時要講的那一句。**三個地方共用**：壓表「加這一筆」底下、
+ * 壓表與日曆新增的確認框（`bookingConsequences()`）、拍 Abovee 的確認框（`aboveeConsequences()`）。
+ *
+ * 以前講「那一天本來是已確認，會退回待確認」—— 整筆那個 `status` 是推導的（ADR-0081），
+ * `withExtraSlot()` 先把原本那幾段的狀態落下來，日曆上它們照樣是已確認、確認抽屜也只問新那一段
+ *（ADR-0097）。講「退回」是一件不會發生的事（ADR-0070）。她 2026-09-24 晚選了這個說法
+ *（`.scratch/asks-2026-09-24-evening/issues/06`）。
+ */
+export function settledDayLine() {
+  return `那一天原本談定的段不動，新的這一段是「${shortStatus(INITIAL_STATUS)}」—— 還沒問過客人`;
+}
 
 /**
  * 這一筆來訪動到了哪幾個系統的壓表登記，寫成一句人看得懂的話。
@@ -165,11 +178,8 @@ export function bookingConsequences({
   } else if (merge.reopened) {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
     // 這一句是這一輪的重點：不講的話她會以為新加的那一段也是談定的
-    // （見 `.scratch/followup-and-products/issues/05`）。
-    lines.push(
-      `那一天本來是「${describeStatus('confirmed')}」，`
-      + `會退回「${describeStatus(INITIAL_STATUS)}」—— 這一段還沒問過客人`,
-    );
+    // （見 `.scratch/followup-and-products/issues/05`）。**不講「退回」**：原本那幾段沒有被退回（06）
+    lines.push(settledDayLine());
     lines.push(past ? toClose : '待辦會重新出現一張「跟客人確認時間」');
   } else {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);

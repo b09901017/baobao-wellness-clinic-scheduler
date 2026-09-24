@@ -18,10 +18,10 @@ import { readFileSync } from 'node:fs';
 import { fromRoot } from './helpers/paths.js';
 import assert from 'node:assert/strict';
 
-import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS } from '../public/js/domain/visits.js';
+import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS, shortStatus } from '../public/js/domain/visits.js';
 import {
   bookingSystemLabel, bookingConsequences, confirmConsequences,
-  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings,
+  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings, settledDayLine,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -137,17 +137,31 @@ describe('壓表那一道確認要講的話', () => {
     ]);
   });
 
-  test('併進已確認的那一筆：一定要講出「會退回」', () => {
+  test('併進已確認的那一筆：講出新的這一段是待確認，**原本談定的段不動**（asks-2026-09-24-evening/issues/06）', () => {
+    // 以前說「那一天本來是已確認，會退回待確認」—— 但 `withExtraSlot()` 先把原本那幾段的狀態落下來，
+    // 日曆上它們還是已確認、確認抽屜也只問新那一段（ADR-0081、0097）。她 9/24 晚選的說法
     const said = ask({
       visit: visit('pending_confirm', [slot('c-checkup'), slot('c-checkup', '10:00')]),
       merge: { reopened: true },
     });
-    assert.ok(
-      said.lines.some((l) => l.includes('會退回')),
-      '不講的話她會以為新加的那一段也是談定的',
-    );
+    assert.ok(said.lines.includes(settledDayLine()), '不講的話她會以為新加的那一段也是談定的');
+    assert.ok(!said.lines.some((l) => l.includes('退回')), '原本那幾段沒有被退回');
     assert.ok(said.lines.some((l) => l.includes('那天變成 2 段')));
     assert.ok(said.lines.some((l) => l.includes('跟客人確認時間')));
+  });
+
+  test('那一句講的是真的：併進去之後原本那一段還是已確認、新那一段待確認', () => {
+    const before = visit('confirmed', [{ ...slot('c-checkup'), status: 'confirmed' }]);
+    const { visit: after } = withExtraSlot(before, slot('c-checkup', '10:00'));
+    assert.deepEqual(after.slots.map((s) => s.status), ['confirmed', INITIAL_STATUS]);
+    assert.ok(settledDayLine().includes(`「${shortStatus(INITIAL_STATUS)}」`));
+  });
+
+  test('壓表「加這一筆」底下那一句讀同一支，不自己寫「退回」', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('function addNote('), src.indexOf('\n}', src.indexOf('function addNote(')));
+    assert.ok(body.includes('settledDayLine()'), 'addNote() 要讀 consequences.js 那一句');
+    assert.ok(!body.includes('退回'));
   });
 
   test('併進待確認的那一筆：不要說會退回 —— 它本來就在等', () => {
