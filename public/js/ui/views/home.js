@@ -1706,16 +1706,16 @@ async function addNote(ctx, form) {
 // 逾期／今天／明天／改時間取消／確認／簽療程單那幾頁**標題旁邊沒有 `?`**：
 // 「死線已經過去了」「死線是今天」是在重講標題，她 2026-09-24 晚說多餘（ADR-0114）。
 const GROUPS = {
-  confirm: { title: '跟客人確認時間', lead: '' },
-  close: { title: '簽療程單', lead: '' },
-  overdue: { title: '逾期的', lead: '' },
-  today: { title: '今天要做的', lead: '' },
-  tomorrow: { title: '明天要做的', lead: '' },
-  cancel: { title: '改時間／取消', lead: '' },
+  confirm: { title: '跟客人確認時間' },
+  close: { title: '簽療程單' },
+  overdue: { title: '逾期的' },
+  today: { title: '今天要做的' },
+  tomorrow: { title: '明天要做的' },
+  cancel: { title: '改時間／取消' },
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
-  ask: { title: '問這輪的時間', lead: '' },
-  forms: { title: '客戶填好的時間', lead: '' },
-  book: { title: '壓表登記', lead: '' },
+  ask: { title: '問這輪的時間' },
+  forms: { title: '客戶填好的時間' },
+  book: { title: '壓表登記' },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
