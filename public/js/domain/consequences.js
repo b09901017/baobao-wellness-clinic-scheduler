@@ -70,8 +70,22 @@ function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}, 
     .map((t) => t.kind);
 }
 
-/** 「待辦會多一張 X、一張 Y」 */
-const moreTasks = (kinds) => kinds.map((k) => `一張「${k}」`).join('、');
+/**
+ * 「待辦會多一張 X、一張 Y」。同一種出現好幾次就合起來講（「3 張『Examine』」）——
+ * 拍 Abovee 那一道一次講好幾天（`aboveeConsequences()`），其餘入口一種只會出現一次，字跟以前一樣。
+ */
+function moreTasks(kinds) {
+  const counts = new Map();
+  for (const k of kinds) counts.set(k, (counts.get(k) ?? 0) + 1);
+  return [...counts].map(([k, n]) => (n === 1 ? `一張「${k}」` : `${n} 張「${k}」`)).join('、');
+}
+
+/**
+ * **補登過去那一天**：確認那一列只收今天以後（`visitsToConfirm()`），那一天直接在「簽療程單」。
+ * 判斷借確認那一列的那一支，它改了這裡跟著改。壓表／日曆新增與拍 Abovee 兩道共用。
+ */
+const pastDay = (visit, today) => Boolean(today)
+  && !visitsToConfirm([{ ...visit, status: INITIAL_STATUS }], today).length;
 
 /**
  * 一段併進**已經談定**的那一天時要講的那一句。**三個地方共用**：壓表「加這一筆」底下、
@@ -166,10 +180,8 @@ export function bookingConsequences({
   const where = bookingSystemLabel(visit, coursesById);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
-  // **補登過去那一天**：確認那一列只收今天以後（`visitsToConfirm()`），那一天直接在「簽療程單」
-  // （`visitsToClose()`）。講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）。
-  // 判斷借確認那一列的那一支，它改了這一句跟著改
-  const past = Boolean(today) && !visitsToConfirm([{ ...visit, status: INITIAL_STATUS }], today).length;
+  // 補登過去那一天講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）
+  const past = pastDay(visit, today);
   const toClose = '那一天已經過了，待辦上直接出現在「簽療程單」';
 
   if (!merge) {
@@ -222,16 +234,18 @@ export function bookingConsequences({
  *          items: object[], reopened: boolean}[]} o.groups `planAbovee()` 的那幾組（還沒記的）
  * @param {Record<string, object>} o.coursesById
  * @param {string|null} o.today
+ * @param {Record<string, object[]>} [o.tasksByVisit] 併進既有那一天的那幾筆身上現有的任務（`listByVisitForSync()`）——
+ *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @returns {{title: string, lines: string[]}}
  */
-export function aboveeConsequences({ groups = [], coursesById = {}, today = null, aliases = [], marks = [] }) {
+export function aboveeConsequences({
+  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [],
+}) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
-  // 同 `bookingConsequences()` 的 `past`：確認那一列只收今天以後
-  const isPast = (g) => Boolean(today) && !visitsToConfirm([{ ...g.visit, status: INITIAL_STATUS }], today).length;
-  const ahead = groups.filter((g) => !isPast(g));
+  const ahead = groups.filter((g) => !pastDay(g.visit, today));
   const past = groups.length - ahead.length;
 
   const lines = [
@@ -245,18 +259,12 @@ export function aboveeConsequences({ groups = [], coursesById = {}, today = null
   }
 
   // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
-  const later = new Map();
-  for (const g of ahead) {
+  const later = ahead.flatMap((g) => {
     const count = (g.visit?.slots ?? []).length;
     const added = Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
-    for (const kind of registrationsWhenSettled(g.visit, added, [], coursesById, today)) {
-      later.set(kind, (later.get(kind) ?? 0) + 1);
-    }
-  }
-  if (later.size) {
-    lines.push(`等客人說可以之後，待辦會再多${[...later]
-      .map(([kind, c]) => (c === 1 ? `一張「${kind}」` : `${c} 張「${kind}」`)).join('、')}`);
-  }
+    return registrationsWhenSettled(g.visit, added, tasksByVisit[g.visit?.id] ?? [], coursesById, today);
+  });
+  if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);

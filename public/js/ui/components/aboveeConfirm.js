@@ -16,11 +16,12 @@
 
 import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
+import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites, staffFrom } from '../../domain/abovee.js';
@@ -68,6 +69,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let openKey = null;
   let batches = [];
   let running = false;
+  /** 按了記錄、確認框還沒出來（先讀併進那幾天的任務）—— 連點兩下不可以跳兩個框 */
+  let asking = false;
   let failure = null;
   let closed = false;
   const savedKeys = new Set();
@@ -278,6 +281,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           </button>
         </div>
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
+        ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
+        ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
       </li>`;
   }
@@ -510,8 +515,17 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const p = plan();
     const groups = p.groups.filter((g) => g.items.every((i) => !savedKeys.has(i.key)));
     const n = groups.reduce((sum, g) => sum + g.items.length, 0);
-    if (!n || running) return;
+    if (!n || running || asking) return;
+    asking = true;
+    try {
+      await record(groups, n);
+    } finally {
+      asking = false;
+    }
+  }
 
+  /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
+  async function record(groups, n) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
@@ -522,11 +536,17 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     // 句子一個字都不在這裡組（`consequences.js`，asks-2026-09-24-evening/issues/07）——
     // 以前在這裡，壓表與日曆新增後來跟上的「會多幾張掛號」「補登過去那一天」它都沒跟上。
-    // 這裡只把 id 換成名字交過去
+    // 這裡只把 id 換成名字交過去。併進既有那一天的，先讀那一筆身上的任務（同壓表那一道，
+    // `schedule.js` 的 `listByVisitForSync()`）—— 舊任務蓋住整天，不讀的話會講一張不會長的
+    const merging = groups.map((g) => g.visit?.id).filter(Boolean);
+    const tasksByVisit = Object.fromEntries(await Promise.all(merging.map(async (id) => (
+      [id, await tasksData.listByVisitForSync(id).catch(() => [])]))));
+    if (closed) return;
     const said = aboveeConsequences({
       groups,
       coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
       today: ctx.today,
+      tasksByVisit,
       aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
       marks: marks.map((m) => ({
         names: m.customerIds.map(nameOf),

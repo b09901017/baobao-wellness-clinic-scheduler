@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { INITIAL_STATUS } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -339,10 +339,24 @@ describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => 
     assert.equal(item.checked, false);
   });
 
-  test('app 上取消的是另一個課程、Abovee 上這一格還掛著 → 那是新的一段', () => {
+  test('app 上取消的是另一個課程、Abovee 上這一格還掛著 → 照新的一段走，但不預設打勾、講一句為什麼', () => {
+    // 審查抓到的：課程那一格抄錯的話，這一列就是她取消掉的那一段 —— 打勾就加回來了
     const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
       slots: [ilibSlot({ status: 'cancelled', courseId: 'course-recovery', equipmentId: 'eq-sis' })] });
     const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
     assert.equal(item.kind, 'new');
+    assert.equal(item.checked, false);
+    assert.match(newRowSay(item), /app 上這個時間有一段取消了/);
+    assert.equal(newRowSay(read(['確認前往', '2026-09-25', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c)), '',
+      '那個時間沒有取消掉的段就不講');
+  });
+
+  test('換一個人重算：上一位的比對結果不留著', () => {
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    const other = resolveItem(item, 'c-wang', c);
+    assert.equal(other.kind, 'new');
+    assert.equal(other.reason, null);
   });
 });
