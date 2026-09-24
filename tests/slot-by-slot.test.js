@@ -5,10 +5,11 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
-  visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots,
+  visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots, lockedAt,
 } from '../public/js/domain/visits.js';
 
 const statuses = (v) => v.slots.map((s) => slotStatus(v, s));
@@ -92,5 +93,30 @@ describe('02 未到只能退回簽療程單；長按每一顆都問那一段', (
   test('批次取消：一天裡已經未到／已完成的那一段不給取消', () => {
     const v = day('confirmed', 'no_show', 'done', 'pending_confirm');
     assert.deepEqual(cancellableSlots(v).map((x) => x.index), [0, 3]);
+  });
+});
+
+describe('03 「已完成不能直接改」看那一段', () => {
+  const v = {
+    id: 'v', date: '2026-09-20', status: 'confirmed',
+    slots: [{ courseId: 'c', status: 'done' }, { courseId: 'c', status: 'confirmed' }],
+  };
+
+  test('一段已完成、一段已確認：已完成那一段鎖著，另一段改得動', () => {
+    assert.equal(lockedAt(v, 0), true);
+    assert.equal(lockedAt(v, 1), false);
+  });
+
+  test('全部做完：每一段都鎖著；沒指名哪一段照整筆', () => {
+    const all = { ...v, status: 'done', slots: [{ status: 'done' }, { status: 'done' }] };
+    assert.equal(lockedAt(all, 1), true);
+    assert.equal(lockedAt(all, null), true);
+    assert.equal(lockedAt(v, null), false);
+  });
+
+  test('編輯器的鎖走這一支，不自己問整筆', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8');
+    assert.ok(!/isLocked\(draft\.status\)/.test(src), '還在問整筆的狀態');
+    assert.match(src, /lockedAt\(draft, headSlot\)/);
   });
 });

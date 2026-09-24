@@ -1,6 +1,6 @@
 # 「已完成不能直接改」看那一段
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md` 第 03 條（R6）；取代 `.scratch/slot-confirm-and-durations-2026-09-16/issues/11`（那一支一直是 todo）
 動工前先讀：SPEC 第 6.4 節、ADR-0085、`ui/views/visitEditor.js` 的 `paint()`（`locked`）與 `wireUnlock()`

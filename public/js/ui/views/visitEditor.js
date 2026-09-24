@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
-  INITIAL_STATUS, describeStatus, statusClass, statusForCard, isLocked, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, NOTE_MAX,
@@ -260,7 +260,6 @@ function leave(ctx) {
 
 function paint(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNewDoc, embedded } = ctx;
-  const locked = isLocked(draft.status) && !ctx.unlockReason;
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   //
   // 2026-09-12 起它只剩一個用途：**日期那一格給不給改**。整筆的狀態卡與
@@ -279,6 +278,9 @@ function paint(ctx, draft) {
   // —— 那時候「這一段」沒有答案，挑一個就是在猜。
   const headSlot = ctx.editSlots?.length === 1 ? ctx.editSlots[0] : null;
   const headStatus = statusForCard(draft, headSlot);
+  // **鎖也問那一段**（`lockedAt()`）：一段已完成、一段已確認時整筆是已確認，
+  // 問整筆的話已完成那一段不用填更正理由就改得動
+  const locked = lockedAt(draft, headSlot) && !ctx.unlockReason;
 
   const { errors } = validateVisit(draft, {
     customer,

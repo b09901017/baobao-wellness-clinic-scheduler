@@ -164,6 +164,17 @@ export function isLocked(status) {
 }
 
 /**
+ * 她正在改的那一段鎖著嗎。**問那一段，不問整筆**（2026-09-24，`.scratch/asks-2026-09-24/issues/03`）。
+ *
+ * 整筆的狀態是推導的：一段已完成、一段已確認時整筆是已確認 —— 以前問整筆，
+ * 已完成那一段照樣改得動、不用填更正理由；而逐段結案（ADR-0110）之後
+ * 「一天只結一半」是常態。沒指名哪一段（網址那條整天的路）照整筆。
+ */
+export function lockedAt(visit, slotIndex = null) {
+  return isLocked(statusForCard(visit, slotIndex));
+}
+
+/**
  * 這筆來訪是從舊試算表匯進來的。
  *
  * 舊表的勾選只有日期 —— 沒有時間、沒有器材、沒有診間、沒有治療師，
