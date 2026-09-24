@@ -15,10 +15,11 @@ import {
   tasksForVisit,
   isCancelKind,
   cancelKindFor,
-  taskLine,
   RECORD_TASK_KIND,
   seenTasks,
 } from '../public/js/domain/taskRules.js';
+// 2026-09-24 搬到 todoFlow.js，跟 `taskSlots()` 住在一起（asks-2026-09-24/issues/08）
+import { taskLine } from '../public/js/domain/todoFlow.js';
 import { confirmMessage } from '../public/js/domain/messages.js';
 import { shortDate, weekdayLabel } from '../public/js/domain/dates.js';
 import { visitStatusFrom } from '../public/js/domain/visits.js';

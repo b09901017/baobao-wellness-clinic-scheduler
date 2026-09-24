@@ -1572,10 +1572,11 @@ function openNoteEditor(el, data, spec) {
  *
  * @param {object} visit
  * @param {{roomsById:object, staffById:object, tasks?:object[],
- *          coursesById?:object, today?:string, focusSlot?:number|null}} data
+ *          coursesById?:object, today?:string, focusSlot?:number|null, only?:number[]|null}} data
  */
 export function visitReadHtml(visit, data) {
-  const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null);
+  // `only`：從一張待辦點「詳情」進來時，目錄只列那一張講的那幾段（`taskSlots()`，issues/08）
+  const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null, data?.only ?? null);
   // **她已經指名那一段的時候，那一列點不下去**：卡片上就是那一段，
   // 再點一次只會重開一張一模一樣的。同一天只有一段的時候也一樣 ——
   // 那時候「這一天」與「這一段」是同一件事（`visitStatusFrom()` 直接抄它），

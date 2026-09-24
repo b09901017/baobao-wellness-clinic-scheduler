@@ -22,8 +22,9 @@ import {
   rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
+import { followupsLast } from '../../domain/scheduling.js';
 import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
-import { pairsOf, examChoicesFor } from '../../domain/followups.js';
+import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
   secondFollowupIds, nthSlotFields, MIN_NTH, MAX_NTH,
@@ -41,6 +42,7 @@ import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../..
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
+import { tip } from '../components/tip.js';
 import { confirmAction, confirmReview } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
@@ -111,9 +113,10 @@ async function boot(el, {
     const id = existing?.customerId ?? customerId;
     // 額度那一排丸子問的是「這一段扣哪一筆」，所以只列排得進來訪的
     //（`schedulable()`）—— 營養品扣不掉任何一段，見 ADR-0057。
+    // **二返排最後**（`followupsLast()`，壓表那一排同一支）：跟健檢並排時一指就約錯
     const [customer, entitlements, all, settings, customerVisits] = await Promise.all([
       customersData.get(id),
-      customersData.listEntitlements(id).then(schedulable),
+      customersData.listEntitlements(id).then((es) => schedulable(es).sort(followupsLast)),
       config.loadAll(),
       config.getSettings(),
       visitsData.listByCustomer(id),
@@ -556,7 +559,7 @@ function slotCard(ctx, draft, slot, i) {
           //
           // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
           // 一顆永遠按不下去的丸子只會讓她每次都試一下。
-          ...(nthExams.length
+          ...(nthExams.some((c) => c.pickable)
             ? [{ value: NTH_PICK, label: '＋ n返', note: '不扣次數', lead: '加約' }]
             : []),
         ],
@@ -688,15 +691,15 @@ function nthFields(ctx, draft, slot, i, choices) {
           options: choices.map((c) => ({
             value: c.visitId,
             label: shortDate(c.date),
-            // 已經有幾返了。**不寫「還沒約」** —— 那三個字是二返那一排的，
-            // 兩個地方講不同的事會讓她以為是同一件。
-            note: c.note,
+            // 它的狀態＋已經有幾返了（`examChoiceNote()`）。**不寫「還沒約」** —— 那三個字是二返那一排的，
+            // 兩個地方講不同的事會讓她以為是同一件。只有已完成的按得下去（issues/11）
+            note: examChoiceNote(c),
+            disabled: !c.pickable,
           })),
           hint: '一定要選 —— 沒有它，試算表上這一場沒有位置可以印。',
         })
       : `<div class="fieldgroup">
-           <span class="fieldgroup__label">這是哪一次健檢的</span>
-           <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
+           <span class="fieldgroup__label">這是哪一次健檢的${tip('還沒排過健檢')}</span>
          </div>`}
     </div>`;
 }
@@ -721,11 +724,11 @@ function examField(ctx, draft, ent, slot, i) {
     excludeVisitId: draft?.id ?? null,
   });
 
+  // 一次都沒排過：標題旁邊一顆 ?（issues/11）。排了但沒有一次做完：灰掉的那幾顆自己講狀態
   if (!choices.length) {
     return `
       <div class="fieldgroup">
-        <span class="fieldgroup__label">這是哪一次健檢的</span>
-        <p class="muted" style="margin: 0">還沒有做完的健檢可以接。</p>
+        <span class="fieldgroup__label">這是哪一次健檢的${tip('還沒排過健檢')}</span>
       </div>`;
   }
 
@@ -735,8 +738,9 @@ function examField(ctx, draft, ent, slot, i) {
     options: choices.map((c) => ({
       value: c.visitId,
       label: shortDate(c.date),
-      disabled: c.taken,
-      note: c.taken ? '已約' : '',
+      // 只有已完成、沒被別場二返佔走的按得下去；每一顆標它自己的狀態（issues/11）
+      disabled: !c.pickable,
+      note: examChoiceNote(c),
     })),
     hint: '還沒定也存得下去，但試算表的二返註記要靠它才寫得出日期。',
   });
@@ -1124,6 +1128,7 @@ async function submit(ctx, draft) {
       tasks: await visitTasks(ctx.stored),
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
       sheetSyncOn: isConfigured(ctx.settings),
+      today: todayISO(),
     });
     const ok = await confirmAction({
       title: said.title,
@@ -1139,6 +1144,8 @@ async function submit(ctx, draft) {
       // 「會再多一張 Examine」只講這次新加的那幾段（issues/22）
       added: draft.slots.map((_, i) => i).slice(ctx.storedSlotCount ?? 0),
       tasks: await visitTasks(ctx.stored),
+      // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
+      today: todayISO(),
     });
     const ok = await confirmAction({
       title: said.title,

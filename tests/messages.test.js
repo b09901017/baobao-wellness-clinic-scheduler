@@ -279,3 +279,40 @@ describe('她在設定頁改過之後', () => {
     );
   });
 });
+
+describe('12 LINE 訊息只講還算數的段', () => {
+  const pick = (visits, id) => messagesFor({ customer: CUSTOMER, visits, today: TODAY }).find((m) => m.id === id);
+
+  test('一天兩段、一段已確認一段待確認：確認那一則只問待確認那一段', () => {
+    const v = visit({ status: 'pending_confirm', slots: [
+      { startsAt: '10:00', endsAt: '11:00', courseName: '復能', status: 'confirmed' },
+      { startsAt: '14:00', endsAt: '15:00', courseName: '點滴', status: 'pending_confirm' },
+    ] });
+    const text = pick([v], 'confirm').text;
+    assert.match(text, /14:00/);
+    assert.doesNotMatch(text, /10:00/);
+  });
+
+  test('取消掉的那一段不問', () => {
+    const v = visit({ status: 'pending_confirm', slots: [
+      { startsAt: '10:00', courseName: '復能', status: 'cancelled' },
+      { startsAt: '14:00', courseName: '點滴', status: 'pending_confirm' },
+    ] });
+    assert.doesNotMatch(pick([v], 'confirm').text, /10:00/);
+  });
+
+  test('最早那一段取消了：提醒那一則的時間與課程是第二段的', () => {
+    const v = visit({ status: 'confirmed', slots: [
+      { startsAt: '10:00', courseName: '復能', status: 'cancelled' },
+      { startsAt: '14:00', courseName: '點滴', status: 'confirmed' },
+    ] });
+    const text = pick([v], 'reminder').text;
+    assert.match(text, /14:00/);
+    assert.doesNotMatch(text, /10:00|復能/);
+  });
+
+  test('那一天每一段都取消了：不給提醒', () => {
+    const v = visit({ status: 'confirmed', slots: [{ startsAt: '10:00', courseName: '復能', status: 'cancelled' }] });
+    assert.equal(pick([v], 'reminder'), undefined);
+  });
+});

@@ -1,6 +1,6 @@
 # 客戶詳情的 LINE 訊息只講還算數的段
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 12 條（R5）
 動工前先讀：ADR-0077、`domain/messages.js` 的 `messagesFor()`／`slotLines()`／`reminderMessage()`、
 `ui/views/home.js` 的 `asPending()`（待辦中心那一張早就只講還沒問的段）
@@ -23,3 +23,8 @@ Status: todo
 
 - 一天兩段、一段已確認一段待確認：確認那一則只問待確認那一段？
 - 最早那一段取消了：提醒那一則的時間是第二段的？
+
+## 對照 develop（`d00b644`）
+
+- `messagesFor()`（`messages.js:239`）：確認那一則挑 `v.status === 'pending_confirm'`（253），提醒那一則照整筆（262）。對得上。
+- `asPending()`／`pendingSlotsOf()` 還在 `home.js:3830` 附近。搬到 `domain/visits.js` 讓兩邊共用，不在 `messages.js` 另寫一份。

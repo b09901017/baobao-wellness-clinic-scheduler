@@ -424,7 +424,8 @@ describe('點一列＝點那一段', () => {
   // 而每一段自己是一列），細節在 `tests/read-card-one-slot.test.js`。
   test('讀取卡片收得到 focusSlot，而且沒帶就是全部', () => {
     const src = read('js/ui/views/calendar.js');
-    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
+    // 第三格是一張待辦講的那幾段（issues/08），沒帶照舊是全部
+    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null, data\?\.only \?\? null\)/);
     assert.match(src, /const tappable = !focused && slots\.length > 1;/,
       '沒指定哪一段的時候，每一段要是可以點的一列');
   });

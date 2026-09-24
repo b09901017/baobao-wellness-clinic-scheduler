@@ -800,10 +800,12 @@ describe('一場二返接在哪一次健檢後面', () => {
       assert.deepEqual(out.map((c) => c.date), ['2026-07-06', '2026-08-10']);
     });
 
-    test('還沒做完的健檢不列 —— 沒有報告可以聽', () => {
+    // 2026-09-24（asks-2026-09-24/issues/11）以前是「不列」；她要看得到它現在的狀態
+    test('還沒做完的健檢照樣列、標著狀態，但按不下去 —— 沒有報告可以聽', () => {
       const booked = visit('exam-3', '2026-09-01', 'ent-checkup', { status: 'confirmed' });
-      const out = examChoicesFor(pair, [...exams, booked]);
-      assert.ok(!out.some((c) => c.visitId === 'exam-3'));
+      const out = examChoicesFor(pair, [...exams, booked]).find((c) => c.visitId === 'exam-3');
+      assert.equal(out.status, 'confirmed');
+      assert.equal(out.pickable, false);
     });
 
     test('已經被認領的照樣列出來，但標記起來', () => {

@@ -258,7 +258,7 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/todoFlow.js',
     'public/js/domain/playbook.js', 'public/js/domain/progress.js',
     'public/js/ui/components/taskMirror.js', 'public/js/ui/components/playbookHint.js',
-    'public/js/ui/components/dialog.js',
+    'public/js/ui/components/dialog.js', 'public/js/ui/components/tasklist.js',
     'public/js/ui/views/calendar.js', 'public/js/ui/views/progress.js',
     'public/js/ui/views/home.js', 'public/js/ui/views/customerDetail.js',
     'public/js/ui/views/visitEditor.js',

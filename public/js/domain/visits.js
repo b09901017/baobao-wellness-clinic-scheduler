@@ -16,8 +16,8 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
-// 循環 import（followups → taskRules → visits）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn } from './followups.js';
+// 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
+import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
@@ -128,6 +128,25 @@ export function statusClass(status) {
 /** 三個字的版本，給日曆圖例這種放不下整句話的地方。 */
 export function shortStatus(status) {
   return STATUS_VIEW[status]?.short ?? String(status ?? '？');
+}
+
+/**
+ * 一天那一列右邊要印的狀態（客戶詳情「來訪紀錄」，`.scratch/asks-2026-09-24/issues/13`）。
+ *
+ * 整筆那一個是推導的（ADR-0081）：一段已確認、一段未到時它是「已確認」，看起來整天都談定了。
+ * 所以**每一段不一樣時一段一個符號**（跟進度追蹤同一組 `markFor()`）；**全部一樣就印一個字**
+ * （單段那一天、整天都做完 —— 那時候整筆那一個就是事實）。取消的那一段沒有符號，印短字：
+ * 那一列的課程名連取消的那一段也列（`visitCourseLabel()`），少一顆會對不上。
+ *
+ * @returns {{status: string|null, text: string}[]} 照 `visit.slots` 的順序
+ */
+export function dayStatusBadges(visit) {
+  const each = (visit?.slots ?? []).map((slot) => slotStatus(visit, slot));
+  if (new Set(each).size <= 1) {
+    const status = each[0] ?? visit?.status ?? null;
+    return [{ status, text: describeStatus(status) }];
+  }
+  return each.map((status) => ({ status, text: markFor(status) || shortStatus(status) }));
 }
 
 
@@ -532,17 +551,26 @@ export function visitCourseLabel(visit, master = null) {
  * 2. **指到一個不存在的段落也退回全部。** 畫成空白的話她會以為那一筆壞了，
  *    而畫太多只是回到修好之前的樣子。兩種錯法的代價差很多。
  *
+ * ## 一張待辦的詳情只列它那幾段（2026-09-24，`.scratch/asks-2026-09-24/issues/08`）
+ *
+ * `only` 是一份名單（`todoFlow.js` 的 `taskSlots()`）：沒指名哪一段時，目錄只列名單上那幾段。
+ * 名單是空的、或一段都指不到 → 退回全部（同上面第 2 條）。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
+ * @param {number[]|null} [only] 目錄只列這幾段
  * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
  *   `hidden` 是「這一天還有幾段沒畫」。**現在沒有人畫它** —— 2026-09-08
  *   那一行連同「看全部」一起拿掉了（她：「純粹且僅呈現該時段課程的資訊」）。
  *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
  *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
-export function slotsToShow(visit, focusSlot = null) {
+export function slotsToShow(visit, focusSlot = null, only = null) {
   const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
-  const every = { slots: all, hidden: 0, focused: false };
+  const listed = Array.isArray(only) ? all.filter(({ index }) => only.includes(index)) : [];
+  const every = listed.length
+    ? { slots: listed, hidden: all.length - listed.length, focused: false }
+    : { slots: all, hidden: 0, focused: false };
 
   // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
   if (!Number.isInteger(focusSlot)) return every;
@@ -569,13 +597,18 @@ export function slotsToShow(visit, focusSlot = null) {
  * 四個畫面的讀取卡片都走這一支（日曆、客戶詳情、待辦中心、進度追蹤）。
  * 各寫一份的話遲早有一頁把單段那一天畫成一張空目錄。
  *
+ * **一張待辦的詳情**（`only`，issues/08）：名單上剛好一段 → 直接是那一段；兩段以上 → 目錄。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot]
+ * @param {number[]|null} [only] 那一張待辦講的是哪幾段（`taskSlots()`）
  * @returns {number|null}
  */
-export function focusFor(visit, focusSlot = null) {
+export function focusFor(visit, focusSlot = null, only = null) {
   const slots = visit?.slots ?? [];
   if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
+  const listed = Array.isArray(only) ? only.filter((i) => slots[i]) : [];
+  if (listed.length === 1) return listed[0];
   return slots.length === 1 ? 0 : null;
 }
 
@@ -707,6 +740,33 @@ export function visitsToConfirm(visits = [], today) {
   return visits.filter((v) => !v.deletedAt
     && v.status === 'pending_confirm'
     && (!isValidDate(v.date) || v.date >= today));
+}
+
+/**
+ * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
+ *
+ * 她 2026-09-16：「我這邊確認了某個時段客戶已確認後 待辦那邊的這個時段就可以
+ * 收掉」。日曆上確認得掉單獨一段之後（ADR-0097），那一天還留在
+ * `visitsToConfirm()` 裡是對的 —— 另一段還沒問。要收掉的是待辦那一頁列出來的那幾列。
+ *
+ * **回的是索引不是重編號的陣列。** `applyConfirm()` 把畫面上的 key 換成
+ * `applyConfirmation()` 要的段落編號，而那個編號是對**原本那個陣列**算的 ——
+ * 濾掉之後重編號的話，她點「客人說不行」的會是別段（同 `cancellableSlots()`
+ * 與 `progressDayHtml()` 的 `data-slot`）。
+ */
+export function pendingSlotsOf(visit) {
+  return (visit?.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
+}
+
+/**
+ * 只留還沒問過的那幾段的一份複本。**只給顯示與訊息用** —— 索引在這裡不成立。
+ * 待辦中心「跟客人確認時間」那一張與客戶詳情的 LINE 確認訊息共用（issues/12）：
+ * 各寫一份的話，一邊只問下午那一段、另一邊連早就談定的早上那一段也問一次。
+ */
+export function asPending(visit) {
+  return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
 }
 
 /**
@@ -1124,7 +1184,9 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
 
   // **未到只剩一條回頭路**（ADR-0111）：退回去重新結案。「其實有到」在簽療程單那邊打勾。
   // 它寫進去的是 `confirmed`（`TRANSITIONS.no_show`），但**不叫「客戶說可以」**——
-  // 客人早就說過可以了，那一天也過了，她要做的是重新記一次那一段有沒有做。
+  // 那一天已經過了，她要做的是重新記一次那一段有沒有做，不是再問一次客人。
+  // 那一段**不一定問過客人**（從沒確認過就在簽療程單按了 ✗ 的也是未到）—— 所以退回之後
+  // 不長掛號待辦是日期那一道擋的（`registrationClosed()`，ADR-0113），不是靠「早就掛過了」。
   if (own === 'no_show' && next.includes('confirmed')) {
     out.push({
       id: 'reopen',
@@ -1438,6 +1500,8 @@ function visitErrors(visit, {
   // 哪幾筆額度是健檢。n返 指到的那一筆來訪要靠它驗（判斷跟
   // `domain/followups.js` 走同一條路：課程主檔上設了 followupCourseId 的）。
   const examIds = examEntitlementIds(entitlements, coursesById);
+  // 存著的那一份（改既有的一天時才有）—— 二返的連結是新接上的、還是本來就在，靠它分（issues/11）
+  const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
     const at = `第 ${i + 1} 個時段`;
@@ -1545,6 +1609,15 @@ function visitErrors(visit, {
       // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
       else if (nth && !examDoneIn(exam, examIds)) {
         errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
+      }
+      // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
+      // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。
+      // **只擋這一次新接上、或換過的連結**：存著的那一份同一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
+      // 擋下來的話她改同一天別段的一個時間都存不回去。段落只會接在尾巴（`hasNewSlots()`），所以同一個位置就是同一段
+      else if (ent?.followupForEntitlementId
+          && stored?.slots?.[i]?.followupForVisitId !== slot.followupForVisitId
+          && !examDoneIn(exam, [ent.followupForEntitlementId])) {
+        errors.push(`${at}：指定的那一次健檢還沒做完（${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}）`);
       }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：

@@ -17,6 +17,7 @@
 import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as config from '../../data/config.js';
+import { examChoiceNote } from '../../domain/followups.js';
 import {
   aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
@@ -34,6 +35,7 @@ import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
+import { tip } from './tip.js';
 import { seenChip, wireSeen } from './seen.js';
 
 const TAGS = {
@@ -349,10 +351,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     }
     const exams = examChoices(item.customerId, ent, ctx);
     if (exams.length) {
+      // 每一次都標它自己的狀態，**只有已完成、沒被佔走的按得下去**（`pickable`，issues/11）
       rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
-        value: x.visitId, label: shortDate(x.date), sub: x.taken ? `已約 ${shortDate(x.bookedOn)}` : '',
-        on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: x.taken,
+        value: x.visitId, label: shortDate(x.date),
+        sub: examChoiceNote(x),
+        on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
       }))));
+    } else if (ent?.followupForEntitlementId) {
+      // 一次都沒排過：跟壓表、來訪編輯器一樣，標題旁邊一顆 ?（issues/11）
+      rows.push(chipRow('接哪一次健檢', [], tip('還沒排過健檢')));
     }
 
     const assigns = course ? assignsFor(ent, course, item.equipmentId) : null;
@@ -453,7 +460,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablEnt) {
       const ent = (ctx.entitlementsBy[item.customerId] ?? []).find((x) => x.id === t.dataset.ablEnt);
       const options = ent?.optionEquipmentIds ?? [];
-      const exams = examChoices(item.customerId, ent, ctx).filter((x) => !x.taken);
+      const exams = examChoices(item.customerId, ent, ctx).filter((x) => x.pickable);
       set({
         ...item,
         entitlementId: ent?.id ?? null,

@@ -195,7 +195,8 @@ export function resolveItem(item, customerId, ctx) {
   }
   const courseRow = (ctx.master?.courses ?? []).find((c) => c.id === course?.courseId);
   if (courseRow?.requiresIvProduct) next.ivProductId = ent?.ivProductId ?? null;
-  const open = examChoices(next.customerId, ent, ctx).filter((c) => !c.taken);
+  // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
+  const open = examChoices(next.customerId, ent, ctx).filter((c) => c.pickable);
   next.followupForVisitId = open.length === 1 ? open[0].visitId : null;
 
   // 還沒到的勾、已經過的不勾（ADR-0030 的做法）；已取消的不勾；

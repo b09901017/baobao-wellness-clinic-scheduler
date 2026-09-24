@@ -24,6 +24,7 @@ import { shortDate, daysBetween, addMonths } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { textFor, fill } from './messageTemplates.js';
 import { slotName, visitNames } from './naming.js';
+import { asPending, liveSlots } from './visits.js';
 
 /** 這一則現在的字，換上變數。 */
 const say = (id, templates, vars) => fill(textFor(id, templates), vars);
@@ -249,8 +250,13 @@ export function messagesFor({
   });
   if (ask) out.push({ id: 'ask', label: formLink ? '問這一輪的時間（附表單）' : '問這一輪的時間', text: ask });
 
-  // 還在等回覆的那幾筆一次問完，跟首頁「今天壓了誰」用的是同一則
-  const waiting = alive.filter((v) => v.status === 'pending_confirm' && v.date >= today);
+  // 還在等回覆的那幾筆一次問完，跟首頁「今天壓了誰」用的是同一則。
+  // **只問還沒問過的那幾段**（`asPending()`，待辦中心那一張同一支，issues/12）——
+  // 早就談定的、已經取消的段再問一次，客人會以為那幾段又不算了
+  const waiting = alive
+    .filter((v) => v.date >= today)
+    .map(asPending)
+    .filter((v) => v.slots.length);
   if (waiting.length) {
     out.push({
       id: 'confirm',
@@ -259,8 +265,12 @@ export function messagesFor({
     });
   }
 
+  // 提醒那一則的時間與課程**只算還算數的段**（`liveSlots()`）—— 最早那一段取消了，
+  // 叫客人照那一段的時間來就是白跑一趟。整天都取消了就沒有這一則
   const next = alive
     .filter((v) => v.date >= today && (v.status === 'confirmed' || v.status === 'pending_confirm'))
+    .map((v) => ({ ...v, slots: liveSlots(v) }))
+    .filter((v) => v.slots.length)
     .sort((a, b) => (a.date < b.date ? -1 : 1))[0];
   if (next) {
     out.push({

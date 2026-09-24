@@ -17,12 +17,12 @@ import * as config from '../../data/config.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
-import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
+import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, slotsToClose,
+  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -33,7 +33,7 @@ import {
   customersToAsk, customersToAskForMonth, customersToBook, monthRange,
 } from '../../domain/scheduling.js';
 import {
-  groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
+  groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -1110,7 +1110,7 @@ function wireWhoDrawer(ctx) {
   );
 
   el.querySelectorAll('[data-task-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openWhoVisit(btn.dataset.taskVisit)),
+    btn.addEventListener('click', () => openWhoVisit(btn.dataset.taskVisit, btn.dataset.tasklistTask)),
   );
 
   el.querySelectorAll('[data-who-book]').forEach((btn) =>
@@ -1193,7 +1193,7 @@ async function loadWhoDetails(ctx) {
  * 一天只有一段時 `focusFor()` 直接解成那一段 —— 一張只有一列的目錄
  * 是講不通的。
  */
-function openWhoVisit(visitId) {
+function openWhoVisit(visitId, taskId = null) {
   const d = whoDrawer;
   const visit = d?.visits?.get(visitId);
   if (!visit) {
@@ -1208,12 +1208,17 @@ function openWhoVisit(visitId) {
   //
   // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
   // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
-  let focus = focusFor(visit, null);
+  //
+  // **只開這一張講的那幾段**（`taskSlots()`，issues/08）：一段就直接是那一段，兩段以上目錄只列那幾段
+  const task = taskId ? (d.tasks ?? []).find((t) => t.id === taskId) : null;
+  const only = task ? taskSlots(task, visit, byId(d.master?.courses ?? [])) : null;
+  let focus = focusFor(visit, null, only);
   let tasks;
   let extra = {};
 
   const paint = () => visitReadHtml(visit, {
     ...extra,
+    only,
     roomsById: d.rooms,
     staffById: d.staff,
     master: d.master,
@@ -1834,15 +1839,18 @@ async function loadTaskVisits(ctx) {
 function fillVisitInfo(el) {
   if (!taskVisits) return;
   // 讀回來之前是 hidden 的 —— 空的丸子與空的一行都看起來像壞掉的東西。
+  // 「N 項」數的是**這一張講的那幾段**，不是整天（`taskSlots()`，issues/08）。key 是任務 id
+  const coursesById = byId(taskVisits.master?.courses ?? []);
   for (const node of el.querySelectorAll('[data-slots]')) {
-    const visit = taskVisits.visits.get(node.dataset.slots);
+    const task = taskVisits.tasks[node.dataset.slots];
+    const visit = taskVisits.visits.get(task?.visitId);
     if (!visit) continue;
-    node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.textContent = `${taskSlots(task, visit, coursesById).length} 項`;
     node.hidden = false;
   }
 
-  // 「Examine・9/1(一)・二返」的後半段。日期是**來訪那一天**不是死線
-  //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
+  // 底下那幾行小字（一段一行，`lines`）。日期是**來訪那一天**不是死線
+  //（`domain/todoFlow.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
   // 死線是它的前一天，兩個差一天最容易看錯人。
   for (const node of el.querySelectorAll('[data-taskwhen]')) {
     // key 是**任務 id** 不是來訪 id：同一天兩張 Examine 各自掛不同的段，印的也要不同（issues/21）
@@ -1852,9 +1860,9 @@ function fillVisitInfo(el) {
     // 第三個參數帶了主檔才講得出「那天做了什麼」（`SIS(30)`）——
     // 不帶的話底下那一支 `visitCourseLabel` 退回快照，會寫成「復能」（ADR-0078）
     const line = taskLine(task, visit, taskVisits.master);
-    const text = [line.date ? shortDate(line.date) : '', line.what].filter(Boolean).join('・');
-    if (!text) continue;
-    node.textContent = text;
+    if (!line.lines.length) continue;
+    // 一行一段：`.row__lines` 是 `white-space: pre-line`，不用拼 HTML
+    node.textContent = line.lines.join('\n');
     node.hidden = false;
   }
 }
@@ -1978,7 +1986,7 @@ function paintTasks(ctx) {
   );
 
   el.querySelectorAll('[data-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit)),
+    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit, btn.dataset.taskId)),
   );
 
   el.querySelectorAll('[data-book-followup]').forEach((btn) =>
@@ -2060,10 +2068,11 @@ function doneRow(t) {
         <span class="note__main">
           <span class="note__text">${esc(t.customerName ?? '（沒有名字）')}・${esc(t.kind)}</span>
           ${/* 勾掉之後長得不一樣會讓她以為那是另一種東西，所以這一格也補 */''}
-          ${t.visitId ? `<span class="note__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
+          ${t.visitId ? `<span class="note__lines" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
         </span>
         <span class="notetags">
-          ${t.visitId ? `<span class="notetag" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
+          ${/* key 是任務 id：「N 項」數的是這一張的段（`taskSlots()`，issues/08） */''}
+          ${t.visitId ? `<span class="notetag" data-slots="${esc(t.id)}" hidden></span>` : ''}
         </span>
       </button>
       <button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
@@ -2117,19 +2126,23 @@ function taskRow(t, today) {
       <label class="choice" style="border: none; background: none; padding: 0; flex: 1; min-width: 0; align-items: flex-start">
         <input type="checkbox" data-task="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''} />
         <span class="row__main">
-          <span class="row__title">
-            ${esc(t.customerName ?? '（沒有名字）')}
-            <span class="badge">${esc(t.kind)}</span>
-            ${t.visitId ? `<span class="badge" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
+          ${/* **三行**（她 2026-09-24，issues/09）：「一行名字 一行標籤 一行小字說是甚麼幾點的什麼」。
+                標籤接在名字後面的話，窄的時候從名字後面斷行 —— 標籤自己一行、放不下才換。 */''}
+          <span class="row__title">${esc(t.customerName ?? '（沒有名字）')}</span>
+          <span class="row__tags">
+            <span class="badge">${esc(t.kind)}</span>${
+              /* 系統自己寫的那一句收進 ?：標題已經寫了「取消 Abovee」，底下再講一次「有一段取消了…」
+                 她說「妥妥的多餘」。她自己寫的照舊印在底下。`tip()` 在 <label> 裡跟 `form.js` 的欄位標籤
+                 同一種放法（它的 click 走 capture 而且 preventDefault，不會勾到那一格） */''}${t.autoGenerated ? tip(t.note ?? '') : ''}
+            ${t.visitId ? `<span class="badge" data-slots="${esc(t.id)}" hidden></span>` : ''}
             <span class="badge ${badgeClass(state)}">${esc(dueLabel(t.dueDate, today))}</span>
             ${t.kind === FOLLOWUP_TASK_KIND
               ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
           </span>
-          ${/* 「這是哪一天的什麼」。那一列上面已經有四樣東西了，再擠一串會爆版，
-                 所以放第二行。等來訪讀回來才填得上（同「N 項」，`fillVisitInfo()`），
-                 讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
-          ${t.visitId ? `<span class="row__sub" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
-          ${t.note ? `<span class="muted">${esc(t.note)}</span>` : ''}
+          ${/* 「這是哪一天的什麼」，**一段一行**（`taskLine()` 的 `lines`）。等來訪讀回來才填得上
+                （同「N 項」，`fillVisitInfo()`），讀回來之前是 hidden —— 空的一行看起來像壞掉的東西。 */''}
+          ${t.visitId ? `<span class="row__sub row__lines" data-taskwhen="${esc(t.id)}" hidden></span>` : ''}
+          ${t.note && !t.autoGenerated ? `<span class="muted">${esc(t.note)}</span>` : ''}
         </span>
       </label>
       ${t.kind === FOLLOWUP_TASK_KIND && t.customerId
@@ -2139,7 +2152,7 @@ function taskRow(t, today) {
                    style="min-height: 40px">去壓表</button>`
         : ''}
       ${t.visitId ? `<button class="btn" type="button" data-visit="${esc(t.visitId)}"
-                             style="min-height: 40px">詳情</button>` : ''}
+                             data-task-id="${esc(t.id)}" style="min-height: 40px">詳情</button>` : ''}
     </div>`;
 }
 
@@ -2152,7 +2165,7 @@ function taskRow(t, today) {
  * 她在這一頁做的事是「去 Examine 掛號」，不是改班（她的原話：「不懂什麼情況
  * 點完詳情進去後會需要修改？」）。要改一筆來訪只有日曆一個入口，見 ADR-0056。
  */
-function openTaskVisit(visitId) {
+function openTaskVisit(visitId, taskId = null) {
   const visit = taskVisits?.visits.get(visitId);
   if (!visit) {
     // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
@@ -2163,15 +2176,19 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。任務綁的是一整天（掛號是一天去一次），所以這條路沒有段落
-  // —— 一天只有一段時 `focusFor()` 把它解成那一段，其餘畫成一張目錄。
+  // 她點的是哪一張待辦 → **只開它講的那幾段**（`taskSlots()`，issues/08）。以前這裡寫著
+  // 「任務綁的是一整天」，而取消類、掛號類、寫紀錄早就逐段了 —— 她 2026-09-24：「為甚麼不是只呈現
+  // 真的被取消的那幾段?」。一段就直接是那一段，兩段以上目錄只列那幾段。
   // 就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
-  let focus = focusFor(visit, null);
+  const task = taskId ? taskVisits.tasks[taskId] : null;
+  const only = task ? taskSlots(task, visit, byId(taskVisits.master?.courses ?? [])) : null;
+  let focus = focusFor(visit, null, only);
   let tasks;
   let extra = {};
 
   const paint = () => visitReadHtml(visit, {
     ...extra,
+    only,
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
     master: taskVisits.master,
@@ -3821,28 +3838,8 @@ async function clearDone(el, done) {
 
 // ---------- 小工具 ----------
 
-/**
- * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
- *
- * 她 2026-09-16：「我這邊確認了某個時段客戶已確認後 待辦那邊的這個時段就可以
- * 收掉」。日曆上確認得掉單獨一段之後（ADR-0097），那一天還留在
- * `visitsToConfirm()` 裡是對的 —— 另一段還沒問。要收掉的是這一頁列出來的那幾列。
- *
- * **回的是索引不是重編號的陣列。** `applyConfirm()` 把畫面上的 key 換成
- * `applyConfirmation()` 要的段落編號，而那個編號是對**原本那個陣列**算的 ——
- * 濾掉之後重編號的話，她點「客人說不行」的會是別段（同 `cancellableSlots()`
- * 與 `progressDayHtml()` 的 `data-slot`）。
- */
-function pendingSlotsOf(visit) {
-  return (visit?.slots ?? [])
-    .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
-}
-
-/** 只留還沒問過的那幾段的一份複本。**只給顯示與訊息用** —— 索引在這裡不成立。 */
-function asPending(visit) {
-  return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
-}
+// 「還沒問過的那幾段」（`pendingSlotsOf()`／`asPending()`）搬到 `domain/visits.js`：
+// 客戶詳情的 LINE 訊息問的是同一件事（`.scratch/asks-2026-09-24/issues/12`）。
 
 /** @returns {Map<string, object[]>} 客戶 id → 他的來訪 */
 function byCustomer(visits) {
