@@ -1,6 +1,6 @@
 # 寫紀錄一段一段長
 
-Status: todo
+Status: done
 Blocked by: 04
 來源：`../spec.md` 第 05 條（第五點的規則那一半）
 動工前先讀：ADR-0066、ADR-0107（掛號逐段，同一個形狀）、`domain/taskRules.js` 的 `recordTasksForVisit()`／`needsRecord()`／

@@ -478,9 +478,16 @@ function kindsOf(visit, coursesById) {
  *
  * 拿「假裝那一場做完了」去問它是刻意的：閘門只有一個（`acceptsRecordTasks()`），
  * 而在這裡另寫一份「哪些課程要寫紀錄」就會有兩份會分岔的判斷。
+ *
+ * **假裝的是每一段**（2026-09-24，ADR-0112）：那個閘門現在問的是那一段自己的狀態，
+ * 只蓋整筆的話還開著的段問出來仍然是「沒做完」。取消掉的那一段不假裝 —— 它不會發生。
  */
 function pendingRecordTasks(visit, coursesById) {
-  return recordTasksForVisit({ ...visit, status: 'done' }, coursesById);
+  return recordTasksForVisit({
+    ...visit,
+    status: 'done',
+    slots: (visit?.slots ?? []).map((s) => (s?.status === 'cancelled' ? s : { ...s, status: 'done' })),
+  }, coursesById);
 }
 
 /** 照 `orderOf()`（＝她做事的順序）。同一階的照種類穩定排。 */
