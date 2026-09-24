@@ -11,7 +11,7 @@
 
 import {
   isCancelKind, bookingSystemFor, tasksForCategory, systemOfCancelKind,
-  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit,
+  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed,
 } from './taskRules.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
@@ -217,17 +217,20 @@ export function groupByDoneDay(tasks = []) {
  * @param {object} o
  * @param {object[]} [o.tasks] 這一筆來訪的任務（含已完成的）
  * @param {Record<string, object>} [o.coursesById]
+ * @param {string|null} [o.today] 「還沒長出來」那幾列要不要補掛號那一族（那一天過了就不會長，ADR-0113）
  * @returns {{key:string, kind:string, done:boolean, dueDate:string|null,
  *            derived:boolean}[]}
  */
-export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot = null } = {}) {
+export function todosForVisit(visit, {
+  tasks = [], coursesById = {}, focusSlot = null, today = null,
+} = {}) {
   if (!visit || visit.deletedAt) return [];
 
   // **她點的是哪一段**（ADR-0080 那條線延伸過來）。沒帶就是整筆 ——
   // 客戶詳情、待辦中心、進度追蹤列的本來就是整筆，它們一個字都不用改。
   // 指到一個不存在的段落也退回整筆（同 `slotsToShow()` 的兩條退路）。
   const slot = Number.isInteger(focusSlot) ? (visit.slots ?? [])[focusSlot] : null;
-  if (!slot) return wholeDayTodos(visit, { tasks, coursesById });
+  if (!slot) return wholeDayTodos(visit, { tasks, coursesById, today });
 
   // ## 那一段被取消了（`.scratch/asks-2026-09-13/issues/03`）
   //
@@ -275,12 +278,12 @@ export function todosForVisit(visit, { tasks = [], coursesById = {}, focusSlot =
   rows.push(...derivedRows(visit, scoped, {
     coursesById, focused: true, voided, own: voided ? null : slotStatus(visit, slot),
   }));
-  rows.push(...pendingRows(scoped, rows, { coursesById, voided }));
+  rows.push(...pendingRows(scoped, rows, { coursesById, voided, today }));
   return sortRows(rows);
 }
 
 /** 沒指定哪一段：整筆（另外三頁走這一條，2026-09-13 之前的行為一個字都沒動）。 */
-function wholeDayTodos(visit, { tasks, coursesById }) {
+function wholeDayTodos(visit, { tasks, coursesById, today }) {
   const rows = (tasks ?? [])
     .filter((t) => !t.deletedAt && t.visitId === visit.id)
     .map((t) => taskRow(t, false));
@@ -289,7 +292,7 @@ function wholeDayTodos(visit, { tasks, coursesById }) {
   if (visit.status === 'cancelled') return sortRows(rows);
 
   rows.push(...derivedRows(visit, visit, { coursesById, focused: false, voided: false }));
-  rows.push(...pendingRows(visit, rows, { coursesById, voided: false }));
+  rows.push(...pendingRows(visit, rows, { coursesById, voided: false, today }));
   return sortRows(rows);
 }
 
@@ -365,7 +368,7 @@ function derivedRows(visit, scoped, { coursesById, focused, voided, own = null }
  *
  * 已經有的那幾種不再多一列；取消掉的那一段列出來也是灰的（沒有「還沒長出來」這回事）。
  */
-function pendingRows(scoped, have, { coursesById, voided }) {
+function pendingRows(scoped, have, { coursesById, voided, today = null }) {
   // 她 2026-09-08：「我發現沒有寫記錄？我發現我修改課程設定的例如要不要簽
   // 療程單或是寫記錄 這個提醒不會更新誒？」
   //
@@ -376,9 +379,13 @@ function pendingRows(scoped, have, { coursesById, voided }) {
   // **只補真的會發生的**（ADR-0070）：課程沒勾「做完要寫紀錄」就不要列，
   // 那是在講一件不會發生的事。判斷全部走 `taskRules.js` 的既有規則，
   // 這裡一條都不自己寫 —— 她改了課程主檔上那個勾，這一列跟著變。
+  //
+  // **那一天過了，掛號那一族就不會再長**（`registrationClosed()`，ADR-0113）—— 同一支閘門，
+  // 不然卡片寫著 Examine「到時候才會長出來」，而它永遠不會來。
   const already = new Set(have.map((r) => r.kind));
   const out = [];
-  for (const t of [...tasksForVisit(scoped, coursesById), ...pendingRecordTasks(scoped, coursesById)]) {
+  const registrations = registrationClosed(scoped, today) ? [] : tasksForVisit(scoped, coursesById);
+  for (const t of [...registrations, ...pendingRecordTasks(scoped, coursesById)]) {
     if (already.has(t.kind)) continue;
     already.add(t.kind);
     const row = {

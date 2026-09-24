@@ -16,3 +16,9 @@ Status: todo
 
 - 一段已確認、一段未到：那一列看得出兩種？
 - 單段那一天照舊印「已確認」這種字？
+
+## 對照 develop（`d00b644`）
+
+- `visitRow()` 在 `customerDetail.js:1025`，印 `describeStatus(v.status)`（整筆）。對得上。
+- **取消的那一段沒有符號**（`STATUS_VIEW.cancelled.mark` 是空的）：那一段印短字「已取消」，不要整段不印 ——
+  那一列的課程名是整天的（`visitCourseLabel()` 連取消的也列），少一顆會對不上。

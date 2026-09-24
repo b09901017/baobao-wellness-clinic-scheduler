@@ -2171,6 +2171,8 @@ async function addSlot() {
     // 任務點下去才讀，讀不到就當沒有（只會多講一句）
     added: [visit.slots.length - 1],
     tasks: merged ? await tasksData.listByVisitForSync(visit.id).catch(() => []) : [],
+    // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
+    today: todayISO(),
   });
 
   // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，

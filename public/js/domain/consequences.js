@@ -30,7 +30,7 @@ import {
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
-  slotStatus, applyConfirmation, closeVisit, slotsToClose,
+  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm,
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -56,15 +56,16 @@ const SHEET_LINE = '十秒後自動同步到試算表';
  * @param {number[]} indexes 會談定的是第幾段
  * @param {object[]} [tasks] 這一筆身上現有的任務（連軟刪除的，`listByVisitForSync()`）
  * @param {Record<string, object>} [coursesById]
+ * @param {string|null} [today] 給了，那一天過了就一張都不講（ADR-0113，同寫入那一側）
  * @returns {string[]} 任務種類，照 `newRegistrations()` 的順序
  */
-function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}) {
+function registrationsWhenSettled(visit, indexes, tasks = [], coursesById = {}, today = null) {
   const at = new Set(indexes);
   const settled = {
     ...visit,
     slots: (visit?.slots ?? []).map((s, i) => (at.has(i) ? { ...s, status: 'confirmed' } : s)),
   };
-  return newRegistrations(settled, tasks, coursesById)
+  return newRegistrations(settled, tasks, coursesById, today)
     .filter((t) => t.slotIndexes.some((i) => at.has(i)))
     .map((t) => t.kind);
 }
@@ -143,18 +144,24 @@ export function reviewWarnings(warnings = []) {
  * @param {boolean} [o.sheetSyncOn] 試算表同步有沒有設定好
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
+ * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
  * @returns {{title: string, lines: string[]}}
  */
 export function bookingConsequences({
-  visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [],
+  visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
 }) {
   const where = bookingSystemLabel(visit, coursesById);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
+  // **補登過去那一天**：確認那一列只收今天以後（`visitsToConfirm()`），那一天直接在「簽療程單」
+  // （`visitsToClose()`）。講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）。
+  // 判斷借確認那一列的那一支，它改了這一句跟著改
+  const past = Boolean(today) && !visitsToConfirm([{ ...visit, status: INITIAL_STATUS }], today).length;
+  const toClose = '那一天已經過了，待辦上直接出現在「簽療程單」';
 
   if (!merge) {
     lines.push('會記到日曆上，標成「待確認」');
-    lines.push('待辦會多一張「跟客人確認時間」');
+    lines.push(past ? toClose : '待辦會多一張「跟客人確認時間」');
   } else if (merge.reopened) {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
     // 這一句是這一輪的重點：不講的話她會以為新加的那一段也是談定的
@@ -163,17 +170,17 @@ export function bookingConsequences({
       `那一天本來是「${describeStatus('confirmed')}」，`
       + `會退回「${describeStatus(INITIAL_STATUS)}」—— 這一段還沒問過客人`,
     );
-    lines.push('待辦會重新出現一張「跟客人確認時間」');
+    lines.push(past ? toClose : '待辦會重新出現一張「跟客人確認時間」');
   } else {
     lines.push(`這一段會併進同一天已經有的來訪裡，那天變成 ${slots} 段`);
-    lines.push('那一天本來就在等客戶回覆，待辦上那一列不變');
+    lines.push(past ? toClose : '那一天本來就在等客戶回覆，待辦上那一列不變');
   }
 
   // **只講這次新加的那幾段談定之後會長的**（prelaunch-audit-2026-09-23/issues/22）。
   // 逐段掛號（ADR-0107）之後，整筆有什麼就講什麼兩頭都錯：門診那一段早就掛好號的
   // 那一天加一段復能，它會說「會再多一張 Examine」；再加一段門診，它講對是碰巧。
   const later = registrationsWhenSettled(
-    visit, added ?? (visit?.slots ?? []).map((_, i) => i), tasks, coursesById,
+    visit, added ?? (visit?.slots ?? []).map((_, i) => i), tasks, coursesById, today,
   );
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
@@ -249,6 +256,7 @@ export function confirmConsequences(
     const now = (after.slots ?? []).map((_, i) => i).filter((i) =>
       slotStatus(before, before.slots[i]) === 'pending_confirm'
       && slotStatus(after, after.slots[i]) === 'confirmed');
+    // 不帶 today：抽屜列的是 `visitsToConfirm()`，本來就只收今天以後 —— 日期那一道（ADR-0113）碰不到
     for (const k of registrationsWhenSettled(after, now, tasksByVisit[before.id], coursesById)) later.add(k);
   }
   if (later.size) lines.push(`待辦會多${moreTasks([...later])}`);
@@ -557,10 +565,11 @@ export function cancelConsequences({
  * @param {object} o.after `rebookSlot()` 回的那一筆（舊那一段取消、新的接在尾巴）
  * @param {number} o.index 她改的是哪一段
  * @param {object[]} [o.tasks] 這一筆身上的任務（連軟刪除的，`listByVisitForSync()`）
+ * @param {string|null} [o.today] 改到過去那一天時不講「會多一張 Examine」（ADR-0113）
  * @returns {{title: string, lines: string[]}}
  */
 export function rebookConsequences({
-  before, after, index, tasks = [], coursesById = {}, sheetSyncOn = false,
+  before, after, index, tasks = [], coursesById = {}, sheetSyncOn = false, today = null,
 }) {
   const old = before?.slots?.[index];
   const fresh = after?.slots?.[after.slots.length - 1];
@@ -573,7 +582,7 @@ export function rebookConsequences({
   ];
   // 新那一段談定之後真的會長的（`registrationsWhenSettled()`）—— 舊的掛號待辦沒有
   // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
-  const later = registrationsWhenSettled(after, [after.slots.length - 1], tasks, coursesById);
+  const later = registrationsWhenSettled(after, [after.slots.length - 1], tasks, coursesById, today);
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);

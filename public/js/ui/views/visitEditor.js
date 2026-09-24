@@ -1124,6 +1124,7 @@ async function submit(ctx, draft) {
       tasks: await visitTasks(ctx.stored),
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
       sheetSyncOn: isConfigured(ctx.settings),
+      today: todayISO(),
     });
     const ok = await confirmAction({
       title: said.title,
@@ -1139,6 +1140,8 @@ async function submit(ctx, draft) {
       // 「會再多一張 Examine」只講這次新加的那幾段（issues/22）
       added: draft.slots.map((_, i) => i).slice(ctx.storedSlotCount ?? 0),
       tasks: await visitTasks(ctx.stored),
+      // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
+      today: todayISO(),
     });
     const ok = await confirmAction({
       title: said.title,

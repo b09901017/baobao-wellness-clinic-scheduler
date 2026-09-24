@@ -1124,7 +1124,9 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
 
   // **未到只剩一條回頭路**（ADR-0111）：退回去重新結案。「其實有到」在簽療程單那邊打勾。
   // 它寫進去的是 `confirmed`（`TRANSITIONS.no_show`），但**不叫「客戶說可以」**——
-  // 客人早就說過可以了，那一天也過了，她要做的是重新記一次那一段有沒有做。
+  // 那一天已經過了，她要做的是重新記一次那一段有沒有做，不是再問一次客人。
+  // 那一段**不一定問過客人**（從沒確認過就在簽療程單按了 ✗ 的也是未到）—— 所以退回之後
+  // 不長掛號待辦是日期那一道擋的（`registrationClosed()`，ADR-0113），不是靠「早就掛過了」。
   if (own === 'no_show' && next.includes('confirmed')) {
     out.push({
       id: 'reopen',
