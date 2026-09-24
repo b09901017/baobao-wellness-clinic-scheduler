@@ -54,7 +54,7 @@ import {
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { bookingConsequences } from '../../domain/consequences.js';
 import { slotName } from '../../domain/naming.js';
-import { pairsOf, examChoicesFor } from '../../domain/followups.js';
+import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
   MIN_NTH, MAX_NTH,
@@ -1479,9 +1479,10 @@ function nthFields(row) {
         ${exams.map((c) => `
           <button class="chip" type="button"
                   aria-pressed="${c.visitId === view.followupForVisitId}"
+                  ${c.pickable ? '' : 'disabled aria-disabled="true"'}
                   data-exam="${esc(c.visitId)}">
             <span class="num">${esc(shortDate(c.date))}</span>
-            ${c.note ? `<span class="chip__note">${esc(c.note)}</span>` : ''}</button>`).join('')}
+            <span class="chip__note">${esc(examChoiceNote(c))}</span></button>`).join('')}
       </div>
       <span class="field__hint">沒有它，試算表上這一場沒有位置可以印。</span>
     </div>
@@ -1522,8 +1523,9 @@ function courseOptions(row) {
   // 而那一排就是回答那個問題的地方。
   //
   // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
+  // 候選連沒做完的也列（issues/11），所以問的是有沒有**按得下去**的
   const exams = nthExamChoices(row);
-  if (exams.length) {
+  if (exams.some((c) => c.pickable)) {
     const course = ctx.all.courses.find((c) => c.id === nthCourseId(row, exams)) ?? null;
     if (course) {
       out.push({
@@ -1568,7 +1570,7 @@ function nthCourseId(row, exams) {
   const visits = ctx.queueInput.visitsBy[row.customerId] ?? [];
   const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
   const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
-  const wanted = view.followupForVisitId ?? exams[0]?.visitId ?? null;
+  const wanted = view.followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
   const exam = visits.find((v) => v.id === wanted) ?? null;
   return exam ? courseIdForNth(exam, ents, coursesById) : null;
 }
@@ -1725,11 +1727,11 @@ function examField(row, picked) {
   const choices = examChoicesOf(row, picked);
   if (!choices) return '';
 
+  // 一次都沒排過：標題旁邊一顆 ?（issues/11）。排了但沒有一次做完：灰掉的那幾顆自己講狀態
   if (!choices.length) {
     return `
       <div class="fieldgroup">
-        <span class="fieldgroup__label">這是哪一次健檢的</span>
-        <p class="muted" style="margin: 0">還沒有做完的健檢可以接。先把那一次健檢結案。</p>
+        <span class="fieldgroup__label">這是哪一次健檢的${tip('還沒排過健檢')}</span>
       </div>`;
   }
 
@@ -1740,11 +1742,11 @@ function examField(row, picked) {
         ${choices.map((c) => `
           <button class="chip" type="button"
                   aria-pressed="${c.visitId === view.followupForVisitId}"
-                  ${c.taken ? 'disabled aria-disabled="true"' : ''}
+                  ${c.pickable ? '' : 'disabled aria-disabled="true"'}
                   data-exam="${esc(c.visitId)}"
                   title="${esc(c.taken ? `已經約在 ${shortDate(c.bookedOn)} 了` : '')}">
             <span class="num">${esc(shortDate(c.date))}</span>
-            ${c.taken ? '<span class="chip__note">已約</span>' : ''}</button>`).join('')}
+            <span class="chip__note">${esc(examChoiceNote(c))}</span></button>`).join('')}
       </div>
     </div>`;
 }
@@ -1779,7 +1781,8 @@ function examChoicesOf(row, picked) {
  * 是一組的 —— 先清乾淨，再看要不要自動填。
  */
 function pickExamIfObvious(row, picked) {
-  const open = (examChoicesOf(row, picked) ?? []).filter((c) => !c.taken);
+  // 只從按得下去的裡面挑：已完成、沒被別場二返佔走（`pickable`，issues/11）
+  const open = (examChoicesOf(row, picked) ?? []).filter((c) => c.pickable);
   view.followupForVisitId = open.length === 1 ? open[0].visitId : null;
 }
 
@@ -2044,7 +2047,7 @@ function pickNth(n) {
  * 再算一次（`pickOne()` 那條路走 `onDeckClick` 的 `exam`，見底下）。
  */
 function pickDefaultNth(row) {
-  const exams = nthExamChoices(row);
+  const exams = nthExamChoices(row).filter((c) => c.pickable);
   const only = exams.length === 1 ? exams[0].visitId : view.followupForVisitId;
   if (exams.length === 1) view.followupForVisitId = only;
   view.nth = only

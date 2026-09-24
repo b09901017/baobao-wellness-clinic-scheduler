@@ -27,6 +27,9 @@ import { counts, slotOutcome } from './entitlements.js';
 import { addDays, dayOf, shortDate } from './dates.js';
 // 循環 import（taskRules.js 也 import 這一支的常數）：兩邊都只在函式裡用，模組載入時不碰
 import { seenTasks } from './taskRules.js';
+// 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
+// visits.js 也 import 這一支（`examDoneIn()`）—— 兩邊都只在函式裡用，載入時不互相讀
+import { slotStatus, shortStatus } from './visits.js';
 
 /**
  * 「約二返」的任務種類。
@@ -307,6 +310,33 @@ export function examDoneIn(visit, examEntitlementIds) {
   return [...examEntitlementIds].some((id) => usedAndDone(visit, id));
 }
 
+/**
+ * 這一次健檢**現在**是什麼狀態 —— 「這是哪一次健檢」那一排標的那一個（`.scratch/asks-2026-09-24/issues/11`）。
+ *
+ * 做完了（`examDoneIn()`，跟按不按得下去、存檔驗證同一支）就是已完成；不然取那幾段裡還活著的那一段，
+ * 全部取消了才是已取消。二返與 n返 兩排共用。
+ *
+ * @param {object} visit
+ * @param {Iterable<string>} examEntitlementIds 健檢那幾筆額度的 id
+ * @returns {string|null}
+ */
+export function examStatusIn(visit, examEntitlementIds) {
+  if (examDoneIn(visit, examEntitlementIds)) return 'done';
+  const ids = new Set(examEntitlementIds);
+  const each = (visit?.slots ?? []).filter((s) => ids.has(s?.entitlementId)).map((s) => slotStatus(visit, s));
+  return each.find((x) => x !== 'cancelled') ?? each[0] ?? null;
+}
+
+/**
+ * 「這是哪一次健檢」那一顆丸子底下那一小格。被別場二返佔走的寫「已約」，其餘寫**它自己的狀態**
+ * （短字，同日曆圖例）；n返 那一排再接上已經有幾返（`note`）。壓表、來訪編輯器、拍 Abovee 三個入口共用 ——
+ * 各寫一份的話同一次健檢在兩個地方標不同的字（issues/11）。
+ */
+export function examChoiceNote(choice) {
+  if (choice?.taken) return '已約';
+  return [choice?.status ? shortStatus(choice.status) : '', choice?.note ?? ''].filter(Boolean).join('・');
+}
+
 /** 用這一筆額度的那一段做完了的來訪，日期新的在前（`usedAndDone()`）。 */
 function doneVisitsFor(entitlement, visits = []) {
   return visits
@@ -363,32 +393,41 @@ export function claimedExams(followupEntitlementId, visits = []) {
  * 但**正在編輯的那一段自己認領的那一次要給選**（`selected`），
  * 不然一打開編輯器她就會發現原本選好的那一顆按不下去。
  *
+ * **還沒做完的健檢也列，標著它自己的狀態，但按不下去**（2026-09-24，issues/11）。她：「可以小小標註
+ * 他現在的狀態 例如未確認 已確認 已完成 未到 取消」、「只有已完成按得下去可以，不要讓整個流程亂掉」。
+ * 按不按得下去只看 `pickable` —— 三個入口（壓表、來訪編輯器、拍 Abovee）都照它，存檔驗證問同一件事。
+ *
  * @param {{source:object, followup:object|null}} pair
  * @param {object[]} visits 這位客戶的全部來訪
  * @param {object} [opts]
  * @param {string|null} [opts.selected] 正在編輯的那一段現在指著哪一次
  * @param {string|null} [opts.excludeVisitId] 正在編輯的那一筆來訪（它自己的認領不算數）
- * @returns {{visitId:string, date:string, taken:boolean, bookedOn:string|null}[]}
- *          日期舊的在前 —— 二返是照順序約掉的
+ * @returns {{visitId:string, date:string, status:string|null, taken:boolean, bookedOn:string|null,
+ *            pickable:boolean}[]} 日期舊的在前 —— 二返是照順序約掉的
  */
 export function examChoicesFor(pair, visits = [], { selected = null, excludeVisitId = null } = {}) {
   // 沒配到二返額度就沒有候選。列出來也選不了 —— 沒有額度可以扣，
   // 那一段根本存不進去（同 `owed()` 的守衛）。
   if (!pair?.source || !pair.followup) return [];
   const claimed = claimedExams(pair.followup.id, visits);
+  const ids = [pair.source.id];
 
-  return doneVisitsFor(pair.source, visits)
-    .slice()
+  return (visits ?? [])
+    .filter((v) => v && !v.deletedAt && (v.slots ?? []).some((s) => s?.entitlementId === pair.source.id))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .map((v) => {
       const by = claimed.get(v.id) ?? null;
       // 自己認領的那一次不算「被佔走」—— 她正在改的就是那一段。
       const mine = by && (by.id === excludeVisitId || v.id === selected);
+      const taken = Boolean(by) && !mine;
+      const status = examStatusIn(v, ids);
       return {
         visitId: v.id,
         date: v.date,
-        taken: Boolean(by) && !mine,
+        status,
+        taken,
         bookedOn: by?.date ?? null,
+        pickable: status === 'done' && !taken,
       };
     });
 }

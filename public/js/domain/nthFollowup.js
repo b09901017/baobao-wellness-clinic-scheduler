@@ -41,7 +41,7 @@
 //
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
-import { followupCourseIdOf, examDoneIn, holdsExam } from './followups.js';
+import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn } from './followups.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -233,12 +233,15 @@ export function nextNthFor(examVisitId, visits = [], followupEntitlementIds = []
  *
  * 已經有幾返的照樣標出來（`nths`）—— 她要對照的正是這個。
  *
+ * **還沒做完的健檢也列，標狀態、按不下去**（`pickable`）—— 跟二返那一排一樣（她 2026-09-24 選的，issues/11）。
+ * 「有沒有一次健檢接得了 n返」（那顆「＋ n返」畫不畫）照舊問 `examVisits()`（只有做完的）。
+ *
  * @param {object} ctx
  * @param {object[]} ctx.entitlements 這位客戶的額度
  * @param {Record<string, object>} ctx.coursesById 課程主檔，含已刪除的
  * @param {object[]} ctx.visits 這位客戶的全部來訪
  * @param {string} [ctx.excludeVisitId] 正在編輯的那一筆（它自己的那幾段不算數）
- * @returns {{visitId:string, date:string, nths:number[], note:string}[]}
+ * @returns {{visitId:string, date:string, status:string|null, pickable:boolean, nths:number[], note:string}[]}
  *   日期舊的在前
  */
 export function examChoicesForNth({
@@ -246,18 +249,26 @@ export function examChoicesForNth({
 } = {}) {
   const second = secondFollowupIds(entitlements);
   const others = (visits ?? []).filter((v) => v.id !== excludeVisitId);
+  const examIds = examEntitlementIds(entitlements, coursesById);
+  if (!examIds.size) return [];
 
-  return examVisits(entitlements, coursesById, visits).map((v) => {
-    const nths = nthsBookedFor(v.id, others, second);
-    return {
-      visitId: v.id,
-      date: v.date,
-      nths,
-      // 空字串代表「這一次還沒有任何回訪」。**不要寫成「還沒約」** ——
-      // 二返那一排用的就是那三個字，兩個地方講不同的事會讓她以為是同一件。
-      note: nths.length ? nths.map((n) => nthLabel(n)).filter(Boolean).join('・') : '',
-    };
-  });
+  return (visits ?? [])
+    .filter((v) => v && !v.deletedAt && isExamVisit(v, examIds))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .map((v) => {
+      const nths = nthsBookedFor(v.id, others, second);
+      const status = examStatusIn(v, examIds);
+      return {
+        visitId: v.id,
+        date: v.date,
+        status,
+        pickable: status === 'done',
+        nths,
+        // 空字串代表「這一次還沒有任何回訪」。**不要寫成「還沒約」** ——
+        // 二返那一排用的就是那三個字，兩個地方講不同的事會讓她以為是同一件。
+        note: nths.length ? nths.map((n) => nthLabel(n)).filter(Boolean).join('・') : '',
+      };
+    });
 }
 
 /**

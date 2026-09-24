@@ -1,6 +1,6 @@
 # 「這是哪一次健檢」標狀態，只有已完成按得下去
 
-Status: todo
+Status: done
 Blocked by: 06
 來源：`../spec.md` 第 11 條（第三點 c、Q4）
 動工前先讀：`domain/followups.js` 的 `examChoicesFor()`、`domain/nthFollowup.js` 的 `examChoicesForNth()`、
@@ -41,3 +41,16 @@ Blocked by: 06
 
 問：n返 那一排（同名「這是哪一次健檢的」）現在只列做完的，要不要也跟二返一樣列出每一次、標狀態、只有已完成按得下去？
 答：**跟二返一樣**。所以 `examChoicesForNth()` 也列每一次、標狀態、只有已完成的 `pickable`（n返 照舊不會被「已約」鎖住）。
+
+## 做完時留下的
+
+- 狀態只有一支：`followups.js` 的 `examStatusIn()`（做完了＝`examDoneIn()`，跟 `pickable`、存檔驗證同一支；
+  否則取還活著的那一段，全部取消才是已取消）。丸子上那一小格只有 `examChoiceNote()`（已約／狀態・幾返）。
+- `followups.js` 多 import `visits.js` 的 `slotStatus()`：visits → followups → taskRules → visits 這一圈本來就在，
+  兩邊都只在函式裡用，載入時不互相讀。
+- `examVisits()`（只有做完的）**沒改**：「＋ n返」那一顆畫不畫、客戶詳情的健檢卡都還靠它。畫面上的閘門改問
+  `.some((c) => c.pickable)`，跟它是同一件事。
+- 存檔驗證：二返**只擋還開著（待確認／已確認）的段**。已經結案、取消的二返身上的舊連結是歷史 ——
+  整筆一起驗的話，她改同一天別段也存不回去。
+- 「一次都沒排過」那一排只剩標題＋`?`（`tip('還沒排過健檢')`）；以前那一句「還沒有做完的健檢可以接」拿掉了
+  （現在排了沒做完的會自己列出來、標狀態）。`docs/邊界測試清單.md` C2 跟著改。

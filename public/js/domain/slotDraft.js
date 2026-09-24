@@ -64,7 +64,8 @@ export function slotFromPicks(picks, ctx) {
   if (isNth) {
     // n返 借那一次健檢配的二返課程；還沒選健檢就先看第一個候選（壓表那一排就是這樣決定畫不畫這一顆）
     const exams = examChoicesForNth({ entitlements, coursesById, visits });
-    const wanted = followupForVisitId ?? exams[0]?.visitId ?? null;
+    // 候選連沒做完的也列（標狀態、按不下去，issues/11）—— 預設看第一個按得下去的
+    const wanted = followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
     nthExam = exams.length ? (visits.find((v) => v.id === wanted) ?? null) : null;
     course = coursesById[courseIdForNth(nthExam, entitlements, coursesById)] ?? null;
   } else if (entitlement) {

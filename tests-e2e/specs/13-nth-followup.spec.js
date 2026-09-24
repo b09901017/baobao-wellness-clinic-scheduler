@@ -375,3 +375,57 @@ test('J-N7 三返做完也會長出「寫紀錄」—— 它跟著二返的設�
   expect(record.visitId).toBe('v-v-nth');
   expect(record.dueDate).toBe(TODAY);
 });
+
+// ---------- 「這是哪一次健檢」標狀態（asks-2026-09-24/issues/11） ----------
+//
+// 她：「可以小小標註他現在的狀態 例如未確認 已確認 已完成 未到 取消等等」
+// 「只有已完成按得下去可以，不要讓整個流程亂掉」
+
+test('N-11 壓二返：做完的那一次按得下去而且自動選好，還沒做的那一次看得到、標「已確認」、按不下去', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-n', name: '客戶N' }),
+    entitlement('cust-n', {
+      id: 'ent-n-rehab', label: '復能', type: 'pool', totalQty: 12, doneCount: 3,
+      optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60,
+    }),
+    entitlement('cust-n', {
+      id: 'ent-n-exam', label: '8萬健檢', type: 'single', courseId: 'course-checkup',
+      totalQty: 2, doneCount: 1, bookedCount: 1, tier: '8萬', durationMin: 120,
+    }),
+    entitlement('cust-n', {
+      id: 'ent-n-2nd', label: '二返（8萬健檢）', type: 'single',
+      courseId: 'course-followup', totalQty: 2, doneCount: 0, bookedCount: 0,
+      followupForEntitlementId: 'ent-n-exam', durationMin: 30,
+    }),
+    visit({
+      id: 'v-n-exam', customerId: 'cust-n', customerName: '客戶N', date: EXAM_DATE, status: 'done',
+      slots: [slot({
+        courseId: 'course-checkup', entitlementId: 'ent-n-exam',
+        startsAt: '09:00', endsAt: '11:00', roomId: 'room-t3', attended: true,
+      })],
+    }),
+    visit({
+      id: 'v-n-exam2', customerId: 'cust-n', customerName: '客戶N', date: addDays(TODAY, 2), status: 'confirmed',
+      slots: [slot({
+        courseId: 'course-checkup', entitlementId: 'ent-n-exam',
+        startsAt: '09:00', endsAt: '11:00', roomId: 'room-t3',
+      })],
+    }),
+  ]);
+  await app.signIn('/');
+  await openDeck(app, page);
+
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-ent="ent-n-2nd"]');
+  await page.locator('[data-ent="ent-n-2nd"]').click();
+  await app.layer('[data-exam]');
+
+  const done = page.locator('[data-exam="v-n-exam"]');
+  const later = page.locator('[data-exam="v-n-exam2"]');
+  await expect(done, '只有一次按得下去 → 自動選好').toHaveAttribute('aria-pressed', 'true');
+  await expect(done).toContainText('已完成');
+  await expect(later, '還沒做的那一次照樣看得到').toBeVisible();
+  await expect(later).toContainText('已確認');
+  await expect(later, '按不下去').toBeDisabled();
+});

@@ -303,16 +303,19 @@ describe('06 健檢那條鏈看健檢那一段', () => {
     customer: { id: 'c1', name: '客戶A' }, entitlements: ENTS, visits, tasks, coursesById: COURSES,
   });
 
-  test('健檢那一段取消了、同一天別段做了：不是候選、不長追蹤健檢報告', () => {
+  // 11 之後沒做完的也列出來（標著狀態），所以「是不是候選」問的是 `pickable`
+  const pickable = (choices) => choices.filter((c) => c.pickable);
+
+  test('健檢那一段取消了、同一天別段做了：按不下去、不長追蹤健檢報告', () => {
     const v = examDay('cancelled');
     assert.equal(v.status, 'done', '整筆是已完成（SIS 做了）');
-    assert.deepEqual(examChoicesFor(pair, [v]), []);
+    assert.deepEqual(pickable(examChoicesFor(pair, [v])), []);
     assert.deepEqual(chain([v]).create, []);
-    assert.deepEqual(examChoicesForNth({ entitlements: ENTS, coursesById: COURSES, visits: [v] }), []);
+    assert.deepEqual(pickable(examChoicesForNth({ entitlements: ENTS, coursesById: COURSES, visits: [v] })), []);
   });
 
   test('健檢那一段未到、別段做了：同上', () => {
-    assert.deepEqual(examChoicesFor(pair, [examDay('no_show')]), []);
+    assert.deepEqual(pickable(examChoicesFor(pair, [examDay('no_show')])), []);
     assert.deepEqual(chain([examDay('no_show')]).create, []);
   });
 
@@ -709,5 +712,76 @@ describe('排查時找到的（第二批）', () => {
     const body = src.slice(src.indexOf('function openAllTasks'), src.indexOf('async function toggleTask'));
     assert.ok(body.includes("querySelectorAll('[data-task-visit]')"), '那一顆沒有接線');
     assert.ok(body.includes('btn.dataset.taskId'), '要帶是哪一張（issues/08）');
+  });
+});
+
+describe('11 「這是哪一次健檢」標狀態，只有已完成按得下去', () => {
+  // 她 2026-09-24：「可以小小標註他現在的狀態 例如未確認 已確認 已完成 未到 取消等等」
+  // Q4：「只有已完成按得下去可以，不要讓整個流程亂掉」；n返 那一排她選「跟二返一樣」
+  const COURSES = [
+    { id: 'course-checkup', name: '健檢', category: 'B', followupCourseId: 'course-followup' },
+    { id: 'course-followup', name: '二返', category: 'A', needsTreatmentForm: false },
+    { id: 'course-sis', name: 'SIS', category: 'C' },
+  ];
+  const byId = Object.fromEntries(COURSES.map((c) => [c.id, c]));
+  const ENTS = [
+    { id: 'ent-exam', type: 'single', courseId: 'course-checkup', totalQty: 4 },
+    { id: 'ent-fu', type: 'single', courseId: 'course-followup', totalQty: 4, followupForEntitlementId: 'ent-exam' },
+  ];
+  const pair = { source: ENTS[0], followup: ENTS[1] };
+  const exam = (id, date, status) => {
+    const v = { id, customerId: 'c1', date, slots: [{ entitlementId: 'ent-exam', courseId: 'course-checkup', status }] };
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const world = [
+    exam('e1', '2026-08-01', 'done'),
+    exam('e2', '2026-08-15', 'confirmed'),
+    exam('e3', '2026-08-20', 'no_show'),
+    exam('e4', '2026-08-25', 'cancelled'),
+    exam('e5', '2026-09-30', 'pending_confirm'),
+  ];
+
+  test('二返：每一次都列出來、標那一段自己的狀態，只有已完成的按得下去', () => {
+    const out = examChoicesFor(pair, world);
+    assert.deepEqual(out.map((c) => c.status), ['done', 'confirmed', 'no_show', 'cancelled', 'pending_confirm']);
+    assert.deepEqual(out.map((c) => c.pickable), [true, false, false, false, false]);
+  });
+
+  test('二返：被別場二返佔走的照舊按不下去、標「已約」', () => {
+    const fu = { id: 'f', customerId: 'c1', date: '2026-09-10', status: 'confirmed',
+      slots: [{ entitlementId: 'ent-fu', courseId: 'course-followup', status: 'confirmed', followupForVisitId: 'e1' }] };
+    const [first] = examChoicesFor(pair, [...world, fu]);
+    assert.equal(first.taken, true);
+    assert.equal(first.pickable, false);
+  });
+
+  test('n返：跟二返一樣標狀態、只有已完成的按得下去（照舊不會被「已約」鎖住）', () => {
+    const out = examChoicesForNth({ entitlements: ENTS, coursesById: byId, visits: world });
+    assert.deepEqual(out.map((c) => c.visitId), ['e1', 'e2', 'e3', 'e4', 'e5']);
+    assert.deepEqual(out.map((c) => c.pickable), [true, false, false, false, false]);
+    assert.equal(out[2].status, 'no_show');
+  });
+
+  test('存一段二返指向一次不是已完成的健檢 → 擋下來；指向已完成的照樣存得下去', () => {
+    const fu = (to) => ({ id: 'f', customerId: 'c1', date: '2026-09-30', status: 'pending_confirm',
+      slots: [{ entitlementId: 'ent-fu', courseId: 'course-followup', status: 'pending_confirm',
+        followupForVisitId: to, startsAt: '10:00', endsAt: '10:30' }] });
+    const errs = (to) => validateVisit(fu(to), {
+      customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [...world, fu(to)],
+    }).errors.filter((e) => e.includes('健檢'));
+    assert.deepEqual(errs('e1'), []);
+    for (const to of ['e2', 'e3', 'e4', 'e5']) assert.equal(errs(to).length, 1, to);
+  });
+
+  test('三個入口只從按得下去的裡面挑、灰掉的講自己的狀態', () => {
+    const src = (f) => readFileSync(new URL(`../public/js/ui/${f}`, import.meta.url), 'utf8');
+    const sched = src('views/schedule.js');
+    const body = sched.slice(sched.indexOf('function pickExamIfObvious'), sched.indexOf('function pickIvIfBought'));
+    assert.ok(body.includes('.pickable'), '壓表的自動選好只看按得下去的');
+    assert.ok(src('components/aboveeConfirm.js').includes('pickable'), '拍 Abovee 那一排也是');
+    assert.ok(src('views/visitEditor.js').includes('!c.pickable'), '來訪編輯器那一排灰掉的按不下去');
+    for (const f of ['views/schedule.js', 'views/visitEditor.js']) {
+      assert.ok(src(f).includes("tip('還沒排過健檢')"), `${f}：一次都沒排過時那一排標題旁邊一顆 ?`);
+    }
   });
 });

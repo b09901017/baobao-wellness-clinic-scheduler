@@ -17,7 +17,7 @@ import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
 // 循環 import（followups → taskRules → visits）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn } from './followups.js';
+import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
@@ -1607,6 +1607,13 @@ function visitErrors(visit, {
       // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
       else if (nth && !examDoneIn(exam, examIds)) {
         errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
+      }
+      // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
+      // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。
+      // **只問還開著的那一段**：已經結案、取消的二返身上的舊連結是歷史，擋下來她連同一天別段都存不回去
+      else if (ent?.followupForEntitlementId && isOpenStatus(slotStatus(visit, slot))
+          && !examDoneIn(exam, [ent.followupForEntitlementId])) {
+        errors.push(`${at}：指定的那一次健檢還沒做完（${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}）`);
       }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
