@@ -742,6 +742,20 @@ export function withSlotStatuses(visit) {
 }
 
 /**
+ * 改狀態之前先把每一段的狀態補齊。**三支轉移的入口都先過這一支**
+ * （`applyStatus()`、`applyConfirmation()`、`closeVisit()`）。
+ *
+ * 她 2026-09-24：「一旦把這段改成客戶以確認 整天的未到還有其他的都會變成客戶已確認？
+ * 但好像只有有時候會這樣？」—— 「有時候」就是時段身上沒有自己 status 的那幾筆
+ * （2026-09-08 之前建、之後沒再存過的）。那時候沒被動到的段靠整筆推，而 `save()`
+ * 補空格是在**改完之後**（`withSlotStatuses()`）：整筆已經被推成已確認了，
+ * 另外兩段就一起被補成已確認。先補再改，補的就是它們原本的樣子。
+ *
+ * 新形狀的資料每一段都有 status，這一支原封不動（`withSlotStatuses()` 只補空的）。
+ */
+const materialize = (visit) => (visit ? withSlotStatuses(visit) : visit);
+
+/**
  * 這一段要顯示哪一句話。**讀法只有這一支。**
  *
  * 新資料是 `slot.note`（ADR-0084）。**還沒被搬過的舊資料退回整筆那一句** ——
@@ -823,7 +837,8 @@ export function withSlotNotes(visit) {
 export function applyConfirmation(
   visit, rejected = new Set(), at = new Date().toISOString(), asked = null,
 ) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const slots = (materialize(visit)?.slots ?? []).map((slot, i) => {
     // 之前就取消掉的維持取消 —— 確認救不回一個已經定案的決定
     if (slot?.status === 'cancelled') return slot;
     if (asked && !asked.has(i)) return slot;
@@ -874,7 +889,8 @@ export function applyConfirmation(
  * @param {string} at ISO 時間
  */
 export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const slots = (materialize(visit)?.slots ?? []).map((slot, i) => {
     // **取消掉的那一段不參與收尾** —— 那天它本來就不會發生（ADR-0081）。
     // 蓋過去的話它會被算成「沒來」，而未到是會被她看到的一個數字。
     if (slot?.status === 'cancelled') return slot;
@@ -918,8 +934,10 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
 export function applyStatus(
-  visit, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
+  original, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
 ) {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const visit = materialize(original);
   const slots = visit?.slots ?? [];
 
   // ---------- 只動一段（ADR-0081） ----------
@@ -935,7 +953,7 @@ export function applyStatus(
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
   // 兩種錯法的代價差很多。
   if (Number.isInteger(slotIndex)) {
-    if (!slots[slotIndex]) return visit;
+    if (!slots[slotIndex]) return original;
     return settle(
       { ...visit, slots: slots.map((s, i) => (i === slotIndex ? { ...s, status: to } : s)) },
       { at, reason },
