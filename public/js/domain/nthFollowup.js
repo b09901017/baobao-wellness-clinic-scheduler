@@ -41,7 +41,7 @@
 //
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
-import { followupCourseIdOf, usedAndDone, holdsExam } from './followups.js';
+import { followupCourseIdOf, examDoneIn, holdsExam } from './followups.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -133,7 +133,7 @@ export function examVisits(entitlements = [], coursesById = {}, visits = []) {
   if (!examIds.size) return [];
 
   return (visits ?? [])
-    .filter((v) => [...examIds].some((id) => usedAndDone(v, id)))
+    .filter((v) => examDoneIn(v, examIds))
     .slice()
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }

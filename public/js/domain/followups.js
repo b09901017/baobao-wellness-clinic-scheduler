@@ -295,6 +295,18 @@ export function holdsExam(visit, slot) {
   return outcome === 'booked' || outcome === 'done';
 }
 
+/**
+ * 這一筆來訪是不是**一次做完的健檢**：用這幾筆健檢額度裡任何一筆的那一段做完了。
+ * 追蹤報告那一圈、n返 的候選、n返 的存檔驗證三個地方問的都是這一句 —— 各寫一份的話，
+ * 候選清單列得出來、存檔卻擋下來（第一批審查抓到的，`visits.js` 的驗證還在問整筆）。
+ *
+ * @param {object} visit
+ * @param {Iterable<string>} examEntitlementIds 健檢那幾筆額度的 id
+ */
+export function examDoneIn(visit, examEntitlementIds) {
+  return [...examEntitlementIds].some((id) => usedAndDone(visit, id));
+}
+
 /** 用這一筆額度的那一段做完了的來訪，日期新的在前（`usedAndDone()`）。 */
 function doneVisitsFor(entitlement, visits = []) {
   return visits
@@ -581,7 +593,7 @@ export function syncFollowupTasks({
   const visitById = new Map((visits ?? []).map((v) => [v.id, v]));
   // 「那一筆健檢還是已完成的」問**健檢那一段**（`usedAndDone()`，ADR-0112），不問整筆
   const sources = pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id);
-  const examDone = (visit) => sources.some((id) => usedAndDone(visit, id));
+  const examDone = (visit) => examDoneIn(visit, sources);
 
   // ---------- 第二圈：寄報告給醫師 ----------
   //

@@ -71,6 +71,7 @@ test('D1b 改名 → 結案昨天還沒結案那一筆 → 待辦與新長的「
 
   await app.go('/todo/close');
   await page.locator('[data-open="v-y"]').click();
+  await app.tickAll();
   await page.locator('[data-apply]').click();
   await app.saved();
 

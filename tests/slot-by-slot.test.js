@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
   visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots, lockedAt,
-  slotsToClose, describeConfirmed,
+  slotsToClose, describeConfirmed, validateVisit, canCancelSlot,
 } from '../public/js/domain/visits.js';
 import { closeConsequences, confirmConsequences } from '../public/js/domain/consequences.js';
 import { syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
@@ -389,5 +389,82 @@ describe('07 確認抽屜：✓ 可以、✗ 不行、預設還沒回', () => {
     assert.ok(!only.some((l) => l.includes('Examine')), only.join('／'));
     const exam = confirmConsequences([v], COURSES, false, new Set(), {}, new Set(['v:0']));
     assert.ok(exam.some((l) => l.includes('Examine')), exam.join('／'));
+  });
+});
+
+describe('審查修正（第一批）', () => {
+  const COURSES = [
+    { id: 'course-checkup', name: '健檢', category: 'B', followupCourseId: 'course-followup' },
+    { id: 'course-followup', name: '二返', category: 'A', needsTreatmentForm: false, needsRecord: true },
+    { id: 'course-sis', name: 'SIS', category: 'C' },
+    { id: 'rec', name: '營養諮詢', category: null, needsRecord: true },
+  ];
+  const ENTS = [
+    { id: 'ent-exam', type: 'single', courseId: 'course-checkup', totalQty: 2 },
+    { id: 'ent-sis', type: 'single', courseId: 'course-sis', totalQty: 5 },
+  ];
+  const examDay = (examStatus, otherStatus) => {
+    const v = {
+      id: 'x', customerId: 'c1', date: '2026-09-01',
+      slots: [
+        { entitlementId: 'ent-exam', courseId: 'course-checkup', status: examStatus },
+        { entitlementId: 'ent-sis', courseId: 'course-sis', status: otherStatus },
+      ],
+    };
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const nthVisit = {
+    id: 'n', customerId: 'c1', date: '2026-09-30', status: 'pending_confirm',
+    slots: [{
+      entitlementId: null, courseId: 'course-followup', courseName: '三返', followupNth: 3,
+      followupForVisitId: 'x', status: 'pending_confirm', startsAt: '10:00', endsAt: '10:30',
+    }],
+  };
+  const nthErrors = (exam) => validateVisit(nthVisit, {
+    customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [exam, nthVisit],
+  }).errors.filter((e) => e.includes('健檢'));
+
+  test('n返 的存檔驗證也問健檢那一段：健檢做了、別段還開著 → 存得下去', () => {
+    assert.deepEqual(nthErrors(examDay('done', 'confirmed')), []);
+  });
+
+  test('n返 的存檔驗證：健檢那一段取消了、別段做了 → 擋下來', () => {
+    assert.equal(nthErrors(examDay('cancelled', 'done')).length, 1);
+  });
+
+  test('未到的那一段取消不掉 —— 編輯器的 × 與 applyStatus() 自己都擋', () => {
+    const v = { id: 'v', date: '2026-09-20', status: 'confirmed',
+      slots: [{ status: 'no_show' }, { status: 'confirmed' }] };
+    assert.equal(canCancelSlot(v, 0), false);
+    assert.equal(canCancelSlot(v, 1), true);
+    assert.equal(applyStatus(v, 'cancelled', { slotIndex: 0 }), v);
+  });
+
+  test('讀取卡片：未到的營養諮詢那一段不再寫「寫紀錄・等一下會有」', () => {
+    const v = { id: 'w', customerId: 'c1', date: '2026-09-24', status: 'done',
+      slots: [{ courseId: 'rec', status: 'no_show' }, { courseId: 'course-sis', status: 'done' }] };
+    const byId = Object.fromEntries(COURSES.map((c) => [c.id, c]));
+    const rows = todosForVisit(v, { coursesById: byId, focusSlot: 0 });
+    assert.ok(!rows.some((r) => r.kind === RECORD_TASK_KIND), rows.map((r) => r.kind).join('／'));
+  });
+
+  test('只結一半、整筆還是已確認：不蓋 statusAt（同 settle()）', () => {
+    const v = { id: 'v', date: '2026-09-20', status: 'confirmed', statusAt: 'OLD',
+      slots: [{ status: 'confirmed' }, { status: 'confirmed' }] };
+    assert.equal(closeVisit(v, [true, null], 'NEW').statusAt, 'OLD');
+    assert.equal(closeVisit(v, [true, false], 'NEW').statusAt, 'NEW');
+  });
+
+  test('整天退回（沒指名哪一段）也清掉「沒做」那一格', () => {
+    const v = { id: 'v', date: '2026-09-20', status: 'no_show',
+      slots: [{ status: 'no_show', attended: false }] };
+    assert.equal(applyStatus(v, 'confirmed', {}).slots[0].attended, null);
+  });
+
+  test('「退回簽療程單」那一顆自己帶著要換成哪一個狀態 —— 畫面不自己對應', () => {
+    const v = { id: 'v', date: '2026-09-20', status: 'no_show', slots: [{ status: 'no_show' }] };
+    const [item] = visitActions(v, { today: '2026-09-24', slotIndex: 0 });
+    assert.equal(item.id, 'reopen');
+    assert.equal(item.to, 'confirmed');
   });
 });

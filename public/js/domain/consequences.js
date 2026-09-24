@@ -297,7 +297,7 @@ export function closeConsequences({
   if (left) {
     lines.push(`還有 ${left} 段先不結，留在這裡`);
   } else if (done.length || missed.length) {
-    const after = closeVisit(visit, picks, 'preview');
+    const after = closeVisit(visit, picks);
     lines.push(`日曆上這一天改成「${shortStatus(after.status)}」`);
   }
 

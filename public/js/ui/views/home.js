@@ -2909,7 +2909,7 @@ function drawerHtml(ctx) {
 
         <div class="drawer__actions">
           <button class="btn btn--primary" type="button" data-apply ${ok || no ? '' : 'disabled'}>
-            ${confirmLabel(ok, no)}</button>
+            ${confirmLabel(ok, no, rows.length)}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
@@ -2927,10 +2927,10 @@ function confirmRows(visits) {
  * 那一顆按鈕講會發生什麼。**只有 ✗ 時講實話：這是取消**（標成取消、長「取消 Abovee」）——
  * prelaunch-audit-2026-09-23/issues/12：以前寫「全部退回未確認」，讀起來像「先放回去之後再問」。
  */
-function confirmLabel(ok, no) {
+function confirmLabel(ok, no, total) {
   if (ok && no) return `確認 ${ok} 段・取消 ${no} 段`;
   if (ok) return `確認 ${ok} 段`;
-  if (no) return `客人不行，取消這 ${no} 段`;
+  if (no) return `${no === total ? '客人都不行' : '客人不行'}，取消這 ${no} 段`;
   return '確認';
 }
 
@@ -2947,17 +2947,10 @@ function wireConfirm(ctx) {
     }),
   );
 
-  el.querySelectorAll('[data-pick]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      togglePick(drawer.picks, btn.dataset.pick, btn.dataset.to === '1');
-      paintConfirm(ctx);
-    }),
-  );
-
-  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
-    const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
-    for (const { key } of confirmRows(visits)) drawer.picks.set(key, true);
-    paintConfirm(ctx);
+  wirePicks(el, {
+    parse: (key) => key,
+    keys: () => confirmRows(byCustomer(ctx.pending).get(drawer.customerId) ?? []).map((r) => r.key),
+    repaint: () => paintConfirm(ctx),
   });
 
   const close = () => {
@@ -3454,6 +3447,23 @@ function togglePick(picks, key, want) {
   else picks.set(key, want);
 }
 
+/**
+ * ✓／✗ 與「全部 ✓」的接線。**兩張抽屜共用**，差別只有鍵長什麼樣（收尾是索引、確認是
+ * `來訪 id:索引`）、全部有哪幾個鍵、按完重畫哪一頁。
+ */
+function wirePicks(el, { parse, keys, repaint }) {
+  el.querySelectorAll('[data-pick]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      togglePick(drawer.picks, parse(btn.dataset.pick), btn.dataset.to === '1');
+      repaint();
+    }),
+  );
+  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
+    for (const key of keys()) drawer.picks.set(key, true);
+    repaint();
+  });
+}
+
 /** 抽屜上按了什麼 → `closeVisit()` 收的那一份（逐段 `true`／`false`／`null`）。 */
 function picksOf(visit) {
   return (visit?.slots ?? []).map((_, i) => (drawer?.picks?.has(i) ? drawer.picks.get(i) : null));
@@ -3481,17 +3491,10 @@ function wireClose(ctx) {
     }),
   );
 
-  el.querySelectorAll('[data-pick]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      togglePick(drawer.picks, Number(btn.dataset.pick), btn.dataset.to === '1');
-      paintClose(ctx);
-    }),
-  );
-
-  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
-    const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
-    for (const { index } of slotsToClose(visit)) drawer.picks.set(index, true);
-    paintClose(ctx);
+  wirePicks(el, {
+    parse: Number,
+    keys: () => slotsToClose(ctx.rows.find((v) => v.id === drawer?.visitId)).map(({ index }) => index),
+    repaint: () => paintClose(ctx),
   });
 
   const close = () => {
@@ -3536,15 +3539,16 @@ async function applyClose(ctx) {
   }
   const next = closeVisit(fresh, picksOf(fresh));
   const left = slotsToClose(next).length;
+  // 講**這一次**扣了幾次 —— 整筆推成已完成不代表這一次有扣（前面那段早就做完、這一次只按了 ✗）
+  const did = [...drawer.picks.values()].filter(Boolean).length;
 
   try {
     // 結案就是扣次數的那一下，做兩次會多扣一次
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
-      success: next.status === 'done'
-        ? `${visit.customerName ?? ''} 結案了，次數扣掉了`
-        : next.status === 'no_show'
-          ? '記成未到，次數沒有扣'
-          : `記好了，還有 ${left} 段留著`,
+      success: [
+        did ? `記好了，扣掉 ${did} 次` : '記好了，沒來的不扣次數',
+        left ? `還有 ${left} 段留著` : '',
+      ].filter(Boolean).join('，'),
       key: `visit:save:${next.id}`,
     });
     drawer = null;

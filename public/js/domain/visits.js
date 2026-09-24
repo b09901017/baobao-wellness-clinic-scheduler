@@ -16,9 +16,11 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+// 循環 import（followups → taskRules → visits）：兩邊都只在函式裡用，模組載入時不碰
+import { examDoneIn } from './followups.js';
 import { slotName } from './naming.js';
 import {
-  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
+  isNthSlot, nthOf, nthLabel, examEntitlementIds,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
@@ -680,6 +682,8 @@ export function visitStatusFrom(visit) {
  */
 function stampSlot(slot, to) {
   if (to !== 'cancelled' && slot?.status === 'cancelled') return slot;
+  // 退回還開著（未到 → 已確認）時「沒做」那一格一起清掉，同逐段那一條路
+  if (to === 'pending_confirm' || to === 'confirmed') return { ...slot, status: to, attended: null };
   return { ...slot, status: to };
 }
 
@@ -971,7 +975,8 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
   const next = { ...base, slots };
   const status = visitStatusFrom(next) ?? base?.status ?? null;
   if (!touched && status === base?.status) return visit;
-  return { ...next, status, statusAt: at };
+  // 整筆沒變就不蓋時間戳（同 `settle()`）：只結一半時整筆還是已確認，那一刻沒有狀態轉換
+  return status === base?.status ? { ...next, status } : { ...next, status, statusAt: at };
 }
 
 // ---------- 換一個狀態 ----------
@@ -1013,7 +1018,9 @@ export function applyStatus(
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
   // 兩種錯法的代價差很多。
   if (Number.isInteger(slotIndex)) {
-    if (!slots[slotIndex]) return original;
+    // 指到一個不存在的段落、或那一段自己不准這個轉移（狀態機只有這一道門，ADR-0006）：
+    // 什麼都不做
+    if (!slots[slotIndex] || !canTransition(slotStatus(visit, slots[slotIndex]), to)) return original;
     // 退回簽療程單（未到 → 已確認，ADR-0111）時「沒做」那一格一起清掉 ——
     // 那一段現在還沒結案，留著 `attended: false` 就是一句過期的話
     const reopened = (s) => (to === 'pending_confirm' || to === 'confirmed'
@@ -1075,7 +1082,9 @@ function settle(visit, { at, reason = null }) {
  *
  * @param {object} visit
  * @param {{today: string}} o
- * @returns {{id:string, label:string, icon?:string, tone?:string}[]}
+ * @returns {{id:string, to?:string, label:string, icon?:string, tone?:string}[]}
+ *   `to` 是那一顆要換成哪一個狀態（改狀態的那幾顆才有）—— 「退回簽療程單」的 id 不是狀態，
+ *   畫面自己對應的話就是第二份清單
  */
 export function visitActions(visit, { today, slotIndex = null } = {}) {
   const out = [];
@@ -1102,9 +1111,10 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   const next = nextStatuses(own);
   const open = isOpenStatus(own);
 
-  if (own === 'pending_confirm' && next.includes('confirmed')) {
+  if (own === 'pending_confirm') {
     out.push({
       id: 'confirmed',
+      to: 'confirmed',
       label: '客戶說可以',
       note: `改成「${describeStatus('confirmed')}」`,
       icon: 'check',
@@ -1118,6 +1128,7 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   if (own === 'no_show' && next.includes('confirmed')) {
     out.push({
       id: 'reopen',
+      to: 'confirmed',
       label: '退回簽療程單',
       note: '重新記這一段有沒有來',
       icon: 'todo',
@@ -1143,9 +1154,10 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
 
   // 一天只有一段時照樣給 —— 取消那一段就是取消那一天（`settle()` 會把整筆推成
   // cancelled）。少了這一顆，單段那一天會一顆取消都沒有。
-  if (one && open && next.includes('cancelled')) {
+  if (one && canCancelSlot(visit, slotIndex)) {
     out.push({
       id: 'cancel-slot',
+      to: 'cancelled',
       label: '取消這一段',
       // 那一天只有一段時就別說「剩下的」—— 沒有剩下的。
       // **走 `liveSlots()`**：「哪幾段還算數」全站只有那一支（`isLiveSlot()` 的
@@ -1179,11 +1191,22 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
  *   濾掉之後重編號的話會取消到別段。
  */
 export function cancellableSlots(visit) {
-  if (!visit || visit.deletedAt) return [];
-  if (!canTransition(visit.status, 'cancelled')) return [];
-  return (visit.slots ?? [])
+  return (visit?.slots ?? [])
     .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => canTransition(slotStatus(visit, slot), 'cancelled'));
+    .filter(({ index }) => canCancelSlot(visit, index));
+}
+
+/**
+ * 這一段現在取消得掉嗎。**批次取消、長按選單、來訪編輯器那顆 × 都問這一支**，
+ * `applyStatus()` 自己也問一次（Rules 不擋狀態機，ADR-0006）。
+ *
+ * 審查抓到的：未到那一段從編輯器的 × 還取消得掉 —— 那顆 × 只問「是不是已經取消了」，
+ * 而 `applyStatus()` 以前不看轉移准不准（ADR-0111：人沒來是已經發生的事）。
+ */
+export function canCancelSlot(visit, index) {
+  const slot = visit?.slots?.[index];
+  if (!slot || visit.deletedAt) return false;
+  return canTransition(visit.status, 'cancelled') && canTransition(slotStatus(visit, slot), 'cancelled');
 }
 
 /**
@@ -1518,7 +1541,9 @@ function visitErrors(visit, {
       }
       // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
       // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
-      else if (nth && !(exam.status === 'done' && isExamVisit(exam, examIds))) {
+      // **問健檢那一段**（`examDoneIn()`，ADR-0112）—— 跟候選清單同一支，
+      // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
+      else if (nth && !examDoneIn(exam, examIds)) {
         errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
       }
     } else if (nth) {

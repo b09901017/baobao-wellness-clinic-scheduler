@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
-  INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit, canCancelSlot,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, NOTE_MAX,
@@ -626,6 +626,9 @@ function slotXButton(ctx, draft, slot, i) {
   // 連存都還沒存過（× 是移除）。問 `ctx.isNew` 的話後者會走進取消那條路，
   // 而 `applyStatus()` 會替一段從來不存在的時段長出一張「取消 Abovee」。
   const stored = i < (ctx.storedSlotCount ?? 0);
+  // 存過的那一段要**取消得掉**才給（`canCancelSlot()`）—— 未到、已完成的是已經發生的事
+  //（ADR-0111），審查抓到那顆 × 以前只問「是不是已經取消了」
+  if (stored && !canCancelSlot(draft, i)) return '';
   const [attr, label] = stored
     ? ['data-cancel-slot', `取消第 ${i + 1} 段`]
     : ['data-del-slot', `移除第 ${i + 1} 段`];
