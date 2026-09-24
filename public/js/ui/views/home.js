@@ -17,7 +17,7 @@ import * as config from '../../data/config.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
-import { urgency, isCancelKind, taskLine } from '../../domain/taskRules.js';
+import { urgency, isCancelKind } from '../../domain/taskRules.js';
 import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js';
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
@@ -33,7 +33,7 @@ import {
   customersToAsk, customersToAskForMonth, customersToBook, monthRange,
 } from '../../domain/scheduling.js';
 import {
-  groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay,
+  groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -1110,7 +1110,7 @@ function wireWhoDrawer(ctx) {
   );
 
   el.querySelectorAll('[data-task-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openWhoVisit(btn.dataset.taskVisit)),
+    btn.addEventListener('click', () => openWhoVisit(btn.dataset.taskVisit, btn.dataset.taskId)),
   );
 
   el.querySelectorAll('[data-who-book]').forEach((btn) =>
@@ -1193,7 +1193,7 @@ async function loadWhoDetails(ctx) {
  * 一天只有一段時 `focusFor()` 直接解成那一段 —— 一張只有一列的目錄
  * 是講不通的。
  */
-function openWhoVisit(visitId) {
+function openWhoVisit(visitId, taskId = null) {
   const d = whoDrawer;
   const visit = d?.visits?.get(visitId);
   if (!visit) {
@@ -1208,12 +1208,17 @@ function openWhoVisit(visitId) {
   //
   // **在卡片裡就地換掉**，不是關掉再開一張 —— `openCard()` 第一行就是
   // `closeCard()`，重開等於畫面閃一下（ADR-0073 為那個閃爍付過帳）。
-  let focus = focusFor(visit, null);
+  //
+  // **只開這一張講的那幾段**（`taskSlots()`，issues/08）：一段就直接是那一段，兩段以上目錄只列那幾段
+  const task = taskId ? (d.tasks ?? []).find((t) => t.id === taskId) : null;
+  const only = task ? taskSlots(task, visit, byId(d.master?.courses ?? [])) : null;
+  let focus = focusFor(visit, null, only);
   let tasks;
   let extra = {};
 
   const paint = () => visitReadHtml(visit, {
     ...extra,
+    only,
     roomsById: d.rooms,
     staffById: d.staff,
     master: d.master,
@@ -1834,15 +1839,18 @@ async function loadTaskVisits(ctx) {
 function fillVisitInfo(el) {
   if (!taskVisits) return;
   // 讀回來之前是 hidden 的 —— 空的丸子與空的一行都看起來像壞掉的東西。
+  // 「N 項」數的是**這一張講的那幾段**，不是整天（`taskSlots()`，issues/08）。key 是任務 id
+  const coursesById = byId(taskVisits.master?.courses ?? []);
   for (const node of el.querySelectorAll('[data-slots]')) {
-    const visit = taskVisits.visits.get(node.dataset.slots);
+    const task = taskVisits.tasks[node.dataset.slots];
+    const visit = taskVisits.visits.get(task?.visitId);
     if (!visit) continue;
-    node.textContent = `${(visit.slots ?? []).length} 項`;
+    node.textContent = `${taskSlots(task, visit, coursesById).length} 項`;
     node.hidden = false;
   }
 
   // 「Examine・9/1(一)・二返」的後半段。日期是**來訪那一天**不是死線
-  //（`domain/taskRules.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
+  //（`domain/todoFlow.js` 的 `taskLine()`，客戶詳情與試算表讀同一支）——
   // 死線是它的前一天，兩個差一天最容易看錯人。
   for (const node of el.querySelectorAll('[data-taskwhen]')) {
     // key 是**任務 id** 不是來訪 id：同一天兩張 Examine 各自掛不同的段，印的也要不同（issues/21）
@@ -1978,7 +1986,7 @@ function paintTasks(ctx) {
   );
 
   el.querySelectorAll('[data-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit)),
+    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit, btn.dataset.taskId)),
   );
 
   el.querySelectorAll('[data-book-followup]').forEach((btn) =>
@@ -2120,7 +2128,7 @@ function taskRow(t, today) {
           <span class="row__title">
             ${esc(t.customerName ?? '（沒有名字）')}
             <span class="badge">${esc(t.kind)}</span>
-            ${t.visitId ? `<span class="badge" data-slots="${esc(t.visitId)}" hidden></span>` : ''}
+            ${t.visitId ? `<span class="badge" data-slots="${esc(t.id)}" hidden></span>` : ''}
             <span class="badge ${badgeClass(state)}">${esc(dueLabel(t.dueDate, today))}</span>
             ${t.kind === FOLLOWUP_TASK_KIND
               ? `<span class="badge" data-booked="${esc(t.id)}" hidden></span>` : ''}
@@ -2139,7 +2147,7 @@ function taskRow(t, today) {
                    style="min-height: 40px">去壓表</button>`
         : ''}
       ${t.visitId ? `<button class="btn" type="button" data-visit="${esc(t.visitId)}"
-                             style="min-height: 40px">詳情</button>` : ''}
+                             data-task-id="${esc(t.id)}" style="min-height: 40px">詳情</button>` : ''}
     </div>`;
 }
 
@@ -2152,7 +2160,7 @@ function taskRow(t, today) {
  * 她在這一頁做的事是「去 Examine 掛號」，不是改班（她的原話：「不懂什麼情況
  * 點完詳情進去後會需要修改？」）。要改一筆來訪只有日曆一個入口，見 ADR-0056。
  */
-function openTaskVisit(visitId) {
+function openTaskVisit(visitId, taskId = null) {
   const visit = taskVisits?.visits.get(visitId);
   if (!visit) {
     // 以前這裡是 `go('/visits/:id')`。那條路現在通到一個她不該落在的地方，
@@ -2163,15 +2171,19 @@ function openTaskVisit(visitId) {
     return;
   }
 
-  // 她點到哪一段了。任務綁的是一整天（掛號是一天去一次），所以這條路沒有段落
-  // —— 一天只有一段時 `focusFor()` 把它解成那一段，其餘畫成一張目錄。
+  // 她點的是哪一張待辦 → **只開它講的那幾段**（`taskSlots()`，issues/08）。以前這裡寫著
+  // 「任務綁的是一整天」，而取消類、掛號類、寫紀錄早就逐段了 —— 她 2026-09-24：「為甚麼不是只呈現
+  // 真的被取消的那幾段?」。一段就直接是那一段，兩段以上目錄只列那幾段。
   // 就地換掉，不重開一張 —— 同 `openWhoVisit()` 那一段的說明。
-  let focus = focusFor(visit, null);
+  const task = taskId ? taskVisits.tasks[taskId] : null;
+  const only = task ? taskSlots(task, visit, byId(taskVisits.master?.courses ?? [])) : null;
+  let focus = focusFor(visit, null, only);
   let tasks;
   let extra = {};
 
   const paint = () => visitReadHtml(visit, {
     ...extra,
+    only,
     roomsById: taskVisits.roomsById,
     staffById: taskVisits.staffById,
     master: taskVisits.master,

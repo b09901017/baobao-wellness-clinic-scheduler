@@ -17,7 +17,8 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
 import { dayOf } from './dates.js';
-import { formSlotIndexes, slotStatus, isLiveSlot } from './visits.js';
+import { formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel } from './visits.js';
+import { timeLabel } from './visitTime.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -244,7 +245,7 @@ export function todosForVisit(visit, {
   // **歸屬也用它算**：二返那一段取消了之後，它的 Examine 仍然是**它的** ——
   // 用只看活著的段去問的話，那一張找不到主人，會掉進「推不出來的一律留著」
   // 而跑到同一天的復能那一段上。
-  const asLive = { ...visit, slots: (visit.slots ?? []).map((s) => ({ ...s, status: null })) };
+  const asLive = asLiveOf(visit);
   const mineLive = { ...asLive, slots: [asLive.slots[focusSlot]] };
   const scoped = voided ? mineLive : { ...visit, slots: [slot] };
 
@@ -252,19 +253,9 @@ export function todosForVisit(visit, {
   const rows = [];
   for (const t of tasks ?? []) {
     if (t.deletedAt || t.visitId !== visit.id) continue;
-    // 取消類**不問課程，問它收的是哪幾段**（issue 02 的 `slotIndexes`）
-    if (isCancelKind(t.kind)) {
-      if (ownsCancel(t, visit, focusSlot, coursesById)) rows.push(taskRow(t, false));
-      continue;
-    }
-    // 掛號那一族也記著它掛的是哪幾段（prelaunch-audit-2026-09-23/issues/02）——
-    // 同一天可以有兩張 Examine（早上掛好的、下午補排還沒掛的），照它自己記的歸。
-    // 沒有的是舊任務，退回「這一段長不長得出這一種」
-    if (Array.isArray(t.slotIndexes)) {
-      if (t.slotIndexes.includes(focusSlot)) rows.push(taskRow(t, voided));
-      continue;
-    }
-    if (mine(t.kind)) rows.push(taskRow(t, voided));
+    // 歸屬只有 `ownsTask()` 一支 —— 「詳情」打開哪幾段（`taskSlots()`）問的是同一件事。
+    // 取消類不灰：它收的就是取消掉的那一段
+    if (ownsTask(t, visit, focusSlot, coursesById, mine)) rows.push(taskRow(t, voided && !isCancelKind(t.kind)));
   }
 
   // **推導那兩列照她點的那一段算**（ADR-0097）。整筆那個 status 是推導的，
@@ -401,6 +392,106 @@ function pendingRows(scoped, have, { coursesById, voided, today = null }) {
     out.push(row);
   }
   return out;
+}
+
+/**
+ * **這一張待辦屬於第 `index` 段嗎。** 讀取卡片列不列它（`todosForVisit()`）與「詳情」打開哪幾段
+ * （`taskSlots()`）問的是同一件事，所以只有這一支 —— 各寫一份的話，詳情打開第 1 段，
+ * 第 1 段的卡片上卻沒有那一張（`.scratch/asks-2026-09-24/issues/08`）。
+ *
+ * 1. 取消類**不問課程，問它收的是哪幾段**（`ownsCancel()`）
+ * 2. 記著 `slotIndexes` 的照它（掛號 ADR-0107、寫紀錄 ADR-0112）—— 同一天可以有兩張 Examine
+ * 3. 其餘（舊任務、健檢那條鏈）退回「這一段自己長不長得出這一種」（`ownedKinds()`）
+ *
+ * @param {(kind: string) => boolean} [mine] 呼叫端已經算好的 `ownedKinds()`（一張卡片只算一次）
+ */
+function ownsTask(task, visit, index, coursesById, mine = null) {
+  if (isCancelKind(task.kind)) return ownsCancel(task, visit, index, coursesById);
+  if (Array.isArray(task.slotIndexes)) return task.slotIndexes.includes(index);
+  if (mine) return mine(task.kind);
+  const asLive = asLiveOf(visit);
+  return ownedKinds({ ...asLive, slots: [asLive.slots[index]] }, asLive, coursesById)(task.kind);
+}
+
+/** 「它還活著的話」那一份：每一段的狀態抹掉（歸屬用它算，見 `todosForVisit()`）。 */
+const asLiveOf = (visit) => ({ ...visit, slots: (visit?.slots ?? []).map((s) => ({ ...s, status: null })) });
+
+/**
+ * **這一張待辦講的是哪幾段**（`visit.slots` 裡的位置）。「詳情」、「N 項」、那一行小字都問它。
+ *
+ * 她 2026-09-24：「為甚麼不是只呈現真的被取消的那幾段?而是其他段也會顯示出來 ?…
+ * 所以幫我全域排查 詳情只呈現和這項有關的而不是整天的」。
+ *
+ * 歸屬走 `ownsTask()`（讀取卡片同一支）。一段都認不到（她手動加的、指到不存在的段）→ **整天**：
+ * 靜默畫成空的比多畫幾段糟。
+ *
+ * @returns {number[]} 照順序；沒有時段回空陣列
+ */
+export function taskSlots(task, visit, coursesById = {}) {
+  const all = (visit?.slots ?? []).map((_, i) => i);
+  const mine = ownedSlots(task, visit, coursesById);
+  return mine.length ? mine : all;
+}
+
+/**
+ * 一列任務要講的三件事：**哪一種、哪一天、哪一場**。
+ *
+ * 她的原話：「客戶詳情裡的任務目前只會顯示 Examine 或 耀聖，資訊量太少……
+ * 例如：Examine・9/1・二返」。
+ *
+ * 三個地方共用（試算表的 TODO／FINISHED 區、客戶詳情、待辦中心）——
+ * 三份寫法遲早會有一份用死線當日期，而那一份會差一天。
+ *
+ * **日期取來訪那一天，不是死線。** 她認的是「哪一天那一場」，而死線是它的
+ * 前一天（`dueDateFor()`），兩個差一天最容易看錯人。來訪找不到（獨立待辦、
+ * 來訪被刪了）才退回死線，而且標記 `fromDue` —— 畫面要講明那是死線，
+ * 不可以把死線畫成來訪日。
+ *
+ * **不要拿 `dueDate + 1` 反推來訪日**：取消類的任務不是那樣算的
+ *（`cancelTask()` 在今天早於死線時直接用今天），反推出來的日期會有一部分
+ * 是錯的，而錯的日期看起來跟對的一模一樣。
+ *
+ * **只講這一張的那幾段**（`taskSlots()`，`.scratch/asks-2026-09-24/issues/08`）：每一段「開始時間 名字」，
+ * 幾段用「、」接（`10:00 門診、15:00 門診`）。同一天分兩次確認會有兩張 Examine（ADR-0107），
+ * 逐段取消也是（ADR-0091）—— 印整筆的課程的話兩張長得一模一樣。取消類掛的是取消掉的段，
+ * 所以**不濾取消的**。沒記段落的舊任務照課程推（寫紀錄＝要寫紀錄的那一段、健檢鏈＝健檢那一段）；
+ * 推不出來、或推出來就是整天的，照舊講整筆（`visitCourseLabel()`，同名去重）。
+ *
+ * 2026-09-24 從 `taskRules.js` 搬來：它要問 `taskSlots()`，而 `taskRules.js` import 這一支
+ * 會在載入時撞到頂層的 `FLOW`（它讀 `taskRules.js` 的 `RECORD_TASK_KIND`）。
+ *
+ * @param {object} task
+ * @param {object|null} [visit] 那一筆來訪。呼叫端手上本來就有，
+ *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
+ *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
+ * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
+ *   （跟日曆同一種寫法），也才推得出舊任務是哪一段；沒帶就退回時段上的快照（`visitCourseLabel()`）。
+ * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
+ */
+export function taskLine(task, visit = null, master = null) {
+  const hasVisit = Boolean(visit?.date);
+  const slots = visit?.slots ?? [];
+  const coursesById = Object.fromEntries((master?.courses ?? []).map((c) => [c.id, c]));
+  const mine = ownedSlots(task, visit, coursesById);
+  // 講「那幾段」的條件：這一張自己記著段落，或推出來的只是其中幾段
+  const some = mine.length && (Array.isArray(task?.slotIndexes) || mine.length < slots.length);
+  return {
+    kind: task?.kind ?? '',
+    date: hasVisit ? visit.date : (task?.dueDate ?? null),
+    fromDue: !hasVisit,
+    // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
+    // 不要在這裡再寫一次。沒有時段就沒有東西可講。
+    what: some
+      ? mine.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
+        visitCourseLabel({ slots: [slots[i]] }, master)}`).join('、')
+      : (slots.length ? visitCourseLabel(visit, master) : ''),
+  };
+}
+
+/** `taskSlots()` 的前半：真的認得到的那幾段（可能是空的）。 */
+function ownedSlots(task, visit, coursesById = {}) {
+  if (!task) return [];
+  return (visit?.slots ?? []).map((_, i) => i).filter((i) => ownsTask(task, visit, i, coursesById));
 }
 
 /**

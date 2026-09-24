@@ -21,7 +21,7 @@ import {
 } from './visits.js';
 import { pairsOf, holdsExam } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
-import { taskLine } from './taskRules.js';
+import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate } from './dates.js';
 import { chartNosOf } from './identify.js';
 import { timeLabel } from './visitTime.js';
@@ -707,7 +707,7 @@ function taskBlocks(tasks, visits, master = null) {
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
   const line = (t) => {
-    // 哪一天、哪一場走 `taskRules.js` 的 `taskLine()` —— 客戶詳情與待辦中心
+    // 哪一天、哪一場走 `todoFlow.js` 的 `taskLine()` —— 客戶詳情與待辦中心
     // 讀的是同一支。以前這裡自己算了一次同樣的東西，而「日期取來訪那一天
     // 不是死線」這個判斷只要有兩份，就會有一份差一天。
     const { date, what } = taskLine(t, visitById[t.visitId], master);

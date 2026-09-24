@@ -70,7 +70,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { openFor as openBulkCancel } from './bulkCancel.js';
-import { taskLine } from '../../domain/taskRules.js';
+import { taskLine, taskSlots } from '../../domain/todoFlow.js';
 import { back, popScreens, pushScreen, whenSettled } from '../nav.js';
 
 const esc = f.esc;
@@ -346,7 +346,7 @@ function wire(ctx, { today, marks }) {
 
     const toVisit = e.target.closest('[data-task-visit]');
     if (toVisit) {
-      openVisitCard(ctx, toVisit.dataset.taskVisit);
+      openVisitCard(ctx, toVisit.dataset.taskVisit, null, toVisit.dataset.taskId);
       return;
     }
 
@@ -1829,9 +1829,13 @@ function wireEntitlementDanger(ctx, record) {
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
  */
-function openVisitCard(ctx, visitId, slotIndex = null) {
+function openVisitCard(ctx, visitId, slotIndex = null, taskId = null) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
+
+  // 從一張待辦點進來：**只開它講的那幾段**（`taskSlots()`，issues/08）—— 一段就直接是那一段
+  const task = taskId ? (ctx.tasks ?? []).find((t) => t.id === taskId) : null;
+  const only = task ? taskSlots(task, visit, byId(ctx.courses ?? [])) : null;
 
   // 她點到哪一段了。「這個月」那一塊一段一顆按鈕（2026-09-12），所以這裡
   // 多半是個整數；來訪紀錄那一列與任務列的「詳情」沒有段落，進來是 null。
@@ -1841,7 +1845,7 @@ function openVisitCard(ctx, visitId, slotIndex = null) {
   //
   // 那一天只有一段時，那一段就是那一天（`focusFor()`）—— 不然來訪紀錄那一列
   // 點下去會是一張只有一列的空目錄。
-  let focus = focusFor(visit, slotIndex);
+  let focus = focusFor(visit, slotIndex, only);
 
   // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
   // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
@@ -1860,6 +1864,7 @@ function openVisitCard(ctx, visitId, slotIndex = null) {
     // **她點的那一段**（ADR-0080）。沒帶的那幾條路（來訪紀錄那一列、
     // 任務列的「詳情」）進來的是一張目錄：只列那幾段讓她點。
     focusSlot: focus,
+    only,
   });
 
   // 整筆那一個是**推導出來的**：加一段沒問過客人的進去就會退回「待確認」，

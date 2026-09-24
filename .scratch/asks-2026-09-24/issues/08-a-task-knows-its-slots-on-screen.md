@@ -1,6 +1,6 @@
 # 「這一張待辦講的是哪幾段」＋ 詳情只開那幾段 ＋ N 項
 
-Status: todo
+Status: done
 Blocked by: 05、06
 來源：`../spec.md` 第 08 條（第四點 a、第五點的顯示、R8）
 動工前先讀：ADR-0089（沒指名哪一段的卡片只是目錄）、ADR-0091、ADR-0107、`.scratch/prelaunch-audit-2026-09-23/issues/21`、
@@ -58,3 +58,13 @@ Blocked by: 05、06
   四個呼叫端（`home.js`、`tasklist.js`、`customerDetail.js`、`sheetReport.js`）改 import，CLAUDE.md 那一列跟著改。
 - 三個入口的按鈕改帶**任務**（id），打開時才問 `taskSlots()`：待辦中心那一列畫出來的時候來訪還沒讀回來。
 - `focusFor()` 與 `slotsToShow()` 多收一份名單（`only`）：名單剛好一段 → 直接是那一段；兩段以上 → 目錄只列那幾段。
+
+## 做完時留下的（給 09 與審查）
+
+- `taskLine()` 的 `what`：這一張自己記著段落、或推出來的只是其中幾段 → 一段一段講（`10:00 門診`）；
+  推不出來（`taskSlots()` 退回整天）或推出來就是整天 → 照舊 `visitCourseLabel()`（同名去重）。
+  所以沒帶主檔（試算表以外都有帶）的舊任務行為一個字都沒變。09 要改的是 `lines[]`，`what` 留給試算表。
+- 按鈕多帶 `data-task-id`，**`data-task-visit`／`data-visit` 沒動**（E2E 的選擇器用它們）。
+- 「N 項」的 key 從來訪 id 換成任務 id（`data-slots="${t.id}"`）。
+- 已知沒一起改的：客戶詳情「看全部」那張面板裡的「詳情 ›」**本來就沒接線**（`openAllTasks()` 只接了 `[data-task]`）——
+  排查時找到的既有問題，問過她再決定。

@@ -19,8 +19,7 @@
 // docs/adr/0041-the-sheet-is-the-registration.md。
 
 import { addDays, isValidDate } from './dates.js';
-import { visitCourseLabel, isLiveSlot, slotStatus } from './visits.js';
-import { timeLabel } from './visitTime.js';
+import { isLiveSlot, slotStatus } from './visits.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -735,53 +734,9 @@ function cancelTask(visit, kind, note, today, slotIndexes) {
   };
 }
 
-/**
- * 一列任務要講的三件事：**哪一種、哪一天、哪一場**。
- *
- * 她的原話：「客戶詳情裡的任務目前只會顯示 Examine 或 耀聖，資訊量太少……
- * 例如：Examine・9/1・二返」。
- *
- * 三個地方共用（試算表的 TODO／FINISHED 區、客戶詳情、待辦中心）——
- * 三份寫法遲早會有一份用死線當日期，而那一份會差一天。
- *
- * **日期取來訪那一天，不是死線。** 她認的是「哪一天那一場」，而死線是它的
- * 前一天（`dueDateFor()`），兩個差一天最容易看錯人。來訪找不到（獨立待辦、
- * 來訪被刪了）才退回死線，而且標記 `fromDue` —— 畫面要講明那是死線，
- * 不可以把死線畫成來訪日。
- *
- * **不要拿 `dueDate + 1` 反推來訪日**：取消類的任務不是那樣算的
- *（`cancelTask()` 在今天早於死線時直接用今天），反推出來的日期會有一部分
- * 是錯的，而錯的日期看起來跟對的一模一樣。
- *
- * **帶 `slotIndexes` 的只講那幾段**（prelaunch-audit-2026-09-23/issues/21）：每一段「開始時間 名字」，
- * 幾段用「、」接（`10:00 門診、15:00 門診`）。同一天分兩次確認會有兩張 Examine（ADR-0107），
- * 逐段取消也是（ADR-0091）—— 印整筆的課程的話兩張長得一模一樣。取消類掛的是取消掉的段，
- * 所以**不濾取消的**。沒有 `slotIndexes`（舊任務、獨立待辦）照舊講整筆。
- *
- * @param {object} task
- * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
- *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
- *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
- * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
- *   （跟日曆同一種寫法），沒帶就退回時段上的快照（`visitCourseLabel()`）。
- * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
- */
-export function taskLine(task, visit = null, master = null) {
-  const hasVisit = Boolean(visit?.date);
-  const slots = visit?.slots ?? [];
-  const mine = (task?.slotIndexes ?? []).filter((i) => slots[i]);
-  return {
-    kind: task?.kind ?? '',
-    date: hasVisit ? visit.date : (task?.dueDate ?? null),
-    fromDue: !hasVisit,
-    // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
-    // 不要在這裡再寫一次。沒有時段就沒有東西可講。
-    what: mine.length
-      ? mine.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
-        visitCourseLabel({ slots: [slots[i]] }, master)}`).join('、')
-      : (slots.length ? visitCourseLabel(visit, master) : ''),
-  };
-}
+// 一列任務要講的三件事（`taskLine()`）搬到 `todoFlow.js`，跟「這一張講的是哪幾段」（`taskSlots()`）
+// 住在一起（`.scratch/asks-2026-09-24/issues/08`）。反過來讓這裡 import 那一支會在載入時撞到
+// `todoFlow.js` 頂層的 `FLOW`（它讀這裡的 `RECORD_TASK_KIND`）。
 
 /**
  * 任務的緊迫程度，給 UI 上色用。

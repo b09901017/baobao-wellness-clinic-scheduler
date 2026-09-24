@@ -12,11 +12,11 @@
 // 任務列的寫法（待辦中心那一頁還有一份多選用的），而三份遲早有一份
 // 會用死線當日期 —— 死線是來訪日的前一天，兩個差一天最容易看錯人。
 //
-// 「哪一天、哪一場」一律走 `domain/taskRules.js` 的 `taskLine()`，
+// 「哪一天、哪一場」一律走 `domain/todoFlow.js` 的 `taskLine()`，
 // 試算表的 TODO 區讀的也是同一支。這一支不自己判斷日期。
 
 import { esc } from './form.js';
-import { taskLine } from '../../domain/taskRules.js';
+import { taskLine } from '../../domain/todoFlow.js';
 import { untickConsequences } from '../../domain/consequences.js';
 import { shortDate } from '../../domain/dates.js';
 import { previewTaskChange } from '../../data/visits.js';
@@ -70,7 +70,9 @@ export function taskRow(task, visit = null, {
       </button>
       ${actions}
       ${link && task.visitId
-        ? `<button class="taskrow__link" type="button" data-task-visit="${esc(task.visitId)}">
+        // `data-task-id`：詳情只開這一張講的那幾段（`taskSlots()`，issues/08）
+        ? `<button class="taskrow__link" type="button" data-task-visit="${esc(task.visitId)}"
+                   data-task-id="${esc(task.id)}">
              詳情${icon('right', { size: 14 })}</button>`
         : ''}
     </div>`;

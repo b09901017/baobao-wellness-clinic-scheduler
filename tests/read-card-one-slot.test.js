@@ -71,7 +71,7 @@ describe('沒指定哪一段時，每一段自己是一列', () => {
   test('她點進來的那一段不再是按鈕', () => {
     const src = read('js/ui/views/calendar.js');
     // `focused` 為真＝她已經指名了那一段，那一列點下去只會重開同一張卡片。
-    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
+    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null, data\?\.only \?\? null\)/);
     assert.match(src, /const tappable = !focused && slots\.length > 1;/,
       '「這一列點不點得下去」要由 slotsToShow() 的 focused 決定，不要另外推一次');
   });

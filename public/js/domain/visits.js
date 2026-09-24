@@ -551,17 +551,26 @@ export function visitCourseLabel(visit, master = null) {
  * 2. **指到一個不存在的段落也退回全部。** 畫成空白的話她會以為那一筆壞了，
  *    而畫太多只是回到修好之前的樣子。兩種錯法的代價差很多。
  *
+ * ## 一張待辦的詳情只列它那幾段（2026-09-24，`.scratch/asks-2026-09-24/issues/08`）
+ *
+ * `only` 是一份名單（`todoFlow.js` 的 `taskSlots()`）：沒指名哪一段時，目錄只列名單上那幾段。
+ * 名單是空的、或一段都指不到 → 退回全部（同上面第 2 條）。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
+ * @param {number[]|null} [only] 目錄只列這幾段
  * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
  *   `hidden` 是「這一天還有幾段沒畫」。**現在沒有人畫它** —— 2026-09-08
  *   那一行連同「看全部」一起拿掉了（她：「純粹且僅呈現該時段課程的資訊」）。
  *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
  *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
-export function slotsToShow(visit, focusSlot = null) {
+export function slotsToShow(visit, focusSlot = null, only = null) {
   const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
-  const every = { slots: all, hidden: 0, focused: false };
+  const listed = Array.isArray(only) ? all.filter(({ index }) => only.includes(index)) : [];
+  const every = listed.length
+    ? { slots: listed, hidden: all.length - listed.length, focused: false }
+    : { slots: all, hidden: 0, focused: false };
 
   // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
   if (!Number.isInteger(focusSlot)) return every;
@@ -588,13 +597,18 @@ export function slotsToShow(visit, focusSlot = null) {
  * 四個畫面的讀取卡片都走這一支（日曆、客戶詳情、待辦中心、進度追蹤）。
  * 各寫一份的話遲早有一頁把單段那一天畫成一張空目錄。
  *
+ * **一張待辦的詳情**（`only`，issues/08）：名單上剛好一段 → 直接是那一段；兩段以上 → 目錄。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot]
+ * @param {number[]|null} [only] 那一張待辦講的是哪幾段（`taskSlots()`）
  * @returns {number|null}
  */
-export function focusFor(visit, focusSlot = null) {
+export function focusFor(visit, focusSlot = null, only = null) {
   const slots = visit?.slots ?? [];
   if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
+  const listed = Array.isArray(only) ? only.filter((i) => slots[i]) : [];
+  if (listed.length === 1) return listed[0];
   return slots.length === 1 ? 0 : null;
 }
 
