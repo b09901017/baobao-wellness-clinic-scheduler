@@ -19,7 +19,7 @@ import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import {
   isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, MARK_ORDER, MARK_LEGEND,
 } from './visits.js';
-import { pairsOf } from './followups.js';
+import { pairsOf, holdsExam } from './followups.js';
 import { followupsOfExam, nthLabel } from './nthFollowup.js';
 import { taskLine } from './taskRules.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -641,6 +641,9 @@ function bookingsByExam(visits, followupEntitlementId) {
   for (const v of visits ?? []) {
     for (const slot of v.slots ?? []) {
       if (slot.entitlementId !== followupEntitlementId || !slot.followupForVisitId) continue;
+      // 取消、未到的那一場不算約好了（`holdsExam()`，ADR-0112）—— 印成 `二返()`，
+      // 跟約二返那一張待辦講同一句話
+      if (!holdsExam(v, slot)) continue;
       // 同一次健檢被指了兩次是資料有問題，取第一個 —— 那要在資料健檢頁被看見，
       // 不是在報表上被展開（同 `bookingsOf()` 的判斷）。
       if (!out.has(slot.followupForVisitId)) {
@@ -670,10 +673,16 @@ function takeUnlinked(guessed, linked, i) {
  * 同一天同一筆額度理論上只會有一段（二返一次一場），真的有兩段時取第一個
  * 有醫師的 —— 挑一個總比印空的好，而兩段各記不同醫師是資料有問題，
  * 那要在資料健檢頁被看見，不是在報表上被展開。
+ *
+ * **只猜沒連結的那幾場**（舊資料）。連結過的（`followupForVisitId`）由 `bookingsByExam()`
+ * 照連結配；它被取消或未到時那一次健檢要印 `二返()`（ADR-0112）—— 讓這一支再把那一場猜回去，
+ * 那一次被取消的二返就又出現在健檢底下了。
  */
 function bookingsOf(visits, entitlementId, dates) {
+  const unlinkedOn = (d) => visits.some((v) => v.date === d
+    && (v.slots ?? []).some((s) => s.entitlementId === entitlementId && !s.followupForVisitId));
   return dates
-    .filter((d) => usedOn(visits, entitlementId, d))
+    .filter(unlinkedOn)
     .map((date) => ({
       date,
       doctorId: visits

@@ -30,7 +30,7 @@ import {
 } from './taskRules.js';
 import {
   describeStatus, shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
-  slotStatus, applyConfirmation,
+  slotStatus, applyConfirmation, closeVisit, slotsToClose,
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -218,9 +218,12 @@ function nthLabels(visit) {
  * @param {Set<string>} [rejected] 抽屜裡被退掉的那幾段，key 是 `${visit.id}:${索引}`
  * @param {Record<string, object[]>} [tasksByVisit] 那幾筆身上現有的任務（連軟刪除的，
  *   `listByVisitForSync()`）。沒給就當沒有 —— 只有舊任務（沒有 `slotIndexes`）會因此多講一句
+ * @param {Set<string>|null} [asked] 有按 ✓ 或 ✗ 的那幾段（ADR-0110），key 同 `rejected`。
+ *   沒按的那幾段還在等，不可以講它們會長出什麼。沒給＝每一段都問過了
  */
 export function confirmConsequences(
   visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(), tasksByVisit = {},
+  asked = null,
 ) {
   // 用短的那一版（`shortStatus`）不用完整那一句：她看的是日曆，而日曆的圖例
   // 上寫的就是「待確認」「已確認」。同一件事在兩個地方用兩種講法會讓她多想一秒。
@@ -231,10 +234,13 @@ export function confirmConsequences(
   const settled = [];
   for (const before of visits ?? []) {
     const all = (before.slots ?? []).map((_, i) => i);
-    const out = new Set(all.filter((i) => rejected.has(`${before.id}:${i}`)));
-    const confirming = all.filter((i) => !out.has(i)
+    const mine = asked ? all.filter((i) => asked.has(`${before.id}:${i}`)) : all;
+    const out = new Set(mine.filter((i) => rejected.has(`${before.id}:${i}`)));
+    const confirming = mine.filter((i) => !out.has(i)
       && slotStatus(before, before.slots[i]) === 'pending_confirm');
-    if (confirming.length) settled.push({ before, after: applyConfirmation(before, out) });
+    if (confirming.length) {
+      settled.push({ before, after: applyConfirmation(before, out, undefined, asked ? new Set(mine) : null) });
+    }
   }
 
   const later = new Set();
@@ -264,36 +270,50 @@ export function confirmConsequences(
  * 沒有健檢就不要說「會多一張追蹤健檢報告」。講一件不會發生的事，
  * 比沒講還糟（那正是她說看不懂的那幾句的毛病）。
  *
+ * **照段講**（2026-09-24，ADR-0110）：她可以先結幾段、其餘留著。以前這裡照整天講
+ * （「日曆上這一天改成已完成」「會多一張寫紀錄」）—— 營養諮詢沒來、SIS 做了時
+ * 也說會多一張寫紀錄。「這一天改成…」只在最後一段也結掉時才講，
+ * 結果走 `closeVisit()` 算（跟真的會寫下去的是同一支，ADR-0070）。
+ *
  * @param {object} o
  * @param {object} o.visit 那一筆來訪
- * @param {number} o.doneCount 逐段勾完之後，算「做了」的有幾段
+ * @param {(boolean|null)[]} o.picks 逐段：`true` 做了、`false` 沒來、`null` 先不結（`closeVisit()` 收的那一份）
  * @param {object[]} o.entitlements 這位客戶的額度（要判斷有沒有健檢配二返）
  * @param {Record<string, object>} o.coursesById
  * @param {boolean} [o.sheetSyncOn]
  * @returns {string[]}
  */
 export function closeConsequences({
-  visit, doneCount, entitlements = [], coursesById = {}, sheetSyncOn = false,
+  visit, picks = [], entitlements = [], coursesById = {}, sheetSyncOn = false,
 }) {
   const lines = [];
+  const open = slotsToClose(visit).map(({ index }) => index);
+  const done = open.filter((i) => picks[i] === true);
+  const missed = open.filter((i) => picks[i] === false);
+  const left = open.length - done.length - missed.length;
 
-  if (doneCount) {
-    lines.push(`日曆上這一天改成「${shortStatus('done')}」，做了的那 ${doneCount} 段扣掉次數`);
-  } else {
-    lines.push(`日曆上這一天改成「${shortStatus('no_show')}」，次數不扣`);
+  if (done.length) lines.push(`做了的 ${done.length} 段扣掉次數`);
+  if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
+  if (left) {
+    lines.push(`還有 ${left} 段先不結，留在這裡`);
+  } else if (done.length || missed.length) {
+    const after = closeVisit(visit, picks);
+    lines.push(`日曆上這一天改成「${shortStatus(after.status)}」`);
   }
 
+  const slots = visit?.slots ?? [];
   // 健檢結案才長「追蹤健檢報告」（ADR-0042：報告要兩三週，報告沒到就不可能約）。
-  // 判斷走 `pairsOf()` —— 這一頁不認課程名字。
-  if (doneCount && hasCheckupSlot(visit, entitlements, coursesById)) {
+  // 判斷走 `pairsOf()` —— 這一頁不認課程名字。**問打勾的那幾段**（ADR-0112）
+  const sources = checkupSources(entitlements, coursesById);
+  if (done.some((i) => sources.has(slots[i]?.entitlementId))) {
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
   }
 
   // 二返與營養師諮詢那一種：客人走了之後要去補一份文字紀錄（ADR-0066）。
   // 判斷走課程主檔上的那個勾，跟「要不要簽療程單」同一種做法。
-  // **只在真的有做的時候講** —— 沒來就沒有紀錄要寫，而
-  // `recordTasksForVisit()` 也真的不會長出來。
-  if (doneCount && (visit?.slots ?? []).some((sl) => coursesById[sl.courseId]?.needsRecord)) {
+  // **只講打勾的那幾段**（ADR-0112）—— 沒來就沒有紀錄要寫，而
+  // `recordTasksForVisit()` 也真的不會為它長出來。
+  if (done.some((i) => coursesById[slots[i]?.courseId]?.needsRecord)) {
     lines.push(`待辦會多一張「${RECORD_TASK_KIND}」—— 客人走了之後要補的那一份`);
   }
 
@@ -301,12 +321,11 @@ export function closeConsequences({
   return lines;
 }
 
-/** 這一筆來訪裡有沒有一段是「做完之後還要再約一次」的健檢。 */
-function hasCheckupSlot(visit, entitlements, coursesById) {
-  const sources = new Set(
+/** 「做完之後還要再約一次」的那幾筆健檢額度（配得到二返的）。 */
+function checkupSources(entitlements, coursesById) {
+  return new Set(
     pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id),
   );
-  return (visit?.slots ?? []).some((s) => sources.has(s.entitlementId));
 }
 
 // ---------- 反過來：拿回來、取消 ----------

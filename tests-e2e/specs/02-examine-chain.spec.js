@@ -51,7 +51,8 @@ async function closeExam(app, page) {
   await app.go('/todo/close');
   await expect(page.locator('#view')).toContainText('客戶B');
   await page.locator('[data-open="visit-b-exam1"]').click();
-  await expect(page.locator('[data-apply]')).toBeVisible();
+  await app.tickAll();
+  await expect(page.locator('[data-apply]')).toBeEnabled();
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(1800);
 }

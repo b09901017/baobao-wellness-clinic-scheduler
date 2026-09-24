@@ -116,6 +116,8 @@ test('J-A9+A10 確認 → confirmed，而且這時候才長出登記任務', asy
 
   // 打勾 → 抽屜把所有時段攤開
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   const drawer = await page.locator('.drawer').innerText();
   console.log('[J-A9] 確認抽屜 =\n' + drawer);
@@ -173,6 +175,8 @@ test('J-A10b A 類（門診）確認後才長出 Examine 與耀聖', async ({ ap
 
   await app.go('/todo/confirm');
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2500);
@@ -194,6 +198,8 @@ test('J-A11 確認之後日曆、客戶詳情、進度追蹤三處同時變成�
 
   await app.go('/todo/confirm');
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2500);

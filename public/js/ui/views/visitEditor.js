@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
-  INITIAL_STATUS, describeStatus, statusClass, statusForCard, isLocked, validateVisit,
+  INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit, canCancelSlot,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, NOTE_MAX,
@@ -260,7 +260,6 @@ function leave(ctx) {
 
 function paint(ctx, draft) {
   const { el, customer, entitlements, all, customerVisits, sameDayVisits, isNewDoc, embedded } = ctx;
-  const locked = isLocked(draft.status) && !ctx.unlockReason;
   // 整筆都在畫面上嗎。`editSlots` 有值就代表只畫了其中幾段。
   //
   // 2026-09-12 起它只剩一個用途：**日期那一格給不給改**。整筆的狀態卡與
@@ -279,6 +278,9 @@ function paint(ctx, draft) {
   // —— 那時候「這一段」沒有答案，挑一個就是在猜。
   const headSlot = ctx.editSlots?.length === 1 ? ctx.editSlots[0] : null;
   const headStatus = statusForCard(draft, headSlot);
+  // **鎖也問那一段**（`lockedAt()`）：一段已完成、一段已確認時整筆是已確認，
+  // 問整筆的話已完成那一段不用填更正理由就改得動
+  const locked = lockedAt(draft, headSlot) && !ctx.unlockReason;
 
   const { errors } = validateVisit(draft, {
     customer,
@@ -624,6 +626,9 @@ function slotXButton(ctx, draft, slot, i) {
   // 連存都還沒存過（× 是移除）。問 `ctx.isNew` 的話後者會走進取消那條路，
   // 而 `applyStatus()` 會替一段從來不存在的時段長出一張「取消 Abovee」。
   const stored = i < (ctx.storedSlotCount ?? 0);
+  // 存過的那一段要**取消得掉**才給（`canCancelSlot()`）—— 未到、已完成的是已經發生的事
+  //（ADR-0111），審查抓到那顆 × 以前只問「是不是已經取消了」
+  if (stored && !canCancelSlot(draft, i)) return '';
   const [attr, label] = stored
     ? ['data-cancel-slot', `取消第 ${i + 1} 段`]
     : ['data-del-slot', `移除第 ${i + 1} 段`];

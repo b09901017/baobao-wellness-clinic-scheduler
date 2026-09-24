@@ -1156,7 +1156,8 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     return;
   }
   const fresh = customerVisits.find((v) => v.id === visit.id);
-  if (!fresh || !visitActions(fresh, { today: todayISO(), slotIndex }).some((i) => i.id === action)) {
+  const picked = fresh && visitActions(fresh, { today: todayISO(), slotIndex }).find((i) => i.id === action);
+  if (!picked) {
     toast.info(`${Number.isInteger(slotIndex) ? '這一段' : '這一天'}剛剛在別的地方改過了，換成最新的樣子`);
     await refreshAfterAction(el, backDate);
     return;
@@ -1210,7 +1211,11 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    const next = applyStatus(fresh, onlyOne ? 'cancelled' : action, {
+    //
+    // 要換成哪一個狀態**由那一顆自己帶著**（`visitActions()` 的 `to`）——「退回簽療程單」
+    // 寫進去的是已確認（ADR-0111），而它的 id 不是一個狀態。
+    const { to } = picked;
+    const next = applyStatus(fresh, to, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,
     });
@@ -1223,7 +1228,9 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       // 而她剛剛按的那一列也只有那一段。認不出是哪一段的那條路才是整天。
       success: onlyOne
         ? '這一段取消了'
-        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}改成「${describeStatus(action)}」`,
+        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}${action === 'reopen'
+          ? '退回簽療程單了'
+          : `改成「${describeStatus(to)}」`}`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);

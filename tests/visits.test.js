@@ -360,10 +360,12 @@ describe('收尾：簽療程單', () => {
       assert.equal(next.status, 'no_show');
     });
 
-    test('少傳的那幾段當成有做，不要無聲扣掉她的次數', () => {
+    // 2026-09-24（ADR-0110）起反過來：沒問到的就是「先不結」，一個字都不動。
+    // 以前補成有做 —— 畫面上沒問到的那一段被替她決定了、還扣了次數。
+    test('少傳的那幾段不動 —— 畫面上沒問到的不替她決定', () => {
       const next = closeVisit(visit(), [], 'T');
-      assert.equal(next.status, 'done');
-      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+      assert.equal(next.status, 'confirmed');
+      assert.deepEqual(next.slots.map((s) => s.attended), [undefined, undefined]);
     });
 
     test('其餘欄位原封不動，時段的內容也不動', () => {
@@ -1756,21 +1758,20 @@ describe('長按一列說「客戶已確認」，確認的是那一段（ADR-009
   });
 
   // 客人做了一段就走（ADR-0025）：`closeVisit()` 之後第 1 段是 no_show、整筆是 done。
-  // no_show → confirmed／cancelled 是**那一段自己**准的轉移，但整筆已經是唯讀鎖定區
-  // （SPEC 第 6.4 節）—— 2026-09-16 之前這裡一顆都沒有，按下「客戶說可以」
-  // 會把已完成的那一天退回已確認，而且不用填更正理由。
-  test('結案的那一天（一段做了、一段沒做），長按沒做的那一段一顆狀態都不給', () => {
+  // 2026-09-16 的 issue 14 在這裡一顆都不給：那時候那一顆是「客戶說可以」，按下去會把
+  // 已完成的那一天退回已確認、不用填更正理由。**2026-09-24 起（ADR-0111）未到那一段只有
+  // 「退回簽療程單」**，而且只動它自己 —— 已完成那一段照樣鎖著、次數照樣扣著。
+  test('結案的那一天（一段做了、一段沒做）：沒做的那一段只能退回簽療程單，做了的那一段一顆都沒有', () => {
     const v = settled('done', 'no_show');
     assert.equal(v.status, 'done', '整筆是已完成');
-    assert.deepEqual(ids(v, 1), []);
+    assert.deepEqual(ids(v, 1), ['reopen']);
     assert.deepEqual(ids(v, 0), []);
   });
 
-  test('整天都沒到的那一天照舊給（跟 2026-09-16 之前一樣）', () => {
+  test('整天都沒到的那一天：不是「客戶說可以」，是「退回簽療程單」（ADR-0111）', () => {
     const v = settled('no_show', 'no_show');
     assert.equal(v.status, 'no_show');
-    assert.ok(ids(v, 0).includes('confirmed'));
-    assert.ok(ids(v, 0).includes('cancel-slot'));
+    assert.deepEqual(ids(v, 0), ['reopen']);
   });
 
   test('沒帶哪一段時維持整筆的判斷', () => {
@@ -1885,7 +1886,9 @@ describe('客人回覆之後那一筆長什麼樣（applyConfirmation）', () =>
   test('只動抽屜上問過的那幾段 —— 別台剛接在後面的那一段照舊待確認（issue 19）', () => {
     // 抽屜打開時只有前兩段；套的是剛讀回來的那一份，第三段是另一台在那之後加的
     const next = applyConfirmation(v(), new Set([1]), 'T', new Set([0, 1]));
-    assert.deepEqual(next.slots.map((s) => s.status), ['confirmed', 'cancelled', undefined]);
+    // 第三段沒被問到：它原本（整筆推出來）就是待確認，動手之前先補齊的也是這個
+    //（`.scratch/asks-2026-09-24/issues/01`）
+    assert.deepEqual(next.slots.map((s) => s.status), ['confirmed', 'cancelled', 'pending_confirm']);
     assert.equal(next.status, 'pending_confirm', '還有一段沒問過，整筆停在待確認');
   });
 
@@ -1951,10 +1954,10 @@ describe('哪幾段取消得掉（批次取消專區）', () => {
     // 有一份會准一個狀態機不准的轉移，而 Rules 不擋狀態機（ADR-0006）。
     //
     // 已完成是終點（`TRANSITIONS.done` 是空的），所以不給。
-    // **未到給** —— `TRANSITIONS.no_show` 是 `['confirmed', 'cancelled']`，
-    // 那是刻意的一條回頭路（她標錯了、或那一天後來整個取消掉）。
+    // **未到也不給**（2026-09-24，ADR-0111）：`TRANSITIONS.no_show` 只剩 `['confirmed']`
+    // —— 人沒來是已經發生的事；真的要取消，先退回簽療程單再取消。
     assert.deepEqual(cancellableSlots(v('done', [{ startsAt: '10:30' }])), []);
-    assert.equal(cancellableSlots(v('no_show', [{ startsAt: '10:30' }])).length, 1);
+    assert.deepEqual(cancellableSlots(v('no_show', [{ startsAt: '10:30' }])), []);
   });
 
   test('整筆已經取消的也選不起來', () => {

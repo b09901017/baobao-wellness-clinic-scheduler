@@ -16,9 +16,11 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+// 循環 import（followups → taskRules → visits）：兩邊都只在函式裡用，模組載入時不碰
+import { examDoneIn } from './followups.js';
 import { slotName } from './naming.js';
 import {
-  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
+  isNthSlot, nthOf, nthLabel, examEntitlementIds,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
@@ -131,10 +133,16 @@ export function shortStatus(status) {
 
 // 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 10），所以 cancelled 是終點。
 // done 也是終點，要改必須走更正流程（SPEC 第 6.4 節）。
+//
+// **未到只剩一條回頭路：退回去重新結案**（ADR-0111）。她 2026-09-24：「未到可以改成
+// 退回簽療程單之類的，或可以改成其實有到這樣」。`no_show → confirmed` 就是那一條 ——
+// 那一段回到簽療程單的清單上，「其實有到」在那裡打勾。長按選單上它叫「退回簽療程單」，
+// **不叫「客戶說可以」**（那是給還沒問過客人的段的）。
+// `no_show → cancelled` 2026-09-24 拿掉了：人沒來是已經發生的事；真的要取消，先退回再取消。
 const TRANSITIONS = {
   pending_confirm: ['confirmed', 'done', 'no_show', 'cancelled'],
   confirmed: ['done', 'no_show', 'cancelled'],
-  no_show: ['confirmed', 'cancelled'],
+  no_show: ['confirmed'],
   done: [],
   cancelled: [],
 };
@@ -155,6 +163,17 @@ export function canTransition(from, to) {
 /** 已完成的來訪是唯讀鎖定區，要改必須填理由走更正流程。SPEC 第 6.4 節。 */
 export function isLocked(status) {
   return status === 'done';
+}
+
+/**
+ * 她正在改的那一段鎖著嗎。**問那一段，不問整筆**（2026-09-24，`.scratch/asks-2026-09-24/issues/03`）。
+ *
+ * 整筆的狀態是推導的：一段已完成、一段已確認時整筆是已確認 —— 以前問整筆，
+ * 已完成那一段照樣改得動、不用填更正理由；而逐段結案（ADR-0110）之後
+ * 「一天只結一半」是常態。沒指名哪一段（網址那條整天的路）照整筆。
+ */
+export function lockedAt(visit, slotIndex = null) {
+  return isLocked(statusForCard(visit, slotIndex));
 }
 
 /**
@@ -382,6 +401,9 @@ export function rebookSlot(before, index, next) {
  * 日子還沒到的不列 —— 客人還沒來就不可能勾。
  * `pending_confirm` 也列：那天已經過了卻還沒問過客人，那更需要收尾。
  *
+ * **一段還開著就還在**（ADR-0110）：她可以先結幾段、其餘留著，整筆那個推導出來的
+ * 狀態會停在已確認（`visitStatusFrom()`）直到最後一段結掉。
+ *
  * @returns {object[]} 日期舊的排前面（拖最久的最上面）
  */
 export function visitsToClose(visits = [], today) {
@@ -389,10 +411,31 @@ export function visitsToClose(visits = [], today) {
     .filter((v) => !v.deletedAt
       && (v.status === 'confirmed' || v.status === 'pending_confirm')
       && isValidDate(v.date)
-      && v.date <= today)
+      && v.date <= today
+      && slotsToClose(v).length)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date)
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
+}
+
+/** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。 */
+const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
+
+/**
+ * 簽療程單那一頁要列哪幾段。**只有還開著的段**（ADR-0110）。
+ *
+ * 她 2026-09-24：「而且我發現已經取消的還可以簽療程單?」—— 以前卡片與抽屜列的是
+ * `visit.slots` 全部：取消掉的、**已經結案的**都在，而且預設「做了」。一天一段已經未到、
+ * 一段還已確認時那天回到清單上，按下去未到那段被蓋成已完成、扣次數。
+ *
+ * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
+ *   呼叫端拿它去組 `closeVisit()` 的 `attended`，重編號的話會記到別段
+ */
+export function slotsToClose(visit) {
+  if (!visit || visit.deletedAt) return [];
+  return (visit.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => isOpenStatus(slotStatus(visit, slot)));
 }
 
 /**
@@ -639,6 +682,8 @@ export function visitStatusFrom(visit) {
  */
 function stampSlot(slot, to) {
   if (to !== 'cancelled' && slot?.status === 'cancelled') return slot;
+  // 退回還開著（未到 → 已確認）時「沒做」那一格一起清掉，同逐段那一條路
+  if (to === 'pending_confirm' || to === 'confirmed') return { ...slot, status: to, attended: null };
   return { ...slot, status: to };
 }
 
@@ -678,17 +723,26 @@ export function visitsToConfirm(visits = [], today) {
  * 會變成「確認 1 段」按下去、卡片寫「已確認 2 段」；而早就取消掉的那一段
  * 列進來是在說一段不會發生的已經確認了。
  *
+ * **沒按的那幾段不算**（2026-09-24，ADR-0110）：`asked` 給了就只講有按的，其餘數成 `waiting`
+ * （還沒回，留在清單上）。沒給＝每一段都問過了（跟以前一樣）。
+ *
  * @param {object[]} visits 這位客戶還在等回覆的那幾筆（寫入之前的）
  * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
- * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
+ * @param {Set<string>|null} [asked] 有按 ✓ 或 ✗ 的那幾段，key 同上
+ * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number, waiting: number}}
  */
-export function describeConfirmed(visits = [], rejected = new Set()) {
+export function describeConfirmed(visits = [], rejected = new Set(), asked = null) {
   const rows = [];
   let dropped = 0;
+  let waiting = 0;
 
   for (const v of visits ?? []) {
     (v.slots ?? []).forEach((slot, i) => {
       if (slotStatus(v, slot) !== 'pending_confirm') return;
+      if (asked && !asked.has(`${v.id}:${i}`)) {
+        waiting += 1;
+        return;
+      }
       if (rejected.has(`${v.id}:${i}`)) {
         dropped += 1;
         return;
@@ -704,6 +758,7 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
     name: (visits ?? []).find((v) => v.customerName)?.customerName ?? '',
     rows,
     rejected: dropped,
+    waiting,
   };
 }
 
@@ -740,6 +795,20 @@ export function withSlotStatuses(visit) {
     : { ...slot, status: slotStatus(visit, slot) ?? visit?.status ?? INITIAL_STATUS }));
   return { ...visit, slots };
 }
+
+/**
+ * 改狀態之前先把每一段的狀態補齊。**三支轉移的入口都先過這一支**
+ * （`applyStatus()`、`applyConfirmation()`、`closeVisit()`）。
+ *
+ * 她 2026-09-24：「一旦把這段改成客戶以確認 整天的未到還有其他的都會變成客戶已確認？
+ * 但好像只有有時候會這樣？」—— 「有時候」就是時段身上沒有自己 status 的那幾筆
+ * （2026-09-08 之前建、之後沒再存過的）。那時候沒被動到的段靠整筆推，而 `save()`
+ * 補空格是在**改完之後**（`withSlotStatuses()`）：整筆已經被推成已確認了，
+ * 另外兩段就一起被補成已確認。先補再改，補的就是它們原本的樣子。
+ *
+ * 新形狀的資料每一段都有 status，這一支原封不動（`withSlotStatuses()` 只補空的）。
+ */
+const materialize = (visit) => (visit ? withSlotStatuses(visit) : visit);
 
 /**
  * 這一段要顯示哪一句話。**讀法只有這一支。**
@@ -823,24 +892,27 @@ export function withSlotNotes(visit) {
 export function applyConfirmation(
   visit, rejected = new Set(), at = new Date().toISOString(), asked = null,
 ) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const slots = (materialize(visit)?.slots ?? []).map((slot, i) => {
     // 之前就取消掉的維持取消 —— 確認救不回一個已經定案的決定
     if (slot?.status === 'cancelled') return slot;
     if (asked && !asked.has(i)) return slot;
     return { ...slot, status: rejected.has(i) ? 'cancelled' : 'confirmed' };
   });
 
+  const status = visitStatusFrom({ ...visit, slots }) ?? visit?.status ?? null;
   const next = {
     ...visit,
     slots,
     // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
     // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
-    followupNote: null,
-    followupAt: null,
+    //
+    // **還有段在等時留著**（2026-09-24，ADR-0110）：她可以先確認幾段、其餘還沒回，
+    // 那一句講的正是還沒回的那幾段 —— 以前一定是整批走出去，所以一律清掉。
+    ...(status === 'pending_confirm' ? {} : { followupNote: null, followupAt: null }),
     statusAt: at,
   };
 
-  const status = visitStatusFrom(next) ?? visit?.status ?? null;
   if (status === 'cancelled') {
     return {
       ...next,
@@ -868,34 +940,43 @@ export function applyConfirmation(
  * 一次來訪一定至少有一個時段（`validateVisit()` 與 `firestore.rules` 兩層都擋），
  * 所以不會出現「沒有時段可以勾，於是被當成未到」的情況。
  *
+ * ## 一段一段來（2026-09-24，ADR-0110）
+ *
+ * 她：「預設先不結做了打勾未到打叉」。所以 `attended[i]` 只有 `true`／`false` 才動那一段，
+ * **`null` 或沒給＝先不結，一個字都不動**。以前少傳的補成「有做」—— 畫面上沒問到的
+ * 那一段被替她決定了、還扣了次數；現在沒問到的就是沒決定。
+ *
+ * **已經結案或取消的那一段永遠不動**（R2）：一天一段已經未到、一段還已確認時，
+ * 這一支以前會把未到那段蓋成已完成。
+ *
+ * 整筆的狀態走 `visitStatusFrom()` 推：一段做了、一段還開著 → 已確認（那一天留在
+ * 簽療程單的清單上）；全部結掉 → 有一段做了就是已完成，一段都沒做就是未到。
+ *
  * @param {object} visit
- * @param {boolean[]} attended 逐段：這一段做了沒。長度不足的補成有做 ——
- *   少傳的那幾段是「畫面上沒問到」，當成沒做會無聲扣掉她的次數。
+ * @param {(boolean|null)[]} attended 逐段：`true` 做了、`false` 沒來、`null` 先不結
  * @param {string} at ISO 時間
  */
 export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
-    // **取消掉的那一段不參與收尾** —— 那天它本來就不會發生（ADR-0081）。
-    // 蓋過去的話它會被算成「沒來」，而未到是會被她看到的一個數字。
-    if (slot?.status === 'cancelled') return slot;
-    const did = attended[i] ?? true;
+  // 動手之前先補齊（`materialize()` 的說明）
+  const base = materialize(visit);
+  let touched = false;
+  const slots = (base?.slots ?? []).map((slot, i) => {
+    const did = attended[i];
+    if (did !== true && did !== false) return slot;
+    // 取消的、已經結案的不動 —— 取消掉的那一段那天本來就不會發生（ADR-0081），
+    // 蓋過去的話它會被算成「沒來」
+    if (!isOpenStatus(slotStatus(base, slot))) return slot;
+    touched = true;
     // 兩個欄位一起寫：`attended` 是 ADR-0025 的，既有資料與對帳讀它；
     // `status` 是 ADR-0081 的。少寫一邊就會有一個畫面講另一句話。
     return { ...slot, attended: did, status: did ? 'done' : 'no_show' };
   });
 
-  const live = slots.filter((s) => s?.status !== 'cancelled');
-  // 每一段都先取消掉了才走到這裡：那一天就是取消，不是未到
-  if (!live.length) return { ...visit, slots, status: 'cancelled', statusAt: at };
-
-  const anyAttended = live.some((s) => s.attended);
-
-  return {
-    ...visit,
-    slots,
-    status: anyAttended ? 'done' : 'no_show',
-    statusAt: at,
-  };
+  const next = { ...base, slots };
+  const status = visitStatusFrom(next) ?? base?.status ?? null;
+  if (!touched && status === base?.status) return visit;
+  // 整筆沒變就不蓋時間戳（同 `settle()`）：只結一半時整筆還是已確認，那一刻沒有狀態轉換
+  return status === base?.status ? { ...next, status } : { ...next, status, statusAt: at };
 }
 
 // ---------- 換一個狀態 ----------
@@ -918,8 +999,10 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
 export function applyStatus(
-  visit, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
+  original, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
 ) {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const visit = materialize(original);
   const slots = visit?.slots ?? [];
 
   // ---------- 只動一段（ADR-0081） ----------
@@ -935,9 +1018,16 @@ export function applyStatus(
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
   // 兩種錯法的代價差很多。
   if (Number.isInteger(slotIndex)) {
-    if (!slots[slotIndex]) return visit;
+    // 指到一個不存在的段落、或那一段自己不准這個轉移（狀態機只有這一道門，ADR-0006）：
+    // 什麼都不做
+    if (!slots[slotIndex] || !canTransition(slotStatus(visit, slots[slotIndex]), to)) return original;
+    // 退回簽療程單（未到 → 已確認，ADR-0111）時「沒做」那一格一起清掉 ——
+    // 那一段現在還沒結案，留著 `attended: false` 就是一句過期的話
+    const reopened = (s) => (to === 'pending_confirm' || to === 'confirmed'
+      ? { ...s, status: to, attended: null }
+      : { ...s, status: to });
     return settle(
-      { ...visit, slots: slots.map((s, i) => (i === slotIndex ? { ...s, status: to } : s)) },
+      { ...visit, slots: slots.map((s, i) => (i === slotIndex ? reopened(s) : s)) },
       { at, reason },
     );
   }
@@ -992,53 +1082,39 @@ function settle(visit, { at, reason = null }) {
  *
  * @param {object} visit
  * @param {{today: string}} o
- * @returns {{id:string, label:string, icon?:string, tone?:string}[]}
+ * @returns {{id:string, to?:string, label:string, icon?:string, tone?:string}[]}
+ *   `to` 是那一顆要換成哪一個狀態（改狀態的那幾顆才有）—— 「退回簽療程單」的 id 不是狀態，
+ *   畫面自己對應的話就是第二份清單
  */
 export function visitActions(visit, { today, slotIndex = null } = {}) {
-  const next = nextStatuses(visit?.status);
   const out = [];
 
-  // **她長按的是一列，而一列就是一段**（ADR-0081）。以前這裡有兩顆：
-  // 「取消這一段」與「取消一整天（N 段）」。
-  //
-  // **整天那一顆 2026-09-12 拿掉了**（ADR-0089）。她的原話：「也不要取消
-  // 一整天，畢竟如果我真的要取消一整天，我可以從壓表那邊刪」——
-  // 那條路是批次取消（ADR-0082），而它本來就是為了這件事開的門。
-  //
-  // 所以只剩一顆，而且**不再問「那一天有幾段」**：一天只有一段時，
-  // 取消那一段就是取消那一天（最後一段取消掉時 `settle()` 會把整筆推成
-  // cancelled，`cancelledAt` 與 `released` 都設得對）。少了這一句的話，
-  // 單段那一天會變成一顆取消都沒有。
+  // **她長按的是一列，而一列就是一段**（ADR-0081）。整天那幾顆 2026-09-12 拿掉了
+  // （ADR-0089：「如果我真的要取消一整天，我可以從壓表那邊刪」）。
   const slots = visit?.slots ?? [];
   const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
 
-  // **狀態那幾顆問的是她長按的那一段**（ADR-0097）。她 2026-09-16：
-  // 「能不能我那個時段說確認就那個時段確認就好」。
+  // **每一顆都問她長按的那一段**（ADR-0097 起確認這一族，2026-09-24 起全部，ADR-0111）。
+  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），拿它問會答錯：
+  //   - 一段已經談定、另一段還沒問時整筆是「待確認」→ 談定那一段身上長出「客戶說可以」
+  //   - 一段取消、一段已確認、日子過了 → 長按取消的那一段還有「去簽療程單」「改這一段」
+  //     （她 2026-09-24：「而且我發現已經取消的還可以簽療程單?」）
   //
-  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），所以拿它問「這一段
-  // 能不能確認」會答錯兩次：一段已經談定、另一段還沒問時整筆是「待確認」，
-  // 於是**談定那一段身上也長出一顆「客戶說可以」**；而一段已完成、另一段還在
-  // 等回覆時整筆也是「待確認」，那一顆會出現在一個 `TRANSITIONS` 不准的轉移上。
+  // **整筆那一層交集 2026-09-24 拿掉了。** 它擋的是「客人做了一段就走的那一天（整筆已完成），
+  // 長按沒做的那一段按下去會把已完成的那一天退回已確認」。現在那一段唯一的一顆是
+  // 「退回簽療程單」而且只動它自己：已完成那一段原封不動、照樣鎖著（`isLocked()` 問那一段），
+  // 次數照樣扣著 —— 那正是她要的「其實有到」的那條路。
   //
   // 認不出是哪一段時退回整筆 —— `visitActions()` 是匯出的，而沒有 `slotIndex`
   // 的呼叫端問的本來就是那一天。
-  //
-  // **兩層都要准**（同 `cancellableSlots()`）：那一段自己准、**整筆也准**。
-  // 只問那一段的話，客人做了一段就走的那一天（一段已完成、一段未到，整筆
-  // 已完成）長按沒做的那一段會長出「客戶說可以」與「取消這一段」——
-  // `no_show` 自己准那兩個轉移，但整筆已經是唯讀鎖定區（SPEC 第 6.4 節），
-  // 按下去會把已完成的那一天退回已確認，而且不用填更正理由。
-  const ownNext = one
-    ? nextStatuses(slotStatus(visit, one)).filter((to) => next.includes(to))
-    : next;
+  const own = one ? slotStatus(visit, one) : visit?.status;
+  const next = nextStatuses(own);
+  const open = isOpenStatus(own);
 
-  // 取消那一顆也走同一份（`nextStatuses('cancelled')` 是空的，所以
-  // 「已經取消掉的那一段不再給」是它自己就答得出來的，不用再比一次 `status`）。
-  const canCancelOne = Boolean(one) && ownNext.includes('cancelled');
-
-  if (ownNext.includes('confirmed')) {
+  if (own === 'pending_confirm') {
     out.push({
       id: 'confirmed',
+      to: 'confirmed',
       label: '客戶說可以',
       note: `改成「${describeStatus('confirmed')}」`,
       icon: 'check',
@@ -1046,10 +1122,22 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     });
   }
 
-  // 日子到了才有。還沒到的那一筆點進去只會看到一張空的收尾抽屜
-  // （`visitsToClose()` 撈的是 `date <= today`）。
-  if (today && typeof visit?.date === 'string' && visit.date <= today
-      && (visit.status === 'pending_confirm' || visit.status === 'confirmed')) {
+  // **未到只剩一條回頭路**（ADR-0111）：退回去重新結案。「其實有到」在簽療程單那邊打勾。
+  // 它寫進去的是 `confirmed`（`TRANSITIONS.no_show`），但**不叫「客戶說可以」**——
+  // 客人早就說過可以了，那一天也過了，她要做的是重新記一次那一段有沒有做。
+  if (own === 'no_show' && next.includes('confirmed')) {
+    out.push({
+      id: 'reopen',
+      to: 'confirmed',
+      label: '退回簽療程單',
+      note: '重新記這一段有沒有來',
+      icon: 'todo',
+    });
+  }
+
+  // 日子到了、而且**那一段還開著**才有。還沒到的點進去只會看到一張空的收尾抽屜
+  // （`visitsToClose()` 撈的是 `date <= today`）；已經結案或取消的那一段在抽屜上本來就不列。
+  if (today && typeof visit?.date === 'string' && visit.date <= today && open) {
     out.push({
       id: 'close',
       label: '客人來了，去簽療程單',
@@ -1058,17 +1146,18 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     });
   }
 
-  if (!isLocked(visit?.status) && visit?.status !== 'cancelled' && one) {
-    // **改得動的只有一段**（ADR-0089）。以前沒帶 slotIndex 時這一顆是
-    // 「改這一天」，開的是整天那一張（日期、狀態卡、刪除）——
-    // 那一張 2026-09-12 整個收掉了，所以認不出是哪一段時就不給這一顆。
+  // **改得動的只有一段**（ADR-0089），而且那一段要還開著。已完成那一段鎖著
+  // （SPEC 第 6.4 節，要改走讀取卡片的鉛筆＋更正理由）；取消的是終點；未到先退回。
+  if (one && open) {
     out.push({ id: 'edit', label: '改這一段', icon: 'pencil' });
   }
 
-  // 最常按的在最上面（這一支既有的規矩）：她點的就是這一段
-  if (canCancelOne) {
+  // 一天只有一段時照樣給 —— 取消那一段就是取消那一天（`settle()` 會把整筆推成
+  // cancelled）。少了這一顆，單段那一天會一顆取消都沒有。
+  if (one && canCancelSlot(visit, slotIndex)) {
     out.push({
       id: 'cancel-slot',
+      to: 'cancelled',
       label: '取消這一段',
       // 那一天只有一段時就別說「剩下的」—— 沒有剩下的。
       // **走 `liveSlots()`**：「哪幾段還算數」全站只有那一支（`isLiveSlot()` 的
@@ -1093,18 +1182,31 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
  *
  *   整筆   `canTransition(visit.status, 'cancelled')` —— 已完成、未到、
  *          已取消的那一天已經發生過了，不給
- *   逐段   已經取消掉的那一段不再給（ADR-0081：那是終點）
+ *   逐段   **那一段自己還開著**（待確認／已確認）。取消的是終點（ADR-0081）；
+ *          已完成、未到的是已經發生的事 —— 整天已確認裡面一段已經未到的，
+ *          2026-09-24 之前會出現在這一頁的清單上（ADR-0111）
  *
  * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
  *   呼叫端拿它去 `applyStatus(v, 'cancelled', { slotIndex })`，
  *   濾掉之後重編號的話會取消到別段。
  */
 export function cancellableSlots(visit) {
-  if (!visit || visit.deletedAt) return [];
-  if (!canTransition(visit.status, 'cancelled')) return [];
-  return (visit.slots ?? [])
+  return (visit?.slots ?? [])
     .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => isLiveSlot(slot));
+    .filter(({ index }) => canCancelSlot(visit, index));
+}
+
+/**
+ * 這一段現在取消得掉嗎。**批次取消、長按選單、來訪編輯器那顆 × 都問這一支**，
+ * `applyStatus()` 自己也問一次（Rules 不擋狀態機，ADR-0006）。
+ *
+ * 審查抓到的：未到那一段從編輯器的 × 還取消得掉 —— 那顆 × 只問「是不是已經取消了」，
+ * 而 `applyStatus()` 以前不看轉移准不准（ADR-0111：人沒來是已經發生的事）。
+ */
+export function canCancelSlot(visit, index) {
+  const slot = visit?.slots?.[index];
+  if (!slot || visit.deletedAt) return false;
+  return canTransition(visit.status, 'cancelled') && canTransition(slotStatus(visit, slot), 'cancelled');
 }
 
 /**
@@ -1439,7 +1541,9 @@ function visitErrors(visit, {
       }
       // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
       // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
-      else if (nth && !(exam.status === 'done' && isExamVisit(exam, examIds))) {
+      // **問健檢那一段**（`examDoneIn()`，ADR-0112）—— 跟候選清單同一支，
+      // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
+      else if (nth && !examDoneIn(exam, examIds)) {
         errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
       }
     } else if (nth) {

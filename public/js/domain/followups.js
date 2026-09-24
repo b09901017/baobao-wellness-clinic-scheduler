@@ -23,7 +23,7 @@
 //
 // 決定與理由見 docs/adr/0022-followup-entitlements-are-expanded-in-pairs.md。
 
-import { counts } from './entitlements.js';
+import { counts, slotOutcome } from './entitlements.js';
 import { addDays, dayOf, shortDate } from './dates.js';
 // 循環 import（taskRules.js 也 import 這一支的常數）：兩邊都只在函式裡用，模組載入時不碰
 import { seenTasks } from './taskRules.js';
@@ -263,15 +263,54 @@ export function owed(pair, visits = []) {
   return Math.max(0, Math.min(doneCheckups, c.total) - accounted);
 }
 
-/** 已完成、而且用掉這一筆額度的來訪，日期新的在前。 */
+/**
+ * 這一筆來訪裡，**用這一筆額度的那一段做完了**（ADR-0112）。
+ *
+ * 以前問整筆 `status === 'done'`：健檢那一段取消了、同一天 SIS 做了時整筆是已完成，
+ * 那次被取消的健檢照樣能被二返接上、照樣長追蹤健檢報告（她 2026-09-24：「健檢被取消後
+ * 二返還可以連結到那次被取消的健檢?」）。反過來，健檢那一段先結了、同一天別段還開著時
+ * 整筆是已確認（ADR-0110），追蹤健檢報告就不長。
+ *
+ * 「做完了」走 `slotOutcome()`（次數也是它算的，ADR-0025），不自己比 `slot.status`。
+ */
+export function usedAndDone(visit, entitlementId) {
+  return Boolean(visit && !visit.deletedAt)
+    && (visit.slots ?? []).some(
+      (s) => s?.entitlementId === entitlementId && slotOutcome(visit, s) === 'done',
+    );
+}
+
+/**
+ * 這一段（一場二返或 n返）**佔著**它指的那一次健檢嗎：待確認、已確認、已完成才算（ADR-0112）。
+ *
+ * - 取消的不佔 —— 那一場沒發生，那一次健檢要放回去讓人重新約
+ * - **未到的也不佔** —— 人沒來，要重約一場接回同一次健檢。算它佔著的話，那一次健檢在
+ *   「這是哪一次健檢」那一排上永遠是「已約」、按不下去，約二返那張也寫著「已約」
+ *
+ * 以前問整筆沒取消：二返那一段取消了、同一天別段還在時，它照樣佔著。
+ * 走 `slotOutcome()`：`booked` 是待確認／已確認，`done` 是已完成。
+ */
+export function holdsExam(visit, slot) {
+  const outcome = slotOutcome(visit, slot);
+  return outcome === 'booked' || outcome === 'done';
+}
+
+/**
+ * 這一筆來訪是不是**一次做完的健檢**：用這幾筆健檢額度裡任何一筆的那一段做完了。
+ * 追蹤報告那一圈、n返 的候選、n返 的存檔驗證三個地方問的都是這一句 —— 各寫一份的話，
+ * 候選清單列得出來、存檔卻擋下來（第一批審查抓到的，`visits.js` 的驗證還在問整筆）。
+ *
+ * @param {object} visit
+ * @param {Iterable<string>} examEntitlementIds 健檢那幾筆額度的 id
+ */
+export function examDoneIn(visit, examEntitlementIds) {
+  return [...examEntitlementIds].some((id) => usedAndDone(visit, id));
+}
+
+/** 用這一筆額度的那一段做完了的來訪，日期新的在前（`usedAndDone()`）。 */
 function doneVisitsFor(entitlement, visits = []) {
   return visits
-    .filter(
-      (v) =>
-        !v.deletedAt
-        && v.status === 'done'
-        && (v.slots ?? []).some((s) => s.entitlementId === entitlement?.id),
-    )
+    .filter((v) => usedAndDone(v, entitlement?.id))
     .slice()
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
@@ -301,16 +340,15 @@ const isFollowupSlot = (slot, followupId) => slot?.entitlementId === followupId;
 /**
  * 這一筆二返額度已經認領掉哪幾次健檢。
  *
- * 已取消／已刪除的來訪不算 —— 那一場沒發生，它認領的健檢要放回去讓人重新約。
+ * 取消、未到的那一段不算（`holdsExam()`）—— 它認領的健檢要放回去讓人重新約。
  *
  * @returns {Map<string, object>} 健檢來訪 id → 那一筆二返來訪
  */
 export function claimedExams(followupEntitlementId, visits = []) {
   const out = new Map();
   for (const v of visits ?? []) {
-    if (v.deletedAt || v.status === 'cancelled') continue;
     for (const slot of v.slots ?? []) {
-      if (!isFollowupSlot(slot, followupEntitlementId)) continue;
+      if (!isFollowupSlot(slot, followupEntitlementId) || !holdsExam(v, slot)) continue;
       if (slot.followupForVisitId) out.set(slot.followupForVisitId, v);
     }
   }
@@ -366,9 +404,9 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
  */
 export function bookingForExam(examVisitId, followupEntitlementId, visits = []) {
   for (const v of visits ?? []) {
-    if (v.deletedAt || v.status === 'cancelled') continue;
     for (const slot of v.slots ?? []) {
-      if (isFollowupSlot(slot, followupEntitlementId) && slot.followupForVisitId === examVisitId) {
+      if (isFollowupSlot(slot, followupEntitlementId) && slot.followupForVisitId === examVisitId
+          && holdsExam(v, slot)) {
         return { visit: v, slot };
       }
     }
@@ -553,6 +591,9 @@ export function syncFollowupTasks({
   }
 
   const visitById = new Map((visits ?? []).map((v) => [v.id, v]));
+  // 「那一筆健檢還是已完成的」問**健檢那一段**（`usedAndDone()`，ADR-0112），不問整筆
+  const sources = pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id);
+  const examDone = (visit) => examDoneIn(visit, sources);
 
   // ---------- 第二圈：寄報告給醫師 ----------
   //
@@ -578,7 +619,7 @@ export function syncFollowupTasks({
     if (doneSend.has(visitId)) continue;
 
     const visit = visitById.get(visitId);
-    if (!visit || visit.deletedAt || visit.status !== 'done') continue;
+    if (!examDone(visit)) continue;
 
     // 死線跟「約二返」同一個算法：勾掉報告那一天 + dueDays。
     // 讀不出 doneAt（舊資料、手動改過）就退回健檢日 + 報告天數，
@@ -626,7 +667,7 @@ export function syncFollowupTasks({
 
   for (const t of openTasks) {
     const visit = visitById.get(t.visitId);
-    const stillDone = Boolean(visit && !visit.deletedAt && visit.status === 'done');
+    const stillDone = examDone(visit);
     if (keepsOpen(t, { stillDone, wanted, wantedSend, openReport })) continue;
     remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone, wanted.get(t.visitId)?.kind) });
   }

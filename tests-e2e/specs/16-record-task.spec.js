@@ -59,7 +59,8 @@ function seedFollowupToday({ withRegistrations = true } = {}) {
 async function closeToday(app, page, visitId) {
   await app.go('/todo/close');
   await page.locator(`[data-open="${visitId}"]`).click();
-  await expect(page.locator('[data-apply]')).toBeVisible();
+  await app.tickAll();
+  await expect(page.locator('[data-apply]')).toBeEnabled();
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(1800);
 }
@@ -136,6 +137,8 @@ test('R5 結案抽屜會先講「待辦會多一張寫紀錄」，沒勾的課�
   await app.signIn('/todo/close');
 
   await page.locator('[data-open="visit-g-followup"]').click();
+  // 那幾句後果 2026-09-24 起只講按了 ✓ 的那幾段（ADR-0110）
+  await app.tickAll();
   await expect(page.locator('.drawer')).toContainText('寫紀錄');
   await expect(page.locator('.drawer')).toContainText('客人走了之後要補的那一份');
 });
@@ -160,7 +163,8 @@ test('R6 沒勾的課程，結案抽屜一個字都不提「寫紀錄」', async
   await app.signIn('/todo/close');
 
   await page.locator('[data-open="visit-h-recovery"]').click();
-  await expect(page.locator('.drawer')).toBeVisible();
+  await app.tickAll();
+  await expect(page.locator('.drawer')).toContainText('扣掉次數');
   await expect(page.locator('.drawer')).not.toContainText('寫紀錄');
 });
 

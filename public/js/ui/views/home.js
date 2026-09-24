@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, canTransition,
+  focusFor, slotStatus, slotsToClose,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -2858,72 +2858,80 @@ function followupForm(customerId, name, note) {
 }
 
 /**
- * 確認畫面。把這個人所有的時段攤開，逐筆可以標「客人說不行」。
+ * 確認畫面。把這個人還沒問過的時段攤開，逐段按 ✓（可以）或 ✗（不行）。
  *
  * 不做整批一次確認 —— 客人常常是「這兩天可以、那天不行」，整批只能全對或全錯，
  * 等於逼她重壓。
+ *
+ * **預設兩顆都沒按 = 還沒回**（她 2026-09-24：「能不能預設還沒回，然後可以的選勾，
+ * 不能的選叉之類的」，ADR-0110）。沒按的那幾段一個字都不動、那一位留在清單上 ——
+ * 「先同意其中一項，其他先不確定」。以前預設全部「可以」、一按就是全部。
  */
 function drawerHtml(ctx) {
   const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
   const name = visits[0]?.customerName ?? '';
   // **只列還沒問過的那幾段**（ADR-0097）。`key` 裡的數字是**原本那個陣列**的
   // 索引，不是列出來的第幾列 —— `applyConfirm()` 拿它去組 `applyConfirmation()`
-  // 的 `rejected`，重編號的話她點「客人說不行」的會是別段。
-  const rows = visits.flatMap((v) =>
-    pendingSlotsOf(v).map(({ slot, index }) => ({ visit: v, slot, key: `${v.id}:${index}` })),
-  );
-  const okCount = rows.filter((r) => !drawer.rejected.has(r.key)).length;
+  // 的 `asked` 與 `rejected`，重編號的話她按「不行」的會是別段。
+  const rows = confirmRows(visits);
+  const ok = rows.filter((r) => drawer.picks.get(r.key) === true).length;
+  const no = rows.filter((r) => drawer.picks.get(r.key) === false).length;
   const note = followupNoteOf(visits);
 
   return `
     <div class="drawer-backdrop" data-backdrop>
       <div class="drawer" role="dialog" aria-modal="true" aria-label="確認 ${esc(name)} 的時段">
         <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
-        <div class="drawer__head">
-          <h2 class="drawer__title">${esc(name)} 的 ${rows.length} 段${tip(
+        <div class="drawer__head row" style="align-items: center">
+          <h2 class="drawer__title row__main">${esc(name)} 的 ${rows.length} 段${tip(
             '確認之後會自動排進日曆，並且產生該做的登記。')}</h2>
+          ${pickAllButton(rows.length)}
         </div>
         ${note
-          // 這張面板蓋住了底下那張卡，她自己寫的那一句要跟著進來，
+          // 這一張面板蓋住了底下那張卡，她自己寫的那一句要跟著進來，
           // 否則「上次問到哪」在最需要它的那一刻反而看不到。
           ? `<p class="card__asked" style="margin-top: 0">上次問過：${esc(note)}</p>`
           : ''}
-        ${/* 那一句 2026-09-12 收進抬頭旁邊的 `?` —— 底下那顆按鈕自己就寫著
-               「確認 N 段，加進日曆」，而這一行每天都在。 */''}
-
-        ${/* **這一句不收進泡泡。** 它是「怎麼退掉某一段」畫面上唯一的指示，
-               而底下那顆按鈕寫的是「確認 N 段，加進日曆」—— 她沒看到這一句
-               就會整批確認，那正是 issue 08 那條紅線的判準：
-               「這一句藏起來之後，她按下去的結果會不會跟她以為的不一樣？」 */''}
-        <p class="drawer__note">哪一段客人說不行就點它一下，其餘的照樣成立。</p>
+        ${/* 「哪一段客人說不行就點它一下」2026-09-24 拿掉了：每一段兩顆圖示按鈕自己講完了
+               （她：「不用說明」），而底下那顆按鈕的字講會發生什麼（ADR-0110）。 */''}
 
         <div class="drawer__body">
-        ${rows.map((r) => {
-          const no = drawer.rejected.has(r.key);
-          return `
-            <button class="slotrow ${no ? 'slotrow--no' : ''}" type="button" data-slot="${esc(r.key)}">
-              <span class="slotrow__main">
-                <span class="slotrow__when">${esc(shortDate(r.visit.date))} ${esc(timeLabel(r.slot))}</span>
-                <span class="slotrow__what">${esc(slotName(r.slot, ctx.master, 'short'))}</span>
-                ${r.visit.note ? `<span class="muted dim">備註：${esc(r.visit.note)}</span>` : ''}
-              </span>
-              <span class="badge ${no ? 'badge--overdue' : 'badge--ok'}">${no ? '客人說不行' : '可以'}</span>
-            </button>`;
-        }).join('')}
-
+        ${rows.map((r) => pickRow({
+          key: r.key,
+          when: `${shortDate(r.visit.date)} ${timeLabel(r.slot)}`,
+          what: slotName(r.slot, ctx.master, 'short'),
+          note: r.visit.note ? `<span class="muted dim">備註：${esc(r.visit.note)}</span>` : '',
+          pick: drawer.picks.get(r.key),
+          yes: '可以',
+          no: '不行',
+        })).join('')}
         </div>
 
         <div class="drawer__actions">
-          <button class="btn btn--primary" type="button" data-apply>
-            ${okCount
-              ? `確認 ${okCount} 段，加進日曆`
-              // **講實話：這是取消**（標成取消、長「取消 Abovee」）。以前寫「全部退回未確認」，
-              // 讀起來像「先放回去之後再問」（prelaunch-audit-2026-09-23/issues/12）
-              : `客人都不行，取消這 ${rows.length} 段`}</button>
+          <button class="btn btn--primary" type="button" data-apply ${ok || no ? '' : 'disabled'}>
+            ${confirmLabel(ok, no, rows.length)}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
     </div>`;
+}
+
+/** 抽屜上那幾列：這位客戶每一天還沒問過的那幾段。`key` 是 `來訪 id:原本的索引`。 */
+function confirmRows(visits) {
+  return visits.flatMap((v) =>
+    pendingSlotsOf(v).map(({ slot, index }) => ({ visit: v, slot, index, key: `${v.id}:${index}` })),
+  );
+}
+
+/**
+ * 那一顆按鈕講會發生什麼。**只有 ✗ 時講實話：這是取消**（標成取消、長「取消 Abovee」）——
+ * prelaunch-audit-2026-09-23/issues/12：以前寫「全部退回未確認」，讀起來像「先放回去之後再問」。
+ */
+function confirmLabel(ok, no, total) {
+  if (ok && no) return `確認 ${ok} 段・取消 ${no} 段`;
+  if (ok) return `確認 ${ok} 段`;
+  if (no) return `${no === total ? '客人都不行' : '客人不行'}，取消這 ${no} 段`;
+  return '確認';
 }
 
 function wireConfirm(ctx) {
@@ -2934,19 +2942,16 @@ function wireConfirm(ctx) {
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
       // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { customerId: btn.dataset.open, rejected: new Set(), shown: false };
+      drawer = { customerId: btn.dataset.open, picks: new Map(), shown: false };
       paintConfirm(ctx);
     }),
   );
 
-  el.querySelectorAll('[data-slot]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.slot;
-      if (drawer.rejected.has(key)) drawer.rejected.delete(key);
-      else drawer.rejected.add(key);
-      paintConfirm(ctx);
-    }),
-  );
+  wirePicks(el, {
+    parse: (key) => key,
+    keys: () => confirmRows(byCustomer(ctx.pending).get(drawer.customerId) ?? []).map((r) => r.key),
+    repaint: () => paintConfirm(ctx),
+  });
 
   const close = () => {
     drawer = null;
@@ -3037,39 +3042,45 @@ async function openNotesFor(customerId) {
  *
  * 一位客戶可能有好幾天的來訪，每一天各自是一筆 visit：
  *
- * - 一整天都被退掉 → 那一筆轉 cancelled，**時段留著不刪** ——
+ * - 按了 ✗ 的那幾段 → 標成取消（ADR-0081），**時段留著不刪** ——
  *   當初壓了什麼是要留下來的紀錄，而且 Rules 也不收沒有時段的來訪。
- * - 只退掉其中幾段 → 那幾段標成取消（ADR-0081），其餘轉 confirmed。
- *   任務會跟著收（見 domain/taskRules.js 的規則矩陣）。
- * - 抽屜上一段「可以」都沒有 → 全部是取消，而且給不出復原，所以先問一次。
- * - 一段都沒退 → 整筆轉 confirmed。
+ *   一整天都被取消 → 那一筆推成 cancelled。任務會跟著收（`domain/taskRules.js`）。
+ * - 按了 ✓ 的那幾段 → 已確認，掛號那一族這時候才長。
+ * - **沒按的那幾段一個字都不動**（還沒回，ADR-0110）—— 那一天留在清單上。
+ * - 只有 ✗、沒有 ✓ → 全部是取消，而且給不出復原，所以先問一次。
  */
 async function applyConfirm(ctx) {
   const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
-  const rejected = drawer.rejected;
+  const picks = drawer.picks;
+  // 有按的那幾段（`asked`）與按了 ✗ 的那幾段（`rejected`）。key 是 `來訪 id:原本的索引`
+  const asked = new Set(picks.keys());
+  const rejected = new Set([...picks].filter(([, yes]) => yes === false).map(([key]) => key));
+  if (!asked.size) return;
   const at = new Date().toISOString();
 
-  // **一段「可以」都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
+  // 每一天這一次問到的是哪幾段（原本的索引）
+  const askedIn = (v) => pendingSlotsOf(v).map(({ index }) => index).filter((i) => asked.has(`${v.id}:${i}`));
+
+  // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
   // 同批次取消那一頁的作法（逐筆算完去重），不在這裡另寫一份（ADR-0070）。
-  const pending = visits.map((v) => ({ v, at: pendingSlotsOf(v).map(({ index }) => index) }))
-    .filter(({ at }) => at.length);
-  const count = pending.reduce((n, { at }) => n + at.length, 0);
-  if (count && pending.every(({ v, at }) => at.every((i) => rejected.has(`${v.id}:${i}`)))) {
+  if (asked.size === rejected.size) {
     const said = new Set();
-    for (const { v, at } of pending) {
+    for (const v of visits) {
+      const mine = askedIn(v);
+      if (!mine.length) continue;
       // 讀不到任務就少講那幾句，不擋（同日曆的取消那一道）
       const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
       const lines = cancelConsequences({
-        visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: at,
+        visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: mine,
         sheetSyncOn: isConfigured(ctx.settings),
       });
       for (const line of lines) said.add(line);
     }
     const ok = await confirmAction({
-      title: `客人都不行，取消這 ${count} 段？`,
+      title: `客人不行，取消這 ${rejected.size} 段？`,
       consequences: [...said],
-      confirmLabel: `取消這 ${count} 段`,
+      confirmLabel: `取消這 ${rejected.size} 段`,
       danger: true,
     });
     if (!ok) return;
@@ -3084,50 +3095,49 @@ async function applyConfirm(ctx) {
   // 刪掉的話沒有紀錄它曾經被壓過，也不會長出「取消 Abovee」，
   // 而她真的在 Abovee 上壓過那一格。
   //
-  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19），而且只動抽屜上
-  // 那幾段 —— 另一台在抽屜打開之後接在尾巴的那一段她沒問過客人。抽屜上有一段在
-  // 新的那一份裡已經不是待確認（別的地方談定或取消了），整張抽屜就是舊的：不寫，重畫。
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19），而且只動她按了的
+  // 那幾段 —— 沒按的、另一台在抽屜打開之後接在尾巴的都不動。她按了的有一段在新的那一份裡
+  // 已經不是待確認（別的地方談定或取消了），整張抽屜就是舊的：不寫，重畫。
   const writes = [];
+  const touched = [];
   for (const v of visits) {
-    const asked = pendingSlotsOf(v).map(({ index }) => index);
+    const mine = askedIn(v);
+    if (!mine.length) continue;
     const fresh = customerVisits.find((x) => x.id === v.id);
-    if (!fresh || asked.some((i) => !fresh.slots?.[i]
+    if (!fresh || mine.some((i) => !fresh.slots?.[i]
         || slotStatus(fresh, fresh.slots[i]) !== 'pending_confirm')) {
       toast.info('這幾段剛剛在別的地方改過了，換成最新的樣子');
       drawer = null;
       await renderConfirm(ctx.el);
       return;
     }
+    touched.push(v);
     writes.push(applyConfirmation(
       fresh,
-      new Set(asked.filter((i) => rejected.has(`${v.id}:${i}`))),
+      new Set(mine.filter((i) => rejected.has(`${v.id}:${i}`))),
       at,
-      new Set(asked),
+      new Set(mine),
     ));
   }
 
   // 畫面上要講的話在寫入之前先算好 —— 存完之後 `visits` 已經不在待確認清單裡了。
-  // **兩支收的都是寫入之前的那幾筆**，而且只講抽屜上那幾段（ADR-0097）：
-  // 早上那一段在日曆上早就談定時，它的登記早就長了，不可以再說一次「會多一張」。
-  const summary = describeConfirmed(visits, rejected);
+  // **兩支收的都是寫入之前的那幾筆**，而且只講她按了的那幾段（ADR-0097、0110）：
+  // 早上那一段在日曆上早就談定時，它的登記早就長了，不可以再說一次「會多一張」；
+  // 還沒回的那幾段也還不會長。
+  const summary = describeConfirmed(visits, rejected, asked);
   // 「待辦會多一張 Examine」要跟真的會長的那一張對得上（ADR-0070）—— 掛號逐段長，
   // 早就掛過的段不再多講，所以要那幾筆身上的任務（讀不到就當沒有，只會多講一句）
-  const tasksByVisit = Object.fromEntries(await Promise.all(visits.map(async (v) => [
+  const tasksByVisit = Object.fromEntries(await Promise.all(touched.map(async (v) => [
     v.id, await tasksData.listByVisitForSync(v.id).catch(() => []),
   ])));
   const said = confirmConsequences(
-    visits,
+    touched,
     ctx.coursesById ?? {},
     isConfigured(ctx.settings),
     rejected,
     tasksByVisit,
+    asked,
   );
-  // 有一天在抽屜上的每一段都被退掉了。**問抽屜上那幾段，不問整筆的狀態** ——
-  // 同一天早就談定的一段會讓整筆停在「已確認」，而她剛剛退掉的是這張上的全部。
-  const droppedDay = visits.some((v) => {
-    const mine = pendingSlotsOf(v);
-    return mine.length > 0 && mine.every(({ index }) => rejected.has(`${v.id}:${index}`));
-  });
 
   // 存好的那幾筆，重試時跳過（`saveEach()`，issues/18）
   const saved = new Set();
@@ -3141,9 +3151,9 @@ async function applyConfirm(ctx) {
         customerVisits = [...customerVisits.filter((x) => x.id !== v.id), v];
       }, saved),
       {
-        success: droppedDay
-          ? '記好了，客人說不行的那幾段已經退掉'
-          : '確認了，已排進日曆',
+        success: summary.rows.length
+          ? (summary.waiting ? `確認了，還有 ${summary.waiting} 段還沒回` : '確認了，已排進日曆')
+          : '記好了，客人說不行的那幾段已經取消',
         // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）
         undoable: false,
         // **這一顆特別需要 key。** 上面那段註解自己寫著「這是這條動線唯一一次
@@ -3163,7 +3173,7 @@ async function applyConfirm(ctx) {
 /**
  * 加進日曆之後那張置中的卡片。
  *
- * 右下角那條 toast 只說得出「已排進日曆」，而她剛剛才逐段點掉了其中幾段 ——
+ * 右下角那條 toast 只說得出「已排進日曆」，而她剛剛才逐段按了 ✓ 與 ✗ ——
  * **這是這條動線唯一一次不可逆的寫入**（狀態轉 confirmed、登記任務長出來），
  * 所以最後成立的是哪幾段要攤開來看得見。她的原話是「簡潔的說，誰，幾月幾號
  * 幾點做什麼，加入日曆」。
@@ -3172,7 +3182,7 @@ async function applyConfirm(ctx) {
  *（抽屜、卡片、對話框，ADR-0048）。
  */
 function showConfirmed(summary, said = [], master = {}) {
-  if (!summary.rows.length) return; // 整批都退掉了，toast 那一句已經講完了
+  if (!summary.rows.length) return; // 只有取消，toast 那一句已經講完了
 
   const card = openCard({
     // **不是「加進日曆」** —— 那幾筆壓表的時候就已經在日曆上了，這一步改的是
@@ -3192,7 +3202,11 @@ function showConfirmed(summary, said = [], master = {}) {
         </ul>` : ''}
       ${summary.rejected
         ? `<p class="muted" style="margin: var(--space-3) 0 0">
-             退掉 ${summary.rejected} 段（客人說不行）。那幾段的時間已經還回去了。</p>`
+             取消 ${summary.rejected} 段（客人說不行）。那幾段的時間已經還回去了。</p>`
+        : ''}
+      ${summary.waiting
+        ? `<p class="muted" style="margin: var(--space-3) 0 0">
+             還有 ${summary.waiting} 段還沒回，留在清單上。</p>`
         : ''}`,
     actions: '<button class="btn btn--primary btn--wide" type="button" data-ok>好</button>',
   });
@@ -3239,13 +3253,13 @@ async function renderClose(el) {
 function paintClose(ctx) {
   const { el, rows, coursesById, master, today } = ctx;
 
+  // 「天」不是「筆」（ADR-0087）。後半句收進 `?`（她 2026-09-24：「太占版面了」）——
+  // 數字是資料，留在畫面上。
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">簽療程單</h1>
-      <p class="page__lead">${rows.length
-        ? `有 ${rows.length} 筆還沒結案。客人來了、療程單簽了就打勾 —— 次數是這時候才扣的。`
-        : '都結案了。'}</p>
+      <h1 class="page__title">簽療程單${tip('客人來了、療程單簽了就打勾，沒來就打叉 —— 次數是這時候才扣的。')}</h1>
+      <p class="page__lead num">${rows.length ? `還有 ${rows.length} 天沒結案。` : '都結案了。'}</p>
     </div>
 
     ${rows.length
@@ -3259,43 +3273,49 @@ function paintClose(ctx) {
 }
 
 /**
- * 這一筆來訪裡，哪幾段要標「不用簽療程單」（目前只有二返）。
+ * 這一筆來訪**還開著的那幾段**裡（`slotsToClose()`，ADR-0110），哪幾段要標「不用簽療程單」
+ * （目前只有二返）。
  *
  * **反過來標的理由**：一整天四段裡通常四段都要簽，四顆標記等於沒有標記；
  * 真正要她看到的是「這一段是例外」。
  *
- * **整筆都不用簽時回空的** —— 那時候底下那一句已經講完了（「不用簽療程單 ——
+ * **全部都不用簽時回空的** —— 那時候底下那一句已經講完了（「不用簽療程單 ——
  * 來了就打勾」），逐段再標一次是同一件事講兩遍。卡片與收尾抽屜共用這一支，
  * 兩邊各寫一次的話遲早有一邊忘了那個例外。
+ *
+ * 只看還開著的段：取消的、已經結案的不在這一頁上（她 2026-09-24：「已經取消的還可以簽療程單?」）。
  */
 function formMarks(visit, coursesById) {
-  const slots = visit.slots ?? [];
+  const open = slotsToClose(visit).map(({ index }) => index);
   const need = new Set(formSlotIndexes(visit, coursesById));
-  const skip = slots.map((_, i) => i).filter((i) => !need.has(i));
+  const skip = open.filter((i) => !need.has(i));
   return {
     /** 要標「不用簽」的那幾段 */
-    mark: new Set(skip.length === slots.length ? [] : skip),
-    /** 整筆都不用簽 */
-    none: skip.length === slots.length,
+    mark: new Set(skip.length === open.length ? [] : skip),
+    /** 開著的每一段都不用簽 */
+    none: skip.length === open.length,
     /** 要簽的有幾段 */
-    count: slots.length - skip.length,
+    count: open.length - skip.length,
   };
 }
 
 function closeRow(visit, coursesById, today, master = {}) {
   const late = daysBetween(visit.date, today);
-  const slots = visit.slots ?? [];
-  // **標的是不用簽的那幾段，不是要簽的。** 一整天通常四段都要簽，四顆標記
-  // 等於沒有標記；真正要她看到的是「這一段是例外」。整筆都不用簽時
-  // 底下那一句已經講完了，逐段就不再標一次。
+  // **只列還開著的段**（ADR-0110）。取消的、已經結案的一段都不列 —— 以前全部列出來，
+  // 抽屜上預設「做了」，按下去未到那段被蓋成已完成
+  const open = slotsToClose(visit);
   const form = formMarks(visit, coursesById);
+  // 那一段到現在還是「待確認」：那天過了，來了就打勾、沒來就打叉。
+  // 2026-09-24 收進「請客人簽療程單」旁邊的 `?`（她：「這一大段話就可以用tooltip放在
+  // 請客人簽療程單的旁邊，不然太占版面了」）。問的是**還開著的那幾段**，不是整筆
+  const unasked = open.some(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
 
   return `
     <div class="card" style="margin: 0">
       <div class="row" style="align-items: flex-start">
         <div class="row__main">
           <div class="row__title">${esc(visit.customerName ?? '（沒有名字）')}</div>
-          <div class="muted num">${esc(shortDate(visit.date))}・${slots.length} 段${
+          <div class="muted num">${esc(shortDate(visit.date))}・${open.length} 段${
             late > 0 ? `・過了 ${late} 天` : ''}</div>
         </div>
         <button class="fab__main" type="button" data-open="${esc(visit.id)}"
@@ -3306,83 +3326,147 @@ function closeRow(visit, coursesById, today, master = {}) {
       </div>
 
       <div class="chips" style="margin-top: var(--space-3)">
-        ${slots.map((sl, i) => `<span class="badge num">${esc(timeLabel(sl))}　${
+        ${open.map(({ slot: sl, index: i }) => `<span class="badge num">${esc(timeLabel(sl))}　${
           esc(slotName(sl, master, 'short'))}${
           form.mark.has(i) ? '<span class="badge__aside">不用簽</span>' : ''}</span>`).join('')}
       </div>
 
       <p class="card__note" style="margin-top: var(--space-2)">${form.none
         ? '不用簽療程單 —— 來了就打勾'
-        : `請客人簽療程單（${form.count} 段）`}</p>
-
-      ${visit.status === 'pending_confirm' ? `
-        <p class="card__note" style="margin-top: var(--space-3)">
-          這一天到現在還是「${esc(describeStatus(visit.status))}」—— 那天過了，
-          要嘛她來了要嘛沒來，兩種都在下面結掉。</p>` : ''}
+        : `請客人簽療程單（${form.count} 段）`}${unasked
+        ? tip(`有幾段到現在還是「${describeStatus('pending_confirm')}」—— 那天過了，來了就打勾、沒來就打叉。`)
+        : ''}</p>
     </div>`;
 }
 
 /**
- * 收尾畫面。把那一天的時段攤開，逐段勾「這段做了沒」。
+ * 收尾畫面。把那一天**還開著的那幾段**攤開，逐段按 ✓（做了）或 ✗（沒來）。
  *
- * 預設全部打勾 —— 十次有九次是整天照排的做完了。
- * 客人做了兩段就走的情況會發生（2026-08-20 使用者確認），那時取消勾選那一段，
- * 它就不扣次數（`domain/entitlements.js` 的 `slotOutcome()`）。
+ * **預設兩顆都沒按 = 先不結**（她 2026-09-24：「預設先不結做了打勾未到打叉之類的，
+ * 可以用可愛的icon之類的不用說明」，ADR-0110）。沒按的那一段一個字都不動、
+ * 那一天留在清單上等她下次再來。以前預設全部「做了」而且一按就是整天。
+ *
+ * 上面那一顆「全部 ✓」是十次有九次的那條路（整天照排的做完了）——
+ * 預設改成先不結之後，不留它的話一天四段要點四下。
  */
 function closeDrawerHtml(ctx) {
   const visit = ctx.rows.find((v) => v.id === drawer.visitId);
   if (!visit) return '';
 
-  const slots = visit.slots ?? [];
-  const doneCount = slots.filter((_, i) => !drawer.missed.has(i)).length;
+  const open = slotsToClose(visit);
   const form = formMarks(visit, ctx.coursesById);
+  const picks = picksOf(visit);
+  const done = picks.filter((p) => p === true).length;
+  const missed = picks.filter((p) => p === false).length;
 
   return `
     <div class="drawer-backdrop" data-backdrop>
       <div class="drawer" role="dialog" aria-modal="true"
            aria-label="替 ${esc(visit.customerName ?? '')} 結案">
         <button class="drawer__grip" type="button" data-close-drawer aria-label="關閉"></button>
-        <div class="drawer__head">
-          <h2 class="drawer__title">${esc(visit.customerName ?? '')}・${esc(shortDate(visit.date))}</h2>
+        <div class="drawer__head row" style="align-items: center">
+          <h2 class="drawer__title row__main">${esc(visit.customerName ?? '')}・${esc(shortDate(visit.date))}</h2>
+          ${pickAllButton(open.length)}
         </div>
-        <p class="drawer__note">哪一段沒做就點它一下。次數只扣打勾的那幾段。</p>
 
         <div class="drawer__body">
-          ${slots.map((sl, i) => {
-            const missed = drawer.missed.has(i);
-            return `
-              <button class="slotrow ${missed ? 'slotrow--no' : ''}" type="button" data-slot="${i}">
-                <span class="slotrow__main">
-                  <span class="slotrow__when">${esc(timeLabel(sl))}</span>
-                  <span class="slotrow__what">${esc(slotName(sl, ctx.master, 'short'))}${
-                    form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : ''}</span>
-                </span>
-                <span class="badge ${missed ? 'badge--overdue' : 'badge--ok'}">${
-                  missed ? '沒做' : '做了'}</span>
-              </button>`;
-          }).join('')}
+          ${open.map(({ slot: sl, index: i }) => pickRow({
+            key: String(i),
+            when: timeLabel(sl),
+            what: slotName(sl, ctx.master, 'short'),
+            aside: form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : '',
+            pick: drawer.picks.get(i),
+            yes: '做了',
+            no: '沒來',
+          })).join('')}
 
           ${visit.note ? `<p class="card__note" style="margin-top: var(--space-3)">
             壓表時記的：${esc(visit.note)}</p>` : ''}
         </div>
 
-        <ul class="dialog__list" style="margin: var(--space-3) var(--gutter) 0">
-          ${closeConsequences({
-            visit,
-            doneCount,
-            entitlements: ctx.entitlements ?? [],
-            coursesById: ctx.coursesById,
-            sheetSyncOn: isConfigured(ctx.settings),
-          }).map((line) => `<li>${esc(line)}</li>`).join('')}
-        </ul>
+        ${done || missed ? `
+          <ul class="dialog__list" style="margin: var(--space-3) var(--gutter) 0">
+            ${closeConsequences({
+              visit,
+              picks,
+              entitlements: ctx.entitlements ?? [],
+              coursesById: ctx.coursesById,
+              sheetSyncOn: isConfigured(ctx.settings),
+            }).map((line) => `<li>${esc(line)}</li>`).join('')}
+          </ul>` : ''}
 
         <div class="drawer__actions">
-          <button class="btn btn--primary" type="button" data-apply>
-            ${doneCount ? `這 ${doneCount} 段做了，結案` : '一段都沒做 → 記成未到'}</button>
+          <button class="btn btn--primary" type="button" data-apply ${done || missed ? '' : 'disabled'}>
+            ${['記下來', done ? `${done} 段做了` : '', missed ? `${missed} 段沒來` : '']
+              .filter(Boolean).join('・')}</button>
           <button class="btn" type="button" data-close-drawer>先不要，回去</button>
         </div>
       </div>
     </div>`;
+}
+
+/** 「全部 ✓」。只有一段時不畫 —— 那一顆就是那一段的 ✓。兩張抽屜共用。 */
+function pickAllButton(n) {
+  return n > 1
+    ? `<button class="btn btn--sm" type="button" data-pick-all>全部 ${
+      icon('check', { size: 14, width: 3 })}</button>`
+    : '';
+}
+
+/**
+ * 抽屜上逐段的那一列：左邊時間與項目，右邊 ✓／✗ 兩顆。**兩張抽屜共用**（確認、收尾）——
+ * 各畫一份的話遲早有一邊的 `aria-pressed` 或觸控區不一樣。
+ *
+ * `key` 講的是**原本那一格**，不是畫出來的第幾列（同 `slotsToClose()` 與 `pendingSlotsOf()`
+ * 的規矩：重編號的話會記到別段）。收尾抽屜一天一筆，所以是索引；確認抽屜一位客戶好幾天，
+ * 所以是 `來訪 id:第幾段`。
+ */
+function pickRow({ key, when, what, aside = '', note = '', pick, yes, no }) {
+  const state = pick === true ? 'slotrow--yes' : pick === false ? 'slotrow--no' : '';
+  return `
+    <div class="slotrow slotrow--pick ${state}">
+      <span class="slotrow__main">
+        <span class="slotrow__when">${esc(when)}</span>
+        <span class="slotrow__what">${esc(what)}${aside}</span>
+        ${note}
+      </span>
+      <span class="slotpick">
+        <button class="slotpick__btn slotpick__btn--yes" type="button" data-pick="${esc(key)}" data-to="1"
+                aria-pressed="${pick === true}" aria-label="${esc(`${when} ${what}・${yes}`)}">
+          ${icon('check', { size: 20, width: 3 })}</button>
+        <button class="slotpick__btn slotpick__btn--no" type="button" data-pick="${esc(key)}" data-to="0"
+                aria-pressed="${pick === false}" aria-label="${esc(`${when} ${what}・${no}`)}">
+          ${icon('close', { size: 18, width: 3 })}</button>
+      </span>
+    </div>`;
+}
+
+/** 按一下：換成那一邊；再按同一顆：回到還沒決定。兩張抽屜共用。 */
+function togglePick(picks, key, want) {
+  if (picks.get(key) === want) picks.delete(key);
+  else picks.set(key, want);
+}
+
+/**
+ * ✓／✗ 與「全部 ✓」的接線。**兩張抽屜共用**，差別只有鍵長什麼樣（收尾是索引、確認是
+ * `來訪 id:索引`）、全部有哪幾個鍵、按完重畫哪一頁。
+ */
+function wirePicks(el, { parse, keys, repaint }) {
+  el.querySelectorAll('[data-pick]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      togglePick(drawer.picks, parse(btn.dataset.pick), btn.dataset.to === '1');
+      repaint();
+    }),
+  );
+  el.querySelector('[data-pick-all]')?.addEventListener('click', () => {
+    for (const key of keys()) drawer.picks.set(key, true);
+    repaint();
+  });
+}
+
+/** 抽屜上按了什麼 → `closeVisit()` 收的那一份（逐段 `true`／`false`／`null`）。 */
+function picksOf(visit) {
+  return (visit?.slots ?? []).map((_, i) => (drawer?.picks?.has(i) ? drawer.picks.get(i) : null));
 }
 
 function wireClose(ctx) {
@@ -3391,7 +3475,7 @@ function wireClose(ctx) {
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { visitId: btn.dataset.open, missed: new Set(), shown: false };
+      drawer = { visitId: btn.dataset.open, picks: new Map(), shown: false };
       paintClose(ctx);
 
       // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
@@ -3407,14 +3491,11 @@ function wireClose(ctx) {
     }),
   );
 
-  el.querySelectorAll('[data-slot]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const i = Number(btn.dataset.slot);
-      if (drawer.missed.has(i)) drawer.missed.delete(i);
-      else drawer.missed.add(i);
-      paintClose(ctx);
-    }),
-  );
+  wirePicks(el, {
+    parse: Number,
+    keys: () => slotsToClose(ctx.rows.find((v) => v.id === drawer?.visitId)).map(({ index }) => index),
+    repaint: () => paintClose(ctx),
+  });
 
   const close = () => {
     drawer = null;
@@ -3437,34 +3518,37 @@ function wireClose(ctx) {
 /**
  * 結案。一次只動一筆來訪，所以是單一個 commit —— 復原退得回去。
  *
- * 規則本身在 `domain/visits.js` 的 `closeVisit()`，這裡只負責把畫面上的
- * 勾選狀態翻成逐段的布林。來訪編輯器的狀態按鈕走同一支。
+ * 規則本身在 `domain/visits.js` 的 `closeVisit()`，這裡只負責把畫面上按了什麼
+ * 翻成逐段的 `true`／`false`／`null`（先不結）。
  */
 async function applyClose(ctx) {
   const visit = ctx.rows.find((v) => v.id === drawer.visitId);
-  if (!visit) return;
+  if (!visit || !drawer.picks.size) return;
 
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
-  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。那一筆在別的地方
-  // 已經結案、被取消，或多了一段抽屜上沒畫的（`closeVisit()` 會把沒問到的段當成有做）
-  // —— 這張抽屜就是舊的：不寫，重畫。
+  // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。她按了的那幾段
+  // 在別的地方已經結案或取消了 —— 這張抽屜就是舊的：不寫，重畫。沒按的段、別台剛接上的段
+  // 本來就不會被動到（`closeVisit()` 只動 true／false）。
   const fresh = customerVisits.find((v) => v.id === visit.id);
-  if (!fresh || !canTransition(fresh.status, 'done')
-      || (fresh.slots ?? []).length !== (visit.slots ?? []).length) {
+  const stillOpen = new Set(slotsToClose(fresh).map(({ index }) => index));
+  if (!fresh || [...drawer.picks.keys()].some((i) => !stillOpen.has(i))) {
     toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
     drawer = null;
     await renderClose(ctx.el);
     return;
   }
-  const attended = (fresh.slots ?? []).map((_, i) => !drawer.missed.has(i));
-  const next = closeVisit(fresh, attended);
+  const next = closeVisit(fresh, picksOf(fresh));
+  const left = slotsToClose(next).length;
+  // 講**這一次**扣了幾次 —— 整筆推成已完成不代表這一次有扣（前面那段早就做完、這一次只按了 ✗）
+  const did = [...drawer.picks.values()].filter(Boolean).length;
 
   try {
     // 結案就是扣次數的那一下，做兩次會多扣一次
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
-      success: next.status === 'done'
-        ? `${visit.customerName ?? ''} 結案了，次數扣掉了`
-        : `記成未到，次數沒有扣`,
+      success: [
+        did ? `記好了，扣掉 ${did} 次` : '記好了，沒來的不扣次數',
+        left ? `還有 ${left} 段留著` : '',
+      ].filter(Boolean).join('，'),
       key: `visit:save:${next.id}`,
     });
     drawer = null;

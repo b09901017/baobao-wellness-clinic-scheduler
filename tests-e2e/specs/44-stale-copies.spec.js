@@ -119,7 +119,8 @@ test('S3 同一筆額度兩天待確認，退掉比較早那一天 → 已排只
   await app.go('/todo/confirm');
 
   await page.locator('[data-open="cust-s"]').click();
-  await page.locator('[data-slot="v-early:0"]').click();
+  await page.locator('[data-pick="v-early:0"][data-to="0"]').click();
+  await page.locator('[data-pick="v-late:0"][data-to="1"]').click();
   await page.locator('[data-apply]').click();
   await app.saved();
 
@@ -145,7 +146,7 @@ test('S3b 確認抽屜開著時另一台在同一天加了一段 → 新加的�
   await app.signIn('/');
   await app.go('/todo/confirm');
   await page.locator('[data-open="cust-s"]').click();
-  await app.layer('[data-apply]');
+  await app.tickAll();
 
   await seedDocs([visit({
     id: 'v-c', customerId: 'cust-s', customerName: '王小明', date: day,

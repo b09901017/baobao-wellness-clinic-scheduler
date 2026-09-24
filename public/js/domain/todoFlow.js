@@ -17,7 +17,7 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
 import { dayOf } from './dates.js';
-import { formSlotIndexes, slotStatus } from './visits.js';
+import { formSlotIndexes, slotStatus, isLiveSlot } from './visits.js';
 
 /**
  * 她真的在做的順序。**編號講的是流程的第幾步，不是畫面上的第幾段** ——
@@ -478,9 +478,18 @@ function kindsOf(visit, coursesById) {
  *
  * 拿「假裝那一場做完了」去問它是刻意的：閘門只有一個（`acceptsRecordTasks()`），
  * 而在這裡另寫一份「哪些課程要寫紀錄」就會有兩份會分岔的判斷。
+ *
+ * **假裝的是每一段**（2026-09-24，ADR-0112）：那個閘門現在問的是那一段自己的狀態，
+ * 只蓋整筆的話還開著的段問出來仍然是「沒做完」。取消掉的（`isLiveSlot()`）與**已經未到的**
+ * 那一段不假裝 —— 它們不會有紀錄要寫，講「等一下會有」是假話（ADR-0070）。
  */
 function pendingRecordTasks(visit, coursesById) {
-  return recordTasksForVisit({ ...visit, status: 'done' }, coursesById);
+  const missed = (s) => s?.status === 'no_show' || s?.attended === false;
+  return recordTasksForVisit({
+    ...visit,
+    status: 'done',
+    slots: (visit?.slots ?? []).map((s) => (!isLiveSlot(s) || missed(s) ? s : { ...s, status: 'done' })),
+  }, coursesById);
 }
 
 /** 照 `orderOf()`（＝她做事的順序）。同一階的照種類穩定排。 */
