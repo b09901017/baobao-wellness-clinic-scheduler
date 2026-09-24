@@ -562,3 +562,62 @@ describe('同名的客戶各自一張分頁', () => {
     assert.deepEqual(b.sheets.map((s) => s.name).sort(), ['王小明（1234）', '王小明（bbbb22）'].sort());
   });
 });
+
+// ---------- 格式 6（`.scratch/asks-2026-09-24-evening/issues/03、04`） ----------
+
+describe('格式 6：來訪紀錄一段一行、買過什麼', () => {
+  const render = (b) => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: b });
+    assert.equal(reply.ok, true, reply.error);
+    return app.ss.getSheetByName('客戶A');
+  };
+  const rowOf = (sheet, text) => {
+    for (let r = 1; r <= 90; r += 1) if (sheet.at(`A${r}`) === text) return r;
+    return -1;
+  };
+
+  test('格式 5 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來，不是半套渲染', () => {
+    const { post } = loadAppsScript();
+    assert.equal(post({ token: 'secret', bundle: bundle({ format: 5 }) }).ok, false);
+  });
+
+  test('來訪紀錄：日期自己一行，底下每一段一行、前面是那一段的狀態', () => {
+    // 她：「能不能就是第一行是日期，然後換行後在寫每一段，這樣感覺就可以對齊了」
+    const b = bundle();
+    const sheet = render(b);
+    const day = b.sheets[0].log[0];
+    const r = rowOf(sheet, day.label);
+    assert.ok(r > 0, `日期「${day.label}」要自己一行`);
+    assert.equal(sheet.at(`A${r + 1}`), '　已完成　09:15–10:15　復能　治3　芝寧');
+    assert.equal(sheet.at(`A${r + 2}`), '　已完成　時間不詳　復能');
+    // 下一天緊接著，日期一樣自己一行
+    assert.equal(sheet.at(`A${r + 3}`), b.sheets[0].log[1].label);
+  });
+
+  test('買過什麼：一天一行，排在營養品上面', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: {
+        c1: [
+          { id: 'e1', label: 'ILIB(60)', totalQty: 12, purchasedAt: '2026-09-01' },
+          { id: 'p1', type: 'product', label: '夜態美', totalQty: 2, items: [{ productId: 'x1', name: '夜態美' }] },
+        ],
+      },
+      visitsBy: { c1: [] },
+      today: '2026-09-24',
+    });
+    const sheet = render(b);
+    const head = rowOf(sheet, '買過什麼');
+    assert.ok(head > 0, '要有「買過什麼」那一段');
+    assert.equal(sheet.at(`A${head + 1}`), '0901　ILIB(60)x12');
+    assert.ok(rowOf(sheet, '營養品') > head, '營養品排在它底下');
+  });
+
+  test('一筆都沒買過：那一段整個不畫', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }], entitlementsBy: { c1: [] }, visitsBy: { c1: [] }, today: '2026-09-24',
+    });
+    assert.equal(rowOf(render(b), '買過什麼'), -1);
+  });
+});

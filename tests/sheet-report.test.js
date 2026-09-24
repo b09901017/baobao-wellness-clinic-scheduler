@@ -11,7 +11,7 @@ import {
   customerReport, toTSV, toCSV, READONLY_NOTICE, syncBundle, describeSync,
   equipmentCells, slotNoteCells,
 } from '../public/js/domain/sheetReport.js';
-import { MARK_LEGEND } from '../public/js/domain/visits.js';
+import { MARK_LEGEND, shortStatus } from '../public/js/domain/visits.js';
 
 const TODAY = '2026-09-18';
 
@@ -205,7 +205,7 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
     generatedAt: '2026/8/10',
   });
 
-  assert.equal(bundle.format, 5);
+  assert.equal(bundle.format, 6);
   assert.equal(bundle.sheets.length, 1);
 
   const sheet = bundle.sheets[0];
@@ -1014,5 +1014,99 @@ describe('02 二返註記與器材那一列只看還算數的段', () => {
     const v = { id: 'v1', date: '2026-09-12', status: 'no_show',
       slots: [{ entitlementId: 'e-four', equipmentId: 'eq-sis', status: 'no_show' }] };
     assert.deepEqual(equipmentCells(pool, [v], ['2026-09-12'], EQUIPMENT), [{ dateIndex: 0, text: 'SIS' }]);
+  });
+});
+
+describe('03 來訪紀錄：取消的不寫、每一段帶狀態、照時間排', () => {
+  // 她：「如果取消了可以標註或是就不寫，也可以在這些來訪紀錄中標記狀態嗎?」Q2：「不寫」
+  const logOf = (visits) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: '復能', totalQty: 12 }] },
+    visitsBy: { c1: visits },
+    today: TODAY,
+  }).sheets[0].log;
+
+  test('一天兩段、一段取消：那一天只剩一段', () => {
+    const log = logOf([{ id: 'v1', date: '2026-09-10', status: 'done', slots: [
+      { entitlementId: 'e1', courseName: '復能', startsAt: '09:00', endsAt: '10:00', status: 'cancelled' },
+      { entitlementId: 'e1', courseName: '復能', startsAt: '11:00', endsAt: '12:00', status: 'done' },
+    ] }]);
+    assert.equal(log.length, 1);
+    assert.deepEqual(log[0].items.map((i) => i.time), ['11:00–12:00']);
+  });
+
+  test('每一段帶它自己的狀態，字跟日曆同一組', () => {
+    const log = logOf([{ id: 'v1', date: '2026-09-10', status: 'pending_confirm', slots: [
+      { entitlementId: 'e1', courseName: '復能', startsAt: '09:00', endsAt: '10:00', status: 'done' },
+      { entitlementId: 'e1', courseName: '復能', startsAt: '11:00', endsAt: '12:00', status: 'no_show' },
+      { entitlementId: 'e1', courseName: '復能', startsAt: '14:00', endsAt: '15:00', status: 'confirmed' },
+      { entitlementId: 'e1', courseName: '復能', startsAt: '16:00', endsAt: '17:00', status: 'pending_confirm' },
+    ] }]);
+    assert.deepEqual(log[0].items.map((i) => i.status), [
+      shortStatus('done'), shortStatus('no_show'), shortStatus('confirmed'), shortStatus('pending_confirm'),
+    ]);
+  });
+
+  test('舊資料（段上沒有狀態）讀整筆的', () => {
+    const log = logOf([visit({ slots: [{ entitlementId: 'e1', courseName: '復能', startsAt: '09:00', endsAt: '10:00' }] })]);
+    assert.equal(log[0].items[0].status, shortStatus('done'));
+  });
+
+  test('照開始時間排：改期接在尾巴的那一段排回它的時間', () => {
+    const log = logOf([{ id: 'v1', date: '2026-09-10', status: 'confirmed', slots: [
+      { entitlementId: 'e1', courseName: '復能', startsAt: '14:00', endsAt: '15:00', status: 'confirmed' },
+      { entitlementId: 'e1', courseName: '復能', startsAt: '09:00', endsAt: '10:00', status: 'confirmed' },
+    ] }]);
+    assert.deepEqual(log[0].items.map((i) => i.time), ['09:00–10:00', '14:00–15:00']);
+  });
+
+  test('那一天只剩取消的段：整天不出現', () => {
+    // 整筆的 status 是推導的，全部取消時它會是 cancelled —— 這裡故意給一份還沒重推的
+    const log = logOf([{ id: 'v1', date: '2026-09-10', status: 'confirmed', slots: [
+      { entitlementId: 'e1', courseName: '復能', startsAt: '09:00', status: 'cancelled' },
+    ] }]);
+    assert.deepEqual(log, []);
+  });
+});
+
+describe('04 買過什麼：一天一行（格式 6，ADR-0115）', () => {
+  // 她：「d能不能有一行是顯示，app中買過什麼那邊的資訊，我也想在試算表中看到」
+  // Q4：一天一行、放在營養品上面 →「可以」
+  const MASTER = {
+    equipment: [{ id: 'eq-sis', name: 'SIS', shortName: 'SIS' }],
+    courses: [{ id: 'course-ilib', name: 'ILIB' }],
+    plans: [],
+  };
+  const ENTS = [
+    {
+      id: 'a', type: 'pool', label: '復能-SIS(60)', optionEquipmentIds: ['eq-sis'], durationMin: 60,
+      totalQty: 23, sourcePlanQty: 20, sourcePlanName: '新8萬方案', sourcePlanSets: 1, purchasedAt: '2026-07-23',
+    },
+    { id: 'b', type: 'single', label: 'ILIB(60)', courseId: 'course-ilib', totalQty: 12, purchasedAt: '2026-09-01' },
+    { id: 'p', type: 'product', label: '夜態美', totalQty: 2, purchasedAt: '2026-09-01' },
+  ];
+  const sheetOf = (ents) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: ents }, visitsBy: { c1: [] }, today: TODAY, master: MASTER,
+  }).sheets[0];
+
+  test('跟「買過什麼」那一頁同一支算：新的在上、微調接在後面、營養品不在這裡', () => {
+    assert.deepEqual(sheetOf(ENTS).purchases, [
+      '0901　ILIB(60)x12',
+      '0723　新8萬方案　（微調：SIS(60) 本來 20 → 23）',
+    ]);
+  });
+
+  test('沒有購買日的收在最後一行，一筆都不丟', () => {
+    const lines = sheetOf([...ENTS, { id: 'c', type: 'single', label: 'EECP', totalQty: 40 }]).purchases;
+    assert.equal(lines.at(-1), '沒有日期　EECPx40');
+  });
+
+  test('只買營養品：一行都沒有', () => {
+    assert.deepEqual(sheetOf([ENTS[2]]).purchases, []);
+  });
+
+  test('刪掉的額度不列', () => {
+    assert.deepEqual(sheetOf([{ ...ENTS[1], deletedAt: 'x' }]).purchases, []);
   });
 });

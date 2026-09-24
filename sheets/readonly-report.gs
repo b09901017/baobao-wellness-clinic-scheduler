@@ -29,8 +29,11 @@
 
 var TOKEN_PROPERTY = 'SYNC_TOKEN';
 var DATA_SHEET = '_data';
-/** 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。 */
-var SUPPORTED_FORMAT = 5;
+/**
+ * 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。
+ * 6（2026-09-24）：來訪紀錄一段一行、帶狀態；多一段「買過什麼」。
+ */
+var SUPPORTED_FORMAT = 6;
 
 // ---------- 版面 ----------
 //
@@ -187,7 +190,8 @@ function renderCustomer(ss, data, bundle) {
 
   ensureSize(
     sheet,
-    MATRIX_HEADER_ROW + data.rows.length + data.log.length
+    MATRIX_HEADER_ROW + data.rows.length + logLineCount(data)
+      + ((data.purchases || []).length + 3)
       + ((data.products || []).length + 2)
       + data.tasks.todo.length + data.tasks.finished.length + 20,
     width,
@@ -266,6 +270,7 @@ function renderCustomer(ss, data, bundle) {
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
   after = renderFollowupNotes(sheet, data, after, matrixWidth);
+  after = renderPurchases(sheet, data, after, width);
   after = renderProducts(sheet, data, after, width);
   after = renderNotes(sheet, data, after + 1, width);
   renderTasks(sheet, data, after, width);
@@ -412,13 +417,23 @@ function renderNotes(sheet, data, top, width) {
     data.notes || '',
   ].filter(String));
 
+  // **日期自己一行，底下一段一行、前面是那一段的狀態**（格式 6）。她 2026-09-24：
+  // 「第一段會接在日期後面，然後下面的不會，能不能就是第一行是日期，然後換行後在寫每一段，
+  // 這樣感覺就可以對齊了」。以前是一天一格、第一段接在日期後面、後面幾段縮三個全形空白 ——
+  // 日期的字數不一樣就對不齊。
+  //
+  // **一行一列，不是一格塞好幾行**：合併儲存格不一定會自己長高，一格塞四行常常只看得到第一行。
+  // 取消的段 app 那側就不送了（她選「不寫」）；狀態的字也是 app 給的，這裡不另寫一份對照。
   var lines = [];
+  var isDay = [];
   for (var i = 0; i < data.log.length; i++) {
     var day = data.log[i];
-    var parts = [];
+    lines.push(day.label);
+    isDay.push(true);
     for (var j = 0; j < day.items.length; j++) {
       var it = day.items[j];
-      parts.push([
+      lines.push('　' + [
+        it.status,
         it.time,
         it.course,
         it.equipment,
@@ -426,11 +441,37 @@ function renderNotes(sheet, data, top, width) {
         it.room ? it.room + (it.bed ? ' 床' + it.bed : '') : '',
         it.therapist,
         it.doctor ? it.doctor + '醫師' : '',
-      ].filter(String).join('　'));
+      // **不是 `filter(String)`**：`String(null)` 是 'null'（真值），沒有器材、沒有品項的那兩格
+      // 以前留在陣列裡、被 join 印成空的 —— 「復能　　　治3」中間多兩個全形空白，也是對不齊的原因之一
+      ].filter(function (x) { return x != null && x !== ''; }).join('　'));
+      isDay.push(false);
     }
-    lines.push(day.label + '　' + parts.join('\n' + '　　　'));
   }
-  return noteBlock(sheet, row, width, '來訪紀錄', lines);
+  var end = noteBlock(sheet, row, width, '來訪紀錄', lines);
+  for (var k = 0; k < lines.length; k++) {
+    if (isDay[k]) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
+  }
+  return end;
+}
+
+/** 來訪紀錄會佔幾列：一天一列日期、一段一列。`ensureSize()` 要先開夠。 */
+function logLineCount(data) {
+  var n = 0;
+  for (var i = 0; i < data.log.length; i++) n += 1 + data.log[i].items.length;
+  return n;
+}
+
+/**
+ * 「買過什麼」一天一行（格式 6，ADR-0115）。緊接在二返註記底下、營養品上面 —— 她選的位置。
+ *
+ * 那一行在 app 組好（`purchaseLines()`，跟 app 的「買過什麼」那一頁同一支算），這裡一個字都不組。
+ * **一筆都沒有就整段不畫**（同營養品）。
+ */
+function renderPurchases(sheet, data, top, width) {
+  var lines = data.purchases || [];
+  if (!lines.length) return top;
+  // noteBlock 底下留了一列空白，營養品那一區自己會再空一列 —— 退一列，中間只空一列
+  return noteBlock(sheet, top + 1, width, '買過什麼', lines) - 1;
 }
 
 /**
