@@ -38,7 +38,7 @@ import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
 import {
-  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor,
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor, dayStatusBadges,
 } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -1028,7 +1028,11 @@ function visitRow(v, master = null) {
       <span class="link-list__label num">${esc(shortDate(v.date))}
         <span class="muted">${esc(visitCourseLabel(v, master))}</span>
       </span>
-      <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
+      ${/* 每一段不一樣時一段一個符號（`dayStatusBadges()`，issues/13）—— 整筆那一個是推導的，
+             一段已確認、一段未到時它寫「已確認」，看起來整天都談定了 */''}
+      <span class="daymarks">${dayStatusBadges(v).map((b) => `
+        <span class="badge ${statusClass(b.status)}" title="${esc(describeStatus(b.status))}"
+              aria-label="${esc(describeStatus(b.status))}">${esc(b.text)}</span>`).join('')}</span>
     </button></li>`;
 }
 

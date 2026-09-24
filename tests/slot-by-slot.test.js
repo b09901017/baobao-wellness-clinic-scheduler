@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs';
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
   visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots, lockedAt,
-  slotsToClose, describeConfirmed, validateVisit, canCancelSlot,
+  slotsToClose, describeConfirmed, validateVisit, canCancelSlot, dayStatusBadges,
+  markFor, describeStatus, shortStatus,
 } from '../public/js/domain/visits.js';
 import {
   closeConsequences, confirmConsequences, bookingConsequences, rebookConsequences,
@@ -551,5 +552,35 @@ describe('14 日子過了才變成已確認的段，不長掛號待辦', () => {
       .filter((r) => r.pending).map((r) => r.kind).sort();
     assert.deepEqual(pendingKinds(day('2026-09-20', 'pending_confirm')), []);
     assert.deepEqual(pendingKinds(day('2026-09-30', 'pending_confirm')), ['Examine', '耀聖']);
+  });
+});
+
+describe('13 客戶詳情「來訪紀錄」那一列逐段', () => {
+  const day = (...each) => {
+    const v = { id: 'v', date: '2026-09-20', slots: each.map((status) => ({ courseId: 'c', status })) };
+    return { ...v, status: visitStatusFrom(v) };
+  };
+  const texts = (v) => dayStatusBadges(v).map((b) => b.text);
+
+  test('一段已確認、一段未到：看得出兩種（△ ✗），不是整筆推出來的「已確認」', () => {
+    assert.deepEqual(texts(day('confirmed', 'no_show')), [markFor('confirmed'), markFor('no_show')]);
+    assert.deepEqual(dayStatusBadges(day('confirmed', 'no_show')).map((b) => b.status), ['confirmed', 'no_show']);
+  });
+
+  test('單段那一天照舊印字', () => {
+    assert.deepEqual(texts(day('confirmed')), [describeStatus('confirmed')]);
+  });
+
+  test('每一段都一樣：印一個字就好（整天都已完成是真的）', () => {
+    assert.deepEqual(texts(day('done', 'done')), [describeStatus('done')]);
+  });
+
+  test('取消的那一段沒有符號 —— 印短字，不要整段不印', () => {
+    assert.deepEqual(texts(day('confirmed', 'cancelled')), [markFor('confirmed'), shortStatus('cancelled')]);
+  });
+
+  test('客戶詳情那一列走它', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/customerDetail.js', import.meta.url), 'utf8');
+    assert.match(src, /dayStatusBadges\(/);
   });
 });

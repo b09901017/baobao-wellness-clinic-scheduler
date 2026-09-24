@@ -130,6 +130,25 @@ export function shortStatus(status) {
   return STATUS_VIEW[status]?.short ?? String(status ?? '？');
 }
 
+/**
+ * 一天那一列右邊要印的狀態（客戶詳情「來訪紀錄」，`.scratch/asks-2026-09-24/issues/13`）。
+ *
+ * 整筆那一個是推導的（ADR-0081）：一段已確認、一段未到時它是「已確認」，看起來整天都談定了。
+ * 所以**每一段不一樣時一段一個符號**（跟進度追蹤同一組 `markFor()`）；**全部一樣就印一個字**
+ * （單段那一天、整天都做完 —— 那時候整筆那一個就是事實）。取消的那一段沒有符號，印短字：
+ * 那一列的課程名連取消的那一段也列（`visitCourseLabel()`），少一顆會對不上。
+ *
+ * @returns {{status: string|null, text: string}[]} 照 `visit.slots` 的順序
+ */
+export function dayStatusBadges(visit) {
+  const each = (visit?.slots ?? []).map((slot) => slotStatus(visit, slot));
+  if (new Set(each).size <= 1) {
+    const status = each[0] ?? visit?.status ?? null;
+    return [{ status, text: describeStatus(status) }];
+  }
+  return each.map((status) => ({ status, text: markFor(status) || shortStatus(status) }));
+}
+
 
 // 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 10），所以 cancelled 是終點。
 // done 也是終點，要改必須走更正流程（SPEC 第 6.4 節）。
