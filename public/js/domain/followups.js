@@ -28,7 +28,7 @@ import { addDays, dayOf, shortDate } from './dates.js';
 // 循環 import（taskRules.js 也 import 這一支的常數）：兩邊都只在函式裡用，模組載入時不碰
 import { seenTasks } from './taskRules.js';
 // 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
-// visits.js 也 import 這一支（`examDoneIn()`）—— 兩邊都只在函式裡用，載入時不互相讀
+// visits.js 也 import 這一支（`examDoneIn()`、`examStatusIn()`）—— 兩邊都只在函式裡用，載入時不互相讀
 import { slotStatus, shortStatus } from './visits.js';
 
 /**
@@ -328,12 +328,12 @@ export function examStatusIn(visit, examEntitlementIds) {
 }
 
 /**
- * 「這是哪一次健檢」那一顆丸子底下那一小格。被別場二返佔走的寫「已約」，其餘寫**它自己的狀態**
+ * 「這是哪一次健檢」那一顆丸子底下那一小格。被別場二返佔走的寫「已約 9/30」，其餘寫**它自己的狀態**
  * （短字，同日曆圖例）；n返 那一排再接上已經有幾返（`note`）。壓表、來訪編輯器、拍 Abovee 三個入口共用 ——
  * 各寫一份的話同一次健檢在兩個地方標不同的字（issues/11）。
  */
 export function examChoiceNote(choice) {
-  if (choice?.taken) return '已約';
+  if (choice?.taken) return choice.bookedOn ? `已約 ${shortDate(choice.bookedOn)}` : '已約';
   return [choice?.status ? shortStatus(choice.status) : '', choice?.note ?? ''].filter(Boolean).join('・');
 }
 

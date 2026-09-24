@@ -24,7 +24,7 @@ import { shortDate, daysBetween, addMonths } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { textFor, fill } from './messageTemplates.js';
 import { slotName, visitNames } from './naming.js';
-import { asPending, isLiveSlot } from './visits.js';
+import { asPending, liveSlots } from './visits.js';
 
 /** 這一則現在的字，換上變數。 */
 const say = (id, templates, vars) => fill(textFor(id, templates), vars);
@@ -265,11 +265,11 @@ export function messagesFor({
     });
   }
 
-  // 提醒那一則的時間與課程**只算還算數的段**（`isLiveSlot()`）—— 最早那一段取消了，
+  // 提醒那一則的時間與課程**只算還算數的段**（`liveSlots()`）—— 最早那一段取消了，
   // 叫客人照那一段的時間來就是白跑一趟。整天都取消了就沒有這一則
   const next = alive
     .filter((v) => v.date >= today && (v.status === 'confirmed' || v.status === 'pending_confirm'))
-    .map((v) => ({ ...v, slots: (v.slots ?? []).filter(isLiveSlot) }))
+    .map((v) => ({ ...v, slots: liveSlots(v) }))
     .filter((v) => v.slots.length)
     .sort((a, b) => (a.date < b.date ? -1 : 1))[0];
   if (next) {

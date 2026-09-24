@@ -59,3 +59,14 @@
 - `CLAUDE.md` 連動表：「一段來訪的狀態」「任何一列的長按選單」「任務有兩個時機」「健檢與二返的關係」、
   新增「結案」一列
 - `docs/課程與待辦對照表.md`（寫紀錄逐段）
+
+## 第二批的審查（`/matt-code-review`，2026-09-24）
+
+照改的：拍 Abovee 那一排的「已約」也走 `examChoiceNote()`（三個入口都寫「已約 9/30」）、一次都沒排過時也給 `?`；
+舊寫紀錄的歸屬＝要寫紀錄而且做完的段（`recordSlots()`，取消與未到的不認）；二返的存檔驗證**只擋新接上或換過的連結**
+（存著的那一份本來就指著它的是舊資料，ADR-0011）；共用元件 `tasklist.js` 的屬性改成自己的前綴（`data-tasklist-task`）；
+`messages.js` 走 `liveSlots()`；CLAUDE.md 補 `only`、`ownsTask()`、`followupsLast()`、`asPending()`；SPEC 客戶詳情「來訪紀錄」；
+ADR-0113 拿掉補登那一句（那不是這一支的決定）；兩則過期的循環 import 註解。
+
+留著、寫了理由的：`tasklist.js` 的 `?` 在按鈕外面（button 裡放不了 button）；分類頁那一顆 `?` 在 `<label>` 裡（跟 `form.js` 同一種放法）；
+每一段都一樣時印一個字（13）；三個入口各自兩行的「task → taskSlots → focusFor」沒有再包一層。

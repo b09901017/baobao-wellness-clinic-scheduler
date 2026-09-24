@@ -299,8 +299,9 @@ function needsRecord(visit, coursesById = {}) {
  * 而且那個課程要寫紀錄（`needsRecord`）。回的是 `visit.slots` 裡的位置。
  *
  * 跟掛號那一族一樣逐段（ADR-0107、0112）—— 閘門只有 `acceptsRecordTasks()` 一份。
+ * 沒記段落的舊寫紀錄是哪一段，`todoFlow.js` 的 `ownsTask()` 也問這一支（issues/08）。
  */
-function recordSlots(visit, coursesById = {}) {
+export function recordSlots(visit, coursesById = {}) {
   return (visit?.slots ?? [])
     .map((s, i) => (acceptsRecordTasks(slotStatus(visit, s))
       && coursesById[s?.courseId]?.needsRecord === true ? i : -1))

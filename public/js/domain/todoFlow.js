@@ -11,7 +11,7 @@
 
 import {
   isCancelKind, bookingSystemFor, tasksForCategory, systemOfCancelKind,
-  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed,
+  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed, recordSlots,
 } from './taskRules.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
@@ -401,14 +401,20 @@ function pendingRows(scoped, have, { coursesById, voided, today = null }) {
  *
  * 1. 取消類**不問課程，問它收的是哪幾段**（`ownsCancel()`）
  * 2. 記著 `slotIndexes` 的照它（掛號 ADR-0107、寫紀錄 ADR-0112）—— 同一天可以有兩張 Examine
- * 3. 其餘（舊任務、健檢那條鏈）退回「這一段自己長不長得出這一種」（`ownedKinds()`）
+ * 3. 沒記段落的舊寫紀錄：**要寫紀錄而且做完的那幾段**（`recordSlots()`，同長出來那一側）——
+ *    一段都沒有（例如那一段是未到才長的那種舊資料）才退回下一條
+ * 4. 其餘（舊掛號、健檢那條鏈）退回「這一段自己長不長得出這一種」（`ownedKinds()`）
  *
- * @param {(kind: string) => boolean} [mine] 呼叫端已經算好的 `ownedKinds()`（一張卡片只算一次）
+ * @param {(kind: string) => boolean} [kindsHere] 呼叫端已經算好的 `ownedKinds()`（一張卡片只算一次）
  */
-function ownsTask(task, visit, index, coursesById, mine = null) {
+function ownsTask(task, visit, index, coursesById, kindsHere = null) {
   if (isCancelKind(task.kind)) return ownsCancel(task, visit, index, coursesById);
   if (Array.isArray(task.slotIndexes)) return task.slotIndexes.includes(index);
-  if (mine) return mine(task.kind);
+  if (task.kind === RECORD_TASK_KIND) {
+    const done = recordSlots(visit, coursesById);
+    if (done.length) return done.includes(index);
+  }
+  if (kindsHere) return kindsHere(task.kind);
   const asLive = asLiveOf(visit);
   return ownedKinds({ ...asLive, slots: [asLive.slots[index]] }, asLive, coursesById)(task.kind);
 }
@@ -429,8 +435,8 @@ const asLiveOf = (visit) => ({ ...visit, slots: (visit?.slots ?? []).map((s) => 
  */
 export function taskSlots(task, visit, coursesById = {}) {
   const all = (visit?.slots ?? []).map((_, i) => i);
-  const mine = ownedSlots(task, visit, coursesById);
-  return mine.length ? mine : all;
+  const owned = ownedSlots(task, visit, coursesById);
+  return owned.length ? owned : all;
 }
 
 /**
@@ -473,20 +479,20 @@ export function taskLine(task, visit = null, master = null) {
   const hasVisit = Boolean(visit?.date);
   const slots = visit?.slots ?? [];
   const coursesById = Object.fromEntries((master?.courses ?? []).map((c) => [c.id, c]));
-  const mine = ownedSlots(task, visit, coursesById);
+  const owned = ownedSlots(task, visit, coursesById);
   // 講「那幾段」的條件：這一張自己記著段落，或推出來的只是其中幾段
-  const some = mine.length && (Array.isArray(task?.slotIndexes) || mine.length < slots.length);
+  const partOfDay = owned.length && (Array.isArray(task?.slotIndexes) || owned.length < slots.length);
   return {
     kind: task?.kind ?? '',
     date: hasVisit ? visit.date : (task?.dueDate ?? null),
     fromDue: !hasVisit,
     // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
     // 不要在這裡再寫一次。沒有時段就沒有東西可講。
-    what: some
-      ? mine.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
+    what: partOfDay
+      ? owned.map((i) => `${timeLabel({ startsAt: slots[i].startsAt })} ${
         visitCourseLabel({ slots: [slots[i]] }, master)}`).join('、')
       : (slots.length ? visitCourseLabel(visit, master) : ''),
-    lines: hasVisit ? linesOf(visit, mine.length ? mine : slots.map((_, i) => i), master) : [],
+    lines: hasVisit ? linesOf(visit, owned.length ? owned : slots.map((_, i) => i), master) : [],
   };
 }
 

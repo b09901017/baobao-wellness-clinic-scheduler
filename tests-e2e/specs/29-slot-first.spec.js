@@ -190,11 +190,11 @@ test('S2b 只掛下午那一段的 Examine：三個入口的「詳情」都直�
   await page.locator('[data-tab="who"]').click();
   await page.locator('[data-who="cust-x"]').click();
   await expect(page.locator('.drawer-backdrop .drawer')).toBeVisible();
-  await page.locator('.drawer [data-task-id="task-pm"]').click();
+  await page.locator('.drawer [data-tasklist-task="task-pm"]').click();
   await onlyAfternoon('依客戶抽屜');
 
   await app.go('/customers/cust-x');
-  await page.locator('[data-task-id="task-pm"]').click();
+  await page.locator('[data-tasklist-task="task-pm"]').click();
   await onlyAfternoon('客戶詳情');
 });
 

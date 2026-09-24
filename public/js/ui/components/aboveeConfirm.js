@@ -35,6 +35,7 @@ import { pushLayer } from '../nav.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
+import { tip } from './tip.js';
 import { seenChip, wireSeen } from './seen.js';
 
 const TAGS = {
@@ -353,9 +354,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // 每一次都標它自己的狀態，**只有已完成、沒被佔走的按得下去**（`pickable`，issues/11）
       rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
         value: x.visitId, label: shortDate(x.date),
-        sub: x.taken ? `已約 ${shortDate(x.bookedOn)}` : examChoiceNote(x),
+        sub: examChoiceNote(x),
         on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
       }))));
+    } else if (ent?.followupForEntitlementId) {
+      // 一次都沒排過：跟壓表、來訪編輯器一樣，標題旁邊一顆 ?（issues/11）
+      rows.push(chipRow('接哪一次健檢', [], tip('還沒排過健檢')));
     }
 
     const assigns = course ? assignsFor(ent, course, item.equipmentId) : null;

@@ -16,7 +16,7 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
-// 循環 import（followups → taskRules → visits）：兩邊都只在函式裡用，模組載入時不碰
+// 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
 import {
@@ -1500,6 +1500,8 @@ function visitErrors(visit, {
   // 哪幾筆額度是健檢。n返 指到的那一筆來訪要靠它驗（判斷跟
   // `domain/followups.js` 走同一條路：課程主檔上設了 followupCourseId 的）。
   const examIds = examEntitlementIds(entitlements, coursesById);
+  // 存著的那一份（改既有的一天時才有）—— 二返的連結是新接上的、還是本來就在，靠它分（issues/11）
+  const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
     const at = `第 ${i + 1} 個時段`;
@@ -1610,8 +1612,10 @@ function visitErrors(visit, {
       }
       // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
       // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。
-      // **只問還開著的那一段**：已經結案、取消的二返身上的舊連結是歷史，擋下來她連同一天別段都存不回去
-      else if (ent?.followupForEntitlementId && isOpenStatus(slotStatus(visit, slot))
+      // **只擋這一次新接上、或換過的連結**：存著的那一份同一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
+      // 擋下來的話她改同一天別段的一個時間都存不回去。段落只會接在尾巴（`hasNewSlots()`），所以同一個位置就是同一段
+      else if (ent?.followupForEntitlementId
+          && stored?.slots?.[i]?.followupForVisitId !== slot.followupForVisitId
           && !examDoneIn(exam, [ent.followupForEntitlementId])) {
         errors.push(`${at}：指定的那一次健檢還沒做完（${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}）`);
       }
