@@ -248,36 +248,36 @@ describe('結案那一下會發生什麼', () => {
   const ask = (o) => closeConsequences({ entitlements: ENTS, coursesById: COURSES2, ...o });
 
   test('有做：改成已完成、扣次數', () => {
-    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
-    assert.ok(lines[0].includes('已完成'));
-    assert.ok(lines[0].includes('扣掉次數'));
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), picks: [true] });
+    assert.ok(lines.some((l) => l.includes('已完成')), lines.join('／'));
+    assert.ok(lines.some((l) => l.includes('扣掉次數')), lines.join('／'));
   });
 
   test('一段都沒做：改成未到、不扣次數', () => {
-    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 0 });
-    assert.ok(lines[0].includes('未到'));
-    assert.ok(lines[0].includes('不扣'));
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), picks: [false] });
+    assert.ok(lines.some((l) => l.includes('未到')), lines.join('／'));
+    assert.ok(lines.some((l) => l.includes('不扣')), lines.join('／'));
   });
 
   test('健檢結案才講「追蹤健檢報告」', () => {
-    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), doneCount: 1 });
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), picks: [true] });
     assert.ok(lines.some((l) => l.includes('追蹤健檢報告')));
   });
 
   test('沒有健檢就不要講 —— 那是一件不會發生的事', () => {
-    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), picks: [true] });
     assert.ok(!lines.some((l) => l.includes('追蹤健檢報告')));
   });
 
   test('健檢整筆沒做也不講 —— 沒做完就沒有報告要追', () => {
-    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), doneCount: 0 });
+    const lines = ask({ visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]), picks: [false] });
     assert.ok(!lines.some((l) => l.includes('追蹤健檢報告')));
   });
 
   test('健檢沒配到二返額度就不講 —— 那時候鏈條長不出來', () => {
     const lines = closeConsequences({
       visit: visit('confirmed', [slotFor('e-checkup', 'c-checkup')]),
-      doneCount: 1,
+      picks: [true],
       entitlements: [ENTS[0]],
       coursesById: COURSES2,
     });
@@ -285,9 +285,9 @@ describe('結案那一下會發生什麼', () => {
   });
 
   test('同步沒設定就不要承諾試算表會動', () => {
-    const off = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1 });
+    const off = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), picks: [true] });
     assert.ok(!off.some((l) => l.includes('試算表')));
-    const on = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), doneCount: 1, sheetSyncOn: true });
+    const on = ask({ visit: visit('confirmed', [slotFor('e-recovery', 'c-recovery')]), picks: [true], sheetSyncOn: true });
     assert.ok(on.some((l) => l.includes('試算表')));
   });
 });

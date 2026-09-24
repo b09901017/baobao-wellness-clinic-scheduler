@@ -362,6 +362,7 @@ test('J-N7 三返做完也會長出「寫紀錄」—— 它跟著二返的設�
   await app.signIn('/todo/close');
 
   await page.locator('[data-open="v-v-nth"]').click();
+  await app.tickAll();
   await expect(page.locator('.drawer')).toContainText('寫紀錄');
   await page.locator('[data-apply]').click();
   await app.saved();

@@ -399,6 +399,9 @@ export function rebookSlot(before, index, next) {
  * 日子還沒到的不列 —— 客人還沒來就不可能勾。
  * `pending_confirm` 也列：那天已經過了卻還沒問過客人，那更需要收尾。
  *
+ * **一段還開著就還在**（ADR-0110）：她可以先結幾段、其餘留著，整筆那個推導出來的
+ * 狀態會停在已確認（`visitStatusFrom()`）直到最後一段結掉。
+ *
  * @returns {object[]} 日期舊的排前面（拖最久的最上面）
  */
 export function visitsToClose(visits = [], today) {
@@ -406,10 +409,31 @@ export function visitsToClose(visits = [], today) {
     .filter((v) => !v.deletedAt
       && (v.status === 'confirmed' || v.status === 'pending_confirm')
       && isValidDate(v.date)
-      && v.date <= today)
+      && v.date <= today
+      && slotsToClose(v).length)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date)
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
+}
+
+/** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。 */
+const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
+
+/**
+ * 簽療程單那一頁要列哪幾段。**只有還開著的段**（ADR-0110）。
+ *
+ * 她 2026-09-24：「而且我發現已經取消的還可以簽療程單?」—— 以前卡片與抽屜列的是
+ * `visit.slots` 全部：取消掉的、**已經結案的**都在，而且預設「做了」。一天一段已經未到、
+ * 一段還已確認時那天回到清單上，按下去未到那段被蓋成已完成、扣次數。
+ *
+ * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
+ *   呼叫端拿它去組 `closeVisit()` 的 `attended`，重編號的話會記到別段
+ */
+export function slotsToClose(visit) {
+  if (!visit || visit.deletedAt) return [];
+  return (visit.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => isOpenStatus(slotStatus(visit, slot)));
 }
 
 /**
@@ -900,35 +924,42 @@ export function applyConfirmation(
  * 一次來訪一定至少有一個時段（`validateVisit()` 與 `firestore.rules` 兩層都擋），
  * 所以不會出現「沒有時段可以勾，於是被當成未到」的情況。
  *
+ * ## 一段一段來（2026-09-24，ADR-0110）
+ *
+ * 她：「預設先不結做了打勾未到打叉」。所以 `attended[i]` 只有 `true`／`false` 才動那一段，
+ * **`null` 或沒給＝先不結，一個字都不動**。以前少傳的補成「有做」—— 畫面上沒問到的
+ * 那一段被替她決定了、還扣了次數；現在沒問到的就是沒決定。
+ *
+ * **已經結案或取消的那一段永遠不動**（R2）：一天一段已經未到、一段還已確認時，
+ * 這一支以前會把未到那段蓋成已完成。
+ *
+ * 整筆的狀態走 `visitStatusFrom()` 推：一段做了、一段還開著 → 已確認（那一天留在
+ * 簽療程單的清單上）；全部結掉 → 有一段做了就是已完成，一段都沒做就是未到。
+ *
  * @param {object} visit
- * @param {boolean[]} attended 逐段：這一段做了沒。長度不足的補成有做 ——
- *   少傳的那幾段是「畫面上沒問到」，當成沒做會無聲扣掉她的次數。
+ * @param {(boolean|null)[]} attended 逐段：`true` 做了、`false` 沒來、`null` 先不結
  * @param {string} at ISO 時間
  */
 export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
   // 動手之前先補齊（`materialize()` 的說明）
-  const slots = (materialize(visit)?.slots ?? []).map((slot, i) => {
-    // **取消掉的那一段不參與收尾** —— 那天它本來就不會發生（ADR-0081）。
-    // 蓋過去的話它會被算成「沒來」，而未到是會被她看到的一個數字。
-    if (slot?.status === 'cancelled') return slot;
-    const did = attended[i] ?? true;
+  const base = materialize(visit);
+  let touched = false;
+  const slots = (base?.slots ?? []).map((slot, i) => {
+    const did = attended[i];
+    if (did !== true && did !== false) return slot;
+    // 取消的、已經結案的不動 —— 取消掉的那一段那天本來就不會發生（ADR-0081），
+    // 蓋過去的話它會被算成「沒來」
+    if (!isOpenStatus(slotStatus(base, slot))) return slot;
+    touched = true;
     // 兩個欄位一起寫：`attended` 是 ADR-0025 的，既有資料與對帳讀它；
     // `status` 是 ADR-0081 的。少寫一邊就會有一個畫面講另一句話。
     return { ...slot, attended: did, status: did ? 'done' : 'no_show' };
   });
 
-  const live = slots.filter((s) => s?.status !== 'cancelled');
-  // 每一段都先取消掉了才走到這裡：那一天就是取消，不是未到
-  if (!live.length) return { ...visit, slots, status: 'cancelled', statusAt: at };
-
-  const anyAttended = live.some((s) => s.attended);
-
-  return {
-    ...visit,
-    slots,
-    status: anyAttended ? 'done' : 'no_show',
-    statusAt: at,
-  };
+  const next = { ...base, slots };
+  const status = visitStatusFrom(next) ?? base?.status ?? null;
+  if (!touched && status === base?.status) return visit;
+  return { ...next, status, statusAt: at };
 }
 
 // ---------- 換一個狀態 ----------
@@ -1057,7 +1088,7 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
   // 的呼叫端問的本來就是那一天。
   const own = one ? slotStatus(visit, one) : visit?.status;
   const next = nextStatuses(own);
-  const open = own === 'pending_confirm' || own === 'confirmed';
+  const open = isOpenStatus(own);
 
   if (own === 'pending_confirm' && next.includes('confirmed')) {
     out.push({

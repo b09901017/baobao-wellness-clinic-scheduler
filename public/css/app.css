@@ -4246,6 +4246,53 @@ button.mark::after {
   text-decoration: line-through;
 }
 
+/* ---------- 逐段 ✓／✗（確認與簽療程單兩張抽屜，ADR-0110） ----------
+ *
+ * 那一列本身不能點了（以前點整列切「不行」），兩顆圓鈕各管一邊；都沒按 = 還沒決定。
+ * 圓鈕 44px（觸控區就是自己，不靠 ::after 撐），中間留 12px —— 兩顆的感應範圍不疊。 */
+.slotrow--pick {
+  align-items: center;
+  cursor: default;
+}
+
+.slotrow--yes {
+  background: var(--ok-bg);
+  border-color: var(--ok-bg);
+}
+
+.slotpick {
+  display: flex;
+  flex: none;
+  gap: 12px;
+}
+
+.slotpick__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--text-mute);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.slotpick__btn--yes[aria-pressed='true'] {
+  color: var(--accent-text);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.slotpick__btn--no[aria-pressed='true'] {
+  color: var(--surface);
+  background: var(--overdue);
+  border-color: var(--overdue);
+}
+
 /* ---------- 登入 / 設定畫面 ---------- */
 
 .gate {

@@ -10,7 +10,9 @@ import { readFileSync } from 'node:fs';
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
   visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots, lockedAt,
+  slotsToClose,
 } from '../public/js/domain/visits.js';
+import { closeConsequences } from '../public/js/domain/consequences.js';
 
 const statuses = (v) => v.slots.map((s) => slotStatus(v, s));
 
@@ -118,5 +120,90 @@ describe('03 「已完成不能直接改」看那一段', () => {
     const src = readFileSync(new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8');
     assert.ok(!/isLocked\(draft\.status\)/.test(src), '還在問整筆的狀態');
     assert.match(src, /lockedAt\(draft, headSlot\)/);
+  });
+});
+
+describe('04 簽療程單一段一段來', () => {
+  // 她 2026-09-24：「預設先不結做了打勾未到打叉」
+  const day = (...each) => {
+    const v = {
+      id: 'v', date: '2026-09-20',
+      slots: each.map((status) => ({ courseId: 'c', entitlementId: 'e', status })),
+    };
+    return { ...v, status: visitStatusFrom(v) };
+  };
+
+  test('只列還開著的段：取消的、已經結案的不列', () => {
+    const v = day('cancelled', 'no_show', 'confirmed', 'done', 'pending_confirm');
+    assert.deepEqual(slotsToClose(v).map((x) => x.index), [2, 4]);
+  });
+
+  test('只按了第一段 ✓：第一段已完成，另外兩段一個字都不動、那一天還在清單上', () => {
+    const next = closeVisit(day('confirmed', 'confirmed', 'confirmed'), [true, null, null], 'T');
+    assert.deepEqual(next.slots.map((s) => s.status), ['done', 'confirmed', 'confirmed']);
+    assert.equal(next.slots[1].attended, undefined, '沒按的那一段連 attended 都不寫');
+    assert.equal(next.status, 'confirmed');
+    assert.equal(visitsToClose([next], '2026-09-24').length, 1);
+  });
+
+  test('已經未到的那一段不會被重新蓋成做了（R2）', () => {
+    const next = closeVisit(day('no_show', 'confirmed'), [true, true], 'T');
+    assert.deepEqual(next.slots.map((s) => s.status), ['no_show', 'done']);
+    assert.equal(next.status, 'done');
+  });
+
+  test('少傳的那幾段不動 —— 畫面上沒問到的，不替她決定', () => {
+    const next = closeVisit(day('confirmed', 'confirmed'), [true], 'T');
+    assert.deepEqual(next.slots.map((s) => s.status), ['done', 'confirmed']);
+  });
+
+  test('一段都沒按：原封不動', () => {
+    const v = day('confirmed', 'confirmed');
+    assert.deepEqual(closeVisit(v, [null, null], 'T'), v);
+  });
+
+  test('全部結掉：有一段做了就是已完成，一段都沒做就是未到', () => {
+    assert.equal(closeVisit(day('confirmed', 'confirmed'), [true, false], 'T').status, 'done');
+    assert.equal(closeVisit(day('confirmed', 'confirmed'), [false, false], 'T').status, 'no_show');
+  });
+
+  test('整天那條路（applyStatus 整筆標已完成）照舊', () => {
+    const next = applyStatus(day('confirmed', 'pending_confirm'), 'done', { at: 'T' });
+    assert.deepEqual(next.slots.map((s) => s.status), ['done', 'done']);
+    assert.equal(next.status, 'done');
+  });
+
+  describe('底下那幾句照段講（R7）', () => {
+    const COURSES = {
+      c: { id: 'c', name: '復能', category: 'C' },
+      rec: { id: 'rec', name: '營養諮詢', category: null, needsRecord: true },
+    };
+    const v = {
+      id: 'v', date: '2026-09-20', status: 'confirmed',
+      slots: [
+        { courseId: 'rec', entitlementId: 'e1', status: 'confirmed' },
+        { courseId: 'c', entitlementId: 'e2', status: 'confirmed' },
+        { courseId: 'c', entitlementId: 'e2', status: 'confirmed' },
+      ],
+    };
+    const say = (picks) => closeConsequences({ visit: v, picks, coursesById: COURSES });
+
+    test('做了幾段、沒來幾段、留著幾段', () => {
+      const lines = say([null, true, false]);
+      assert.ok(lines.some((l) => l.includes('1 段') && l.includes('扣')), lines.join('／'));
+      assert.ok(lines.some((l) => l.includes('沒來') && l.includes('不扣')), lines.join('／'));
+      assert.ok(lines.some((l) => l.includes('先不結')), lines.join('／'));
+    });
+
+    test('寫紀錄只在要寫紀錄的那一段打勾時才講', () => {
+      assert.ok(!say([null, true, true]).some((l) => l.includes('寫紀錄')));
+      assert.ok(!say([false, true, true]).some((l) => l.includes('寫紀錄')));
+      assert.ok(say([true, null, null]).some((l) => l.includes('寫紀錄')));
+    });
+
+    test('整天都結掉了才講「這一天改成…」', () => {
+      assert.ok(!say([true, null, null]).some((l) => l.includes('這一天')));
+      assert.ok(say([true, true, false]).some((l) => l.includes('這一天') && l.includes('已完成')));
+    });
   });
 });

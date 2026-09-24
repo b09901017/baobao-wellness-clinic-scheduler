@@ -360,10 +360,12 @@ describe('收尾：簽療程單', () => {
       assert.equal(next.status, 'no_show');
     });
 
-    test('少傳的那幾段當成有做，不要無聲扣掉她的次數', () => {
+    // 2026-09-24（ADR-0110）起反過來：沒問到的就是「先不結」，一個字都不動。
+    // 以前補成有做 —— 畫面上沒問到的那一段被替她決定了、還扣了次數。
+    test('少傳的那幾段不動 —— 畫面上沒問到的不替她決定', () => {
       const next = closeVisit(visit(), [], 'T');
-      assert.equal(next.status, 'done');
-      assert.deepEqual(next.slots.map((s) => s.attended), [true, true]);
+      assert.equal(next.status, 'confirmed');
+      assert.deepEqual(next.slots.map((s) => s.attended), [undefined, undefined]);
     });
 
     test('其餘欄位原封不動，時段的內容也不動', () => {
