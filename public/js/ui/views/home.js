@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, slotsToClose,
+  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -3821,28 +3821,8 @@ async function clearDone(el, done) {
 
 // ---------- 小工具 ----------
 
-/**
- * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
- *
- * 她 2026-09-16：「我這邊確認了某個時段客戶已確認後 待辦那邊的這個時段就可以
- * 收掉」。日曆上確認得掉單獨一段之後（ADR-0097），那一天還留在
- * `visitsToConfirm()` 裡是對的 —— 另一段還沒問。要收掉的是這一頁列出來的那幾列。
- *
- * **回的是索引不是重編號的陣列。** `applyConfirm()` 把畫面上的 key 換成
- * `applyConfirmation()` 要的段落編號，而那個編號是對**原本那個陣列**算的 ——
- * 濾掉之後重編號的話，她點「客人說不行」的會是別段（同 `cancellableSlots()`
- * 與 `progressDayHtml()` 的 `data-slot`）。
- */
-function pendingSlotsOf(visit) {
-  return (visit?.slots ?? [])
-    .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
-}
-
-/** 只留還沒問過的那幾段的一份複本。**只給顯示與訊息用** —— 索引在這裡不成立。 */
-function asPending(visit) {
-  return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
-}
+// 「還沒問過的那幾段」（`pendingSlotsOf()`／`asPending()`）搬到 `domain/visits.js`：
+// 客戶詳情的 LINE 訊息問的是同一件事（`.scratch/asks-2026-09-24/issues/12`）。
 
 /** @returns {Map<string, object[]>} 客戶 id → 他的來訪 */
 function byCustomer(visits) {

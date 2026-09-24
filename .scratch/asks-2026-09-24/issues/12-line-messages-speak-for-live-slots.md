@@ -1,6 +1,6 @@
 # 客戶詳情的 LINE 訊息只講還算數的段
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 12 條（R5）
 動工前先讀：ADR-0077、`domain/messages.js` 的 `messagesFor()`／`slotLines()`／`reminderMessage()`、
 `ui/views/home.js` 的 `asPending()`（待辦中心那一張早就只講還沒問的段）
