@@ -1,6 +1,6 @@
 # 二返排在最後面
 
-Status: todo
+Status: done
 來源：`../spec.md` 第 10 條（第三點 a）
 動工前先讀：`domain/scheduling.js` 的 `customerPools()`（173 行的排序）、`ui/views/visitEditor.js` 的額度丸子（542 行）
 

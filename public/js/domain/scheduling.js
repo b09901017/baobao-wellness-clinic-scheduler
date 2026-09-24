@@ -125,6 +125,17 @@ export function pendingFor({ course, entitlements = [], visits = [], targetMonth
 }
 
 /**
+ * **二返一律排在最後面**，其餘照原本的順序（`Array.prototype.sort` 是穩定的）。
+ *
+ * 她 2026-09-24：「二返(...健檢) 健檢應該放一起 然後二返要放比較後面，不然很容易想約健檢
+ * 卻約到二返(...健檢)會看錯」—— 兩筆剩一樣多時照名字排會並排，一指按錯就約到另一種。
+ * 壓表（`customerPools()`）與來訪編輯器的額度那一排共用這一支。二返認 `followupForEntitlementId`
+ * （ADR-0022），不比名字。客戶詳情的額度卡刻意不用（`sortPools()`：健檢與二返相鄰）。
+ */
+export const followupsLast = (a, b) =>
+  Number(Boolean(a?.followupForEntitlementId)) - Number(Boolean(b?.followupForEntitlementId));
+
+/**
  * 一位客戶身上所有還算數的額度，一份一個數字。
  *
  * 壓表卡片上「一個課程一顆泡泡」用的就是這個。使用者說過「壓復能的時候只要看到
@@ -166,11 +177,13 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
       booked: c.booked,
       remaining: c.remaining,
       expiresAt: e.expiresAt ?? null,
+      followupForEntitlementId: e.followupForEntitlementId ?? null,
     });
   }
 
-  // 快用完的排前面 —— 她要先看到「這個只剩一次了」
-  pools.sort((a, b) => a.remaining - b.remaining || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+  // 快用完的排前面 —— 她要先看到「這個只剩一次了」。二返一律最後（`followupsLast()`）
+  pools.sort((a, b) => followupsLast(a, b) || a.remaining - b.remaining
+    || String(a.label).localeCompare(String(b.label), 'zh-TW'));
 
   const withLeft = pools.filter((p) => p.remaining > 0 && isValidDate(p.expiresAt));
   const soonestExpiry = withLeft.length

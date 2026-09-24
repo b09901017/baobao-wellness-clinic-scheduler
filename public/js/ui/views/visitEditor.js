@@ -22,6 +22,7 @@ import {
   rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
+import { followupsLast } from '../../domain/scheduling.js';
 import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor } from '../../domain/followups.js';
 import {
@@ -111,9 +112,10 @@ async function boot(el, {
     const id = existing?.customerId ?? customerId;
     // 額度那一排丸子問的是「這一段扣哪一筆」，所以只列排得進來訪的
     //（`schedulable()`）—— 營養品扣不掉任何一段，見 ADR-0057。
+    // **二返排最後**（`followupsLast()`，壓表那一排同一支）：跟健檢並排時一指就約錯
     const [customer, entitlements, all, settings, customerVisits] = await Promise.all([
       customersData.get(id),
-      customersData.listEntitlements(id).then(schedulable),
+      customersData.listEntitlements(id).then((es) => schedulable(es).sort(followupsLast)),
       config.loadAll(),
       config.getSettings(),
       visitsData.listByCustomer(id),
