@@ -206,6 +206,64 @@ export function bookingConsequences({
   return { title: `已經在 ${where} 壓好表了嗎？`, lines };
 }
 
+/**
+ * 拍 Abovee 存檔前那一道確認（ADR-0104 第 2 點：十幾段只問一次，一次講完）。
+ *
+ * 以前這幾句寫在 `ui/components/aboveeConfirm.js` 裡，於是壓表與日曆新增後來跟上的兩件它都沒跟上：
+ * 「等客人說可以之後會再多一張 X」（prelaunch-audit-2026-09-23/issues/22）、補登過去那一天
+ * 直接在簽療程單（ADR-0113 那一批）。現在判斷一條都不另寫：過了沒借 `visitsToConfirm()`、
+ * 會多哪幾張借 `registrationsWhenSettled()`、併進談定那一天借 `settledDayLine()`
+ *（`.scratch/asks-2026-09-24-evening/issues/07`）。
+ *
+ * **合起來講**，不是一組一段 —— 十幾段各講三句她會閉著眼睛按。掛號照種類合計。
+ *
+ * @param {object} o
+ * @param {{customerId: string, customerName: string, date: string, visit: object,
+ *          items: object[], reopened: boolean}[]} o.groups `planAbovee()` 的那幾組（還沒記的）
+ * @param {Record<string, object>} o.coursesById
+ * @param {string|null} o.today
+ * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
+ * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
+ * @returns {{title: string, lines: string[]}}
+ */
+export function aboveeConsequences({ groups = [], coursesById = {}, today = null, aliases = [], marks = [] }) {
+  const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
+  const people = new Set(groups.map((g) => g.customerId)).size;
+  // 同 `bookingConsequences()` 的 `past`：確認那一列只收今天以後
+  const isPast = (g) => Boolean(today) && !visitsToConfirm([{ ...g.visit, status: INITIAL_STATUS }], today).length;
+  const ahead = groups.filter((g) => !isPast(g));
+  const past = groups.length - ahead.length;
+
+  const lines = [
+    `${people} 位・${groups.length} 天・${n} 段`,
+    '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
+  ];
+  if (ahead.length) lines.push(`今天起的 ${ahead.length} 天會出現在待辦的「跟客人確認時間」`);
+  if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
+  for (const g of groups.filter((x) => x.reopened)) {
+    lines.push(`${g.customerName} ${shortDate(g.date)}：${settledDayLine()}`);
+  }
+
+  // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
+  const later = new Map();
+  for (const g of ahead) {
+    const count = (g.visit?.slots ?? []).length;
+    const added = Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
+    for (const kind of registrationsWhenSettled(g.visit, added, [], coursesById, today)) {
+      later.set(kind, (later.get(kind) ?? 0) + 1);
+    }
+  }
+  if (later.size) {
+    lines.push(`等客人說可以之後，待辦會再多${[...later]
+      .map(([kind, c]) => (c === 1 ? `一張「${kind}」` : `${c} 張「${kind}」`)).join('、')}`);
+  }
+
+  for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
+  for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
+
+  return { title: `記錄這 ${n} 段？`, lines };
+}
+
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */
 function nthLabels(visit) {
   const seen = new Set();

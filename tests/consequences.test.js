@@ -22,6 +22,7 @@ import { acceptsMoreSlots, withExtraSlot, INITIAL_STATUS, shortStatus } from '..
 import {
   bookingSystemLabel, bookingConsequences, confirmConsequences,
   closeConsequences, untickConsequences, cancelConsequences, reviewWarnings, settledDayLine,
+  aboveeConsequences,
 } from '../public/js/domain/consequences.js';
 
 const COURSES = {
@@ -918,5 +919,71 @@ describe('改這一段改了時間或課程 → 取消＋重新排', () => {
     const after = rebookSlot(before, 0, { ...before.slots[0], courseId: 'c-recovery' });
     const { lines } = rebookConsequences({ before, after, index: 0, tasks: [], coursesById: C });
     assert.deepEqual(saidLater(lines), []);
+  });
+});
+
+describe('拍 Abovee 那一道確認（aboveeConsequences，asks-2026-09-24-evening/issues/07）', () => {
+  // 以前那幾句寫在 `aboveeConfirm.js` 裡，壓表與日曆新增後來跟上的兩件（#129 的 22「等客人說可以之後
+  // 會再多一張 X」、補登過去那一天）它都沒跟上。ADR-0104：十幾段只問一次，所以**合起來講**
+  const TODAY_ = '2026-08-20';
+  const group = ({ date = '2026-08-27', visit: v = null, ...o } = {}) => ({
+    customerId: 'cust1', customerName: '客戶A', date, reopened: false, items: [{ key: 'a0' }],
+    visit: { ...(v ?? visit(INITIAL_STATUS, [{ ...slot('c-followup'), status: INITIAL_STATUS }])), date },
+    ...o,
+  });
+  const ask = (o) => aboveeConsequences({ coursesById: COURSES, today: TODAY_, ...o });
+
+  test('幾位、幾天、幾段，每一段都是待確認', () => {
+    const said = ask({ groups: [group(), group({ customerId: 'cust2', customerName: '客戶B' })] });
+    assert.equal(said.title, '記錄這 2 段？');
+    assert.equal(said.lines[0], '2 位・2 天・2 段');
+    assert.ok(said.lines.some((l) => l.startsWith('每一段都記成「待確認」')));
+  });
+
+  test('今天起的那幾天：講會出現在「跟客人確認時間」，而且等客人說可以之後會多幾張掛號（照種類合計）', () => {
+    const said = ask({ groups: [group(), group({ customerId: 'cust2', customerName: '客戶B' })] });
+    assert.ok(said.lines.includes('今天起的 2 天會出現在待辦的「跟客人確認時間」'));
+    const later = said.lines.find((l) => l.startsWith('等客人說可以之後'));
+    assert.ok(later?.includes('2 張「Examine」'), later);
+  });
+
+  test('補登過去那一天：直接在「簽療程單」，不講掛號（ADR-0113）', () => {
+    const said = ask({ groups: [group({ date: '2026-08-10' })] });
+    assert.ok(said.lines.includes('已經過了的 1 天，待辦上直接出現在「簽療程單」'));
+    assert.ok(!said.lines.some((l) => l.includes('跟客人確認時間')));
+    assert.ok(!said.lines.some((l) => l.startsWith('等客人說可以之後')));
+  });
+
+  test('全部都是復能（C 類）：沒有掛號那一句', () => {
+    const said = ask({ groups: [group({ visit: visit(INITIAL_STATUS, [{ ...slot('c-recovery'), status: INITIAL_STATUS }]) })] });
+    assert.ok(!said.lines.some((l) => l.startsWith('等客人說可以之後')));
+  });
+
+  test('併進已經談定的那一天：講 06 那一句，只講新加的那一段會長的', () => {
+    // 門診那一段早就談定了；這次新加的是尾巴那一段復能 —— 不可以說會多一張 Examine
+    const v = visit(INITIAL_STATUS, [
+      { ...slot('c-followup'), status: 'confirmed' },
+      { ...slot('c-recovery', '11:00'), status: INITIAL_STATUS },
+    ]);
+    const said = ask({ groups: [group({ visit: v, reopened: true })] });
+    assert.ok(said.lines.includes(`客戶A 8/27(四)：${settledDayLine()}`));
+    assert.ok(!said.lines.some((l) => l.startsWith('等客人說可以之後')));
+  });
+
+  test('記住的寫法、標成壓完：資料由畫面給，句子在這裡', () => {
+    const said = ask({
+      groups: [group()],
+      aliases: [{ text: '王大明', name: '耕宇' }],
+      marks: [{ names: ['客戶A'], month: '9月' }],
+    });
+    assert.ok(said.lines.includes('以後 Abovee 上的「王大明」都認成 耕宇'));
+    assert.ok(said.lines.includes('客戶A 在 9月壓表清單上標成壓完'));
+  });
+
+  test('畫面那一支一個字的後果都不自己組', () => {
+    const src = readFileSync(new URL('../public/js/ui/components/aboveeConfirm.js', import.meta.url), 'utf8');
+    assert.ok(src.includes('aboveeConsequences('));
+    assert.ok(!src.includes('每一段都記成「待確認」'));
+    assert.ok(!src.includes('整天退回待確認'));
   });
 });

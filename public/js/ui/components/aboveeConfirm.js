@@ -18,6 +18,7 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
+import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeDatesIn, entitlementChoices, examChoices, needsAttention, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
@@ -513,19 +514,24 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       ctx.master.staff,
     );
     const marks = queueMarksAfter(groups.map((g) => ({ customerId: g.customerId, date: g.date })), batches);
-    const people = new Set(groups.map((g) => g.customerId)).size;
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
 
+    // 句子一個字都不在這裡組（`consequences.js`，asks-2026-09-24-evening/issues/07）——
+    // 以前在這裡，壓表與日曆新增後來跟上的「會多幾張掛號」「補登過去那一天」它都沒跟上。
+    // 這裡只把 id 換成名字交過去
+    const said = aboveeConsequences({
+      groups,
+      coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
+      today: ctx.today,
+      aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
+      marks: marks.map((m) => ({
+        names: m.customerIds.map(nameOf),
+        month: monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? ''),
+      })),
+    });
     const ok = await confirmAction({
-      title: `記錄這 ${n} 段？`,
-      consequences: [
-        `${people} 位・${groups.length} 天・${n} 段`,
-        '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
-        ...groups.filter((g) => g.reopened).map((g) =>
-          `${g.customerName} ${shortDate(g.date)} 那一天已經確認過，併進去之後整天退回待確認`),
-        ...aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((x) => `以後 Abovee 上的「${x}」都認成 ${a.name}`)),
-        ...marks.map((m) => `${m.customerIds.map(nameOf).join('、')} 在 ${monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? '')}壓表清單上標成壓完`),
-      ],
+      title: said.title,
+      consequences: said.lines,
       confirmLabel: '已確認，記錄',
     });
     if (!ok || closed) return;
