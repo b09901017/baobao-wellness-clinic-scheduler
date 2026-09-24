@@ -1,6 +1,6 @@
 # 確認抽屜：✓ 可以、✗ 不行、預設還沒回
 
-Status: todo
+Status: done
 Blocked by: 01
 來源：`../spec.md` 第 07 條（第一點、Q1）
 動工前先讀：ADR-0097、ADR-0070、`domain/visits.js` 的 `applyConfirmation()`（`asked` 參數）／`describeConfirmed()`、

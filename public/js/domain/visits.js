@@ -719,17 +719,26 @@ export function visitsToConfirm(visits = [], today) {
  * 會變成「確認 1 段」按下去、卡片寫「已確認 2 段」；而早就取消掉的那一段
  * 列進來是在說一段不會發生的已經確認了。
  *
+ * **沒按的那幾段不算**（2026-09-24，ADR-0110）：`asked` 給了就只講有按的，其餘數成 `waiting`
+ * （還沒回，留在清單上）。沒給＝每一段都問過了（跟以前一樣）。
+ *
  * @param {object[]} visits 這位客戶還在等回覆的那幾筆（寫入之前的）
  * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
- * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
+ * @param {Set<string>|null} [asked] 有按 ✓ 或 ✗ 的那幾段，key 同上
+ * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number, waiting: number}}
  */
-export function describeConfirmed(visits = [], rejected = new Set()) {
+export function describeConfirmed(visits = [], rejected = new Set(), asked = null) {
   const rows = [];
   let dropped = 0;
+  let waiting = 0;
 
   for (const v of visits ?? []) {
     (v.slots ?? []).forEach((slot, i) => {
       if (slotStatus(v, slot) !== 'pending_confirm') return;
+      if (asked && !asked.has(`${v.id}:${i}`)) {
+        waiting += 1;
+        return;
+      }
       if (rejected.has(`${v.id}:${i}`)) {
         dropped += 1;
         return;
@@ -745,6 +754,7 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
     name: (visits ?? []).find((v) => v.customerName)?.customerName ?? '',
     rows,
     rejected: dropped,
+    waiting,
   };
 }
 
@@ -886,17 +896,19 @@ export function applyConfirmation(
     return { ...slot, status: rejected.has(i) ? 'cancelled' : 'confirmed' };
   });
 
+  const status = visitStatusFrom({ ...visit, slots }) ?? visit?.status ?? null;
   const next = {
     ...visit,
     slots,
     // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
     // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
-    followupNote: null,
-    followupAt: null,
+    //
+    // **還有段在等時留著**（2026-09-24，ADR-0110）：她可以先確認幾段、其餘還沒回，
+    // 那一句講的正是還沒回的那幾段 —— 以前一定是整批走出去，所以一律清掉。
+    ...(status === 'pending_confirm' ? {} : { followupNote: null, followupAt: null }),
     statusAt: at,
   };
 
-  const status = visitStatusFrom(next) ?? visit?.status ?? null;
   if (status === 'cancelled') {
     return {
       ...next,

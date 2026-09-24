@@ -218,9 +218,12 @@ function nthLabels(visit) {
  * @param {Set<string>} [rejected] 抽屜裡被退掉的那幾段，key 是 `${visit.id}:${索引}`
  * @param {Record<string, object[]>} [tasksByVisit] 那幾筆身上現有的任務（連軟刪除的，
  *   `listByVisitForSync()`）。沒給就當沒有 —— 只有舊任務（沒有 `slotIndexes`）會因此多講一句
+ * @param {Set<string>|null} [asked] 有按 ✓ 或 ✗ 的那幾段（ADR-0110），key 同 `rejected`。
+ *   沒按的那幾段還在等，不可以講它們會長出什麼。沒給＝每一段都問過了
  */
 export function confirmConsequences(
   visits = [], coursesById = {}, sheetSyncOn = false, rejected = new Set(), tasksByVisit = {},
+  asked = null,
 ) {
   // 用短的那一版（`shortStatus`）不用完整那一句：她看的是日曆，而日曆的圖例
   // 上寫的就是「待確認」「已確認」。同一件事在兩個地方用兩種講法會讓她多想一秒。
@@ -231,10 +234,13 @@ export function confirmConsequences(
   const settled = [];
   for (const before of visits ?? []) {
     const all = (before.slots ?? []).map((_, i) => i);
-    const out = new Set(all.filter((i) => rejected.has(`${before.id}:${i}`)));
-    const confirming = all.filter((i) => !out.has(i)
+    const mine = asked ? all.filter((i) => asked.has(`${before.id}:${i}`)) : all;
+    const out = new Set(mine.filter((i) => rejected.has(`${before.id}:${i}`)));
+    const confirming = mine.filter((i) => !out.has(i)
       && slotStatus(before, before.slots[i]) === 'pending_confirm');
-    if (confirming.length) settled.push({ before, after: applyConfirmation(before, out) });
+    if (confirming.length) {
+      settled.push({ before, after: applyConfirmation(before, out, undefined, asked ? new Set(mine) : null) });
+    }
   }
 
   const later = new Set();

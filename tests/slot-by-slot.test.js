@@ -10,9 +10,9 @@ import { readFileSync } from 'node:fs';
 import {
   applyStatus, applyConfirmation, closeVisit, withSlotStatuses, slotStatus,
   visitActions, visitStatusFrom, visitsToClose, nextStatuses, cancellableSlots, lockedAt,
-  slotsToClose,
+  slotsToClose, describeConfirmed,
 } from '../public/js/domain/visits.js';
-import { closeConsequences } from '../public/js/domain/consequences.js';
+import { closeConsequences, confirmConsequences } from '../public/js/domain/consequences.js';
 import { syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
 import { todosForVisit } from '../public/js/domain/todoFlow.js';
 import {
@@ -344,5 +344,50 @@ describe('06 健檢那條鏈看健檢那一段', () => {
     };
     const out = chain([examDay('confirmed', 'done')], [report]);
     assert.deepEqual(out.remove.map((r) => r.id), ['r1']);
+  });
+});
+
+describe('07 確認抽屜：✓ 可以、✗ 不行、預設還沒回', () => {
+  // 她 2026-09-24：「就是如果只是想先同意其中一項呢 其他先不確定，就像日曆那邊可以只先同意一項。」
+  const COURSES = {
+    a: { id: 'a', name: '門診', category: 'A' },
+    c: { id: 'c', name: 'SIS', category: 'C' },
+  };
+  const v = {
+    id: 'v', customerId: 'c1', customerName: '客戶A', date: '2026-09-30', status: 'pending_confirm',
+    followupNote: '禮拜一再問問',
+    slots: [
+      { courseId: 'a', status: 'pending_confirm', startsAt: '10:00' },
+      { courseId: 'c', status: 'pending_confirm', startsAt: '11:00' },
+      { courseId: 'c', status: 'pending_confirm', startsAt: '12:00' },
+    ],
+  };
+
+  test('只按了第 0 段 ✓：那一段已確認，另外兩段還在等、「問過了」那一句還在', () => {
+    const next = applyConfirmation(v, new Set(), 'T', new Set([0]));
+    assert.deepEqual(next.slots.map((s) => s.status), ['confirmed', 'pending_confirm', 'pending_confirm']);
+    assert.equal(next.status, 'pending_confirm');
+    assert.equal(next.followupNote, '禮拜一再問問');
+  });
+
+  test('全部都有決定：「問過了」那一句才收掉', () => {
+    const next = applyConfirmation(v, new Set([2]), 'T', new Set([0, 1, 2]));
+    assert.equal(next.status, 'confirmed');
+    assert.equal(next.followupNote, null);
+  });
+
+  test('卡片只講有按的那幾段', () => {
+    const said = describeConfirmed([v], new Set(['v:1']), new Set(['v:0', 'v:1']));
+    assert.equal(said.rows.length, 1);
+    assert.equal(said.rejected, 1);
+    assert.equal(said.waiting, 1);
+  });
+
+  test('「接著會發生什麼」只講有按 ✓ 的那一段長出來的', () => {
+    // 只確認 SIS 那一段：門診那一段還在等，不可以說會多一張 Examine
+    const only = confirmConsequences([v], COURSES, false, new Set(), {}, new Set(['v:1']));
+    assert.ok(!only.some((l) => l.includes('Examine')), only.join('／'));
+    const exam = confirmConsequences([v], COURSES, false, new Set(), {}, new Set(['v:0']));
+    assert.ok(exam.some((l) => l.includes('Examine')), exam.join('／'));
   });
 });

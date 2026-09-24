@@ -189,6 +189,7 @@ test('C6 確認抽屜上僅剩那一段：卡片寫 1 段，不說會多 Examine
   await app.settled();
 
   await page.locator('[data-open="cust-x"]').click();
+  await app.tickAll();
   await expect(page.locator('[data-apply]')).toContainText('確認 1 段');
   await page.locator('[data-apply]').click();
   await app.saved();
