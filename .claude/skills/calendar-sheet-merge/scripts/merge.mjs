@@ -68,7 +68,8 @@ export const TOKENS = [
   // 前面要是中文字、後面不能接數字或時間的點 —— `13：30` 是下午一點半
   [/(?<=[一-鿿])13(?![\d.．：:])/, '健檢', null],
   [/復健科|復健門診|復健/, '復健科醫師門診', null],
-  [/心臟評估|心臟門診|心超|HRV|ABI/, '心臟科評估', null],
+  // `心臟科` 她 2026-09-28 確認＝心臟科評估（`9.王小明心臟科3檢查`，假名）。寫全的「心臟科評估」也靠這一個字認得
+  [/心臟科|心臟評估|心臟門診|心超|HRV|ABI/, '心臟科評估', null],
   [/點滴|雪顏|護肝|腸道|排毒|亮彩|猛健樂|速利清|護心|NAC/, '營養點滴', null],
   // `.5雪`、`.5肝`：點滴室後面接一個字的品項（她 2026-09-15）。「腸胃鏡」的腸不算
   [/[.．]\d{1,2}\s*[雪肝腸](?!胃)/, '營養點滴', null],
@@ -240,8 +241,9 @@ const NOT_A_NAME = [
  * `壓` 收的是整個「壓進某個系統」的家族（`壓表`、`休假壓outlook`），不是只有 `壓表` ——
  * 她拿同一個字講 Abovee、Examine、Outlook 三件事。
  */
-const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|記錄|紀錄|記|提醒|蒐集|收集|繳|買|取消|查|準備|報名|填|送|還|催|領|退費|盤點|壓|看|Examine|耀聖|回電|告知|給|退款|影本|更新|排|包|澆水/i;
-// ↑ 最後那一串是她 2026-09-15 指名的（`2.王小明回電`、`包王小明營養素`、`單子給某某`、`澆水`，假名）
+const TODO_WORDS = /電話|通知|聯絡|寄|交|訂|處理|確認|預約|約|記錄|紀錄|記|提醒|蒐集|收集|繳|買|取消|查|準備|報名|填|送|還|催|領|退費|盤點|壓|看|Examine|耀聖|回電|告知|給|退款|影本|更新|排|包|澆水|必須/i;
+// ↑ 最後那一串是她 2026-09-15 指名的（`2.王小明回電`、`包王小明營養素`、`單子給某某`、`澆水`，假名）；
+//   `必須` 是 2026-09-28：「必須請假」是提醒她去請假（待辦），不是一個叫「必須」的人的假
 
 /**
  * 這句話裡除了認得出來的東西以外，還剩下的中文字 —— 拿來判斷「寫的是別人」。
@@ -508,7 +510,7 @@ const DEFAULT_SLOT_MIN = 60;
  * 取消、預約、紀錄講的是另一件事。拿它們的時間去補沒配到的時段，就是憑空編一個時間出來，
  * 而那在畫面上跟補對了長得一模一樣。
  */
-const NOT_A_SLOT = /X光|取消|預約|紀錄|記錄/i;
+const NOT_A_SLOT = /X光|取消|預約|紀錄|記錄|耀聖|曜聖/i;
 
 /**
  * 不是來訪的句子（她 2026-09-15：「取消／預約／改／紀錄／約」一律不是來訪）。
@@ -516,7 +518,9 @@ const NOT_A_SLOT = /X光|取消|預約|紀錄|記錄/i;
  * 這幾種句子人名與療程都對得上，於是會被列成「行事曆有、舊表沒勾」—— 那是最危險的一份清單，
  * 塞進假的會讓真的漏勾看起來不值得找。退回對不到客戶的清單，分類照舊由 `classifyEvent()` 判。
  */
-const NOT_A_VISIT = /取消|預約|改|紀錄|記錄|約/;
+// 「耀聖／曜聖」是寫紀錄的那個系統（她 2026-09-28：「一律不是來訪」）—— `王小明二返曜聖×整理給line`（假名）
+// 是提醒自己去寫二返紀錄，二返那一天在別的地方
+const NOT_A_VISIT = /取消|預約|改|紀錄|記錄|約|耀聖|曜聖/;
 
 /**
  * 一位客戶的一天：試算表勾了哪些時段、行事曆上有哪些事件，怎麼配。
@@ -1018,12 +1022,13 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
       decisionLog.misses.push(`行事曆 ${x.date} 找不到「${x.title}」（或它已經配成來訪了），那一條決定沒有用上`);
     } else {
       decisionLog.applied.push(`行事曆 ${x.date}「${x.title}」：${x.skip ? `不匯（${x.skip}）`
-        : [x.kind && `分類改成${KIND_LABEL[x.kind]}`, x.startDate && `日期改成 ${x.startDate}～${x.endDate ?? x.startDate}`]
+        : [x.kind && `分類改成${KIND_LABEL[x.kind]}`, x.startDate && `日期改成 ${x.startDate}～${x.endDate ?? x.startDate}`,
+          x.include === true && '留著（今天以前的也匯）']
           .filter(Boolean).join('、')}`);
     }
   }
 
-  return { plans: customers, events, unreadable, span, leftover, ambiguous, renames, year, decisionLog, eventDecisions };
+  return { plans: customers, events, unreadable, span, leftover, ambiguous, renames, year, today, decisionLog, eventDecisions };
 }
 
 // ---------- 給 app 的合併檔 ----------
@@ -1164,6 +1169,10 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
       // 她決定過的蓋過照標題判的（改分類、改起訖、整筆不匯）
       const dec = r.eventDecisions?.get(`${e.date}|${e.summary}`) ?? null;
       if (dec?.skip) return [];
+      // **今天以前的一律不匯**（她 2026-09-28：「當天以前的都不用了預設丟掉，也不重要」）。
+      // 跨到今天以後的（出遊還沒回來）照舊在；她在決定頁說要留的那一筆也照舊在。
+      // 報告與決定頁照樣列得出來 —— 丟掉的是「匯進 app」，不是「看得到」。
+      if (r.today && e.endDate < r.today && dec?.include !== true) return [];
       const auto = classifyEvent(e.summary);
       const kind = dec?.kind ?? auto.kind;
       const why = dec?.kind || dec?.startDate ? `照你之前的決定${dec.why ? `：${dec.why}` : ''}` : auto.why;
