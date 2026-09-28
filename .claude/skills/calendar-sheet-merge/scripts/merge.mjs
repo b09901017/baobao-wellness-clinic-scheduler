@@ -13,9 +13,10 @@
 // 用法：
 //   node merge.mjs --sheets <tsv 資料夾> --ics <檔案> [--year 2026]
 //                  [--aliases <aliases.json>] [--decisions <決定檔>] [--out <資料夾>]
+//                  [--board <決定頁.html> --form <這一份的名字>]
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1509,7 +1510,13 @@ const short = (n) => String(n).replace(/\\n/g, '/').replace(/\s+/g, ' ');
 
 // ---------- CLI ----------
 
+// **不在模組最外層 await**：決定頁那兩支會 import 這一支，而這一支還在最外層等著的時候
+// 被 import 會互相等死（Node 報 unsettled top-level await）。讓這一支先載完，再跑。
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => { console.error(err); process.exit(1); });
+}
+
+async function main() {
   const arg = (k, d = null) => {
     const i = process.argv.indexOf(`--${k}`);
     return i > 0 ? process.argv[i + 1] : d;
@@ -1522,6 +1529,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   const aliasPath = arg('aliases');
   const aliases = aliasPath ? JSON.parse(readFileSync(aliasPath, 'utf8')) : {};
+  const decisions = arg('decisions') ? JSON.parse(readFileSync(arg('decisions'), 'utf8')) : null;
   const r = reconcile({
     sheetsDir, icsPath, year: Number(arg('year', new Date().getFullYear())),
     aliases: aliases.nicknames ?? aliases,
@@ -1531,7 +1539,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     doctors: aliases.doctors ?? [],
     noise: aliases.noise ?? [],
     today: arg('today', new Date().toISOString().slice(0, 10)),
-    decisions: arg('decisions') ? JSON.parse(readFileSync(arg('decisions'), 'utf8')) : null,
+    decisions,
   });
   const text = reportText(r);
   const out = arg('out');
@@ -1541,6 +1549,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeFileSync(join(out, 'import.json'),
       `${JSON.stringify(importJson(r, { calendar: icsPath.split('/').pop() }), null, 2)}\n`);
     console.error(`寫到 ${out}/report.txt 與 import.json`);
+  }
+  // 決定頁（board.mjs ＋ board-page.mjs）。**有真名**：repo 裡只准寫進 `.local/`
+  const boardPath = arg('board');
+  if (boardPath) {
+    const where = relative(REPO, resolve(boardPath));
+    if (!where.startsWith('..') && !isAbsolute(where) && !where.startsWith('.local')) {
+      console.error(`決定頁有真名，不可以寫進 repo（${where}）。放 .local/references/ 或暫存區`);
+      process.exit(1);
+    }
+    const { boardItems } = await import('./board.mjs');
+    const { renderBoard } = await import('./board-page.mjs');
+    const board = boardItems(r, { decisions });
+    writeFileSync(boardPath, renderBoard(board, { form: arg('form', `合併的決定-${r.today}`), span: r.span }));
+    console.error(`決定頁寫到 ${boardPath}`);
   }
   console.log(text);
 }
