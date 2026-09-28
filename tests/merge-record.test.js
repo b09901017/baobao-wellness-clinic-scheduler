@@ -1,6 +1,6 @@
 // 回報由程式寫進決定檔（`.claude/skills/calendar-sheet-merge/scripts/record.mjs`）。
 //
-// 她 2026-09-15：「用程式完成這件事而不是用語言模型紀錄，讓每次結果都可以穩定」。
+// 她 2026-09-28：「用程式完成這件事而不是用語言模型紀錄，讓每次結果都可以穩定」。
 // 9/28：「我希望每一題都可以讓我回答完後，可以選擇要不要保留」。名字全部是假名。
 
 import { describe, test } from 'node:test';
@@ -143,5 +143,16 @@ describe('從決定頁到下一次：答過的不再問', () => {
     assert.equal(again.items.filter((i) => i.required && ['open', 'held'].includes(i.state)).length, 0,
       JSON.stringify(again.items.filter((i) => i.required && i.state === 'open').map((i) => i.key)));
     assert.equal(again.items.find((i) => i.key === item.key)?.state, 'record');
+  });
+});
+
+describe('要拿掉的那一條找不到：不可以安靜地記成決定了', () => {
+  test('記成 unmatched、印得出來，決定頁上是「等我處理」', () => {
+    const op = { sheet: '王小明', section: 'skipEvents', remove: { date: '2026-09-01', title: '找不到的那一句' } };
+    const { decisions, summary } = applyAnswers({}, report(answer({ key: 'stale|x', choice: 'drop', label: '這一條不用了', ops: [op] })), { at: '2026-09-28' });
+    assert.deepEqual(decisions.answers['stale|x'].unmatched, [op]);
+    assert.equal(summary.unmatched.length, 1);
+    const board = boardItems(reconcile({ sheetsDir: mkdtempSync(join(tmpdir(), 'merge-unm-')), icsPath: (() => { const f = join(mkdtempSync(join(tmpdir(), 'merge-unm-ics-')), 'c.ics'); writeFileSync(f, 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n'); return f; })(), year: 2026, today: '2026-09-28' }), { decisions });
+    assert.equal(board.items.find((i) => i.key === 'stale|x').state, 'translate');
   });
 });

@@ -575,11 +575,10 @@ export function groupCandidates(json, today = null) {
 export function defaultPicks(json, today = null) {
   const { future, past } = groupCandidates(json, today);
   const out = { future: [], missing: [], events: [] };
-  const all = [...future.visits, ...future.events, ...past.visits, ...past.events];
-  for (const r of all) {
+  const ahead = new Set([...future.visits, ...future.events]);
+  for (const r of [...ahead, ...past.visits, ...past.events]) {
     const decided = r.item?.decided === true;
-    const ahead = future.visits.includes(r) || future.events.includes(r);
-    if (decided ? r.item.include === true : ahead) out[r.kind].push(r.index);
+    if (decided ? r.item.include === true : ahead.has(r)) out[r.kind].push(r.index);
   }
   for (const k of Object.keys(out)) out[k].sort((a, b) => a - b);
   return out;

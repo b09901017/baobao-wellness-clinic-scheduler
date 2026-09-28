@@ -241,3 +241,129 @@ describe('⓪d 之前的決定沒對到：行事曆那一句改過字', () => {
     assertComplete(r, board);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 審查（2026-09-28）補的：上面那一份資料沒有的幾種、決定頁講的跟合併檔一不一樣
+
+import { importJson } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
+import { applyAnswers } from '../.claude/skills/calendar-sheet-merge/scripts/record.mjs';
+
+/** 跟 run() 一樣，只是行事曆整份自己給（要放一筆讀不出日期的） */
+function runRaw(sheets, icsLines, extra = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'merge-board-raw-'));
+  const sheetsDir = join(dir, 'sheets');
+  mkdirSync(sheetsDir);
+  for (const [name, spec] of Object.entries(sheets)) writeFileSync(join(sheetsDir, `${name}.tsv`), sheetTsv(name, spec));
+  const icsPath = join(dir, 'cal.ics');
+  writeFileSync(icsPath, ['BEGIN:VCALENDAR', ...icsLines, 'END:VCALENDAR'].join('\r\n'));
+  return reconcile({ sheetsDir, icsPath, year: 2026, today: '2026-09-28', ...extra });
+}
+const ev = (i, dt, title) => ['BEGIN:VEVENT', `UID:${i}`, `DTSTART;TZID=Asia/Taipei:${dt}`, `SUMMARY:${title}`, 'END:VEVENT'].join('\r\n');
+
+describe('上一份沒有的幾種：兩邊不一樣、勾錯人、舊表的問題、讀不到、叫法', () => {
+  const r = runRaw({
+    王小明: { dates: ['9/11'], checks: { '復能(1小時)': [true] } },
+    陳美美: { dates: ['9/12'], checks: { 'ILIB 60mins': [true] } },
+    林大華: { dates: ['9/01'], checks: { 'ILIB 60mins': [true] } },
+    張大同: { dates: ['9/03', '9/04'], checks: { 'ILIB 60mins': [true, true] } },
+  }, [
+    ev(1, '20260911T150000', '3.王小明EECP治5'),     // 舊表勾復能、行事曆寫 EECP
+    ev(2, '20260912T090000', '9.林大華IL治3'),       // 那天林大華沒勾、陳美美勾了 ILIB → 勾錯人？
+    ev(3, '20260901T100000', '10.林大華IL治2'),
+    ['BEGIN:VEVENT', 'UID:4', 'DTSTART:不是日期', 'SUMMARY:讀不出來的一筆', 'END:VEVENT'].join('\r\n'),
+  ]);
+  const board = boardItems(r);
+  const t = tally(board.items);
+
+  test('每一種都有', () => {
+    for (const kind of ['conflict', 'wrongPerson', 'sheet', 'unreadable', 'alias']) assert.ok(n(t, kind) > 0, `${kind} 一筆都沒有：${JSON.stringify(t)}`);
+  });
+
+  test('項數＝報告上印的數字', () => assertComplete(r, board));
+
+  test('⓪ 行事曆上從來沒寫過她：一項，數得跟報告一樣', () => {
+    assert.equal(n(t, 'alias'), reportCounts(r).blind);
+    assert.match(reportText(r), /先補別名/);
+  });
+
+  test('勾錯人：照舊表匯進去的是一段已完成的 —— 標「上線前要定」', () => {
+    assert.ok(board.items.filter((i) => i.kind === 'wrongPerson').every((i) => i.urgent));
+  });
+});
+
+describe('決定頁上寫「匯」的，就是合併檔裡會被勾起來的', () => {
+  /** 決定頁那一項講的：這一筆雜事會不會進 app */
+  const saysImport = (it) => it.kind === 'event' && !/不匯/.test(it.now ?? '');
+  /** 合併檔那一份：寫進去、而且帶著 decided/include（app 照它勾，ADR-0117） */
+  const fileImports = (json, it) => json.eventCandidates.some((c) => c.title === it.title && c.startDate === it.date && c.decided && c.include);
+  const check = (r, decisions = null) => {
+    const board = boardItems(r, { decisions });
+    const json = importJson(r);
+    for (const it of board.items.filter((i) => ['event', 'pastTodo', 'dropped'].includes(i.kind) && !i.fromRecord)) {
+      assert.equal(fileImports(json, it), saysImport(it), `${it.kind}「${it.title}」決定頁說${saysImport(it) ? '匯' : '不匯'}`);
+    }
+  };
+
+  test('今天的、跨過今天的、以後的、今天以前的', () => {
+    check(runRaw({}, [
+      ev(1, '20260928T140000', '2.今天開會'),
+      ['BEGIN:VEVENT', 'UID:2', 'DTSTART;VALUE=DATE:20260920', 'DTEND;VALUE=DATE:20261002', 'SUMMARY:家人出國', 'END:VEVENT'].join('\r\n'),
+      ev(3, '20261005T090000', '9.顧客會'),
+      ev(4, '20260910T100000', '10.公出'),
+      ev(5, '20260925T090000', '寄資料給廠商'),
+    ]));
+  });
+
+  test('最近的待辦她說要留：三週後照樣是「匯」，兩邊講的一樣', () => {
+    const lines = [ev(1, '20260925T090000', '寄資料給廠商')];
+    const first = boardItems(runRaw({}, lines));
+    const todo = first.items.find((i) => i.kind === 'pastTodo');
+    const keep = todo.options.find((o) => o.id === 'keep');
+    const decisions = applyAnswers({}, { answers: [{ key: todo.key, choice: keep.id, label: keep.label, ops: keep.ops }] }).decisions;
+    const later = runRaw({}, lines, { decisions, today: '2026-10-20' });
+    check(later, decisions);
+    assert.ok(importJson(later).eventCandidates.some((c) => c.title === '寄資料給廠商'));
+  });
+});
+
+describe('以後的預約選「不要」：下一輪不會變成雜事又被勾起來', () => {
+  test('那一句不在合併檔裡，決定頁上也不是要決定的', () => {
+    const sheets = { 王小明: { dates: ['9/11'], checks: { 'ILIB 60mins': [true] } } };
+    const events = [['2026-09-11', '15:00', '3.王小明IL治2'], ['2026-10-05', '10:00', '10.王小明心臟科']];
+    const first = boardItems(run(sheets, events));
+    const future = first.items.find((i) => i.kind === 'future');
+    const no = future.options.find((o) => o.id === 'no');
+    const decisions = applyAnswers({}, { answers: [{ key: future.key, choice: no.id, label: no.label, ops: no.ops }] }).decisions;
+
+    const r = run(sheets, events, { decisions });
+    assert.ok(!importJson(r).eventCandidates.some((c) => c.title === '10.王小明心臟科'), '合併檔裡不可以有它');
+    assert.ok(!importJson(r).futureVisits.some((c) => c.evidence === '10.王小明心臟科'));
+    const again = boardItems(r, { decisions });
+    const aboutIt = again.items.filter((i) => i.title.includes('心臟科') || String(i.key).includes('心臟科'));
+    assert.ok(aboutIt.every((i) => i.state !== 'open'), JSON.stringify(aboutIt.map((i) => [i.kind, i.state, i.now])));
+    assert.ok(aboutIt.filter((i) => i.kind === 'event').every((i) => /不匯/.test(i.now)), '雜事那一列要寫「不匯」');
+  });
+});
+
+describe('⓪d：舊表上那一則備註改過字', () => {
+  test('選項寫得出「刪掉現在那一則」，而且畫得出來（不會丟錯）', () => {
+    const LABELS2 = ['Inbody', '復健門診', '物理諮詢', '營養諮詢', '體適能分析', '復能(1小時)', 'ILIB 60mins'];
+    const dir = mkdtempSync(join(tmpdir(), 'merge-board-note-'));
+    const sheetsDir = join(dir, 'sheets');
+    mkdirSync(sheetsDir);
+    writeFileSync(join(sheetsDir, '王小明.tsv'), [
+      ['客戶名稱', '購買名稱', '療程內容', '應有次數', '實際次數', '9月7日'].join('\t'),
+      ...LABELS2.map((l, i) => [i ? '' : '王小明', '', l, 0, 0, 'FALSE'].join('\t')),
+      ['', '', '', '', '', '欠30治療師A'].join('\t'),
+    ].join('\n'));
+    const icsPath = join(dir, 'cal.ics');
+    writeFileSync(icsPath, 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+    const decisions = { customers: { 王小明: { notes: { drop: ['9/7 欠30'] } } } };
+    const r = reconcile({ sheetsDir, icsPath, year: 2026, today: '2026-09-28', decisions });
+    const item = boardItems(r, { decisions }).items.find((i) => i.kind === 'stale');
+    assert.ok(item, '要列成一項');
+    const next = item.options.find((o) => o.id === 'new');
+    assert.ok(next, JSON.stringify(item));
+    assert.deepEqual(next.ops.map((o) => o.remove ?? o.add), ['9/7 欠30', '9/7 欠30治療師A']);
+  });
+});

@@ -67,6 +67,54 @@ export function renderBoard(board, meta) {
 `;
 }
 
+
+/**
+ * 回報怎麼組。**頁面上跑的跟測試跑的是同一份**（`tests/merge-board-page.test.js` 拿它來跑）——
+ * 雜事那一列要寫進決定檔的那幾條是在這裡算的，沒有別的地方算得到。
+ *
+ * 雜事那一列：先想清楚「決定檔裡這一筆應該長什麼樣」（`want`），再跟原本那一條（`prev`）比 ——
+ * 不一樣就拿掉原本的、寫新的。只寫新的話，原本那一條（例：以前說不要）還在，下一輪照舊不匯。
+ * 原本那一條帶著日期（休假改過起訖）或「今天以前也要留」的，改分類時一起帶過去。
+ */
+export const REPORT_SRC = String.raw`function buildReport(D, answers, now) {
+  var KL = { leave: '休假', note: '待辦', personal: '行事備註' };
+  var byKey = {}; D.items.forEach(function(it){ byKey[it.key] = it; });
+  function optOf(it, id){ for (var i = 0; i < (it.options || []).length; i++) if (it.options[i].id === id) return it.options[i]; return null; }
+  function canon(v){ if (Array.isArray(v)) return v.map(canon); if (v && typeof v === 'object') { var o = {}; Object.keys(v).filter(function(k){ return k.charAt(0) !== '_' && k !== 'q'; }).sort().forEach(function(k){ o[k] = canon(v[k]); }); return o; } return v; }
+  function same(a, b){ return JSON.stringify(canon(a)) === JSON.stringify(canon(b)); }
+  function snapshot(it){ return { kind: it.kind, date: it.date || null, endDate: it.endDate || null, who: it.who || null, sheet: it.sheet || null, title: it.title, facts: it.facts || [], now: it.now || null, options: it.options || [], urgent: !!it.urgent, event: it.event || null }; }
+  function eventOps(it, a){
+    var ev = it.event, prev = ev.prev || null, want = null;
+    if (a.choice === 'drop') want = { date: it.date, title: it.title, skip: '她在決定頁說不要' };
+    else {
+      var kind = a.kind || ev.kind;
+      var keepPrev = prev && !prev.skip ? prev : null;
+      if (keepPrev) { want = {}; Object.keys(keepPrev).forEach(function(k){ if (k.charAt(0) !== '_') want[k] = keepPrev[k]; }); if (kind !== (keepPrev.kind || ev.autoKind)) want.kind = kind; }
+      else if (kind !== ev.autoKind) want = { date: it.date, title: it.title, kind: kind };
+    }
+    if (prev && want && same(prev, want)) return [];
+    var ops = [];
+    if (prev) ops.push({ sheet: null, section: 'events', remove: prev });
+    if (want) ops.push({ sheet: null, section: 'events', add: want });
+    return ops;
+  }
+  var out = { form: D.form, exportedAt: now, answers: [] };
+  Object.keys(answers).forEach(function(key){
+    var it = byKey[key], a = answers[key]; if (!it || !a.choice) return;
+    var o = { key: key, choice: a.choice, note: (a.note || '').trim() || null, hold: !!a.hold, snapshot: snapshot(it) };
+    if (it.kind === 'event' && !it.fromRecord) {
+      o.label = a.choice === 'drop' ? '不要' : '匯成' + KL[a.kind || it.event.kind];
+      o.ops = eventOps(it, a);
+    } else {
+      var opt = optOf(it, a.choice) || {};
+      o.label = opt.label || a.choice;
+      if (opt.free) o.free = true; else o.ops = opt.ops || [];
+    }
+    out.answers.push(o);
+  });
+  return out;
+}`;
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const CSS = `
@@ -182,6 +230,7 @@ dialog textarea{width:100%;height:50vh;font:12px/1.5 ui-monospace,Consolas,monos
 // 頁面上跑的那一段。刻意寫成不靠任何函式庫的一般 JS（她的電腦離線也打得開）。
 const JS = String.raw`
 (function(){
+${REPORT_SRC}
 var D = JSON.parse(document.getElementById('data').textContent);
 var KEY = 'baobao-board:' + D.form;
 var S = { answers: {}, view: 'cal', mode: 'todo', urgent: false };
@@ -201,6 +250,7 @@ function kind(it){ return D.kinds[it.kind] || D.kinds.question; }
 // open 要你決定｜held 保留中｜done 決定了｜translate 等我翻成規則｜glance 以後的雜事｜info 不用決定
 function status(it){
   var a = S.answers[it.key];
+  if (it.state === 'record' && !a) return 'done';
   if (it.kind === 'event') return a ? 'done' : (it.state === 'decided' ? 'done' : 'glance');
   if (!it.required && it.state !== 'held') return (it.state === 'record') ? 'done' : 'info';
   if (a) return a.hold ? 'held' : (a.choice === 'other' || optOf(it, a.choice) && optOf(it, a.choice).free ? 'translate' : 'done');
@@ -259,7 +309,7 @@ function renderChrome(){
 // ---------- 卡片 ----------
 function card(it){
   var kk = kind(it), s = status(it), a = S.answers[it.key];
-  if (it.kind === 'event') return evRow(it);
+  if (it.kind === 'event' && !it.fromRecord) return evRow(it);
   var art = el('article', { class: 'card', 'data-color': kk.color, 'data-key': it.key });
   var head = el('header', null, [el('span', { class: 'chip', text: kk.short }), it.who ? el('span', { class: 'who', text: it.who }) : null,
     it.date ? el('span', { class: 'date', text: md(it.date) + (it.endDate ? '～' + md(it.endDate) : '') }) : null,
@@ -482,26 +532,7 @@ drawer.addEventListener('click', function(e){ if (e.target.hasAttribute('data-cl
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !drawer.hidden) closeDrawer(); });
 
 // ---------- 回報 ----------
-function snapshot(it){ return { kind: it.kind, date: it.date || null, endDate: it.endDate || null, who: it.who || null, sheet: it.sheet || null, title: it.title, facts: it.facts || [], now: it.now || null, options: it.options || [], urgent: !!it.urgent, event: it.event || null }; }
-function report(){
-  var out = { form: D.form, exportedAt: new Date().toISOString(), answers: [] };
-  Object.keys(S.answers).forEach(function(key){
-    var it = byKey[key], a = S.answers[key]; if (!it || !a.choice) return;
-    var o = { key: key, choice: a.choice, note: (a.note || '').trim() || null, hold: !!a.hold, snapshot: snapshot(it) };
-    if (it.kind === 'event') {
-      var add = a.choice === 'drop' ? { date: it.date, title: it.title, skip: '她在決定頁說不要' }
-        : (a.kind && a.kind !== it.event.autoKind ? { date: it.date, title: it.title, kind: a.kind } : null);
-      o.label = a.choice === 'drop' ? '不要' : '匯成' + KL[a.kind || it.event.kind];
-      o.ops = add ? [{ sheet: null, section: 'events', add: add }] : [];
-    } else {
-      var opt = optOf(it, a.choice) || {};
-      o.label = opt.label || a.choice;
-      if (opt.free) o.free = true; else o.ops = opt.ops || [];
-    }
-    out.answers.push(o);
-  });
-  return JSON.stringify(out, null, 1);
-}
+function report(){ return JSON.stringify(buildReport(D, S.answers, new Date().toISOString()), null, 1); }
 function toast(msg){ var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); setTimeout(function(){ t.classList.remove('on'); }, 1800); }
 document.getElementById('copyBtn').addEventListener('click', function(){
   var text = report();

@@ -53,6 +53,15 @@ describe('「耀聖／曜聖」的句子一律不是來訪（她 9/28）', () =>
     ],
   );
 
+  test('也不拿它的時間去補那天沒配到的一段', () => {
+    const r2 = run(
+      { 王小明: { dates: ['9/18'], d: [0, 0, 0, 0, 0, 0, 1], checks: { 'ILIB 60mins': [true] } } },
+      [['2026-09-18', null, '20:00', '8.王小明曜聖整理給line']],
+    );
+    const [slot] = r2.plans.find((p) => p.sheetName === '王小明').days[0].filled;
+    assert.equal(slot.match, null, JSON.stringify(slot.match));
+  });
+
   test('不進「行事曆有、舊表沒勾」', () => {
     const titles = r.leftover.calendarOnly.map((x) => x.event.summary);
     assert.ok(!titles.includes('王小明二返曜聖×整理給line'), titles.join('、'));

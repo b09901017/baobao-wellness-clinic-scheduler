@@ -16,7 +16,7 @@
 //                  [--board <決定頁.html> --form <這一份的名字>]
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
+import { join, dirname, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -500,6 +500,28 @@ export function parseIcs(text) {
  */
 export const timeOf = (e) => (e.allDay ? null : timeInSummary(e.summary)?.start ?? e.clock ?? null);
 
+// ---------- 報告與決定頁共用的幾個判斷 ----------
+//
+// 各寫一份的話，決定頁上印「不匯」、合併檔卻照樣匯進去（2026-09-28 審查抓到的就是這個形狀）。
+
+/**
+ * 這一筆雜事照她的規則不匯：**結束日在今天以前**（她 2026-09-28：「當天以前的都不用了預設丟掉」），
+ * 而且她沒有說要留（決定檔 `events` 那一條的 `include: true`）。沒給今天就不丟。
+ */
+export const isPastEvent = (e, dec, today) => Boolean(today) && e.endDate < today && dec?.include !== true;
+
+/** 這一句寫了這位客戶（兩個字以上才算 —— 只沾到一個字的不算，見 `matchDay()`） */
+export const mentionsCustomer = (summary, forms = []) => {
+  const norm = normVariant(summary);
+  return forms.some((f) => f.length >= 2 && nameHit(norm, f) >= 2);
+};
+
+/**
+ * 行事曆上從頭到尾沒有一天寫過她名字的那幾位 —— 多半是叫法不一樣（報告的 ⓪）。
+ * 判準不是「一筆都沒配到」：沒寫名字的事件那條規則會替她補上幾筆，看起來就不像名字有問題了。
+ */
+export const blindOf = (r) => (r.plans ?? []).filter((p) => p.days.length >= 2 && p.days.every((d) => !d.named));
+
 // ---------- 配對 ----------
 
 const DEFAULT_SLOT_MIN = 60;
@@ -648,6 +670,15 @@ const addMin = (hhmm, min) => {
 // **對不到對象的決定一定要講出來**（`decisionLog.misses`，報告的 ⓪d）。下一批舊表她自己改過之後
 // 最容易發生，而一條安靜失效的決定跟沒有決定長得一模一樣。
 
+/**
+ * 一條決定這一次沒有用上。報告印 `misses`（一句話），決定頁讀 `stale`（連同原本那一條的樣子，
+ * 選項才寫得出「拿掉舊的、換成這一次讀到的」）—— 兩份從這裡一起寫，不會一份有一份沒有。
+ */
+function missed(log, text, ref) {
+  log.misses.push(text);
+  log.stale.push({ text, ...ref });
+}
+
 const MASTER = { equipment: SEED.equipment, courses: SEED.courses };
 const decisionsOf = (decisions, plan) => decisions?.customers?.[plan.sheetName] ?? null;
 const seedCourse = (name) => SEED.courses.find((c) => c.name === name) ?? null;
@@ -685,10 +716,7 @@ function applyPlanDecisions(plans, decisions, log) {
     if (!d || p.skip) continue;
     const done = (what) => log.applied.push(`${p.sheetName}：${what}`);
     // 對不到的那一條連同它原本的樣子一起記下來（`log.stale`）：決定頁要寫得出「拿掉舊的那一條、換成這一次讀到的」
-    const miss = (what, section, op) => {
-      log.misses.push(`${p.sheetName}：${what}`);
-      log.stale.push({ text: `${p.sheetName}：${what}`, sheet: p.sheetName, section, op });
-    };
+    const miss = (what, section, op) => missed(log, `${p.sheetName}：${what}`, { sheet: p.sheetName, section, op });
     // 決定之前的那一份：「那一條購買問題這一次還在不在」要拿它比，套過別的決定之後才比會誤判
     const problemsBefore = [...(p.purchaseProblems ?? [])];
     // 她已經回答過那一列是什麼了，那一列的「購買名稱對不上」就不用再問
@@ -831,10 +859,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
     for (const op of d.slots ?? []) {
       const where = `${c.sheetName} ${op.date}${op.course ? ` ${op.course}` : ''}${op.nth ? ` 第 ${op.nth} 段` : ''}`;
       const eventOf = (title) => (byDate.get(op.date) ?? []).find((e) => e.summary === title) ?? null;
-      const stale = (text) => {
-        log.misses.push(text);
-        log.stale.push({ text, sheet: c.sheetName, section: 'slots', op });
-      };
+      const stale = (text) => missed(log, text, { sheet: c.sheetName, section: 'slots', op });
 
       if (op.add) {
         const a = op.add;
@@ -967,7 +992,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     for (const d of c.days ?? []) {
       if (!d.filled.some((f) => f.match && f.slot.courseName === '復健科醫師門診')) continue;
       for (const e of byDate.get(d.date) ?? []) {
-        if (/X光/i.test(e.summary) && c.forms.some((form) => form.length >= 2 && nameHit(normVariant(e.summary), form) >= 2)) {
+        if (/X光/i.test(e.summary) && mentionsCustomer(e.summary, c.forms)) {
           usedSummaries.add(`${d.date}|${e.summary}`);
         }
       }
@@ -1003,7 +1028,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
   const skip = new Map();
   for (const c of customers) {
     for (const s of decisionsOf(decisions, c)?.skipEvents ?? []) {
-      skip.set(`${s.date}|${s.title}`, { ...s, who: c.sheetName, found: false });
+      skip.set(`${s.date}|${s.title}`, { ...s, who: c.sheetName, found: false, original: s });
     }
   }
 
@@ -1028,9 +1053,8 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
   for (const s of skip.values()) {
     if (s.found) decisionLog.applied.push(`${s.who}：${s.date}「${s.title}」不算來訪`);
     else {
-      const text = `${s.who}：行事曆 ${s.date} 找不到「${s.title}」，「不算來訪」這一條沒有用上`;
-      decisionLog.misses.push(text);
-      decisionLog.stale.push({ text, sheet: s.who, section: 'skipEvents', op: { date: s.date, title: s.title } });
+      missed(decisionLog, `${s.who}：行事曆 ${s.date} 找不到「${s.title}」，「不算來訪」這一條沒有用上`,
+        { sheet: s.who, section: 'skipEvents', op: s.original });
     }
   }
 
@@ -1038,9 +1062,8 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
   const eventDecisions = new Map((decisions?.events ?? []).map((x) => [`${x.date}|${x.title}`, x]));
   for (const [key, x] of eventDecisions) {
     if (!leftover.personal.some((e) => `${e.date}|${e.summary}` === key)) {
-      const text = `行事曆 ${x.date} 找不到「${x.title}」（或它已經配成來訪了），那一條決定沒有用上`;
-      decisionLog.misses.push(text);
-      decisionLog.stale.push({ text, sheet: null, section: 'events', op: x });
+      missed(decisionLog, `行事曆 ${x.date} 找不到「${x.title}」（或它已經配成來訪了），那一條決定沒有用上`,
+        { sheet: null, section: 'events', op: x });
     } else {
       decisionLog.applied.push(`行事曆 ${x.date}「${x.title}」：${x.skip ? `不匯（${x.skip}）`
         : [x.kind && `分類改成${KIND_LABEL[x.kind]}`, x.startDate && `日期改成 ${x.startDate}～${x.endDate ?? x.startDate}`,
@@ -1194,7 +1217,7 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
       // **今天以前的一律不匯**（她 2026-09-28：「當天以前的都不用了預設丟掉，也不重要」）。
       // 跨到今天以後的（出遊還沒回來）照舊在；她在決定頁說要留的那一筆也照舊在。
       // 報告與決定頁照樣列得出來 —— 丟掉的是「匯進 app」，不是「看得到」。
-      if (r.today && e.endDate < r.today && dec?.include !== true) return [];
+      if (isPastEvent(e, dec, r.today)) return [];
       const auto = classifyEvent(e.summary);
       const kind = dec?.kind ?? auto.kind;
       const why = dec?.kind || dec?.startDate ? `照你之前的決定${dec.why ? `：${dec.why}` : ''}` : auto.why;
@@ -1224,9 +1247,10 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
         kind,
         category: kind === 'leave' ? 'leave' : 'personal',
         why,
-        // 她在決定頁（或以前）決定過這一筆 —— app 照她的勾，不再看日期（ADR-0117）。
-        // 說不要的上面已經整筆不寫了，所以寫得出來的就是要的
-        repeats: e.repeats, ...(dec ? { decided: true, include: true } : { include: false }),
+        // 寫得出來的就是要匯的（ADR-0117）：她說不要的上面已經整筆不寫了、今天以前的也不寫了。
+        // 帶 decided 是因為 app 的日期規則只勾「今天以後開始的」—— 今天的、跨過今天的那幾筆
+        // 決定頁上寫「匯」、app 卻不勾，她就得在匯入頁再決定一次。沒給今天（舊的呼叫端）照舊交給 app 的日期規則
+        repeats: e.repeats, ...(dec || r.today ? { decided: true, include: true } : { include: false }),
       }];
     }),
     ambiguous: r.ambiguous.map((a) => ({ ...a, who: a.who.map(nameOf) })),
@@ -1324,7 +1348,7 @@ export function reportText(r) {
   // 這件事要排在最前面：別名補上之後底下每一段的結論都會變，先跑下去只是白算一次。
   // 判準不是「一筆都沒配到」—— 沒寫名字的事件那條規則會替她補上幾筆，看起來就不像
   // 名字有問題了。真正的訊號是**行事曆上從來沒有一天寫過她的名字**。
-  const blind = r.plans.filter((p) => p.days.length >= 2 && p.days.every((d) => !d.named));
+  const blind = blindOf(r);
   if (blind.length) {
     L.push('━━━ ⓪ 先補別名，再看底下 ━━━');
     L.push('   行事曆上從頭到尾沒有一天寫過這幾位的名字。多半不是她們沒來，是叫法不一樣', '');
@@ -1557,7 +1581,8 @@ async function main() {
   const boardPath = arg('board');
   if (boardPath) {
     const where = relative(REPO, resolve(boardPath));
-    if (!where.startsWith('..') && !isAbsolute(where) && !where.startsWith('.local')) {
+    const inLocal = where === '.local' || where.startsWith(`.local${sep}`) || where.startsWith('.local/');
+    if (!where.startsWith('..') && !isAbsolute(where) && !inLocal) {
       console.error(`決定頁有真名，不可以寫進 repo（${where}）。放 .local/references/ 或暫存區`);
       process.exit(1);
     }
