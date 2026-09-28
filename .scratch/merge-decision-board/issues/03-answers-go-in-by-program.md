@@ -1,6 +1,6 @@
 # 回報由程式寫進決定檔
 
-Status: todo
+Status: done
 Blocked by: 02
 來源：`../spec.md` 做法 3、4
 動工前先讀：SKILL.md「決定檔」一節、`merge.mjs` 的 `applyPlanDecisions()`／`applySlotDecisions()`
@@ -33,3 +33,10 @@ Blocked by: 02
 - 先選 A 再改選 B，決定檔裡只剩 B 那幾條？
 - 保留的：照她的答案寫進去（先匯），而且 `hold: true`？
 - 「其他（備註寫）」不會被當成答完？
+
+## 做完時留下的
+
+- 冪等靠的是答案上記著「這一次實際寫了哪幾條」（`applied`），不是在每一條決定上貼鑰匙：
+  `notes.drop`、`dropProblems` 是字串陣列，貼不了東西。再套一次＝先退回上一次那幾條（加的拿掉、拿掉的放回去）再寫
+- 退回之後空掉的陣列收掉（`skipEvents: []` 讀起來像有東西）
+- CLI 寫回之前留一份 `.bak`
