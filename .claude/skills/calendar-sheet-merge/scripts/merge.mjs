@@ -1096,8 +1096,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
   return {
     // v2（2026-09-13）：多了購買日、方案與套數、帶顏色的備註、購買名稱對不上的那幾條。
     // v3（2026-09-15）：多了額度的時長、客戶的警示與合作機構。
+    // v4（2026-09-28）：候選帶 `decided`，app 照她在決定頁的選擇勾（ADR-0117）。
     // **只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格**，而畫面看起來跟匯好了一樣。
-    format: 'baobao-merge/v3',
+    format: 'baobao-merge/v4',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
@@ -1223,7 +1224,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
         kind,
         category: kind === 'leave' ? 'leave' : 'personal',
         why,
-        repeats: e.repeats, include: false,
+        // 她在決定頁（或以前）決定過這一筆 —— app 照她的勾，不再看日期（ADR-0117）。
+        // 說不要的上面已經整筆不寫了，所以寫得出來的就是要的
+        repeats: e.repeats, ...(dec ? { decided: true, include: true } : { include: false }),
       }];
     }),
     ambiguous: r.ambiguous.map((a) => ({ ...a, who: a.who.map(nameOf) })),

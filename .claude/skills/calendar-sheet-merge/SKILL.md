@@ -172,11 +172,10 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 
 > 可以全部列給我，不用預設計入 app 沒關係，全部列給我我之後一個一個決定要不要匯入
 
-同樣的道理，`import.json` 裡三份候選清單（未來的預約、行事曆有試算表沒勾、
-對不到客戶的）一律 `include: false` —— 不過**那個欄位 app 沒有在讀**，
-它只是描述性的。真正的預設值在 app 那一側依日期決定：**還沒發生的預設勾起來、
-已經發生的預設不勾**（2026-08-21 使用者拍板，`docs/adr/0030-*`）。
-界線刻意不寫進檔案 —— 「未來」是在她按下匯入的那一刻才算得準的。
+`import.json` 裡的候選：**她在決定頁決定過的帶 `decided: true`，app 照 `include` 勾**（`docs/adr/0117-*`）；
+說不要的直接不寫進檔案；**今天以前的雜事也不寫**（她 2026-09-28：「當天以前的都不用了預設丟掉」）。
+沒決定過的 `include: false`、由 app 照日期決定：**還沒發生的預設勾起來、已經發生的預設不勾**
+（2026-08-21 使用者拍板，`docs/adr/0030-*`）—— 「未來」是在她按下匯入的那一刻才算得準的。
 
 ## 什麼時候要停下來問
 
@@ -204,7 +203,7 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v3'          （app 也收 v1、v2：少的那幾格退回以前的值）
+format: 'baobao-merge/v4'          （app 也收 v1～v3：少的那幾格退回以前的值；v4 的候選多了 decided）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
@@ -222,7 +221,8 @@ customers[]: { sheetName, name, source, purchasedAt, notes,
 futureVisits[]:    { customerName, date, status:'confirmed', courseName, startsAt, evidence, include:false }
 missingFromSheet[]:{ customerName, date, courseName, startsAt, evidence, sheetHasThatDay, include:false }
 eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime,
-                     kind:'personal'|'leave'|'note', why, category, repeats, include:false }
+                     kind:'personal'|'leave'|'note', why, category, repeats,
+                     include:false | decided:true+include:true }   （v4：她決定過要的）
 ambiguous[]:       { date, evidence, course, who[] }
 unreadable[]:      { title, raw, why }
 ```

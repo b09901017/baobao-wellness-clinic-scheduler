@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs, eventKind,
+  FORMAT, FORMATS, validateFile, planForCustomer, addExtraVisits, eventDocs, noteDocs, eventKind,
   looseDocs, looseTally,
   summarize, countNewTasks,
   groupCandidates, defaultPicks,
@@ -1036,8 +1036,9 @@ describe('合併檔 v2', () => {
 // 合併檔 v3（`.scratch/merge-answers-2026-09-14/issues/02`）：時長、警示、合作機構。
 
 describe('合併檔 v3', () => {
-  test('格式是 v3', () => {
-    assert.equal(FORMAT, 'baobao-merge/v3');
+  test('v3 照收（v4 起多了「她決定過的」，v3 的檔案照舊貼得進來）', () => {
+    assert.ok(FORMATS.includes('baobao-merge/v3'));
+    assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v3' }).errors, []);
   });
 
   test('額度帶時長：30 分的就是 30，沒寫的退回課程', () => {
@@ -1065,5 +1066,58 @@ describe('合併檔 v3', () => {
     const p = plan({ ...CUSTOMER(), flags: '體內金屬', partners: [1, '', '某合作機構'] });
     assert.deepEqual(p.customer.flags, []);
     assert.deepEqual(p.customer.partners, ['某合作機構']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 合併檔 v4（`.scratch/merge-decision-board/issues/05`）：她在決定頁決定過的，app 照她的勾。
+// 她 2026-09-28：「我希望我不要到app那邊再決定，而是可以匯入App前就把所有該決定的都決定好」
+
+describe('合併檔 v4：她在決定頁決定過的照她的勾', () => {
+  const DECIDED = () => FILE({
+    format: 'baobao-merge/v4',
+    missingFromSheet: [
+      { customerName: '客戶A', date: '2026-07-02', courseName: 'ILIB', decided: true, include: true },
+      { customerName: '客戶A', date: '2026-09-20', courseName: 'ILIB', include: false },
+    ],
+    futureVisits: [
+      { customerName: '客戶A', date: '2026-09-05', courseName: '復能', status: 'confirmed', decided: true, include: false },
+    ],
+    eventCandidates: [
+      { title: '寄資料給廠商', startDate: '2026-08-10', endDate: '2026-08-10', decided: true, include: true },
+      { title: '公出', startDate: '2026-08-30', endDate: '2026-08-30', decided: true, include: false },
+      { title: '顧客會', startDate: '2026-09-02', endDate: '2026-09-02', include: false },
+      { title: '演講', startDate: '2026-06-01', endDate: '2026-06-01', include: false },
+    ],
+  });
+
+  test('格式是 v4', () => {
+    assert.equal(FORMAT, 'baobao-merge/v4');
+    assert.deepEqual(validateFile(DECIDED()).errors, []);
+  });
+
+  test('決定過要的：就算已經過了也勾', () => {
+    const chosen = defaultPicks(DECIDED(), '2026-08-21');
+    assert.ok(chosen.missing.includes(0), '7/2 那一段她說要補');
+    assert.ok(chosen.events.includes(0), '8/10 那一筆待辦她說要留');
+  });
+
+  test('決定過不要的：就算還沒發生也不勾', () => {
+    const chosen = defaultPicks(DECIDED(), '2026-08-21');
+    assert.ok(!chosen.future.includes(0), '9/5 那一筆她說不要');
+    assert.ok(!chosen.events.includes(1), '8/30 公出她說不要');
+  });
+
+  test('沒決定的照 ADR-0030：以後的勾、以前的不勾', () => {
+    const chosen = defaultPicks(DECIDED(), '2026-08-21');
+    assert.ok(chosen.missing.includes(1), '9/20 還沒發生');
+    assert.ok(chosen.events.includes(2), '9/2 顧客會還沒發生');
+    assert.ok(!chosen.events.includes(3), '6/1 演講已經過了');
+  });
+
+  test('v3 的檔案（沒有 decided）勾法跟以前一模一樣', () => {
+    const old = CANDIDATES();
+    old.eventCandidates[1].include = true; // v3 的 include 從來不算數（ADR-0030 的 Consequences）
+    assert.deepEqual(defaultPicks(old, '2026-08-21'), { future: [0], missing: [1], events: [0] });
   });
 });

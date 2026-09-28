@@ -27,13 +27,15 @@ import { slotMinutes } from './visits.js';
  *
  * - **v2（2026-09-13）** 多了購買日、方案與套數、帶顏色的備註（`.scratch/asks-2026-09-13/issues/08`）
  * - **v3（2026-09-15）** 多了額度的時長、客戶的警示與合作機構（`.scratch/merge-answers-2026-09-14/issues/02`）
+ * - **v4（2026-09-28）** 候選多了 `decided`：她在決定頁決定過的，勾不勾照它的 `include`（ADR-0117）。
+ *   欄位沒有變多，變的是 `include` 開始算數 —— 舊版 app 讀到會安靜地照日期勾，所以一樣要升版
  *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v3';
+export const FORMAT = 'baobao-merge/v4';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
-export const FORMATS = Object.freeze(['baobao-merge/v1', 'baobao-merge/v2', FORMAT]);
+export const FORMATS = Object.freeze(['baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', FORMAT]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
 const minutesOf = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
@@ -562,15 +564,24 @@ export function groupCandidates(json, today = null) {
 /**
  * 一份檔案剛讀進來時哪幾筆預設勾起來。
  *
- * **還沒發生的全部勾起來，已經發生的一筆都不勾**（2026-08-21 使用者拍板，
- * 見 `docs/adr/0030-future-candidates-are-ticked-by-default.md`）。
+ * **她在決定頁決定過的，照她的**（`decided: true`，勾不勾看 `include`；ADR-0117）。
+ * 她 2026-09-28：「我希望我不要到app那邊再決定，而是可以匯入App前就把所有該決定的都決定好」。
+ *
+ * 沒決定過的照 ADR-0030：**還沒發生的全部勾起來，已經發生的一筆都不勾**（2026-08-21 她拍板）。
+ * v3 以前的檔案沒有 `decided`，所以勾法跟以前一模一樣 —— 那時候的 `include` 從來不算數。
  *
  * @returns {{future: number[], missing: number[], events: number[]}}
  */
 export function defaultPicks(json, today = null) {
-  const { future } = groupCandidates(json, today);
+  const { future, past } = groupCandidates(json, today);
   const out = { future: [], missing: [], events: [] };
-  for (const r of [...future.visits, ...future.events]) out[r.kind].push(r.index);
+  const all = [...future.visits, ...future.events, ...past.visits, ...past.events];
+  for (const r of all) {
+    const decided = r.item?.decided === true;
+    const ahead = future.visits.includes(r) || future.events.includes(r);
+    if (decided ? r.item.include === true : ahead) out[r.kind].push(r.index);
+  }
+  for (const k of Object.keys(out)) out[k].sort((a, b) => a - b);
   return out;
 }
 

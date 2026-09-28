@@ -1,6 +1,6 @@
 # app 照她在決定頁的選擇勾
 
-Status: todo
+Status: done
 來源：`../spec.md` 做法 6
 動工前先讀：`docs/adr/0030-future-candidates-are-ticked-by-default.md`、`domain/mergeImport.js` 的 `defaultPicks()`、CLAUDE.md「匯入時哪些候選預設勾起來」「合併檔是契約」兩列
 
@@ -24,3 +24,9 @@ Status: todo
 - v3 的檔案貼進來，勾選跟以前一模一樣？
 - v4 的檔案：一筆過去的、`decided: true, include: true` 的待辦預設勾著；一筆未來的、`decided: true, include: false` 的預設不勾？
 - 舊版 app（只認到 v3）拿到 v4 整份擋下來？（`validateFile()` 的格式那一條）
+
+## 做完時留下的
+
+- ADR-0117；`defaultPicks()` 先看 `decided`、再看日期；v3 以前的檔案（`include` 從來不算數）勾法一模一樣，有測試釘著
+- 產檔那側：她決定過、而且沒說不要的雜事寫 `decided: true, include: true`；說不要的本來就整筆不寫
+- `sw.js` v143；相關 E2E（00、09、10）15 支全過
