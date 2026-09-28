@@ -146,6 +146,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,.cell:focus-visi
 .hold{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.9rem;border:1px dashed var(--warn);color:var(--warn);border-radius:999px;padding:4px 12px}
 .hold input{accent-color:var(--warn);width:18px;height:18px}
 .linkish{border:0;background:none;color:var(--accent);text-decoration:underline;min-height:32px;padding:0}
+.bulk{border-style:dashed;border-color:var(--accent);color:var(--accent);margin:0 0 6px}
 .note{width:100%;font:inherit;border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--bg);color:var(--ink);resize:vertical;min-height:44px;margin-top:6px}
 .compact .body-full{display:none}
 .compact .sumline{margin:6px 0 0;font-size:.9rem}
@@ -288,7 +289,12 @@ function shortDay(at){ var m = /^\d{4}-(\d{2})-(\d{2})/.exec(at || ''); return m
 function body(art, it){
   var dl = el('dl', { class: 'facts' });
   (it.facts || []).forEach(function(f){ var dd = el('dd'); (Array.isArray(f[1]) ? f[1] : [f[1]]).forEach(function(l){ dd.appendChild(quoted(el('div'), l)); }); dl.appendChild(el('div', { class: 'fact' }, [el('dt', { text: f[0] }), dd])); });
-  if ((it.facts || []).length) art.appendChild(dl);
+  // 保留中的：她上次先給的答案要看得到（她 9/15：「必須記錄我這次先回答了甚麼」）
+  var saysAlready = (it.facts || []).some(function(f){ return /上次|9\/15 答/.test(f[0]); });
+  if (it.state === 'held' && it.prev && it.prev.label && !saysAlready) {
+    dl.appendChild(el('div', { class: 'fact' }, [el('dt', { text: '你上次先答' }), quoted(el('dd'), '「' + it.prev.label + '」' + (it.prev.note ? '　' + it.prev.note : ''))]));
+  }
+  if (dl.childNodes.length) art.appendChild(dl);
   if (it.now) art.appendChild(quoted(el('p', { class: 'now' }), '現在先照：' + it.now));
   if (!(it.options || []).length) return;
   var a = S.answers[it.key];
@@ -443,6 +449,13 @@ function renderType(main){
       sec.appendChild(el('details', { class: 'fold' }, [el('summary', { text: '打開看 ' + list.length + ' 筆' }), ul]));
     } else {
       if (k === 'event') sec.appendChild(el('p', { class: 'lead', text: '預設全部匯進去（分類照標題猜的）。不要的按「不要」，分類錯了點一下改。' }));
+      // 一整類都有「建議」的（例：最近兩週的待辦都建議「不用了」）：一顆鈕全部照建議 —— 還是她按的，而且按完一項一項都改得回來
+      var bulk = list.filter(function(it){ return status(it) === 'open' && (it.options || []).some(function(o){ return o.rec; }); });
+      if (bulk.length >= 2) {
+        sec.appendChild(el('button', { type: 'button', class: 'bulk', text: '這 ' + bulk.length + ' 項全部選「建議」的那一個', onclick: function(){
+          bulk.forEach(function(it){ var rec = it.options.filter(function(o){ return o.rec; })[0]; S.answers[it.key] = { choice: rec.id, hold: false, note: '', _fresh: true }; });
+          save(); render(); toast('選好了 ' + bulk.length + ' 項，每一項都還可以改'); } }));
+      }
       list.sort(function(a, b){ return String(a.date || '').localeCompare(String(b.date || '')); }).forEach(function(it){ sec.appendChild(card(it)); });
     }
     main.appendChild(sec);

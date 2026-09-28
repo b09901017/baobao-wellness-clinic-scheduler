@@ -47,7 +47,7 @@ export const KINDS = {
   sheet: { label: '舊表上的問題', short: '舊表', color: 'brown', required: true },
   master: { label: 'app 主檔裡沒有', short: '主檔', color: 'slate', required: true },
   pastTodo: { label: '最近兩週的待辦', short: '待辦？', color: 'violet', required: true },
-  question: { label: '其他問題', short: '問題', color: 'violet', required: true },
+  question: { label: '以前的題目', short: '以前的題目', color: 'violet', required: true },
   event: { label: '以後的雜事', short: '雜事', color: 'blue', required: false },
   sheetOnly: { label: '舊表有、行事曆沒記', short: '只有舊表', color: 'grey', required: false },
   sheetInfo: { label: '舊表的小提醒', short: '提醒', color: 'grey', required: false },

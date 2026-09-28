@@ -97,8 +97,11 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
   --sheets <暫存區>/real --ics <ics 檔> --year <年> \
   --aliases .local/references/aliases.json \
   --decisions .local/references/merge-decisions.json \
-  --today <今天> --out <暫存區>/out
+  --today <今天> --out <暫存區>/out \
+  --board .local/references/合併的決定-<今天>.html --form 合併的決定-<今天>
 ```
+
+`--board` 是給她點的**決定頁**（第 5 步）。有真名：指到 repo 裡、不是 `.local/` 的地方會直接擋。
 
 產出兩個檔：`report.txt`（給她看的對帳報告）與 `import.json`（貼進 app 的合併檔，
 格式見下面）。兩個都要交給她（容器裡用 SendUserFile，本機放 `.local/references/`）。
@@ -107,6 +110,20 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 `planForCustomer()`（主檔用 `SEED`）。skill 產得出來、app 收不下的東西在畫面上只會寫「N 處對不到主檔」。
 
 ### 4b. 她回答過的決定（決定檔）
+
+**2026-09-28 起，問她與記她的答案都是程式做的**（她：「用程式完成這件事而不是用語言模型紀錄」）：
+決定頁上每一項有一把固定的鑰匙、每一個選項帶著要寫進決定檔的那幾條；她複製回報之後
+
+```bash
+node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
+  --decisions .local/references/merge-decisions.json --answers <她貼的回報存成的檔>
+```
+
+寫進決定檔、記在 `answers[鑰匙]`（選了什麼、備註、保留沒、題目的樣子、這一次實際寫了哪幾條）。
+同一份套兩次一樣、改主意會先退回上一次寫的。**印出「待翻譯」的那幾條才要你動手**：她選了「其他（寫在備註）」，
+照她的備註手寫進決定檔對應的地方，再把那一把鑰匙的 `needsTranslation` 拿掉 —— 不要讓它安靜地停在那裡。
+
+底下是決定檔本來的格式（`answers` 以外的那幾塊；`record.mjs` 寫的也是這幾塊）。
 
 規則寫進 `references/answers.md`；**一位一位的決定**（這一天是誰、補不補、幾點、這筆額度其實是什麼）
 寫進 `.local/references/merge-decisions.json`，下一批用 `--decisions` 自動套用 —— 她 2026-09-15：
@@ -146,8 +163,8 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 - **額度的決定在配對之前套、時段的決定在配對之後套**：併掉的那一列，它底下的時段要先指到新的那一筆
 - **對不到對象的決定排在報告 ⓪d 最前面**。下一批她改過舊表之後最容易發生，
   而一條安靜失效的決定跟沒有決定長得一模一樣 —— 重新問她，不要刪掉那一條就算了
-- 她說「**保留**」的題目：照她這次先給的答案寫進決定檔，**同時**整理進下一份問卷，
-  每一題附上「這次先照什麼做」。保留不是定案
+- 她說「**保留**」的題目：照她這次先給的答案寫進決定檔（`record.mjs` 自動做），`answers` 上記著 `hold`，
+  下一次決定頁自動再列出來（報告上已經沒有那一筆的，照存下來的題目畫）。保留不是定案
 
 ### 5. 讀報告，把該問的問掉
 
@@ -192,9 +209,11 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
   再用各種課程的應有次數去驗證一次，然後合併的時候也可以再問我一次」。匯進去的是應有次數
   那一份，但哪一邊對由她決定。B2 怎麼讀見 `references/answers.md` 的 2026-09-13 那一節。
   **`answers.md` 已經回答過的那一種不要再問**（例：寫了「新」卻沒方案數字＝打錯）。
-- **問題多的時候做成一份問卷 HTML 給她點**（放 `.local/references/`，不發布到網路 —— 有真名與健康資訊）。
-  每一題附行事曆原文與舊表的格子、標「建議」但不預先選、可以寫備註、可以複製回報 JSON。
-  2026-09-14 那一批 93 題她一次答完。她回報的 JSON 原檔也留在 `.local/references/`。
+- **給她點的是決定頁**（`--board`，第 4 步）—— **不要再手寫問卷**。她 2026-09-28：「我有點認知疲勞了」「必須一樣完整不能遺漏或簡化各種問題」。
+  報告的每一筆都在上面（`tests/merge-board.test.js` 盯著項數＝報告上印的數字）：日曆看哪一天有哪幾種、看人、看種類；
+  答過的收起來、每一題可以按「保留」、一整類都有建議的可以一顆鈕照建議。**報告多一段，`board.mjs` 就要多一種** ——
+  漏了的話那一段在決定頁上看不到，而她會以為沒有。放 `.local/references/`，不發布（有真名與健康資訊）。
+  程式產不出選項的新問題（新的簡寫、新的寫法）照舊在對話裡問，答案寫進 `references/answers.md`、改 `merge.mjs`。
 - **報告 ⓪d 有找不到對象的決定**：多半是舊表或行事曆改過了，重新問。
 
 ## 合併檔（`import.json`）
