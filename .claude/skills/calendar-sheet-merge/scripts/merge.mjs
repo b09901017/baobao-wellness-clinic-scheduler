@@ -683,7 +683,13 @@ function applyPlanDecisions(plans, decisions, log) {
     const d = decisionsOf(decisions, p);
     if (!d || p.skip) continue;
     const done = (what) => log.applied.push(`${p.sheetName}：${what}`);
-    const miss = (what) => log.misses.push(`${p.sheetName}：${what}`);
+    // 對不到的那一條連同它原本的樣子一起記下來（`log.stale`）：決定頁要寫得出「拿掉舊的那一條、換成這一次讀到的」
+    const miss = (what, section, op) => {
+      log.misses.push(`${p.sheetName}：${what}`);
+      log.stale.push({ text: `${p.sheetName}：${what}`, sheet: p.sheetName, section, op });
+    };
+    // 決定之前的那一份：「那一條購買問題這一次還在不在」要拿它比，套過別的決定之後才比會誤判
+    const problemsBefore = [...(p.purchaseProblems ?? [])];
     // 她已經回答過那一列是什麼了，那一列的「購買名稱對不上」就不用再問
     const forgetRow = (row, labels) => {
       p.purchaseProblems = (p.purchaseProblems ?? [])
@@ -700,7 +706,7 @@ function applyPlanDecisions(plans, decisions, log) {
     for (const op of d.entitlements ?? []) {
       if (op.add) {
         const course = seedCourse(op.add.course);
-        if (!course) { miss(`主檔裡沒有「${op.add.course}」，要加的那一筆額度沒有加`); continue; }
+        if (!course) { miss(`主檔裡沒有「${op.add.course}」，要加的那一筆額度沒有加`, 'entitlements', op); continue; }
         if (p.entitlements.some((e) => e.key === op.add.key)) continue;
         p.entitlements.push({
           key: op.add.key, productName: null, productId: null,
@@ -720,7 +726,7 @@ function applyPlanDecisions(plans, decisions, log) {
       if (op.merge) {
         const [first, ...rest] = op.rows ?? [];
         const base = p.entitlements.find((e) => e.key === `r${first}`);
-        if (!base) { miss(`第 ${first} 列沒有額度，「第 ${(op.rows ?? []).join('、')} 列併成一池」沒有做`); continue; }
+        if (!base) { miss(`第 ${first} 列沒有額度，「第 ${(op.rows ?? []).join('、')} 列併成一池」沒有做`, 'entitlements', op); continue; }
         forgetRow(first, labelsOf(first));
         for (const row of rest) {
           const gone = p.entitlements.filter((e) => e.key === `r${row}`);
@@ -746,7 +752,7 @@ function applyPlanDecisions(plans, decisions, log) {
       }
 
       const base = p.entitlements.find((e) => e.key === `r${op.row}`);
-      if (!base) { miss(`第 ${op.row} 列沒有額度，這一條決定沒有用上`); continue; }
+      if (!base) { miss(`第 ${op.row} 列沒有額度，這一條決定沒有用上`, 'entitlements', op); continue; }
       forgetRow(op.row, labelsOf(op.row));
       if (op.split) {
         const [head, ...tail] = op.split;
@@ -768,7 +774,7 @@ function applyPlanDecisions(plans, decisions, log) {
       for (const text of d.notes?.drop ?? []) {
         const before = marks.length;
         marks = marks.filter((m) => m.text !== text);
-        if (marks.length === before) miss(`備註裡找不到「${text}」，沒有刪`);
+        if (marks.length === before) miss(`備註裡找不到「${text}」，沒有刪`, 'notes.drop', text);
       }
       for (const m of d.notes?.add ?? []) {
         if (!marks.some((x) => x.text === m.text)) marks.push({ text: m.text, color: m.color ?? 'grey' });
@@ -781,6 +787,10 @@ function applyPlanDecisions(plans, decisions, log) {
         + `${d.flags ? `、警示 ${d.flags.join('、')}` : ''}${d.partners ? `、合作機構 ${d.partners.join('、')}` : ''}`);
     }
     if (Array.isArray(d.dropProblems)) {
+      // 這一次舊表已經沒有那一條了（她改過舊表）—— 講出來，不要安靜地留著一條不做事的決定
+      for (const s of d.dropProblems) {
+        if (!problemsBefore.some((x) => x.includes(s))) miss(`購買名稱「${s}」那一條這一次沒有出現，「不用再問」這一條沒有用上`, 'dropProblems', s);
+      }
       p.purchaseProblems = (p.purchaseProblems ?? []).filter((x) => !d.dropProblems.some((s) => x.includes(s)));
     }
   }
@@ -820,13 +830,17 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
     for (const op of d.slots ?? []) {
       const where = `${c.sheetName} ${op.date}${op.course ? ` ${op.course}` : ''}${op.nth ? ` 第 ${op.nth} 段` : ''}`;
       const eventOf = (title) => (byDate.get(op.date) ?? []).find((e) => e.summary === title) ?? null;
+      const stale = (text) => {
+        log.misses.push(text);
+        log.stale.push({ text, sheet: c.sheetName, section: 'slots', op });
+      };
 
       if (op.add) {
         const a = op.add;
         const e = a.fromEvent ? eventOf(a.fromEvent) : null;
-        if (a.fromEvent && !e) { log.misses.push(`${where}：行事曆那天找不到「${a.fromEvent}」，要加的那一段沒有加`); continue; }
+        if (a.fromEvent && !e) { stale(`${where}：行事曆那天找不到「${a.fromEvent}」，要加的那一段沒有加`); continue; }
         const key = a.entitlement ?? entitlementFor(c, a.course);
-        if (!key) { log.misses.push(`${where}：找不到要扣哪一份額度（沒有或不只一份），要加的那一段沒有加`); continue; }
+        if (!key) { stale(`${where}：找不到要扣哪一份額度（沒有或不只一份），要加的那一段沒有加`); continue; }
         let day = c.days.find((x) => x.date === op.date);
         if (!day) {
           day = { date: op.date, filled: [], conflicts: [], named: 0, usedUids: new Set() };
@@ -843,10 +857,10 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
 
       const day = c.days.find((x) => x.date === op.date);
       const f = (day?.filled ?? []).filter((x) => x.slot.courseName === op.course)[(op.nth ?? 1) - 1];
-      if (!f) { log.misses.push(`${where}：舊表那天找不到這一段，這一條決定沒有用上`); continue; }
+      if (!f) { stale(`${where}：舊表那天找不到這一段，這一條決定沒有用上`); continue; }
       const set = op.set ?? {};
       const e = set.fromEvent ? eventOf(set.fromEvent) : null;
-      if (set.fromEvent && !e) { log.misses.push(`${where}：行事曆那天找不到「${set.fromEvent}」，這一條決定沒有用上`); continue; }
+      if (set.fromEvent && !e) { stale(`${where}：行事曆那天找不到「${set.fromEvent}」，這一條決定沒有用上`); continue; }
       if (f.match?.evidence && (op.clear || e)) usedSummaries.delete(`${op.date}|${f.match.evidence}`);
       if (op.clear) {
         f.match = null;
@@ -876,7 +890,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     .map((f) => planForSheet(
       parseSheet(readFileSync(join(sheetsDir, f), 'utf8'), { sheetName: f.replace(/\.tsv$/, '') }), ctx,
     ));
-  const decisionLog = { applied: [], misses: [] };
+  const decisionLog = { applied: [], misses: [], stale: [] };
   applyPlanDecisions(plans, decisions, decisionLog);
 
   const { events, unreadable } = parseIcs(readFileSync(icsPath, 'utf8'));
@@ -1012,14 +1026,20 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
   }
   for (const s of skip.values()) {
     if (s.found) decisionLog.applied.push(`${s.who}：${s.date}「${s.title}」不算來訪`);
-    else decisionLog.misses.push(`${s.who}：行事曆 ${s.date} 找不到「${s.title}」，「不算來訪」這一條沒有用上`);
+    else {
+      const text = `${s.who}：行事曆 ${s.date} 找不到「${s.title}」，「不算來訪」這一條沒有用上`;
+      decisionLog.misses.push(text);
+      decisionLog.stale.push({ text, sheet: s.who, section: 'skipEvents', op: { date: s.date, title: s.title } });
+    }
   }
 
   // 雜事的決定（改分類、改起訖、整筆不匯）。真正套用在 importJson()，這裡先確定每一條都找得到對象
   const eventDecisions = new Map((decisions?.events ?? []).map((x) => [`${x.date}|${x.title}`, x]));
   for (const [key, x] of eventDecisions) {
     if (!leftover.personal.some((e) => `${e.date}|${e.summary}` === key)) {
-      decisionLog.misses.push(`行事曆 ${x.date} 找不到「${x.title}」（或它已經配成來訪了），那一條決定沒有用上`);
+      const text = `行事曆 ${x.date} 找不到「${x.title}」（或它已經配成來訪了），那一條決定沒有用上`;
+      decisionLog.misses.push(text);
+      decisionLog.stale.push({ text, sheet: null, section: 'events', op: x });
     } else {
       decisionLog.applied.push(`行事曆 ${x.date}「${x.title}」：${x.skip ? `不匯（${x.skip}）`
         : [x.kind && `分類改成${KIND_LABEL[x.kind]}`, x.startDate && `日期改成 ${x.startDate}～${x.endDate ?? x.startDate}`,
@@ -1225,17 +1245,35 @@ const pad = (t, to) => `${t}${' '.repeat(Math.max(to - width(t), 0))}`;
  * `planForSheet()` 一直都算得出這些，只是以前只有 app 那一頁在讀。
  * 那一頁拿掉之後（ADR-0047）唯一看得到的地方就是這份報告。
  */
-function sheetProblems(r) {
+export function sheetProblems(r) {
   return (r.plans ?? []).flatMap((p) => (p.problems ?? []).map((x) => ({
     name: p.customerName || p.sheetName, where: x.where, raw: x.raw, why: x.why,
   })));
 }
 
 /** B2 驗證對不上的那幾條，攤平成一列一筆。 */
-function purchaseProblems(r) {
+export function purchaseProblems(r) {
   return (r.plans ?? []).flatMap((p) => (p.purchaseProblems ?? []).map((why) => ({
     name: p.customerName || p.sheetName, raw: p.source ?? '', why,
   })));
+}
+
+/**
+ * ③ 舊表有、行事曆沒有：一位一天一筆，那天還沒配到的那幾段。
+ * 報告與決定頁（`board.mjs`）共用這一支 —— 兩邊各算一份的話，筆數遲早對不起來。
+ */
+export function orphansOf(r) {
+  const out = [];
+  for (const p of r.plans) {
+    for (const d of p.days) {
+      const open = d.filled.filter((x) => !x.match);
+      if (!open.length) continue;
+      const alt = r.leftover.calendarOnly.filter((x) => x.event.date === d.date
+        && open.some((o) => SAME(x.course, o.slot.courseName)));
+      out.push({ sheet: p.sheetName, name: p.customerName, date: d.date, courses: open.map((o) => o.slot.courseName), alt });
+    }
+  }
+  return out;
 }
 
 export function reportText(r) {
@@ -1248,16 +1286,7 @@ export function reportText(r) {
 
   // ③ 那一段的內容。**算在這裡**是為了讓最上面那句「要你判斷的有幾件」數得到它 ——
   // 一份兩百多行的報告，沒有人會為了找 ③ 而往回捲。
-  const orphans = [];
-  for (const p of r.plans) {
-    for (const d of p.days) {
-      const open = d.filled.filter((x) => !x.match);
-      if (!open.length) continue;
-      const alt = r.leftover.calendarOnly.filter((x) => x.event.date === d.date
-        && open.some((o) => SAME(x.course, o.slot.courseName)));
-      orphans.push({ name: p.customerName, date: d.date, courses: open.map((o) => o.slot.courseName), alt });
-    }
-  }
+  const orphans = orphansOf(r);
 
   L.push('試算表 × 行事曆 — 對帳報告（還沒有寫入任何東西）', '');
   L.push(`行事曆涵蓋 ${r.span[0]} ～ ${r.span[1]}，共 ${r.events.length} 筆事件`
