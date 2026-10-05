@@ -382,6 +382,12 @@ export const COVERAGE = {
     'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
     'public/css/',
   ],
+  // 醫師分科、課程指定哪一科（2026-10-05，ADR-0120）：設定頁兩排、壓表與來訪編輯器的醫師那一排
+  '48-doctor-specialties': [
+    'public/js/domain/masterData.js', 'public/js/domain/seed.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/domain/slotDraft.js',
+    'public/js/ui/components/form.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

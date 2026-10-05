@@ -35,8 +35,8 @@ import { splitFlags } from '../../domain/customers.js';
 import { slotName } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
-  orderedRoomSlots, staffWithRole, picksDoctor, ivChoicesFor,
-  THERAPIST_ROLE, DOCTOR_ROLE,
+  orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
+  THERAPIST_ROLE,
 } from '../../domain/masterData.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
@@ -229,7 +229,8 @@ function blankSlot(entitlement, all, settings, startsAt) {
     roomId: null,
     bed: null,
     therapistId: null,
-    doctorId: null,
+    // 指定的那一科剛好只有一位醫師就先選好（ADR-0120）—— 只有新的一段會走到這裡
+    doctorId: doctorChoicesFor(course, all.staff).preselect,
     attended: null,
     // **新加的一段一定是「還沒問客人」**（ADR-0081）。不寫的話
     // `withSlotStatuses()` 會讓它繼承整筆的狀態 —— 併進一筆已確認的來訪時，
@@ -605,7 +606,7 @@ function slotCard(ctx, draft, slot, i) {
               : '主檔裡還沒有治療師，到「設定 → 治療師與醫師」新增。',
           })
         : ''}
-      ${picksDoctor(course) ? doctorField(all, slot, i) : ''}
+      ${picksDoctor(course) ? doctorField(all, course, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
     </section>`;
 }
@@ -805,15 +806,22 @@ function equipmentField(customer, ent, all, slot, i) {
  *
  * 沒選不會擋 —— 她的舊表寫過 `二返(8/5)`，時間敲定了、醫師還沒定，
  * 那是真的會發生的順序。存得下去，旁邊給一句提醒（domain/visits.js）。
+ *
+ * **誰排前面只寫在 `doctorChoicesFor()`**（ADR-0120，壓表那一頁走的是同一支）：
+ * 課程指定了一科，那一科的醫師排前面，其餘收在「其他醫師」後面、照樣選得到。
  */
-function doctorField(all, slot, i) {
-  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+function doctorField(all, course, slot, i) {
+  const { first, others } = doctorChoicesFor(course, all.staff);
+  const doctors = [...first, ...others];
   return f.chips({
     name: `s${i}-doc`, label: '醫師　還沒定也存得下去', value: slot.doctorId, quiet: true,
     options: [
       { value: null, label: '還沒定' },
       ...doctors.map((d) => ({ value: d.id, label: d.name })),
     ],
+    // 「還沒定」那一顆加上那一科的幾位一直看得到
+    tuckAfter: others.length ? first.length + 1 : null,
+    moreLabel: '其他醫師',
     hint: doctors.length ? '' : '主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。',
   });
 }
@@ -932,7 +940,12 @@ function readDraft(ctx, form, draft) {
         ? parseRoomKey(v[`s${i}-room`])
         : { roomId: null, bed: null }),
       therapistId: assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
-      doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
+      // **她剛把這一段換成另一門課、而且還沒選醫師**：那一科剛好只有一位就先選好
+      // （`doctorChoicesFor()` 的 `preselect`，ADR-0120，同壓表選額度那一下）。
+      // 沒換課程的一律只讀畫面 —— 她存過「還沒定」的那一段，改個時間不可以被填上一位
+      doctorId: !picksDoctor(course) ? null
+        : (v[`s${i}-doc`] ?? (courseId !== slot.courseId
+          ? doctorChoicesFor(course, all.staff).preselect : null)),
       // 不是二返就一定是 null —— 帶著一個不相干的 id 會讓試算表把註記
       // 寫到別人底下。沒被畫出來時 `v[...]` 是 undefined，那時要留原值
       // 不要清成 null（同這一支的 `key()`）。

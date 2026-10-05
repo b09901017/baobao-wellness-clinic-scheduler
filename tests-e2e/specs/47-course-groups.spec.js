@@ -96,7 +96,7 @@ test('G3 新增先選分類：帶好那一組的預設，她改掉的那一格�
   await expect(page.locator('select[name="assigns"]')).toHaveValue('none');
   await expect(page.locator('input[name="durationMin"]')).toHaveValue('30');
   await expect(page.locator('[data-chip="group"][aria-pressed="true"]')).toHaveText('醫師門診');
-  await expect(page.locator('input[name="requiresDoctor"]')).toBeChecked();
+  await expect(page.locator('[data-chip="doctorPick"][aria-pressed="true"]')).toHaveText('哪一科都可以');
   // 門診三個系統都要（Abovee 壓，確認後 Examine、耀聖）
   await expect(page.locator('input[name="systems"]:checked')).toHaveCount(3);
 

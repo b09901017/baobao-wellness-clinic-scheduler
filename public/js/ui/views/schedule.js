@@ -63,8 +63,8 @@ import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  orderedRoomSlots, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
-  THERAPIST_ROLE, DOCTOR_ROLE,
+  orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, clinicalTerms, ivChoicesFor,
+  THERAPIST_ROLE,
 } from '../../domain/masterData.js';
 import { splitFlags } from '../../domain/customers.js';
 import { isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
@@ -1442,7 +1442,7 @@ function entFields(row, picked) {
     ${assigns === null ? f.undecidedHint(picked.entitlement?.label) : ''}
     ${assigns === 'therapist' ? therapistField(all) : ''}
     ${assigns === 'room' ? roomField(all, course) : ''}
-    ${picksDoctor(course) ? doctorField(all) : ''}
+    ${picksDoctor(course) ? doctorField(all, course) : ''}
     ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
 }
 
@@ -1696,18 +1696,32 @@ function therapistField(all) {
  *
  * 以前這一排只有日曆的來訪編輯器有，所以她壓完二返之後那一段的醫師一定是空的，
  * 而試算表的二返註記括號裡讀的就是它 —— 括號因此永遠是空的。
+ *
+ * **誰排前面只寫在 `doctorChoicesFor()`**（ADR-0120）：課程指定了一科，那一科的醫師
+ * 排前面，其餘收在「其他醫師」後面 —— 不是藏起來，代診那天照樣選得到。收合的樣子
+ * 跟品項那一排的「換一款」共用同一組 class（`chip--tucked` 與 `[data-tuck]`）。
  */
-function doctorField(all) {
-  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+function doctorField(all, course) {
+  const { first, others } = doctorChoicesFor(course, all.staff);
+  const rows = [...first, ...others];
+  const tucks = others.length > 0;
   return `
-    <div class="fieldgroup">
+    <div class="fieldgroup" ${tucks ? "data-tuck='closed'" : ''}>
       <span class="fieldgroup__label">醫師　還沒定也存得下去</span>
       <div class="chips">
-        ${doctors.length
-          ? doctors.map((d) => `
-              <button class="chip" type="button" aria-pressed="${d.id === view.doctorId}"
-                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`).join('')
+        ${rows.length
+          ? rows.map((d, i) => {
+            const on = d.id === view.doctorId;
+            // 選著的那一顆永遠看得到 —— 收起來的話畫面上會是「一排都沒選」
+            const tucked = tucks && i >= first.length && !on ? ' chip--tucked' : '';
+            return `
+              <button class="chip${tucked}" type="button" aria-pressed="${on}"
+                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`;
+          }).join('')
           : '<span class="muted">主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。</span>'}
+        ${tucks ? `
+          <button class="chip chip--more" type="button" data-chip-more
+                  aria-expanded="false">其他醫師</button>` : ''}
       </div>
     </div>`;
 }
@@ -1797,6 +1811,16 @@ function pickExamIfObvious(row, picked) {
 function pickIvIfBought(picked) {
   if (!picked?.course?.requiresIvProduct) return;
   view.equipmentId = picked.entitlement?.ivProductId ?? null;
+}
+
+/**
+ * 這門課指定的那一科剛好只有一位醫師 → 先選好他（`doctorChoicesFor()` 的 `preselect`，
+ * ADR-0120）。**只在還沒選醫師時套**：跟 `resetCourseBoundPicks()` 是一組的 ——
+ * 先清乾淨，再看要不要自動填。換得掉，其他醫師收在「其他醫師」後面。
+ */
+function pickDoctorIfOnly(picked) {
+  if (view.doctorId) return;
+  view.doctorId = doctorChoicesFor(effectiveCourse(picked), ctx.all.staff).preselect;
 }
 
 /**
@@ -1984,6 +2008,8 @@ function afterEquipmentPick(row, picked, beforeKey) {
     // 課程換了 → 跟著課程走的那幾格（治療師、診間、醫師）全部重挑。
     // 留著舊的話，一段 ILIB 會帶著上一台復能挑的治療師存進去。
     Object.assign(view, { therapistId: null, roomKey: null, doctorId: null });
+    // 換了一台 → 換了課程 → 醫師那一排也換了，照新的那門課再看一次要不要先選好
+    pickDoctorIfOnly(picked);
     fields.innerHTML = entFields(row, picked);
     return;
   }
@@ -2026,6 +2052,7 @@ function pickCourse(entitlementId) {
   if (picked?.isNth) pickDefaultNth(row);
   else pickExamIfObvious(row, picked);
   pickIvIfBought(picked);
+  pickDoctorIfOnly(picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');

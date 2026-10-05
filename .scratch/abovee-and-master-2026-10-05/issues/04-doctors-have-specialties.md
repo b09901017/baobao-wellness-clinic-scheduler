@@ -1,6 +1,6 @@
 # 醫師分科、課程指定要哪一科的醫師
 
-Status: todo
+Status: done
 來源：`../spec.md` 三、四
 動工前先讀：ADR-0026、ADR-0058、`domain/masterData.js` 的 `STAFF_ROLES`／`staffWithRole()`／`picksDoctor()`、
 `ui/views/masterList.js` 的 `editors.staff` 與課程表單的「來訪時要選醫師」、`ui/views/schedule.js` 的 `doctorField()`（第 1445、1695 行一帶）、
@@ -59,3 +59,22 @@ A 類一律選得到、其餘看 `requiresDoctor`（ADR-0058：她 2026-08-27 �
 ## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
 
 - 稽核：`FIELD_LABELS` 補 `doctorPick`、`specialties`
+
+## 做完時留下的
+
+- 判斷只在 `domain/masterData.js`：`DEFAULT_SPECIALTIES`、`specialtyNames()`、`doctorRuleOf()`（`DOCTOR_NONE`／`DOCTOR_ANY`／某一科）、
+  `picksDoctor()`（＝不是 `none`，呼叫端一個都沒改）、`doctorChoicesFor()` → `{ first, others, preselect }`
+- **那一科一位都沒有（她還沒填科別）→ 退回全部列出來、不預選**。種子醫師不填科別，所以在她填之前三門門診的醫師那一排
+  跟以前長得一模一樣（E2E D5 釘著）
+- `preselect` 套在哪：壓表選額度那一下與換器材換了課程那一下（`pickDoctorIfOnly()`）；來訪編輯器的 `blankSlot()`、
+  `readDraft()` 裡**換了課程而且畫面上還沒選醫師**那一下。**沒換課程的一律只讀畫面** —— 她存過「還沒定」的那一段不會被填回來。
+  **拍 Abovee 不套**（照片上寫著是誰；那一排只照 `first`、`others` 的順序排，全部看得到 —— 08 重做確認層時再決定要不要收合）
+- 「其他醫師」的收合沿用品項那一排「換一款」的同一組 class（`chip--tucked`、`[data-tuck]`、`[data-chip-more]`），壓表自己畫、
+  來訪編輯器走 `f.chips()` 的 `tuckAfter`／`moreLabel`
+- 設定 → 治療師與醫師：科別那一塊（`[data-specialties]`）角色不是醫師時藏起來，存檔時清空；清單那一行灰字多印科別
+- 設定 → 課程：「來訪時要選醫師」從開關變成一排丸子（不用／哪一科都可以｜指定一科…）。**A 類的課也關得掉了**
+  （以前「這一格開不開都一樣」）。`requiresDoctor` 存檔時跟著寫
+- 種子：二返 → 功能／二返、復健科醫師門診 → 復健科、心臟科評估 → 心臟科；`GROUP_DEFAULTS` 醫師門診帶 `doctorPick: 'any'`
+- ADR-0120、SPEC 5.3、CONTEXT「科別」、對照表一之二、操作手冊七之四／七之五、`CLAUDE.md` 連動表加一列
+- `sw.js` v147。新 spec `48-doctor-specialties`（D1–D6）。相關 E2E 28 支、17.6 分鐘、204 過
+

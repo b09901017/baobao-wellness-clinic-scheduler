@@ -48,26 +48,95 @@ export function staffWithRole(staff = [], role) {
 }
 
 /**
+ * 醫師的科別（2026-10-05，ADR-0120）。她的原話：
+ *
+ * > 四、醫師要分科：功能／二返、泌尿科、心臟科、復健科。
+ *
+ * **科別不是一份新的主檔** —— 醫師身上一格字串陣列（`specialties`），名單＝
+ * 這四科＋大家身上已經有的字（`specialtyNames()`）。物理治療師沒有這一格。
+ */
+export const DEFAULT_SPECIALTIES = Object.freeze(['功能／二返', '泌尿科', '心臟科', '復健科']);
+
+/** 科別那一排丸子：預設四科＋醫師身上已經有的字（照主檔上第一次出現的順序）。 */
+export function specialtyNames(staff = []) {
+  const out = [...DEFAULT_SPECIALTIES];
+  for (const s of staff ?? []) {
+    if (!s || s.deletedAt) continue;
+    for (const raw of s.specialties ?? []) {
+      const name = String(raw ?? '').trim();
+      if (name && !out.includes(name)) out.push(name);
+    }
+  }
+  return out;
+}
+
+/** 課程上那一格（`doctorPick`）的兩個固定答案；其餘的字就是「指定這一科」。 */
+export const DOCTOR_NONE = 'none';
+export const DOCTOR_ANY = 'any';
+
+/**
+ * 這門課要不要醫師、要哪一科：`'none'`／`'any'`／某一科的字。**唯一一支。**
+ *
+ * - 她在設定選過（`course.doctorPick`）→ 照選的
+ * - **沒選過 → 照 ADR-0058**：A 類（門診）一律選得到，其餘看 `requiresDoctor` 旗標。
+ *   讀的時候退回，既有資料一筆都不搬
+ *
+ * ADR-0058 那一條留著的理由沒有變：她的原話是「門診類的可以選醫生，復能類的選
+ * 物理治療師」，而以前只看旗標時復健科醫師門診與心臟科評估選不到醫師 ——
+ * 把一條已經知道的規則交給她逐課程補勾。
+ *
+ * 醫師走的是 `requiresEquipment`／`requiresIvProduct` 那條路（課程上一格、時段上
+ * 一個 id），不是 `assigns` —— `assigns` 是單選的，而二返同時要診間和醫師。
+ * 見 docs/adr/0026、0058、0120。
+ */
+export function doctorRuleOf(course) {
+  const pick = typeof course?.doctorPick === 'string' ? course.doctorPick.trim() : '';
+  if (pick) return pick;
+  return course?.category === 'A' || Boolean(course?.requiresDoctor) ? DOCTOR_ANY : DOCTOR_NONE;
+}
+
+/**
  * 這個課程排班時選不選得到醫師。
- *
- * **A 類（門診）一律選得到** —— 她的原話是「門診類的可以選醫生，復能類的選
- * 物理治療師」。以前這件事只看課程上的 `requiresDoctor` 旗標，而種子資料裡
- * 只有二返打開了它，所以復健科醫師門診與心臟科評估**選不到醫師** ——
- * 兩個都是門診，兩個都真的有醫師。要她回主檔逐課程補勾一次，是把一條
- * 已經知道的規則交給她記得。
- *
- * 旗標留著，當成**非 A 類的例外開關**：之後真的有一個 C 類要記醫師時，
- * 主檔上勾一下就有，不用改程式（同 ADR-0022 的判準）。
- *
- * 醫師走的是 `requiresEquipment` / `requiresIvProduct` 那條路（課程上一個布林、
- * 時段上一個 id），不是 `assigns` —— `assigns` 是單選的，而二返同時要診間和醫師。
- * 治療師與醫師是兩種人，兩個選單各自從 `staffWithRole()` 來。
- * 見 docs/adr/0026 與 docs/adr/0058。
  *
  * **選不選得到 ≠ 一定要選。** 沒選也存得下去，`validateVisit()` 給的是
  * warning 不是 error（ADR-0002：app 記錄決定，不做決定）。
  */
-export const picksDoctor = (course) => course?.category === 'A' || Boolean(course?.requiresDoctor);
+export const picksDoctor = (course) => doctorRuleOf(course) !== DOCTOR_NONE;
+
+/**
+ * 醫師那一排怎麼排。**壓表、來訪編輯器、拍 Abovee 三個入口共用**（ADR-0120）——
+ * 各排一次的話，同一門課在兩個畫面上第一顆丸子不一樣，她不會知道哪個算數。
+ *
+ * **這是排序不是限制**（同常用診間，`orderedRoomsForCourse()`）：指定了一科，
+ * 那一科的醫師排前面（`first`），其餘收在「其他醫師」後面（`others`），照樣選得到 ——
+ * 代診是真的會發生的事。
+ *
+ * - **那一科剛好一位 → `preselect` 是他**（羊膜只有一位復健科醫師）。只有一個正確答案
+ *   的時候讓她多點一下沒有換到任何資訊。**呼叫端只在新的一段、還沒選醫師時套**
+ * - 那一科兩位以上、「哪一科都可以」：不預選
+ * - **那一科一位都沒有 → 退回全部列出來**。她還沒替醫師填科別之前，每一門課都要照樣
+ *   選得到人；那時候畫面跟 2026-10-05 之前長得一模一樣
+ *
+ * 只列得出醫師（`staffWithRole()`）—— 治療師與醫師是兩種人。
+ *
+ * @returns {{first: object[], others: object[], preselect: string|null}}
+ */
+export function doctorChoicesFor(course, staff = []) {
+  const rule = doctorRuleOf(course);
+  if (rule === DOCTOR_NONE) return { first: [], others: [], preselect: null };
+
+  const doctors = staffWithRole(staff ?? [], DOCTOR_ROLE);
+  const mine = rule === DOCTOR_ANY
+    ? []
+    : doctors.filter((d) => (d.specialties ?? []).includes(rule));
+  if (!mine.length) return { first: doctors, others: [], preselect: null };
+
+  return {
+    first: mine,
+    others: doctors.filter((d) => !mine.includes(d)),
+    preselect: mine.length === 1 ? mine[0].id : null,
+  };
+}
 
 // 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
@@ -189,7 +258,7 @@ const GROUP_DEFAULTS = Object.freeze({
   // 門診要的是醫師不是空間（她 2026-09-08）；三個系統都要（Abovee 壓，確認後 Examine、耀聖）
   醫師門診: {
     durationMin: 30, category: 'A', systems: ['Abovee', 'Examine', '耀聖'],
-    assigns: 'none', allowedRoomTypes: [], requiresDoctor: true,
+    assigns: 'none', allowedRoomTypes: [], requiresDoctor: true, doctorPick: DOCTOR_ANY,
   },
   EECP: {
     durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'room', allowedRoomTypes: ['治療室'],
@@ -408,6 +477,16 @@ const validators = {
         if (owner) errors.push(`Abovee 上的寫法「${alias}」已經是「${owner.name}」的了`);
       }
     }
+
+    // 科別（ADR-0120）。沒有這一格 = 空的。**只有醫師有** —— 治療師帶著科別的話，
+    // 那個字會出現在課程「指定一科」那一排上，而那一排永遠排不到任何人
+    const specialties = r.specialties ?? [];
+    if (!Array.isArray(specialties)) errors.push('科別格式錯誤');
+    else if (specialties.some(isBlank)) errors.push('科別不可空白');
+    else if (specialties.some((s) => String(s).trim().length > 12)) errors.push('科別最多 12 字');
+    else if (specialties.length && r.role !== DOCTOR_ROLE) {
+      errors.push('只有醫師有科別 —— 物理治療師是另一種人');
+    }
     return errors;
   },
 
@@ -543,6 +622,13 @@ const validators = {
     // 器材」推出來（ADR-0075）—— 這一條會把那件事整個擋掉。
     if (r.requiresEquipment && r.requiresIvProduct) {
       errors.push('一個課程不會同時要選器材又要選點滴品項');
+    }
+
+    // 要不要醫師、哪一科（ADR-0120）。**沒有這一格就照舊**（`doctorRuleOf()` 退回 ADR-0058），
+    // 所以不擋。填了就要是一個讀得出來的字 —— `'none'`、`'any'` 或某一科
+    if (r.doctorPick != null && r.doctorPick !== '') {
+      if (typeof r.doctorPick !== 'string') errors.push('「要哪一科的醫師」格式錯誤');
+      else if (r.doctorPick.trim().length > 12) errors.push('科別最多 12 字');
     }
 
     // 來訪當天要不要請客人簽療程單。沒有這個欄位就是要簽（`visits.needsForm()`），

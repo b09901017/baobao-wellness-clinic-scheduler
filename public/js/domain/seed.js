@@ -59,6 +59,9 @@ export const SEED = {
   // 所以他們現在也會被指派到時段上。這推翻了 SPEC 第 12 節原本那句
   // 「醫師不放進 config/staff」，見 docs/adr/0026-doctors-are-assignable-staff.md。
   // 姓氏就是她講的全部，名字她沒說，不要自己補。
+  //
+  // **科別（`specialties`，ADR-0120）刻意不填**：她還沒說誰是哪一科，由她自己在
+  // 設定 → 治療師與醫師 填。Abovee 上的全名也不寫在這裡（真名不進 repo）。
   staff: [
     { id: 'staff-tw', name: '騰崴', role: '物理治療師' },
     { id: 'staff-zn', name: '芝寧', role: '物理治療師' },
@@ -183,6 +186,9 @@ export const SEED = {
       // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      // 指定一科是**排序不是限制**（ADR-0120）：那一科的醫師排前面。種子醫師還沒填科別，
+      // 在她填之前這一排跟以前長得一模一樣（那一科沒有人 → 全部列出來）。
+      doctorPick: '復健科',
       requiresEquipment: false, frequencyRule: null,
       // 她 2026-09-08：「除了二返、營養諮詢之外，復健科門診也要事後寫記錄」。
       // 逐課程不逐類別（ADR-0066）—— 同樣 A 類的心臟科評估就不用。
@@ -193,6 +199,7 @@ export const SEED = {
       id: 'course-cardio', name: '心臟科評估', group: '醫師門診', category: 'A',
       systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      doctorPick: '心臟科',
       requiresEquipment: false, frequencyRule: null,
     },
     {
@@ -202,7 +209,7 @@ export const SEED = {
       systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
       // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
-      requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
+      requiresEquipment: false, requiresDoctor: true, doctorPick: '功能／二返', frequencyRule: null,
       // 唯一一個不用簽療程單的課程（2026-08-23 使用者確認）。它是回院聽報告，
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
       // 沒有這個欄位就是要簽，所以其餘課程一個字都不用寫。

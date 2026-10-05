@@ -92,6 +92,8 @@ const FIELD_LABELS = {
   shortName: '別稱',
   allowedRoomIds: '只能排在這幾間',
   systems: '壓哪幾個系統',
+  doctorPick: '要哪一科的醫師',
+  specialties: '科別',
   kind: '任務種類',
   dueDate: '死線',
   done: '已完成',

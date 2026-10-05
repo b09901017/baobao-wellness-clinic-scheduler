@@ -442,10 +442,13 @@ audit/{eventId}                   // append-only 稽核紀錄
                          //   沒有這個欄位就是不用寫（跟 needsTreatmentForm 相反）。
                          //   逐課程不逐類別：二返是 A 類，而同樣 A 類的
                          //   復健科醫師門診不用寫。見 docs/adr/0066
-  requiresDoctor,        // bool。**非 A 類**要選醫師時才勾 —— A 類（門診）一律
-                         // 選得到，不用勾，見 docs/adr/0058-...
-                         // 判斷只有一份：domain/masterData.js 的 picksDoctor()
-                         // 不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
+  doctorPick,            // 'none' | 'any' | 某一科的字（ADR-0120）。要不要醫師、排哪一科在前面。
+                         //   **指定一科是排序不是限制**：那一科排前面、其餘收在「其他醫師」後面；
+                         //   那一科剛好一位時先選好他。判斷只有一份：domain/masterData.js 的
+                         //   doctorRuleOf()／picksDoctor()／doctorChoicesFor()
+                         //   不塞進 assigns —— 那是單選的，而二返同時要診間和醫師。
+  requiresDoctor,        // bool。**只剩退路**：沒有 doctorPick 的舊課程，A 類（門診）一律
+                         // 選得到、其餘看這一格（docs/adr/0058-...）。存檔時跟著 doctorPick 寫
                          // 沒選只提醒不擋，見 docs/adr/0026-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
   followupCourseId,      // 做完之後還要再約一次的那個課程。目前只有健檢 → 二返。
@@ -473,7 +476,10 @@ audit/{eventId}                   // append-only 稽核紀錄
 //   type: '治療室' | '點滴室' | 'ILIB室'
 
 // config/staff/{id}
-{ name, role, active, deletedAt }
+{ name, role, active, deletedAt,
+  aboveeNames,           // Abovee 上怎麼寫這個人（兩位不可以同一個寫法）
+  specialties }          // 科別，字串陣列。**只有醫師有**（ADR-0120）。不是一份主檔 ——
+                         //   名單＝預設四科（功能／二返、泌尿科、心臟科、復健科）＋大家身上已經有的字
 //   role: '物理治療師' | '醫師'
 //   一份清單放兩種人，而 role 不只是標籤，它是分流：復能的治療師選單只列
 //   物理治療師、二返的醫師選單只列醫師。選錯人是實際傷害（CONTEXT.md），

@@ -11,6 +11,7 @@ import {
   copyPlan,
   normalizeGroup, courseGroupNames, coursesByGroup, courseDefaultsFor,
   SYSTEMS,
+  DOCTOR_ROLE, DOCTOR_NONE, DOCTOR_ANY, doctorRuleOf, specialtyNames,
 } from '../../domain/masterData.js';
 import { systemsOf, describeSystems } from '../../domain/taskRules.js';
 import {
@@ -154,15 +155,32 @@ const editors = {
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
   // 二返的醫師選單只列醫師（domain/masterData.js 的 staffWithRole）。
   staff: {
-    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [] },
-    summary: (r) => [r.role, r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null]
-      .filter(Boolean).join(' · '),
-    fields: (r) => [
+    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [], specialties: [] },
+    summary: (r) => [
+      r.role,
+      r.specialties?.length ? r.specialties.join('、') : null,
+      r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null,
+    ].filter(Boolean).join(' · '),
+    fields: (r, all) => [
       f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
       }),
+      // 科別（ADR-0120）。**只有醫師有** —— 角色不是醫師時整塊藏起來（`wireForm` 切），
+      // 存檔時也不寫（`parse()`）。名單＝預設四科＋別的醫師身上已經有的字。
+      `<div data-specialties ${r.role === DOCTOR_ROLE ? '' : 'hidden'}>
+        ${f.chips({
+          name: 'specialties', label: '科別', value: r.specialties ?? [], multi: true, quiet: true,
+          options: [...new Set([...specialtyNames(all?.staff ?? []), ...(r.specialties ?? [])])],
+          hint: '可以勾不只一科。課程指定了一科的話，那一科的醫師會排在最前面'
+            + '（其餘照樣選得到）；那一科只有一位時會先幫你選好。',
+        })}
+        ${f.text({
+          name: 'specialtyNew', label: '其他科別', value: '', placeholder: '神經內科', maxlength: 12,
+          hint: '上面沒有的就自己打，好幾科用頓號分開。',
+        })}
+      </div>`,
       // issue 12：拍 Abovee 時服務資源那一格寫的是全名，認不出來的記在這裡
       f.text({
         name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
@@ -175,7 +193,18 @@ const editors = {
       name: v.name.trim(),
       role: v.role,
       aboveeNames: String(v.aboveeNames ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean),
+      // 改成治療師就清掉 —— 那一塊藏起來了，她看不到的東西不可以留在資料上
+      specialties: v.role === DOCTOR_ROLE
+        ? [...new Set([...f.splitMulti(v.specialties), ...f.parseList(v.specialtyNew)])]
+        : [],
     }),
+    wireForm: ({ form }) => {
+      f.wireChips(form);
+      form.elements.role?.addEventListener('change', (e) => {
+        const box = form.querySelector('[data-specialties]');
+        if (box) box.hidden = e.target.value !== DOCTOR_ROLE;
+      });
+    },
   },
 
   equipment: {
@@ -329,7 +358,8 @@ const editors = {
       durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       preferredRoomIds: [],
-      requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
+      requiresEquipment: false, requiresIvProduct: false,
+      requiresDoctor: false, doctorPick: DOCTOR_NONE,
       needsTreatmentForm: true,
       needsRecord: false,
       frequencyRule: null,
@@ -419,15 +449,22 @@ const editors = {
         value: !!r.requiresIvProduct,
         hint: '每次施打的品項可能不同，勾了之後來訪編輯器才會出現品項選單。',
       }),
-      f.toggle({
-        name: 'requiresDoctor', label: '來訪時要選醫師',
-        value: !!r.requiresDoctor,
-        hint: r.category === 'A'
-          // A 類已經一律選得到（`picksDoctor()`），所以這一格在門診上是多餘的 ——
-          // 不講的話她會以為關掉它就選不到醫師了，然後回來問為什麼還在。
-          ? '門診（A 類）本來就選得到醫師，這一格開不開都一樣。'
-          : '排班與來訪編輯器會多一排醫師可以選。門診（A 類）不用勾，本來就有。'
-            + '和上面的診間、治療師不衝突 —— 二返同時要診間和醫師。',
+      // 要不要醫師、哪一科（ADR-0120）。2026-10-05 之前這裡是一個開關，而門診（A 類）
+      // 一律選得到、那個開關開不開都一樣（ADR-0058）。**舊課程打開時照 `doctorRuleOf()`
+      // 畫好** —— 門診是「哪一科都可以」、其餘照原本那個開關，存一次什麼都不變。
+      f.chips({
+        name: 'doctorPick', label: '來訪時要選醫師', value: doctorRuleOf(r), quiet: true,
+        options: [
+          { value: DOCTOR_NONE, label: '不用' },
+          { value: DOCTOR_ANY, label: '哪一科都可以' },
+          // 這門課現在指的那一科就算已經沒有醫師掛著也要列出來 —— 不然那一排一顆都沒按
+          ...[...new Set([...specialtyNames(all?.staff ?? []), doctorRuleOf(r)])]
+            .filter((s) => s !== DOCTOR_NONE && s !== DOCTOR_ANY)
+            .map((s, i) => ({ value: s, label: s, ...(i === 0 ? { lead: '指定一科' } : {}) })),
+        ],
+        hint: '指定一科的話，那一科的醫師排在最前面，其餘收在「其他醫師」後面、照樣選得到'
+          + '（代診那天用得到）。那一科只有一位時會先幫你選好。'
+          + '誰是哪一科在「設定 → 治療師與醫師」填。和上面的診間、治療師不衝突。',
       }),
       f.toggle({
         name: 'needsTreatmentForm', label: '來訪當天要請客人簽療程單',
@@ -489,7 +526,9 @@ const editors = {
       preferredRoomIds: v.assigns === 'room' ? (v.preferredRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
-      requiresDoctor: !!v.requiresDoctor,
+      doctorPick: v.doctorPick || DOCTOR_NONE,
+      // 旗標跟著寫，讀的那一側只認 `doctorRuleOf()`
+      requiresDoctor: (v.doctorPick || DOCTOR_NONE) !== DOCTOR_NONE,
       needsTreatmentForm: !!v.needsTreatmentForm,
       needsRecord: !!v.needsRecord,
       frequencyRule: v.frequencyRule?.trim() || null,

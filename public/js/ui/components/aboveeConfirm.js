@@ -28,7 +28,7 @@ import { aliasWrites, staffFrom } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import {
-  DOCTOR_ROLE, THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, staffWithRole,
+  THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
 } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
@@ -388,7 +388,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       }))));
     }
     if (course && picksDoctor(course)) {
-      rows.push(chipRow('醫師', staffWithRole(ctx.master.staff, DOCTOR_ROLE).map((s) => ({
+      // 誰排前面只寫在 `doctorChoicesFor()`（ADR-0120）。**這裡不套 `preselect`** ——
+      // 照片上已經寫著是哪一位，認不出來時替她挑一位等於把照片上的字蓋掉
+      const { first, others } = doctorChoicesFor(course, ctx.master.staff);
+      rows.push(chipRow('醫師', [...first, ...others].map((s) => ({
         value: s.id, label: s.name, on: item.doctorId === s.id, attr: 'data-abl-doctor',
       }))));
     }
