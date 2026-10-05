@@ -341,6 +341,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     }
 
     const rows = [who];
+    // 10：Abovee 上改了時間、app 還沒改 —— 改期是取消＋重新排（ADR-0108），去日曆做
+    if (item.movedFrom && onOpenDay) {
+      rows.unshift(`<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
+        去日曆 ${esc(shortDate(item.date))} 改期（照片不會留著）</button>`);
+    }
     // 「要做什麼」那一排跟壓表同一份（`slotOptionsFor()`，ADR-0121）：額度（二返排最後）、＋n返、不算次數的課。
     // **用完的額度也列** —— Abovee 上已經約了，那一段是既成事實；選了照舊有「會超過次數」的提醒
     const options = optionsFor(item);

@@ -26,7 +26,8 @@ import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
 import { markInQueue } from './scheduling.js';
 import { NTH_PICK, uncountedCourseIdOf, uncountedPick } from './slotOptions.js';
-import { MIN_NTH } from './nthFollowup.js';
+import { MIN_NTH, nthOf } from './nthFollowup.js';
+import { slotName } from './naming.js';
 import { isValidDate } from './dates.js';
 
 /** 照片上的欄名 → 列上的欄位。只有這十欄（`ABOVEE_COLUMNS`）。 */
@@ -247,6 +248,10 @@ export function newRowSay(item) {
   if (item?.kind !== 'new') return '';
   // 不默默記成一般的一段（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
   if (item.mergeOrphan) return 'Abovee 上勾了合併扣課，照片上找不到另一半 —— 確定是單獨一段再勾。';
+  // 10：Abovee 上改了時間、app 還沒改
+  if (item.movedFrom) {
+    return `app 上 ${item.movedFrom.startsAt} 有一段${item.movedFrom.name} —— 是改了時間的話去日曆改期；確定是另一段再勾。`;
+  }
   return item.appCancelledHere
     ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
     : '';
@@ -276,6 +281,8 @@ export function resolveItem(item, customerId, ctx) {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
     isNth: false, nth: null, uncountedCourseId: null, minutes: null,
+    // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
+    movedFrom: null,
     // 換一個人重算時，上一位的比對結果不可以留著
     reason: null, appStatus: null, appCancelledHere: false,
   };
@@ -407,7 +414,42 @@ export function readAbovee(transcripts, ctx) {
 
   // 照片上有沒有「合併扣課」那一欄（拍兩張時，有一張有就算）
   const hasColumn = (transcripts ?? []).some((t) => (t?.columns ?? []).some((c) => ABOVEE_KEYS[clean(c)] === 'merged'));
-  return { pairing, counts: sizes, items: mergeRows(items, ctx, { hasColumn }) };
+  return { pairing, counts: sizes, items: flagMoved(mergeRows(items, ctx, { hasColumn }), ctx) };
+}
+
+// ---------- Abovee 改了時間、app 還沒改（10）----------
+
+/**
+ * Abovee 上把 10:00 的 SIS 改到 11:00、app 上還沒改：11:00 那一列找不到同一個時間的段，以前當成新的而且
+ * 預設打勾 → 那一天兩段都佔次數。現在照舊是新的，但**不預設打勾**、講一句、給一顆去日曆（abovee-and-master/10）；
+ * 勾了就是她確定是另一段。改期在 app 裡是取消＋重新排（ADR-0108），會動待辦 —— 這一層不替她做。
+ *
+ * 不判成「對不上」：`planAbovee()` 只收新的列，判成對不上的話照片只拍到同一天的第二段（真的是另一段）時就記不了。
+ */
+function flagMoved(items, ctx) {
+  const timesOf = (i) => [i.startsAt, ...(i.merged?.parts ?? []).map((p) => p.startsAt)].filter(Boolean);
+  return items.map((item) => {
+    if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) return item;
+    // 照片上這一位這一天出現過的每一個時間都算「有人對到了」（取消的列也算）—— 先把同一個時間的配完，
+    // 再看剩下的：同一天上午、下午各一段 SIS 時兩列各對各的，不會互相搶
+    const seen = new Set(items.filter((o) => o.customerId === item.customerId && o.date === item.date).flatMap(timesOf));
+    const from = movedSlot(item, seen, ctx);
+    return from ? { ...item, movedFrom: from, checked: false } : item;
+  });
+}
+
+/** app 上那一天還活著、同一個課程（器材對得上、返數一樣）、照片上沒有那個時間的那一段。 */
+function movedSlot(item, seen, ctx) {
+  const { courseId, equipmentId, nth = null } = item.course;
+  for (const visit of ctx.visitsBy?.[item.customerId] ?? []) {
+    if (!visit || visit.deletedAt || visit.date !== item.date || !isActive(visit)) continue;
+    const slot = (visit.slots ?? []).find((s) => isLiveSlot(s) && s.courseId === courseId
+      && (!equipmentId || !s.equipmentId || s.equipmentId === equipmentId)
+      && (nthOf(s) ?? null) === nth
+      && s.startsAt && !seen.has(s.startsAt));
+    if (slot) return { startsAt: slot.startsAt, name: slotName(slot, ctx.master ?? {}, 'short') };
+  }
+  return null;
 }
 
 // ---------- 合併扣課 ----------
@@ -531,7 +573,7 @@ export function mergedNotices(item, customer, equipment = []) {
  * 不會排進來喊。
  */
 export const needsAttention = (item) => item?.kind === 'mismatch'
-  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan))
+  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom))
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */

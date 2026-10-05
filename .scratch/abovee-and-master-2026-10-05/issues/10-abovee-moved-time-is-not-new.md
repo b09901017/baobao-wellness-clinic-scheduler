@@ -1,6 +1,6 @@
 # Abovee 改了時間、app 還沒改：那一列不可以被當成新的、預設打勾
 
-Status: todo
+Status: done
 來源：`../spec.md` 第一段 b（她沒問、查到的）
 動工前先讀：`domain/aboveeImport.js` 的 `existingAt()`／`crossCheck()`／`resolveItem()`／`needsAttention()`／`mismatchSay()`、ADR-0108（改時間＝取消＋重新排）、ADR-0116
 Blocked by: 09
@@ -50,3 +50,12 @@ app 上還沒改 → 照片上 11:00 那一列找不到 → 當成新的 → 日
 - 種類照舊是新的、**不預設打勾**、那一列一句「app 上 10:00 有一段 SIS —— 是改了時間的話去日曆改期；確定是另一段再勾」＋一顆去日曆
 - 句子放 `newRowSay()`（同 ADR-0116 那一句的位置）；`summarizeAbovee()` 照舊算進新的
 - 判準第一條改成「那一列沒打勾、有那一句、勾了記得進去」
+
+## 做完時留下的
+
+- 照「審查之後補的」做：**照舊是新的、不預設打勾、講一句、一顆去日曆**，不判成對不上
+- `aboveeImport.js` 的 `flagMoved()`（`readAbovee()` 在 `mergeRows()` 之後跑）＋ `movedSlot()`：照片上這一位這一天出現過的每一個時間
+  （取消的列、合併扣課的兩半都算）先當成「有人對到了」，剩下的才算搬走的。比課程、器材、**返數**（`nthOf()`），只看活著的段
+- 列上 `movedFrom: { startsAt, name }`（名字走 `slotName(…, 'short')`，例 `SIS(60)`）；`resolveItem()` 換人時清掉；`newRowSay()` 講、`needsAttention()` 排進要你看
+- 確認層：展開那一列最上面一顆「去日曆 M/D 改期」（`data-abl-day`，跟對不上那幾列同一條路）
+- `sw.js` v153。E2E 51 的 N5 跟 11 一起（同一張假抄字 `aboveeList-compare.json`）
