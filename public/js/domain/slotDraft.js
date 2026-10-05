@@ -15,7 +15,7 @@
 
 import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
-  sameDayVisitFor, slotMinutes, withExtraSlot,
+  sameDayVisitFor, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
 import { picksDoctor, isUncounted } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
@@ -43,6 +43,8 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {string|null} [picks.doctorId]
  * @param {number|null} [picks.nth] 第幾返
  * @param {string|null} [picks.followupForVisitId] 接在哪一次健檢後面（二返、n返）
+ * @param {number|string|null} [picks.minutes] 約的時候選的時長（ADR-0122）。只在那門課有
+ *   `bookingMinutes` 而且值在裡面時算數（`slotMinutes()`）；沒給就是預設那一顆
  * @param {string|null} [picks.note] 那一段身上那一句話（ADR-0084）
  * @param {{courses: object[], equipment: object[], ivProducts?: object[],
  *          entitlements: object[], visits: object[]}} ctx 主檔，與這位客戶的額度、來訪
@@ -54,7 +56,7 @@ export function slotFromPicks(picks, ctx) {
     entitlementId = null, isNth = false, uncountedCourseId = null,
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
-    followupForVisitId = null, note = null,
+    followupForVisitId = null, note = null, minutes = null,
   } = picks ?? {};
   const { courses = [], equipment = [], ivProducts = [], entitlements = [], visits = [] } = ctx ?? {};
   const fail = (error) => ({ slot: null, errors: [error], course: null, assigns: null });
@@ -102,7 +104,9 @@ export function slotFromPicks(picks, ctx) {
     equipmentId: picksEquipment(entitlement, course) ? (equipmentId ?? null) : null,
     ivProductId: course.requiresIvProduct ? (ivProductId ?? null) : null,
     startsAt,
-    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct })),
+    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct, minutes })),
+    // 她選的時長跟著這一段走（改期、只改醫師都不掉）。不給選的課是 null
+    minutes: slotMinutesField({ entitlement, course, ivProduct, minutes }),
     roomId: assigns === 'room' ? (roomId || null) : null,
     bed: assigns === 'room' ? (bed || null) : null,
     therapistId: assigns === 'therapist' ? (therapistId ?? null) : null,

@@ -395,6 +395,12 @@ export const COVERAGE = {
     'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js', 'public/js/ui/components/buy.js',
   ],
+  // 約的時候選時長（2026-10-05，ADR-0122）：設定那一格、壓表與來訪編輯器的「排多久」、月曆上的 二返(60)
+  '50-booking-minutes': [
+    'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/naming.js',
+    'public/js/domain/masterData.js', 'public/js/domain/seed.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

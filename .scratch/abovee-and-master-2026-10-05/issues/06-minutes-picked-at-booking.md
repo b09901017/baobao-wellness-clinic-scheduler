@@ -1,6 +1,6 @@
 # 約的時候選時長（二返、n返 的 30／60）
 
-Status: todo
+Status: done
 來源：`../spec.md` 三（時長）、第一題、第一段 d
 動工前先讀：ADR-0098、`domain/visits.js` 的 `slotMinutes()`、它的五個呼叫端（`slotDraft.js` 第 96 行、`schedule.js` 第 1379–1388 行、
 `visitEditor.js` 第 209–222、897–921、980 行、`backfill.js` 第 119–128 行、`mergeImport.js` 第 481–483 行）、
@@ -65,3 +65,26 @@ Abovee 上二返60 有 9 筆，記進 app 會變成 30 分 —— 日曆那一�
 - **n返 在 `naming.js` 第 152 行就提早回快照了**（讀 `courseName`）→ 三返(60) 會印成「三返」。那一條路也要接分鐘
 - `merge.mjs` 的 `endOf()` 在第 1106 行一帶（不是 1053）
 - 這一支也延伸了 ADR-0078（三種名字裡「那天做了什麼」那一種多接一個分鐘的來源）—— ADR-0122 一起寫
+
+## 做完時留下的
+
+- 課程 `bookingMinutes`（`masterData.js` 的 `bookingMinutesOf()`）、時段 `minutes`。**`durationChoicesOf()` 沒有動**（測試釘著）
+- `slotMinutes()` 多收 `minutes`，排第一層；只在那門課有 `bookingMinutes`、值在裡面時算數（表單讀回來的字串也收）
+- **要存進時段的那一格只有 `slotMinutesField()` 一支**：這門課可以選、算出來的數字在名單上才存。存的是「這一段現在多長」——
+  沒動那一排就是預設那一顆（二返 30），所以壓表記的與日曆改過的長得一樣。四個地方走它：`slotFromPicks()`、
+  來訪編輯器的 `blankSlot()`／`readDraft()`／`readNthSlot()`（`readFreeSlot()` 經 `slotFromPicks()`）
+- 來訪編輯器：那一排（`s{i}-min`）沒畫出來或沒動到時保留原本的（`key()`）；換了課程回預設；n返 剛換過來那一下回預設
+- **改期只在日曆「改這一段」那條路成立**（`submit()` 的 `at`）；整天那個網址原地改。`rebookSlot()` 整段抄，`minutes` 跟著走；
+  只改時長不算改期
+- 壓表：`view.minutes`、`minutesField()`（`[data-minutes]`），選了只換 `aria-pressed` 與「幾點開始　N 分鐘」那一句
+- `naming.js` 的 `withMinutes()`：有 `bookingMinutes` 的課也接；n返 讀快照那一條路也接（貼給客人的那一句不接）。
+  **既有的二返／三返在日曆上從「二返」變成「二返(30)」**（有起訖時間的才會）—— ADR-0122 寫了理由；兩支舊測試的期望值跟著改
+- 驗證：兩格不能都填、要包含預設那個時長
+- 種子：二返 `bookingMinutes: [30, 60]`（既有資料庫由 12 的資料健檢補）
+- 補登不給那一排（`backfill.js` 檔頭寫明）；`merge.mjs` 的 `endOf()` 註解講清楚為什麼少一層
+- ADR-0122、SPEC 5.3、操作手冊七之二／七之五、`CLAUDE.md`「一段來訪要排多久」那一列
+- `sw.js` v149。新 spec `50-booking-minutes`（M1–M6）
+- **08 接拍 Abovee**：`slotFromPicks({ minutes })` 已經收得下，照片上「二返60」的 60 直接交給它
+- **她沒問、查到的（還沒修，問她）**：`validateVisit()` 的提醒（還沒選醫師／診間…）**連取消掉的段也講** ——
+  改期之後舊那一段已經取消了，第一道確認還是會跳「第 1 個時段：二返 還沒選醫師」。E2E M4 因此先替那一段選好醫師才測得到改期那一道
+

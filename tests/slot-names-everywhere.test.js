@@ -89,7 +89,9 @@ describe('進度追蹤那一列（客戶詳情的「這個月」共用同一支�
       courseId: 'c-recovery', courseName: '三返', followupNth: 3,
       startsAt: '09:00', endsAt: '09:30',
     }]);
-    assert.equal(s.name, '三返');
+    // 名字讀快照（三返，不是主檔那門課的名字）；分鐘照那門課有沒有兩種規格接（ADR-0122）——
+    // 這一份假資料借的是復能，它有 30／60 兩種
+    assert.equal(s.name, '三返(30)');
   });
 
   test('沒帶主檔的呼叫端退回快照，不會吐空字串', () => {

@@ -429,6 +429,9 @@ audit/{eventId}                   // append-only 稽核紀錄
   category,              // 'A' | 'B' | 'C' | null。**只剩退路**：沒有 systems 的舊課程照它推。
                          //   設定頁不再改它（2026-10-05 之前它是「任務類別」那個下拉）
   durationMin,
+  bookingMinutes,        // [30, 60]。選填。**約的時候選時長**（ADR-0122）：同一筆額度，每一段自己挑
+                         //   （選的記在時段的 minutes）。目前只有二返（n返 借它）。跟底下那一格
+                         //   是兩件事、只能填一格：底下是買的時候分成兩筆額度
   durationChoices,       // [30, 60]。選填。填了加購那一頁就多一排丸子，
                          //   名字也會帶著它（「超磁場(60)」）。目前只有復能與 ILIB
   shortName, lineName,   // 別稱與 LINE 名（`domain/naming.js`）。兩個都選填 ——
@@ -660,7 +663,9 @@ audit/{eventId}                   // append-only 稽核紀錄
       courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
       ivProductId,            // 營養點滴品項
-      startsAt, endsAt,
+      startsAt, endsAt,       // endsAt 從來不是她填的，每次存檔由 slotMinutes() 推（ADR-0098）
+      minutes,                // 約的時候選的時長（ADR-0122）。那門課有 bookingMinutes 才有；
+                              // slotMinutes() 的第一層。舊資料沒有這一格，照後面那幾層算
       roomId, bed, therapistId,
       doctorId,               // 這次是哪位醫師。picksDoctor() 為真的課程才有
                               // （課程的 doctorPick；沒填的照 ADR-0058 退回，見 ADR-0120）。

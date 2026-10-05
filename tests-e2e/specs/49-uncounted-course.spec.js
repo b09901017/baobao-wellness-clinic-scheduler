@@ -70,8 +70,15 @@ test('U1 設定 → 課程：勾「不算次數」存得下去，清單那一行
 
 test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已經選好、存得下去、日曆上看得到', async ({ app, page }) => {
   await app.seed([...masterDocs(), FM, customer({ id: 'cust-n', name: '林小華' })]);
-  await app.signIn('/');
-  await app.go(`/visits/new/cust-n/${PICK_DAY}`);
+  // **走她真的會走的那條路**：日曆 → 那一天 → ＋ → 來訪 → 選人（那一份名單不看有沒有額度）。
+  // 一位沒有額度的客戶不在壓表那面牆上（ADR-0041），這是她唯一排得到他的地方
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-n"]').click();
   await app.layer('[data-chip="s0-ent"]');
 
   // 沒有額度可以預設 → 第一段就是那門不算次數的課
@@ -97,7 +104,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
   expect(v.slots[0].doctorId).toBe('staff-dr-xia');
   expect(v.status).toBe('pending_confirm');
 
-  await app.go('/calendar');
+  // 存完面板收起來，月曆那一格已經有它；點進那一天，那一段就在上面
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
   await app.layer('[data-open^="visit:"]');
   await expect(page.locator(`[data-open^="visit:${v.id}:"]`).first()).toContainText('功醫門診');

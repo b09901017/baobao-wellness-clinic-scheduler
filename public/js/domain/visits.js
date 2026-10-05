@@ -15,7 +15,9 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, picksDoctor, isUncounted, DOCTOR_ROLE } from './masterData.js';
+import {
+  roomsForCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
+} from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
@@ -1375,7 +1377,14 @@ function minutesOrNull(v) {
  * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
  * 那邊要多一個時間」。
  *
- * 順序是 **品項 → 額度 → 課程 → 60**，而品項排在額度前面是刻意的：
+ * 順序是 **這一段選的 → 品項 → 額度 → 課程 → 60**。
+ *
+ * **最前面那一層是 2026-10-05 加的**（ADR-0122）：二返與 n返 約的時候選 30 或 60。
+ * 它只在**那門課有 `bookingMinutes`、而且值在裡面**時才算數 —— 復能是買的時候分的
+ * （兩筆不同的額度），一段復能(30) 身上帶著一個 `minutes: 60` 也不可以蓋過額度。
+ * 沒有這一格的舊資料照舊走後面那幾層，`endsAt` 一個都不會變。
+ *
+ * 品項排在額度前面是刻意的：
  * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
  * 是 `entitlementDoc()`（匯入）與 `buy.js`（加購）建額度時抄課程預設值抄進去的。
  * 排在後面的話，改了主檔既有額度照樣是舊的那個數字，而她看不出為什麼。
@@ -1386,16 +1395,38 @@ function minutesOrNull(v) {
  *
  * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
  * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
+ * 匯入與補登沒有「這一段選了幾分」這個資訊，不傳 `minutes` —— 那幾段照預設。
  *
- * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o
+ * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null,
+ *          minutes?: number|string|null}} o `minutes` 是這一段她選的（`slot.minutes`，或畫面上那一排）
  * @returns {number} 分鐘
  */
-export function slotMinutes({ entitlement = null, course = null, ivProduct = null } = {}) {
+export function slotMinutes({
+  entitlement = null, course = null, ivProduct = null, minutes = null,
+} = {}) {
+  const picked = minutesOrNull(minutes);
+  const fromPick = picked != null && bookingMinutesOf(course).includes(picked) ? picked : null;
   const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
-  return fromProduct
+  return fromPick
+    ?? fromProduct
     ?? minutesOrNull(entitlement?.durationMin)
     ?? minutesOrNull(course?.durationMin)
     ?? 60;
+}
+
+/**
+ * 要存進時段的那一格 `minutes`（ADR-0122）：**這門課約的時候可以選、而且這一段算出來的
+ * 那個數字在名單上**才存，其餘是 `null`。
+ *
+ * 存的是「這一段現在多長」而不是「她有沒有動那一排」：沒動的話就是預設那一顆（二返 30），
+ * 打開編輯器時那一顆是按著的。**組時段與讀表單都走這一支** —— 一邊存一邊不存的話，
+ * 同一段從壓表記的沒有這一格、從日曆改過一次就有了。
+ */
+export function slotMinutesField(o = {}) {
+  const choices = bookingMinutesOf(o.course);
+  if (!choices.length) return null;
+  const n = slotMinutes(o);
+  return choices.includes(n) ? n : null;
 }
 
 /**

@@ -54,7 +54,7 @@
 // **貼給客人的那一句不變**：那裡只講課程（ADR-0077），品項跟器材一樣
 // 是她自己要認的東西。
 
-import { durationChoicesOf } from './masterData.js';
+import { durationChoicesOf, bookingMinutesOf } from './masterData.js';
 import { toMinutes, isValidTime } from './visitTime.js';
 
 const trimmed = (v) => String(v ?? '').trim();
@@ -141,7 +141,12 @@ export function slotName(
   // 快照是空的（資料壞了）就退回主檔 —— 印成空白比印「二返」糟。
   // 二返本身不走這條路（它的 `followupNth` 是 null），所以主檔改名之後
   // 已經排出去的二返照樣跟著改名。
-  if (slot?.followupNth != null && slot.followupNth !== '' && snapshot) return snapshot;
+  //
+  // **她自己看的那一種照樣接分鐘**（ADR-0122）：n返 借的二返約的時候選得到 30／60，
+  // 這裡提早回的話一段三返(60) 會印成「三返」。貼給客人的那一句不接。
+  if (slot?.followupNth != null && slot.followupNth !== '' && snapshot) {
+    return context === 'line' ? snapshot : withMinutes(snapshot, slot, course);
+  }
 
   // 貼給客人的那一句只講課程。器材是她自己要認的東西（ADR-0077）。
   if (context === 'line') {
@@ -177,7 +182,8 @@ export function slotName(
  *
  * 兩個條件都成立才接：
  *
- * 1. **這個課程有兩種以上規格**（`durationChoicesOf()`）。只有一種的話那個
+ * 1. **這個課程有兩種以上規格**：買的時候分的（`durationChoicesOf()`）或約的時候選的
+ *    （`bookingMinutesOf()`，ADR-0122 —— `二返(60)`）。只有一種的話那個
  *    數字不提供任何資訊，而那一格每一個字都很貴。
  * 2. **算得出這一段多長**（起訖時間都有）。匯進來的舊來訪沒有時間
  *    （ADR-0011），那時候不要補一個猜的 —— 同 `timedLabel()` 的判斷。
@@ -186,7 +192,7 @@ export function slotName(
  * 而她要的第六種正是 `IL(60)`。
  */
 function withMinutes(base, slot, course) {
-  if (durationChoicesOf(course).length < 2) return base;
+  if (durationChoicesOf(course).length < 2 && bookingMinutesOf(course).length < 2) return base;
   // `toMinutes()` 收到 null 會炸（它 `.split` 那個字串），所以先問過再算
   if (!isValidTime(slot?.startsAt) || !isValidTime(slot?.endsAt)) return base;
   const min = toMinutes(slot.endsAt) - toMinutes(slot.startsAt);

@@ -94,6 +94,7 @@ const FIELD_LABELS = {
   systems: '壓哪幾個系統',
   doctorPick: '要哪一科的醫師',
   uncounted: '不算次數',
+  bookingMinutes: '約的時候選時長',
   specialties: '科別',
   kind: '任務種類',
   dueDate: '死線',

@@ -18,7 +18,7 @@ import {
   INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit, canCancelSlot,
   coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
-  applyStatus, slotMinutes, NOTE_MAX,
+  applyStatus, slotMinutes, slotMinutesField, NOTE_MAX,
   rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
@@ -36,7 +36,7 @@ import { slotName } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
-  THERAPIST_ROLE, isUncounted, uncountedCourses,
+  THERAPIST_ROLE, isUncounted, uncountedCourses, bookingMinutesOf,
 } from '../../domain/masterData.js';
 import { NTH_PICK, uncountedPick, uncountedCourseIdOf } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
@@ -240,6 +240,8 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
     ivProductId,
     startsAt,
     endsAt: endOf(startsAt, durationMin),
+    // 約的時候選的時長（ADR-0122）：新的一段是預設那一顆；不給選的課是 null
+    minutes: slotMinutesField({ entitlement, course }),
     roomId: null,
     bed: null,
     therapistId: null,
@@ -611,6 +613,7 @@ function slotCard(ctx, draft, slot, i) {
             options: courseChoices.map((c) => ({ value: c.id, label: c.name })),
           })}
 
+      ${minutesField(ent, course, slot, i)}
       ${picksEquipment(ent, course) ? equipmentField(customer, ent, all, slot, i) : ''}
       ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
@@ -816,6 +819,23 @@ function equipmentField(customer, ent, all, slot, i) {
 }
 
 /**
+ * 「排多久」那一排：**約的時候選時長**（ADR-0122，二返與 n返 的 30／60）。
+ *
+ * 只有課程主檔上填了 `bookingMinutes` 的才有。按著的那一顆是這一段現在的長度
+ * （`slotMinutesField()`：她選過就是她選的，沒選過就是預設那一顆）。**不是 `quiet`** ——
+ * 選了要重畫，抬頭那一格的結束時間與名字（`二返(60)`）才會跟著變。
+ */
+function minutesField(ent, course, slot, i) {
+  const choices = bookingMinutesOf(course);
+  if (!choices.length) return '';
+  const now = slotMinutesField({ entitlement: ent, course, minutes: slot.minutes });
+  return f.chips({
+    name: `s${i}-min`, label: '排多久', value: now == null ? null : String(now),
+    options: choices.map((n) => ({ value: String(n), label: `${n} 分` })),
+  });
+}
+
+/**
  * 二返這一類要選醫師的課程。和器材、品項那兩個選單長一樣，用點的不打字。
  *
  * **只列角色是醫師的人。** 混進治療師會讓她在復能之外的地方也點錯人，
@@ -942,11 +962,16 @@ function readDraft(ctx, form, draft) {
     const ivProductId = !course?.requiresIvProduct ? null
       : entitlementId !== slot.entitlementId ? bought
         : key(v, `s${i}-iv`, bought);
-    const durationMin = slotMinutes({
+    // **約的時候選的時長跟著這一段走**（ADR-0122）：那一排沒畫出來、或她沒動它時保留
+    // 原本的 `minutes`（`key()`）—— 打開一段二返(60) 只改醫師，不可以被清回 30。
+    // 換了課程就回到那門課的預設（那一排上原本的數字是上一門課的）。
+    const timing = {
       entitlement: ent,
       course,
       ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
-    });
+      minutes: courseId !== slot.courseId ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+    };
+    const durationMin = slotMinutes(timing);
 
     return {
       ...slot,
@@ -957,6 +982,7 @@ function readDraft(ctx, form, draft) {
       ivProductId,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
+      minutes: slotMinutesField(timing),
       // 那一段身上那一句話（ADR-0084）。收起來的時候 textarea 照樣在 DOM 裡，
       // 所以讀得到 —— `hidden` 的是包住它的 `<label>`。
       note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
@@ -1020,6 +1046,8 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
     therapistId: v[`s${i}-staff`] ?? null,
     // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
     doctorId: v[`s${i}-doc`] ?? (switched ? doctorChoicesFor(course, all.staff).preselect : null),
+    // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
+    minutes: switched ? null : key(v, `s${i}-min`, slot.minutes ?? null),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
   }, {
     courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,
@@ -1058,10 +1086,15 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   const course = all.courses.find((c) => c.id === courseId) ?? null;
 
   const startsAt = v[`s${i}-start`] || slot.startsAt;
-  // **n返 不走 `slotMinutes()`**：它借二返那個課程，身上沒有額度也沒有品項
-  // （`domain/nthFollowup.js`），所以那一支沒有東西可以加 —— 而它答不出來時
-  // 退的是 60，這裡要的是 30。走過去只會把這一格的預設值靜默換掉。
-  const durationMin = course?.durationMin ?? 30;
+  // **她在「排多久」那一排選的排第一**（ADR-0122：n返 借的二返約的時候選得到 30／60）。
+  // 沒畫出來或沒動它就保留原本那一格（`key()`）；剛從別的東西換成 n返 的那一下回到預設。
+  //
+  // 她沒得選的時候**不走 `slotMinutes()` 的退路**：它借二返那個課程，身上沒有額度也沒有品項
+  // （`domain/nthFollowup.js`），而那一支答不出來時退的是 60，這裡要的是 30。
+  const minutes = slotMinutesField({
+    course, minutes: isNthSlot(slot) ? key(v, `s${i}-min`, slot.minutes ?? null) : null,
+  });
+  const durationMin = minutes ?? course?.durationMin ?? 30;
 
   return {
     ...slot,
@@ -1071,6 +1104,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
     ivProductId: null,
     startsAt,
     endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
+    minutes,
     ...(assignsFor(null, course, null) === 'room'
       ? parseRoomKey(v[`s${i}-room`])
       : { roomId: null, bed: null }),

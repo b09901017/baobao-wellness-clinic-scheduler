@@ -363,6 +363,7 @@ const editors = {
       needsTreatmentForm: true,
       needsRecord: false,
       uncounted: false,
+      bookingMinutes: [],
       frequencyRule: null,
       followupCourseId: null,
       durationChoices: [],
@@ -403,8 +404,17 @@ const editors = {
       f.text({
         name: 'durationChoices', label: '可選時長（分鐘）',
         value: (r.durationChoices ?? []).join('、'), placeholder: '30、60',
-        hint: '用頓號分隔。填了之後加購那一頁會多一排丸子，名字也會帶著它'
-          + '（「超磁場(60)」）。留空就是只有上面那一個時長。',
+        hint: '用頓號分隔。買的時候分：填了之後加購那一頁會多一排丸子，名字也會帶著它'
+          + '（「超磁場(60)」），30 與 60 是兩筆不同的額度。留空就是只有上面那一個時長。',
+      }),
+      // 約的時候選（ADR-0122）。跟上面那一格分成兩格是因為它們是兩件事：
+      // 上面是兩筆額度，這一格是同一筆額度每一段自己挑（二返 30 或 60）。
+      f.text({
+        name: 'bookingMinutes', label: '約的時候選時長（分鐘）',
+        value: (r.bookingMinutes ?? []).join('、'), placeholder: '30、60',
+        hint: '用頓號分隔。約的時候選：填了之後排這門課時會多一排丸子，每一段自己挑要排多久'
+          + '（二返 30 或 60），扣的是同一筆額度；預設是上面那個時長。'
+          + '跟「可選時長」只能填一格。',
       }),
       // 壓哪幾個系統（ADR-0119）。2026-10-05 之前這裡是「任務類別」四選一的下拉，
       // 做不出「只壓 Abovee＋耀聖」。**舊課程打開時三個勾照 `systemsOf()` 畫好** ——
@@ -524,6 +534,8 @@ const editors = {
       // 「30、60」→ [30, 60]。認不出數字的那幾格直接丟掉 ——
       // 存一個 NaN 進去，加購那一排會冒出一顆按不下去的丸子。
       durationChoices: f.parseList(v.durationChoices)
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0),
+      bookingMinutes: f.parseList(v.bookingMinutes)
         .map(Number).filter((n) => Number.isInteger(n) && n > 0),
       category: v.category,
       // 存的順序固定（Abovee、Examine、耀聖），不照她勾的先後

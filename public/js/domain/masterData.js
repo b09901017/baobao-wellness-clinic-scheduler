@@ -620,6 +620,23 @@ const validators = {
         errors.push('可選時長裡要包含上面那個時長');
       }
     }
+    // 約的時候選時長（選填，ADR-0122）。規矩跟上面那一格一樣，多一條：兩格只能填一格 ——
+    // 一個是買的時候分成兩筆額度，一個是同一筆額度每一段自己挑；兩格都填的話一段來訪
+    // 的長度有兩個來源在搶，而她看不出是哪一個贏。
+    const booking = r.bookingMinutes ?? [];
+    if (!Array.isArray(booking)) errors.push('約的時候選時長格式錯誤');
+    else if (booking.length) {
+      if (!booking.every(positiveInt)) errors.push('約的時候選時長必須都是大於 0 的整數分鐘');
+      else if (new Set(booking).size !== booking.length) errors.push('約的時候選時長不可以重複');
+      else if (booking.length > 6) errors.push('約的時候選時長最多六個 —— 再多那一排就要滑了');
+      else if (!booking.includes(Number(r.durationMin))) {
+        errors.push('約的時候選時長裡要包含上面那個時長 —— 它是預設按好的那一顆');
+      }
+      if (Array.isArray(choices) && choices.length) {
+        errors.push('「可選時長」與「約的時候選時長」只能填一格：'
+          + '一個是買的時候分成兩筆額度，一個是同一筆額度每一段自己挑');
+      }
+    }
     if (!ASSIGNS.includes(r.assigns)) errors.push('請選擇要指派治療師還是診間');
 
     const types = r.allowedRoomTypes ?? [];
@@ -927,3 +944,23 @@ export function orderedRoomSlots(course, rooms) {
  */
 export const durationChoicesOf = (course) =>
   (course?.durationChoices ?? []).filter((n) => Number.isInteger(n) && n > 0);
+
+/**
+ * 這門課**約的時候**給不給她挑時長（`bookingMinutes`，2026-10-05，ADR-0122）。
+ *
+ * 她：「是，約的時候選，預設 30。拍照時照 Abovee 那一格（二返60 就記 60）」。
+ *
+ * **跟上面那一支是兩件事，不要併成一支：**
+ *
+ *   durationChoices   買的時候分 —— `復能-三選一(30)` 與 `(60)` 是**兩筆額度**
+ *   bookingMinutes    約的時候選 —— **同一筆額度**，每一段自己挑（二返 30 或 60）
+ *
+ * 二返的額度是跟著健檢自動長出來的（ADR-0022），買的時候沒得選；讓 `durationChoicesOf()`
+ * 也認這一格的話，二返的額度會變成 `二返(30)`、加購會多一排丸子。同一門課兩格不能都填
+ * （`validate()` 擋）。
+ *
+ * 選了什麼記在**時段**上（`slot.minutes`），算數的順序只寫在 `visits.js` 的 `slotMinutes()`。
+ */
+export const bookingMinutesOf = (course) =>
+  (Array.isArray(course?.bookingMinutes) ? course.bookingMinutes : [])
+    .filter((n) => Number.isInteger(n) && n > 0);

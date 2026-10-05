@@ -210,6 +210,10 @@ export const SEED = {
       // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, doctorPick: '功能／二返', frequencyRule: null,
+      // **約的時候選 30 或 60**（ADR-0122，她 2026-10-05：「約的時候選，預設 30」）。
+      // 二返的額度是跟著健檢自動長出來的，買的時候沒得選，所以不是 `durationChoices`
+      // （那是兩筆額度）—— 同一筆額度，每一段自己挑。n返 借這門課，所以三返也選得到。
+      bookingMinutes: [30, 60],
       // 唯一一個不用簽療程單的課程（2026-08-23 使用者確認）。它是回院聽報告，
       // 沒有療程可以扣 —— 而療程單正是「扣掉那一次」的憑據（CONTEXT.md）。
       // 沒有這個欄位就是要簽，所以其餘課程一個字都不用寫。
