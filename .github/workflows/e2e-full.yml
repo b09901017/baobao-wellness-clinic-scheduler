@@ -13,7 +13,7 @@ name: 全量 E2E
 #   2. **她自己按** —— 本機全跑要佔住電腦 21 分鐘而且期間不能改 `public/`
 #      （service worker 的殼會被換掉）。按一下丟給這裡，去做別的事
 #
-# 推 develop（上 staging）刻意不跑：那裡是假資料，而且 `deploy.yml` 那三支
+# 推 develop（上 staging）刻意不跑：那裡只是預演（ADR-0118，切換那天不搬），而且 `deploy.yml` 那三支
 # 已經擋著整頁白屏那一類。
 
 on:

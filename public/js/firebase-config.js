@@ -145,10 +145,13 @@ export const usingEmulator = () => ENV === 'emulator';
  *
  * 她會兩個環境都開著，而**在 staging 上刪掉一筆資料然後以為刪掉了正式的那一筆**
  * 是這個安排最容易造成的事故。CLAUDE.md：「畫面在講一件不會發生的事，
- * 比沒講還糟」—— 反過來也成立，畫面沒講出「這裡的資料是假的」同樣糟。
+ * 比沒講還糟」—— 反過來也成立，畫面沒講出「這裡跟正式站不一樣」同樣糟。
+ *
+ * **2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）。以前那一句是「這裡的資料是假的，
+ * 改壞了沒關係」—— 現在那兩件都不成立了：資料是真的，但切換那天不會搬過去。
  */
 export function envBanner() {
-  if (ENV === 'staging') return { label: '測試環境', hint: '這裡的資料是假的，改壞了沒關係' };
+  if (ENV === 'staging') return { label: '測試環境', hint: '資料是真的，但這裡只是預演 —— 切換那天不會搬過去' };
   if (ENV === 'emulator') return { label: '本機模擬器', hint: '資料只存在這台電腦上' };
   return null;
 }

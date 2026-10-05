@@ -11,7 +11,7 @@
 > |---|---|---|
 > | §3.1 沒有 staging | ✅ | `firebase-config.js` 照網址挑環境（`envOf()`），`.firebaserc` 兩個別名，非正式環境畫一條橘色橫幅、分頁標題也帶著。`tests/env.test.js` 盯著三個 projectId 不會走散 |
 > | §3.2 備份只出不進 | ✅ | `scripts/restore-backup.mjs`。已經對著模擬器完整演練過「dry run → 寫入 → 逐集合對帳」，Timestamp 還原得回真的時間戳。`tests/restore-backup.test.js` 盯著它跟 `data/backup.js` 的 `exportAll()` 對得上 |
-> | §3.2 假資料 | ✅ | `scripts/seed-staging.mjs`。二十位假客戶，**跑完資料健檢是 0 findings**（已驗證），可重複執行 |
+> | §3.2 假資料 | ✅（**2026-10-05 被她推翻，見 ADR-0118**：staging 改放真資料的預演，種子只種在模擬器） | `scripts/seed-staging.mjs`。二十位假客戶，**跑完資料健檢是 0 findings**（已驗證），可重複執行 |
 > | §2.7 盲區二 Rules 不在 CI | ✅ | `npm run test:rules`（82 支，已跑過）進 CI，用 `emulators:exec` 自己起自己關 |
 > | §2.1 離線寫入靜默 | ✅ | `withSaveState()` 8 秒逾時 → 換一句**不說失敗**的話；`ui/net.js` + 殼上常駐的離線橫幅；`tests-e2e/specs/10-offline.spec.js` 三支盯著 |
 > | §2.2 連點產生重複資料 | ✅ | 報告點名 3 條 + 寫守衛時**又抓到 3 條**（客戶詳情的隨手記、確認動線、來訪編輯器）。`tests/save-guards.test.js` 從此掃全站 |
@@ -798,6 +798,7 @@ export const firebaseConfig = CONFIGS[ENV === 'emulator' ? 'staging' : ENV];
 
 建議在 `ui/shell.js` 加一條只有非 prod 才畫的橫幅（橘底、寫
 「測試環境・這裡的資料是假的」），並且把 `index.html` 的 `<title>` 加上前綴。
+（2026-10-05 起那一句改成講預演，ADR-0118。）
 CLAUDE.md 的精神是「畫面在講一件不會發生的事，比沒講還糟」—— 反過來也成立。
 
 #### 第 4 步：部署指令
@@ -839,6 +840,11 @@ push 到 main     → npm test → E2E（打 staging）→ 部署 prod
 ## 3.2 資料庫複製與匿名測試資料
 
 ### 原則：永遠不要把正式資料倒進 staging
+
+> **2026-10-05 她推翻了這一條**（ADR-0118）。前提變了：正式站還沒記過任何真東西，
+> 而她要在切換前看合併檔匯進去長什麼樣 —— staging 是唯一點得到的地方。staging 改放
+> **真資料的預演**，切換那天正式站重新匯，staging 上記的不搬；假資料只種在本機模擬器。
+> 下面的原文留著，是當時的理由。
 
 即使匿名化過。理由有兩個：一是匿名化腳本本身會出錯（漏一個欄位就是真名進了
 另一個資料庫）；二是這個專案已經有一個現成的、更好的東西。
