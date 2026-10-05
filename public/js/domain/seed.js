@@ -91,21 +91,25 @@ export const SEED = {
   //
   // ILIB 是 2026-09-06 補進來的第四台：在那之前它只是一個課程（靜脈），
   // 而擇一池的選項是器材，所以它進不了四選一。
+  //
+  // **`aboveeNames` 是 Abovee 課程那一格怎麼寫它**（2026-10-05，abovee-and-master/07）：
+  // `SIS 60`、`IN 30`、`高能量60`、`ILIB 60` 拆掉結尾的分鐘之後的那幾個字。拍 Abovee 靠它認，
+  // 她在設定頁改得動；寫法跟著那一筆走，改名之後照樣認得。
   equipment: [
     // 別稱 `IN` 是 2026-09-08 補的：月曆一格放不下 `INDIBA(60)` 六個字，
     // 而她列的第三種就是 `復能-INDIBA(30/60) -> IN(30/60)` —— 額度讀全名、
     // 月曆讀別稱，這一台正是那兩格會不一樣的那一台。
-    { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'course-recovery', contraindications: [] },
+    { id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', courseId: 'course-recovery', contraindications: [], aboveeNames: ['IN'] },
     // **全名就是她叫它的名字**（2026-09-08）：她自己講的、寫的、記的都是 SIS，
     // 而額度的名字讀的是全名（`復能-SIS(60)`）。別稱是**月曆上那一格的縮寫**，
     // SIS 本來就夠短，所以它沒有別稱。既有資料庫上這一台還叫「超磁場」——
     // 改名那一步由資料健檢的「器材的名字跟建議的不一樣」負責。
-    { id: 'eq-sis', name: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'] },
-    { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'] },
+    { id: 'eq-sis', name: 'SIS', courseId: 'course-recovery', contraindications: ['體內金屬'], aboveeNames: ['SIS'] },
+    { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'], aboveeNames: ['高能量'] },
     // 別稱跟它那個課程一樣是 `IL`（她自己記的寫法）。月檢視印的是器材別稱，
     // 所以四選一那一筆排到 ILIB 的那一天，日曆上就是 `IL`。
     // 一般那一種不會印成 `ILIB(IL)` —— `slotName()` 認得出這兩個是同一件事。
-    { id: 'eq-ilib', name: 'ILIB', shortName: 'IL', courseId: 'course-iv-laser', contraindications: [] },
+    { id: 'eq-ilib', name: 'ILIB', shortName: 'IL', courseId: 'course-iv-laser', contraindications: [], aboveeNames: ['ILIB'] },
   ],
 
   // 警示（ADR-0074）。永久限制的第一層，**什麼都不擋** ——
@@ -148,7 +152,8 @@ export const SEED = {
     { id: 'iv-sulic', name: '速利清' },
     { id: 'iv-mengjian', name: '猛健樂' },
     { id: 'iv-nac', name: 'NAC 愛咳痰' },
-    { id: 'iv-snow', name: '雪顏亮彩' },
+    // Abovee 寫「亮采」（她 2026-10-05：不改名，記住那個寫法）
+    { id: 'iv-snow', name: '雪顏亮彩', aboveeNames: ['雪顏亮采'] },
   ],
 
   products: [
@@ -178,11 +183,14 @@ export const SEED = {
   // 每一門填的都跟它的 `category` 推出來的一模一樣（`tests/course-systems.test.js` 釘著），
   // 所以這一格在種子上不改變任何行為 —— 它在這裡是為了設定頁打開就是勾好的。
   // `category` 留著當沒勾過的課程的退路。
+  //
+  // **`aboveeNames` 是 Abovee 課程那一格怎麼寫它**（abovee-and-master/07）。名字跟 Abovee 一樣的
+  // （二返、EECP）也填：她之後改名，拍 Abovee 照樣認得。
   courses: [
     // ---- A 類：三系統＋電話 ----
     {
       id: 'course-rehab', name: '復健科醫師門診', group: '醫師門診', category: 'A',
-      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['復健門診'],
       // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
@@ -197,7 +205,7 @@ export const SEED = {
     {
       // SPEC 第 7 節規則 3：心臟科評估不佔診間
       id: 'course-cardio', name: '心臟科評估', group: '醫師門診', category: 'A',
-      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['心臟門診'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       doctorPick: '心臟科',
       requiresEquipment: false, frequencyRule: null,
@@ -206,7 +214,7 @@ export const SEED = {
       // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
       // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
       id: 'course-followup', name: '二返', group: '醫師門診', category: 'A',
-      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['二返'],
       // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, doctorPick: '功能／二返', frequencyRule: null,
@@ -277,7 +285,7 @@ export const SEED = {
       // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
       // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
       id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C',
-      systems: ['Abovee'], durationMin: 60,
+      systems: ['Abovee'], durationMin: 60, aboveeNames: ['EECP'],
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
@@ -293,7 +301,9 @@ export const SEED = {
       //
       // 機器就那兩間，所以限制與順序跟正式課一模一樣。
       id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C',
-      systems: ['Abovee'], durationMin: 30,
+      // Abovee 寫 `EECP20`（她 2026-10-05：「EECP20 就是 EECP 體驗」）。整格比對、在拆分鐘之前 ——
+      // 拆了就是「EECP＋20 分」，認成正式課（`abovee.js` 的 `courseFrom()`）
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['EECP20'],
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
@@ -318,13 +328,13 @@ export const SEED = {
     // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----
     {
       id: 'course-inbody', name: '身體組成分析', group: '運動區', category: null,
-      systems: ['Abovee'], durationMin: 20,
+      systems: ['Abovee'], durationMin: 20, aboveeNames: ['身體組成'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
       id: 'course-fitness', name: '體適能檢查分析', group: '運動區', category: null,
-      systems: ['Abovee'], durationMin: 30,
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['體適能'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
@@ -337,7 +347,7 @@ export const SEED = {
     },
     {
       id: 'course-nutrition-consult', name: '營養師諮詢', group: '運動區', category: null,
-      systems: ['Abovee'], durationMin: 20,
+      systems: ['Abovee'], durationMin: 20, aboveeNames: ['營養諮詢'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       // 諮詢完要打一份諮詢紀錄（ADR-0066）

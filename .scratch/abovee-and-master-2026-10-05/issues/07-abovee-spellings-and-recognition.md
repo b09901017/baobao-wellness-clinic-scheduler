@@ -1,6 +1,6 @@
 # 主檔記住 Abovee 怎麼寫、拍 Abovee 認得課程／品項／診間／人
 
-Status: todo
+Status: done
 來源：`../spec.md` 一、三（「也可以記錄abovee怎麼寫的」）、第六題、第一段「另外」那一條
 動工前先讀：`domain/abovee.js` 全部、`domain/aboveeImport.js` 的 `readAbovee()`／`resolveItem()`、`domain/legacyImport.js` 的 `rowShape()`、
 `domain/photoPlan.js` 的 `EQUIPMENT_ALIASES`／`FLYER_COURSE_ALIASES`、`domain/masterData.js` 的 `normalizeAlias()` 與 `validators.staff()`、
@@ -80,3 +80,24 @@ Blocked by: 05、06（`courseFrom()` 要回得出「不算次數的課」與分�
 - **跨種主檔撞同一個寫法時誰優先**：寫明順序 —— 整格原字比對時 **品項 → 器材 → 課程**（越具體越先）；同一種主檔裡不准重複（驗證擋），跨種不擋但照這個順序
 - **三返會被預選成二返的額度**：`courseFrom('三返30')` 回的是二返的課程，`resolveItem()`（`aboveeImport.js` 第 259 行起）照樣去挑額度 → 預選二返那一筆並打勾。
   07 比 08 先合，所以**這一支就要在 `resolveItem()` 裡分流**：`nth` 與 `uncounted` 在挑額度之前就走自己的路（`entitlementId: null`）。判準加「三返那一列 `entitlementId` 是 null」「功醫門診那一列 `entitlementId` 是 null」
+
+## 做完時留下的
+
+- **五種主檔都有 `aboveeNames`**：驗法一支 `masterData.js` 的 `aliasErrors()`（同一種裡不准重複，跨種不擋）、
+  比法 `hasAlias()`（`normalizeAlias()`）；設定頁那一格一支 `masterList.js` 的 `aliasField()`／`parseAliases()`
+  （不用 `parseList()` —— 它連空白也切）。治療師那一份的驗法也改走 `aliasErrors()`，訊息一字不差
+- `courseFrom()` 回 `{ courseId, equipmentId, ivProductId, durationMin, nth, uncounted }`，順序照「談定的做法」第 2 點；
+  `任選60` 走最後那一條 `rowShape()`（池子、`equipmentId: null`），沒有另外寫死。`三返` 的寫死在 `nthOf()`，名字走 `nthLabel()`（三返～十返都認）。
+  要選品項的課不只一門時說不出是哪一門 → 品項那一條回 null（不猜）
+- `staffRoleFor(course, master)` → 治療師／醫師／null，`staffFrom(text, staff, { role })`。`readAbovee()` 先認課程再認人，
+  列上多一格 `staffKnown`：**確認層判斷「認不出來、要記住寫法」改讀它**（以前在畫面裡不分角色再問一次，會跟翻譯那一次不一樣）。
+  `aliasWrites()` 照舊用不分角色的那一次判斷「本來就認得」—— 只有分了角色才認得的，她選過一次就記下來
+- `roomFrom()`：她記的寫法先比 → 床位拿掉 → `休息室N`／`4樓休N` → VIP N；服務資源整格也當房間比一次（點滴那一列）
+- `resolveItem()`：**n返 與不算次數的課在挑額度之前分流**（`isNth`／`nth`／`uncountedCourseId`）；不算次數的課身上還有那門課的額度就照舊扣。
+  照片上的品項優先，挑額度時 有剩 → 品項一樣 → 時長一樣 一層一層收窄（`obviousEntitlement()`）。照片上的分鐘放 `minutes`，`picksOf()` 帶給 `slotFromPicks()`
+- n返 那一列勾著但「還差一步：先選這是哪一次健檢的」—— 這一支的畫面還沒有那一排，08 補
+- 種子：器材 SIS／IN／高能量／ILIB、品項 雪顏亮采、課程 二返／EECP／EECP20／心臟門診／復健門診／身體組成／體適能／營養諮詢。
+  **既有資料庫（staging 也是）在 12 的資料健檢按下去之前沒有這幾格** —— `高能量60`、`EECP20`、`雪顏亮采` 在那之前認不得（`EECP20` 會認成正式課＋20 分）
+- 療程單辨識（`treatmentSheets.js`）有自己的對照表、不用 `courseFrom()`，拍訂購單／文宣也是 —— 這一支沒動那三條
+- `sw.js` v150。新 spec `51-abovee-picks`（N1，08–11 接著加），登記進 `related.js`。相關 E2E 16 支、8.2 分鐘、101 過
+- `CLAUDE.md` 連動表「主檔的 `aboveeNames`」那一列改寫成五種主檔

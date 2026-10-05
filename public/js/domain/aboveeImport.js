@@ -16,7 +16,7 @@
 // 不是她問過的那一句 —— 新段一律 `INITIAL_STATUS`（ADR-0027、0097、0099）。
 
 import { identifyCustomer, normalizeChartNo, normalizeName } from './identify.js';
-import { courseFrom, roomFrom, staffFrom } from './abovee.js';
+import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import { coursesForEntitlement, isActive, isLiveSlot, shortStatus, slotStatus } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
@@ -134,13 +134,21 @@ export function entitlementChoices(customerId, course, ctx) {
     .sort((a, b) => (b.remaining > 0) - (a.remaining > 0));
 }
 
-/** 選得出來的只有一個才預選（有剩的優先、時長一樣的優先）。 */
+/**
+ * 選得出來的只有一個才預選。一層一層收窄，**收窄之後還有剩才算數**：有剩的優先 →
+ * 品項跟照片上一樣的優先（同時買了腸道修復與護肝排毒的客戶，照片上寫哪一款就扣哪一筆）→
+ * 時長跟照片上一樣的優先（`SIS(30)` 與 `SIS(60)` 是兩筆）。
+ */
 function obviousEntitlement(choices, course) {
-  const withLeft = choices.filter((c) => c.remaining > 0);
-  const pool = withLeft.length ? withLeft : choices;
-  if (pool.length === 1) return pool[0].entitlement;
-  const sameLength = pool.filter((c) => course?.durationMin && c.entitlement.durationMin === course.durationMin);
-  return sameLength.length === 1 ? sameLength[0].entitlement : null;
+  let pool = choices;
+  const narrow = (fn) => {
+    const hit = pool.filter(fn);
+    if (hit.length) pool = hit;
+  };
+  narrow((c) => c.remaining > 0);
+  if (course?.ivProductId) narrow((c) => c.entitlement.ivProductId === course.ivProductId);
+  if (course?.durationMin) narrow((c) => c.entitlement.durationMin === course.durationMin);
+  return pool.length === 1 ? pool[0].entitlement : null;
 }
 
 /** 二返：接哪一次健檢。只有一次沒被佔走時才預選（壓表那一頁的 `pickExamIfObvious()`）。 */
@@ -243,6 +251,7 @@ export function resolveItem(item, customerId, ctx) {
   const next = {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
+    isNth: false, nth: null, uncountedCourseId: null, minutes: null,
     // 換一個人重算時，上一位的比對結果不可以留著
     reason: null, appStatus: null, appCancelledHere: false,
   };
@@ -263,7 +272,23 @@ export function resolveItem(item, customerId, ctx) {
   }
 
   const course = next.course;
-  const ent = obviousEntitlement(entitlementChoices(next.customerId, course, ctx), course);
+  // 照片上的分鐘交給 `slotFromPicks()`：只有約的時候選時長的課（二返60）會用到（ADR-0122）
+  next.minutes = course?.durationMin ?? null;
+
+  // **n返 與不算次數的課在挑額度之前就走自己的路**：`三返` 認出來的課程是二返那一門，
+  // 照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
+  let ent = null;
+  if (course?.nth) {
+    next.isNth = true;
+    next.nth = course.nth;
+    // 接哪一次健檢**不替她選**（壓表那一頁同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
+  } else {
+    const choices = entitlementChoices(next.customerId, course, ctx);
+    // 不算次數的課（ADR-0121）：身上還有那門課的額度就照舊扣；沒有剩的才不扣
+    const left = choices.filter((c) => c.remaining > 0);
+    ent = obviousEntitlement(course?.uncounted ? left : choices, course);
+    if (!ent && course?.uncounted && !left.length) next.uncountedCourseId = course.courseId;
+  }
   next.entitlementId = ent?.id ?? null;
   if (ent?.type === 'pool') {
     const options = ent.optionEquipmentIds ?? [];
@@ -272,7 +297,8 @@ export function resolveItem(item, customerId, ctx) {
       : (options.length === 1 ? options[0] : null);
   }
   const courseRow = (ctx.master?.courses ?? []).find((c) => c.id === course?.courseId);
-  if (courseRow?.requiresIvProduct) next.ivProductId = ent?.ivProductId ?? null;
+  // 照片上寫了哪一款就是那一款（營養點滴那一格直接寫品項名）；沒寫才看額度上買的那一款
+  if (courseRow?.requiresIvProduct) next.ivProductId = course?.ivProductId ?? ent?.ivProductId ?? null;
   // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
   const open = examChoices(next.customerId, ent, ctx).filter((c) => c.pickable);
   next.followupForVisitId = open.length === 1 ? open[0].visitId : null;
@@ -298,7 +324,9 @@ export function readAbovee(transcripts, ctx) {
 
   const items = rows.map((row, i) => {
     const who = identifyCustomer({ name: row.name, chartNo: row.chartNo }, ctx.customers);
-    const person = staffFrom(row.resource, staff);
+    // 先認課程、再認人：知道這一列要治療師還是醫師，才不會被另一種人的名字搶走（07）
+    const course = courseFrom(row.course, ctx.master);
+    const person = staffFrom(row.resource, staff, { role: staffRoleFor(course, ctx.master) });
     const base = {
       key: `a${i}`,
       row,
@@ -308,10 +336,12 @@ export function readAbovee(transcripts, ctx) {
       statusText: clean(row.status),
       cancelled: aboveeState(row.status) === 'cancelled',
       who,
-      course: courseFrom(row.course, ctx.master),
+      course,
       roomId: roomFrom(row.room, row.resource, rooms)?.id ?? null,
       therapistId: person?.role === THERAPIST_ROLE ? person.id : null,
       doctorId: person?.role === DOCTOR_ROLE ? person.id : null,
+      // 服務資源那一格有沒有認出人。她選了人時，認不出來的那個寫法才記住（`aliasWrites()`）
+      staffKnown: Boolean(person),
     };
     return resolveItem(base, who.customer?.id ?? null, ctx);
   });
@@ -354,8 +384,9 @@ export function summarizeAbovee(items = []) {
 /** 一列交給 `slotFromPicks()` 的那一份。 */
 export function picksOf(item) {
   return {
-    entitlementId: item.entitlementId,
-    isNth: false,
+    entitlementId: item.isNth ? null : item.entitlementId,
+    isNth: Boolean(item.isNth),
+    uncountedCourseId: item.uncountedCourseId ?? null,
     equipmentId: item.equipmentId,
     ivProductId: item.ivProductId,
     startsAt: item.startsAt,
@@ -363,8 +394,9 @@ export function picksOf(item) {
     bed: null,
     therapistId: item.therapistId,
     doctorId: item.doctorId,
-    nth: null,
+    nth: item.isNth ? (item.nth ?? null) : null,
     followupForVisitId: item.followupForVisitId,
+    minutes: item.minutes ?? null,
     note: null,
   };
 }

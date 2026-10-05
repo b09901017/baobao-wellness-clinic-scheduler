@@ -24,7 +24,7 @@ import {
   aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee,
   resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
-import { aliasWrites, staffFrom } from '../../domain/abovee.js';
+import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import {
@@ -477,10 +477,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       set({
         ...item,
         entitlementId: ent?.id ?? null,
+        // 她選了一筆額度：這一段扣它，不是 n返、也不是不扣次數的那一顆
+        isNth: false, nth: null, uncountedCourseId: null,
         equipmentId: ent?.type === 'pool'
           ? (options.includes(item.course?.equipmentId) ? item.course.equipmentId : (options.length === 1 ? options[0] : null))
           : null,
-        ivProductId: ent?.ivProductId ?? item.ivProductId,
+        // 照片上寫的那一款優先（營養點滴那一格直接寫品項名），沒寫才是額度上買的那一款
+        ivProductId: item.course?.ivProductId ?? ent?.ivProductId ?? item.ivProductId,
         followupForVisitId: exams.length === 1 ? exams[0].visitId : null,
       });
       return;
@@ -492,9 +495,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.matches('[data-abl-allrooms]')) { showAllRooms.add(key); repaintRow(key); return; }
     if (t.dataset.ablTherapist || t.dataset.ablDoctor) {
       const staffId = t.dataset.ablTherapist ?? t.dataset.ablDoctor;
-      // 服務資源那一格認不出來、她選了人 → 存的時候記住那個寫法（12 的 `aliasWrites()`）
-      const unknownText = item.row.resource && !staffFrom(item.row.resource, ctx.master.staff)
-        ? item.row.resource : null;
+      // 服務資源那一格認不出來、她選了人 → 存的時候記住那個寫法（12 的 `aliasWrites()`）。
+      // 認不認得照翻譯那一次（`readAbovee()` 分了角色）—— 這裡再問一次不分角色的會跟它不一樣
+      const unknownText = item.row.resource && !item.staffKnown ? item.row.resource : null;
       set({
         ...item,
         ...(t.dataset.ablTherapist ? { therapistId: staffId } : { doctorId: staffId }),

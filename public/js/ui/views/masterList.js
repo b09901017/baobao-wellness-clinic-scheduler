@@ -115,6 +115,19 @@ function exceptionRoomOptions(r, all) {
   return opts;
 }
 
+/**
+ * 「Abovee 上的寫法」那一格（`aboveeNames`）。治療師與醫師、診間、器材、營養點滴品項、課程
+ * 共用 —— 拍 Abovee 時那一格的字先比它（`domain/abovee.js`）。頓號分開好幾種。
+ * **不用 `parseList()`**：那一支連空白也切，而 Abovee 上的寫法可以有空白（`SIS 60`）。
+ */
+function aliasField(r, { placeholder, hint }) {
+  return f.text({
+    name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
+    placeholder, hint: `${hint}好幾種用頓號分開；同一種清單裡兩筆不可以同一個寫法。`,
+  });
+}
+const parseAliases = (raw) => [...new Set(String(raw ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean))];
+
 const editors = {
   // 診間。**2026-09-08 床位那一格拿掉了**（她選的：「取消任何床位區分」），
   // 換成簡寫 —— 月曆與日／週那一列印簡寫，這一頁與試算表印全名。
@@ -139,6 +152,11 @@ const editors = {
           + '點滴8 放得下兩位（她 2026-09-16：「目前的確不需要床位，都寫 .8」）'
           + ' —— 填了 2 之後，一對夫妻同時排進去就不會再跳撞期的提醒，而第三位照樣會。',
       }),
+      aliasField(r, {
+        placeholder: '4樓休2',
+        hint: '拍 Abovee 時診間或服務資源那一格怎麼寫這一間。'
+          + '「治療室5」「點滴室10」「休息室3」「點滴室8床A」這幾種本來就認得，不用填。',
+      }),
     ],
     // **`beds` 不在這裡**：舊資料上那一格留著（畫得出既有來訪的「點滴8A」），
     // 但這一頁再也不寫它 —— 寫 `beds: []` 等於她一按儲存就把舊資料清掉，
@@ -149,6 +167,7 @@ const editors = {
       shortName: v.shortName.trim() || null,
       // 空白 → `null`（＝1）。寫 1 進去也可以，兩種在 `roomCapacityOf()` 是同一件事
       capacity: String(v.capacity ?? '').trim() === '' ? null : Number(v.capacity),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
   },
 
@@ -192,7 +211,7 @@ const editors = {
     parse: (v) => ({
       name: v.name.trim(),
       role: v.role,
-      aboveeNames: String(v.aboveeNames ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean),
+      aboveeNames: parseAliases(v.aboveeNames),
       // 改成治療師就清掉 —— 那一塊藏起來了，她看不到的東西不可以留在資料上
       specialties: v.role === DOCTOR_ROLE
         ? [...new Set([...f.splitMulti(v.specialties), ...f.parseList(v.specialtyNew)])]
@@ -241,12 +260,17 @@ const editors = {
         hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
           + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
+      aliasField(r, {
+        placeholder: '高能量',
+        hint: 'Abovee 課程那一格寫這一台的那幾個字（「高能量60」就填「高能量」，結尾的分鐘不用）。',
+      }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
       shortName: v.shortName.trim() || null,
       courseId: v.courseId || null,
       contraindications: f.parseList(v.contraindications),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
     wireForm: ({ form }) => f.wireChips(form),
   },
@@ -337,11 +361,16 @@ const editors = {
         value: r.durationMin ?? '', min: 1, step: 1,
         hint: '空的就跟著「營養點滴」那個課程走。通常是 30 的倍數。',
       }),
+      aliasField(r, {
+        placeholder: '雪顏亮采',
+        hint: 'Abovee 課程那一格寫這一款的字（Abovee 上營養點滴直接寫品項名）。跟上面的名字一樣就不用填。',
+      }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
       shortName: v.shortName.trim() || null,
       durationMin: v.durationMin === '' || v.durationMin == null ? null : Number(v.durationMin),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
   },
 
@@ -395,6 +424,11 @@ const editors = {
         name: 'shortName', label: '別稱', value: r.shortName ?? '', placeholder: 'IL', maxlength: 12,
         hint: '月曆那一格印它，一格只放得下幾個字。留空就印全名。'
           + '跟「設定 → 名稱怎麼寫」改的是同一格。',
+      }),
+      aliasField(r, {
+        placeholder: '心臟門診',
+        hint: 'Abovee 課程那一格寫這門課的字（「二返60」就填「二返」，結尾的分鐘不用；'
+          + '「EECP20」那種數字是名字一部分的照寫）。',
       }),
       // step 是 1 不是 5：`positiveInt()` 只要求大於 0 的整數，欄位不可以比它嚴
       // —— `min:1 step:5` 的合法值是 1、6、11…… 30 存不下去（見 form.js 的 number()）。
@@ -530,6 +564,7 @@ const editors = {
       // 她自己打的字優先；沒打就是那一排丸子。「其他」存成空的（`normalizeGroup()`）
       group: normalizeGroup(v.groupNew) ?? normalizeGroup(v.group),
       shortName: v.shortName.trim() || null,
+      aboveeNames: parseAliases(v.aboveeNames),
       durationMin: v.durationMin,
       // 「30、60」→ [30, 60]。認不出數字的那幾格直接丟掉 ——
       // 存一個 NaN 進去，加購那一排會冒出一顆按不下去的丸子。

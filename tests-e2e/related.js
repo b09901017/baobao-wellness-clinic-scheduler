@@ -401,6 +401,13 @@ export const COVERAGE = {
     'public/js/domain/masterData.js', 'public/js/domain/seed.js', 'public/js/ui/views/schedule.js',
     'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
   ],
+  // 拍 Abovee 代替壓表（2026-10-05，abovee-and-master 的 07–11）：設定頁的 Abovee 寫法、確認層每一列換人與要做什麼
+  '51-abovee-picks': [
+    'public/js/domain/abovee.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/identify.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js',
+    'public/js/domain/seed.js', 'public/js/domain/customers.js', 'public/js/domain/consequences.js',
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/schedule.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

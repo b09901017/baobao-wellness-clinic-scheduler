@@ -447,6 +447,30 @@ export function normalizeAlias(raw) {
 }
 const sameAlias = (a, b) => Boolean(normalizeAlias(a)) && normalizeAlias(a) === normalizeAlias(b);
 
+/** 這一筆主檔記著這個 Abovee 上的寫法嗎（`aboveeNames`，比法同 `normalizeAlias()`）。 */
+export const hasAlias = (record, text) => (record?.aboveeNames ?? []).some((a) => sameAlias(a, text));
+
+/**
+ * 「Abovee 上的寫法」那一格（`aboveeNames`）。治療師與醫師（issue 12）、課程、器材、
+ * 營養點滴品項、診間（2026-10-05，abovee-and-master/07）都有，驗法同一份。
+ * 沒有這一格 = 空的，既有資料一筆都不用搬。
+ *
+ * **同一種主檔裡兩筆不可以同一個寫法**：拍 Abovee 時那個字會直接認成其中一筆，而那一筆是錯的。
+ * 跨種不擋（器材 `ILIB` 與課程 `ILIB` 指的是同一件事）—— 撞到時照 `courseFrom()` 的順序
+ * 品項 → 器材 → 課程，越具體越先。
+ */
+function aliasErrors(r, existing = []) {
+  const aliases = r.aboveeNames ?? [];
+  if (!Array.isArray(aliases)) return ['Abovee 上的寫法格式錯誤'];
+  if (aliases.some(isBlank)) return ['Abovee 上的寫法不可空白'];
+  const errors = [];
+  for (const alias of aliases) {
+    const owner = (existing ?? []).find((e) => e.id !== r.id && !e.deletedAt && hasAlias(e, alias));
+    if (owner) errors.push(`Abovee 上的寫法「${alias}」已經是「${owner.name}」的了`);
+  }
+  return errors;
+}
+
 /** 同一份清單裡不可以有兩個同名的（已刪除的不算）。 */
 function duplicateName(record, existing) {
   const name = String(record.name ?? '').trim();
@@ -468,8 +492,8 @@ const validators = {
    * 擋下來的話她一進設定頁改個名字就存不回去。清掉既有那幾筆是資料健檢
    * 「來訪上還記著床位」那一列的事。
    */
-  rooms(r) {
-    const errors = [...nameVariants(r)];
+  rooms(r, { existing = [] } = {}) {
+    const errors = [...nameVariants(r), ...aliasErrors(r, existing)];
     if (isBlank(r.name)) errors.push('診間名稱不可空白');
     if (!ROOM_TYPES.includes(r.type)) errors.push('請選擇診間類型');
     // 同一個時間裝得下幾個人（ADR-0094）。**沒填就是 1**，所以空白不是錯誤。
@@ -485,18 +509,8 @@ const validators = {
     if (isBlank(r.name)) errors.push('姓名不可空白');
     if (!STAFF_ROLES.includes(r.role)) errors.push('請選擇角色');
 
-    // Abovee 上的寫法（issue 12）。沒有這一格 = 空的，既有資料一筆都不用搬。
-    // **兩位不可以同一個寫法**：拍 Abovee 時那個字會直接認成其中一位，而那一位是錯的
-    const aliases = r.aboveeNames ?? [];
-    if (!Array.isArray(aliases)) errors.push('Abovee 上的寫法格式錯誤');
-    else if (aliases.some(isBlank)) errors.push('Abovee 上的寫法不可空白');
-    else {
-      for (const alias of aliases) {
-        const owner = (existing ?? []).find((e) => e.id !== r.id && !e.deletedAt
-          && (e.aboveeNames ?? []).some((a) => sameAlias(a, alias)));
-        if (owner) errors.push(`Abovee 上的寫法「${alias}」已經是「${owner.name}」的了`);
-      }
-    }
+    // Abovee 上的寫法（issue 12）。**兩位不可以同一個寫法**（`aliasErrors()`）
+    errors.push(...aliasErrors(r, existing));
 
     // 科別（ADR-0120）。沒有這一格 = 空的。**只有醫師有** —— 治療師帶著科別的話，
     // 那個字會出現在課程「指定一科」那一排上，而那一排永遠排不到任何人
@@ -510,8 +524,8 @@ const validators = {
     return errors;
   },
 
-  equipment(r, { courses = [] } = {}) {
-    const errors = [...nameVariants(r)];
+  equipment(r, { courses = [], existing = [] } = {}) {
+    const errors = [...nameVariants(r), ...aliasErrors(r, existing)];
     if (isBlank(r.name)) errors.push('器材名稱不可空白');
     const contra = r.contraindications ?? [];
     if (!Array.isArray(contra)) errors.push('要提醒的狀況格式錯誤');
@@ -570,8 +584,8 @@ const validators = {
    * 跟診間、器材、課程共用 `nameVariants()` —— 上限 12 字同一個理由：
    * 別稱是給窄的地方用的。
    */
-  ivProducts(r) {
-    const errors = [...nameVariants(r)];
+  ivProducts(r, { existing = [] } = {}) {
+    const errors = [...nameVariants(r), ...aliasErrors(r, existing)];
     if (isBlank(r.name)) errors.push('品項名稱不可空白');
     // 時長是**選填**的（ADR-0098）：空的就跟著課程走（一般 120 分）。
     // 填了就要能用 —— 一個存得下去卻算不出結束時間的數字比空的糟。
@@ -586,7 +600,7 @@ const validators = {
   },
 
   courses(r, { existing = [] } = {}) {
-    const errors = [...nameVariants(r)];
+    const errors = [...nameVariants(r), ...aliasErrors(r, existing)];
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
     // 分類（選填，沒填就是「其他」）。上限跟別稱同一個數字：它是清單上的一個小標題
     // 與一顆丸子，不是一段說明。
