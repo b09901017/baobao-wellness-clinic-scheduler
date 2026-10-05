@@ -37,7 +37,8 @@ test('G1 清單先分類：復能底下是復能＋三台器材、ILIB 底下是
     ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢', '其他']);
   // 一組裡面的順序照主檔清單原本那個（文件 id），這一支不管它
   expect((await cardsIn(page, '醫師門診')).sort())
-    .toEqual(['course-cardio', 'course-followup', 'course-rehab']);
+    // 功醫門診、羊膜是 2026-10-05 種子多的兩門（issue 12）
+    .toEqual(['course-amnion', 'course-cardio', 'course-fm', 'course-followup', 'course-rehab']);
   expect(await cardsIn(page, '健檢')).toEqual(['course-checkup']);
   expect(await cardsIn(page, '其他'), '她：物理治療師諮詢先放「其他」').toEqual(['course-pt-consult']);
 
@@ -186,10 +187,12 @@ test('G6 只能排在這幾間改得動，常用診間那一排就地跟著變',
   const only = (id) => page.locator(`input[name="allowedRoomIds"][value="${id}"]`);
   const usual = (id) => page.locator(`input[name="preferredRoomIds"][value="${id}"]`);
 
+  // 治5、治7、治8（治7 2026-10-05 回來了，ADR-0124）
   await expect(only('room-t5')).toBeChecked();
+  await expect(only('room-t7')).toBeChecked();
   await expect(only('room-t8')).toBeChecked();
   await expect(only('room-t2'), '候選是全部還在用的診間').not.toBeChecked();
-  await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(2);
+  await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(3);
 
   // 打到一半的名字不可以被洗掉 —— 那一排是就地換的，不是整張表重畫
   await page.fill('input[name="name"]', 'EECP 改到一半');
@@ -204,7 +207,7 @@ test('G6 只能排在這幾間改得動，常用診間那一排就地跟著變',
 
   // 多開一間治2
   await only('room-t2').check();
-  await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(3);
+  await expect(page.locator('input[name="preferredRoomIds"]')).toHaveCount(4);
   await expect(usual('room-t2')).not.toBeChecked();
 
   await page.fill('input[name="name"]', 'EECP');
@@ -212,8 +215,8 @@ test('G6 只能排在這幾間改得動，常用診間那一排就地跟著變',
   await app.saved();
 
   const course = await app.readDoc('config/app/courses', 'course-eecp');
-  expect([...course.allowedRoomIds].sort()).toEqual(['room-t2', 'room-t5', 'room-t8']);
-  expect([...course.preferredRoomIds].sort(), '常用診間沒有被順手改掉').toEqual(['room-t5', 'room-t8']);
+  expect([...course.allowedRoomIds].sort()).toEqual(['room-t2', 'room-t5', 'room-t7', 'room-t8']);
+  expect([...course.preferredRoomIds].sort(), '常用診間沒有被順手改掉').toEqual(['room-t5', 'room-t7', 'room-t8']);
   await expect(page.locator('[data-course="course-eecp"]')).toContainText('治2');
 });
 
@@ -227,7 +230,7 @@ test('G7 舊資料：沒有分類的課程全部落在「其他」，一門都�
   await app.signIn('/settings/courses');
 
   expect(await heads(page)).toEqual(['其他']);
-  await expect(page.locator('[data-course]')).toHaveCount(13);
+  await expect(page.locator('[data-course]')).toHaveCount(15);
   // 器材與品項照樣掛在它們的課程底下
   await expect(page.locator('[data-course="course-recovery"] .subrow')).toHaveCount(3);
 

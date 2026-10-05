@@ -224,7 +224,7 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與兩門新課建起�
 
   await expect(card('roomList')).toContainText('治7');
   await fix('roomList', '還原');
-  await fix('seedIvProduct', '皮蛇疫苗');
+  await fix('seedIvProduct', '元氣活力');
   await fix('seedCourse', '功醫門診');
   await fix('courseDuration', '20 分');
   await fix('seedBlanks', 'Abovee 上的寫法');
