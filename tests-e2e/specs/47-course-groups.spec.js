@@ -51,8 +51,9 @@ test('G1 清單先分類：復能底下是復能＋三台器材、ILIB 底下是
   // ILIB 那一台指著 ILIB 這門課，所以它在這一組（不是復能）—— 照資料畫
   await expect(page.locator('[data-course="course-iv-laser"] [data-child-id="eq-ilib"]')).toBeVisible();
 
+  // 14 款：Abovee 的 13 款＋她自己的 NAC 愛咳痰（2026-10-05 補齊）
   await expect(page.locator('[data-course="course-iv-drip"] [data-child-type="ivProducts"]'))
-    .toHaveCount(7);
+    .toHaveCount(14);
   // 沒有器材也沒有品項的課程底下什麼都不掛
   await expect(page.locator('[data-course="course-checkup"] .subrow')).toHaveCount(0);
 
