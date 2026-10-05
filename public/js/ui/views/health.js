@@ -473,7 +473,14 @@ const FIX_COPY = {
     all: (n) => `一次補這 ${n} 格`,
     one: (fix) => ({
       title: `把「${fix.label}」的${fix.what}補成「${fix.to}」？`,
-      lines: [fix.why, '只寫這一格，這一筆的其餘欄位一個字都不動', '之後在設定頁改得動'],
+      // 寫了幾格照實講：EECP 那一列有時候連「常用診間」一起寫（`fix.why` 講了是哪一格）
+      lines: [
+        fix.why,
+        Object.keys(fix.changes).length > 1
+          ? '只寫上面講的那兩格，這一筆的其餘欄位一個字都不動'
+          : '只寫這一格，這一筆的其餘欄位一個字都不動',
+        '之後在設定頁改得動',
+      ],
     }),
     many: (fixes) => ({
       title: `把這 ${fixes.length} 格都補上？`,

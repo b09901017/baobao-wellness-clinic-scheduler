@@ -31,6 +31,8 @@ const repoModule = (rel) => import(pathToFileURL(join(REPO, rel)).href);
 const { parseSheet, planForSheet, IV_SHORTHAND } = await repoModule('public/js/domain/legacyImport.js');
 const { SEED } = await repoModule('public/js/domain/seed.js');
 const { toCustomerFields } = await repoModule('public/js/domain/customerMarks.js');
+// 「這門課算不算次數」只有這一支（ADR-0121）—— 這裡再比一次 `uncounted` 就是第二份判斷
+const { isUncounted } = await repoModule('public/js/domain/masterData.js');
 const { idsForPoolKind, POOL_SET_HOME, POOL_SET_ALL } = await repoModule('public/js/domain/entitlements.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
@@ -60,7 +62,7 @@ export const TOKENS = [
   [/復能|賦能/, '復能', null],
   // **體驗課排在正式課前面，而且正式課那一條要排除它。** 第 88 行收的是
   // **全部**命中的 token，`EECP體驗` 同時命中兩條的話那一天會長出兩段。
-  // 2026-09-16 起體驗是一門自己的課程（30 分，正式課 60 分）。
+  // 2026-09-16 起體驗是一門自己的課程（2026-10-05 起 20 分，正式課 60 分；長度讀種子，不寫在這裡）。
   [/EECP\s*體驗/i, 'EECP體驗', null],
   [/EECP(?!\s*體驗)/i, 'EECP', null],
   // `功能醫學` 是照以前「二返正式名稱為功能醫學門診」寫的。她 2026-10-05 說功醫門診跟二返不同 ——
@@ -900,7 +902,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
         // **不算次數的課不用額度**（ADR-0121，功醫門診）：那一段的 `entitlementKey` 是 null（合併檔 v5）。
         // 她身上剛好有一筆那門課的額度就照舊扣那一筆。主檔看不到她的，照種子的認（同這一支其餘的地方）
         const key = a.entitlement ?? entitlementFor(c, a.course);
-        if (!key && seedCourse(a.course)?.uncounted !== true) {
+        if (!key && !isUncounted(seedCourse(a.course))) {
           stale(`${where}：找不到要扣哪一份額度（沒有或不只一份），要加的那一段沒有加`); continue;
         }
         let day = c.days.find((x) => x.date === op.date);

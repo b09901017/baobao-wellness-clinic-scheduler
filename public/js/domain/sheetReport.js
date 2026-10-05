@@ -502,7 +502,7 @@ export function syncBundle({
             // 格式 7：**沒有額度的段**（n返、不算次數的課）的記一句印在這一行的最後面 ——
             // 有額度的印在那一筆額度底下那一格（`slotNoteCells()`），這裡不印第二次。
             // 換行收成「／」：來訪紀錄一段一列，一格塞兩行常常只看得到第一行（`.gs` 的 `renderNotes()`）
-            note: slot.entitlementId ? null : (slotNote(v, slot)?.replace(/\s*\n\s*/g, '／') ?? null),
+            note: slot.entitlementId ? null : (logNote(v, slot)?.replace(/\s*\n\s*/g, '／') ?? null),
           })),
       })).filter((d) => d.items.length),
     };
@@ -573,6 +573,19 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
     if (names.length) out.push({ dateIndex, text: names.join('、') });
   });
   return out;
+}
+
+/**
+ * 沒有額度的那一段，來訪紀錄那一行要印哪一句（格式 7）。
+ *
+ * **舊資料那一句還在整筆身上（`visit.note`）時要小心印兩次**：`slotNoteOf()` 對每一段都退回整筆那一句，
+ * 而同一天只要還有一段**算數而且有額度**的，那一句已經印在那一筆額度底下那一格了（`slotNoteCells()`）——
+ * 那時候這裡只認這一段自己記的。整天都沒有那種段（只有一段功醫門診、或有額度的那一段取消了）才退回整筆那一句，
+ * 不然那一句在整張表上一次都不出現。
+ */
+function logNote(visit, slot) {
+  const printedInGrid = (visit.slots ?? []).some((s) => s.entitlementId && isLiveSlot(s));
+  return printedInGrid ? (String(slot.note ?? '').trim() || null) : slotNote(visit, slot);
 }
 
 /**

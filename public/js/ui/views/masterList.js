@@ -479,7 +479,7 @@ const editors = {
         name: 'allowedRoomIds', label: '只能排在這幾間',
         values: r.allowedRoomIds ?? [],
         options: exceptionRoomOptions(r, all),
-        hint: '例外：勾了就只有這幾間排得進去，蓋過上面的類型（例：EECP 只能治5、治8）。'
+        hint: '例外：勾了就只有這幾間排得進去，蓋過上面的類型（例：EECP 只能治5、治7、治8）。'
           + '一間都不勾就是沒有例外，照上面的類型走。只在「選診間」時有效。',
       }),
       // 包一層是為了**就地換**：上面三排（指派、類型、只能排在這幾間）改了，

@@ -104,6 +104,35 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     });
     assert.equal(b.sheets[0].log[0].items[0].note, '整天那一句');
   });
+
+  // 審查抓到的：`slotNoteOf()` 對每一段都退回整筆那一句。同一天還有一段有額度時，那一句已經印在
+  // 額度底下那一格了 —— 來訪紀錄再印一次就是同一句話出現兩次（判準第二條）。
+  test('舊資料：整筆那一句、同一天有一段有額度 —— 只印在額度那一格，來訪紀錄不印第二次', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+      visitsBy: { c1: [{
+        id: 'v1', date: '2026-09-18', status: 'done', note: '帶報告',
+        slots: [ilib({ note: null }), fm({ note: null, courseName: '三返', followupNth: 3 })],
+      }] },
+      today: '2026-10-05', master: { courses: [FM, { id: 'il', name: 'ILIB' }] },
+    });
+    assert.deepEqual(b.sheets[0].log[0].items.map((i) => i.note), [null, null]);
+    assert.equal(everything(render(b)).split('帶報告').length - 1, 1);
+  });
+
+  test('舊資料：整筆那一句、但有額度的那一段取消了 —— 額度那一格不印，所以來訪紀錄要印', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+      visitsBy: { c1: [{
+        id: 'v1', date: '2026-09-18', status: 'done', note: '帶報告',
+        slots: [ilib({ note: null, status: 'cancelled' }), fm({ note: null })],
+      }] },
+      today: '2026-10-05', master: { courses: [FM, { id: 'il', name: 'ILIB' }] },
+    });
+    assert.equal(everything(render(b)).split('帶報告').length - 1, 1);
+  });
 });
 
 const bundle = (overrides = {}) => ({

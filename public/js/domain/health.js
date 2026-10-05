@@ -1089,7 +1089,7 @@ function withoutId({ id, ...rest }) {
  *
  * 「種子有、她沒有」那幾列比的是 id。但她可以自己在設定頁先建一筆同名的
  * （功醫門診她 2026-10-05 之前就建得起來）—— 那時候再建一筆種子 id 的，主檔上就是
- * 兩筆同名：設定頁本來擋著的那件事（`validate()` 的同名檢查），被一顆按鈕繞過去。
+ * 兩筆同名：設定頁本來擋著的那件事（`validate()` 的同名檢查），被一顆按鈕繞過去。ADR-0125。
  */
 const sameNamed = (rows, name) => (rows ?? [])
   .find((r) => String(r.name ?? '').trim() === String(name ?? '').trim());
@@ -1609,14 +1609,15 @@ function checkSeedBlanks(ctx) {
             && sorted(row.allowedRoomIds) !== sorted(old)) {
           const changes = { allowedRoomIds: row.allowedRoomIds.map(roomIdOf) };
           // 順序那一格也還是舊的才一起改；她自己排過的不動
-          if (JSON.stringify(mine.preferredRoomIds ?? []) === JSON.stringify(old)) {
-            changes.preferredRoomIds = (row.preferredRoomIds ?? []).map(roomIdOf);
-          }
+          const alsoOrder = JSON.stringify(mine.preferredRoomIds ?? []) === JSON.stringify(old);
+          if (alsoOrder) changes.preferredRoomIds = (row.preferredRoomIds ?? []).map(roomIdOf);
           const to = roomNames(row.allowedRoomIds);
           push(type, mine, {
             what: '只能排在這幾間', to, changes,
             detail: `只能排在這幾間：${roomNames(old)} → ${to}（治7 回來了，Abovee 上 EECP 還排在那一間）`,
-            why: '之後排這門課選得到治7（治7 要先在「診間清單」那一列建起來或還原）；已經排出去的來訪不動',
+            why: '之後排這門課選得到治7（治7 要先在「診間清單」那一列建起來或還原）；已經排出去的來訪不動'
+              // 這一列可能寫兩格 —— 確認框要講出來（ADR-0070：只講真的會發生的事）
+              + (alsoOrder ? '。「常用診間」那一排還是舊的那兩間，一起加上治7' : '。「常用診間」你自己排過，不動'),
           });
         }
       }

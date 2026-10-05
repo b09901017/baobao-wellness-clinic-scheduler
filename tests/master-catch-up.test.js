@@ -238,6 +238,8 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
     assert.deepEqual(fix.changes, {
       allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'], preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
     });
+    // 這一列寫兩格 —— 確認框那一句要講出第二格（ADR-0070：只講真的會發生的事）
+    assert.match(fix.why, /常用診間.*一起加上治7/);
   });
 
   test('她自己把 EECP 改成只有治5：不建議加治7', () => {
@@ -249,6 +251,7 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
     const m = master({ courses: patch('course-eecp', (r) => ({ ...r, allowedRoomIds: [...OLD], preferredRoomIds: ['room-t8'] })) });
     const [f] = blanks(m).filter((x) => x.title === 'EECP');
     assert.deepEqual(f.fix.changes, { allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'] });
+    assert.match(f.fix.why, /常用診間.*不動/);
   });
 
   test('她的治7 是自己建的那一間：加的是那一間的 id', () => {

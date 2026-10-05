@@ -899,7 +899,7 @@ export function roomsForCourse(course, rooms) {
  * **這是排序不是限制。** 課程主檔上三個欄位回答三個不同的問題：
  *
  *   `allowedRoomTypes`  這個課程能排在哪一類空間
- *   `allowedRoomIds`    例外：只有這幾間（**硬限制**，例：EECP 只能治5、治8）
+ *   `allowedRoomIds`    例外：只有這幾間（**硬限制**，例：EECP 只能治5、治7、治8）
  *   `preferredRoomIds`  這幾間排最前面（**只是順序**）
  *
  * 三個都留著是刻意的：她之後在設定裡把 EECP 的硬限制放寬時，順序還在。
