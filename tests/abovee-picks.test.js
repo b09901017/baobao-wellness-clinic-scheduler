@@ -178,6 +178,23 @@ describe('找人只有一種比法（nameHas）', () => {
       assert.doesNotMatch(src, /String\(c\.name[^)]*\)\.includes\(q\)/, `${file} 還有一份自己寫的比法`);
     }
   });
+
+  // 她 2026-10-06：「好」—— 剩下的兩個框（壓表牆、客戶清單）也換
+  test('壓表牆與客戶清單的搜尋也呼叫它，不自己比', () => {
+    for (const file of ['schedule.js', 'customers.js']) {
+      const src = readFileSync(new URL(`../public/js/ui/views/${file}`, import.meta.url), 'utf8');
+      assert.match(src, /nameHas\([^)]*view\.search\)/, `${file} 要走 nameHas()`);
+      assert.doesNotMatch(src, /\.includes\(q\)/, `${file} 還有一份自己寫的比法`);
+    }
+  });
+
+  test('客戶清單連電話、LINE 一起比時一格一格問：全形數字找得到電話，兩格不會接在一起', () => {
+    const c = { name: '王小明', phone: '0912-000-111', lineId: 'Line-Demo' };
+    const hit = (q) => [c.name, c.phone, c.lineId].some((v) => nameHas(v, q));
+    assert.equal(hit('０９１２'), true);
+    assert.equal(hit('LINE-demo'), true);
+    assert.equal(hit('明09'), false, '名字的尾巴不跟電話的開頭連在一起');
+  });
 });
 
 describe('存檔前那一道：n返 與不算次數的課講一句（同壓表）', () => {

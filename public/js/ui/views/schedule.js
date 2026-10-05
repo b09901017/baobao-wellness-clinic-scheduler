@@ -67,7 +67,7 @@ import {
   orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, clinicalTerms, ivChoicesFor,
   bookingMinutesOf, THERAPIST_ROLE,
 } from '../../domain/masterData.js';
-import { splitFlags } from '../../domain/customers.js';
+import { splitFlags, nameHas } from '../../domain/customers.js';
 import { isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addDays, shortDate, lastDayOf, monthLabel,
@@ -528,10 +528,12 @@ const FILTERS = [
   { id: 'noask', label: '沒問過時間', match: (r) => r.needsAvailability },
 ];
 
-/** 搜尋只比姓名 —— 她找人的時候腦子裡是名字。 */
+/**
+ * 搜尋只比姓名 —— 她找人的時候腦子裡是名字。
+ * 比法同其他找人的框（`nameHas()`：空白、全形半形、大小寫不算；一個字都沒打就是每一位）。
+ */
 function matchesSearch(row) {
-  const q = view.search.trim();
-  return !q || String(row.customerName ?? '').includes(q);
+  return nameHas(row.customerName, view.search);
 }
 
 /** 現在牆上（與卡片組裡）有哪幾位，照她選的排法排。 */

@@ -52,3 +52,15 @@ Status: done
 - `sw.js` v159
 - **還有兩處同一種寫法，沒有動（她只答應了這兩處）**：壓表牆上的搜尋（`schedule.js` 的 `matchesSearch()`）、
   客戶清單的搜尋（`customers.js` 的 `matches()`：名字＋電話＋LINE＋來源接成一串比）。問她了
+
+## 2026-10-06 補：剩下那兩處也換了
+
+她：「好」。
+
+- `schedule.js` 的 `matchesSearch()` → `nameHas(row.customerName, view.search)`
+- `customers.js` 的 `matches()`：名字、電話、LINE、購買通路**一格一格**問 `nameHas()`。以前是接成一串再 `includes()` ——
+  照那樣換的話，空白去掉之後名字的尾巴會跟電話的開頭連在一起（打「明09」找得到王小明）。
+  **換掉的代價**：一句話跨兩格（「王小明 顧客會」）以前找得到、現在找不到 —— 沒有人這樣找
+- 療程單那一頁上面的搜尋本來就是 `normalizeName()`（同一種比法），沒有動
+- 測試：`tests/abovee-picks.test.js` 多兩支（掃原始碼、一格一格比）；E2E `22` 加一支（壓表牆）、`30` 的「電話還找得到人」多三句（客戶清單）
+- `sw.js` v162；`CLAUDE.md` 連動表「打字找客戶的框」那一列改成六個框

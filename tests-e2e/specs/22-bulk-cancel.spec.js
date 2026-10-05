@@ -387,3 +387,25 @@ test('找人：名字中間有空白、打全形英文，這一頁與日曆「�
   await expect(page.locator('[data-pick]')).toHaveCount(1);
   await expect(page.locator('[data-pick="cust-sp"]')).toBeVisible();
 });
+
+// 壓表牆上的搜尋也是同一種比法（她 2026-10-06：「好」）。以前打的字中間多一個空白就「沒有這個名字」。
+test('找人：壓表牆上的搜尋，中間多打一個空白、打全形也找得到', async ({ app, page }) => {
+  await app.seed([...seed(), customer({ id: 'cust-en', name: '客戶A' }), entitlement('cust-en', {
+    id: 'ent-en', label: 'EECP', courseId: 'course-eecp', totalQty: 10,
+  })]);
+  await app.signIn('/schedule');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  const wall = page.locator('[data-wall]');
+  await expect(wall.locator('[data-pick="cust-b"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-en"]')).toBeVisible();
+
+  await page.locator('[data-search]').fill('王 小明');
+  await expect(wall.locator('[data-pick="cust-b"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-en"]')).toHaveCount(0);
+
+  await page.locator('[data-search]').fill('客戶ａ');
+  await expect(wall.locator('[data-pick="cust-en"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-b"]')).toHaveCount(0);
+});

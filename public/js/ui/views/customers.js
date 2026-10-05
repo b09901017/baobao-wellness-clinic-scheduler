@@ -269,13 +269,10 @@ function byCustomer(visits, today) {
 }
 
 function matches(customer, ctx) {
-  const q = view.search.trim();
-  if (q) {
-    const hay = [customer.name, customer.phone, customer.lineId, customer.source]
-      .map((v) => String(v ?? ''))
-      .join(' ');
-    if (!hay.includes(q)) return false;
-  }
+  // 比法同其他找人的框（`nameHas()`：空白、全形半形、大小寫不算；一個字都沒打就是每一位）。
+  // **一格一格比** —— 接成一串再比的話，空白去掉之後名字的尾巴會跟電話的開頭連在一起
+  const fields = [customer.name, customer.phone, customer.lineId, customer.source];
+  if (!fields.some((v) => rules.nameHas(v, view.search))) return false;
 
   if (view.showInactive) return customer.active === false;
   if (customer.active === false) return false;
