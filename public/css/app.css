@@ -10151,3 +10151,71 @@ body.has-abl {
     transition: none;
   }
 }
+
+/* ---------- 設定 → 課程：先分類再項目（2026-10-05）----------
+   三層：分類的小標題 → 課程那一張卡 → 卡片底下縮排的器材或品項。
+   分類只是一個小標題，不是另一張卡 —— 多一層框，一眼看下去就多一層要讀的東西。 */
+.grouphead {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* 有器材或品項的那一張：標題與「編輯」照舊同一行，底下那幾列自己佔滿一行。 */
+.row--stack {
+  flex-wrap: wrap;
+}
+
+.subrows {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 0 0 var(--space-3);
+  list-style: none;
+  border-left: 2px solid var(--border);
+}
+
+/* 一列就是一顆按鈕（44px）。它是 `<button>`，所以把瀏覽器的預設壓回一列清單的樣子。 */
+.subrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subrows li:first-child .subrow {
+  border-top: 0;
+}
+
+.subrow:active {
+  background: var(--surface-2);
+}
+
+.subrow__name {
+  flex: none;
+  font-weight: 600;
+}
+
+/* 灰字放得下就同一行，放不下就截掉 —— 這一列是入口，細節在點進去那一張 */
+.subrow__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subrow > svg {
+  flex: none;
+  color: var(--text-mute);
+}

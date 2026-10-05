@@ -87,6 +87,10 @@ const FIELD_LABELS = {
   requiresEquipment: '要選器材',
   requiresIvProduct: '要選點滴品項',
   requiresDoctor: '要選醫師',
+  // 課程主檔 2026-10-05 多出來、或本來就改得到卻印英文的那幾格
+  group: '分類',
+  shortName: '別稱',
+  allowedRoomIds: '只能排在這幾間',
   kind: '任務種類',
   dueDate: '死線',
   done: '已完成',

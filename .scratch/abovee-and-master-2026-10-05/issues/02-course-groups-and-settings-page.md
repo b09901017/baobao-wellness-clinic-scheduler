@@ -1,6 +1,6 @@
 # 設定 → 課程：先分類再項目、別稱、例外指定診間改得動
 
-Status: todo
+Status: done
 來源：`../spec.md` 三、第五題
 動工前先讀：`ui/views/masterList.js` 全部（`editors.courses`、`paintList()`、`paintForm()`）、`ui/views/settings.js` 的磁磚、
 `ui/views/naming.js`（別稱現在在那一頁改）、`domain/masterData.js` 的 `validate()`／`roomsForCourse()`／`orderedRoomsForCourse()`、
@@ -74,3 +74,21 @@ Status: todo
 - **這一輪的 `verify` 要維持只跑相關的幾支**：`tests-e2e/related.js` 現在認不得 `public/js/domain/seed.js`（02–12 都會改）→ 退回全跑 24 分鐘。
   這一支先把 `seed.js` 登記到真的會讀種子的那幾支 spec（設定、資料健檢那幾支；照實際 import 查），05 的新檔 `slotOptions.js` 在 05 登記。
   `tests/e2e-related.test.js` 盯著
+
+## 做完時留下的
+
+- 分組只在 `domain/masterData.js`：`COURSE_GROUPS`、`groupOf()`、`normalizeGroup()`、`courseGroupNames()`、`coursesByGroup()`、
+  `courseDefaultsFor()`（`GROUP_DEFAULTS` 不 export；03、04 要接 `systems`／`doctorPick` 就改那一個常數）。「其他」存成 `null`
+- **一組裡面的順序是文件 id**（`repo.list()` 沒有 orderBy，跟其他主檔清單一樣），不是種子寫的順序 —— 醫師門診那一組畫出來是
+  心臟科評估、二返、復健科醫師門診。她要自己排的話是另一件事（要多一格順序）
+- **器材編輯表多了「別稱」**（原本只在 名稱怎麼寫 改得到）：她說每一項都要改得到別稱，而 SIS／IN／高能量在她嘴裡是項目。
+  品項編輯表本來就有「簡寫」
+- 課程編輯表不畫 LINE 名、存檔不碰它（`parse()` 沒有那一格，`config.update()` 是部分更新）—— E2E G5 釘著
+- 「只能排在這幾間」的候選含**已經勾著但停用／刪掉的那一間**（標出來）：不列的話一按儲存那一格被靜默清掉
+- 常用診間那一排是**就地換**的（`[data-preferred]`），她勾過的記在 `wireForm` 的 `wanted` 裡 —— 治8 勾掉再勾回來還是勾著的
+- `tests-e2e/related.js`：`seed.js` 登記在 03、14、16、17、21、23、38、41、47（理由寫在 `COVERAGE` 上面那段註解）。
+  這一支的相關 E2E 是 17 支、7.6 分鐘、128 過
+- `sw.js` v145。新 spec：`47-course-groups`（G1–G7）
+- 順手：這一支分支上 `npm test` 本來是紅的 —— 上一段 commit 的 spec／issue 引用「三返60」「任選60」被真名掃描的
+  「中文黏數字」那一條當成疑似姓名，補進 `NOT_A_NAME`（獨立一個 commit `4e269be`）
+

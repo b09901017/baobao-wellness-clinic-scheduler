@@ -78,6 +78,117 @@ export const ASSIGN_LABELS = {
   none: '都不用',
 };
 
+/**
+ * 課程的分類（2026-10-05）。她的原話：
+ *
+ * > 設定 → 課程 要先分類再項目。
+ * > 分類：復能、ILIB、醫師門診、EECP、運動區、營養點滴
+ * > 5. 健檢自己一組「健檢」。物理治療師諮詢先放「其他」
+ *
+ * **分類只管兩件事**：設定 → 課程 那一頁怎麼分組、新增時帶哪一組預設值
+ * （`courseDefaultsFor()`）。**沒有任何規則讀它** —— 待辦、次數、指派、加購
+ * 一個都不看，所以改分類碰不到任何資料的意思（`tests/course-groups.test.js`
+ * 掃原始碼盯著）。
+ *
+ * **它不是一份新的主檔**：課程身上一格字串（`group`），她打一個新的字就是
+ * 新的一組。不開集合、不動 Rules、不動備份。
+ *
+ * SIS／IN／高能量在她嘴裡是「復能底下的項目」，在 app 裡是**器材**不是課程
+ * （ADR-0075：三選一是一筆額度、共用一份次數）—— 所以「先分類再項目」畫出來是
+ * 分類 → 課程 → 它的器材或品項（`coursesByGroup()`）。
+ */
+export const COURSE_GROUPS = ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢'];
+
+/** 沒有填分類的課程落在這裡。**存的是空的，不是這兩個字** —— 一種東西一種寫法。 */
+export const OTHER_GROUP = '其他';
+
+/** 要存進 `group` 的那個值：去空白；空的與「其他」都是 `null`。 */
+export function normalizeGroup(raw) {
+  const name = String(raw ?? '').trim();
+  return !name || name === OTHER_GROUP ? null : name;
+}
+
+/** 這門課在哪一組。沒有那一格、空白都是「其他」（既有資料一筆都不用搬）。 */
+export const groupOf = (course) => normalizeGroup(course?.group) ?? OTHER_GROUP;
+
+/**
+ * 分類那一排丸子：預設的那幾組 → 她自己打過的（照主檔上第一次出現的順序）→「其他」。
+ *
+ * 她自己打的排在「其他」前面：那是她特地取的名字，而「其他」是沒有名字的那一堆。
+ */
+export function courseGroupNames(courses = []) {
+  const custom = [];
+  for (const c of courses ?? []) {
+    if (!c || c.deletedAt) continue;
+    const g = groupOf(c);
+    if (g !== OTHER_GROUP && !COURSE_GROUPS.includes(g) && !custom.includes(g)) custom.push(g);
+  }
+  return [...COURSE_GROUPS, ...custom, OTHER_GROUP];
+}
+
+/**
+ * 設定 → 課程 那一頁的形狀：分類 → 課程 → 它的器材或品項。
+ *
+ * **照資料畫，不寫死名字**：
+ *
+ * - 哪一台器材列在哪一門課底下看 `equipment.courseId`（ADR-0075）。**不看
+ *   `requiresEquipment`** —— ILIB 這門課不是擇一池，但 ILIB 那一台指著它，
+ *   所以那一台出現在「ILIB」那一組，不是復能
+ * - 品項列在要選品項的課底下（`requiresIvProduct`）
+ *
+ * 沒有課程的那幾組不回（清單上一個空的小標題跟壞掉長得一樣）。停用的照樣列 ——
+ * 跟其他主檔清單同一條：清單上看得到、標「已停用」。
+ *
+ * @returns {{group: string, courses: {course: object, equipment: object[],
+ *            ivProducts: object[]}[]}[]}
+ */
+export function coursesByGroup({ courses = [], equipment = [], ivProducts = [] } = {}) {
+  const alive = (rows) => (rows ?? []).filter((r) => r && !r.deletedAt);
+  const list = alive(courses);
+  const products = alive(ivProducts);
+  return courseGroupNames(list)
+    .map((group) => ({
+      group,
+      courses: list.filter((c) => groupOf(c) === group).map((course) => ({
+        course,
+        equipment: alive(equipment).filter((e) => e.courseId === course.id),
+        ivProducts: course.requiresIvProduct ? products : [],
+      })),
+    }))
+    .filter((g) => g.courses.length);
+}
+
+/**
+ * 每一組新增時帶進表單的預設值。**只在建立那一刻抄一次** —— 之後每一格照樣自己改，
+ * 改分類也不會回頭重套（她改過的不可以被一顆丸子蓋掉）。
+ *
+ * 值照現在種子裡同一組的課程寫：她新增一門「醫師門診」時要的就是跟復健科醫師門診
+ * 一樣的起點。她自己打的新分類沒有預設（不知道那是什麼）。
+ */
+const GROUP_DEFAULTS = Object.freeze({
+  復能: { durationMin: 60, category: 'C', assigns: 'therapist', allowedRoomTypes: [] },
+  ILIB: { durationMin: 60, category: 'C', assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'] },
+  // 門診要的是醫師不是空間（她 2026-09-08）
+  醫師門診: { durationMin: 30, category: 'A', assigns: 'none', allowedRoomTypes: [], requiresDoctor: true },
+  EECP: { durationMin: 60, category: 'C', assigns: 'room', allowedRoomTypes: ['治療室'] },
+  運動區: { durationMin: 30, category: null, assigns: 'none', allowedRoomTypes: [] },
+  營養點滴: { durationMin: 120, category: 'C', assigns: 'room', allowedRoomTypes: ['點滴室'] },
+  // 健檢直接壓在 Examine（B 類）
+  健檢: { durationMin: 120, category: 'B', assigns: 'none', allowedRoomTypes: [] },
+});
+
+/**
+ * 新增一門課、先點了某一組：要蓋到空白表單上的那幾格。
+ *
+ * 回的是**新的一份**（陣列也是），呼叫端改它不會改到常數。
+ *
+ * @param {string|null} group 她點的那一顆；「其他」與空的都存成 `null`
+ */
+export function courseDefaultsFor(group) {
+  const stored = normalizeGroup(group);
+  return { ...structuredClone(GROUP_DEFAULTS[stored] ?? {}), group: stored };
+}
+
 export const MASTER_TYPES = [
   'rooms',
   'staff',
@@ -349,6 +460,12 @@ const validators = {
   courses(r, { existing = [] } = {}) {
     const errors = [...nameVariants(r)];
     if (isBlank(r.name)) errors.push('課程名稱不可空白');
+    // 分類（選填，沒填就是「其他」）。上限跟別稱同一個數字：它是清單上的一個小標題
+    // 與一顆丸子，不是一段說明。
+    if (r.group != null && r.group !== '') {
+      if (typeof r.group !== 'string') errors.push('分類格式錯誤');
+      else if (r.group.trim().length > 12) errors.push('分類最多 12 字 —— 它是清單上的一個小標題');
+    }
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
 

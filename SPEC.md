@@ -414,6 +414,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 // config/courses/{id}
 {
   name, code,
+  group,                 // 分類（字串，選填）。**只管 設定 → 課程 那一頁怎麼分組、新增時帶哪一組
+                         //   預設值，沒有任何規則讀它**。沒填就落在「其他」。預設的順序與
+                         //   分組只寫在 domain/masterData.js（COURSE_GROUPS、coursesByGroup()）
   category,              // 'A' | 'B' | 'C'，決定產生哪些系統任務
   durationMin,
   durationChoices,       // [30, 60]。選填。填了加購那一頁就多一排丸子，
@@ -427,6 +430,7 @@ audit/{eventId}                   // append-only 稽核紀錄
                          //   心臟科評估 → none
   allowedRoomTypes,      // ['治療室'] 之類。assigns==='room' 時的預設可選範圍
   allowedRoomIds,        // 例外覆寫，非空時蓋過 allowedRoomTypes。例：EECP 只能 治5、治8
+                         //   設定 → 課程 →「只能排在這幾間」改得動（2026-10-05 之前只看得到）
   requiresEquipment,     // bool。true 時來訪要選器材（目前只有復能）
   requiresIvProduct,     // bool。true 時來訪要選營養點滴品項（目前只有營養點滴）
   needsRecord,           // bool。true 時**那一場做完之後**會長出一張「寫紀錄」，
@@ -1504,6 +1508,10 @@ audit/{eventId}                   // append-only 稽核紀錄
 **外觀**：跟著系統／淺色／深色。記在這一台裝置的 `localStorage`，不進 Firestore —— 它是「這一台現在想要什麼」，不是資料，兩台本來就該各自設定。深色那一整組值在 `css/tokens.css`，只有一份，靠 `<html data-theme>` 挑，見 `docs/adr/0055-she-can-switch-to-dark-herself.md`。
 
 **使用者明確要求診間與治療師清單要能自行新增修改**，不可寫死在程式碼裡。這一頁全面套用二次確認。
+
+**設定 → 課程 先分類再項目**（2026-10-05）。她的原話：「設定 → 課程 要先分類再項目。分類：復能、ILIB、醫師門診、EECP、運動區、營養點滴」。畫出來是三層：**分類 → 課程 → 它的器材或品項** —— SIS／IN／高能量在她嘴裡是「復能底下的項目」，在資料上是器材（ADR-0075：三選一是一筆額度、共用一份次數，拆成三門課會把次數拆散），所以它們縮排列在復能那一張卡底下，點了開的是原本那一張器材編輯表、存完回到課程這一頁。營養點滴底下列品項，同一個作法。哪一台列在哪一門課底下看 `equipment.courseId`，不寫死名字（ILIB 那一台因此在「ILIB」那一組）。
+
+分類是課程身上的一格字（`group`），**不是一份新的主檔**：她打一個新的字就是新的一組，沒填的落在「其他」。**它只管清單怎麼分組與新增時帶哪一組預設值**（新增 → 先選一組 → 表單帶好那一組常見的設定，只在建立那一刻抄一次）；待辦、次數、指派、加購那一排一個都不讀它。
 
 ### 8.9 客戶自己填時間的表單
 
