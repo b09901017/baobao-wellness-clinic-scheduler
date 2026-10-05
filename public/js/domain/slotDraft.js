@@ -49,7 +49,9 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {{courses: object[], equipment: object[], ivProducts?: object[],
  *          entitlements: object[], visits: object[]}} ctx 主檔，與這位客戶的額度、來訪
  * @returns {{slot: object|null, errors: string[], course: object|null, assigns: string|null}}
- *   `assigns` 是 `assignsFor()` 的答案：擇一池還沒選器材時是 null（兩種都不挑）
+ *   `assigns` 是 `assignsFor()` 的答案：擇一池還沒選器材時是 null（兩種都不挑）。
+ *   **課程推得出來、卡在後面那幾道時，`course` 與 `assigns` 照樣交回去**（`slot` 是 null）——
+ *   拍 Abovee 那一層還沒選齊（還沒選接哪一次健檢）時，要靠它畫接下來那幾排（醫師、第幾返）
  */
 export function slotFromPicks(picks, ctx) {
   const {
@@ -88,13 +90,14 @@ export function slotFromPicks(picks, ctx) {
   }
 
   if (!course) return fail('先選要做什麼');
-  if (!isValidTime(startsAt)) return fail('先選幾點開始');
-  if (isNth && !nth) return fail('先選第幾返');
+  const assigns = assignsFor(entitlement, course, equipmentId);
+  const stop = (error) => ({ slot: null, errors: [error], course, assigns });
+  if (!isValidTime(startsAt)) return stop('先選幾點開始');
+  if (isNth && !nth) return stop('先選第幾返');
   if (isNth && !followupForVisitId) {
-    return fail('先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印');
+    return stop('先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印');
   }
 
-  const assigns = assignsFor(entitlement, course, equipmentId);
   const ivProduct = course.requiresIvProduct ? (ivProducts.find((p) => p.id === ivProductId) ?? null) : null;
 
   const slot = {

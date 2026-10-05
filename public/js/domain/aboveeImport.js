@@ -23,6 +23,8 @@ import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE } from './masterData.js';
 import { markInQueue } from './scheduling.js';
+import { NTH_PICK, uncountedCourseIdOf, uncountedPick } from './slotOptions.js';
+import { MIN_NTH } from './nthFollowup.js';
 import { isValidDate } from './dates.js';
 
 /** 照片上的欄名 → 列上的欄位。只有這九欄（`ABOVEE_COLUMNS`）。 */
@@ -275,33 +277,19 @@ export function resolveItem(item, customerId, ctx) {
   // 照片上的分鐘交給 `slotFromPicks()`：只有約的時候選時長的課（二返60）會用到（ADR-0122）
   next.minutes = course?.durationMin ?? null;
 
-  // **n返 與不算次數的課在挑額度之前就走自己的路**：`三返` 認出來的課程是二返那一門，
-  // 照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
-  let ent = null;
-  if (course?.nth) {
-    next.isNth = true;
-    next.nth = course.nth;
-    // 接哪一次健檢**不替她選**（壓表那一頁同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
-  } else {
+  // 「要做什麼」那一排先按好哪一顆。**n返 與不算次數的課在挑額度之前就走自己的路**：`三返` 認出來的
+  // 課程是二返那一門，照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
+  let value = null;
+  if (course?.nth) value = NTH_PICK;
+  else {
     const choices = entitlementChoices(next.customerId, course, ctx);
     // 不算次數的課（ADR-0121）：身上還有那門課的額度就照舊扣；沒有剩的才不扣
     const left = choices.filter((c) => c.remaining > 0);
-    ent = obviousEntitlement(course?.uncounted ? left : choices, course);
-    if (!ent && course?.uncounted && !left.length) next.uncountedCourseId = course.courseId;
+    const ent = obviousEntitlement(course?.uncounted ? left : choices, course);
+    value = ent?.id ?? (course?.uncounted && !left.length ? uncountedPick(course.courseId) : null);
   }
-  next.entitlementId = ent?.id ?? null;
-  if (ent?.type === 'pool') {
-    const options = ent.optionEquipmentIds ?? [];
-    next.equipmentId = course?.equipmentId && options.includes(course.equipmentId)
-      ? course.equipmentId
-      : (options.length === 1 ? options[0] : null);
-  }
-  const courseRow = (ctx.master?.courses ?? []).find((c) => c.id === course?.courseId);
-  // 照片上寫了哪一款就是那一款（營養點滴那一格直接寫品項名）；沒寫才看額度上買的那一款
-  if (courseRow?.requiresIvProduct) next.ivProductId = course?.ivProductId ?? ent?.ivProductId ?? null;
-  // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
-  const open = examChoices(next.customerId, ent, ctx).filter((c) => c.pickable);
-  next.followupForVisitId = open.length === 1 ? open[0].visitId : null;
+  // 按好之後那幾排（器材、品項、接哪一次健檢）跟她自己按那一顆走同一支
+  Object.assign(next, pickOption(next, value, ctx));
 
   // 還沒到的勾、已經過的不勾（ADR-0030 的做法）；已取消的不勾；
   // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）
@@ -309,6 +297,55 @@ export function resolveItem(item, customerId, ctx) {
   const recognized = item.who?.customer?.id === next.customerId;
   const checked = recognized && !next.cancelled && future && !next.appCancelledHere;
   return { ...next, kind: 'new', checked };
+}
+
+/** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
+export function optionValueOf(item) {
+  if (item?.isNth) return NTH_PICK;
+  if (item?.uncountedCourseId) return uncountedPick(item.uncountedCourseId);
+  return item?.entitlementId ?? null;
+}
+
+/**
+ * 「要做什麼」那一排按了一顆（`slotOptionsFor()` 的值：額度 id、`NTH_PICK`、`uncountedPick()`）→
+ * 這一列變成什麼（abovee-and-master/08）。翻譯時先按好的那一顆（`resolveItem()`）也走這一支 ——
+ * 兩條路各寫一份的話，她自己按一次跟翻譯按好的那一列會長得不一樣。
+ *
+ * 接著那幾排照新的那一顆重設，照片上讀得到的先選好：
+ * - 擇一池：照片上那一台在池子裡就選它，池子只有一台就選那一台
+ * - 品項：**照片上寫的那一款優先**（營養點滴那一格直接寫品項名），沒寫才是額度上買的那一款
+ * - 二返：接哪一次健檢只有一次按得下去才選
+ * - n返：返數照照片（`三返` → 3），照片上不是 n返 就預選三返（她 10/5）；
+ *   接哪一次健檢**不替她選**（壓表同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
+ *
+ * 時長（`minutes`）、診間、治療師、醫師是照片上的，不跟著這一排動。
+ */
+export function pickOption(item, value, ctx) {
+  const base = {
+    ...item,
+    entitlementId: null, isNth: false, nth: null, uncountedCourseId: null,
+    equipmentId: null, followupForVisitId: null,
+    ivProductId: item.course?.ivProductId ?? null,
+  };
+  if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
+  const courseId = uncountedCourseIdOf(value);
+  if (courseId) return { ...base, uncountedCourseId: courseId };
+
+  const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
+  if (!ent) return base;
+  const options = ent.optionEquipmentIds ?? [];
+  const wanted = item.course?.equipmentId;
+  // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
+  const exams = examChoices(item.customerId, ent, ctx).filter((x) => x.pickable);
+  return {
+    ...base,
+    entitlementId: ent.id,
+    equipmentId: ent.type === 'pool'
+      ? (wanted && options.includes(wanted) ? wanted : (options.length === 1 ? options[0] : null))
+      : null,
+    ivProductId: item.course?.ivProductId ?? ent.ivProductId ?? null,
+    followupForVisitId: exams.length === 1 ? exams[0].visitId : null,
+  };
 }
 
 /**

@@ -264,12 +264,29 @@ export function aboveeConsequences({
   }
 
   // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
-  const later = ahead.flatMap((g) => {
+  const addedIn = (g) => {
     const count = (g.visit?.slots ?? []).length;
-    const added = Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
-    return registrationsWhenSettled(g.visit, added, tasksByVisit[g.visit?.id] ?? [], coursesById, today);
-  });
+    return Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
+  };
+  const later = ahead.flatMap((g) => registrationsWhenSettled(
+    g.visit, addedIn(g), tasksByVisit[g.visit?.id] ?? [], coursesById, today,
+  ));
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+
+  // n返 與不算次數的課：同壓表那一道（`bookingConsequences()`）—— 一段「不用先加購」的來訪
+  // 看起來像會偷扣一次。**只講這一次新加的段**：併進的那一天原本就有的三返不是這一次的事
+  const nths = new Set();
+  const free = new Set();
+  for (const g of groups) {
+    const added = addedIn(g);
+    for (const i of added) {
+      const label = nthLabel(nthOf(g.visit?.slots?.[i]));
+      if (label) nths.add(label);
+    }
+    for (const name of uncountedNames(g.visit, coursesById, added)) free.add(name);
+  }
+  for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
+  for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);

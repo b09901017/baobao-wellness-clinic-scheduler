@@ -1,6 +1,6 @@
 # 拍 Abovee 確認層：每一列都能換人、選要做什麼
 
-Status: todo
+Status: done
 來源：`../spec.md` 一、第一段 h
 動工前先讀：`ui/components/aboveeConfirm.js` 全部、`domain/aboveeImport.js` 全部、05 的 `slotOptionsFor()`、
 `ui/views/calendar.js` 的 `pickCustomer()`（第 1785 行，日曆新增那個找人的框）、`domain/consequences.js` 的 `aboveeConsequences()`、
@@ -67,3 +67,17 @@ Blocked by: 04、05、06、07、12（功醫門診那一門課；測試可以先�
   **照片上認得的品項優先**；挑額度時**品項對得上的那一筆優先**（同時有腸道修復×5 與護肝排毒×5 的客戶，現在會預選錯的那一筆 —— `entitlementChoices()` 只照有沒有剩排）
 - **換一位的搜尋**從 `ui/components/sheetConfirm.js` 第 211 行一帶抽（它用 `normalizeName()`，比日曆那一份好）；日曆、批次取消、療程單各寫各的 —— 這一支先抽成一支、這一層與療程單用它，日曆與批次取消要不要換寫進 PR 讓她決定（不在這一支硬改）
 - **n返 不自動選接哪一次健檢**：`schedule.js` 第 1450 行一帶寫明的規則（「n返 是她特地要加的一場，替她決定接哪一次健檢會讓她漏看」）。原本第 3 點「預選」那一句只適用二返
+
+## 做完時留下的
+
+- **找人一支**：`domain/customers.js` 的 `searchCustomers(customers, query, { limit })`（比法 `normalizeAlias()`、停用與刪掉的不列、空字串回空的）。
+  拍 Abovee 的「換一位」與療程單的「是誰」用它；**日曆新增的「要幫誰排？」與批次取消還是 `String(name).includes(q)`** —— 沒換，問她
+- **按一顆 → 這一列變成什麼**只有一支：`aboveeImport.js` 的 `pickOption(item, value, ctx)`（值＝`slotOptionsFor()` 那一排上的：額度 id、`NTH_PICK`、`uncountedPick()`），
+  `optionValueOf(item)` 反過來。`resolveItem()` 預選那一顆也走 `pickOption()`。照片上的時長、診間、治療師、醫師不跟著這一排動
+- `slotFromPicks()` **課程推得出來、卡在後面那幾道時照樣交回 `course`／`assigns`**（`slot` 是 null）—— 確認層靠它畫 n返 還沒選健檢時的醫師、排多久那幾排。
+  壓表與來訪編輯器只讀 `slot`／`errors`（查過），不受影響
+- 確認層（`aboveeConfirm.js`）：`whoHtml()`／`whoChips()`（打字只換 `[data-abl-found]`，Esc 在框裡有字時是清字不是收層）、`optionsFor()`、`nthRows()`；
+  新的屬性 `data-abl-find`、`data-abl-query`、`data-abl-opt`、`data-abl-nth`、`data-abl-min`。`entitlementChoices()` 只剩 `resolveItem()` 預選時用（篩照片上的課程）
+- 存檔前那一道：n返「加約的」、不算次數的課「數字一個都不會變」，**只講這一次新加的段**（併進那一天原本就有的三返不講）
+- ADR-0123 寫了 08 那一段（09–11 接在後面）
+- `sw.js` v151。E2E `51-abovee-picks` 加 N2；新的假抄字 `aboveeList-picks.json`

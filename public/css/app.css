@@ -9505,6 +9505,17 @@ body.has-abl {
   text-decoration: none;
 }
 
+/* 「是誰」那一排：認得的那一位只是一行字，旁邊一顆「換一位」 */
+.abl-row__whonow {
+  align-self: center;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.abl-row__find input {
+  width: 100%;
+}
+
 .abl-row__say {
   margin: 0;
   font-size: var(--text-sm);
