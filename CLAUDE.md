@@ -15,19 +15,24 @@
 | `docs/操作手冊.md` | **怎麼操作 app**：核心動線一步一步，給沒看過的人。**一條業務規則都不定義** —— 規則一律用一行連結指回 `SPEC.md` 或 ADR |
 | `docs/常見問題.md` | 「我按了 X 為什麼沒有 Y」。每一條三段：看到什麼、為什麼、怎麼辦 |
 | `docs/邊界測試清單.md` | 上線前要親手點過的極端情境。**刻意沒有 happy path** —— 那些由 `tests-e2e/` 盯著 |
-| `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、種假資料、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md`） |
+| `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、清空 staging、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md` 與 ADR-0118） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 
 寫新文件前先確認這件事還沒被寫過。
 
 ## 上線
 
-`main` 上正式，那裡有真客戶資料。`develop` 上 staging，那裡是假資料。
+`main` 上正式，那裡有真客戶資料。`develop` 上 staging，**那裡是真資料的預演**（ADR-0118，2026-10-05 起）：
+她把合併檔貼進去看，切換那天正式站重新匯一次，staging 上記的不搬。所以：
+
+- **staging 的畫面上有真名**：在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶
+- **會寫入的驗收步驟在本機模擬器走**（`npm run emulators` ＋ `seed:staging` 對模擬器）；staging 給她點
+- `npm run seed:staging` 對 staging 會拒絕（它會把主檔整份蓋回種子）；要重來一次預演用 `npm run staging:reset`
 
 **PR 的基底是 `develop`，不是 `main`。** 直接 PR 進 `main` 等於這段程式沒有在
 staging 上被點過 —— 只有急件這樣做。
 
-第一次設定、部署指令、白名單、種假資料、還原演練都在 `docs/STAGING.md`。
+第一次設定、部署指令、白名單、清空 staging、還原演練都在 `docs/STAGING.md`。
 
 **真實客戶姓名與健康資訊一個字都不能進版控** —— 不只 `docs/`，註解、測試、`.scratch/` 的 issue、`.claude/` 的 skill 全都算。例子一律寫「客戶A」，規則跟名字的字數有關時用假名（王小明）。`tests/no-secrets.test.js` 盯著。
 

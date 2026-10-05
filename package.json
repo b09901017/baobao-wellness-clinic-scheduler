@@ -13,7 +13,8 @@
     "verify": "node --test \"tests/*.test.js\" && node scripts/e2e.mjs --related",
     "emulators": "bash tests-e2e/start-emulators.sh",
     "restore": "node scripts/restore-backup.mjs",
-    "seed:staging": "node scripts/seed-staging.mjs"
+    "seed:staging": "node scripts/seed-staging.mjs",
+    "staging:reset": "node scripts/reset-staging.mjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

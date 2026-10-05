@@ -8,7 +8,7 @@
 | Firebase 專案 | `wellness-clinic-scheduler` | `wellness-clinic-staging` |
 | 網址 | `wellness-clinic-scheduler.web.app` | `wellness-clinic-staging.web.app` |
 | 上線方式 | push 到 `main` | push 到 `develop` |
-| 資料 | 真的客戶 | 合成的假資料 |
+| 資料 | 真的客戶 | **真資料的預演**（2026-10-05 起，ADR-0118）：切換那天不搬 |
 | 畫面上 | 沒有橫幅 | 頂端一條橘色的「測試環境」 |
 
 **一份原始碼跑兩個環境。** 沒有 build 步驟、沒有環境變數 ——
@@ -119,16 +119,44 @@ npx firebase-tools@15 deploy --only hosting --project staging
 
 ---
 
-## 二、放一份假資料進去
+## 二、清空重來（每一次預演之前）
+
+**2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）：她把合併檔貼進去看長什麼樣，
+切換那天正式站重新匯一次，staging 上記的東西不搬。所以 staging 上的資料是**可以整份丟掉重來的** ——
+每拿到一份新的合併檔，就是「清空 → 貼進去 → 看」。
 
 ```bash
-# 需要一把 staging 的服務帳號金鑰，見下面第三節
+# 1. 先看每一類有幾筆（一筆都不刪）
 GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
-  npm run seed:staging -- --project staging --yes
+  npm run staging:reset -- --project staging
+
+# 2. 真的清
+GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
+  npm run staging:reset -- --project staging --yes
+
+# 3. 打開 staging 的 app → 設定 → 舊資料匯入 → 貼合併檔
 ```
 
-- 二十位假客戶（王小明、李小華…），六個月份的來訪、額度、任務、可用性
-- **一個真名都沒有**，全部是合成的
+- 清的範圍跟備份一樣（客戶與額度、可用性、療程單、來訪、任務、壓表清單、隨手記、行事備註、表單、備忘錄），
+  外加 Storage 上療程單的照片
+- **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔
+- 正式專案一律拒絕，沒有放行的旗標
+
+**staging 的畫面上有真名。** 在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶；
+會寫入資料的驗收步驟改在本機模擬器走（第六節）。
+
+### 假資料只種在本機模擬器
+
+`npm run seed:staging` 會把種子主檔**整份寫回去**（不只是加二十位假客戶），所以對著一個
+有真客戶的專案它會拒絕。平常在模擬器上用它：
+
+```bash
+npm run emulators          # 另一個終端機
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  npm run seed:staging -- --project demo-scheduler --yes
+```
+
+- 二十位假客戶（客戶A、客戶B…），六個月份的來訪、額度、任務、可用性，**一個真名都沒有**
 - 可重現（同樣的參數跑出同樣的資料），而且會先清掉上一輪種出來的東西
 - 種完到 `#/settings/health` 跑資料健檢，**應該一條都不報** ——
   這樣之後任何一條 finding 都一定是你改出來的
@@ -337,7 +365,7 @@ PR → CI 跑 npm test 與 npm run test:rules
       ↓
 合進 develop → 自動上 staging
       ↓
-在 staging 上用假資料實際點過那條路
+會寫入的路在本機模擬器點過；staging（真資料的預演）給她點
       ↓
 PR develop → main → 自動上正式
 ```
@@ -353,12 +381,14 @@ PR develop → main → 自動上正式
 
 ```bash
 # 1. app 的設定頁 → 匯出備份（不用勾稽核）
-# 2. 先看它打算做什麼
-node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project staging --dry-run
+# 2. 開模擬器（另一個終端機）
+npm run emulators
 
-# 3. 真的還原到 staging
-GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project staging --wipe --yes
+# 3. 先看它打算做什麼，再真的還原到模擬器
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
 ```
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
@@ -366,13 +396,8 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
 **療程單的照片不在備份裡**（ADR-0101）：還原的是抄出來的列，照片檔要是原本那個專案的
 Storage 裡還在就看得到，不在的那一張卡會寫「照片不在備份裡」—— 那是預期的，有紙本正本。
 
-想先不碰 staging 的話，對著模擬器演練也一樣算數：
-
-```bash
-npm run emulators          # 另一個終端機
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 備份.json --project demo-scheduler --wipe --yes
-```
+**2026-10-05 起演練只對著模擬器**（ADR-0118）：staging 上放的是她的預演資料，
+`--wipe` 會把備份裡沒有的那幾筆標成已刪除 —— 演練一次就把預演弄亂了。
 
 三條寫死的安全規則：
 
@@ -412,6 +437,7 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
       （測試只盯 SHELL 清單，不盯版號）
 - [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
+- [ ] **切換那天**（ADR-0118）：正式站重新匯合併檔；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
 - [ ] 部署後在正式環境跑一次 `#/settings/health`，**findings 數量跟部署前一樣**
       （突然多出一堆＝新版寫壞了東西）
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**

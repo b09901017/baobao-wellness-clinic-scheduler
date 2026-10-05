@@ -14,7 +14,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeCustomer, fakeName, registrationTasks } from '../scripts/seed-staging.mjs';
+import { makeCustomer, fakeName, registrationTasks, refuseReason } from '../scripts/seed-staging.mjs';
 import { RULE_KINDS, dayStatus } from '../public/js/domain/availability.js';
 import { RETIRED_KINDS } from '../public/js/domain/todoFlow.js';
 import { TASK_KINDS } from '../public/js/domain/taskRules.js';
@@ -205,5 +205,41 @@ describe('資料健檢一條都不報', () => {
     const dirty = result.checks.filter((c) => c.findings.length)
       .map((c) => `${c.label}：${c.findings.length} 項（${c.findings[0].title}）`);
     assert.deepEqual(dirty, [], dirty.join(' / '));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// staging 從 2026-10-05 起放的是真資料的預演（ADR-0118）
+// ---------------------------------------------------------------------------
+//
+// 這一支每跑一次會把種子主檔整份 `batch.set` 回去（不只是加客戶）——
+// 她在 staging 上改過的主檔會被蓋回種子的樣子。所以那個專案裡只要有一位
+// 不是種子建的客戶，就不准跑。
+describe('真資料上去之後不准隨手跑（ADR-0118）', () => {
+  test('staging 上全是種子客戶（或空的）：放行', () => {
+    assert.equal(refuseReason({ projectId: 'wellness-clinic-staging', emulator: null, customerIds: [] }), null);
+    assert.equal(refuseReason({
+      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'seed-cus-020'],
+    }), null);
+  });
+
+  test('staging 上有一位不是種子建的客戶：拒絕，而且指到清空工具', () => {
+    const why = refuseReason({
+      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'Xq3kLmNoPq1234567890'],
+    });
+    assert.ok(why, '要拒絕');
+    assert.match(why, /staging:reset/);
+    assert.match(why, /主檔/);
+  });
+
+  test('模擬器不擋（那是本機自己的資料）', () => {
+    assert.equal(refuseReason({
+      projectId: 'demo-scheduler', emulator: '127.0.0.1:8080', customerIds: ['Xq3kLmNoPq1234567890'],
+    }), null);
+  });
+
+  test('正式專案一律拒絕，連模擬器旗標都救不了', () => {
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-scheduler', emulator: null, customerIds: [] }));
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-scheduler', emulator: '127.0.0.1:8080', customerIds: [] }));
   });
 });
