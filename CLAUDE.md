@@ -27,7 +27,7 @@
 
 - **staging 的畫面上有真名**：在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶
 - **會寫入的驗收步驟在本機模擬器走**（`npm run emulators` ＋ `seed:staging` 對模擬器）；staging 給她點
-- `npm run seed:staging` 對 staging 會拒絕（它會把主檔整份蓋回種子）；要重來一次預演用 `npm run staging:reset`
+- `npm run seed:staging` 只准跑在模擬器上（它會把主檔整份蓋回種子）；要重來一次預演用 `npm run staging:reset`
 
 **PR 的基底是 `develop`，不是 `main`。** 直接 PR 進 `main` 等於這段程式沒有在
 staging 上被點過 —— 只有急件這樣做。

@@ -213,23 +213,30 @@ describe('資料健檢一條都不報', () => {
 // ---------------------------------------------------------------------------
 //
 // 這一支每跑一次會把種子主檔整份 `batch.set` 回去（不只是加客戶）——
-// 她在 staging 上改過的主檔會被蓋回種子的樣子。所以那個專案裡只要有一位
-// 不是種子建的客戶，就不准跑。
-describe('真資料上去之後不准隨手跑（ADR-0118）', () => {
-  test('staging 上全是種子客戶（或空的）：放行', () => {
-    assert.equal(refuseReason({ projectId: 'wellness-clinic-staging', emulator: null, customerIds: [] }), null);
-    assert.equal(refuseReason({
-      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'seed-cus-020'],
-    }), null);
+// 她在 staging 上改過的主檔會被蓋回種子的樣子。所以只准跑在模擬器上。
+describe('只准跑在模擬器上（ADR-0118）', () => {
+  test('staging 清空之後（一位客戶都沒有）也拒絕 —— 清空正是貼合併檔的前一步，那時候蓋掉主檔最糟', () => {
+    const why = refuseReason({ projectId: 'wellness-clinic-staging', emulator: null, customerIds: [] });
+    assert.ok(why, '要拒絕');
+    assert.match(why, /模擬器/);
+    assert.match(why, /主檔/);
   });
 
-  test('staging 上有一位不是種子建的客戶：拒絕，而且指到清空工具', () => {
+  test('staging 上全是種子客戶也拒絕', () => {
+    assert.ok(refuseReason({
+      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'seed-cus-020'],
+    }));
+  });
+
+  test('有真客戶時講出有幾位', () => {
     const why = refuseReason({
       projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'Xq3kLmNoPq1234567890'],
     });
-    assert.ok(why, '要拒絕');
-    assert.match(why, /staging:reset/);
-    assert.match(why, /主檔/);
+    assert.match(why, /1 位/);
+  });
+
+  test('不帶客戶清單也拒絕（連任何東西之前就擋，dry run 也一樣）', () => {
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-staging', emulator: null }));
   });
 
   test('模擬器不擋（那是本機自己的資料）', () => {

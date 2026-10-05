@@ -147,8 +147,8 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
 
 ### 假資料只種在本機模擬器
 
-`npm run seed:staging` 會把種子主檔**整份寫回去**（不只是加二十位假客戶），所以對著一個
-有真客戶的專案它會拒絕。平常在模擬器上用它：
+`npm run seed:staging` 會把種子主檔**整份寫回去**（不只是加二十位假客戶），所以它**只准跑在
+本機模擬器上** —— 對著 staging 一律拒絕（清空之後也一樣：那正是貼合併檔的前一步）：
 
 ```bash
 npm run emulators          # 另一個終端機

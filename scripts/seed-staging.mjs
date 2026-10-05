@@ -3,9 +3,8 @@
 // 在模擬器（以前也在 staging）上長出一份可以拿來點的假資料。
 //
 // **2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）。這一支每跑一次會把
-// 種子主檔整份寫回去，所以那個專案裡只要有一位不是種子建的客戶就拒絕跑
-// （`refuseReason()`）—— 要在 staging 上重來，先 `npm run staging:reset` 清空。
-// 平常拿它在**本機模擬器**上種一份可以亂點的資料。
+// 種子主檔整份寫回去，所以**只准跑在本機模擬器上**（`refuseReason()`）——
+// 要在 staging 上重來一次預演，用 `npm run staging:reset` 清空再貼合併檔。
 //
 // **合成的，不是把正式資料匿名化。** 匿名化那條路有兩個問題：匿名腳本自己會
 // 漏欄位（漏一個就是真名進了另一個資料庫），而且它要先把正式資料倒出來 ——
@@ -73,24 +72,26 @@ const PREFIX = 'seed-cus-';
  * **staging 從 2026-10-05 起放的是真資料的預演**（ADR-0118，她：「`npm run seed:staging`
  * 之後不能隨手跑」）。這一支每跑一次都會把種子主檔整份 `batch.set` 回去 ——
  * 不只是加二十位假客戶，她在 staging 上改過的診間、課程、品項會被蓋回種子的樣子。
- * 所以那個專案裡只要有一位不是種子建的客戶，就不准跑。
  *
- * 模擬器不擋：那是本機自己的資料。正式專案一律拒絕（連模擬器旗標都不救）。
+ * **所以只准跑在模擬器上**（`customerIds` 只拿來講清楚現況）。以前想過「那個專案裡全是
+ * 種子客戶才放行」，但那有一個洞：`staging:reset` 清完之後一位客戶都沒有，守衛就過得去，
+ * 照樣把她的主檔蓋掉 —— 而清空正是貼合併檔的前一步。
  *
- * @param {{projectId: string, emulator: string|null, customerIds: string[]}} o
+ * 正式專案一律拒絕（連模擬器旗標都不救）。
+ *
+ * @param {{projectId: string, emulator: string|null, customerIds?: string[]}} o
  */
 export function refuseReason({ projectId, emulator, customerIds = [] }) {
   if (projectId === PROD_PROJECT) {
     return `拒絕。正式專案（${PROD_PROJECT}）沒有任何理由需要假客戶。`;
   }
   if (emulator) return null;
-  const real = customerIds.filter((id) => !String(id).startsWith(PREFIX));
-  if (!real.length) return null;
+  const real = customerIds.filter((id) => !String(id).startsWith(PREFIX)).length;
   return [
-    `拒絕。這個專案裡有 ${real.length} 位不是種子建的客戶 ——`,
+    `拒絕。這一支只准跑在本機模擬器上（目標：${projectId}${real ? `，裡面有 ${real} 位不是種子建的客戶` : ''}）——`,
     'staging 從 2026-10-05 起放的是真資料的預演（ADR-0118）。',
     '這一支每跑一次都會把種子主檔整份寫回去，她改過的主檔會被蓋掉。',
-    '真的要重種：先 `npm run staging:reset -- --project staging --yes` 清空，再跑一次。',
+    '要一份假資料：npm run emulators，再帶 FIRESTORE_EMULATOR_HOST 跑這一支。',
   ].join('\n');
 }
 
@@ -462,8 +463,10 @@ async function main() {
     console.error('用法：node scripts/seed-staging.mjs --project <staging|專案id> [--yes] [--customers 20]');
     process.exit(2);
   }
-  if (projectId === PROD_PROJECT) {
-    console.error(`\n${refuseReason({ projectId, emulator, customerIds: [] })}\n`);
+  // 只准跑在模擬器上（ADR-0118）。在連任何東西之前就擋，dry run 也一樣
+  const refused = refuseReason({ projectId, emulator });
+  if (refused) {
+    console.error(`\n${refused}\n`);
     process.exit(3);
   }
 
@@ -507,14 +510,6 @@ async function main() {
   initializeApp({ projectId, ...(emulator ? {} : { credential: applicationDefault() }) });
   const db = getFirestore();
 
-  // 寫任何東西之前先看那個專案裡有誰（ADR-0118）。`select()` 只拿 id，不讀內容
-  const existing = await db.collection('customers').select().get();
-  const refused = refuseReason({ projectId, emulator, customerIds: existing.docs.map((d) => d.id) });
-  if (refused) {
-    console.error(`\n${refused}\n`);
-    process.exit(4);
-  }
-
   await db.doc('config/app').set(DEFAULT_SETTINGS, { merge: true });
   const cleared = await clearPrevious(db);
   if (cleared) console.log(`  清掉上一輪種出來的 ${cleared} 筆`);
@@ -523,9 +518,8 @@ async function main() {
   console.log(`
 寫好了。接下來：
 
-  1. 到 staging 的 app 登入一次，畫面會說「這個帳號還沒有權限」並印出你的 uid
-  2. 把那串 uid 加進 staging 專案的 allowedUsers 集合（見 docs/STAGING.md）
-  3. 開 #/settings/health 跑一次資料健檢 —— 這份假資料應該一條都不報
+  1. 打開 http://127.0.0.1:5000 登入
+  2. 開 #/settings/health 跑一次資料健檢 —— 這份假資料應該一條都不報
 `);
 }
 
