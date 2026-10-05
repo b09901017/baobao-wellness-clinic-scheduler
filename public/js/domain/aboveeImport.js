@@ -252,7 +252,7 @@ export function newRowSay(item) {
   if (item.mergeOrphan) return 'Abovee 上勾了合併扣課，照片上找不到另一半 —— 確定是單獨一段再勾。';
   // 10：Abovee 上改了時間、app 還沒改
   if (item.movedFrom) {
-    return `app 上 ${item.movedFrom.startsAt} 有一段${item.movedFrom.name} —— 是改了時間的話去日曆改期；確定是另一段再勾。`;
+    return `app 上 ${item.movedFrom.startsAt} 有一段 ${item.movedFrom.name} —— 是改了時間的話去日曆改期；確定是另一段再勾。`;
   }
   return item.appCancelledHere
     ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'

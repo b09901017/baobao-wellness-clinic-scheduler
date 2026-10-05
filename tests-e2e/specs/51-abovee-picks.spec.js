@@ -252,7 +252,7 @@ test('N5（10、11）搬了時間的不預設打勾、講得出 app 上是幾點
   // a0：Abovee 上 11:00、app 上 10:00 → 新的、沒打勾、要你看、一顆去日曆
   await expect(page.locator('.abl__group--look [data-abl-row="a0"]')).toBeVisible();
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
-  await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上 10:00 有一段SIS(60)');
+  await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上 10:00 有一段 SIS(60)');
   await row(page, 'a0').locator('[data-abl-open]').click();
   await expect(row(page, 'a0').locator('[data-abl-day="2026-09-10"]')).toBeVisible();
 

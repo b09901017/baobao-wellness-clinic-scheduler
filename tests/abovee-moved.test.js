@@ -31,7 +31,7 @@ describe('搬了時間的那一列', () => {
     const [item] = read([r('11:00 - 12:15')], c);
     assert.deepEqual([item.kind, item.checked, needsAttention(item)], ['new', false, true]);
     assert.equal(item.movedFrom.startsAt, '10:00');
-    assert.match(newRowSay(item), /^app 上 10:00 有一段SIS\(60\) —— 是改了時間的話去日曆改期；確定是另一段再勾。$/);
+    assert.match(newRowSay(item), /^app 上 10:00 有一段 SIS\(60\) —— 是改了時間的話去日曆改期；確定是另一段再勾。$/);
     const { groups, problems } = planAbovee([{ ...item, checked: true }], c);
     assert.deepEqual(problems, {});
     assert.deepEqual(groups[0].visit.slots.map((s) => s.startsAt), ['10:00', '11:00']);
