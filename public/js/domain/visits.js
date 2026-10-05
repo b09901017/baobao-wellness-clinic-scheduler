@@ -15,7 +15,7 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+import { roomsForCourse, picksDoctor, isUncounted, DOCTOR_ROLE } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
@@ -1513,9 +1513,13 @@ function visitErrors(visit, {
     //
     // 反過來也要擋：帶著 `followupNth` **又**指了一筆額度，那一段會同時
     // 被算進那筆額度的次數、又被畫成一場 n返。兩種身分只能挑一種。
+    //
+    // **不算次數的課是第二種**（ADR-0121）：課程主檔上勾了「不算次數」，沒有額度也放行。
+    // 它**可以**不用額度，不是**不准**有 —— 有額度的那一段照舊扣、照舊驗（她之後會自己
+    // 勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     if (!slot.entitlementId) {
-      if (!nth) errors.push(`${at}：要選一個額度`);
+      if (!nth && !isUncounted(coursesById[slot.courseId])) errors.push(`${at}：要選一個額度`);
     } else if (nth) {
       errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
     } else if (!ent) {

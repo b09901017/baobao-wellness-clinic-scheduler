@@ -161,6 +161,12 @@ Firestore 沒有便宜的即時聚合，所以會在 entitlement 上維護計數
 
 **做了幾段就扣幾次。** 客人做了兩段、第三段就走是會發生的（2026-08-20 使用者確認），所以「有沒有做」記在**時段**上（`slot.attended`），不是整筆來訪上。
 
+**有兩種段不扣任何次數，因為它們沒有額度**（時段的 `entitlementId` 是 `null`）：
+n返（加約的，`docs/adr/0063`）與**不算次數的課**（課程主檔上的 `uncounted`，例：功醫門診，
+`docs/adr/0121-a-course-can-be-uncounted.md`）。不算次數是「**可以**不用加購就排」，不是「不准有額度」——
+這位客戶身上如果有那門課的額度，選那一筆排的照舊扣。三個入口「這一段可以做什麼」那一排
+只寫在 `domain/slotOptions.js` 的 `slotOptionsFor()`。
+
 **取消掉的那一段把次數還回去**（ADR-0081）：`slotOutcome()` 對它回 `null`，
 跟整筆取消是同一種答案。整筆的狀態仍然只有一個，講的是這次預約走到哪裡；逐段記的是那天實際發生了什麼。收尾的動線在第 8.1 節，規則在 `domain/entitlements.js` 的 `slotOutcome()`，理由見 `docs/adr/0025-what-happened-is-recorded-per-slot.md`。
 
@@ -451,6 +457,9 @@ audit/{eventId}                   // append-only 稽核紀錄
                          // 選得到、其餘看這一格（docs/adr/0058-...）。存檔時跟著 doctorPick 寫
                          // 沒選只提醒不擋，見 docs/adr/0026-...
   frequencyRule,         // 例：'每季一次'，只提示不擋
+  uncounted,             // bool。true ＝**不算次數**：不用加購就排得進去，排了也不扣任何次數
+                         //   （那一段的 entitlementId 是 null）。有額度的那一段照舊扣。
+                         //   加購那一排不列它。目前只有功醫門診。見 docs/adr/0121
   followupCourseId,      // 做完之後還要再約一次的那個課程。目前只有健檢 → 二返。
                          // 設了之後：買 N 次這個課程就自動有 N 次後續課程的額度，
                          // 而且這個課程的來訪標成已完成會長出「約⋯⋯」的待辦。
@@ -645,15 +654,16 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // / doctorId 一律是 null —— 舊表沒有記過那些，見
                               // docs/adr/0011-imported-visits-are-incomplete-on-purpose.md
   slots: [
-    { entitlementId,          // **n返 是 null**：它沒有被買、沒有次數、扣不掉
-                              // （ADR-0063）。其餘每一種時段都一定要有一筆額度。
+    { entitlementId,          // **兩種段是 null**：n返（它沒有被買、沒有次數、扣不掉，ADR-0063）
+                              // 與不算次數的課（課程上的 uncounted，ADR-0121）。
+                              // 其餘每一種時段都一定要有一筆額度。
       courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
       ivProductId,            // 營養點滴品項
       startsAt, endsAt,
       roomId, bed, therapistId,
       doctorId,               // 這次是哪位醫師。picksDoctor() 為真的課程才有
-                              // （A 類一律，其餘看 requiresDoctor）。
+                              // （課程的 doctorPick；沒填的照 ADR-0058 退回，見 ADR-0120）。
                               // 既有的來訪一律是 null，不要猜
       followupForVisitId,     // 這一段接在哪一次健檢後面。二返與 n返 都用它。
                               // **二返是選填**（舊資料一筆都沒有，ADR-0011），

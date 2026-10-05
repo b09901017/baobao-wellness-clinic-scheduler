@@ -1,6 +1,6 @@
 # 不算次數的課（功醫門診）：不用加購就排得進去
 
-Status: todo
+Status: done
 來源：`../spec.md` 五、第三題
 動工前先讀：ADR-0063 與 `domain/nthFollowup.js` 檔頭（n返 是第一種沒有額度的段，判準怎麼寫的）、`domain/visits.js` 的 `validateVisit()` 第 1505–1530 行、
 `domain/slotDraft.js`、`ui/views/schedule.js` 第 1495–1560 行（額度那一排怎麼組、`NTH_PICK`）、`ui/views/visitEditor.js` 的 `blankSlot()`／`readDraft()`／額度那一格（第 498、545、866–921 行）、
@@ -85,3 +85,29 @@ Blocked by: 02、03、04（課程表單、系統、醫師；功醫門診三樣�
   這一支一起修，判準包含 n返（她沒發現的；修的時候順手，PR 裡講）
 - **試算表印不出這種段的記一句**：記一句是逐額度印的（`sheetReport.js` 第 579 行 `slotNoteCells(entitlement, …)`），來訪紀錄（第 473 行）不帶記一句 ——
   功醫門診與現有的 n返 都印不出來。要印得升 `SYNC_FORMAT`、她重貼 `.gs` → 開成 **15**，等她決定；這一支的判準只驗「來訪紀錄那一天有功醫門診」
+
+## 做完時留下的
+
+- **照「審查之後補的」做**：不算次數是「可以不用額度就排」，有額度的照舊扣、照舊驗；方案範本與 `validateEntitlement()` 不擋
+- 判斷：`masterData.js` 的 `isUncounted()`（只認 `true`）、`uncountedCourses()`
+- 新檔 `domain/slotOptions.js`：`slotOptionsFor()`（額度／＋n返／每一門不算次數的課一顆，`includeUsedUp` 給拍 Abovee）、
+  `NTH_PICK`（從壓表與來訪編輯器各一份收成一份）、`uncountedPick()`／`uncountedCourseIdOf()`。壓表的 `courseOptions()` 整支換成它，
+  `nthCourseId()` 跟著拿掉。**08 接拍 Abovee 時用 `slotOptionsFor(…, { includeUsedUp: true })` 取代 `entitlementChoices()`**
+  （順便就有 `followupsLast()` 的順序 —— spec 的 h）
+- `slotFromPicks()` 多收 `uncountedCourseId`：額度排在它前面（兩個都給照額度）；指到一門要算次數的課組不出來
+- 來訪編輯器：額度那一排多不算次數的課（lead「不用加購」）；組那一段走 `readFreeSlot()` → `slotFromPicks()`（g：不在畫面裡重寫）；
+  **沒有額度的客戶新增時第一段預設是它**（`blankSlot()` 的 `freeCourse`、`freeCourseOf()`）—— 以前那種客戶進來一段都沒有
+- 確認框（`consequences.js`）：新增多一句「X不算次數 —— 客戶身上的數字一個都不會變」（只講沒扣額度的新段）；
+  結案只數扣著額度的段（全不扣 →「記成已完成，不扣次數」；混著 →「做了的 N 段裡 M 段扣掉次數」）；
+  取消沒扣額度的 →「這一段會退回去 —— 本來就不扣次數」。**三句對 n返 以前就講錯，一起修了**（她沒發現的）。
+  每一段都扣著額度時三句跟以前一個字不差（測試釘著）
+- 來訪編輯器那一句「這一段取消了 —— 時段退回去了，次數也還回來了」沒扣額度時不講後半
+- 加購那一排（`courseChips()`）不列它；現在選著的那一門留著
+- **查過不用動的**：`counts()`／`reconcile()`、`customerPools()`、`claimedExams()`（二返那門課自己被勾成不算次數、排一段沒額度的也不佔健檢）、
+  資料健檢（一段沒額度的功醫門診沒有任何一項報它）、`slotName()`（讀主檔不讀快照）、`rebookSlot()`、`applyStatus()`、
+  試算表（額度那幾列一格都沒動、來訪紀錄那一天有它）—— 每一條在 `tests/uncounted-courses.test.js` 有一支
+- **沒做、寫進 ADR-0121 的**：記一句印不到試算表（→ 15）、合併檔每一段要額度（→ 13）、補登那一頁沒有這一顆、
+  沒有額度的客戶進不了壓表的佇列（走日曆新增或拍 Abovee）
+- 種子裡還沒有功醫門診（12 才補）；E2E 自己建一門
+- `sw.js` v148（`slotOptions.js` 進 SHELL）。新 spec `49-uncounted-course`（U1–U7）。相關 E2E 31 支、21 分鐘、236 過
+

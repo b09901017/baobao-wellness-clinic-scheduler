@@ -138,6 +138,26 @@ export function doctorChoicesFor(course, staff = []) {
   };
 }
 
+/**
+ * 這門課**不算次數**嗎（2026-10-05，ADR-0121）。她的原話：
+ *
+ * > 五、不算次數的課：功醫門診不扣額度，現在排不進去。
+ * > 3. 這一輪只勾功醫門診。其他的我之後在設定自己勾「不算次數」就好。
+ *
+ * 意思是**不用加購就排得進去，排了也不扣任何次數** —— 不是「不准有額度」：
+ * 她之後會自己勾別的課（例如營養諮詢），而既有客戶身上有那門課的額度、方案範本裡也有它。
+ * 選了那一筆額度排的照舊扣；選「不扣次數」那一顆排的，時段的 `entitlementId` 是 null
+ * （同 n返，ADR-0063）。
+ *
+ * 只認 `true`：存成字串的話 `Boolean('false')` 會判成不算次數，而她明明關掉了。
+ */
+export const isUncounted = (course) => course?.uncounted === true;
+
+/** 主檔裡不算次數、還在用的課。「這一段可以做什麼」那一排上每一門一顆（`slotOptions.js`）。 */
+export function uncountedCourses(courses = []) {
+  return (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false && isUncounted(c));
+}
+
 // 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 
@@ -644,6 +664,12 @@ const validators = {
     // 而她明明勾了。
     if (r.needsRecord !== undefined && typeof r.needsRecord !== 'boolean') {
       errors.push('「做完要不要寫紀錄」只能是是或否');
+    }
+
+    // 不算次數（ADR-0121）。沒有這個欄位就是要算。同上面兩格只擋型別 ——
+    // `isUncounted()` 只認 `true`，存成字串會安靜地被當成要算
+    if (r.uncounted !== undefined && r.uncounted !== null && typeof r.uncounted !== 'boolean') {
+      errors.push('「不算次數」只能是是或否');
     }
 
     // 做完之後要再約一次的那個課程（健檢 → 二返）。指到不存在的課程，

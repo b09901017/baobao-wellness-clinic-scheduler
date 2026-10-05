@@ -362,6 +362,7 @@ const editors = {
       requiresDoctor: false, doctorPick: DOCTOR_NONE,
       needsTreatmentForm: true,
       needsRecord: false,
+      uncounted: false,
       frequencyRule: null,
       followupCourseId: null,
       durationChoices: [],
@@ -371,7 +372,7 @@ const editors = {
     // 她只能一個一個點進去。ADR-0066。
     summary: (r) =>
       `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeSystems(r)}`
-      + `${r.needsRecord ? ' · 要寫紀錄' : ''}`,
+      + `${r.needsRecord ? ' · 要寫紀錄' : ''}${r.uncounted === true ? ' · 不算次數' : ''}`,
     fields: (r, all) => [
       f.text({ name: 'name', label: '課程名稱', value: r.name, placeholder: '復能' }),
       // 分類（2026-10-05）。**只管這一頁怎麼分組** —— 沒有任何規則讀它，
@@ -479,6 +480,13 @@ const editors = {
         hint: '目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
           + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
       }),
+      // 不算次數（ADR-0121）。功醫門診是第一門；她之後自己勾別的。
+      f.toggle({
+        name: 'uncounted', label: '不算次數',
+        value: r.uncounted === true,
+        hint: '不用加購就排得進去；排了也不扣任何次數。'
+          + '已經買了這門課的客戶，選他那一筆額度排的照舊扣。勾了之後加購那一排不再列它。',
+      }),
       // n返 借的就是這一個課程（ADR-0063：它不是額度，時段的 entitlementId
       // 是 null、courseId 指著二返）。所以上面每一個設定都會套用到三返、四返 ——
       // 2026-09-04 她問「設定那邊的課程沒有 n返？還是其實我設定二返就等於 n返？」，
@@ -531,6 +539,7 @@ const editors = {
       requiresDoctor: (v.doctorPick || DOCTOR_NONE) !== DOCTOR_NONE,
       needsTreatmentForm: !!v.needsTreatmentForm,
       needsRecord: !!v.needsRecord,
+      uncounted: !!v.uncounted,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),

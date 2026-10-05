@@ -33,6 +33,7 @@ import {
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
+import { isUncounted } from '../../domain/masterData.js';
 import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
 // **這兩支 2026-09-16 搬進 `domain/entitlements.js`**（規則不是畫面，ADR-0095）。
@@ -119,7 +120,7 @@ export function fields(e, master) {
       label: '買了什麼',
       value: picked(e),
       options: [
-        ...courseChips(master),
+        ...courseChips(master, e.courseId ?? null),
         // 營養品放最後一顆，而且前面隔一條線 —— 它不是課程。一排十幾顆要滑，
         // 滑到底才看到的那一顆如果是另一種東西，得先說一聲。
         { value: PRODUCT_PICK, label: '營養品', lead: '商品' },
@@ -150,11 +151,15 @@ export function fields(e, master) {
  * 推導的另一端。她之後多接一台新器材、指到一個新課程，那個課程也會自己
  * 跟過來 —— 一行程式都不用改。
  */
-function courseChips(master) {
+function courseChips(master, keepId = null) {
   const out = [];
   let pooled = false;
   let poolAt = -1;
   for (const c of master.courses ?? []) {
+    // **不算次數的課不列**（ADR-0121）：它不用加購就排得進去，買一筆不扣次數的東西
+    // 沒有意義。只是不列 —— 額度本身不擋（方案範本、拍訂購單、批次建立照樣建得出來）。
+    // 這張表現在選著的那一門留著：畫面上不可以是「一排都沒選」
+    if (isUncounted(c) && c.id !== keepId) continue;
     if (!c.requiresEquipment) {
       out.push({ value: c.id, label: c.name });
     } else if (!pooled) {

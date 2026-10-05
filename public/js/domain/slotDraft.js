@@ -17,7 +17,7 @@ import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
   sameDayVisitFor, slotMinutes, withExtraSlot,
 } from './visits.js';
-import { picksDoctor } from './masterData.js';
+import { picksDoctor, isUncounted } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 
@@ -31,6 +31,9 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {object} picks
  * @param {string|null} picks.entitlementId 選了哪一筆額度（n返 沒有額度，給 null）
  * @param {boolean} [picks.isNth] 選的是「＋ n返」那一顆
+ * @param {string|null} [picks.uncountedCourseId] 選的是一門不算次數的課的「不扣次數」那一顆
+ *   （ADR-0121）：課程就是它、`entitlementId` 是 null、返數不碰。那門課要真的是不算次數的 ——
+ *   這一條路是唯一不靠額度也不靠健檢就組得出一段的地方，不可以拿來排要算次數的課
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -48,7 +51,8 @@ import { endOf, isValidTime } from './visitTime.js';
  */
 export function slotFromPicks(picks, ctx) {
   const {
-    entitlementId = null, isNth = false, equipmentId = null, ivProductId = null, startsAt = null,
+    entitlementId = null, isNth = false, uncountedCourseId = null,
+    equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null,
   } = picks ?? {};
@@ -74,6 +78,11 @@ export function slotFromPicks(picks, ctx) {
     course = fallback && entitlement.type === 'pool'
       ? (coursesById[courseForEquipment(equipmentId, equipment, fallback.id)] ?? fallback)
       : fallback;
+  } else if (uncountedCourseId) {
+    // 不算次數的課（ADR-0121）：沒有額度，課程就是她按的那一顆。**額度那一條排在前面** ——
+    // 兩個都給了的話照額度（那一段會扣），兩種身分只挑一種
+    const wanted = coursesById[uncountedCourseId] ?? null;
+    course = isUncounted(wanted) && !wanted.deletedAt ? wanted : null;
   }
 
   if (!course) return fail('先選要做什麼');

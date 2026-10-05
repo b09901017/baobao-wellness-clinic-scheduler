@@ -1,0 +1,121 @@
+// 「這一段可以做什麼」只有一支（2026-10-05，issue 05，ADR-0121）。純函式。
+//
+// 壓表「做什麼」那一排、來訪編輯器的額度那一排、拍 Abovee 的額度丸子，問的是同一句話：
+// **這位客戶這一段可以是什麼**。答案有三種：
+//
+//   額度            她買的，排了就扣（`customerPools()`，二返排最後）
+//   ＋ n返          加約的，不扣（ADR-0063，`domain/nthFollowup.js`）
+//   不算次數的課    不用加購就排得進去，排了也不扣（課程主檔上的 `uncounted`，ADR-0121）
+//
+// 2026-10-05 之前這一排是從額度長出來的：沒有額度就沒有那一顆，所以功醫門診
+// （不扣額度）建得起來卻排不進去。n返 是後來塞進去的第一個例外，寫在壓表的畫面裡。
+//
+// **後兩種的時段 `entitlementId` 都是 null**，所以它們在同一排上的值不能是額度的 id ——
+// `NTH_PICK` 與 `uncountedPick()` 給的那兩種字都帶著底線前綴，Firestore 的自動 id
+// （20 個 [A-Za-z0-9] 字元）撞不到。那兩個值只活在畫面上，組時段時換回課程
+// （`slotDraft.js` 的 `slotFromPicks()`）。
+
+import { customerPools } from './scheduling.js';
+import { coursesForEntitlement } from './visits.js';
+import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
+import { uncountedCourses } from './masterData.js';
+
+/** 「＋ n返」那一顆的值。**不是任何一筆額度的 id。** */
+export const NTH_PICK = '__nth__';
+
+const COURSE_PICK = '__course__:';
+
+/** 一門不算次數的課在那一排上的值。 */
+export const uncountedPick = (courseId) => `${COURSE_PICK}${courseId}`;
+
+/** 那一排上的值 → 不算次數的那門課的 id。不是那一種就回 `null`。 */
+export function uncountedCourseIdOf(value) {
+  return typeof value === 'string' && value.startsWith(COURSE_PICK)
+    ? value.slice(COURSE_PICK.length)
+    : null;
+}
+
+/**
+ * 這位客戶這一段可以做什麼。
+ *
+ * 每一顆的形狀一樣，畫面不用分三種畫：
+ *
+ *   entitlementId  那一排上的值（額度 id、`NTH_PICK`、或 `uncountedPick()`）
+ *   label          丸子上的字
+ *   remaining      剩幾次；不扣次數的兩種是 `'—'`（0 看起來像「用完了」）
+ *   course         這一段預設算哪一門課（擇一池挑了器材之後會換，ADR-0075）
+ *   entitlement    那一筆額度；不扣次數的兩種是 `null`
+ *   isNth／isUncounted
+ *
+ * **不算次數的課一定有那一顆** —— 這位客戶身上如果還有那門課的額度，額度那一顆照樣在，
+ * 她選哪一顆就扣不扣（她之後會自己勾營養諮詢，而既有客戶身上有它的額度）。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.entitlements 這位客戶的額度
+ * @param {object[]} [ctx.visits] 這位客戶的來訪（n返 要靠它找做完的健檢）
+ * @param {object[]} ctx.courses
+ * @param {object[]} [ctx.equipment]
+ * @param {object[]} [ctx.pools] 已經算好的那一份（壓表的佇列算過了）；沒給就現算
+ * @param {string|null} [ctx.followupForVisitId] 她已經選了哪一次健檢（n返 借的課程跟著它）
+ * @param {{includeUsedUp?: boolean}} [o] 用完的額度列不列。壓表不列；拍 Abovee 列 ——
+ *   Abovee 上已經約了，那一段是既成事實
+ */
+export function slotOptionsFor(
+  { entitlements = [], visits = [], courses = [], equipment = [], pools = null, followupForVisitId = null },
+  { includeUsedUp = false } = {},
+) {
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  const out = [];
+
+  for (const pool of pools ?? customerPools({ entitlements }).pools) {
+    if (!includeUsedUp && pool.remaining <= 0) continue;
+    const entitlement = entitlements.find((e) => e.id === pool.entitlementId);
+    if (!entitlement) continue;
+    // 四選一會推出兩門課，取第一個當還沒選器材時的預設
+    const course = coursesForEntitlement(entitlement, courses, equipment)[0] ?? null;
+    if (!course) continue;
+    out.push({
+      entitlementId: pool.entitlementId,
+      label: pool.label,
+      remaining: pool.remaining,
+      durationMin: entitlement.durationMin ?? course.durationMin ?? 60,
+      course,
+      entitlement,
+    });
+  }
+
+  // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
+  // 候選連沒做完的也列（asks-2026-09-24/issues/11），所以問的是有沒有**按得下去**的
+  const exams = examChoicesForNth({ entitlements, coursesById, visits });
+  if (exams.some((c) => c.pickable)) {
+    // n返 借那一次健檢配的二返課程。已經選好健檢就用那一次的；還沒選就拿第一個候選的
+    const wanted = followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
+    const exam = visits.find((v) => v.id === wanted) ?? null;
+    const course = coursesById[exam ? courseIdForNth(exam, entitlements, coursesById) : null] ?? null;
+    if (course) {
+      out.push({
+        entitlementId: NTH_PICK,
+        label: '＋ n返',
+        remaining: '—',
+        durationMin: course.durationMin ?? 30,
+        course,
+        entitlement: null,
+        isNth: true,
+      });
+    }
+  }
+
+  for (const course of uncountedCourses(courses)) {
+    out.push({
+      entitlementId: uncountedPick(course.id),
+      label: course.name,
+      remaining: '—',
+      durationMin: course.durationMin ?? 60,
+      course,
+      entitlement: null,
+      isUncounted: true,
+    });
+  }
+
+  return out;
+}

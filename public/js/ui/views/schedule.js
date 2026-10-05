@@ -47,16 +47,17 @@ import {
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
-  validateVisit, isActive, coursesForEntitlement, courseForEquipment,
+  validateVisit, isActive, courseForEquipment,
   picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
   acceptsMoreSlots, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
+import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
 import { bookingConsequences, settledDayLine } from '../../domain/consequences.js';
 import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
-  nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
+  nthLabel, nextNthFor, examChoicesForNth, secondFollowupIds,
   MIN_NTH, MAX_NTH,
 } from '../../domain/nthFollowup.js';
 import * as flagsUi from '../components/flags.js';
@@ -1273,7 +1274,7 @@ function dayPanel(row) {
                         data-ent="${esc(o.entitlementId)}">${esc(o.label)}
                   ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
                         0 看起來像「用完了」，而它根本不是一筆額度 */''}
-                  ${o.isNth ? '<span class="chip__note">不扣次數</span>'
+                  ${o.isNth || o.isUncounted ? '<span class="chip__note">不扣次數</span>'
                             : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`).join('')
             : '<span class="muted">這位客戶身上沒有還有剩的課程了。</span>'}
         </div>
@@ -1491,66 +1492,24 @@ function nthFields(row) {
 }
 
 /**
- * 這位客戶身上還排得動的課程。
+ * 這位客戶這一段可以做什麼：還有剩的額度、「＋ n返」、不算次數的課。
  *
- * 擇一池沒有 courseId，它對應的是「池裡那幾台器材各自屬於的課程」，
- * 所以這裡走 coursesForEntitlement() 而不是自己判斷（ADR-0075）。
- *
- * 四選一會推出兩個課程（復能與 ILIB），這裡取第一個當**還沒選器材時**的預設 ——
+ * 四選一會推出兩個課程（復能與 ILIB），那一顆帶的是第一個，當**還沒選器材時**的預設 ——
  * 她一挑器材就由 `effectiveCourse()` 換掉。
  */
 function courseOptions(row) {
-  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
-  const out = [];
-
-  for (const pool of row.pools ?? []) {
-    if (pool.remaining <= 0) continue;
-    const ent = ents.find((e) => e.id === pool.entitlementId);
-    if (!ent) continue;
-    const course = coursesForEntitlement(ent, ctx.all.courses, ctx.all.equipment)[0] ?? null;
-    if (!course) continue;
-    out.push({
-      entitlementId: pool.entitlementId,
-      label: pool.label,
-      remaining: pool.remaining,
-      durationMin: ent.durationMin ?? course.durationMin ?? 60,
-      course,
-      entitlement: ent,
-    });
-  }
-
-  // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）—— 它沒有被買、
-  // 沒有次數、扣不掉。它排在同一排是因為她在這裡問的是「這一段要做什麼」，
-  // 而那一排就是回答那個問題的地方。
-  //
-  // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
-  // 候選連沒做完的也列（issues/11），所以問的是有沒有**按得下去**的
-  const exams = nthExamChoices(row);
-  if (exams.some((c) => c.pickable)) {
-    const course = ctx.all.courses.find((c) => c.id === nthCourseId(row, exams)) ?? null;
-    if (course) {
-      out.push({
-        entitlementId: NTH_PICK,
-        label: '＋ n返',
-        // 剩餘次數那一格印的是「—」不是 0：0 看起來像「用完了」，
-        // 而 n返 根本沒有次數這件事。
-        remaining: '—',
-        durationMin: course.durationMin ?? 30,
-        course,
-        entitlement: null,
-        isNth: true,
-      });
-    }
-  }
-
-  return out;
+  // **那一排有哪幾顆只寫在 `domain/slotOptions.js`**（ADR-0121）：額度（還有剩的）、
+  // 「＋ n返」、每一門不算次數的課一顆。來訪編輯器與拍 Abovee 問的是同一支。
+  return slotOptionsFor({
+    entitlements: ctx.queueInput.entitlementsBy[row.customerId] ?? [],
+    visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
+    courses: ctx.all.courses,
+    equipment: ctx.all.equipment,
+    // 佇列已經算過一次（`customerPools()`），用同一份 —— 卡片牆與這一排的數字才會一樣
+    pools: row.pools ?? [],
+    followupForVisitId: view.followupForVisitId,
+  });
 }
-
-/**
- * 額度那一排上「n返」那一顆的值。**不是任何一筆額度的 id** ——
- * Firestore 的自動 id 是 20 個 [A-Za-z0-9] 字元，撞不到這兩條底線。
- */
-const NTH_PICK = '__nth__';
 
 /** 這位客戶有哪幾次健檢接得了 n返。 */
 function nthExamChoices(row) {
@@ -1559,21 +1518,6 @@ function nthExamChoices(row) {
     coursesById: Object.fromEntries(ctx.all.courses.map((c) => [c.id, c])),
     visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
   });
-}
-
-/**
- * n返 借的是哪一個課程 —— 那一次健檢配的二返課程（ADR-0022 的同一條連結）。
- *
- * 已經選好健檢就用那一次的；還沒選就拿第一個候選的 —— 幾乎所有客戶身上
- * 的健檢都配到同一個二返課程，而她選完之後這個值會重算。
- */
-function nthCourseId(row, exams) {
-  const visits = ctx.queueInput.visitsBy[row.customerId] ?? [];
-  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
-  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
-  const wanted = view.followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
-  const exam = visits.find((v) => v.id === wanted) ?? null;
-  return exam ? courseIdForNth(exam, ents, coursesById) : null;
 }
 
 /**
@@ -2141,8 +2085,10 @@ async function addSlot() {
   const customerVisitsNow = ctx.queueInput.visitsBy[selected.customerId] ?? [];
   const { slot, errors: early } = slotFromPicks({
     // 額度那一排上沒有這一顆（用完了、n返 沒有健檢可接）就等於沒選
-    entitlementId: picked && !picked.isNth ? picked.entitlementId : null,
+    entitlementId: picked?.entitlement?.id ?? null,
     isNth: Boolean(picked?.isNth),
+    // 不算次數的課：沒有額度，課程就是她按的那一顆（ADR-0121）
+    uncountedCourseId: picked?.isUncounted ? picked.course.id : null,
     // 器材與營養點滴品項存在同一格（`onDeckClick()` 的對照表）
     equipmentId: view.equipmentId ?? null,
     ivProductId: view.equipmentId ?? null,
