@@ -1,6 +1,6 @@
 # 沒有額度的段（n返、功醫門診）的記一句也上試算表
 
-Status: todo（**等她決定**：要升 `SYNC_FORMAT`、她要重貼 `.gs`）
+Status: todo（她 2026-10-05 說要做：「好記上去」—— 升 `SYNC_FORMAT`、她要重貼 `.gs`）
 來源：審查（subagent）查到；她 第一題「試算表也要呈現合併扣課」的同一個精神
 動工前先讀：ADR-0096、`domain/sheetReport.js` 的 `slotNoteCells()`（第 579 行）與 `log`（第 470–500 行）、`sheets/readonly-report.gs`、`CLAUDE.md` 連動表「試算表的 `SYNC_FORMAT`」那一列
 Blocked by: 05
