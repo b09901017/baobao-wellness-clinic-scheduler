@@ -246,17 +246,17 @@ export function bookingConsequences({
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [],
+  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [],
 }) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
   const ahead = groups.filter((g) => !pastDay(g.visit, today));
   const past = groups.length - ahead.length;
 
-  const lines = [
+  const lines = n ? [
     `${people} 位・${groups.length} 天・${n} 段`,
     '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
-  ];
+  ] : [];
   // 合併扣課（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
   const merges = groups.flatMap((g) => g.items ?? []).filter((i) => i.merged);
   if (merges.length) {
@@ -294,10 +294,17 @@ export function aboveeConsequences({
   for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
 
+  // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
+  if (adopts.length) {
+    const fields = new Set(adopts.flatMap((i) => (i.diffs ?? []).map((d) => d.field)));
+    const what = [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
+    lines.push(`改 ${adopts.length} 段的${what}成 Abovee 上的 —— 只動這兩格，時間、狀態、待辦都不變`);
+  }
+
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
-  return { title: `記錄這 ${n} 段？`, lines };
+  return { title: n ? `記錄這 ${n} 段？` : `改這 ${adopts.length} 段？`, lines };
 }
 
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */

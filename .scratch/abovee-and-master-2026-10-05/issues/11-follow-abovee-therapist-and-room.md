@@ -1,6 +1,6 @@
 # 已經記了的那一段：治療師或診間跟 Abovee 不一樣時，按一下改成 Abovee 的
 
-Status: todo
+Status: done
 來源：`../spec.md` 第二題
 動工前先讀：ADR-0056（改得了來訪的只有日曆）、ADR-0085（只改她點的那一段）、ADR-0108（只改治療師、診間、記一句是原地改）、ADR-0116、
 `domain/aboveeImport.js` 的 `crossCheck()`／`resolveItem()`、`ui/components/aboveeConfirm.js` 的 `record()`（一位一天一個 commit、存之前重讀）、
@@ -55,3 +55,17 @@ Abovee 上換了治療師、app 上還是舊的，她看不到。ADR-0116 定的
 - **只按「改成 Abovee 的」時現在什麼都不會存**：`record()` 只寫 `planAbovee()` 組出來的那幾組，而那裡只收新的列（`aboveeImport.js` 第 388 行）；沒有新的列時「記錄」那顆是關著的。
   所以：按著的那幾列也算進「記錄 N 段」、記錄鈕打得開；寫的時候跟那一位那一天的新段**併進同一個「重讀之後重組」的 commit**（`aboveeConfirm.js` 第 573 行一帶）
 - 改診間時**順手清掉 `bed`**（床位 2026-09-08 取消了，舊資料上留著的 A／B 跟新的診間對不上）
+
+## 做完時留下的
+
+- domain（`aboveeImport.js`）：`aboveeDiffs()`（`resolveItem()` 的已經記了那一條路裡算；比哪一種走 `assignsFor()`）、`diffSay()`、`adoptAbovee(visit, items)`。
+  列上多 `diffs`、`adopt`、`locked`，`existing` 多 `slotIndex`／`startsAt`／`courseId`；換人時三格都清
+- **app 上還沒選的不進要你看**（她沒說、我定的）：合併檔匯進來的來訪都沒有治療師與診間（ADR-0011），全排進要你看會把真的不一樣淹掉。
+  那幾列照樣寫出「app 上還沒選、Abovee 是 X」、照樣按得下去
+- 確認層：收起來一行常駐（不一樣的那幾格）、展開 `adoptHtml()`（`data-abl-adopt` 按著／放開）；記錄鈕把按著的算進去；
+  寫的時候跟那一天的新段併在同一個「重讀之後重組」裡（`record()` 照「一位一天」分組，新的段那一筆與要改的那一筆不是同一筆時各存一次）；
+  沒改成的（別的裝置剛改過）講一句、那一列的按鈕收掉
+- 存檔前那一道：「改 N 段的診間成 Abovee 上的 —— 只動這兩格，時間、狀態、待辦都不變」；只有改的時候標題是「改這 N 段？」
+- 改完照樣跑撞期（`plan()` 對按著的那一列跑 `validateVisit()`，只留講那一段的）
+- `CLAUDE.md`「一筆來訪改得動的地方」補了這條窄路、「拍 Abovee 記很多段」那一列補了 08–11（14 不用再補這兩列）
+- `sw.js` v154。E2E 51 的 N5

@@ -9521,6 +9521,15 @@ body.has-abl {
   color: var(--accent);
 }
 
+/* 11：已經記了的那一段跟 Abovee 不一樣的那幾行 */
+.abl-row__diffs {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text);
+}
+
 /* 「是誰」那一排：認得的那一位只是一行字，旁邊一顆「換一位」 */
 .abl-row__whonow {
   align-self: center;

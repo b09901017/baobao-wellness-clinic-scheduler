@@ -18,7 +18,9 @@
 import { identifyCustomer, normalizeChartNo, normalizeName } from './identify.js';
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
-import { coursesForEntitlement, isActive, isLiveSlot, shortStatus, slotStatus } from './visits.js';
+import {
+  assignsFor, coursesForEntitlement, isActive, isLiveSlot, lockedAt, shortStatus, slotStatus,
+} from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias } from './masterData.js';
@@ -282,7 +284,7 @@ export function resolveItem(item, customerId, ctx) {
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
     isNth: false, nth: null, uncountedCourseId: null, minutes: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
-    movedFrom: null,
+    movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
     reason: null, appStatus: null, appCancelledHere: false,
   };
@@ -296,7 +298,9 @@ export function resolveItem(item, customerId, ctx) {
     // 預約狀態也比一次（ADR-0116）。對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
     const verdict = crossCheck(aboveeState(next.statusText), at, same);
     if (verdict) {
-      return { ...next, ...verdict, existing: { visitId: at.visit.id, date: at.visit.date }, checked: false };
+      const out = { ...next, ...verdict, existing: { visitId: at.visit.id, date: at.visit.date }, checked: false };
+      // 11：已經記了的那一段，治療師或診間跟 Abovee 不一樣 → 講出來，她按了才改
+      return verdict.kind === 'recorded' && at.live ? { ...out, ...aboveeDiffs(next, at.visit, same, ctx) } : out;
     }
     // 課程不一樣、但 app 上這個時間有一段取消了：照新的一段走，**不預設打勾**（見 `crossCheck()`）
     next.appCancelledHere = !at.live;
@@ -415,6 +419,89 @@ export function readAbovee(transcripts, ctx) {
   // 照片上有沒有「合併扣課」那一欄（拍兩張時，有一張有就算）
   const hasColumn = (transcripts ?? []).some((t) => (t?.columns ?? []).some((c) => ABOVEE_KEYS[clean(c)] === 'merged'));
   return { pairing, counts: sizes, items: flagMoved(mergeRows(items, ctx, { hasColumn }), ctx) };
+}
+
+// ---------- 治療師、診間跟 Abovee 不一樣（11）----------
+
+/**
+ * 已經記了的那一段：治療師或診間跟 Abovee 不一樣（abovee-and-master/11）。她 10/5：
+ *
+ * > 那一列寫出「app 是 A、Abovee 是 B」，旁邊一顆「改成 Abovee 的」，你按了才改。只改治療師和診間
+ *
+ * 照片上**認得出**的才比 —— 那一格空著或寫法沒人認得，不比（那不是「不一樣」，是「看不出來」）。
+ * 比哪一種照那一段自己要什麼（`assignsFor()`）：復能那一段不比診間、ILIB 那一段不比治療師。
+ * 醫師不比（她只說治療師和診間）；時間不一樣是 10 那一條（去日曆改期）。
+ *
+ * @returns {{diffs?: {field: 'therapistId'|'roomId', app: string|null, abovee: string}[],
+ *            existing?: object, locked?: boolean}} 沒有不一樣就是空物件
+ */
+function aboveeDiffs(item, visit, same, ctx) {
+  const hit = same.find(({ slot }) => isLiveSlot(slot));
+  if (!hit) return {};
+  const { slot, index } = hit;
+  const course = (ctx.master?.courses ?? []).find((c) => c.id === slot.courseId);
+  const ent = liveEnts(ctx, item.customerId).find((e) => e.id === slot.entitlementId) ?? null;
+  const assigns = course ? assignsFor(ent, course, slot.equipmentId) : null;
+  const diffs = [];
+  if (assigns === 'therapist' && item.therapistId && item.therapistId !== slot.therapistId) {
+    diffs.push({ field: 'therapistId', app: slot.therapistId ?? null, abovee: item.therapistId });
+  }
+  if (assigns === 'room' && item.roomId && item.roomId !== slot.roomId) {
+    diffs.push({ field: 'roomId', app: slot.roomId ?? null, abovee: item.roomId });
+  }
+  if (!diffs.length) return {};
+  return {
+    diffs,
+    existing: { visitId: visit.id, date: visit.date, slotIndex: index, startsAt: slot.startsAt, courseId: slot.courseId },
+    // 已完成的鎖著（`lockedAt()` 問那一段）：照樣寫出不一樣，但不給按
+    locked: lockedAt(visit, index),
+  };
+}
+
+/** 「治療師：app 是 A、Abovee 是 B」。名字問主檔；app 上那一格空著就說還沒選。 */
+export function diffSay(diff, { staff = [], rooms = [] } = {}) {
+  const room = diff?.field === 'roomId';
+  const pool = room ? rooms : staff;
+  const name = (id) => (pool ?? []).find((x) => x.id === id)?.name ?? '（已刪除）';
+  const label = room ? '診間' : '治療師';
+  return diff.app
+    ? `${label}：app 是 ${name(diff.app)}、Abovee 是 ${name(diff.abovee)}`
+    : `${label}：app 上還沒選、Abovee 是 ${name(diff.abovee)}`;
+}
+
+/**
+ * 「改成 Abovee 的」：她按著的那幾列，把 app 上那一段的治療師／診間換成 Abovee 上的。
+ *
+ * **只動這兩格**（換診間時順手清掉 `bed` —— 床位 2026-09-08 取消了，舊資料上的 A／B 跟新的診間對不上）；
+ * 狀態、時間、記一句一格都不碰，不取消、不重排、不動任何待辦（ADR-0108 本來就把這兩樣當成原地改）。
+ *
+ * 找那一段：同一天、同一個開始時間、同一個課程、還活著、沒鎖著，**而且那一格還是她看到的那個值** ——
+ * 她在別的裝置上剛改過的話不蓋掉，回在 `missed` 裡讓畫面講一句。純函式，呼叫端拿剛讀回來的那一份來套。
+ *
+ * @returns {{visit: object, missed: object[]}}
+ */
+export function adoptAbovee(visit, items = []) {
+  const slots = [...(visit?.slots ?? [])];
+  const missed = [];
+  for (const item of items ?? []) {
+    const want = item.existing ?? {};
+    const at = visit?.date === want.date
+      ? slots.findIndex((s) => isLiveSlot(s) && s.startsAt === want.startsAt && s.courseId === want.courseId)
+      : -1;
+    const current = slots[at];
+    if (!current || lockedAt({ ...visit, slots }, at)
+      || (item.diffs ?? []).some((d) => (current[d.field] ?? null) !== d.app)) {
+      missed.push(item);
+      continue;
+    }
+    const next = { ...current };
+    for (const d of item.diffs ?? []) {
+      next[d.field] = d.abovee;
+      if (d.field === 'roomId') next.bed = null;
+    }
+    slots[at] = next;
+  }
+  return { visit: { ...visit, slots }, missed };
 }
 
 // ---------- Abovee 改了時間、app 還沒改（10）----------
@@ -573,6 +660,9 @@ export function mergedNotices(item, customer, equipment = []) {
  * 不會排進來喊。
  */
 export const needsAttention = (item) => item?.kind === 'mismatch'
+  // 11：真的不一樣（app 上有值、跟 Abovee 不同）才要你看。app 上還沒選的只是可以補 ——
+  // 合併檔匯進來的來訪都沒有治療師與診間（ADR-0011），全排進來會把真的要看的淹掉
+  || (item?.kind === 'recorded' && (item?.diffs ?? []).some((d) => d.app))
   || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom))
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 

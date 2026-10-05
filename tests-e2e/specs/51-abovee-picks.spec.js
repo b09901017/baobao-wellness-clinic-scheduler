@@ -223,3 +223,65 @@ test('N4（09）按「拆開成兩段」→ 變回兩列，記下去是兩段', 
     ['10:30', 'eq-indiba', null], ['11:00', 'eq-sis', null],
   ]);
 });
+
+// ---------- 10：Abovee 改了時間、app 還沒改；11：治療師、診間跟 Abovee 不一樣 ----------
+
+function compareSeed() {
+  const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null };
+  const s = (over) => ({ ...slot(over), status: over.status });
+  return [
+    ...picksSeed(),
+    entitlement('cust-a', { id: 'a-pool', ...POOL3, doneCount: 1 }),
+    visit({ id: 'v-w10', customerId: 'cust-wang', customerName: '王小明', date: '2026-09-10', status: 'pending_confirm', ...base,
+      slots: [s({ courseId: 'course-recovery', entitlementId: 'w-pool', equipmentId: 'eq-sis', therapistId: 'staff-zn',
+        startsAt: '10:00', endsAt: '11:00', status: 'pending_confirm' })] }),
+    visit({ id: 'v-l13', customerId: 'cust-lee', customerName: '李小華', date: '2026-09-13', status: 'confirmed', ...base,
+      slots: [{ ...s({ courseId: 'course-eecp', entitlementId: 'l-eecp', roomId: 'room-t5', startsAt: '09:00', endsAt: '10:00', status: 'confirmed' }), note: '記一句' }] }),
+    visit({ id: 'v-a14', customerId: 'cust-a', customerName: '客戶A', date: '2026-09-14', status: 'done', ...base,
+      slots: [s({ courseId: 'course-recovery', entitlementId: 'a-pool', equipmentId: 'eq-sis', therapistId: 'staff-tw',
+        startsAt: '10:00', endsAt: '11:00', status: 'done' })] }),
+  ];
+}
+
+test('N5（10、11）搬了時間的不預設打勾、講得出 app 上是幾點；診間不一樣按了才改、只改那一格；已完成的鎖著', async ({ app, page }) => {
+  await app.seed(compareSeed());
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-compare');
+  const tasksBefore = (await app.readAll('tasks')).length;
+
+  // a0：Abovee 上 11:00、app 上 10:00 → 新的、沒打勾、要你看、一顆去日曆
+  await expect(page.locator('.abl__group--look [data-abl-row="a0"]')).toBeVisible();
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上 10:00 有一段SIS(60)');
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await expect(row(page, 'a0').locator('[data-abl-day="2026-09-10"]')).toBeVisible();
+
+  // a1：已經記了、診間不一樣 → 寫出來，按了才算
+  await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('已經記了');
+  await expect(row(page, 'a1').locator('.abl-row__hint')).toContainText('診間：app 是 治5、Abovee 是 治8');
+  await expect(page.locator('[data-abl-save]')).toBeDisabled();
+  await row(page, 'a1').locator('[data-abl-open]').click();
+  await row(page, 'a1').locator('[data-abl-adopt]').click();
+  await expect(row(page, 'a1').locator('[data-abl-adopt]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 1 段');
+
+  // a2：已完成的那一段 → 寫出不一樣，沒有按鈕
+  await row(page, 'a2').locator('[data-abl-open]').click();
+  await expect(row(page, 'a2').locator('.abl-row__diffs')).toContainText('治療師：app 是 騰崴、Abovee 是 欣穎');
+  await expect(row(page, 'a2').locator('[data-abl-adopt]')).toHaveCount(0);
+  await expect(row(page, 'a2')).toContainText('已完成的鎖著');
+
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('改這 1 段？');
+  await expect(app.dialog()).toContainText('改 1 段的診間成 Abovee 上的');
+  await app.ok();
+  await app.saved();
+
+  const lee = await app.readDoc('visits', 'v-l13');
+  expect(lee.slots.map((s) => [s.roomId, s.startsAt, s.status, s.note])).toEqual([['room-t8', '09:00', 'confirmed', '記一句']]);
+  expect(lee.status).toBe('confirmed');
+  expect((await app.readDoc('visits', 'v-a14')).slots[0].therapistId, '已完成的鎖著').toBe('staff-tw');
+  expect((await app.readDoc('visits', 'v-w10')).slots.map((s) => s.startsAt), '搬了時間的沒打勾就不記').toEqual(['10:00']);
+  expect((await app.readAll('visits')).length).toBe(4);
+  expect((await app.readAll('tasks')).length, '改治療師／診間不長也不收任何待辦').toBe(tasksBefore);
+});
