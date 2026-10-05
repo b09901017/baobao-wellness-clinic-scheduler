@@ -65,3 +65,12 @@ Status: todo
 - 課程編輯表改「別稱」→ 名稱怎麼寫 那一頁看得到同一個字（反過來也一樣）？
 - EECP 的「只能排在這幾間」勾掉治8 再勾回：壓表的診間那一排跟著變？
 - 舊資料：沒有 `group` 的課程全部落在「其他」，一門都沒少？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- **「指到它的器材」不限擇一池**：ILIB 那一門課不是 `requiresEquipment`，但 ILIB 那一台器材的 `courseId` 指著它 —— 照 `equipment.courseId` 畫，哪一門課有器材指過來就列在它底下
+- 例外指定診間改了，**常用診間那一排要跟著重畫**（候選來自 `roomsForCourse()`，會跟著變）
+- **稽核會印英文欄位名**：`domain/audit.js` 的 `FIELD_LABELS` 沒有 `group`（現有的課程欄位也大多沒有）—— 這一支補 `group`、`shortName`、`allowedRoomIds`，03–07 各補自己的
+- **這一輪的 `verify` 要維持只跑相關的幾支**：`tests-e2e/related.js` 現在認不得 `public/js/domain/seed.js`（02–12 都會改）→ 退回全跑 24 分鐘。
+  這一支先把 `seed.js` 登記到真的會讀種子的那幾支 spec（設定、資料健檢那幾支；照實際 import 查），05 的新檔 `slotOptions.js` 在 05 登記。
+  `tests/e2e-related.test.js` 盯著

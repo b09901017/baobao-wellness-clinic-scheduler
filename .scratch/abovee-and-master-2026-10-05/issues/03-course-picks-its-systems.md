@@ -70,3 +70,11 @@ SPEC 5.5：「任務規則綁在**類別**上，不逐課程設定。課程只�
 - 一門課只勾 Examine＋耀聖：壓表在 Examine、確認後長耀聖？
 - 三個都不勾、或只勾耀聖：存不下去，講為什麼？
 - `grep -n "\.category" public/js/domain public/js/ui` 只剩 `systemsOf()` 的退回、行事備註的 `category`（那是另一件事）、04 的醫師退回？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- **「課程不存在」要分得出來**：待辦中心「壓表登記」刻意跳過認不得的課（`scheduling.js` 第 649 行 `category === undefined`），取消時刻意猜 Abovee（`taskRules.js` 第 174 行起）。
+  `systemsOf()` 對「找不到這門課」要回得出「不知道」，兩個呼叫端各自照原本的方向處理。判準加第六種：課程主檔裡沒有那一門
+- **擇一池寫死成 C 類**：`scheduling.js` 第 687 行的 `systemCategoryOf()`（pool → `'C'`）—— 改成問那一池推得出的課程的 `systemsOf()`，推不出來才退回 Abovee
+- 漏列：設定首頁 `settings.js` 第 11、96 行一帶也列 `CATEGORY_OPTIONS`
+- 稽核：`FIELD_LABELS` 補 `systems`

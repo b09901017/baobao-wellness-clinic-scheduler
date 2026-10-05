@@ -5,7 +5,7 @@ Status: todo
 動工前先讀：`ui/components/aboveeConfirm.js` 全部、`domain/aboveeImport.js` 全部、05 的 `slotOptionsFor()`、
 `ui/views/calendar.js` 的 `pickCustomer()`（第 1785 行，日曆新增那個找人的框）、`domain/consequences.js` 的 `aboveeConsequences()`、
 ADR-0103、ADR-0104、ADR-0116、`CLAUDE.md` 連動表「拍 Abovee 記很多段」那一列
-Blocked by: 04、05、06、07
+Blocked by: 04、05、06、07、12（功醫門診那一門課；測試可以先用夾具）
 
 ## 她要的
 
@@ -60,3 +60,10 @@ Blocked by: 04、05、06、07
 - `功醫門診` 那一列（沒有任何額度的客戶）：「功醫門診 · 不扣次數」按好，記得進去？
 - 一筆額度已經用完、照片上又約了一次：那一顆照樣按得下去，點開看得到「會超過次數」？
 - 存下去的那一段跟同樣選法在壓表存的那一段，欄位一模一樣（同一支 `slotFromPicks()`）？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- **品項被額度蓋掉**：`resolveItem()` 用額度上的品項蓋掉照片上的（`aboveeImport.js` 第 275 行 `next.ivProductId = ent?.ivProductId`），點額度那一下也一樣（`aboveeConfirm.js` 第 480 行）。
+  **照片上認得的品項優先**；挑額度時**品項對得上的那一筆優先**（同時有腸道修復×5 與護肝排毒×5 的客戶，現在會預選錯的那一筆 —— `entitlementChoices()` 只照有沒有剩排）
+- **換一位的搜尋**從 `ui/components/sheetConfirm.js` 第 211 行一帶抽（它用 `normalizeName()`，比日曆那一份好）；日曆、批次取消、療程單各寫各的 —— 這一支先抽成一支、這一層與療程單用它，日曆與批次取消要不要換寫進 PR 讓她決定（不在這一支硬改）
+- **n返 不自動選接哪一次健檢**：`schedule.js` 第 1450 行一帶寫明的規則（「n返 是她特地要加的一場，替她決定接哪一次健檢會讓她漏看」）。原本第 3 點「預選」那一句只適用二返

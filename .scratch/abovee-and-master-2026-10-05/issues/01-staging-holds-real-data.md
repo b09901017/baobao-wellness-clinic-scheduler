@@ -1,6 +1,6 @@
 # staging 改放真資料（預演）
 
-Status: todo
+Status: done
 來源：`../spec.md`「我 10/5 決定的三件事」、第七題
 分支：`claude/staging-real-data`（獨立一支 PR，`sw.js` v143）
 動工前先讀：`docs/STAGING.md` 全部、`.scratch/PRODUCTION_AUDIT.md` §3.1、§3.2、`scripts/seed-staging.mjs`、
@@ -67,3 +67,9 @@ Status: todo
 - `--project prod` 或 `wellness-clinic-scheduler`：不管帶什麼旗標都拒絕？
 - 清完之後：日曆、待辦、客戶清單、壓表、療程單、表單收件匣全空，**設定裡的主檔一筆都沒少**？
 - 文件裡再也找不到「staging 是假資料」的說法（`grep -rn 假資料` 只剩歷史紀錄與模擬器那幾處）？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- 守衛原本寫「那個專案裡全是種子客戶才放行」：**清空之後一位客戶都沒有，守衛就過得去**，照樣把主檔蓋掉 —— 而清空正是貼合併檔的前一步。
+  改成**不是模擬器一律拒絕**、dry run 也一樣（`cecb5ce`）
+- 做完：PR #137（`b1a2507`、`cecb5ce`）。對 staging 跑過一次只看：客戶 59 位（種子 20、其他 39 是之前測試建的），**還沒清，等她說可以**
