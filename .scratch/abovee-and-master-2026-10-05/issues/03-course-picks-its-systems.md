@@ -1,6 +1,6 @@
 # 課程自己勾壓哪幾個系統（取代四選一的任務類別）
 
-Status: todo
+Status: done
 來源：`../spec.md` 三（「每個課程都要可以自己選：壓表壓哪幾個系統」）
 動工前先讀：`domain/taskRules.js` 第 100–230 行（`CATEGORY_OPTIONS`、`describeCategory()`、`RULES`、`bookingSystemFor()`、
 `bookingSystemsForVisit()`、`tasksForCategory()`、`tasksForVisit()`）與第 560–710 行（`newRegistrations()`、`cancelTasksFor()` 一帶）、
@@ -78,3 +78,26 @@ SPEC 5.5：「任務規則綁在**類別**上，不逐課程設定。課程只�
 - **擇一池寫死成 C 類**：`scheduling.js` 第 687 行的 `systemCategoryOf()`（pool → `'C'`）—— 改成問那一池推得出的課程的 `systemsOf()`，推不出來才退回 Abovee
 - 漏列：設定首頁 `settings.js` 第 11、96 行一帶也列 `CATEGORY_OPTIONS`
 - 稽核：`FIELD_LABELS` 補 `systems`
+
+## 做完時留下的
+
+- 推導只在 `domain/taskRules.js`：`systemsOf()`（找不到課程回 `null`）、`bookingSystemOf()`、`tasksForCourse()`、`describeSystems()`。
+  三個系統的名單 `SYSTEMS`／`BOOKING_SYSTEMS` 住在 `masterData.js`（主檔驗證要認得它；`taskRules.js` 經 `visits.js` 讀那一支，
+  反過來 import 會繞一圈）。`REGISTRATION_KINDS` 現在就是 `SYSTEMS`
+- **類別那兩支（`bookingSystemFor()`、`tasksForCategory()`）還 export 著**，只當退路與「以前的答案」：
+  `tests/course-systems.test.js` 拿它們逐一比新舊，並掃原始碼確認 `public/js` 底下沒有別人在叫、
+  `.category` 只剩名單上那幾支（每一條附理由；`masterData.js` 那一條裡的醫師退回歸 04）
+- `describeCategory()`、`CATEGORY_OPTIONS` 拿掉了（設定頁那一行灰字改由 `describeSystems()` 講：`Abovee 壓，確認後 Examine、耀聖`；
+  確認後沒有東西時只寫 `Abovee 壓`）。設定首頁「任務規則綁在課程的類別上」那一摺也拿掉（`fewer-words` 的額度跟著少一條）
+- 表單：三個勾 `systems`；`category` 用一個 hidden input 原樣帶回去（`null` 寫成 `__null__`，`readForm()` 會轉回來）—— E2E G8 釘著
+- **空的、全是認不得的字的 `systems` 不算勾過**，退回類別（設定頁本來就擋得掉；這是對壞資料的退路）
+- `customersToBook()` 多收 `equipment`（擇一池問 `coursesForEntitlement()` 推出的課程）；`home.js` 的 `loadBookRows()` 多讀一份器材主檔。
+  這個月的來訪裡**課程找不到**的那一段不算壓過（以前比的是 `category === undefined`，一門有文件但沒有 `category` 那一格的課也被跳過 ——
+  現在那種算 Abovee，更接近原意）
+- 種子每一門課加了 `systems`，跟類別推出來的一模一樣（測試逐一比）；`GROUP_DEFAULTS` 也帶
+- ADR-0119、SPEC 5.3／5.5、`docs/課程與待辦對照表.md` 一、二、四節、操作手冊七之五、`CLAUDE.md` 連動表加一列
+- `sw.js` v146。E2E：`47-course-groups` 加 G8（三個勾、舊資料存一次不變、只勾耀聖存不下去）、G9（只勾 Abovee＋耀聖 → 確認後只長耀聖）。
+  相關 E2E 35 支、22 分鐘、275 過（J-B1 第一次紅在 gstatic CDN 連線被重置，單獨重跑過了 —— 網路，不是程式）
+- **她沒問、順手查到的**：`cancelNote()` 與確認框講的系統都跟著新的 `bookAt` 走；改了一門課的勾法之後已經長出來的任務不追溯
+  （下一次那一筆來訪被存時照新規則比對），這跟以前改類別的行為一樣，ADR-0119 寫了
+

@@ -169,10 +169,17 @@ export const SEED = {
   // **`group` 是設定 → 課程 那一頁的分類**（2026-10-05，`masterData.js` 的
   // `COURSE_GROUPS`）。它只管清單怎麼分組，沒有任何規則讀它 —— 底下
   // 「A 類／B 類／C 類」那幾行註解講的是任務類別，跟分類是兩件事。
+  //
+  // **`systems` 是這門課動到哪幾個系統**（ADR-0119）：勾了 Abovee 就是壓在 Abovee，
+  // 其餘勾起來的等客人確認之後長成待辦（推導只在 `taskRules.js` 的 `systemsOf()`）。
+  // 每一門填的都跟它的 `category` 推出來的一模一樣（`tests/course-systems.test.js` 釘著），
+  // 所以這一格在種子上不改變任何行為 —— 它在這裡是為了設定頁打開就是勾好的。
+  // `category` 留著當沒勾過的課程的退路。
   courses: [
     // ---- A 類：三系統＋電話 ----
     {
-      id: 'course-rehab', name: '復健科醫師門診', group: '醫師門診', category: 'A', durationMin: 30,
+      id: 'course-rehab', name: '復健科醫師門診', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
       // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
@@ -183,14 +190,16 @@ export const SEED = {
     },
     {
       // SPEC 第 7 節規則 3：心臟科評估不佔診間
-      id: 'course-cardio', name: '心臟科評估', group: '醫師門診', category: 'A', durationMin: 30,
+      id: 'course-cardio', name: '心臟科評估', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
     },
     {
       // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
       // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
-      id: 'course-followup', name: '二返', group: '醫師門診', category: 'A', durationMin: 30,
+      id: 'course-followup', name: '二返', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
       // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, frequencyRule: null,
@@ -207,7 +216,7 @@ export const SEED = {
     {
       // 健檢做完要再約一次二返聽報告（SPEC 第 7 節規則 8）。配對記在這裡而不是
       // 寫死在程式碼裡：課程是她自己在主檔建的，id 猜不得。見 ADR-0022。
-      id: 'course-checkup', name: '健檢', group: '健檢', category: 'B', durationMin: 120,
+      id: 'course-checkup', name: '健檢', group: '健檢', category: 'B', systems: ['Examine'], durationMin: 120,
       // 需要空間的只有營養點滴、EECP、ILIB 三個（她 2026-09-08）。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
@@ -220,7 +229,8 @@ export const SEED = {
       //
       // 「可選時長」是 2026-09-06 加的：她要買得到 `sis(60)x5` 也買得到
       // `indiba(30)x5`，而那兩個是同一個課程的兩種規格，不是兩個課程。
-      id: 'course-recovery', name: '復能', group: '復能', category: 'C', durationMin: 60,
+      id: 'course-recovery', name: '復能', group: '復能', category: 'C',
+      systems: ['Abovee'], durationMin: 60,
       assigns: 'therapist', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: true, frequencyRule: null, durationChoices: [30, 60],
     },
@@ -238,7 +248,7 @@ export const SEED = {
       //
       // 貼給客人的那一句不能寫 `ILIB` —— 客戶看不懂那三個字母。
       id: 'course-iv-laser', name: 'ILIB', group: 'ILIB', shortName: 'IL', lineName: '靜脈雷射',
-      category: 'C', durationMin: 60,
+      category: 'C', systems: ['Abovee'], durationMin: 60,
       // `ILIB室` 那個類型 2026-09-08 拿掉了（唯一那一間是 ILIB4，它有個 4）。
       // 她給的優先順序是 `.10、治2、治3`，本來就排在點滴室與治療室。
       assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'], allowedRoomIds: [],
@@ -255,7 +265,8 @@ export const SEED = {
       // **2026-09-16 從 30 分改成 60 分。** 她：「體驗30正式課60」。
       // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
       // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
-      id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C', durationMin: 60,
+      id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C',
+      systems: ['Abovee'], durationMin: 60,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
@@ -270,7 +281,8 @@ export const SEED = {
       //（`14:45–15:15  EECP 體驗`）。
       //
       // 機器就那兩間，所以限制與順序跟正式課一模一樣。
-      id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C', durationMin: 30,
+      id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C',
+      systems: ['Abovee'], durationMin: 30,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
@@ -286,31 +298,35 @@ export const SEED = {
       // 60 是暫定值（「這個先保留先當作60分鐘，兩小時的先當作排了兩段」），
       // 而「兩小時排兩段」那一句因此也不成立了 —— 一針 120 分就是一段 120 分。
       // 打 180 分的那一款由品項身上那一格說了算（`slotMinutes()`，ADR-0098）。
-      id: 'course-iv-drip', name: '營養點滴', group: '營養點滴', category: 'C', durationMin: 120,
+      id: 'course-iv-drip', name: '營養點滴', group: '營養點滴', category: 'C',
+      systems: ['Abovee'], durationMin: 120,
       assigns: 'room', allowedRoomTypes: ['點滴室'], allowedRoomIds: [],
       requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,
     },
 
     // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----
     {
-      id: 'course-inbody', name: '身體組成分析', group: '運動區', category: null, durationMin: 20,
+      id: 'course-inbody', name: '身體組成分析', group: '運動區', category: null,
+      systems: ['Abovee'], durationMin: 20,
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
-      id: 'course-fitness', name: '體適能檢查分析', group: '運動區', category: null, durationMin: 30,
+      id: 'course-fitness', name: '體適能檢查分析', group: '運動區', category: null,
+      systems: ['Abovee'], durationMin: 30,
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: '每季一次',
     },
     {
       // 沒有 `group` → 落在「其他」。她 2026-10-05：「物理治療師諮詢先放『其他』，
       // Abovee 沒這東西，我們賣出去但自己都還不確定這是什麼」。
-      id: 'course-pt-consult', name: '物理治療師諮詢', category: null, durationMin: 20,
+      id: 'course-pt-consult', name: '物理治療師諮詢', category: null, systems: ['Abovee'], durationMin: 20,
       assigns: 'therapist', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
     },
     {
-      id: 'course-nutrition-consult', name: '營養師諮詢', group: '運動區', category: null, durationMin: 20,
+      id: 'course-nutrition-consult', name: '營養師諮詢', group: '運動區', category: null,
+      systems: ['Abovee'], durationMin: 20,
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, frequencyRule: null,
       // 諮詢完要打一份諮詢紀錄（ADR-0066）

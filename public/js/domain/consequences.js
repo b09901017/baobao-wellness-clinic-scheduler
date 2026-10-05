@@ -18,14 +18,14 @@
 //
 // 同一道確認出現在兩個入口（壓表那一頁與來訪編輯器），而它們**各自寫死了
 // 「Abovee」** —— 健檢壓的是 Examine，所以那一句在健檢上是錯的，而且錯了兩次。
-// 判斷早就有了（`taskRules.js` 的 `bookingSystemFor()`），只是沒有人用它。
+// 判斷早就有了（`taskRules.js` 的 `bookingSystemOf()`），只是沒有人用它。
 //
 // 兩邊各寫一次的下場已經看到了，所以這裡就是那一份。
 //
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, isCancelKind, cancelTasksFor, cancelsBooking,
+  bookingSystemOf, isCancelKind, cancelTasksFor, cancelsBooking,
   newRegistrations,
 } from './taskRules.js';
 import {
@@ -114,7 +114,7 @@ export function bookingSystemLabel(visit, coursesById = {}) {
   const names = [...new Set(
     (visit?.slots ?? [])
       .filter(isLiveSlot)
-      .map((s) => bookingSystemFor(coursesById[s.courseId]?.category)),
+      .map((s) => bookingSystemOf(coursesById[s.courseId])),
   )];
   return names.join(' 與 ');
 }
@@ -663,7 +663,7 @@ export function rebookConsequences({
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return {
-    title: `新的時間在 ${bookingSystemFor(coursesById[fresh?.courseId]?.category)} 壓好了嗎？`,
+    title: `新的時間在 ${bookingSystemOf(coursesById[fresh?.courseId])} 壓好了嗎？`,
     lines,
   };
 }

@@ -1117,7 +1117,7 @@ async function submit(ctx, draft) {
   // 這道確認就是她手寫的那兩個驚嘆號。
   //
   // 抬頭與後果由 `domain/consequences.js` 算：這裡以前寫死「Abovee」，
-  // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemFor()`），
+  // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemOf()`），
   // 只是沒有人用它。壓表那一頁走的是同一支。
   if (rebooked) {
     // 要回 Abovee／Examine／耀聖做什麼，由真的會長出來的那幾張推（`rebookConsequences()`）

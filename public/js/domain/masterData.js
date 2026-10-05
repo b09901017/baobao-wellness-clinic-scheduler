@@ -72,6 +72,19 @@ export const picksDoctor = (course) => course?.category === 'A' || Boolean(cours
 // 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 
+/**
+ * 外面那三個系統。課程自己勾動到哪幾個（`course.systems`，ADR-0119）。
+ *
+ * **只有名單在這裡。** 勾了之後壓表在哪、客人確認之後長哪幾張，推導只在
+ * `domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`）。
+ * 名單住在這一支是因為主檔的驗證要認得它，而 `taskRules.js` 經 `visits.js` 讀這一支 ——
+ * 反過來 import 會繞成一圈。
+ */
+export const SYSTEMS = Object.freeze(['Abovee', 'Examine', '耀聖']);
+
+/** 壓表可以壓在哪。**照這個順序挑**：勾了 Abovee 就是 Abovee，沒勾才看 Examine。 */
+export const BOOKING_SYSTEMS = Object.freeze(['Abovee', 'Examine']);
+
 export const ASSIGN_LABELS = {
   therapist: '選治療師',
   room: '選診間',
@@ -166,15 +179,31 @@ export function coursesByGroup({ courses = [], equipment = [], ivProducts = [] }
  * 一樣的起點。她自己打的新分類沒有預設（不知道那是什麼）。
  */
 const GROUP_DEFAULTS = Object.freeze({
-  復能: { durationMin: 60, category: 'C', assigns: 'therapist', allowedRoomTypes: [] },
-  ILIB: { durationMin: 60, category: 'C', assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'] },
-  // 門診要的是醫師不是空間（她 2026-09-08）
-  醫師門診: { durationMin: 30, category: 'A', assigns: 'none', allowedRoomTypes: [], requiresDoctor: true },
-  EECP: { durationMin: 60, category: 'C', assigns: 'room', allowedRoomTypes: ['治療室'] },
-  運動區: { durationMin: 30, category: null, assigns: 'none', allowedRoomTypes: [] },
-  營養點滴: { durationMin: 120, category: 'C', assigns: 'room', allowedRoomTypes: ['點滴室'] },
-  // 健檢直接壓在 Examine（B 類）
-  健檢: { durationMin: 120, category: 'B', assigns: 'none', allowedRoomTypes: [] },
+  復能: {
+    durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'therapist', allowedRoomTypes: [],
+  },
+  ILIB: {
+    durationMin: 60, category: 'C', systems: ['Abovee'],
+    assigns: 'room', allowedRoomTypes: ['治療室', '點滴室'],
+  },
+  // 門診要的是醫師不是空間（她 2026-09-08）；三個系統都要（Abovee 壓，確認後 Examine、耀聖）
+  醫師門診: {
+    durationMin: 30, category: 'A', systems: ['Abovee', 'Examine', '耀聖'],
+    assigns: 'none', allowedRoomTypes: [], requiresDoctor: true,
+  },
+  EECP: {
+    durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'room', allowedRoomTypes: ['治療室'],
+  },
+  運動區: {
+    durationMin: 30, category: null, systems: ['Abovee'], assigns: 'none', allowedRoomTypes: [],
+  },
+  營養點滴: {
+    durationMin: 120, category: 'C', systems: ['Abovee'], assigns: 'room', allowedRoomTypes: ['點滴室'],
+  },
+  // 健檢直接壓在 Examine
+  健檢: {
+    durationMin: 120, category: 'B', systems: ['Examine'], assigns: 'none', allowedRoomTypes: [],
+  },
 });
 
 /**
@@ -467,6 +496,15 @@ const validators = {
       else if (r.group.trim().length > 12) errors.push('分類最多 12 字 —— 它是清單上的一個小標題');
     }
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
+    // 壓哪幾個系統（ADR-0119）。**沒有這一格就是沒勾過**，照舊從類別推，所以不擋。
+    // 勾了就要壓得下去：壓表一定要有一個地方，而耀聖只收確認之後的登記。
+    if (r.systems != null) {
+      if (!Array.isArray(r.systems) || r.systems.some((s) => !SYSTEMS.includes(s))) {
+        errors.push('壓表的系統只能是 Abovee、Examine、耀聖');
+      } else if (!r.systems.some((s) => BOOKING_SYSTEMS.includes(s))) {
+        errors.push('Abovee 與 Examine 至少要勾一個 —— 壓表一定要有一個地方');
+      }
+    }
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
 
     // 加購時給不給她挑時長（選填）。填了就要能用 ——

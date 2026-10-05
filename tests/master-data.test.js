@@ -13,7 +13,7 @@ import {
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
-  describeCategory, tasksForCategory, CATEGORY_OPTIONS, bookingSystemFor,
+  describeSystems, tasksForCategory, bookingSystemFor,
 } from '../public/js/domain/taskRules.js';
 import { needsForm } from '../public/js/domain/visits.js';
 
@@ -725,22 +725,20 @@ describe('種子資料', () => {
   });
 });
 
-describe('類別說明', () => {
-  test('每個類別都說得出壓表在哪、確認後還要做什麼', () => {
-    assert.match(describeCategory('A'), /Abovee 壓表.*Examine.*耀聖/);
-    assert.match(describeCategory('B'), /Examine 壓表/);
-    assert.match(describeCategory('C'), /Abovee 壓表.*沒有後續登記/);
-    assert.ok(!describeCategory('C').includes('打電話'));
+// 2026-10-05 之前這裡測的是 `describeCategory()`（四選一的類別各一句）。課程自己勾系統
+// 之後（ADR-0119）設定頁那一行灰字改由 `describeSystems()` 講，沒勾過的課程照類別推。
+describe('設定頁那一行：壓在哪、確認後還要做什麼', () => {
+  test('沒勾過的課程照它的類別講', () => {
+    assert.equal(describeSystems({ category: 'A' }), 'Abovee 壓，確認後 Examine、耀聖');
+    assert.equal(describeSystems({ category: 'B' }), 'Examine 壓');
+    assert.equal(describeSystems({ category: 'C' }), 'Abovee 壓');
+    assert.ok(!describeSystems({ category: 'C' }).includes('打電話'));
   });
 
-  test('沒有後續登記要明講，不是空白', () => {
+  test('不用掛號的那幾門照樣講得出壓在哪，不是空白', () => {
     for (const category of [null, undefined]) {
-      assert.match(describeCategory(category), /^不用掛號 — Abovee 壓表，確認後沒有後續登記$/);
+      assert.equal(describeSystems({ category }), 'Abovee 壓');
     }
-  });
-
-  test('四個選項涵蓋所有合法類別', () => {
-    assert.deepEqual(CATEGORY_OPTIONS.map((o) => o.value), ['A', 'B', 'C', null]);
   });
 });
 

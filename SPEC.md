@@ -417,7 +417,11 @@ audit/{eventId}                   // append-only 稽核紀錄
   group,                 // 分類（字串，選填）。**只管 設定 → 課程 那一頁怎麼分組、新增時帶哪一組
                          //   預設值，沒有任何規則讀它**。沒填就落在「其他」。預設的順序與
                          //   分組只寫在 domain/masterData.js（COURSE_GROUPS、coursesByGroup()）
-  category,              // 'A' | 'B' | 'C'，決定產生哪些系統任務
+  systems,               // ['Abovee', 'Examine', '耀聖'] 的子集合：這門課動到哪幾個系統（ADR-0119）。
+                         //   勾了 Abovee 就是壓在 Abovee，其餘勾起來的等客人確認之後長成待辦。
+                         //   Abovee 與 Examine 至少一個。推導只在 domain/taskRules.js 的 systemsOf()
+  category,              // 'A' | 'B' | 'C' | null。**只剩退路**：沒有 systems 的舊課程照它推。
+                         //   設定頁不再改它（2026-10-05 之前它是「任務類別」那個下拉）
   durationMin,
   durationChoices,       // [30, 60]。選填。填了加購那一頁就多一排丸子，
                          //   名字也會帶著它（「超磁場(60)」）。目前只有復能與 ILIB
@@ -781,14 +785,26 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 ### 5.5 任務產生規則矩陣
 
-| 類別 | 課程 | 壓表登記在哪 | 客人確認後產生的任務 |
-|---|---|---|---|
-| A | 復健科、心臟科、二返（功能醫學門診） | Abovee | Examine、耀聖 |
-| B | 健檢 | **Examine** | 無 |
-| C | 復能、ILIB、EECP、EECP體驗、營養點滴 | Abovee | 無 |
-| 不用掛號 | Inbody、體適能分析、兩種諮詢 | Abovee | 無 |
+**每一門課自己勾動到哪幾個系統**（`systems`，2026-10-05，`docs/adr/0119-a-course-ticks-its-own-systems.md`）：
 
-任務規則綁在**類別**上，不逐課程設定。課程只存 `category`，新增課程時選一個類別即可。
+- **壓表登記在哪**：勾了 Abovee 就是 Abovee；沒勾 Abovee、勾了 Examine 就是 Examine
+- **客人確認後產生的任務**：其餘勾起來的（Examine、耀聖），扣掉壓表那一個
+- Abovee 與 Examine 至少勾一個
+
+推導只在 `domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`）。
+種子的勾法是下面這張表，每一門之後都能在 設定 → 課程 自己改：
+
+| 種子的勾法 | 課程 | 壓表登記在哪 | 客人確認後產生的任務 |
+|---|---|---|---|
+| Abovee、Examine、耀聖 | 復健科、心臟科、二返 | Abovee | Examine、耀聖 |
+| Examine | 健檢 | **Examine** | 無 |
+| Abovee | 復能、ILIB、EECP、EECP體驗、營養點滴 | Abovee | 無 |
+| Abovee | Inbody、體適能分析、兩種諮詢 | Abovee | 無 |
+
+> **2026-10-05 之前**這張表的第一欄是「類別」（A／B／C／不用掛號），規則綁在類別上、不逐課程設定，
+> 課程只存 `category`。那樣做不出「只壓 Abovee＋耀聖」。`category` 留在資料上當退路：
+> **沒有 `systems` 的舊課程照它推**（A → 上表第一列、B → 第二列、C 與不用掛號 → 第三、四列），
+> 既有資料一筆都不搬。
 
 **「壓表登記」不是任務。** 壓表就是在 Abovee 上把時段佔住（`CONTEXT.md`），
 而來訪的起點是「已壓表」（第 4.1 節）—— 那筆來訪能存在，前提就是這件事已經做完了。
@@ -807,7 +823,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 | 種類 | Examine、耀聖 | **寫紀錄** |
 | 什麼時候長出來 | **那一段**客人確認之後（ADR-0027、0097） | **那一段**做完之後（ADR-0066、0112） |
 | 死線 | 來訪日的**前一天** | 來訪**那一天** |
-| 由什麼決定 | 課程的**類別**（上面那張矩陣） | 課程主檔上的 `needsRecord` |
+| 由什麼決定 | 課程勾的**系統**（上面那張矩陣） | 課程主檔上的 `needsRecord` |
 | 取消來訪時 | 要回頭去外部系統收回登記 | 沒有東西要收 —— 那一場沒發生 |
 | 未到（`no_show`） | 已經做掉的登記照樣要收回來 | **不長** —— 人沒來，沒有紀錄要寫 |
 

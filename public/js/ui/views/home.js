@@ -172,11 +172,13 @@ export async function render(el) {
 async function loadBookRows(today) {
   const month = today.slice(0, 7);
   const range = monthRange(month);
-  const [customers, entitlementsBy, visits, courses] = await Promise.all([
+  const [customers, entitlementsBy, visits, courses, equipment] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(range.from, range.to),
     config.listAll('courses', { includeDeleted: true }),
+    // 擇一池壓在哪個系統，要先知道那一池算哪一門課（ADR-0075、0119）
+    config.listAll('equipment'),
   ]);
 
   const visitsBy = {};
@@ -187,6 +189,7 @@ async function loadBookRows(today) {
     entitlementsBy,
     visitsBy,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    equipment,
     targetMonth: month,
   });
 }

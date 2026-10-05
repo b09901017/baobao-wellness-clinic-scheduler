@@ -1,6 +1,8 @@
 // 任務產生規則。純函式，不碰 IO。
 //
-// 規則綁在「類別」上，不逐課程設定 —— 新增課程時只要選一個類別。
+// **每一門課自己勾動到哪幾個系統**（`course.systems`，2026-10-05，ADR-0119）。
+// 在那之前規則綁在四選一的「類別」上、不逐課程設定；沒勾過的課程照舊從類別推
+// （`systemsOf()`），所以既有資料一筆都不用搬。
 // 舊的 Apps Script 是用課程名稱做字串包含比對，療程一改名就靜默失效。
 // 這裡不照抄，見 docs/legacy/README.md。
 //
@@ -20,6 +22,7 @@
 
 import { addDays, isValidDate } from './dates.js';
 import { isLiveSlot, slotStatus } from './visits.js';
+import { SYSTEMS, BOOKING_SYSTEMS } from './masterData.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -32,7 +35,7 @@ export const TASK_KINDS = ['Examine', '耀聖'];
  * `Abovee` 留在名單上而它已經不是任務種類了 —— 歷史資料裡有勾掉的 Abovee 任務，
  * 那些來訪取消時照樣要回頭去放掉時段。
  */
-export const REGISTRATION_KINDS = ['Abovee', 'Examine', '耀聖'];
+export const REGISTRATION_KINDS = SYSTEMS;
 
 /**
  * 來訪走到這個狀態，登記任務才長得出來。
@@ -108,24 +111,14 @@ export const isCancelKind = (kind) => String(kind ?? '').startsWith(CANCEL_PREFI
 export const systemOfCancelKind = (kind) =>
   (isCancelKind(kind) ? String(kind).slice(CANCEL_PREFIX.length) : null);
 
-// null 是明確的「不用掛號」，不是漏填。Inbody、物理諮詢、營養諮詢、
-// 體適能分析都屬於這一類。設定頁必須把這件事顯示出來，
-// 而不是讓使用者看到一片空白自己猜。
-export const CATEGORY_OPTIONS = [
-  { value: 'A', label: 'A · 門診', hint: '復健科、心臟科、二返' },
-  { value: 'B', label: 'B · 健檢', hint: '健檢' },
-  { value: 'C', label: 'C · 療程', hint: '復能、ILIB、EECP、營養點滴' },
-  { value: null, label: '不用掛號', hint: 'Inbody、諮詢類、體適能分析' },
-];
-
-/** 給 UI 用的一句話說明。壓表在哪、確認之後還要做什麼，兩件都講。 */
-export function describeCategory(category) {
-  const opt = CATEGORY_OPTIONS.find((o) => o.value === (category ?? null));
-  if (!opt) return `未知類別（${category}）`;
-  const after = tasksForCategory(category);
-  const tail = after.length ? `確認後 ${after.join('、')}` : '確認後沒有後續登記';
-  return `${opt.label} — ${bookingSystemFor(category)} 壓表，${tail}`;
-}
+// ---------- 類別：只剩退路 ----------
+//
+// 2026-10-05 之前課程只存一個類別（A 門診／B 健檢／C 療程／`null` 不用掛號），
+// 設定頁是一個四選一的下拉。現在設定頁改成三個勾（`course.systems`），**類別那一格
+// 留在資料上當退路**：沒勾過的課程照它推。`null` 是明確的「不用掛號」，不是漏填。
+//
+// **底下這幾支只有 `systemsOf()` 可以叫** —— 畫面與其他 domain 一律傳課程、問
+// `bookingSystemOf()`／`tasksForCourse()`（`tests/course-systems.test.js` 掃原始碼盯著）。
 
 /**
  * 一個類別管兩件事：**壓表登記在哪個系統**，以及**客人確認之後還要去哪幾個**。
@@ -155,9 +148,63 @@ const DEFAULT_RULE = Object.freeze({ bookAt: 'Abovee', onConfirm: Object.freeze(
 
 const ruleFor = (category) => RULES[category] ?? DEFAULT_RULE;
 
-/** 這個類別的課程，壓表是壓在哪個系統上。 */
+/** 這個類別的課程，壓表是壓在哪個系統上。**退路**，見上面那一段。 */
 export function bookingSystemFor(category) {
   return ruleFor(category).bookAt;
+}
+
+// ---------- 課程動到哪幾個系統（ADR-0119）----------
+
+/**
+ * 這門課動到哪幾個系統。**唯一一支**，底下兩支都從它來。
+ *
+ * - 她在設定勾過（`course.systems`）→ 照勾的，順序固定是 Abovee、Examine、耀聖
+ * - 沒勾過 → 照舊從類別推（`RULES`）。讀的時候退回，既有資料一筆都不搬
+ * - **找不到這門課 → `null`（不知道）**。不回空陣列：兩個呼叫端要往不同的方向倒 ——
+ *   取消時猜 Abovee（`bookingSystemOf()`），「壓表登記」那一列不算數（`scheduling.js`）
+ *
+ * 空的、或全是認不得的字的 `systems` 不算勾過：一門哪裡都不壓的課不存在
+ * （設定頁擋得掉，`masterData.js` 的 `validate()`），退回類別比當真好。
+ *
+ * @param {{systems?: string[], category?: Category}|null|undefined} course
+ * @returns {string[]|null}
+ */
+export function systemsOf(course) {
+  if (!course) return null;
+  const ticked = Array.isArray(course.systems)
+    ? SYSTEMS.filter((s) => course.systems.includes(s))
+    : [];
+  if (ticked.length) return ticked;
+  const rule = ruleFor(course.category);
+  return SYSTEMS.filter((s) => s === rule.bookAt || rule.onConfirm.includes(s));
+}
+
+/**
+ * 這門課壓表壓在哪：勾了 Abovee 就是 Abovee；沒勾 Abovee、勾了 Examine 就是 Examine。
+ *
+ * **認不得的課程照樣猜 Abovee**（同 `DEFAULT_RULE` 的理由）：這裡不確定的只有
+ * 「壓在哪個系統」，而「有沒有壓過」是確定的 —— 那筆來訪存在就代表壓過了。
+ */
+export function bookingSystemOf(course) {
+  const systems = systemsOf(course) ?? [];
+  return BOOKING_SYSTEMS.find((s) => systems.includes(s)) ?? DEFAULT_RULE.bookAt;
+}
+
+/**
+ * 這門課在**客人確認之後**會長哪幾種待辦：其餘勾起來的，扣掉壓表那一個。
+ * 認不得的課程回空陣列，不猜（多一批假待辦她只會學會忽略它們）。
+ */
+export function tasksForCourse(course) {
+  const systems = systemsOf(course);
+  if (!systems) return [];
+  const bookAt = bookingSystemOf(course);
+  return systems.filter((s) => s !== bookAt);
+}
+
+/** 給設定頁那一行灰字用的一句話。例：`Abovee 壓，確認後 Examine、耀聖`。 */
+export function describeSystems(course) {
+  const after = tasksForCourse(course);
+  return `${bookingSystemOf(course)} 壓${after.length ? `，確認後 ${after.join('、')}` : ''}`;
 }
 
 /**
@@ -174,12 +221,12 @@ export function bookingSystemFor(category) {
 export function bookingSystemsForVisit(visit, coursesById = {}) {
   const out = new Set();
   for (const slot of visit?.slots ?? []) {
-    out.add(bookingSystemFor(coursesById[slot.courseId]?.category));
+    out.add(bookingSystemOf(coursesById[slot.courseId]));
   }
   return [...out];
 }
 
-/** 某個類別在**客人確認之後**會產生哪些任務。未知類別回空陣列，不猜。 */
+/** 某個類別在**客人確認之後**會產生哪些任務。未知類別回空陣列，不猜。**退路**。 */
 export function tasksForCategory(category) {
   return [...ruleFor(category).onConfirm];
 }
@@ -219,9 +266,7 @@ export function tasksForVisit(visit, coursesById) {
   // 沒做完的也會跟著被收掉 —— 那正是對的。
   for (const slot of visit.slots ?? []) {
     if (!isLiveSlot(slot)) continue;
-    const course = coursesById[slot.courseId];
-    if (!course) continue;
-    for (const kind of tasksForCategory(course.category)) kinds.add(kind);
+    for (const kind of tasksForCourse(coursesById[slot.courseId])) kinds.add(kind);
   }
 
   const dueDate = dueDateFor(visit.date);
@@ -549,7 +594,7 @@ export function cancelSlotsOf(task, visit) {
  * （`born`，那一段談定了，ADR-0097）。
  *
  * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
- * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
+ * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCourse()`。
  *
  * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
  * `acceptsNewTasks('done')` 是 false，所以不長新的；`pending_confirm → done`
@@ -566,7 +611,7 @@ function registrationSlots(visit, coursesById = {}, today = null) {
   (visit?.slots ?? []).forEach((slot, i) => {
     if (!isLiveSlot(slot)) return;
     const confirmed = !closed && acceptsNewTasks(slotStatus(visit, slot));
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) {
+    for (const kind of tasksForCourse(coursesById[slot.courseId])) {
       if (!out.has(kind)) out.set(kind, { wants: new Set(), born: new Set() });
       out.get(kind).wants.add(i);
       if (confirmed) out.get(kind).born.add(i);
@@ -616,7 +661,7 @@ export function newRegistrations(visit, existingTasks = [], coursesById = {}, to
  *
  * ## 一段要收哪幾個系統
  *
- *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemFor()`）。來訪存在就代表
+ *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemOf()`）。來訪存在就代表
  *      壓過了（ADR-0041），不需要任何任務來證明
  *   2. **確認之後的登記**（Examine、耀聖）：那一段自己長得出那一種、**而且那一張
  *      已經勾掉了**才收 —— 沒勾就是沒登記過，沒有東西要收
@@ -663,11 +708,10 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   };
 
   for (const i of dead) {
-    want(cancelKindFor(bookingSystemFor(coursesById[slots[i]?.courseId]?.category)), i);
+    want(cancelKindFor(bookingSystemOf(coursesById[slots[i]?.courseId])), i);
   }
   for (const i of dead) {
-    const course = coursesById[slots[i]?.courseId];
-    for (const kind of tasksForCategory(course?.category)) {
+    for (const kind of tasksForCourse(coursesById[slots[i]?.courseId])) {
       if (registeredAt(kind, i)) want(cancelKindFor(kind), i);
     }
   }
@@ -700,7 +744,7 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
 export function cancelsBooking(visit, task, coursesById = {}) {
   const system = systemOfCancelKind(task?.kind);
   return (task?.slotIndexes ?? []).some(
-    (i) => bookingSystemFor(coursesById[visit?.slots?.[i]?.courseId]?.category) === system,
+    (i) => bookingSystemOf(coursesById[visit?.slots?.[i]?.courseId]) === system,
   );
 }
 

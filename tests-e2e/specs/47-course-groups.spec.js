@@ -12,7 +12,7 @@
 // 「只能排在這幾間」改了之後常用診間那一排**就地**跟著變。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
 
 /** 清單上的小標題，照畫面上的順序。 */
 const heads = (page) => page.locator('.grouphead').evaluateAll(
@@ -97,6 +97,8 @@ test('G3 新增先選分類：帶好那一組的預設，她改掉的那一格�
   await expect(page.locator('input[name="durationMin"]')).toHaveValue('30');
   await expect(page.locator('[data-chip="group"][aria-pressed="true"]')).toHaveText('醫師門診');
   await expect(page.locator('input[name="requiresDoctor"]')).toBeChecked();
+  // 門診三個系統都要（Abovee 壓，確認後 Examine、耀聖）
+  await expect(page.locator('input[name="systems"]:checked')).toHaveCount(3);
 
   await page.fill('input[name="name"]', '泌尿科門診');
   await page.fill('input[name="durationMin"]', '45');
@@ -107,6 +109,7 @@ test('G3 新增先選分類：帶好那一組的預設，她改掉的那一格�
   expect(made.group).toBe('醫師門診');
   expect(made.durationMin, '她改過的那一格').toBe(45);
   expect(made.assigns).toBe('none');
+  expect(made.systems).toEqual(['Abovee', 'Examine', '耀聖']);
 
   const cards = page.locator('.grouphead[data-group="醫師門診"] ~ [data-course]')
     .filter({ hasText: '泌尿科門診' });
@@ -234,4 +237,95 @@ test('G7 舊資料：沒有分類的課程全部落在「其他」，一門都�
   await page.click('button[type="submit"]');
   await app.saved();
   expect((await app.readDoc('config/app/courses', 'course-rehab')).group ?? null).toBeNull();
+});
+
+// ---------- 壓哪幾個系統（issue 03，ADR-0119）----------
+
+/** 把種子課程的某幾格換掉／拿掉（`undefined` ＝ 拿掉那一格，模擬 2026-10-05 之前的資料）。 */
+const coursesWith = (change) => masterDocs().map((d) => {
+  if (d.path !== 'config/app/courses') return d;
+  const data = { ...d.data, ...change(d) };
+  for (const k of Object.keys(data)) if (data[k] === undefined) delete data[k];
+  return { ...d, data };
+});
+
+test('G8 三個勾：舊課程打開就是照類別勾好的，存一次什麼都不變；只勾耀聖存不下去', async ({ app, page }) => {
+  await app.seed(coursesWith(() => ({ systems: undefined })));
+  await app.signIn('/settings/courses');
+
+  // 清單那一行灰字講得出壓在哪、確認後還有什麼 —— 沒勾過的照類別推
+  await expect(page.locator('[data-course="course-followup"]')).toContainText('Abovee 壓，確認後 Examine、耀聖');
+  await expect(page.locator('[data-course="course-checkup"]')).toContainText('Examine 壓');
+
+  const box = (name) => page.locator(`input[name="systems"][value="${name}"]`);
+
+  await page.locator('[data-edit="course-followup"]').click();
+  for (const name of ['Abovee', 'Examine', '耀聖']) await expect(box(name)).toBeChecked();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  const followup = await app.readDoc('config/app/courses', 'course-followup');
+  expect(followup.systems).toEqual(['Abovee', 'Examine', '耀聖']);
+  expect(followup.category, '類別那一格原樣留著').toBe('A');
+
+  // 復能：只勾著 Abovee。換成只勾耀聖 → 存不下去，講為什麼
+  await page.locator('[data-edit="course-recovery"]').click();
+  await expect(box('Abovee')).toBeChecked();
+  await expect(box('Examine')).not.toBeChecked();
+  await box('Abovee').uncheck();
+  await box('耀聖').check();
+  await page.click('button[type="submit"]');
+  await expect(page.locator('[data-errors]')).toContainText('至少要勾一個');
+  expect((await app.readDoc('config/app/courses', 'course-recovery')).systems ?? null).toBeNull();
+
+  // Abovee＋耀聖：存得下去，清單那一行跟著變
+  await box('Abovee').check();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  expect((await app.readDoc('config/app/courses', 'course-recovery')).systems).toEqual(['Abovee', '耀聖']);
+  await expect(page.locator('[data-course="course-recovery"]')).toContainText('Abovee 壓，確認後 耀聖');
+
+  // 類別是 null 的那一門（不用掛號）原樣帶回去，不會變成字串
+  await page.locator('[data-edit="course-inbody"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  expect((await app.readDoc('config/app/courses', 'course-inbody')).category).toBeNull();
+});
+
+test('G9 一門課只勾 Abovee＋耀聖：客人說可以之後只長一張耀聖', async ({ app, page }) => {
+  await app.seed([
+    ...coursesWith((d) => (d.id === 'course-recovery' ? { systems: ['Abovee', '耀聖'] } : {})),
+    customer({ id: 'cust-x', name: '王小明' }),
+    entitlement('cust-x', {
+      id: 'ent-pool', label: '復能-三選一(30)', type: 'pool',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'],
+      totalQty: 20, bookedCount: 1, durationMin: 30,
+    }),
+    visit({
+      id: 'v-one', customerId: 'cust-x', customerName: '王小明', date: TODAY, status: 'pending_confirm',
+      slots: [{
+        ...slot({
+          courseId: 'course-recovery', entitlementId: 'ent-pool',
+          startsAt: '14:00', endsAt: '14:30', equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+        }),
+        status: 'pending_confirm',
+      }],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-open^="visit:"]');
+
+  // 長按那一段（`wireLongPress()` 只認主鍵的真滑鼠事件，同 spec 34）
+  const row = page.locator('[data-open^="visit:v-one:"]').first();
+  await row.scrollIntoViewIfNeeded();
+  const at = await row.boundingBox();
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+  await page.locator('.actionrow', { hasText: '客戶說可以' }).click();
+  await app.saved();
+
+  const tasks = (await app.readAll('tasks')).filter((t) => t.visitId === 'v-one' && !t.deletedAt);
+  expect(tasks.map((t) => t.kind), '沒勾 Examine，所以不長 Examine').toEqual(['耀聖']);
 });

@@ -10,8 +10,9 @@ import {
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
   normalizeGroup, courseGroupNames, coursesByGroup, courseDefaultsFor,
+  SYSTEMS,
 } from '../../domain/masterData.js';
-import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import { systemsOf, describeSystems } from '../../domain/taskRules.js';
 import {
   ALERT_COLORS, ALERT_FILLS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_FILL,
   colorTokens, lookOf, styleFor,
@@ -325,7 +326,7 @@ const editors = {
   courses: {
     blank: {
       name: '', group: null, shortName: null,
-      durationMin: 60, category: 'C', assigns: 'room',
+      durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       preferredRoomIds: [],
       requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
@@ -339,7 +340,7 @@ const editors = {
     // 而原因是這個勾沒打開 —— 一整排課程掃過去看不出哪幾個開著，
     // 她只能一個一個點進去。ADR-0066。
     summary: (r) =>
-      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`
+      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeSystems(r)}`
       + `${r.needsRecord ? ' · 要寫紀錄' : ''}`,
     fields: (r, all) => [
       f.text({ name: 'name', label: '課程名稱', value: r.name, placeholder: '復能' }),
@@ -374,12 +375,18 @@ const editors = {
         hint: '用頓號分隔。填了之後加購那一頁會多一排丸子，名字也會帶著它'
           + '（「超磁場(60)」）。留空就是只有上面那一個時長。',
       }),
-      f.select({
-        name: 'category', label: '任務類別', value: r.category ?? null,
-        options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
-        hint: '決定兩件事：壓表登記在哪個系統，以及客人確認之後還要去哪幾個。'
-          + '「要不要簽療程單」不歸類別管，那是底下自己的一個勾。',
+      // 壓哪幾個系統（ADR-0119）。2026-10-05 之前這裡是「任務類別」四選一的下拉，
+      // 做不出「只壓 Abovee＋耀聖」。**舊課程打開時三個勾照 `systemsOf()` 畫好** ——
+      // 沒勾過的照它的類別推，所以什麼都不改就存一次，算出來的一個字都不會變。
+      f.checkboxes({
+        name: 'systems', label: '壓哪幾個系統',
+        values: systemsOf(r) ?? [], options: SYSTEMS,
+        hint: '勾了 Abovee，壓表就是在 Abovee 那一下；其餘勾起來的等客人說可以之後長成待辦。'
+          + '沒勾 Abovee 就是直接壓在 Examine（健檢）。Abovee 與 Examine 至少要勾一個。'
+          + '「要不要簽療程單」是底下自己的一個勾。',
       }),
+      // 類別那一格留在資料上當退路，這張表不再改它（原樣帶回去）
+      `<input type="hidden" name="category" value="${r.category == null ? '__null__' : esc(r.category)}" />`,
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
         options: ASSIGNS.map((a) => ({ value: a, label: ASSIGN_LABELS[a] })),
@@ -474,6 +481,8 @@ const editors = {
       durationChoices: f.parseList(v.durationChoices)
         .map(Number).filter((n) => Number.isInteger(n) && n > 0),
       category: v.category,
+      // 存的順序固定（Abovee、Examine、耀聖），不照她勾的先後
+      systems: SYSTEMS.filter((s) => (v.systems ?? []).includes(s)),
       assigns: v.assigns,
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
       allowedRoomIds: v.assigns === 'room' ? (v.allowedRoomIds ?? []) : [],

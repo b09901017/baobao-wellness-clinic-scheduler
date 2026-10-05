@@ -374,10 +374,12 @@ export const COVERAGE = {
   ],
   // 試算表推送在路上時又寫了一筆（prelaunch-audit-2026-09-23/issues/05）
   '45-sheet-push-race': ['public/js/data/sheetSync.js', 'public/js/ui/views/calendar.js'],
-  // 設定 → 課程：先分類再項目（2026-10-05）。別稱那一條會走到名稱怎麼寫那一頁
+  // 設定 → 課程：先分類再項目（2026-10-05）。別稱那一條會走到名稱怎麼寫那一頁；
+  // 「壓哪幾個系統」那兩條（G8、G9，ADR-0119）一路走到確認之後長哪幾張待辦
   '47-course-groups': [
     'public/js/ui/views/masterList.js', 'public/js/domain/masterData.js', 'public/js/domain/seed.js',
     'public/js/ui/views/naming.js', 'public/js/ui/components/form.js', 'public/js/data/config.js',
+    'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
     'public/css/',
   ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）

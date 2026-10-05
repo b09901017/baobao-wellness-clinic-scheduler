@@ -91,6 +91,7 @@ const FIELD_LABELS = {
   group: '分類',
   shortName: '別稱',
   allowedRoomIds: '只能排在這幾間',
+  systems: '壓哪幾個系統',
   kind: '任務種類',
   dueDate: '死線',
   done: '已完成',
