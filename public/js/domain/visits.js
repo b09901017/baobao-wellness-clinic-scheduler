@@ -1666,6 +1666,12 @@ function visitErrors(visit, {
   return errors;
 }
 
+/**
+ * 存檔前的提醒。**只講還算數的段**（2026-10-05 她答應修的：改期之後舊那一段已經取消，
+ * 第一道確認還在跳「第 1 個時段：二返 還沒選醫師」）—— 取消掉的那一段不會發生，
+ * 它還沒選醫師、跟新的那一段重疊、撞到別人都不是事。每一圈自己跳過，**編號照原本的位置**
+ *（「第 2 個時段」要指到畫面上的第 2 段，濾掉再編號就指錯了）。
+ */
 function visitWarnings(visit, ctx) {
   return [
     ...equipmentNoticeWarnings(visit, ctx),
@@ -1692,6 +1698,7 @@ function visitWarnings(visit, ctx) {
 function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
+    .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
     .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
 }
 
@@ -1709,7 +1716,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 
   (visit.slots ?? []).forEach((slot, i) => {
     const nth = nthOf(slot);
-    if (!nth || !slot.followupForVisitId) return;
+    if (!nth || !slot.followupForVisitId || !isLiveSlot(slot)) return;
 
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
@@ -1724,11 +1731,13 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
 function overlapWarnings(visit) {
   const out = [];
-  const slots = (visit.slots ?? []).filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt));
+  // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
+  const slots = (visit.slots ?? []).map((s, at) => ({ s, at }))
+    .filter(({ s }) => isLiveSlot(s) && isValidTime(s.startsAt) && isValidTime(s.endsAt));
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
-      if (overlaps(slots[i], slots[j])) {
-        out.push(`第 ${i + 1} 與第 ${j + 1} 個時段時間重疊`);
+      if (overlaps(slots[i].s, slots[j].s)) {
+        out.push(`第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
       }
     }
   }
@@ -1746,7 +1755,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
   for (const slot of visit.slots ?? []) {
     const ent = entsById[slot.entitlementId];
-    if (!ent || used.has(ent.id)) continue;
+    if (!ent || used.has(ent.id) || !isLiveSlot(slot)) continue;
     used.add(ent.id);
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
@@ -1774,7 +1783,7 @@ function assignmentWarnings(visit, {
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
-    if (!course) return;
+    if (!course || !isLiveSlot(slot)) return;
     const at = `第 ${i + 1} 個時段`;
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
@@ -1850,7 +1859,7 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
   const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
-    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
+    if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
     const at = `第 ${i + 1} 個時段`;
 
     // 那一天別人排的、跟這一段撞在一起的每一格
@@ -1935,12 +1944,13 @@ function frequencyWarnings(visit, { courses = [], entitlements = [], customerVis
     const course = coursesById[slot.courseId];
     const ent = entsById[slot.entitlementId];
     const rule = ent?.frequencyRule ?? course?.frequencyRule;
-    if (!rule || !course || seen.has(course.id)) continue;
+    if (!rule || !course || seen.has(course.id) || !isLiveSlot(slot)) continue;
     seen.add(course.id);
 
     const previous = customerVisits
       .filter((v) => v.id !== visit.id && isActive(v) && isValidDate(v.date) && v.date < visit.date)
-      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id))
+      // 「上次」是真的做了的那一次：那一天取消掉的那一段不算
+      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id && isLiveSlot(s)))
       .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 
     if (!previous) continue;
