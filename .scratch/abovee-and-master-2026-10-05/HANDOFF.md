@@ -5,8 +5,9 @@
 ## 現況（2026-10-05 晚）
 
 - **第一、二段做完**：她答完全部的題（`spec.md` 底下兩段「她回的」）、14＋1 支 issue 開好、subagent 審查過、審查結果改進各支 issue 的「審查之後補的」那一節（**跟上面衝突的以那一節為準**）
-- **01 做完**：PR #137（`claude/staging-real-data` → `develop`），CI 結果要看一眼；staging 已經清空（661 筆），等她貼合併檔。**合不合 #137 先問她**
-- **02–15 都還沒動**。主分支 `claude/abovee-master-2026-10-05` 從 `origin/develop`（`6351f36`）開，上面只有 `.scratch` 這一份（`bc34a87`、`b261138`）
+- **01 做完、合了**：PR #137 → `develop`（`434a380`），staging 部署成功（`sw.js` v144、橫幅換成預演那一句）；staging 已經清空（661 筆），等她貼合併檔
+- **02–15 都還沒動**。主分支 `claude/abovee-master-2026-10-05` 已經 rebase 到 `434a380` 上，上面只有 `.scratch` 這一份
+- **合 PR 的規矩**（她 2026-10-05：「好給你合」）：這一輪的 PR，CI 綠、審查做完、她沒說要先看的，由 session 自己合進 `develop`，合完確認 staging 部署成功。**不碰 `main`**
 
 ## 下一個 session 做什麼
 
