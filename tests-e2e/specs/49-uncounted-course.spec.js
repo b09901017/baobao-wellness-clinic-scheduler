@@ -15,16 +15,7 @@ import { masterDocs, customer, entitlement, visit, slot, addDays, TODAY } from '
 const MONTH = TODAY.slice(0, 7);
 const PICK_DAY = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY;
 
-/** 功醫門診：種子裡還沒有（issue 12 才補），這裡照她講的那幾條自己建一門。 */
-const FM = {
-  path: 'config/app/courses', id: 'course-fm',
-  data: {
-    name: '功醫門診', group: '醫師門診', category: 'A', systems: ['Abovee', 'Examine', '耀聖'],
-    durationMin: 30, assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
-    doctorPick: 'any', requiresDoctor: true,
-    needsTreatmentForm: false, needsRecord: false, uncounted: true, active: true,
-  },
-};
+// 功醫門診（`course-fm`）2026-10-05 起在種子裡（issue 12）：不算次數、三個系統、不簽療程單。
 
 const FM_PICK = '__course__:course-fm';
 
@@ -49,27 +40,29 @@ const fmVisit = (over = {}) => visit({
 const liveTasks = async (app, visitId) => (await app.readAll('tasks'))
   .filter((t) => t.visitId === visitId && !t.deletedAt).map((t) => t.kind).sort();
 
-test('U1 設定 → 課程：勾「不算次數」存得下去，清單那一行看得出來', async ({ app, page }) => {
+test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自己再勾一門也存得下去', async ({ app, page }) => {
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
+  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('不算次數');
 
+  // 她之後自己加的那一種（Abovee 醫師門診那一類裡的一門，種子沒有建）
   await page.locator('[data-new]').click();
   await page.locator('[data-newgroup="醫師門診"]').click();
-  await page.fill('input[name="name"]', '功醫門診');
+  await page.fill('input[name="name"]', '回測報告');
   await expect(page.locator('input[name="uncounted"]')).not.toBeChecked();
   await page.locator('input[name="uncounted"]').check();
   await page.locator('input[name="needsTreatmentForm"]').uncheck();
   await page.click('button[type="submit"]');
   await app.saved();
 
-  const made = (await app.readAll('config/app/courses')).find((c) => c.name === '功醫門診');
+  const made = (await app.readAll('config/app/courses')).find((c) => c.name === '回測報告');
   expect(made.uncounted).toBe(true);
   expect(made.needsTreatmentForm).toBe(false);
-  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('不算次數');
+  await expect(page.locator('[data-course]').filter({ hasText: '回測報告' })).toContainText('不算次數');
 });
 
 test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已經選好、存得下去、日曆上看得到', async ({ app, page }) => {
-  await app.seed([...masterDocs(), FM, customer({ id: 'cust-n', name: '林小華' })]);
+  await app.seed([...masterDocs(), customer({ id: 'cust-n', name: '林小華' })]);
   // **走她真的會走的那條路**：日曆 → 那一天 → ＋ → 來訪 → 選人（那一份名單不看有沒有額度）。
   // 一位沒有額度的客戶不在壓表那面牆上（ADR-0041），這是她唯一排得到他的地方
   await app.signIn('/calendar');
@@ -111,7 +104,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
 });
 
 test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」，排了之後額度的數字一格都沒動', async ({ app, page }) => {
-  await app.seed([...masterDocs(), FM, ...poolCustomer()]);
+  await app.seed([...masterDocs(), ...poolCustomer()]);
   await app.signIn('/');
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
@@ -150,7 +143,7 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
 
 test('U4 做完那一段：確認框不講「扣掉次數」，客戶身上每一筆額度的數字都沒變，不長寫紀錄', async ({ app, page }) => {
   await app.seed([
-    ...masterDocs(), FM, ...poolCustomer(),
+    ...masterDocs(), ...poolCustomer(),
     fmVisit({ customerId: 'cust-p', customerName: '王小明' }),
   ]);
   await app.signIn('/todo/close');
@@ -172,7 +165,7 @@ test('U4 做完那一段：確認框不講「扣掉次數」，客戶身上每�
 
 test('U5 客人說可以之後：三個系統都勾的功醫門診長 Examine、耀聖', async ({ app, page }) => {
   await app.seed([
-    ...masterDocs(), FM, customer({ id: 'cust-n', name: '林小華' }),
+    ...masterDocs(), customer({ id: 'cust-n', name: '林小華' }),
     fmVisit({ status: 'pending_confirm', date: PICK_DAY }),
   ]);
   await app.signIn('/calendar');
@@ -193,7 +186,7 @@ test('U5 客人說可以之後：三個系統都勾的功醫門診長 Examine、
 });
 
 test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存下去的是不扣額度的那一段', async ({ app, page }) => {
-  await app.seed([...masterDocs(), FM, ...poolCustomer()]);
+  await app.seed([...masterDocs(), ...poolCustomer()]);
   await app.signIn('/');
   await app.go(`/visits/new/cust-p/${PICK_DAY}`);
   await app.layer('[data-chip="s0-ent"]');
@@ -234,7 +227,7 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
 
 test('U7 加購那一排沒有功醫門診；取消一段不扣次數的不講「次數也會還回來」', async ({ app, page }) => {
   await app.seed([
-    ...masterDocs(), FM, ...poolCustomer(),
+    ...masterDocs(), ...poolCustomer(),
     fmVisit({ customerId: 'cust-p', customerName: '王小明', date: PICK_DAY }),
   ]);
   await app.signIn('/customers/cust-p');

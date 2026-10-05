@@ -66,7 +66,7 @@ describe('清單怎麼分組（coursesByGroup）', () => {
     assert.deepEqual(find(OTHER_GROUP).courses.map((c) => c.course.name), ['物理治療師諮詢']);
     assert.deepEqual(find('健檢').courses.map((c) => c.course.name), ['健檢']);
     assert.deepEqual(find('醫師門診').courses.map((c) => c.course.name),
-      ['復健科醫師門診', '心臟科評估', '二返']);
+      ['復健科醫師門診', '心臟科評估', '二返', '功醫門診', '羊膜']);
     assert.deepEqual(find('EECP').courses.map((c) => c.course.name), ['EECP', 'EECP體驗']);
     assert.deepEqual(find('運動區').courses.map((c) => c.course.name),
       ['身體組成分析', '體適能檢查分析', '營養師諮詢']);
@@ -212,7 +212,9 @@ describe('沒有任何規則讀分類', () => {
   test('domain 裡只有 masterData.js 讀 course.group', () => {
     const dir = new URL('../public/js/domain/', import.meta.url);
     const readers = readdirSync(dir)
-      .filter((f) => f.endsWith('.js') && !['masterData.js', 'seed.js', 'orderForm.js'].includes(f))
+      // `health.js`：資料健檢「主檔有幾格還沒跟上」只問那一格是不是從來沒填過、要不要補（issue 12），
+      // 不拿分類決定任何事
+      .filter((f) => f.endsWith('.js') && !['masterData.js', 'seed.js', 'orderForm.js', 'health.js'].includes(f))
       .filter((f) => /\.group\b|groupOf\(/.test(readFileSync(new URL(f, dir), 'utf8')));
     assert.deepEqual(readers, []);
   });

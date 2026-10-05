@@ -370,7 +370,8 @@ describe('這個課程的診間怎麼排', () => {
     const byId = Object.fromEntries(SEED.rooms.map((r) => [r.id, r.name]));
     const pref = (id) => (SEED.courses.find((c) => c.id === id).preferredRoomIds ?? [])
       .map((x) => byId[x]);
-    assert.deepEqual(pref('course-eecp'), ['治5', '治8']);
+    // 治7 2026-10-05 回來了（ADR-0124）—— 那兩台 EECP 有一台在那一間
+    assert.deepEqual(pref('course-eecp'), ['治5', '治7', '治8']);
     assert.deepEqual(pref('course-iv-laser'), ['點滴10', '治2', '治3']);
   });
 
@@ -452,11 +453,12 @@ describe('種子資料', () => {
   // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
   test('診間就是她列的那三種、那幾間', () => {
     const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
-    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治8']);
+    // 治7 是 2026-10-05 加回來的（ADR-0124：Abovee 上 EECP 還排在治療室7）
+    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治7', '治8']);
     assert.deepEqual(of('點滴室'),
       ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴9', '點滴10']);
     assert.deepEqual(of('VIP室'), ['VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7']);
-    assert.equal(SEED.rooms.length, 17);
+    assert.equal(SEED.rooms.length, 18);
   });
 
   test('一間 4 號都沒有', () => {
@@ -504,11 +506,11 @@ describe('種子資料', () => {
     }
   });
 
-  test('EECP 只能在治5、治8', () => {
+  test('EECP 只能在治5、治7、治8', () => {
     const eecp = SEED.courses.find((c) => c.name === 'EECP');
-    assert.deepEqual(eecp.allowedRoomIds, ['room-t5', 'room-t8']);
+    assert.deepEqual(eecp.allowedRoomIds, ['room-t5', 'room-t7', 'room-t8']);
     const rooms = roomsForCourse(eecp, SEED.rooms).map((r) => r.name);
-    assert.deepEqual(rooms, ['治5', '治8']);
+    assert.deepEqual(rooms, ['治5', '治7', '治8']);
   });
 
   test('心臟科評估不佔診間', () => {
@@ -604,6 +606,9 @@ describe('種子資料', () => {
       'course-rehab': 'none',
       'course-followup': 'none',
       'course-cardio': 'none',
+      // 2026-10-05 多的兩門門診：要的是醫師，不是空間
+      'course-fm': 'none',
+      'course-amnion': 'none',
     };
     const got = Object.fromEntries(SEED.courses.map((c) => [c.id, c.assigns]));
     assert.deepEqual(got, want);
@@ -611,10 +616,11 @@ describe('種子資料', () => {
 
   // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
   // 預設30分鐘，這樣匯入的也可以對應到了」。2026-09-16 早上那個 30 是暫定值。
-  test('EECP 正式課 60 分、體驗課 30 分，兩門同一組診間限制', () => {
+  // 2026-10-05：體驗課從 30 改成 20 —— Abovee 上這門課叫 EECP20。
+  test('EECP 正式課 60 分、體驗課 20 分，兩門同一組診間限制', () => {
     const by = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
     assert.equal(by['course-eecp'].durationMin, 60);
-    assert.equal(by['course-eecp-trial'].durationMin, 30);
+    assert.equal(by['course-eecp-trial'].durationMin, 20);
     // 名字要跟舊表一字不差，`resolveCourse()` 是精確比對
     assert.equal(by['course-eecp-trial'].name, 'EECP體驗');
     assert.deepEqual(by['course-eecp-trial'].allowedRoomIds, by['course-eecp'].allowedRoomIds);
@@ -709,11 +715,12 @@ describe('種子資料', () => {
       '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
   });
 
-  test('除了二返，種子課程全部都要簽療程單', () => {
+  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」
+  test('除了二返與功醫門診，種子課程全部都要簽療程單', () => {
     for (const c of SEED.courses) {
       assert.equal(
         needsForm(c),
-        c.id !== 'course-followup',
+        !['course-followup', 'course-fm'].includes(c.id),
         `${c.name} 的簽單設定不對`,
       );
     }

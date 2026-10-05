@@ -143,6 +143,14 @@ function opFor(fix) {
         note: '資料健檢：補上建議清單裡有、主檔沒有的診間',
       };
     }
+    // 治7（ADR-0124）：9/08 照建議刪掉的那一間回到清單上。跟 設定 → 已刪除項目 的還原同一個寫法
+    // （`repo.restore()` 就是把 `deletedAt` 清掉）。
+    if (fix.mode === 'restore') {
+      return {
+        op: 'update', path: roomPath, id: fix.roomId, changes: { deletedAt: null },
+        note: '資料健檢：還原回到建議清單上的診間',
+      };
+    }
     if (fix.mode === 'drop') {
       return {
         op: 'softDelete', path: roomPath, id: fix.roomId,
@@ -267,6 +275,29 @@ function opFor(fix) {
       id: fix.courseId,
       data: fix.data,
       note: '資料健檢：把種子裡的課程建起來',
+    };
+  }
+
+  // 種子資料裡有、主檔沒有的那幾款點滴（2026-10-05 補到跟 Abovee 一樣）。id 用種子的，理由同上。
+  if (fix?.kind === 'addIvProduct') {
+    return {
+      op: 'create',
+      path: 'config/app/ivProducts',
+      id: fix.ivProductId,
+      data: fix.data,
+      note: '資料健檢：把種子裡的點滴品項建起來',
+    };
+  }
+
+  // 主檔上 2026-10-05 多的那幾格（分類、要哪一科的醫師、約的時候選時長、Abovee 上的寫法、
+  // EECP 可以排治7）。**只寫 `changes` 裡那一兩格**；哪一種主檔、哪一筆由那一列自己帶。
+  if (fix?.kind === 'setMasterFields') {
+    return {
+      op: 'update',
+      path: `config/app/${fix.type}`,
+      id: fix.id,
+      changes: fix.changes,
+      note: `資料健檢：補上${fix.what}`,
     };
   }
 

@@ -1,6 +1,6 @@
 # 主檔補齊：種子跟上 Abovee，既有資料庫走資料健檢補
 
-Status: todo
+Status: done
 來源：`../spec.md` 二、第二題（治7）、第一段 c、e
 動工前先讀：`domain/seed.js` 全部、`domain/health.js` 的 `checkRoomList()`（第 1086 行起）／`LEGACY_ROOMS`（第 1078 行）／`checkSeedCourse()`／
 `checkCourseDuration()`／`checkIvProductDuration()`／`checkSeedEquipment()`、`data/health.js`（每一種 `fix.kind` 怎麼寫下去）、
@@ -89,3 +89,22 @@ Blocked by: 02、03、04、05、06、07（每一個新欄位都要先存在）
 
 皮蛇疫苗種子 `durationMin: 30`（設定 → 營養點滴品項 改得動，本來就是）。其餘 6 款新品項不填，照營養點滴那門課走（120）。
 既有資料庫補這 7 款時（資料健檢「種子有、你沒有」那一條），皮蛇疫苗帶著 30 一起建。
+
+## 做完時留下的
+
+- **種子**：點滴 14 款（新的 7 款 id `iv-vitality`／`iv-immune`／`iv-slim`／`iv-guard`／`iv-heal`／`iv-sleep`／`iv-shingles`，皮蛇疫苗 30 分）；
+  `room-t7`；兩門 EECP 的 `allowedRoomIds`／`preferredRoomIds` 都是 t5、t7、t8；EECP體驗 20 分；
+  `course-fm`（功醫門診）、`course-amnion`（羊膜）。兩門新課**不帶 `requiresDoctor`**（同復健科醫師門診、心臟科評估 —— 讀的那一側只認 `doctorPick`）
+- **資料健檢 28 → 30 項**：`seedIvProduct`（少了幾款，`addIvProduct`）、`seedBlanks`（主檔有幾格還沒跟上，一格一列，`setMasterFields`：
+  哪一種主檔、哪一筆、寫哪幾格都由那一列帶，確認框那一句 `fix.why` 也是 domain 給的）。診間那一列多一種 `restore`（只有 `RETURNED_ROOMS`＝治7）
+- **她沒問、順手收緊的**：「種子有、她沒有」那幾列以前只比 id —— 她自己先建了同名的（功醫門診她之前就建得起來、治7 她可能自己加回去），
+  再按一次就是兩筆同名。現在 `sameNamed()` 擋（診間、課程、點滴三列共用）；EECP 補治7 時用的是**她那一間的 id**。ADR-0124 寫了
+- `seedBlanks` 的護欄：分類只認 `undefined`（她放到「其他」存的是 `null`）；約的時候選時長要「可選時長是空的、預設時長在名單上」才補；
+  Abovee 上的寫法已經是她另一筆的就不補 —— 後兩條不守的話按完那一筆在設定頁存不回去（E2E H9 補完之後真的打開存一次）
+- **staging 上會看到的**（主檔是 02 之前的種子）：課程少兩門、點滴少 7 款、治7 建起來、EECP體驗 30 → 20、`seedBlanks` 三十幾列（一顆「一次補」）
+- `tests/course-groups.test.js` 的「domain 裡只有 masterData.js 讀 `.group`」多放行 `health.js`（它只問那一格填過沒）
+- E2E：`03` 加 H9（10/5 之前的主檔把每一顆新的修正按下去）；`49`、`51` 拿掉自己建的功醫門診，改用種子的（49 的 U1 改成她自己再建一門「回測報告」）
+- ADR-0124、`CONTEXT.md` 診間、`SPEC.md` 第 12 節、常見問題「治7 不見了」、操作手冊資料健檢那張表（多兩列）
+- `sw.js` v156
+- **PR 裡要講的**：羊膜的「壓哪幾個系統、要不要寫紀錄」是猜的（照醫師門診那一組：三個都勾、不寫紀錄）；體驗課跟正式課一樣可以排治7；
+  新的 6 款點滴照 120 分、皮蛇疫苗 30 分；治療師與醫師的人由她自己在 設定 → 治療師與醫師 加（真名不進 repo）

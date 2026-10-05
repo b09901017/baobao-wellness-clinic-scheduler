@@ -11,7 +11,7 @@ import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.
 export const SEED = {
   // 空間。**2026-09-08 她重畫過一次**，三種類型、都沒有 4 號：
   //
-  //   治療室  治2 治3 治5 治8
+  //   治療室  治2 治3 治5 治7 治8        （治7 2026-10-05 回來了，見下面）
   //   點滴室  點滴2 3 5 6 7 8 9 10        簡寫 .2 …… .10
   //   VIP室   VIP2 3 5 6 7                簡寫 vip2 …… vip7
   //
@@ -28,12 +28,15 @@ export const SEED = {
   //
   // 2026-08-19 她確認過「治7、治9、治10、點滴2、點滴8、ILIB4 也都還在」，
   // 2026-09-08 這一輪把治7／治9／治10／ILIB4 拿掉了（ILIB4 有個 4）。
+  // **2026-10-05 治7 回來了**（ADR-0124，她：「加回去」）：Abovee 上 EECP60 有 10 筆排在
+  // 治療室7（6/23～10/29），那兩台機器真的在那一間。治9／治10／ILIB4 照舊不在。
   // **既有資料庫不會自己跟上**（`loadSeed()` 只建不覆蓋），那一步由資料健檢
-  // 的「診間清單跟建議的不一樣」負責。
+  // 的「診間清單跟建議的不一樣」負責 —— 9/08 照建議刪掉治7 的那一份，那一列會請她還原。
   rooms: [
     { id: 'room-t2', name: '治2', type: '治療室' },
     { id: 'room-t3', name: '治3', type: '治療室' },
     { id: 'room-t5', name: '治5', type: '治療室' },
+    { id: 'room-t7', name: '治7', type: '治療室' },
     { id: 'room-t8', name: '治8', type: '治療室' },
     { id: 'room-iv2', name: '點滴2', type: '點滴室', shortName: '.2' },
     { id: 'room-iv3', name: '點滴3', type: '點滴室', shortName: '.3' },
@@ -145,6 +148,11 @@ export const SEED = {
   // 多久，空的就跟著課程走（一般 120 分）。她 2026-09-16：「一般120分，
   // 護心抗老180分」。行事曆上她刻意設過結束時間的 4 筆點滴全部是 120 分
   //（雪顏亮彩 ×3、護肝排毒 ×1），護心抗老一筆都沒有。
+  //
+  // **2026-10-05 補到跟 Abovee 一樣**（abovee-and-master/12）：Abovee 的營養點滴那一類有 13 款，
+  // 這裡原本 7 款（其中 NAC 愛咳痰 Abovee 沒有，她自己的，留著）→ 補 7 款，一共 14。
+  // 名字跟 Abovee 一字不差，所以不用另外填 `aboveeNames`（`courseFrom()` 先比名字）。
+  // 既有資料庫由資料健檢的「營養點滴品項少了幾款」補。
   ivProducts: [
     { id: 'iv-heart', name: '護心抗老', durationMin: 180 },
     { id: 'iv-liver', name: '護肝排毒' },
@@ -154,6 +162,15 @@ export const SEED = {
     { id: 'iv-nac', name: 'NAC 愛咳痰' },
     // Abovee 寫「亮采」（她 2026-10-05：不改名，記住那個寫法）
     { id: 'iv-snow', name: '雪顏亮彩', aboveeNames: ['雪顏亮采'] },
+    { id: 'iv-vitality', name: '元氣活力' },
+    { id: 'iv-immune', name: '免疫馥活' },
+    { id: 'iv-slim', name: '減脂健康' },
+    { id: 'iv-guard', name: '營養守護' },
+    { id: 'iv-heal', name: '癒原養方' },
+    { id: 'iv-sleep', name: '養心舒眠' },
+    // 一針，不是兩小時的點滴。她 2026-10-05 說她也還不確定、先給 30 分、要改得動
+    // —— 設定 → 營養點滴品項 那一格本來就改得動（ADR-0098）。
+    { id: 'iv-shingles', name: '皮蛇疫苗', durationMin: 30 },
   ],
 
   products: [
@@ -230,6 +247,31 @@ export const SEED = {
       // 沒有這個欄位就是不用寫，所以只有真的要寫的那幾個課程有它。
       needsRecord: true,
     },
+    {
+      // **功醫門診**（2026-10-05）。她：「跟二返不同；不算次數、不簽療程單、不寫紀錄；
+      // 三個系統都要壓；要選醫師」。行事曆上她寫 HRV 的那幾次就是它（HRV 是自律神經檢查，
+      // 後面那一場讓醫師講解報告的門診才是這一段）。
+      //
+      // **不算次數**（ADR-0121）：排的時候不用額度，客戶身上的數字一格都不會動。
+      // 加購那一排不列它；她之後要讓別門課也這樣，自己在設定勾。
+      id: 'course-fm', name: '功醫門診', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['功醫門診'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, doctorPick: '功能／二返', frequencyRule: null,
+      uncounted: true,
+      needsTreatmentForm: false,
+    },
+    {
+      // **羊膜**（2026-10-05）。她：「加購（有次數，像營養針）；選復健科醫師（只有一位）；
+      // 要簽療程單」。有次數所以加購那一排有它。
+      //
+      // **壓哪幾個系統與要不要寫紀錄她沒說** —— 先照醫師門診那一組的預設
+      // （`GROUP_DEFAULTS`：三個都勾、不寫紀錄）。設定 → 課程 改得動。
+      id: 'course-amnion', name: '羊膜', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['羊膜'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, doctorPick: '復健科', frequencyRule: null,
+    },
 
     // ---- B 類：單系統＋電話 ----
     {
@@ -277,7 +319,8 @@ export const SEED = {
       requiresEquipment: false, frequencyRule: null, durationChoices: [30, 60],
     },
     {
-      // SPEC 第 7 節規則 2：EECP 只能在治5、治8。
+      // SPEC 第 7 節規則 2：EECP 只能在治5、治7、治8（治7 是 2026-10-05 加回來的，
+      // ADR-0124 —— Abovee 上 EECP60 有 10 筆在那一間）。
       // `preferredRoomIds` 跟它**同時填著**是刻意的（2026-09-08）：
       // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
       //
@@ -286,8 +329,8 @@ export const SEED = {
       // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
       id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C',
       systems: ['Abovee'], durationMin: 60, aboveeNames: ['EECP'],
-      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
-      preferredRoomIds: ['room-t5', 'room-t8'],
+      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
     },
     {
@@ -299,13 +342,17 @@ export const SEED = {
       // 匯不進來。`SPEC.md` 第 4.4 節她自己記的實際紀錄也是這四個字
       //（`14:45–15:15  EECP 體驗`）。
       //
-      // 機器就那兩間，所以限制與順序跟正式課一模一樣。
+      // 同一批機器，所以限制與順序跟正式課一模一樣。
+      //
+      // **2026-10-05 從 30 分改成 20 分**：Abovee 上這門課就叫 `EECP20`
+      //（她：「EECP20 就是 EECP 體驗」）。9/16 她說的是 30；Abovee 上實際排的是 20，
+      // 而她這一輪定的是「時間跟 Abovee 不一樣時以 Abovee 為準」。
       id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C',
       // Abovee 寫 `EECP20`（她 2026-10-05：「EECP20 就是 EECP 體驗」）。整格比對、在拆分鐘之前 ——
       // 拆了就是「EECP＋20 分」，認成正式課（`abovee.js` 的 `courseFrom()`）
-      systems: ['Abovee'], durationMin: 30, aboveeNames: ['EECP20'],
-      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t8'],
-      preferredRoomIds: ['room-t5', 'room-t8'],
+      systems: ['Abovee'], durationMin: 20, aboveeNames: ['EECP20'],
+      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
+      preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
     },
     {

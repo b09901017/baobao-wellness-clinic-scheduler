@@ -1325,12 +1325,14 @@ describe('這一段要排多久（slotMinutes，ADR-0098）', () => {
     assert.equal(slotMinutes({ entitlement: { durationMin: 0 }, course: POOL }), 60);
   });
 
-  test('種子：營養點滴 120 分、護心抗老 180 分，其餘品項不填', () => {
+  test('種子：營養點滴 120 分、護心抗老 180 分、皮蛇疫苗 30 分，其餘品項不填', () => {
     const drip = SEED.courses.find((c) => c.id === 'course-iv-drip');
     assert.equal(drip.durationMin, 120);
     const heart = SEED.ivProducts.find((x) => x.id === 'iv-heart');
     assert.equal(heart.durationMin, 180);
-    const others = SEED.ivProducts.filter((x) => x.id !== 'iv-heart');
+    // 皮蛇疫苗是一針（2026-10-05 她先給 30 分），其餘的都是兩小時的點滴
+    assert.equal(SEED.ivProducts.find((x) => x.id === 'iv-shingles').durationMin, 30);
+    const others = SEED.ivProducts.filter((x) => !['iv-heart', 'iv-shingles'].includes(x.id));
     assert.deepEqual(others.map((x) => x.durationMin ?? null), others.map(() => null),
       '空的就是「跟著課程走」—— 填一份跟課程一樣的數字，改課程時會有一堆沒跟上的');
   });

@@ -51,20 +51,11 @@ const MONTH = '2026-09';
 const chart = (no) => [{ text: `病歷號 ${no}`, color: 'grey' }];
 const POOL3 = { type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60, totalQty: 12 };
 
-/** 功醫門診：種子要到 issue 12 才有，這裡照 12 要建的形狀自己放一門 */
-const FM = {
-  path: 'config/app/courses', id: 'course-fm',
-  data: {
-    name: '功醫門診', group: '醫師門診', category: 'A', systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30,
-    assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [], doctorPick: '功能／二返', requiresDoctor: true,
-    requiresEquipment: false, needsTreatmentForm: false, needsRecord: false, uncounted: true,
-    aboveeNames: ['功醫門診'], active: true,
-  },
-};
+// 功醫門診（`course-fm`）2026-10-05 起在種子裡（issue 12），帶著 Abovee 上的寫法。
 
 function picksSeed() {
   return [
-    ...masterDocs(), FM,
+    ...masterDocs(),
     customer({ id: 'cust-wang', name: '王小明', marks: chart('1234') }),
     customer({ id: 'cust-lee', name: '李小華', marks: chart('5678') }),
     customer({ id: 'cust-a', name: '客戶A' }),
