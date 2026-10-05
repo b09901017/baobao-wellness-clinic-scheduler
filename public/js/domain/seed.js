@@ -184,8 +184,8 @@ export const SEED = {
   //
   //   物理治療師  復能（INDIBA／SIS／高能量雷射，多選一選到這三者也算）
   //   治療室      營養點滴、EECP、ILIB
-  //   醫師        門診類（A 類一律選得到，見 `picksDoctor()`）
-  //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
+  //   醫師        門診類（課程自己選哪一科，`doctorPick`，ADR-0120；沒選過的 A 類一律選得到）
+  //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診（含功醫門診、羊膜）
   //
   // 2026-09-08 之前健檢、體適能、身體組成、營養諮詢、復健科醫師門診與二返
   // 六個都指派著治療室。既有資料庫不會自己跟上（`loadSeed()` 只建不覆蓋），
@@ -208,7 +208,7 @@ export const SEED = {
     {
       id: 'course-rehab', name: '復健科醫師門診', group: '醫師門診', category: 'A',
       systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['復健門診'],
-      // 門診要的是**醫師，不是空間**（她 2026-09-08）。A 類一律選得到醫師
+      // 門診要的是**醫師，不是空間**（她 2026-09-08）。選不選得到醫師看 `doctorPick`
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       // 指定一科是**排序不是限制**（ADR-0120）：那一科的醫師排前面。種子醫師還沒填科別，

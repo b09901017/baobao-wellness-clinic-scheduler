@@ -1664,7 +1664,7 @@ function therapistField(all) {
 /**
  * 醫師。**跟治療師是兩個各自獨立的選單**，同一段可以兩個都有 ——
  * 二返同時要診間和醫師（ADR-0026）。哪些課程有這一排只寫在
- * `domain/masterData.js` 的 `picksDoctor()`（A 類一律有）。
+ * `domain/masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；沒選過的 A 類一律有）。
  *
  * 以前這一排只有日曆的來訪編輯器有，所以她壓完二返之後那一段的醫師一定是空的，
  * 而試算表的二返註記括號裡讀的就是它 —— 括號因此永遠是空的。
