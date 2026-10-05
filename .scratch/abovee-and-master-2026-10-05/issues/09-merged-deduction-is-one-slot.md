@@ -1,6 +1,6 @@
 # 合併扣課：兩列記成一段 60 分、扣一次、記一句寫出來
 
-Status: todo
+Status: done
 來源：`../spec.md` 第一題、第一段 a
 動工前先讀：`functions/transcripts/aboveeList.js` 與 `public/js/domain/transcripts.js`（兩份要一模一樣，`tests/ai-transcripts.test.js`）、
 ADR-0099、ADR-0100（「考試結果」、改了格式要重考）、`scripts/ai-exam.mjs` 的 `scoreAbovee()`、`domain/aboveeImport.js` 的 `ABOVEE_KEYS`／`RIGHT_KEYS`／`mergeAboveePhotos()`／`aboveeStart()`、
@@ -66,3 +66,18 @@ Abovee 列表有「合併扣課」那一欄，但抄字格式只抄九欄（`ABO
 - 「合併扣課」那一欄如果在右半張，要加進 `RIGHT_KEYS`（`aboveeImport.js` 第 35 行），不然拍兩張時那一欄掉了
 - **第二台的提醒不可以消失**（ADR-0074、0075 的張力）：那一段只記第一台，SIS 那一半的「體內金屬」提醒（`noticeSentence()`）就不會跳。
   合成的那一列要把**兩台**的提醒都放進那一列的 warnings
+
+## 做完時留下的
+
+- 抄字格式第十欄「合併扣課」（`ABOVEE_COLUMNS` 兩份一起改，排在課程後面）；`ABOVEE_KEYS` 多 `merged`，也加進 `RIGHT_KEYS`（左半空、右半有才補）
+- **Function 要重新部署才會抄到那一欄**：模擬器、staging、正式都一樣 —— 舊的 Function 的 `sanitize()` 會把不在格式上的欄丟掉。
+  沒部署之前照「沒有那一欄」那一條認（E2E 第一次就是這樣紅的：模擬器沒重開）。staging、正式各一次，`docs/STAGING.md` 第三之三節
+- 重考（ADR-0100 寫了）：那一欄抄得到；其餘欄沒退步（姓名 8～9/10、服務資源 7/10）
+- domain：`aboveeEnd()`、`mergedMark()`、`mergeRows(items, ctx, { hasColumn })`（`readAbovee()` 最後一步）、`mergedLine()`、`mergedNotices()`。
+  合成的那一列 key 是 `a3+a4`、`merged.parts` 留著原本兩列、`picksOf()` 帶 `note`。孤兒是 `mergeOrphan`（`needsAttention()`、`newRowSay()` 認得）
+- 確認層：那一列底下一行「合併扣課 IN 30＋SIS 30 → 記成一段 60 分、扣一次」＋「拆開成兩段」（`data-abl-split`，換回原本兩列、不再合）；
+  第二台的提醒接在那一列的 warnings
+- 存檔前那一道：「其中 N 組合併扣課，各記成一段 60 分、扣一次」
+- 試算表：記一句本來就印在那一筆額度、那一天那一格（`slotNoteCells()`），測試釘了一條
+- `sw.js` v152。E2E 51 加 N3、N4；假抄字 `aboveeList-merged.json`
+- **沒做**：`三返`／不算次數的課不合（`mergeRows()` 只收有課程、不是 n返、不是不算次數的列）

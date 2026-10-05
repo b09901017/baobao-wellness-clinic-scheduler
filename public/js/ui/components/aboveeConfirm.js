@@ -21,8 +21,8 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, examChoices, mismatchSay, needsAttention, newRowSay, optionValueOf, pickOption, picksOf, planAbovee,
-  queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDatesIn, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention, newRowSay, optionValueOf, pickOption,
+  picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor, slotMinutes } from '../../domain/visits.js';
@@ -153,9 +153,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         customerVisits: ctx.visitsBy[g.customerId] ?? [],
         sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === g.date),
       });
+      const customer = { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] };
       for (const item of g.items) {
         if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
-        warningsBy[item.key] = warnings;
+        // 合併扣課只記第一台，第二台要提醒的事接在後面（`mergedNotices()`）
+        warningsBy[item.key] = [...warnings, ...mergedNotices(item, customer, ctx.master.equipment)];
       }
     }
     return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy };
@@ -285,6 +287,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             <span class="abl-row__tag">${esc(tag === 'unknown' && item.who.how === 'none' ? 'app 裡沒有' : TAGS[tag])}</span>
           </button>
         </div>
+        ${item.merged ? `
+          <p class="abl-row__merged"><b>合併扣課</b>${esc(mergedLine(item))}
+            ${savedKeys.has(item.key) ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
@@ -565,6 +570,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const set = (next) => { items[at] = next; repaintRow(key); };
 
     if (t.matches('[data-abl-check]')) { set({ ...item, checked: !item.checked }); return; }
+    if (t.matches('[data-abl-split]')) {
+      // 拆開成兩段：換回原本那兩列（一般的兩段，各扣各的）。不再合 —— 她拆的
+      items.splice(at, 1, ...item.merged.parts.map((p) => ({ ...p, checked: item.checked && p.checked })));
+      if (attention.has(key)) item.merged.parts.forEach((p) => attention.add(p.key));
+      if (openKey === key) openKey = null;
+      paintBody();
+      return;
+    }
     if (t.matches('[data-abl-open]')) {
       const before = openKey;
       openKey = openKey === key ? null : key;

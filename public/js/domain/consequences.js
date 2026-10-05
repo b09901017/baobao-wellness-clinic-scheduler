@@ -257,6 +257,12 @@ export function aboveeConsequences({
     `${people} 位・${groups.length} 天・${n} 段`,
     '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
   ];
+  // 合併扣課（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
+  const merges = groups.flatMap((g) => g.items ?? []).filter((i) => i.merged);
+  if (merges.length) {
+    const minutes = [...new Set(merges.map((i) => i.merged.minutes).filter(Boolean))];
+    lines.push(`其中 ${merges.length} 組合併扣課，各記成一段${minutes.length === 1 ? ` ${minutes[0]} 分` : ''}、扣一次`);
+  }
   if (ahead.length) lines.push(`今天起的 ${ahead.length} 天會出現在待辦的「跟客人確認時間」`);
   if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
   for (const g of groups.filter((x) => x.reopened)) {

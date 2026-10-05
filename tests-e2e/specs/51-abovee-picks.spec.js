@@ -165,3 +165,61 @@ test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診�
   expect(at('2026-09-12').map((s) => [s.entitlementId, s.courseId])).toEqual([[null, 'course-fm']]);
   for (const v of added) for (const s of v.slots) expect(s.status).toBe('pending_confirm');
 });
+
+// ---------- 09：合併扣課 ----------
+
+function mergedSeed() {
+  return [
+    ...picksSeed(),
+    entitlement('cust-a', { id: 'a-pool', ...POOL3 }),
+  ];
+}
+
+test('N3（09）兩列都勾了合併扣課 → 一列、記成一段 60 分扣一次、記一句自動寫；找不到另一半的那一列要你看、不打勾', async ({ app, page }) => {
+  await app.seed(mergedSeed());
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-merged');
+
+  const pair = row(page, 'a0+a1');
+  await expect(pair.locator('.abl-row__merged')).toContainText('合併扣課');
+  await expect(pair.locator('.abl-row__merged')).toContainText('IN 30＋SIS 30 → 記成一段 60 分、扣一次');
+  await expect(pair.locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('[data-abl-row]')).toHaveCount(2);
+
+  const orphan = row(page, 'a2');
+  await expect(page.locator('.abl__group--look')).toContainText('客戶A');
+  await expect(orphan.locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  await expect(orphan.locator('.abl-row__hint')).toContainText('找不到另一半');
+
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('其中 1 組合併扣課，各記成一段 60 分、扣一次');
+  await app.ok();
+  await app.saved();
+
+  const added = (await app.readAll('visits')).filter((v) => v.id !== 'v-exam');
+  expect(added.map((v) => `${v.customerId} ${v.date}`)).toEqual(['cust-wang 2026-09-10']);
+  expect(added[0].slots.map((s) => [s.startsAt, s.endsAt, s.equipmentId, s.entitlementId, s.note])).toEqual([
+    ['10:30', '11:30', 'eq-indiba', 'w-pool', '合併扣課：IN 30＋SIS 30'],
+  ]);
+});
+
+test('N4（09）按「拆開成兩段」→ 變回兩列，記下去是兩段', async ({ app, page }) => {
+  await app.seed(mergedSeed());
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-merged');
+
+  await row(page, 'a0+a1').locator('[data-abl-split]').click();
+  await expect(row(page, 'a0+a1')).toHaveCount(0);
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).not.toContainText('合併扣課');
+  await app.ok();
+  await app.saved();
+
+  const [wang] = (await app.readAll('visits')).filter((v) => v.id !== 'v-exam');
+  expect(wang.slots.map((s) => [s.startsAt, s.equipmentId, s.note])).toEqual([
+    ['10:30', 'eq-indiba', null], ['11:00', 'eq-sis', null],
+  ]);
+});

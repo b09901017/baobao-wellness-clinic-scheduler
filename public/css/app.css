@@ -9505,6 +9505,22 @@ body.has-abl {
   text-decoration: none;
 }
 
+/* 合併扣課那一列：兩列合成一段 —— 收起來也看得到，旁邊一顆拆開 */
+.abl-row__merged {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) calc(var(--tap-min) + var(--space-1));
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.abl-row__merged b {
+  color: var(--accent);
+}
+
 /* 「是誰」那一排：認得的那一位只是一行字，旁邊一顆「換一位」 */
 .abl-row__whonow {
   align-self: center;

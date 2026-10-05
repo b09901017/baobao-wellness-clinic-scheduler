@@ -21,20 +21,25 @@ import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import { coursesForEntitlement, isActive, isLiveSlot, shortStatus, slotStatus } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
-import { DOCTOR_ROLE, THERAPIST_ROLE } from './masterData.js';
+import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias } from './masterData.js';
+import { noticeFlags } from './contraindications.js';
+import { toMinutes } from './visitTime.js';
 import { markInQueue } from './scheduling.js';
 import { NTH_PICK, uncountedCourseIdOf, uncountedPick } from './slotOptions.js';
 import { MIN_NTH } from './nthFollowup.js';
 import { isValidDate } from './dates.js';
 
-/** 照片上的欄名 → 列上的欄位。只有這九欄（`ABOVEE_COLUMNS`）。 */
+/** 照片上的欄名 → 列上的欄位。只有這十欄（`ABOVEE_COLUMNS`）。 */
 export const ABOVEE_KEYS = Object.freeze({
   預約狀態: 'status', 預約日期: 'date', 預約時段: 'time', 姓名: 'name', 病歷號: 'chartNo',
-  課程: 'course', 診間: 'room', 服務資源: 'resource', 取消原因: 'cancelReason',
+  課程: 'course', 合併扣課: 'merged', 診間: 'room', 服務資源: 'resource', 取消原因: 'cancelReason',
 });
 
-/** 右半邊那幾格：左右兩張配對時才從右半補進來。 */
-const RIGHT_KEYS = ['room', 'resource', 'cancelReason'];
+/**
+ * 右半邊那幾格：左右兩張配對時才從右半補進來。「合併扣課」在 Abovee 上緊跟著課程（左半），
+ * 但她拍的那一半切在哪不一定 —— 左半那一格空著、右半有的話照樣補（左半有字的不會被蓋掉）。
+ */
+const RIGHT_KEYS = ['room', 'resource', 'cancelReason', 'merged'];
 
 const clean = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
 
@@ -55,6 +60,20 @@ export function aboveeStart(text) {
   const m = clean(text).match(/(\d{1,2})\s*[:：]\s*(\d{2})/);
   if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
   return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
+/** `09:00 - 10:15` → `10:15`。只寫了開始時間就是 null。合併扣課靠它判斷兩列接不接得上。 */
+export function aboveeEnd(text) {
+  const m = [...clean(text).matchAll(/(\d{1,2})\s*[:：]\s*(\d{2})/g)][1];
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
+/** 「合併扣課」那一格有沒有勾。Abovee 上寫「是」；抄成勾勾也算。 */
+export function mergedMark(text) {
+  const s = clean(text);
+  if (!s || /否|不|no/i.test(s)) return false;
+  return /是|有|勾|✓|✔|☑|^v$|^y|true|^1$/i.test(s);
 }
 
 // ---------- 兩張怎麼對 ----------
@@ -225,7 +244,10 @@ function crossCheck(aboveeSays, found, sameCourse) {
  * 可能是她在 Abovee 上換了課程，也可能是課程那一格抄錯了，所以不預設打勾（ADR-0116）。
  */
 export function newRowSay(item) {
-  return item?.kind === 'new' && item.appCancelledHere
+  if (item?.kind !== 'new') return '';
+  // 不默默記成一般的一段（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
+  if (item.mergeOrphan) return 'Abovee 上勾了合併扣課，照片上找不到另一半 —— 確定是單獨一段再勾。';
+  return item.appCancelledHere
     ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
     : '';
 }
@@ -383,7 +405,120 @@ export function readAbovee(transcripts, ctx) {
     return resolveItem(base, who.customer?.id ?? null, ctx);
   });
 
-  return { pairing, counts: sizes, items };
+  // 照片上有沒有「合併扣課」那一欄（拍兩張時，有一張有就算）
+  const hasColumn = (transcripts ?? []).some((t) => (t?.columns ?? []).some((c) => ABOVEE_KEYS[clean(c)] === 'merged'));
+  return { pairing, counts: sizes, items: mergeRows(items, ctx, { hasColumn }) };
+}
+
+// ---------- 合併扣課 ----------
+
+/** 這一列在 Abovee 上排了幾分鐘（起訖算的，不是課程那一格的字）。讀不出結束時間就是 null。 */
+function rowMinutes(item) {
+  const end = aboveeEnd(item?.row?.time);
+  return item?.startsAt && end ? toMinutes(end) - toMinutes(item.startsAt) : null;
+}
+
+/** 記一句裡那一列叫什麼：器材印別稱（沒有就全名），不是器材的列印課程。 */
+function partLabel(item, master = {}) {
+  const eq = (master.equipment ?? []).find((e) => e.id === item.course?.equipmentId);
+  const course = (master.courses ?? []).find((c) => c.id === item.course?.courseId);
+  const name = eq ? (eq.shortName || eq.name) : (course?.shortName || course?.name || clean(item.row?.course));
+  const minutes = rowMinutes(item);
+  return minutes ? `${name} ${minutes}` : name;
+}
+
+/**
+ * 照片上**沒有**那一欄時，兩列像不像一對合併扣課：服務資源同一個人、兩列都是擇一池的器材、
+ * 對到同一筆額度、那一筆的時長剛好是兩列加起來（60 ＝ 30＋30）。
+ * 353 筆裡勾了的那三對都長這樣；兩列各自扣一筆 30 分的就不是。
+ */
+function looksMerged(a, b, ctx) {
+  const who = normalizeAlias(a.row?.resource);
+  if (!who || who !== normalizeAlias(b.row?.resource)) return false;
+  if (!a.course?.equipmentId || !b.course?.equipmentId) return false;
+  if (!a.entitlementId || a.entitlementId !== b.entitlementId) return false;
+  const ent = liveEnts(ctx, a.customerId).find((e) => e.id === a.entitlementId);
+  const total = (rowMinutes(a) ?? 0) + (rowMinutes(b) ?? 0);
+  return ent?.type === 'pool' && Boolean(rowMinutes(a) && rowMinutes(b)) && Number(ent.durationMin) === total;
+}
+
+/**
+ * 合併扣課（abovee-and-master/09）：Abovee 上兩列半小時、合起來扣一次 60 分。她 10/5：
+ *
+ * > 我選一段 60 分並且「記一句」自動寫「合併扣課：IN 30＋SIS 30」，試算表也要呈現合併扣課
+ *
+ * **一對**：兩列都是新的、沒取消、同一位、同一天、前一列的結束＝後一列的開始、**推出來的課程一樣**
+ *（四選一含 ILIB，IN＋ILIB 不可以合成一段「IN 60」），而且：照片上有「合併扣課」那一欄就兩列都勾了；
+ * 沒有那一欄就要長得像一對（`looksMerged()`）。
+ *
+ * 一對換成一列：開始時間、器材、治療師、診間照第一列，**用合起來的分鐘重挑額度**（每一半單獨挑會挑到
+ * (30) 那一筆），記一句自動寫。`merged.parts` 留著原本那兩列 —— 「拆開成兩段」就換回去。
+ *
+ * 照片上勾了、旁邊找不到另一半的那一列：`mergeOrphan`，不預設打勾、排進要你看 —— 不默默記成一般的一段。
+ */
+export function mergeRows(items, ctx, { hasColumn = false } = {}) {
+  const pool = (items ?? []).filter((i) => i.kind === 'new' && !i.cancelled && i.customerId && i.date && i.startsAt
+    && !i.isNth && !i.uncountedCourseId && i.course)
+    .slice()
+    .sort((a, b) => `${a.customerId}|${a.date}|${a.startsAt}`.localeCompare(`${b.customerId}|${b.date}|${b.startsAt}`));
+  const pairs = new Map();
+  const used = new Set();
+  for (let k = 0; k + 1 < pool.length; k += 1) {
+    const [a, b] = [pool[k], pool[k + 1]];
+    if (used.has(a.key) || used.has(b.key)) continue;
+    if (a.customerId !== b.customerId || a.date !== b.date) continue;
+    if (aboveeEnd(a.row?.time) !== b.startsAt || a.course.courseId !== b.course.courseId) continue;
+    const pair = hasColumn ? mergedMark(a.row?.merged) && mergedMark(b.row?.merged) : looksMerged(a, b, ctx);
+    if (!pair) continue;
+    used.add(a.key);
+    used.add(b.key);
+    pairs.set(a.key, mergedItem(a, b, ctx));
+  }
+
+  return (items ?? []).flatMap((i) => {
+    if (pairs.has(i.key)) return [pairs.get(i.key)];
+    if (used.has(i.key)) return [];
+    if (hasColumn && i.kind === 'new' && !i.cancelled && mergedMark(i.row?.merged)) {
+      return [{ ...i, mergeOrphan: true, checked: false }];
+    }
+    return [i];
+  });
+}
+
+function mergedItem(a, b, ctx) {
+  const [ma, mb] = [rowMinutes(a), rowMinutes(b)];
+  const minutes = ma && mb ? ma + mb : null;
+  const labels = [partLabel(a, ctx.master), partLabel(b, ctx.master)];
+  return resolveItem({
+    ...a,
+    key: `${a.key}+${b.key}`,
+    // 合起來的分鐘去挑額度：客戶同時有 (30) 與 (60) 時扣 (60) 那一筆
+    course: { ...a.course, durationMin: minutes ?? a.course.durationMin },
+    merged: { parts: [a, b], labels, minutes, note: `合併扣課：${labels.join('＋')}` },
+  }, a.customerId, ctx);
+}
+
+/** 合併扣課那一列底下那一行：「IN 30＋SIS 30 → 記成一段 60 分、扣一次」。 */
+export function mergedLine(item) {
+  const m = item?.merged;
+  if (!m) return '';
+  return `${m.labels.join('＋')} → 記成一段${m.minutes ? ` ${m.minutes} 分` : ''}、扣一次`;
+}
+
+/**
+ * 合併扣課那一段只記第一台（`equipmentId`）—— 第二台要提醒的事（SIS 的體內金屬）不可以跟著消失
+ *（ADR-0074：提醒不擋，但一定要看得到）。回的是要加進那一列提醒的句子。
+ */
+export function mergedNotices(item, customer, equipment = []) {
+  const others = (item?.merged?.parts ?? []).slice(1)
+    .map((p) => p.course?.equipmentId)
+    .filter((id) => id && id !== item.equipmentId);
+  return others
+    .map((id) => (equipment ?? []).find((e) => e.id === id))
+    .filter(Boolean)
+    .map((eq) => ({ eq, reasons: noticeFlags(customer, eq) }))
+    .filter((x) => x.reasons.length)
+    .map(({ eq, reasons }) => `合併扣課的另一台 ${eq.name} 對「${reasons.join('、')}」要注意`);
 }
 
 /**
@@ -396,6 +531,7 @@ export function readAbovee(transcripts, ctx) {
  * 不會排進來喊。
  */
 export const needsAttention = (item) => item?.kind === 'mismatch'
+  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan))
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
@@ -434,7 +570,8 @@ export function picksOf(item) {
     nth: item.isNth ? (item.nth ?? null) : null,
     followupForVisitId: item.followupForVisitId,
     minutes: item.minutes ?? null,
-    note: null,
+    // 合併扣課那一段身上那一句（她 10/5）。記一句是她的欄位，之後改掉也可以
+    note: item.merged?.note ?? null,
   };
 }
 
