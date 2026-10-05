@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import { optionValueOf, pickOption, picksOf, planAbovee, readAbovee } from '../public/js/domain/aboveeImport.js';
 import { NTH_PICK, slotOptionsFor, uncountedPick } from '../public/js/domain/slotOptions.js';
 import { slotFromPicks } from '../public/js/domain/slotDraft.js';
-import { searchCustomers } from '../public/js/domain/customers.js';
+import { readFileSync } from 'node:fs';
+import { searchCustomers, nameHas } from '../public/js/domain/customers.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { SEED } from '../public/js/domain/seed.js';
 
@@ -149,6 +150,33 @@ describe('換一位：打幾個字找客戶（searchCustomers）', () => {
   test('一個字都沒打 → 空的（不是全部）；上限', () => {
     assert.deepEqual(searchCustomers(CUSTOMERS, '  '), []);
     assert.equal(searchCustomers(CUSTOMERS, '王', { limit: 1 }).length, 1);
+  });
+});
+
+// 她 2026-10-05：「好 ! 可以修改」（issue 17）—— 日曆新增的「要幫誰排？」與批次取消以前各自
+// `String(c.name).includes(q)`：名字中間有空白、打全形英數字就找不到，而拍 Abovee 的「換一位」找得到。
+describe('找人只有一種比法（nameHas）', () => {
+  test('空白、全形半形、大小寫都不算；一個字都沒打就是每一位', () => {
+    assert.equal(nameHas('王 小明', '王小明'), true);
+    assert.equal(nameHas('王小明', '王 小'), true);
+    assert.equal(nameHas('客戶A', '客戶Ａ'), true);
+    assert.equal(nameHas('客戶A', 'a'), true);
+    assert.equal(nameHas('王小明', '李'), false);
+    assert.equal(nameHas('王小明', ''), true);
+    assert.equal(nameHas('王小明', '   '), true);
+    assert.equal(nameHas(null, '王'), false);
+  });
+
+  test('searchCustomers() 用的就是它', () => {
+    assert.deepEqual(searchCustomers(CUSTOMERS, '王　小 明').map((c) => c.id), ['c-wang']);
+  });
+
+  test('日曆新增與批次取消都呼叫它，不自己比', () => {
+    for (const file of ['calendar.js', 'bulkCancel.js']) {
+      const src = readFileSync(new URL(`../public/js/ui/views/${file}`, import.meta.url), 'utf8');
+      assert.match(src, /nameHas\(c\.name, q\)/, `${file} 要走 nameHas()`);
+      assert.doesNotMatch(src, /String\(c\.name[^)]*\)\.includes\(q\)/, `${file} 還有一份自己寫的比法`);
+    }
   });
 });
 

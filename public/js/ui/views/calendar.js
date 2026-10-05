@@ -28,6 +28,7 @@ import * as notesData from '../../data/notes.js';
 import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
+import { nameHas } from '../../domain/customers.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
 import {
@@ -1806,7 +1807,8 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
         const q = String(search?.value ?? '').trim();
         const rows = customers
           .filter((c) => c.active !== false)
-          .filter((c) => !q || String(c.name).includes(q))
+          // 比法同拍 Abovee 的「換一位」（`nameHas()`：空白、全形半形不算）；沒打字照舊列出來
+          .filter((c) => nameHas(c.name, q))
           .slice(0, 40);
 
         box.innerHTML = rows.length

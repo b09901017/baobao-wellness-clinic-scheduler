@@ -35,6 +35,7 @@ import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
 import { cancelConsequences } from '../../domain/consequences.js';
+import { nameHas } from '../../domain/customers.js';
 import { slotName, nameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { todayISO, addMonths, shortDate, monthLabel } from '../../domain/dates.js';
@@ -195,7 +196,9 @@ function paint() {
 function searchHtml() {
   const q = (ctx.q ?? '').trim();
   const hits = q
-    ? ctx.customers.filter((c) => !c.deletedAt && String(c.name ?? '').includes(q)).slice(0, 20)
+    // 比法同拍 Abovee 的「換一位」（`nameHas()`）。**停用的照舊找得到** —— 他身上可能還有要取消的來訪，
+    // 所以不直接用 `searchCustomers()`（那一支不列停用的）
+    ? ctx.customers.filter((c) => !c.deletedAt && nameHas(c.name, q)).slice(0, 20)
     : [];
 
   return `
