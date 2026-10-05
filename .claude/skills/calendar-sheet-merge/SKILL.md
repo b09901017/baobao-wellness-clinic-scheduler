@@ -229,7 +229,8 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v4'          （app 也收 v1～v3：少的那幾格退回以前的值；v4 的候選多了 decided）
+format: 'baobao-merge/v5'          （app 也收 v1～v4：少的那幾格退回以前的值；v4 的候選多了 decided；
+                                    v5 不算次數的課那一段沒有 entitlementKey）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
@@ -240,7 +241,7 @@ customers[]: { sheetName, name, source, purchasedAt, notes,
                                  purchasedAt, sourcePlanName, sourcePlanSets, sourcePlanQty,
                                  purchaseKey },       （v2：同一次購買同一個 key；v3：durationMin，30 分與 60 分是兩種東西）
                visits[]:       { date, status:'done',
-                                 slots[]: { entitlementKey, courseName,
+                                 slots[]: { entitlementKey（v5：不算次數的課是 null）, courseName,
                                             startsAt, endsAt, roomName, therapistName,
                                             equipmentName, ivProductName,
                                             confidence:'high'|'low'|null, evidence } } }

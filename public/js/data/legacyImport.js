@@ -6,6 +6,7 @@ import * as config from './config.js';
 import * as customers from './customers.js';
 import { recount, withSlotStatuses } from '../domain/visits.js';
 import { importedTasksFor } from '../domain/taskRules.js';
+import { slotsMissingEntitlement } from '../domain/mergeImport.js';
 import { todayISO } from '../domain/dates.js';
 
 const CUSTOMERS = 'customers';
@@ -86,7 +87,11 @@ export async function importPlan(plan, { coursesById = null } = {}) {
     })),
   }));
 
-  const missing = visits.flatMap((v) => v.slots).filter((s) => !s.entitlementId);
+  // 課程主檔往上搬到這裡讀：「哪幾段該有額度卻沒有」要問那門課算不算次數（ADR-0121）
+  const courses = coursesById ?? await loadCoursesById();
+
+  // **不算次數的課（功醫門診）那一段沒有額度是對的**；其餘沒有額度的照舊整位擋下來
+  const missing = slotsMissingEntitlement(visits, courses);
   if (missing.length) throw new Error(`「${plan.sheetName}」有 ${missing.length} 個時段對不到額度`);
 
   // 計數欄位一律由 domain/visits.js 的 recount() 算，不要在這裡自己數 ——
@@ -96,7 +101,6 @@ export async function importPlan(plan, { coursesById = null } = {}) {
   // 任務跟來訪同一個 commit：分開寫的話來訪進去了、任務失敗，會留下一筆
   // 「看起來已經確認、卻沒有任何登記待辦」的來訪，而那正是她最主要的痛點。
   const today = todayISO();
-  const courses = coursesById ?? await loadCoursesById();
   const tasks = visits.flatMap(
     (visit) => importedTasksFor(visit, { coursesById: courses, today }),
   );

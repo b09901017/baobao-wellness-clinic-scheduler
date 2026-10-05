@@ -63,6 +63,9 @@ export const TOKENS = [
   // 2026-09-16 起體驗是一門自己的課程（30 分，正式課 60 分）。
   [/EECP\s*體驗/i, 'EECP體驗', null],
   [/EECP(?!\s*體驗)/i, 'EECP', null],
+  // `功能醫學` 是照以前「二返正式名稱為功能醫學門診」寫的。她 2026-10-05 說功醫門診跟二返不同 ——
+  // 但這四個字在她的行事曆與舊表上**一次都沒出現過**（2026-10-05 數過），沒有任何一句可以拿來
+  // 判斷它該是哪一個，所以原樣留著。哪天真的出現了，那一句會列在報告上讓她看。
   [/二返|2返|功能醫學/, '二返', null],
   [/健檢/, '健檢', null],
   // `王小明13`、`8：50王小明13+Line`（假名）：13健檢是「付 1 萬換 3 萬的健檢」（她 2026-09-15），不是 13 萬。
@@ -70,8 +73,15 @@ export const TOKENS = [
   [/(?<=[一-鿿])13(?![\d.．：:])/, '健檢', null],
   [/復健科|復健門診|復健/, '復健科醫師門診', null],
   // `心臟科` 她 2026-09-28 確認＝心臟科評估（`9.王小明心臟科3檢查`，假名）。寫全的「心臟科評估」也靠這一個字認得
-  [/心臟科|心臟評估|心臟門診|心超|HRV|ABI/, '心臟科評估', null],
-  [/點滴|雪顏|護肝|腸道|排毒|亮彩|猛健樂|速利清|護心|NAC/, '營養點滴', null],
+  [/心臟科|心臟評估|心臟門診|心超|ABI/, '心臟科評估', null],
+  // **HRV 是功醫門診，不是心臟科評估**（她 2026-10-05：「HRV 是自律神經檢查，通常直接接門診讓醫師
+  // 講解報告。它自己不是一段課程，後面那一場門診才是」）。排在心臟科評估**後面**：同一句還寫了 ABI 的
+  // （`王小明HRV.ABI`，假名）照舊先算心臟科評估 —— 那兩句在 Abovee 上對不到功醫門診，不猜。
+  // 門診的開始時間比那一句晚 30 分，見 `startOf()`。
+  [/功醫|HRV/i, '功醫門診', null],
+  // 2026-10-05 種子補到跟 Abovee 一樣的 7 款也認（元氣活力、免疫馥活、減脂健康、營養守護、癒原養方、
+  // 養心舒眠、皮蛇疫苗）。**「營養守護」要寫到第三個字**：`營養` 兩個字是營養點滴、營養師、營養諮詢的開頭
+  [/點滴|雪顏|護肝|腸道|排毒|亮彩|猛健樂|速利清|護心|NAC|元氣|免疫|減脂|營養守|癒原|養心|皮蛇/, '營養點滴', null],
   // `.5雪`、`.5肝`：點滴室後面接一個字的品項（她 2026-09-15）。「腸胃鏡」的腸不算
   [/[.．]\d{1,2}\s*[雪肝腸](?!胃)/, '營養點滴', null],
   [/營養諮詢|營養師/, '營養師諮詢', null],
@@ -161,7 +171,11 @@ export function ivProductOf(summary, products = []) {
   const s = normVariant(summary);
   for (const p of products) {
     const name = normVariant(p.name);
-    for (let n = 2; n <= name.length; n += 1) {
+    // **前兩個字剛好是一門課的開頭的，要寫到第三個字才算。** 「營養守護」的 `營養` 同時是營養點滴、
+    // 營養師諮詢的開頭 —— `點滴2*營養師2點` 以前（種子還沒有這一款時）認不出品項，補了這一款之後
+    // 會被讀成營養守護，而匯進去的那一段跟認對了長得一模一樣（2026-10-05 拿她的真檔跑出來 1 句）。
+    const generic = SEED.courses.some((c) => c.name.startsWith(name.slice(0, 2)));
+    for (let n = generic ? 3 : 2; n <= name.length; n += 1) {
       if (s.includes(name.slice(0, n))) return p.name;
     }
   }
@@ -500,6 +514,24 @@ export function parseIcs(text) {
  */
 export const timeOf = (e) => (e.allDay ? null : timeInSummary(e.summary)?.start ?? e.clock ?? null);
 
+/** HRV 檢查到後面那一場門診隔多久。她的 7 句 HRV 在 Abovee 上都是同一天、晚 30 分的功醫門診。 */
+const HRV_TO_CLINIC_MIN = 30;
+
+/**
+ * 這一句記成這門課的話，那一段幾點開始。**幾乎都等於 `timeOf()`**，只有一種不是：
+ *
+ * 行事曆寫 `2.30王小明HRV`（假名）—— 14:30 是 HRV 檢查，功醫門診在它後面（她 2026-10-05；
+ * 時間以 Abovee 為準，而 Abovee 上那一場是 15:00）。她自己寫「功醫」的那一句寫的就是門診，不動。
+ *
+ * 候選清單（行事曆有舊表沒勾、以後的預約）與她決定「補這一段」那一條路都走這一支 ——
+ * 各算一次的話，決定頁上答「有做」之後那一段會早 30 分。
+ */
+export const startOf = (e, course) => {
+  const t = timeOf(e);
+  const viaHrv = course === '功醫門診' && /HRV/i.test(e.summary) && !/功醫/.test(e.summary);
+  return t && viaHrv ? addMin(t, HRV_TO_CLINIC_MIN) : t;
+};
+
 // ---------- 報告與決定頁共用的幾個判斷 ----------
 //
 // 各寫一份的話，決定頁上印「不匯」、合併檔卻照樣匯進去（2026-09-28 審查抓到的就是這個形狀）。
@@ -836,7 +868,7 @@ function entitlementFor(plan, course) {
 /** 一段照她的決定填好的配對。事件上讀得到的先填，她明寫的蓋過去；她確認過了，所以是 high。 */
 function decidedMatch(e, courseName, spec, staff, base = null) {
   const fromEvent = e ? {
-    startsAt: timeOf(e),
+    startsAt: startOf(e, courseName),
     room: roomOf(e.summary),
     equipmentName: coursesOf(e.summary).find((x) => SAME(x.course, courseName))?.equip ?? null,
     therapistName: therapistOf(e.summary, staff),
@@ -865,15 +897,19 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
         const a = op.add;
         const e = a.fromEvent ? eventOf(a.fromEvent) : null;
         if (a.fromEvent && !e) { stale(`${where}：行事曆那天找不到「${a.fromEvent}」，要加的那一段沒有加`); continue; }
+        // **不算次數的課不用額度**（ADR-0121，功醫門診）：那一段的 `entitlementKey` 是 null（合併檔 v5）。
+        // 她身上剛好有一筆那門課的額度就照舊扣那一筆。主檔看不到她的，照種子的認（同這一支其餘的地方）
         const key = a.entitlement ?? entitlementFor(c, a.course);
-        if (!key) { stale(`${where}：找不到要扣哪一份額度（沒有或不只一份），要加的那一段沒有加`); continue; }
+        if (!key && seedCourse(a.course)?.uncounted !== true) {
+          stale(`${where}：找不到要扣哪一份額度（沒有或不只一份），要加的那一段沒有加`); continue;
+        }
         let day = c.days.find((x) => x.date === op.date);
         if (!day) {
           day = { date: op.date, filled: [], conflicts: [], named: 0, usedUids: new Set() };
           c.days.push(day);
           c.days.sort((x, y) => x.date.localeCompare(y.date));
         }
-        day.filled.push({ slot: { entitlementKey: key, courseName: a.course }, match: decidedMatch(e, a.course, a, staff) });
+        day.filled.push({ slot: { entitlementKey: key ?? null, courseName: a.course }, match: decidedMatch(e, a.course, a, staff) });
         if (e) usedSummaries.add(`${op.date}|${e.summary}`);
         // 那一筆事件原本被列成「兩邊講的不是同一件事」—— 她決定過了，就不是衝突了
         day.conflicts = (day.conflicts ?? []).filter((x) => x.e !== e);
@@ -1125,8 +1161,10 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // v2（2026-09-13）：多了購買日、方案與套數、帶顏色的備註、購買名稱對不上的那幾條。
     // v3（2026-09-15）：多了額度的時長、客戶的警示與合作機構。
     // v4（2026-09-28）：候選帶 `decided`，app 照她在決定頁的選擇勾（ADR-0117）。
+    // v5（2026-10-05）：**不算次數的課（功醫門診）那一段沒有 `entitlementKey`**（null），候選清單也會出現
+    //   沒有額度可以扣的課。v4 的 app 每一段都要對到一筆額度，那幾段會被整段丟掉、只在問題清單留一行。
     // **只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格**，而畫面看起來跟匯好了一樣。
-    format: 'baobao-merge/v4',
+    format: 'baobao-merge/v5',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
@@ -1207,12 +1245,12 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // 已確認、還沒來 —— 所以是 confirmed 不是 done，會算進「已排未上」
     futureVisits: r.leftover.future.map((x) => ({
       customerName: nameOf(x.customer), date: x.event.date, status: 'confirmed',
-      courseName: x.course, startsAt: timeOf(x.event),
+      courseName: x.course, startsAt: startOf(x.event, x.course),
       evidence: x.event.summary, include: false,
     })),
     missingFromSheet: r.leftover.calendarOnly.map((x) => ({
       customerName: nameOf(x.customer), date: x.event.date, courseName: x.course,
-      startsAt: timeOf(x.event), evidence: x.event.summary,
+      startsAt: startOf(x.event, x.course), evidence: x.event.summary,
       sheetHasThatDay: x.sheetHasThatDay, include: false,
     })),
     eventCandidates: r.leftover.personal.flatMap((e) => {

@@ -1091,8 +1091,9 @@ describe('合併檔 v4：她在決定頁決定過的照她的勾', () => {
     ],
   });
 
-  test('格式是 v4', () => {
-    assert.equal(FORMAT, 'baobao-merge/v4');
+  // v5（2026-10-05）只多了「不算次數的課那一段沒有額度」，v4 的 decided 照舊算數
+  test('v4 的檔案照收', () => {
+    assert.ok(FORMATS.includes('baobao-merge/v4'));
     assert.deepEqual(validateFile(DECIDED()).errors, []);
   });
 
