@@ -15,7 +15,9 @@ import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
+import {
+  roomsForCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
+} from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn } from './followups.js';
 import { slotName } from './naming.js';
@@ -461,8 +463,8 @@ export function slotsToClose(visit) {
  * 這個課程當天要不要請客人簽療程單。
  *
  * 療程單是**扣掉那一次的憑據** —— 客人事後對次數有疑問時，拿得出來的就是它
- *（`CONTEXT.md`）。所以幾乎每一種都要簽，只有二返不用：那一次是回院聽報告，
- * 沒有療程可以扣（2026-08-23 使用者確認）。
+ *（`CONTEXT.md`）。所以幾乎每一種都要簽。**要不要簽記在課程上**，她關掉的目前是二返
+ *（回院聽報告，沒有療程可以扣，2026-08-23）與功醫門診（2026-10-05）。
  *
  * **認不得的課程當成要簽**，沒有欄位的舊資料也一樣。少簽一張單是實際損失，
  * 多問她一次不是。
@@ -1375,7 +1377,14 @@ function minutesOrNull(v) {
  * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
  * 那邊要多一個時間」。
  *
- * 順序是 **品項 → 額度 → 課程 → 60**，而品項排在額度前面是刻意的：
+ * 順序是 **這一段選的 → 品項 → 額度 → 課程 → 60**。
+ *
+ * **最前面那一層是 2026-10-05 加的**（ADR-0122）：二返與 n返 約的時候選 30 或 60。
+ * 它只在**那門課有 `bookingMinutes`、而且值在裡面**時才算數 —— 復能是買的時候分的
+ * （兩筆不同的額度），一段復能(30) 身上帶著一個 `minutes: 60` 也不可以蓋過額度。
+ * 沒有這一格的舊資料照舊走後面那幾層，`endsAt` 一個都不會變。
+ *
+ * 品項排在額度前面是刻意的：
  * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
  * 是 `entitlementDoc()`（匯入）與 `buy.js`（加購）建額度時抄課程預設值抄進去的。
  * 排在後面的話，改了主檔既有額度照樣是舊的那個數字，而她看不出為什麼。
@@ -1386,16 +1395,38 @@ function minutesOrNull(v) {
  *
  * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
  * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
+ * 匯入與補登沒有「這一段選了幾分」這個資訊，不傳 `minutes` —— 那幾段照預設。
  *
- * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o
+ * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null,
+ *          minutes?: number|string|null}} o `minutes` 是這一段她選的（`slot.minutes`，或畫面上那一排）
  * @returns {number} 分鐘
  */
-export function slotMinutes({ entitlement = null, course = null, ivProduct = null } = {}) {
+export function slotMinutes({
+  entitlement = null, course = null, ivProduct = null, minutes = null,
+} = {}) {
+  const picked = minutesOrNull(minutes);
+  const fromPick = picked != null && bookingMinutesOf(course).includes(picked) ? picked : null;
   const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
-  return fromProduct
+  return fromPick
+    ?? fromProduct
     ?? minutesOrNull(entitlement?.durationMin)
     ?? minutesOrNull(course?.durationMin)
     ?? 60;
+}
+
+/**
+ * 要存進時段的那一格 `minutes`（ADR-0122）：**這門課約的時候可以選、而且這一段算出來的
+ * 那個數字在名單上**才存，其餘是 `null`。
+ *
+ * 存的是「這一段現在多長」而不是「她有沒有動那一排」：沒動的話就是預設那一顆（二返 30），
+ * 打開編輯器時那一顆是按著的。**組時段與讀表單都走這一支** —— 一邊存一邊不存的話，
+ * 同一段從壓表記的沒有這一格、從日曆改過一次就有了。
+ */
+export function slotMinutesField(o = {}) {
+  const choices = bookingMinutesOf(o.course);
+  if (!choices.length) return null;
+  const n = slotMinutes(o);
+  return choices.includes(n) ? n : null;
 }
 
 /**
@@ -1513,9 +1544,13 @@ function visitErrors(visit, {
     //
     // 反過來也要擋：帶著 `followupNth` **又**指了一筆額度，那一段會同時
     // 被算進那筆額度的次數、又被畫成一場 n返。兩種身分只能挑一種。
+    //
+    // **不算次數的課是第二種**（ADR-0121）：課程主檔上勾了「不算次數」，沒有額度也放行。
+    // 它**可以**不用額度，不是**不准**有 —— 有額度的那一段照舊扣、照舊驗（她之後會自己
+    // 勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     if (!slot.entitlementId) {
-      if (!nth) errors.push(`${at}：要選一個額度`);
+      if (!nth && !isUncounted(coursesById[slot.courseId])) errors.push(`${at}：要選一個額度`);
     } else if (nth) {
       errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
     } else if (!ent) {
@@ -1631,6 +1666,12 @@ function visitErrors(visit, {
   return errors;
 }
 
+/**
+ * 存檔前的提醒。**只講還算數的段**（2026-10-05 她答應修的：改期之後舊那一段已經取消，
+ * 第一道確認還在跳「第 1 個時段：二返 還沒選醫師」）—— 取消掉的那一段不會發生，
+ * 它還沒選醫師、跟新的那一段重疊、撞到別人都不是事。每一圈自己跳過，**編號照原本的位置**
+ *（「第 2 個時段」要指到畫面上的第 2 段，濾掉再編號就指錯了）。
+ */
 function visitWarnings(visit, ctx) {
   return [
     ...equipmentNoticeWarnings(visit, ctx),
@@ -1657,6 +1698,7 @@ function visitWarnings(visit, ctx) {
 function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
+    .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
     .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
 }
 
@@ -1674,7 +1716,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 
   (visit.slots ?? []).forEach((slot, i) => {
     const nth = nthOf(slot);
-    if (!nth || !slot.followupForVisitId) return;
+    if (!nth || !slot.followupForVisitId || !isLiveSlot(slot)) return;
 
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
@@ -1689,11 +1731,13 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
 function overlapWarnings(visit) {
   const out = [];
-  const slots = (visit.slots ?? []).filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt));
+  // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
+  const slots = (visit.slots ?? []).map((s, at) => ({ s, at }))
+    .filter(({ s }) => isLiveSlot(s) && isValidTime(s.startsAt) && isValidTime(s.endsAt));
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
-      if (overlaps(slots[i], slots[j])) {
-        out.push(`第 ${i + 1} 與第 ${j + 1} 個時段時間重疊`);
+      if (overlaps(slots[i].s, slots[j].s)) {
+        out.push(`第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
       }
     }
   }
@@ -1711,7 +1755,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
   for (const slot of visit.slots ?? []) {
     const ent = entsById[slot.entitlementId];
-    if (!ent || used.has(ent.id)) continue;
+    if (!ent || used.has(ent.id) || !isLiveSlot(slot)) continue;
     used.add(ent.id);
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
@@ -1739,7 +1783,7 @@ function assignmentWarnings(visit, {
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
-    if (!course) return;
+    if (!course || !isLiveSlot(slot)) return;
     const at = `第 ${i + 1} 個時段`;
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
@@ -1749,8 +1793,8 @@ function assignmentWarnings(visit, {
       out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
     }
 
-    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（A 類一律選得到，
-    // 其餘看課程上的旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
+    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
+    // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
     // 而症狀是「壓表選得到、來訪編輯器說不需要」。
     //
     // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
@@ -1815,7 +1859,7 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
   const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
-    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
+    if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
     const at = `第 ${i + 1} 個時段`;
 
     // 那一天別人排的、跟這一段撞在一起的每一格
@@ -1900,12 +1944,13 @@ function frequencyWarnings(visit, { courses = [], entitlements = [], customerVis
     const course = coursesById[slot.courseId];
     const ent = entsById[slot.entitlementId];
     const rule = ent?.frequencyRule ?? course?.frequencyRule;
-    if (!rule || !course || seen.has(course.id)) continue;
+    if (!rule || !course || seen.has(course.id) || !isLiveSlot(slot)) continue;
     seen.add(course.id);
 
     const previous = customerVisits
       .filter((v) => v.id !== visit.id && isActive(v) && isValidDate(v.date) && v.date < visit.date)
-      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id))
+      // 「上次」是真的做了的那一次：那一天取消掉的那一段不算
+      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id && isLiveSlot(s)))
       .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 
     if (!previous) continue;

@@ -379,13 +379,16 @@ describe('n返 印的是返數不是課程', () => {
     entitlementId: null, startsAt: '15:00', endsAt: '15:30', ...over,
   });
 
+  // 2026-10-05 起月曆那一格多接分鐘（ADR-0122）：n返 借的二返約的時候選得到 30／60，
+  // 那個數字現在有資訊了。**名字本身**（三返不是二返）是這一組在盯的，一個字都沒變；
+  // 貼給客人的那一句不接分鐘。
   test('月曆與 LINE 草稿都印「三返」', () => {
-    assert.equal(slotName(nth(), master, 'short'), '三返');
+    assert.equal(slotName(nth(), master, 'short'), '三返(30)');
     assert.equal(slotName(nth(), master, 'line'), '三返');
   });
 
   test('四返也一樣', () => {
-    assert.equal(slotName(nth({ courseName: '四返', followupNth: 4 }), master, 'short'), '四返');
+    assert.equal(slotName(nth({ courseName: '四返', followupNth: 4 }), master, 'short'), '四返(30)');
   });
 
   // 二返走的是額度那條路（`followupNth` 是 null），它照舊讀主檔 ——
@@ -396,7 +399,7 @@ describe('n返 印的是返數不是課程', () => {
   });
 
   test('返數填了但快照是空的 → 退回主檔，不要印成空白', () => {
-    assert.equal(slotName(nth({ courseName: '' }), master, 'short'), '二返');
+    assert.equal(slotName(nth({ courseName: '' }), master, 'short'), '二返(30)');
   });
 
   test('返數那一格是空字串就不算 n返（同 `isNthSlot()` 的判斷）', () => {

@@ -330,7 +330,7 @@ const FIX_COPY = {
   // 診間清單。三種形狀（新增／刪掉／補簡寫）走同一個 kind，所以這裡要分岔 ——
   // **每一句都只講真的會發生的事**（ADR-0070）。「刪掉」那一種的代價要說出來。
   roomList: {
-    button: (fix) => ({ add: '建起來', drop: '刪掉', short: '填上簡寫' }[fix?.mode] ?? '處理'),
+    button: (fix) => ({ add: '建起來', restore: '還原', drop: '刪掉', short: '填上簡寫' }[fix?.mode] ?? '處理'),
     all: (n) => `一次處理這 ${n} 間`,
     one: (fix) => ({
       add: {
@@ -338,6 +338,14 @@ const FIX_COPY = {
         lines: [
           '建議清單上有這一間，你的主檔沒有',
           '建起來之後排班時就選得到它，簡寫也一起填好',
+        ],
+      },
+      restore: {
+        title: `把「${fix.label}」還原回來？`,
+        lines: [
+          '2026-09-08 照這一頁的建議刪掉的那一間，Abovee 上 EECP 還排在那裡',
+          '還原之後排班時就選得到它；以前排在那一間的來訪也印得出診間名字了',
+          '跟 設定 → 已刪除項目 裡按「還原」是同一件事',
         ],
       },
       drop: {
@@ -361,6 +369,7 @@ const FIX_COPY = {
       title: `一次處理這 ${fixes.length} 間診間？`,
       lines: fixes.map((fix) => ({
         add: `新增 ${fix.label}`,
+        restore: `還原 ${fix.label}`,
         drop: `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
         short: `${fix.label} 的簡寫填成 ${fix.shortName}`,
       }[fix.mode])),
@@ -437,6 +446,45 @@ const FIX_COPY = {
     many: (fixes) => ({
       title: `把這 ${fixes.length} 門都建進課程主檔？`,
       lines: fixes.map((fix) => fix.label),
+    }),
+  },
+  seedIvProduct: {
+    button: () => '把這一款建起來',
+    all: (n) => `一次建這 ${n} 款`,
+    one: (fix) => ({
+      title: `把「${fix.label}」建進營養點滴品項？`,
+      lines: [
+        '建議清單上有這一款，你的品項主檔沒有',
+        fix.data.durationMin
+          ? `這一款先填 ${fix.data.durationMin} 分`
+          : '時長空著，跟著「營養點滴」那個課程走',
+        '建起來之後可以到設定 → 營養點滴品項改名字、簡寫與時長',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 款都建進營養點滴品項？`,
+      lines: fixes.map((fix) => fix.label),
+    }),
+  },
+  // 主檔上 2026-10-05 多的那幾格。一格一列，**那一格會怎麼樣由 domain 那一列自己講**（`fix.why`）——
+  // 五種格子五句話，寫在畫面這一側就是照著規則再推論一次（ADR-0070）。
+  seedBlanks: {
+    button: () => '補上',
+    all: (n) => `一次補這 ${n} 格`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的${fix.what}補成「${fix.to}」？`,
+      // 寫了幾格照實講：EECP 那一列有時候連「常用診間」一起寫（`fix.why` 講了是哪一格）
+      lines: [
+        fix.why,
+        Object.keys(fix.changes).length > 1
+          ? '只寫上面講的那兩格，這一筆的其餘欄位一個字都不動'
+          : '只寫這一格，這一筆的其餘欄位一個字都不動',
+        '之後在設定頁改得動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 格都補上？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.what} → ${fix.to}`),
     }),
   },
   // `loadSeed()` 只建不覆蓋，所以主檔的時長改了既有資料庫不會跟（ADR-0098）。
@@ -521,6 +569,8 @@ const KIND_TO_CHECK = {
   addEquipment: 'seedEquipment',
   setDurations: 'seedDuration',
   addCourse: 'seedCourse',
+  addIvProduct: 'seedIvProduct',
+  setMasterFields: 'seedBlanks',
   setCourseDuration: 'courseDuration',
   setIvDuration: 'ivProductDuration',
   setAssigns: 'courseAssigns',

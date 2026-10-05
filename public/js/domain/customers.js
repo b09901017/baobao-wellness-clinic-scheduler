@@ -5,7 +5,7 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
-import { clinicalTerms } from './masterData.js';
+import { clinicalTerms, normalizeAlias } from './masterData.js';
 import { acceptsMoreSlots } from './visits.js';
 
 /**
@@ -19,6 +19,34 @@ export const MAX_PRIORITY = 5;
 export const EXPIRING_SOON_DAYS = 30;
 
 const isBlank = (v) => v == null || String(v).trim() === '';
+
+/**
+ * 名字裡有沒有她打的那幾個字。**找人只有這一種比法**：同認人（`normalizeAlias()`，`identify.js` 的
+ * `normalizeName()` 就是它）—— 去空白、全形半形一致、英文不分大小寫，名字**含**那幾個字就算。
+ * 一個字都沒打回 true（每一位都算）。
+ *
+ * 六個找人的框都走它：拍 Abovee 的「換一位」與療程單的「是誰」（經 `searchCustomers()`）、
+ * 日曆新增的「要幫誰排？」、批次取消（她 2026-10-05：「好 ! 可以修改」）、壓表牆上的搜尋、
+ * 客戶清單的搜尋（2026-10-06：「好」；那一格連電話、LINE、購買通路一起比，一格一格問這一支）。
+ * 以前後四個各自 `includes(q)` —— 名字中間有空白的那一位，在一個框找得到、另一個框找不到。
+ * **「列誰」不在這一支裡**（停用的要不要列、沒打字時列不列，每一個框各有各的道理）。
+ */
+export const nameHas = (name, query) => normalizeAlias(name).includes(normalizeAlias(query));
+
+/**
+ * 打幾個字找客戶（拍 Abovee 每一列的「換一位」、療程單的「是誰」）。
+ *
+ * 比法只有 `nameHas()`。停用與刪掉的不列。打空白回空的 ——
+ * 一個字都沒打就把全部列出來，等於一排看不完的丸子。
+ *
+ * @returns {object[]} 最多 `limit` 位，照主檔原本的順序
+ */
+export function searchCustomers(customers = [], query = '', { limit = 6 } = {}) {
+  if (!normalizeAlias(query)) return [];
+  return (customers ?? [])
+    .filter((c) => c && !c.deletedAt && c.active !== false && nameHas(c.name, query))
+    .slice(0, limit);
+}
 
 /**
  * 會籍到期日 = 購買日 + 會籍月數。

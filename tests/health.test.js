@@ -27,7 +27,7 @@ const MASTER = {
   ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
-  equipment: [{ id: 'eq-indiba', name: 'INDIBA', shortName: 'IN' }],
+  equipment: [{ id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', aboveeNames: ['IN'] }],
   ivProducts: [{ id: 'iv-1', name: '護肝排毒' }, { id: 'iv-2', name: '美白' }],
 };
 
@@ -157,7 +157,7 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
     assert.ok(trial, 'EECP體驗 要列得出來');
     assert.equal(trial.fix.kind, 'addCourse');
     assert.equal(trial.fix.data.name, 'EECP體驗');
-    assert.equal(trial.fix.data.durationMin, 30);
+    assert.equal(trial.fix.data.durationMin, 20);
     assert.equal(trial.fix.data.active, true);
     assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
   });
@@ -190,9 +190,9 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
 });
 
 describe('形狀', () => {
-  test('二十八項檢查都在，順序固定', () => {
+  test('三十項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 28);
+    assert.equal(result.checks.length, 30);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1315,15 +1315,16 @@ describe('診間清單跟建議的不一樣', () => {
   });
 
   test('新清單上沒有的那幾間列出來，而且刪得掉', () => {
-    const withOld = [...SEED.rooms, { id: 'room-t7', name: '治7', type: '治療室' }];
+    // 治7 2026-10-05 回到清單上了（ADR-0124，`tests/master-catch-up.test.js`）；治9／治10／ILIB4 照舊
+    const withOld = [...SEED.rooms, { id: 'room-t9', name: '治9', type: '治療室' }];
     const [f] = go(withOld);
-    assert.equal(f.title, '治7');
+    assert.equal(f.title, '治9');
     assert.equal(f.fix.mode, 'drop');
-    assert.equal(f.fix.roomId, 'room-t7');
+    assert.equal(f.fix.roomId, 'room-t9');
   });
 
   test('她把那一間改名拿去當別的用了就不動', () => {
-    const renamed = [...SEED.rooms, { id: 'room-t7', name: '儲藏室', type: '治療室' }];
+    const renamed = [...SEED.rooms, { id: 'room-t9', name: '儲藏室', type: '治療室' }];
     assert.deepEqual(go(renamed), []);
   });
 

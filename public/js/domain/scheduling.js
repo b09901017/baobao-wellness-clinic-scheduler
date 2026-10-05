@@ -13,11 +13,11 @@
 
 import { counts, isProduct } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
-import { isActive } from './visits.js';
+import { isActive, coursesForEntitlement } from './visits.js';
 import { overlaps, toMinutes } from './visitTime.js';
 import { addMonths, daysBetween, isValidDate, lastDayOf, monthLabel } from './dates.js';
 import { readMarks } from './customerMarks.js';
-import { bookingSystemFor } from './taskRules.js';
+import { bookingSystemOf } from './taskRules.js';
 
 export const DEFAULT_WEIGHTS = { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 };
 
@@ -614,13 +614,15 @@ export function customersToAskForMonth({
  * @param {Record<string, object[]>} ctx.entitlementsBy 客戶 id → 額度
  * @param {Record<string, object[]>} ctx.visitsBy 客戶 id → 來訪
  * @param {Record<string, object>} ctx.coursesById 課程主檔
+ * @param {object[]} [ctx.equipment] 器材主檔。擇一池要靠它推出「這一池算哪一門課」
+ *   （ADR-0075）；沒給就退回主檔裡那一門要選器材的課
  * @param {string} ctx.targetMonth 'YYYY-MM'
  * @returns {{customerId:string, customerName:string, priority:number,
  *            flags:string[], marks:object[],
  *            systems:{system:string, pools:{label:string, remaining:number}[]}[]}[]}
  */
 export function customersToBook({
-  customers = [], entitlementsBy = {}, visitsBy = {}, coursesById = {}, targetMonth,
+  customers = [], entitlementsBy = {}, visitsBy = {}, coursesById = {}, equipment = [], targetMonth,
 }) {
   const range = monthRange(targetMonth);
   if (!range) return [];
@@ -645,16 +647,16 @@ export function customersToBook({
     for (const v of visits) {
       if (!isActive(v) || !isValidDate(v.date) || v.date < range.from || v.date > range.to) continue;
       for (const slot of v.slots ?? []) {
-        const category = coursesById[slot.courseId]?.category;
-        if (category === undefined) continue;
-        booked.add(bookingSystemFor(category));
+        const course = coursesById[slot.courseId];
+        if (!course) continue;
+        booked.add(bookingSystemOf(course));
       }
     }
 
     const bySystem = new Map();
     for (const pool of pools) {
       if (pool.remaining <= 0) continue;
-      const system = bookingSystemFor(systemCategoryOf(pool, coursesById));
+      const system = bookingSystemOfPool(pool, coursesById, equipment);
       if (booked.has(system)) continue;
       if (!bySystem.has(system)) bySystem.set(system, []);
       bySystem.get(system).push({ label: pool.label, remaining: pool.remaining });
@@ -678,15 +680,17 @@ export function customersToBook({
 }
 
 /**
- * 一份額度對應到哪個課程類別。
+ * 一份額度壓表壓在哪個系統。
  *
- * 擇一池沒有 `courseId`（ADR-0005），它對應的是「需要選器材的課程」＝ 復能，
- * 而那是 C 類。這裡不去反查主檔 —— 池子只有這一種，多繞一圈只是多一個
- * 對不上就靜默出錯的接縫。
+ * 擇一池沒有 `courseId`（ADR-0005），它算哪一門課由池裡的器材推（ADR-0075，
+ * `coursesForEntitlement()`，第一個就是「家」）。2026-10-05 之前這裡寫死成 C 類 ——
+ * 課程自己勾系統之後（ADR-0119），她把復能改成別的勾法這一列會講錯地方。
+ * **推不出課程就退回 Abovee**（`bookingSystemOf()` 對認不得的課程的猜法）。
  */
-function systemCategoryOf(pool, coursesById) {
-  if (pool.type === 'pool') return 'C';
-  return coursesById[pool.courseId]?.category ?? null;
+function bookingSystemOfPool(pool, coursesById, equipment) {
+  if (pool.type !== 'pool') return bookingSystemOf(coursesById[pool.courseId]);
+  const [course] = coursesForEntitlement(pool, Object.values(coursesById), equipment);
+  return bookingSystemOf(course);
 }
 
 // ---------- 批次 ----------

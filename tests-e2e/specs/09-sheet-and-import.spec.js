@@ -279,3 +279,53 @@ test('J-C13 合併檔 v3：單買一台的池匯得進去、時長照檔案、�
     .some((s) => s.entitlementId === pool.id && s.equipmentId === 'eq-sis'),
   { timeout: 20_000 }).toBe(true);
 });
+
+// 2026-10-05（abovee-and-master/13）：功醫門診不算次數（ADR-0121），合併檔那一段沒有 `entitlementKey`。
+// 寫入那一道以前是「有一段沒有額度就整位擋下來」—— 規則在 `tests/merge-functional-clinic.test.js`，
+// 這一支盯只有真的寫一次才看得到的：**整位照樣進得去、那一段不指任何額度、次數一格都沒動**。
+test('J-C14 合併檔 v5：功醫門診那一段沒有額度照樣匯得進來，客戶身上的次數一格都沒動', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+
+  const v5 = mergeFile({
+    format: 'baobao-merge/v5', eventCandidates: [],
+    // 以後的預約（預設勾起來）：一樣沒有額度可以扣
+    futureVisits: [{
+      customerName: '王小明', date: addDays(TODAY, 12), status: 'confirmed',
+      courseName: '功醫門診', startsAt: '09:30', evidence: '9.王小明HRV', include: false,
+    }],
+  });
+  // 做過的那一天：ILIB 之外多一段功醫門診
+  v5.customers[0].visits[0].slots.push({
+    courseName: '功醫門診', entitlementKey: null, startsAt: '15:00', endsAt: '15:30',
+  });
+
+  await page.locator('[data-json]').fill(JSON.stringify(v5));
+  await page.locator('[data-load]').click();
+  await app.settled();
+  expect(await app.text(), '不算次數的課沒有額度不是問題').not.toContain('對不到任何一筆額度');
+
+  await page.locator('[data-run]').click();
+  if (await app.dialog().count()) await app.ok();
+  await expect.poll(async () => (await app.readAll('visits')).filter((v) => !v.deletedAt).length,
+    { timeout: 20_000 }).toBe(3);
+
+  const [c] = (await app.readAll('customers')).filter((x) => !x.deletedAt);
+  const visits = (await app.readAll('visits')).filter((v) => !v.deletedAt);
+  const fm = visits.flatMap((v) => (v.slots ?? []).map((s) => ({ ...s, date: v.date, visitStatus: v.status })))
+    .filter((s) => s.courseId === 'course-fm');
+  expect(fm.map((s) => [s.date, s.entitlementId, s.startsAt, s.endsAt]).sort()).toEqual([
+    [addDays(TODAY, -20), null, '15:00', '15:30'],
+    [addDays(TODAY, 12), null, '09:30', '10:00'],
+  ].sort());
+  expect(fm.find((s) => s.date > TODAY).visitStatus, '以後的那一筆不可以是已完成').not.toBe('done');
+
+  // 次數：ILIB 做了一次、排了一次，跟沒有功醫門診時一樣
+  const [ilib] = await app.readAll(`customers/${c.id}/entitlements`);
+  expect([ilib.doneCount, ilib.bookedCount]).toEqual([1, 1]);
+
+  // 資料健檢：沒有額度的那兩段不是孤兒、次數對得上
+  await app.go('/settings/health');
+  await expect(page.locator('#view [data-check="counts"]')).toContainText('沒問題');
+  await expect(page.locator('#view [data-check="orphans"]')).toContainText('沒問題');
+});

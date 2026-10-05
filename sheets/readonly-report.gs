@@ -32,8 +32,9 @@ var DATA_SHEET = '_data';
 /**
  * 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。
  * 6（2026-09-24）：來訪紀錄一段一行、帶狀態；多一段「買過什麼」。
+ * 7（2026-10-05）：來訪紀錄那一行的最後面多「記一句：…」—— 沒有額度的段（n返、功醫門診）記的那一句。
  */
-var SUPPORTED_FORMAT = 6;
+var SUPPORTED_FORMAT = 7;
 
 // ---------- 版面 ----------
 //
@@ -439,6 +440,8 @@ function renderNotes(sheet, data, top, width) {
         it.room ? it.room + (it.bed ? ' 床' + it.bed : '') : '',
         it.therapist,
         it.doctor ? it.doctor + '醫師' : '',
+        // 格式 7：沒有額度的段記的那一句。有額度的段 app 不送這一格（它印在上面那一筆額度底下）
+        it.note ? '記一句：' + it.note : '',
       // **不是 `filter(String)`**：`String(null)` 是 'null'（真值），沒有器材、沒有品項的那兩格
       // 以前留在陣列裡、被 join 印成空的 —— 「復能　　　治3」中間多兩個全形空白，也是對不齊的原因之一
       ].filter(function (x) { return x != null && x !== ''; }).join('　') });

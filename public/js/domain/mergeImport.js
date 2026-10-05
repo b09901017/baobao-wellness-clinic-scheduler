@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { DOCTOR_ROLE } from './masterData.js';
+import { DOCTOR_ROLE, isUncounted } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
 /**
@@ -30,12 +30,17 @@ import { slotMinutes } from './visits.js';
  * - **v4（2026-09-28）** 候選多了 `decided`：她在決定頁決定過的，勾不勾照它的 `include`（ADR-0117）。
  *   欄位沒有變多，變的是 `include` 開始算數 —— 舊版 app 讀到會安靜地照日期勾，所以一樣要升版
  *
+ * - **v5（2026-10-05）** 不算次數的課（功醫門診，ADR-0121）那一段**沒有 `entitlementKey`**，候選清單也會出現
+ *   沒有額度可以扣的課（`.scratch/abovee-and-master-2026-10-05/issues/13`）。v4 的 app 每一段都要對到一筆額度
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v4';
+export const FORMAT = 'baobao-merge/v5';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
-export const FORMATS = Object.freeze(['baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', FORMAT]);
+export const FORMATS = Object.freeze([
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', FORMAT,
+]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
 const minutesOf = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
@@ -256,17 +261,20 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     const status = statusFor(v.status, v.date, today);
     const slots = [];
     for (const s of v.slots ?? []) {
-      if (!keys.has(s.entitlementKey)) {
+      const course = byName(courses, s.courseName);
+      // **不算次數的課可以沒有額度**（ADR-0121，合併檔 v5）：檔案上那一格是空的、而且那門課在**她的主檔**上
+      // 勾了不算次數才放行。寫了一把對不到的鑰匙照舊擋 —— 那是壞掉的檔案，不是「沒有額度」。
+      const free = s.entitlementKey == null && isUncounted(course);
+      if (!free && !keys.has(s.entitlementKey)) {
         problem(`${v.date} ${s.courseName}`, s.entitlementKey ?? '', '這個時段對不到任何一筆額度，沒有匯入');
         continue;
       }
-      const course = byName(courses, s.courseName);
       if (!course) {
         problem(`${v.date} ${s.courseName}`, s.courseName, '主檔裡沒有這個課程，這個時段沒有匯入');
         continue;
       }
       slots.push({
-        entitlementKey: s.entitlementKey,
+        entitlementKey: free ? null : s.entitlementKey,
         courseId: course.id,
         courseName: course.name,
         ...resolveAssignments(s, { equipment, ivProducts, rooms, staff }, problem, `${v.date} ${s.courseName}`),
@@ -455,7 +463,9 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     // 一筆補的來訪要扣哪一份額度：課程對得上的那一筆。對到不只一筆就不猜。
     const hits = plan.entitlements.filter((e) => e.doc.courseId === course.id
       || (e.doc.type === 'pool' && course.requiresEquipment));
-    if (hits.length !== 1) {
+    // 不算次數的課（ADR-0121）：身上沒有那門課的額度就不扣任何一筆；剛好有一筆的照舊扣那一筆
+    const free = !hits.length && isUncounted(course);
+    if (hits.length !== 1 && !free) {
       problems.push({
         where: `${x.date} ${x.customerName}`,
         raw: x.courseName,
@@ -471,7 +481,7 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
     const status = statusFor(x.status, x.date, today);
     const slot = {
-      entitlementKey: hits[0].key,
+      entitlementKey: free ? null : hits[0].key,
       courseId: course.id,
       courseName: course.name,
       equipmentId: null,
@@ -501,6 +511,21 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     if (start) plan.counts.timed += 1;
   }
   return problems;
+}
+
+/**
+ * 寫入之前那一道：哪幾段「該有額度卻沒有」。**不算次數的課沒有額度是對的**（ADR-0121），其餘都算 ——
+ * 課程查不到的那一段也算（認不得的東西不放行）。
+ *
+ * 住在這裡而不是 `data/legacyImport.js`：那一支連著 Firestore，測不到；而這一條放錯了的下場是
+ * 「功醫門診那一位整份匯不進去」或反過來「一段扣不到任何額度的 ILIB 安靜地寫進去」。
+ *
+ * @param {{slots: {courseId: string, entitlementId: string|null}[]}[]} visits 鑰匙已經換成 id 的來訪
+ * @param {Record<string, object>} coursesById
+ */
+export function slotsMissingEntitlement(visits, coursesById = {}) {
+  return (visits ?? []).flatMap((v) => v.slots ?? [])
+    .filter((s) => !s.entitlementId && !isUncounted(coursesById[s.courseId]));
 }
 
 function addMinutes(hhmm, min) {

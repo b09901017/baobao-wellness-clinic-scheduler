@@ -19,7 +19,7 @@ import {
   MAX_PHOTO_BYTES, readSheet, rowsAdded, sheetFields, sheetLabel, validateSheet, withMatch,
 } from '../../domain/treatmentSheets.js';
 import { needsForm } from '../../domain/visits.js';
-import { normalizeName } from '../../domain/identify.js';
+import { searchCustomers } from '../../domain/customers.js';
 import { shortDate } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer } from '../nav.js';
@@ -208,11 +208,8 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
       : '';
   }
 
-  function findCustomers(q) {
-    const want = normalizeName(q);
-    if (!want) return [];
-    return live(ctx.customers).filter((c) => normalizeName(c.name).includes(want)).slice(0, 6);
-  }
+  // 找人只有一支（`domain/customers.js` 的 `searchCustomers()`），拍 Abovee 的「換一位」也用它
+  const findCustomers = (q) => searchCustomers(ctx.customers, q);
 
   function courseHtml(card) {
     const { draft } = card;

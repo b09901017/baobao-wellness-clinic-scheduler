@@ -183,3 +183,77 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
   const fixable = await page.locator('#view [data-check="ivMismatch"] [data-fix]').count();
   expect(fixable).toBe(0);
 });
+
+// 2026-10-05（abovee-and-master/12，ADR-0124）：種子補到跟 Abovee 一樣，而 `loadSeed()` 只建不覆蓋 ——
+// 既有資料庫只能靠這一頁補。這一支拿一份「10/5 之前的主檔」把每一顆新的修正真的按下去：
+// 規則在 `tests/master-catch-up.test.js`，這裡盯的是**寫得下去、寫完那一筆在設定頁還存得回去**。
+test('H9 10/5 之前的主檔：治7 還原、少的點滴與兩門新課建起來、空格補上，按完整頁沒有一項亮著', async ({ app, page }) => {
+  const NEW = ['iv-vitality', 'iv-immune', 'iv-slim', 'iv-guard', 'iv-heal', 'iv-sleep', 'iv-shingles', 'course-fm', 'course-amnion'];
+  const OLD_ROOMS = ['room-t5', 'room-t8'];
+  const old = masterDocs()
+    .filter((d) => !NEW.includes(d.id))
+    .map((d) => {
+      // 9/08 照這一頁的建議刪掉的那一間
+      if (d.id === 'room-t7') return { ...d, data: { ...d.data, deletedAt: new Date('2026-09-08T10:00:00+08:00') } };
+      if (d.path.endsWith('/courses')) {
+        const { group, doctorPick, bookingMinutes, aboveeNames, ...rest } = d.data;
+        const eecp = d.id.startsWith('course-eecp') ? { allowedRoomIds: OLD_ROOMS, preferredRoomIds: OLD_ROOMS } : {};
+        return { ...d, data: { ...rest, ...eecp, ...(d.id === 'course-eecp-trial' ? { durationMin: 30 } : {}) } };
+      }
+      if (d.path.endsWith('/equipment') || d.path.endsWith('/ivProducts')) {
+        const { aboveeNames, ...rest } = d.data;
+        return { ...d, data: rest };
+      }
+      return d;
+    });
+  await app.seed(old);
+  await app.signIn('/settings/health');
+
+  const card = (id) => page.locator(`#view [data-check="${id}"]`);
+  /** 那一項的修正全部按下去（不只一筆時是上面那顆「一次…」），等到那一項變成「沒問題」。 */
+  const fix = async (id, say) => {
+    await expect(card(id).locator('[data-fix]').first()).toBeVisible();
+    const all = card(id).locator('[data-fix-all]');
+    await ((await all.count()) ? all : card(id).locator('[data-fix]').first()).click();
+    await expect(app.dialog()).toBeVisible();
+    if (say) expect(await app.dialogText()).toContain(say);
+    await app.ok();
+    await app.saved();
+    await expect(card(id)).toContainText('沒問題');
+  };
+
+  await expect(card('roomList')).toContainText('治7');
+  await fix('roomList', '還原');
+  await fix('seedIvProduct', '元氣活力');
+  await fix('seedCourse', '功醫門診');
+  await fix('courseDuration', '20 分');
+  await fix('seedBlanks', 'Abovee 上的寫法');
+
+  expect((await app.readDoc('config/app/rooms', 'room-t7')).deletedAt, '治7 回來了').toBeNull();
+  const iv = (await app.readAll('config/app/ivProducts')).filter((x) => !x.deletedAt);
+  expect(iv).toHaveLength(14);
+  expect(iv.find((x) => x.id === 'iv-shingles').durationMin).toBe(30);
+  const fm = await app.readDoc('config/app/courses', 'course-fm');
+  expect([fm.uncounted, fm.needsTreatmentForm, fm.doctorPick]).toEqual([true, false, '功能／二返']);
+  const eecp = await app.readDoc('config/app/courses', 'course-eecp');
+  expect(eecp.allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
+  expect(eecp.group).toBe('EECP');
+  const trial = await app.readDoc('config/app/courses', 'course-eecp-trial');
+  expect([trial.durationMin, trial.aboveeNames]).toEqual([20, ['EECP20']]);
+  expect((await app.readDoc('config/app/equipment', 'eq-laser')).aboveeNames).toEqual(['高能量']);
+  expect((await app.readDoc('config/app/ivProducts', 'iv-snow')).aboveeNames).toEqual(['雪顏亮采']);
+  const followup = await app.readDoc('config/app/courses', 'course-followup');
+  expect([followup.bookingMinutes, followup.doctorPick]).toEqual([[30, 60], '功能／二返']);
+
+  // 整頁沒有一項還亮著
+  await expect(page.locator('#view [data-check] .badge--overdue')).toHaveCount(0);
+
+  // 補過的那幾筆在設定頁打得開、原樣存得回去（補的那幾格沒有被驗證擋住）
+  await app.go('/settings/courses');
+  await page.locator('[data-edit="course-eecp"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  await page.locator('[data-edit="course-followup"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+});

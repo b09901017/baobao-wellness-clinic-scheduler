@@ -80,8 +80,9 @@ describe('「心臟科」＝心臟科評估（她 9/28）', () => {
     assert.ok(courses('9.30心臟科評估*功醫5萬結帳').includes('心臟科評估'));
   });
 
+  // HRV 2026-10-05 從這一條拿掉了：它是功醫門診（`tests/merge-functional-clinic.test.js`）
   test('以前認得的照舊', () => {
-    for (const s of ['心臟評估', '心臟門診', '心超', 'HRV', 'ABI']) assert.ok(courses(`2.王小明${s}`).includes('心臟科評估'), s);
+    for (const s of ['心臟評估', '心臟門診', '心超', 'ABI']) assert.ok(courses(`2.王小明${s}`).includes('心臟科評估'), s);
   });
 });
 

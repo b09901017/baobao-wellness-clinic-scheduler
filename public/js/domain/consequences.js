@@ -18,14 +18,14 @@
 //
 // 同一道確認出現在兩個入口（壓表那一頁與來訪編輯器），而它們**各自寫死了
 // 「Abovee」** —— 健檢壓的是 Examine，所以那一句在健檢上是錯的，而且錯了兩次。
-// 判斷早就有了（`taskRules.js` 的 `bookingSystemFor()`），只是沒有人用它。
+// 判斷早就有了（`taskRules.js` 的 `bookingSystemOf()`），只是沒有人用它。
 //
 // 兩邊各寫一次的下場已經看到了，所以這裡就是那一份。
 //
 // 見 docs/adr/0056（哪幾句該留）與 `.scratch/followup-and-products/issues/07`。
 
 import {
-  bookingSystemFor, isCancelKind, cancelTasksFor, cancelsBooking,
+  bookingSystemOf, isCancelKind, cancelTasksFor, cancelsBooking,
   newRegistrations,
 } from './taskRules.js';
 import {
@@ -36,7 +36,8 @@ import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
-import { nthOf, nthLabel } from './nthFollowup.js';
+import { nthOf, nthLabel, isNthSlot } from './nthFollowup.js';
+import { isUncounted } from './masterData.js';
 import { shortDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
@@ -114,7 +115,7 @@ export function bookingSystemLabel(visit, coursesById = {}) {
   const names = [...new Set(
     (visit?.slots ?? [])
       .filter(isLiveSlot)
-      .map((s) => bookingSystemFor(coursesById[s.courseId]?.category)),
+      .map((s) => bookingSystemOf(coursesById[s.courseId])),
   )];
   return names.join(' 與 ');
 }
@@ -212,6 +213,10 @@ export function bookingConsequences({
   for (const nth of nthLabels(visit)) {
     lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   }
+  // 不算次數的課是同一種擔心（ADR-0121）：一段「不用先加購」的來訪看起來像會偷扣一次
+  for (const name of uncountedNames(visit, coursesById, added)) {
+    lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+  }
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
@@ -241,17 +246,23 @@ export function bookingConsequences({
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [],
+  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [],
 }) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
   const ahead = groups.filter((g) => !pastDay(g.visit, today));
   const past = groups.length - ahead.length;
 
-  const lines = [
+  const lines = n ? [
     `${people} 位・${groups.length} 天・${n} 段`,
     '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
-  ];
+  ] : [];
+  // 合併扣課（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
+  const merges = groups.flatMap((g) => g.items ?? []).filter((i) => i.merged);
+  if (merges.length) {
+    const minutes = [...new Set(merges.map((i) => i.merged.minutes).filter(Boolean))];
+    lines.push(`其中 ${merges.length} 組合併扣課，各記成一段${minutes.length === 1 ? ` ${minutes[0]} 分` : ''}、扣一次`);
+  }
   if (ahead.length) lines.push(`今天起的 ${ahead.length} 天會出現在待辦的「跟客人確認時間」`);
   if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
   for (const g of groups.filter((x) => x.reopened)) {
@@ -259,17 +270,41 @@ export function aboveeConsequences({
   }
 
   // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
-  const later = ahead.flatMap((g) => {
+  const addedIn = (g) => {
     const count = (g.visit?.slots ?? []).length;
-    const added = Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
-    return registrationsWhenSettled(g.visit, added, tasksByVisit[g.visit?.id] ?? [], coursesById, today);
-  });
+    return Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
+  };
+  const later = ahead.flatMap((g) => registrationsWhenSettled(
+    g.visit, addedIn(g), tasksByVisit[g.visit?.id] ?? [], coursesById, today,
+  ));
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+
+  // n返 與不算次數的課：同壓表那一道（`bookingConsequences()`）—— 一段「不用先加購」的來訪
+  // 看起來像會偷扣一次。**只講這一次新加的段**：併進的那一天原本就有的三返不是這一次的事
+  const nths = new Set();
+  const free = new Set();
+  for (const g of groups) {
+    const added = addedIn(g);
+    for (const i of added) {
+      const label = nthLabel(nthOf(g.visit?.slots?.[i]));
+      if (label) nths.add(label);
+    }
+    for (const name of uncountedNames(g.visit, coursesById, added)) free.add(name);
+  }
+  for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
+  for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+
+  // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
+  if (adopts.length) {
+    const fields = new Set(adopts.flatMap((i) => (i.diffs ?? []).map((d) => d.field)));
+    const what = [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
+    lines.push(`改 ${adopts.length} 段的${what}成 Abovee 上的 —— 只動這兩格，時間、狀態、待辦都不變`);
+  }
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
-  return { title: `記錄這 ${n} 段？`, lines };
+  return { title: n ? `記錄這 ${n} 段？` : `改這 ${adopts.length} 段？`, lines };
 }
 
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */
@@ -278,6 +313,23 @@ function nthLabels(visit) {
   for (const slot of visit?.slots ?? []) {
     const label = nthLabel(nthOf(slot));
     if (label) seen.add(label);
+  }
+  return [...seen];
+}
+
+/**
+ * 這次新加的段裡，**沒有扣任何額度**的不算次數的課叫什麼（去重）。
+ *
+ * 同一門課但扣著額度的那一段不算 —— 那一段會扣，講「一個都不會變」就是假話（ADR-0070）。
+ */
+function uncountedNames(visit, coursesById = {}, added = null) {
+  const slots = visit?.slots ?? [];
+  const seen = new Set();
+  for (const i of added ?? slots.map((_, at) => at)) {
+    const slot = slots[i];
+    if (!slot || slot.entitlementId || isNthSlot(slot)) continue;
+    const course = coursesById[slot.courseId];
+    if (isUncounted(course)) seen.add(course.name);
   }
   return [...seen];
 }
@@ -376,7 +428,12 @@ export function closeConsequences({
   const missed = open.filter((i) => picks[i] === false);
   const left = open.length - done.length - missed.length;
 
-  if (done.length) lines.push(`做了的 ${done.length} 段扣掉次數`);
+  // **只有扣著額度的段會扣次數**（ADR-0121）。n返 與不算次數的課沒有額度，
+  // 講「扣掉次數」是一件不會發生的事（ADR-0070）—— 2026-10-05 之前這一句對 n返 就講錯了
+  const charged = done.filter((i) => visit?.slots?.[i]?.entitlementId).length;
+  if (done.length && charged === done.length) lines.push(`做了的 ${done.length} 段扣掉次數`);
+  else if (charged) lines.push(`做了的 ${done.length} 段裡 ${charged} 段扣掉次數`);
+  else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);
   if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
   if (left) {
     lines.push(`還有 ${left} 段先不結，留在這裡`);
@@ -550,9 +607,10 @@ export function cancelConsequences({
     // 那時候要講的是整天那一種話，不然她會以為那一天還在。
     const left = all.filter((sl, i) => !picked.has(i) && isLiveSlot(sl)).length;
 
-    lines.push(picked.size === 1
-      ? '這一段會退回去，次數也會還回來'
-      : `這 ${picked.size} 段會退回去，次數也會還回來`);
+    // **沒扣額度的段沒有次數可以還**（n返、不算次數的課，ADR-0121）—— 以前一律講會還回來
+    const back = picked.size === 1 ? '這一段會退回去' : `這 ${picked.size} 段會退回去`;
+    const charged = [...picked].filter((i) => all[i]?.entitlementId).length;
+    lines.push(charged ? `${back}，次數也會還回來` : `${back} —— 本來就不扣次數`);
     if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 
@@ -582,9 +640,11 @@ export function cancelConsequences({
 
   // **第一句就講範圍**（ADR-0087）：按鈕寫「取消一整天」，以前跳出來的第一句
   // 卻只講「3 個時段」—— 她得自己推出那是整天。
+  // 那一天一段扣額度的都沒有（全是 n返 或不算次數的課）就不講次數（ADR-0121）
+  const refund = all.some((sl) => sl?.entitlementId) ? '，次數也會還回來' : '';
   lines.push(removing
-    ? `這是標記刪除，資料不會真的消失；這一整天的 ${slots} 個時段會退回去，次數也會還回來`
-    : `這一整天的 ${slots} 個時段會退回去，次數也會還回來`);
+    ? `這是標記刪除，資料不會真的消失；這一整天的 ${slots} 個時段會退回去${refund}`
+    : `這一整天的 ${slots} 個時段會退回去${refund}`);
 
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
@@ -663,7 +723,7 @@ export function rebookConsequences({
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return {
-    title: `新的時間在 ${bookingSystemFor(coursesById[fresh?.courseId]?.category)} 壓好了嗎？`,
+    title: `新的時間在 ${bookingSystemOf(coursesById[fresh?.courseId])} 壓好了嗎？`,
     lines,
   };
 }

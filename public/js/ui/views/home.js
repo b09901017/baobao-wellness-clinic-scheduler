@@ -172,11 +172,13 @@ export async function render(el) {
 async function loadBookRows(today) {
   const month = today.slice(0, 7);
   const range = monthRange(month);
-  const [customers, entitlementsBy, visits, courses] = await Promise.all([
+  const [customers, entitlementsBy, visits, courses, equipment] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     visitsData.listBetween(range.from, range.to),
     config.listAll('courses', { includeDeleted: true }),
+    // 擇一池壓在哪個系統，要先知道那一池算哪一門課（ADR-0075、0119）
+    config.listAll('equipment'),
   ]);
 
   const visitsBy = {};
@@ -187,6 +189,7 @@ async function loadBookRows(today) {
     entitlementsBy,
     visitsBy,
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
+    equipment,
     targetMonth: month,
   });
 }
@@ -3281,7 +3284,7 @@ function paintClose(ctx) {
 
 /**
  * 這一筆來訪**還開著的那幾段**裡（`slotsToClose()`，ADR-0110），哪幾段要標「不用簽療程單」
- * （目前只有二返）。
+ * （她在課程上關掉的那幾門：目前是二返與功醫門診）。
  *
  * **反過來標的理由**：一整天四段裡通常四段都要簽，四顆標記等於沒有標記；
  * 真正要她看到的是「這一段是例外」。

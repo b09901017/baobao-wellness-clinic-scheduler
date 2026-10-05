@@ -61,6 +61,14 @@ export const IGNORED = [
 /**
  * 一支 spec 摸得到哪些原始碼。
  * 判準：**這個檔案壞了，這一支會不會紅？** 會就列進去。
+ *
+ * **`domain/seed.js` 是例外，而且是刻意的**（2026-10-05）。每一支 spec 的主檔
+ * 都是 `fixtures/data.js` 的 `masterDocs()` 從種子抄的，照判準它該列在每一支底下 ——
+ * 那就等於每改一次種子全跑二十幾分鐘。所以只列**種子的內容本身就是主角**的那幾支：
+ * 設定頁（16、17、47）、資料健檢拿種子比對（03）、名稱怎麼寫（23）、警示與擇一池的
+ * 指派（14、21）、拍文宣與拍 Abovee 拿主檔認字（38、41）。改種子通常跟著改讀它的
+ * domain 檔（`visits.js`、`taskRules.js`…），那幾支會被那一側挑到；只改種子而壞掉
+ * 沒列到的那一支，由 CI 的全量接住。
  */
 export const COVERAGE = {
   '01-products': [
@@ -81,6 +89,7 @@ export const COVERAGE = {
     'public/js/domain/health.js', 'public/js/domain/entitlements.js',
     'public/js/data/health.js', 'public/js/ui/views/health.js',
     'public/js/ui/views/customers.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/domain/seed.js',
   ],
   '04-journey-a-happy': [
     'public/js/domain/scheduling.js', 'public/js/domain/visits.js',
@@ -88,7 +97,7 @@ export const COVERAGE = {
     'public/js/domain/confirmations.js', 'public/js/domain/progress.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
     'public/js/ui/components/form.js', 'public/js/ui/components/dialog.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/calendar.js', 'public/js/ui/views/progress.js',
     'public/js/ui/views/home.js',
   ],
@@ -104,7 +113,7 @@ export const COVERAGE = {
     'public/js/domain/dates.js', 'public/js/domain/availability.js',
     'public/js/domain/visitTime.js', 'public/js/domain/followups.js',
     'public/js/domain/calendar.js', 'public/js/ui/views/home.js',
-    'public/js/ui/views/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
     'public/js/ui/views/availability.js',
   ],
   '07-chaos': [
@@ -112,7 +121,7 @@ export const COVERAGE = {
     'public/js/domain/notes.js', 'public/js/ui/components/form.js',
     'public/js/ui/components/note.js', 'public/js/ui/toast.js',
     'public/js/ui/views/customers.js', 'public/js/ui/views/customersBulk.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/home.js',
   ],
   '08-ux-audit': [
@@ -150,14 +159,15 @@ export const COVERAGE = {
     'public/js/domain/nthFollowup.js', 'public/js/domain/naming.js',
     'public/js/domain/visits.js', 'public/js/domain/followups.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',
   ],
   '14-clinical-alert': [
     'public/js/domain/clinicalFlags.js', 'public/js/domain/contraindications.js',
     'public/js/domain/customerMarks.js', 'public/js/ui/components/flags.js',
     'public/js/ui/components/marks.js', 'public/js/ui/views/masterList.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/domain/seed.js',
   ],
   '15-playbook': [
     'public/js/domain/playbook.js', 'public/js/data/playbooks.js',
@@ -168,6 +178,7 @@ export const COVERAGE = {
     'public/js/domain/taskRules.js', 'public/js/domain/todoFlow.js',
     'public/js/domain/masterData.js', 'public/js/data/tasks.js',
     'public/js/ui/views/masterList.js', 'public/js/ui/views/home.js',
+    'public/js/domain/seed.js',
   ],
   '17-settings-fields': [
     'public/js/domain/messageTemplates.js', 'public/js/domain/messages.js',
@@ -175,6 +186,7 @@ export const COVERAGE = {
     'public/js/ui/components/form.js', 'public/js/ui/components/message.js',
     'public/js/ui/views/preferences.js', 'public/js/ui/views/templates.js',
     'public/js/ui/views/masterList.js', 'public/js/ui/views/settings.js',
+    'public/js/domain/seed.js',
   ],
   '18-memo-paste-and-emoji': [
     'public/js/domain/playbook.js', 'public/js/domain/events.js',
@@ -197,13 +209,14 @@ export const COVERAGE = {
   '21-pool-assignment': [
     'public/js/domain/visits.js', 'public/js/domain/masterData.js',
     'public/js/domain/contraindications.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/views/home.js',
+    'public/js/domain/seed.js',
   ],
   '22-bulk-cancel': [
     'public/js/domain/visits.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/nav.js',
-    'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
+    'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
     'public/js/ui/saveEach.js',
     // 那一條貼在導覽列上是量出來的位置
     'public/css/',
@@ -211,6 +224,7 @@ export const COVERAGE = {
   '23-naming-read-first': [
     'public/js/domain/naming.js', 'public/js/domain/entitlements.js',
     'public/js/domain/masterData.js', 'public/js/ui/views/naming.js',
+    'public/js/domain/seed.js',
   ],
   // 說明泡泡（issue 08／09）。元件本身與掛了 `?` 的那兩頁。
   '26-tip': [
@@ -249,7 +263,7 @@ export const COVERAGE = {
     'public/js/ui/components/slotNote.js',
     'public/js/ui/views/home.js',
     'public/js/ui/views/visitEditor.js',
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
     'public/js/data/visits.js',
   ],
   // 「一天只是一個抬頭」（ADR-0089）。讀取卡片是四個畫面共用的，
@@ -279,7 +293,7 @@ export const COVERAGE = {
   ],
   // 壓表與資料健檢不可以通到整天的編輯器（2026-09-16，報告 §2.1）
   '32-no-door-to-the-whole-day-editor': [
-    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/ui/views/health.js',
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/views/health.js',
     'public/js/domain/health.js', 'public/js/ui/views.js',
     'public/js/ui/views/visitEditor.js',
   ],
@@ -307,6 +321,7 @@ export const COVERAGE = {
   '38-photo-plan': [
     'public/js/domain/photoPlan.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/legacyImport.js',
+    'public/js/domain/seed.js',
   ],
   // 新增客戶畫面重畫（issue 08，ADR-0102）
   '39-new-customer-form': [
@@ -326,10 +341,11 @@ export const COVERAGE = {
   // 拍 Abovee → 一次新增很多來訪（issue 11～13）
   '41-abovee': [
     'public/js/domain/aboveeImport.js', 'public/js/domain/abovee.js', 'public/js/domain/identify.js',
-    'public/js/domain/slotDraft.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js',
     'public/js/ui/components/camera.js', 'public/js/ui/components/seen.js', 'public/js/domain/masterData.js',
     'public/js/domain/audit.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
     'tests-e2e/fixtures/ai/',
+    'public/js/domain/seed.js',
   ],
   // 療程單的存放與搜尋（issue 14，ADR-0105）。Storage 模擬器的設定在 firebase.json
   '42-treatment-sheets': [
@@ -358,6 +374,40 @@ export const COVERAGE = {
   ],
   // 試算表推送在路上時又寫了一筆（prelaunch-audit-2026-09-23/issues/05）
   '45-sheet-push-race': ['public/js/data/sheetSync.js', 'public/js/ui/views/calendar.js'],
+  // 設定 → 課程：先分類再項目（2026-10-05）。別稱那一條會走到名稱怎麼寫那一頁；
+  // 「壓哪幾個系統」那兩條（G8、G9，ADR-0119）一路走到確認之後長哪幾張待辦
+  '47-course-groups': [
+    'public/js/ui/views/masterList.js', 'public/js/domain/masterData.js', 'public/js/domain/seed.js',
+    'public/js/ui/views/naming.js', 'public/js/ui/components/form.js', 'public/js/data/config.js',
+    'public/js/domain/taskRules.js', 'public/js/ui/views/calendar.js',
+    'public/css/',
+  ],
+  // 醫師分科、課程指定哪一科（2026-10-05，ADR-0120）：設定頁兩排、壓表與來訪編輯器的醫師那一排
+  '48-doctor-specialties': [
+    'public/js/domain/masterData.js', 'public/js/domain/seed.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/form.js',
+  ],
+  // 不算次數的課（2026-10-05，ADR-0121）：從設定勾起來、日曆與壓表排進去、做完、取消
+  '49-uncounted-course': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/slotDraft.js', 'public/js/domain/masterData.js',
+    'public/js/domain/visits.js', 'public/js/domain/consequences.js', 'public/js/domain/taskRules.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js', 'public/js/ui/components/buy.js',
+  ],
+  // 約的時候選時長（2026-10-05，ADR-0122）：設定那一格、壓表與來訪編輯器的「排多久」、月曆上的 二返(60)
+  '50-booking-minutes': [
+    'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/naming.js',
+    'public/js/domain/masterData.js', 'public/js/domain/seed.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 拍 Abovee 代替壓表（2026-10-05，abovee-and-master 的 07–11）：設定頁的 Abovee 寫法、確認層每一列換人與要做什麼
+  '51-abovee-picks': [
+    'public/js/domain/abovee.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/identify.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js',
+    'public/js/domain/seed.js', 'public/js/domain/customers.js', 'public/js/domain/consequences.js',
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/schedule.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

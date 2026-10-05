@@ -15,9 +15,9 @@
 
 import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
-  sameDayVisitFor, slotMinutes, withExtraSlot,
+  sameDayVisitFor, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
-import { picksDoctor } from './masterData.js';
+import { picksDoctor, isUncounted } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 
@@ -31,6 +31,9 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {object} picks
  * @param {string|null} picks.entitlementId 選了哪一筆額度（n返 沒有額度，給 null）
  * @param {boolean} [picks.isNth] 選的是「＋ n返」那一顆
+ * @param {string|null} [picks.uncountedCourseId] 選的是一門不算次數的課的「不扣次數」那一顆
+ *   （ADR-0121）：課程就是它、`entitlementId` 是 null、返數不碰。那門課要真的是不算次數的 ——
+ *   這一條路是唯一不靠額度也不靠健檢就組得出一段的地方，不可以拿來排要算次數的課
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -40,17 +43,22 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {string|null} [picks.doctorId]
  * @param {number|null} [picks.nth] 第幾返
  * @param {string|null} [picks.followupForVisitId] 接在哪一次健檢後面（二返、n返）
+ * @param {number|string|null} [picks.minutes] 約的時候選的時長（ADR-0122）。只在那門課有
+ *   `bookingMinutes` 而且值在裡面時算數（`slotMinutes()`）；沒給就是預設那一顆
  * @param {string|null} [picks.note] 那一段身上那一句話（ADR-0084）
  * @param {{courses: object[], equipment: object[], ivProducts?: object[],
  *          entitlements: object[], visits: object[]}} ctx 主檔，與這位客戶的額度、來訪
  * @returns {{slot: object|null, errors: string[], course: object|null, assigns: string|null}}
- *   `assigns` 是 `assignsFor()` 的答案：擇一池還沒選器材時是 null（兩種都不挑）
+ *   `assigns` 是 `assignsFor()` 的答案：擇一池還沒選器材時是 null（兩種都不挑）。
+ *   **課程推得出來、卡在後面那幾道時，`course` 與 `assigns` 照樣交回去**（`slot` 是 null）——
+ *   拍 Abovee 那一層還沒選齊（還沒選接哪一次健檢）時，要靠它畫接下來那幾排（醫師、第幾返）
  */
 export function slotFromPicks(picks, ctx) {
   const {
-    entitlementId = null, isNth = false, equipmentId = null, ivProductId = null, startsAt = null,
+    entitlementId = null, isNth = false, uncountedCourseId = null,
+    equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
-    followupForVisitId = null, note = null,
+    followupForVisitId = null, note = null, minutes = null,
   } = picks ?? {};
   const { courses = [], equipment = [], ivProducts = [], entitlements = [], visits = [] } = ctx ?? {};
   const fail = (error) => ({ slot: null, errors: [error], course: null, assigns: null });
@@ -74,16 +82,22 @@ export function slotFromPicks(picks, ctx) {
     course = fallback && entitlement.type === 'pool'
       ? (coursesById[courseForEquipment(equipmentId, equipment, fallback.id)] ?? fallback)
       : fallback;
+  } else if (uncountedCourseId) {
+    // 不算次數的課（ADR-0121）：沒有額度，課程就是她按的那一顆。**額度那一條排在前面** ——
+    // 兩個都給了的話照額度（那一段會扣），兩種身分只挑一種
+    const wanted = coursesById[uncountedCourseId] ?? null;
+    course = isUncounted(wanted) && !wanted.deletedAt ? wanted : null;
   }
 
   if (!course) return fail('先選要做什麼');
-  if (!isValidTime(startsAt)) return fail('先選幾點開始');
-  if (isNth && !nth) return fail('先選第幾返');
+  const assigns = assignsFor(entitlement, course, equipmentId);
+  const stop = (error) => ({ slot: null, errors: [error], course, assigns });
+  if (!isValidTime(startsAt)) return stop('先選幾點開始');
+  if (isNth && !nth) return stop('先選第幾返');
   if (isNth && !followupForVisitId) {
-    return fail('先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印');
+    return stop('先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印');
   }
 
-  const assigns = assignsFor(entitlement, course, equipmentId);
   const ivProduct = course.requiresIvProduct ? (ivProducts.find((p) => p.id === ivProductId) ?? null) : null;
 
   const slot = {
@@ -93,7 +107,9 @@ export function slotFromPicks(picks, ctx) {
     equipmentId: picksEquipment(entitlement, course) ? (equipmentId ?? null) : null,
     ivProductId: course.requiresIvProduct ? (ivProductId ?? null) : null,
     startsAt,
-    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct })),
+    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct, minutes })),
+    // 她選的時長跟著這一段走（改期、只改醫師都不掉）。不給選的課是 null
+    minutes: slotMinutesField({ entitlement, course, ivProduct, minutes }),
     roomId: assigns === 'room' ? (roomId || null) : null,
     bed: assigns === 'room' ? (bed || null) : null,
     therapistId: assigns === 'therapist' ? (therapistId ?? null) : null,

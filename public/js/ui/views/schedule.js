@@ -47,26 +47,27 @@ import {
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
-  validateVisit, isActive, coursesForEntitlement, courseForEquipment,
+  validateVisit, isActive, courseForEquipment,
   picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
   acceptsMoreSlots, sameDayVisitFor,
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
+import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
 import { bookingConsequences, settledDayLine } from '../../domain/consequences.js';
 import { slotName } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
-  nthLabel, nextNthFor, examChoicesForNth, courseIdForNth, secondFollowupIds,
+  nthLabel, nextNthFor, examChoicesForNth, secondFollowupIds,
   MIN_NTH, MAX_NTH,
 } from '../../domain/nthFollowup.js';
 import * as flagsUi from '../components/flags.js';
 import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
-  orderedRoomSlots, picksDoctor, staffWithRole, clinicalTerms, ivChoicesFor,
-  THERAPIST_ROLE, DOCTOR_ROLE,
+  orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, clinicalTerms, ivChoicesFor,
+  bookingMinutesOf, THERAPIST_ROLE,
 } from '../../domain/masterData.js';
-import { splitFlags } from '../../domain/customers.js';
+import { splitFlags, nameHas } from '../../domain/customers.js';
 import { isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
 import {
   todayISO, addDays, shortDate, lastDayOf, monthLabel,
@@ -151,7 +152,7 @@ function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
     equipmentId: null, therapistId: null, roomKey: null, doctorId: null,
-    followupForVisitId: null, nth: null,
+    followupForVisitId: null, nth: null, minutes: null,
   });
 }
 
@@ -166,6 +167,8 @@ function resetCourseBoundPicks() {
     // `view.nth` 會留著，而下一次她選回 n返 時看到的是上一次的返數。
     // 更糟的是那一段存進去時可能同時帶著額度與返數。
     followupForVisitId: null, nth: null,
+    // 約的時候選的時長也是綁著課程的（ADR-0122）：換一門課就回到那門課的預設
+    minutes: null,
   });
 }
 
@@ -525,10 +528,12 @@ const FILTERS = [
   { id: 'noask', label: '沒問過時間', match: (r) => r.needsAvailability },
 ];
 
-/** 搜尋只比姓名 —— 她找人的時候腦子裡是名字。 */
+/**
+ * 搜尋只比姓名 —— 她找人的時候腦子裡是名字。
+ * 比法同其他找人的框（`nameHas()`：空白、全形半形、大小寫不算；一個字都沒打就是每一位）。
+ */
 function matchesSearch(row) {
-  const q = view.search.trim();
-  return !q || String(row.customerName ?? '').includes(q);
+  return nameHas(row.customerName, view.search);
 }
 
 /** 現在牆上（與卡片組裡）有哪幾位，照她選的排法排。 */
@@ -1273,7 +1278,7 @@ function dayPanel(row) {
                         data-ent="${esc(o.entitlementId)}">${esc(o.label)}
                   ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
                         0 看起來像「用完了」，而它根本不是一筆額度 */''}
-                  ${o.isNth ? '<span class="chip__note">不扣次數</span>'
+                  ${o.isNth || o.isUncounted ? '<span class="chip__note">不扣次數</span>'
                             : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`).join('')
             : '<span class="muted">這位客戶身上沒有還有剩的課程了。</span>'}
         </div>
@@ -1385,7 +1390,32 @@ function pickedMinutes(picked) {
   const ivProduct = course?.requiresIvProduct
     ? ((ctx.all.ivProducts ?? []).find((x) => x.id === view.equipmentId) ?? null)
     : null;
-  return slotMinutes({ entitlement: picked?.entitlement ?? null, course, ivProduct });
+  // `view.minutes` 是她在「排多久」那一排選的（ADR-0122）；那門課不給選時它不算數
+  return slotMinutes({
+    entitlement: picked?.entitlement ?? null, course, ivProduct, minutes: view.minutes,
+  });
+}
+
+/**
+ * 「排多久」那一排：**約的時候選時長**（ADR-0122，二返與 n返 的 30／60）。
+ *
+ * 只有課程主檔上填了 `bookingMinutes` 的才有這一排 —— 復能是買的時候分的（那是兩筆額度），
+ * 沒有這一排，照額度。預設按著的那一顆就是 `pickedMinutes()` 現在算出來的（二返 30）。
+ * 選了只換 `aria-pressed` 與「幾點開始　N 分鐘」那一句，不重畫（ADR-0038）。
+ */
+function minutesField(picked) {
+  const choices = bookingMinutesOf(effectiveCourse(picked));
+  if (!choices.length) return '';
+  const now = pickedMinutes(picked);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">排多久</span>
+      <div class="chips">
+        ${choices.map((n) => `
+          <button class="chip" type="button" aria-pressed="${n === now}"
+                  data-minutes="${n}"><span class="num">${n}</span> 分</button>`).join('')}
+      </div>
+    </div>`;
 }
 
 /** 「　120 分鐘」。算不出來就一個像素都不佔。 */
@@ -1433,6 +1463,7 @@ function entFields(row, picked) {
       </label>
     </div>
 
+    ${minutesField(picked)}
     ${picksEquipment(picked.entitlement, course) ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all, picked) : ''}
     ${/* 指派要治療師還是治療室，由**她挑的那一台器材**推出來（ADR-0075）。
@@ -1442,7 +1473,7 @@ function entFields(row, picked) {
     ${assigns === null ? f.undecidedHint(picked.entitlement?.label) : ''}
     ${assigns === 'therapist' ? therapistField(all) : ''}
     ${assigns === 'room' ? roomField(all, course) : ''}
-    ${picksDoctor(course) ? doctorField(all) : ''}
+    ${picksDoctor(course) ? doctorField(all, course) : ''}
     ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
 }
 
@@ -1491,66 +1522,24 @@ function nthFields(row) {
 }
 
 /**
- * 這位客戶身上還排得動的課程。
+ * 這位客戶這一段可以做什麼：還有剩的額度、「＋ n返」、不算次數的課。
  *
- * 擇一池沒有 courseId，它對應的是「池裡那幾台器材各自屬於的課程」，
- * 所以這裡走 coursesForEntitlement() 而不是自己判斷（ADR-0075）。
- *
- * 四選一會推出兩個課程（復能與 ILIB），這裡取第一個當**還沒選器材時**的預設 ——
+ * 四選一會推出兩個課程（復能與 ILIB），那一顆帶的是第一個，當**還沒選器材時**的預設 ——
  * 她一挑器材就由 `effectiveCourse()` 換掉。
  */
 function courseOptions(row) {
-  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
-  const out = [];
-
-  for (const pool of row.pools ?? []) {
-    if (pool.remaining <= 0) continue;
-    const ent = ents.find((e) => e.id === pool.entitlementId);
-    if (!ent) continue;
-    const course = coursesForEntitlement(ent, ctx.all.courses, ctx.all.equipment)[0] ?? null;
-    if (!course) continue;
-    out.push({
-      entitlementId: pool.entitlementId,
-      label: pool.label,
-      remaining: pool.remaining,
-      durationMin: ent.durationMin ?? course.durationMin ?? 60,
-      course,
-      entitlement: ent,
-    });
-  }
-
-  // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）—— 它沒有被買、
-  // 沒有次數、扣不掉。它排在同一排是因為她在這裡問的是「這一段要做什麼」，
-  // 而那一排就是回答那個問題的地方。
-  //
-  // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
-  // 候選連沒做完的也列（issues/11），所以問的是有沒有**按得下去**的
-  const exams = nthExamChoices(row);
-  if (exams.some((c) => c.pickable)) {
-    const course = ctx.all.courses.find((c) => c.id === nthCourseId(row, exams)) ?? null;
-    if (course) {
-      out.push({
-        entitlementId: NTH_PICK,
-        label: '＋ n返',
-        // 剩餘次數那一格印的是「—」不是 0：0 看起來像「用完了」，
-        // 而 n返 根本沒有次數這件事。
-        remaining: '—',
-        durationMin: course.durationMin ?? 30,
-        course,
-        entitlement: null,
-        isNth: true,
-      });
-    }
-  }
-
-  return out;
+  // **那一排有哪幾顆只寫在 `domain/slotOptions.js`**（ADR-0121）：額度（還有剩的）、
+  // 「＋ n返」、每一門不算次數的課一顆。來訪編輯器與拍 Abovee 問的是同一支。
+  return slotOptionsFor({
+    entitlements: ctx.queueInput.entitlementsBy[row.customerId] ?? [],
+    visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
+    courses: ctx.all.courses,
+    equipment: ctx.all.equipment,
+    // 佇列已經算過一次（`customerPools()`），用同一份 —— 卡片牆與這一排的數字才會一樣
+    pools: row.pools ?? [],
+    followupForVisitId: view.followupForVisitId,
+  });
 }
-
-/**
- * 額度那一排上「n返」那一顆的值。**不是任何一筆額度的 id** ——
- * Firestore 的自動 id 是 20 個 [A-Za-z0-9] 字元，撞不到這兩條底線。
- */
-const NTH_PICK = '__nth__';
 
 /** 這位客戶有哪幾次健檢接得了 n返。 */
 function nthExamChoices(row) {
@@ -1559,21 +1548,6 @@ function nthExamChoices(row) {
     coursesById: Object.fromEntries(ctx.all.courses.map((c) => [c.id, c])),
     visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
   });
-}
-
-/**
- * n返 借的是哪一個課程 —— 那一次健檢配的二返課程（ADR-0022 的同一條連結）。
- *
- * 已經選好健檢就用那一次的；還沒選就拿第一個候選的 —— 幾乎所有客戶身上
- * 的健檢都配到同一個二返課程，而她選完之後這個值會重算。
- */
-function nthCourseId(row, exams) {
-  const visits = ctx.queueInput.visitsBy[row.customerId] ?? [];
-  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
-  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
-  const wanted = view.followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
-  const exam = visits.find((v) => v.id === wanted) ?? null;
-  return exam ? courseIdForNth(exam, ents, coursesById) : null;
 }
 
 /**
@@ -1692,22 +1666,36 @@ function therapistField(all) {
 /**
  * 醫師。**跟治療師是兩個各自獨立的選單**，同一段可以兩個都有 ——
  * 二返同時要診間和醫師（ADR-0026）。哪些課程有這一排只寫在
- * `domain/masterData.js` 的 `picksDoctor()`（A 類一律有）。
+ * `domain/masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；沒選過的 A 類一律有）。
  *
  * 以前這一排只有日曆的來訪編輯器有，所以她壓完二返之後那一段的醫師一定是空的，
  * 而試算表的二返註記括號裡讀的就是它 —— 括號因此永遠是空的。
+ *
+ * **誰排前面只寫在 `doctorChoicesFor()`**（ADR-0120）：課程指定了一科，那一科的醫師
+ * 排前面，其餘收在「其他醫師」後面 —— 不是藏起來，代診那天照樣選得到。收合的樣子
+ * 跟品項那一排的「換一款」共用同一組 class（`chip--tucked` 與 `[data-tuck]`）。
  */
-function doctorField(all) {
-  const doctors = staffWithRole(all.staff, DOCTOR_ROLE);
+function doctorField(all, course) {
+  const { first, others } = doctorChoicesFor(course, all.staff);
+  const rows = [...first, ...others];
+  const tucks = others.length > 0;
   return `
-    <div class="fieldgroup">
+    <div class="fieldgroup" ${tucks ? "data-tuck='closed'" : ''}>
       <span class="fieldgroup__label">醫師　還沒定也存得下去</span>
       <div class="chips">
-        ${doctors.length
-          ? doctors.map((d) => `
-              <button class="chip" type="button" aria-pressed="${d.id === view.doctorId}"
-                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`).join('')
+        ${rows.length
+          ? rows.map((d, i) => {
+            const on = d.id === view.doctorId;
+            // 選著的那一顆永遠看得到 —— 收起來的話畫面上會是「一排都沒選」
+            const tucked = tucks && i >= first.length && !on ? ' chip--tucked' : '';
+            return `
+              <button class="chip${tucked}" type="button" aria-pressed="${on}"
+                      data-doctor="${esc(d.id)}">${esc(d.name)}</button>`;
+          }).join('')
           : '<span class="muted">主檔裡還沒有醫師，到「設定 → 治療師與醫師」新增。</span>'}
+        ${tucks ? `
+          <button class="chip chip--more" type="button" data-chip-more
+                  aria-expanded="false">其他醫師</button>` : ''}
       </div>
     </div>`;
 }
@@ -1800,11 +1788,21 @@ function pickIvIfBought(picked) {
 }
 
 /**
+ * 這門課指定的那一科剛好只有一位醫師 → 先選好他（`doctorChoicesFor()` 的 `preselect`，
+ * ADR-0120）。**只在還沒選醫師時套**：跟 `resetCourseBoundPicks()` 是一組的 ——
+ * 先清乾淨，再看要不要自動填。換得掉，其他醫師收在「其他醫師」後面。
+ */
+function pickDoctorIfOnly(picked) {
+  if (view.doctorId) return;
+  view.doctorId = doctorChoicesFor(effectiveCourse(picked), ctx.all.staff).preselect;
+}
+
+/**
  * 診間。這個課程排得進去的放前面，其餘的收在底下 ——
  * 十七間全部攤開會把整個面板推得很長，但也不能不給，例外是真的會發生的。
  *
  * **前面那一排的順序由 `orderedRoomSlots()` 決定**（她 2026-09-08 要的
- * 「優先置頂」）：EECP 是治5、治8，ILIB 是 `.10`、治2、治3。
+ * 「優先置頂」）：EECP 是治5、治7、治8，ILIB 是 `.10`、治2、治3。
  * 來訪編輯器走的是同一支 —— 各排一次的話，同一個課程在兩個畫面上第一顆
  * 丸子不一樣，她不會知道哪個算數。
  */
@@ -1886,6 +1884,15 @@ function onDeckClick(e) {
 
   const time = e.target.closest('[data-time]');
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
+
+  // 排多久（ADR-0122）：一定有一顆按著，所以再點同一顆不取消
+  const mins = e.target.closest('[data-minutes]');
+  if (mins) {
+    view.minutes = Number(mins.dataset.minutes);
+    press('[data-minutes]', 'minutes', mins.dataset.minutes);
+    refreshSlotMins();
+    return null;
+  }
 
   // 「換一款」：只改一個屬性，整排不重畫（同 f.chips() 的 wireChips）
   const more = e.target.closest('[data-chip-more]');
@@ -1983,7 +1990,9 @@ function afterEquipmentPick(row, picked, beforeKey) {
   if (assignKeyOf(picked) !== beforeKey) {
     // 課程換了 → 跟著課程走的那幾格（治療師、診間、醫師）全部重挑。
     // 留著舊的話，一段 ILIB 會帶著上一台復能挑的治療師存進去。
-    Object.assign(view, { therapistId: null, roomKey: null, doctorId: null });
+    Object.assign(view, { therapistId: null, roomKey: null, doctorId: null, minutes: null });
+    // 換了一台 → 換了課程 → 醫師那一排也換了，照新的那門課再看一次要不要先選好
+    pickDoctorIfOnly(picked);
     fields.innerHTML = entFields(row, picked);
     return;
   }
@@ -2026,6 +2035,7 @@ function pickCourse(entitlementId) {
   if (picked?.isNth) pickDefaultNth(row);
   else pickExamIfObvious(row, picked);
   pickIvIfBought(picked);
+  pickDoctorIfOnly(picked);
   fields.innerHTML = entFields(row, picked);
 
   const add = deckEl()?.querySelector('[data-add]');
@@ -2114,8 +2124,10 @@ async function addSlot() {
   const customerVisitsNow = ctx.queueInput.visitsBy[selected.customerId] ?? [];
   const { slot, errors: early } = slotFromPicks({
     // 額度那一排上沒有這一顆（用完了、n返 沒有健檢可接）就等於沒選
-    entitlementId: picked && !picked.isNth ? picked.entitlementId : null,
+    entitlementId: picked?.entitlement?.id ?? null,
     isNth: Boolean(picked?.isNth),
+    // 不算次數的課：沒有額度，課程就是她按的那一顆（ADR-0121）
+    uncountedCourseId: picked?.isUncounted ? picked.course.id : null,
     // 器材與營養點滴品項存在同一格（`onDeckClick()` 的對照表）
     equipmentId: view.equipmentId ?? null,
     ivProductId: view.equipmentId ?? null,
@@ -2126,6 +2138,8 @@ async function addSlot() {
     doctorId: view.doctorId ?? null,
     nth: view.nth ?? null,
     followupForVisitId: view.followupForVisitId ?? null,
+    // 約的時候選的時長（ADR-0122）。那門課不給選時 `slotMinutes()` 不理它
+    minutes: view.minutes ?? null,
     // 那一句話跟著這一段走（ADR-0084），不再是整筆的
     note: deckEl()?.querySelector('[name="note"]')?.value?.trim() || null,
   }, {

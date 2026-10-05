@@ -349,3 +349,63 @@ test('iPad 寬（導覽列在左邊）：那一條貼在畫面底', async ({ app
   expect(Math.abs(m.bar.bottom - m.view.bottom), `那一條的底 ${m.bar.bottom} 要貼在捲動區的底 ${m.view.bottom}`)
     .toBeLessThanOrEqual(1);
 });
+
+// 找人只有一種比法（issue 17，2026-10-05，`domain/customers.js` 的 `nameHas()`）。
+// 名字中間有空白的那一位、打全形的英數字：這一頁與日曆新增的「要幫誰排？」以前都找不到，
+// 而拍 Abovee 的「換一位」找得到 —— 同一位客戶在一個框找得到、另一個框找不到。
+test('找人：名字中間有空白、打全形英文，這一頁與日曆「要幫誰排？」都找得到；各自「列誰」照舊', async ({ app, page }) => {
+  await app.seed([
+    ...seed(),
+    customer({ id: 'cust-sp', name: '陳 小美A' }),
+    customer({ id: 'cust-off', name: '陳小強', active: false }),
+  ]);
+  await app.signIn('/schedule');
+  await page.locator('a[href="#/schedule/cancel"]').click();
+  const q = page.locator('[data-q]');
+  await expect(q).toBeVisible();
+
+  await q.fill('陳小美');
+  await expect(page.locator('[data-pick]')).toHaveCount(1);
+  await expect(page.locator('[data-pick]')).toContainText('陳 小美A');
+  await page.locator('[data-q]').fill('小美ａ');
+  await expect(page.locator('[data-pick]')).toContainText('陳 小美A');
+  // 停用的照舊找得到 —— 他身上可能還有要取消的來訪
+  await page.locator('[data-q]').fill('陳小強');
+  await expect(page.locator('[data-pick]')).toHaveCount(1);
+
+  // 日曆 → 那一天 → ＋ → 來訪 →「要幫誰排？」
+  await app.go('/calendar');
+  await page.locator(`[data-day="${D2}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await expect(page.locator('[data-pick="cust-b"]'), '沒打字照舊列出來').toBeVisible();
+  await expect(page.locator('[data-pick="cust-off"]'), '日曆新增照舊不列停用的').toHaveCount(0);
+
+  await page.locator('[data-search]').fill('陳小美');
+  await expect(page.locator('[data-pick]')).toHaveCount(1);
+  await expect(page.locator('[data-pick="cust-sp"]')).toBeVisible();
+});
+
+// 壓表牆上的搜尋也是同一種比法（她 2026-10-06：「好」）。以前打的字中間多一個空白就「沒有這個名字」。
+test('找人：壓表牆上的搜尋，中間多打一個空白、打全形也找得到', async ({ app, page }) => {
+  await app.seed([...seed(), customer({ id: 'cust-en', name: '客戶A' }), entitlement('cust-en', {
+    id: 'ent-en', label: 'EECP', courseId: 'course-eecp', totalQty: 10,
+  })]);
+  await app.signIn('/schedule');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  const wall = page.locator('[data-wall]');
+  await expect(wall.locator('[data-pick="cust-b"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-en"]')).toBeVisible();
+
+  await page.locator('[data-search]').fill('王 小明');
+  await expect(wall.locator('[data-pick="cust-b"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-en"]')).toHaveCount(0);
+
+  await page.locator('[data-search]').fill('客戶ａ');
+  await expect(wall.locator('[data-pick="cust-en"]')).toBeVisible();
+  await expect(wall.locator('[data-pick="cust-b"]')).toHaveCount(0);
+});

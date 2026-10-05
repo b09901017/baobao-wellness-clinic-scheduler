@@ -21,14 +21,17 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, entitlementChoices, examChoices, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  resolveItem, summarizeAbovee,
+  aboveeDatesIn, adoptAbovee, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention, newRowSay, optionValueOf, pickOption,
+  picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
-import { aliasWrites, staffFrom } from '../../domain/abovee.js';
-import { validateVisit, picksEquipment, assignsFor } from '../../domain/visits.js';
+import { aliasWrites } from '../../domain/abovee.js';
+import { validateVisit, picksEquipment, assignsFor, slotMinutes } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
+import { slotOptionsFor } from '../../domain/slotOptions.js';
+import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
+import { searchCustomers } from '../../domain/customers.js';
 import {
-  DOCTOR_ROLE, THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, staffWithRole,
+  THERAPIST_ROLE, bookingMinutesOf, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
 } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
@@ -49,7 +52,7 @@ const WHY_UNKNOWN = {
   numberOnly: '病歷號對上了，名字不一樣 —— 是這一位嗎？',
   conflict: '名字跟病歷號指到不同的人，選一位',
   ambiguous: '同名的有好幾位，選一位',
-  none: 'app 裡沒有這位客戶',
+  none: 'app 裡沒有照片上這個名字 —— 打名字找找看；真的沒有就先去新增客戶',
 };
 
 /**
@@ -78,6 +81,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const savedDays = [];
   let savedCount = 0;
   const showAllRooms = new Set();
+  /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
+  const finding = new Map();
 
   const urlOf = (i) => photos[i]?.url ?? null;
   /** 打開這一層時的網址。分得出「返回鍵」與「換頁」（`requestClose()`）。 */
@@ -136,21 +141,36 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   // ---------- 畫 ----------
 
+  /** `validateVisit()` 要的那一份（這位客戶、那一天）。 */
+  function checkCtx(customerId, date) {
+    return {
+      customer: { flags: ctx.customers.find((c) => c.id === customerId)?.flags ?? [] },
+      entitlements: ctx.entitlementsBy[customerId] ?? [],
+      courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
+      staff: ctx.master.staff, ivProducts: ctx.master.ivProducts,
+      customerVisits: ctx.visitsBy[customerId] ?? [],
+      sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === date),
+    };
+  }
+
   function plan() {
     const { groups, problems } = planAbovee(items, ctx);
     const warningsBy = {};
+    // 11：按了「改成 Abovee 的」的那一段，改完照樣跑一次（換了診間可能撞到別人，`conflictWarnings()`）
+    for (const item of items.filter((i) => i.adopt && !savedKeys.has(i.key))) {
+      const visit = (ctx.visitsBy[item.customerId] ?? []).find((v) => v.id === item.existing?.visitId);
+      if (!visit) continue;
+      const mine = `第 ${item.existing.slotIndex + 1} 個時段`;
+      warningsBy[item.key] = validateVisit(adoptAbovee(visit, [item]).visit, checkCtx(item.customerId, visit.date))
+        .warnings.filter((w) => w.startsWith(mine));
+    }
     for (const g of groups) {
-      const { errors, warnings } = validateVisit(g.visit, {
-        customer: { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] },
-        entitlements: ctx.entitlementsBy[g.customerId] ?? [],
-        courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
-        staff: ctx.master.staff, ivProducts: ctx.master.ivProducts,
-        customerVisits: ctx.visitsBy[g.customerId] ?? [],
-        sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === g.date),
-      });
+      const { errors, warnings } = validateVisit(g.visit, checkCtx(g.customerId, g.date));
+      const customer = { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] };
       for (const item of g.items) {
         if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
-        warningsBy[item.key] = warnings;
+        // 合併扣課只記第一台，第二台要提醒的事接在後面（`mergedNotices()`）
+        warningsBy[item.key] = [...warnings, ...mergedNotices(item, customer, ctx.master.equipment)];
       }
     }
     return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy };
@@ -280,9 +300,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             <span class="abl-row__tag">${esc(tag === 'unknown' && item.who.how === 'none' ? 'app 裡沒有' : TAGS[tag])}</span>
           </button>
         </div>
+        ${item.merged ? `
+          <p class="abl-row__merged"><b>合併扣課</b>${esc(mergedLine(item))}
+            ${savedKeys.has(item.key) ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${item.kind === 'recorded' && item.diffs?.length && !open
+          ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
       </li>`;
   }
@@ -307,9 +332,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </div>`;
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
+    // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
+    const who = whoHtml(item);
     if (item.kind === 'recorded') {
       return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${item.cancelled
-        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p></div>`;
+        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p>${adoptHtml(item, warnings)}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
       // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
@@ -318,35 +345,42 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           這裡不改 —— 要改的話去日曆那一天。</p>
         ${onOpenDay ? `<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
           去日曆 ${esc(shortDate(item.date))}（照片不會留著）</button>` : ''}
+        ${who}
       </div>`;
     }
     if (item.kind === 'unknown') {
       return `<div class="abl-row__detail">${seen}
         <p class="abl-row__say">${esc(WHY_UNKNOWN[item.who.how] ?? '')}</p>
-        ${item.who.candidates.length ? chipRow('是誰', item.who.candidates.map((c) => ({
-          value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who',
-        }))) : ''}
+        ${who}
       </div>`;
     }
 
-    const rows = [];
-    // 她自己選的人：候選那一排留著，選錯了換得掉
-    if (!item.who.customer && item.who.candidates.length) {
-      rows.push(chipRow('是誰', item.who.candidates.map((c) => ({
-        value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who',
+    const rows = [who];
+    // 10：Abovee 上改了時間、app 還沒改 —— 改期是取消＋重新排（ADR-0108），去日曆做
+    if (item.movedFrom && onOpenDay) {
+      rows.unshift(`<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
+        去日曆 ${esc(shortDate(item.date))} 改期（照片不會留著）</button>`);
+    }
+    // 「要做什麼」那一排跟壓表同一份（`slotOptionsFor()`，ADR-0121）：額度（二返排最後）、＋n返、不算次數的課。
+    // **用完的額度也列** —— Abovee 上已經約了，那一段是既成事實；選了照舊有「會超過次數」的提醒
+    const options = optionsFor(item);
+    const value = optionValueOf(item);
+    if (!options.length) {
+      rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，也沒有不算次數的課 —— 先去加購再回來記。</p>');
+    } else {
+      if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
+      rows.push(chipRow('要做什麼', options.map((o) => ({
+        value: o.entitlementId, label: o.label,
+        sub: o.isNth || o.isUncounted ? '不扣次數' : `剩 ${o.remaining}`,
+        on: o.entitlementId === value, attr: 'data-abl-opt',
       }))));
+      if (item.isNth && !options.some((o) => o.isNth)) {
+        rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有做完的健檢可以接 —— 選別的，或先去日曆把那次健檢記成已完成。</p>');
+      }
     }
 
-    const choices = entitlementChoices(item.customerId, item.course, ctx);
-    if (!item.course) rows.push('<p class="abl-row__say">認不出課程那一格寫的是什麼。到壓表那張卡上手動記這一段。</p>');
-    else if (!choices.length) rows.push('<p class="abl-row__say">這位客戶身上沒有可以扣這一段的額度。</p>');
-    else {
-      rows.push(chipRow('額度', choices.map(({ entitlement: e, remaining }) => ({
-        value: e.id, label: e.label, sub: `剩 ${remaining}`, on: item.entitlementId === e.id, attr: 'data-abl-ent',
-      }))));
-    }
-
-    const ent = (ctx.entitlementsBy[item.customerId] ?? []).find((e) => e.id === item.entitlementId) ?? null;
+    const ent = item.isNth ? null
+      : ((ctx.entitlementsBy[item.customerId] ?? []).find((e) => e.id === item.entitlementId) ?? null);
     const course = built?.course ?? null;
     if (ent?.type === 'pool') {
       rows.push(chipRow('器材', (ent.optionEquipmentIds ?? [])
@@ -359,17 +393,31 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         value: x.id, label: x.name, on: item.ivProductId === x.id, attr: 'data-abl-iv',
       }))));
     }
-    const exams = examChoices(item.customerId, ent, ctx);
-    if (exams.length) {
-      // 每一次都標它自己的狀態，**只有已完成、沒被佔走的按得下去**（`pickable`，issues/11）
-      rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
-        value: x.visitId, label: shortDate(x.date),
-        sub: examChoiceNote(x),
-        on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
+    if (item.isNth && course) {
+      rows.push(...nthRows(item));
+    } else {
+      const exams = examChoices(item.customerId, ent, ctx);
+      if (exams.length) {
+        // 每一次都標它自己的狀態，**只有已完成、沒被佔走的按得下去**（`pickable`，issues/11）
+        rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
+          value: x.visitId, label: shortDate(x.date),
+          sub: examChoiceNote(x),
+          on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
+        }))));
+      } else if (ent?.followupForEntitlementId) {
+        // 一次都沒排過：跟壓表、來訪編輯器一樣，標題旁邊一顆 ?（issues/11）
+        rows.push(chipRow('接哪一次健檢', [], tip('還沒排過健檢')));
+      }
+    }
+    // 約的時候選時長（ADR-0122）：照片上的數字先按好（二返60 → 60），沒寫就是預設那一顆
+    const minutes = bookingMinutesOf(course);
+    if (minutes.length) {
+      const ivProduct = course.requiresIvProduct
+        ? (ctx.master.ivProducts.find((p) => p.id === item.ivProductId) ?? null) : null;
+      const now = slotMinutes({ entitlement: ent, course, ivProduct, minutes: item.minutes });
+      rows.push(chipRow('排多久', minutes.map((n) => ({
+        value: String(n), label: `${n} 分`, on: n === now, attr: 'data-abl-min',
       }))));
-    } else if (ent?.followupForEntitlementId) {
-      // 一次都沒排過：跟壓表、來訪編輯器一樣，標題旁邊一顆 ?（issues/11）
-      rows.push(chipRow('接哪一次健檢', [], tip('還沒排過健檢')));
     }
 
     const assigns = course ? assignsFor(ent, course, item.equipmentId) : null;
@@ -388,7 +436,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       }))));
     }
     if (course && picksDoctor(course)) {
-      rows.push(chipRow('醫師', staffWithRole(ctx.master.staff, DOCTOR_ROLE).map((s) => ({
+      // 誰排前面只寫在 `doctorChoicesFor()`（ADR-0120）。**這裡不套 `preselect`** ——
+      // 照片上已經寫著是哪一位，認不出來時替她挑一位等於把照片上的字蓋掉
+      const { first, others } = doctorChoicesFor(course, ctx.master.staff);
+      rows.push(chipRow('醫師', [...first, ...others].map((s) => ({
         value: s.id, label: s.name, on: item.doctorId === s.id, attr: 'data-abl-doctor',
       }))));
     }
@@ -413,12 +464,108 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       <div class="abl-row__pick">
         <span class="abl-row__picklabel">${esc(label)}</span>
         <span class="abl-row__chips">
-          ${chips.map((c) => `
-            <button class="chip chip--sm abl-chip" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}"
-                    ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`).join('')}
+          ${chips.map(chipHtml).join('')}
           ${extra}
         </span>
       </div>`;
+  }
+
+  /** 11：「app 是 A、Abovee 是 B」＋一顆「改成 Abovee 的」（按著／放開）。已完成的鎖著，不給按。 */
+  function adoptHtml(item, warnings) {
+    if (!item.diffs?.length) return '';
+    return `
+      <ul class="abl-row__diffs">${item.diffs.map((d) => `<li>${esc(diffSay(d, ctx.master))}</li>`).join('')}</ul>
+      ${item.locked
+        ? '<p class="abl-row__say">已完成的鎖著 —— 要改去日曆那一天。</p>'
+        : `<span class="abl-row__chips"><button class="chip chip--sm abl-chip" type="button" data-abl-adopt
+             aria-pressed="${Boolean(item.adopt)}">改成 Abovee 的</button></span>`}
+      ${item.adopt && warnings.length
+        ? `<ul class="abl-row__warnings">${warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`;
+  }
+
+  function chipHtml(c) {
+    return `
+      <button class="chip chip--sm abl-chip" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}"
+              ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`;
+  }
+
+  /**
+   * 「是誰」那一排。認得的只畫名字＋「換一位」；按了（或本來就認不得）才有找人的框與候選。
+   * **打字只換候選那一塊**（`[data-abl-found]`）—— 整列重畫會換掉輸入框，中文選字打到一半就斷了（ADR-0038 的精神）。
+   */
+  function whoHtml(item) {
+    const customer = ctx.customers.find((c) => c.id === item.customerId);
+    if (customer && !finding.has(item.key)) {
+      return `
+        <div class="abl-row__pick">
+          <span class="abl-row__picklabel">是誰</span>
+          <span class="abl-row__chips">
+            <span class="abl-row__whonow">${esc(customer.name)}</span>
+            <button class="chip chip--sm chip--more" type="button" data-abl-find>換一位</button>
+          </span>
+        </div>`;
+    }
+    return `
+      <div class="abl-row__pick">
+        <span class="abl-row__picklabel">是誰</span>
+        <span class="abl-row__chips" data-abl-found>${whoChips(item)}</span>
+        <label class="abl-row__find">
+          <span class="visually-hidden">打名字找客戶</span>
+          <input type="search" data-abl-query value="${esc(finding.get(item.key) ?? '')}"
+                 placeholder="打名字找" autocomplete="off" />
+        </label>
+      </div>`;
+  }
+
+  /** 候選（認人給的）＋ 她打字找到的（`searchCustomers()`）。找不到才講「先去新增客戶」—— 這一層不建客戶。 */
+  function whoChips(item) {
+    const query = String(finding.get(item.key) ?? '').trim();
+    const seenIds = new Set();
+    const pool = [...(item.who?.candidates ?? []), ...searchCustomers(ctx.customers, query)]
+      .filter((c) => c && !seenIds.has(c.id) && seenIds.add(c.id))
+      .slice(0, 8);
+    if (!pool.length) {
+      return query
+        ? `<span class="abl-row__say">找不到「${esc(query)}」—— app 裡真的沒有的話，先去新增客戶再回來拍。</span>`
+        : '';
+    }
+    return pool.map((c) => chipHtml({ value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who' })).join('');
+  }
+
+  /** 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。 */
+  function optionsFor(item) {
+    if (!item.customerId) return [];
+    return slotOptionsFor({
+      entitlements: ctx.entitlementsBy[item.customerId] ?? [],
+      visits: ctx.visitsBy[item.customerId] ?? [],
+      courses: ctx.master.courses,
+      equipment: ctx.master.equipment,
+      // n返 借的課程跟著她選的那一次健檢走
+      followupForVisitId: item.isNth ? item.followupForVisitId : null,
+    }, { includeUsedUp: true });
+  }
+
+  /**
+   * n返 的兩排：第幾返、接哪一次健檢。照壓表那兩排（`schedule.js` 的 `nthFields()`）：
+   * 已經有幾返照樣標出來、沒做完的那一次按不下去、**不替她選**接哪一次。
+   */
+  function nthRows(item) {
+    const numbers = [];
+    for (let n = MIN_NTH; n <= MAX_NTH; n += 1) numbers.push(n);
+    const exams = examChoicesForNth({
+      entitlements: ctx.entitlementsBy[item.customerId] ?? [],
+      coursesById: Object.fromEntries(ctx.master.courses.map((c) => [c.id, c])),
+      visits: ctx.visitsBy[item.customerId] ?? [],
+    });
+    return [
+      chipRow('第幾返', numbers.map((n) => ({
+        value: String(n), label: nthLabel(n), on: item.nth === n, attr: 'data-abl-nth',
+      }))),
+      chipRow('接哪一次健檢', exams.map((x) => ({
+        value: x.visitId, label: shortDate(x.date), sub: examChoiceNote(x),
+        on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
+      }))),
+    ];
   }
 
   // ---------- 底下那一條 ----------
@@ -427,7 +574,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const bar = root.querySelector('[data-abl-bar]');
     const checked = items.filter((i) => i.checked && !savedKeys.has(i.key));
     const stuck = checked.filter((i) => p.problems[i.key]);
-    const n = checked.length;
+    // 11：按了「改成 Abovee 的」的那幾列跟新的那幾段一起在「記錄」那一下寫
+    const n = checked.length + items.filter((i) => i.adopt && !savedKeys.has(i.key)).length;
     const say = failure
       ? `記好了 ${savedCount} 段；${failure.name} 那一天沒記：${failure.message}。再按一次記剩下的。`
       : stuck.length ? `勾起來的有 ${stuck.length} 段還差一步，點開補上`
@@ -456,6 +604,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const set = (next) => { items[at] = next; repaintRow(key); };
 
     if (t.matches('[data-abl-check]')) { set({ ...item, checked: !item.checked }); return; }
+    if (t.matches('[data-abl-adopt]')) { set({ ...item, adopt: !item.adopt }); return; }
+    if (t.matches('[data-abl-split]')) {
+      // 拆開成兩段：換回原本那兩列（一般的兩段，各扣各的）。不再合 —— 她拆的
+      items.splice(at, 1, ...item.merged.parts.map((p) => ({ ...p, checked: item.checked && p.checked })));
+      if (attention.has(key)) item.merged.parts.forEach((p) => attention.add(p.key));
+      if (openKey === key) openKey = null;
+      paintBody();
+      return;
+    }
     if (t.matches('[data-abl-open]')) {
       const before = openKey;
       openKey = openKey === key ? null : key;
@@ -463,25 +620,21 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       repaintRow(key);
       return;
     }
+    if (t.matches('[data-abl-find]')) {
+      finding.set(key, '');
+      repaintRow(key);
+      rowEl(key)?.querySelector('[data-abl-query]')?.focus();
+      return;
+    }
     if (t.dataset.ablWho) {
+      // 換了人整列重算（`resolveItem()`）；**她自己選的人不自動勾**（那一支的規則）
+      finding.delete(key);
       set(resolveItem(item, t.dataset.ablWho, ctx));
       return;
     }
-    if (t.dataset.ablEnt) {
-      const ent = (ctx.entitlementsBy[item.customerId] ?? []).find((x) => x.id === t.dataset.ablEnt);
-      const options = ent?.optionEquipmentIds ?? [];
-      const exams = examChoices(item.customerId, ent, ctx).filter((x) => x.pickable);
-      set({
-        ...item,
-        entitlementId: ent?.id ?? null,
-        equipmentId: ent?.type === 'pool'
-          ? (options.includes(item.course?.equipmentId) ? item.course.equipmentId : (options.length === 1 ? options[0] : null))
-          : null,
-        ivProductId: ent?.ivProductId ?? item.ivProductId,
-        followupForVisitId: exams.length === 1 ? exams[0].visitId : null,
-      });
-      return;
-    }
+    if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx)); return; }
+    if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
+    if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
     if (t.dataset.ablIv) { set({ ...item, ivProductId: t.dataset.ablIv }); return; }
     if (t.dataset.ablExam) { set({ ...item, followupForVisitId: t.dataset.ablExam }); return; }
@@ -489,9 +642,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.matches('[data-abl-allrooms]')) { showAllRooms.add(key); repaintRow(key); return; }
     if (t.dataset.ablTherapist || t.dataset.ablDoctor) {
       const staffId = t.dataset.ablTherapist ?? t.dataset.ablDoctor;
-      // 服務資源那一格認不出來、她選了人 → 存的時候記住那個寫法（12 的 `aliasWrites()`）
-      const unknownText = item.row.resource && !staffFrom(item.row.resource, ctx.master.staff)
-        ? item.row.resource : null;
+      // 服務資源那一格認不出來、她選了人 → 存的時候記住那個寫法（12 的 `aliasWrites()`）。
+      // 認不認得照翻譯那一次（`readAbovee()` 分了角色）—— 這裡再問一次不分角色的會跟它不一樣
+      const unknownText = item.row.resource && !item.staffKnown ? item.row.resource : null;
       set({
         ...item,
         ...(t.dataset.ablTherapist ? { therapistId: staffId } : { doctorId: staffId }),
@@ -500,8 +653,25 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     }
   });
 
+  // 找人的框：打字只換候選那一塊，不重畫整列（中文選字打到一半不可以斷）
+  root.addEventListener('input', (e) => {
+    const box = e.target.closest?.('[data-abl-query]');
+    const key = box?.closest('[data-abl-row]')?.dataset.ablRow;
+    const item = items.find((i) => i.key === key);
+    if (!item) return;
+    finding.set(key, box.value);
+    const found = rowEl(key)?.querySelector('[data-abl-found]');
+    if (found) found.innerHTML = whoChips(item);
+  });
+
+  function rowEl(key) {
+    return [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key) ?? null;
+  }
+
   function onKey(e) {
     if (e.key !== 'Escape' || document.querySelector('.dialog-backdrop, .seenview')) return;
+    // 找人的框裡按 Esc 是清掉打的字，不是收掉整層
+    if (e.target?.matches?.('[data-abl-query]') && e.target.value) return;
     requestClose();
   }
   document.addEventListener('keydown', onKey);
@@ -514,18 +684,19 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   async function save() {
     const p = plan();
     const groups = p.groups.filter((g) => g.items.every((i) => !savedKeys.has(i.key)));
-    const n = groups.reduce((sum, g) => sum + g.items.length, 0);
+    const adopts = items.filter((i) => i.adopt && !savedKeys.has(i.key));
+    const n = groups.reduce((sum, g) => sum + g.items.length, 0) + adopts.length;
     if (!n || running || asking) return;
     asking = true;
     try {
-      await record(groups, n);
+      await record(groups, adopts, n);
     } finally {
       asking = false;
     }
   }
 
   /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
-  async function record(groups, n) {
+  async function record(groups, adopts, n) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
@@ -547,6 +718,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
       today: ctx.today,
       tasksByVisit,
+      adopts,
       aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
       marks: marks.map((m) => ({
         names: m.customerIds.map(nameOf),
@@ -566,22 +738,50 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     let current = null;
     const doneNow = [];
 
-    // 一位一天一個 commit。**重試只會記一次**：先到的那一趟記好的，另一趟看到 savedKeys 就跳過
+    // 一位一天一個 commit：新的段與「改成 Abovee 的」（11）併在同一個「重讀之後重組」裡
+    const days = new Map();
+    for (const g of groups) {
+      days.set(`${g.customerId}|${g.date}`, { customerId: g.customerId, customerName: g.customerName, date: g.date, items: g.items, adopts: [] });
+    }
+    for (const a of adopts) {
+      const k = `${a.customerId}|${a.existing.date}`;
+      const day = days.get(k) ?? { customerId: a.customerId, customerName: nameOf(a.customerId), date: a.existing.date, items: [], adopts: [] };
+      day.adopts.push(a);
+      days.set(k, day);
+    }
+    /** 寫的時候發現別的裝置剛改過、沒改成的那幾列（她看到的不是現在的值） */
+    const stale = [];
+
+    // **重試只會記一次**：先到的那一趟記好的，另一趟看到 savedKeys 就跳過
     const write = async () => {
-      for (const g of groups) {
-        if (g.items.every((i) => savedKeys.has(i.key))) continue;
-        current = g;
-        const fresh = await visitsData.listByCustomer(g.customerId);
+      for (const d of days.values()) {
+        if ([...d.items, ...d.adopts].every((i) => savedKeys.has(i.key))) continue;
+        current = d;
+        const fresh = await visitsData.listByCustomer(d.customerId);
         // 用剛讀回來的那一份重組一次：她在別的裝置上剛改過那一天的話，不可以蓋掉
-        const [again] = planAbovee(g.items, { ...ctx, visitsBy: { ...ctx.visitsBy, [g.customerId]: fresh } }).groups;
-        await visitsData.save(again.visit, fresh);
-        g.items.forEach((i) => savedKeys.add(i.key));
-        savedCount += g.items.length;
-        doneNow.push({ customerId: g.customerId, date: g.date });
-        savedDays.push({ customerId: g.customerId, date: g.date });
+        const [again] = d.items.length
+          ? planAbovee(d.items, { ...ctx, visitsBy: { ...ctx.visitsBy, [d.customerId]: fresh } }).groups : [];
+        const toSave = new Map();
+        if (again) toSave.set(again.visit.id ?? '(new)', again.visit);
+        const missedHere = [];
+        for (const a of d.adopts) {
+          const base = toSave.get(a.existing.visitId) ?? fresh.find((v) => v.id === a.existing.visitId);
+          const out = base ? adoptAbovee(base, [a]) : { visit: null, missed: [a] };
+          missedHere.push(...out.missed);
+          if (!out.missed.length) toSave.set(a.existing.visitId, out.visit);
+        }
+        // eslint-disable-next-line no-await-in-loop
+        for (const visit of toSave.values()) await visitsData.save(visit, fresh);
+        [...d.items, ...d.adopts].forEach((i) => savedKeys.add(i.key));
+        stale.push(...missedHere);
+        savedCount += d.items.length + d.adopts.length - missedHere.length;
+        if (d.items.length) {
+          doneNow.push({ customerId: d.customerId, date: d.date });
+          savedDays.push({ customerId: d.customerId, date: d.date });
+        }
         if (!closed) paintBody();
       }
-      return doneNow.length;
+      return doneNow.length + adopts.length;
     };
 
     try {
@@ -622,12 +822,19 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     running = false;
     // 來訪已經記好了，這兩件沒寫成不擋 —— 但**要講**：確認框上說了會做
-    const missedLine = missed.size ? `；${[...missed].join('、')}沒記上，到壓表那一頁手動補` : '';
+    const missedLine = (missed.size ? `；${[...missed].join('、')}沒記上，到壓表那一頁手動補` : '')
+      + (stale.length ? `；${stale.length} 段的治療師／診間剛在別的裝置上改過，這裡沒改 —— 去日曆看那一天` : '');
+    // 11 沒改成的那幾段：她看到的不是現在的值。講出來、那一列不再寫「已經記進日曆了」
+    for (const i of stale) {
+      const at = items.findIndex((x) => x.key === i.key);
+      savedKeys.delete(i.key);
+      if (at >= 0) items[at] = { ...items[at], adopt: false, diffs: null };
+    }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
       return;
     }
-    const left = items.some((i) => i.checked && !savedKeys.has(i.key));
+    const left = items.some((i) => (i.checked || i.adopt) && !savedKeys.has(i.key));
     if (!failure && !left) {
       close();
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
@@ -654,7 +861,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       close({ fromBack: true });
       return true;
     }
-    const pending = items.filter((i) => i.checked && !savedKeys.has(i.key)).length;
+    const pending = items.filter((i) => (i.checked || i.adopt) && !savedKeys.has(i.key)).length;
     if (pending && !running) {
       const pick = await chooseAction({
         title: `還有 ${pending} 段沒記`,

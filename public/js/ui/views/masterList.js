@@ -9,8 +9,11 @@ import {
   roomsForCourse,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
+  normalizeGroup, courseGroupNames, coursesByGroup, courseDefaultsFor,
+  SYSTEMS,
+  DOCTOR_ROLE, DOCTOR_NONE, DOCTOR_ANY, doctorRuleOf, specialtyNames,
 } from '../../domain/masterData.js';
-import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
+import { systemsOf, describeSystems } from '../../domain/taskRules.js';
 import {
   ALERT_COLORS, ALERT_FILLS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_FILL,
   colorTokens, lookOf, styleFor,
@@ -74,6 +77,57 @@ function alertLookFields(r) {
     })}`;
 }
 
+/**
+ * 常用診間那一排（`orderedRoomsForCourse()`）。**這是排序不是限制** ——
+ * 沒勾的那幾間照樣選得到，只是排在「其他診間」底下。
+ *
+ * **候選只有這個課程排得進去的那幾間**（`roomsForCourse()`）：勾一間它
+ * 排不進去的診間，那一顆永遠不會出現在壓表上 —— 一顆按得下去卻什麼都
+ * 不會發生的勾選框，比沒有還糟。上面那幾排改了，這一排跟著變。
+ */
+function preferredRoomsField(r, all) {
+  return f.checkboxes({
+    name: 'preferredRoomIds', label: '常用診間',
+    values: r.preferredRoomIds ?? [],
+    options: roomsForCourse(r, (all?.rooms ?? []).filter((x) => !x.deletedAt))
+      .map((x) => ({ value: x.id, label: x.name })),
+    hint: '勾起來的排在最前面。這是順序不是限制 —— 沒勾的照樣選得到，'
+      + '只是收在「其他診間」底下。這裡只列得出上面那幾排選得到的診間。',
+  });
+}
+
+/**
+ * 「只能排在這幾間」的候選：全部還在用的診間。
+ *
+ * **已經勾著、但停用或刪掉的那一間照樣列出來**（標出來）。不列的話她一按儲存，
+ * 那一格就被靜默清掉 —— 而「只剩一間已刪除的」跟「沒有例外」排出來的診間完全不一樣
+ * （前者一間都排不進去，後者照類型走）。同 `equipmentOptions()`。
+ */
+function exceptionRoomOptions(r, all) {
+  const rooms = all?.rooms ?? [];
+  const opts = rooms.filter((x) => x.active !== false)
+    .map((x) => ({ value: x.id, label: x.name }));
+  for (const id of r.allowedRoomIds ?? []) {
+    if (opts.some((o) => o.value === id)) continue;
+    const room = rooms.find((x) => x.id === id);
+    opts.push({ value: id, label: room ? `${room.name}（已停用）` : '（診間已刪除）' });
+  }
+  return opts;
+}
+
+/**
+ * 「Abovee 上的寫法」那一格（`aboveeNames`）。治療師與醫師、診間、器材、營養點滴品項、課程
+ * 共用 —— 拍 Abovee 時那一格的字先比它（`domain/abovee.js`）。頓號分開好幾種。
+ * **不用 `parseList()`**：那一支連空白也切，而 Abovee 上的寫法可以有空白（`SIS 60`）。
+ */
+function aliasField(r, { placeholder, hint }) {
+  return f.text({
+    name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
+    placeholder, hint: `${hint}好幾種用頓號分開；同一種清單裡兩筆不可以同一個寫法。`,
+  });
+}
+const parseAliases = (raw) => [...new Set(String(raw ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean))];
+
 const editors = {
   // 診間。**2026-09-08 床位那一格拿掉了**（她選的：「取消任何床位區分」），
   // 換成簡寫 —— 月曆與日／週那一列印簡寫，這一頁與試算表印全名。
@@ -98,6 +152,11 @@ const editors = {
           + '點滴8 放得下兩位（她 2026-09-16：「目前的確不需要床位，都寫 .8」）'
           + ' —— 填了 2 之後，一對夫妻同時排進去就不會再跳撞期的提醒，而第三位照樣會。',
       }),
+      aliasField(r, {
+        placeholder: '4樓休2',
+        hint: '拍 Abovee 時診間或服務資源那一格怎麼寫這一間。'
+          + '「治療室5」「點滴室10」「休息室3」「點滴室8床A」這幾種本來就認得，不用填。',
+      }),
     ],
     // **`beds` 不在這裡**：舊資料上那一格留著（畫得出既有來訪的「點滴8A」），
     // 但這一頁再也不寫它 —— 寫 `beds: []` 等於她一按儲存就把舊資料清掉，
@@ -108,21 +167,39 @@ const editors = {
       shortName: v.shortName.trim() || null,
       // 空白 → `null`（＝1）。寫 1 進去也可以，兩種在 `roomCapacityOf()` 是同一件事
       capacity: String(v.capacity ?? '').trim() === '' ? null : Number(v.capacity),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
   },
 
   // 一份清單放兩種人。角色不是標籤而是分流：復能的治療師選單只列物理治療師，
   // 二返的醫師選單只列醫師（domain/masterData.js 的 staffWithRole）。
   staff: {
-    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [] },
-    summary: (r) => [r.role, r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null]
-      .filter(Boolean).join(' · '),
-    fields: (r) => [
+    blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [], specialties: [] },
+    summary: (r) => [
+      r.role,
+      r.specialties?.length ? r.specialties.join('、') : null,
+      r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null,
+    ].filter(Boolean).join(' · '),
+    fields: (r, all) => [
       f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
       }),
+      // 科別（ADR-0120）。**只有醫師有** —— 角色不是醫師時整塊藏起來（`wireForm` 切），
+      // 存檔時也不寫（`parse()`）。名單＝預設四科＋別的醫師身上已經有的字。
+      `<div data-specialties ${r.role === DOCTOR_ROLE ? '' : 'hidden'}>
+        ${f.chips({
+          name: 'specialties', label: '科別', value: r.specialties ?? [], multi: true, quiet: true,
+          options: [...new Set([...specialtyNames(all?.staff ?? []), ...(r.specialties ?? [])])],
+          hint: '可以勾不只一科。課程指定了一科的話，那一科的醫師會排在最前面'
+            + '（其餘照樣選得到）；那一科只有一位時會先幫你選好。',
+        })}
+        ${f.text({
+          name: 'specialtyNew', label: '其他科別', value: '', placeholder: '神經內科', maxlength: 12,
+          hint: '上面沒有的就自己打，好幾科用頓號分開。',
+        })}
+      </div>`,
       // issue 12：拍 Abovee 時服務資源那一格寫的是全名，認不出來的記在這裡
       f.text({
         name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
@@ -134,20 +211,38 @@ const editors = {
     parse: (v) => ({
       name: v.name.trim(),
       role: v.role,
-      aboveeNames: String(v.aboveeNames ?? '').split(/[、,，;；\n]/).map((x) => x.trim()).filter(Boolean),
+      aboveeNames: parseAliases(v.aboveeNames),
+      // 改成治療師就清掉 —— 那一塊藏起來了，她看不到的東西不可以留在資料上
+      specialties: v.role === DOCTOR_ROLE
+        ? [...new Set([...f.splitMulti(v.specialties), ...f.parseList(v.specialtyNew)])]
+        : [],
     }),
+    wireForm: ({ form }) => {
+      f.wireChips(form);
+      form.elements.role?.addEventListener('change', (e) => {
+        const box = form.querySelector('[data-specialties]');
+        if (box) box.hidden = e.target.value !== DOCTOR_ROLE;
+      });
+    },
   },
 
   equipment: {
     lead: '每一台記著「用這台的那一段算哪一個課程」—— 復能四選一是一筆額度、'
       + '四台器材，而 ILIB 那一台要的是診間、其餘三台要的是物理治療師。',
-    blank: { name: '', contraindications: [], courseId: null },
+    blank: { name: '', shortName: null, contraindications: [], courseId: null },
     summary: (r, all) => [
       (all?.courses ?? []).find((c) => c.id === r.courseId)?.name ?? '還沒指到課程',
       r.contraindications?.length ? `⚠ 要提醒：${r.contraindications.join('、')}` : null,
     ].filter(Boolean).join(' · '),
     fields: (r, all) => [
       f.text({ name: 'name', label: '器材名稱', value: r.name, placeholder: 'INDIBA' }),
+      // 跟 設定 → 名稱怎麼寫 那一頁寫的是同一格（2026-10-05：她要每一項都改得到別稱，
+      // 而 SIS／IN／高能量在她嘴裡就是「復能底下的項目」）。
+      f.text({
+        name: 'shortName', label: '別稱', value: r.shortName ?? '', placeholder: 'IN', maxlength: 12,
+        hint: '月曆那一格印它（INDIBA → IN）。留空就印全名。'
+          + '跟「設定 → 名稱怎麼寫」改的是同一格。',
+      }),
       // 用這台的那一段算哪一個課程（ADR-0075）。指派治療師還是診間、要不要
       // 簽療程單、長出哪些掛號待辦，全部跟著那個課程走。
       f.chips({
@@ -165,11 +260,17 @@ const editors = {
         hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
           + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
+      aliasField(r, {
+        placeholder: '高能量',
+        hint: 'Abovee 課程那一格寫這一台的那幾個字（「高能量60」就填「高能量」，結尾的分鐘不用）。',
+      }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
+      shortName: v.shortName.trim() || null,
       courseId: v.courseId || null,
       contraindications: f.parseList(v.contraindications),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
     wireForm: ({ form }) => f.wireChips(form),
   },
@@ -260,11 +361,16 @@ const editors = {
         value: r.durationMin ?? '', min: 1, step: 1,
         hint: '空的就跟著「營養點滴」那個課程走。通常是 30 的倍數。',
       }),
+      aliasField(r, {
+        placeholder: '雪顏亮采',
+        hint: 'Abovee 課程那一格寫這一款的字（Abovee 上營養點滴直接寫品項名）。跟上面的名字一樣就不用填。',
+      }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
       shortName: v.shortName.trim() || null,
       durationMin: v.durationMin === '' || v.durationMin == null ? null : Number(v.durationMin),
+      aboveeNames: parseAliases(v.aboveeNames),
     }),
   },
 
@@ -277,12 +383,16 @@ const editors = {
 
   courses: {
     blank: {
-      name: '', durationMin: 60, category: 'C', assigns: 'room',
+      name: '', group: null, shortName: null,
+      durationMin: 60, category: 'C', systems: ['Abovee'], assigns: 'room',
       allowedRoomTypes: ['治療室'], allowedRoomIds: [],
       preferredRoomIds: [],
-      requiresEquipment: false, requiresIvProduct: false, requiresDoctor: false,
+      requiresEquipment: false, requiresIvProduct: false,
+      requiresDoctor: false, doctorPick: DOCTOR_NONE,
       needsTreatmentForm: true,
       needsRecord: false,
+      uncounted: false,
+      bookingMinutes: [],
       frequencyRule: null,
       followupCourseId: null,
       durationChoices: [],
@@ -291,10 +401,35 @@ const editors = {
     // 而原因是這個勾沒打開 —— 一整排課程掃過去看不出哪幾個開著，
     // 她只能一個一個點進去。ADR-0066。
     summary: (r) =>
-      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeCategory(r.category)}`
-      + `${r.needsRecord ? ' · 要寫紀錄' : ''}`,
+      `${r.durationMin} 分 · ${ASSIGN_LABELS[r.assigns] ?? '?'} · ${describeSystems(r)}`
+      + `${r.needsRecord ? ' · 要寫紀錄' : ''}${r.uncounted === true ? ' · 不算次數' : ''}`,
     fields: (r, all) => [
       f.text({ name: 'name', label: '課程名稱', value: r.name, placeholder: '復能' }),
+      // 分類（2026-10-05）。**只管這一頁怎麼分組** —— 沒有任何規則讀它，
+      // 所以這一排是 `quiet` 的：選了什麼都不用重畫別的欄位。
+      // 草稿自己也算進名單：她剛打的新分類在重畫之後要有一顆按著的丸子。
+      f.chips({
+        name: 'group', label: '分類', value: normalizeGroup(r.group), quiet: true,
+        options: courseGroupNames([...(all?.courses ?? []), r])
+          .map((g) => ({ value: normalizeGroup(g), label: g })),
+        hint: '只管這一頁怎麼分組。改分類不會動到待辦、次數或排班。',
+      }),
+      f.text({
+        name: 'groupNew', label: '新的分類', value: '', placeholder: '醫美', maxlength: 12,
+        hint: '上面沒有的就自己打一個 —— 打了就用這個字，清單會多一組。',
+      }),
+      // 跟 設定 → 名稱怎麼寫 那一頁寫的是**同一格**（`shortName`）：兩個入口一份資料。
+      // LINE 名只在那一頁改（那裡有預覽）；這裡不畫它，存檔時也不碰它。
+      f.text({
+        name: 'shortName', label: '別稱', value: r.shortName ?? '', placeholder: 'IL', maxlength: 12,
+        hint: '月曆那一格印它，一格只放得下幾個字。留空就印全名。'
+          + '跟「設定 → 名稱怎麼寫」改的是同一格。',
+      }),
+      aliasField(r, {
+        placeholder: '心臟門診',
+        hint: 'Abovee 課程那一格寫這門課的字（「二返60」就填「二返」，結尾的分鐘不用；'
+          + '「EECP20」那種數字是名字一部分的照寫）。',
+      }),
       // step 是 1 不是 5：`positiveInt()` 只要求大於 0 的整數，欄位不可以比它嚴
       // —— `min:1 step:5` 的合法值是 1、6、11…… 30 存不下去（見 form.js 的 number()）。
       f.number({ name: 'durationMin', label: '時長（分鐘）', value: r.durationMin, min: 1, step: 1 }),
@@ -303,15 +438,30 @@ const editors = {
       f.text({
         name: 'durationChoices', label: '可選時長（分鐘）',
         value: (r.durationChoices ?? []).join('、'), placeholder: '30、60',
-        hint: '用頓號分隔。填了之後加購那一頁會多一排丸子，名字也會帶著它'
-          + '（「超磁場(60)」）。留空就是只有上面那一個時長。',
+        hint: '用頓號分隔。買的時候分：填了之後加購那一頁會多一排丸子，名字也會帶著它'
+          + '（「超磁場(60)」），30 與 60 是兩筆不同的額度。留空就是只有上面那一個時長。',
       }),
-      f.select({
-        name: 'category', label: '任務類別', value: r.category ?? null,
-        options: CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: `${o.label}（${o.hint}）` })),
-        hint: '決定兩件事：壓表登記在哪個系統，以及客人確認之後還要去哪幾個。'
-          + '「要不要簽療程單」不歸類別管，那是底下自己的一個勾。',
+      // 約的時候選（ADR-0122）。跟上面那一格分成兩格是因為它們是兩件事：
+      // 上面是兩筆額度，這一格是同一筆額度每一段自己挑（二返 30 或 60）。
+      f.text({
+        name: 'bookingMinutes', label: '約的時候選時長（分鐘）',
+        value: (r.bookingMinutes ?? []).join('、'), placeholder: '30、60',
+        hint: '用頓號分隔。約的時候選：填了之後排這門課時會多一排丸子，每一段自己挑要排多久'
+          + '（二返 30 或 60），扣的是同一筆額度；預設是上面那個時長。'
+          + '跟「可選時長」只能填一格。',
       }),
+      // 壓哪幾個系統（ADR-0119）。2026-10-05 之前這裡是「任務類別」四選一的下拉，
+      // 做不出「只壓 Abovee＋耀聖」。**舊課程打開時三個勾照 `systemsOf()` 畫好** ——
+      // 沒勾過的照它的類別推，所以什麼都不改就存一次，算出來的一個字都不會變。
+      f.checkboxes({
+        name: 'systems', label: '壓哪幾個系統',
+        values: systemsOf(r) ?? [], options: SYSTEMS,
+        hint: '勾了 Abovee，壓表就是在 Abovee 那一下；其餘勾起來的等客人說可以之後長成待辦。'
+          + '沒勾 Abovee 就是直接壓在 Examine（健檢）。Abovee 與 Examine 至少要勾一個。'
+          + '「要不要簽療程單」是底下自己的一個勾。',
+      }),
+      // 類別那一格留在資料上當退路，這張表不再改它（原樣帶回去）
+      `<input type="hidden" name="category" value="${r.category == null ? '__null__' : esc(r.category)}" />`,
       f.select({
         name: 'assigns', label: '排班時要指派', value: r.assigns,
         options: ASSIGNS.map((a) => ({ value: a, label: ASSIGN_LABELS[a] })),
@@ -323,20 +473,18 @@ const editors = {
         values: r.allowedRoomTypes ?? [], options: ROOM_TYPES,
         hint: '只在「選診間」時有效。',
       }),
-      // 常用診間（`orderedRoomsForCourse()`）。**這是排序不是限制** ——
-      // 沒勾的那幾間照樣選得到，只是排在「其他診間」底下。
-      //
-      // **候選只有這個課程排得進去的那幾間**（`roomsForCourse()`）：勾一間它
-      // 排不進去的診間，那一顆永遠不會出現在壓表上 —— 一顆按得下去卻什麼都
-      // 不會發生的勾選框，比沒有還糟。上面那一排改了，這一排跟著變。
+      // 例外指定診間（`allowedRoomIds`，**硬限制**）。2026-10-05 之前這一格只在
+      // 卡片上看得到一行字、表單裡改不了（`parse()` 照抄舊值）。
       f.checkboxes({
-        name: 'preferredRoomIds', label: '常用診間',
-        values: r.preferredRoomIds ?? [],
-        options: roomsForCourse(r, (all?.rooms ?? []).filter((x) => !x.deletedAt))
-          .map((x) => ({ value: x.id, label: x.name })),
-        hint: '勾起來的排在最前面。這是順序不是限制 —— 沒勾的照樣選得到，'
-          + '只是收在「其他診間」底下。這裡只列得出上面那一排選得到的診間。',
+        name: 'allowedRoomIds', label: '只能排在這幾間',
+        values: r.allowedRoomIds ?? [],
+        options: exceptionRoomOptions(r, all),
+        hint: '例外：勾了就只有這幾間排得進去，蓋過上面的類型（例：EECP 只能治5、治7、治8）。'
+          + '一間都不勾就是沒有例外，照上面的類型走。只在「選診間」時有效。',
       }),
+      // 包一層是為了**就地換**：上面三排（指派、類型、只能排在這幾間）改了，
+      // 這一排的候選跟著變，而整張表不重畫（ADR-0038，見 `wireForm`）。
+      `<div data-preferred>${preferredRoomsField(r, all)}</div>`,
       f.toggle({
         name: 'requiresEquipment', label: '來訪時要選器材（擇一池）',
         value: !!r.requiresEquipment,
@@ -346,20 +494,27 @@ const editors = {
         value: !!r.requiresIvProduct,
         hint: '每次施打的品項可能不同，勾了之後來訪編輯器才會出現品項選單。',
       }),
-      f.toggle({
-        name: 'requiresDoctor', label: '來訪時要選醫師',
-        value: !!r.requiresDoctor,
-        hint: r.category === 'A'
-          // A 類已經一律選得到（`picksDoctor()`），所以這一格在門診上是多餘的 ——
-          // 不講的話她會以為關掉它就選不到醫師了，然後回來問為什麼還在。
-          ? '門診（A 類）本來就選得到醫師，這一格開不開都一樣。'
-          : '排班與來訪編輯器會多一排醫師可以選。門診（A 類）不用勾，本來就有。'
-            + '和上面的診間、治療師不衝突 —— 二返同時要診間和醫師。',
+      // 要不要醫師、哪一科（ADR-0120）。2026-10-05 之前這裡是一個開關，而門診（A 類）
+      // 一律選得到、那個開關開不開都一樣（ADR-0058）。**舊課程打開時照 `doctorRuleOf()`
+      // 畫好** —— 門診是「哪一科都可以」、其餘照原本那個開關，存一次什麼都不變。
+      f.chips({
+        name: 'doctorPick', label: '來訪時要選醫師', value: doctorRuleOf(r), quiet: true,
+        options: [
+          { value: DOCTOR_NONE, label: '不用' },
+          { value: DOCTOR_ANY, label: '哪一科都可以' },
+          // 這門課現在指的那一科就算已經沒有醫師掛著也要列出來 —— 不然那一排一顆都沒按
+          ...[...new Set([...specialtyNames(all?.staff ?? []), doctorRuleOf(r)])]
+            .filter((s) => s !== DOCTOR_NONE && s !== DOCTOR_ANY)
+            .map((s, i) => ({ value: s, label: s, ...(i === 0 ? { lead: '指定一科' } : {}) })),
+        ],
+        hint: '指定一科的話，那一科的醫師排在最前面，其餘收在「其他醫師」後面、照樣選得到'
+          + '（代診那天用得到）。那一科只有一位時會先幫你選好。'
+          + '誰是哪一科在「設定 → 治療師與醫師」填。和上面的診間、治療師不衝突。',
       }),
       f.toggle({
         name: 'needsTreatmentForm', label: '來訪當天要請客人簽療程單',
         value: r.needsTreatmentForm !== false,
-        hint: '幾乎每一種都要簽 —— 目前只有二返不用（它是回院聽報告，沒有療程可以扣）。',
+        hint: '幾乎每一種都要簽。沒有療程可以扣的那種才關掉 —— 目前是二返（回院聽報告）與功醫門診。',
       }),
       // 跟上面那一個問的是同一種問題（「這個課程做完還要做什麼」），
       // 所以擺在一起。兩個不衝突：二返兩件都是特例，一個不用簽、一個要寫。
@@ -368,6 +523,13 @@ const editors = {
         value: r.needsRecord === true,
         hint: '目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
           + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
+      }),
+      // 不算次數（ADR-0121）。功醫門診是第一門；她之後自己勾別的。
+      f.toggle({
+        name: 'uncounted', label: '不算次數',
+        value: r.uncounted === true,
+        hint: '不用加購就排得進去；排了也不扣任何次數。'
+          + '已經買了這門課的客戶，選他那一筆額度排的照舊扣。勾了之後加購那一排不再列它。',
       }),
       // n返 借的就是這一個課程（ADR-0063：它不是額度，時段的 entitlementId
       // 是 null、courseId 指著二返）。所以上面每一個設定都會套用到三返、四返 ——
@@ -397,27 +559,59 @@ const editors = {
           + '而且健檢標成已完成之後會自動長出「約二返」的待辦。',
       }),
     ],
-    parse: (v, prev) => ({
+    parse: (v) => ({
       name: v.name.trim(),
+      // 她自己打的字優先；沒打就是那一排丸子。「其他」存成空的（`normalizeGroup()`）
+      group: normalizeGroup(v.groupNew) ?? normalizeGroup(v.group),
+      shortName: v.shortName.trim() || null,
+      aboveeNames: parseAliases(v.aboveeNames),
       durationMin: v.durationMin,
       // 「30、60」→ [30, 60]。認不出數字的那幾格直接丟掉 ——
       // 存一個 NaN 進去，加購那一排會冒出一顆按不下去的丸子。
       durationChoices: f.parseList(v.durationChoices)
         .map(Number).filter((n) => Number.isInteger(n) && n > 0),
+      bookingMinutes: f.parseList(v.bookingMinutes)
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0),
       category: v.category,
+      // 存的順序固定（Abovee、Examine、耀聖），不照她勾的先後
+      systems: SYSTEMS.filter((s) => (v.systems ?? []).includes(s)),
       assigns: v.assigns,
       allowedRoomTypes: v.assigns === 'room' ? (v.allowedRoomTypes ?? []) : [],
-      // 指定診間是例外覆寫，這個表單不動它，保留原值
-      allowedRoomIds: v.assigns === 'room' ? (prev?.allowedRoomIds ?? []) : [],
+      allowedRoomIds: v.assigns === 'room' ? (v.allowedRoomIds ?? []) : [],
       preferredRoomIds: v.assigns === 'room' ? (v.preferredRoomIds ?? []) : [],
       requiresEquipment: !!v.requiresEquipment,
       requiresIvProduct: !!v.requiresIvProduct,
-      requiresDoctor: !!v.requiresDoctor,
+      doctorPick: v.doctorPick || DOCTOR_NONE,
+      // 旗標跟著寫，讀的那一側只認 `doctorRuleOf()`
+      requiresDoctor: (v.doctorPick || DOCTOR_NONE) !== DOCTOR_NONE,
       needsTreatmentForm: !!v.needsTreatmentForm,
       needsRecord: !!v.needsRecord,
+      uncounted: !!v.uncounted,
       frequencyRule: v.frequencyRule?.trim() || null,
       followupCourseId: v.followupCourseId ?? null,
     }),
+    wireForm: ({ form, all, data, readDraft }) => {
+      f.wireChips(form);
+
+      // **她勾過的常用診間記在這裡，不只記在畫面上。** 把治8 從「只能排在這幾間」
+      // 勾掉，常用診間那一顆治8 會跟著消失（排不進去的不列）；再勾回來時它要還是
+      // 勾著的 —— 只讀畫面的話那一下已經被洗掉了，而她什麼都沒說要改。
+      const wanted = new Set(data.preferredRoomIds ?? []);
+      form.addEventListener('change', (e) => {
+        const name = e.target.name;
+        if (name === 'preferredRoomIds') {
+          if (e.target.checked) wanted.add(e.target.value);
+          else wanted.delete(e.target.value);
+          return;
+        }
+        if (!['assigns', 'allowedRoomTypes', 'allowedRoomIds'].includes(name)) return;
+        const host = form.querySelector('[data-preferred]');
+        if (!host) return;
+        host.innerHTML = preferredRoomsField(
+          { ...readDraft(), preferredRoomIds: [...wanted] }, all,
+        );
+      });
+    },
     note: (r, all) => {
       const ids = r.allowedRoomIds ?? [];
       if (!ids.length) return '';
@@ -705,6 +899,7 @@ export async function render(el, type) {
 }
 
 function paintList(el, type, all) {
+  if (type === 'courses') { paintCourseList(el, all); return; }
   const ed = editors[type];
   const rows = all[type];
 
@@ -779,13 +974,138 @@ function paintList(el, type, all) {
   );
 }
 
+// ---------- 設定 → 課程：先分類再項目（2026-10-05）----------
+//
+// 她的原話：
+//
+// > 設定 → 課程 要先分類再項目。
+// > 復能：SIS、IN、高能量；…營養點滴
+//
+// SIS／IN／高能量在她嘴裡是「復能底下的項目」，在 app 裡是**器材**（ADR-0075：
+// 三選一是一筆額度、共用一份次數）。所以畫出來是三層：分類 → 課程 → 它的器材或品項。
+// 哪一門課在哪一組、底下掛誰，只在 `domain/masterData.js` 的 `coursesByGroup()`。
+//
+// **底下那幾列打開的是原本那一張器材／品項編輯表**（同一份 `editors`），存完回到
+// 這一頁 —— 另做一張的話兩張遲早分岔。設定首頁的「器材」「營養點滴品項」磁磚照舊。
+
+/** 課程底下的一列器材或品項。整列是一顆按鈕，點了開它自己的編輯表。 */
+function childRow(type, row) {
+  const meta = type === 'equipment'
+    ? [
+        row.shortName ? `月曆寫「${row.shortName}」` : null,
+        row.contraindications?.length ? `⚠ 要提醒：${row.contraindications.join('、')}` : null,
+      ]
+    : [
+        row.durationMin ? `${row.durationMin} 分` : null,
+        row.shortName ? `月曆寫「${row.shortName}」` : null,
+      ];
+  return `
+    <li>
+      <button class="subrow" type="button" data-child-type="${type}" data-child-id="${esc(row.id)}">
+        <span class="subrow__name">${esc(row.name)}${
+          row.active === false ? ' <span class="badge badge--soon">已停用</span>' : ''}</span>
+        <span class="subrow__meta muted">${esc(meta.filter(Boolean).join(' · '))}</span>
+        ${icon('right', { size: 17 })}
+      </button>
+    </li>`;
+}
+
+function courseCard({ course, equipment, ivProducts }, all) {
+  const ed = editors.courses;
+  const kids = [
+    ...equipment.map((e) => childRow('equipment', e)),
+    ...ivProducts.map((p) => childRow('ivProducts', p)),
+  ];
+  // n返 借的就是二返這一門課（ADR-0063）。編輯表上本來就有這一句，清單上也放：
+  // 她 2026-09-04 問「設定那邊的課程沒有 n返？」
+  const borrowed = isFollowupCourse(course.id, all.courses ?? [])
+    ? `<p class="muted">${esc(nthLabel(MIN_NTH))}、${esc(nthLabel(MIN_NTH + 1))}⋯⋯借這門課的設定</p>`
+    : '';
+  return `
+    <section class="card row${kids.length ? ' row--stack' : ''}" data-course="${esc(course.id)}">
+      <div class="row__main">
+        <div class="row__title">
+          ${esc(course.name)}
+          ${course.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
+        </div>
+        <div class="muted">${esc(ed.summary(course, all))}</div>
+        ${ed.note(course, all)}
+        ${borrowed}
+      </div>
+      <div class="row__actions">
+        <button class="btn" type="button" data-edit="${esc(course.id)}">編輯</button>
+      </div>
+      ${kids.length
+        ? `<ul class="subrows" aria-label="${esc(course.name)}底下的項目">${kids.join('')}</ul>`
+        : ''}
+    </section>`;
+}
+
+function paintCourseList(el, all) {
+  const ed = editors.courses;
+  const rows = all.courses;
+
+  // 「放在哪一組」那一排點了「新增」才出現，不佔平常的版面
+  el.innerHTML = `
+    <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
+    <section class="card">
+      <h2 class="card__title">${MASTER_LABELS.courses}<span class="muted"> ${rows.length}</span></h2>
+      <p class="newrow">
+        <button class="btn btn--primary" type="button" data-new aria-expanded="false">新增</button>
+      </p>
+      <div class="fieldgroup" data-grouppick hidden>
+        <span class="fieldgroup__label">放在哪一組${tip(
+          '表單會先帶好那一組常見的設定，每一格之後都還能改。')}</span>
+        <div class="chiprow">
+          ${courseGroupNames(rows).map((g) => `
+            <button class="chip" type="button" data-newgroup="${esc(g)}">${esc(g)}</button>`).join('')}
+        </div>
+      </div>
+    </section>
+    ${rows.length === 0 ? '<p class="muted">還沒有資料。</p>' : ''}
+    ${coursesByGroup(all).map((g) => `
+      <h3 class="grouphead" data-group="${esc(g.group)}">${esc(g.group)}<span
+        class="muted"> ${g.courses.length}</span></h3>
+      ${g.courses.map((c) => courseCard(c, all)).join('')}`).join('')}`;
+
+  el.querySelector('[data-new]').addEventListener('click', (e) => {
+    const picker = el.querySelector('[data-grouppick]');
+    picker.hidden = !picker.hidden;
+    e.currentTarget.setAttribute('aria-expanded', String(!picker.hidden));
+  });
+  // 預設**只在建立那一刻抄一次**（`courseDefaultsFor()`）—— 進了表單之後每一格自己改，
+  // 改分類也不會回頭重套。
+  el.querySelectorAll('[data-newgroup]').forEach((btn) =>
+    btn.addEventListener('click', () =>
+      paintForm(el, 'courses', all, null, {
+        ...ed.blank, ...courseDefaultsFor(btn.dataset.newgroup),
+      }),
+    ),
+  );
+  el.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () =>
+      paintForm(el, 'courses', all, rows.find((r) => r.id === btn.dataset.edit)),
+    ),
+  );
+  // 器材／品項：開它自己那一張編輯表，**回來的是這一頁**（`home`）
+  el.querySelectorAll('[data-child-id]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.childType;
+      const record = (all[type] ?? []).find((r) => r.id === btn.dataset.childId);
+      if (record) paintForm(el, type, all, record, null, null, 'courses');
+    }),
+  );
+}
+
 /**
  * @param {object|null} record 已存在的紀錄，新增時是 null
  * @param {object|null} draft 填到一半的內容。表單要重畫（例如方案加了一個項目）時，
  *   先把畫面上的值讀回來當草稿再重畫，否則其他欄位會被清空。
  * @param {number|null} focusItem 重畫後要捲到第幾個項目
+ * @param {string} [home] 離開這一張之後回哪一份清單。預設就是這一種主檔自己的；
+ *   從 設定 → 課程 點器材或品項進來的，回的是課程那一頁。
  */
-function paintForm(el, type, all, record, draft = null, focusItem = null) {
+function paintForm(el, type, all, record, draft = null, focusItem = null, home = type) {
   const ed = editors[type];
   // 看有沒有 id，不是看有沒有 record —— 帶著草稿重畫時 record 還是那一筆，
   // 但草稿本身沒有 id，用 !record 判斷會把「新增中」誤判成「編輯既有」。
@@ -793,7 +1113,7 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
   const data = draft ?? record ?? { ...ed.blank };
 
   el.innerHTML = `
-    <a class="backlink" href="#/settings/${type}" data-back>${icon('left', { size: 17 })}${MASTER_LABELS[type]}</a>
+    <a class="backlink" href="#/settings/${home}" data-back>${icon('left', { size: 17 })}${MASTER_LABELS[home]}</a>
     <section class="card">
       <h2 class="card__title">${isNew ? `新增${MASTER_LABELS[type]}` : esc(data.name)}</h2>
       <div class="errors" data-errors hidden></div>
@@ -812,7 +1132,7 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
 
   // 原地換掉整頁 → 疊一層，返回鍵退得回那一份主檔清單而不是離開設定。
   // 從照片帶進來的那一張：離開這一張（按返回、取消、存好）照片就收掉（ADR-0101 不存）
-  const leave = pushScreen(`master-${type}`, () => { data.__release?.(); render(el, type); });
+  const leave = pushScreen(`master-${type}`, () => { data.__release?.(); render(el, home); });
   const back = () => { data.__release?.(); leave(); };
   if (data.__photo) wireSeen(el.querySelector('[data-form]'));
   el.querySelector('[data-back]').addEventListener('click', (e) => {
@@ -835,7 +1155,7 @@ function paintForm(el, type, all, record, draft = null, focusItem = null) {
       all,
       data,
       readDraft: () => ({ ...data, ...ed.parse(f.readForm(form), data) }),
-      repaint: (next, focus = null) => paintForm(el, type, all, record, next, focus),
+      repaint: (next, focus = null) => paintForm(el, type, all, record, next, focus, home),
     });
   }
 

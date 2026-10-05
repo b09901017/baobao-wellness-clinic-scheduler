@@ -21,7 +21,9 @@ import {
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
-import { clinicalTerms, durationChoicesOf, ASSIGN_LABELS } from './masterData.js';
+import {
+  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS,
+} from './masterData.js';
 import { fullNameOf } from './naming.js';
 import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
@@ -155,8 +157,8 @@ export const CHECKS = [
   {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
-    hint: '2026-09-08 重畫過一次：治療室只有 2 3 5 8、多了 VIP 室、一間 4 號都沒有，'
-      + '而月曆那一格印的是簡寫',
+    hint: '2026-09-08 重畫過一次：多了 VIP 室、一間 4 號都沒有，而月曆那一格印的是簡寫。'
+      + '治療室是 2 3 5 7 8 —— 治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）',
   },
   {
     id: 'slotBeds',
@@ -203,8 +205,14 @@ export const CHECKS = [
   {
     id: 'courseDuration',
     label: '課程的時長跟建議的不一樣',
-    hint: 'EECP 2026-09-16 從 30 改成 60（體驗課是另一門）、營養點滴從 60 改成 120。'
-      + '「載入種子資料」只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
+    hint: 'EECP 2026-09-16 從 30 改成 60、營養點滴從 60 改成 120；EECP體驗 2026-10-05 從 30 改成 20'
+      + '（Abovee 上叫 EECP20）。「載入種子資料」只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
+  },
+  {
+    id: 'seedIvProduct',
+    label: '營養點滴品項少了幾款',
+    hint: 'Abovee 上有 13 款，2026-10-05 補了 7 款（元氣活力、免疫馥活、減脂健康、營養守護、'
+      + '癒原養方、養心舒眠、皮蛇疫苗）。少了的那幾款拍 Abovee 認不出來，加購與排班也選不到',
   },
   {
     id: 'ivProductDuration',
@@ -217,6 +225,13 @@ export const CHECKS = [
     label: '課程沒填可選時長',
     hint: '復能與 ILIB 有 30 與 60 兩種規格。沒填的話加購時「幾分鐘」那一排不出現，'
       + '名字也少了後面那個數字，月檢視更分不出那天排的是 30 還是 60',
+  },
+  {
+    id: 'seedBlanks',
+    label: '主檔有幾格還沒跟上',
+    hint: '2026-10-05 多的那幾格：課程的分類、要哪一科的醫師、二返約的時候選 30 或 60、'
+      + 'Abovee 上的寫法、EECP 可以排治7。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
+      + '「EECP20」會被認成正式課 —— 你自己填過的那幾格不會被動到',
   },
 ];
 
@@ -317,6 +332,8 @@ function prepare(snapshot, today) {
     staffById: byId(master.staff),
     equipmentById: byId(master.equipment),
     ivProductsById: byId(master.ivProducts),
+    // 還開著的診間（陣列）：「她是不是已經有一間同名的」要掃一遍
+    rooms: alive(master.rooms),
     // 這兩份是給「復能額度還叫舊名字」與「提醒詞不在警示名單裡」用的，
     // 而它們要的是**陣列**（算名字與比名單都要順序）。
     equipment: alive(master.equipment),
@@ -1068,28 +1085,47 @@ function withoutId({ id, ...rest }) {
 }
 
 /**
+ * 她還開著的那幾筆裡，有沒有一筆叫這個名字（**id 不是種子的也算**）。
+ *
+ * 「種子有、她沒有」那幾列比的是 id。但她可以自己在設定頁先建一筆同名的
+ * （功醫門診她 2026-10-05 之前就建得起來）—— 那時候再建一筆種子 id 的，主檔上就是
+ * 兩筆同名：設定頁本來擋著的那件事（`validate()` 的同名檢查），被一顆按鈕繞過去。ADR-0125。
+ */
+const sameNamed = (rows, name) => (rows ?? [])
+  .find((r) => String(r.name ?? '').trim() === String(name ?? '').trim());
+
+/**
  * 2026-09-08 之前種子上有、現在沒有的那幾間。
  *
- * 治7／治9／治10 不在她新的治療室清單裡（只有 2 3 5 8），
- * ILIB4 那一間有個 4 —— 而她說「均無 4 號」。
+ * 治9／治10 不在她新的治療室清單裡，ILIB4 那一間有個 4 —— 而她說「均無 4 號」。
+ * **治7 2026-10-05 從這份名單拿掉了**（ADR-0124）：它回到種子上，見 `RETURNED_ROOMS`。
  *
  * **只認得出種子建過的那幾間**：她自己加的診間一間都不會被列出來。
  */
 const LEGACY_ROOMS = [
-  { id: 'room-t7', name: '治7' },
   { id: 'room-t9', name: '治9' },
   { id: 'room-t10', name: '治10' },
   { id: 'room-ilib4', name: 'ILIB4' },
 ];
 
 /**
+ * 2026-09-08 照這一頁的建議刪掉、2026-10-05 回到清單上的那一間（ADR-0124）。
+ *
+ * 她：「加回去」—— Abovee 上 EECP60 有 10 筆排在治療室7。這一間在既有資料庫上可能是
+ * 三種樣子：沒有（走 `add`）、已刪除（走 `restore`）、還開著（什麼都不報）。
+ * **別的她刪掉的種子診間照舊不報**（那是她的決定）；只有這一間是「當初是這一頁叫她刪的」。
+ */
+const RETURNED_ROOMS = ['room-t7'];
+
+/**
  * 十五、診間清單跟建議的不一樣。
  *
- * 三種形狀，一種一個 `mode`：
+ * 四種形狀，一種一個 `mode`：
  *
- *   add    種子有、她沒有            → 建起來（VIP 那五間）
- *   drop   種子拿掉了、她還開著       → 刪掉（治7／治9／治10／ILIB4）
- *   short  種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
+ *   add      種子有、她沒有            → 建起來（VIP 那五間、治7）
+ *   restore  種子有、她照建議刪掉了     → 還原（只有治7）
+ *   drop     種子拿掉了、她還開著       → 刪掉（治9／治10／ILIB4）
+ *   short    種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
  *
  * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
  * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
@@ -1109,8 +1145,10 @@ function checkRoomList(ctx) {
 
   for (const row of SEED.rooms ?? []) {
     const mine = byId[row.id];
+    // 她自己另外建了一間同名的 → 那一間就是它，不建也不還原第二間
+    const twin = sameNamed(ctx.rooms, row.name);
     if (!mine) {
-      if (!seeded) continue;
+      if (!seeded || twin) continue;
       out.push({
         severity: 'attention',
         title: row.name,
@@ -1123,7 +1161,19 @@ function checkRoomList(ctx) {
       });
       continue;
     }
-    if (mine.deletedAt) continue;
+    if (mine.deletedAt) {
+      if (RETURNED_ROOMS.includes(row.id) && !twin) {
+        out.push({
+          severity: 'attention',
+          title: row.name,
+          detail: '2026-09-08 照這一頁的建議刪掉的那一間。Abovee 上 EECP 還排在治療室7，'
+            + '所以它回到清單上了 —— 還原之後排班才選得到',
+          link: '#/settings/rooms',
+          fix: { kind: 'applyRoom', mode: 'restore', roomId: row.id, label: row.name },
+        });
+      }
+      continue;
+    }
 
     // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
     const short = String(mine.shortName ?? '').trim();
@@ -1413,13 +1463,16 @@ function checkCourseRecord(ctx) {
  * **護欄跟器材那一列同一個理由**：自己從零建主檔、一個種子 id 都沒有的資料庫
  * （測試夾具就是）不可以被念 —— 那時候缺的不是一門課，是整份主檔。
  * 她自己刪掉的也不算（比的是含已刪除的那一份 `coursesById`）。
+ *
+ * **她自己已經建了一門同名的也不算**（`sameNamed()`，2026-10-05）：功醫門診她在這一列
+ * 出現之前就建得起來，再建一門種子 id 的就是兩門同名。
  */
 function checkSeedCourse(ctx) {
   const seeded = (SEED.courses ?? []).some((row) => ctx.coursesById[row.id]);
   if (!seeded) return [];
 
   return (SEED.courses ?? [])
-    .filter((row) => !ctx.coursesById[row.id])
+    .filter((row) => !ctx.coursesById[row.id] && !sameNamed(ctx.courses, row.name))
     .map((row) => ({
       severity: 'attention',
       title: row.name,
@@ -1433,6 +1486,153 @@ function checkSeedCourse(ctx) {
         data: { ...withoutId(row), active: true },
       },
     }));
+}
+
+/**
+ * 二十三之三、營養點滴品項少了幾款（2026-10-05，abovee-and-master/12）。
+ *
+ * Abovee 的營養點滴那一類有 13 款，種子原本只有其中 6 款。形狀照抄 `checkSeedCourse()`，
+ * 三道護欄一樣：一個種子 id 都沒有的主檔不念、她刪掉的不算、她自己建了同名的不算。
+ * 她改過名字的那一款 id 還在，所以不會被當成少了。
+ *
+ * 皮蛇疫苗帶著 30 分一起建（她說先給 30 分、要改得動）。
+ */
+function checkSeedIvProduct(ctx) {
+  const seeded = (SEED.ivProducts ?? []).some((row) => ctx.ivProductsById[row.id]);
+  if (!seeded) return [];
+
+  return (SEED.ivProducts ?? [])
+    .filter((row) => !ctx.ivProductsById[row.id] && !sameNamed(ctx.ivProducts, row.name))
+    .map((row) => ({
+      severity: 'attention',
+      title: row.name,
+      detail: `建議清單上有這一款${row.durationMin ? `（${row.durationMin} 分）` : ''}，你的品項主檔沒有 ——`
+        + ' 拍 Abovee 碰到它認不出來，加購與排班也選不到',
+      link: '#/settings/ivProducts',
+      fix: {
+        kind: 'addIvProduct',
+        label: row.name,
+        ivProductId: row.id,
+        data: { ...withoutId(row), active: true },
+      },
+    }));
+}
+
+/**
+ * 2026-10-05 之前種子上 EECP 那兩門課只准排的那兩間。治7 回來之後多一間（ADR-0124）。
+ * **她那一份還跟這個一模一樣才建議改** —— 她自己收窄或放寬過就是一個決定。
+ */
+const LEGACY_ROOM_LIMITS = {
+  'course-eecp': ['room-t5', 'room-t8'],
+  'course-eecp-trial': ['room-t5', 'room-t8'],
+};
+
+/**
+ * 二十六、主檔有幾格還沒跟上（2026-10-05，abovee-and-master/12）。
+ *
+ * 這一輪主檔多了好幾格（分類 02、要哪一科的醫師 04、約的時候選時長 06、Abovee 上的寫法 07），
+ * 種子都填好了，而 `loadSeed()` 只建不覆蓋。每一格**讀的那一側都有退路**（沒填就照舊的算），
+ * 所以既有資料庫不會壞 —— 但拍 Abovee 靠 `aboveeNames` 認字，空著就是認不得：
+ * `高能量60`、`雪顏亮采` 認不出來，`EECP20` 拆成「EECP＋20 分」認成正式課。
+ *
+ * **一格一列**（她看得到補的是哪一格、補成什麼），修正一律只寫那一格。護欄：
+ *
+ * - **空的才補**。分類只認「從來沒有那一格」（`undefined`）—— 她放到「其他」存的是 `null`，
+ *   那是一個決定（同 `checkCourseRecord()` 只認 `undefined` 不認 `false`）。清單那幾格
+ *   空陣列也算空的（同 `checkSeedDurations()`）
+ * - **補了要存得下去**：約的時候選時長跟「可選時長」只能填一格、而且要包含預設時長
+ *   （`validate('courses')`）；Abovee 上的寫法已經是她另一筆的就不補（同一種主檔裡不准重複）。
+ *   不守這兩條的話，按了這顆之後她一進設定頁那一筆就存不回去
+ * - 刪掉的不念；她的主檔沒有那一筆也不念（那是「少了一門」那幾列的事）
+ *
+ * EECP 的「只能排在這幾間」不是空格，是**還停在舊種子值**才改（同 `checkCourseAssigns()`）。
+ * 治7 的 id 照她主檔上那一間的（她自己另外建的也算）。
+ */
+function checkSeedBlanks(ctx) {
+  const out = [];
+  const empty = (list) => !(list ?? []).length;
+  const sorted = (list) => JSON.stringify([...(list ?? [])].sort());
+
+  const push = (type, mine, { what, to, why, changes, detail }) => out.push({
+    severity: 'attention',
+    title: mine.name,
+    detail: detail ?? `${what}補上「${to}」`,
+    link: `#/settings/${type}`,
+    fix: { kind: 'setMasterFields', type, id: mine.id, label: mine.name, what, to, why, changes },
+  });
+
+  // 種子上的診間 id → 她主檔上那一間（還開著、同 id；不然找同名的；都沒有就照種子的 id，
+  // 等她把那一間建起來／還原之後就接得上）
+  const roomIdOf = (seedId) => {
+    if (ctx.roomsById[seedId] && !ctx.roomsById[seedId].deletedAt) return seedId;
+    const seedRoom = (SEED.rooms ?? []).find((r) => r.id === seedId);
+    return sameNamed(ctx.rooms, seedRoom?.name)?.id ?? seedId;
+  };
+  const roomNames = (seedIds) => seedIds
+    .map((id) => (SEED.rooms ?? []).find((r) => r.id === id)?.name ?? id).join('、');
+
+  const sources = {
+    courses: [ctx.coursesById, ctx.courses],
+    equipment: [ctx.equipmentById, ctx.equipment],
+    ivProducts: [ctx.ivProductsById, ctx.ivProducts],
+  };
+
+  for (const [type, [byIdOf, mineAlive]] of Object.entries(sources)) {
+    for (const row of SEED[type] ?? []) {
+      const mine = byIdOf[row.id];
+      if (!mine || mine.deletedAt) continue;
+
+      if (type === 'courses') {
+        if (row.group && mine.group === undefined) {
+          push(type, mine, {
+            what: '分類', to: row.group, changes: { group: row.group },
+            why: '設定 → 課程 那一頁照它分組。它不改任何規則',
+          });
+        }
+        if (row.doctorPick && mine.doctorPick == null) {
+          push(type, mine, {
+            what: '要哪一科的醫師', to: row.doctorPick, changes: { doctorPick: row.doctorPick },
+            why: '排這門課時那一科的醫師排前面，其餘收在「其他醫師」後面 —— 是順序不是限制',
+          });
+        }
+        const booking = bookingMinutesOf(row);
+        if (booking.length && empty(mine.bookingMinutes) && empty(mine.durationChoices)
+            && booking.includes(Number(mine.durationMin))) {
+          push(type, mine, {
+            what: '約的時候選時長', to: `${booking.join('、')} 分`, changes: { bookingMinutes: booking },
+            why: `約的時候多一排「排多久」，預設 ${mine.durationMin} 分；已經排出去的不動`,
+          });
+        }
+
+        const old = LEGACY_ROOM_LIMITS[row.id];
+        if (old && sorted(mine.allowedRoomIds) === sorted(old)
+            && sorted(row.allowedRoomIds) !== sorted(old)) {
+          const changes = { allowedRoomIds: row.allowedRoomIds.map(roomIdOf) };
+          // 順序那一格也還是舊的才一起改；她自己排過的不動
+          const alsoOrder = JSON.stringify(mine.preferredRoomIds ?? []) === JSON.stringify(old);
+          if (alsoOrder) changes.preferredRoomIds = (row.preferredRoomIds ?? []).map(roomIdOf);
+          const to = roomNames(row.allowedRoomIds);
+          push(type, mine, {
+            what: '只能排在這幾間', to, changes,
+            detail: `只能排在這幾間：${roomNames(old)} → ${to}（治7 回來了，Abovee 上 EECP 還排在那一間）`,
+            why: '之後排這門課選得到治7（治7 要先在「診間清單」那一列建起來或還原）；已經排出去的來訪不動'
+              // 這一列可能寫兩格 —— 確認框要講出來（ADR-0070：只講真的會發生的事）
+              + (alsoOrder ? '。「常用診間」那一排還是舊的那兩間，一起加上治7' : '。「常用診間」你自己排過，不動'),
+          });
+        }
+      }
+
+      const free = (row.aboveeNames ?? [])
+        .filter((a) => !mineAlive.some((r) => r.id !== mine.id && hasAlias(r, a)));
+      if (free.length && empty(mine.aboveeNames)) {
+        push(type, mine, {
+          what: 'Abovee 上的寫法', to: free.join('、'), changes: { aboveeNames: free },
+          why: '拍 Abovee 時課程那一格寫這幾個字就認得它；改了名字照樣認得',
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -1615,6 +1815,8 @@ const RUNNERS = {
   seedEquipment: checkSeedEquipment,
   seedDuration: checkSeedDurations,
   seedCourse: checkSeedCourse,
+  seedIvProduct: checkSeedIvProduct,
+  seedBlanks: checkSeedBlanks,
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,
 };

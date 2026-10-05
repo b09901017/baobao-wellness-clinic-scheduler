@@ -299,8 +299,14 @@ function csvCell(value) {
  * 底下一段一行；每一位多一份 `purchases`（「買過什麼」一天一行，ADR-0115）。她的原話：
  * 「能不能就是第一行是日期，然後換行後在寫每一段」「app中買過什麼那邊的資訊，我也想在試算表中看到」
  *（`.scratch/asks-2026-09-24-evening/issues/03、04`）。
+ *
+ * 7（2026-10-05）：來訪紀錄每一段多一格 `note` —— **沒有額度的段**（n返、不算次數的課）的記一句。
+ * 格式 5 的記一句是逐額度印的（那一筆額度底下、那一天那一格），沒有額度的段沒有那一列可以印，
+ * 所以她在一段三返或功醫門診上記的那一句試算表上看不到。她：「好記上去」
+ *（`.scratch/abovee-and-master-2026-10-05/issues/15`）。有額度的段照舊印在那一格，這裡是 null ——
+ * 兩個地方都印的話同一句話在一張表上出現兩次。
  */
-export const SYNC_FORMAT = 6;
+export const SYNC_FORMAT = 7;
 
 /**
  * 每一位客戶在試算表上那一張分頁叫什麼。**只有真的撞名的那幾位加尾巴**，其餘一個字都不變。
@@ -493,6 +499,10 @@ export function syncBundle({
             // 醫師和治療師都住在 staff 底下，但它們是兩種人，各印各的 ——
             // 二返有醫師沒有治療師，復能反過來（CONTEXT.md）。
             doctor: nameOf('staff', slot.doctorId),
+            // 格式 7：**沒有額度的段**（n返、不算次數的課）的記一句印在這一行的最後面 ——
+            // 有額度的印在那一筆額度底下那一格（`slotNoteCells()`），這裡不印第二次。
+            // 換行收成「／」：來訪紀錄一段一列，一格塞兩行常常只看得到第一行（`.gs` 的 `renderNotes()`）
+            note: slot.entitlementId ? null : (logNote(v, slot)?.replace(/\s*\n\s*/g, '／') ?? null),
           })),
       })).filter((d) => d.items.length),
     };
@@ -563,6 +573,19 @@ export function equipmentCells(entitlement, visits, dates, equipment = []) {
     if (names.length) out.push({ dateIndex, text: names.join('、') });
   });
   return out;
+}
+
+/**
+ * 沒有額度的那一段，來訪紀錄那一行要印哪一句（格式 7）。
+ *
+ * **舊資料那一句還在整筆身上（`visit.note`）時要小心印兩次**：`slotNoteOf()` 對每一段都退回整筆那一句，
+ * 而同一天只要還有一段**算數而且有額度**的，那一句已經印在那一筆額度底下那一格了（`slotNoteCells()`）——
+ * 那時候這裡只認這一段自己記的。整天都沒有那種段（只有一段功醫門診、或有額度的那一段取消了）才退回整筆那一句，
+ * 不然那一句在整張表上一次都不出現。
+ */
+function logNote(visit, slot) {
+  const printedInGrid = (visit.slots ?? []).some((s) => s.entitlementId && isLiveSlot(s));
+  return printedInGrid ? (String(slot.note ?? '').trim() || null) : slotNote(visit, slot);
 }
 
 /**

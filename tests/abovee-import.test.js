@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { INITIAL_STATUS } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -358,5 +358,87 @@ describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => 
     const other = resolveItem(item, 'c-wang', c);
     assert.equal(other.kind, 'new');
     assert.equal(other.reason, null);
+  });
+});
+
+// abovee-and-master-2026-10-05/07：n返 與不算次數的課在挑額度之前就分流、照片上的品項優先、分角色認人
+describe('07 分流與品項', () => {
+  const FM = { id: 'course-fm', name: '功醫門診', durationMin: 30, assigns: 'none', doctorPick: 'any', uncounted: true, aboveeNames: ['功醫門診'] };
+  const exam = { id: 'w-exam', type: 'single', label: '健檢', courseId: 'course-checkup', totalQty: 1 };
+  const second = { id: 'w-fu', type: 'single', label: '二返', courseId: 'course-followup', totalQty: 1, followupForEntitlementId: 'w-exam' };
+  const iv = (id, ivProductId, label) => ({ id, type: 'single', label, courseId: 'course-iv-drip', ivProductId, totalQty: 5 });
+  // 王小明 9/01 做完一次健檢（n返 要接在一次做完的健檢後面）
+  const examVisit = { id: 'v-w-exam', customerId: 'c-wang', date: '2026-09-01', status: 'done',
+    slots: [{ entitlementId: 'w-exam', courseId: 'course-checkup', startsAt: '09:00', endsAt: '11:00', status: 'done' }] };
+  const c7 = (ents = {}) => ctx({
+    entitlementsBy: { ...ENTS, 'c-wang': [...ENTS['c-wang'], exam, second], ...ents },
+    visitsBy: { ...VISITS, 'c-wang': [examVisit] },
+    master: { ...ctx().master, courses: [...SEED.courses, FM] },
+  });
+  const read = (row, c = c7()) => readAbovee([{ ...left, rows: [row] }], c).items[0];
+
+  test('三返30：n返、第三返、不預選二返那一筆額度、不替她選接哪一次健檢', () => {
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '王小明', '00001234', '三返30']);
+    assert.equal(item.kind, 'new');
+    assert.equal(item.isNth, true);
+    assert.equal(item.nth, 3);
+    assert.equal(item.entitlementId, null, '二返那一筆有剩，也不可以扣到它（ADR-0063：n返 不是額度）');
+    assert.equal(item.followupForVisitId, null);
+    assert.equal(picksOf(item).isNth, true);
+    assert.equal(picksOf(item).minutes, 30);
+    // 勾著、還差一步：選接哪一次健檢（08 的確認層補那一排）
+    assert.match(planAbovee([item], c7()).problems[item.key][0], /哪一次健檢/);
+  });
+
+  test('二返60：扣二返那一筆、這一段 60 分（約的時候選時長，ADR-0122）', () => {
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '王小明', '00001234', '二返60']);
+    assert.equal(item.isNth, false);
+    assert.equal(item.entitlementId, 'w-fu');
+    const [g] = planAbovee([item], c7()).groups;
+    assert.equal(g.visit.slots[0].minutes, 60);
+    assert.equal(g.visit.slots[0].endsAt, '10:00');
+  });
+
+  test('功醫門診（沒有任何額度的客戶）：不扣次數那一顆、勾著、記得進去', () => {
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '功醫門診']);
+    assert.equal(item.entitlementId, null);
+    assert.equal(item.uncountedCourseId, 'course-fm');
+    assert.equal(item.checked, true);
+    const { groups, problems } = planAbovee([item], c7());
+    assert.deepEqual(problems, {});
+    assert.deepEqual([groups[0].visit.slots[0].courseId, groups[0].visit.slots[0].entitlementId], ['course-fm', null]);
+  });
+
+  test('不算次數的課、客戶身上還有那門課的額度 → 照舊扣（ADR-0121）', () => {
+    const bought = { id: 'a-fm', type: 'single', label: '功醫門診', courseId: 'course-fm', totalQty: 2 };
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '功醫門診'], c7({ 'c-a': [...ENTS['c-a'], bought] }));
+    assert.equal(item.entitlementId, 'a-fm');
+    assert.equal(item.uncountedCourseId, null);
+  });
+
+  test('照片上寫哪一款就是那一款，同時買了兩款時扣對的那一筆', () => {
+    const both = c7({ 'c-a': [iv('a-gut', 'iv-gut', '營養點滴・腸道修復'), iv('a-liver', 'iv-liver', '營養點滴・護肝排毒')] });
+    const liver = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '護肝排毒'], both);
+    assert.deepEqual([liver.entitlementId, liver.ivProductId], ['a-liver', 'iv-liver']);
+
+    // 只買了護肝排毒、照片上寫腸道修復：扣那一筆、品項照照片（換一款只多一句提醒，ADR-0002）
+    const one = c7({ 'c-a': [iv('a-liver', 'iv-liver', '營養點滴・護肝排毒')] });
+    const gut = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '腸道修復'], one);
+    assert.deepEqual([gut.entitlementId, gut.ivProductId], ['a-liver', 'iv-gut']);
+  });
+
+  test('分角色認人：復能那一列的全名不會被姓李的醫師搶走；二返那一列認成醫師', () => {
+    // 治療師「小芳」與醫師「李」（種子）都在：「李小芳」兩條規則都符合
+    const c = c7();
+    const sis = readAbovee([{ ...left, rows: [['確認前往', '2026-09-20', '09:00', '王小明', '1234', 'SIS 60']] },
+      { ...right, rows: [['', '李小芳', '']] }], c).items[0];
+    assert.equal(sis.therapistId, 's-fang');
+    assert.equal(sis.doctorId, null);
+    assert.equal(sis.staffKnown, true);
+
+    const fu = readAbovee([{ ...left, rows: [['確認前往', '2026-09-20', '09:00', '王小明', '1234', '二返30']] },
+      { ...right, rows: [['', '李大同', '']] }], c).items[0];
+    assert.equal(fu.doctorId, 'staff-dr-li');
+    assert.equal(fu.therapistId, null);
   });
 });
