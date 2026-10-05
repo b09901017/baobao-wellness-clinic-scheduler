@@ -265,12 +265,15 @@ export const SEED = {
       // **羊膜**（2026-10-05）。她：「加購（有次數，像營養針）；選復健科醫師（只有一位）；
       // 要簽療程單」。有次數所以加購那一排有它。
       //
-      // **壓哪幾個系統與要不要寫紀錄她沒說** —— 先照醫師門診那一組的預設
-      // （`GROUP_DEFAULTS`：三個都勾、不寫紀錄）。設定 → 課程 改得動。
-      id: 'course-amnion', name: '羊膜', group: '醫師門診', category: 'A',
-      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['羊膜'],
+      // **壓哪幾個系統、要不要寫紀錄跟營養點滴一樣**（她 2026-10-06：「先預設和營養針一樣，
+      // 然後是預設選復建科醫師」）：只壓 Abovee、確認後不長 Examine／耀聖、不寫紀錄。
+      // 所以類別是 C、不是這一段其他門診的 A —— 分類照舊是醫師門診（那只管設定頁怎麼排），
+      // 醫師那一排靠 `doctorPick`，不靠 A 類；`requiresDoctor` 是設定頁存檔時跟著寫的那一格
+      // （不是 A 類的課少了它，沒有 `doctorPick` 的退路會說「不用醫師」）。設定 → 課程 改得動。
+      id: 'course-amnion', name: '羊膜', group: '醫師門診', category: 'C',
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['羊膜'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
-      requiresEquipment: false, doctorPick: '復健科', frequencyRule: null,
+      requiresEquipment: false, requiresDoctor: true, doctorPick: '復健科', frequencyRule: null,
     },
 
     // ---- B 類：單系統＋電話 ----

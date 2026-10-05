@@ -554,9 +554,11 @@ describe('種子資料', () => {
     assert.ok(!therapists.some((s) => doctors.includes(s.name)));
   });
 
-  test('只有二返預設要選醫師，其餘課程她想開再開', () => {
+  // 羊膜 2026-10-06 起只壓 Abovee（類別 C，她：「先預設和營養針一樣」）—— 不是 A 類又要醫師，
+  // 所以它帶著旗標；少了的話沒有 `doctorPick` 的那條退路會說「不用醫師」
+  test('只有二返與羊膜帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
-    assert.deepEqual(withDoctor, ['二返']);
+    assert.deepEqual(withDoctor, ['二返', '羊膜']);
   });
 
   // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到

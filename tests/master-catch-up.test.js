@@ -6,6 +6,7 @@
 // > 其他課程我自己也不熟，所以設計要讓我之後自己加得進去、改得動，不要現在一次建滿。
 // > 功醫門診：跟二返不同；不算次數、不簽療程單、不寫紀錄；三個系統都要壓；要選醫師
 // > 羊膜：加購（有次數，像營養針）；選復健科醫師（只有一位）；要簽療程單
+// > （2026-10-06）羊膜：先預設和營養針一樣，然後是預設選復建科醫師
 // > （治7）加回去
 // > （皮蛇疫苗）先預設30分鐘 ? 但是要可以修改
 //
@@ -97,14 +98,22 @@ describe('種子：跟 Abovee 一樣的那幾樣', () => {
     assert.equal(fm.durationMin, 30);
   });
 
-  test('羊膜：要次數、復健科的醫師、要簽療程單', () => {
+  test('羊膜：要次數、復健科的醫師、要簽療程單；系統與寫紀錄跟營養點滴一樣', () => {
     const am = course('course-amnion');
+    const drip = course('course-iv-drip');
     assert.equal(am.name, '羊膜');
     assert.equal(groupOf(am), '醫師門診');
     assert.equal(isUncounted(am), false);
     assert.equal(doctorRuleOf(am), '復健科');
     assert.equal(needsForm(am), true);
     assert.equal(am.durationMin, 30);
+    // 她 2026-10-06：只壓 Abovee、確認後不長別的、不寫紀錄
+    assert.deepEqual(systemsOf(am), systemsOf(drip));
+    assert.deepEqual(systemsOf(am), ['Abovee']);
+    assert.deepEqual(tasksForCourse(am), []);
+    assert.equal(am.needsRecord === true, drip.needsRecord === true);
+    // 沒勾過系統的那一條退路（照類別推）講的要是同一件事
+    assert.deepEqual(systemsOf({ ...am, systems: undefined }), ['Abovee']);
   });
 
   test('拍 Abovee 認得那兩門新課', () => {
