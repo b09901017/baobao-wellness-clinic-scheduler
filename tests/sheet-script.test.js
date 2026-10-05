@@ -20,6 +20,92 @@ import {
   syncBundle, customerReport, READONLY_NOTICE, SYNC_FORMAT,
 } from '../public/js/domain/sheetReport.js';
 
+// ---------- 格式 7（`.scratch/abovee-and-master-2026-10-05/issues/15`） ----------
+//
+// 記一句上試算表是**逐額度**印的（那一筆額度、那一天那一格，格式 5）。沒有額度的段 ——
+// n返（ADR-0063）與不算次數的課（功醫門診，ADR-0121）—— 沒有那一列可以印，所以她在那種段上記的
+// 那一句試算表上看不到。她 2026-10-05：「好記上去」。印在**來訪紀錄那一段自己那一行的最後面**。
+
+describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
+  const FM = { id: 'fm', name: '功醫門診', uncounted: true };
+  const make = (slots, { status = 'done' } = {}) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+    visitsBy: { c1: [{ id: 'v1', date: '2026-09-18', status, slots }] },
+    today: '2026-10-05',
+    master: { courses: [FM, { id: 'il', name: 'ILIB' }], staff: [{ id: 'd1', name: '夏', role: '醫師' }] },
+  });
+  const fm = (over = {}) => ({
+    entitlementId: null, courseId: 'fm', courseName: '功醫門診', startsAt: '15:00', endsAt: '15:30',
+    doctorId: 'd1', status: 'done', note: 'HRV 報告', ...over,
+  });
+  const ilib = (over = {}) => ({
+    entitlementId: 'e1', courseId: 'il', courseName: 'ILIB', startsAt: '10:00', endsAt: '11:00',
+    status: 'done', note: '她說下午比較好', ...over,
+  });
+  const render = (b) => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: b });
+    assert.equal(reply.ok, true, reply.error);
+    return app.ss.getSheetByName('客戶A');
+  };
+  const column = (sheet) => Array.from({ length: 90 }, (_, i) => sheet.at(`A${i + 1}`));
+  const everything = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
+    (_, c) => sheet.at(`${String.fromCharCode(65 + c)}${r + 1}`)).join('|')).join('\n');
+
+  test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
+    const { post } = loadAppsScript();
+    assert.equal(post({ token: 'secret', bundle: { ...make([fm()]), format: 6 } }).ok, false);
+    assert.equal(SYNC_FORMAT, 7);
+  });
+
+  test('功醫門診記了一句：來訪紀錄那一行的最後面看得到', () => {
+    const b = make([fm()]);
+    assert.equal(b.sheets[0].log[0].items[0].note, 'HRV 報告');
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師　記一句：HRV 報告'));
+  });
+
+  test('n返 那一段也是（它一樣沒有額度）', () => {
+    const b = make([fm({ courseId: 'fu', courseName: '三返', followupNth: 3, note: '報告看完了' })]);
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　三返　夏醫師　記一句：報告看完了'));
+  });
+
+  test('有額度的段照舊印在它那一筆額度底下那一格，來訪紀錄不印第二次', () => {
+    const b = make([ilib(), fm()]);
+    const [first, second] = b.sheets[0].log[0].items;
+    assert.equal(first.note, null, '有額度的那一段在來訪紀錄不帶記一句');
+    assert.equal(second.note, 'HRV 報告');
+    const text = everything(render(b));
+    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度底下那一格）');
+    assert.equal(text.split('HRV 報告').length - 1, 1);
+  });
+
+  test('沒記的不多印東西', () => {
+    const b = make([fm({ note: null })]);
+    assert.equal(b.sheets[0].log[0].items[0].note, null);
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師'));
+  });
+
+  test('取消掉的那一段不印（那一場沒發生）', () => {
+    const b = make([ilib({ note: null }), fm({ status: 'cancelled' })]);
+    assert.ok(!everything(render(b)).includes('HRV 報告'));
+  });
+
+  test('那一句有換行：收成一行（來訪紀錄一段一列，一格塞兩行常常只看得到第一行）', () => {
+    const b = make([fm({ note: 'HRV 報告\n下次帶舊的檢查' })]);
+    assert.equal(b.sheets[0].log[0].items[0].note, 'HRV 報告／下次帶舊的檢查');
+  });
+
+  test('舊資料：那一句還在整筆身上（visit.note）、只有一段沒有額度的 —— 照樣印得出來', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }], entitlementsBy: { c1: [] },
+      visitsBy: { c1: [{ id: 'v1', date: '2026-09-18', status: 'done', note: '整天那一句', slots: [fm({ note: null })] }] },
+      today: '2026-10-05', master: { courses: [FM] },
+    });
+    assert.equal(b.sheets[0].log[0].items[0].note, '整天那一句');
+  });
+});
+
 const bundle = (overrides = {}) => ({
   ...syncBundle({
     customers: [{ id: 'c1', name: '客戶A', source: '0522 顧客會-8', flags: ['體內金屬'], notes: '目前只要SIS' }],

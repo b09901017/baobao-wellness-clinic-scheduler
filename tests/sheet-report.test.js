@@ -205,7 +205,7 @@ test('整包資料帶著三段式次數與勾選矩陣，一位客戶一份', ()
     generatedAt: '2026/8/10',
   });
 
-  assert.equal(bundle.format, 6);
+  assert.equal(bundle.format, 7);
   assert.equal(bundle.sheets.length, 1);
 
   const sheet = bundle.sheets[0];
