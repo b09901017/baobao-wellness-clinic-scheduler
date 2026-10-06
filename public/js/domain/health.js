@@ -1089,10 +1089,9 @@ function checkEquipmentCourse(ctx) {
     }));
 }
 
-/** 種子的一列去掉 id —— `repo.create()` 收的是資料，id 另外給。 */
-function withoutId({ id, ...rest }) {
-  return rest;
-}
+// 種子的一列 → 要建起來的那一份（去掉 id、啟不啟用照種子寫的）：`seed.js` 的 `seedData()`。
+// 這裡以前有一支只去掉 id 的 `withoutId()`，每一個呼叫端再自己補 `active: true` ——
+// 種子有了停用的列（點滴8、VIP7，ADR-0127）之後那樣寫會把它們建成啟用的。
 
 /**
  * 她還開著的那幾筆裡，有沒有一筆叫這個名字（**id 不是種子的也算**）。
