@@ -900,13 +900,22 @@ export function equipmentForCourse(courseId, equipment = []) {
  */
 export function roomsForCourse(course, rooms) {
   if (course?.assigns !== 'room') return [];
-  const alive = rooms.filter((r) => !r.deletedAt && r.active !== false);
+  return rooms.filter((r) => !r.deletedAt && r.active !== false && roomFitsCourse(course, r));
+}
 
+/**
+ * 這一間**照它的類型／名單**排不排得進這門課 —— 不問它還開不開著。
+ *
+ * `roomsForCourse()` 回的是「現在選得到的那幾間」；存檔前那一句「一般排在 …，這次排在別間」
+ * 要問的是這一支：停用的點滴8（沒選床位的那一間，ADR-0127）照舊是點滴室，一段還排在那裡的
+ * 營養點滴不是「排在別間」。拿「選得到的」去問的話，她每改一次那一段都多跳一道提醒。
+ */
+export function roomFitsCourse(course, room) {
+  if (!room || course?.assigns !== 'room') return false;
   const ids = course.allowedRoomIds ?? [];
-  if (ids.length) return alive.filter((r) => ids.includes(r.id));
-
+  if (ids.length) return ids.includes(room.id);
   const types = course.allowedRoomTypes ?? [];
-  return types.length ? alive.filter((r) => types.includes(r.type)) : alive;
+  return types.length ? types.includes(room.type) : true;
 }
 
 /**

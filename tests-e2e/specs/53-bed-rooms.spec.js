@@ -153,7 +153,9 @@ test('R3 來訪編輯器：還排在點滴8（停用了）的那一段，打開�
   await page.locator('[data-slotnote-toggle="s0-note"]').click();
   await page.locator('textarea[name="s0-note"]').fill('客人說會晚到');
   await page.locator('button[type="submit"]').first().click();
+  // **一道確認都不跳**：停用的點滴8 照舊是點滴室，不是「這次排在別間」（這一條第一次跑就是卡在那一道）
   await app.saved();
+  await expect(app.dialog()).toHaveCount(0);
 
   const saved = await app.readDoc('visits', 'v-next');
   expect(saved.slots[0].roomId, '停用的那一間不可以被清成空的').toBe('room-iv8');

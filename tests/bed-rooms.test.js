@@ -178,6 +178,45 @@ describe('撞期：8A 與 8B 各是一間', () => {
   });
 });
 
+// 存檔前那一句「一般排在 …，這次排在別間」問的是**這一間的類型排不排得進這門課**，不是它還開不開著。
+// 點滴8 停用之後（它照舊是點滴室），每改一次還排在點滴8 的那一段都多跳一道提醒 —— E2E 53 的 R3 跑出來的
+describe('停用的那一間不是「別間」', () => {
+  const ENT = { id: 'e1', customerId: 'c1', type: 'single', label: '營養點滴', courseId: 'course-iv-drip', ivProductId: 'iv-liver', totalQty: 10 };
+  const EECP = { id: 'e2', customerId: 'c1', type: 'single', label: 'EECP', courseId: 'course-eecp', totalQty: 10 };
+  const warn = (slot, rooms = SEED.rooms) => validateVisit({
+    id: 'v1', customerId: 'c1', customerName: '客戶A', date: '2026-10-10', status: 'pending_confirm',
+    slots: [{ startsAt: '10:00', endsAt: '12:00', bed: null, status: 'pending_confirm', ...slot }],
+  }, {
+    customer: { flags: [] }, entitlements: [ENT, EECP], courses: SEED.courses, equipment: SEED.equipment,
+    rooms, staff: SEED.staff, ivProducts: SEED.ivProducts, customerVisits: [], sameDayVisits: [],
+  }).warnings.filter((w) => /排在別間/.test(w));
+  const drip = (roomId) => ({ courseId: 'course-iv-drip', entitlementId: 'e1', ivProductId: 'iv-liver', roomId });
+
+  test('營養點滴排在停用的點滴8（沒選床位）：不跳「這次排在別間」', () => {
+    assert.deepEqual(warn(drip('room-iv8')), []);
+  });
+
+  test('營養點滴排在治療室：照舊跳，而且那一句列的是排得到的那幾間（沒有停用的）', () => {
+    const [said] = warn(drip('room-t2'));
+    assert.match(said, /點滴8A、點滴8B/);
+    assert.doesNotMatch(said, /點滴8、|點滴8，/);
+  });
+
+  test('EECP（指定那三間）排在停用的 VIP7：照舊跳 —— 它本來就不在那三間裡', () => {
+    assert.equal(warn({ courseId: 'course-eecp', entitlementId: 'e2', roomId: 'room-vip7' }).length, 1);
+  });
+
+  test('她自己停用的一間點滴室（不是床位那一種）也一樣不算別間', () => {
+    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv5' ? { ...r, active: false } : r));
+    assert.deepEqual(warn(drip('room-iv5'), rooms), []);
+  });
+
+  test('刪掉的那一間照舊算別間（主檔上已經沒有它了）', () => {
+    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv5' ? { ...r, deletedAt: 'x' } : r));
+    assert.equal(warn(drip('room-iv5'), rooms).length, 1);
+  });
+});
+
 describe('拍 Abovee 認診間', () => {
   const at = (roomText, resource, rooms = SEED.rooms) => roomFrom(roomText, resource, rooms)?.id ?? null;
 
