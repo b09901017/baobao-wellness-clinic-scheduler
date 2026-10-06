@@ -27,8 +27,9 @@ test('B1 客戶詳情 → 加購：按「醫師門診」露出第二排；沒選
   await expect(item(page)).toHaveCount(0);
 
   await top(page).filter({ hasText: '醫師門診' }).click();
-  expect(await labels(item(page))).toEqual(
-    ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
+  // 一類裡的順序照主檔清單（app 照文件 id 排），這一支只管有哪幾門
+  expect((await labels(item(page))).sort()).toEqual(
+    ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP'].sort());
   await expect(page.locator('[data-chip="buyItem"][aria-pressed="true"]')).toHaveCount(0);
 
   await page.click('button[type="submit"]');
@@ -69,8 +70,8 @@ test('B3 新增客戶 →「＋ 加一項」：同一張表，EECP → EECP體�
 
   await page.locator('[data-cf-addextra]').click();
   await app.layer('[data-chip="buy"]');
-  await top(page).filter({ hasText: /^EECP/ }).click();
-  expect(await labels(item(page))).toEqual(['EECP', 'EECP體驗']);
+  await top(page).filter({ hasText: 'EECP' }).click();
+  expect((await labels(item(page))).sort()).toEqual(['EECP', 'EECP體驗']);
   await item(page).filter({ hasText: 'EECP體驗' }).click();
   await expect(page.locator('[data-chip="buy"][aria-pressed="true"]')).toContainText('EECP');
   await page.locator('[data-addbuy]').click();
