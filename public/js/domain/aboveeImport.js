@@ -23,7 +23,8 @@ import {
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
-import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias } from './masterData.js';
+import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf,
+} from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
 import { markInQueue } from './scheduling.js';
@@ -446,7 +447,11 @@ function aboveeDiffs(item, visit, same, ctx) {
   if (assigns === 'therapist' && item.therapistId && item.therapistId !== slot.therapistId) {
     diffs.push({ field: 'therapistId', app: slot.therapistId ?? null, abovee: item.therapistId });
   }
-  if (assigns === 'room' && item.roomId && item.roomId !== slot.roomId) {
+  // **Abovee 那一格沒寫床、app 上已經選了床的不算不一樣**（ADR-0127）：`點滴室8` 認成「沒選床位」的點滴8，
+  // 而 app 上是點滴8A —— 那只是照片上比較不精確，按「改成 Abovee 的」會把她選好的床弄丟
+  const roomOf = (id) => (ctx.master?.rooms ?? []).find((r) => r.id === id) ?? null;
+  if (assigns === 'room' && item.roomId && item.roomId !== slot.roomId
+      && !isBedlessOf(roomOf(item.roomId), roomOf(slot.roomId))) {
     diffs.push({ field: 'roomId', app: slot.roomId ?? null, abovee: item.roomId });
   }
   if (!diffs.length) return {};

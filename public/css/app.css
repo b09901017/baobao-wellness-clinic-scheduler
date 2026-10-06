@@ -933,6 +933,17 @@ textarea {
   font-weight: 400;
 }
 
+/* 「＋」那一顆（設定 → 課程 的新分類）：它不是一個選項，是一顆展開輸入框的鈕 ——
+   虛線框跟「換一款」同一種語言。按著的時候照樣是綠底（`[aria-pressed]` 比較具體），輸入框就在底下。 */
+.chip--add {
+  min-width: 44px;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  font-weight: 400;
+}
+
 @keyframes chip-in {
   from { opacity: 0; transform: translateX(-4px); }
   to { opacity: 1; transform: none; }
@@ -978,6 +989,38 @@ textarea {
   align-self: center;
   height: 20px;
   background: var(--border);
+}
+
+/* 同一個欄位的第二行（`chips()` 的 `breakBefore`）：跟上一行貼近一點，看得出是同一排的下半段。 */
+.chiprow--next {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+/* 會換行的那一種（`.chips`、拍 Abovee 的 `.abl-row__chips`）裡「從這裡另起一行」。
+   來訪「做什麼」那一排的二返那一組 —— 跟健檢只隔一條線的話，實體上還是隔壁。 */
+.chips__break {
+  flex-basis: 100%;
+  height: 0;
+}
+
+/* 會換行的那一排裡，小標跟那一組的第一顆綁成一塊 —— 分開的話換行時小標會掛在上一行的尾巴，
+   底下那一行的丸子看起來沒有小標。跟前一顆隔開一點，看得出是下一組的開頭。 */
+.chips__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chips > .chips__head,
+.abl-row__chips > .chips__head {
+  margin-left: var(--space-2);
+}
+
+.chips > .chips__head:first-child,
+.chips > .chips__break + .chips__head,
+.abl-row__chips > .chips__head:first-child,
+.abl-row__chips > .chips__break + .chips__head {
+  margin-left: 0;
 }
 
 .fieldgroup {
@@ -4820,6 +4863,19 @@ body:has(> .drawer-backdrop) > .toast {
   cursor: pointer;
 }
 
+/* 兩三個短選項排成一列（`checkboxes({ inline })`、`toggle({ inline })`）。放得下就並排、
+   放不下才換行 —— 一個三個字的選項佔滿一整行的話，三個就是三行。 */
+.choices--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.choices--inline > .choice {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .choice--row {
   width: 100%;
   margin-bottom: var(--space-3);
@@ -6479,6 +6535,104 @@ summary {
 .foldout[open] > summary::after,
 .ban__more[open] > summary::after {
   transform: rotate(90deg);
+}
+
+/* 收著的時候那一行印出現在的值（設定 → 課程 的「其他設定」）——
+   收起來是縮成一行，不是藏起來。展開之後值就在底下，不再重複一次。
+   `order: 1` 讓它排在那個箭頭（`::after`）後面。 */
+.foldout__now {
+  order: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-mute);
+}
+
+.foldout[open] > summary > .foldout__now {
+  visibility: hidden;
+}
+
+/* ---------- 設定 → 課程 → 編輯（2026-10-06 重排，issue 06）---------- */
+
+/* 月曆別稱｜LINE 別稱：兩格並排（手機上一格大約 150px，同 `.namerow__fields`）。 */
+.courseform__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+/* 三種時長並排；窄到一格放不下就換行（直排）。 */
+.courseform__trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+.courseform__pair > .field,
+.courseform__trio > .field {
+  min-width: 0;
+}
+
+/* 選了上面那一顆才露出來的那幾格：左邊一條線，看得出是從那一顆長出來的。 */
+.courseform__sub {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 2px solid var(--accent-soft);
+}
+
+.courseform__sub > :last-child,
+.courseform__sub > :last-child .fieldgroup,
+.courseform__sub > :last-child .field {
+  margin-bottom: 0;
+}
+
+.courseform__note {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
+}
+
+.courseform__toggles {
+  margin-bottom: var(--space-4);
+}
+
+.courseform__more {
+  margin: 0 0 var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.courseform__more[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.courseform__more > .choices--inline {
+  margin-bottom: var(--space-3);
+}
+
+/* 設定暫定的那一條：跟清單上那個小標同一個茶色。 */
+.provbar {
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--tea-soft);
+}
+
+.provbar__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.provbar .choice {
+  background: var(--surface);
 }
 
 /* 懸浮鈕選單裡那顆圓的圖示底。原本是寫在 calendar.js 的 inline style 裡，

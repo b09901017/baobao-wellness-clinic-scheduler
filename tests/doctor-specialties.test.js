@@ -103,8 +103,13 @@ describe('課程上那一格（doctorPick）', () => {
     }
   });
 
-  test('種子醫師不填科別 —— 她還沒說誰是哪一科', () => {
-    for (const s of SEED.staff) assert.ok(!(s.specialties ?? []).length, s.name);
+  // 2026-10-05 種子醫師不填科別（她還沒說誰是哪一科）。2026-10-06 照 Abovee 上實際排的填了，
+  // 只剩判斷不了的那一位空著 —— 細節在 `tests/seed-staff.test.js`
+  test('種子：治療師沒有科別；醫師填的每一科都在預設那四科裡', () => {
+    for (const s of SEED.staff) {
+      if (s.role !== '醫師') assert.ok(!(s.specialties ?? []).length, s.name);
+      for (const sp of s.specialties ?? []) assert.ok(DEFAULT_SPECIALTIES.includes(sp), `${s.name}：${sp}`);
+    }
   });
 
   test('醫師門診那一組新增時是「哪一科都可以」', () => {

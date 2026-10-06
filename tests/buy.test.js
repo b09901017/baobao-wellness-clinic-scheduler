@@ -710,3 +710,151 @@ describe('到期日：選填，預設不到期', () => {
     assert.deepEqual(buy.read({ elements: {} }, { expiryPreset: '2027-03-12' }), {});
   });
 });
+
+// ---------- 2026-10-06（issue 07）：先分類再項目 ----------
+//
+// 她的原話：
+//
+// > 可以參考課程種類與項目.md去分層，不論是新增一個/一群客戶的加購，客戶詳情的加購…都可以參考去分層丸子選
+// > 當然，像是復能(有分三選一四選一)，ILIB，EECP等等 有選時間的或是健檢可以選幾萬的，營養品等等
+// > 已經設計過的就不用動沒關係…只是新加入的那些我也不常用的課程可以去分層，就不會有好多課程然後都滑不到想要的
+//
+// 第一排是分類；**只有一門的分類那一顆直接就是那一門**（她最常按的幾顆一下就到、底下那幾排一個像素都不變），
+// 兩門以上的按了才露出第二排「哪一門」。
+
+import { SEED } from '../public/js/domain/seed.js';
+
+const SEEDED = {
+  courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts, products: SEED.products,
+};
+
+/** 一排丸子：值、字、按著沒有。 */
+const chipsIn = (html, name) => [...html.matchAll(
+  new RegExp(`data-chip="${name}"\\s+data-chip-value="([^"]*)"\\s+aria-pressed="(true|false)"[^>]*>\\s*([^<]*)`, 'g'),
+)].map((m) => ({ value: m[1], pressed: m[2] === 'true', label: m[3].trim() }));
+
+const pressedIn = (html, name) => chipsIn(html, name).filter((c) => c.pressed).map((c) => c.label);
+
+/** 從一張空白草稿依序按幾顆（第一排或第二排都行，跟 `wire()` 走同一條分流）。 */
+const tap = (master, ...values) => values.reduce(
+  (e, v) => buy.afterTap(v, e, {}, master), buy.blank(),
+);
+
+describe('加購那一排：先分類再項目', () => {
+  test('第一排照分類的順序；只有一門的分類那一顆就是那一門，最後照舊是營養品', () => {
+    const top = chipsIn(buy.fields(buy.blank(), SEEDED), 'buy');
+    assert.deepEqual(top.map((c) => c.label),
+      ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢', '物理治療師諮詢', '營養品']);
+    const valueOf = (label) => top.find((c) => c.label === label).value;
+    assert.equal(valueOf('復能'), buy.POOL_PICK, '復能照舊是擇一池那一顆');
+    assert.equal(valueOf('ILIB'), 'course-iv-laser');
+    assert.equal(valueOf('健檢'), 'course-checkup');
+    assert.equal(valueOf('營養點滴'), 'course-iv-drip');
+    assert.equal(valueOf('物理治療師諮詢'), 'course-pt-consult', '「其他」只有一門時字是那一門的名字');
+    assert.ok(buy.isGroupPick(valueOf('醫師門診')));
+    assert.equal(chipsIn(buy.fields(buy.blank(), SEEDED), 'buyItem').length, 0, '還沒按分類就沒有第二排');
+  });
+
+  test('按「醫師門診」：第二排是那幾門（不算次數的不列），課程先清掉、一顆都沒按', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'));
+    assert.equal(e.courseId, null);
+    assert.equal(e.type, 'single');
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    const items = chipsIn(html, 'buyItem');
+    assert.deepEqual(items.map((c) => c.label),
+      ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
+    assert.ok(items.every((c) => !c.pressed));
+  });
+
+  test('開著分類、還沒選哪一門就按儲存：只講一句', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'));
+    assert.deepEqual(buy.validate(e, SEEDED), ['還要選「醫師門診」裡的哪一門']);
+  });
+
+  test('第二排選一門：那一門是課程，第一排照樣亮著那一類', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup');
+    assert.equal(e.courseId, 'course-followup');
+    assert.equal(e.label, '二返');
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['二返']);
+    assert.deepEqual(buy.validate(e, SEEDED), []);
+  });
+
+  test('醫師門診 → 二返 → 再按「復能」：第二排收掉、名字換成復能那一種、她打的次數還在', () => {
+    const picked = { ...tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup'), totalQty: 7 };
+    const e = buy.afterTap(buy.POOL_PICK, picked, { totalQty: 7 }, SEEDED);
+    assert.equal(e.type, 'pool');
+    assert.equal(e.totalQty, 7);
+    assert.match(e.label, /^復能-三選一/);
+    assert.equal(chipsIn(buy.fields(e, SEEDED), 'buyItem').length, 0);
+  });
+
+  test('她自己改過顯示名稱：換分類、換項目都不蓋掉', () => {
+    const e1 = { ...tap(SEEDED, 'course-iv-laser'), label: '雷射特價' };
+    const e2 = buy.afterTap(buy.groupPick('醫師門診'), e1, { label: '雷射特價' }, SEEDED);
+    assert.equal(e2.label, '雷射特價');
+    const e3 = buy.afterTap('course-rehab', e2, { label: '雷射特價' }, SEEDED);
+    assert.equal(e3.label, '雷射特價');
+  });
+
+  test('打開一筆既有的 EECP體驗：第一排亮 EECP、第二排亮 EECP體驗', () => {
+    const e = { ...buy.blank(), courseId: 'course-eecp-trial', label: 'EECP體驗' };
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['EECP']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['EECP體驗']);
+  });
+
+  test('按已經亮著的那一類：選好的那一門不被清掉', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup');
+    assert.equal(buy.afterTap(buy.groupPick('醫師門診'), e, {}, SEEDED).courseId, 'course-followup');
+  });
+
+  test('營養品 → 醫師門診：營養品那幾排收掉', () => {
+    const e = tap(SEEDED, buy.PRODUCT_PICK, buy.groupPick('醫師門診'));
+    assert.equal(e.type, 'single');
+    assert.ok(!buy.fields(e, SEEDED).includes('哪幾種'));
+  });
+
+  test('這張表現在選著一門不算次數的課：它照樣列在它那一類裡、按著', () => {
+    const e = { ...buy.blank(), courseId: 'course-fm', label: '功醫門診' };
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['功醫門診']);
+  });
+
+  test('ILIB 被搬到只有它一門的分類：照舊接回復能後面；搬進兩門以上的分類就跟著那一類', () => {
+    const moved = (group) => ({
+      ...SEEDED,
+      courses: SEEDED.courses.map((c) => (c.id === 'course-iv-laser' ? { ...c, group } : c)),
+    });
+    const alone = chipsIn(buy.fields(buy.blank(), moved('雷射')), 'buy').map((c) => c.label);
+    assert.equal(alone.indexOf('ILIB'), alone.indexOf('復能') + 1, alone.join('/'));
+
+    const withEecp = moved('EECP');
+    const top = chipsIn(buy.fields(buy.blank(), withEecp), 'buy').map((c) => c.label);
+    assert.ok(!top.includes('ILIB'), top.join('/'));
+    const inside = chipsIn(buy.fields(tap(withEecp, buy.groupPick('EECP')), withEecp), 'buyItem');
+    assert.deepEqual(inside.map((c) => c.label), ['ILIB', 'EECP', 'EECP體驗']);
+  });
+
+  test('開合狀態不會漏進存下去的額度', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-rehab');
+    assert.ok(!('buyGroup' in buy.payload(e)));
+    assert.ok(!Object.values(buy.payload(e)).some((v) => String(v).startsWith('__group__')));
+  });
+
+  test('舊資料（沒有分類、全部落在「其他」）：一排平的，跟以前一模一樣', () => {
+    const top = chipsIn(buy.fields(buy.blank(), MASTER), 'buy');
+    assert.ok(top.every((c) => !buy.isGroupPick(c.value)));
+    assert.deepEqual(top.map((c) => c.label), ['復健科醫師門診', '健檢', '營養點滴', '復能', 'ILIB', '營養品']);
+  });
+
+  test('接線：第二排跟第一排走同一條分流（`afterTap()`），不是當成細節（`DETAIL_CHIPS`）', () => {
+    const src = readFileSync(fromRoot('public/js/ui/components/buy.js'), 'utf8');
+    const detail = src.slice(src.indexOf('const DETAIL_CHIPS'), src.indexOf(';', src.indexOf('const DETAIL_CHIPS')));
+    assert.ok(!detail.includes('buyItem'), '第二排是選課程：放進 DETAIL_CHIPS 的話 pick() 不會跑');
+    assert.match(src, /closest\('\[data-chip="buy"\], \[data-chip="buyItem"\]'\)/);
+  });
+});

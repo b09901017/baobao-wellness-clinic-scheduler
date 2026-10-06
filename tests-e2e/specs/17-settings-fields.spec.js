@@ -26,6 +26,8 @@ test('S1 課程時長填 30 存得起來，重新讀出來還是 30', async ({ a
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-followup"]').click();
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   await expect(page.locator('input[name="durationMin"]')).toBeVisible();
 
   await page.fill('input[name="durationMin"]', '30');
@@ -35,8 +37,7 @@ test('S1 課程時長填 30 存得起來，重新讀出來還是 30', async ({ a
   ).toBe(true);
 
   await page.click('button[type="submit"]');
-  await app.settled();
-  await page.waitForTimeout(600);
+  await app.saved();
 
   const course = await app.readDoc('config/app/courses', 'course-followup');
   expect(course.durationMin, '真的存進去了').toBe(30);
@@ -51,6 +52,8 @@ test('S2 其他不是 5 的倍數的時長也存得起來', async ({ app, page }
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-followup"]').click();
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   for (const n of ['7', '23', '90']) {
     // eslint-disable-next-line no-await-in-loop
     await page.fill('input[name="durationMin"]', n);
@@ -251,10 +254,12 @@ test('S11 常用診間存得下去、讀得回來，而且只列得出排得進�
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
 
-  // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有那八間
+  // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有點滴室那幾間。
+  // 2026-10-06 多了 8A、8B（ADR-0127）；fixture 把種子每一筆都寫成啟用的，所以「沒選床位」的點滴8 也在 → 十間
+  // （她的資料庫按完資料健檢、點滴8 停用之後是九間）
   await page.locator('[data-edit="course-iv-drip"]').click();
   const boxes = page.locator('input[name="preferredRoomIds"]');
-  await expect(boxes).toHaveCount(8);
+  await expect(boxes).toHaveCount(10);
   await expect(page.locator('input[name="preferredRoomIds"][value="room-t2"]'),
     '治療室排不進營養點滴，不該列得出來').toHaveCount(0);
 

@@ -153,6 +153,20 @@ export function doctorChoicesFor(course, staff = []) {
  */
 export const isUncounted = (course) => course?.uncounted === true;
 
+/**
+ * 這門課的設定**是暫定的**嗎（2026-10-06）。她的原話：
+ *
+ * > …希望你幫我把我給你的清單項目的內容都補上去，然後可以標記我還沒決定壓那些阿之類的
+ *
+ * 種子補的那幾門（回測報告、HA-PRP、PRP、MOTI、運動、HRV）Abovee 上一筆都沒排過，
+ * 每一格都是猜的。這一格**只畫一個小標**（設定 → 課程）：提醒她這門課還沒看過。
+ *
+ * **沒有任何規則讀它** —— 排得進去、扣得到、長得出待辦，跟沒有這一格一模一樣
+ *（`tests/provisional-courses.test.js` 掃原始碼）。字是「設定暫定」，不是「待確認」（那是來訪的狀態）。
+ * 只認 `true`，同 `isUncounted()`。
+ */
+export const isProvisional = (course) => course?.provisional === true;
+
 /** 主檔裡不算次數、還在用的課。「這一段可以做什麼」那一排上每一門一顆（`slotOptions.js`）。 */
 export function uncountedCourses(courses = []) {
   return (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false && isUncounted(c));
@@ -166,6 +180,7 @@ export const ASSIGNS = ['therapist', 'room', 'none'];
  *
  * **只有名單在這裡。** 勾了之後壓表在哪、客人確認之後長哪幾張，推導只在
  * `domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`）。
+ * 三個都不勾（`systems: []`）＝這門課不用壓（ADR-0126）；沒有那一格是沒勾過，照類別推。
  * 名單住在這一支是因為主檔的驗證要認得它，而 `taskRules.js` 經 `visits.js` 讀這一支 ——
  * 反過來 import 會繞成一圈。
  */
@@ -181,16 +196,79 @@ export const ASSIGN_LABELS = {
 };
 
 /**
+ * 設定 → 課程 那一排「排班時要指派」：四選一（2026-10-06，ADR-0130）。她的原話：
+ *
+ * > 5. 排班時要指派的分四種，診間，物理治療師，醫師，都不用
+ *
+ * **資料上照舊是兩格**（`assigns`、`doctorPick`）—— 排班那一側（`assignsFor()`、
+ * `doctorChoicesFor()`）一個字都不改，醫師也照舊不塞進 `assigns`（ADR-0026）。
+ * 這一排只是設定頁的畫法，那一顆與兩格的對照只寫在這裡（`assignKindOf()`、`assignFieldsFor()`）。
+ *
+ * **從此設不出「診間＋醫師」**（她問「有沒有一門課同時要選診間又要選醫師？」，回「目前沒有」）。
+ * 資料上那樣的課照舊存得下去、排得出來：打開時亮 `assigns` 那一顆、另外講一句，
+ * 她沒動這一排就照舊存回去（`keepsDoctorBeside()`）。
+ */
+export const ASSIGN_KINDS = Object.freeze(['room', 'therapist', 'doctor', 'none']);
+
+export const ASSIGN_KIND_LABELS = Object.freeze({
+  room: '診間', therapist: '物理治療師', doctor: '醫師', none: '都不用',
+});
+
+const assignsSomeone = (course) => course?.assigns === 'room' || course?.assigns === 'therapist';
+
+/** 一門課在那一排亮哪一顆。`assigns` 是診間或治療師就是那一顆；否則要醫師（`doctorRuleOf()`）就是醫師。 */
+export function assignKindOf(course) {
+  if (assignsSomeone(course)) return course.assigns;
+  return picksDoctor(course) ? 'doctor' : 'none';
+}
+
+/** 兩個都有（診間或治療師＋醫師）。設定頁設不出來、但資料上存得下去的那一種（ADR-0130）。 */
+export const keepsDoctorBeside = (course) => assignsSomeone(course) && picksDoctor(course);
+
+/**
+ * 那一排按的那一顆 → 要存的兩格（`requiresDoctor` 跟著寫，讀的那一側只認 `doctorRuleOf()`）。
+ *
+ * @param {string} kind `ASSIGN_KINDS` 之一
+ * @param {string} doctorPick 醫師那一排現在按著的（`'any'`／某一科）。
+ *   選了醫師、那一排卻還是「不用」（從都不用切過來）→ 存成「哪一科都可以」——
+ *   不然存下去的是一門不要醫師的「醫師」課，跟畫面上亮著的那一顆不一樣
+ * @param {boolean} [o.keepDoctor] 原本兩個都有、她沒動那一排：醫師照舊存回去
+ */
+export function assignFieldsFor(kind, doctorPick, { keepDoctor = false } = {}) {
+  const pick = typeof doctorPick === 'string' ? doctorPick.trim() : '';
+  const doctor = pick && pick !== DOCTOR_NONE ? pick : DOCTOR_ANY;
+  if (kind === 'doctor') return { assigns: 'none', doctorPick: doctor, requiresDoctor: true };
+  const assigns = kind === 'room' || kind === 'therapist' ? kind : 'none';
+  if (keepDoctor && assigns !== 'none') return { assigns, doctorPick: doctor, requiresDoctor: true };
+  return { assigns, doctorPick: DOCTOR_NONE, requiresDoctor: false };
+}
+
+/**
+ * 設定 → 課程 清單那一行的「指派」。**跟表單亮著的那一顆走同一支推導** ——
+ * 以前印 `ASSIGN_LABELS[assigns]`，醫師的課（`assigns: 'none'`）寫「都不用」，
+ * 跟編輯表亮著的「醫師」對不上。
+ */
+export function assignSummaryOf(course) {
+  const kind = assignKindOf(course);
+  if (kind === 'doctor') {
+    const rule = doctorRuleOf(course);
+    return rule === DOCTOR_ANY ? '選醫師' : `選醫師（${rule}）`;
+  }
+  const head = ASSIGN_LABELS[kind] ?? ASSIGN_LABELS.none;
+  return keepsDoctorBeside(course) ? `${head}＋醫師` : head;
+}
+
+/**
  * 課程的分類（2026-10-05）。她的原話：
  *
  * > 設定 → 課程 要先分類再項目。
  * > 分類：復能、ILIB、醫師門診、EECP、運動區、營養點滴
  * > 5. 健檢自己一組「健檢」。物理治療師諮詢先放「其他」
  *
- * **分類只管兩件事**：設定 → 課程 那一頁怎麼分組、新增時帶哪一組預設值
- * （`courseDefaultsFor()`）。**沒有任何規則讀它** —— 待辦、次數、指派、加購
- * 一個都不看，所以改分類碰不到任何資料的意思（`tests/course-groups.test.js`
- * 掃原始碼盯著）。
+ * **分類只管畫面怎麼分組**：設定 → 課程 那一頁、新增時帶哪一組預設值
+ * （`courseDefaultsFor()`），以及 2026-10-06 起加購那一排先分類再項目（`groupCourses()`，
+ * `ui/components/buy.js`）。**沒有任何規則讀它** —— 待辦、次數、指派一個都不看，
+ * 所以改分類碰不到任何資料的意思（`tests/course-groups.test.js` 掃原始碼盯著）。
  *
  * **它不是一份新的主檔**：課程身上一格字串（`group`），她打一個新的字就是
  * 新的一組。不開集合、不動 Rules、不動備份。
@@ -226,6 +304,36 @@ export function courseGroupNames(courses = []) {
     if (g !== OTHER_GROUP && !COURSE_GROUPS.includes(g) && !custom.includes(g)) custom.push(g);
   }
   return [...COURSE_GROUPS, ...custom, OTHER_GROUP];
+}
+
+/**
+ * 一串課程照分類分組（加購那一排，2026-10-06）。分類照 `courseGroupNames()` 的順序，
+ * **同一類裡照傳進來的順序**；沒有課程的分類不回。誰該列進來是呼叫端的事
+ * （不算次數的不列、停用的不列……）—— 這一支只回答「哪一門在哪一類、順序」。
+ *
+ * @returns {{group: string, courses: object[]}[]}
+ */
+export function groupCourses(courses = []) {
+  return groupByCourse((courses ?? []).filter(Boolean), (c) => c)
+    .map(({ group, items }) => ({ group, courses: items }));
+}
+
+/**
+ * 同上，但分的是「掛著一門課的東西」（「做什麼」那一排的每一顆，issue 08）：
+ * 那一顆算哪一類看 `courseOf(item)` 那一門課的分類（沒有課＝「其他」）。
+ * 分類的順序照 `courseGroupNames()`（`courses` 與那幾門課一起算）；**同一類裡照傳進來的順序**。
+ *
+ * 只有這一支（與 `groupCourses()`）替別的模組回答「它在哪一類」——
+ * `tests/course-groups.test.js` 盯著 `domain/` 底下沒有別人讀 `group`。
+ *
+ * @returns {{group: string, items: object[]}[]}
+ */
+export function groupByCourse(items = [], courseOf = (x) => x, courses = []) {
+  const list = items ?? [];
+  const names = courseGroupNames([...(courses ?? []), ...list.map(courseOf).filter(Boolean)]);
+  return names
+    .map((group) => ({ group, items: list.filter((x) => groupOf(courseOf(x)) === group) }))
+    .filter((g) => g.items.length);
 }
 
 /**
@@ -610,12 +718,13 @@ const validators = {
     }
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     // 壓哪幾個系統（ADR-0119）。**沒有這一格就是沒勾過**，照舊從類別推，所以不擋。
-    // 勾了就要壓得下去：壓表一定要有一個地方，而耀聖只收確認之後的登記。
+    // **三個都不勾是合法的：這門課不用壓**（ADR-0126，HRV）。擋的只剩「勾了卻沒有地方壓表」——
+    // 也就是只勾耀聖：耀聖只收確認之後的登記，沒有壓表卻有確認後的登記講不通。
     if (r.systems != null) {
       if (!Array.isArray(r.systems) || r.systems.some((s) => !SYSTEMS.includes(s))) {
         errors.push('壓表的系統只能是 Abovee、Examine、耀聖');
-      } else if (!r.systems.some((s) => BOOKING_SYSTEMS.includes(s))) {
-        errors.push('Abovee 與 Examine 至少要勾一個 —— 壓表一定要有一個地方');
+      } else if (r.systems.length && !r.systems.some((s) => BOOKING_SYSTEMS.includes(s))) {
+        errors.push('只勾耀聖存不下去 —— 耀聖是壓表之後才登記的，Abovee 與 Examine 至少要勾一個；這門課不用壓就三個都不勾');
       }
     }
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
@@ -701,6 +810,11 @@ const validators = {
     // `isUncounted()` 只認 `true`，存成字串會安靜地被當成要算
     if (r.uncounted !== undefined && r.uncounted !== null && typeof r.uncounted !== 'boolean') {
       errors.push('「不算次數」只能是是或否');
+    }
+
+    // 設定暫定（2026-10-06）。只畫小標、沒有規則讀它；同上只擋型別（`isProvisional()` 只認 `true`）
+    if (r.provisional !== undefined && r.provisional !== null && typeof r.provisional !== 'boolean') {
+      errors.push('「設定暫定」只能是是或否');
     }
 
     // 做完之後要再約一次的那個課程（健檢 → 二返）。指到不存在的課程，
@@ -879,13 +993,22 @@ export function equipmentForCourse(courseId, equipment = []) {
  */
 export function roomsForCourse(course, rooms) {
   if (course?.assigns !== 'room') return [];
-  const alive = rooms.filter((r) => !r.deletedAt && r.active !== false);
+  return rooms.filter((r) => !r.deletedAt && r.active !== false && roomFitsCourse(course, r));
+}
 
+/**
+ * 這一間**照它的類型／名單**排不排得進這門課 —— 不問它還開不開著。
+ *
+ * `roomsForCourse()` 回的是「現在選得到的那幾間」；存檔前那一句「一般排在 …，這次排在別間」
+ * 要問的是這一支：停用的點滴8（沒選床位的那一間，ADR-0127）照舊是點滴室，一段還排在那裡的
+ * 營養點滴不是「排在別間」。拿「選得到的」去問的話，她每改一次那一段都多跳一道提醒。
+ */
+export function roomFitsCourse(course, room) {
+  if (!room || course?.assigns !== 'room') return false;
   const ids = course.allowedRoomIds ?? [];
-  if (ids.length) return alive.filter((r) => ids.includes(r.id));
-
+  if (ids.length) return ids.includes(room.id);
   const types = course.allowedRoomTypes ?? [];
-  return types.length ? alive.filter((r) => types.includes(r.type)) : alive;
+  return types.length ? types.includes(room.type) : true;
 }
 
 /**
@@ -937,11 +1060,42 @@ export function orderedRoomsForCourse(course, rooms) {
  *
  * @returns {{roomId:string, bed:null, label:string, usual:boolean}[]}
  */
-export function orderedRoomSlots(course, rooms) {
+export function orderedRoomSlots(course, rooms, { keep = null } = {}) {
   const rank = new Map(orderedRoomsForCourse(course, rooms).map((r, i) => [r.id, i]));
-  return roomSlots(rooms)
+  const out = roomSlots(rooms)
     .map((s) => ({ ...s, usual: rank.has(s.roomId) }))
     .sort((a, b) => (rank.get(a.roomId) ?? Infinity) - (rank.get(b.roomId) ?? Infinity));
+
+  // **這一段現在指著的那一間就算停用也列出來**（`keep`，ADR-0127）。點滴8 停用之後，一段還排在
+  // 點滴8 的來訪打開時那一排上沒有它 → 一顆都沒按著 → 她只改記一句存一次，診間就安靜地沒了。
+  // 刪掉的那一間救不回來（主檔清單裡沒有它的名字）；新增一段不用傳。
+  if (keep && !out.some((s) => s.roomId === keep)) {
+    const room = (rooms ?? []).find((r) => r && r.id === keep && !r.deletedAt);
+    if (room) out.push({ roomId: room.id, bed: null, label: room.name, usual: false, retired: true });
+  }
+  return out;
+}
+
+// ---------- 「沒選床位的那一間」與它拆出來的那幾間（ADR-0127）----------
+//
+// 點滴8A／8B、VIP7A／7B 是四間各自的診間；點滴8、VIP7 留著當「沒選床位」。兩邊的關係**照名字認**
+// （那一間的全名＋A 或 B），不照 id：她自己建的「點滴8A」也算，哪天她把點滴9 也拆開，一樣成立。
+
+const BED_LETTERS = ['A', 'B'];
+const roomNameOf = (room) => String(room?.name ?? '').trim();
+
+/** 點滴8＋床 A → 主檔上叫「點滴8A」的那一間（還沒刪的）。沒有就 null。 */
+export function bedRoomOf(room, bed, rooms = []) {
+  const letter = String(bed ?? '').trim().toUpperCase();
+  const base = roomNameOf(room);
+  if (!base || !BED_LETTERS.includes(letter)) return null;
+  return (rooms ?? []).find((r) => r && !r.deletedAt && roomNameOf(r) === `${base}${letter}`) ?? null;
+}
+
+/** `parent` 是不是 `child` 沒選床位的那一間（點滴8 之於點滴8A）。 */
+export function isBedlessOf(parent, child) {
+  const base = roomNameOf(parent);
+  return Boolean(base) && BED_LETTERS.some((letter) => roomNameOf(child) === `${base}${letter}`);
 }
 
 /**

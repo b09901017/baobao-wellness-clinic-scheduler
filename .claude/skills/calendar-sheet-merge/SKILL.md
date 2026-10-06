@@ -80,7 +80,8 @@ python3 .claude/skills/calendar-sheet-merge/scripts/xlsx-to-tsv.py <xlsx> <暫�
 ```
 
 `therapists` 是給「這串字裡有沒有寫別人」用的（少了它，寫著治療師名字的事件會被
-當成別位客戶而整筆放棄）；`therapistAliases` 是給輸出用的 —— **合併檔裡一定要寫主檔的
+當成別位客戶而整筆放棄）；`doctors` 同一個用途 —— **種子上只有一個字的醫師（夏、許、李、宋、簡、林）
+要列在這裡才算「認得的字」**，不列的話那個字會被當成別人的姓（寧可漏補，見 `references/shorthand.md` 的醫師那一段）；`therapistAliases` 是給輸出用的 —— **合併檔裡一定要寫主檔的
 正式名字**，送「新穎」「LU」過去，app 對不到主檔，那個欄位就會留空。
 
 放在 `.local/references/aliases.json`（`/.local/` 擋著）。腳本自己會處理的不用寫進去：

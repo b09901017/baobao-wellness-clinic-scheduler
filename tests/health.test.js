@@ -190,9 +190,9 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
 });
 
 describe('形狀', () => {
-  test('三十項檢查都在，順序固定', () => {
+  test('三十一項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 30);
+    assert.equal(result.checks.length, 31);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 

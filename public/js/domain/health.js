@@ -20,9 +20,9 @@ import {
   counts, reconcile, isOverused, schedulable, poolName, timedLabel, legacyPoolNames, autoLabel,
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
-import { SEED } from './seed.js';
+import { SEED, seedData } from './seed.js';
 import {
-  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS,
+  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import { missingPairs, countMismatches } from './followups.js';
@@ -158,13 +158,15 @@ export const CHECKS = [
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
     hint: '2026-09-08 重畫過一次：多了 VIP 室、一間 4 號都沒有，而月曆那一格印的是簡寫。'
-      + '治療室是 2 3 5 7 8 —— 治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）',
+      + '治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）。'
+      + '2026-10-06 補治6、VIP1，點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間 —— '
+      + '原本那兩間停用不刪：沒選床位的舊來訪照樣印得出 .8、vip7',
   },
   {
     id: 'slotBeds',
     label: '來訪上還記著床位',
-    hint: '床位那一層取消了（一間就是一個資源）。舊來訪身上那個 A／B 留著的話，'
-      + '撞期判斷會把同一間的兩個人當成不衝突',
+    hint: '床位那一層取消了（一間就是一個資源）。點滴8、VIP7 的床 A／B 現在是各自的診間（8A、8B、7A、7B），'
+      + '所以那幾筆是**搬到那一間**（要先在上面「診間清單」把那幾間建起來）；別間的床位照舊清掉',
   },
   {
     id: 'equipmentNames',
@@ -215,6 +217,12 @@ export const CHECKS = [
       + '癒原養方、養心舒眠、皮蛇疫苗）。少了的那幾款拍 Abovee 認不出來，加購與排班也選不到',
   },
   {
+    id: 'seedStaff',
+    label: '治療師與醫師少了幾位',
+    hint: 'Abovee 的服務資源清單上有 13 位治療師、8 位醫師，2026-10-06 補了 9 位。少了的那幾位拍 Abovee 認不出來，'
+      + '排班也選不到。建起來的醫師帶著科別（復健科、心臟科剛好一位，排那幾門課時會先選好）',
+  },
+  {
     id: 'ivProductDuration',
     label: '點滴品項沒填時長',
     hint: '護心抗老要打 180 分。那一格空著的話它跟著課程走（120 分），'
@@ -230,8 +238,8 @@ export const CHECKS = [
     id: 'seedBlanks',
     label: '主檔有幾格還沒跟上',
     hint: '2026-10-05 多的那幾格：課程的分類、要哪一科的醫師、二返約的時候選 30 或 60、'
-      + 'Abovee 上的寫法、EECP 可以排治7。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
-      + '「EECP20」會被認成正式課 —— 你自己填過的那幾格不會被動到',
+      + 'Abovee 上的寫法、EECP 可以排治7；2026-10-06 多醫師的科別。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
+      + '「EECP20」會被認成正式課，醫師那一排也分不出誰是哪一科 —— 你自己填過的那幾格不會被動到',
   },
 ];
 
@@ -334,6 +342,8 @@ function prepare(snapshot, today) {
     ivProductsById: byId(master.ivProducts),
     // 還開著的診間（陣列）：「她是不是已經有一間同名的」要掃一遍
     rooms: alive(master.rooms),
+    // 還開著的治療師與醫師：「她是不是已經自己建了那一位」（`checkSeedStaff()`）
+    staff: alive(master.staff),
     // 這兩份是給「復能額度還叫舊名字」與「提醒詞不在警示名單裡」用的，
     // 而它們要的是**陣列**（算名字與比名單都要順序）。
     equipment: alive(master.equipment),
@@ -1024,7 +1034,7 @@ function checkSeedEquipment(ctx) {
         kind: 'addEquipment',
         label: row.name,
         equipmentId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
 }
@@ -1079,10 +1089,9 @@ function checkEquipmentCourse(ctx) {
     }));
 }
 
-/** 種子的一列去掉 id —— `repo.create()` 收的是資料，id 另外給。 */
-function withoutId({ id, ...rest }) {
-  return rest;
-}
+// 種子的一列 → 要建起來的那一份（去掉 id、啟不啟用照種子寫的）：`seed.js` 的 `seedData()`。
+// 這裡以前有一支只去掉 id 的 `withoutId()`，每一個呼叫端再自己補 `active: true` ——
+// 種子有了停用的列（點滴8、VIP7，ADR-0127）之後那樣寫會把它們建成啟用的。
 
 /**
  * 她還開著的那幾筆裡，有沒有一筆叫這個名字（**id 不是種子的也算**）。
@@ -1126,6 +1135,11 @@ const RETURNED_ROOMS = ['room-t7'];
  *   restore  種子有、她照建議刪掉了     → 還原（只有治7）
  *   drop     種子拿掉了、她還開著       → 刪掉（治9／治10／ILIB4）
  *   short    種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
+ *   retire   種子上停用、她還開著       → **停用，不刪**（點滴8、VIP7，ADR-0127）
+ *
+ * `retire` 那一種：點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，原本那兩間是「沒選床位」的那一間。
+ * **不可以放進 `LEGACY_ROOMS`**（那一份走的是刪掉）—— 既有來訪還指著它，她要的是照樣印得出 `.8`。
+ * 排在「建起來」的後面：一次全按時新的那幾間同一個 commit 建好。種子上停用的那一間她主檔上沒有時不建。
  *
  * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
  * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
@@ -1143,12 +1157,15 @@ function checkRoomList(ctx) {
   // 會一次冒出十七列。同 `checkSeedEquipment()` 那道護欄的判斷。
   const seeded = (SEED.rooms ?? []).some((row) => byId[row.id]);
 
+  const retire = [];
+
   for (const row of SEED.rooms ?? []) {
     const mine = byId[row.id];
     // 她自己另外建了一間同名的 → 那一間就是它，不建也不還原第二間
     const twin = sameNamed(ctx.rooms, row.name);
+    const retired = row.active === false;
     if (!mine) {
-      if (!seeded || twin) continue;
+      if (!seeded || twin || retired) continue;
       out.push({
         severity: 'attention',
         title: row.name,
@@ -1156,7 +1173,7 @@ function checkRoomList(ctx) {
         link: '#/settings/rooms',
         fix: {
           kind: 'applyRoom', mode: 'add', roomId: row.id, label: row.name,
-          data: { ...withoutId(row), active: true },
+          data: seedData(row),
         },
       });
       continue;
@@ -1175,6 +1192,19 @@ function checkRoomList(ctx) {
       continue;
     }
 
+    // 種子上停用的那一間（點滴8、VIP7）：她還開著、名字也還是原樣才請她停用。
+    // 改過名字就是拿去當別的用了；已經停用的不念
+    if (retired && mine.active !== false && fullNameOf(mine) === row.name) {
+      retire.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `新的清單上它拆成 ${row.name}A、${row.name}B 兩間各自的診間。停用之後排班時選不到「${row.name}」，`
+          + '已經排在那一間的來訪一個字都不動、照樣印得出來（沒選床位的就是它）',
+        link: '#/settings/rooms',
+        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
+      });
+    }
+
     // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
     const short = String(mine.shortName ?? '').trim();
     if (row.shortName && !short) {
@@ -1190,6 +1220,8 @@ function checkRoomList(ctx) {
       });
     }
   }
+
+  out.push(...retire);
 
   for (const row of LEGACY_ROOMS) {
     const mine = byId[row.id];
@@ -1219,24 +1251,80 @@ function checkRoomList(ctx) {
  *
  * 一筆來訪一個 finding（不是一段一個）：她要處理的是那一筆，
  * 而一筆裡兩段都有床位時列兩次只是同一件事說兩遍。
+ *
+ * ## 2026-10-06：點滴8、VIP7 的床位是**搬到那一間**，不是清掉（ADR-0127）
+ *
+ * 點滴8A／8B、VIP7A／7B 現在是四間各自的診間。舊來訪 `點滴8＋床 A` 的那個 A 正是「它是 8A」——
+ * 清掉就把這件事丟了。所以每一段三條路：
+ *
+ *   搬   那一間＋床位在主檔上對得到一間（`bedRoomOf()`：名字是「點滴8A」）→ `roomId` 換過去、`bed` 清空
+ *   等   建議清單上有那一間、她的主檔還沒有 → **只列不修**，請她先按「診間清單」把它建起來。
+ *        不可以落到「清掉」：她一按，A／B 就永遠沒了、之後搬不了家
+ *   清   其餘（別間的床位、認不得的字）→ 照舊清掉
+ *
+ * 一筆裡有任何一段在「等」→ 整筆先不給按（別段也不清）：這一筆之後還要再處理一次，
+ * 分兩次寫只是多一筆稽核。有「搬」的那一筆是另一種修正（`moveBedToRoom`）——
+ * 借 `clearBeds` 的話稽核上寫的是「清掉來訪上的床位」，講的不是發生的事。
+ *
+ * **每一段除了 `roomId` 與 `bed` 一個字都不變**（測試釘著）；已完成的那幾筆照樣搬
+ * （這是資料修正不是改來訪，舊資料幾乎全是已完成 —— 同 `clearBeds`，直接寫整包 `slots`）。
+ * 沒記床位、還排在點滴8 的段不念：沒選床位就是 `.8`（她 2026-10-06）。
  */
 function checkSlotBeds(ctx) {
+  const upper = (bed) => String(bed ?? '').trim().toUpperCase();
+  // 建議清單上叫這個名字的那一間（她的主檔還沒有時用來說「先去建」）
+  const suggested = (name) => (SEED.rooms ?? []).find((r) => r.active !== false && fullNameOf(r) === name) ?? null;
+
+  const planFor = (slot) => {
+    if (!slot.bed) return { slot };
+    const room = ctx.roomsById[slot.roomId];
+    const alive = room && !room.deletedAt ? room : null;
+    const target = alive ? bedRoomOf(alive, slot.bed, ctx.rooms) : null;
+    if (target) {
+      return { slot: { ...slot, roomId: target.id, bed: null }, moved: `${fullNameOf(alive)} 床 ${upper(slot.bed)} 搬到 ${fullNameOf(target)}` };
+    }
+    const waiting = alive ? suggested(`${fullNameOf(alive)}${upper(slot.bed)}`) : null;
+    if (waiting) return { slot, waiting: fullNameOf(waiting) };
+    return { slot: { ...slot, bed: null }, cleared: slot.bed };
+  };
+
   return (ctx.visits ?? [])
     .filter((v) => !v.deletedAt && (v.slots ?? []).some((s) => s.bed))
     .map((visit) => {
-      const beds = [...new Set((visit.slots ?? []).map((s) => s.bed).filter(Boolean))];
+      const plans = (visit.slots ?? []).map(planFor);
       const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      const label = `${who}・${visit.date}`;
+      const uniq = (list) => [...new Set(list.filter(Boolean))];
+      const waiting = uniq(plans.map((x) => x.waiting));
+      const moved = uniq(plans.map((x) => x.moved));
+      const cleared = uniq(plans.map((x) => x.cleared));
+
+      if (waiting.length) {
+        return {
+          severity: 'attention',
+          title: label,
+          detail: `床位要搬到「${waiting.join('」「')}」，但你的診間主檔上還沒有那一間 —— `
+            + '先按上面「診間清單跟建議的不一樣」把它建起來，這一列就會變成可以搬的',
+          link: null,
+          fix: null,
+        };
+      }
+      const slots = plans.map((x) => x.slot);
+      if (moved.length) {
+        return {
+          severity: 'attention',
+          title: label,
+          detail: `${moved.join('、')}${cleared.length ? `；清掉床位 ${cleared.join('、')}` : ''}`,
+          link: null,
+          fix: { kind: 'moveBedToRoom', visitId: visit.id, label, slots, moves: moved, cleared },
+        };
+      }
       return {
         severity: 'attention',
-        title: `${who}・${visit.date}`,
-        detail: `清掉床位 ${beds.join('、')}`,
+        title: label,
+        detail: `清掉床位 ${cleared.join('、')}`,
         link: null,
-        fix: {
-          kind: 'clearBeds',
-          visitId: visit.id,
-          label: `${who}・${visit.date}`,
-          slots: (visit.slots ?? []).map((s) => ({ ...s, bed: null })),
-        },
+        fix: { kind: 'clearBeds', visitId: visit.id, label, slots },
       };
     });
 }
@@ -1483,7 +1571,7 @@ function checkSeedCourse(ctx) {
         kind: 'addCourse',
         label: row.name,
         courseId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
 }
@@ -1513,9 +1601,93 @@ function checkSeedIvProduct(ctx) {
         kind: 'addIvProduct',
         label: row.name,
         ivProductId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
+}
+
+/**
+ * 二十三之四、治療師與醫師少了幾位（2026-10-06，course-form-and-sheet/04）。
+ *
+ * Abovee 的服務資源清單有 13 位治療師、8 位醫師，種子原本 9＋3。形狀照抄 `checkSeedCourse()`，
+ * 護欄多兩條 —— 因為拍 Abovee 認人靠的是名字的**一部分**（`abovee.js` 的 `staffFrom()`：
+ * 治療師的名字是全名的結尾、醫師的姓是全名的開頭），「同名」要比 `sameNamed()` 寬：
+ *
+ * - **她已經用全名自己建了那一位**（同一種角色裡有一位的名字以種子那個姓開頭／以種子那個名字結尾）
+ *   → 當成同一位，不建
+ * - **反方向**：種子要建的名字以她既有某一位的名字開頭／結尾（她有一位只寫「張」的醫師，種子要建
+ *   「張雅」「張正」）→ **不建，只列出來**。建了的話 `staffFrom()` 對兩位張的全名都會同時符合
+ *   「張」與那一位 → 誰都不是，本來認得的變成認不得
+ *
+ * 其餘照舊：一個種子 id 都沒有的主檔不念、她刪掉的不算、補上去的值要存得下去。
+ *
+ * ## 建新醫師的那一顆同時補既有醫師空著的科別（`fix.also`）
+ *
+ * 「建新醫師」與「補科別」本來是兩列。她只按前一列的話，功能／二返那一科只有新的兩位張，
+ * `doctorChoicesFor()` 會把原本那三位收進「其他醫師」—— 二返那一排最前面變成兩位從來不看二返的人。
+ * 所以：要建的那一位帶著某一科、而**種子上同一科的既有醫師那一格還是空的**時，這一顆一起補
+ * （同一個 commit，`data/health.js` 的 `addStaff`），而且那一列講得出來（ADR-0070）。
+ * 她填過別的科別的那一位不動；只補科別的那一列在 `checkSeedBlanks()`。
+ */
+function checkSeedStaff(ctx) {
+  const seeded = (SEED.staff ?? []).some((row) => ctx.staffById[row.id]);
+  if (!seeded) return [];
+
+  const norm = (s) => normalizeAlias(s?.name ?? s);
+  // 名字的「一部分」對得上：醫師比開頭、治療師比結尾（跟 `staffFrom()` 同一條）
+  const partOf = (role, whole, part) => Boolean(whole && part)
+    && (role === DOCTOR_ROLE ? whole.startsWith(part) : role === THERAPIST_ROLE && whole.endsWith(part));
+  const out = [];
+
+  for (const row of SEED.staff ?? []) {
+    if (ctx.staffById[row.id]) continue;
+    const peers = ctx.staff.filter((s) => s.role === row.role);
+    const mine = norm(row);
+    if (peers.some((s) => norm(s) === mine || partOf(row.role, norm(s), mine))) continue;
+
+    const shadow = peers.find((s) => partOf(row.role, mine, norm(s)));
+    if (shadow) {
+      out.push({
+        severity: 'attention',
+        title: row.name,
+        detail: `建議清單上有「${row.name}」，但你的主檔上已經有一位「${shadow.name}」——`
+          + ` 再建這一位的話，拍 Abovee 會分不出兩位。先到 設定 → 治療師與醫師 把「${shadow.name}」改成他完整的顯示名，這一列就會換成可以建的`,
+        link: '#/settings/staff',
+        fix: null,
+      });
+      continue;
+    }
+
+    // 這一位帶著的科別裡，種子上同一科的既有醫師還空著那一格的 → 一起補
+    const also = (row.specialties ?? []).length
+      ? (SEED.staff ?? [])
+        .filter((old) => old.id !== row.id && (old.specialties ?? []).some((sp) => row.specialties.includes(sp)))
+        .map((old) => ({ old, has: ctx.staffById[old.id] }))
+        .filter(({ has }) => has && !has.deletedAt && has.role === DOCTOR_ROLE && !(has.specialties ?? []).length)
+        .map(({ old, has }) => ({ id: old.id, label: has.name ?? old.name, changes: { specialties: [...old.specialties] } }))
+      : [];
+    const what = row.role === DOCTOR_ROLE
+      ? `醫師${(row.specialties ?? []).length ? `（${row.specialties.join('、')}）` : '（科別先不填 —— 每一門要醫師的課都選得到他）'}`
+      : '物理治療師';
+    out.push({
+      severity: 'attention',
+      title: row.name,
+      detail: `${what}。建議清單上有這一位，你的主檔沒有 —— 拍 Abovee 碰到他認不出來，排班也選不到`
+        + (also.length
+          ? `。同時把 ${also.map((a) => a.label).join('、')} 空著的科別補上「${row.specialties.join('、')}」`
+            + '（不補的話那一科只剩新的這幾位，原本的醫師會被收進「其他醫師」）'
+          : ''),
+      link: '#/settings/staff',
+      fix: {
+        kind: 'addStaff',
+        label: row.name,
+        staffId: row.id,
+        data: seedData(row),
+        also,
+      },
+    });
+  }
+  return out;
 }
 
 /**
@@ -1575,6 +1747,8 @@ function checkSeedBlanks(ctx) {
     courses: [ctx.coursesById, ctx.courses],
     equipment: [ctx.equipmentById, ctx.equipment],
     ivProducts: [ctx.ivProductsById, ctx.ivProducts],
+    // 2026-10-06：醫師的科別（ADR-0120 那一格，種子現在填了）
+    staff: [ctx.staffById, ctx.staff],
   };
 
   for (const [type, [byIdOf, mineAlive]] of Object.entries(sources)) {
@@ -1620,6 +1794,16 @@ function checkSeedBlanks(ctx) {
               + (alsoOrder ? '。「常用診間」那一排還是舊的那兩間，一起加上治7' : '。「常用診間」你自己排過，不動'),
           });
         }
+      }
+
+      // 醫師的科別：**那一格是空的才補**，她填過別的就是一個決定。只補還是醫師的那幾位 ——
+      // 她改成治療師的補了存不下去（`validate('staff')`：只有醫師有科別）
+      if (type === 'staff' && (row.specialties ?? []).length
+          && mine.role === DOCTOR_ROLE && empty(mine.specialties)) {
+        push(type, mine, {
+          what: '科別', to: row.specialties.join('、'), changes: { specialties: [...row.specialties] },
+          why: '排指定這一科的課時他排在前面，其餘醫師收在「其他醫師」後面 —— 是順序不是限制；那一科剛好一位時會先選好',
+        });
       }
 
       const free = (row.aboveeNames ?? [])
@@ -1816,6 +2000,7 @@ const RUNNERS = {
   seedDuration: checkSeedDurations,
   seedCourse: checkSeedCourse,
   seedIvProduct: checkSeedIvProduct,
+  seedStaff: checkSeedStaff,
   seedBlanks: checkSeedBlanks,
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,

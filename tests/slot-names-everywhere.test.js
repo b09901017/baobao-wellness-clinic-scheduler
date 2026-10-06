@@ -154,7 +154,8 @@ const SPOTS = [
   },
   {
     file: 'js/ui/views/schedule.js',
-    from: 'const said = bookingConsequences(', to: 'confirmLabel: \'已確認，記錄\'',
+    // 終點本來是寫死的「已確認，記錄」；那一顆的字 2026-10-06 改由 domain 給（ADR-0126）
+    from: 'const said = bookingConsequences(', to: 'confirmLabel: said.confirmLabel',
     must: 'slotName(', mustNot: 'course.name',
     what: '壓表存檔前那道確認的第一行',
   },

@@ -451,14 +451,17 @@ describe('種子資料', () => {
   });
 
   // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
+  // 2026-10-06（ADR-0127）：補治6、VIP1；點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，
+  // 原本那兩間留著、停用（沒選床位的那一間）—— 排得到的 22 間，細節在 `tests/bed-rooms.test.js`
   test('診間就是她列的那三種、那幾間', () => {
     const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
     // 治7 是 2026-10-05 加回來的（ADR-0124：Abovee 上 EECP 還排在治療室7）
-    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治7', '治8']);
+    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治6', '治7', '治8']);
     assert.deepEqual(of('點滴室'),
-      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴9', '點滴10']);
-    assert.deepEqual(of('VIP室'), ['VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7']);
-    assert.equal(SEED.rooms.length, 18);
+      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴8A', '點滴8B', '點滴9', '點滴10']);
+    assert.deepEqual(of('VIP室'), ['VIP1', 'VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7', 'VIP7A', 'VIP7B']);
+    assert.equal(SEED.rooms.length, 24);
+    assert.deepEqual(SEED.rooms.filter((r) => r.active === false).map((r) => r.name), ['點滴8', 'VIP7']);
   });
 
   test('一間 4 號都沒有', () => {
@@ -545,9 +548,10 @@ describe('種子資料', () => {
     }
   });
 
-  test('種子資料有夏、許、李三位醫師，而且和治療師分得開', () => {
+  // 2026-10-06 補到 8 位（她 10/5 給的 Abovee 服務資源清單），見 `tests/seed-staff.test.js`
+  test('種子資料有八位醫師（夏、許、李＋五位），而且和治療師分得開', () => {
     const doctors = SEED.staff.filter((s) => s.role === DOCTOR_ROLE).map((s) => s.name);
-    assert.deepEqual(doctors.sort(), ['夏', '李', '許'].sort());
+    assert.deepEqual(doctors.sort(), ['夏', '李', '許', '宋', '簡', '張雅', '張正', '林'].sort());
     // 治療師那份名單一個醫師都不能混進去 —— 復能三器材要的是物理治療師
     const therapists = staffWithRole(SEED.staff, THERAPIST_ROLE);
     assert.ok(therapists.length >= 9);
@@ -556,9 +560,10 @@ describe('種子資料', () => {
 
   // 羊膜 2026-10-06 起只壓 Abovee（類別 C，她：「先預設和營養針一樣」）—— 不是 A 類又要醫師，
   // 所以它帶著旗標；少了的話沒有 `doctorPick` 的那條退路會說「不用醫師」
-  test('只有二返與羊膜帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
+  // HA-PRP、PRP（2026-10-06，設定暫定）照羊膜抄：同樣不是 A 類又要醫師
+  test('只有二返與照羊膜那一種（羊膜、HA-PRP、PRP）帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
-    assert.deepEqual(withDoctor, ['二返', '羊膜']);
+    assert.deepEqual(withDoctor, ['二返', '羊膜', 'HA-PRP', 'PRP']);
   });
 
   // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到
@@ -611,6 +616,13 @@ describe('種子資料', () => {
       // 2026-10-05 多的兩門門診：要的是醫師，不是空間
       'course-fm': 'none',
       'course-amnion': 'none',
+      // 2026-10-06 多的六門（設定暫定）：她同意的那張表上每一門都是「都不用」
+      'course-hrv': 'none',
+      'course-retest': 'none',
+      'course-ha-prp': 'none',
+      'course-prp': 'none',
+      'course-moti': 'none',
+      'course-exercise': 'none',
     };
     const got = Object.fromEntries(SEED.courses.map((c) => [c.id, c.assigns]));
     assert.deepEqual(got, want);
@@ -678,11 +690,12 @@ describe('種子資料', () => {
     assert.ok(others.every((c) => !c.durationChoices?.length));
   });
 
-  test('那五項不產生任務的課程確實是 null 類別', () => {
+  // 2026-10-06 多三門：MOTI、運動（同一組，只壓 Abovee）與 HRV（哪裡都不用壓，ADR-0126）
+  test('不產生任務的那幾門課程確實是 null 類別', () => {
     const noTask = SEED.courses.filter((c) => c.category === null).map((c) => c.name);
     assert.deepEqual(
       noTask.sort(),
-      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢'].sort(),
+      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢', 'MOTI', '運動', 'HRV'].sort(),
     );
     for (const name of noTask) {
       const c = SEED.courses.find((x) => x.name === name);
@@ -717,12 +730,13 @@ describe('種子資料', () => {
       '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
   });
 
-  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」
-  test('除了二返與功醫門診，種子課程全部都要簽療程單', () => {
+  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」。
+  // HRV（2026-10-06）同一個理由：不算次數，沒有東西可以扣
+  test('除了二返、功醫門診與 HRV，種子課程全部都要簽療程單', () => {
     for (const c of SEED.courses) {
       assert.equal(
         needsForm(c),
-        !['course-followup', 'course-fm'].includes(c.id),
+        !['course-followup', 'course-fm', 'course-hrv'].includes(c.id),
         `${c.name} 的簽單設定不對`,
       );
     }

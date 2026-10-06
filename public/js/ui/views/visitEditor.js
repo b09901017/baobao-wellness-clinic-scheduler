@@ -22,7 +22,6 @@ import {
   rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { followupsLast } from '../../domain/scheduling.js';
 import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
@@ -38,7 +37,7 @@ import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
   THERAPIST_ROLE, isUncounted, uncountedCourses, bookingMinutesOf,
 } from '../../domain/masterData.js';
-import { NTH_PICK, uncountedPick, uncountedCourseIdOf } from '../../domain/slotOptions.js';
+import { NTH_PICK, uncountedPick, uncountedCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
@@ -58,6 +57,18 @@ function parseRoomKey(key) {
   if (!key) return { roomId: null, bed: null };
   const [roomId, bed] = String(key).split('|');
   return { roomId: roomId || null, bed: bed || null };
+}
+
+/**
+ * 診間那一排讀回來的那一間，**沒換診間就留著這一段原本的床位**（她 2026-10-06：「留」）。
+ *
+ * 那一排的丸子只到診間（床位那一層 2026-09-08 拿掉了，ADR-0079），所以讀回來的 `bed` 永遠是空的 ——
+ * 以前存一次就把舊來訪上的「點滴8 床 A」清掉，之後資料健檢搬不了家（`moveBedToRoom` 認的就是那個 A，ADR-0127）。
+ * 換了診間才清：床 A 是那一間的床，跟著別間走講不通。
+ */
+function readRoom(v, i, slot) {
+  const room = parseRoomKey(v[`s${i}-room`]);
+  return room.roomId && room.roomId === slot?.roomId ? { roomId: room.roomId, bed: slot.bed ?? null } : room;
 }
 
 // ---------- 進入點 ----------
@@ -115,14 +126,17 @@ async function boot(el, {
     const id = existing?.customerId ?? customerId;
     // 額度那一排丸子問的是「這一段扣哪一筆」，所以只列排得進來訪的
     //（`schedulable()`）—— 營養品扣不掉任何一段，見 ADR-0057。
-    // **二返排最後**（`followupsLast()`，壓表那一排同一支）：跟健檢並排時一指就約錯
-    const [customer, entitlements, all, settings, customerVisits] = await Promise.all([
+    const [customer, loaded, all, settings, customerVisits] = await Promise.all([
       customersData.get(id),
-      customersData.listEntitlements(id).then((es) => schedulable(es).sort(followupsLast)),
+      customersData.listEntitlements(id).then(schedulable),
       config.loadAll(),
       config.getSettings(),
       visitsData.listByCustomer(id),
     ]);
+    // **照額度那一排的順序**（`arrangeSlotOptions()`，issue 08：照分類、類裡照名字、二返最後）——
+    // 新的一段預設扣的是 `entitlements[0]`，它要是那一排最左邊那一顆；照讀回來的順序的話
+    // 預設的那一顆可能在那一排捲不到的右邊，她看到的是「一顆都沒按」而抬頭寫著另一門課
+    const entitlements = inRowOrder(loaded, all);
 
     if (!customer) {
       el.innerHTML = `
@@ -210,6 +224,12 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
   if (first || free) visit.slots.push(blankSlot(first, all, settings, '09:00', free));
   return visit;
 }
+
+/** 額度照「做什麼」那一排的順序（同一支 `arrangeSlotOptions()`）。 */
+const inRowOrder = (entitlements, all) => arrangeSlotOptions(entitlements.map((e) => ({
+  entitlementId: e.id, label: e.label, entitlement: e,
+  course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
+})), all.courses).map((o) => o.entitlement);
 
 /** 沒有額度可以預設時，新的一段預設哪一門不算次數的課。沒有就是 `null`。 */
 const freeCourseOf = (all) => uncountedCourses(all.courses)[0] ?? null;
@@ -564,34 +584,42 @@ function slotCard(ctx, draft, slot, i) {
       ${f.chips({
         name: `s${i}-ent`, label: '額度',
         value: nth ? NTH_PICK : (free ? uncountedPick(slot.courseId) : slot.entitlementId),
-        options: [
-          ...entitlements.map((e) => {
-            // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
-            // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
-            // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
-            // 兩個地方會給出不一樣的數字。
-            const c = countsWithDraft(e, customerVisits, draft, e.id);
-            return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
-          }),
+        // **順序與小標問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08）—— 壓表與拍 Abovee 同一支：
+        // 照分類、類裡照名字、二返那一組最後而且另起一行。「剩幾次」照舊這裡自己算（把草稿也算進去）
+        options: arrangeSlotOptions([
+          ...entitlements.map((e) => ({
+            entitlementId: e.id, label: e.label, entitlement: e,
+            course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
+          })),
           // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
           // 它排在同一排是因為她在這裡問的是「這一段是什麼」，而那一排就是
-          // 回答那個問題的地方。前面插一條線與一個小標，因為滑到底看到的
-          // 那一顆是另一種東西（`chips()` 的 `lead`）。
+          // 回答那個問題的地方。它跟二返同一組（最後那一組）。
           //
           // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
           // 一顆永遠按不下去的丸子只會讓她每次都試一下。
           ...(nthExams.some((c) => c.pickable)
-            ? [{ value: NTH_PICK, label: '＋ n返', note: '不扣次數', lead: '加約' }]
+            ? [{ entitlementId: NTH_PICK, label: '＋ n返', entitlement: null, course: null, isNth: true }]
             : []),
           // **不算次數的課也不是一筆額度**（ADR-0121）：不用加購就排得進去，排了不扣。
-          // 這位客戶身上如果有那門課的額度，上面那一顆照樣在 —— 她選哪一顆就扣不扣。
+          // 這位客戶身上如果有那門課的額度，那一顆照樣在 —— 她選哪一顆就扣不扣。
           // 這一段現在指著的那一門就算被停用了也要列，不然那一排一顆都沒按
           ...[...new Set([...uncountedCourses(all.courses), ...(free ? [course] : [])])]
-            .map((c, k) => ({
-              value: uncountedPick(c.id), label: c.name, note: '不扣次數',
-              ...(k === 0 ? { lead: '不用加購' } : {}),
+            .map((c) => ({
+              entitlementId: uncountedPick(c.id), label: c.name, entitlement: null, course: c, isUncounted: true,
             })),
-        ],
+        ], all.courses).map((o) => ({
+          value: o.entitlementId,
+          label: o.label,
+          // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
+          // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
+          // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
+          // 兩個地方會給出不一樣的數字。
+          note: o.entitlement
+            ? `剩 ${countsWithDraft(o.entitlement, customerVisits, draft, o.entitlement.id).remaining}`
+            : '不扣次數',
+          ...(o.lead ? { lead: o.lead } : {}),
+          ...(o.breakBefore ? { breakBefore: true } : {}),
+        })),
       })}
 
       ${nth ? nthFields(ctx, draft, slot, i, nthExams) : ''}
@@ -871,16 +899,19 @@ function roomField(all, course, slot, i) {
   //
   // 排不進去的不藏起來（她偶爾真的會排到別間），但要標出來 ——
   // 診間有十七間，排錯順序等於每次都要從頭掃。
-  const options = orderedRoomSlots(course, all.rooms).map((s) => ({
+  //
+  // **這一段現在指著的那一間就算停用也列出來**（`keep`，ADR-0127）：點滴8 停用之後，還排在點滴8 的那一段
+  // 打開時那一排上要有它，不然一顆都沒按著，她只改記一句存一次，診間就安靜地沒了。
+  const options = orderedRoomSlots(course, all.rooms, { keep: slot.roomId }).map((s) => ({
     value: roomKey(s.roomId, s.bed),
     label: s.label,
-    note: s.usual ? '' : '不常用',
+    note: s.retired ? '已停用' : (s.usual ? '' : '不常用'),
   }));
 
   // **比的是診間，不是診間＋床位**（2026-09-08）。床位那一層取消之後選項上
   // 只有 `r-iv8|`，而舊來訪身上是 `r-iv8|A` —— 拿它去比的話一顆都不會按著，
   // 而她一存檔那一段的診間就被清成 null 了（畫面上什麼都不會說）。
-  // 存回去時 `bed` 跟著變成 null，那正是她要的「連舊資料一起清掉」。
+  // 存回去時沒換診間就留著原本的床位（`readRoom()`，她 2026-10-06：「留」）；換了才清。
   return f.chips({
     name: `s${i}-room`, label: '診間', quiet: true,
     value: slot.roomId ? roomKey(slot.roomId, null) : null,
@@ -987,7 +1018,7 @@ function readDraft(ctx, form, draft) {
       // 所以讀得到 —— `hidden` 的是包住它的 `<label>`。
       note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
       ...(assigns === 'room'
-        ? parseRoomKey(v[`s${i}-room`])
+        ? readRoom(v, i, slot)
         : { roomId: null, bed: null }),
       therapistId: assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
       // **她剛把這一段換成另一門課、而且還沒選醫師**：那一科剛好只有一位就先選好
@@ -1034,7 +1065,7 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const { all, entitlements, customerVisits } = ctx;
   const course = all.courses.find((c) => c.id === courseId) ?? null;
   const switched = courseId !== slot.courseId || Boolean(slot.entitlementId);
-  const room = parseRoomKey(v[`s${i}-room`]);
+  const room = readRoom(v, i, slot);
   const { slot: made } = slotFromPicks({
     uncountedCourseId: courseId,
     startsAt: v[`s${i}-start`] || slot.startsAt,
@@ -1106,7 +1137,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
     endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
     minutes,
     ...(assignsFor(null, course, null) === 'room'
-      ? parseRoomKey(v[`s${i}-room`])
+      ? readRoom(v, i, slot)
       : { roomId: null, bed: null }),
     therapistId: null,
     doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
@@ -1270,7 +1301,8 @@ async function submit(ctx, draft) {
         ...draft.slots.slice(ctx.storedSlotCount ?? 0).map((s) => slotSummary(s, all)),
         ...said.lines,
       ],
-      confirmLabel: '已確認，記錄',
+      // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給
+      confirmLabel: said.confirmLabel,
     });
     if (!ok) return;
   }

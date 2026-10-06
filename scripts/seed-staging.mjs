@@ -33,7 +33,7 @@ import { pathToFileURL } from 'node:url';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
-import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
+import { SEED, DEFAULT_SETTINGS, seedData } from '../public/js/domain/seed.js';
 import { expandPlan, poolName, timedLabel } from '../public/js/domain/entitlements.js';
 // 任務照規則產生，不自己編一個種類。
 import { newRegistrations } from '../public/js/domain/taskRules.js';
@@ -476,8 +476,8 @@ async function main() {
   const plan = [];
   for (const [type, rows] of Object.entries(SEED)) {
     for (const row of rows) {
-      const { id, ...data } = row;
-      plan.push({ path: `config/app/${type}`, id, data: { ...data, active: true } });
+      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的「沒選床位」那一間（ADR-0127）
+      plan.push({ path: `config/app/${type}`, id: row.id, data: seedData(row) });
     }
   }
   for (const pb of PLAYBOOKS) {

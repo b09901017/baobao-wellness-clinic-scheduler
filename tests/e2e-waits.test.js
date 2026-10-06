@@ -45,7 +45,7 @@ const PENDING = {
   '14-clinical-alert.spec.js': 3,
   '15-playbook.spec.js': 3,
   '16-record-task.spec.js': 1,
-  '17-settings-fields.spec.js': 11,
+  '17-settings-fields.spec.js': 10,
   '18-memo-paste-and-emoji.spec.js': 5,
   '21-pool-assignment.spec.js': 10,
   '22-bulk-cancel.spec.js': 19,

@@ -136,9 +136,20 @@ const ROOM_WORDS = [
   [/^4樓休(\d+)$/, 'VIP$1'],
 ];
 
-/** 房號後面的床位（`點滴室8床A`、`點滴8B`）。床位 2026-09-08 取消了，主檔只有那一間（ADR-0079）。 */
-const BED = /^(.*\d)床?[AB]$/i;
+/** 房號後面的床位（`點滴室8床A`、`點滴8B`、`4樓休7a`）。 */
+const BED = /^(.*\d)床?([AB])$/i;
 
+/**
+ * 一格房間的字 → 診間。
+ *
+ * 床位那幾間 2026-10-06 起是各自的診間（點滴8A／8B、VIP7A／7B，ADR-0127），所以順序是：
+ *
+ * 1. 她記在主檔上的寫法（`aboveeNames`）—— 照舊最優先
+ * 2. **帶著床位比**：`點滴室8床A`／`點滴8A` → 點滴8A
+ * 3. 對不到才**拿掉床位**再比：還沒按資料健檢、主檔上只有「點滴8」的資料庫照舊認得；別間寫了床位的也是
+ * 4. 還是沒有 → **停用的那幾間**裡找（不含刪掉的）。點滴8、VIP7 是「沒選床位」的那一間，
+ *    她：「abovee辨識可以不選床位，沒選床位就寫.8，VIP7等等不要留空」—— 那一格沒寫床時認成它，不是 null
+ */
 function roomByText(text, rooms) {
   const raw = squash(text);
   if (!raw) return null;
@@ -147,9 +158,17 @@ function roomByText(text, rooms) {
   const byAlias = pool.filter((r) => hasAlias(r, raw));
   if (byAlias.length) return byAlias.length === 1 ? byAlias[0] : null;
 
-  let s = raw.replace(BED, '$1');
-  for (const [re, to] of ROOM_WORDS) if (re.test(s)) s = s.replace(re, to);
-  return pool.find((r) => same(r.name, s) || (r.shortName && same(r.shortName, s))) ?? null;
+  const word = (s) => {
+    for (const [re, to] of ROOM_WORDS) if (re.test(s)) return s.replace(re, to);
+    return s;
+  };
+  const named = (list, s) => list.find((r) => same(r.name, s) || (r.shortName && same(r.shortName, s))) ?? null;
+  const m = raw.match(BED);
+  const bare = word(m ? m[1] : raw);
+  const retired = (rooms ?? []).filter((r) => r && !r.deletedAt && r.active === false);
+  return (m ? named(pool, `${bare}${m[2].toUpperCase()}`) : null)
+    ?? named(pool, bare)
+    ?? named(retired, bare);
 }
 
 /**

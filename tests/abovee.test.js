@@ -154,10 +154,12 @@ describe('07 服務資源分角色認人', () => {
 
 describe('07 診間與服務資源裡的房間', () => {
   const rooms = SEED.rooms;
-  test('床位拿掉：點滴室8床A／點滴室8床B → 點滴8；服務資源 點滴8A → 點滴8', () => {
-    assert.equal(roomFrom('點滴室8床A', 'ILIB4', rooms)?.id, 'room-iv8');
-    assert.equal(roomFrom('點滴室8床B', 'ILIB5', rooms)?.id, 'room-iv8');
-    assert.equal(roomFrom(null, '點滴8A', rooms)?.id, 'room-iv8');
+  // 2026-10-06 之前這三種寫法都拿掉床位認成點滴8。床位那兩間現在是各自的診間（ADR-0127），
+  // 所以帶著床位的認成那一間；細節（沒寫床的、還沒按資料健檢的資料庫）在 `tests/bed-rooms.test.js`
+  test('帶著床位的認成那一間：點滴室8床A → 點滴8A、點滴室8床B → 點滴8B；服務資源 點滴8A → 點滴8A', () => {
+    assert.equal(roomFrom('點滴室8床A', 'ILIB4', rooms)?.id, 'room-iv8a');
+    assert.equal(roomFrom('點滴室8床B', 'ILIB5', rooms)?.id, 'room-iv8b');
+    assert.equal(roomFrom(null, '點滴8A', rooms)?.id, 'room-iv8a');
   });
 
   test('營養點滴那一列：診間空著、服務資源就是房間（點滴5、4樓休2 → VIP2）', () => {
@@ -254,8 +256,9 @@ describe('07 課程那一格：品項、Abovee 寫法、三返、任選', () => 
     assert.equal(courseFrom('同一個字', { ...master, ivProducts: iv, courses })?.ivProductId, 'iv-x');
   });
 
-  test('認不出來 → null，不猜（HRV、空白）', () => {
-    assert.equal(courseFrom('HRV', master), null);
+  // 這一條本來拿 HRV 當認不出來的例子；2026-10-06 種子有 HRV 這門課了，換一個主檔沒有的字
+  test('認不出來 → null，不猜（主檔沒有的字、空白）', () => {
+    assert.equal(courseFrom('大腸鏡', master), null);
     assert.equal(courseFrom('   ', master), null);
   });
 

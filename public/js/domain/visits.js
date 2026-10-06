@@ -16,7 +16,7 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween } from './dates.js';
 import {
-  roomsForCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
+  roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn } from './followups.js';
@@ -1809,7 +1809,10 @@ function assignmentWarnings(visit, {
       if (!slot.roomId) out.push(`${at}：${course.name} 還沒選診間`);
       else {
         const allowed = roomsForCourse(course, rooms);
-        if (allowed.length && !allowed.some((r) => r.id === slot.roomId)) {
+        // **停用的那一間不是「別間」**（ADR-0127）：問的是它的類型排不排得進這門課（`roomFitsCourse()`），
+        // 不是它還選不選得到 —— 點滴8 停用之後照舊是點滴室。刪掉的那一間主檔上沒有了，照舊算別間
+        const mine = (rooms ?? []).find((r) => r.id === slot.roomId && !r.deletedAt) ?? null;
+        if (allowed.length && !allowed.some((r) => r.id === slot.roomId) && !roomFitsCourse(course, mine)) {
           out.push(
             `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
           );

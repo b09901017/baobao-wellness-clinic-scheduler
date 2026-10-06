@@ -408,6 +408,38 @@ export const COVERAGE = {
     'public/js/domain/seed.js', 'public/js/domain/customers.js', 'public/js/domain/consequences.js',
     'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/schedule.js',
   ],
+  // 一門課可以哪個系統都不用壓（2026-10-06，ADR-0126）：設定頁三個都不勾、排一段不問壓好了嗎、取消不長取消 Abovee
+  '52-book-nowhere': [
+    'public/js/domain/taskRules.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+    'public/js/domain/scheduling.js', 'public/js/domain/todoFlow.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/views/calendar.js',
+  ],
+  // 床位那四間是各自的診間（2026-10-06，ADR-0127）：資料健檢建六間＋停用兩間＋床位搬家、壓表選 8A／8B、停用的那一間編輯時不被清掉
+  '53-bed-rooms': [
+    'public/js/domain/seed.js', 'public/js/domain/masterData.js', 'public/js/domain/abovee.js', 'public/js/domain/health.js',
+    'public/js/data/health.js', 'public/js/data/config.js', 'public/js/ui/views/health.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/visits.js',
+  ],
+  // 設定 → 課程 → 編輯 重排（2026-10-06，issue 06，ADR-0130）：指派四選一、分類的「＋」、兩個別稱、收起來的「其他設定」、設定暫定
+  '54-course-form': [
+    'public/js/ui/views/masterList.js', 'public/js/domain/masterData.js', 'public/js/domain/seed.js',
+    'public/js/ui/components/form.js', 'public/js/ui/views/naming.js', 'public/js/data/config.js',
+    'public/css/',
+  ],
+  // 加購那一排先分類再項目（2026-10-06，issue 07）：客戶詳情的加購、新增客戶的「＋ 加一項」
+  '55-buy-by-group': [
+    'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/domain/masterData.js',
+    'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
+    'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
+  ],
+  // 來訪「做什麼」那一排照分類排、每一類一個小標、二返另起一行（2026-10-06，issue 08）：壓表與來訪編輯器量位置
+  '56-what-to-do-by-group': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/scheduling.js',
+    'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/components/form.js', 'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

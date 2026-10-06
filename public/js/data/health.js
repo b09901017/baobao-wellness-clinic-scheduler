@@ -85,7 +85,7 @@ export async function run(today) {
  * @returns {Promise<number>} 實際寫了幾筆
  */
 export async function applyFixes(fixes) {
-  const ops = (fixes ?? []).map(opFor).filter(Boolean);
+  const ops = opsFor(fixes);
 
   for (let i = 0; i < ops.length; i += FIX_CHUNK) {
     await repo.commit(ops.slice(i, i + FIX_CHUNK));
@@ -93,8 +93,45 @@ export async function applyFixes(fixes) {
   return ops.length;
 }
 
+/**
+ * 一批修正 → 要寫的那幾筆。**一筆修正通常是一筆寫入，`addStaff` 例外**：建一位新醫師的同時
+ * 補既有醫師空著的科別（`fix.also`，理由在 `domain/health.js` 的 `checkSeedStaff()`）。
+ * 一次建兩位張時兩筆修正都帶著同樣那三位 —— **同一筆文件只補一次**。
+ */
+function opsFor(fixes) {
+  const out = [];
+  const touched = new Set();
+  for (const op of (fixes ?? []).flatMap(opFor)) {
+    if (!op) continue;
+    const key = op.op === 'update' ? `${op.path}/${op.id}` : null;
+    if (key && op.also) {
+      if (touched.has(key)) continue;
+      touched.add(key);
+    }
+    const { also, ...rest } = op;
+    out.push(rest);
+  }
+  return out;
+}
+
 function opFor(fix) {
   const path = `customers/${fix?.customerId}/entitlements`;
+
+  // 種子資料裡有、主檔沒有的那幾位治療師與醫師（2026-10-06 補到跟 Abovee 的服務資源清單一樣）。
+  // id 用種子的，理由同 `addCourse`。**同一個 commit 補既有醫師空著的科別**（`fix.also`）——
+  // 分兩次的話，她只按這一顆時那一科只剩新的這幾位，原本的醫師會被收進「其他醫師」。
+  if (fix?.kind === 'addStaff') {
+    return [
+      {
+        op: 'create', path: 'config/app/staff', id: fix.staffId, data: fix.data,
+        note: '資料健檢：把種子裡的治療師／醫師建起來',
+      },
+      ...(fix.also ?? []).map((a) => ({
+        op: 'update', path: 'config/app/staff', id: a.id, changes: a.changes,
+        note: '資料健檢：補上科別', also: true,
+      })),
+    ];
+  }
 
   // 這一個寫的是客戶本人，不是他的額度 —— 所以在算 path 之後就先岔開。
   if (fix?.kind === 'renameChartNo') {
@@ -151,6 +188,14 @@ function opFor(fix) {
         note: '資料健檢：還原回到建議清單上的診間',
       };
     }
+    // 點滴8、VIP7（ADR-0127）：拆成 8A／8B、7A／7B 之後，原本那一間**停用不刪** —— 既有來訪還指著它，
+    // 要照樣印得出 `.8`。**只寫 `active` 一格**；沒有這個分支的話會落到最底下那一條，把簡寫寫成 undefined。
+    if (fix.mode === 'retire') {
+      return {
+        op: 'update', path: roomPath, id: fix.roomId, changes: { active: false },
+        note: '資料健檢：停用拆成兩間的那一間診間（沒選床位的來訪照樣印得出來）',
+      };
+    }
     if (fix.mode === 'drop') {
       return {
         op: 'softDelete', path: roomPath, id: fix.roomId,
@@ -175,6 +220,20 @@ function opFor(fix) {
       id: fix.visitId,
       changes: { slots: fix.slots },
       note: '資料健檢：清掉來訪上的床位',
+    };
+  }
+
+  // 點滴8 床 A → 點滴8A（ADR-0127）。那四間現在是各自的診間，舊來訪身上那個 A／B 就是「它是哪一間」。
+  // 跟 `clearBeds` 同一個寫法（整包 `slots`、不經 `visitsData.save()`、不問鎖 —— 這是資料修正，
+  // 已完成的也要搬得動）；**另一種 kind 是為了稽核那一句**：這裡發生的是搬診間，不是清床位。
+  // `checkSlotBeds()` 算好的那一份只有 `roomId` 與 `bed` 兩格變了。
+  if (fix?.kind === 'moveBedToRoom') {
+    return {
+      op: 'update',
+      path: 'visits',
+      id: fix.visitId,
+      changes: { slots: fix.slots },
+      note: `資料健檢：床位搬到自己的診間（${(fix.moves ?? []).join('、')}）`,
     };
   }
 

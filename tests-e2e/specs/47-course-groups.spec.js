@@ -37,8 +37,20 @@ test('G1 清單先分類：復能底下是復能＋三台器材、ILIB 底下是
     ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢', '其他']);
   // 一組裡面的順序照主檔清單原本那個（文件 id），這一支不管它
   expect((await cardsIn(page, '醫師門診')).sort())
-    // 功醫門診、羊膜是 2026-10-05 種子多的兩門（issue 12）
-    .toEqual(['course-amnion', 'course-cardio', 'course-fm', 'course-followup', 'course-rehab']);
+    // 功醫門診、羊膜是 2026-10-05 種子多的兩門（issue 12）；HRV、回測報告、HA-PRP、PRP 是 2026-10-06 的
+    .toEqual(['course-amnion', 'course-cardio', 'course-fm', 'course-followup', 'course-ha-prp',
+      'course-hrv', 'course-prp', 'course-rehab', 'course-retest']);
+  expect((await cardsIn(page, '運動區')).sort())
+    .toEqual(['course-exercise', 'course-fitness', 'course-inbody', 'course-moti', 'course-nutrition-consult']);
+
+  // 設定暫定（2026-10-06）：種子照猜的先建起來的那六門各一個小標，上面數得出還有幾門
+  await expect(page.locator('[data-provisional-count]')).toContainText('還有 6 門的設定是暫定的');
+  await expect(page.locator('[data-course] [data-provisional]')).toHaveCount(6);
+  const hrv = page.locator('[data-course="course-hrv"]');
+  await expect(hrv.locator('[data-provisional]')).toHaveText('設定暫定');
+  await expect(hrv).toContainText('不用壓');
+  await expect(hrv).toContainText('不算次數');
+  await expect(page.locator('[data-course="course-fm"] [data-provisional]'), '她答過的那幾門不標').toHaveCount(0);
   expect(await cardsIn(page, '健檢')).toEqual(['course-checkup']);
   expect(await cardsIn(page, '其他'), '她：物理治療師諮詢先放「其他」').toEqual(['course-pt-consult']);
 
@@ -94,8 +106,8 @@ test('G3 新增先選分類：帶好那一組的預設，她改掉的那一格�
   await expect(page.locator('[data-grouppick]')).toBeVisible();
   await page.locator('[data-newgroup="醫師門診"]').click();
 
-  // 那一組的預設：不用指派、30 分、分類那一顆按好了
-  await expect(page.locator('select[name="assigns"]')).toHaveValue('none');
+  // 那一組的預設：指派醫師（不指派診間或治療師）、30 分、分類那一顆按好了
+  await expect(page.locator('[data-chip="assignKind"][aria-pressed="true"]')).toHaveText('醫師');
   await expect(page.locator('input[name="durationMin"]')).toHaveValue('30');
   await expect(page.locator('[data-chip="group"][aria-pressed="true"]')).toHaveText('醫師門診');
   await expect(page.locator('[data-chip="doctorPick"][aria-pressed="true"]')).toHaveText('哪一科都可以');
@@ -103,6 +115,8 @@ test('G3 新增先選分類：帶好那一組的預設，她改掉的那一格�
   await expect(page.locator('input[name="systems"]:checked')).toHaveCount(3);
 
   await page.fill('input[name="name"]', '泌尿科門診');
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   await page.fill('input[name="durationMin"]', '45');
   await page.click('button[type="submit"]');
   await app.saved();
@@ -123,6 +137,8 @@ test('G4 把分類改成一個新的字：清單多一組，排在「其他」�
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-fitness"]').click();
+  // 分類那一排最後那一顆「＋」（2026-10-06，issue 06）
+  await page.locator('[data-chip="group"][data-chip-value="__new__"]').click();
   await page.fill('input[name="groupNew"]', '檢測');
   await page.click('button[type="submit"]');
   await app.saved();
@@ -131,7 +147,7 @@ test('G4 把分類改成一個新的字：清單多一組，排在「其他」�
   const order = await heads(page);
   expect(order.indexOf('檢測'), '她自己打的排在「其他」前面').toBe(order.indexOf('其他') - 1);
   expect(await cardsIn(page, '檢測')).toEqual(['course-fitness']);
-  expect((await cardsIn(page, '運動區')).sort()).toEqual(['course-inbody', 'course-nutrition-consult']);
+  expect((await cardsIn(page, '運動區')).sort()).toEqual(['course-exercise', 'course-inbody', 'course-moti', 'course-nutrition-consult']);
 
   // 再打開：那一顆新的丸子按著；改回「其他」存成空的
   await page.locator('[data-edit="course-fitness"]').click();
@@ -170,9 +186,10 @@ test('G5 別稱兩個入口一份資料：課程編輯表改了，名稱怎麼�
   await page.locator('[data-edit="course-eecp"]').click();
   await expect(page.locator('input[name="shortName"]')).toHaveValue('EP');
 
-  // 課程編輯表不畫 LINE 名，存檔也不碰它：ILIB 的「靜脈雷射」還在
+  // LINE 別稱 2026-10-06 也畫在課程編輯表上了（issue 06），是同一格：什麼都不改就存，「靜脈雷射」還在
   await page.locator('[data-cancel]').click();
   await page.locator('[data-edit="course-iv-laser"]').click();
+  await expect(page.locator('input[name="lineName"]')).toHaveValue(before.lineName);
   await page.click('button[type="submit"]');
   await app.saved();
   const after = await app.readDoc('config/app/courses', 'course-iv-laser');
@@ -231,7 +248,7 @@ test('G7 舊資料：沒有分類的課程全部落在「其他」，一門都�
   await app.signIn('/settings/courses');
 
   expect(await heads(page)).toEqual(['其他']);
-  await expect(page.locator('[data-course]')).toHaveCount(15);
+  await expect(page.locator('[data-course]')).toHaveCount(21);
   // 器材與品項照樣掛在它們的課程底下
   await expect(page.locator('[data-course="course-recovery"] .subrow')).toHaveCount(3);
 

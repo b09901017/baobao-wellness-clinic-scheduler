@@ -107,18 +107,35 @@ export function settledDayLine() {
  * 一筆來訪可以同時有健檢（Examine）與復能（Abovee）—— 那時候兩個都要講，
  * 因為她真的要去兩個地方壓。
  *
+ * **只看指定的那幾段**（`indexes`，ADR-0126）：存檔前那一道問的是「這一次新加的壓好了嗎」，
+ * 不是那一天的每一段 —— 她先排了功醫門診、再併一段 HRV 進去時，以前照樣問 Abovee。
+ * 沒給就是每一段（新的一天）。**不用壓的課不算**，所以可能回空字串：呼叫端要換一個抬頭，
+ * 不可以印成「已經在  壓好表了嗎？」。
+ *
  * @param {{slots?: {courseId?: string}[]}} visit
  * @param {Record<string, {category?: string}>} coursesById
- * @returns {string} 例：`Abovee`、`Examine`、`Abovee 與 Examine`
+ * @param {number[]|null} [indexes] 只看第幾段
+ * @returns {string} 例：`Abovee`、`Examine`、`Abovee 與 Examine`；都不用壓是 `''`
  */
-export function bookingSystemLabel(visit, coursesById = {}) {
+export function bookingSystemLabel(visit, coursesById = {}, indexes = null) {
+  const at = indexes ? new Set(indexes) : null;
   const names = [...new Set(
     (visit?.slots ?? [])
-      .filter(isLiveSlot)
-      .map((s) => bookingSystemOf(coursesById[s.courseId])),
+      .filter((s, i) => (!at || at.has(i)) && isLiveSlot(s))
+      .map((s) => bookingSystemOf(coursesById[s.courseId]))
+      .filter(Boolean),
   )];
   return names.join(' 與 ');
 }
+
+/**
+ * 新加的每一段都不用壓時（ADR-0126）那一道的抬頭與確認鈕 —— 沒有東西要她先去壓，
+ * 所以不問「壓好了嗎」，按鈕也不寫「已確認」。講法跟拍 Abovee 那一道同一句（`aboveeConsequences()`）。
+ */
+const nothingToBook = (count) => ({
+  title: count === 1 ? '記錄這一段？' : `記錄這 ${count} 段？`,
+  confirmLabel: '記錄',
+});
 
 /**
  * 存檔前那一道「這幾段先看一下」。
@@ -173,12 +190,15 @@ export function reviewWarnings(warnings = []) {
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
- * @returns {{title: string, lines: string[]}}
+ * @returns {{title: string, lines: string[], confirmLabel: string}} 抬頭與確認鈕的字一起回 ——
+ *   新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
 }) {
-  const where = bookingSystemLabel(visit, coursesById);
+  // **只問這一次新加的那幾段壓在哪**（ADR-0126）：那一天早就壓好的段不再問一次
+  const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
+  const where = bookingSystemLabel(visit, coursesById, fresh);
   const lines = [];
   const slots = (visit?.slots ?? []).length;
   // 補登過去那一天講「會多一張跟客人確認時間」是一句不會發生的話（ADR-0070）
@@ -202,9 +222,7 @@ export function bookingConsequences({
   // **只講這次新加的那幾段談定之後會長的**（prelaunch-audit-2026-09-23/issues/22）。
   // 逐段掛號（ADR-0107）之後，整筆有什麼就講什麼兩頭都錯：門診那一段早就掛好號的
   // 那一天加一段復能，它會說「會再多一張 Examine」；再加一段門診，它講對是碰巧。
-  const later = registrationsWhenSettled(
-    visit, added ?? (visit?.slots ?? []).map((_, i) => i), tasks, coursesById, today,
-  );
+  const later = registrationsWhenSettled(visit, fresh, tasks, coursesById, today);
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
   // n返 是加約的，**不扣任何次數**。這一句是她最會擔心的那件事：
@@ -220,7 +238,8 @@ export function bookingConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
-  return { title: `已經在 ${where} 壓好表了嗎？`, lines };
+  if (!where) return { ...nothingToBook(fresh.length), lines };
+  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄' };
 }
 
 /**
@@ -722,8 +741,10 @@ export function rebookConsequences({
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);
+  // 不用壓的課（ADR-0126）沒有地方要她先去改，抬頭不可以印成「在 null 壓好了嗎？」
+  const where = bookingSystemOf(coursesById[fresh?.courseId]);
   return {
-    title: `新的時間在 ${bookingSystemOf(coursesById[fresh?.courseId])} 壓好了嗎？`,
+    title: where ? `新的時間在 ${where} 壓好了嗎？` : '改到新的時間？',
     lines,
   };
 }

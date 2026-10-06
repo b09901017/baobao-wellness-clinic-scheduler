@@ -124,8 +124,15 @@ describe('種子：跟 Abovee 一樣的那幾樣', () => {
     assert.equal(courseFrom('皮蛇疫苗', m).ivProductId, iv('皮蛇疫苗').id);
   });
 
-  test('人名一個都沒加（真名不進 repo）', () => {
-    assert.equal(SEED.staff.length, 12);
+  // 2026-10-05 那一輪一個人名都沒加。2026-10-06 她要補齊而且同意公開（「問題 4：同意公開」）——
+  // 但照舊**不放全名**：治療師只放不含姓的名字、醫師只放姓（兩位張多一個字才分得開）。
+  // 這一條盯的是那個形狀：沒有一個名字長得像全名（三個中文字以上）
+  test('人員補到 21 位，全名一個都沒有（真名不進 repo）', () => {
+    assert.equal(SEED.staff.length, 21);
+    for (const s of SEED.staff) {
+      const cjk = [...s.name].filter((ch) => /[一-鿿]/.test(ch)).length;
+      assert.ok(cjk <= 2, `${s.id} 的名字有 ${cjk} 個中文字，像全名`);
+    }
   });
 
   test('每一筆都通得過自己的驗證；一份全新的資料庫資料健檢 0 項', () => {

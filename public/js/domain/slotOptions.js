@@ -18,7 +18,7 @@
 import { customerPools } from './scheduling.js';
 import { coursesForEntitlement } from './visits.js';
 import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
-import { uncountedCourses } from './masterData.js';
+import { uncountedCourses, groupByCourse } from './masterData.js';
 
 /** 「＋ n返」那一顆的值。**不是任何一筆額度的 id。** */
 export const NTH_PICK = '__nth__';
@@ -117,5 +117,50 @@ export function slotOptionsFor(
     });
   }
 
-  return out;
+  return arrangeSlotOptions(out, courses);
+}
+
+/** 二返與 n返 那一組的小標。它不是課程的分類 —— 那一組永遠排在最後。 */
+export const FOLLOWUP_GROUP = '二返・n返';
+
+const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForEntitlementId);
+
+/** 一類裡：先額度（照名字）、再不算次數的課（照主檔）、最後 n返。 */
+const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
+
+/**
+ * 那一排的**順序與小標**（2026-10-06，issue 08）。三個入口都照這一支：壓表（`slotOptionsFor()` 回的就是排好的）、
+ * 來訪編輯器（它自己算「剩幾次」—— 把手上這份草稿也算進去 —— 但順序與小標問這裡）、拍 Abovee。她的原話：
+ *
+ * > 我覺得先照你的建議依照分類排列並加小標，不增加點選步驟，但是要提醒我去測試和你說好不好
+ *
+ * 1. **照分類**（`courseGroupNames()` 的順序，`masterData.js` 的 `groupByCourse()`）：同一類裡先額度、再那一類不算次數的課。
+ *    擇一池的額度算它推出來的第一門課（`option.course`，同 `slotOptionsFor()` 挑預設課程那一條）
+ * 2. **同一類裡的額度照名字排**，不照剩幾次：壓表讀快取、編輯器把草稿算進去，兩邊的數字不一樣 ——
+ *    拿它排的話同一位客戶在兩個入口的順序不一樣。「快用完的排前面」從此只剩卡片牆上那個數字在講
+ * 3. **二返與 n返 一律最後一組**（她 2026-09-24：「跟健檢並排一指就約錯」），不跟著「醫師門診」走；
+ *    而且**那一組另起一行**（`breakBefore`）—— 照分類排之後健檢是最後一類，只隔一條線的話兩顆實體上還是隔壁
+ *
+ * 每一顆多三格：`group`（那一類的名字）、`lead`（每一類第一顆是那一類的名字，**整排只有一類時一個都不畫**——
+ * 一個小標等於沒有分類，只多佔一格）、`breakBefore`（二返那一組的第一顆，前面還有別的時）。
+ *
+ * @param {object[]} options 每一顆至少有 `{ label, course, entitlement, isNth?, isUncounted? }`
+ * @param {object[]} courses 主檔（分類的順序要認得她自己開的分類）
+ */
+export function arrangeSlotOptions(options = [], courses = []) {
+  const byName = (a, b) => kindRank(a) - kindRank(b)
+    || (kindRank(a) === 0 ? String(a.label).localeCompare(String(b.label), 'zh-TW') : 0);
+  const groups = [
+    ...groupByCourse(options.filter((o) => !isFollowupOption(o)), (o) => o.course, courses),
+    { group: FOLLOWUP_GROUP, items: options.filter(isFollowupOption) },
+  ].filter((g) => g.items.length)
+    .map(({ group, items }) => ({ group, items: items.slice().sort(byName) }));
+
+  const many = groups.length > 1;
+  return groups.flatMap(({ group, items }, at) => items.map((o, i) => ({
+    ...o,
+    group,
+    lead: many && i === 0 ? group : null,
+    breakBefore: group === FOLLOWUP_GROUP && at > 0 && i === 0,
+  })));
 }

@@ -649,7 +649,10 @@ export function customersToBook({
       for (const slot of v.slots ?? []) {
         const course = coursesById[slot.courseId];
         if (!course) continue;
-        booked.add(bookingSystemOf(course));
+        // 不用壓的課（ADR-0126）那一段沒有動到任何系統 —— 她這個月只排了 HRV，
+        // Abovee 那一區照樣要有她
+        const system = bookingSystemOf(course);
+        if (system) booked.add(system);
       }
     }
 
@@ -657,6 +660,8 @@ export function customersToBook({
     for (const pool of pools) {
       if (pool.remaining <= 0) continue;
       const system = bookingSystemOfPool(pool, coursesById, equipment);
+      // 這一筆額度的課不用壓：沒有東西要提醒她去壓
+      if (!system) continue;
       if (booked.has(system)) continue;
       if (!bySystem.has(system)) bySystem.set(system, []);
       bySystem.get(system).push({ label: pool.label, remaining: pool.remaining });
@@ -685,7 +690,8 @@ export function customersToBook({
  * 擇一池沒有 `courseId`（ADR-0005），它算哪一門課由池裡的器材推（ADR-0075，
  * `coursesForEntitlement()`，第一個就是「家」）。2026-10-05 之前這裡寫死成 C 類 ——
  * 課程自己勾系統之後（ADR-0119），她把復能改成別的勾法這一列會講錯地方。
- * **推不出課程就退回 Abovee**（`bookingSystemOf()` 對認不得的課程的猜法）。
+ * **推不出課程就退回 Abovee**（`bookingSystemOf()` 對認不得的課程的猜法）；
+ * 那門課不用壓就回 `null`（ADR-0126）。
  */
 function bookingSystemOfPool(pool, coursesById, equipment) {
   if (pool.type !== 'pool') return bookingSystemOf(coursesById[pool.courseId]);
