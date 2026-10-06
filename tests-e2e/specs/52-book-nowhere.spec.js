@@ -33,10 +33,18 @@ const TRIAL_PICK = '__course__:course-trial';
 const liveTasks = async (app, visitId) => (await app.readAll('tasks'))
   .filter((t) => t.visitId === visitId && !t.deletedAt).map((t) => t.kind).sort();
 
-/** 日曆 → 那一天 → 長按那一段，等選單升起來（`wireLongPress()` 只認主鍵的真滑鼠事件，同 spec 05）。 */
+/**
+ * 日曆 → 那一天 → 長按那一段，等選單升起來（`wireLongPress()` 只認主鍵的真滑鼠事件，同 spec 05）。
+ *
+ * **那一天的面板已經開著就不再點月曆那一格**：長按做完一個動作之後面板留在原地（`refreshAfterAction()`），
+ * 這時候再去點底下那一格，點到的是蓋在上面的面板。
+ */
 async function longPress(app, page, date, visitId) {
-  await app.go('/calendar');
-  await page.locator(`[data-day="${date}"]`).first().click();
+  // 問的是「面板開著嗎」，不是「那一列看得到嗎」—— 面板重畫的那一下那一列會短暫不在
+  if (!await page.locator('.drawer-backdrop').isVisible()) {
+    await app.go('/calendar');
+    await page.locator(`[data-day="${date}"]`).first().click();
+  }
   await app.layer(`[data-open^="visit:${visitId}:"]`);
   const row = page.locator(`[data-open^="visit:${visitId}:"]`).first();
   await row.scrollIntoViewIfNeeded();
