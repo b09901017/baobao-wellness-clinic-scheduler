@@ -205,6 +205,9 @@ test('G6 只能排在這幾間改得動，常用診間那一排就地跟著變',
   const only = (id) => page.locator(`input[name="allowedRoomIds"][value="${id}"]`);
   const usual = (id) => page.locator(`input[name="preferredRoomIds"][value="${id}"]`);
 
+  // 那一排平常收著（2026-10-07，course-form-and-sheet 的 issue 17）：先展開
+  await page.locator('[data-onlyrooms] summary').click();
+
   // 治5、治7、治8（治7 2026-10-05 回來了，ADR-0124）
   await expect(only('room-t5')).toBeChecked();
   await expect(only('room-t7')).toBeChecked();

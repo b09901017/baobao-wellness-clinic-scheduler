@@ -6572,6 +6572,11 @@ summary {
   margin-bottom: 0;
 }
 
+/* 「只能排在這幾間」（issue 17）：平常收著的一行，夾在診間類型與常用診間中間。 */
+.courseform__only {
+  margin: 0 0 var(--space-2);
+}
+
 .courseform__note {
   margin: 0 0 var(--space-4);
   font-size: var(--text-xs);

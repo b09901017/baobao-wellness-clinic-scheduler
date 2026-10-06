@@ -1,6 +1,6 @@
 # 設定 → 課程 → 編輯：「只能排在這幾間」收起來
 
-Status: todo
+Status: done
 來源：她 2026-10-06 在 staging 試完 06 回的
 動工前先讀：`issues/06-…`「做完時留下的」（「其他設定」那一段怎麼收、兩條自己打開的路）、
 `public/js/ui/views/masterList.js` 的 `editors.courses`（`fields()` 裡 `data-when="room"` 那一塊、`exceptionRoomOptions()`、`moreSummary()`、`wireForm()`、`onErrors`）、
@@ -41,3 +41,13 @@ Blocked by: —
 - E2E 裡勾這一排的那幾支要先展開（`47` 的 G 那一條）
 - `docs/操作手冊.md` 七之五
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-07）
+
+- `masterList.js`：那一排包進 `<details class="foldout courseform__only" data-onlyrooms>`，summary 後面 `[data-onlyrooms-now]` 印
+  `onlyRoomsSummary(r, all)`（名字跟裡面那幾個勾同一份 `exceptionRoomOptions()`，所以「（已停用）」「（診間已刪除）」也印得出來；一間都沒勾印「沒有限制」）
+- 裡面那一組勾的標題從「只能排在這幾間」改成「勾了就只有這幾間排得進去」（summary 已經寫了那幾個字，展開時不重複）；`?` 的說明照舊
+- 勾／取消時那一行就地更新（`change` 那一段既有的分支多一行）；`onErrors` 多一條：錯誤訊息講到「指定幾間」就打開這一段
+- 欄位名字、`parse()`、候選都沒動 —— **收著的勾照樣送得出去**（`<details>` 關著只是不畫），E2E 54 的 C1（每一門什麼都不改就存）盯著
+- E2E：`54` 新的一條 C8（收著、那一行、什麼都不改就存、展開多勾一間、沒有限制、有錯自己打開）—— 在舊的程式上紅過；`47` 的 G6 先展開那一段
+- `sw.js` v175；`docs/操作手冊.md` 七之五兩處
