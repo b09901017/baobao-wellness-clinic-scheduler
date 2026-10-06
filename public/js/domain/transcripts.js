@@ -36,6 +36,9 @@ export const TRANSCRIPT_FIELDS = Object.freeze({
     columns: ['string'],
     rows: [['string']],
     pageText: 'string',
+    // 畫面上方的「預約日期(起)／(訖)」（ADR-0129）：照抄，`aboveeImport.js` 的 `photoSpan()` 讀
+    dateFromText: 'string',
+    dateToText: 'string',
   },
   treatmentSheet: {
     title: 'string',

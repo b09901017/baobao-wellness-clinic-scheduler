@@ -439,8 +439,8 @@ export function visitsToClose(visits = [], today) {
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
 }
 
-/** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。 */
-const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
+/** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。資料健檢第 33 項也問它。 */
+export const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
 
 /**
  * 簽療程單那一頁要列哪幾段。**只有還開著的段**（ADR-0110）。

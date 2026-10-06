@@ -21,11 +21,11 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeDatesIn, adoptAbovee, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention, newRowSay, optionValueOf, pickOption,
-  picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
+  nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
-import { validateVisit, picksEquipment, assignsFor, slotMinutes } from '../../domain/visits.js';
+import { validateVisit, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
@@ -36,7 +36,7 @@ import {
 import { slotName } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
-import { pushLayer } from '../nav.js';
+import { pushLayer, whenSettled } from '../nav.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
@@ -84,6 +84,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
   const finding = new Map();
 
+  const transcripts = photos.map((p) => p.transcript);
   const urlOf = (i) => photos[i]?.url ?? null;
   /** 打開這一層時的網址。分得出「返回鍵」與「換頁」（`requestClose()`）。 */
   const openedAt = window.location.hash;
@@ -112,13 +113,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   // ---------- 載入：照片上那幾天的來訪、還開著的壓表清單 ----------
 
   async function start() {
-    const transcripts = photos.map((p) => p.transcript);
-    // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀
-    const dates = aboveeDatesIn(transcripts);
+    // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀。
+    // 放寬到整個月、含起訖那兩格：「app 有、這次照片上沒有」可能對到那麼遠（ADR-0129）
+    const range = aboveeLoadRange(transcripts);
     try {
       // 壓表那一頁只讀了那個月的來訪；照片上的日子可能跨到下個月 —— 補讀，不然「已經記了」會被當成新的
       const [extra, active] = await Promise.all([
-        dates.length ? visitsData.listBetween(dates[0], dates[dates.length - 1]) : [],
+        range ? visitsData.listBetween(range.from, range.to) : [],
         batchesData.listActive().catch(() => []),
       ]);
       batches = active;
@@ -176,8 +177,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy };
   }
 
-  function paintSummary() {
-    const s = summarizeAbovee(items.filter((i) => !savedKeys.has(i.key)));
+  /** 「app 有、這次照片上沒有」（ADR-0129）。每畫一次算一次 —— 她換了某一列是誰，結果跟著變。 */
+  const absentNow = () => absentFromPhoto(transcripts, items, ctx);
+
+  /** 勾起來（或按了「改成 Abovee 的」）還沒記的幾段。 */
+  const pendingCount = () => items.filter((i) => (i.checked || i.adopt) && !savedKeys.has(i.key)).length;
+
+  function paintSummary(gone = absentNow()) {
+    const s = summarizeAbovee(items.filter((i) => !savedKeys.has(i.key)), gone.slots);
     const bits = [
       savedCount ? `記好了 ${savedCount} 段` : '',
       s.new ? `新的 ${s.new} 段` : '',
@@ -200,6 +207,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       if (last && last.date === item.date) last.items.push(item);
       else days.push({ date: item.date, items: [item] });
     }
+    const gone = absentNow();
 
     body.innerHTML = `
       <div class="abl__photos">
@@ -214,13 +222,48 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           <h3 class="abl__day">要你看</h3>
           <ol class="abl__rows">${look.map((i) => rowHtml(i, p)).join('')}</ol>
         </section>` : ''}
+      <div data-abl-absent>${absentHtml(gone, p)}</div>
       ${days.map((d) => `
         <section class="abl__group" aria-label="${esc(d.date ?? '讀不出日期')}">
           <h3 class="abl__day">${d.date ? esc(shortDate(d.date)) : '讀不出日期'}</h3>
           <ol class="abl__rows">${d.items.map((i) => rowHtml(i, p)).join('')}</ol>
         </section>`).join('')}`;
-    paintSummary();
+    paintSummary(gone);
     paintBar(p);
+  }
+
+  /**
+   * 「app 有、這次照片上沒有」那一塊（ADR-0129），接在「要你看」底下。**只講不改**（ADR-0056、0116）：
+   * 列上不放按鈕 —— 「去日曆」按了就離開這一層，而照片不留（ADR-0101），一列一顆的話她看完第一段就要整張重拍。
+   * 整塊底下一顆，字講出後果：有勾起來的先走既有的存檔、存完才換頁；沒有就直接去。
+   * 沒有對不上的時候只留一行講對了誰、哪幾天 —— 少了它分不出沒列出來是「沒有」還是「沒檢查」。
+   */
+  function absentHtml(gone, p) {
+    const say = absentSay(gone, ctx.customers);
+    if (!say) return '';
+    if (!gone.slots.length) return `<p class="abl__absentsay">${esc(say)}</p>`;
+    const first = gone.slots[0].date;
+    const pending = pendingCount();
+    const stuck = items.some((i) => i.checked && !savedKeys.has(i.key) && p.problems[i.key]);
+    return `
+      <section class="abl__group abl__group--gone" aria-label="app 有、這次照片上沒有">
+        <h3 class="abl__day">app 有、這次照片上沒有</h3>
+        <p class="abl__absentsay">${esc(say)}</p>
+        <ol class="abl__rows">${gone.slots.map((s) => `
+          <li class="abl-row abl-row--gone">
+            <div class="abl-row__line">
+              <span aria-hidden="true"></span>
+              <div class="abl-row__main">
+                <span class="abl-row__time"><small class="abl-row__date">${esc(shortDate(s.date))}</small>${esc(s.startsAt ?? '—')}</span>
+                <span class="abl-row__who">${esc(s.customerName)}</span>
+                <span class="abl-row__what">${esc(s.name)}</span>
+                <span class="abl-row__tag">${esc(shortStatus(s.status))}</span>
+              </div>
+            </div>
+          </li>`).join('')}</ol>
+        ${onOpenDay ? `<button class="btn btn--sm abl__gone" type="button" data-abl-gone="${esc(first)}"
+          ${running || stuck ? 'disabled' : ''}>${esc(goneButtonSay(pending, first))}</button>` : ''}
+      </section>`;
   }
 
   function repaintRow(key) {
@@ -241,7 +284,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       holder.innerHTML = rowHtml(other, p).trim();
       el.replaceWith(holder.content.firstElementChild);
     }
-    paintSummary();
+    // 換了某一列是誰、勾了一列：「app 有、這次照片上沒有」與那一顆按鈕的字跟著變
+    const gone = absentNow();
+    const absent = root.querySelector('[data-abl-absent]');
+    if (absent) absent.innerHTML = absentHtml(gone, p);
+    paintSummary(gone);
     paintBar(p);
   }
 
@@ -285,6 +332,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const what = built?.slot ? slotName(built.slot, ctx.master, 'short') : (item.row.course || '？');
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
     const problems = item.checked ? (p.problems[item.key] ?? []) : [];
+    const near = nearSay(item);
 
     return `
       <li class="abl-row abl-row--${tag}${open ? ' is-open' : ''}${problems.length ? ' has-problem' : ''}" data-abl-row="${esc(item.key)}">
@@ -306,6 +354,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
+        ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
@@ -599,6 +649,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
     if (t.matches('[data-abl-save]')) { save(); return; }
     if (t.dataset.ablDay) { leaveTo(t.dataset.ablDay); return; }
+    if (t.dataset.ablGone) { goSee(t.dataset.ablGone); return; }
 
     const key = t.closest('[data-abl-row]')?.dataset.ablRow;
     const at = items.findIndex((i) => i.key === key);
@@ -684,7 +735,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   // ---------- 存 ----------
 
-  async function save() {
+  /** @param {{then?: string}} [o] `then`：全部記好之後去日曆那一天（「app 有、這次照片上沒有」那一顆） */
+  async function save({ then = null } = {}) {
     const p = plan();
     const groups = p.groups.filter((g) => g.items.every((i) => !savedKeys.has(i.key)));
     const adopts = items.filter((i) => i.adopt && !savedKeys.has(i.key));
@@ -692,14 +744,23 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (!n || running || asking) return;
     asking = true;
     try {
-      await record(groups, adopts, n);
+      await record(groups, adopts, n, then);
     } finally {
       asking = false;
     }
   }
 
+  /**
+   * 「app 有、這次照片上沒有」底下那一顆（ADR-0129）：沒有勾起來的就直接去；有的話先走既有的存檔
+   *（同一道確認框），全部記好才換頁 —— 按了取消、或有一位沒記成，就留在這一層。
+   */
+  async function goSee(date) {
+    if (!pendingCount()) { leaveTo(date); return; }
+    await save({ then: date });
+  }
+
   /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
-  async function record(groups, adopts, n) {
+  async function record(groups, adopts, n, then = null) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
@@ -839,7 +900,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     }
     const left = items.some((i) => (i.checked || i.adopt) && !savedKeys.has(i.key));
     if (!failure && !left) {
-      close();
+      // 「先記勾起來的，再去日曆」：換頁收掉這一層（hashchange），不先退紀錄。
+      // 確認框收掉時排的那一趟 history.go 要先回來，不然它會把換頁退掉（`whenSettled()`）
+      if (then) await whenSettled();
+      if (then) leaveTo(then);
+      else close();
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
       else toast.info(`記好了 ${savedCount} 段`);
       return;

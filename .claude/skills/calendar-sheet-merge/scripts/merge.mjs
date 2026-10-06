@@ -14,6 +14,7 @@
 //   node merge.mjs --sheets <tsv 資料夾> --ics <檔案> [--year 2026]
 //                  [--aliases <aliases.json>] [--decisions <決定檔>] [--out <資料夾>]
 //                  [--board <決定頁.html> --form <這一份的名字>]
+//                  [--chart-numbers <病歷號名單.json>]   （`{ "<名字>": "<病歷號>" }`，有真名、只放 .local/）
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve, relative, isAbsolute, sep } from 'node:path';
@@ -28,11 +29,13 @@ const REPO = join(HERE, '..', '..', '..', '..');
 // 所以這個坑只有她那台看得到。
 const repoModule = (rel) => import(pathToFileURL(join(REPO, rel)).href);
 
-const { parseSheet, planForSheet, IV_SHORTHAND } = await repoModule('public/js/domain/legacyImport.js');
+const { parseSheet, planForSheet, IV_SHORTHAND, CHART_NO_PREFIX } = await repoModule('public/js/domain/legacyImport.js');
+// 病歷號怎麼比（補零、空白）只有 app 那一支（ADR-0103）
+const { chartNosOf, normalizeChartNo, normalizeName } = await repoModule('public/js/domain/identify.js');
 const { SEED } = await repoModule('public/js/domain/seed.js');
 const { toCustomerFields } = await repoModule('public/js/domain/customerMarks.js');
 // 「這門課算不算次數」只有這一支（ADR-0121）—— 這裡再比一次 `uncounted` 就是第二份判斷
-const { isUncounted } = await repoModule('public/js/domain/masterData.js');
+const { isUncounted, bedRoomOf } = await repoModule('public/js/domain/masterData.js');
 const { idsForPoolKind, POOL_SET_HOME, POOL_SET_ALL } = await repoModule('public/js/domain/entitlements.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
@@ -236,19 +239,39 @@ export function ivProductOf(summary, products = []) {
  * 大於 10 的是日期（`.20這週約`）。
  *
  * 數字最多讀兩位：`IL.10100元*3萬` 是點滴 10，後面那串是錢（2026-09-14 那一批讀成過「點滴 10100」）。
+ *
+ * **房號後面接床位**（`.8A`、`點滴8床B`、`IL.8b`）→ 那一間（點滴8A／8B 是各自的診間，ADR-0127）。
+ * 只在主檔真的有那一間時才帶（`.5A` 照舊是點滴5）；字母後面還接著字母的不是床位（`.8BIL`）。
+ * 只寫 `.8` 照舊是點滴8 —— 停用、「沒選床位」的那一間（她：「沒選床位就寫 .8，VIP7 等等不要留空」）。
+ * 她 523 句行事曆裡一句都沒寫過床位（2026-10-06 數過），所以這一條現在不改任何輸出。
  */
 export function roomOf(summary) {
   const s = String(summary).replace(/\s+/g, '');
   const t = /治(\d{1,2})/.exec(s);
   if (t) return `治${t[1]}`;
-  const il = /(?:ILIB|IL)[（(]?[.．]?(\d{1,2})/i.exec(s);
-  if (il) return `點滴${il[1]}`;
-  const drip = /點滴?[.．]?(\d{1,2})/.exec(s);
-  if (drip) return `點滴${drip[1]}`;
-  const bare = /(?<!\d)[.．](\d{1,2})(?!\d)/.exec(s);
+  const il = IL_ROOM.exec(s);
+  if (il) return dripRoom(il[1], il[2]);
+  const drip = DRIP_ROOM.exec(s);
+  if (drip) return dripRoom(drip[1], drip[2]);
+  const bare = BARE_ROOM.exec(s);
   const n = Number(bare?.[1]);
-  return bare && n >= 1 && n <= 10 ? `點滴${n}` : null;
+  return bare && n >= 1 && n <= 10 ? dripRoom(n, bare[2]) : null;
 }
+
+/** 房號後面的床位：可有可無的「床」＋一個 A／B，後面不可以再接字母。三種房號的結尾都是它，只寫一次 */
+const BED = /(?:床?([AaBbＡＢａｂ])(?![A-Za-zＡ-Ｚａ-ｚ]))?/;
+const withBed = (re, flags = '') => new RegExp(re.source + BED.source, flags);
+const IL_ROOM = withBed(/(?:ILIB|IL)[（(]?[.．]?(\d{1,2})/, 'i');
+const DRIP_ROOM = withBed(/點滴?[.．]?(\d{1,2})/);
+const BARE_ROOM = withBed(/(?<!\d)[.．](\d{1,2})(?!\d)/);
+
+/** 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N） */
+const dripRoom = (n, bed) => {
+  const name = `點滴${Number(n)}`;
+  if (!bed) return name;
+  const room = SEED.rooms.find((r) => r.name === name) ?? { name };
+  return bedRoomOf(room, String(bed).normalize('NFKC'), SEED.rooms)?.name ?? name;
+};
 
 // ---------- 這一筆是哪一類 ----------
 //
@@ -898,6 +921,53 @@ function applyPlanDecisions(plans, decisions, log) {
   }
 }
 
+/**
+ * 病歷號名單（`--chart-numbers`，course-form-and-sheet-2026-10-06/11 第一節）→ 舊表 A2 沒寫病歷號的那幾位補一則
+ * 「病歷號 N」。拍 Abovee 與療程單「病歷號對上、名字差一個字」（ADR-0128）靠它。
+ *
+ * 名單是 `{ "<名字>": "<病歷號>" }`（她 10/5 給的那一份轉出來的；**有真名，只放 `.local/`**）。
+ * 照匯進 app 的名字（`displayName()`）比，沒有就比分頁名；空白、全形不算不一樣。
+ *
+ * - 舊表已經有、一樣（補零不算不一樣）→ 不動
+ * - **舊表已經有、不一樣 → 不改**，進 ⓪b（`problems`；決定頁照舊是一項）—— 哪一個對要她看
+ * - **名單上的名字對到兩位以上**（分頁不同、名字清完一樣）→ 一位都不補，各自進 ⓪b ——
+ *   補錯一位的話，「病歷號對上、名字差一個字」（ADR-0128）會把那一位的照片認到另一位身上（審查查到的）
+ * - 沒帶名單 → 這一支不跑，合併檔一個位元都不變
+ *
+ * @returns {{added: number, differ: number, twins: number}}
+ */
+export function applyChartNumbers(plans, list, { renames = {} } = {}) {
+  const byName = new Map(Object.entries(list ?? {}).map(([name, no]) => [normalizeName(name), String(no ?? '').trim()]));
+  const log = { added: 0, differ: 0, twins: 0 };
+  const live = plans.filter((p) => !p.skip && p.customer);
+  const keyOf = (p) => {
+    const name = normalizeName(displayName(p.customer.name ?? p.customerName, { renames, sheetName: p.sheetName }));
+    return byName.has(name) ? name : normalizeName(p.sheetName);
+  };
+  const sameKey = new Map();
+  for (const p of live) sameKey.set(keyOf(p), (sameKey.get(keyOf(p)) ?? 0) + 1);
+  for (const p of live) {
+    const no = byName.get(keyOf(p));
+    if (!no || !normalizeChartNo(no)) continue;
+    if (sameKey.get(keyOf(p)) > 1) {
+      (p.problems ??= []).push({ where: 'A2', raw: '', why: `病歷號名單上有這個名字（${no}），可是舊表上同名的有 ${sameKey.get(keyOf(p))} 位 —— 沒補，看是哪一位` });
+      log.twins += 1;
+      continue;
+    }
+    const have = chartNosOf(p.customer);
+    if (have.includes(normalizeChartNo(no))) continue;
+    if (have.length) {
+      (p.problems ??= []).push({ where: 'A2', raw: have.join('、'), why: `病歷號名單上寫的是 ${no}，舊表不一樣 —— 沒改，看哪一個對` });
+      log.differ += 1;
+      continue;
+    }
+    const { marks, notes } = toCustomerFields([...(p.customer.marks ?? []), { text: `${CHART_NO_PREFIX}${no}`, color: 'grey' }]);
+    Object.assign(p.customer, { marks, notes: notes ?? '' });
+    log.added += 1;
+  }
+  return log;
+}
+
 /** 要加的那一段扣哪一份：二返找配出來的那一筆、復能找池、其餘找同課程的。不只一份就不猜。 */
 function entitlementFor(plan, course) {
   const hits = plan.entitlements.filter((e) => (course === '二返'
@@ -982,7 +1052,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
 
 // ---------- 整批 ----------
 
-export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], therapistAliases = {}, doctors = [], noise = [], renames = {}, today = null, decisions = null }) {
+export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists = [], therapistAliases = {}, doctors = [], noise = [], renames = {}, today = null, decisions = null, chartNumbers = null }) {
   const ctx = {
     courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts,
     plans: SEED.plans, clinicalFlags: SEED.clinicalFlags, partners: SEED.partners,
@@ -996,6 +1066,8 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     ));
   const decisionLog = { applied: [], misses: [], stale: [] };
   applyPlanDecisions(plans, decisions, decisionLog);
+  // 決定檔之後：她用決定檔加的備註裡也可能已經有病歷號
+  const chartLog = chartNumbers ? applyChartNumbers(plans, chartNumbers, { renames }) : null;
 
   const { events, unreadable } = parseIcs(readFileSync(icsPath, 'utf8'));
   const byDate = new Map();
@@ -1157,7 +1229,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
     }
   }
 
-  return { plans: customers, events, unreadable, span, leftover, ambiguous, renames, year, today, decisionLog, eventDecisions };
+  return { plans: customers, events, unreadable, span, leftover, ambiguous, renames, year, today, decisionLog, eventDecisions, chartLog };
 }
 
 // ---------- 給 app 的合併檔 ----------
@@ -1432,6 +1504,10 @@ export function reportText(r) {
   L.push(`   ⑤ 未來的預約　${r.leftover.future.length}`);
   L.push(`   ⑥ 對不到客戶的　${r.leftover.personal.length}　（這一段是清單不是問題，慢慢挑）`);
   if (sheetProblems(r).length) L.push(`   ⓪b 舊表本身讀到的問題　${sheetProblems(r).length}`);
+  // 帶了病歷號名單才有這一行（沒帶的話報告一個字都不變）。不一樣的那幾位在 ⓪b 裡
+  if (r.chartLog) {
+    L.push(`   病歷號名單：補了 ${r.chartLog.added} 位、跟舊表不一樣 ${r.chartLog.differ} 位、同名沒補 ${r.chartLog.twins} 位（後兩種在 ⓪b，沒改）`);
+  }
   if (purchaseProblems(r).length) L.push(`   ⓪c 購買名稱對不上的　${purchaseProblems(r).length}　← 合併時逐條問她`);
   if (r.decisionLog?.misses.length) L.push(`   ⓪d 找不到對象的決定　${r.decisionLog.misses.length}　← 舊表多半改過了，要重新問她`);
   L.push('');
@@ -1659,6 +1735,8 @@ async function main() {
     noise: aliases.noise ?? [],
     today: arg('today', new Date().toISOString().slice(0, 10)),
     decisions,
+    // 病歷號名單（選填）：`{ "<名字>": "<病歷號>" }`，有真名、只放 .local/
+    chartNumbers: arg('chart-numbers') ? JSON.parse(readFileSync(arg('chart-numbers'), 'utf8')) : null,
   });
   const text = reportText(r);
   const out = arg('out');

@@ -1,6 +1,6 @@
 # 拍 Abovee：「app 有、這次照片上沒有」（ADR-0129）
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第三點之 1
 動工前先讀：ADR-0056、ADR-0099、ADR-0100、ADR-0101、ADR-0104、ADR-0116、ADR-0123、`public/js/domain/aboveeImport.js` 整支（`readAbovee()`、`flagMoved()`、`needsAttention()`、
 `summarizeAbovee()`、`aboveeDatesIn()`）、`public/js/ui/components/aboveeConfirm.js`（`start()`、`paintBody()`、「去日曆」那一顆與 `openedAt`）、
@@ -111,3 +111,36 @@ Blocked by: 02（「這門課壓在不壓在 Abovee」）
 - `docs/操作手冊.md` 拍 Abovee 那一段、`docs/常見問題.md`（「為什麼列出一段其實有壓的」→ 可能在下一頁）
 - `tests/abovee-*.test.js`、`tests-e2e/specs/51-abovee-picks.spec.js` 那一族（E2E 走 `fakeModel.js`，永遠不送真照片）
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-06）
+
+- **動工前看她的真照片定的兩件**：10/5 考試那張與 10/2 的 15 張截圖，列**全部由早到晚**；頁數那一句長得像 `75筆第1/8頁`。
+  所以範圍照「第一列到最後一列」那一條做，`aboveePage()` 讀「N筆」與「x/y」
+- domain 全在 `aboveeImport.js`：`aboveePage()`、`photoSpan()`（一張有姓名的一段；兩張頁數接得上才併）、`absentFromPhoto(transcripts, items, ctx)`、
+  `absentSay()`、`aboveeLoadRange()`；`summarizeAbovee(items, absent)` 多一個參數。`timesOf()` 從 `flagMoved()` 搬到模組層兩邊共用
+- **比談定的多做／不一樣的**：
+  - **兩頭那個時間不算**（談定的只說「用日期＋開始時間夾住」）：同一個時間別人的那一段可能在上一頁／下一頁 —— 讀得出是第一頁／最後一頁時那一頭才含
+  - 列不是照時間排：談定的是「退回只用起／訖」。**沒照做** —— 不是每一列都在這裡的話，別頁的列可能落在起訖之間任何一天，用起訖去對一樣會喊錯。
+    改成：總筆數不多於這一次的列數（＝每一列都在這裡）才照樣對，否則不對、講一句為什麼
+  - 照片上那一位那一天有一列讀不出時間 → 那一天他的段都當成照片上有
+- **畫面**：「要你看」底下 `.abl__group--gone` 那一塊（**不用 `--look`／`.abl__pairing`** —— E2E 41、51 拿那兩個 class 當唯一的定位，多一個就 strict 錯）。
+  列上沒有按鈕；底下一顆 `[data-abl-gone]`：有勾的「先記勾起來的 N 段，再去日曆 X」走既有的 `save({ then })`、全部記好才 `whenSettled()` → `leaveTo()`；
+  確認框按取消或有一位沒記成 → 留在這一層。沒有對不上的時候只留那一行（`.abl__absentsay`）
+- **`tests/fewer-words.test.js` 沒有登記**：那一支只數五個 class（`page__lead`…），這一層的字一律是 `abl__*`（同 `pairingNote()`），不在棘輪裡。
+  那一行是狀態（對了誰、哪幾天），不是說明
+- 抄字多 `dateFromText`／`dateToText`（兩份檔案一起、提示詞第 5 條）。**`functions/` 動了，Function 沒部署**
+- **重考**（`scripts/ai-exam.mjs` 多計兩格；答案檔在 `.local/` 補了兩格 = null）：每一欄跟 10/5 一樣（姓名 9/10、服務資源 7/10，其餘全對）；
+  那兩張照片的上緣切在表頭、起訖不在照片上 —— 兩張都沒有抄出字（2/2）。**讀得到起訖的照片還沒考過**。寫進 ADR-0100「考試結果」
+- 測試：`tests/abovee-absent.test.js` 23 條（判準每一條）；`tests/ai-transcripts.test.js` 多一條；E2E 新的 `57`（G1、G2）、`41` 的 A3 改一句
+  （那張照片是 9/12–9/22 的很多人，陳大文那兩段在中間、不在照片上 → 「要你看 2 段」變 4 段 —— 正是這一支要的）。本機跑 41、51、57、37：25 條全過
+- ADR-0129；`CLAUDE.md`「拍 Abovee 記很多段」那一列；`docs/操作手冊.md`、`docs/常見問題.md` 各一段；`sw.js` v178。`SPEC.md` 沒有拍 Abovee 那一節，沒動
+
+### 審查之後改的（`/matt-code-review`，2026-10-06）
+
+- **同一頁拍了兩次會把列數算兩倍**（Spec 軸，實跑過）：兩張都是 `15筆第1/2頁`、各 10 列 → 以前算成 20 ≥ 15「每一列都在這裡」，第二頁 5 段被喊成沒拍到。
+  現在照**不重複的列**算（同 `mergeAboveePhotos()` 的鑰匙：名字＋病歷號＋日期＋開始時間），併的時候已經算過的列不再接一次（不然順序看起來是亂的）
+- **很多人的列表最後一頁剛好只剩一位**（`71筆第8/8頁`、起訖讀不到）會被當成「一個人一個月」放寬到月底。現在**猜整個月只在每一列都在這裡時**（`all`）；
+  多頁又讀不到起訖就不猜。代價：Function 重新部署之前，一個人兩頁的那種月初與月底對不到（ADR-0129 的後果寫了）
+- 按鈕那一句搬進 domain（`goneButtonSay()`，Standards 軸：「按下去會發生什麼」的句子不在畫面組），**兩種都講「照片不會留著」**（以前只有沒勾的那一種講）
+- `monthStartOf`／`monthEndOf` 改走 `scheduling.js` 的 `monthRange()`（同一件事算兩次）
+- E2E 57 的 G1 按鈕字跟著改；新增單元測試 3 條（兩次同一頁、最後一頁只剩一位、按鈕的字）

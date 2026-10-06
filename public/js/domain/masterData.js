@@ -555,6 +555,26 @@ export function normalizeAlias(raw) {
 }
 const sameAlias = (a, b) => Boolean(normalizeAlias(a)) && normalizeAlias(a) === normalizeAlias(b);
 
+/**
+ * 兩個寫法一樣長、**只差一個字**（ADR-0128；比之前先過 `normalizeAlias()`）。照片上的字抄錯一個時拿來放寬 ——
+ * 認人（病歷號也對上的那一位）、課程、治療師記著的寫法三處用它，**只在原本認不出來時才多比這一步**。
+ *
+ * 太短的不算：至少三個字（兩個字差一個就是只有一半一樣：二返與三返、只有姓一樣）；
+ * **全是英數字的要四個字以上**（`SIS` 與 `SIX`、`PRP` 與 `PRF` 是不同的東西，代號差一個字就是另一樣）。
+ */
+export function oneCharOff(a, b) {
+  const x = Array.from(String(a ?? ''));
+  const y = Array.from(String(b ?? ''));
+  if (x.length !== y.length || x.length < 3) return false;
+  if (x.length < 4 && x.every((ch) => ch.charCodeAt(0) < 128)) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i += 1) {
+    if (x[i] !== y[i]) diff += 1;
+    if (diff > 1) return false;
+  }
+  return diff === 1;
+}
+
 /** 這一筆主檔記著這個 Abovee 上的寫法嗎（`aboveeNames`，比法同 `normalizeAlias()`）。 */
 export const hasAlias = (record, text) => (record?.aboveeNames ?? []).some((a) => sameAlias(a, text));
 

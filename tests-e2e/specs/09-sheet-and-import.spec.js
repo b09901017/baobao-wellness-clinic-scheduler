@@ -359,6 +359,9 @@ test('J-C15 報表：500 天前做過的那一次也算進去，那一天也有�
   expect(row.slice(1, 5), '兩次都算進去：以前 500 天前那一次不算，已完成是 1、剩餘是 19').toEqual(['20', '2', '0', '18']);
   expect(head.length - 5, '兩天各一欄').toBe(2);
   expect(row.slice(5)).toEqual(['✓', '✓']);
+  // issue 19：500 天前那一欄不是今年的 → 抬頭帶兩位數年份；10 天前那一欄照舊
+  expect(head[5]).toMatch(/^\d{2}\/\d{1,2}\/\d{1,2}\(.\)$/);
+  expect(head[6]).toMatch(/^\d{1,2}\/\d{1,2}\(.\)$/);
 });
 
 // 三返在矩陣裡自己一列（course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。

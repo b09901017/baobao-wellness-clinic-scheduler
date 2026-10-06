@@ -433,12 +433,20 @@ export const COVERAGE = {
     'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/domain/masterData.js',
     'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
     'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
+    // B5（issue 20）：資料健檢第 33 項、日曆「改這一段」存一次結束時間重算
+    'public/js/domain/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/visitEditor.js', 'public/js/domain/visits.js',
   ],
   // 來訪「做什麼」那一排照分類排、二返另起一行（2026-10-06，issue 08；小標 issue 16 拿掉了）：壓表與來訪編輯器量位置
   '56-what-to-do-by-group': [
     'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/scheduling.js',
     'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/components/form.js', 'public/css/',
+  ],
+  // 拍 Abovee：「app 有、這次照片上沒有」（2026-10-06，course-form-and-sheet/09，ADR-0129）：那一塊、抬頭的數字、那一顆按鈕
+  '57-abovee-absent': [
+    'public/js/domain/aboveeImport.js', 'public/js/domain/taskRules.js', 'public/js/domain/naming.js',
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js', 'public/js/ui/nav.js',
+    'functions/transcripts/', 'tests-e2e/fixtures/ai/', 'public/css/',
   ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [

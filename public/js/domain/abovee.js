@@ -20,7 +20,7 @@
 // 而畫面上看起來是認得的（同 ADR-0103 的判斷）。
 
 import {
-  DOCTOR_ROLE, THERAPIST_ROLE, hasAlias, isUncounted, normalizeAlias, picksDoctor,
+  DOCTOR_ROLE, THERAPIST_ROLE, hasAlias, isUncounted, normalizeAlias, oneCharOff, picksDoctor,
 } from './masterData.js';
 import { SHEET_COURSE_ALIASES, rowShape } from './legacyImport.js';
 import { EQUIPMENT_ALIASES, FLYER_COURSE_ALIASES } from './photoPlan.js';
@@ -47,6 +47,10 @@ const named = (row, text) => same(row.name, text) || (row.shortName && same(row.
  * 姓李、醫師也有一位「李」的話，兩條規則都符合 → 以前兩位都符合就放棄（她那 353 筆裡有 29 筆是這樣）。
  * 不知道時（`role` 是 null）照舊兩種都找。
  *
+ * 3. 上面兩條都沒有人、**而且知道這一列要哪一種人**：同一個角色裡，她記著的寫法跟照片上的字差一個字
+ *    （`oneCharOff()`，ADR-0128）、而且只有一位 → 那一位。不知道角色（認不出課程）就不放寬 —— 治療師與醫師一起比的話，
+ *    差一個字的那一位可能是另一種人。**結尾／開頭那兩條不放寬** —— 兩個字的名字差一個字就是一半
+ *
  * @param {{role?: string|null}} [o]
  * @returns {object|null}
  */
@@ -65,7 +69,11 @@ export function staffFrom(text, staff = [], { role = null } = {}) {
     if (x.role === THERAPIST_ROLE) return s.endsWith(n);
     return false;
   });
-  return hits.length === 1 ? hits[0] : null;
+  if (hits.length) return hits.length === 1 ? hits[0] : null;
+
+  if (!role) return null;
+  const near = pool.filter((x) => (x.aboveeNames ?? []).some((a) => oneCharOff(s, normalizeAlias(a))));
+  return near.length === 1 ? near[0] : null;
 }
 
 /**
@@ -228,6 +236,8 @@ function nthOf(name) {
  *    **器材**（→ 它算哪一門課，ADR-0075）、**課程**。每一種都比全名、別稱、Abovee 寫法
  * 3. 寫死的那個字：`三返`（`nthOf()`）→ n返，借二返的課程
  * 4. 舊表的寫法（`rowShape()`：`任選(60)` → 復能池、還沒選哪一台）
+ * 5. **前面都認不出來**才比「差一個字」（`nearFrom()`，ADR-0128）：結果多一格 `near`（照片上的原字、認成哪一筆），
+ *    確認層講出來。本來認得的一筆都不會走到這裡
  *
  * `durationMin` 是結尾的數字（整格對上的是 null —— 那個數字是名字的一部分）：
  * 挑額度時 `SIS 30` 與 `SIS 60` 是兩筆、二返約的時候選 30 或 60（ADR-0122）都讀它。
@@ -285,9 +295,48 @@ export function courseFrom(text, { courses = [], equipment = [], ivProducts = []
 
   // 4. 舊表的寫法
   const shape = rowShape(durationMin ? `${name}(${durationMin})` : name);
-  if (shape?.only) return byEquipment(equipmentByName(shape.only, equipment), durationMin);
-  if (shape?.kind === 'single') return result(courseByName(shape.course, courses), { durationMin });
-  // 沒指定哪一台的池（`任選(60)`）：課程照池，器材留給她選
-  if (shape?.kind === 'pool') return result(courseByName(shape.course, courses), { equipmentId: null, durationMin });
+  const old = (shape?.only && byEquipment(equipmentByName(shape.only, equipment), durationMin))
+    || (shape?.kind === 'single' && result(courseByName(shape.course, courses), { durationMin }))
+    // 沒指定哪一台的池（`任選(60)`）：課程照池，器材留給她選
+    || (shape?.kind === 'pool' && result(courseByName(shape.course, courses), { equipmentId: null, durationMin }))
+    || null;
+  if (old) return old;
+
+  // 5. 差一個字
+  return nearFrom({ text: s, whole, name, durationMin }, { courses, equipment, ivProducts }, { result, byEquipment, byIv });
+}
+
+/**
+ * 課程那一格前四步都認不出來 → 差一個字的那一筆（ADR-0128）。她 10/6：「圖片辨識參考中的內容應該有助於辨識更準確」。
+ *
+ * 拿名字的部分（拆掉分鐘的）與整格原字去比主檔的全名、別稱、Abovee 寫法，**照「品項 → 器材 → 課程」一種一種看**：
+ * 那一種主檔裡剛好一筆符合就用它、不再往下看；兩筆以上 → null（不猜）。不跨種一起數 ——
+ * `ILIB` 同時是器材與課程的名字，一起數的話最常見的那一種反而永遠是兩筆。
+ * 太短的不放寬（`oneCharOff()`：`二返`／`三返`、`SIS`／`IN`）。
+ */
+function nearFrom({ text, whole, name, durationMin }, { courses, equipment, ivProducts }, { result, byEquipment, byIv }) {
+  const part = normalizeAlias(name);
+  const cell = normalizeAlias(whole);
+  /** 這一筆的哪一個名字差一個字：名字的部分對上 → 帶分鐘；整格對上 → 不帶（那個數字是名字的一部分） */
+  const hitOf = (row) => {
+    const names = [row.name, row.shortName, ...(row.aboveeNames ?? [])].map(normalizeAlias).filter(Boolean);
+    if (names.some((n) => oneCharOff(part, n))) return { minutes: durationMin };
+    if (cell !== part && names.some((n) => oneCharOff(cell, n))) return { minutes: null };
+    return null;
+  };
+  const kinds = [
+    [live(ivProducts), (row, m) => byIv(row, m)],
+    [live(equipment), (row, m) => byEquipment(row, m)],
+    [live(courses), (row, m) => result(row, { durationMin: m })],
+  ];
+  for (const [rows, build] of kinds) {
+    const hits = rows.map((row) => ({ row, hit: hitOf(row) })).filter((x) => x.hit);
+    if (!hits.length) continue;
+    if (hits.length > 1) return null;
+    const [{ row, hit }] = hits;
+    const out = build(row, hit.minutes);
+    // 照片上的原字（整格）與認成哪一筆 —— 確認層講出來（`aboveeImport.js` 的 `nearSay()`）
+    return out ? { ...out, near: { seen: text, as: row.name } } : null;
+  }
   return null;
 }

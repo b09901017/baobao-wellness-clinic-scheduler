@@ -247,6 +247,7 @@ function buildReport(data) {
     staff: data.staff,
     equipment: data.equipment,
     generatedAt,
+    today: data.today,
   });
 }
 

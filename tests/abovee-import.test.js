@@ -159,7 +159,7 @@ describe('每一列分成四種', () => {
   });
 
   test('認不得人 → 不勾、不挑；她選了人之後重算', () => {
-    const photo = { ...left, rows: [['確認前往', '2026-09-20', '09:00', '王曉明', '00001234', 'SIS 60']] };
+    const photo = { ...left, rows: [['確認前往', '2026-09-20', '09:00', '王曉名', '00001234', 'SIS 60']] };
     const [only] = readAbovee([photo], ctx()).items;
     assert.equal(only.kind, 'unknown');
     assert.equal(only.who.how, 'numberOnly');

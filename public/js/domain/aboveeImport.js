@@ -15,7 +15,7 @@
 // **Abovee 上的預約狀態只照原字留著**（`statusText`）。「確認前往」是客人跟 Abovee 說的，
 // 不是她問過的那一句 —— 新段一律 `INITIAL_STATUS`（ADR-0027、0097、0099）。
 
-import { identifyCustomer, normalizeChartNo, normalizeName } from './identify.js';
+import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
@@ -27,11 +27,12 @@ import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
-import { markInQueue } from './scheduling.js';
+import { markInQueue, monthRange } from './scheduling.js';
 import { NTH_PICK, uncountedCourseIdOf, uncountedPick } from './slotOptions.js';
 import { MIN_NTH, nthOf } from './nthFollowup.js';
 import { slotName } from './naming.js';
-import { isValidDate } from './dates.js';
+import { isValidDate, shortDate } from './dates.js';
+import { bookingSystemOf } from './taskRules.js';
 
 /** 照片上的欄名 → 列上的欄位。只有這十欄（`ABOVEE_COLUMNS`）。 */
 export const ABOVEE_KEYS = Object.freeze({
@@ -258,6 +259,20 @@ export function newRowSay(item) {
   return item.appCancelledHere
     ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
     : '';
+}
+
+/**
+ * 認得、但不是一字不差的那幾格（ADR-0128）：病歷號對上而名字差一個字、課程那一格差一個字。
+ * 收起來也看得到 —— **不是安靜地當成完全吻合**。名字那一句只在這一列還是認人那一次認的那一位時講
+ *（她換了人就不是那一次的事了）。沒有就是空字串。
+ */
+export function nearSay(item) {
+  const out = [];
+  const who = nearNameSay(item?.who, item?.row?.name, item?.customerId ?? null);
+  if (who) out.push(who);
+  const near = item?.course?.near;
+  if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
+  return out.join('；');
 }
 
 /**
@@ -519,7 +534,6 @@ export function adoptAbovee(visit, items = []) {
  * 不判成「對不上」：`planAbovee()` 只收新的列，判成對不上的話照片只拍到同一天的第二段（真的是另一段）時就記不了。
  */
 function flagMoved(items, ctx) {
-  const timesOf = (i) => [i.startsAt, ...(i.merged?.parts ?? []).map((p) => p.startsAt)].filter(Boolean);
   return items.map((item) => {
     if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) return item;
     // 照片上這一位這一天出現過的每一個時間都算「有人對到了」（取消的列也算）—— 先把同一個時間的配完，
@@ -677,18 +691,295 @@ export function aboveeDatesIn(transcripts = []) {
   return [...new Set(cells.map(aboveeDate).filter(Boolean))].sort();
 }
 
-/** 最上面那一行：新的幾段、已經記了幾段、要你看幾段。 */
-export function summarizeAbovee(items = []) {
+/**
+ * 最上面那一行：新的幾段、已經記了幾段、要你看幾段。
+ * `absent`（`absentFromPhoto()` 的 `slots`）也算進「要你看」—— 底下那一組畫的就是它們，
+ * 兩邊的數字要一樣（上一輪就差過一列）。
+ */
+export function summarizeAbovee(items = [], absent = []) {
   const count = (fn) => items.filter(fn).length;
   return {
     total: items.length,
     new: count((i) => i.kind === 'new' && !i.cancelled),
     // 兩邊都取消的那一列不算「已經記了」—— 它是已取消（ADR-0116）
     recorded: count((i) => i.kind === 'recorded' && !i.cancelled),
-    attention: count(needsAttention),
+    attention: count(needsAttention) + (absent ?? []).length,
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),
   };
+}
+
+// ---------- app 有、這次照片上沒有（ADR-0129）----------
+//
+// 她 2026-10-06：
+//
+// > 能不能同個月，如果有這次拍照沒有的來訪也列出，原因是我通常都會一次拍一個月一個人的所有壓表來訪，
+// > 所以如果沒有拍到但是我app卻有紀錄的話那可能是錯的，如果已取消那abovee上也會標取消
+// > 我拍照通常有兩種，一種是一次拍某段時間內的很多人，或是一個月內的一個人
+//
+// **一次確認層就是一頁**（Abovee 一頁 10 筆，一次最多兩張）。所以範圍預設是照片上第一列到最後一列之間，
+// **兩頭那個時間不算**（翻頁常常切在同一天、同一個時間的中間）；知道是第一頁／最後一頁才往外放寬。
+// 讀不出是第幾頁就不放寬 —— 少對幾段，好過把下一頁的喊成沒拍到。句子講「這次照片上沒有」，不講「Abovee 沒有」。
+// 只講不改（ADR-0056、0116）：不勾、不存、不取消。
+
+/** 這一列在照片上佔了哪幾個時間：開始時間＋合併扣課另一半的。 */
+const timesOf = (i) => [i.startsAt, ...(i.merged?.parts ?? []).map((p) => p.startsAt)].filter(Boolean);
+
+/** `75筆第1/8頁` → `{ total: 75, page: 1, pages: 8 }`。讀不到（或讀出來不合理）的那一格是 null。 */
+export function aboveePage(text) {
+  const s = clean(text);
+  const total = s.match(/(\d+)\s*筆/);
+  const at = s.match(/(\d+)\s*[/／]\s*(\d+)/);
+  const page = at && Number(at[1]) >= 1 && Number(at[1]) <= Number(at[2]) ? at : null;
+  return {
+    total: total ? Number(total[1]) : null,
+    page: page ? Number(page[1]) : null,
+    pages: page ? Number(page[2]) : null,
+  };
+}
+
+const pointKey = (p) => `${p.date} ${p.time ?? ''}`;
+// 那一天所在那個月的頭尾（壓表那一支 `monthRange()`，不另算一次）
+const monthStartOf = (iso) => monthRange(iso.slice(0, 7)).from;
+const monthEndOf = (iso) => monthRange(iso.slice(0, 7)).to;
+
+/** 照片上的列是不是由早到晚（讀不出時間的那幾列只比日期）。 */
+function inOrder(points) {
+  for (let k = 1; k < points.length; k += 1) {
+    const [a, b] = [points[k - 1], points[k]];
+    if (b.date < a.date) return false;
+    if (b.date === a.date && a.time && b.time && b.time < a.time) return false;
+  }
+  return true;
+}
+
+/**
+ * 這一次照片看得到哪幾段時間（ADR-0129）。有「姓名」那一欄的每一張是一段；
+ * 兩張的頁數接得上（同一頁、或前後頁）就併成一段 —— 接不上（第 1 頁與第 3 頁）中間那一頁沒拍，不可以一起算。
+ *
+ * - `firstPage`／`lastPage`：讀得出是第一頁／最後一頁，或總筆數不多於這幾張的列數（`all`：每一列都在這裡）
+ * - **列數照不重複的列算**（同一位、同一天、同一個開始時間只算一次，同 `mergeAboveePhotos()`）——
+ *   同一頁拍了兩次的話照張數加，15 筆的第一頁就會被算成「20 列 ≥ 15 筆、每一列都在這裡」（審查查到的）
+ * - 列不是照時間排的那一段：除非每一列都在這裡，不然丟掉 —— 別頁的列可能在任何一天
+ *
+ * Function 還沒重新部署（沒有起訖那兩格）時 `from`／`to` 是 null，照樣算得出來。
+ *
+ * @returns {{segments: {first: object, last: object, firstPage: boolean, lastPage: boolean, all: boolean}[],
+ *            from: string|null, to: string|null, why: null|'noDates'|'unsorted'}}
+ */
+export function photoSpan(transcripts = []) {
+  const list = transcripts ?? [];
+  const from = list.map((t) => aboveeDate(t?.dateFromText)).find(Boolean) ?? null;
+  const to = list.map((t) => aboveeDate(t?.dateToText)).find(Boolean) ?? null;
+  const named = list.map((t, i) => ({ t, table: tableOf(t, i) })).filter((x) => x.table.hasName);
+  const known = (p) => Boolean(p.page || p.total);
+  // 頁數那一句可能在沒有姓名的那一半 —— 只有一張有姓名時，那一句就是它的
+  const loose = named.length === 1 ? list.map((t) => aboveePage(t?.pageText)).find(known) ?? null : null;
+
+  const pieces = named.map(({ t, table }) => {
+    const own = aboveePage(t?.pageText);
+    const rowKey = (r) => [normalizeName(r.name), normalizeChartNo(r.chartNo), aboveeDate(r.date), aboveeStart(r.time)].join('|');
+    return {
+      points: table.rows.map((r) => ({ date: aboveeDate(r.date), time: aboveeStart(r.time), key: rowKey(r) })).filter((p) => p.date),
+      keys: new Set(table.rows.map(rowKey)),
+      page: known(own) ? own : (loose ?? own),
+    };
+  }).filter((p) => p.points.length);
+  if (!pieces.length) return { segments: [], from, to, why: 'noDates' };
+
+  pieces.sort((a, b) => pointKey(a.points[0]).localeCompare(pointKey(b.points[0])));
+  const runs = [];
+  for (const p of pieces) {
+    const last = runs[runs.length - 1];
+    const step = last && last.page.page && p.page.page && last.page.pages === p.page.pages ? p.page.page - last.page.page : null;
+    if (step === 0 || step === 1) {
+      // 已經算過的列（同一頁拍了兩次、上下兩半重疊的那幾列）不再接一次 —— 接了的話順序看起來是亂的
+      last.points.push(...p.points.filter((x) => !last.keys.has(x.key)));
+      for (const k of p.keys) last.keys.add(k);
+      last.page = { ...last.page, lastOf: p.page };
+    } else {
+      runs.push({ ...p, points: [...p.points], keys: new Set(p.keys) });
+    }
+  }
+
+  let unsorted = false;
+  const segments = [];
+  for (const run of runs) {
+    const total = run.page.total ?? run.page.lastOf?.total ?? null;
+    const all = Boolean(total) && total <= run.keys.size;
+    if (!all && !inOrder(run.points)) { unsorted = true; continue; }
+    const sorted = [...run.points].sort((a, b) => pointKey(a).localeCompare(pointKey(b)));
+    const end = run.page.lastOf ?? run.page;
+    segments.push({
+      first: sorted[0],
+      last: sorted[sorted.length - 1],
+      firstPage: all || run.page.page === 1,
+      lastPage: all || (Boolean(end.page) && end.page === end.pages),
+      all,
+    });
+  }
+  if (!segments.length) return { segments, from, to, why: unsorted ? 'unsorted' : 'noDates' };
+  return { segments, from, to, why: null };
+}
+
+/**
+ * 一段的下界與上界。`key` 拿來比（`YYYY-MM-DD HH:MM`），`date`／`time` 拿來講。
+ * 第一頁：讀得到「起」用那一天；讀不到、拍的是一個人、**而且每一列都在這裡**（`all`），用第一列那個月的一號；
+ * 都沒有就從第一列（含）。不是第一頁：從第一列那個時間之後（不含 —— 同一個時間的別段可能在上一頁）。上界反過來。
+ *
+ * 「拍的是一個人」只是照這幾列猜的：很多人的列表最後一頁剛好只剩一位時也長這樣（審查查到的）。
+ * 不是每一列都在這裡、又讀不到起訖時不猜整個月 —— 少對幾段，好過把別人查詢範圍外的喊成沒拍到。
+ */
+function boundsOf(seg, span, onePerson) {
+  const { first, last } = seg;
+  const month = onePerson && seg.all;
+  let lo;
+  if (seg.firstPage) {
+    const base = span.from ?? (month ? monthStartOf(first.date) : null);
+    lo = base
+      ? { date: base < first.date ? base : first.date, time: null }
+      : { date: first.date, time: first.time };
+    lo.key = `${lo.date} ${lo.time ?? '00:00'}`;
+    lo.open = false;
+  } else {
+    // 第一列讀不出時間：那一整天都不知道哪幾段在上一頁 —— 從隔天算起
+    lo = { date: first.date, time: first.time, key: `${first.date} ${first.time ?? '24:00'}`, open: Boolean(first.time) };
+  }
+  let hi;
+  if (seg.lastPage) {
+    const base = span.to ?? (month ? monthEndOf(last.date) : null);
+    hi = base
+      ? { date: base > last.date ? base : last.date, time: null }
+      : { date: last.date, time: last.time };
+    hi.key = `${hi.date} ${hi.time ?? '24:00'}`;
+    hi.open = false;
+  } else {
+    hi = { date: last.date, time: last.time, key: `${last.date} ${last.time ?? '00:00'}`, open: true };
+  }
+  return { lo, hi };
+}
+
+/** 那一段落不落在範圍裡。沒有開始時間的段（合併檔匯進來的）要整天都在裡面才算。 */
+function within(range, date, startsAt) {
+  const [start, stop] = startsAt ? [`${date} ${startsAt}`, `${date} ${startsAt}`] : [`${date} 00:00`, `${date} 23:59`];
+  const { lo, hi } = range;
+  const above = lo.open ? start > lo.key : start >= lo.key;
+  const below = hi.open ? stop < hi.key : stop <= hi.key;
+  return above && below;
+}
+
+/**
+ * app 上有、這次照片上沒有的那幾段（ADR-0129）。確認層每畫一次就算一次 —— 她換了某一列是誰，結果跟著變。
+ *
+ * **對象**：照片上每一列都認出來、而且是同一位 → 那一位（「一個月內的一個人」）；否則範圍裡 app 上有來訪的每一位。
+ * **哪幾段算 app 有**：來訪還在、那一段還活著（未到也算 —— Abovee 上失約的那一列還在）、**那門課壓在 Abovee**
+ *（`bookingSystemOf()`：健檢壓 Examine、HRV 不用壓，都不算；認不得的課照它的猜法算 Abovee）。
+ * **哪幾段算照片上有**：同一位、同一天，而且開始時間一樣（合併扣課的另一半也算）；那一段沒有開始時間的話，
+ * 照片上那一天有同一門課；被「搬了時間」指到的那一段也算；照片上那一位那一天有一列讀不出時間 → 那一天都算。
+ * **照片上那一天那個時間有一列還沒認出是誰** → 先不列（那一列可能就是他）。
+ *
+ * @param {object[]} transcripts 那一次的抄字（`photoSpan()` 讀）
+ * @param {object[]} items `readAbovee()` 的那幾列（她改過之後的）
+ * @param {{customers, visitsBy, master}} ctx
+ * @returns {{checked: {customerId: string|null, ranges: object[]}|null, why: null|'noDates'|'unsorted', slots: object[]}}
+ */
+export function absentFromPhoto(transcripts, items, ctx) {
+  const list = items ?? [];
+  if (!list.length) return { checked: null, why: null, slots: [] };
+  const span = photoSpan(transcripts);
+  if (span.why) return { checked: null, why: span.why, slots: [] };
+
+  const ids = new Set(list.map((i) => i.customerId ?? null));
+  const customerId = ids.size === 1 && !ids.has(null) ? [...ids][0] : null;
+  const ranges = span.segments.map((seg) => boundsOf(seg, span, Boolean(customerId)));
+  const courses = new Map((ctx.master?.courses ?? []).map((c) => [c.id, c]));
+  const nameOf = (id, visit) => (ctx.customers ?? []).find((c) => c.id === id)?.name ?? visit?.customerName ?? '';
+
+  const onPhoto = (who, date, slot) => {
+    const here = list.filter((i) => i.date === date);
+    // 還沒認出是誰的那一列可能就是他
+    if (here.some((i) => !i.customerId && (!slot.startsAt || !i.startsAt || i.startsAt === slot.startsAt))) return true;
+    const mine = here.filter((i) => i.customerId === who);
+    if (mine.some((i) => !i.startsAt)) return true;
+    if (!slot.startsAt) return mine.some((i) => i.course?.courseId === slot.courseId);
+    return mine.some((i) => timesOf(i).includes(slot.startsAt) || i.movedFrom?.startsAt === slot.startsAt);
+  };
+
+  const slots = [];
+  const people = customerId ? [customerId] : Object.keys(ctx.visitsBy ?? {});
+  for (const who of people) {
+    for (const visit of ctx.visitsBy?.[who] ?? []) {
+      if (!visit || visit.deletedAt || !isActive(visit) || !visit.date) continue;
+      (visit.slots ?? []).forEach((slot, index) => {
+        if (!isLiveSlot(slot)) return;
+        if (bookingSystemOf(courses.get(slot.courseId) ?? null) !== 'Abovee') return;
+        if (!ranges.some((r) => within(r, visit.date, slot.startsAt))) return;
+        if (onPhoto(who, visit.date, slot)) return;
+        slots.push({
+          key: `${visit.id}:${index}`,
+          customerId: who,
+          customerName: nameOf(who, visit),
+          visitId: visit.id,
+          date: visit.date,
+          startsAt: slot.startsAt ?? null,
+          slotIndex: index,
+          name: slotName(slot, ctx.master ?? {}, 'short'),
+          status: slotStatus(visit, slot),
+        });
+      });
+    }
+  }
+  slots.sort((a, b) => `${a.date}|${a.startsAt ?? ''}|${a.customerName}`.localeCompare(`${b.date}|${b.startsAt ?? ''}|${b.customerName}`));
+  return { checked: { customerId, ranges }, why: null, slots };
+}
+
+const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+const pointSay = (p) => (p.time ? `${md(p.date)} ${p.time}` : md(p.date));
+
+/**
+ * 那一塊上面那一句：對了誰、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
+ * 沒有對的時候講為什麼（不然她分不出沒列出來是「沒有」還是「沒檢查」）。照片上一列都沒有就不講。
+ *
+ * @param {ReturnType<typeof absentFromPhoto>} result
+ * @param {{id: string, name: string}[]} customers
+ */
+export function absentSay(result, customers = []) {
+  if (result?.why === 'unsorted') {
+    return '照片上的列不是照時間排的，看不出這一頁是哪一段時間 —— 沒有對「app 有、這次照片上沒有」。';
+  }
+  if (result?.why === 'noDates') return '照片上讀不到日期 —— 沒有對「app 有、這次照片上沒有」。';
+  if (!result?.checked) return '';
+  const { customerId, ranges } = result.checked;
+  const when = ranges.map(({ lo, hi }) => `${pointSay(lo)}–${pointSay(hi)}`).join('、');
+  const name = customerId ? ((customers ?? []).find((c) => c.id === customerId)?.name ?? '') : '';
+  const scope = customerId ? `對過 ${name} ${when} 在 app 上的段` : `對過 ${when} 每一位在 app 上的段`;
+  const n = result.slots.length;
+  return n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
+}
+
+/**
+ * 那一塊底下那一顆的字：按下去會發生什麼（句子在 domain，同 `newRowSay()`、`mismatchSay()`）。
+ * 有勾起來還沒記的 → 先走既有的存檔、記好才換頁；沒有 → 直接去。**兩種都講照片不會留著**（ADR-0101）——
+ * 她看完那幾段之前不可以因為按了什麼而失去那張照片、卻沒有被告知。去的是第一段那一天（日曆上那個月的其餘幾段一翻就到）。
+ */
+export function goneButtonSay(pending, date) {
+  const day = shortDate(date);
+  return pending
+    ? `先記勾起來的 ${pending} 段，再去日曆 ${day}（照片不會留著）`
+    : `去日曆 ${day}（照片不會留著）`;
+}
+
+/**
+ * 打開確認層時要補讀哪幾天的來訪：照片上讀得到的每一個日期（含起訖那兩格），放寬到整個月 ——
+ * 範圍可能放寬到「起」那一天或整個月（`boundsOf()`），讀少了會把有的喊成沒有。多讀一兩個月不貴。
+ */
+export function aboveeLoadRange(transcripts = []) {
+  const dates = [
+    ...aboveeDatesIn(transcripts),
+    ...(transcripts ?? []).flatMap((t) => [aboveeDate(t?.dateFromText), aboveeDate(t?.dateToText)]),
+  ].filter(Boolean).sort();
+  if (!dates.length) return null;
+  return { from: monthStartOf(dates[0]), to: monthEndOf(dates[dates.length - 1]) };
 }
 
 /** 一列交給 `slotFromPicks()` 的那一份。 */

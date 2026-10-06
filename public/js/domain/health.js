@@ -29,9 +29,9 @@ import { missingPairs, countMismatches } from './followups.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
-import { overlaps, isValidTime } from './visitTime.js';
+import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import {
-  VISIT_STATUSES, isActive, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus,
+  VISIT_STATUSES, isActive, isOpenStatus, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes,
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
@@ -124,6 +124,11 @@ export const CHECKS = [
     id: 'entitlementMinutes',
     label: '額度上記著的時長跟課程不一樣',
     hint: '排這一筆的時候照額度上那個數字排，不是課程的 —— 健檢記著 60 分的話，那一段就排成一小時',
+  },
+  {
+    id: 'slotMinutes',
+    label: '照錯的時長排出去的那幾段',
+    hint: '上一項那幾筆額度排出去、還沒做的那幾段 —— 結束時間已經存下去了，不會自己變長',
   },
   {
     id: 'chartNo',
@@ -887,6 +892,15 @@ function checkIvMismatch(ctx) {
   return out;
 }
 
+/** 第 32 項的那一種額度：單一課程、不是營養點滴、記著的時長不是課程的（第 33 項也問它）。 */
+function minutesOff(e, course) {
+  if (!e || e.deletedAt || e.type !== 'single' || e.durationMin == null) return false;
+  if (!course || course.requiresIvProduct) return false;
+  const n = Number(e.durationMin);
+  const choices = durationChoicesOf(course);
+  return !(choices.length ? choices.includes(n) : n === Number(course.durationMin));
+}
+
 /**
  * 十一之二、額度上記著的時長跟課程不一樣（2026-10-07，issue 15）。
  *
@@ -908,13 +922,11 @@ function checkEntitlementMinutes(ctx) {
   const out = [];
 
   for (const e of ctx.entitlements) {
-    if (e.deletedAt || e.type !== 'single' || e.durationMin == null) continue;
     const course = ctx.coursesById[e.courseId];
-    if (!course || course.requiresIvProduct) continue;
+    if (!minutesOff(e, course)) continue;
 
     const n = Number(e.durationMin);
     const choices = durationChoicesOf(course);
-    if (choices.length ? choices.includes(n) : n === Number(course.durationMin)) continue;
 
     out.push({
       severity: 'attention',
@@ -928,6 +940,49 @@ function checkEntitlementMinutes(ctx) {
     });
   }
 
+  return out;
+}
+
+/**
+ * 十一之三、照錯的時長排出去的那幾段（2026-10-06，issue 20）。她：「排錯長度的舊來訪要不要多一列資料健檢：要」。
+ *
+ * 上一項（`entitlementMinutes`）列的是額度；照那個數字排出去的**那幾段**結束時間已經存下去了 ——
+ * 日曆上那一格短了一截，撞期也照短的那一截算。收的段：
+ *
+ * - 還活著、**還開著**（待確認／已確認）。已完成鎖著改不了，列出來只是噪音
+ * - 扣的那一筆是上一項會列的那一種（`minutesOff()`）、**那一段自己沒選「排多久」**（`slot.minutes` 是她選的）
+ * - 長度**剛好等於**額度上那個數字（＝是它排出來的；她在日曆改過的不是）
+ *
+ * 應該多長：拿掉額度那一層再問 `slotMinutes()`（順序不在這裡重寫）。**只列不修**（ADR-0056：來訪改得動的地方只有日曆）——
+ * 那一句講怎麼處理：先照上一項清空那一筆的時長，再在日曆「改這一段」→ 存（`endsAt` 每次存檔都重算）。
+ */
+function checkSlotMinutes(ctx) {
+  const out = [];
+  for (const visit of ctx.visits) {
+    if (visit.deletedAt || !isActive(visit)) continue;
+    (visit.slots ?? []).forEach((slot) => {
+      if (!isOpenStatus(slotStatus(visit, slot))) return;
+      if (slot.minutes != null || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) return;
+      const e = ctx.entitlementsById[slot.entitlementId];
+      if (!minutesOff(e, ctx.coursesById[e?.courseId])) return;
+      const length = toMinutes(slot.endsAt) - toMinutes(slot.startsAt);
+      if (length !== Number(e.durationMin)) return;
+      const course = ctx.coursesById[slot.courseId] ?? ctx.coursesById[e.courseId];
+      const should = slotMinutes({ entitlement: null, course, ivProduct: null, minutes: null });
+      if (should === length) return;
+
+      const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      out.push({
+        severity: 'attention',
+        title: `${who}・${visit.date} ${slot.startsAt}–${slot.endsAt} ${course?.name ?? e.label ?? ''}`,
+        detail: `排了 ${length} 分，照課程應該是 ${should} 分 —— 是那一筆額度記著 ${e.durationMin} 分（上一項）排出來的。`
+          // 分不出是她自己設的還是加購時帶過來的（同第 32 項）—— 那一句一樣要講
+          + '是你自己設的就不用理它；不是的話先照上一項把那一筆額度的時長清空，再到日曆那一天點這一段 →「改這一段」→ 存，結束時間會重算',
+        link: null,
+        fix: null,
+      });
+    });
+  }
   return out;
 }
 
@@ -2042,6 +2097,7 @@ const RUNNERS = {
   duplicateAvailability: checkDuplicateAvailability,
   ivMismatch: checkIvMismatch,
   entitlementMinutes: checkEntitlementMinutes,
+  slotMinutes: checkSlotMinutes,
   chartNo: checkChartNo,
   poolLabel: checkPoolLabels,
   importedLabel: checkImportedLabels,
