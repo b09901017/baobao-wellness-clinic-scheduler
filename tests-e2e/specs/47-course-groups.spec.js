@@ -143,7 +143,7 @@ test('G4 把分類改成一個新的字：清單多一組，排在「其他」�
   const order = await heads(page);
   expect(order.indexOf('檢測'), '她自己打的排在「其他」前面').toBe(order.indexOf('其他') - 1);
   expect(await cardsIn(page, '檢測')).toEqual(['course-fitness']);
-  expect((await cardsIn(page, '運動區')).sort()).toEqual(['course-inbody', 'course-nutrition-consult']);
+  expect((await cardsIn(page, '運動區')).sort()).toEqual(['course-exercise', 'course-inbody', 'course-moti', 'course-nutrition-consult']);
 
   // 再打開：那一顆新的丸子按著；改回「其他」存成空的
   await page.locator('[data-edit="course-fitness"]').click();
