@@ -8,8 +8,9 @@
 // 成因：日期欄從這位客戶所有還算數的來訪來，列只從額度來 —— 一段沒有額度的來訪
 // （不算次數的課，ADR-0121）有日期欄、沒有任何一列可以打符號。額度後來被刪掉的那幾段也是。
 //
-// **n返 不在這裡**：ADR-0063 寫明它不進矩陣（她要的是「記在健檢預約的下面」），
-// `tests/sheet-report.test.js` 的「n返 不進矩陣」釘著。這一支只確認它沒有被順手收進來。
+// **n返 2026-10-07 起也在這裡**（issue 14，ADR-0131）。01 刻意沒收：ADR-0063 那張表寫著它不進矩陣
+// （她 9 月要的是「記在健檢預約的下面」）。問她要不要也自己一列，她回「好自己一列」；
+// 健檢底下那一行「要留」、三返與四返「各自一列」。所以同一場三返在表上出現兩次，那是她要的。
 //
 // 最下面那一組是不變量 —— 她說「試算表的正確與否對我來說很重要」，而這個洞正是
 // 「每一段都該落在某一格」這件事從來沒有人釘過。
@@ -180,16 +181,70 @@ describe('額度被刪掉的那幾段', () => {
   });
 });
 
-describe('n返 一個字都沒變（ADR-0063：記在健檢底下，不進矩陣）', () => {
-  test('三返那一天不多一列', () => {
-    const exam = day('2026-09-01', [{ entitlementId: 'e-exam', courseId: 'exam', courseName: '健檢', status: 'done' }]);
-    const third = day('2026-09-20', [{
-      entitlementId: null, courseId: 'fu', courseName: '三返', followupNth: 3,
-      followupForVisitId: exam.id, doctorId: 'd1', status: 'confirmed',
-    }], { status: 'confirmed' });
-    const sheet = build([exam, third], [E_EXAM, E_FU]);
-    assert.deepEqual(sheet.rows.map((r) => r.label), ['健檢', '二返']);
+describe('n返 也自己一列（issue 14，ADR-0131；健檢底下那一行照舊）', () => {
+  const exam = day('2026-09-01', [{ entitlementId: 'e-exam', courseId: 'exam', courseName: '健檢', status: 'done' }]);
+  const second = day('2026-09-08', [{
+    entitlementId: 'e-fu', courseId: 'fu', courseName: '二返', followupForVisitId: exam.id, doctorId: 'd1', status: 'done',
+  }]);
+  const nth = (date, n, over = {}) => day(date, [{
+    entitlementId: null, courseId: 'fu', courseName: `${n === 3 ? '三' : '四'}返`, followupNth: n,
+    followupForVisitId: exam.id, doctorId: 'd1', status: 'confirmed', ...over,
+  }], { status: over.status ?? 'confirmed' });
+
+  test('那一天只做三返：那一欄在「三返（不算次數）」那一列有符號；健檢底下那一行照舊', () => {
+    const sheet = build([exam, nth('2026-09-20', 3)], [E_EXAM, E_FU]);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['健檢', '二返', '三返（不算次數）']);
+    assert.equal(markOn(sheet, '三返（不算次數）', '2026-09-20'), '△');
     assert.ok(sheet.followupNotes[0].text.includes('9/20 三返(夏)'), '照舊寫在健檢那一欄底下');
+  });
+
+  test('「應有」「剩餘」是一槓、「已完成」「已排未上」是實際的次數；合計不變', () => {
+    const before = build([exam, second], [E_EXAM, E_FU]);
+    const sheet = build([exam, second, nth('2026-09-20', 3, { status: 'done' }), nth('2026-10-20', 3)], [E_EXAM, E_FU]);
+    const row = rowOf(sheet, '三返（不算次數）');
+    assert.deepEqual([row.total, row.done, row.booked, row.remaining, row.extra], ['—', 1, 1, '—', true]);
+    assert.deepEqual(sheet.totals, before.totals);
+  });
+
+  test('三返、四返各自一列，照返數排，各自的符號在各自那一天', () => {
+    const sheet = build([exam, nth('2026-10-20', 4), nth('2026-09-20', 3, { status: 'done' })], [E_EXAM, E_FU]);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['健檢', '二返', '三返（不算次數）', '四返（不算次數）']);
+    assert.equal(markOn(sheet, '三返（不算次數）', '2026-09-20'), '✓');
+    assert.equal(markOn(sheet, '三返（不算次數）', '2026-10-20'), '');
+    assert.equal(markOn(sheet, '四返（不算次數）', '2026-10-20'), '△');
+  });
+
+  test('這一行會不會讓一段 n返 被算進二返那一筆額度，或反過來：二返那一列的數字一個都不變', () => {
+    const numbers = (sheet) => { const r = rowOf(sheet, '二返'); return [r.total, r.done, r.booked, r.remaining, r.marks.join('|')]; };
+    const before = build([exam, second], [E_EXAM, E_FU]);
+    const after = build([exam, second, nth('2026-09-20', 3, { status: 'done' })], [E_EXAM, E_FU]);
+    assert.deepEqual(numbers(after).slice(0, 4), numbers(before).slice(0, 4));
+    assert.equal(markOn(after, '二返', '2026-09-20'), '', '三返那一天，二返那一列是空的');
+  });
+
+  test('取消的三返不出現；只剩取消的三返時整列不長', () => {
+    const sheet = build([exam, nth('2026-09-20', 3, { status: 'cancelled' })], [E_EXAM, E_FU]);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['健檢', '二返']);
+  });
+
+  test('n返 那幾列排在不算次數的課前面、額度被刪的那幾列最後', () => {
+    const sheet = build([
+      exam, nth('2026-09-20', 3),
+      day('2026-09-21', [free('fm')]),
+      day('2026-09-22', [{ entitlementId: 'e-deleted', courseId: 'il', courseName: 'ILIB', status: 'done' }]),
+    ], [E_EXAM, E_FU]);
+    assert.deepEqual(sheet.rows.map((r) => r.label),
+      ['健檢', '二返', '三返（不算次數）', '功醫門診（不算次數）', 'ILIB（額度已刪除）']);
+  });
+
+  test('手動貼上那條路：同一列，接在額度列後面', () => {
+    const { rows } = customerReport({
+      customer: { id: 'c1', name: '客戶A' }, entitlements: [E_EXAM, E_FU],
+      visits: [exam, nth('2026-09-20', 3)], courses: COURSES, staff: MASTER.staff,
+    });
+    const at = rows.findIndex((r) => r[0] === '三返（不算次數）');
+    assert.deepEqual(rows[at], ['三返（不算次數）', '—', '0', '1', '—', '', '△']);
+    assert.equal(rows[at - 1][0], '二返');
   });
 });
 
@@ -265,6 +320,26 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
     assert.equal(sheet.at('A6'), '功醫門診（不算次數）');
     assert.equal(sheet.at('A7'), 'HRV（不算次數）');
   });
+
+  // n返 那一列（issue 14）：同一種列，同一份 `.gs` 畫
+  test('三返那一列畫在額度列底下：一槓照寫、那一天那一欄有符號、「剩餘」沒有被塗紅；健檢底下那一行還在', () => {
+    const exam = day('2026-09-01', [{ entitlementId: 'e-exam', courseId: 'exam', courseName: '健檢', status: 'done' }]);
+    const third = day('2026-09-20', [{
+      entitlementId: null, courseId: 'fu', courseName: '三返', followupNth: 3,
+      followupForVisitId: exam.id, doctorId: 'd1', status: 'done',
+    }]);
+    const sheet = render(bundleOf([exam, third], [E_EXAM, E_FU]));
+    // 第 5 列是表頭、第 6、7 列是健檢與二返、第 8 列是三返；F 是 9/1、G 是 9/20
+    assert.deepEqual(
+      ['A8', 'B8', 'C8', 'D8', 'E8', 'F8', 'G8'].map((a) => sheet.at(a)),
+      ['三返（不算次數）', '—', 1, 0, '—', '', '✓'],
+    );
+    assert.notEqual(sheet.backgrounds.get('E8'), '#FFCDD2', '一槓不是 0');
+    assert.equal(sheet.backgrounds.get('G8'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
+    assert.match(String(sheet.at('C2')), /合計　應有 2　已完成 1　已排未上 0　剩餘 1/);
+    const under = [...sheet.cells.entries()].filter(([a1, v]) => a1.startsWith('F') && String(v).includes('9/20 三返(夏)'));
+    assert.equal(under.length, 1, '健檢那一欄底下那一行照舊');
+  });
 });
 
 // ---------- 不變量 ----------
@@ -304,16 +379,16 @@ describe('不變量：每一段都落在某一格', () => {
     .filter((v) => v.status !== 'cancelled')
     .flatMap((v) => v.slots.filter((s) => s.status !== 'cancelled').map((s) => ({ date: v.date, slot: s })));
 
-  test('每一個日期欄至少有一格有符號 —— 只有 n返 的那一天除外（ADR-0063）', () => {
+  test('每一個日期欄至少有一格有符號 —— 沒有除外（n返 2026-10-07 起也有自己一列）', () => {
     const empty = sheet.dates.filter((_, i) => sheet.rows.every((r) => !r.marks[i]));
+    assert.deepEqual(empty, []);
     const nthOnly = sheet.dates.filter((d) => liveSlots.filter((x) => x.date === d).every((x) => isNth(x.slot)));
-    assert.deepEqual(empty, nthOnly);
-    assert.deepEqual(nthOnly, ['2026-09-20'], '夾具裡真的有這一種');
+    assert.deepEqual(nthOnly, ['2026-09-20'], '夾具裡真的有只做 n返 的一天');
   });
 
-  test('每一段還算數、不是 n返 的時段剛好落在一格', () => {
+  test('每一段還算數的時段剛好落在一格（n返 也是）', () => {
     const marked = sheet.rows.reduce((n, r) => n + r.marks.reduce((m, mark) => m + countIn(mark), 0), 0);
-    assert.equal(marked, liveSlots.filter((x) => !isNth(x.slot)).length);
+    assert.equal(marked, liveSlots.length);
   });
 
   test('每一列 ✓ 的總數＝那一列的「已完成」', () => {

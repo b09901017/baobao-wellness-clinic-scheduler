@@ -228,6 +228,9 @@ const ownedBy = (entitlementId) => (slot) => slot.entitlementId === entitlementI
 /** 沒有那兩個數字（應有、剩餘）的那一格印什麼。**不是 0** —— 0 是「用完了」。 */
 const NO_NUMBER = '—';
 
+/** `extraRows()` 那幾列的先後：n返 → 不算次數的課 → 額度被刪的。 */
+const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
+
 /**
  * 沒有任何一列可以打符號的那幾段，在矩陣最下面自己一列（2026-10-06）。她的原話：
  *
@@ -235,17 +238,24 @@ const NO_NUMBER = '—';
  * > 能不能如果我有選到功醫門診或是那些不算次數的，可以有標註或是直接表格的療程項目多一個他
  *
  * 日期欄從所有還算數的來訪來，列只從額度來 —— 所以一段沒有額度的來訪有那一欄、
- * 沒有任何一列。兩種段會這樣：
+ * 沒有任何一列。三種段會這樣：
  *
- *   不算次數的課   `entitlementId` 是空的（ADR-0121）        → `功醫門診（不算次數）`
- *   額度被刪了     指著一筆這位客戶畫不出來的額度             → `ILIB（額度已刪除）`
+ *   n返            `entitlementId` 是空的、帶著返數（ADR-0063）  → `三返（不算次數）`
+ *   不算次數的課   `entitlementId` 是空的（ADR-0121）            → `功醫門診（不算次數）`
+ *   額度被刪了     指著一筆這位客戶畫不出來的額度                 → `ILIB（額度已刪除）`
  *
  * **一門課一列**，名字讀主檔（她之後改名也還是一列），主檔找不到才退回那一段身上的快照。
  * 額度被刪的那一種只能用課程名：自動推送那條路讀不到已刪除的額度（`repo.listGroup()` 濾掉了），
  * 所以同一門課被刪的幾筆收成一列。
  *
- * **n返 不在這裡**（ADR-0063）：它也沒有額度，但她要的是「記在健檢預約的下面」
- * （`followupNotes()`），不是自己一列 —— `tests/sheet-report.test.js` 的「n返 不進矩陣」釘著。
+ * **n返 一種返數一列**（2026-10-07，ADR-0131）：三返一列、四返一列，名字是 `nthLabel()`（它借二返那門課，
+ * 照課程分的話會跟不算次數的課混在一起）。01 的時候刻意沒收 —— ADR-0063 那張表寫著它不進矩陣，
+ * 她 9 月要的是「記在健檢預約的下面」。只做三返的那一天那一欄整欄是空的，問她要不要也自己一列：
+ *
+ * > 好自己一列
+ *
+ * 健檢那一欄底下那一行（`followupNotes()`）**照舊** —— 她：「要留，各自一列」。同一場三返在表上出現兩次是她要的。
+ * **它還是不算進二返那一筆額度**：這裡認的是返數（`nthOf()`），額度那幾列認的是 `entitlementId`，兩邊不相交。
  *
  * **這幾列不是額度**：
  *
@@ -270,9 +280,10 @@ const NO_NUMBER = '—';
 export function extraRows({ scheduled = [], visits = [], dates = [], coursesById = {} }) {
   const drawn = new Set(scheduled.map((e) => e.id));
 
-  /** 這一段屬於哪一列。有自己那一列的、n返 回 `null`。 */
+  /** 這一段屬於哪一列。有自己那一列（額度）的回 `null`。 */
   const keyOf = (slot) => {
-    if (nthOf(slot)) return null;
+    const nth = nthOf(slot);
+    if (nth) return `nth|${nth}`;
     const id = slot?.entitlementId ?? null;
     if (id && drawn.has(id)) return null;
     return `${id ? 'gone' : 'free'}|${slot?.courseId ?? `name:${slot?.courseName ?? ''}`}`;
@@ -287,10 +298,12 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
       const outcome = slotOutcome(v, slot);
       if (!outcome) continue;
 
+      const nth = nthOf(slot);
       const group = groups.get(key) ?? {
         key,
-        gone: Boolean(slot.entitlementId),
-        name: coursesById[slot.courseId]?.name ?? slot.courseName ?? '（沒有名稱）',
+        nth,
+        gone: !nth && Boolean(slot.entitlementId),
+        name: nth ? nthLabel(nth) : coursesById[slot.courseId]?.name ?? slot.courseName ?? '（沒有名稱）',
         done: 0,
         booked: 0,
       };
@@ -301,8 +314,9 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
   }
 
   return [...groups.values()]
-    // 不算次數的排前面（那是她排的），額度被刪的排後面（那是要她回去看的）；各自照名字
-    .sort((a, b) => Number(a.gone) - Number(b.gone) || a.name.localeCompare(b.name, 'zh-TW'))
+    // n返 最前面（接在額度列的二返後面看，照返數）、再不算次數的課（那是她排的）、
+    // 額度被刪的排最後（那是要她回去看的）；後兩種各自照名字
+    .sort((a, b) => rank(a) - rank(b) || (a.nth ?? 0) - (b.nth ?? 0) || a.name.localeCompare(b.name, 'zh-TW'))
     .map((group) => ({
       label: `${group.name}${group.gone ? '（額度已刪除）' : '（不算次數）'}`,
       total: NO_NUMBER,

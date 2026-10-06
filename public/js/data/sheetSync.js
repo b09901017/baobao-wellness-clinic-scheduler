@@ -14,10 +14,7 @@ import * as visitsData from './visits.js';
 import * as tasksData from './tasks.js';
 import * as repo from './repo.js';
 import { syncBundle } from '../domain/sheetReport.js';
-import { todayISO, addDays } from '../domain/dates.js';
-
-/** 報表往回涵蓋多久的來訪。跟 #/settings/report 同一個數字：會籍是一年。 */
-const LOOKBACK_DAYS = 400;
+import { todayISO } from '../domain/dates.js';
 
 /**
  * 寫入之後等多久才推。
@@ -105,7 +102,8 @@ export async function buildBundle() {
   const [customers, entitlementsBy, visits, tasks, master] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
-    visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    // 過去的全部（次數是拿讀到的來訪現算的，少讀一筆就少算一次）。跟 #/settings/report 同一支
+    visitsData.listForSheet(today),
     tasksData.listForReport(),
     config.loadAll(),
   ]);

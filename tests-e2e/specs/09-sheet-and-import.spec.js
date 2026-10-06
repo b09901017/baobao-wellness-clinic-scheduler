@@ -329,3 +329,73 @@ test('J-C14 合併檔 v5：功醫門診那一段沒有額度照樣匯得進來�
   await expect(page.locator('#view [data-check="counts"]')).toContainText('沒問題');
   await expect(page.locator('#view [data-check="orphans"]')).toContainText('沒問題');
 });
+
+// 試算表的次數拿全部過去的來訪算（course-form-and-sheet-2026-10-06 的 issue 13，ADR-0132）。
+// 以前只讀今天前後 400 天：超過的那一次不算進去，報表上的「已完成」比 app 少。
+test('J-C15 報表：500 天前做過的那一次也算進去，那一天也有一欄', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-vein', label: '靜脈', type: 'single', courseId: 'course-iv-laser',
+      totalQty: 20, doneCount: 2, bookedCount: 0, durationMin: 60,
+    }),
+    ...[-500, -10].map((days, i) => visit({
+      id: `v-done-${i}`, customerId: 'cust-a', customerName: '客戶A',
+      date: addDays(TODAY, days), status: 'done',
+      slots: [slot({
+        courseId: 'course-iv-laser', entitlementId: 'ent-vein',
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10', attended: true,
+      })],
+    })),
+  ]);
+  await app.signIn('/settings/report');
+
+  const cells = (row) => row.locator('th, td').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+  const head = await cells(page.locator('table.sheet tr', { hasText: '療程項目' }).first());
+  const row = await cells(page.locator('table.sheet tr', { hasText: '靜脈' }).first());
+
+  // 療程項目｜應有｜已完成｜已排未上｜剩餘｜日期…
+  expect(row.slice(1, 5), '兩次都算進去：以前 500 天前那一次不算，已完成是 1、剩餘是 19').toEqual(['20', '2', '0', '18']);
+  expect(head.length - 5, '兩天各一欄').toBe(2);
+  expect(row.slice(5)).toEqual(['✓', '✓']);
+});
+
+// 三返在矩陣裡自己一列（course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。
+// 以前只做三返的那一天那一欄整欄是空的 —— 它沒有額度，而列只從額度來。
+test('J-C16 報表：只做三返的那一天，「三返（不算次數）」那一列有符號；健檢那一欄底下那一行照舊', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-chk', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1, doneCount: 1, tier: '8萬',
+    }),
+    entitlement('cust-a', {
+      id: 'ent-fu', label: '二返（8萬健檢）', courseId: 'course-followup', totalQty: 1,
+      followupForEntitlementId: 'ent-chk',
+    }),
+    visit({
+      id: 'v-exam', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -30), status: 'done',
+      slots: [slot({ courseId: 'course-checkup', entitlementId: 'ent-chk', startsAt: '09:00', endsAt: '11:00', attended: true })],
+    }),
+    visit({
+      id: 'v-3rd', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -5), status: 'done',
+      slots: [slot({
+        courseId: 'course-followup', entitlementId: null, followupNth: 3, followupForVisitId: 'v-exam',
+        startsAt: '14:00', endsAt: '14:30', attended: true,
+      })],
+    }),
+  ]);
+  await app.signIn('/settings/report');
+
+  const cells = (row) => row.locator('th, td').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+  const rowOf = (label) => cells(page.locator('table.sheet tr', { hasText: label }).first());
+
+  // 療程項目｜應有｜已完成｜已排未上｜剩餘｜健檢那一天｜三返那一天
+  expect(await rowOf('三返（不算次數）')).toEqual(['三返（不算次數）', '—', '1', '0', '—', '', '✓']);
+  expect((await rowOf('二返（8萬健檢）')).slice(1), '三返不算進二返那一筆').toEqual(['1', '0', '0', '1', '', '']);
+  // 健檢那一欄底下那一行（她：「要留」）：二返還沒約是空括號，三返接在它下面
+  const body = await app.text();
+  expect(body).toContain('二返()');
+  expect(body).toMatch(/\d+\/\d+ 三返\(\)/);
+});

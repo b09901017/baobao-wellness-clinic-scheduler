@@ -1,6 +1,6 @@
 # 試算表的次數只算今天前後 400 天的來訪
 
-Status: todo（**她 2026-10-06 說要做**：「好幫我改」＝下面的第 1 種，往回不設限）
+Status: done（她 2026-10-06 說要做：「好幫我改」＝下面的第 1 種，往回不設限）
 來源：審查（subagent，2026-10-06）讀出來的；她第四點「也要幫我檢查有沒有其他試算表的問題，試算表的正確與否對我來說很重要」
 動工前先讀：`public/js/data/sheetSync.js`（`LOOKBACK_DAYS`、`buildBundle()`）、`public/js/ui/views/report.js`（同一個數字）、
 `public/js/domain/sheetReport.js` 的 `syncBundle()`（`counts(e, visits, e.id)`）、ADR-0004（「真正不能錯的地方一律現算」）、ADR-0013
@@ -48,3 +48,16 @@ Blocked by: —（跟 01 改同一支檔案的不同地方；01 先合）
 - `SPEC.md` 試算表那一節、ADR-0013 的後續（補一支新的或在這一輪某一支新 ADR 裡帶一段）
 - `docs/常見問題.md`（選 1 的話：「試算表越來越寬」）
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-07）
+
+- **讀法只有一支**：`data/visits.js` 新的 `listForSheet(today)`（`date <= 今天＋400 天`，往回沒有下限；用既有的 (deletedAt, date) 索引，不用補索引）。
+  自動推送 `sheetSync.js` 的 `buildBundle()` 與手動貼上 `report.js` 的 `load()` 都走它；兩邊各自的 `LOOKBACK_DAYS = 400` 拿掉了
+- `domain/sheetReport.js` 一個字都沒動 —— 它給什麼算什麼，洞在讀的那一側
+- **`SYNC_FORMAT` 沒動（7）、`.gs` 沒動、她不用重貼**：bundle 的形狀沒變，只是日期欄變多（`.gs` 的 `ensureSize()` 本來就照欄數長）
+- 測試：新的一支 `tests/sheet-all-history.test.js`（掃原始碼兩條：兩條路都走 `listForSheet()`、那一支沒有下限 —— 在舊的程式上紅；
+  一條不變量：500 天前做過一次，那一列的數字＝`counts()`）。E2E `09` 多一條 J-C15（500 天前＋10 天前各做一次 → 報表那一列 20／2／0／18、兩欄 ✓）
+- ADR-0132；`SPEC.md` 4.8 多一段；`docs/常見問題.md`「試算表越來越寬」；`CLAUDE.md` 連動表新的一列「試算表要讀哪些來訪」；`sw.js` v176
+- **查到、沒有修的（要問她）**：日期欄的抬頭是 `10/7(三)`，**沒有年份**。表跨過一年之後（這一支讓它一定會跨），去年與今年的同一天只差括號裡的星期。
+  以前往前往後各 400 天其實也跨得過，只是她的資料還沒那麼久。要改的話是 `sheetReport.js` 印抬頭那一格（`dateLabels`，`.gs` 照印，不用升格式）
+- 客戶清單（`customers.js`）自己也有一個 `LOOKBACK_DAYS`：那是「上次來是多久以前」用的，不算次數，沒動
