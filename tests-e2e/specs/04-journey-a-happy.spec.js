@@ -162,7 +162,9 @@ test('J-A10b A 類（門診）確認後才長出 Examine 與耀聖', async ({ ap
   await page.locator('[data-time]').first().click();
   // 門診要的是**醫師，不是空間**（她 2026-09-08）—— 診間那一排不再出現
   await expect(page.locator('[data-room]')).toHaveCount(0);
-  await page.locator('[data-doctor]').first().click();
+  // 復健科只有一位醫師（宋，2026-10-06 種子補了科別）→ 選額度那一下已經先選好他（ADR-0120）。
+  // 這裡以前是「點第一位醫師」；先選好之後再點同一顆是**取消**，會變成還沒選醫師
+  await expect(page.locator('[data-doctor="staff-dr-song"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-add]').click();
 
   const dialog = await app.dialogText();
