@@ -14,14 +14,14 @@
 // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
 // 一位客戶一張，就這樣。
 
-import { counts, isProduct } from './entitlements.js';
+import { counts, isProduct, slotOutcome } from './entitlements.js';
 import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { purchaseDays, purchaseDayLabel } from './purchases.js';
 import {
   isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, shortStatus, MARK_ORDER, MARK_LEGEND,
 } from './visits.js';
 import { pairsOf, holdsExam, usedAndDone } from './followups.js';
-import { followupsOfExam, nthLabel } from './nthFollowup.js';
+import { followupsOfExam, nthLabel, nthOf } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate } from './dates.js';
 import { chartNosOf } from './identify.js';
@@ -89,7 +89,7 @@ export function customerReport({
       String(c.done),
       String(c.booked),
       String(c.remaining),
-      ...dates.map((date) => mark(used, e.id, date)),
+      ...dates.map((date) => mark(used, ownedBy(e.id), date)),
     ]);
 
     // 「這一天用了哪一台」**接在那一列的正下方**（她的原話：「在當天的那一列
@@ -104,6 +104,14 @@ export function customerReport({
   }
 
   if (!scheduled.length) rows.push(['（還沒有額度）']);
+
+  // 沒有額度的那幾段自己一列（`extraRows()`）。「（還沒有額度）」那一句照舊在 ——
+  // 這位客戶真的沒有買東西，底下那幾列是她來做了什麼。
+  for (const row of extraRows({ scheduled, visits: used, dates, coursesById })) {
+    rows.push([
+      row.label, String(row.total), String(row.done), String(row.booked), String(row.remaining), ...row.marks,
+    ]);
+  }
 
   // 回訪註記：寫在那次健檢被勾起來的那一欄底下 —— 位置照她原本的。
   //
@@ -185,14 +193,23 @@ const taskRows = (items, kind) =>
  *
  * **取消掉的那一段沒有符號**（`markFor('cancelled')` 本來就是空字串），
  * 所以它自然不會被算進去 —— 那正是對的：那一段沒發生。
+ *
+ * ## 2026-10-06：收的是「這一段算不算這一列的」
+ *
+ * 以前第二個參數是額度的 id。沒有額度的段（`extraRows()`）也要同一種符號、同一種數法，
+ * 所以改成收一個判斷式 —— 額度那幾列傳 `ownedBy(id)`，兩種列共用這一支。
+ *
+ * @param {object[]} visits
+ * @param {(slot: object) => boolean} owns 這一段算不算這一列的
+ * @param {string} date
  */
-function mark(visits, entitlementId, date) {
+function mark(visits, owns, date) {
   const tally = new Map();
 
   for (const v of visits) {
     if (v.date !== date) continue;
     for (const slot of v.slots ?? []) {
-      if (slot.entitlementId !== entitlementId) continue;
+      if (!owns(slot)) continue;
       const symbol = markFor(slotStatus(v, slot));
       if (!symbol) continue;
       tally.set(symbol, (tally.get(symbol) ?? 0) + 1);
@@ -203,6 +220,98 @@ function mark(visits, entitlementId, date) {
     .filter((symbol) => tally.has(symbol))
     .map((symbol) => (tally.get(symbol) === 1 ? symbol : `${symbol}${tally.get(symbol)}`))
     .join('');
+}
+
+/** 額度那一列：用這筆額度的那幾段。 */
+const ownedBy = (entitlementId) => (slot) => slot.entitlementId === entitlementId;
+
+/** 沒有那兩個數字（應有、剩餘）的那一格印什麼。**不是 0** —— 0 是「用完了」。 */
+const NO_NUMBER = '—';
+
+/**
+ * 沒有任何一列可以打符號的那幾段，在矩陣最下面自己一列（2026-10-06）。她的原話：
+ *
+ * > 我發現如果我寫功醫門診，會出現在來訪清單那邊沒錯但是不會出現在表格裡，當天的日期會全是空的 ?
+ * > 能不能如果我有選到功醫門診或是那些不算次數的，可以有標註或是直接表格的療程項目多一個他
+ *
+ * 日期欄從所有還算數的來訪來，列只從額度來 —— 所以一段沒有額度的來訪有那一欄、
+ * 沒有任何一列。兩種段會這樣：
+ *
+ *   不算次數的課   `entitlementId` 是空的（ADR-0121）        → `功醫門診（不算次數）`
+ *   額度被刪了     指著一筆這位客戶畫不出來的額度             → `ILIB（額度已刪除）`
+ *
+ * **一門課一列**，名字讀主檔（她之後改名也還是一列），主檔找不到才退回那一段身上的快照。
+ * 額度被刪的那一種只能用課程名：自動推送那條路讀不到已刪除的額度（`repo.listGroup()` 濾掉了），
+ * 所以同一門課被刪的幾筆收成一列。
+ *
+ * **n返 不在這裡**（ADR-0063）：它也沒有額度，但她要的是「記在健檢預約的下面」
+ * （`followupNotes()`），不是自己一列 —— `tests/sheet-report.test.js` 的「n返 不進矩陣」釘著。
+ *
+ * **這幾列不是額度**：
+ *
+ * - 「應有」「剩餘」沒有那個數字，印一槓。「已完成」「已排未上」是實際的次數，
+ *   一段算哪一種跟額度那幾列同一支（`slotOutcome()`，ADR-0004：計數只有一份實作）
+ * - 不進合計 —— 呼叫端要在接上這幾列**之前**算 `totals`
+ * - 一律接在額度列的**後面**：`equipmentNotes`／`slotNotes` 的 `rowIndex` 指的是額度列的位置
+ *
+ * **不用升 `SYNC_FORMAT`**：每一列的鍵沒有變，只是這幾列的 `total`／`remaining` 是字串。
+ * `.gs` 上色問的是 `r.done > 0`、`r.booked > 0`、`r.remaining === 0`，一槓不會被當成 0 塗紅
+ * （`tests/sheet-rows-without-entitlement.test.js` 拿那一份 `.gs` 真的畫過）。`extra` 那一格現在的 `.gs` 不讀，
+ * 留給之後要把這幾列畫得不一樣的那一天。
+ *
+ * @param {object} ctx
+ * @param {object[]} ctx.scheduled 畫得出一列的那幾筆額度（活著的、不是營養品）
+ * @param {object[]} ctx.visits 這位客戶還算數的來訪
+ * @param {string[]} ctx.dates 日期欄
+ * @param {Record<string, object>} [ctx.coursesById]
+ * @returns {{label: string, total: string, done: number, booked: number, remaining: string,
+ *            marks: string[], extra: true}[]}
+ */
+export function extraRows({ scheduled = [], visits = [], dates = [], coursesById = {} }) {
+  const drawn = new Set(scheduled.map((e) => e.id));
+
+  /** 這一段屬於哪一列。有自己那一列的、n返 回 `null`。 */
+  const keyOf = (slot) => {
+    if (nthOf(slot)) return null;
+    const id = slot?.entitlementId ?? null;
+    if (id && drawn.has(id)) return null;
+    return `${id ? 'gone' : 'free'}|${slot?.courseId ?? `name:${slot?.courseName ?? ''}`}`;
+  };
+
+  const groups = new Map();
+  for (const v of visits) {
+    for (const slot of v.slots ?? []) {
+      const key = keyOf(slot);
+      if (!key) continue;
+      // 取消的那一段不佔任何一列（一門課只剩取消的段時整列不長）
+      const outcome = slotOutcome(v, slot);
+      if (!outcome) continue;
+
+      const group = groups.get(key) ?? {
+        key,
+        gone: Boolean(slot.entitlementId),
+        name: coursesById[slot.courseId]?.name ?? slot.courseName ?? '（沒有名稱）',
+        done: 0,
+        booked: 0,
+      };
+      if (outcome === 'done') group.done += 1;
+      else if (outcome === 'booked') group.booked += 1;
+      groups.set(key, group);
+    }
+  }
+
+  return [...groups.values()]
+    // 不算次數的排前面（那是她排的），額度被刪的排後面（那是要她回去看的）；各自照名字
+    .sort((a, b) => Number(a.gone) - Number(b.gone) || a.name.localeCompare(b.name, 'zh-TW'))
+    .map((group) => ({
+      label: `${group.name}${group.gone ? '（額度已刪除）' : '（不算次數）'}`,
+      total: NO_NUMBER,
+      done: group.done,
+      booked: group.booked,
+      remaining: NO_NUMBER,
+      marks: dates.map((date) => mark(visits, (slot) => keyOf(slot) === group.key, date)),
+      extra: true,
+    }));
 }
 
 /**
@@ -394,9 +503,13 @@ export function syncBundle({
         done: c.done,
         booked: c.booked,
         remaining: c.remaining,
-        marks: dates.map((date) => mark(visits, e.id, date)),
+        marks: dates.map((date) => mark(visits, ownedBy(e.id), date)),
       };
     });
+
+    // 沒有額度的那幾段自己一列（不算次數的課、額度被刪的段）。**接在額度列後面、不進合計** ——
+    // 底下的 `totals` 與兩份註記的 `rowIndex` 都只看 `rows`（額度那幾列）。
+    const extras = extraRows({ scheduled, visits, dates, coursesById });
 
     // 「這一天用了哪一台」（格式 4 起）。一筆額度一列，畫在它那一列的正下方 ——
     // 帶 `label` 是因為一位客戶可能同時有四選一與三選一，兩列都要註記時
@@ -430,7 +543,7 @@ export function syncBundle({
       notes: customer.notes ?? '',
       dates,
       dateLabels: dates.map(shortDate),
-      rows,
+      rows: [...rows, ...extras],
       equipmentNotes,
       slotNotes,
       // 「買過什麼」一天一行（格式 6，ADR-0115）。畫在營養品那一區上面

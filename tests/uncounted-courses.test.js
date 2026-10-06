@@ -422,7 +422,7 @@ describe('三個入口都走同一支', () => {
 });
 
 describe('試算表：次數那幾格一格都沒動，來訪紀錄那一天有它', () => {
-  test('功醫門診那一天進來訪紀錄；額度那一列的四個數字不變、那一天沒有記號', async () => {
+  test('功醫門診那一天進來訪紀錄；額度那一列的四個數字不變、那一天記在它自己那一列', async () => {
     const { syncBundle } = await import('../public/js/domain/sheetReport.js');
     const e = ent({ doneCount: 0, bookedCount: 0 });
     const build = (visits) => syncBundle({
@@ -437,9 +437,17 @@ describe('試算表：次數那幾格一格都沒動，來訪紀錄那一天有�
     const before = build([]);
     const after = build([fmDone]);
 
-    const nums = (sheet) => sheet.rows.map((r) => [r.total, r.done, r.booked, r.remaining]);
+    // 額度那幾列一格都沒動。2026-10-06 起那一段在矩陣最下面有自己一列（`extraRows()`），
+    // 所以這裡只比額度列 —— 多出來的那一列另外看。
+    const nums = (sheet) => sheet.rows.filter((r) => !r.extra).map((r) => [r.total, r.done, r.booked, r.remaining]);
     assert.deepEqual(nums(after), nums(before));
+    assert.deepEqual(after.totals, before.totals, '合計也沒動');
     assert.deepEqual(after.rows[0].marks.filter(Boolean), [], '那一天不算在任何一筆額度上');
+    assert.deepEqual(
+      after.rows.filter((r) => r.extra).map((r) => [r.label, r.total, r.done, r.remaining, r.marks]),
+      [['功醫門診（不算次數）', '—', 1, '—', ['✓']]],
+      '那一天在它自己那一列（她：「當天的日期會全是空的 ?」）',
+    );
 
     assert.equal(after.log.length, 1);
     assert.equal(after.log[0].date, '2026-10-01');
