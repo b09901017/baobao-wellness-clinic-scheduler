@@ -545,9 +545,10 @@ describe('種子資料', () => {
     }
   });
 
-  test('種子資料有夏、許、李三位醫師，而且和治療師分得開', () => {
+  // 2026-10-06 補到 8 位（她 10/5 給的 Abovee 服務資源清單），見 `tests/seed-staff.test.js`
+  test('種子資料有八位醫師（夏、許、李＋五位），而且和治療師分得開', () => {
     const doctors = SEED.staff.filter((s) => s.role === DOCTOR_ROLE).map((s) => s.name);
-    assert.deepEqual(doctors.sort(), ['夏', '李', '許'].sort());
+    assert.deepEqual(doctors.sort(), ['夏', '李', '許', '宋', '簡', '張雅', '張正', '林'].sort());
     // 治療師那份名單一個醫師都不能混進去 —— 復能三器材要的是物理治療師
     const therapists = staffWithRole(SEED.staff, THERAPIST_ROLE);
     assert.ok(therapists.length >= 9);

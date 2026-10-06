@@ -448,6 +448,36 @@ const FIX_COPY = {
       lines: fixes.map((fix) => fix.label),
     }),
   },
+  // 治療師與醫師少了幾位（2026-10-06）。建醫師的那一顆可能同時補既有醫師空著的科別（`fix.also`）——
+  // 會多寫哪幾位要講出來（ADR-0070）。一次建好幾位時那一句放最前面：這一道只印前五行
+  seedStaff: {
+    button: () => '把這一位建起來',
+    all: (n) => `一次建這 ${n} 位`,
+    one: (fix) => ({
+      title: `把「${fix.label}」建進治療師與醫師？`,
+      lines: [
+        '建議清單上有這一位，你的主檔沒有 —— 拍 Abovee 碰到他認不出來，排班也選不到',
+        ...((fix.data.specialties ?? []).length ? [`科別先填「${fix.data.specialties.join('、')}」`] : []),
+        ...((fix.also ?? []).length
+          ? [`同時補上 ${fix.also.map((a) => a.label).join('、')} 空著的科別「${fix.data.specialties.join('、')}」`]
+          : []),
+        '想記他的全名就填在「Abovee 上的寫法」那一格，顯示名不要改 —— 匯入舊資料時靠顯示名對人',
+      ],
+    }),
+    many: (fixes) => {
+      const also = new Map(fixes.flatMap((fix) => fix.also ?? []).map((a) => [a.id, a]));
+      const sp = [...new Set([...also.values()].flatMap((a) => a.changes.specialties ?? []))];
+      return {
+        title: `把這 ${fixes.length} 位都建進治療師與醫師？`,
+        lines: [
+          ...(also.size
+            ? [`同時補上 ${[...also.values()].map((a) => a.label).join('、')} 空著的科別「${sp.join('、')}」`]
+            : []),
+          ...fixes.map((fix) => `${fix.label}${(fix.data.specialties ?? []).length ? `（${fix.data.specialties.join('、')}）` : ''}`),
+        ],
+      };
+    },
+  },
   seedIvProduct: {
     button: () => '把這一款建起來',
     all: (n) => `一次建這 ${n} 款`,
@@ -570,6 +600,7 @@ const KIND_TO_CHECK = {
   setDurations: 'seedDuration',
   addCourse: 'seedCourse',
   addIvProduct: 'seedIvProduct',
+  addStaff: 'seedStaff',
   setMasterFields: 'seedBlanks',
   setCourseDuration: 'courseDuration',
   setIvDuration: 'ivProductDuration',

@@ -168,6 +168,44 @@ export function therapistOf(summary, staff = []) {
   return null;
 }
 
+/**
+ * 那一句裡**這位客戶的名字**先拿掉 —— 給 `therapistOf()` 找人員之前用。
+ *
+ * `therapistOf()` 是拿主檔上每一個名字對整句做 `includes`。主檔有只寫一個姓的醫師（夏、許、李，
+ * 2026-10-06 起還有林、宋、簡），所以姓林的客戶每一句都「寫了林醫師」—— 種子補了那幾位之後拿她的真檔
+ * 跑出來 21 段，每一段都是那個字在客戶自己的名字裡（EECP、ILIB、復能、健檢，沒有一門要醫師）。
+ * 兩個字的治療師也一樣：客戶叫陳怡婷，每一句都「寫了怡婷」。
+ *
+ * **不能改成「只認明寫的寫法」**（後面接「醫師」、或單獨在括號裡）：同一批真檔上真的寫了醫師的 8 段，
+ * 只有 1 段那樣寫，其餘是光寫一個姓（`2.王小明二返夏`，假名）。
+ *
+ * 拿掉的是每一種叫法在那一句裡**對得上的最長那一段**（兩個字以上，同 `nameHit()` 算「寫了她」的門檻）；
+ * 只沾到一個姓配上的（`3.林IL治2`）那個字就是她，拿掉一次 —— 只拿一次是因為醫師可能同姓（`2.夏二返夏`）。
+ *
+ * **只拿這位客戶自己的**，不拿同一句裡別位客戶的：別位客戶去姓之後的兩個字常常就是某位治療師的名字，
+ * 整份名冊一起拿會把真的治療師拿掉。
+ *
+ * @param {string} summary
+ * @param {string[]} forms 這位客戶的每一種叫法（`nameForms()`）
+ * @param {{surname?: string|null}} [o] 只沾到一個姓配上時是哪個字
+ */
+export function withoutNames(summary, forms = [], { surname = null } = {}) {
+  let s = normVariant(summary);
+  for (const form of [...forms].sort((a, b) => b.length - a.length)) {
+    const name = normVariant(form);
+    let piece = '';
+    for (let i = 0; i < name.length; i += 1) {
+      for (let j = i + 2; j <= name.length; j += 1) {
+        const part = name.slice(i, j);
+        if (part.length > piece.length && s.includes(part)) piece = part;
+      }
+    }
+    if (piece) s = s.split(piece).join(' ');
+  }
+  if (surname) s = s.replace(surname, ' ');
+  return s;
+}
+
 /** 營養點滴當天用的品項。她寫簡寫（雪顏、護肝、腸道），主檔是全名。 */
 export function ivProductOf(summary, products = []) {
   const s = normVariant(summary);
@@ -638,7 +676,8 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
         startsAt: hit.start,
         room: roomOf(hit.e.summary),
         equipmentName: hit.courses.find((x) => SAME(x.course, slot.courseName))?.equip ?? null,
-        therapistName: therapistOf(hit.e.summary, master.staff ?? []),
+        // 客戶自己的名字先拿掉：姓林的客戶不是林醫師（`withoutNames()`）
+        therapistName: therapistOf(withoutNames(hit.e.summary, forms, { surname: hit.surname }), master.staff ?? []),
         ivProductName: /點滴/.test(slot.courseName) ? ivProductOf(hit.e.summary, master.ivProducts ?? []) : null,
         evidence: hit.e.summary,
         clock: hit.e.clock,
@@ -868,12 +907,13 @@ function entitlementFor(plan, course) {
 }
 
 /** 一段照她的決定填好的配對。事件上讀得到的先填，她明寫的蓋過去；她確認過了，所以是 high。 */
-function decidedMatch(e, courseName, spec, staff, base = null) {
+function decidedMatch(e, courseName, spec, staff, base = null, forms = []) {
   const fromEvent = e ? {
     startsAt: startOf(e, courseName),
     room: roomOf(e.summary),
     equipmentName: coursesOf(e.summary).find((x) => SAME(x.course, courseName))?.equip ?? null,
-    therapistName: therapistOf(e.summary, staff),
+    // 同配對那一條路：客戶自己的名字不是人員（`withoutNames()`）
+    therapistName: therapistOf(withoutNames(e.summary, forms), staff),
     ivProductName: /點滴/.test(courseName) ? ivProductOf(e.summary, SEED.ivProducts) : null,
     evidence: e.summary,
     clock: e.clock,
@@ -911,7 +951,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
           c.days.push(day);
           c.days.sort((x, y) => x.date.localeCompare(y.date));
         }
-        day.filled.push({ slot: { entitlementKey: key ?? null, courseName: a.course }, match: decidedMatch(e, a.course, a, staff) });
+        day.filled.push({ slot: { entitlementKey: key ?? null, courseName: a.course }, match: decidedMatch(e, a.course, a, staff, null, c.forms ?? []) });
         if (e) usedSummaries.add(`${op.date}|${e.summary}`);
         // 那一筆事件原本被列成「兩邊講的不是同一件事」—— 她決定過了，就不是衝突了
         day.conflicts = (day.conflicts ?? []).filter((x) => x.e !== e);
@@ -931,7 +971,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
         log.applied.push(`${where}：時間維持不詳`);
         continue;
       }
-      f.match = decidedMatch(e, op.course, set, staff, e ? null : f.match);
+      f.match = decidedMatch(e, op.course, set, staff, e ? null : f.match, c.forms ?? []);
       if (set.entitlement) f.slot.entitlementKey = set.entitlement;
       if (e) usedSummaries.add(`${op.date}|${e.summary}`);
       if (e) day.conflicts = (day.conflicts ?? []).filter((x) => x.e !== e);
@@ -977,7 +1017,14 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
         || (therapistAliases[x.name] ?? []).some((a) => normVariant(a) === normVariant(t))))
       .map((t) => ({ name: t, aka: [] })),
   ];
-  const therapistWords = [...staff.map((x) => x.name), ...therapists, ...(doctors ?? []), ...(noise ?? [])];
+  // **種子上只有一個字的名字不自動算「認得的雜訊」**（2026-10-06）：`residualNames()` 把這份名單上的字扣掉
+  // 之後還剩中文字，才當成「寫的是別人」。種子補了林、宋、簡這幾位只有一個姓的醫師之後，`3.林IL治2`
+  //（一位姓林、不在舊表上的人，假名）會被扣成空的 → 當成沒寫名字 → 補到那天剛好勾了 ILIB 的另一位客戶身上。
+  // 一個字的要她在別名表的 `doctors` 明列才算（她原本列的夏、許、李照舊）；兩個字以上的照舊自動算。
+  const therapistWords = [
+    ...staff.map((x) => x.name).filter((name) => [...normVariant(name)].length > 1),
+    ...therapists, ...(doctors ?? []), ...(noise ?? []),
+  ];
 
   const usedSummaries = new Set();
   const customers = [];

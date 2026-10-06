@@ -17,8 +17,22 @@ const MONTH = TODAY.slice(0, 7);
 /** 這個月裡還沒過的一天（月底那幾天就用今天）。 */
 const PICK_DAY = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY;
 
+/**
+ * 這一支測的是**機制**（設定頁那兩排、醫師那一排怎麼排），所以主檔收回 2026-10-06 之前的樣子：
+ * 醫師只有夏、許、李三位、科別都是空的，再由各測試自己蓋上去。種子後來補到 8 位、填了科別
+ *（course-form-and-sheet/04）—— 種子那一份的排法在最下面的 D7。
+ */
+const OLD_DOCTORS = ['staff-dr-xia', 'staff-dr-xu', 'staff-dr-li'];
+const baseDocs = () => masterDocs()
+  .filter((d) => d.path !== 'config/app/staff' || d.data.role !== '醫師' || OLD_DOCTORS.includes(d.id))
+  .map((d) => {
+    if (d.path !== 'config/app/staff') return d;
+    const { specialties, ...data } = d.data;
+    return { ...d, data };
+  });
+
 /** 主檔，但某幾筆換掉幾格（`change` 回要蓋上去的欄位）。 */
-const masterWith = (change) => masterDocs().map((d) => ({ ...d, data: { ...d.data, ...change(d) } }));
+const masterWith = (change) => baseDocs().map((d) => ({ ...d, data: { ...d.data, ...change(d) } }));
 
 /** 夏醫師是唯一的復健科；許醫師是心臟科；李醫師沒填。 */
 const withSpecialties = (d) => {
@@ -38,7 +52,7 @@ const rehabCustomer = () => [
 ];
 
 test('D1 設定 → 治療師與醫師：醫師有「科別」那一排，可以勾不只一科、自己打新的；治療師沒有', async ({ app, page }) => {
-  await app.seed([...masterDocs()]);
+  await app.seed([...baseDocs()]);
   await app.signIn('/settings/staff');
 
   await page.locator('[data-edit="staff-dr-xia"]').click();
@@ -73,7 +87,7 @@ test('D1 設定 → 治療師與醫師：醫師有「科別」那一排，可以
 
 test('D2 設定 → 課程：「來訪時要選醫師」三種答案；舊課程打開照原本的畫好，存一次不變', async ({ app, page }) => {
   // 舊資料：課程上沒有 doctorPick
-  await app.seed(masterDocs().map((d) => {
+  await app.seed(baseDocs().map((d) => {
     if (d.path !== 'config/app/courses') return d;
     const { doctorPick, ...data } = d.data;
     return { ...d, data };
@@ -170,7 +184,7 @@ test('D4 壓表：那一科有兩位 → 一個都不預選，兩位排在最前
 });
 
 test('D5 她還沒替醫師填科別：醫師那一排跟以前一模一樣（全部列出來、不預選、沒有「其他醫師」）', async ({ app, page }) => {
-  await app.seed([...masterDocs(), ...rehabCustomer()]);
+  await app.seed([...baseDocs(), ...rehabCustomer()]);
   await app.signIn('/');
   await app.go('/schedule');
   await page.locator(`[data-month="${MONTH}"]`).click();
@@ -211,4 +225,42 @@ test('D6 來訪編輯器：新的一段也先選好那一位、其他醫師點�
 
   const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-d');
   expect(v.slots[0].doctorId, '她說還沒定就是還沒定').toBeNull();
+});
+
+// 種子那一份（2026-10-06，course-form-and-sheet/04）：醫師 8 位，科別照 Abovee 上實際排的填。
+test('D7 種子的醫師與科別：復健科醫師門診先選好宋、其餘收在「其他醫師」；二返那一排前面是功能／二返那五位、林在後面', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(), ...rehabCustomer(),
+    entitlement('cust-d', {
+      id: 'ent-followup', label: '二返', type: 'single', courseId: 'course-followup', totalQty: 2, durationMin: 30,
+    }),
+  ]);
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await page.locator('[data-pick="cust-d"]').first().click();
+  await app.layer('[data-day]');
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-ent]');
+
+  // 復健科只有宋一位 → 已經按下去；另外七位收在後面
+  await page.locator('[data-ent="ent-rehab"]').click();
+  await app.layer('[data-doctor]');
+  await expect(page.locator('[data-doctor]')).toHaveCount(8);
+  await expect(page.locator('[data-doctor="staff-dr-song"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-doctor="staff-dr-xia"]')).toBeHidden();
+  await expect(page.locator('[data-doctor="staff-dr-lin"]')).toBeHidden();
+
+  // 二返：功能／二返那五位排前面（原本三位都在）、不預選；林（沒填科別）在「其他醫師」後面，點得到
+  await page.locator('[data-ent="ent-followup"]').click();
+  await app.layer('[data-doctor="staff-dr-xia"]');
+  for (const id of ['staff-dr-xia', 'staff-dr-xu', 'staff-dr-li', 'staff-dr-zhang-ya', 'staff-dr-zhang-zheng']) {
+    await expect(page.locator(`[data-doctor="${id}"]`)).toBeVisible();
+  }
+  await expect(page.locator('[data-doctor][aria-pressed="true"]')).toHaveCount(0);
+  await expect(page.locator('[data-doctor="staff-dr-lin"]')).toBeHidden();
+  await page.locator('[data-chip-more]', { hasText: '其他醫師' }).click();
+  await expect(page.locator('[data-doctor="staff-dr-lin"]')).toBeVisible();
+  await expect(page.locator('[data-doctor="staff-dr-song"]')).toBeVisible();
 });

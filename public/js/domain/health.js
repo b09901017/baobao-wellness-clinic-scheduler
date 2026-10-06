@@ -22,7 +22,7 @@ import {
 import { contraindicationTerms } from './contraindications.js';
 import { SEED } from './seed.js';
 import {
-  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS,
+  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import { missingPairs, countMismatches } from './followups.js';
@@ -215,6 +215,12 @@ export const CHECKS = [
       + '癒原養方、養心舒眠、皮蛇疫苗）。少了的那幾款拍 Abovee 認不出來，加購與排班也選不到',
   },
   {
+    id: 'seedStaff',
+    label: '治療師與醫師少了幾位',
+    hint: 'Abovee 的服務資源清單上有 13 位治療師、8 位醫師，2026-10-06 補了 9 位。少了的那幾位拍 Abovee 認不出來，'
+      + '排班也選不到。建起來的醫師帶著科別（復健科、心臟科剛好一位，排那幾門課時會先選好）',
+  },
+  {
     id: 'ivProductDuration',
     label: '點滴品項沒填時長',
     hint: '護心抗老要打 180 分。那一格空著的話它跟著課程走（120 分），'
@@ -230,8 +236,8 @@ export const CHECKS = [
     id: 'seedBlanks',
     label: '主檔有幾格還沒跟上',
     hint: '2026-10-05 多的那幾格：課程的分類、要哪一科的醫師、二返約的時候選 30 或 60、'
-      + 'Abovee 上的寫法、EECP 可以排治7。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
-      + '「EECP20」會被認成正式課 —— 你自己填過的那幾格不會被動到',
+      + 'Abovee 上的寫法、EECP 可以排治7；2026-10-06 多醫師的科別。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
+      + '「EECP20」會被認成正式課，醫師那一排也分不出誰是哪一科 —— 你自己填過的那幾格不會被動到',
   },
 ];
 
@@ -334,6 +340,8 @@ function prepare(snapshot, today) {
     ivProductsById: byId(master.ivProducts),
     // 還開著的診間（陣列）：「她是不是已經有一間同名的」要掃一遍
     rooms: alive(master.rooms),
+    // 還開著的治療師與醫師：「她是不是已經自己建了那一位」（`checkSeedStaff()`）
+    staff: alive(master.staff),
     // 這兩份是給「復能額度還叫舊名字」與「提醒詞不在警示名單裡」用的，
     // 而它們要的是**陣列**（算名字與比名單都要順序）。
     equipment: alive(master.equipment),
@@ -1519,6 +1527,90 @@ function checkSeedIvProduct(ctx) {
 }
 
 /**
+ * 二十三之四、治療師與醫師少了幾位（2026-10-06，course-form-and-sheet/04）。
+ *
+ * Abovee 的服務資源清單有 13 位治療師、8 位醫師，種子原本 9＋3。形狀照抄 `checkSeedCourse()`，
+ * 護欄多兩條 —— 因為拍 Abovee 認人靠的是名字的**一部分**（`abovee.js` 的 `staffFrom()`：
+ * 治療師的名字是全名的結尾、醫師的姓是全名的開頭），「同名」要比 `sameNamed()` 寬：
+ *
+ * - **她已經用全名自己建了那一位**（同一種角色裡有一位的名字以種子那個姓開頭／以種子那個名字結尾）
+ *   → 當成同一位，不建
+ * - **反方向**：種子要建的名字以她既有某一位的名字開頭／結尾（她有一位只寫「張」的醫師，種子要建
+ *   「張雅」「張正」）→ **不建，只列出來**。建了的話 `staffFrom()` 對兩位張的全名都會同時符合
+ *   「張」與那一位 → 誰都不是，本來認得的變成認不得
+ *
+ * 其餘照舊：一個種子 id 都沒有的主檔不念、她刪掉的不算、補上去的值要存得下去。
+ *
+ * ## 建新醫師的那一顆同時補既有醫師空著的科別（`fix.also`）
+ *
+ * 「建新醫師」與「補科別」本來是兩列。她只按前一列的話，功能／二返那一科只有新的兩位張，
+ * `doctorChoicesFor()` 會把原本那三位收進「其他醫師」—— 二返那一排最前面變成兩位從來不看二返的人。
+ * 所以：要建的那一位帶著某一科、而**種子上同一科的既有醫師那一格還是空的**時，這一顆一起補
+ * （同一個 commit，`data/health.js` 的 `addStaff`），而且那一列講得出來（ADR-0070）。
+ * 她填過別的科別的那一位不動；只補科別的那一列在 `checkSeedBlanks()`。
+ */
+function checkSeedStaff(ctx) {
+  const seeded = (SEED.staff ?? []).some((row) => ctx.staffById[row.id]);
+  if (!seeded) return [];
+
+  const norm = (s) => normalizeAlias(s?.name ?? s);
+  // 名字的「一部分」對得上：醫師比開頭、治療師比結尾（跟 `staffFrom()` 同一條）
+  const partOf = (role, whole, part) => Boolean(whole && part)
+    && (role === DOCTOR_ROLE ? whole.startsWith(part) : role === THERAPIST_ROLE && whole.endsWith(part));
+  const out = [];
+
+  for (const row of SEED.staff ?? []) {
+    if (ctx.staffById[row.id]) continue;
+    const peers = ctx.staff.filter((s) => s.role === row.role);
+    const mine = norm(row);
+    if (peers.some((s) => norm(s) === mine || partOf(row.role, norm(s), mine))) continue;
+
+    const shadow = peers.find((s) => partOf(row.role, mine, norm(s)));
+    if (shadow) {
+      out.push({
+        severity: 'attention',
+        title: row.name,
+        detail: `建議清單上有「${row.name}」，但你的主檔上已經有一位「${shadow.name}」——`
+          + ` 再建這一位的話，拍 Abovee 會分不出兩位。先到 設定 → 治療師與醫師 把「${shadow.name}」改成他完整的顯示名，這一列就會換成可以建的`,
+        link: '#/settings/staff',
+        fix: null,
+      });
+      continue;
+    }
+
+    // 這一位帶著的科別裡，種子上同一科的既有醫師還空著那一格的 → 一起補
+    const also = (row.specialties ?? []).length
+      ? (SEED.staff ?? [])
+        .filter((old) => old.id !== row.id && (old.specialties ?? []).some((sp) => row.specialties.includes(sp)))
+        .map((old) => ({ old, has: ctx.staffById[old.id] }))
+        .filter(({ has }) => has && !has.deletedAt && has.role === DOCTOR_ROLE && !(has.specialties ?? []).length)
+        .map(({ old, has }) => ({ id: old.id, label: has.name ?? old.name, changes: { specialties: [...old.specialties] } }))
+      : [];
+    const what = row.role === DOCTOR_ROLE
+      ? `醫師${(row.specialties ?? []).length ? `（${row.specialties.join('、')}）` : '（科別先不填 —— 每一門要醫師的課都選得到他）'}`
+      : '物理治療師';
+    out.push({
+      severity: 'attention',
+      title: row.name,
+      detail: `${what}。建議清單上有這一位，你的主檔沒有 —— 拍 Abovee 碰到他認不出來，排班也選不到`
+        + (also.length
+          ? `。同時把 ${also.map((a) => a.label).join('、')} 空著的科別補上「${row.specialties.join('、')}」`
+            + '（不補的話那一科只剩新的這幾位，原本的醫師會被收進「其他醫師」）'
+          : ''),
+      link: '#/settings/staff',
+      fix: {
+        kind: 'addStaff',
+        label: row.name,
+        staffId: row.id,
+        data: { ...withoutId(row), active: true },
+        also,
+      },
+    });
+  }
+  return out;
+}
+
+/**
  * 2026-10-05 之前種子上 EECP 那兩門課只准排的那兩間。治7 回來之後多一間（ADR-0124）。
  * **她那一份還跟這個一模一樣才建議改** —— 她自己收窄或放寬過就是一個決定。
  */
@@ -1575,6 +1667,8 @@ function checkSeedBlanks(ctx) {
     courses: [ctx.coursesById, ctx.courses],
     equipment: [ctx.equipmentById, ctx.equipment],
     ivProducts: [ctx.ivProductsById, ctx.ivProducts],
+    // 2026-10-06：醫師的科別（ADR-0120 那一格，種子現在填了）
+    staff: [ctx.staffById, ctx.staff],
   };
 
   for (const [type, [byIdOf, mineAlive]] of Object.entries(sources)) {
@@ -1620,6 +1714,16 @@ function checkSeedBlanks(ctx) {
               + (alsoOrder ? '。「常用診間」那一排還是舊的那兩間，一起加上治7' : '。「常用診間」你自己排過，不動'),
           });
         }
+      }
+
+      // 醫師的科別：**那一格是空的才補**，她填過別的就是一個決定。只補還是醫師的那幾位 ——
+      // 她改成治療師的補了存不下去（`validate('staff')`：只有醫師有科別）
+      if (type === 'staff' && (row.specialties ?? []).length
+          && mine.role === DOCTOR_ROLE && empty(mine.specialties)) {
+        push(type, mine, {
+          what: '科別', to: row.specialties.join('、'), changes: { specialties: [...row.specialties] },
+          why: '排指定這一科的課時他排在前面，其餘醫師收在「其他醫師」後面 —— 是順序不是限制；那一科剛好一位時會先選好',
+        });
       }
 
       const free = (row.aboveeNames ?? [])
@@ -1816,6 +1920,7 @@ const RUNNERS = {
   seedDuration: checkSeedDurations,
   seedCourse: checkSeedCourse,
   seedIvProduct: checkSeedIvProduct,
+  seedStaff: checkSeedStaff,
   seedBlanks: checkSeedBlanks,
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,

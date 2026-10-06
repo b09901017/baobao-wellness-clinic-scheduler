@@ -63,8 +63,23 @@ export const SEED = {
   // 「醫師不放進 config/staff」，見 docs/adr/0026-doctors-are-assignable-staff.md。
   // 姓氏就是她講的全部，名字她沒說，不要自己補。
   //
-  // **科別（`specialties`，ADR-0120）刻意不填**：她還沒說誰是哪一科，由她自己在
-  // 設定 → 治療師與醫師 填。Abovee 上的全名也不寫在這裡（真名不進 repo）。
+  // **2026-10-06 補到跟 Abovee 的服務資源清單一樣**（治療師 13 位、醫師 8 位）。她：
+  // 「醫師也可以都補上去，也幫我把李夏許的名子補齊全，或是補在abovee的寫法那邊」「同意公開」。
+  //
+  // **全名照舊不寫在這裡**（真名不進 repo），而且不用寫：拍 Abovee 認人（`abovee.js` 的 `staffFrom()`）
+  // 靠的是「治療師的名字是全名的結尾、醫師的姓是全名的開頭」—— 治療師放不含姓的名字、醫師放姓就認得，
+  // 夏／許／李不用補全名。**她想記全名的話填在「Abovee 上的寫法」那一格，顯示名不要改**：
+  // 合併檔輸出的是這裡的名字，app 匯入時拿名字精確比對主檔（`mergeImport.js` 的 `resolveAssignments()`）。
+  //
+  // **兩位張不是「張」**：同名存不下去，而且姓氏規則兩位都符合就誰都不是。用「姓＋名字的第一個字」，
+  // 全名各自只對到一位（比只有姓多一個字，她同意）。
+  //
+  // **科別（`specialties`，ADR-0120）照 Abovee 5～10 月那 353 筆實際排的填**：二返全是夏、許、李；
+  // 功醫門診是夏、李與兩位張；復健門診與羊膜全是宋；心臟門診全是簡。**林一筆都沒有，所以不填** ——
+  // 她：「無法判斷的就先放入都可以」：沒有科別的醫師每一門要醫師的課都選得到（排在「其他醫師」後面），
+  // 四科都勾給他的話復健科與心臟科變成兩位，「那一科剛好一位就先選好」就不成立了。
+  //
+  // 既有資料庫由資料健檢的「治療師與醫師少了幾位」建起來、「主檔有幾格還沒跟上」補科別。
   staff: [
     { id: 'staff-tw', name: '騰崴', role: '物理治療師' },
     { id: 'staff-zn', name: '芝寧', role: '物理治療師' },
@@ -75,9 +90,18 @@ export const SEED = {
     { id: 'staff-yt', name: '怡婷', role: '物理治療師' },
     { id: 'staff-py', name: '珮喩', role: '物理治療師' },
     { id: 'staff-wt', name: '王婷', role: '物理治療師' },
-    { id: 'staff-dr-xia', name: '夏', role: '醫師' },
-    { id: 'staff-dr-xu', name: '許', role: '醫師' },
-    { id: 'staff-dr-li', name: '李', role: '醫師' },
+    { id: 'staff-pr', name: '佩茹', role: '物理治療師' },
+    { id: 'staff-yr', name: '瑜如', role: '物理治療師' },
+    { id: 'staff-yz', name: '郁真', role: '物理治療師' },
+    { id: 'staff-yl', name: '依琳', role: '物理治療師' },
+    { id: 'staff-dr-xia', name: '夏', role: '醫師', specialties: ['功能／二返'] },
+    { id: 'staff-dr-xu', name: '許', role: '醫師', specialties: ['功能／二返'] },
+    { id: 'staff-dr-li', name: '李', role: '醫師', specialties: ['功能／二返'] },
+    { id: 'staff-dr-song', name: '宋', role: '醫師', specialties: ['復健科'] },
+    { id: 'staff-dr-jian', name: '簡', role: '醫師', specialties: ['心臟科'] },
+    { id: 'staff-dr-zhang-ya', name: '張雅', role: '醫師', specialties: ['功能／二返'] },
+    { id: 'staff-dr-zhang-zheng', name: '張正', role: '醫師', specialties: ['功能／二返'] },
+    { id: 'staff-dr-lin', name: '林', role: '醫師' },
   ],
 
   // 器材。**兩格名字回答兩個不同的問題**（2026-09-08）：

@@ -1,6 +1,6 @@
 # 治療師與醫師補齊、科別
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第一點之 7；問題 3、問題 4（同意公開）
 動工前先讀：`public/js/domain/seed.js` 的 `staff`（上面那段註解）、`public/js/domain/abovee.js` 的 `staffFrom()`／`staffRoleFor()`／`aliasWrites()`、
 `public/js/domain/masterData.js` 的 `doctorChoicesFor()`／`specialtyNames()`／`validators.staff`、`public/js/domain/health.js` 的 `checkSeedBlanks()`／`sameNamed()`、
@@ -103,3 +103,39 @@ Blocked by: —
 
 - `SPEC.md` 第 12 節、`docs/操作手冊.md`（治療師與醫師那一段）
 - `CLAUDE.md` 連動表「一門課要不要醫師、哪一科」那一列不用改；「`domain/seed.js`」那一列補「人員走 `checkSeedStaff()`」
+
+## 做完時留下的（2026-10-06）
+
+- **種子 21 位**：治療師 13（多 `staff-pr`、`staff-yr`、`staff-yz`、`staff-yl`）、醫師 8（多 `staff-dr-song`、`staff-dr-jian`、
+  `staff-dr-zhang-ya`、`staff-dr-zhang-zheng`、`staff-dr-lin`）。科別照那張表；林不填
+- **拿她的真檔驗過**（只看數字，腳本在她機器的 `.local/references/merge-baseline-2026-10-06/staff-check.mjs`）：
+  - 新的九位各自**剛好對到服務資源清單上一位**全名
+  - Abovee 353 筆的服務資源那一格：本來認得的 127 筆**一筆都沒變**、多認得 34 筆（宋 18、簡 9、兩位張各 1、依琳 5）、掉 0、換人 0
+  - 還認不得的 192 筆：164 筆那一格不是人（診間／設備／護理組）、28 筆是那兩位全名推不出來的治療師（LuLu、珮喩）—— 照這一支寫的，第一次拍到她選一次
+- **資料健檢多一項 `seedStaff`「治療師與醫師少了幾位」（31 項）**。同名的判斷兩個方向都擋了（`checkSeedStaff()` 的 `partOf()`，
+  跟 `staffFrom()` 同一條：醫師比開頭、治療師比結尾）；反方向的那一種**只列不修**（沒有按鈕，連到設定頁）
+- **「建新醫師」與「補科別」選的是合成一顆**（issue 上兩個做法挑一個）：建一位帶著某一科的新醫師時，種子上同一科、
+  她主檔上那一格還空著的既有醫師**同一個 commit 一起補**（`fix.also` → `data/health.js` 的 `addStaff` 一筆修正寫好幾筆、同一筆文件只補一次）。
+  那一列的說明與確認框都講得出會多寫哪幾位。**為什麼不選「先不帶科別」**：主檔清單照文件 id 排，新醫師不帶科別時二返那一排是
+  簡、李、林、宋、夏、許…… —— 原本三位照樣不在最前面
+- 只補科別的那一列在 `checkSeedBlanks()` 多一段（`type: 'staff'`，那一格空的才補、只補還是醫師的那幾位）；`data/health.js` 的
+  `setMasterFields` 照 `fix.type` 寫，沒改
+- **`merge.mjs` 的牽連在這一支修掉了（原本排在 11 第三節）**。照基準比出來：種子多了「林」之後 **21 段被掛上林醫師**，
+  每一段都是那個字在客戶自己的名字裡。查她的真檔怎麼寫醫師（只數）：真的寫了醫師的 8 段裡**只有 1 段寫成「X醫師」**，其餘光寫一個姓 ——
+  所以 11 原本打算的「只認明寫的寫法」會砍掉 5 段真的，沒有照做。改成兩條：
+  1. `withoutNames()`：先把**這位客戶自己的**名字從那一句拿掉（對得上的最長那一段、兩個字以上；只沾到一個姓配上的拿掉那個字一次），再 `therapistOf()`。
+     配對那條路與決定檔「加一段／改一段」那條路都走。**不拿同一句裡別位客戶的名字**：別位客戶去姓之後的兩個字常常就是某位治療師的名字
+  2. 種子上**一個字**的名字不自動進 `residualNames()` 扣掉的那份名單，要她在別名表 `doctors` 明列（她列的正是夏、許、李，所以既有行為一個字都沒變）。
+     不然 `3.林IL治2`（假名）會被當成沒寫名字、補到別位客戶身上 —— 這一條在她現在的資料上還沒發生（「補到這位客戶身上」是 0），`tests/merge-staff-names.test.js` 重現得出來
+  
+  **修完再比：跟 `00-baseline` 一模一樣**（import 與報告的指紋都相同）—— 21 段假的不見、8 段真的醫師與 51 段治療師一段都沒動
+- **改了種子查的**：`tests/master-data.test.js`、`tests/master-catch-up.test.js`（那一條本來釘「人名一個都沒加」，改成釘「沒有一個名字像全名」）、
+  `tests/doctor-specialties.test.js`、`tests/health.test.js`（31 項）；`scripts/seed-staging.mjs` 用的是寫死的五個舊 id，不受影響；
+  E2E `48` 整支收回「三位醫師、科別空著」的主檔（它測的是機制），種子那一份的排法是新的 D7；`03` 多 H10（一次建九位）
+- `sw.js` v166；`SPEC.md` 第 12 節；skill 的 `SKILL.md`（`doctors` 那一格）與 `shorthand.md`（醫師那一段）；`CLAUDE.md` 連動表種子那一列
+- **沒做的**：`docs/操作手冊.md` 治療師與醫師那一段留給 12
+- **她要知道的**：
+  1. 兩位張的顯示名是「張雅」「張正」（比只有姓多一個字，在公開的 repo 裡）—— 不要的話在設定頁改名
+  2. 想記醫師的全名：填在「Abovee 上的寫法」，**顯示名不要改**（合併檔靠顯示名對人）
+  3. LuLu 與珮喩第一次拍到要她在確認層選一次，之後記住
+  4. 資料健檢那一項按「一次建這 9 位」就好，科別會一起補
