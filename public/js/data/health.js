@@ -188,6 +188,14 @@ function opFor(fix) {
         note: '資料健檢：還原回到建議清單上的診間',
       };
     }
+    // 點滴8、VIP7（ADR-0127）：拆成 8A／8B、7A／7B 之後，原本那一間**停用不刪** —— 既有來訪還指著它，
+    // 要照樣印得出 `.8`。**只寫 `active` 一格**；沒有這個分支的話會落到最底下那一條，把簡寫寫成 undefined。
+    if (fix.mode === 'retire') {
+      return {
+        op: 'update', path: roomPath, id: fix.roomId, changes: { active: false },
+        note: '資料健檢：停用拆成兩間的那一間診間（沒選床位的來訪照樣印得出來）',
+      };
+    }
     if (fix.mode === 'drop') {
       return {
         op: 'softDelete', path: roomPath, id: fix.roomId,
@@ -212,6 +220,20 @@ function opFor(fix) {
       id: fix.visitId,
       changes: { slots: fix.slots },
       note: '資料健檢：清掉來訪上的床位',
+    };
+  }
+
+  // 點滴8 床 A → 點滴8A（ADR-0127）。那四間現在是各自的診間，舊來訪身上那個 A／B 就是「它是哪一間」。
+  // 跟 `clearBeds` 同一個寫法（整包 `slots`、不經 `visitsData.save()`、不問鎖 —— 這是資料修正，
+  // 已完成的也要搬得動）；**另一種 kind 是為了稽核那一句**：這裡發生的是搬診間，不是清床位。
+  // `checkSlotBeds()` 算好的那一份只有 `roomId` 與 `bed` 兩格變了。
+  if (fix?.kind === 'moveBedToRoom') {
+    return {
+      op: 'update',
+      path: 'visits',
+      id: fix.visitId,
+      changes: { slots: fix.slots },
+      note: `資料健檢：床位搬到自己的診間（${(fix.moves ?? []).join('、')}）`,
     };
   }
 

@@ -451,14 +451,17 @@ describe('種子資料', () => {
   });
 
   // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
+  // 2026-10-06（ADR-0127）：補治6、VIP1；點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，
+  // 原本那兩間留著、停用（沒選床位的那一間）—— 排得到的 22 間，細節在 `tests/bed-rooms.test.js`
   test('診間就是她列的那三種、那幾間', () => {
     const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
     // 治7 是 2026-10-05 加回來的（ADR-0124：Abovee 上 EECP 還排在治療室7）
-    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治7', '治8']);
+    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治6', '治7', '治8']);
     assert.deepEqual(of('點滴室'),
-      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴9', '點滴10']);
-    assert.deepEqual(of('VIP室'), ['VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7']);
-    assert.equal(SEED.rooms.length, 18);
+      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴8A', '點滴8B', '點滴9', '點滴10']);
+    assert.deepEqual(of('VIP室'), ['VIP1', 'VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7', 'VIP7A', 'VIP7B']);
+    assert.equal(SEED.rooms.length, 24);
+    assert.deepEqual(SEED.rooms.filter((r) => r.active === false).map((r) => r.name), ['點滴8', 'VIP7']);
   });
 
   test('一間 4 號都沒有', () => {

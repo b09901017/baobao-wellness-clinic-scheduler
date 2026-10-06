@@ -871,10 +871,13 @@ function roomField(all, course, slot, i) {
   //
   // 排不進去的不藏起來（她偶爾真的會排到別間），但要標出來 ——
   // 診間有十七間，排錯順序等於每次都要從頭掃。
-  const options = orderedRoomSlots(course, all.rooms).map((s) => ({
+  //
+  // **這一段現在指著的那一間就算停用也列出來**（`keep`，ADR-0127）：點滴8 停用之後，還排在點滴8 的那一段
+  // 打開時那一排上要有它，不然一顆都沒按著，她只改記一句存一次，診間就安靜地沒了。
+  const options = orderedRoomSlots(course, all.rooms, { keep: slot.roomId }).map((s) => ({
     value: roomKey(s.roomId, s.bed),
     label: s.label,
-    note: s.usual ? '' : '不常用',
+    note: s.retired ? '已停用' : (s.usual ? '' : '不常用'),
   }));
 
   // **比的是診間，不是診間＋床位**（2026-09-08）。床位那一層取消之後選項上

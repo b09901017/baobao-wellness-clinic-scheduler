@@ -251,10 +251,12 @@ test('S11 常用診間存得下去、讀得回來，而且只列得出排得進�
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
 
-  // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有那八間
+  // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有點滴室那幾間。
+  // 2026-10-06 多了 8A、8B（ADR-0127）；fixture 把種子每一筆都寫成啟用的，所以「沒選床位」的點滴8 也在 → 十間
+  // （她的資料庫按完資料健檢、點滴8 停用之後是九間）
   await page.locator('[data-edit="course-iv-drip"]').click();
   const boxes = page.locator('input[name="preferredRoomIds"]');
-  await expect(boxes).toHaveCount(8);
+  await expect(boxes).toHaveCount(10);
   await expect(page.locator('input[name="preferredRoomIds"][value="room-t2"]'),
     '治療室排不進營養點滴，不該列得出來').toHaveCount(0);
 

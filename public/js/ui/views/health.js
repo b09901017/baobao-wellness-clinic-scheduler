@@ -330,7 +330,7 @@ const FIX_COPY = {
   // 診間清單。三種形狀（新增／刪掉／補簡寫）走同一個 kind，所以這裡要分岔 ——
   // **每一句都只講真的會發生的事**（ADR-0070）。「刪掉」那一種的代價要說出來。
   roomList: {
-    button: (fix) => ({ add: '建起來', restore: '還原', drop: '刪掉', short: '填上簡寫' }[fix?.mode] ?? '處理'),
+    button: (fix) => ({ add: '建起來', restore: '還原', drop: '刪掉', short: '填上簡寫', retire: '停用' }[fix?.mode] ?? '處理'),
     all: (n) => `一次處理這 ${n} 間`,
     one: (fix) => ({
       add: {
@@ -364,6 +364,15 @@ const FIX_COPY = {
           '只填這一格，診間的名字與類型一個字都不動',
         ],
       },
+      retire: {
+        title: `停用「${fix.label}」？`,
+        lines: [
+          `新的清單上它拆成 ${fix.label}A、${fix.label}B 兩間各自的診間`,
+          '停用之後排班時選不到它；**不是刪掉** —— 已經排在那一間的來訪一個字都不動，照樣印得出診間',
+          '沒選床位的就是它：舊來訪、拍 Abovee 那一格沒寫床時照樣認得到',
+          '之後想讓它重新選得到，到 設定 → 診間 把它啟用',
+        ],
+      },
     }[fix.mode]),
     many: (fixes) => ({
       title: `一次處理這 ${fixes.length} 間診間？`,
@@ -372,16 +381,26 @@ const FIX_COPY = {
         restore: `還原 ${fix.label}`,
         drop: `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
         short: `${fix.label} 的簡寫填成 ${fix.shortName}`,
+        retire: `停用 ${fix.label}（不刪；排在那一間的來訪照樣印得出來）`,
       }[fix.mode])),
     }),
   },
 
   // 清掉來訪上的床位。**這是一次不可逆的改寫**（她 2026-09-08 選的），
   // 所以那一句要寫出來 —— 底部那顆「復原」是寫入之後的安全網，不是免死金牌。
+  // 兩種修正共用這一項：別間的床位清掉（`clearBeds`）、點滴8／VIP7 的床位搬到那一間（`moveBedToRoom`，ADR-0127）
   slotBeds: {
-    button: () => '清掉床位',
-    all: (n) => `一次清這 ${n} 筆`,
-    one: (fix) => ({
+    button: (fix) => (fix?.kind === 'moveBedToRoom' ? '搬到那一間' : '清掉床位'),
+    all: (n) => `一次處理這 ${n} 筆`,
+    one: (fix) => (fix.kind === 'moveBedToRoom' ? {
+      title: `把「${fix.label}」搬到床位那一間？`,
+      lines: [
+        ...fix.moves,
+        ...((fix.cleared ?? []).length ? [`同一天別段的床位 ${fix.cleared.join('、')} 清掉（那一間沒有拆開）`] : []),
+        '點滴8A／8B、VIP7A／7B 現在是各自的診間 —— 那個 A／B 就是「它是哪一間」',
+        '只換診間、清掉床位那一格；時間、狀態、次數、記一句一個字都不動（已完成的也一樣）',
+      ],
+    } : {
       title: `清掉「${fix.label}」上的床位？`,
       lines: [
         '床位那一層取消了 —— 一間就是一個資源',
@@ -390,8 +409,10 @@ const FIX_COPY = {
       ],
     }),
     many: (fixes) => ({
-      title: `把這 ${fixes.length} 筆來訪上的床位都清掉？`,
-      lines: fixes.map((fix) => fix.label),
+      title: `一次處理這 ${fixes.length} 筆來訪上的床位？`,
+      lines: fixes.map((fix) => (fix.kind === 'moveBedToRoom'
+        ? `${fix.label}：${fix.moves.join('、')}`
+        : `${fix.label}：清掉床位`)),
     }),
   },
 
@@ -608,6 +629,7 @@ const KIND_TO_CHECK = {
   renameEquipment: 'equipmentNames',
   applyRoom: 'roomList',
   clearBeds: 'slotBeds',
+  moveBedToRoom: 'slotBeds',
 };
 
 /**

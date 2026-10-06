@@ -14,7 +14,7 @@ import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-
 import { getDb } from './firebase.js';
 import * as repo from './repo.js';
 import { MASTER_TYPES } from '../domain/masterData.js';
-import { SEED, DEFAULT_SETTINGS } from '../domain/seed.js';
+import { SEED, DEFAULT_SETTINGS, seedData } from '../domain/seed.js';
 import { toStored } from '../domain/messageTemplates.js';
 
 const pathFor = (type) => `config/app/${type}`;
@@ -125,8 +125,8 @@ export async function loadSeed() {
         skipped += 1;
         continue;
       }
-      const { id, ...data } = row;
-      await repo.create(pathFor(type), { ...data, active: true }, id);
+      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的那一間（ADR-0127）
+      await repo.create(pathFor(type), seedData(row), row.id);
       created += 1;
       madeHere += 1;
     }

@@ -20,9 +20,9 @@ import {
   counts, reconcile, isOverused, schedulable, poolName, timedLabel, legacyPoolNames, autoLabel,
 } from './entitlements.js';
 import { contraindicationTerms } from './contraindications.js';
-import { SEED } from './seed.js';
+import { SEED, seedData } from './seed.js';
 import {
-  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE,
+  clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import { missingPairs, countMismatches } from './followups.js';
@@ -158,13 +158,15 @@ export const CHECKS = [
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
     hint: '2026-09-08 重畫過一次：多了 VIP 室、一間 4 號都沒有，而月曆那一格印的是簡寫。'
-      + '治療室是 2 3 5 7 8 —— 治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）',
+      + '治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）。'
+      + '2026-10-06 補治6、VIP1，點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間 —— '
+      + '原本那兩間停用不刪：沒選床位的舊來訪照樣印得出 .8、vip7',
   },
   {
     id: 'slotBeds',
     label: '來訪上還記著床位',
-    hint: '床位那一層取消了（一間就是一個資源）。舊來訪身上那個 A／B 留著的話，'
-      + '撞期判斷會把同一間的兩個人當成不衝突',
+    hint: '床位那一層取消了（一間就是一個資源）。點滴8、VIP7 的床 A／B 現在是各自的診間（8A、8B、7A、7B），'
+      + '所以那幾筆是**搬到那一間**（要先在上面「診間清單」把那幾間建起來）；別間的床位照舊清掉',
   },
   {
     id: 'equipmentNames',
@@ -1032,7 +1034,7 @@ function checkSeedEquipment(ctx) {
         kind: 'addEquipment',
         label: row.name,
         equipmentId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
 }
@@ -1134,6 +1136,11 @@ const RETURNED_ROOMS = ['room-t7'];
  *   restore  種子有、她照建議刪掉了     → 還原（只有治7）
  *   drop     種子拿掉了、她還開著       → 刪掉（治9／治10／ILIB4）
  *   short    種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
+ *   retire   種子上停用、她還開著       → **停用，不刪**（點滴8、VIP7，ADR-0127）
+ *
+ * `retire` 那一種：點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，原本那兩間是「沒選床位」的那一間。
+ * **不可以放進 `LEGACY_ROOMS`**（那一份走的是刪掉）—— 既有來訪還指著它，她要的是照樣印得出 `.8`。
+ * 排在「建起來」的後面：一次全按時新的那幾間同一個 commit 建好。種子上停用的那一間她主檔上沒有時不建。
  *
  * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
  * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
@@ -1151,12 +1158,15 @@ function checkRoomList(ctx) {
   // 會一次冒出十七列。同 `checkSeedEquipment()` 那道護欄的判斷。
   const seeded = (SEED.rooms ?? []).some((row) => byId[row.id]);
 
+  const retire = [];
+
   for (const row of SEED.rooms ?? []) {
     const mine = byId[row.id];
     // 她自己另外建了一間同名的 → 那一間就是它，不建也不還原第二間
     const twin = sameNamed(ctx.rooms, row.name);
+    const retired = row.active === false;
     if (!mine) {
-      if (!seeded || twin) continue;
+      if (!seeded || twin || retired) continue;
       out.push({
         severity: 'attention',
         title: row.name,
@@ -1164,7 +1174,7 @@ function checkRoomList(ctx) {
         link: '#/settings/rooms',
         fix: {
           kind: 'applyRoom', mode: 'add', roomId: row.id, label: row.name,
-          data: { ...withoutId(row), active: true },
+          data: seedData(row),
         },
       });
       continue;
@@ -1183,6 +1193,19 @@ function checkRoomList(ctx) {
       continue;
     }
 
+    // 種子上停用的那一間（點滴8、VIP7）：她還開著、名字也還是原樣才請她停用。
+    // 改過名字就是拿去當別的用了；已經停用的不念
+    if (retired && mine.active !== false && fullNameOf(mine) === row.name) {
+      retire.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `新的清單上它拆成 ${row.name}A、${row.name}B 兩間各自的診間。停用之後排班時選不到「${row.name}」，`
+          + '已經排在那一間的來訪一個字都不動、照樣印得出來（沒選床位的就是它）',
+        link: '#/settings/rooms',
+        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
+      });
+    }
+
     // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
     const short = String(mine.shortName ?? '').trim();
     if (row.shortName && !short) {
@@ -1198,6 +1221,8 @@ function checkRoomList(ctx) {
       });
     }
   }
+
+  out.push(...retire);
 
   for (const row of LEGACY_ROOMS) {
     const mine = byId[row.id];
@@ -1227,24 +1252,80 @@ function checkRoomList(ctx) {
  *
  * 一筆來訪一個 finding（不是一段一個）：她要處理的是那一筆，
  * 而一筆裡兩段都有床位時列兩次只是同一件事說兩遍。
+ *
+ * ## 2026-10-06：點滴8、VIP7 的床位是**搬到那一間**，不是清掉（ADR-0127）
+ *
+ * 點滴8A／8B、VIP7A／7B 現在是四間各自的診間。舊來訪 `點滴8＋床 A` 的那個 A 正是「它是 8A」——
+ * 清掉就把這件事丟了。所以每一段三條路：
+ *
+ *   搬   那一間＋床位在主檔上對得到一間（`bedRoomOf()`：名字是「點滴8A」）→ `roomId` 換過去、`bed` 清空
+ *   等   建議清單上有那一間、她的主檔還沒有 → **只列不修**，請她先按「診間清單」把它建起來。
+ *        不可以落到「清掉」：她一按，A／B 就永遠沒了、之後搬不了家
+ *   清   其餘（別間的床位、認不得的字）→ 照舊清掉
+ *
+ * 一筆裡有任何一段在「等」→ 整筆先不給按（別段也不清）：這一筆之後還要再處理一次，
+ * 分兩次寫只是多一筆稽核。有「搬」的那一筆是另一種修正（`moveBedToRoom`）——
+ * 借 `clearBeds` 的話稽核上寫的是「清掉來訪上的床位」，講的不是發生的事。
+ *
+ * **每一段除了 `roomId` 與 `bed` 一個字都不變**（測試釘著）；已完成的那幾筆照樣搬
+ * （這是資料修正不是改來訪，舊資料幾乎全是已完成 —— 同 `clearBeds`，直接寫整包 `slots`）。
+ * 沒記床位、還排在點滴8 的段不念：沒選床位就是 `.8`（她 2026-10-06）。
  */
 function checkSlotBeds(ctx) {
+  const upper = (bed) => String(bed ?? '').trim().toUpperCase();
+  // 建議清單上叫這個名字的那一間（她的主檔還沒有時用來說「先去建」）
+  const suggested = (name) => (SEED.rooms ?? []).find((r) => r.active !== false && fullNameOf(r) === name) ?? null;
+
+  const planFor = (slot) => {
+    if (!slot.bed) return { slot };
+    const room = ctx.roomsById[slot.roomId];
+    const alive = room && !room.deletedAt ? room : null;
+    const target = alive ? bedRoomOf(alive, slot.bed, ctx.rooms) : null;
+    if (target) {
+      return { slot: { ...slot, roomId: target.id, bed: null }, moved: `${fullNameOf(alive)} 床 ${upper(slot.bed)} 搬到 ${fullNameOf(target)}` };
+    }
+    const waiting = alive ? suggested(`${fullNameOf(alive)}${upper(slot.bed)}`) : null;
+    if (waiting) return { slot, waiting: fullNameOf(waiting) };
+    return { slot: { ...slot, bed: null }, cleared: slot.bed };
+  };
+
   return (ctx.visits ?? [])
     .filter((v) => !v.deletedAt && (v.slots ?? []).some((s) => s.bed))
     .map((visit) => {
-      const beds = [...new Set((visit.slots ?? []).map((s) => s.bed).filter(Boolean))];
+      const plans = (visit.slots ?? []).map(planFor);
       const who = visit.customerName ?? nameOf(ctx, visit.customerId);
+      const label = `${who}・${visit.date}`;
+      const uniq = (list) => [...new Set(list.filter(Boolean))];
+      const waiting = uniq(plans.map((x) => x.waiting));
+      const moved = uniq(plans.map((x) => x.moved));
+      const cleared = uniq(plans.map((x) => x.cleared));
+
+      if (waiting.length) {
+        return {
+          severity: 'attention',
+          title: label,
+          detail: `床位要搬到「${waiting.join('」「')}」，但你的診間主檔上還沒有那一間 —— `
+            + '先按上面「診間清單跟建議的不一樣」把它建起來，這一列就會變成可以搬的',
+          link: null,
+          fix: null,
+        };
+      }
+      const slots = plans.map((x) => x.slot);
+      if (moved.length) {
+        return {
+          severity: 'attention',
+          title: label,
+          detail: `${moved.join('、')}${cleared.length ? `；清掉床位 ${cleared.join('、')}` : ''}`,
+          link: null,
+          fix: { kind: 'moveBedToRoom', visitId: visit.id, label, slots, moves: moved, cleared },
+        };
+      }
       return {
         severity: 'attention',
-        title: `${who}・${visit.date}`,
-        detail: `清掉床位 ${beds.join('、')}`,
+        title: label,
+        detail: `清掉床位 ${cleared.join('、')}`,
         link: null,
-        fix: {
-          kind: 'clearBeds',
-          visitId: visit.id,
-          label: `${who}・${visit.date}`,
-          slots: (visit.slots ?? []).map((s) => ({ ...s, bed: null })),
-        },
+        fix: { kind: 'clearBeds', visitId: visit.id, label, slots },
       };
     });
 }
@@ -1491,7 +1572,7 @@ function checkSeedCourse(ctx) {
         kind: 'addCourse',
         label: row.name,
         courseId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
 }
@@ -1521,7 +1602,7 @@ function checkSeedIvProduct(ctx) {
         kind: 'addIvProduct',
         label: row.name,
         ivProductId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
       },
     }));
 }
@@ -1602,7 +1683,7 @@ function checkSeedStaff(ctx) {
         kind: 'addStaff',
         label: row.name,
         staffId: row.id,
-        data: { ...withoutId(row), active: true },
+        data: seedData(row),
         also,
       },
     });

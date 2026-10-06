@@ -8,6 +8,15 @@
 
 import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.js';
 
+/**
+ * 種子的一列 → 要寫進主檔的那一份（id 另外給）。
+ *
+ * **沒寫 `active` 的就是啟用；寫了停用的照寫的**（點滴8、VIP7 是「沒選床位」的那一間，ADR-0127）。
+ * 載入種子（`data/config.js` 的 `loadSeed()`）與資料健檢「建起來」的那幾列都走這一支 ——
+ * 各自寫一份 `{ ...data, active: true }` 的話，種子上停用的那兩間一載入就又選得到了。
+ */
+export const seedData = ({ id, ...data }) => ({ active: true, ...data });
+
 export const SEED = {
   // 空間。**2026-09-08 她重畫過一次**，三種類型、都沒有 4 號：
   //
@@ -26,6 +35,19 @@ export const SEED = {
   // **床位那一層拿掉了**（她選的：「取消任何床位區分」）。舊資料上點滴8
   // 還有 A／B，清掉那幾筆是資料健檢「來訪上還記著床位」那一列的事。
   //
+  // **2026-10-06：補治6、VIP1；點滴8A／8B、VIP7A／7B 是四間各自的診間**（ADR-0127）。她：
+  //「點滴室8床A* 點滴室8床B* 休息室7床A*休息室7床B 幫我算不同的診間可以記.8A .8B vip7A vip7B」。
+  // 排得到的一共 22 間，跟 Abovee 的診間清單一樣（治療室 6、點滴室 9、休息室 7）。
+  //
+  // **這不是把床位那一層加回來**：Abovee 的診間下拉裡本來就沒有單獨的「點滴室8」，只有床 A、床 B ——
+  // 那四個本來就是四間。時段上的 `bed` 照舊不寫（ADR-0079），一間照舊一個人（8A、8B 都沒填 `capacity`）。
+  //
+  // **點滴8 與 VIP7 留在這裡、停用（`active: false`）**：它們是「沒選床位」的那一間。她：
+  //「可舊來訪以及abovee辨識可以不選床位，沒選床位就寫.8，VIP7等等不要留空」。所以新排的選不到它
+  // （`roomSlots()` 不列停用的），但舊來訪照樣印得出 `.8`、拍 Abovee 那一格沒寫床時認得到它
+  // （`abovee.js` 的 `roomByText()`）、舊行事曆只寫 `.8` 的那幾段匯進來也對得到。
+  // 她想讓它重新選得到，在 設定 → 診間 把它啟用就好。
+  //
   // 2026-08-19 她確認過「治7、治9、治10、點滴2、點滴8、ILIB4 也都還在」，
   // 2026-09-08 這一輪把治7／治9／治10／ILIB4 拿掉了（ILIB4 有個 4）。
   // **2026-10-05 治7 回來了**（ADR-0124，她：「加回去」）：Abovee 上 EECP60 有 10 筆排在
@@ -36,6 +58,7 @@ export const SEED = {
     { id: 'room-t2', name: '治2', type: '治療室' },
     { id: 'room-t3', name: '治3', type: '治療室' },
     { id: 'room-t5', name: '治5', type: '治療室' },
+    { id: 'room-t6', name: '治6', type: '治療室' },
     { id: 'room-t7', name: '治7', type: '治療室' },
     { id: 'room-t8', name: '治8', type: '治療室' },
     { id: 'room-iv2', name: '點滴2', type: '點滴室', shortName: '.2' },
@@ -43,17 +66,22 @@ export const SEED = {
     { id: 'room-iv5', name: '點滴5', type: '點滴室', shortName: '.5' },
     { id: 'room-iv6', name: '點滴6', type: '點滴室', shortName: '.6' },
     { id: 'room-iv7', name: '點滴7', type: '點滴室', shortName: '.7' },
-    // **同一個時間裝得下兩位**（ADR-0094）。她的 9 月壓表白紙上有一對夫妻
-    // 同時排在 `IL 8A` 與 `IL 8B`，而床位那一層她不要（2026-09-16：
-    //「目前的確不需要床位，都寫 .8」）。其餘每一間沒填就是 1。
-    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2 },
+    // **沒選床位的那一間，停用**（2026-10-06，ADR-0127，見上面）。`capacity: 2` 留著（ADR-0094）：
+    // 舊來訪裡同一個時間兩位都記在「點滴8」的不算撞 —— 她 2026-09-16 那一句「都寫 .8」的那幾筆。
+    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2, active: false },
+    { id: 'room-iv8a', name: '點滴8A', type: '點滴室', shortName: '.8A' },
+    { id: 'room-iv8b', name: '點滴8B', type: '點滴室', shortName: '.8B' },
     { id: 'room-iv9', name: '點滴9', type: '點滴室', shortName: '.9' },
     { id: 'room-iv10', name: '點滴10', type: '點滴室', shortName: '.10' },
+    { id: 'room-vip1', name: 'VIP1', type: 'VIP室', shortName: 'vip1' },
     { id: 'room-vip2', name: 'VIP2', type: 'VIP室', shortName: 'vip2' },
     { id: 'room-vip3', name: 'VIP3', type: 'VIP室', shortName: 'vip3' },
     { id: 'room-vip5', name: 'VIP5', type: 'VIP室', shortName: 'vip5' },
     { id: 'room-vip6', name: 'VIP6', type: 'VIP室', shortName: 'vip6' },
-    { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7' },
+    // 同點滴8：沒選床位的那一間，停用
+    { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7', active: false },
+    { id: 'room-vip7a', name: 'VIP7A', type: 'VIP室', shortName: 'vip7A' },
+    { id: 'room-vip7b', name: 'VIP7B', type: 'VIP室', shortName: 'vip7B' },
   ],
 
   // 2026-08-19 從她的行事曆與口述補齊。

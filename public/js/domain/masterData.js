@@ -958,11 +958,42 @@ export function orderedRoomsForCourse(course, rooms) {
  *
  * @returns {{roomId:string, bed:null, label:string, usual:boolean}[]}
  */
-export function orderedRoomSlots(course, rooms) {
+export function orderedRoomSlots(course, rooms, { keep = null } = {}) {
   const rank = new Map(orderedRoomsForCourse(course, rooms).map((r, i) => [r.id, i]));
-  return roomSlots(rooms)
+  const out = roomSlots(rooms)
     .map((s) => ({ ...s, usual: rank.has(s.roomId) }))
     .sort((a, b) => (rank.get(a.roomId) ?? Infinity) - (rank.get(b.roomId) ?? Infinity));
+
+  // **這一段現在指著的那一間就算停用也列出來**（`keep`，ADR-0127）。點滴8 停用之後，一段還排在
+  // 點滴8 的來訪打開時那一排上沒有它 → 一顆都沒按著 → 她只改記一句存一次，診間就安靜地沒了。
+  // 刪掉的那一間救不回來（主檔清單裡沒有它的名字）；新增一段不用傳。
+  if (keep && !out.some((s) => s.roomId === keep)) {
+    const room = (rooms ?? []).find((r) => r && r.id === keep && !r.deletedAt);
+    if (room) out.push({ roomId: room.id, bed: null, label: room.name, usual: false, retired: true });
+  }
+  return out;
+}
+
+// ---------- 「沒選床位的那一間」與它拆出來的那幾間（ADR-0127）----------
+//
+// 點滴8A／8B、VIP7A／7B 是四間各自的診間；點滴8、VIP7 留著當「沒選床位」。兩邊的關係**照名字認**
+// （那一間的全名＋A 或 B），不照 id：她自己建的「點滴8A」也算，哪天她把點滴9 也拆開，一樣成立。
+
+const BED_LETTERS = ['A', 'B'];
+const roomNameOf = (room) => String(room?.name ?? '').trim();
+
+/** 點滴8＋床 A → 主檔上叫「點滴8A」的那一間（還沒刪的）。沒有就 null。 */
+export function bedRoomOf(room, bed, rooms = []) {
+  const letter = String(bed ?? '').trim().toUpperCase();
+  const base = roomNameOf(room);
+  if (!base || !BED_LETTERS.includes(letter)) return null;
+  return (rooms ?? []).find((r) => r && !r.deletedAt && roomNameOf(r) === `${base}${letter}`) ?? null;
+}
+
+/** `parent` 是不是 `child` 沒選床位的那一間（點滴8 之於點滴8A）。 */
+export function isBedlessOf(parent, child) {
+  const base = roomNameOf(parent);
+  return Boolean(base) && BED_LETTERS.some((letter) => roomNameOf(child) === `${base}${letter}`);
 }
 
 /**
