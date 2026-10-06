@@ -1,6 +1,6 @@
 # 試算表：沒有額度的段自己一列（功醫門診、HRV）
 
-Status: todo
+Status: done（PR #139 → `develop`，2026-10-06 開的；等她說才合）
 來源：她 2026-10-06 第四點（bug）
 動工前先讀：`public/js/domain/sheetReport.js`（`syncBundle()`、`customerReport()`、`mark()`）、`sheets/readonly-report.gs` 的 `renderCustomer()`、
 `tests/sheet-report.test.js`、`tests/sheet-script.test.js`、`tests/uncounted-courses.test.js`、ADR-0121、**ADR-0063（「兩者在資料上完全不相交」那張表）**、ADR-0013、
@@ -92,3 +92,25 @@ n返（三返、四返）那一天自己那一欄也是空的，但**那是她�
 - `SPEC.md` 試算表那一節、`docs/常見問題.md`（「試算表最下面多了一列」）
 - `public/sw.js` 的 VERSION（`public/` 底下動了）
 - 03 之後 HRV 也是這一種，不用再改
+
+## 做完時留下的
+
+- 分支 `claude/sheet-rows-without-entitlement`，commit `f8e809c`，PR #139。**這一支分支上沒有任何 `.scratch` 檔**
+- `sheetReport.js` 新的一支 `extraRows({ scheduled, visits, dates, coursesById })`（有 export，測試直接叫得到）；`mark()` 第二個參數從額度 id 改成判斷式，額度列傳 `ownedBy(id)`
+- 一列的鍵：`label`、`total`（一槓）、`done`、`booked`、`remaining`（一槓）、`marks`、`extra: true`。`rows` 是「額度列＋這幾列」；`totals` 只加額度列
+- 分列的鍵：沒有額度的照 `courseId`（沒有 `courseId` 才用 `courseName`），額度被刪的另外一組。**排序**：不算次數的在前、額度被刪的在後，各自照名字
+  （`localeCompare(…, 'zh-TW')`：中文排在英文前面，所以功醫門診在 HRV 上面 —— 跟那一天誰先做無關）
+- 「算不算一段」問 `slotOutcome()`：取消的回 `null`、不佔任何一列；未到印 ✗、不算已完成也不算已排未上（跟額度列一樣）
+- 手動貼上（`customerReport()`）：一筆額度都沒有時「（還沒有額度）」那一列**照舊印**，新的列接在它下面
+- **`SYNC_FORMAT` 沒動（7）、`.gs` 沒動、她不用重貼**。在假的 Apps Script 環境裡畫過：那一列出現在額度列底下、「剩餘」那一格沒有被塗成紅的、
+  「已完成」照樣有底色、第二列那句合計不變、一筆額度都沒有的客戶畫得出來
+- 會紅的既有測試只有一處真的紅：`tests/uncounted-courses.test.js` 那一條（改成只比額度列、另外斷言新的那一列）。
+  `tests/sheet-script.test.js` 的共用夾具裡那一段指著不存在的額度，現在多畫一列「二返（額度已刪除）」，既有的斷言沒有一條因此紅；
+  `tests/sheet-report.test.js`「n返 不進矩陣」照舊綠
+- 新測試 `tests/sheet-rows-without-entitlement.test.js`（26 條，含不變量四條）
+- **真檔對過了**：拿她機器上 10/5 那一份合併檔走 `planForCustomer()` → `syncBundle()`（29 位、159 筆額度、129 個日期欄、198 段，只看數字）：
+  空白欄 0、每一段剛好落在一格、每一列 ✓ 的數量＝已完成、來訪紀錄行數＝段數。那一份資料裡沒有不算次數的段，所以多的列是 0 —— 新的那幾列只在測試夾具與假的 `.gs` 環境裡驗過，**她的真試算表上還沒有人看過**
+  （腳本在這個 session 的暫存區，沒有進 repo；要再跑的話照這一段的描述重寫，十幾行）
+- `npm test` 3461 條全綠；相關的 E2E 3 支（`00-smoke`、`09-sheet-and-import`、`10-offline`）16 passed
+- `sw.js` v163；`SPEC.md` 4.8 多一段、`docs/常見問題.md` 試算表那一節多一條、`CLAUDE.md` 連動表「試算表的註記」那一列補了
+- **沒做的**：n返 那一天自己那一欄照舊是空的（等她回）；400 天的窗（13，等她說）
