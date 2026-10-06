@@ -434,7 +434,7 @@ export const COVERAGE = {
     'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
     'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
   ],
-  // 來訪「做什麼」那一排照分類排、每一類一個小標、二返另起一行（2026-10-06，issue 08）：壓表與來訪編輯器量位置
+  // 來訪「做什麼」那一排照分類排、二返另起一行（2026-10-06，issue 08；小標 issue 16 拿掉了）：壓表與來訪編輯器量位置
   '56-what-to-do-by-group': [
     'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/scheduling.js',
     'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',

@@ -10,7 +10,7 @@
 // 開著分類沒選就按儲存是一句話不是沒反應、存下去的課程是畫面上亮著的那一門。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer } from '../fixtures/data.js';
+import { masterDocs, customer, addDays, TODAY } from '../fixtures/data.js';
 
 const top = (page) => page.locator('[data-chip="buy"]');
 const item = (page) => page.locator('[data-chip="buyItem"]');
@@ -77,4 +77,31 @@ test('B3 新增客戶 →「＋ 加一項」：同一張表，EECP → EECP體�
   await page.locator('[data-addbuy]').click();
 
   await expect(page.locator('[data-cf-form] .roster__name')).toHaveText(['EECP體驗']);
+});
+
+// 換一門課，上一門的時長不可以跟著過來（issue 15）。規則在 `tests/buy.test.js`；這一條盯的是真的接到了那一張表上
+test('B4 先點 ILIB（自動按好 60 分鐘）再點健檢：存下去的健檢額度不帶 60 分，排出來是兩小時', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-b', name: '客戶A' })]);
+  await app.signIn('/customers/cust-b');
+
+  await page.locator('[data-add-ent]').click();
+  await app.layer('[data-chip="buy"]');
+  await top(page).filter({ hasText: 'ILIB' }).click();
+  await expect(page.locator('[data-chip="durationMin"][aria-pressed="true"]')).toContainText('60');
+
+  await top(page).filter({ hasText: '健檢' }).click();
+  await expect(page.locator('[data-chip="durationMin"]')).toHaveCount(0);
+  await page.locator('[data-chip="tier"]').filter({ hasText: '8萬' }).click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+
+  const ents = await app.readAll('customers/cust-b/entitlements');
+  const checkup = ents.find((e) => e.courseId === 'course-checkup');
+  expect(checkup.durationMin, '以前是 60：排那一段時先問額度，健檢就排成一小時').toBeNull();
+
+  // 她看得到的那一側：日曆新增 → 選那一筆健檢 → 09:00 起、結束是 11:00（課程的 120 分）
+  await app.go(`/visits/new/cust-b/${addDays(TODAY, 1)}`);
+  await app.layer('[data-chip="s0-ent"]');
+  await page.locator(`[data-chip="s0-ent"][data-chip-value="${checkup.id}"]`).click();
+  await expect(page.locator('.slothead__end').first(), '09:00 ＋ 120 分').toHaveText('11:00');
 });

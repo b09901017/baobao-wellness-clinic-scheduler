@@ -369,12 +369,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，也沒有不算次數的課 —— 先去加購再回來記。</p>');
     } else {
       if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
-      // 照分類排、每一類第一顆一個小標、二返那一組另起一行（`arrangeSlotOptions()`，issue 08）
+      // 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）
       rows.push(chipRow('要做什麼', options.map((o) => ({
         value: o.entitlementId, label: o.label,
         sub: o.isNth || o.isUncounted ? '不扣次數' : `剩 ${o.remaining}`,
         on: o.entitlementId === value, attr: 'data-abl-opt',
-        lead: o.lead, brk: o.breakBefore,
+        brk: o.breakBefore,
       }))));
       if (item.isNth && !options.some((o) => o.isNth)) {
         rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有做完的健檢可以接 —— 選別的，或先去日曆把那次健檢記成已完成。</p>');
@@ -487,13 +487,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   }
 
   function chipHtml(c) {
-    const chip = `
+    return `${c.brk ? '<span class="chips__break"></span>' : ''}
       <button class="chip chip--sm abl-chip" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}"
               ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`;
-    // 小標跟那一類第一顆綁成一塊（同壓表）：這一排會換行，分開的話小標會掛在上一行的尾巴
-    return `${c.brk ? '<span class="chips__break"></span>' : ''}${c.lead
-      ? `<span class="chips__head"><span class="chiprow__lead">${esc(c.lead)}</span>${chip}</span>`
-      : chip}`;
   }
 
   /**

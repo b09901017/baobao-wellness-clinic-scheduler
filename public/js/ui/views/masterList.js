@@ -117,6 +117,16 @@ function exceptionRoomOptions(r, all) {
 }
 
 /**
+ * 「只能排在這幾間」收著的時候那一行印什麼：**現在勾了哪幾間**；一間都沒勾就是沒有限制。
+ * 收起來是縮成一行，不是藏起來（同 `moreSummary()`）。名字跟裡面那幾個勾同一份（`exceptionRoomOptions()`）。
+ */
+function onlyRoomsSummary(r, all) {
+  const ids = r.allowedRoomIds ?? [];
+  return exceptionRoomOptions(r, all).filter((o) => ids.includes(o.value)).map((o) => o.label).join('、')
+    || '沒有限制';
+}
+
+/**
  * 「Abovee 上的寫法」那一格（`aboveeNames`）。治療師與醫師、診間、器材、營養點滴品項、課程
  * 共用 —— 拍 Abovee 時那一格的字先比它（`domain/abovee.js`）。頓號分開好幾種。
  * **不用 `parseList()`**：那一支連空白也切，而 Abovee 上的寫法可以有空白（`SIS 60`）。
@@ -648,14 +658,20 @@ const editors = {
             values: r.allowedRoomTypes ?? [], options: ROOM_TYPES,
           })}
           ${/* 例外指定診間（`allowedRoomIds`，**硬限制**）。2026-10-05 之前這一格只在
-               卡片上看得到一行字、表單裡改不了（`parse()` 照抄舊值）。 */''}
-          ${f.checkboxes({
-            name: 'allowedRoomIds', label: '只能排在這幾間', inline: true,
-            values: r.allowedRoomIds ?? [],
-            options: exceptionRoomOptions(r, all),
-            hint: '例外：勾了就只有這幾間排得進去，蓋過上面的類型（例：EECP 只能治5、治7、治8）。'
-              + '一間都不勾就是沒有例外，照上面的類型走。',
-          })}
+               卡片上看得到一行字、表單裡改不了（`parse()` 照抄舊值）。
+               **平常收著**（2026-10-07，issue 17。她：「只能排在這幾間的那一堆也可以先收合，平常設定不到」）：
+               一間診間一個勾，而整份種子只有 EECP 兩門用得到。收著時那一行印出勾了哪幾間；
+               收著的勾照樣送得出去（`<details>` 關著只是不畫）。有錯時自己打開 —— 見 `onErrors`。 */''}
+          <details class="foldout courseform__only" data-onlyrooms>
+            <summary>只能排在這幾間<span class="foldout__now" data-onlyrooms-now>${esc(onlyRoomsSummary(r, all))}</span></summary>
+            ${f.checkboxes({
+              name: 'allowedRoomIds', label: '勾了就只有這幾間排得進去', inline: true,
+              values: r.allowedRoomIds ?? [],
+              options: exceptionRoomOptions(r, all),
+              hint: '例外：蓋過上面的類型（例：EECP 只能治5、治7、治8）。'
+                + '一間都不勾就是沒有例外，照上面的類型走。',
+            })}
+          </details>
           ${/* 包一層是為了**就地換**：上面兩排與指派改了，這一排的候選跟著變，
                而整張表不重畫（ADR-0038，見 `wireForm`）。 */''}
           <div data-preferred>${preferredRoomsField(r, all)}</div>
@@ -793,6 +809,8 @@ const editors = {
           return;
         }
         if (['assignKind', 'allowedRoomTypes', 'allowedRoomIds'].includes(name)) {
+          const onlyNow = form.querySelector('[data-onlyrooms-now]');
+          if (onlyNow && name === 'allowedRoomIds') onlyNow.textContent = onlyRoomsSummary(readDraft(), all);
           const host = form.querySelector('[data-preferred]');
           if (host) {
             host.innerHTML = preferredRoomsField(
@@ -817,9 +835,10 @@ const editors = {
     },
     // domain 的驗證講到收起來的那幾格時，把那一段打開（同上：不打開就是一句看不到在講哪裡的錯）
     onErrors: ({ form, errors }) => {
-      if (!errors.some((m) => MORE_WORDS.some((w) => m.includes(w)))) return;
-      const fold = form.querySelector('[data-more]');
-      if (fold) fold.open = true;
+      const open = (sel) => { const fold = form.querySelector(sel); if (fold) fold.open = true; };
+      if (errors.some((m) => MORE_WORDS.some((w) => m.includes(w)))) open('[data-more]');
+      // 「選診間的課程要指定可用的診間類型，或直接指定幾間」：後半句講的那一排收著（issue 17）
+      if (errors.some((m) => m.includes('指定幾間'))) open('[data-onlyrooms]');
     },
     note: (r, all) => {
       const ids = r.allowedRoomIds ?? [];

@@ -1272,22 +1272,16 @@ function dayPanel(row) {
       <div class="fieldgroup" style="margin-top: var(--space-4)">
         <span class="fieldgroup__label">做什麼</span>
         <div class="chips">
-          ${/* 照分類排、每一類第一顆一個小標、二返那一組另起一行（`arrangeSlotOptions()`，issue 08）——
+          ${/* 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）——
                順序是 `slotOptionsFor()` 排好的，這裡只畫 */''}
           ${options.length
-            ? options.map((o) => {
-                const chip = `
+            ? options.map((o) => `${o.breakBefore ? '<span class="chips__break"></span>' : ''}
                   <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
                           data-ent="${esc(o.entitlementId)}">${esc(o.label)}
                     ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
                           0 看起來像「用完了」，而它根本不是一筆額度 */''}
                     ${o.isNth || o.isUncounted ? '<span class="chip__note">不扣次數</span>'
-                              : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`;
-                // 小標跟那一類第一顆綁成一塊（`.chips__head`）：這一排會換行，分開的話小標會掛在上一行的尾巴
-                return `${o.breakBefore ? '<span class="chips__break"></span>' : ''}${o.lead
-                  ? `<span class="chips__head"><span class="chiprow__lead">${esc(o.lead)}</span>${chip}</span>`
-                  : chip}`;
-              }).join('')
+                              : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`).join('')
             : '<span class="muted">這位客戶身上沒有還有剩的課程了。</span>'}
         </div>
       </div>

@@ -120,7 +120,7 @@ export function slotOptionsFor(
   return arrangeSlotOptions(out, courses);
 }
 
-/** 二返與 n返 那一組的小標。它不是課程的分類 —— 那一組永遠排在最後。 */
+/** 二返與 n返 那一組叫什麼（每一顆的 `group`）。它不是課程的分類 —— 那一組永遠排在最後。 */
 export const FOLLOWUP_GROUP = '二返・n返';
 
 const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForEntitlementId);
@@ -129,8 +129,8 @@ const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForE
 const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
 
 /**
- * 那一排的**順序與小標**（2026-10-06，issue 08）。三個入口都照這一支：壓表（`slotOptionsFor()` 回的就是排好的）、
- * 來訪編輯器（它自己算「剩幾次」—— 把手上這份草稿也算進去 —— 但順序與小標問這裡）、拍 Abovee。她的原話：
+ * 那一排的**順序**（2026-10-06，issue 08）。三個入口都照這一支：壓表（`slotOptionsFor()` 回的就是排好的）、
+ * 來訪編輯器（它自己算「剩幾次」—— 把手上這份草稿也算進去 —— 但順序問這裡）、拍 Abovee。她的原話：
  *
  * > 我覺得先照你的建議依照分類排列並加小標，不增加點選步驟，但是要提醒我去測試和你說好不好
  *
@@ -141,8 +141,14 @@ const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
  * 3. **二返與 n返 一律最後一組**（她 2026-09-24：「跟健檢並排一指就約錯」），不跟著「醫師門診」走；
  *    而且**那一組另起一行**（`breakBefore`）—— 照分類排之後健檢是最後一類，只隔一條線的話兩顆實體上還是隔壁
  *
- * 每一顆多三格：`group`（那一類的名字）、`lead`（每一類第一顆是那一類的名字，**整排只有一類時一個都不畫**——
- * 一個小標等於沒有分類，只多佔一格）、`breakBefore`（二返那一組的第一顆，前面還有別的時）。
+ * 每一顆多兩格：`group`（那一類的名字）、`breakBefore`（二返那一組的第一顆，前面還有別的時）。
+ *
+ * **小標 2026-10-07 拿掉了**（issue 16）。她在 staging 試完：
+ *
+ * > 我覺得壓表或是新增來訪的地方就不用每一類前面有灰色小標，也就是如果是這個人有的，肯定不會很多，
+ * > 就和之前一樣一次呈現所有的丸子就好不需要灰色小標。加購的話也就是一次會呈現所有課程的地方，就維持你這次修改的
+ *
+ * 這一排列的是這位客戶有的，本來就沒幾顆。順序不變；加購那一排（列全部課程）的分類照舊。
  *
  * @param {object[]} options 每一顆至少有 `{ label, course, entitlement, isNth?, isUncounted? }`
  * @param {object[]} courses 主檔（分類的順序要認得她自己開的分類）
@@ -156,11 +162,9 @@ export function arrangeSlotOptions(options = [], courses = []) {
   ].filter((g) => g.items.length)
     .map(({ group, items }) => ({ group, items: items.slice().sort(byName) }));
 
-  const many = groups.length > 1;
   return groups.flatMap(({ group, items }, at) => items.map((o, i) => ({
     ...o,
     group,
-    lead: many && i === 0 ? group : null,
     breakBefore: group === FOLLOWUP_GROUP && at > 0 && i === 0,
   })));
 }

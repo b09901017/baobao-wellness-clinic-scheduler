@@ -261,3 +261,48 @@ test('C7 設定暫定：最上面那一條勾「確認過了」，小標就不�
   await expect(page.locator('[data-course="course-hrv"] [data-provisional]')).toHaveCount(0);
   await expect(page.locator('[data-provisional-count]')).toContainText('還有 5 門');
 });
+
+// 「只能排在這幾間」收起來（issue 17）。她在 staging 試完：
+//
+// > 關於課程編輯那邊，我覺得只能排在這幾間的那一堆也可以先收合，平常設定不到
+test('C8 「只能排在這幾間」收著、那一行印出勾了哪幾間；勾了就地更新；有錯時存檔自己打開', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/courses');
+
+  const fold = page.locator('[data-onlyrooms]');
+  const now = page.locator('[data-onlyrooms-now]');
+  const only = (id) => page.locator(`input[name="allowedRoomIds"][value="${id}"]`);
+
+  await page.locator('[data-edit="course-eecp"]').click();
+  await expect(fold).not.toHaveAttribute('open', '');
+  await expect(only('room-t5')).toBeHidden();
+  await expect(now).toHaveText('治5、治7、治8');
+
+  // 什麼都不改就存：收著的那幾個勾照樣送得出去
+  await save(app, page);
+  expect((await app.readDoc(COURSES, 'course-eecp')).allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
+
+  // 展開、多勾一間、收起來：那一行多了那一間，存下去的跟勾的一樣
+  await page.locator('[data-edit="course-eecp"]').click();
+  await fold.locator('summary').click();
+  await only('room-t2').check();
+  await fold.locator('summary').click();
+  await expect(only('room-t2')).toBeHidden();
+  for (const name of ['治2', '治5', '治7', '治8']) await expect(now).toContainText(name);
+  await save(app, page);
+  expect([...(await app.readDoc(COURSES, 'course-eecp')).allowedRoomIds].sort())
+    .toEqual(['room-t2', 'room-t5', 'room-t7', 'room-t8']);
+
+  // 沒有例外的課：那一行講「沒有限制」
+  await page.locator('[data-edit="course-iv-laser"]').click();
+  await expect(fold).not.toHaveAttribute('open', '');
+  await expect(now).toHaveText('沒有限制');
+
+  // 選了診間、類型全部取消、這一排也沒勾：錯誤講「直接指定幾間」，那一段自己打開
+  // 一個一個取消：`:checked` 的名單每取消一個就少一個，照位置（`.all()`）拿的第二個會找不到
+  const types = page.locator('input[name="allowedRoomTypes"]:checked');
+  while (await types.count()) await types.first().uncheck();
+  await page.click('button[type="submit"]');
+  await expect(page.locator('[data-errors]')).toContainText('直接指定幾間');
+  await expect(fold).toHaveAttribute('open', '');
+});

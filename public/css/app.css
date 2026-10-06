@@ -1003,26 +1003,6 @@ textarea {
   height: 0;
 }
 
-/* 會換行的那一排裡，小標跟那一組的第一顆綁成一塊 —— 分開的話換行時小標會掛在上一行的尾巴，
-   底下那一行的丸子看起來沒有小標。跟前一顆隔開一點，看得出是下一組的開頭。 */
-.chips__head {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.chips > .chips__head,
-.abl-row__chips > .chips__head {
-  margin-left: var(--space-2);
-}
-
-.chips > .chips__head:first-child,
-.chips > .chips__break + .chips__head,
-.abl-row__chips > .chips__head:first-child,
-.abl-row__chips > .chips__break + .chips__head {
-  margin-left: 0;
-}
-
 .fieldgroup {
   margin-bottom: var(--space-4);
 }
@@ -6590,6 +6570,11 @@ summary {
 .courseform__sub > :last-child .fieldgroup,
 .courseform__sub > :last-child .field {
   margin-bottom: 0;
+}
+
+/* 「只能排在這幾間」（issue 17）：平常收著的一行，夾在診間類型與常用診間中間。 */
+.courseform__only {
+  margin: 0 0 var(--space-2);
 }
 
 .courseform__note {
