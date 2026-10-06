@@ -66,10 +66,10 @@ describe('清單怎麼分組（coursesByGroup）', () => {
     assert.deepEqual(find(OTHER_GROUP).courses.map((c) => c.course.name), ['物理治療師諮詢']);
     assert.deepEqual(find('健檢').courses.map((c) => c.course.name), ['健檢']);
     assert.deepEqual(find('醫師門診').courses.map((c) => c.course.name),
-      ['復健科醫師門診', '心臟科評估', '二返', '功醫門診', '羊膜']);
+      ['復健科醫師門診', '心臟科評估', '二返', '功醫門診', 'HRV', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
     assert.deepEqual(find('EECP').courses.map((c) => c.course.name), ['EECP', 'EECP體驗']);
     assert.deepEqual(find('運動區').courses.map((c) => c.course.name),
-      ['身體組成分析', '體適能檢查分析', '營養師諮詢']);
+      ['身體組成分析', '體適能檢查分析', '營養師諮詢', 'MOTI', '運動']);
   });
 
   test('復能底下是復能這門課＋指到它的三台器材', () => {

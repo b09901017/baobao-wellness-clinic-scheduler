@@ -254,8 +254,9 @@ describe('07 課程那一格：品項、Abovee 寫法、三返、任選', () => 
     assert.equal(courseFrom('同一個字', { ...master, ivProducts: iv, courses })?.ivProductId, 'iv-x');
   });
 
-  test('認不出來 → null，不猜（HRV、空白）', () => {
-    assert.equal(courseFrom('HRV', master), null);
+  // 這一條本來拿 HRV 當認不出來的例子；2026-10-06 種子有 HRV 這門課了，換一個主檔沒有的字
+  test('認不出來 → null，不猜（主檔沒有的字、空白）', () => {
+    assert.equal(courseFrom('大腸鏡', master), null);
     assert.equal(courseFrom('   ', master), null);
   });
 

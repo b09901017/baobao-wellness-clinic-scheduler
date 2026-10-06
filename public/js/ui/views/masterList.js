@@ -9,7 +9,7 @@ import {
   roomsForCourse,
   planItem, BLANK_PLAN_ITEM,
   copyPlan,
-  normalizeGroup, courseGroupNames, coursesByGroup, courseDefaultsFor,
+  normalizeGroup, courseGroupNames, coursesByGroup, courseDefaultsFor, isProvisional,
   SYSTEMS,
   DOCTOR_ROLE, DOCTOR_NONE, DOCTOR_ANY, doctorRuleOf, specialtyNames,
 } from '../../domain/masterData.js';
@@ -1029,6 +1029,7 @@ function courseCard({ course, equipment, ivProducts }, all) {
         <div class="row__title">
           ${esc(course.name)}
           ${course.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
+          ${isProvisional(course) ? '<span class="badge badge--tea" data-provisional>設定暫定</span>' : ''}
         </div>
         <div class="muted">${esc(ed.summary(course, all))}</div>
         ${ed.note(course, all)}
@@ -1046,6 +1047,9 @@ function courseCard({ course, equipment, ivProducts }, all) {
 function paintCourseList(el, all) {
   const ed = editors.courses;
   const rows = all.courses;
+  // 設定暫定（2026-10-06）：種子照猜的先建起來、她還沒看過的那幾門。**只是一個小標**，
+  // 沒有任何規則讀它（`masterData.js` 的 `isProvisional()`）。停用與刪掉的不數
+  const provisional = rows.filter((c) => isProvisional(c) && c.active !== false && !c.deletedAt).length;
 
   // 「放在哪一組」那一排點了「新增」才出現，不佔平常的版面
   el.innerHTML = `
@@ -1055,6 +1059,9 @@ function paintCourseList(el, all) {
       <p class="newrow">
         <button class="btn btn--primary" type="button" data-new aria-expanded="false">新增</button>
       </p>
+      ${provisional ? `<p class="muted" data-provisional-count>還有 ${provisional} 門的設定是暫定的${tip(
+        '標著「設定暫定」的那幾門是照同一類的課先猜的（壓哪幾個系統、要不要醫師、算不算次數、時長）。'
+        + '它只是提醒你這門課還沒看過 —— 排班、次數、待辦都照現在填的那幾格算。')}</p>` : ''}
       <div class="fieldgroup" data-grouppick hidden>
         <span class="fieldgroup__label">放在哪一組${tip(
           '表單會先帶好那一組常見的設定，每一格之後都還能改。')}</span>

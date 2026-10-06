@@ -187,8 +187,10 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
 // 2026-10-05（abovee-and-master/12，ADR-0124）：種子補到跟 Abovee 一樣，而 `loadSeed()` 只建不覆蓋 ——
 // 既有資料庫只能靠這一頁補。這一支拿一份「10/5 之前的主檔」把每一顆新的修正真的按下去：
 // 規則在 `tests/master-catch-up.test.js`，這裡盯的是**寫得下去、寫完那一筆在設定頁還存得回去**。
-test('H9 10/5 之前的主檔：治7 還原、少的點滴與兩門新課建起來、空格補上，按完整頁沒有一項亮著', async ({ app, page }) => {
-  const NEW = ['iv-vitality', 'iv-immune', 'iv-slim', 'iv-guard', 'iv-heal', 'iv-sleep', 'iv-shingles', 'course-fm', 'course-amnion'];
+test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、空格補上，按完整頁沒有一項亮著', async ({ app, page }) => {
+  const NEW = ['iv-vitality', 'iv-immune', 'iv-slim', 'iv-guard', 'iv-heal', 'iv-sleep', 'iv-shingles', 'course-fm', 'course-amnion',
+    // 2026-10-06 補的六門（設定暫定）
+    'course-hrv', 'course-retest', 'course-ha-prp', 'course-prp', 'course-moti', 'course-exercise'];
   const OLD_ROOMS = ['room-t5', 'room-t8'];
   const old = masterDocs()
     .filter((d) => !NEW.includes(d.id))
@@ -235,6 +237,11 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與兩門新課建起�
   expect(iv.find((x) => x.id === 'iv-shingles').durationMin).toBe(30);
   const fm = await app.readDoc('config/app/courses', 'course-fm');
   expect([fm.uncounted, fm.needsTreatmentForm, fm.doctorPick]).toEqual([true, false, '功能／二返']);
+  // 2026-10-06 的六門：建出來的那一筆整筆照抄種子 —— 暫定的小標、HRV 的不算次數與不用壓都帶著
+  const hrv = await app.readDoc('config/app/courses', 'course-hrv');
+  expect([hrv.provisional, hrv.uncounted, hrv.systems, hrv.lineName]).toEqual([true, true, [], '自律神經檢查']);
+  expect((await app.readDoc('config/app/courses', 'course-prp')).provisional).toBe(true);
+  expect(fm.provisional ?? null, '她答過的那一門不標').toBeNull();
   const eecp = await app.readDoc('config/app/courses', 'course-eecp');
   expect(eecp.allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
   expect(eecp.group).toBe('EECP');
@@ -250,6 +257,14 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與兩門新課建起�
 
   // 補過的那幾筆在設定頁打得開、原樣存得回去（補的那幾格沒有被驗證擋住）
   await app.go('/settings/courses');
+  await expect(page.locator('[data-provisional-count]')).toContainText('還有 6 門的設定是暫定的');
+  // HRV 三個都沒勾（不用壓）原樣存得回去，暫定的小標還在（編輯表不動那一格）
+  await page.locator('[data-edit="course-hrv"]').click();
+  await expect(page.locator('input[name="systems"]:checked')).toHaveCount(0);
+  await page.click('button[type="submit"]');
+  await app.saved();
+  const again = await app.readDoc('config/app/courses', 'course-hrv');
+  expect([again.provisional, again.systems, again.uncounted]).toEqual([true, [], true]);
   await page.locator('[data-edit="course-eecp"]').click();
   await page.click('button[type="submit"]');
   await app.saved();

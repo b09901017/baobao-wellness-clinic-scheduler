@@ -556,9 +556,10 @@ describe('種子資料', () => {
 
   // 羊膜 2026-10-06 起只壓 Abovee（類別 C，她：「先預設和營養針一樣」）—— 不是 A 類又要醫師，
   // 所以它帶著旗標；少了的話沒有 `doctorPick` 的那條退路會說「不用醫師」
-  test('只有二返與羊膜帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
+  // HA-PRP、PRP（2026-10-06，設定暫定）照羊膜抄：同樣不是 A 類又要醫師
+  test('只有二返與照羊膜那一種（羊膜、HA-PRP、PRP）帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
-    assert.deepEqual(withDoctor, ['二返', '羊膜']);
+    assert.deepEqual(withDoctor, ['二返', '羊膜', 'HA-PRP', 'PRP']);
   });
 
   // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到
@@ -611,6 +612,13 @@ describe('種子資料', () => {
       // 2026-10-05 多的兩門門診：要的是醫師，不是空間
       'course-fm': 'none',
       'course-amnion': 'none',
+      // 2026-10-06 多的六門（設定暫定）：她同意的那張表上每一門都是「都不用」
+      'course-hrv': 'none',
+      'course-retest': 'none',
+      'course-ha-prp': 'none',
+      'course-prp': 'none',
+      'course-moti': 'none',
+      'course-exercise': 'none',
     };
     const got = Object.fromEntries(SEED.courses.map((c) => [c.id, c.assigns]));
     assert.deepEqual(got, want);
@@ -678,11 +686,12 @@ describe('種子資料', () => {
     assert.ok(others.every((c) => !c.durationChoices?.length));
   });
 
-  test('那五項不產生任務的課程確實是 null 類別', () => {
+  // 2026-10-06 多三門：MOTI、運動（同一組，只壓 Abovee）與 HRV（哪裡都不用壓，ADR-0126）
+  test('不產生任務的那幾門課程確實是 null 類別', () => {
     const noTask = SEED.courses.filter((c) => c.category === null).map((c) => c.name);
     assert.deepEqual(
       noTask.sort(),
-      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢'].sort(),
+      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢', 'MOTI', '運動', 'HRV'].sort(),
     );
     for (const name of noTask) {
       const c = SEED.courses.find((x) => x.name === name);
@@ -717,12 +726,13 @@ describe('種子資料', () => {
       '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
   });
 
-  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」
-  test('除了二返與功醫門診，種子課程全部都要簽療程單', () => {
+  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」。
+  // HRV（2026-10-06）同一個理由：不算次數，沒有東西可以扣
+  test('除了二返、功醫門診與 HRV，種子課程全部都要簽療程單', () => {
     for (const c of SEED.courses) {
       assert.equal(
         needsForm(c),
-        !['course-followup', 'course-fm'].includes(c.id),
+        !['course-followup', 'course-fm', 'course-hrv'].includes(c.id),
         `${c.name} 的簽單設定不對`,
       );
     }

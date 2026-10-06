@@ -45,20 +45,21 @@ test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自
   await app.signIn('/settings/courses');
   await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('不算次數');
 
-  // 她之後自己加的那一種（Abovee 醫師門診那一類裡的一門，種子沒有建）
+  // 她之後自己加的那一種（種子沒有建的一門。這裡本來用「回測報告」，2026-10-06 種子補了它，換一個名字）
   await page.locator('[data-new]').click();
   await page.locator('[data-newgroup="醫師門診"]').click();
-  await page.fill('input[name="name"]', '回測報告');
+  await page.fill('input[name="name"]', '減重門診');
   await expect(page.locator('input[name="uncounted"]')).not.toBeChecked();
   await page.locator('input[name="uncounted"]').check();
   await page.locator('input[name="needsTreatmentForm"]').uncheck();
   await page.click('button[type="submit"]');
   await app.saved();
 
-  const made = (await app.readAll('config/app/courses')).find((c) => c.name === '回測報告');
+  const made = (await app.readAll('config/app/courses')).find((c) => c.name === '減重門診');
   expect(made.uncounted).toBe(true);
   expect(made.needsTreatmentForm).toBe(false);
-  await expect(page.locator('[data-course]').filter({ hasText: '回測報告' })).toContainText('不算次數');
+  expect(made.provisional ?? null, '她自己建的不會被標成暫定').toBeNull();
+  await expect(page.locator('[data-course]').filter({ hasText: '減重門診' })).toContainText('不算次數');
 });
 
 test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已經選好、存得下去、日曆上看得到', async ({ app, page }) => {

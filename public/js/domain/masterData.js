@@ -153,6 +153,20 @@ export function doctorChoicesFor(course, staff = []) {
  */
 export const isUncounted = (course) => course?.uncounted === true;
 
+/**
+ * 這門課的設定**是暫定的**嗎（2026-10-06）。她的原話：
+ *
+ * > …希望你幫我把我給你的清單項目的內容都補上去，然後可以標記我還沒決定壓那些阿之類的
+ *
+ * 種子補的那幾門（回測報告、HA-PRP、PRP、MOTI、運動、HRV）Abovee 上一筆都沒排過，
+ * 每一格都是猜的。這一格**只畫一個小標**（設定 → 課程）：提醒她這門課還沒看過。
+ *
+ * **沒有任何規則讀它** —— 排得進去、扣得到、長得出待辦，跟沒有這一格一模一樣
+ *（`tests/provisional-courses.test.js` 掃原始碼）。字是「設定暫定」，不是「待確認」（那是來訪的狀態）。
+ * 只認 `true`，同 `isUncounted()`。
+ */
+export const isProvisional = (course) => course?.provisional === true;
+
 /** 主檔裡不算次數、還在用的課。「這一段可以做什麼」那一排上每一門一顆（`slotOptions.js`）。 */
 export function uncountedCourses(courses = []) {
   return (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false && isUncounted(c));
@@ -703,6 +717,11 @@ const validators = {
     // `isUncounted()` 只認 `true`，存成字串會安靜地被當成要算
     if (r.uncounted !== undefined && r.uncounted !== null && typeof r.uncounted !== 'boolean') {
       errors.push('「不算次數」只能是是或否');
+    }
+
+    // 設定暫定（2026-10-06）。只畫小標、沒有規則讀它；同上只擋型別（`isProvisional()` 只認 `true`）
+    if (r.provisional !== undefined && r.provisional !== null && typeof r.provisional !== 'boolean') {
+      errors.push('「設定暫定」只能是是或否');
     }
 
     // 做完之後要再約一次的那個課程（健檢 → 二返）。指到不存在的課程，

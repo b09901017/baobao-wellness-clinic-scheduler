@@ -1,6 +1,6 @@
 # 種子補六門課，外加「設定暫定」的小標
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第一點之 7、第五點；問題 1（同意）、問題 6
 動工前先讀：`public/js/domain/seed.js` 的 `courses`（每一門上面的註解）、`public/js/domain/health.js` 的 `checkSeedCourse()`／`checkSeedBlanks()`／`sameNamed()`、
 ADR-0119、ADR-0120、ADR-0121、ADR-0125、`tests/course-systems.test.js`、`tests/course-groups.test.js`、`tests/uncounted-courses.test.js`、
@@ -85,3 +85,27 @@ Blocked by: 02（HRV 的 `systems` 是空陣列）
 - `docs/課程與待辦對照表.md`（六門各一列）、`SPEC.md` 第 12 節種子、`CONTEXT.md`（HRV 現在是一門課 —— 「功醫門診」那一條的 _Avoid_ 寫著 HRV，要改）
 - `README.md` 開發狀態表
 - 06 畫編輯表上的開關；07、08 靠分類把這幾門排進去；01 之後試算表上 HRV 自己一列
+
+## 做完時留下的（2026-10-06）
+
+- **六門都在種子上**，每一格照她同意的那張表；`provisional: true`。順序：醫師門診那一組是 …功醫門診、**HRV**、羊膜、回測報告、HA-PRP、PRP；
+  運動區接在營養師諮詢後面。**HRV 排在功醫門診後面是刻意的**：沒有額度的客戶新增時第一段預設是「第一門不算次數的課」
+  （`blankSlot()` 的 `freeCourse`），主檔清單照文件 id 排（`course-fm` 在 `course-hrv` 前面）—— 預設照舊是功醫門診
+- **`isProvisional()`** 在 `masterData.js`（只認 `true`）；`validators.courses` 只擋型別；稽核的欄位名「設定暫定」。
+  掃原始碼的測試比 issue 寫的嚴：**整個 `public/js` 只有 `masterData.js` 與 `masterList.js`** 可以問那一格（資料健檢不用問 ——
+  `checkSeedCourse()` 本來就整筆照抄種子，`provisional`、`uncounted`、`systems: []` 都帶著，測試與 E2E 都釘了）
+- **設定 → 課程**：清單那一列的徽章 `[data-provisional]`、上面一句 `[data-provisional-count]`「還有 N 門的設定是暫定的」＋一顆 `?`。
+  停用與刪掉的不數。**編輯表不動那一格**（開關在 06）：`config.update()` 是合併寫入，打開存一次小標還在（E2E H9 釘著）
+- HRV 的 `lineName` 是「自律神經檢查」（暫定，交付時提一次）
+- `courseFrom()`：`PRP`／`HA-PRP`／`回測報告`／`MOTI`／`運動` 都認得、原本的寫法一個都沒被吃掉。**`HRV` 現在也認成 HRV 這門課**
+  （第 2 步比名字）—— Abovee 上沒有這門課所以碰不到，`tests/abovee.test.js` 那條「認不出來」的例子換了一個字
+- **改了種子查的四個地方**：
+  1. E2E 寫死的筆數：`47` 的 G1（醫師門診 5 → 9 門、補了運動區那一行）與 G7（15 → 21 門）
+  2. E2E 自己建的同名資料：`49` 的 U1 自己建一門「回測報告」→ 換成「減重門診」；`52` 的 N2 改成把種子上**每一門**不算次數的課都停用
+  3. `merge.mjs`：**照基準比過，import 與報告的指紋一模一樣**（`03-after` 對 `00-baseline`）。`TOKENS` 的 `HRV` → 功醫門診那一條沒動
+  4. `tests/health.test.js` 的夾具：沒有多報（那一份夾具一個種子課程 id 都沒有）。`tests/master-data.test.js` 有四條釘著種子的名單，逐條改了
+- E2E `03` 的 H9（10/5 之前的主檔按完資料健檢）多驗：六門建得起來、HRV 帶著暫定／不算次數／不用壓／LINE 那一句、設定頁原樣存得回去
+- `sw.js` v165；`SPEC.md` 5.5 那張表與指派那一列、對照表第四節六門各一列、`CONTEXT.md`（HRV、設定暫定；功醫門診的 _Avoid_ 拿掉 HRV）、
+  `CLAUDE.md` 連動表多一列「課程的『設定暫定』」
+- **沒做的**：`README.md` 開發狀態表留給 12（這一輪一列）
+- **她要知道的**：HRV 會出現在**每一位**客戶的「做什麼」那一排（不算次數的課都是這樣）；其餘五門要先加購

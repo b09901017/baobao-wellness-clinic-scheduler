@@ -199,7 +199,8 @@ export const SEED = {
   // 其餘勾起來的等客人確認之後長成待辦（推導只在 `taskRules.js` 的 `systemsOf()`）。
   // 每一門填的都跟它的 `category` 推出來的一模一樣（`tests/course-systems.test.js` 釘著），
   // 所以這一格在種子上不改變任何行為 —— 它在這裡是為了設定頁打開就是勾好的。
-  // `category` 留著當沒勾過的課程的退路。
+  // `category` 留著當沒勾過的課程的退路。**唯一的例外是 HRV**：`systems: []` ＝不用壓（ADR-0126），
+  // 四種類別沒有一種推得出它。
   //
   // **`aboveeNames` 是 Abovee 課程那一格怎麼寫它**（abovee-and-master/07）。名字跟 Abovee 一樣的
   // （二返、EECP）也填：她之後改名，拍 Abovee 照樣認得。
@@ -262,6 +263,25 @@ export const SEED = {
       needsTreatmentForm: false,
     },
     {
+      // **HRV**（2026-10-06）。她：「HRV也是不算次數的，通常會是我想邀客戶來體驗送的，
+      // 就會讓他當天做完HRV後然後接著功醫門診聽報告」「目前先皆不用壓，不用指派診間或人員」。
+      //
+      // - **不用壓**（`systems: []`，ADR-0126）：Abovee 上沒有這門課。存檔前不問壓好了嗎、取消不長「取消 Abovee」
+      // - **不算次數**（ADR-0121）、不簽療程單（沒有次數可以扣，同功醫門診）、不寫紀錄
+      // - `lineName`：她 10/5 自己的說法「HRV＝自律神經檢查」。不填的話貼給客人的那一句印三個字母，
+      //   而 ILIB 當初就是為了「客人看不懂」才有這一格
+      // - 排在功醫門診**後面**：沒有額度的客戶新增時第一段預設是第一門不算次數的課，照舊是功醫門診
+      //
+      // 行事曆上她寫 `HRV` 的那幾次在合併檔裡是功醫門診（`merge.mjs` 的 `TOKENS`）—— 那一條這裡不動。
+      id: 'course-hrv', name: 'HRV', group: '醫師門診', lineName: '自律神經檢查', category: null,
+      systems: [], durationMin: 30,
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, frequencyRule: null,
+      uncounted: true,
+      needsTreatmentForm: false,
+      provisional: true,
+    },
+    {
       // **羊膜**（2026-10-05）。她：「加購（有次數，像營養針）；選復健科醫師（只有一位）；
       // 要簽療程單」。有次數所以加購那一排有它。
       //
@@ -274,6 +294,40 @@ export const SEED = {
       systems: ['Abovee'], durationMin: 30, aboveeNames: ['羊膜'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       requiresEquipment: false, requiresDoctor: true, doctorPick: '復健科', frequencyRule: null,
+    },
+
+    // ---- 2026-10-06 補的：她清單上有、種子沒有的那幾門。**每一格都是暫定的** ----
+    //
+    // 她：「基本上我已經給你完整的課程項目清單了，很少會變，所以希望你幫我把我給你的清單項目的內容
+    // 都補上去，然後可以標記我還沒決定壓那些阿之類的」。Abovee 5～10 月那 353 筆裡這幾門一筆都沒有，
+    // 所以下面每一格是照同一類的課猜的、她同意過那張表（`.scratch/course-form-and-sheet-2026-10-06/spec.md`）。
+    // `provisional: true` 只在 設定 → 課程 畫一個「設定暫定」的小標，**沒有任何規則讀它**（`isProvisional()`）。
+    //
+    // 都**算次數**（要加購才排得進去）是刻意的：不算次數的課會出現在每一位客戶的「做什麼」那一排，
+    // 而她的抱怨正是「好多課程然後都滑不到想要的」。
+    {
+      // 照同一組的門診：三個系統都壓、功能／二返那一科的醫師
+      id: 'course-retest', name: '回測報告', group: '醫師門診', category: 'A',
+      systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['回測報告'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, doctorPick: '功能／二返', frequencyRule: null,
+      provisional: true,
+    },
+    {
+      // HA-PRP、PRP 照羊膜那一門抄：只壓 Abovee、復健科醫師、要簽療程單。
+      // 不是 A 類又要醫師，所以帶 `requiresDoctor`（理由見羊膜那一段）
+      id: 'course-ha-prp', name: 'HA-PRP', group: '醫師門診', category: 'C',
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['HA-PRP'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, requiresDoctor: true, doctorPick: '復健科', frequencyRule: null,
+      provisional: true,
+    },
+    {
+      id: 'course-prp', name: 'PRP', group: '醫師門診', category: 'C',
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['PRP'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, requiresDoctor: true, doctorPick: '復健科', frequencyRule: null,
+      provisional: true,
     },
 
     // ---- B 類：單系統＋電話 ----
@@ -402,6 +456,21 @@ export const SEED = {
       requiresEquipment: false, frequencyRule: null,
       // 諮詢完要打一份諮詢紀錄（ADR-0066）
       needsRecord: true,
+    },
+    // 運動區的另外兩門（2026-10-06，暫定，見上面「2026-10-06 補的」那一段）：照同一組，只壓 Abovee、都不用指派
+    {
+      id: 'course-moti', name: 'MOTI', group: '運動區', category: null,
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['MOTI'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, frequencyRule: null,
+      provisional: true,
+    },
+    {
+      id: 'course-exercise', name: '運動', group: '運動區', category: null,
+      systems: ['Abovee'], durationMin: 30, aboveeNames: ['運動'],
+      assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
+      requiresEquipment: false, frequencyRule: null,
+      provisional: true,
     },
   ],
 

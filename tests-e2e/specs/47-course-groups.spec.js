@@ -37,8 +37,20 @@ test('G1 清單先分類：復能底下是復能＋三台器材、ILIB 底下是
     ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢', '其他']);
   // 一組裡面的順序照主檔清單原本那個（文件 id），這一支不管它
   expect((await cardsIn(page, '醫師門診')).sort())
-    // 功醫門診、羊膜是 2026-10-05 種子多的兩門（issue 12）
-    .toEqual(['course-amnion', 'course-cardio', 'course-fm', 'course-followup', 'course-rehab']);
+    // 功醫門診、羊膜是 2026-10-05 種子多的兩門（issue 12）；HRV、回測報告、HA-PRP、PRP 是 2026-10-06 的
+    .toEqual(['course-amnion', 'course-cardio', 'course-fm', 'course-followup', 'course-ha-prp',
+      'course-hrv', 'course-prp', 'course-rehab', 'course-retest']);
+  expect((await cardsIn(page, '運動區')).sort())
+    .toEqual(['course-exercise', 'course-fitness', 'course-inbody', 'course-moti', 'course-nutrition-consult']);
+
+  // 設定暫定（2026-10-06）：種子照猜的先建起來的那六門各一個小標，上面數得出還有幾門
+  await expect(page.locator('[data-provisional-count]')).toContainText('還有 6 門的設定是暫定的');
+  await expect(page.locator('[data-course] [data-provisional]')).toHaveCount(6);
+  const hrv = page.locator('[data-course="course-hrv"]');
+  await expect(hrv.locator('[data-provisional]')).toHaveText('設定暫定');
+  await expect(hrv).toContainText('不用壓');
+  await expect(hrv).toContainText('不算次數');
+  await expect(page.locator('[data-course="course-fm"] [data-provisional]'), '她答過的那幾門不標').toHaveCount(0);
   expect(await cardsIn(page, '健檢')).toEqual(['course-checkup']);
   expect(await cardsIn(page, '其他'), '她：物理治療師諮詢先放「其他」').toEqual(['course-pt-consult']);
 
@@ -231,7 +243,7 @@ test('G7 舊資料：沒有分類的課程全部落在「其他」，一門都�
   await app.signIn('/settings/courses');
 
   expect(await heads(page)).toEqual(['其他']);
-  await expect(page.locator('[data-course]')).toHaveCount(15);
+  await expect(page.locator('[data-course]')).toHaveCount(21);
   // 器材與品項照樣掛在它們的課程底下
   await expect(page.locator('[data-course="course-recovery"] .subrow')).toHaveCount(3);
 

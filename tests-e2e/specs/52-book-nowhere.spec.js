@@ -74,8 +74,9 @@ test('N1 設定 → 課程：三個都不勾存得下去，清單那一行寫「
 });
 
 test('N2 日曆排一段不用壓的課：不問壓好了嗎；客人說可以之後不長掛號；取消之後不長「取消 Abovee」', async ({ app, page }) => {
-  // 種子那門不算次數的功醫門診先停用，這位沒有額度的客戶第一段預設才會是這一門
-  const docs = masterDocs().map((d) => (d.id === 'course-fm' ? { ...d, data: { ...d.data, active: false } } : d));
+  // 種子上不算次數的課（功醫門診、HRV）先停用，這位沒有額度的客戶第一段預設才會是這一門
+  const docs = masterDocs().map((d) => (d.path === 'config/app/courses' && d.data.uncounted
+    ? { ...d, data: { ...d.data, active: false } } : d));
   await app.seed([...docs, TRIAL, customer({ id: 'cust-n', name: '林小華' })]);
   await app.signIn('/calendar');
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
