@@ -433,6 +433,8 @@ export const COVERAGE = {
     'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/domain/masterData.js',
     'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
     'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
+    // B5（issue 20）：資料健檢第 33 項、日曆「改這一段」存一次結束時間重算
+    'public/js/domain/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/visitEditor.js', 'public/js/domain/visits.js',
   ],
   // 來訪「做什麼」那一排照分類排、二返另起一行（2026-10-06，issue 08；小標 issue 16 拿掉了）：壓表與來訪編輯器量位置
   '56-what-to-do-by-group': [

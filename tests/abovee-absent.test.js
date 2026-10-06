@@ -11,7 +11,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeLoadRange, aboveePage, absentFromPhoto, absentSay, needsAttention, photoSpan, readAbovee, resolveItem, summarizeAbovee,
+  aboveeLoadRange, aboveePage, absentFromPhoto, absentSay, goneButtonSay, needsAttention, photoSpan, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
@@ -94,13 +94,31 @@ describe('拍一個月內的一個人', () => {
     assert.deepEqual(goneAt(check([photo(three, { pageText: '3筆第1/1頁' })], c).gone), ['c-wang 10-23 10:00']);
   });
 
-  test('兩頁、只拍第一頁（「12筆第1/2頁」）→ 最後一列之後的一段都不列；月初到第一列之間的照樣列', () => {
+  test('兩頁、只拍第一頁（「12筆第1/2頁」）→ 最後一列之後的一段都不列；「起」讀不到時第一列之前也不猜', () => {
     const c = ctx({ 'c-wang': {
       '2026-10-01': [sis('10:00')], '2026-10-02': [sis('10:00')], '2026-10-09': [sis('10:00')], '2026-10-16': [sis('10:00')],
       '2026-10-23': [sis('10:00')], '2026-10-30': [sis('10:00')],
     } });
-    const { gone } = check([photo(three, { pageText: '12筆第1/2頁' })], c);
-    assert.deepEqual(goneAt(gone), ['c-wang 10-01 10:00']);
+    // 審查查到的：不是每一列都在這裡、又讀不到起訖時，「拍的是一個人」只是照這一頁猜的 —— 不放寬到整個月
+    assert.deepEqual(goneAt(check([photo(three, { pageText: '12筆第1/2頁' })], c).gone), []);
+    // 讀得到「起」→ 從那一天起（Function 重新部署之後的樣子）
+    assert.deepEqual(goneAt(check([photo(three, { pageText: '12筆第1/2頁', dateFromText: '2026/10/01' })], c).gone),
+      ['c-wang 10-01 10:00']);
+  });
+
+  test('同一頁拍了兩次（兩張都是「15筆第1/2頁」）→ 列不重複算，照樣不是每一列都在這裡；第二頁的段不列', () => {
+    const ten = Array.from({ length: 10 }, (_, k) => row([`10-${String(k + 1).padStart(2, '0')}`, '10:00', '王小明']));
+    const days = Object.fromEntries(Array.from({ length: 15 }, (_, k) => [`2026-10-${String(k + 1).padStart(2, '0')}`, [sis('10:00')]]));
+    const c = ctx({ 'c-wang': days });
+    const page = photo(ten, { pageText: '15筆第1/2頁' });
+    assert.deepEqual(goneAt(check([page, page], c).gone), []);
+    const span = photoSpan([page, page]);
+    assert.deepEqual([span.segments.length, span.segments[0].firstPage, span.segments[0].lastPage], [1, true, false]);
+  });
+
+  test('很多人的列表最後一頁只剩一位（「71筆第8/8頁」、起訖讀不到）→ 不當成「一個人一個月」放寬到月底', () => {
+    const c = ctx({ 'c-wang': { '2026-10-14': [sis('10:00')], '2026-10-21': [sis('10:00')] } });
+    assert.deepEqual(goneAt(check([photo([row(['10-14', '10:00', '王小明'])], { pageText: '71筆第8/8頁' })], c).gone), []);
   });
 
   test('頁數那一句讀不出來 → 只對第一列到最後一列之間', () => {
@@ -267,6 +285,13 @@ describe('畫面上的數字與句子', () => {
     // 對過、而且都有
     const none = check([photo(three, { pageText: '3筆第1/1頁' })], ctx({ 'c-wang': { '2026-10-02': [sis('10:00')] } })).gone;
     assert.match(absentSay(none, c.customers), /都在這次的照片上/);
+  });
+});
+
+describe('那一塊底下那一顆的字（句子在 domain）', () => {
+  test('有勾起來的：先記再去，**兩種都講照片不會留著**；沒有：直接去', () => {
+    assert.equal(goneButtonSay(2, '2026-10-24'), '先記勾起來的 2 段，再去日曆 10/24(六)（照片不會留著）');
+    assert.equal(goneButtonSay(0, '2026-10-24'), '去日曆 10/24(六)（照片不會留著）');
   });
 });
 

@@ -85,10 +85,13 @@ describe('病歷號對上、名字差一個字 → 認得（ADR-0128）', () => 
     assert.deepEqual([r.how, r.customer], ['none', null]);
   });
 
-  test('畫面上那一句講得出照片上的原字', () => {
+  test('畫面上那一句講得出照片上的原字；她換成別人就不講（療程單與拍 Abovee 同一支判斷）', () => {
     const r = identifyCustomer({ name: '王曉明', chartNo: '1234' }, customers);
     assert.match(nearNameSay(r, '王曉明'), /差一個字/);
     assert.match(nearNameSay(r, '王曉明'), /「王曉明」/);
+    assert.match(nearNameSay(r, '王曉明', 'c-wang'), /差一個字/);
+    assert.equal(nearNameSay(r, '王曉明', 'c-chen'), '');
+    assert.equal(nearNameSay(r, '王曉明', null), '');
   });
 });
 
@@ -107,7 +110,7 @@ describe('兩個入口都跟著放寬，而且看得出來', () => {
       rows: [['確認前往', '2026-09-10', '10:00 - 11:15', '王曉明', '00001234', 'SIS 60']],
     }], ctx);
     assert.deepEqual([items[0].kind, items[0].customerId, items[0].checked], ['new', 'c-wang', true]);
-    assert.match(nearSay(items[0], ctx.master), /差一個字/);
+    assert.match(nearSay(items[0]), /差一個字/);
   });
 
   test('她換成別人之後那一句就不講了（講的是認人那一次）', () => {
@@ -115,7 +118,7 @@ describe('兩個入口都跟著放寬，而且看得出來', () => {
       columns: ['預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程'],
       rows: [['確認前往', '2026-09-10', '10:00 - 11:15', '王曉明', '00001234', 'SIS 60']],
     }], { ...ctx, customers: [...customers, { id: 'c-a', name: '客戶甲', marks: [] }] });
-    assert.equal(nearSay({ ...items[0], customerId: 'c-a' }, ctx.master), '');
+    assert.equal(nearSay({ ...items[0], customerId: 'c-a' }), '');
   });
 
   test('療程單：草稿上那一位就是他（照片存到他底下）', () => {
@@ -160,8 +163,8 @@ describe('課程那一格差一個字', () => {
 
   test('確認層那一句講得出原字與認成什麼', () => {
     const item = { course: courseFrom('腸道修複', master), who: { how: 'both' }, customerId: 'c-wang' };
-    assert.match(nearSay(item, master), /「腸道修複」/);
-    assert.match(nearSay(item, master), /腸道修復/);
+    assert.match(nearSay(item), /「腸道修複」/);
+    assert.match(nearSay(item), /腸道修復/);
   });
 });
 
@@ -188,6 +191,10 @@ describe('治療師與醫師：只比她記下來的寫法', () => {
     assert.equal(staffFrom('陳霧霧', STAFF, { role: '物理治療師' }), null);
     const two = [...STAFF, { id: 's-x', name: '某某', role: '物理治療師', aboveeNames: ['陳露霞'] }];
     assert.equal(staffFrom('陳露雲', two, { role: '物理治療師' }), null);
+  });
+
+  test('不知道這一列要哪一種人（認不出課程）→ 不放寬（治療師與醫師一起比的話，差一個字的可能是另一種人）', () => {
+    assert.equal(staffFrom('陳霧露', STAFF), null);
   });
 
   test('結尾／開頭那兩條不放寬：陳小方 不會被認成小芳', () => {

@@ -52,3 +52,10 @@ Blocked by: 13（合了）
 - 二返／三返在健檢底下那一行（`9/20 三返(夏)`）、營養品「給了沒」、待辦那一行照舊只寫月日：那幾格掛在一欄底下，欄的抬頭已經帶年份了
 - 測試：新的 `tests/sheet-date-year.test.js` 4 條（改之前 import 就紅）；E2E `09` 的 J-C15 多兩句（500 天前那一欄帶 `25/`、10 天前那一欄照舊）。本機跑 `09`：10 條全過
 - `SPEC.md` 4.8、`docs/常見問題.md`「試算表越來越寬」；`sw.js` v180
+
+### 審查之後改的（`/matt-code-review`，2026-10-06）
+
+- **表上其他的日期也帶年份了**（Spec 軸：「同一天在同一張表上印成兩種樣子」那一句我只做了抬頭）。TODO／FINISHED 那兩區不在任何一個日期欄底下，
+  FINISHED 又一直累積 —— 上面那一條「欄的抬頭已經帶年份了」的理由不成立。`monthDay(iso, today)` 同一條規則：
+  FINISHED／TODO 那一行、健檢底下的二返／三返註記、營養品給了沒（`deliveryCell()` 兩條路）。兩條路都把 `today` 傳進去
+- 多兩條測試；`tests/sheet-script.test.js`（假的 Apps Script）照舊綠，`SYNC_FORMAT` 照舊沒動

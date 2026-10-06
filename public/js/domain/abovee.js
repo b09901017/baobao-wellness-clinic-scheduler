@@ -47,8 +47,9 @@ const named = (row, text) => same(row.name, text) || (row.shortName && same(row.
  * 姓李、醫師也有一位「李」的話，兩條規則都符合 → 以前兩位都符合就放棄（她那 353 筆裡有 29 筆是這樣）。
  * 不知道時（`role` 是 null）照舊兩種都找。
  *
- * 3. 上面兩條都沒有人：**她記著的寫法**跟照片上的字差一個字（`oneCharOff()`，ADR-0128）、而且只有一位 → 那一位。
- *    **結尾／開頭那兩條不放寬** —— 兩個字的名字差一個字就是一半，會把一位不在主檔上的人認成別人
+ * 3. 上面兩條都沒有人、**而且知道這一列要哪一種人**：同一個角色裡，她記著的寫法跟照片上的字差一個字
+ *    （`oneCharOff()`，ADR-0128）、而且只有一位 → 那一位。不知道角色（認不出課程）就不放寬 —— 治療師與醫師一起比的話，
+ *    差一個字的那一位可能是另一種人。**結尾／開頭那兩條不放寬** —— 兩個字的名字差一個字就是一半
  *
  * @param {{role?: string|null}} [o]
  * @returns {object|null}
@@ -70,6 +71,7 @@ export function staffFrom(text, staff = [], { role = null } = {}) {
   });
   if (hits.length) return hits.length === 1 ? hits[0] : null;
 
+  if (!role) return null;
   const near = pool.filter((x) => (x.aboveeNames ?? []).some((a) => oneCharOff(s, normalizeAlias(a))));
   return near.length === 1 ? near[0] : null;
 }

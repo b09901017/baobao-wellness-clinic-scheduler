@@ -31,7 +31,7 @@ import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import {
-  VISIT_STATUSES, isActive, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes,
+  VISIT_STATUSES, isActive, isOpenStatus, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes,
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
@@ -892,6 +892,15 @@ function checkIvMismatch(ctx) {
   return out;
 }
 
+/** 第 32 項的那一種額度：單一課程、不是營養點滴、記著的時長不是課程的（第 33 項也問它）。 */
+function minutesOff(e, course) {
+  if (!e || e.deletedAt || e.type !== 'single' || e.durationMin == null) return false;
+  if (!course || course.requiresIvProduct) return false;
+  const n = Number(e.durationMin);
+  const choices = durationChoicesOf(course);
+  return !(choices.length ? choices.includes(n) : n === Number(course.durationMin));
+}
+
 /**
  * 十一之二、額度上記著的時長跟課程不一樣（2026-10-07，issue 15）。
  *
@@ -909,15 +918,6 @@ function checkIvMismatch(ctx) {
  *   是建額度時抄的舊數字（`slotMinutes()` 的註解）—— 列出來整頁都是不用處理的
  * - 擇一池不看：那一格是她按的那一排，名字另有一列在盯（`checkPoolLabels()`）
  */
-/** 第 32 項的那一種額度：單一課程、不是營養點滴、記著的時長不是課程的（第 33 項也問它）。 */
-function minutesOff(e, course) {
-  if (!e || e.deletedAt || e.type !== 'single' || e.durationMin == null) return false;
-  if (!course || course.requiresIvProduct) return false;
-  const n = Number(e.durationMin);
-  const choices = durationChoicesOf(course);
-  return !(choices.length ? choices.includes(n) : n === Number(course.durationMin));
-}
-
 function checkEntitlementMinutes(ctx) {
   const out = [];
 
@@ -961,7 +961,7 @@ function checkSlotMinutes(ctx) {
   for (const visit of ctx.visits) {
     if (visit.deletedAt || !isActive(visit)) continue;
     (visit.slots ?? []).forEach((slot) => {
-      if (!['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot))) return;
+      if (!isOpenStatus(slotStatus(visit, slot))) return;
       if (slot.minutes != null || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) return;
       const e = ctx.entitlementsById[slot.entitlementId];
       if (!minutesOff(e, ctx.coursesById[e?.courseId])) return;
@@ -976,7 +976,8 @@ function checkSlotMinutes(ctx) {
         severity: 'attention',
         title: `${who}・${visit.date} ${slot.startsAt}–${slot.endsAt} ${course?.name ?? e.label ?? ''}`,
         detail: `排了 ${length} 分，照課程應該是 ${should} 分 —— 是那一筆額度記著 ${e.durationMin} 分（上一項）排出來的。`
-          + '先照上一項把那一筆額度的時長清空，再到日曆那一天點這一段 →「改這一段」→ 存，結束時間會重算',
+          // 分不出是她自己設的還是加購時帶過來的（同第 32 項）—— 那一句一樣要講
+          + '是你自己設的就不用理它；不是的話先照上一項把那一筆額度的時長清空，再到日曆那一天點這一段 →「改這一段」→ 存，結束時間會重算',
         link: null,
         fix: null,
       });

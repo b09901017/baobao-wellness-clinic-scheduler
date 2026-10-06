@@ -11,7 +11,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { customerReport, dateLabel, syncBundle } from '../public/js/domain/sheetReport.js';
+import { customerReport, dateLabel, deliveryCell, syncBundle } from '../public/js/domain/sheetReport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const ENT = {
@@ -34,6 +34,35 @@ describe('一支 dateLabel()', () => {
 
   test('沒給今天 → 照舊（不猜哪一年是今年）', () => {
     assert.equal(dateLabel('2025-10-07'), '10/7(二)');
+  });
+});
+
+// 審查查到的：表上其他的日期（TODO／FINISHED 那兩區、二返註記、營養品給了沒）照舊只寫月日 ——
+// FINISHED 會一直累積，明年起去年與今年的「10/7 寫紀錄」分不出來；TODO／FINISHED 不在任何一個日期欄底下
+describe('表上其他的日期也一樣：不是今年的帶年份', () => {
+  const EXAM = { id: 'e-x', customerId: 'c1', type: 'single', courseId: 'course-checkup', label: '健檢', totalQty: 1 };
+  const FU = { id: 'e-f', customerId: 'c1', type: 'single', courseId: 'course-followup', label: '二返', totalQty: 1, followupForEntitlementId: 'e-x' };
+  const done = (id, date, entitlementId, courseId, extra = {}) => ({
+    id, customerId: 'c1', date, status: 'done',
+    slots: [{ entitlementId, courseId, status: 'done', attended: true, startsAt: '10:00', endsAt: '11:00', ...extra }],
+  });
+  const visits = [done('v-x', '2025-11-01', 'e-x', 'course-checkup'), done('v-f', '2025-11-20', 'e-f', 'course-followup', { followupForVisitId: 'v-x' })];
+  const tasks = [{ id: 't1', customerId: 'c1', visitId: 'v-x', kind: '寫紀錄', done: true, doneAt: '2025-11-02', dueDate: '2025-11-02' }];
+  const bundle = () => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A', active: true }],
+    entitlementsBy: { c1: [EXAM, FU] }, visitsBy: { c1: visits }, tasksBy: { c1: tasks },
+    today: TODAY, master: SEED, generatedAt: '',
+  }).sheets[0];
+
+  test('FINISHED 那一行、健檢底下的二返註記：25/M/D', () => {
+    const sheet = bundle();
+    assert.match(sheet.tasks.finished[0].label, /^25\/11\/1 /);
+    assert.match(JSON.stringify(sheet.followupNotes), /25\/11\/20 二返/);
+  });
+
+  test('營養品給了沒：不是今年的帶年份；今年的照舊', () => {
+    assert.equal(deliveryCell({ at: '2025-12-01', text: '全部給了' }, TODAY), '25/12/1　全部給了');
+    assert.equal(deliveryCell({ at: '2026-09-01', text: '全部給了' }, TODAY), '9/1　全部給了');
   });
 });
 

@@ -257,6 +257,8 @@ describe('照錯的時長排出去的那幾段', () => {
     assert.match(rows[0].detail, /排了 60 分/);
     assert.match(rows[0].detail, /應該是 120 分/);
     assert.match(rows[0].detail, /改這一段/);
+    // 審查查到的：她在「進階設定」自己設 60 的那一筆照它排出去的段也長這樣 —— 分不出來，所以同第 32 項講一句
+    assert.match(rows[0].detail, /是你自己設的就不用理它/);
     assert.equal(rows[0].fix, null);
     assert.equal(rows[0].severity, 'attention');
   });

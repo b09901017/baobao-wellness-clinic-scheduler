@@ -31,11 +31,11 @@ const repoModule = (rel) => import(pathToFileURL(join(REPO, rel)).href);
 
 const { parseSheet, planForSheet, IV_SHORTHAND, CHART_NO_PREFIX } = await repoModule('public/js/domain/legacyImport.js');
 // 病歷號怎麼比（補零、空白）只有 app 那一支（ADR-0103）
-const { chartNosOf, normalizeChartNo } = await repoModule('public/js/domain/identify.js');
+const { chartNosOf, normalizeChartNo, normalizeName } = await repoModule('public/js/domain/identify.js');
 const { SEED } = await repoModule('public/js/domain/seed.js');
 const { toCustomerFields } = await repoModule('public/js/domain/customerMarks.js');
 // 「這門課算不算次數」只有這一支（ADR-0121）—— 這裡再比一次 `uncounted` 就是第二份判斷
-const { isUncounted } = await repoModule('public/js/domain/masterData.js');
+const { isUncounted, bedRoomOf } = await repoModule('public/js/domain/masterData.js');
 const { idsForPoolKind, POOL_SET_HOME, POOL_SET_ALL } = await repoModule('public/js/domain/entitlements.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
@@ -249,20 +249,28 @@ export function roomOf(summary) {
   const s = String(summary).replace(/\s+/g, '');
   const t = /治(\d{1,2})/.exec(s);
   if (t) return `治${t[1]}`;
-  // 三條結尾都是同一段床位：可有可無的「床」＋一個 A／B，後面不可以再接字母
-  const il = /(?:ILIB|IL)[（(]?[.．]?(\d{1,2})(?:床?([AaBbＡＢａｂ])(?![A-Za-zＡ-Ｚａ-ｚ]))?/i.exec(s);
+  const il = IL_ROOM.exec(s);
   if (il) return dripRoom(il[1], il[2]);
-  const drip = /點滴?[.．]?(\d{1,2})(?:床?([AaBbＡＢａｂ])(?![A-Za-zＡ-Ｚａ-ｚ]))?/.exec(s);
+  const drip = DRIP_ROOM.exec(s);
   if (drip) return dripRoom(drip[1], drip[2]);
-  const bare = /(?<!\d)[.．](\d{1,2})(?!\d)(?:床?([AaBbＡＢａｂ])(?![A-Za-zＡ-Ｚａ-ｚ]))?/.exec(s);
+  const bare = BARE_ROOM.exec(s);
   const n = Number(bare?.[1]);
   return bare && n >= 1 && n <= 10 ? dripRoom(n, bare[2]) : null;
 }
 
-const ROOM_NAMES = new Set(SEED.rooms.map((r) => r.name));
+/** 房號後面的床位：可有可無的「床」＋一個 A／B，後面不可以再接字母。三種房號的結尾都是它，只寫一次 */
+const BED = /(?:床?([AaBbＡＢａｂ])(?![A-Za-zＡ-Ｚａ-ｚ]))?/;
+const withBed = (re, flags = '') => new RegExp(re.source + BED.source, flags);
+const IL_ROOM = withBed(/(?:ILIB|IL)[（(]?[.．]?(\d{1,2})/, 'i');
+const DRIP_ROOM = withBed(/點滴?[.．]?(\d{1,2})/);
+const BARE_ROOM = withBed(/(?<!\d)[.．](\d{1,2})(?!\d)/);
+
+/** 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N） */
 const dripRoom = (n, bed) => {
-  const withBed = bed ? `點滴${Number(n)}${String(bed).normalize('NFKC').toUpperCase()}` : null;
-  return withBed && ROOM_NAMES.has(withBed) ? withBed : `點滴${Number(n)}`;
+  const name = `點滴${Number(n)}`;
+  if (!bed) return name;
+  const room = SEED.rooms.find((r) => r.name === name) ?? { name };
+  return bedRoomOf(room, String(bed).normalize('NFKC'), SEED.rooms)?.name ?? name;
 };
 
 // ---------- 這一筆是哪一類 ----------
@@ -922,19 +930,30 @@ function applyPlanDecisions(plans, decisions, log) {
  *
  * - 舊表已經有、一樣（補零不算不一樣）→ 不動
  * - **舊表已經有、不一樣 → 不改**，進 ⓪b（`problems`；決定頁照舊是一項）—— 哪一個對要她看
+ * - **名單上的名字對到兩位以上**（分頁不同、名字清完一樣）→ 一位都不補，各自進 ⓪b ——
+ *   補錯一位的話，「病歷號對上、名字差一個字」（ADR-0128）會把那一位的照片認到另一位身上（審查查到的）
  * - 沒帶名單 → 這一支不跑，合併檔一個位元都不變
  *
- * @returns {{added: number, differ: number}}
+ * @returns {{added: number, differ: number, twins: number}}
  */
 export function applyChartNumbers(plans, list, { renames = {} } = {}) {
-  const norm = (x) => String(x ?? '').normalize('NFKC').replace(/\s+/g, '');
-  const byName = new Map(Object.entries(list ?? {}).map(([name, no]) => [norm(name), String(no ?? '').trim()]));
-  const log = { added: 0, differ: 0 };
-  for (const p of plans) {
-    if (p.skip || !p.customer) continue;
-    const name = displayName(p.customer.name ?? p.customerName, { renames, sheetName: p.sheetName });
-    const no = byName.get(norm(name)) ?? byName.get(norm(p.sheetName));
+  const byName = new Map(Object.entries(list ?? {}).map(([name, no]) => [normalizeName(name), String(no ?? '').trim()]));
+  const log = { added: 0, differ: 0, twins: 0 };
+  const live = plans.filter((p) => !p.skip && p.customer);
+  const keyOf = (p) => {
+    const name = normalizeName(displayName(p.customer.name ?? p.customerName, { renames, sheetName: p.sheetName }));
+    return byName.has(name) ? name : normalizeName(p.sheetName);
+  };
+  const sameKey = new Map();
+  for (const p of live) sameKey.set(keyOf(p), (sameKey.get(keyOf(p)) ?? 0) + 1);
+  for (const p of live) {
+    const no = byName.get(keyOf(p));
     if (!no || !normalizeChartNo(no)) continue;
+    if (sameKey.get(keyOf(p)) > 1) {
+      (p.problems ??= []).push({ where: 'A2', raw: '', why: `病歷號名單上有這個名字（${no}），可是舊表上同名的有 ${sameKey.get(keyOf(p))} 位 —— 沒補，看是哪一位` });
+      log.twins += 1;
+      continue;
+    }
     const have = chartNosOf(p.customer);
     if (have.includes(normalizeChartNo(no))) continue;
     if (have.length) {
@@ -1486,7 +1505,9 @@ export function reportText(r) {
   L.push(`   ⑥ 對不到客戶的　${r.leftover.personal.length}　（這一段是清單不是問題，慢慢挑）`);
   if (sheetProblems(r).length) L.push(`   ⓪b 舊表本身讀到的問題　${sheetProblems(r).length}`);
   // 帶了病歷號名單才有這一行（沒帶的話報告一個字都不變）。不一樣的那幾位在 ⓪b 裡
-  if (r.chartLog) L.push(`   病歷號名單：補了 ${r.chartLog.added} 位、跟舊表不一樣 ${r.chartLog.differ} 位（在 ⓪b，沒改）`);
+  if (r.chartLog) {
+    L.push(`   病歷號名單：補了 ${r.chartLog.added} 位、跟舊表不一樣 ${r.chartLog.differ} 位、同名沒補 ${r.chartLog.twins} 位（後兩種在 ⓪b，沒改）`);
+  }
   if (purchaseProblems(r).length) L.push(`   ⓪c 購買名稱對不上的　${purchaseProblems(r).length}　← 合併時逐條問她`);
   if (r.decisionLog?.misses.length) L.push(`   ⓪d 找不到對象的決定　${r.decisionLog.misses.length}　← 舊表多半改過了，要重新問她`);
   L.push('');

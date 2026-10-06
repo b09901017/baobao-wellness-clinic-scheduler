@@ -102,12 +102,13 @@ export function identifyCustomer({ name = '', chartNo = '' } = {}, customers = [
 
 /**
  * `nearName` 那一種畫面上的那一句（ADR-0128）。拍 Abovee 與療程單兩個確認層共用 —— 各寫一句的話遲早一邊沒講。
- * 不是那一種就是空字串。
+ * 不是那一種、或她已經換成別人（`pickedId` 不是認人那一次認的那一位）就是空字串 —— 那一句講的是認人那一次的事。
  *
  * @param {ReturnType<typeof identifyCustomer>} who
  * @param {string} seenName 照片上的名字（原字）
+ * @param {string|null} [pickedId] 那一列現在是誰（沒給就當成還是認人那一次那一位）
  */
-export function nearNameSay(who, seenName) {
-  if (who?.how !== 'nearName') return '';
+export function nearNameSay(who, seenName, pickedId = who?.customer?.id) {
+  if (who?.how !== 'nearName' || !pickedId || pickedId !== who.customer?.id) return '';
   return `病歷號對上了，名字跟照片上差一個字（照片上是「${String(seenName ?? '').trim()}」）—— 當成這一位；不是的話換一位`;
 }

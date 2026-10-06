@@ -187,7 +187,7 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     // 認得（名字與編號都對上、或只有名字而那一位身上沒有編號）：一行，旁邊一顆「換一位」。
     // 病歷號對上、名字差一個字的那一種（ADR-0128）多一句 —— 照片存到他底下，認錯的代價比拍 Abovee 重
     if (who && !card.finding) {
-      const near = draft.customerId === draft.who.customer?.id ? nearNameSay(draft.who, card.photo.transcript?.customerName) : '';
+      const near = nearNameSay(draft.who, card.photo.transcript?.customerName, draft.customerId);
       return part('是誰', `
         <span class="tsc__line">${seen}
           <button class="btn btn--sm btn--ghost" type="button" data-tsc-find>換一位</button></span>

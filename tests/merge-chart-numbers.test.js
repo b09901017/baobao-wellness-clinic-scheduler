@@ -79,6 +79,16 @@ describe('病歷號名單（--chart-numbers）', () => {
     assert.equal(items.length, 1);
   });
 
+  // 審查查到的：兩張分頁的名字清完一樣（`王小明`、`王小明(2)` 的 A2 都寫王小明）→ 以前兩位都補上同一個號碼，
+  // 而「病歷號對上、名字差一個字」（ADR-0128）就是靠這個號碼認人
+  test('名單上的名字對到兩位同名的 → 一位都不補，進 ⓪b 講是同名', () => {
+    const r = run({ 王小明: '王小明', '王小明(2)': '王小明' }, { chartNumbers: { 王小明: '1234' } });
+    const file = importJson(r);
+    assert.deepEqual(file.customers.map((c) => c.marks.filter((m) => m.text.startsWith('病歷號')).length), [0, 0]);
+    assert.match(reportText(r), /同名的有 2 位/);
+    assert.match(reportText(r), /病歷號名單：補了 0 位、跟舊表不一樣 0 位、同名沒補 2 位/);
+  });
+
   test('報告最上面一行講補了幾位、不一樣幾位（只有帶了名單才有）', () => {
     const r = run(SHEETS, { chartNumbers: { 李小華: '5678', 王小明: '9999' } });
     assert.match(reportText(r), /病歷號名單：補了 1 位、跟舊表不一樣 1 位/);

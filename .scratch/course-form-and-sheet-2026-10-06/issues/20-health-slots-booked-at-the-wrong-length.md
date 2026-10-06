@@ -56,3 +56,10 @@ Blocked by: 15（合了）
   **編輯器抬頭那一格照存著的印**（存一次才重算），清單裡我寫的時候以為打開就會變 —— 所以那一句寫的是「直接按存」
 - 測試：`tests/health.test.js` 新的一組 6 條（改之前 7 條紅，含「33 項」那一條）
 - `docs/常見問題.md`「健檢排出來只有一小時」補兩句；`sw.js` v181（`domain/health.js` 在 SHELL 裡）。E2E 55 本機 5 條全過
+
+### 審查之後改的（`/matt-code-review`，2026-10-06）
+
+- **會把她自己設的時長講成錯的**（Spec 軸：判準那一句）：她在進階設定刻意把健檢額度設 60、照它排的那一段也長這樣，分不出來 ——
+  那一句前面加「是你自己設的就不用理它」（同第 32 項）。測試釘著
+- `minutesOff()` 搬到「十一之二」那段說明前面（以前兩段說明疊在一起，`checkEntitlementMinutes()` 沒了說明）；「還開著」改用 `visits.js` 的 `isOpenStatus()`（export 出來）
+- `tests-e2e/related.js` 的 `55` 補 `domain/health.js`、`ui/views/health.js`、`visitEditor.js`、`visits.js`（B5 測的是它們）

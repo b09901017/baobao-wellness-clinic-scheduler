@@ -116,3 +116,9 @@ Blocked by: —（審查之後這一支不動提示詞，不用跟 09 一起重�
 - 測試：新的 `tests/abovee-recognise-more.test.js` 24 條（判準每一條）；E2E 42 多一條 T3b（療程單那一句看得到）。本機跑 41、42、51、57：19 條全過
 - 真名掃描擋了測試裡「二反」緊接著 60 的寫法（中文接數字）→ 中間加一個空白
 - ADR-0128（提示詞不附名單寫在「也決定了」）；`CLAUDE.md` 兩列；`docs/常見問題.md` 一條；`sw.js` v179。`functions/` 沒動
+
+### 審查之後改的（`/matt-code-review`，2026-10-06）
+
+- 「她換成別人就不講」的判斷原本兩個入口各寫一次 → 收進 `nearNameSay(who, seenName, pickedId)` 一支（Standards 軸）；`nearSay()` 拿掉沒用到的 `master` 參數
+- `staffFrom()` 差一個字那一步**只在知道角色時跑**（Spec 軸：issue 寫「同一個角色裡」，`role` 是 null 時以前治療師與醫師一起比）。多一條測試
+- ADR-0128 第二段改叫「沒選的另一條路」（Standards 軸：一支一個決定 —— 那一段是同一個問題沒選的做法，同 ADR-0113 的寫法）

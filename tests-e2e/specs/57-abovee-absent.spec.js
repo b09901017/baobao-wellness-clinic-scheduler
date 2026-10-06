@@ -83,7 +83,7 @@ test('G1 一個人一個月、只有一頁：9/24 那一段列出來（健檢、
 
   // 9/17 那一列是新的、勾著 → 那一顆先走既有的存檔（同一道確認框），記好才換頁
   const go = gone(page).locator('[data-abl-gone]');
-  await expect(go).toHaveText('先記勾起來的 1 段，再去日曆 9/24(四)');
+  await expect(go).toHaveText('先記勾起來的 1 段，再去日曆 9/24(四)（照片不會留著）');
   await go.click();
   await expect(app.dialog()).toBeVisible();
   await app.ok();

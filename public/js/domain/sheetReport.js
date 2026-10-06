@@ -121,7 +121,7 @@ export function customerReport({
   // 而它把換行換成空白（不然貼進試算表會整個錯位）。同一格三返擠在二返後面
   // 是看得懂但很難掃的東西，所以這裡攤成幾列 —— 兩條路長得一樣，
   // 只是這一條把「同一格的第二行」畫成「下一列的同一欄」。
-  const notes = followupNotes({ alive, visits: used, dates, coursesById, staffById });
+  const notes = followupNotes({ alive, visits: used, dates, coursesById, staffById, today });
   if (notes.length) {
     const parts = notes.map((note) => ({ at: note.dateIndex, lines: note.text.split(NL) }));
     const height = Math.max(...parts.map((p) => p.lines.length));
@@ -147,12 +147,12 @@ export function customerReport({
         amountOf(e) == null ? '' : String(amountOf(e)),
         String(monthsOf(e)),
         itemsOf(e).map((x) => x.name).filter(Boolean).join('、'),
-        deliveryCell(gave),
+        deliveryCell(gave, today),
       ]);
     }
   }
 
-  const blocks = taskBlocks(tasks, used, { courses, equipment });
+  const blocks = taskBlocks(tasks, used, { courses, equipment }, today);
   rows.push([], ['備註', customer?.notes ?? '']);
   rows.push([], ['TODO（還沒做的）'], ...taskRows(blocks.todo, '死線'));
   rows.push([], ['FINISHED（做完的）'], ...taskRows(blocks.finished, '完成'));
@@ -353,10 +353,13 @@ export function dateLabel(iso, today = null) {
   return `${String(iso).slice(2, 4)}/${label}`;
 }
 
-/** `7/13`。舊表的二返註記就是這個格式，沒有星期。 */
-function monthDay(iso) {
-  const [, m, d] = String(iso).split('-').map(Number);
-  return `${m}/${d}`;
+/**
+ * `7/13`。舊表的二返註記就是這個格式，沒有星期。**不是今年的前面加兩位數年份**（`25/7/13`，issue 19）——
+ * 同 `dateLabel()` 的理由：FINISHED 那一區會一直累積，去年與今年的同一天只寫月日就分不出來（審查查到的）。
+ */
+function monthDay(iso, today = null) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return isValidDate(today) && y !== Number(today.slice(0, 4)) ? `${String(y).slice(2)}/${m}/${d}` : `${m}/${d}`;
 }
 
 /**
@@ -366,8 +369,8 @@ function monthDay(iso) {
  * 全形空白接起來（`renderProducts()`）。同一份報表因為走哪條路而長得不同，
  * 她會以為其中一條壞了 —— 而那正是這一支檔頭寫的規矩。
  */
-export function deliveryCell(gave) {
-  return gave?.at ? `${monthDay(gave.at)}　${gave.text}` : (gave?.text ?? '');
+export function deliveryCell(gave, today = null) {
+  return gave?.at ? `${monthDay(gave.at, today)}　${gave.text}` : (gave?.text ?? '');
 }
 
 /**
@@ -592,7 +595,7 @@ export function syncBundle({
           // 以前這裡原樣送 `2026-08-20`，於是同一份營養品在「手動貼上」印
           // `8/20`、在「自動推送」印 `2026-08-20` —— 而這一支的檔頭寫著
           // 兩條路必須長一樣。`.gs` 一個日期都不格式化，同它一個數字都不算。
-          deliveredAt: gave.at ? monthDay(gave.at) : null,
+          deliveredAt: gave.at ? monthDay(gave.at, today) : null,
           done: gave.state === 'all',
         };
       }),
@@ -606,11 +609,11 @@ export function syncBundle({
       }), { total: 0, done: 0, booked: 0, remaining: 0 }),
       // 二返約在哪天，寫在**那次健檢被勾起來的那一欄**底下 —— 她原本就是這樣記的
       // （docs/legacy/README.md 第 6 節）。
-      followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById }),
+      followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById, today }),
       // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
       // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
       tasks: taskBlocks(tasksBy[customer.id] ?? [], visits,
-        { courses: master.courses ?? [], equipment: master.equipment ?? [] }),
+        { courses: master.courses ?? [], equipment: master.equipment ?? [] }, today),
       // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
       //
       // **取消的段不寫、每一段帶它自己的狀態、照開始時間排**（格式 6，
@@ -773,7 +776,7 @@ export function slotNoteCells(entitlement, visits, dates) {
  * （docs/adr/0026-doctors-are-assignable-staff.md）。**沒選醫師就整個括號不印**，
  * 不要印一個空的 `()` —— 那在她的寫法裡是「還沒約」的意思，會反過來騙人。
  */
-function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
+function followupNotes({ alive, visits, dates, coursesById, staffById = {}, today = null }) {
   // **一欄一格，格子裡可以有好幾行。**
   //
   // 以前這一支一個健檢欄位只回一筆，而手動貼上那條路是
@@ -819,7 +822,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
         const at = dates.indexOf(date);
 
         add(at, hit
-          ? `${monthDay(hit.date)} ${label}${doctor ? `(${doctor})` : ''}`
+          ? `${monthDay(hit.date, today)} ${label}${doctor ? `(${doctor})` : ''}`
           // 空括號在她的寫法裡就是「還沒約」的意思（ADR-0026），
           // 所以這裡刻意保留 —— 它不是漏印，它是一個訊息。
           : `${label}()`);
@@ -837,7 +840,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {} }) {
           const who = extra.slot.doctorId ? (staffById[extra.slot.doctorId]?.name ?? null) : null;
           // 醫師還沒定就印空括號 —— **這一種空括號是有意義的**：
           // 那一場已經約了（日期就在前面），只是醫師還沒挑。
-          add(at, `${monthDay(extra.visit.date)} ${nthLabel(extra.nth)}${who ? `(${who})` : '()'}`);
+          add(at, `${monthDay(extra.visit.date, today)} ${nthLabel(extra.nth)}${who ? `(${who})` : '()'}`);
         }
       });
   }
@@ -914,7 +917,7 @@ function bookingsOf(visits, entitlementId, dates) {
  * 而死線是它的前一天，兩個差一天最容易看錯人。來訪找不到（獨立待辦、
  * 來訪被刪了）才退回用死線。
  */
-function taskBlocks(tasks, visits, master = null) {
+function taskBlocks(tasks, visits, master = null, today = null) {
   const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));
   const alive = (tasks ?? []).filter((t) => !t.deletedAt);
 
@@ -924,7 +927,7 @@ function taskBlocks(tasks, visits, master = null) {
     // 不是死線」這個判斷只要有兩份，就會有一份差一天。
     const { date, what } = taskLine(t, visitById[t.visitId], master);
     return {
-      label: [date ? monthDay(date) : '', what].filter(Boolean).join(' '),
+      label: [date ? monthDay(date, today) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',
       dueDate: t.dueDate ?? '',
       doneAt: t.doneAt ?? '',

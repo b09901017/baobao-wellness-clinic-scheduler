@@ -21,7 +21,7 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
+  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
   nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -245,7 +245,6 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const first = gone.slots[0].date;
     const pending = pendingCount();
     const stuck = items.some((i) => i.checked && !savedKeys.has(i.key) && p.problems[i.key]);
-    const label = pending ? `先記勾起來的 ${pending} 段，再去日曆 ${shortDate(first)}` : `去日曆 ${shortDate(first)}（照片不會留著）`;
     return `
       <section class="abl__group abl__group--gone" aria-label="app 有、這次照片上沒有">
         <h3 class="abl__day">app 有、這次照片上沒有</h3>
@@ -263,7 +262,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             </div>
           </li>`).join('')}</ol>
         ${onOpenDay ? `<button class="btn btn--sm abl__gone" type="button" data-abl-gone="${esc(first)}"
-          ${running || stuck ? 'disabled' : ''}>${esc(label)}</button>` : ''}
+          ${running || stuck ? 'disabled' : ''}>${esc(goneButtonSay(pending, first))}</button>` : ''}
       </section>`;
   }
 
@@ -333,6 +332,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const what = built?.slot ? slotName(built.slot, ctx.master, 'short') : (item.row.course || '？');
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
     const problems = item.checked ? (p.problems[item.key] ?? []) : [];
+    const near = nearSay(item);
 
     return `
       <li class="abl-row abl-row--${tag}${open ? ' is-open' : ''}${problems.length ? ' has-problem' : ''}" data-abl-row="${esc(item.key)}">
@@ -355,8 +355,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
-        ${nearSay(item, ctx.master) && !savedKeys.has(item.key)
-          ? `<p class="abl-row__hint abl-row__hint--near">${esc(nearSay(item, ctx.master))}</p>` : ''}
+        ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
