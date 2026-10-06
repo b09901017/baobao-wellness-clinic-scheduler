@@ -1,6 +1,6 @@
 # 試算表：三返、四返也在矩陣裡自己一列
 
-Status: todo
+Status: done
 來源：她 2026-10-06 對「等她回的」第 2 題的回答
 動工前先讀：`public/js/domain/sheetReport.js`（`extraRows()`、`mark()`、`syncBundle()`、`customerReport()`、二返那一種註記 `followupNotes`）、
 `sheets/readonly-report.gs` 的 `renderCustomer()`、`tests/sheet-rows-without-entitlement.test.js`（01 的不變量）、
@@ -77,3 +77,21 @@ n返 不是額度（ADR-0063）：時段的 `entitlementId` 是 `null`，靠 `fo
 - `SPEC.md` 試算表那一節、`docs/常見問題.md`（「試算表最下面多了一列」那一條如果 12 已經寫了，補 n返）
 - `public/sw.js` 的 VERSION
 - 跟 13（400 天）改同一支檔案的不同地方，可以同一個 session 連著做
+
+## 做完時留下的（2026-10-07）
+
+- **動工前確認的那一件**：n返 在健檢那一欄底下那一行**本來就有**（`followupNotes()` 最後那一圈走 `followupsOfExam()`，`9/20 三返(夏)`）。她說「要留」→ 一個字都沒動
+- `sheetReport.js` 的 `extraRows()`：`keyOf()` 不再把 n返 濾掉，回 `nth|<返數>`；那一組的名字是 `nthLabel(返數)`、標「（不算次數）」。
+  **先後**：n返（照返數）→ 不算次數的課（照名字）→ 額度被刪的（照名字），新的 `rank()`。`mark()`、`slotOutcome()`、`totals` 都沒動 —— 跟功醫門診同一條路
+- 它那一列認的是**返數**（`nthOf()`），不認課程（它借二返那門課）、不認額度（`null`）：二返那一列的數字與符號一個都不變，有測試釘著
+- **`SYNC_FORMAT` 沒動（7）、`.gs` 沒動、她不用重貼**。在假的 Apps Script 環境裡畫過兩次：
+  `tests/sheet-script.test.js` 新的一條（三返那一列接在額度列下一列、`—／1／0／—／✓`、「剩餘」沒有被塗紅、合計只算額度那一列、記的那一句照舊只印一次）、
+  `tests/sheet-rows-without-entitlement.test.js` 新的一條（健檢＋二返＋三返：第 8 列、健檢那一欄底下那一行還在）
+- 測試：`tests/sheet-report.test.js`「n返 不進矩陣」翻成「n返 在矩陣裡自己一列」（斷言訊息換成她這一次的話）；
+  `tests/sheet-rows-without-entitlement.test.js` 的「n返 一個字都沒變」那一組換成 7 條（只做三返的一天、一槓與次數、三返四返各自一列、二返那一列不變、取消的不出現、三種列的先後、手動貼上）；
+  不變量 1、2 的 n返 例外拿掉了。改之前 9 條紅
+- **真檔對過了**：10/5 那一份合併檔走 `planForCustomer()` → `syncBundle()`（只看數字）：29 張、159 列、129 個日期欄、空白欄 0、符號 198＝還算數的段 198＝來訪紀錄 198 行、
+  ✓ 的數量跟「已完成」對不上的列 0。**那一份資料裡沒有 n返 也沒有不算次數的段**（多的列 0）—— 新的那幾列只在測試夾具與假的 `.gs` 環境裡驗過，她的真試算表上還沒有人看過
+- ADR-0131（推翻 ADR-0063 那張表的矩陣那一列，0063 一個字都沒改）；`SPEC.md` 4.8；`docs/常見問題.md` 那一條的標題與內文；
+  `docs/操作手冊.md` n返 那一段的示意圖；`CLAUDE.md` 連動表「試算表的註記」那一列；`sw.js` v177
+- 手動貼上那條路（`customerReport()`）：同一列，接在額度列後面（`['三返（不算次數）', '—', '0', '1', '—', …]`）

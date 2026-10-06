@@ -673,7 +673,15 @@ test('取消掉的 n返 不印 —— 那一場沒發生', () => {
   assert.equal(notes[0].text, '8/8 二返(夏)');
 });
 
-test('**n返 不進矩陣**：它沒有額度，所以那幾個數字欄一個都不會動', () => {
+// 2026-10-07 翻過來的（course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。以前這一條釘的是
+// 「三返不會自己多一列」；只做三返的那一天那一欄整欄是空的，跟功醫門診同一個洞。問她要不要也自己一列，她回：
+//
+// > 好自己一列
+//
+// 健檢底下那一行留不留、各自一列還是合成一列：
+//
+// > 要留，各自一列
+test('**n返 在矩陣裡自己一列**：它沒有額度，所以二返那一筆的數字與合計一個都不會動', () => {
   const sheet = nthWorld([{
     id: 'v-3rd', date: '2026-09-20', status: 'confirmed',
     slots: [{ entitlementId: null, followupNth: 3, doctorId: 'st-li', followupForVisitId: 'v-exam' }],
@@ -685,7 +693,15 @@ test('**n返 不進矩陣**：它沒有額度，所以那幾個數字欄一個�
     { total: 1, done: 0, booked: 1, remaining: 0 },
     '三返不可以被算進二返那一筆額度',
   );
-  assert.equal(sheet.rows.length, 2, '三返不會自己多一列 —— 她要的是「記在健檢預約的下面」');
+  assert.deepEqual(sheet.rows.map((r) => r.label), ['8萬健檢', '二返（8萬健檢）', '三返（不算次數）']);
+  const third = sheet.rows[2];
+  assert.deepEqual(
+    { total: third.total, done: third.done, booked: third.booked, remaining: third.remaining, extra: third.extra },
+    { total: '—', done: 0, booked: 1, remaining: '—', extra: true },
+  );
+  assert.equal(third.marks[sheet.dates.indexOf('2026-09-20')], '△', '那一天那一欄有符號');
+  assert.deepEqual(sheet.totals, { total: 2, done: 1, booked: 1, remaining: 0 }, '合計只加額度列');
+  assert.ok(sheet.followupNotes[0].text.includes('9/20 三返(李)'), '健檢那一欄底下那一行照舊（她：「要留」）');
 });
 
 test('手動貼上那條路要跟自動推送長一樣（同一格、同一組換行）', () => {

@@ -105,6 +105,21 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     assert.equal(b.sheets[0].log[0].items[0].note, '整天那一句');
   });
 
+  // n返 也在矩陣裡自己一列（2026-10-07，course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。
+  // 每一列的鍵沒有變，所以**現在這一份 `.gs` 直接畫得出來** —— 不升 `SYNC_FORMAT`、她不用重貼。
+  test('三返那一段：矩陣最下面多一列「三返（不算次數）」，那一天那一格有 ✓、「剩餘」沒有被塗紅；記的那一句照舊只印一次', () => {
+    const b = make([ilib({ note: null }), fm({ courseId: 'fu', courseName: '三返', followupNth: 3, note: '報告看完了' })]);
+    assert.equal(SYNC_FORMAT, 7, '格式沒有升');
+    const sheet = render(b);
+    const at = column(sheet).indexOf('三返（不算次數）') + 1;
+    assert.ok(at > 0, '那一列要畫出來');
+    assert.equal(at, column(sheet).indexOf('ILIB(60)') + 2, '接在額度列的下一列');
+    assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '✓']);
+    assert.notEqual(sheet.backgrounds.get(`E${at}`), '#FFCDD2', '一槓不是 0');
+    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
+    assert.equal(everything(sheet).split('報告看完了').length - 1, 1);
+  });
+
   // 審查抓到的：`slotNoteOf()` 對每一段都退回整筆那一句。同一天還有一段有額度時，那一句已經印在
   // 額度底下那一格了 —— 來訪紀錄再印一次就是同一句話出現兩次（判準第二條）。
   test('舊資料：整筆那一句、同一天有一段有額度 —— 只印在額度那一格，來訪紀錄不印第二次', () => {
