@@ -17,7 +17,7 @@ import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND,
 } from '../domain/followups.js';
-import { todayISO } from '../domain/dates.js';
+import { todayISO, addDays } from '../domain/dates.js';
 
 const PATH = 'visits';
 const TASK_PATH = 'tasks';
@@ -80,6 +80,26 @@ export function listUnclosed(today) {
 export function listBetween(from, to) {
   return repo.list(PATH, {
     wheres: [where('date', '>=', from), where('date', '<=', to)],
+    order: ['date', 'asc'],
+  });
+}
+
+/** 試算表往後看多遠的來訪（已排未上的那幾欄）。 */
+const SHEET_LOOKAHEAD_DAYS = 400;
+
+/**
+ * 試算表要的來訪：**過去的全部**，往後 400 天（2026-10-07，issue 13）。
+ *
+ * 以前往回也只讀 400 天（「會籍是一年」），而每一筆額度的已完成／已排未上／剩餘是拿**讀到的那幾筆**
+ * 現算的 —— 一次來訪落在 400 天以前，試算表上「已完成」就少一次、「剩餘」多一次，而 app 裡的數字是對的。
+ * 她選了往回不設限（「好幫我改」）；代價是表會慢慢變寬，一位客戶做過幾天就有幾欄。
+ *
+ * **自動推送（`sheetSync.js`）與手動貼上（`report.js`）都走這一支** —— 各框一段的話，兩條路的次數會不一樣。
+ * 用的是 (deletedAt, date) 複合索引，跟 `listBetween()` 同一份。
+ */
+export function listForSheet(today) {
+  return repo.list(PATH, {
+    wheres: [where('date', '<=', addDays(today, SHEET_LOOKAHEAD_DAYS))],
     order: ['date', 'asc'],
   });
 }

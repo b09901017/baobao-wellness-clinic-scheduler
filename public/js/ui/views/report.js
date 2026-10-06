@@ -16,16 +16,13 @@ import * as configData from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
 import { customerReport, toTSV, toCSV, describeSync } from '../../domain/sheetReport.js';
-import { todayISO, addDays } from '../../domain/dates.js';
+import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
 import { saveText, dated } from '../components/download.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
-
-/** 報表往回涵蓋多久的來訪。她的方案會籍是一年，涵蓋一年才看得到整份療程。 */
-const LOOKBACK_DAYS = 400;
 
 // 選了誰留著：她通常是一位一位貼，貼完回來換下一位。
 // 沒有總表 —— 她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
@@ -52,7 +49,8 @@ async function load() {
   const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
-    visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    // 過去的全部，跟自動推送同一支（`data/sheetSync.js`）—— 兩條路的次數才會一樣
+    visitsData.listForSheet(today),
     tasksData.listForReport(),
     // 連已刪除的課程一起讀：主檔把健檢刪掉，不代表做過的那幾次就不用配二返了
     configData.listAll('courses', { includeDeleted: true }),
