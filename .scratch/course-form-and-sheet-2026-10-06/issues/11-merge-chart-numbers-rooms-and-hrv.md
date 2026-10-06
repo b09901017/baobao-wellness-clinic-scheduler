@@ -1,6 +1,6 @@
 # 合併檔：病歷號補齊、診間跟上 8A／8B、HRV 那 7 次帶得進沒有舊表的人（她選了改合併檔）
 
-Status: todo
+Status: done（第四節搬到 18）
 來源：她 2026-10-06 問題 6 的回答；第三點之 2（10 的前提）；審查查到的兩個牽連（04、05）
 動工前先讀：`.claude/skills/calendar-sheet-merge/SKILL.md`（第 4b、5 步；決定檔的格式）、`.claude/skills/calendar-sheet-merge/scripts/merge.mjs`
 （`roomOf()`、`therapistOf()`、`residualNames()`、組 `staff` 名單那一段、`TOKENS` 裡 `/功醫|HRV/i` 那一條、`startOf()`、`ivProductOf()`）、`board.mjs`、`record.mjs`、
@@ -132,3 +132,26 @@ Blocked by: 03、04、05（三支都會改到 `merge.mjs` 讀的種子）
 - `SKILL.md`（名單那個參數、8A／8B、只有姓的醫師怎麼認）、`shorthand.md`、`tests/calendar-merge.test.js`（兩邊的版本字串照舊一樣）
 - 10：病歷號補齊之後「號碼對上、名字差一個字」那一條才有得用
 - 三方比對那一頁（她還沒答完的 12 題）不受影響
+
+## 做完時留下的（2026-10-06）
+
+**做了第一、二、三（剩的那一句）、五節。第四節（升 `baobao-merge/v6`、帶得進沒有舊表分頁的人）搬到 `issues/18`** ——
+她說「太大就拆成自己的一段，先跟我說」。量過：合併檔多一種客戶、決定頁多一種題目＋`record.mjs` 寫得進去、app 的匯入頁／`planForCustomer()`／寫入那一條
+要建「沒有任何額度的客戶」、還要拿她的行事曆叫法對 Abovee 那 353 筆的全名 —— 跟這一段其餘加起來差不多大。
+
+- **第一節 病歷號名單**：`merge.mjs` 多一個選填的 `--chart-numbers <json>`（`{ "<名字>": "<病歷號>" }`）。`applyChartNumbers()` 在決定檔之後跑：
+  照 `displayName()`（沒有就分頁名）比、空白全形不算不一樣；舊表沒有就補一則「病歷號 N」（灰色，`toCustomerFields()` 讓 notes 跟著）；
+  一樣（補零不算不一樣，`identify.js` 的 `chartNosOf()`／`normalizeChartNo()`）不動；**不一樣不改、進 `problems`（＝報告 ⓪b、決定頁照舊一項）**。
+  報告的摘要多一行「病歷號名單：補了 N 位、跟舊表不一樣 M 位」，只有帶了名單才有。沒帶名單 → 合併檔一個位元都不變（測試釘著）
+- 她的名單在 `.local/references/圖片辨識參考/預約來源與病歷號對照.md`（xlsx 是同一份、格式比較亂）；轉成 `.local/references/chart-numbers.json`（50 位，`.gitignore` 擋著，`git check-ignore` 驗過）
+- **第二節 床位**：`roomOf()` 三條（IL、點滴、`.N`）結尾都多一段可有可無的「床＋A／B」，**只在種子有那一間時**才帶（`.5A` 照舊點滴5），字母後面還接著字母的不算（`.8BIL`）。
+  只寫 `.8` 照舊點滴8（不留空，她說的）。**她 523 句行事曆裡一句都沒寫過床位** —— 這一條現在不改任何輸出
+- **第三節剩的那一句**：`SKILL.md` 第 4 步底下寫了「全名填在 Abovee 上的寫法、顯示名不要改」
+- **第五節 拿真檔比**（`baseline.mjs` 我在 `.local/` 那一份加了 `--chart-numbers` 開關與一行「帶著病歷號幾位」，只印數字）：
+  - 不帶名單：**跟 00-baseline 一模一樣**（import 與 report 的雜湊都一樣）
+  - 帶名單：29 位全部帶著病歷號（以前 23），**補了 6、不一樣 0**；其餘每一個數字跟基準一樣，只有兩個雜湊變了
+- **重產她那一份**（`--today 2026-10-06`，決定檔＋名單）：`.local/references/import-2026-10-06.json`、`對帳報告-2026-10-06.txt`、`合併的決定-2026-10-06.html`。
+  拿 app 的 `validateFile()`／`planForCustomer()`（主檔用 `SEED`）驗過：v5、0 個錯、0 處對不到主檔、198 段、82 段有診間。
+  摘要：② 8、③ 14、④b 1、⑥ 336、⓪b 47、⓪c 2、⓪d 2（⓪d 那兩條跟 10/5 一樣，跟這一支無關）
+- 測試：新的 `tests/merge-chart-numbers.test.js` 9 條（改之前 5 條紅）
+- `CLAUDE.md`「舊表 B2」那一列；`SKILL.md`、`shorthand.md`。沒升合併檔格式（還是 v5），app 那一側一個字都沒動

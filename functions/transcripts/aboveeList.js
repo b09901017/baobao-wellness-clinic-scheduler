@@ -11,7 +11,7 @@
 // 「合併扣課」是 2026-10-05 加的（abovee-and-master/09）：兩列半小時合起來扣一次 60 分，
 // 不抄那一欄的話 app 會記成兩段、扣兩次。
 //
-// `dateFromText`／`dateToText` 是 2026-10-07 加的（course-form-and-sheet-2026-10-06/09，ADR-0129）：
+// `dateFromText`／`dateToText` 是 2026-10-06 加的（course-form-and-sheet-2026-10-06/09，ADR-0129）：
 // 畫面上方篩選列「預約日期(起)／(訖)」那兩格，照抄成字串。domain 拿來算「這次照片看得到哪一段時間」，
 // 對 app 上有、照片上沒有的那幾段。不是表格的欄，所以不在 `ABOVEE_COLUMNS` 裡。
 

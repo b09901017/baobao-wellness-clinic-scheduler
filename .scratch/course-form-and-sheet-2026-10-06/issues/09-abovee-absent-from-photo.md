@@ -112,7 +112,7 @@ Blocked by: 02（「這門課壓在不壓在 Abovee」）
 - `tests/abovee-*.test.js`、`tests-e2e/specs/51-abovee-picks.spec.js` 那一族（E2E 走 `fakeModel.js`，永遠不送真照片）
 - `public/sw.js` 的 VERSION
 
-## 做完時留下的（2026-10-07）
+## 做完時留下的（2026-10-06）
 
 - **動工前看她的真照片定的兩件**：10/5 考試那張與 10/2 的 15 張截圖，列**全部由早到晚**；頁數那一句長得像 `75筆第1/8頁`。
   所以範圍照「第一列到最後一列」那一條做，`aboveePage()` 讀「N筆」與「x/y」

@@ -119,7 +119,7 @@ describe('兩個入口都跟著放寬，而且看得出來', () => {
   });
 
   test('療程單：草稿上那一位就是他（照片存到他底下）', () => {
-    const draft = readSheet({ customerName: '王曉明', customerNumber: '1234', rows: [] }, { customers, master: ctx.master, sheets: [], today: '2026-10-07' });
+    const draft = readSheet({ customerName: '王曉明', customerNumber: '1234', rows: [] }, { customers, master: ctx.master, sheets: [], today: '2026-10-06' });
     assert.equal(draft.who.how, 'nearName');
     assert.equal(draft.customerId, 'c-wang');
   });

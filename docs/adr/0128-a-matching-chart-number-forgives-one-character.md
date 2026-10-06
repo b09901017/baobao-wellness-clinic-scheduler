@@ -1,6 +1,6 @@
 # ADR-0128：病歷號對上、名字只差一個字，算認得
 
-日期：2026-10-07
+日期：2026-10-06
 狀態：已接受
 延伸：[ADR-0103](./0103-chart-number-helps-identify.md)（名字與病歷號一起比，對不上就不挑）往外放寬**一格**；
 [ADR-0099](./0099-ai-only-copies-the-words.md)（AI 只抄字）、[ADR-0100](./0100-the-first-server-code-and-its-five-locks.md)（考試結果）。舊的一個字都不改。

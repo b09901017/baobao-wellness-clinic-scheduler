@@ -1,6 +1,6 @@
 # ADR-0129：拍 Abovee 也講「app 有、這次照片上沒有」
 
-日期：2026-10-07
+日期：2026-10-06
 狀態：已接受
 延伸：[ADR-0116](./0116-abovee-status-is-a-cross-check.md)（拿預約狀態跟 app 對一次，只講不改）往外多一種；
 [ADR-0056](./0056-only-the-calendar-can-change-a-visit.md)（改得了來訪的只有日曆）、[ADR-0099](./0099-ai-only-copies-the-words.md)（AI 只抄字）、
