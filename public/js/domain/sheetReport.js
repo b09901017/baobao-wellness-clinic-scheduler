@@ -53,11 +53,12 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
  * @param {object[]} [ctx.staff] 治療師與醫師，二返註記的括號要靠它換成名字
  * @param {object[]} [ctx.equipment] 器材主檔，「這一天用了哪一台」那一列要靠它換成別稱
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
+ * @param {string} [ctx.today] 今天 —— 日期欄不是今年的帶年份（`dateLabel()`）
  * @returns {{name:string, rows:string[][]}}
  */
 export function customerReport({
   customer, entitlements = [], visits = [], tasks = [], courses = [], staff = [],
-  equipment = [], generatedAt = '',
+  equipment = [], generatedAt = '', today = null,
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
@@ -74,7 +75,7 @@ export function customerReport({
     ['產生時間', generatedAt],
     ['符號', MARK_LEGEND],
     [],
-    ['療程項目', '應有', '已完成', '已排未上', '剩餘', ...dates.map(shortDate)],
+    ['療程項目', '應有', '已完成', '已排未上', '剩餘', ...dates.map((d) => dateLabel(d, today))],
   ];
 
   // 營養品不進矩陣 —— 它自己一區（見底下）。兩條路必須長一樣，
@@ -340,6 +341,18 @@ function examOn(visits, entitlementId, date) {
   return (visits ?? []).find((v) => v.date === date && usedAndDone(v, entitlementId)) ?? null;
 }
 
+/**
+ * 日期欄的抬頭（與來訪紀錄那一行）：今年的 `10/7(三)`，**不是今年的前面加兩位數年份** `25/10/7(二)`
+ *（course-form-and-sheet-2026-10-06/19）。13 之後讀的是全部過去的來訪，表一定會跨過一年 ——
+ * 只寫月日的話去年與今年的同一天只差括號裡的星期。她：「試算表日期抬頭加年份：要」。
+ * 「今年」是產生那一刻的今天；沒給就照舊（不猜）。兩條路與來訪紀錄都走這一支。
+ */
+export function dateLabel(iso, today = null) {
+  const label = shortDate(iso);
+  if (!isValidDate(today) || String(iso).slice(0, 4) === today.slice(0, 4)) return label;
+  return `${String(iso).slice(2, 4)}/${label}`;
+}
+
 /** `7/13`。舊表的二返註記就是這個格式，沒有星期。 */
 function monthDay(iso) {
   const [, m, d] = String(iso).split('-').map(Number);
@@ -556,7 +569,8 @@ export function syncBundle({
       flags: customer.flags ?? [],
       notes: customer.notes ?? '',
       dates,
-      dateLabels: dates.map(shortDate),
+      // 不是今年的帶年份（`dateLabel()`，issue 19）
+      dateLabels: dates.map((d) => dateLabel(d, today)),
       rows: [...rows, ...extras],
       equipmentNotes,
       slotNotes,
@@ -605,7 +619,7 @@ export function syncBundle({
       // 照時間排是因為新的段一律接在尾巴（`hasNewSlots()` 靠它），改期之後順序不是時間的順序。
       log: dates.map((date) => ({
         date,
-        label: shortDate(date),
+        label: dateLabel(date, today),
         items: visits
           .filter((v) => v.date === date)
           .flatMap((v) => (v.slots ?? [])
