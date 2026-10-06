@@ -65,7 +65,7 @@
 | 20（55） | 第一次 B5 紅 —— **測試寫錯**：編輯器抬頭那一格照存著的印、存一次才重算；拿掉那一句重跑 5 條全過。另一次 B1 簽入逾時一次，重跑過 |
 | 審查之後（41、42、51、57、09、55） | 33 過、**57 的 G1 紅** —— 按鈕字照審查改了（多「（照片不會留著）」），斷言跟著改，重跑 2 條全過 |
 | **CI 全量**（PR #143 審查前的頭 `a2344e0`，run `37481343886`） | **三台全過** |
-| **CI 全量**（審查之後的頭） | 推上去之後跑的 —— 結果見 PR／`gh run list --workflow e2e-full.yml` |
+| **CI 全量**（審查之後的頭 `dbc4a73`，run `37484269111`） | **423 條全過**（142＋143＋138）；PR 自己的 test／rules／e2e 也綠 |
 
 **紅燈先跑過的**：09 `tests/abovee-absent.test.js`（import 就紅）、`tests/ai-transcripts.test.js` 1 條；10 `tests/abovee-recognise-more.test.js`（import 就紅）；
 11 `tests/merge-chart-numbers.test.js` 5 條；19 `tests/sheet-date-year.test.js`（import 就紅）；20 `tests/health.test.js` 7 條；
