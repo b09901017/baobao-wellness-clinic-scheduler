@@ -991,6 +991,31 @@ textarea {
   background: var(--border);
 }
 
+/* 同一個欄位的第二行（`chips()` 的 `breakBefore`）：跟上一行貼近一點，看得出是同一排的下半段。 */
+.chiprow--next {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+/* 會換行的那一種（`.chips`、拍 Abovee 的 `.abl-row__chips`）裡「從這裡另起一行」。
+   來訪「做什麼」那一排的二返那一組 —— 跟健檢只隔一條線的話，實體上還是隔壁。 */
+.chips__break {
+  flex-basis: 100%;
+  height: 0;
+}
+
+/* 小標在會換行的那一排裡：跟前一顆丸子隔開一點，看得出是下一組的開頭。 */
+.chips > .chiprow__lead,
+.abl-row__chips > .chiprow__lead {
+  margin-left: var(--space-2);
+}
+
+.chips > .chiprow__lead:first-child,
+.chips > .chips__break + .chiprow__lead,
+.abl-row__chips > .chiprow__lead:first-child,
+.abl-row__chips > .chips__break + .chiprow__lead {
+  margin-left: 0;
+}
+
 .fieldgroup {
   margin-bottom: var(--space-4);
 }

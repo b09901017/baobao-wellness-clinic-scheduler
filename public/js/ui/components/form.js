@@ -166,6 +166,9 @@ export function select({ name, label, value, options, hint = '' }) {
  *   `lead` = 這一顆前面插一條分隔線與一個小標，用來把一排丸子切成兩組。
  *   `add` = 這一顆不是一個選項，是一顆「＋」（虛線框）；值是那一顆要講給螢幕閱讀器聽的字
  *   （設定 → 課程 的「新的分類」）。按了照樣寫進 hidden input，呼叫端自己認得那個值。
+ *   `breakBefore` = 從這一顆起**另起一行**（同一個欄位、同一個 hidden input，第二行自己左右滑）。
+ *   給「實體上不可以是隔壁」的那一組用：來訪「做什麼」那一排的二返（`slotOptions.js` 的
+ *   `arrangeSlotOptions()`，她 2026-09-24：跟健檢並排一指就約錯）。只隔一條線的話還是隔壁。
  * @param {string} [opts.hint]
  * @param {boolean} [opts.quiet] true = 選了不重畫（只換 aria-pressed）。
  *   給「換了它不會改變其他欄位」的那幾組用 —— 器材、治療師、診間、醫師、品項。
@@ -219,10 +222,12 @@ export function chips({
       // 同一排裡分成兩組時，中間插一條線與一個小標講出後面那一組是什麼
       // （壓表那一頁的「排序」用的是同一組 class）。一排十幾顆要滑，
       // 而滑到底才看到的那一顆如果是另一種東西，得先說一聲。
+      // 另起一行的那一顆：前面不畫分隔線（行首一條線是多的），小標照畫
+      const brk = option?.breakBefore && i > 0 ? '</div><div class="chiprow chiprow--next">' : '';
       const lead = option?.lead
-        ? `<span class="chiprow__sep"></span><span class="chiprow__lead">${esc(option.lead)}</span>`
+        ? `${brk || i === 0 ? '' : '<span class="chiprow__sep"></span>'}<span class="chiprow__lead">${esc(option.lead)}</span>`
         : '';
-      return `${lead}
+      return `${brk}${lead}
         <button class="chip${tucked}${add}" type="button" data-chip="${esc(name)}"
                 data-chip-value="${v === null ? '__null__' : esc(v)}"
                 aria-pressed="${isOn(v)}"${disabled}>

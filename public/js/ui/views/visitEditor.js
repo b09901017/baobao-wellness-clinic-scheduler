@@ -38,7 +38,7 @@ import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
   THERAPIST_ROLE, isUncounted, uncountedCourses, bookingMinutesOf,
 } from '../../domain/masterData.js';
-import { NTH_PICK, uncountedPick, uncountedCourseIdOf } from '../../domain/slotOptions.js';
+import { NTH_PICK, uncountedPick, uncountedCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
@@ -564,34 +564,42 @@ function slotCard(ctx, draft, slot, i) {
       ${f.chips({
         name: `s${i}-ent`, label: '額度',
         value: nth ? NTH_PICK : (free ? uncountedPick(slot.courseId) : slot.entitlementId),
-        options: [
-          ...entitlements.map((e) => {
-            // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
-            // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
-            // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
-            // 兩個地方會給出不一樣的數字。
-            const c = countsWithDraft(e, customerVisits, draft, e.id);
-            return { value: e.id, label: e.label, note: `剩 ${c.remaining}` };
-          }),
+        // **順序與小標問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08）—— 壓表與拍 Abovee 同一支：
+        // 照分類、類裡照名字、二返那一組最後而且另起一行。「剩幾次」照舊這裡自己算（把草稿也算進去）
+        options: arrangeSlotOptions([
+          ...entitlements.map((e) => ({
+            entitlementId: e.id, label: e.label, entitlement: e,
+            course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
+          })),
           // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
           // 它排在同一排是因為她在這裡問的是「這一段是什麼」，而那一排就是
-          // 回答那個問題的地方。前面插一條線與一個小標，因為滑到底看到的
-          // 那一顆是另一種東西（`chips()` 的 `lead`）。
+          // 回答那個問題的地方。它跟二返同一組（最後那一組）。
           //
           // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
           // 一顆永遠按不下去的丸子只會讓她每次都試一下。
           ...(nthExams.some((c) => c.pickable)
-            ? [{ value: NTH_PICK, label: '＋ n返', note: '不扣次數', lead: '加約' }]
+            ? [{ entitlementId: NTH_PICK, label: '＋ n返', entitlement: null, course: null, isNth: true }]
             : []),
           // **不算次數的課也不是一筆額度**（ADR-0121）：不用加購就排得進去，排了不扣。
-          // 這位客戶身上如果有那門課的額度，上面那一顆照樣在 —— 她選哪一顆就扣不扣。
+          // 這位客戶身上如果有那門課的額度，那一顆照樣在 —— 她選哪一顆就扣不扣。
           // 這一段現在指著的那一門就算被停用了也要列，不然那一排一顆都沒按
           ...[...new Set([...uncountedCourses(all.courses), ...(free ? [course] : [])])]
-            .map((c, k) => ({
-              value: uncountedPick(c.id), label: c.name, note: '不扣次數',
-              ...(k === 0 ? { lead: '不用加購' } : {}),
+            .map((c) => ({
+              entitlementId: uncountedPick(c.id), label: c.name, entitlement: null, course: c, isUncounted: true,
             })),
-        ],
+        ], all.courses).map((o) => ({
+          value: o.entitlementId,
+          label: o.label,
+          // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
+          // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
+          // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
+          // 兩個地方會給出不一樣的數字。
+          note: o.entitlement
+            ? `剩 ${countsWithDraft(o.entitlement, customerVisits, draft, o.entitlement.id).remaining}`
+            : '不扣次數',
+          ...(o.lead ? { lead: o.lead } : {}),
+          ...(o.breakBefore ? { breakBefore: true } : {}),
+        })),
       })}
 
       ${nth ? nthFields(ctx, draft, slot, i, nthExams) : ''}

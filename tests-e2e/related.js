@@ -434,6 +434,12 @@ export const COVERAGE = {
     'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
     'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
   ],
+  // 來訪「做什麼」那一排照分類排、每一類一個小標、二返另起一行（2026-10-06，issue 08）：壓表與來訪編輯器量位置
+  '56-what-to-do-by-group': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/scheduling.js',
+    'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/components/form.js', 'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

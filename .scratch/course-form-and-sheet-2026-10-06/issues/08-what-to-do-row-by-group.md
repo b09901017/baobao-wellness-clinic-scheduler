@@ -1,6 +1,6 @@
 # 來訪的「做什麼」那一排：照分類排、每一類一個小標，不多按一下
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第二點；問題 5 的回答
 動工前先讀：`public/js/domain/slotOptions.js` 整支、`public/js/domain/scheduling.js` 的 `customerPools()`／`followupsLast()`／`sortPools()`、
 `public/js/ui/views/schedule.js`（「做什麼」那一塊，`data-ent`）、`public/js/ui/views/visitEditor.js`（額度那一排，`s${i}-ent`；它**自己從額度組**，沒走 `slotOptionsFor()`）、
@@ -78,3 +78,23 @@ Blocked by: 03（不算次數的課變兩門）
   照位置點的要改成照名字點
 - `docs/操作手冊.md` 壓表那一段
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-06）
+
+- **順序只在 `slotOptions.js` 的 `arrangeSlotOptions(options, courses)`**：`slotOptionsFor()` 最後一步走它（壓表、拍 Abovee 拿到的就是排好的）；
+  來訪編輯器自己組那一份（全部額度、`countsWithDraft()` 的剩幾次、停用但這一段還指著的那門不算次數的課）再交給同一支排。
+  每一顆多三格：`group`、`lead`（每一類第一顆；**整排只有一類時全部 null**）、`breakBefore`（二返那一組的第一顆，前面還有別的時）
+- 分類問 `masterData.js` 新的 `groupByCourse(items, courseOf, courses)`（07 的 `groupCourses()` 改成它的一個特例）——
+  `slotOptions.js` 一個 `.group`、`groupOf(` 都沒有，`tests/course-groups.test.js` 原樣綠
+- 二返那一組的小標是 `FOLLOWUP_GROUP = '二返・n返'`（`CONTEXT.md`：講一整類時才寫 n返）。二返認 `followupForEntitlementId`（同 `followupsLast()`），n返 認 `isNth`
+- **另起一行三種畫法**：來訪編輯器是 `f.chips()` 新的 `breakBefore`（同一個欄位第二個 `.chiprow.chiprow--next`、同一個 hidden input，第二行自己左右滑）；
+  壓表的 `.chips` 與拍 Abovee 的 `.abl-row__chips` 本來就會換行，插一個 `.chips__break`（`flex-basis: 100%`）。
+  `f.chips()` 順手改了一件：**第一顆就帶 `lead` 的不再在行首畫一條分隔線**（以前來訪編輯器一個額度都沒有時，「不用加購」前面有一條多的線）
+- 來訪編輯器以前的兩個小標「加約」「不用加購」換成分類的小標（n返 在「二返・n返」、功醫門診與 HRV 在「醫師門診」）
+- `followupsLast()` 一個字都沒改（測試用原始碼釘著）；`customerPools()` 照舊「快用完的排前面」—— **卡片牆上那一排泡泡**還是那個順序，只有「做什麼」那一排換了
+- E2E：新的一支 `56-what-to-do-by-group`（W1 壓表、W2 來訪編輯器：小標的順序、二返那一顆在健檢那一顆**下一行**，量 `boundingBox`）
+- **延後的**：不算次數的課「超過三門收起來」（issue 寫明這一輪不做；現在兩門）
+- **一定要請她試**：壓表、日曆新增、拍 Abovee 的「做什麼」那一排順不順。要講的兩件：①以前快用完的排前面，現在照分類、類裡照名字；
+  ②健檢與二返隔開了沒（二返那一組另起一行）。她問題 5 指名「要提醒我去測試和你說好不好」
+- `sw.js` v170；`SPEC.md` 第 8.8 節分類那一段；`docs/操作手冊.md` 壓表那一段與 n返 那一段的示意；`CLAUDE.md` 連動表「額度那一排的順序」；設定 → 課程 分類那一排的 `?`
+

@@ -1272,8 +1272,12 @@ function dayPanel(row) {
       <div class="fieldgroup" style="margin-top: var(--space-4)">
         <span class="fieldgroup__label">做什麼</span>
         <div class="chips">
+          ${/* 照分類排、每一類第一顆一個小標、二返那一組另起一行（`arrangeSlotOptions()`，issue 08）——
+               順序是 `slotOptionsFor()` 排好的，這裡只畫 */''}
           ${options.length
             ? options.map((o) => `
+                ${o.breakBefore ? '<span class="chips__break"></span>' : ''}
+                ${o.lead ? `<span class="chiprow__lead">${esc(o.lead)}</span>` : ''}
                 <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
                         data-ent="${esc(o.entitlementId)}">${esc(o.label)}
                   ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
