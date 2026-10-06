@@ -360,3 +360,42 @@ test('J-C15 報表：500 天前做過的那一次也算進去，那一天也有�
   expect(head.length - 5, '兩天各一欄').toBe(2);
   expect(row.slice(5)).toEqual(['✓', '✓']);
 });
+
+// 三返在矩陣裡自己一列（course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。
+// 以前只做三返的那一天那一欄整欄是空的 —— 它沒有額度，而列只從額度來。
+test('J-C16 報表：只做三返的那一天，「三返（不算次數）」那一列有符號；健檢那一欄底下那一行照舊', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-chk', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1, doneCount: 1, tier: '8萬',
+    }),
+    entitlement('cust-a', {
+      id: 'ent-fu', label: '二返（8萬健檢）', courseId: 'course-followup', totalQty: 1,
+      followupForEntitlementId: 'ent-chk',
+    }),
+    visit({
+      id: 'v-exam', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -30), status: 'done',
+      slots: [slot({ courseId: 'course-checkup', entitlementId: 'ent-chk', startsAt: '09:00', endsAt: '11:00', attended: true })],
+    }),
+    visit({
+      id: 'v-3rd', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -5), status: 'done',
+      slots: [slot({
+        courseId: 'course-followup', entitlementId: null, followupNth: 3, followupForVisitId: 'v-exam',
+        startsAt: '14:00', endsAt: '14:30', attended: true,
+      })],
+    }),
+  ]);
+  await app.signIn('/settings/report');
+
+  const cells = (row) => row.locator('th, td').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+  const rowOf = (label) => cells(page.locator('table.sheet tr', { hasText: label }).first());
+
+  // 療程項目｜應有｜已完成｜已排未上｜剩餘｜健檢那一天｜三返那一天
+  expect(await rowOf('三返（不算次數）')).toEqual(['三返（不算次數）', '—', '1', '0', '—', '', '✓']);
+  expect((await rowOf('二返（8萬健檢）')).slice(1), '三返不算進二返那一筆').toEqual(['1', '0', '0', '1', '', '']);
+  // 健檢那一欄底下那一行（她：「要留」）：二返還沒約是空括號，三返接在它下面
+  const body = await app.text();
+  expect(body).toContain('二返()');
+  expect(body).toMatch(/\d+\/\d+ 三返\(\)/);
+});
