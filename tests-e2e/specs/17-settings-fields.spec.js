@@ -26,6 +26,8 @@ test('S1 課程時長填 30 存得起來，重新讀出來還是 30', async ({ a
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-followup"]').click();
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   await expect(page.locator('input[name="durationMin"]')).toBeVisible();
 
   await page.fill('input[name="durationMin"]', '30');
@@ -35,8 +37,7 @@ test('S1 課程時長填 30 存得起來，重新讀出來還是 30', async ({ a
   ).toBe(true);
 
   await page.click('button[type="submit"]');
-  await app.settled();
-  await page.waitForTimeout(600);
+  await app.saved();
 
   const course = await app.readDoc('config/app/courses', 'course-followup');
   expect(course.durationMin, '真的存進去了').toBe(30);
@@ -51,6 +52,8 @@ test('S2 其他不是 5 的倍數的時長也存得起來', async ({ app, page }
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-followup"]').click();
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   for (const n of ['7', '23', '90']) {
     // eslint-disable-next-line no-await-in-loop
     await page.fill('input[name="durationMin"]', n);

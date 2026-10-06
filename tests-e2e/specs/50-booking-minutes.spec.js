@@ -73,6 +73,8 @@ test('M1 設定 → 課程：二返有「約的時候選時長」；跟「可選
   await app.signIn('/settings/courses');
 
   await page.locator('[data-edit="course-followup"]').click();
+  // 時長那幾格 2026-10-06 收進「其他設定」（issue 06）
+  await page.locator('[data-more] > summary').click();
   await expect(page.locator('input[name="bookingMinutes"]')).toHaveValue('30、60');
   await expect(page.locator('input[name="durationChoices"]')).toHaveValue('');
 

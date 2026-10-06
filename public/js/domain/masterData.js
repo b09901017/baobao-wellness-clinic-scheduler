@@ -196,6 +196,69 @@ export const ASSIGN_LABELS = {
 };
 
 /**
+ * 設定 → 課程 那一排「排班時要指派」：四選一（2026-10-06，ADR-0130）。她的原話：
+ *
+ * > 5. 排班時要指派的分四種，診間，物理治療師，醫師，都不用
+ *
+ * **資料上照舊是兩格**（`assigns`、`doctorPick`）—— 排班那一側（`assignsFor()`、
+ * `doctorChoicesFor()`）一個字都不改，醫師也照舊不塞進 `assigns`（ADR-0026）。
+ * 這一排只是設定頁的畫法，那一顆與兩格的對照只寫在這裡（`assignKindOf()`、`assignFieldsFor()`）。
+ *
+ * **從此設不出「診間＋醫師」**（她問「有沒有一門課同時要選診間又要選醫師？」，回「目前沒有」）。
+ * 資料上那樣的課照舊存得下去、排得出來：打開時亮 `assigns` 那一顆、另外講一句，
+ * 她沒動這一排就照舊存回去（`keepsDoctorBeside()`）。
+ */
+export const ASSIGN_KINDS = Object.freeze(['room', 'therapist', 'doctor', 'none']);
+
+export const ASSIGN_KIND_LABELS = Object.freeze({
+  room: '診間', therapist: '物理治療師', doctor: '醫師', none: '都不用',
+});
+
+const assignsSomeone = (course) => course?.assigns === 'room' || course?.assigns === 'therapist';
+
+/** 一門課在那一排亮哪一顆。`assigns` 是診間或治療師就是那一顆；否則要醫師（`doctorRuleOf()`）就是醫師。 */
+export function assignKindOf(course) {
+  if (assignsSomeone(course)) return course.assigns;
+  return picksDoctor(course) ? 'doctor' : 'none';
+}
+
+/** 兩個都有（診間或治療師＋醫師）。設定頁設不出來、但資料上存得下去的那一種（ADR-0130）。 */
+export const keepsDoctorBeside = (course) => assignsSomeone(course) && picksDoctor(course);
+
+/**
+ * 那一排按的那一顆 → 要存的兩格（`requiresDoctor` 跟著寫，讀的那一側只認 `doctorRuleOf()`）。
+ *
+ * @param {string} kind `ASSIGN_KINDS` 之一
+ * @param {string} doctorPick 醫師那一排現在按著的（`'any'`／某一科）。
+ *   選了醫師、那一排卻還是「不用」（從都不用切過來）→ 存成「哪一科都可以」——
+ *   不然存下去的是一門不要醫師的「醫師」課，跟畫面上亮著的那一顆不一樣
+ * @param {boolean} [o.keepDoctor] 原本兩個都有、她沒動那一排：醫師照舊存回去
+ */
+export function assignFieldsFor(kind, doctorPick, { keepDoctor = false } = {}) {
+  const pick = typeof doctorPick === 'string' ? doctorPick.trim() : '';
+  const doctor = pick && pick !== DOCTOR_NONE ? pick : DOCTOR_ANY;
+  if (kind === 'doctor') return { assigns: 'none', doctorPick: doctor, requiresDoctor: true };
+  const assigns = kind === 'room' || kind === 'therapist' ? kind : 'none';
+  if (keepDoctor && assigns !== 'none') return { assigns, doctorPick: doctor, requiresDoctor: true };
+  return { assigns, doctorPick: DOCTOR_NONE, requiresDoctor: false };
+}
+
+/**
+ * 設定 → 課程 清單那一行的「指派」。**跟表單亮著的那一顆走同一支推導** ——
+ * 以前印 `ASSIGN_LABELS[assigns]`，醫師的課（`assigns: 'none'`）寫「都不用」，
+ * 跟編輯表亮著的「醫師」對不上。
+ */
+export function assignSummaryOf(course) {
+  const kind = assignKindOf(course);
+  if (kind === 'doctor') {
+    const rule = doctorRuleOf(course);
+    return rule === DOCTOR_ANY ? '選醫師' : `選醫師（${rule}）`;
+  }
+  const head = ASSIGN_LABELS[kind] ?? ASSIGN_LABELS.none;
+  return keepsDoctorBeside(course) ? `${head}＋醫師` : head;
+}
+
+/**
  * 課程的分類（2026-10-05）。她的原話：
  *
  * > 設定 → 課程 要先分類再項目。

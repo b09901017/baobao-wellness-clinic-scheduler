@@ -422,6 +422,12 @@ export const COVERAGE = {
     'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/visits.js',
   ],
+  // 設定 → 課程 → 編輯 重排（2026-10-06，issue 06，ADR-0130）：指派四選一、分類的「＋」、兩個別稱、收起來的「其他設定」、設定暫定
+  '54-course-form': [
+    'public/js/ui/views/masterList.js', 'public/js/domain/masterData.js', 'public/js/domain/seed.js',
+    'public/js/ui/components/form.js', 'public/js/ui/views/naming.js', 'public/js/data/config.js',
+    'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

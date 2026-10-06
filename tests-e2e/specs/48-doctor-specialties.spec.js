@@ -103,9 +103,10 @@ test('D2 設定 → 課程：「來訪時要選醫師」三種答案；舊課程
   await app.saved();
   expect((await app.readDoc('config/app/courses', 'course-cardio')).doctorPick).toBe('any');
 
-  // 復能沒有醫師 → 「不用」
+  // 復能沒有醫師 → 指派那一排亮「物理治療師」，哪一科那一排藏著（2026-10-06 起四選一，ADR-0130）
   await page.locator('[data-edit="course-recovery"]').click();
-  await expect(pressed).toHaveText('不用');
+  await expect(page.locator('[data-chip="assignKind"][aria-pressed="true"]')).toHaveText('物理治療師');
+  await expect(page.locator('[data-when="doctor"]')).toBeHidden();
   await page.locator('[data-cancel]').click();
 
   // 指定一科
@@ -117,9 +118,9 @@ test('D2 設定 → 課程：「來訪時要選醫師」三種答案；舊課程
   expect(rehab.doctorPick).toBe('復健科');
   expect(rehab.requiresDoctor, '旗標跟著寫').toBe(true);
 
-  // 門診也關得掉了（以前「這一格開不開都一樣」）
+  // 門診也關得掉了（以前「這一格開不開都一樣」）：指派那一排按「都不用」
   await page.locator('[data-edit="course-cardio"]').click();
-  await page.locator('[data-chip="doctorPick"]', { hasText: '不用' }).click();
+  await page.locator('[data-chip="assignKind"]', { hasText: '都不用' }).click();
   await page.click('button[type="submit"]');
   await app.saved();
   const cardio = await app.readDoc('config/app/courses', 'course-cardio');

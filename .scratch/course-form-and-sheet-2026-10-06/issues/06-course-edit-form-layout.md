@@ -1,6 +1,6 @@
 # 設定 → 課程 → 編輯：版面重排
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第一點之 1～6；問題 2（「目前沒有」）
 動工前先讀：`public/js/ui/views/masterList.js`（`editors.courses` 的 `fields()`／`parse()`／`wireForm()`、`paintForm()`、`aliasField()`、`preferredRoomsField()`）、
 `public/js/ui/components/form.js`（`chips()` 的 `lead`／`quiet`、`wireChips()`）、`public/js/ui/components/buy.js` 的 `TIER_OTHER`（「它不是一個等級，是一顆展開輸入框的鈕」）、
@@ -122,3 +122,28 @@ Abovee 上的寫法 [          ]
 - `naming.js` 那一頁不動（同一格兩個入口）；它的說明寫著「LINE 名只在這一頁改」的話要改
 - `public/css/app.css`（新的 class）、`public/sw.js` 的 VERSION
 - `docs/操作手冊.md` 設定 → 課程那一段、`docs/常見問題.md`（「時長那一格去哪了」）
+
+## 做完時留下的（2026-10-06）
+
+- **對照只在 `masterData.js`**：`ASSIGN_KINDS`／`ASSIGN_KIND_LABELS`、`assignKindOf()`、`assignFieldsFor(kind, doctorPick, { keepDoctor })`、
+  `keepsDoctorBeside()`、`assignSummaryOf()`（清單那一行；醫師的課印「選醫師（復健科）」、兩個都有印「選診間＋醫師」）。
+  `tests/course-form.test.js` 拿**種子每一門課**跑「讀回來 → 存下去」，兩格的意思一模一樣
+- 選了「醫師」、哪一科那一排卻還是 `none`（從都不用切過來）：`assignFieldsFor()` 存成 `any`，畫面上 `wireForm` 也把「哪一科都可以」按好 ——
+  畫面講的跟存的一樣。哪一科那一排**拿掉了「不用」那一顆**（不要醫師就是指派那一排按別顆）
+- **兩個都有的舊資料**：隱藏的 `assignTouched` 記她按過指派那一排沒有（連原本亮著的那一顆也算）。沒按 → 醫師照舊存回去
+- **分類的「＋」**：`f.chips()` 多一種選項 `add`（虛線框、`aria-label`）。值是 `__new__`（`GROUP_NEW`）；`groupWas` 是打開時那一組，
+  按了「＋」沒打字就退回它。分類那一排改成**不是 quiet**（要 change 事件去開關輸入框），沒有別的東西因此重畫
+- **別稱**：`parse()` 用「表單上有沒有這個鍵」決定帶不帶 `shortName`／`lineName`（`'shortName' in v`）。復能畫的是一格唯讀「跟著那天用的器材」
+- **其他設定**：`<details class="foldout" data-more>`；summary 裡 `[data-more-now]` 收著時印值、展開時 `visibility: hidden`，
+  她改裡面的值時就地更新（`moreSummary()`）。**兩條自己打開的路**：表單上 capture 的 `invalid`（瀏覽器擋的，例：時長填 0）、
+  `paintForm` 多一個 `ed.onErrors` 鉤子（domain 擋的：錯誤訊息講到 時長／器材／品項／頻率／後續課程 的字，`MORE_WORDS`）
+- **設定暫定**：最上面 `[data-provbar]`＋`provisionalDone`。勾了才寫 `provisional: false`，沒那一條的課一個字都不碰
+- `f.checkboxes()`／`f.toggle()` 多一個 `inline`（`.choices--inline`，放得下就並排）：系統三個勾、三個開關、診間那三排、器材／品項兩個開關
+- 分類那一排的 `?` 這一支只寫「這一頁照它分組」—— 加購（07）與「做什麼」（08）做完各自補上
+- E2E：新的一支 `54-course-form`（C1 種子每一門什麼都不改就存、C2 四選一與條件顯示、C3 兩個都有、C4「＋」、C5 別稱、C6 其他設定與自己打開、C7 設定暫定）；
+  `17`（S1、S2 先打開其他設定；S1 的固定等待換成 `app.saved()`，`PENDING` 11 → 10）、`47`（G3 指派那一排、G4 按「＋」、G5 LINE 別稱畫出來了）、
+  `48`（D2：復能亮物理治療師、門診關掉醫師改按「都不用」）、`50`（M1 先打開其他設定）。五支一起跑 43 條全過
+- 手機（375）與 iPad（1024）各截了一張自己看過：手機上三個開關排成 2＋1（字是四個字的話一列放不下三個）；分類那一排的「＋」在手機上要往右滑才看得到（那一排本來就是橫捲）
+- ADR-0130；`SPEC.md` 第 8.8 節（那張表的「排班時要指派」一列＋版面一段）；`docs/操作手冊.md` 七之五（版面、「＋」、兩個別稱、四選一、設定暫定）與三處改了名字的欄位；
+  `docs/常見問題.md` 新一條「時長那一格去哪了」＋三處欄位名；`CLAUDE.md` 連動表「一門課要不要醫師、哪一科」那一列；`sw.js` v168
+
