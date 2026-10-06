@@ -178,3 +178,47 @@ test('N3 壓表：那一天已經有一段壓在 Abovee 的，再加一段不用
   expect(v.slots[0].status, '原本談定的那一段不動').toBe('confirmed');
   expect(v.slots[1].status).toBe('pending_confirm');
 });
+
+// 種子的 HRV（2026-10-06，issue 03）：不算次數、不用壓、不指派。這一條走她會走的那條路 ——
+// 「邀客戶來體驗」的那一位身上沒有任何額度，從日曆排 HRV，再接一段功醫門診。
+test('N4 種子的 HRV：日曆新增 →「做什麼」那一排按 HRV → 抬頭是「記錄這一段？」；同一天再加功醫門診才問 Abovee', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-h', name: '林小華' })]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-h"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+
+  // 沒有額度的客戶：那一排上兩門不算次數的課各一顆，預設是功醫門診；按 HRV
+  const hrv = page.locator('[data-chip="s0-ent"][data-chip-value="__course__:course-hrv"]');
+  await expect(hrv).toContainText('HRV');
+  await expect(hrv).toContainText('不扣次數');
+  await hrv.click();
+  await expect(hrv).toHaveAttribute('aria-pressed', 'true');
+  // HRV 不指派診間或人：醫師、診間、治療師那幾排都不出現
+  await expect(page.locator('[data-chip="s0-doc"]')).toHaveCount(0);
+  await expect(page.locator('[data-chip="s0-room"]')).toHaveCount(0);
+  await expect(page.locator('[data-chip="s0-staff"]')).toHaveCount(0);
+
+  await page.click('button[type="submit"]');
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said).toContain('記錄這一段？');
+  expect(said).toContain('HRV不算次數');
+  expect(said, '不用壓：不問任何系統').not.toMatch(/Abovee|Examine|耀聖|壓好/);
+  await expect(page.locator('.dialog-backdrop [data-ok]')).toHaveText('記錄');
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-h');
+  expect([v.slots[0].courseId, v.slots[0].entitlementId, v.status]).toEqual(['course-hrv', null, 'pending_confirm']);
+  expect([v.slots[0].roomId ?? null, v.slots[0].therapistId ?? null, v.slots[0].doctorId ?? null]).toEqual([null, null, null]);
+
+  // 月曆那一天看得到它
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-open^="visit:"]');
+  await expect(page.locator(`[data-open^="visit:${v.id}:"]`).first()).toContainText('HRV');
+});
