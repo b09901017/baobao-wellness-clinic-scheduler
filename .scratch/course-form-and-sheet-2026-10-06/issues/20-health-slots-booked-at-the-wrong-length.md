@@ -1,6 +1,6 @@
 # 資料健檢：照錯的時長排出去的那幾段
 
-Status: todo
+Status: done
 來源：15 做完時留下的一題、她 2026-10-06 回「排錯長度的舊來訪要不要多一列資料健檢：要」
 動工前先讀：`issues/15` 最下面「做完時留下的」、`public/js/domain/health.js` 的 `checkEntitlementMinutes()`（第 32 項）與 `CHECKS`、
 `public/js/domain/visits.js` 的 `slotMinutes()`、`public/js/ui/views/health.js` 的 `FIX_COPY`、`tests/health.test.js`、
@@ -46,3 +46,13 @@ Blocked by: 15（合了）
 
 - `health.js` 的 `CHECKS`（「33 項」寫死的地方要改）、`ui/views/health.js` 的 `FIX_COPY`、`docs/常見問題.md`「健檢排出來只有一小時」那一條補一句
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-06）
+
+- 第 33 項 `slotMinutes`「照錯的時長排出去的那幾段」，接在 `entitlementMinutes` 後面。`fix: null`、`severity: 'attention'`
+- 「哪一筆額度的時長是錯的」抽成一支 `minutesOff(e, course)`，第 32、33 項共用 —— 兩份判斷遲早一份忘了營養點滴那一條
+- 收的段：整筆還在、那一段待確認／已確認、`slot.minutes` 沒填、`endsAt − startsAt` ＝額度上的數字；應該多長拿掉額度那一層問 `slotMinutes()`。算出來一樣就不列
+- **走過那條路**（E2E `55` 的 B5，模擬器）：資料健檢列出來、沒有按鈕 → 清掉額度的時長 → 日曆 → 那一天 → 那一列 → 鉛筆 → 直接按存 → `endsAt` 從 10:00 變 11:00、狀態不變（不算改期）。
+  **編輯器抬頭那一格照存著的印**（存一次才重算），清單裡我寫的時候以為打開就會變 —— 所以那一句寫的是「直接按存」
+- 測試：`tests/health.test.js` 新的一組 6 條（改之前 7 條紅，含「33 項」那一條）
+- `docs/常見問題.md`「健檢排出來只有一小時」補兩句；`sw.js` v181（`domain/health.js` 在 SHELL 裡）。E2E 55 本機 5 條全過

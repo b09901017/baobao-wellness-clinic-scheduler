@@ -10,7 +10,7 @@
 // 開著分類沒選就按儲存是一句話不是沒反應、存下去的課程是畫面上亮著的那一門。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, addDays, TODAY } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, addDays, TODAY } from '../fixtures/data.js';
 
 const top = (page) => page.locator('[data-chip="buy"]');
 const item = (page) => page.locator('[data-chip="buyItem"]');
@@ -104,4 +104,43 @@ test('B4 先點 ILIB（自動按好 60 分鐘）再點健檢：存下去的健�
   await app.layer('[data-chip="s0-ent"]');
   await page.locator(`[data-chip="s0-ent"][data-chip-value="${checkup.id}"]`).click();
   await expect(page.locator('.slothead__end').first(), '09:00 ＋ 120 分').toHaveText('11:00');
+});
+
+// 修好之前已經照錯的時長排出去的那一段（issue 20）：資料健檢列出來、沒有按鈕；照那一列講的做 ——
+// 清掉額度的時長、日曆「改這一段」→ 存 —— 結束時間就回到課程的長度（`endsAt` 每次存檔都重算）
+test('B5 健檢額度記著 60、照它排了 09:00–10:00：資料健檢列出來；清掉額度的時長、改這一段存一次 → 11:00', async ({ app, page }) => {
+  const day = addDays(TODAY, 1);
+  const exam = (durationMin) => entitlement('cust-b', {
+    id: 'ent-x', label: '健檢', type: 'single', courseId: 'course-checkup', totalQty: 1, durationMin,
+  });
+  await app.seed([
+    ...masterDocs(), customer({ id: 'cust-b', name: '客戶A' }), exam(60),
+    visit({
+      id: 'v-x', customerId: 'cust-b', customerName: '客戶A', date: day, status: 'confirmed',
+      slots: [{ ...slot({ courseId: 'course-checkup', entitlementId: 'ent-x', startsAt: '09:00', endsAt: '10:00' }), status: 'confirmed' }],
+    }),
+  ]);
+  await app.signIn('/settings/health');
+
+  const card = page.locator('#view [data-check="slotMinutes"]');
+  await expect(card).toContainText('排了 60 分');
+  await expect(card).toContainText('應該是 120 分');
+  await expect(card.locator('[data-fix]')).toHaveCount(0);
+
+  // 照上一項的話把那一筆的時長清掉（她的路是客戶詳情 → 調整 → 進階設定；這裡直接寫）
+  await app.seed([exam(null)]);
+
+  await app.go('/calendar');
+  await page.locator(`[data-day="${day}"]`).first().click();
+  await app.layer('[data-open^="visit:"]');
+  await page.locator('[data-open^="visit:v-x:"]').first().click();
+  await app.layer('.popcard');
+  await page.locator('[data-card-edit]').click();
+  await app.layer('.slothead__end');
+  // 抬頭照存著的那一個印（10:00）；存一次才照現在的額度重算
+  await page.click('button[type="submit"]');
+  await app.saved();
+
+  const v = await app.readDoc('visits', 'v-x');
+  expect([v.slots[0].startsAt, v.slots[0].endsAt, v.slots[0].status]).toEqual(['09:00', '11:00', 'confirmed']);
 });

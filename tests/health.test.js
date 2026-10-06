@@ -235,10 +235,61 @@ describe('額度上記著的時長跟課程不一樣', () => {
   });
 });
 
+// 照錯的時長排出去的那幾段（course-form-and-sheet-2026-10-06 的 issue 20）。她 2026-10-06：「排錯長度的舊來訪要不要多一列資料健檢：要」。
+// 第 32 項列額度；照那個數字排出去的段結束時間已經存下去了，不會自己變長。**只列不修**（ADR-0056：來訪改得動的地方只有日曆）
+describe('照錯的時長排出去的那幾段', () => {
+  const exam = (over = {}) => ent({
+    id: 'e-x', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 1, durationMin: 60, ...over,
+  });
+  const examSlot = (over = {}) => slot({
+    entitlementId: 'e-x', courseId: 'c-checkup', equipmentId: null, therapistId: null,
+    startsAt: '09:00', endsAt: '10:00', status: 'confirmed', ...over,
+  });
+  const found = ({ entitlements = [exam()], slots = [examSlot()], status = 'confirmed' } = {}) => findingsOf(run({
+    entitlements, visits: [visit({ date: '2026-09-20', status, slots })],
+  }), 'slotMinutes');
+
+  test('健檢額度記著 60、一段已確認的健檢排成 09:00–10:00 → 列，講排了 60、應該是 120，沒有按鈕', () => {
+    const rows = found();
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /客戶一/);
+    assert.match(rows[0].title, /09:00–10:00/);
+    assert.match(rows[0].detail, /排了 60 分/);
+    assert.match(rows[0].detail, /應該是 120 分/);
+    assert.match(rows[0].detail, /改這一段/);
+    assert.equal(rows[0].fix, null);
+    assert.equal(rows[0].severity, 'attention');
+  });
+
+  test('待確認的也列', () => {
+    assert.equal(found({ slots: [examSlot({ status: 'pending_confirm' })], status: 'pending_confirm' }).length, 1);
+  });
+
+  test('已完成（鎖著，改不了）、取消的 → 不列', () => {
+    assert.deepEqual(found({ slots: [examSlot({ status: 'done' })], status: 'done' }), []);
+    assert.deepEqual(found({ slots: [examSlot({ status: 'cancelled' })], status: 'cancelled' }), []);
+  });
+
+  test('那一段自己選了「排多久」→ 不列（那是她選的）；長度不是 60（她在日曆改過）→ 不列', () => {
+    assert.deepEqual(found({ slots: [examSlot({ minutes: 60 })] }), []);
+    assert.deepEqual(found({ slots: [examSlot({ endsAt: '10:30' })] }), []);
+  });
+
+  test('額度沒問題（空的或跟課程一樣）→ 一段都不列', () => {
+    assert.deepEqual(found({ entitlements: [exam({ durationMin: null })] }), []);
+    assert.deepEqual(found({ entitlements: [exam({ durationMin: 120 })], slots: [examSlot({ endsAt: '11:00' })] }), []);
+  });
+
+  test('營養點滴不看（同第 32 項：品項排在額度前面）', () => {
+    const iv = exam({ id: 'e-iv', label: '營養點滴', courseId: 'c-iv', durationMin: 120 });
+    assert.deepEqual(found({ entitlements: [iv], slots: [examSlot({ entitlementId: 'e-iv', courseId: 'c-iv', endsAt: '11:00' })] }), []);
+  });
+});
+
 describe('形狀', () => {
-  test('三十二項檢查都在，順序固定', () => {
+  test('三十三項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 32);
+    assert.equal(result.checks.length, 33);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
