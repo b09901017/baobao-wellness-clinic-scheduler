@@ -1842,6 +1842,8 @@ serviceAccountKey.json
 - Firebase Auth 限定白名單帳號；未來開放同事時用自訂 claim 或白名單集合控管
 - Rules 要有測試。Firebase Emulator Suite 可以在本機驗證「未登入讀不到」「A 使用者改不了 B 的資料」
 - 照片送不送 AI、存不存、療程單照片什麼時候真的刪：[ADR-0101](docs/adr/0101-photos-and-privacy.md)
+- 照片上的人：病歷號對上、名字只差一個字（三個字以上）算認得，畫面一定講出來；課程那一格差一個字也認，診間不放寬：[ADR-0128](docs/adr/0128-a-matching-chart-number-forgives-one-character.md)
+- 拍 Abovee 也講「app 有、這次照片上沒有」：範圍只到照片上第一列與最後一列之間（讀得出第一頁／最後一頁才放寬），只算壓在 Abovee 的課，只講不改：[ADR-0129](docs/adr/0129-abovee-photo-checks-what-is-missing.md)
 
 ---
 
