@@ -167,3 +167,32 @@ test('R3 來訪編輯器：還排在點滴8（停用了）的那一段，打開�
   await app.layer('[data-open^="visit:v-next:"]');
   await expect(page.locator('[data-open^="visit:v-next:"]').first()).toContainText('.8');
 });
+
+// 她 2026-10-06 回「來訪編輯器存檔時留不留床位：留」。以前（2026-09-08 起）存一次就把那一段的床位清掉：
+// 還沒按資料健檢之前改了一筆「點滴8 床 A」的未來來訪，A 就沒了、之後搬不了家（`moveBedToRoom` 認的就是那個 A）。
+test('R4 來訪編輯器：沒換診間就留著床位；換了診間才清掉', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(), ...dripCustomer(),
+    visit({
+      id: 'v-bed', customerId: 'cust-b', customerName: '王小明', date: PICK_DAY, status: 'pending_confirm',
+      slots: [{ ...dripSlot({ bed: 'A' }), status: 'pending_confirm' }],
+    }),
+  ]);
+  await app.signIn('/visits/v-bed');
+  await app.layer('[data-chip="s0-room"]');
+
+  await page.locator('[data-slotnote-toggle="s0-note"]').click();
+  await page.locator('textarea[name="s0-note"]').fill('客人說會晚到');
+  await page.locator('button[type="submit"]').first().click();
+  await app.saved();
+  let saved = await app.readDoc('visits', 'v-bed');
+  expect([saved.slots[0].roomId, saved.slots[0].bed], '只改記一句：床位留著').toEqual(['room-iv8', 'A']);
+
+  await app.signIn('/visits/v-bed');
+  await app.layer('[data-chip="s0-room"]');
+  await page.locator('[data-chip="s0-room"][data-chip-value="room-iv8a|"]').click();
+  await page.locator('button[type="submit"]').first().click();
+  await app.saved();
+  saved = await app.readDoc('visits', 'v-bed');
+  expect([saved.slots[0].roomId, saved.slots[0].bed], '換到 8A：舊的床位清掉').toEqual(['room-iv8a', null]);
+});

@@ -60,6 +60,18 @@ function parseRoomKey(key) {
   return { roomId: roomId || null, bed: bed || null };
 }
 
+/**
+ * 診間那一排讀回來的那一間，**沒換診間就留著這一段原本的床位**（她 2026-10-06：「留」）。
+ *
+ * 那一排的丸子只到診間（床位那一層 2026-09-08 拿掉了，ADR-0079），所以讀回來的 `bed` 永遠是空的 ——
+ * 以前存一次就把舊來訪上的「點滴8 床 A」清掉，之後資料健檢搬不了家（`moveBedToRoom` 認的就是那個 A，ADR-0127）。
+ * 換了診間才清：床 A 是那一間的床，跟著別間走講不通。
+ */
+function readRoom(v, i, slot) {
+  const room = parseRoomKey(v[`s${i}-room`]);
+  return room.roomId && room.roomId === slot?.roomId ? { roomId: room.roomId, bed: slot.bed ?? null } : room;
+}
+
 // ---------- 進入點 ----------
 
 export async function renderNew(el, customerId, date = null) {
@@ -891,7 +903,7 @@ function roomField(all, course, slot, i) {
   // **比的是診間，不是診間＋床位**（2026-09-08）。床位那一層取消之後選項上
   // 只有 `r-iv8|`，而舊來訪身上是 `r-iv8|A` —— 拿它去比的話一顆都不會按著，
   // 而她一存檔那一段的診間就被清成 null 了（畫面上什麼都不會說）。
-  // 存回去時 `bed` 跟著變成 null，那正是她要的「連舊資料一起清掉」。
+  // 存回去時沒換診間就留著原本的床位（`readRoom()`，她 2026-10-06：「留」）；換了才清。
   return f.chips({
     name: `s${i}-room`, label: '診間', quiet: true,
     value: slot.roomId ? roomKey(slot.roomId, null) : null,
@@ -998,7 +1010,7 @@ function readDraft(ctx, form, draft) {
       // 所以讀得到 —— `hidden` 的是包住它的 `<label>`。
       note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
       ...(assigns === 'room'
-        ? parseRoomKey(v[`s${i}-room`])
+        ? readRoom(v, i, slot)
         : { roomId: null, bed: null }),
       therapistId: assigns === 'therapist' ? (v[`s${i}-staff`] ?? null) : null,
       // **她剛把這一段換成另一門課、而且還沒選醫師**：那一科剛好只有一位就先選好
@@ -1045,7 +1057,7 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const { all, entitlements, customerVisits } = ctx;
   const course = all.courses.find((c) => c.id === courseId) ?? null;
   const switched = courseId !== slot.courseId || Boolean(slot.entitlementId);
-  const room = parseRoomKey(v[`s${i}-room`]);
+  const room = readRoom(v, i, slot);
   const { slot: made } = slotFromPicks({
     uncountedCourseId: courseId,
     startsAt: v[`s${i}-start`] || slot.startsAt,
@@ -1117,7 +1129,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
     endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
     minutes,
     ...(assignsFor(null, course, null) === 'room'
-      ? parseRoomKey(v[`s${i}-room`])
+      ? readRoom(v, i, slot)
       : { roomId: null, bed: null }),
     therapistId: null,
     doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
