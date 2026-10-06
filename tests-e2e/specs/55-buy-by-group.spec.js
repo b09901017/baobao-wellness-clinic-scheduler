@@ -78,3 +78,24 @@ test('B3 新增客戶 →「＋ 加一項」：同一張表，EECP → EECP體�
 
   await expect(page.locator('[data-cf-form] .roster__name')).toHaveText(['EECP體驗']);
 });
+
+// 換一門課，上一門的時長不可以跟著過來（issue 15）。規則在 `tests/buy.test.js`；這一條盯的是真的接到了那一張表上
+test('B4 先點 ILIB（自動按好 60 分鐘）再點健檢：存下去的健檢額度不帶 60 分', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-b', name: '客戶A' })]);
+  await app.signIn('/customers/cust-b');
+
+  await page.locator('[data-add-ent]').click();
+  await app.layer('[data-chip="buy"]');
+  await top(page).filter({ hasText: 'ILIB' }).click();
+  await expect(page.locator('[data-chip="durationMin"][aria-pressed="true"]')).toContainText('60');
+
+  await top(page).filter({ hasText: '健檢' }).click();
+  await expect(page.locator('[data-chip="durationMin"]')).toHaveCount(0);
+  await page.locator('[data-chip="tier"]').first().click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+
+  const ents = await app.readAll('customers/cust-b/entitlements');
+  const checkup = ents.find((e) => e.courseId === 'course-checkup');
+  expect(checkup.durationMin, '以前是 60：排那一段時先問額度，健檢就排成一小時').toBeNull();
+});

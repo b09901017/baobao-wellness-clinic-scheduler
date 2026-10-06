@@ -858,3 +858,35 @@ describe('加購那一排：先分類再項目', () => {
     assert.match(src, /closest\('\[data-chip="buy"\], \[data-chip="buyItem"\]'\)/);
   });
 });
+
+// 換一門課，時長不可以從上一門帶過來（course-form-and-sheet-2026-10-06 的 issue 15）。
+// 「進階設定」那一格時長只在沒有「幾分鐘」那一排時才畫，所以：上一顆有那一排 → 那個數字是那一排的。
+describe('換了「買了什麼」之後的時長', () => {
+  const typed = (e, durationMin) => ({ ...e, durationMin });
+  const then = (e, value) => ({ ...e, ...buy.pick(value, e, MASTER) });
+
+  test('先點 ILIB（自動帶 60）再點健檢：健檢不可以存成 60 分', () => {
+    assert.equal(from('c-ilib', 'c-checkup').durationMin, null);
+    assert.equal(buy.payload(from('c-ilib', 'c-checkup')).durationMin, null);
+  });
+
+  test('先點復能再點營養點滴：一樣不帶', () => {
+    assert.equal(from(buy.POOL_PICK, 'c-drip').durationMin, null);
+  });
+
+  test('她在進階設定自己打的時長，換到另一門沒有那一排的課照舊留著', () => {
+    assert.equal(then(typed(from('c-checkup'), 90), 'c-rehab').durationMin, 90);
+  });
+
+  test('換到有「幾分鐘」那一排的課：不在名單上的數字回課程預設，那一排有一顆按著', () => {
+    const ilib = then(typed(from('c-checkup'), 90), 'c-ilib');
+    assert.equal(ilib.durationMin, 60);
+    assert.equal(ilib.label, 'ILIB(60)');
+    assert.equal(then(typed(from('c-checkup'), 90), buy.POOL_PICK).durationMin, 60);
+  });
+
+  test('兩邊名單上都有的數字留著（ILIB 30 → 復能 30）', () => {
+    assert.equal(then(typed(from('c-ilib'), 30), buy.POOL_PICK).durationMin, 30);
+    assert.equal(then(typed(from(buy.POOL_PICK), 30), 'c-ilib').durationMin, 30);
+  });
+});

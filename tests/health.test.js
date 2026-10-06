@@ -189,10 +189,56 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
   });
 });
 
+// 加購換課程時把上一門的時長帶了過來（course-form-and-sheet-2026-10-06 的 issue 15）。修好之前存下去的那幾筆
+// 分不出是她自己設的還是帶過來的，所以只列不修。
+describe('額度上記著的時長跟課程不一樣', () => {
+  const single = (over = {}) => ent({
+    id: 'e-s', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 1, ...over,
+  });
+  const timed = { id: 'c-ilib', name: 'ILIB', durationMin: 60, durationChoices: [30, 60] };
+  const found = (entitlements, master = MASTER) => findingsOf(run({ entitlements, master }), 'entitlementMinutes');
+
+  test('健檢的額度記著 60、課程是 120 → 列出來，兩個數字都講，沒有按鈕', () => {
+    const rows = found([single({ durationMin: 60 })]);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /客戶一・健檢/);
+    assert.match(rows[0].detail, /60 分/);
+    assert.match(rows[0].detail, /120 分/);
+    assert.equal(rows[0].fix, null, '分不出是她自己設的還是帶過來的 —— 不可以有按鈕');
+    assert.equal(rows[0].severity, 'attention');
+  });
+
+  test('跟課程一樣、或那一格是空的 → 不列', () => {
+    assert.deepEqual(found([single({ durationMin: 120 }), single({ id: 'e-2', durationMin: null })]), []);
+  });
+
+  test('營養點滴不列 —— 排的時候品項的時長排在額度前面，那一格是建額度時抄的舊數字', () => {
+    assert.deepEqual(found([single({ label: '營養點滴', courseId: 'c-iv', durationMin: 120 })]), []);
+  });
+
+  test('有「買的時候可選」的課：名單上有的不列，名單上沒有的列', () => {
+    const master = { ...MASTER, courses: [...MASTER.courses, timed] };
+    assert.deepEqual(found([single({ label: 'ILIB(30)', courseId: 'c-ilib', durationMin: 30 })], master), []);
+    const rows = found([single({ label: 'ILIB', courseId: 'c-ilib', durationMin: 90 })], master);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /90 分/);
+    assert.match(rows[0].detail, /30／60/);
+  });
+
+  test('擇一池、營養品、已刪除的、找不到課程的都不列', () => {
+    assert.deepEqual(found([
+      ent({ durationMin: 45 }),
+      single({ id: 'e-p', type: 'product', courseId: null, durationMin: 45 }),
+      single({ id: 'e-d', durationMin: 60, deletedAt: '2026-09-01' }),
+      single({ id: 'e-x', courseId: 'c-gone', durationMin: 60 }),
+    ]), []);
+  });
+});
+
 describe('形狀', () => {
-  test('三十一項檢查都在，順序固定', () => {
+  test('三十二項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 31);
+    assert.equal(result.checks.length, 32);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 

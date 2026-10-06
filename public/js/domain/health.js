@@ -121,6 +121,11 @@ export const CHECKS = [
     hint: '排出去的營養點滴品項不是那筆額度買的那一款 —— 試算表印的跟次數扣的對不起來',
   },
   {
+    id: 'entitlementMinutes',
+    label: '額度上記著的時長跟課程不一樣',
+    hint: '排這一筆的時候照額度上那個數字排，不是課程的 —— 健檢記著 60 分的話，那一段就排成一小時',
+  },
+  {
     id: 'chartNo',
     label: '備註寫著舊的說法',
     hint: '匯入時寫成「姓名欄的編號：」的那幾則，其實那是病歷號',
@@ -876,6 +881,50 @@ function checkIvMismatch(ctx) {
         link: null,
         fix: null,
       });
+    });
+  }
+
+  return out;
+}
+
+/**
+ * 十一之二、額度上記著的時長跟課程不一樣（2026-10-07，issue 15）。
+ *
+ * 加購時換一門課，上一門的時長會跟著過來：先點 ILIB（自動帶 60）再點健檢，存下去的健檢額度
+ * 是 60 分 —— 而排那一段時先問額度（`slotMinutes()`），健檢就排成 60 分不是 120。那個洞補了
+ * （`buy.js` 的 `minutesAfterPick()`），這一列收的是**補之前已經存成這樣的**。
+ *
+ * **只列不修**（她：「有的話資料健檢只列不修」）：那一格她在客戶詳情「進階設定」自己打得了，
+ * 分不出哪幾筆是她設的、哪幾筆是帶過來的 —— 一顆按鈕會把她自己設的一起清掉。
+ *
+ * 只看單一課程的額度：
+ * - 那門課沒有「買的時候可選」：記著的數字跟課程現在的不一樣就列
+ * - 有（ILIB）：記著的數字不在名單上才列
+ * - **營養點滴不看**（`requiresIvProduct`）：排的時候品項的時長排在額度前面，而既有額度上那一格
+ *   是建額度時抄的舊數字（`slotMinutes()` 的註解）—— 列出來整頁都是不用處理的
+ * - 擇一池不看：那一格是她按的那一排，名字另有一列在盯（`checkPoolLabels()`）
+ */
+function checkEntitlementMinutes(ctx) {
+  const out = [];
+
+  for (const e of ctx.entitlements) {
+    if (e.deletedAt || e.type !== 'single' || e.durationMin == null) continue;
+    const course = ctx.coursesById[e.courseId];
+    if (!course || course.requiresIvProduct) continue;
+
+    const n = Number(e.durationMin);
+    const choices = durationChoicesOf(course);
+    if (choices.length ? choices.includes(n) : n === Number(course.durationMin)) continue;
+
+    out.push({
+      severity: 'attention',
+      title: `${nameOf(ctx, e.customerId)}・${e.label}`,
+      detail: `這一筆記著 ${n} 分，${course.name}${choices.length
+        ? `買的時候只有 ${choices.join('／')} 分`
+        : `現在是 ${course.durationMin ?? '（沒填）'} 分`} —— 排這一筆的時候照 ${n} 分排。`
+        + '是你自己設的就不用理它；不是的話到「客戶」那一頁點開她，在那一筆額度按「調整」→「進階設定」把時長清空',
+      link: null,
+      fix: null,
     });
   }
 
@@ -1992,6 +2041,7 @@ const RUNNERS = {
   staleAvailability: checkStaleAvailability,
   duplicateAvailability: checkDuplicateAvailability,
   ivMismatch: checkIvMismatch,
+  entitlementMinutes: checkEntitlementMinutes,
   chartNo: checkChartNo,
   poolLabel: checkPoolLabels,
   importedLabel: checkImportedLabels,

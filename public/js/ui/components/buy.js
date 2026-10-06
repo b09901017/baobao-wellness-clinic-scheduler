@@ -251,6 +251,28 @@ function itemRow(e, rows, top) {
   return f.chips({ name: 'buyItem', label: '哪一門', value: picked(e), options: items });
 }
 
+/** 這一張草稿的「幾分鐘」問哪一門課：擇一池問復能，其餘問它自己。 */
+const durationCourseOf = (e, master) => (e?.type === 'pool'
+  ? poolCourseOf(master)
+  : (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null);
+
+/**
+ * 換了「買了什麼」之後的時長。**上一門的數字不可以跟著過來**（2026-10-07，issue 15）：
+ * 先點 ILIB（自動帶 60）再點健檢，存下去的健檢額度是 60 分 —— 而排那一段時先問額度
+ * （`slotMinutes()`），健檢就排成 60 分不是 120。
+ *
+ * - 新的那一門**有**「幾分鐘」那一排：上一個數字在它的名單上就留著（ILIB 30 → 復能 30），
+ *   不在就回課程預設 —— 不然那一排一顆都沒按、存下去的卻是那個數字
+ * - **沒有**那一排：上一顆有那一排 → 那個數字是那一排的（自動帶的或她按的），清掉、跟著課程走；
+ *   上一顆也沒有 → 那是她在客戶詳情「進階設定」自己打的（那一格只在沒有那一排時才畫），留著
+ */
+function minutesAfterPick(e, course, master) {
+  const choices = durationChoicesOf(course);
+  const prev = e.durationMin ?? null;
+  if (choices.length) return choices.includes(Number(prev)) ? prev : (course?.durationMin ?? null);
+  return durationChoicesOf(durationCourseOf(e, master)).length ? null : prev;
+}
+
 /**
  * 選了「買了什麼」的某一顆之後，草稿要變成什麼樣。
  *
@@ -274,7 +296,7 @@ export function pick(value, e, master) {
       // 預設是**整組那一顆**（方案裡的那一項就是它），不是全部器材 ——
       // 她最常買的就是三選一，先幫她按好。
       optionEquipmentIds: choices.sets[0]?.ids ?? equipment.map((x) => x.id),
-      durationMin: e.durationMin ?? course?.durationMin ?? null,
+      durationMin: minutesAfterPick(e, course, master),
     };
     return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
   }
@@ -319,9 +341,7 @@ export function pick(value, e, master) {
     ivProductId: course?.requiresIvProduct ? (e.ivProductId ?? null) : null,
     // 有「可選時長」的課程（ILIB）先幫她按好預設那一顆 —— 不然她要多點一下
     // 才存得下去，而那一下的答案永遠是課程本身的時長。
-    durationMin: durationChoicesOf(course).length
-      ? (e.durationMin ?? course?.durationMin ?? null)
-      : (e.durationMin ?? null),
+    durationMin: minutesAfterPick(e, course, master),
   };
   return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
 }
@@ -593,10 +613,7 @@ function poolKindRow(e, master) {
  * 沒填的課程整排不出現 —— 健檢那一格永遠不會被按的丸子只是噪音。
  */
 function durationRow(e, master) {
-  const course = e.type === 'pool'
-    ? poolCourseOf(master)
-    : (master.courses ?? []).find((c) => c.id === e.courseId) ?? null;
-  const choices = durationChoicesOf(course);
+  const choices = durationChoicesOf(durationCourseOf(e, master));
   if (choices.length < 2) return '';
 
   return `
