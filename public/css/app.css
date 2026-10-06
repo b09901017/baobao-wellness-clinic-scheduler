@@ -9592,6 +9592,26 @@ body.has-abl {
   opacity: 0.55;
 }
 
+/* 「app 有、這次照片上沒有」（ADR-0129）：只給看，列上沒有按鈕 */
+.abl-row--gone .abl-row__main {
+  cursor: default;
+}
+
+.abl__group--gone .abl__day {
+  color: var(--overdue);
+}
+
+.abl__absentsay {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.abl__gone {
+  margin-top: var(--space-3);
+}
+
 .abl-row__hint {
   margin: -4px 0 var(--space-2) calc(var(--tap-min) + var(--space-1));
   font-size: var(--text-xs);

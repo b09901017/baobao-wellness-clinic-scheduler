@@ -188,7 +188,11 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   await openBatch(app, page);
   await photograph(page, ['aboveeList-check']);
 
-  await expect(page.locator('.abl__sum')).toHaveText('要你看 2 段');
+  // 兩列＋「app 有、這次照片上沒有」的兩段（ADR-0129）：照片是 9/12 09:00 到 9/22 09:00 的很多人，
+  // 陳大文 9/12 11:00、9/15 那兩段在中間、卻不在照片上
+  await expect(page.locator('.abl__sum')).toHaveText('要你看 4 段');
+  await expect(page.locator('.abl__group--gone .abl-row')).toHaveCount(2);
+  await expect(page.locator('.abl__group--gone')).toContainText('陳大文');
   await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('對不上');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toBeDisabled();
   await row(page, 'a0').locator('[data-abl-open]').click();

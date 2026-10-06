@@ -440,6 +440,12 @@ export const COVERAGE = {
     'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
     'public/js/ui/components/form.js', 'public/css/',
   ],
+  // 拍 Abovee：「app 有、這次照片上沒有」（2026-10-07，course-form-and-sheet/09，ADR-0129）：那一塊、抬頭的數字、那一顆按鈕
+  '57-abovee-absent': [
+    'public/js/domain/aboveeImport.js', 'public/js/domain/taskRules.js', 'public/js/domain/naming.js',
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js', 'public/js/ui/nav.js',
+    'functions/transcripts/', 'tests-e2e/fixtures/ai/', 'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

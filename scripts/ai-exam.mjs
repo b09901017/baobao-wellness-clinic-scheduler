@@ -162,6 +162,11 @@ function scoreAbovee(ans, got, s) {
     }
   });
   if (ans.pageText) s.add('頁數', squash(got.pageText) === squash(ans.pageText));
+  // 畫面上方的「預約日期(起)／(訖)」（ADR-0129）。答案寫 null ＝ 照片上看不到那兩格：抄出任何字都算錯（不可以猜）
+  for (const [field, label] of [['dateFromText', '預約日期(起)'], ['dateToText', '預約日期(訖)']]) {
+    if (!(field in ans)) continue;
+    s.add(label, ans[field] === null ? !squash(got[field]) : readMonthDay(got[field]) === readMonthDay(ans[field]));
+  }
 }
 
 function scorePlanFlyer(ans, got, s) {
