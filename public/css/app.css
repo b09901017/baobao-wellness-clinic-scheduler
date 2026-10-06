@@ -9592,6 +9592,11 @@ body.has-abl {
   opacity: 0.55;
 }
 
+/* 認得、但不是一字不差（ADR-0128）：不是錯，是要她看一眼 —— 用「快到了」那一種色，不用紅的 */
+.abl-row__hint--near {
+  color: var(--soon);
+}
+
 /* 「app 有、這次照片上沒有」（ADR-0129）：只給看，列上沒有按鈕 */
 .abl-row--gone .abl-row__main {
   cursor: default;
@@ -10067,6 +10072,11 @@ body.has-abl {
   font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--text-dim);
+}
+
+/* 病歷號對上、名字差一個字（ADR-0128）：認得了，但要她看一眼（同 `.abl-row__hint--near`） */
+.tsc__say--near {
+  color: var(--soon);
 }
 
 /* 會改變寫進去的東西（換掉哪一張、舊照片會被刪）—— 常駐，不收進 ? */

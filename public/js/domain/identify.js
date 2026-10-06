@@ -12,7 +12,7 @@
 
 import { readMarks } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
-import { normalizeAlias } from './masterData.js';
+import { normalizeAlias, oneCharOff } from './masterData.js';
 
 const PREFIXES = [CHART_NO_PREFIX, OLD_CHART_NO_PREFIX].map((p) => p.trim());
 
@@ -57,6 +57,7 @@ export function chartNosOf(customer) {
  * | how | 條件 | customer |
  * |---|---|---|
  * | both | 名字與病歷號都對上同一位 | 那一位 |
+ * | nearName | 病歷號對上**剛好一位**、名字跟他差一個字（三個字以上、一樣長，`oneCharOff()`） | 那一位 |
  * | numberOnly | 病歷號對上、名字不一樣（改過名、字打錯） | null |
  * | nameOnly | 名字對上一位、沒有號碼說不是他 | 那一位 |
  * | conflict | 名字對上 A、病歷號對上 B；或名字對上的人身上的號碼跟照片不一樣 | null |
@@ -65,9 +66,13 @@ export function chartNosOf(customer) {
  *
  * 已刪除、已停用的客戶不參與。
  *
+ * **`nearName` 是 2026-10-07 放寬的那一格**（ADR-0128）。她：「直接算吻合」。兩個訊號都指向同一位，只是 AI 把名字裡
+ * 一個少見的字抄錯（考試 Abovee 姓名 9/10）。兩個字的名字不放寬 —— 差一個字等於只有姓或名一樣，
+ * 號碼再看錯一位就認到另一位身上。**畫面上一定要講出來**（`nearNameSay()`），不是安靜地當成完全吻合。
+ *
  * @param {{name?: string, chartNo?: string}} seen 照片上寫的
  * @param {object[]} customers
- * @returns {{customer: object|null, how: 'both'|'numberOnly'|'nameOnly'|'conflict'|'ambiguous'|'none',
+ * @returns {{customer: object|null, how: 'both'|'nearName'|'numberOnly'|'nameOnly'|'conflict'|'ambiguous'|'none',
  *            candidates: object[]}}
  */
 export function identifyCustomer({ name = '', chartNo = '' } = {}, customers = []) {
@@ -82,6 +87,9 @@ export function identifyCustomer({ name = '', chartNo = '' } = {}, customers = [
   if (both.length > 1) return answer('ambiguous', both);
 
   if (byNumber.length && byName.length) return answer('conflict', [...byName, ...byNumber]);
+  if (byNumber.length === 1 && oneCharOff(normalizeName(name), normalizeName(byNumber[0].name))) {
+    return answer('nearName', byNumber, byNumber[0]);
+  }
   if (byNumber.length) return answer('numberOnly', byNumber);
 
   if (byName.length) {
@@ -90,4 +98,16 @@ export function identifyCustomer({ name = '', chartNo = '' } = {}, customers = [
     return byName.length === 1 ? answer('nameOnly', byName, byName[0]) : answer('ambiguous', byName);
   }
   return answer('none', []);
+}
+
+/**
+ * `nearName` 那一種畫面上的那一句（ADR-0128）。拍 Abovee 與療程單兩個確認層共用 —— 各寫一句的話遲早一邊沒講。
+ * 不是那一種就是空字串。
+ *
+ * @param {ReturnType<typeof identifyCustomer>} who
+ * @param {string} seenName 照片上的名字（原字）
+ */
+export function nearNameSay(who, seenName) {
+  if (who?.how !== 'nearName') return '';
+  return `病歷號對上了，名字跟照片上差一個字（照片上是「${String(seenName ?? '').trim()}」）—— 當成這一位；不是的話換一位`;
 }

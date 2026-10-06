@@ -15,7 +15,7 @@
 // **Abovee 上的預約狀態只照原字留著**（`statusText`）。「確認前往」是客人跟 Abovee 說的，
 // 不是她問過的那一句 —— 新段一律 `INITIAL_STATUS`（ADR-0027、0097、0099）。
 
-import { identifyCustomer, normalizeChartNo, normalizeName } from './identify.js';
+import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
@@ -259,6 +259,22 @@ export function newRowSay(item) {
   return item.appCancelledHere
     ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
     : '';
+}
+
+/**
+ * 認得、但不是一字不差的那幾格（ADR-0128）：病歷號對上而名字差一個字、課程那一格差一個字。
+ * 收起來也看得到 —— **不是安靜地當成完全吻合**。名字那一句只在這一列還是認人那一次認的那一位時講
+ *（她換了人就不是那一次的事了）。沒有就是空字串。
+ */
+export function nearSay(item, master = {}) {
+  const out = [];
+  if (item?.customerId && item.customerId === item.who?.customer?.id) {
+    const who = nearNameSay(item.who, item.row?.name);
+    if (who) out.push(who);
+  }
+  const near = item?.course?.near;
+  if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
+  return out.join('；');
 }
 
 /**

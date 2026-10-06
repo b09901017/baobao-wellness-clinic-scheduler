@@ -1,10 +1,11 @@
 {
+  "_why": "療程單（假的，course-form-and-sheet-2026-10-06/10，ADR-0128）：病歷號對上王小明、名字差一個字 → 認得、看得到那一句",
   "transcript": {
     "readable": true,
     "unreadable": [],
     "title": "EECP 體外反搏療程單",
     "headerDate": "115.8.3",
-    "customerName": "王曉名",
+    "customerName": "王曉明",
     "customerNumber": "00001234",
     "rows": [
       {

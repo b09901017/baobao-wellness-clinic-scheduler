@@ -1,6 +1,6 @@
 # 拍 Abovee：認得更準（ADR-0128）
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第三點之 2；問題 7 的回答
 動工前先讀：ADR-0099（「為什麼不是讓 AI 直接對主檔」那一節）、ADR-0100（考試結果）、ADR-0103、`public/js/domain/identify.js` 整支、
 `public/js/domain/abovee.js` 的 `courseFrom()`／`staffFrom()`／`roomFrom()`、`public/js/domain/treatmentSheets.js`（也用 `identifyCustomer()`）、
@@ -97,3 +97,22 @@ Blocked by: —（審查之後這一支不動提示詞，不用跟 09 一起重�
 
 `aboveeState()` 只認「取消」「完成」兩個字（ADR-0116）。**Abovee 寫「客戶失約」、app 記已完成**的那一段現在不會被提醒，而已完成會扣次數。
 那 353 筆裡有 3 筆失約。要不要加一種對不上 —— 等她回；她說要才開一支。
+
+## 做完時留下的（2026-10-07）
+
+- **「差一個字」只有一支**：`masterData.js` 的 `oneCharOff()`（一樣長、只差一個字、至少三個字；**全是英數字的要四個字**）。
+  issue 寫「至少三個字」又寫「`SIS` 不放寬」—— `SIS` 是三個字，兩句打架。照判準那一句做：英數代號多要一個字，所以 `SIS`、`PRP`、`HRV` 不放寬，
+  `速利清`、`猛健樂`（三個中文字的品項）、`ILIB` 放寬
+- 認人：`identifyCustomer()` 多 `how: 'nearName'`（病歷號對上剛好一位、名字差一個字 → `customer` 是那一位）；
+  `nearNameSay()` 是那一句，兩個確認層共用。**「照 nameOnly 現在的畫法」那一句不成立** —— 查了兩個確認層，`nameOnly` 其實沒有畫任何記號。
+  所以新畫了一句淡黃色的（`.abl-row__hint--near`、`.tsc__say--near`，色是 `--soon`）：拍 Abovee 收起來那一列底下、療程單「是誰」那一行底下
+- 拍 Abovee 那一句走 `aboveeImport.js` 的 `nearSay(item, master)`：名字那一句只在這一列還是認人那一次的那一位時講（她換了人就不講）；課程那一句讀 `course.near`
+- 課程：`courseFrom()` 第五步 `nearFrom()`，前四步都是 null 才跑。結果多 `near: { seen: 照片上整格原字, as: 主檔那一筆的名字 }`。
+  第四步（舊表寫法）原本寫成好幾個 `return`，改成接得到第五步的寫法，行為一樣
+- 治療師：`staffFrom()` 名字規則**一位都沒有**時才比她記著的寫法差一個字（兩位以上照舊 null，不往下）
+- **既有的測試與 E2E 夾具裡「病歷號對上、名字不一樣」的例子是 `王曉明`**（跟假名王小明差一個字）—— 放寬之後它是認得的。
+  `tests/identify.test.js`、`tests/abovee-import.test.js`、`fixtures/ai/aboveeList-check.json`（41 A3）、`fixtures/ai/treatmentSheet-renamed.json`（42 T3）
+  都換成 `王曉名`（差兩個字），那幾條照舊測「要她選」那一條路
+- 測試：新的 `tests/abovee-recognise-more.test.js` 24 條（判準每一條）；E2E 42 多一條 T3b（療程單那一句看得到）。本機跑 41、42、51、57：19 條全過
+- 真名掃描擋了測試裡「二反」緊接著 60 的寫法（中文接數字）→ 中間加一個空白
+- ADR-0128（提示詞不附名單寫在「也決定了」）；`CLAUDE.md` 兩列；`docs/常見問題.md` 一條；`sw.js` v179。`functions/` 沒動

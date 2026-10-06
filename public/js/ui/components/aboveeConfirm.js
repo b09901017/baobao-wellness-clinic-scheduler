@@ -22,7 +22,7 @@ import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
-  newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
@@ -354,6 +354,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
+        ${nearSay(item, ctx.master) && !savedKeys.has(item.key)
+          ? `<p class="abl-row__hint abl-row__hint--near">${esc(nearSay(item, ctx.master))}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
