@@ -1,6 +1,6 @@
 # 「做什麼」那一排：拿掉每一類前面的灰色小標
 
-Status: todo
+Status: done
 來源：她 2026-10-06 在 staging 試完 08 回的
 動工前先讀：`issues/08-…`（整支，尤其「做完時留下的」）、`public/js/domain/slotOptions.js` 的 `arrangeSlotOptions()`、
 `public/js/ui/views/schedule.js`（「做什麼」那一塊）、`public/js/ui/views/visitEditor.js`（`s${i}-ent` 那一排）、
@@ -54,3 +54,15 @@ Blocked by: —
 - `SPEC.md` 第 8.8 節分類那一段、`docs/操作手冊.md` 壓表那一段
 - `HANDOFF.md` 手動驗收清單第 16、17 條
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-07）
+
+- `arrangeSlotOptions()` 不再回 `lead`（每一顆剩 `group` 與 `breakBefore` 兩格）。**順序一個字都沒變**
+- 三個入口各刪掉畫小標那幾行：壓表 `schedule.js`、拍 Abovee `aboveeConfirm.js` 的 `chipHtml()`、來訪編輯器傳給 `f.chips()` 的 `lead`。
+  `.chips__head` 那三條 CSS 沒有人用了，刪掉；`.chips__break`（另起一行）留著
+- 來訪編輯器 08 之前的「加約」「不用加購」兩個小標沒有加回來（她說三個地方都拿掉）；不算次數的那幾顆丸子上照舊寫著「不扣次數」
+- `f.chips()` 的 `lead` 沒動：加購的「商品」「單買一台」「沒有的」、課程編輯表的「指定一科」還在用。`tests/slot-options-order.test.js` 多一條釘著加購那一排照舊
+- 測試：`tests/slot-options-order.test.js` 釘 `lead` 的那幾條翻過來（2 條在舊的程式上紅：每一顆都沒有小標、三個入口的原始碼不讀 `.lead`）；
+  釘順序的原樣綠。E2E `56` 的 W1／W2 改成「那一排一個 `.chiprow__lead` 都沒有」，量「二返在健檢下一行」那一條沒動；W2 補了順序
+- `sw.js` v174；`SPEC.md` 第 8.8 節、`docs/操作手冊.md` 壓表那一段、`CLAUDE.md` 連動表「額度那一排的順序」（寫了「不要加回來」）
+- `HANDOFF.md` 手動驗收清單第 16、17 條跟著改（這一段收尾時一起）

@@ -584,7 +584,7 @@ function slotCard(ctx, draft, slot, i) {
       ${f.chips({
         name: `s${i}-ent`, label: '額度',
         value: nth ? NTH_PICK : (free ? uncountedPick(slot.courseId) : slot.entitlementId),
-        // **順序與小標問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08）—— 壓表與拍 Abovee 同一支：
+        // **順序問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08；小標 issue 16 拿掉了）—— 壓表與拍 Abovee 同一支：
         // 照分類、類裡照名字、二返那一組最後而且另起一行。「剩幾次」照舊這裡自己算（把草稿也算進去）
         options: arrangeSlotOptions([
           ...entitlements.map((e) => ({
@@ -617,7 +617,6 @@ function slotCard(ctx, draft, slot, i) {
           note: o.entitlement
             ? `剩 ${countsWithDraft(o.entitlement, customerVisits, draft, o.entitlement.id).remaining}`
             : '不扣次數',
-          ...(o.lead ? { lead: o.lead } : {}),
           ...(o.breakBefore ? { breakBefore: true } : {}),
         })),
       })}

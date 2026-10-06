@@ -1,10 +1,14 @@
-// 來訪的「做什麼」那一排：照分類排、每一類一個小標（2026-10-06，issue 08）。
+// 來訪的「做什麼」那一排：照分類排（2026-10-06，issue 08）；小標 2026-10-07 拿掉了（issue 16）。
 //
 // 她的原話（問她兩層還是小標）：
 //
 // > 問題 5：我覺得先照你的建議依照分類排列並加小標，不增加點選步驟，但是要提醒我去測試和你說好不好
 //
-// 順序與小標的規則在 `tests/slot-options-order.test.js`（`arrangeSlotOptions()`）。
+// 她在 staging 試完：
+//
+// > 我覺得壓表或是新增來訪的地方就不用每一類前面有灰色小標…就和之前一樣一次呈現所有的丸子就好不需要灰色小標
+//
+// 順序的規則在 `tests/slot-options-order.test.js`（`arrangeSlotOptions()`）。
 // 這一支量的是只有畫面上看得到的那一件：**健檢與二返實體上不是隔壁**。
 // 只掃字串的測試在這種事上騙過人（`CLAUDE.md`「貼在畫面底部的東西」那一列）—— 所以量位置。
 
@@ -29,8 +33,6 @@ const someone = () => [
   }),
 ];
 
-const texts = (loc) => loc.evaluateAll((els) => els.map((el) => el.textContent.trim()));
-
 /**
  * 幾個元素的位置，**在同一個畫面裡一次量**。分兩次 `boundingBox()` 的話，點了某一天之後那一張還在
  * 平滑捲動，兩個數字來自不同的時刻（第一次跑就是這樣紅的）。
@@ -46,7 +48,7 @@ async function below(page, exam, back) {
   expect(b.top, '二返那一顆要在健檢那一顆的下一行').toBeGreaterThanOrEqual(a.bottom - 1);
 }
 
-test('W1 壓表：照分類排、每一類一個小標；二返那一組另起一行', async ({ app, page }) => {
+test('W1 壓表：照分類排、一個小標都沒有；二返那一組另起一行', async ({ app, page }) => {
   await app.seed([...masterDocs(), ...someone()]);
   await app.signIn('/');
   await app.go('/schedule');
@@ -57,32 +59,26 @@ test('W1 壓表：照分類排、每一類一個小標；二返那一組另起�
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
   await app.layer('[data-ent]');
 
-  expect(await texts(page.locator('.chips .chiprow__lead')))
-    .toEqual(['復能', '醫師門診', '健檢', '二返・n返']);
+  await expect(page.locator('.chips .chiprow__lead'), '這一排不畫小標了（issue 16）').toHaveCount(0);
   // 醫師門診那一組：額度在前、不算次數的課接在後面
   const order = await page.locator('.chips [data-ent]').evaluateAll((els) => els.map((el) => el.dataset.ent));
   expect(order.slice(0, 2)).toEqual(['e-pool', 'e-cardio']);
   expect(order.at(-2)).toBe('e-chk');
   expect(order.at(-1), '二返照舊排最後').toBe('e-fu');
   await below(page, '[data-ent="e-chk"]', '[data-ent="e-fu"]');
-  // 小標跟那一類第一顆在同一行（這一排會換行 —— 分開的話小標會掛在上一行的尾巴）
-  for (const first of ['e-cardio', 'e-chk', 'e-fu']) {
-    // 那一類的小標就是那一顆前面那一個（`.chips__head` 裡的第一個）
-    const [lead, chip] = await rects(page, [
-      `.chips__head:has([data-ent="${first}"]) .chiprow__lead`, `[data-ent="${first}"]`,
-    ]);
-    expect(Math.abs(lead.mid - chip.mid), `${first} 那一類的小標跟它在同一行`).toBeLessThan(chip.height / 2);
-  }
 });
 
-test('W2 來訪編輯器：同一個順序與小標；二返在第二行', async ({ app, page }) => {
+test('W2 來訪編輯器：同一個順序、一個小標都沒有；二返在第二行', async ({ app, page }) => {
   await app.seed([...masterDocs(), ...someone()]);
   await app.signIn('/');
   await app.go(`/visits/new/cust-w/${PICK_DAY}`);
   await app.layer('[data-chip="s0-ent"]');
 
   const row = page.locator('.fieldgroup').filter({ has: page.locator('[data-chip="s0-ent"]') });
-  expect(await texts(row.locator('.chiprow__lead'))).toEqual(['復能', '醫師門診', '健檢', '二返・n返']);
+  await expect(row.locator('.chiprow__lead'), '這一排不畫小標了（issue 16）').toHaveCount(0);
+  const order = await row.locator('[data-chip="s0-ent"]').evaluateAll((els) => els.map((el) => el.dataset.chipValue));
+  expect(order.slice(0, 2)).toEqual(['e-pool', 'e-cardio']);
+  expect(order.slice(-2), '健檢是最後一類，二返照舊排最後').toEqual(['e-chk', 'e-fu']);
   await expect(row.locator('.chiprow--next [data-chip-value="e-fu"]')).toHaveCount(1);
   await below(page, '[data-chip="s0-ent"][data-chip-value="e-chk"]', '[data-chip="s0-ent"][data-chip-value="e-fu"]');
 
