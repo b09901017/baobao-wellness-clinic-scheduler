@@ -265,10 +265,10 @@ export function assignSummaryOf(course) {
  * > 分類：復能、ILIB、醫師門診、EECP、運動區、營養點滴
  * > 5. 健檢自己一組「健檢」。物理治療師諮詢先放「其他」
  *
- * **分類只管兩件事**：設定 → 課程 那一頁怎麼分組、新增時帶哪一組預設值
- * （`courseDefaultsFor()`）。**沒有任何規則讀它** —— 待辦、次數、指派、加購
- * 一個都不看，所以改分類碰不到任何資料的意思（`tests/course-groups.test.js`
- * 掃原始碼盯著）。
+ * **分類只管畫面怎麼分組**：設定 → 課程 那一頁、新增時帶哪一組預設值
+ * （`courseDefaultsFor()`），以及 2026-10-06 起加購那一排先分類再項目（`groupCourses()`，
+ * `ui/components/buy.js`）。**沒有任何規則讀它** —— 待辦、次數、指派一個都不看，
+ * 所以改分類碰不到任何資料的意思（`tests/course-groups.test.js` 掃原始碼盯著）。
  *
  * **它不是一份新的主檔**：課程身上一格字串（`group`），她打一個新的字就是
  * 新的一組。不開集合、不動 Rules、不動備份。
@@ -304,6 +304,36 @@ export function courseGroupNames(courses = []) {
     if (g !== OTHER_GROUP && !COURSE_GROUPS.includes(g) && !custom.includes(g)) custom.push(g);
   }
   return [...COURSE_GROUPS, ...custom, OTHER_GROUP];
+}
+
+/**
+ * 一串課程照分類分組（加購那一排，2026-10-06）。分類照 `courseGroupNames()` 的順序，
+ * **同一類裡照傳進來的順序**；沒有課程的分類不回。誰該列進來是呼叫端的事
+ * （不算次數的不列、停用的不列……）—— 這一支只回答「哪一門在哪一類、順序」。
+ *
+ * @returns {{group: string, courses: object[]}[]}
+ */
+export function groupCourses(courses = []) {
+  return groupByCourse((courses ?? []).filter(Boolean), (c) => c)
+    .map(({ group, items }) => ({ group, courses: items }));
+}
+
+/**
+ * 同上，但分的是「掛著一門課的東西」（「做什麼」那一排的每一顆，issue 08）：
+ * 那一顆算哪一類看 `courseOf(item)` 那一門課的分類（沒有課＝「其他」）。
+ * 分類的順序照 `courseGroupNames()`（`courses` 與那幾門課一起算）；**同一類裡照傳進來的順序**。
+ *
+ * 只有這一支（與 `groupCourses()`）替別的模組回答「它在哪一類」——
+ * `tests/course-groups.test.js` 盯著 `domain/` 底下沒有別人讀 `group`。
+ *
+ * @returns {{group: string, items: object[]}[]}
+ */
+export function groupByCourse(items = [], courseOf = (x) => x, courses = []) {
+  const list = items ?? [];
+  const names = courseGroupNames([...(courses ?? []), ...list.map(courseOf).filter(Boolean)]);
+  return names
+    .map((group) => ({ group, items: list.filter((x) => groupOf(courseOf(x)) === group) }))
+    .filter((g) => g.items.length);
 }
 
 /**

@@ -1,6 +1,6 @@
 # 加購那一排：先分類再項目
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第二點
 動工前先讀：`public/js/ui/components/buy.js` 整支（檔頭、`fields()`、`courseChips()`、`picked()`、`pick()`、`afterPick()`、`values()`、`wire()`、`DETAIL_CHIPS`、`reflect()`）、
 `public/js/domain/masterData.js` 的 `groupOf()`／`courseGroupNames()`／`coursesByGroup()`、`public/js/domain/entitlements.js` 的 `poolSiblingCourseIds()`、
@@ -86,3 +86,27 @@ Blocked by: 03（補完之後才有那麼多門）
 - `docs/操作手冊.md` 加購那一段
 - 方案編輯器裡項目的課程下拉（`masterList.js` 的 `itemCard()`）也是一長串 —— **這一支不做**；她提了再說
 - `public/sw.js` 的 VERSION
+
+## 做完時留下的（2026-10-06）
+
+- **分類只問 `masterData.js`**：新的 `groupCourses(courses)`（照 `courseGroupNames()` 分、同一類裡照傳進來的順序）與它底下那一支
+  `groupByCourse(items, courseOf, courses)`（08 的「做什麼」那一排也用它）。`buy.js` 一個 `.group` 都不讀，
+  `tests/course-groups.test.js` 那一條從「加購那一排不看分類」改成「只准問 `groupCourses()`」
+- **`buy.js`**：`courseChips()` 拆成 `buyRows()`（第一排、`inside` 分類 → 第二排、`homeOf` 每一門 → 第一排哪一顆）、
+  `courseChips()`（一類裡的課，要選器材的換成擇一池那一顆）、`besidePool()`（復能與 ILIB 並排，只搬第一排上自己就是那一門的）、
+  `topValue()`、`itemRow()`（第二排 `buyItem`）。分類那一顆的值是 `__group__:醫師門診`（`groupPick()`／`isGroupPick()`），字後面一個 `▾`（`chip__note`）
+- **全部只有一類時一排平的**（舊資料沒填分類、全部落在「其他」—— 正式站還沒按資料健檢補分類的話就是這樣）：
+  跟以前一模一樣，`tests/buy.test.js` 既有那幾條原樣綠
+- **接線**：`wire()` 的 `[data-chip="buy"], [data-chip="buyItem"]` 都走新的 `afterTap()`：分類那一顆 → `pick(null)` 清掉課程＋`buyGroup`；
+  按的是已經亮著的那一類 → 什麼都不變（不然點一下就把選好的那一門清掉）；其餘照 `afterPick()`。`pick()` 每一條路都把 `buyGroup` 清成 null
+- `validate()`：開著分類沒選 →「還要選『醫師門診』裡的哪一門」一句
+- 分類那一排（設定 → 課程 編輯表）的 `?` 補了「加購那一排照它分組」
+- E2E：新的一支 `55-buy-by-group`（B1 客戶詳情：第一排、第二排、沒選就存、存下去是二返、`buyGroup` 沒進文件；B2 只有一門的分類一下就到、換分類第二排收掉；
+  B3 新增客戶的「＋ 加一項」面板：EECP → EECP體驗）；`49` 的 U7 先按「醫師門診」
+- **沒做的**：方案編輯器裡項目的課程下拉（`itemCard()`）—— issue 寫明這一支不做
+- **過程中查到、沒有修的（要問她）**：**換課程時時長會從上一門帶過來**（既有的，不是這一支造成的）。
+  加購時先點 ILIB（自動帶 60 分）再點健檢，存下去的健檢額度是 `durationMin: 60`；排那一段時 `slotMinutes()` 先問額度 → 健檢排成 60 分不是 120。
+  營養點滴同理（品項沒填時長的話）。`pick()` 那一行是 `durationChoicesOf(course).length ? … : (e.durationMin ?? null)` ——
+  為了保住客戶詳情「進階設定」裡她自己打的時長，連上一門自動帶的也保住了。重現：`buy.afterPick('course-iv-laser', …)` 再 `afterPick('course-checkup', …)`
+- `sw.js` v169；`SPEC.md` 第 8.8 節分類那一段；`docs/操作手冊.md` 七之二；`CLAUDE.md` 連動表「她賣了什麼給客戶」「設定 → 課程 的分類」兩列
+

@@ -428,6 +428,12 @@ export const COVERAGE = {
     'public/js/ui/components/form.js', 'public/js/ui/views/naming.js', 'public/js/data/config.js',
     'public/css/',
   ],
+  // 加購那一排先分類再項目（2026-10-06，issue 07）：客戶詳情的加購、新增客戶的「＋ 加一項」
+  '55-buy-by-group': [
+    'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/domain/masterData.js',
+    'public/js/domain/seed.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
+    'public/js/ui/components/form.js', 'public/js/domain/entitlements.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

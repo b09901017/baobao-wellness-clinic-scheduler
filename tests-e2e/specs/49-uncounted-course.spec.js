@@ -235,8 +235,10 @@ test('U7 加購那一排沒有功醫門診；取消一段不扣次數的不講�
 
   await page.locator('[data-add-ent]').click();
   await app.layer('[data-chip="buy"]');
-  await expect(page.locator('[data-chip="buy"]').filter({ hasText: '復健科醫師門診' })).toHaveCount(1);
-  await expect(page.locator('[data-chip="buy"]').filter({ hasText: '功醫門診' })).toHaveCount(0);
+  // 2026-10-06 起先分類再項目（issue 07）：門診那幾門在「醫師門診」底下那一排
+  await page.locator('[data-chip="buy"]').filter({ hasText: '醫師門診' }).click();
+  await expect(page.locator('[data-chip="buyItem"]').filter({ hasText: '復健科醫師門診' })).toHaveCount(1);
+  await expect(page.locator('[data-chip="buyItem"]').filter({ hasText: '功醫門診' })).toHaveCount(0);
 
   await app.go('/calendar');
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();

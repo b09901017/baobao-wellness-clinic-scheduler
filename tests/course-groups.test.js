@@ -207,7 +207,7 @@ describe('種子', () => {
 });
 
 describe('沒有任何規則讀分類', () => {
-  // 改分類碰不到任何資料的意思 —— 待辦、次數、指派、加購一個都不看。
+  // 改分類碰不到任何資料的意思 —— 待辦、次數、指派一個都不看（加購那一排只拿它分組，見下面那一條）。
   // 這一條掃原始碼：`domain/` 底下只有主檔那一支可以問 `.group`。
   test('domain 裡只有 masterData.js 讀 course.group', () => {
     const dir = new URL('../public/js/domain/', import.meta.url);
@@ -219,8 +219,12 @@ describe('沒有任何規則讀分類', () => {
     assert.deepEqual(readers, []);
   });
 
-  test('加購那一排不看分類（順序是照器材推的，她 2026-09-07 指名復能與 ILIB 並排）', () => {
+  // 2026-10-06（issue 07）起加購那一排**先分類再項目**（她：「不論是新增一個/一群客戶的加購，
+  // 客戶詳情的加購…都可以參考課程種類與項目.md去分層丸子選」）。仍然只是畫面：
+  // 哪一門在哪一類只問 `masterData.js` 的 `groupCourses()`，`buy.js` 自己不讀 `course.group`
+  test('加購那一排的分類只問 groupCourses()，自己不讀 course.group', () => {
     const src = readFileSync(new URL('../public/js/ui/components/buy.js', import.meta.url), 'utf8');
+    assert.ok(src.includes('groupCourses('));
     assert.ok(!/\.group\b|groupOf\(|coursesByGroup\(/.test(src));
   });
 });
