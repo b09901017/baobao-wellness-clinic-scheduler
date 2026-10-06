@@ -1003,16 +1003,23 @@ textarea {
   height: 0;
 }
 
-/* 小標在會換行的那一排裡：跟前一顆丸子隔開一點，看得出是下一組的開頭。 */
-.chips > .chiprow__lead,
-.abl-row__chips > .chiprow__lead {
+/* 會換行的那一排裡，小標跟那一組的第一顆綁成一塊 —— 分開的話換行時小標會掛在上一行的尾巴，
+   底下那一行的丸子看起來沒有小標。跟前一顆隔開一點，看得出是下一組的開頭。 */
+.chips__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chips > .chips__head,
+.abl-row__chips > .chips__head {
   margin-left: var(--space-2);
 }
 
-.chips > .chiprow__lead:first-child,
-.chips > .chips__break + .chiprow__lead,
-.abl-row__chips > .chiprow__lead:first-child,
-.abl-row__chips > .chips__break + .chiprow__lead {
+.chips > .chips__head:first-child,
+.chips > .chips__break + .chips__head,
+.abl-row__chips > .chips__head:first-child,
+.abl-row__chips > .chips__break + .chips__head {
   margin-left: 0;
 }
 

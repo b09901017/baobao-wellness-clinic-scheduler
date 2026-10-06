@@ -487,10 +487,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   }
 
   function chipHtml(c) {
-    return `${c.brk ? '<span class="chips__break"></span>' : ''}${
-      c.lead ? `<span class="chiprow__lead">${esc(c.lead)}</span>` : ''}
+    const chip = `
       <button class="chip chip--sm abl-chip" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}"
               ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`;
+    // 小標跟那一類第一顆綁成一塊（同壓表）：這一排會換行，分開的話小標會掛在上一行的尾巴
+    return `${c.brk ? '<span class="chips__break"></span>' : ''}${c.lead
+      ? `<span class="chips__head"><span class="chiprow__lead">${esc(c.lead)}</span>${chip}</span>`
+      : chip}`;
   }
 
   /**

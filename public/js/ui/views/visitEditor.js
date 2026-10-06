@@ -22,7 +22,6 @@ import {
   rebookSlot,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { followupsLast } from '../../domain/scheduling.js';
 import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
@@ -127,14 +126,17 @@ async function boot(el, {
     const id = existing?.customerId ?? customerId;
     // 額度那一排丸子問的是「這一段扣哪一筆」，所以只列排得進來訪的
     //（`schedulable()`）—— 營養品扣不掉任何一段，見 ADR-0057。
-    // **二返排最後**（`followupsLast()`，壓表那一排同一支）：跟健檢並排時一指就約錯
-    const [customer, entitlements, all, settings, customerVisits] = await Promise.all([
+    const [customer, loaded, all, settings, customerVisits] = await Promise.all([
       customersData.get(id),
-      customersData.listEntitlements(id).then((es) => schedulable(es).sort(followupsLast)),
+      customersData.listEntitlements(id).then(schedulable),
       config.loadAll(),
       config.getSettings(),
       visitsData.listByCustomer(id),
     ]);
+    // **照額度那一排的順序**（`arrangeSlotOptions()`，issue 08：照分類、類裡照名字、二返最後）——
+    // 新的一段預設扣的是 `entitlements[0]`，它要是那一排最左邊那一顆；照讀回來的順序的話
+    // 預設的那一顆可能在那一排捲不到的右邊，她看到的是「一顆都沒按」而抬頭寫著另一門課
+    const entitlements = inRowOrder(loaded, all);
 
     if (!customer) {
       el.innerHTML = `
@@ -222,6 +224,12 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
   if (first || free) visit.slots.push(blankSlot(first, all, settings, '09:00', free));
   return visit;
 }
+
+/** 額度照「做什麼」那一排的順序（同一支 `arrangeSlotOptions()`）。 */
+const inRowOrder = (entitlements, all) => arrangeSlotOptions(entitlements.map((e) => ({
+  entitlementId: e.id, label: e.label, entitlement: e,
+  course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
+})), all.courses).map((o) => o.entitlement);
 
 /** 沒有額度可以預設時，新的一段預設哪一門不算次數的課。沒有就是 `null`。 */
 const freeCourseOf = (all) => uncountedCourses(all.courses)[0] ?? null;

@@ -1082,9 +1082,11 @@ describe('10 二返排在最後面', () => {
     assert.deepEqual(ids, ['ex', 'r']);
   });
 
-  test('來訪編輯器那一排用同一支：二返搬到最後，其餘照讀進來的順序', () => {
+  // 2026-10-06（issue 08）起「做什麼」那一排照分類排，三個入口都走 `slotOptions.js` 的 `arrangeSlotOptions()` ——
+  // 二返照舊排最後（那一支把二返與 n返 收成最後一組，`tests/slot-options-order.test.js` 盯著）
+  test('來訪編輯器那一排照 arrangeSlotOptions() 排：二返照舊在最後', () => {
     assert.deepEqual([back, more, exam].sort(followupsLast).map((e) => e.id), ['r', 'ex', 'fu']);
     const src = readFileSync(new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8');
-    assert.match(src, /followupsLast/);
+    assert.match(src, /arrangeSlotOptions\(/);
   });
 });
