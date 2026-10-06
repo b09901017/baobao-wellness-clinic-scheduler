@@ -1,6 +1,6 @@
 # 一門課可以哪個系統都不用壓（ADR-0126）
 
-Status: todo
+Status: done
 來源：她 2026-10-06 第五點與問題 6 的回答
 動工前先讀：ADR-0119、ADR-0041、ADR-0027、`public/js/domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`、`describeSystems()`、
 `bookingSystemsForVisit()`、`cancelTasksFor()`）、`public/js/domain/masterData.js` 的 `validators.courses`、`tests/course-systems.test.js`、
@@ -91,3 +91,23 @@ Abovee 上沒有 HRV 這門課（第一段查過她的清單）。硬勾 Abovee 
 - `docs/課程與待辦對照表.md`、`SPEC.md` 對應章節、`CONTEXT.md`（「不用壓」這個說法）
 - `CLAUDE.md` 連動表「一門課壓哪幾個系統」那一列：空陣列＝不用壓；找不到課程照舊 `null`；兩個呼叫端「往相反的方向倒」那一句要補第三種
 - 09 靠 `bookingSystemOf(course) === 'Abovee'` 決定哪幾段該在照片上
+
+## 做完時留下的（2026-10-06）
+
+- **`systemsOf()` 分三種**：沒有那一格 → 照類別推（不變）；`[]` → `[]`（不用壓）；全是認不得的字（`['打電話']`）→ **照舊退回類別**
+  （那不是她說「不用壓」；issue 上只寫了「不是陣列才退回」，實作多留了這一條，`course-systems.test.js` 那一條原樣綠著）
+- **`bookingSystemOf()` 回 `null`** 的呼叫端逐一走過：`bookingSystemsForVisit()`、`cancelTasksFor()`（跳過）、`cancelsBooking()`／`todoFlow.js` 的 `ownsCancel()`
+  （`null === system` 本來就是假，沒改）、`scheduling.js` 的 `customersToBook()`（兩處：這個月壓過哪幾個系統、這筆額度要壓在哪）、
+  `consequences.js` 三處。`git grep` 沒有多出來的呼叫端
+- **整天取消的那條退路沒動**（`cancelTasksFor()` 最後那一段：勾掉的登記待辦裡沒有任何一段長得出它的，照舊收、算在每一段上）——
+  一天只有 HRV、身上卻有一張勾掉的 Examine（課程後來被改成不用壓）時照樣長「取消 Examine」。登記過就是登記過了
+- **確認框**：`bookingSystemLabel(visit, coursesById, indexes)` 多一個參數（只看哪幾段；沒給＝每一段）；
+  `bookingConsequences()` 多回 `confirmLabel`，壓表與來訪編輯器改讀它（`tests/slot-names-everywhere.test.js` 那個掃原始碼的終點跟著換）。
+  都不用壓：抬頭「記錄這一段？」／「記錄這 N 段？」、按鈕「記錄」（跟拍 Abovee 那一道同一句）；改期：「改到新的時間？」
+- **順帶變準的一件**（不是 HRV 才有）：那一天本來有健檢（Examine）、再加一段復能，抬頭以前問「Abovee 與 Examine」，現在只問 Abovee ——
+  健檢早就壓好了
+- 驗證那一句改了字但留著「至少要勾一個」（`47-course-groups` 的 G8 釘著）
+- E2E：新的一支 `52-book-nowhere`（N1 設定頁、N2 日曆排＋客戶說可以＋取消、N3 壓表併進已經有復能的那一天）。**自己建一門「體驗檢測」**，
+  不借種子的 HRV —— 03 補了種子之後這一支不會跟著變
+- `sw.js` v164；ADR-0126；`SPEC.md` 5.5 與資料模型、`CONTEXT.md`「不用壓」、對照表第二節、`CLAUDE.md` 連動表那一列
+- **沒做的**：`docs/常見問題.md`「HRV 取消了為什麼沒有『取消 Abovee』」留給 12（那時候種子才有 HRV 這個名字）

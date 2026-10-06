@@ -162,19 +162,23 @@ export function bookingSystemFor(category) {
  * - 沒勾過 → 照舊從類別推（`RULES`）。讀的時候退回，既有資料一筆都不搬
  * - **找不到這門課 → `null`（不知道）**。不回空陣列：兩個呼叫端要往不同的方向倒 ——
  *   取消時猜 Abovee（`bookingSystemOf()`），「壓表登記」那一列不算數（`scheduling.js`）
+ * - **她三個都沒勾（`systems: []`，明確的空陣列）→ `[]`：這門課不用壓**（ADR-0126，HRV）。
+ *   跟「找不到」是兩回事：這一種是她說的，所以取消時不猜、壓表登記也不算
  *
- * 空的、或全是認不得的字的 `systems` 不算勾過：一門哪裡都不壓的課不存在
- * （設定頁擋得掉，`masterData.js` 的 `validate()`），退回類別比當真好。
+ * 「沒有那一格」與「明確的空陣列」分得出來是這一支的重點：前者是 2026-10-05 以前的
+ * 舊課程（照類別推），後者只可能是她在設定頁三個都取消掉、或種子寫的。
+ * 全是認不得的字的 `systems` 不是她說「不用壓」，照舊退回類別。
  *
  * @param {{systems?: string[], category?: Category}|null|undefined} course
  * @returns {string[]|null}
  */
 export function systemsOf(course) {
   if (!course) return null;
-  const ticked = Array.isArray(course.systems)
-    ? SYSTEMS.filter((s) => course.systems.includes(s))
-    : [];
-  if (ticked.length) return ticked;
+  if (Array.isArray(course.systems)) {
+    if (!course.systems.length) return [];
+    const ticked = SYSTEMS.filter((s) => course.systems.includes(s));
+    if (ticked.length) return ticked;
+  }
   const rule = ruleFor(course.category);
   return SYSTEMS.filter((s) => s === rule.bookAt || rule.onConfirm.includes(s));
 }
@@ -184,9 +188,17 @@ export function systemsOf(course) {
  *
  * **認不得的課程照樣猜 Abovee**（同 `DEFAULT_RULE` 的理由）：這裡不確定的只有
  * 「壓在哪個系統」，而「有沒有壓過」是確定的 —— 那筆來訪存在就代表壓過了。
+ *
+ * **不用壓的課回 `null`**（ADR-0126）—— 每一個呼叫端都要接得住：那一句「在 X 壓好了嗎」、
+ * 那一張「取消 X」、「壓表登記」那一格都不可以出現。猜 Abovee 是給**認不得**的課的，
+ * 不是給她明講不用壓的。
+ *
+ * @returns {string|null}
  */
 export function bookingSystemOf(course) {
-  const systems = systemsOf(course) ?? [];
+  const systems = systemsOf(course);
+  if (!systems) return DEFAULT_RULE.bookAt;
+  if (!systems.length) return null;
   return BOOKING_SYSTEMS.find((s) => systems.includes(s)) ?? DEFAULT_RULE.bookAt;
 }
 
@@ -201,10 +213,12 @@ export function tasksForCourse(course) {
   return systems.filter((s) => s !== bookAt);
 }
 
-/** 給設定頁那一行灰字用的一句話。例：`Abovee 壓，確認後 Examine、耀聖`。 */
+/** 給設定頁那一行灰字用的一句話。例：`Abovee 壓，確認後 Examine、耀聖`；不用壓的課寫 `不用壓`。 */
 export function describeSystems(course) {
+  const bookAt = bookingSystemOf(course);
+  if (!bookAt) return '不用壓';
   const after = tasksForCourse(course);
-  return `${bookingSystemOf(course)} 壓${after.length ? `，確認後 ${after.join('、')}` : ''}`;
+  return `${bookAt} 壓${after.length ? `，確認後 ${after.join('、')}` : ''}`;
 }
 
 /**
@@ -217,11 +231,14 @@ export function describeSystems(course) {
  *
  * 猜錯的代價是一張寫著錯系統的提醒，她看得懂；不猜的代價是一個時段
  * 永遠佔在那裡而畫面上什麼都沒說。
+ *
+ * **不用壓的課不算**（ADR-0126）：那一段沒有壓過，沒有東西要放掉。
  */
 export function bookingSystemsForVisit(visit, coursesById = {}) {
   const out = new Set();
   for (const slot of visit?.slots ?? []) {
-    out.add(bookingSystemOf(coursesById[slot.courseId]));
+    const system = bookingSystemOf(coursesById[slot.courseId]);
+    if (system) out.add(system);
   }
   return [...out];
 }
@@ -662,7 +679,8 @@ export function newRegistrations(visit, existingTasks = [], coursesById = {}, to
  * ## 一段要收哪幾個系統
  *
  *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemOf()`）。來訪存在就代表
- *      壓過了（ADR-0041），不需要任何任務來證明
+ *      壓過了（ADR-0041），不需要任何任務來證明。**不用壓的課那一段不收**（ADR-0126）——
+ *      它沒有壓過；認不得的課照舊猜 Abovee
  *   2. **確認之後的登記**（Examine、耀聖）：那一段自己長得出那一種、**而且那一張
  *      已經勾掉了**才收 —— 沒勾就是沒登記過，沒有東西要收
  *
@@ -708,7 +726,8 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   };
 
   for (const i of dead) {
-    want(cancelKindFor(bookingSystemOf(coursesById[slots[i]?.courseId])), i);
+    const bookAt = bookingSystemOf(coursesById[slots[i]?.courseId]);
+    if (bookAt) want(cancelKindFor(bookAt), i);
   }
   for (const i of dead) {
     for (const kind of tasksForCourse(coursesById[slots[i]?.courseId])) {

@@ -457,7 +457,9 @@ const editors = {
         name: 'systems', label: '壓哪幾個系統',
         values: systemsOf(r) ?? [], options: SYSTEMS,
         hint: '勾了 Abovee，壓表就是在 Abovee 那一下；其餘勾起來的等客人說可以之後長成待辦。'
-          + '沒勾 Abovee 就是直接壓在 Examine（健檢）。Abovee 與 Examine 至少要勾一個。'
+          + '沒勾 Abovee 就是直接壓在 Examine（健檢）。'
+          + '三個都不勾＝這門課不用壓（例：HRV）：排的時候不問「壓好了嗎」，取消也不會長「取消 Abovee」。'
+          + '只勾耀聖存不下去。'
           + '「要不要簽療程單」是底下自己的一個勾。',
       }),
       // 類別那一格留在資料上當退路，這張表不再改它（原樣帶回去）

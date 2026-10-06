@@ -408,6 +408,13 @@ export const COVERAGE = {
     'public/js/domain/seed.js', 'public/js/domain/customers.js', 'public/js/domain/consequences.js',
     'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/schedule.js',
   ],
+  // 一門課可以哪個系統都不用壓（2026-10-06，ADR-0126）：設定頁三個都不勾、排一段不問壓好了嗎、取消不長取消 Abovee
+  '52-book-nowhere': [
+    'public/js/domain/taskRules.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+    'public/js/domain/scheduling.js', 'public/js/domain/todoFlow.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/views/calendar.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

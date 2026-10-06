@@ -1270,7 +1270,8 @@ async function submit(ctx, draft) {
         ...draft.slots.slice(ctx.storedSlotCount ?? 0).map((s) => slotSummary(s, all)),
         ...said.lines,
       ],
-      confirmLabel: '已確認，記錄',
+      // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給
+      confirmLabel: said.confirmLabel,
     });
     if (!ok) return;
   }

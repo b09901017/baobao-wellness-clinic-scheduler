@@ -429,7 +429,8 @@ audit/{eventId}                   // append-only 稽核紀錄
                          //   分組只寫在 domain/masterData.js（COURSE_GROUPS、coursesByGroup()）
   systems,               // ['Abovee', 'Examine', '耀聖'] 的子集合：這門課動到哪幾個系統（ADR-0119）。
                          //   勾了 Abovee 就是壓在 Abovee，其餘勾起來的等客人確認之後長成待辦。
-                         //   Abovee 與 Examine 至少一個。推導只在 domain/taskRules.js 的 systemsOf()
+                         //   勾了的話 Abovee 與 Examine 至少一個；**空陣列＝不用壓**（ADR-0126），
+                         //   沒有這一格＝沒勾過（照 category 推）。推導只在 domain/taskRules.js 的 systemsOf()
   category,              // 'A' | 'B' | 'C' | null。**只剩退路**：沒有 systems 的舊課程照它推。
                          //   設定頁不再改它（2026-10-05 之前它是「任務類別」那個下拉）
   durationMin,
@@ -814,7 +815,9 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 - **壓表登記在哪**：勾了 Abovee 就是 Abovee；沒勾 Abovee、勾了 Examine 就是 Examine
 - **客人確認後產生的任務**：其餘勾起來的（Examine、耀聖），扣掉壓表那一個
-- Abovee 與 Examine 至少勾一個
+- **三個都不勾＝這門課不用壓**（`systems: []`，2026-10-06，`docs/adr/0126-a-course-can-be-booked-nowhere.md`）：
+  存檔前不問「壓好了嗎」、確認後不長掛號、取消不長「取消 X」、待辦中心「壓表登記」不算它
+- 勾了的話 Abovee 與 Examine 至少一個（只勾耀聖存不下去）
 
 推導只在 `domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`）。
 種子的勾法是下面這張表，每一門之後都能在 設定 → 課程 自己改：
@@ -1562,7 +1565,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 | 那一格 | 它回答什麼 | 規則在哪 |
 |---|---|---|
-| 壓哪幾個系統 | Abovee／Examine／耀聖 三個勾 —— 壓在哪、確認後長哪幾張待辦 | 第 5.5 節、ADR-0119 |
+| 壓哪幾個系統 | Abovee／Examine／耀聖 三個勾 —— 壓在哪、確認後長哪幾張待辦；三個都不勾＝不用壓 | 第 5.5 節、ADR-0119、ADR-0126 |
 | 來訪時要選醫師 | 不用／哪一科都可以／指定一科（**排序不是限制**） | ADR-0120 |
 | 約的時候選時長 | 同一筆額度、每一段自己挑（二返 30／60）；跟「可選時長」只能填一格 | ADR-0122 |
 | 不算次數 | 不用加購就排得進去，排了不扣任何次數（功醫門診） | 第 4.2 節、ADR-0121 |

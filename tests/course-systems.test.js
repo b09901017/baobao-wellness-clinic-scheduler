@@ -52,6 +52,9 @@ describe('沒勾過的課程：跟以前一模一樣', () => {
   test('每一門種子課程：拿掉 systems 之後算出來的一樣（種子的勾法就是它的類別）', () => {
     for (const c of SEED.courses) {
       assert.ok(Array.isArray(c.systems), `${c.name} 的種子要填 systems`);
+      // 唯一的例外：不用壓的課（`systems: []`，ADR-0126）。四種類別沒有一種推得出「都不用壓」，
+      // 所以它只能靠勾的 —— 見 `tests/book-nowhere.test.js`
+      if (!c.systems.length) continue;
       const { systems, ...bare } = c;
       assert.equal(bookingSystemOf(c), bookingSystemOf(bare), `${c.name} 壓表在哪`);
       assert.deepEqual(tasksForCourse(c), tasksForCourse(bare), `${c.name} 確認後`);
@@ -59,8 +62,9 @@ describe('沒勾過的課程：跟以前一模一樣', () => {
     }
   });
 
-  test('空的、全是認不得的字的 systems 不算勾過，退回類別', () => {
-    assert.deepEqual(systemsOf({ category: 'A', systems: [] }), ['Abovee', 'Examine', '耀聖']);
+  test('全是認不得的字的 systems 不算勾過，退回類別；明確的空陣列是「不用壓」（ADR-0126）', () => {
+    // 2026-10-06 之前空陣列也退回類別（三個系統）—— 那正是 ADR-0126 改掉的行為
+    assert.deepEqual(systemsOf({ category: 'A', systems: [] }), []);
     assert.deepEqual(systemsOf({ category: 'B', systems: ['打電話'] }), ['Examine']);
     assert.deepEqual(systemsOf({ category: 'B', systems: null }), ['Examine']);
   });
@@ -232,11 +236,10 @@ describe('驗證與預設', () => {
     assert.deepEqual(validate('courses', { ...ok, systems: ['Examine'] }), []);
   });
 
-  test('三個都不勾、或只勾耀聖：存不下去，講為什麼', () => {
-    for (const systems of [[], ['耀聖']]) {
-      const errors = validate('courses', { ...ok, systems });
-      assert.ok(errors.some((e) => /Abovee.*Examine.*至少/.test(e)), JSON.stringify(systems));
-    }
+  test('只勾耀聖：存不下去，講為什麼；三個都不勾存得下去（不用壓，ADR-0126）', () => {
+    const errors = validate('courses', { ...ok, systems: ['耀聖'] });
+    assert.ok(errors.some((e) => /Abovee.*Examine.*至少/.test(e)));
+    assert.deepEqual(validate('courses', { ...ok, systems: [] }), []);
   });
 
   test('認不得的系統名字擋下來', () => {

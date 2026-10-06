@@ -166,6 +166,7 @@ export const ASSIGNS = ['therapist', 'room', 'none'];
  *
  * **只有名單在這裡。** 勾了之後壓表在哪、客人確認之後長哪幾張，推導只在
  * `domain/taskRules.js`（`systemsOf()`、`bookingSystemOf()`、`tasksForCourse()`）。
+ * 三個都不勾（`systems: []`）＝這門課不用壓（ADR-0126）；沒有那一格是沒勾過，照類別推。
  * 名單住在這一支是因為主檔的驗證要認得它，而 `taskRules.js` 經 `visits.js` 讀這一支 ——
  * 反過來 import 會繞成一圈。
  */
@@ -610,12 +611,13 @@ const validators = {
     }
     if (![null, 'A', 'B', 'C'].includes(r.category ?? null)) errors.push('任務類別不合法');
     // 壓哪幾個系統（ADR-0119）。**沒有這一格就是沒勾過**，照舊從類別推，所以不擋。
-    // 勾了就要壓得下去：壓表一定要有一個地方，而耀聖只收確認之後的登記。
+    // **三個都不勾是合法的：這門課不用壓**（ADR-0126，HRV）。擋的只剩「勾了卻沒有地方壓表」——
+    // 也就是只勾耀聖：耀聖只收確認之後的登記，沒有壓表卻有確認後的登記講不通。
     if (r.systems != null) {
       if (!Array.isArray(r.systems) || r.systems.some((s) => !SYSTEMS.includes(s))) {
         errors.push('壓表的系統只能是 Abovee、Examine、耀聖');
-      } else if (!r.systems.some((s) => BOOKING_SYSTEMS.includes(s))) {
-        errors.push('Abovee 與 Examine 至少要勾一個 —— 壓表一定要有一個地方');
+      } else if (r.systems.length && !r.systems.some((s) => BOOKING_SYSTEMS.includes(s))) {
+        errors.push('只勾耀聖存不下去 —— 耀聖是壓表之後才登記的，Abovee 與 Examine 至少要勾一個；這門課不用壓就三個都不勾');
       }
     }
     if (!positiveInt(r.durationMin)) errors.push('時長必須是大於 0 的整數分鐘');
