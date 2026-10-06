@@ -172,6 +172,7 @@ test('R7 設定 → 課程那一排看得出哪幾個會長出「寫紀錄」', 
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
 
-  const row = page.locator('.card.row').filter({ hasText: '二返' }).first();
+  // 照 id 找那一張：2026-10-06 起醫師的課那一行寫「選醫師（功能／二返）」，照字找會先找到功醫門診
+  const row = page.locator('[data-course="course-followup"]');
   await expect(row, '一整排掃過去要看得出哪幾個開著').toContainText('要寫紀錄');
 });
