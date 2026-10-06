@@ -299,7 +299,9 @@ test('C8 「只能排在這幾間」收著、那一行印出勾了哪幾間；�
   await expect(now).toHaveText('沒有限制');
 
   // 選了診間、類型全部取消、這一排也沒勾：錯誤講「直接指定幾間」，那一段自己打開
-  for (const box of await page.locator('input[name="allowedRoomTypes"]:checked').all()) await box.uncheck();
+  // 一個一個取消：`:checked` 的名單每取消一個就少一個，照位置（`.all()`）拿的第二個會找不到
+  const types = page.locator('input[name="allowedRoomTypes"]:checked');
+  while (await types.count()) await types.first().uncheck();
   await page.click('button[type="submit"]');
   await expect(page.locator('[data-errors]')).toContainText('直接指定幾間');
   await expect(fold).toHaveAttribute('open', '');
