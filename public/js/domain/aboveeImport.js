@@ -19,7 +19,7 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
-  assignsFor, coursesForEntitlement, isActive, isLiveSlot, lockedAt, shortStatus, slotStatus,
+  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
@@ -382,16 +382,14 @@ export function pickOption(item, value, ctx) {
 
   const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
   if (!ent) return base;
-  const options = ent.optionEquipmentIds ?? [];
   const wanted = item.course?.equipmentId;
   // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
   const exams = examChoices(item.customerId, ent, ctx).filter((x) => x.pickable);
   return {
     ...base,
     entitlementId: ent.id,
-    equipmentId: ent.type === 'pool'
-      ? (wanted && options.includes(wanted) ? wanted : (options.length === 1 ? options[0] : null))
-      : null,
+    // 照片上那一台在池子裡就選它，池子只有一台就選那一台（跟來訪編輯器換額度同一支）
+    equipmentId: equipmentAfterSwitch(ent, wanted),
     ivProductId: item.course?.ivProductId ?? ent.ivProductId ?? null,
     followupForVisitId: exams.length === 1 ? exams[0].visitId : null,
   };

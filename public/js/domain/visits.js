@@ -1337,6 +1337,26 @@ export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
 
 /**
+ * **換了額度之後，那一段的器材是哪一台**（2026-10-07，verified-bugs issues/02）。
+ *
+ * - 新的額度的擇一池只有一台 → 就是那一台（單買一台的 `復能-SIS(60)`；她沒有別的可以選）
+ * - 上一台剛好也在新的池裡 → 留著（三選一 ↔ 四選一，她選的那一台還是對的）
+ * - 其餘 → `null`，她重選。不是擇一池的額度一律 `null`
+ *
+ * 來訪編輯器（`readDraft()`、`blankSlot()`）與拍 Abovee（`pickOption()`）共用。以前編輯器照讀器材那一排的舊值：
+ * 先點三選一 → INDIBA、再點單台 SIS，抬頭還寫 IN(60)、SIS 沒選上、存檔被擋而畫面上已經看不到 INDIBA。
+ *
+ * **壓表不走這一支**（照舊清掉，`resetCourseBoundPicks()`）：那一頁的丸子再點一次是**取消選取**，
+ * 先替她選好的話，她照習慣點那一台反而把它點掉。
+ */
+export function equipmentAfterSwitch(entitlement, previousId = null) {
+  if (entitlement?.type !== 'pool') return null;
+  const pool = entitlement.optionEquipmentIds ?? [];
+  if (pool.length === 1) return pool[0];
+  return previousId && pool.includes(previousId) ? previousId : null;
+}
+
+/**
  * 這一段在畫面上要不要印診間。
  *
  * 她 2026-09-08 把健檢、體適能、身體組成、營養諮詢、門診與二返六個課程改成
@@ -1623,7 +1643,8 @@ function visitErrors(visit, {
     // 擇一池的次數是共用的，選了池外的器材就會扣到不屬於它的東西上
     if (ent?.type === 'pool' && slot.equipmentId
         && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
-      errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
+      // 講出是哪一台：畫面上那一排列的是池裡的器材，池外的那一台她看不到
+      errors.push(`${at}：${equipById[slot.equipmentId]?.name ?? '這個器材'} 不在「${ent.label}」的擇一池裡`);
     }
 
     // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**

@@ -190,3 +190,49 @@ test('P5 同一天排健檢＋二返：提醒講出那一次健檢還沒做完�
   expect(v.slots, '只提醒不擋').toHaveLength(2);
   expect(v.slots[1].followupForVisitId ?? null).toBeNull();
 });
+
+// ---------- 02 日曆編輯器換額度時，上一次點的器材跟著重設 ----------
+
+test('P6 三選一 → INDIBA 再換成單買一台的 SIS：抬頭與器材那一排都是 SIS，存得下去', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-d', name: '客戶D' }),
+    entitlement('cust-d', {
+      id: 'ent-d-three', label: '復能-三選一(60)', type: 'pool',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'], totalQty: 10, durationMin: 60,
+    }),
+    entitlement('cust-d', {
+      id: 'ent-d-sis', label: '復能-SIS(60)', type: 'pool',
+      optionEquipmentIds: ['eq-sis'], totalQty: 10, durationMin: 60,
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-d"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-d-three"]').click();
+  await page.locator('[data-chip="s0-equip"][data-chip-value="eq-indiba"]').click();
+  await expect(page.locator('.slothead__what')).toContainText('IN');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-d-sis"]').click();
+  const sis = page.locator('[data-chip="s0-equip"][data-chip-value="eq-sis"]');
+  await expect(sis, '只有一台，已經替她選好').toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.slothead__what'), '抬頭不再是上一台').toContainText('SIS');
+  await expect(page.locator('.slothead__what')).not.toContainText('IN(');
+
+  await page.locator('[data-chip="s0-staff"]').first().click();
+  await page.click('button[type="submit"]');
+  await expect(app.dialog()).toBeVisible();
+  await expect(page.locator('[data-errors]'), '以前在這裡被擋：器材不在擇一池裡').toBeHidden();
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-d');
+  expect(v.slots[0].entitlementId).toBe('ent-d-sis');
+  expect(v.slots[0].equipmentId).toBe('eq-sis');
+});

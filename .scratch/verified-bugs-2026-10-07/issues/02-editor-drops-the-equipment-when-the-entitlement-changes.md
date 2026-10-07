@@ -1,6 +1,6 @@
 # 日曆編輯器換額度時，上一次點的器材要跟著重設
 
-Status: todo
+Status: done
 來源：`findings.md` 第 2 條
 動工前先讀：`public/js/ui/views/visitEditor.js` 的 `readDraft()`（`:920-1040`，器材在 `:969`、`:1011`）、`blankSlot()`、`slotCard()` 畫器材那一排（`:837`）、
 `public/js/ui/views/schedule.js` 的 `resetCourseBoundPicks()`（`:163`）與選額度那一下（`:2028` 附近）、
@@ -45,3 +45,13 @@ Blocked by: —
 
 - 單元：domain 那一支三種情況；`tests/visit-editor.test.js` 有 `readDraft()` 的測法可以照抄。
 - E2E：新 spec —— 同時有三選一與單台 SIS 額度的客戶 → 日曆 → ＋ → 三選一 → INDIBA → 復能-SIS → 抬頭是 SIS、器材那一排 SIS 選著 → 存得下去。
+
+## 做完時留下的
+
+- domain 多一支 `visits.js` 的 `equipmentAfterSwitch(entitlement, previousId)`。編輯器 `readDraft()`（換了額度才走它，推課程與存下去的是同一個值）、
+  `blankSlot()`（預設那一筆額度只有一台就先選好，課程照那一台推）、拍 Abovee 的 `pickOption()`（原本自己寫了一份一樣的規則，換成呼叫它）。
+- **壓表沒有改**（要做的第 2 點查過之後決定不動）：`pickOne()` 是 `view[key] === value ? null : value` —— 再點一次是取消選取。
+  先替她選好的話，她照習慣點那一台反而把它點掉。編輯器的丸子（`wireChips()`）再點一次還是選著，所以那一邊可以先選。
+- 錯誤訊息帶器材名：「INDIBA 不在「復能-SIS(60)」的擇一池裡」。
+- `readFreeSlot()`（不算次數的課）查過：器材經 `slotFromPicks()` 的 `picksEquipment()` 閘門，不會帶著上一台。
+- 單元 8 條（`tests/equipment-after-switch.test.js`）、E2E `58-verified-rules` 的 P6。

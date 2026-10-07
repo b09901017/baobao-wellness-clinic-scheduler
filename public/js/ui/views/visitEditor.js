@@ -16,7 +16,7 @@ import * as config from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import {
   INITIAL_STATUS, describeStatus, statusClass, statusForCard, lockedAt, validateVisit, canCancelSlot,
-  coursesForEntitlement, courseForEquipment, picksEquipment, assignsFor,
+  coursesForEntitlement, courseForEquipment, picksEquipment, equipmentAfterSwitch, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, slotMinutesField, NOTE_MAX,
   rebookSlot,
@@ -239,9 +239,15 @@ const freeCourseOf = (all) => uncountedCourses(all.courses)[0] ?? null;
  * @param {object|null} [freeCourse] 沒有額度時，預設哪一門不算次數的課（ADR-0121）
  */
 function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
-  const course = (entitlement
+  // 預設那一筆額度的擇一池只有一台就先選好（`equipmentAfterSwitch()`，同底下品項那一格的理由）
+  const equipmentId = equipmentAfterSwitch(entitlement);
+  const first = (entitlement
     ? coursesForEntitlement(entitlement, all.courses, all.equipment)[0]
     : freeCourse) ?? null;
+  // 擇一池的課程由器材決定（ADR-0075）
+  const course = equipmentId
+    ? (all.courses.find((c) => c.id === courseForEquipment(equipmentId, all.equipment, first?.id ?? null)) ?? first)
+    : first;
   // 買的時候就定下來的那一款先選好 —— 不選存不下去，而只有一個正確答案的
   // 時候讓她多點一下沒有任何意義（`ivChoicesFor()`）。
   const ivProductId = course?.requiresIvProduct ? (entitlement?.ivProductId ?? null) : null;
@@ -256,7 +262,7 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
     entitlementId: entitlement?.id ?? null,
     courseId: course?.id ?? null,
     courseName: course?.name ?? null,
-    equipmentId: null,
+    equipmentId,
     ivProductId,
     startsAt,
     endsAt: endOf(startsAt, durationMin),
@@ -966,7 +972,14 @@ function readDraft(ctx, form, draft) {
     // **擇一池的課程由器材決定**（ADR-0075）：四選一選到 ILIB 那一段算 ILIB
     // （要診間），其餘三台算復能（要治療師）。推不出來就維持原來的 ——
     // 清成 null 的話那一段存不下去，而她只是還沒挑器材。
-    const equipmentId = v[`s${i}-equip`] ?? slot.equipmentId ?? null;
+    //
+    // **換了額度就不讀那一排的舊值**（`equipmentAfterSwitch()`，2026-10-07）：那一排的 hidden input
+    // 還是上一筆額度時點的那一台 —— 三選一 → INDIBA 再換成單台 SIS，照讀的話抬頭還寫 IN、存檔被擋
+    // 「INDIBA 不在擇一池裡」而畫面上已經看不到 INDIBA。跟底下品項那一格同一個形狀（2026-09-18）。
+    const switched = entitlementId !== slot.entitlementId;
+    const equipmentId = switched
+      ? equipmentAfterSwitch(ent, v[`s${i}-equip`] ?? slot.equipmentId ?? null)
+      : (v[`s${i}-equip`] ?? slot.equipmentId ?? null);
     if (ent?.type === 'pool') {
       courseId = courseForEquipment(equipmentId, all.equipment, courseId ?? choices[0]?.id ?? null);
     }
@@ -1008,7 +1021,8 @@ function readDraft(ctx, form, draft) {
       entitlementId,
       courseId,
       courseName: course?.name ?? null,
-      equipmentId: picksEquipment(ent, course) ? (v[`s${i}-equip`] ?? null) : null,
+      // 推課程的那一台與存下去的那一台是**同一個值** —— 各讀一次的話課程照新的推、存的是舊的
+      equipmentId: picksEquipment(ent, course) ? (switched ? equipmentId : (v[`s${i}-equip`] ?? null)) : null,
       ivProductId,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
