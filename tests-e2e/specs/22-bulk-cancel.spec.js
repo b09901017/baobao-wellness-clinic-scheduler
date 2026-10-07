@@ -132,6 +132,9 @@ test('挑兩段取消：確認框列出每一段，存完那兩段暗掉、第�
     .toContain('09:00');
   expect(said).toContain('14:00');
   expect(said, '後果那幾句走 cancelConsequences()').toMatch(/次數也會還回來/);
+  // 2026-10-07（verified-bugs issues/10）：以前中間有一列只有「——」，被畫成清單的一項
+  await expect(app.dialog().locator('li', { hasText: /^[—\-\s]+$/ }), '沒有只有破折號的一列').toHaveCount(0);
+  await expect(app.dialog().locator('[data-cancel]'), '不要了的那一顆不叫「取消」').toHaveText('先不要，回去');
 
   await app.ok();
   await page.waitForTimeout(1800);

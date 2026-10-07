@@ -44,8 +44,15 @@ export async function confirmReview(warnings) {
   });
 }
 
+/**
+ * 不要了、回去的那一顆預設寫什麼。**不寫「取消」**（2026-10-07，verified-bugs issues/10）：
+ * 取消一段的確認框上，它旁邊那一顆叫「取消這一段」—— 兩顆都是「取消」而意思相反。
+ * 跟長按選單、兩張待辦抽屜的那一顆同一句。全站每一道沒自己給 `cancelLabel` 的確認框都是它。
+ */
+const BACK_LABEL = '先不要，回去';
+
 export function confirmAction({
-  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false,
+  title, consequences, confirmLabel = '確定', cancelLabel = BACK_LABEL, danger = false,
 }) {
   return ask({
     title,
@@ -54,7 +61,7 @@ export function confirmAction({
       { key: 'cancel', label: cancelLabel, attr: 'data-cancel', cls: 'btn' },
       { key: 'ok', label: confirmLabel, attr: 'data-ok', cls: `btn ${danger ? 'btn--danger' : 'btn--primary'}` },
     ],
-    // 預設焦點在「取消」：按 Enter 不可以誤觸破壞性操作
+    // 預設焦點在「先不要，回去」那一顆：按 Enter 不可以誤觸破壞性操作
     focus: 'cancel',
   }).then(({ key }) => key === 'ok');
 }
@@ -116,7 +123,7 @@ export function chooseAction({ title, consequences, choices = [] }) {
  * @returns {Promise<{ok: boolean, reason: string|null}>}
  */
 export function confirmWithReason({
-  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false, field,
+  title, consequences, confirmLabel = '確定', cancelLabel = BACK_LABEL, danger = false, field,
 }) {
   return ask({
     title,

@@ -54,3 +54,44 @@ test('W1 讀取卡片：取消的那一段寫「沒扣」，還排著的那一�
   await app.layer('.popcard');
   await expect(page.locator('.popcard .readslot__from')).toHaveText('扣 復能-三選一(30)');
 });
+
+// ---------- 10 取消那幾道確認框 ----------
+
+/** 日曆 → 那一天 → 長按那一段，等選單升起來（`wireLongPress()` 只認主鍵的真滑鼠事件，同 spec 52）。 */
+async function longPress(app, page, date, open) {
+  await page.locator(`[data-day="${date}"]`).first().click();
+  await app.layer(`[data-open="${open}"]`);
+  const row = page.locator(`[data-open="${open}"]`).first();
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+}
+
+test('W2 那一天已完成之後再加的那一段，長按取消：不說「那一天就整個取消了」；不要的那一顆寫「先不要，回去」', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    visit({
+      id: 'v-done', customerId: 'cust-b', customerName: '客戶B', date: DAY, status: 'done',
+      slots: [{ ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '09:00', endsAt: '09:30' }), status: 'done' }],
+    }),
+    // 那一天已完成，所以這一段在另一筆來訪裡（ADR-0083）
+    visit({
+      id: 'v-second', customerId: 'cust-b', customerName: '客戶B', date: DAY, status: 'pending_confirm',
+      slots: [{ ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '14:30', endsAt: '15:00' }), status: 'pending_confirm' }],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await longPress(app, page, DAY, 'visit:v-second:0');
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said, '已完成的那一段還在').not.toContain('整個取消了');
+  expect(said).toContain('那一天剩下的 1 段不受影響');
+  await expect(app.dialog().locator('[data-cancel]'), '兩顆不可以都叫「取消」').toHaveText('先不要，回去');
+  await expect(app.dialog().locator('[data-ok]')).toHaveText('取消這一段');
+});

@@ -621,10 +621,13 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @param {boolean} [o.removing] 走的是刪除不是取消
  * @param {boolean} [o.sheetSyncOn]
  * @param {number|number[]} [o.slotIndex] 只取消其中哪幾段。不帶就是整筆。
+ * @param {object[]} [o.sameDay] 這位客戶的來訪（整份丟進來就好，這裡自己挑同一天的別筆）。
+ *   那一天已完成之後再加的段在另一筆裡（ADR-0083）—— 少了它，取消那一段會說「那一天就整個取消了」
  * @returns {string[]}
  */
 export function cancelConsequences({
   visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
+  sameDay = [],
 }) {
   const lines = [];
   const all = visit?.slots ?? [];
@@ -653,7 +656,13 @@ export function cancelConsequences({
     const back = picked.size === 1 ? '這一段會退回去' : `這 ${picked.size} 段會退回去`;
     const charged = [...picked].filter((i) => all[i]?.entitlementId).length;
     lines.push(charged ? `${back}，次數也會還回來` : `${back} —— 本來就不扣次數`);
-    if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
+    // **那一天別筆來訪裡還活著的段也算剩下的**（2026-10-07）：這一筆沒有剩下的段，不代表那一天沒有 ——
+    // 已完成的那一段在另一筆裡。底下 `after` 與任務那幾句照舊只看這一筆（它確實整筆取消了）
+    const elsewhere = (sameDay ?? [])
+      .filter((v) => v && v.id !== visit.id && v.customerId === visit.customerId
+        && v.date === visit.date && !v.deletedAt && v.status !== 'cancelled')
+      .reduce((n, v) => n + (v.slots ?? []).filter((sl) => isLiveSlot(sl)).length, 0);
+    if (left + elsewhere) lines.push(`那一天剩下的 ${left + elsewhere} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 
     // **會多哪幾張，問真的會長出它們的那一支**（`cancelTasksFor()`，ADR-0070）。

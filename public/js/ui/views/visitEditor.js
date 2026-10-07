@@ -1420,6 +1420,8 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       tasks: await visitTasks(draft),
       sheetSyncOn: isConfigured(ctx.settings),
       slotIndex,
+      // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+      sameDay: ctx.customerVisits,
     }),
     confirmLabel: '取消這一段',
     danger: true,

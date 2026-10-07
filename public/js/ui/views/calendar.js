@@ -1196,6 +1196,8 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex,
+        // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+        sameDay: customerVisits,
       }),
       confirmLabel: '取消這一段',
       danger: true,

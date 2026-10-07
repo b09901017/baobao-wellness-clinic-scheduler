@@ -1088,3 +1088,42 @@ describe('讀取卡片那一行問的是它（calendar.js 進不了 node，掃�
     assert.match(fn, /沒扣/);
   });
 });
+
+// 2026-10-07（verified-bugs issues/10）：那一天已完成之後再加的段在另一筆來訪裡（ADR-0083）。
+// 取消它時這一筆沒有剩下的段，以前就說「那一天就整個取消了」—— 而已完成的那一段還在。
+describe('取消第二筆來訪的唯一一段：不說那一天整個取消了', () => {
+  const done = {
+    id: 'v-done', customerId: 'c1', date: '2026-10-07', status: 'done',
+    slots: [{ courseId: 'c-fm', entitlementId: null, startsAt: '09:00', status: 'done' }],
+  };
+  const second = {
+    id: 'v-second', customerId: 'c1', date: '2026-10-07', status: 'pending_confirm',
+    slots: [{ courseId: 'c-fm', entitlementId: null, startsAt: '14:30', status: 'pending_confirm' }],
+  };
+  const ask = (o = {}) => cancelConsequences({ visit: second, coursesById: {}, tasks: [], slotIndex: 0, ...o });
+
+  test('帶了同一天的另一筆：講那一天還剩什麼', () => {
+    const lines = ask({ sameDay: [done, second] });
+    assert.ok(!lines.some((l) => l.includes('整個取消了')), lines.join('／'));
+    assert.ok(lines.includes('那一天剩下的 1 段不受影響'), lines.join('／'));
+  });
+
+  test('沒帶：照舊', () => {
+    assert.ok(ask().some((l) => l.includes('那一天就整個取消了')));
+  });
+
+  test('另一筆是別天的、別人的、已經整天取消的：不算', () => {
+    const others = [
+      { ...done, id: 'a', date: '2026-10-08' },
+      { ...done, id: 'b', customerId: 'c2' },
+      { ...done, id: 'c', status: 'cancelled', slots: [{ ...done.slots[0], status: 'cancelled' }] },
+    ];
+    assert.ok(ask({ sameDay: others }).some((l) => l.includes('那一天就整個取消了')));
+  });
+
+  test('這一筆自己還有剩、另一筆也有：加在一起講', () => {
+    const two = { ...second, slots: [...second.slots, { ...second.slots[0], startsAt: '16:00' }] };
+    const lines = cancelConsequences({ visit: two, coursesById: {}, tasks: [], slotIndex: 0, sameDay: [done] });
+    assert.ok(lines.includes('那一天剩下的 2 段不受影響'), lines.join('／'));
+  });
+});

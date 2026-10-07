@@ -721,7 +721,6 @@ function openDanger(ctx) {
           ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
           ...block.tasks.map(lineOf),
           ...block.notes.map(noteOf),
-          '——',
           ...(block.visits.length
             ? ['那幾段在 Abovee 上還壓著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
             : []),

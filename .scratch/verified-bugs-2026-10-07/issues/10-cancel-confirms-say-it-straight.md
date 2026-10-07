@@ -1,6 +1,6 @@
 # 取消那幾道確認框：第二筆不說整天取消、沒有「——」、兩顆按鈕分得出來
 
-Status: todo
+Status: done
 來源：`findings.md` 第 9、10 條、六的「取消的確認框兩顆按鈕都有『取消』」
 動工前先讀：`public/js/domain/consequences.js` 的 `cancelConsequences()`（`:603-660`，那一句在 `:633-634`）、
 四個呼叫端 `calendar.js:1193`、`bulkCancel.js:611-625`、`home.js:3084`、`visitEditor.js:1369`、
@@ -57,3 +57,13 @@ Blocked by: —
 - 改 `dialog.js` 兩處預設會動到**全站每一道沒給 `cancelLabel` 的確認框**，不只取消類。那正是要的（別的確認框也是「取消」配一顆意思相反的鈕）；
   沒有測試比那個字。
 - 跟 12 都動 `home.js` 的 `applyConfirm()` —— 先後做。
+
+## 做完時留下的
+
+- `cancelConsequences()` 多收 `sameDay`（這位客戶的來訪整份丟進來，它自己挑同一天的別筆）。只取消幾段那一條：
+  「那一天剩下的 N 段」的 N＝這一筆還活著的＋同一天別筆還活著的；兩邊都沒有才說「那一天就整個取消了」。任務那幾句照舊只看這一筆。
+- 四個呼叫端都傳了。確認抽屜的 `listByCustomer()` 搬到確認框之前。
+- 「——」兩處拿掉（批次取消、刪客戶被擋下來那一道）。
+- `dialog.js` 的預設改成「先不要，回去」（`BACK_LABEL`，`confirmAction()` 與 `confirmWithReason()`）—— 全站每一道沒自己給字的確認框。
+- 單元 4 條（`tests/consequences.test.js`）、E2E `59-verified-words` 的 W2、`22-bulk-cancel` 多兩條斷言。
+- 批次裡同一天跨兩筆各挑一段的情況沒有另外處理：那一天的另一筆只在它已經結案時才存在（ADR-0083），結案的段挑不起來。

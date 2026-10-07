@@ -3073,6 +3073,10 @@ async function applyConfirm(ctx) {
   // 每一天這一次問到的是哪幾段（原本的索引）
   const askedIn = (v) => pendingSlotsOf(v).map(({ index }) => index).filter((i) => asked.has(`${v.id}:${i}`));
 
+  // **在確認框之前讀**：框講的與寫下去的是同一份（ADR-0070），而且「那一天還剩下什麼」要看得到
+  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）
+  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
+
   // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
   // 同批次取消那一頁的作法（逐筆算完去重），不在這裡另寫一份（ADR-0070）。
@@ -3085,7 +3089,7 @@ async function applyConfirm(ctx) {
       const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
       const lines = cancelConsequences({
         visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: mine,
-        sheetSyncOn: isConfigured(ctx.settings),
+        sheetSyncOn: isConfigured(ctx.settings), sameDay: customerVisits,
       });
       for (const line of lines) said.add(line);
     }
@@ -3097,8 +3101,6 @@ async function applyConfirm(ctx) {
     });
     if (!ok) return;
   }
-
-  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
 
   // 規則在 `domain/visits.js` 的 `applyConfirmation()`（SPEC 第 10 節）。
   // 這裡只把畫面上的 key（`v.id:i`）換成那一筆自己的段落編號。
