@@ -168,9 +168,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const visit = (ctx.visitsBy[item.customerId] ?? []).find((v) => v.id === item.existing?.visitId);
       if (!visit) continue;
       const adopted = adoptAbovee(visit, [item]).visit;
-      const mine = `${slotSay(adopted.slots?.[item.existing.slotIndex], ctx.master)}：`;
-      warningsBy[item.key] = validateVisit(adopted, checkCtx(item.customerId, visit.date, adopted))
-        .warnings.filter((w) => w.startsWith(mine));
+      // 她按的那一段叫「這一段」、其餘照時間與名字叫，再挑「這一段」開頭的那幾句 —— 拿 `slotSay()` 當鑰匙的話，
+      // 同一天兩段同時間同名（重複的、合併扣課留下的）會互相拿到對方的提醒
+      const at = item.existing.slotIndex;
+      const check = { ...checkCtx(item.customerId, visit.date, adopted),
+        slotLabel: (i) => (i === at ? '這一段' : slotSay(adopted.slots?.[i], ctx.master)) };
+      warningsBy[item.key] = validateVisit(adopted, check).warnings.filter((w) => w.startsWith('這一段'));
     }
     for (const g of groups) {
       const { errors, warnings } = validateVisit(g.visit, checkCtx(g.customerId, g.date, g.visit));

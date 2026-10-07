@@ -9,7 +9,7 @@
 // 顯示成不同狀態，她不會知道哪個算數。
 
 import { monthRange } from './scheduling.js';
-import { isActive, slotStatus } from './visits.js';
+import { isActive, slotStatus, isLiveSlot } from './visits.js';
 import { slotName } from './naming.js';
 import { isValidDate } from './dates.js';
 import { isValidTime, toMinutes } from './visitTime.js';
@@ -152,8 +152,9 @@ function dayFor(visit, master = {}) {
       // 『這個人這個月實際上做了多少』，而取消的段實際上並未發生」。以前只濾整天取消的
       // （`isActive()`），逐段取消（ADR-0081）之後一天裡取消一段時它照樣算進「N 段」，
       // 而 ○△✓✗ 沒有它那一格 —— 兩邊加不起來。未到的照畫：那一段發生過（人沒來）。
+      // `status` 已經過 `slotStatus()`（整天取消的舊資料也認得），所以問 `isLiveSlot()` 就對。
       // **先 map 再濾**：`index` 是它在 `visit.slots` 裡的位置，畫面拿它開那一段。
-      .filter((s) => s.status !== 'cancelled')
+      .filter(isLiveSlot)
       .sort(byStart),
   };
 }

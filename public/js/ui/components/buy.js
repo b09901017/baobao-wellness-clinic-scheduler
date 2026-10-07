@@ -499,9 +499,6 @@ export function validate(e, master) {
   if (e.type === 'pool' && !(e.optionEquipmentIds ?? []).length) {
     return [`還要選一種${poolCourseOf(master)?.name ?? ''}`];
   }
-  // 營養品一款都還沒選：名字也還算不出來，`validateEntitlement()` 會先吐一句「額度名稱不可空白」——
-  // 同一件事兩句話，而且那一格藏在進階設定裡（2026-10-07）
-  if (e.type === 'product' && !(e.items ?? []).length && !e.productId) return ['要選至少一種營養品'];
   return validateEntitlement(e, master);
 }
 

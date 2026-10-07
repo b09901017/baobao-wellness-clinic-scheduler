@@ -73,7 +73,7 @@ describe('給了 slotLabel：每一句都用它', () => {
   });
 
   test('時間重疊：兩段各用自己的叫法', () => {
-    assert.ok(warnings.includes('09:00 的 SIS(60) 跟這一段時間重疊'), warnings.join('｜'));
+    assert.ok(warnings.includes('09:00 的 SIS(60) 跟 這一段 時間重疊'), warnings.join('｜'));
   });
 });
 

@@ -1777,9 +1777,9 @@ function overlapWarnings(visit, { slotLabel = null } = {}) {
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
       if (overlaps(slots[i].s, slots[j].s)) {
-        // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟這一段時間重疊」）；沒給就照舊那一句
+        // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟 這一段 時間重疊」）；沒給就照舊那一句
         out.push(slotLabel
-          ? `${slotLabel(slots[i].at)} 跟${slotLabel(slots[j].at)}時間重疊`
+          ? `${slotLabel(slots[i].at)} 跟 ${slotLabel(slots[j].at)} 時間重疊`
           : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
       }
     }

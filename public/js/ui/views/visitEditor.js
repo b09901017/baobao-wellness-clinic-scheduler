@@ -979,9 +979,8 @@ function readDraft(ctx, form, draft) {
     // 還是上一筆額度時點的那一台 —— 三選一 → INDIBA 再換成單台 SIS，照讀的話抬頭還寫 IN、存檔被擋
     // 「INDIBA 不在擇一池裡」而畫面上已經看不到 INDIBA。跟底下品項那一格同一個形狀（2026-09-18）。
     const switched = entitlementId !== slot.entitlementId;
-    const equipmentId = switched
-      ? equipmentAfterSwitch(ent, v[`s${i}-equip`] ?? slot.equipmentId ?? null)
-      : (v[`s${i}-equip`] ?? slot.equipmentId ?? null);
+    const picked = v[`s${i}-equip`] ?? slot.equipmentId ?? null;
+    const equipmentId = switched ? equipmentAfterSwitch(ent, picked) : picked;
     if (ent?.type === 'pool') {
       courseId = courseForEquipment(equipmentId, all.equipment, courseId ?? choices[0]?.id ?? null);
     }
@@ -1024,7 +1023,7 @@ function readDraft(ctx, form, draft) {
       courseId,
       courseName: course?.name ?? null,
       // 推課程的那一台與存下去的那一台是**同一個值** —— 各讀一次的話課程照新的推、存的是舊的
-      equipmentId: picksEquipment(ent, course) ? (switched ? equipmentId : (v[`s${i}-equip`] ?? null)) : null,
+      equipmentId: picksEquipment(ent, course) ? equipmentId : null,
       ivProductId,
       startsAt,
       endsAt: isValidTime(startsAt) ? endOf(startsAt, durationMin) : slot.endsAt,
@@ -1413,8 +1412,8 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
   if (!Number.isInteger(slotIndex) || !draft.slots[slotIndex]) return;
 
   const ok = await confirmAction({
-    // 畫面上只有她點的那一段時不講「第 N 段」—— 那個 N 是它在整天裡的位置，而整天不在這張畫面上
-    title: ctx.editSlots?.length === 1 ? '取消這一段？' : `取消第 ${slotIndex + 1} 段？`,
+    // 叫法跟提醒同一支（`slotLabelFor()`）：畫面上只有她點的那一段時是「這一段」，不講它在整天裡的位置
+    title: `取消${slotLabelFor(ctx, draft, draft)(slotIndex)}？`,
     consequences: cancelConsequences({
       visit: draft,
       coursesById: coursesByIdOf(ctx.all),
