@@ -47,7 +47,7 @@ import {
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
 import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
-  validateVisit, isActive, courseForEquipment,
+  validateVisit, slotSay, isActive, courseForEquipment,
   picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
   acceptsMoreSlots, sameDayVisitFor,
 } from '../../domain/visits.js';
@@ -2167,6 +2167,9 @@ async function addSlot() {
     staff: all.staff, ivProducts: all.ivProducts,
     customerVisits,
     sameDayVisits: await visitsData.listByDate(view.day),
+    // 這張卡上只有她正在加的那一段（接在尾巴）。併進同一天時前面那幾段不在畫面上，
+    // 「第 3 個時段」指不到任何東西 —— 用時間與名字叫（issue 07）
+    slotLabel: (i) => (i === visit.slots.length - 1 ? '這一段' : slotSay(visit.slots[i], all)),
   });
 
   showErrors(errors);

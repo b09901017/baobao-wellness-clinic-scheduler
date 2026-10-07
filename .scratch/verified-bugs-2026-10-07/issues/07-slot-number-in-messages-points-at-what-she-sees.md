@@ -1,6 +1,6 @@
 # 提醒與錯誤裡的「第 N 個時段」要指到她看得到的那一段
 
-Status: todo
+Status: done
 來源：`findings.md` 六的第一條
 動工前先讀：`public/js/domain/visits.js` 裡每一個拼「第 N 個時段」的地方（`visitErrors()` 的 `at`、`equipmentNoticeWarnings()`、`nthWarnings()`、`overlapWarnings()`、
 `assignmentWarnings()`、`conflictWarnings()` —— `grep "個時段"`，6 處）、`visitWarnings()` 檔頭那一段（「編號照原本的位置」）、
@@ -69,3 +69,13 @@ Blocked by: 01、04（那兩支會多寫幾句帶這個前綴的話 —— 先�
   那一層一列一段、沒有編號可以指 → **每一段用時間＋名字叫**（`09:00 的 SIS(60)`），濾的那一行用同一支。
 - 同一類的字順便：`visitEditor.js` 的「取消第 N 段？」在只畫一段時寫「取消這一段？」。**日曆長按選單副標的「・第 N 段」不做**（findings 沒有、她沒提）。
 - 真的斷言前綴的測試只有 `tests/live-slot-warnings.test.js`、`tests/visits.test.js`、`tests/consequences.test.js` 各一兩處，E2E 沒有。
+
+## 做完時留下的
+
+- domain：`visits.js` 多 `defaultSlotLabel`（不匯出）與 `slotSay(slot, master)`（匯出）；六支拼字的地方都收 `slotLabel`。
+  時間重疊那一句：沒給叫法照舊「第 1 與第 2 個時段時間重疊」，給了是「A 跟B時間重疊」。
+- 編輯器：`slotLabelFor(ctx, draft, saved, rebookedAt)`，`submit()` 與 `paint()` 都用它。「取消第 N 段？」在只畫一段時寫「取消這一段？」。
+- 壓表：尾巴那一段叫「這一段」，其餘 `slotSay()`。
+- 拍 Abovee：`checkCtx()` 多收那一筆來訪，每一段 `slotSay()`；「改成 Abovee 的」那一條的濾法改成同一個前綴。
+- 既有測試一條都沒改。單元 10 條（`tests/slot-label.test.js`）、E2E `58-verified-rules` 的 P8（日曆）、P9（壓表）。
+- **沒做的**：日曆長按選單副標的「・第 N 段」（findings 沒有、她沒提）；拍 Abovee 把整筆的提醒掛到那一組的每一列這件事本身沒動（現在每一句看得出是哪一段了）。

@@ -6,10 +6,13 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  masterDocs, customer, entitlement, visit, slot, TODAY,
+  masterDocs, customer, entitlement, visit, slot, TODAY, addDays,
 } from '../fixtures/data.js';
 
 const DAY = TODAY;
+const MONTH = TODAY.slice(0, 7);
+/** 壓表那一頁挑得到的一天（同一個月裡的明天；月底就用今天）。 */
+const PICK_DAY = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY;
 
 // ---------- 05 進度追蹤與客戶詳情「這個月」：取消的段不畫、不算（ADR-0134） ----------
 
@@ -284,4 +287,72 @@ test('P7 客戶詳情 → 加購 → 營養品：只打新的一款存得下去�
   const both = ents.find((e) => (e.items ?? []).length === 2);
   expect(both.items.map((x) => x.name)).toEqual(['GABA', '測試葉黃素']);
   expect(both.label, '以前只有「營養品（GABA）」').toBe('營養品（GABA＋測試葉黃素）');
+});
+
+// ---------- 07 提醒裡的「第 N 個時段」指到她看得到的那一段 ----------
+
+/** 那一天已經有一段談定的復能（16:00）。新增的那一段會併進同一筆、排在第 2 段。 */
+function seedOneBooked(date) {
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-f', name: '客戶F' }),
+    entitlement('cust-f', {
+      id: 'ent-f-pool', label: '復能-三選一(60)', type: 'pool',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis', 'eq-laser'], totalQty: 12, bookedCount: 1, durationMin: 60,
+    }),
+    visit({
+      id: 'v-f', customerId: 'cust-f', customerName: '客戶F', date, status: 'confirmed',
+      slots: [{
+        ...slot({
+          courseId: 'course-recovery', entitlementId: 'ent-f-pool',
+          startsAt: '16:00', endsAt: '17:00', equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+        }),
+        status: 'confirmed',
+      }],
+    }),
+  ];
+}
+
+test('P8 日曆新增、那一天已經有一段：畫面上只有她正在加的那一段，提醒叫它「這一段」', async ({ app, page }) => {
+  await app.seed(seedOneBooked(DAY));
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-f"]').click();
+  await app.layer('[data-chip="s1-ent"]');
+
+  await expect(page.locator('[data-chip="s0-ent"]'), '原本那一段刻意不列（ADR-0083）').toHaveCount(0);
+  await page.locator('[data-chip="s1-equip"][data-chip-value="eq-sis"]').click();
+  await page.click('button[type="submit"]');
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said, '沒選治療師那一句').toContain('這一段：復能 還沒選治療師');
+  expect(said, '以前寫「第 2 個時段」，而畫面上只有一段').not.toMatch(/第 \d+ 個時段/);
+});
+
+test('P9 壓表、併進那一天既有的一段：同一句也叫「這一段」', async ({ app, page }) => {
+  await app.seed(seedOneBooked(PICK_DAY));
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await page.locator('[data-pick="cust-f"]').first().click();
+  await app.layer('[data-day]');
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-ent]');
+
+  await page.locator('[data-ent="ent-f-pool"]').click();
+  await app.layer('[data-equipment]');
+  await page.locator('[data-equipment="eq-sis"]').click();
+  await page.locator('[data-time]').first().click();
+  await page.locator('[data-add]').click();
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said).toContain('這一段：復能 還沒選治療師');
+  expect(said).not.toMatch(/第 \d+ 個時段/);
 });

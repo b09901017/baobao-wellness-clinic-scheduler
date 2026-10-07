@@ -1528,9 +1528,28 @@ export function validateVisit(visit, ctx) {
   };
 }
 
+/**
+ * 提醒與錯誤裡那一段**預設**叫什麼：它在要存的那一筆裡的位置。
+ *
+ * 畫面上列的不一定是整筆（2026-10-07，verified-bugs issues/07）：日曆新增時那一天原本的段刻意不列（ADR-0083）、
+ * 壓表只有她正在加的那一段、「改這一段」只有她點的那一段（ADR-0085）—— 畫面上只有一段卻寫「第 2 個時段」。
+ * 所以呼叫端可以在 `ctx.slotLabel` 自己說每一段叫什麼（`(i) => '這一段'`）；不說就是這一支，一個字都不變。
+ * 「畫面上是哪幾段」只有呼叫端知道，這一支檔案不猜。
+ */
+const defaultSlotLabel = (i) => `第 ${i + 1} 個時段`;
+
+/**
+ * 一段**不在畫面上**（或沒有編號可以指）時怎麼叫它：`09:00 的 SIS(60)`。
+ * 給 `ctx.slotLabel` 用 —— 「跟 09:00 的 SIS(60) 時間重疊」她看得懂，「第 1 與第 3 個時段時間重疊」指到一段看不到的。
+ */
+export function slotSay(slot, master = {}) {
+  const name = slotName(slot ?? {}, master, 'short');
+  return [isValidTime(slot?.startsAt) ? `${slot.startsAt} 的` : '', name].filter(Boolean).join(' ') || '那一段';
+}
+
 function visitErrors(visit, {
   customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
-  customerVisits = [],
+  customerVisits = [], slotLabel = defaultSlotLabel,
 }) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
@@ -1555,7 +1574,7 @@ function visitErrors(visit, {
   const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     const ent = entsById[slot.entitlementId];
 
@@ -1691,12 +1710,12 @@ function visitErrors(visit, {
  * 存檔前的提醒。**只講還算數的段**（2026-10-05 她答應修的：改期之後舊那一段已經取消，
  * 第一道確認還在跳「第 1 個時段：二返 還沒選醫師」）—— 取消掉的那一段不會發生，
  * 它還沒選醫師、跟新的那一段重疊、撞到別人都不是事。每一圈自己跳過，**編號照原本的位置**
- *（「第 2 個時段」要指到畫面上的第 2 段，濾掉再編號就指錯了）。
+ *（濾掉再編號就指錯了）。那一段在訊息裡叫什麼走 `ctx.slotLabel`（見 `defaultSlotLabel`）。
  */
 function visitWarnings(visit, ctx) {
   return [
     ...equipmentNoticeWarnings(visit, ctx),
-    ...overlapWarnings(visit),
+    ...overlapWarnings(visit, ctx),
     ...entitlementWarnings(visit, ctx),
     ...assignmentWarnings(visit, ctx),
     ...nthWarnings(visit, ctx),
@@ -1716,11 +1735,11 @@ function visitWarnings(visit, ctx) {
  * 她那天說「只要儀器不要在金屬的上方或附近」就做得了，而那件事 app 看不到。
  * 見 ADR-0074。
  */
-function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
+function equipmentNoticeWarnings(visit, { customer, equipment = [], slotLabel = defaultSlotLabel }) {
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
     .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
-    .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
+    .map((n) => `${slotLabel(n.slotIndex)}：${n.message}`);
 }
 
 /**
@@ -1730,7 +1749,7 @@ function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
  * 那兩筆會同時存在一下下；她也可能真的要在同一次健檢底下約兩場三返
  * （客人第一場沒來，重約一場）。擋下來的話她會卡在一個存不進去的畫面上。
  */
-function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
+function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel = defaultSlotLabel }) {
   const out = [];
   const second = secondFollowupIds(entitlements);
   const others = (customerVisits ?? []).filter((v) => v.id !== visit.id);
@@ -1742,7 +1761,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
     if (same.length) {
-      out.push(`第 ${i + 1} 個時段：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
+      out.push(`${slotLabel(i)}：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
     }
   });
 
@@ -1750,7 +1769,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 }
 
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
-function overlapWarnings(visit) {
+function overlapWarnings(visit, { slotLabel = null } = {}) {
   const out = [];
   // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
   const slots = (visit.slots ?? []).map((s, at) => ({ s, at }))
@@ -1758,7 +1777,10 @@ function overlapWarnings(visit) {
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
       if (overlaps(slots[i].s, slots[j].s)) {
-        out.push(`第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
+        // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟這一段時間重疊」）；沒給就照舊那一句
+        out.push(slotLabel
+          ? `${slotLabel(slots[i].at)} 跟${slotLabel(slots[j].at)}時間重疊`
+          : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
       }
     }
   }
@@ -1796,6 +1818,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
 function assignmentWarnings(visit, {
   courses = [], rooms = [], entitlements = [], ivProducts = [], customerVisits = [],
+  slotLabel = defaultSlotLabel,
 }) {
   const out = [];
   const coursesById = byId(courses);
@@ -1805,7 +1828,7 @@ function assignmentWarnings(visit, {
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
     if (!course || !isLiveSlot(slot)) return;
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
     // 同一條原則），而且她可能就是還沒決定要接哪一次。
@@ -1916,6 +1939,7 @@ function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, na
  */
 function conflictWarnings(visit, {
   sameDayVisits = [], rooms = [], staff = [], courses = [], equipment = [], ivProducts = [],
+  slotLabel = defaultSlotLabel,
 }) {
   const out = [];
   const master = { courses, equipment, ivProducts };
@@ -1924,7 +1948,7 @@ function conflictWarnings(visit, {
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
     if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     // 那一天別人排的、跟這一段撞在一起的每一格
     const clashes = [];
