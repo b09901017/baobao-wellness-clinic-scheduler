@@ -67,6 +67,7 @@ import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
+import { pushLayer } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
@@ -95,6 +96,42 @@ let tab = 'all';
 // （`.scratch/quick-actions-and-supplements/issues/01`）。
 let drawer = null;
 
+// 開著的那一張抽屜在返回鍵那一疊裡佔的那一層（`ui/nav.js`）。2026-10-07 以前這兩張自己畫的抽屜
+// 沒有這一層 —— 全站別的抽屜、卡片、確認框按返回都是先收最上面那一層，只有這兩張直接離開頁面。
+//
+// **存成模組層的變數、跟 `drawer` 並排**（不掛在 `drawer` 物件上）：`tests/nav.test.js` 的原始碼掃描
+// 只認得 `名字 = pushLayer(`。一律問 `.active`，不問它是不是 null —— 換頁會清掉那一疊，但不會清掉這個變數。
+let drawerLayer = null;
+
+/**
+ * 開一張抽屜。**抽屜開著時整頁會重畫好幾次（勾一段、補一句），那一層只在這裡推一次。**
+ *
+ * @param {object} state `drawer` 要記的東西（哪一位／哪一筆、按了什麼）
+ * @param {Function} onBack 她按了返回鍵之後怎麼重畫。**裡面不可以問任何一句** ——
+ *   換頁會先來一下 popstate，問了那一道會留在下一頁上（`CLAUDE.md`「存起來的 pushLayer() handle」）
+ */
+function openDrawer(state, onBack) {
+  closeDrawer();
+  drawer = state;
+  drawerLayer = pushLayer(() => {
+    // 那一層已經被 nav 拿掉了，這裡不 pop
+    drawer = null;
+    drawerLayer = null;
+    onBack();
+  });
+}
+
+/**
+ * 她自己關掉（×、點背景、往下拖、送出之後、資料變舊了）：把那一層還回去。
+ * **每一條把 `drawer` 清掉的路都走這一支** —— 漏一條的症狀是下一次按返回被吃掉一次（什麼都沒發生）。
+ * 換頁時 nav 已經把那一疊清光了（`.active` 是 false），所以進頁面那兩處呼叫它也不會多退一步。
+ */
+function closeDrawer() {
+  drawer = null;
+  if (drawerLayer?.active) drawerLayer.pop();
+  drawerLayer = null;
+}
+
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
 let askRows = null;
 
@@ -119,7 +156,7 @@ let askMonth = null;
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
-  drawer = null;
+  closeDrawer();
   askRows = null;
   inboxRows = null;
   bookRows = null;
@@ -1731,7 +1768,7 @@ export function groupTitle(group) {
 export async function renderGroup(el, group) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
-  drawer = null;
+  closeDrawer();
   taskVisits = null;
 
   if (group === 'confirm') return renderConfirm(el);
@@ -2954,7 +2991,10 @@ function wireConfirm(ctx) {
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
       // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { customerId: btn.dataset.open, picks: new Map(), shown: false };
+      openDrawer(
+        { customerId: btn.dataset.open, picks: new Map(), shown: false },
+        () => paintConfirm(ctx),
+      );
       paintConfirm(ctx);
     }),
   );
@@ -2966,7 +3006,7 @@ function wireConfirm(ctx) {
   });
 
   const close = () => {
-    drawer = null;
+    closeDrawer();
     paintConfirm(ctx);
   };
   el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));
@@ -3121,7 +3161,7 @@ async function applyConfirm(ctx) {
     if (!fresh || mine.some((i) => !fresh.slots?.[i]
         || slotStatus(fresh, fresh.slots[i]) !== 'pending_confirm')) {
       toast.info('這幾段剛剛在別的地方改過了，換成最新的樣子');
-      drawer = null;
+      closeDrawer();
       await renderConfirm(ctx.el);
       return;
     }
@@ -3176,7 +3216,7 @@ async function applyConfirm(ctx) {
         key: `confirm:${drawer.customerId}`,
       },
     );
-    drawer = null;
+    closeDrawer();
     await renderConfirm(ctx.el);
     showConfirmed(summary, said, ctx.master);
   } catch {
@@ -3485,7 +3525,11 @@ function wireClose(ctx) {
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', async () => {
       // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { visitId: btn.dataset.open, picks: new Map(), shown: false };
+      openDrawer({ visitId: btn.dataset.open, picks: new Map(), shown: false }, () => {
+        // 跟底下 `close` 同一件事：換一位客戶時不要沿用上一位的額度
+        ctx.entitlements = [];
+        paintClose(ctx);
+      });
       paintClose(ctx);
 
       // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
@@ -3508,7 +3552,7 @@ function wireClose(ctx) {
   });
 
   const close = () => {
-    drawer = null;
+    closeDrawer();
     // 換一位客戶時不要沿用上一位的額度 —— 那會讓「會多一張追蹤健檢報告」
     // 出現在一個根本沒買健檢的人身上。
     ctx.entitlements = [];
@@ -3543,7 +3587,7 @@ async function applyClose(ctx) {
   const stillOpen = new Set(slotsToClose(fresh).map(({ index }) => index));
   if (!fresh || [...drawer.picks.keys()].some((i) => !stillOpen.has(i))) {
     toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
-    drawer = null;
+    closeDrawer();
     await renderClose(ctx.el);
     return;
   }
@@ -3561,7 +3605,7 @@ async function applyClose(ctx) {
       ].filter(Boolean).join('，'),
       key: `visit:save:${next.id}`,
     });
-    drawer = null;
+    closeDrawer();
     await renderClose(ctx.el);
   } catch {
     /* 已處理 */

@@ -3,7 +3,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  masterDocs, customer, entitlement, visit, slot, TODAY,
+  masterDocs, customer, entitlement, visit, slot, TODAY, addDays,
 } from '../fixtures/data.js';
 
 const DAY = TODAY;
@@ -127,4 +127,86 @@ test('W3 功醫門診＋HRV 一起存：抬頭問 Abovee，底下只列功醫門
 
   const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-c');
   expect(v.slots.map((s) => s.courseId), '兩段都記下來了').toEqual(['course-fm', 'course-hrv']);
+});
+
+// ---------- 12 待辦的「確認」「簽療程單」兩張抽屜：按返回是收抽屜，不是離開頁面 ----------
+
+/** 一位客戶：明天一段還沒問過的（確認那一頁）、今天一段談定的（簽療程單那一頁）。 */
+function seedTwoDrawers() {
+  const ent = entitlement('cust-d', {
+    id: 'ent-d', label: '復能-三選一(60)', type: 'pool',
+    optionEquipmentIds: ['eq-indiba', 'eq-sis'], totalQty: 10, bookedCount: 2, durationMin: 60,
+  });
+  const one = (startsAt, status) => ({
+    ...slot({
+      courseId: 'course-recovery', entitlementId: 'ent-d',
+      startsAt, endsAt: '10:00', equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+    }),
+    status,
+  });
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-d', name: '客戶D' }),
+    ent,
+    visit({
+      id: 'v-pending', customerId: 'cust-d', customerName: '客戶D', date: addDays(DAY, 1),
+      status: 'pending_confirm', slots: [one('09:00', 'pending_confirm')],
+    }),
+    visit({
+      id: 'v-today', customerId: 'cust-d', customerName: '客戶D', date: DAY,
+      status: 'confirmed', slots: [one('09:00', 'confirmed')],
+    }),
+  ];
+}
+
+test('W4 確認抽屜：按返回只收抽屜；按幾下 ✓ 之後也是一次就收；用 × 關掉之後返回是正常回上一頁', async ({ app, page }) => {
+  await app.seed(seedTwoDrawers());
+  await app.signIn('/calendar');
+  await app.go('/todo/confirm');
+
+  await page.locator('[data-open="cust-d"]').click();
+  await app.layer('.drawer');
+  await page.goBack();
+  await expect(page.locator('.drawer'), '返回鍵收的是抽屜').toHaveCount(0);
+  await expect(page, '人還在這一頁').toHaveURL(/#\/todo\/confirm/);
+
+  // 抽屜開著時整頁重畫好幾次（按 ✓、再按一次放掉、再按 ✓）—— 那一層只推一次
+  await page.locator('[data-open="cust-d"]').click();
+  await app.layer('.drawer');
+  const tick = page.locator('.drawer [data-pick][data-to="1"]').first();
+  await tick.click();
+  await page.locator('.drawer [data-pick][data-to="1"]').first().click();
+  await page.locator('.drawer [data-pick][data-to="1"]').first().click();
+  await page.goBack();
+  await expect(page.locator('.drawer'), '一次就收掉，不是要按好幾次').toHaveCount(0);
+  await expect(page).toHaveURL(/#\/todo\/confirm/);
+
+  // 她自己關掉之後，那一層要還回去 —— 不然下一次返回會被吃掉一次
+  await page.locator('[data-open="cust-d"]').click();
+  await app.layer('.drawer');
+  await page.locator('.drawer [data-close-drawer]').first().click();
+  await expect(page.locator('.drawer')).toHaveCount(0);
+  await page.goBack();
+  await expect(page, '回到上一頁').toHaveURL(/#\/calendar/);
+});
+
+test('W5 簽療程單抽屜：按返回只收抽屜；送出之後返回是正常回上一頁', async ({ app, page }) => {
+  await app.seed(seedTwoDrawers());
+  await app.signIn('/calendar');
+  await app.go('/todo/close');
+
+  await page.locator('[data-open="v-today"]').click();
+  await app.layer('.drawer');
+  await page.goBack();
+  await expect(page.locator('.drawer')).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/todo\/close/);
+
+  await page.locator('[data-open="v-today"]').click();
+  await app.layer('.drawer');
+  await app.tickAll();
+  await page.locator('[data-apply]').click();
+  await app.saved();
+  await expect(page.locator('.drawer'), '送出之後抽屜自己收掉').toHaveCount(0);
+  await page.goBack();
+  await expect(page, '沒有被吃掉一次').toHaveURL(/#\/calendar/);
 });

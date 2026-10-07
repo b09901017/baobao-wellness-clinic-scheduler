@@ -1,6 +1,6 @@
 # 待辦的「確認」「簽療程單」兩張抽屜：按返回是收抽屜，不是離開頁面
 
-Status: todo
+Status: done
 來源：`findings.md` 第 13 條
 動工前先讀：`public/js/ui/nav.js`（檔頭整段、`pushLayer()` `:196`）、`public/js/ui/views/home.js` 的 `drawer`（`:94`）、`mountDrawerGesture()`（`:2096`）、
 `wireConfirm()`（`:2947-2980`）、`wireClose()`（`:3480-3522`）、每一個 `drawer = null` 的地方（`grep -n "drawer = null"`，8 處）、
@@ -54,3 +54,11 @@ Blocked by: —
   所以存成**模組層的一個變數**（跟 `drawer` 並排），開哪一張抽屜就記在 `drawer`、那一層記在它旁邊。原本寫的「記在 `drawer` 物件上」作廢。
 - **文件**：`CLAUDE.md` 連動表那一列與 `tests/nav.test.js` 都寫「三個畫面存著 handle」，做完是四個（多了待辦那一頁）—— 兩邊一起改。
 - 跟 10 都動 `home.js` 的 `applyConfirm()`。
+
+## 做完時留下的
+
+- `home.js` 多 `drawerLayer`（模組變數）、`openDrawer(state, onBack)`、`closeDrawer()`。八處 `drawer = null` 都換成 `closeDrawer()`
+  （進頁面那兩處也是 —— 換頁時那一層已經不 active，不會多退一步），兩處開抽屜換成 `openDrawer()`。
+- `onBack` 只重畫，不問任何一句。
+- E2E `59-verified-words` 的 W4（確認抽屜：返回收抽屜／重畫三次之後一次就收／× 關掉之後返回正常）、W5（簽療程單：返回收抽屜／送出之後返回正常）。
+  「抽屜開著時點底部導覽列換頁」那一條沒有另外寫測試：換頁之後 `render()` 會 `closeDrawer()`，而那時候那一層已經不 active。
