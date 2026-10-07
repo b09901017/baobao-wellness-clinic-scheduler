@@ -477,6 +477,13 @@ svg {
   margin-bottom: 0;
 }
 
+/* **格子不准被內容撐寬**（2026-10-07，issue 16）。grid 的格子最小寬度預設跟著內容走，
+   一張卡裡有一串不換行的字（她打得很長的其他限制、一串網址），那一欄就跟著變寬 ——
+   每一張卡一起變寬、整頁可以左右滑（她在安卓上看到的）。 */
+.cardgrid > * {
+  min-width: 0;
+}
+
 @media (min-width: 600px) {
   .cardgrid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -599,6 +606,23 @@ textarea {
   white-space: nowrap;
 }
 
+/* **她自己打的字**（其他限制，issue 16）。`.badge` 本身不斷行是給狀態、次數那種短字的；
+   她打的字可以很長，所以兩種畫法：清單卡片截成一行加「…」、看得完的那幾頁換行顯示全文。 */
+.badge--clip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 21px;
+}
+
+.badge--text {
+  max-width: 100%;
+  padding-block: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .badge--overdue {
   color: var(--overdue);
   background: var(--overdue-bg);
@@ -655,6 +679,11 @@ textarea {
 .flag--alert {
   --flag-fg: var(--evcolor-tea);
   --flag-bg: var(--evcolor-tea-bg);
+  /* 名字是她在設定頁自己取的，可以很長：太長就換行，不撐寬那一排（issue 16）。
+     放在會換行的那兩排裡（`.blockchips`、`.row__title`），短的照樣一顆一行 */
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* 實心：底色與字對調。`--evcolor-X` 與 `--evcolor-X-bg` 本來就互為對比
@@ -1451,6 +1480,23 @@ button.mark::after {
   flex-shrink: 0;
   border-radius: var(--radius-pill);
   background: var(--mark, var(--mark-grey));
+}
+
+/* 備註是她自己打的，可以是一串沒有空白的網址：不撐寬（issue 16）。
+   看得完的那幾頁換行，清單卡片截成一行加「…」（`.mark--clip`，`marks.js` 的 `row({ clip })`）。 */
+.mark {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.mark__text {
+  min-width: 0;
+}
+
+.mark--clip .mark__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mark--lg {

@@ -1,6 +1,6 @@
 # 她自己打的字太長：截掉或換行，版面不被撐寬
 
-Status: todo
+Status: done
 來源：`findings.md` 六的最後兩條（其他限制太長、備註裡的長網址）
 動工前先讀：`public/css/app.css` 的 `.badge`（`:585-600`）、`.marks`／`.mark`（`:1412` 起）、`.cardgrid`、`.chips`、
 `public/js/ui/views/customers.js:388-393`（清單卡片上的其他限制）、`public/js/ui/components/flags.js` 的 `detailChips()`（`:95`）與它的呼叫端（`grep -rn "detailChips("`）、
@@ -53,3 +53,13 @@ Blocked by: —
 - **備註的丸子還畫在壓表記錄面板**（`schedule.js`「這個月壓好的」那一張上面），清單上漏了 —— 一起量。
 - `detailChips()` 的呼叫端是**五個**（`flags.js` 的註解只列四個），第五個是 `backfill.js`。
 - **要量位置才知道的**：`.cardgrid` 加 `min-width: 0` 夠不夠；`.badge` 是 `inline-flex`，做不做得出「…」（做不出來就在裡面包一層）。
+
+## 做完時留下的
+
+- 根源：`.cardgrid > * { min-width: 0 }`。
+- 清單卡片：其他限制 `.badge--clip`（`inline-block`＋ellipsis —— `.badge` 是 `inline-flex`，直接做不出「…」）、備註 `marks.js` 的 `row({ clip: true })` →
+  `.mark--clip`，字包進 `.mark__text` 才截得了。
+- 看得完的那幾頁：`detailChips()` 的其他限制 `.badge--text`（五個呼叫端一起）、`.mark` 一律 `overflow-wrap: anywhere`、`.flag--alert` 改成可以換行（只放在會換行的兩排裡）。
+- **量的時候踩到的**：整頁會不會左右滑要量 `.app__main`，`document.documentElement` 永遠是 false（第一版測試在壞掉的畫面上是綠的）。
+- E2E `59` 的 W8（客戶清單：不能左右滑、每張卡一樣寬、那一則一行且截掉）、W9（客戶詳情：不能左右滑、三種字整句看得到），360 寬。
+- 壓表記錄面板上的備註走沒截的 `chip()`（`.mark` 換行）—— 沒另外寫測試。

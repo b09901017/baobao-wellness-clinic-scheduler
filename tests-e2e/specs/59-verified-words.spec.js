@@ -272,3 +272,57 @@ test('W7 一天兩段、取消一段：月曆上方「1 段來訪」，週檢視
   // 底下兩列：一列劃掉的（取消）、一列沒劃掉的 —— 數字是沒劃掉的那一列
   await expect(head).toContainText('1 項');
 });
+
+// ---------- 16 她自己打的字太長：版面不被撐寬 ----------
+//
+// 只有量位置看得出來（`CLAUDE.md`「貼在畫面底部的東西」那一列的教訓）。她是安卓，所以量 360 寬。
+
+const LONG_OTHER = '這是一段很長很長的其他限制'.repeat(5); // 65 個字
+const LONG_ALERT = '一個她在設定頁自己取的很長的警示名字';
+const LONG_URL = 'https://example.com/aaaaaaaaaaaaaaaaaaaa'; // 40 個字元，沒有空白
+
+function longCustomerDocs() {
+  return [
+    ...masterDocs(),
+    { path: 'config/app/clinicalFlags', id: 'cf-long', data: { name: LONG_ALERT, color: 'red', fill: 'solid', active: true } },
+    customer({ id: 'cust-long', name: '客戶A', flags: [LONG_ALERT, LONG_OTHER], marks: [{ text: LONG_URL, color: 'grey' }] }),
+    customer({ id: 'cust-ok', name: '客戶B', flags: ['怕痛'] }),
+  ];
+}
+
+/** 整頁能不能左右滑。捲的是 `.app__main` 不是 document（document 量起來永遠是 false）。 */
+const pageScrolls = (page) => page.evaluate(() => [document.documentElement, document.querySelector('.app__main')]
+  .some((el) => el && el.scrollWidth > el.clientWidth + 1));
+
+test('W8 360 寬：其他限制 65 字、備註一串網址 —— 客戶清單不能左右滑、每張卡一樣寬、那一則截成一行', async ({ app, page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await app.seed(longCustomerDocs());
+  await app.signIn('/customers');
+  await app.settled();
+
+  const cards = page.locator('.cardgrid > *');
+  await expect(cards).toHaveCount(2);
+  expect(await pageScrolls(page), '整頁不能左右滑').toBe(false);
+  const widths = await cards.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+  expect(new Set(widths).size, `每一張卡一樣寬：${widths.join('、')}`).toBe(1);
+
+  const other = page.locator('.cardgrid > *', { hasText: '客戶A' }).locator('.badge', { hasText: '這是一段' });
+  const clip = await other.evaluate((el) => ({ lines: Math.round(el.getBoundingClientRect().height / 21), cut: el.scrollWidth > el.clientWidth }));
+  expect(clip.lines, '清單上一行').toBe(1);
+  expect(clip.cut, '超過的截掉（…）').toBe(true);
+});
+
+test('W9 360 寬：同一位的客戶詳情不能左右滑，其他限制、警示與備註的字全部看得到', async ({ app, page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await app.seed(longCustomerDocs());
+  await app.signIn('/customers/cust-long');
+  await app.settled();
+
+  await expect(page.locator('#view')).toContainText(LONG_OTHER);
+  expect(await pageScrolls(page), '整頁不能左右滑').toBe(false);
+  for (const text of [LONG_OTHER, LONG_ALERT, LONG_URL]) {
+    const el = page.locator('#view').getByText(text, { exact: true }).first();
+    const cut = await el.evaluate((e) => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > window.innerWidth);
+    expect(cut, `「${text.slice(0, 6)}…」整句看得到`).toBe(false);
+  }
+});
