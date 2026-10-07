@@ -1000,3 +1000,45 @@ describe('拍 Abovee 那一道確認（aboveeConsequences，asks-2026-09-24-even
     assert.ok(!src.includes('整天退回待確認'));
   });
 });
+
+// 2026-10-07（verified-bugs issues/06）：抽屜寫「做了的 2 段裡 1 段扣掉次數」，存完的 toast 寫「扣掉 2 次」——
+// 同一件事兩個地方各數一次。現在兩邊問同一支。
+import { chargedOnClose, closedSay } from '../public/js/domain/consequences.js';
+
+describe('簽療程單存完那一句，跟抽屜上講的是同一個數字', () => {
+  const open = (slots) => ({ id: 'v', status: 'confirmed', slots: slots.map((s) => ({ status: 'confirmed', startsAt: '09:00', ...s })) });
+  const charged = { entitlementId: 'e1', courseId: 'c-recovery' };
+  const free = { entitlementId: null, courseId: 'c-consult' };
+  const nth = { entitlementId: null, courseId: 'c-followup', followupNth: 3 };
+
+  test('一段有額度、一段不算次數，都做了：只扣 1 次', () => {
+    const v = open([charged, free]);
+    assert.equal(chargedOnClose(v, [true, true]), 1);
+    assert.equal(closedSay(v, [true, true]), '記好了，扣掉 1 次');
+  });
+
+  test('n返 做了：不扣', () => {
+    const v = open([nth]);
+    assert.equal(chargedOnClose(v, [true]), 0);
+    assert.equal(closedSay(v, [true]), '記好了，這一段不扣次數');
+  });
+
+  test('做了的全是不算次數的好幾段', () => {
+    assert.equal(closedSay(open([free, nth]), [true, true]), '記好了，這幾段不扣次數');
+  });
+
+  test('一段 ✓ 都沒有：照舊', () => {
+    assert.equal(closedSay(open([charged]), [false]), '記好了，沒來的不扣次數');
+  });
+
+  test('沒按的、已經結掉的段不算', () => {
+    const v = open([charged, charged, { ...charged, status: 'done' }]);
+    assert.equal(chargedOnClose(v, [true, null, true]), 1);
+  });
+
+  test('抽屜那一句用的是同一個數', () => {
+    const v = open([charged, free]);
+    const lines = closeConsequences({ visit: v, picks: [true, true], entitlements: [], coursesById: {} });
+    assert.ok(lines.includes('做了的 2 段裡 1 段扣掉次數'), lines.join('／'));
+  });
+});

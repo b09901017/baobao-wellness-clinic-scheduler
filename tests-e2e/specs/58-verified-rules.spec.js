@@ -66,3 +66,41 @@ test('P2 客戶詳情「這個月」：同一份數字', async ({ app, page }) =
   await expect(page.locator('button.progslot[data-visit="v-a"]')).toHaveCount(1);
   await expect(page.locator('.section__n', { hasText: '段' })).toContainText('1 天・1 段');
 });
+
+// ---------- 06 簽療程單存完那一句只數真的扣次數的段 ----------
+
+test('P3 簽療程單：一段扣額度、一段不算次數都做了 → 「扣掉 1 次」', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-pool', label: '復能 - 四選一（30）', type: 'pool',
+      optionEquipmentIds: ['eq-indiba', 'eq-sis'], totalQty: 10, bookedCount: 1, durationMin: 30,
+    }),
+    visit({
+      id: 'v-close', customerId: 'cust-a', customerName: '客戶A', date: DAY, status: 'confirmed',
+      slots: [
+        {
+          ...slot({
+            courseId: 'course-recovery', entitlementId: 'ent-pool',
+            startsAt: '09:00', endsAt: '09:30', equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+          }),
+          status: 'confirmed',
+        },
+        // 功醫門診不算次數（ADR-0121）：沒有額度
+        { ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '10:00', endsAt: '10:30' }), status: 'confirmed' },
+      ],
+    }),
+  ]);
+  await app.signIn('/todo/close');
+
+  await page.locator('[data-open="v-close"]').click();
+  await app.tickAll();
+  await expect(page.locator('.drawer'), '抽屜上那一句').toContainText('做了的 2 段裡 1 段扣掉次數');
+  await page.locator('[data-apply]').click();
+  await app.saved();
+  await expect(page.locator('#toast'), '存完那一句跟抽屜同一個數').toContainText('扣掉 1 次');
+
+  const ent = await app.readDoc('customers/cust-a/entitlements', 'ent-pool');
+  expect(ent.doneCount).toBe(1);
+});

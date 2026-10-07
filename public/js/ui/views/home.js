@@ -45,7 +45,9 @@ import {
   todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
-import { confirmConsequences, closeConsequences, cancelConsequences } from '../../domain/consequences.js';
+import {
+  confirmConsequences, closeConsequences, cancelConsequences, closedSay,
+} from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
 } from '../../domain/followups.js';
@@ -3543,16 +3545,16 @@ async function applyClose(ctx) {
     await renderClose(ctx.el);
     return;
   }
-  const next = closeVisit(fresh, picksOf(fresh));
+  const picks = picksOf(fresh);
+  const next = closeVisit(fresh, picks);
   const left = slotsToClose(next).length;
-  // 講**這一次**扣了幾次 —— 整筆推成已完成不代表這一次有扣（前面那段早就做完、這一次只按了 ✗）
-  const did = [...drawer.picks.values()].filter(Boolean).length;
 
   try {
     // 結案就是扣次數的那一下，做兩次會多扣一次
     await toast.withSaveState(() => visitsData.save(next, customerVisits), {
       success: [
-        did ? `記好了，扣掉 ${did} 次` : '記好了，沒來的不扣次數',
+        // 講**這一次**扣了幾次，而且只數真的扣的 —— 跟抽屜上那一句同一支（`chargedOnClose()`）
+        closedSay(fresh, picks),
         left ? `還有 ${left} 段留著` : '',
       ].filter(Boolean).join('，'),
       key: `visit:save:${next.id}`,

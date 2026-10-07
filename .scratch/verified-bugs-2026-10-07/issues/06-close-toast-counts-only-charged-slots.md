@@ -1,6 +1,6 @@
 # 簽療程單之後那一句「扣掉 N 次」只數真的扣次數的段
 
-Status: todo
+Status: done
 來源：`findings.md` 第 6 條
 動工前先讀：`public/js/ui/views/home.js` 的 `applyClose()`（`:3530-3565`，`did` 在 `:3549`）、
 `public/js/domain/consequences.js` 的 `closeConsequences()`（`:441-462`，`charged` 在 `:452`）、ADR-0070、0110、0121、
@@ -38,3 +38,9 @@ toast 三種：
 
 - 單元（`tests/consequences.test.js`）：匯出的那一支 —— 一段有額度＋一段不算次數都 ✓ → 1；n返 ✓ → 0。
 - E2E：簽療程單那一支 spec 加一條 —— 「物理治療師諮詢」＋有額度的一段都 ✓ → toast 是「扣掉 1 次」。
+
+## 做完時留下的
+
+- `consequences.js` 多兩支：`chargedOnClose(visit, picks)`（那個數）與 `closedSay(visit, picks)`（存完那一句的前半）。
+  `closeConsequences()` 的 `charged` 改問前者；`home.js` 的 `applyClose()` 不再自己數。
+- 單元 6 條（`tests/consequences.test.js` 最後一組）、E2E `58-verified-rules` 的 P3。
