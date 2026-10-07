@@ -1344,7 +1344,14 @@ async function submit(ctx, draft) {
       consequences: [
         // **只列這一次新加的那幾段。** 併進既有那一天時，前面那幾段她早就
         // 壓過也早就問過客人了，列出來會讓這一道看起來像在問全部。
-        ...draft.slots.slice(ctx.storedSlotCount ?? 0).map((s) => slotSummary(s, all)),
+        //
+        // **抬頭問「在 X 壓好了嗎」時底下只列要壓的那幾段**（`said.toBook`，2026-10-07）：
+        // 不用壓的（HRV）另外講一句 —— 它也會被記下來，只是沒有東西要她先去壓。
+        // 每一段都不用壓時抬頭是「記錄這 N 段？」，照舊全部列
+        ...(said.toBook.length ? said.toBook : said.free).map((i) => slotSummary(draft.slots[i], all)),
+        ...(said.toBook.length && said.free.length
+          ? [`${said.free.map((i) => slotName(draft.slots[i], all, 'short')).join('、')} 不用壓表，會一起記下來`]
+          : []),
         ...said.lines,
       ],
       // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給

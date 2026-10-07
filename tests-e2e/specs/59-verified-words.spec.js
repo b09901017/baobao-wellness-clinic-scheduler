@@ -95,3 +95,36 @@ test('W2 那一天已完成之後再加的那一段，長按取消：不說「�
   await expect(app.dialog().locator('[data-cancel]'), '兩顆不可以都叫「取消」').toHaveText('先不要，回去');
   await expect(app.dialog().locator('[data-ok]')).toHaveText('取消這一段');
 });
+
+// ---------- 11 「已經在 Abovee 壓好表了嗎？」底下不列不用壓的段 ----------
+
+test('W3 功醫門診＋HRV 一起存：抬頭問 Abovee，底下只列功醫門診，HRV 另外講「不用壓表」', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-c', name: '客戶C' })]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-c"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="__course__:course-fm"]').click();
+  await page.locator('[data-chip="s0-doc"]', { hasText: '夏' }).click();
+  await page.locator('[data-add-slot]').click();
+  await app.layer('[data-chip="s1-ent"]');
+  await page.locator('[data-chip="s1-ent"][data-chip-value="__course__:course-hrv"]').click();
+  await page.click('button[type="submit"]');
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said).toContain('已經在 Abovee 壓好表了嗎？');
+  expect(said).toContain('HRV 不用壓表，會一起記下來');
+  await expect(app.dialog().locator('li', { hasText: /^\d\d:\d\d.*功醫門診/ }), '要壓的那一段列在底下').toHaveCount(1);
+  await expect(app.dialog().locator('li', { hasText: /^\d\d:\d\d.*HRV/ }), 'HRV 不列在「壓好了嗎」底下').toHaveCount(0);
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-c');
+  expect(v.slots.map((s) => s.courseId), '兩段都記下來了').toEqual(['course-fm', 'course-hrv']);
+});

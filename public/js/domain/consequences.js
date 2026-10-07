@@ -190,8 +190,11 @@ export function reviewWarnings(warnings = []) {
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
- * @returns {{title: string, lines: string[], confirmLabel: string}} 抬頭與確認鈕的字一起回 ——
- *   新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死
+ * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[]}}
+ *   抬頭與確認鈕的字一起回 —— 新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死。
+ *   `toBook`／`free`：這一次新加的段裡**哪幾段要壓、哪幾段不用**（那一筆來訪裡的位置）。
+ *   抬頭問的是「在 X 壓好了嗎」，所以它底下只能列 `toBook` —— 以前呼叫端把新加的每一段都列上去，
+ *   功醫門診＋HRV 一起存時讀起來像在問「HRV 在 Abovee 壓好了嗎」（2026-10-07）。名字由呼叫端組
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
@@ -238,8 +241,12 @@ export function bookingConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
-  if (!where) return { ...nothingToBook(fresh.length), lines };
-  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄' };
+  const live = fresh.filter((i) => isLiveSlot(visit?.slots?.[i]));
+  const toBook = live.filter((i) => bookingSystemOf(coursesById[visit.slots[i].courseId]));
+  const free = live.filter((i) => !toBook.includes(i));
+
+  if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free };
+  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
 }
 
 /**
