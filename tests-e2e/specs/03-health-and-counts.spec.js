@@ -80,7 +80,7 @@ test('H3 客戶總覽讀快取、詳情頁現算 —— 兩邊刻意會不一樣
   expect(detail).toMatch(/剩餘\s*19/);
 });
 
-test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({ app }) => {
+test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
     customer({ id: 'cust-f', name: '客戶F' }),
@@ -93,7 +93,9 @@ test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({
 
   const body = await app.text();
   console.log('[H4] =\n' + body.slice(0, 1200));
-  expect(body).toContain('額度超用');
+  // 這一項有在檢查。2026-10-07 起沒事的項目收在最底下那一行裡（issue 18），`app.text()` 讀不到
+  // 收起來的字 —— 以前這一條靠的是上面那一排數字磚每一項都印名字
+  await expect(page.locator('#view [data-check="overused"]')).toHaveCount(1);
 });
 
 test('H5 同一個月記了兩份可用性 → 列出來，但不自動合併（ADR-0053）', async ({ app }) => {
