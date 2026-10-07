@@ -1,6 +1,6 @@
 # 同一位客戶的兩段撞時間：提醒，不擋
 
-Status: todo
+Status: done
 來源：`findings.md` 第 4 條
 動工前先讀：`public/js/domain/visits.js` 的 `conflictWarnings()`（`:1859-1920`，`whoOf()` 在 `:1881`）、`overlapWarnings()`（`:1732`）、`visitWarnings()`（`:1675`）、
 三個呼叫端傳 `sameDayVisits` 的地方（`schedule.js:2163-2170`、`visitEditor.js:1244-1249`、`aboveeConfirm.js:165/169`）、
@@ -55,3 +55,13 @@ ADR-0083 自己寫「真的撞到時間由存檔前那一道講」。
 ## 文件
 
 ADR-0133（她的原話整段貼進去：一隻手打針一隻手做 EECP）。`SPEC.md` 撞期那一節（4.7）補一句。`CLAUDE.md` 連動表「一位客戶同一天的第二筆來訪」那一列補「撞時間由 `conflictWarnings()` 講、資料健檢不列」。
+
+## 做完時留下的
+
+- 加在 `conflictWarnings()` 每一段那一圈的最後。`said`（一個 `Set`）記這一格被診間或治療師那一句用掉了沒；
+  容量 1 的診間只點名第一格，所以只有那一格算講過。
+- 那一句：`第 N 個時段：這位客戶 14:30–15:00 已經有另一段（功醫門診・已完成）`。名字要主檔，所以 `conflictWarnings()` 多收
+  `courses`／`equipment`／`ivProducts`（`validateVisit()` 的 ctx 本來就有，三個呼叫端不用改）。
+- 三個入口傳的 `sameDayVisits` 都是那一天全部客戶的來訪（編輯器與壓表 `listByDate()`、拍 Abovee 從 `visitsBy` 攤平），含已完成的。
+- 單元 9 條（`tests/same-customer-overlap.test.js`）、E2E `58-verified-rules` 的 P4。
+- 前綴「第 N 個時段」留給 07。

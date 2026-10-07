@@ -104,3 +104,44 @@ test('P3 簽療程單：一段扣額度、一段不算次數都做了 → 「扣
   const ent = await app.readDoc('customers/cust-a/entitlements', 'ent-pool');
   expect(ent.doneCount).toBe(1);
 });
+
+// ---------- 04 同一位客戶的兩段撞時間：提醒，不擋（ADR-0133） ----------
+
+test('P4 那一天已完成之後再加一段、時間一樣：第一道確認講得出來，照樣存得下去', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    visit({
+      id: 'v-done', customerId: 'cust-b', customerName: '客戶B', date: DAY, status: 'done',
+      slots: [{
+        ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '09:00', endsAt: '09:30' }),
+        status: 'done',
+      }],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-b"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+
+  // 沒有額度 → 第一段預設就是功醫門診、09:00 開始：跟已完成那一段一模一樣的時間
+  await expect(page.locator('.slothead__what')).toContainText('功醫門診');
+  await page.locator('[data-chip="s0-doc"]', { hasText: '夏' }).click();
+  await page.click('button[type="submit"]');
+
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText(), '同一個人同一個時間排了兩段')
+    .toContain('這位客戶 09:00–09:30 已經有另一段（功醫門診・已完成）');
+  await app.ok();
+  // 第二道：在哪裡壓好了嗎
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+
+  const mine = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-b');
+  expect(mine, '只提醒不擋：另開的那一筆存進去了').toHaveLength(2);
+});

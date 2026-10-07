@@ -1855,9 +1855,15 @@ function assignmentWarnings(visit, {
  *
  * **醫師刻意不比。** 她看不到醫師的班表（那在 Abovee 上），
  * 用看不到的資料去提示只會提示錯 —— ADR-0002 的同一條判準。
+ *
+ * **同一位客戶自己的另一筆來訪也比**（ADR-0133，2026-10-07）：不同診間、不同治療師也講一句。
+ * 資料健檢的「衝突殘留」（`checkConflicts()`）刻意不列這一種 —— 那是允許的排法，列了就是一列按不掉的提醒。
  */
-function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] }) {
+function conflictWarnings(visit, {
+  sameDayVisits = [], rooms = [], staff = [], courses = [], equipment = [], ivProducts = [],
+}) {
   const out = [];
+  const master = { courses, equipment, ivProducts };
   const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
   const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
 
@@ -1878,6 +1884,9 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
     }
     if (!clashes.length) continue;
 
+    // 這一格已經被底下哪一句講過了。同一位客戶那一句只補**沒講過的**（ADR-0133）
+    const said = new Set();
+
     const whoOf = ({ other }) => (other.customerId === visit.customerId
       ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
       : (other.customerName ?? '另一位客戶'));
@@ -1896,6 +1905,8 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
       const capacity = roomCapacityOf(room);
       if (inRoom.length + 1 > capacity) {
         const names = [...new Set(inRoom.map(whoOf))].join('、');
+        // 裝得下好幾位的那一間把每一位都點名；只裝一位的只講第一格
+        for (const c of (capacity > 1 ? inRoom : inRoom.slice(0, 1))) said.add(c);
         out.push(capacity > 1
           ? `${at}：${roomName(slot.roomId)} ${slot.startsAt}–${slot.endsAt} 這個時間`
             + `已經有 ${inRoom.length} 位（最多 ${capacity} 位）：${names}`
@@ -1908,11 +1919,30 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
     if (slot.therapistId) {
       for (const c of clashes) {
         if (c.theirs.therapistId !== slot.therapistId) continue;
+        said.add(c);
         out.push(
           `${at}：${staffName(slot.therapistId)} ${c.theirs.startsAt}–${c.theirs.endsAt} `
           + `已經排了 ${whoOf(c)}`,
         );
       }
+    }
+
+    // ---------- 同一位客戶：一個人同一個時間排了兩段（ADR-0133） ----------
+    //
+    // 她 2026-10-07：「同一位客戶同一天時間撞在一起是有可能發生的，只是很少見，所以不用擋，但要提醒
+    // （也許會在同個診間一隻手打針一隻手做eecp之類的 但我通常不會這樣排）」。
+    //
+    // 那一天已完成之後再加一段會另開一筆來訪（ADR-0083），所以這兩段不在同一筆裡 ——
+    // `overlapWarnings()` 只比同一筆，上面兩句只在同診間／同治療師時講。兩段都不佔診間
+    // 也不派治療師時（功醫門診），以前一句都沒有。
+    //
+    // **上面已經因為這一格講過話的不再講**：她要的是提醒一次，不是同一件事兩句。
+    for (const c of clashes) {
+      if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
+      out.push(
+        `${at}：這位客戶 ${c.theirs.startsAt}–${c.theirs.endsAt} 已經有另一段`
+        + `（${slotName(c.theirs, master, 'short')}・${shortStatus(slotStatus(c.other, c.theirs))}）`,
+      );
     }
   }
 
