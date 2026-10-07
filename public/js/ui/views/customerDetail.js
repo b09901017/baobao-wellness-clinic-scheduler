@@ -282,7 +282,7 @@ function paint(ctx) {
           .map((v) => visitRow(v, master)).join('')}</ul>
         ${visits.length > RECENT_VISITS
           ? `<p style="margin: var(--space-2) 0 0">
-               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 筆</button></p>`
+               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 天</button></p>`
           : ''}` : '')}
 
     <div class="section">
@@ -439,7 +439,7 @@ function wire(ctx, { today, marks }) {
   el.querySelector('[data-all-visits]')?.addEventListener('click', () => {
     const sheet = openSheet({
       title: '全部來訪',
-      note: `${visits.length} 筆，新的在上面。`,
+      note: `${visits.length} 天，新的在上面。`,
       body: `<ul class="link-list">${visits.map((v) => visitRow(v, master)).join('')}</ul>`,
     });
     sheet.el.querySelectorAll('[data-visit]').forEach((btn) =>
@@ -745,7 +745,7 @@ function openDanger(ctx) {
       title: `刪除「${customer.name}」？`,
       consequences: [
         '這是標記刪除，資料不會真的消失',
-        `他底下的 ${ctx.entitlements.length} 筆額度與 ${ctx.visits.length} 筆來訪都不會被修改`,
+        `他底下的 ${ctx.entitlements.length} 筆額度與 ${ctx.visits.length} 天的來訪都不會被修改`,
         '客戶清單上不再顯示，壓表時也不會出現',
         '可以在設定 → 已刪除項目 還原',
       ],

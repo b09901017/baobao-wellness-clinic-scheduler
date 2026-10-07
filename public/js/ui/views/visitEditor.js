@@ -119,7 +119,7 @@ async function boot(el, {
     if (visitId && !existing) {
       el.innerHTML = `
         ${embedded ? '' : `<a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>`}
-        <div class="card"><p>找不到這筆來訪，可能已經被刪除。</p></div>`;
+        <div class="card"><p>找不到這一天的來訪，可能已經被刪除。</p></div>`;
       return;
     }
 
@@ -512,7 +512,7 @@ function sameDayNote(ctx, draft) {
 
   const { open, closed } = sameDayState(ctx.customerVisits, ctx.customer.id, draft.date);
   const line = open
-    ? `${esc(shortDate(draft.date))} 已經有一段了，存下去會加進那一天的那一筆。`
+    ? `${esc(shortDate(draft.date))} 已經有一段了，存下去會加進那一天。`
     : (closed.length
       ? `${esc(shortDate(closed[0].date))} 那一天已經是「${
         esc([...new Set(closed.map((v) => describeStatus(v.status)))].join('、'))

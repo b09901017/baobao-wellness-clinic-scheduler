@@ -1,6 +1,6 @@
 # 講來訪的數字數的是段，不是筆
 
-Status: todo
+Status: done
 來源：`findings.md` 第 8 條、三的最後一列（「筆」當來訪的單位）
 動工前先讀：ADR-0087（整支）、ADR-0061（取消的不算進數字）、`tests/day-slot-words.test.js`（整支 —— `GONE` 那一份與檔頭的例外）、
 `public/js/ui/views/calendar.js` 的 `countLine()`（`:277-297`）與週檢視那一段（`:374-414`）、`public/js/domain/calendar.js` 的 `summaryByDate()`（`:358`）與 `agendaFor()`、
@@ -81,3 +81,13 @@ ADR-0135（延伸 0087；寫明 0061 不動、單位怎麼挑）。`CLAUDE.md` �
 
 動工前多讀：`SPEC.md`「今天做了什麼」那一節、ADR-0062、0071、`CLAUDE.md` 連動表「『今天做了什麼』要多列一種」「『今天做了什麼』的分段」。
 跟 14 改同一支檔案（`domain/dayReview.js`、`tests/day-review.test.js`）—— 先後做，不要同時。
+
+## 做完時留下的
+
+- 月曆上方「N 段來訪」（`liveSlots()` 加總）；週檢視右上角＝`summaryByDate()` 的 `slots`（**改成只數還算數的段**，它唯一的讀者就是週檢視）＋行事備註＋待辦，單位「項」。
+- 壓表「已記 N 段」「回來記一段」「加這一段」；E2E 找那一顆用的是 `[data-add]`，沒有一支靠那幾個字找它，只改了 `07` 的標題與兩份文件。
+- 來訪編輯器「存下去會加進那一天。」「找不到這一天的來訪」；`visits.js` 兩句錯誤訊息改講「那一天」。
+- 客戶詳情「看全部 N 天」「N 天，新的在上面。」、刪客戶「N 筆額度與 N 天的來訪」。
+- 今天做了什麼：`TILES` 拿掉 `unit`，畫成「壓了 13」，數字前後留空白。
+- 新的掃描：`COUNTED` 帶著前面那個變數抓「`${…} 筆…`」，例外是整句的 regex（`${rows.length} 筆` 放行、`${rows.length} 筆來訪` 照擋）。`home.js` 那十幾句數的是任務與隨手記，整支只擋「筆來訪」。
+- ADR-0135、`SPEC.md` 兩處、`CLAUDE.md`「畫面上講『哪一段／哪一天』」那一列。

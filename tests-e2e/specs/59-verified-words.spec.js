@@ -246,3 +246,29 @@ test('W6 日曆長按「去簽療程單」：落在那一天的抽屜上、一�
   await expect(page.locator('[data-open="v-today"]')).toBeVisible();
   await expect(drawer).toHaveCount(0);
 });
+
+// ---------- 09 講來訪的數字數的是段 ----------
+
+test('W7 一天兩段、取消一段：月曆上方「1 段來訪」，週檢視那一天右上角「1 項」', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    visit({
+      id: 'v-a', customerId: 'cust-a', customerName: '客戶A', date: DAY, status: 'confirmed',
+      slots: [
+        { ...slot({ courseId: 'course-recovery', entitlementId: null, equipmentId: 'eq-sis', startsAt: '09:00', endsAt: '10:00' }), status: 'cancelled' },
+        { ...slot({ courseId: 'course-recovery', entitlementId: null, equipmentId: 'eq-sis', startsAt: '14:00', endsAt: '15:00' }), status: 'confirmed' },
+      ],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await app.settled();
+  await expect(page.locator('#view')).toContainText('1 段來訪');
+  await expect(page.locator('#view')).not.toContainText('筆來訪');
+
+  await page.locator('[data-view="week"]').click();
+  await app.settled();
+  const head = page.locator(`.swipe__pane[data-offset="0"] .weekday__head[data-day="${DAY}"]`);
+  // 底下兩列：一列劃掉的（取消）、一列沒劃掉的 —— 數字是沒劃掉的那一列
+  await expect(head).toContainText('1 項');
+});

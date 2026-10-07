@@ -590,8 +590,7 @@ function reviewHtml(review, day, today, settings) {
     ${review.tiles.length ? `
       <p class="reviewtiles">
         ${review.tiles.map((t) => `
-          <span class="reviewtiles__one">${esc(t.label)}
-            <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
+          <span class="reviewtiles__one">${esc(t.label)} <b class="num">${t.n}</b></span>`).join('')}
       </p>` : ''}
 
     <div class="reviewlist">

@@ -40,7 +40,7 @@ import { givableBags } from '../../domain/products.js';
 import { chargesEntitlement } from '../../domain/entitlements.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
-  slotNoteOf,
+  slotNoteOf, liveSlots,
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
@@ -282,8 +282,10 @@ function countLine(data, date) {
   // **取消的不算。** 這一行回答的是「那段時間有幾件事要做」，而取消的那一筆
   // 已經沒事要做了 —— 算進去會讓她以為那幾天排滿了（ADR-0061）。
   // 它們照樣畫得出來（月檢視的色條、抽屜裡暗掉的那一列），只是不算數。
-  const visits = shows('visit')
-    ? data.visits.filter((v) => inRange(v.date) && isActive(v)).length
+  // **數段不數筆**（ADR-0135）：一天裡取消的那一段也不算（`liveSlots()`）
+  const slots = shows('visit')
+    ? data.visits.filter((v) => inRange(v.date) && isActive(v))
+      .reduce((n, v) => n + liveSlots(v).length, 0)
     : 0;
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
@@ -292,7 +294,7 @@ function countLine(data, date) {
     ? (data.notes ?? []).filter((n) => inRange(n.date)).length
     : 0;
   const parts = [];
-  if (visits) parts.push(`${visits} 筆來訪`);
+  if (slots) parts.push(`${slots} 段來訪`);
   if (notes) parts.push(`${notes} 件待辦`);
   if (events) parts.push(`${events} 筆行事備註`);
   return parts.join('・') || '這段時間沒有東西';
@@ -387,9 +389,10 @@ function weekHtml(data, date, today) {
           : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
         const todos = notesOn(data, d);
-        // `summaryByDate()` 已經濾掉取消的，所以這個數字天生就不含它們 ——
-        // 跟頂端那一行講同一句話（ADR-0061）。
-        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
+        // ＝底下**沒被劃掉的列數**（ADR-0135）：還算數的段＋行事備註＋待辦。取消的段畫成灰的、
+        // 不算（ADR-0061，`summaryByDate()` 的 `slots` 已經濾掉）；勾掉的待辦照算 —— 那一列還在。
+        // 三種混在一起，所以單位寫「項」。
+        const total = (day?.slots ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
@@ -411,7 +414,7 @@ function weekHtml(data, date, today) {
                 /* 七欄時「週」字收掉（`.weekday__pre`）：`10/12 週一` 在九十幾像素裡會斷行 */''
               }<span class="weekday__pre">週</span>${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
-              <span class="num muted">${total ? `${total} 筆` : ''}</span>
+              <span class="num muted">${total ? `${total} 項` : ''}</span>
             </button>
 
             ${pinned || timeline ? `

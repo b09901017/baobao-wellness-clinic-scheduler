@@ -319,6 +319,14 @@ describe('每天的摘要', () => {
     assert.equal(summary['2026-09-18'].pending, 1);
   });
 
+  // 週檢視右上角那個數字＝底下沒被劃掉的列數（ADR-0135）：一天裡取消的那一段畫成灰的、不算
+  test('一段取消了，時段數不算它', () => {
+    const summary = summaryByDate([
+      visit({ slots: [{ startsAt: '09:00', status: 'confirmed' }, { startsAt: '10:30', status: 'cancelled' }] }),
+    ]);
+    assert.equal(summary['2026-09-18'].slots, 1);
+  });
+
   test('取消與刪除的不算，沒有那天就是沒有那個鍵', () => {
     const summary = summaryByDate([
       visit({ status: 'cancelled' }),

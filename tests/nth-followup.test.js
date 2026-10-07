@@ -244,7 +244,7 @@ describe('存檔前的檢查（validateVisit）', () => {
     const out = validateVisit(nthVisit('v-new', '2026-09-20', 'v-exam-a', 3), {
       ...ctx, customerVisits: [notDone],
     });
-    assert.ok(out.errors.some((e) => e.includes('不是一次已完成的健檢')));
+    assert.ok(out.errors.some((e) => e.includes('沒有一次已完成的健檢')));
   });
 
   test('指到一筆不是健檢的來訪 → 擋下來', () => {
@@ -255,7 +255,7 @@ describe('存檔前的檢查（validateVisit）', () => {
     const out = validateVisit(nthVisit('v-new', '2026-09-20', 'v-rehab', 3), {
       ...ctx, customerVisits: [rehab],
     });
-    assert.ok(out.errors.some((e) => e.includes('不是一次已完成的健檢')));
+    assert.ok(out.errors.some((e) => e.includes('沒有一次已完成的健檢')));
   });
 
   test('返數超出範圍 → 講的是返數，不是「要選一個額度」', () => {

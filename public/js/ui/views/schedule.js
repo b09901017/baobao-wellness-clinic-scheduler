@@ -1034,7 +1034,7 @@ function recordPanel(row) {
               ctx?.all?.clinicalFlags ?? []), { rows: ctx?.all?.clinicalFlags ?? [] })}
           </div>
         </div>
-        <span class="badge badge--ok">已記 ${recorded.length} 筆</span>
+        <span class="badge badge--ok">已記 ${recorded.length} 段</span>
       </div>
       ${banBlock(row, { raw: true })}
       ${row.needsAvailability ? `<p class="card__note" style="margin: var(--space-2) 0 0">
@@ -1081,7 +1081,7 @@ function recordPanel(row) {
       ${recorded.length
         ? `<ul class="link-list link-list--flat">${recorded.map((s) => `
             <li><span class="link-list__label num">${esc(s.label)}</span></li>`).join('')}</ul>`
-        : '<p class="muted">還沒記。在 Abovee 或 Examine 壓完之後回來記一筆。</p>'}
+        : '<p class="muted">還沒記。在 Abovee 或 Examine 壓完之後回來記一段。</p>'}
     </section>
 
     <section class="card card--flat">
@@ -1299,7 +1299,7 @@ function dayPanel(row) {
 
       <div class="errors" data-errors hidden></div>
       <button class="btn btn--primary btn--wide" type="button" data-add
-              ${picked ? '' : 'disabled'}>加這一筆</button>
+              ${picked ? '' : 'disabled'}>加這一段</button>
       <p class="card__note" style="margin: var(--space-3) 0 0">${addNote(sameDay, closed)}</p>
     </section>`;
 }

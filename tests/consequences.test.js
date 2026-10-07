@@ -158,7 +158,7 @@ describe('壓表那一道確認要講的話', () => {
     assert.ok(settledDayLine().includes(`「${shortStatus(INITIAL_STATUS)}」`));
   });
 
-  test('壓表「加這一筆」底下那一句讀同一支，不自己寫「退回」', () => {
+  test('壓表「加這一段」底下那一句讀同一支，不自己寫「退回」', () => {
     const src = readFileSync(new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('function addNote('), src.indexOf('\n}', src.indexOf('function addNote(')));
     assert.ok(body.includes('settledDayLine()'), 'addNote() 要讀 consequences.js 那一句');
