@@ -18,6 +18,8 @@ const HERS = [
   'allowedRoomTypes', 'lineName', 'followupCourseId',
   'capacity', 'contraindications', 'color', 'fill', 'hint',
   'messageTemplates', 'sortWeights', 'slotGapMin', 'sheetSync',
+  // 審查補的：已完成那一天的更正、額度上買的那一款點滴、AI 用量的設定
+  'lastCorrection', 'ivProductId', 'monthlyCapUsd', 'paused',
 ];
 
 /** 系統自己記的：她沒有改它，那一則紀錄講的也不是它。 */
@@ -77,5 +79,17 @@ test('畫面上找不到「壓表批次」四個字', () => {
   for (const path of ['public/js/domain/audit.js', 'public/js/data/backup.js']) {
     const quoted = readFileSync(path, 'utf8').match(/'[^'\n]*壓表批次[^'\n]*'/g) ?? [];
     assert.deepEqual(quoted, [], path);
+  }
+});
+
+// 兩份名單綁在一起（審查 2026-10-07）：系統自己記的有中文名之外，**也要真的不進句子** ——
+// 只補了 `FIELD_LABELS` 的話，那一句會變成「改了 哪幾段」。
+test('系統自己記的每一個都不出現在那一句話裡', () => {
+  for (const key of SYSTEMS) {
+    const line = describeEvent({
+      action: 'visits.update', targetPath: 'visits/v1',
+      before: { date: '2026-10-07', customerName: '客戶A' }, after: { [key]: 'x' },
+    }) ?? '';
+    assert.ok(!line.includes(fieldLabel(key)), `${key}：${line}`);
   }
 });

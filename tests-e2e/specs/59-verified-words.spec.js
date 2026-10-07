@@ -294,8 +294,8 @@ function longCustomerDocs() {
 const pageScrolls = (page) => page.evaluate(() => [document.documentElement, document.querySelector('.app__main')]
   .some((el) => el && el.scrollWidth > el.clientWidth + 1));
 
-test('W8 360 寬：其他限制 65 字、備註一串網址 —— 客戶清單不能左右滑、每張卡一樣寬、那一則截成一行', async ({ app, page }) => {
-  await page.setViewportSize({ width: 360, height: 740 });
+for (const width of [360, 393]) test(`W8 ${width} 寬：其他限制 65 字、備註一串網址 —— 客戶清單不能左右滑、每張卡一樣寬、那一則截成一行`, async ({ app, page }) => {
+  await page.setViewportSize({ width, height: 740 });
   await app.seed(longCustomerDocs());
   await app.signIn('/customers');
   await app.settled();

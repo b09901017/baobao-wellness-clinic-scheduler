@@ -154,6 +154,10 @@ const FIELD_LABELS = {
   sortWeights: '排序權重',
   slotGapMin: '來訪內時段間隔（分鐘）',
   sheetSync: '試算表自動推送',
+  lastCorrection: '更正理由',
+  ivProductId: '買的是哪一款點滴',
+  monthlyCapUsd: '每月上限（美元）',
+  paused: '暫停',
   // 系統自己記的（也在 `QUIET_IN_SENTENCE`）：句子不講，展開的表照列 —— 照列就不能是英文。
   customerId: '客戶編號',
   visitId: '哪一天的來訪',

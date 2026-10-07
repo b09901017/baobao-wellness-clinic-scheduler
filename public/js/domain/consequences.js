@@ -30,7 +30,7 @@ import {
 } from './taskRules.js';
 import {
   shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
-  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm,
+  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots,
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -665,10 +665,9 @@ export function cancelConsequences({
     lines.push(charged ? `${back}，次數也會還回來` : `${back} —— 本來就不扣次數`);
     // **那一天別筆來訪裡還活著的段也算剩下的**（2026-10-07）：這一筆沒有剩下的段，不代表那一天沒有 ——
     // 已完成的那一段在另一筆裡。底下 `after` 與任務那幾句照舊只看這一筆（它確實整筆取消了）
-    const elsewhere = (sameDay ?? [])
-      .filter((v) => v && v.id !== visit.id && v.customerId === visit.customerId
-        && v.date === visit.date && !v.deletedAt && v.status !== 'cancelled')
-      .reduce((n, v) => n + (v.slots ?? []).filter((sl) => isLiveSlot(sl)).length, 0);
+    // 「同一天的別筆」只問 `sameDayState()`（ADR-0083：各寫一份的話遲早有一份漏掉一個狀態）
+    const { open, closed } = sameDayState(sameDay, visit.customerId, visit.date, { excludeVisitId: visit.id });
+    const elsewhere = [open, ...closed].filter(Boolean).reduce((n, v) => n + liveSlots(v).length, 0);
     if (left + elsewhere) lines.push(`那一天剩下的 ${left + elsewhere} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 

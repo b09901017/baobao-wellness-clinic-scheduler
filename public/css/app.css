@@ -1461,6 +1461,9 @@ textarea {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
+  /* 備註是她自己打的，可以是一串沒有空白的網址：換行，不撐寬（issue 16） */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 button.mark {
@@ -1482,13 +1485,7 @@ button.mark::after {
   background: var(--mark, var(--mark-grey));
 }
 
-/* 備註是她自己打的，可以是一串沒有空白的網址：不撐寬（issue 16）。
-   看得完的那幾頁換行，清單卡片截成一行加「…」（`.mark--clip`，`marks.js` 的 `row({ clip })`）。 */
-.mark {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
+/* 清單卡片截成一行加「…」（`.mark--clip`，`marks.js` 的 `row({ clip })`，issue 16） */
 .mark__text {
   min-width: 0;
 }

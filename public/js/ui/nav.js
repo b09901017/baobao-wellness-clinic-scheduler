@@ -216,9 +216,21 @@ export function pushLayer(onPop) {
 // 待辦那一頁本來就 import 日曆（讀取卡片），反過來再 import 一次就繞成一圈。
 const handoffs = new Map();
 
-/** 給下一頁留一句話。只活到被 `takeFor()` 拿走那一次。 */
+/**
+ * 給下一頁留一句話。只活到被 `takeFor()` 拿走那一次 —— **或再換一次頁**：那一頁沒拿走
+ * （讀取失敗）的話，不丟掉就會在之後哪一天點進那一頁時自己彈出一張舊的。
+ * 第一次換頁是要去的那一頁，第二次才丟。
+ */
 export function leaveFor(key, value) {
   handoffs.set(key, value);
+  let moves = 0;
+  const expire = () => {
+    moves += 1;
+    if (moves < 2) return;
+    window.removeEventListener('hashchange', expire);
+    if (handoffs.get(key) === value) handoffs.delete(key);
+  };
+  window.addEventListener('hashchange', expire);
 }
 
 /** 拿走留給這一頁的那一句話（拿了就沒有了）。沒有就是 `undefined`。 */

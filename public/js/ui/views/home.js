@@ -3101,8 +3101,12 @@ async function openNotesFor(customerId) {
  * - 只有 ✗、沒有 ✓ → 全部是取消，而且給不出復原，所以先問一次。
  */
 async function applyConfirm(ctx) {
-  const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
-  const picks = drawer.picks;
+  // **抽屜開著的那一份先拿在手上**：中間每一個 await 的時候她都可能按返回收掉抽屜（`drawer` 變 null），
+  // 之後再讀 `drawer.…` 會丟 TypeError、被底下的 catch 吞掉 —— 什麼都沒存、也沒有一句話
+  const opened = drawer;
+  if (!opened) return;
+  const visits = byCustomer(ctx.pending).get(opened.customerId) ?? [];
+  const picks = opened.picks;
   // 有按的那幾段（`asked`）與按了 ✗ 的那幾段（`rejected`）。key 是 `來訪 id:原本的索引`
   const asked = new Set(picks.keys());
   const rejected = new Set([...picks].filter(([, yes]) => yes === false).map(([key]) => key));
@@ -3114,7 +3118,7 @@ async function applyConfirm(ctx) {
 
   // **在確認框之前讀**：框講的與寫下去的是同一份（ADR-0070），而且「那一天還剩下什麼」要看得到
   // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）
-  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
+  let customerVisits = await visitsData.listByCustomer(opened.customerId);
 
   // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
@@ -3212,7 +3216,7 @@ async function applyConfirm(ctx) {
         // **這一顆特別需要 key。** 上面那段註解自己寫著「這是這條動線唯一一次
         // 不可逆的寫入」，而它沒有二次確認框擋著，又是一個 for 迴圈一筆一筆存 ——
         // 連點兩下等於整批各存兩次，中間那幾筆的登記任務會長出兩份。
-        key: `confirm:${drawer.customerId}`,
+        key: `confirm:${opened.customerId}`,
       },
     );
     closeDrawer();
@@ -3584,8 +3588,12 @@ function wireClose(ctx) {
  * 翻成逐段的 `true`／`false`／`null`（先不結）。
  */
 async function applyClose(ctx) {
-  const visit = ctx.rows.find((v) => v.id === drawer.visitId);
-  if (!visit || !drawer.picks.size) return;
+  // **抽屜開著的那一份先拿在手上**：中間每一個 await 的時候她都可能按返回收掉抽屜（`drawer` 變 null），
+  // 之後再讀 `drawer.…` 會丟 TypeError、被底下的 catch 吞掉 —— 什麼都沒存、也沒有一句話
+  const opened = drawer;
+  if (!opened) return;
+  const visit = ctx.rows.find((v) => v.id === opened.visitId);
+  if (!visit || !opened.picks.size) return;
 
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
   // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。她按了的那幾段
@@ -3593,7 +3601,7 @@ async function applyClose(ctx) {
   // 本來就不會被動到（`closeVisit()` 只動 true／false）。
   const fresh = customerVisits.find((v) => v.id === visit.id);
   const stillOpen = new Set(slotsToClose(fresh).map(({ index }) => index));
-  if (!fresh || [...drawer.picks.keys()].some((i) => !stillOpen.has(i))) {
+  if (!fresh || [...opened.picks.keys()].some((i) => !stillOpen.has(i))) {
     toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
     closeDrawer();
     await renderClose(ctx.el);
