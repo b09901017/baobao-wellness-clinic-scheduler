@@ -69,6 +69,12 @@ Blocked by: 15（那一支的掃描測試把這一頁放在豁免名單，這一
 
 ADR-0136（她看過圖之後才寫：這一頁只回答「有沒有事／要做什麼」，沒事的收起來）。`docs/操作手冊.md` 有資料健檢那一段的話跟著改。
 
+## 審查之後（2026-10-07，subagent 讀過程式）
+
+- **「`tests/health.test.js` 既有的照綠」跟「字一句一句過」互斥**：那一支大約 40 條在比 `title`／`detail`／`hint` 的字。
+  改成：**比字的那幾條跟著改，檢查邏輯的斷言（幾筆、哪一筆、給不給 `fix`）一條都不動。**
+- `tests/fewer-words.test.js` 的 `MOVED` 也釘著這一頁一句；碰這一頁的 E2E 有 9 支（`grep -rl "settings/health\|data-check" tests-e2e`）。
+
 ## Comments
 
 ### 2026-10-07 她看過模擬圖（兩種狀態：全部沒事／有 3 項要看）

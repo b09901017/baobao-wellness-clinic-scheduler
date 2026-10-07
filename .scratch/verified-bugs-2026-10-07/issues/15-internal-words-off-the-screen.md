@@ -10,11 +10,13 @@ Blocked by: —
 
 ## 她要的
 
-`findings.md` 三（她 10/7：「我想修一二三六的所有內容」）：
+> 我想修一二三六的所有內容
 
-> 日曆 → 已完成的段 → 鉛筆：「（SPEC 第 6.4 節）」
-> 設定 → LINE 回覆模板：「收件匣 #/todo/inbox」「時段反查 #/todo/backfill」——舊網址；現在是 待辦 → 表單收件匣（`#/todo/forms`）、壓表 → 時段反查（`#/schedule/backfill`）
-> 設定首頁、AI 用量、課程編輯、排序權重：「沒有寫死在程式碼裡」「SPEC 第 12 節」「程式裡的天花板」「（不會擋，ADR-0074）」、排序權重頁的公式
+（她 2026-10-07 的原話只有上面這一句。底下是我方 10/7 驗證時寫的描述，出自 `findings.md`，**不是她的話**：）
+
+- 日曆 → 已完成的段 → 鉛筆：「（SPEC 第 6.4 節）」
+- 設定 → LINE 回覆模板：「收件匣 #/todo/inbox」「時段反查 #/todo/backfill」——舊網址；現在是 待辦 → 表單收件匣（`#/todo/forms`）、壓表 → 時段反查（`#/schedule/backfill`）
+- 設定首頁、AI 用量、課程編輯、排序權重：「沒有寫死在程式碼裡」「SPEC 第 12 節」「程式裡的天花板」「（不會擋，ADR-0074）」、排序權重頁的公式
 
 ## 為什麼會這樣
 
@@ -50,3 +52,10 @@ Blocked by: —
 
 - 單元：一條掃原始碼的（去掉註解之後，`public/js/ui` 與 `domain/messageTemplates.js`、`domain/aiUsage.js` 的字串裡沒有 `SPEC 第`、`ADR-`、`#/todo/inbox`、`#/todo/backfill`）。
   資料健檢那兩支先放在豁免名單裡並註明「18 做完拿掉」。
+
+## 審查之後（2026-10-07，subagent 讀過程式）
+
+- `tests/fewer-words.test.js` 的 **`MOVED`** 釘著這一支要改的兩句原文（`settings.js` 那一句與 `preferences.js` 的公式）—— 改字要一起改那一份，不只 `KEEP`。
+- **排序權重的公式已經在 `tip()` 裡**，「或收進 `tip()`」不成立：要做的是把 `?` 裡那一句換成白話。
+- 掃描字樣掃 **`SPEC`**，不是 `SPEC 第` —— 後者抓不到「SPEC 裡已知的」。
+- 跟 18 都動 `fewer-words.test.js` 的 `MOVED`。

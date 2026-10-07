@@ -1812,7 +1812,7 @@ function assignmentWarnings(visit, {
     // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
     const followup = entsById[slot.entitlementId];
     if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
-      out.push(`${at}：${course.name} ${unlinkedFollowupSay(visit, followup, entsById, customerVisits, course.name)}`);
+      out.push(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
@@ -1883,21 +1883,25 @@ function assignmentWarnings(visit, {
  * **她正在存的這一筆也算進去**：`customerVisits` 是存檔前讀回來的，同一筆裡剛加的那一段健檢還不在裡面。
  *
  * 後果那半句是真的會發生的事（ADR-0070）：結案扣的是二返那一筆額度，不問它接到健檢了沒。
+ * **只對還開著的段講** —— 已完成、未到的舊二返（匯入的沒有連結）被解鎖更正、或同一天改別段時，
+ * 「簽療程單時照樣會扣」是一件已經過去的事。配對的那一筆健檢額度查不到時不猜原因，退回原本那一句。
  */
-function unlinkedFollowupSay(visit, followup, entsById, customerVisits, name) {
+function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, name) {
   const source = entsById[followup.followupForEntitlementId] ?? null;
+  if (!source) return '還沒指定是哪一次健檢的';
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
   const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
 
   if (choices.some((c) => c.pickable)) return '還沒指定是哪一次健檢的';
 
-  const open = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
-  const why = open
-    ? `${isValidDate(open.date) ? shortDate(open.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(open.status)}），現在選不到`
+  const booked = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
+  const why = booked
+    ? `${isValidDate(booked.date) ? shortDate(booked.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(booked.status)}），現在選不到`
     : (choices.some((c) => c.status === 'done')
       ? `做完的健檢都已經約了${name}`
       : '這位客戶還沒有做完的健檢');
-  return `還沒接到一次做完的健檢 —— ${why}。可以先記；客人來了簽療程單時照樣會扣一次${name}`;
+  const open = ['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot));
+  return `還沒接到一次做完的健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
 }
 
 /**
@@ -1987,7 +1991,7 @@ function conflictWarnings(visit, {
     // `overlapWarnings()` 只比同一筆，上面兩句只在同診間／同治療師時講。兩段都不佔診間
     // 也不派治療師時（功醫門診），以前一句都沒有。
     //
-    // **上面已經因為這一格講過話的不再講**：她要的是提醒一次，不是同一件事兩句。
+    // **上面已經因為這一格講過話的不再講**：同一件事不出兩句（那是我方的建議，她回「照你的建議」）。
     for (const c of clashes) {
       if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
       out.push(

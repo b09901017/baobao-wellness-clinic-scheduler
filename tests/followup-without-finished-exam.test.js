@@ -107,6 +107,22 @@ describe('舊資料照樣存得下去（ADR-0011 的原則）', () => {
     assert.equal(about(warnings).length, 1);
   });
 
+  // 審查指出的（ADR-0070）：後果那半句是未來式，結掉的段不可以講
+  test('已完成的舊二返沒有連結：講得出沒接到，但不講「簽療程單時照樣會扣」', () => {
+    const stored = visitOf('v-old', '2026-09-01', [fuSlot({ status: 'done' })]);
+    const { errors, warnings } = ask(stored, [stored]);
+    assert.deepEqual(errors, []);
+    const [said] = about(warnings);
+    assert.match(said, /還沒接到一次做完的健檢/);
+    assert.doesNotMatch(said, /照樣會扣/);
+  });
+
+  test('配對的那一筆健檢額度查不到：不猜原因，退回原本那一句', () => {
+    const ents = [ENTS[1]];
+    const [said] = about(ask(visitOf(null, '2026-10-07', [fuSlot()]), [], { entitlements: ents }).warnings);
+    assert.equal(said, '第 1 個時段：二返 還沒指定是哪一次健檢的');
+  });
+
   test('取消掉的那一段二返不講（它不會發生）', () => {
     const v = visitOf('v-x', '2026-10-07', [fuSlot({ status: 'cancelled' }), examSlot('confirmed')]);
     assert.deepEqual(about(ask(v, [v]).warnings), []);
