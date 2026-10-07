@@ -28,7 +28,7 @@ import { join } from 'node:path';
 
 import { fromRoot, toPosix } from './helpers/paths.js';
 
-const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note'];
+const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note', 'hcard__why'];
 
 /**
  * 欄位說明（`components/form.js` 的 `hint` 參數）2026-09-12 起畫成標籤旁邊
@@ -80,6 +80,9 @@ const KEEP = {
   // 2026-09-24 收掉三段（ADR-0110）：兩張抽屜上「哪一段…就點它一下」—— 換成 ✓／✗
   // 兩顆圖示之後按鈕自己講完了；「這一天到現在還是『待確認』」收進 `?`（她：「太占版面了」）
   'ui/views/home.js': 7,
+  // 資料健檢有事的那一項卡片上那一句「這是什麼事」（ADR-0136，她看過圖點頭）。沒事的項目連名字都收起來了，
+  // 有事的那一句就是她要的資訊 —— 收進 `?` 等於要她點開才知道那一張卡在講什麼
+  'ui/views/health.js': 1,
   // 五段：沒有剩餘次數了（空狀態）、月份讀不出來（錯誤）、去記時間那顆按鈕、
   // 「併進同一天」（紅線 5）
   'ui/views/schedule.js': 5,

@@ -86,16 +86,24 @@ test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({
     customer({ id: 'cust-f', name: '客戶F' }),
     entitlement('cust-f', {
       id: 'ent-f', label: '靜脈', type: 'single', courseId: 'course-iv-laser',
-      totalQty: 1, doneCount: 2, bookedCount: 1,
+      totalQty: 1, doneCount: 2, bookedCount: 0,
     }),
+    // 超用看的是**從來訪重算**的次數（計數欄位可能正好是歪的那一個）—— 所以要真的有兩次做完的來訪。
+    // 2026-10-07 以前這裡只有歪掉的計數欄位，那一項其實沒觸發；這一條靠上面那一排數字磚每一項都印名字才綠
+    ...[-14, -7].map((d, i) => visit({
+      id: `v-f${i}`, customerId: 'cust-f', customerName: '客戶F', date: addDays(TODAY, d), status: 'done',
+      slots: [{
+        ...slot({ courseId: 'course-iv-laser', entitlementId: 'ent-f', startsAt: '10:00', endsAt: '11:00', attended: true }),
+        status: 'done',
+      }],
+    })),
   ]);
   await app.signIn('/settings/health');
 
   const body = await app.text();
   console.log('[H4] =\n' + body.slice(0, 1200));
-  // 這一項有在檢查。2026-10-07 起沒事的項目收在最底下那一行裡（issue 18），`app.text()` 讀不到
-  // 收起來的字 —— 以前這一條靠的是上面那一排數字磚每一項都印名字
-  await expect(page.locator('#view [data-check="overused"]')).toHaveCount(1);
+  await expect(page.locator('#view .hcard[data-check="overused"]'), '有事的卡片上列出來了').toHaveCount(1);
+  await expect(page.locator('#view .hcard[data-check="overused"]')).toContainText('客戶F');
 });
 
 test('H5 同一個月記了兩份可用性 → 列出來，但不自動合併（ADR-0053）', async ({ app }) => {

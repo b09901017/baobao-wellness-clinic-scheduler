@@ -64,6 +64,8 @@ function paint(el, result) {
   const clean = result.checks.filter((c) => c.count === 0);
   // 嚴重度記在每一筆 finding 上：有任何一筆是「資料自己對不起來」就排進前面那一組
   const hard = (c) => c.findings.some((x) => x.severity === 'mismatch');
+  // 結論那一塊的顏色跟以前的數字磚同一套：有對不起來的是紅的，只有要處理的是黃的，沒事是綠的
+  const tone = bad.some(hard) ? 'hsum--bad' : bad.length ? 'hsum--warn' : 'hsum--ok';
 
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
@@ -74,7 +76,7 @@ function paint(el, result) {
         + '其餘一律不會自動改任何資料。')}</h1>
     </div>
 
-    <section class="card hsum ${bad.length ? 'hsum--bad' : 'hsum--ok'}">
+    <section class="card hsum ${tone}">
       <p class="hsum__head">${bad.length
         ? `有 ${bad.length} 項要你看`
         : `${result.checks.length} 項都沒問題`}</p>
@@ -139,15 +141,17 @@ function checkCard(check) {
 const FIRST_ROWS = 5;
 
 /**
- * 同一位客戶的好幾筆收成一列（`who`）；沒有 `who` 的一筆一列。順序照 domain 給的。
+ * 同一位客戶的好幾筆收成一列；沒有 `who` 的一筆一列。順序照 domain 給的。
+ * **照 `whoId` 分，不照名字** —— 同名的兩位客戶、改過名的那一位（來訪身上是快照）照名字會分錯。
  */
 function rowsHtml(findings) {
   const entries = [];
   const byWho = new Map();
   for (const f of findings) {
-    if (!f.who) { entries.push([f]); continue; }
-    if (!byWho.has(f.who)) { byWho.set(f.who, []); entries.push(byWho.get(f.who)); }
-    byWho.get(f.who).push(f);
+    const key = f.whoId ?? null;
+    if (!f.who || !key) { entries.push([f]); continue; }
+    if (!byWho.has(key)) { byWho.set(key, []); entries.push(byWho.get(key)); }
+    byWho.get(key).push(f);
   }
 
   const one = (list) => (list.length > 1
@@ -159,13 +163,15 @@ function rowsHtml(findings) {
 
   const shown = entries.slice(0, FIRST_ROWS);
   const rest = entries.slice(FIRST_ROWS);
-  const unit = rest.every((list) => list[0].who) ? '位' : '筆';
+  // 收著的全是一位一列時講「位」；混著一筆一列的就講筆數（數的是裡面每一筆，不是列數）
+  const byPerson = rest.every((list) => list[0].whoId);
+  const more = byPerson ? `${rest.length} 位` : `${rest.flat().length} 筆`;
   return `
     <div class="hrows">
       ${shown.map(one).join('')}
       ${rest.length ? `
         <details class="hmore">
-          <summary class="hmore__sum">還有 ${rest.length} ${unit}</summary>
+          <summary class="hmore__sum">還有 ${more}</summary>
           ${rest.map(one).join('')}
         </details>` : ''}
     </div>`;

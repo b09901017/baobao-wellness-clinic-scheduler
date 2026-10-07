@@ -6252,6 +6252,15 @@ summary {
   color: var(--overdue);
 }
 
+.hsum--warn {
+  border-color: var(--soon-bg);
+  background: var(--soon-bg);
+}
+
+.hsum--warn .hsum__head {
+  color: var(--soon);
+}
+
 .hsum__rest {
   margin: 2px 0 0;
   font-size: var(--text-sm);

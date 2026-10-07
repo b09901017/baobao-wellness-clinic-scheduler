@@ -58,8 +58,8 @@ import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
  * 那一列從此是她唯一的資訊來源。`tests/health.test.js` 盯著：
  * 每一個 finding 的 `link` 要嘛是 `null`，要嘛以 `#/settings/` 開頭。
  *
- * **`who`（選填）是那一筆講的是哪一位客戶的名字**（2026-10-07，issue 18）：畫面拿它把同一位的好幾筆
- * 收成一列。只有講得出是哪一位的那幾種才帶；沒有它的照舊一筆一列。
+ * **`who`／`whoId`（選填）是那一筆講的是哪一位客戶**（名字與 id，2026-10-07，issue 18）：畫面照 `whoId`
+ * 把同一位的好幾筆收成一列、抬頭印 `who`。只有講得出是哪一位的那幾種才帶；沒有它的照舊一筆一列。
  *
  * 檢查的順序就是畫面上的順序：先資料對不起來的，再輪到要她處理的事（畫面上照嚴重度再分兩組）。
  * id 會出現在網址與稽核訊息裡，不要改。
@@ -283,16 +283,6 @@ export function runHealthCheck(snapshot, today) {
   return { today, checks, totals: totalsOf(checks) };
 }
 
-/** 首頁徽章要的一句話。沒有問題時回 null —— 沒事就不要在畫面上佔位置。 */
-export function healthBadge(result) {
-  const t = result?.totals;
-  if (!t?.findings) return null;
-  const parts = [];
-  if (t.mismatch) parts.push(`${t.mismatch} 筆資料對不起來`);
-  if (t.attention) parts.push(`${t.attention} 筆要處理`);
-  return parts.join('・');
-}
-
 function totalsOf(checks) {
   const all = checks.flatMap((c) => c.findings);
   return {
@@ -380,6 +370,7 @@ function checkCounts(ctx) {
       out.push({
         severity: 'mismatch',
         who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${e.label}`,
         detail:
           `計數欄位是 已完成 ${rec.stored.done}、已排未上 ${rec.stored.booked}，`
@@ -422,6 +413,7 @@ function checkFollowups(ctx) {
       out.push({
         severity: 'mismatch',
         who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${miss.source.label}`,
         detail: `健檢有 ${miss.source.totalQty ?? 0} 次，但身上沒有對應的二返額度 ——`
           + '二返記不進來，「約二返」的待辦也不會長出來',
@@ -443,6 +435,7 @@ function checkFollowups(ctx) {
       out.push({
         severity: 'attention',
         who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${bad.followup.label}`,
         detail: `健檢是 ${bad.expected} 次，二返卻是 ${bad.actual} 次。`
           + '故意給的就不用管，不是的話到「客戶」那一頁點開這位客戶，改二返那一筆的總次數',
@@ -576,6 +569,7 @@ function checkVisitStatus(ctx) {
       out.push({
         severity: 'mismatch',
         who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: `狀態「${visit.status ?? '（空的）'}」不在合法清單內`,
         link: null,
@@ -589,6 +583,7 @@ function checkVisitStatus(ctx) {
       out.push({
         severity: 'attention',
         who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: visit.status === 'confirmed'
           ? '日期已過但還是「客戶已確認」，該標已完成或未到了'
@@ -607,6 +602,7 @@ function checkVisitStatus(ctx) {
       out.push({
         severity: 'mismatch',
         who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: '標成「已完成」但每一段都記成沒做，次數一次都沒扣。該標成未到嗎？',
         link: null,
@@ -635,6 +631,7 @@ function checkOverused(ctx) {
       out.push({
         severity: 'attention',
         who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${e.label}`,
         detail: `共 ${c.total} 次，已完成 ${c.done}、已排未上 ${c.booked}，超出 ${
           c.done + c.booked - c.total
@@ -731,6 +728,7 @@ function checkOverdueTasks(ctx) {
     .map((t) => ({
       severity: 'attention',
       who: t.customerName ?? nameOf(ctx, t.customerId),
+      whoId: t.customerId,
       title: `${t.kind}・${t.customerName ?? nameOf(ctx, t.customerId)}`,
       detail: `死線 ${t.dueDate} 已經過了。做完了就到「待辦」把那一張勾掉`,
       link: null,
@@ -765,6 +763,7 @@ function checkStaleAvailability(ctx) {
     out.push({
       severity: 'attention',
       who: customer.name,
+      whoId: customer.id,
       title: customer.name,
       detail: collections.length
         ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`
@@ -814,6 +813,7 @@ function checkDuplicateAvailability(ctx) {
       out.push({
         severity: 'attention',
         who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${monthLabel(`${group.month}-01`)}`,
         detail: `記了 ${group.records.length} 份：${
           group.records.map((c) => summarizeCollection(c)).join('；')
@@ -842,6 +842,7 @@ function checkChartNo(ctx) {
     out.push({
       severity: 'attention',
       who: customer.name,
+      whoId: customer.id,
       title: customer.name,
       detail: `${stale.map((m) => m.text).join('、')} → ${
         next.filter((m) => m.text.startsWith(CHART_NO_PREFIX)).map((m) => m.text).join('、')}`,
@@ -888,6 +889,7 @@ function checkIvMismatch(ctx) {
       out.push({
         severity: 'attention',
         who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}・第 ${i + 1} 個時段`,
         detail: `買的是 ${name(bought)}，排成了 ${name(slot.ivProductId)}`,
         link: null,
@@ -938,6 +940,7 @@ function checkEntitlementMinutes(ctx) {
     out.push({
       severity: 'attention',
       who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${e.label}`,
       detail: `這一筆記著 ${n} 分，${course.name}${choices.length
         ? `買的時候只有 ${choices.join('／')} 分`
@@ -983,6 +986,7 @@ function checkSlotMinutes(ctx) {
       out.push({
         severity: 'attention',
         who: who,
+        whoId: visit.customerId,
         title: `${who}・${visit.date} ${slot.startsAt}–${slot.endsAt} ${course?.name ?? e.label ?? ''}`,
         detail: `排了 ${length} 分，照課程應該是 ${should} 分 —— 是那一筆額度記著 ${e.durationMin} 分（上一項）排出來的。`
           // 分不出是她自己設的還是加購時帶過來的（同第 32 項）—— 那一句一樣要講
@@ -1037,6 +1041,7 @@ function checkPoolLabels(ctx) {
     out.push({
       severity: 'attention',
       who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${now}`,
       detail: `改成「${want}」`,
       link: null,
@@ -1083,6 +1088,7 @@ function checkImportedLabels(ctx) {
     .map(({ e, want }) => ({
       severity: 'attention',
       who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${e.label}`,
       detail: `匯入時算出來的是「${want}」，但那樣會掉字，所以原字留著 ——`
         + ' 要改的話到「客戶」那一頁點開這位客戶，在那一筆額度上改',
@@ -1609,6 +1615,7 @@ function checkVisitStatusDerived(ctx) {
       return {
         severity: 'mismatch',
         who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: `整筆寫著「${describeStatus(visit.status)}」，`
           + `底下那幾段加起來是「${describeStatus(want)}」`,
@@ -2077,6 +2084,7 @@ function checkSameDayVisits(ctx) {
     out.push({
       severity: 'attention',
       who: who,
+      whoId: customerId,
       title: `${who}・${rows[0].date}`,
       detail: `這一天記了 ${rows.length} 筆來訪（共 ${
         rows.reduce((n, v) => n + (v.slots ?? []).length, 0)
