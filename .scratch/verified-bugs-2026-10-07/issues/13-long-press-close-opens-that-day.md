@@ -1,6 +1,6 @@
 # 長按「客人來了，去簽療程單」直接開那一天的那一張
 
-Status: todo
+Status: done
 來源：`findings.md` 第 14 條
 動工前先讀：`public/js/ui/views/calendar.js` 的 `runVisitAction()`（`:1127-1141`）、`public/js/ui/views/home.js` 的 `renderClose()`／`wireClose()`（`:3480` 附近，抽屜是 `drawer = { visitId, picks, shown }`）、
 `public/js/ui/views/schedule.js` 的 `pendingOpen`（同一種「先記著、進頁面時消化」的作法）、`public/js/ui/router.js`、ADR-0025、0110、0060
@@ -45,3 +45,13 @@ Blocked by: 12（同一張抽屜的開關；先把返回鍵那一層接好，這
 **沒辦法從程式確認的一件事，要在瀏覽器上看**：長按選單收掉時 `actions.js` 會 `layer.pop()`（排一趟 `history.go(-1)`），緊接著 `go('/todo/close')`，
 之後抽屜再推一層 —— 那一趟晚到的 `go` 會不會把換頁退掉或把剛推的那一層收掉。`CLAUDE.md`「刪掉一位客戶」那一列的同一個坑：
 確認框按下去馬上換頁要先 `await nav.whenSettled()`。E2E 要真的從長按選單走，不可以直接 `goto` 那一頁。
+
+## 做完時留下的
+
+- **沒有照原本寫的讓 `home.js` 匯出一支給日曆叫**：`home.js` 本來就 import `calendar.js`（讀取卡片），反過來再 import 一次就繞成一圈。
+  改成 `ui/nav.js` 多兩支：`leaveFor(key, value)`／`takeFor(key)`（換頁時留一句話給下一頁，拿了就沒有）。
+- 日曆 `runVisitAction()` 的 `close`：`leaveFor('todo/close', visit.id)` → `await whenSettled()` → `go('/todo/close')`。
+- `home.js` 的 `renderClose()` 畫完之後 `takeFor('todo/close')`，那一筆在清單上就 `openCloseDrawer()`（清單上點那一列也走同一支）。
+- **審查擔心的那一趟晚到的 `history.go()`**：在瀏覽器上記了每一次 history 操作看過 —— 長按選單收掉那一趟在換頁之前就回來了（`whenSettled()` 等到了），
+  抽屜那一層有進紀錄。第一次測試紅是測試自己等錯東西：日曆那一天的面板也是 `.drawer`，換頁那一下它還在。
+- E2E `59-verified-words` 的 W6：真的從長按選單走；等的是 `#view .drawer [data-apply]`。

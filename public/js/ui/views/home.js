@@ -67,7 +67,7 @@ import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
-import { pushLayer } from '../nav.js';
+import { pushLayer, takeFor } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
@@ -3291,7 +3291,7 @@ async function renderClose(el) {
     config.listAll('ivProducts', { includeDeleted: true }),
     config.getSettings(),
   ]);
-  paintClose({
+  const ctx = {
     el,
     rows: visitsToClose(unclosed, today),
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
@@ -3301,7 +3301,35 @@ async function renderClose(el) {
     // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
     // 開啟抽屜時才讀那一位的 —— 這一頁上可能有十幾筆，全部先讀是白費的。
     entitlements: [],
+  };
+  paintClose(ctx);
+
+  // 日曆長按「客人來了，去簽療程單」留的那一句話（`nav.js` 的 `leaveFor()`）：直接開那一天的抽屜。
+  // 那一筆不在清單上（剛被別台結掉了）就照常只畫清單。**不替她預先勾任何一段**（ADR-0110）
+  const want = takeFor('todo/close');
+  if (want && ctx.rows.some((v) => v.id === want)) await openCloseDrawer(ctx, want);
+}
+
+/** 開某一天的簽療程單抽屜。清單上點那一列、與日曆長按過來，走同一支。 */
+async function openCloseDrawer(ctx, visitId) {
+  // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+  openDrawer({ visitId, picks: new Map(), shown: false }, () => {
+    // 跟 `wireClose()` 的 `close` 同一件事：換一位客戶時不要沿用上一位的額度
+    ctx.entitlements = [];
+    paintClose(ctx);
   });
+  paintClose(ctx);
+
+  // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
+  // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
+  const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
+  if (!visit?.customerId || ctx.entitlements?.length) return;
+  try {
+    ctx.entitlements = await customersData.listEntitlements(visit.customerId);
+  } catch {
+    return; // 讀不到就少一句話，不是少一頁
+  }
+  if (drawer?.visitId === visit.id) paintClose(ctx);
 }
 
 function paintClose(ctx) {
@@ -3523,26 +3551,7 @@ function wireClose(ctx) {
   const { el } = ctx;
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      openDrawer({ visitId: btn.dataset.open, picks: new Map(), shown: false }, () => {
-        // 跟底下 `close` 同一件事：換一位客戶時不要沿用上一位的額度
-        ctx.entitlements = [];
-        paintClose(ctx);
-      });
-      paintClose(ctx);
-
-      // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
-      // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
-      const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
-      if (!visit?.customerId || ctx.entitlements?.length) return;
-      try {
-        ctx.entitlements = await customersData.listEntitlements(visit.customerId);
-      } catch {
-        return; // 讀不到就少一句話，不是少一頁
-      }
-      if (drawer?.visitId === visit.id) paintClose(ctx);
-    }),
+    btn.addEventListener('click', () => openCloseDrawer(ctx, btn.dataset.open)),
   );
 
   wirePicks(el, {

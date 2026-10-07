@@ -210,3 +210,39 @@ test('W5 簽療程單抽屜：按返回只收抽屜；送出之後返回是正�
   await page.goBack();
   await expect(page, '沒有被吃掉一次').toHaveURL(/#\/calendar/);
 });
+
+// ---------- 13 長按「客人來了，去簽療程單」直接開那一天的那一張 ----------
+
+test('W6 日曆長按「去簽療程單」：落在那一天的抽屜上、一段都沒有先被勾；返回收抽屜；之後正常點進來不會自己彈', async ({ app, page }) => {
+  await app.seed([
+    ...seedTwoDrawers(),
+    // 另一位今天也要簽 —— 清單上不只一列，才問得出「開的是她長按的那一筆」
+    customer({ id: 'cust-e', name: '客戶E' }),
+    visit({
+      id: 'v-other', customerId: 'cust-e', customerName: '客戶E', date: DAY, status: 'confirmed',
+      slots: [{ ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '11:00', endsAt: '11:30' }), status: 'confirmed' }],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await longPress(app, page, DAY, 'visit:v-today:0');
+  await page.locator('.actionrow', { hasText: '簽療程單' }).click();
+
+  // **等的是待辦那一頁自己的抽屜**（送出那一顆只有它有）。日曆那一天的面板也是 `.drawer`，
+  // 換頁的那一下它還在 —— 只等 `.drawer` 的話，接下來按的返回會落在那一頁還沒畫好的時候
+  await expect(page).toHaveURL(/#\/todo\/close/);
+  const drawer = page.locator('#view .drawer');
+  await app.layer('#view .drawer [data-apply]');
+  await expect(drawer, '開的是她長按的那一位').toContainText('客戶D');
+  await expect(drawer, '不是清單上的另一位').not.toContainText('客戶E');
+  await expect(drawer.locator('[data-pick][aria-pressed="true"]'), '不替她預先勾任何一段（ADR-0110）').toHaveCount(0);
+
+  await page.goBack();
+  await expect(drawer, '返回收的是抽屜').toHaveCount(0);
+  await expect(page).toHaveURL(/#\/todo\/close/);
+
+  // 那一句話只活一次：之後從別的地方進這一頁不會又彈出來
+  await app.go('/todo');
+  await app.go('/todo/close');
+  await expect(page.locator('[data-open="v-today"]')).toBeVisible();
+  await expect(drawer).toHaveCount(0);
+});

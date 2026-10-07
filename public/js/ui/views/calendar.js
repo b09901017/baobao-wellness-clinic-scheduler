@@ -59,6 +59,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
+import { leaveFor, whenSettled } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 
@@ -1138,6 +1139,12 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   if (action === 'close') {
     // 收尾是**逐段**的（ADR-0025：客人做了兩段就走是會發生的事，而次數就是
     // 跟著它扣的）。所以這一顆不自己標，通到待辦中心那張逐段的抽屜。
+    //
+    // **直接開她長按的那一天**（2026-10-07，verified-bugs issues/13）：以前只換頁，她要在清單裡
+    // 再找一次那個人。長按選單收掉時排了一趟 `history.go()`，等它回來再換頁 —— 不然那一趟晚到，
+    // 會把換頁退掉、或把那一頁剛開的抽屜收掉（`whenSettled()`）
+    leaveFor('todo/close', visit.id);
+    await whenSettled();
     go('/todo/close');
     return;
   }

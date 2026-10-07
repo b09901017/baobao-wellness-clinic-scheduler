@@ -209,6 +209,25 @@ export function pushLayer(onPop) {
   };
 }
 
+// ---------- 換頁時留一句話給下一頁 ----------
+//
+// 「進去就開這一筆」那一種（日曆長按「客人來了，去簽療程單」→ 待辦那一頁直接開那一天的抽屜）。
+// **不進網址**：那是看法不是位置，重新整理不該又彈一次。也不讓兩支畫面互相 import ——
+// 待辦那一頁本來就 import 日曆（讀取卡片），反過來再 import 一次就繞成一圈。
+const handoffs = new Map();
+
+/** 給下一頁留一句話。只活到被 `takeFor()` 拿走那一次。 */
+export function leaveFor(key, value) {
+  handoffs.set(key, value);
+}
+
+/** 拿走留給這一頁的那一句話（拿了就沒有了）。沒有就是 `undefined`。 */
+export function takeFor(key) {
+  const value = handoffs.get(key);
+  handoffs.delete(key);
+  return value;
+}
+
 /**
  * 等收層那一趟 `history.go()` 回來。
  *
