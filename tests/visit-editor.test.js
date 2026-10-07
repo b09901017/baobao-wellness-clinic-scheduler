@@ -217,8 +217,11 @@ describe('一人一天一筆（issue 04）', () => {
     assert.ok(!SRC.includes('if (isNew) {'), 'isNew 在併進來的時候是 false，那一道會整個不問');
   });
 
+  // 2026-10-07（verified-bugs issues/11）起列的是 domain 回的那兩份（`toBook`／`free`）——
+  // 它們只會落在 `added` 裡，而 `added` 從存過的那幾段之後算起。兩行一起釘才等於原本那一條
   test('確認框只列這一次新加的那幾段', () => {
-    assert.match(SRC, /draft\.slots\.slice\(ctx\.storedSlotCount \?\? 0\)/);
+    assert.match(SRC, /added: draft\.slots\.map\(\(_, i\) => i\)\.slice\(ctx\.storedSlotCount \?\? 0\)/);
+    assert.match(SRC, /\(said\.toBook\.length \? said\.toBook : said\.free\)\.map\(\(i\) => slotSummary\(draft\.slots\[i\], all\)\)/);
   });
 
   test('那顆 × 逐段問「存過了沒」，不是問整筆', () => {
