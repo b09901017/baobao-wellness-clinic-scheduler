@@ -1,6 +1,6 @@
 # 今天做了什麼、稽核紀錄、變更紀錄：不印英文欄位名，不講「壓表批次」
 
-Status: todo
+Status: done
 來源：`findings.md` 三的第 1、2 列
 動工前先讀：`public/js/domain/audit.js` 的 `COLLECTION_LABELS`（`:27`）、`FIELD_LABELS`（`:54`）、`NOISE_FIELDS`（`:139`）、`fieldLabel()`／`changedFields()`（`:188-215`）、
 `QUIET_IN_SENTENCE`、`describeParts()`、`public/js/domain/dayReview.js` 的 `STAGES`（最後一段與 `:192` 那句註解）、`CUSTOMER_FIELDS`、
@@ -60,3 +60,11 @@ Blocked by: —
   `CONTEXT.md` 只說「畫面上不出現」沒有給替代詞 —— 這一支自己定：寫「壓表名單」（它就是那一次壓表牆上的那一份名單），補進 `CONTEXT.md` 那一條。
 - `STAGES` 沒有任何一段靠這些欄位判斷（查過 `match`／`keep`／`CUSTOMER_FIELDS`）。
 - 跟 09 改同一支檔案（`domain/dayReview.js` 09 會動 `TILES`）—— 先後做。
+
+## 做完時留下的
+
+- 兩種都給中文名（`FIELD_LABELS`）；系統自己記的那 16 個另外進 `QUIET_IN_SENTENCE`。`NOISE_FIELDS` 沒動。
+- **「對帳過了」那一條原本只問「濾完一格不剩」**：系統自己記的進了 `QUIET_IN_SENTENCE` 之後，只動到 `purchaseId`／`sourcePlan*` 的那一則也會濾成空的 →
+  改成要真的動到 `lastReconciledAt` 才講。其餘的濾成空時 `describeParts()` 回 null，退回 `describeAction()`（「修改額度」），不會消失。
+- 「壓表批次」→「壓表名單」：`COLLECTION_LABELS` 與 `data/backup.js` 的 `LABELS`；`CONTEXT.md` 那一條補了這個詞。
+- `tests/audit-field-words.test.js` 釘著名單；`CLAUDE.md` 連動表補一列「新增一個會寫進稽核的欄位」。

@@ -98,7 +98,7 @@ const LABELS = {
   availability: '可用性收集',
   visits: '來訪',
   tasks: '任務',
-  batches: '壓表批次',
+  batches: '壓表名單',
   notes: '隨手記',
   events: '行事備註與休假',
   formInvites: '發出去的表單',
