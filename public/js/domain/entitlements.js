@@ -758,7 +758,10 @@ export function validateEntitlement(e, { courses = [], equipment = [], products 
   const isBlank = (v) => v == null || String(v).trim() === '';
   const positiveInt = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 
-  if (isBlank(e.label)) errors.push('額度名稱不可空白');
+  // 營養品一款都還沒選時名字也算不出來（它是照那幾款組的）：同一件事只講 `validateProduct()` 那一句，
+  // 不要先吐一句「額度名稱不可空白」—— 那一格藏在進階設定裡（2026-10-07）
+  const productErrors = isProduct(e) ? validateProduct(e, { products }) : [];
+  if (isBlank(e.label) && !productErrors.length) errors.push('額度名稱不可空白');
   if (!positiveInt(e.totalQty)) errors.push('總次數必須是大於 0 的整數');
   if (e.durationMin != null && !positiveInt(e.durationMin)) {
     errors.push('時長必須是大於 0 的整數分鐘');
@@ -785,7 +788,7 @@ export function validateEntitlement(e, { courses = [], equipment = [], products 
     //
     // 規則本身在 `domain/products.js` 的 `validateProduct()` —— 一次購買
     // 可以有好幾款、還有一個金額，那些只寫在那一支。
-    errors.push(...validateProduct(e, { products }));
+    errors.push(...productErrors);
   } else {
     errors.push(`型態必須是 ${ENTITLEMENT_TYPES.join('、')}`);
   }

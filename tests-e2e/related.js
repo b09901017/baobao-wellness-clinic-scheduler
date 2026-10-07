@@ -448,6 +448,15 @@ export const COVERAGE = {
     'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/schedule.js', 'public/js/ui/nav.js',
     'functions/transcripts/', 'tests-e2e/fixtures/ai/', 'public/css/',
   ],
+  // 2026-10-07 驗證過的問題清單，第一支（verified-bugs-2026-10-07/01–07）：二返那一句、換額度器材重設、
+  // 營養品先驗證再建、同一位客戶撞時間、進度追蹤不算取消的段、簽療程單的 toast、「第 N 個時段」
+  '58-verified-rules': [
+    'public/js/domain/visits.js', 'public/js/domain/followups.js', 'public/js/domain/progress.js',
+    'public/js/domain/consequences.js', 'public/js/domain/products.js', 'public/js/domain/entitlements.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/home.js',
+    'public/js/ui/views/progress.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customersBulk.js',
+    'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/ui/components/dialog.js',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

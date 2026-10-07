@@ -14,12 +14,12 @@
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
-import { isValidDate, daysBetween } from './dates.js';
+import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn, examStatusIn } from './followups.js';
+import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
 import { slotName } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
@@ -1337,6 +1337,26 @@ export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
 
 /**
+ * **換了額度之後，那一段的器材是哪一台**（2026-10-07，verified-bugs issues/02）。
+ *
+ * - 新的額度的擇一池只有一台 → 就是那一台（單買一台的 `復能-SIS(60)`；她沒有別的可以選）
+ * - 上一台剛好也在新的池裡 → 留著（三選一 ↔ 四選一，她選的那一台還是對的）
+ * - 其餘 → `null`，她重選。不是擇一池的額度一律 `null`
+ *
+ * 來訪編輯器（`readDraft()`、`blankSlot()`）與拍 Abovee（`pickOption()`）共用。以前編輯器照讀器材那一排的舊值：
+ * 先點三選一 → INDIBA、再點單台 SIS，抬頭還寫 IN(60)、SIS 沒選上、存檔被擋而畫面上已經看不到 INDIBA。
+ *
+ * **壓表不走這一支**（照舊清掉，`resetCourseBoundPicks()`）：那一頁的丸子再點一次是**取消選取**，
+ * 先替她選好的話，她照習慣點那一台反而把它點掉。
+ */
+export function equipmentAfterSwitch(entitlement, previousId = null) {
+  if (entitlement?.type !== 'pool') return null;
+  const pool = entitlement.optionEquipmentIds ?? [];
+  if (pool.length === 1) return pool[0];
+  return previousId && pool.includes(previousId) ? previousId : null;
+}
+
+/**
  * 這一段在畫面上要不要印診間。
  *
  * 她 2026-09-08 把健檢、體適能、身體組成、營養諮詢、門診與二返六個課程改成
@@ -1508,9 +1528,28 @@ export function validateVisit(visit, ctx) {
   };
 }
 
+/**
+ * 提醒與錯誤裡那一段**預設**叫什麼：它在要存的那一筆裡的位置。
+ *
+ * 畫面上列的不一定是整筆（2026-10-07，verified-bugs issues/07）：日曆新增時那一天原本的段刻意不列（ADR-0083）、
+ * 壓表只有她正在加的那一段、「改這一段」只有她點的那一段（ADR-0085）—— 畫面上只有一段卻寫「第 2 個時段」。
+ * 所以呼叫端可以在 `ctx.slotLabel` 自己說每一段叫什麼（`(i) => '這一段'`）；不說就是這一支，一個字都不變。
+ * 「畫面上是哪幾段」只有呼叫端知道，這一支檔案不猜。
+ */
+const defaultSlotLabel = (i) => `第 ${i + 1} 個時段`;
+
+/**
+ * 一段**不在畫面上**（或沒有編號可以指）時怎麼叫它：`09:00 的 SIS(60)`。
+ * 給 `ctx.slotLabel` 用 —— 「跟 09:00 的 SIS(60) 時間重疊」她看得懂，「第 1 與第 3 個時段時間重疊」指到一段看不到的。
+ */
+export function slotSay(slot, master = {}) {
+  const name = slotName(slot ?? {}, master, 'short');
+  return [isValidTime(slot?.startsAt) ? `${slot.startsAt} 的` : '', name].filter(Boolean).join(' ') || '那一段';
+}
+
 function visitErrors(visit, {
   customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
-  customerVisits = [],
+  customerVisits = [], slotLabel = defaultSlotLabel,
 }) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
@@ -1535,7 +1574,7 @@ function visitErrors(visit, {
   const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     const ent = entsById[slot.entitlementId];
 
@@ -1623,7 +1662,8 @@ function visitErrors(visit, {
     // 擇一池的次數是共用的，選了池外的器材就會扣到不屬於它的東西上
     if (ent?.type === 'pool' && slot.equipmentId
         && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
-      errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
+      // 講出是哪一台：畫面上那一排列的是池裡的器材，池外的那一台她看不到
+      errors.push(`${at}：${equipById[slot.equipmentId]?.name ?? '這個器材'} 不在「${ent.label}」的擇一池裡`);
     }
 
     // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
@@ -1670,12 +1710,12 @@ function visitErrors(visit, {
  * 存檔前的提醒。**只講還算數的段**（2026-10-05 她答應修的：改期之後舊那一段已經取消，
  * 第一道確認還在跳「第 1 個時段：二返 還沒選醫師」）—— 取消掉的那一段不會發生，
  * 它還沒選醫師、跟新的那一段重疊、撞到別人都不是事。每一圈自己跳過，**編號照原本的位置**
- *（「第 2 個時段」要指到畫面上的第 2 段，濾掉再編號就指錯了）。
+ *（濾掉再編號就指錯了）。那一段在訊息裡叫什麼走 `ctx.slotLabel`（見 `defaultSlotLabel`）。
  */
 function visitWarnings(visit, ctx) {
   return [
     ...equipmentNoticeWarnings(visit, ctx),
-    ...overlapWarnings(visit),
+    ...overlapWarnings(visit, ctx),
     ...entitlementWarnings(visit, ctx),
     ...assignmentWarnings(visit, ctx),
     ...nthWarnings(visit, ctx),
@@ -1695,11 +1735,11 @@ function visitWarnings(visit, ctx) {
  * 她那天說「只要儀器不要在金屬的上方或附近」就做得了，而那件事 app 看不到。
  * 見 ADR-0074。
  */
-function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
+function equipmentNoticeWarnings(visit, { customer, equipment = [], slotLabel = defaultSlotLabel }) {
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
     .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
-    .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
+    .map((n) => `${slotLabel(n.slotIndex)}：${n.message}`);
 }
 
 /**
@@ -1709,7 +1749,7 @@ function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
  * 那兩筆會同時存在一下下；她也可能真的要在同一次健檢底下約兩場三返
  * （客人第一場沒來，重約一場）。擋下來的話她會卡在一個存不進去的畫面上。
  */
-function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
+function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel = defaultSlotLabel }) {
   const out = [];
   const second = secondFollowupIds(entitlements);
   const others = (customerVisits ?? []).filter((v) => v.id !== visit.id);
@@ -1721,7 +1761,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
     if (same.length) {
-      out.push(`第 ${i + 1} 個時段：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
+      out.push(`${slotLabel(i)}：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
     }
   });
 
@@ -1729,7 +1769,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 }
 
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
-function overlapWarnings(visit) {
+function overlapWarnings(visit, { slotLabel = null } = {}) {
   const out = [];
   // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
   const slots = (visit.slots ?? []).map((s, at) => ({ s, at }))
@@ -1737,7 +1777,10 @@ function overlapWarnings(visit) {
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
       if (overlaps(slots[i].s, slots[j].s)) {
-        out.push(`第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
+        // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟 這一段 時間重疊」）；沒給就照舊那一句
+        out.push(slotLabel
+          ? `${slotLabel(slots[i].at)} 跟 ${slotLabel(slots[j].at)} 時間重疊`
+          : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
       }
     }
   }
@@ -1774,7 +1817,8 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
 function assignmentWarnings(visit, {
-  courses = [], rooms = [], entitlements = [], ivProducts = [],
+  courses = [], rooms = [], entitlements = [], ivProducts = [], customerVisits = [],
+  slotLabel = defaultSlotLabel,
 }) {
   const out = [];
   const coursesById = byId(courses);
@@ -1784,13 +1828,14 @@ function assignmentWarnings(visit, {
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
     if (!course || !isLiveSlot(slot)) return;
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
     // 同一條原則），而且她可能就是還沒決定要接哪一次。
     // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
-    if (entsById[slot.entitlementId]?.followupForEntitlementId && !slot.followupForVisitId) {
-      out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
+    const followup = entsById[slot.entitlementId];
+    if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
+      out.push(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
@@ -1850,20 +1895,60 @@ function assignmentWarnings(visit, {
 }
 
 /**
+ * 一段二返沒接到健檢時，那一句的後半 —— **講得出為什麼**（2026-10-07，verified-bugs issues/01）。
+ *
+ * 她 2026-10-07：「排定二返時：在日曆／壓表存檔時，若沒有連結到已完成的健檢就觸發。+僅提醒，仍可繼續操作」。
+ * 提醒本來就有，但一律是「還沒指定是哪一次健檢的」—— 同一天排健檢＋二返時，「這是哪一次健檢的」那一排
+ * 一顆都按不下去（當天那一次還沒做完），她看到這一句會以為是自己漏按，也看不出之後簽療程單照樣扣一次二返。
+ *
+ * **有哪幾次、各是什麼狀態問 `examChoicesFor()`** —— 三個入口那一排丸子就是它畫的，
+ * 這裡自己再判一次的話丸子說「已完成」而這一句說「還沒做完」。
+ * **她正在存的這一筆也算進去**：`customerVisits` 是存檔前讀回來的，同一筆裡剛加的那一段健檢還不在裡面。
+ *
+ * 後果那半句是真的會發生的事（ADR-0070）：結案扣的是二返那一筆額度，不問它接到健檢了沒。
+ * **只對還開著的段講** —— 已完成、未到的舊二返（匯入的沒有連結）被解鎖更正、或同一天改別段時，
+ * 「簽療程單時照樣會扣」是一件已經過去的事。配對的那一筆健檢額度查不到時不猜原因，退回原本那一句。
+ */
+function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, name) {
+  const source = entsById[followup.followupForEntitlementId] ?? null;
+  if (!source) return '還沒指定是哪一次健檢的';
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
+
+  if (choices.some((c) => c.pickable)) return '還沒指定是哪一次健檢的';
+
+  const booked = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
+  const why = booked
+    ? `${isValidDate(booked.date) ? shortDate(booked.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(booked.status)}），現在選不到`
+    : (choices.some((c) => c.status === 'done')
+      ? `做完的健檢都已經約了${name}`
+      : '這位客戶還沒有做完的健檢');
+  const open = ['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot));
+  return `還沒接到一次做完的健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
+}
+
+/**
  * 跟她自己當天排的其他人撞在一起。一天壓十幾個人，自撞很常見。
  * 跨同事的衝突看不到，以 Abovee 為準（SPEC 第 4.7 節）。
  *
  * **醫師刻意不比。** 她看不到醫師的班表（那在 Abovee 上），
  * 用看不到的資料去提示只會提示錯 —— ADR-0002 的同一條判準。
+ *
+ * **同一位客戶自己的另一筆來訪也比**（ADR-0133，2026-10-07）：不同診間、不同治療師也講一句。
+ * 資料健檢的「衝突殘留」（`checkConflicts()`）刻意不列這一種 —— 那是允許的排法，列了就是一列按不掉的提醒。
  */
-function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] }) {
+function conflictWarnings(visit, {
+  sameDayVisits = [], rooms = [], staff = [], courses = [], equipment = [], ivProducts = [],
+  slotLabel = defaultSlotLabel,
+}) {
   const out = [];
+  const master = { courses, equipment, ivProducts };
   const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
   const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
     if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     // 那一天別人排的、跟這一段撞在一起的每一格
     const clashes = [];
@@ -1877,6 +1962,9 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
       }
     }
     if (!clashes.length) continue;
+
+    // 這一格已經被底下哪一句講過了。同一位客戶那一句只補**沒講過的**（ADR-0133）
+    const said = new Set();
 
     const whoOf = ({ other }) => (other.customerId === visit.customerId
       ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
@@ -1896,6 +1984,8 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
       const capacity = roomCapacityOf(room);
       if (inRoom.length + 1 > capacity) {
         const names = [...new Set(inRoom.map(whoOf))].join('、');
+        // 裝得下好幾位的那一間把每一位都點名；只裝一位的只講第一格
+        for (const c of (capacity > 1 ? inRoom : inRoom.slice(0, 1))) said.add(c);
         out.push(capacity > 1
           ? `${at}：${roomName(slot.roomId)} ${slot.startsAt}–${slot.endsAt} 這個時間`
             + `已經有 ${inRoom.length} 位（最多 ${capacity} 位）：${names}`
@@ -1908,11 +1998,30 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
     if (slot.therapistId) {
       for (const c of clashes) {
         if (c.theirs.therapistId !== slot.therapistId) continue;
+        said.add(c);
         out.push(
           `${at}：${staffName(slot.therapistId)} ${c.theirs.startsAt}–${c.theirs.endsAt} `
           + `已經排了 ${whoOf(c)}`,
         );
       }
+    }
+
+    // ---------- 同一位客戶：一個人同一個時間排了兩段（ADR-0133） ----------
+    //
+    // 她 2026-10-07：「同一位客戶同一天時間撞在一起是有可能發生的，只是很少見，所以不用擋，但要提醒
+    // （也許會在同個診間一隻手打針一隻手做eecp之類的 但我通常不會這樣排）」。
+    //
+    // 那一天已完成之後再加一段會另開一筆來訪（ADR-0083），所以這兩段不在同一筆裡 ——
+    // `overlapWarnings()` 只比同一筆，上面兩句只在同診間／同治療師時講。兩段都不佔診間
+    // 也不派治療師時（功醫門診），以前一句都沒有。
+    //
+    // **上面已經因為這一格講過話的不再講**：同一件事不出兩句（那是我方的建議，她回「照你的建議」）。
+    for (const c of clashes) {
+      if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
+      out.push(
+        `${at}：這位客戶 ${c.theirs.startsAt}–${c.theirs.endsAt} 已經有另一段`
+        + `（${slotName(c.theirs, master, 'short')}・${shortStatus(slotStatus(c.other, c.theirs))}）`,
+      );
     }
   }
 

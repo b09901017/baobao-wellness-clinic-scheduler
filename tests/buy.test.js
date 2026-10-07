@@ -448,15 +448,18 @@ describe('畫出來的那幾排', () => {
 });
 
 describe('「＋ 新增…」那一款', () => {
-  const master = () => ({ products: [{ id: 'p-1', name: '夜態美' }] });
+  const master = () => ({ ...MASTER, products: [{ id: 'p-1', name: '夜態美' }] });
+  /** 一張存得下去的營養品草稿：按了「營養品」、開著「＋ 新增…」打了 Q10。 */
   const draft = (over = {}) => ({
-    type: 'product', items: [], newProduct: true, newProductName: 'Q10', label: '', ...over,
+    ...from(buy.PRODUCT_PICK), totalQty: 1, items: [], newProduct: true, newProductName: 'Q10', label: '', ...over,
   });
+  const commit = async (d, m = master(), create = async () => 'p-new') =>
+    (await buy.commitNewProduct(d, m, create)).draft;
 
   test('寫進主檔並且選起來', async () => {
     const m = master();
     const created = [];
-    const out = await buy.commitNewProduct(draft(), m, async (row) => {
+    const out = await commit(draft(), m, async (row) => {
       created.push(row);
       return 'p-new';
     });
@@ -469,24 +472,21 @@ describe('「＋ 新增…」那一款', () => {
   });
 
   test('原本選好的那幾款留著', async () => {
-    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }] });
-    const out = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    const out = await commit(draft({ items: [{ productId: 'p-1', name: '夜態美' }] }));
     assert.deepEqual(out.items.map((x) => x.productId), ['p-1', 'p-new']);
   });
 
   test('同名的已經有了就用既有那一筆 —— 不要長出第二個「夜態美」', async () => {
     let called = 0;
-    const out = await buy.commitNewProduct(
-      draft({ newProductName: ' 夜態美 ' }), master(), async () => { called += 1; return 'x'; },
-    );
+    const out = await commit(draft({ newProductName: ' 夜態美 ' }), master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
     assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
   });
 
   test('沒有要新增就不寫主檔，一次 IO 都不會發生', async () => {
     let called = 0;
-    const d = draft({ newProduct: false, items: [{ productId: 'p-1', name: '夜態美' }] });
-    const out = await buy.commitNewProduct(d, master(), async () => { called += 1; return 'x'; });
+    const d = draft({ newProduct: false, items: [{ productId: 'p-1', name: '夜態美' }], label: '營養品（夜態美）' });
+    const out = await commit(d, master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
     assert.deepEqual(out, d);
   });
@@ -496,27 +496,64 @@ describe('「＋ 新增…」那一款', () => {
   // 而那一份會蓋掉 `afterDetail()` 補好的。名字沒了之後顯示名稱、
   // 提醒那一句與交付面板會一起變空白（`issues/08`）。
   test('沒有要新增也要把名字從主檔補齊', async () => {
-    const out = await buy.commitNewProduct(
-      draft({ newProduct: false, items: [{ productId: 'p-1', name: '' }] }),
-      master(),
-      async () => 'x',
-    );
+    const out = await commit(draft({ newProduct: false, items: [{ productId: 'p-1', name: '' }] }));
     assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
   });
 
   test('主檔認不出來的那一筆留著 id，名字不變 —— 不要弄成 undefined', async () => {
-    const out = await buy.commitNewProduct(
-      draft({ newProduct: false, items: [{ productId: 'gone', name: '' }] }),
-      master(),
-      async () => 'x',
-    );
+    const out = await commit(draft({ newProduct: false, items: [{ productId: 'gone', name: '' }] }));
     assert.deepEqual(out.items, [{ productId: 'gone', name: '' }]);
   });
 
   test('名字留白也不新增', async () => {
     let called = 0;
-    await buy.commitNewProduct(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
+    await commit(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
+  });
+
+  // ---- 2026-10-07（verified-bugs issues/03）：先驗證再建、名字重算 ----
+
+  test('(a) 只打新的一款、一顆既有的都沒勾：存得下去，名字帶著它', async () => {
+    const { draft: out, errors } = await buy.commitNewProduct(draft(), master(), async () => 'p-new');
+    assert.deepEqual(errors, []);
+    assert.equal(out.label, '營養品（Q10）');
+  });
+
+  test('(a) 表單把名稱那一格的空字串蓋上來也一樣（客戶詳情那一條路）', async () => {
+    const { draft: out, errors } = await buy.commitNewProduct(draft({ label: '' }), master(), async () => 'p-new');
+    assert.deepEqual(errors, []);
+    assert.ok(out.label.includes('Q10'), out.label);
+  });
+
+  test('(b) 勾一款＋新增一款：名字兩款都有，跟 items 講的是同一組', async () => {
+    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }], amountTwd: 3000, label: '營養品 3,000（夜態美）' });
+    const { draft: out } = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    assert.equal(out.label, '營養品 3,000（夜態美＋Q10）');
+    assert.deepEqual(out.items.map((x) => x.name), ['夜態美', 'Q10']);
+  });
+
+  test('(b) 她自己打過的名字不重算', async () => {
+    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }], label: '王太太的保養組' });
+    const { draft: out } = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    assert.equal(out.label, '王太太的保養組');
+  });
+
+  test('(c) 驗證沒過：一次 IO 都不發生，主檔不多一筆，她打的字留著', async () => {
+    let called = 0;
+    const m = master();
+    const d = draft({ totalQty: 0 });
+    const { draft: out, errors } = await buy.commitNewProduct(d, m, async () => { called += 1; return 'p-new'; });
+    assert.equal(called, 0);
+    assert.equal(m.products.length, 1);
+    assert.deepEqual(errors, ['總次數必須是大於 0 的整數'], '只講真的錯的那一件，不多講「要選至少一種營養品」');
+    assert.equal(out.newProduct, true);
+    assert.equal(out.newProductName, 'Q10');
+    assert.deepEqual(out.items, []);
+  });
+
+  test('沒有要新增時也回驗證結果（三個入口不用各自再驗一次）', async () => {
+    const { errors } = await buy.commitNewProduct(draft({ newProduct: false, newProductName: '' }), master(), async () => 'x');
+    assert.deepEqual(errors, ['要選至少一種營養品']);
   });
 });
 

@@ -25,7 +25,7 @@ import {
   nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
-import { validateVisit, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
+import { validateVisit, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
@@ -142,9 +142,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   // ---------- 畫 ----------
 
-  /** `validateVisit()` 要的那一份（這位客戶、那一天）。 */
-  function checkCtx(customerId, date) {
+  /**
+   * `validateVisit()` 要的那一份（這位客戶、那一天）。
+   *
+   * **每一段用時間與名字叫**（`slotSay()`，issue 07）：這一層一列一段，沒有「第幾個時段」可以指 ——
+   * 而整筆的提醒會原樣掛到那一組的每一列上。
+   */
+  function checkCtx(customerId, date, visit) {
     return {
+      slotLabel: (i) => slotSay(visit?.slots?.[i], ctx.master),
       customer: { flags: ctx.customers.find((c) => c.id === customerId)?.flags ?? [] },
       entitlements: ctx.entitlementsBy[customerId] ?? [],
       courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
@@ -161,12 +167,16 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     for (const item of items.filter((i) => i.adopt && !savedKeys.has(i.key))) {
       const visit = (ctx.visitsBy[item.customerId] ?? []).find((v) => v.id === item.existing?.visitId);
       if (!visit) continue;
-      const mine = `第 ${item.existing.slotIndex + 1} 個時段`;
-      warningsBy[item.key] = validateVisit(adoptAbovee(visit, [item]).visit, checkCtx(item.customerId, visit.date))
-        .warnings.filter((w) => w.startsWith(mine));
+      const adopted = adoptAbovee(visit, [item]).visit;
+      // 她按的那一段叫「這一段」、其餘照時間與名字叫，再挑「這一段」開頭的那幾句 —— 拿 `slotSay()` 當鑰匙的話，
+      // 同一天兩段同時間同名（重複的、合併扣課留下的）會互相拿到對方的提醒
+      const at = item.existing.slotIndex;
+      const check = { ...checkCtx(item.customerId, visit.date, adopted),
+        slotLabel: (i) => (i === at ? '這一段' : slotSay(adopted.slots?.[i], ctx.master)) };
+      warningsBy[item.key] = validateVisit(adopted, check).warnings.filter((w) => w.startsWith('這一段'));
     }
     for (const g of groups) {
-      const { errors, warnings } = validateVisit(g.visit, checkCtx(g.customerId, g.date));
+      const { errors, warnings } = validateVisit(g.visit, checkCtx(g.customerId, g.date, g.visit));
       const customer = { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] };
       for (const item of g.items) {
         if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];

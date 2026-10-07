@@ -419,6 +419,29 @@ export function confirmConsequences(
 }
 
 /**
+ * 這一次按了「做了」的段裡，**幾段真的扣次數**。只有扣著額度的段會扣（ADR-0121）——
+ * n返 與不算次數的課沒有額度。只看還開著的段（`slotsToClose()`）：已經結掉的不會再被動到。
+ *
+ * 抽屜上那一句（`closeConsequences()`）與存完的那一句（`closedSay()`）問同一支。
+ * 2026-10-07 之前存完那一句在畫面裡自己數「按了 ✓ 的有幾段」，於是抽屜寫「2 段裡 1 段扣掉次數」、
+ * toast 寫「扣掉 2 次」。
+ */
+export function chargedOnClose(visit, picks = []) {
+  return slotsToClose(visit)
+    .filter(({ index }) => picks[index] === true && visit?.slots?.[index]?.entitlementId)
+    .length;
+}
+
+/** 簽療程單存完之後那一句的前半。講的是**這一次**，不是整天。 */
+export function closedSay(visit, picks = []) {
+  const charged = chargedOnClose(visit, picks);
+  if (charged) return `記好了，扣掉 ${charged} 次`;
+  const did = slotsToClose(visit).filter(({ index }) => picks[index] === true).length;
+  if (did) return `記好了，${did === 1 ? '這一段' : '這幾段'}不扣次數`;
+  return '記好了，沒來的不扣次數';
+}
+
+/**
  * 結案（簽療程單）那一下會發生什麼。收尾抽屜底下那一句預告。
  *
  * **只講這一筆真的會發生的事**：整批都沒做就不要說「次數扣掉」，
@@ -449,7 +472,7 @@ export function closeConsequences({
 
   // **只有扣著額度的段會扣次數**（ADR-0121）。n返 與不算次數的課沒有額度，
   // 講「扣掉次數」是一件不會發生的事（ADR-0070）—— 2026-10-05 之前這一句對 n返 就講錯了
-  const charged = done.filter((i) => visit?.slots?.[i]?.entitlementId).length;
+  const charged = chargedOnClose(visit, picks);
   if (done.length && charged === done.length) lines.push(`做了的 ${done.length} 段扣掉次數`);
   else if (charged) lines.push(`做了的 ${done.length} 段裡 ${charged} 段扣掉次數`);
   else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);

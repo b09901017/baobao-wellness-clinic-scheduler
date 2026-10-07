@@ -801,36 +801,49 @@ function qtyField(e) {
     </div>`;
 }
 
+/** 還沒建的那一款在驗證時站著的暫時 id。只活在 `commitNewProduct()` 裡，回傳之前一定換成真的。 */
+const NEW_PRODUCT_ID = '__new-product__';
+
 /**
- * **存檔前的最後一站。** 做兩件事：
+ * **存檔前的最後一站。** 做四件事，順序不能換：
  *
- *   1. 她在「＋ 新增…」那一格打的那一款，寫進主檔並選起來
- *   2. **把 `items` 上的名字從主檔補齊**（`withItemNames()`）
+ *   1. **把 `items` 上的名字從主檔補齊**（`withItemNames()`）
+ *   2. 她在「＋ 新增…」那一格打的那一款先**當成已經在裡面**，把顯示名稱重算一次
+ *   3. **驗證**
+ *   4. 驗證過了才把那一款寫進主檔
  *
- * 第二件事看起來多餘 —— `afterDetail()` 已經補過了。但那一份會被存檔那一下的
+ * 第一件事看起來多餘 —— `afterDetail()` 已經補過了。但那一份會被存檔那一下的
  * `values(form)` 蓋掉：表單只送得回 id（`read()` 給的 `name` 一律是空字串）。
  * 於是寫進 Firestore 的是一排沒有名字的 `items`，而三個地方會一起壞：
  * 顯示名稱少了那幾款、提醒那一句變成「給營養品：營養品」、
  * 交付面板每一列都是空白（`issues/08`）。
  *
- * **三個入口共用同一支**，理由跟 `wire()` 一樣：三邊各寫一次的話，遲早有一邊
- * 忘了把新建的那一筆選進 `items`，於是她打了名字、存下去，那一款卻不在裡面。
+ * **2026-10-07 以前這一支先建主檔、才把草稿交回去給呼叫端驗證**（verified-bugs issues/03），三個毛病是同一個根：
+ *   - 驗證沒過，主檔照樣多一筆
+ *   - 新的那一款加進 `items` 了，名字卻是加進去之前算的 —— 額度叫「營養品 3,000（GABA）」，提醒寫「GABA＋新的那款」
+ *   - 只打新的一款時 `items` 本來是空的、名字算不出來 →「額度名稱不可空白」，而那一格藏在進階設定裡
  *
- * 存檔前叫一次。沒有要新增就只補名字，一次 IO 都不會發生。
+ * 名字走 `retitle()`：**她自己打過的不覆蓋**，「改過沒有」拿加進去之前那一版問。
+ *
+ * **三個入口共用同一支，驗證也在這裡**（客戶詳情、`buySheet.js`、批次建立）：各自再驗一次的話，
+ * 沒過的那一次她會多看到一句「要選至少一種營養品」—— 那一款她明明打了，只是還沒建。
  *
  * **寫入那一下是呼叫端傳進來的**，這一支不 import `/data` ——
  * `tests/buy.test.js` 直接載入這個檔案，而 `data/config.js` 那條路會一路
  * import 到 Firebase SDK（一個 `https:` 網址），Node 載不動。
  *
  * @param {object} draft
- * @param {{products?: object[]}} master 呼叫端手上的主檔（會被就地補一筆）
+ * @param {{courses?: object[], equipment?: object[], products?: object[]}} master
+ *   呼叫端手上的主檔。驗證要課程與器材；`products` 建了新的一款會被**就地**補一筆
  * @param {(data: {name: string}) => Promise<string>} createProduct 回新的 id
- * @returns {Promise<object>} 換掉之後的草稿
+ * @returns {Promise<{draft: object, errors: string[]}>} 有 `errors` 時 `draft` 是原本那一張
+ *   （她打的字留在那一格），而且一次 IO 都沒有發生
  */
 export async function commitNewProduct(draft, master = {}, createProduct) {
+  const filled = withItemNames(draft, master);
   const name = String(draft?.newProductName ?? '').trim();
   if (!draft?.newProduct || !name || typeof createProduct !== 'function') {
-    return withItemNames(draft, master);
+    return { draft: filled, errors: validate(filled, master) };
   }
 
   // 同名的已經有了就用既有那一筆，不要長出第二個「Q10」——
@@ -838,16 +851,27 @@ export async function commitNewProduct(draft, master = {}, createProduct) {
   const existing = (master.products ?? []).find(
     (p) => !p.deletedAt && String(p.name).trim() === name,
   );
-  const id = existing?.id ?? await createProduct({ name });
-  if (!existing) (master.products ??= []).push({ id, name });
+  const one = existing ?? { id: NEW_PRODUCT_ID, name };
+  const withOne = existing ? master : { ...master, products: [...(master.products ?? []), one] };
 
-  const items = [...(draft.items ?? [])];
-  if (!items.some((x) => x.productId === id)) items.push({ productId: id, name });
+  const items = [...(filled.items ?? [])];
+  if (!items.some((x) => x.productId === one.id)) items.push({ productId: one.id, name });
+  const staged = withItemNames({ ...filled, items, newProduct: false, newProductName: '' }, withOne);
+  const next = { ...staged, label: retitle(filled, staged, withOne) };
 
-  return withItemNames(
-    { ...draft, items, newProduct: false, newProductName: '', label: draft.label },
-    master,
-  );
+  const errors = validate(next, withOne);
+  if (errors.length) return { draft: filled, errors };
+  if (existing) return { draft: next, errors: [] };
+
+  const id = await createProduct({ name });
+  (master.products ??= []).push({ id, name });
+  return {
+    draft: {
+      ...next,
+      items: next.items.map((x) => (x.productId === NEW_PRODUCT_ID ? { ...x, productId: id } : x)),
+    },
+    errors: [],
+  };
 }
 
 // ---------- 底下是三個入口共用的那一份接線 ----------

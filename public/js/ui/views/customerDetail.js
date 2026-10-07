@@ -1693,17 +1693,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    // 「＋ 新增…」打的那一款先寫進主檔，換回一張指得到它的草稿。
-    // 沒有要新增就原樣回來，一次 IO 都不會發生（三個入口共用同一支）。
-    const next = await buy.commitNewProduct(
+    // 存檔前的最後一站（三個入口共用同一支）：補名字、驗證，**過了才**把「＋ 新增…」打的那一款
+    // 寫進主檔，換回一張指得到它的草稿。沒過就一次 IO 都不會發生。
+    const { draft: next, errors } = await buy.commitNewProduct(
       { ...live, ...readEntitlement(form, master) },
-      { products: ctx.products },
+      { courses: ctx.courses, equipment: ctx.equipment, products: ctx.products },
       (row) => config.create('products', row),
     );
-
-    const errors = buy.validate(next, {
-      courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,
-    });
     f.showErrors(el, errors);
     if (errors.length) return;
 
