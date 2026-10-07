@@ -1,6 +1,6 @@
 # 二返沒接到一次做完的健檢：把那一句講清楚
 
-Status: todo
+Status: done
 來源：`findings.md` 第 1 條
 動工前先讀：`public/js/domain/visits.js` 的 `assignmentWarnings()`（`:1776`，那一句在 `:1792`）、`visitErrors()` 的 `:1629-1663`、
 `public/js/domain/followups.js` 的 `examChoicesFor()`／`examDoneIn()`／`examStatusIn()`／`examChoiceNote()`、
@@ -55,3 +55,14 @@ Blocked by: —
 ## 文件
 
 `SPEC.md` 健檢與二返那一節補一句；`docs/常見問題.md` 一條（看到什麼：二返那一排按不下去還能存；為什麼；怎麼辦）。不用 ADR —— 沒有推翻任何決定。
+
+## 做完時留下的
+
+- 那一句的後半在 `visits.js` 的 `unlinkedFollowupSay()`（`assignmentWarnings()` 呼叫），四種：
+  有 `pickable` →「還沒指定是哪一次健檢的」（照舊）；有待確認／已確認的 →「M/D 那一次健檢還沒做完（狀態），現在選不到」；
+  做完的都被別場二返佔走 →「做完的健檢都已經約了二返」；其餘 →「這位客戶還沒有做完的健檢」。
+  後三種都接「可以先記；客人來了簽療程單時照樣會扣一次二返」。
+- `assignmentWarnings()` 多收 `customerVisits`；她正在存的這一筆自己併進去再問 `examChoicesFor()`。
+- error 那一圈一個字都沒動。
+- 單元 9 條（`tests/followup-without-finished-exam.test.js`）、E2E `58-verified-rules` 的 P5。常見問題多一條。
+- 前綴「第 N 個時段」留給 07。

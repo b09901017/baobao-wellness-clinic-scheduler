@@ -14,12 +14,12 @@
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
-import { isValidDate, daysBetween } from './dates.js';
+import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn, examStatusIn } from './followups.js';
+import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
 import { slotName } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
@@ -1774,7 +1774,7 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
 function assignmentWarnings(visit, {
-  courses = [], rooms = [], entitlements = [], ivProducts = [],
+  courses = [], rooms = [], entitlements = [], ivProducts = [], customerVisits = [],
 }) {
   const out = [];
   const coursesById = byId(courses);
@@ -1789,8 +1789,9 @@ function assignmentWarnings(visit, {
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
     // 同一條原則），而且她可能就是還沒決定要接哪一次。
     // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
-    if (entsById[slot.entitlementId]?.followupForEntitlementId && !slot.followupForVisitId) {
-      out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
+    const followup = entsById[slot.entitlementId];
+    if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
+      out.push(`${at}：${course.name} ${unlinkedFollowupSay(visit, followup, entsById, customerVisits, course.name)}`);
     }
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
@@ -1847,6 +1848,35 @@ function assignmentWarnings(visit, {
   });
 
   return out;
+}
+
+/**
+ * 一段二返沒接到健檢時，那一句的後半 —— **講得出為什麼**（2026-10-07，verified-bugs issues/01）。
+ *
+ * 她 2026-10-07：「排定二返時：在日曆／壓表存檔時，若沒有連結到已完成的健檢就觸發。+僅提醒，仍可繼續操作」。
+ * 提醒本來就有，但一律是「還沒指定是哪一次健檢的」—— 同一天排健檢＋二返時，「這是哪一次健檢的」那一排
+ * 一顆都按不下去（當天那一次還沒做完），她看到這一句會以為是自己漏按，也看不出之後簽療程單照樣扣一次二返。
+ *
+ * **有哪幾次、各是什麼狀態問 `examChoicesFor()`** —— 三個入口那一排丸子就是它畫的，
+ * 這裡自己再判一次的話丸子說「已完成」而這一句說「還沒做完」。
+ * **她正在存的這一筆也算進去**：`customerVisits` 是存檔前讀回來的，同一筆裡剛加的那一段健檢還不在裡面。
+ *
+ * 後果那半句是真的會發生的事（ADR-0070）：結案扣的是二返那一筆額度，不問它接到健檢了沒。
+ */
+function unlinkedFollowupSay(visit, followup, entsById, customerVisits, name) {
+  const source = entsById[followup.followupForEntitlementId] ?? null;
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
+
+  if (choices.some((c) => c.pickable)) return '還沒指定是哪一次健檢的';
+
+  const open = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
+  const why = open
+    ? `${isValidDate(open.date) ? shortDate(open.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(open.status)}），現在選不到`
+    : (choices.some((c) => c.status === 'done')
+      ? `做完的健檢都已經約了${name}`
+      : '這位客戶還沒有做完的健檢');
+  return `還沒接到一次做完的健檢 —— ${why}。可以先記；客人來了簽療程單時照樣會扣一次${name}`;
 }
 
 /**

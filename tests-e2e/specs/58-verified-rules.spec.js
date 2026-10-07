@@ -145,3 +145,48 @@ test('P4 那一天已完成之後再加一段、時間一樣：第一道確認�
   const mine = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-b');
   expect(mine, '只提醒不擋：另開的那一筆存進去了').toHaveLength(2);
 });
+
+// ---------- 01 二返沒接到一次做完的健檢：那一句講得出為什麼 ----------
+
+test('P5 同一天排健檢＋二返：提醒講出那一次健檢還沒做完、之後照樣會扣；照樣存得下去', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-c', name: '客戶C' }),
+    entitlement('cust-c', {
+      id: 'ent-c-exam', label: '8萬健檢', type: 'single', courseId: 'course-checkup',
+      totalQty: 2, tier: '8萬', durationMin: 120,
+    }),
+    entitlement('cust-c', {
+      id: 'ent-c-fu', label: '二返（8萬健檢）', type: 'single', courseId: 'course-followup',
+      totalQty: 2, followupForEntitlementId: 'ent-c-exam', durationMin: 30,
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-c"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-c-exam"]').click();
+  await page.locator('[data-add-slot]').click();
+  await app.layer('[data-chip="s1-ent"]');
+  await page.locator('[data-chip="s1-ent"][data-chip-value="ent-c-fu"]').click();
+  await page.click('button[type="submit"]');
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said, '不是「還沒指定」—— 她沒有東西可以指').toContain('二返 還沒接到一次做完的健檢');
+  expect(said, '講得出是哪一次').toContain('那一次健檢還沒做完');
+  expect(said, '講得出後果').toContain('照樣會扣一次二返');
+  await app.ok();
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-c');
+  expect(v.slots, '只提醒不擋').toHaveLength(2);
+  expect(v.slots[1].followupForVisitId ?? null).toBeNull();
+});
