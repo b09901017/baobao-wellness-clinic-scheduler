@@ -670,7 +670,8 @@ function openDanger(ctx) {
     body: `<p class="muted">刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。</p>`,
     actions: `
       <button class="btn" type="button" data-toggle-active>${disabled ? '重新啟用' : '停用'}</button>
-      <button class="btn btn--danger" type="button" data-delete>刪除</button>`,
+      <button class="btn btn--danger" type="button" data-delete>刪除</button>
+      <button class="btn" type="button" data-sheet-close>先不要，回去</button>`,
   });
 
   sheet.el.querySelector('[data-toggle-active]').addEventListener('click', async () => {

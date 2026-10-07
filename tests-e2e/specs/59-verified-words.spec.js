@@ -326,3 +326,31 @@ test('W9 360 寬：同一位的客戶詳情不能左右滑，其他限制、警�
     expect(cut, `「${text.slice(0, 6)}…」整句看得到`).toBe(false);
   }
 });
+
+// ---------- 17 她點名的三條小的 ----------
+
+test('W10 客戶詳情「停用與刪除」：有「先不要，回去」，按了只收面板、什麼都沒改', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })]);
+  await app.signIn('/customers/cust-a');
+  await app.settled();
+  await page.locator('[data-danger]').click();
+  await app.layer('.drawer-backdrop .drawer');
+  await page.locator('.drawer-backdrop .drawer').getByRole('button', { name: '先不要，回去' }).click();
+  await expect(page.locator('.drawer-backdrop')).toHaveCount(0);
+  await expect(page.locator('#view')).not.toContainText('已停用');
+});
+
+test('W11 設定清單：營養點滴品項的小字不寫種類名；方案範本的項目名不印兩次', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/ivProducts');
+  await app.settled();
+  await expect(page.locator('#view .row__main > .muted', { hasText: /^營養點滴品項$/ })).toHaveCount(0);
+
+  await app.go('/settings/plans');
+  await app.settled();
+  const item = page.locator('#view li', { hasText: '身體組成分析' }).first();
+  await expect(item).toBeVisible();
+  // 項目名就是課程名時只印一次；擇一池那一項照印「擇一：…」
+  expect((await item.innerText()).match(/身體組成分析/g)).toHaveLength(1);
+  await expect(page.locator('#view li', { hasText: '擇一：' }).first()).toBeVisible();
+});
