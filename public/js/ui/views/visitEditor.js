@@ -1453,7 +1453,7 @@ function lockedCard(embedded = false) {
   return `
     <section class="card ${embedded ? 'card--bare' : ''}">
       <h2 class="card__title">這一天已經完成，是唯讀的</h2>
-      <p class="muted">已完成的來訪不能直接改（SPEC 第 6.4 節）。要更正請填理由，
+      <p class="muted">已完成的來訪不能直接改。要更正請填理由，
         理由會跟著這次修改一起留在稽核紀錄裡。</p>
       <label class="field">
         <span class="field__label">更正理由</span>

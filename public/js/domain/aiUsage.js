@@ -60,7 +60,7 @@ export function validateCap(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return ['每月上限要是 0 或正數'];
   if (!Number.isInteger(n)) return ['每月上限填整數美元'];
-  if (n > CEILING_USD) return [`每月上限最多 US$${CEILING_USD}（程式裡的天花板，填再大也只算 US$${CEILING_USD}）`];
+  if (n > CEILING_USD) return [`每月上限最多只能設到 US$${CEILING_USD}`];
   return [];
 }
 

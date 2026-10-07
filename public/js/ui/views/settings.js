@@ -62,7 +62,7 @@ export async function render(el) {
   el.innerHTML = `
     <div class="page">
       <h1 class="page__title">設定${tip(
-        '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。')}</h1>
+        '診間與治療師都在這裡自己加。')}</h1>
     </div>
 
     ${empty ? seedCard() : ''}
@@ -161,7 +161,7 @@ function seedCard() {
   return `
     <section class="card">
       <h2 class="card__title">還沒有任何主檔${tip(
-        '可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
+        '可以先載入預設的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
       <p><button class="btn btn--primary" type="button" data-seed>載入種子資料</button></p>
     </section>`;
 }
@@ -170,7 +170,7 @@ async function runSeed(el) {
   const ok = await confirmAction({
     title: '載入種子資料',
     consequences: [
-      '建立 SPEC 第 12 節列出的診間、治療師、器材、營養點滴品項、營養品、課程與兩個方案範本',
+      '建立預設的診間、治療師、器材、營養點滴品項、營養品、課程與兩個方案範本',
       '已經存在的一律跳過，不會覆蓋你改過的內容',
       '之後每一筆都能在這裡修改或刪除',
     ],

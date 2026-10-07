@@ -91,7 +91,7 @@ export async function render(el) {
       <form data-cap-form>
         ${f.number({
           name: 'monthlyCapUsd', label: '每月上限（美元）', value: v.capUsd, min: 0, step: 1,
-          hint: `這個月估計花到這個數字就不再叫 AI。最多 US$${CEILING_USD} —— 那是程式裡的天花板，`
+          hint: `這個月估計花到這個數字就不再叫 AI。最多只能設到 US$${CEILING_USD}，`
             + '怕哪天手滑多打一個 0。填 0 等於關掉。',
         })}
         <div class="form__actions">

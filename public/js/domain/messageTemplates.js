@@ -72,7 +72,7 @@ export const TEMPLATES = [
   {
     id: 'received',
     label: '收到他填的時間，回一句',
-    where: '收件匣 #/todo/inbox',
+    where: '待辦 → 客戶填好的時間',
     vars: ['name', 'month', 'lines'],
     hint: '{lines} 是系統讀到的每一條限制，一行一條',
     text: '{name}大哥/姐姐\n'
@@ -104,7 +104,7 @@ export const TEMPLATES = [
   {
     id: 'offer',
     label: '臨時空出一格，問誰要補',
-    where: '時段反查 #/todo/backfill',
+    where: '壓表 → 時段反查',
     vars: ['name', 'date', 'range', 'course'],
     hint: '{course} 自己帶一個「的」，沒有課程時整個消失',
     text: '{name}您好，{date} {range} 臨時空出一個{course}時段，請問您方便過來嗎？',

@@ -468,7 +468,7 @@ const editors = {
         name: 'contraindications', label: '要特別提醒的狀況',
         value: (r.contraindications ?? []).join('、'), placeholder: '體內金屬',
         hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
-          + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
+          + '（不會擋）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
       aliasField(r, {
         placeholder: '高能量',
