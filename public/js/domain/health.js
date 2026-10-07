@@ -58,7 +58,10 @@ import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
  * 那一列從此是她唯一的資訊來源。`tests/health.test.js` 盯著：
  * 每一個 finding 的 `link` 要嘛是 `null`，要嘛以 `#/settings/` 開頭。
  *
- * 檢查的順序就是畫面上的順序：先資料本身對不對，再輪到要她處理的事。
+ * **`who`／`whoId`（選填）是那一筆講的是哪一位客戶**（名字與 id，2026-10-07，issue 18）：畫面照 `whoId`
+ * 把同一位的好幾筆收成一列、抬頭印 `who`。只有講得出是哪一位的那幾種才帶；沒有它的照舊一筆一列。
+ *
+ * 檢查的順序就是畫面上的順序：先資料對不起來的，再輪到要她處理的事（畫面上照嚴重度再分兩組）。
  * id 會出現在網址與稽核訊息裡，不要改。
  *
  * **每一個 id 在 `RUNNERS` 都要有一支，`ui/views/health.js` 的 `FIX_COPY`
@@ -68,7 +71,7 @@ export const CHECKS = [
   {
     id: 'counts',
     label: '次數對帳',
-    hint: 'entitlement 的計數欄位是不是等於從來訪重算的值',
+    hint: '額度上記著的次數，是不是等於從來訪重算出來的次數',
   },
   {
     id: 'followups',
@@ -88,7 +91,7 @@ export const CHECKS = [
   {
     id: 'sameDayVisits',
     label: '同一天有兩筆來訪',
-    hint: '同一位客戶同一天記了兩筆 —— 現在只會有一筆（ADR-0083），這是舊資料',
+    hint: '同一位客戶同一天記了兩筆 —— 現在只會有一筆，這是舊資料',
   },
   {
     id: 'overused',
@@ -98,7 +101,7 @@ export const CHECKS = [
   {
     id: 'conflicts',
     label: '衝突殘留',
-    hint: '她自己排的來訪之間，同診間床位或同治療師撞在一起',
+    hint: '你自己排的來訪之間，同診間或同治療師撞在一起',
   },
   {
     id: 'overdueTasks',
@@ -145,7 +148,7 @@ export const CHECKS = [
     id: 'importedLabel',
     label: '匯進來的額度還叫舊表的名字',
     hint: '匯入時算不出 app 的寫法（健檢的金額與部位、營養針、EECP體驗），'
-      + '所以原字留著等妳自己改 —— 改一筆少一列',
+      + '所以原字留著等你自己改 —— 改一筆少一列',
   },
   {
     id: 'alertTerm',
@@ -167,28 +170,25 @@ export const CHECKS = [
   {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
-    hint: '2026-09-08 重畫過一次：多了 VIP 室、一間 4 號都沒有，而月曆那一格印的是簡寫。'
-      + '治7 那次拿掉了，2026-10-05 回來（Abovee 上 EECP 還排在那一間）。'
-      + '2026-10-06 補治6、VIP1，點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間 —— '
-      + '原本那兩間停用不刪：沒選床位的舊來訪照樣印得出 .8、vip7',
+    hint: '建議的診間清單改過幾次（多了 VIP 室、治6、治7、VIP1，點滴8 與 VIP7 拆成 A／B 各自一間）。原本的點滴8、VIP7 停用不刪 —— 沒選床位的舊來訪照樣印得出來',
   },
   {
     id: 'slotBeds',
     label: '來訪上還記著床位',
     hint: '床位那一層取消了（一間就是一個資源）。點滴8、VIP7 的床 A／B 現在是各自的診間（8A、8B、7A、7B），'
-      + '所以那幾筆是**搬到那一間**（要先在上面「診間清單」把那幾間建起來）；別間的床位照舊清掉',
+      + '所以那幾筆是搬到那一間（要先在「診間清單」那一項把那幾間建起來）；別間的床位照舊清掉',
   },
   {
     id: 'equipmentNames',
     label: '器材的名字跟建議的不一樣',
-    hint: '額度的名字讀器材的全名（`復能-SIS(60)`）、月曆讀別稱（`IN(60)`）——'
-      + ' 那兩格還停在舊的，這兩個地方就都印不出她要的字',
+    hint: '額度的名字讀器材的全名（復能-SIS(60)）、月曆讀別稱（IN(60)）——'
+      + ' 那兩格還停在舊的，這兩個地方就都印不出你要的字',
   },
   {
     id: 'courseAssigns',
     label: '課程的指派跟建議的不一樣',
     hint: '健檢、體適能、身體組成、營養諮詢、門診與二返都不需要治療室 ——'
-      + ' 還指派著治療室的話，壓表時會多問一個不該問的問題，而她會隨便挑一間',
+      + ' 還指派著治療室的話，壓表時會多問一個不該問的問題，而你只能隨便挑一間',
   },
   {
     id: 'visitStatusDerived',
@@ -217,20 +217,17 @@ export const CHECKS = [
   {
     id: 'courseDuration',
     label: '課程的時長跟建議的不一樣',
-    hint: 'EECP 2026-09-16 從 30 改成 60、營養點滴從 60 改成 120；EECP體驗 2026-10-05 從 30 改成 20'
-      + '（Abovee 上叫 EECP20）。「載入種子資料」只建不覆蓋，所以既有主檔不會跟 —— 那一段排出去的長度是舊的',
+    hint: '主檔上的時長還是舊的（EECP 60 分、營養點滴 120 分、EECP體驗 20 分）—— 排出去的那一段會照舊的長度算',
   },
   {
     id: 'seedIvProduct',
     label: '營養點滴品項少了幾款',
-    hint: 'Abovee 上有 13 款，2026-10-05 補了 7 款（元氣活力、免疫馥活、減脂健康、營養守護、'
-      + '癒原養方、養心舒眠、皮蛇疫苗）。少了的那幾款拍 Abovee 認不出來，加購與排班也選不到',
+    hint: '少了的那幾款拍 Abovee 認不出來，加購與排班也選不到',
   },
   {
     id: 'seedStaff',
     label: '治療師與醫師少了幾位',
-    hint: 'Abovee 的服務資源清單上有 13 位治療師、8 位醫師，2026-10-06 補了 9 位。少了的那幾位拍 Abovee 認不出來，'
-      + '排班也選不到。建起來的醫師帶著科別（復健科、心臟科剛好一位，排那幾門課時會先選好）',
+    hint: '少了的那幾位拍 Abovee 認不出來，排班也選不到。建起來的醫師帶著科別',
   },
   {
     id: 'ivProductDuration',
@@ -247,9 +244,7 @@ export const CHECKS = [
   {
     id: 'seedBlanks',
     label: '主檔有幾格還沒跟上',
-    hint: '2026-10-05 多的那幾格：課程的分類、要哪一科的醫師、二返約的時候選 30 或 60、'
-      + 'Abovee 上的寫法、EECP 可以排治7；2026-10-06 多醫師的科別。空著的話拍 Abovee 認不得「高能量60」「雪顏亮采」、'
-      + '「EECP20」會被認成正式課，醫師那一排也分不出誰是哪一科 —— 你自己填過的那幾格不會被動到',
+    hint: '後來多的那幾格（課程的分類、要哪一科的醫師、Abovee 上的寫法、醫師的科別）還空著 —— 空著的話拍 Abovee 認不得幾種寫法、醫師那一排也分不出科別。你自己填過的不會被動到',
   },
 ];
 
@@ -286,16 +281,6 @@ export function runHealthCheck(snapshot, today) {
   });
 
   return { today, checks, totals: totalsOf(checks) };
-}
-
-/** 首頁徽章要的一句話。沒有問題時回 null —— 沒事就不要在畫面上佔位置。 */
-export function healthBadge(result) {
-  const t = result?.totals;
-  if (!t?.findings) return null;
-  const parts = [];
-  if (t.mismatch) parts.push(`${t.mismatch} 筆資料對不起來`);
-  if (t.attention) parts.push(`${t.attention} 筆要處理`);
-  return parts.join('・');
 }
 
 function totalsOf(checks) {
@@ -384,6 +369,8 @@ function checkCounts(ctx) {
 
       out.push({
         severity: 'mismatch',
+        who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${e.label}`,
         detail:
           `計數欄位是 已完成 ${rec.stored.done}、已排未上 ${rec.stored.booked}，`
@@ -425,6 +412,8 @@ function checkFollowups(ctx) {
     for (const miss of missingPairs(ents, ctx.coursesById)) {
       out.push({
         severity: 'mismatch',
+        who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${miss.source.label}`,
         detail: `健檢有 ${miss.source.totalQty ?? 0} 次，但身上沒有對應的二返額度 ——`
           + '二返記不進來，「約二返」的待辦也不會長出來',
@@ -445,9 +434,11 @@ function checkFollowups(ctx) {
     for (const bad of countMismatches(ents, ctx.coursesById)) {
       out.push({
         severity: 'attention',
+        who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${bad.followup.label}`,
         detail: `健檢是 ${bad.expected} 次，二返卻是 ${bad.actual} 次。`
-          + '故意給的就不用管，不是的話到「客戶」那一頁點開她，改二返那一筆的總次數',
+          + '故意給的就不用管，不是的話到「客戶」那一頁點開這位客戶，改二返那一筆的總次數',
         link: null,
         fix: null,
       });
@@ -577,6 +568,8 @@ function checkVisitStatus(ctx) {
     if (!VISIT_STATUSES.includes(visit.status)) {
       out.push({
         severity: 'mismatch',
+        who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: `狀態「${visit.status ?? '（空的）'}」不在合法清單內`,
         link: null,
@@ -589,6 +582,8 @@ function checkVisitStatus(ctx) {
         && (visit.status === 'confirmed' || visit.status === 'pending_confirm')) {
       out.push({
         severity: 'attention',
+        who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: visit.status === 'confirmed'
           ? '日期已過但還是「客戶已確認」，該標已完成或未到了'
@@ -606,6 +601,8 @@ function checkVisitStatus(ctx) {
     if (visit.status === 'done' && slots.length && slots.every((sl) => sl.attended === false)) {
       out.push({
         severity: 'mismatch',
+        who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: '標成「已完成」但每一段都記成沒做，次數一次都沒扣。該標成未到嗎？',
         link: null,
@@ -633,10 +630,12 @@ function checkOverused(ctx) {
 
       out.push({
         severity: 'attention',
+        who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${e.label}`,
         detail: `共 ${c.total} 次，已完成 ${c.done}、已排未上 ${c.booked}，超出 ${
           c.done + c.booked - c.total
-        } 次。故意的就不用管，不是的話到「客戶」那一頁點開她，加購或改那一筆的總次數`,
+        } 次。故意的就不用管，不是的話到「客戶」那一頁點開這位客戶，加購或改那一筆的總次數`,
         link: null,
         fix: null,
       });
@@ -728,8 +727,10 @@ function checkOverdueTasks(ctx) {
     .filter((t) => !t.done && urgency(t.dueDate, ctx.today) === 'overdue')
     .map((t) => ({
       severity: 'attention',
+      who: t.customerName ?? nameOf(ctx, t.customerId),
+      whoId: t.customerId,
       title: `${t.kind}・${t.customerName ?? nameOf(ctx, t.customerId)}`,
-      detail: `死線 ${t.dueDate} 已經過了。到「待辦」首頁那一列勾掉，或改一個做得到的死線`,
+      detail: `死線 ${t.dueDate} 已經過了。做完了就到「待辦」把那一張勾掉`,
       link: null,
       fix: null,
     }));
@@ -761,10 +762,12 @@ function checkStaleAvailability(ctx) {
 
     out.push({
       severity: 'attention',
+      who: customer.name,
+      whoId: customer.id,
       title: customer.name,
       detail: collections.length
-        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問她一次`
-        : `從來沒收集過可用性，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問她一次`,
+        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`
+        : `從來沒收集過可用性，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`,
       link: null,
       fix: null,
     });
@@ -809,10 +812,12 @@ function checkDuplicateAvailability(ctx) {
 
       out.push({
         severity: 'attention',
+        who: customer.name,
+        whoId: customer.id,
         title: `${customer.name}・${monthLabel(`${group.month}-01`)}`,
         detail: `記了 ${group.records.length} 份：${
           group.records.map((c) => summarizeCollection(c)).join('；')
-        }。壓表只會用到其中一份 —— 到「客戶」那一頁點開她，在「不能的時間」把多的那幾份刪掉。`,
+        }。壓表只會用到其中一份 —— 到「客戶」那一頁點開這位客戶，在「不能的時間」把多的那幾份刪掉。`,
         link: null,
         fix: null,
       });
@@ -836,6 +841,8 @@ function checkChartNo(ctx) {
 
     out.push({
       severity: 'attention',
+      who: customer.name,
+      whoId: customer.id,
       title: customer.name,
       detail: `${stale.map((m) => m.text).join('、')} → ${
         next.filter((m) => m.text.startsWith(CHART_NO_PREFIX)).map((m) => m.text).join('、')}`,
@@ -881,6 +888,8 @@ function checkIvMismatch(ctx) {
       const name = (id) => ctx.ivProductsById[id]?.name ?? '（已刪除的品項）';
       out.push({
         severity: 'attention',
+        who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}・第 ${i + 1} 個時段`,
         detail: `買的是 ${name(bought)}，排成了 ${name(slot.ivProductId)}`,
         link: null,
@@ -930,11 +939,13 @@ function checkEntitlementMinutes(ctx) {
 
     out.push({
       severity: 'attention',
+      who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${e.label}`,
       detail: `這一筆記著 ${n} 分，${course.name}${choices.length
         ? `買的時候只有 ${choices.join('／')} 分`
         : `現在是 ${course.durationMin ?? '（沒填）'} 分`} —— 排這一筆的時候照 ${n} 分排。`
-        + '是你自己設的就不用理它；不是的話到「客戶」那一頁點開她，在那一筆額度按「調整」→「進階設定」把時長清空',
+        + '是你自己設的就不用理它；不是的話到「客戶」那一頁點開這位客戶，在那一筆額度按「調整」→「進階設定」把時長清空',
       link: null,
       fix: null,
     });
@@ -974,6 +985,8 @@ function checkSlotMinutes(ctx) {
       const who = visit.customerName ?? nameOf(ctx, visit.customerId);
       out.push({
         severity: 'attention',
+        who: who,
+        whoId: visit.customerId,
         title: `${who}・${visit.date} ${slot.startsAt}–${slot.endsAt} ${course?.name ?? e.label ?? ''}`,
         detail: `排了 ${length} 分，照課程應該是 ${should} 分 —— 是那一筆額度記著 ${e.durationMin} 分（上一項）排出來的。`
           // 分不出是她自己設的還是加購時帶過來的（同第 32 項）—— 那一句一樣要講
@@ -1027,6 +1040,8 @@ function checkPoolLabels(ctx) {
 
     out.push({
       severity: 'attention',
+      who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${now}`,
       detail: `改成「${want}」`,
       link: null,
@@ -1072,9 +1087,11 @@ function checkImportedLabels(ctx) {
     .filter(({ e, want }) => want && want !== String(e.label ?? '').trim())
     .map(({ e, want }) => ({
       severity: 'attention',
+      who: nameOf(ctx, e.customerId),
+      whoId: e.customerId,
       title: `${nameOf(ctx, e.customerId)}・${e.label}`,
       detail: `匯入時算出來的是「${want}」，但那樣會掉字，所以原字留著 ——`
-        + ' 要改的話到「客戶」那一頁點開她，在那一筆額度上改',
+        + ' 要改的話到「客戶」那一頁點開這位客戶，在那一筆額度上改',
       link: null,
       fix: null,
     }));
@@ -1597,6 +1614,8 @@ function checkVisitStatusDerived(ctx) {
       const who = visit.customerName ?? nameOf(ctx, visit.customerId);
       return {
         severity: 'mismatch',
+        who: who,
+        whoId: visit.customerId,
         title: `來訪 ${visit.date}・${who}`,
         detail: `整筆寫著「${describeStatus(visit.status)}」，`
           + `底下那幾段加起來是「${describeStatus(want)}」`,
@@ -2064,6 +2083,8 @@ function checkSameDayVisits(ctx) {
     const who = rows[0].customerName ?? nameOf(ctx, customerId);
     out.push({
       severity: 'attention',
+      who: who,
+      whoId: customerId,
       title: `${who}・${rows[0].date}`,
       detail: `這一天記了 ${rows.length} 筆來訪（共 ${
         rows.reduce((n, v) => n + (v.slots ?? []).length, 0)

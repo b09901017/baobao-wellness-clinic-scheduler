@@ -15,7 +15,6 @@
 // 那一項沒有的欄位就整個炸掉，而畫面上什麼都不會說。
 
 import * as healthData from '../../data/health.js';
-import { healthBadge } from '../../domain/health.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
@@ -42,37 +41,63 @@ export async function render(el) {
   paint(el, result);
 }
 
+/**
+ * **這一頁只回答兩件事：有沒有事、有事的話要做什麼**（2026-10-07，issue 18，ADR-0136）。
+ *
+ * 以前 33 項每一項畫兩次（上面一排數字磚、底下一張卡），她的資料上 31 項是「沒問題」，
+ * 手機上整頁七千多像素 —— 她講了三次「資訊疲勞」。她看過圖點頭的五件事：
+ *
+ *   1. 最上面一塊結論（全部沒事／有幾項要你看）
+ *   2. 數字磚拿掉
+ *   3. 有事的排最上面，「資料對不起來」在前、「要處理」在後；一項一張卡
+ *   4. 同一位客戶的好幾筆收成一列（finding 上的 `who`），很多位時先列前幾位
+ *   5. 沒問題的收成最底下一行，點開是名字清單
+ *
+ * **每一項給不給「修正」「一次修正」跟以前一模一樣** —— 收起來的列裡的按鈕照樣在，只是要點開。
+ */
 function paint(el, result) {
-  const badge = healthBadge(result);
   // 修正按鈕要指得回原本那一筆，所以畫之前先把可修正的編號 ——
   // 同一筆額度可能在不同檢查裡各出現一次，光靠 id 分不出來。
   indexFixes(result);
+
+  const bad = result.checks.filter((c) => c.count > 0);
+  const clean = result.checks.filter((c) => c.count === 0);
+  // 嚴重度記在每一筆 finding 上：有任何一筆是「資料自己對不起來」就排進前面那一組
+  const hard = (c) => c.findings.some((x) => x.severity === 'mismatch');
+  // 結論那一塊的顏色跟以前的數字磚同一套：有對不起來的是紅的，只有要處理的是黃的，沒事是綠的
+  const tone = bad.some(hard) ? 'hsum--bad' : bad.length ? 'hsum--warn' : 'hsum--ok';
 
   el.innerHTML = `
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <div class="page">
-      <div class="page__row">
-        <h1 class="page__title">資料健檢${tip(
-          '發現的問題只會顯示出來。正解不需要判斷的那幾項才有「修正」可以按，'
-          + '其餘一律不會自動改任何資料。')}</h1>
-        ${badge
-          ? `<span class="badge badge--overdue">${esc(badge)}</span>`
-          : '<span class="badge badge--ok">全部對得起來</span>'}
-      </div>
+      <h1 class="page__title">資料健檢${tip(
+        '發現的問題只會顯示出來。正解不需要判斷的那幾項才有「修正」可以按，'
+        + '其餘一律不會自動改任何資料。')}</h1>
     </div>
 
-    <div class="checks" style="margin-bottom: var(--space-5)">
-      ${result.checks.map(checkTile).join('')}
-    </div>
+    <section class="card hsum ${tone}">
+      <p class="hsum__head">${bad.length
+        ? `有 ${bad.length} 項要你看`
+        : `${result.checks.length} 項都沒問題`}</p>
+      ${bad.length ? `<p class="hsum__rest">其餘 ${clean.length} 項沒問題</p>` : ''}
+      <p class="hsum__scan">
+        <button class="btn btn--sm" type="button" data-rescan>重新掃描</button>
+        <span>掃描於 ${esc(new Date().toLocaleString('zh-TW'))}</span>
+      </p>
+    </section>
 
-    <p style="margin-bottom: var(--space-5)">
-      <button class="btn" type="button" data-rescan>重新掃描</button>
-      <span class="muted" style="margin-left: var(--space-3)">
-        掃描於 ${new Date().toLocaleString('zh-TW')}</span>
-    </p>
+    ${groupHtml('資料對不起來', bad.filter(hard))}
+    ${groupHtml('要處理', bad.filter((c) => !hard(c)))}
 
-    ${result.checks.map(checkCard).join('')}`;
+    <details class="card hok">
+      <summary class="hok__sum">${bad.length ? `沒問題的 ${clean.length} 項` : `看檢查了哪 ${clean.length} 項`}</summary>
+      <ul class="hok__list">
+        ${/* `data-check` 每一項都帶著（測試逐項找它）。「沒問題」三個字給讀螢幕的人與測試，畫面上是那一個勾 */''}
+        ${clean.map((c) => `
+          <li data-check="${esc(c.id)}">${icon('check', { size: 14 })}${esc(c.label)}<span class="visually-hidden">沒問題</span></li>`).join('')}
+      </ul>
+    </details>`;
 
   el.querySelector('[data-rescan]').addEventListener('click', () => render(el));
 
@@ -85,76 +110,88 @@ function paint(el, result) {
   );
 }
 
-/**
- * 一眼看完的那一排。差異的數字要大 —— 她開這一頁是為了知道「有沒有事」，
- * 細節在底下的展開區。
- */
-function checkTile(check) {
-  const clean = check.count === 0;
-  // 嚴重度記在每一筆 finding 上，不是整組檢查上。有任何一筆是「資料自己對不起來」
-  // 就算紅的；全部只是「該去處理一件事」就算黃的。
-  const hard = check.findings.some((x) => x.severity === 'mismatch');
-  const cls = clean ? '' : hard ? 'check--bad' : 'check--warn';
+function groupHtml(title, checks) {
+  if (!checks.length) return '';
   return `
-    <div class="check ${cls}">
-      <div class="check__n">${check.count}</div>
-      <div class="check__label">${esc(check.label)}</div>
-    </div>`;
+    <h2 class="hgroup__title">${esc(title)}</h2>
+    ${checks.map(checkCard).join('')}`;
 }
 
 function checkCard(check) {
-  const clean = check.count === 0;
-
+  const hard = check.findings.some((x) => x.severity === 'mismatch');
   return `
-    ${/* `data-check` 是給測試用的：一頁上有十九項，而「這一項給不給一鍵修正」
-           是逐項的規矩（例：品項錯配刻意不給）。沒有它就只能數整頁的按鈕，
-           而那個數字會被別項的修正弄髒。 */''}
-    <details class="card" data-check="${esc(check.id)}" ${clean ? '' : 'open'}>
-      ${/* 那一句說明以前印了**兩次**：上面的磚塊一次、這裡展開一次。
-             2026-09-10 只留一份，收進標題旁邊的 `?`（issue 09）—— 磚塊那一排是
-             「一眼看有沒有事」，數字與名稱就夠了。`?` 長在 `<summary>` 裡，
-             `tip.js` 的點擊處理會 preventDefault，所以點它不會順便把這一塊展開。 */''}
-      <summary class="card__title">
-        ${esc(check.label)}${tip(check.hint)}
-        ${clean
-          ? '<span class="badge badge--ok">沒問題</span>'
-          : `<span class="badge badge--overdue">${check.count}</span>`}
-      </summary>
-      ${clean ? '' : findingsHtml(check)}
-    </details>`;
+    ${/* `data-check` 是給測試用的：「這一項給不給一鍵修正」是逐項的規矩（例：品項錯配刻意不給）。
+           沒有它就只能數整頁的按鈕，而那個數字會被別項的修正弄髒。 */''}
+    <section class="card hcard" data-check="${esc(check.id)}">
+      <div class="hcard__head">
+        <h3 class="hcard__title">${esc(check.label)}</h3>
+        <span class="badge ${hard ? 'badge--overdue' : 'badge--soon'}">${check.count} 筆</span>
+      </div>
+      <p class="hcard__why">${esc(check.hint)}</p>
+      ${check.fixable > 1
+        ? `<p><button class="btn btn--primary" type="button" data-fix-all="${esc(check.id)}">
+             ${esc(FIX_COPY[check.id]?.all?.(check.fixable) ?? `一次修正這 ${check.fixable} 筆`)}
+           </button></p>`
+        : ''}
+      ${rowsHtml(check.findings)}
+    </section>`;
 }
 
-function findingsHtml(check) {
+/** 一張卡先列幾列（一位客戶算一列），其餘收進「還有 N」。 */
+const FIRST_ROWS = 5;
+
+/**
+ * 同一位客戶的好幾筆收成一列；沒有 `who` 的一筆一列。順序照 domain 給的。
+ * **照 `whoId` 分，不照名字** —— 同名的兩位客戶、改過名的那一位（來訪身上是快照）照名字會分錯。
+ */
+function rowsHtml(findings) {
+  const entries = [];
+  const byWho = new Map();
+  for (const f of findings) {
+    const key = f.whoId ?? null;
+    if (!f.who || !key) { entries.push([f]); continue; }
+    if (!byWho.has(key)) { byWho.set(key, []); entries.push(byWho.get(key)); }
+    byWho.get(key).push(f);
+  }
+
+  const one = (list) => (list.length > 1
+    ? `<details class="hrow">
+         <summary class="hrow__sum"><span>${esc(list[0].who)}</span><span class="muted">${list.length} 筆</span></summary>
+         <div class="audit">${list.map(findingHtml).join('')}</div>
+       </details>`
+    : `<div class="audit">${findingHtml(list[0])}</div>`);
+
+  const shown = entries.slice(0, FIRST_ROWS);
+  const rest = entries.slice(FIRST_ROWS);
+  // 收著的全是一位一列時講「位」；混著一筆一列的就講筆數（數的是裡面每一筆，不是列數）
+  const byPerson = rest.every((list) => list[0].whoId);
+  const more = byPerson ? `${rest.length} 位` : `${rest.flat().length} 筆`;
   return `
-    ${check.fixable > 1
-      ? `<p><button class="btn btn--primary" type="button" data-fix-all="${esc(check.id)}">
-           ${esc(FIX_COPY[check.id]?.all?.(check.fixable) ?? `一次修正這 ${check.fixable} 筆`)}
-         </button></p>`
-      : ''}
-    <div class="audit">
-      ${check.findings.map(findingHtml).join('')}
+    <div class="hrows">
+      ${shown.map(one).join('')}
+      ${rest.length ? `
+        <details class="hmore">
+          <summary class="hmore__sum">還有 ${more}</summary>
+          ${rest.map(one).join('')}
+        </details>` : ''}
     </div>`;
 }
 
 function findingHtml(finding) {
   const index = FIX_INDEX.get(finding) ?? null;
+  const actions = [
+    finding.link ? `<a class="btn btn--sm" href="${esc(finding.link)}">去看看</a>` : '',
+    finding.fix && index !== null
+      ? `<button class="btn btn--sm btn--primary" type="button" data-fix="${index}">
+           ${esc(buttonLabel(finding.fix))}</button>`
+      : '',
+  ].join('');
 
   return `
     <div class="audit__row">
-      <div class="audit__head">
-        <span class="audit__what">${esc(finding.title)}</span>
-        <span class="badge ${finding.severity === 'mismatch' ? 'badge--overdue' : 'badge--soon'}">
-          ${finding.severity === 'mismatch' ? '對不起來' : '要處理'}
-        </span>
-      </div>
+      <div class="audit__what">${esc(finding.title)}</div>
       <div class="muted">${esc(finding.detail)}</div>
-      <p>
-        ${finding.link ? `<a class="btn" href="${esc(finding.link)}">去看看</a>` : ''}
-        ${finding.fix && index !== null
-          ? `<button class="btn btn--primary" type="button" data-fix="${index}">
-               ${esc(buttonLabel(finding.fix))}</button>`
-          : ''}
-      </p>
+      ${actions ? `<p class="hrow__actions">${actions}</p>` : ''}
     </div>`;
 }
 
@@ -189,7 +226,7 @@ const FIX_COPY = {
       lines: [
         `額度與主檔寫「${fix.name}」、月曆寫「${fix.shortName ?? '（空）'}」、`
           + `貼給客人的那一句寫「${fix.lineName ?? '（空）'}」`,
-        '**既有來訪與額度身上的名字是購買當下的快照，不會跟著改**',
+        '既有來訪與額度身上的名字是購買當下的快照，不會跟著改',
         '課程的類別、指派與可選時長一個都不會動',
       ],
     }),
@@ -204,7 +241,7 @@ const FIX_COPY = {
     one: (fix) => ({
       title: `「${fix.label}」做完之後要寫紀錄？`,
       lines: [
-        '那一場結案之後，待辦會多一張「寫紀錄」，死線是**來訪那一天**',
+        '那一場結案之後，待辦會多一張「寫紀錄」，死線是來訪那一天',
         '已經結案的那幾筆不會補長出來 —— 只影響之後的',
       ],
     }),
@@ -271,7 +308,7 @@ const FIX_COPY = {
       lines: [
         `會新增「${fix.draft.label}」${fix.qty} 次`,
         '次數跟健檢一樣多。買幾次健檢就有幾次二返',
-        '補了之後，她行事曆上的二返才記得進來',
+        '補了之後，行事曆上的二返才記得進來',
       ],
     }),
     many: (fixes) => ({
@@ -285,7 +322,7 @@ const FIX_COPY = {
     one: (fix) => ({
       title: `把「${fix.from}」改成「${fix.to}」？`,
       lines: [
-        '額度的名字是購買當下的快照，所以它不會自己跟上（ADR-0003）',
+        '額度的名字是購買當下的快照，所以它不會自己跟上',
         '只改名字 —— 次數、器材、到期日一個字都不會動',
         '同一位客戶身上兩種名字並排，看起來像兩種東西',
       ],
@@ -353,7 +390,7 @@ const FIX_COPY = {
         lines: [
           '新的診間清單上沒有這一間了',
           '排班時從此選不到它',
-          '**已經排在那一間的來訪印不出診間名字** —— 那幾筆本身一個字都不會動',
+          '已經排在那一間的來訪印不出診間名字 —— 那幾筆本身一個字都不會動',
           '它會進「已刪除項目」，之後還原得回來',
         ],
       },
@@ -368,7 +405,7 @@ const FIX_COPY = {
         title: `停用「${fix.label}」？`,
         lines: [
           `新的清單上它拆成 ${fix.label}A、${fix.label}B 兩間各自的診間`,
-          '停用之後排班時選不到它；**不是刪掉** —— 已經排在那一間的來訪一個字都不動，照樣印得出診間',
+          '停用之後排班時選不到它；不是刪掉 —— 已經排在那一間的來訪一個字都不動，照樣印得出診間',
           '沒選床位的就是它：舊來訪、拍 Abovee 那一格沒寫床時照樣認得到',
           '之後想讓它重新選得到，到 設定 → 診間 把它啟用',
         ],
@@ -597,7 +634,7 @@ const FIX_COPY = {
       lines: [
         '匯入時寫的是「姓名欄的編號：」，那時候只是推測',
         '號碼一個字都不會動，只換前面那幾個字',
-        '備註與它的純文字鏡像會一起改（ADR-0050）',
+        '備註與它的純文字鏡像會一起改',
       ],
     }),
     many: (fixes) => ({

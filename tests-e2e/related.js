@@ -467,6 +467,10 @@ export const COVERAGE = {
     'public/js/ui/views/customers.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/settings.js',
     'public/js/ui/components/dialog.js', 'public/js/ui/components/flags.js', 'public/js/ui/nav.js', 'public/css/',
   ],
+  // 資料健檢重新設計（verified-bugs-2026-10-07/18，ADR-0136）
+  '60-health-redesign': [
+    'public/js/domain/health.js', 'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',

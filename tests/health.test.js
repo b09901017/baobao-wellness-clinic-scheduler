@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { runHealthCheck, healthBadge, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
+import { runHealthCheck, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const TODAY = '2026-09-15';
@@ -306,7 +306,6 @@ describe('形狀', () => {
       }],
     });
     assert.equal(result.totals.findings, 0, JSON.stringify(result.checks, null, 2));
-    assert.equal(healthBadge(result), null);
   });
 
   test('沒有資料也不會爆，也不會憑空報東西', () => {
@@ -857,7 +856,7 @@ describe('資料過期', () => {
 });
 
 describe('摘要', () => {
-  test('兩種嚴重度分開數，徽章講人話', () => {
+  test('兩種嚴重度分開數', () => {
     const result = run({
       entitlements: [ent({ doneCount: 5 })],
       tasks: [task({ visitId: null, done: false, dueDate: '2026-09-01' })],
@@ -868,7 +867,6 @@ describe('摘要', () => {
     });
     assert.equal(result.totals.mismatch, 1);
     assert.equal(result.totals.attention, 1);
-    assert.equal(healthBadge(result), '1 筆資料對不起來・1 筆要處理');
   });
 });
 

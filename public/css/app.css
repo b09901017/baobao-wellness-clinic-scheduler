@@ -6228,58 +6228,162 @@ summary {
   margin-right: var(--space-2);
 }
 
-/* 資料健檢的摘要格 */
-.checks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-@media (min-width: 600px) {
-  .checks {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.check {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
-  background: var(--ok-bg);
+/* 資料健檢（2026-10-07，issue 18，ADR-0136）。只回答「有沒有事、要做什麼」：
+   最上面一塊結論、有事的一項一張卡、沒事的收成最底下一行。 */
+.hsum {
   border: 1px solid var(--accent-line);
-  color: var(--ok);
+  background: var(--ok-bg);
 }
 
-.check--bad {
-  background: var(--overdue-bg);
+.hsum--bad {
   border-color: var(--overdue-bg);
-  color: var(--overdue);
+  background: var(--overdue-bg);
 }
 
-.check--warn {
-  background: var(--soon-bg);
-  border-color: var(--soon-bg);
-  color: var(--soon);
-}
-
-.check__n {
+.hsum__head {
+  margin: 0;
   font-family: var(--font-serif);
   font-size: var(--text-xl);
   font-weight: 600;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
+  color: var(--ok);
 }
 
-.check__label {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  margin-top: 2px;
+.hsum--bad .hsum__head {
+  color: var(--overdue);
 }
 
-.check__note {
+.hsum--warn {
+  border-color: var(--soon-bg);
+  background: var(--soon-bg);
+}
+
+.hsum--warn .hsum__head {
+  color: var(--soon);
+}
+
+.hsum__rest {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.hsum__scan {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
   font-size: var(--text-2xs);
   color: var(--text-dim);
-  line-height: 1.45;
-  margin-top: 2px;
+}
+
+.hgroup__title {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.hcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.hcard__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.hcard__head .badge {
+  flex: none;
+}
+
+.hcard__why {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.hrow__sum,
+.hmore__sum,
+.hok__sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.hrow__sum::-webkit-details-marker,
+.hmore__sum::-webkit-details-marker,
+.hok__sum::-webkit-details-marker {
+  display: none;
+}
+
+.hrow__sum::after,
+.hmore__sum::after,
+.hok__sum::after {
+  content: '›';
+  margin-left: auto;
+  color: var(--text-mute);
+  transition: transform 0.15s;
+}
+
+.hrow[open] > .hrow__sum::after,
+.hmore[open] > .hmore__sum::after,
+.hok[open] > .hok__sum::after {
+  transform: rotate(90deg);
+}
+
+.hrow {
+  border-top: 1px solid var(--border);
+}
+
+.hrow__sum {
+  font-weight: 600;
+}
+
+.hmore__sum {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.hrow__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.hok__sum {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.hok__list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.hok__list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hok__list svg {
+  flex: none;
+  color: var(--ok);
 }
 
 /* ---------- 設定 ---------- */
