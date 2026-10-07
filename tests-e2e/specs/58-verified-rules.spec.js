@@ -236,3 +236,52 @@ test('P6 三選一 → INDIBA 再換成單買一台的 SIS：抬頭與器材那�
   expect(v.slots[0].entitlementId).toBe('ent-d-sis');
   expect(v.slots[0].equipmentId).toBe('eq-sis');
 });
+
+// ---------- 03 營養品「＋新增…」：先驗證再建主檔、名字重算 ----------
+
+const NEW_CHIP = '[data-chip="productIds"][data-chip-value="__newproduct__"]';
+const productNames = async (app) => (await app.readAll('config/app/products')).map((p) => p.name);
+
+test('P7 客戶詳情 → 加購 → 營養品：只打新的一款存得下去；勾一款＋新的一款名字兩款都有；沒過的那一次主檔不多一筆', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-e', name: '客戶E' })]);
+  await app.signIn('/customers/cust-e');
+  const before = (await productNames(app)).length;
+
+  // (c) 驗證沒過的那一次：新打的那一款不可以先進主檔。
+  // 「幾個月」那一格瀏覽器自己擋 0（`min="1"`），所以關掉瀏覽器那一道才問得到 domain 的驗證
+  await page.locator('[data-add-ent]').click();
+  await app.layer('[data-chip="buy"]');
+  await page.locator('[data-chip="buy"]', { hasText: '營養品' }).click();
+  await page.locator(NEW_CHIP).click();
+  await page.locator('[name="newProductName"]').fill('不該出現的那一款');
+  await page.locator('[name="totalQty"]').fill('0');
+  await page.locator('[data-form]').evaluate((form) => { form.noValidate = true; });
+  await page.click('button[type="submit"]');
+  await expect(page.locator('[data-errors]')).toContainText('總次數必須是大於 0 的整數');
+  await expect(page.locator('[data-errors]'), '她明明打了一款，只是還沒建').not.toContainText('要選至少一種營養品');
+  expect(await productNames(app), '沒過就一次寫入都沒有').not.toContain('不該出現的那一款');
+  expect((await productNames(app)).length).toBe(before);
+
+  // (a) 只打新的一款
+  await page.locator('[name="newProductName"]').fill('測試魚油');
+  await page.locator('[name="totalQty"]').fill('1');
+  await page.click('button[type="submit"]');
+  await app.saved();
+  let ents = await app.readAll('customers/cust-e/entitlements');
+  expect(ents.map((e) => e.label), '以前在這裡被擋：額度名稱不可空白').toEqual(['營養品（測試魚油）']);
+  expect(await productNames(app)).toContain('測試魚油');
+
+  // (b) 勾一款既有的＋再新增一款：名字跟 items 講的是同一組
+  await page.locator('[data-add-ent]').click();
+  await app.layer('[data-chip="buy"]');
+  await page.locator('[data-chip="buy"]', { hasText: '營養品' }).click();
+  await page.locator('[data-chip="productIds"]', { hasText: 'GABA' }).click();
+  await page.locator(NEW_CHIP).click();
+  await page.locator('[name="newProductName"]').fill('測試葉黃素');
+  await page.click('button[type="submit"]');
+  await app.saved();
+  ents = await app.readAll('customers/cust-e/entitlements');
+  const both = ents.find((e) => (e.items ?? []).length === 2);
+  expect(both.items.map((x) => x.name)).toEqual(['GABA', '測試葉黃素']);
+  expect(both.label, '以前只有「營養品（GABA）」').toBe('營養品（GABA＋測試葉黃素）');
+});

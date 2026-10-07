@@ -74,11 +74,10 @@ export function openBuySheet(master, onAdd, { title = '加購', note = '方案�
         const form = formOf();
         if (!form) return;
 
-        // 「＋ 新增…」打的那一款先寫進主檔（三個入口共用同一支）
-        const next = await buy.commitNewProduct(
+        // 補名字、驗證，過了才把「＋ 新增…」打的那一款寫進主檔（三個入口共用同一支）
+        const { draft: next, errors } = await buy.commitNewProduct(
           { ...item, ...buy.values(form, master) }, master, (row) => config.create('products', row),
         );
-        const errors = buy.validate(next, master);
         f.showErrors(drawer, errors);
         if (errors.length) {
           item = next;

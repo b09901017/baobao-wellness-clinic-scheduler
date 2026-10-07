@@ -1,6 +1,6 @@
 # 營養品「＋新增…」：先驗證再建主檔，名字重算
 
-Status: todo
+Status: done
 來源：`findings.md` 第 3 條（a）（b）（c）
 動工前先讀：`public/js/ui/components/buy.js` 的 `commitNewProduct()`（`:830`）、`afterDetail()`、`withItemNames()`、`nameHint()`、`validate()`、
 三個呼叫端 `public/js/ui/views/customerDetail.js:1694-1708`、`public/js/ui/components/buySheet.js:72-88`、`public/js/ui/views/customersBulk.js:603-618`、
@@ -53,3 +53,13 @@ Blocked by: —
 - 單元（`tests/buy.test.js`）：(a)(b)(c) 各一條，`createProduct` 用一個會記次數的假函式 —— (c) 斷言它被叫 0 次。
 - E2E：新 spec 或加進既有營養品那一支 —— 客戶詳情加購只打新的一款存得下去、名字帶著它；新增客戶「＋加一項」同樣；
   故意讓驗證不過（例如幾份打 0）之後 設定 → 營養品 沒有多一筆。
+
+## 做完時留下的
+
+- `commitNewProduct(draft, master, createProduct)` 改回 `{ draft, errors }`，順序：補名字 → 新的那一款用一個暫時的 id 站著、
+  `retitle()` 重算名字 → `validate()` → 過了才 `createProduct()`、把暫時的 id 換成真的。沒過回原本那一張（她打的字留著）、0 次 IO。
+- 三個呼叫端（`customerDetail.js`、`buySheet.js`、`customersBulk.js`）拿它回的 `errors`，不再自己 `buy.validate()`。
+  客戶詳情那一條原本只傳 `{ products }`，現在連 `courses`、`equipment` 一起傳（驗證要）。
+- `buy.validate()` 多一道：營養品一款都還沒選只講「要選至少一種營養品」（以前先吐「額度名稱不可空白」）。
+- 既有 7 條測試改成新的回傳形狀（草稿換成一張存得下去的），新增 6 條；E2E `58-verified-rules` 的 P7
+  （(c) 要關掉瀏覽器的 `min="1"` 才問得到 domain 那一道）。
