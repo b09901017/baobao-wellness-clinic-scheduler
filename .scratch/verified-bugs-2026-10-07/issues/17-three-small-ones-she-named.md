@@ -1,6 +1,6 @@
 # 她點名的三條小的：「先不要，回去」、營養點滴品項的小字、方案範本名字印兩次
 
-Status: todo
+Status: done
 來源：`findings.md`「四裡她挑的四條」的後三條（第一條資料健檢是 18）
 動工前先讀：`public/js/ui/views/customerDetail.js` 的 `openDanger()`（`:661-680`）與別張面板的「先不要，回去」怎麼寫（`grep -rn "先不要，回去" public/js`）、
 `public/js/ui/views/masterList.js` 的 `editors.ivProducts.summary`（`:557-560`）、清單那一列怎麼畫 `summary()`（空字串時會不會留一個空的行）、
@@ -34,3 +34,10 @@ Blocked by: —
 
 - E2E：設定頁欄位那一支（`17-settings-fields`）或客戶詳情那一支各加一條斷言就好，不另開 spec。
 - 單元：`note()`／`summary()` 測得到就測（它們在 `masterList.js` 的 `editors` 上，看既有測試怎麼載它）。
+
+## 做完時留下的
+
+- 「停用與刪除」：最後一顆「先不要，回去」（`data-sheet-close`，面板既有那條關掉的路；順序照別張面板 —— 不做事的那一顆在最後）。
+- 品項的 `summary()` 沒東西可講回空字串；清單那一列**沒字就不畫那一行**（`masterList.js` 畫列那一處，其他種類一起受惠；課程那一張另一支畫法沒動）。
+- 方案的 `note()`：課程名跟項目名一樣就只印一次；擇一池的「擇一：…」照印。
+- E2E `59` 的 W10、W11。`masterList.js` import 到 Firebase，沒有單元測試。

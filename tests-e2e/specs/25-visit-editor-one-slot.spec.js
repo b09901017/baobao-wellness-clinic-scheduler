@@ -332,7 +332,7 @@ test('V4e 從空的那一天新增、把日期改到他已經有一段的那一�
 
   // **先講，再做。** 這一句是紅線（它講的是按下去會寫成什麼），
   // 所以它常駐在畫面上，不收進 tip()。
-  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).toContainText('存下去會加進那一天。');
 
   await page.locator('button[type="submit"]').first().click();
 
@@ -365,12 +365,12 @@ test('V4f 日期改回一個空的日子，那一句話要跟著消失', async (
 
   await page.locator('input[name="date"]').fill(DAY);
   await app.settled();
-  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).toContainText('存下去會加進那一天。');
 
   // 挑錯一天不可以把她卡住 —— 日期照樣改得動
   await page.locator('input[name="date"]').fill(addDays(DAY, 3));
   await app.settled();
-  await expect(page.locator('body')).not.toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).not.toContainText('存下去會加進那一天。');
 });
 
 // **2026-09-16 修好了**（`.scratch/prelaunch-fixes-2026-09-16/issues/08`）。

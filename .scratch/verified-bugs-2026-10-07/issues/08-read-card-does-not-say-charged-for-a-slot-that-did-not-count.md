@@ -1,6 +1,6 @@
 # 讀取卡片：取消／未到的段不寫「扣 X」
 
-Status: todo
+Status: done
 來源：`findings.md` 第 7 條
 動工前先讀：`public/js/ui/views/calendar.js` 的 `fromLine()`（`:1675`）與它在 `visitReadHtml()` 裡的呼叫端、
 `public/js/domain/entitlements.js` 的 `slotOutcome()`（ADR-0025：這一段算不算）、`public/js/domain/visits.js` 的 `slotStatus()`、
@@ -38,3 +38,9 @@ Blocked by: —
 
 - 單元：`visitReadHtml()` 有既有的測法（`tests/read-card-one-slot.test.js`）—— 取消的段、未到的段各一條斷言「沒扣」。
 - E2E：讀取卡片那一支加一條斷言就好，不另開 spec。
+
+## 做完時留下的
+
+- `entitlements.js` 多一支 `chargesEntitlement(visit, slot)`（排著或做完才算扣著；沒有額度的段回 false），`fromLine()` 多收那一筆來訪、問它。
+- 沒扣的那一段寫「沒扣 X」。四個畫面共用 `visitReadHtml()`，一處改四頁。
+- 單元 6 條（`tests/consequences.test.js` 最後兩組）、E2E `59-verified-words` 的 W1。`sw.js` v184（這一支分支的號）。

@@ -158,7 +158,7 @@ describe('壓表那一道確認要講的話', () => {
     assert.ok(settledDayLine().includes(`「${shortStatus(INITIAL_STATUS)}」`));
   });
 
-  test('壓表「加這一筆」底下那一句讀同一支，不自己寫「退回」', () => {
+  test('壓表「加這一段」底下那一句讀同一支，不自己寫「退回」', () => {
     const src = readFileSync(new URL('../public/js/ui/views/schedule.js', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('function addNote('), src.indexOf('\n}', src.indexOf('function addNote(')));
     assert.ok(body.includes('settledDayLine()'), 'addNote() 要讀 consequences.js 那一句');
@@ -1040,5 +1040,90 @@ describe('簽療程單存完那一句，跟抽屜上講的是同一個數字', (
     const v = open([charged, free]);
     const lines = closeConsequences({ visit: v, picks: [true, true], entitlements: [], coursesById: {} });
     assert.ok(lines.includes('做了的 2 段裡 1 段扣掉次數'), lines.join('／'));
+  });
+});
+
+// 2026-10-07（verified-bugs issues/08）：讀取卡片上那一行「扣 X」不看狀態，取消與未到的段也寫「扣」。
+import { chargesEntitlement } from '../public/js/domain/entitlements.js';
+
+describe('這一段有沒有扣著它的額度（讀取卡片那一行「扣 X」）', () => {
+  const v = (status, slot) => ({ id: 'v', status, slots: [slot] });
+  const s = (o = {}) => ({ entitlementId: 'e1', courseId: 'c', ...o });
+
+  test('待確認、已確認、已完成：扣著', () => {
+    for (const status of ['pending_confirm', 'confirmed', 'done']) {
+      const slot = s({ status });
+      assert.equal(chargesEntitlement(v(status, slot), slot), true, status);
+    }
+  });
+
+  test('取消、未到：沒扣', () => {
+    for (const status of ['cancelled', 'no_show']) {
+      const slot = s({ status });
+      assert.equal(chargesEntitlement(v('confirmed', slot), slot), false, status);
+    }
+  });
+
+  test('整天取消的舊資料（時段上沒有狀態）：沒扣', () => {
+    const slot = s();
+    assert.equal(chargesEntitlement(v('cancelled', slot), slot), false);
+  });
+
+  test('沒有額度的段（n返、不算次數的課）：沒有東西可以扣', () => {
+    const slot = s({ entitlementId: null, status: 'done' });
+    assert.equal(chargesEntitlement(v('done', slot), slot), false);
+  });
+});
+
+describe('讀取卡片那一行問的是它（calendar.js 進不了 node，掃原始碼）', () => {
+  const src = readFileSync(fromRoot('public/js/ui/views/calendar.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function fromLine('), src.indexOf('function fromLine(') + 700);
+
+  test('fromLine() 問 chargesEntitlement()，不自己比狀態字串', () => {
+    assert.match(fn, /chargesEntitlement\(/);
+    assert.doesNotMatch(fn, /'cancelled'|'no_show'/);
+  });
+
+  test('沒扣的那一段寫「沒扣」', () => {
+    assert.match(fn, /沒扣/);
+  });
+});
+
+// 2026-10-07（verified-bugs issues/10）：那一天已完成之後再加的段在另一筆來訪裡（ADR-0083）。
+// 取消它時這一筆沒有剩下的段，以前就說「那一天就整個取消了」—— 而已完成的那一段還在。
+describe('取消第二筆來訪的唯一一段：不說那一天整個取消了', () => {
+  const done = {
+    id: 'v-done', customerId: 'c1', date: '2026-10-07', status: 'done',
+    slots: [{ courseId: 'c-fm', entitlementId: null, startsAt: '09:00', status: 'done' }],
+  };
+  const second = {
+    id: 'v-second', customerId: 'c1', date: '2026-10-07', status: 'pending_confirm',
+    slots: [{ courseId: 'c-fm', entitlementId: null, startsAt: '14:30', status: 'pending_confirm' }],
+  };
+  const ask = (o = {}) => cancelConsequences({ visit: second, coursesById: {}, tasks: [], slotIndex: 0, ...o });
+
+  test('帶了同一天的另一筆：講那一天還剩什麼', () => {
+    const lines = ask({ sameDay: [done, second] });
+    assert.ok(!lines.some((l) => l.includes('整個取消了')), lines.join('／'));
+    assert.ok(lines.includes('那一天剩下的 1 段不受影響'), lines.join('／'));
+  });
+
+  test('沒帶：照舊', () => {
+    assert.ok(ask().some((l) => l.includes('那一天就整個取消了')));
+  });
+
+  test('另一筆是別天的、別人的、已經整天取消的：不算', () => {
+    const others = [
+      { ...done, id: 'a', date: '2026-10-08' },
+      { ...done, id: 'b', customerId: 'c2' },
+      { ...done, id: 'c', status: 'cancelled', slots: [{ ...done.slots[0], status: 'cancelled' }] },
+    ];
+    assert.ok(ask({ sameDay: others }).some((l) => l.includes('那一天就整個取消了')));
+  });
+
+  test('這一筆自己還有剩、另一筆也有：加在一起講', () => {
+    const two = { ...second, slots: [...second.slots, { ...second.slots[0], startsAt: '16:00' }] };
+    const lines = cancelConsequences({ visit: two, coursesById: {}, tasks: [], slotIndex: 0, sameDay: [done] });
+    assert.ok(lines.includes('那一天剩下的 2 段不受影響'), lines.join('／'));
   });
 });

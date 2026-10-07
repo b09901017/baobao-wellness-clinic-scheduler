@@ -1,6 +1,6 @@
 # 畫面上的內部用語：「SPEC 第 6.4 節」、舊網址、「寫死在程式碼裡」、「ADR-0074」
 
-Status: todo
+Status: done
 來源：`findings.md` 三的第 4、5、6 列（第 3 列資料健檢那一頁歸 18）
 動工前先讀：`public/js/ui/views/visitEditor.js:1395-1400`、`public/js/domain/messageTemplates.js:75/107`（`where` 那一格在哪裡被印出來）、
 `public/js/ui/views/settings.js:65/164/173`、`public/js/domain/aiUsage.js:63`、`public/js/ui/views/aiUsage.js:94`、`public/js/ui/views/masterList.js:471`、
@@ -59,3 +59,9 @@ Blocked by: —
 - **排序權重的公式已經在 `tip()` 裡**，「或收進 `tip()`」不成立：要做的是把 `?` 裡那一句換成白話。
 - 掃描字樣掃 **`SPEC`**，不是 `SPEC 第` —— 後者抓不到「SPEC 裡已知的」。
 - 跟 18 都動 `fewer-words.test.js` 的 `MOVED`。
+
+## 做完時留下的
+
+- 七句換掉：設定首頁、載入種子的兩句（「預設的」）、已完成的來訪、器材的「（不會擋）」、AI 用量兩處（「最多只能設到 US$N」）、LINE 模板兩格 `where`（「待辦 → 客戶填好的時間」「壓表 → 時段反查」—— 照那兩頁現在的標題；`where` 是純文字，不是連結）。
+- 排序權重的 `?`：公式換成「四個數字是每一項的份量：越大，那一項越能把客戶排到前面。」`fewer-words.test.js` 的 `MOVED` 兩句跟著改。
+- `tests/no-dev-words.test.js` 掃 `ui/views`、`ui/components`、`messageTemplates.js`、`aiUsage.js`（去掉註解）。豁免：`dialog.js`（開發時才丟的錯）、`health.js`（**18 做完拿掉**）。

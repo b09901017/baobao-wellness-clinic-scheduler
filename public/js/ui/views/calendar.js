@@ -37,9 +37,10 @@ import {
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
+import { chargesEntitlement } from '../../domain/entitlements.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
-  slotNoteOf,
+  slotNoteOf, liveSlots,
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
@@ -58,6 +59,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
+import { leaveFor, whenSettled } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 
@@ -280,8 +282,10 @@ function countLine(data, date) {
   // **取消的不算。** 這一行回答的是「那段時間有幾件事要做」，而取消的那一筆
   // 已經沒事要做了 —— 算進去會讓她以為那幾天排滿了（ADR-0061）。
   // 它們照樣畫得出來（月檢視的色條、抽屜裡暗掉的那一列），只是不算數。
-  const visits = shows('visit')
-    ? data.visits.filter((v) => inRange(v.date) && isActive(v)).length
+  // **數段不數筆**（ADR-0135）：一天裡取消的那一段也不算（`liveSlots()`）
+  const slots = shows('visit')
+    ? data.visits.filter((v) => inRange(v.date) && isActive(v))
+      .reduce((n, v) => n + liveSlots(v).length, 0)
     : 0;
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
@@ -290,7 +294,7 @@ function countLine(data, date) {
     ? (data.notes ?? []).filter((n) => inRange(n.date)).length
     : 0;
   const parts = [];
-  if (visits) parts.push(`${visits} 筆來訪`);
+  if (slots) parts.push(`${slots} 段來訪`);
   if (notes) parts.push(`${notes} 件待辦`);
   if (events) parts.push(`${events} 筆行事備註`);
   return parts.join('・') || '這段時間沒有東西';
@@ -385,9 +389,10 @@ function weekHtml(data, date, today) {
           : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
         const todos = notesOn(data, d);
-        // `summaryByDate()` 已經濾掉取消的，所以這個數字天生就不含它們 ——
-        // 跟頂端那一行講同一句話（ADR-0061）。
-        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
+        // ＝底下**沒被劃掉的列數**（ADR-0135）：還算數的段＋行事備註＋待辦。取消的段畫成灰的、
+        // 不算（ADR-0061，`summaryByDate()` 的 `slots` 已經濾掉）；勾掉的待辦照算 —— 那一列還在。
+        // 三種混在一起，所以單位寫「項」。
+        const total = (day?.slots ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
@@ -409,7 +414,7 @@ function weekHtml(data, date, today) {
                 /* 七欄時「週」字收掉（`.weekday__pre`）：`10/12 週一` 在九十幾像素裡會斷行 */''
               }<span class="weekday__pre">週</span>${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
-              <span class="num muted">${total ? `${total} 筆` : ''}</span>
+              <span class="num muted">${total ? `${total} 項` : ''}</span>
             </button>
 
             ${pinned || timeline ? `
@@ -1137,6 +1142,12 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   if (action === 'close') {
     // 收尾是**逐段**的（ADR-0025：客人做了兩段就走是會發生的事，而次數就是
     // 跟著它扣的）。所以這一顆不自己標，通到待辦中心那張逐段的抽屜。
+    //
+    // **直接開她長按的那一天**（2026-10-07，verified-bugs issues/13）：以前只換頁，她要在清單裡
+    // 再找一次那個人。長按選單收掉時排了一趟 `history.go()`，等它回來再換頁 —— 不然那一趟晚到，
+    // 會把換頁退掉、或把那一頁剛開的抽屜收掉（`whenSettled()`）
+    leaveFor('todo/close', visit.id);
+    await whenSettled();
     go('/todo/close');
     return;
   }
@@ -1195,6 +1206,8 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex,
+        // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+        sameDay: customerVisits,
       }),
       confirmLabel: '取消這一段',
       danger: true,
@@ -1615,7 +1628,7 @@ export function visitReadHtml(visit, data) {
                 四個畫面共用這一支，所以四頁一起改（ADR-0018、0056）。 */''}
           <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</span>
-          ${fromLine(s, data)}
+          ${fromLine(visit, s, data)}
           ${/* **目錄那一張上，那一句話長在自己那一列裡**（2026-09-12）。
                 底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
                 單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
@@ -1672,12 +1685,15 @@ export function visitReadHtml(visit, data) {
  *
  * n返沒有額度（ADR-0063），所以它本來就不會有這一行。
  */
-function fromLine(slot, data) {
+function fromLine(visit, slot, data) {
   const label = slot?.entitlementId
     ? String(data?.entitlementsById?.[slot.entitlementId]?.label ?? '').trim()
     : '';
   if (!label) return '';
-  return `<span class="readslot__from">扣 ${esc(label)}</span>`;
+  // **取消與未到的那一段沒有扣**（`chargesEntitlement()`，2026-10-07）。名字留著 ——
+  // 她還是看得出那一段原本是哪一筆額度的。以前一律寫「扣」，那是在講一件沒發生的事（ADR-0070）
+  const word = chargesEntitlement(visit, slot) ? '扣' : '沒扣';
+  return `<span class="readslot__from">${word} ${esc(label)}</span>`;
 }
 
 /**

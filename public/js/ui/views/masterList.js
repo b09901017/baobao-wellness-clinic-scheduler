@@ -468,7 +468,7 @@ const editors = {
         name: 'contraindications', label: '要特別提醒的狀況',
         value: (r.contraindications ?? []).join('、'), placeholder: '體內金屬',
         hint: '用頓號分隔。客戶身上有同名的永久限制時，選了這一台會跳出一句明顯的提醒'
-          + '（不會擋，ADR-0074）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
+          + '（不會擋）。這幾個字也要加進「設定 → 警示」才畫得到客戶身上。',
       }),
       aliasField(r, {
         placeholder: '高能量',
@@ -555,7 +555,8 @@ const editors = {
     summary: (r) => [
       r.durationMin ? `${r.durationMin} 分` : null,
       r.shortName ? `月曆寫「${r.shortName}」` : null,
-    ].filter(Boolean).join(' · ') || '營養點滴品項',
+    // 沒東西可講就不講（2026-10-07）：以前退回種類名，而那一頁的標題就是它，每一列再寫一次
+    ].filter(Boolean).join(' · '),
     fields: (r) => [
       f.text({ name: 'name', label: '品項名稱', value: r.name, placeholder: '護肝排毒' }),
       f.text({
@@ -874,7 +875,10 @@ const editors = {
                 .map((id) => all.equipment.find((e) => e.id === id)?.name ?? '（已刪除）')
                 .join(' / ')}`
             : all.courses.find((c) => c.id === it.courseId)?.name ?? '（課程已刪除）';
-        return `<li>${esc(it.label)} <b>${it.qty}</b> 次 <span class="muted">${esc(detail)}</span></li>`;
+        // 項目名通常就是課程名（「身體組成分析 4 次 身體組成分析」）：一樣就不印第二次。
+        // 她自己改過項目名的照印 —— 那是唯一看得出它排的是哪一門課的地方
+        const same = String(detail).trim() === String(it.label ?? '').trim();
+        return `<li>${esc(it.label)} <b>${it.qty}</b> 次${same ? '' : ` <span class="muted">${esc(detail)}</span>`}</li>`;
       });
       return `<ul class="muted">${rows.join('')}</ul>`;
     },
@@ -1154,7 +1158,7 @@ function paintList(el, type, all) {
             ${ed.badge ? ed.badge(r) : esc(r.name)}
             ${r.active === false ? '<span class="badge badge--soon">已停用</span>' : ''}
           </div>
-          <div class="muted">${esc(ed.summary(r, all))}</div>
+          ${ed.summary(r, all) ? `<div class="muted">${esc(ed.summary(r, all))}</div>` : ''}
           ${ed.note ? ed.note(r, all) : ''}
         </div>
         <div class="row__actions">

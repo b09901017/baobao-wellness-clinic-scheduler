@@ -30,7 +30,7 @@ import {
 } from './taskRules.js';
 import {
   shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
-  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm,
+  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots,
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
@@ -190,8 +190,11 @@ export function reviewWarnings(warnings = []) {
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
- * @returns {{title: string, lines: string[], confirmLabel: string}} 抬頭與確認鈕的字一起回 ——
- *   新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死
+ * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[]}}
+ *   抬頭與確認鈕的字一起回 —— 新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死。
+ *   `toBook`／`free`：這一次新加的段裡**哪幾段要壓、哪幾段不用**（那一筆來訪裡的位置）。
+ *   抬頭問的是「在 X 壓好了嗎」，所以它底下只能列 `toBook` —— 以前呼叫端把新加的每一段都列上去，
+ *   功醫門診＋HRV 一起存時讀起來像在問「HRV 在 Abovee 壓好了嗎」（2026-10-07）。名字由呼叫端組
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
@@ -238,8 +241,12 @@ export function bookingConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
-  if (!where) return { ...nothingToBook(fresh.length), lines };
-  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄' };
+  const live = fresh.filter((i) => isLiveSlot(visit?.slots?.[i]));
+  const toBook = live.filter((i) => bookingSystemOf(coursesById[visit.slots[i].courseId]));
+  const free = live.filter((i) => !toBook.includes(i));
+
+  if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free };
+  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
 }
 
 /**
@@ -621,10 +628,13 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @param {boolean} [o.removing] 走的是刪除不是取消
  * @param {boolean} [o.sheetSyncOn]
  * @param {number|number[]} [o.slotIndex] 只取消其中哪幾段。不帶就是整筆。
+ * @param {object[]} [o.sameDay] 這位客戶的來訪（整份丟進來就好，這裡自己挑同一天的別筆）。
+ *   那一天已完成之後再加的段在另一筆裡（ADR-0083）—— 少了它，取消那一段會說「那一天就整個取消了」
  * @returns {string[]}
  */
 export function cancelConsequences({
   visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
+  sameDay = [],
 }) {
   const lines = [];
   const all = visit?.slots ?? [];
@@ -653,7 +663,12 @@ export function cancelConsequences({
     const back = picked.size === 1 ? '這一段會退回去' : `這 ${picked.size} 段會退回去`;
     const charged = [...picked].filter((i) => all[i]?.entitlementId).length;
     lines.push(charged ? `${back}，次數也會還回來` : `${back} —— 本來就不扣次數`);
-    if (left) lines.push(`那一天剩下的 ${left} 段不受影響`);
+    // **那一天別筆來訪裡還活著的段也算剩下的**（2026-10-07）：這一筆沒有剩下的段，不代表那一天沒有 ——
+    // 已完成的那一段在另一筆裡。底下 `after` 與任務那幾句照舊只看這一筆（它確實整筆取消了）
+    // 「同一天的別筆」只問 `sameDayState()`（ADR-0083：各寫一份的話遲早有一份漏掉一個狀態）
+    const { open, closed } = sameDayState(sameDay, visit.customerId, visit.date, { excludeVisitId: visit.id });
+    const elsewhere = [open, ...closed].filter(Boolean).reduce((n, v) => n + liveSlots(v).length, 0);
+    if (left + elsewhere) lines.push(`那一天剩下的 ${left + elsewhere} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
 
     // **會多哪幾張，問真的會長出它們的那一支**（`cancelTasksFor()`，ADR-0070）。

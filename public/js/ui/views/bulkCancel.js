@@ -610,6 +610,8 @@ async function run() {
   for (const { visit, at } of byVisit.values()) {
     const lines = cancelConsequences({
       visit, coursesById, tasks, slotIndex: at, sheetSyncOn: isConfigured(ctx.settings),
+      // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+      sameDay: ctx.visits,
     });
     for (const line of lines) said.add(line);
   }
@@ -618,7 +620,6 @@ async function run() {
     title: `取消這 ${picked.length} 段？`,
     consequences: [
       ...picked.map((r) => `${shortDate(r.visit.date)}　${slotLine(r)}`),
-      '——',
       ...said,
     ],
     confirmLabel: `取消這 ${picked.length} 段`,

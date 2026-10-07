@@ -119,7 +119,7 @@ async function boot(el, {
     if (visitId && !existing) {
       el.innerHTML = `
         ${embedded ? '' : `<a class="backlink" href="#/customers">${icon('left', { size: 17 })}客戶</a>`}
-        <div class="card"><p>找不到這筆來訪，可能已經被刪除。</p></div>`;
+        <div class="card"><p>找不到這一天的來訪，可能已經被刪除。</p></div>`;
       return;
     }
 
@@ -512,7 +512,7 @@ function sameDayNote(ctx, draft) {
 
   const { open, closed } = sameDayState(ctx.customerVisits, ctx.customer.id, draft.date);
   const line = open
-    ? `${esc(shortDate(draft.date))} 已經有一段了，存下去會加進那一天的那一筆。`
+    ? `${esc(shortDate(draft.date))} 已經有一段了，存下去會加進那一天。`
     : (closed.length
       ? `${esc(shortDate(closed[0].date))} 那一天已經是「${
         esc([...new Set(closed.map((v) => describeStatus(v.status)))].join('、'))
@@ -1344,7 +1344,14 @@ async function submit(ctx, draft) {
       consequences: [
         // **只列這一次新加的那幾段。** 併進既有那一天時，前面那幾段她早就
         // 壓過也早就問過客人了，列出來會讓這一道看起來像在問全部。
-        ...draft.slots.slice(ctx.storedSlotCount ?? 0).map((s) => slotSummary(s, all)),
+        //
+        // **抬頭問「在 X 壓好了嗎」時底下只列要壓的那幾段**（`said.toBook`，2026-10-07）：
+        // 不用壓的（HRV）另外講一句 —— 它也會被記下來，只是沒有東西要她先去壓。
+        // 每一段都不用壓時抬頭是「記錄這 N 段？」，照舊全部列
+        ...(said.toBook.length ? said.toBook : said.free).map((i) => slotSummary(draft.slots[i], all)),
+        ...(said.toBook.length && said.free.length
+          ? [`${said.free.map((i) => slotName(draft.slots[i], all, 'short')).join('、')} 不用壓表，會一起記下來`]
+          : []),
         ...said.lines,
       ],
       // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給
@@ -1420,6 +1427,8 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       tasks: await visitTasks(draft),
       sheetSyncOn: isConfigured(ctx.settings),
       slotIndex,
+      // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+      sameDay: ctx.customerVisits,
     }),
     confirmLabel: '取消這一段',
     danger: true,
@@ -1444,7 +1453,7 @@ function lockedCard(embedded = false) {
   return `
     <section class="card ${embedded ? 'card--bare' : ''}">
       <h2 class="card__title">這一天已經完成，是唯讀的</h2>
-      <p class="muted">已完成的來訪不能直接改（SPEC 第 6.4 節）。要更正請填理由，
+      <p class="muted">已完成的來訪不能直接改。要更正請填理由，
         理由會跟著這次修改一起留在稽核紀錄裡。</p>
       <label class="field">
         <span class="field__label">更正理由</span>

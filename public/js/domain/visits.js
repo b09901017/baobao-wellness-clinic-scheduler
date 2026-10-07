@@ -1676,14 +1676,14 @@ function visitErrors(visit, {
       // 試算表會把二返註記寫到一個不相干的日期底下。
       else if (ent?.followupForEntitlementId
           && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
-        errors.push(`${at}：指定的那一筆來訪裡沒有「${ent.label}」對應的健檢`);
+        errors.push(`${at}：指定的那一天裡沒有「${ent.label}」對應的健檢`);
       }
       // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
       // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
       // **問健檢那一段**（`examDoneIn()`，ADR-0112）—— 跟候選清單同一支，
       // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
       else if (nth && !examDoneIn(exam, examIds)) {
-        errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
+        errors.push(`${at}：指定的那一天沒有一次已完成的健檢`);
       }
       // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
       // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。

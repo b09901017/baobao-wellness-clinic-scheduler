@@ -367,7 +367,7 @@ function card(c, ctx) {
       </div>
 
       ${marks.length
-        ? `<div style="margin-top: var(--space-2)">${marksUi.row(marks, { max: 3 })}</div>`
+        ? `<div style="margin-top: var(--space-2)">${marksUi.row(marks, { max: 3, clip: true })}</div>`
         : ''}
 
       ${shown.length
@@ -387,7 +387,7 @@ function card(c, ctx) {
 
       ${flags.others.length || sum.overused ? `
         <div class="chips" style="margin-top: var(--space-3); row-gap: 6px">
-          ${flags.others.map((x) => `<span class="badge">${esc(x)}</span>`).join('')}
+          ${flags.others.map((x) => `<span class="badge badge--clip">${esc(x)}</span>`).join('')}
           ${sum.overused ? '<span class="badge badge--overdue">有額度超用</span>' : ''}
         </div>` : ''}
     </a>`;

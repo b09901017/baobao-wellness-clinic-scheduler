@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf } from './visits.js';
+import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf, liveSlots } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -361,7 +361,9 @@ export function summaryByDate(visits) {
     if (!isActive(visit) || !isValidDate(visit.date)) continue;
     const day = (out[visit.date] ??= { visits: 0, slots: 0, names: [], pending: 0 });
     day.visits += 1;
-    day.slots += (visit.slots ?? []).length;
+    // **還算數的段**（2026-10-07，ADR-0135）：週檢視右上角那個數字＝底下沒被劃掉的列數，
+    // 取消的段畫成灰的、劃線，不算（ADR-0061）
+    day.slots += liveSlots(visit).length;
     day.names.push(visit.customerName ?? '（沒有名字）');
     // **逐段數**（ADR-0085）。整筆那一個是推導出來的，一段沒問過就整筆
     // 待確認 —— 那會讓月檢視頂端寫「3 待確認」而底下只有一條琥珀色條。

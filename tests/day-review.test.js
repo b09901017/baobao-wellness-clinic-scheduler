@@ -454,6 +454,8 @@ describe('頂端那一排數字', () => {
   test('數的是收合前的筆數 —— 連著壓三筆就是三筆', () => {
     const one = ev('visits.create', { after: { customerName: '客戶A' } });
     assert.equal(reviewOf([one, one, one]).tiles[0].n, 3);
+    // 沒有單位（ADR-0135）：數字＝底下的列數，不替每一種挑一個量詞
+    assert.ok(reviewOf([one]).tiles.every((t) => !('unit' in t)));
   });
 });
 

@@ -132,7 +132,7 @@ test('C3c 客戶姓名裡的髒字串在每一頁都是文字', async ({ app, pa
   await app.cancelDialog();
 });
 
-test('C12 連點 5 次「加這一筆」→ 只寫進去一筆（防重複提交）', async ({ app, page }) => {
+test('C12 連點 5 次「加這一段」→ 只寫進去一筆（防重複提交）', async ({ app, page }) => {
   const { availability } = await import('../fixtures/data.js');
   await app.seed([
     ...baseSeed(),

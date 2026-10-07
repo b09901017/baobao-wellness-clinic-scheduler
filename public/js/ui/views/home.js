@@ -67,6 +67,7 @@ import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
+import { pushLayer, takeFor } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
@@ -95,6 +96,42 @@ let tab = 'all';
 // （`.scratch/quick-actions-and-supplements/issues/01`）。
 let drawer = null;
 
+// 開著的那一張抽屜在返回鍵那一疊裡佔的那一層（`ui/nav.js`）。2026-10-07 以前這兩張自己畫的抽屜
+// 沒有這一層 —— 全站別的抽屜、卡片、確認框按返回都是先收最上面那一層，只有這兩張直接離開頁面。
+//
+// **存成模組層的變數、跟 `drawer` 並排**（不掛在 `drawer` 物件上）：`tests/nav.test.js` 的原始碼掃描
+// 只認得 `名字 = pushLayer(`。一律問 `.active`，不問它是不是 null —— 換頁會清掉那一疊，但不會清掉這個變數。
+let drawerLayer = null;
+
+/**
+ * 開一張抽屜。**抽屜開著時整頁會重畫好幾次（勾一段、補一句），那一層只在這裡推一次。**
+ *
+ * @param {object} state `drawer` 要記的東西（哪一位／哪一筆、按了什麼）
+ * @param {Function} onBack 她按了返回鍵之後怎麼重畫。**裡面不可以問任何一句** ——
+ *   換頁會先來一下 popstate，問了那一道會留在下一頁上（`CLAUDE.md`「存起來的 pushLayer() handle」）
+ */
+function openDrawer(state, onBack) {
+  closeDrawer();
+  drawer = state;
+  drawerLayer = pushLayer(() => {
+    // 那一層已經被 nav 拿掉了，這裡不 pop
+    drawer = null;
+    drawerLayer = null;
+    onBack();
+  });
+}
+
+/**
+ * 她自己關掉（×、點背景、往下拖、送出之後、資料變舊了）：把那一層還回去。
+ * **每一條把 `drawer` 清掉的路都走這一支** —— 漏一條的症狀是下一次按返回被吃掉一次（什麼都沒發生）。
+ * 換頁時 nav 已經把那一疊清光了（`.active` 是 false），所以進頁面那兩處呼叫它也不會多退一步。
+ */
+function closeDrawer() {
+  drawer = null;
+  if (drawerLayer?.active) drawerLayer.pop();
+  drawerLayer = null;
+}
+
 // 「問這輪的時間」那一列。null = 還沒載完（見 loadAsk）。
 let askRows = null;
 
@@ -119,7 +156,7 @@ let askMonth = null;
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
-  drawer = null;
+  closeDrawer();
   askRows = null;
   inboxRows = null;
   bookRows = null;
@@ -553,8 +590,7 @@ function reviewHtml(review, day, today, settings) {
     ${review.tiles.length ? `
       <p class="reviewtiles">
         ${review.tiles.map((t) => `
-          <span class="reviewtiles__one">${esc(t.label)}
-            <b class="num">${t.n}</b>${esc(t.unit)}</span>`).join('')}
+          <span class="reviewtiles__one">${esc(t.label)} <b class="num">${t.n}</b></span>`).join('')}
       </p>` : ''}
 
     <div class="reviewlist">
@@ -1731,7 +1767,7 @@ export function groupTitle(group) {
 export async function renderGroup(el, group) {
   el.innerHTML = '<p class="muted">載入中…</p>';
   picked = new Set();
-  drawer = null;
+  closeDrawer();
   taskVisits = null;
 
   if (group === 'confirm') return renderConfirm(el);
@@ -2954,7 +2990,10 @@ function wireConfirm(ctx) {
   el.querySelectorAll('[data-open]').forEach((btn) =>
     btn.addEventListener('click', () => {
       // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { customerId: btn.dataset.open, picks: new Map(), shown: false };
+      openDrawer(
+        { customerId: btn.dataset.open, picks: new Map(), shown: false },
+        () => paintConfirm(ctx),
+      );
       paintConfirm(ctx);
     }),
   );
@@ -2966,7 +3005,7 @@ function wireConfirm(ctx) {
   });
 
   const close = () => {
-    drawer = null;
+    closeDrawer();
     paintConfirm(ctx);
   };
   el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));
@@ -3062,8 +3101,12 @@ async function openNotesFor(customerId) {
  * - 只有 ✗、沒有 ✓ → 全部是取消，而且給不出復原，所以先問一次。
  */
 async function applyConfirm(ctx) {
-  const visits = byCustomer(ctx.pending).get(drawer.customerId) ?? [];
-  const picks = drawer.picks;
+  // **抽屜開著的那一份先拿在手上**：中間每一個 await 的時候她都可能按返回收掉抽屜（`drawer` 變 null），
+  // 之後再讀 `drawer.…` 會丟 TypeError、被底下的 catch 吞掉 —— 什麼都沒存、也沒有一句話
+  const opened = drawer;
+  if (!opened) return;
+  const visits = byCustomer(ctx.pending).get(opened.customerId) ?? [];
+  const picks = opened.picks;
   // 有按的那幾段（`asked`）與按了 ✗ 的那幾段（`rejected`）。key 是 `來訪 id:原本的索引`
   const asked = new Set(picks.keys());
   const rejected = new Set([...picks].filter(([, yes]) => yes === false).map(([key]) => key));
@@ -3072,6 +3115,10 @@ async function applyConfirm(ctx) {
 
   // 每一天這一次問到的是哪幾段（原本的索引）
   const askedIn = (v) => pendingSlotsOf(v).map(({ index }) => index).filter((i) => asked.has(`${v.id}:${i}`));
+
+  // **在確認框之前讀**：框講的與寫下去的是同一份（ADR-0070），而且「那一天還剩下什麼」要看得到
+  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）
+  let customerVisits = await visitsData.listByCustomer(opened.customerId);
 
   // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
@@ -3085,7 +3132,7 @@ async function applyConfirm(ctx) {
       const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
       const lines = cancelConsequences({
         visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: mine,
-        sheetSyncOn: isConfigured(ctx.settings),
+        sheetSyncOn: isConfigured(ctx.settings), sameDay: customerVisits,
       });
       for (const line of lines) said.add(line);
     }
@@ -3097,8 +3144,6 @@ async function applyConfirm(ctx) {
     });
     if (!ok) return;
   }
-
-  let customerVisits = await visitsData.listByCustomer(drawer.customerId);
 
   // 規則在 `domain/visits.js` 的 `applyConfirmation()`（SPEC 第 10 節）。
   // 這裡只把畫面上的 key（`v.id:i`）換成那一筆自己的段落編號。
@@ -3119,7 +3164,7 @@ async function applyConfirm(ctx) {
     if (!fresh || mine.some((i) => !fresh.slots?.[i]
         || slotStatus(fresh, fresh.slots[i]) !== 'pending_confirm')) {
       toast.info('這幾段剛剛在別的地方改過了，換成最新的樣子');
-      drawer = null;
+      closeDrawer();
       await renderConfirm(ctx.el);
       return;
     }
@@ -3171,10 +3216,10 @@ async function applyConfirm(ctx) {
         // **這一顆特別需要 key。** 上面那段註解自己寫著「這是這條動線唯一一次
         // 不可逆的寫入」，而它沒有二次確認框擋著，又是一個 for 迴圈一筆一筆存 ——
         // 連點兩下等於整批各存兩次，中間那幾筆的登記任務會長出兩份。
-        key: `confirm:${drawer.customerId}`,
+        key: `confirm:${opened.customerId}`,
       },
     );
-    drawer = null;
+    closeDrawer();
     await renderConfirm(ctx.el);
     showConfirmed(summary, said, ctx.master);
   } catch {
@@ -3249,7 +3294,7 @@ async function renderClose(el) {
     config.listAll('ivProducts', { includeDeleted: true }),
     config.getSettings(),
   ]);
-  paintClose({
+  const ctx = {
     el,
     rows: visitsToClose(unclosed, today),
     coursesById: Object.fromEntries(courses.map((c) => [c.id, c])),
@@ -3259,7 +3304,35 @@ async function renderClose(el) {
     // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
     // 開啟抽屜時才讀那一位的 —— 這一頁上可能有十幾筆，全部先讀是白費的。
     entitlements: [],
+  };
+  paintClose(ctx);
+
+  // 日曆長按「客人來了，去簽療程單」留的那一句話（`nav.js` 的 `leaveFor()`）：直接開那一天的抽屜。
+  // 那一筆不在清單上（剛被別台結掉了）就照常只畫清單。**不替她預先勾任何一段**（ADR-0110）
+  const want = takeFor('todo/close');
+  if (want && ctx.rows.some((v) => v.id === want)) await openCloseDrawer(ctx, want);
+}
+
+/** 開某一天的簽療程單抽屜。清單上點那一列、與日曆長按過來，走同一支。 */
+async function openCloseDrawer(ctx, visitId) {
+  // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
+  openDrawer({ visitId, picks: new Map(), shown: false }, () => {
+    // 跟 `wireClose()` 的 `close` 同一件事：換一位客戶時不要沿用上一位的額度
+    ctx.entitlements = [];
+    paintClose(ctx);
   });
+  paintClose(ctx);
+
+  // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
+  // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
+  const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
+  if (!visit?.customerId || ctx.entitlements?.length) return;
+  try {
+    ctx.entitlements = await customersData.listEntitlements(visit.customerId);
+  } catch {
+    return; // 讀不到就少一句話，不是少一頁
+  }
+  if (drawer?.visitId === visit.id) paintClose(ctx);
 }
 
 function paintClose(ctx) {
@@ -3481,22 +3554,7 @@ function wireClose(ctx) {
   const { el } = ctx;
 
   el.querySelectorAll('[data-open]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
-      drawer = { visitId: btn.dataset.open, picks: new Map(), shown: false };
-      paintClose(ctx);
-
-      // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
-      // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
-      const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
-      if (!visit?.customerId || ctx.entitlements?.length) return;
-      try {
-        ctx.entitlements = await customersData.listEntitlements(visit.customerId);
-      } catch {
-        return; // 讀不到就少一句話，不是少一頁
-      }
-      if (drawer?.visitId === visit.id) paintClose(ctx);
-    }),
+    btn.addEventListener('click', () => openCloseDrawer(ctx, btn.dataset.open)),
   );
 
   wirePicks(el, {
@@ -3506,7 +3564,7 @@ function wireClose(ctx) {
   });
 
   const close = () => {
-    drawer = null;
+    closeDrawer();
     // 換一位客戶時不要沿用上一位的額度 —— 那會讓「會多一張追蹤健檢報告」
     // 出現在一個根本沒買健檢的人身上。
     ctx.entitlements = [];
@@ -3530,8 +3588,12 @@ function wireClose(ctx) {
  * 翻成逐段的 `true`／`false`／`null`（先不結）。
  */
 async function applyClose(ctx) {
-  const visit = ctx.rows.find((v) => v.id === drawer.visitId);
-  if (!visit || !drawer.picks.size) return;
+  // **抽屜開著的那一份先拿在手上**：中間每一個 await 的時候她都可能按返回收掉抽屜（`drawer` 變 null），
+  // 之後再讀 `drawer.…` 會丟 TypeError、被底下的 catch 吞掉 —— 什麼都沒存、也沒有一句話
+  const opened = drawer;
+  if (!opened) return;
+  const visit = ctx.rows.find((v) => v.id === opened.visitId);
+  if (!visit || !opened.picks.size) return;
 
   const customerVisits = await visitsData.listByCustomer(visit.customerId);
   // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。她按了的那幾段
@@ -3539,9 +3601,9 @@ async function applyClose(ctx) {
   // 本來就不會被動到（`closeVisit()` 只動 true／false）。
   const fresh = customerVisits.find((v) => v.id === visit.id);
   const stillOpen = new Set(slotsToClose(fresh).map(({ index }) => index));
-  if (!fresh || [...drawer.picks.keys()].some((i) => !stillOpen.has(i))) {
+  if (!fresh || [...opened.picks.keys()].some((i) => !stillOpen.has(i))) {
     toast.info('這一天剛剛在別的地方改過了，換成最新的樣子');
-    drawer = null;
+    closeDrawer();
     await renderClose(ctx.el);
     return;
   }
@@ -3559,7 +3621,7 @@ async function applyClose(ctx) {
       ].filter(Boolean).join('，'),
       key: `visit:save:${next.id}`,
     });
-    drawer = null;
+    closeDrawer();
     await renderClose(ctx.el);
   } catch {
     /* 已處理 */

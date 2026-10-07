@@ -237,3 +237,41 @@ describe('存檔前那一道確認的抬頭', () => {
     }
   });
 });
+
+// 2026-10-07（verified-bugs issues/11）：功醫門診＋HRV 一起存，抬頭對（只問 Abovee），
+// 但呼叫端把這次新加的每一段都列在底下 —— 讀起來像在問「HRV 在 Abovee 壓好了嗎」。
+describe('「壓好了嗎」那一道：哪幾段要壓、哪幾段不用，由 domain 一起回', () => {
+  const day = (...ids) => ({
+    id: null, customerId: 'c1', date: '2026-10-07', status: 'pending_confirm',
+    slots: ids.map((id, i) => ({ courseId: id, entitlementId: null, startsAt: `0${9 + i}:00`, status: 'pending_confirm' })),
+  });
+  const ask = (o) => bookingConsequences({ coursesById: COURSES, today: TODAY, ...o });
+
+  test('功醫門診＋HRV：要壓的只有功醫門診，HRV 在「不用壓」那一份', () => {
+    const said = ask({ visit: day('fm', 'hrv') });
+    assert.match(said.title, /Abovee/);
+    assert.deepEqual(said.toBook, [0]);
+    assert.deepEqual(said.free, [1]);
+  });
+
+  test('兩段都不用壓：要壓的那一份是空的（抬頭本來就會換）', () => {
+    const said = ask({ visit: day('hrv', 'hrv') });
+    assert.deepEqual(said.toBook, []);
+    assert.deepEqual(said.free, [0, 1]);
+    assert.doesNotMatch(said.title, /壓好/);
+  });
+
+  test('只看這一次新加的那幾段（`added`），索引照那一筆來訪的位置', () => {
+    const said = ask({ visit: day('rec', 'fm', 'hrv'), added: [1, 2], merge: { reopened: false } });
+    assert.deepEqual(said.toBook, [1]);
+    assert.deepEqual(said.free, [2]);
+  });
+
+  test('來訪編輯器列的是 toBook，不是這次新加的每一段（掃原始碼）', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8');
+    const at = src.indexOf('const said = bookingConsequences(');
+    const block = src.slice(at, at + 1800);
+    assert.match(block, /said\.toBook/);
+    assert.match(block, /不用壓表/);
+  });
+});

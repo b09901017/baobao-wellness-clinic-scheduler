@@ -113,13 +113,13 @@ const MUTED_DIM_KEEP = {
  * 抽樣而不是全列：全列等於把每一句話抄兩份，而抄錯的那一份會安靜地放行。
  */
 const MOVED = [
-  ['ui/views/settings.js', '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。'],
+  ['ui/views/settings.js', '診間與治療師都在這裡自己加。'],
   ['ui/views/health.js', '發現的問題只會顯示出來。'],
   ['ui/views/bulkCancel.js', '出國或請假的時候，一次把那幾段收掉。'],
   ['ui/views/eventEditor.js', '不綁客戶、不產生任務、不扣次數。'],
   ['ui/views/audit.js', '每一次寫入都會留下一筆，改不掉也刪不掉。'],
   ['ui/views/trash.js', '系統從不真的刪除資料。'],
-  ['ui/views/preferences.js', '分數 = w1×限制 + w2×喜好 + w3×急迫 + w4×間隔。'],
+  ['ui/views/preferences.js', '四個數字是每一項的份量：越大，那一項越能把客戶排到前面。'],
   ['ui/views/report.js', '把資料排成試算表的樣子'],
 ];
 
