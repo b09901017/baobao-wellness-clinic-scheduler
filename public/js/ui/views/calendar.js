@@ -37,6 +37,7 @@ import {
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
+import { chargesEntitlement } from '../../domain/entitlements.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
   slotNoteOf,
@@ -1615,7 +1616,7 @@ export function visitReadHtml(visit, data) {
                 四個畫面共用這一支，所以四頁一起改（ADR-0018、0056）。 */''}
           <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</span>
-          ${fromLine(s, data)}
+          ${fromLine(visit, s, data)}
           ${/* **目錄那一張上，那一句話長在自己那一列裡**（2026-09-12）。
                 底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
                 單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
@@ -1672,12 +1673,15 @@ export function visitReadHtml(visit, data) {
  *
  * n返沒有額度（ADR-0063），所以它本來就不會有這一行。
  */
-function fromLine(slot, data) {
+function fromLine(visit, slot, data) {
   const label = slot?.entitlementId
     ? String(data?.entitlementsById?.[slot.entitlementId]?.label ?? '').trim()
     : '';
   if (!label) return '';
-  return `<span class="readslot__from">扣 ${esc(label)}</span>`;
+  // **取消與未到的那一段沒有扣**（`chargesEntitlement()`，2026-10-07）。名字留著 ——
+  // 她還是看得出那一段原本是哪一筆額度的。以前一律寫「扣」，那是在講一件沒發生的事（ADR-0070）
+  const word = chargesEntitlement(visit, slot) ? '扣' : '沒扣';
+  return `<span class="readslot__from">${word} ${esc(label)}</span>`;
 }
 
 /**

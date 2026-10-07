@@ -59,6 +59,19 @@ export function slotOutcome(visit, slot) {
 }
 
 /**
+ * 這一段**現在有沒有扣著它的額度**：排著的佔一次、做完的扣一次；取消的還回去了、沒來的不扣。
+ * 沒有額度的段（n返、不算次數的課）沒有東西可以扣。
+ *
+ * 讀取卡片那一行「扣 復能-SIS(60)」問它（2026-10-07，verified-bugs issues/08）——
+ * 以前不看狀態，取消與未到的段也寫「扣」，而資料上那一次根本沒算。
+ */
+export function chargesEntitlement(visit, slot) {
+  if (!slot?.entitlementId) return false;
+  const outcome = slotOutcome(visit, slot);
+  return outcome === 'done' || outcome === 'booked';
+}
+
+/**
  * 這一筆額度排得進來訪嗎。
  *
  * 營養品排不進去 —— `CONTEXT.md`：「賣給客戶的實體商品……只記錄與顯示，

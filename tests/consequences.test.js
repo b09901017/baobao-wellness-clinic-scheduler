@@ -1042,3 +1042,49 @@ describe('簽療程單存完那一句，跟抽屜上講的是同一個數字', (
     assert.ok(lines.includes('做了的 2 段裡 1 段扣掉次數'), lines.join('／'));
   });
 });
+
+// 2026-10-07（verified-bugs issues/08）：讀取卡片上那一行「扣 X」不看狀態，取消與未到的段也寫「扣」。
+import { chargesEntitlement } from '../public/js/domain/entitlements.js';
+
+describe('這一段有沒有扣著它的額度（讀取卡片那一行「扣 X」）', () => {
+  const v = (status, slot) => ({ id: 'v', status, slots: [slot] });
+  const s = (o = {}) => ({ entitlementId: 'e1', courseId: 'c', ...o });
+
+  test('待確認、已確認、已完成：扣著', () => {
+    for (const status of ['pending_confirm', 'confirmed', 'done']) {
+      const slot = s({ status });
+      assert.equal(chargesEntitlement(v(status, slot), slot), true, status);
+    }
+  });
+
+  test('取消、未到：沒扣', () => {
+    for (const status of ['cancelled', 'no_show']) {
+      const slot = s({ status });
+      assert.equal(chargesEntitlement(v('confirmed', slot), slot), false, status);
+    }
+  });
+
+  test('整天取消的舊資料（時段上沒有狀態）：沒扣', () => {
+    const slot = s();
+    assert.equal(chargesEntitlement(v('cancelled', slot), slot), false);
+  });
+
+  test('沒有額度的段（n返、不算次數的課）：沒有東西可以扣', () => {
+    const slot = s({ entitlementId: null, status: 'done' });
+    assert.equal(chargesEntitlement(v('done', slot), slot), false);
+  });
+});
+
+describe('讀取卡片那一行問的是它（calendar.js 進不了 node，掃原始碼）', () => {
+  const src = readFileSync(fromRoot('public/js/ui/views/calendar.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function fromLine('), src.indexOf('function fromLine(') + 700);
+
+  test('fromLine() 問 chargesEntitlement()，不自己比狀態字串', () => {
+    assert.match(fn, /chargesEntitlement\(/);
+    assert.doesNotMatch(fn, /'cancelled'|'no_show'/);
+  });
+
+  test('沒扣的那一段寫「沒扣」', () => {
+    assert.match(fn, /沒扣/);
+  });
+});

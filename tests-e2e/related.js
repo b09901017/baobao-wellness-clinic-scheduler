@@ -457,6 +457,16 @@ export const COVERAGE = {
     'public/js/ui/views/progress.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customersBulk.js',
     'public/js/ui/components/buy.js', 'public/js/ui/components/buySheet.js', 'public/js/ui/components/dialog.js',
   ],
+  // 2026-10-07 驗證過的問題清單，第二支（verified-bugs-2026-10-07/08–17）：讀取卡片「沒扣」、數字數段、
+  // 取消那幾道確認框、不用壓的段、待辦抽屜的返回鍵、長按去簽療程單、稽核用語、內部用語、太長的字、三條小的
+  '59-verified-words': [
+    'public/js/domain/entitlements.js', 'public/js/domain/consequences.js', 'public/js/domain/calendar.js',
+    'public/js/domain/audit.js', 'public/js/domain/dayReview.js', 'public/js/domain/messageTemplates.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/home.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/bulkCancel.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/ui/views/customers.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/settings.js',
+    'public/js/ui/components/dialog.js', 'public/js/ui/components/flags.js', 'public/js/ui/nav.js', 'public/css/',
+  ],
   // 客戶改名、刪掉客戶（prelaunch-audit-2026-09-23 的 09、08、16、17）
   '46-customer-rename-and-delete': [
     'public/js/ui/views/customerDetail.js', 'public/js/data/customers.js', 'public/js/domain/customers.js',
