@@ -78,6 +78,37 @@ describe('哪幾種待辦算「變了」', () => {
     assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: [], dropped: [] });
   });
 
+  // 2026-10-09 審查查到的：勾法變了、「壓在哪」也跟著換的那幾種。已經談定的那幾天是照**改之前**的那個系統壓的 ——
+  // 拿新的「壓在哪」去扣的話，會替它們長一張當初壓表的那個系統、或把還要掛的收掉
+  test('只在 Examine 壓的課多勾 Abovee（壓在哪換成 Abovee）→ 不多一張「Examine」：那幾天當初就是在 Examine 壓的', () => {
+    const c = withCourse('course-checkup', { systems: ['Abovee', 'Examine'] });
+    assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: [], dropped: [] });
+  });
+
+  test('三個都勾的課拿掉 Abovee（壓在哪換成 Examine）→ 還沒掛的「Examine」不收：那幾天是在 Abovee 壓的', () => {
+    const c = withCourse('course-retest', { systems: ['Examine', '耀聖'] });
+    assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: [], dropped: [] });
+  });
+
+  test('壓在哪換了、同時真的多勾一個（Abovee → Examine＋耀聖）→ 只有耀聖是新長的', () => {
+    const c = withCourse('course-amnion', { systems: ['Examine', '耀聖'] });
+    assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: ['耀聖'], dropped: [] });
+  });
+
+  test('壓在哪換了、同時真的拿掉一個（三個都勾 → 只留 Examine）→ 只有耀聖是不要了的', () => {
+    const c = withCourse('course-retest', { systems: ['Examine'] });
+    assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: [], dropped: ['耀聖'] });
+  });
+
+  test('壓在哪換了的那一門：談定的那一天開著的「Examine」留著、「耀聖」收掉，一張都不多長', () => {
+    const c = withCourse('course-retest', { systems: ['Examine'] });
+    const v = visit('v1', '2026-10-20', [slot('course-retest', 'confirmed')]);
+    const tasks = [task('t1', 'v1', 'Examine', { slotIndexes: [0] }), task('t2', 'v1', '耀聖', { slotIndexes: [0] })];
+    const out = follow(v, tasks, c);
+    assert.deepEqual(out.create, []);
+    assert.deepEqual(out.remove.map((r) => r.id), ['t2']);
+  });
+
   test('改的是別的格子（名字、時長、診間）→ 什麼都沒變', () => {
     const c = withCourse('course-amnion', { name: '羊膜注射', durationMin: 45, allowedRoomIds: ['room-t3'] });
     assert.deepEqual(changedTaskKinds(c.before, c.after), { grown: [], dropped: [] });
@@ -222,7 +253,9 @@ describe('取消類一張都不長', () => {
     assert.ok(raw.create.some((t) => isCancelKind(t.kind)), '引擎照種類比，會想長一張取消類');
     const out = follow(v, existing, MOVED);
     assert.deepEqual(out.create.filter((t) => isCancelKind(t.kind)), []);
-    assert.deepEqual(out.remove.map((r) => r.id), ['t1'], 'Examine 變成壓表的地方了，確認後不用再掛');
+    // 2026-10-09 審查改的：以前這裡收掉 t1（「Examine 變成壓表的地方了，確認後不用再掛」）。
+    // 但 14:00 那一段是在 Abovee 壓的、Examine 還沒掛 —— 收掉的話那一天只在一個這門課已經不用的系統裡，沒有人提醒
+    assert.deepEqual(out.remove, [], '那一段當初是在 Abovee 壓的：還沒掛的 Examine 留著');
   });
 
   test('整天取消的來訪：一個字都不動', () => {
@@ -370,5 +403,22 @@ describe('只寫任務，不存來訪（掃原始碼）', () => {
 
   test('任務連清掉的一起讀（ADR-0106）', () => {
     assert.ok(code.includes('listByVisitForSync('));
+  });
+});
+
+// 2026-10-09 審查查到的：ADR-0140 寫「讀不到（離線）就不存」，但擋的只有 try/catch ——
+// 開著本機快取時離線的讀取不會失敗，回的是快取裡剛好有的那幾筆。照那一份算出「影響 0 天」就把課程存下去，
+// 不在快取裡的那幾天之後沒有人回頭補（「這門課變了沒」已經是否）。
+describe('離線時不拿快取裡剛好有的來訪去算（掃原始碼）', () => {
+  const src = readFileSync(fromRoot('public/js/ui/views/masterList.js'), 'utf8');
+  const at = src.indexOf('async function saveCourse(');
+  const body = src.slice(at, src.indexOf('\n}\n', at));
+
+  test('`saveCourse()` 讀來訪之前先問 `isOffline()`，而且只在這次改動會動到待辦時才擋', () => {
+    assert.ok(at > 0, '找不到 saveCourse()');
+    const [offline, read] = [body.indexOf('isOffline()'), body.indexOf('courseTaskPlan(')];
+    assert.ok(offline > 0, '沒有問是不是離線');
+    assert.ok(offline < read, '要在讀來訪之前問');
+    assert.ok(body.slice(0, offline).includes('changedTaskKinds('), '改名字、時長那幾格離線照樣存得下去');
   });
 });

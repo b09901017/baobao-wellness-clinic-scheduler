@@ -22,6 +22,7 @@ import {
 } from '../../domain/clinicalFlags.js';
 import { isFollowupCourse } from '../../domain/followups.js';
 import { courseChangeConsequences } from '../../domain/consequences.js';
+import { changedTaskKinds } from '../../domain/taskRules.js';
 import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -29,6 +30,7 @@ import * as toast from '../toast.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { pushScreen } from '../nav.js';
+import { isOffline } from '../net.js';
 import { openCamera } from '../components/camera.js';
 import { seenChip, wireSeen } from '../components/seen.js';
 import { planDraftFrom } from '../../domain/photoPlan.js';
@@ -1473,16 +1475,24 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
  * 先講再寫：哪幾天、多幾張、收幾張是 `courseTaskPlan()` 試算的，存下去跑的是同一段（ADR-0070）。
  * 一天都不影響就不問 —— 改名字、時長、診間走的就是這一條，跟以前一樣一按就存。
  * 讀不到（離線）就不存：這一格存下去之後，「這門課變了沒」就是否，沒有人會再回頭補那幾天。
+ * **離線要自己問**（`isOffline()`）—— 開著本機快取時離線的讀取不會失敗，回的是快取裡剛好有的那幾筆，
+ * 照那一份會算出「一天都不影響」。只擋這次改動會動到待辦的；改名字、時長、診間離線照樣存得下去。
  *
  * @returns {Promise<boolean>} 存了沒（她在確認框按了「先不要」、或讀不到，是 false）
  */
 async function saveCourse(record, parsed) {
   const course = { ...record, ...parsed };
+  const unreadable = '讀不到已經排好的來訪，算不出哪幾天的待辦要跟著變。連上網路再存一次';
+  const kinds = changedTaskKinds(record, course);
+  if ((kinds.grown.length || kinds.dropped.length) && isOffline()) {
+    toast.failed(unreadable);
+    return false;
+  }
   let plan;
   try {
     plan = await visitsData.courseTaskPlan(record, parsed);
   } catch {
-    toast.failed('讀不到已經排好的來訪，算不出哪幾天的待辦要跟著變。連上網路再存一次');
+    toast.failed(unreadable);
     return false;
   }
 

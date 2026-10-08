@@ -21,7 +21,7 @@
 // docs/adr/0041-the-sheet-is-the-registration.md。
 
 import { addDays, isValidDate } from './dates.js';
-import { isLiveSlot, slotStatus } from './visits.js';
+import { isLiveSlot, isOpenStatus, slotStatus } from './visits.js';
 import { SYSTEMS, BOOKING_SYSTEMS } from './masterData.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
@@ -576,15 +576,22 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
  * 而取消類不回頭長（見 `tasksAfterCourseChange()`）。名字、時長、診間那幾格更不算。
  * 沒有改之前的那一份（新增的課程）也不算 —— 還沒有任何來訪用到它。
  *
+ * **「壓在哪」跟著勾法換了的時候，照改之前的那一個扣**（2026-10-09 審查）：已經談定的那幾天是在舊的那個系統壓的。
+ * 拿新的去扣的話 —— 只在 Examine 壓的課多勾 Abovee，談定的每一天會多一張「Examine」（當初就是在那裡壓的）；
+ * 三個都勾的課拿掉 Abovee，還沒掛的「Examine」會被收掉（那幾天是在 Abovee 壓的，Examine 還沒掛）。
+ * 所以：舊的壓表系統不算要掛的；新的壓表系統也不補長（改完之後存來訪不會長它，`tasksForCourse(after)`）。
+ *
  * @param {object|null} before 存之前的課程
  * @param {object|null} after 要存的那一份
  * @returns {{grown: string[], dropped: string[]}} 現在多長的、現在不要了的
  */
 export function changedTaskKinds(before, after) {
   if (!before || !after) return { grown: [], dropped: [] };
+  const bookedAt = bookingSystemOf(before);
   const was = new Set(tasksForCourse(before));
-  const now = new Set(tasksForCourse(after));
-  const grown = [...now].filter((k) => !was.has(k));
+  // 那幾天現在還要掛的：新勾法裡扣掉**當初**壓表的那一個
+  const now = new Set((systemsOf(after) ?? []).filter((s) => s !== bookedAt));
+  const grown = tasksForCourse(after).filter((k) => now.has(k) && !was.has(k));
   const dropped = [...was].filter((k) => !now.has(k));
   const wrote = before.needsRecord === true;
   const writes = after.needsRecord === true;
@@ -629,7 +636,7 @@ export function tasksAfterCourseChange(visit, existingTasks = [], { before, afte
   const plan = syncTasksForVisit(visit, existingTasks, { coursesById, today });
   const kindOf = new Map((existingTasks ?? []).map((t) => [t.id, t.kind]));
   // 整筆的狀態是推導的：有一段還開著它就是待確認或已確認（`visitStatusFrom()`）
-  const open = visit.status === 'pending_confirm' || visit.status === 'confirmed';
+  const open = isOpenStatus(visit.status);
   const reason = `「${after.name ?? ''}」的設定改了，這一張不用做了`;
 
   return {
