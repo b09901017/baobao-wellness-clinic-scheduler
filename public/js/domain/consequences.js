@@ -102,6 +102,20 @@ export function settledDayLine() {
 }
 
 /**
+ * 那一天**已經結案了**（已完成／未到）還要再記一段時要講的那一句（ADR-0083 決定三：那一天不重開，另開一次新的來訪）。
+ * 兩個地方共用：壓表「加這一筆」底下、拍 Abovee 的確認框（`aboveeConsequences()`）。
+ *
+ * 以前只寫在壓表的畫面裡（`schedule.js` 的 `addNote()`），拍 Abovee 那一道一個字都沒講（prelaunch-fixes/11）。
+ * 它跟 `settledDayLine()` 是**兩句**：那一句講的是併進一筆還開著、已經談定的來訪；這一句講的是那一天已經收掉了。
+ * 「那一天有沒有結案的」問 `domain/visits.js` 的 `sameDayState()`，這裡只管字。
+ *
+ * @param {number} [count] 這一次記幾段。壓表一次一段，字跟以前一模一樣
+ */
+export function closedDayLine(count = 1) {
+  return `這天已經結案了，所以${count > 1 ? `這 ${count} 段` : '這一段'}會另開一次新的來訪`;
+}
+
+/**
  * 這一筆來訪動到了哪幾個系統的壓表登記，寫成一句人看得懂的話。
  *
  * 一筆來訪可以同時有健檢（Examine）與復能（Abovee）—— 那時候兩個都要講，
@@ -255,7 +269,7 @@ export function bookingConsequences({
  * 以前這幾句寫在 `ui/components/aboveeConfirm.js` 裡，於是壓表與日曆新增後來跟上的兩件它都沒跟上：
  * 「等客人說可以之後會再多一張 X」（prelaunch-audit-2026-09-23/issues/22）、補登過去那一天
  * 直接在簽療程單（ADR-0113 那一批）。現在判斷一條都不另寫：過了沒借 `visitsToConfirm()`、
- * 會多哪幾張借 `registrationsWhenSettled()`、併進談定那一天借 `settledDayLine()`
+ * 會多哪幾張借 `registrationsWhenSettled()`、併進談定那一天借 `settledDayLine()`、那一天已經結案借 `closedDayLine()`
  *（`.scratch/asks-2026-09-24-evening/issues/07`）。
  *
  * **合起來講**，不是一組一段 —— 十幾段各講三句她會閉著眼睛按。掛號照種類合計。
@@ -293,6 +307,10 @@ export function aboveeConsequences({
   if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
   for (const g of groups.filter((x) => x.reopened)) {
     lines.push(`${g.customerName} ${shortDate(g.date)}：${settledDayLine()}`);
+  }
+  // 那一天已經結案了 → 另開一次新的來訪（`planAbovee()` 的 `afterClosed`，prelaunch-fixes/11）
+  for (const g of groups.filter((x) => x.afterClosed)) {
+    lines.push(`${g.customerName} ${shortDate(g.date)}：${closedDayLine(g.items?.length ?? 1)}`);
   }
 
   // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段

@@ -9,7 +9,9 @@
 //    日期、時段 —— 兩張只能照「第幾列」對上，**列數不一樣就不對**。兩張都有姓名（兩頁、同一頁拍兩次）
 //    就接起來：**只拿不同張的列比**（`sameRow()`），同一張照片裡的兩列永遠不互相去掉
 // 2. **每一列分成四種**（`readAbovee()`）：新的、已經記了、對不上、認不得人。
-//    認人走 11 的 `identifyCustomer()`，課程／診間／治療師走 12 的 `courseFrom()` 等
+//    認人走 11 的 `identifyCustomer()`，課程／診間／治療師走 12 的 `courseFrom()` 等。
+//    **「已經記了」認得三種形狀**：同一天同一個開始時間（`existingAt()`）、合併扣課的後一半（`claimHalves()`）、
+//    合併檔匯進來沒有開始時間的舊段（`claimTimeless()`）
 // 3. **組成來訪**（`planAbovee()`）：一律走 10 的 `slotFromPicks()`／`visitWithSlot()`
 // 4. **直接標成壓完**（`queueMarksAfter()`）
 //
@@ -20,7 +22,7 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
-  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, shortStatus, slotStatus,
+  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, sameDayState, shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
@@ -515,7 +517,105 @@ export function readAbovee(transcripts, ctx) {
 
   // 照片上有沒有「合併扣課」那一欄（拍兩張時，有一張有就算）
   const hasColumn = (transcripts ?? []).some((t) => (t?.columns ?? []).some((c) => ABOVEE_KEYS[clean(c)] === 'merged'));
-  return { pairing, counts: sizes, items: flagRepeats(flagMoved(mergeRows(items, ctx, { hasColumn }), ctx)) };
+  // 整張一起看才知道的事，照這個順序：合併扣課的後一半（要趕在 `mergeRows()` 把它標成找不到另一半之前）→
+  // 合併扣課 → 沒有時間的舊段（一對先合成一列，才對得到那一段舊的）→ 搬了時間 → 看起來是同一段
+  const paired = mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn });
+  return { pairing, counts: sizes, items: flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)) };
+}
+
+// ---------- 「已經記了」的另外兩種形狀（prelaunch-fixes/11）----------
+//
+// `existingAt()` 只認「同一天、同一個開始時間」。app 上存的形狀跟照片上不一樣的那兩種，再拍一次會被當成新的：
+//
+// - **合併扣課**：app 上是一段（10:30–11:30、記一句「合併扣課：IN 30＋SIS 30」），照片上是兩列。第一列對到那一段，
+//   第二列（11:00）找不到同一個開始時間的；`mergeRows()` 又只在「新的」裡找另一半 —— 於是它變成「要你看：
+//   照片上找不到另一半，確定是單獨一段再勾」，沒有那一欄的照片更糟：普通的新的一段、預設打勾
+// - **合併檔匯進來的舊段沒有開始時間**（行事曆上沒寫的那幾段）：比不到，抬頭寫「新的 1 段」，看起來像 app 漏記了
+
+/** 這一列變成「已經記了」（或對不上）：它不是新的一段了，翻譯時先按好的那幾顆一起拿掉。 */
+const asRecorded = (item, existing, extra = {}) => ({
+  ...item,
+  entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
+  isNth: false, nth: null, uncountedCourseId: null, minutes: null,
+  mergeOrphan: false, movedFrom: null, appCancelledHere: false, partialHistory: false,
+  kind: 'recorded', checked: false, existing, ...extra,
+});
+
+/** 一列對到的 app 上那一段（同一個開始時間、同一門課、還活著）。 */
+function appSlotOf(item, ctx) {
+  const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing?.visitId);
+  return (visit?.slots ?? []).find((s) => isLiveSlot(s) && s.startsAt === item.startsAt
+    && s.courseId === item.course?.courseId) ?? null;
+}
+
+const covers = (slot, from, to) => Boolean(slot?.startsAt && slot?.endsAt)
+  && toMinutes(slot.startsAt) <= toMinutes(from) && toMinutes(slot.endsAt) >= toMinutes(to);
+
+/**
+ * 合併扣課的後一半：前一列對到 app 上的一段、同一位同一天、時間接得上（前一列的結束＝這一列的開始）、同一門課，
+ * 而且 **app 上那一段的時間蓋得住這一半**（開始到結束包住它）→ 這一列也是「已經記了」。
+ *
+ * - 少了「蓋得住」那一條：app 上真的只記了前一半（30 分的一段）時，後一半會被吞掉
+ * - 照片上**有**「合併扣課」那一欄時另外要求這一列勾了；**沒有**那一欄時上面那幾條就夠
+ * - 前一列是「還沒簽療程單／未到」的對不上也算（那一段在，只是狀態講不一樣 —— 那一句前一列講了，這一列不再喊一次）
+ * - 這一列**不給「改成 Abovee 的」**：那一段的治療師／診間由前一列比（`aboveeDiffs()`），兩列各比一次會指到同一段兩次
+ */
+function claimHalves(items, ctx, { hasColumn = false } = {}) {
+  const held = items.filter((a) => !a.cancelled && a.existing && a.course && a.startsAt
+    && (a.kind === 'recorded' || (a.kind === 'mismatch' && ['notClosed', 'appNoShow'].includes(a.reason))));
+  if (!held.length) return items;
+  return items.map((b) => {
+    if (b.kind !== 'new' || b.cancelled || !b.customerId || !b.date || !b.startsAt || !b.course) return b;
+    if (hasColumn && !mergedMark(b.row?.merged)) return b;
+    const end = aboveeEnd(b.row?.time);
+    if (!end) return b;
+    const first = held.find((a) => a.customerId === b.customerId && a.date === b.date
+      && aboveeEnd(a.row?.time) === b.startsAt && a.course.courseId === b.course.courseId
+      && covers(appSlotOf(a, ctx), b.startsAt, end));
+    return first
+      ? asRecorded(b, { visitId: first.existing.visitId, date: first.existing.date }, { halfOf: first.startsAt })
+      : b;
+  });
+}
+
+/**
+ * 沒有開始時間的舊段：找不到同一個開始時間時，再找「那一天、同一位、同一門課、**沒有開始時間**、還算數」的段。
+ *
+ * - **Abovee 上已取消的列不認領** —— 不然拿取消的那一列去對，會喊「Abovee 上取消了，app 上還是已完成」，
+ *   而真的那一列反而變成新的
+ * - **一段舊的只蓋一列**：同一天同一門課真的做了兩次時，第二列照舊是新的。所以要整張一起看（跟 `flagMoved()` 同一層）
+ * - 「同一門課」比的是認出來的課程（`sameCourse()`）：擇一池那一列是器材推出來的課程，舊段上有記器材就要同一台，
+ *   沒記（匯入的常常沒有）就只比課程
+ * - 預約狀態照樣對一次（`crossCheck()`）：Abovee 寫完成、app 那一段還沒結案 → 對不上
+ * - **不給「改成 Abovee 的」**：`adoptAbovee()` 靠開始時間找那一段，這一段沒有；匯入的舊段本來就沒有治療師與診間（ADR-0011）
+ */
+function claimTimeless(items, ctx) {
+  const taken = new Set();
+  return items.map((item) => {
+    if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) return item;
+    for (const visit of ctx.visitsBy?.[item.customerId] ?? []) {
+      if (!visit || visit.deletedAt || visit.date !== item.date || !isActive(visit)) continue;
+      const index = (visit.slots ?? []).findIndex((s, i) => isLiveSlot(s) && !s.startsAt && !taken.has(`${visit.id}:${i}`)
+        && sameCourse({ courseId: s.courseId, equipmentId: s.equipmentId, nth: nthOf(s) }, item.course));
+      if (index < 0) continue;
+      taken.add(`${visit.id}:${index}`);
+      const hit = { slot: visit.slots[index], index, status: slotStatus(visit, visit.slots[index]) };
+      const verdict = crossCheck(aboveeState(item.statusText), { live: true, slots: [hit] }, [hit]);
+      return asRecorded(item, { visitId: visit.id, date: visit.date }, { ...verdict, timeless: true });
+    }
+    return item;
+  });
+}
+
+/**
+ * 「已經記了」那一列點開之後那一句：是哪一種已經記了。句子在 domain（同 `mismatchSay()`、`newRowSay()`）。
+ */
+export function recordedSay(item) {
+  if (item?.kind !== 'recorded') return '';
+  if (item.cancelled) return '兩邊都是取消的，不用記。';
+  if (item.halfOf) return `這是合併扣課的後一半 —— app 上 ${item.halfOf} 那一段已經包著它，不用再記。`;
+  if (item.timeless) return 'app 上這一天已經有這一段了（匯入的舊資料，沒有時間），不用再記。';
+  return '這一段 app 裡已經有了，不用再記。';
 }
 
 // ---------- 同一格的兩列：重約、看起來是同一段（prelaunch-fixes/10）----------
@@ -1172,9 +1272,11 @@ export function picksOf(item) {
  * 勾起來的那幾列 → 一位一天一筆來訪（ADR-0083）。同一天已經有收得下的就併進去。
  *
  * @returns {{groups: {key: string, customerId: string, customerName: string, date: string,
- *                     visit: object, items: object[], reopened: boolean}[],
+ *                     visit: object, items: object[], reopened: boolean, afterClosed: boolean}[],
  *            problems: Record<string, string[]>}}
- *   `problems`：勾了卻組不起來的那幾列（還沒選額度、沒有時間），照列的 key
+ *   `problems`：勾了卻組不起來的那幾列（還沒選額度、沒有時間），照列的 key。
+ *   `afterClosed`：那一天已經結案了（已完成／未到），所以這幾段另開一次新的來訪（ADR-0083）——
+ *   確認框要講出來（`consequences.js` 的 `closedDayLine()`）。問的是 `sameDayState()`，跟日曆同一支
  */
 export function planAbovee(items, ctx) {
   const { courses = [], equipment = [], ivProducts = [] } = ctx.master ?? {};
@@ -1202,6 +1304,7 @@ export function planAbovee(items, ctx) {
     const customerName = byId.get(item.customerId)?.name ?? '';
     const group = groups.get(key) ?? {
       key, customerId: item.customerId, customerName, date: item.date, visit: null, items: [], reopened: false,
+      afterClosed: false,
     };
     // 這一組已經組出來的那一筆放進去，下一段才併得進同一天
     const pool = [
@@ -1209,6 +1312,10 @@ export function planAbovee(items, ctx) {
       ...(group.visit ? [group.visit] : []),
     ];
     const { visit, merged } = visitWithSlot({ customerId: item.customerId, customerName }, item.date, slot, pool);
+    // 這一組的第一段沒有併進任何一筆、而那一天有結案的 → 另開一次（同一組接下來的段併進剛開的那一筆）
+    if (!group.visit && !merged) {
+      group.afterClosed = sameDayState(ctx.visitsBy?.[item.customerId] ?? [], item.customerId, item.date).closed.length > 0;
+    }
     group.visit = visit;
     group.reopened = group.reopened || Boolean(merged?.reopened);
     group.items.push(item);

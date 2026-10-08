@@ -23,7 +23,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices,
   markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  repeatSay, resolveItem, summarizeAbovee,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
@@ -398,7 +398,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         </div>
         ${item.merged ? `
           <p class="abl-row__merged"><b>合併扣課</b>${esc(mergedLine(item))}
-            ${savedKeys.has(item.key) ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
+            ${savedKeys.has(item.key) || item.kind !== 'new' ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
@@ -437,8 +437,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
     const who = whoHtml(item);
     if (item.kind === 'recorded') {
-      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${item.cancelled
-        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p>${adoptHtml(item, warnings)}${who}</div>`;
+      // 是哪一種已經記了（同一個時間、合併扣課的後一半、沒有時間的舊段）那一句在 domain（`recordedSay()`，11）
+      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
       // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
