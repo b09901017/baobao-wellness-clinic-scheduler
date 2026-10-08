@@ -55,7 +55,7 @@ import {
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
 import { bookingConsequences, closedDayLine, settledDayLine } from '../../domain/consequences.js';
-import { slotName } from '../../domain/naming.js';
+import { slotName, fullNameOf } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, secondFollowupIds,
@@ -1214,8 +1214,8 @@ function recordedSlots(row) {
   for (const v of ctx.queueInput.visitsBy[row.customerId] ?? []) {
     if (!isActive(v) || v.date < ctx.range.from || v.date > ctx.range.to) continue;
     for (const s of v.slots ?? []) {
-      const who = ctx.all.staff.find((x) => x.id === s.therapistId)?.name
-        ?? ctx.all.rooms.find((x) => x.id === s.roomId)?.name ?? '';
+      const who = fullNameOf(ctx.all.staff.find((x) => x.id === s.therapistId))
+        || (ctx.all.rooms.find((x) => x.id === s.roomId)?.name ?? '');
       out.push({
         visitId: v.id,
         date: v.date,

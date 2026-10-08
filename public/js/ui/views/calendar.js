@@ -1639,7 +1639,7 @@ export function visitReadHtml(visit, data) {
       const room = showsRoom(s, data.master?.courses ?? null) && data.roomsById[s.roomId]
         ? nameOf(data.roomsById[s.roomId], 'short')
         : null;
-      const therapist = data.staffById[s.therapistId]?.name ?? null;
+      const therapist = data.staffById[s.therapistId] ? nameOf(data.staffById[s.therapistId], 'short') : null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
       // 點得下去的那一種畫成按鈕，`data-open` 的格式跟日／週那一列**一模一樣**
       // —— 接線那一側走的是同一支 `parseOpen()`（`wireReadSlots()`），

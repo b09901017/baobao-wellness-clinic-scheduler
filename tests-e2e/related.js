@@ -508,6 +508,12 @@ export const COVERAGE = {
     'public/js/ui/views/home.js', 'public/js/domain/taskRules.js', 'public/js/data/tasks.js',
     'public/js/ui/views/masterList.js',
   ],
+  // 2026-10-09 上線前修正，第四段（prelaunch-fixes-2026-10-08/19–21）：人員的全名與簡寫（ADR-0141）、
+  // 合併檔 v6 帶人員名單
+  '64-prelaunch-staff-and-merge': [
+    'public/js/ui/views/masterList.js', 'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/mergeImport.js', 'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

@@ -820,7 +820,8 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {}, toda
         // 那幾場不可以再被猜一次** —— 否則同一場二返會出現在兩個健檢底下。
         const hit = (exam && linked.get(exam.id))
           ?? (exam && guessedFor.has(exam.id) ? null : takeUnlinked(guessed, linked, i));
-        const doctor = hit?.doctorId ? (staffById[hit.doctorId]?.name ?? null) : null;
+        // 簡寫（ADR-0141）：這一格跟日曆那一列一樣窄，她原本手寫的就是 `二返(夏)`
+        const doctor = staffById[hit?.doctorId] ? variantName(staffById[hit.doctorId], 'short') : null;
         const at = dates.indexOf(date);
 
         add(at, hit
@@ -839,7 +840,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {}, toda
         // 而二返上面那一行已經印過了。
         if (!exam) return;
         for (const extra of followupsOfExam(exam.id, visits, [])) {
-          const who = extra.slot.doctorId ? (staffById[extra.slot.doctorId]?.name ?? null) : null;
+          const who = staffById[extra.slot.doctorId] ? variantName(staffById[extra.slot.doctorId], 'short') : null;
           // 醫師還沒定就印空括號 —— **這一種空括號是有意義的**：
           // 那一場已經約了（日期就在前面），只是醫師還沒挑。
           add(at, `${monthDay(extra.visit.date, today)} ${nthLabel(extra.nth)}${who ? `(${who})` : '()'}`);

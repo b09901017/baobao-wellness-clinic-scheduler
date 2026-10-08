@@ -89,7 +89,8 @@ const FIELD_LABELS = {
   requiresDoctor: '要選醫師',
   // 課程主檔 2026-10-05 多出來、或本來就改得到卻印英文的那幾格
   group: '分類',
-  shortName: '別稱',
+  // 人員、診間、品項的那一格叫「簡寫」，課程與器材叫「別稱」—— 同一格（`nameOf(…, 'short')`）
+  shortName: '別稱／簡寫',
   allowedRoomIds: '只能排在這幾間',
   systems: '壓哪幾個系統',
   doctorPick: '要哪一科的醫師',

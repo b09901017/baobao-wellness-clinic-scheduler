@@ -40,14 +40,15 @@ const named = (row, text) => same(row.name, text) || (row.shortName && same(row.
  * 服務資源那一格的人名 → 治療師或醫師。
  *
  * 1. 主檔上記住的「Abovee 上的寫法」（`aboveeNames`）完全相同 → 那一位
- * 2. 否則：**治療師的名字是全名的結尾**（陳小芳 → 小芳）、**醫師的姓是全名的開頭**（夏大同 → 夏），
- *    而且只有一位符合
+ * 2. 跟主檔上的**全名**完全相同 → 那一位（ADR-0141：顯示名就是全名）
+ * 3. 否則：**治療師的簡寫是全名的結尾**（陳小芳 → 小芳）、**醫師的簡寫是全名的開頭**（夏大同 → 夏），
+ *    而且只有一位符合。沒填簡寫拿全名問
  *
  * **知道這一列要哪一種人時只在那一種人裡找**（`role`，`staffRoleFor()` 算）：復能那一列的治療師
  * 姓李、醫師也有一位「李」的話，兩條規則都符合 → 以前兩位都符合就放棄（她那 353 筆裡有 29 筆是這樣）。
  * 不知道時（`role` 是 null）照舊兩種都找。
  *
- * 3. 上面兩條都沒有人、**而且知道這一列要哪一種人**：同一個角色裡，她記著的寫法跟照片上的字差一個字
+ * 4. 上面三條都沒有人、**而且知道這一列要哪一種人**：同一個角色裡，全名或她記著的寫法跟照片上的字差一個字
  *    （`oneCharOff()`，ADR-0128）、而且只有一位 → 那一位。不知道角色（認不出課程）就不放寬 —— 治療師與醫師一起比的話，
  *    差一個字的那一位可能是另一種人。**結尾／開頭那兩條不放寬** —— 兩個字的名字差一個字就是一半
  *
@@ -62,8 +63,11 @@ export function staffFrom(text, staff = [], { role = null } = {}) {
   const byAlias = pool.filter((x) => hasAlias(x, s));
   if (byAlias.length) return byAlias.length === 1 ? byAlias[0] : null;
 
+  const byName = pool.filter((x) => normalizeAlias(x.name) === s);
+  if (byName.length) return byName.length === 1 ? byName[0] : null;
+
   const hits = pool.filter((x) => {
-    const n = normalizeAlias(x.name);
+    const n = normalizeAlias(x.shortName || x.name);
     if (!n) return false;
     if (x.role === DOCTOR_ROLE) return s.startsWith(n);
     if (x.role === THERAPIST_ROLE) return s.endsWith(n);
@@ -72,7 +76,7 @@ export function staffFrom(text, staff = [], { role = null } = {}) {
   if (hits.length) return hits.length === 1 ? hits[0] : null;
 
   if (!role) return null;
-  const near = pool.filter((x) => (x.aboveeNames ?? []).some((a) => oneCharOff(s, normalizeAlias(a))));
+  const near = pool.filter((x) => [x.name, ...(x.aboveeNames ?? [])].some((a) => oneCharOff(s, normalizeAlias(a))));
   return near.length === 1 ? near[0] : null;
 }
 

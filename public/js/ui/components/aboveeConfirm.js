@@ -38,7 +38,7 @@ import { searchCustomers } from '../../domain/customers.js';
 import {
   THERAPIST_ROLE, bookingMinutesOf, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
 } from '../../domain/masterData.js';
-import { slotName } from '../../domain/naming.js';
+import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
@@ -563,7 +563,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     const learn = item.staffPickText && (item.therapistId || item.doctorId)
       ? `<p class="abl-row__learn">${icon('check', { size: 13, width: 2.4 })}記住：以後 Abovee 上的「${esc(item.staffPickText)}」都認成 ${esc(
-        ctx.master.staff.find((s) => s.id === (item.therapistId ?? item.doctorId))?.name ?? '')}</p>`
+        fullNameOf(ctx.master.staff.find((s) => s.id === (item.therapistId ?? item.doctorId))))}</p>`
       : '';
 
     return `

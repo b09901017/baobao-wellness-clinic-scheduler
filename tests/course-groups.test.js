@@ -232,7 +232,7 @@ describe('沒有任何規則讀分類', () => {
 describe('稽核上那幾格的名字', () => {
   test('分類、別稱、只能排在這幾間不印英文欄位名', () => {
     assert.equal(fieldLabel('group'), '分類');
-    assert.equal(fieldLabel('shortName'), '別稱');
+    assert.equal(fieldLabel('shortName'), '別稱／簡寫');
     assert.equal(fieldLabel('allowedRoomIds'), '只能排在這幾間');
   });
 });

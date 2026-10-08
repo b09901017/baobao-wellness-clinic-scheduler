@@ -388,12 +388,22 @@ const editors = {
   staff: {
     blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [], specialties: [] },
     summary: (r) => [
+      r.shortName ? `簡寫 ${r.shortName}` : null,
       r.role,
       r.specialties?.length ? r.specialties.join('、') : null,
       r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null,
     ].filter(Boolean).join(' · '),
     fields: (r, all) => [
-      f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
+      f.text({
+        name: 'name', label: '姓名', value: r.name, placeholder: '陳小芳',
+        hint: '寫全名。下拉選單、確認框、撞期的提醒都印它。',
+      }),
+      // ADR-0141：照診間那一套 —— 窄的地方印簡寫，其餘印全名
+      f.text({
+        name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '小芳', maxlength: 12,
+        hint: '日曆那一列、讀取卡片、試算表的「二返(…)」印它。留空就印全名。'
+          + '拍 Abovee 時治療師看全名的結尾、醫師看全名的開頭是不是這個字。',
+      }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
@@ -417,11 +427,12 @@ const editors = {
         name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
         placeholder: '陳小芳',
         hint: '拍 Abovee 時服務資源那一格怎麼寫這個人。好幾種用頓號分開。'
-          + '全名結尾就是這個名字的（陳小芳 → 小芳）不用填，認得出來。',
+          + '跟姓名一樣的不用填；治療師的全名結尾是簡寫、醫師的全名開頭是簡寫的（陳小芳 → 小芳、夏大同 → 夏）也認得出來。',
       }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
+      shortName: v.shortName.trim() || null,
       role: v.role,
       aboveeNames: parseAliases(v.aboveeNames),
       // 改成治療師就清掉 —— 那一塊藏起來了，她看不到的東西不可以留在資料上

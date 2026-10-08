@@ -701,7 +701,7 @@ function checkConflicts(ctx) {
 
         const what = sameRoom
           ? `${ctx.roomsById[a.slot.roomId]?.name ?? '某診間'}`
-          : `${ctx.staffById[a.slot.therapistId]?.name ?? '某治療師'}`;
+          : `${fullNameOf(ctx.staffById[a.slot.therapistId]) || '某治療師'}`;
 
         out.push({
           severity: 'attention',
@@ -1766,7 +1766,9 @@ function checkSeedStaff(ctx) {
     if (ctx.staffById[row.id]) continue;
     const peers = ctx.staff.filter((s) => s.role === row.role);
     const mine = norm(row);
-    if (peers.some((s) => norm(s) === mine || partOf(row.role, norm(s), mine))) continue;
+    // 她把那一位改成全名之後，種子的名字就是那一位的簡寫（ADR-0141）
+    if (peers.some((s) => norm(s) === mine || normalizeAlias(s.shortName) === mine
+      || partOf(row.role, norm(s), mine))) continue;
 
     const shadow = peers.find((s) => partOf(row.role, mine, norm(s)));
     if (shadow) {

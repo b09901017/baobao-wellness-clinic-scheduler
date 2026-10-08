@@ -1,6 +1,6 @@
 # 人員多一格「簡寫」，顯示名是全名
 
-Status: todo
+Status: done
 來源：決定 1（`d-staff-names`）、`master/report.md` 第一節、`ai/report.md` 第 9 條
 動工前先讀：`docs/agents/lessons.md` 第一、六、八節、`spec.md`「決定 1」、
 `public/js/domain/naming.js:76-105`（`nameOf()` 已經會「簡寫退回全名」）、`public/js/domain/masterData.js:532-548`（`nameVariants()`）、`:634-653`（`validators.staff()`）、
@@ -85,3 +85,23 @@ repo 是 public，所以種子只放她口述的叫法（醫師的姓、治療�
 
 新的一支 ADR（她的原話兩段；為什麼全名不進 repo；哪裡印哪一個）。`CONTEXT.md` 人員那一條（現在寫「一開始建了三位，其餘由她自己加」，種子已有 21 位）。
 `docs/操作手冊.md` 人員那一節（現在寫「治療師與醫師由你自己加」）。`CLAUDE.md` 連動表補一列「人員的全名與簡寫」。
+
+## 做完時留下的（10/9）
+
+- 主檔：`shortName`（設定頁叫「簡寫」）。`validators.staff()` 多兩條：`nameVariants(r, { short: '簡寫' })`（12 字上限、錯誤講「簡寫」）、
+  整份人員一起比的撞字（簡寫對簡寫、簡寫對全名、全名對簡寫；全名對全名照舊是 `duplicateName()`）。設定頁 `parse()` 加了 `shortName`、清單那一列印「簡寫 X」、
+  「姓名」「簡寫」「Abovee 上的寫法」三顆 `?` 都改了。稽核的 `shortName` 改成「別稱／簡寫」（同一格，課程與器材叫別稱、人員診間品項叫簡寫；`course-groups.test.js` 那一條跟著改）。
+- **印人名的地方全部列過**（grep `staffById`、`staff.find`、`.therapistId`／`.doctorId`）：
+  - 簡寫：`domain/calendar.js` `agendaFor()`（日／週那一列，`:337` 的撞期句拿同一格，同一列印簡寫說得通）、`ui/views/calendar.js` 讀取卡片、`sheetReport.js` `followupNotes()` 兩處（二返、n返）。
+    `.gs` 只印 app 送過去的字，**不用動、`SYNC_FORMAT` 不升**。
+  - 全名（不改，或只把 `?.name` 換成 `fullNameOf()`）：`health.js:704` 資料健檢撞期、`visits.js` `staffName()`（撞期句）與 `:1658`（不是醫師）、`aboveeConfirm.js` 丸子與「記住」那一句、
+    `schedule.js` 丸子與「這個月記了」那一串、`visitEditor.js` 丸子與抬頭、`bulkCancel.js` `slotLine()`、`sheetReport.js` 來訪紀錄、`abovee.js` `aliasWrites()`、`health.js` `checkSeedStaff()` 的句子。
+  - 掃原始碼：`tests/staff-short-name.test.js` 最後一條擋 `staffById[…]?.name` 與 `staff.find(…)?.name` 兩種寫法。丸子那種 `s.name`（map 裡的變數）掃不到，名單上都是全名、照舊。
+- 比對：`staffFrom()` 寫法 → **全名一模一樣**（新的第二步）→ 簡寫看開頭／結尾（沒填退回全名）→ 知道角色時全名或寫法差一個字。`checkSeedStaff()` 多認「她的簡寫＝種子的名字」。
+- 人員沒有名字快照：來訪只存 id（審查查過，這次又 grep 一次）。
+- `r01-staff.mjs`（import 真的那一支，輸入是從她的清單組的主檔）多一種「全名＋簡寫（ADR-0141）」：B 21/21（不知道角色也 21/21）、C 抄錯一個字 20/21、D 353 筆裡寫人的 186 筆認對 186、
+  G 日曆那一列 2 個字；**E 合併檔 59 段只對到 1 段 —— 那是 20 的事**（`resolveAssignments()` 還沒比簡寫）。F 21 位都在、改成全名後資料健檢 0 列。
+- E2E `64` 的 N1；也跑了 `48`、`51`（12 條全過）。
+- ADR-0141（19＋20 一支）、`CONTEXT.md` 醫師那一條、`SPEC.md`「治療師與醫師」、`docs/操作手冊.md` 人員那一條、`CLAUDE.md` 連動表一列「人員的全名與簡寫」。
+
+20 要知道的：`resolveAssignments()` 比簡寫時角色從認到的那一筆讀，「剛好一位」才算；`validate('staff', 候選, { existing })` 已經會擋簡寫撞字，算「要改哪幾位」直接叫它。

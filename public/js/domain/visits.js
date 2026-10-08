@@ -20,7 +20,7 @@ import {
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
-import { slotName } from './naming.js';
+import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
@@ -1988,7 +1988,7 @@ function conflictWarnings(visit, {
   const found = [];
   const master = { courses, equipment, ivProducts };
   const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
-  const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
+  const staffName = (id) => fullNameOf(staff.find((s) => s.id === id)) || '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
     if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
