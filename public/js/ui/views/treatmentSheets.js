@@ -39,7 +39,8 @@ const view = { search: '' };
 
 async function load() {
   const [customers, master, sheets] = await Promise.all([
-    customersData.list(), config.loadAll(), sheetsData.listAll(),
+    // 主檔連已刪除的一起讀：比的是既有的來訪（刪掉的課程、器材名字照樣要印得出來）；確認層的選單自己濾掉刪除的
+    customersData.list(), config.loadAll({ includeDeleted: true }), sheetsData.listAll(),
   ]);
   return { customers, master, sheets };
 }

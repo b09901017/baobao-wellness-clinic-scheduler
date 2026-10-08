@@ -94,7 +94,8 @@ export async function render(el) {
   try {
     const [customers, master] = await Promise.all([
       customersData.list(),
-      config.loadAll(),
+      // 連已刪除的一起讀：列的是既有的來訪，刪掉的治療師、診間、課程名字照樣要印得出來
+      config.loadAll({ includeDeleted: true }),
     ]);
     ctx = { el, customers, master, visits: [], settings: await config.getSettings() };
   } catch (err) {
