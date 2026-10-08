@@ -115,6 +115,18 @@ describe('要改哪幾位（staffRenames）', () => {
     assert.equal(r.already, 1);
   });
 
+  // 種子用了異體字的那一位（她 10/9 選了清單上的寫法）：簡寫跟 match 不一樣。合併檔裡每一段照舊寫種子的字，
+  // 所以舊的那個字記進「Abovee 上的寫法」—— 不然改完名之後重試、或下一份合併檔，那幾段就對不到人
+  test('簡寫跟原本的名字不一樣 → 原本的名字記進 Abovee 上的寫法，之後的合併檔照樣對得到', () => {
+    const roster = [{ match: '甲乙', name: '某甲丙', shortName: '甲丙' }];
+    const mine = [{ id: 't9', name: '甲乙', role: THERAPIST_ROLE }];
+    const r = staffRenames(roster, mine);
+    assert.deepEqual(r.changes.map((c) => [c.name, c.shortName, c.aboveeNames]), [['某甲丙', '甲丙', ['甲乙']]]);
+    const after = apply(mine, r).map((s) => ({ ...s, aboveeNames: r.changes[0].aboveeNames }));
+    assert.deepEqual(staffRenames(roster, after).changes, [], '再貼一次是 0 位');
+    assert.equal(staffRenames(roster, after).already, 1);
+  });
+
   test('刪掉的那一位不算', () => {
     const r = staffRenames([ROSTER[0]], [{ ...SEEDED[0], deletedAt: 'x' }]);
     assert.deepEqual(r.changes, []);
@@ -155,6 +167,11 @@ describe('匯入對人：名字對不到時比簡寫', () => {
     assert.deepEqual(after, before);
     assert.deepEqual(after.slots, [['t1', null], [null, 'd1']], '醫師照樣進 doctorId');
     assert.equal(after.staffProblems, 0);
+  });
+
+  test('名字與簡寫都對不到時比 Abovee 上的寫法（異體字那一位改完名之後）', () => {
+    const staff = [{ id: 't9', name: '某甲丙', shortName: '甲丙', aboveeNames: ['小芳'], role: THERAPIST_ROLE }];
+    assert.deepEqual(who(staff).slots[0], ['t9', null]);
   });
 
   test('簡寫對到兩位：留空、講出來，不拿第一位', () => {

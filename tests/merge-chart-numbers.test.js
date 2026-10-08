@@ -134,4 +134,9 @@ describe('人員名單（--staff-names）', () => {
       { match: '王', name: '王某某', shortName: '王' },
     ]);
   });
+
+  test('名單上可以另外指定簡寫（種子用了異體字的那一位）', () => {
+    const file = importJson(run(SHEETS), { staffNames: { 甲乙: { name: '某甲丙', shortName: '甲丙' } } });
+    assert.deepEqual(file.staff, [{ match: '甲乙', name: '某甲丙', shortName: '甲丙' }]);
+  });
 });

@@ -1253,11 +1253,14 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
 /**
  * 人員名單（`--staff-names`，ADR-0141）→ 合併檔的 `staff` 那一段。
  * `{ "<她原本叫他的名字＝種子的名字>": "<全名>" }` → `[{ match, name, shortName }]`，簡寫就是原本的名字。
+ * 值也可以是 `{ name, shortName }`：簡寫跟種子的字不一樣的那一位（種子用了異體字，她 2026-10-09 選了清單上的寫法）。
  * 誰對得到誰、要不要改是 app 那一側的事（`domain/mergeImport.js` 的 `staffRenames()`），這裡一個都不判斷。
  */
 export function staffSection(names) {
-  return Object.entries(names ?? {}).map(([match, name]) => ({
-    match: String(match).trim(), name: String(name).trim(), shortName: String(match).trim(),
+  return Object.entries(names ?? {}).map(([match, v]) => ({
+    match: String(match).trim(),
+    name: String(typeof v === 'string' ? v : v?.name ?? '').trim(),
+    shortName: String((typeof v === 'string' ? null : v?.shortName) || match).trim(),
   }));
 }
 

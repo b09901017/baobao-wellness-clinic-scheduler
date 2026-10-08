@@ -173,7 +173,9 @@ async function importLoose(path, docs, onProgress = null) {
  */
 export async function importStaff(changes) {
   if (!changes?.length) return 0;
-  await repo.commit(changes.map((c) => config.updateOp('staff', c.id, { name: c.name, shortName: c.shortName })));
+  await repo.commit(changes.map((c) => config.updateOp('staff', c.id, {
+    name: c.name, shortName: c.shortName, ...(c.aboveeNames ? { aboveeNames: c.aboveeNames } : {}),
+  })));
   return changes.length;
 }
 

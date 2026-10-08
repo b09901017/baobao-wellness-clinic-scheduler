@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { DOCTOR_ROLE, isUncounted, validate } from './masterData.js';
+import { DOCTOR_ROLE, hasAlias, isUncounted, validate } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
 /**
@@ -78,7 +78,10 @@ function staffByName(staff, name) {
   if (hit) return { hit, two: false };
   const wanted = norm(name);
   const shorts = wanted ? alive(staff).filter((x) => norm(x.shortName) === wanted) : [];
-  return { hit: shorts.length === 1 ? shorts[0] : null, two: shorts.length > 1 };
+  if (shorts.length) return { hit: shorts.length === 1 ? shorts[0] : null, two: shorts.length > 1 };
+  // 簡寫跟種子的字不一樣的那一位：合併檔照舊寫種子的字，`staffRenames()` 把它記進了 Abovee 上的寫法
+  const aliased = wanted ? alive(staff).filter((x) => hasAlias(x, wanted)) : [];
+  return { hit: aliased.length === 1 ? aliased[0] : null, two: aliased.length > 1 };
 }
 
 /**
@@ -105,7 +108,8 @@ export function staffRenames(entries, staff = []) {
     const name = norm(e.name);
     const shortName = norm(e.shortName) || match;
     const skip = (why) => out.skipped.push({ match, name, why });
-    const people = current.filter((x) => [norm(x.name), norm(x.shortName)].includes(match) || norm(x.name) === name);
+    const people = current.filter((x) => [norm(x.name), norm(x.shortName)].includes(match) || norm(x.name) === name
+      || (shortName !== match && hasAlias(x, match)));
     if (people.length > 1) { skip(`主檔上有兩位對得到「${match}」，分不出是哪一位`); continue; }
     const p = people[0];
     if (!p) { skip(`主檔上沒有叫「${match}」的人`); continue; }
@@ -121,10 +125,13 @@ export function staffRenames(entries, staff = []) {
       skip(`「${p.name}」的簡寫已經是「${p.shortName}」，跟檔案上的不一樣 —— 你改過的不蓋`);
       continue;
     }
-    const next = { ...p, name, shortName };
+    // 簡寫跟原本的名字不一樣（種子用了異體字的那一位）：原本的名字記進 Abovee 上的寫法 ——
+    // 合併檔裡每一段照舊寫種子的字，不記的話改完名之後重試、或下一份合併檔，那幾段就對不到人
+    const keepOld = shortName !== match && norm(p.name) === match && !hasAlias(p, match);
+    const next = { ...p, name, shortName, ...(keepOld ? { aboveeNames: [...(p.aboveeNames ?? []), match] } : {}) };
     const errors = validate('staff', next, { existing: current });
     if (errors.length) { skip(errors[0]); continue; }
-    out.changes.push({ id: p.id, from: p.name, name, shortName });
+    out.changes.push({ id: p.id, from: p.name, name, shortName, ...(keepOld ? { aboveeNames: next.aboveeNames } : {}) });
     current = current.map((x) => (x.id === p.id ? next : x));
   }
   return out;

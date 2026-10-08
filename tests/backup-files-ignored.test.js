@@ -75,11 +75,11 @@ describe('真名掃描的名單來源', () => {
       'import-2026-10-06.json': { customers: [{ name: '李小華', sheetName: '王小明1234' }], staff: [{ match: '某', name: '某乙丙' }] },
       'chart-numbers.json': { 陳大文: '5678' },
       'abovee-m5-m10/擷取/abovee-m5-m10.json': { rows: [{ name: '林美美' }, { name: '林美美' }, { name: null }] },
-      'staff-names.json': { 小芳: '某小芳', 張乙: '張乙' },
+      'staff-names.json': { 小芳: '某小芳', 張乙: '張乙', 甲乙: { name: '某甲丙', shortName: '甲丙' } },
     });
     try {
       const { names, sources } = realNames(dir);
-      for (const n of ['王小明', '小明', '李小華', '王小明1234', '陳大文', '林美美', '某小芳', '某乙丙']) {
+      for (const n of ['王小明', '小明', '李小華', '王小明1234', '陳大文', '林美美', '某小芳', '某乙丙', '某甲丙']) {
         assert.ok(names.includes(n), `名單上少了「${n}」`);
       }
       assert.ok(!names.includes('張乙'), '全名跟種子的名字一樣的不算（本來就在種子上）');

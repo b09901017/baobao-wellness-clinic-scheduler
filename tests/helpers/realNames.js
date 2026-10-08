@@ -78,7 +78,9 @@ export function realNames(dir) {
   optional(CHART_NUMBERS, '病歷號名單', (json) => Object.keys(json ?? {}));
   optional(ABOVEE, 'Abovee 擷取檔', (json) => (json?.rows ?? []).map((r) => r?.name));
   // 全名跟種子上的名字一樣的那一位不算：那個名字本來就在種子上（她同意公開的叫法）
-  optional(STAFF_NAMES, '人員名單', (json) => Object.entries(json ?? {}).filter(([k, v]) => k !== v).map(([, v]) => v));
+  // 值可以是 `{ name, shortName }`（簡寫跟種子的字不一樣的那一位）
+  optional(STAFF_NAMES, '人員名單', (json) => Object.entries(json ?? {})
+    .map(([k, v]) => [k, typeof v === 'string' ? v : v?.name]).filter(([k, v]) => k !== v).map(([, v]) => v));
 
   // 一個字的不掃（`陳`、`際`）—— 單字在中文裡到處都是，掃了只會得到一頁誤判。
   return { names: [...names].filter((n) => n.length >= 2), sources: { read, missing } };
