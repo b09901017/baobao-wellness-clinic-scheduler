@@ -263,6 +263,9 @@ export function bookingConsequences({
   return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
 }
 
+/** 拍 Abovee 那一道最多列幾句提醒。再多她也不會逐句讀 —— 剩下的指回那幾列。 */
+const FLAGGED_MAX = 6;
+
 /**
  * 拍 Abovee 存檔前那一道確認（ADR-0104 第 2 點：十幾段只問一次，一次講完）。
  *
@@ -283,10 +286,13 @@ export function bookingConsequences({
  *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
+ * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
+ *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`aboveeImport.js` 的 `warningsByRow()` 的 `mustSee`）。
+ *   每一列預設收著、預設打勾，這一道是她一定會經過的地方（ADR-0138）。句子是 `validateVisit()` 那幾句，這裡不重寫
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [],
+  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
 }) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
@@ -297,6 +303,15 @@ export function aboveeConsequences({
     `${people} 位・${groups.length} 天・${n} 段`,
     '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
   ] : [];
+  // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次
+  //（兩列扣同一筆、合起來才超用時那一句兩列都有）；太多就列前幾句 —— 每一項一句話，不塞分隔線
+  if (flagged.length) {
+    const said = [...new Set(flagged.flatMap((f) => (f.texts ?? [])
+      .map((text) => `${f.customerName} ${shortDate(f.date)}：${text}`)))];
+    lines.push(`其中 ${flagged.length} 段有提醒 —— 照樣記得進去，記之前看一眼`);
+    lines.push(...said.slice(0, FLAGGED_MAX));
+    if (said.length > FLAGGED_MAX) lines.push(`還有 ${said.length - FLAGGED_MAX} 句 —— 回去看那幾列底下那一行`);
+  }
   // 合併扣課（09）：她 10/5「拍照時要有寫說"合併扣課"或是可以多問一句」
   const merges = groups.flatMap((g) => g.items ?? []).filter((i) => i.merged);
   if (merges.length) {

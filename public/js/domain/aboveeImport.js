@@ -22,7 +22,7 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
-  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, sameDayState, shortStatus, slotStatus,
+  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, mustSee, sameDayState, shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
@@ -1276,7 +1276,8 @@ export function picksOf(item) {
  *            problems: Record<string, string[]>}}
  *   `problems`：勾了卻組不起來的那幾列（還沒選額度、沒有時間），照列的 key。
  *   `afterClosed`：那一天已經結案了（已完成／未到），所以這幾段另開一次新的來訪（ADR-0083）——
- *   確認框要講出來（`consequences.js` 的 `closedDayLine()`）。問的是 `sameDayState()`，跟日曆同一支
+ *   確認框要講出來（`consequences.js` 的 `closedDayLine()`）。問的是 `sameDayState()`，跟日曆同一支。
+ *   `at`：每一列在那一筆來訪裡是第幾段（列的 key → 位置）—— 提醒要歸到它講的那一列（`warningsByRow()`）
  */
 export function planAbovee(items, ctx) {
   const { courses = [], equipment = [], ivProducts = [] } = ctx.master ?? {};
@@ -1304,7 +1305,7 @@ export function planAbovee(items, ctx) {
     const customerName = byId.get(item.customerId)?.name ?? '';
     const group = groups.get(key) ?? {
       key, customerId: item.customerId, customerName, date: item.date, visit: null, items: [], reopened: false,
-      afterClosed: false,
+      afterClosed: false, at: {},
     };
     // 這一組已經組出來的那一筆放進去，下一段才併得進同一天
     const pool = [
@@ -1317,12 +1318,52 @@ export function planAbovee(items, ctx) {
       group.afterClosed = sameDayState(ctx.visitsBy?.[item.customerId] ?? [], item.customerId, item.date).closed.length > 0;
     }
     group.visit = visit;
+    // 新的一段一律接在尾巴（`withExtraSlot()`、新的一筆只有它）
+    group.at[item.key] = visit.slots.length - 1;
     group.reopened = group.reopened || Boolean(merged?.reopened);
     group.items.push(item);
     groups.set(key, group);
   }
 
   return { groups: [...groups.values()], problems };
+}
+
+// ---------- 提醒歸到各列（prelaunch-fixes/12，ADR-0138）----------
+
+/**
+ * 一組（同一位同一天）的提醒歸到各列：**每一列只拿講到它那一段的那幾句**。
+ *
+ * 以前整組的提醒原樣掛到那一組每一列上 —— 同一天三列各印三遍。那時候只有點開才看得到，還過得去；
+ * 現在收著的列也要畫、確認框還要數「幾段有提醒」，照搬的話三列都多一行、N 數成三倍。
+ * 併進既有那一天時，那一天原本那幾段的提醒不屬於任何一列（那不是這一次的事）。
+ *
+ * - `all`：點開那一列看到的（每一種都在）
+ * - `mustSee`：不點開也要看得到的（`visits.js` 的 `mustSee()`：器材對警示、重疊、超用、品項不一樣、撞到別人），
+ *   是 `all` 的子集、同一句。合併扣課另一台的提醒（`mergedNotices()`）也算 —— 那是同一種「器材對警示要注意」
+ *
+ * @param {{items: object[], at: Record<string, number>}} group `planAbovee()` 的一組
+ * @param {{text: string, source: string, slots: number[]}[]} details `warningDetails(group.visit, …)`
+ * @param {{customer?: object, equipment?: object[]}} [o] 合併扣課第二台要問的：這位客戶的警示、器材主檔
+ * @returns {Record<string, {all: string[], mustSee: string[]}>}
+ */
+export function warningsByRow(group, details = [], { customer = null, equipment = [] } = {}) {
+  const out = {};
+  for (const item of group?.items ?? []) {
+    const at = group.at?.[item.key];
+    const mine = (details ?? []).filter((w) => (w.slots ?? []).includes(at));
+    const second = mergedNotices(item, customer, equipment);
+    out[item.key] = {
+      all: [...mine.map((w) => w.text), ...second],
+      mustSee: [...mine.filter(mustSee).map((w) => w.text), ...second],
+    };
+  }
+  return out;
+}
+
+/** 收著的那一行最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句）。 */
+export function briefWarnings(texts = [], max = 2) {
+  const list = texts ?? [];
+  return list.length > max ? [...list.slice(0, max), `還有 ${list.length - max} 句 —— 點開這一列看`] : [...list];
 }
 
 // ---------- 直接標成壓完 ----------

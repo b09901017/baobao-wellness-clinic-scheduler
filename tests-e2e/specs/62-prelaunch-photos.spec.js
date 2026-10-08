@@ -99,3 +99,44 @@ test('P1 拍 Abovee：半年前打完的那一筆不會被預選 —— 預選�
   await expect(row(page, 'a0')).not.toContainText('沒有讀到全部');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
 });
+
+// ---------- 12 會改變寫入結果的提醒，不點開那一列也看得到 ----------
+
+test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句收著也在；一路不點開，存檔前那一道也講', async ({ app, page }) => {
+  await app.seed(seedHistory());
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-history']);
+
+  // 李小華：身上有體內金屬、復能那一筆兩次都在半年前做完了。那一列預設打勾、收著
+  await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'a1').locator('[data-abl-open]')).toHaveAttribute('aria-expanded', 'false');
+  const shut = row(page, 'a1').locator('.abl-row__hint--warn');
+  await expect(shut).toHaveCount(2);
+  await expect(shut.nth(0)).toContainText('SIS 對「體內金屬」要注意');
+  await expect(shut.nth(1)).toContainText('排完這次會超過總次數');
+  // 「還沒選治療師」那一種幾乎每一列都有，照舊點開才看
+  await expect(row(page, 'a1')).not.toContainText('還沒選治療師');
+  // 王小明那一列：品項跟買的不一樣。客戶A 什麼事都沒有：一個字都不多
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toContainText('品項跟買的不一樣');
+  await expect(row(page, 'a2').locator('.abl-row__hint')).toHaveCount(0);
+
+  // 取消勾選的那一列不會寫進去：那一行跟著收掉，確認框也不算它
+  await row(page, 'a0').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 2 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('其中 1 段有提醒');
+  await expect(app.dialog()).toContainText('李小華');
+  await expect(app.dialog()).toContainText('SIS 對「體內金屬」要注意');
+  await expect(app.dialog()).toContainText('排完這次會超過總次數');
+  expect(await app.dialogText()).not.toMatch(/品項跟買的不一樣|還沒選治療師/);
+  await app.cancelDialog();
+
+  // 點開那一列：完整的那一份在底下（連「還沒選治療師」），收著的那一行不畫兩次
+  await row(page, 'a1').locator('[data-abl-open]').click();
+  await expect(row(page, 'a1').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(row(page, 'a1').locator('.abl-row__warnings li')).toHaveCount(3);
+  await expect(row(page, 'a1').locator('.abl-row__warnings')).toContainText('還沒選治療師');
+});

@@ -9792,7 +9792,9 @@ body.has-abl {
 }
 
 /* 認得、但不是一字不差（ADR-0128）：不是錯，是要她看一眼 —— 用「快到了」那一種色，不用紅的 */
-.abl-row__hint--near {
+.abl-row__hint--near,
+/* 會改變寫入結果的提醒（ADR-0138）：收著的列也畫，跟點開之後那一份同一種色 */
+.abl-row__hint--warn {
   color: var(--soon);
 }
 
