@@ -34,7 +34,7 @@ import { isConfigured } from '../../data/sheetSync.js';
 import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
-import { cancelConsequences } from '../../domain/consequences.js';
+import { cancelConsequences, followupBookingLines } from '../../domain/consequences.js';
 import { nameHas } from '../../domain/customers.js';
 import { slotName, nameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
@@ -616,6 +616,17 @@ async function run() {
     });
     for (const line of lines) said.add(line);
   }
+  // 「約二返」會怎麼動：**全部套上去之後算一次**（逐筆算的話，取消兩場二返每一筆只看得到一場）。
+  // 套法跟底下真的存的那一圈一樣（逐段 `applyStatus()`）
+  const after = [...byVisit.values()].map(({ visit, at }) =>
+    at.reduce((v, slotIndex) => applyStatus(v, 'cancelled', { slotIndex }), visit));
+  const first = [...byVisit.values()][0]?.visit;
+  for (const line of followupBookingLines({
+    customer: { id: state.customerId, name: first?.customerName ?? null },
+    visits: [...ctx.visits.filter((v) => !byVisit.has(v.id)), ...after],
+    chain: await visitsData.chainInputs(state.customerId, coursesById),
+    coursesById,
+  })) said.add(line);
 
   const ok = await confirmAction({
     title: `取消這 ${picked.length} 段？`,

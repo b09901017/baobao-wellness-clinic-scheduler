@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending,
+  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending, applyStatus,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -46,7 +46,7 @@ import {
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
-  confirmConsequences, closeConsequences, cancelConsequences, closedSay,
+  confirmConsequences, closeConsequences, cancelConsequences, closedSay, followupBookingLines,
 } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
@@ -3136,6 +3136,16 @@ async function applyConfirm(ctx) {
       });
       for (const line of lines) said.add(line);
     }
+    // 「約二返」會怎麼動：全部套上去之後算一次（同批次取消那一頁）
+    const after = visits.filter((v) => askedIn(v).length)
+      .map((v) => askedIn(v).reduce((x, slotIndex) => applyStatus(x, 'cancelled', { slotIndex }), v));
+    const changed = new Set(after.map((v) => v.id));
+    for (const line of followupBookingLines({
+      customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
+      visits: [...customerVisits.filter((v) => !changed.has(v.id)), ...after],
+      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
+      coursesById: ctx.coursesById ?? {},
+    })) said.add(line);
     const ok = await confirmAction({
       title: `客人不行，取消這 ${rejected.size} 段？`,
       consequences: [...said],

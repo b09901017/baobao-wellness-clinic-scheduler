@@ -1434,11 +1434,11 @@ describe('清掉的鏈上任務照樣算做過', () => {
 });
 
 describe('健檢鏈比對讀連軟刪除的那一份', () => {
-  test('followupOps() 與 chainPlans() 都走 listByCustomerForSync()', async () => {
+  test('followupOps()、chainPlans() 與確認框試算用的 chainInputs() 都走 listByCustomerForSync()', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../public/js/data/visits.js', import.meta.url), 'utf8');
     assert.ok(!src.includes('tasksData.listByCustomer('), '不含軟刪除的那一支看不到清掉的約二返');
-    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 2);
+    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 3);
     const tasks = readFileSync(new URL('../public/js/data/tasks.js', import.meta.url), 'utf8');
     const at = tasks.indexOf('export function listByCustomerForSync(');
     assert.match(tasks.slice(at, at + 200), /repo\.listWithDeleted\(/);

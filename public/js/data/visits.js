@@ -14,7 +14,7 @@ import * as customersData from './customers.js';
 import { touchedEntitlementIds, recount, withSlotNotes, withSlotStatuses } from '../domain/visits.js';
 import { syncTasksForVisit, changedTaskKinds, tasksAfterCourseChange } from '../domain/taskRules.js';
 import {
-  syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS,
+  syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS, pairsOf,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND,
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
@@ -279,6 +279,22 @@ async function followupOps(visit, visitsAfter, coursesById) {
       reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
     }),
   );
+}
+
+/**
+ * 確認框要試算健檢那條鏈時讀的那兩份：這位客戶的額度、任務（連清掉的，ADR-0106）——
+ * 跟存檔時 `followupOps()` 讀的是同一份（ADR-0070）。**沒有健檢配二返就回 `null`**，不多讀任務；讀不到也是 `null`（少講幾句，不擋）。
+ * 用的是 `consequences.js` 的 `cancelConsequences({ chain })` 與 `followupBookingLines()`。
+ */
+export async function chainInputs(customerId, coursesById = {}) {
+  if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
+  try {
+    const entitlements = await customersData.listEntitlements(customerId);
+    if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
+    return { entitlements, tasks: await tasksData.listByCustomerForSync(customerId) };
+  } catch {
+    return null;
+  }
 }
 
 /**

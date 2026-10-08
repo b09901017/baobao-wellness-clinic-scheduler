@@ -24,7 +24,7 @@ import {
 import { syncFollowupTasks as syncChain, REPORT_TASK_KIND as REPORT_KIND } from '../public/js/domain/followups.js';
 import {
   bookingSystemLabel, bookingConsequences, confirmConsequences,
-  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings, settledDayLine,
+  closeConsequences, untickConsequences, cancelConsequences, reviewWarnings, settledDayLine, followupBookingLines,
   aboveeConsequences,
 } from '../public/js/domain/consequences.js';
 
@@ -416,6 +416,40 @@ describe('結案那一下會發生什麼', () => {
         assert.deepEqual(plan(input).remove.map((r) => r.id), ['tb0'], '真的會寫下去的那一支');
         const said = lines(input);
         assert.ok(said.some((l) => l.includes('「約二返」') && l.includes('5/1') && l.includes('收')), said.join('／'));
+      });
+
+      // 取消那一道也講（段四之二發現的 4）：取消一場二返，那一次健檢的「約二返」會回來
+      describe('取消那一道', () => {
+        const chain = { entitlements: ENTS, tasks: [tickedOld, sentOld] };
+        const s = second('v2', '2026-06-10', 'confirmed');
+
+        test('取消一場沒連結的二返 → 講「5/1 那一次」會多一張約二返（真的會長）', () => {
+          const after = { ...s, status: 'cancelled', slots: s.slots.map((x) => ({ ...x, status: 'cancelled' })) };
+          assert.deepEqual(
+            syncChain({ customer: { id: 'cust1', name: '王小明' }, entitlements: ENTS, visits: [oldExam, after],
+              tasks: chain.tasks, coursesById: COURSES2 }).create.map((t) => `${t.kind}@${t.visitId}`),
+            ['約二返@v0'], '真的會寫下去的那一支',
+          );
+          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, sameDay: [oldExam, s], chain });
+          assert.ok(said.some((l) => l.includes('「約二返」') && l.includes('5/1')), said.join('／'));
+        });
+
+        test('沒帶 chain（讀不到、或沒有健檢配二返）→ 一句都不多講', () => {
+          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, sameDay: [oldExam, s] });
+          assert.ok(!said.some((l) => l.includes('「約二返」')), said.join('／'));
+        });
+
+        test('一次取消兩場（批次取消、確認抽屜）→ 全部套上去之後算一次：兩次健檢各一張', () => {
+          const exam2 = { ...oldExam, id: 'v0b', date: '2026-05-08' };
+          const s2 = second('v3', '2026-06-12', 'confirmed');
+          const tasks = [...chain.tasks, { ...tickedOld, id: 'tr0b', visitId: 'v0b' }, { ...sentOld, id: 'ts0b', visitId: 'v0b' }];
+          const off = (v) => ({ ...v, status: 'cancelled', slots: v.slots.map((x) => ({ ...x, status: 'cancelled' })) });
+          const said = followupBookingLines({
+            customer: { id: 'cust1', name: '王小明' }, visits: [oldExam, exam2, off(s), off(s2)],
+            chain: { entitlements: ENTS, tasks }, coursesById: COURSES2,
+          });
+          assert.equal(said.filter((l) => l.includes('「約二返」')).length, 2, said.join('／'));
+        });
       });
 
       test('沒有任何「約二返」會變 → 一句都不多講', () => {

@@ -163,6 +163,49 @@ test('K2 舊的那一次報告勾過、這一次健檢和二返同一次排好 �
   await expect(page.locator('#view')).toContainText('客戶A');
 });
 
+// 段四之二發現的 4：取消那一道也講「約二返」會長出來（四個入口共用 `cancelConsequences()`／`followupBookingLines()`）
+test('K3 批次取消一場沒連結的二返 → 確認框講舊的那一次會多一張約二返，存完真的有', async ({ app, page }) => {
+  const SOON = addDays(TODAY, 1);
+  await app.seed([
+    ...seedTwoExams().filter((d) => !['v-exam', 'v-second'].includes(d.id) && !d.path.endsWith('/entitlements')),
+    entitlement('cust-a', {
+      id: 'ent-exam', label: '8萬健檢', courseId: 'course-checkup',
+      totalQty: 1, doneCount: 1, tier: '8萬', durationMin: 120,
+    }),
+    entitlement('cust-a', {
+      id: 'ent-second', label: '二返（8萬健檢）', courseId: 'course-followup',
+      totalQty: 1, bookedCount: 1, followupForEntitlementId: 'ent-exam', durationMin: 30,
+    }),
+    visit({
+      id: 'v-soon', customerId: 'cust-a', customerName: '客戶A', date: SOON, status: 'confirmed',
+      slots: [{
+        ...slot({ courseId: 'course-followup', entitlementId: 'ent-second', startsAt: '14:00', endsAt: '14:30' }),
+        status: 'confirmed',
+      }],
+    }),
+  ]);
+  await app.signIn('/schedule');
+  await app.go('/schedule/cancel');
+  await page.locator('[data-q]').fill('客戶A');
+  await expect(page.locator('[data-pick]')).toHaveCount(1);
+  await page.locator('[data-pick]').first().click();
+  await expect(page.locator('[data-slot]')).toHaveCount(1);
+  await page.locator('[data-slot]').first().click();
+  await page.locator('[data-go]').click();
+  await expect(app.dialog()).toBeVisible();
+
+  const [, m, d] = OLD_DAY.split('-').map(Number);
+  await expect(app.dialog(), '那一場二返取消了，舊的那一次的約二返會回來 —— 要講')
+    .toContainText(`「約二返」—— ${m}/${d}(`);
+  await app.ok();
+  await app.saved();
+
+  // 「取消 Abovee」照既有規則也會長（確認框本來就講），這裡只看健檢那條鏈
+  const chain = ['追蹤健檢報告', '約二返', '寄報告給醫師'];
+  const tasks = alive(await app.readAll('tasks')).filter((t) => !t.done && chain.includes(t.kind));
+  expect(tasks.map((t) => `${t.kind}@${t.visitId}`), '確認框講的就是存完長出來的').toEqual(['約二返@v-old']);
+});
+
 // ---------- 16 改了課程「壓哪幾個系統」：談定的那幾天跟著補長或收掉（ADR-0140） ----------
 
 const COURSES = 'config/app/courses';

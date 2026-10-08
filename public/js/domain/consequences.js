@@ -543,19 +543,7 @@ export function closeConsequences({
   if (chain?.create.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === visit?.id)) {
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
   }
-  if (chain) {
-    const examDay = (id) => {
-      const date = chain.visits.find((v) => v.id === id)?.date;
-      return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
-    };
-    for (const t of chain.create.filter((x) => x.kind === FOLLOWUP_TASK_KIND)) {
-      lines.push(`待辦會多一張「${FOLLOWUP_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了、二返還欠一次`);
-    }
-    for (const r of chain.remove) {
-      const t = (tasks ?? []).find((x) => x.id === r.id);
-      if (t?.kind === FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${FOLLOWUP_TASK_KIND}」會收起來 —— ${r.reason}`);
-    }
-  }
+  if (chain) lines.push(...bookingLinesOf(chain, chain.visits, tasks));
 
   // 二返與營養師諮詢那一種：客人走了之後要去補一份文字紀錄（ADR-0066）。
   // 判斷走課程主檔上的那個勾，跟「要不要簽療程單」同一種做法。
@@ -566,6 +554,41 @@ export function closeConsequences({
   }
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
+  return lines;
+}
+
+/**
+ * 存完之後健檢那條鏈上的「約二返」會怎麼動 —— 拿存檔時真的在跑的那一支（`syncFollowupTasks()`）試算，一張一行
+ * （ADR-0070、0142）。取消那一道用它；**一次取消好幾筆的入口（批次取消、確認抽屜）全部套上去之後叫一次**，
+ * 逐筆算再合起來的話，取消兩場二返每一筆只看得到一場。
+ *
+ * @param {object} o
+ * @param {{id:string, name?:string}} o.customer
+ * @param {object[]} o.visits 這位客戶**存完之後**的全部來訪
+ * @param {{entitlements:object[], tasks:object[]}|null} o.chain `data/visits.js` 的 `chainInputs()`；`null`＝沒有鏈或讀不到
+ * @param {Record<string, object>} o.coursesById
+ * @returns {string[]}
+ */
+export function followupBookingLines({ customer, visits = [], chain = null, coursesById = {} }) {
+  if (!chain || !pairsOf(chain.entitlements ?? [], coursesById).some((p) => p.followup)) return [];
+  const plan = syncFollowupTasks({
+    customer, entitlements: chain.entitlements, visits, tasks: chain.tasks ?? [], coursesById,
+  });
+  return bookingLinesOf(plan, visits, chain.tasks);
+}
+
+/** 一份試算（`create`／`remove`）裡「約二返」那幾張，一張一行、講出是哪一天那一次健檢的。 */
+function bookingLinesOf({ create = [], remove = [] }, visits, tasks) {
+  const examDay = (id) => {
+    const date = (visits ?? []).find((v) => v.id === id)?.date;
+    return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+  };
+  const lines = create.filter((x) => x.kind === FOLLOWUP_TASK_KIND)
+    .map((t) => `待辦會多一張「${FOLLOWUP_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了、二返還欠一次`);
+  for (const r of remove) {
+    const t = (tasks ?? []).find((x) => x.id === r.id);
+    if (t?.kind === FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${FOLLOWUP_TASK_KIND}」會收起來 —— ${r.reason}`);
+  }
   return lines;
 }
 
@@ -703,12 +726,23 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @param {number|number[]} [o.slotIndex] 只取消其中哪幾段。不帶就是整筆。
  * @param {object[]} [o.sameDay] 這位客戶的來訪（整份丟進來就好，這裡自己挑同一天的別筆）。
  *   那一天已完成之後再加的段在另一筆裡（ADR-0083）—— 少了它，取消那一段會說「那一天就整個取消了」
+ * @param {{entitlements:object[], tasks:object[]}|null} [o.chain] 這位客戶的額度與任務（`data/visits.js` 的 `chainInputs()`）。
+ *   帶了才講「約二返」會長出來／收起來（`followupBookingLines()`，拿 `sameDay` 當全部來訪）；
+ *   一次取消好幾筆的入口不要帶，全部套上去之後自己叫 `followupBookingLines()` 一次
  * @returns {string[]}
  */
 export function cancelConsequences({
   visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
-  sameDay = [],
+  sameDay = [], chain = null,
 }) {
+  // 「約二返」那幾句：這一筆換成取消（刪除就拿掉）之後的全部來訪去試算
+  const bookingSaid = (after) => followupBookingLines({
+    customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
+    visits: [...(sameDay ?? []).filter((v) => v.id !== visit?.id), ...(after ? [after] : [])],
+    chain,
+    coursesById,
+  });
+
   const lines = [];
   const all = visit?.slots ?? [];
   const slots = all.length;
@@ -762,6 +796,7 @@ export function cancelConsequences({
       slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
     };
     lines.push(...cancelTaskLines(after, tasks, coursesById));
+    lines.push(...bookingSaid(after));
 
     lines.push('改期不是改日期，是取消後重新排一次');
     if (sheetSyncOn) lines.push(SHEET_LINE);
@@ -809,6 +844,8 @@ export function cancelConsequences({
       + ' —— 那一場沒發生，沒有東西要追',
     );
   }
+  lines.push(...bookingSaid(removing ? null
+    : { ...visit, status: 'cancelled', slots: all.map((sl) => ({ ...sl, status: 'cancelled' })) }));
 
   lines.push('改期不是改日期，是取消後重新排一次');
   lines.push(removing
