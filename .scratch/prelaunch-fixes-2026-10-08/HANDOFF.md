@@ -12,6 +12,7 @@
 | 二、拍照 | 09–14 | done（10/8，6 個 commit：`087a048`…`01f81d4`） |
 | 三、規則、待辦、試算表 | 15–18 | done（15、16 在 10/8：`f34f864`、`99e1b06`；17、18 在 10/9：`2ae963d`、`d619aad`） |
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | done（10/9，3 個 commit：`d5ec573`、`d973d24`、`397f213`） |
+| 四之二、她 10/9 回的 C、A、B | C 兩件小修、A 約二返的名額、B 只開 issue | todo |
 | 五、AI 小實驗、文件、收尾、開 PR | 22–23 | todo |
 | 六、`/matt-code-review` 與照審查修正 | — | todo |
 
@@ -256,7 +257,7 @@
   全名跟種子名字一樣的那一位（兩個字）算「已經是那個樣子」，真名掃描也不收它。
 - **19**：稽核的 `shortName` 改成「別稱／簡寫」（同一格，課程與器材叫別稱）。
 
-**她還沒點頭的**（點頭之前不在 staging 貼）：20 的摘要卡截圖（本機模擬器、真檔）。21 第三部分沒有清單（沒做）。
+**20 的摘要卡她 10/9 點頭了。** staging 要等這支 PR 合進 develop、部署之後才收得下 v6 —— 在那之前貼進去會被「格式不對」整份擋下來。貼的那一步寫進 23 的驗收清單。21 第三部分沒有清單（沒做）。
 
 列給她決定、還沒有答案的：
 
@@ -383,20 +384,35 @@ staging 的備份我放在 .local/references/（檔名：＿＿＿；沒放的�
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段五：22–23）的開場。
 ```
 
-### 段五（22–23 ＋ 她 10/9 回的 A、B、C）—— effort：high（A 動規則）
+### 段四之二（C → A → B 的 issue）—— effort：high（A 動規則）
 
 ```
-/kickoff 上線前修正：收尾。做 C（兩件小修）→ A（約二返的名額）→ 開 B 的 issue（只開不做）→ 22（AI 小實驗）→ 23（文件、CLAUDE.md、開 PR、驗收清單）
+/kickoff 上線前修正：做我 10/9 回的三件 —— C（兩件小修）→ A（約二返的名額）→ 開 B 的 issue（只開不做）
 
-01–21 已經做完（最後一個 commit ddb4711）。A、B、C 我 10/9 回了，原話與要做到哪裡在 HANDOFF.md「段四之後她回的」。
+01–21 已經做完（最後一個 commit 302e769）。A、B、C 的原話與要做到哪裡在 HANDOFF.md「段四之後她回的」。
 
-先讀：CLAUDE.md → docs/agents/lessons.md → .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md（「段四」與「段四之後她回的」）→ issues/22、23 與每一支的「做完時留下的」→ ADR-0139 →（做 A、B 前）ADR-0022、0068、0070、0108、0112。
-分支 claude/prelaunch-fixes-2026-10-08（只在本機）。下一個 ADR 是 0142、新的 E2E spec 是 65、sw.js 已經是 v186 不要再升。
-C：兩件各一個 commit。A：一個 commit ＋ 新的 ADR（推翻 ADR-0139 那一段，舊的不改），先寫會紅的測試。B：只在 .scratch/ 開 issue，七條連動一條一條打開程式碼查證寫清楚，不改程式。
-正式站 設定 → 器材 的 SIS 那一台叫：＿＿＿（叫「超磁場」就補四列資料健檢，見 HANDOFF；叫 SIS 就不用）。
+先讀：CLAUDE.md → docs/agents/lessons.md（第一、五、七節）→ .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md（「段四」與「段四之後她回的」）→ ADR-0139 → ADR-0022、0068、0070、0108、0112 → issues/15（「做完時留下的」）。
+分支 claude/prelaunch-fixes-2026-10-08（只在本機）。下一個 ADR 是 0142、新的 E2E spec 是 65（用得到才開）、sw.js 已經是 v186 不要再升。
+C：兩件各一個 commit，單元測試驗得完。改 .gs 的話記下來，我要重貼。
+A：先寫會紅的測試（tests/followups.test.js 釘著現在行為的那一條要改）→ 改 → 一個 commit ＋ 新的 ADR-0142（推翻 ADR-0139「還沒有答案的」那一段的排法，舊的不改）。確認框與抽屜那一句要跟著對（ADR-0070）。
+B：只在 .scratch/ 開一支 issue（新的 feature slug），不改程式。七條連動一條一條打開程式碼查證、寫出現在那一行在哪、改了會怎樣，一條都不能漏。
+20 的摘要卡我點頭了；staging 要等這支 PR 部署之後才貼得進 v6，這一段不用做。
+正式站 設定 → 器材 的 SIS 那一台叫：＿＿＿（叫「超磁場」就補四列資料健檢，見 HANDOFF；叫 SIS 就不用。沒填就先不做、寫進交接）。
+不推、不開 PR、不部署、不連正式站。E2E 只跑相關的那一支 spec，跑完把模擬器關掉。
+做完更新 HANDOFF.md，最後給我一段給下一個 session（段五：22–23）的開場。
+```
+
+### 段五（22–23）—— effort：medium
+
+```
+/kickoff 上線前修正：收尾，做 22（AI 小實驗）與 23（文件、CLAUDE.md、開 PR、驗收清單）
+
+01–21 與 10/9 回的 C、A 已經做完、B 的 issue 開好了（最後一個 commit：＿＿＿）。
+
+先讀：CLAUDE.md → docs/agents/lessons.md → .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md → issues/22、23，以及每一支 issue 的「做完時留下的」。
 22：先算出實際要考幾張次、大概多少錢，告訴我，我說可以才跑。我沒回之前先做 23。
-23：照它列的順序收尾，推分支、開 PR 進 develop（內文一個真名都不帶）、全量 E2E 丟 CI。驗收清單每一條都要在本機模擬器走過。
-不連正式站；staging 的 Function 要不要部署先問我。E2E 只跑相關的那一支 spec，跑完把模擬器關掉。
+23：照它列的順序收尾，推分支、開 PR 進 develop（內文一個真名都不帶）、全量 E2E 丟 CI。驗收清單每一條都要在本機模擬器走過；20 在 staging 貼合併檔那一步寫在部署之後。
+staging 的 Function 要不要部署先問我；不連正式站。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段六：/matt-code-review）的開場。
 ```
 
