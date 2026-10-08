@@ -361,7 +361,7 @@
 - staging 的 Function：**等 22 跑完再部署**（還沒部署）。
 
 做了什麼：
-- **22**：先補旋鈕（`9b45fca`：`makeGeminiModel({ mediaResolution })`、`ai-exam.mjs --resolution`，預設不變）。考試結果見 issue 22 的「做完時留下的」與 ADR-0100「考試結果」。
+- **22**：先補旋鈕（`9b45fca`：`makeGeminiModel({ mediaResolution })`、`ai-exam.mjs --resolution`，預設不變）。考完了：**兩個都不採用**（中等思考姓名沒進步、輸出 11.6 倍；超高解析度服務資源進步但頁數與診間退步），花了 US$1.18。分數在 ADR-0100「考試結果」與 issue 22。審查那一邊可以動 `functions/` 了。**staging 的 Function 還沒部署**（只剩 13 的提示詞要它）。
   新照片沒有答案卷：`.local/references/ai-exam/abovee-photos-exam.mjs` 拿逐像素驗證過的 `abovee-m5-m10.json` 當答案（病歷號＋日期＋開始時間對到才計分，只印數字）。
 - **23**：`1a6ac30`（文件、`CLAUDE.md` 連動表兩列新的＋九列補句子、ADR-0143）、`9cdfeb6`（issue 23 做完、驗收清單、lessons 兩條）。驗收清單在 issue 23 最後與 PR #147 內文。
 - 驗收清單走過：本機模擬器跑 `61`–`64`、`24` 全過（H1 Windows 跳過）；08、17 寫臨時 spec 走過再刪。

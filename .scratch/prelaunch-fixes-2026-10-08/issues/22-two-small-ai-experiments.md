@@ -1,6 +1,6 @@
 # 拍照 AI 的兩個小實驗
 
-Status: todo
+Status: done
 來源：決定 5（`d-ai-test`）、`.local/references/audit-2026-10-08/report/answers-ai.mjs`、`ai/report.md` 第 14 條
 動工前先讀：`scripts/ai-exam.mjs`（檔頭的用法、`--thinking`、`--only`）、`functions/lib/geminiModel.js`（`THINKING_LEVEL`、解析度那一格怎麼設）、
 `functions/lib/pricing.js`、`functions/transcripts/`、`.local/references/ai-exam/`（`answers.json` 與歷次 `result-*.json`）、ADR-0099、0100（「考試結果」那一節）、0101、
@@ -67,3 +67,15 @@ Blocked by: 13（Abovee 的提示詞先改好，考的才是上線的那一套�
 ## 測試
 
 改了設定才有：`functions/` 既有的測試照舊全過；`tests/ai-transcripts.test.js`（兩份格式一樣）。
+
+## 做完時留下的（10/9）
+
+- 她選方案 B（基準也重考），另外加她放的 7 張手機照片（`.local/references/abovee拍照測試/`，11 張裡 4 張重複）。
+- 旋鈕：`9b45fca`（`makeGeminiModel({ mediaResolution })`，放在照片那一個 part 上；`ai-exam.mjs --resolution`）。預設＝上線的行為。
+- 分數寫在 ADR-0100「考試結果」的 2026-10-09 那一段。**兩個都不採用**：中等思考的姓名沒進步（8 → 7/16）、輸出 11.6 倍；超高解析度服務資源進步但頁數與診間退步（空白抄成「其他」）。
+  所以 `pricing.js`、每月上限、Function 都不用動；staging 的 Function 要部署只是為了 13 的提示詞。
+- 結果檔（有真名，只在 `.local/references/ai-exam/`）：`result-2026-10-09-{low,medium}-orderForm+treatmentSheet.json`、`result-2026-10-09-low{,-ultra_high}-aboveeList.json`、
+  `result-2026-10-09-abovee-photos-{default,ultra_high}.json`；腳本 `abovee-photos-exam.mjs`（新照片）、`rescore-tmp.mjs`（同一批照片重新計分）。終端機只印數字。
+- 花了 US$1.18（2027 價格），比估的多：中等思考的輸出比 9/17 那一次量的還多。
+- 順手沒做（照 issue）：療程單多抄的四格。
+
