@@ -10,7 +10,7 @@
 | 零 | spec、23 支 issue、subagent 過目 | done（10/8） |
 | 一、匯入頁／隱私／部署／畫面小修／排序 | 01–08 | done（10/8，8 個 commit：`c83ffb2`…`4d44af0`） |
 | 二、拍照 | 09–14 | done（10/8，6 個 commit：`087a048`…`01f81d4`） |
-| 三、規則、待辦、試算表 | 15–18 | todo |
+| 三、規則、待辦、試算表 | 15–18 | **15、16 done（10/8，2 個 commit，`f34f864` 與它的下一個）；17、18 todo**（那一個 session 的用量到了，先收尾） |
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | todo |
 | 五、AI 小實驗、文件、收尾、開 PR | 22–23 | todo |
 | 六、`/matt-code-review` 與照審查修正 | — | todo |
@@ -19,7 +19,7 @@
 - 一支 PR 進 `develop`。六段都在**同一個分支、同一個工作目錄、一段接一段**做 —— 不開 worktree、不平行（共用檔案多，她的筆電也不能同時跑兩組模擬器）。
 - 編號：ADR 從 0137、E2E spec 從 61（一段一支新 spec）、`sw.js` `v186`（一支 PR 只升一號）、合併檔 v6。
   **用掉的**：ADR-0137（08）、ADR-0138（12）、spec `61`（段一）、spec `62`（段二）、`sw.js` 已經是 `v186`（01 升的，之後不再升；
-  段二沒有在 `public/` 底下加新檔案，`SHELL` 不用動）。**下一個**：ADR-0139、spec `63`。
+  段二沒有在 `public/` 底下加新檔案，`SHELL` 不用動）。ADR-0139（15）、ADR-0140（16）、spec `63`（段三，K1、M1–M3 已經在裡面；17、18 不用 E2E）。**下一個**：ADR-0141、spec `64`。
 
 ## 每一段怎麼做（每一段的 session 都一樣）
 
@@ -176,6 +176,37 @@
 - `planAbovee()` 的組多了 `afterClosed`、`at`；`readAbovee()` 的後處理順序寫在 11。
 - 段二沒有動 `followups.js`、`taskRules.js`、`data/visits.js`、`sheetReport.js`、`.gs`。
 
+### 段三（10/8）：15、16 做完；17、18 還沒做
+
+那一個 session 的用量到了，做完 16 就收尾。15、16 各一個 commit；`npm test` 全綠（0 skipped）。E2E 只跑了 `63`（K1、M1–M3）、`02`、`54`、`52`，都過；
+**沒有跑全量**。模擬器關了。沒推、沒開 PR、沒部署。
+
+- **15**（ADR-0139）：「追蹤健檢報告」長不長不再過 `owed()`。`followups.js` 的 `examsAwaitingReport()` 自己排（有連結的二返先定案、沒連結做完的先配給最舊的那幾次）；
+  `closeConsequences()` 拿 `syncFollowupTasks()` 試算，抽屜打開時補讀這位客戶的額度、來訪、任務。
+  合併檔量過：改之前與改之後都是 1 張報告，多出來 0 張（腳本 `.local/references/audit-2026-10-08/rules/r02b-chain-before-after.mjs`，只印數字）。
+- **16**（ADR-0140）：設定 → 課程 存檔時「壓哪幾個系統／寫紀錄」變了就回頭重算。`taskRules.js` 的 `changedTaskKinds()`／`tasksAfterCourseChange()`、
+  `data/visits.js` 的 `courseTaskPlan()`／`saveCourseWithTasks()`、`consequences.js` 的 `courseChangeConsequences()`、`masterList.js` 的 `saveCourse()`。
+
+偏離 issue 寫的作法（理由在那一支的「做完時留下的」）：
+
+- **15**：照位置那一段多一步「沒連結、做完的二返先配給最舊的那幾次」（不然 issue 的第二個例子過不了）。
+  **第一圈的排序多認一種「已經有待辦」**（這一輪要長的報告也算）—— issue 寫「約二返那一圈一個字都不動」，但不動的話會這一輪長一張約二返、下一次存檔又收掉。
+  既有測試改了兩條，都是報告那一邊照決定多長一張。
+- **16**：課程本身放在**最後**寫（issue 寫先存課程）；平常整件事是同一個 commit。
+
+列給她決定、還沒有答案的：
+
+1. **兩次健檢同時在路上、其中一場二返沒有連結**時「約二返」算給誰（ADR-0139「還沒有答案的」；`tests/followups.test.js` 有一條釘著現在的行為）。
+2. 同一個根因的既有行為（沒動）：替還沒做完的健檢先約二返，那一場接不上連結，`owed()` 把它算成約掉一次 —— 另一次健檢正開著的「約二返」會被當成約好了收掉。
+   根本的解法是讓先約好的二返接得上還沒做完的健檢。
+
+17、18 要知道的：
+
+- 兩支都還沒動：重現腳本還沒重跑、一行都沒改。**都不用 E2E、不用開模擬器**（17 是 `sheetReport.js` 的單元測試，18 是 `.gs` ＋ `tests/sheet-script.test.js`）。
+- 段三沒有動 `sheetReport.js`、`todoFlow.js`、`sheetSync.js`、`report.js`、`.gs`。
+- 18 的文件那一句（`CLAUDE.md`「試算表的註記」裡「上色問的是 `=== 0`」）照 issue 直接改；17 沒有要改 `CLAUDE.md` 的。
+- 做完 17、18 之後這一段才算完：把上面現況表那一列改成 done，再給她段四（19–21）的開場，並提醒她段四開始前要先從 staging 的設定頁匯出一份備份放到 `.local/references/`。
+
 ## 給新 session 的開場（範本）
 
 每一段結束時把下面對應那一段貼給她。**建議的 effort 只是建議**，她自己決定。
@@ -222,6 +253,20 @@
 15 有一條判準要拿我的合併檔量「改之前與改之後報告鏈的待辦各幾張」：腳本放 .local/、只印數字。
 不推、不開 PR、不部署、不連正式站。E2E 只跑相關的那一支 spec，跑完把模擬器關掉。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段四：19–21）的開場，並提醒我：段四開始前要先從 staging 的設定頁匯出一份備份放到 .local/references/（21 要拿它跟種子比）。
+```
+
+### 段三之二（17–18）—— effort：medium
+
+```
+/kickoff 上線前修正：第三段實作的後半，做 17–18（試算表兩件）
+
+第一、二段與 01–16 已經做完（16 個 commit），不用重來，也不用停下來問我。上一個 session 用量到了，停在 16 做完。
+
+先讀：CLAUDE.md → docs/agents/lessons.md（第一節）→ .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md（「從上一輪帶過來、還成立的坑」與「段三」那一段）→ issues/17、18。
+分支 claude/prelaunch-fixes-2026-10-08（只在本機）。兩支都是單元測試就驗得完，不用開模擬器、不用 E2E；sw.js 已經是 v186 不要再升，SYNC_FORMAT 不動。
+重現腳本先看它是 import 真的那一支、還是照抄或自己手組輸入。
+不推、不開 PR、不部署、不連正式站。
+做完更新 HANDOFF.md（段三那一列改成 done），最後給我一段給下一個 session（段四：19–21）的開場，並提醒我：段四開始前要先從 staging 的設定頁匯出一份備份放到 .local/references/（21 要拿它跟種子比）。
 ```
 
 ### 段四（19–21）—— effort：high
