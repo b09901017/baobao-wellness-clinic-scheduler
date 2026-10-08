@@ -557,6 +557,92 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   return { create, update, remove };
 }
 
+// ---------- 改了課程的設定之後回頭重算（ADR-0140）----------
+//
+// 待辦是存**來訪**時才算的。改了一門課「壓哪幾個系統」或「寫紀錄」，已經談定的那幾筆要等下次被存 ——
+// 通常就是簽療程單，而那時那一段已經不是「已確認」，掛號那一族就不長了（`acceptsNewTasks()`）；
+// 反過來取消勾選，已經長出來的會一直留著。所以存課程的那一下回頭算一次。
+//
+// 規則一條都沒有多：長不長、收不收、蓋哪幾段全部是 `syncTasksForVisit()` 算的，
+// 這裡只做兩件事 —— 講出「這次改動讓哪幾種變了」，以及從那一份結果裡只留那幾種。
+
+/**
+ * 這門課的設定改了之後，**哪幾種待辦跟著變**。
+ *
+ * - 確認之後要掛的系統（`tasksForCourse()`）多了或少了哪幾個
+ * - 「寫紀錄」開了或關了
+ *
+ * **只改了「壓在哪」不算**（Abovee → Examine，而確認之後掛的沒變）：那一格只管取消時回去放哪一個系統，
+ * 而取消類不回頭長（見 `tasksAfterCourseChange()`）。名字、時長、診間那幾格更不算。
+ * 沒有改之前的那一份（新增的課程）也不算 —— 還沒有任何來訪用到它。
+ *
+ * @param {object|null} before 存之前的課程
+ * @param {object|null} after 要存的那一份
+ * @returns {{grown: string[], dropped: string[]}} 現在多長的、現在不要了的
+ */
+export function changedTaskKinds(before, after) {
+  if (!before || !after) return { grown: [], dropped: [] };
+  const was = new Set(tasksForCourse(before));
+  const now = new Set(tasksForCourse(after));
+  const grown = [...now].filter((k) => !was.has(k));
+  const dropped = [...was].filter((k) => !now.has(k));
+  const wrote = before.needsRecord === true;
+  const writes = after.needsRecord === true;
+  if (writes && !wrote) grown.push(RECORD_TASK_KIND);
+  if (wrote && !writes) dropped.push(RECORD_TASK_KIND);
+  return { grown, dropped };
+}
+
+/**
+ * 一門課的設定改了之後，**這一筆來訪**的待辦要跟著怎麼動。
+ *
+ * 算的是 `syncTasksForVisit()`（存來訪時真的在跑的那一支，餵它改過的課程主檔），再從結果裡只留：
+ *
+ * - **這次變了的那幾種**（`changedTaskKinds()`）。同一筆上別的還沒對齊的東西（死線、名字、別種待辦）
+ *   是下一次存這一筆時的事；順手改的話確認框上的數字就對不上
+ * - **新長的只給還開著的來訪**（待確認／已確認）。已經結案的那幾天不回頭長 —— 「寫紀錄」打開時
+ *   一年份的舊來訪各長一張，她第一件事是全部勾掉。還開著的那一天裡已經做完的段照長
+ *   （它下次存檔本來也會長）
+ * - **取消類一張都不長**：它不在「變了的那幾種」裡。`cancelTasksFor()` 的去重照種類比，「壓在哪」
+ *   一改，已經取消、收過「取消 Abovee」的段會被算成還欠一張「取消 Examine」—— 那一段當初壓的是 Abovee
+ * - 改的只有「縮成還要掛的那幾段」（一張蓋兩段、其中一段不用了），死線與名字不碰
+ *
+ * 整天取消或刪掉的來訪一個字都不動：那一天的待辦在取消的那一刻就收完了。
+ * 勾過的不動、那一天過了的不長、還沒談定的不長 —— 都是 `syncTasksForVisit()` 本來就有的。
+ *
+ * @param {object} visit
+ * @param {object[]} existingTasks 這一筆來訪的任務，連清掉的（`listByVisitForSync()`）
+ * @param {object} ctx
+ * @param {object} ctx.before 存之前的課程
+ * @param {object} ctx.after 要存的那一份
+ * @param {Record<string, object>} ctx.coursesById 課程主檔，**那一門已經換成 `after`**
+ * @param {string} ctx.today
+ * @returns {{create: object[], update: {id:string, changes:object}[], remove: {id:string, reason:string}[]}}
+ */
+export function tasksAfterCourseChange(visit, existingTasks = [], { before, after, coursesById = {}, today } = {}) {
+  const none = { create: [], update: [], remove: [] };
+  const { grown, dropped } = changedTaskKinds(before, after);
+  if (!grown.length && !dropped.length) return none;
+  if (!visit || visit.deletedAt || visit.status === 'cancelled') return none;
+  if (!(visit.slots ?? []).some((s) => s?.courseId === after.id)) return none;
+
+  const plan = syncTasksForVisit(visit, existingTasks, { coursesById, today });
+  const kindOf = new Map((existingTasks ?? []).map((t) => [t.id, t.kind]));
+  // 整筆的狀態是推導的：有一段還開著它就是待確認或已確認（`visitStatusFrom()`）
+  const open = visit.status === 'pending_confirm' || visit.status === 'confirmed';
+  const reason = `「${after.name ?? ''}」的設定改了，這一張不用做了`;
+
+  return {
+    create: open ? plan.create.filter((t) => grown.includes(t.kind)) : [],
+    update: plan.update
+      .filter((u) => dropped.includes(kindOf.get(u.id)) && u.changes.slotIndexes)
+      .map((u) => ({ id: u.id, changes: { slotIndexes: u.changes.slotIndexes } })),
+    remove: plan.remove
+      .filter((r) => dropped.includes(kindOf.get(r.id)))
+      .map((r) => ({ id: r.id, reason })),
+  };
+}
+
 /**
  * **匯進來的**一筆來訪要長哪些任務。
  *

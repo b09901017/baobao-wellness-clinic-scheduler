@@ -26,6 +26,11 @@ export function listAll(type, { includeDeleted = false } = {}) {
 export const get = (type, id) => repo.getOne(pathFor(type), id);
 export const create = (type, data, id = null) => repo.create(pathFor(type), data, id);
 export const update = (type, id, changes) => repo.update(pathFor(type), id, changes);
+/**
+ * 同一件事，但回的是**還沒寫的操作** —— 要跟別的寫入放進同一個 commit 時用
+ * （存課程連同它讓哪幾張待辦跟著變，`data/visits.js` 的 `saveCourseWithTasks()`）。
+ */
+export const updateOp = (type, id, changes) => ({ op: 'update', path: pathFor(type), id, changes });
 export const remove = (type, id, reason) => repo.softDelete(pathFor(type), id, reason);
 export const restore = (type, id) => repo.restore(pathFor(type), id);
 

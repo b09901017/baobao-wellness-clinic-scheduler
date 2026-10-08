@@ -1,6 +1,6 @@
 # 改了「設定 → 課程」要壓哪幾個系統，已經談定的來訪不會跟著補長或收掉
 
-Status: todo
+Status: done
 來源：`f-course-systems`、`rules/report.md` 第 3 條
 動工前先讀：`docs/agents/lessons.md` 第三、五、六節、`public/js/ui/views/masterList.js:1400-1440`（存課程那一段）、
 `public/js/domain/taskRules.js`（`systemsOf()` `:175`、`tasksForCourse()` `:209`、`recordSlots()` `:366`、`newRecords()` `:380`、`syncTasksForVisit()` `:430`、
@@ -84,3 +84,41 @@ Blocked by: 15（沒有實際依賴；同一批待辦規則，一支一支做）
 
 這一份已經照審查改寫過。原本寫錯的：指定用 `listUnclosed()`（撈不到還沒到的那幾天）、走 `save()`（會動到來訪）、
 用 `courseForEquipment()` 認課程（引擎讀的是 `slot.courseId`）；漏掉的：取消類會多長假的一張、「寫紀錄」的殘留掛在已結案的來訪上。
+
+## 做完時留下的（10/8）
+
+ADR-0140。E2E `63` 的 M1–M3。`npm test` 全綠；E2E 跑了 `63`（4 條）與課程表單的 `54`、`52`（12 條），都過，跑完模擬器關了。
+
+- **規則在 `domain/taskRules.js`**（兩支新的，沒有多一條規則）：
+  - `changedTaskKinds(before, after)` → `{ grown, dropped }`：確認之後掛的系統（`tasksForCourse()`）多了／少了哪幾個、「寫紀錄」開或關。
+    **只改「壓在哪」不算**、名字時長診間不算、新增的課程（沒有 `before`）不算。
+  - `tasksAfterCourseChange(visit, existingTasks, { before, after, coursesById, today })`：叫 `syncTasksForVisit()`（`coursesById` 裡那一門已經換成 `after`），
+    只留 `grown` 的 create（**而且只給還開著的來訪**）、`dropped` 的 remove、`dropped` 的「縮段落」update。整天取消／刪掉的來訪、沒用到這門課的來訪回空的。
+    收掉的理由改寫成「『某某』的設定改了，這一張不用做了」。
+- **資料層在 `data/visits.js`**（照 issue 寫的放這裡）：`courseTaskPlan(before, changes)`（只算）與 `saveCourseWithTasks(before, changes)`（寫）。
+  `config.js` 多一支 `updateOp()`（回還沒寫的操作）。**偏離 issue 的一處：課程本身放最後、不是先存** ——
+  先寫課程、待辦寫到一半失敗的話，再存一次時課程已經是新的、`changedTaskKinds()` 是空的，剩下的那幾天沒有人補。
+  平常放得下時整件事是同一個 commit（一起成功、復原退得回整組）；超過 200 個操作才分批，課程在最後一批。
+- **畫面**：`masterList.js` 的 `saveCourse()`（只有既有的課程走；新增照舊）。先 `courseTaskPlan()` → `consequences.js` 的 `courseChangeConsequences()` 回 `null` 就不問 →
+  `confirmAction()` → `saveCourseWithTasks()`。送出那一段多一個 `saving` 記號（確認框開著也算）。讀不到就不存、講一句。
+- 判準逐條：每一條都有單元測試（`tests/course-change-tasks.test.js`，39 條，r06 的那一筆是第一條）；「來訪的 `updatedAt` 沒變」「一張取消類都不長」「勾過的不動」
+  「再存一次不問也不多長」「改名字不問」在 E2E M1–M3 從資料庫讀回來量。`data/visits.js` 那一段有一組掃原始碼的（不叫 `save(`、不寫 visits、不用 `listUnclosed()`、任務連清掉的讀）。
+- `r06-master-change.mjs` import 真的那一支，但它**示範的是「存來訪時不會長」那條路**（自己叫 `syncTasksForVisit()`），修的是「存課程時回頭算」——
+  修完它照樣印「耀聖從頭到尾沒有長出來」。不要拿它驗；單元測試的第一組就是它的改寫。
+
+順手看的那一張表（同一個形狀的主檔欄位，改了之後誰拿著舊的）寫在 ADR-0140「只有這兩格」。另外查過的入口：
+
+- 資料健檢「課程做完要不要寫紀錄」（`setNeedsRecord`）：只會把沒設過的打開，不回頭算（`data/health.js` 那一段寫了理由）。資料健檢沒有任何一顆會改 `systems`。
+- 停用、刪除、還原一門課：不重算（照舊；存來訪時課程連已刪除的一起讀）。
+
+沒做、留著：
+
+- 確認框只講幾天、幾張，沒有列出是哪幾天（她要看得去待辦中心）。
+- 分批寫（超過 200 個操作）那條路只有程式、沒有測試走到（要造 200 張待辦）。
+
+留給 23：
+
+- `CLAUDE.md`「一門課壓哪幾個系統」那一列**已經補了**（這一支直接改的）。
+- `docs/常見問題.md` 可以補一題「改了課程的系統，為什麼有幾張待辦不見了／多出來了」。
+- 驗收清單（本機模擬器走過，E2E `63` 的 M1–M3）：`設定 → 課程 → 某一門的「編輯」→「壓哪幾個系統」多勾一個 → 儲存`：跳「儲存『某某』？」，
+  底下有「會影響 N 天的待辦」「多 N 張『耀聖』」→ `儲存` → `待辦 → 耀聖`：談定了、還沒到的那幾天各一張。再打開同一門、什麼都不改按儲存：不問。

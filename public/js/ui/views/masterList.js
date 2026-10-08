@@ -4,6 +4,7 @@
 // 停用與刪除放在編輯畫面的最下方，而且都要二次確認並顯示具體後果。
 
 import * as config from '../../data/config.js';
+import * as visitsData from '../../data/visits.js';
 import {
   MASTER_LABELS, ROOM_TYPES, STAFF_ROLES, validate,
   ASSIGN_KINDS, ASSIGN_KIND_LABELS, assignKindOf, assignFieldsFor, keepsDoctorBeside, assignSummaryOf,
@@ -20,6 +21,7 @@ import {
   colorTokens, lookOf, styleFor,
 } from '../../domain/clinicalFlags.js';
 import { isFollowupCourse } from '../../domain/followups.js';
+import { courseChangeConsequences } from '../../domain/consequences.js';
 import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -1404,8 +1406,13 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
     card?.querySelector('input')?.focus({ preventScroll: true });
   }
 
+  // 存課程那一下可能要先讀一輪來訪、再問一句（ADR-0140），中間她再按一次「儲存」不可以又起一趟：
+  // `withSaveState()` 的 `key` 只擋得住寫入那一段，擋不到它前面的讀與確認框
+  let saving = false;
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (saving) return;
     const values = f.readForm(e.target);
     const parsed = ed.parse(values, record);
     const candidate = { ...parsed, id: record?.id };
@@ -1422,11 +1429,14 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
       return;
     }
 
+    saving = true;
     try {
       if (isNew) {
         await toast.withSaveState(() => config.create(type, { ...parsed, active: true }), {
           success: '已新增', key: `master:create:${type}`,
         });
+      } else if (type === 'courses') {
+        if (!(await saveCourse(record, parsed))) return;
       } else {
         await toast.withSaveState(() => config.update(type, record.id, parsed), {
           success: '已儲存', key: `master:update:${type}:${record.id}`,
@@ -1435,10 +1445,44 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
       back();
     } catch {
       /* withSaveState 已顯示錯誤與重試 */
+    } finally {
+      saving = false;
     }
   });
 
   if (!isNew) wireDangerZone(el, type, record, back);
+}
+
+/**
+ * 存一門既有的課程。**「壓哪幾個系統」或「寫紀錄」變了，已經談定的那幾天要跟著補長或收掉**（ADR-0140）。
+ *
+ * 待辦是存來訪時才算的；不回頭算的話，替一門課多勾「耀聖」之後已經約好的那幾天一張都不會長
+ * （到簽療程單那一下那一段已經不是「已確認」了），取消勾選的也一直留著。
+ *
+ * 先講再寫：哪幾天、多幾張、收幾張是 `courseTaskPlan()` 試算的，存下去跑的是同一段（ADR-0070）。
+ * 一天都不影響就不問 —— 改名字、時長、診間走的就是這一條，跟以前一樣一按就存。
+ * 讀不到（離線）就不存：這一格存下去之後，「這門課變了沒」就是否，沒有人會再回頭補那幾天。
+ *
+ * @returns {Promise<boolean>} 存了沒（她在確認框按了「先不要」、或讀不到，是 false）
+ */
+async function saveCourse(record, parsed) {
+  const course = { ...record, ...parsed };
+  let plan;
+  try {
+    plan = await visitsData.courseTaskPlan(record, parsed);
+  } catch {
+    toast.failed('讀不到已經排好的來訪，算不出哪幾天的待辦要跟著變。連上網路再存一次');
+    return false;
+  }
+
+  const ask = courseChangeConsequences({ course, plan });
+  if (ask && !(await confirmAction(ask))) return false;
+
+  await toast.withSaveState(() => visitsData.saveCourseWithTasks(record, parsed), {
+    success: ask ? `已儲存，${plan.rows.length} 天的待辦跟著改了` : '已儲存',
+    key: `master:update:courses:${record.id}`,
+  });
+  return true;
 }
 
 // ---------- 破壞性操作 ----------

@@ -854,3 +854,44 @@ function cancelTaskLines(after, tasks, coursesById) {
     // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
     : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
 }
+
+// ---------- 存課程之前：談定的那幾天要跟著變（ADR-0140）----------
+
+/**
+ * 改了一門課「壓哪幾個系統」或「寫紀錄」，存之前講一次：哪幾天的待辦會跟著變。
+ *
+ * **數字是試算出來的，不是照規則在這裡推的**（ADR-0070）：`plan` 是 `data/visits.js` 的
+ * `courseTaskPlan()` 回的那一份，而存下去的那一支（`saveCourseWithTasks()`）跑的是同一段。
+ *
+ * 一天都不影響就回 `null` —— 那代表「不用問」。改的是名字、時長、診間那幾格時走的就是這一條。
+ *
+ * 「天」是來訪（ADR-0087：畫面上不講筆）。同一天兩位客人算兩天，跟簽療程單那一頁的「還有 N 天沒結案」同一種數法。
+ *
+ * @param {object} o
+ * @param {{name?: string}} o.course 要存的那一門
+ * @param {{rows: {create:object[], update:object[], remove:{kind?:string}[]}[]}} o.plan
+ * @returns {{title:string, consequences:string[], confirmLabel:string}|null}
+ */
+export function courseChangeConsequences({ course, plan } = {}) {
+  const rows = (plan?.rows ?? []).filter(
+    (r) => (r.create?.length ?? 0) + (r.update?.length ?? 0) + (r.remove?.length ?? 0) > 0,
+  );
+  if (!rows.length) return null;
+
+  const tally = (list) => {
+    const by = new Map();
+    for (const t of list) by.set(t.kind, (by.get(t.kind) ?? 0) + 1);
+    return [...by];
+  };
+  const grown = tally(rows.flatMap((r) => r.create ?? []));
+  const gone = tally(rows.flatMap((r) => r.remove ?? []));
+  const shrunk = rows.reduce((n, r) => n + (r.update?.length ?? 0), 0);
+
+  const lines = [`會影響 ${rows.length} 天的待辦`];
+  for (const [kind, n] of grown) lines.push(`多 ${n} 張「${kind}」`);
+  for (const [kind, n] of gone) lines.push(`還沒做的「${kind}」收掉 ${n} 張`);
+  if (shrunk) lines.push(`有 ${shrunk} 張改成只掛還要掛的那幾段`);
+  if (gone.length || shrunk) lines.push('勾過的不動');
+
+  return { title: `儲存「${course?.name ?? ''}」？`, consequences: lines, confirmLabel: '儲存' };
+}

@@ -262,6 +262,8 @@ function opFor(fix) {
   }
 
   // 課程做完要不要寫紀錄（ADR-0066）。**只寫那一格**。
+  // **不回頭重算已經談定的來訪**（ADR-0140 的「沒做的」）：這一顆只會把從來沒設過的那一格打開，
+  // 而打開的那一側本來就是「那一段做完時才長」。設定 → 課程 的存檔才走 `saveCourseWithTasks()`。
   if (fix?.kind === 'setNeedsRecord') {
     return {
       op: 'update',
