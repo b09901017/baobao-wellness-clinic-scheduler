@@ -196,7 +196,7 @@ describe('傳照片的寫入，等太久時不可以說「已經存在這台裝�
 // ---------------------------------------------------------------------------
 
 describe('沒走 withSaveState 的大批寫入要有自己的鎖', () => {
-  const BULK = /\bimporter\.import(All|Plan|Events|Notes)\s*\(/g;
+  const BULK = /\bimporter\.import(All|Plan|Events|Notes|Staff)\s*\(/g;
 
   /** 第一個 `finally {` 的那一塊（大括號配對）。 */
   function finallyBlock(src) {

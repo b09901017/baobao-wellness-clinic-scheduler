@@ -133,18 +133,63 @@ test('N2 合併檔帶人員名單：摘要卡先講會改哪幾位 → 匯入 �
   await paste(app, page, mergeFile());
   await expect(page.locator('[data-import-staff]')).toContainText('沒有要改的');
   await expect(page.locator('[data-run]')).toBeDisabled();
+
+  // 名單上每一位都對得到（她真的那一份就是）：再貼一次也講得出「沒有要改的」，不是一個字都沒有
+  await paste(app, page, mergeFile({ staff: ROSTER.slice(0, 2) }));
+  await expect(page.locator('[data-import-staff]')).toContainText('沒有要改的（2 位已經是全名了）');
 });
 
-test('N3 客戶全部已經在系統裡、只剩人員要改：「開始匯入」照樣按得下去', async ({ app, page }) => {
+// 這一趟就是「切換那天忘了帶名單，事後再貼一次帶名單的檔」：客戶都同名跳過，而那份檔案的雜事預設又全部勾著。
+// 2026-10-09 審查查到的：以前照寫，行事備註、休假、待辦整份多一份（確認框還說「只寫…還沒寫進去的雜事」）
+test('N3 客戶全部已經在系統裡、只剩人員要改：按得下去，而且這一趟不寫雜事', async ({ app, page }) => {
   await app.seed([...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })]);
   await app.signIn('/settings/merge');
-  await paste(app, page, mergeFile({ staff: [ROSTER[0]] }));
+  await paste(app, page, mergeFile({
+    staff: [ROSTER[0]],
+    eventCandidates: [
+      { startDate: addDays(TODAY, 2), endDate: addDays(TODAY, 2), title: '休', kind: 'leave', allDay: true },
+      { startDate: addDays(TODAY, 3), endDate: addDays(TODAY, 3), title: '回電', kind: 'note', allDay: true },
+    ],
+  }));
 
+  // 還沒發生的雜事預設是勾著的 —— 按鈕上面要先講這一趟不寫
+  await expect(page.locator('[data-loose-skipped]')).toContainText('這一趟不寫雜事');
   await expect(page.locator('[data-run]')).toBeEnabled();
   await page.locator('[data-run]').click();
-  expect(await app.dialogText()).toContain('只寫人員與還沒寫進去的雜事');
+  const said = await app.dialogText();
+  expect(said).toContain('這次只改人員');
+  expect(said).toContain('2 筆雜事這一趟不寫');
+  expect(said, '不可以說要建立雜事').not.toMatch(/建立 \d+ 筆(行事備註|待辦)/);
   await app.ok();
   await expect(page.locator('#toast')).toContainText('1 位人員改好了', { timeout: 20_000 });
+  await app.settled();
   const tw = await app.readDoc('config/app/staff', 'staff-tw');
   expect([tw.name, tw.shortName]).toEqual(['某騰崴', '騰崴']);
+  expect(await app.readAll('events'), '休假沒有多寫一份').toHaveLength(0);
+  expect(await app.readAll('notes'), '待辦沒有多寫一份').toHaveLength(0);
+});
+
+// 她自己先把全名打進去、還沒填簡寫的那一位（`staffRenames()` 只補簡寫）。檔案上每一段寫的是原本的名字：
+// 照人員寫入之前的主檔算的話對不到，那一段的治療師留空、匯完補不回來（2026-10-09 審查）
+test('N4 她先手打了全名、沒填簡寫：同一趟匯進來的那一段照樣對到那一位', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/staff');
+  await page.locator('[data-edit="staff-tw"]').click();
+  await page.fill('input[name="name"]', '某騰崴');
+  await page.click('button[type="submit"]');
+  await app.saved();
+
+  await app.go('/settings/merge');
+  await paste(app, page, mergeFile({ staff: [ROSTER[0]] }));
+  await expect(page.locator('[data-import-staff]')).toContainText('1 位會改成全名');
+  await expect(page.locator('#view'), '那一段對得到人：沒有任何一處對不到主檔').toContainText('每一樣都對得到你的主檔');
+
+  await page.locator('[data-run]').click();
+  await app.ok();
+  await expect(page.locator('#toast')).toContainText('1 位人員改好了', { timeout: 20_000 });
+  await app.settled();
+  const tw = await app.readDoc('config/app/staff', 'staff-tw');
+  expect([tw.name, tw.shortName]).toEqual(['某騰崴', '騰崴']);
+  const visits = (await app.readAll('visits')).filter((v) => !v.deletedAt);
+  expect(visits[0].slots[0].therapistId).toBe('staff-tw');
 });

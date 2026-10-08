@@ -55,9 +55,17 @@ test('I1 匯入：確認框開著、匯入在跑的時候那顆按鈕按不下�
   // 02：每一樣都對得到、沒有人同名的那一份（正常的切換日），確認框一個字都不多
   expect(await app.dialogText()).not.toMatch(/對不到主檔|同名/);
 
-  await app.ok();
-  // 匯入中再按一次（不經過畫面上的鎖，直接叫那顆按鈕）—— 一位都不可以多
-  await page.evaluate(() => document.querySelector('[data-run]')?.click());
+  // **匯入開始跑的同一下，繞過畫面上的鎖再按一次**：把 `disabled` 拿掉才按 —— 鎖著的按鈕 `.click()` 根本不發事件，
+  // 那樣量到的只有「按鈕是灰的」，`run()` 自己那一道（進來先問是不是正在跑）沒有人在盯（2026-10-09 審查）。
+  // 兩下放在同一趟裡：按了「匯入」、第一趟還沒往下走的那一刻就硬按，不靠「匯入跑得夠久」。
+  // 少了那一道，這裡會再跳一個確認框（而她按下去就是每一位多建一份）
+  await page.evaluate(() => {
+    document.querySelector('.dialog-backdrop [data-ok]').click();
+    const btn = document.querySelector('[data-run]');
+    btn.disabled = false;
+    btn.click();
+  });
+  await expect(page.locator('.dialog-backdrop'), '匯入在跑時硬按：不會再跳一個確認框').toHaveCount(0);
   await expect(page.locator('#toast')).toContainText('2 位客戶都匯進去了', { timeout: 20_000 });
   await app.settled();
 

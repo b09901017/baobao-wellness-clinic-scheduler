@@ -17,7 +17,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, FORMATS, validateFile, staffRenames, planForCustomer, canRun,
+  FORMAT, FORMATS, validateFile, staffRenames, staffAfterRenames, planForCustomer, canRun, writesLoose,
 } from '../public/js/domain/mergeImport.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE } from '../public/js/domain/masterData.js';
 
@@ -32,10 +32,7 @@ const ROSTER = [
   { match: 'LuLu', name: '某露露', shortName: 'LuLu' },
 ];
 /** 照 `staffRenames()` 的結果改主檔，等於她按了「開始匯入」之後的樣子。 */
-const apply = (staff, { changes }) => staff.map((s) => {
-  const c = changes.find((x) => x.id === s.id);
-  return c ? { ...s, name: c.name, shortName: c.shortName } : s;
-});
+const apply = (staff, { changes }) => staffAfterRenames(staff, changes);
 
 describe('合併檔的版本', () => {
   test('寫 v6；v1～v5 照收', () => {
@@ -169,6 +166,25 @@ describe('匯入對人：名字對不到時比簡寫', () => {
     assert.equal(after.staffProblems, 0);
   });
 
+  // 2026-10-09 審查查到的：她自己先把全名打進去、還沒填簡寫的那一位（`staffRenames()` 的第 3 種，只補簡寫）。
+  // 匯入頁以前拿**人員寫入之前**的主檔算每一段是誰 —— 那時候他的名字是全名、簡寫是空的，檔案上寫的原本那個名字
+  // 對不到，那一段的治療師留空，而匯完補不回來（再貼一次每一位都同名跳過）
+  test('她先手打了全名、沒填簡寫：照「人員改完之後」的主檔算，那一段才對得到人', () => {
+    const typed = [{ id: 't1', name: '某小芳', role: THERAPIST_ROLE }, { id: 'd1', name: '王', role: DOCTOR_ROLE }];
+    assert.deepEqual(who(typed).slots[0], [null, null], '照改之前的主檔：對不到');
+    const after = staffAfterRenames(typed, staffRenames(ROSTER, typed).changes);
+    assert.deepEqual(who(after).slots, [['t1', null], [null, 'd1']]);
+    assert.equal(who(after).staffProblems, 0);
+  });
+
+  test('`staffAfterRenames()`：只動名單上要改的那幾位，異體字那一位連 Abovee 上的寫法一起', () => {
+    const staff = [{ id: 't1', name: '小芳', role: THERAPIST_ROLE }, { id: 't2', name: 'LuLu', role: THERAPIST_ROLE }];
+    const out = staffAfterRenames(staff, [{ id: 't1', name: '某小方', shortName: '小方', aboveeNames: ['小芳'] }]);
+    assert.deepEqual(out[0], { id: 't1', name: '某小方', shortName: '小方', aboveeNames: ['小芳'], role: THERAPIST_ROLE });
+    assert.equal(out[1], staff[1], '沒有要改的那一位原封不動');
+    assert.equal(staffAfterRenames(staff, []), staff, '沒有要改的：就是原本那一份');
+  });
+
   test('名字與簡寫都對不到時比 Abovee 上的寫法（異體字那一位改完名之後）', () => {
     const staff = [{ id: 't9', name: '某甲丙', shortName: '甲丙', aboveeNames: ['小芳'], role: THERAPIST_ROLE }];
     assert.deepEqual(who(staff).slots[0], ['t9', null]);
@@ -190,5 +206,26 @@ describe('客戶全部跳過、只剩人員要改時「開始匯入」按得下�
     assert.equal(canRun({ customers: 0, staff: 3 }), true);
     assert.equal(canRun({ customers: 0, staff: 0 }), false);
     assert.equal(canRun({ running: true, staff: 3 }), false);
+  });
+});
+
+// 2026-10-09 審查查到的：`canRun()` 收了 `staff` 之後，「匯完、重新整理、再貼一次」那一趟按得下去了 ——
+// 而那份檔案的雜事預設又全部勾著。切換那天忘了帶名單、事後補貼一次帶名單的檔，
+// 整份行事備註、休假、待辦會多寫一份（雜事不問系統裡有沒有就寫）。
+describe('只剩人員要改的那一趟不寫雜事', () => {
+  test('客戶 0 位、不是重試（重新貼的）→ 不寫', () => {
+    assert.equal(writesLoose({ customers: 0, resumed: false }), false);
+  });
+
+  test('這一趟有客戶要建（第一次匯）→ 寫', () => {
+    assert.equal(writesLoose({ customers: 2, resumed: false }), true);
+  });
+
+  test('這一份在這個畫面上匯過一趟（重試，勾著的只剩沒寫進去的）→ 寫', () => {
+    assert.equal(writesLoose({ customers: 0, resumed: true }), true);
+  });
+
+  test('什麼都沒給 → 不寫（寧可少寫，補得回來；多寫的要一筆一筆刪）', () => {
+    assert.equal(writesLoose(), false);
   });
 });

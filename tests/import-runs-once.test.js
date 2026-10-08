@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, canRun, looseDocs, looseLeft, eventKind, importCaveats, planForCustomer, extraPicksLeft,
+  FORMAT, canRun, looseDocs, looseLeft, eventKind, importCaveats, planForCustomer, extraPicksLeft, addExtraVisits,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
@@ -146,6 +146,30 @@ describe('確認框與完成提示：對不到主檔幾處、同名跳過幾位'
     const plans = plansWith(CTX());
     const extra = [{ where: '2026-09-03 客戶A', raw: '沒有這門課', why: '主檔裡沒有這個課程，這一筆沒有補進去' }];
     assert.equal(importCaveats(plans, extra).problems.length, 1);
+  });
+
+  // 2026-10-09 審查查到的：勾起來要補的來訪補不進去，有幾種**不是主檔的事** —— 那位客戶同名整位跳過、
+  // 分不出要扣哪一筆額度。以前一律算進「N 處對不到主檔…先到資料健檢把主檔補齊」：她去資料健檢什麼都補不到
+  test('要補的來訪補不進去、但不是主檔的事 → 不算進「對不到主檔」，另外講一句', () => {
+    const ctx = CTX({ existingCustomers: [{ name: '客戶A' }] });
+    const plans = plansWith(ctx);
+    const extraProblems = addExtraVisits(plans, [{ customerName: '客戶A', date: '2026-10-20', courseName: 'ILIB' }], ctx);
+    assert.equal(extraProblems.length, 1);
+    assert.match(extraProblems[0].why, /同名.*跳過/, '她在檔案裡，是整位跳過 —— 不是「這份檔案裡沒有這位客戶」');
+    const c = importCaveats(plans, extraProblems);
+    assert.equal(c.problems.length, 0, '主檔沒有任何一樣對不到');
+    assert.equal(c.unplaced.length, 1);
+    assert.ok(!c.lines.some((l) => /對不到主檔|資料健檢/.test(l)), c.lines.join('｜'));
+    assert.ok(c.lines.some((l) => /1 筆.*補不進去/.test(l)), c.lines.join('｜'));
+    assert.ok(c.doneLines.some((l) => /1 筆.*沒有補進去/.test(l)), c.doneLines.join('｜'));
+  });
+
+  test('要補的那一筆課程主檔沒有 → 照舊算進「對不到主檔」', () => {
+    const plans = plansWith(CTX());
+    const extraProblems = addExtraVisits(plans, [{ customerName: '客戶A', date: '2026-10-20', courseName: '沒有這門課' }], CTX());
+    const c = importCaveats(plans, extraProblems);
+    assert.equal(c.problems.length, 1);
+    assert.equal(c.unplaced.length, 0);
   });
 
   test('系統裡已經有客戶A：講跳過 1 位', () => {

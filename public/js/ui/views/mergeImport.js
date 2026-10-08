@@ -13,7 +13,7 @@ import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
   summarize, countNewTasks, groupCandidates, defaultPicks, eventKind, canRun,
-  importCaveats, looseLeft, extraPicksLeft, staffRenames,
+  importCaveats, looseLeft, extraPicksLeft, staffRenames, staffAfterRenames, writesLoose,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
@@ -124,13 +124,16 @@ function plansOf(ctx) {
 }
 
 function paint(el, ctx) {
-  const { plans = [], extraProblems = [] } = file ? plansOf(ctx) : {};
+  // 人員名單（v6 的 `staff`，ADR-0141）：要改哪幾位。摘要卡、確認框、寫入讀同一份
+  const renames = file ? staffRenames(file.staff, ctx.staff) : null;
+  // **每一段是誰照「人員改完之後」的主檔算**（`staffAfterRenames()`）：人員是先寫的。照改之前的算的話，
+  // 她自己先打了全名、還沒填簡寫的那一位對不到檔案上寫的名字，那一段的治療師留空、匯完補不回來
+  const { plans = [], extraProblems = [] } = file
+    ? plansOf({ ...ctx, staff: staffAfterRenames(ctx.staff, renames.changes) }) : {};
   const s = file ? summarize(plans) : null;
   const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
   // 對不到主檔幾處、同名跳過幾位：摘要卡、確認框、完成那一張讀同一份
   const caveats = file ? importCaveats(plans, extraProblems) : null;
-  // 人員名單（v6 的 `staff`，ADR-0141）：要改哪幾位。摘要卡、確認框、寫入讀同一份
-  const renames = file ? staffRenames(file.staff, ctx.staff) : null;
 
   el.innerHTML = `
     <div data-mergepage>
@@ -295,17 +298,19 @@ function contraindicationCard(s, plans = []) {
 }
 
 /**
- * 人員那一行（ADR-0141）。**0 位、也沒有不改的時候一個字都不多**。
+ * 人員那一行（ADR-0141）。**檔案沒帶人員名單的時候一個字都不多**。
  * 點開看得到每一位「原本 → 全名（簡寫）」與不改的那幾位各自的理由 —— 這就是她要的「先看不寫」。
+ * 名單上每一位都已經是那個樣子（同一份再貼一次）也講一句「沒有要改的」：一個字都不講的話，
+ * 她分不出是「都改好了」還是「這份檔案沒帶名單」。
  */
 function staffHtml(renames) {
-  const { changes = [], skipped = [] } = renames ?? {};
-  if (!changes.length && !skipped.length) return '';
+  const { changes = [], skipped = [], already = 0 } = renames ?? {};
+  if (!changes.length && !skipped.length && !already) return '';
   return `
       <details data-import-staff>
         <summary>人員：${changes.length
     ? `<b>${changes.length}</b> 位會改成全名，原本的名字變成簡寫`
-    : '沒有要改的'}${skipped.length ? `；${skipped.length} 位不改` : ''}</summary>
+    : `沒有要改的${already ? `（${already} 位已經是全名了）` : ''}`}${skipped.length ? `；${skipped.length} 位不改` : ''}</summary>
         ${changes.length ? `<ul class="tight">${changes.map((c) =>
     `<li>${esc(c.from)} → ${esc(c.name)}（簡寫 ${esc(c.shortName)}）</li>`).join('')}</ul>` : ''}
         ${skipped.length ? `<p class="muted">不改的：</p><ul class="tight">${skipped.map((x) =>
@@ -313,7 +318,7 @@ function staffHtml(renames) {
       </details>`;
 }
 
-function summaryCard(s, plans, { problems, skipped }, renames) {
+function summaryCard(s, plans, { problems, unplaced, skipped }, renames) {
   const span = file.calendar?.span ?? [];
   return `
     <section class="card">
@@ -337,12 +342,23 @@ function summaryCard(s, plans, { problems, skipped }, renames) {
           <p class="muted">對不到的東西一律留空或整筆不匯入，不會猜一個填進去。
             先去主檔把它建起來，再貼一次會比較完整。</p>
         </details>` : '<p class="muted">每一樣都對得到你的主檔。</p>'}
+      ${unplacedHtml(unplaced)}
       ${purchaseProblemsHtml(plans)}
     </section>`;
 }
 
 const problemList = (problems) => `<ul class="tight">${problems.map((x) =>
   `<li>${esc(x.where)}｜${esc(x.raw)}｜${esc(x.why)}</li>`).join('')}</ul>`;
+
+/**
+ * 勾起來要補的來訪裡補不進去、而且**不是主檔的事**的那幾筆（`importCaveats()` 的 `unplaced`）：
+ * 那位同名整位跳過、分不出要扣哪一筆額度。跟「對不到主檔」分開列 —— 這幾筆去資料健檢補不到。
+ */
+const unplacedHtml = (unplaced = []) => (unplaced.length ? `
+        <details data-import-unplaced>
+          <summary>勾起來要補的來訪有 ${unplaced.length} 筆補不進去</summary>
+          ${problemList(unplaced)}
+        </details>` : '');
 
 /**
  * 剛剛那一次匯入的結果（`lastResult`）。確認框講過的那兩個數字匯完再講一次，
@@ -367,6 +383,7 @@ function resultCard() {
           <summary>${r.problems.length} 處對不到主檔</summary>
           ${problemList(r.problems)}
         </details>` : ''}
+      ${unplacedHtml(r.unplaced)}
     </section>`;
 }
 
@@ -582,10 +599,14 @@ function noTaskWhy(s, tasks) {
 }
 
 function runCard(s, tasks, renames) {
+  // 客戶都已經在系統裡、又不是重試的那一趟（只剩人員要改）不寫雜事 —— 它們上一次就寫進去了（`writesLoose()`）
+  const skipLoose = !writesLoose({ customers: s.customers, resumed }) && picks.events.size > 0;
   return `
     <section class="card">
       <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
         待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
+      ${skipLoose ? `<p data-loose-skipped><b>這一趟不寫雜事</b>：這份檔案的客戶都已經在系統裡了，
+        雜事上一次就寫過了 —— 再寫就是每一筆多一份。</p>` : ''}
       <p class="form__actions">
         <button class="btn btn--primary" type="button" data-run ${canRun({
     running, customers: s.customers, loose: picks.events.size, resumed, staff: renames?.changes.length ?? 0,
@@ -624,7 +645,11 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
   let outcome = null;
 
   try {
-    const { events, notes, eventIndexes, noteIndexes } = chosenLoose();
+    // 只剩人員要改的那一趟（客戶 0 位、檔案是重新貼的）不寫雜事：那份檔案的雜事預設又全部勾著，
+    // 而它們上一次就寫進去了（`writesLoose()`；`resumed` 要在底下改成 true 之前問）
+    const loose = writesLoose({ customers: s.customers, resumed });
+    const { events, notes, eventIndexes, noteIndexes } = loose
+      ? chosenLoose() : { events: [], notes: [], eventIndexes: [], noteIndexes: [] };
     const extras = picks.future.size + picks.missing.size;
     const staffChanges = renames?.changes ?? [];
 
@@ -633,7 +658,9 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
       consequences: [
         s.customers
           ? `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`
-          : `客戶都已經在系統裡了，這次只寫${staffChanges.length ? '人員與' : ''}還沒寫進去的雜事`,
+          : (loose
+            ? `客戶都已經在系統裡了，這次只寫${staffChanges.length ? '人員與' : ''}還沒寫進去的雜事`
+            : '客戶都已經在系統裡了，這次只改人員'),
         // 人員名單（ADR-0141）。0 位時這裡一項都不多
         ...(staffChanges.length
           ? [`${staffChanges.length} 位人員改成全名，原本的名字變成簡寫（先寫，一次寫完）`
@@ -647,8 +674,12 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
           : '沒有日期在今天之後的來訪，全部標成已完成',
         ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
         extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
-        events.length ? `建立 ${events.length} 筆行事備註或休假` : '沒有勾任何行事備註或休假',
-        notes.length ? `建立 ${notes.length} 筆待辦（掛了日期的隨手記）` : '沒有勾任何待辦',
+        ...(loose ? [
+          events.length ? `建立 ${events.length} 筆行事備註或休假` : '沒有勾任何行事備註或休假',
+          notes.length ? `建立 ${notes.length} 筆待辦（掛了日期的隨手記）` : '沒有勾任何待辦',
+        ] : (picks.events.size
+          ? [`勾著的 ${picks.events.size} 筆雜事這一趟不寫 —— 它們上一次就寫進去了，再寫就是每一筆多一份`]
+          : [])),
         s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
         tasks
           ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
@@ -679,6 +710,7 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
       failed,
       error: null,
       problems: caveats.problems,
+      unplaced: caveats.unplaced,
       doneLines: caveats.doneLines,
     };
     // 補的來訪跟客戶同一個 commit：那位進去了，她的那幾筆就不用再勾著
@@ -702,7 +734,12 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
       toast.failed(`${outcome.ok} 位進去了，${failed.length} 位失敗：`
         + failed.map((r) => `${r.customerName}（${r.error}）`).join('；'));
     } else {
-      toast.info(`${results.length || !staffChanges.length ? `${results.length} 位客戶都匯進去了` : ''}${staffChanges.length ? `${results.length ? '、' : ''}${staffChanges.length} 位人員改好了` : ''}${outcome.doneLines.length ? '；有幾處沒進來，寫在這一頁最上面' : ''}`);
+      // 這一趟真的寫了什麼就講什麼：只剩雜事的重試不說「0 位客戶都匯進去了」
+      const said = [
+        results.length ? `${results.length} 位客戶都匯進去了` : null,
+        staffChanges.length ? `${staffChanges.length} 位人員改好了` : null,
+      ].filter(Boolean).join('、') || '剩下的雜事寫進去了';
+      toast.info(`${said}${outcome.doneLines.length ? '；有幾處沒進來，寫在這一頁最上面' : ''}`);
       file = null;
       picks = emptyPicks();
       kindOverrides = new Map();
