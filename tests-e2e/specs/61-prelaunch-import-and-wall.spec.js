@@ -226,3 +226,80 @@ test('A2 待辦中心「詳情」與進度追蹤：同一張卡，同一排警�
   await page.locator('button.progslot[data-visit="v-a"]').first().click();
   await expect(page.locator('.popcard .readalerts'), '客戶詳情').toContainText('體內金屬');
 });
+
+// ---------- 07 刪掉的客戶不留在壓表牆上 ----------
+
+const MONTH = TODAY.slice(0, 7);
+
+/** 三位都有一筆還有剩的額度，所以開批時三位都在牆上。 */
+function seedWall(over = {}) {
+  const one = (id, name) => [
+    customer({ id, name, ...(over[id] ?? {}) }),
+    entitlement(id, { id: `ent-${id}`, label: 'ILIB(60)', courseId: 'course-iv-laser', totalQty: 10 }),
+  ];
+  return [...masterDocs(), ...one('cust-a', '客戶A'), ...one('cust-b', '客戶B'), ...one('cust-c', '客戶C')];
+}
+
+const wallIds = (page) => page.locator('[data-wall] [data-pick]')
+  .evaluateAll((nodes) => nodes.map((n) => n.dataset.pick));
+
+async function openMonth(app, page) {
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await app.layer('[data-wall] [data-pick]');
+}
+
+test('W1 壓表：開批之後刪掉一位，牆上沒有他、分母少一；還原之後回到原本的位置', async ({ app, page }) => {
+  await app.seed(seedWall());
+  await app.signIn('/');
+  await openMonth(app, page);
+
+  const before = await wallIds(page);
+  expect(before, '開批時三位都在').toHaveLength(3);
+  await expect(page.locator('.page__lead')).toContainText('已壓 0 / 3 位');
+
+  // 她把誤建的那一位刪掉（軟刪除：`deletedAt` 有值）
+  await app.seed([customer({ id: 'cust-b', name: '客戶B', deletedAt: new Date(`${TODAY}T10:00:00+08:00`) })]);
+  await app.go('/');
+  await openMonth(app, page);
+
+  expect(await wallIds(page), '牆上沒有客戶B，其餘順序照舊').toEqual(before.filter((id) => id !== 'cust-b'));
+  await expect(page.locator('.page__lead'), '分母跟著少一').toContainText('已壓 0 / 2 位');
+  // 篩選丸子上的數字也是牆上的人數
+  await expect(page.locator('[data-filter="all"]')).toContainText('2');
+  // 存下來的那一份名單沒有被改：他的 id 還在原本的位置
+  const [batch] = (await app.readAll('batches')).filter((b) => !b.deletedAt);
+  expect(batch.queue.map((q) => q.customerId), '存在資料庫裡的名單一筆都不少').toEqual(before);
+
+  // 從「已刪除項目」還原
+  await app.seed([customer({ id: 'cust-b', name: '客戶B' })]);
+  await app.go('/');
+  await openMonth(app, page);
+  expect(await wallIds(page), '還原之後回到原本的位置').toEqual(before);
+  await expect(page.locator('.page__lead')).toContainText('已壓 0 / 3 位');
+});
+
+test('W2 壓表：正開著那一位的卡片時他被刪了 →「加這一段」不會存進去，講一句', async ({ app, page }) => {
+  await app.seed(seedWall());
+  await app.signIn('/');
+  await openMonth(app, page);
+
+  await page.locator('[data-pick="cust-b"]').first().click();
+  await app.layer('[data-deck] [data-day]');
+  const day = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY;
+  await page.locator(`[data-deck] [data-day="${day}"]`).first().click();
+  await app.layer('[data-ent]');
+  await page.locator('[data-ent="ent-cust-b"]').click();
+  await page.locator('[data-time]').first().click();
+
+  // 另一台裝置在這時候把他刪了
+  await app.seed([customer({ id: 'cust-b', name: '客戶B', deletedAt: new Date(`${TODAY}T10:00:00+08:00`) })]);
+  await page.locator('[data-add]').click();
+
+  await expect(page.locator('#toast')).toContainText('已經被刪掉了');
+  await expect(page.locator('[data-deck]'), '那一疊收掉').toHaveCount(0);
+  await app.settled();
+  expect(await wallIds(page), '牆上也沒有他了').not.toContain('cust-b');
+  expect((await app.readAll('visits')).filter((v) => !v.deletedAt), '一筆來訪都沒有建').toHaveLength(0);
+});

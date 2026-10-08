@@ -490,6 +490,8 @@ export const COVERAGE = {
     'firebase.json',
     // A1、A2：讀取卡片最上面那一排警示（四個畫面共用 `visitReadHtml()`，三頁靠 `fillMirror()` 補讀）
     'public/js/ui/views/calendar.js', 'public/js/ui/components/taskMirror.js', 'public/js/ui/components/flags.js',
+    // W1、W2：刪掉的客戶不留在壓表牆上
+    'public/js/ui/views/schedule.js', 'public/js/domain/scheduling.js',
   ],
 };
 

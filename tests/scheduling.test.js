@@ -1033,7 +1033,12 @@ describe('rowsOf() 要把新加入的人也畫出來（issue 02）', () => {
     const at = SRC.indexOf('function rowsOf(');
     assert.ok(at > 0, '找不到 rowsOf()');
     const body = SRC.slice(at, at + 1400);
-    assert.match(body, /mergeIntoQueue\(/);
+    // 2026-10-08 起組列搬進 domain 的 `batchRows()`（它裡面走 `mergeIntoQueue()`，
+    // `tests/deleted-customer-leaves-the-wall.test.js` 釘著「新的接在最後」與「刪掉的不畫」）
+    assert.match(body, /batchRows\(/);
+    const DOMAIN = readFileSync(new URL('../public/js/domain/scheduling.js', import.meta.url), 'utf8');
+    const rows = DOMAIN.slice(DOMAIN.indexOf('export function batchRows('));
+    assert.match(rows.slice(0, 1600), /mergeIntoQueue\(/);
     assert.ok(!body.includes('ids.has(c.id)'), '那一行就是把新客人擋在外面的地方');
   });
 

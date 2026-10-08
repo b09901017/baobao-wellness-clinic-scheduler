@@ -1,6 +1,6 @@
 # 刪掉的客戶還留在壓表牆上，而且排得進新的來訪
 
-Status: todo
+Status: done
 來源：`f-deleted-on-wall`、`rules/report.md` 第 1 條（9/18 就找到過，還沒修）
 動工前先讀：`public/js/domain/scheduling.js:764` 的 `mergeIntoQueue()`、`public/js/ui/views/schedule.js:433`（退回只有名字的一列）、
 `:2114` 的 `addSlot()`、牆上三個數字（`schedule.js:527/576/946-952`、`scheduling.js:730-735`）、ADR-0109（刪客戶的閘門）、0121（不算次數的課每位都有）、
@@ -47,3 +47,24 @@ Blocked by: —
 
 - 單元：r01 的 7b 改寫（客戶A、客戶B，刪掉客戶B）—— 列數、分母、還原後回來。
 - E2E `61`：開一批 → 刪掉其中一位（沒有來訪的假客戶）→ 回壓表那一頁，牆上沒有他。
+
+## 做完時留下的（10/8）
+
+- **濾在 domain**：`domain/scheduling.js` 多兩支。
+  - `presentQueue(queue, customers)`：名單上還找得到人的那幾筆（`customers` 是現在的客戶清單，**停用的也在裡面** → 停用不算找不到；`deletedAt` 有值的算找不到）。
+  - `batchRows(batch, { all, customers })`：原本寫在 `schedule.js` 的 `rowsOf()` 裡那一段搬過來，回 `{ queue, added, present, rows }`。
+    **`queue` 是要存回資料庫的（一筆都不少）、`present`／`rows` 是畫出來的（刪掉的不在）。**
+- `schedule.js`：`rowsOf()` 只剩「現算一次 → 交給 `batchRows()`」；`ctx.batch.queue` 照舊是沒濾過的（`catchUpQueue()`、`mark()` 的 `saveProgress()` 寫的都是它），
+  多一個 `ctx.present`。吃 `present` 的三處：`paintPage()` 的「已壓 N / M 位」（`progressOf({ queue: ctx.present })`）、
+  `mark()` 挑「下一位」（`nextPending({ queue: presentQueue(queue, …) })` —— 不濾的話會挑到刪掉的那一位，那一疊直接關掉）、牆上的列與篩選丸子（本來就讀 `ctx.rows`）。
+- **存檔前問一次人還在不在**：`addSlot()` 重讀這位的來訪時同一趟 `customersData.get()`。回 `null`（刪掉了）→ toast「…已經被刪掉了，這一段沒有存。要排他的話先到設定 → 已刪除項目把他還原」→ 重讀、收掉那一疊。
+  讀不到（網路）是 `undefined`：不知道就不擋，照舊往下存。
+- 判準逐條：牆上沒有那一列、分母少一（W1）；還原後回原位（單元＋W1，存下來的 `queue` 沒變）；停用照舊在（單元）；
+  開著卡片時被刪 →「加這一段」不存（W2）；他名下既有的來訪一筆都沒碰（這一支沒有任何寫來訪的新路）。
+- **順手看的那一眼**：記憶裡 9/18 邊界測試第二輪的「批次殘留讓已刪客戶復活」**就是同一件事**（沒結束的批次裡那張卡留著、點得進去），不是另一個 bug。
+- 改了一支既有測試：`tests/scheduling.test.js`「走 mergeIntoQueue()，不自己 filter 一份名單」原本掃 `rowsOf()` 的原始碼，現在改掃 `rowsOf()` 走 `batchRows()`、`batchRows()` 走 `mergeIntoQueue()`。
+- `r01-known-issues.mjs` 的 7b 是**照抄舊的 `rowsOf()`** 寫的，修完之後照樣印舊結果 —— 不要拿它驗；單元測試 `tests/deleted-customer-leaves-the-wall.test.js` 是它的改寫。
+
+沒做：別的地方拿到一筆沒有主人的來訪會怎樣（日曆新增「要幫誰排？」那一排本來就只列現在的客戶，不經過這條路）；既有資料庫裡如果已經有這種來訪，資料健檢列不列沒有查。
+
+留給 23：`CLAUDE.md`「刪掉一位客戶」那一列補一句（壓表那一批的名單存的是 id：畫的那一份走 `presentQueue()`，存回去的不濾；新增一個讀 `batch.queue` 來畫或來數的地方要問它）。
