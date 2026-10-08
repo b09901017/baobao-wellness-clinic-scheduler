@@ -17,6 +17,7 @@
 | `docs/邊界測試清單.md` | 上線前要親手點過的極端情境。**刻意沒有 happy path** —— 那些由 `tests-e2e/` 盯著 |
 | `docs/STAGING.md` | **怎麼操作**兩個環境：第一次設定、推 Rules、加白名單、清空 staging、還原演練、上線檢查表。為什麼這樣設計不寫這裡（那在 `.scratch/PRODUCTION_AUDIT.md` 與 ADR-0118） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
+| `docs/agents/lessons.md` | 之前的 session 一再犯、測試又沒抓到的坑（形狀＋一句自問）。**動工前先掃一遍**；踩到新的就照格式補一條 |
 
 寫新文件前先確認這件事還沒被寫過。
 
