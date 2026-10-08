@@ -14,6 +14,7 @@
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | done（10/9，3 個 commit：`d5ec573`、`d973d24`、`397f213`） |
 | 四之二、她 10/9 回的 C、A、B | C 兩件小修、A 約二返的名額、B 只開 issue | done（10/9，4 個 commit：`ee675cc`、`877558b`、`417e4c2`、`fb7a691`） |
 | 五、AI 小實驗、文件、收尾、開 PR | 22–23 | todo |
+| （之後）B：二返先接上還沒做完的健檢 | `.scratch/followup-link-before-exam/issues/01`，她 10/9 回了五題 | todo —— 段六審完、合進 develop 之後另開分支、另一支 PR |
 | 六、`/matt-code-review` 與照審查修正 | — | todo |
 
 - 分支：`claude/prelaunch-fixes-2026-10-08`（**只在本機，還沒推**；段五才推、才開 PR）。基底 `origin/develop` `a84820d`。
@@ -463,6 +464,19 @@ B：只在 .scratch/ 開一支 issue（新的 feature slug），不改程式。�
 「怎麼刪正式站」reset-staging.mjs 做不到（它拒絕正式專案、而且留著 config）—— 動手寫之前先問我要走哪一條（issue 23「段四之二加的」第 2 點）。
 staging 的 Function 要不要部署先問我；不連正式站。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段六：/matt-code-review）的開場。
+```
+
+### B（段六審完、合進 develop 之後）—— effort：high
+
+```
+/kickoff 二返可以先接上還沒做完的那一次健檢（B），照 .scratch/followup-link-before-exam/issues/01 做
+
+第一、二段不用重來：issue 已經查證過七條連動，我 10/9 回的五題在「她 10/9 回的」那一段，不用再問我。
+先讀：CLAUDE.md → docs/agents/lessons.md（第一、二、五節）→ 那一支 issue → ADR-0112、0139、0142 → .scratch/asks-2026-09-24/issues/11（要推翻的那一句）。
+git fetch，從最新的 origin/develop 開分支（prelaunch-fixes 要已經合進去）。補一支新的 ADR（推翻「只有已完成按得下去」，舊的不改）；sw.js 跟 develop 比升一號。
+issue 太大的話先拆成幾支（核心＋owed()、取消／未到、簽療程單擋、日期提醒、一次一場、n返、拍 Abovee、客戶詳情那一句），一支一個 commit，每一支先寫會紅的測試。
+沒連結的舊資料要一個位元都不變：拿 ADR-0142 那種隨機比對（Math.imul 的亂數）比改之前與改之後。
+E2E 只跑相關的 spec，跑完關模擬器。不部署、不連正式站。做完開 PR 進 develop、給我照順序點的驗收清單（本機模擬器走過）。
 ```
 
 ### 段六（審查）—— effort：xhigh
