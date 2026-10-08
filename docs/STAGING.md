@@ -380,16 +380,20 @@ PR develop → main → 自動上正式
 備份如果沒有被還原過，它只是一個 JSON 檔。
 
 ```bash
-# 1. app 的設定頁 → 匯出備份（不用勾稽核）
+# 1. app 的設定頁 → 匯出備份（不用勾稽核），下載下來的檔案搬到 .local/references/
 # 2. 開模擬器（另一個終端機）
 npm run emulators
 
 # 3. 先看它打算做什麼，再真的還原到模擬器
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
 ```
+
+**備份檔放 `.local/references/`，不要放在程式資料夾的最外層。** 它裡面是全部客戶、健康資訊與試算表的密鑰，
+而這個 repo 是公開的。`.gitignore` 現在任何一層的 `排課系統備份-*.json` 都擋（改了檔名就擋不到），
+`.local/` 是整個資料夾都擋 —— 放那裡不用記得檔名長怎樣。
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
 

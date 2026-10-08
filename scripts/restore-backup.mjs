@@ -10,6 +10,10 @@
 // 怎麼用
 // ---------------------------------------------------------------------------
 //
+// **備份檔放 `.local/references/`，不要放在 repo 最外層**：裡面是全部客戶、健康資訊與試算表的密鑰，
+// 而這個 repo 是 public（`.gitignore` 擋 `排課系統備份-*.json`，改過檔名的只有 `.local/` 擋得到）。
+// 下面的 `備份.json` 都是 `.local/references/排課系統備份-日期.json` 的簡寫。
+//
 //   # 先看它打算做什麼，一個字都不寫（**每次都從這個開始**）
 //   node scripts/restore-backup.mjs 備份.json --project staging --dry-run
 //

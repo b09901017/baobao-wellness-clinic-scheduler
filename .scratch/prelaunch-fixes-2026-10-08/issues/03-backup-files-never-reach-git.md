@@ -1,6 +1,6 @@
 # 備份檔與金鑰檔放在 repo 最外層不會被擋；真名掃描少 27 位
 
-Status: todo
+Status: done
 來源：`f-backup-ignore`、`ops/report.md` 第 4、5 條
 動工前先讀：`docs/agents/lessons.md` 第八節、`.gitignore:12-19`、`docs/STAGING.md:388-391`（還原那一節的範例）、
 `tests/no-secrets.test.js:192-220`（`realNames()`）、`CLAUDE.md`「上線」那一節講 `.local/` 的那一段
@@ -47,3 +47,23 @@ repo 是 public，一次 `git add .` 就收不回來。
 ## 交給 20
 
 人員全名的名單（`.local/references/staff-names.json`）也要進 `realNames()` —— 那是 20 建的檔案，20 做的時候加。
+
+## 做完時留下的（10/8）
+
+- `.gitignore` 多兩條：`排課系統備份-*.json`（前面沒有斜線，任何一層都擋）、`*-sa.json`。
+  `git ls-files -ci --exclude-standard` 是空的（沒有誤擋被追蹤的檔案）。
+- `tests/backup-files-ignored.test.js`：真的跑 `git check-ignore`（六個路徑），加上「沒有誤擋」那一條。
+- `realNames()` 搬到 `tests/helpers/realNames.js`，回 `{ names, sources: { read, missing } }`，四個來源：別名表、合併檔、
+  **病歷號名單**（`chart-numbers.json` 的鍵）、**Abovee 擷取檔**（`rows[].name`）。後兩份不在的機器照舊綠，
+  但 `no-secrets` 那一條會印「這台機器上沒有：…」—— 不是靜悄悄少掃。搬出來是為了能拿假名造資料夾測「每個來源真的被讀到」。
+- 她的機器上：掃的名字從 66 個變 93 個；病歷號名單與 Abovee 擷取檔上不在名單裡的從 27 個變 **0**
+  （`node .local/references/audit-2026-10-08/ops/r-nosecrets-gap-after.mjs`，只印數字。舊的 `r-nosecrets-gap.mjs` 自己重寫了一份舊讀法，
+  所以它永遠印 27 —— 不要拿它驗）。93 個名字沒有一個出現在被追蹤的檔案裡。
+- `docs/STAGING.md` 還原那一節：範例路徑改成 `.local/references/排課系統備份-….json`，補一段為什麼。`scripts/restore-backup.mjs` 檔頭同一句。
+- `CLAUDE.md`：不寫 `.gitignore` 的行號。
+
+**交給 20**：人員全名的名單（`.local/references/staff-names.json`）加進 `tests/helpers/realNames.js` —— 照 `optional()` 那個寫法加一行，
+然後在 `tests/backup-files-ignored.test.js`「四個來源」那一條補一份假的。**人員的顯示名（種子上那些兩個字的）不可以進名單**：
+它們本來就在種子與測試裡，一進名單整個 repo 都是命中。
+
+沒做：Abovee 擷取檔上的 `operator`／`manager`／`creator`（人員）沒有進名單，理由同上；那是 20 的名單該管的。

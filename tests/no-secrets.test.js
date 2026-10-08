@@ -28,9 +28,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
 
 import { fromRoot } from './helpers/paths.js';
+import { realNames } from './helpers/realNames.js';
 
 const ROOT = fromRoot();
 
@@ -178,49 +179,6 @@ test('沒有任何被追蹤的檔案帶著「姓名黏著病歷編號」的字�
 });
 
 /**
- * 真名的名單從哪裡來。**兩個來源，愈完整愈好。**
- *
- * 1. `nicknames` 的鍵與值 —— 但那一份只有**有暱稱的那幾位**
- *    （2026-09-16 實測：6 位、19 個字串）
- * 2. **合併檔裡的客戶名單**（`import-*.json` 的 `customers[]`）—— 那是最完整的
- *    一份（同一天的 import 有 28 位、52 個字串），而且就在她那台機器上
- *
- * 只有第 1 個來源時，**綠燈只代表那 6 位沒進版控**。
- *
- * 一個字的不掃（`陳`、`際`）—— 單字在中文裡到處都是，掃了只會得到一頁誤判。
- */
-function realNames(dir) {
-  const names = new Set();
-
-  try {
-    const { nicknames = {} } = JSON.parse(readFileSync(`${dir}aliases.json`, 'utf8'));
-    for (const n of [...Object.keys(nicknames), ...Object.values(nicknames).flat()]) {
-      if (typeof n === 'string') names.add(n.trim());
-    }
-  } catch (err) {
-    // 讀不動就講出來，不要靜靜地變成綠燈 —— 那比沒有這條測試更糟。
-    assert.fail(`${dir}aliases.json 讀不動：${err.message}`);
-  }
-
-  // 合併檔。沒有就算了 —— 別名表那一份照樣掃得到一部分。
-  for (const file of readdirSync(dir)) {
-    if (!/^import-.*[.]json$/.test(file)) continue;
-    try {
-      const { customers = [] } = JSON.parse(readFileSync(`${dir}${file}`, 'utf8'));
-      for (const c of customers) {
-        for (const key of ['name', 'rawName', 'sheetName']) {
-          if (typeof c?.[key] === 'string') names.add(c[key].trim());
-        }
-      }
-    } catch {
-      // 一份讀不動不要擋住其他份
-    }
-  }
-
-  return [...names].filter((n) => n.length >= 2);
-}
-
-/**
  * **測試本身一個真名都不能寫** —— 那樣等於為了防止 commit 真名而 commit 一次真名。
  * 所以改成：有那份名單的機器上才驗得到，沒有就跳過並講清楚為什麼。
  * 上面那條形狀檢查不需要名單，兩條是互補的，不是二選一。
@@ -243,11 +201,22 @@ test('別名表裡的真名沒有出現在任何被追蹤的檔案裡', (t) => {
     return;
   }
 
-  const names = realNames(dir);
+  // 名單從哪幾份來寫在 `helpers/realNames.js`（別名表、合併檔、病歷號名單、Abovee 擷取檔）
+  let names;
+  let sources;
+  try {
+    ({ names, sources } = realNames(dir));
+  } catch (err) {
+    // 讀不動就講出來，不要靜靜地變成綠燈 —— 那比沒有這條測試更糟。
+    assert.fail(err.message);
+  }
 
-  // **掃了幾個名字要講出來。** 只讀 `nicknames` 是 19 個、加上合併檔是 52 個，
-  // 而那兩種綠燈的意思完全不一樣 —— 不講的話「過了」看起來永遠一樣有力。
-  t.diagnostic(`這一次掃了 ${names.length} 個名字`);
+  // **掃了幾個名字、從哪幾份來要講出來。** 只讀 `nicknames` 是 19 個、加上合併檔是 52 個，
+  // 而那幾種綠燈的意思完全不一樣 —— 不講的話「過了」看起來永遠一樣有力。
+  t.diagnostic(`這一次掃了 ${names.length} 個名字（${sources.read.join('、')}）`);
+  if (sources.missing.length) {
+    t.diagnostic(`這台機器上沒有：${sources.missing.join('、')} —— 只在那幾份上的名字這次沒有掃`);
+  }
 
   const offenders = [];
   for (const rel of trackedFiles()) {

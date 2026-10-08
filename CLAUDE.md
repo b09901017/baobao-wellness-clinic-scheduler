@@ -39,7 +39,7 @@ staging 上被點過 —— 只有急件這樣做。
 
 **這個 repo 是 public。** 檔案、commit 訊息、PR 的標題與內文、Actions 的 log，推上去那一刻就公開，而且收不回來。`tests/no-secrets.test.js` 只掃被追蹤的檔案，名單也只在她的機器上 —— commit 訊息與 PR 內文沒有人掃，只寫名、不寫姓的叫法它也掃不到。所以**推之前、開 PR 之前自己看一眼**：有沒有真實客戶的名字、病歷號、健康資訊。
 
-她自己的 `.xlsx`／`.ics`／截圖放 **`.local/references/`**（`xlsx/`、`ics/`、`images/` 三格）。`.gitignore` 第 57 行的 `/.local/` 擋著，驗證方式是 `git check-ignore -v <路徑>` —— **擋沒擋住從畫面上看不出來**，所以每次新開一個資料夾都要真的跑一次。不要另外開名字：多一個要記得加進 `.gitignore` 的地方，漏掉一次就是真實客戶健康資訊進了版控。
+她自己的 `.xlsx`／`.ics`／截圖放 **`.local/references/`**（`xlsx/`、`ics/`、`images/` 三格）。`.gitignore` 的 `/.local/` 那一條擋著，驗證方式是 `git check-ignore -v <路徑>` —— **擋沒擋住從畫面上看不出來**，所以每次新開一個資料夾都要真的跑一次。不要另外開名字：多一個要記得加進 `.gitignore` 的地方，漏掉一次就是真實客戶健康資訊進了版控。
 
 ## 測試怎麼跑
 
