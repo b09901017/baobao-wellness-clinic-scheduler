@@ -1,6 +1,6 @@
 # 「剩幾次」那幾行：有在用的排前面
 
-Status: todo
+Status: done
 來源：決定 4（`d-pool-order`）、`ux/report.md` 第 5 條
 動工前先讀：`public/js/domain/scheduling.js:125-200`（`followupsLast()`、`customerPools()` 的排序在 `:184-186`）、
 `public/js/domain/entitlements.js:175-230` 的 `sortPools()`、`public/js/ui/views/customers.js:340-352`（卡片只列前 4 行）、
@@ -57,3 +57,30 @@ Blocked by: —
 
 補一支 ADR（她的原話與題目原文貼進去；舊的 ADR 不改）。`CLAUDE.md`「額度那一排的順序」那一列寫著卡片牆「照舊『快用完的排前面』」—— 改成新的兩層。
 `entitlements.js` 的 `sortPools()` 檔頭註解列的三層跟著改成四層。
+
+## 做完時留下的（10/8）
+
+- **同一個比較**：`domain/entitlements.js` 多 `inUse(pool)`（`done + booked > 0`）與 `poolOrder(a, b)`（有在用的前面 → 剩得少的前面 → 名字）。
+  - `customerPools()`：`followupsLast(a, b) || poolOrder(a, b)`
+  - `sortPools()`：先「還有剩的排前面」→ `poolOrder()` → 最後照舊套「健檢與二返相鄰」。順手把現算改成一筆算一次（以前在比較函式裡每比一次重算一次 `counts()`）。
+- **`lead` 的退路改成不靠順序**：`buildCustomerQueue()` 代表的那一筆額度現在由 `leadPool()` 挑 —— 自己照**原本**那個順序排一次（二返最後 → 剩得少的 → 名字）再取第一筆符合的。
+  所以每一位客戶挑到的那一筆跟改之前一模一樣，客戶之間「先壓誰」的分數與排名不動（單元測試釘著：兩位只差在「用過沒」，代表的那一筆相同；到期日不同時照舊看最快到期的）。
+- **判準逐條**：
+  - 一次都沒做也沒排的 4 次諮詢不會排在正在做的復能（剩 11）前面 —— 兩支各一條。
+  - 兩支講同一句話：同一位客人（都還有剩、沒有二返）兩支排出來的 id 順序一模一樣。
+  - 只排了還沒做的算在用；取消與未到的不算（現算那一條路有測；快取那一條路的 `doneCount`／`bookedCount` 本來就是 `recount()` 照 `slotOutcome()` 算的）。
+  - 二返還是最後；客戶詳情健檢與二返還相鄰。
+  - 重跑量測（只印數字）：`node .local/references/audit-2026-10-08/ux/r01-pool-order-after.mjs` ——
+    卡片上列出的 84 行裡一次都沒動過的 **54 → 34** 行；正在用的那一筆被擠進「點進去看」的 **14 → 2** 位
+    （剩下的 2 位是正在用的超過 4 筆：5 筆與 6 筆，`r01-pool-order-why2.mjs`）。舊的 `r01-pool-order.mjs` 自己重寫了一份排序，修完照樣印 14，不要拿它驗。
+- **吃這個順序的地方逐個看過**：
+  - 客戶清單卡片前 4 行、壓表那一疊的泡泡（`row.pools`）：跟著變，就是要改的。
+  - 待辦中心「壓表登記」那一列（`customersToBook()` 照 `pools` 的順序推）：同一個系統裡幾筆的先後跟著變成「有在用的前面」—— 方向一致，沒有另外處理。
+  - `customers.js:301` 的 `.find((p) => p.label === view.course)`：一位客戶有兩筆同名額度時取到的那一筆從「剩得少的」變成「有在用的」。只影響點了課程丸之後客戶之間的排序、而且只在同名兩筆時；沒有改（要改的話是把同名的加總，那是另一個決定）。
+  - `slotOptions.js`（「可以做什麼」那一排）：之後由 `arrangeSlotOptions()` 重排，不受影響。營養品在 `customerPools()` 一開始就跳過。
+- 文件：`docs/adr/0137-pools-in-use-come-first.md`（她的原話與題目原文都在裡面）；`SPEC.md` 兩處（壓表記錄面板的泡泡、客戶詳情的額度卡）；
+  `CLAUDE.md`「額度那一排的順序」那一列改成新的兩層並指到 `poolOrder()`／`leadPool()`；`sortPools()` 檔頭三層改四層。
+- E2E：這一支沒有新的（issue 寫單元）。跑了 `00-smoke` 與 `03-health-and-counts`（清單讀快取、詳情現算那一支），綠。
+
+**下一支（09 起）需要知道的**：ADR 的號碼 0137 用掉了，下一支拿 **0138**。`customerPools()` 回的 `pools` 現在每一筆都可以直接丟給 `inUse()`／`poolOrder()`
+（有 `done`、`booked`、`remaining`、`label`）—— 09 的「拍 Abovee 預選哪一筆額度」如果要「優先扣正在用的那一筆」，問這兩支，不要另外寫一個「有沒有在用」。

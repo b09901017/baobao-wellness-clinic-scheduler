@@ -173,20 +173,53 @@ export function lowRemaining(entitlements) {
   );
 }
 
+/**
+ * 這一筆額度**有沒有在用**：做過、或排著（她 2026-10-08：「有做過或排過的」）。
+ *
+ * 取消掉與未到的那幾段不算 —— 它們不佔次數（`slotOutcome()`），而這裡讀的 `done`／`booked`
+ * 就是照那一支算出來的（快取的 `doneCount`／`bookedCount`，或 `counts()` 現算），
+ * 所以兩條路是同一個定義。
+ *
+ * @param {{done?: number, booked?: number}} pool
+ */
+export const inUse = (pool) => (pool?.done ?? 0) + (pool?.booked ?? 0) > 0;
+
+/**
+ * 一位客戶身上幾筆額度的先後：**有在用的排前面 → 同一組裡剩得少的排前面 → 名字**（ADR-0137）。
+ *
+ * 2026-10-08 以前只有後兩層，而「剩得少」分不出「快用完」與「買得少、一次都還沒用」：
+ * 方案裡一次都沒用過的 4 次諮詢也只剩 4，永遠排在正在做的復能（剩 11）前面 ——
+ * 客戶清單一張卡只列 4 行，她的合併檔裡 29 位有 14 位正在用的那一筆被擠進「點進去看」。
+ *
+ * **兩支排序共用這一支**：卡片牆與客戶清單的 `scheduling.js` `customerPools()`（前面先套「二返最後」）、
+ * 客戶詳情的 `sortPools()`（前面先套「還有剩的排前面」、最後套「健檢與二返相鄰」）。
+ * 各寫一次的話，同一位客人在兩頁的先後遲早不一樣。
+ *
+ * @param {{done?: number, booked?: number, remaining: number, label?: string}} a
+ * @param {{done?: number, booked?: number, remaining: number, label?: string}} b
+ */
+export function poolOrder(a, b) {
+  return Number(inUse(b)) - Number(inUse(a))
+    || a.remaining - b.remaining
+    || String(a.label ?? '').localeCompare(String(b.label ?? ''), 'zh-TW');
+}
+
 /** 已排 + 已完成超過總數。只提示，不阻擋。 */
 /**
  * 客戶詳情那一排額度卡的順序。
  *
  * 那一排是**橫著捲**的（`.scratch/customer-detail-rework/issues/05`），
  * 而橫著捲的東西只有最前面兩三張會被看到 —— 所以順序不是裝飾，是「她會不會
- * 看到那個數字」。三層：
+ * 看到那個數字」。四層：
  *
  * 1. **還有剩的排前面。** 用完的她不會去看。
- * 2. **剩得少的更前面。** 那是她要提醒客戶加購的。
- * 3. **健檢與它的二返相鄰**（ADR-0022：買幾次健檢就有幾次二返）。這一層是
- *    最後套上去的，會蓋掉前兩層 —— 健檢卡底下那句「健檢做完 N 次，二返還欠
+ * 2. **有做過或排過的排前面**（2026-10-08，ADR-0137；`poolOrder()`，跟卡片牆同一支）。
+ *    一次都沒動過的單項只剩 4，不該擋在正在做的那一筆前面。
+ * 3. **剩得少的更前面。** 那是她要提醒客戶加購的。
+ * 4. **健檢與它的二返相鄰**（ADR-0022：買幾次健檢就有幾次二返）。這一層是
+ *    最後套上去的，會蓋掉前三層 —— 健檢卡底下那句「健檢做完 N 次，二返還欠
  *    M 次」要對照著看才有意義，而最需要對照的情況正是**兩者剩餘次數不同**
- *    的時候（欠幾次就是那個差）。只靠前兩層排的話，那正是它們被拆開的時候。
+ *    的時候（欠幾次就是那個差）。只靠前幾層排的話，那正是它們被拆開的時候。
  *
  * 配對走 `followupForEntitlementId`，不是比課程 —— 兩筆健檢時比課程會配錯
  * （`domain/followups.js` 的 `pairsOf()` 同一個理由）。
@@ -195,14 +228,17 @@ export function lowRemaining(entitlements) {
  * @param {object[]} visits 現算剩餘次數要用（ADR-0004：詳情頁現算）
  */
 export function sortPools(entitlements = [], visits = []) {
-  const remainingOf = (e) => Math.max(0, counts(e, visits, e.id).remaining);
+  // 一筆算一次（現算要掃過每一筆來訪），不要在比較函式裡重算
+  const state = new Map(entitlements.map((e) => {
+    const c = counts(e, visits, e.id);
+    return [e, { done: c.done, booked: c.booked, remaining: Math.max(0, c.remaining), label: e.label }];
+  }));
 
   const sorted = [...entitlements].sort((a, b) => {
-    const ra = remainingOf(a);
-    const rb = remainingOf(b);
-    if ((ra > 0) !== (rb > 0)) return ra > 0 ? -1 : 1;
-    if (ra !== rb) return ra - rb;
-    return String(a.label ?? '').localeCompare(String(b.label ?? ''), 'zh-TW');
+    const sa = state.get(a);
+    const sb = state.get(b);
+    if ((sa.remaining > 0) !== (sb.remaining > 0)) return sa.remaining > 0 ? -1 : 1;
+    return poolOrder(sa, sb);
   });
 
   // 二返搬到它那一筆健檢的正後面。從後往前掃，這樣一次搬一筆不會打亂還沒處理的。

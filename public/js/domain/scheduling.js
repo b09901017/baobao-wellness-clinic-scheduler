@@ -11,7 +11,7 @@
 // （docs/adr/0002-app-records-decisions-it-does-not-make-them.md）。
 // 所以每一項的貢獻都要攤成人話標籤，讓她看得懂為什麼這人排第一，不同意就跳過去。
 
-import { counts, isProduct } from './entitlements.js';
+import { counts, isProduct, poolOrder } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive, coursesForEntitlement } from './visits.js';
 import { overlaps, toMinutes } from './visitTime.js';
@@ -181,9 +181,9 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
     });
   }
 
-  // 快用完的排前面 —— 她要先看到「這個只剩一次了」。二返一律最後（`followupsLast()`）
-  pools.sort((a, b) => followupsLast(a, b) || a.remaining - b.remaining
-    || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+  // 二返一律最後（`followupsLast()`）→ 有做過或排過的排前面 → 同一組裡快用完的排前面
+  // （她要先看到「這個只剩一次了」）→ 名字。後三層是 `poolOrder()`，跟客戶詳情那一排同一支（ADR-0137）
+  pools.sort((a, b) => followupsLast(a, b) || poolOrder(a, b));
 
   const withLeft = pools.filter((p) => p.remaining > 0 && isValidDate(p.expiresAt));
   const soonestExpiry = withLeft.length
@@ -195,6 +195,20 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
     totalRemaining: pools.reduce((sum, p) => sum + Math.max(0, p.remaining), 0),
     soonestExpiry,
   };
+}
+
+/**
+ * 代表這位客戶去算急迫度的那一筆額度：最快到期、還有剩的那一筆；一樣的話挑快用完的。
+ *
+ * **不靠 `pools` 的顯示順序。** 以前是 `pools.find(…) ?? pools[0]`，而顯示順序 2026-10-08 多了一層
+ * 「有在用的排前面」（ADR-0137）—— 照舊取第一筆的話，那一筆會換成別的額度，客戶之間「先壓誰」的排名
+ * 可能跟著動。那一次改的只是「一位客戶裡面幾筆額度的先後」，所以這裡自己照原本那個順序挑：
+ * 二返最後 → 剩得少的 → 名字。
+ */
+function leadPool(pools, soonestExpiry) {
+  const order = [...pools].sort((a, b) => followupsLast(a, b) || a.remaining - b.remaining
+    || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+  return order.find((p) => p.remaining > 0 && p.expiresAt === soonestExpiry) ?? order[0] ?? null;
 }
 
 /** 某一段期間內她自己排的來訪有幾次。 */
@@ -251,7 +265,7 @@ export function buildCustomerQueue({
 
     // rowFor 要一份「代表性的額度」來算急迫度。用最快到期的那一份 ——
     // 會籍在跑而次數沒上完，急的是那一份。
-    const lead = pools.find((p) => p.remaining > 0 && p.expiresAt === soonestExpiry) ?? pools[0] ?? null;
+    const lead = leadPool(pools, soonestExpiry);
     const state = {
       entitlement: lead ? { id: lead.entitlementId, label: lead.label, expiresAt: lead.expiresAt } : null,
       remaining: totalRemaining,
