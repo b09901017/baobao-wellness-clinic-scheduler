@@ -8,7 +8,7 @@
 | 段 | issue | 狀態 |
 |---|---|---|
 | 零 | spec、23 支 issue、subagent 過目 | done（10/8） |
-| 一、匯入頁／隱私／部署／畫面小修／排序 | 01–08 | todo |
+| 一、匯入頁／隱私／部署／畫面小修／排序 | 01–08 | done（10/8，8 個 commit：`c83ffb2`…`4d44af0`） |
 | 二、拍照 | 09–14 | todo |
 | 三、規則、待辦、試算表 | 15–18 | todo |
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | todo |
@@ -18,6 +18,7 @@
 - 分支：`claude/prelaunch-fixes-2026-10-08`（**只在本機，還沒推**；段五才推、才開 PR）。基底 `origin/develop` `a84820d`。
 - 一支 PR 進 `develop`。六段都在**同一個分支、同一個工作目錄、一段接一段**做 —— 不開 worktree、不平行（共用檔案多，她的筆電也不能同時跑兩組模擬器）。
 - 編號：ADR 從 0137、E2E spec 從 61（一段一支新 spec）、`sw.js` `v186`（一支 PR 只升一號）、合併檔 v6。
+  **用掉的**：ADR-0137（08）、spec `61`（段一）、`sw.js` 已經是 `v186`（01 升的，之後不再升）。**下一個**：ADR-0138、spec `62`。
 
 ## 每一段怎麼做（每一段的 session 都一樣）
 
@@ -39,6 +40,12 @@
 - 改檔一律用 Edit 或 python（`newline=''`）；PowerShell 5.1 的 `Get-Content`／`Set-Content` 會把 UTF-8 中文讀壞。有反斜線的 python 不要放進 bash heredoc。
 - 本機 `tests/slot-note.test.js` 可能因為 CRLF 假紅 —— 不是 develop 壞了，不要改那一支。
 - 新的測試檔要 `git add` 之後再跑一次 `npm test`（真名掃描只掃被追蹤的檔案）。
+- **有反斜線或樣板字串的改檔腳本不要放進 bash heredoc**（段一又踩了三次：`unexpected EOF`、正規表示式少一條反斜線）：
+  用 Write 把 python 腳本寫到 scratchpad 再跑；路徑裡的反斜線用 `chr(92)`。
+- 模擬器**在 Windows 上不回 `firebase.json` 的 `headers`**（`glob-slasher` 把規則的斜線換掉）：她的機器上 `curl -sI 127.0.0.1:5000/…` 看不到 Cache-Control 是正常的。
+- E2E 一輪的**第一支偶爾在登入那一步逾時**（`waitForSelector('[data-signin]')` 30 秒 ＋「console 留下 3 筆錯誤」）。段一遇到三次，
+  都是上一輪剛跑完（或剛失敗）馬上再跑；原樣重跑就過，沒有一次是程式的問題。遇到先重跑一次，不要先懷疑自己剛改的那一行。
+- 跑完 E2E **把模擬器關掉**（依 port：5000、8080、9099、9199、5001、4400、4000）—— 它不會自己關，她的筆電會一直轉。
 - `.local/` 的重現腳本有的會讀真資料：只印數字的才可以把輸出貼進對話、issue、commit。
 
 ## 每一段留下的
@@ -58,6 +65,48 @@
 - 審查標「待查」、沒有實跑過的三件（做到那一支時自己驗）：04 模擬器的 hosting 吃不吃 `firebase.json` 的 `headers`；
   10「兩張都有姓名、左右範圍不同」的拍法多常發生；13 右半從診間欄中間開始拍的鏡像情況。
 - 審查沒做的：沒開模擬器、沒跑 E2E 與整套 `npm test`；ADR 只打開 0068 與 0104；21、23 只對了引用的檔案與行號，沒有逐格重查種子。
+
+### 段一（10/8）：01–08
+
+八支都做完，一支一個 commit，`npm test` 3929 條全綠（0 skipped）。E2E 只跑了自己那幾支：`61`（新，8 條過、H1 在 Windows 上跳過）、
+`24`（F5、F6 是新的）、`09`、`27`、`04`、`00`、`03`。**沒有跑全量**，留給段五丟 CI。沒推、沒開 PR、沒部署。
+
+做了什麼（細節在每一支的「做完時留下的」）：
+
+- **01** 匯入頁 `run()` 進來先問 `running`（確認框開著也算）、`finally` 才放開、放開前重讀資料庫；`save-guards` 多一段掃這三個記號。
+- **02** 雜事寫完就清勾、只剩雜事也重試得了；`importCaveats()`（對不到主檔幾處、同名跳過幾位）確認框與摘要卡共用；匯完的結果留在頁面上（`[data-import-result]`）。
+- **03** `.gitignore` 擋 `排課系統備份-*.json`（任何一層）與 `*-sa.json`；真名掃描的名單搬到 `tests/helpers/realNames.js`、多讀病歷號名單與 Abovee 擷取檔（66 → 93 個名字，漏掉的 27 → 0）。
+- **04** `firebase.json` 第一條 `**` 全部 no-cache、圖示蓋回一小時；`deploy.yml` workflow 那一層 `concurrency`；`.firebaserc` 預設改 staging。
+- **05** `visitReadHtml()` 最上面畫警示；資料走 `fillMirror()`（日曆另外先給一份、客戶詳情直接傳）。
+- **06** `.deck` 開著時 toast 站到抬頭中間名字那一段；拍訂購單的確認卡一起吃到。
+- **07** `scheduling.js` 的 `presentQueue()`／`batchRows()`：畫的濾、存的不濾；「加這一段」存檔前問一次人還在不在。
+- **08** `entitlements.js` 的 `inUse()`／`poolOrder()`，兩支排序共用；`leadPool()` 讓客戶之間的排名不跟著動。ADR-0137。
+
+偏離 issue 寫的作法（理由都在那一支裡）：
+
+- **04**：不是「一種一種副檔名改成 no-cache」，是「全部 no-cache、圖示例外」—— 反過來漏的下場只是圖示多一趟 304。
+  「待查」的答案：模擬器吃 `headers`，但 Windows 上對不上任何一條，所以**本機驗不了**；改成 E2E `61` 的 H1（Windows 跳過、CI 量）。
+- **05**：issue 要一支「給假客戶 → HTML 裡有那一顆」的單元測試 —— `calendar.js` 進不了 node（一路 import 到 `https://`），改成掃原始碼＋E2E 四個畫面。
+  待辦中心兩個入口與進度追蹤上，那一排是跟「這一項的待辦」同一次重畫才出現（底下往下移一排）；日曆與客戶詳情不會。
+- **06**：不是面板那一條的「最上面靠左」（會蓋住「上一位」），是抬頭中間名字那一段。量法是問 toast 底下 `elementFromPoint()`，不是比外框。
+- **02**：多做了「結果留在頁面上」那一張卡（issue 只寫「完成提示講出來」）—— 一句 3 秒的 toast 撐不起「那張清單匯完再也看不到」。
+- **07**、**03**、**08**：舊的重現／量測腳本（`r01-known-issues.mjs` 7b、`r-nosecrets-gap.mjs`、`r01-pool-order.mjs`）都是**照抄舊邏輯**寫的，修完照樣印舊數字。
+  各補了一支讀真的那一支函式的（`*-after.mjs`），或由單元測試取代。**之後幾段的重現腳本也要先看它是 import 還是照抄。**
+
+沒做、留著（23 收尾時寫進「沒做、留著」或驗收清單）：
+
+- 02：有人失敗 → **重新整理再貼一次**時雜事的預設勾選又回來，那一趟會多寫一份雜事（只擋了「檔案還在畫面上重按」）。
+- 05：日曆日／週那一列（`visitRow()`）沒有警示（issue 寫明不做）。
+- 08：客戶清單點了課程丸之後取「同名的第一筆」—— 同名兩筆時取到的那一筆變了（從剩得少的變成有在用的）。
+- 04：`r-deploy-race.mjs` 沒重跑（要合進 develop 之後才看得出差別）。
+- `CLAUDE.md` 連動表：08 的那一列已經改了；**01、05、06、07 各欠一句，都留給 23**（每一支的「留給 23」寫了要補什麼）。
+- 驗收清單（23 寫）要有的幾條：staging 部署完 `curl -sI …/js/app.js` 與 `/` 是 `no-cache`；連推兩次 develop 第二次是排隊；CI 全量時 `61` 的 H1 是綠的而且不是 skipped。
+
+段二（09–14）要知道的：
+
+- 08 做完之後 `customerPools()` 回的每一筆 `pool` 都可以直接丟給 `inUse()`／`poolOrder()`。09 如果要「優先扣正在用的那一筆」，問這兩支。
+- 匯入頁與拍 Abovee 沒有共用的程式；段一沒有動 `aboveeImport.js`、`aboveeConfirm.js`、`orderForm.js`、`orderConfirm.js`（06 的 CSS 規則會套到 `orderConfirm` 的那一疊，沒改它的 JS）。
+- 14 的確認卡是 `.deck`：存完的 toast 現在站在抬頭上，E2E 要點「復原／重試」的話位置變了（選擇器沒變）。
 
 ## 給新 session 的開場（範本）
 
@@ -81,12 +130,14 @@
 ```
 /kickoff 上線前修正：第三段實作，做 09–14（拍 Abovee 與拍訂購單）
 
-第一、二段與 01–08 已經做完，不用重來，也不用停下來問我。
+第一、二段與 01–08 已經做完（8 個 commit，最後一個 4d44af0），不用重來，也不用停下來問我。
 
-先讀：CLAUDE.md → docs/agents/lessons.md（第二、四、五節）→ .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md → spec.md → issues/09～14。
+先讀：CLAUDE.md → docs/agents/lessons.md（第二、四、五節）→ .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md（「從上一輪帶過來、還成立的坑」與「段一」那兩段）→ spec.md → issues/09～14。
 分支 claude/prelaunch-fixes-2026-10-08（只在本機）。09→10→11→12→13 動同一支 aboveeImport.js，照編號做；每一支做完把下一支要知道的寫進「做完時留下的」。
+編號：ADR 從 0138 起（12 會補一支）、新的 E2E spec 是 62（這一段共用一支）、sw.js 已經是 v186 不要再升。
+重現腳本先看它是 import 真的那一支還是照抄舊邏輯 —— 照抄的修完照樣印舊數字，要另外補一支。
 13 會改 Abovee 的提示詞：這一段不重考（那會花我的錢，併在 22）、也不部署 Function。
-不推、不開 PR、不部署、不連正式站。E2E 只跑相關的那一支 spec。
+不推、不開 PR、不部署、不連正式站。E2E 只跑相關的那一支 spec，跑完把模擬器關掉。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段三：15–18）的開場。
 ```
 
