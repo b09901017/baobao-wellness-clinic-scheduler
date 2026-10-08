@@ -268,7 +268,7 @@ const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
  * - 一律接在額度列的**後面**：`equipmentNotes`／`slotNotes` 的 `rowIndex` 指的是額度列的位置
  *
  * **不用升 `SYNC_FORMAT`**：每一列的鍵沒有變，只是這幾列的 `total`／`remaining` 是字串。
- * `.gs` 上色問的是 `r.done > 0`、`r.booked > 0`、`r.remaining === 0`，一槓不會被當成 0 塗紅
+ * `.gs` 上色問的是 `r.done > 0`、`r.booked > 0`、「`r.remaining` 是數字而且 ≤ 0」，一槓不會被當成 0 塗紅
  * （`tests/sheet-rows-without-entitlement.test.js` 拿那一份 `.gs` 真的畫過）。`extra` 那一格現在的 `.gs` 不讀，
  * 留給之後要把這幾列畫得不一樣的那一天。
  *

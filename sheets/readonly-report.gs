@@ -84,7 +84,7 @@ var COLOR = {
   booked: '#FFF2CC',
   pending: '#E3F2FD',
   noShow: '#ECEFF1',
-  low: '#FFCDD2',      // 剩餘 0
+  low: '#FFCDD2',      // 剩餘 0 或負數（超用）
   border: '#B0BEC5',
   noteHeader: '#ECEFF1',
 };
@@ -259,7 +259,11 @@ function renderCustomer(ss, data, bundle) {
       }
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
-      if (r.remaining === 0) sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
+      // 0 與負數（做的比買的多）都紅。先問是不是數字：沒有額度的那幾列是一槓（字串），
+      // 而 JS 裡 '' <= 0、null <= 0 都是 true
+      if (typeof r.remaining === 'number' && r.remaining <= 0) {
+        sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
+      }
       // 有東西的格子上色。符號看久了會漏看，一片顏色不會 ——
       // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。
       for (var d = 0; d < r.marks.length; d++) {
