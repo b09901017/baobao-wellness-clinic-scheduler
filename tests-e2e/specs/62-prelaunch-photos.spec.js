@@ -141,6 +141,35 @@ test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句�
   await expect(row(page, 'a1').locator('.abl-row__warnings')).toContainText('還沒選治療師');
 });
 
+// ---------- 審查（2026-10-09）：同一位客人跨好幾天的列，超用要把這一次別天要記的算進去 ----------
+
+test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收著都看得到「會超過總次數」，確認框講 3 段', async ({ app, page }) => {
+  await app.seed([
+    ...seedHistory().filter((d) => d.path !== 'batches'),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    entitlement('cust-b', { id: 'b-pool', ...POOL3, totalQty: 1 }),
+    batch(['cust-wang', 'cust-lee', 'cust-a', 'cust-b']),
+  ]);
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-days']);
+
+  // 每一組（一位一天）以前各自驗、只看資料庫裡的：三列都先按好同一筆、都打勾，一句都不講
+  for (const key of ['a0', 'a1', 'a2']) {
+    await expect(row(page, key).locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+    await expect(row(page, key).locator('.abl-row__hint--warn')).toContainText('排完這次會超過總次數（共 1 次，已排 3 次）');
+  }
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 3 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('其中 3 段有提醒');
+  await app.cancelDialog();
+
+  // 她把後兩列的勾拿掉：剩下那一列剛好 1 次，不超用 —— 那一行跟著收掉
+  await row(page, 'a1').locator('[data-abl-check]').click();
+  await row(page, 'a2').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+});
+
 // ---------- 14 同一張訂購單拍了兩次 ----------
 
 /** 客戶 → 右下角 ＋ →「拍訂購單」→ 相簿選幾張 → 送出 → 確認卡（同 `40-order-form`）。 */

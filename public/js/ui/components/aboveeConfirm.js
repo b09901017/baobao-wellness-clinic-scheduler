@@ -25,7 +25,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  recordedSay, repeatSay, resolveItem, summarizeAbovee, warningsByRow,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -157,7 +157,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   /**
    * 這幾位的**全部**來訪（prelaunch-fixes/09）。壓表那一頁手上只有最近 180 天 —— 半年前打完的那一筆在那一份裡
    * 看起來還有剩，於是預選它、那一列預設打勾、也不講「排完會超過」。讀回來的整份換掉 `visitsBy[那一位]`；
-   * 撞期那一份是把 `visitsBy` 攤平再濾日期（`checkCtx()`），照舊成立。
+   * 撞期那一份是把 `visitsBy` 攤平再濾日期（`visitsForCheck()`），照舊成立。
    *
    * **讀不到的不安靜地照算**：記進 `ctx.partial`，那一位的列不預設打勾、講一句（`partialSay()`）。
    * 離線也算讀不到 —— Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆。
@@ -189,16 +189,21 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    *
    * **每一段用時間與名字叫**（`slotSay()`，issue 07）：這一層一列一段，沒有「第幾個時段」可以指 ——
    * 而整筆的提醒會原樣掛到那一組的每一列上。
+   *
+   * **來訪那兩份連這一次別組要記的一起算**（`visitsForCheck()`，2026-10-09 審查）：同一張照片上同一位客人
+   * 別天的那幾段、別人同一天的那一段。只看資料庫裡的話，只買 1 次、照片上三天各一段時三列都不講超用。
+   *
+   * @param {object[]} groups 這一次要記的每一組（`planAbovee()`）
+   * @param {{customerId: string, date: string, visit: object}} group 正在驗的那一組
    */
-  function checkCtx(customerId, date, visit) {
+  function checkCtx(groups, group) {
     return {
-      slotLabel: (i) => slotSay(visit?.slots?.[i], ctx.master),
-      customer: { flags: ctx.customers.find((c) => c.id === customerId)?.flags ?? [] },
-      entitlements: ctx.entitlementsBy[customerId] ?? [],
+      slotLabel: (i) => slotSay(group.visit?.slots?.[i], ctx.master),
+      customer: { flags: ctx.customers.find((c) => c.id === group.customerId)?.flags ?? [] },
+      entitlements: ctx.entitlementsBy[group.customerId] ?? [],
       courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
       staff: ctx.master.staff, ivProducts: ctx.master.ivProducts,
-      customerVisits: ctx.visitsBy[customerId] ?? [],
-      sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === date),
+      ...visitsForCheck(groups, group, ctx),
     };
   }
 
@@ -215,12 +220,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const adopted = adoptAbovee(visit, [item]).visit;
       // 只留講到她按的那一段的（`warningDetails()` 的 `slots`）—— 以前拿「這一段」開頭的字去挑
       const at = item.existing.slotIndex;
-      const mine = warningDetails(adopted, checkCtx(item.customerId, visit.date, adopted)).filter((w) => w.slots.includes(at));
+      const check = checkCtx(groups, { customerId: item.customerId, date: visit.date, visit: adopted });
+      const mine = warningDetails(adopted, check).filter((w) => w.slots.includes(at));
       warningsBy[item.key] = mine.map((w) => w.text);
       mustSeeBy[item.key] = mine.filter(mustSee).map((w) => w.text);
     }
     for (const g of groups) {
-      const check = checkCtx(g.customerId, g.date, g.visit);
+      const check = checkCtx(groups, g);
       const { errors } = validateVisit(g.visit, check);
       // 合併扣課只記第一台，第二台要提醒的事接在後面（`warningsByRow()` 自己問 `mergedNotices()`）
       const byRow = warningsByRow(g, warningDetails(g.visit, check), { customer: check.customer, equipment: ctx.master.equipment });
@@ -322,7 +328,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </section>`;
   }
 
-  function repaintRow(key) {
+  /**
+   * @param {string} key 變了的那一列
+   * @param {{was?: string|null}} [o] `was`：這一列原本是哪一位（換一位時傳）—— 他別的列也要跟著重畫
+   */
+  function repaintRow(key, { was = null } = {}) {
     const p = plan();
     const li = [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key);
     const item = items.find((i) => i.key === key);
@@ -331,9 +341,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       holder.innerHTML = rowHtml(item, p).trim();
       li.replaceWith(holder.content.firstElementChild);
     }
-    // 同一天同一位的另一列：警告與「還差一步」跟著變
+    // 警告與「還差一步」會跟著變的別列：**同一位的每一列（不只同一天）、同一天的每一列（不只同一位）**。
+    // 超用與撞期是連這一次別組要記的一起算的（`visitsForCheck()`）—— 只重畫同一天同一位的話，
+    // 她把別天那一列的勾拿掉，這一列收著的那一行還留著舊的「會超過總次數」（2026-10-09 審查，E2E `62` 的 P4）
     for (const other of items) {
-      if (other.key === key || other.customerId !== item?.customerId || other.date !== item?.date) continue;
+      if (other.key === key) continue;
+      const sameWho = Boolean(other.customerId) && [item?.customerId, was].includes(other.customerId);
+      if (!sameWho && other.date !== item?.date) continue;
       const el = [...root.querySelectorAll('[data-abl-row]')].find((x) => x.dataset.ablRow === other.key);
       if (!el) continue;
       const holder = document.createElement('template');
@@ -792,9 +806,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (closed) return;
     const at = items.findIndex((i) => i.key === key);
     if (at < 0 || savedKeys.has(key)) return;
+    const was = items[at].customerId ?? null;
     // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
     items[at] = markRepeat(resolveItem(items[at], customerId, ctx), items);
-    repaintRow(key);
+    repaintRow(key, { was });
   }
 
   function onKey(e) {

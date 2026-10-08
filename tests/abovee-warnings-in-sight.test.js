@@ -11,7 +11,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { briefWarnings, planAbovee, readAbovee, warningsByRow } from '../public/js/domain/aboveeImport.js';
+import { briefWarnings, planAbovee, readAbovee, visitsForCheck, warningsByRow } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { mustSee, validateVisit, warningDetails, slotSay } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -26,7 +26,10 @@ const pool = (id, totalQty) => ({ id, type: 'pool', label: '復能-三選一(60)
 const COLS = ['預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '診間'];
 const photo = (...rows) => ({ readable: true, columns: COLS, rows });
 
-/** 確認層的 `plan()` 做的那幾件事：組來訪 → 同一支 `validateVisit()` → 歸到各列。 */
+/**
+ * 確認層的 `plan()` 做的那幾件事：組來訪 → 同一支 `validateVisit()` → 歸到各列。
+ * 驗證拿哪兩份來訪問 domain（`visitsForCheck()`，確認層的 `checkCtx()` 也是）—— 這裡不自己組。
+ */
 function planned(ctx, items) {
   const { groups } = planAbovee(items, ctx);
   const byRow = {};
@@ -36,8 +39,7 @@ function planned(ctx, items) {
       customer: { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] },
       entitlements: ctx.entitlementsBy[g.customerId] ?? [],
       courses: master.courses, equipment: master.equipment, rooms: master.rooms, staff: master.staff, ivProducts: master.ivProducts,
-      customerVisits: ctx.visitsBy[g.customerId] ?? [],
-      sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === g.date),
+      ...visitsForCheck(groups, g, ctx),
     };
     Object.assign(byRow, warningsByRow(g, warningDetails(g.visit, check)));
   }
@@ -126,6 +128,66 @@ describe('體內金屬排 SIS 而且超用的那一列', () => {
   test('沒打勾的列不會寫進去 —— 不算進那一道', () => {
     const { groups, flagged } = planned(ctx, items.map((i) => ({ ...i, checked: false })));
     assert.deepEqual([groups.length, flagged.length], [0, 0]);
+  });
+});
+
+// 2026-10-09 審查查到的：每一組（一位一天）以前各自驗、只看資料庫裡已經有的來訪 —— 同一張照片上
+// 同一位客人別天的那幾段不在裡面。「一個月一個人」的拍法正好就是這樣：只買 1 次、照片上三天各一段，
+// 三列都先按好同一筆、都打勾，沒有一句「會超過總次數」（lessons 二：拿部分資料算次數）
+describe('同一位客人跨好幾天的列：這一次別天要記的那幾段也算進去', () => {
+  const ctx = { customers: [WANG, LEE], entitlementsBy: { 'c-lee': [pool('L', 1)] }, visitsBy: {}, master, today: TODAY };
+  const rows = [
+    ['確認前往', '2026-10-21', '09:00 - 10:15', '李小華', '00005678', 'IN 60', ''],
+    ['確認前往', '2026-10-22', '09:00 - 10:15', '李小華', '00005678', 'IN 60', ''],
+    ['確認前往', '2026-10-23', '09:00 - 10:15', '李小華', '00005678', 'IN 60', ''],
+  ];
+  const { items } = readAbovee([photo(...rows)], ctx);
+
+  test('只買 1 次、照片上三天各一段 → 每一列都看得到「會超過總次數」，確認框講 3 段', () => {
+    assert.deepEqual(items.map((i) => [i.kind, i.checked, i.entitlementId]), Array(3).fill(['new', true, 'L']));
+    const { groups, byRow, flagged } = planned(ctx, items);
+    assert.equal(groups.length, 3);
+    for (const item of items) {
+      assert.ok(byRow[item.key].mustSee.some((t) => /排完這次會超過總次數（共 1 次，已排 3 次）/.test(t)),
+        `${item.date}：${byRow[item.key].mustSee.join('｜') || '（一句都沒有）'}`);
+    }
+    const { lines } = aboveeConsequences({ groups, coursesById, today: TODAY, flagged });
+    assert.ok(lines.some((l) => /其中 3 段有提醒/.test(l)), lines.join('｜'));
+  });
+
+  test('她把其中兩列的勾拿掉 → 剩下那一列沒有超用，一句都不講', () => {
+    const { flagged } = planned(ctx, items.map((i, n) => (n ? { ...i, checked: false } : i)));
+    assert.deepEqual(flagged, []);
+  });
+
+  test('別天那幾段只算一次：資料庫裡已經有的那一筆被併進去時不會算兩份', () => {
+    const had = { id: 'v-had', customerId: 'c-lee', customerName: '李小華', date: '2026-10-22', status: 'pending_confirm',
+      // SIS：跟照片上那一列（IN）不是同一台，不會被當成「搬了時間」（那一種不預設打勾）
+      slots: [{ entitlementId: 'L', courseId: 'course-recovery', equipmentId: 'eq-sis', startsAt: '14:00', endsAt: '15:00', status: 'pending_confirm' }] };
+    const withOld = { ...ctx, entitlementsBy: { 'c-lee': [pool('L', 12)] }, visitsBy: { 'c-lee': [had] } };
+    const read = readAbovee([photo(...rows)], withOld).items;
+    const { groups } = planned(withOld, read);
+    const day21 = groups.find((g) => g.date === '2026-10-21');
+    const seen = visitsForCheck(groups, day21, withOld).customerVisits;
+    assert.equal(seen.filter((v) => v.date === '2026-10-22').length, 1, '10/22 那一天只有一筆（併好的那一份）');
+    assert.equal(seen.find((v) => v.date === '2026-10-22').slots.length, 2);
+    assert.ok(seen.every((v) => v.id), '還沒存的那幾筆也要有自己的 id —— 不然會被當成「正在驗的這一筆」濾掉');
+  });
+});
+
+describe('同一張照片上兩位客人同一間、同一個時間', () => {
+  const eecp = (id) => ({ id, type: 'single', label: 'EECP', courseId: 'course-eecp', totalQty: 10 });
+  const ctx = { customers: [WANG, LEE], entitlementsBy: { 'c-wang': [eecp('EW')], 'c-lee': [eecp('EL')] }, visitsBy: {}, master, today: TODAY };
+  const { items } = readAbovee([photo(
+    ['確認前往', '2026-10-21', '09:00 - 10:00', '王小明', '00001234', 'EECP', '治療室5'],
+    ['確認前往', '2026-10-21', '09:30 - 10:30', '李小華', '00005678', 'EECP', '治療室5'],
+  )], ctx);
+
+  test('兩列都還沒進資料庫 → 照樣講得出撞在一起', () => {
+    assert.deepEqual(items.map((i) => [i.kind, i.roomId]), [['new', 'room-t5'], ['new', 'room-t5']]);
+    const { byRow } = planned(ctx, items);
+    assert.ok(byRow[items[0].key].mustSee.some((t) => /已經排了 李小華/.test(t)), byRow[items[0].key].all.join('｜'));
+    assert.ok(byRow[items[1].key].mustSee.some((t) => /已經排了 王小明/.test(t)), byRow[items[1].key].all.join('｜'));
   });
 });
 

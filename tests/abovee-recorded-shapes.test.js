@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  mismatchSay, needsAttention, newRowSay, planAbovee, readAbovee, recordedSay, summarizeAbovee,
+  mismatchSay, needsAttention, newRowSay, planAbovee, readAbovee, recordedSay, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences, closedDayLine, settledDayLine } from '../public/js/domain/consequences.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -89,6 +89,26 @@ describe('合併扣課記好之後，同一頁再拍一次', () => {
       slots: [{ entitlementId: 'P', courseId: 'course-recovery', equipmentId: 'eq-indiba', startsAt: '10:30', endsAt: '11:30', status: 'confirmed' }] };
     const items = readAbovee([photo], ctx([saved])).items;
     assert.deepEqual(items.map((i) => [i.kind, i.reason ?? null]), [['mismatch', 'notClosed'], ['recorded', null]]);
+  });
+
+  // 2026-10-09 審查：「後一半」「沒有時間的舊段」是整張一起看才認領的。她在那一列按「換一位」之後
+  // 那一列重算（`resolveItem()`）—— 上一位的認領不可以留著，不然換成的那一位剛好那個時間也有一段時，
+  // 那一句會照講「這是合併扣課的後一半」
+  test('後一半那一列換了一位：上一位的認領不留著', () => {
+    const first = readAbovee([withColumn], ctx());
+    const saved = { ...planAbovee(first.items, ctx()).groups[0].visit, id: 'v1' };
+    const other = { id: 'v2', customerId: 'c2', customerName: '李小華', date: '2026-10-21', status: 'confirmed',
+      slots: [{ entitlementId: 'P2', courseId: 'course-recovery', equipmentId: 'eq-sis', startsAt: '11:00', endsAt: '11:30', status: 'confirmed' }] };
+    const two = { ...ctx([saved]), customers: [...CUSTOMERS, { id: 'c2', name: '李小華', marks: [] }] };
+    two.entitlementsBy = { ...two.entitlementsBy, c2: [{ ...POOL30, id: 'P2' }] };
+    two.visitsBy = { ...two.visitsBy, c2: [other] };
+    const half = readAbovee([withColumn], two).items[1];
+    assert.ok(half.halfOf, '先確定這一列真的是後一半');
+
+    const moved = resolveItem(half, 'c2', two);
+    assert.equal(moved.kind, 'recorded', '李小華 11:00 也有一段 SIS');
+    assert.deepEqual([moved.halfOf, moved.timeless], [null, false]);
+    assert.doesNotMatch(recordedSay(moved), /後一半/);
   });
 
   test('後一半那一列不給「改成 Abovee 的」（那一段的治療師由前一列比）', () => {

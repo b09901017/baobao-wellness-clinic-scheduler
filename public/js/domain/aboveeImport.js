@@ -401,6 +401,9 @@ export function resolveItem(item, customerId, ctx) {
     reason: null, appStatus: null, appCancelledHere: false, partialHistory: false,
     // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
     repeatOf: null,
+    // 「合併扣課的後一半」「沒有時間的舊段」也是整張一起看才認領的（`asRecorded()`）—— 換了人就不是那一段了，
+    // 留著的話這一列又對到別的段時會照講「這是合併扣課的後一半」（2026-10-09 審查）
+    halfOf: null, timeless: false,
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
 
@@ -1351,6 +1354,43 @@ export function planAbovee(items, ctx) {
   }
 
   return { groups: [...groups.values()], problems };
+}
+
+// ---------- 驗證一組時拿哪些來訪（2026-10-09 審查）----------
+
+/**
+ * 驗證某一組（一位一天）時，`validateVisit()` 要的那兩份來訪：**資料庫裡已經有的，加上這一次別組要記的**。
+ *
+ * 每一組以前各自驗、只看資料庫裡的 —— 同一張照片上同一位客人別天的那幾段不在裡面。「一個月一個人」的拍法
+ * 正好是這樣：只買 1 次、照片上三天各一段，三列都先按好同一筆、都打勾，沒有一句「會超過總次數」；
+ * 同一張照片上兩位排同一間同一個時間也講不出來。這是 `CLAUDE.md`「算次數、驗證…要拿哪些來訪」那一列的同一件事：
+ * 全部來訪**連這一次還沒存的**。
+ *
+ * - `customerVisits`：這位客戶的全部來訪，別天那幾組換成（或加上）組好的那一筆
+ * - `sameDayVisits`：那一天全部客戶的來訪，別人那一天的那一組也是
+ * - **還沒存的那幾筆給一個暫時的 id**：`validateVisit()` 每一圈都靠 `v.id !== visit.id` 把正在驗的這一筆濾掉，
+ *   沒有 id 的會全部被當成「就是這一筆」
+ *
+ * @param {object[]} groups `planAbovee()` 的每一組（勾著的那幾列）
+ * @param {object} group 正在驗的那一組
+ * @param {{visitsBy: Record<string, object[]>}} ctx
+ * @returns {{customerVisits: object[], sameDayVisits: object[]}}
+ */
+export function visitsForCheck(groups, group, ctx) {
+  const planned = (groups ?? []).filter((g) => g !== group && g.visit)
+    .map((g) => ({ ...g.visit, id: g.visit.id ?? `abovee:${g.key}` }));
+  const replaced = new Set(planned.map((v) => v.id));
+  const stored = (list) => (list ?? []).filter((v) => v && !replaced.has(v.id));
+  return {
+    customerVisits: [
+      ...stored(ctx.visitsBy?.[group.customerId]),
+      ...planned.filter((v) => v.customerId === group.customerId),
+    ],
+    sameDayVisits: [
+      ...stored(Object.values(ctx.visitsBy ?? {}).flat()),
+      ...planned,
+    ].filter((v) => v.date === group.date),
+  };
 }
 
 // ---------- 提醒歸到各列（prelaunch-fixes/12，ADR-0138）----------
