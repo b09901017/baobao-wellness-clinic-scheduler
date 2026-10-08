@@ -628,7 +628,10 @@ export function syncFollowupTasks({
     // 2. 報告勾過的
     // 3. 其他已經有待辦的（**這一輪要長的報告也算**，ADR-0139：不算的話這一輪長、下一輪收）
     // 4. 其餘
-    // 5. 照位置算已經做完二返的（`covered`；排最後不剔掉：資料對不上時寧可多一張。它們之間也照 2–4 排）
+    // 5. 照位置算已經做完二返的（`covered`；排最後不剔掉：資料對不上時寧可多一張。它們之間也照 2–4 排）。
+    //    **其中從來沒有過任何一張待辦的不進名單**（2026-10-09 審查）：那是切換那天匯進來的舊健檢，名額落到它身上
+    //    只會長一張死線是健檢日＋報告天數、一出生就逾期的「追蹤健檢報告」，而它的二返早就做完了。
+    //    名額會多出來落到這一層，只有一種情況：別次的「約二返」她先自己勾掉了、那一場還沒記進來
     //
     // 同一層裡新的在前：二返是照順序約掉的，還欠的是最後那幾次。已經有待辦的排前面，是為了不要每存一次檔
     // 就把待辦刪掉重建一張 —— 那會在稽核紀錄裡刷出一整排沒有意義的變更。
@@ -641,8 +644,9 @@ export function syncFollowupTasks({
       const r = doneReport.has(v.id) ? 1 : has(v) ? 2 : 3;
       return behind.has(v.id) ? r + 3 : r;
     };
-    const candidates = [...open, ...covered];
-    const ordered = [0, 1, 2, 3, 4, 5, 6].flatMap((r) => candidates.filter((v) => rank(v) === r));
+    const candidates = [...open, ...covered.filter(has)];
+    // 照層排，同一層裡維持原本的先後（新到舊）
+    const ordered = [0, 1, 2, 3, 4, 5].flatMap((r) => candidates.filter((v) => rank(v) === r));
 
     for (const visit of ordered.slice(0, want)) {
       wanted.set(visit.id, stationFor(visit, {
@@ -852,6 +856,11 @@ function linkedSeconds(followupEntitlementId, visits = []) {
  * 報告那一圈與約二返那一圈共用（ADR-0142）—— 各算一次的話，報告那一圈當成「這一次的二返做完了」、
  * 約二返那一圈卻把名額給它。
  *
+ * **勾過「約二返」的那幾次也佔位置**（2026-10-09 審查）：它們不進回傳的兩份名單（那一條鏈結束了），
+ * 但沒連結、做完的二返照樣先配給它們 —— 她自己勾掉「約二返」的那一次，二返多半就是那一場沒連結的
+ * （ADR-0142 她接受的代價留下來的正是這個樣子）。先把它們拿掉再配的話，那一場會落到「剩下最舊的」身上：
+ * 健檢和二返同一次排好的下一次健檢被當成二返做完了，報告不長、寄報告也等不到。
+ *
  * @returns {{exams:object[], linked:{done:Set<string>, booked:Set<string>}, second:object,
  *            open:object[], covered:object[]}} `exams`＝做完的健檢；`open` 與 `covered` 合起來＝其中沒被有連結的二返佔著、
  *   沒勾過「約二返」的那幾次，`covered` 是照位置算已經做完二返的。都是新到舊
@@ -859,14 +868,13 @@ function linkedSeconds(followupEntitlementId, visits = []) {
 function placeSeconds(pair, visits, settled) {
   const exams = doneVisitsFor(pair.source, visits);
   const linked = linkedSeconds(pair.followup.id, visits);
-  const rest = exams.filter(
-    (v) => !linked.done.has(v.id) && !linked.booked.has(v.id) && !settled.has(v.id),
-  );
+  const loose = exams.filter((v) => !linked.done.has(v.id) && !linked.booked.has(v.id));
   const second = counts(pair.followup, visits, pair.followup.id);
   const finished = exams.filter((v) => linked.done.has(v.id)).length;
   // 新到舊，所以「拿掉最舊的幾次」是從尾巴拿
-  const keep = Math.max(0, rest.length - Math.max(0, second.done - finished));
-  return { exams, linked, second, open: rest.slice(0, keep), covered: rest.slice(keep) };
+  const keep = Math.max(0, loose.length - Math.max(0, second.done - finished));
+  const unsettled = (list) => list.filter((v) => !settled.has(v.id));
+  return { exams, linked, second, open: unsettled(loose.slice(0, keep)), covered: unsettled(loose.slice(keep)) };
 }
 
 /**
@@ -886,9 +894,10 @@ function placeSeconds(pair, visits, settled) {
  *
  * **照位置**：二返是照順序做的，所以沒有連結、做完的那幾場先配給**最舊**的那幾次健檢，
  * 剩下的才是還沒做完的。名額是 `min(做完的健檢, 二返總次數) − 做完的二返 − 先定案的`
- * （上限跟 `owed()` 同一個）；名額不夠分時「已經有待辦的排前面、其餘新到舊」，跟第一圈同一條。
+ * （上限跟 `owed()` 同一個）；名額不夠分時「已經有待辦的排前面、其餘新到舊」
+ * （第一圈 2026-10-09 起多了幾層，ADR-0142；這裡沒有跟 —— 報告那一張不搶「約二返」的名額）。
  * 少了「先配給最舊的」那一步，一次報告已經勾過的舊健檢會佔掉名額，新的那一次就不長。
- * 勾過「約二返」的那幾次照舊不進名單（第一圈也是）。
+ * 勾過「約二返」的那幾次不進名單（第一圈也是），**但照樣佔位置**（`placeSeconds()`）。
  *
  * 排到了還要過三道才真的長：報告沒勾過、沒勾過「約二返」、不是上線前就停在「約二返」那一站的舊資料
  * （`stationFor()` 第 2 條：有一張開著的約二返、從來沒有報告）。**二返做完的舊健檢不會因此長出來** ——
