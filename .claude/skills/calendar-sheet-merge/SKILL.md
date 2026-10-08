@@ -109,8 +109,12 @@ node .claude/skills/calendar-sheet-merge/scripts/merge.mjs \
 「病歷號對上、名字差一個字」（ADR-0128）靠它。**舊表寫的跟名單不一樣的不改**，進報告 ⓪b（決定頁照舊是一項）；
 沒帶這個參數時合併檔一個位元都不變。2026-10-06 拿她的真檔跑：29 位全部帶著病歷號（補了 6 位、不一樣 0 位）。
 
-**人員的名字**：合併檔輸出的是種子上的名字，app 拿名字精確比對主檔。她在設定頁把醫師改成全名的話，重匯時每一段的醫師都對不到、
-那一格留空 —— 所以**全名填在「Abovee 上的寫法」那一格，顯示名不要改**（2026-10-06，course-form-and-sheet/04、11）。
+**人員的名字**（2026-10-09 起，ADR-0141；**推翻**了 10/6「全名填在 Abovee 上的寫法、顯示名不要改」那一句）：
+人員的顯示名是全名、另有一格簡寫。`--staff-names .local/references/staff-names.json`（選填，`{ "<種子上的名字>": "<全名>" }`，
+**有真名、只放 `.local/`**；2026-10-09 從她的服務資源清單建好，21 位）把名單帶進合併檔的 `staff` 那一段，
+app 匯入時把那幾位改成全名、原本的名字變成簡寫（摘要卡先列出會改哪幾位）。**切換那天產檔要帶它。**
+合併檔裡每一段寫的照舊是種子上的名字 —— app 那一側名字對不到時比簡寫，所以改名前後匯都對得到。
+終端機只印幾位、幾位種子上沒有那個名字。沒帶這個參數時，合併檔除了 `format` 那一行一個位元都不變（沒有 `staff` 這個鍵）。
 
 產出兩個檔：`report.txt`（給她看的對帳報告）與 `import.json`（貼進 app 的合併檔，
 格式見下面）。兩個都要交給她（容器裡用 SendUserFile，本機放 `.local/references/`）。
@@ -238,8 +242,8 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v5'          （app 也收 v1～v4：少的那幾格退回以前的值；v4 的候選多了 decided；
-                                    v5 不算次數的課那一段沒有 entitlementKey）
+format: 'baobao-merge/v6'          （app 也收 v1～v5：少的那幾格退回以前的值；v4 的候選多了 decided；
+                                    v5 不算次數的課那一段沒有 entitlementKey；v6 多一段選填的 staff。一律寫 v6）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
@@ -260,6 +264,7 @@ eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime,
                      kind:'personal'|'leave'|'note', why, category, repeats,
                      include:false | decided:true+include:true }   （v4：她決定過要的）
 ambiguous[]:       { date, evidence, course, who[] }
+staff[]:           { match, name, shortName }   （v6，選填：只有帶 --staff-names 才有。match＝種子上的名字、name＝全名、shortName＝match）
 unreadable[]:      { title, raw, why }
 ```
 

@@ -5,6 +5,7 @@
 // 2. **合併檔裡的客戶名單**（`import-*.json` 的 `customers[]`）—— 同一天的 import 有 28 位、52 個字串
 // 3. **病歷號名單**（`chart-numbers.json` 的鍵）
 // 4. **Abovee 擷取檔**（`abovee-m5-m10/擷取/abovee-m5-m10.json` 的 `rows[].name`）
+// 5. **人員名單**（`staff-names.json` 的值＝全名，ADR-0141）與合併檔 v6 的 `staff[].name` —— 人員的全名以前沒有任何自動護欄
 //
 // 後兩個是 2026-10-08 補的（prelaunch-fixes-2026-10-08/issues/03）：只出現在 Abovee 或病歷號名單上、
 // 不在合併檔裡的客戶有 27 位，她們的名字進了版控那條測試照樣綠。
@@ -18,6 +19,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 
 const CHART_NUMBERS = 'chart-numbers.json';
 const ABOVEE = 'abovee-m5-m10/擷取/abovee-m5-m10.json';
+const STAFF_NAMES = 'staff-names.json';
 
 /**
  * @param {string} dir 結尾帶斜線。別名表所在的那個資料夾（`.local/references/` 或舊的 `.local/`）
@@ -47,10 +49,11 @@ export function realNames(dir) {
   for (const file of readdirSync(dir)) {
     if (!/^import-.*[.]json$/.test(file)) continue;
     try {
-      const { customers = [] } = JSON.parse(readFileSync(`${dir}${file}`, 'utf8'));
+      const { customers = [], staff = [] } = JSON.parse(readFileSync(`${dir}${file}`, 'utf8'));
       for (const c of customers) {
         for (const key of ['name', 'rawName', 'sheetName']) add(c?.[key]);
       }
+      for (const s of Array.isArray(staff) ? staff : []) if (s?.name !== s?.match) add(s?.name);
       merges += 1;
     } catch {
       // 一份讀不動不要擋住其他份
@@ -74,6 +77,8 @@ export function realNames(dir) {
   };
   optional(CHART_NUMBERS, '病歷號名單', (json) => Object.keys(json ?? {}));
   optional(ABOVEE, 'Abovee 擷取檔', (json) => (json?.rows ?? []).map((r) => r?.name));
+  // 全名跟種子上的名字一樣的那一位不算：那個名字本來就在種子上（她同意公開的叫法）
+  optional(STAFF_NAMES, '人員名單', (json) => Object.entries(json ?? {}).filter(([k, v]) => k !== v).map(([, v]) => v));
 
   // 一個字的不掃（`陳`、`際`）—— 單字在中文裡到處都是，掃了只會得到一頁誤判。
   return { names: [...names].filter((n) => n.length >= 2), sources: { read, missing } };

@@ -15,6 +15,7 @@
 //                  [--aliases <aliases.json>] [--decisions <決定檔>] [--out <資料夾>]
 //                  [--board <決定頁.html> --form <這一份的名字>]
 //                  [--chart-numbers <病歷號名單.json>]   （`{ "<名字>": "<病歷號>" }`，有真名、只放 .local/）
+//                  [--staff-names <人員名單.json>]       （`{ "<種子上的名字>": "<全名>" }`，有真名、只放 .local/，ADR-0141）
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve, relative, isAbsolute, sep } from 'node:path';
@@ -1249,7 +1250,18 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
  * `docs/adr/0030-future-candidates-are-ticked-by-default.md`）。
  * 界線不寫進這份檔案 —— 「未來」是在她按下匯入的那一刻才算得準的。
  */
-export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '' } = {}) {
+/**
+ * 人員名單（`--staff-names`，ADR-0141）→ 合併檔的 `staff` 那一段。
+ * `{ "<她原本叫他的名字＝種子的名字>": "<全名>" }` → `[{ match, name, shortName }]`，簡寫就是原本的名字。
+ * 誰對得到誰、要不要改是 app 那一側的事（`domain/mergeImport.js` 的 `staffRenames()`），這裡一個都不判斷。
+ */
+export function staffSection(names) {
+  return Object.entries(names ?? {}).map(([match, name]) => ({
+    match: String(match).trim(), name: String(name).trim(), shortName: String(match).trim(),
+  }));
+}
+
+export function importJson(r, { generatedAt = new Date().toISOString(), calendar = '', staffNames = null } = {}) {
   const courseByName = new Map(SEED.courses.map((c) => [c.name, c]));
   const ivByName = new Map(SEED.ivProducts.map((x) => [x.name, x]));
   // 結束時間：**品項**排第一（護心抗老 180 分，ADR-0098，只有營養點滴會問），
@@ -1284,8 +1296,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // v4（2026-09-28）：候選帶 `decided`，app 照她在決定頁的選擇勾（ADR-0117）。
     // v5（2026-10-05）：**不算次數的課（功醫門診）那一段沒有 `entitlementKey`**（null），候選清單也會出現
     //   沒有額度可以扣的課。v4 的 app 每一段都要對到一筆額度，那幾段會被整段丟掉、只在問題清單留一行。
+    // v6（2026-10-09）：多一段選填的 `staff`（人員的全名，ADR-0141）。**一律寫 v6** —— 版本講的是格式，不是內容。
     // **只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格**，而畫面看起來跟匯好了一樣。
-    format: 'baobao-merge/v5',
+    format: 'baobao-merge/v6',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
@@ -1422,6 +1435,8 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     unreadable: (r.unreadable ?? []).map((x) => ({
       title: x.summary, raw: x.raw, why: x.why,
     })),
+    // 沒帶 `--staff-names` 時連這個鍵都沒有：除了 `format` 那一行，合併檔跟以前逐位元一樣
+    ...(staffNames ? { staff: staffSection(staffNames) } : {}),
   };
 }
 
@@ -1739,12 +1754,19 @@ async function main() {
     chartNumbers: arg('chart-numbers') ? JSON.parse(readFileSync(arg('chart-numbers'), 'utf8')) : null,
   });
   const text = reportText(r);
+  // 人員名單（選填）：有真名、只放 .local/。**終端機只印數字**
+  const staffNames = arg('staff-names') ? JSON.parse(readFileSync(arg('staff-names'), 'utf8')) : null;
+  if (staffNames) {
+    const seedNames = new Set(SEED.staff.map((s) => s.name));
+    const rows = staffSection(staffNames);
+    console.error(`人員名單 ${rows.length} 位（種子上沒有那個名字的 ${rows.filter((x) => !seedNames.has(x.match)).length} 位）`);
+  }
   const out = arg('out');
   if (out) {
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'report.txt'), `${text}\n`);
     writeFileSync(join(out, 'import.json'),
-      `${JSON.stringify(importJson(r, { calendar: icsPath.split('/').pop() }), null, 2)}\n`);
+      `${JSON.stringify(importJson(r, { calendar: icsPath.split('/').pop(), staffNames }), null, 2)}\n`);
     console.error(`寫到 ${out}/report.txt 與 import.json`);
   }
   // 決定頁（board.mjs ＋ board-page.mjs）。**有真名**：repo 裡只准寫進 `.local/`

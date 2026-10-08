@@ -69,19 +69,21 @@ describe('真名掃描的名單來源', () => {
     return `${dir}/`;
   }
 
-  test('別名表、合併檔、病歷號名單、Abovee 擷取檔四個來源都讀', () => {
+  test('別名表、合併檔、病歷號名單、Abovee 擷取檔、人員名單五個來源都讀', () => {
     const dir = fakeDir({
       'aliases.json': { nicknames: { 王小明: ['小明'] } },
-      'import-2026-10-06.json': { customers: [{ name: '李小華', sheetName: '王小明1234' }] },
+      'import-2026-10-06.json': { customers: [{ name: '李小華', sheetName: '王小明1234' }], staff: [{ match: '某', name: '某乙丙' }] },
       'chart-numbers.json': { 陳大文: '5678' },
       'abovee-m5-m10/擷取/abovee-m5-m10.json': { rows: [{ name: '林美美' }, { name: '林美美' }, { name: null }] },
+      'staff-names.json': { 小芳: '某小芳', 張乙: '張乙' },
     });
     try {
       const { names, sources } = realNames(dir);
-      for (const n of ['王小明', '小明', '李小華', '王小明1234', '陳大文', '林美美']) {
+      for (const n of ['王小明', '小明', '李小華', '王小明1234', '陳大文', '林美美', '某小芳', '某乙丙']) {
         assert.ok(names.includes(n), `名單上少了「${n}」`);
       }
-      assert.deepEqual(sources.missing, [], '四個來源都在，不該有缺的');
+      assert.ok(!names.includes('張乙'), '全名跟種子的名字一樣的不算（本來就在種子上）');
+      assert.deepEqual(sources.missing, [], '五個來源都在，不該有缺的');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -95,7 +97,7 @@ describe('真名掃描的名單來源', () => {
     try {
       const { names, sources } = realNames(dir);
       assert.ok(names.includes('王小明') && names.includes('李小華'));
-      assert.equal(sources.missing.length, 2);
+      assert.equal(sources.missing.length, 3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

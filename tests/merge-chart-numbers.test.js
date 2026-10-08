@@ -112,3 +112,26 @@ describe('行事曆寫了床位（11 第二節，ADR-0127）', () => {
     assert.equal(roomOf('10.客戶A.8BIL'), '點滴8');
   });
 });
+
+// ---------- 人員名單（--staff-names，prelaunch-fixes 20，ADR-0141） ----------
+//
+// 名單有真名、只放 `.local/`；這裡是假名。**沒帶名單時除了 `format` 那一行，合併檔跟以前逐位元一樣**：
+// 連 `staff` 這個鍵都沒有。
+
+describe('人員名單（--staff-names）', () => {
+  const NAMES = { 小芳: '某小芳', 王: '王某某' };
+
+  test('沒帶名單 → 沒有 `staff` 那一段；帶了只多那一段，其餘一個位元都不變', () => {
+    const r = run(SHEETS);
+    const plain = importJson(r, { generatedAt: 'fixed', calendar: 'fixed' });
+    const withStaff = importJson(r, { generatedAt: 'fixed', calendar: 'fixed', staffNames: NAMES });
+    assert.equal(plain.format, 'baobao-merge/v6');
+    assert.ok(!('staff' in plain));
+    const { staff, ...rest } = withStaff;
+    assert.equal(JSON.stringify(rest), JSON.stringify(plain));
+    assert.deepEqual(staff, [
+      { match: '小芳', name: '某小芳', shortName: '小芳' },
+      { match: '王', name: '王某某', shortName: '王' },
+    ]);
+  });
+});

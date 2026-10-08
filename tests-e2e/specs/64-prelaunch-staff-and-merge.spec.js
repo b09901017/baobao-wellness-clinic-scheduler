@@ -63,3 +63,88 @@ test('N1 設定頁填全名與簡寫 → 日曆那一列與讀取卡片印簡寫
   await app.layer('[data-form]');
   await expect(page.locator('[data-chip="s0-staff"]', { hasText: '某騰崴' })).toHaveCount(1);
 });
+
+// ---------- 20 合併檔 v6 帶人員名單 ----------
+
+const person = (name) => ({
+  sheetName: name,
+  name,
+  entitlements: [{
+    key: 'r1', type: 'pool', label: '復能', totalQty: 12, courseName: null,
+    optionEquipmentNames: ['INDIBA'],
+  }],
+  visits: [{
+    date: addDays(TODAY, -20),
+    status: 'done',
+    slots: [{ entitlementKey: 'r1', courseName: '復能', startsAt: '10:00', endsAt: '11:00', therapistName: '騰崴', equipmentName: 'INDIBA' }],
+  }],
+});
+
+const ROSTER = [
+  { match: '騰崴', name: '某騰崴', shortName: '騰崴' },
+  { match: '夏', name: '夏某某', shortName: '夏' },
+  { match: '不在主檔', name: '某不在', shortName: '不在主檔' },
+];
+
+const mergeFile = (over = {}) => ({
+  format: 'baobao-merge/v6',
+  sheet: { file: '舊表.xlsx' },
+  calendar: { file: 'timetree.ics' },
+  customers: [person('客戶A')],
+  eventCandidates: [],
+  staff: ROSTER,
+  ...over,
+});
+
+async function paste(app, page, file) {
+  await page.locator('[data-json]').fill(JSON.stringify(file));
+  await page.locator('[data-load]').click();
+  await app.settled();
+}
+
+test('N2 合併檔帶人員名單：摘要卡先講會改哪幾位 → 匯入 → 全名＋簡寫、那一段照樣對到人；同一份再貼一次是 0 位', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+  await paste(app, page, mergeFile());
+
+  // 先看不寫：按「開始匯入」之前就講出來
+  const card = page.locator('[data-import-staff]');
+  await expect(card).toContainText('2 位會改成全名，原本的名字變成簡寫');
+  await expect(card).toContainText('1 位不改');
+  await card.locator('summary').click();
+  await expect(card).toContainText('騰崴 → 某騰崴（簡寫 騰崴）');
+  await expect(card).toContainText('不在主檔｜');
+
+  await page.locator('[data-run]').click();
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText()).toContain('2 位人員改成全名');
+  await app.ok();
+  await expect(page.locator('#toast')).toContainText('2 位人員改好了', { timeout: 20_000 });
+  await app.settled();
+
+  const tw = await app.readDoc('config/app/staff', 'staff-tw');
+  expect([tw.name, tw.shortName]).toEqual(['某騰崴', '騰崴']);
+  const xia = await app.readDoc('config/app/staff', 'staff-dr-xia');
+  expect([xia.name, xia.shortName]).toEqual(['夏某某', '夏']);
+  const visits = (await app.readAll('visits')).filter((v) => !v.deletedAt);
+  expect(visits[0].slots[0].therapistId, '檔案上寫的是原本的名字，改名之後照樣對到那一位').toBe('staff-tw');
+
+  // 同一份再貼一次：客戶同名跳過、人員 0 位 → 沒有東西可以寫
+  await paste(app, page, mergeFile());
+  await expect(page.locator('[data-import-staff]')).toContainText('沒有要改的');
+  await expect(page.locator('[data-run]')).toBeDisabled();
+});
+
+test('N3 客戶全部已經在系統裡、只剩人員要改：「開始匯入」照樣按得下去', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })]);
+  await app.signIn('/settings/merge');
+  await paste(app, page, mergeFile({ staff: [ROSTER[0]] }));
+
+  await expect(page.locator('[data-run]')).toBeEnabled();
+  await page.locator('[data-run]').click();
+  expect(await app.dialogText()).toContain('只寫人員與還沒寫進去的雜事');
+  await app.ok();
+  await expect(page.locator('#toast')).toContainText('1 位人員改好了', { timeout: 20_000 });
+  const tw = await app.readDoc('config/app/staff', 'staff-tw');
+  expect([tw.name, tw.shortName]).toEqual(['某騰崴', '騰崴']);
+});

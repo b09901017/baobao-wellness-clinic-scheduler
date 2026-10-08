@@ -13,7 +13,7 @@ import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
   summarize, countNewTasks, groupCandidates, defaultPicks, eventKind, canRun,
-  importCaveats, looseLeft, extraPicksLeft,
+  importCaveats, looseLeft, extraPicksLeft, staffRenames,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
@@ -129,6 +129,8 @@ function paint(el, ctx) {
   const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
   // 對不到主檔幾處、同名跳過幾位：摘要卡、確認框、完成那一張讀同一份
   const caveats = file ? importCaveats(plans, extraProblems) : null;
+  // 人員名單（v6 的 `staff`，ADR-0141）：要改哪幾位。摘要卡、確認框、寫入讀同一份
+  const renames = file ? staffRenames(file.staff, ctx.staff) : null;
 
   el.innerHTML = `
     <div data-mergepage>
@@ -157,10 +159,10 @@ function paint(el, ctx) {
     </section>
 
     ${file ? contraindicationCard(s, plans) : ''}
-    ${file ? summaryCard(s, plans, caveats) : ''}
+    ${file ? summaryCard(s, plans, caveats, renames) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
-    ${file ? runCard(s, tasks) : ''}
+    ${file ? runCard(s, tasks, renames) : ''}
     </div>`;
 
   el.querySelector('[data-load]')?.addEventListener('click', () => load(el, ctx));
@@ -215,7 +217,7 @@ function paint(el, ctx) {
     repaintLooseCounts(el);
   });
 
-  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks, caveats));
+  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks, caveats, renames));
 }
 
 function load(el, ctx) {
@@ -292,12 +294,32 @@ function contraindicationCard(s, plans = []) {
     </section>`;
 }
 
-function summaryCard(s, plans, { problems, skipped }) {
+/**
+ * 人員那一行（ADR-0141）。**0 位、也沒有不改的時候一個字都不多**。
+ * 點開看得到每一位「原本 → 全名（簡寫）」與不改的那幾位各自的理由 —— 這就是她要的「先看不寫」。
+ */
+function staffHtml(renames) {
+  const { changes = [], skipped = [] } = renames ?? {};
+  if (!changes.length && !skipped.length) return '';
+  return `
+      <details data-import-staff>
+        <summary>人員：${changes.length
+    ? `<b>${changes.length}</b> 位會改成全名，原本的名字變成簡寫`
+    : '沒有要改的'}${skipped.length ? `；${skipped.length} 位不改` : ''}</summary>
+        ${changes.length ? `<ul class="tight">${changes.map((c) =>
+    `<li>${esc(c.from)} → ${esc(c.name)}（簡寫 ${esc(c.shortName)}）</li>`).join('')}</ul>` : ''}
+        ${skipped.length ? `<p class="muted">不改的：</p><ul class="tight">${skipped.map((x) =>
+    `<li>${esc(x.match)}｜${esc(x.why)}</li>`).join('')}</ul>` : ''}
+      </details>`;
+}
+
+function summaryCard(s, plans, { problems, skipped }, renames) {
   const span = file.calendar?.span ?? [];
   return `
     <section class="card">
       <h2 class="card__title">會寫進去什麼</h2>
       <p><b>${s.customers}</b> 位客戶　<b>${s.entitlements}</b> 筆額度　<b>${s.visits}</b> 筆來訪　<b>${s.slots}</b> 個時段</p>
+      ${staffHtml(renames)}
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
       ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成
         <b>已確認</b> —— 那是「已經約好、還沒來」：算進已排未上，次數還不會扣。
@@ -333,6 +355,7 @@ function resultCard() {
     <section class="card" data-import-result>
       <h2 class="card__title">剛剛那一次匯入</h2>
       <p><b>${r.ok}</b> 位客戶匯進去了${r.failed.length ? `，<b>${r.failed.length}</b> 位失敗` : ''}。</p>
+      ${r.staff ? `<p><b>${r.staff}</b> 位人員改成全名，原本的名字變成簡寫。</p>` : ''}
       ${r.failed.length ? `<ul class="tight">${r.failed.map((x) =>
     `<li>${esc(x.customerName)}：${esc(x.error)}</li>`).join('')}</ul>
         <p>檔案還留在下面。再按一次「開始匯入」只會匯沒進去的那幾位。</p>` : ''}
@@ -558,14 +581,14 @@ function noTaskWhy(s, tasks) {
   return '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。';
 }
 
-function runCard(s, tasks) {
+function runCard(s, tasks, renames) {
   return `
     <section class="card">
       <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
         待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
       <p class="form__actions">
         <button class="btn btn--primary" type="button" data-run ${canRun({
-    running, customers: s.customers, loose: picks.events.size, resumed,
+    running, customers: s.customers, loose: picks.events.size, resumed, staff: renames?.changes.length ?? 0,
   }) ? '' : 'disabled'}>開始匯入</button>
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
@@ -591,7 +614,7 @@ function dropLoose(written) {
   picks.events = new Set(looseLeft([...picks.events], written));
 }
 
-async function run(el, ctx, plans, s, tasks, caveats) {
+async function run(el, ctx, plans, s, tasks, caveats, renames) {
   if (running) return;
   running = true;
   lockButtons(el, true);
@@ -603,13 +626,19 @@ async function run(el, ctx, plans, s, tasks, caveats) {
   try {
     const { events, notes, eventIndexes, noteIndexes } = chosenLoose();
     const extras = picks.future.size + picks.missing.size;
+    const staffChanges = renames?.changes ?? [];
 
     const ok = await confirmAction({
       title: '開始匯入',
       consequences: [
         s.customers
           ? `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`
-          : '客戶都已經在系統裡了，這次只寫還沒寫進去的雜事',
+          : `客戶都已經在系統裡了，這次只寫${staffChanges.length ? '人員與' : ''}還沒寫進去的雜事`,
+        // 人員名單（ADR-0141）。0 位時這裡一項都不多
+        ...(staffChanges.length
+          ? [`${staffChanges.length} 位人員改成全名，原本的名字變成簡寫（先寫，一次寫完）`
+            + `${renames.skipped.length ? `；${renames.skipped.length} 位不改` : ''}`]
+          : []),
         // 對不到主檔幾處、同名跳過幾位。兩個都是 0 時這裡一項都不多
         ...caveats.lines,
         `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
@@ -634,6 +663,11 @@ async function run(el, ctx, plans, s, tasks, caveats) {
 
     wrote = true;
     resumed = true;
+    // **人員先寫、客戶後寫**：一個 commit（不會只改一半）。寫過的那幾位重試時是 0 位（`staffRenames()` 認得已經改好的）
+    if (staffChanges.length) {
+      toast.saving(`匯入中… 人員 ${staffChanges.length} 位`);
+      await importer.importStaff(staffChanges);
+    }
     toast.saving('匯入中…');
     const results = await importer.importAll(plans, (done, total, name) =>
       toast.saving(`匯入中… ${done}/${total}（${name}）`),
@@ -641,6 +675,7 @@ async function run(el, ctx, plans, s, tasks, caveats) {
     const failed = results.filter((r) => !r.ok);
     outcome = {
       ok: results.length - failed.length,
+      staff: staffChanges.length,
       failed,
       error: null,
       problems: caveats.problems,
@@ -667,7 +702,7 @@ async function run(el, ctx, plans, s, tasks, caveats) {
       toast.failed(`${outcome.ok} 位進去了，${failed.length} 位失敗：`
         + failed.map((r) => `${r.customerName}（${r.error}）`).join('；'));
     } else {
-      toast.info(`${results.length} 位客戶都匯進去了${outcome.doneLines.length ? '；有幾處沒進來，寫在這一頁最上面' : ''}`);
+      toast.info(`${results.length || !staffChanges.length ? `${results.length} 位客戶都匯進去了` : ''}${staffChanges.length ? `${results.length ? '、' : ''}${staffChanges.length} 位人員改好了` : ''}${outcome.doneLines.length ? '；有幾處沒進來，寫在這一頁最上面' : ''}`);
       file = null;
       picks = emptyPicks();
       kindOverrides = new Map();

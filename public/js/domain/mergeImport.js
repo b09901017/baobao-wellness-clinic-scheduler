@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { DOCTOR_ROLE, isUncounted } from './masterData.js';
+import { DOCTOR_ROLE, isUncounted, validate } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
 /**
@@ -33,13 +33,16 @@ import { slotMinutes } from './visits.js';
  * - **v5（2026-10-05）** 不算次數的課（功醫門診，ADR-0121）那一段**沒有 `entitlementKey`**，候選清單也會出現
  *   沒有額度可以扣的課（`.scratch/abovee-and-master-2026-10-05/issues/13`）。v4 的 app 每一段都要對到一筆額度
  *
+ * - **v6（2026-10-09）** 多一段選填的 `staff`：`[{ match, name, shortName }]`，人員的全名跟著合併檔進來（ADR-0141）。
+ *   **一律寫 v6**（版本講的是格式，不是內容）—— 沒帶人員名單的檔案也是 v6。v5 的 app 讀到會拒收，不會安靜地吃掉那一段
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v5';
+export const FORMAT = 'baobao-merge/v6';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
-  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', FORMAT,
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', FORMAT,
 ]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
@@ -64,6 +67,70 @@ function byName(list, name) {
 }
 
 /**
+ * 名字 → 人員那一筆。名字對不到時比**簡寫**（ADR-0141），**剛好一位**才算 ——
+ * 角色是從認到的那一筆讀的，拿第一位就可能把醫師寫進治療師那一格。
+ * 所以「先改名再匯」「先匯再改名」「匯到一半重試」三種順序都對得到。
+ *
+ * @returns {{hit: object|null, two: boolean}}
+ */
+function staffByName(staff, name) {
+  const hit = byName(staff, name);
+  if (hit) return { hit, two: false };
+  const wanted = norm(name);
+  const shorts = wanted ? alive(staff).filter((x) => norm(x.shortName) === wanted) : [];
+  return { hit: shorts.length === 1 ? shorts[0] : null, two: shorts.length > 1 };
+}
+
+/**
+ * 合併檔的人員名單（v6 的 `staff`）→ 要改哪幾位（ADR-0141）。**算「要改哪幾位」只有這一支**：
+ * 摘要卡、確認框、寫入讀同一份。`match` 是她原本叫他的那個名字（＝種子的名字），照這個順序認：
+ *
+ *   1. 主檔上的名字等於 `match` → 改成全名、簡寫＝`match`
+ *   2. 簡寫等於 `match`、全名也等於檔案裡的 → 已經是那個樣子，不算（重貼一次是 0 位）
+ *   3. 名字已經是檔案裡的全名、沒有簡寫（她自己先手打過全名）→ 只補簡寫
+ *   4. 簡寫對到了、全名跟檔案不一樣（她自己改過）→ **不蓋**、列出來
+ *   5. 對不到、或一個字對到兩位 → 不改、列出來
+ *
+ * 每一位候選都過 `validate('staff')`（`config.update` 不驗證，驗證是設定頁自己叫的）：
+ * 過不了的那一位不改、講出來，其餘照改 —— 不可以整批失敗。前面幾位改過的樣子算進後面那一位的 `existing`。
+ *
+ * @returns {{changes: {id:string, from:string, name:string, shortName:string}[], skipped: {match:string, name:string, why:string}[], already: number}}
+ */
+export function staffRenames(entries, staff = []) {
+  const out = { changes: [], skipped: [], already: 0 };
+  if (!Array.isArray(entries)) return out;
+  let current = alive(staff);
+  for (const e of entries) {
+    const match = norm(e.match);
+    const name = norm(e.name);
+    const shortName = norm(e.shortName) || match;
+    const skip = (why) => out.skipped.push({ match, name, why });
+    const people = current.filter((x) => [norm(x.name), norm(x.shortName)].includes(match) || norm(x.name) === name);
+    if (people.length > 1) { skip(`主檔上有兩位對得到「${match}」，分不出是哪一位`); continue; }
+    const p = people[0];
+    if (!p) { skip(`主檔上沒有叫「${match}」的人`); continue; }
+
+    const ownShort = norm(p.shortName);
+    // 全名就是原本的名字（她口述的就是全名）：簡寫補成一樣的字沒有意思，也算已經是那個樣子
+    if (norm(p.name) === name && (ownShort === shortName || (!ownShort && name === shortName))) { out.already += 1; continue; }
+    if (norm(p.name) !== name && norm(p.name) !== match) {
+      skip(`「${match}」現在的全名是「${p.name}」，跟檔案上的不一樣 —— 你改過的不蓋`);
+      continue;
+    }
+    if (ownShort && ownShort !== shortName) {
+      skip(`「${p.name}」的簡寫已經是「${p.shortName}」，跟檔案上的不一樣 —— 你改過的不蓋`);
+      continue;
+    }
+    const next = { ...p, name, shortName };
+    const errors = validate('staff', next, { existing: current });
+    if (errors.length) { skip(errors[0]); continue; }
+    out.changes.push({ id: p.id, from: p.name, name, shortName });
+    current = current.map((x) => (x.id === p.id ? next : x));
+  }
+  return out;
+}
+
+/**
  * 這份檔案認不認得。
  *
  * 貼錯東西（貼成報告、貼成半份、貼成舊版格式）是最容易發生的事，而它的症狀
@@ -81,6 +148,12 @@ export function validateFile(json) {
     return { errors, warnings };
   }
   if (!Array.isArray(json.customers)) errors.push('少了 customers');
+  // 人員名單（v6，選填）。形狀不對整份拒收 —— 「匯入了一半」比整個拒絕糟
+  if (json.staff !== undefined) {
+    const ok = (e) => e && typeof e === 'object' && typeof e.match === 'string' && norm(e.match)
+      && typeof e.name === 'string' && norm(e.name) && (e.shortName == null || typeof e.shortName === 'string');
+    if (!Array.isArray(json.staff) || !json.staff.every(ok)) errors.push('人員名單（staff）的格式不對');
+  }
   if (json.customers && !json.customers.length) warnings.push('這份檔案裡沒有任何客戶');
 
   for (const [i, c] of (json.customers ?? []).entries()) {
@@ -363,8 +436,12 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
   // 產檔那側只有一格「誰」。對得到主檔才分得出角色 —— 對不到時
   // 講的那一句要照舊說「治療師」，因為那是她在行事曆上寫那個字的位置。
   const whoName = norm(slot.therapistName);
-  const who = whoName ? byName(staff, whoName) : null;
-  if (whoName && !who) problem(where, whoName, '主檔裡沒有這個治療師，這個時段的欄位留空');
+  const { hit: who, two } = whoName ? staffByName(staff, whoName) : { hit: null, two: false };
+  if (whoName && !who) {
+    problem(where, whoName, two
+      ? '主檔裡有兩位的簡寫是這個字，分不出是哪一位治療師，這個時段的欄位留空'
+      : '主檔裡沒有這個治療師，這個時段的欄位留空');
+  }
   const isDoctor = who?.role === DOCTOR_ROLE;
 
   return {
@@ -796,9 +873,10 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
  *
  * @param {{running?: boolean, customers?: number, loose?: number, resumed?: boolean}} state
  */
-export function canRun({ running = false, customers = 0, loose = 0, resumed = false } = {}) {
+export function canRun({ running = false, customers = 0, loose = 0, resumed = false, staff = 0 } = {}) {
   if (running) return false;
-  return customers > 0 || (resumed && loose > 0);
+  // 只剩人員要改（客戶全部同名跳過）也按得下去：切換那天忘了帶名單，事後再貼一次帶名單的檔就好（ADR-0141）
+  return customers > 0 || staff > 0 || (resumed && loose > 0);
 }
 
 /**

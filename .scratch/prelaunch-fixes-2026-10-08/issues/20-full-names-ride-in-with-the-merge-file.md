@@ -1,6 +1,6 @@
 # 合併檔 v6：人員的全名跟著合併檔進來，不進 repo
 
-Status: todo
+Status: done
 來源：決定 1（`d-staff-names`）、`merge/report.md` 第 4 條、`spec.md`「決定 1」
 動工前先讀：`.claude/skills/calendar-sheet-merge/SKILL.md`（合併檔那一節、`--chart-numbers` 與 `--decisions` 怎麼寫的）、
 `.claude/skills/calendar-sheet-merge/scripts/merge.mjs`（`:15-17` 的旗標、`:925` `applyChartNumbers()`、`:1085-1091`、`:1739`、`importJson()`）、
@@ -102,3 +102,25 @@ Blocked by: 01、02（同一個 `run()` 與確認框）、19（`shortName` 那�
 `CLAUDE.md`「舊表 B2…合併檔」那一列補 v6 與三個要一起認得的地方。
 **`.scratch/course-form-and-sheet-2026-10-06/issues/18`（HRV 那 7 次）原本要用 v6 —— 去那一支補一句「v6 被人員名單用掉了，這一支順延 v7」。**
 上線順序第 10 步（「人員寫法照你選的做。人員的顯示名先不要改」）變成「用帶名單的合併檔匯入，名字會自己改」—— 23 改文件時一起寫。
+
+## 做完時留下的（10/9）
+
+- **名單**：`.local/references/staff-names.json`，21 位，由 `.local/references/prelaunch-2026-10-09/build-staff-names.mjs` 從她的服務資源清單建（只印數字與種子 id）：
+  19 位 `staffFrom()` 直接認、`staff-py` 靠異體字（喩／喻）、`staff-lulu` 靠「同角色剩一位」—— 後者她 10/5 確認過（`核對結果-2026-10-05.md` 第 8 行）。`git check-ignore` 擋住了。
+  **有一位的全名跟種子的名字一樣**（兩個字）：`staffRenames()` 把它算「已經是那個樣子」（不補一個跟全名一樣的簡寫），真名掃描也跳過它（那個名字本來就在種子上）。
+- **產檔那側**：`merge.mjs` 的 `staffSection()`、`importJson(r, { staffNames })`、`--staff-names`（終端機只印幾位、幾位種子上沒有那個名字）。格式一律 v6；沒帶名單時連 `staff` 這個鍵都沒有。
+- **app 那側**：`FORMAT` v6、`FORMATS` 收 v1～v6；`validateFile()` 認得 `staff`（形狀不對整份拒收）；`staffByName()`（名字對不到比簡寫、剛好一位才算，對到兩位講「兩位的簡寫是這個字」）；
+  `staffRenames()`（五種認法＋每一位過 `validate('staff')`、前面改過的算進後面的 `existing`）；`canRun()` 收 `staff`；`data/legacyImport.js` 的 `importStaff()`（一個 `repo.commit()`）。
+  匯入頁：摘要卡「會寫進去什麼」第二行 `[data-import-staff]`（點開每一位「原本 → 全名（簡寫）」、不改的理由；0 位且沒有不改的一個字都不多）、確認框一句、**人員先寫、客戶後寫**、完成那一張與 toast 各一句。
+- 真名掃描（`tests/helpers/realNames.js`）多兩個來源：`staff-names.json` 的值、合併檔的 `staff[].name`。
+- **量過的**（`r01-staff.mjs` E 多一種「全名＋簡寫」，import 真的 `planForCustomer()`）：她 10/6 那份合併檔 59 段寫了人，**全名＋簡寫的主檔 59 段都對到、0 則對不到**（改之前「顯示名改成全名」是 1／58）。
+  `r02-renamed-master.mjs` 的 1～3 種改名**沒有填簡寫**，照舊對不到 —— 那是「她在設定頁只改全名、不填簡寫」的情況，ADR-0141 的代價那一段寫了。
+- **真檔重產**：`.local/references/prelaunch-2026-10-09/make-import-v6.mjs` → `.local/references/import-2026-10-09.json`（v6、29 位、人員 21 位）。
+  本機模擬器（E2E 的 `masterDocs()` 主檔）貼進去：摘要卡「20 位會改成全名」，截圖 `.local/references/prelaunch-2026-10-09/summary-card.png`（有真名，只在 `.local/`）。
+- E2E `64` 的 N2（摘要卡 → 匯入 → 全名＋簡寫、那一段照樣對到人 → 同一份再貼一次 0 位、按不下去）、N3（客戶都在、只剩人員也按得下去）。`61`、`09` 照跑，18 條全過。
+- 文件：`SKILL.md`（`:112-113` 那一句改掉、旗標、格式那一節）、`CLAUDE.md`「舊表 B2…」那一列、`.scratch/course-form-and-sheet-2026-10-06/issues/18` 開頭補一句順延 v7。ADR-0141 在 19 寫好了。
+
+沒做、留著：
+- 稽核紀錄上改名那一筆：設定頁改主檔本來就沒有一句話（`describeParts()` 回 null、退回展開的表），這裡一樣。`COLLECTION_LABELS.staff` 寫「治療師」（這份清單也放醫師）是既有的，沒動。
+- 上線順序第 10 步的文件（「用帶名單的合併檔匯入，名字會自己改」）留給 23。
+- **她還沒點頭**：staging 上不貼（她說了才貼）。
