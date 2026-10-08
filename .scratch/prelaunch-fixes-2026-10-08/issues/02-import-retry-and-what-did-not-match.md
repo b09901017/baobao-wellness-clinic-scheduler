@@ -1,6 +1,6 @@
 # 匯入失敗重試雜事多一份；確認框不講「對不到主檔幾處、跳過幾位」
 
-Status: todo
+Status: done
 來源：`f-import-retry`、`merge/report.md` 第 2、3 條
 動工前先讀：`public/js/ui/views/mergeImport.js`（`:277-286` 摘要卡、`:522-541` 確認框、`:549-575` 寫入與完成提示）、
 `public/js/data/legacyImport.js:158-168`、`public/js/domain/mergeImport.js`（`:164-175`、`:268-271`）、
@@ -53,3 +53,33 @@ Blocked by: 01（同一個 `run()`）
 
 - 單元：`tests/` 新的一支，r06 第 3 段與 r02 的第 7 種主檔改寫成假資料（客戶A、客戶B；器材用種子的假改名）。
 - E2E `61`：主檔少一樣東西時貼檔 → 確認框上有那兩句。
+
+## 做完時留下的（10/8）
+
+`run()` 在 01 的骨架上多了這幾樣（`public/js/ui/views/mergeImport.js`）：
+
+- **句子在 domain**：`domain/mergeImport.js` 的 `importCaveats(plans, extraProblems)` 回 `{ problems, skipped, lines, doneLines }`。
+  摘要卡（`summaryCard()`）、確認框（`...caveats.lines`，排在第一項後面）、完成那一張（`doneLines`）三處讀同一份；
+  `paint()` 算一次、經 listener 傳給 `run(el, ctx, plans, s, tasks, caveats)`。兩個都是 0 時 `lines` 是空陣列。
+- **雜事寫完就清勾**：`looseDocs()` 多回 `eventIndexes`／`noteIndexes`（每一筆在檔案裡的位置），
+  `importEvents()`／`importNotes()` 的 `onProgress(done)` 一批一批把寫進去的那幾筆從 `picks.events` 拿掉（`looseLeft()`）——
+  兩類共用一份勾、分兩批寫，所以只清寫進去的。**01 的「放開前重算」擋不住雜事**（雜事不問資料庫），所以這一道是必要的，不是重複。
+- **補的來訪也清勾**：客戶進去了，她在「還沒發生的／已經發生的」勾的那幾筆跟著清掉（`extraPicksLeft()`）。
+  不清的話重試時那幾筆會被算成「對不到主檔」（她這次是同名跳過），確認框就多講幾處其實已經寫好的。
+- **只剩雜事也重試得了**：`canRun({ running, customers, loose, resumed })`。`resumed` 是模組變數，`importAll()` 開始那一刻設成 true，
+  整份匯好、讀進另一份、按「清掉」時歸零。**沒有 `resumed` 時照舊只看客戶數** —— 「匯完、重新整理、再貼一次」那份檔案的雜事預設又全勾著，
+  按得下去就是整份多一份。客戶 0 位時確認框第一項改成「客戶都已經在系統裡了，這次只寫還沒寫進去的雜事」。
+- **結果留在頁面上**：`lastResult`（模組變數）→ 最上面的 `[data-import-result]` 卡：幾位進去、誰失敗、雜事有沒有寫完、那兩個數字、
+  收著的「N 處對不到主檔」清單。從別頁進來（`render()`）或讀進另一份檔案才清掉。toast 只多一句「有幾處沒進來，寫在這一頁最上面」。
+
+**20 要知道的**：確認框那個陣列還在 `run()` 裡，20 的「N 位會改成全名」要嘛加進 `importCaveats()` 旁邊的另一支、要嘛照樣在 domain 算好再傳進來；
+`outcome`（→ `lastResult`）的形狀是 `{ ok, failed, error, problems, doneLines }`，要在完成那一張多講一句就加欄位。
+
+沒做、留著（寫進 23）：
+
+- **有人失敗 → 重新整理（或離開再回來）→ 再貼一次**：檔案只在記憶體裡，重貼時雜事的預設勾選又回來，那一趟會多寫一份雜事。
+  這一輪只擋「檔案還在畫面上重按」那一條（issue 寫的那一條）。雜事刪得掉（日曆上逐筆），客戶的來訪刪不掉，所以沒有為它多讀一次資料庫。
+- 兩句講錯原因的訊息（issue「不做」那一段）照舊。
+
+測試：`tests/import-runs-once.test.js`（18 條）、E2E `61` 的 I1（正常那一份確認框不變長）、I3（休假寫完、待辦失敗 → 重按休假不多一份）、I4（兩句與清單）。
+`09` 也跑過（同一頁）。

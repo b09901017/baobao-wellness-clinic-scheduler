@@ -670,17 +670,39 @@ export function noteDocs(candidates, stamp = null) {
  * @param {object[]} candidates 檔案裡的 `eventCandidates`
  * @param {(index: number) => string} kindOf 這一列現在算哪一類（她改過的算她的）
  * @param {number[]} chosen 她勾起來的位置
- * @returns {{events: object[], notes: object[]}}
+ * @returns {{events: object[], notes: object[], eventIndexes: number[], noteIndexes: number[]}}
+ *   `eventIndexes[i]` 是 `events[i]` 在檔案裡的位置（`notes` 同理）—— 寫進去之後那一頁靠它把勾清掉
  */
 export function looseDocs(candidates, kindOf, chosen, json = null) {
   const stamp = stampOf(json, null);
   const rows = (candidates ?? [])
     .map((c, index) => ({ ...c, kind: kindOf(index), index }))
     .filter((r) => chosen.includes(r.index));
+  const events = rows.filter((r) => r.kind !== 'note');
+  const notes = rows.filter((r) => r.kind === 'note');
   return {
-    events: eventDocs(rows.filter((r) => r.kind !== 'note'), stamp),
-    notes: noteDocs(rows.filter((r) => r.kind === 'note'), stamp),
+    events: eventDocs(events, stamp),
+    notes: noteDocs(notes, stamp),
+    eventIndexes: events.map((r) => r.index),
+    noteIndexes: notes.map((r) => r.index),
   };
+}
+
+/**
+ * 寫進去的那幾筆雜事不再勾著（prelaunch-fixes-2026-10-08/issues/02）。
+ *
+ * 雜事那一批**不問系統裡有沒有**就寫：有一位客戶失敗、檔案留在畫面上重按一次，
+ * 行事備註、休假、待辦各多一份。所以寫完哪幾筆就清哪幾筆的勾，重試只剩還沒寫進去的。
+ *
+ * **只清寫進去的。** 行事備註／休假與待辦共用同一份勾、分兩批寫 ——
+ * 前一批寫完、後一批失敗時整個清掉，沒寫的那一批就安靜地少匯了。
+ *
+ * @param {number[]} chosen 勾著的位置
+ * @param {number[]} written 已經寫進去的位置
+ */
+export function looseLeft(chosen, written) {
+  const gone = new Set(written);
+  return chosen.filter((i) => !gone.has(i));
 }
 
 /** 勾起來的那幾筆照分類數一遍。畫面拿它寫「休假 4　待辦 2　行事備註 22」。 */
@@ -767,10 +789,65 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
  * `customers` 是**照現在的資料庫重算過**的那個數字（那一頁跑完會重讀一次才放開）：
  * 每一位都匯好了就是 0。
  *
- * @param {{running?: boolean, customers?: number}} state
+ * **客戶都進去了、只剩雜事沒寫進去**（雜事那一步丟例外）也要重試得了：`loose` 是還勾著的雜事，
+ * 而它只在 `resumed`（這一份檔案在這個畫面上已經匯過一趟）時算數。沒有那個記號的是
+ * 「匯完、重新整理、再貼一次」—— 每一位同名跳過，而那份檔案的雜事預設又全部勾著，
+ * 按得下去就是整份雜事多一份。
+ *
+ * @param {{running?: boolean, customers?: number, loose?: number, resumed?: boolean}} state
  */
-export function canRun({ running = false, customers = 0 } = {}) {
-  return !running && customers > 0;
+export function canRun({ running = false, customers = 0, loose = 0, resumed = false } = {}) {
+  if (running) return false;
+  return customers > 0 || (resumed && loose > 0);
+}
+
+/**
+ * 匯入之前（確認框）與之後（完成那一張）都要講的兩件事：**對不到主檔幾處、同名跳過幾位**。
+ *
+ * 以前這兩個數字只在摘要卡收起來的那一行裡，確認框只寫「建立 29 位客戶…」。
+ * 對不到主檔的東西不是留空就是整筆不匯（一筆額度對不到課程，它底下每一段都不匯），
+ * 而**匯完之後補不回來**：再貼一次時每一位都因為同名被整位跳過。
+ *
+ * 摘要卡、確認框、完成那一張三處讀同一支 —— 各數一次遲早一邊漏掉勾起來要補的那幾筆。
+ * **兩個都是 0 時一個字都不多**（正常的切換日確認框不變長）。
+ *
+ * @param {object[]} plans planForCustomer() 的結果（`addExtraVisits()` 跑過之後）
+ * @param {object[]} [extraProblems] `addExtraVisits()` 回的那幾條
+ * @returns {{problems: object[], skipped: {customerName: string, why: string}[], lines: string[], doneLines: string[]}}
+ */
+export function importCaveats(plans, extraProblems = []) {
+  const problems = [...(plans ?? []).flatMap((p) => p.problems ?? []), ...(extraProblems ?? [])];
+  const skipped = (plans ?? []).filter((p) => p.skip)
+    .map((p) => ({ customerName: p.customerName, why: p.skip }));
+  const lines = [];
+  if (problems.length) {
+    lines.push(`有 ${problems.length} 處對不到主檔，那幾處會留空或整筆不匯 —— 匯完之後補不回來`
+      + '（再貼一次時每一位都因為同名被跳過）。先到資料健檢把主檔補齊，再回來匯');
+  }
+  if (skipped.length) {
+    lines.push(`${skipped.length} 位因為系統裡已經有同名的客戶，整位跳過，一筆都不會寫`);
+  }
+  // 匯完之後那一張講的是已經發生的事，所以另外一份句子
+  const doneLines = [];
+  if (problems.length) doneLines.push(`有 ${problems.length} 處對不到主檔，那幾處留空或沒有匯進來`);
+  if (skipped.length) doneLines.push(`${skipped.length} 位因為系統裡已經有同名的客戶，整位跳過`);
+  return { problems, skipped, lines, doneLines };
+}
+
+/**
+ * 勾起來要補的來訪裡，還沒跟著客戶寫進去的那幾筆。
+ *
+ * 補的來訪跟客戶同一個 commit（`addExtraVisits()`），所以**那位客戶進去了，她的那幾筆就不用再勾著**。
+ * 留著的話重試時那幾筆會變成「這份檔案裡沒有這位客戶」的問題（她這次是同名跳過），
+ * 確認框就會多講幾處其實已經寫好的東西。
+ *
+ * @param {object[]} candidates `futureVisits` 或 `missingFromSheet`
+ * @param {number[]} chosen 勾著的位置
+ * @param {string[]} doneNames 這一趟寫進去的客戶
+ */
+export function extraPicksLeft(candidates, chosen, doneNames) {
+  const done = new Set((doneNames ?? []).map(norm));
+  return chosen.filter((i) => !done.has(norm(candidates?.[i]?.customerName)));
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */

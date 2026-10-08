@@ -6,7 +6,7 @@
 // fixture 全部是編出來的（客戶A、客戶B）。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, TODAY, addDays } from '../fixtures/data.js';
+import { masterDocs, customer, TODAY, addDays } from '../fixtures/data.js';
 
 // ---------- 01 舊資料匯入只跑得了一趟 ----------
 
@@ -49,6 +49,8 @@ test('I1 匯入：確認框開著、匯入在跑的時候那顆按鈕按不下�
   // 確認框開著的那一段也算進行中：她可能在第一個確認框還沒按之前又點一次
   await expect(page.locator('[data-run]'), '確認框開著時').toBeDisabled();
   await expect(page.locator('[data-load]'), '換一份檔案的那一顆也鎖著').toBeDisabled();
+  // 02：每一樣都對得到、沒有人同名的那一份（正常的切換日），確認框一個字都不多
+  expect(await app.dialogText()).not.toMatch(/對不到主檔|同名/);
 
   await app.ok();
   // 匯入中再按一次（不經過畫面上的鎖，直接叫那顆按鈕）—— 一位都不可以多
@@ -78,11 +80,12 @@ test('I3 匯入：客戶都寫完、雜事那一步失敗之後再按一次，�
   await app.seed(masterDocs());
   await app.signIn('/settings/merge');
   // 一筆 201 個字的待辦：Rules 不收（`validNote()` 上限 200），所以 `importNotes()` 會丟例外 ——
-  // 而那時候兩位客戶已經寫進去了
+  // 而那時候兩位客戶與那一筆休假已經寫進去了
   await paste(app, page, mergeFile({
-    eventCandidates: [{
-      startDate: addDays(TODAY, 3), endDate: addDays(TODAY, 3), title: '記'.repeat(201), kind: 'note', allDay: true,
-    }],
+    eventCandidates: [
+      { startDate: addDays(TODAY, 2), endDate: addDays(TODAY, 2), title: '休', kind: 'leave', allDay: true },
+      { startDate: addDays(TODAY, 3), endDate: addDays(TODAY, 3), title: '記'.repeat(201), kind: 'note', allDay: true },
+    ],
   }));
 
   await page.locator('[data-run]').click();
@@ -90,14 +93,45 @@ test('I3 匯入：客戶都寫完、雜事那一步失敗之後再按一次，�
   await expect(page.locator('#toast')).toContainText('匯入失敗', { timeout: 20_000 });
   await app.settled();
   expect(await liveCustomers(app), '第一次：兩位').toHaveLength(2);
+  await expect(page.locator('[data-import-result]'), '結果留在這一頁上').toContainText('雜事沒有寫完');
 
-  // 那顆按鈕還按得下去的話就再按一次（重試雜事）；不管按不按得下去，客戶都不可以多
+  // 02：客戶都進去了、還有一筆待辦沒寫進去 → 還重試得了，而且只寫沒寫進去的那一筆
   const again = page.locator('[data-run]');
-  if (await again.count() && await again.isEnabled()) {
-    await again.click();
-    await app.ok();
-    await expect(page.locator('#toast')).toContainText('匯入失敗', { timeout: 20_000 });
-    await app.settled();
-  }
+  await expect(again, '只剩雜事也重試得了').toBeEnabled();
+  await again.click();
+  expect(await app.dialogText(), '確認框講的是這一次真的會做的事').toContain('客戶都已經在系統裡了');
+  expect(await app.dialogText(), '休假那一筆已經寫了，不再列').toContain('沒有勾任何行事備註或休假');
+  await app.ok();
+  await expect(page.locator('#toast')).toContainText('匯入失敗', { timeout: 20_000 });
+  await app.settled();
+
   expect(await liveCustomers(app), '再按一次：還是兩位').toHaveLength(2);
+  expect((await app.readAll('events')).filter((e) => !e.deletedAt), '休假沒有多一份').toHaveLength(1);
+});
+
+// ---------- 02 確認框與完成那一張：對不到主檔幾處、同名跳過幾位 ----------
+
+test('I4 匯入：有東西對不到主檔、有人同名 → 確認框講出來，匯完清單還看得到', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-b', name: '客戶B' })]);
+  await app.signIn('/settings/merge');
+
+  const file = mergeFile();
+  // 客戶A 多一筆主檔裡沒有的課程：那一筆額度整筆不匯，它底下那一段也跟著不匯
+  file.customers[0].entitlements.push({ key: 'r9', type: 'single', label: '新課(60)', totalQty: 3, courseName: '主檔沒有的課' });
+  file.customers[0].visits[0].slots.push({ entitlementKey: 'r9', courseName: '主檔沒有的課', startsAt: '13:00', endsAt: '14:00' });
+  await paste(app, page, file);
+
+  await page.locator('[data-run]').click();
+  const said = await app.dialogText();
+  expect(said, '幾處對不到主檔').toContain('2 處對不到主檔');
+  expect(said, '後果：匯完補不回來').toContain('補不回來');
+  expect(said, '同名跳過幾位').toContain('1 位因為系統裡已經有同名的客戶');
+  await app.ok();
+
+  await expect(page.locator('#toast')).toContainText('1 位客戶都匯進去了', { timeout: 20_000 });
+  await app.settled();
+  const result = page.locator('[data-import-result]');
+  await expect(result).toContainText('有 2 處對不到主檔');
+  await expect(result).toContainText('1 位因為系統裡已經有同名的客戶');
+  await expect(result.locator('details li'), '那張清單匯完還看得到').toHaveCount(2);
 });

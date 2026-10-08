@@ -13,6 +13,7 @@ import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
   summarize, countNewTasks, groupCandidates, defaultPicks, eventKind, canRun,
+  importCaveats, looseLeft, extraPicksLeft,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
@@ -52,6 +53,19 @@ let kindOverrides = new Map();
  */
 let running = false;
 
+/**
+ * 這一份檔案在這個畫面上已經匯過一趟（有人失敗、或雜事那一步丟例外，檔案還留著）。
+ * 只有這時候「客戶 0 位、還有雜事勾著」才按得下去（`canRun()`）。換一份檔案就歸零。
+ */
+let resumed = false;
+
+/**
+ * 剛剛那一次匯入的結果。**留在這一頁上**，不是只跳一句三秒的 toast：
+ * 整份匯好之後檔案會清掉，「哪幾處對不到主檔」那張清單以前就跟著再也看不到。
+ * 離開這一頁、或讀進另一份檔案才清掉。
+ */
+let lastResult = null;
+
 function emptyPicks() {
   return { future: new Set(), missing: new Set(), events: new Set() };
 }
@@ -81,6 +95,8 @@ function pickSets(json) {
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
+  // 從別頁進來：上一次的結果不留。匯入還在跑的話那一趟自己會寫回來
+  if (!running) lastResult = null;
 
   let ctx;
   try {
@@ -111,10 +127,13 @@ function paint(el, ctx) {
   const { plans = [], extraProblems = [] } = file ? plansOf(ctx) : {};
   const s = file ? summarize(plans) : null;
   const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
+  // 對不到主檔幾處、同名跳過幾位：摘要卡、確認框、完成那一張讀同一份
+  const caveats = file ? importCaveats(plans, extraProblems) : null;
 
   el.innerHTML = `
     <div data-mergepage>
     ${backLink()}
+    ${resultCard()}
 
     <section class="card">
       <h2 class="card__title">舊資料匯入</h2>
@@ -138,7 +157,7 @@ function paint(el, ctx) {
     </section>
 
     ${file ? contraindicationCard(s, plans) : ''}
-    ${file ? summaryCard(s, plans, extraProblems) : ''}
+    ${file ? summaryCard(s, plans, caveats) : ''}
     ${file ? lowCard(plans) : ''}
     ${file ? candidateCards() : ''}
     ${file ? runCard(s, tasks) : ''}
@@ -151,6 +170,7 @@ function paint(el, ctx) {
     fileWarnings = [];
     picks = emptyPicks();
     kindOverrides = new Map();
+    resumed = false;
     paint(el, ctx);
   });
   el.querySelectorAll('[data-pick]').forEach((box) =>
@@ -195,7 +215,7 @@ function paint(el, ctx) {
     repaintLooseCounts(el);
   });
 
-  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks));
+  el.querySelector('[data-run]')?.addEventListener('click', () => run(el, ctx, plans, s, tasks, caveats));
 }
 
 function load(el, ctx) {
@@ -219,6 +239,10 @@ function load(el, ctx) {
   fileWarnings = warnings;
   file = errors.length ? null : json;
   picks = file ? pickSets(file) : emptyPicks();
+  // 新的一份檔案：上一份的改分類、「匯過一趟」的記號、上一次的結果都不跟過來
+  kindOverrides = new Map();
+  resumed = false;
+  lastResult = null;
   paint(el, ctx);
 }
 
@@ -268,8 +292,7 @@ function contraindicationCard(s, plans = []) {
     </section>`;
 }
 
-function summaryCard(s, plans, extraProblems) {
-  const problems = [...plans.flatMap((p) => p.problems), ...extraProblems];
+function summaryCard(s, plans, { problems, skipped }) {
   const span = file.calendar?.span ?? [];
   return `
     <section class="card">
@@ -283,17 +306,44 @@ function summaryCard(s, plans, extraProblems) {
         —— 買幾次健檢就有幾次二返，合併檔上沒有這一項。次數不對就到客戶詳情頁改。</p>` : ''}
       ${span.length ? `<p class="muted">行事曆涵蓋 ${esc(span[0] ?? '')} ～ ${esc(span[1] ?? '')}，
         更早的來訪本來就補不到時間。</p>` : ''}
-      ${s.skipped.length ? `<p class="muted">${s.skipped.length} 位整位跳過：
-        ${s.skipped.map((x) => `${esc(x.customerName)}（${esc(x.why)}）`).join('；')}</p>` : ''}
+      ${skipped.length ? `<p class="muted">${skipped.length} 位整位跳過：
+        ${skipped.map((x) => `${esc(x.customerName)}（${esc(x.why)}）`).join('；')}</p>` : ''}
       ${problems.length ? `
         <details>
           <summary>${problems.length} 處對不到主檔</summary>
-          <ul class="tight">${problems.map((x) =>
-    `<li>${esc(x.where)}｜${esc(x.raw)}｜${esc(x.why)}</li>`).join('')}</ul>
+          ${problemList(problems)}
           <p class="muted">對不到的東西一律留空或整筆不匯入，不會猜一個填進去。
             先去主檔把它建起來，再貼一次會比較完整。</p>
         </details>` : '<p class="muted">每一樣都對得到你的主檔。</p>'}
       ${purchaseProblemsHtml(plans)}
+    </section>`;
+}
+
+const problemList = (problems) => `<ul class="tight">${problems.map((x) =>
+  `<li>${esc(x.where)}｜${esc(x.raw)}｜${esc(x.why)}</li>`).join('')}</ul>`;
+
+/**
+ * 剛剛那一次匯入的結果（`lastResult`）。確認框講過的那兩個數字匯完再講一次，
+ * 清單收在底下 —— 匯完檔案就清掉了，這是她唯一還看得到那張清單的地方。
+ */
+function resultCard() {
+  const r = lastResult;
+  if (!r) return '';
+  return `
+    <section class="card" data-import-result>
+      <h2 class="card__title">剛剛那一次匯入</h2>
+      <p><b>${r.ok}</b> 位客戶匯進去了${r.failed.length ? `，<b>${r.failed.length}</b> 位失敗` : ''}。</p>
+      ${r.failed.length ? `<ul class="tight">${r.failed.map((x) =>
+    `<li>${esc(x.customerName)}：${esc(x.error)}</li>`).join('')}</ul>
+        <p>檔案還留在下面。再按一次「開始匯入」只會匯沒進去的那幾位。</p>` : ''}
+      ${r.error ? `<p>行事曆上的雜事沒有寫完（${esc(r.error)}）。
+        再按一次「開始匯入」只會寫還沒寫進去的那幾筆，客戶不會多一份。</p>` : ''}
+      ${r.doneLines.map((line) => `<p>${esc(line)}。</p>`).join('')}
+      ${r.problems.length ? `
+        <details>
+          <summary>${r.problems.length} 處對不到主檔</summary>
+          ${problemList(r.problems)}
+        </details>` : ''}
     </section>`;
 }
 
@@ -514,7 +564,9 @@ function runCard(s, tasks) {
       <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
         待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
       <p class="form__actions">
-        <button class="btn btn--primary" type="button" data-run ${canRun({ running, customers: s.customers }) ? '' : 'disabled'}>開始匯入</button>
+        <button class="btn btn--primary" type="button" data-run ${canRun({
+    running, customers: s.customers, loose: picks.events.size, resumed,
+  }) ? '' : 'disabled'}>開始匯入</button>
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
@@ -534,21 +586,32 @@ function lockButtons(el, locked) {
   });
 }
 
-async function run(el, ctx, plans, s, tasks) {
+/** 寫進去的那幾筆雜事不再勾著。重試只剩還沒寫進去的（`looseLeft()`）。 */
+function dropLoose(written) {
+  picks.events = new Set(looseLeft([...picks.events], written));
+}
+
+async function run(el, ctx, plans, s, tasks, caveats) {
   if (running) return;
   running = true;
   lockButtons(el, true);
   // 真的開始寫了沒。她在確認框按「先不要」的話資料庫一個字都沒變，不用重讀
   let wrote = false;
+  // 客戶那一步跑完之後才有。雜事那一步丟例外時客戶已經進去了，結果照樣要留在畫面上
+  let outcome = null;
 
   try {
-    const { events, notes } = chosenLoose();
+    const { events, notes, eventIndexes, noteIndexes } = chosenLoose();
     const extras = picks.future.size + picks.missing.size;
 
     const ok = await confirmAction({
       title: '開始匯入',
       consequences: [
-        `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
+        s.customers
+          ? `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`
+          : '客戶都已經在系統裡了，這次只寫還沒寫進去的雜事',
+        // 對不到主檔幾處、同名跳過幾位。兩個都是 0 時這裡一項都不多
+        ...caveats.lines,
         `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
         s.future
           ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
@@ -570,33 +633,51 @@ async function run(el, ctx, plans, s, tasks) {
     if (!ok) return;
 
     wrote = true;
+    resumed = true;
     toast.saving('匯入中…');
     const results = await importer.importAll(plans, (done, total, name) =>
       toast.saving(`匯入中… ${done}/${total}（${name}）`),
     );
+    const failed = results.filter((r) => !r.ok);
+    outcome = {
+      ok: results.length - failed.length,
+      failed,
+      error: null,
+      problems: caveats.problems,
+      doneLines: caveats.doneLines,
+    };
+    // 補的來訪跟客戶同一個 commit：那位進去了，她的那幾筆就不用再勾著
+    const doneNames = results.filter((r) => r.ok).map((r) => r.customerName);
+    picks.future = new Set(extraPicksLeft(file.futureVisits, [...picks.future], doneNames));
+    picks.missing = new Set(extraPicksLeft(file.missingFromSheet, [...picks.missing], doneNames));
+
+    // **寫完哪幾筆就清哪幾筆的勾**（一批 100 筆，寫到一半失敗也只清進去的）。
+    // 行事備註／休假與待辦共用同一份勾、分兩批寫，所以不可以整個清掉
     if (events.length) {
       toast.saving(`匯入中… 行事備註與休假 ${events.length} 筆`);
-      await importer.importEvents(events);
+      await importer.importEvents(events, (done) => dropLoose(eventIndexes.slice(0, done)));
     }
     if (notes.length) {
       toast.saving(`匯入中… 待辦 ${notes.length} 筆`);
-      await importer.importNotes(notes);
+      await importer.importNotes(notes, (done) => dropLoose(noteIndexes.slice(0, done)));
     }
 
-    const failed = results.filter((r) => !r.ok);
     toast.hide();
     if (failed.length) {
-      toast.failed(`${results.length - failed.length} 位進去了，${failed.length} 位失敗：`
+      toast.failed(`${outcome.ok} 位進去了，${failed.length} 位失敗：`
         + failed.map((r) => `${r.customerName}（${r.error}）`).join('；'));
     } else {
-      toast.info(`${results.length} 位客戶都匯進去了`);
+      toast.info(`${results.length} 位客戶都匯進去了${outcome.doneLines.length ? '；有幾處沒進來，寫在這一頁最上面' : ''}`);
       file = null;
       picks = emptyPicks();
       kindOverrides = new Map();
+      resumed = false;
     }
   } catch (err) {
     toast.failed(`匯入失敗：${err.message}`);
+    if (outcome) outcome.error = err.message;
   } finally {
+    if (outcome) lastResult = outcome;
     // **放開之前重讀一次**，成功、有人失敗、丟例外三條路都一樣。丟例外那一條最要緊：
     // 雜事那一步（`importEvents()`／`importNotes()`）丟出來的時候客戶已經全部寫進去了，
     // 而按鈕手上的 `plans` 是畫面畫好那一刻算的 —— 不重算的話再按一次就是每一位多一份。
