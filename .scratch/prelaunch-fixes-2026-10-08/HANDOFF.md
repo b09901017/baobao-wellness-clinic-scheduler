@@ -13,15 +13,15 @@
 | 三、規則、待辦、試算表 | 15–18 | done（15、16 在 10/8：`f34f864`、`99e1b06`；17、18 在 10/9：`2ae963d`、`d619aad`） |
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | done（10/9，3 個 commit：`d5ec573`、`d973d24`、`397f213`） |
 | 四之二、她 10/9 回的 C、A、B | C 兩件小修、A 約二返的名額、B 只開 issue | done（10/9，4 個 commit：`ee675cc`、`877558b`、`417e4c2`、`fb7a691`） |
-| 五、AI 小實驗、文件、收尾、開 PR | 22–23 | todo |
+| 五、AI 小實驗、文件、收尾、開 PR | 22–23 | done（10/9：`9b45fca`…；PR #147 進 develop，全量 E2E 丟 CI） |
 | （之後）B：二返先接上還沒做完的健檢 | `.scratch/followup-link-before-exam/issues/01`，她 10/9 回了五題 | todo —— 段六審完、合進 develop 之後另開分支、另一支 PR |
 | 六、`/matt-code-review` 與照審查修正 | — | todo |
 
-- 分支：`claude/prelaunch-fixes-2026-10-08`（**只在本機，還沒推**；段五才推、才開 PR）。基底 `origin/develop` `a84820d`。
+- 分支：`claude/prelaunch-fixes-2026-10-08`（10/9 推了，**PR #147 進 `develop`**）。基底 `origin/develop` `a84820d`。
 - 一支 PR 進 `develop`。六段都在**同一個分支、同一個工作目錄、一段接一段**做 —— 不開 worktree、不平行（共用檔案多，她的筆電也不能同時跑兩組模擬器）。
 - 編號：ADR 從 0137、E2E spec 從 61（一段一支新 spec）、`sw.js` `v186`（一支 PR 只升一號）、合併檔 v6。
   **用掉的**：ADR-0137（08）、ADR-0138（12）、spec `61`（段一）、spec `62`（段二）、`sw.js` 已經是 `v186`（01 升的，之後不再升；
-  段二沒有在 `public/` 底下加新檔案，`SHELL` 不用動）。ADR-0139（15）、ADR-0140（16）、spec `63`（段三，K1、M1–M3 已經在裡面；17、18 不用 E2E）。ADR-0141（19＋20）、spec `64`（段四，N1–N3）、合併檔 `baobao-merge/v6`（20）。ADR-0142（段四之二的 A；E2E 加在 `63` 的 K2，沒開新的 spec）。**下一個**：ADR-0143、spec `65`。
+  段二沒有在 `public/` 底下加新檔案，`SHELL` 不用動）。ADR-0139（15）、ADR-0140（16）、spec `63`（段三，K1、M1–M3 已經在裡面；17、18 不用 E2E）。ADR-0141（19＋20）、spec `64`（段四，N1–N3）、合併檔 `baobao-merge/v6`（20）。ADR-0142（段四之二的 A；E2E 加在 `63` 的 K2，沒開新的 spec）。ADR-0143（段五：切換那天怎麼刪正式站）。**下一個**：ADR-0144、spec `65`。
 
 ## 每一段怎麼做（每一段的 session 都一樣）
 
@@ -353,6 +353,22 @@
 留給 23（已經寫進 issue 23 的「段四之二加的」那一段）：上線檢查表照她 10/9 的「刪掉 → 載入種子 → 重填設定 → 匯入」重寫；**怎麼刪正式站要先問她**
 （`reset-staging.mjs` 拒絕正式專案、`KEEP` 留著 `config`）；重填設定要列全；驗收清單多 A（K2 走過）與 C 之一（staging 部署之後才驗得到）。
 
+### 段五（10/9）：22、23、開 PR
+
+她這一段回的（10/9）：
+- 刪正式站：**firebase-tools 的 `firestore:delete --recursive`，一類一類點名**；稽核**刪掉**；`allowedUsers`、`aiUsage`、`playbooks`（備忘錄）**留著** → ADR-0143、`docs/STAGING.md`「切換那天」。
+- 22：**跑方案 B**（37 張低思考基準也重考，共 78 張次，估台幣 26 元），另外拿她放的新照片（`.local/references/abovee拍照測試/`，11 張、7 張不重複）試超高解析度。
+- staging 的 Function：**等 22 跑完再部署**（還沒部署）。
+
+做了什麼：
+- **22**：先補旋鈕（`9b45fca`：`makeGeminiModel({ mediaResolution })`、`ai-exam.mjs --resolution`，預設不變）。考試結果見 issue 22 的「做完時留下的」與 ADR-0100「考試結果」。
+  新照片沒有答案卷：`.local/references/ai-exam/abovee-photos-exam.mjs` 拿逐像素驗證過的 `abovee-m5-m10.json` 當答案（病歷號＋日期＋開始時間對到才計分，只印數字）。
+- **23**：`1a6ac30`（文件、`CLAUDE.md` 連動表兩列新的＋九列補句子、ADR-0143）、`9cdfeb6`（issue 23 做完、驗收清單、lessons 兩條）。驗收清單在 issue 23 最後與 PR #147 內文。
+- 驗收清單走過：本機模擬器跑 `61`–`64`、`24` 全過（H1 Windows 跳過）；08、17 寫臨時 spec 走過再刪。
+- 推之前：`npm test` 4182 條全綠；`staff-scan.mjs` 全名 0 處；44 個 commit 訊息拿 113 個真名掃過 0 處。
+
+沒做、留著（審查與之後）：寫在 issue 23「做完時留下的」最後，與 PR 內文「沒做、留著」。
+
 ## 給新 session 的開場（範本）
 
 每一段結束時把下面對應那一段貼給她。**建議的 effort 只是建議**，她自己決定。
@@ -484,9 +500,17 @@ E2E 只跑相關的 spec，跑完關模擬器。不部署、不連正式站。�
 ```
 /matt-code-review origin/develop
 
-審 claude/prelaunch-fixes-2026-10-08 這支 PR（上線前修正，23 支 issue）。
+審 PR #147（claude/prelaunch-fixes-2026-10-08，上線前修正 23 支 issue ＋ 她 10/9 回的四件）。
 規格在 .scratch/prelaunch-fixes-2026-10-08/spec.md 與 issues/；每一支的「判準」就是要對照的東西。標準在 CLAUDE.md 與 docs/agents/lessons.md。
-審完照建議修（一類一個 commit），不同意的寫進 HANDOFF.md「審查提過、沒有改的」並附理由。
-E2E 只跑相關的那一支 spec；全量丟 CI。不部署、不連正式站。
-最後給我：改了什麼、沒改什麼與理由、驗收清單有沒有因此要改。
+先讀 HANDOFF.md 的「段五」。
+
+另一個 session 正在同一個資料夾跑 22 的 AI 考試，所以：
+- 不要改這三個檔案：docs/adr/0100-*.md、issues/22-two-small-ai-experiments.md、HANDOFF.md
+- 它回報考完之前，不要改 functions/ 與 scripts/ai-exam.mjs（要改的先記下來）
+- 「審查提過、沒有改的」寫進新檔 .scratch/prelaunch-fixes-2026-10-08/REVIEW.md（附理由）
+- 同時只准一組模擬器：開之前先看 5000、8080 有沒有人在用
+
+審完照建議修（一類一個 commit），推到同一支分支（PR #147 會跟著更新）。E2E 只跑相關的那一支 spec，跑完把模擬器關掉；全量丟 CI（gh workflow run e2e-full.yml --ref claude/prelaunch-fixes-2026-10-08）。
+不部署、不連正式站。新的 ADR 從 0144 起、新的 E2E spec 是 65、sw.js 已經是 v186 不要再升。
+最後給我：改了什麼、沒改什麼與理由、驗收清單（issue 23 最後與 PR 內文）有沒有因此要改。
 ```
