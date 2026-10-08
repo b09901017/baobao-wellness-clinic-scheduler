@@ -302,7 +302,7 @@
 
 **C**：兩件都修，**各一個 commit**（單元測試驗得完）：自動推送讀主檔帶 `includeDeleted`（`sheetSync.js` → `config.loadAll()`）；試算表 FINISHED 的完成日期不再用 UTC 切日（`sheetReport.js` 的 `taskRows()` 與 `.gs` 那一處 `doneAt.slice(0, 10)`；改 `.gs` 的話她要重貼，`SYNC_FORMAT` 盡量不動）。
 
-**正式站是哪一代的種子：有關係。** 「清空」清不到主檔 —— `reset-staging.mjs` 的 `KEEP` 留著 `config`（而且它拒絕正式專案），匯合併檔讀的是正式站那一份主檔，
+**正式站是哪一代的種子：她 10/9 決定切換那天連主檔一起刪掉、重新載入種子（白名單留著），所以不用補那四列。** 以下是當時的分析，留著： 「清空」清不到主檔 —— `reset-staging.mjs` 的 `KEEP` 留著 `config`（而且它拒絕正式專案），匯合併檔讀的是正式站那一份主檔，
 `loadSeed()` 又只建不覆蓋。所以清空重匯之後主檔還是原本那一代。8/20 那一代要補四列資料健檢（SIS 的舊名、ILIB 的「ILIB室」、常用診間、警示兩個字與說明）；
 她看一眼正式站 設定 → 器材 就知道（SIS 那一台叫「超磁場」＝8/20 那一代）。
 
@@ -397,7 +397,7 @@ C：兩件各一個 commit，單元測試驗得完。改 .gs 的話記下來，�
 A：先寫會紅的測試（tests/followups.test.js 釘著現在行為的那一條要改）→ 改 → 一個 commit ＋ 新的 ADR-0142（推翻 ADR-0139「還沒有答案的」那一段的排法，舊的不改）。確認框與抽屜那一句要跟著對（ADR-0070）。
 B：只在 .scratch/ 開一支 issue（新的 feature slug），不改程式。七條連動一條一條打開程式碼查證、寫出現在那一行在哪、改了會怎樣，一條都不能漏。
 20 的摘要卡我點頭了；staging 要等這支 PR 部署之後才貼得進 v6，這一段不用做。
-正式站 設定 → 器材 的 SIS 那一台叫：＿＿＿（叫「超磁場」就補四列資料健檢，見 HANDOFF；叫 SIS 就不用。沒填就先不做、寫進交接）。
+正式站切換那天會連主檔一起刪掉、重新載入種子（白名單留著），所以舊一代種子那四列資料健檢不用補；請 23 把「刪掉 → 載入種子 → 重填設定 → 匯入」寫進 docs/STAGING.md 的上線檢查表。
 不推、不開 PR、不部署、不連正式站。E2E 只跑相關的那一支 spec，跑完把模擬器關掉。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段五：22–23）的開場。
 ```
@@ -412,6 +412,7 @@ B：只在 .scratch/ 開一支 issue（新的 feature slug），不改程式。�
 先讀：CLAUDE.md → docs/agents/lessons.md → .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md → issues/22、23，以及每一支 issue 的「做完時留下的」。
 22：先算出實際要考幾張次、大概多少錢，告訴我，我說可以才跑。我沒回之前先做 23。
 23：照它列的順序收尾，推分支、開 PR 進 develop（內文一個真名都不帶）、全量 E2E 丟 CI。驗收清單每一條都要在本機模擬器走過；20 在 staging 貼合併檔那一步寫在部署之後。
+切換那天正式站連主檔一起刪掉重載種子（白名單 allowedUsers 留著；config/app 的設定要重填）：把「刪掉 → 載入種子 → 重填設定 → 用帶 --staff-names 的合併檔匯入」寫進 docs/STAGING.md 的上線檢查表。
 staging 的 Function 要不要部署先問我；不連正式站。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段六：/matt-code-review）的開場。
 ```
