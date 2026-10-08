@@ -757,6 +757,22 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
     ), 0);
 }
 
+/**
+ * 「開始匯入」現在按不按得下去（prelaunch-fixes-2026-10-08/issues/01）。
+ *
+ * **正在跑就按不下去，而確認框開著也算正在跑。** 合併檔只匯這一次：2026-10-08 以前那顆按鈕
+ * 整段都按得下去，匯到一半再按一次就是每一位多建一份 —— 重複的客戶刪得掉，
+ * 他身上的來訪刪不掉（ADR-0089）。
+ *
+ * `customers` 是**照現在的資料庫重算過**的那個數字（那一頁跑完會重讀一次才放開）：
+ * 每一位都匯好了就是 0。
+ *
+ * @param {{running?: boolean, customers?: number}} state
+ */
+export function canRun({ running = false, customers = 0 } = {}) {
+  return !running && customers > 0;
+}
+
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */
 export function summarize(plans) {
   const live = plans.filter((p) => !p.skip);

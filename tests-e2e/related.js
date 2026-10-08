@@ -478,6 +478,10 @@ export const COVERAGE = {
     // D1b：改名之後在簽療程單結案，任務的名字對齊來訪那一份
     'public/js/ui/views/home.js', 'public/js/domain/taskRules.js',
   ],
+  // 上線前修正第一段（prelaunch-fixes-2026-10-08 的 01–08）：匯入頁只跑一趟
+  '61-prelaunch-import-and-wall': [
+    'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js', 'public/js/domain/mergeImport.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

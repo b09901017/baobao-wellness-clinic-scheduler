@@ -12,7 +12,7 @@
 import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
-  summarize, countNewTasks, groupCandidates, defaultPicks, eventKind,
+  summarize, countNewTasks, groupCandidates, defaultPicks, eventKind, canRun,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
 import { todayISO } from '../../domain/dates.js';
@@ -41,6 +41,16 @@ let picks = emptyPicks();
  * 檔案換了、預設值變了，這裡還會拿著上一份的答案。
  */
 let kindOverrides = new Map();
+
+/**
+ * 匯入正在跑。**確認框開著的那一段也算**（她可能在第一個確認框還沒按之前又點一次）。
+ *
+ * 這一頁沒走 `toast.withSaveState({ key })`（自己的進度條、一位客戶一個 commit），所以鎖在這裡：
+ * `run()` 進來先問它、`finally` 才放開，而且**放開之前重讀一次資料庫**——
+ * 按鈕按得下去的時候，它手上的名單一定是照現在的資料庫算的。
+ * `tests/save-guards.test.js` 掃這三個記號（prelaunch-fixes-2026-10-08/issues/01）。
+ */
+let running = false;
 
 function emptyPicks() {
   return { future: new Set(), missing: new Set(), events: new Set() };
@@ -76,8 +86,7 @@ export async function render(el) {
   try {
     ctx = await importer.loadContext();
   } catch (err) {
-    el.innerHTML = `${backLink()}
-      <div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
+    el.innerHTML = readFailedHtml(err);
     return;
   }
   paint(el, { ...ctx, rooms: ctx.rooms ?? [], staff: ctx.staff ?? [] });
@@ -118,8 +127,8 @@ function paint(el, ctx) {
         <textarea data-json rows="5" placeholder="{ &quot;format&quot;: &quot;${FORMAT}&quot;, … }"></textarea>
       </label>
       <p class="form__actions">
-        <button class="btn btn--primary" type="button" data-load>讀進來</button>
-        ${file ? '<button class="btn" type="button" data-clear>清掉</button>' : ''}
+        <button class="btn btn--primary" type="button" data-load ${running ? 'disabled' : ''}>讀進來</button>
+        ${file ? `<button class="btn" type="button" data-clear ${running ? 'disabled' : ''}>清掉</button>` : ''}
       </p>
       ${fileErrors.length ? errorsCard() : ''}
       ${fileWarnings.length ? `
@@ -505,7 +514,7 @@ function runCard(s, tasks) {
       <p class="muted">行事曆上的雜事，勾起來的有：<b data-loosecount>${tallyText()}</b>。
         待辦會變成掛了日期的隨手記，在日曆上是可以勾掉的那一類。</p>
       <p class="form__actions">
-        <button class="btn btn--primary" type="button" data-run ${s.customers ? '' : 'disabled'}>開始匯入</button>
+        <button class="btn btn--primary" type="button" data-run ${canRun({ running, customers: s.customers }) ? '' : 'disabled'}>開始匯入</button>
       </p>
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
@@ -515,38 +524,54 @@ function runCard(s, tasks) {
     </section>`;
 }
 
-async function run(el, ctx, plans, s, tasks) {
-  const { events, notes } = chosenLoose();
-  const extras = picks.future.size + picks.missing.size;
-
-  const ok = await confirmAction({
-    title: '開始匯入',
-    consequences: [
-      `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
-      `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
-      s.future
-        ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
-        : '沒有日期在今天之後的來訪，全部標成已完成',
-      ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
-      extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
-      events.length ? `建立 ${events.length} 筆行事備註或休假` : '沒有勾任何行事備註或休假',
-      notes.length ? `建立 ${notes.length} 筆待辦（掛了日期的隨手記）` : '沒有勾任何待辦',
-      s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
-      tasks
-        ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
-        : `不會產生任何待辦任務 —— ${s.future
-          ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
-          : '這次沒有還沒發生的來訪'}`,
-      '每位客戶各自寫入，一位失敗不影響其他人',
-    ],
-    confirmLabel: '匯入',
+/**
+ * 那三顆會動到「這一份檔案」的按鈕。**直接改屬性，不整頁重畫** ——
+ * 「開始匯入」在最底下，重畫會捲回最上面，而她正要看那一條進度。
+ */
+function lockButtons(el, locked) {
+  el.querySelectorAll('[data-run], [data-load], [data-clear]').forEach((btn) => {
+    btn.disabled = locked;
   });
-  if (!ok) return;
+}
 
-  toast.saving('匯入中…');
-  let results;
+async function run(el, ctx, plans, s, tasks) {
+  if (running) return;
+  running = true;
+  lockButtons(el, true);
+  // 真的開始寫了沒。她在確認框按「先不要」的話資料庫一個字都沒變，不用重讀
+  let wrote = false;
+
   try {
-    results = await importer.importAll(plans, (done, total, name) =>
+    const { events, notes } = chosenLoose();
+    const extras = picks.future.size + picks.missing.size;
+
+    const ok = await confirmAction({
+      title: '開始匯入',
+      consequences: [
+        `建立 ${s.customers} 位客戶、${s.entitlements} 筆額度、${s.visits} 筆來訪（${s.slots} 個時段）`,
+        `其中 ${s.timed} 個時段有時間，${s.slots - s.timed} 個時間不詳`,
+        s.future
+          ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
+          : '沒有日期在今天之後的來訪，全部標成已完成',
+        ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
+        extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
+        events.length ? `建立 ${events.length} 筆行事備註或休假` : '沒有勾任何行事備註或休假',
+        notes.length ? `建立 ${notes.length} 筆待辦（掛了日期的隨手記）` : '沒有勾任何待辦',
+        s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
+        tasks
+          ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
+          : `不會產生任何待辦任務 —— ${s.future
+            ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
+            : '這次沒有還沒發生的來訪'}`,
+        '每位客戶各自寫入，一位失敗不影響其他人',
+      ],
+      confirmLabel: '匯入',
+    });
+    if (!ok) return;
+
+    wrote = true;
+    toast.saving('匯入中…');
+    const results = await importer.importAll(plans, (done, total, name) =>
       toast.saving(`匯入中… ${done}/${total}（${name}）`),
     );
     if (events.length) {
@@ -557,24 +582,48 @@ async function run(el, ctx, plans, s, tasks) {
       toast.saving(`匯入中… 待辦 ${notes.length} 筆`);
       await importer.importNotes(notes);
     }
+
+    const failed = results.filter((r) => !r.ok);
+    toast.hide();
+    if (failed.length) {
+      toast.failed(`${results.length - failed.length} 位進去了，${failed.length} 位失敗：`
+        + failed.map((r) => `${r.customerName}（${r.error}）`).join('；'));
+    } else {
+      toast.info(`${results.length} 位客戶都匯進去了`);
+      file = null;
+      picks = emptyPicks();
+      kindOverrides = new Map();
+    }
   } catch (err) {
     toast.failed(`匯入失敗：${err.message}`);
-    return;
+  } finally {
+    // **放開之前重讀一次**，成功、有人失敗、丟例外三條路都一樣。丟例外那一條最要緊：
+    // 雜事那一步（`importEvents()`／`importNotes()`）丟出來的時候客戶已經全部寫進去了，
+    // 而按鈕手上的 `plans` 是畫面畫好那一刻算的 —— 不重算的話再按一次就是每一位多一份。
+    // 重讀之後已經建好的那幾位是同名、會被整位跳過。
+    let fresh = null;
+    let readError = null;
+    if (wrote) {
+      try {
+        fresh = await importer.loadContext();
+      } catch (err) {
+        readError = err;
+      }
+    }
+    running = false;
+    // 她匯到一半換頁了：這個容器現在是別頁的，不要畫上去。回來那一頁時 `render()` 會自己重讀
+    if (el.querySelector('[data-mergepage]')) {
+      if (!wrote) lockButtons(el, false);
+      // 讀不回來就不留按鈕 —— 手上那一份名單不知道還對不對
+      else if (readError) el.innerHTML = readFailedHtml(readError);
+      else paint(el, { ...fresh, rooms: fresh.rooms ?? [], staff: fresh.staff ?? [] });
+    }
   }
+}
 
-  const failed = results.filter((r) => !r.ok);
-  toast.hide();
-  if (failed.length) {
-    toast.failed(`${results.length - failed.length} 位進去了，${failed.length} 位失敗：`
-      + failed.map((r) => `${r.customerName}（${r.error}）`).join('；'));
-  } else {
-    toast.info(`${results.length} 位客戶都匯進去了`);
-    file = null;
-    picks = emptyPicks();
-    kindOverrides = new Map();
-  }
-
-  await render(el);
+function readFailedHtml(err) {
+  return `${backLink()}
+      <div class="card"><p>讀取失敗：${esc(err.message)}</p></div>`;
 }
 
 function backLink() {
