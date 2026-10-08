@@ -162,19 +162,21 @@ export function fillMirror(card, visit, render) {
     visit.customerId
       ? customersData.listEntitlements(visit.customerId).catch(() => [])
       : Promise.resolve([]),
-    // 客戶已經刪掉、或讀不到：那一排不畫，卡片照樣打得開
+    // 客戶已經刪掉（`null`）：那一排不畫，卡片照樣打得開。
+    // **讀不到（`undefined`）是另一件事：那一格不帶** —— 日曆先拿手上那一份畫了警示，
+    // 帶一個空的回去會把已經畫出來的那一排洗掉（2026-10-09 審查），而卡片看起來完全正常
     visit.customerId
-      ? customersData.get(visit.customerId).catch(() => null)
+      ? customersData.get(visit.customerId).catch(() => undefined)
       : Promise.resolve(null),
-    config.listAll('clinicalFlags').catch(() => []),
+    config.listAll('clinicalFlags').catch(() => undefined),
   ])
     .then(([tasks, entitlements, customer, clinicalFlags]) => {
       // 她可能在讀回來之前就關掉這張卡、或點開了另一筆
       if (!card?.el?.isConnected) return;
       card.update(render(tasks, {
         entitlementsById: Object.fromEntries((entitlements ?? []).map((e) => [e.id, e])),
-        customer: customer ?? null,
-        clinicalFlags: clinicalFlags ?? [],
+        ...(customer !== undefined ? { customer } : {}),
+        ...(clinicalFlags ? { clinicalFlags } : {}),
       }));
     })
     .catch(() => {});

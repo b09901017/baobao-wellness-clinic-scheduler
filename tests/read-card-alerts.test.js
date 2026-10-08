@@ -114,3 +114,24 @@ describe('那一排的版面', () => {
       '沒有警示時還是畫了一個空的 .readalerts');
   });
 });
+
+// 2026-10-09 審查查到的：日曆先拿手上那一份畫了警示（`{ ...data, customer, ...extra }`），`fillMirror()` 補讀回來的
+// 那一包蓋在後面。補讀**失敗**時那一包以前帶著 `customer: null`、`clinicalFlags: []` —— 警示先出現、接著被洗掉。
+// 她眼前那一排紅色的「體內金屬」不見了，而卡片看起來完全正常。
+describe('補讀失敗不可以把已經畫出來的警示洗掉', () => {
+  const src = read('js/ui/components/taskMirror.js');
+  const at = src.indexOf('export function fillMirror(');
+  const body = src.slice(at).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  test('讀不到這位客戶／警示主檔時那一格不帶（不是帶一個空的）', () => {
+    assert.ok(at > 0, '找不到 fillMirror()');
+    assert.ok(!/customer:\s*customer\s*\?\?\s*null/.test(body), '讀不到時帶了 customer: null —— 會蓋掉呼叫端手上那一份');
+    assert.ok(!/clinicalFlags:\s*clinicalFlags\s*\?\?\s*\[\]/.test(body), '讀不到時帶了 clinicalFlags: [] —— 警示主檔空的就一顆都畫不出來');
+    assert.ok(!/customersData\.get\([^)]*\)\.catch\(\(\)\s*=>\s*null\)/.test(body), '讀不到與「已經刪掉了」（null）要分得出來');
+    assert.ok(!/listAll\('clinicalFlags'\)\.catch\(\(\)\s*=>\s*\[\]\)/.test(body), '讀不到警示主檔不可以當成「一種警示都沒有」');
+  });
+
+  test('日曆那一張：手上那一份排在補讀的前面（補讀有帶才蓋）', () => {
+    assert.ok(read('js/ui/views/calendar.js').includes('{ ...data, customer, ...extra, tasks, focusSlot: focus }'));
+  });
+});
