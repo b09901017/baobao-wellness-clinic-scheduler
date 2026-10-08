@@ -3301,9 +3301,10 @@ async function renderClose(el) {
     master: { courses, equipment, ivProducts },
     today,
     settings,
-    // 「這一筆會不會長出『追蹤健檢報告』」要問額度（`pairsOf()`）。
-    // 開啟抽屜時才讀那一位的 —— 這一頁上可能有十幾筆，全部先讀是白費的。
-    entitlements: [],
+    // 「這一筆會不會長出『追蹤健檢報告』」要問真的會寫下去的那一支（`syncFollowupTasks()`，ADR-0139），
+    // 而它要這一位的額度、全部來訪、任務。開啟抽屜時才讀那一位的 ——
+    // 這一頁上可能有十幾筆，全部先讀是白費的。
+    ...noChain(),
   };
   paintClose(ctx);
 
@@ -3313,12 +3314,18 @@ async function renderClose(el) {
   if (want && ctx.rows.some((v) => v.id === want)) await openCloseDrawer(ctx, want);
 }
 
+/**
+ * 抽屜那一句「會多一張追蹤健檢報告」要的三份（這一位的額度、全部來訪、任務）還沒讀到時的樣子。
+ * 三份**一起有或一起沒有**：只有額度的話那一句會當成「這位客戶只有這一筆來訪」去算。
+ */
+const noChain = () => ({ entitlements: [], customerVisits: [], customerTasks: [] });
+
 /** 開某一天的簽療程單抽屜。清單上點那一列、與日曆長按過來，走同一支。 */
 async function openCloseDrawer(ctx, visitId) {
   // shown：進場動畫播過了沒（見 `mountDrawerGesture()`）
   openDrawer({ visitId, picks: new Map(), shown: false }, () => {
     // 跟 `wireClose()` 的 `close` 同一件事：換一位客戶時不要沿用上一位的額度
-    ctx.entitlements = [];
+    Object.assign(ctx, noChain());
     paintClose(ctx);
   });
   paintClose(ctx);
@@ -3328,11 +3335,23 @@ async function openCloseDrawer(ctx, visitId) {
   const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
   if (!visit?.customerId || ctx.entitlements?.length) return;
   try {
-    ctx.entitlements = await customersData.listEntitlements(visit.customerId);
+    const entitlements = await customersData.listEntitlements(visit.customerId);
+    // 沒有配得到二返的健檢就不可能有那一句 —— 大多數人到這裡為止，不多讀那兩份
+    const chained = pairsOf(entitlements, ctx.coursesById).some((p) => p.followup);
+    // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份
+    const [customerVisits, customerTasks] = chained
+      ? await Promise.all([
+        visitsData.listByCustomer(visit.customerId),
+        tasksData.listByCustomerForSync(visit.customerId),
+      ])
+      : [[], []];
+    // 等的時候她換了一位（或收掉了）：這三份是上一位的，不要放進去
+    if (drawer?.visitId !== visit.id) return;
+    Object.assign(ctx, { entitlements, customerVisits, customerTasks });
   } catch {
     return; // 讀不到就少一句話，不是少一頁
   }
-  if (drawer?.visitId === visit.id) paintClose(ctx);
+  paintClose(ctx);
 }
 
 function paintClose(ctx) {
@@ -3473,6 +3492,8 @@ function closeDrawerHtml(ctx) {
               entitlements: ctx.entitlements ?? [],
               coursesById: ctx.coursesById,
               sheetSyncOn: isConfigured(ctx.settings),
+              visits: ctx.customerVisits ?? [],
+              tasks: ctx.customerTasks ?? [],
             }).map((line) => `<li>${esc(line)}</li>`).join('')}
           </ul>` : ''}
 
@@ -3567,7 +3588,7 @@ function wireClose(ctx) {
     closeDrawer();
     // 換一位客戶時不要沿用上一位的額度 —— 那會讓「會多一張追蹤健檢報告」
     // 出現在一個根本沒買健檢的人身上。
-    ctx.entitlements = [];
+    Object.assign(ctx, noChain());
     paintClose(ctx);
   };
   el.querySelectorAll('[data-close-drawer]').forEach((b) => b.addEventListener('click', close));

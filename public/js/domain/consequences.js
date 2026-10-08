@@ -33,7 +33,7 @@ import {
   slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots,
 } from './visits.js';
 import {
-  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam,
+  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot } from './nthFollowup.js';
@@ -493,16 +493,23 @@ export function closedSay(visit, picks = []) {
  * 也說會多一張寫紀錄。「這一天改成…」只在最後一段也結掉時才講，
  * 結果走 `closeVisit()` 算（跟真的會寫下去的是同一支，ADR-0070）。
  *
+ * **「會多一張追蹤健檢報告」問真的會長什麼**（2026-10-08，ADR-0139）：把 `closeVisit()` 的結果換進這位客戶的
+ * 來訪裡，叫存檔時真的在跑的 `syncFollowupTasks()`。以前照「打勾的段裡有沒有健檢」自己推 ——
+ * 健檢和二返同一次排好時抽屜說會多一張、存完一張都沒有；報告勾過、二返次數用完的那幾種也照講。
+ * 所以**這位客戶的全部來訪與任務要一起傳進來**（抽屜打開時跟額度同一趟補讀）；沒傳就當成只有這一筆。
+ *
  * @param {object} o
  * @param {object} o.visit 那一筆來訪
  * @param {(boolean|null)[]} o.picks 逐段：`true` 做了、`false` 沒來、`null` 先不結（`closeVisit()` 收的那一份）
  * @param {object[]} o.entitlements 這位客戶的額度（要判斷有沒有健檢配二返）
  * @param {Record<string, object>} o.coursesById
  * @param {boolean} [o.sheetSyncOn]
+ * @param {object[]} [o.visits] 這位客戶的全部來訪（含這一筆現在的樣子）
+ * @param {object[]} [o.tasks] 這位客戶的任務，**連清掉的**（`listByCustomerForSync()`，ADR-0106）
  * @returns {string[]}
  */
 export function closeConsequences({
-  visit, picks = [], entitlements = [], coursesById = {}, sheetSyncOn = false,
+  visit, picks = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
 }) {
   const lines = [];
   const open = slotsToClose(visit).map(({ index }) => index);
@@ -526,9 +533,8 @@ export function closeConsequences({
 
   const slots = visit?.slots ?? [];
   // 健檢結案才長「追蹤健檢報告」（ADR-0042：報告要兩三週，報告沒到就不可能約）。
-  // 判斷走 `pairsOf()` —— 這一頁不認課程名字。**問打勾的那幾段**（ADR-0112）
-  const sources = checkupSources(entitlements, coursesById);
-  if (done.some((i) => sources.has(slots[i]?.entitlementId))) {
+  // **長不長問存檔時真的在跑的那一支**（ADR-0070、0139），這一頁不自己推、也不認課程名字。
+  if (done.length && growsReport(visit, picks, { entitlements, coursesById, visits, tasks })) {
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
   }
 
@@ -544,11 +550,25 @@ export function closeConsequences({
   return lines;
 }
 
-/** 「做完之後還要再約一次」的那幾筆健檢額度（配得到二返的）。 */
-function checkupSources(entitlements, coursesById) {
-  return new Set(
-    pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id),
-  );
+/**
+ * 這一筆照 `picks` 結掉之後，存檔那一下會不會替**這一次健檢**長一張「追蹤健檢報告」。
+ *
+ * 跟 `data/visits.js` 的 `followupOps()` 餵同一支、同一種輸入：這位客戶的來訪裡把這一筆換成結完的樣子。
+ * 死線的天數不影響長不長，所以不用讀設定。
+ */
+function growsReport(visit, picks, { entitlements, coursesById, visits, tasks }) {
+  // 沒有配得到二返的健檢額度就不可能有鏈（同 `followupOps()` 的提前結束）
+  if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return false;
+
+  const after = closeVisit(visit, picks);
+  const { create } = syncFollowupTasks({
+    customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
+    entitlements,
+    visits: [...(visits ?? []).filter((v) => v.id !== visit?.id), after],
+    tasks,
+    coursesById,
+  });
+  return create.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === visit?.id);
 }
 
 // ---------- 反過來：拿回來、取消 ----------

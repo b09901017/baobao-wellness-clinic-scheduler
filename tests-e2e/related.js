@@ -501,6 +501,13 @@ export const COVERAGE = {
     'public/js/domain/orderForm.js', 'public/js/ui/components/orderConfirm.js', 'public/js/ui/views/customers.js',
     'tests-e2e/fixtures/ai/',
   ],
+  // 2026-10-08 上線前修正，第三段（prelaunch-fixes-2026-10-08/15–18）：健檢和二返同一次排好時報告那兩張照樣長、
+  // 簽療程單抽屜那一句問真的會長什麼；改了課程「壓哪幾個系統／寫紀錄」回頭重算談定的那幾天
+  '63-prelaunch-rules': [
+    'public/js/domain/followups.js', 'public/js/domain/consequences.js', 'public/js/data/visits.js',
+    'public/js/ui/views/home.js', 'public/js/domain/taskRules.js', 'public/js/data/tasks.js',
+    'public/js/ui/views/masterList.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
