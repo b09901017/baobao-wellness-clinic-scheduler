@@ -23,7 +23,7 @@ import {
 import { pairsOf, holdsExam, usedAndDone } from './followups.js';
 import { followupsOfExam, nthLabel, nthOf } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
-import { shortDate, isValidDate } from './dates.js';
+import { shortDate, isValidDate, dayOf } from './dates.js';
 import { chartNosOf } from './identify.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
@@ -174,7 +174,7 @@ const COUNT_COLS = 5;
 /** 還沒做的看死線，做完的看完成日 —— 兩邊印同一個日期等於少講一件事。 */
 const taskRows = (items, kind) =>
   (items.length ? items : [null]).map((t) =>
-    (t ? [t.label, t.kind, kind === '完成' ? (t.doneAt ?? '').slice(0, 10) : (t.dueDate ?? '')]
+    (t ? [t.label, t.kind, kind === '完成' ? t.doneAt : (t.dueDate ?? '')]
        : ['（沒有）']));
 
 /**
@@ -937,7 +937,8 @@ function taskBlocks(tasks, visits, master = null, today = null) {
       label: [date ? monthDay(date, today) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',
       dueDate: t.dueDate ?? '',
-      doneAt: t.doneAt ?? '',
+      // 台灣那一天，不是 `doneAt.slice(0, 10)`（UTC：00:00–08:00 勾掉的會寫成前一天）。`.gs` 那一處照舊切前十個字，對日期字串一樣成立
+      doneAt: dayOf(t.doneAt) ?? '',
       note: t.note ?? '',
     };
   };
