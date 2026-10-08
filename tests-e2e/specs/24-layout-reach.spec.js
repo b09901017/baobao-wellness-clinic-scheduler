@@ -23,7 +23,9 @@
 // **這一條是她要的那件事**：展開編輯，不用捲動就看得到「存起來」。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, playbook, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
+import {
+  masterDocs, playbook, customer, entitlement, visit, slot, TODAY, addDays,
+} from '../fixtures/data.js';
 
 // ---------------------------------------------------------------------------
 // 1. 收合抽屜不可以先往上跳
@@ -324,3 +326,140 @@ test('F4 面板開著的時候 toast 在最上面，不擋面板裡的任何一�
   const drawer = await rectOf(page, '.drawer');
   expect(toast.bottom, `toast 的底 ${toast.bottom} 要在面板的頂 ${drawer.top} 上面`).toBeLessThanOrEqual(drawer.top);
 });
+
+// ---------------------------------------------------------------------------
+// 4. 壓表那一疊卡片開著時，toast 不可以蓋住卡片上任何一顆按得下去的東西
+//    （`.scratch/prelaunch-fixes-2026-10-08/issues/06`）
+// ---------------------------------------------------------------------------
+//
+// 每加一段，左下角跳出「記好了　復原」停 8 秒，剛好壓在「這位壓完了，下一位 →」的左半邊；
+// 捲到別的位置時蓋住的是「加這一段」或器材那一排。手快按「下一位」會按到「復原」：
+// 剛記的那一段退回去 —— Abovee 上壓了，app 裡沒有。9/18 那次只修了面板（`.drawer-backdrop`）開著的情況，
+// 那一疊卡片（`.deck`）不是面板，不在名單裡。
+//
+// **量的是「toast 底下有沒有可以按的東西」，不是兩個外框有沒有交集**：那一疊裡捲出去的按鈕
+// 被 `overflow` 裁掉了、外框卻還在（`docs/agents/lessons.md`「查的方法」）。所以把 toast 暫時藏起來，
+// 在它佔的那一塊（左右各多 8px）一格一格問 `elementFromPoint()`。
+
+/** toast 佔的那一塊底下，可以按的東西有哪幾個（空陣列＝一個都沒蓋到）。 */
+const underToast = (page) => page.evaluate(() => {
+  const toast = document.querySelector('#toast');
+  const r = toast.getBoundingClientRect();
+  toast.style.visibility = 'hidden';
+  const hit = new Set();
+  for (let x = r.left - 8; x <= r.right + 8; x += 6) {
+    for (let y = r.top; y <= r.bottom; y += 6) {
+      const el = document.elementFromPoint(x, y)?.closest('button, a, input, select, textarea, label, [role="button"]');
+      if (el) hit.add((el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 20));
+    }
+  }
+  toast.style.visibility = '';
+  return [...hit];
+});
+
+/** 壓表 → 開這個月 → 點王小明：那一疊卡片開著。 */
+async function openScheduleDeck(app, page) {
+  await app.go('/schedule');
+  await page.locator(`[data-month="${TODAY.slice(0, 7)}"]`).click();
+  await app.settled();
+  await page.locator('[data-pick="cust-d"]').first().click();
+  await app.layer('[data-deck] [data-day]');
+}
+
+test('F5 壓表加完一段：「記好了 復原」不蓋住那一疊裡任何一顆按鈕，捲到哪裡都一樣', async ({ app, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.seed(seedOneVisit());
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${TODAY.slice(0, 7)}"]`).click();
+  await app.settled();
+
+  // 卡片牆上（還沒開那一疊）toast 照舊站在導覽列上面那一條基準線，位置不跟著這一次改
+  await page.evaluate(async () => (await import('/js/ui/toast.js')).saved('記好了', async () => {}));
+  await expect(page.locator('#toast [data-undo]')).toBeVisible();
+  const onWall = await rectOf(page, '#toast');
+  const nav = await rectOf(page, '.app__nav');
+  expect(onWall.bottom, '卡片牆上：在導覽列上面').toBeLessThanOrEqual(nav.top);
+  expect(onWall.top, '卡片牆上：還是在畫面下半部').toBeGreaterThan(844 / 2);
+  await page.evaluate(async () => (await import('/js/ui/toast.js')).hide());
+
+  // 真的加一段：挑一天 → 做什麼 → 器材 → 時間 → 加這一段 → 兩道確認
+  await page.locator('[data-pick="cust-d"]').first().click();
+  await app.layer('[data-deck] [data-day]');
+  // 這個月裡挑得到的一天（明天；月底就用今天）
+  const day = addDays(TODAY, 1).startsWith(TODAY.slice(0, 7)) ? addDays(TODAY, 1) : TODAY;
+  await page.locator(`[data-deck] [data-day="${day}"]`).first().click();
+  await app.layer('[data-ent]');
+  await page.locator('[data-ent="ent-1"]').click();
+  await app.layer('[data-equipment]');
+  await page.locator('[data-equipment="eq-sis"]').click();
+  await page.locator('[data-time]').first().click();
+  await page.locator('[data-add]').click();
+  // 第一道（還沒選治療師）、第二道（壓好了嗎）—— 有幾道就按幾道，直到那一句出來。
+  // `:not([hidden])`：上面藏起來的那一條還在 DOM 裡，不可以把它當成新的那一句
+  const saved = page.locator('#toast:not([hidden]) [data-undo]');
+  for (let i = 0; i < 4; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await expect(app.dialog().or(saved).first()).toBeVisible();
+    // eslint-disable-next-line no-await-in-loop
+    if (await saved.isVisible()) break;
+    // eslint-disable-next-line no-await-in-loop
+    const before = await app.dialogText();
+    // eslint-disable-next-line no-await-in-loop
+    await app.ok();
+    // 下一道確認框接著就開（節點數一直是 1），所以等的是「那一句出來了」或「框裡換了字」
+    // eslint-disable-next-line no-await-in-loop
+    await expect.poll(async () => {
+      if (await saved.isVisible()) return true;
+      // 框已經收掉、那一句還沒出來：再等一輪（對不存在的節點問 innerText 會一路等到逾時）
+      if (!(await app.dialog().count())) return false;
+      return (await app.dialog().innerText({ timeout: 500 }).catch(() => before)) !== before;
+    }).toBe(true);
+  }
+  await expect(page.locator('#toast [data-undo]'), '「記好了 復原」').toBeVisible();
+  await expect(page.locator('[data-deck]'), '那一疊還開著').toBeVisible();
+
+  // 三個捲動位置：最上面、中間、最下面（「下一位」在最下面）
+  const card = page.locator('.deck__card:not(.deck__card--peek)');
+  for (const where of [0, 0.5, 1]) {
+    // eslint-disable-next-line no-await-in-loop
+    await card.evaluate((n, w) => { n.scrollTop = (n.scrollHeight - n.clientHeight) * w; }, where);
+    // eslint-disable-next-line no-await-in-loop
+    expect(await underToast(page), `捲到 ${where * 100}% 時 toast 底下可以按的東西`).toEqual([]);
+  }
+  await expect(page.locator('[data-deck] [data-done]'), '「這位壓完了，下一位」捲得到').toBeVisible();
+
+  // 「復原」自己還按得到（讓位不是把它藏起來）
+  const undo = await rectOf(page, '#toast [data-undo]');
+  const top = await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('#toast [data-undo]')),
+    [(undo.left + undo.right) / 2, (undo.top + undo.bottom) / 2]);
+  expect(top, '「復原」按得到').toBe(true);
+});
+
+for (const vp of [{ width: 390, height: 844, label: '手機' }, { width: 1024, height: 768, label: 'iPad 橫式' }]) {
+  test(`F6 ${vp.label}：那一疊開著時，長訊息的 toast 也不蓋住任何一顆按鈕`, async ({ app, page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await app.seed(seedOneVisit());
+    await app.signIn('/');
+    await openScheduleDeck(app, page);
+
+    for (const show of [
+      (t) => t.saved('記好了', async () => {}),
+      (t) => t.failed('儲存失敗：網路斷了，這一句故意寫得長一點看它換行之後往哪裡長', () => {}),
+    ]) {
+      // eslint-disable-next-line no-await-in-loop
+      await page.evaluate(async (fn) => {
+        // eslint-disable-next-line no-eval
+        (0, eval)(`(${fn})`)(await import('/js/ui/toast.js'));
+      }, show.toString());
+      // eslint-disable-next-line no-await-in-loop
+      await expect(page.locator('#toast button')).toBeVisible();
+      // eslint-disable-next-line no-await-in-loop
+      expect(await underToast(page), 'toast 底下可以按的東西').toEqual([]);
+      // 按鈕那一顆留在抬頭那一條裡（訊息再長，往下長的是字）
+      // eslint-disable-next-line no-await-in-loop
+      const [btn, head] = [await rectOf(page, '#toast button'), await rectOf(page, '[data-deckhead]')];
+      expect(btn.bottom, `toast 的按鈕底 ${btn.bottom} 要在抬頭的底 ${head.bottom} 之內`).toBeLessThanOrEqual(head.bottom);
+    }
+  });
+}

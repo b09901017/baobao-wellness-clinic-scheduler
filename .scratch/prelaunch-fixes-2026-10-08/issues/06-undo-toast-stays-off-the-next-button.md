@@ -1,6 +1,6 @@
 # 壓表時「記好了 [復原]」蓋住「這位壓完了，下一位」
 
-Status: todo
+Status: done
 來源：`f-undo-toast`、`ux/report.md` 第 1 條；截圖 `.local/references/audit-2026-10-08/ux/shots/19-deck-after-add.png`、`13-deck-day.png`、`15-deck-equip-notice.png`
 動工前先讀：`public/css/app.css:4406-4450`（toast 的三條讓位規則）、`:8008` 附近、`public/js/ui/views/schedule.js:734-800`（那一疊卡片 `[data-deck]`）、
 `public/js/ui/toast.js:14`、E2E `24-layout-reach`（F1–F4）、`CLAUDE.md` 連動表「貼在畫面底部的東西」
@@ -46,3 +46,28 @@ E2E：加在 `24-layout-reach` 那一組（F5），用 `getBoundingClientRect()`
 
 `CLAUDE.md` 連動表「貼在畫面底部的東西」那一列：讓位的名單多一個「壓表那一疊卡片」；
 「**新增一種會蓋住整頁、自己有底部按鈕的東西要加進這條規則**」—— 23 一起寫。
+
+## 做完時留下的（10/8）
+
+- **那一疊開著時 DOM 上認得出來的是什麼**：`<div class="deck" data-deck>`，開的時候 `appendChild` 到那一頁的容器（不在 `body` 正下方）、關的時候 `remove()` ——
+  所以選擇器是 `body:has(.deck) > .toast`，不是面板那種 `body:has(> …)`。**拍訂購單的確認卡（`orderConfirm.js`）也是 `.deck`**、同一種抬頭，一起吃到這一條。
+- **讓到哪裡**：不是面板那一條的「最上面靠左」—— 那一疊的抬頭是 `[‹] 名字 n/m …… [›] [×]`，靠左會蓋住「上一位」。
+  站在**抬頭中間名字那一段**（整疊唯一沒有按鈕的地方）：
+  - 上下對齊那三顆 38px 的按鈕，toast 自己縮成一行高（上下內距 2px、按鈕 36px＝42px），不超出抬頭的 54px
+  - 窄螢幕（<900px）：左邊從「上一位」右邊 16px 起，寬度到「下一位」左邊 16px 止；≥900px 照原本那一條置中
+  - 訊息長的時候（「儲存失敗：… 重試」）往下長的是字，**按鈕釘在上緣**（`align-items: flex-start`）—— 字會蓋到卡片最上面那一小塊，按鈕不會掉下去
+  - 代價：名字與「8 / 20」被蓋住，最多 8 秒；卡片自己最上面還有一次名字
+- **量位置**（E2E `24` 的 F5、F6）：不是比外框 —— 把 toast 暫時藏起來，在它佔的那一塊（左右各多 8px）每 6px 問一次 `elementFromPoint()`，
+  底下不可以有任何 `button／a／input／label`。F5 走真的那條路（加一段 → 兩道確認 →「記好了 復原」），捲到 0%／50%／100% 各量一次；
+  改之前紅在 50%（蓋住治療師那一排）。F6 手機 390 與 iPad 橫式 1024×768，短訊息與長的失敗訊息各量一次，另外釘住「按鈕的底在抬頭之內」。
+  卡片牆上（沒開那一疊）的 toast 位置在 F5 開頭先量過：照舊在導覽列上面、畫面下半部。F1–F4 照舊綠。
+- 截圖看過（手機短／長訊息、iPad）：沒有放進 repo。
+
+E2E 的坑（F5 寫了四次才對）：
+
+- `toast.hide()` 之後那一條還在 DOM 裡（`hidden`）。等「新的那一句」要寫 `#toast:not([hidden]) [data-undo]`，不然 `.or().first()` 會抓到舊的。
+- 兩道確認框是接著開的，`.dialog` 的數量一直是 1；對已經不存在的節點問 `innerText()` 會一路等到逾時。用 `count()` 先問。
+- 壓表挑日子：`TODAY` 是 2026-08-29，28 號已經過了（按鈕是 disabled）—— 用 `addDays(TODAY, 1)`。
+
+留給 23：`CLAUDE.md`「貼在畫面底部的東西」那一列 —— 讓位的名單多一個「那一疊卡片（`.deck`：壓表、拍訂購單）站到抬頭上」；
+「新增一種會蓋住整頁、自己有底部按鈕的東西要加進這條規則」；量法改成問 `elementFromPoint()`（F5、F6）。

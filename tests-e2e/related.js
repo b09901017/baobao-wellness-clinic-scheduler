@@ -239,6 +239,8 @@ export const COVERAGE = {
     'public/js/ui/views/playbook.js',
     // toast 不蓋導覽列、懸浮鈕與新增客戶那一條（F1–F3）
     'public/js/ui/toast.js', 'public/js/ui/components/customerForm.js', 'public/js/ui/views/customers.js',
+    // 那一疊卡片開著時 toast 站到抬頭上（F5、F6）：壓表的卡片組與拍訂購單的確認卡都是 `.deck`
+    'public/js/ui/views/schedule.js', 'public/js/ui/components/orderConfirm.js',
   ],
   // 來訪編輯器那三支 ADR（0083 一天一筆、0084 記一句在段上、0085 改一段）。
   // **`domain/visits.js` 與 `visitEditor.js` 是它的主場** —— 那兩支底下改一行
