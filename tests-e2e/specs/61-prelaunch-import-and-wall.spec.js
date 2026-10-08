@@ -6,7 +6,9 @@
 // fixture 全部是編出來的（客戶A、客戶B）。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, TODAY, addDays } from '../fixtures/data.js';
+import {
+  masterDocs, customer, entitlement, visit, slot, task, TODAY, addDays,
+} from '../fixtures/data.js';
 import { APP_ORIGIN } from '../fixtures/emulator.js';
 
 // ---------- 01 舊資料匯入只跑得了一趟 ----------
@@ -152,4 +154,75 @@ test('H1 模擬器回的快取標頭：程式檔與首頁 no-cache、圖示一�
   }
   const icon = await request.get(`${APP_ORIGIN}/icons/icon-192.png`);
   expect(icon.headers()['cache-control']).toBe('public, max-age=3600');
+});
+
+// ---------- 05 讀取卡片最上面那一排：這位客人的警示 ----------
+
+const DAY = TODAY;
+
+/** 客戶A 有「體內金屬」、客戶B 什麼警示都沒有；兩位今天各有一段已確認的 ILIB，客戶A 還掛著一張 Examine。 */
+function seedAlerts() {
+  const oneVisit = (id, customerId, customerName, startsAt) => visit({
+    id, customerId, customerName, date: DAY, status: 'confirmed',
+    slots: [{
+      ...slot({ courseId: 'course-iv-laser', entitlementId: `ent-${customerId}`, startsAt, endsAt: startsAt.replace(':00', ':59') }),
+      status: 'confirmed',
+    }],
+  });
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A', flags: ['體內金屬', '固定禮拜五不行'] }),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    entitlement('cust-a', { id: 'ent-cust-a', label: 'ILIB(60)', courseId: 'course-iv-laser', totalQty: 10, bookedCount: 1 }),
+    entitlement('cust-b', { id: 'ent-cust-b', label: 'ILIB(60)', courseId: 'course-iv-laser', totalQty: 10, bookedCount: 1 }),
+    oneVisit('v-a', 'cust-a', '客戶A', '10:00'),
+    oneVisit('v-b', 'cust-b', '客戶B', '14:00'),
+    task({ id: 'task-a', customerId: 'cust-a', customerName: '客戶A', kind: 'Examine', dueDate: DAY, visitId: 'v-a' }),
+  ];
+}
+
+test('A1 日曆點一段：卡片最上面有警示；沒有警示的客人那一排不在', async ({ app, page }) => {
+  await app.seed(seedAlerts());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-open^="visit:v-a:"]');
+
+  await page.locator('[data-open^="visit:v-a:"]').first().click();
+  await app.layer('.popcard');
+  const alerts = page.locator('.popcard .readalerts');
+  await expect(alerts, '警示那一層').toContainText('體內金屬');
+  await expect(alerts, '其他限制不在這一排').not.toContainText('固定禮拜五不行');
+  await expect(alerts.locator('.blockchips'), '在會換行的包裝裡（裸放會被拉滿整行）').toHaveCount(1);
+  await expect(page.locator('.popcard input[type="checkbox"]'), '這張卡只給看').toHaveCount(0);
+  // 任務那一塊補讀回來之後那一排還在（`fillMirror()` 的那一次重畫），而且只有一排
+  await app.layer('.popcard .taskmirror');
+  await expect(alerts).toHaveCount(1);
+  // 這一排在那一段的上面。**等那一次重畫完才量** —— 重畫到一半量到的是被換掉的舊節點（兩個都是 0）
+  const top = (await alerts.boundingBox()).y;
+  const slotTop = (await page.locator('.popcard .readslot').first().boundingBox()).y;
+  expect(top, '畫在那一段的上面').toBeLessThan(slotTop);
+  await page.locator('[data-card-close]').click();
+
+  await page.locator('[data-open^="visit:v-b:"]').first().click();
+  await app.layer('.popcard .taskmirror');
+  await expect(page.locator('.popcard'), '開的是客戶B').toContainText('14:00');
+  await expect(page.locator('.popcard .readalerts'), '沒有警示：一個像素都不佔').toHaveCount(0);
+});
+
+test('A2 待辦中心「詳情」與進度追蹤：同一張卡，同一排警示', async ({ app, page }) => {
+  await app.seed(seedAlerts());
+  await app.signIn('/todo/Examine');
+
+  await page.locator('[data-visit="v-a"]').first().click();
+  await expect(page.locator('.popcard .readalerts'), '待辦中心').toContainText('體內金屬');
+  await page.locator('[data-card-close]').click();
+
+  await app.go('/customers/progress');
+  await page.locator('button.progslot[data-visit="v-a"]').first().click();
+  await expect(page.locator('.popcard .readalerts'), '進度追蹤').toContainText('體內金屬');
+  await page.locator('[data-card-close]').click();
+
+  await app.go('/customers/cust-a');
+  await page.locator('button.progslot[data-visit="v-a"]').first().click();
+  await expect(page.locator('.popcard .readalerts'), '客戶詳情').toContainText('體內金屬');
 });

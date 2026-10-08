@@ -1,6 +1,6 @@
 # 日曆點開的那張卡片上看不到客人的警示
 
-Status: todo
+Status: done
 來源：`f-card-flags`、`rules/report.md` 第 4 條；截圖 `.local/references/audit-2026-10-08/ux/shots/22-cal-readcard-1.png`（模擬器的假客戶）
 動工前先讀：`public/js/ui/views/calendar.js:1591` 的 `visitReadHtml()` 與它的五個呼叫端
 （`calendar.js:932`、`customerDetail.js:1842`、`home.js:1248`、`home.js:2220`、`progress.js:357`）、
@@ -53,3 +53,28 @@ Blocked by: —
 - 掃原始碼那一條（上面）。
 - 單元：`visitReadHtml()` 給一位帶警示的假客戶 → HTML 裡有那一顆；沒有警示 → 沒有那一排。
 - E2E `61`：客戶A 帶一個警示 → 日曆點那一段看得到；待辦中心「詳情」打開同一張也看得到。
+
+## 做完時留下的（10/8）
+
+- **畫在一處**：`visitReadHtml()` 回的那一塊最上面多一個 `<div class="readalerts">`，裡面是 `flagsUi.alertChips()`（跟壓表卡片牆同一支，自己帶 `.blockchips` 包裝）。
+  沒有警示、或還沒拿到這位客戶時整塊不畫（三元，不是一個空的 div）。五個 `openCard({ title })` 一個字都沒動。
+- **資料怎麼來**：`visitReadHtml(visit, data)` 多讀 `data.customer`（這位客戶）與 `data.clinicalFlags`（警示主檔）。
+  - 日曆、待辦兩處、進度：`components/taskMirror.js` 的 `fillMirror()` 補讀的那一趟多兩樣（`customersData.get()`、`config.listAll('clinicalFlags')`），
+    跟任務、額度**同一次 `card.update()`**，經各頁本來就有的 `...extra` 進到 `visitReadHtml()`。三頁一行都不用改。
+  - 日曆另外先給一份：載入時多讀警示主檔（跟客戶同一趟 `Promise.all`），`paint()` 把手上的 `customer` 傳進去 —— **日曆上那一排跟卡片一起出現，不會晚一拍**。
+  - 客戶詳情不走 `fillMirror()`：直接傳 `ctx.customer`、`ctx.clinicalFlags`。
+- **判準逐條**：
+  - 四個畫面、五個呼叫端：`tests/read-card-alerts.test.js` 掃每一個 `visitReadHtml(`（要嘛直接帶那兩格，要嘛 `...extra` ＋ `fillMirror()`），並釘住呼叫端一共 5 個；E2E `61` 的 A1（日曆）、A2（待辦中心「詳情」、進度追蹤、客戶詳情）。
+  - 沒有警示的客人：`.readalerts` 不存在（A1 的客戶B）。
+  - `.blockchips` 包裝：A1 量到剛好一個。`.readalerts .blockchips { margin-top: 0 }`（那個 margin 是給「接在名字底下」用的）。
+  - 只給看：卡片上沒有 checkbox（單元＋A1）。
+  - 客戶已經刪掉：`customersData.get()` 讀不到就是 `null`，那一排不畫，卡片照樣開。
+  - **補讀回來之前會不會往下推**：日曆與客戶詳情不會（第一版就有）。**待辦中心兩個入口與進度追蹤會**：那一排跟「這一項的待辦」那一塊在同一次重畫出現，
+    底下的列往下移一排。沒有為了它讓那三頁各自多載一份客戶與警示主檔 —— 那正是「五份遲早漏一份」的形狀；真的嫌跳再說（做法：比照日曆，載入時先讀、`paint()` 先傳）。
+- 只畫警示那一層；其他限制（「固定禮拜五不行」）與合作機構不在這一排（A1 有斷言）。
+
+E2E 的坑：`card.update()` 重畫到一半量 `getBoundingClientRect()` 會量到被換掉的舊節點（都是 0）—— 等 `.taskmirror` 出現再量。
+讀取卡片按 Escape 會連底下那一天的抽屜一起收掉，測試裡關卡片用 `[data-card-close]`。
+
+留給 23：`CLAUDE.md` 連動表「一筆來訪的讀取卡片」那一列補一句（最上面那一排警示、資料從哪來、新增呼叫端要帶 `customer`／`clinicalFlags` 或走 `fillMirror()`）；
+「沒做、留著」：日曆日／週那一列（`visitRow()`）沒有警示。

@@ -4198,6 +4198,17 @@ button.mark::after {
   border-radius: var(--radius);
 }
 
+/* 讀取卡片最上面那一排：這位客人的警示（`visitReadHtml()`，四個畫面共用）。
+   裡面是 `alertChips()` 自己的 `.blockchips` 包裝（會換行）；它的 `margin-top` 是給
+   「接在名字底下」用的，這裡上面沒有東西，所以歸零、改成跟底下那幾段隔開。 */
+.readalerts {
+  margin-bottom: var(--space-2);
+}
+
+.readalerts .blockchips {
+  margin-top: 0;
+}
+
 .readslot__when {
   display: block;
   font-size: var(--text-lg);

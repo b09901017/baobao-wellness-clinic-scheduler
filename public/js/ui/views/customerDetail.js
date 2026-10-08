@@ -1849,6 +1849,9 @@ function openVisitCard(ctx, visitId, slotIndex = null, taskId = null) {
     // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
     // 不必像日曆那樣點開才去讀那一位。
     entitlementsById: byId(ctx.entitlements ?? []),
+    // 卡片最上面那一排警示。這一頁不走 `fillMirror()`，所以自己傳
+    customer: ctx.customer ?? null,
+    clinicalFlags: ctx.clinicalFlags ?? [],
     tasks: ctx.tasks ?? [],
     today: todayISO(),
     // **她點的那一段**（ADR-0080）。沒帶的那幾條路（來訪紀錄那一列、

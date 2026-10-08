@@ -486,6 +486,8 @@ export const COVERAGE = {
     'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js', 'public/js/domain/mergeImport.js',
     // H1：模擬器回的快取標頭（Windows 上跳過，CI 才真的量）
     'firebase.json',
+    // A1、A2：讀取卡片最上面那一排警示（四個畫面共用 `visitReadHtml()`，三頁靠 `fillMirror()` 補讀）
+    'public/js/ui/views/calendar.js', 'public/js/ui/components/taskMirror.js', 'public/js/ui/components/flags.js',
   ],
 };
 
