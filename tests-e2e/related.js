@@ -507,6 +507,8 @@ export const COVERAGE = {
     'public/js/domain/followups.js', 'public/js/domain/consequences.js', 'public/js/data/visits.js',
     'public/js/ui/views/home.js', 'public/js/domain/taskRules.js', 'public/js/data/tasks.js',
     'public/js/ui/views/masterList.js',
+    // K3：取消那一道講「約二返」走的是批次取消那一頁（2026-10-09 審查：以前沒登記，改那一頁不會跑到 K3）
+    'public/js/ui/views/bulkCancel.js',
   ],
   // 2026-10-09 上線前修正，第四段（prelaunch-fixes-2026-10-08/19–21）：人員的全名與簡寫（ADR-0141）、
   // 合併檔 v6 帶人員名單

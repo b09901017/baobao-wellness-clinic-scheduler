@@ -1751,7 +1751,9 @@ async function main() {
     renames: aliases.renames ?? {},
     doctors: aliases.doctors ?? [],
     noise: aliases.noise ?? [],
-    today: arg('today', new Date().toISOString().slice(0, 10)),
+    // 沒給 --today 時用**台灣的今天**，不是 `toISOString()` 切字 —— 那是 UTC，00:00–08:00 產檔的話
+    // 「今天以前不匯」的界線會早一天（lessons 七）。`sv-SE` 的日期格式就是 YYYY-MM-DD
+    today: arg('today', new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })),
     decisions,
     // 病歷號名單（選填）：`{ "<名字>": "<病歷號>" }`，有真名、只放 .local/
     chartNumbers: arg('chart-numbers') ? JSON.parse(readFileSync(arg('chart-numbers'), 'utf8')) : null,

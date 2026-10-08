@@ -201,7 +201,7 @@ test('別名表裡的真名沒有出現在任何被追蹤的檔案裡', (t) => {
     return;
   }
 
-  // 名單從哪幾份來寫在 `helpers/realNames.js`（別名表、合併檔、病歷號名單、Abovee 擷取檔）
+  // 名單從哪幾份來寫在 `helpers/realNames.js`（別名表、合併檔、病歷號名單、Abovee 擷取檔、人員名單）
   let names;
   let sources;
   try {

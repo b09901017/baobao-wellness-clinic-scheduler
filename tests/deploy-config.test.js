@@ -137,6 +137,18 @@ describe('deploy.yml：同一個環境的部署排隊，不互相蓋', () => {
     assert.match(block, /github\.ref/, 'group 要照分支分 —— 不然 staging 與正式會互相排隊');
   });
 
+  // 2026-10-09 審查：只照分支分的話，「手動執行」（workflow_dispatch）從別的分支跑也是上 staging
+  //（底下「決定要部署到哪裡」：不是 main 就是 staging），卻跟 develop 的 push 不同組 —— 兩邊照樣互相蓋。
+  // 要排同一隊的是**同一個環境**。PR 不部署，照舊一支 PR 自己一組（不然每一支 PR 的測試會互相等）。
+  test('排隊照「上哪一個環境」分：不是 main 的部署都跟 develop 同一隊', () => {
+    const block = topLevel('concurrency');
+    const group = block.match(/group:\s*(.+)/)?.[1] ?? '';
+    assert.match(group, /github\.event_name\s*==\s*'pull_request'\s*&&\s*github\.ref/, 'PR 照舊一支一組');
+    assert.match(group, /github\.ref\s*==\s*'refs\/heads\/main'\s*&&\s*'prod'\s*\|\|\s*'staging'/, '其餘照環境：main 是 prod，別的都是 staging');
+    // 跟底下決定專案的那一步同一個條件 —— 兩邊對不上的話，會有一種部署排錯隊
+    assert.match(DEPLOY, /if \[ "\$\{\{ github\.ref \}\}" = "refs\/heads\/main" \]; then/);
+  });
+
   test('不取消進行中的那一次（取消會留下一半的部署）', () => {
     assert.match(topLevel('concurrency'), /cancel-in-progress:\s*false\b/);
   });

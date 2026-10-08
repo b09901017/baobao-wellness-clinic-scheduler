@@ -27,9 +27,11 @@ permissions:
 # - `cancel-in-progress: false`：取消會把部署砍在一半（Hosting 上了、Rules 沒上）。
 #   同一組裡最多一個在跑、一個在等，後來的會頂掉還在等的那一個 ——
 #   所以連推三次，最後部署上去的一定是最新的那一次。
-# - 照 `github.ref` 分組：`develop`（staging）與 `main`（正式）各排各的；每一支 PR 也是自己一組。
+# - **照「上哪一個環境」分組，不是照分支**（2026-10-09 審查）：`main` 是正式，其餘會部署的都是 staging ——
+#   跟底下「決定要部署到哪裡」同一個條件。只照分支分的話，「手動執行」從別的分支跑也是上 staging，
+#   卻跟 `develop` 的 push 不同組，兩邊照樣互相蓋。PR 不部署，照舊一支 PR 自己一組（各跑各的測試）。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.ref == 'refs/heads/main' && 'prod' || 'staging') }}
   cancel-in-progress: false
 
 env:
