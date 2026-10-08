@@ -34,10 +34,13 @@ export const updateOp = (type, id, changes) => ({ op: 'update', path: pathFor(ty
 export const remove = (type, id, reason) => repo.softDelete(pathFor(type), id, reason);
 export const restore = (type, id) => repo.restore(pathFor(type), id);
 
-/** 一次把所有主檔讀出來。設定頁與之後的排班畫面都需要全部。 */
-export async function loadAll() {
+/**
+ * 一次把所有主檔讀出來。設定頁與之後的排班畫面都需要全部。
+ * 拿來印**既有資料**的名字（試算表）要帶 `includeDeleted` —— 刪掉的治療師、器材、健檢做過的那幾次照樣要印得出來。
+ */
+export async function loadAll({ includeDeleted = false } = {}) {
   const entries = await Promise.all(
-    MASTER_TYPES.map(async (type) => [type, await listAll(type)]),
+    MASTER_TYPES.map(async (type) => [type, await listAll(type, { includeDeleted })]),
   );
   return Object.fromEntries(entries);
 }
