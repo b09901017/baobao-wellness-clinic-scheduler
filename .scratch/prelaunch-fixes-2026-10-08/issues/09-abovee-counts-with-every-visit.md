@@ -1,6 +1,6 @@
 # 拍 Abovee 只拿 180 天的來訪算「還剩幾次」
 
-Status: todo
+Status: done
 來源：`f-abovee-180`（🔴）、`ai/report.md` 第 1 條
 動工前先讀：`docs/agents/lessons.md` 第二節、`public/js/ui/components/aboveeConfirm.js:110-170`（`:122` 的 `listBetween`、`:834` 存檔前才 `listByCustomer`）、
 `public/js/ui/views/schedule.js:370-380`、`:677-690`（把那一頁的來訪傳進去）、`public/js/domain/aboveeImport.js:149-190`（`readAbovee()`、`pickOption()`）、
@@ -52,3 +52,34 @@ Blocked by: —
 ## 文件
 
 `CLAUDE.md` 連動表補一列「算次數／驗證一律拿那位客戶的全部來訪」（誰讀、讀多少天；畫面為了快只讀一段期間的那幾頁不可以拿那一份去算）—— 23 一起寫。
+
+## 做完時留下的（10/8）
+
+- **兩種需求、兩份來訪**，都在 `aboveeConfirm.js` 的 `start()`：撞期與「app 有、這次照片上沒有」照舊 `listBetween()`（那幾天全部客戶）；
+  算次數／預選／提醒多一支 `loadHistory(ids)` —— 照片上認得的每一位各 `listByCustomer()` 一次，**整份換掉 `visitsBy[那一位]`**（照審查建議，不拆成兩個 map）。
+  認得哪幾位是 domain 的 `customersOnPhoto(transcripts, customers)`（`mergeAboveePhotos()` ＋ `identifyCustomer()`，跟翻譯同一支）。
+- **「換一位」**：`pickWho(key, id)` 先 `await loadHistory([id])` 才 `resolveItem()`。讀的那一下她可能又按了別的，回來之後照 key 再找那一列。
+- **讀不到全部不安靜地照算**（判準兩個都做）：`loadHistory()` 把讀不到的那一位記進 `ctx.partial`（Set）；`resolveItem()` 看到就 `partialHistory: true`、**不預設打勾**；
+  那一列收著也看得到一句（`partialSay()`，`rowHtml()` 的 hint）。**離線也算讀不到** —— Firestore 開著本機快取，離線時 `getDocs` 不會失敗，回的是快取裡剛好有的那幾筆（`isOffline()`）。
+  沒有做「再讀一次」的按鈕：她在那一列「換一位」再選同一位就會重讀（`whole` 裡沒有他）。`recorded`／`mismatch` 的列不講那一句（比的是同一天，那幾天另外讀了）。
+- 判準逐條：180 天前用完的那一筆不再被預選（單元＋E2E `62` 的 P1，P1 在舊程式上是紅的）；超用那一句打開時就算得出來（單元）；
+  `existingAt()` 比的是同一天，半年前同一個時間的段不會被當成這一次的（單元）；存檔前那一次重讀還在（`write()` 裡的 `fresh`，掃原始碼釘著）。
+- **慢了多少**（模擬器、她的筆電）：20 位各 40 筆來訪一起讀 **約 1.5 秒**（同一台上 `listBetween()` 一個月 100 筆約 0.2 秒）。打開確認層多等這一段；真的 Firestore 沒量。
+- **同一個形狀的地方查過一輪**（lessons 二）—— 拿不完整的來訪去算次數的**只有確認層這一處**：
+  | 呼叫端 | 拿的來訪 | |
+  |---|---|---|
+  | `aboveeImport.js` 的 `entitlementChoices()`／`examChoices()`、`aboveeConfirm.js` 的兩個 `validateVisit()`、`slotOptionsFor()`、`examChoicesForNth()` | 以前：壓表那一頁的 180 天；現在：那一位的全部 | 這一支修的 |
+  | 壓表 `courseOptions()` 的「剩 N」、`customerPools()`／`pendingFor()` 的每一個呼叫端（客戶清單、待辦中心、時段反查） | 額度上的快取欄位（`cached` 預設 true），不靠來訪 | 對 |
+  | 壓表 `addSlot()` 的 `validateVisit()` | 存檔前 `listByCustomer()` | 對 |
+  | 壓表 `examChoicesOf()`／`nthExamChoices()`／`nextNthFor()` | 180 天 —— **刻意的**（`schedule.js:1741` 的註解：半年前的健檢去日曆接） | 不動 |
+  | 來訪編輯器、客戶詳情、批次取消、待辦中心兩張抽屜、日曆長按 | `listByCustomer()` | 對 |
+  | 資料健檢 | 整份快照 | 對 |
+  | 試算表 | `listForSheet()`（過去的全部，ADR-0132） | 對 |
+- `r09-partial-history.mjs` **是 import 真的那一支**，但它餵的來訪是腳本自己框的 —— 修的是「確認層餵哪一份」，所以它修完照樣印那兩行。
+  取代它的是 `tests/abovee-whole-history.test.js`（規則＋掃 `aboveeConfirm.js` 的原始碼）與 E2E `62` 的 P1。
+- 既有的 `41`、`51` 跑過，全綠。
+
+給 10 的：`customersOnPhoto()` 讀的是 `mergeAboveePhotos()` 回的列 —— 去重的鑰匙怎麼改它都跟著；`resolveItem()` 的回傳多一格 `partialHistory`（換人重算時會清掉）。
+`ctx.partial` 是確認層記的，domain 只讀。
+
+留給 23：`CLAUDE.md` 連動表補一列「算次數／驗證一律拿那位客戶的全部來訪」（上面那張表可以直接搬）；「拍 Abovee 記很多段」那一列補 `loadHistory()`／`customersOnPhoto()`／`partialSay()`。

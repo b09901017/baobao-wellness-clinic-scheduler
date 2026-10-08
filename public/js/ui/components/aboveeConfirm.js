@@ -21,8 +21,9 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
-  nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices,
+  mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
@@ -37,6 +38,7 @@ import { slotName } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
+import { isOffline } from '../net.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
@@ -83,6 +85,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const showAllRooms = new Set();
   /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
   const finding = new Map();
+  /** 已經讀到**全部**來訪的那幾位（`loadHistory()`）。讀過就不再讀；存檔前那一次重讀是另一回事 */
+  const whole = new Set();
 
   const transcripts = photos.map((p) => p.transcript);
   const urlOf = (i) => photos[i]?.url ?? null;
@@ -110,7 +114,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   let layer = pushLayer(() => requestClose({ fromBack: true }));
 
-  // ---------- 載入：照片上那幾天的來訪、還開著的壓表清單 ----------
+  // ---------- 載入：照片上那幾天的來訪、那幾位的全部來訪、還開著的壓表清單 ----------
+  //
+  // **兩種需求、兩份來訪**（prelaunch-fixes/09）：撞期與「app 有、這次照片上沒有」要的是**那幾天全部客戶**的
+  //（`listBetween()`）；算「還剩幾次」、預選、提醒要的是**那幾位客戶的全部**（`loadHistory()`）。
 
   async function start() {
     // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀。
@@ -133,11 +140,42 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       /* 讀不到就用手上那一份；存的時候每一位會再讀一次 */
     }
     if (closed) return;
+    // 照片上認得的每一位（一頁最多 20 位）各讀一次全部，才翻譯 —— 預選與提醒是翻譯那一下算的
+    await loadHistory(customersOnPhoto(transcripts, ctx.customers));
+    if (closed) return;
 
     ({ pairing, counts: sizes, items } = readAbovee(transcripts, ctx));
     // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
     attention = new Set(items.filter(needsAttention).map((i) => i.key));
     paintBody();
+  }
+
+  /**
+   * 這幾位的**全部**來訪（prelaunch-fixes/09）。壓表那一頁手上只有最近 180 天 —— 半年前打完的那一筆在那一份裡
+   * 看起來還有剩，於是預選它、那一列預設打勾、也不講「排完會超過」。讀回來的整份換掉 `visitsBy[那一位]`；
+   * 撞期那一份是把 `visitsBy` 攤平再濾日期（`checkCtx()`），照舊成立。
+   *
+   * **讀不到的不安靜地照算**：記進 `ctx.partial`，那一位的列不預設打勾、講一句（`partialSay()`）。
+   * 離線也算讀不到 —— Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆。
+   */
+  async function loadHistory(ids) {
+    const wanted = [...new Set(ids)].filter((id) => id && !whole.has(id));
+    if (!wanted.length) return;
+    const offline = isOffline();
+    const got = await Promise.all(wanted.map((id) => (offline
+      ? [id, null]
+      : visitsData.listByCustomer(id).then((list) => [id, list], () => [id, null]))));
+    // 等回來之後才拿手上那一份：同時有兩趟在讀時，後回來的不可以蓋掉先回來的
+    const visitsBy = { ...ctx.visitsBy };
+    const partial = new Set(ctx.partial ?? []);
+    for (const [id, list] of got) {
+      if (list) {
+        visitsBy[id] = list;
+        whole.add(id);
+        partial.delete(id);
+      } else partial.add(id);
+    }
+    ctx = { ...ctx, visitsBy, partial };
   }
 
   // ---------- 畫 ----------
@@ -364,6 +402,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 —— 收起來也看得到 */''}
+        ${partialSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(partialSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
@@ -690,12 +730,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rowEl(key)?.querySelector('[data-abl-query]')?.focus();
       return;
     }
-    if (t.dataset.ablWho) {
-      // 換了人整列重算（`resolveItem()`）；**她自己選的人不自動勾**（那一支的規則）
-      finding.delete(key);
-      set(resolveItem(item, t.dataset.ablWho, ctx));
-      return;
-    }
+    if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
     if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
@@ -730,6 +765,21 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function rowEl(key) {
     return [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key) ?? null;
+  }
+
+  /**
+   * 「是誰」選了一位：換了人整列重算（`resolveItem()`）；**她自己選的人不自動勾**（那一支的規則）。
+   * **先讀那一位的全部來訪**（09）—— 照片上沒認出他，打開時沒有替他讀；拿壓表那一頁的 180 天去算就是原本那個 bug。
+   * 讀的那一下她可能又按了別的：回來之後照 key 再找一次那一列，記好了的不動。
+   */
+  async function pickWho(key, customerId) {
+    finding.delete(key);
+    await loadHistory([customerId]);
+    if (closed) return;
+    const at = items.findIndex((i) => i.key === key);
+    if (at < 0 || savedKeys.has(key)) return;
+    items[at] = resolveItem(items[at], customerId, ctx);
+    repaintRow(key);
   }
 
   function onKey(e) {

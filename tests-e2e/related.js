@@ -493,6 +493,14 @@ export const COVERAGE = {
     // W1、W2：刪掉的客戶不留在壓表牆上
     'public/js/ui/views/schedule.js', 'public/js/domain/scheduling.js',
   ],
+  // 2026-10-08 上線前修正，第二段（prelaunch-fixes-2026-10-08/09–14）：拍 Abovee 拿全部來訪算次數、
+  // 提醒在收著的列與確認框上看得到；同一張訂購單拍兩次
+  '62-prelaunch-photos': [
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/consequences.js',
+    'public/js/domain/visits.js', 'public/js/ui/views/schedule.js',
+    'public/js/domain/orderForm.js', 'public/js/ui/components/orderConfirm.js', 'public/js/ui/views/customers.js',
+    'tests-e2e/fixtures/ai/',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

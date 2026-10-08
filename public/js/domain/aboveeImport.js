@@ -139,6 +139,30 @@ export function mergeAboveePhotos(transcripts = []) {
 
 // ---------- 每一列 ----------
 
+/**
+ * 照片上認得的是哪幾位（prelaunch-fixes/09）。確認層打開時替他們**各讀一次全部來訪** ——
+ * 算「還剩幾次」、預選、提醒都拿那一份（`ctx.visitsBy[那一位]`）。壓表那一頁手上的只有最近 180 天，
+ * 半年前打完的那一筆在那一份裡看起來還有剩。認人跟翻譯同一支（`identifyCustomer()`）。
+ */
+export function customersOnPhoto(transcripts, customers) {
+  const { rows } = mergeAboveePhotos(transcripts);
+  const ids = rows.map((row) => identifyCustomer({ name: row.name, chartNo: row.chartNo }, customers).customer?.id);
+  return [...new Set(ids.filter(Boolean))];
+}
+
+/** 這一位的全部來訪讀不到（`ctx.partial`：確認層記著的那幾位）—— 手上那一份算出來的次數不可信。 */
+const historyPartial = (ctx, customerId) => Boolean(customerId) && new Set(ctx.partial ?? []).has(customerId);
+
+/**
+ * 「新的」那一列：這一位過去的來訪沒有讀到全部（網路、或那一下讀失敗）。**不安靜地照算** ——
+ * 那一列不預設打勾（`resolveItem()`）、講這一句。她在那一列「換一位」再選一次同一位會重讀。
+ */
+export function partialSay(item) {
+  return item?.kind === 'new' && item.partialHistory
+    ? '這一位過去的來訪沒有讀到全部，這裡的「剩幾次」與提醒可能不準 —— 確定再勾（「換一位」再選一次他會重讀）。'
+    : '';
+}
+
 const liveEnts = (ctx, customerId) =>
   (ctx.entitlementsBy?.[customerId] ?? []).filter((e) => e && !e.deletedAt && !isProduct(e));
 
@@ -302,7 +326,7 @@ export function resolveItem(item, customerId, ctx) {
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
-    reason: null, appStatus: null, appCancelledHere: false,
+    reason: null, appStatus: null, appCancelledHere: false, partialHistory: false,
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
 
@@ -344,8 +368,10 @@ export function resolveItem(item, customerId, ctx) {
   // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）
   const future = Boolean(next.date) && next.date >= ctx.today;
   const recognized = item.who?.customer?.id === next.customerId;
-  const checked = recognized && !next.cancelled && future && !next.appCancelledHere;
-  return { ...next, kind: 'new', checked };
+  // 09：這一位的全部來訪讀不到 → 上面的預選是拿不完整的那一份算的，不替她勾（`partialSay()` 講出來）
+  const partialHistory = historyPartial(ctx, next.customerId);
+  const checked = recognized && !next.cancelled && future && !next.appCancelledHere && !partialHistory;
+  return { ...next, kind: 'new', checked, partialHistory };
 }
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
