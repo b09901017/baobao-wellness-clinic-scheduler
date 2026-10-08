@@ -3,6 +3,8 @@
 // 匯出備份與試算表報表都要用，而 Blob → objectURL → 點一下 → 記得 revoke
 // 這四步少一步就會漏記憶體或根本沒下載，抄兩份就會有一份寫錯。
 
+import { todayISO } from '../../domain/dates.js';
+
 /**
  * @param {string} filename 含副檔名
  * @param {string} text
@@ -19,5 +21,6 @@ export function saveText(filename, text, mime = 'text/plain;charset=utf-8') {
 
 /** 檔名帶上日期，存到雲端硬碟時才排得出先後。 */
 export function dated(prefix, extension) {
-  return `${prefix}-${new Date().toISOString().slice(0, 10)}.${extension}`;
+  // 台灣那一天（`todayISO()`），不是 `toISOString()` 切字 —— 那是 UTC，00:00–08:00 匯出的會寫成前一天
+  return `${prefix}-${todayISO()}.${extension}`;
 }
