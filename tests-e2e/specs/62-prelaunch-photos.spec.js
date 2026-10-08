@@ -140,3 +140,62 @@ test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句�
   await expect(row(page, 'a1').locator('.abl-row__warnings li')).toHaveCount(3);
   await expect(row(page, 'a1').locator('.abl-row__warnings')).toContainText('還沒選治療師');
 });
+
+// ---------- 14 同一張訂購單拍了兩次 ----------
+
+/** 客戶 → 右下角 ＋ →「拍訂購單」→ 相簿選幾張 → 送出 → 確認卡（同 `40-order-form`）。 */
+async function photographOrder(page, fixtures) {
+  await queueAi(fixtures);
+  const files = [];
+  for (const [i, name] of fixtures.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    files.push(await fakePhoto(`${name}-${i}.jpg`));
+  }
+  await page.locator('[data-fabtoggle]').click();
+  await page.locator('[data-orderform]').click();
+  await expect(page.locator('.cam')).toBeVisible();
+  await page.locator('[data-cam-album-input]').setInputFiles(files);
+  await expect(page.locator('.cam__thumb')).toHaveCount(fixtures.length);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('.ocdeck')).toBeVisible();
+}
+
+test('P3 拍訂購單：同一張拍了兩次 → 卡上講出來、建立按不下去；拿掉一張就只建一套', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/customers');
+  await photographOrder(page, ['orderForm-jingu', 'orderForm-jingu']);
+
+  await expect(page.locator('.ocdeck .ocard-host')).toHaveCount(1);
+  const card = page.locator('.ocdeck .ocard-host').nth(0);
+  // 照設計併成同一位的兩次購買 —— 所以要問
+  await expect(card.locator('.ocard__main', { hasText: '筋骨強身' })).toContainText('×2');
+  await expect(card.locator('.ocard__twice')).toContainText('第 1、2 張看起來是同一張訂購單');
+
+  const go = card.locator('[data-oc-create]');
+  await card.locator('[data-oc-nameok]').click();
+  await expect(go).toBeDisabled();
+  await expect(card.locator('.ocard__why')).toContainText('同一張訂購單');
+
+  // 出路一：真的買了兩次 → 按得下去（這裡不建，點回來）
+  await card.locator('[data-oc-twice]').click();
+  await expect(go).toBeEnabled();
+  await card.locator('[data-oc-twice]').click();
+  await expect(go).toBeDisabled();
+
+  // 出路二：拿掉重拍的那一張 → 那一句不見、剩一張照片、一套
+  await card.locator('[data-oc-remove]').click();
+  await expect(card.locator('.ocard__twice')).toHaveCount(0);
+  await expect(card.locator('.ocard__thumb')).toHaveCount(1);
+  await expect(card.locator('.ocard__main', { hasText: '筋骨強身' })).toContainText('×1');
+  await card.locator('[data-oc-nameok]').click();
+  await go.click();
+  await app.saved();
+  await expect(page.locator('.ocdeck')).toHaveCount(0);
+
+  const created = (await app.readAll('customers')).filter((c) => c.name === '王小明');
+  expect(created).toHaveLength(1);
+  const fromPlan = (await app.readAll(`customers/${created[0].id}/entitlements`)).filter((e) => e.sourcePlanName === '筋骨強身');
+  expect(fromPlan).toHaveLength(7);
+  expect(fromPlan.every((e) => e.sourcePlanSets === 1)).toBe(true);
+});

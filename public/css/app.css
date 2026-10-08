@@ -9139,6 +9139,13 @@ body.has-cam {
   font-size: var(--text-sm);
 }
 
+/* 同一張拍了兩次（prelaunch-fixes/14）：那兩顆排在那一句底下，不靠右擠成一排 */
+.ocard__twice .ocard__acts {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0 0;
+}
+
 .ocard__photos {
   display: flex;
   flex-wrap: wrap;

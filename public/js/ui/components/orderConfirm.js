@@ -26,7 +26,7 @@ import { shortDate } from '../../domain/dates.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import {
   addOnChanges, addOnTarget, blockersOf, detachPhoto, groupOrderForms, mergeTranscripts,
-  orderDraftFrom, sameNameCustomers, summaryOf,
+  orderDraftFrom, removePhoto, repeatedPhotos, repeatSay, sameNameCustomers, summaryOf,
 } from '../../domain/orderForm.js';
 import { icon } from '../icons.js';
 import { pushLayer } from '../nav.js';
@@ -97,6 +97,9 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
       // 認出來的警示與機構：點掉之後丸子還在，再點回來
       flagOptions: [...read.draft.flags],
       partnerOptions: [...read.draft.partners],
+      // 同一張拍了兩次（14）：哪幾張看起來是重拍的；她點過「真的買了兩次」沒
+      repeats: repeatedPhotos(group.photos, draftMaster),
+      twiceOk: false,
       nameOk: false,
       who: null,
       state: 'open',
@@ -157,6 +160,7 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
         ${done ? `<p class="ocard__stamp" aria-hidden="true">${esc(c.message)}</p>` : ''}
         ${hintsHtml(c)}
         ${photosHtml(c, done)}
+        ${twiceHtml(c, done)}
         <dl class="ocard__ledger">
           ${row('是誰', whoHtml(c, photo, target))}
           ${row('顧客會', dateHtml(c, photo))}
@@ -205,6 +209,26 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
               </figcaption>` : ''}
           </figure>`).join('')}
       </div>`;
+  }
+
+  /**
+   * 這幾張看起來是同一張訂購單（prelaunch-fixes/14）。**常駐、不收進 ?** —— 不處理就按不下「建立」，
+   * 而照樣建下去會多一整套次數。兩條出路：拿掉重拍的那一張（只給拿後面那幾張，帶名字的第一張留著），
+   * 或點「真的買了兩次」。哪幾張、那一句都問 domain（`repeatedPhotos()`、`repeatSay()`）。
+   */
+  function twiceHtml(c, done) {
+    const say = repeatSay(c);
+    if (!say || done) return '';
+    return `
+      <section class="card card--danger ocard__danger ocard__twice" role="note">
+        <p class="ocard__danger-title">${icon('alert', { size: 16, width: 2.2 })}是不是同一張？</p>
+        <p class="ocard__quote">${esc(say)}</p>
+        <span class="ocard__acts">
+          ${c.repeats.map((r) => `<button class="btn btn--sm" type="button"
+            data-oc-remove="${esc(c.group.photos[r.at]?.url ?? '')}">拿掉第 ${r.at + 1} 張</button>`).join('')}
+          <button class="chip chip--sm" type="button" data-oc-twice aria-pressed="${Boolean(c.twiceOk)}">真的買了兩次</button>
+        </span>
+      </section>`;
   }
 
   function whoHtml(c, photo, target) {
@@ -395,6 +419,11 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
     }
     if (t.dataset.ocPick) return pick(c, Number(t.dataset.ocPick));
     if (t.dataset.ocDetach) return detach(c, t.dataset.ocDetach);
+    if (t.dataset.ocRemove) return regroup(removePhoto(groups, c.key, t.dataset.ocRemove));
+    if (t.matches('[data-oc-twice]')) {
+      c.twiceOk = !c.twiceOk;
+      return repaintCard(c);
+    }
     if (t.matches('[data-oc-edit]')) return edit(c);
     if (t.matches('[data-oc-create]')) return create(c);
     return undefined;
@@ -459,14 +488,23 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
     }, { title: '選一個', note: `照片上寫的是「${said}」` });
   }
 
-  /** 拆開：掛上去的那一張自己變成一位。動到的那一位重新讀一次，其餘的卡原封不動。 */
+  /** 拆開：掛上去的那一張自己變成一位。 */
   function detach(c, url) {
-    groups = detachPhoto(groups, c.key, url);
+    regroup(detachPhoto(groups, c.key, url));
+  }
+
+  /**
+   * 照片換了分法（拆開一張、拿掉一張）：動到的那一位重新讀一次，其餘的卡原封不動。
+   * 重新讀的那一張卡上她改過的東西會回到剛辨識完的樣子 —— 少了一張照片，原本那一份草稿已經不成立了。
+   */
+  function regroup(next) {
+    groups = next;
     const before = new Map(cards.map((x) => [x.key, x]));
     cards = groups.map((g) => {
       const old = before.get(g.key);
       return old && old.group.photos.length === g.photos.length ? { ...old, group: g } : cardFor(g);
     });
+    at = Math.min(at, cards.length - 1);
     paint();
   }
 
