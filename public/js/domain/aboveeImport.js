@@ -49,6 +49,25 @@ export const ABOVEE_KEYS = Object.freeze({
  */
 const RIGHT_KEYS = ['room', 'resource', 'cancelReason', 'merged'];
 
+/**
+ * 交界上的那三欄：**兩張都有字時取比較長的那一個**（prelaunch-fixes/13）。
+ *
+ * Abovee 的列表太寬，她拍左右兩張；「診間」剛好在交界，左半張常切到一半。10/5 那次考試 AI 把被切掉的字
+ * 照抄成「治療」—— 以前「左半那一格空著才用右半的」，右半完整的「治療室5」就被丟掉；EECP 的服務資源寫的是
+ * 機器（EECP1）推不回診間，那幾段存進去沒有診間。
+ *
+ * 不寫成「右半有字就用右半」：右半從那一欄中間開始拍時，右半那一格只有後半個字，反過來蓋掉左半完整的。
+ * **被切掉的一定比完整的短**，取長的兩個方向都對。「合併扣課」不在這裡 —— 它屬於左半，照舊左半有字就不動。
+ */
+const EDGE_KEYS = ['room', 'resource', 'cancelReason'];
+
+/** 兩張上同一格取哪一個：只有一邊有字就用那一邊；都有字取比較長的；一樣長取 `tie`。 */
+function fullerCell(first, second, tie = 'first') {
+  if (!first || !second) return first || second || '';
+  if (first.length === second.length) return tie === 'second' ? second : first;
+  return second.length > first.length ? second : first;
+}
+
 const clean = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
 
 // ---------- 讀字 ----------
@@ -144,6 +163,8 @@ function joinPages(base, incoming) {
     taken.add(at);
     const merged = { ...base[at], photos: [...base[at].photos, ...row.photos] };
     for (const key of Object.values(ABOVEE_KEYS)) if (!merged[key] && row[key]) merged[key] = row[key];
+    // 交界上那三欄可能有一張切到一半（13）：兩張都有字就取比較長的，一樣長留第一張的
+    for (const key of EDGE_KEYS) if (base[at][key] && row[key]) merged[key] = fullerCell(base[at][key], row[key]);
     rows[at] = merged;
   }
   return { rows: [...rows, ...extra], extra };
@@ -179,6 +200,10 @@ export function mergeAboveePhotos(transcripts = []) {
   const rows = left.rows.map((row, i) => {
     const out = { ...row, photos: [...row.photos, right.photo] };
     for (const key of RIGHT_KEYS) if (!out[key] && right.rows[i][key]) out[key] = right.rows[i][key];
+    // 交界上那三欄：左半切到一半的不可以蓋掉右半完整的（一樣長取右半 —— 那幾欄本來就在右半）
+    for (const key of EDGE_KEYS) {
+      if (row[key] && right.rows[i][key]) out[key] = fullerCell(row[key], right.rows[i][key], 'second');
+    }
     return out;
   });
   return { rows: rows.filter(hasWho), pairing: 'halves', counts };
