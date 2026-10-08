@@ -22,8 +22,8 @@ import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices,
-  mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  resolveItem, summarizeAbovee,
+  markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  repeatSay, resolveItem, summarizeAbovee,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import { validateVisit, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
@@ -404,6 +404,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
         ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 —— 收起來也看得到 */''}
         ${partialSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(partialSay(item))}</p>` : ''}
+        ${/* 跟另一張照片上的那一列看起來是同一段（10）：所以沒有先勾好 —— 收起來也看得到 */''}
+        ${repeatSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(repeatSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
@@ -778,7 +780,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (closed) return;
     const at = items.findIndex((i) => i.key === key);
     if (at < 0 || savedKeys.has(key)) return;
-    items[at] = resolveItem(items[at], customerId, ctx);
+    // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
+    items[at] = markRepeat(resolveItem(items[at], customerId, ctx), items);
     repaintRow(key);
   }
 

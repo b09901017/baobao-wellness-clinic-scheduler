@@ -6,7 +6,8 @@
 // AI 只抄字（`functions/transcripts/aboveeList.js`：九欄、照照片的順序），這一支：
 //
 // 1. **兩張怎麼對**（`mergeAboveePhotos()`）：Abovee 列表二十幾欄塞不進一個畫面，右半邊沒有姓名、
-//    日期、時段 —— 兩張只能照「第幾列」對上，**列數不一樣就不對**
+//    日期、時段 —— 兩張只能照「第幾列」對上，**列數不一樣就不對**。兩張都有姓名（兩頁、同一頁拍兩次）
+//    就接起來：**只拿不同張的列比**（`sameRow()`），同一張照片裡的兩列永遠不互相去掉
 // 2. **每一列分成四種**（`readAbovee()`）：新的、已經記了、對不上、認不得人。
 //    認人走 11 的 `identifyCustomer()`，課程／診間／治療師走 12 的 `courseFrom()` 等
 // 3. **組成來訪**（`planAbovee()`）：一律走 10 的 `slotFromPicks()`／`visitWithSlot()`
@@ -23,7 +24,7 @@ import {
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, pairsOf } from './followups.js';
-import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf,
+import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
@@ -99,6 +100,54 @@ function tableOf(transcript, photo) {
 const hasWho = (r) => Boolean(clean(r.name) || clean(r.chartNo));
 
 /**
+ * **不同張**照片上的兩列是不是同一列（prelaunch-fixes/10）。兩張都有姓名時（兩頁、同一頁拍了兩次）靠它接。
+ *
+ * - **是誰**：兩列都有病歷號就比病歷號（AI 抄名字會錯一個字，號碼考試時 10/10 全對），不然比名字
+ * - 同一天、同一個開始時間
+ * - **課程**與**取消了沒**也要一樣：同一位同一個時間可以有兩門課（ILIB＋復健門診）、可以取消之後在同一格重約 ——
+ *   那是兩列。狀態只分取消／沒取消（`aboveeState()`），不比原字
+ * - **某一張沒有那一欄（那一格空著）時，那一格不參加比較** —— 不然第二張沒拍到課程欄，每一段都變成兩列
+ *
+ * 以前的鑰匙是「名字原字＋病歷號＋日期＋開始時間」而且連同一張裡的列一起去重：少記一段（同一格的第二列）、
+ * 或同一段記兩次（名字差一個字）。她 5～10 月的 353 筆裡真的有 2 組同一格兩列。
+ */
+function sameRow(a, b) {
+  const [na, nb] = [normalizeChartNo(a.chartNo), normalizeChartNo(b.chartNo)];
+  if (na && nb ? na !== nb : normalizeName(a.name) !== normalizeName(b.name)) return false;
+  if (aboveeDate(a.date) !== aboveeDate(b.date) || aboveeStart(a.time) !== aboveeStart(b.time)) return false;
+  const [ca, cb] = [normalizeAlias(a.course), normalizeAlias(b.course)];
+  if (ca && cb && ca !== cb) return false;
+  const gone = (r) => aboveeState(r.status) === 'cancelled';
+  if (clean(a.status) && clean(b.status) && gone(a) !== gone(b)) return false;
+  return true;
+}
+
+/**
+ * 後一張的列接到前面那幾列上：對得上的**併成一列**（空的那幾格從另一張補 —— 第二張獨有的診間、服務資源不可以不見），
+ * 對不上的照原本的順序接在後面（`extra`）。
+ *
+ * **一列只配一次、只跟前面那幾張的列比**：這一張自己的列是等整張比完才接上去的，所以同一張照片裡的兩列
+ * 永遠不互相去掉。`photoSpan()` 數「不重複的列」也走這一支 —— 兩邊數的是同一份列。
+ */
+function joinPages(base, incoming) {
+  const taken = new Set();
+  const rows = [...base];
+  const extra = [];
+  for (const row of incoming) {
+    const at = base.findIndex((b, i) => !taken.has(i) && sameRow(b, row));
+    if (at < 0) {
+      extra.push(row);
+      continue;
+    }
+    taken.add(at);
+    const merged = { ...base[at], photos: [...base[at].photos, ...row.photos] };
+    for (const key of Object.values(ABOVEE_KEYS)) if (!merged[key] && row[key]) merged[key] = row[key];
+    rows[at] = merged;
+  }
+  return { rows: [...rows, ...extra], extra };
+}
+
+/**
  * @param {object[]} transcripts `aboveeList` 的抄字，照拍的順序（一張或兩張）
  * @returns {{rows: object[], pairing: 'single'|'halves'|'mismatch'|'pages'|'noNames',
  *            counts: {left: number, right: number}|null}}
@@ -112,14 +161,10 @@ export function mergeAboveePhotos(transcripts = []) {
   if (!named.length) return { rows: [], pairing: 'noNames', counts: null };
 
   if (named.length > 1) {
-    // 兩頁（或上下兩半）：接起來，同一位同一天同一個開始時間的只留一列
-    const byKey = new Map();
-    for (const row of named.flatMap((t) => t.rows).filter(hasWho)) {
-      const key = [normalizeName(row.name), normalizeChartNo(row.chartNo), aboveeDate(row.date), aboveeStart(row.time)].join('|');
-      if (byKey.has(key)) byKey.get(key).photos.push(...row.photos);
-      else byKey.set(key, row);
-    }
-    return { rows: [...byKey.values()], pairing: 'pages', counts: null };
+    // 兩頁（或上下兩半、同一頁拍了兩次）：接起來，別張上同一列的併成一列（`joinPages()`）
+    let rows = named[0].rows.filter(hasWho);
+    for (const t of named.slice(1)) ({ rows } = joinPages(rows, t.rows.filter(hasWho)));
+    return { rows, pairing: 'pages', counts: null };
   }
 
   const [left] = named;
@@ -327,6 +372,8 @@ export function resolveItem(item, customerId, ctx) {
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
     reason: null, appStatus: null, appCancelledHere: false, partialHistory: false,
+    // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
+    repeatOf: null,
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
 
@@ -337,7 +384,11 @@ export function resolveItem(item, customerId, ctx) {
       && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
     // 預約狀態也比一次（ADR-0116）。對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
     const verdict = crossCheck(aboveeState(next.statusText), at, same);
-    if (verdict) {
+    // 10：取消之後在同一格重約 —— 照片上這一格另有一列還掛著（`rebookedHere()`），app 上活著的那一段是那一列的。
+    // 取消的這一列不拿去喊「Abovee 上取消了，app 上還是已完成」：照新的、已取消的走（不打勾、不進要你看）。
+    // 記著的是「替哪一位看的」—— 她把這一列換成別人就不算了
+    const rebooked = verdict?.reason === 'aboveeCancelled' && Boolean(item.rebookedFor) && item.rebookedFor === next.customerId;
+    if (verdict && !rebooked) {
       const out = { ...next, ...verdict, existing: { visitId: at.visit.id, date: at.visit.date }, checked: false };
       // 11：已經記了的那一段，治療師或診間跟 Abovee 不一樣 → 講出來，她按了才改
       return verdict.kind === 'recorded' && at.live ? { ...out, ...aboveeDiffs(next, at.visit, same, ctx) } : out;
@@ -432,7 +483,7 @@ export function readAbovee(transcripts, ctx) {
   const { rows, pairing, counts: sizes } = mergeAboveePhotos(transcripts);
   const { rooms = [], staff = [] } = ctx.master ?? {};
 
-  const items = rows.map((row, i) => {
+  const bases = rows.map((row, i) => {
     const who = identifyCustomer({ name: row.name, chartNo: row.chartNo }, ctx.customers);
     // 先認課程、再認人：知道這一列要治療師還是醫師，才不會被另一種人的名字搶走（07）
     const course = courseFrom(row.course, ctx.master);
@@ -453,12 +504,102 @@ export function readAbovee(transcripts, ctx) {
       // 服務資源那一格有沒有認出人。她選了人時，認不出來的那個寫法才記住（`aliasWrites()`）
       staffKnown: Boolean(person),
     };
-    return resolveItem(base, who.customer?.id ?? null, ctx);
+    return base;
   });
+  // 取消之後在同一格重約要整張一起看才知道（10）—— 先認完每一列是誰、做什麼，才分種類
+  const items = bases.map((base) => resolveItem(
+    { ...base, rebookedFor: rebookedHere(base, bases) ? base.who.customer.id : null },
+    base.who.customer?.id ?? null,
+    ctx,
+  ));
 
   // 照片上有沒有「合併扣課」那一欄（拍兩張時，有一張有就算）
   const hasColumn = (transcripts ?? []).some((t) => (t?.columns ?? []).some((c) => ABOVEE_KEYS[clean(c)] === 'merged'));
-  return { pairing, counts: sizes, items: flagMoved(mergeRows(items, ctx, { hasColumn }), ctx) };
+  return { pairing, counts: sizes, items: flagRepeats(flagMoved(mergeRows(items, ctx, { hasColumn }), ctx)) };
+}
+
+// ---------- 同一格的兩列：重約、看起來是同一段（prelaunch-fixes/10）----------
+
+/** 兩列認出來的是不是同一種東西：同一門課、同一台（有一邊沒寫器材就不比器材）、同一個返數。 */
+const sameCourse = (a, b) => Boolean(a && b) && a.courseId === b.courseId
+  && (!a.equipmentId || !b.equipmentId || a.equipmentId === b.equipmentId)
+  && (a.nth ?? null) === (b.nth ?? null);
+
+/**
+ * 這一列是取消的，而照片上**同一位、同一天、同一個開始時間、同一門課另有一列沒取消** ＝ 取消之後在同一格重約。
+ * 353 筆裡真的有。兩列都留；`resolveItem()` 看到就不拿取消的那一列去跟 app 上活著的那一段比。
+ * 重約的是別的課不算（那是兩件事：一段取消了、同一格另外排了別的）。
+ */
+function rebookedHere(base, bases) {
+  const who = base.who?.customer?.id;
+  if (!base.cancelled || !who || !base.date || !base.startsAt) return false;
+  return bases.some((o) => o !== base && !o.cancelled && o.who?.customer?.id === who
+    && o.date === base.date && o.startsAt === base.startsAt && sameCourse(o.course, base.course));
+}
+
+/** 還要她決定記不記的列（新的、認不得人的），而且沒取消、讀得出是哪一天幾點。 */
+const undecided = (i) => (i?.kind === 'new' || i?.kind === 'unknown') && !i.cancelled && Boolean(i.date && i.startsAt);
+
+/**
+ * 兩列看起來是不是同一段：**在不同張照片上**、同一天同一個開始時間、同一位、同一門課，都沒取消。
+ * `sameRow()` 的鑰匙擋不住的那幾種（同一頁拍了兩次，其中一張的名字或病歷號被抄錯）會落到這裡。
+ *
+ * - 同一張照片裡的兩列不猜 —— Abovee 上真的有兩列（只送一張、左右兩半的每一列都在同一張上，所以永遠不會被標）
+ * - 是誰：兩列都認出來就比認出來的那一位；有一列還沒認出來就比照片上的名字（一樣，或差一個字 `oneCharOff()`）
+ * - 做什麼：兩列的課程都認出來就比課程、器材、返數、品項；不然比課程那一格的原字
+ */
+function looksRepeated(a, b) {
+  if (!a || !b || a.key === b.key || !undecided(a) || !undecided(b)) return false;
+  if ((a.photos ?? []).some((p) => (b.photos ?? []).includes(p))) return false;
+  if (a.date !== b.date || a.startsAt !== b.startsAt) return false;
+  if (a.customerId && b.customerId) {
+    if (a.customerId !== b.customerId) return false;
+  } else {
+    const [x, y] = [normalizeName(a.row?.name), normalizeName(b.row?.name)];
+    if (!x || !y || (x !== y && !oneCharOff(x, y))) return false;
+  }
+  if (!a.course || !b.course) return normalizeAlias(a.row?.course) === normalizeAlias(b.row?.course);
+  return a.course.courseId === b.course.courseId
+    && (a.course.equipmentId ?? null) === (b.course.equipmentId ?? null)
+    && (a.course.nth ?? null) === (b.course.nth ?? null)
+    && (a.course.ivProductId ?? null) === (b.course.ivProductId ?? null);
+}
+
+/**
+ * 看起來是同一段的那幾列**只留一列先勾好**，其餘不預設打勾、講一句（`repeatSay()`）。
+ * 留哪一列：本來就勾著的第一列 → 第一列新的 → 第一列。跟 `flagMoved()` 同一層，整張一起看。
+ */
+function flagRepeats(items) {
+  const repeatOf = new Map();
+  const grouped = new Set();
+  for (const item of items) {
+    if (grouped.has(item.key)) continue;
+    const group = items.filter((o) => o.key === item.key || looksRepeated(item, o));
+    if (group.length < 2) continue;
+    const keeper = group.find((o) => o.kind === 'new' && o.checked) ?? group.find((o) => o.kind === 'new') ?? group[0];
+    for (const o of group) {
+      grouped.add(o.key);
+      if (o !== keeper) repeatOf.set(o.key, keeper.key);
+    }
+  }
+  return items.map((i) => (repeatOf.has(i.key) ? { ...i, repeatOf: repeatOf.get(i.key), checked: false } : i));
+}
+
+/**
+ * 她替一列換了人之後再看一次那一列（`resolveItem()` 只看得到自己那一列）：跟別張照片上的哪一列看起來是同一段，
+ * 就不打勾、講一句 —— 認不得的那一列她選了人，常常正是「同一頁拍了兩次、這一張名字抄錯」的那一列。
+ * **只動這一列**：整張重跑的話她剛勾好的別列會被取消。
+ */
+export function markRepeat(item, items = []) {
+  const twin = (items ?? []).find((o) => looksRepeated(item, o));
+  return twin ? { ...item, repeatOf: twin.key, checked: false } : { ...item, repeatOf: null };
+}
+
+/** 「看起來是同一段」那一句。收起來也看得到（那一列沒有先勾好的理由）。 */
+export function repeatSay(item) {
+  return item?.repeatOf && undecided(item)
+    ? '這一列跟另一張照片上同一個時間的那一列看起來是同一段（同一頁拍了兩次？）—— 確定是另一段再勾。'
+    : '';
 }
 
 // ---------- 治療師、診間跟 Abovee 不一樣（11）----------
@@ -782,8 +923,9 @@ function inOrder(points) {
  * 兩張的頁數接得上（同一頁、或前後頁）就併成一段 —— 接不上（第 1 頁與第 3 頁）中間那一頁沒拍，不可以一起算。
  *
  * - `firstPage`／`lastPage`：讀得出是第一頁／最後一頁，或總筆數不多於這幾張的列數（`all`：每一列都在這裡）
- * - **列數照不重複的列算**（同一位、同一天、同一個開始時間只算一次，同 `mergeAboveePhotos()`）——
- *   同一頁拍了兩次的話照張數加，15 筆的第一頁就會被算成「20 列 ≥ 15 筆、每一列都在這裡」（審查查到的）
+ * - **列數照不重複的列算**（別張上同一列的只算一次，跟 `mergeAboveePhotos()` 同一支 `joinPages()`）——
+ *   同一頁拍了兩次的話照張數加，15 筆的第一頁就會被算成「20 列 ≥ 15 筆、每一列都在這裡」（審查查到的）。
+ *   **同一張裡同一個時間的兩列各算一列**（Abovee 的「N 筆」數的是列）
  * - 列不是照時間排的那一段：除非每一列都在這裡，不然丟掉 —— 別頁的列可能在任何一天
  *
  * Function 還沒重新部署（沒有起訖那兩格）時 `from`／`to` 是 null，照樣算得出來。
@@ -800,14 +942,10 @@ export function photoSpan(transcripts = []) {
   // 頁數那一句可能在沒有姓名的那一半 —— 只有一張有姓名時，那一句就是它的
   const loose = named.length === 1 ? list.map((t) => aboveePage(t?.pageText)).find(known) ?? null : null;
 
+  const pointsOf = (rows) => rows.map((r) => ({ date: aboveeDate(r.date), time: aboveeStart(r.time) })).filter((p) => p.date);
   const pieces = named.map(({ t, table }) => {
     const own = aboveePage(t?.pageText);
-    const rowKey = (r) => [normalizeName(r.name), normalizeChartNo(r.chartNo), aboveeDate(r.date), aboveeStart(r.time)].join('|');
-    return {
-      points: table.rows.map((r) => ({ date: aboveeDate(r.date), time: aboveeStart(r.time), key: rowKey(r) })).filter((p) => p.date),
-      keys: new Set(table.rows.map(rowKey)),
-      page: known(own) ? own : (loose ?? own),
-    };
+    return { points: pointsOf(table.rows), rows: table.rows, page: known(own) ? own : (loose ?? own) };
   }).filter((p) => p.points.length);
   if (!pieces.length) return { segments: [], from, to, why: 'noDates' };
 
@@ -818,11 +956,12 @@ export function photoSpan(transcripts = []) {
     const step = last && last.page.page && p.page.page && last.page.pages === p.page.pages ? p.page.page - last.page.page : null;
     if (step === 0 || step === 1) {
       // 已經算過的列（同一頁拍了兩次、上下兩半重疊的那幾列）不再接一次 —— 接了的話順序看起來是亂的
-      last.points.push(...p.points.filter((x) => !last.keys.has(x.key)));
-      for (const k of p.keys) last.keys.add(k);
+      const joined = joinPages(last.rows, p.rows);
+      last.points.push(...pointsOf(joined.extra));
+      last.rows = joined.rows;
       last.page = { ...last.page, lastOf: p.page };
     } else {
-      runs.push({ ...p, points: [...p.points], keys: new Set(p.keys) });
+      runs.push({ ...p, points: [...p.points], rows: [...p.rows] });
     }
   }
 
@@ -830,7 +969,7 @@ export function photoSpan(transcripts = []) {
   const segments = [];
   for (const run of runs) {
     const total = run.page.total ?? run.page.lastOf?.total ?? null;
-    const all = Boolean(total) && total <= run.keys.size;
+    const all = Boolean(total) && total <= run.rows.length;
     if (!all && !inOrder(run.points)) { unsorted = true; continue; }
     const sorted = [...run.points].sort((a, b) => pointKey(a).localeCompare(pointKey(b)));
     const end = run.page.lastOf ?? run.page;

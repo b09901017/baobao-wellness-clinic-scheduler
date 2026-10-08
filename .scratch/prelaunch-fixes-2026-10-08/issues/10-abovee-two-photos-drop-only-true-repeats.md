@@ -1,6 +1,6 @@
 # 一次送兩張照片：少記一段，或同一段記兩次
 
-Status: todo
+Status: done
 來源：`f-abovee-pages`（🔴）、`ai/report.md` 第 2 條
 動工前先讀：`docs/agents/lessons.md` 第四節、`public/js/domain/aboveeImport.js:96-140` 的 `mergeAboveePhotos()`（去重的鑰匙在 `:118`）、
 `existingAt()`（`:194`）、`crossCheck()`／`mismatchSay()`、`readAbovee()` 的每一步、`absentFromPhoto()`、`summarizeAbovee()`、
@@ -60,3 +60,45 @@ Blocked by: 09（同一支檔案，照順序做）
 ## 文件
 
 `CLAUDE.md` 連動表「拍 Abovee 記很多段」補一句去重的鑰匙是什麼、同一張裡不去重 —— 23 一起寫。
+
+## 做完時留下的（10/8）
+
+全部在 `domain/aboveeImport.js`；確認層只多兩行（那一句畫出來、「換一位」之後再看一次）。
+
+- **兩張都有姓名怎麼接**：`sameRow(a, b)`（是不是同一列）＋ `joinPages(base, incoming)`（接上去）。
+  - 鑰匙：兩列都有病歷號比病歷號、不然比名字；同一天、同一個開始時間；課程（`normalizeAlias()`）與取消了沒（`aboveeState() === 'cancelled'`）。
+    **某一張那一格空著就不比那一格。**
+  - **一列只配一次、只跟前面那幾張的列比** —— 這一張自己的列等整張比完才接上去，所以同一張裡的兩列不會互相去掉（不是靠鑰匙分得開，是根本不比）。
+  - 對上的**併成一列**：`photos` 記兩張、空的格子從另一張補（原本只留第一張那一列，第二張獨有的診間／服務資源不見）。兩邊都有字時留第一張的 —— **13 要改的就是這裡與左右兩半那一圈**（取比較長的），兩處可以共用一支。
+- **取消之後在同一格重約**：`rebookedHere(base, bases)`（照片上同一位、同一天、同一個開始時間、同一門課另有一列沒取消）。
+  `readAbovee()` 改成**兩趟**：先認完每一列是誰、做什麼（`bases`），才 `resolveItem()`。取消的那一列帶著 `rebookedFor`（替哪一位看的）；
+  `resolveItem()` 看到 `crossCheck()` 回 `aboveeCancelled` 而 `rebookedFor` 就是現在這一位 → 不當成對不上，照「新的、已取消」往下走（不打勾、不進要你看）。
+  她把那一列換成別人就不算了。重約的是**別的課**不算（照舊喊對不上）。
+- **鑰匙擋不住的那一種**：`flagRepeats(items)`（跟 `flagMoved()` 同一層，`readAbovee()` 的最後一步）＋ `looksRepeated(a, b)`。
+  看起來是同一段的幾列只留一列先勾好，其餘 `repeatOf`＋不打勾＋一句（`repeatSay()`，收著也看得到）。
+  - **只比不同張照片上的列**（`photos` 沒有交集）—— 只送一張、左右兩半的每一列都在同一張上，永遠不會被標，那兩種的行為一個位元都沒變。
+  - 是誰：兩列都認出來就比認出來的那一位；**有一列還沒認出來就比照片上的名字（一樣或差一個字）**。issue 寫的是「兩列認成同一位」，
+    但「沒有病歷號、名字又差一個字」的第二列根本認不出人（`identifyCustomer()` 只在病歷號對上時才放寬名字），照字面做那一條判準永遠不會成立 —— 所以多比了名字。
+  - 她替那一列選了人：`pickWho()` 走 `markRepeat(item, items)` 再看一次**那一列**（不整張重跑，不然她剛勾好的別列會被取消）。
+- `photoSpan()` 數「不重複的列」改走同一支 `joinPages()`（原本自己有一份舊鑰匙）：同一張裡同一個時間的兩列各算一列。
+  `summarizeAbovee()`、`absentFromPhoto()` 吃的本來就是 `items`，不用改。
+- 判準逐條都有測試（`tests/abovee-pages.test.js`，22 條）；353 筆那張表（`tests/abovee.test.js`）照舊全過。
+- **重現腳本**：`r15`、`r06-edges` 都是 import 真的那一支。修完：`r15` 兩頁一起送 3 列 → **5 列**、李小華那一格 `mismatch(aboveeCancelled)` → `new`（已取消）＋`recorded`；
+  `r06-edges` B 2 列都打勾 → **1 列**。
+
+沒做、留著：
+
+- `r06-edges` 的 **C（同一頁拍兩次、其中一張把開始時間抄錯）照舊是兩列、都預設打勾** —— 不是同一個開始時間，`sameRow()` 與 `looksRepeated()` 都不認。
+  存下去之前 `validateVisit()` 會講「時間重疊」，但那一句現在要點開才看得到 → **12 把「同一筆裡自己跟自己重疊」算進會改變寫入結果的那幾種**就接得住。
+- 待查的那一條（兩張都有姓名、左右範圍不同的拍法多常發生）沒有量；現在這種拍法會併成一列、兩邊的格子都在。
+- **順手看到、沒有動的**（列給她決定）：同一格兩門課（ILIB＋復健門診），app 上只記了其中一門時，另一門那一列是「對不上・app 裡已經有一段，但做的不一樣」而且**這一層記不了**
+  （`crossCheck()` 的 `course`，ADR-0116 的既有行為；只送一張時也一樣，所以不算這一支弄壞的）。
+
+給 11 的：
+
+- `readAbovee()` 的後處理現在是 `flagRepeats(flagMoved(mergeRows(items)))`。11 的兩種「已經記了」要排在 `mergeRows()` **之前或裡面**（合併扣課的第二半是 `mergeRows()` 找不到伴的那一列）、
+  `flagMoved()` 之前（已經認領的舊段不該再被當成「搬了時間」）。
+- `resolveItem()` 的 `next` 多清一格 `repeatOf`；`item.rebookedFor` 是唯一一格**不清**的整張資訊（它自己記著是替誰看的）。11 如果也要帶整張才知道的事，照這個形狀（記著對象，不對就不算）。
+- `sameCourse(a, b)`（課程、器材相容、返數）可以直接拿去比「照片那一列與舊段是不是同一門課」。
+
+留給 23：`CLAUDE.md`「拍 Abovee 記很多段」補去重的鑰匙（`sameRow()`）、同一張裡不去重、`rebookedHere()`、`flagRepeats()`／`markRepeat()`。
