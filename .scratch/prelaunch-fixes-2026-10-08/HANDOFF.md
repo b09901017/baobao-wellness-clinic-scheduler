@@ -10,7 +10,7 @@
 | 零 | spec、23 支 issue、subagent 過目 | done（10/8） |
 | 一、匯入頁／隱私／部署／畫面小修／排序 | 01–08 | done（10/8，8 個 commit：`c83ffb2`…`4d44af0`） |
 | 二、拍照 | 09–14 | done（10/8，6 個 commit：`087a048`…`01f81d4`） |
-| 三、規則、待辦、試算表 | 15–18 | **15、16 done（10/8，2 個 commit，`f34f864` 與它的下一個）；17、18 todo**（那一個 session 的用量到了，先收尾） |
+| 三、規則、待辦、試算表 | 15–18 | done（15、16 在 10/8：`f34f864`、`99e1b06`；17、18 在 10/9：`2ae963d`、`d619aad`） |
 | 四、人員簡寫、合併檔 v6、種子 | 19–21 | todo |
 | 五、AI 小實驗、文件、收尾、開 PR | 22–23 | todo |
 | 六、`/matt-code-review` 與照審查修正 | — | todo |
@@ -206,6 +206,37 @@
 - 段三沒有動 `sheetReport.js`、`todoFlow.js`、`sheetSync.js`、`report.js`、`.gs`。
 - 18 的文件那一句（`CLAUDE.md`「試算表的註記」裡「上色問的是 `=== 0`」）照 issue 直接改；17 沒有要改 `CLAUDE.md` 的。
 - 做完 17、18 之後這一段才算完：把上面現況表那一列改成 done，再給她段四（19–21）的開場，並提醒她段四開始前要先從 staging 的設定頁匯出一份備份放到 `.local/references/`。
+
+### 段三之二（10/9）：17、18
+
+兩支都做完，一支一個 commit，`npm test` 4125 條全綠（0 skipped）。沒開模擬器、沒跑 E2E（兩支都是單元測試驗得完）。沒推、沒開 PR、沒部署。
+`sw.js` 沒升（`report.js` 有動，但這一支 PR 已經是 `v186`）、`SYNC_FORMAT` 沒動。
+
+- **17** `taskBlocks()` 兩條路都拿**沒濾過的**來訪：自動推送傳整份 `master`、手動貼上 `customerReport()` 多收 `ivProducts`（`report.js` 多讀一份，含停用的）。
+  新測試 `tests/sheet-cancel-task-day.test.js` 拿 `taskLine()` 當答案，並釘著「加了取消的那一天，矩陣／合計／註記／來訪紀錄一個位元都不變」。
+- **18** `.gs` 上色改成 `typeof r.remaining === 'number' && r.remaining <= 0`；`CLAUDE.md`「試算表的註記」那一句跟著改。測試在 `tests/sheet-script.test.js` 最後一段。
+- 兩支的重現腳本都是 import 真的那一支（r03 輸入自己組、形狀跟真的一樣），修完都印對的結果。
+
+偏離 issue 寫的作法：
+
+- **17**：自動推送那條不是補一個 `ivProducts`，是直接把整份 `master` 傳下去（`config.loadAll()` 本來就九種都有）—— 以後 `slotName()` 多讀一種主檔不用再回來補。
+  沒有補原始碼掃描（issue 寫「看它為什麼沒抓到，補進去」）：原因寫在 17 的「做完時留下的」，改用行為測試量兩條路的輸出。
+
+列給她決定、還沒有答案的（同一個形狀、這一輪 spec 沒收的，都在 `sheet/report.md`）：
+
+1. 報告第 3 條 (a)：**自動推送讀主檔沒帶 `includeDeleted`**（`sheetSync.js` → `config.loadAll()`），手動貼上有帶 —— 刪掉治療師／器材／健檢課程／點滴品項之後，
+   自動那一份的名字與二返註記消失。17 之後待辦那一行也走這一份主檔（以前也是，沒有變壞）。lessons 第一節的第一個例子就是它。改法約三行（`loadAll()` 收一個選項）。
+2. 報告第 7 條 (b)：**FINISHED 的完成日期是 UTC 切字**（`sheetReport.js` 的 `taskRows()` 與 `.gs` 那一處都是 `doneAt.slice(0, 10)`）—— 台灣 0–8 點勾掉的寫成前一天。lessons 第七節的形狀。
+
+驗收清單（23 寫）要有的兩條 —— 17 在本機模擬器走（會寫入），18 要她先重貼 staging 的 `.gs`：
+
+- 壓表 → 右上角「批次取消」→ 取消一位客戶下週某一整天 → 設定 → 試算表報表 → 選那位 → TODO 那一行是**取消的那一天＋時間＋課程**，不是今天。
+- 重貼 `.gs` 並重新部署之後：試算表上做的比買的多的那一列，「剩餘」是紅底（剛好 0 的照舊紅、一槓的不紅）。
+
+段四（19–21）要知道的：
+
+- 段三沒有動 `staff`、`merge.mjs`、`mergeImport.js`、`seed.js`、`health.js`。`sheetReport.js` 的 `followupNotes()` 印人名（`staffById`）—— 19 的簡寫要不要上試算表的 `二返(…)` 照 spec「決定 3」（印簡寫）。
+- 21 要拿 staging 的備份跟種子比：**段四開始前她要先從 staging 的設定頁匯出一份備份放到 `.local/references/`**（`git check-ignore -v` 確認擋住）。
 
 ## 給新 session 的開場（範本）
 
