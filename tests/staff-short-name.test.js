@@ -151,6 +151,34 @@ describe('畫面上印哪一個', () => {
       .map((line, i) => (bad.test(line) ? `${p}:${i + 1}` : null)).filter(Boolean));
     assert.deepEqual(hits, []);
   });
+
+  // 2026-10-09 審查：上面那一條只認得「查到就直接讀」的寫法。**先存成變數再讀**（`const who = staff.find(…)` …
+  // `who?.name`）它看不到 —— 那一輪就留了四處。這一條跟著變數走：同一支檔案裡，從人員那一份 `find()`／`staffById[…]`
+  // 存下來的變數，後面不可以直接讀 `.name`
+  test('掃原始碼：先存成變數再讀 `.name` 的也算', () => {
+    const files = [];
+    const walk = (dir) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith('.js')) files.push(p);
+      }
+    };
+    walk('public/js');
+    const held = /\b(?:const|let)\s+(\w+)\s*=\s*(?:[\w.?()\s[\]]*\bstaff\b[\w.?()\s[\]]*\.find\(|staffById\[)/g;
+    const hits = [];
+    for (const p of files) {
+      const src = readFileSync(p, 'utf8');
+      const names = new Set([...src.matchAll(held)].map((m) => m[1]));
+      if (!names.size) continue;
+      const read = new RegExp(`\\b(?:${[...names].join('|')})\\??\\.name\\b`);
+      src.split('\n').forEach((line, i) => {
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+        if (read.test(line)) hits.push(`${p.replace(/\\/g, '/')}:${i + 1}`);
+      });
+    }
+    assert.deepEqual(hits, []);
+  });
 });
 
 describe('資料健檢：改過名的人不再叫她建一次', () => {

@@ -36,7 +36,7 @@ import {
 } from '../../domain/visits.js';
 import { cancelConsequences, followupBookingLines } from '../../domain/consequences.js';
 import { nameHas } from '../../domain/customers.js';
-import { slotName, nameOf } from '../../domain/naming.js';
+import { slotName, nameOf, fullNameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { todayISO, addMonths, shortDate, monthLabel } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -160,7 +160,8 @@ function slotLine(row) {
   const { slot } = row;
   const room = ctx.master.rooms?.find((r) => r.id === slot.roomId);
   const who = ctx.master.staff?.find((s) => s.id === slot.therapistId);
-  const where = [room ? nameOf(room, 'short') : null, who?.name].filter(Boolean).join('・');
+  // 人印全名（ADR-0141：簡寫只在日／週那一列、讀取卡片、試算表）
+  const where = [room ? nameOf(room, 'short') : null, fullNameOf(who)].filter(Boolean).join('・');
   const what = slotName(slot, ctx.master, 'short') || '（沒有課程）';
   return `${timeLabel(slot)}　${what}${where ? `・${where}` : ''}`;
 }

@@ -1655,7 +1655,7 @@ function visitErrors(visit, {
       const doctor = staffById[slot.doctorId];
       if (!doctor) errors.push(`${at}：指定的醫師不存在或已刪除`);
       else if (doctor.role !== DOCTOR_ROLE) {
-        errors.push(`${at}：${doctor.name} 不是醫師，是${doctor.role ?? '別的角色'}`);
+        errors.push(`${at}：${fullNameOf(doctor)} 不是醫師，是${doctor.role ?? '別的角色'}`);
       }
     }
 
