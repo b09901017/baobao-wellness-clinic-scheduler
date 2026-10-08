@@ -3330,7 +3330,7 @@ async function openCloseDrawer(ctx, visitId) {
   });
   paintClose(ctx);
 
-  // 那一句「會多一張追蹤健檢報告」要問額度。**先畫再補** —— 同
+  // 那幾句「會多一張追蹤健檢報告／約二返」要問額度。**先畫再補** —— 同
   // `loadTaskVisits()` 的作法：不要為了一句話讓抽屜多等一輪。
   const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
   if (!visit?.customerId || ctx.entitlements?.length) return;

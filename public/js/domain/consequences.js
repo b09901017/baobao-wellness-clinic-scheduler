@@ -38,7 +38,7 @@ import {
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot } from './nthFollowup.js';
 import { isUncounted } from './masterData.js';
-import { shortDate } from './dates.js';
+import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
@@ -498,6 +498,10 @@ export function closedSay(visit, picks = []) {
  * 健檢和二返同一次排好時抽屜說會多一張、存完一張都沒有；報告勾過、二返次數用完的那幾種也照講。
  * 所以**這位客戶的全部來訪與任務要一起傳進來**（抽屜打開時跟額度同一趟補讀）；沒傳就當成只有這一筆。
  *
+ * **「約二返」長出來或收起來也講**（2026-10-09，ADR-0142）：名額先給報告勾過的那一次之後，簽**這一次**健檢那一下，
+ * **另一次**健檢的「約二返」會長出來（二返簽成沒來也會）。同一次試算，一張一行、講出是哪一天那一次健檢的。
+ * 追蹤健檢報告照舊只講這一筆的（ADR-0139）。
+ *
  * @param {object} o
  * @param {object} o.visit 那一筆來訪
  * @param {(boolean|null)[]} o.picks 逐段：`true` 做了、`false` 沒來、`null` 先不結（`closeVisit()` 收的那一份）
@@ -533,9 +537,24 @@ export function closeConsequences({
 
   const slots = visit?.slots ?? [];
   // 健檢結案才長「追蹤健檢報告」（ADR-0042：報告要兩三週，報告沒到就不可能約）。
-  // **長不長問存檔時真的在跑的那一支**（ADR-0070、0139），這一頁不自己推、也不認課程名字。
-  if (done.length && growsReport(visit, picks, { entitlements, coursesById, visits, tasks })) {
+  // **長不長問存檔時真的在跑的那一支**（ADR-0070、0139、0142），這一頁不自己推、也不認課程名字。
+  const chain = (done.length || missed.length)
+    ? chainAfterClose(visit, picks, { entitlements, coursesById, visits, tasks }) : null;
+  if (chain?.create.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === visit?.id)) {
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
+  }
+  if (chain) {
+    const examDay = (id) => {
+      const date = chain.visits.find((v) => v.id === id)?.date;
+      return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+    };
+    for (const t of chain.create.filter((x) => x.kind === FOLLOWUP_TASK_KIND)) {
+      lines.push(`待辦會多一張「${FOLLOWUP_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了、二返還欠一次`);
+    }
+    for (const r of chain.remove) {
+      const t = (tasks ?? []).find((x) => x.id === r.id);
+      if (t?.kind === FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${FOLLOWUP_TASK_KIND}」會收起來 —— ${r.reason}`);
+    }
   }
 
   // 二返與營養師諮詢那一種：客人走了之後要去補一份文字紀錄（ADR-0066）。
@@ -551,24 +570,25 @@ export function closeConsequences({
 }
 
 /**
- * 這一筆照 `picks` 結掉之後，存檔那一下會不會替**這一次健檢**長一張「追蹤健檢報告」。
+ * 這一筆照 `picks` 結掉之後，存檔那一下健檢那條鏈會怎麼動（`syncFollowupTasks()` 的 `create`／`remove`），
+ * 連同試算用的那一份來訪（講日期用）。沒有配得到二返的健檢額度就是 `null`。
  *
  * 跟 `data/visits.js` 的 `followupOps()` 餵同一支、同一種輸入：這位客戶的來訪裡把這一筆換成結完的樣子。
  * 死線的天數不影響長不長，所以不用讀設定。
  */
-function growsReport(visit, picks, { entitlements, coursesById, visits, tasks }) {
+function chainAfterClose(visit, picks, { entitlements, coursesById, visits, tasks }) {
   // 沒有配得到二返的健檢額度就不可能有鏈（同 `followupOps()` 的提前結束）
-  if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return false;
+  if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
 
-  const after = closeVisit(visit, picks);
-  const { create } = syncFollowupTasks({
+  const all = [...(visits ?? []).filter((v) => v.id !== visit?.id), closeVisit(visit, picks)];
+  const { create, remove } = syncFollowupTasks({
     customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
     entitlements,
-    visits: [...(visits ?? []).filter((v) => v.id !== visit?.id), after],
+    visits: all,
     tasks,
     coursesById,
   });
-  return create.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === visit?.id);
+  return { create, remove, visits: all };
 }
 
 // ---------- 反過來：拿回來、取消 ----------

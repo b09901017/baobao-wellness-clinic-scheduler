@@ -96,6 +96,68 @@ test('K1 健檢和二返同一次排好 → 簽療程單：抽屜說會多一張
   expect(second.slots[0].followupForVisitId ?? null, '系統不替她接連結').toBe(null);
 });
 
+// ---------- 她 10/9 回的 A：「約二返」的名額先給報告勾過的那一次（ADR-0142） ----------
+
+const OLD_DAY = addDays(TODAY, -100);
+
+/**
+ * 同一位客戶多一次**舊的**健檢：做完了、報告勾過、寄報告也勾了，二返還沒約（她 10/9 那個例子的 A）。
+ * 這一次（B）是健檢和二返同一次排好的，那一場二返接不到哪一次健檢。
+ */
+function seedTwoExams() {
+  return [
+    // 那兩筆額度換成買兩次的（下面重寫），其餘照 K1
+    ...seedBookedTogether().filter((d) => !d.path.endsWith('/entitlements')),
+    entitlement('cust-a', {
+      id: 'ent-exam', label: '8萬健檢', courseId: 'course-checkup',
+      totalQty: 2, doneCount: 1, bookedCount: 1, tier: '8萬', durationMin: 120,
+    }),
+    entitlement('cust-a', {
+      id: 'ent-second', label: '二返（8萬健檢）', courseId: 'course-followup',
+      totalQty: 2, bookedCount: 1, followupForEntitlementId: 'ent-exam', durationMin: 30,
+    }),
+    visit({
+      id: 'v-old', customerId: 'cust-a', customerName: '客戶A', date: OLD_DAY, status: 'done',
+      slots: [{
+        ...slot({
+          courseId: 'course-checkup', entitlementId: 'ent-exam',
+          startsAt: '09:00', endsAt: '11:00', roomId: 'room-t3',
+        }),
+        status: 'done', attended: true,
+      }],
+    }),
+    task({
+      id: 't-old-report', customerId: 'cust-a', customerName: '客戶A', kind: '追蹤健檢報告',
+      dueDate: addDays(OLD_DAY, 21), visitId: 'v-old', done: true, doneAt: `${addDays(OLD_DAY, 18)}T02:00:00.000Z`,
+    }),
+    task({
+      id: 't-old-send', customerId: 'cust-a', customerName: '客戶A', kind: '寄報告給醫師',
+      dueDate: addDays(OLD_DAY, 25), visitId: 'v-old', done: true, doneAt: `${addDays(OLD_DAY, 19)}T02:00:00.000Z`,
+    }),
+  ];
+}
+
+test('K2 舊的那一次報告勾過、這一次健檢和二返同一次排好 → 簽這一次：抽屜講舊的那一次會多一張約二返，存完真的有', async ({ app, page }) => {
+  await app.seed(seedTwoExams());
+  await app.signIn('/');
+
+  await app.go('/todo/close');
+  await page.locator('[data-open="v-exam"]').click();
+  await app.layer('.drawer [data-apply]');
+  await app.tickAll();
+
+  const [, m, d] = OLD_DAY.split('-').map(Number);
+  const list = page.locator('.drawer .dialog__list');
+  await expect(list, '這一次的報告照講').toContainText('追蹤健檢報告');
+  await expect(list, '舊的那一次會多一張約二返 —— 講出是哪一天的').toContainText(`「約二返」—— ${m}/${d}(`);
+  await page.locator('[data-apply]').click();
+  await app.saved();
+
+  const tasks = alive(await app.readAll('tasks')).filter((t) => !t.done);
+  expect(tasks.map((t) => `${t.kind}@${t.visitId}`).sort(), '抽屜講的就是存完長出來的')
+    .toEqual(['約二返@v-old', '追蹤健檢報告@v-exam'].sort());
+});
+
 // ---------- 16 改了課程「壓哪幾個系統」：談定的那幾天跟著補長或收掉（ADR-0140） ----------
 
 const COURSES = 'config/app/courses';

@@ -1211,12 +1211,72 @@ describe('報告那一張不等二返約了沒（ADR-0139）', () => {
       assert.deepEqual([again.create, again.update, again.remove], [[], [], []]);
     });
 
-    // **還沒有答案的那一格**（ADR-0139「留給她決定」）。A 的報告勾過、還沒約二返；B 是健檢和二返同一次排好的，
-    // 現在做完了。那一場二返沒有連結：數得出「還欠一次」，認不出是誰的。第一圈照既有的排法
-    // （已經有待辦的排前面、同一組裡新的在前）把那一次算給 B，所以 A 的「約二返」這一輪不長 ——
-    // 等 B 的報告勾掉才會長在 B 身上。釘在這裡是讓改的人知道自己在改這一格，不是說它是對的。
-    test('兩次健檢同時在路上、新的那一次的二返是先約好的 → 報告照長；「約二返」算給誰照第一圈既有的排法', () => {
+    // ADR-0139「還沒有答案的」那一格，她 2026-10-09 回了（ADR-0142）：
+    // > A 照建議的 名額先給報告已勾過的那一次，A 留著「約二返」。多一張提醒可以勾掉，少一張沒人提醒。
+    // A 的報告勾過、還沒約二返；B 是健檢和二返同一次排好的，現在做完了。那一場二返沒有連結：
+    // 數得出「還欠一次」，認不出是誰的。以前照「已經有待辦的排前面、新的在前」算給 B，A 的「約二返」這一輪不長。
+    test('兩次健檢同時在路上、新的那一次的二返是先約好的 → B 長報告；「約二返」名額先給報告勾過的 A', () => {
       const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })];
+      const first = sync({ visits, tasks });
+      assert.deepEqual(
+        first.create.map((t) => `${t.kind}@${t.visitId}`).sort(),
+        [`${FOLLOWUP_TASK_KIND}@vA`, `${REPORT_TASK_KIND}@vB`].sort(),
+      );
+      const again = sync({ visits, tasks: [...tasks, ...first.create.map((t, i) => ({ ...t, id: `n${i}` }))] });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []], '一輪就到定點');
+    });
+
+    // 同一個資料狀態，那一場其實是 A 的（她替 A 約了、沒選「這是哪一次健檢的」）也長這樣 —— 認不出來。
+    // 這是她接受的代價：A 那一張不會自己收，要她自己勾（ADR-0142）。反過來收掉的話，那一場是 B 的時候 A 就沒人提醒。
+    test('A 的「約二返」已經開著、一場沒連結的二返約了、B 做完了 → A 那一張留著', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [
+        ticked('vA'),
+        task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' }),
+      ];
+      const { create, update, remove } = sync({ visits, tasks });
+      assert.deepEqual(remove, []);
+      assert.deepEqual(update, []);
+      assert.deepEqual(create.map((t) => `${t.kind}@${t.visitId}`), [`${REPORT_TASK_KIND}@vB`]);
+    });
+
+    // 兩次的報告都勾了、名額只有一個：已經開著「約二返」的那一次先留（「A 留著」）。照舊「新的在前」的話，
+    // 她一勾 B 的報告，A 那一張就被收掉、改長在 B 身上 —— 而那一場二返是跟 B 一起約的時候，A 就沒人提醒了
+    // 照位置會把那一場算成最舊的 A 的；但它也可能是跟 B 一起約的（她：「客人常當場一起約」）。
+    // 收掉的話那一場是 B 的時候 A 就沒人提醒 —— 開著的那一張留著，要不要勾她決定
+    test('A 的「約二返」開著、B 做完、一場沒連結的二返簽成做了（日期在 B 之後）→ A 那一張留著', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'done')];
+      const tasks = [
+        ticked('vA'),
+        task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' }),
+        report({ id: 'tr-vB', visitId: 'vB', dueDate: '2026-09-22' }),
+      ];
+      const { create, update, remove } = sync({ visits, tasks });
+      assert.deepEqual([create, update, remove], [[], [], []]);
+    });
+
+    test('B 的報告也勾了、A 的「約二返」開著 → A 那一張留著，B 不長', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), ticked('vB', { id: 'r-vB' }), task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' })];
+      const { create, remove } = sync({ visits, tasks });
+      assert.deepEqual(remove, []);
+      assert.ok(!create.some((t) => t.kind === FOLLOWUP_TASK_KIND), create.map((t) => `${t.kind}@${t.visitId}`).join('、'));
+    });
+
+    test('兩次的報告都勾了、哪一次都還沒有「約二返」→ 照舊新的在前', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), ticked('vB', { id: 'r-vB' })];
+      const out = grows({ visits, tasks });
+      assert.ok(out.includes(`${FOLLOWUP_TASK_KIND}@vB`), out.join('、'));
+      assert.ok(!out.includes(`${FOLLOWUP_TASK_KIND}@vA`), out.join('、'));
+    });
+
+    test('名額先給報告勾過的，但照位置已經做完二返的那一次不算（二返日期在 B 之前，只可能是 A 的）', () => {
+      // 跟上面「一輪就到定點」同一份：那一場二返做完了，照位置配給最舊的 A —— A 不是「報告勾過、還在等二返」
+      const visits = [A, B, second('s1', '2026-08-25', 'done')];
       const tasks = [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })];
       assert.deepEqual(grows({ visits, tasks }), [`${REPORT_TASK_KIND}@vB`]);
     });
@@ -1382,5 +1442,72 @@ describe('健檢鏈比對讀連軟刪除的那一份', () => {
     const tasks = readFileSync(new URL('../public/js/data/tasks.js', import.meta.url), 'utf8');
     const at = tasks.indexOf('export function listByCustomerForSync(');
     assert.match(tasks.slice(at, at + 200), /repo\.listWithDeleted\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 隨機情境：存幾次都一樣（ADR-0142）
+// ---------------------------------------------------------------------------
+//
+// 第一圈的排法改了（報告勾過的先拿名額、開著「約二返」的先留、照位置做完二返的排最後）。
+// 排法一有「這一輪的結果改變下一輪的排序」就會一存一變 —— 這一輪長、下一輪收。
+// 把這一輪的長、改、收都套回去再算一次，什麼都不該再動。
+//
+// 不造「開著一張約二返、從來沒有報告」的舊形狀（`stationFor()` 第 2 條）：那一種本來就要兩次存檔才停 ——
+// 約二返被收掉之後下一次才補報告（ADR-0139「後果」），上線前的資料才有，切換那天重新匯。
+
+describe('隨機情境：長出來、改、收掉的套回去再算一次，什麼都不再動', () => {
+  test('2000 組（一筆配對、0–3 次健檢、0–3 場二返、任意的鏈上待辦）', () => {
+    // `Math.imul` 不是 `seed * 1103515245`：後者超過 2^53 掉精度，一萬多個數就繞回同一圈（幾百組在重複）
+    let seed = 20261009;
+    const rnd = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 2 ** 32; };
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const STATUSES = ['pending_confirm', 'confirmed', 'done', 'done', 'done', 'no_show', 'cancelled'];
+    const day = (i) => `2026-0${1 + Math.floor(i / 28)}-${String(1 + (i % 28)).padStart(2, '0')}`;
+    const KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND];
+
+    for (let n = 0; n < 2000; n += 1) {
+      const exams = Math.floor(rnd() * 4);
+      const seconds = Math.floor(rnd() * 4);
+      const entitlements = [
+        checkup({ totalQty: 1 + Math.floor(rnd() * 3) }),
+        followup({ totalQty: 1 + Math.floor(rnd() * 3) }),
+      ];
+      const visits = [];
+      for (let i = 0; i < exams; i += 1) {
+        visits.push(visit(`x${i}`, day(i * 20 + Math.floor(rnd() * 10)), 'ent-checkup', { status: pick(STATUSES) }));
+      }
+      for (let i = 0; i < seconds; i += 1) {
+        const link = rnd() < 0.5 && exams ? `x${Math.floor(rnd() * exams)}` : null;
+        visits.push({
+          id: `s${i}`, customerId: 'c1', date: day(100 + i * 9), status: pick(STATUSES),
+          slots: [{ entitlementId: 'ent-followup', courseId: 'course-followup', followupForVisitId: link }],
+        });
+      }
+      const drawn = [];
+      for (let i = 0; i < exams; i += 1) {
+        for (const kind of KINDS) {
+          const r = rnd();
+          if (r < 0.55) continue;
+          drawn.push(task({
+            id: `t-${kind}-${i}`, visitId: `x${i}`, kind, dueDate: '2026-06-10',
+            done: r > 0.8, doneAt: r > 0.8 ? '2026-06-01T00:00:00.000Z' : null,
+            deletedAt: rnd() < 0.1 ? '2026-06-02' : null,
+          }));
+        }
+      }
+      const reportTicked = (id) => drawn.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === id && t.done);
+      const tasks = drawn.filter((t) => t.kind !== FOLLOWUP_TASK_KIND || reportTicked(t.visitId));
+
+      const first = sync({ entitlements, visits, tasks });
+      const removed = new Set(first.remove.map((r) => r.id));
+      const changed = new Map(first.update.map((u) => [u.id, u.changes]));
+      const after = [
+        ...tasks.map((t) => (removed.has(t.id) ? { ...t, deletedAt: '2026-10-09' } : { ...t, ...changed.get(t.id) })),
+        ...first.create.map((t, i) => ({ ...t, id: `new${i}` })),
+      ];
+      const again = sync({ entitlements, visits, tasks: after });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []], `第 ${n} 組又動了`);
+    }
   });
 });
