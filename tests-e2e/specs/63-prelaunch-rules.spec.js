@@ -150,12 +150,17 @@ test('K2 舊的那一次報告勾過、這一次健檢和二返同一次排好 �
   const list = page.locator('.drawer .dialog__list');
   await expect(list, '這一次的報告照講').toContainText('追蹤健檢報告');
   await expect(list, '舊的那一次會多一張約二返 —— 講出是哪一天的').toContainText(`「約二返」—— ${m}/${d}(`);
+  await expect(list).toContainText('那一次健檢的報告拿到了、二返還欠一次');
   await page.locator('[data-apply]').click();
   await app.saved();
 
   const tasks = alive(await app.readAll('tasks')).filter((t) => !t.done);
   expect(tasks.map((t) => `${t.kind}@${t.visitId}`).sort(), '抽屜講的就是存完長出來的')
     .toEqual(['約二返@v-old', '追蹤健檢報告@v-exam'].sort());
+
+  // 驗收清單那一條的後半：待辦中心「約二返」那一頁看得到她
+  await app.go(`/todo/${encodeURIComponent('約二返')}`);
+  await expect(page.locator('#view')).toContainText('客戶A');
 });
 
 // ---------- 16 改了課程「壓哪幾個系統」：談定的那幾天跟著補長或收掉（ADR-0140） ----------
