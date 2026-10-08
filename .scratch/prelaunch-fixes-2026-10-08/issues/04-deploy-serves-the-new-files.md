@@ -1,6 +1,6 @@
 # 部署完一小時內可能拿到舊程式；兩次部署會互相蓋；本機預設指向正式站
 
-Status: todo
+Status: done
 來源：`f-deploy-cache`、`ops/report.md` 第 6、9 條
 動工前先讀：`docs/agents/lessons.md` 第九節、`firebase.json:6-15`、`public/sw.js:170`、`:221`、
 `.github/workflows/deploy.yml:130-131`、`.firebaserc`、`docs/STAGING.md`（部署指令那幾節）、
@@ -56,3 +56,29 @@ Blocked by: —
 ## 文件
 
 `docs/STAGING.md` 部署那幾節：本機指令照舊寫出 `--project`，補一句「預設是 staging」。
+
+## 做完時留下的（10/8）
+
+- **`firebase.json`**：偏離 issue 寫的作法（「程式檔那幾種副檔名改成 no-cache」）—— 改成**第一條 `**` 全部 no-cache，圖示那種
+  （`png|svg|ico|jpg|jpeg|webp|woff2`）在後面另外蓋回 `public, max-age=3600`**。理由：一種一種列副檔名的話，首頁網址 `/` 對不對得上要看 glob 怎麼解、
+  以後新加一種副檔名會安靜地漏掉，兩種漏法的下場都是「部署完拿到舊程式」；反過來漏的下場只是圖示多一趟 304。
+  原本的 `/sw.js`、`/index.html` 兩條留著。
+- **`deploy.yml`**：最上層 `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: false }`。
+  同一組最多一個在跑、一個在等，後來的頂掉還在等的 → 連推三次最後上去的是最新的。PR 也照 ref 各自一組（同一支 PR 連推會排隊，不取消）。
+- **`.firebaserc`** 預設改成 staging。靠預設值的指令查過是 0 條（`package.json`、`scripts/`、兩支 workflow、`docs/STAGING.md`、`start-emulators.sh` 每一條都自己帶 `--project`）。
+  `tests/env.test.js` 那一條改成新的決定並改掉理由。`docs/STAGING.md` 第 2 步補一句「預設是 staging」。
+- **測試**：`tests/deploy-config.test.js`（新）自己解 glob 驗 `public/` 底下每一支程式檔、驗 workflow 那一層的 `concurrency`、
+  掃五個檔案裡的 `firebase …` 指令都帶 `--project`。
+- **「待查」的答案**：模擬器的 hosting **吃** `firebase.json` 的 `headers`（superstatic 的 `middleware/headers.js`：對得上的每一條依序 `setHeader`，後面蓋前面），
+  **但在 Windows 上一條都對不上** —— `glob-slasher` 把規則的 `/` 換成 `\`（連 8 月就有的 `/sw.js` 那一條在她的機器上也沒有回）。
+  所以本機 `curl -sI 127.0.0.1:5000/js/app.js` 驗不了。改成兩道：
+  1. 拿 superstatic 自己的 `configMatcher()` 以正斜線算過一次：`/`、`/index.html`、`/sw.js`、`/js/**`、`/css/**`、`/form.html`、`/manifest.webmanifest` 都是 `no-cache`，圖示是一小時。
+  2. E2E `61` 的 **H1**：對模擬器逐個路徑問 Cache-Control。**Windows 上 `test.skip`**，CI（Linux）全量跑的時候才真的量 —— 段五丟 CI 全量時看它是不是綠的、而且不是 skipped。
+  這件事補進了 `docs/agents/lessons.md` 第九節。
+- `tests-e2e/related.js`：`.firebaserc`、`.gitignore` 進 `IGNORED`（不然 `--related` 會因為它們退回全跑）；`firebase.json` 登記到 `61`。
+
+留給 23 的驗收清單（lessons 九：「部署完我是怎麼確認新版真的在跑的」）：
+
+- 合進 develop、staging 部署完：`curl -sI https://wellness-clinic-staging.web.app/js/app.js | grep -i cache-control` 要是 `no-cache`；`/` 也問一次。
+- 連推兩次 develop：Actions 上第二次是「等待中」，不是兩個同時跑。
+- `r-deploy-race.mjs` 這一段沒重跑（它讀 GitHub 上的部署紀錄，修正要等合進 develop 之後才看得出差別）。

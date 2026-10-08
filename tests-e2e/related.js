@@ -56,6 +56,9 @@ export const NOT_GLOBAL = ['tests-e2e/fixtures/ai/'];
 export const IGNORED = [
   'docs/', '.scratch/', 'README.md', 'SPEC.md', 'CLAUDE.md', 'CONTEXT.md',
   'tests/', '.github/', '.claude/', 'graphify-out/', 'scripts/',
+  // 模擬器的每一條指令都自己帶 `demo-` 專案（`tests/deploy-config.test.js` 盯著），
+  // 所以預設專案與「哪些檔案不進版控」都摸不到 E2E
+  '.firebaserc', '.gitignore',
 ];
 
 /**
@@ -481,6 +484,8 @@ export const COVERAGE = {
   // 上線前修正第一段（prelaunch-fixes-2026-10-08 的 01–08）：匯入頁只跑一趟
   '61-prelaunch-import-and-wall': [
     'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js', 'public/js/domain/mergeImport.js',
+    // H1：模擬器回的快取標頭（Windows 上跳過，CI 才真的量）
+    'firebase.json',
   ],
 };
 

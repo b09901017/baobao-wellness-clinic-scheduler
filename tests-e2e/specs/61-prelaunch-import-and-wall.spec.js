@@ -7,6 +7,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, TODAY, addDays } from '../fixtures/data.js';
+import { APP_ORIGIN } from '../fixtures/emulator.js';
 
 // ---------- 01 舊資料匯入只跑得了一趟 ----------
 
@@ -134,4 +135,21 @@ test('I4 匯入：有東西對不到主檔、有人同名 → 確認框講出來
   await expect(result).toContainText('有 2 處對不到主檔');
   await expect(result).toContainText('1 位因為系統裡已經有同名的客戶');
   await expect(result.locator('details li'), '那張清單匯完還看得到').toHaveCount(2);
+});
+
+// ---------- 04 程式檔每次都先問伺服器 ----------
+
+// `firebase.json` 的 `headers` 寫得對不對，`tests/deploy-config.test.js` 自己解 glob 驗過一次；
+// 這一條拿模擬器（superstatic，Hosting 的 glob 就是照它）再問一次 —— 特別是首頁網址 `/`。
+// **Windows 上跳過**：模擬器用的 `glob-slasher` 在 Windows 把規則裡的 `/` 換成 `\`，一條都對不上
+// （連 2026-08 就有的 `/sw.js` 那一條也是）。CI 是 Linux，全量跑的時候這一條會跑到。
+test('H1 模擬器回的快取標頭：程式檔與首頁 no-cache、圖示一小時', async ({ request }) => {
+  test.skip(process.platform === 'win32', '模擬器在 Windows 上對不上任何一條 headers 規則（glob-slasher）');
+
+  for (const path of ['/', '/index.html', '/sw.js', '/js/app.js', '/css/app.css', '/form.html', '/manifest.webmanifest']) {
+    const res = await request.get(`${APP_ORIGIN}${path}`);
+    expect(res.headers()['cache-control'], path).toBe('no-cache');
+  }
+  const icon = await request.get(`${APP_ORIGIN}/icons/icon-192.png`);
+  expect(icon.headers()['cache-control']).toBe('public, max-age=3600');
 });

@@ -83,8 +83,11 @@ npx firebase-tools@15 deploy \
 `--project staging` 認得出來是因為 `.firebaserc` 有這個別名：
 
 ```json
-{ "projects": { "default": "…scheduler", "prod": "…scheduler", "staging": "…staging" } }
+{ "projects": { "default": "…staging", "prod": "…scheduler", "staging": "…staging" } }
 ```
+
+**預設是 staging**（2026-10-08 起）：漏打 `--project` 的指令落在 staging，不是正式站。
+這份文件裡每一條指令照舊把 `--project` 寫出來 —— 要上正式就寫 `--project prod`，不要靠預設值。
 
 第一次會叫你登入（`npx firebase-tools@15 login`）。
 

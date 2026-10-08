@@ -105,8 +105,13 @@ describe('三份 config', () => {
     // 對不上的話會部署到錯的專案，而指令看起來完全正常。
     assert.equal(FIREBASERC.projects.prod, projectIdOf('prod'));
     assert.equal(FIREBASERC.projects.staging, projectIdOf('staging'));
-    assert.equal(FIREBASERC.projects.default, projectIdOf('prod'),
-      'default 要指到正式 —— 不帶 --project 的指令走的是它');
+    // **預設是 staging，不是正式**（2026-10-08，prelaunch-fixes-2026-10-08/issues/04）。
+    // 以前這一條釘著相反的事（「不帶 --project 的指令走的是它，所以要指到正式」）——
+    // 而那正是問題：拍照的 Function 不歸 CI 部署，從本機部署時漏打一次 `--project` 就直接上正式。
+    // 現在漏打的下場是上 staging。要上正式的每一條指令自己帶著 `--project prod`
+    // （`tests/deploy-config.test.js` 盯著 repo 裡沒有任何一條靠預設值）。
+    assert.equal(FIREBASERC.projects.default, projectIdOf('staging'),
+      'default 要指到 staging —— 漏打 --project 的指令不可以落在正式站上');
   });
 });
 
