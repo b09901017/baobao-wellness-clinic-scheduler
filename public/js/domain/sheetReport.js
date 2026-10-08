@@ -52,13 +52,14 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
  * @param {object[]} [ctx.courses] 課程主檔，用來找出健檢配的二返（ADR-0022）
  * @param {object[]} [ctx.staff] 治療師與醫師，二返註記的括號要靠它換成名字
  * @param {object[]} [ctx.equipment] 器材主檔，「這一天用了哪一台」那一列要靠它換成別稱
+ * @param {object[]} [ctx.ivProducts] 營養點滴品項，待辦那一行跟待辦中心一樣寫品項
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
  * @param {string} [ctx.today] 今天 —— 日期欄不是今年的帶年份（`dateLabel()`）
  * @returns {{name:string, rows:string[][]}}
  */
 export function customerReport({
   customer, entitlements = [], visits = [], tasks = [], courses = [], staff = [],
-  equipment = [], generatedAt = '', today = null,
+  equipment = [], ivProducts = [], generatedAt = '', today = null,
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
@@ -152,7 +153,8 @@ export function customerReport({
     }
   }
 
-  const blocks = taskBlocks(tasks, used, { courses, equipment }, today);
+  // 待辦拿**沒濾過的**來訪：取消類要找的正是整天取消的那一筆（`taskBlocks()` 的註解）
+  const blocks = taskBlocks(tasks, visits, { courses, equipment, ivProducts }, today);
   rows.push([], ['備註', customer?.notes ?? '']);
   rows.push([], ['TODO（還沒做的）'], ...taskRows(blocks.todo, '死線'));
   rows.push([], ['FINISHED（做完的）'], ...taskRows(blocks.finished, '完成'));
@@ -612,8 +614,8 @@ export function syncBundle({
       followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById, today }),
       // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
       // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
-      tasks: taskBlocks(tasksBy[customer.id] ?? [], visits,
-        { courses: master.courses ?? [], equipment: master.equipment ?? [] }, today),
+      // 待辦拿**沒濾過的**來訪與整份主檔（`taskBlocks()` 的註解）
+      tasks: taskBlocks(tasksBy[customer.id] ?? [], visitsBy[customer.id] ?? [], master, today),
       // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
       //
       // **取消的段不寫、每一段帶它自己的狀態、照開始時間排**（格式 6，
@@ -916,6 +918,10 @@ function bookingsOf(visits, entitlementId, dates) {
  * 日期取的是**來訪那一天**，不是死線 —— 她認的是「哪一天那一場」，
  * 而死線是它的前一天，兩個差一天最容易看錯人。來訪找不到（獨立待辦、
  * 來訪被刪了）才退回用死線。
+ *
+ * **`visits` 要給沒濾過的**（含整天取消的）：「取消 Abovee」要找的正是被取消的那一筆，
+ * 給次數矩陣那一份（`isActive()` 濾過）的話它找不到、退回死線（＝取消那天，常常是今天）、
+ * 課程空白（prelaunch-fixes-2026-10-08/17）。`master` 要帶 `ivProducts`，不然點滴寫「營養點滴」。
  */
 function taskBlocks(tasks, visits, master = null, today = null) {
   const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));

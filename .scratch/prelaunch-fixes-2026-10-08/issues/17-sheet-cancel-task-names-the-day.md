@@ -1,6 +1,6 @@
 # 試算表上「取消 Abovee」那一行，日期寫成今天、也沒寫是哪一門課
 
-Status: todo
+Status: done
 來源：`f-sheet-cancel`、`sheet/report.md` 第 1 條（順手：第 3 條 b）
 動工前先讀：`docs/agents/lessons.md` 第一節、`public/js/domain/sheetReport.js`（`:64`、`:155`、`:520`、`:615` 傳給 `taskBlocks()` 的來訪、`:921` 找來訪）、
 `public/js/domain/todoFlow.js` 的 `taskLine()`／`taskSlots()`、兩條路：`public/js/data/sheetSync.js`（自動）與 `public/js/ui/views/report.js`（手動）、
@@ -41,3 +41,17 @@ Blocked by: —
 ## 測試
 
 單元：r03 改寫（客戶A、10/15 整天取消）—— TODO 那一行＝待辦中心那一行；營養點滴那一張寫品項。
+
+## 做完時留下的（10/9）
+
+- `sheetReport.js`：`taskBlocks()` 兩個呼叫端都改拿**沒濾過的**來訪（`customerReport()` 的 `visits`、`syncBundle()` 的 `visitsBy[id]`）；
+  自動推送那條直接傳整份 `master`（`config.loadAll()`，本來就有 `ivProducts`），手動貼上那條 `customerReport()` 多收 `ivProducts`、
+  `report.js` 的 `load()` 多讀一份（含停用的，跟器材同理）。次數矩陣、註記、來訪紀錄照舊吃 `isActive()` 濾過的。`SYNC_FORMAT` 沒動。
+- 測試：`tests/sheet-cancel-task-day.test.js`（7 條）—— 整天取消的 TODO／FINISHED、手動貼上、只取消一段照舊、
+  **加了取消的那一天之後 `dates`／`rows`／`totals`／`followupNotes`／`equipmentNotes`／`log` 一個位元都不變**、營養點滴兩條路都寫品項。
+  每一條都拿 `taskLine(task, visit, master)`（待辦中心那一支）當答案，不是寫死的字。
+- 為什麼 `naming.test.js`／`slot-names-everywhere.test.js` 沒抓到：它們只掃 `ui/views/` 底下、只認 `master: {`／`master = {` 兩種寫法；
+  這裡是 `domain/` 裡**照位置傳**的 `{ courses, equipment }`。沒有加原始碼掃描 —— 新測試直接量兩條路的輸出，比掃字串準。
+- 重現腳本 `r03-cancel-task-date.mjs`：import 真的 `syncBundle()`、輸入自己組但形狀跟真的一樣 —— 修完印 `10/15 10:00 SIS`，跟待辦中心那一行一樣。
+- 試算表那一行寫的是 `taskLine()` 的 `what`（`10:00 SIS`，帶時間），待辦中心卡片上那一行小字是 `lines`（`10/15(四) SIS`，不帶時間）—— 本來就是這樣（同一天兩張 Examine 那一條測試釘著），沒動。
+- 留給 23：驗收清單一條（本機模擬器：批次取消整天 → 設定 → 試算表報表選那位 → TODO 那一行是取消的那一天＋課程）。`CLAUDE.md` 不用改。
