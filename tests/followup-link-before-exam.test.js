@@ -23,6 +23,7 @@ import {
 } from '../public/js/domain/consequences.js';
 import { examChoicesForNth, nthSlotFields, followupName } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
+import { syncBundle } from '../public/js/domain/sheetReport.js';
 
 const COURSES = [
   { id: 'c-exam', name: '健檢', assigns: 'none', doctorPick: 'none', followupCourseId: 'c-fu' },
@@ -505,6 +506,40 @@ describe('另約一次健檢：還接在取消／未到的健檢上的二返講�
       coursesById, entitlementsBy: { c1: ENTS }, visitsBy: { c1: [gone, fuB] },
     });
     assert.ok(lines.some((l) => l.includes('那一場二返還接在「已取消」的')), lines.join('｜'));
+  });
+});
+
+// issue 01 的判準：「B 取消、另約一天：取消那一句叫她回去換連結？新的那一次做完之後試算表印什麼、待辦長什麼
+// （寫進測試，跟畫面講的對得上）」。畫面講的是：那一場二返不會跟著動、還接在取消的那一次上，要她自己回去換。
+describe('健檢取消、另約一天做完了：她還沒回去換連結之前，待辦與試算表都當那一場二返不是新的這一次的', () => {
+  const gone = exam('B', '2026-10-01', 'cancelled');
+  const fu = second('F', '2026-10-24', 'confirmed', 'B');
+  const C = exam('C', '2026-10-15', 'done');
+  const reportDone = task('t-rep', REPORT_TASK_KIND, 'C', true);
+  const sheet = (visits) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }], entitlementsBy: { c1: ENTS }, visitsBy: { c1: visits },
+    today: '2026-10-16', master: { courses: COURSES },
+  }).sheets[0];
+
+  test('待辦：新的那一次照長追蹤健檢報告；報告勾掉之後照長它自己的「約二返」（那一場不算約掉了它的）', () => {
+    assert.deepEqual(chain([gone, fu, C]).create.map((t) => [t.kind, t.visitId]), [[REPORT_TASK_KIND, 'C']]);
+    assert.equal(owed(pair, [gone, fu, C]), 1);
+    const after = chain([gone, fu, C], [reportDone]).create.map((t) => [t.kind, t.visitId]);
+    assert.ok(after.some(([kind, id]) => kind === FOLLOWUP_TASK_KIND && id === 'C'), JSON.stringify(after));
+  });
+
+  test('試算表：新的那一次底下印「二返()」（還沒約）；取消的那一次沒有那一欄', () => {
+    const out = sheet([gone, fu, C]);
+    assert.deepEqual(out.dates, ['2026-10-15', '2026-10-24']);
+    assert.deepEqual(out.followupNotes, [{ dateIndex: 0, text: '二返()' }]);
+  });
+
+  test('她照那一句回去把那一場換到新的這一次：試算表印在它底下、「約二返」不長了', () => {
+    const moved = second('F', '2026-10-24', 'confirmed', 'C');
+    assert.deepEqual(sheet([gone, moved, C]).followupNotes, [{ dateIndex: 0, text: '10/24 二返' }]);
+    assert.equal(owed(pair, [gone, moved, C]), 0);
+    assert.ok(!chain([gone, moved, C], [reportDone]).create.some((t) => t.kind === FOLLOWUP_TASK_KIND));
+    assert.deepEqual(strandedFollowups(ENTS, coursesById, [gone, moved, C]), []);
   });
 });
 

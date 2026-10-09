@@ -18,7 +18,7 @@
 | 09 | 客戶詳情三個數字 | done |
 | 10 | 資料健檢兩列 | done |
 | 11 | 拍 Abovee：同一批先存健檢再接二返、沒有健檢不預設打勾 | done |
-| 12 | 文件、ADR-0145、E2E 65、量測、PR | 文件與量測 done；PR 開了、審查進行中 |
+| 12 | 文件、ADR-0145、E2E 65、量測、PR | done（PR #148；`/matt-code-review` 兩份都回來、成立的都修了） |
 
 - 分支 `claude/followup-link-before-exam`，從 `origin/develop` `9e40c21`（PR #147 合進去那一個）開。一支 PR 進 `develop`。
 - 編號：ADR-0145 起、E2E spec `65`（登記進 `tests-e2e/related.js`）、`sw.js` `v187`（02 升，之後不再升）。
@@ -43,3 +43,32 @@
 - 偏離 issue 的：`owed()` 不在手上那一份裡的那一次照舊算（不知道就不改）；資料健檢兩項接在最後；06 那一條「編輯器那一排」沒有改程式（本來就成立，L5 量了）。
 - 列給她的（PR 內文「要你決定的」）：來訪編輯器與拍 Abovee 存一場沒連結的二返時要不要也講「約二返會收起來」。
 - 這一段學到的：拆 commit 時共用的測試檔要分段（先備份、拿掉後面那一支的、commit、再放回）；E2E fixture 的 `visit()` 回 `{ path, id, data }`，改日期要改 `data`。
+
+### 10/9 下午：`/matt-code-review`（規範、規格各一份）與修正
+
+第一次跑兩個審查都斷在用量上限，重跑才回來。成立的照類別一類一個 commit（都先寫會紅的測試）：
+
+- `009ad1e` 拍 Abovee：**同一天**的健檢＋二返都是新的時整天記不進去（二返先選好了自己那一天的暫時 id，驗證認不得）→ 那一顆列得出來、
+  按不下去、寫「存好才接得上」；一次健檢兩列二返各選同一次 → 一列一列接；預選有兩套規則 → `onlyOpen()` 一支（`pickOption()`／`resolveItem()` 收 `items`）；
+  存檔先後只認暫時 id → 照 `plannedId()`（`plannedKeyOf()` 拿掉了）；接的那一天記不進去時選好的連結被安靜丟掉 → `stuckLinks()`。E2E `65` L7（新）。
+- `a1a76ee` 存檔驗證的「新接上」認得太寬（那一天任何一段指著同一次就算舊的，取消掉的段、n返 都算）→ 只認同一個位置本來就指著、
+  或這一次被取消掉的同一種段搬過來的（`visits.js` 的 `carried`）。
+- `382c2ab` 簽療程單：接的那一次已取消／未到時不再講「還沒做完、健檢簽好再回來簽」→ `closeBlockSay()`；「全部 ✓」講跳過了幾段（issue 05 的範圍，之前漏了）。
+- `b1e9da8` `strandedFollowupLines()` 改問 `strandedFollowups()`（連動表本來就寫三處共用）；句子裡那一場的名字不印快照 → `nthFollowup.js` 的 `followupName()`；
+  `followups.js` 的 `liveById()`、`isOpenStatus()`。
+- 文件：ADR-0145 多「審查之後改的」、連動表五列、lessons 四條、常見問題一題新的、邊界測試清單 O9–O12、`CONTEXT.md`／操作手冊／常見問題還在講
+  「n返 要先有做完的健檢」的三處；issue 01 判準要的那一支測試（健檢取消、另約一天之後待辦與試算表）。
+- 改完重量一次：沒連結的舊資料 10 萬組與兩份合併檔照舊一個位元都不變。
+
+**審查提了、沒有改的**（判斷題，理由寫在這裡，下一輪不用再想一次）：
+
+- `cannotClose()`／`strandedFollowups()`／`doneAheadOfExam()` 住在 `followups.js` 而連動表寫「n返 不要寫進那一支」：它們問的是連結不是哪一種返，
+  而且 `nthFollowup.js` import 那一支、反過來會繞成一圈 —— 連動表 n返 那一列補了一句說明。
+- `cannotClose()` 認健檢額度的方式（n返：有配二返的那幾筆）跟 `examAfter()`（課程上設了二返課程的）差在「健檢額度沒有配二返」的那一種：
+  那時 n返 的 ✓ 不擋。n返 先做完不影響報告那條鏈（只有二返做完才不追），而要對齊得多傳 `coursesById` 過三個呼叫端 —— 沒改。
+- `applyStatus(…, 'done')` 整天那一條沒有 guard：沒有任何畫面在用（`visitActions()` 不給這一顆）；連動表寫著「新增一條會把段簽成做了的路要傳 guard」。
+- `closeVisit(fresh, picks, undefined, guard)` 的位置參數、`examChoices()` 五個位置參數、`owedCounts()` 的 `counted`／`early` 兩個名字、
+  `closeDrawerHtml()` 畫的時候順手把不成立的 ✓ 拿掉：都沒動（改了牽連的呼叫端比得到的多）。
+
+**列給她的**（最後那一則回覆裡）：來訪編輯器與拍 Abovee 存沒連結的二返要不要講「約二返會收起來」（原本就有的那一題）；
+拍 Abovee「接哪一次健檢」那一顆再按一次不會取消選取（壓表會）—— 要不要也可以按掉。

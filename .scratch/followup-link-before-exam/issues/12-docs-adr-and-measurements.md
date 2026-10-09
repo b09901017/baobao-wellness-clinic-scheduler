@@ -1,6 +1,6 @@
 # 文件、ADR-0145、E2E 65、量測
 
-Status: todo
+Status: done
 Blocked by: 02–11
 動工前先讀：`01` 的「文件」「判準」、最後一段（審查記下來的第三條）
 
@@ -17,3 +17,9 @@ Blocked by: 02–11
 
 - 每一支子 issue 的 `Status:` 都是 done；推翻的寫了新 ADR、舊的一個字都沒改。
 - 文件裡 grep 不到「只有已完成按得下去」「還沒做完，現在選不到」那幾句舊的說法（除了 ADR 與 issue 的歷史）。
+
+## 做完時留下的
+
+- ADR-0145、SPEC、操作手冊、常見問題、對照表、邊界測試清單 O 段、`CLAUDE.md` 連動表、lessons：`e0e1efc`；審查之後再補一輪（見 `HANDOFF.md`「10/9 下午」）。
+- E2E `65` L1–L7。量測寫在 ADR-0145「量過的」；審查的修正之後重量一次，沒連結的舊資料照舊一個位元都不變。
+- PR #148 進 develop；`/matt-code-review` 兩份的結果與處理在 `HANDOFF.md`。
