@@ -15,6 +15,8 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
 import { validateVisit, visitStatusFrom } from '../public/js/domain/visits.js';
+import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
+import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
 
 const COURSES = [
   { id: 'c-exam', name: '健檢', assigns: 'none', doctorPick: 'none', followupCourseId: 'c-fu' },
@@ -164,5 +166,54 @@ describe('owed()：接在一次還沒做完的健檢上的二返，不算「約�
 
   test('沒連結的照舊算約掉（舊資料一個字都不動）', () => {
     assert.equal(owed(pair, [A, B, second('F', '2026-10-24', 'pending_confirm', null)]), 0);
+  });
+});
+
+// ---------- 03 n返 一起放寬（她 10/9：「放寬」）----------
+
+describe('n返：跟二返同一條 —— 排著的與做完的接得上，取消、未到接不上', () => {
+  const nth = (id, date, to, status = 'pending_confirm') => visitOf(id, date, [{
+    ...nthSlotFields({ nth: 3, examVisitId: to, courseId: 'c-fu' }),
+    startsAt: '14:00', endsAt: '14:30', status,
+  }]);
+  const world = [
+    exam('e1', '2026-09-01', 'done'),
+    exam('e2', '2026-10-01', 'confirmed'),
+    exam('e3', '2026-10-05', 'pending_confirm'),
+    exam('e4', '2026-10-06', 'no_show'),
+    exam('e5', '2026-10-07', 'cancelled'),
+  ];
+
+  test('那一排：待確認、已確認、已完成按得下去', () => {
+    const out = examChoicesForNth({ entitlements: ENTS, coursesById, visits: world });
+    assert.deepEqual(out.map((c) => c.pickable), [true, true, true, false, false]);
+  });
+
+  test('「＋ n返」那一顆：只有一次排著的健檢也畫', () => {
+    const opts = slotOptionsFor({ entitlements: ENTS, visits: [exam('e2', '2026-10-01', 'confirmed')], courses: COURSES, pools: [] });
+    assert.ok(opts.some((o) => o.isNth), '排著的那一次接得上，那一顆就要在');
+    assert.ok(!slotOptionsFor({ entitlements: ENTS, visits: [exam('e5', '2026-10-07', 'cancelled')], courses: COURSES, pools: [] })
+      .some((o) => o.isNth), '只有取消的就不畫');
+  });
+
+  test('存檔：接已確認的存得下去；接取消、未到的擋下來', () => {
+    assert.deepEqual(aboutExam(ask(nth(undefined, '2026-10-24', 'e2'), world).errors), []);
+    for (const to of ['e4', 'e5']) {
+      const errors = aboutExam(ask(nth(undefined, '2026-10-24', to), world).errors);
+      assert.equal(errors.length, 1, to);
+      assert.match(errors[0], /不會有報告/);
+    }
+  });
+
+  test('健檢後來取消了：接在它上面的 n返 那一天改別的照樣存得下去（以前 n返 每一次都驗）', () => {
+    const stored = nth('n', '2026-10-24', 'e5', 'confirmed');
+    const edited = { ...stored, slots: [{ ...stored.slots[0], note: '改了一句' }] };
+    assert.deepEqual(aboutExam(ask(edited, [...world, stored]).errors), []);
+  });
+
+  test('指到的那一天根本不是健檢：每一次都擋', () => {
+    const rehab = visitOf('r', '2026-09-01', [{ entitlementId: null, courseId: 'c-fu', startsAt: '09:00', endsAt: '10:00', status: 'done' }]);
+    const stored = nth('n', '2026-10-24', 'r', 'confirmed');
+    assert.equal(aboutExam(ask(stored, [rehab, stored]).errors).length, 1);
   });
 });

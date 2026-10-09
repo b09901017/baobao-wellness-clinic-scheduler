@@ -239,12 +239,17 @@ describe('存檔前的檢查（validateVisit）', () => {
     assert.ok(validateVisit(v, ctx).errors.some((e) => e.includes('一定要指定是哪一次健檢')));
   });
 
-  test('指到的那一筆不是已完成的健檢 → 擋下來', () => {
-    const notDone = { ...EXAM_A, status: 'confirmed' };
+  // 2026-10-09（ADR-0145）起排著的也接得上（跟二返同一條）；取消、未到照舊擋
+  test('指到的那一筆是取消掉的健檢 → 擋下來；排著的存得下去', () => {
+    const gone = { ...EXAM_A, status: 'cancelled' };
     const out = validateVisit(nthVisit('v-new', '2026-09-20', 'v-exam-a', 3), {
-      ...ctx, customerVisits: [notDone],
+      ...ctx, customerVisits: [gone],
     });
-    assert.ok(out.errors.some((e) => e.includes('沒有一次已完成的健檢')));
+    assert.ok(out.errors.some((e) => e.includes('不會有報告')), out.errors.join(' / '));
+    const booked = { ...EXAM_A, status: 'confirmed' };
+    assert.deepEqual(validateVisit(nthVisit('v-new', '2026-09-20', 'v-exam-a', 3), {
+      ...ctx, customerVisits: [booked],
+    }).errors, []);
   });
 
   test('指到一筆不是健檢的來訪 → 擋下來', () => {
@@ -255,7 +260,7 @@ describe('存檔前的檢查（validateVisit）', () => {
     const out = validateVisit(nthVisit('v-new', '2026-09-20', 'v-rehab', 3), {
       ...ctx, customerVisits: [rehab],
     });
-    assert.ok(out.errors.some((e) => e.includes('沒有一次已完成的健檢')));
+    assert.ok(out.errors.some((e) => e.includes('指定的那一天沒有健檢')));
   });
 
   test('返數超出範圍 → 講的是返數，不是「要選一個額度」', () => {

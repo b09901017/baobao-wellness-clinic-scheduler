@@ -1,6 +1,6 @@
 # n返 一起放寬
 
-Status: todo
+Status: done
 Blocked by: 02
 動工前先讀：`01` 的「她 10/9 回的」第 1 點、「7. 待辦那一側」n返 那一列；`asks-2026-09-24/issues/11` 最後「她 2026-09-24 回的」
 
@@ -23,3 +23,10 @@ Blocked by: 02
 - n返 接一次已確認的健檢：那一排按得下去、存得下去；接取消／未到的擋下來。
 - 健檢被取消之後，接在它上面的 n返 那一天改別段照樣存得下去。
 - 這一行會不會讓一筆二返的資料被算成 n返，或反過來？（`nthFollowup.js` 檔頭的判準）
+
+## 做完時留下的
+
+- `examChoicesForNth()` 的 `pickable` 問 `PICKABLE_EXAM`。「＋ n返」那一顆畫不畫問的就是有沒有按得下去的（`slotOptions.js`），所以**跟著放寬**：只有一次排著的健檢也畫；只有取消、未到的不畫。`examVisits()`（只有做完的）沒動 —— 只剩客戶詳情的健檢卡在用。
+- n返 的驗證拆成兩條：「指到的那一天是一次健檢」（`isExamVisit()`，每一次都驗，字改成「指定的那一天沒有健檢」）、「那一次接得上」（只驗新接上的，跟二返同一個 `carried`）。`examDoneIn` 在 `visits.js` 沒人用了，拿掉 import。
+- 改了既有測試：`nth-followup.test.js` 兩條、`slot-by-slot.test.js` 兩條（「審查修正（第一批）」那一條的 n返 原本把自己放進 `customerVisits` —— 現在算舊的連結、不驗，改成新接上的）。
+- `docs/邊界測試清單.md` C2 改了。E2E 跟 04 一起跑。

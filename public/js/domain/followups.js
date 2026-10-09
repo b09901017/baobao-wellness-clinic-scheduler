@@ -28,7 +28,7 @@ import { addDays, dayOf, shortDate } from './dates.js';
 // 循環 import（taskRules.js 也 import 這一支的常數）：兩邊都只在函式裡用，模組載入時不碰
 import { seenTasks } from './taskRules.js';
 // 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
-// visits.js 也 import 這一支（`examDoneIn()`、`examStatusIn()`）—— 兩邊都只在函式裡用，載入時不互相讀
+// visits.js 也 import 這一支（`examStatusIn()`、`PICKABLE_EXAM`）—— 兩邊都只在函式裡用，載入時不互相讀
 import { slotStatus, shortStatus } from './visits.js';
 
 /**

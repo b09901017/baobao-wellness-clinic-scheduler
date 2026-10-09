@@ -427,8 +427,9 @@ describe('審查修正（第一批）', () => {
       followupForVisitId: 'x', status: 'pending_confirm', startsAt: '10:00', endsAt: '10:30',
     }],
   };
+  // 這一段是**新接上**的（存著的那一份不帶它）—— ADR-0145 起狀態只驗新接上的連結
   const nthErrors = (exam) => validateVisit(nthVisit, {
-    customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [exam, nthVisit],
+    customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [exam],
   }).errors.filter((e) => e.includes('健檢'));
 
   test('n返 的存檔驗證也問健檢那一段：健檢做了、別段還開著 → 存得下去', () => {
@@ -756,10 +757,10 @@ describe('11 「這是哪一次健檢」標狀態（ADR-0145 起排著的也按�
     assert.equal(first.pickable, false);
   });
 
-  test('n返：跟二返一樣標狀態、只有已完成的按得下去（照舊不會被「已約」鎖住）', () => {
+  test('n返：跟二返一樣標狀態、取消與未到按不下去（照舊不會被「已約」鎖住；ADR-0145 起排著的也按得下去）', () => {
     const out = examChoicesForNth({ entitlements: ENTS, coursesById: byId, visits: world });
     assert.deepEqual(out.map((c) => c.visitId), ['e1', 'e2', 'e3', 'e4', 'e5']);
-    assert.deepEqual(out.map((c) => c.pickable), [true, false, false, false, false]);
+    assert.deepEqual(out.map((c) => c.pickable), [true, true, false, false, true]);
     assert.equal(out[2].status, 'no_show');
   });
 

@@ -748,7 +748,7 @@ function nthFields(ctx, draft, slot, i, choices) {
             value: c.visitId,
             label: shortDate(c.date),
             // 它的狀態＋已經有幾返了（`examChoiceNote()`）。**不寫「還沒約」** —— 那三個字是二返那一排的，
-            // 兩個地方講不同的事會讓她以為是同一件。只有已完成的按得下去（issues/11）
+            // 兩個地方講不同的事會讓她以為是同一件。排著的與做完的按得下去（issues/11、ADR-0145）
             note: examChoiceNote(c),
             disabled: !c.pickable,
           })),

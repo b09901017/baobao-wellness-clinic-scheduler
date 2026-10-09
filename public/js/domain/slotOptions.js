@@ -84,8 +84,8 @@ export function slotOptionsFor(
     });
   }
 
-  // **一個做完的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
-  // 候選連沒做完的也列（asks-2026-09-24/issues/11），所以問的是有沒有**按得下去**的
+  // **一次接得上的健檢都沒有時整顆不畫。** 畫成 disabled 的話她每次都會試一下。
+  // 候選連取消、未到的也列（asks-2026-09-24/issues/11），所以問的是有沒有**按得下去**的（排著的與做完的，ADR-0145）
   const exams = examChoicesForNth({ entitlements, coursesById, visits });
   if (exams.some((c) => c.pickable)) {
     // n返 借那一次健檢配的二返課程。已經選好健檢就用那一次的；還沒選就拿第一個候選的

@@ -19,10 +19,10 @@ import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn, examStatusIn, examChoicesFor, PICKABLE_EXAM } from './followups.js';
+import { examStatusIn, examChoicesFor, PICKABLE_EXAM } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
-  isNthSlot, nthOf, nthLabel, examEntitlementIds,
+  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
@@ -1671,6 +1671,8 @@ function visitErrors(visit, {
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
     if (slot.followupForVisitId) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      // 這個連結是這一次新接上的嗎：存著的那一份這一天有沒有任何一段本來就指著它（底下二返那一條說為什麼不比位置）
+      const carried = (stored?.slots ?? []).some((s) => s?.followupForVisitId === slot.followupForVisitId);
       if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
       // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
       // 試算表會把二返註記寫到一個不相干的日期底下。
@@ -1678,20 +1680,22 @@ function visitErrors(visit, {
           && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
         errors.push(`${at}：指定的那一天裡沒有「${ent.label}」對應的健檢`);
       }
-      // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
-      // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
-      // **問健檢那一段**（`examDoneIn()`，ADR-0112）—— 跟候選清單同一支，
-      // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
-      else if (nth && !examDoneIn(exam, examIds)) {
-        errors.push(`${at}：指定的那一天沒有一次已完成的健檢`);
+      // n返 沒有額度可以比，所以改問「那一筆是不是一次健檢」—— 每一次都驗（那是資料對不對）。
+      else if (nth && !isExamVisit(exam, examIds)) {
+        errors.push(`${at}：指定的那一天沒有健檢`);
+      }
+      // 接得上哪幾次跟二返同一條（`PICKABLE_EXAM`，ADR-0145：排著的與做完的；以前只准做完的）、
+      // **也只驗新接上的連結**：以前 n返 每一次都驗，放寬之後健檢被取消，那一天別段改一個字都存不回去。
+      // 狀態問健檢那一段（`examStatusIn()`，ADR-0112）—— 跟候選清單同一支，不然列得出來的存不下去
+      else if (nth && !carried && !PICKABLE_EXAM.has(examStatusIn(exam, examIds))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, examIds))}」，不會有報告`);
       }
       // **二返接得上排著的與做完的健檢，取消、未到的接不上**（ADR-0145；9/24 起只准已完成，issues/11）——
       // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
       // **只擋這一次新接上、或換過的連結**：存著的那一份這一天本來就有一段指著它的是舊資料（ADR-0011 那一條原則）——
       // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去。**問的是這一天有沒有任何一段指著它，不比位置**：
       // 二返自己改時間（`rebookSlot()`）新的那一段接在尾巴、帶著同一個連結，照位置比會被當成新接上的
-      else if (ent?.followupForEntitlementId
-          && !(stored?.slots ?? []).some((s) => s?.followupForVisitId === slot.followupForVisitId)
+      else if (ent?.followupForEntitlementId && !carried
           && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
         errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
       }
