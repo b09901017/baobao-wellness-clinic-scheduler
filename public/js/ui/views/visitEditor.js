@@ -1321,6 +1321,9 @@ async function submit(ctx, draft) {
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
       sheetSyncOn: isConfigured(ctx.settings),
       today: todayISO(),
+      // 健檢那一段改成別的課程：還接在這一次後面的二返要講（ADR-0145）
+      customerVisits: ctx.customerVisits,
+      entitlements: ctx.entitlements,
     });
     const ok = await confirmAction({
       title: said.title,
@@ -1429,7 +1432,7 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       sheetSyncOn: isConfigured(ctx.settings),
       slotIndex,
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
-      sameDay: ctx.customerVisits,
+      customerVisits: ctx.customerVisits,
       // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
       chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all)),
     }),

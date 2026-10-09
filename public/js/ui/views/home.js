@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending, applyStatus,
+  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -46,7 +46,7 @@ import {
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
-  confirmConsequences, closeConsequences, cancelConsequences, closedSay, followupBookingLines,
+  confirmConsequences, closeConsequences, cancelConsequences, closedSay, cancelChainLines,
 } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf, cannotClose, closeBlocks,
@@ -3132,17 +3132,15 @@ async function applyConfirm(ctx) {
       const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
       const lines = cancelConsequences({
         visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: mine,
-        sheetSyncOn: isConfigured(ctx.settings), sameDay: customerVisits,
+        sheetSyncOn: isConfigured(ctx.settings), customerVisits,
       });
       for (const line of lines) said.add(line);
     }
-    // 「約二返」會怎麼動：全部套上去之後算一次（同批次取消那一頁）
-    const after = visits.filter((v) => askedIn(v).length)
-      .map((v) => askedIn(v).reduce((x, slotIndex) => applyStatus(x, 'cancelled', { slotIndex }), v));
-    const changed = new Set(after.map((v) => v.id));
-    for (const line of followupBookingLines({
+    // 健檢那條鏈：全部套上去之後算一次（`cancelChainLines()`，同批次取消那一頁）
+    for (const line of cancelChainLines({
       customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
-      visits: [...customerVisits.filter((v) => !changed.has(v.id)), ...after],
+      visits: customerVisits,
+      cancels: visits.filter((v) => askedIn(v).length).map((v) => ({ visit: v, at: askedIn(v) })),
       chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
       coursesById: ctx.coursesById ?? {},
     })) said.add(line);
@@ -3205,6 +3203,18 @@ async function applyConfirm(ctx) {
     tasksByVisit,
     asked,
   );
+  // 有 ✓ 也有 ✗（沒有確認框的那一條）：✗ 掉的是健檢、後面接著一場二返時，存完那張卡片上講（ADR-0145）。
+  // 全部 ✗ 的那一條上面的確認框已經講了
+  if (rejected.size && rejected.size < asked.size) {
+    said.push(...cancelChainLines({
+      customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
+      visits: customerVisits,
+      cancels: touched.map((v) => ({ visit: v, at: askedIn(v).filter((i) => rejected.has(`${v.id}:${i}`)) }))
+        .filter((c) => c.at.length),
+      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
+      coursesById: ctx.coursesById ?? {},
+    }));
+  }
 
   // 存好的那幾筆，重試時跳過（`saveEach()`，issues/18）
   const saved = new Set();

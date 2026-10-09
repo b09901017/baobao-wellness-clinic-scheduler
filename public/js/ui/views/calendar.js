@@ -1215,7 +1215,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
         tasks,
         slotIndex,
         // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
-        sameDay: customerVisits,
+        customerVisits,
         // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
         chain: await visitsData.chainInputs(fresh.customerId, data.coursesById ?? {}),
       }),

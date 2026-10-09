@@ -105,10 +105,9 @@ test('L1 健檢約好還沒做、當場約二返：那一排按得下去、存�
 // ---------- 05 簽療程單：二返接的那一次健檢還沒做完，✓ 按不下去 ----------
 
 test('L2 二返接在還沒做完的健檢上、二返那一天先到：✓ 按不下去、講出原因；「全部 ✓」跳過它；✗ 照樣按得下去', async ({ app, page }) => {
-  const LATER = addDays(TODAY, 3).startsWith(MONTH) ? addDays(TODAY, 3) : TODAY;
   await app.seed([
     ...seedTwoExams().filter((d) => d.id !== 't-old-book'),
-    // 健檢（B）在三天後；二返約在今天、接在 B 上（日期排錯了，或客人先來聽別的）
+    // 健檢（B）在明天；二返約在今天、接在 B 上（日期排錯了，或客人先來聽別的）
     visit({
       id: 'v-second', customerId: 'cust-a', customerName: '客戶A', date: TODAY, status: 'confirmed',
       slots: [
@@ -118,7 +117,7 @@ test('L2 二返接在還沒做完的健檢上、二返那一天先到：✓ 按�
           status: 'confirmed' },
       ],
     }),
-  ].map((d) => (d.id === 'v-exam' ? { ...d, date: LATER } : d)));
+  ]);
   await app.signIn('/');
   await app.go('/todo/close');
   await page.locator('[data-open="v-second"]').click();
@@ -149,3 +148,50 @@ test('L2 二返接在還沒做完的健檢上、二返那一天先到：✓ 按�
   await app.saved();
   expect((await app.readDoc('visits', 'v-second')).slots[0].status).toBe('no_show');
 });
+
+// ---------- 06 健檢取消：確認框講「後面接著一場二返，不會跟著取消」；07 另約一次健檢時講還接在取消的那一次上 ----------
+
+/** 客戶A：健檢（B）約好了，二返已經接在 B 上 */
+function seedLinked() {
+  return [
+    ...seedTwoExams().filter((d) => d.id !== 't-old-book'),
+    visit({
+      id: 'v-second', customerId: 'cust-a', customerName: '客戶A', date: SECOND_DAY, status: 'confirmed',
+      slots: [{
+        ...slot({ courseId: 'course-followup', entitlementId: 'ent-second', startsAt: '14:00', endsAt: '14:30' }),
+        status: 'confirmed', followupForVisitId: 'v-exam',
+      }],
+    }),
+  ];
+}
+
+async function longPress(page, row) {
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+}
+
+test('L3 日曆長按取消健檢那一段：確認框講後面接著那一場二返、不會跟著取消；二返一個字都沒動', async ({ app, page }) => {
+  await app.seed(seedLinked());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${EXAM_DAY}"]`).first().click();
+  await app.layer('[data-open^="visit:v-exam:"]');
+  await longPress(page, page.locator('[data-open^="visit:v-exam:"]').first());
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said).toContain('那一場二返接在');
+  expect(said).toContain('不會跟著取消');
+  expect(said, '叫她重新約好之後回去換').toContain('換「這是哪一次健檢的」');
+  await app.ok();
+  await app.saved();
+
+  const second = await app.readDoc('visits', 'v-second');
+  expect(second.slots[0].status, '二返不自動取消').toBe('confirmed');
+  expect(second.slots[0].followupForVisitId, '連結不自動搬、不清掉').toBe('v-exam');
+});
+

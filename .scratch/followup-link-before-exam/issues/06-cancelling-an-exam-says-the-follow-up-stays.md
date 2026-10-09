@@ -1,6 +1,6 @@
 # 健檢取消或未到：確認框與抽屜講「後面接著一場二返，不會跟著改」
 
-Status: todo
+Status: done
 Blocked by: 02
 動工前先讀：`01` 的「1. 健檢被取消或未到」「2. 健檢改期」、「prelaunch-fixes 的審查順手記下來的」第二條；ADR-0070、0142「取消那一道也講」
 
@@ -27,3 +27,15 @@ Blocked by: 02
 - B 簽成未到：抽屜講同一句。
 - B 同一天改時間：不講。
 - 編輯器打開那一場二返：取消的那一顆是選中的樣子、按不下去、點別顆換得掉。
+
+## 做完時留下的
+
+- `consequences.js` 的 `strandedFollowupLines({ before, after, entitlements, coursesById, verb })`：那一次健檢**本來接得上、之後接不上了**（`PICKABLE_EXAM`），接在它上面還佔著的每一場一句。
+  認得健檢靠 `examEntitlementIds()`（所以要 `coursesById`）。
+- `cancelChainLines({ customer, visits, cancels, chain, coursesById })`：「約二返」那幾句（`followupBookingLines()`）＋上面那一句，**四個取消入口都走它**；
+  批次取消與確認抽屜不再各自逐段 `applyStatus()`。`chain` 是 `null`（沒有配對、讀不到）就一句都不講。
+- `cancelConsequences()` 的 `sameDay` 改名 `customerVisits`（它從來都是全部來訪）；四個呼叫端與 `consequences.test.js` 跟著改。
+- 確認抽屜有 ✓ 也有 ✗ 的那一條沒有確認框 → 那一句接在存完那張卡片上（`showConfirmed()` 的 `said`）；全部 ✗ 的那一條在確認框上。
+- 簽療程單抽屜健檢 ✗：「不會跟著改成未到」。`rebookConsequences()` 多收 `customerVisits`／`entitlements`：健檢那一段改成別的課程時講；只改時間不講。
+- 編輯器那一排（原本指著的那一次取消了）：`examChoicesFor()` 本來就列出取消的那一次、`selected` 讓它照樣是選中的樣子（`f.chips` 的 `value`）、按不下去、點別顆換得掉 —— 沒有改程式，E2E 沒有另外量。
+- E2E `65` L3（日曆長按）；`20`、`22`、`34`、`05`、`63` 過。

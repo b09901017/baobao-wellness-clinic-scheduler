@@ -14,8 +14,10 @@ import {
   examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
-import { validateVisit, visitStatusFrom, closeVisit } from '../public/js/domain/visits.js';
-import { closeConsequences } from '../public/js/domain/consequences.js';
+import { validateVisit, visitStatusFrom, closeVisit, rebookSlot } from '../public/js/domain/visits.js';
+import {
+  closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences,
+} from '../public/js/domain/consequences.js';
 import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
 
@@ -310,6 +312,57 @@ describe('簽療程單擋：二返比它接的健檢先簽成做了', () => {
     const lines = closeConsequences({ visit: fu, picks: [true], entitlements: ENTS, coursesById, visits: [B, fu], tasks: [] });
     assert.ok(lines.some((l) => /健檢（10\/1\(四\)）還沒做完/.test(l)), lines.join('｜'));
     assert.ok(!lines.some((l) => l.includes('扣掉次數')), lines.join('｜'));
+  });
+});
+
+
+// ---------- 06 健檢取消或未到：確認框講「後面接著一場二返，不會跟著改」（她：只提醒、不連動）----------
+
+describe('健檢取消／未到：講出後面接著的二返', () => {
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const fuB = second('F', '2026-10-24', 'confirmed', 'B');
+  const chain = { entitlements: ENTS, tasks: [] };
+  const said = /10\/24\(六\) 那一場二返接在 10\/1\(四\) 那一次健檢後面 —— 不會跟著取消/;
+
+  test('取消健檢那一段（日曆長按、編輯器 ×）：講那一句、叫她回去換', () => {
+    const lines = cancelConsequences({ visit: B, coursesById, slotIndex: 0, customerVisits: [B, fuB], chain });
+    assert.ok(lines.some((l) => said.test(l)), lines.join('｜'));
+    assert.ok(lines.some((l) => l.includes('換「這是哪一次健檢的」')), lines.join('｜'));
+  });
+
+  test('取消整天也講', () => {
+    const lines = cancelConsequences({ visit: B, coursesById, customerVisits: [B, fuB], chain });
+    assert.ok(lines.some((l) => said.test(l)), lines.join('｜'));
+  });
+
+  test('一次取消好幾段（批次取消、確認抽屜）：全部套上去之後講一次', () => {
+    const lines = cancelChainLines({
+      customer: { id: 'c1', name: '客戶A' }, visits: [B, fuB], cancels: [{ visit: B, at: [0] }], chain, coursesById,
+    });
+    assert.ok(lines.some((l) => said.test(l)), lines.join('｜'));
+  });
+
+  test('二返那一場自己也一起取消了、或後面沒有接二返：不講', () => {
+    const both = cancelChainLines({
+      customer: { id: 'c1' }, visits: [B, fuB], cancels: [{ visit: B, at: [0] }, { visit: fuB, at: [0] }], chain, coursesById,
+    });
+    assert.ok(!both.some((l) => l.includes('不會跟著')), both.join('｜'));
+    const alone = cancelConsequences({ visit: B, coursesById, slotIndex: 0, customerVisits: [B], chain });
+    assert.ok(!alone.some((l) => l.includes('不會跟著')), alone.join('｜'));
+  });
+
+  test('簽療程單抽屜：健檢那一段按 ✗ → 「不會跟著改成未到」', () => {
+    const lines = closeConsequences({ visit: B, picks: [false], entitlements: ENTS, coursesById, visits: [B, fuB], tasks: [] });
+    assert.ok(lines.some((l) => /那一場二返接在 10\/1\(四\) 那一次健檢後面 —— 不會跟著改成未到/.test(l)), lines.join('｜'));
+  });
+
+  test('健檢那一段改成別的課程（`rebookSlot()`）＝那一筆沒有活著的健檢了：講；只改時間：不講', () => {
+    const other = rebookSlot(B, 0, { ...B.slots[0], entitlementId: 'e-fu', courseId: 'c-fu', courseName: '二返' });
+    const lines = rebookConsequences({ before: B, after: other, index: 0, coursesById, customerVisits: [B, fuB], entitlements: ENTS }).lines;
+    assert.ok(lines.some((l) => said.test(l)), lines.join('｜'));
+    const moved = rebookSlot(B, 0, { ...B.slots[0], startsAt: '13:00', endsAt: '15:00' });
+    assert.ok(!rebookConsequences({ before: B, after: moved, index: 0, coursesById, customerVisits: [B, fuB], entitlements: ENTS })
+      .lines.some((l) => l.includes('不會跟著')));
   });
 });
 
