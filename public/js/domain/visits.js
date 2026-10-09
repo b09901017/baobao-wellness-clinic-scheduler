@@ -19,7 +19,7 @@ import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examStatusIn, examChoicesFor, PICKABLE_EXAM } from './followups.js';
+import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
@@ -1699,6 +1699,16 @@ function visitErrors(visit, {
           && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
         errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
       }
+      // **一次健檢配一場二返**（ADR-0022：額度成對、次數一樣）—— 以前只靠畫面那一排把被佔走的那一顆關掉，
+      // 而壓表那一排讀的來訪只到目標月份月底：佔走它的那一場約在更後面時那一顆照樣按得下去。
+      // 這裡拿全部來訪驗（`customerVisits`），只驗新接上的（兩場本來就接同一次的是舊資料，資料健檢列）
+      else if (ent?.followupForEntitlementId && !carried) {
+        const by = followupHolding(slot.followupForVisitId, ent.id, visit, i, customerVisits);
+        if (by) {
+          errors.push(`${at}：指定的那一次健檢已經接了 ${isValidDate(by.date) ? shortDate(by.date) : '另一天'} 那一場${course?.name ?? '二返'}`
+            + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
+        }
+      }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
       // 二返有一整批舊資料身上沒有這個欄位（ADR-0011 的同一條原則），
@@ -1709,6 +1719,21 @@ function visitErrors(visit, {
   });
 
   return errors;
+}
+
+/**
+ * 那一次健檢已經被**別場活著的二返**接走了嗎（`holdsExam()`：取消、未到的不算）。別筆來訪問 `claimedExams()`，
+ * 同一筆裡別段自己看（同一天兩段二返接同一次是同一件事）。正在驗的這一筆在 `customerVisits` 裡的舊版本不算。
+ *
+ * @returns {object|null} 接走它的那一筆來訪
+ */
+function followupHolding(examVisitId, followupEntitlementId, visit, index, customerVisits) {
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const elsewhere = claimedExams(followupEntitlementId, others).get(examVisitId);
+  if (elsewhere) return elsewhere;
+  const here = (visit.slots ?? []).some((s, j) => j !== index && s?.entitlementId === followupEntitlementId
+    && s.followupForVisitId === examVisitId && holdsExam(visit, s));
+  return here ? visit : null;
 }
 
 /**

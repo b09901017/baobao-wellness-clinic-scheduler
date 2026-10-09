@@ -217,3 +217,46 @@ describe('n返：跟二返同一條 —— 排著的與做完的接得上，取�
     assert.equal(aboutExam(ask(stored, [rehab, stored]).errors).length, 1);
   });
 });
+
+// ---------- 04 一次健檢只接一場二返（ADR-0022：額度成對、次數一樣；要多約走 n返）----------
+
+describe('存檔驗證：同一次健檢已經接了一場活著的二返 → 擋', () => {
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const draft = () => ({ ...second(null, '2026-11-05', 'pending_confirm', 'B'), id: undefined });
+
+  test('另一場活著的二返已經接在 B 上：擋下來、講出是哪一天那一場', () => {
+    const other = second('F1', '2026-10-24', 'confirmed', 'B');
+    const errors = aboutExam(ask(draft(), [B, other]).errors);
+    assert.equal(errors.length, 1, errors.join('｜'));
+    assert.match(errors[0], /已經接了 10\/24\(六\) 那一場二返/);
+    assert.match(errors[0], /n返/);
+  });
+
+  test('佔著它的那一場取消了、或沒來：放回去了，存得下去', () => {
+    for (const st of ['cancelled', 'no_show']) {
+      assert.deepEqual(aboutExam(ask(draft(), [B, second('F1', '2026-10-24', st, 'B')]).errors), [], st);
+    }
+  });
+
+  test('兩場本來就都接在 B 上（舊資料）：改其中一場的別的照樣存得下去 —— 資料健檢會列出來', () => {
+    const f1 = second('F1', '2026-10-24', 'confirmed', 'B');
+    const f2 = second('F2', '2026-11-05', 'confirmed', 'B');
+    const edited = { ...f2, slots: [{ ...f2.slots[0], note: '改了一句' }] };
+    assert.deepEqual(aboutExam(ask(edited, [B, f1, f2]).errors), []);
+  });
+
+  test('畫面上那一排沒看到佔走它的那一場也擋得住 —— 驗證拿的是全部來訪', () => {
+    // 壓表那一排只讀到目標月份月底；存檔前重讀的是全部（`customerVisits`）
+    const later = second('F1', '2027-01-10', 'pending_confirm', 'B');
+    assert.equal(aboutExam(ask(draft(), [B, later]).errors).length, 1);
+  });
+
+  test('同一筆裡二返改時間（舊的那一段取消、新的帶同一個連結）不被自己擋', () => {
+    const stored = second('F1', '2026-10-24', 'confirmed', 'B');
+    const rebooked = { ...stored, slots: [
+      { ...stored.slots[0], status: 'cancelled' },
+      { ...stored.slots[0], startsAt: '15:00', endsAt: '15:30', status: 'pending_confirm' },
+    ] };
+    assert.deepEqual(aboutExam(ask(rebooked, [B, stored]).errors), []);
+  });
+});
