@@ -483,6 +483,53 @@ export function strandedFollowups(entitlements = [], coursesById = {}, visits = 
   return out;
 }
 
+/**
+ * 已經做完、接的那一次健檢卻還沒做完（待確認、已確認）的二返與 n返 —— 簽療程單擋住之前就存在的那幾筆（ADR-0145）。
+ * 那一次健檢做完時追蹤健檢報告不會長（「二返做完了才不追」，ADR-0139）。資料健檢列出來，只列不修。
+ *
+ * @returns {{visit:object, slot:object, slotIndex:number, exam:object, status:string|null}[]}
+ */
+export function doneAheadOfExam(entitlements = [], coursesById = {}, visits = []) {
+  const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
+  if (!sources.length) return [];
+  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const out = [];
+  for (const v of visits ?? []) {
+    (v?.slots ?? []).forEach((slot, slotIndex) => {
+      const exam = slot?.followupForVisitId && slotOutcome(v, slot) === 'done' ? byId.get(slot.followupForVisitId) : null;
+      const status = exam ? examStatusIn(exam, sources) : null;
+      if (exam && (status === 'pending_confirm' || status === 'confirmed')) out.push({ visit: v, slot, slotIndex, exam, status });
+    });
+  }
+  return out;
+}
+
+/**
+ * 同一次健檢被**兩場以上活著的二返**接走（一次健檢配一場，ADR-0022）。存檔驗證擋新接上的第二場；這裡列的是那之前就存在的。
+ * n返 不算（它本來就可以好幾場）。
+ *
+ * @returns {{exam:object|null, examVisitId:string, holders:{visit:object, slot:object}[]}[]} holders 照日期
+ */
+export function doubleClaimedExams(entitlements = [], coursesById = {}, visits = []) {
+  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const out = [];
+  for (const pair of pairsOf(entitlements, coursesById)) {
+    if (!pair.followup) continue;
+    const groups = new Map();
+    for (const l of linksOf(pair.followup.id, visits)) groups.set(l.examVisitId, [...(groups.get(l.examVisitId) ?? []), l]);
+    for (const [examVisitId, list] of groups) {
+      if (list.length < 2) continue;
+      out.push({
+        exam: byId.get(examVisitId) ?? null,
+        examVisitId,
+        holders: list.map(({ visit, slot }) => ({ visit, slot }))
+          .sort((a, b) => String(a.visit.date).localeCompare(String(b.visit.date))),
+      });
+    }
+  }
+  return out;
+}
+
 // ---------- 簽療程單：二返不可以比它接的那一次健檢先做完（ADR-0145）----------
 //
 // 她 10/9：「二返比健檢先簽完成：簽二返時，所接的健檢沒做完就擋」。接得上排著的健檢之後才會發生：

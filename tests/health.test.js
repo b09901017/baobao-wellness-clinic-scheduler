@@ -289,9 +289,9 @@ describe('照錯的時長排出去的那幾段', () => {
 });
 
 describe('形狀', () => {
-  test('三十三項檢查都在，順序固定', () => {
+  test('三十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 33);
+    assert.equal(result.checks.length, 35);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -1707,5 +1707,55 @@ describe('衝突殘留：取消掉的那一段不算', () => {
     };
     assert.deepEqual(runHealthCheck(snapshot({ visits: [mine, theirs] }), TODAY)
       .checks.find((c) => c.id === 'conflicts').findings, []);
+  });
+});
+
+// ---------- 二返接的健檢對不上、同一次健檢接了兩場二返（ADR-0145，只列不修）----------
+
+describe('二返接的健檢對不上（ADR-0145）', () => {
+  const ents = [
+    ent({ id: 'e-exam', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),
+    ent({ id: 'e-fu', type: 'single', label: '二返', courseId: 'c-followup', totalQty: 2, followupForEntitlementId: 'e-exam' }),
+  ];
+  const exam = (id, date, status) => visit({ id, date, status, slots: [{
+    entitlementId: 'e-exam', courseId: 'c-checkup', startsAt: '09:00', endsAt: '11:00', status }] });
+  const second = (id, date, status, to) => visit({ id, date, status, slots: [{
+    entitlementId: 'e-fu', courseId: 'c-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30', status, followupForVisitId: to }] });
+  const links = (visits) => findingsOf(run({ entitlements: ents, visits }), 'followupLinks');
+  const doubles = (visits) => findingsOf(run({ entitlements: ents, visits }), 'followupDouble');
+
+  test('接在取消、未到的健檢上：列出來、講兩天、只列不修、帶是哪一位', () => {
+    for (const st of ['cancelled', 'no_show']) {
+      const [f, ...rest] = links([exam('B', '2026-10-01', st), second('F', '2026-10-24', 'confirmed', 'B')]);
+      assert.deepEqual(rest, [], st);
+      assert.equal(f.fix, null);
+      assert.equal(f.whoId, 'cus-1');
+      assert.match(f.detail, /2026-10-01/);
+      assert.match(f.title, /2026-10-24/);
+    }
+  });
+
+  test('退回簽療程單之後（健檢回到已確認）那一列自己消失', () => {
+    assert.deepEqual(links([exam('B', '2026-10-01', 'confirmed'), second('F', '2026-10-24', 'confirmed', 'B')]), []);
+  });
+
+  test('二返已經做了、接的那一次還沒做完：也列', () => {
+    const [f] = links([exam('B', '2026-10-30', 'confirmed'), second('F', '2026-10-24', 'done', 'B')]);
+    assert.match(f.detail, /還沒做完/);
+  });
+
+  test('二返自己取消了、沒連結的舊資料：一列都不多', () => {
+    assert.deepEqual(links([exam('B', '2026-10-01', 'cancelled'), second('F', '2026-10-24', 'cancelled', 'B')]), []);
+    assert.deepEqual(links([exam('B', '2026-10-01', 'cancelled'), second('F', '2026-10-24', 'confirmed', null)]), []);
+  });
+
+  test('同一次健檢接了兩場活著的二返：列出來；其中一場取消就消失', () => {
+    const B = exam('B', '2026-10-01', 'done');
+    const [f, ...rest] = doubles([B, second('F1', '2026-10-24', 'confirmed', 'B'), second('F2', '2026-11-05', 'confirmed', 'B')]);
+    assert.deepEqual(rest, []);
+    assert.equal(f.fix, null);
+    assert.match(f.detail, /2026-10-24/);
+    assert.match(f.detail, /2026-11-05/);
+    assert.deepEqual(doubles([B, second('F1', '2026-10-24', 'confirmed', 'B'), second('F2', '2026-11-05', 'cancelled', 'B')]), []);
   });
 });

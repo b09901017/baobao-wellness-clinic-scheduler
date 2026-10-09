@@ -224,3 +224,33 @@ test('L4 健檢取消之後另約一次健檢：存檔前那一道講「那一�
   await app.saved();
   expect((await app.readDoc('visits', 'v-second')).slots[0].followupForVisitId, '只講不改').toBe('v-exam');
 });
+
+// ---------- 10 資料健檢列出來；06 編輯器那一排：取消的那一次照樣選中、按不下去、換得掉 ----------
+
+test('L5 健檢取消之後：資料健檢列出「二返接的健檢對不上」；改那一場二返時取消的那一次是選中的、按不下去、換得掉', async ({ app, page }) => {
+  await app.seed(seedLinked().map((d) => (d.id === 'v-exam' ? { ...d, data: {
+    ...d.data, status: 'cancelled', slots: d.data.slots.map((s) => ({ ...s, status: 'cancelled' })),
+  } } : d)));
+  await app.signIn('/settings/health');
+  await app.settled();
+  const card = page.locator('#view .hcard[data-check="followupLinks"]');
+  await expect(card).toBeVisible();
+  // 這一位只有一筆：不收成要點開的那一列
+  await expect(card).toContainText('客戶A');
+  await expect(card).toContainText('不會有報告');
+
+  // 日曆 → 那一場二返 → 長按 → 改這一段
+  await app.go('/calendar');
+  await page.locator(`[data-day="${SECOND_DAY}"]`).first().click();
+  await app.layer('[data-open^="visit:v-second:"]');
+  await longPress(page, page.locator('[data-open^="visit:v-second:"]').first());
+  await page.locator('.actionrow', { hasText: '改這一段' }).click();
+  await app.layer('[data-chip="s0-exam"]');
+  const gone = page.locator('[data-chip="s0-exam"][data-chip-value="v-exam"]');
+  await expect(gone, '原本那一次照樣是選中的樣子').toHaveAttribute('aria-pressed', 'true');
+  await expect(gone, '按不下去').toBeDisabled();
+  await expect(gone).toContainText('已取消');
+  const old = page.locator('[data-chip="s0-exam"][data-chip-value="v-old"]');
+  await old.click();
+  await expect(old, '換得掉').toHaveAttribute('aria-pressed', 'true');
+});

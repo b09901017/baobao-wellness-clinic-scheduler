@@ -1,6 +1,6 @@
 # 資料健檢兩列：二返接在取消／未到的健檢上、同一次健檢接了兩場二返
 
-Status: todo
+Status: done
 Blocked by: 02、05、07
 動工前先讀：`01` 的「1.」「3.」「5.」各自的「要做的」最後一點；ADR-0136（`who`／`whoId`）；`CLAUDE.md` 連動表「資料健檢那一頁的版面」
 
@@ -21,3 +21,11 @@ Blocked by: 02、05、07
 - B 取消、二返接在 B 上 → 列出來；B 未到 → 列出來；B 退回簽療程單 → 消失。
 - 兩場活著的二返接同一次 → 列出來；其中一場取消 → 消失。
 - 沒有連結的舊資料一列都不多。
+
+## 做完時留下的
+
+- 兩項接在 `CHECKS` **最後面**（`followupLinks`、`followupDouble`）—— 插在中間的話註解與文件裡「第 32、33 項」的編號全部錯位。總數 33 → 35（`health.test.js`、`seed-staff.test.js` 跟著改）。
+- 判斷只在 `followups.js`：`strandedFollowups()`（07 那一支）、`doneAheadOfExam()`（二返做了、接的那一次還是待確認／已確認）、`doubleClaimedExams()`（同一次被兩場活著的二返接走，走 `linksOf()`；n返 不算）。`health.js` 只組句子。
+- 都帶 `who`／`whoId`、`fix: null`、`link: null`（去哪裡改寫在句子裡：日曆 → 那一天 → 點那一場 → 改這一段）。都是現算的：退回簽療程單、取消其中一場之後那一列自己消失。
+- 沒有修正按鈕，所以 `ui/views/health.js` 的 `FIX_COPY` 不用補（`health.test.js` 只盯有 `fix.kind` 的）。
+- E2E `65` L5（新：資料健檢那一張、**也量了 06 那一條「編輯器裡取消的那一次選中、按不下去、換得掉」**）；`03`、`60`、`65` 過。
