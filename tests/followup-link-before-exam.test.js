@@ -14,7 +14,9 @@ import {
   examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks, strandedFollowups,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
-import { validateVisit, visitStatusFrom, closeVisit, rebookSlot } from '../public/js/domain/visits.js';
+import {
+  validateVisit, visitStatusFrom, closeVisit, rebookSlot, warningDetails, mustSee,
+} from '../public/js/domain/visits.js';
 import {
   closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences, bookingConsequences, aboveeConsequences,
 } from '../public/js/domain/consequences.js';
@@ -401,3 +403,50 @@ describe('另約一次健檢：還接在取消／未到的健檢上的二返講�
     assert.ok(lines.some((l) => l.includes('那一場二返還接在「已取消」的')), lines.join('｜'));
   });
 });
+
+// ---------- 08 二返排在接的那一次健檢之前：提醒、不擋（她：只提醒不擋）----------
+
+describe('二返排在接的那一次健檢之前：warning', () => {
+  const later = exam('B', '2026-10-30', 'confirmed');
+  const fu = (date, to = 'B', startsAt = '11:00') => ({
+    ...second(null, date, 'pending_confirm', to), id: undefined,
+    slots: [{ ...second(null, date, 'pending_confirm', to).slots[0], startsAt, endsAt: '11:30' }],
+  });
+  const before = (list) => list.filter((w) => w.includes('之前'));
+
+  test('別天：講出來、照樣存得下去', () => {
+    const { errors, warnings } = ask(fu('2026-10-24'), [later]);
+    assert.deepEqual(aboutExam(errors), []);
+    assert.deepEqual(before(warnings), ['第 1 個時段：二返 排在接的那一次健檢（10/30(五)）之前']);
+  });
+
+  test('同一天比開始時間：二返比健檢早才講', () => {
+    const sameDay = exam('B', '2026-10-24', 'confirmed');
+    assert.equal(before(ask(fu('2026-10-24', 'B', '08:00'), [sameDay]).warnings).length, 1);
+    assert.equal(before(ask(fu('2026-10-24', 'B', '11:00'), [sameDay]).warnings).length, 0);
+  });
+
+  test('之後的、沒連結的、取消掉的那一段：不講', () => {
+    assert.deepEqual(before(ask(fu('2026-11-05'), [later]).warnings), []);
+    assert.deepEqual(before(ask(fu('2026-10-24', null), [later]).warnings), []);
+    const gone = fu('2026-10-24');
+    gone.slots[0].status = 'cancelled';
+    assert.deepEqual(before(ask(gone, [later]).warnings), []);
+  });
+
+  test('n返 同一句', () => {
+    const n = { ...visitOf(undefined, '2026-10-24', [{
+      ...nthSlotFields({ nth: 3, examVisitId: 'B', courseId: 'c-fu' }), startsAt: '14:00', endsAt: '14:30', status: 'pending_confirm',
+    }]) };
+    assert.equal(before(ask(n, [later]).warnings).length, 1);
+  });
+
+  test('不在「收著也要看」的那幾種裡（不改變寫入結果）', () => {
+    const details = warningDetails(fu('2026-10-24'), {
+      customer: { id: 'c1', flags: [] }, entitlements: ENTS, courses: COURSES, customerVisits: [later],
+    }).filter((w) => w.text.includes('之前'));
+    assert.equal(details.length, 1);
+    assert.equal(mustSee(details[0]), false);
+  });
+});
+

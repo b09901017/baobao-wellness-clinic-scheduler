@@ -1916,6 +1916,9 @@ function assignmentWarnings(visit, {
     if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
       say(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
+    // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
+    const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
+    if (ahead) say(`${at}：${nthLabel(nthOf(slot)) ?? course.name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
     // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
@@ -1972,6 +1975,23 @@ function assignmentWarnings(visit, {
   });
 
   return found;
+}
+
+/**
+ * 這一段（二返或 n返）排在它接的那一次健檢**之前**嗎（ADR-0145）。別天比日期，同一天比開始時間（健檢那一段還活著的第一段）。
+ * 二返問它配的那一筆健檢、n返 問每一筆健檢額度。認不出的（接的那一次不在手上、日期壞了）就不講。
+ *
+ * @returns {object|null} 接的那一次健檢（排在它之前時）
+ */
+function examAfter(visit, slot, { customerVisits = [], entitlements = [], coursesById = {} }) {
+  const exam = slot.followupForVisitId === visit.id ? visit
+    : (customerVisits ?? []).find((v) => v && !v.deletedAt && v.id === slot.followupForVisitId) ?? null;
+  if (!exam || !isValidDate(exam.date) || !isValidDate(visit.date)) return null;
+  if (exam.date !== visit.date) return exam.date > visit.date ? exam : null;
+  const ent = (entitlements ?? []).find((e) => e.id === slot.entitlementId);
+  const sources = ent?.followupForEntitlementId ? new Set([ent.followupForEntitlementId]) : examEntitlementIds(entitlements, coursesById);
+  const first = (exam.slots ?? []).find((s) => sources.has(s?.entitlementId) && isLiveSlot(s) && isValidTime(s.startsAt));
+  return first && isValidTime(slot.startsAt) && toMinutes(slot.startsAt) < toMinutes(first.startsAt) ? exam : null;
 }
 
 /**
