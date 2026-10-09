@@ -254,7 +254,14 @@ export function followupPlanEntries(entries = [], courses = [], extra = {}) {
  * @param {object[]} visits 這位客戶的全部來訪
  */
 export function owed(pair, visits = []) {
-  if (!pair?.followup) return 0;
+  return pair?.followup ? owedCounts(pair, visits).owed : 0;
+}
+
+/**
+ * `owed()` 的兩個數：`owed`（接在還沒做完的健檢上的不算約掉）與 `counted`（照舊全部算 —— ADR-0145 之前的算法）。
+ * 第一圈拿 `counted` 當「照位置算二返做完了的那幾次最多拿幾個名額」（`syncFollowupTasks()`）。沒有那種連結時兩個一樣。
+ */
+function owedCounts(pair, visits = []) {
 
   // 「做完幾次健檢」一律用 counts() 算，不自己數來訪的筆數 ——
   // 次數的算法只能有一份（ADR-0004），而一筆來訪裡有兩個健檢時段時，
@@ -268,9 +275,11 @@ export function owed(pair, visits = []) {
   const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
   const early = linksOf(pair.followup.id, visits).filter((l) => l.outcome === 'booked'
     && byId.has(l.examVisitId) && !usedAndDone(byId.get(l.examVisitId), pair.source.id)).length;
-  const accounted = c.done + c.booked - early;
-
-  return Math.max(0, Math.min(doneCheckups, c.total) - accounted);
+  const cap = Math.min(doneCheckups, c.total);
+  return {
+    owed: Math.max(0, cap - (c.done + c.booked - early)),
+    counted: Math.max(0, cap - (c.done + c.booked)),
+  };
 }
 
 /**
@@ -755,7 +764,7 @@ export function syncFollowupTasks({
     // 它排出來的站裡也有「追蹤健檢報告」（還欠二返的那幾次）。留著不拆是因為「約二返」的收與留
     // 都問它：`keepsOpen()` 問這一次健檢現在站在哪、`reasonFor()` 靠「它現在該是報告那一站」
     // 講出「報告那一張被拿回來了」。兩邊排到的報告最後併在一起長（`stations`）。
-    const want = owed(pair, visits);
+    const { owed: want, counted } = owedCounts(pair, visits);
     if (!want) continue;
 
     // 候選＝做完、沒被有連結的二返佔著（**連結那一層帶來的精準度**：`owed()` 算的是**幾張**不是**哪幾張**，
@@ -791,7 +800,16 @@ export function syncFollowupTasks({
     // 照層排，同一層裡維持原本的先後（新到舊）
     const ordered = [0, 1, 2, 3, 4, 5].flatMap((r) => candidates.filter((v) => rank(v) === r));
 
-    for (const visit of ordered.slice(0, want)) {
+    // **接在還沒做完的健檢上而空出來的名額（`want - counted`）只給真的還欠的那幾次，不給照位置算二返做完了的**（ADR-0145 的量測抓到的）：
+    // 以前那一場接不上、照舊算成約掉一次，剛好抵掉「某一次舊健檢的『約二返』她先勾掉、那一場還沒記進來」那一種
+    // （ADR-0142「還沒動的同一類」）；接上之後名額空出來，會溢到二返其實做完了的舊健檢上多長一張。沒有那種連結時兩個數一樣
+    const picked = [];
+    for (const visit of ordered) {
+      if (picked.length >= want) break;
+      if (behind.has(visit.id) && picked.length >= counted) continue;
+      picked.push(visit);
+    }
+    for (const visit of picked) {
       wanted.set(visit.id, stationFor(visit, {
         report: doneReport.get(visit.id),
         booking: openBooking.get(visit.id),

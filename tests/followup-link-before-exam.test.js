@@ -476,3 +476,36 @@ describe('客戶詳情：二返做完、約了、還沒約三個數字', () => {
     assert.match(text, /約了 4 次（10\/10\(六\)、10\/11\(日\)、10\/12\(一\)…）/);
   });
 });
+
+// ---------- 02 的後續：接在沒做完的健檢上而空出來的名額，不溢到照位置算二返已經做完的舊健檢（量測抓到的）----------
+
+describe('空出來的名額只給真的還欠的那幾次', () => {
+  // x0：舊的、二返照位置算做完了（s0 沒連結）、報告勾過；x1：舊的、她先勾掉了「約二返」、那一場還沒記進來；
+  // B：還排著，二返當場一起約、接在 B 上
+  const x0 = exam('x0', '2026-07-01', 'done');
+  const x1 = exam('x1', '2026-08-01', 'done');
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const s0 = second('s0', '2026-07-20', 'done', null);
+  const fuB = second('F', '2026-10-24', 'confirmed', 'B');
+  const tasks = [
+    task('t-rep-x0', REPORT_TASK_KIND, 'x0', true),
+    task('t-send-x0', SEND_REPORT_TASK_KIND, 'x0', true),
+    task('t-book-x1', FOLLOWUP_TASK_KIND, 'x1', true),
+  ];
+
+  test('x0 不長「約二返」—— 它的二返照位置算已經做完了', () => {
+    const plan = chain([x0, x1, B, s0, fuB], tasks);
+    assert.deepEqual(plan.create.filter((t) => t.kind === FOLLOWUP_TASK_KIND), []);
+  });
+
+  test('沒連結的時候照舊（一個位元都不動）', () => {
+    const loose = second('F', '2026-10-24', 'confirmed', null);
+    assert.deepEqual(chain([x0, x1, B, s0, loose], tasks).create.filter((t) => t.kind === FOLLOWUP_TASK_KIND), []);
+  });
+
+  test('真的還欠的那一次照樣拿得到（A 留著那一條不受影響）', () => {
+    const A = exam('A', '2026-09-01', 'done');
+    const plan = chain([A, B, fuB], [task('t-rep-A', REPORT_TASK_KIND, 'A', true), task('t-send-A', SEND_REPORT_TASK_KIND, 'A', true)]);
+    assert.deepEqual(plan.create.filter((t) => t.kind === FOLLOWUP_TASK_KIND).map((t) => t.visitId), ['A']);
+  });
+});
