@@ -748,7 +748,7 @@ function nthFields(ctx, draft, slot, i, choices) {
             value: c.visitId,
             label: shortDate(c.date),
             // 它的狀態＋已經有幾返了（`examChoiceNote()`）。**不寫「還沒約」** —— 那三個字是二返那一排的，
-            // 兩個地方講不同的事會讓她以為是同一件。只有已完成的按得下去（issues/11）
+            // 兩個地方講不同的事會讓她以為是同一件。排著的與做完的按得下去（issues/11、ADR-0145）
             note: examChoiceNote(c),
             disabled: !c.pickable,
           })),
@@ -794,7 +794,7 @@ function examField(ctx, draft, ent, slot, i) {
     options: choices.map((c) => ({
       value: c.visitId,
       label: shortDate(c.date),
-      // 只有已完成、沒被別場二返佔走的按得下去；每一顆標它自己的狀態（issues/11）
+      // 排著的與做完的、沒被別場二返佔走的按得下去；每一顆標它自己的狀態（issues/11、ADR-0145）
       disabled: !c.pickable,
       note: examChoiceNote(c),
     })),
@@ -1321,6 +1321,9 @@ async function submit(ctx, draft) {
       coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
       sheetSyncOn: isConfigured(ctx.settings),
       today: todayISO(),
+      // 健檢那一段改成別的課程：還接在這一次後面的二返要講（ADR-0145）
+      customerVisits: ctx.customerVisits,
+      entitlements: ctx.entitlements,
     });
     const ok = await confirmAction({
       title: said.title,
@@ -1338,6 +1341,9 @@ async function submit(ctx, draft) {
       tasks: await visitTasks(ctx.stored),
       // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
       today: todayISO(),
+      // 存一段新的健檢、還有一場二返接在取消的那一次上（ADR-0145）
+      customerVisits: ctx.customerVisits,
+      entitlements: ctx.entitlements,
     });
     const ok = await confirmAction({
       title: said.title,
@@ -1429,7 +1435,7 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       sheetSyncOn: isConfigured(ctx.settings),
       slotIndex,
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
-      sameDay: ctx.customerVisits,
+      customerVisits: ctx.customerVisits,
       // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
       chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all)),
     }),

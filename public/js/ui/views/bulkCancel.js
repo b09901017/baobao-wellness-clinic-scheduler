@@ -34,7 +34,7 @@ import { isConfigured } from '../../data/sheetSync.js';
 import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
-import { cancelConsequences, followupBookingLines } from '../../domain/consequences.js';
+import { cancelConsequences, cancelChainLines } from '../../domain/consequences.js';
 import { nameHas } from '../../domain/customers.js';
 import { slotName, nameOf, fullNameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
@@ -613,18 +613,16 @@ async function run() {
     const lines = cancelConsequences({
       visit, coursesById, tasks, slotIndex: at, sheetSyncOn: isConfigured(ctx.settings),
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
-      sameDay: ctx.visits,
+      customerVisits: ctx.visits,
     });
     for (const line of lines) said.add(line);
   }
-  // 「約二返」會怎麼動：**全部套上去之後算一次**（逐筆算的話，取消兩場二返每一筆只看得到一場）。
-  // 套法跟底下真的存的那一圈一樣（逐段 `applyStatus()`）
-  const after = [...byVisit.values()].map(({ visit, at }) =>
-    at.reduce((v, slotIndex) => applyStatus(v, 'cancelled', { slotIndex }), visit));
+  // 健檢那條鏈（「約二返」、還接在被取消的健檢後面的二返）：**全部套上去之後算一次**（`cancelChainLines()`）
   const first = [...byVisit.values()][0]?.visit;
-  for (const line of followupBookingLines({
+  for (const line of cancelChainLines({
     customer: { id: state.customerId, name: first?.customerName ?? null },
-    visits: [...ctx.visits.filter((v) => !byVisit.has(v.id)), ...after],
+    visits: ctx.visits,
+    cancels: [...byVisit.values()],
     chain: await visitsData.chainInputs(state.customerId, coursesById),
     coursesById,
   })) said.add(line);

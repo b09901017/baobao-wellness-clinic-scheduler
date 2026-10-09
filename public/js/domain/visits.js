@@ -19,10 +19,10 @@ import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
+import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
-  isNthSlot, nthOf, nthLabel, examEntitlementIds,
+  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
@@ -1014,16 +1014,22 @@ export function applyConfirmation(
  * 整筆的狀態走 `visitStatusFrom()` 推：一段做了、一段還開著 → 已確認（那一天留在
  * 簽療程單的清單上）；全部結掉 → 有一段做了就是已完成，一段都沒做就是未到。
  *
+ * **帶了 `guard`（這位客戶的額度與全部來訪）就自己擋**（ADR-0145、ADR-0111 的形狀：改狀態的那一支動手前自己問）：
+ * 一場二返／n返接的那一次健檢還沒做完，那一段的 ✓ 當成先不結（`followups.js` 的 `closeBlocks()`）。
+ * 抽屜那一列本來就按不下去；這一道擋的是之後多出來的路。
+ *
  * @param {object} visit
  * @param {(boolean|null)[]} attended 逐段：`true` 做了、`false` 沒來、`null` 先不結
  * @param {string} at ISO 時間
+ * @param {{entitlements:object[], visits:object[]}|null} [guard]
  */
-export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
+export function closeVisit(visit, attended = [], at = new Date().toISOString(), guard = null) {
   // 動手之前先補齊（`materialize()` 的說明）
   const base = materialize(visit);
+  const blocked = guard ? closeBlocks(base, attended, guard) : new Map();
   let touched = false;
   const slots = (base?.slots ?? []).map((slot, i) => {
-    const did = attended[i];
+    const did = blocked.has(i) ? null : attended[i];
     if (did !== true && did !== false) return slot;
     // 取消的、已經結案的不動 —— 取消掉的那一段那天本來就不會發生（ADR-0081），
     // 蓋過去的話它會被算成「沒來」
@@ -1671,6 +1677,15 @@ function visitErrors(visit, {
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
     if (slot.followupForVisitId) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
+      // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
+      // 兩種都要是**同一種段**（同一筆二返額度，或都是 n返）。以前問「存著的那一份這一天有沒有任何一段指著它」：
+      // 取消掉的段、n返 都算，那一天再加一場接同一次的二返時底下兩道都跳過（10/9 審查）
+      const was = stored?.slots ?? [];
+      const same = (s) => s?.followupForVisitId === slot.followupForVisitId
+        && (s.entitlementId ?? null) === (slot.entitlementId ?? null);
+      const carried = same(was[i]) || was.some((s, j) => j !== i && same(s)
+        && slotStatus(stored, s) !== 'cancelled' && slots[j] && slotStatus(visit, slots[j]) === 'cancelled');
       if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
       // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
       // 試算表會把二返註記寫到一個不相干的日期底下。
@@ -1678,21 +1693,33 @@ function visitErrors(visit, {
           && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
         errors.push(`${at}：指定的那一天裡沒有「${ent.label}」對應的健檢`);
       }
-      // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
-      // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
-      // **問健檢那一段**（`examDoneIn()`，ADR-0112）—— 跟候選清單同一支，
-      // 不然列得出來的存不下去、取消掉的健檢反而存得進去。
-      else if (nth && !examDoneIn(exam, examIds)) {
-        errors.push(`${at}：指定的那一天沒有一次已完成的健檢`);
+      // n返 沒有額度可以比，所以改問「那一筆是不是一次健檢」—— 每一次都驗（那是資料對不對）。
+      else if (nth && !isExamVisit(exam, examIds)) {
+        errors.push(`${at}：指定的那一天沒有健檢`);
       }
-      // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
-      // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。
-      // **只擋這一次新接上、或換過的連結**：存著的那一份同一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
-      // 擋下來的話她改同一天別段的一個時間都存不回去。段落只會接在尾巴（`hasNewSlots()`），所以同一個位置就是同一段
-      else if (ent?.followupForEntitlementId
-          && stored?.slots?.[i]?.followupForVisitId !== slot.followupForVisitId
-          && !examDoneIn(exam, [ent.followupForEntitlementId])) {
-        errors.push(`${at}：指定的那一次健檢還沒做完（${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}）`);
+      // 接得上哪幾次跟二返同一條（`PICKABLE_EXAM`，ADR-0145：排著的與做完的；以前只准做完的）、
+      // **也只驗新接上的連結**：以前 n返 每一次都驗，放寬之後健檢被取消，那一天別段改一個字都存不回去。
+      // 狀態問健檢那一段（`examStatusIn()`，ADR-0112）—— 跟候選清單同一支，不然列得出來的存不下去
+      else if (nth && !carried && !PICKABLE_EXAM.has(examStatusIn(exam, examIds))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, examIds))}」，不會有報告`);
+      }
+      // **二返接得上排著的與做完的健檢，取消、未到的接不上**（ADR-0145；9/24 起只准已完成，issues/11）——
+      // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
+      // **只擋這一次新接上、或換過的連結**（`carried`）：那一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
+      // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去
+      else if (ent?.followupForEntitlementId && !carried
+          && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
+      }
+      // **一次健檢配一場二返**（ADR-0022：額度成對、次數一樣）—— 以前只靠畫面那一排把被佔走的那一顆關掉，
+      // 而壓表那一排讀的來訪只到目標月份月底：佔走它的那一場約在更後面時那一顆照樣按得下去。
+      // 這裡拿全部來訪驗（`customerVisits`），只驗新接上的（兩場本來就接同一次的是舊資料，資料健檢列）
+      else if (ent?.followupForEntitlementId && !carried) {
+        const by = followupHolding(slot.followupForVisitId, ent.id, visit, i, customerVisits);
+        if (by) {
+          errors.push(`${at}：指定的那一次健檢已經接了 ${isValidDate(by.date) ? shortDate(by.date) : '另一天'} 那一場${course?.name ?? '二返'}`
+            + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
+        }
       }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
@@ -1704,6 +1731,21 @@ function visitErrors(visit, {
   });
 
   return errors;
+}
+
+/**
+ * 那一次健檢已經被**別場活著的二返**接走了嗎（`holdsExam()`：取消、未到的不算）。別筆來訪問 `claimedExams()`，
+ * 同一筆裡別段自己看（同一天兩段二返接同一次是同一件事）。正在驗的這一筆在 `customerVisits` 裡的舊版本不算。
+ *
+ * @returns {object|null} 接走它的那一筆來訪
+ */
+function followupHolding(examVisitId, followupEntitlementId, visit, index, customerVisits) {
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const elsewhere = claimedExams(followupEntitlementId, others).get(examVisitId);
+  if (elsewhere) return elsewhere;
+  const here = (visit.slots ?? []).some((s, j) => j !== index && s?.entitlementId === followupEntitlementId
+    && s.followupForVisitId === examVisitId && holdsExam(visit, s));
+  return here ? visit : null;
 }
 
 /**
@@ -1880,6 +1922,9 @@ function assignmentWarnings(visit, {
     if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
       say(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
+    // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
+    const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
+    if (ahead) say(`${at}：${nthLabel(nthOf(slot)) ?? course.name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
     // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
@@ -1939,11 +1984,29 @@ function assignmentWarnings(visit, {
 }
 
 /**
+ * 這一段（二返或 n返）排在它接的那一次健檢**之前**嗎（ADR-0145）。別天比日期，同一天比開始時間（健檢那一段還活著的第一段）。
+ * 二返問它配的那一筆健檢、n返 問每一筆健檢額度。認不出的（接的那一次不在手上、日期壞了）就不講。
+ *
+ * @returns {object|null} 接的那一次健檢（排在它之前時）
+ */
+function examAfter(visit, slot, { customerVisits = [], entitlements = [], coursesById = {} }) {
+  const exam = slot.followupForVisitId === visit.id ? visit
+    : (customerVisits ?? []).find((v) => v && !v.deletedAt && v.id === slot.followupForVisitId) ?? null;
+  if (!exam || !isValidDate(exam.date) || !isValidDate(visit.date)) return null;
+  if (exam.date !== visit.date) return exam.date > visit.date ? exam : null;
+  const ent = (entitlements ?? []).find((e) => e.id === slot.entitlementId);
+  const sources = ent?.followupForEntitlementId ? new Set([ent.followupForEntitlementId]) : examEntitlementIds(entitlements, coursesById);
+  const first = (exam.slots ?? []).find((s) => sources.has(s?.entitlementId) && isLiveSlot(s) && isValidTime(s.startsAt));
+  return first && isValidTime(slot.startsAt) && toMinutes(slot.startsAt) < toMinutes(first.startsAt) ? exam : null;
+}
+
+/**
  * 一段二返沒接到健檢時，那一句的後半 —— **講得出為什麼**（2026-10-07，verified-bugs issues/01）。
  *
  * 她 2026-10-07：「排定二返時：在日曆／壓表存檔時，若沒有連結到已完成的健檢就觸發。+僅提醒，仍可繼續操作」。
  * 提醒本來就有，但一律是「還沒指定是哪一次健檢的」—— 同一天排健檢＋二返時，「這是哪一次健檢的」那一排
  * 一顆都按不下去（當天那一次還沒做完），她看到這一句會以為是自己漏按，也看不出之後簽療程單照樣扣一次二返。
+ * 2026-10-09 起排著的健檢也按得下去（ADR-0145），選不到的理由只剩：還沒存的這一筆、都被別場佔走、只有取消或沒來的、一次都沒約過。
  *
  * **有哪幾次、各是什麼狀態問 `examChoicesFor()`** —— 三個入口那一排丸子就是它畫的，
  * 這裡自己再判一次的話丸子說「已完成」而這一句說「還沒做完」。
@@ -1959,16 +2022,15 @@ function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, na
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
   const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
 
-  if (choices.some((c) => c.pickable)) return '還沒指定是哪一次健檢的';
+  // 排著的也按得下去了（ADR-0145）。**還沒存的這一筆選不到**（沒有 id）：同一筆裡剛加的那一段健檢要先存好
+  if (choices.some((c) => c.pickable && c.visitId)) return '還沒指定是哪一次健檢的';
 
-  const booked = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
-  const why = booked
-    ? `${isValidDate(booked.date) ? shortDate(booked.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(booked.status)}），現在選不到`
-    : (choices.some((c) => c.status === 'done')
-      ? `做完的健檢都已經約了${name}`
-      : '這位客戶還沒有做完的健檢');
+  let why = '這位客戶還沒有約過健檢';
+  if (choices.some((c) => !c.visitId && PICKABLE_EXAM.has(c.status))) why = '這一天的健檢存好之後才接得上';
+  else if (choices.some((c) => c.taken)) why = `接得上的健檢都已經約了${name}`;
+  else if (choices.length) why = '約過的健檢都取消或沒來';
   const open = ['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot));
-  return `還沒接到一次做完的健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
+  return `還沒接到健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
 }
 
 /**

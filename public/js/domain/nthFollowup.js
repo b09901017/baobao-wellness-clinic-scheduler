@@ -41,7 +41,7 @@
 //
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
-import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn } from './followups.js';
+import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -70,6 +70,15 @@ export function nthLabel(n) {
   const num = Number(n);
   if (!Number.isInteger(num) || num < SECOND || num > MAX_NTH) return null;
   return `${NUMERALS[num]}返`;
+}
+
+/**
+ * 一場回訪（二返或 n返）在一句話裡叫什麼：n返 講返數（`三返`），二返講主檔上那門課的名字，主檔查不到才退回快照。
+ * 確認框與資料健檢講「10/24 那一場＿＿」用。直接印 `slot.courseName` 的話，課程改名之後句子還在講舊名字
+ * （它是快照不是顯示名稱）；這裡沒有整份主檔可以問 `slotName()`，而且要的是課程那一半、不帶分鐘。
+ */
+export function followupName(slot, coursesById = {}) {
+  return nthLabel(nthOf(slot)) ?? coursesById[slot?.courseId]?.name ?? slot?.courseName ?? '二返';
 }
 
 /** 這一段的返數。不是 n返 就回 `null`（**二返也回 null** —— 它走額度那條路）。 */
@@ -233,8 +242,9 @@ export function nextNthFor(examVisitId, visits = [], followupEntitlementIds = []
  *
  * 已經有幾返的照樣標出來（`nths`）—— 她要對照的正是這個。
  *
- * **還沒做完的健檢也列，標狀態、按不下去**（`pickable`）—— 跟二返那一排一樣（她 2026-09-24 選的，issues/11）。
- * 「有沒有一次健檢接得了 n返」（那顆「＋ n返」畫不畫）照舊問 `examVisits()`（只有做完的）。
+ * 每一次都列、標狀態；**排著的與做完的按得下去、取消與未到按不下去**（`pickable`）—— 跟二返那一排同一條
+ * （`PICKABLE_EXAM`；她 2026-09-24「跟二返一樣」、2026-10-09「放寬」，ADR-0145）。
+ * 「＋ n返」那一顆畫不畫問的是這裡有沒有按得下去的（`slotOptions.js`）；`examVisits()`（只有做完的）照舊給客戶詳情的健檢卡。
  *
  * @param {object} ctx
  * @param {object[]} ctx.entitlements 這位客戶的額度
@@ -262,7 +272,7 @@ export function examChoicesForNth({
         visitId: v.id,
         date: v.date,
         status,
-        pickable: status === 'done',
+        pickable: PICKABLE_EXAM.has(status),
         nths,
         // 空字串代表「這一次還沒有任何回訪」。**不要寫成「還沒約」** ——
         // 二返那一排用的就是那三個字，兩個地方講不同的事會讓她以為是同一件。

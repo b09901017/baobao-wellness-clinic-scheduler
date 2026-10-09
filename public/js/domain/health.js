@@ -25,13 +25,16 @@ import {
   clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
-import { missingPairs, countMismatches } from './followups.js';
+import {
+  missingPairs, countMismatches, strandedFollowups, doneAheadOfExam, doubleClaimedExams,
+} from './followups.js';
+import { followupName } from './nthFollowup.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import {
-  VISIT_STATUSES, isActive, isOpenStatus, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes,
+  VISIT_STATUSES, isActive, isOpenStatus, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes, shortStatus,
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
@@ -245,6 +248,17 @@ export const CHECKS = [
     id: 'seedBlanks',
     label: '主檔有幾格還沒跟上',
     hint: '後來多的那幾格（課程的分類、要哪一科的醫師、Abovee 上的寫法、醫師的科別）還空著 —— 空著的話拍 Abovee 認不得幾種寫法、醫師那一排也分不出科別。你自己填過的不會被動到',
+  },
+  // 2026-10-09（ADR-0145）：接在最後，前面那幾項的編號（註解裡的「第 32 項」）不動
+  {
+    id: 'followupLinks',
+    label: '二返接的健檢對不上',
+    hint: '二返接在取消或沒來的那一次健檢上，或二返先做了、接的那一次健檢還沒做完 —— 只列出來，不自動改',
+  },
+  {
+    id: 'followupDouble',
+    label: '同一次健檢接了兩場二返',
+    hint: '一次健檢配一場二返，要多約一場用「＋ n返」—— 只列出來，不自動改',
   },
 ];
 
@@ -2099,9 +2113,67 @@ function checkSameDayVisits(ctx) {
   return out;
 }
 
+/**
+ * 二返接的那一次健檢對不上（2026-10-09，ADR-0145）。**只列不修** —— 她：「連結只是記錄，任何一邊被取消或改期都只提醒、不連動」。
+ *
+ * - 接在取消、未到的那一次上（`strandedFollowups()`）：那一次不會有報告。健檢改期＝取消＋另約一天，二返還接在舊的那一次。
+ *   「退回簽療程單」之後那一次又接得上了，這一列自己消失（現算的）
+ * - 二返已經做了、接的那一次還沒做完（`doneAheadOfExam()`）：簽療程單擋住之前就存在的；那一次做完時追蹤健檢報告不會長
+ *
+ * 判斷只在 `followups.js`，這裡只組句子。
+ */
+function checkFollowupLinks(ctx) {
+  const out = [];
+  for (const customer of alive(ctx.customers)) {
+    const ents = alive(ctx.entsByCustomer[customer.id] ?? []);
+    const visits = ctx.visitsByCustomer[customer.id] ?? [];
+    const row = (f, detail) => out.push({
+      severity: 'attention',
+      who: customer.name,
+      whoId: customer.id,
+      title: `${customer.name}・${f.visit.date} 那一場${followupName(f.slot, ctx.coursesById)}`,
+      detail,
+      link: null,
+      fix: null,
+    });
+    for (const f of strandedFollowups(ents, ctx.coursesById, visits)) {
+      row(f, `接在 ${f.exam.date} 那一次健檢上，那一次是「${shortStatus(f.status)}」—— 不會有報告。`
+        + `重新約好健檢之後：日曆 → ${f.visit.date} → 點那一場 → 改這一段 → 換「這是哪一次健檢的」`);
+    }
+    for (const f of doneAheadOfExam(ents, ctx.coursesById, visits)) {
+      row(f, `已經做了，但接的 ${f.exam.date} 那一次健檢還沒做完（「${shortStatus(f.status)}」）—— `
+        + '那一次做完時「追蹤健檢報告」不會長。去日曆看那兩天');
+    }
+  }
+  return out;
+}
+
+/** 同一次健檢接了兩場活著的二返（`doubleClaimedExams()`）。只列不修：哪一場要換成別次、或改成 n返，是她的決定。 */
+function checkFollowupDouble(ctx) {
+  const out = [];
+  for (const customer of alive(ctx.customers)) {
+    const ents = alive(ctx.entsByCustomer[customer.id] ?? []);
+    for (const d of doubleClaimedExams(ents, ctx.coursesById, ctx.visitsByCustomer[customer.id] ?? [])) {
+      out.push({
+        severity: 'attention',
+        who: customer.name,
+        whoId: customer.id,
+        title: `${customer.name}・${d.exam?.date ?? '（找不到那一次）'} 那一次健檢`,
+        detail: `接了 ${d.holders.length} 場二返：${d.holders.map((h) => h.visit.date).join('、')} —— `
+          + '一次健檢配一場，其中一場去日曆換「這是哪一次健檢的」，或改成「＋ n返」',
+        link: null,
+        fix: null,
+      });
+    }
+  }
+  return out;
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
   sameDayVisits: checkSameDayVisits,
+  followupLinks: checkFollowupLinks,
+  followupDouble: checkFollowupDouble,
   courseNames: checkCourseNames,
   courseRecord: checkCourseRecord,
   equipmentCourse: checkEquipmentCourse,

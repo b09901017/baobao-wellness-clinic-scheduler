@@ -30,13 +30,14 @@ import {
 } from './taskRules.js';
 import {
   shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
-  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots,
+  slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots, applyStatus,
 } from './visits.js';
 import {
-  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks,
+  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
-import { nthOf, nthLabel, isNthSlot } from './nthFollowup.js';
+import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
 import { isUncounted } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
@@ -204,6 +205,8 @@ export function reviewWarnings(warnings = []) {
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪、`entitlements` 額度 —— 這一次存一段新的健檢時，
+ *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`，ADR-0145）；沒給就不講
  * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[]}}
  *   抬頭與確認鈕的字一起回 —— 新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死。
  *   `toBook`／`free`：這一次新加的段裡**哪幾段要壓、哪幾段不用**（那一筆來訪裡的位置）。
@@ -212,6 +215,7 @@ export function reviewWarnings(warnings = []) {
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
+  customerVisits = [], entitlements = [],
 }) {
   // **只問這一次新加的那幾段壓在哪**（ADR-0126）：那一天早就壓好的段不再問一次
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
@@ -252,6 +256,7 @@ export function bookingConsequences({
   for (const name of uncountedNames(visit, coursesById, added)) {
     lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
   }
+  lines.push(...strandedOnNewExamLines({ visit, added: fresh, entitlements, coursesById, customerVisits }));
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
@@ -261,6 +266,32 @@ export function bookingConsequences({
 
   if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free };
   return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
+}
+
+/**
+ * 這一次新加的段裡有一段健檢，而這位客戶有一場二返／n返**還接在取消、未到的那一次健檢上** —— 一場一句（ADR-0145）。
+ *
+ * 她 10/9 回的第 2 題：「要」—— 另約一次健檢時主動講。**只講不改**：系統不知道這一次是不是那一次改期來的，
+ * 接錯比沒接糟（ADR-0002）。壓表、日曆新增（`bookingConsequences()`）與拍 Abovee（`aboveeConsequences()`）共用。
+ *
+ * @param {object} o
+ * @param {object} o.visit 要存下去的那一筆
+ * @param {number[]|null} o.added 這次新加的是第幾段（沒給＝每一段）
+ * @param {object[]} o.entitlements 這位客戶的額度
+ * @param {object[]} o.customerVisits 這位客戶的全部來訪（存之前的）
+ * @returns {string[]}
+ */
+export function strandedOnNewExamLines({ visit, added = null, entitlements = [], coursesById = {}, customerVisits = [] }) {
+  const examIds = examEntitlementIds(entitlements, coursesById);
+  const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
+  if (!fresh.some((i) => isLiveSlot(visit?.slots?.[i]) && examIds.has(visit.slots[i].entitlementId))) return [];
+  const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
+  return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, exam, status }) => {
+    const name = followupName(slot, coursesById);
+    return `${day(v.date)} 那一場${name}還接在「${shortStatus(status)}」的 ${day(exam.date)} 健檢上 —— `
+      + `要接到這一次的話，存好之後去日曆點那一場${name}改「這是哪一次健檢的」`;
+  });
 }
 
 /** 拍 Abovee 那一道最多列幾句提醒。再多她也不會逐句讀 —— 剩下的指回那幾列。 */
@@ -289,10 +320,13 @@ const FLAGGED_MAX = 6;
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
  *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`aboveeImport.js` 的 `warningsByRow()` 的 `mustSee`）。
  *   每一列預設收著、預設打勾，這一道是她一定會經過的地方（ADR-0138）。句子是 `validateVisit()` 那幾句，這裡不重寫
+ * @param {Record<string, object[]>} [o.entitlementsBy] 每一位的額度、`visitsBy` 每一位的全部來訪 —— 存一段新的健檢時，
+ *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`）；沒給就不講
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
   groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  entitlementsBy = {}, visitsBy = {},
 }) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
@@ -352,6 +386,12 @@ export function aboveeConsequences({
   }
   for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+  // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
+  const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
+    visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? [], coursesById,
+    customerVisits: visitsBy[g.customerId] ?? [],
+  }).map((line) => `${g.customerName} ${line}`)));
+  lines.push(...stranded);
 
   // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
   if (adopts.length) {
@@ -502,6 +542,9 @@ export function closedSay(visit, picks = []) {
  * **另一次**健檢的「約二返」會長出來（二返簽成沒來也會）。同一次試算，一張一行、講出是哪一天那一次健檢的。
  * 追蹤健檢報告照舊只講這一筆的（ADR-0139）。
  *
+ * **二返／n返接的那一次健檢還沒做完，那一段的 ✓ 不算**（ADR-0145）：跟 `closeVisit()` 帶著 guard 時擋的是同一支（`closeBlocks()`），
+ * 底下每一句都照擋過之後的 `picks` 講，再多一句「這一段先不結」。
+ *
  * @param {object} o
  * @param {object} o.visit 那一筆來訪
  * @param {(boolean|null)[]} o.picks 逐段：`true` 做了、`false` 沒來、`null` 先不結（`closeVisit()` 收的那一份）
@@ -513,9 +556,11 @@ export function closedSay(visit, picks = []) {
  * @returns {string[]}
  */
 export function closeConsequences({
-  visit, picks = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
+  visit, picks: asked = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
 }) {
   const lines = [];
+  const blocked = closeBlocks(visit, asked, { entitlements, visits });
+  const picks = asked.map((p, i) => (blocked.has(i) ? null : p));
   const open = slotsToClose(visit).map(({ index }) => index);
   const done = open.filter((i) => picks[i] === true);
   const missed = open.filter((i) => picks[i] === false);
@@ -528,6 +573,10 @@ export function closeConsequences({
   else if (charged) lines.push(`做了的 ${done.length} 段裡 ${charged} 段扣掉次數`);
   else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);
   if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
+  for (const [i, why] of blocked) {
+    const name = followupName(visit?.slots?.[i], coursesById);
+    lines.push(`「${name}」${closeBlockSay(why)}${PICKABLE_EXAM.has(why.status) ? ' —— 這一段先不結，健檢簽好再回來簽' : '；這一段先不結'}`);
+  }
   if (left) {
     lines.push(`還有 ${left} 段先不結，留在這裡`);
   } else if (done.length || missed.length) {
@@ -544,6 +593,13 @@ export function closeConsequences({
     lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— 健檢做完要等報告出來`);
   }
   if (chain) lines.push(...bookingLinesOf(chain, chain.visits, tasks));
+  // 健檢那一段按 ✗：接在它後面的二返不會跟著改（ADR-0145，她：「只提醒、不連動」）
+  if (missed.length) {
+    const others = (visits ?? []).filter((v) => v.id !== visit?.id);
+    lines.push(...strandedFollowupLines({
+      before: [...others, visit], after: [...others, closeVisit(visit, picks)], entitlements, coursesById, verb: '改成未到',
+    }));
+  }
 
   // 二返與營養師諮詢那一種：客人走了之後要去補一份文字紀錄（ADR-0066）。
   // 判斷走課程主檔上的那個勾，跟「要不要簽療程單」同一種做法。
@@ -555,6 +611,18 @@ export function closeConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 簽不下去的那一段為什麼（`cannotClose()` 回的那一份）—— 抽屜那一列、存的那一下的提示、`closeConsequences()` 同一句。
+ *
+ * 接的那一次還排著：等它簽好。**取消、未到的不會再做了** —— 講「還沒做完」「健檢簽好再回來簽」是一件不會發生的事
+ * （ADR-0070，10/9 審查），她要做的是先換連結。
+ */
+export function closeBlockSay({ examDate, status }) {
+  const day = isValidDate(examDate) ? shortDate(examDate) : '另一天';
+  if (PICKABLE_EXAM.has(status)) return `接的那一次健檢（${day}）還沒做完`;
+  return `接的那一次健檢（${day}）${status ? `是「${shortStatus(status)}」` : '已經改成別的'} —— 先去日曆換這一段接哪一次`;
 }
 
 /**
@@ -575,6 +643,68 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
     customer, entitlements: chain.entitlements, visits, tasks: chain.tasks ?? [], coursesById,
   });
   return bookingLinesOf(plan, visits, chain.tasks);
+}
+
+/**
+ * 一次健檢被取消、改成未到、或改成別的課程之後，**還接在它後面的二返／n返** —— 一場一句（ADR-0145）。
+ *
+ * 她 10/9：「健檢被取消或未到：二返不自動取消，取消的確認框要講『後面接著一場二返，不會跟著取消』」、
+ * 「健檢改期……連結要跟著搬到新的那一段，或至少講出來」。連結記的是來訪 id，**不自動搬**（沒有任何一筆資料記著
+ * 「這一次是那一次改期來的」，猜就是替她接錯），所以一句話講兩件事：不會跟著改、重新約好之後回去換。
+ *
+ * 判準是**那一次健檢本來接得上、之後接不上了**（`PICKABLE_EXAM`）。之後哪幾場還接在接不上的健檢上只問
+ * `followups.js` 的 `strandedFollowups()` —— 另約健檢那一句（`strandedOnNewExamLines()`）與資料健檢同一支。
+ * 同一天改時間（`rebookSlot()`）不講：新的健檢段在同一筆裡，那一次照樣接得上。
+ *
+ * @param {object} o
+ * @param {object[]} o.before 這位客戶改之前的全部來訪
+ * @param {object[]} o.after  改之後的全部來訪
+ * @param {object[]} o.entitlements 這位客戶的額度（認得哪幾段是健檢）
+ * @param {Record<string, object>} o.coursesById
+ * @param {string} [o.verb] 「不會跟著＿＿」
+ * @returns {string[]}
+ */
+export function strandedFollowupLines({ before = [], after = [], entitlements = [], coursesById = {}, verb = '取消' }) {
+  const examIds = examEntitlementIds(entitlements, coursesById);
+  const was = new Map((before ?? []).filter(Boolean).map((v) => [v.id, v]));
+  const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
+  return strandedFollowups(entitlements, coursesById, (after ?? []).filter(Boolean))
+    .filter(({ exam }) => PICKABLE_EXAM.has(examStatusIn(was.get(exam.id), examIds)))
+    .map(({ visit, slot, exam }) => {
+      const name = followupName(slot, coursesById);
+      return `${day(visit.date)} 那一場${name}接在 ${day(exam.date)} 那一次健檢後面 —— 不會跟著${verb}；`
+        + `重新約好健檢之後，回到那一場${name}換「這是哪一次健檢的」`;
+    });
+}
+
+/**
+ * 取消一段或好幾段之後，健檢那條鏈會怎麼動：「約二返」長出來／收起來（`followupBookingLines()`）與
+ * 還接在被取消的健檢後面的二返（`strandedFollowupLines()`）。**取消那一道的四個入口都走這一支**：
+ * 單筆的（日曆長按、編輯器 ×）經 `cancelConsequences({ chain })`，一次好幾筆的（批次取消、確認抽屜）直接叫 ——
+ * 以前那兩頁各寫一次「逐段套上取消 → 問約二返」（prelaunch-fixes 審查記下來的）。
+ *
+ * **全部套上去之後算一次**：逐筆算再合起來的話，取消兩場二返每一筆只看得到一場。套法跟真的存的一樣（逐段 `applyStatus()`）。
+ *
+ * @param {object} o
+ * @param {{id:string, name?:string}} o.customer
+ * @param {object[]} o.visits 這位客戶**取消之前**的全部來訪
+ * @param {{visit:object, at:number[]|null}[]} o.cancels 每一筆要取消哪幾段（`at` 空的＝整天）
+ * @param {{entitlements:object[], tasks:object[]}|null} o.chain `data/visits.js` 的 `chainInputs()`；`null`＝沒有鏈或讀不到
+ * @param {Record<string, object>} o.coursesById
+ * @returns {string[]}
+ */
+export function cancelChainLines({ customer, visits = [], cancels = [], chain = null, coursesById = {} }) {
+  if (!chain) return [];
+  const changed = new Map((cancels ?? []).map(({ visit, at }) => [visit.id, (at?.length
+    ? at.reduce((v, slotIndex) => applyStatus(v, 'cancelled', { slotIndex }), visit)
+    : applyStatus(visit, 'cancelled'))]));
+  const stored = (visits ?? []).filter((v) => !changed.has(v.id));
+  const before = [...stored, ...(cancels ?? []).map(({ visit }) => visit)];
+  const after = [...stored, ...changed.values()];
+  return [
+    ...followupBookingLines({ customer, visits: after, chain, coursesById }),
+    ...strandedFollowupLines({ before, after, entitlements: chain.entitlements ?? [], coursesById }),
+  ];
 }
 
 /** 一份試算（`create`／`remove`）裡「約二返」那幾張，一張一行、講出是哪一天那一次健檢的。 */
@@ -724,24 +854,21 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @param {boolean} [o.removing] 走的是刪除不是取消
  * @param {boolean} [o.sheetSyncOn]
  * @param {number|number[]} [o.slotIndex] 只取消其中哪幾段。不帶就是整筆。
- * @param {object[]} [o.sameDay] 這位客戶的來訪（整份丟進來就好，這裡自己挑同一天的別筆）。
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪（以前叫 `sameDay` —— 它從來不只是同一天的）。
  *   那一天已完成之後再加的段在另一筆裡（ADR-0083）—— 少了它，取消那一段會說「那一天就整個取消了」
  * @param {{entitlements:object[], tasks:object[]}|null} [o.chain] 這位客戶的額度與任務（`data/visits.js` 的 `chainInputs()`）。
- *   帶了才講「約二返」會長出來／收起來（`followupBookingLines()`，拿 `sameDay` 當全部來訪）；
- *   一次取消好幾筆的入口不要帶，全部套上去之後自己叫 `followupBookingLines()` 一次
+ *   帶了才講健檢那條鏈（`cancelChainLines()`：「約二返」長出來／收起來、還接在這一次健檢後面的二返）；
+ *   一次取消好幾筆的入口不要帶，全部套上去之後自己叫 `cancelChainLines()` 一次
  * @returns {string[]}
  */
 export function cancelConsequences({
   visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
-  sameDay = [], chain = null,
+  customerVisits = [], chain = null,
 }) {
-  // 「約二返」那幾句：這一筆換成取消（刪除就拿掉）之後的全部來訪去試算
-  const bookingSaid = (after) => followupBookingLines({
-    customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
-    visits: [...(sameDay ?? []).filter((v) => v.id !== visit?.id), ...(after ? [after] : [])],
-    chain,
-    coursesById,
-  });
+  const customer = { id: visit?.customerId ?? null, name: visit?.customerName ?? null };
+  const others = (customerVisits ?? []).filter((v) => v.id !== visit?.id);
+  // 健檢那條鏈那幾句（`cancelChainLines()`）：取消這幾段（`at` 空的＝整天）
+  const chainSaid = (at) => cancelChainLines({ customer, visits: [...others, visit], cancels: [{ visit, at }], chain, coursesById });
 
   const lines = [];
   const all = visit?.slots ?? [];
@@ -773,7 +900,7 @@ export function cancelConsequences({
     // **那一天別筆來訪裡還活著的段也算剩下的**（2026-10-07）：這一筆沒有剩下的段，不代表那一天沒有 ——
     // 已完成的那一段在另一筆裡。底下 `after` 與任務那幾句照舊只看這一筆（它確實整筆取消了）
     // 「同一天的別筆」只問 `sameDayState()`（ADR-0083：各寫一份的話遲早有一份漏掉一個狀態）
-    const { open, closed } = sameDayState(sameDay, visit.customerId, visit.date, { excludeVisitId: visit.id });
+    const { open, closed } = sameDayState(customerVisits, visit.customerId, visit.date, { excludeVisitId: visit.id });
     const elsewhere = [open, ...closed].filter(Boolean).reduce((n, v) => n + liveSlots(v).length, 0);
     if (left + elsewhere) lines.push(`那一天剩下的 ${left + elsewhere} 段不受影響`);
     else lines.push('那一天就整個取消了 —— 沒有剩下的段');
@@ -796,7 +923,7 @@ export function cancelConsequences({
       slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
     };
     lines.push(...cancelTaskLines(after, tasks, coursesById));
-    lines.push(...bookingSaid(after));
+    lines.push(...chainSaid([...picked]));
 
     lines.push('改期不是改日期，是取消後重新排一次');
     if (sheetSyncOn) lines.push(SHEET_LINE);
@@ -844,8 +971,10 @@ export function cancelConsequences({
       + ' —— 那一場沒發生，沒有東西要追',
     );
   }
-  lines.push(...bookingSaid(removing ? null
-    : { ...visit, status: 'cancelled', slots: all.map((sl) => ({ ...sl, status: 'cancelled' })) }));
+  // 刪掉的那一筆不在之後的來訪裡（「約二返」照它算）；取消整天走 `cancelChainLines()`
+  lines.push(...(removing
+    ? followupBookingLines({ customer, visits: others, chain, coursesById })
+    : chainSaid(null)));
 
   lines.push('改期不是改日期，是取消後重新排一次');
   lines.push(removing
@@ -869,10 +998,13 @@ export function cancelConsequences({
  * @param {number} o.index 她改的是哪一段
  * @param {object[]} [o.tasks] 這一筆身上的任務（連軟刪除的，`listByVisitForSync()`）
  * @param {string|null} [o.today] 改到過去那一天時不講「會多一張 Examine」（ADR-0113）
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪、`entitlements` 額度 —— 健檢那一段改成別的課程時，
+ *   還接在這一次後面的二返要講（`strandedFollowupLines()`，ADR-0145）；沒給就不講
  * @returns {{title: string, lines: string[]}}
  */
 export function rebookConsequences({
   before, after, index, tasks = [], coursesById = {}, sheetSyncOn = false, today = null,
+  customerVisits = [], entitlements = [],
 }) {
   const old = before?.slots?.[index];
   const fresh = after?.slots?.[after.slots.length - 1];
@@ -887,6 +1019,8 @@ export function rebookConsequences({
   // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
   const later = registrationsWhenSettled(after, [after.slots.length - 1], tasks, coursesById, today);
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+  const others = (customerVisits ?? []).filter((v) => v.id !== before?.id);
+  lines.push(...strandedFollowupLines({ before: [...others, before], after: [...others, after], entitlements, coursesById }));
   lines.push('改期不是改日期，是取消後重新排一次');
   if (sheetSyncOn) lines.push(SHEET_LINE);
   // 不用壓的課（ADR-0126）沒有地方要她先去改，抬頭不可以印成「在 null 壓好了嗎？」

@@ -427,8 +427,9 @@ describe('審查修正（第一批）', () => {
       followupForVisitId: 'x', status: 'pending_confirm', startsAt: '10:00', endsAt: '10:30',
     }],
   };
+  // 這一段是**新接上**的（存著的那一份不帶它）—— ADR-0145 起狀態只驗新接上的連結
   const nthErrors = (exam) => validateVisit(nthVisit, {
-    customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [exam, nthVisit],
+    customer: { id: 'c1' }, courses: COURSES, entitlements: ENTS, customerVisits: [exam],
   }).errors.filter((e) => e.includes('健檢'));
 
   test('n返 的存檔驗證也問健檢那一段：健檢做了、別段還開著 → 存得下去', () => {
@@ -715,7 +716,7 @@ describe('排查時找到的（第二批）', () => {
   });
 });
 
-describe('11 「這是哪一次健檢」標狀態，只有已完成按得下去', () => {
+describe('11 「這是哪一次健檢」標狀態（ADR-0145 起排著的也按得下去）', () => {
   // 她 2026-09-24：「可以小小標註他現在的狀態 例如未確認 已確認 已完成 未到 取消等等」
   // Q4：「只有已完成按得下去可以，不要讓整個流程亂掉」；n返 那一排她選「跟二返一樣」
   const COURSES = [
@@ -741,10 +742,11 @@ describe('11 「這是哪一次健檢」標狀態，只有已完成按得下去'
     exam('e5', '2026-09-30', 'pending_confirm'),
   ];
 
-  test('二返：每一次都列出來、標那一段自己的狀態，只有已完成的按得下去', () => {
+  // 2026-10-09（ADR-0145）起排著的也按得下去；取消、未到照舊按不下去
+  test('二返：每一次都列出來、標那一段自己的狀態，取消與未到按不下去', () => {
     const out = examChoicesFor(pair, world);
     assert.deepEqual(out.map((c) => c.status), ['done', 'confirmed', 'no_show', 'cancelled', 'pending_confirm']);
-    assert.deepEqual(out.map((c) => c.pickable), [true, false, false, false, false]);
+    assert.deepEqual(out.map((c) => c.pickable), [true, true, false, false, true]);
   });
 
   test('二返：被別場二返佔走的照舊按不下去、標「已約」', () => {
@@ -755,10 +757,10 @@ describe('11 「這是哪一次健檢」標狀態，只有已完成按得下去'
     assert.equal(first.pickable, false);
   });
 
-  test('n返：跟二返一樣標狀態、只有已完成的按得下去（照舊不會被「已約」鎖住）', () => {
+  test('n返：跟二返一樣標狀態、取消與未到按不下去（照舊不會被「已約」鎖住；ADR-0145 起排著的也按得下去）', () => {
     const out = examChoicesForNth({ entitlements: ENTS, coursesById: byId, visits: world });
     assert.deepEqual(out.map((c) => c.visitId), ['e1', 'e2', 'e3', 'e4', 'e5']);
-    assert.deepEqual(out.map((c) => c.pickable), [true, false, false, false, false]);
+    assert.deepEqual(out.map((c) => c.pickable), [true, true, false, false, true]);
     assert.equal(out[2].status, 'no_show');
   });
 
@@ -770,14 +772,14 @@ describe('11 「這是哪一次健檢」標狀態，只有已完成按得下去'
     customerVisits: [...world, ...(stored ? [stored] : [])],
   }).errors.filter((e) => e.includes('健檢'));
 
-  test('新接上一段二返指向一次不是已完成的健檢 → 擋下來；指向已完成的照樣存得下去', () => {
-    assert.deepEqual(fuErrors(fu('e1')), []);
-    for (const to of ['e2', 'e3', 'e4', 'e5']) assert.equal(fuErrors(fu(to)).length, 1, to);
+  test('新接上一段二返指向取消或未到的健檢 → 擋下來；排著的與做完的照樣存得下去（ADR-0145）', () => {
+    for (const to of ['e1', 'e2', 'e5']) assert.deepEqual(fuErrors(fu(to)), [], to);
+    for (const to of ['e3', 'e4']) assert.equal(fuErrors(fu(to)).length, 1, to);
   });
 
-  test('換成一次沒做完的也擋；存著的那一份本來就指著它（舊資料）→ 照樣存得下去（ADR-0011）', () => {
-    assert.equal(fuErrors(fu('e2'), fu('e1')).length, 1, '從 e1 換成 e2');
-    assert.deepEqual(fuErrors({ ...fu('e2'), note: '改了別的' }, fu('e2')), [], '連結沒動');
+  test('換成一次未到的也擋；存著的那一份本來就指著它（舊資料）→ 照樣存得下去（ADR-0011）', () => {
+    assert.equal(fuErrors(fu('e3'), fu('e1')).length, 1, '從 e1 換成 e3');
+    assert.deepEqual(fuErrors({ ...fu('e3'), note: '改了別的' }, fu('e3')), [], '連結沒動');
   });
 
   test('被佔走的那一次，丸子上寫「已約」加日期（三個入口同一支）', () => {

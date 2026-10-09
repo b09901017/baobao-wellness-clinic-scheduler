@@ -147,8 +147,8 @@ describe('既有資料庫：資料健檢「治療師與醫師少了幾位」', (
   }, TODAY).checks.find((c) => c.id === id).findings;
   const fixOf = (rows, staffId) => rows.find((f) => f.fix?.staffId === staffId)?.fix ?? null;
 
-  test('資料健檢多一項（當時 31 項；10/6 起 32、再加 issue 20 的一項是 33）', () => {
-    assert.equal(CHECKS.length, 33);
+  test('資料健檢多一項（當時 31 項；10/6 起 32、再加 issue 20 的一項是 33；10/9 ADR-0145 兩項是 35）', () => {
+    assert.equal(CHECKS.length, 35);
     assert.ok(CHECKS.some((c) => c.id === 'seedStaff'));
   });
 

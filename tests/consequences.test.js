@@ -430,12 +430,12 @@ describe('結案那一下會發生什麼', () => {
               tasks: chain.tasks, coursesById: COURSES2 }).create.map((t) => `${t.kind}@${t.visitId}`),
             ['約二返@v0'], '真的會寫下去的那一支',
           );
-          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, sameDay: [oldExam, s], chain });
+          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, customerVisits: [oldExam, s], chain });
           assert.ok(said.some((l) => l.includes('「約二返」') && l.includes('5/1')), said.join('／'));
         });
 
         test('沒帶 chain（讀不到、或沒有健檢配二返）→ 一句都不多講', () => {
-          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, sameDay: [oldExam, s] });
+          const said = cancelConsequences({ visit: s, coursesById: COURSES2, slotIndex: 0, customerVisits: [oldExam, s] });
           assert.ok(!said.some((l) => l.includes('「約二返」')), said.join('／'));
         });
 
@@ -1256,7 +1256,7 @@ describe('取消第二筆來訪的唯一一段：不說那一天整個取消了'
   const ask = (o = {}) => cancelConsequences({ visit: second, coursesById: {}, tasks: [], slotIndex: 0, ...o });
 
   test('帶了同一天的另一筆：講那一天還剩什麼', () => {
-    const lines = ask({ sameDay: [done, second] });
+    const lines = ask({ customerVisits: [done, second] });
     assert.ok(!lines.some((l) => l.includes('整個取消了')), lines.join('／'));
     assert.ok(lines.includes('那一天剩下的 1 段不受影響'), lines.join('／'));
   });
@@ -1271,12 +1271,12 @@ describe('取消第二筆來訪的唯一一段：不說那一天整個取消了'
       { ...done, id: 'b', customerId: 'c2' },
       { ...done, id: 'c', status: 'cancelled', slots: [{ ...done.slots[0], status: 'cancelled' }] },
     ];
-    assert.ok(ask({ sameDay: others }).some((l) => l.includes('那一天就整個取消了')));
+    assert.ok(ask({ customerVisits: others }).some((l) => l.includes('那一天就整個取消了')));
   });
 
   test('這一筆自己還有剩、另一筆也有：加在一起講', () => {
     const two = { ...second, slots: [...second.slots, { ...second.slots[0], startsAt: '16:00' }] };
-    const lines = cancelConsequences({ visit: two, coursesById: {}, tasks: [], slotIndex: 0, sameDay: [done] });
+    const lines = cancelConsequences({ visit: two, coursesById: {}, tasks: [], slotIndex: 0, customerVisits: [done] });
     assert.ok(lines.includes('那一天剩下的 2 段不受影響'), lines.join('／'));
   });
 });

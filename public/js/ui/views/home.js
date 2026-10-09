@@ -22,7 +22,7 @@ import { confirmMessage, askAvailabilityMessage } from '../../domain/messages.js
 import {
   visitsToClose, visitsToConfirm, closeVisit, describeStatus, formSlotIndexes,
   visitCourseLabel, describeConfirmed, applyConfirmation, statusForCard, NOTE_MAX,
-  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending, applyStatus,
+  focusFor, slotStatus, slotsToClose, pendingSlotsOf, asPending,
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
@@ -46,10 +46,10 @@ import {
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
-  confirmConsequences, closeConsequences, cancelConsequences, closedSay, followupBookingLines,
+  confirmConsequences, closeConsequences, cancelConsequences, closedSay, cancelChainLines, closeBlockSay,
 } from '../../domain/consequences.js';
 import {
-  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf,
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf, cannotClose, closeBlocks,
 } from '../../domain/followups.js';
 import * as sheetSync from '../../data/sheetSync.js';
 import { isConfigured } from '../../data/sheetSync.js';
@@ -3132,17 +3132,15 @@ async function applyConfirm(ctx) {
       const tasks = await tasksData.listByVisitForSync(v.id).catch(() => []);
       const lines = cancelConsequences({
         visit: v, coursesById: ctx.coursesById ?? {}, tasks, slotIndex: mine,
-        sheetSyncOn: isConfigured(ctx.settings), sameDay: customerVisits,
+        sheetSyncOn: isConfigured(ctx.settings), customerVisits,
       });
       for (const line of lines) said.add(line);
     }
-    // 「約二返」會怎麼動：全部套上去之後算一次（同批次取消那一頁）
-    const after = visits.filter((v) => askedIn(v).length)
-      .map((v) => askedIn(v).reduce((x, slotIndex) => applyStatus(x, 'cancelled', { slotIndex }), v));
-    const changed = new Set(after.map((v) => v.id));
-    for (const line of followupBookingLines({
+    // 健檢那條鏈：全部套上去之後算一次（`cancelChainLines()`，同批次取消那一頁）
+    for (const line of cancelChainLines({
       customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
-      visits: [...customerVisits.filter((v) => !changed.has(v.id)), ...after],
+      visits: customerVisits,
+      cancels: visits.filter((v) => askedIn(v).length).map((v) => ({ visit: v, at: askedIn(v) })),
       chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
       coursesById: ctx.coursesById ?? {},
     })) said.add(line);
@@ -3205,6 +3203,18 @@ async function applyConfirm(ctx) {
     tasksByVisit,
     asked,
   );
+  // 有 ✓ 也有 ✗（沒有確認框的那一條）：✗ 掉的是健檢、後面接著一場二返時，存完那張卡片上講（ADR-0145）。
+  // 全部 ✗ 的那一條上面的確認框已經講了
+  if (rejected.size && rejected.size < asked.size) {
+    said.push(...cancelChainLines({
+      customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
+      visits: customerVisits,
+      cancels: touched.map((v) => ({ visit: v, at: askedIn(v).filter((i) => rejected.has(`${v.id}:${i}`)) }))
+        .filter((c) => c.at.length),
+      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
+      coursesById: ctx.coursesById ?? {},
+    }));
+  }
 
   // 存好的那幾筆，重試時跳過（`saveEach()`，issues/18）
   const saved = new Set();
@@ -3465,7 +3475,12 @@ function closeDrawerHtml(ctx) {
 
   const open = slotsToClose(visit);
   const form = formMarks(visit, ctx.coursesById);
+  // **二返接的那一次健檢還沒做完，那一段的 ✓ 按不下去**（ADR-0145；判斷只在 `followups.js` 的 `cannotClose()`）。
+  // 同一天健檢那一段的 ✓ 拿掉時，已經按下去的二返 ✓ 跟著拿掉
+  const guard = closeGuard(ctx);
+  for (const i of closeBlocks(visit, picksOf(visit), guard).keys()) drawer.picks.delete(i);
   const picks = picksOf(visit);
+  const blockedFor = (i) => cannotClose(visit, i, picks.map((p, j) => (j === i ? true : p)), guard);
   const done = picks.filter((p) => p === true).length;
   const missed = picks.filter((p) => p === false).length;
 
@@ -3480,15 +3495,20 @@ function closeDrawerHtml(ctx) {
         </div>
 
         <div class="drawer__body">
-          ${open.map(({ slot: sl, index: i }) => pickRow({
-            key: String(i),
-            when: timeLabel(sl),
-            what: slotName(sl, ctx.master, 'short'),
-            aside: form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : '',
-            pick: drawer.picks.get(i),
-            yes: '做了',
-            no: '沒來',
-          })).join('')}
+          ${open.map(({ slot: sl, index: i }) => {
+            const why = blockedFor(i);
+            return pickRow({
+              key: String(i),
+              when: timeLabel(sl),
+              what: slotName(sl, ctx.master, 'short'),
+              aside: form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : '',
+              note: why ? `<span class="slotrow__form" data-close-blocked="${i}">${esc(closeBlockSay(why))}</span>` : '',
+              pick: drawer.picks.get(i),
+              yes: '做了',
+              no: '沒來',
+              yesOff: Boolean(why),
+            });
+          }).join('')}
 
           ${visit.note ? `<p class="card__note" style="margin-top: var(--space-3)">
             壓表時記的：${esc(visit.note)}</p>` : ''}
@@ -3533,7 +3553,7 @@ function pickAllButton(n) {
  * 的規矩：重編號的話會記到別段）。收尾抽屜一天一筆，所以是索引；確認抽屜一位客戶好幾天，
  * 所以是 `來訪 id:第幾段`。
  */
-function pickRow({ key, when, what, aside = '', note = '', pick, yes, no }) {
+function pickRow({ key, when, what, aside = '', note = '', pick, yes, no, yesOff = false }) {
   const state = pick === true ? 'slotrow--yes' : pick === false ? 'slotrow--no' : '';
   return `
     <div class="slotrow slotrow--pick ${state}">
@@ -3544,6 +3564,7 @@ function pickRow({ key, when, what, aside = '', note = '', pick, yes, no }) {
       </span>
       <span class="slotpick">
         <button class="slotpick__btn slotpick__btn--yes" type="button" data-pick="${esc(key)}" data-to="1"
+                ${yesOff ? 'disabled aria-disabled="true"' : ''}
                 aria-pressed="${pick === true}" aria-label="${esc(`${when} ${what}・${yes}`)}">
           ${icon('check', { size: 20, width: 3 })}</button>
         <button class="slotpick__btn slotpick__btn--no" type="button" data-pick="${esc(key)}" data-to="0"
@@ -3576,6 +3597,12 @@ function wirePicks(el, { parse, keys, repaint }) {
   });
 }
 
+/**
+ * 「二返接的那一次健檢做完了沒」要的那兩份（`cannotClose()`）：這位客戶的額度、全部來訪 ——
+ * 抽屜打開時補讀的那一份（`openCloseDrawer()`）。還沒讀到就是空的：不知道就不擋，存的那一下會重讀再問一次（`applyClose()`）。
+ */
+const closeGuard = (ctx) => ({ entitlements: ctx.entitlements ?? [], visits: ctx.customerVisits ?? [] });
+
 /** 抽屜上按了什麼 → `closeVisit()` 收的那一份（逐段 `true`／`false`／`null`）。 */
 function picksOf(visit) {
   return (visit?.slots ?? []).map((_, i) => (drawer?.picks?.has(i) ? drawer.picks.get(i) : null));
@@ -3590,7 +3617,15 @@ function wireClose(ctx) {
 
   wirePicks(el, {
     parse: Number,
-    keys: () => slotsToClose(ctx.rows.find((v) => v.id === drawer?.visitId)).map(({ index }) => index),
+    // 「全部 ✓」跳過簽不下去的那幾段（`cannotClose()`）、講跳過了幾段 —— 那一列自己講為什麼
+    keys: () => {
+      const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
+      const open = slotsToClose(visit).map(({ index }) => index);
+      const all = (visit?.slots ?? []).map((_, i) => open.includes(i));
+      const ok = open.filter((i) => !cannotClose(visit, i, all, closeGuard(ctx)));
+      if (ok.length < open.length) toast.info(`${open.length - ok.length} 段沒有勾 —— 接的那一次健檢還簽不下去，那一列寫著為什麼`);
+      return ok;
+    },
     repaint: () => paintClose(ctx),
   });
 
@@ -3638,8 +3673,18 @@ async function applyClose(ctx) {
     await renderClose(ctx.el);
     return;
   }
-  const picks = picksOf(fresh);
-  const next = closeVisit(fresh, picks);
+  // 二返接的那一次健檢做完了沒，拿剛讀回來的全部來訪再問一次（ADR-0145）—— 抽屜畫的時候那兩份可能還沒讀到
+  const entitlements = ctx.entitlements?.length ? ctx.entitlements
+    : await customersData.listEntitlements(visit.customerId).catch(() => []);
+  const guard = { entitlements, visits: customerVisits };
+  const blocked = closeBlocks(fresh, picksOf(fresh), guard);
+  const picks = picksOf(fresh).map((p, i) => (blocked.has(i) ? null : p));
+  if (!picks.some((p) => p === true || p === false)) {
+    toast.info(`${closeBlockSay([...blocked.values()][0])}，先不結`);
+    paintClose(ctx);
+    return;
+  }
+  const next = closeVisit(fresh, picks, undefined, guard);
   const left = slotsToClose(next).length;
 
   try {
