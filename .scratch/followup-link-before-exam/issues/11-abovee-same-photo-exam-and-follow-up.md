@@ -1,6 +1,6 @@
 # 拍 Abovee：同一張照片上的健檢接得上、一次健檢都沒有的二返不預設打勾
 
-Status: todo
+Status: done
 Blocked by: 02、04
 動工前先讀：`01` 的「她 10/9 回的」第 5 點；`CLAUDE.md` 連動表「拍 Abovee 記很多段」；ADR-0123、0138、0144；`prelaunch-fixes-2026-10-08/HANDOFF.md`「段六」她講的原則
 
@@ -24,3 +24,16 @@ Blocked by: 02、04
 - 她取消勾那一列健檢之後：二返那一列講得出接不上（問題那一行），不會寫一個指到不存在的連結。
 - 這位客戶一次健檢都沒有、照片上也沒有：二返那一列不打勾、收著看得到那一句；勾起來照樣記得進去、沒有連結。
 - 同一位同一天那一組驗證拿的來訪含這一批別組要記的（lessons 第二節）。
+
+## 做完時留下的
+
+- **暫時 id 只有一套**：`aboveeImport.js` 的 `plannedId(g)`（`g.visit.id ?? 'abovee:客戶|日期'`）—— 驗證（`visitsForCheck()`）、「接哪一次健檢」那一排（`examChoices(…, items, selected)`）、
+  存檔換 id（`resolveSaved()`、`plannedKeyOf()`）共用。併進既有那一天的就是那一筆的真的 id。
+- `examChoices()` 帶 `items` 就連同這一批勾著的一起列；`selected`＝這一列現在接著的那一次（不然自己那一組會把它標成「已約」）。
+- 讀照片的最後一步 `linkBatchExams()`（排在 `flagRepeats()` 後面）：二返那幾列重算 —— 剛好一次接得上就先選好、兩次以上不選、一次都沒有 → `noExam`＋不打勾。
+  `noExam` 跟 `halfOf`／`timeless` 一樣是整張一起看的：`resolveItem()`、`pickOption()`、`asRecorded()` 都清掉。`newRowSay()` 講「先去約健檢」、`needsAttention()` 收進要你看。
+- 畫面上勾起／拿掉一列、或換了接哪一次：`refreshNoExam()` 只重算旗標（不動勾與選擇），同一位的列一起重畫。
+- 存：`record()` 先存被同一批二返接著的那幾天（`order`），每存好一天記 `savedIds`（暫時 id → 真的 id，**掛在整個確認層上，跨好幾次按「記錄」**），之後那幾天先 `resolveSaved()` 再重組。
+  換不到（那一天沒存成）就不接 —— 不寫指到不存在的連結。
+- 不替她改 app 上既有的連結（照片上看不出連結）。
+- E2E `65` L6（新，假抄字 `aboveeList-exam-and-second.json`）；`41`、`51`、`62`、`13` 過。單元 `tests/abovee-exam-same-photo.test.js`。

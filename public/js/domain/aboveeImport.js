@@ -25,7 +25,7 @@ import {
   assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, mustSee, sameDayState, shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
-import { examChoicesFor, pairsOf } from './followups.js';
+import { examChoicesFor, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
@@ -273,13 +273,46 @@ function obviousEntitlement(choices, course) {
   return pool.length === 1 ? pool[0].entitlement : null;
 }
 
-/** 二返：接哪一次健檢。只有一次沒被佔走時才預選（壓表那一頁的 `pickExamIfObvious()`）。 */
-export function examChoices(customerId, entitlement, ctx) {
+/**
+ * 二返：接哪一次健檢。只有一次沒被佔走時才預選（壓表那一頁的 `pickExamIfObvious()`）。
+ *
+ * **帶了 `items`（這一張照片上的每一列）就連同這一批勾著的一起列**（ADR-0145，她 10/9：「那不能讓我當下決定接誰嗎」）：
+ * 同一張照片上健檢和二返都是新的時，那一次健檢還沒有來訪 id —— 用跟驗證同一套的暫時 id（`plannedId()`），
+ * 存的時候先存那一天、再換成真的（`resolveSaved()`）。`selected`：這一列現在接著哪一次 —— 這一批裡它自己那一組也佔著那一次，
+ * 不給的話它選的那一顆會被自己標成「已約」（同來訪編輯器的 `selected`）。
+ */
+export function examChoices(customerId, entitlement, ctx, items = null, selected = null) {
   if (!entitlement?.followupForEntitlementId) return [];
   const ents = liveEnts(ctx, customerId);
   const coursesById = Object.fromEntries((ctx.master?.courses ?? []).map((c) => [c.id, c]));
   const pair = pairsOf(ents, coursesById).find((x) => x.followup?.id === entitlement.id);
-  return pair ? examChoicesFor(pair, ctx.visitsBy?.[customerId] ?? []) : [];
+  if (!pair) return [];
+  const stored = ctx.visitsBy?.[customerId] ?? [];
+  if (!items) return examChoicesFor(pair, stored);
+  const planned = planAbovee(items, ctx).groups.filter((g) => g.customerId === customerId)
+    .map((g) => ({ ...g.visit, id: plannedId(g) }));
+  const replaced = new Set(planned.map((v) => v.id));
+  return examChoicesFor(pair, [...stored.filter((v) => !replaced.has(v.id)), ...planned], { selected });
+}
+
+/** 還沒存的那一組（一位一天）在驗證、「接哪一次健檢」那一排、存檔換 id 時叫什麼。併進既有那一天的就是那一筆的 id。 */
+const plannedId = (group) => group.visit?.id ?? `abovee:${group.key}`;
+
+/** 暫時的 id 嗎（`plannedId()` 給還沒存的那幾組的）。 */
+const isPlannedId = (id) => typeof id === 'string' && id.startsWith('abovee:');
+
+/**
+ * 存的時候：這一列接的是同一批裡還沒存的那一次健檢 → 換成先存好的那一天的真的 id（`savedIds`：暫時 id → 真的 id）。
+ * 換不到（那一天沒存成）就**不接** —— 寫一個指到不存在的連結比沒接糟（資料健檢、試算表都會讀到它）。
+ */
+export function resolveSaved(item, savedIds = new Map()) {
+  if (!isPlannedId(item?.followupForVisitId)) return item;
+  return { ...item, followupForVisitId: savedIds.get(item.followupForVisitId) ?? null };
+}
+
+/** 這一組要先存嗎：同一批裡有一列接著它（它是那一次健檢）。存檔那一圈照這個排先後。 */
+export function plannedKeyOf(day) {
+  return `abovee:${day.customerId}|${day.date}`;
 }
 
 /**
@@ -354,6 +387,8 @@ export function newRowSay(item) {
   if (item.movedFrom) {
     return `app 上 ${item.movedFrom.startsAt} 有一段 ${item.movedFrom.name} —— 是改了時間的話去日曆改期；確定是另一段再勾。`;
   }
+  // ADR-0145：系統裡沒有、照片上也沒有（勾著的）健檢 —— 她 10/9：「先預設不壓，也提醒要先去約健檢 ? 但還是可以先存然後去日曆接」
+  if (item.noExam) return '還沒有接得上的健檢 —— 先去約健檢；要先記的話勾起來，約好健檢之後去日曆接。';
   if (!item.appCancelledHere) return '';
   // 同一門課：取消之後又約了同一格（ADR-0144，她 2026-10-09：「預設不勾並提醒已取消過」），或她還沒回 Abovee 放掉
   return item.appCancelledSame
@@ -407,6 +442,8 @@ export function resolveItem(item, customerId, ctx) {
     // 「合併扣課的後一半」「沒有時間的舊段」也是整張一起看才認領的（`asRecorded()`）—— 換了人就不是那一段了，
     // 留著的話這一列又對到別的段時會照講「這是合併扣課的後一半」（2026-10-09 審查）
     halfOf: null, timeless: false,
+    // 「一次健檢都沒有」也是整張一起看的（`linkBatchExams()`）
+    noExam: false,
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
 
@@ -485,7 +522,7 @@ export function pickOption(item, value, ctx) {
   const base = {
     ...item,
     entitlementId: null, isNth: false, nth: null, uncountedCourseId: null,
-    equipmentId: null, followupForVisitId: null,
+    equipmentId: null, followupForVisitId: null, noExam: false,
     ivProductId: item.course?.ivProductId ?? null,
   };
   if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
@@ -553,7 +590,51 @@ export function readAbovee(transcripts, ctx) {
   // 整張一起看才知道的事，照這個順序：合併扣課的後一半（要趕在 `mergeRows()` 把它標成找不到另一半之前）→
   // 合併扣課 → 沒有時間的舊段（一對先合成一列，才對得到那一段舊的）→ 搬了時間 → 看起來是同一段
   const paired = mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn });
-  return { pairing, counts: sizes, items: flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)) };
+  return { pairing, counts: sizes, items: linkBatchExams(flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)), ctx) };
+}
+
+// ---------- 二返接哪一次健檢：整張一起看（ADR-0145）----------
+
+/**
+ * 二返那幾列「接哪一次健檢」**連同這一張照片上勾著的健檢一起看**（`examChoices(…, items)`）。後處理的最後一步 ——
+ * 前面幾步會改哪幾列是新的、勾不勾，而這一步要知道這一批有哪幾次健檢。
+ *
+ * - 剛好一次接得上 → 先選好（她回的第 3 題：照舊「剛好一顆按得下去才選」）；兩次以上就不選
+ *   （`resolveItem()` 那時候只看得到資料庫裡的，那一份要重算）
+ * - **一次接得上的健檢都沒有**（沒有排著或做完的，系統裡、照片上都沒有）→ 不預設打勾、`noExam`（`newRowSay()` 講「先去約健檢」）
+ *
+ * n返 不在這裡：它本來就不替她選（`pickOption()`）。
+ */
+function linkBatchExams(items, ctx) {
+  if (!items.some((i) => secondEntOf(i, ctx))) return items;
+  return items.map((i) => {
+    const ent = secondEntOf(i, ctx);
+    if (!ent) return i;
+    const choices = examChoices(i.customerId, ent, ctx, items, i.followupForVisitId);
+    const open = choices.filter((c) => c.pickable);
+    if (!choices.some((c) => PICKABLE_EXAM.has(c.status))) return { ...i, followupForVisitId: null, noExam: true, checked: false };
+    return { ...i, followupForVisitId: open.length === 1 ? open[0].visitId : null };
+  });
+}
+
+/** 這一列是新的一場二返嗎：回它扣的那一筆二返額度（不是就 null）。 */
+function secondEntOf(item, ctx) {
+  if (item?.kind !== 'new' || item.isNth || !item.customerId) return null;
+  return liveEnts(ctx, item.customerId).find((e) => e.id === item.entitlementId && e.followupForEntitlementId) ?? null;
+}
+
+/**
+ * 她在畫面上勾起／拿掉一列之後，重算「一次接得上的健檢都沒有」那一個旗標（`noExam`）—— **只動旗標**，
+ * 勾不勾、接哪一次照舊是她的（讀照片那一下的預設才由 `linkBatchExams()` 決定）。勾起照片上那一次健檢之後，
+ * 二返那一列「先去約健檢」那一句要跟著收掉；接好了的也收掉。
+ */
+export function refreshNoExam(items, ctx) {
+  return items.map((i) => {
+    const ent = secondEntOf(i, ctx);
+    const none = Boolean(ent) && !i.followupForVisitId
+      && !examChoices(i.customerId, ent, ctx, items).some((c) => PICKABLE_EXAM.has(c.status));
+    return none === Boolean(i.noExam) ? i : { ...i, noExam: none };
+  });
 }
 
 // ---------- 「已經記了」的另外兩種形狀（prelaunch-fixes/11）----------
@@ -570,7 +651,7 @@ const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
   isNth: false, nth: null, uncountedCourseId: null, minutes: null,
-  mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
+  mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   kind: 'recorded', checked: false, existing, ...extra,
 });
 
@@ -981,7 +1062,7 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 合併檔匯進來的來訪都沒有治療師與診間（ADR-0011），全排進來會把真的要看的淹掉
   || (item?.kind === 'recorded' && (item?.diffs ?? []).some((d) => d.app))
   // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
-  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame))
+  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam))
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
@@ -1384,7 +1465,7 @@ export function planAbovee(items, ctx) {
  */
 export function visitsForCheck(groups, group, ctx) {
   const planned = (groups ?? []).filter((g) => g !== group && g.visit)
-    .map((g) => ({ ...g.visit, id: g.visit.id ?? `abovee:${g.key}` }));
+    .map((g) => ({ ...g.visit, id: plannedId(g) }));
   const replaced = new Set(planned.map((v) => v.id));
   const stored = (list) => (list ?? []).filter((v) => v && !replaced.has(v.id));
   return {

@@ -7,6 +7,7 @@ import { test, expect } from '../fixtures/app.js';
 import {
   masterDocs, customer, entitlement, visit, slot, task, TODAY, addDays,
 } from '../fixtures/data.js';
+import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
 
 const alive = (rows) => rows.filter((t) => !t.deletedAt);
 
@@ -253,4 +254,52 @@ test('L5 健檢取消之後：資料健檢列出「二返接的健檢對不上�
   const old = page.locator('[data-chip="s0-exam"][data-chip-value="v-old"]');
   await old.click();
   await expect(old, '換得掉').toHaveAttribute('aria-pressed', 'true');
+});
+
+// ---------- 11 拍 Abovee：同一張照片上健檢和二返都是新的 ----------
+
+test('L6 拍 Abovee：同一張照片上的健檢當下接得上二返；存完二返接在剛存好的那一次健檢上', async ({ app, page }) => {
+  const MONTH9 = '2026-09';
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    entitlement('cust-wang', { id: 'w-exam', label: '健檢', courseId: 'course-checkup', totalQty: 2, tier: '8萬', durationMin: 120 }),
+    entitlement('cust-wang', { id: 'w-fu', label: '二返', courseId: 'course-followup', totalQty: 2, followupForEntitlementId: 'w-exam', durationMin: 30 }),
+    {
+      path: 'batches', id: 'b-sep',
+      data: {
+        targetMonth: MONTH9, status: 'active', cursor: null, lastDeviceHint: null,
+        queue: [{ customerId: 'cust-wang', customerName: '', state: 'pending', skippedReason: null }],
+      },
+    },
+  ]);
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH9}"]`).click();
+  await app.settled();
+  await queueAi(['aboveeList-exam-and-second']);
+  await page.locator('[data-abovee]').click();
+  await expect(page.locator('.cam')).toBeVisible();
+  await page.locator('[data-cam-album-input]').setInputFiles([await fakePhoto('aboveeList-exam-and-second.jpg', { width: 1600, height: 900 })]);
+  await expect(page.locator('.cam__thumb')).toHaveCount(1);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('[data-abl-row]').first()).toBeVisible();
+
+  const fu = page.locator('[data-abl-row="a1"]');
+  await fu.locator('[data-abl-open]').click();
+  const pick = fu.locator('[data-abl-exam="abovee:cust-wang|2026-09-03"]');
+  await expect(pick, '照片上那一次健檢列得出來、只有它 → 先選好').toHaveAttribute('aria-pressed', 'true');
+  await expect(fu.locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+
+  const visits = (await app.readAll('visits')).filter((v) => v.customerId === 'cust-wang');
+  const exam = visits.find((v) => v.date === '2026-09-03');
+  const second = visits.find((v) => v.date === '2026-09-24');
+  expect(exam, '健檢那一天記進去了').toBeTruthy();
+  expect(second.slots[0].followupForVisitId, '二返接在剛存好的那一次健檢上（真的 id）').toBe(exam.id);
 });

@@ -25,7 +25,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow, resolveSaved, plannedKeyOf, refreshNoExam,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -83,6 +83,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let failure = null;
   let closed = false;
   const savedKeys = new Set();
+  /**
+   * 同一批裡還沒存的那一次健檢存好之後的真的 id（暫時 id → 真的 id，`resolveSaved()`，ADR-0145）。
+   * **跨好幾次按「記錄」**：她先記健檢那一天、之後才記二返那一天時，二返那一列接的照舊是暫時 id
+   */
+  const savedIds = new Map();
   /** 這一層記好的每一位每一天（跨好幾次按「記錄」）。標壓完照它算。 */
   const savedDays = [];
   let savedCount = 0;
@@ -526,7 +531,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (item.isNth && course) {
       rows.push(...nthRows(item));
     } else {
-      const exams = examChoices(item.customerId, ent, ctx);
+      // 連同這一張照片上勾著的健檢一起列（ADR-0145：健檢和二返都是新的，當下就接得上）
+      const exams = examChoices(item.customerId, ent, ctx, items, item.followupForVisitId);
       if (exams.length) {
         // 每一次都標它自己的狀態，**排著的與做完的、沒被佔走的按得下去**（`pickable`，issues/11、ADR-0145）
         rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
@@ -733,7 +739,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const at = items.findIndex((i) => i.key === key);
     if (at < 0) return;
     const item = items[at];
-    const set = (next) => { items[at] = next; repaintRow(key); };
+    const set = (next) => {
+      items[at] = next;
+      // 勾起／拿掉一列（多半是健檢那一列）、或換了接哪一次：同一位的二返那一排與「先去約健檢」那一句跟著變（ADR-0145）
+      if (next.checked !== item.checked || next.followupForVisitId !== item.followupForVisitId) {
+        refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
+        for (const x of items) if (x.customerId === next.customerId && x.key !== key) repaintRow(x.key);
+      }
+      repaintRow(key);
+    };
 
     if (t.matches('[data-abl-check]')) { set({ ...item, checked: !item.checked }); return; }
     if (t.matches('[data-abl-adopt]')) { set({ ...item, adopt: !item.adopt }); return; }
@@ -915,15 +929,20 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     /** 寫的時候發現別的裝置剛改過、沒改成的那幾列（她看到的不是現在的值） */
     const stale = [];
 
+    // **被同一批的二返接著的那幾天先存**（ADR-0145）：二返那一列接的是那一天的暫時 id，要等它有真的 id
+    const wanted = new Set(groups.flatMap((g) => g.items.map((i) => i.followupForVisitId)).filter(Boolean));
+    const order = [...days.values()].sort((a, b) => Number(wanted.has(plannedKeyOf(b))) - Number(wanted.has(plannedKeyOf(a))));
+
     // **重試只會記一次**：先到的那一趟記好的，另一趟看到 savedKeys 就跳過
     const write = async () => {
-      for (const d of days.values()) {
+      for (const d of order) {
         if ([...d.items, ...d.adopts].every((i) => savedKeys.has(i.key))) continue;
         current = d;
         const fresh = await visitsData.listByCustomer(d.customerId);
-        // 用剛讀回來的那一份重組一次：她在別的裝置上剛改過那一天的話，不可以蓋掉
+        // 用剛讀回來的那一份重組一次：她在別的裝置上剛改過那一天的話，不可以蓋掉。
+        // 接著同一批還沒存的那一次健檢的，換成它存好的 id（換不到就不接，`resolveSaved()`）
         const [again] = d.items.length
-          ? planAbovee(d.items, { ...ctx, visitsBy: { ...ctx.visitsBy, [d.customerId]: fresh } }).groups : [];
+          ? planAbovee(d.items.map((i) => resolveSaved(i, savedIds)), { ...ctx, visitsBy: { ...ctx.visitsBy, [d.customerId]: fresh } }).groups : [];
         const toSave = new Map();
         if (again) toSave.set(again.visit.id ?? '(new)', again.visit);
         const missedHere = [];
@@ -933,8 +952,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           missedHere.push(...out.missed);
           if (!out.missed.length) toSave.set(a.existing.visitId, out.visit);
         }
-        // eslint-disable-next-line no-await-in-loop
-        for (const visit of toSave.values()) await visitsData.save(visit, fresh);
+        for (const visit of toSave.values()) {
+          // eslint-disable-next-line no-await-in-loop
+          const id = await visitsData.save(visit, fresh);
+          if (again && visit === again.visit) savedIds.set(plannedKeyOf(d), id);
+        }
         [...d.items, ...d.adopts].forEach((i) => savedKeys.add(i.key));
         stale.push(...missedHere);
         savedCount += d.items.length + d.adopts.length - missedHere.length;

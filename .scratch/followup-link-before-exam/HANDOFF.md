@@ -17,7 +17,7 @@
 | 08 | 二返排在健檢之前：提醒 | done |
 | 09 | 客戶詳情三個數字 | done |
 | 10 | 資料健檢兩列 | done |
-| 11 | 拍 Abovee：同一批先存健檢再接二返、沒有健檢不預設打勾 | todo |
+| 11 | 拍 Abovee：同一批先存健檢再接二返、沒有健檢不預設打勾 | done |
 | 12 | 文件、ADR-0145、E2E 65、量測、PR | todo |
 
 - 分支 `claude/followup-link-before-exam`，從 `origin/develop` `9e40c21`（PR #147 合進去那一個）開。一支 PR 進 `develop`。
