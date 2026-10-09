@@ -1677,8 +1677,15 @@ function visitErrors(visit, {
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
     if (slot.followupForVisitId) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
-      // 這個連結是這一次新接上的嗎：存著的那一份這一天有沒有任何一段本來就指著它（底下二返那一條說為什麼不比位置）
-      const carried = (stored?.slots ?? []).some((s) => s?.followupForVisitId === slot.followupForVisitId);
+      // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
+      // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
+      // 兩種都要是**同一種段**（同一筆二返額度，或都是 n返）。以前問「存著的那一份這一天有沒有任何一段指著它」：
+      // 取消掉的段、n返 都算，那一天再加一場接同一次的二返時底下兩道都跳過（10/9 審查）
+      const was = stored?.slots ?? [];
+      const same = (s) => s?.followupForVisitId === slot.followupForVisitId
+        && (s.entitlementId ?? null) === (slot.entitlementId ?? null);
+      const carried = same(was[i]) || was.some((s, j) => j !== i && same(s)
+        && slotStatus(stored, s) !== 'cancelled' && slots[j] && slotStatus(visit, slots[j]) === 'cancelled');
       if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
       // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
       // 試算表會把二返註記寫到一個不相干的日期底下。
@@ -1698,9 +1705,8 @@ function visitErrors(visit, {
       }
       // **二返接得上排著的與做完的健檢，取消、未到的接不上**（ADR-0145；9/24 起只准已完成，issues/11）——
       // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
-      // **只擋這一次新接上、或換過的連結**：存著的那一份這一天本來就有一段指著它的是舊資料（ADR-0011 那一條原則）——
-      // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去。**問的是這一天有沒有任何一段指著它，不比位置**：
-      // 二返自己改時間（`rebookSlot()`）新的那一段接在尾巴、帶著同一個連結，照位置比會被當成新接上的
+      // **只擋這一次新接上、或換過的連結**（`carried`）：那一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
+      // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去
       else if (ent?.followupForEntitlementId && !carried
           && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
         errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);

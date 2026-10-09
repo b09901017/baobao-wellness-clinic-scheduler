@@ -266,6 +266,56 @@ describe('存檔驗證：同一次健檢已經接了一場活著的二返 → �
   });
 });
 
+// 10/9 審查：以前問「存著的那一份這一天有沒有任何一段指著它」—— 取消掉的段、n返 都算，
+// 於是那一天再加一場接同一次的二返，「一次一場」與「取消、未到接不上」兩道都跳過。
+describe('「這個連結是不是新接上的」只認兩種：同一段本來就指著它、這一次改時間搬過來的', () => {
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const X = exam('X', '2026-10-07', 'cancelled');
+  const extra = (to, over = {}) => ({
+    entitlementId: 'e-fu', courseId: 'c-fu', courseName: '二返', startsAt: '15:00', endsAt: '15:30', status: 'pending_confirm',
+    followupForVisitId: to, ...over,
+  });
+  const nthSlot = (to) => ({
+    ...nthSlotFields({ nth: 3, examVisitId: to, courseId: 'c-fu' }), startsAt: '14:00', endsAt: '14:30', status: 'confirmed',
+  });
+
+  test('那一天存著一段取消掉的二返指著 B、別場已經接走 B：再加一段接 B 照樣擋', () => {
+    const stored = second('F', '2026-10-24', 'cancelled', 'B');
+    const other = second('F2', '2026-11-20', 'confirmed', 'B');
+    const errors = aboutExam(ask({ ...stored, slots: [...stored.slots, extra('B')] }, [B, stored, other]).errors);
+    assert.equal(errors.length, 1, errors.join('｜'));
+    assert.match(errors[0], /已經接了 11\/20\(五\) 那一場二返/);
+  });
+
+  test('同一天第二段活著的二返接同一次（第一段已經存著）：擋', () => {
+    const stored = second('F', '2026-10-24', 'confirmed', 'B');
+    const errors = aboutExam(ask({ ...stored, slots: [...stored.slots, extra('B')] }, [B, stored]).errors);
+    assert.equal(errors.length, 1, errors.join('｜'));
+    assert.match(errors[0], /已經接了 10\/24\(六\) 那一場二返/);
+  });
+
+  test('存著一段 n返 指著取消的健檢：新加一段二返接那一次照樣擋（n返 不替二返作保，反過來也是）', () => {
+    const withNth = visitOf('N', '2026-10-24', [nthSlot('X')]);
+    const a = aboutExam(ask({ ...withNth, slots: [...withNth.slots, extra('X')] }, [X, withNth]).errors);
+    assert.equal(a.length, 1, a.join('｜'));
+    assert.match(a[0], /不會有報告/);
+
+    const withSecond = second('F', '2026-10-24', 'confirmed', 'X');
+    const b = aboutExam(ask({ ...withSecond, slots: [...withSecond.slots, nthSlot('X')] }, [X, withSecond]).errors);
+    assert.equal(b.length, 1, b.join('｜'));
+    assert.match(b[0], /不會有報告/);
+  });
+
+  test('取消掉的那一段自己還指著取消的健檢：那一天改別段照樣存得下去', () => {
+    const stored = visitOf('F', '2026-10-24', [
+      { ...extra('X'), status: 'cancelled' },
+      { entitlementId: 'e-exam', courseId: 'c-exam', courseName: '健檢', startsAt: '09:00', endsAt: '10:00', status: 'confirmed' },
+    ]);
+    const edited = { ...stored, slots: [stored.slots[0], { ...stored.slots[1], note: '改了一句' }] };
+    assert.deepEqual(aboutExam(ask(edited, [X, stored]).errors), []);
+  });
+});
+
 // ---------- 05 簽療程單：接的那一次健檢還沒做完，二返那一段簽不成「做了」----------
 
 describe('簽療程單擋：二返比它接的健檢先簽成做了', () => {
