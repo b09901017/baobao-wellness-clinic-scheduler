@@ -346,9 +346,10 @@ export function examStatusIn(visit, examEntitlementIds) {
 /**
  * 「這是哪一次健檢」那一顆丸子底下那一小格。被別場二返佔走的寫「已約 9/30」，其餘寫**它自己的狀態**
  * （短字，同日曆圖例）；n返 那一排再接上已經有幾返（`note`）。壓表、來訪編輯器、拍 Abovee 三個入口共用 ——
- * 各寫一份的話同一次健檢在兩個地方標不同的字（issues/11）。
+ * 各寫一份的話同一次健檢在兩個地方標不同的字（issues/11）。拍 Abovee 多一種：跟這一列同一次才要記的那一次（`unsaved`）。
  */
 export function examChoiceNote(choice) {
+  if (choice?.unsaved) return '存好才接得上';
   if (choice?.taken) return choice.bookedOn ? `已約 ${shortDate(choice.bookedOn)}` : '已約';
   return [choice?.status ? shortStatus(choice.status) : '', choice?.note ?? ''].filter(Boolean).join('・');
 }

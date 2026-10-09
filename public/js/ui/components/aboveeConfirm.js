@@ -25,7 +25,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow, resolveSaved, plannedKeyOf, refreshNoExam,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow, resolveSaved, plannedId, refreshNoExam, stuckLinks,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -241,6 +241,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         mustSeeBy[item.key] = byRow[item.key].mustSee;
       }
     }
+    // 接的那一次健檢那一天記不進去的，這一列也先不記（`stuckLinks()`）—— 照樣存就是安靜地沒接上
+    for (const [key, say] of Object.entries(stuckLinks(groups, problems, ctx))) problems[key] = [...(problems[key] ?? []), say];
     return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy, mustSeeBy };
   }
 
@@ -510,7 +512,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         brk: o.breakBefore,
       }))));
       if (item.isNth && !options.some((o) => o.isNth)) {
-        rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有做完的健檢可以接 —— 選別的，或先去日曆把那次健檢記成已完成。</p>');
+        rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。</p>');
       }
     }
 
@@ -532,7 +534,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rows.push(...nthRows(item));
     } else {
       // 連同這一張照片上勾著的健檢一起列（ADR-0145：健檢和二返都是新的，當下就接得上）
-      const exams = examChoices(item.customerId, ent, ctx, items, item.followupForVisitId);
+      const exams = examChoices(item.customerId, ent, ctx, items, item);
       if (exams.length) {
         // 每一次都標它自己的狀態，**排著的與做完的、沒被佔走的按得下去**（`pickable`，issues/11、ADR-0145）
         rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
@@ -773,7 +775,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       return;
     }
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
-    if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx)); return; }
+    if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
     if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
@@ -822,7 +824,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (at < 0 || savedKeys.has(key)) return;
     const was = items[at].customerId ?? null;
     // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
-    items[at] = markRepeat(resolveItem(items[at], customerId, ctx), items);
+    items[at] = markRepeat(resolveItem(items[at], customerId, ctx, items), items);
+    // 換成的這一位有沒有接得上的健檢（「先去約健檢」那一句）連同這一批重算
+    refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
     repaintRow(key, { was });
   }
 
@@ -918,7 +922,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // 一位一天一個 commit：新的段與「改成 Abovee 的」（11）併在同一個「重讀之後重組」裡
     const days = new Map();
     for (const g of groups) {
-      days.set(`${g.customerId}|${g.date}`, { customerId: g.customerId, customerName: g.customerName, date: g.date, items: g.items, adopts: [] });
+      days.set(`${g.customerId}|${g.date}`, { customerId: g.customerId, customerName: g.customerName, date: g.date, items: g.items, adopts: [], planned: plannedId(g) });
     }
     for (const a of adopts) {
       const k = `${a.customerId}|${a.existing.date}`;
@@ -929,9 +933,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     /** 寫的時候發現別的裝置剛改過、沒改成的那幾列（她看到的不是現在的值） */
     const stale = [];
 
-    // **被同一批的二返接著的那幾天先存**（ADR-0145）：二返那一列接的是那一天的暫時 id，要等它有真的 id
+    // **被同一批的二返接著的那幾天先存**（ADR-0145）：二返那一列接的是那一天的暫時 id，要等它有真的 id。
+    // 併進既有那一天的健檢也先存（那一天的 id 是真的，`plannedId()`）：二返先存的話，它接的那一筆上還沒有健檢
     const wanted = new Set(groups.flatMap((g) => g.items.map((i) => i.followupForVisitId)).filter(Boolean));
-    const order = [...days.values()].sort((a, b) => Number(wanted.has(plannedKeyOf(b))) - Number(wanted.has(plannedKeyOf(a))));
+    const order = [...days.values()].sort((a, b) => Number(wanted.has(b.planned)) - Number(wanted.has(a.planned)));
 
     // **重試只會記一次**：先到的那一趟記好的，另一趟看到 savedKeys 就跳過
     const write = async () => {
@@ -955,7 +960,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         for (const visit of toSave.values()) {
           // eslint-disable-next-line no-await-in-loop
           const id = await visitsData.save(visit, fresh);
-          if (again && visit === again.visit) savedIds.set(plannedKeyOf(d), id);
+          if (again && visit === again.visit) savedIds.set(d.planned, id);
         }
         [...d.items, ...d.adopts].forEach((i) => savedKeys.add(i.key));
         stale.push(...missedHere);

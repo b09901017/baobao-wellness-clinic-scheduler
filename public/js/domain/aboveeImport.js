@@ -25,7 +25,7 @@ import {
   assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, mustSee, sameDayState, shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
-import { examChoicesFor, pairsOf, PICKABLE_EXAM } from './followups.js';
+import { examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
@@ -278,10 +278,14 @@ function obviousEntitlement(choices, course) {
  *
  * **帶了 `items`（這一張照片上的每一列）就連同這一批勾著的一起列**（ADR-0145，她 10/9：「那不能讓我當下決定接誰嗎」）：
  * 同一張照片上健檢和二返都是新的時，那一次健檢還沒有來訪 id —— 用跟驗證同一套的暫時 id（`plannedId()`），
- * 存的時候先存那一天、再換成真的（`resolveSaved()`）。`selected`：這一列現在接著哪一次 —— 這一批裡它自己那一組也佔著那一次，
- * 不給的話它選的那一顆會被自己標成「已約」（同來訪編輯器的 `selected`）。
+ * 存的時候先存那一天、再換成真的（`resolveSaved()`）。
+ *
+ * `row`：畫的是哪一列。它現在接著的那一次不算被佔走（這一批裡它自己那一組也佔著那一次 —— 同來訪編輯器的 `selected`）；
+ * **它自己那一天、這一次才要記的健檢列得出來但按不下去**（`unsaved`）：連結記的是來訪 id，而那一段跟這一列同一次寫進去
+ * （來訪編輯器同一條：「這一天的健檢存好之後才接得上」）。那一天存著的那一份本來就有健檢的照舊接得上。
+ * 以前先選好自己那一天的暫時 id，驗證認不得它，那一天整組記不進去（10/9 審查）。沒給 `row` 就不分自己別人（`refreshNoExam()`）。
  */
-export function examChoices(customerId, entitlement, ctx, items = null, selected = null) {
+export function examChoices(customerId, entitlement, ctx, items = null, row = null) {
   if (!entitlement?.followupForEntitlementId) return [];
   const ents = liveEnts(ctx, customerId);
   const coursesById = Object.fromEntries((ctx.master?.courses ?? []).map((c) => [c.id, c]));
@@ -289,14 +293,29 @@ export function examChoices(customerId, entitlement, ctx, items = null, selected
   if (!pair) return [];
   const stored = ctx.visitsBy?.[customerId] ?? [];
   if (!items) return examChoicesFor(pair, stored);
-  const planned = planAbovee(items, ctx).groups.filter((g) => g.customerId === customerId)
-    .map((g) => ({ ...g.visit, id: plannedId(g) }));
+  const groups = planAbovee(items, ctx).groups.filter((g) => g.customerId === customerId);
+  const planned = groups.map((g) => ({ ...g.visit, id: plannedId(g) }));
   const replaced = new Set(planned.map((v) => v.id));
-  return examChoicesFor(pair, [...stored.filter((v) => !replaced.has(v.id)), ...planned], { selected });
+  const choices = examChoicesFor(pair, [...stored.filter((v) => !replaced.has(v.id)), ...planned],
+    { selected: row?.followupForVisitId ?? null });
+  const own = row ? groups.find((g) => g.date === row.date) : null;
+  if (!own) return choices;
+  const ownId = plannedId(own);
+  if (PICKABLE_EXAM.has(examStatusIn(stored.find((v) => v.id === ownId), [pair.source.id]))) return choices;
+  return choices.map((x) => (x.visitId === ownId ? { ...x, pickable: false, unsaved: true } : x));
 }
 
-/** 還沒存的那一組（一位一天）在驗證、「接哪一次健檢」那一排、存檔換 id 時叫什麼。併進既有那一天的就是那一筆的 id。 */
-const plannedId = (group) => group.visit?.id ?? `abovee:${group.key}`;
+/**
+ * 還沒存的那一組（一位一天）在驗證、「接哪一次健檢」那一排、存檔排先後與換 id 時叫什麼。併進既有那一天的就是那一筆的 id。
+ * **只有這一支在拼那個暫時的 id** —— 存檔那一圈以前自己拼一次、只認得暫時的，健檢併進既有那一天時排不到前面（10/9 審查）。
+ */
+export const plannedId = (group) => group.visit?.id ?? `abovee:${group.key}`;
+
+/** 「接哪一次健檢」只有一次按得下去才先選好（她回的第 3 題）。讀照片那一下、她自己按一顆、換一位都問這一支。 */
+const onlyOpen = (choices) => {
+  const open = choices.filter((x) => x.pickable);
+  return open.length === 1 ? open[0].visitId : null;
+};
 
 /** 暫時的 id 嗎（`plannedId()` 給還沒存的那幾組的）。 */
 const isPlannedId = (id) => typeof id === 'string' && id.startsWith('abovee:');
@@ -310,9 +329,26 @@ export function resolveSaved(item, savedIds = new Map()) {
   return { ...item, followupForVisitId: savedIds.get(item.followupForVisitId) ?? null };
 }
 
-/** 這一組要先存嗎：同一批裡有一列接著它（它是那一次健檢）。存檔那一圈照這個排先後。 */
-export function plannedKeyOf(day) {
-  return `abovee:${day.customerId}|${day.date}`;
+/**
+ * 接著同一批**另一天才要記的健檢**、而那一天這一次記不進去（有一列有問題）的那幾列 —— 這一列也先不記、講出來。
+ * 照樣存的話換不到那一天的 id（`resolveSaved()`），她選好的那一次被安靜地存成沒接上（10/9 審查）。
+ *
+ * @param {object[]} groups `planAbovee()` 的每一組
+ * @param {Record<string, string[]>} problems 列的 key → 記不進去的原因
+ * @returns {Record<string, string>} 列的 key → 那一句
+ */
+export function stuckLinks(groups, problems, ctx) {
+  const stuck = new Map((groups ?? []).filter((g) => g.items.some((i) => problems?.[i.key])).map((g) => [plannedId(g), g]));
+  const out = {};
+  for (const g of groups ?? []) {
+    for (const i of g.items) {
+      const day = stuck.get(i.followupForVisitId);
+      const exam = secondEntOf(i, ctx)?.followupForEntitlementId;
+      if (!day || day === g || !exam || !day.items.some((x) => x.entitlementId === exam)) continue;
+      out[i.key] = `接的那一次健檢（${shortDate(day.date)}）那一天還記不進去 —— 先處理那一天，或換「接哪一次健檢」`;
+    }
+  }
+  return out;
 }
 
 /**
@@ -428,7 +464,7 @@ export function mismatchSay(item) {
  * 認得人之後（或她選了人之後）才算得出來的那幾格：種類、預選的額度／器材／品項／健檢、要不要勾。
  * 她在畫面上換一個人就重算一次。
  */
-export function resolveItem(item, customerId, ctx) {
+export function resolveItem(item, customerId, ctx, items = null) {
   const next = {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
@@ -485,7 +521,7 @@ export function resolveItem(item, customerId, ctx) {
     value = ent?.id ?? (course?.uncounted && !left.length ? uncountedPick(course.courseId) : null);
   }
   // 按好之後那幾排（器材、品項、接哪一次健檢）跟她自己按那一顆走同一支
-  Object.assign(next, pickOption(next, value, ctx));
+  Object.assign(next, pickOption(next, value, ctx, items));
 
   // 還沒到的勾、已經過的不勾（ADR-0030 的做法）；已取消的不勾；
   // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）
@@ -512,13 +548,14 @@ export function optionValueOf(item) {
  * 接著那幾排照新的那一顆重設，照片上讀得到的先選好：
  * - 擇一池：照片上那一台在池子裡就選它，池子只有一台就選那一台
  * - 品項：**照片上寫的那一款優先**（營養點滴那一格直接寫品項名），沒寫才是額度上買的那一款
- * - 二返：接哪一次健檢只有一次按得下去才選
+ * - 二返：接哪一次健檢只有一次按得下去才選（`onlyOpen()`）。**帶了 `items`（這一張照片上的每一列）就連同這一批一起看** ——
+ *   讀照片那一下的預選（`linkBatchExams()`）看整批，她自己再按一次只看資料庫的話，同一列按一次就換一個答案（10/9 審查）
  * - n返：返數照照片（`三返` → 3），照片上不是 n返 就預選三返（她 10/5）；
  *   接哪一次健檢**不替她選**（壓表同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
  *
  * 時長（`minutes`）、診間、治療師、醫師是照片上的，不跟著這一排動。
  */
-export function pickOption(item, value, ctx) {
+export function pickOption(item, value, ctx, items = null) {
   const base = {
     ...item,
     entitlementId: null, isNth: false, nth: null, uncountedCourseId: null,
@@ -532,16 +569,16 @@ export function pickOption(item, value, ctx) {
   const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
   if (!ent) return base;
   const wanted = item.course?.equipmentId;
-  // 只從按得下去的裡面挑（沒做完的健檢也列出來了，issues/11）
-  const exams = examChoices(item.customerId, ent, ctx).filter((x) => x.pickable);
-  return {
+  const row = {
     ...base,
     entitlementId: ent.id,
     // 照片上那一台在池子裡就選它，池子只有一台就選那一台（跟來訪編輯器換額度同一支）
     equipmentId: equipmentAfterSwitch(ent, wanted),
     ivProductId: item.course?.ivProductId ?? ent.ivProductId ?? null,
-    followupForVisitId: exams.length === 1 ? exams[0].visitId : null,
   };
+  // 這一列換成剛選的樣子再問：它原本接著的那一次不可以把自己擋住
+  const batch = items ? items.map((i) => (i.key === row.key ? row : i)) : null;
+  return { ...row, followupForVisitId: onlyOpen(examChoices(row.customerId, ent, ctx, batch, row)) };
 }
 
 /**
@@ -599,22 +636,26 @@ export function readAbovee(transcripts, ctx) {
  * 二返那幾列「接哪一次健檢」**連同這一張照片上勾著的健檢一起看**（`examChoices(…, items)`）。後處理的最後一步 ——
  * 前面幾步會改哪幾列是新的、勾不勾，而這一步要知道這一批有哪幾次健檢。
  *
- * - 剛好一次接得上 → 先選好（她回的第 3 題：照舊「剛好一顆按得下去才選」）；兩次以上就不選
+ * - 剛好一次接得上 → 先選好（她回的第 3 題：照舊「剛好一顆按得下去才選」，`onlyOpen()`）；兩次以上就不選
  *   （`resolveItem()` 那時候只看得到資料庫裡的，那一份要重算）
+ * - **一列一列接**：前面那一列先選好的那一次，後面那一列看得到它被約走了 —— 各看各的話，一次健檢、兩列二返會各選同一次、
+ *   存的時候互相擋住（一次健檢只接一場）
  * - **一次接得上的健檢都沒有**（沒有排著或做完的，系統裡、照片上都沒有）→ 不預設打勾、`noExam`（`newRowSay()` 講「先去約健檢」）
  *
  * n返 不在這裡：它本來就不替她選（`pickOption()`）。
  */
 function linkBatchExams(items, ctx) {
   if (!items.some((i) => secondEntOf(i, ctx))) return items;
-  return items.map((i) => {
+  const out = items.map((i) => (secondEntOf(i, ctx) ? { ...i, followupForVisitId: null } : i));
+  out.forEach((i, at) => {
     const ent = secondEntOf(i, ctx);
-    if (!ent) return i;
-    const choices = examChoices(i.customerId, ent, ctx, items, i.followupForVisitId);
-    const open = choices.filter((c) => c.pickable);
-    if (!choices.some((c) => PICKABLE_EXAM.has(c.status))) return { ...i, followupForVisitId: null, noExam: true, checked: false };
-    return { ...i, followupForVisitId: open.length === 1 ? open[0].visitId : null };
+    if (!ent) return;
+    const choices = examChoices(i.customerId, ent, ctx, out, i);
+    out[at] = choices.some((c) => PICKABLE_EXAM.has(c.status))
+      ? { ...i, followupForVisitId: onlyOpen(choices) }
+      : { ...i, noExam: true, checked: false };
   });
+  return out;
 }
 
 /** 這一列是新的一場二返嗎：回它扣的那一筆二返額度（不是就 null）。 */
