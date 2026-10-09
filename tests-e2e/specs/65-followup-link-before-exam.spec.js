@@ -350,3 +350,34 @@ test('L7 拍 Abovee：同一天的健檢＋二返都是新的 —— 二返那�
   expect(day.slots.map((s) => s.courseId), '兩列記成同一天的兩段').toEqual(['course-checkup', 'course-followup']);
   expect(day.slots[1].followupForVisitId ?? null, '沒有接（不寫指到暫時 id 的連結）').toBeNull();
 });
+
+test('L8 簽療程單：二返接的那一次健檢已經取消 —— ✓ 一樣按不下去，那一列講的是去換連結、不是「還沒做完」（審查）', async ({ app, page }) => {
+  await app.seed([
+    ...seedTwoExams().filter((d) => d.id !== 't-old-book' && d.id !== 'v-exam'),
+    visit({
+      id: 'v-exam', customerId: 'cust-a', customerName: '客戶A', date: EXAM_DAY, status: 'cancelled',
+      slots: [{
+        ...slot({ courseId: 'course-checkup', entitlementId: 'ent-exam', startsAt: '09:00', endsAt: '11:00', roomId: 'room-t3' }),
+        status: 'cancelled',
+      }],
+    }),
+    visit({
+      id: 'v-second', customerId: 'cust-a', customerName: '客戶A', date: TODAY, status: 'confirmed',
+      slots: [{
+        ...slot({ courseId: 'course-followup', entitlementId: 'ent-second', startsAt: '10:00', endsAt: '10:30' }),
+        status: 'confirmed', followupForVisitId: 'v-exam',
+      }],
+    }),
+  ]);
+  await app.signIn('/');
+  await app.go('/todo/close');
+  await page.locator('[data-open="v-second"]').click();
+  await app.layer('.drawer [data-apply]');
+
+  const why = page.locator('.drawer [data-close-blocked="0"]');
+  await expect(why).toContainText('已取消');
+  await expect(why).toContainText('先去日曆換這一段接哪一次');
+  await expect(why).not.toContainText('還沒做完');
+  await expect(page.locator('.drawer [data-pick="0"][data-to="1"]')).toBeDisabled();
+  await expect(page.locator('.drawer [data-pick="0"][data-to="0"]'), '✗ 照樣按得下去').toBeEnabled();
+});
