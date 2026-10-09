@@ -64,6 +64,9 @@ describe('用了說明泡泡的頁面，紅線那幾句沒有被收進去', () =
   const CASES = [
     ['ui/views/schedule.js', ['這天不行', '你這天休假', '併進同一天']],
     ['ui/views/availability.js', ['仍然生效']],
+    // 拍 Abovee 收著的列（ADR-0138）：醫療禁忌、超用、撞時間那幾句畫在那一行，不收進泡泡。
+    // 「畫在不用點開的地方」另外由 `tests/abovee-warnings-in-sight.test.js` 掃
+    ['ui/components/aboveeConfirm.js', ['mustSeeBy', 'abl-row__hint--warn']],
   ];
 
   for (const [rel, phrases] of CASES) {

@@ -41,6 +41,7 @@
 import { esc } from './form.js';
 import * as tasksData from '../../data/tasks.js';
 import * as customersData from '../../data/customers.js';
+import * as config from '../../data/config.js';
 import { todosForVisit } from '../../domain/todoFlow.js';
 import { urgency, RECORD_TASK_KIND } from '../../domain/taskRules.js';
 import { shortDate } from '../../domain/dates.js';
@@ -133,9 +134,11 @@ function pendingNote(kind) {
 /**
  * 把這張卡片**要多打一趟網路才拿得到的那幾樣**讀回來，補進已經開好的那一張。
  *
- * 兩樣：這一筆的任務（上面那一塊），以及這位客戶的額度
- *（每一段底下那一行「扣 復能-三選一(60)」，ADR-0077）。
- * **兩樣一起讀、一次重畫** —— 各自 `card.update()` 的話後到的那一次會把
+ * 四樣：這一筆的任務（上面那一塊）、這位客戶的額度
+ *（每一段底下那一行「扣 復能-三選一(60)」，ADR-0077），以及**這位客戶本人與警示主檔**
+ *（卡片最上面那一排警示，prelaunch-fixes-2026-10-08/issues/05 —— 日曆、待辦兩處、進度
+ * 三個畫面都靠這一趟，所以那一排不會有哪一頁忘了接）。
+ * **一起讀、一次重畫** —— 各自 `card.update()` 的話後到的那一次會把
  * 先到的那一份洗掉，而畫面上看起來只是「那一行有時候不見」。
  *
  * **點開才讀。** 日曆一次畫三個月、待辦中心一次列十幾筆，那幾百筆的任務與
@@ -149,7 +152,7 @@ function pendingNote(kind) {
  *
  * @param {{el:HTMLElement, update:Function}} card `openCard()` 回來的那一個
  * @param {object} visit
- * @param {(tasks:object[], extra:{entitlementsById:object}) => string} render
+ * @param {(tasks:object[], extra:{entitlementsById:object, customer:object|null, clinicalFlags:object[]}) => string} render
  *        拿到之後整塊 body 長什麼樣
  */
 export function fillMirror(card, visit, render) {
@@ -159,12 +162,21 @@ export function fillMirror(card, visit, render) {
     visit.customerId
       ? customersData.listEntitlements(visit.customerId).catch(() => [])
       : Promise.resolve([]),
+    // 客戶已經刪掉（`null`）：那一排不畫，卡片照樣打得開。
+    // **讀不到（`undefined`）是另一件事：那一格不帶** —— 日曆先拿手上那一份畫了警示，
+    // 帶一個空的回去會把已經畫出來的那一排洗掉（2026-10-09 審查），而卡片看起來完全正常
+    visit.customerId
+      ? customersData.get(visit.customerId).catch(() => undefined)
+      : Promise.resolve(null),
+    config.listAll('clinicalFlags').catch(() => undefined),
   ])
-    .then(([tasks, entitlements]) => {
+    .then(([tasks, entitlements, customer, clinicalFlags]) => {
       // 她可能在讀回來之前就關掉這張卡、或點開了另一筆
       if (!card?.el?.isConnected) return;
       card.update(render(tasks, {
         entitlementsById: Object.fromEntries((entitlements ?? []).map((e) => [e.id, e])),
+        ...(customer !== undefined ? { customer } : {}),
+        ...(clinicalFlags ? { clinicalFlags } : {}),
       }));
     })
     .catch(() => {});

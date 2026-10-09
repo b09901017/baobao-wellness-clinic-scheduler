@@ -46,7 +46,7 @@ export async function render(el) {
 
 async function load() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, settings] = await Promise.all([
+  const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, ivProducts, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
     // 過去的全部，跟自動推送同一支（`data/sheetSync.js`）—— 兩條路的次數才會一樣
@@ -59,6 +59,8 @@ async function load() {
     // 「這一天用了哪一台」那一列要靠它換成別稱（格式 4）。含已刪除的 ——
     // 她停用一台器材，已經做過的那幾次照樣要印得出名字。
     configData.listAll('equipment', { includeDeleted: true }),
+    // 待辦那一行寫品項（跟待辦中心一樣）；停用的那一款做過的照樣要印得出名字
+    configData.listAll('ivProducts', { includeDeleted: true }),
     configData.getSettings(),
   ]);
 
@@ -68,7 +70,7 @@ async function load() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, settings };
+  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, ivProducts, settings };
 }
 
 function paint(el, data) {
@@ -246,6 +248,7 @@ function buildReport(data) {
     courses: data.courses,
     staff: data.staff,
     equipment: data.equipment,
+    ivProducts: data.ivProducts,
     generatedAt,
     today: data.today,
   });

@@ -10,6 +10,8 @@
 //
 // 規則全部在 `domain/aboveeImport.js`（翻譯、分四種、組來訪、標成壓完），這一支只畫與接線。
 // **這一層就是 ADR-0086 的第一道**（每一列展開看得到 warnings），存檔前只再問一次（ADR-0104）。
+// **會改變寫入結果的那幾種提醒不點開也看得到**（ADR-0138）：收著的那一行、存檔前那一道都講 ——
+// 每一列預設收著而且打著勾，只畫在點開的那一塊裡就等於沒講。
 // 照片與辨識出來的字都不存（ADR-0101）：收起來就 `release()`。
 //
 // 屬性名一律 `data-abl-*`（共用元件不用頁面身上的名字）。
@@ -21,11 +23,14 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, goneButtonSay, diffSay, examChoices, mergedLine, mergedNotices, mismatchSay, needsAttention,
-  nearSay, newRowSay, optionValueOf, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
+  markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
-import { validateVisit, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes } from '../../domain/visits.js';
+import {
+  validateVisit, warningDetails, mustSee, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes,
+} from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
@@ -33,10 +38,11 @@ import { searchCustomers } from '../../domain/customers.js';
 import {
   THERAPIST_ROLE, bookingMinutesOf, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
 } from '../../domain/masterData.js';
-import { slotName } from '../../domain/naming.js';
+import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
+import { isOffline } from '../net.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
@@ -83,6 +89,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const showAllRooms = new Set();
   /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
   const finding = new Map();
+  /** 已經讀到**全部**來訪的那幾位（`loadHistory()`）。讀過就不再讀；存檔前那一次重讀是另一回事 */
+  const whole = new Set();
 
   const transcripts = photos.map((p) => p.transcript);
   const urlOf = (i) => photos[i]?.url ?? null;
@@ -110,7 +118,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   let layer = pushLayer(() => requestClose({ fromBack: true }));
 
-  // ---------- 載入：照片上那幾天的來訪、還開著的壓表清單 ----------
+  // ---------- 載入：照片上那幾天的來訪、那幾位的全部來訪、還開著的壓表清單 ----------
+  //
+  // **兩種需求、兩份來訪**（prelaunch-fixes/09）：撞期與「app 有、這次照片上沒有」要的是**那幾天全部客戶**的
+  //（`listBetween()`）；算「還剩幾次」、預選、提醒要的是**那幾位客戶的全部**（`loadHistory()`）。
 
   async function start() {
     // 跟翻譯每一列同一種讀法（民國年也認）—— 自己再寫一份的話，民國年那幾天不會補讀。
@@ -133,11 +144,42 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       /* 讀不到就用手上那一份；存的時候每一位會再讀一次 */
     }
     if (closed) return;
+    // 照片上認得的每一位（一頁最多 20 位）各讀一次全部，才翻譯 —— 預選與提醒是翻譯那一下算的
+    await loadHistory(customersOnPhoto(transcripts, ctx.customers));
+    if (closed) return;
 
     ({ pairing, counts: sizes, items } = readAbovee(transcripts, ctx));
     // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
     attention = new Set(items.filter(needsAttention).map((i) => i.key));
     paintBody();
+  }
+
+  /**
+   * 這幾位的**全部**來訪（prelaunch-fixes/09）。壓表那一頁手上只有最近 180 天 —— 半年前打完的那一筆在那一份裡
+   * 看起來還有剩，於是預選它、那一列預設打勾、也不講「排完會超過」。讀回來的整份換掉 `visitsBy[那一位]`；
+   * 撞期那一份是把 `visitsBy` 攤平再濾日期（`visitsForCheck()`），照舊成立。
+   *
+   * **讀不到的不安靜地照算**：記進 `ctx.partial`，那一位的列不預設打勾、講一句（`partialSay()`）。
+   * 離線也算讀不到 —— Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆。
+   */
+  async function loadHistory(ids) {
+    const wanted = [...new Set(ids)].filter((id) => id && !whole.has(id));
+    if (!wanted.length) return;
+    const offline = isOffline();
+    const got = await Promise.all(wanted.map((id) => (offline
+      ? [id, null]
+      : visitsData.listByCustomer(id).then((list) => [id, list], () => [id, null]))));
+    // 等回來之後才拿手上那一份：同時有兩趟在讀時，後回來的不可以蓋掉先回來的
+    const visitsBy = { ...ctx.visitsBy };
+    const partial = new Set(ctx.partial ?? []);
+    for (const [id, list] of got) {
+      if (list) {
+        visitsBy[id] = list;
+        whole.add(id);
+        partial.delete(id);
+      } else partial.add(id);
+    }
+    ctx = { ...ctx, visitsBy, partial };
   }
 
   // ---------- 畫 ----------
@@ -147,44 +189,54 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    *
    * **每一段用時間與名字叫**（`slotSay()`，issue 07）：這一層一列一段，沒有「第幾個時段」可以指 ——
    * 而整筆的提醒會原樣掛到那一組的每一列上。
+   *
+   * **來訪那兩份連這一次別組要記的一起算**（`visitsForCheck()`，2026-10-09 審查）：同一張照片上同一位客人
+   * 別天的那幾段、別人同一天的那一段。只看資料庫裡的話，只買 1 次、照片上三天各一段時三列都不講超用。
+   *
+   * @param {object[]} groups 這一次要記的每一組（`planAbovee()`）
+   * @param {{customerId: string, date: string, visit: object}} group 正在驗的那一組
    */
-  function checkCtx(customerId, date, visit) {
+  function checkCtx(groups, group) {
     return {
-      slotLabel: (i) => slotSay(visit?.slots?.[i], ctx.master),
-      customer: { flags: ctx.customers.find((c) => c.id === customerId)?.flags ?? [] },
-      entitlements: ctx.entitlementsBy[customerId] ?? [],
+      slotLabel: (i) => slotSay(group.visit?.slots?.[i], ctx.master),
+      customer: { flags: ctx.customers.find((c) => c.id === group.customerId)?.flags ?? [] },
+      entitlements: ctx.entitlementsBy[group.customerId] ?? [],
       courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
       staff: ctx.master.staff, ivProducts: ctx.master.ivProducts,
-      customerVisits: ctx.visitsBy[customerId] ?? [],
-      sameDayVisits: Object.values(ctx.visitsBy).flat().filter((v) => v.date === date),
+      ...visitsForCheck(groups, group, ctx),
     };
   }
 
   function plan() {
     const { groups, problems } = planAbovee(items, ctx);
+    /** 點開那一列看到的提醒（每一種都在）。**只有這一列自己的** —— 歸到哪一列照段落的位置，不比字 */
     const warningsBy = {};
+    /** 其中不點開也要看得到的那幾句（`mustSee()`，ADR-0138）。收著的那一行與存檔前那一道讀同一份 */
+    const mustSeeBy = {};
     // 11：按了「改成 Abovee 的」的那一段，改完照樣跑一次（換了診間可能撞到別人，`conflictWarnings()`）
     for (const item of items.filter((i) => i.adopt && !savedKeys.has(i.key))) {
       const visit = (ctx.visitsBy[item.customerId] ?? []).find((v) => v.id === item.existing?.visitId);
       if (!visit) continue;
       const adopted = adoptAbovee(visit, [item]).visit;
-      // 她按的那一段叫「這一段」、其餘照時間與名字叫，再挑「這一段」開頭的那幾句 —— 拿 `slotSay()` 當鑰匙的話，
-      // 同一天兩段同時間同名（重複的、合併扣課留下的）會互相拿到對方的提醒
+      // 只留講到她按的那一段的（`warningDetails()` 的 `slots`）—— 以前拿「這一段」開頭的字去挑
       const at = item.existing.slotIndex;
-      const check = { ...checkCtx(item.customerId, visit.date, adopted),
-        slotLabel: (i) => (i === at ? '這一段' : slotSay(adopted.slots?.[i], ctx.master)) };
-      warningsBy[item.key] = validateVisit(adopted, check).warnings.filter((w) => w.startsWith('這一段'));
+      const check = checkCtx(groups, { customerId: item.customerId, date: visit.date, visit: adopted });
+      const mine = warningDetails(adopted, check).filter((w) => w.slots.includes(at));
+      warningsBy[item.key] = mine.map((w) => w.text);
+      mustSeeBy[item.key] = mine.filter(mustSee).map((w) => w.text);
     }
     for (const g of groups) {
-      const { errors, warnings } = validateVisit(g.visit, checkCtx(g.customerId, g.date, g.visit));
-      const customer = { flags: ctx.customers.find((c) => c.id === g.customerId)?.flags ?? [] };
+      const check = checkCtx(groups, g);
+      const { errors } = validateVisit(g.visit, check);
+      // 合併扣課只記第一台，第二台要提醒的事接在後面（`warningsByRow()` 自己問 `mergedNotices()`）
+      const byRow = warningsByRow(g, warningDetails(g.visit, check), { customer: check.customer, equipment: ctx.master.equipment });
       for (const item of g.items) {
         if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
-        // 合併扣課只記第一台，第二台要提醒的事接在後面（`mergedNotices()`）
-        warningsBy[item.key] = [...warnings, ...mergedNotices(item, customer, ctx.master.equipment)];
+        warningsBy[item.key] = byRow[item.key].all;
+        mustSeeBy[item.key] = byRow[item.key].mustSee;
       }
     }
-    return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy };
+    return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy, mustSeeBy };
   }
 
   /** 「app 有、這次照片上沒有」（ADR-0129）。每畫一次算一次 —— 她換了某一列是誰，結果跟著變。 */
@@ -276,7 +328,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </section>`;
   }
 
-  function repaintRow(key) {
+  /**
+   * @param {string} key 變了的那一列
+   * @param {{was?: string|null}} [o] `was`：這一列原本是哪一位（換一位時傳）—— 他別的列也要跟著重畫
+   */
+  function repaintRow(key, { was = null } = {}) {
     const p = plan();
     const li = [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key);
     const item = items.find((i) => i.key === key);
@@ -285,9 +341,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       holder.innerHTML = rowHtml(item, p).trim();
       li.replaceWith(holder.content.firstElementChild);
     }
-    // 同一天同一位的另一列：警告與「還差一步」跟著變
+    // 警告與「還差一步」會跟著變的別列：**同一位的每一列（不只同一天）、同一天的每一列（不只同一位）**。
+    // 超用與撞期是連這一次別組要記的一起算的（`visitsForCheck()`）—— 只重畫同一天同一位的話，
+    // 她把別天那一列的勾拿掉，這一列收著的那一行還留著舊的「會超過總次數」（2026-10-09 審查，E2E `62` 的 P4）
     for (const other of items) {
-      if (other.key === key || other.customerId !== item?.customerId || other.date !== item?.date) continue;
+      if (other.key === key) continue;
+      const sameWho = Boolean(other.customerId) && [item?.customerId, was].includes(other.customerId);
+      if (!sameWho && other.date !== item?.date) continue;
       const el = [...root.querySelectorAll('[data-abl-row]')].find((x) => x.dataset.ablRow === other.key);
       if (!el) continue;
       const holder = document.createElement('template');
@@ -343,6 +403,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
     const problems = item.checked ? (p.problems[item.key] ?? []) : [];
     const near = nearSay(item);
+    // 不點開也要看得到的提醒（ADR-0138）。只有會寫進去的那幾列才算得出來：勾著的、按了「改成 Abovee 的」的
+    const must = (item.checked || item.adopt) && !savedKeys.has(item.key) ? (p.mustSeeBy[item.key] ?? []) : [];
 
     return `
       <li class="abl-row abl-row--${tag}${open ? ' is-open' : ''}${problems.length ? ' has-problem' : ''}" data-abl-row="${esc(item.key)}">
@@ -360,10 +422,16 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         </div>
         ${item.merged ? `
           <p class="abl-row__merged"><b>合併扣課</b>${esc(mergedLine(item))}
-            ${savedKeys.has(item.key) ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
+            ${savedKeys.has(item.key) || item.kind !== 'new' ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
+        ${/* 會改變寫入結果的提醒：收著也畫（點開之後在底下那一份完整的裡面，不畫兩次） */''}
+        ${open ? '' : briefWarnings(must).map((w) => `<p class="abl-row__hint abl-row__hint--warn">${esc(w)}</p>`).join('')}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 —— 收起來也看得到 */''}
+        ${partialSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(partialSay(item))}</p>` : ''}
+        ${/* 跟另一張照片上的那一列看起來是同一段（10）：所以沒有先勾好 —— 收起來也看得到 */''}
+        ${repeatSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(repeatSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && !open
@@ -395,8 +463,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
     const who = whoHtml(item);
     if (item.kind === 'recorded') {
-      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${item.cancelled
-        ? '兩邊都是取消的，不用記。' : '這一段 app 裡已經有了，不用再記。'}</p>${adoptHtml(item, warnings)}${who}</div>`;
+      // 是哪一種已經記了（同一個時間、合併扣課的後一半、沒有時間的舊段）那一句在 domain（`recordedSay()`，11）
+      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
       // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
@@ -509,7 +577,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
     const learn = item.staffPickText && (item.therapistId || item.doctorId)
       ? `<p class="abl-row__learn">${icon('check', { size: 13, width: 2.4 })}記住：以後 Abovee 上的「${esc(item.staffPickText)}」都認成 ${esc(
-        ctx.master.staff.find((s) => s.id === (item.therapistId ?? item.doctorId))?.name ?? '')}</p>`
+        fullNameOf(ctx.master.staff.find((s) => s.id === (item.therapistId ?? item.doctorId))))}</p>`
       : '';
 
     return `
@@ -690,12 +758,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rowEl(key)?.querySelector('[data-abl-query]')?.focus();
       return;
     }
-    if (t.dataset.ablWho) {
-      // 換了人整列重算（`resolveItem()`）；**她自己選的人不自動勾**（那一支的規則）
-      finding.delete(key);
-      set(resolveItem(item, t.dataset.ablWho, ctx));
-      return;
-    }
+    if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
     if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
@@ -732,6 +795,23 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     return [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key) ?? null;
   }
 
+  /**
+   * 「是誰」選了一位：換了人整列重算（`resolveItem()`）；**她自己選的人不自動勾**（那一支的規則）。
+   * **先讀那一位的全部來訪**（09）—— 照片上沒認出他，打開時沒有替他讀；拿壓表那一頁的 180 天去算就是原本那個 bug。
+   * 讀的那一下她可能又按了別的：回來之後照 key 再找一次那一列，記好了的不動。
+   */
+  async function pickWho(key, customerId) {
+    finding.delete(key);
+    await loadHistory([customerId]);
+    if (closed) return;
+    const at = items.findIndex((i) => i.key === key);
+    if (at < 0 || savedKeys.has(key)) return;
+    const was = items[at].customerId ?? null;
+    // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
+    items[at] = markRepeat(resolveItem(items[at], customerId, ctx), items);
+    repaintRow(key, { was });
+  }
+
   function onKey(e) {
     if (e.key !== 'Escape' || document.querySelector('.dialog-backdrop, .seenview')) return;
     // 找人的框裡按 Esc 是清掉打的字，不是收掉整層
@@ -754,7 +834,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (!n || running || asking) return;
     asking = true;
     try {
-      await record(groups, adopts, n, then);
+      await record(groups, adopts, n, then, p.mustSeeBy);
     } finally {
       asking = false;
     }
@@ -770,7 +850,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   }
 
   /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
-  async function record(groups, adopts, n, then = null) {
+  async function record(groups, adopts, n, then = null, mustSeeBy = {}) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
@@ -787,8 +867,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const tasksByVisit = Object.fromEntries(await Promise.all(merging.map(async (id) => (
       [id, await tasksData.listByVisitForSync(id).catch(() => [])]))));
     if (closed) return;
+    // 這一次真的要寫的那幾列身上，不點開也要看得到的提醒（ADR-0138）。沒勾的列不會寫進去，不算
+    const flagged = [
+      ...groups.flatMap((g) => g.items.map((i) => ({ customerName: g.customerName, date: g.date, texts: mustSeeBy[i.key] ?? [] }))),
+      ...adopts.map((a) => ({ customerName: nameOf(a.customerId), date: a.existing.date, texts: mustSeeBy[a.key] ?? [] })),
+    ].filter((f) => f.texts.length);
     const said = aboveeConsequences({
       groups,
+      flagged,
       coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
       today: ctx.today,
       tasksByVisit,

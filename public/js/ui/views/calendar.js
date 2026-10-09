@@ -48,8 +48,10 @@ import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js'
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { slotName, nameOf } from '../../domain/naming.js';
+import { clinicalTerms } from '../../domain/masterData.js';
 import * as note from '../components/note.js';
 import { hintHtml } from '../components/playbookHint.js';
+import * as flagsUi from '../components/flags.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
 import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
 import { cancelConsequences } from '../../domain/consequences.js';
@@ -126,7 +128,7 @@ async function load() {
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
     const [visits, events, notes, rooms, staff, courses, equipment, ivProducts,
-      playbooks, customers] =
+      playbooks, customers, clinicalFlags] =
       await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
@@ -153,6 +155,10 @@ async function load() {
       // 那一塊會在卡片畫好之後才跳出來，看起來像壞掉。
       // 讀不到就當沒有：那一塊不畫就是了（`playbooksFor()` 的退路）。
       customersData.list().catch(() => []),
+      // 警示主檔：讀取卡片最上面那一排（`visitReadHtml()`）。**跟客戶同一趟拿** ——
+      // 日曆是她最常點開卡片的地方，等 `fillMirror()` 補讀回來才畫的話那一排會晚一拍跳出來、把底下往下推。
+      // 讀不到就當沒有：那一排不畫，`fillMirror()` 補讀時還會再試一次
+      config.listAll('clinicalFlags').catch(() => []),
     ]);
     return {
       ok: true,
@@ -168,6 +174,7 @@ async function load() {
         // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
         master: { courses, equipment, ivProducts },
         customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
+        clinicalFlags,
       },
     };
   } catch (err) {
@@ -929,7 +936,8 @@ function openDetail(el, data, hit, date, repaint) {
 
   // SOP 那一塊**只浮她點的那一段的**（2026-09-12）。整天那一張一份都不浮 ——
   // 那一張只是目錄：只列那幾段讓她點，待辦與 SOP 都等她點進去才出現。
-  const paint = () => visitReadHtml(visit, { ...data, ...extra, tasks, focusSlot: focus })
+  // `customer`：手上那一份先畫（警示那一排不用等），`fillMirror()` 補讀回來的在 `extra` 裡、蓋過它
+  const paint = () => visitReadHtml(visit, { ...data, customer, ...extra, tasks, focusSlot: focus })
     + (Number.isInteger(focus)
       ? hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus })
       : '');
@@ -1208,6 +1216,8 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
         slotIndex,
         // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
         sameDay: customerVisits,
+        // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
+        chain: await visitsData.chainInputs(fresh.customerId, data.coursesById ?? {}),
       }),
       confirmLabel: '取消這一段',
       danger: true,
@@ -1585,12 +1595,32 @@ function openNoteEditor(el, data, spec) {
  * 整筆那一個是推導出來的（ADR-0085）。
  *
  * @param {object} visit
+ * ## 最上面那一排：這位客人的警示（2026-10-08）
+ *
+ * `SPEC.md` 4.3：永久限制在任何畫面都必須跟著客戶名字顯示。壓表、來訪編輯器、拍 Abovee 都接了，
+ * 這一支漏了 —— 而它是四個畫面共用的，所以四處一起漏（她在日曆點一段，卡片上只有名字，
+ * 同一位客人在編輯畫面上有紅色的「體內金屬」）。
+ *
+ * **畫在這裡，不畫在卡片的抬頭**：抬頭（名字那一行）是五個呼叫端各自的 `openCard({ title })`，
+ * 五份遲早漏一份。只畫警示那一層（`flags.js` 的 `alertChips()`，跟壓表卡片牆同一支）；
+ * 其他限制與合作機構不在這裡。**整張只畫一次**，目錄那一張也不逐列重複。
+ * 沒有警示、或呼叫端還沒拿到這位客戶時一個像素都不佔。
+ *
+ * @param {object} visit
  * @param {{roomsById:object, staffById:object, tasks?:object[],
- *          coursesById?:object, today?:string, focusSlot?:number|null, only?:number[]|null}} data
+ *          coursesById?:object, today?:string, focusSlot?:number|null, only?:number[]|null,
+ *          customer?:object|null, clinicalFlags?:object[]}} data
+ *   `customer`／`clinicalFlags`：這位客戶與警示主檔。日曆、待辦、進度由 `fillMirror()` 補讀
+ *   （`...extra`），客戶詳情手上本來就有。`tests/read-card-alerts.test.js` 盯著每一個呼叫端。
  */
 export function visitReadHtml(visit, data) {
   // `only`：從一張待辦點「詳情」進來時，目錄只列那一張講的那幾段（`taskSlots()`，issues/08）
   const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null, data?.only ?? null);
+  const alerts = flagsUi.alertChips({
+    flags: data?.customer?.flags ?? [],
+    alerts: clinicalTerms(data?.clinicalFlags ?? []),
+    rows: data?.clinicalFlags ?? [],
+  });
   // **她已經指名那一段的時候，那一列點不下去**：卡片上就是那一段，
   // 再點一次只會重開一張一模一樣的。同一天只有一段的時候也一樣 ——
   // 那時候「這一天」與「這一段」是同一件事（`visitStatusFrom()` 直接抄它），
@@ -1601,6 +1631,7 @@ export function visitReadHtml(visit, data) {
   // 會退回全部，而自己推的那一份會以為只有一段。
   const tappable = !focused && slots.length > 1;
   return `
+    ${alerts ? `<div class="readalerts">${alerts}</div>` : ''}
     ${slots.map(({ slot: s, index }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
       // 這一張卡片也是「她自己看」的地方。沒設簡寫就退回全名。
@@ -1610,7 +1641,7 @@ export function visitReadHtml(visit, data) {
       const room = showsRoom(s, data.master?.courses ?? null) && data.roomsById[s.roomId]
         ? nameOf(data.roomsById[s.roomId], 'short')
         : null;
-      const therapist = data.staffById[s.therapistId]?.name ?? null;
+      const therapist = data.staffById[s.therapistId] ? nameOf(data.staffById[s.therapistId], 'short') : null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
       // 點得下去的那一種畫成按鈕，`data-open` 的格式跟日／週那一列**一模一樣**
       // —— 接線那一側走的是同一支 `parseOpen()`（`wireReadSlots()`），

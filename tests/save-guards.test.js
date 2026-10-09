@@ -182,3 +182,54 @@ describe('傳照片的寫入，等太久時不可以說「已經存在這台裝�
     assert.deepEqual(bad, [], `這幾個傳照片的寫入等太久時會說「已經存在這台裝置上了」：\n${bad.join('\n')}`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 上面每一條都只看得到 `withSaveState()` 的呼叫。**沒走它的那一頁根本不在視野裡** ——
+// 舊資料匯入有自己的進度條（「匯入中… 3/29」）、一位客戶一個 commit，包不進去，
+// 所以 2026-10-08 以前它一道鎖都沒有：匯入還在跑時再按一次，全部客戶多建一份，
+// 而他們身上的來訪刪不掉（ADR-0089）。
+//
+// 這一段把「沒掃到」變成「掃得到」：UI 底下任何一個沒包在 `withSaveState()` 裡的大批寫入，
+// 那支檔案都要有三個記號 —— 進來先問、`finally` 才放開、放開之前重讀一次。
+// 第三個是因為按鈕手上的名單是畫面畫好那一刻算的：客戶都寫完、雜事那一步丟例外時，
+// 不重讀的話再按一次就是全部多一份。
+// ---------------------------------------------------------------------------
+
+describe('沒走 withSaveState 的大批寫入要有自己的鎖', () => {
+  const BULK = /\bimporter\.import(All|Plan|Events|Notes|Staff)\s*\(/g;
+
+  /** 第一個 `finally {` 的那一塊（大括號配對）。 */
+  function finallyBlock(src) {
+    const at = src.search(/\bfinally\s*\{/);
+    if (at === -1) return '';
+    let depth = 0;
+    for (let j = src.indexOf('{', at); j < src.length; j += 1) {
+      if (src[j] === '{') depth += 1;
+      else if (src[j] === '}') {
+        depth -= 1;
+        if (depth === 0) return src.slice(at, j + 1);
+      }
+    }
+    return '';
+  }
+
+  test('每一支都進來先問、finally 才放開、放開之前重讀', () => {
+    const bad = [];
+    let seen = 0;
+    for (const file of filesUnder(UI_ROOT)) {
+      const rel = toPosix(file.slice(UI_ROOT.length));
+      const src = readFileSync(file, 'utf8');
+      const guarded = callsIn(src).map((c) => c.text);
+      const bare = [...src.matchAll(BULK)].filter((m) => !guarded.some((text) => text.includes(m[0])));
+      if (!bare.length) continue;
+      seen += 1;
+
+      const last = finallyBlock(src);
+      if (!/if \(running\) return;/.test(src)) bad.push(`${rel}：進來沒有先問是不是正在跑`);
+      if (!/\brunning = false;/.test(last)) bad.push(`${rel}：不是在 finally 放開的`);
+      if (!/loadContext\(/.test(last)) bad.push(`${rel}：放開之前沒有重讀 —— 按鈕手上還是舊的名單`);
+    }
+    assert.ok(seen > 0, '一個大批寫入都沒掃到 —— 這支測試盯錯東西了');
+    assert.deepEqual(bad, [], bad.join('\n'));
+  });
+});

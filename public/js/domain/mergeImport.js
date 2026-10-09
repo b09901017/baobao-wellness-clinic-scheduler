@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { DOCTOR_ROLE, isUncounted } from './masterData.js';
+import { DOCTOR_ROLE, hasAlias, isUncounted, validate } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
 /**
@@ -33,13 +33,16 @@ import { slotMinutes } from './visits.js';
  * - **v5（2026-10-05）** 不算次數的課（功醫門診，ADR-0121）那一段**沒有 `entitlementKey`**，候選清單也會出現
  *   沒有額度可以扣的課（`.scratch/abovee-and-master-2026-10-05/issues/13`）。v4 的 app 每一段都要對到一筆額度
  *
+ * - **v6（2026-10-09）** 多一段選填的 `staff`：`[{ match, name, shortName }]`，人員的全名跟著合併檔進來（ADR-0141）。
+ *   **一律寫 v6**（版本講的是格式，不是內容）—— 沒帶人員名單的檔案也是 v6。v5 的 app 讀到會拒收，不會安靜地吃掉那一段
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v5';
+export const FORMAT = 'baobao-merge/v6';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
-  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', FORMAT,
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', FORMAT,
 ]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
@@ -64,6 +67,96 @@ function byName(list, name) {
 }
 
 /**
+ * 名字 → 人員那一筆。名字對不到時比**簡寫**（ADR-0141），**剛好一位**才算 ——
+ * 角色是從認到的那一筆讀的，拿第一位就可能把醫師寫進治療師那一格。
+ * 所以「先改名再匯」「先匯再改名」「匯到一半重試」三種順序都對得到。
+ *
+ * @returns {{hit: object|null, two: boolean}}
+ */
+function staffByName(staff, name) {
+  const hit = byName(staff, name);
+  if (hit) return { hit, two: false };
+  const wanted = norm(name);
+  const shorts = wanted ? alive(staff).filter((x) => norm(x.shortName) === wanted) : [];
+  if (shorts.length) return { hit: shorts.length === 1 ? shorts[0] : null, two: shorts.length > 1 };
+  // 簡寫跟種子的字不一樣的那一位：合併檔照舊寫種子的字，`staffRenames()` 把它記進了 Abovee 上的寫法
+  const aliased = wanted ? alive(staff).filter((x) => hasAlias(x, wanted)) : [];
+  return { hit: aliased.length === 1 ? aliased[0] : null, two: aliased.length > 1 };
+}
+
+/**
+ * 合併檔的人員名單（v6 的 `staff`）→ 要改哪幾位（ADR-0141）。**算「要改哪幾位」只有這一支**：
+ * 摘要卡、確認框、寫入讀同一份。`match` 是她原本叫他的那個名字（＝種子的名字），照這個順序認：
+ *
+ *   1. 主檔上的名字等於 `match` → 改成全名、簡寫＝`match`
+ *   2. 簡寫等於 `match`、全名也等於檔案裡的 → 已經是那個樣子，不算（重貼一次是 0 位）
+ *   3. 名字已經是檔案裡的全名、沒有簡寫（她自己先手打過全名）→ 只補簡寫
+ *   4. 簡寫對到了、全名跟檔案不一樣（她自己改過）→ **不蓋**、列出來
+ *   5. 對不到、或一個字對到兩位 → 不改、列出來
+ *
+ * 每一位候選都過 `validate('staff')`（`config.update` 不驗證，驗證是設定頁自己叫的）：
+ * 過不了的那一位不改、講出來，其餘照改 —— 不可以整批失敗。前面幾位改過的樣子算進後面那一位的 `existing`。
+ *
+ * @returns {{changes: {id:string, from:string, name:string, shortName:string}[], skipped: {match:string, name:string, why:string}[], already: number}}
+ */
+export function staffRenames(entries, staff = []) {
+  const out = { changes: [], skipped: [], already: 0 };
+  if (!Array.isArray(entries)) return out;
+  let current = alive(staff);
+  for (const e of entries) {
+    const match = norm(e.match);
+    const name = norm(e.name);
+    const shortName = norm(e.shortName) || match;
+    const skip = (why) => out.skipped.push({ match, name, why });
+    const people = current.filter((x) => [norm(x.name), norm(x.shortName)].includes(match) || norm(x.name) === name
+      || (shortName !== match && hasAlias(x, match)));
+    if (people.length > 1) { skip(`主檔上有兩位對得到「${match}」，分不出是哪一位`); continue; }
+    const p = people[0];
+    if (!p) { skip(`主檔上沒有叫「${match}」的人`); continue; }
+
+    const ownShort = norm(p.shortName);
+    // 全名就是原本的名字（她口述的就是全名）：簡寫補成一樣的字沒有意思，也算已經是那個樣子
+    if (norm(p.name) === name && (ownShort === shortName || (!ownShort && name === shortName))) { out.already += 1; continue; }
+    if (norm(p.name) !== name && norm(p.name) !== match) {
+      skip(`「${match}」現在的全名是「${p.name}」，跟檔案上的不一樣 —— 你改過的不蓋`);
+      continue;
+    }
+    if (ownShort && ownShort !== shortName) {
+      skip(`「${p.name}」的簡寫已經是「${p.shortName}」，跟檔案上的不一樣 —— 你改過的不蓋`);
+      continue;
+    }
+    // 簡寫跟原本的名字不一樣（種子用了異體字的那一位）：原本的名字記進 Abovee 上的寫法 ——
+    // 合併檔裡每一段照舊寫種子的字，不記的話改完名之後重試、或下一份合併檔，那幾段就對不到人
+    const keepOld = shortName !== match && norm(p.name) === match && !hasAlias(p, match);
+    const next = { ...p, name, shortName, ...(keepOld ? { aboveeNames: [...(p.aboveeNames ?? []), match] } : {}) };
+    const errors = validate('staff', next, { existing: current });
+    if (errors.length) { skip(errors[0]); continue; }
+    out.changes.push({ id: p.id, from: p.name, name, shortName, ...(keepOld ? { aboveeNames: next.aboveeNames } : {}) });
+    current = current.map((x) => (x.id === p.id ? next : x));
+  }
+  return out;
+}
+
+/**
+ * 人員名單寫進去**之後**主檔的樣子（還沒寫，只是算）。匯入頁拿這一份算每一段是誰（`planForCustomer()`）：
+ * 人員是先寫的，而客戶那幾段照舊是照畫面畫好那一刻算的 —— 拿改之前的主檔算的話，她自己先打了全名、
+ * 還沒填簡寫的那一位（上面的第 3 種）對不到檔案上寫的原本那個名字，那一段的治療師留空，
+ * 而匯完補不回來（再貼一次每一位都同名跳過）。摘要卡、確認框上「幾處對不到主檔」也是照這一份數的。
+ *
+ * @param {object[]} staff 現在的人員主檔
+ * @param {{id:string, name:string, shortName:string, aboveeNames?:string[]}[]} changes `staffRenames().changes`
+ */
+export function staffAfterRenames(staff = [], changes = []) {
+  if (!changes?.length) return staff;
+  const byId = new Map(changes.map((c) => [c.id, c]));
+  return (staff ?? []).map((x) => {
+    const c = byId.get(x.id);
+    if (!c) return x;
+    return { ...x, name: c.name, shortName: c.shortName, ...(c.aboveeNames ? { aboveeNames: c.aboveeNames } : {}) };
+  });
+}
+
+/**
  * 這份檔案認不認得。
  *
  * 貼錯東西（貼成報告、貼成半份、貼成舊版格式）是最容易發生的事，而它的症狀
@@ -81,6 +174,12 @@ export function validateFile(json) {
     return { errors, warnings };
   }
   if (!Array.isArray(json.customers)) errors.push('少了 customers');
+  // 人員名單（v6，選填）。形狀不對整份拒收 —— 「匯入了一半」比整個拒絕糟
+  if (json.staff !== undefined) {
+    const ok = (e) => e && typeof e === 'object' && typeof e.match === 'string' && norm(e.match)
+      && typeof e.name === 'string' && norm(e.name) && (e.shortName == null || typeof e.shortName === 'string');
+    if (!Array.isArray(json.staff) || !json.staff.every(ok)) errors.push('人員名單（staff）的格式不對');
+  }
   if (json.customers && !json.customers.length) warnings.push('這份檔案裡沒有任何客戶');
 
   for (const [i, c] of (json.customers ?? []).entries()) {
@@ -363,8 +462,12 @@ function resolveAssignments(slot, { equipment, ivProducts, rooms, staff }, probl
   // 產檔那側只有一格「誰」。對得到主檔才分得出角色 —— 對不到時
   // 講的那一句要照舊說「治療師」，因為那是她在行事曆上寫那個字的位置。
   const whoName = norm(slot.therapistName);
-  const who = whoName ? byName(staff, whoName) : null;
-  if (whoName && !who) problem(where, whoName, '主檔裡沒有這個治療師，這個時段的欄位留空');
+  const { hit: who, two } = whoName ? staffByName(staff, whoName) : { hit: null, two: false };
+  if (whoName && !who) {
+    problem(where, whoName, two
+      ? '主檔裡有兩位的簡寫是這個字，分不出是哪一位治療師，這個時段的欄位留空'
+      : '主檔裡沒有這個治療師，這個時段的欄位留空');
+  }
   const isDoctor = who?.role === DOCTOR_ROLE;
 
   return {
@@ -452,7 +555,15 @@ export function addExtraVisits(plans, extras, ctx = {}) {
   for (const x of extras) {
     const plan = plans.find((p) => !p.skip && p.customerName === norm(x.customerName));
     if (!plan) {
-      problems.push({ where: `${x.date} ${x.customerName}`, raw: '', why: '這份檔案裡沒有這位客戶，補不進去' });
+      // 她在檔案裡、只是同名整位跳過的話要講對 —— 「這份檔案裡沒有這位客戶」會讓她回頭去找檔案哪裡壞了。
+      // 兩種都**不是主檔的事**（`master: false`）：資料健檢補不掉，`importCaveats()` 另外講
+      const skipped = plans.some((p) => p.skip && p.customerName === norm(x.customerName));
+      problems.push({
+        where: `${x.date} ${x.customerName}`,
+        raw: '',
+        why: skipped ? '這位客戶因為同名整位跳過，這一筆也不會補' : '這份檔案裡沒有這位客戶，補不進去',
+        master: false,
+      });
       continue;
     }
     const course = byName(courses, x.courseName);
@@ -473,6 +584,7 @@ export function addExtraVisits(plans, extras, ctx = {}) {
           ? '對到不只一份額度，不知道要扣哪一份，這一筆沒有補進去'
           : '這位客戶沒有這個課程的額度，這一筆沒有補進去 ——'
             + '先去客戶詳情頁加一筆額度，再貼一次就補得進來',
+        master: false,
       });
       continue;
     }
@@ -670,17 +782,39 @@ export function noteDocs(candidates, stamp = null) {
  * @param {object[]} candidates 檔案裡的 `eventCandidates`
  * @param {(index: number) => string} kindOf 這一列現在算哪一類（她改過的算她的）
  * @param {number[]} chosen 她勾起來的位置
- * @returns {{events: object[], notes: object[]}}
+ * @returns {{events: object[], notes: object[], eventIndexes: number[], noteIndexes: number[]}}
+ *   `eventIndexes[i]` 是 `events[i]` 在檔案裡的位置（`notes` 同理）—— 寫進去之後那一頁靠它把勾清掉
  */
 export function looseDocs(candidates, kindOf, chosen, json = null) {
   const stamp = stampOf(json, null);
   const rows = (candidates ?? [])
     .map((c, index) => ({ ...c, kind: kindOf(index), index }))
     .filter((r) => chosen.includes(r.index));
+  const events = rows.filter((r) => r.kind !== 'note');
+  const notes = rows.filter((r) => r.kind === 'note');
   return {
-    events: eventDocs(rows.filter((r) => r.kind !== 'note'), stamp),
-    notes: noteDocs(rows.filter((r) => r.kind === 'note'), stamp),
+    events: eventDocs(events, stamp),
+    notes: noteDocs(notes, stamp),
+    eventIndexes: events.map((r) => r.index),
+    noteIndexes: notes.map((r) => r.index),
   };
+}
+
+/**
+ * 寫進去的那幾筆雜事不再勾著（prelaunch-fixes-2026-10-08/issues/02）。
+ *
+ * 雜事那一批**不問系統裡有沒有**就寫：有一位客戶失敗、檔案留在畫面上重按一次，
+ * 行事備註、休假、待辦各多一份。所以寫完哪幾筆就清哪幾筆的勾，重試只剩還沒寫進去的。
+ *
+ * **只清寫進去的。** 行事備註／休假與待辦共用同一份勾、分兩批寫 ——
+ * 前一批寫完、後一批失敗時整個清掉，沒寫的那一批就安靜地少匯了。
+ *
+ * @param {number[]} chosen 勾著的位置
+ * @param {number[]} written 已經寫進去的位置
+ */
+export function looseLeft(chosen, written) {
+  const gone = new Set(written);
+  return chosen.filter((i) => !gone.has(i));
 }
 
 /** 勾起來的那幾筆照分類數一遍。畫面拿它寫「休假 4　待辦 2　行事備註 22」。 */
@@ -755,6 +889,107 @@ export function countNewTasks(plans, { courses = [], today = null } = {}) {
     .reduce((n, p) => n + p.visits.reduce(
       (m, v) => m + importedTasksFor(v, { coursesById, today }).length, 0,
     ), 0);
+}
+
+/**
+ * 「開始匯入」現在按不按得下去（prelaunch-fixes-2026-10-08/issues/01）。
+ *
+ * **正在跑就按不下去，而確認框開著也算正在跑。** 合併檔只匯這一次：2026-10-08 以前那顆按鈕
+ * 整段都按得下去，匯到一半再按一次就是每一位多建一份 —— 重複的客戶刪得掉，
+ * 他身上的來訪刪不掉（ADR-0089）。
+ *
+ * `customers` 是**照現在的資料庫重算過**的那個數字（那一頁跑完會重讀一次才放開）：
+ * 每一位都匯好了就是 0。
+ *
+ * **客戶都進去了、只剩雜事沒寫進去**（雜事那一步丟例外）也要重試得了：`loose` 是還勾著的雜事，
+ * 而它只在 `resumed`（這一份檔案在這個畫面上已經匯過一趟）時算數。沒有那個記號的是
+ * 「匯完、重新整理、再貼一次」—— 每一位同名跳過，而那份檔案的雜事預設又全部勾著，
+ * 按得下去就是整份雜事多一份。
+ *
+ * @param {{running?: boolean, customers?: number, loose?: number, resumed?: boolean}} state
+ */
+export function canRun({ running = false, customers = 0, loose = 0, resumed = false, staff = 0 } = {}) {
+  if (running) return false;
+  // 只剩人員要改（客戶全部同名跳過）也按得下去：切換那天忘了帶名單，事後再貼一次帶名單的檔就好（ADR-0141）。
+  // 那一趟**不寫雜事**（`writesLoose()`）
+  return customers > 0 || staff > 0 || (resumed && loose > 0);
+}
+
+/**
+ * 這一趟寫不寫雜事（行事備註、休假、待辦）。
+ *
+ * 雜事**不問系統裡有沒有**就寫，所以只在兩種時候寫：這一趟有客戶要建（這一份檔案第一次匯），
+ * 或這一份檔案在這個畫面上已經匯過一趟（`resumed`：勾著的只剩還沒寫進去的，`looseLeft()`）。
+ *
+ * **客戶 0 位、又不是重試的那一趟不寫** —— 那是「匯完之後再貼一次」：每一位同名跳過，而那份檔案的雜事
+ * 預設又全部勾著，它們上一次就寫進去了。以前這一趟根本按不下去（上面那一支）；2026-10-09 起只剩人員要改時
+ * 按得下去，照寫的話切換那天忘了帶名單、事後補貼一次，整份行事備註與待辦多一份（審查查到的）。
+ * 確認框與按鈕上面那一句要跟著講「這一趟不寫雜事」，問的是同一支。
+ *
+ * @param {{customers?: number, resumed?: boolean}} state `canRun()` 的同一份
+ */
+export function writesLoose({ customers = 0, resumed = false } = {}) {
+  return customers > 0 || resumed;
+}
+
+/**
+ * 匯入之前（確認框）與之後（完成那一張）都要講的兩件事：**對不到主檔幾處、同名跳過幾位**。
+ *
+ * 以前這兩個數字只在摘要卡收起來的那一行裡，確認框只寫「建立 29 位客戶…」。
+ * 對不到主檔的東西不是留空就是整筆不匯（一筆額度對不到課程，它底下每一段都不匯），
+ * 而**匯完之後補不回來**：再貼一次時每一位都因為同名被整位跳過。
+ *
+ * 摘要卡、確認框、完成那一張三處讀同一支 —— 各數一次遲早一邊漏掉勾起來要補的那幾筆。
+ * **兩個都是 0 時一個字都不多**（正常的切換日確認框不變長）。
+ *
+ * **「對不到主檔」只數主檔的事**（2026-10-09 審查）。勾起來要補的來訪補不進去還有別的原因 —— 那位客戶同名整位跳過、
+ * 分不出要扣哪一筆額度、他沒有那門課的額度（`addExtraVisits()` 標 `master: false`）。那幾筆以前也算進
+ * 「N 處對不到主檔…先到資料健檢把主檔補齊」，而她去資料健檢什麼都補不到。現在另外數、另外講（`unplaced`）。
+ *
+ * @param {object[]} plans planForCustomer() 的結果（`addExtraVisits()` 跑過之後）
+ * @param {object[]} [extraProblems] `addExtraVisits()` 回的那幾條
+ * @returns {{problems: object[], unplaced: object[], skipped: {customerName: string, why: string}[],
+ *            lines: string[], doneLines: string[]}} `problems`＝對不到主檔的；`unplaced`＝要補的來訪裡不是主檔的事的那幾筆
+ */
+export function importCaveats(plans, extraProblems = []) {
+  const all = [...(plans ?? []).flatMap((p) => p.problems ?? []), ...(extraProblems ?? [])];
+  const problems = all.filter((x) => x.master !== false);
+  const unplaced = all.filter((x) => x.master === false);
+  const skipped = (plans ?? []).filter((p) => p.skip)
+    .map((p) => ({ customerName: p.customerName, why: p.skip }));
+  const lines = [];
+  if (problems.length) {
+    lines.push(`有 ${problems.length} 處對不到主檔，那幾處會留空或整筆不匯 —— 匯完之後補不回來`
+      + '（再貼一次時每一位都因為同名被跳過）。先到資料健檢把主檔補齊，再回來匯');
+  }
+  if (skipped.length) {
+    lines.push(`${skipped.length} 位因為系統裡已經有同名的客戶，整位跳過，一筆都不會寫`);
+  }
+  if (unplaced.length) {
+    lines.push(`勾起來要補的來訪有 ${unplaced.length} 筆補不進去 —— 哪幾筆、為什麼寫在「會寫進去什麼」那一張裡`);
+  }
+  // 匯完之後那一張講的是已經發生的事，所以另外一份句子
+  const doneLines = [];
+  if (problems.length) doneLines.push(`有 ${problems.length} 處對不到主檔，那幾處留空或沒有匯進來`);
+  if (skipped.length) doneLines.push(`${skipped.length} 位因為系統裡已經有同名的客戶，整位跳過`);
+  if (unplaced.length) doneLines.push(`勾起來要補的來訪有 ${unplaced.length} 筆沒有補進去`);
+  return { problems, unplaced, skipped, lines, doneLines };
+}
+
+/**
+ * 勾起來要補的來訪裡，還沒跟著客戶寫進去的那幾筆。
+ *
+ * 補的來訪跟客戶同一個 commit（`addExtraVisits()`），所以**那位客戶進去了，她的那幾筆就不用再勾著**。
+ * 留著的話重試時那幾筆會變成「這份檔案裡沒有這位客戶」的問題（她這次是同名跳過），
+ * 確認框就會多講幾處其實已經寫好的東西。
+ *
+ * @param {object[]} candidates `futureVisits` 或 `missingFromSheet`
+ * @param {number[]} chosen 勾著的位置
+ * @param {string[]} doneNames 這一趟寫進去的客戶
+ */
+export function extraPicksLeft(candidates, chosen, doneNames) {
+  const done = new Set((doneNames ?? []).map(norm));
+  return chosen.filter((i) => !done.has(norm(candidates?.[i]?.customerName)));
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */

@@ -105,7 +105,8 @@ export async function buildBundle() {
     // 過去的全部（次數是拿讀到的來訪現算的，少讀一筆就少算一次）。跟 #/settings/report 同一支
     visitsData.listForSheet(today),
     tasksData.listForReport(),
-    config.loadAll(),
+    // 連已刪除的一起讀，跟 #/settings/report 一樣 —— 少帶的話刪掉治療師之後只有自動這一份的名字與二返註記消失
+    config.loadAll({ includeDeleted: true }),
   ]);
 
   const visitsBy = {};

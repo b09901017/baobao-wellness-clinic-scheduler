@@ -283,7 +283,7 @@ test('A5 有勾起來還沒記的，點「對不上」那一列的去日曆 → 
   await expect(page.locator('.dialog-backdrop')).toHaveCount(0);
 });
 
-test('A6 預約狀態對一次（ADR-0116）：app 上取消了的不是新的、Abovee 上取消了的排進要你看', async ({ app, page }) => {
+test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新的一段但不先勾、Abovee 上取消了的排進要你看', async ({ app, page }) => {
   // 她 2026-09-24 晚：「拍 Abovee上面也有標已取消等等的標記…其實也可以當作某一方面的交叉驗證?」
   const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null, note: null };
   const sis = (over) => ({
@@ -293,7 +293,7 @@ test('A6 預約狀態對一次（ADR-0116）：app 上取消了的不是新的�
   });
   await app.seed([
     ...seed(),
-    // a0：Abovee 上 9/10 09:00 王小明 SIS 還是「確認前往」，app 上那一段取消了（還沒回 Abovee 放掉）
+    // a0：Abovee 上 9/10 09:00 王小明 SIS 還是「確認前往」，app 上那一段取消了（重新約了、或還沒回 Abovee 放掉）
     { path: 'visits', id: 'v-w10', data: { ...base, customerId: 'cust-wang', customerName: '王小明', date: '2026-09-10',
       status: 'cancelled', slots: [sis({ entitlementId: 'w-pool', status: 'cancelled' })] } },
     // a7：Abovee 上 9/16 09:00 客戶A SIS「已取消」，app 上那一段還是已確認
@@ -306,12 +306,16 @@ test('A6 預約狀態對一次（ADR-0116）：app 上取消了的不是新的�
 
   await expect(page.locator('.abl__sum')).toContainText('要你看 2 段');
 
-  await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('對不上');
+  // 她 2026-10-09（ADR-0144）：「要改成算新的一段…如果這段原本是取消那預設不勾並提醒已取消過」。
+  // 以前這一列是「對不上」、勾不起來 —— 取消之後在同一格重約的那一段這一層記不了
+  await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('新的');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
-  await expect(row(page, 'a0').locator('[data-abl-check]')).toBeDisabled();
-  await row(page, 'a0').locator('[data-abl-open]').click();
-  await expect(row(page, 'a0').locator('.abl-row__say')).toContainText('app 上取消了');
-  await expect(row(page, 'a0').locator('.abl-row__say')).toContainText('回 Abovee 放掉');
+  await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上這一段取消過');
+  await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('回 Abovee 放掉');
+  // 她勾得起來（勾是她勾）
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toBeEnabled();
+  await row(page, 'a0').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
 
   await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('對不上');
   await row(page, 'a7').locator('[data-abl-open]').click();

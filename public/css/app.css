@@ -4198,6 +4198,17 @@ button.mark::after {
   border-radius: var(--radius);
 }
 
+/* 讀取卡片最上面那一排：這位客人的警示（`visitReadHtml()`，四個畫面共用）。
+   裡面是 `alertChips()` 自己的 `.blockchips` 包裝（會換行）；它的 `margin-top` 是給
+   「接在名字底下」用的，這裡上面沒有東西，所以歸零、改成跟底下那幾段隔開。 */
+.readalerts {
+  margin-bottom: var(--space-2);
+}
+
+.readalerts .blockchips {
+  margin-top: 0;
+}
+
 .readslot__when {
   display: block;
   font-size: var(--text-lg);
@@ -4437,6 +4448,47 @@ body:has(.cform__bar, .bulkbar) > .toast {
 body:has(> .drawer-backdrop) > .toast {
   top: calc(env(safe-area-inset-top) + var(--space-2));
   bottom: auto;
+}
+
+/* **那一疊卡片開著的時候站到它的抬頭上，名字那一段**（壓表的卡片組、拍訂購單的確認卡，都是 `.deck`）。
+   `.deck` 蓋住整頁（`position: fixed; inset: 0`），底下是卡片自己的按鈕 —— 站在 66px 就壓在
+   「這位壓完了，下一位 →」的左半邊 8 秒；捲到別的位置時壓的是「加這一段」或治療師那一排。
+   手快按「下一位」按到的是「復原」：剛記的那一段退回去，Abovee 上壓了、app 裡沒有
+   （prelaunch-fixes-2026-10-08/issues/06）。9/18 那次只列了面板，這一疊不是 `.drawer-backdrop`。
+
+   抬頭那一條是 `[‹] 名字 n/m …… [›] [×]`：中間那一段是整疊唯一沒有按鈕的地方。
+   - 上下：對齊那三顆 38px 的按鈕（抬頭的 `padding-top` 是 `max(space-2, safe-area)`），
+     自己縮成一行高（上下內距 2px、按鈕 36px）＝ 42px，不超出抬頭的 54px
+   - 左右（窄螢幕）：從「上一位」右邊 16px 起，到「下一位」左邊 16px 止 ——
+     兩顆並排至少留 16px，不然兩個 44px 的感應範圍會疊
+   - 訊息長的時候往下長的是字，**按鈕釘在上緣**（`align-items: flex-start`），不會掉到卡片上
+   - 蓋住的是名字與「8 / 20」那幾個字，最多 8 秒；卡片自己最上面還有一次名字
+
+   **新增一種會蓋住整頁、自己有底部按鈕的東西要加進這一條**（面板走上面那一條）。
+   量位置的是 `24-layout-reach` 的 F5、F6（問 toast 底下有沒有可以按的東西，不是比外框）。 */
+body:has(.deck) > .toast {
+  top: calc(max(var(--space-2), env(safe-area-inset-top)) - 2px);
+  bottom: auto;
+  align-items: flex-start;
+  padding-block: 2px;
+}
+
+body:has(.deck) > .toast > span {
+  /* 字那一格自己上下置中在按鈕那一行的高度裡；換行之後從這裡往下長 */
+  padding-block: 8px;
+  line-height: 20px;
+}
+
+body:has(.deck) > .toast > .btn {
+  min-height: 36px;
+  padding-block: 0;
+}
+
+@media (max-width: 899px) {
+  body:has(.deck) > .toast {
+    left: calc(var(--gutter) + 38px + 16px);
+    max-width: calc(100vw - 2 * var(--gutter) - 3 * 38px - var(--space-2) - 32px);
+  }
 }
 
 /* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
@@ -9087,6 +9139,13 @@ body.has-cam {
   font-size: var(--text-sm);
 }
 
+/* 同一張拍了兩次（prelaunch-fixes/14）：那兩顆排在那一句底下，不靠右擠成一排 */
+.ocard__twice .ocard__acts {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0 0;
+}
+
 .ocard__photos {
   display: flex;
   flex-wrap: wrap;
@@ -9740,7 +9799,9 @@ body.has-abl {
 }
 
 /* 認得、但不是一字不差（ADR-0128）：不是錯，是要她看一眼 —— 用「快到了」那一種色，不用紅的 */
-.abl-row__hint--near {
+.abl-row__hint--near,
+/* 會改變寫入結果的提醒（ADR-0138）：收著的列也畫，跟點開之後那一份同一種色 */
+.abl-row__hint--warn {
   color: var(--soon);
 }
 

@@ -1,0 +1,230 @@
+// 2026-10-08 上線前修正，第二段（`.scratch/prelaunch-fixes-2026-10-08/issues/09`–`14`）：拍 Abovee 與拍訂購單。
+//
+// 翻譯的規則在單元測試（`tests/abovee-*.test.js`、`tests/order-form*.test.js`）；這一支盯的是
+// **她眼前那一層真的拿對的那一份資料、那一句真的畫在不用點開的地方**。
+// 一段一支 spec，少開幾次模擬器（她的筆電會過熱）。
+//
+// 模擬器裡的 Function 不叫 Gemini，回 `fixtures/ai/*.json`。fixture 全部是編出來的（王小明、李小華、客戶A）。
+
+import { test, expect } from '../fixtures/app.js';
+import { customer, entitlement, masterDocs, visit, slot, TODAY, addDays } from '../fixtures/data.js';
+import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
+
+const MONTH = '2026-09';
+const chart = (no) => [{ text: `病歷號 ${no}`, color: 'grey' }];
+const POOL3 = { type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60 };
+
+/** 壓表那一頁只讀最近 180 天；這幾天都在那之前。 */
+const LONG_AGO = [0, 1, 2, 3, 4, 5].map((i) => addDays(TODAY, -200 - 14 * i));
+
+function batch(ids) {
+  return {
+    path: 'batches', id: 'b-sep',
+    data: {
+      targetMonth: MONTH, status: 'active', cursor: null, lastDeviceHint: null,
+      queue: ids.map((id) => ({ customerId: id, customerName: '', state: 'pending', skippedReason: null })),
+    },
+  };
+}
+
+/**
+ * 王小明：兩筆營養點滴，「護肝排毒」半年前打完、「腸道修復」還沒用。
+ * 李小華：身上有「體內金屬」，復能那一筆兩次都在半年前做完了。客戶A：什麼事都沒有。
+ */
+function seedHistory() {
+  const done = (id, customerId, customerName, date, s) => visit({
+    id, customerId, customerName, date, status: 'done', slots: [{ ...slot(s), status: 'done' }],
+  });
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明', marks: chart('1234') }),
+    customer({ id: 'cust-lee', name: '李小華', marks: chart('5678'), flags: ['體內金屬'] }),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-wang', { id: 'w-liver', label: '營養點滴-護肝排毒', courseId: 'course-iv-drip', ivProductId: 'iv-liver', totalQty: 6, doneCount: 6 }),
+    entitlement('cust-wang', { id: 'w-gut', label: '營養點滴-腸道修復', courseId: 'course-iv-drip', ivProductId: 'iv-gut', totalQty: 6 }),
+    entitlement('cust-lee', { id: 'l-pool', ...POOL3, totalQty: 2, doneCount: 2 }),
+    entitlement('cust-a', { id: 'a-pool', ...POOL3, totalQty: 12 }),
+    ...LONG_AGO.map((date, i) => done(`v-w${i}`, 'cust-wang', '王小明', date, {
+      entitlementId: 'w-liver', courseId: 'course-iv-drip', ivProductId: 'iv-liver', startsAt: '10:00', endsAt: '11:30', roomId: 'room-iv5',
+    })),
+    ...LONG_AGO.slice(0, 2).map((date, i) => done(`v-l${i}`, 'cust-lee', '李小華', date, {
+      entitlementId: 'l-pool', courseId: 'course-recovery', equipmentId: 'eq-sis', startsAt: '14:00', endsAt: '15:00', therapistId: 'staff-zn',
+    })),
+    batch(['cust-wang', 'cust-lee', 'cust-a']),
+  ];
+}
+
+async function openBatch(app, page) {
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await expect(page.locator('[data-abovee]')).toBeVisible();
+}
+
+/** 壓表頁 → 右下角相機 → 相簿選一兩張 → 送出 → 確認層（同 `41-abovee`）。 */
+async function photograph(page, fixtures) {
+  await queueAi(fixtures);
+  const files = [];
+  for (const [i, name] of fixtures.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    files.push(await fakePhoto(`${name}-${i}.jpg`, { width: 1600, height: 900 }));
+  }
+  await page.locator('[data-abovee]').click();
+  await expect(page.locator('.cam')).toBeVisible();
+  await page.locator('[data-cam-album-input]').setInputFiles(files);
+  await expect(page.locator('.cam__thumb')).toHaveCount(fixtures.length);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('.abl')).toBeVisible();
+  await expect(page.locator('[data-abl-row]').first()).toBeVisible();
+}
+
+const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
+
+// ---------- 09 算「還剩幾次」拿的是這位客戶的全部來訪 ----------
+
+test('P1 拍 Abovee：半年前打完的那一筆不會被預選 —— 預選的是還沒用的那一筆，品項不一樣那一句點開就在', async ({ app, page }) => {
+  await app.seed(seedHistory());
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-history']);
+
+  // 照片上寫的是護肝排毒；那一筆半年前打完了（壓表那一頁讀的 180 天裡一次都看不到）
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await expect(row(page, 'a0').locator('[data-abl-opt="w-gut"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row(page, 'a0').locator('[data-abl-opt="w-liver"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(row(page, 'a0').locator('[data-abl-opt="w-liver"]')).toContainText('剩 0');
+  await expect(row(page, 'a0').locator('.abl-row__warnings')).toContainText('品項跟買的不一樣');
+  // 讀到全部了：沒有「沒有讀到全部」那一句，那一列照舊先勾好
+  await expect(row(page, 'a0')).not.toContainText('沒有讀到全部');
+  await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+});
+
+// ---------- 12 會改變寫入結果的提醒，不點開那一列也看得到 ----------
+
+test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句收著也在；一路不點開，存檔前那一道也講', async ({ app, page }) => {
+  await app.seed(seedHistory());
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-history']);
+
+  // 李小華：身上有體內金屬、復能那一筆兩次都在半年前做完了。那一列預設打勾、收著
+  await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'a1').locator('[data-abl-open]')).toHaveAttribute('aria-expanded', 'false');
+  const shut = row(page, 'a1').locator('.abl-row__hint--warn');
+  await expect(shut).toHaveCount(2);
+  await expect(shut.nth(0)).toContainText('SIS 對「體內金屬」要注意');
+  await expect(shut.nth(1)).toContainText('排完這次會超過總次數');
+  // 「還沒選治療師」那一種幾乎每一列都有，照舊點開才看
+  await expect(row(page, 'a1')).not.toContainText('還沒選治療師');
+  // 王小明那一列：品項跟買的不一樣。客戶A 什麼事都沒有：一個字都不多
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toContainText('品項跟買的不一樣');
+  await expect(row(page, 'a2').locator('.abl-row__hint')).toHaveCount(0);
+
+  // 取消勾選的那一列不會寫進去：那一行跟著收掉，確認框也不算它
+  await row(page, 'a0').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 2 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('其中 1 段有提醒');
+  await expect(app.dialog()).toContainText('李小華');
+  await expect(app.dialog()).toContainText('SIS 對「體內金屬」要注意');
+  await expect(app.dialog()).toContainText('排完這次會超過總次數');
+  expect(await app.dialogText()).not.toMatch(/品項跟買的不一樣|還沒選治療師/);
+  await app.cancelDialog();
+
+  // 點開那一列：完整的那一份在底下（連「還沒選治療師」），收著的那一行不畫兩次
+  await row(page, 'a1').locator('[data-abl-open]').click();
+  await expect(row(page, 'a1').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(row(page, 'a1').locator('.abl-row__warnings li')).toHaveCount(3);
+  await expect(row(page, 'a1').locator('.abl-row__warnings')).toContainText('還沒選治療師');
+});
+
+// ---------- 審查（2026-10-09）：同一位客人跨好幾天的列，超用要把這一次別天要記的算進去 ----------
+
+test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收著都看得到「會超過總次數」，確認框講 3 段', async ({ app, page }) => {
+  await app.seed([
+    ...seedHistory().filter((d) => d.path !== 'batches'),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    entitlement('cust-b', { id: 'b-pool', ...POOL3, totalQty: 1 }),
+    batch(['cust-wang', 'cust-lee', 'cust-a', 'cust-b']),
+  ]);
+  await app.signIn('/');
+  await openBatch(app, page);
+  await photograph(page, ['aboveeList-days']);
+
+  // 每一組（一位一天）以前各自驗、只看資料庫裡的：三列都先按好同一筆、都打勾，一句都不講
+  for (const key of ['a0', 'a1', 'a2']) {
+    await expect(row(page, key).locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+    await expect(row(page, key).locator('.abl-row__hint--warn')).toContainText('排完這次會超過總次數（共 1 次，已排 3 次）');
+  }
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 3 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('其中 3 段有提醒');
+  await app.cancelDialog();
+
+  // 她把後兩列的勾拿掉：剩下那一列剛好 1 次，不超用 —— 那一行跟著收掉
+  await row(page, 'a1').locator('[data-abl-check]').click();
+  await row(page, 'a2').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+});
+
+// ---------- 14 同一張訂購單拍了兩次 ----------
+
+/** 客戶 → 右下角 ＋ →「拍訂購單」→ 相簿選幾張 → 送出 → 確認卡（同 `40-order-form`）。 */
+async function photographOrder(page, fixtures) {
+  await queueAi(fixtures);
+  const files = [];
+  for (const [i, name] of fixtures.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    files.push(await fakePhoto(`${name}-${i}.jpg`));
+  }
+  await page.locator('[data-fabtoggle]').click();
+  await page.locator('[data-orderform]').click();
+  await expect(page.locator('.cam')).toBeVisible();
+  await page.locator('[data-cam-album-input]').setInputFiles(files);
+  await expect(page.locator('.cam__thumb')).toHaveCount(fixtures.length);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('.ocdeck')).toBeVisible();
+}
+
+test('P3 拍訂購單：同一張拍了兩次 → 卡上講出來、建立按不下去；拿掉一張就只建一套', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/customers');
+  await photographOrder(page, ['orderForm-jingu', 'orderForm-jingu']);
+
+  await expect(page.locator('.ocdeck .ocard-host')).toHaveCount(1);
+  const card = page.locator('.ocdeck .ocard-host').nth(0);
+  // 照設計併成同一位的兩次購買 —— 所以要問
+  await expect(card.locator('.ocard__main', { hasText: '筋骨強身' })).toContainText('×2');
+  await expect(card.locator('.ocard__twice')).toContainText('第 1、2 張看起來是同一張訂購單');
+
+  const go = card.locator('[data-oc-create]');
+  await card.locator('[data-oc-nameok]').click();
+  await expect(go).toBeDisabled();
+  await expect(card.locator('.ocard__why')).toContainText('同一張訂購單');
+
+  // 出路一：真的買了兩次 → 按得下去（這裡不建，點回來）
+  await card.locator('[data-oc-twice]').click();
+  await expect(go).toBeEnabled();
+  await card.locator('[data-oc-twice]').click();
+  await expect(go).toBeDisabled();
+
+  // 出路二：拿掉重拍的那一張 → 那一句不見、剩一張照片、一套
+  await card.locator('[data-oc-remove]').click();
+  await expect(card.locator('.ocard__twice')).toHaveCount(0);
+  await expect(card.locator('.ocard__thumb')).toHaveCount(1);
+  await expect(card.locator('.ocard__main', { hasText: '筋骨強身' })).toContainText('×1');
+  await card.locator('[data-oc-nameok]').click();
+  await go.click();
+  await app.saved();
+  await expect(page.locator('.ocdeck')).toHaveCount(0);
+
+  const created = (await app.readAll('customers')).filter((c) => c.name === '王小明');
+  expect(created).toHaveLength(1);
+  const fromPlan = (await app.readAll(`customers/${created[0].id}/entitlements`)).filter((e) => e.sourcePlanName === '筋骨強身');
+  expect(fromPlan).toHaveLength(7);
+  expect(fromPlan.every((e) => e.sourcePlanSets === 1)).toBe(true);
+});

@@ -23,7 +23,7 @@ import {
 import { pairsOf, holdsExam, usedAndDone } from './followups.js';
 import { followupsOfExam, nthLabel, nthOf } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
-import { shortDate, isValidDate } from './dates.js';
+import { shortDate, isValidDate, dayOf } from './dates.js';
 import { chartNosOf } from './identify.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
@@ -52,13 +52,14 @@ export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手�
  * @param {object[]} [ctx.courses] 課程主檔，用來找出健檢配的二返（ADR-0022）
  * @param {object[]} [ctx.staff] 治療師與醫師，二返註記的括號要靠它換成名字
  * @param {object[]} [ctx.equipment] 器材主檔，「這一天用了哪一台」那一列要靠它換成別稱
+ * @param {object[]} [ctx.ivProducts] 營養點滴品項，待辦那一行跟待辦中心一樣寫品項
  * @param {string} [ctx.generatedAt] 產生時間，寫在表頭讓她知道這份多舊
  * @param {string} [ctx.today] 今天 —— 日期欄不是今年的帶年份（`dateLabel()`）
  * @returns {{name:string, rows:string[][]}}
  */
 export function customerReport({
   customer, entitlements = [], visits = [], tasks = [], courses = [], staff = [],
-  equipment = [], generatedAt = '', today = null,
+  equipment = [], ivProducts = [], generatedAt = '', today = null,
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
   const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
@@ -152,7 +153,8 @@ export function customerReport({
     }
   }
 
-  const blocks = taskBlocks(tasks, used, { courses, equipment }, today);
+  // 待辦拿**沒濾過的**來訪：取消類要找的正是整天取消的那一筆（`taskBlocks()` 的註解）
+  const blocks = taskBlocks(tasks, visits, { courses, equipment, ivProducts }, today);
   rows.push([], ['備註', customer?.notes ?? '']);
   rows.push([], ['TODO（還沒做的）'], ...taskRows(blocks.todo, '死線'));
   rows.push([], ['FINISHED（做完的）'], ...taskRows(blocks.finished, '完成'));
@@ -172,7 +174,7 @@ const COUNT_COLS = 5;
 /** 還沒做的看死線，做完的看完成日 —— 兩邊印同一個日期等於少講一件事。 */
 const taskRows = (items, kind) =>
   (items.length ? items : [null]).map((t) =>
-    (t ? [t.label, t.kind, kind === '完成' ? (t.doneAt ?? '').slice(0, 10) : (t.dueDate ?? '')]
+    (t ? [t.label, t.kind, kind === '完成' ? t.doneAt : (t.dueDate ?? '')]
        : ['（沒有）']));
 
 /**
@@ -266,7 +268,7 @@ const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
  * - 一律接在額度列的**後面**：`equipmentNotes`／`slotNotes` 的 `rowIndex` 指的是額度列的位置
  *
  * **不用升 `SYNC_FORMAT`**：每一列的鍵沒有變，只是這幾列的 `total`／`remaining` 是字串。
- * `.gs` 上色問的是 `r.done > 0`、`r.booked > 0`、`r.remaining === 0`，一槓不會被當成 0 塗紅
+ * `.gs` 上色問的是 `r.done > 0`、`r.booked > 0`、「`r.remaining` 是數字而且 ≤ 0」，一槓不會被當成 0 塗紅
  * （`tests/sheet-rows-without-entitlement.test.js` 拿那一份 `.gs` 真的畫過）。`extra` 那一格現在的 `.gs` 不讀，
  * 留給之後要把這幾列畫得不一樣的那一天。
  *
@@ -612,8 +614,8 @@ export function syncBundle({
       followupNotes: followupNotes({ alive, visits, dates, coursesById, staffById, today }),
       // 舊表的 TODO / FINISH 兩塊。差別是這裡由 app 填，她不用回來勾 ——
       // 舊表那些框她從來不勾，所以 FINISH 永遠是空的（同上）。
-      tasks: taskBlocks(tasksBy[customer.id] ?? [], visits,
-        { courses: master.courses ?? [], equipment: master.equipment ?? [] }, today),
+      // 待辦拿**沒濾過的**來訪與整份主檔（`taskBlocks()` 的註解）
+      tasks: taskBlocks(tasksBy[customer.id] ?? [], visitsBy[customer.id] ?? [], master, today),
       // 每一次來訪那天到底做了什麼、誰做的、在哪一間 —— 舊表從來記不住的東西。
       //
       // **取消的段不寫、每一段帶它自己的狀態、照開始時間排**（格式 6，
@@ -818,7 +820,8 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {}, toda
         // 那幾場不可以再被猜一次** —— 否則同一場二返會出現在兩個健檢底下。
         const hit = (exam && linked.get(exam.id))
           ?? (exam && guessedFor.has(exam.id) ? null : takeUnlinked(guessed, linked, i));
-        const doctor = hit?.doctorId ? (staffById[hit.doctorId]?.name ?? null) : null;
+        // 簡寫（ADR-0141）：這一格跟日曆那一列一樣窄，她原本手寫的就是 `二返(夏)`
+        const doctor = staffById[hit?.doctorId] ? variantName(staffById[hit.doctorId], 'short') : null;
         const at = dates.indexOf(date);
 
         add(at, hit
@@ -837,7 +840,7 @@ function followupNotes({ alive, visits, dates, coursesById, staffById = {}, toda
         // 而二返上面那一行已經印過了。
         if (!exam) return;
         for (const extra of followupsOfExam(exam.id, visits, [])) {
-          const who = extra.slot.doctorId ? (staffById[extra.slot.doctorId]?.name ?? null) : null;
+          const who = staffById[extra.slot.doctorId] ? variantName(staffById[extra.slot.doctorId], 'short') : null;
           // 醫師還沒定就印空括號 —— **這一種空括號是有意義的**：
           // 那一場已經約了（日期就在前面），只是醫師還沒挑。
           add(at, `${monthDay(extra.visit.date, today)} ${nthLabel(extra.nth)}${who ? `(${who})` : '()'}`);
@@ -916,6 +919,10 @@ function bookingsOf(visits, entitlementId, dates) {
  * 日期取的是**來訪那一天**，不是死線 —— 她認的是「哪一天那一場」，
  * 而死線是它的前一天，兩個差一天最容易看錯人。來訪找不到（獨立待辦、
  * 來訪被刪了）才退回用死線。
+ *
+ * **`visits` 要給沒濾過的**（含整天取消的）：「取消 Abovee」要找的正是被取消的那一筆，
+ * 給次數矩陣那一份（`isActive()` 濾過）的話它找不到、退回死線（＝取消那天，常常是今天）、
+ * 課程空白（prelaunch-fixes-2026-10-08/17）。`master` 要帶 `ivProducts`，不然點滴寫「營養點滴」。
  */
 function taskBlocks(tasks, visits, master = null, today = null) {
   const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));
@@ -930,7 +937,8 @@ function taskBlocks(tasks, visits, master = null, today = null) {
       label: [date ? monthDay(date, today) : '', what].filter(Boolean).join(' '),
       kind: t.kind ?? '',
       dueDate: t.dueDate ?? '',
-      doneAt: t.doneAt ?? '',
+      // 台灣那一天，不是 `doneAt.slice(0, 10)`（UTC：00:00–08:00 勾掉的會寫成前一天）。`.gs` 那一處照舊切前十個字，對日期字串一樣成立
+      doneAt: dayOf(t.doneAt) ?? '',
       note: t.note ?? '',
     };
   };

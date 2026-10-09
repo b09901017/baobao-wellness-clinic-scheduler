@@ -34,9 +34,9 @@ import { isConfigured } from '../../data/sheetSync.js';
 import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
-import { cancelConsequences } from '../../domain/consequences.js';
+import { cancelConsequences, followupBookingLines } from '../../domain/consequences.js';
 import { nameHas } from '../../domain/customers.js';
-import { slotName, nameOf } from '../../domain/naming.js';
+import { slotName, nameOf, fullNameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { todayISO, addMonths, shortDate, monthLabel } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -94,7 +94,8 @@ export async function render(el) {
   try {
     const [customers, master] = await Promise.all([
       customersData.list(),
-      config.loadAll(),
+      // 連已刪除的一起讀：列的是既有的來訪，刪掉的治療師、診間、課程名字照樣要印得出來
+      config.loadAll({ includeDeleted: true }),
     ]);
     ctx = { el, customers, master, visits: [], settings: await config.getSettings() };
   } catch (err) {
@@ -159,7 +160,8 @@ function slotLine(row) {
   const { slot } = row;
   const room = ctx.master.rooms?.find((r) => r.id === slot.roomId);
   const who = ctx.master.staff?.find((s) => s.id === slot.therapistId);
-  const where = [room ? nameOf(room, 'short') : null, who?.name].filter(Boolean).join('・');
+  // 人印全名（ADR-0141：簡寫只在日／週那一列、讀取卡片、試算表）
+  const where = [room ? nameOf(room, 'short') : null, fullNameOf(who)].filter(Boolean).join('・');
   const what = slotName(slot, ctx.master, 'short') || '（沒有課程）';
   return `${timeLabel(slot)}　${what}${where ? `・${where}` : ''}`;
 }
@@ -615,6 +617,17 @@ async function run() {
     });
     for (const line of lines) said.add(line);
   }
+  // 「約二返」會怎麼動：**全部套上去之後算一次**（逐筆算的話，取消兩場二返每一筆只看得到一場）。
+  // 套法跟底下真的存的那一圈一樣（逐段 `applyStatus()`）
+  const after = [...byVisit.values()].map(({ visit, at }) =>
+    at.reduce((v, slotIndex) => applyStatus(v, 'cancelled', { slotIndex }), visit));
+  const first = [...byVisit.values()][0]?.visit;
+  for (const line of followupBookingLines({
+    customer: { id: state.customerId, name: first?.customerName ?? null },
+    visits: [...ctx.visits.filter((v) => !byVisit.has(v.id)), ...after],
+    chain: await visitsData.chainInputs(state.customerId, coursesById),
+    coursesById,
+  })) said.add(line);
 
   const ok = await confirmAction({
     title: `取消這 ${picked.length} 段？`,

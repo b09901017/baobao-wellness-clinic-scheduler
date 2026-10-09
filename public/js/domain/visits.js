@@ -20,7 +20,7 @@ import {
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
-import { slotName } from './naming.js';
+import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
@@ -1655,7 +1655,7 @@ function visitErrors(visit, {
       const doctor = staffById[slot.doctorId];
       if (!doctor) errors.push(`${at}：指定的醫師不存在或已刪除`);
       else if (doctor.role !== DOCTOR_ROLE) {
-        errors.push(`${at}：${doctor.name} 不是醫師，是${doctor.role ?? '別的角色'}`);
+        errors.push(`${at}：${fullNameOf(doctor)} 不是醫師，是${doctor.role ?? '別的角色'}`);
       }
     }
 
@@ -1713,16 +1713,52 @@ function visitErrors(visit, {
  *（濾掉再編號就指錯了）。那一段在訊息裡叫什麼走 `ctx.slotLabel`（見 `defaultSlotLabel`）。
  */
 function visitWarnings(visit, ctx) {
+  return warningDetails(visit, ctx).map((w) => w.text);
+}
+
+/**
+ * 同一份提醒，每一句多帶兩件事：**它從哪一圈來**（`source`）、**講的是哪幾段**（`slots`，那一筆來訪裡的位置）。
+ * `validateVisit().warnings` 就是這一份的 `text`，順序一樣 —— 句子只有一份（prelaunch-fixes/12，ADR-0138）。
+ *
+ * 拍 Abovee 的確認層一列一段、預設收著：它要知道哪一句是哪一列的、哪幾句不點開也要看得到（`mustSee()`）。
+ * **照來源分，不比字眼** —— 句子改了字，分類不會跟著壞。
+ *
+ * | source | 那一圈 |
+ * |---|---|
+ * | `notice` | 選到的那一台對這位客戶的警示要注意（ADR-0074）|
+ * | `overlap` | 同一筆裡自己跟自己重疊 |
+ * | `entitlement` | 排完會超過總次數、排在到期之後（講的是用到那一筆額度的每一段）|
+ * | `ivMismatch` | 品項跟買的不一樣 |
+ * | `assign` | 還沒選／不需要醫師、診間、治療師；一般排在別間；二返還沒接到健檢 |
+ * | `nth` | 同一次健檢底下已經有同樣的返數 |
+ * | `conflict` | 跟那一天別的來訪撞診間、治療師、同一位客戶（ADR-0094、0133）|
+ * | `frequency` | 每季一次那種限制（講的是那門課的每一段）|
+ *
+ * @returns {{text: string, source: string, slots: number[]}[]}
+ */
+export function warningDetails(visit, ctx) {
+  const from = (source, list) => list.map((w) => ({ text: w.text, source: w.source ?? source, slots: w.slots }));
   return [
-    ...equipmentNoticeWarnings(visit, ctx),
-    ...overlapWarnings(visit, ctx),
-    ...entitlementWarnings(visit, ctx),
-    ...assignmentWarnings(visit, ctx),
-    ...nthWarnings(visit, ctx),
-    ...conflictWarnings(visit, ctx),
-    ...frequencyWarnings(visit, ctx),
+    ...from('notice', equipmentNoticeWarnings(visit, ctx)),
+    ...from('overlap', overlapWarnings(visit, ctx)),
+    ...from('entitlement', entitlementWarnings(visit, ctx)),
+    ...from('assign', assignmentWarnings(visit, ctx)),
+    ...from('nth', nthWarnings(visit, ctx)),
+    ...from('conflict', conflictWarnings(visit, ctx)),
+    ...from('frequency', frequencyWarnings(visit, ctx)),
   ];
 }
+
+/**
+ * **會改變寫入結果的提醒** —— 收在要點開才看得到的地方就等於沒講（`CLAUDE.md`「畫面上一段常駐的說明」的紅線）：
+ * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪。
+ *
+ * 其餘照舊點開才看：「還沒選治療師／診間／醫師」那一類幾乎每一列都有（合併檔匯進來的、服務資源認不出來的），
+ * 全部攤開等於把真的要看的淹掉（她 2026-09-10：「非常占版面…會視覺疲勞」）。
+ * 哪幾種算只寫在這裡；畫面與確認框讀同一份。
+ */
+const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict']);
+export const mustSee = (warning) => MUST_SEE.has(warning?.source);
 
 /**
  * 選到的那一台對這位客戶要提醒。
@@ -1739,7 +1775,7 @@ function equipmentNoticeWarnings(visit, { customer, equipment = [], slotLabel = 
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
     .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
-    .map((n) => `${slotLabel(n.slotIndex)}：${n.message}`);
+    .map((n) => ({ text: `${slotLabel(n.slotIndex)}：${n.message}`, slots: [n.slotIndex] }));
 }
 
 /**
@@ -1761,7 +1797,7 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel 
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
     if (same.length) {
-      out.push(`${slotLabel(i)}：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
+      out.push({ text: `${slotLabel(i)}：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`, slots: [i] });
     }
   });
 
@@ -1778,9 +1814,12 @@ function overlapWarnings(visit, { slotLabel = null } = {}) {
     for (let j = i + 1; j < slots.length; j += 1) {
       if (overlaps(slots[i].s, slots[j].s)) {
         // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟 這一段 時間重疊」）；沒給就照舊那一句
-        out.push(slotLabel
-          ? `${slotLabel(slots[i].at)} 跟 ${slotLabel(slots[j].at)} 時間重疊`
-          : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`);
+        out.push({
+          text: slotLabel
+            ? `${slotLabel(slots[i].at)} 跟 ${slotLabel(slots[j].at)} 時間重疊`
+            : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`,
+          slots: [slots[i].at, slots[j].at],
+        });
       }
     }
   }
@@ -1800,15 +1839,17 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
     const ent = entsById[slot.entitlementId];
     if (!ent || used.has(ent.id) || !isLiveSlot(slot)) continue;
     used.add(ent.id);
+    // 這兩句講的是那一筆額度，不是哪一段 —— 用到它、還算數的每一段都算（`warningDetails()`）
+    const slots = (visit.slots ?? []).map((s, i) => (s.entitlementId === ent.id && isLiveSlot(s) ? i : -1)).filter((i) => i >= 0);
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
-      out.push(`「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`);
+      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots });
     }
 
     if (ent.expiresAt && isValidDate(ent.expiresAt) && isValidDate(visit.date)
         && daysBetween(ent.expiresAt, visit.date) > 0) {
-      out.push(`「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`);
+      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots });
     }
   }
 
@@ -1820,7 +1861,7 @@ function assignmentWarnings(visit, {
   courses = [], rooms = [], entitlements = [], ivProducts = [], customerVisits = [],
   slotLabel = defaultSlotLabel,
 }) {
-  const out = [];
+  const found = [];
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
   const ivById = byId(ivProducts);
@@ -1829,13 +1870,15 @@ function assignmentWarnings(visit, {
     const course = coursesById[slot.courseId];
     if (!course || !isLiveSlot(slot)) return;
     const at = slotLabel(i);
+    // 這一圈每一句都是這一段的（`warningDetails()` 要知道是哪一段）；品項那一句自己另算一種來源
+    const say = (text, source) => found.push({ text, slots: [i], ...(source ? { source } : {}) });
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
     // 同一條原則），而且她可能就是還沒決定要接哪一次。
     // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
     const followup = entsById[slot.entitlementId];
     if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
-      out.push(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
+      say(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
@@ -1844,35 +1887,35 @@ function assignmentWarnings(visit, {
     //
     // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
     if (picksDoctor(course) && !slot.doctorId) {
-      out.push(`${at}：${course.name} 還沒選醫師`);
+      say(`${at}：${course.name} 還沒選醫師`);
     }
     if (!picksDoctor(course) && slot.doctorId) {
-      out.push(`${at}：${course.name} 不需要指定醫師`);
+      say(`${at}：${course.name} 不需要指定醫師`);
     }
 
     if (course.assigns === 'room') {
-      if (!slot.roomId) out.push(`${at}：${course.name} 還沒選診間`);
+      if (!slot.roomId) say(`${at}：${course.name} 還沒選診間`);
       else {
         const allowed = roomsForCourse(course, rooms);
         // **停用的那一間不是「別間」**（ADR-0127）：問的是它的類型排不排得進這門課（`roomFitsCourse()`），
         // 不是它還選不選得到 —— 點滴8 停用之後照舊是點滴室。刪掉的那一間主檔上沒有了，照舊算別間
         const mine = (rooms ?? []).find((r) => r.id === slot.roomId && !r.deletedAt) ?? null;
         if (allowed.length && !allowed.some((r) => r.id === slot.roomId) && !roomFitsCourse(course, mine)) {
-          out.push(
+          say(
             `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
           );
         }
       }
-      if (slot.therapistId) out.push(`${at}：${course.name} 不需要指派治療師`);
+      if (slot.therapistId) say(`${at}：${course.name} 不需要指派治療師`);
     }
 
     if (course.assigns === 'therapist') {
-      if (!slot.therapistId) out.push(`${at}：${course.name} 還沒選治療師`);
-      if (slot.roomId) out.push(`${at}：${course.name} 不佔診間`);
+      if (!slot.therapistId) say(`${at}：${course.name} 還沒選治療師`);
+      if (slot.roomId) say(`${at}：${course.name} 不佔診間`);
     }
 
     if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
-      out.push(`${at}：${course.name} 不需要診間也不需要治療師`);
+      say(`${at}：${course.name} 不需要診間也不需要治療師`);
     }
 
     // 排的品項不是她買的那一款。2026-09-04 她問的：「我營養點滴如果一開始
@@ -1887,11 +1930,12 @@ function assignmentWarnings(visit, {
     const bought = entsById[slot.entitlementId]?.ivProductId ?? null;
     if (bought && slot.ivProductId && slot.ivProductId !== bought) {
       const name = ivById[bought]?.name ?? '（已刪除的品項）';
-      out.push(`${at}：這一段的品項跟買的不一樣（買的是 ${name}）`);
+      // 跟「還沒選治療師」不是同一種：這一句會改變扣到哪一款（`mustSee()`）
+      say(`${at}：這一段的品項跟買的不一樣（買的是 ${name}）`, 'ivMismatch');
     }
   });
 
-  return out;
+  return found;
 }
 
 /**
@@ -1941,14 +1985,16 @@ function conflictWarnings(visit, {
   sameDayVisits = [], rooms = [], staff = [], courses = [], equipment = [], ivProducts = [],
   slotLabel = defaultSlotLabel,
 }) {
-  const out = [];
+  const found = [];
   const master = { courses, equipment, ivProducts };
   const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
-  const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
+  const staffName = (id) => fullNameOf(staff.find((s) => s.id === id)) || '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
     if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
     const at = slotLabel(i);
+    // 這一圈每一句都是這一段的（`warningDetails()`）
+    const say = (text) => found.push({ text, slots: [i] });
 
     // 那一天別人排的、跟這一段撞在一起的每一格
     const clashes = [];
@@ -1986,7 +2032,7 @@ function conflictWarnings(visit, {
         const names = [...new Set(inRoom.map(whoOf))].join('、');
         // 裝得下好幾位的那一間把每一位都點名；只裝一位的只講第一格
         for (const c of (capacity > 1 ? inRoom : inRoom.slice(0, 1))) said.add(c);
-        out.push(capacity > 1
+        say(capacity > 1
           ? `${at}：${roomName(slot.roomId)} ${slot.startsAt}–${slot.endsAt} 這個時間`
             + `已經有 ${inRoom.length} 位（最多 ${capacity} 位）：${names}`
           : `${at}：${roomName(slot.roomId)} ${inRoom[0].theirs.startsAt}–`
@@ -1999,7 +2045,7 @@ function conflictWarnings(visit, {
       for (const c of clashes) {
         if (c.theirs.therapistId !== slot.therapistId) continue;
         said.add(c);
-        out.push(
+        say(
           `${at}：${staffName(slot.therapistId)} ${c.theirs.startsAt}–${c.theirs.endsAt} `
           + `已經排了 ${whoOf(c)}`,
         );
@@ -2018,14 +2064,14 @@ function conflictWarnings(visit, {
     // **上面已經因為這一格講過話的不再講**：同一件事不出兩句（那是我方的建議，她回「照你的建議」）。
     for (const c of clashes) {
       if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
-      out.push(
+      say(
         `${at}：這位客戶 ${c.theirs.startsAt}–${c.theirs.endsAt} 已經有另一段`
         + `（${slotName(c.theirs, master, 'short')}・${shortStatus(slotStatus(c.other, c.theirs))}）`,
       );
     }
   }
 
-  return out;
+  return found;
 }
 
 /**
@@ -2066,10 +2112,12 @@ function frequencyWarnings(visit, { courses = [], entitlements = [], customerVis
       .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 
     if (!previous) continue;
-    out.push(
-      `${course.name} 有「${rule}」的限制，上次是 ${previous.date}，`
-      + `距這次 ${daysBetween(previous.date, visit.date)} 天`,
-    );
+    out.push({
+      text: `${course.name} 有「${rule}」的限制，上次是 ${previous.date}，`
+        + `距這次 ${daysBetween(previous.date, visit.date)} 天`,
+      // 講的是那門課，不是哪一段 —— 那門課還算數的每一段都算
+      slots: (visit.slots ?? []).map((s, i) => (s.courseId === course.id && isLiveSlot(s) ? i : -1)).filter((i) => i >= 0),
+    });
   }
 
   return out;

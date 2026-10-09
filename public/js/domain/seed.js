@@ -3,8 +3,8 @@
 // 全部都能在設定頁改，這只是初始值。ID 刻意用固定的英文代號而不是隨機字串，
 // 這樣重複載入不會長出第二份，方案範本也能穩定指向課程與器材。
 //
-// SPEC 第 13 節仍列為資料缺口的部分（完整診間清單、各點滴室床位數、
-// 完整治療師名單）就照目前已知的填，之後在設定頁補。
+// SPEC 第 13 節當時列的資料缺口（完整診間清單、完整治療師名單）2026-10-06 照 Abovee 的清單補齊了；
+// 床位那一層 2026-09-08 拿掉了（ADR-0079、0127）。**正式站從這一份開始**（2026-10-08 她：「正式站從種子開始，我自己重新調」）。
 
 import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.js';
 
@@ -89,15 +89,16 @@ export const SEED = {
   // 醫師（夏、許、李）2026-08-20 加進來 —— 約二返時要選醫師，
   // 所以他們現在也會被指派到時段上。這推翻了 SPEC 第 12 節原本那句
   // 「醫師不放進 config/staff」，見 docs/adr/0026-doctors-are-assignable-staff.md。
-  // 姓氏就是她講的全部，名字她沒說，不要自己補。
+  // 這裡只放她口述的叫法（醫師的姓、治療師的名字）。**全名不進 repo**：2026-10-09 起顯示名是全名、
+  // 這裡的名字變成那一位的簡寫，全名跟著合併檔 v6 進來（ADR-0141）—— 不要在這裡補全名。
   //
   // **2026-10-06 補到跟 Abovee 的服務資源清單一樣**（治療師 13 位、醫師 8 位）。她：
   // 「醫師也可以都補上去，也幫我把李夏許的名子補齊全，或是補在abovee的寫法那邊」「同意公開」。
   //
   // **全名照舊不寫在這裡**（真名不進 repo），而且不用寫：拍 Abovee 認人（`abovee.js` 的 `staffFrom()`）
-  // 靠的是「治療師的名字是全名的結尾、醫師的姓是全名的開頭」—— 治療師放不含姓的名字、醫師放姓就認得，
-  // 夏／許／李不用補全名。**她想記全名的話填在「Abovee 上的寫法」那一格，顯示名不要改**：
-  // 合併檔輸出的是這裡的名字，app 匯入時拿名字精確比對主檔（`mergeImport.js` 的 `resolveAssignments()`）。
+  // 靠的是「治療師的簡寫是全名的結尾、醫師的簡寫是全名的開頭」—— 治療師放不含姓的名字、醫師放姓就認得。
+  // 合併檔輸出的照舊是這裡的名字；app 匯入時名字對不到會再比簡寫（`mergeImport.js` 的 `staffByName()`），
+  // 所以她把顯示名改成全名之後照樣對得到（10/6 那一句「全名填在 Abovee 上的寫法、顯示名不要改」被 ADR-0141 推翻了）。
   //
   // **兩位張不是「張」**：同名存不下去，而且姓氏規則兩位都符合就誰都不是。用「姓＋名字的第一個字」，
   // 全名各自只對到一位（比只有姓多一個字，她同意）。
@@ -163,7 +164,7 @@ export const SEED = {
     { id: 'eq-laser', name: '高能量雷射', courseId: 'course-recovery', contraindications: ['體內金屬'], aboveeNames: ['高能量'] },
     // 別稱跟它那個課程一樣是 `IL`（她自己記的寫法）。月檢視印的是器材別稱，
     // 所以四選一那一筆排到 ILIB 的那一天，日曆上就是 `IL`。
-    // 一般那一種不會印成 `ILIB(IL)` —— `slotName()` 認得出這兩個是同一件事。
+    // （「一般」那一種名字 2026-09-08 拿掉了，不會再印成 `ILIB(IL)`。）
     { id: 'eq-ilib', name: 'ILIB', shortName: 'IL', courseId: 'course-iv-laser', contraindications: [], aboveeNames: ['ILIB'] },
   ],
 
@@ -264,8 +265,8 @@ export const SEED = {
       // 門診要的是**醫師，不是空間**（她 2026-09-08）。選不選得到醫師看 `doctorPick`
       // （`picksDoctor()`），所以這裡什麼都不用指派。
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
-      // 指定一科是**排序不是限制**（ADR-0120）：那一科的醫師排前面。種子醫師還沒填科別，
-      // 在她填之前這一排跟以前長得一模一樣（那一科沒有人 → 全部列出來）。
+      // 指定一科是**排序不是限制**（ADR-0120）：那一科的醫師排前面。種子上復健科只有一位，
+      // 所以新的一段會先幫她選好（`doctorChoicesFor()` 的 `preselect`）。
       doctorPick: '復健科',
       requiresEquipment: false, frequencyRule: null,
       // 她 2026-09-08：「除了二返、營養諮詢之外，復健科門診也要事後寫記錄」。
@@ -281,8 +282,7 @@ export const SEED = {
       requiresEquipment: false, frequencyRule: null,
     },
     {
-      // 唯一一個開了 requiresDoctor 的種子課程。復健科醫師門診與心臟科評估
-      // 其實也有醫師，但她只講了二返 —— 主檔上打開就好，不用改程式（同 ADR-0022）。
+      // 要醫師、哪一科讀 `doctorPick`（ADR-0120）；`requiresDoctor` 存檔時跟著寫，讀的那一側只認 `doctorRuleOf()`。
       id: 'course-followup', name: '二返', group: '醫師門診', category: 'A',
       systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['二返'],
       // 同復健科醫師門診：要醫師不要空間（她 2026-09-08）。
@@ -481,7 +481,7 @@ export const SEED = {
       requiresEquipment: false, requiresIvProduct: true, frequencyRule: null,
     },
 
-    // ---- 不產生任務：這五項不需要掛號，是刻意的不是漏填 ----
+    // ---- 不產生任務：這六項不需要掛號，是刻意的不是漏填 ----
     {
       id: 'course-inbody', name: '身體組成分析', group: '運動區', category: null,
       systems: ['Abovee'], durationMin: 20, aboveeNames: ['身體組成'],

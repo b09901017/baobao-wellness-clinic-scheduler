@@ -167,6 +167,18 @@ async function importLoose(path, docs, onProgress = null) {
   return done;
 }
 
+/**
+ * 人員改成全名＋簡寫（合併檔 v6，ADR-0141）。要改哪幾位、驗證都在 `domain/mergeImport.js` 的 `staffRenames()`。
+ * **一個 commit**：21 位一起，斷線不會只改一半；走 `repo` 所以稽核照記（誰是她）。
+ */
+export async function importStaff(changes) {
+  if (!changes?.length) return 0;
+  await repo.commit(changes.map((c) => config.updateOp('staff', c.id, {
+    name: c.name, shortName: c.shortName, ...(c.aboveeNames ? { aboveeNames: c.aboveeNames } : {}),
+  })));
+  return changes.length;
+}
+
 /** 行事備註與休假。兩種都是 `events`，靠 `category` 分（ADR-0045）。 */
 export const importEvents = (docs, onProgress = null) => importLoose('events', docs, onProgress);
 

@@ -41,7 +41,8 @@ import * as eventsData from '../../data/events.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import {
   buildCustomerQueue, newBatch, progressOf, markInQueue, nextPending, monthRange,
-  monthChoices, mergeIntoQueue,
+  batchRows, presentQueue,
+  monthChoices,
   strongestReason, sortQueueRows, QUEUE_SORTS,
 } from '../../domain/scheduling.js';
 import { dayStatus, partLabel, partOfTime } from '../../domain/availability.js';
@@ -53,8 +54,8 @@ import {
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
-import { bookingConsequences, settledDayLine } from '../../domain/consequences.js';
-import { slotName } from '../../domain/naming.js';
+import { bookingConsequences, closedDayLine, settledDayLine } from '../../domain/consequences.js';
+import { slotName, fullNameOf } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, secondFollowupIds,
@@ -406,9 +407,12 @@ async function loadAll(targetMonth) {
  * `batch.queue` 的那幾位，於是開批之後才新增的客人**永遠**進不去。
  * ADR-0001 的 Consequences 只授權凍結順序，規則在 `mergeIntoQueue()`。
  *
- * @returns {{rows: object[], queue: object[], added: string[]}}
- *   `added` 非空時呼叫端要把 `queue` 寫回去 —— 不寫的話「已壓 5 / 23」
- *   的分母跟牆上的人數對不起來，而那個數字她會看。
+ * **刪掉的客戶不畫**（2026-10-08）：組列與「哪一份拿來畫、哪一份拿來存」都在
+ * `domain/scheduling.js` 的 `batchRows()`，這裡只把現算的那一份交過去。
+ *
+ * @returns {{rows: object[], queue: object[], present: object[], added: string[]}}
+ *   `added` 非空時呼叫端要把 `queue`（**沒濾過的那一份**）寫回去 —— 不寫的話新加入的那幾位
+ *   下次重整就不見了。「已壓 5 / 23」的分母看的是 `present`（牆上的人數）。
  */
 function rowsOf(batch, data) {
   // **全部客戶都現算一次**，不先 filter。`startBatch()` 本來就是這樣算的，
@@ -418,21 +422,7 @@ function rowsOf(batch, data) {
     targetMonth: batch.targetMonth,
     includeUsedUp: true,
   });
-  const live = new Map(all.map((r) => [r.customerId, r]));
-
-  // 新加入的門檻跟開批那一刻同一道：身上還有剩的才算（`buildCustomerQueue()`
-  // 預設的那一條）。**已經在佇列裡的用完了照樣留著** —— 處理到一半人從畫面上
-  // 消失是最難懂的一種畫面，所以上面才傳 includeUsedUp。
-  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0));
-
-  return {
-    queue,
-    added,
-    rows: queue.map((q) => ({
-      ...q,
-      ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
-    })),
-  };
+  return batchRows(batch, { all, customers: data.queueInput.customers });
 }
 
 /**
@@ -459,9 +449,10 @@ async function catchUpQueue(batch, queue, added) {
  * 她捲到的位置對應的那一份。
  */
 async function contextAfterCatchUp(el, batch, data) {
-  const { rows, queue, added } = rowsOf(batch, data);
+  const { rows, queue, present, added } = rowsOf(batch, data);
   await catchUpQueue(batch, queue, added);
-  return { el, batch: { ...batch, queue }, rows, ...data };
+  // `batch.queue` 是存回去用的那一份（一筆都不少）；`present` 是畫出來的（刪掉的客戶不在裡面）
+  return { el, batch: { ...batch, queue }, present, rows, ...data };
 }
 
 // ---------- 批次 ----------
@@ -566,7 +557,8 @@ function mount() {
 
 function paintPage() {
   const { batch } = ctx;
-  const p = progressOf(batch);
+  // 分母是牆上的人數：刪掉的客戶還在存下來的名單上（`batch.queue`），但不算進這裡
+  const p = progressOf({ queue: ctx.present });
 
   ctx.el.querySelector('[data-page]').innerHTML = `
     <button class="backlink" type="button" data-leave>${icon('left', { size: 17 })}壓表</button>
@@ -1222,8 +1214,8 @@ function recordedSlots(row) {
   for (const v of ctx.queueInput.visitsBy[row.customerId] ?? []) {
     if (!isActive(v) || v.date < ctx.range.from || v.date > ctx.range.to) continue;
     for (const s of v.slots ?? []) {
-      const who = ctx.all.staff.find((x) => x.id === s.therapistId)?.name
-        ?? ctx.all.rooms.find((x) => x.id === s.roomId)?.name ?? '';
+      const who = fullNameOf(ctx.all.staff.find((x) => x.id === s.therapistId))
+        || (ctx.all.rooms.find((x) => x.id === s.roomId)?.name ?? '');
       out.push({
         visitId: v.id,
         date: v.date,
@@ -1328,7 +1320,8 @@ function addNote(sameDay, closed) {
     return `這一段會併進同一天已經有的來訪。${settledDayLine()}。`;
   }
   if (sameDay) return '這一段會併進同一天已經有的來訪裡 —— 排班的單位是「某人某天來一次」。';
-  if (closed.length) return '這天已經結案了，所以這一段會另開一次新的來訪。';
+  // 同一句跟拍 Abovee 的確認框共用（`consequences.js`，prelaunch-fixes/11）
+  if (closed.length) return `${closedDayLine()}。`;
   return '存下去會記到日曆上，標成「待確認」，待辦會多一張「跟客人確認時間」。';
 }
 
@@ -2158,7 +2151,21 @@ async function addSlot() {
   //
   // **併進剛讀回來的那一份**，不是打開這一頁時的（prelaunch-audit-2026-09-23/issues/19）：
   // 另一台在那之後替同一天加的一段，整筆寫回去時才不會被蓋掉。
-  const customerVisits = await visitsData.listByCustomer(selected.customerId);
+  //
+  // **順手問一次人還在不在**（2026-10-08）：她正開著這位的卡片、另一台裝置把他刪了，
+  // 存下去就是一筆沒有主人的來訪（日曆上看得到，點名字是「找不到這位客戶」）。
+  // `undefined`＝這一下讀不到（網路）：不知道就不擋，照舊往下存
+  const [customerVisits, owner] = await Promise.all([
+    visitsData.listByCustomer(selected.customerId),
+    customersData.get(selected.customerId).catch(() => undefined),
+  ]);
+  if (owner === null) {
+    toast.info(`${selected.customerName ?? '這位客戶'}已經被刪掉了，這一段沒有存。要排他的話先到設定 → 已刪除項目把他還原`);
+    if (await reload()) return;
+    closeDeck();
+    paintPage();
+    return;
+  }
   const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisits);
   const { errors, warnings } = validateVisit(visit, {
     customer: { flags: selected.flags ?? [] },
@@ -2262,8 +2269,12 @@ async function mark(state) {
     reason = '手動跳過';
   }
 
+  // 寫回去的是整份名單；「下一位」只在還找得到人的那幾位裡挑 ——
+  // 挑到刪掉的那一位的話牆上沒有他那一列，那一疊會直接關掉
   const queue = markInQueue(batch, selected.customerId, state, reason);
-  const next = nextPending({ ...batch, queue }, selected.customerId);
+  const next = nextPending(
+    { queue: presentQueue(queue, ctx.queueInput.customers) }, selected.customerId,
+  );
 
   try {
     await toast.withSaveState(

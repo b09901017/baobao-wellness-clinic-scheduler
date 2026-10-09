@@ -83,8 +83,11 @@ npx firebase-tools@15 deploy \
 `--project staging` 認得出來是因為 `.firebaserc` 有這個別名：
 
 ```json
-{ "projects": { "default": "…scheduler", "prod": "…scheduler", "staging": "…staging" } }
+{ "projects": { "default": "…staging", "prod": "…scheduler", "staging": "…staging" } }
 ```
+
+**預設是 staging**（2026-10-08 起）：漏打 `--project` 的指令落在 staging，不是正式站。
+這份文件裡每一條指令照舊把 `--project` 寫出來 —— 要上正式就寫 `--project prod`，不要靠預設值。
 
 第一次會叫你登入（`npx firebase-tools@15 login`）。
 
@@ -380,16 +383,20 @@ PR develop → main → 自動上正式
 備份如果沒有被還原過，它只是一個 JSON 檔。
 
 ```bash
-# 1. app 的設定頁 → 匯出備份（不用勾稽核）
+# 1. app 的設定頁 → 匯出備份（不用勾稽核），下載下來的檔案搬到 .local/references/
 # 2. 開模擬器（另一個終端機）
 npm run emulators
 
 # 3. 先看它打算做什麼，再真的還原到模擬器
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
 ```
+
+**備份檔放 `.local/references/`，不要放在程式資料夾的最外層。** 它裡面是全部客戶、健康資訊與試算表的密鑰，
+而這個 repo 是公開的。`.gitignore` 現在任何一層的 `排課系統備份-*.json` 都擋（改了檔名就擋不到），
+`.local/` 是整個資料夾都擋 —— 放那裡不用記得檔名長怎樣。
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
 
@@ -431,15 +438,17 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 ## 七、上線前檢查表
 
-完整版在 `.scratch/PRODUCTION_AUDIT.md` 的 §3.4。最容易漏的四件：
+每一次合進 `main` 都要看的（2026-09-01 的舊版在 `.scratch/PRODUCTION_AUDIT.md` §3.4，那一份不再更新）：
 
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一了嗎**
       （測試只盯 SHELL 清單，不盯版號）
 - [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
-- [ ] **切換那天**（ADR-0118）：正式站重新匯合併檔；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
-- [ ] 部署後在正式環境跑一次 `#/settings/health`，**findings 數量跟部署前一樣**
-      （突然多出一堆＝新版寫壞了東西）
+- [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
+- [ ] 部署後確認新版真的在跑：`curl -sI https://<那個站>.web.app/js/app.js | grep -i cache-control` 與 `/` 都是 `no-cache`
+      （2026-10-08 起，`firebase.json`；以前是一小時，「明明部署了卻沒變」可能是這個）。連推兩次時 Actions 上第二次是「等待中」
+- [ ] 部署後在那個環境跑一次 `#/settings/health`，**跟部署前比**：多出來的是不是這一輪的「種子有、你沒有」那幾列（主檔在跟上新版，由上往下按完）？
+      其他的多出一堆＝新版寫壞了東西。**切換那天例外**：主檔是剛載的種子，主檔那幾列應該都是 0
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**
       有沒有寫進 [操作手冊](./操作手冊.md) 的最後一節
 - [ ] 拍照功能第一次進 `main` → 正式環境照「三之三」做完了嗎：尤其 **6 建 bucket、6b 推一次
@@ -449,6 +458,53 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
       `APP_CHECK_SITE_KEYS.prod`**（現在是 `null`）、**從本機部署一次 Function**
       （「部署那一支 Function」，`--project` 換成正式）。少一樣的話正式站的相機按鈕照樣看得到，
       但每一次辨識都被擋 —— 沒有金鑰是「驗證不過」，沒有 Function 是「辨識失敗」
+
+### 切換那天（2026-10-09 決定：正式站連主檔一起刪掉、重新載入種子）
+
+這一天連主檔一起刪掉、重新載入現在的種子。為什麼這樣刪、為什麼留那三類見 [ADR-0143](./adr/0143-cutover-day-deletes-production-with-firebase-tools.md)。
+**挑一天收工之後做**：合併檔裡今天以前與今天的來訪匯進來直接是**已完成**（ADR-0029），
+今天還沒來的客人會被記成來過。當天沒來的那幾段匯完自己去日曆改成未到。
+
+0. **先確定正式站已經是這一版**（這一輪合進 `main`、Actions 上「測試與部署」三個部署步驟全綠）：
+   `curl -sI https://wellness-clinic-scheduler.web.app/js/app.js | grep -i cache-control` 是 `no-cache`；
+   設定 → 舊資料匯入 那個框裡的灰字寫著 `baobao-merge/v6`。**還是舊版就先不要往下做** —— 舊版的「載入種子資料」載的是舊種子，也收不下 v6 的合併檔。
+1. **備份**：正式站 設定 → 匯出備份（**勾「含稽核紀錄」**，因為等一下稽核會刪掉），檔案搬到 `.local/references/`，
+   `git check-ignore -v .local/references/<檔名>` 確認擋住。順手打開檔案看一眼客戶數與來訪數，之後對帳用。
+2. **刪之前抄下來**（刪掉就只剩備份裡有，合併檔不會帶回來）：設定 → LINE 回覆模板裡你改過的那幾則、排序權重那一頁的**每一個數字**（四個權重＋四個天數／分鐘，共八格）、
+   試算表報表的網址與密鑰、AI 用量的每月上限與「暫停」有沒有開，以及**你自己在正式站加的主檔**（方案範本、營養品、合作機構、警示 —— 種子上沒有的那幾筆）。
+3. **刪**：用本機的 firebase-tools（她本人的登入，`npx firebase login`），**一類一類點名**，不用 `--all-collections`。
+   刪之前先到主控台的 Firestore 看一眼每一類各有幾筆，跟第 1 步的備份對一下。
+   **下面每一行都是真的刪**，一行一類、十行，一行一行貼（每一行會問一次「確定嗎」）：
+   ```bash
+   npx firebase firestore:delete customers --recursive --project prod
+   npx firebase firestore:delete visits --recursive --project prod
+   npx firebase firestore:delete tasks --recursive --project prod
+   npx firebase firestore:delete batches --recursive --project prod
+   npx firebase firestore:delete notes --recursive --project prod
+   npx firebase firestore:delete events --recursive --project prod
+   npx firebase firestore:delete formInvites --recursive --project prod
+   npx firebase firestore:delete formResponses --recursive --project prod
+   npx firebase firestore:delete audit --recursive --project prod
+   npx firebase firestore:delete config --recursive --project prod
+   ```
+   - 每一行問「確定嗎」的時候，**看清楚專案是 `wellness-clinic-scheduler` 再按 y**（不加 `--force`）
+   - `--recursive` 會連子集合一起刪：客戶底下的額度、可用性、療程單；`config` 底下的主檔（`config/app/<種類>`）、設定（`config/app`）與 AI 上限（`config/ai`）
+   - **不刪的三類**：`allowedUsers`（白名單）、`aiUsage`（AI 的帳本）、`playbooks`（備忘錄）—— 上面那十行裡沒有它們，不要自己加
+   - 療程單的照片在 Storage：正式站還沒存過照片（「三之三」6、6b 做完之前存不了），有的話到主控台 Storage 刪 `treatmentSheets/`
+4. **載入種子**：打開正式站 → 設定 → 頁面上「還沒有任何主檔」那一張 →「載入種子資料」。載完跑一次 `#/settings/health`：
+   主檔那幾列（器材、診間、課程、品項、人員「少了／跟建議的不一樣」）**應該都是 0**。不是 0 就停下來，先不要匯入。
+5. **重填設定**（第 2 步抄下來的，沒填的那一格是預設值，而且畫面上看不出來）：
+   - 設定 → 排序權重：w1～w4、來訪內時段間隔、幾天沒回覆就跳紅色、健檢做完幾天內要問到報告、拿到報告幾天內要寄給醫師並約好二返
+   - 設定 → LINE 回覆模板：你改過的那幾則
+   - 設定 → 試算表報表：網址與密鑰（「讓它自己推」那一張）
+   - 設定 → AI 用量：每月上限、「暫停」有沒有開（正式站拍照開通之後才用得到）
+   - 你自己加的主檔：照第 2 步的清單在設定頁一筆一筆建回來
+6. **匯入**：產一份帶人員名單的合併檔（`merge.mjs … --staff-names .local/references/staff-names.json --today <那一天>`，見
+   `.claude/skills/calendar-sheet-merge/SKILL.md`）→ 設定 → 舊資料匯入 → 貼上 →「讀進來」：
+   「會寫進去什麼」第二行是「人員：N 位會改成全名」—— **人員的名字跟著這一份一起改好**，不用先去設定頁改
+   （ADR-0141）。確認數字跟第 1 步的備份對得上再按「開始匯入」。
+7. **試算表**：正式站接的那一份 Google 試算表重貼 `.gs` 並重新部署（`sheets/README.md`「升版之後」）—— 這一輪多了「做的比買的多，剩餘標紅」，
+   不重貼的話照舊只有剛好 0 的那一格紅。
 
 > **2026-10-05 那一輪**：`SYNC_FORMAT` 從 6 跳到 7（沒有額度的段 —— n返、功醫門診 —— 的記一句印在來訪紀錄那一行），
 > staging 與正式各自接的那一份試算表都要**重貼 `.gs` 並重新部署**，同下面那一輪的步驟。

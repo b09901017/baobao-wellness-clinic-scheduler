@@ -11,7 +11,7 @@
 // （docs/adr/0002-app-records-decisions-it-does-not-make-them.md）。
 // 所以每一項的貢獻都要攤成人話標籤，讓她看得懂為什麼這人排第一，不同意就跳過去。
 
-import { counts, isProduct } from './entitlements.js';
+import { counts, isProduct, poolOrder } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
 import { isActive, coursesForEntitlement } from './visits.js';
 import { overlaps, toMinutes } from './visitTime.js';
@@ -181,9 +181,9 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
     });
   }
 
-  // 快用完的排前面 —— 她要先看到「這個只剩一次了」。二返一律最後（`followupsLast()`）
-  pools.sort((a, b) => followupsLast(a, b) || a.remaining - b.remaining
-    || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+  // 二返一律最後（`followupsLast()`）→ 有做過或排過的排前面 → 同一組裡快用完的排前面
+  // （她要先看到「這個只剩一次了」）→ 名字。後三層是 `poolOrder()`，跟客戶詳情那一排同一支（ADR-0137）
+  pools.sort((a, b) => followupsLast(a, b) || poolOrder(a, b));
 
   const withLeft = pools.filter((p) => p.remaining > 0 && isValidDate(p.expiresAt));
   const soonestExpiry = withLeft.length
@@ -195,6 +195,20 @@ export function customerPools({ entitlements = [], visits = [], cached = true })
     totalRemaining: pools.reduce((sum, p) => sum + Math.max(0, p.remaining), 0),
     soonestExpiry,
   };
+}
+
+/**
+ * 代表這位客戶去算急迫度的那一筆額度：最快到期、還有剩的那一筆；一樣的話挑快用完的。
+ *
+ * **不靠 `pools` 的顯示順序。** 以前是 `pools.find(…) ?? pools[0]`，而顯示順序 2026-10-08 多了一層
+ * 「有在用的排前面」（ADR-0137）—— 照舊取第一筆的話，那一筆會換成別的額度，客戶之間「先壓誰」的排名
+ * 可能跟著動。那一次改的只是「一位客戶裡面幾筆額度的先後」，所以這裡自己照原本那個順序挑：
+ * 二返最後 → 剩得少的 → 名字。
+ */
+function leadPool(pools, soonestExpiry) {
+  const order = [...pools].sort((a, b) => followupsLast(a, b) || a.remaining - b.remaining
+    || String(a.label).localeCompare(String(b.label), 'zh-TW'));
+  return order.find((p) => p.remaining > 0 && p.expiresAt === soonestExpiry) ?? order[0] ?? null;
 }
 
 /** 某一段期間內她自己排的來訪有幾次。 */
@@ -251,7 +265,7 @@ export function buildCustomerQueue({
 
     // rowFor 要一份「代表性的額度」來算急迫度。用最快到期的那一份 ——
     // 會籍在跑而次數沒上完，急的是那一份。
-    const lead = pools.find((p) => p.remaining > 0 && p.expiresAt === soonestExpiry) ?? pools[0] ?? null;
+    const lead = leadPool(pools, soonestExpiry);
     const state = {
       entitlement: lead ? { id: lead.entitlementId, label: lead.label, expiresAt: lead.expiresAt } : null,
       remaining: totalRemaining,
@@ -789,6 +803,60 @@ export function mergeIntoQueue(batch, rows) {
       })),
     ],
     added,
+  };
+}
+
+/**
+ * 名單上**還找得到人**的那幾筆。
+ *
+ * 凍結的名單存的是 id，而客戶是刪得掉的（ADR-0109：沒有掛著來訪、待辦、隨手記就刪得掉 ——
+ * 例如誤建的重複客戶）。刪掉之後那一位在名單裡以前退回成「只有名字的一列」：牆上那張卡不會消失，
+ * 點進去「做什麼」那一排照樣有不算次數的課（每位客人都有，ADR-0121），存得進一筆沒有主人的來訪。
+ *
+ * **停用不算找不到**：停用是她選的，那一批開的時候他在名單上就照舊在。
+ *
+ * @param {{customerId: string}[]} queue
+ * @param {{id: string, deletedAt?: unknown}[]} customers 現在的客戶清單（停用的也在裡面）
+ */
+export function presentQueue(queue, customers) {
+  const here = new Set((customers ?? []).filter((c) => !c.deletedAt).map((c) => c.id));
+  return (queue ?? []).filter((q) => here.has(q.customerId));
+}
+
+/**
+ * 那一批畫在牆上的列：凍結的名單 ＋ 現算的即時資訊，**把新符合資格的人接進來、把找不到的人濾掉**。
+ *
+ * 回兩份名單，用途不一樣（prelaunch-fixes-2026-10-08/issues/07）：
+ *
+ * - `queue`：**要存回資料庫的那一份，一筆都不少**。刪掉的那一位還在裡面、位置沒動 ——
+ *   她從「已刪除項目」把他還原之後，他要回到原本的位置。有人被加進這一批時（`added` 非空）
+ *   呼叫端會把這一份寫回去；寫的是濾過的那一份的話，刪掉的那一位就從存下來的名單上消失了。
+ * - `present`／`rows`：**畫出來的那一份**。牆上的列、篩選丸子上的數字、「已壓 N / M 位」的分母、
+ *   「下一位」是誰，全部照它算（`progressOf({ queue: present })`）。
+ *
+ * @param {object} batch
+ * @param {{all: object[], customers: object[]}} now
+ *   all：`buildCustomerQueue({ includeUsedUp: true })` 現算的每一位；customers：現在的客戶清單
+ * @returns {{queue: object[], added: string[], present: object[], rows: object[]}}
+ */
+export function batchRows(batch, { all = [], customers = [] } = {}) {
+  const live = new Map(all.map((r) => [r.customerId, r]));
+
+  // 新加入的門檻跟開批那一刻同一道：身上還有剩的才算（`buildCustomerQueue()`
+  // 預設的那一條）。**已經在名單裡的用完了照樣留著** —— 處理到一半人從畫面上
+  // 消失是最難懂的一種畫面，所以 `all` 是帶著 includeUsedUp 算的。
+  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0));
+  const present = presentQueue(queue, customers);
+
+  return {
+    queue,
+    added,
+    present,
+    rows: present.map((q) => ({
+      ...q,
+      // 還在、但這一次沒算出列的（停用了）：退回只有名字的一列
+      ...(live.get(q.customerId) ?? { customerName: q.customerName, reasons: [], pools: [] }),
+    })),
   };
 }
 

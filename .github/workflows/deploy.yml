@@ -17,6 +17,23 @@ on:
 permissions:
   contents: read
 
+# **同一條分支的部署排隊，不取消進行中的。**
+#
+# 2026-10-07 staging 有 19 秒退回上一版：兩次 push 連著來，較舊的那一次測試跑得久、
+# 部署那一步後完成，就把新的蓋回去了。
+#
+# - **掛在 workflow 這一層，不是 `deploy` 那個 job**：只掛在 job 上的話，排隊的順序是
+#   「誰的測試先跑完」不是 commit 的順序，舊的後完成照樣會發生。
+# - `cancel-in-progress: false`：取消會把部署砍在一半（Hosting 上了、Rules 沒上）。
+#   同一組裡最多一個在跑、一個在等，後來的會頂掉還在等的那一個 ——
+#   所以連推三次，最後部署上去的一定是最新的那一次。
+# - **照「上哪一個環境」分組，不是照分支**（2026-10-09 審查）：`main` 是正式，其餘會部署的都是 staging ——
+#   跟底下「決定要部署到哪裡」同一個條件。只照分支分的話，「手動執行」從別的分支跑也是上 staging，
+#   卻跟 `develop` 的 push 不同組，兩邊照樣互相蓋。PR 不部署，照舊一支 PR 自己一組（各跑各的測試）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.ref == 'refs/heads/main' && 'prod' || 'staging') }}
+  cancel-in-progress: false
+
 env:
   # 都不是密鑰，與 .firebaserc、public/js/firebase-config.js 同一組值。
   # 放進 secrets 只會讓 Actions 日誌把它遮成 ***，出事時反而看不懂。

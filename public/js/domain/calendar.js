@@ -220,7 +220,7 @@ export function agendaFor(
           ? nameOf(roomsById[slot.roomId], 'short')
           : null,
         bed: slot.bed ?? null,
-        therapist: staffById[slot.therapistId]?.name ?? null,
+        therapist: staffById[slot.therapistId] ? nameOf(staffById[slot.therapistId], 'short') : null,
         roomId: slot.roomId ?? null,
         therapistId: slot.therapistId ?? null,
         // 這一筆底下有沒有她自己打的字（來訪編輯器的「記的話」）。

@@ -510,9 +510,24 @@ describe('待辦鏈：追蹤健檢報告 → 約二返', () => {
       visit('v3', '2026-08-20', 'f-a', { status: 'confirmed' }),
     ];
 
+    // 2026-10-08（ADR-0139）：a 那一份的二返只是**約了**，報告照樣要追 —— 兩次健檢各一張。
+    // 以前這裡只長 v2 那一張（a 的二返一約掉，a 那一次整條都不長）。
     const { create } = sync({ entitlements: [a, b, fa, fb], visits });
-    assert.equal(create.length, 1);
-    assert.equal(create[0].visitId, 'v2');
+    assert.deepEqual(create.map((t) => `${t.kind}@${t.visitId}`).sort(), [
+      `${REPORT_TASK_KIND}@v1`, `${REPORT_TASK_KIND}@v2`,
+    ]);
+
+    // a 那一份的二返**做完了**才不長，而它不會抵掉 b 那一份的
+    const doneA = visits.map((v) => (v.id === 'v3' ? { ...v, status: 'done' } : v));
+    const after = sync({ entitlements: [a, b, fa, fb], visits: doneA });
+    assert.deepEqual(after.create.map((t) => t.visitId), ['v2']);
+
+    // 「約二返」那一邊照舊各算各的：兩次的報告都勾過 → a 約掉了不長，b 還欠一次要長
+    const ticked = ['v1', 'v2'].map((visitId) =>
+      report({ id: `r-${visitId}`, visitId, done: true, doneAt: '2026-09-05T02:00:00.000Z' }));
+    const bookings = sync({ entitlements: [a, b, fa, fb], visits, tasks: ticked })
+      .create.filter((t) => t.kind === FOLLOWUP_TASK_KIND);
+    assert.deepEqual(bookings.map((t) => t.visitId), ['v2']);
   });
 });
 
@@ -1067,6 +1082,369 @@ describe('寄報告給醫師（第二站的第二張）', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// ADR-0139：報告那一張不等二返約了沒（prelaunch-fixes-2026-10-08/issues/15）
+// ---------------------------------------------------------------------------
+//
+// 她常在同一次就把健檢和二返一起排好。以前「追蹤健檢報告」長出來也要過 `owed()`（還欠幾次二返），
+// 先約好二返 → 報告那一張不長 → 「寄報告給醫師」等不到它被勾掉，整條都不長。
+// 她 2026-10-08：「照樣長（報告那一張也不受「約好二返」影響）」。
+//
+// **只改「長出來」**：要不要追報告＝健檢那一段做完了、這一次健檢的二返還沒做完。
+// 「約二返」那一圈一個字都沒動，「留著」那一側（ADR-0068）也沒動。
+
+describe('報告那一張不等二返約了沒（ADR-0139）', () => {
+  const A = visit('vA', '2026-08-01', 'ent-checkup');
+  const B = visit('vB', '2026-09-01', 'ent-checkup');
+
+  /** 一場二返。`examId` 給了就是有連結的那一種；沒給是健檢還沒做完時就先約好的、或匯進來的舊資料。 */
+  const second = (id, date, status, examId = null, over = {}) => ({
+    id,
+    customerId: 'c1',
+    customerName: '客戶甲',
+    date,
+    status,
+    slots: [{ entitlementId: 'ent-followup', courseId: 'course-followup', followupForVisitId: examId }],
+    ...over,
+  });
+
+  const ticked = (visitId, over = {}) =>
+    report({ id: `r-${visitId}`, visitId, done: true, doneAt: '2026-09-05T02:00:00.000Z', ...over });
+
+  /** 這一輪會長出哪幾張：`種類@掛在哪一次健檢`。 */
+  const grows = (o) => sync(o).create.map((t) => `${t.kind}@${t.visitId}`).sort();
+
+  describe('表的每一格', () => {
+    test('二返還沒約、報告還沒勾 → 追蹤健檢報告（照舊）', () => {
+      assert.deepEqual(grows({ visits: [A] }), [`${REPORT_TASK_KIND}@vA`]);
+    });
+
+    test('二返還沒約、報告勾了 → 約二返＋寄報告（照舊）', () => {
+      assert.deepEqual(
+        grows({ visits: [A], tasks: [ticked('vA')] }),
+        [`${SEND_REPORT_TASK_KIND}@vA`, `${FOLLOWUP_TASK_KIND}@vA`].sort(),
+      );
+    });
+
+    for (const status of ['pending_confirm', 'confirmed']) {
+      test(`健檢和二返同一次排好（二返還接不到健檢，${status}）→ 健檢做完照樣長追蹤健檢報告`, () => {
+        const plan = sync({ visits: [A, second('s1', '2026-08-29', status)] });
+        assert.deepEqual(plan.create.map((t) => `${t.kind}@${t.visitId}`), [`${REPORT_TASK_KIND}@vA`]);
+        assert.equal(plan.create[0].dueDate, '2026-08-22', '死線照舊：健檢日 + 21');
+        assert.deepEqual(plan.remove, []);
+      });
+
+      test(`二返約了還沒做（有連結，${status}）、報告還沒勾 → 追蹤健檢報告`, () => {
+        assert.deepEqual(
+          grows({ visits: [A, second('s1', '2026-08-29', status, 'vA')] }),
+          [`${REPORT_TASK_KIND}@vA`],
+        );
+      });
+    }
+
+    for (const examId of [null, 'vA']) {
+      test(`二返約了還沒做（${examId ? '有' : '沒'}連結）、報告勾了 → 只有寄報告，不可以長約二返`, () => {
+        assert.deepEqual(
+          grows({ visits: [A, second('s1', '2026-09-20', 'confirmed', examId)], tasks: [ticked('vA')] }),
+          [`${SEND_REPORT_TASK_KIND}@vA`],
+        );
+      });
+
+      test(`二返做完了（${examId ? '有' : '沒'}連結）→ 報告那一張不長`, () => {
+        assert.deepEqual(grows({ visits: [A, second('s1', '2026-08-20', 'done', examId)] }), []);
+      });
+
+      test(`二返做完了（${examId ? '有' : '沒'}連結）、報告勾過 → 追蹤健檢報告與約二返都不長`, () => {
+        const out = grows({ visits: [A, second('s1', '2026-09-20', 'done', examId)], tasks: [ticked('vA')] });
+        assert.deepEqual(out.filter((x) => !x.startsWith(SEND_REPORT_TASK_KIND)), []);
+      });
+    }
+
+    test('勾過「約二返」的那一次（整條鏈結束了）→ 不長報告', () => {
+      const settled = task({ id: 'tb', visitId: 'vA', done: true, doneAt: '2026-08-20T00:00:00.000Z' });
+      assert.deepEqual(grows({ visits: [A], tasks: [settled] }), []);
+      assert.deepEqual(grows({ visits: [A, second('s1', '2026-09-20', 'confirmed')], tasks: [settled] }), []);
+    });
+
+    test('有一張開著的「約二返」、從來沒有報告的舊資料 → 不補報告，那一張照舊', () => {
+      const { create, update, remove } = sync({ visits: [A], tasks: [task({ id: 'tb', visitId: 'vA' })] });
+      assert.deepEqual([create, update, remove], [[], [], []]);
+    });
+
+    test('同一張舊的「約二返」在二返約好的那一輪被收掉 —— 同一輪不補報告', () => {
+      const { create, remove } = sync({
+        visits: [A, second('s1', '2026-09-20', 'confirmed')],
+        tasks: [task({ id: 'tb', visitId: 'vA' })],
+      });
+      assert.deepEqual(create, []);
+      assert.deepEqual(remove, [{ id: 'tb', reason: '二返已經約好了' }]);
+    });
+  });
+
+  describe('二返沒連到哪一次健檢的：有連結的先定案，剩下的才照位置', () => {
+    test('A 的二返有連結、約了還沒做；B 的二返做完、沒連結 → 長的是 A，不是比較新的 B', () => {
+      assert.deepEqual(
+        grows({
+          visits: [A, B, second('s1', '2026-10-20', 'confirmed', 'vA'), second('s2', '2026-09-20', 'done')],
+        }),
+        [`${REPORT_TASK_KIND}@vA`],
+      );
+    });
+
+    test('一場沒連結的二返做完、A 的報告勾過 → B 要長，不可以被 A 佔掉名額', () => {
+      const out = grows({
+        visits: [A, B, second('s1', '2026-08-25', 'done')],
+        tasks: [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })],
+      });
+      assert.ok(out.includes(`${REPORT_TASK_KIND}@vB`), `B 沒有長出報告：${out.join('、')}`);
+      assert.ok(!out.includes(`${REPORT_TASK_KIND}@vA`), 'A 的報告勾過了');
+    });
+
+    // 同一個情境以前會替 A 長一張「約二返」（A 有待辦所以排前面，而 A 的二返其實做完了）。
+    // 現在 B 這一輪要長的報告也算「已經有待辦」—— 不算的話這一輪替 A 長、下一次存檔又收掉。
+    test('同一個情境一輪就到定點：不替 A 長一張下一次存檔又要收掉的「約二返」', () => {
+      const visits = [A, B, second('s1', '2026-08-25', 'done')];
+      const tasks = [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })];
+      const first = sync({ visits, tasks });
+      assert.deepEqual(first.create.map((t) => `${t.kind}@${t.visitId}`), [`${REPORT_TASK_KIND}@vB`]);
+      const again = sync({ visits, tasks: [...tasks, ...first.create.map((t, i) => ({ ...t, id: `n${i}` }))] });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []]);
+    });
+
+    // ADR-0139「還沒有答案的」那一格，她 2026-10-09 回了（ADR-0142）：
+    // > A 照建議的 名額先給報告已勾過的那一次，A 留著「約二返」。多一張提醒可以勾掉，少一張沒人提醒。
+    // A 的報告勾過、還沒約二返；B 是健檢和二返同一次排好的，現在做完了。那一場二返沒有連結：
+    // 數得出「還欠一次」，認不出是誰的。以前照「已經有待辦的排前面、新的在前」算給 B，A 的「約二返」這一輪不長。
+    test('兩次健檢同時在路上、新的那一次的二返是先約好的 → B 長報告；「約二返」名額先給報告勾過的 A', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })];
+      const first = sync({ visits, tasks });
+      assert.deepEqual(
+        first.create.map((t) => `${t.kind}@${t.visitId}`).sort(),
+        [`${FOLLOWUP_TASK_KIND}@vA`, `${REPORT_TASK_KIND}@vB`].sort(),
+      );
+      const again = sync({ visits, tasks: [...tasks, ...first.create.map((t, i) => ({ ...t, id: `n${i}` }))] });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []], '一輪就到定點');
+    });
+
+    // 同一個資料狀態，那一場其實是 A 的（她替 A 約了、沒選「這是哪一次健檢的」）也長這樣 —— 認不出來。
+    // 這是她接受的代價：A 那一張不會自己收，要她自己勾（ADR-0142）。反過來收掉的話，那一場是 B 的時候 A 就沒人提醒。
+    test('A 的「約二返」已經開著、一場沒連結的二返約了、B 做完了 → A 那一張留著', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [
+        ticked('vA'),
+        task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' }),
+      ];
+      const { create, update, remove } = sync({ visits, tasks });
+      assert.deepEqual(remove, []);
+      assert.deepEqual(update, []);
+      assert.deepEqual(create.map((t) => `${t.kind}@${t.visitId}`), [`${REPORT_TASK_KIND}@vB`]);
+    });
+
+    // 兩次的報告都勾了、名額只有一個：已經開著「約二返」的那一次先留（「A 留著」）。照舊「新的在前」的話，
+    // 她一勾 B 的報告，A 那一張就被收掉、改長在 B 身上 —— 而那一場二返是跟 B 一起約的時候，A 就沒人提醒了
+    // 照位置會把那一場算成最舊的 A 的；但它也可能是跟 B 一起約的（她：「客人常當場一起約」）。
+    // 收掉的話那一場是 B 的時候 A 就沒人提醒 —— 開著的那一張留著，要不要勾她決定
+    test('A 的「約二返」開著、B 做完、一場沒連結的二返簽成做了（日期在 B 之後）→ A 那一張留著', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'done')];
+      const tasks = [
+        ticked('vA'),
+        task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' }),
+        report({ id: 'tr-vB', visitId: 'vB', dueDate: '2026-09-22' }),
+      ];
+      const { create, update, remove } = sync({ visits, tasks });
+      assert.deepEqual([create, update, remove], [[], [], []]);
+    });
+
+    test('B 的報告也勾了、A 的「約二返」開著 → A 那一張留著，B 不長', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), ticked('vB', { id: 'r-vB' }), task({ id: 'tb', visitId: 'vA', dueDate: '2026-09-12' })];
+      const { create, remove } = sync({ visits, tasks });
+      assert.deepEqual(remove, []);
+      assert.ok(!create.some((t) => t.kind === FOLLOWUP_TASK_KIND), create.map((t) => `${t.kind}@${t.visitId}`).join('、'));
+    });
+
+    test('兩次的報告都勾了、哪一次都還沒有「約二返」→ 照舊新的在前', () => {
+      const visits = [A, B, second('s1', '2026-09-20', 'confirmed')];
+      const tasks = [ticked('vA'), ticked('vB', { id: 'r-vB' })];
+      const out = grows({ visits, tasks });
+      assert.ok(out.includes(`${FOLLOWUP_TASK_KIND}@vB`), out.join('、'));
+      assert.ok(!out.includes(`${FOLLOWUP_TASK_KIND}@vA`), out.join('、'));
+    });
+
+    test('名額先給報告勾過的，但照位置已經做完二返的那一次不算（二返日期在 B 之前，只可能是 A 的）', () => {
+      // 跟上面「一輪就到定點」同一份：那一場二返做完了，照位置配給最舊的 A —— A 不是「報告勾過、還在等二返」
+      const visits = [A, B, second('s1', '2026-08-25', 'done')];
+      const tasks = [ticked('vA'), task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true })];
+      assert.deepEqual(grows({ visits, tasks }), [`${REPORT_TASK_KIND}@vB`]);
+    });
+
+    // 切換那天匯進來的幾乎都是這一種：舊的健檢與它的二返都做完了、二返沒有連結。
+    // 之後她做第二次健檢、勾掉它的報告 —— 舊的那一次不可以因此冒出一張逾期的報告
+    test('舊的那一次健檢二返做完了（沒連結）、新的那一次報告勾過 → 舊的那一次不長', () => {
+      const out = grows({ visits: [A, B, second('s1', '2026-08-25', 'done')], tasks: [ticked('vB')] });
+      assert.ok(!out.some((x) => x.startsWith(REPORT_TASK_KIND)), out.join('、'));
+    });
+
+    // 2026-10-09 審查查到的兩格。兩格的前提都是「約二返」是她自己勾掉的、那一場二返沒有連結 ——
+    // 正是 ADR-0142 她接受的代價（「A 那一張要她自己勾」）之後會留下來的樣子。
+
+    // A 的二返做完了（沒連結）；B 是健檢和二返同一次排好的。以前照位置時先把勾過「約二返」的 A 拿掉，
+    // 那一場做完的二返就配給「剩下最舊的」B —— B 被當成二返做完了，報告不長、寄報告也等不到
+    test('A 的「約二返」勾過、A 的二返做完（沒連結）；B 健檢＋二返同一次排好、B 做完 → B 要長報告', () => {
+      const visits = [A, B, second('s1', '2026-08-25', 'done'), second('s2', '2026-10-20', 'confirmed')];
+      const tasks = [
+        ticked('vA'),
+        task({ id: 'ts', visitId: 'vA', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vA', done: true, doneAt: '2026-08-10T02:00:00.000Z' }),
+      ];
+      const first = sync({ visits, tasks });
+      assert.deepEqual(first.create.map((t) => `${t.kind}@${t.visitId}`), [`${REPORT_TASK_KIND}@vB`]);
+      const again = sync({ visits, tasks: [...tasks, ...first.create.map((t, i) => ({ ...t, id: `n${i}` }))] });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []], '一輪就到定點');
+    });
+
+    // 決定 2：「二返已經做完」的舊健檢不可以長出報告 —— 切換那天匯進來的全是這種（沒有連結、沒有任何待辦）。
+    // B 的「約二返」她先自己勾掉了、那一場還沒記進 app：數得出還欠一次，而沒勾過的只剩照位置算二返做完了的 A。
+    // 以前名額就落到 A 身上：A 從來沒有過報告，於是長一張死線是健檢日＋21 天、一出生就逾期的「追蹤健檢報告」
+    test('舊的那一次二返做完了（沒連結、從來沒有待辦）、新的那一次的「約二返」她自己勾掉了 → 舊的那一次不長', () => {
+      const visits = [A, B, second('s1', '2026-08-25', 'done')];
+      const tasks = [
+        ticked('vB'),
+        task({ id: 'ts', visitId: 'vB', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vB', done: true, doneAt: '2026-09-10T02:00:00.000Z' }),
+      ];
+      assert.deepEqual(grows({ visits, tasks }), []);
+    });
+
+    // 同一格的另一半：照位置算做完的那一次**身上本來就有待辦**的照舊留在名單最後（ADR-0142 第 5 層，寧可多一張）
+    test('照位置算二返做完了的那一次，開著的「追蹤健檢報告」不會因此被收掉', () => {
+      const visits = [A, B, second('s1', '2026-08-25', 'done')];
+      const tasks = [
+        report({ id: 'tr-vA', visitId: 'vA', dueDate: '2026-08-22' }),
+        ticked('vB'),
+        task({ id: 'ts', visitId: 'vB', kind: SEND_REPORT_TASK_KIND, done: true }),
+        task({ id: 'tb', visitId: 'vB', done: true, doneAt: '2026-09-10T02:00:00.000Z' }),
+      ];
+      const { create, update, remove } = sync({ visits, tasks });
+      assert.deepEqual([create, update, remove], [[], [], []]);
+    });
+
+    test('兩次健檢、一場沒連結的二返約了還沒做 → 兩次的報告都要追', () => {
+      assert.deepEqual(
+        grows({ visits: [A, B, second('s1', '2026-10-20', 'confirmed')] }),
+        [`${REPORT_TASK_KIND}@vA`, `${REPORT_TASK_KIND}@vB`],
+      );
+    });
+
+    test('兩次健檢、一場沒連結的二返做完 → 只追比較新的那一次（二返是照順序做的）', () => {
+      assert.deepEqual(
+        grows({ visits: [A, B, second('s1', '2026-08-25', 'done')] }),
+        [`${REPORT_TASK_KIND}@vB`],
+      );
+    });
+
+    test('二返的總次數是上限：只買 1 次二返、健檢做了兩次、二返做完一次 → 一張都不長', () => {
+      assert.deepEqual(
+        grows({
+          entitlements: [checkup(), followup({ totalQty: 1 })],
+          visits: [A, B, second('s1', '2026-08-25', 'done')],
+        }),
+        [],
+      );
+    });
+  });
+
+  describe('每一條判準', () => {
+    test('報告勾掉之後：長寄報告，不多一張約二返（健檢和二返同一次排好的那條路走完）', () => {
+      const visits = [A, second('s1', '2026-08-29', 'confirmed')];
+      const first = sync({ visits });
+      assert.deepEqual(first.create.map((t) => t.kind), [REPORT_TASK_KIND]);
+      const next = sync({
+        visits,
+        tasks: [{ ...first.create[0], id: 'tr', done: true, doneAt: '2026-08-20T02:00:00.000Z' }],
+      });
+      assert.deepEqual(next.create.map((t) => t.kind), [SEND_REPORT_TASK_KIND]);
+      assert.deepEqual(next.remove, []);
+    });
+
+    for (const status of ['cancelled', 'no_show']) {
+      test(`那一場二返${status === 'cancelled' ? '取消了' : '未到'} → 這一次健檢回到「二返還沒約」那一列`, () => {
+        const visits = [A, second('s1', '2026-08-29', status, 'vA')];
+        assert.deepEqual(grows({ visits }), [`${REPORT_TASK_KIND}@vA`]);
+        assert.deepEqual(
+          grows({ visits, tasks: [ticked('vA')] }),
+          [`${SEND_REPORT_TASK_KIND}@vA`, `${FOLLOWUP_TASK_KIND}@vA`].sort(),
+          '報告勾過 → 約二返要回來',
+        );
+      });
+    }
+
+    test('健檢那一段被取消、同一天別段做完了 → 不長（問的是健檢那一段，ADR-0112）', () => {
+      const mixed = {
+        ...A,
+        status: 'done',
+        slots: [
+          { entitlementId: 'ent-checkup', courseId: 'course-checkup', status: 'cancelled' },
+          { entitlementId: 'ent-other', courseId: 'course-recovery', status: 'done' },
+        ],
+      };
+      assert.deepEqual(grows({ visits: [mixed, second('s1', '2026-08-29', 'confirmed')] }), []);
+    });
+
+    test('勾過的「追蹤健檢報告」被清掉 → 不再長一張（ADR-0106）', () => {
+      const cleared = ticked('vA', { deletedAt: '2026-09-10' });
+      const out = grows({ visits: [A, second('s1', '2026-09-20', 'confirmed')], tasks: [cleared] });
+      assert.ok(!out.includes(`${REPORT_TASK_KIND}@vA`), out.join('、'));
+    });
+
+    test('沒勾過就被收掉的那一張（復原、系統收掉）→ 當成不存在，照樣長', () => {
+      const gone = report({ id: 'tr', visitId: 'vA', deletedAt: '2026-08-10' });
+      assert.deepEqual(
+        grows({ visits: [A, second('s1', '2026-09-20', 'confirmed')], tasks: [gone] }),
+        [`${REPORT_TASK_KIND}@vA`],
+      );
+    });
+
+    test('n返 兩邊都不算：做完的三返不代表二返做完，也不讓報告少長', () => {
+      const third = {
+        id: 'n1',
+        customerId: 'c1',
+        date: '2026-08-20',
+        status: 'done',
+        slots: [{ entitlementId: null, courseId: 'course-followup', followupNth: 3, followupForVisitId: 'vA' }],
+      };
+      assert.deepEqual(grows({ visits: [A, third] }), [`${REPORT_TASK_KIND}@vA`]);
+      assert.deepEqual(
+        grows({ visits: [A, third, second('s1', '2026-09-20', 'confirmed')] }),
+        [`${REPORT_TASK_KIND}@vA`],
+      );
+    });
+
+    test('沒有二返額度 → 照舊不長（那張待辦點下去無事可做）', () => {
+      assert.deepEqual(grows({ entitlements: [checkup()], visits: [A] }), []);
+    });
+
+    test('已經有一張開著的報告 → 不再長第二張；二返後來做完了它照樣留著（ADR-0068）', () => {
+      const open = report({ id: 'tr', visitId: 'vA' });
+      for (const status of ['confirmed', 'done']) {
+        const { create, remove } = sync({ visits: [A, second('s1', '2026-08-29', status)], tasks: [open] });
+        assert.deepEqual([create, remove], [[], []], status);
+      }
+    });
+
+    test('存幾次都一樣：長出來的那一張放回去再算一次，什麼都不動', () => {
+      const visits = [A, B, second('s1', '2026-10-20', 'confirmed', 'vA'), second('s2', '2026-10-21', 'confirmed')];
+      const first = sync({ visits });
+      const tasks = first.create.map((t, i) => ({ ...t, id: `t${i}` }));
+      const again = sync({ visits, tasks });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []]);
+    });
+  });
+});
+
 // ---------- 清掉之後的鏈上任務（prelaunch-audit-2026-09-23/issues/07） ----------
 //
 // 同 ADR-0106：勾過又被清掉（軟刪除）的照樣算做過；沒勾過就被刪掉的（復原、系統收掉）不算。
@@ -1100,13 +1478,80 @@ describe('清掉的鏈上任務照樣算做過', () => {
 });
 
 describe('健檢鏈比對讀連軟刪除的那一份', () => {
-  test('followupOps() 與 chainPlans() 都走 listByCustomerForSync()', async () => {
+  test('followupOps()、chainPlans() 與確認框試算用的 chainInputs() 都走 listByCustomerForSync()', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../public/js/data/visits.js', import.meta.url), 'utf8');
     assert.ok(!src.includes('tasksData.listByCustomer('), '不含軟刪除的那一支看不到清掉的約二返');
-    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 2);
+    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 3);
     const tasks = readFileSync(new URL('../public/js/data/tasks.js', import.meta.url), 'utf8');
     const at = tasks.indexOf('export function listByCustomerForSync(');
     assert.match(tasks.slice(at, at + 200), /repo\.listWithDeleted\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 隨機情境：存幾次都一樣（ADR-0142）
+// ---------------------------------------------------------------------------
+//
+// 第一圈的排法改了（報告勾過的先拿名額、開著「約二返」的先留、照位置做完二返的排最後）。
+// 排法一有「這一輪的結果改變下一輪的排序」就會一存一變 —— 這一輪長、下一輪收。
+// 把這一輪的長、改、收都套回去再算一次，什麼都不該再動。
+//
+// 不造「開著一張約二返、從來沒有報告」的舊形狀（`stationFor()` 第 2 條）：那一種本來就要兩次存檔才停 ——
+// 約二返被收掉之後下一次才補報告（ADR-0139「後果」），上線前的資料才有，切換那天重新匯。
+
+describe('隨機情境：長出來、改、收掉的套回去再算一次，什麼都不再動', () => {
+  test('2000 組（一筆配對、0–3 次健檢、0–3 場二返、任意的鏈上待辦）', () => {
+    // `Math.imul` 不是 `seed * 1103515245`：後者超過 2^53 掉精度，一萬多個數就繞回同一圈（幾百組在重複）
+    let seed = 20261009;
+    const rnd = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 2 ** 32; };
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const STATUSES = ['pending_confirm', 'confirmed', 'done', 'done', 'done', 'no_show', 'cancelled'];
+    const day = (i) => `2026-0${1 + Math.floor(i / 28)}-${String(1 + (i % 28)).padStart(2, '0')}`;
+    const KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND];
+
+    for (let n = 0; n < 2000; n += 1) {
+      const exams = Math.floor(rnd() * 4);
+      const seconds = Math.floor(rnd() * 4);
+      const entitlements = [
+        checkup({ totalQty: 1 + Math.floor(rnd() * 3) }),
+        followup({ totalQty: 1 + Math.floor(rnd() * 3) }),
+      ];
+      const visits = [];
+      for (let i = 0; i < exams; i += 1) {
+        visits.push(visit(`x${i}`, day(i * 20 + Math.floor(rnd() * 10)), 'ent-checkup', { status: pick(STATUSES) }));
+      }
+      for (let i = 0; i < seconds; i += 1) {
+        const link = rnd() < 0.5 && exams ? `x${Math.floor(rnd() * exams)}` : null;
+        visits.push({
+          id: `s${i}`, customerId: 'c1', date: day(100 + i * 9), status: pick(STATUSES),
+          slots: [{ entitlementId: 'ent-followup', courseId: 'course-followup', followupForVisitId: link }],
+        });
+      }
+      const drawn = [];
+      for (let i = 0; i < exams; i += 1) {
+        for (const kind of KINDS) {
+          const r = rnd();
+          if (r < 0.55) continue;
+          drawn.push(task({
+            id: `t-${kind}-${i}`, visitId: `x${i}`, kind, dueDate: '2026-06-10',
+            done: r > 0.8, doneAt: r > 0.8 ? '2026-06-01T00:00:00.000Z' : null,
+            deletedAt: rnd() < 0.1 ? '2026-06-02' : null,
+          }));
+        }
+      }
+      const reportTicked = (id) => drawn.some((t) => t.kind === REPORT_TASK_KIND && t.visitId === id && t.done);
+      const tasks = drawn.filter((t) => t.kind !== FOLLOWUP_TASK_KIND || reportTicked(t.visitId));
+
+      const first = sync({ entitlements, visits, tasks });
+      const removed = new Set(first.remove.map((r) => r.id));
+      const changed = new Map(first.update.map((u) => [u.id, u.changes]));
+      const after = [
+        ...tasks.map((t) => (removed.has(t.id) ? { ...t, deletedAt: '2026-10-09' } : { ...t, ...changed.get(t.id) })),
+        ...first.create.map((t, i) => ({ ...t, id: `new${i}` })),
+      ];
+      const again = sync({ entitlements, visits, tasks: after });
+      assert.deepEqual([again.create, again.update, again.remove], [[], [], []], `第 ${n} 組又動了`);
+    }
   });
 });

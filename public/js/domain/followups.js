@@ -534,6 +534,10 @@ export function examStates(entitlements = [], coursesById = {}, visits = []) {
  * 寄報告不受 —— 二返一約好 `owed` 就掉到 0，擠在同一圈裡的話，
  * 還沒寄出去的報告會在那一刻被靜默收掉。
  *
+ * **第一站那一張「長不長」2026-10-08 起也不受 `owed()` 管**（ADR-0139）：她常在同一次就把
+ * 健檢和二返一起排好，以前先約好二返時報告那一張不長，寄報告也跟著不長。
+ * 它自己算（`examsAwaitingReport()`）：健檢做完了、這一次的二返還沒**做完**。
+ *
  * 這件事屬於**額度層級**，不是單一來訪層級：買了 3 次健檢就會有 3 次二返，
  * 所以不能做成「每完成一次健檢就無條件長一筆」。也因此它不能塞進
  * `syncTasksForVisit()` —— 那一支的視野只有一筆來訪，看不到「另外那兩次
@@ -593,28 +597,56 @@ export function syncFollowupTasks({
   // visitId → { kind, dueDate }。跨全部配對算完再一次比對，這樣「健檢被取消了、
   // 待辦還掛在那裡」也會被收掉 —— 那筆來訪不會再出現在任何配對的清單裡。
   const wanted = new Map();
+  // 「追蹤健檢報告」**長不長**自己一份，不過 `owed()` 那道閘門（ADR-0139）
+  const wantedReport = new Map();
 
   for (const pair of pairsOf(entitlements, coursesById)) {
     if (!pair.followup) continue;
 
+    for (const visit of examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled })) {
+      wantedReport.set(visit.id, reportStation(visit, reportDueDays));
+    }
+
+    // ---------- 第一圈：約二返（`owed()` 數幾張，這裡排哪幾次拿到）----------
+    //
+    // 它排出來的站裡也有「追蹤健檢報告」（還欠二返的那幾次）。留著不拆是因為「約二返」的收與留
+    // 都問它：`keepsOpen()` 問這一次健檢現在站在哪、`reasonFor()` 靠「它現在該是報告那一站」
+    // 講出「報告那一張被拿回來了」。兩邊排到的報告最後併在一起長（`stations`）。
     const want = owed(pair, visits);
     if (!want) continue;
 
-    // 已經真的約好那一場的健檢也不用待辦了。**這一道是連結那一層帶來的精準度**：
-    // `owed()` 早就會因為多一場二返而少算一次，但它算的是**幾張**，不是**哪幾張** ——
-    // 所以在這一道之前，被收掉的可能是別的那一次健檢的待辦，而真的約掉的那一次
-    // 反而還掛在那裡。她看到的症狀是「我明明約好了，它還在叫我去約」。
+    // 候選＝做完、沒被有連結的二返佔著（**連結那一層帶來的精準度**：`owed()` 算的是**幾張**不是**哪幾張**，
+    // 少了這一道，真的約掉的那一次反而還掛著 —— 她：「我明明約好了，它還在叫我去約」）、沒勾過「約二返」的。
+    // 沒連結、做完的二返照位置配給最舊的那幾次（`covered`），跟報告那一圈同一支（`placeSeconds()`）。
     //
-    // 舊資料（二返沒指到健檢）走不到這裡，行為跟以前一模一樣。
-    const booked = claimedExams(pair.followup.id, visits);
-    const candidates = doneVisitsFor(pair.source, visits)
-      .filter((v) => !settled.has(v.id) && !booked.has(v.id));
-
-    // 已經有待辦的排前面，其餘照日期新到舊。二返是照順序約掉的，先做的健檢
-    // 先約，所以還欠的一定是最後那幾次。已有的排前面則是為了不要每存一次檔
+    // **名額怎麼排**（ADR-0142，推翻 ADR-0139「還沒有答案的」那一格）：一場沒連結的二返約了、兩次健檢都在路上時，
+    // 數得出還欠一次、認不出是誰的。她 2026-10-09：「名額先給報告已勾過的那一次，A 留著「約二返」。
+    // 多一張提醒可以勾掉，少一張沒人提醒。」報告那一張不靠名額（ADR-0139），把名額給還在等報告的那一次是浪費。
+    //
+    // 1. 報告勾過、「約二返」已經開著的 —— 「A 留著」：她一勾別次的報告、或簽掉一場認不出是誰的二返，
+    //    開著的這一張都不會被換走或收掉（**連照位置算做完了的也是**：那一場二返可能是跟別次一起約的）
+    // 2. 報告勾過的
+    // 3. 其他已經有待辦的（**這一輪要長的報告也算**，ADR-0139：不算的話這一輪長、下一輪收）
+    // 4. 其餘
+    // 5. 照位置算已經做完二返的（`covered`；排最後不剔掉：資料對不上時寧可多一張。它們之間也照 2–4 排）。
+    //    **其中從來沒有過任何一張待辦的不進名單**（2026-10-09 審查）：那是切換那天匯進來的舊健檢，名額落到它身上
+    //    只會長一張死線是健檢日＋報告天數、一出生就逾期的「追蹤健檢報告」，而它的二返早就做完了。
+    //    名額會多出來落到這一層，只有一種情況：別次的「約二返」她先自己勾掉了、那一場還沒記進來
+    //
+    // 同一層裡新的在前：二返是照順序約掉的，還欠的是最後那幾次。已經有待辦的排前面，是為了不要每存一次檔
     // 就把待辦刪掉重建一張 —— 那會在稽核紀錄裡刷出一整排沒有意義的變更。
-    const has = (v) => openReport.has(v.id) || doneReport.has(v.id) || openBooking.has(v.id);
-    const ordered = [...candidates.filter(has), ...candidates.filter((v) => !has(v))];
+    const { open, covered } = placeSeconds(pair, visits, settled);
+    const behind = new Set(covered.map((v) => v.id));
+    const has = (v) => openReport.has(v.id) || doneReport.has(v.id) || openBooking.has(v.id)
+      || wantedReport.has(v.id);
+    const rank = (v) => {
+      if (doneReport.has(v.id) && openBooking.has(v.id)) return 0;
+      const r = doneReport.has(v.id) ? 1 : has(v) ? 2 : 3;
+      return behind.has(v.id) ? r + 3 : r;
+    };
+    const candidates = [...open, ...covered.filter(has)];
+    // 照層排，同一層裡維持原本的先後（新到舊）
+    const ordered = [0, 1, 2, 3, 4, 5].flatMap((r) => candidates.filter((v) => rank(v) === r));
 
     for (const visit of ordered.slice(0, want)) {
       wanted.set(visit.id, stationFor(visit, {
@@ -679,7 +711,11 @@ export function syncFollowupTasks({
     return openBooking.get(visitId);
   };
 
-  for (const [visitId, station] of [...wanted, ...wantedSend]) {
+  // 同一次健檢兩邊都排到時留第一圈那一站：它是報告的話兩邊算出來一模一樣（`reportStation()`），
+  // 它是約二返的話這一次健檢的報告已經勾過了（`examsAwaitingReport()` 不會排它）
+  const stations = new Map([...wantedReport, ...wanted]);
+
+  for (const [visitId, station] of [...stations, ...wantedSend]) {
     const existing = existingFor(station.kind, visitId);
     if (!existing) {
       create.push({
@@ -732,7 +768,7 @@ export function syncFollowupTasks({
  *
  * | 種類 | 長出來要 | 留著要 |
  * |---|---|---|
- * | 追蹤健檢報告 | `owed > 0`（沒買二返額度就不該長） | **那一筆健檢還是已完成的，就這樣** |
+ * | 追蹤健檢報告 | 這一次的二返還沒做完（2026-10-08，ADR-0139；以前是 `owed > 0`） | **那一筆健檢還是已完成的，就這樣** |
  * | 約二返 | 在 `wanted` 裡 | 在 `wanted` 裡（它本來就是 `owed` 在數的東西） |
  * | 寄報告給醫師 | 報告勾掉了 | 報告還是勾掉的（ADR-0065 的第二圈） |
  *
@@ -782,11 +818,110 @@ function stationFor(visit, { report, booking, hasReport, dueDays, reportDueDays 
     return { kind: FOLLOWUP_TASK_KIND, dueDate: booking.dueDate, note: booking.note };
   }
 
+  return reportStation(visit, reportDueDays);
+}
+
+/** 「追蹤健檢報告」那一站：死線從健檢那天算。兩圈共用，各寫一份的話同一張會有兩個死線。 */
+function reportStation(visit, reportDueDays) {
   return {
     kind: REPORT_TASK_KIND,
     dueDate: addDays(visit.date, reportDueDays),
     note: '健檢做完了，去問報告出來了沒',
   };
+}
+
+/**
+ * 有連結的那幾場二返（`followupForVisitId`）把哪幾次健檢定案了：做完的、約了還沒做的。
+ * 取消與未到的不算（`holdsExam()` 的同一個判斷，走 `slotOutcome()`）。
+ *
+ * @returns {{done:Set<string>, booked:Set<string>}} 健檢來訪 id；同一次兩種都有時算做完
+ */
+function linkedSeconds(followupEntitlementId, visits = []) {
+  const done = new Set();
+  const booked = new Set();
+  for (const v of visits ?? []) {
+    for (const slot of v.slots ?? []) {
+      if (!isFollowupSlot(slot, followupEntitlementId) || !slot.followupForVisitId) continue;
+      const outcome = slotOutcome(v, slot);
+      if (outcome === 'done') done.add(slot.followupForVisitId);
+      else if (outcome === 'booked') booked.add(slot.followupForVisitId);
+    }
+  }
+  for (const id of done) booked.delete(id);
+  return { done, booked };
+}
+
+/**
+ * 沒有連結、做完的二返照位置配：二返是照順序做的，所以配給**最舊**的那幾次健檢（ADR-0139）。
+ * 報告那一圈與約二返那一圈共用（ADR-0142）—— 各算一次的話，報告那一圈當成「這一次的二返做完了」、
+ * 約二返那一圈卻把名額給它。
+ *
+ * **勾過「約二返」的那幾次也佔位置**（2026-10-09 審查）：它們不進回傳的兩份名單（那一條鏈結束了），
+ * 但沒連結、做完的二返照樣先配給它們 —— 她自己勾掉「約二返」的那一次，二返多半就是那一場沒連結的
+ * （ADR-0142 她接受的代價留下來的正是這個樣子）。先把它們拿掉再配的話，那一場會落到「剩下最舊的」身上：
+ * 健檢和二返同一次排好的下一次健檢被當成二返做完了，報告不長、寄報告也等不到。
+ *
+ * @returns {{exams:object[], linked:{done:Set<string>, booked:Set<string>}, second:object,
+ *            open:object[], covered:object[]}} `exams`＝做完的健檢；`open` 與 `covered` 合起來＝其中沒被有連結的二返佔著、
+ *   沒勾過「約二返」的那幾次，`covered` 是照位置算已經做完二返的。都是新到舊
+ */
+function placeSeconds(pair, visits, settled) {
+  const exams = doneVisitsFor(pair.source, visits);
+  const linked = linkedSeconds(pair.followup.id, visits);
+  const loose = exams.filter((v) => !linked.done.has(v.id) && !linked.booked.has(v.id));
+  const second = counts(pair.followup, visits, pair.followup.id);
+  const finished = exams.filter((v) => linked.done.has(v.id)).length;
+  // 新到舊，所以「拿掉最舊的幾次」是從尾巴拿
+  const keep = Math.max(0, loose.length - Math.max(0, second.done - finished));
+  const unsettled = (list) => list.filter((v) => !settled.has(v.id));
+  return { exams, linked, second, open: unsettled(loose.slice(0, keep)), covered: unsettled(loose.slice(keep)) };
+}
+
+/**
+ * 這一筆配對底下，哪幾次健檢該**長出**「追蹤健檢報告」（ADR-0139）。
+ *
+ * 她 2026-10-08：「照樣長（報告那一張也不受「約好二返」影響）」。以前這一張也過 `owed()`
+ * （還欠幾次二返），而她常在同一次就把健檢和二返一起排好 —— 二返先約好、`owed` 是 0，
+ * 報告那一張不長，「寄報告給醫師」等不到它被勾掉，整條都不長。
+ *
+ * 所以這一張只問：**健檢那一段做完了，而這一次健檢的二返還沒做完**（沒約、或約了還沒做）。
+ *
+ * | 這一次健檢的二返 | 算不算「還沒做完」 |
+ * |---|---|
+ * | 有連結、做完了 | 不算 —— 不長 |
+ * | 有連結、約了還沒做 | 算，而且**先定案**（不佔下面照位置算的名額） |
+ * | 沒有連結（舊資料、健檢還沒做完時就先約好的那一場） | 照位置，見下 |
+ *
+ * **照位置**：二返是照順序做的，所以沒有連結、做完的那幾場先配給**最舊**的那幾次健檢，
+ * 剩下的才是還沒做完的。名額是 `min(做完的健檢, 二返總次數) − 做完的二返 − 先定案的`
+ * （上限跟 `owed()` 同一個）；名額不夠分時「已經有待辦的排前面、其餘新到舊」
+ * （第一圈 2026-10-09 起多了幾層，ADR-0142；這裡沒有跟 —— 報告那一張不搶「約二返」的名額）。
+ * 少了「先配給最舊的」那一步，一次報告已經勾過的舊健檢會佔掉名額，新的那一次就不長。
+ * 勾過「約二返」的那幾次不進名單（第一圈也是），**但照樣佔位置**（`placeSeconds()`）。
+ *
+ * 排到了還要過三道才真的長：報告沒勾過、沒勾過「約二返」、不是上線前就停在「約二返」那一站的舊資料
+ * （`stationFor()` 第 2 條：有一張開著的約二返、從來沒有報告）。**二返做完的舊健檢不會因此長出來** ——
+ * 切換那天匯進來的幾乎都是這一種。
+ *
+ * n返 兩邊都不算（它不扣二返那一筆額度）：做完的三返不代表二返做完。
+ *
+ * @returns {object[]} 健檢來訪
+ */
+function examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled }) {
+  const { exams, linked, second, open } = placeSeconds(pair, visits, settled);
+  if (!exams.length) return [];
+
+  const definite = exams.filter((v) => linked.booked.has(v.id));
+  const exam = counts(pair.source, visits, pair.source.id);
+  const has = (v) => openReport.has(v.id) || doneReport.has(v.id) || openBooking.has(v.id);
+  const byPosition = [...open.filter(has), ...open.filter((v) => !has(v))];
+  const quota = Math.max(0, Math.min(exam.done, second.total) - second.done - definite.length);
+
+  const pastReport = (v) => doneReport.has(v.id)
+    || settled.has(v.id)
+    || (openBooking.has(v.id) && !openReport.has(v.id));
+
+  return [...definite, ...byPosition.slice(0, quota)].filter((v) => !pastReport(v));
 }
 
 function reasonFor(kind, stillDone, wantedKind) {

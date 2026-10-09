@@ -4,6 +4,7 @@
 // 停用與刪除放在編輯畫面的最下方，而且都要二次確認並顯示具體後果。
 
 import * as config from '../../data/config.js';
+import * as visitsData from '../../data/visits.js';
 import {
   MASTER_LABELS, ROOM_TYPES, STAFF_ROLES, validate,
   ASSIGN_KINDS, ASSIGN_KIND_LABELS, assignKindOf, assignFieldsFor, keepsDoctorBeside, assignSummaryOf,
@@ -20,6 +21,8 @@ import {
   colorTokens, lookOf, styleFor,
 } from '../../domain/clinicalFlags.js';
 import { isFollowupCourse } from '../../domain/followups.js';
+import { courseChangeConsequences } from '../../domain/consequences.js';
+import { changedTaskKinds } from '../../domain/taskRules.js';
 import { MIN_NTH, nthLabel } from '../../domain/nthFollowup.js';
 import * as f from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -27,6 +30,7 @@ import * as toast from '../toast.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { pushScreen } from '../nav.js';
+import { isOffline } from '../net.js';
 import { openCamera } from '../components/camera.js';
 import { seenChip, wireSeen } from '../components/seen.js';
 import { planDraftFrom } from '../../domain/photoPlan.js';
@@ -293,7 +297,7 @@ function moreFields(r, all) {
           name: 'durationChoices', label: '買的時候可選',
           value: (r.durationChoices ?? []).join('、'), placeholder: '30、60',
           hint: '分鐘，用頓號分隔。買的時候分：填了之後加購那一頁會多一排丸子，名字也會帶著它'
-            + '（「超磁場(60)」），30 與 60 是兩筆不同的額度。留空就是只有左邊那一個時長。',
+            + '（「復能-SIS(60)」），30 與 60 是兩筆不同的額度。留空就是只有左邊那一個時長。',
         })}
         ${/* 約的時候選（ADR-0122）。跟左邊那一格分成兩格是因為它們是兩件事：
              左邊是兩筆額度，這一格是同一筆額度每一段自己挑（二返 30 或 60）。 */''}
@@ -386,12 +390,22 @@ const editors = {
   staff: {
     blank: { name: '', role: STAFF_ROLES[0], aboveeNames: [], specialties: [] },
     summary: (r) => [
+      r.shortName ? `簡寫 ${r.shortName}` : null,
       r.role,
       r.specialties?.length ? r.specialties.join('、') : null,
       r.aboveeNames?.length ? `Abovee：${r.aboveeNames.join('、')}` : null,
     ].filter(Boolean).join(' · '),
     fields: (r, all) => [
-      f.text({ name: 'name', label: '姓名', value: r.name, placeholder: '騰崴' }),
+      f.text({
+        name: 'name', label: '姓名', value: r.name, placeholder: '陳小芳',
+        hint: '寫全名。下拉選單、確認框、撞期的提醒都印它。',
+      }),
+      // ADR-0141：照診間那一套 —— 窄的地方印簡寫，其餘印全名
+      f.text({
+        name: 'shortName', label: '簡寫', value: r.shortName ?? '', placeholder: '小芳', maxlength: 12,
+        hint: '日曆那一列、讀取卡片、試算表的「二返(…)」印它。留空就印全名。'
+          + '拍 Abovee 時治療師看全名的結尾、醫師看全名的開頭是不是這個字。',
+      }),
       f.select({
         name: 'role', label: '角色', value: r.role, options: STAFF_ROLES,
         hint: '治療師與醫師是兩種人，選錯的話她會在選單裡找不到這個人。',
@@ -415,11 +429,12 @@ const editors = {
         name: 'aboveeNames', label: 'Abovee 上的寫法', value: (r.aboveeNames ?? []).join('、'),
         placeholder: '陳小芳',
         hint: '拍 Abovee 時服務資源那一格怎麼寫這個人。好幾種用頓號分開。'
-          + '全名結尾就是這個名字的（陳小芳 → 小芳）不用填，認得出來。',
+          + '跟姓名一樣的不用填；治療師的全名結尾是簡寫、醫師的全名開頭是簡寫的（陳小芳 → 小芳、夏大同 → 夏）也認得出來。',
       }),
     ],
     parse: (v) => ({
       name: v.name.trim(),
+      shortName: v.shortName.trim() || null,
       role: v.role,
       aboveeNames: parseAliases(v.aboveeNames),
       // 改成治療師就清掉 —— 那一塊藏起來了，她看不到的東西不可以留在資料上
@@ -1404,8 +1419,13 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
     card?.querySelector('input')?.focus({ preventScroll: true });
   }
 
+  // 存課程那一下可能要先讀一輪來訪、再問一句（ADR-0140），中間她再按一次「儲存」不可以又起一趟：
+  // `withSaveState()` 的 `key` 只擋得住寫入那一段，擋不到它前面的讀與確認框
+  let saving = false;
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (saving) return;
     const values = f.readForm(e.target);
     const parsed = ed.parse(values, record);
     const candidate = { ...parsed, id: record?.id };
@@ -1422,11 +1442,14 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
       return;
     }
 
+    saving = true;
     try {
       if (isNew) {
         await toast.withSaveState(() => config.create(type, { ...parsed, active: true }), {
           success: '已新增', key: `master:create:${type}`,
         });
+      } else if (type === 'courses') {
+        if (!(await saveCourse(record, parsed))) return;
       } else {
         await toast.withSaveState(() => config.update(type, record.id, parsed), {
           success: '已儲存', key: `master:update:${type}:${record.id}`,
@@ -1435,10 +1458,52 @@ function paintForm(el, type, all, record, draft = null, focusItem = null, home =
       back();
     } catch {
       /* withSaveState 已顯示錯誤與重試 */
+    } finally {
+      saving = false;
     }
   });
 
   if (!isNew) wireDangerZone(el, type, record, back);
+}
+
+/**
+ * 存一門既有的課程。**「壓哪幾個系統」或「寫紀錄」變了，已經談定的那幾天要跟著補長或收掉**（ADR-0140）。
+ *
+ * 待辦是存來訪時才算的；不回頭算的話，替一門課多勾「耀聖」之後已經約好的那幾天一張都不會長
+ * （到簽療程單那一下那一段已經不是「已確認」了），取消勾選的也一直留著。
+ *
+ * 先講再寫：哪幾天、多幾張、收幾張是 `courseTaskPlan()` 試算的，存下去跑的是同一段（ADR-0070）。
+ * 一天都不影響就不問 —— 改名字、時長、診間走的就是這一條，跟以前一樣一按就存。
+ * 讀不到（離線）就不存：這一格存下去之後，「這門課變了沒」就是否，沒有人會再回頭補那幾天。
+ * **離線要自己問**（`isOffline()`）—— 開著本機快取時離線的讀取不會失敗，回的是快取裡剛好有的那幾筆，
+ * 照那一份會算出「一天都不影響」。只擋這次改動會動到待辦的；改名字、時長、診間離線照樣存得下去。
+ *
+ * @returns {Promise<boolean>} 存了沒（她在確認框按了「先不要」、或讀不到，是 false）
+ */
+async function saveCourse(record, parsed) {
+  const course = { ...record, ...parsed };
+  const unreadable = '讀不到已經排好的來訪，算不出哪幾天的待辦要跟著變。連上網路再存一次';
+  const kinds = changedTaskKinds(record, course);
+  if ((kinds.grown.length || kinds.dropped.length) && isOffline()) {
+    toast.failed(unreadable);
+    return false;
+  }
+  let plan;
+  try {
+    plan = await visitsData.courseTaskPlan(record, parsed);
+  } catch {
+    toast.failed(unreadable);
+    return false;
+  }
+
+  const ask = courseChangeConsequences({ course, plan });
+  if (ask && !(await confirmAction(ask))) return false;
+
+  await toast.withSaveState(() => visitsData.saveCourseWithTasks(record, parsed), {
+    success: ask ? `已儲存，${plan.rows.length} 天的待辦跟著改了` : '已儲存',
+    key: `master:update:courses:${record.id}`,
+  });
+  return true;
 }
 
 // ---------- 破壞性操作 ----------

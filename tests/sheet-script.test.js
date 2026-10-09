@@ -751,3 +751,80 @@ describe('格式 6：來訪紀錄一段一行、買過什麼', () => {
     assert.equal(rowOf(render(b), '買過什麼'), -1);
   });
 });
+
+// ---------- 超用要紅（prelaunch-fixes-2026-10-08/18） ----------
+//
+// 以前上色問的是 `r.remaining === 0`：剛好用完的紅、做的比買的多（−1）反而沒顏色 ——
+// 她最該注意的那一列最不顯眼。改成「是數字而且 ≤ 0」。**一定要先問是不是數字**：
+// 沒有額度的那幾列「剩餘」是一槓（字串），而 JS 裡 `'' <= 0`、`null <= 0` 都是 true。
+
+describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () => {
+  const LOW = '#FFCDD2';
+  const done = (id, date, entitlementId) => ({
+    id, customerId: 'c1', date, status: 'done',
+    slots: [{ entitlementId, courseName: 'SIS', startsAt: '10:00', endsAt: '11:00', status: 'done' }],
+  });
+  const bundle = () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [
+        { id: 'over', label: '超用', totalQty: 2 },
+        { id: 'zero', label: '剛好', totalQty: 1 },
+        { id: 'left', label: '還有', totalQty: 2 },
+      ] },
+      visitsBy: { c1: [
+        done('v1', '2026-09-01', 'over'), done('v2', '2026-09-08', 'over'), done('v3', '2026-09-15', 'over'),
+        done('v4', '2026-09-01', 'zero'), done('v5', '2026-09-08', 'left'),
+        { id: 'v6', customerId: 'c1', date: '2026-09-20', status: 'done',
+          slots: [{ entitlementId: null, courseId: 'fm', courseName: '功醫門診', startsAt: '15:00', endsAt: '15:30', status: 'done' }] },
+      ] },
+      today: '2026-10-08',
+      master: { courses: [{ id: 'fm', name: '功醫門診', uncounted: true }] },
+    });
+    // `.gs` 收的是 JSON：空字串與 null 兩種「沒有數字」也要擋得住
+    const rows = b.sheets[0].rows;
+    const like = rows.find((r) => r.label === '還有');
+    rows.push({ ...like, label: '空字串', remaining: '' }, { ...like, label: 'null', remaining: null });
+    return b;
+  };
+  const colours = () => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: bundle() });
+    assert.equal(reply.ok, true, reply.error);
+    const sheet = app.ss.getSheetByName('客戶A');
+    const at = (label) => {
+      for (let r = 1; r < 90; r += 1) if (sheet.at(`A${r}`) === label) return r;
+      return -1;
+    };
+    const of = (label) => {
+      const r = at(label);
+      assert.ok(r > 0, `${label} 那一列要畫出來`);
+      return { remaining: sheet.at(`E${r}`), bg: sheet.backgrounds.get(`E${r}`) ?? null };
+    };
+    return { of, sheet };
+  };
+
+  test('前提：三列的剩餘是 −1、0、1，不算次數那一列是一槓', () => {
+    const { of } = colours();
+    assert.deepEqual(['超用', '剛好', '還有', '功醫門診（不算次數）'].map((l) => of(l).remaining), [-1, 0, 1, '—']);
+  });
+
+  test('−1 紅、0 紅、1 不紅', () => {
+    const { of } = colours();
+    assert.equal(of('超用').bg, LOW);
+    assert.equal(of('剛好').bg, LOW);
+    assert.notEqual(of('還有').bg, LOW);
+  });
+
+  test('一槓、空字串、null 都不紅', () => {
+    const { of } = colours();
+    for (const label of ['功醫門診（不算次數）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
+  });
+
+  test('合計那一行照舊（它是一句字，不上色）；格式沒有升', () => {
+    const { sheet } = colours();
+    assert.match(String(sheet.at('C2')), /剩餘 -?\d+/);
+    assert.notEqual(sheet.backgrounds.get('C2'), LOW);
+    assert.equal(SYNC_FORMAT, 7);
+  });
+});

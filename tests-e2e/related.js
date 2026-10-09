@@ -56,6 +56,9 @@ export const NOT_GLOBAL = ['tests-e2e/fixtures/ai/'];
 export const IGNORED = [
   'docs/', '.scratch/', 'README.md', 'SPEC.md', 'CLAUDE.md', 'CONTEXT.md',
   'tests/', '.github/', '.claude/', 'graphify-out/', 'scripts/',
+  // 模擬器的每一條指令都自己帶 `demo-` 專案（`tests/deploy-config.test.js` 盯著），
+  // 所以預設專案與「哪些檔案不進版控」都摸不到 E2E
+  '.firebaserc', '.gitignore',
 ];
 
 /**
@@ -236,6 +239,8 @@ export const COVERAGE = {
     'public/js/ui/views/playbook.js',
     // toast 不蓋導覽列、懸浮鈕與新增客戶那一條（F1–F3）
     'public/js/ui/toast.js', 'public/js/ui/components/customerForm.js', 'public/js/ui/views/customers.js',
+    // 那一疊卡片開著時 toast 站到抬頭上（F5、F6）：壓表的卡片組與拍訂購單的確認卡都是 `.deck`
+    'public/js/ui/views/schedule.js', 'public/js/ui/components/orderConfirm.js',
   ],
   // 來訪編輯器那三支 ADR（0083 一天一筆、0084 記一句在段上、0085 改一段）。
   // **`domain/visits.js` 與 `visitEditor.js` 是它的主場** —— 那兩支底下改一行
@@ -477,6 +482,39 @@ export const COVERAGE = {
     'public/js/ui/components/dialog.js', 'public/js/ui/nav.js', 'public/js/ui/views/bulkCancel.js',
     // D1b：改名之後在簽療程單結案，任務的名字對齊來訪那一份
     'public/js/ui/views/home.js', 'public/js/domain/taskRules.js',
+  ],
+  // 上線前修正第一段（prelaunch-fixes-2026-10-08 的 01–08）：匯入頁只跑一趟
+  '61-prelaunch-import-and-wall': [
+    'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js', 'public/js/domain/mergeImport.js',
+    // H1：模擬器回的快取標頭（Windows 上跳過，CI 才真的量）
+    'firebase.json',
+    // A1、A2：讀取卡片最上面那一排警示（四個畫面共用 `visitReadHtml()`，三頁靠 `fillMirror()` 補讀）
+    'public/js/ui/views/calendar.js', 'public/js/ui/components/taskMirror.js', 'public/js/ui/components/flags.js',
+    // W1、W2：刪掉的客戶不留在壓表牆上
+    'public/js/ui/views/schedule.js', 'public/js/domain/scheduling.js',
+  ],
+  // 2026-10-08 上線前修正，第二段（prelaunch-fixes-2026-10-08/09–14）：拍 Abovee 拿全部來訪算次數、
+  // 提醒在收著的列與確認框上看得到；同一張訂購單拍兩次
+  '62-prelaunch-photos': [
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/consequences.js',
+    'public/js/domain/visits.js', 'public/js/ui/views/schedule.js',
+    'public/js/domain/orderForm.js', 'public/js/ui/components/orderConfirm.js', 'public/js/ui/views/customers.js',
+    'tests-e2e/fixtures/ai/',
+  ],
+  // 2026-10-08 上線前修正，第三段（prelaunch-fixes-2026-10-08/15–18）：健檢和二返同一次排好時報告那兩張照樣長、
+  // 簽療程單抽屜那一句問真的會長什麼；改了課程「壓哪幾個系統／寫紀錄」回頭重算談定的那幾天
+  '63-prelaunch-rules': [
+    'public/js/domain/followups.js', 'public/js/domain/consequences.js', 'public/js/data/visits.js',
+    'public/js/ui/views/home.js', 'public/js/domain/taskRules.js', 'public/js/data/tasks.js',
+    'public/js/ui/views/masterList.js',
+    // K3：取消那一道講「約二返」走的是批次取消那一頁（2026-10-09 審查：以前沒登記，改那一頁不會跑到 K3）
+    'public/js/ui/views/bulkCancel.js',
+  ],
+  // 2026-10-09 上線前修正，第四段（prelaunch-fixes-2026-10-08/19–21）：人員的全名與簡寫（ADR-0141）、
+  // 合併檔 v6 帶人員名單
+  '64-prelaunch-staff-and-merge': [
+    'public/js/ui/views/masterList.js', 'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/mergeImport.js', 'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js',
   ],
 };
 

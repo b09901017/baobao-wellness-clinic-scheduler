@@ -535,9 +535,9 @@ const isBlank = (v) => v == null || String(v).trim() === '';
  * 上限 12 字跟警示同一個理由：**別稱是給窄的地方用的**，
  * 一個比全名還長的別稱等於那一格白填了。
  */
-function nameVariants(r) {
+function nameVariants(r, { short = '別稱' } = {}) {
   const errors = [];
-  for (const [key, label] of [['shortName', '別稱'], ['lineName', 'LINE 名']]) {
+  for (const [key, label] of [['shortName', short], ['lineName', 'LINE 名']]) {
     const v = r[key];
     if (v == null || v === '') continue;
     if (typeof v !== 'string') errors.push(`${label}格式錯誤`);
@@ -636,6 +636,17 @@ const validators = {
     // 不寫「治療師姓名」—— 這份清單現在也放醫師，而那兩個詞不可以混用。
     if (isBlank(r.name)) errors.push('姓名不可空白');
     if (!STAFF_ROLES.includes(r.role)) errors.push('請選擇角色');
+
+    // 簡寫（ADR-0141）。**整份人員一起比、不分角色**：合併檔匯入靠簡寫認出「這一位」，
+    // 角色也是從認到的那一筆讀的 —— 一位醫師與一位治療師同一個簡寫，匯入就分不出來
+    errors.push(...nameVariants(r, { short: '簡寫' }));
+    // 全名對全名是 `duplicateName()` 的事；這裡比另外三種：簡寫對簡寫、簡寫對全名、全名對簡寫
+    const myShort = normalizeAlias(r.shortName);
+    const myName = normalizeAlias(r.name);
+    const clash = (existing ?? []).find((e) => e.id !== r.id && !e.deletedAt && (
+      (myShort && [e.shortName, e.name].some((x) => normalizeAlias(x) === myShort))
+      || (myName && normalizeAlias(e.shortName) === myName)));
+    if (clash) errors.push(`「${clash.name}」的簡寫或全名已經是這個字了 —— 兩位同一個字的話，匯入與拍照分不出是誰`);
 
     // Abovee 上的寫法（issue 12）。**兩位不可以同一個寫法**（`aliasErrors()`）
     errors.push(...aliasErrors(r, existing));

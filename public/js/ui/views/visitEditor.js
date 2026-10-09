@@ -31,7 +31,7 @@ import {
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { splitFlags } from '../../domain/customers.js';
-import { slotName } from '../../domain/naming.js';
+import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
@@ -1383,9 +1383,10 @@ function slotSummary(slot, all) {
   const room = all.rooms.find((r) => r.id === slot.roomId);
   const staff = all.staff.find((s) => s.id === slot.therapistId);
   const doctor = all.staff.find((s) => s.id === slot.doctorId);
-  const where = room ? `${room.name}${slot.bed ?? ''}` : staff?.name ?? '';
+  // 人印全名（`fullNameOf()`，ADR-0141）：這是確認框，不是窄的那三處
+  const where = room ? `${room.name}${slot.bed ?? ''}` : fullNameOf(staff);
   // 醫師接在診間後面而不是取代它：二返同時要診間和醫師，只印一個就少了一半。
-  const who = doctor ? ` ${doctor.name}醫師` : '';
+  const who = doctor ? ` ${fullNameOf(doctor)}醫師` : '';
   // 這道確認是她自己在看的，所以印「那天做了什麼」（`SIS(30)`）——
   // 課程全名那一格是額度在講的話（ADR-0078），兩者不是同一種字
   return `${timeLabel(slot)} ${slotName(slot, all, 'short')}${where ? ` ${where}` : ''}${who}`;
@@ -1429,6 +1430,8 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       slotIndex,
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
       sameDay: ctx.customerVisits,
+      // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
+      chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all)),
     }),
     confirmLabel: '取消這一段',
     danger: true,
