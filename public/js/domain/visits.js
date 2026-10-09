@@ -19,7 +19,7 @@ import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examDoneIn, examStatusIn, examChoicesFor } from './followups.js';
+import { examDoneIn, examStatusIn, examChoicesFor, PICKABLE_EXAM } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds,
@@ -1685,14 +1685,15 @@ function visitErrors(visit, {
       else if (nth && !examDoneIn(exam, examIds)) {
         errors.push(`${at}：指定的那一天沒有一次已完成的健檢`);
       }
-      // **二返也要是一次已完成的健檢**（2026-09-24，issues/11）：「這是哪一次健檢」那一排現在列得出
-      // 還沒做完的（標著狀態、按不下去），這裡擋住繞過去的那一條 —— 她：「不要讓整個流程亂掉」。
-      // **只擋這一次新接上、或換過的連結**：存著的那一份同一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
-      // 擋下來的話她改同一天別段的一個時間都存不回去。段落只會接在尾巴（`hasNewSlots()`），所以同一個位置就是同一段
+      // **二返接得上排著的與做完的健檢，取消、未到的接不上**（ADR-0145；9/24 起只准已完成，issues/11）——
+      // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
+      // **只擋這一次新接上、或換過的連結**：存著的那一份這一天本來就有一段指著它的是舊資料（ADR-0011 那一條原則）——
+      // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去。**問的是這一天有沒有任何一段指著它，不比位置**：
+      // 二返自己改時間（`rebookSlot()`）新的那一段接在尾巴、帶著同一個連結，照位置比會被當成新接上的
       else if (ent?.followupForEntitlementId
-          && stored?.slots?.[i]?.followupForVisitId !== slot.followupForVisitId
-          && !examDoneIn(exam, [ent.followupForEntitlementId])) {
-        errors.push(`${at}：指定的那一次健檢還沒做完（${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}）`);
+          && !(stored?.slots ?? []).some((s) => s?.followupForVisitId === slot.followupForVisitId)
+          && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
       }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
@@ -1944,6 +1945,7 @@ function assignmentWarnings(visit, {
  * 她 2026-10-07：「排定二返時：在日曆／壓表存檔時，若沒有連結到已完成的健檢就觸發。+僅提醒，仍可繼續操作」。
  * 提醒本來就有，但一律是「還沒指定是哪一次健檢的」—— 同一天排健檢＋二返時，「這是哪一次健檢的」那一排
  * 一顆都按不下去（當天那一次還沒做完），她看到這一句會以為是自己漏按，也看不出之後簽療程單照樣扣一次二返。
+ * 2026-10-09 起排著的健檢也按得下去（ADR-0145），選不到的理由只剩：還沒存的這一筆、都被別場佔走、只有取消或沒來的、一次都沒約過。
  *
  * **有哪幾次、各是什麼狀態問 `examChoicesFor()`** —— 三個入口那一排丸子就是它畫的，
  * 這裡自己再判一次的話丸子說「已完成」而這一句說「還沒做完」。
@@ -1959,16 +1961,15 @@ function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, na
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
   const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
 
-  if (choices.some((c) => c.pickable)) return '還沒指定是哪一次健檢的';
+  // 排著的也按得下去了（ADR-0145）。**還沒存的這一筆選不到**（沒有 id）：同一筆裡剛加的那一段健檢要先存好
+  if (choices.some((c) => c.pickable && c.visitId)) return '還沒指定是哪一次健檢的';
 
-  const booked = choices.find((c) => c.status === 'pending_confirm' || c.status === 'confirmed');
-  const why = booked
-    ? `${isValidDate(booked.date) ? shortDate(booked.date) : '排著的'} 那一次健檢還沒做完（${shortStatus(booked.status)}），現在選不到`
-    : (choices.some((c) => c.status === 'done')
-      ? `做完的健檢都已經約了${name}`
-      : '這位客戶還沒有做完的健檢');
+  let why = '這位客戶還沒有約過健檢';
+  if (choices.some((c) => !c.visitId && PICKABLE_EXAM.has(c.status))) why = '這一天的健檢存好之後才接得上';
+  else if (choices.some((c) => c.taken)) why = `接得上的健檢都已經約了${name}`;
+  else if (choices.length) why = '約過的健檢都取消或沒來';
   const open = ['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot));
-  return `還沒接到一次做完的健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
+  return `還沒接到健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
 }
 
 /**

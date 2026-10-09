@@ -1765,7 +1765,7 @@ function examChoicesOf(row, picked) {
  * 是一組的 —— 先清乾淨，再看要不要自動填。
  */
 function pickExamIfObvious(row, picked) {
-  // 只從按得下去的裡面挑：已完成、沒被別場二返佔走（`pickable`，issues/11）
+  // 只從按得下去的裡面挑：排著的或做完的、沒被別場二返佔走（`pickable`，issues/11、ADR-0145）。兩顆以上就不選（她 10/9：「可以」）
   const open = (examChoicesOf(row, picked) ?? []).filter((c) => c.pickable);
   view.followupForVisitId = open.length === 1 ? open[0].visitId : null;
 }

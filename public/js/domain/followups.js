@@ -261,7 +261,14 @@ export function owed(pair, visits = []) {
   // 數來訪會少算一次。哪幾筆來訪要掛待辦是另一個問題，那才用 doneVisitsFor()。
   const doneCheckups = counts(pair.source, visits, pair.source.id).done;
   const c = counts(pair.followup, visits, pair.followup.id);
-  const accounted = c.done + c.booked;
+  // **接在一次還沒做完（或取消、未到）的健檢上、還沒做的那幾場不算約掉**（ADR-0145）：她常在健檢那一刻就把二返一起約好，
+  // 那一場是那一次健檢的、不是已經做完的那幾次的 —— 照舊算的話，別次健檢開著的「約二返」會在約好的那一刻被收掉。
+  // 指到的那一次**不在手上這一份裡**（刪掉的、或呼叫端只給了部分來訪）就照舊算：當成沒約的話會憑空長出一張「約二返」。
+  // 沒連結的照舊算（舊資料一個字都不動）
+  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const early = linksOf(pair.followup.id, visits).filter((l) => l.outcome === 'booked'
+    && byId.has(l.examVisitId) && !usedAndDone(byId.get(l.examVisitId), pair.source.id)).length;
+  const accounted = c.done + c.booked - early;
 
   return Math.max(0, Math.min(doneCheckups, c.total) - accounted);
 }
@@ -364,25 +371,34 @@ function doneVisitsFor(entitlement, visits = []) {
 // 「某人某天來一次」），而她說「理論上我也不會同一天約兩個健檢」。
 // 真的發生時那一天只認得出一次，資料健檢會列出來。
 
-/** 這一段是不是一場二返（扣的是二返那一筆額度）。 */
-const isFollowupSlot = (slot, followupId) => slot?.entitlementId === followupId;
+/**
+ * 這一筆二返額度底下**有連結、還佔著**（`holdsExam()`：待確認、已確認、已完成）的每一段，接在哪一次健檢上。
+ * 取消、未到的那一段不算 —— 它認領的健檢要放回去讓人重新約。
+ *
+ * 「認領了哪幾次」（`claimedExams()`）、「哪幾次定案了」（`linkedSeconds()`）、「這一次約在哪」（`bookingForExam()`）、
+ * 「幾場接在還沒做完的上面」（`owed()`）都從這一份出來 —— 以前前兩支各寫一個幾乎一樣的迴圈，
+ * 改「佔不佔」的時候要記得改兩份（prelaunch-fixes 審查記下來的）。
+ *
+ * @returns {{examVisitId:string, visit:object, slot:object, outcome:'booked'|'done'}[]} 照來訪與段落的順序
+ */
+function linksOf(followupEntitlementId, visits = []) {
+  const out = [];
+  for (const v of visits ?? []) {
+    for (const slot of v?.slots ?? []) {
+      if (slot?.entitlementId !== followupEntitlementId || !slot.followupForVisitId || !holdsExam(v, slot)) continue;
+      out.push({ examVisitId: slot.followupForVisitId, visit: v, slot, outcome: slotOutcome(v, slot) });
+    }
+  }
+  return out;
+}
 
 /**
- * 這一筆二返額度已經認領掉哪幾次健檢。
- *
- * 取消、未到的那一段不算（`holdsExam()`）—— 它認領的健檢要放回去讓人重新約。
+ * 這一筆二返額度已經認領掉哪幾次健檢（`linksOf()`）。同一次被兩場認領時留後面那一場（資料健檢會列出來）。
  *
  * @returns {Map<string, object>} 健檢來訪 id → 那一筆二返來訪
  */
 export function claimedExams(followupEntitlementId, visits = []) {
-  const out = new Map();
-  for (const v of visits ?? []) {
-    for (const slot of v.slots ?? []) {
-      if (!isFollowupSlot(slot, followupEntitlementId) || !holdsExam(v, slot)) continue;
-      if (slot.followupForVisitId) out.set(slot.followupForVisitId, v);
-    }
-  }
-  return out;
+  return new Map(linksOf(followupEntitlementId, visits).map((l) => [l.examVisitId, l.visit]));
 }
 
 /**
@@ -393,8 +409,9 @@ export function claimedExams(followupEntitlementId, visits = []) {
  * 但**正在編輯的那一段自己認領的那一次要給選**（`selected`），
  * 不然一打開編輯器她就會發現原本選好的那一顆按不下去。
  *
- * **還沒做完的健檢也列，標著它自己的狀態，但按不下去**（2026-09-24，issues/11）。她：「可以小小標註
- * 他現在的狀態 例如未確認 已確認 已完成 未到 取消」、「只有已完成按得下去可以，不要讓整個流程亂掉」。
+ * 每一次都列、標著它自己的狀態（2026-09-24，issues/11：「可以小小標註他現在的狀態 例如未確認 已確認 已完成 未到 取消」）。
+ * **待確認、已確認、已完成都按得下去**（2026-10-09，ADR-0145，推翻 9/24 那一句「只有已完成按得下去」）：
+ * 「不要禁止先約，因為客人常當場一起約」。**取消、未到照舊按不下去** —— 那一次不會有報告（`PICKABLE_EXAM`）。
  * 按不按得下去只看 `pickable` —— 三個入口（壓表、來訪編輯器、拍 Abovee）都照它，存檔驗證問同一件事。
  *
  * @param {{source:object, followup:object|null}} pair
@@ -427,10 +444,16 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
         status,
         taken,
         bookedOn: by?.date ?? null,
-        pickable: status === 'done' && !taken,
+        pickable: PICKABLE_EXAM.has(status) && !taken,
       };
     });
 }
+
+/**
+ * 一次健檢在這幾個狀態時接得上二返／n返（ADR-0145）：排著的（待確認、已確認）與做完的。
+ * 取消、未到的那一次不會有報告。「這是哪一次健檢的」兩排與存檔驗證都問它 —— 各寫一份的話列得出來的存不下去。
+ */
+export const PICKABLE_EXAM = new Set(['pending_confirm', 'confirmed', 'done']);
 
 /**
  * 這一次健檢的二返約了沒。「約二返」那張待辦要靠它講出「已約 9/3」還是「還沒約」。
@@ -442,15 +465,8 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
  * @returns {{visit:object, slot:object}|null}
  */
 export function bookingForExam(examVisitId, followupEntitlementId, visits = []) {
-  for (const v of visits ?? []) {
-    for (const slot of v.slots ?? []) {
-      if (isFollowupSlot(slot, followupEntitlementId) && slot.followupForVisitId === examVisitId
-          && holdsExam(v, slot)) {
-        return { visit: v, slot };
-      }
-    }
-  }
-  return null;
+  const hit = linksOf(followupEntitlementId, visits).find((l) => l.examVisitId === examVisitId);
+  return hit ? { visit: hit.visit, slot: hit.slot } : null;
 }
 
 /**
@@ -837,17 +853,9 @@ function reportStation(visit, reportDueDays) {
  * @returns {{done:Set<string>, booked:Set<string>}} 健檢來訪 id；同一次兩種都有時算做完
  */
 function linkedSeconds(followupEntitlementId, visits = []) {
-  const done = new Set();
-  const booked = new Set();
-  for (const v of visits ?? []) {
-    for (const slot of v.slots ?? []) {
-      if (!isFollowupSlot(slot, followupEntitlementId) || !slot.followupForVisitId) continue;
-      const outcome = slotOutcome(v, slot);
-      if (outcome === 'done') done.add(slot.followupForVisitId);
-      else if (outcome === 'booked') booked.add(slot.followupForVisitId);
-    }
-  }
-  for (const id of done) booked.delete(id);
+  const links = linksOf(followupEntitlementId, visits);
+  const done = new Set(links.filter((l) => l.outcome === 'done').map((l) => l.examVisitId));
+  const booked = new Set(links.filter((l) => l.outcome === 'booked' && !done.has(l.examVisitId)).map((l) => l.examVisitId));
   return { done, booked };
 }
 

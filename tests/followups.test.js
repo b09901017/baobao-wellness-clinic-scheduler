@@ -815,12 +815,16 @@ describe('一場二返接在哪一次健檢後面', () => {
       assert.deepEqual(out.map((c) => c.date), ['2026-07-06', '2026-08-10']);
     });
 
-    // 2026-09-24（asks-2026-09-24/issues/11）以前是「不列」；她要看得到它現在的狀態
-    test('還沒做完的健檢照樣列、標著狀態，但按不下去 —— 沒有報告可以聽', () => {
+    // 2026-09-24（asks-2026-09-24/issues/11）以前是「不列」；她要看得到它現在的狀態。
+    // 2026-10-09（ADR-0145）起排著的也按得下去：「不要禁止先約，因為客人常當場一起約」
+    test('還沒做完的健檢照樣列、標著狀態；排著的按得下去、取消的按不下去', () => {
       const booked = visit('exam-3', '2026-09-01', 'ent-checkup', { status: 'confirmed' });
-      const out = examChoicesFor(pair, [...exams, booked]).find((c) => c.visitId === 'exam-3');
-      assert.equal(out.status, 'confirmed');
-      assert.equal(out.pickable, false);
+      const gone = visit('exam-4', '2026-09-05', 'ent-checkup', { status: 'cancelled' });
+      const out = examChoicesFor(pair, [...exams, booked, gone]);
+      const of = (id) => out.find((c) => c.visitId === id);
+      assert.equal(of('exam-3').status, 'confirmed');
+      assert.equal(of('exam-3').pickable, true);
+      assert.equal(of('exam-4').pickable, false);
     });
 
     test('已經被認領的照樣列出來，但標記起來', () => {

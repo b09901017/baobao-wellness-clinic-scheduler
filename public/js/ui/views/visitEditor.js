@@ -794,7 +794,7 @@ function examField(ctx, draft, ent, slot, i) {
     options: choices.map((c) => ({
       value: c.visitId,
       label: shortDate(c.date),
-      // 只有已完成、沒被別場二返佔走的按得下去；每一顆標它自己的狀態（issues/11）
+      // 排著的與做完的、沒被別場二返佔走的按得下去；每一顆標它自己的狀態（issues/11、ADR-0145）
       disabled: !c.pickable,
       note: examChoiceNote(c),
     })),

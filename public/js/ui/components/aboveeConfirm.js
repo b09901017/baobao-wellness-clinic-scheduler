@@ -528,7 +528,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     } else {
       const exams = examChoices(item.customerId, ent, ctx);
       if (exams.length) {
-        // 每一次都標它自己的狀態，**只有已完成、沒被佔走的按得下去**（`pickable`，issues/11）
+        // 每一次都標它自己的狀態，**排著的與做完的、沒被佔走的按得下去**（`pickable`，issues/11、ADR-0145）
         rows.push(chipRow('接哪一次健檢', exams.map((x) => ({
           value: x.visitId, label: shortDate(x.date),
           sub: examChoiceNote(x),

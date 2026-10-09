@@ -1,4 +1,4 @@
-// 二返沒接到一次做完的健檢：那一句提醒要講清楚（verified-bugs-2026-10-07/issues/01）。
+// 二返沒接到健檢：那一句提醒要講清楚（verified-bugs-2026-10-07/issues/01；ADR-0145 之後排著的健檢也接得上）。
 //
 // 她 2026-10-07：
 //
@@ -50,43 +50,43 @@ describe('二返沒接到健檢時，那一句講得出為什麼', () => {
     assert.deepEqual(about(warnings), ['第 1 個時段：二返 還沒指定是哪一次健檢的']);
   });
 
-  test('同一天排健檢＋二返：講出是哪一次還沒做完、之後照樣會扣', () => {
+  // 2026-10-09 起排著的健檢也接得上（ADR-0145）：同一筆裡剛加、還沒存的那一段才選不到
+  test('同一天排健檢＋二返（還沒存）：講出要先存好健檢、之後照樣會扣', () => {
     const draft = visitOf(null, '2026-10-07', [examSlot('pending_confirm'), fuSlot()]);
     const { errors, warnings } = ask(draft, []);
     assert.deepEqual(errors, [], '只提醒不擋');
     const [said, ...rest] = about(warnings);
     assert.deepEqual(rest, [], warnings.join('｜'));
-    assert.match(said, /^第 2 個時段：二返 還沒接到一次做完的健檢/);
-    assert.match(said, /10\/7\(三\) 那一次健檢還沒做完/);
+    assert.match(said, /^第 2 個時段：二返 還沒接到健檢 —— 這一天的健檢存好之後才接得上/);
     assert.match(said, /照樣會扣一次二返/);
   });
 
-  test('健檢排在別天、還沒做：同一種講法，日期是那一天', () => {
+  test('健檢排在別天、還沒做：接得上了，所以是「還沒指定」', () => {
     const booked = visitOf('v-exam', '2026-10-01', [examSlot('confirmed')]);
     const [said] = about(ask(visitOf(null, '2026-10-07', [fuSlot()]), [booked]).warnings);
-    assert.match(said, /10\/1\(四\) 那一次健檢還沒做完（已確認）/);
+    assert.equal(said, '第 1 個時段：二返 還沒指定是哪一次健檢的');
   });
 
   test('一次健檢都沒有', () => {
     const [said] = about(ask(visitOf(null, '2026-10-07', [fuSlot()]), []).warnings);
-    assert.match(said, /還沒接到一次做完的健檢 —— 這位客戶還沒有做完的健檢/);
+    assert.match(said, /還沒接到健檢 —— 這位客戶還沒有約過健檢/);
     assert.match(said, /照樣會扣一次二返/);
   });
 
-  test('健檢只有取消的、沒來的：一樣是「還沒有做完的健檢」，不說它還沒做完', () => {
+  test('健檢只有取消的、沒來的', () => {
     const gone = [
       visitOf('v1', '2026-09-01', [examSlot('cancelled')]),
       visitOf('v2', '2026-09-08', [examSlot('no_show')]),
     ];
     const [said] = about(ask(visitOf(null, '2026-10-07', [fuSlot()]), gone).warnings);
-    assert.match(said, /這位客戶還沒有做完的健檢/);
+    assert.match(said, /約過的健檢都取消或沒來/);
   });
 
-  test('做完的那一次已經約了別場二返', () => {
+  test('接得上的那一次已經約了別場二返', () => {
     const done = visitOf('v-exam', '2026-09-20', [examSlot('done')]);
     const other = visitOf('v-fu', '2026-09-27', [fuSlot({ status: 'confirmed', followupForVisitId: 'v-exam' })]);
     const [said] = about(ask(visitOf(null, '2026-10-07', [fuSlot()]), [done, other]).warnings);
-    assert.match(said, /做完的健檢都已經約了二返/);
+    assert.match(said, /接得上的健檢都已經約了二返/);
   });
 
   test('接好了就不講', () => {
@@ -113,7 +113,7 @@ describe('舊資料照樣存得下去（ADR-0011 的原則）', () => {
     const { errors, warnings } = ask(stored, [stored]);
     assert.deepEqual(errors, []);
     const [said] = about(warnings);
-    assert.match(said, /還沒接到一次做完的健檢/);
+    assert.match(said, /還沒接到健檢/);
     assert.doesNotMatch(said, /照樣會扣/);
   });
 

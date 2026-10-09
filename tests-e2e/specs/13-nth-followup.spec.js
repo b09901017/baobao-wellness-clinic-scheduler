@@ -381,7 +381,8 @@ test('J-N7 三返做完也會長出「寫紀錄」—— 它跟著二返的設�
 // 她：「可以小小標註他現在的狀態 例如未確認 已確認 已完成 未到 取消等等」
 // 「只有已完成按得下去可以，不要讓整個流程亂掉」
 
-test('N-11 壓二返：做完的那一次按得下去而且自動選好，還沒做的那一次看得到、標「已確認」、按不下去', async ({ app, page }) => {
+// 2026-10-09（ADR-0145）起排著的那一次也按得下去 —— 兩顆都能選，不替她選（她：「可以」）
+test('N-11 壓二返：做完的那一次與還沒做的那一次（標「已確認」）都按得下去，兩顆都能選就不自動選', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
     customer({ id: 'cust-n', name: '客戶N' }),
@@ -423,9 +424,11 @@ test('N-11 壓二返：做完的那一次按得下去而且自動選好，還沒
 
   const done = page.locator('[data-exam="v-n-exam"]');
   const later = page.locator('[data-exam="v-n-exam2"]');
-  await expect(done, '只有一次按得下去 → 自動選好').toHaveAttribute('aria-pressed', 'true');
   await expect(done).toContainText('已完成');
+  await expect(done).toBeEnabled();
   await expect(later, '還沒做的那一次照樣看得到').toBeVisible();
   await expect(later).toContainText('已確認');
-  await expect(later, '按不下去').toBeDisabled();
+  await expect(later, '排著的也按得下去（客人常當場一起約）').toBeEnabled();
+  await expect(done, '兩顆都能選 → 不替她選').toHaveAttribute('aria-pressed', 'false');
+  await expect(later).toHaveAttribute('aria-pressed', 'false');
 });

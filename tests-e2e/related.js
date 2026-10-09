@@ -516,6 +516,14 @@ export const COVERAGE = {
     'public/js/ui/views/masterList.js', 'public/js/domain/calendar.js', 'public/js/ui/views/calendar.js',
     'public/js/domain/mergeImport.js', 'public/js/ui/views/mergeImport.js', 'public/js/data/legacyImport.js',
   ],
+  // 二返先接上還沒做完的健檢（.scratch/followup-link-before-exam，ADR-0145）：「這是哪一次健檢的」那一排、
+  // 還欠幾次、取消／未到那幾句、簽療程單擋、資料健檢、拍 Abovee 同一批先存健檢
+  '65-followup-link-before-exam': [
+    'public/js/domain/followups.js', 'public/js/domain/nthFollowup.js', 'public/js/domain/visits.js',
+    'public/js/domain/consequences.js', 'public/js/domain/health.js', 'public/js/domain/aboveeImport.js',
+    'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/home.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/aboveeConfirm.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

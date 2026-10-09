@@ -151,7 +151,7 @@ test('P4 那一天已完成之後再加一段、時間一樣：第一道確認�
 
 // ---------- 01 二返沒接到一次做完的健檢：那一句講得出為什麼 ----------
 
-test('P5 同一天排健檢＋二返：提醒講出那一次健檢還沒做完、之後照樣會扣；照樣存得下去', async ({ app, page }) => {
+test('P5 同一天排健檢＋二返（還沒存）：提醒講出健檢要先存好、之後照樣會扣；照樣存得下去', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
     customer({ id: 'cust-c', name: '客戶C' }),
@@ -181,8 +181,9 @@ test('P5 同一天排健檢＋二返：提醒講出那一次健檢還沒做完�
 
   await expect(app.dialog()).toBeVisible();
   const said = await app.dialogText();
-  expect(said, '不是「還沒指定」—— 她沒有東西可以指').toContain('二返 還沒接到一次做完的健檢');
-  expect(said, '講得出是哪一次').toContain('那一次健檢還沒做完');
+  // ADR-0145 之後排著的健檢也接得上；同一筆裡剛加、還沒存的那一段健檢才選不到
+  expect(said, '不是「還沒指定」—— 她沒有東西可以指').toContain('二返 還沒接到健檢');
+  expect(said, '講得出為什麼').toContain('這一天的健檢存好之後才接得上');
   expect(said, '講得出後果').toContain('照樣會扣一次二返');
   await app.ok();
   await expect(app.dialog()).toBeVisible();
