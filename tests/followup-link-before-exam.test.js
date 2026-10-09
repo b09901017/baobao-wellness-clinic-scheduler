@@ -19,6 +19,7 @@ import {
 } from '../public/js/domain/visits.js';
 import {
   closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences, bookingConsequences, aboveeConsequences,
+  closeBlockSay,
 } from '../public/js/domain/consequences.js';
 import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
@@ -358,6 +359,25 @@ describe('簽療程單擋：二返比它接的健檢先簽成做了', () => {
       ...nthSlotFields({ nth: 3, examVisitId: 'B', courseId: 'c-fu' }), startsAt: '14:00', endsAt: '14:30', status: 'confirmed',
     }]);
     assert.ok(cannotClose(n, 0, [true], ctx([B, n])));
+  });
+
+  test('接的那一次取消了、沒來：一樣簽不下去，但講的是去換連結 —— 那一次不會再做了，「健檢簽好再回來簽」是假話', () => {
+    for (const st of ['cancelled', 'no_show']) {
+      const gone = exam('B', '2026-10-01', st);
+      const why = cannotClose(fu, 0, [true], ctx([gone, fu]));
+      assert.equal(why.status, st);
+      assert.match(closeBlockSay(why), /10\/1\(四\).*換這一段接哪一次/);
+      assert.doesNotMatch(closeBlockSay(why), /還沒做完/);
+      const lines = closeConsequences({ visit: fu, picks: [true], entitlements: ENTS, coursesById, visits: [gone, fu], tasks: [] });
+      assert.ok(lines.some((l) => l.includes('換這一段接哪一次') && l.includes('先不結')), lines.join('｜'));
+      assert.ok(!lines.some((l) => l.includes('健檢簽好再回來簽')), lines.join('｜'));
+    }
+  });
+
+  test('還排著的：那一列照舊講「還沒做完」', () => {
+    const why = cannotClose(fu, 0, [true], ctx([B, fu]));
+    assert.equal(why.status, 'confirmed');
+    assert.equal(closeBlockSay(why), '接的那一次健檢（10/1(四)）還沒做完');
   });
 
   test('抽屜那一句講出這一段先不結、會扣的不算它', () => {

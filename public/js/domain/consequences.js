@@ -573,9 +573,9 @@ export function closeConsequences({
   else if (charged) lines.push(`做了的 ${done.length} 段裡 ${charged} 段扣掉次數`);
   else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);
   if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
-  for (const [i, { examDate }] of blocked) {
+  for (const [i, why] of blocked) {
     const name = visit?.slots?.[i]?.courseName || '二返';
-    lines.push(`「${name}」接的那一次健檢（${isValidDate(examDate) ? shortDate(examDate) : '另一天'}）還沒做完 —— 這一段先不結，健檢簽好再回來簽`);
+    lines.push(`「${name}」${closeBlockSay(why)}${PICKABLE_EXAM.has(why.status) ? ' —— 這一段先不結，健檢簽好再回來簽' : '；這一段先不結'}`);
   }
   if (left) {
     lines.push(`還有 ${left} 段先不結，留在這裡`);
@@ -611,6 +611,18 @@ export function closeConsequences({
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
   return lines;
+}
+
+/**
+ * 簽不下去的那一段為什麼（`cannotClose()` 回的那一份）—— 抽屜那一列、存的那一下的提示、`closeConsequences()` 同一句。
+ *
+ * 接的那一次還排著：等它簽好。**取消、未到的不會再做了** —— 講「還沒做完」「健檢簽好再回來簽」是一件不會發生的事
+ * （ADR-0070，10/9 審查），她要做的是先換連結。
+ */
+export function closeBlockSay({ examDate, status }) {
+  const day = isValidDate(examDate) ? shortDate(examDate) : '另一天';
+  if (PICKABLE_EXAM.has(status)) return `接的那一次健檢（${day}）還沒做完`;
+  return `接的那一次健檢（${day}）${status ? `是「${shortStatus(status)}」` : '已經改成別的'} —— 先去日曆換這一段接哪一次`;
 }
 
 /**

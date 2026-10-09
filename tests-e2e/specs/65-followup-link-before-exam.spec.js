@@ -131,6 +131,7 @@ test('L2 二返接在還沒做完的健檢上、二返那一天先到：✓ 按�
 
   await page.locator('.drawer [data-pick-all]').click();
   await expect(yes, '「全部 ✓」跳過它').toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#toast'), '講跳過了幾段').toContainText('1 段沒有勾');
   await expect(page.locator('.drawer [data-pick="1"][data-to="1"]'), '同一天別段照常').toHaveAttribute('aria-pressed', 'true');
   // 那一列自己講為什麼（上面的 data-close-blocked）；底下那幾句講它留著
   await expect(page.locator('.drawer .dialog__list')).toContainText('還有 1 段先不結');

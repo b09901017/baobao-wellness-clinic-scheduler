@@ -556,7 +556,8 @@ export function doubleClaimedExams(entitlements = [], coursesById = {}, visits =
  * @param {number} index 哪一段
  * @param {(boolean|null)[]} picks 抽屜上逐段按了什麼（`closeVisit()` 收的那一份；這一段當成 ✓ 來問）
  * @param {{entitlements?:object[], visits?:object[]}} ctx 這位客戶的額度與全部來訪
- * @returns {{examVisitId:string, examDate:string}|null} 擋的話是哪一次健檢
+ * @returns {{examVisitId:string, examDate:string, status:string|null}|null} 擋的話是哪一次健檢、它現在的狀態
+ *   （排著的等它簽好；取消、未到的不會再做了，要先換連結 —— 句子在 `consequences.js` 的 `closeBlockSay()`）
  */
 export function cannotClose(visit, index, picks = [], { entitlements = [], visits = [] } = {}) {
   const slot = visit?.slots?.[index];
@@ -574,13 +575,13 @@ export function cannotClose(visit, index, picks = [], { entitlements = [], visit
   if (sources.some((id) => usedAndDone(exam, id))) return null;
   const tickedHere = exam === visit && (visit.slots ?? []).some((s, j) => j !== index && picks[j] === true
     && sources.includes(s?.entitlementId) && ['pending_confirm', 'confirmed'].includes(slotStatus(visit, s)));
-  return tickedHere ? null : { examVisitId: exam.id, examDate: exam.date };
+  return tickedHere ? null : { examVisitId: exam.id, examDate: exam.date, status: examStatusIn(exam, sources) };
 }
 
 /**
  * `picks` 裡打了 ✓、卻簽不下去的那幾段（`cannotClose()`）。`closeVisit()` 帶著 guard 時把它們當成先不結。
  *
- * @returns {Map<number, {examVisitId:string, examDate:string}>}
+ * @returns {Map<number, {examVisitId:string, examDate:string, status:string|null}>}
  */
 export function closeBlocks(visit, picks = [], ctx = {}) {
   const out = new Map();

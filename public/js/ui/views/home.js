@@ -46,7 +46,7 @@ import {
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
-  confirmConsequences, closeConsequences, cancelConsequences, closedSay, cancelChainLines,
+  confirmConsequences, closeConsequences, cancelConsequences, closedSay, cancelChainLines, closeBlockSay,
 } from '../../domain/consequences.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, bookingStateForTask, pairsOf, cannotClose, closeBlocks,
@@ -3502,8 +3502,7 @@ function closeDrawerHtml(ctx) {
               when: timeLabel(sl),
               what: slotName(sl, ctx.master, 'short'),
               aside: form.mark.has(i) ? '<span class="slotrow__form">不用簽療程單</span>' : '',
-              note: why ? `<span class="slotrow__form" data-close-blocked="${i}">接的那一次健檢（${
-                esc(shortDate(why.examDate))}）還沒做完</span>` : '',
+              note: why ? `<span class="slotrow__form" data-close-blocked="${i}">${esc(closeBlockSay(why))}</span>` : '',
               pick: drawer.picks.get(i),
               yes: '做了',
               no: '沒來',
@@ -3618,12 +3617,14 @@ function wireClose(ctx) {
 
   wirePicks(el, {
     parse: Number,
-    // 「全部 ✓」跳過簽不下去的那幾段（`cannotClose()`）—— 那一列自己講為什麼
+    // 「全部 ✓」跳過簽不下去的那幾段（`cannotClose()`）、講跳過了幾段 —— 那一列自己講為什麼
     keys: () => {
       const visit = ctx.rows.find((v) => v.id === drawer?.visitId);
       const open = slotsToClose(visit).map(({ index }) => index);
       const all = (visit?.slots ?? []).map((_, i) => open.includes(i));
-      return open.filter((i) => !cannotClose(visit, i, all, closeGuard(ctx)));
+      const ok = open.filter((i) => !cannotClose(visit, i, all, closeGuard(ctx)));
+      if (ok.length < open.length) toast.info(`${open.length - ok.length} 段沒有勾 —— 接的那一次健檢還簽不下去，那一列寫著為什麼`);
+      return ok;
     },
     repaint: () => paintClose(ctx),
   });
@@ -3679,7 +3680,7 @@ async function applyClose(ctx) {
   const blocked = closeBlocks(fresh, picksOf(fresh), guard);
   const picks = picksOf(fresh).map((p, i) => (blocked.has(i) ? null : p));
   if (!picks.some((p) => p === true || p === false)) {
-    toast.info('那一段接的健檢還沒做完，先不結');
+    toast.info(`${closeBlockSay([...blocked.values()][0])}，先不結`);
     paintClose(ctx);
     return;
   }
