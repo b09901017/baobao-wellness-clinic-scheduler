@@ -1027,7 +1027,7 @@ function reasonFor(kind, stillDone, wantedKind) {
 }
 
 /**
- * 客戶詳情頁那一句「健檢 3 次 → 二返還欠 2 次」。
+ * 客戶詳情頁那一句「健檢做完 3 次：二返做完 1 次、約了 1 次（10/24）、還沒約 1 次」。
  *
  * 只講事實，不講該怎麼辦 —— 要不要現在去約是她的判斷（ADR-0002）。
  */
@@ -1037,11 +1037,18 @@ export function describePair(pair, visits = []) {
   const source = counts(pair.source, visits, pair.source.id);
   const owes = owed(pair, visits);
   const followup = counts(pair.followup, visits, pair.followup.id);
+  // 約了的那幾場哪一天（最多三個）。跟 `counts()` 的 booked 同一個判斷（`slotOutcome()`）
+  const dates = (visits ?? []).flatMap((v) => (v?.slots ?? [])
+    .filter((s) => s?.entitlementId === pair.followup.id && slotOutcome(v, s) === 'booked').map(() => v.date))
+    .sort();
+  const when = dates.length
+    ? `（${dates.slice(0, 3).map((d) => shortDate(d)).join('、')}${dates.length > 3 ? '…' : ''}）` : '';
 
+  // **畫面的字與系統的帳分開**（2026-10-09，ADR-0145）。她：「二返完成才算」—— 以前「二返已經約掉 N 次」把約了的也算進去，
+  // 而先約好、接在還沒做完的健檢上的那一場，`owed()` 現在不算約掉。三個數字各講各的：做完的才是做完，
+  // 「還沒約」＝`owed()`（跟「約二返」那張待辦同一個數）
   return {
     owed: owes,
-    text: owes
-      ? `健檢做完 ${source.done} 次，二返還欠 ${owes} 次`
-      : `健檢做完 ${source.done} 次，二返已經約掉 ${followup.done + followup.booked} 次`,
+    text: `健檢做完 ${source.done} 次：二返做完 ${followup.done} 次、約了 ${followup.booked} 次${when}、還沒約 ${owes} 次`,
   };
 }

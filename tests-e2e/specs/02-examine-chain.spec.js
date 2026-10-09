@@ -227,7 +227,8 @@ test('J-D4 買 2 次只做 1 次 → 只欠 1 次二返，不是 2 次', async (
   await app.go('/customers/cust-b');
   const body = await app.text();
   expect(body).toMatch(/健檢做完\s*1\s*次/);
-  expect(body).toMatch(/二返還欠\s*1\s*次/);
+  // 2026-10-09（ADR-0145）起是三個數字：做完、約了、還沒約
+  expect(body).toMatch(/還沒約\s*1\s*次/);
 });
 
 test('J-D9 沒有金額等級的 examine 不會被補一個猜的金額', async ({ app }) => {

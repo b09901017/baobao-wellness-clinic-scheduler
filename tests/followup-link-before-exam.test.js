@@ -11,7 +11,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks, strandedFollowups,
+  examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks, strandedFollowups, describePair,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
 import {
@@ -450,3 +450,29 @@ describe('二返排在接的那一次健檢之前：warning', () => {
   });
 });
 
+// ---------- 09 客戶詳情那一句：做完、約了、還沒約（她：「二返完成才算」）----------
+
+describe('客戶詳情：二返做完、約了、還沒約三個數字', () => {
+  const A = exam('A', '2026-09-01', 'done');
+  const B = exam('B', '2026-10-01', 'confirmed');
+
+  test('先約好、接在還沒做完的健檢上：算「約了」、不算「做完」；還沒約的照舊是 A 的那一次', () => {
+    const line = describePair(pair, [A, B, second('F', '2026-10-24', 'confirmed', 'B')]);
+    assert.equal(line.text, '健檢做完 1 次：二返做完 0 次、約了 1 次（10/24(六)）、還沒約 1 次');
+    assert.equal(line.owed, 1);
+  });
+
+  test('做完的二返才算做完', () => {
+    const fuDone = second('F', '2026-09-20', 'done', 'A');
+    assert.equal(describePair(pair, [A, fuDone]).text, '健檢做完 1 次：二返做完 1 次、約了 0 次、還沒約 0 次');
+  });
+
+  test('約了好幾場：日期最多列三個', () => {
+    const many = [A, exam('A2', '2026-09-05', 'done'), exam('A3', '2026-09-08', 'done'), exam('A4', '2026-09-09', 'done'),
+      second('F1', '2026-10-10', 'confirmed', 'A'), second('F2', '2026-10-11', 'confirmed', 'A2'),
+      second('F3', '2026-10-12', 'confirmed', 'A3'), second('F4', '2026-10-13', 'confirmed', 'A4')];
+    const ents = [{ ...ENTS[0], totalQty: 4 }, { ...ENTS[1], totalQty: 4 }];
+    const text = describePair({ source: ents[0], followup: ents[1] }, many).text;
+    assert.match(text, /約了 4 次（10\/10\(六\)、10\/11\(日\)、10\/12\(一\)…）/);
+  });
+});
