@@ -29,7 +29,7 @@ import { addDays, dayOf, shortDate } from './dates.js';
 import { seenTasks } from './taskRules.js';
 // 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
 // visits.js 也 import 這一支（`examStatusIn()`、`PICKABLE_EXAM`）—— 兩邊都只在函式裡用，載入時不互相讀
-import { slotStatus, shortStatus } from './visits.js';
+import { slotStatus, shortStatus, isOpenStatus } from './visits.js';
 
 /**
  * 「約二返」的任務種類。
@@ -272,7 +272,7 @@ function owedCounts(pair, visits = []) {
   // 那一場是那一次健檢的、不是已經做完的那幾次的 —— 照舊算的話，別次健檢開著的「約二返」會在約好的那一刻被收掉。
   // 指到的那一次**不在手上這一份裡**（刪掉的、或呼叫端只給了部分來訪）就照舊算：當成沒約的話會憑空長出一張「約二返」。
   // 沒連結的照舊算（舊資料一個字都不動）
-  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const byId = liveById(visits);
   const early = linksOf(pair.followup.id, visits).filter((l) => l.outcome === 'booked'
     && byId.has(l.examVisitId) && !usedAndDone(byId.get(l.examVisitId), pair.source.id)).length;
   const cap = Math.min(doneCheckups, c.total);
@@ -353,6 +353,9 @@ export function examChoiceNote(choice) {
   if (choice?.taken) return choice.bookedOn ? `已約 ${shortDate(choice.bookedOn)}` : '已約';
   return [choice?.status ? shortStatus(choice.status) : '', choice?.note ?? ''].filter(Boolean).join('・');
 }
+
+/** 還在的來訪照 id 查（連結指到的那一次健檢）。刪掉的不算 —— 指到它的連結當成指不到。 */
+const liveById = (visits) => new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
 
 /** 用這一筆額度的那一段做完了的來訪，日期新的在前（`usedAndDone()`）。 */
 function doneVisitsFor(entitlement, visits = []) {
@@ -480,7 +483,7 @@ export const PICKABLE_EXAM = new Set(['pending_confirm', 'confirmed', 'done']);
 export function strandedFollowups(entitlements = [], coursesById = {}, visits = []) {
   const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
   if (!sources.length) return [];
-  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const byId = liveById(visits);
   const out = [];
   for (const v of visits ?? []) {
     (v?.slots ?? []).forEach((slot, slotIndex) => {
@@ -502,13 +505,13 @@ export function strandedFollowups(entitlements = [], coursesById = {}, visits = 
 export function doneAheadOfExam(entitlements = [], coursesById = {}, visits = []) {
   const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
   if (!sources.length) return [];
-  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const byId = liveById(visits);
   const out = [];
   for (const v of visits ?? []) {
     (v?.slots ?? []).forEach((slot, slotIndex) => {
       const exam = slot?.followupForVisitId && slotOutcome(v, slot) === 'done' ? byId.get(slot.followupForVisitId) : null;
       const status = exam ? examStatusIn(exam, sources) : null;
-      if (exam && (status === 'pending_confirm' || status === 'confirmed')) out.push({ visit: v, slot, slotIndex, exam, status });
+      if (exam && isOpenStatus(status)) out.push({ visit: v, slot, slotIndex, exam, status });
     });
   }
   return out;
@@ -521,7 +524,7 @@ export function doneAheadOfExam(entitlements = [], coursesById = {}, visits = []
  * @returns {{exam:object|null, examVisitId:string, holders:{visit:object, slot:object}[]}[]} holders 照日期
  */
 export function doubleClaimedExams(entitlements = [], coursesById = {}, visits = []) {
-  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const byId = liveById(visits);
   const out = [];
   for (const pair of pairsOf(entitlements, coursesById)) {
     if (!pair.followup) continue;
@@ -574,7 +577,7 @@ export function cannotClose(visit, index, picks = [], { entitlements = [], visit
   if (!exam) return null;
   if (sources.some((id) => usedAndDone(exam, id))) return null;
   const tickedHere = exam === visit && (visit.slots ?? []).some((s, j) => j !== index && picks[j] === true
-    && sources.includes(s?.entitlementId) && ['pending_confirm', 'confirmed'].includes(slotStatus(visit, s)));
+    && sources.includes(s?.entitlementId) && isOpenStatus(slotStatus(visit, s)));
   return tickedHere ? null : { examVisitId: exam.id, examDate: exam.date, status: examStatusIn(exam, sources) };
 }
 

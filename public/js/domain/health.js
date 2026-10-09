@@ -28,6 +28,7 @@ import { fullNameOf } from './naming.js';
 import {
   missingPairs, countMismatches, strandedFollowups, doneAheadOfExam, doubleClaimedExams,
 } from './followups.js';
+import { followupName } from './nthFollowup.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
@@ -2130,7 +2131,7 @@ function checkFollowupLinks(ctx) {
       severity: 'attention',
       who: customer.name,
       whoId: customer.id,
-      title: `${customer.name}・${f.visit.date} 那一場${f.slot.courseName || '二返'}`,
+      title: `${customer.name}・${f.visit.date} 那一場${followupName(f.slot, ctx.coursesById)}`,
       detail,
       link: null,
       fix: null,

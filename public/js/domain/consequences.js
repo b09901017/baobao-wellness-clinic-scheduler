@@ -34,10 +34,10 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, holdsExam, strandedFollowups,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
-import { nthOf, nthLabel, isNthSlot, examEntitlementIds } from './nthFollowup.js';
+import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
 import { isUncounted } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
@@ -288,7 +288,7 @@ export function strandedOnNewExamLines({ visit, added = null, entitlements = [],
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
   return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, exam, status }) => {
-    const name = slot.courseName || '二返';
+    const name = followupName(slot, coursesById);
     return `${day(v.date)} 那一場${name}還接在「${shortStatus(status)}」的 ${day(exam.date)} 健檢上 —— `
       + `要接到這一次的話，存好之後去日曆點那一場${name}改「這是哪一次健檢的」`;
   });
@@ -574,7 +574,7 @@ export function closeConsequences({
   else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);
   if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
   for (const [i, why] of blocked) {
-    const name = visit?.slots?.[i]?.courseName || '二返';
+    const name = followupName(visit?.slots?.[i], coursesById);
     lines.push(`「${name}」${closeBlockSay(why)}${PICKABLE_EXAM.has(why.status) ? ' —— 這一段先不結，健檢簽好再回來簽' : '；這一段先不結'}`);
   }
   if (left) {
@@ -652,7 +652,8 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
  * 「健檢改期……連結要跟著搬到新的那一段，或至少講出來」。連結記的是來訪 id，**不自動搬**（沒有任何一筆資料記著
  * 「這一次是那一次改期來的」，猜就是替她接錯），所以一句話講兩件事：不會跟著改、重新約好之後回去換。
  *
- * 判準是**那一次健檢本來接得上、之後接不上了**（`PICKABLE_EXAM`），接在它上面的還佔著（`holdsExam()`）。
+ * 判準是**那一次健檢本來接得上、之後接不上了**（`PICKABLE_EXAM`）。之後哪幾場還接在接不上的健檢上只問
+ * `followups.js` 的 `strandedFollowups()` —— 另約健檢那一句（`strandedOnNewExamLines()`）與資料健檢同一支。
  * 同一天改時間（`rebookSlot()`）不講：新的健檢段在同一筆裡，那一次照樣接得上。
  *
  * @param {object} o
@@ -665,23 +666,15 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
  */
 export function strandedFollowupLines({ before = [], after = [], entitlements = [], coursesById = {}, verb = '取消' }) {
   const examIds = examEntitlementIds(entitlements, coursesById);
-  if (!examIds.size) return [];
   const was = new Map((before ?? []).filter(Boolean).map((v) => [v.id, v]));
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
-  const lines = [];
-  for (const exam of after ?? []) {
-    const old = exam && was.get(exam.id);
-    if (!old || !PICKABLE_EXAM.has(examStatusIn(old, examIds)) || PICKABLE_EXAM.has(examStatusIn(exam, examIds))) continue;
-    for (const v of after) {
-      for (const s of v?.slots ?? []) {
-        if (s?.followupForVisitId !== exam.id || !holdsExam(v, s)) continue;
-        const name = s.courseName || '二返';
-        lines.push(`${day(v.date)} 那一場${name}接在 ${day(exam.date)} 那一次健檢後面 —— 不會跟著${verb}；`
-          + `重新約好健檢之後，回到那一場${name}換「這是哪一次健檢的」`);
-      }
-    }
-  }
-  return lines;
+  return strandedFollowups(entitlements, coursesById, (after ?? []).filter(Boolean))
+    .filter(({ exam }) => PICKABLE_EXAM.has(examStatusIn(was.get(exam.id), examIds)))
+    .map(({ visit, slot, exam }) => {
+      const name = followupName(slot, coursesById);
+      return `${day(visit.date)} 那一場${name}接在 ${day(exam.date)} 那一次健檢後面 —— 不會跟著${verb}；`
+        + `重新約好健檢之後，回到那一場${name}換「這是哪一次健檢的」`;
+    });
 }
 
 /**

@@ -72,6 +72,15 @@ export function nthLabel(n) {
   return `${NUMERALS[num]}返`;
 }
 
+/**
+ * 一場回訪（二返或 n返）在一句話裡叫什麼：n返 講返數（`三返`），二返講主檔上那門課的名字，主檔查不到才退回快照。
+ * 確認框與資料健檢講「10/24 那一場＿＿」用。直接印 `slot.courseName` 的話，課程改名之後句子還在講舊名字
+ * （它是快照不是顯示名稱）；這裡沒有整份主檔可以問 `slotName()`，而且要的是課程那一半、不帶分鐘。
+ */
+export function followupName(slot, coursesById = {}) {
+  return nthLabel(nthOf(slot)) ?? coursesById[slot?.courseId]?.name ?? slot?.courseName ?? '二返';
+}
+
 /** 這一段的返數。不是 n返 就回 `null`（**二返也回 null** —— 它走額度那條路）。 */
 export function nthOf(slot) {
   const num = Number(slot?.followupNth);

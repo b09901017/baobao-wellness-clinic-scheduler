@@ -21,7 +21,7 @@ import {
   closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences, bookingConsequences, aboveeConsequences,
   closeBlockSay,
 } from '../public/js/domain/consequences.js';
-import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
+import { examChoicesForNth, nthSlotFields, followupName } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
 
 const COURSES = [
@@ -435,6 +435,40 @@ describe('健檢取消／未到：講出後面接著的二返', () => {
     const moved = rebookSlot(B, 0, { ...B.slots[0], startsAt: '13:00', endsAt: '15:00' });
     assert.ok(!rebookConsequences({ before: B, after: moved, index: 0, coursesById, customerVisits: [B, fuB], entitlements: ENTS })
       .lines.some((l) => l.includes('不會跟著')));
+  });
+});
+
+// 10/9 審查：句子裡那一場叫什麼以前直接印 `slot.courseName`（快照）—— 課程改名之後還在講舊名字
+describe('句子裡那一場回訪叫什麼：n返 講返數、二返講主檔上的名字，查不到才退回快照', () => {
+  const renamed = { ...coursesById, 'c-fu': { ...coursesById['c-fu'], name: '報告解說' } };
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const fu = second('F', '2026-10-24', 'confirmed', 'B');
+  const n3 = visitOf('N', '2026-10-25', [{
+    ...nthSlotFields({ nth: 3, examVisitId: 'B', courseId: 'c-fu' }), courseName: '三返', startsAt: '14:00', endsAt: '14:30', status: 'confirmed',
+  }]);
+
+  test('followupName()', () => {
+    assert.equal(followupName(fu.slots[0], renamed), '報告解說');
+    assert.equal(followupName(fu.slots[0], {}), '二返', '主檔查不到：快照');
+    assert.equal(followupName(n3.slots[0], renamed), '三返');
+    assert.equal(followupName({}, {}), '二返');
+  });
+
+  test('取消健檢的那一句、另約健檢的那一句、簽不下去的那一句都照它', () => {
+    const cancel = cancelChainLines({
+      customer: { id: 'c1', name: '客戶A' }, visits: [B, fu, n3], cancels: [{ visit: B, at: null }],
+      chain: { entitlements: ENTS, tasks: [] }, coursesById: renamed,
+    });
+    assert.ok(cancel.some((l) => l.includes('那一場報告解說接在')), cancel.join('｜'));
+    assert.ok(cancel.some((l) => l.includes('那一場三返接在')), cancel.join('｜'));
+
+    const gone = exam('B', '2026-10-01', 'cancelled');
+    const again = { ...exam(null, '2026-11-02', 'pending_confirm'), id: undefined };
+    const { lines } = bookingConsequences({ visit: again, coursesById: renamed, customerVisits: [gone, fu], entitlements: ENTS });
+    assert.ok(lines.some((l) => l.includes('那一場報告解說還接在')), lines.join('｜'));
+
+    const close = closeConsequences({ visit: fu, picks: [true], entitlements: ENTS, coursesById: renamed, visits: [B, fu], tasks: [] });
+    assert.ok(close.some((l) => l.startsWith('「報告解說」接的那一次健檢')), close.join('｜'));
   });
 });
 
