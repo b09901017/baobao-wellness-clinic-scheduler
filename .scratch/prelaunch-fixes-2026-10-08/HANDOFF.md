@@ -378,7 +378,12 @@
   `e578474` 部署與小東西、`a321cdf` 文件），之後她回了三件、同一天做完：取消後同格重約算新的一段（ADR-0144）、PR 內文套上去、這一列補上。
 - `npm test` 全綠（0 skipped）；本機模擬器跑過 `41`、`61`、`62`、`63`、`64`；全量丟 CI。沒部署、沒連正式站。`sw.js` 沒升（v186）。
 - 驗收清單（issue 23 最後、PR 內文）改了三條、多三條（第 21–23 條）。
-- **還等她的**：合 PR #147；staging 的 Function 部署（只剩 13 的提示詞要它，她說可以才部署）；合進 develop 之後 staging 上那幾條「只看」的驗收。
+- **她 10/9 點頭之後做了**：PR #147 合進 develop（`d32ab6c` 的全量 E2E 綠了才合）；staging 的 Function 從本機部署了（`extract`，沒登入叫不動驗過）——
+  13 的提示詞與 22 補的旋鈕（預設不變）在 staging 上吃得到了。**正式的 Function 還沒**（上 main 那天）。
+- **還等她的**：staging 上那幾條「只看」的驗收；之後是 B（下面最後一段開場）。
+- **她 10/9 講的原則，拍 Abovee 之後的每一支都照它**（逐字）：「我希望盡量以拍照為準，就是最新拍的照片如果和app不同的話，就提醒，不論是什麼多約少約，
+  日期時間人診間不對，已取消等等等等……每次拍照都可以是一次檢驗」。現在的做法是「不一樣就講出來、她按了才改」；還沒在比的（醫師、結束時間、換到別天沒有連起來講、
+  app 做完而 Abovee 沒寫完成、不壓在 Abovee 的課）列給她了，她說要補才開 issue。
 - **留給 B**（已經記在 B 的 issue 最後一段）：先勾掉「約二返」再記那一場時另一次舊健檢多一張「約二返」；`linkedSeconds()`／`claimedExams()` 兩份；取消那一道的參數名與重複。
 
 這一段學到的（已經寫進 lessons）：後一支放寬了前一支的閘門（02 的鎖被 20 打開）；還沒存的也算「全部」（拍 Abovee 跨天的超用）。
@@ -498,17 +503,25 @@ staging 的 Function 要不要部署先問我；不連正式站。
 做完更新 HANDOFF.md，最後給我一段給下一個 session（段六：/matt-code-review）的開場。
 ```
 
-### B（段六審完、合進 develop 之後）—— effort：high
+### B（PR #147 10/9 合進 develop 之後）—— effort：xhigh（動規則；拆成兩個 session 的話後半 high）
 
 ```
 /kickoff 二返可以先接上還沒做完的那一次健檢（B），照 .scratch/followup-link-before-exam/issues/01 做
 
+上線前修正（PR #147）10/9 已經合進 develop、staging 的 Function 也部署了；這一支是它之後另一支 PR。
 第一、二段不用重來：issue 已經查證過七條連動，我 10/9 回的五題在「她 10/9 回的」那一段，不用再問我。
-先讀：CLAUDE.md → docs/agents/lessons.md（第一、二、五節）→ 那一支 issue → ADR-0112、0139、0142 → .scratch/asks-2026-09-24/issues/11（要推翻的那一句）。
-git fetch，從最新的 origin/develop 開分支（prelaunch-fixes 要已經合進去）。補一支新的 ADR（推翻「只有已完成按得下去」，舊的不改）；sw.js 跟 develop 比升一號。
-issue 太大的話先拆成幾支（核心＋owed()、取消／未到、簽療程單擋、日期提醒、一次一場、n返、拍 Abovee、客戶詳情那一句），一支一個 commit，每一支先寫會紅的測試。
-沒連結的舊資料要一個位元都不變：拿 ADR-0142 那種隨機比對（Math.imul 的亂數）比改之前與改之後。
-E2E 只跑相關的 spec，跑完關模擬器。不部署、不連正式站。做完開 PR 進 develop、給我照順序點的驗收清單（本機模擬器走過）。
+先讀：CLAUDE.md → docs/agents/lessons.md（第一、二、五節）→ 那一支 issue（連最後「prelaunch-fixes 的審查順手記下來的」三條）→ ADR-0112、0139、0142、0144
+→ .scratch/asks-2026-09-24/issues/11（要推翻的那一句）→ .scratch/prelaunch-fixes-2026-10-08/HANDOFF.md 的「段四之二」與「段六」。
+git fetch，從最新的 origin/develop 開分支 claude/followup-link-before-exam。新的 ADR 從 0145 起（推翻「只有已完成按得下去」，舊的不改）、
+新的 E2E spec 是 65（登記進 tests-e2e/related.js）、sw.js 升到 v187。
+issue 很大：先拆成幾支（核心＋owed()、取消／未到、簽療程單擋、日期提醒、一次一場、n返、拍 Abovee、客戶詳情那一句、資料健檢那兩列），照依賴排順序，
+一支一個 commit，每一支先寫會紅的測試。拆完在同一個資料夾開一份 HANDOFF.md 記進度。
+沒連結的舊資料要一個位元都不變：拿 ADR-0142 那種隨機比對（Math.imul 的亂數）比改之前與改之後；
+做完再量一次「先勾掉約二返、再記那一場」多一張的那一種少了沒有（issue 最後一段）。
+拍 Abovee 那一條（我回的第 5 題）照我 10/9 講的原則：照片跟 app 不一樣就講出來、不替我改，新的一列打不打勾照既有的規矩。
+E2E 只跑相關的 spec，跑完關模擬器；同時只准一組模擬器（開之前先看 5000、8080）；全量丟 CI。不部署、不連正式站。
+用量快到的話停在一支做完的地方、更新 HANDOFF.md、給我下一段的開場。
+做完開 PR 進 develop（內文一個真名都不帶）、給我照順序點的驗收清單（本機模擬器走過）。
 ```
 
 ### 段六（審查）—— effort：xhigh
