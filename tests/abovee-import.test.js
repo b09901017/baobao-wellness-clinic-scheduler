@@ -275,24 +275,58 @@ describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => 
   const withChen = (...visits) => ctx({ visitsBy: { ...VISITS, 'c-chen': [...VISITS['c-chen'], ...visits] } });
   const read = (row, c = ctx()) => readAbovee([{ ...left, rows: [row] }], c).items[0];
 
-  test('app 上取消了、Abovee 上還是確認前往：不是新的、不勾、要你看、講得出要回 Abovee 放掉', () => {
-    // 改期（ADR-0108）之後最常見：app 上舊時間取消了，Abovee 還沒改。以前這一列是「新的」而且預設打勾
+  // 她 2026-10-09（ADR-0144，推翻 ADR-0116 表上這一格）：「要改成算新的一段，如果照片有就新增，
+  // 如果這段原本是取消那預設不勾並提醒已取消過」。以前是「對不上」、勾不起來 —— 取消之後在同一格重約的那一段這一層記不了。
+  // ADR-0116 當初要擋的（這一列是新的**而且預設打勾**，她取消的那一段被加回來）照舊擋著：不預設打勾
+  test('app 上取消了、Abovee 上還是確認前往：算新的一段、不預設打勾、要你看、講得出取消過', () => {
     const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
       slots: [ilibSlot({ status: 'cancelled' })] });
     const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
-    assert.equal(item.kind, 'mismatch');
-    assert.equal(item.reason, 'appCancelled');
-    assert.equal(item.checked, false);
+    assert.equal(item.kind, 'new');
+    assert.equal(item.checked, false, '日期在未來也不先勾');
     assert.equal(needsAttention(item), true);
-    assert.match(mismatchSay(item), /app 上取消了.*回 Abovee 放掉/);
-    assert.deepEqual(planAbovee([{ ...item, checked: true }], c).groups, [], '這一列一段都不會被寫進去');
+    assert.match(newRowSay(item), /app 上這一段取消過/);
+    assert.match(newRowSay(item), /回 Abovee 放掉/, '沒有重約的那一種照舊講得出要去放掉');
+    assert.equal(item.entitlementId, 'ch-ilib', '跟別的新的一段一樣先按好額度');
   });
 
-  test('只取消了那一段（同一天別段還在）也一樣', () => {
+  test('她勾了才寫：整天都取消的那一天另開一次新的來訪，取消的那一段不動', () => {
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.deepEqual(planAbovee([item], c).groups, [], '沒勾：一段都不寫');
+    const [group] = planAbovee([{ ...item, checked: true }], c).groups;
+    assert.equal(group.visit.id, undefined, '不是把取消的那一筆救回來');
+    assert.deepEqual(group.visit.slots.map((s) => [s.startsAt, s.status]), [['09:00', 'pending_confirm']]);
+  });
+
+  test('只取消了那一段（同一天別段還在）：勾了就接在那一天的尾巴，取消的那一段照舊是取消的', () => {
     const c = withChen({ id: 'v-ch21', customerId: 'c-chen', date: '2026-09-21', status: 'confirmed',
       slots: [ilibSlot({ status: 'cancelled' }), ilibSlot({ startsAt: '14:00', endsAt: '15:00', status: 'confirmed' })] });
     const item = read(['確認前往', '2026-09-21', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
-    assert.equal(item.reason, 'appCancelled');
+    assert.deepEqual([item.kind, item.checked], ['new', false]);
+    const [group] = planAbovee([{ ...item, checked: true }], c).groups;
+    assert.equal(group.visit.id, 'v-ch21');
+    assert.deepEqual(group.visit.slots.map((s) => [s.startsAt, s.status]),
+      [['09:00', 'cancelled'], ['14:00', 'confirmed'], ['09:00', 'pending_confirm']]);
+  });
+
+  test('照片上取消的那一列與重約的那一列都在：取消的是「兩邊都取消」，重約的是新的一段', () => {
+    const c = withChen({ id: 'v-ch20', customerId: 'c-chen', date: '2026-09-20', status: 'cancelled',
+      slots: [ilibSlot({ status: 'cancelled' })] });
+    const { items } = readAbovee([{ ...left, rows: [
+      ['已取消', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'],
+      ['確認前往', '2026-09-20', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'],
+    ] }], c);
+    assert.deepEqual(items.map((i) => [i.kind, i.checked]), [['recorded', false], ['new', false]]);
+    assert.match(newRowSay(items[1]), /取消過/);
+  });
+
+  test('記進去之後同一頁再拍一次：那一列是已經記了（活著的那一段優先）', () => {
+    const c = withChen({ id: 'v-ch21', customerId: 'c-chen', date: '2026-09-21', status: 'confirmed',
+      slots: [ilibSlot({ status: 'cancelled' }), ilibSlot({ status: 'pending_confirm' })] });
+    const item = read(['確認前往', '2026-09-21', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
+    assert.equal(item.kind, 'recorded');
   });
 
   test('Abovee 上已取消、app 上還活著：以前整列跳過，現在要你看', () => {

@@ -317,8 +317,9 @@ export function aboveeState(statusText) {
  * 不是要改成什麼。回 `null` ＝ 那不是同一段，照新的一段走。
  *
  * **課程不一樣的不算同一段**：Abovee 上 10:00 的 ILIB 取消了、app 上 10:00 是 SIS —— 那是兩段不同的東西。
- * 反過來 app 上 10:00 那一段取消了、Abovee 上同一格是別的課程，照新的一段走，**但不預設打勾**
- *（`resolveItem()` 的 `appCancelledHere`）：可能是她在 Abovee 上換了課程，也可能是課程那一格抄錯了。
+ * 反過來 app 上 10:00 那一段取消了、Abovee 上同一格還掛著（**不管課程一不一樣**，2026-10-09，ADR-0144）：照新的一段走，
+ * **但不預設打勾**（`resolveItem()` 的 `appCancelledHere`）—— 可能是取消之後重新約了、她在 Abovee 上換了課程、
+ * 課程那一格抄錯了，也可能只是她還沒回 Abovee 放掉。打勾是她的事。
  *
  * @param {'cancelled'|'done'|'booked'} aboveeSays `aboveeState()`
  * @param {{live: boolean, slots: object[]}} found `existingAt()`
@@ -326,8 +327,9 @@ export function aboveeState(statusText) {
  */
 function crossCheck(aboveeSays, found, sameCourse) {
   if (!found.live) {
-    if (!sameCourse.length) return null;
-    return aboveeSays === 'cancelled' ? { kind: 'recorded' } : { kind: 'mismatch', reason: 'appCancelled' };
+    // app 上那一段取消了、Abovee 上同一格還掛著：**照新的一段走、不預設打勾**（ADR-0144，推翻 ADR-0116 表上那一格）。
+    // 取消之後在同一格重約的那一段要記得進去；她沒重約、只是還沒回 Abovee 放掉的那一種，那一句照樣講（`newRowSay()`）
+    return sameCourse.length && aboveeSays === 'cancelled' ? { kind: 'recorded' } : null;
   }
   if (!sameCourse.length) return aboveeSays === 'cancelled' ? null : { kind: 'mismatch', reason: 'course' };
   const statuses = sameCourse.map((x) => x.status);
@@ -352,9 +354,11 @@ export function newRowSay(item) {
   if (item.movedFrom) {
     return `app 上 ${item.movedFrom.startsAt} 有一段 ${item.movedFrom.name} —— 是改了時間的話去日曆改期；確定是另一段再勾。`;
   }
-  return item.appCancelledHere
-    ? 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。'
-    : '';
+  if (!item.appCancelledHere) return '';
+  // 同一門課：取消之後又約了同一格（ADR-0144，她 2026-10-09：「預設不勾並提醒已取消過」），或她還沒回 Abovee 放掉
+  return item.appCancelledSame
+    ? 'app 上這一段取消過 —— 是重新約的再勾；沒有重約的話回 Abovee 放掉那個時段。'
+    : 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。';
 }
 
 /**
@@ -379,7 +383,6 @@ export function mismatchSay(item) {
   const app = item?.appStatus ? shortStatus(item.appStatus) : '';
   switch (item?.reason) {
     case 'aboveeCancelled': return `Abovee 上取消了，app 上還是「${app}」。`;
-    case 'appCancelled': return `app 上取消了，Abovee 上還在（「${item.statusText}」）—— 回 Abovee 放掉那個時段。`;
     case 'appNoShow': return `Abovee 上是「${item.statusText}」，app 上記「${app}」。`;
     case 'notClosed': return `Abovee 上是「${item.statusText}」，app 上還是「${app}」—— 還沒簽療程單。`;
     default: return 'app 裡已經有一段，但做的不一樣。';
@@ -398,7 +401,7 @@ export function resolveItem(item, customerId, ctx) {
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
-    reason: null, appStatus: null, appCancelledHere: false, partialHistory: false,
+    reason: null, appStatus: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
     // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
     repeatOf: null,
     // 「合併扣課的後一半」「沒有時間的舊段」也是整張一起看才認領的（`asRecorded()`）—— 換了人就不是那一段了，
@@ -423,8 +426,10 @@ export function resolveItem(item, customerId, ctx) {
       // 11：已經記了的那一段，治療師或診間跟 Abovee 不一樣 → 講出來，她按了才改
       return verdict.kind === 'recorded' && at.live ? { ...out, ...aboveeDiffs(next, at.visit, same, ctx) } : out;
     }
-    // 課程不一樣、但 app 上這個時間有一段取消了：照新的一段走，**不預設打勾**（見 `crossCheck()`）
+    // app 上這個時間有一段取消了（課程一樣或不一樣）：照新的一段走，**不預設打勾**（見 `crossCheck()`）。
+    // 哪一種要講的那一句不一樣，所以記著課程一不一樣
     next.appCancelledHere = !at.live;
+    next.appCancelledSame = !at.live && same.length > 0;
   }
 
   const course = next.course;
@@ -565,7 +570,7 @@ const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
   isNth: false, nth: null, uncountedCourseId: null, minutes: null,
-  mergeOrphan: false, movedFrom: null, appCancelledHere: false, partialHistory: false,
+  mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
   kind: 'recorded', checked: false, existing, ...extra,
 });
 
@@ -975,7 +980,8 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 11：真的不一樣（app 上有值、跟 Abovee 不同）才要你看。app 上還沒選的只是可以補 ——
   // 合併檔匯進來的來訪都沒有治療師與診間（ADR-0011），全排進來會把真的要看的淹掉
   || (item?.kind === 'recorded' && (item?.diffs ?? []).some((d) => d.app))
-  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom))
+  // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
+  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame))
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
