@@ -11,12 +11,12 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks,
+  examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks, strandedFollowups,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
 import { validateVisit, visitStatusFrom, closeVisit, rebookSlot } from '../public/js/domain/visits.js';
 import {
-  closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences,
+  closeConsequences, cancelConsequences, cancelChainLines, rebookConsequences, bookingConsequences, aboveeConsequences,
 } from '../public/js/domain/consequences.js';
 import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
@@ -366,3 +366,38 @@ describe('健檢取消／未到：講出後面接著的二返', () => {
   });
 });
 
+// ---------- 07 另約一次健檢時，講「有一場二返還接在被取消的那一次上」（她 10/9：「要」）----------
+
+describe('另約一次健檢：還接在取消／未到的健檢上的二返講一句（只講不改）', () => {
+  const gone = exam('B', '2026-10-01', 'cancelled');
+  const fuB = second('F', '2026-10-24', 'confirmed', 'B');
+  const fresh = { ...exam(null, '2026-10-10', 'pending_confirm'), id: undefined };
+
+  test('followups.js 認得出哪幾場還接在接不上的健檢上', () => {
+    const out = strandedFollowups(ENTS, coursesById, [gone, fuB]);
+    assert.deepEqual(out.map((x) => `${x.visit.id}→${x.exam.id}`), ['F→B']);
+    assert.deepEqual(strandedFollowups(ENTS, coursesById, [exam('B', '2026-10-01', 'confirmed'), fuB]), []);
+    assert.deepEqual(strandedFollowups(ENTS, coursesById, [gone, second('F', '2026-10-24', 'cancelled', 'B')]), [], '二返自己取消了不算');
+  });
+
+  test('壓表／日曆新增存一段新的健檢：確認框多那一句', () => {
+    const { lines } = bookingConsequences({ visit: fresh, coursesById, customerVisits: [gone, fuB], entitlements: ENTS });
+    assert.ok(lines.some((l) => /10\/24\(六\) 那一場二返還接在「已取消」的 10\/1\(四\) 健檢上/.test(l)), lines.join('｜'));
+  });
+
+  test('這一次沒有新的健檢段、或沒有那種二返：不講', () => {
+    const other = { ...second(null, '2026-10-30', 'pending_confirm', null), id: undefined };
+    assert.ok(!bookingConsequences({ visit: other, coursesById, customerVisits: [gone, fuB], entitlements: ENTS })
+      .lines.some((l) => l.includes('還接在')));
+    assert.ok(!bookingConsequences({ visit: fresh, coursesById, customerVisits: [gone], entitlements: ENTS })
+      .lines.some((l) => l.includes('還接在')));
+  });
+
+  test('拍 Abovee 存一段新的健檢：同一句', () => {
+    const { lines } = aboveeConsequences({
+      groups: [{ customerId: 'c1', customerName: '客戶A', date: '2026-10-10', visit: fresh, items: [{}], reopened: false }],
+      coursesById, entitlementsBy: { c1: ENTS }, visitsBy: { c1: [gone, fuB] },
+    });
+    assert.ok(lines.some((l) => l.includes('那一場二返還接在「已取消」的')), lines.join('｜'));
+  });
+});

@@ -54,7 +54,7 @@ import {
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
-import { bookingConsequences, closedDayLine, settledDayLine } from '../../domain/consequences.js';
+import { bookingConsequences, closedDayLine, settledDayLine, followupBookingLines } from '../../domain/consequences.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
@@ -2203,14 +2203,24 @@ async function addSlot() {
     tasks: merged ? await tasksData.listByVisitForSync(visit.id).catch(() => []) : [],
     // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
     today: todayISO(),
+    // 存一段新的健檢、還有一場二返接在取消的那一次上（ADR-0145）
+    customerVisits,
+    entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
   });
 
   // 「這一段接在哪一次健檢後面」要講出來 —— 她的原話是「期待我在壓表壓二返的時候，
-  // 可以顯示這是聯結幾號的健檢」。順便講出那一張待辦會自己收掉，
-  // 不然她會回待辦中心找一張已經不在的東西。
+  // 可以顯示這是聯結幾號的健檢」。
   const linkedExam = slot.followupForVisitId
     ? (customerVisits.find((v) => v.id === slot.followupForVisitId) ?? null)
     : null;
+  // 「約二返」那一張會不會收掉**拿存檔真的在跑的那一支試算**（`followupBookingLines()`，ADR-0070）。
+  // 以前寫死「會自己收掉」—— 只接得到做完的健檢時才成立；接在還沒做完的健檢上時根本沒有那一張（ADR-0145）
+  const chainSaid = selected.customerId ? followupBookingLines({
+    customer: { id: selected.customerId, name: selected.customerName ?? null },
+    visits: [...customerVisits.filter((v) => v.id !== visit.id), visit],
+    chain: await visitsData.chainInputs(selected.customerId, coursesById),
+    coursesById,
+  }) : [];
 
   const ok = await confirmAction({
     title: said.title,
@@ -2218,10 +2228,8 @@ async function addSlot() {
       // 這道確認是她自己在看的，印的是那天做了什麼（`SIS(30)`）不是課程全名
       `${selected.customerName}・${shortDate(view.day)} ${slot.startsAt}–${slot.endsAt} ${
         slotName(slot, all, 'short')}`,
-      ...(linkedExam ? [
-        `接在 ${shortDate(linkedExam.date)} 那一次健檢後面`,
-        '待辦上那一張「約二返」會自己收掉',
-      ] : []),
+      ...(linkedExam ? [`接在 ${shortDate(linkedExam.date)} 那一次健檢後面`] : []),
+      ...chainSaid,
       ...said.lines,
     ],
     // 新加的這一段不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給

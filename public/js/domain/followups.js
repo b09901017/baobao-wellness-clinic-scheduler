@@ -455,6 +455,34 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
  */
 export const PICKABLE_EXAM = new Set(['pending_confirm', 'confirmed', 'done']);
 
+/**
+ * 還佔著（`holdsExam()`）、卻接在一次**接不上**（取消、未到，`PICKABLE_EXAM` 以外）的健檢上的二返與 n返（ADR-0145）。
+ *
+ * 她 10/9：「連結只是記錄，任何一邊被取消或改期都只提醒、不連動」—— 健檢取消之後那一場二返的連結照舊指著它，
+ * 另約一次健檢時（`consequences.js`）與資料健檢（`health.js`）講出來，這一支只認出是哪幾場。
+ * 認得哪幾段是健檢靠配對（`pairsOf()`）：n返 的那一次健檢也是有配二返的那幾筆。
+ *
+ * @param {object[]} entitlements 這位客戶的額度
+ * @param {Record<string, object>} coursesById
+ * @param {object[]} visits 這位客戶的全部來訪
+ * @returns {{visit:object, slot:object, slotIndex:number, exam:object, status:string|null}[]} 照來訪的順序
+ */
+export function strandedFollowups(entitlements = [], coursesById = {}, visits = []) {
+  const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
+  if (!sources.length) return [];
+  const byId = new Map((visits ?? []).filter((v) => v && !v.deletedAt).map((v) => [v.id, v]));
+  const out = [];
+  for (const v of visits ?? []) {
+    (v?.slots ?? []).forEach((slot, slotIndex) => {
+      const exam = slot?.followupForVisitId && holdsExam(v, slot) ? byId.get(slot.followupForVisitId) : null;
+      if (!exam) return;
+      const status = examStatusIn(exam, sources);
+      if (!PICKABLE_EXAM.has(status)) out.push({ visit: v, slot, slotIndex, exam, status });
+    });
+  }
+  return out;
+}
+
 // ---------- 簽療程單：二返不可以比它接的那一次健檢先做完（ADR-0145）----------
 //
 // 她 10/9：「二返比健檢先簽完成：簽二返時，所接的健檢沒做完就擋」。接得上排著的健檢之後才會發生：

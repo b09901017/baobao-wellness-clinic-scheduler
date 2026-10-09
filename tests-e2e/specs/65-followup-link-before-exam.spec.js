@@ -195,3 +195,32 @@ test('L3 日曆長按取消健檢那一段：確認框講後面接著那一場�
   expect(second.slots[0].followupForVisitId, '連結不自動搬、不清掉').toBe('v-exam');
 });
 
+test('L4 健檢取消之後另約一次健檢：存檔前那一道講「那一場二返還接在已取消的那一次上」，連結照舊', async ({ app, page }) => {
+  await app.seed(seedLinked().map((d) => (d.id === 'v-exam' ? { ...d, data: {
+    ...d.data, status: 'cancelled', slots: d.data.slots.map((s) => ({ ...s, status: 'cancelled' })),
+  } } : d)));
+  await app.signIn('/calendar');
+  // 今天她還沒有來訪（健檢與二返在之後那兩天）—— 新的一筆
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-a"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-exam"]').click();
+  await page.click('button[type="submit"]');
+
+  // 提醒那一道（還沒選診間之類）先按掉，到「壓好了嗎」那一道看那一句
+  let said = '';
+  for (let i = 0; i < 3 && await app.dialog().isVisible(); i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    said += await app.dialogText();
+    // eslint-disable-next-line no-await-in-loop
+    await app.ok();
+  }
+  expect(said).toContain('那一場二返還接在「已取消」的');
+  expect(said).toContain('去日曆點那一場二返改「這是哪一次健檢的」');
+  await app.saved();
+  expect((await app.readDoc('visits', 'v-second')).slots[0].followupForVisitId, '只講不改').toBe('v-exam');
+});

@@ -34,7 +34,7 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, holdsExam,
+  examStatusIn, PICKABLE_EXAM, holdsExam, strandedFollowups,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds } from './nthFollowup.js';
@@ -205,6 +205,8 @@ export function reviewWarnings(warnings = []) {
  * @param {number[]} [o.added] 這次新加的是第幾段。沒給＝每一段都是（新的一筆）
  * @param {object[]} [o.tasks] 那一筆身上現有的任務（併進既有那一天時才有，`listByVisitForSync()`）
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪、`entitlements` 額度 —— 這一次存一段新的健檢時，
+ *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`，ADR-0145）；沒給就不講
  * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[]}}
  *   抬頭與確認鈕的字一起回 —— 新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死。
  *   `toBook`／`free`：這一次新加的段裡**哪幾段要壓、哪幾段不用**（那一筆來訪裡的位置）。
@@ -213,6 +215,7 @@ export function reviewWarnings(warnings = []) {
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
+  customerVisits = [], entitlements = [],
 }) {
   // **只問這一次新加的那幾段壓在哪**（ADR-0126）：那一天早就壓好的段不再問一次
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
@@ -253,6 +256,7 @@ export function bookingConsequences({
   for (const name of uncountedNames(visit, coursesById, added)) {
     lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
   }
+  lines.push(...strandedOnNewExamLines({ visit, added: fresh, entitlements, coursesById, customerVisits }));
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
@@ -262,6 +266,32 @@ export function bookingConsequences({
 
   if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free };
   return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
+}
+
+/**
+ * 這一次新加的段裡有一段健檢，而這位客戶有一場二返／n返**還接在取消、未到的那一次健檢上** —— 一場一句（ADR-0145）。
+ *
+ * 她 10/9 回的第 2 題：「要」—— 另約一次健檢時主動講。**只講不改**：系統不知道這一次是不是那一次改期來的，
+ * 接錯比沒接糟（ADR-0002）。壓表、日曆新增（`bookingConsequences()`）與拍 Abovee（`aboveeConsequences()`）共用。
+ *
+ * @param {object} o
+ * @param {object} o.visit 要存下去的那一筆
+ * @param {number[]|null} o.added 這次新加的是第幾段（沒給＝每一段）
+ * @param {object[]} o.entitlements 這位客戶的額度
+ * @param {object[]} o.customerVisits 這位客戶的全部來訪（存之前的）
+ * @returns {string[]}
+ */
+export function strandedOnNewExamLines({ visit, added = null, entitlements = [], coursesById = {}, customerVisits = [] }) {
+  const examIds = examEntitlementIds(entitlements, coursesById);
+  const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
+  if (!fresh.some((i) => isLiveSlot(visit?.slots?.[i]) && examIds.has(visit.slots[i].entitlementId))) return [];
+  const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
+  return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, exam, status }) => {
+    const name = slot.courseName || '二返';
+    return `${day(v.date)} 那一場${name}還接在「${shortStatus(status)}」的 ${day(exam.date)} 健檢上 —— `
+      + `要接到這一次的話，存好之後去日曆點那一場${name}改「這是哪一次健檢的」`;
+  });
 }
 
 /** 拍 Abovee 那一道最多列幾句提醒。再多她也不會逐句讀 —— 剩下的指回那幾列。 */
@@ -290,10 +320,13 @@ const FLAGGED_MAX = 6;
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
  *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`aboveeImport.js` 的 `warningsByRow()` 的 `mustSee`）。
  *   每一列預設收著、預設打勾，這一道是她一定會經過的地方（ADR-0138）。句子是 `validateVisit()` 那幾句，這裡不重寫
+ * @param {Record<string, object[]>} [o.entitlementsBy] 每一位的額度、`visitsBy` 每一位的全部來訪 —— 存一段新的健檢時，
+ *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`）；沒給就不講
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
   groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  entitlementsBy = {}, visitsBy = {},
 }) {
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
@@ -353,6 +386,12 @@ export function aboveeConsequences({
   }
   for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+  // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
+  const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
+    visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? [], coursesById,
+    customerVisits: visitsBy[g.customerId] ?? [],
+  }).map((line) => `${g.customerName} ${line}`)));
+  lines.push(...stranded);
 
   // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
   if (adopts.length) {

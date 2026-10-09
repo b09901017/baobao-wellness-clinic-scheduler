@@ -1341,6 +1341,9 @@ async function submit(ctx, draft) {
       tasks: await visitTasks(ctx.stored),
       // 補登過去那一天不講「會多一張跟客人確認時間」與掛號（ADR-0113）
       today: todayISO(),
+      // 存一段新的健檢、還有一場二返接在取消的那一次上（ADR-0145）
+      customerVisits: ctx.customerVisits,
+      entitlements: ctx.entitlements,
     });
     const ok = await confirmAction({
       title: said.title,

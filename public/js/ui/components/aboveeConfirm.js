@@ -879,6 +879,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       today: ctx.today,
       tasksByVisit,
       adopts,
+      // 存一段新的健檢、還有一場二返接在取消的那一次上（ADR-0145）
+      entitlementsBy: ctx.entitlementsBy,
+      visitsBy: ctx.visitsBy,
       aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
       marks: marks.map((m) => ({
         names: m.customerIds.map(nameOf),
