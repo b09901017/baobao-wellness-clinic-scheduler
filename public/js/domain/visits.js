@@ -19,7 +19,7 @@ import {
   roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam } from './followups.js';
+import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
@@ -1014,16 +1014,22 @@ export function applyConfirmation(
  * 整筆的狀態走 `visitStatusFrom()` 推：一段做了、一段還開著 → 已確認（那一天留在
  * 簽療程單的清單上）；全部結掉 → 有一段做了就是已完成，一段都沒做就是未到。
  *
+ * **帶了 `guard`（這位客戶的額度與全部來訪）就自己擋**（ADR-0145、ADR-0111 的形狀：改狀態的那一支動手前自己問）：
+ * 一場二返／n返接的那一次健檢還沒做完，那一段的 ✓ 當成先不結（`followups.js` 的 `closeBlocks()`）。
+ * 抽屜那一列本來就按不下去；這一道擋的是之後多出來的路。
+ *
  * @param {object} visit
  * @param {(boolean|null)[]} attended 逐段：`true` 做了、`false` 沒來、`null` 先不結
  * @param {string} at ISO 時間
+ * @param {{entitlements:object[], visits:object[]}|null} [guard]
  */
-export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
+export function closeVisit(visit, attended = [], at = new Date().toISOString(), guard = null) {
   // 動手之前先補齊（`materialize()` 的說明）
   const base = materialize(visit);
+  const blocked = guard ? closeBlocks(base, attended, guard) : new Map();
   let touched = false;
   const slots = (base?.slots ?? []).map((slot, i) => {
-    const did = attended[i];
+    const did = blocked.has(i) ? null : attended[i];
     if (did !== true && did !== false) return slot;
     // 取消的、已經結案的不動 —— 取消掉的那一段那天本來就不會發生（ADR-0081），
     // 蓋過去的話它會被算成「沒來」

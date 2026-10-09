@@ -4375,6 +4375,12 @@ button.mark::after {
   border-color: var(--overdue);
 }
 
+/* 二返接的那一次健檢還沒做完：✓ 按不下去（ADR-0145），那一列自己講為什麼 */
+.slotpick__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* ---------- 登入 / 設定畫面 ---------- */
 
 .gate {

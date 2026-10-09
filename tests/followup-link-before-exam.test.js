@@ -11,10 +11,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  examChoicesFor, owed, syncFollowupTasks, claimedExams,
+  examChoicesFor, owed, syncFollowupTasks, claimedExams, cannotClose, closeBlocks,
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND,
 } from '../public/js/domain/followups.js';
-import { validateVisit, visitStatusFrom } from '../public/js/domain/visits.js';
+import { validateVisit, visitStatusFrom, closeVisit } from '../public/js/domain/visits.js';
+import { closeConsequences } from '../public/js/domain/consequences.js';
 import { examChoicesForNth, nthSlotFields } from '../public/js/domain/nthFollowup.js';
 import { slotOptionsFor } from '../public/js/domain/slotOptions.js';
 
@@ -260,3 +261,55 @@ describe('存檔驗證：同一次健檢已經接了一場活著的二返 → �
     assert.deepEqual(aboutExam(ask(rebooked, [B, stored]).errors), []);
   });
 });
+
+// ---------- 05 簽療程單：接的那一次健檢還沒做完，二返那一段簽不成「做了」----------
+
+describe('簽療程單擋：二返比它接的健檢先簽成做了', () => {
+  const B = exam('B', '2026-10-01', 'confirmed');
+  const fu = second('F', '2026-10-24', 'confirmed', 'B');
+  const ctx = (visits) => ({ entitlements: ENTS, visits });
+
+  test('接的那一次還沒做完：那一段 ✓ 簽不下去、講得出是哪一天的健檢', () => {
+    assert.deepEqual([...cannotClose(fu, 0, [true], ctx([B, fu]))?.examDate ?? ''].join(''), '2026-10-01');
+    assert.deepEqual([...closeBlocks(fu, [true], ctx([B, fu])).keys()], [0]);
+  });
+
+  test('closeVisit() 帶著 guard 自己也擋：那一段當成先不結', () => {
+    const after = closeVisit(fu, [true], '2026-10-24T05:00:00.000Z', ctx([B, fu]));
+    assert.equal(after.slots[0].status, 'confirmed');
+    assert.equal(closeVisit(fu, [false], '2026-10-24T05:00:00.000Z', ctx([B, fu])).slots[0].status, 'no_show', '✗ 照樣按得下去');
+  });
+
+  test('接的那一次做完了：照常', () => {
+    assert.equal(cannotClose(fu, 0, [true], ctx([exam('B', '2026-10-01', 'done'), fu])), null);
+  });
+
+  test('同一天健檢＋二返，同一張抽屜兩段都 ✓：可以；只 ✓ 二返不行', () => {
+    const day = visitOf('D', '2026-10-24', [
+      { entitlementId: 'e-exam', courseId: 'c-exam', startsAt: '09:00', endsAt: '10:00', status: 'confirmed' },
+      { entitlementId: 'e-fu', courseId: 'c-fu', startsAt: '11:00', endsAt: '11:30', status: 'confirmed', followupForVisitId: 'D' },
+    ]);
+    assert.equal(cannotClose(day, 1, [true, true], ctx([day])), null);
+    assert.ok(cannotClose(day, 1, [null, true], ctx([day])));
+  });
+
+  test('沒連結的二返照舊簽得下去；接的那一次不在手上這一份裡也不擋（不知道就不擋）', () => {
+    const loose = second('F', '2026-10-24', 'confirmed', null);
+    assert.equal(cannotClose(loose, 0, [true], ctx([B, loose])), null);
+    assert.equal(cannotClose(fu, 0, [true], ctx([fu])), null);
+  });
+
+  test('n返 同一條', () => {
+    const n = visitOf('N', '2026-10-24', [{
+      ...nthSlotFields({ nth: 3, examVisitId: 'B', courseId: 'c-fu' }), startsAt: '14:00', endsAt: '14:30', status: 'confirmed',
+    }]);
+    assert.ok(cannotClose(n, 0, [true], ctx([B, n])));
+  });
+
+  test('抽屜那一句講出這一段先不結、會扣的不算它', () => {
+    const lines = closeConsequences({ visit: fu, picks: [true], entitlements: ENTS, coursesById, visits: [B, fu], tasks: [] });
+    assert.ok(lines.some((l) => /健檢（10\/1\(四\)）還沒做完/.test(l)), lines.join('｜'));
+    assert.ok(!lines.some((l) => l.includes('扣掉次數')), lines.join('｜'));
+  });
+});
+

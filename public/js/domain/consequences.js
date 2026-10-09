@@ -33,7 +33,7 @@ import {
   slotStatus, applyConfirmation, closeVisit, slotsToClose, visitsToConfirm, sameDayState, liveSlots,
 } from './visits.js';
 import {
-  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks,
+  pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot } from './nthFollowup.js';
@@ -502,6 +502,9 @@ export function closedSay(visit, picks = []) {
  * **另一次**健檢的「約二返」會長出來（二返簽成沒來也會）。同一次試算，一張一行、講出是哪一天那一次健檢的。
  * 追蹤健檢報告照舊只講這一筆的（ADR-0139）。
  *
+ * **二返／n返接的那一次健檢還沒做完，那一段的 ✓ 不算**（ADR-0145）：跟 `closeVisit()` 帶著 guard 時擋的是同一支（`closeBlocks()`），
+ * 底下每一句都照擋過之後的 `picks` 講，再多一句「這一段先不結」。
+ *
  * @param {object} o
  * @param {object} o.visit 那一筆來訪
  * @param {(boolean|null)[]} o.picks 逐段：`true` 做了、`false` 沒來、`null` 先不結（`closeVisit()` 收的那一份）
@@ -513,9 +516,11 @@ export function closedSay(visit, picks = []) {
  * @returns {string[]}
  */
 export function closeConsequences({
-  visit, picks = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
+  visit, picks: asked = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
 }) {
   const lines = [];
+  const blocked = closeBlocks(visit, asked, { entitlements, visits });
+  const picks = asked.map((p, i) => (blocked.has(i) ? null : p));
   const open = slotsToClose(visit).map(({ index }) => index);
   const done = open.filter((i) => picks[i] === true);
   const missed = open.filter((i) => picks[i] === false);
@@ -528,6 +533,10 @@ export function closeConsequences({
   else if (charged) lines.push(`做了的 ${done.length} 段裡 ${charged} 段扣掉次數`);
   else if (done.length) lines.push(`做了的 ${done.length} 段記成「${shortStatus('done')}」，不扣次數`);
   if (missed.length) lines.push(`沒來的 ${missed.length} 段記成「${shortStatus('no_show')}」，次數不扣`);
+  for (const [i, { examDate }] of blocked) {
+    const name = visit?.slots?.[i]?.courseName || '二返';
+    lines.push(`「${name}」接的那一次健檢（${isValidDate(examDate) ? shortDate(examDate) : '另一天'}）還沒做完 —— 這一段先不結，健檢簽好再回來簽`);
+  }
   if (left) {
     lines.push(`還有 ${left} 段先不結，留在這裡`);
   } else if (done.length || missed.length) {

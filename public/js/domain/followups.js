@@ -455,6 +455,58 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
  */
 export const PICKABLE_EXAM = new Set(['pending_confirm', 'confirmed', 'done']);
 
+// ---------- 簽療程單：二返不可以比它接的那一次健檢先做完（ADR-0145）----------
+//
+// 她 10/9：「二返比健檢先簽完成：簽二返時，所接的健檢沒做完就擋」。接得上排著的健檢之後才會發生：
+// 二返先 ✓ 的話，那一次健檢被當成「二返做完了」—— 健檢做完時不長追蹤健檢報告，整條鏈安靜地跳過。
+
+/**
+ * 這一段（一場二返或 n返）照 `picks` 簽成「做了」的話，它接的那一次健檢還沒做完嗎。
+ *
+ * 做完了＝那一次健檢那一段已完成（`usedAndDone()`），**或同一張抽屜裡健檢那一段也打了 ✓**（同一天健檢＋二返）。
+ * 不擋的：沒連結的（舊資料照舊簽得下去、照舊扣，issue 01 第 6 條）、接的那一次不在手上這一份裡（不知道就不擋）、
+ * 認不出是二返還是 n返 的。抽屜那一列、`closeConsequences()`、`closeVisit()` 的 guard 都問這一支。
+ *
+ * @param {object} visit 要結案的那一筆
+ * @param {number} index 哪一段
+ * @param {(boolean|null)[]} picks 抽屜上逐段按了什麼（`closeVisit()` 收的那一份；這一段當成 ✓ 來問）
+ * @param {{entitlements?:object[], visits?:object[]}} ctx 這位客戶的額度與全部來訪
+ * @returns {{examVisitId:string, examDate:string}|null} 擋的話是哪一次健檢
+ */
+export function cannotClose(visit, index, picks = [], { entitlements = [], visits = [] } = {}) {
+  const slot = visit?.slots?.[index];
+  if (!slot?.followupForVisitId) return null;
+  const ent = (entitlements ?? []).find((e) => e.id === slot.entitlementId) ?? null;
+  // 二返問它配的那一筆健檢；n返（沒有額度）問有配二返的那幾筆健檢
+  const sources = ent?.followupForEntitlementId ? [ent.followupForEntitlementId]
+    : slot.entitlementId ? []
+      : [...new Set((entitlements ?? []).filter((e) => !e?.deletedAt && e.followupForEntitlementId).map((e) => e.followupForEntitlementId))];
+  if (!sources.length) return null;
+
+  const exam = slot.followupForVisitId === visit.id ? visit
+    : (visits ?? []).find((v) => v && !v.deletedAt && v.id === slot.followupForVisitId) ?? null;
+  if (!exam) return null;
+  if (sources.some((id) => usedAndDone(exam, id))) return null;
+  const tickedHere = exam === visit && (visit.slots ?? []).some((s, j) => j !== index && picks[j] === true
+    && sources.includes(s?.entitlementId) && ['pending_confirm', 'confirmed'].includes(slotStatus(visit, s)));
+  return tickedHere ? null : { examVisitId: exam.id, examDate: exam.date };
+}
+
+/**
+ * `picks` 裡打了 ✓、卻簽不下去的那幾段（`cannotClose()`）。`closeVisit()` 帶著 guard 時把它們當成先不結。
+ *
+ * @returns {Map<number, {examVisitId:string, examDate:string}>}
+ */
+export function closeBlocks(visit, picks = [], ctx = {}) {
+  const out = new Map();
+  (visit?.slots ?? []).forEach((_, i) => {
+    if (picks[i] !== true) return;
+    const why = cannotClose(visit, i, picks, ctx);
+    if (why) out.set(i, why);
+  });
+  return out;
+}
+
 /**
  * 這一次健檢的二返約了沒。「約二返」那張待辦要靠它講出「已約 9/3」還是「還沒約」。
  *

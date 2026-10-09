@@ -101,3 +101,51 @@ test('L1 健檢約好還沒做、當場約二返：那一排按得下去、存�
   expect(book, '舊的那一次的「約二返」沒有被收掉 —— 這一場是 B 的').toBeTruthy();
   expect(book.done).toBe(false);
 });
+
+// ---------- 05 簽療程單：二返接的那一次健檢還沒做完，✓ 按不下去 ----------
+
+test('L2 二返接在還沒做完的健檢上、二返那一天先到：✓ 按不下去、講出原因；「全部 ✓」跳過它；✗ 照樣按得下去', async ({ app, page }) => {
+  const LATER = addDays(TODAY, 3).startsWith(MONTH) ? addDays(TODAY, 3) : TODAY;
+  await app.seed([
+    ...seedTwoExams().filter((d) => d.id !== 't-old-book'),
+    // 健檢（B）在三天後；二返約在今天、接在 B 上（日期排錯了，或客人先來聽別的）
+    visit({
+      id: 'v-second', customerId: 'cust-a', customerName: '客戶A', date: TODAY, status: 'confirmed',
+      slots: [
+        { ...slot({ courseId: 'course-followup', entitlementId: 'ent-second', startsAt: '10:00', endsAt: '10:30' }),
+          status: 'confirmed', followupForVisitId: 'v-exam' },
+        { ...slot({ courseId: 'course-checkup', entitlementId: 'ent-exam', startsAt: '11:00', endsAt: '13:00', roomId: 'room-t3' }),
+          status: 'confirmed' },
+      ],
+    }),
+  ].map((d) => (d.id === 'v-exam' ? { ...d, date: LATER } : d)));
+  await app.signIn('/');
+  await app.go('/todo/close');
+  await page.locator('[data-open="v-second"]').click();
+  await app.layer('.drawer [data-apply]');
+
+  const yes = page.locator('.drawer [data-pick="0"][data-to="1"]');
+  // 補讀那一位的來訪之後才知道那一次健檢還沒做完
+  await expect(page.locator('.drawer [data-close-blocked="0"]')).toContainText('接的那一次健檢');
+  await expect(yes, '二返的 ✓ 按不下去').toBeDisabled();
+
+  await page.locator('.drawer [data-pick-all]').click();
+  await expect(yes, '「全部 ✓」跳過它').toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.drawer [data-pick="1"][data-to="1"]'), '同一天別段照常').toHaveAttribute('aria-pressed', 'true');
+  // 那一列自己講為什麼（上面的 data-close-blocked）；底下那幾句講它留著
+  await expect(page.locator('.drawer .dialog__list')).toContainText('還有 1 段先不結');
+
+  await page.locator('[data-apply]').click();
+  await app.saved();
+  const v = await app.readDoc('visits', 'v-second');
+  expect(v.slots[0].status, '二返那一段沒有被簽成做了').toBe('confirmed');
+  expect(v.slots[1].status).toBe('done');
+
+  // ✗ 照樣按得下去
+  await page.locator('[data-open="v-second"]').click();
+  await app.layer('.drawer [data-apply]');
+  await page.locator('.drawer [data-pick="0"][data-to="0"]').click();
+  await page.locator('[data-apply]').click();
+  await app.saved();
+  expect((await app.readDoc('visits', 'v-second')).slots[0].status).toBe('no_show');
+});
