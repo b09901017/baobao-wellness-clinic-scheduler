@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 //
-// 在 staging（或模擬器）上長出一份可以拿來點的假資料。
+// 在模擬器（以前也在 staging）上長出一份可以拿來點的假資料。
+//
+// **2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）。這一支每跑一次會把
+// 種子主檔整份寫回去，所以**只准跑在本機模擬器上**（`refuseReason()`）——
+// 要在 staging 上重來一次預演，用 `npm run staging:reset` 清空再貼合併檔。
 //
 // **合成的，不是把正式資料匿名化。** 匿名化那條路有兩個問題：匿名腳本自己會
 // 漏欄位（漏一個就是真名進了另一個資料庫），而且它要先把正式資料倒出來 ——
@@ -29,10 +33,10 @@ import { pathToFileURL } from 'node:url';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
-import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
+import { SEED, DEFAULT_SETTINGS, seedData } from '../public/js/domain/seed.js';
 import { expandPlan, poolName, timedLabel } from '../public/js/domain/entitlements.js';
 // 任務照規則產生，不自己編一個種類。
-import { tasksForVisit, acceptsNewTasks } from '../public/js/domain/taskRules.js';
+import { newRegistrations } from '../public/js/domain/taskRules.js';
 
 const PROD_PROJECT = 'wellness-clinic-scheduler';
 // **正式那兩個別名一定要在這裡。** 少了它們，`--project prod` 會原封不動地
@@ -61,6 +65,35 @@ export const fakeName = (i) => `客戶${LETTERS[i % 26]}${i < 26 ? '' : Math.flo
  * 那些不該被一個種子腳本掃掉。
  */
 const PREFIX = 'seed-cus-';
+
+/**
+ * 這一次准不准跑。回 null ＝ 准；回一句話 ＝ 拒絕的理由。
+ *
+ * **staging 從 2026-10-05 起放的是真資料的預演**（ADR-0118，她：「`npm run seed:staging`
+ * 之後不能隨手跑」）。這一支每跑一次都會把種子主檔整份 `batch.set` 回去 ——
+ * 不只是加二十位假客戶，她在 staging 上改過的診間、課程、品項會被蓋回種子的樣子。
+ *
+ * **所以只准跑在模擬器上**（`customerIds` 只拿來講清楚現況）。以前想過「那個專案裡全是
+ * 種子客戶才放行」，但那有一個洞：`staging:reset` 清完之後一位客戶都沒有，守衛就過得去，
+ * 照樣把她的主檔蓋掉 —— 而清空正是貼合併檔的前一步。
+ *
+ * 正式專案一律拒絕（連模擬器旗標都不救）。
+ *
+ * @param {{projectId: string, emulator: string|null, customerIds?: string[]}} o
+ */
+export function refuseReason({ projectId, emulator, customerIds = [] }) {
+  if (projectId === PROD_PROJECT) {
+    return `拒絕。正式專案（${PROD_PROJECT}）沒有任何理由需要假客戶。`;
+  }
+  if (emulator) return null;
+  const real = customerIds.filter((id) => !String(id).startsWith(PREFIX)).length;
+  return [
+    `拒絕。這一支只准跑在本機模擬器上（目標：${projectId}${real ? `，裡面有 ${real} 位不是種子建的客戶` : ''}）——`,
+    'staging 從 2026-10-05 起放的是真資料的預演（ADR-0118）。',
+    '這一支每跑一次都會把種子主檔整份寫回去，她改過的主檔會被蓋掉。',
+    '要一份假資料：npm run emulators，再帶 FIRESTORE_EMULATOR_HOST 跑這一支。',
+  ].join('\n');
+}
 
 /**
  * 種子。同一個種子跑兩次長出一模一樣的資料 —— 可重現才拿得來查 bug。
@@ -183,6 +216,20 @@ function extraEntitlement(extra, { purchaseId, purchasedAt }) {
 }
 
 /**
+ * 一筆種子來訪的登記任務。**照規則產生，不自己編一個 kind**：寫死一個種類正是
+ * 2026-08-23 退休的「Abovee」還留在假資料裡的原因 —— 種子跟規則各寫一次，
+ * 規則改了種子不會跟。
+ *
+ * 走 app 存檔時那一支（`newRegistrations()`）：逐段、每一張帶 `slotIndexes`（ADR-0107）。
+ * 沒帶的會被當成蓋住整天（`cancelSlotsOf()`），她在 staging 上改期之後新那一段
+ * 談定了一張都不長（prelaunch-audit-2026-09-23/issues/15）。
+ */
+export function registrationTasks(vid, data, coursesById) {
+  return newRegistrations({ ...data, id: vid }, [], coursesById)
+    .map((t, k) => ({ id: `${vid}-task-${k}`, data: t }));
+}
+
+/**
  * 一位假客戶連同他的額度、來訪、任務、隨手記。
  *
  * 來訪的狀態**照日期判**，跟 `domain/mergeImport.js` 的 `statusFor()` 同一個
@@ -272,13 +319,7 @@ export function makeCustomer(i, today, { months }) {
     };
     visits.push({ id: vid, data });
 
-    // 登記任務**照規則產生，不自己編一個 kind**。寫死一個種類正是
-    // 2026-08-23 退休的「Abovee」還留在假資料裡的原因 —— 種子跟規則各寫一次，
-    // 規則改了種子不會跟。
-    if (acceptsNewTasks(status)) {
-      tasksForVisit({ ...data, id: vid }, coursesById)
-        .forEach((t, k) => tasks.push({ id: `${vid}-task-${k}`, data: t }));
-    }
+    tasks.push(...registrationTasks(vid, data, coursesById));
   }
 
   // 計數欄位要跟來訪對得起來，否則資料健檢第一項就滿江紅。
@@ -422,8 +463,10 @@ async function main() {
     console.error('用法：node scripts/seed-staging.mjs --project <staging|專案id> [--yes] [--customers 20]');
     process.exit(2);
   }
-  if (projectId === PROD_PROJECT) {
-    console.error(`\n拒絕。正式專案（${PROD_PROJECT}）沒有任何理由需要假客戶。\n`);
+  // 只准跑在模擬器上（ADR-0118）。在連任何東西之前就擋，dry run 也一樣
+  const refused = refuseReason({ projectId, emulator });
+  if (refused) {
+    console.error(`\n${refused}\n`);
     process.exit(3);
   }
 
@@ -433,8 +476,8 @@ async function main() {
   const plan = [];
   for (const [type, rows] of Object.entries(SEED)) {
     for (const row of rows) {
-      const { id, ...data } = row;
-      plan.push({ path: `config/app/${type}`, id, data: { ...data, active: true } });
+      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的「沒選床位」那一間（ADR-0127）
+      plan.push({ path: `config/app/${type}`, id: row.id, data: seedData(row) });
     }
   }
   for (const pb of PLAYBOOKS) {
@@ -475,9 +518,8 @@ async function main() {
   console.log(`
 寫好了。接下來：
 
-  1. 到 staging 的 app 登入一次，畫面會說「這個帳號還沒有權限」並印出你的 uid
-  2. 把那串 uid 加進 staging 專案的 allowedUsers 集合（見 docs/STAGING.md）
-  3. 開 #/settings/health 跑一次資料健檢 —— 這份假資料應該一條都不報
+  1. 打開 http://127.0.0.1:5000 登入
+  2. 開 #/settings/health 跑一次資料健檢 —— 這份假資料應該一條都不報
 `);
 }
 

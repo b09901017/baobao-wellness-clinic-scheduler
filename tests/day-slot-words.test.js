@@ -119,3 +119,53 @@ describe('畫面上的字串裡沒有「筆」這個單位', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// 數字後面接著「筆」（2026-10-07，ADR-0135）。上面那一份只認修之前的舊句子，
+// 之後新寫的「24 筆來訪」「看全部 N 筆」就漏網了。**講來訪的數字數的是段**
+// （底下一列是一天的地方寫「天」）—— 判準是她那一句：數字跟底下看到的列數一致。
+//
+// 例外寫成名單：它們數的不是來訪（ADR-0087 的例外 —— 行事備註、額度、隨手記、營養品、任務）。
+// 資料健檢與稽核整支不掃：那兩頁本來就在講資料。
+// ---------------------------------------------------------------------------
+
+const COUNT_FILES = [
+  ...FILES.filter((f) => f !== 'js/ui/views/health.js'),
+  'js/ui/views/customerDetail.js', 'js/domain/dayReview.js', 'js/ui/views/bulkCancel.js',
+  'js/domain/calendar.js',
+];
+
+/** `${…} 筆…` 或 `3 筆…`，帶著前面那個變數，例外才認得出是哪一句。 */
+const COUNTED = /(?:\$\{[^}\n]*\}|\d)\s*筆[^`'"<\n]{0,8}|筆來訪/g;
+
+/** 每一條是一整句（`^…$`），所以「${rows.length} 筆」放行了、「${rows.length} 筆來訪」照樣擋。 */
+const NOT_VISITS = {
+  'js/ui/views/calendar.js': [
+    /^\$\{events\} 筆行事備註$/, // 行事備註一則就是一筆（ADR-0087）
+  ],
+  'js/ui/views/customerDetail.js': [
+    /^\$\{offCount\(pools, visits\)\} 筆對不起來$/, // 數的是額度
+    /^\$\{ctx\.entitlements\.length\} 筆額度與 /, // 額度（同一句的來訪那一半寫「天」）
+    /^\$\{rows\.length\} 筆$/, // 「已加購 N 筆」：加了幾筆額度
+  ],
+};
+
+/** 待辦中心那幾句數的是**任務與隨手記**（「把勾起來的 N 筆標成完成」…），她 10/7 說的是「講來訪的」。 */
+const TASK_FILES = new Set(['js/ui/views/home.js']);
+
+describe('講來訪的數字不寫「筆」', () => {
+  for (const rel of COUNT_FILES) {
+    test(rel, () => {
+      const left = [...code(rel).matchAll(COUNTED)].map((m) => m[0])
+        .filter((m) => !(NOT_VISITS[rel] ?? []).some((ok) => ok.test(m)))
+        .filter((m) => !(TASK_FILES.has(rel) && !m.includes('來訪')));
+      assert.deepEqual(left, [], `${rel}：${left.join('｜')}`);
+    });
+  }
+
+  test('擋得住下一句新寫的', () => {
+    const hits = (s) => [...s.matchAll(COUNTED)].map((m) => m[0]);
+    assert.deepEqual(hits('`${n} 筆來訪`'), ['${n} 筆來訪']);
+    assert.deepEqual(hits('`看全部 ${visits.length} 筆`'), ['${visits.length} 筆']);
+  });
+});

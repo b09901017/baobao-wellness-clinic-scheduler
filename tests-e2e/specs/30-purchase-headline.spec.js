@@ -78,8 +78,17 @@ test('電話還找得到人（欄位留著，只是不上抬頭）', async ({ ap
   await app.signIn('/customers');
   await app.go('/customers');
 
+  const card = page.locator('a.card[href="#/customers/cust-h"]');
   await page.locator('[data-search]').fill(PHONE);
-  await expect(page.locator('a.card[href="#/customers/cust-h"]')).toBeVisible();
+  await expect(card).toBeVisible();
+
+  // 這一格跟其他找人的框同一種比法（`nameHas()`，2026-10-06）：全形數字、中間多一個空白都找得到
+  await page.locator('[data-search]').fill('０９１２');
+  await expect(card).toBeVisible();
+  await page.locator('[data-search]').fill('王 小明');
+  await expect(card).toBeVisible();
+  await page.locator('[data-search]').fill('李');
+  await expect(card, '對不上的照舊濾掉').toHaveCount(0);
 });
 
 // ---------- 買過什麼：一天一張（issue 06） ----------

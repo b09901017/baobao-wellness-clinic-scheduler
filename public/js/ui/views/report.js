@@ -16,16 +16,13 @@ import * as configData from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
 import { customerReport, toTSV, toCSV, describeSync } from '../../domain/sheetReport.js';
-import { todayISO, addDays } from '../../domain/dates.js';
+import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
 import { saveText, dated } from '../components/download.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
-
-/** 報表往回涵蓋多久的來訪。她的方案會籍是一年，涵蓋一年才看得到整份療程。 */
-const LOOKBACK_DAYS = 400;
 
 // 選了誰留著：她通常是一位一位貼，貼完回來換下一位。
 // 沒有總表 —— 她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
@@ -49,10 +46,11 @@ export async function render(el) {
 
 async function load() {
   const today = todayISO();
-  const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, settings] = await Promise.all([
+  const [customers, entitlementsBy, visits, tasks, courses, staff, equipment, ivProducts, settings] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
-    visitsData.listBetween(addDays(today, -LOOKBACK_DAYS), addDays(today, LOOKBACK_DAYS)),
+    // 過去的全部，跟自動推送同一支（`data/sheetSync.js`）—— 兩條路的次數才會一樣
+    visitsData.listForSheet(today),
     tasksData.listForReport(),
     // 連已刪除的課程一起讀：主檔把健檢刪掉，不代表做過的那幾次就不用配二返了
     configData.listAll('courses', { includeDeleted: true }),
@@ -61,6 +59,8 @@ async function load() {
     // 「這一天用了哪一台」那一列要靠它換成別稱（格式 4）。含已刪除的 ——
     // 她停用一台器材，已經做過的那幾次照樣要印得出名字。
     configData.listAll('equipment', { includeDeleted: true }),
+    // 待辦那一行寫品項（跟待辦中心一樣）；停用的那一款做過的照樣要印得出名字
+    configData.listAll('ivProducts', { includeDeleted: true }),
     configData.getSettings(),
   ]);
 
@@ -70,7 +70,7 @@ async function load() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, settings };
+  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, ivProducts, settings };
 }
 
 function paint(el, data) {
@@ -84,9 +84,13 @@ function paint(el, data) {
     <a class="backlink" href="#/settings">${icon('left', { size: 19 })}設定</a>
 
     <section class="card">
+      ${/* 最後一句是她 2026-09-24 晚要的提醒（「沒再用了，但是那邊可以有一個tooltip提醒」）：
+            手動這條從來沒有來訪紀錄，後來的「記一句」「買過什麼」也只有自動同步才有
+           （`.scratch/asks-2026-09-24-evening/issues/05`）。 */''}
       <h2 class="card__title">試算表報表${tip(
         '把資料排成試算表的樣子，複製之後在試算表選一格貼上就是一張表。'
-        + '單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。')}</h2>
+        + '單向 —— 在試算表上改東西不會回到 app，那份試算表現在是報表不是資料來源。'
+        + '這裡貼出來的沒有來訪紀錄、記一句、買過什麼 —— 那幾樣只有底下的自動同步才有。')}</h2>
 
       <label class="field">
         <span class="field__label">要哪一份</span>
@@ -244,7 +248,9 @@ function buildReport(data) {
     courses: data.courses,
     staff: data.staff,
     equipment: data.equipment,
+    ivProducts: data.ivProducts,
     generatedAt,
+    today: data.today,
   });
 }
 

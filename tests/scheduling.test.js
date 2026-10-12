@@ -13,7 +13,7 @@ import {
   strongestReason, newBatch, progressOf, markInQueue, nextPending, customersToAsk,
   customersToAskForMonth,
   customersToBook,
-  sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS, monthChoices, mergeIntoQueue,
+  sortQueueRows, QUEUE_SORTS, DEFAULT_WEIGHTS, monthChoices, mergeIntoQueue, followupsLast,
 } from '../public/js/domain/scheduling.js';
 
 const COURSE = { id: 'course-recovery', name: '復能', requiresEquipment: true };
@@ -1033,7 +1033,12 @@ describe('rowsOf() 要把新加入的人也畫出來（issue 02）', () => {
     const at = SRC.indexOf('function rowsOf(');
     assert.ok(at > 0, '找不到 rowsOf()');
     const body = SRC.slice(at, at + 1400);
-    assert.match(body, /mergeIntoQueue\(/);
+    // 2026-10-08 起組列搬進 domain 的 `batchRows()`（它裡面走 `mergeIntoQueue()`，
+    // `tests/deleted-customer-leaves-the-wall.test.js` 釘著「新的接在最後」與「刪掉的不畫」）
+    assert.match(body, /batchRows\(/);
+    const DOMAIN = readFileSync(new URL('../public/js/domain/scheduling.js', import.meta.url), 'utf8');
+    const rows = DOMAIN.slice(DOMAIN.indexOf('export function batchRows('));
+    assert.match(rows.slice(0, 1600), /mergeIntoQueue\(/);
     assert.ok(!body.includes('ids.has(c.id)'), '那一行就是把新客人擋在外面的地方');
   });
 
@@ -1063,5 +1068,30 @@ describe('壓表也要先講「這幾段先看一下」', () => {
     const a = SRC.indexOf('confirmReview(warnings)');
     const b = SRC.indexOf('bookingConsequences({');
     assert.ok(a > 0 && b > a, '順序反了');
+  });
+});
+
+describe('10 二返排在最後面', () => {
+  // 她 2026-09-24：「二返(...健檢) 健檢應該放一起 然後二返要放比較後面，不然很容易想約健檢卻約到二返(...健檢)會看錯」
+  const exam = ent({ id: 'ex', type: 'single', label: '8萬健檢', totalQty: 1 });
+  const back = ent({ id: 'fu', type: 'single', label: '二返（8萬健檢）', totalQty: 1, followupForEntitlementId: 'ex' });
+  const more = ent({ id: 'r', label: '復能-三選一(60)', totalQty: 5 });
+
+  test('壓表：健檢剩 1、二返剩 1 —— 健檢在前、二返在最後（不跟健檢並排）', () => {
+    const ids = customerPools({ entitlements: [back, more, exam] }).pools.map((p) => p.entitlementId);
+    assert.deepEqual(ids, ['ex', 'r', 'fu']);
+  });
+
+  test('沒有二返的客戶：順序一個字都沒變（剩得少的在前）', () => {
+    const ids = customerPools({ entitlements: [more, exam] }).pools.map((p) => p.entitlementId);
+    assert.deepEqual(ids, ['ex', 'r']);
+  });
+
+  // 2026-10-06（issue 08）起「做什麼」那一排照分類排，三個入口都走 `slotOptions.js` 的 `arrangeSlotOptions()` ——
+  // 二返照舊排最後（那一支把二返與 n返 收成最後一組，`tests/slot-options-order.test.js` 盯著）
+  test('來訪編輯器那一排照 arrangeSlotOptions() 排：二返照舊在最後', () => {
+    assert.deepEqual([back, more, exam].sort(followupsLast).map((e) => e.id), ['r', 'ex', 'fu']);
+    const src = readFileSync(new URL('../public/js/ui/views/visitEditor.js', import.meta.url), 'utf8');
+    assert.match(src, /arrangeSlotOptions\(/);
   });
 });

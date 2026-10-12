@@ -162,8 +162,13 @@ export function select({ name, label, value, options, hint = '' }) {
  * @param {string} opts.label
  * @param {*} opts.value 現在選的
  * @param {(string|{value:*, label:string, disabled?:boolean, note?:string,
- *            lead?:string})[]} opts.options
+ *            lead?:string, add?:string})[]} opts.options
  *   `lead` = 這一顆前面插一條分隔線與一個小標，用來把一排丸子切成兩組。
+ *   `add` = 這一顆不是一個選項，是一顆「＋」（虛線框）；值是那一顆要講給螢幕閱讀器聽的字
+ *   （設定 → 課程 的「新的分類」）。按了照樣寫進 hidden input，呼叫端自己認得那個值。
+ *   `breakBefore` = 從這一顆起**另起一行**（同一個欄位、同一個 hidden input，第二行自己左右滑）。
+ *   給「實體上不可以是隔壁」的那一組用：來訪「做什麼」那一排的二返（`slotOptions.js` 的
+ *   `arrangeSlotOptions()`，她 2026-09-24：跟健檢並排一指就約錯）。只隔一條線的話還是隔壁。
  * @param {string} [opts.hint]
  * @param {boolean} [opts.quiet] true = 選了不重畫（只換 aria-pressed）。
  *   給「換了它不會改變其他欄位」的那幾組用 —— 器材、治療師、診間、醫師、品項。
@@ -213,14 +218,17 @@ export function chips({
       const disabled = option?.disabled ? ' aria-disabled="true"' : '';
       const note = option?.note ? `<span class="chip__note">${esc(option.note)}</span>` : '';
       const tucked = tucks && i >= tuckAfter && !isOn(v) ? ' chip--tucked' : '';
+      const add = option?.add ? ` chip--add" aria-label="${esc(option.add)}` : '';
       // 同一排裡分成兩組時，中間插一條線與一個小標講出後面那一組是什麼
       // （壓表那一頁的「排序」用的是同一組 class）。一排十幾顆要滑，
       // 而滑到底才看到的那一顆如果是另一種東西，得先說一聲。
+      // 另起一行的那一顆：前面不畫分隔線（行首一條線是多的），小標照畫
+      const brk = option?.breakBefore && i > 0 ? '</div><div class="chiprow chiprow--next">' : '';
       const lead = option?.lead
-        ? `<span class="chiprow__sep"></span><span class="chiprow__lead">${esc(option.lead)}</span>`
+        ? `${brk || i === 0 ? '' : '<span class="chiprow__sep"></span>'}<span class="chiprow__lead">${esc(option.lead)}</span>`
         : '';
-      return `${lead}
-        <button class="chip${tucked}" type="button" data-chip="${esc(name)}"
+      return `${brk}${lead}
+        <button class="chip${tucked}${add}" type="button" data-chip="${esc(name)}"
                 data-chip-value="${v === null ? '__null__' : esc(v)}"
                 aria-pressed="${isOn(v)}"${disabled}>
           ${esc(l)}${note}</button>`;
@@ -301,7 +309,11 @@ const MULTI_SEP = '\n';
 /** 複選丸子的 hidden input 讀回來。空字串是空陣列，不是 `['']`。 */
 export const splitMulti = (raw) => String(raw ?? '').split(MULTI_SEP).filter(Boolean);
 
-export function checkboxes({ name, label, values = [], options, hint = '' }) {
+/**
+ * 一組勾選框。`inline` = 排成一列（放得下就並排、放不下才換行），給只有兩三個短選項的那幾組
+ * （設定 → 課程 的「壓哪幾個系統」）—— 一個選項佔滿一整行的話，三個字的選項要佔三行。
+ */
+export function checkboxes({ name, label, values = [], options, hint = '', inline = false }) {
   const boxes = options
     .map((option) => {
       const { value: v, label: l } = optionOf(option);
@@ -316,7 +328,7 @@ export function checkboxes({ name, label, values = [], options, hint = '' }) {
   return `
     <fieldset class="field">
       <legend class="field__label">${esc(label)}${tip(hint)}</legend>
-      <div class="choices">${boxes}</div>
+      <div class="choices${inline ? ' choices--inline' : ''}">${boxes}</div>
     </fieldset>`;
 }
 
@@ -339,9 +351,13 @@ export function undecidedHint(what) {
     </p>`;
 }
 
-export function toggle({ name, label, value = false, hint = '' }) {
+/**
+ * 一個開關。`inline` = 不佔滿一整行，給幾個短開關排成一列用（包在 `.choices--inline` 裡；
+ * 設定 → 課程 的「簽療程單／補紀錄／不算次數」）。
+ */
+export function toggle({ name, label, value = false, hint = '', inline = false }) {
   return `
-    <label class="choice choice--row">
+    <label class="choice${inline ? '' : ' choice--row'}">
       <input type="checkbox" name="${name}"${value ? ' checked' : ''} />
       <span>${esc(label)}${tip(hint)}</span>
     </label>`;

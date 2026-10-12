@@ -13,7 +13,7 @@ import {
 } from '../public/js/domain/masterData.js';
 import { SEED, DEFAULT_SETTINGS } from '../public/js/domain/seed.js';
 import {
-  describeCategory, tasksForCategory, CATEGORY_OPTIONS, bookingSystemFor,
+  describeSystems, tasksForCategory, bookingSystemFor,
 } from '../public/js/domain/taskRules.js';
 import { needsForm } from '../public/js/domain/visits.js';
 
@@ -370,7 +370,8 @@ describe('這個課程的診間怎麼排', () => {
     const byId = Object.fromEntries(SEED.rooms.map((r) => [r.id, r.name]));
     const pref = (id) => (SEED.courses.find((c) => c.id === id).preferredRoomIds ?? [])
       .map((x) => byId[x]);
-    assert.deepEqual(pref('course-eecp'), ['治5', '治8']);
+    // 治7 2026-10-05 回來了（ADR-0124）—— 那兩台 EECP 有一台在那一間
+    assert.deepEqual(pref('course-eecp'), ['治5', '治7', '治8']);
     assert.deepEqual(pref('course-iv-laser'), ['點滴10', '治2', '治3']);
   });
 
@@ -450,13 +451,17 @@ describe('種子資料', () => {
   });
 
   // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
+  // 2026-10-06（ADR-0127）：補治6、VIP1；點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，
+  // 原本那兩間留著、停用（沒選床位的那一間）—— 排得到的 22 間，細節在 `tests/bed-rooms.test.js`
   test('診間就是她列的那三種、那幾間', () => {
     const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
-    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治8']);
+    // 治7 是 2026-10-05 加回來的（ADR-0124：Abovee 上 EECP 還排在治療室7）
+    assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治6', '治7', '治8']);
     assert.deepEqual(of('點滴室'),
-      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴9', '點滴10']);
-    assert.deepEqual(of('VIP室'), ['VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7']);
-    assert.equal(SEED.rooms.length, 17);
+      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴8A', '點滴8B', '點滴9', '點滴10']);
+    assert.deepEqual(of('VIP室'), ['VIP1', 'VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7', 'VIP7A', 'VIP7B']);
+    assert.equal(SEED.rooms.length, 24);
+    assert.deepEqual(SEED.rooms.filter((r) => r.active === false).map((r) => r.name), ['點滴8', 'VIP7']);
   });
 
   test('一間 4 號都沒有', () => {
@@ -504,11 +509,11 @@ describe('種子資料', () => {
     }
   });
 
-  test('EECP 只能在治5、治8', () => {
+  test('EECP 只能在治5、治7、治8', () => {
     const eecp = SEED.courses.find((c) => c.name === 'EECP');
-    assert.deepEqual(eecp.allowedRoomIds, ['room-t5', 'room-t8']);
+    assert.deepEqual(eecp.allowedRoomIds, ['room-t5', 'room-t7', 'room-t8']);
     const rooms = roomsForCourse(eecp, SEED.rooms).map((r) => r.name);
-    assert.deepEqual(rooms, ['治5', '治8']);
+    assert.deepEqual(rooms, ['治5', '治7', '治8']);
   });
 
   test('心臟科評估不佔診間', () => {
@@ -543,18 +548,22 @@ describe('種子資料', () => {
     }
   });
 
-  test('種子資料有夏、許、李三位醫師，而且和治療師分得開', () => {
+  // 2026-10-06 補到 8 位（她 10/5 給的 Abovee 服務資源清單），見 `tests/seed-staff.test.js`
+  test('種子資料有八位醫師（夏、許、李＋五位），而且和治療師分得開', () => {
     const doctors = SEED.staff.filter((s) => s.role === DOCTOR_ROLE).map((s) => s.name);
-    assert.deepEqual(doctors.sort(), ['夏', '李', '許'].sort());
+    assert.deepEqual(doctors.sort(), ['夏', '李', '許', '宋', '簡', '張雅', '張正', '林'].sort());
     // 治療師那份名單一個醫師都不能混進去 —— 復能三器材要的是物理治療師
     const therapists = staffWithRole(SEED.staff, THERAPIST_ROLE);
     assert.ok(therapists.length >= 9);
     assert.ok(!therapists.some((s) => doctors.includes(s.name)));
   });
 
-  test('只有二返預設要選醫師，其餘課程她想開再開', () => {
+  // 羊膜 2026-10-06 起只壓 Abovee（類別 C，她：「先預設和營養針一樣」）—— 不是 A 類又要醫師，
+  // 所以它帶著旗標；少了的話沒有 `doctorPick` 的那條退路會說「不用醫師」
+  // HA-PRP、PRP（2026-10-06，設定暫定）照羊膜抄：同樣不是 A 類又要醫師
+  test('只有二返與照羊膜那一種（羊膜、HA-PRP、PRP）帶著「要選醫師」的旗標，其餘課程她想開再開', () => {
     const withDoctor = SEED.courses.filter((c) => c.requiresDoctor).map((c) => c.name);
-    assert.deepEqual(withDoctor, ['二返']);
+    assert.deepEqual(withDoctor, ['二返', '羊膜', 'HA-PRP', 'PRP']);
   });
 
   // 「需要醫師：門診類」這一條**一行程式都沒有改** —— A 類一律選得到
@@ -604,6 +613,16 @@ describe('種子資料', () => {
       'course-rehab': 'none',
       'course-followup': 'none',
       'course-cardio': 'none',
+      // 2026-10-05 多的兩門門診：要的是醫師，不是空間
+      'course-fm': 'none',
+      'course-amnion': 'none',
+      // 2026-10-06 多的六門（設定暫定）：她同意的那張表上每一門都是「都不用」
+      'course-hrv': 'none',
+      'course-retest': 'none',
+      'course-ha-prp': 'none',
+      'course-prp': 'none',
+      'course-moti': 'none',
+      'course-exercise': 'none',
     };
     const got = Object.fromEntries(SEED.courses.map((c) => [c.id, c.assigns]));
     assert.deepEqual(got, want);
@@ -611,10 +630,11 @@ describe('種子資料', () => {
 
   // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
   // 預設30分鐘，這樣匯入的也可以對應到了」。2026-09-16 早上那個 30 是暫定值。
-  test('EECP 正式課 60 分、體驗課 30 分，兩門同一組診間限制', () => {
+  // 2026-10-05：體驗課從 30 改成 20 —— Abovee 上這門課叫 EECP20。
+  test('EECP 正式課 60 分、體驗課 20 分，兩門同一組診間限制', () => {
     const by = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
     assert.equal(by['course-eecp'].durationMin, 60);
-    assert.equal(by['course-eecp-trial'].durationMin, 30);
+    assert.equal(by['course-eecp-trial'].durationMin, 20);
     // 名字要跟舊表一字不差，`resolveCourse()` 是精確比對
     assert.equal(by['course-eecp-trial'].name, 'EECP體驗');
     assert.deepEqual(by['course-eecp-trial'].allowedRoomIds, by['course-eecp'].allowedRoomIds);
@@ -670,11 +690,12 @@ describe('種子資料', () => {
     assert.ok(others.every((c) => !c.durationChoices?.length));
   });
 
-  test('那五項不產生任務的課程確實是 null 類別', () => {
+  // 2026-10-06 多三門：MOTI、運動（同一組，只壓 Abovee）與 HRV（哪裡都不用壓，ADR-0126）
+  test('不產生任務的那幾門課程確實是 null 類別', () => {
     const noTask = SEED.courses.filter((c) => c.category === null).map((c) => c.name);
     assert.deepEqual(
       noTask.sort(),
-      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢'].sort(),
+      ['身體組成分析', '體適能檢查分析', '物理治療師諮詢', '營養師諮詢', 'MOTI', '運動', 'HRV'].sort(),
     );
     for (const name of noTask) {
       const c = SEED.courses.find((x) => x.name === name);
@@ -709,11 +730,13 @@ describe('種子資料', () => {
       '存成字串的話 needsForm() 會回「要簽」，而她明明關掉了');
   });
 
-  test('除了二返，種子課程全部都要簽療程單', () => {
+  // 功醫門診（2026-10-05）也不用簽：她說「不算次數、不簽療程單、不寫紀錄」。
+  // HRV（2026-10-06）同一個理由：不算次數，沒有東西可以扣
+  test('除了二返、功醫門診與 HRV，種子課程全部都要簽療程單', () => {
     for (const c of SEED.courses) {
       assert.equal(
         needsForm(c),
-        c.id !== 'course-followup',
+        !['course-followup', 'course-fm', 'course-hrv'].includes(c.id),
         `${c.name} 的簽單設定不對`,
       );
     }
@@ -725,22 +748,20 @@ describe('種子資料', () => {
   });
 });
 
-describe('類別說明', () => {
-  test('每個類別都說得出壓表在哪、確認後還要做什麼', () => {
-    assert.match(describeCategory('A'), /Abovee 壓表.*Examine.*耀聖/);
-    assert.match(describeCategory('B'), /Examine 壓表/);
-    assert.match(describeCategory('C'), /Abovee 壓表.*沒有後續登記/);
-    assert.ok(!describeCategory('C').includes('打電話'));
+// 2026-10-05 之前這裡測的是 `describeCategory()`（四選一的類別各一句）。課程自己勾系統
+// 之後（ADR-0119）設定頁那一行灰字改由 `describeSystems()` 講，沒勾過的課程照類別推。
+describe('設定頁那一行：壓在哪、確認後還要做什麼', () => {
+  test('沒勾過的課程照它的類別講', () => {
+    assert.equal(describeSystems({ category: 'A' }), 'Abovee 壓，確認後 Examine、耀聖');
+    assert.equal(describeSystems({ category: 'B' }), 'Examine 壓');
+    assert.equal(describeSystems({ category: 'C' }), 'Abovee 壓');
+    assert.ok(!describeSystems({ category: 'C' }).includes('打電話'));
   });
 
-  test('沒有後續登記要明講，不是空白', () => {
+  test('不用掛號的那幾門照樣講得出壓在哪，不是空白', () => {
     for (const category of [null, undefined]) {
-      assert.match(describeCategory(category), /^不用掛號 — Abovee 壓表，確認後沒有後續登記$/);
+      assert.equal(describeSystems({ category }), 'Abovee 壓');
     }
-  });
-
-  test('四個選項涵蓋所有合法類別', () => {
-    assert.deepEqual(CATEGORY_OPTIONS.map((o) => o.value), ['A', 'B', 'C', null]);
   });
 });
 

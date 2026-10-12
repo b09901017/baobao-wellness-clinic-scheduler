@@ -95,7 +95,8 @@ function chipHtml(name, rows) {
 export function detailChips(split, { others = true, rows = [] } = {}) {
   const parts = [
     ...(split?.alerts ?? []).map((x) => chipHtml(x, rows)),
-    ...(others ? (split?.others ?? []).map((x) => `<span class="badge">${esc(x)}</span>`) : []),
+    // 其他限制是她自己打的字：看得完的這幾頁換行顯示全文（`.badge--text`，issue 16）
+    ...(others ? (split?.others ?? []).map((x) => `<span class="badge badge--text">${esc(x)}</span>`) : []),
   ];
   return parts.join('');
 }

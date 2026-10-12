@@ -125,12 +125,13 @@ export const firebaseConfig = PROJECTS[ENV];
  * App Check 的 reCAPTCHA Enterprise 網站金鑰（ADR-0100 防護第 3 道）。**不是密鑰**：
  * 它本來就會出現在每個人的瀏覽器裡，擋人的是 Google 那一側綁定的網域。
  *
- * 正式環境還沒建（她照 `docs/STAGING.md` 建好之後填進來）。沒有金鑰的環境不初始化
- * App Check，拍照辨識會被 Function 擋下來 —— 那是對的：少一道防護時寧可用不了。
+ * 兩個環境各一把，各自只收自己那兩個網域（正式那一把 2026-10-12 建的，見 `docs/STAGING.md`
+ * 「三之三」）。沒有金鑰的環境不初始化 App Check，拍照辨識會被 Function 擋下來 ——
+ * 那是對的：少一道防護時寧可用不了。
  * 模擬器不用金鑰，`data/ai.js` 塞一個假的憑證（模擬器不驗簽章）。
  */
 const APP_CHECK_SITE_KEYS = {
-  prod: null,
+  prod: '6LfXI-stAAAAALrWOfRC3PKTCBrpYk0Ynxgg_dyT',
   staging: '6LeQF8AtAAAAAA6e57ZUvuVk83gjRpZozCf13q7A',
   emulator: null,
 };
@@ -145,10 +146,13 @@ export const usingEmulator = () => ENV === 'emulator';
  *
  * 她會兩個環境都開著，而**在 staging 上刪掉一筆資料然後以為刪掉了正式的那一筆**
  * 是這個安排最容易造成的事故。CLAUDE.md：「畫面在講一件不會發生的事，
- * 比沒講還糟」—— 反過來也成立，畫面沒講出「這裡的資料是假的」同樣糟。
+ * 比沒講還糟」—— 反過來也成立，畫面沒講出「這裡跟正式站不一樣」同樣糟。
+ *
+ * **2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）。以前那一句是「這裡的資料是假的，
+ * 改壞了沒關係」—— 現在那兩件都不成立了：資料是真的，但切換那天不會搬過去。
  */
 export function envBanner() {
-  if (ENV === 'staging') return { label: '測試環境', hint: '這裡的資料是假的，改壞了沒關係' };
+  if (ENV === 'staging') return { label: '測試環境', hint: '資料是真的，但這裡只是預演 —— 切換那天不會搬過去' };
   if (ENV === 'emulator') return { label: '本機模擬器', hint: '資料只存在這台電腦上' };
   return null;
 }

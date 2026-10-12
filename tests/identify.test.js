@@ -35,7 +35,7 @@ describe('六種答案', () => {
   });
 
   test('numberOnly：病歷號對上、名字不一樣 → 不挑，給候選', () => {
-    const r = identifyCustomer({ name: '王曉明', chartNo: '1234' }, customers);
+    const r = identifyCustomer({ name: '王曉名', chartNo: '1234' }, customers);
     assert.equal(r.how, 'numberOnly');
     assert.equal(r.customer, null);
     assert.deepEqual(r.candidates.map((c) => c.id), ['c-wang']);

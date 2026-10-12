@@ -197,6 +197,19 @@ test('T3 名字跟編號對不上 → 不挑人，選了才存得了；新的一
   expect(await storedUnder('treatmentSheets/cust-wang/s-old/')).toEqual([OLD_PHOTO]);
 });
 
+// course-form-and-sheet-2026-10-06/10（ADR-0128）：她「直接算吻合」—— 但照片會存到他底下，所以那一句一定要看得到
+test('T3b 病歷號對上、三個字的名字差一個字 → 認得那一位，卡上講出照片上的原字', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/settings/treatment-sheets');
+  await photograph(page, ['treatmentSheet-near']);
+
+  const c = card(page, 'p0');
+  await expect(c.locator('.tsc__who')).toHaveText('王小明');
+  await expect(c.locator('.tsc__say--near')).toContainText('名字跟照片上差一個字');
+  await expect(c.locator('.tsc__say--near')).toContainText('「王曉明」');
+  await expect(c.locator('[data-tsc-save]')).toBeEnabled();
+});
+
 test('T5 同一張連著換兩次（時鐘停著）→ 兩次都換得上去：照片檔名不能只靠時間', async ({ app, page }) => {
   await app.seed(seed());
   await app.signIn('/settings/treatment-sheets');

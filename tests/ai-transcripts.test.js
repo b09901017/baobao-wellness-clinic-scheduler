@@ -167,6 +167,17 @@ describe('Function 回傳前照格式重組', () => {
     assert.ok(!JSON.stringify(out).includes('0912345678'), '電話那一格不可以留下來');
   });
 
+  // course-form-and-sheet-2026-10-06/09（ADR-0129）：拿來算「這次照片看得到哪一段時間」。照抄成字串、不換算
+  test('Abovee 畫面上方的「預約日期(起)／(訖)」照抄成字串；照片上沒有就不出現', () => {
+    const out = sanitize('aboveeList', {
+      readable: true, unreadable: [], columns: ['姓名'], rows: [['王小明']],
+      dateFromText: '2026/10/01', dateToText: '2026/10/31', dateFrom: '2026-10-01',
+    });
+    assert.deepEqual([out.dateFromText, out.dateToText, out.dateFrom], ['2026/10/01', '2026/10/31', undefined]);
+    assert.ok(!('dateFromText' in sanitize('aboveeList', { readable: true, unreadable: [], columns: [], rows: [] })));
+    assert.match(promptFor('aboveeList'), /預約日期\(起\)/);
+  });
+
   test('Abovee 列裡有一格是 null → 換成空字串，不是被濾掉（濾掉一樣會錯位）', () => {
     const out = sanitize('aboveeList', {
       readable: true, unreadable: [], columns: ['姓名', '病歷號', '課程'], rows: [['王小明', null, 'SIS 60'], 'x'],

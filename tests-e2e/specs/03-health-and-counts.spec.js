@@ -80,20 +80,30 @@ test('H3 客戶總覽讀快取、詳情頁現算 —— 兩邊刻意會不一樣
   expect(detail).toMatch(/剩餘\s*19/);
 });
 
-test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({ app }) => {
+test('H4 額度超用只提醒不擋，而且資料健檢列得出來', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
     customer({ id: 'cust-f', name: '客戶F' }),
     entitlement('cust-f', {
       id: 'ent-f', label: '靜脈', type: 'single', courseId: 'course-iv-laser',
-      totalQty: 1, doneCount: 2, bookedCount: 1,
+      totalQty: 1, doneCount: 2, bookedCount: 0,
     }),
+    // 超用看的是**從來訪重算**的次數（計數欄位可能正好是歪的那一個）—— 所以要真的有兩次做完的來訪。
+    // 2026-10-07 以前這裡只有歪掉的計數欄位，那一項其實沒觸發；這一條靠上面那一排數字磚每一項都印名字才綠
+    ...[-14, -7].map((d, i) => visit({
+      id: `v-f${i}`, customerId: 'cust-f', customerName: '客戶F', date: addDays(TODAY, d), status: 'done',
+      slots: [{
+        ...slot({ courseId: 'course-iv-laser', entitlementId: 'ent-f', startsAt: '10:00', endsAt: '11:00', attended: true }),
+        status: 'done',
+      }],
+    })),
   ]);
   await app.signIn('/settings/health');
 
   const body = await app.text();
   console.log('[H4] =\n' + body.slice(0, 1200));
-  expect(body).toContain('額度超用');
+  await expect(page.locator('#view .hcard[data-check="overused"]'), '有事的卡片上列出來了').toHaveCount(1);
+  await expect(page.locator('#view .hcard[data-check="overused"]')).toContainText('客戶F');
 });
 
 test('H5 同一個月記了兩份可用性 → 列出來，但不自動合併（ADR-0053）', async ({ app }) => {
@@ -182,4 +192,144 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
   // 本來就給得出一鍵修正 —— 數整頁的按鈕會被它們弄髒。
   const fixable = await page.locator('#view [data-check="ivMismatch"] [data-fix]').count();
   expect(fixable).toBe(0);
+});
+
+// 2026-10-05（abovee-and-master/12，ADR-0124）：種子補到跟 Abovee 一樣，而 `loadSeed()` 只建不覆蓋 ——
+// 既有資料庫只能靠這一頁補。這一支拿一份「10/5 之前的主檔」把每一顆新的修正真的按下去：
+// 規則在 `tests/master-catch-up.test.js`，這裡盯的是**寫得下去、寫完那一筆在設定頁還存得回去**。
+test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、空格補上，按完整頁沒有一項亮著', async ({ app, page }) => {
+  const NEW = ['iv-vitality', 'iv-immune', 'iv-slim', 'iv-guard', 'iv-heal', 'iv-sleep', 'iv-shingles', 'course-fm', 'course-amnion',
+    // 2026-10-06 補的六門（設定暫定）
+    'course-hrv', 'course-retest', 'course-ha-prp', 'course-prp', 'course-moti', 'course-exercise'];
+  const OLD_ROOMS = ['room-t5', 'room-t8'];
+  const old = masterDocs()
+    .filter((d) => !NEW.includes(d.id))
+    .map((d) => {
+      // 9/08 照這一頁的建議刪掉的那一間
+      if (d.id === 'room-t7') return { ...d, data: { ...d.data, deletedAt: new Date('2026-09-08T10:00:00+08:00') } };
+      if (d.path.endsWith('/courses')) {
+        const { group, doctorPick, bookingMinutes, aboveeNames, ...rest } = d.data;
+        const eecp = d.id.startsWith('course-eecp') ? { allowedRoomIds: OLD_ROOMS, preferredRoomIds: OLD_ROOMS } : {};
+        return { ...d, data: { ...rest, ...eecp, ...(d.id === 'course-eecp-trial' ? { durationMin: 30 } : {}) } };
+      }
+      if (d.path.endsWith('/equipment') || d.path.endsWith('/ivProducts')) {
+        const { aboveeNames, ...rest } = d.data;
+        return { ...d, data: rest };
+      }
+      return d;
+    });
+  await app.seed(old);
+  await app.signIn('/settings/health');
+
+  const card = (id) => page.locator(`#view [data-check="${id}"]`);
+  /** 那一項的修正全部按下去（不只一筆時是上面那顆「一次…」），等到那一項變成「沒問題」。 */
+  const fix = async (id, say) => {
+    await expect(card(id).locator('[data-fix]').first()).toBeVisible();
+    const all = card(id).locator('[data-fix-all]');
+    await ((await all.count()) ? all : card(id).locator('[data-fix]').first()).click();
+    await expect(app.dialog()).toBeVisible();
+    if (say) expect(await app.dialogText()).toContain(say);
+    await app.ok();
+    await app.saved();
+    await expect(card(id)).toContainText('沒問題');
+  };
+
+  await expect(card('roomList')).toContainText('治7');
+  await fix('roomList', '還原');
+  await fix('seedIvProduct', '元氣活力');
+  await fix('seedCourse', '功醫門診');
+  await fix('courseDuration', '20 分');
+  await fix('seedBlanks', 'Abovee 上的寫法');
+
+  expect((await app.readDoc('config/app/rooms', 'room-t7')).deletedAt, '治7 回來了').toBeNull();
+  const iv = (await app.readAll('config/app/ivProducts')).filter((x) => !x.deletedAt);
+  expect(iv).toHaveLength(14);
+  expect(iv.find((x) => x.id === 'iv-shingles').durationMin).toBe(30);
+  const fm = await app.readDoc('config/app/courses', 'course-fm');
+  expect([fm.uncounted, fm.needsTreatmentForm, fm.doctorPick]).toEqual([true, false, '功能／二返']);
+  // 2026-10-06 的六門：建出來的那一筆整筆照抄種子 —— 暫定的小標、HRV 的不算次數與不用壓都帶著
+  const hrv = await app.readDoc('config/app/courses', 'course-hrv');
+  expect([hrv.provisional, hrv.uncounted, hrv.systems, hrv.lineName]).toEqual([true, true, [], '自律神經檢查']);
+  expect((await app.readDoc('config/app/courses', 'course-prp')).provisional).toBe(true);
+  expect(fm.provisional ?? null, '她答過的那一門不標').toBeNull();
+  const eecp = await app.readDoc('config/app/courses', 'course-eecp');
+  expect(eecp.allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
+  expect(eecp.group).toBe('EECP');
+  const trial = await app.readDoc('config/app/courses', 'course-eecp-trial');
+  expect([trial.durationMin, trial.aboveeNames]).toEqual([20, ['EECP20']]);
+  expect((await app.readDoc('config/app/equipment', 'eq-laser')).aboveeNames).toEqual(['高能量']);
+  expect((await app.readDoc('config/app/ivProducts', 'iv-snow')).aboveeNames).toEqual(['雪顏亮采']);
+  const followup = await app.readDoc('config/app/courses', 'course-followup');
+  expect([followup.bookingMinutes, followup.doctorPick]).toEqual([[30, 60], '功能／二返']);
+
+  // 整頁沒有一項還亮著
+  await expect(page.locator('#view [data-check] .badge--overdue')).toHaveCount(0);
+
+  // 補過的那幾筆在設定頁打得開、原樣存得回去（補的那幾格沒有被驗證擋住）
+  await app.go('/settings/courses');
+  await expect(page.locator('[data-provisional-count]')).toContainText('還有 6 門的設定是暫定的');
+  // HRV 三個都沒勾（不用壓）原樣存得回去，暫定的小標還在（編輯表不動那一格）
+  await page.locator('[data-edit="course-hrv"]').click();
+  await expect(page.locator('input[name="systems"]:checked')).toHaveCount(0);
+  await page.click('button[type="submit"]');
+  await app.saved();
+  const again = await app.readDoc('config/app/courses', 'course-hrv');
+  expect([again.provisional, again.systems, again.uncounted]).toEqual([true, [], true]);
+  await page.locator('[data-edit="course-eecp"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  await page.locator('[data-edit="course-followup"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+});
+
+// 2026-10-06（course-form-and-sheet/04）：種子的人員補到跟 Abovee 的服務資源清單一樣（治療師 13、醫師 8）。
+// 規則在 `tests/seed-staff.test.js`；這裡盯**那一顆按下去寫了什麼**：建新醫師的同時把原本三位空著的科別補上
+// （同一個 commit）—— 分兩次的話她只按這一顆時，二返那一排最前面會變成兩位從來不看二返的人。
+test('H10 10/6 之前的人員：一次建九位，夏、許、李的科別一起補上；建好的在設定頁存得回去', async ({ app, page }) => {
+  const OLD = ['staff-tw', 'staff-zn', 'staff-lulu', 'staff-xy', 'staff-gy', 'staff-zx', 'staff-yt', 'staff-py', 'staff-wt',
+    'staff-dr-xia', 'staff-dr-xu', 'staff-dr-li'];
+  const old = masterDocs()
+    .filter((d) => d.path !== 'config/app/staff' || OLD.includes(d.id))
+    .map((d) => {
+      if (d.path !== 'config/app/staff') return d;
+      const { specialties, ...data } = d.data;
+      return { ...d, data };
+    });
+  await app.seed(old);
+  await app.signIn('/settings/health');
+
+  const card = page.locator('#view [data-check="seedStaff"]');
+  await expect(card.locator('[data-fix]')).toHaveCount(9);
+  await expect(card).toContainText('同時把 夏、許、李 空著的科別補上「功能／二返」');
+  await card.locator('[data-fix-all]').click();
+  await expect(app.dialog()).toBeVisible();
+  const said = await app.dialogText();
+  expect(said).toContain('把這 9 位都建進治療師與醫師？');
+  expect(said, '會多寫哪幾位要講在前面').toContain('同時補上 夏、許、李 空著的科別「功能／二返」');
+  await app.ok();
+  await app.saved();
+  await expect(card).toContainText('沒問題');
+
+  const staff = (await app.readAll('config/app/staff')).filter((x) => !x.deletedAt);
+  expect(staff).toHaveLength(21);
+  const by = Object.fromEntries(staff.map((x) => [x.id, x]));
+  for (const id of ['staff-dr-xia', 'staff-dr-xu', 'staff-dr-li', 'staff-dr-zhang-ya', 'staff-dr-zhang-zheng']) {
+    expect(by[id].specialties, id).toEqual(['功能／二返']);
+  }
+  expect(by['staff-dr-song'].specialties).toEqual(['復健科']);
+  expect(by['staff-dr-jian'].specialties).toEqual(['心臟科']);
+  expect(by['staff-dr-lin'].specialties ?? [], '判斷不了的那一位先不填').toEqual([]);
+  expect(by['staff-pr'].role).toBe('物理治療師');
+  expect(by['staff-dr-xia'].name, '原本那三位除了科別一個字都沒變').toBe('夏');
+
+  // 補完之後「主檔有幾格還沒跟上」沒有人員的科別要補了
+  await expect(page.locator('#view [data-check="seedBlanks"]')).not.toContainText('科別');
+
+  // 建好的那一位在設定頁打得開、原樣存得回去
+  await app.go('/settings/staff');
+  await page.locator('[data-edit="staff-dr-zhang-ya"]').click();
+  await page.click('button[type="submit"]');
+  await app.saved();
+  expect((await app.readDoc('config/app/staff', 'staff-dr-zhang-ya')).specialties).toEqual(['功能／二返']);
 });

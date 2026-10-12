@@ -31,6 +31,8 @@ export const RETRY = Object.freeze({ attempts: 3, initialDelay: 2, maxDelay: 10,
 export function makeGeminiModel({
   project = process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT,
   thinkingLevel = THINKING_LEVEL,
+  // 照片的解析度（`MEDIA_RESOLUTION_ULTRA_HIGH` 之類）。沒給＝模型的預設，上線走這一條；考試才給（prelaunch-fixes 22）
+  mediaResolution,
 } = {}) {
   // 第一次叫的時候才建：部署時 firebase-tools 會 import 這支檔案來找函式，
   // 那時候不一定有專案 id，也不需要真的連線
@@ -44,7 +46,7 @@ export function makeGeminiModel({
         contents: [{
           role: 'user',
           parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: image } },
+            { inlineData: { mimeType: 'image/jpeg', data: image }, ...(mediaResolution && { mediaResolution: { level: mediaResolution } }) },
             { text: prompt },
           ],
         }],

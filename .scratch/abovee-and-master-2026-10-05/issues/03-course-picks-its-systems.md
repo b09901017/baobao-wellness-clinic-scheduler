@@ -1,0 +1,103 @@
+# 課程自己勾壓哪幾個系統（取代四選一的任務類別）
+
+Status: done
+來源：`../spec.md` 三（「每個課程都要可以自己選：壓表壓哪幾個系統」）
+動工前先讀：`domain/taskRules.js` 第 100–230 行（`CATEGORY_OPTIONS`、`describeCategory()`、`RULES`、`bookingSystemFor()`、
+`bookingSystemsForVisit()`、`tasksForCategory()`、`tasksForVisit()`）與第 560–710 行（`newRegistrations()`、`cancelTasksFor()` 一帶）、
+`domain/todoFlow.js` 第 565–580 行、`domain/scheduling.js` 第 640–690 行、`domain/consequences.js` 第 110–120、660–670 行、
+`domain/masterData.js` 的 `picksDoctor()` 與 `validate()` 第 352 行、SPEC 5.5、`docs/課程與待辦對照表.md`、ADR-0027、0041、0097、0107
+Blocked by: 02（表單版面）
+
+## 她要的
+
+> - 每個課程都要可以自己選：壓表壓哪幾個系統、要不要簽療程單、要不要寫紀錄、診間、哪一科的醫師、別稱…。之後都還要能改
+
+> - 功醫門診：…三個系統都要壓…
+
+## 為什麼會這樣
+
+SPEC 5.5：「任務規則綁在**類別**上，不逐課程設定。課程只存 `category`，新增課程時選一個類別即可。」
+類別只有四種（A 門診、B 健檢、C 療程、不用掛號），每一種是一組固定的「壓表在哪＋客人確認之後去哪幾個」（`RULES`）：
+
+| 類別 | 壓表在 | 確認之後 |
+|---|---|---|
+| A | Abovee | Examine、耀聖 |
+| B | Examine | —— |
+| C、不用掛號 | Abovee | —— |
+
+所以「只壓 Abovee＋耀聖」這種組合做不出來。她要每一門課自己勾。
+
+**讀類別的地方**（全部要改成問同一支）：
+- `taskRules.js`：`describeCategory()`、`bookingSystemsForVisit()`（第 177 行）、`tasksForVisit()`（224）、第 569、666、670、703 行（掛號逐段、取消逐段）
+- `todoFlow.js` 第 573–574 行（讀取卡片上那一張取消任務屬於哪一段）
+- `scheduling.js` 第 648–650 行（那一天壓在哪幾個系統）、第 689 行 `systemCategoryOf()`（待辦中心「壓表登記」那一列講哪個系統）
+- `consequences.js` 第 117、666 行（取消時要回哪個系統放掉、改期時「新的時間在 X 壓好了嗎」）
+- `masterData.js`：`picksDoctor()`（`category === 'A'`，那一條歸 04）、`validate()` 第 352 行（類別合不合法）
+- `masterList.js`：課程摘要那一行、任務類別下拉、醫師那一格的提示
+- `scripts/seed-staging.mjs` 透過 `newRegistrations()` 間接讀
+
+## 談定的做法
+
+1. **課程多一格 `systems`**：`['Abovee', 'Examine', '耀聖']` 的子集合。推導：
+   - **壓表在哪**（`bookAt`）：勾了 Abovee 就是 Abovee；沒勾 Abovee、勾了 Examine 就是 Examine
+   - **客人確認之後長哪幾張**：其餘勾起來的（Examine、耀聖），扣掉 `bookAt`
+   - 驗證：Abovee 與 Examine 至少勾一個（壓表一定要有一個地方）
+2. **沒有 `systems` 的課程照舊從 `category` 推**（`RULES`），既有資料一筆都不搬。唯一一支：`taskRules.js` 的 `systemsOf(course)`；
+   `bookingSystemOf(course)`、`tasksForCourse(course)` 都從它來。**上面列的每一個讀類別的地方都改成傳課程、問這兩支** ——
+   沒有任何一處再自己比 `category`
+3. **設定頁**：「任務類別」下拉換成三個勾（Abovee、Examine、耀聖），一句提示「Abovee 是壓表那一下；其餘的等客人說可以之後長成待辦」。
+   舊課程打開時三個勾照 `systemsOf()` 畫好（存一次不改任何事）。摘要那一行改成講系統（例「Abovee 壓，確認後 Examine、耀聖」）。
+   `category` 欄位留在資料上、表單不再改它（存檔時保留原值）
+4. **種子**：每一門課加上 `systems`，跟它的 `category` 推出來的一模一樣（測試釘住）。分類預設（02 的 `GROUP_DEFAULTS`）接上 `systems`
+5. **ADR-0119**：推翻 SPEC 5.5「任務規則綁在類別上，不逐課程設定」那一句；理由（功醫門診與之後她自己加的課）、為什麼沒有遷移（讀的時候退回）
+6. **文件**：SPEC 5.5 那張矩陣改成「預設照類別、每一門課可以自己改」；`docs/課程與待辦對照表.md` 第二、四節；
+   `CLAUDE.md` 連動表加一列「課程壓哪幾個系統」
+
+## 牽連
+
+- **取消類的待辦**（`cancelTasksFor()`，ADR-0070、0091）：「壓在哪就收哪」照新的 `bookAt`；那一段勾過的 Examine／耀聖照舊收。改一門課的系統之後，**已經長出來的任務不追溯**（下一次那一筆來訪被存時照新規則比對 —— 跟改類別現在的行為一樣）
+- **掛號逐段**（`newRegistrations()`，ADR-0107）、**那一天過了不長**（`registrationClosed()`，ADR-0113）：只換「要長哪幾種」那個來源
+- **確認框**（`registrationsWhenSettled()`、取消、改期）：講的系統要跟真的會長的一樣（ADR-0070）
+- **讀取卡片的歸屬**（`todoFlow.js` 的 `ownsCancel()`）
+- **待辦中心「壓表登記」**那一列講的系統（`systemCategoryOf()`）
+- `docs/課程與待辦對照表.md` 每一句後果說明照它寫
+- 試算表的 TODO／FINISHED 區走 `taskLine()`，不看類別 —— 不受影響
+
+## 判準
+
+- **舊課程算出來跟以前一模一樣**：每一門種子課程、加上 `category` 是 A／B／C／null／認不得的五種，`bookAt` 與「確認後長哪幾張」都等於 `RULES` 給的？（測試逐一比）
+- 一門課只勾 Abovee＋耀聖：客人確認後只長一張耀聖；取消時長「取消 Abovee」，勾過耀聖的話再長「取消 耀聖」？
+- 一門課只勾 Examine＋耀聖：壓表在 Examine、確認後長耀聖？
+- 三個都不勾、或只勾耀聖：存不下去，講為什麼？
+- `grep -n "\.category" public/js/domain public/js/ui` 只剩 `systemsOf()` 的退回、行事備註的 `category`（那是另一件事）、04 的醫師退回？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- **「課程不存在」要分得出來**：待辦中心「壓表登記」刻意跳過認不得的課（`scheduling.js` 第 649 行 `category === undefined`），取消時刻意猜 Abovee（`taskRules.js` 第 174 行起）。
+  `systemsOf()` 對「找不到這門課」要回得出「不知道」，兩個呼叫端各自照原本的方向處理。判準加第六種：課程主檔裡沒有那一門
+- **擇一池寫死成 C 類**：`scheduling.js` 第 687 行的 `systemCategoryOf()`（pool → `'C'`）—— 改成問那一池推得出的課程的 `systemsOf()`，推不出來才退回 Abovee
+- 漏列：設定首頁 `settings.js` 第 11、96 行一帶也列 `CATEGORY_OPTIONS`
+- 稽核：`FIELD_LABELS` 補 `systems`
+
+## 做完時留下的
+
+- 推導只在 `domain/taskRules.js`：`systemsOf()`（找不到課程回 `null`）、`bookingSystemOf()`、`tasksForCourse()`、`describeSystems()`。
+  三個系統的名單 `SYSTEMS`／`BOOKING_SYSTEMS` 住在 `masterData.js`（主檔驗證要認得它；`taskRules.js` 經 `visits.js` 讀那一支，
+  反過來 import 會繞一圈）。`REGISTRATION_KINDS` 現在就是 `SYSTEMS`
+- **類別那兩支（`bookingSystemFor()`、`tasksForCategory()`）還 export 著**，只當退路與「以前的答案」：
+  `tests/course-systems.test.js` 拿它們逐一比新舊，並掃原始碼確認 `public/js` 底下沒有別人在叫、
+  `.category` 只剩名單上那幾支（每一條附理由；`masterData.js` 那一條裡的醫師退回歸 04）
+- `describeCategory()`、`CATEGORY_OPTIONS` 拿掉了（設定頁那一行灰字改由 `describeSystems()` 講：`Abovee 壓，確認後 Examine、耀聖`；
+  確認後沒有東西時只寫 `Abovee 壓`）。設定首頁「任務規則綁在課程的類別上」那一摺也拿掉（`fewer-words` 的額度跟著少一條）
+- 表單：三個勾 `systems`；`category` 用一個 hidden input 原樣帶回去（`null` 寫成 `__null__`，`readForm()` 會轉回來）—— E2E G8 釘著
+- **空的、全是認不得的字的 `systems` 不算勾過**，退回類別（設定頁本來就擋得掉；這是對壞資料的退路）
+- `customersToBook()` 多收 `equipment`（擇一池問 `coursesForEntitlement()` 推出的課程）；`home.js` 的 `loadBookRows()` 多讀一份器材主檔。
+  這個月的來訪裡**課程找不到**的那一段不算壓過（以前比的是 `category === undefined`，一門有文件但沒有 `category` 那一格的課也被跳過 ——
+  現在那種算 Abovee，更接近原意）
+- 種子每一門課加了 `systems`，跟類別推出來的一模一樣（測試逐一比）；`GROUP_DEFAULTS` 也帶
+- ADR-0119、SPEC 5.3／5.5、`docs/課程與待辦對照表.md` 一、二、四節、操作手冊七之五、`CLAUDE.md` 連動表加一列
+- `sw.js` v146。E2E：`47-course-groups` 加 G8（三個勾、舊資料存一次不變、只勾耀聖存不下去）、G9（只勾 Abovee＋耀聖 → 確認後只長耀聖）。
+  相關 E2E 35 支、22 分鐘、275 過（J-B1 第一次紅在 gstatic CDN 連線被重置，單獨重跑過了 —— 網路，不是程式）
+- **她沒問、順手查到的**：`cancelNote()` 與確認框講的系統都跟著新的 `bookAt` 走；改了一門課的勾法之後已經長出來的任務不追溯
+  （下一次那一筆來訪被存時照新規則比對），這跟以前改類別的行為一樣，ADR-0119 寫了
+

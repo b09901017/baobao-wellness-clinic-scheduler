@@ -1,6 +1,8 @@
 // 任務產生規則。純函式，不碰 IO。
 //
-// 規則綁在「類別」上，不逐課程設定 —— 新增課程時只要選一個類別。
+// **每一門課自己勾動到哪幾個系統**（`course.systems`，2026-10-05，ADR-0119）。
+// 在那之前規則綁在四選一的「類別」上、不逐課程設定；沒勾過的課程照舊從類別推
+// （`systemsOf()`），所以既有資料一筆都不用搬。
 // 舊的 Apps Script 是用課程名稱做字串包含比對，療程一改名就靜默失效。
 // 這裡不照抄，見 docs/legacy/README.md。
 //
@@ -18,8 +20,9 @@
 // 時間點**，所以會被忘記，所以需要待辦。見
 // docs/adr/0041-the-sheet-is-the-registration.md。
 
-import { addDays } from './dates.js';
-import { visitCourseLabel, isLiveSlot, slotStatus } from './visits.js';
+import { addDays, isValidDate } from './dates.js';
+import { isLiveSlot, isOpenStatus, slotStatus } from './visits.js';
+import { SYSTEMS, BOOKING_SYSTEMS } from './masterData.js';
 import { FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND } from './followups.js';
 
 /** @typedef {'A'|'B'|'C'|null} Category */
@@ -32,7 +35,7 @@ export const TASK_KINDS = ['Examine', '耀聖'];
  * `Abovee` 留在名單上而它已經不是任務種類了 —— 歷史資料裡有勾掉的 Abovee 任務，
  * 那些來訪取消時照樣要回頭去放掉時段。
  */
-export const REGISTRATION_KINDS = ['Abovee', 'Examine', '耀聖'];
+export const REGISTRATION_KINDS = SYSTEMS;
 
 /**
  * 來訪走到這個狀態，登記任務才長得出來。
@@ -55,6 +58,21 @@ const TASKS_START_AT = 'confirmed';
 /** @param {string} status 來訪狀態 */
 export function acceptsNewTasks(status) {
   return status === TASKS_START_AT;
+}
+
+/**
+ * 那一天已經過了 —— **過了才談定的段不長掛號待辦**（ADR-0113）。
+ *
+ * 掛號是客人來之前的事。一段從沒確認過就被記成未到、再按「退回簽療程單」，
+ * 那一刻它變成已確認（ADR-0111），而那一段從沒被任何一張掛號待辦蓋到過 ——
+ * 不擋的話長出一張死線早就過了的 Examine／耀聖。她 2026-09-24：「要擋掉」。
+ *
+ * **當天照長**：下午那一段早上才談定，掛號還來得及做。沒給 `today` 就不擋（舊的呼叫端照舊）。
+ * 長的那一側（`registrationSlots()` 的 `born`）與講的那一側（讀取卡片的「到時候才會長出來」、
+ * 確認框的「會多一張 Examine」）都問這一支 —— 一邊擋一邊講就是一句不會發生的話（ADR-0070）。
+ */
+export function registrationClosed(visit, today) {
+  return Boolean(today) && isValidDate(visit?.date) && visit.date < today;
 }
 
 /**
@@ -93,24 +111,14 @@ export const isCancelKind = (kind) => String(kind ?? '').startsWith(CANCEL_PREFI
 export const systemOfCancelKind = (kind) =>
   (isCancelKind(kind) ? String(kind).slice(CANCEL_PREFIX.length) : null);
 
-// null 是明確的「不用掛號」，不是漏填。Inbody、物理諮詢、營養諮詢、
-// 體適能分析都屬於這一類。設定頁必須把這件事顯示出來，
-// 而不是讓使用者看到一片空白自己猜。
-export const CATEGORY_OPTIONS = [
-  { value: 'A', label: 'A · 門診', hint: '復健科、心臟科、二返' },
-  { value: 'B', label: 'B · 健檢', hint: '健檢' },
-  { value: 'C', label: 'C · 療程', hint: '復能、ILIB、EECP、營養點滴' },
-  { value: null, label: '不用掛號', hint: 'Inbody、諮詢類、體適能分析' },
-];
-
-/** 給 UI 用的一句話說明。壓表在哪、確認之後還要做什麼，兩件都講。 */
-export function describeCategory(category) {
-  const opt = CATEGORY_OPTIONS.find((o) => o.value === (category ?? null));
-  if (!opt) return `未知類別（${category}）`;
-  const after = tasksForCategory(category);
-  const tail = after.length ? `確認後 ${after.join('、')}` : '確認後沒有後續登記';
-  return `${opt.label} — ${bookingSystemFor(category)} 壓表，${tail}`;
-}
+// ---------- 類別：只剩退路 ----------
+//
+// 2026-10-05 之前課程只存一個類別（A 門診／B 健檢／C 療程／`null` 不用掛號），
+// 設定頁是一個四選一的下拉。現在設定頁改成三個勾（`course.systems`），**類別那一格
+// 留在資料上當退路**：沒勾過的課程照它推。`null` 是明確的「不用掛號」，不是漏填。
+//
+// **底下這幾支只有 `systemsOf()` 可以叫** —— 畫面與其他 domain 一律傳課程、問
+// `bookingSystemOf()`／`tasksForCourse()`（`tests/course-systems.test.js` 掃原始碼盯著）。
 
 /**
  * 一個類別管兩件事：**壓表登記在哪個系統**，以及**客人確認之後還要去哪幾個**。
@@ -140,9 +148,77 @@ const DEFAULT_RULE = Object.freeze({ bookAt: 'Abovee', onConfirm: Object.freeze(
 
 const ruleFor = (category) => RULES[category] ?? DEFAULT_RULE;
 
-/** 這個類別的課程，壓表是壓在哪個系統上。 */
+/** 這個類別的課程，壓表是壓在哪個系統上。**退路**，見上面那一段。 */
 export function bookingSystemFor(category) {
   return ruleFor(category).bookAt;
+}
+
+// ---------- 課程動到哪幾個系統（ADR-0119）----------
+
+/**
+ * 這門課動到哪幾個系統。**唯一一支**，底下兩支都從它來。
+ *
+ * - 她在設定勾過（`course.systems`）→ 照勾的，順序固定是 Abovee、Examine、耀聖
+ * - 沒勾過 → 照舊從類別推（`RULES`）。讀的時候退回，既有資料一筆都不搬
+ * - **找不到這門課 → `null`（不知道）**。不回空陣列：兩個呼叫端要往不同的方向倒 ——
+ *   取消時猜 Abovee（`bookingSystemOf()`），「壓表登記」那一列不算數（`scheduling.js`）
+ * - **她三個都沒勾（`systems: []`，明確的空陣列）→ `[]`：這門課不用壓**（ADR-0126，HRV）。
+ *   跟「找不到」是兩回事：這一種是她說的，所以取消時不猜、壓表登記也不算
+ *
+ * 「沒有那一格」與「明確的空陣列」分得出來是這一支的重點：前者是 2026-10-05 以前的
+ * 舊課程（照類別推），後者只可能是她在設定頁三個都取消掉、或種子寫的。
+ * 全是認不得的字的 `systems` 不是她說「不用壓」，照舊退回類別。
+ *
+ * @param {{systems?: string[], category?: Category}|null|undefined} course
+ * @returns {string[]|null}
+ */
+export function systemsOf(course) {
+  if (!course) return null;
+  if (Array.isArray(course.systems)) {
+    if (!course.systems.length) return [];
+    const ticked = SYSTEMS.filter((s) => course.systems.includes(s));
+    if (ticked.length) return ticked;
+  }
+  const rule = ruleFor(course.category);
+  return SYSTEMS.filter((s) => s === rule.bookAt || rule.onConfirm.includes(s));
+}
+
+/**
+ * 這門課壓表壓在哪：勾了 Abovee 就是 Abovee；沒勾 Abovee、勾了 Examine 就是 Examine。
+ *
+ * **認不得的課程照樣猜 Abovee**（同 `DEFAULT_RULE` 的理由）：這裡不確定的只有
+ * 「壓在哪個系統」，而「有沒有壓過」是確定的 —— 那筆來訪存在就代表壓過了。
+ *
+ * **不用壓的課回 `null`**（ADR-0126）—— 每一個呼叫端都要接得住：那一句「在 X 壓好了嗎」、
+ * 那一張「取消 X」、「壓表登記」那一格都不可以出現。猜 Abovee 是給**認不得**的課的，
+ * 不是給她明講不用壓的。
+ *
+ * @returns {string|null}
+ */
+export function bookingSystemOf(course) {
+  const systems = systemsOf(course);
+  if (!systems) return DEFAULT_RULE.bookAt;
+  if (!systems.length) return null;
+  return BOOKING_SYSTEMS.find((s) => systems.includes(s)) ?? DEFAULT_RULE.bookAt;
+}
+
+/**
+ * 這門課在**客人確認之後**會長哪幾種待辦：其餘勾起來的，扣掉壓表那一個。
+ * 認不得的課程回空陣列，不猜（多一批假待辦她只會學會忽略它們）。
+ */
+export function tasksForCourse(course) {
+  const systems = systemsOf(course);
+  if (!systems) return [];
+  const bookAt = bookingSystemOf(course);
+  return systems.filter((s) => s !== bookAt);
+}
+
+/** 給設定頁那一行灰字用的一句話。例：`Abovee 壓，確認後 Examine、耀聖`；不用壓的課寫 `不用壓`。 */
+export function describeSystems(course) {
+  const bookAt = bookingSystemOf(course);
+  if (!bookAt) return '不用壓';
+  const after = tasksForCourse(course);
+  return `${bookAt} 壓${after.length ? `，確認後 ${after.join('、')}` : ''}`;
 }
 
 /**
@@ -155,16 +231,19 @@ export function bookingSystemFor(category) {
  *
  * 猜錯的代價是一張寫著錯系統的提醒，她看得懂；不猜的代價是一個時段
  * 永遠佔在那裡而畫面上什麼都沒說。
+ *
+ * **不用壓的課不算**（ADR-0126）：那一段沒有壓過，沒有東西要放掉。
  */
 export function bookingSystemsForVisit(visit, coursesById = {}) {
   const out = new Set();
   for (const slot of visit?.slots ?? []) {
-    out.add(bookingSystemFor(coursesById[slot.courseId]?.category));
+    const system = bookingSystemOf(coursesById[slot.courseId]);
+    if (system) out.add(system);
   }
   return [...out];
 }
 
-/** 某個類別在**客人確認之後**會產生哪些任務。未知類別回空陣列，不猜。 */
+/** 某個類別在**客人確認之後**會產生哪些任務。未知類別回空陣列，不猜。**退路**。 */
 export function tasksForCategory(category) {
   return [...ruleFor(category).onConfirm];
 }
@@ -189,8 +268,9 @@ export function dueDateFor(visitDate) {
  * 兩件事分開是刻意的：這一支同時被用來比對現有的任務（哪些還該留著），
  * 而那個比對不可以跟著狀態變，否則來訪一結案，她還沒做完的登記就會被靜默收掉。
  *
- * 同一次來訪裡有多個時段時，同名任務只產生一次 —— 她不需要為了同一天
- * 掛兩次 Examine。
+ * 這一支答的是**這一天該有哪幾種**（一種一個範本）。掛號那一族**幾張、蓋哪幾段**
+ * 不在這裡：Examine 上是一段登記一筆（她 2026-09-13），同一次談定的幾段收成一張
+ * （2026-09-23）—— 見 `newRegistrations()`。
  *
  * @param {{id:string, customerId:string, customerName:string, date:string,
  *          slots:{courseId:string}[]}} visit
@@ -203,9 +283,7 @@ export function tasksForVisit(visit, coursesById) {
   // 沒做完的也會跟著被收掉 —— 那正是對的。
   for (const slot of visit.slots ?? []) {
     if (!isLiveSlot(slot)) continue;
-    const course = coursesById[slot.courseId];
-    if (!course) continue;
-    for (const kind of tasksForCategory(course.category)) kinds.add(kind);
+    for (const kind of tasksForCourse(coursesById[slot.courseId])) kinds.add(kind);
   }
 
   const dueDate = dueDateFor(visit.date);
@@ -239,10 +317,18 @@ export function tasksForVisit(visit, coursesById) {
  *
  * 死線是**來訪那一天**，不是它的前一天：這件事是客人走了之後才做的，
  * 而她的筆記把它排在「療程單」後面同一段。隔天還沒寫就真的是逾期。
+ *
+ * ## 閘門問那一段（2026-09-24，ADR-0112）
+ *
+ * 以前問整筆 `status === 'done'`，再加「有沒有任何一段要寫紀錄」。她 2026-09-24：
+ * 「我當天寫了A的營養諮詢（要記錄）和sis(不用) 但是我在寫記錄那邊卻看到 9/24 營養諮詢.sis 寫記錄？」
+ * —— 營養諮詢沒來、SIS 做了時整筆也是已完成，照樣長一張。逐段結案（ADR-0110）之後還多一個洞：
+ * 營養諮詢結了、SIS 還開著，整筆停在已確認，寫紀錄永遠不長。
+ *
+ * 這一支回的是**範本**（這一天現在要不要有這一種）；幾張、蓋哪幾段在 `newRecords()`。
  */
 export function recordTasksForVisit(visit, coursesById = {}) {
-  if (!acceptsRecordTasks(visit?.status)) return [];
-  if (!needsRecord(visit, coursesById)) return [];
+  if (!recordSlots(visit, coursesById).length) return [];
 
   return [{
     visitId: visit.id,
@@ -268,6 +354,58 @@ function needsRecord(visit, coursesById = {}) {
   // 取消掉的那一段沒有紀錄要寫 —— 那一場沒發生（ADR-0081）
   return (visit?.slots ?? [])
     .some((s) => isLiveSlot(s) && coursesById[s.courseId]?.needsRecord === true);
+}
+
+/**
+ * 哪幾段**現在**要寫紀錄：那一段自己做完了（`acceptsRecordTasks(slotStatus())`），
+ * 而且那個課程要寫紀錄（`needsRecord`）。回的是 `visit.slots` 裡的位置。
+ *
+ * 跟掛號那一族一樣逐段（ADR-0107、0112）—— 閘門只有 `acceptsRecordTasks()` 一份。
+ * 沒記段落的舊寫紀錄是哪一段，`todoFlow.js` 的 `ownsTask()` 也問這一支（issues/08）。
+ */
+export function recordSlots(visit, coursesById = {}) {
+  return (visit?.slots ?? [])
+    .map((s, i) => (acceptsRecordTasks(slotStatus(visit, s))
+      && coursesById[s?.courseId]?.needsRecord === true ? i : -1))
+    .filter((i) => i >= 0);
+}
+
+/**
+ * 這一次存檔要**新長**哪幾張寫紀錄。跟 `newRegistrations()` 同一個形狀（ADR-0112）：
+ *
+ * - 一段做完了、要寫紀錄、還沒被任何一張蓋到（含已勾、清掉的，`seenTasks()`）才需要新的
+ * - 同一次存檔結掉的幾段收成同一張，記著 `slotIndexes`
+ * - 沒有 `slotIndexes` 的舊任務當成蓋住整天（`cancelSlotsOf()`）—— 舊資料存一次一張都不多長
+ */
+export function newRecords(visit, existingTasks = [], coursesById = {}) {
+  const [template] = recordTasksForVisit(visit, coursesById);
+  if (!template) return [];
+  const covered = new Set(seenTasks(existingTasks)
+    .filter((t) => t.autoGenerated && t.kind === RECORD_TASK_KIND)
+    .flatMap((t) => cancelSlotsOf(t, visit)));
+  const left = recordSlots(visit, coursesById).filter((i) => !covered.has(i));
+  return left.length ? [{ ...template, slotIndexes: left }] : [];
+}
+
+/**
+ * 比對「這件事有沒有人做過」時算數的那幾張任務。**軟刪除的只有勾過的算。**
+ *
+ * 軟刪除有三種來源，只有一種是做過了：
+ *
+ * | 誰刪的 | `done` | 做過了嗎 |
+ * |---|---|---|
+ * | 她在待辦按「清掉」／垃圾桶（只有已完成那一格有） | `true` | 是 |
+ * | 「復原」（`undo.js` 把新增的那幾張 softDelete） | `false` | 不是 |
+ * | 系統收掉（`syncTasksForVisit()` 的 remove） | `false` | 不是 |
+ *
+ * 2026-09-16 把全部軟刪除的都當成做過了，於是復原過一次之後再確認，
+ * Examine 與耀聖一張都不長（prelaunch-audit-2026-09-23/issues/01）。
+ *
+ * **掛號、取消、健檢鏈三條比對都走這一支**（`syncTasksForVisit()`、
+ * `cancelTasksFor()`、`followups.js` 的 `syncFollowupTasks()`）—— 各寫一次遲早有一邊忘了。
+ */
+export function seenTasks(tasks = []) {
+  return (tasks ?? []).filter((t) => !t.deletedAt || t.done);
 }
 
 /**
@@ -304,15 +442,16 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 那一段在 domain/followups.js 的 syncFollowupTasks()（ADR-0042、0065）。
   const CHAIN_KINDS = [FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND];
 
-  // **軟刪除的那幾張照樣算在裡面。** 這一圈問的是「這一件事有沒有人做過」，
-  // 而她在待辦中心按「清掉」只是把那一列收起來（SPEC 第 6.1 節：永不硬刪除）。
+  // **清掉的（勾過又刪掉的）那幾張照樣算在裡面。** 這一圈問的是「這一件事有沒有
+  // 人做過」，而她在待辦中心按「清掉」只是把那一列收起來（SPEC 第 6.1 節：永不硬刪除）。
   // 濾掉它們的話，清掉之後同一筆來訪再存一次，Examine 與耀聖會重新長一次
-  // —— 而那兩張假的待辦會叫她再去掛一次號（報告 §2.2）。
+  // —— 而那兩張假的待辦會叫她再去掛一次號（報告 §2.2）。沒勾過就被刪掉的
+  // （復原、系統收掉）不算，見 `seenTasks()`。
   //
   // **但它們只被拿來比對，一個字都不會被改**：底下每一處 `update` 與 `remove`
   // 都先問 `!t.deletedAt`。改一張已經刪掉的任務等於把它從「已刪除項目」裡救回來，
   // 而她按下刪除的時候並沒有要那樣。
-  const auto = (existingTasks ?? []).filter(
+  const auto = seenTasks(existingTasks).filter(
     (t) => t.autoGenerated
       && !isCancelKind(t.kind)
       && !CHAIN_KINDS.includes(t.kind),
@@ -332,10 +471,17 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 兩族併成一份來比對：掛號那一族（Examine、耀聖）與紀錄那一族（寫紀錄）。
   // 併起來是因為比對的邏輯一模一樣 —— 差別全部在**什麼時候長得出來**，
   // 而那由各自的閘門回答，見底下那一段。
+  //
+  // **掛號那一族逐段比**（prelaunch-audit-2026-09-23/issues/02）：一張蓋的是它自己的
+  // `slotIndexes`（舊的沒有就是整天，`cancelSlotsOf()`），那幾段都不再需要它才收掉。
   const wanted = new Map(
     [...tasksForVisit(visit, coursesById), ...recordTasksForVisit(visit, coursesById)]
       .map((t) => [t.kind, t]),
   );
+  // 寫紀錄也逐段（ADR-0112）：一張蓋的段裡還有一段做完、要寫紀錄，它就還該留著
+  const wantsAt = registrationSlots(visit, coursesById);
+  const recordAt = new Set(recordSlots(visit, coursesById));
+  if (recordAt.size) wantsAt.set(RECORD_TASK_KIND, { wants: recordAt, born: recordAt });
 
   // 「課程還在，只是那一場沒做完」跟「課程被移出來訪了」是兩種情況，
   // 而收掉的理由要分得出來 —— 印一句對不上的話，她下次查稽核會查錯方向。
@@ -345,25 +491,34 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
 
   for (const t of auto) {
     const want = wanted.get(t.kind);
-    if (!want) {
+    // 這幾段裡還有哪幾段需要它（掛號那一族與紀錄那一族都逐段）
+    const alive = want && wantsAt.has(t.kind)
+      ? cancelSlotsOf(t, visit).filter((i) => wantsAt.get(t.kind).wants.has(i))
+      : null;
+    if (!want || alive?.length === 0) {
       // 沒做的就不用做了，做過的留著。
       if (!t.done && !t.deletedAt) {
-        remove.push({
-          id: t.id,
-          reason: t.kind === RECORD_TASK_KIND && stillWantsRecord
-            ? '那一場沒有做完，沒有紀錄要寫'
-            : '來訪裡已經沒有需要這個任務的課程',
-        });
+        let reason = '來訪裡已經沒有需要這個任務的課程';
+        if (want && alive) reason = '它掛的那幾段已經不需要這個任務了';
+        else if (t.kind === RECORD_TASK_KIND && stillWantsRecord) reason = '那一場沒有做完，沒有紀錄要寫';
+        remove.push({ id: t.id, reason });
       }
       continue;
     }
     // **這一種已經有人做過了**（就算那一列被清掉了），所以不再長一張新的。
-    wanted.delete(t.kind);
+    // 掛號與紀錄兩族「長不長」逐段問，在底下的 `newRegistrations()` 與 `newRecords()`。
+    if (!alive) wanted.delete(t.kind);
     if (t.deletedAt) continue;
 
     const changes = {};
+    // 還沒掛的那一張，蓋的段裡有幾段取消了 → 只剩還要掛的那幾段。不縮的話她之後勾掉它，
+    // 取消掉的那一段會被當成掛過、長一張「取消 Examine」叫她去收一個沒掛過的號
+    if (!t.done && Array.isArray(t.slotIndexes) && alive && alive.length !== t.slotIndexes.length) {
+      changes.slotIndexes = alive;
+    }
     if (t.dueDate !== want.dueDate) changes.dueDate = want.dueDate;
-    if ((t.customerName ?? null) !== (visit.customerName ?? null)) {
+    // 名字只對齊還沒做的 —— 做完的留著當時的名字（改名那一條規則，`renameTargets()`）
+    if (!t.done && (t.customerName ?? null) !== (visit.customerName ?? null)) {
       changes.customerName = visit.customerName ?? null;
     }
     if (Object.keys(changes).length) update.push({ id: t.id, changes });
@@ -373,9 +528,8 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // 沒做的收掉」「改了日期死線跟著移」對兩族都成立 —— 這裡擋掉的只有
   // 「無中生有」那一種。
   //
-  // 紀錄那一族的閘門已經在 `recordTasksForVisit()` 裡走過了（那一支
-  // 沒做完就回空陣列），所以它進得了 `wanted` 就代表可以產生。
-  // 在這裡再判斷一次等於同一條規則有兩份實作。
+  // 紀錄那一族的閘門是**那一段做完了**（`recordSlots()` 裡的 `acceptsRecordTasks()`，
+  // ADR-0112），幾張、蓋哪幾段在 `newRecords()`。在這裡再判斷一次等於同一條規則有兩份實作。
   //
   // 掛號那一族的閘門是**逐段**的（ADR-0097）。整筆那個 `status` 是推導出來的，
   // 所以兩段裡確認了一段時它停在 `pending_confirm` —— 拿它當閘門的話那一段的
@@ -384,11 +538,10 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   //
   // **`tasksForVisit()` 不看狀態這件事不能動**（那一支的檔頭寫著）：它同時被
   // 拿來比對「哪些還該留著」，跟著狀態變的話來訪一結案，她還沒做完的 Examine
-  // 就會被靜默收掉。所以閘門只擋 `create` 這一圈。
-  const born = confirmedKinds(visit, coursesById);
-  for (const t of wanted.values()) {
-    if (t.kind === RECORD_TASK_KIND || born.has(t.kind)) create.push(t);
-  }
+  // 就會被靜默收掉。所以閘門只擋 `create` 這一圈 —— 日期那一道（ADR-0113）也一樣。
+  create.push(...newRegistrations(visit, existingTasks, coursesById, today));
+  // 紀錄那一族的閘門是**那一段做完了**（`recordSlots()`，ADR-0112）
+  create.push(...newRecords(visit, existingTasks, coursesById));
 
   // ---------- 整筆還活著，但其中一段取消了（ADR-0081） ----------
   //
@@ -402,6 +555,99 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   create.push(...cancelTasksFor(visit, existingTasks, coursesById, today));
 
   return { create, update, remove };
+}
+
+// ---------- 改了課程的設定之後回頭重算（ADR-0140）----------
+//
+// 待辦是存**來訪**時才算的。改了一門課「壓哪幾個系統」或「寫紀錄」，已經談定的那幾筆要等下次被存 ——
+// 通常就是簽療程單，而那時那一段已經不是「已確認」，掛號那一族就不長了（`acceptsNewTasks()`）；
+// 反過來取消勾選，已經長出來的會一直留著。所以存課程的那一下回頭算一次。
+//
+// 規則一條都沒有多：長不長、收不收、蓋哪幾段全部是 `syncTasksForVisit()` 算的，
+// 這裡只做兩件事 —— 講出「這次改動讓哪幾種變了」，以及從那一份結果裡只留那幾種。
+
+/**
+ * 這門課的設定改了之後，**哪幾種待辦跟著變**。
+ *
+ * - 確認之後要掛的系統（`tasksForCourse()`）多了或少了哪幾個
+ * - 「寫紀錄」開了或關了
+ *
+ * **只改了「壓在哪」不算**（Abovee → Examine，而確認之後掛的沒變）：那一格只管取消時回去放哪一個系統，
+ * 而取消類不回頭長（見 `tasksAfterCourseChange()`）。名字、時長、診間那幾格更不算。
+ * 沒有改之前的那一份（新增的課程）也不算 —— 還沒有任何來訪用到它。
+ *
+ * **「壓在哪」跟著勾法換了的時候，照改之前的那一個扣**（2026-10-09 審查）：已經談定的那幾天是在舊的那個系統壓的。
+ * 拿新的去扣的話 —— 只在 Examine 壓的課多勾 Abovee，談定的每一天會多一張「Examine」（當初就是在那裡壓的）；
+ * 三個都勾的課拿掉 Abovee，還沒掛的「Examine」會被收掉（那幾天是在 Abovee 壓的，Examine 還沒掛）。
+ * 所以：舊的壓表系統不算要掛的；新的壓表系統也不補長（改完之後存來訪不會長它，`tasksForCourse(after)`）。
+ *
+ * @param {object|null} before 存之前的課程
+ * @param {object|null} after 要存的那一份
+ * @returns {{grown: string[], dropped: string[]}} 現在多長的、現在不要了的
+ */
+export function changedTaskKinds(before, after) {
+  if (!before || !after) return { grown: [], dropped: [] };
+  const bookedAt = bookingSystemOf(before);
+  const was = new Set(tasksForCourse(before));
+  // 那幾天現在還要掛的：新勾法裡扣掉**當初**壓表的那一個
+  const now = new Set((systemsOf(after) ?? []).filter((s) => s !== bookedAt));
+  const grown = tasksForCourse(after).filter((k) => now.has(k) && !was.has(k));
+  const dropped = [...was].filter((k) => !now.has(k));
+  const wrote = before.needsRecord === true;
+  const writes = after.needsRecord === true;
+  if (writes && !wrote) grown.push(RECORD_TASK_KIND);
+  if (wrote && !writes) dropped.push(RECORD_TASK_KIND);
+  return { grown, dropped };
+}
+
+/**
+ * 一門課的設定改了之後，**這一筆來訪**的待辦要跟著怎麼動。
+ *
+ * 算的是 `syncTasksForVisit()`（存來訪時真的在跑的那一支，餵它改過的課程主檔），再從結果裡只留：
+ *
+ * - **這次變了的那幾種**（`changedTaskKinds()`）。同一筆上別的還沒對齊的東西（死線、名字、別種待辦）
+ *   是下一次存這一筆時的事；順手改的話確認框上的數字就對不上
+ * - **新長的只給還開著的來訪**（待確認／已確認）。已經結案的那幾天不回頭長 —— 「寫紀錄」打開時
+ *   一年份的舊來訪各長一張，她第一件事是全部勾掉。還開著的那一天裡已經做完的段照長
+ *   （它下次存檔本來也會長）
+ * - **取消類一張都不長**：它不在「變了的那幾種」裡。`cancelTasksFor()` 的去重照種類比，「壓在哪」
+ *   一改，已經取消、收過「取消 Abovee」的段會被算成還欠一張「取消 Examine」—— 那一段當初壓的是 Abovee
+ * - 改的只有「縮成還要掛的那幾段」（一張蓋兩段、其中一段不用了），死線與名字不碰
+ *
+ * 整天取消或刪掉的來訪一個字都不動：那一天的待辦在取消的那一刻就收完了。
+ * 勾過的不動、那一天過了的不長、還沒談定的不長 —— 都是 `syncTasksForVisit()` 本來就有的。
+ *
+ * @param {object} visit
+ * @param {object[]} existingTasks 這一筆來訪的任務，連清掉的（`listByVisitForSync()`）
+ * @param {object} ctx
+ * @param {object} ctx.before 存之前的課程
+ * @param {object} ctx.after 要存的那一份
+ * @param {Record<string, object>} ctx.coursesById 課程主檔，**那一門已經換成 `after`**
+ * @param {string} ctx.today
+ * @returns {{create: object[], update: {id:string, changes:object}[], remove: {id:string, reason:string}[]}}
+ */
+export function tasksAfterCourseChange(visit, existingTasks = [], { before, after, coursesById = {}, today } = {}) {
+  const none = { create: [], update: [], remove: [] };
+  const { grown, dropped } = changedTaskKinds(before, after);
+  if (!grown.length && !dropped.length) return none;
+  if (!visit || visit.deletedAt || visit.status === 'cancelled') return none;
+  if (!(visit.slots ?? []).some((s) => s?.courseId === after.id)) return none;
+
+  const plan = syncTasksForVisit(visit, existingTasks, { coursesById, today });
+  const kindOf = new Map((existingTasks ?? []).map((t) => [t.id, t.kind]));
+  // 整筆的狀態是推導的：有一段還開著它就是待確認或已確認（`visitStatusFrom()`）
+  const open = isOpenStatus(visit.status);
+  const reason = `「${after.name ?? ''}」的設定改了，這一張不用做了`;
+
+  return {
+    create: open ? plan.create.filter((t) => grown.includes(t.kind)) : [],
+    update: plan.update
+      .filter((u) => dropped.includes(kindOf.get(u.id)) && u.changes.slotIndexes)
+      .map((u) => ({ id: u.id, changes: { slotIndexes: u.changes.slotIndexes } })),
+    remove: plan.remove
+      .filter((r) => dropped.includes(kindOf.get(r.id)))
+      .map((r) => ({ id: r.id, reason })),
+  };
 }
 
 /**
@@ -442,7 +688,7 @@ export function importedTasksFor(visit, { coursesById = {}, today } = {}) {
 }
 
 /**
- * 一張取消類的待辦收的是哪幾段（`visit.slots` 裡的位置）。
+ * 一張帶段落的待辦（取消類收的、掛號類掛的）是哪幾段（`visit.slots` 裡的位置）。
  *
  * **沒記的舊任務當成那一天的每一段** —— 2026-09-13 之前長出來的那幾張身上
  * 沒有這一格，而它們當時的意思就是「那一天那個系統」。當成蓋住整天，
@@ -454,28 +700,59 @@ export function cancelSlotsOf(task, visit) {
 }
 
 /**
- * 這一筆來訪裡，**已經談定的那幾段**現在長得出哪幾種掛號任務（ADR-0097）。
- *
- * 跟 `tasksForVisit()` 的差別只有一句：那一支問「這一天該有哪幾種」（不看狀態，
- * 因為它同時被拿來比對哪些還該留著），這一支問「**現在**哪幾種可以無中生有」。
+ * 掛號那一族，每一種**哪幾段該有**（`wants`，活著的段、不看狀態）、**哪幾段現在長得出來**
+ * （`born`，那一段談定了，ADR-0097）。
  *
  * 判斷一條都不自己寫：活著的段走 `isLiveSlot()`、那一段談定了沒走
- * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCategory()`。
+ * `acceptsNewTasks(slotStatus())`、那個課程長什麼走 `tasksForCourse()`。
  *
  * ADR-0027 的兩條邊界因此照樣成立：`confirmed → done` 時每一段是 `done`，
- * `acceptsNewTasks('done')` 是 false，所以不長新的（既有的由上面那一圈決定
- * 留不留）；`pending_confirm → done`（她補記一筆已經上完的課）同理。
+ * `acceptsNewTasks('done')` 是 false，所以不長新的；`pending_confirm → done`
+ * （她補記一筆已經上完的課）同理。
  *
- * **匯出是給確認抽屜那幾句話用的**（`consequences.js` 的 `confirmConsequences()`，
- * ADR-0070）：「待辦會多一張 Examine」要跟真的會長的那一張走同一段身體 ——
- * 同一天早上那一段早就談定時，那一張已經長過了。
+ * **那一天過了就一段都不 born**（`registrationClosed()`，ADR-0113）—— `wants` 照舊，
+ * 所以已經長出來的那幾張一張都不會因此被收掉（`tasksForVisit()` 不看狀態那一條）。
+ *
+ * @returns {Map<string, {wants: Set<number>, born: Set<number>}>}
  */
-export function confirmedKinds(visit, coursesById = {}) {
-  const out = new Set();
-  for (const slot of visit?.slots ?? []) {
-    if (!isLiveSlot(slot)) continue;
-    if (!acceptsNewTasks(slotStatus(visit, slot))) continue;
-    for (const kind of tasksForCategory(coursesById[slot.courseId]?.category)) out.add(kind);
+function registrationSlots(visit, coursesById = {}, today = null) {
+  const out = new Map();
+  const closed = registrationClosed(visit, today);
+  (visit?.slots ?? []).forEach((slot, i) => {
+    if (!isLiveSlot(slot)) return;
+    const confirmed = !closed && acceptsNewTasks(slotStatus(visit, slot));
+    for (const kind of tasksForCourse(coursesById[slot.courseId])) {
+      if (!out.has(kind)) out.set(kind, { wants: new Set(), born: new Set() });
+      out.get(kind).wants.add(i);
+      if (confirmed) out.get(kind).born.add(i);
+    }
+  });
+  return out;
+}
+
+/**
+ * 這一次存檔要**新長**哪幾張掛號待辦（Examine、耀聖）。**逐段**（prelaunch-audit-2026-09-23/issues/02）：
+ *
+ * - 一段談定了、還沒被任何一張（含已勾、清掉的，`seenTasks()`）蓋到，才需要新的
+ * - 同一次存檔談定的幾段收成同一張 —— 她 2026-09-23：Examine 上掛兩筆、**待辦一張**
+ * - 每一張記著它掛的是哪幾段（`slotIndexes`）；沒有的是舊任務，當成蓋住整天（`cancelSlotsOf()`），
+ *   所以舊資料存一次一張都不多長
+ *
+ * 以前是「一天一種一張」：同一天早上掛過號，下午取消重排的那一段談定了一張都不長，
+ * 她被叫去 Examine 取消舊的號，卻沒有人叫她替新的時間掛號。
+ *
+ * **確認抽屜那一句也走這一支**（`consequences.js` 的 `confirmConsequences()`，ADR-0070）。
+ *
+ * `today` 給了，那一天過了就一張都不長（`registrationClosed()`，ADR-0113）。
+ */
+export function newRegistrations(visit, existingTasks = [], coursesById = {}, today = null) {
+  const templates = new Map(tasksForVisit(visit, coursesById).map((t) => [t.kind, t]));
+  const seen = seenTasks(existingTasks).filter((t) => t.autoGenerated);
+  const out = [];
+  for (const [kind, { born }] of registrationSlots(visit, coursesById, today)) {
+    const covered = new Set(seen.filter((t) => t.kind === kind).flatMap((t) => cancelSlotsOf(t, visit)));
+    const left = [...born].filter((i) => !covered.has(i)).sort((a, b) => a - b);
+    if (left.length && templates.has(kind)) out.push({ ...templates.get(kind), slotIndexes: left });
   }
   return out;
 }
@@ -494,8 +771,9 @@ export function confirmedKinds(visit, coursesById = {}) {
  *
  * ## 一段要收哪幾個系統
  *
- *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemFor()`）。來訪存在就代表
- *      壓過了（ADR-0041），不需要任何任務來證明
+ *   1. **壓表登記**：那一段壓在哪就收哪（`bookingSystemOf()`）。來訪存在就代表
+ *      壓過了（ADR-0041），不需要任何任務來證明。**不用壓的課那一段不收**（ADR-0126）——
+ *      它沒有壓過；認不得的課照舊猜 Abovee
  *   2. **確認之後的登記**（Examine、耀聖）：那一段自己長得出那一種、**而且那一張
  *      已經勾掉了**才收 —— 沒勾就是沒登記過，沒有東西要收
  *
@@ -519,12 +797,18 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
     .filter((i) => i >= 0);
   if (!dead.length) return [];
 
-  // **軟刪除的那幾張照樣算在裡面**（同 `syncTasksForVisit()` 的 `auto`）：
+  // **清掉的那幾張照樣算在裡面**（同 `syncTasksForVisit()` 的 `auto`）：
   // 這兩個集合問的都是「已經發生過了嗎」——「這個系統上的登記做掉了嗎」
-  // 與「這一段已經有人去收了嗎」。她把那一列清掉不代表那件事沒發生過。
-  const seen = existingTasks ?? [];
+  // 與「這一段已經有人去收了嗎」。她把那一列清掉不代表那件事沒發生過；
+  // 復原掉的那一張「取消 Abovee」就是沒發生過（`seenTasks()`）。
+  const seen = seenTasks(existingTasks);
   const registered = new Set(
     seen.filter((t) => t.done && REGISTRATION_KINDS.includes(t.kind)).map((t) => t.kind),
+  );
+  // **那一段自己那一張勾掉了才算掛過**（02）：同一天兩段 A 類只掛了其中一段時，
+  // 取消沒掛的那一段不長「取消 Examine」。舊任務沒有 slotIndexes → 整天都算
+  const registeredAt = (kind, i) => seen.some(
+    (t) => t.done && t.kind === kind && cancelSlotsOf(t, visit).includes(i),
   );
 
   // kind → 那幾段。Map 保住順序：壓表登記在前、確認後的登記在後（同以前 `wanted` 的順序）。
@@ -535,12 +819,12 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
   };
 
   for (const i of dead) {
-    want(cancelKindFor(bookingSystemFor(coursesById[slots[i]?.courseId]?.category)), i);
+    const bookAt = bookingSystemOf(coursesById[slots[i]?.courseId]);
+    if (bookAt) want(cancelKindFor(bookAt), i);
   }
   for (const i of dead) {
-    const course = coursesById[slots[i]?.courseId];
-    for (const kind of tasksForCategory(course?.category)) {
-      if (registered.has(kind)) want(cancelKindFor(kind), i);
+    for (const kind of tasksForCourse(coursesById[slots[i]?.courseId])) {
+      if (registeredAt(kind, i)) want(cancelKindFor(kind), i);
     }
   }
   if (whole) {
@@ -572,7 +856,7 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
 export function cancelsBooking(visit, task, coursesById = {}) {
   const system = systemOfCancelKind(task?.kind);
   return (task?.slotIndexes ?? []).some(
-    (i) => bookingSystemFor(coursesById[visit?.slots?.[i]?.courseId]?.category) === system,
+    (i) => bookingSystemOf(coursesById[visit?.slots?.[i]?.courseId]) === system,
   );
 }
 
@@ -607,43 +891,9 @@ function cancelTask(visit, kind, note, today, slotIndexes) {
   };
 }
 
-/**
- * 一列任務要講的三件事：**哪一種、哪一天、哪一場**。
- *
- * 她的原話：「客戶詳情裡的任務目前只會顯示 Examine 或 耀聖，資訊量太少……
- * 例如：Examine・9/1・二返」。
- *
- * 三個地方共用（試算表的 TODO／FINISHED 區、客戶詳情、待辦中心）——
- * 三份寫法遲早會有一份用死線當日期，而那一份會差一天。
- *
- * **日期取來訪那一天，不是死線。** 她認的是「哪一天那一場」，而死線是它的
- * 前一天（`dueDateFor()`），兩個差一天最容易看錯人。來訪找不到（獨立待辦、
- * 來訪被刪了）才退回死線，而且標記 `fromDue` —— 畫面要講明那是死線，
- * 不可以把死線畫成來訪日。
- *
- * **不要拿 `dueDate + 1` 反推來訪日**：取消類的任務不是那樣算的
- *（`cancelTask()` 在今天早於死線時直接用今天），反推出來的日期會有一部分
- * 是錯的，而錯的日期看起來跟對的一模一樣。
- *
- * @param {object} task
- * @param {object|null} [visit] 那一筆來訪。三個呼叫端手上本來就有，
- *   所以這一支不去讀 —— 任務身上沒有來訪日與課程名，也不該有
- *   （那會是第二份會對不起來的資料，見 `data/tasks.js` 的檔頭）。
- * @param {object|null} [master] 課程與器材主檔。帶了就講**顯示名稱**
- *   （跟日曆同一種寫法），沒帶就退回時段上的快照（`visitCourseLabel()`）。
- * @returns {{kind: string, date: string|null, fromDue: boolean, what: string}}
- */
-export function taskLine(task, visit = null, master = null) {
-  const hasVisit = Boolean(visit?.date);
-  return {
-    kind: task?.kind ?? '',
-    date: hasVisit ? visit.date : (task?.dueDate ?? null),
-    fromDue: !hasVisit,
-    // 課程名的去重與「認不出來時退回 N 段」只在 `visitCourseLabel()`，
-    // 不要在這裡再寫一次。沒有時段就沒有東西可講。
-    what: (visit?.slots ?? []).length ? visitCourseLabel(visit, master) : '',
-  };
-}
+// 一列任務要講的三件事（`taskLine()`）搬到 `todoFlow.js`，跟「這一張講的是哪幾段」（`taskSlots()`）
+// 住在一起（`.scratch/asks-2026-09-24/issues/08`）。反過來讓這裡 import 那一支會在載入時撞到
+// `todoFlow.js` 頂層的 `FLOW`（它讀這裡的 `RECORD_TASK_KIND`）。
 
 /**
  * 任務的緊迫程度，給 UI 上色用。

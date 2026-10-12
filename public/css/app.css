@@ -477,6 +477,13 @@ svg {
   margin-bottom: 0;
 }
 
+/* **格子不准被內容撐寬**（2026-10-07，issue 16）。grid 的格子最小寬度預設跟著內容走，
+   一張卡裡有一串不換行的字（她打得很長的其他限制、一串網址），那一欄就跟著變寬 ——
+   每一張卡一起變寬、整頁可以左右滑（她在安卓上看到的）。 */
+.cardgrid > * {
+  min-width: 0;
+}
+
 @media (min-width: 600px) {
   .cardgrid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -599,6 +606,23 @@ textarea {
   white-space: nowrap;
 }
 
+/* **她自己打的字**（其他限制，issue 16）。`.badge` 本身不斷行是給狀態、次數那種短字的；
+   她打的字可以很長，所以兩種畫法：清單卡片截成一行加「…」、看得完的那幾頁換行顯示全文。 */
+.badge--clip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 21px;
+}
+
+.badge--text {
+  max-width: 100%;
+  padding-block: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .badge--overdue {
   color: var(--overdue);
   background: var(--overdue-bg);
@@ -655,6 +679,11 @@ textarea {
 .flag--alert {
   --flag-fg: var(--evcolor-tea);
   --flag-bg: var(--evcolor-tea-bg);
+  /* 名字是她在設定頁自己取的，可以很長：太長就換行，不撐寬那一排（issue 16）。
+     放在會換行的那兩排裡（`.blockchips`、`.row__title`），短的照樣一顆一行 */
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* 實心：底色與字對調。`--evcolor-X` 與 `--evcolor-X-bg` 本來就互為對比
@@ -933,6 +962,17 @@ textarea {
   font-weight: 400;
 }
 
+/* 「＋」那一顆（設定 → 課程 的新分類）：它不是一個選項，是一顆展開輸入框的鈕 ——
+   虛線框跟「換一款」同一種語言。按著的時候照樣是綠底（`[aria-pressed]` 比較具體），輸入框就在底下。 */
+.chip--add {
+  min-width: 44px;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  font-weight: 400;
+}
+
 @keyframes chip-in {
   from { opacity: 0; transform: translateX(-4px); }
   to { opacity: 1; transform: none; }
@@ -978,6 +1018,18 @@ textarea {
   align-self: center;
   height: 20px;
   background: var(--border);
+}
+
+/* 同一個欄位的第二行（`chips()` 的 `breakBefore`）：跟上一行貼近一點，看得出是同一排的下半段。 */
+.chiprow--next {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+/* 會換行的那一種（`.chips`、拍 Abovee 的 `.abl-row__chips`）裡「從這裡另起一行」。
+   來訪「做什麼」那一排的二返那一組 —— 跟健檢只隔一條線的話，實體上還是隔壁。 */
+.chips__break {
+  flex-basis: 100%;
+  height: 0;
 }
 
 .fieldgroup {
@@ -1344,16 +1396,21 @@ textarea {
   line-height: 1.5;
 }
 
-/* 一列任務的後半段：「Examine・9/1(一)・二返」的那一串。
+/* 一列任務底下那幾行：**一段一行**「9/24(四) SIS(60)」（issues/09，`taskLine()` 的 `lines`）。
    **淡一級** —— 種類才是她在掃的東西，日期與項目是用來認人的線索。
-   她的原話：「資訊量太少……讓使用者一眼就知道這是哪天的什麼任務」。 */
-.note__sub {
+   `pre-line`：畫面塞的是一行一段的純文字（換行接起來），不拼 HTML。 */
+.note__lines,
+.row__lines {
+  display: block;
+  white-space: pre-line;
+  font-size: var(--text-xs);
+  line-height: 1.45;
   color: var(--text-mute);
   font-weight: 400;
 }
 
-/* 取消類任務身上那一句（「回去把 Examine 上壓的時段放掉」）。
-   自己一行 —— 它是一句話，不是標籤。 */
+/* 她自己在任務上寫的那一句。自己一行 —— 它是一句話，不是標籤。
+   系統寫的那一句（「回去把 Examine 上壓的時段放掉」）2026-09-24 收進 `?`（issues/09）。 */
 .note__note {
   display: block;
   margin-top: 2px;
@@ -1404,6 +1461,9 @@ textarea {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
+  /* 備註是她自己打的，可以是一串沒有空白的網址：換行，不撐寬（issue 16） */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 button.mark {
@@ -1423,6 +1483,17 @@ button.mark::after {
   flex-shrink: 0;
   border-radius: var(--radius-pill);
   background: var(--mark, var(--mark-grey));
+}
+
+/* 清單卡片截成一行加「…」（`.mark--clip`，`marks.js` 的 `row({ clip })`，issue 16） */
+.mark__text {
+  min-width: 0;
+}
+
+.mark--clip .mark__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mark--lg {
@@ -4127,6 +4198,17 @@ button.mark::after {
   border-radius: var(--radius);
 }
 
+/* 讀取卡片最上面那一排：這位客人的警示（`visitReadHtml()`，四個畫面共用）。
+   裡面是 `alertChips()` 自己的 `.blockchips` 包裝（會換行）；它的 `margin-top` 是給
+   「接在名字底下」用的，這裡上面沒有東西，所以歸零、改成跟底下那幾段隔開。 */
+.readalerts {
+  margin-bottom: var(--space-2);
+}
+
+.readalerts .blockchips {
+  margin-top: 0;
+}
+
 .readslot__when {
   display: block;
   font-size: var(--text-lg);
@@ -4246,6 +4328,59 @@ button.mark::after {
   text-decoration: line-through;
 }
 
+/* ---------- 逐段 ✓／✗（確認與簽療程單兩張抽屜，ADR-0110） ----------
+ *
+ * 那一列本身不能點了（以前點整列切「不行」），兩顆圓鈕各管一邊；都沒按 = 還沒決定。
+ * 圓鈕 44px（觸控區就是自己，不靠 ::after 撐），中間留 12px —— 兩顆的感應範圍不疊。 */
+.slotrow--pick {
+  align-items: center;
+  cursor: default;
+}
+
+.slotrow--yes {
+  background: var(--ok-bg);
+  border-color: var(--ok-bg);
+}
+
+.slotpick {
+  display: flex;
+  flex: none;
+  gap: 12px;
+}
+
+.slotpick__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--text-mute);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.slotpick__btn--yes[aria-pressed='true'] {
+  color: var(--accent-text);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.slotpick__btn--no[aria-pressed='true'] {
+  color: var(--surface);
+  background: var(--overdue);
+  border-color: var(--overdue);
+}
+
+/* 二返接的那一次健檢還沒做完：✓ 按不下去（ADR-0145），那一列自己講為什麼 */
+.slotpick__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* ---------- 登入 / 設定畫面 ---------- */
 
 .gate {
@@ -4275,13 +4410,26 @@ button.mark::after {
   border-radius: var(--radius-sm);
 }
 
-/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9 */
+/* 寫入狀態要誠實：未確認前不顯示成功 —— SPEC 6.9
+
+   **手機上它不可以碰到導覽列，也不可以碰到懸浮鈕**（`.scratch/asks-2026-09-18/issues/01`）。
+   她 2026-09-18：「存完客戶想點『壓表』分頁，結果點到 toast 的『復原』，把剛建的客戶整個刪掉了」
+   —— 那時它是 `bottom: 22px`，而導覽列有 58px 高，「復原」整顆疊在「壓表」「日曆」上。
+
+   所以跟懸浮鈕站同一條基準線（`.fab` 的 66px），**靠左**、右邊讓出懸浮鈕那一欄
+   （54px 是 `.fab__main` 的寬）。置中的話，長訊息會把「復原」推到懸浮鈕上 ——
+   同一個問題往上搬一層。沒有懸浮鈕的頁也站在這裡：每次都在同一個地方，她才找得到。
+
+   **底下有一條釘住的按鈕時再讓出那一條的高度**（`--toast-lift`）：新增客戶的
+   「取消／建立客戶」、批次取消那一條。存失敗的那一句（帶「重試」）不會自己消失，
+   蓋在「建立客戶」上就是一直蓋著。
+   盯著的是 `24-layout-reach` 的 F1、F2、F3（量位置）。 */
 .toast {
+  --toast-base: 66px;
   position: fixed;
-  left: 50%;
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  max-width: min(92vw, 480px);
+  left: var(--gutter);
+  bottom: calc(var(--toast-base) + var(--toast-lift, 0px) + env(safe-area-inset-bottom));
+  max-width: calc(100vw - 2 * var(--gutter) - 54px - var(--space-3));
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -4292,6 +4440,76 @@ button.mark::after {
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   z-index: 25;
+}
+
+/* 那一條量起來 67px（按鈕 42、上下各 12、一條框線），多留 1px */
+body:has(.cform__bar, .bulkbar) > .toast {
+  --toast-lift: 68px;
+}
+
+/* **面板開著的時候到最上面。** 導覽列被面板蓋住了，底下是面板自己的那幾列 ——
+   她下一下八成是點同一天的另一段（ADR-0020），站在 66px 就擋在那一列上 8 秒
+   （`34-confirm-one-slot` 的 C5：確認完下午那一段、接著長按上午那一段，按到的是 toast）。
+   最上面是面板上緣之上、變暗的那一塊。F4 量著。 */
+body:has(> .drawer-backdrop) > .toast {
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  bottom: auto;
+}
+
+/* **那一疊卡片開著的時候站到它的抬頭上，名字那一段**（壓表的卡片組、拍訂購單的確認卡，都是 `.deck`）。
+   `.deck` 蓋住整頁（`position: fixed; inset: 0`），底下是卡片自己的按鈕 —— 站在 66px 就壓在
+   「這位壓完了，下一位 →」的左半邊 8 秒；捲到別的位置時壓的是「加這一段」或治療師那一排。
+   手快按「下一位」按到的是「復原」：剛記的那一段退回去，Abovee 上壓了、app 裡沒有
+   （prelaunch-fixes-2026-10-08/issues/06）。9/18 那次只列了面板，這一疊不是 `.drawer-backdrop`。
+
+   抬頭那一條是 `[‹] 名字 n/m …… [›] [×]`：中間那一段是整疊唯一沒有按鈕的地方。
+   - 上下：對齊那三顆 38px 的按鈕（抬頭的 `padding-top` 是 `max(space-2, safe-area)`），
+     自己縮成一行高（上下內距 2px、按鈕 36px）＝ 42px，不超出抬頭的 54px
+   - 左右（窄螢幕）：從「上一位」右邊 16px 起，到「下一位」左邊 16px 止 ——
+     兩顆並排至少留 16px，不然兩個 44px 的感應範圍會疊
+   - 訊息長的時候往下長的是字，**按鈕釘在上緣**（`align-items: flex-start`），不會掉到卡片上
+   - 蓋住的是名字與「8 / 20」那幾個字，最多 8 秒；卡片自己最上面還有一次名字
+
+   **新增一種會蓋住整頁、自己有底部按鈕的東西要加進這一條**（面板走上面那一條）。
+   量位置的是 `24-layout-reach` 的 F5、F6（問 toast 底下有沒有可以按的東西，不是比外框）。 */
+body:has(.deck) > .toast {
+  top: calc(max(var(--space-2), env(safe-area-inset-top)) - 2px);
+  bottom: auto;
+  align-items: flex-start;
+  padding-block: 2px;
+}
+
+body:has(.deck) > .toast > span {
+  /* 字那一格自己上下置中在按鈕那一行的高度裡；換行之後從這裡往下長 */
+  padding-block: 8px;
+  line-height: 20px;
+}
+
+body:has(.deck) > .toast > .btn {
+  min-height: 36px;
+  padding-block: 0;
+}
+
+@media (max-width: 899px) {
+  body:has(.deck) > .toast {
+    left: calc(var(--gutter) + 38px + 16px);
+    max-width: calc(100vw - 2 * var(--gutter) - 3 * 38px - var(--space-2) - 32px);
+  }
+}
+
+/* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
+.toast > .btn {
+  flex: none;
+}
+
+/* 導覽列在側邊的時候底下是空的，回到底部置中（懸浮鈕在右下角，碰不到） */
+@media (min-width: 900px) {
+  .toast {
+    --toast-base: var(--space-5);
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(92vw, 480px);
+  }
 }
 
 .visually-hidden {
@@ -4360,6 +4578,28 @@ button.mark::after {
   flex-wrap: wrap;
 }
 
+/* 待辦中心那一列的第二行：種類、N 項、死線、約二返約了沒（issues/09）。
+   她：「希望可以換行，不要直接接在名字後面，也盡量不要換行，就是能在同一行就在同一行」——
+   所以自己一行，每一顆 `nowrap`，真的放不下才整顆換到下一行。 */
+.row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+.row__tags .badge {
+  white-space: nowrap;
+}
+
+/* 系統寫的那一句的 `?`（issues/09）。它在 `button.note` 外面（button 裡放不了 button），
+   所以自己置中，跟「詳情 ›」之間留一點 —— 兩顆的觸控範圍不疊（CLAUDE.md 那一條）。 */
+.taskrow > .tip {
+  align-self: center;
+  margin: 0 var(--space-3);
+}
+
 .link-list {
   list-style: none;
   margin: 0;
@@ -4391,6 +4631,14 @@ button.mark::after {
 
 .link-list__label {
   flex: 1;
+}
+
+/* 客戶詳情「來訪紀錄」那一列右邊：每一段不一樣時一段一顆符號（issues/13）。
+   收成一組，不然每一顆各自是 `.row-link` 的 flex 子項，中間隔著 12px 的 gap。 */
+.daymarks {
+  display: inline-flex;
+  flex: none;
+  gap: var(--space-1);
 }
 
 /* 點不下去的那一種（壓表的「這個月壓好的」，2026-09-16）。
@@ -4696,6 +4944,19 @@ button.mark::after {
   cursor: pointer;
 }
 
+/* 兩三個短選項排成一列（`checkboxes({ inline })`、`toggle({ inline })`）。放得下就並排、
+   放不下才換行 —— 一個三個字的選項佔滿一整行的話，三個就是三行。 */
+.choices--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.choices--inline > .choice {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .choice--row {
   width: 100%;
   margin-bottom: var(--space-3);
@@ -4827,6 +5088,21 @@ button.mark::after {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* 三顆以上直排（ADR-0146：另約健檢時多一顆「順便把那一場二返接到這一次」）。
+   橫排在 390px 的手機上放不下三顆 —— 那一張卡片裡只有 310px 左右。
+   DOM 的順序是「先不要，回去 → 多的那一顆 → 主要那一顆」，倒過來排：主要那一顆在最上面、
+   「先不要，回去」在最下面。兩顆的確認框沒有這個 class，一個像素都不變。 */
+.dialog__actions--stack {
+  flex-direction: column-reverse;
+  align-items: stretch;
+}
+
+/* 那一顆的字比較長（帶著課程名），放不下時換行而不是撐出卡片 */
+.dialog__actions--stack .btn {
+  padding-block: var(--space-2);
+  text-align: center;
 }
 
 /* ---------- 額度 ---------- */
@@ -5262,8 +5538,9 @@ button.mark::after {
   color: var(--text-mute);
 }
 
-/* 那一列 ＋ 右邊那顆 `?`。**泡泡擺在 `<a>` 外面**（互動元素不可以互相包，
-   見 `tasklist.js` 的 `wayRow()`），所以外面多一層 flex 把它們排在一起。 */
+/* 那一列外面那一層。右邊那顆 `?` 2026-09-24 拿掉了（ADR-0114），這一層留著：
+   `:first-child` 的分隔線掛在它身上，而之後要在右邊加東西也得擺在 `<a>` 外面
+   （互動元素不可以互相包，見 `tasklist.js` 的 `wayRow()`）。 */
 .wayrow-row {
   display: flex;
   align-items: center;
@@ -6024,58 +6301,162 @@ summary {
   margin-right: var(--space-2);
 }
 
-/* 資料健檢的摘要格 */
-.checks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-@media (min-width: 600px) {
-  .checks {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.check {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
-  background: var(--ok-bg);
+/* 資料健檢（2026-10-07，issue 18，ADR-0136）。只回答「有沒有事、要做什麼」：
+   最上面一塊結論、有事的一項一張卡、沒事的收成最底下一行。 */
+.hsum {
   border: 1px solid var(--accent-line);
-  color: var(--ok);
+  background: var(--ok-bg);
 }
 
-.check--bad {
-  background: var(--overdue-bg);
+.hsum--bad {
   border-color: var(--overdue-bg);
-  color: var(--overdue);
+  background: var(--overdue-bg);
 }
 
-.check--warn {
-  background: var(--soon-bg);
-  border-color: var(--soon-bg);
-  color: var(--soon);
-}
-
-.check__n {
+.hsum__head {
+  margin: 0;
   font-family: var(--font-serif);
   font-size: var(--text-xl);
   font-weight: 600;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
+  color: var(--ok);
 }
 
-.check__label {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  margin-top: 2px;
+.hsum--bad .hsum__head {
+  color: var(--overdue);
 }
 
-.check__note {
+.hsum--warn {
+  border-color: var(--soon-bg);
+  background: var(--soon-bg);
+}
+
+.hsum--warn .hsum__head {
+  color: var(--soon);
+}
+
+.hsum__rest {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.hsum__scan {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
   font-size: var(--text-2xs);
   color: var(--text-dim);
-  line-height: 1.45;
-  margin-top: 2px;
+}
+
+.hgroup__title {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.hcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.hcard__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.hcard__head .badge {
+  flex: none;
+}
+
+.hcard__why {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.hrow__sum,
+.hmore__sum,
+.hok__sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.hrow__sum::-webkit-details-marker,
+.hmore__sum::-webkit-details-marker,
+.hok__sum::-webkit-details-marker {
+  display: none;
+}
+
+.hrow__sum::after,
+.hmore__sum::after,
+.hok__sum::after {
+  content: '›';
+  margin-left: auto;
+  color: var(--text-mute);
+  transition: transform 0.15s;
+}
+
+.hrow[open] > .hrow__sum::after,
+.hmore[open] > .hmore__sum::after,
+.hok[open] > .hok__sum::after {
+  transform: rotate(90deg);
+}
+
+.hrow {
+  border-top: 1px solid var(--border);
+}
+
+.hrow__sum {
+  font-weight: 600;
+}
+
+.hmore__sum {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.hrow__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.hok__sum {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.hok__list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.hok__list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hok__list svg {
+  flex: none;
+  color: var(--ok);
 }
 
 /* ---------- 設定 ---------- */
@@ -6354,6 +6735,109 @@ summary {
 .foldout[open] > summary::after,
 .ban__more[open] > summary::after {
   transform: rotate(90deg);
+}
+
+/* 收著的時候那一行印出現在的值（設定 → 課程 的「其他設定」）——
+   收起來是縮成一行，不是藏起來。展開之後值就在底下，不再重複一次。
+   `order: 1` 讓它排在那個箭頭（`::after`）後面。 */
+.foldout__now {
+  order: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-mute);
+}
+
+.foldout[open] > summary > .foldout__now {
+  visibility: hidden;
+}
+
+/* ---------- 設定 → 課程 → 編輯（2026-10-06 重排，issue 06）---------- */
+
+/* 月曆別稱｜LINE 別稱：兩格並排（手機上一格大約 150px，同 `.namerow__fields`）。 */
+.courseform__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+/* 三種時長並排；窄到一格放不下就換行（直排）。 */
+.courseform__trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+.courseform__pair > .field,
+.courseform__trio > .field {
+  min-width: 0;
+}
+
+/* 選了上面那一顆才露出來的那幾格：左邊一條線，看得出是從那一顆長出來的。 */
+.courseform__sub {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 2px solid var(--accent-soft);
+}
+
+.courseform__sub > :last-child,
+.courseform__sub > :last-child .fieldgroup,
+.courseform__sub > :last-child .field {
+  margin-bottom: 0;
+}
+
+/* 「只能排在這幾間」（issue 17）：平常收著的一行，夾在診間類型與常用診間中間。 */
+.courseform__only {
+  margin: 0 0 var(--space-2);
+}
+
+.courseform__note {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
+}
+
+.courseform__toggles {
+  margin-bottom: var(--space-4);
+}
+
+.courseform__more {
+  margin: 0 0 var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.courseform__more[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.courseform__more > .choices--inline {
+  margin-bottom: var(--space-3);
+}
+
+/* 設定暫定的那一條：跟清單上那個小標同一個茶色。 */
+.provbar {
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--tea-soft);
+}
+
+.provbar__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.provbar .choice {
+  background: var(--surface);
 }
 
 /* 懸浮鈕選單裡那顆圓的圖示底。原本是寫在 calendar.js 的 inline style 裡，
@@ -7572,9 +8056,35 @@ summary {
    9/10 那一次只修了「撐不滿」那一半，而盯著它的測試是掃 CSS 字串的，
    所以綠著。現在盯著它的是 `22-bulk-cancel` 那幾條**量位置**的 E2E。
 
-   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。 */
-.app__main:has(.bulkbar) {
+   不需要那塊留白：那一條本來就擋在最後一列與導覽列之間。
+
+   **新增客戶那一條（`.cform__bar`）是同一個形狀**（`.scratch/asks-2026-09-18/issues/04`），
+   所以收在同一條規則裡。它包在一張卡片裡，卡片底下的 `margin-bottom` 是捲到底時
+   多浮出來的那一段，一起拿掉；卡片的底邊與底下兩個圓角也拿掉 —— 那一條已經貼著
+   導覽列了，再墊一條 1px 的框線就是一條縫。拍訂購單那一層的同一張表單不在
+   `.app__main` 裡，本來就貼齊（`.ocedit__body`）。盯著的是 `39-new-customer-form`
+   的 N9（量位置）。 */
+.app__main:has(.bulkbar),
+.app__main:has(.cform__bar) {
   padding-bottom: 0;
+}
+
+.app__main > .cform-card {
+  margin-bottom: 0;
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 手機上那一條坐在導覽列上，而導覽列已經讓過 Home 指示條一次了（它自己的
+   `padding-bottom`）—— 那一條再讓一次，iPhone 上按鈕底下就多一塊 34px 的空白。
+   toast 的 `--toast-lift`（68px）也是照這個高度算的。iPad 導覽在側邊，那一條
+   真的在畫面最底下，照舊要讓。 */
+@media (max-width: 899px) {
+  .app__main .bulkbar,
+  .app__main .cform__bar {
+    padding-bottom: var(--space-3);
+  }
 }
 
 /* 底下那一條。**選了東西才出現**，所以它不會一直佔著畫面最下面那一格。
@@ -8361,10 +8871,40 @@ body.has-cam {
   max-width: none;
 }
 
-.seenview__close {
+/* 轉 90°（`seen.js` 的 `openPhoto()`）。只有橫躺的那兩種（90°、270°）要換尺寸：
+   寬高對調之後，照片的「寬」要塞進畫面的高、「高」要塞進畫面的寬 —— 用容器單位
+   （`cqh`／`cqw`）講這句話，捲動區自己當那個容器。
+   版面上的框沒有跟著轉（橫躺時它比畫面寬），所以**用絕對定位置中**、捲動關掉 ——
+   用 grid 置中的話，寬過容器的框會退回靠左對齊，轉完的照片整張偏到右邊去。 */
+.seenview:not([data-seenview-angle='0']) .seenview__scroll {
+  container-type: size;
+  position: relative;
+  overflow: hidden;
+}
+
+.seenview:not([data-seenview-angle='0']) .seenview__img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: 100cqw;
+  max-height: 100cqh;
+  transform: translate(-50%, -50%) rotate(var(--seen-turn));
+}
+
+.seenview[data-seenview-angle='1'] .seenview__img,
+.seenview[data-seenview-angle='3'] .seenview__img {
+  max-width: 100cqh;
+  max-height: 100cqw;
+}
+
+.seenview[data-seenview-angle='1'] { --seen-turn: 90deg; }
+.seenview[data-seenview-angle='2'] { --seen-turn: 180deg; }
+.seenview[data-seenview-angle='3'] { --seen-turn: 270deg; }
+
+.seenview__close,
+.seenview__turn {
   position: absolute;
   top: calc(env(safe-area-inset-top) + var(--space-2));
-  right: var(--space-2);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -8376,6 +8916,9 @@ body.has-cam {
   border-radius: 50%;
   cursor: pointer;
 }
+
+.seenview__close { right: var(--space-2); }
+.seenview__turn { left: var(--space-2); }
 
 .seenview__caption {
   margin: 0;
@@ -8615,6 +9158,13 @@ body.has-cam {
 
 .ocard__quote {
   font-size: var(--text-sm);
+}
+
+/* 同一張拍了兩次（prelaunch-fixes/14）：那兩顆排在那一句底下，不靠右擠成一排 */
+.ocard__twice .ocard__acts {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0 0;
 }
 
 .ocard__photos {
@@ -9269,6 +9819,33 @@ body.has-abl {
   opacity: 0.55;
 }
 
+/* 認得、但不是一字不差（ADR-0128）：不是錯，是要她看一眼 —— 用「快到了」那一種色，不用紅的 */
+.abl-row__hint--near,
+/* 會改變寫入結果的提醒（ADR-0138）：收著的列也畫，跟點開之後那一份同一種色 */
+.abl-row__hint--warn {
+  color: var(--soon);
+}
+
+/* 「app 有、這次照片上沒有」（ADR-0129）：只給看，列上沒有按鈕 */
+.abl-row--gone .abl-row__main {
+  cursor: default;
+}
+
+.abl__group--gone .abl__day {
+  color: var(--overdue);
+}
+
+.abl__absentsay {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.abl__gone {
+  margin-top: var(--space-3);
+}
+
 .abl-row__hint {
   margin: -4px 0 var(--space-2) calc(var(--tap-min) + var(--space-1));
   font-size: var(--text-xs);
@@ -9319,6 +9896,42 @@ body.has-abl {
 /* 被別的二返約走的那一次：看得到、按不下去，但不劃線（劃線會把 9/3 讀成別的字） */
 .abl-chip:disabled {
   text-decoration: none;
+}
+
+/* 合併扣課那一列：兩列合成一段 —— 收起來也看得到，旁邊一顆拆開 */
+.abl-row__merged {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) calc(var(--tap-min) + var(--space-1));
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.abl-row__merged b {
+  color: var(--accent);
+}
+
+/* 11：已經記了的那一段跟 Abovee 不一樣的那幾行 */
+.abl-row__diffs {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* 「是誰」那一排：認得的那一位只是一行字，旁邊一顆「換一位」 */
+.abl-row__whonow {
+  align-self: center;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.abl-row__find input {
+  width: 100%;
 }
 
 .abl-row__say {
@@ -9690,6 +10303,11 @@ body.has-abl {
   color: var(--text-dim);
 }
 
+/* 病歷號對上、名字差一個字（ADR-0128）：認得了，但要她看一眼（同 `.abl-row__hint--near`） */
+.tsc__say--near {
+  color: var(--soon);
+}
+
 /* 會改變寫進去的東西（換掉哪一張、舊照片會被刪）—— 常駐，不收進 ? */
 .tsc__warn {
   margin: 0;
@@ -9966,4 +10584,72 @@ body.has-abl {
   .tsheet__compare--look svg {
     transition: none;
   }
+}
+
+/* ---------- 設定 → 課程：先分類再項目（2026-10-05）----------
+   三層：分類的小標題 → 課程那一張卡 → 卡片底下縮排的器材或品項。
+   分類只是一個小標題，不是另一張卡 —— 多一層框，一眼看下去就多一層要讀的東西。 */
+.grouphead {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* 有器材或品項的那一張：標題與「編輯」照舊同一行，底下那幾列自己佔滿一行。 */
+.row--stack {
+  flex-wrap: wrap;
+}
+
+.subrows {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0 0 0 var(--space-3);
+  list-style: none;
+  border-left: 2px solid var(--border);
+}
+
+/* 一列就是一顆按鈕（44px）。它是 `<button>`，所以把瀏覽器的預設壓回一列清單的樣子。 */
+.subrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subrows li:first-child .subrow {
+  border-top: 0;
+}
+
+.subrow:active {
+  background: var(--surface-2);
+}
+
+.subrow__name {
+  flex: none;
+  font-weight: 600;
+}
+
+/* 灰字放得下就同一行，放不下就截掉 —— 這一列是入口，細節在點進去那一張 */
+.subrow__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subrow > svg {
+  flex: none;
+  color: var(--text-mute);
 }

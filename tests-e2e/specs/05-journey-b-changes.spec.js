@@ -155,9 +155,9 @@ test('J-B6 標成未到 → 不扣次數，時段還回去，但未到獨立計�
 
   // 收尾抽屜：把唯一那一段點成「沒做」→ 整筆記成未到
   await page.locator('[data-open="visit-a2"]').click();
-  await app.layer('[data-slot="0"]');
-  await page.locator('[data-slot="0"]').click();
-  await expect(page.locator('[data-apply]')).toContainText('未到');
+  await app.layer('[data-pick="0"][data-to="0"]');
+  await page.locator('[data-pick="0"][data-to="0"]').click();
+  await expect(page.locator('[data-apply]')).toContainText('沒來');
   await page.locator('[data-apply]').click();
   await app.saved();
 
@@ -191,8 +191,8 @@ test('J-A12 做了兩段、第三段沒做 → 只扣兩次（ADR-0025）', asyn
   await app.signIn('/todo/close');
 
   await page.locator('[data-open="visit-a3"]').click();
-  await app.layer('[data-slot="2"]');
-  await page.locator('[data-slot="2"]').click();   // 第三段沒做
+  await app.tickAll();
+  await page.locator('[data-pick="2"][data-to="0"]').click();   // 第三段沒做
   await expect(page.locator('[data-apply]')).toContainText('2 段');
   await page.locator('[data-apply]').click();
   await app.saved();

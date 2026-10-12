@@ -632,3 +632,27 @@ describe('取消之後的「這一項的待辦」', () => {
   });
 });
 
+
+// 掛號那一族也帶 slotIndexes 之後（prelaunch-audit-2026-09-23/issues/02），同一天可以有兩張 Examine ——
+// 早上那一段掛好的、下午補排那一段還沒掛的。點下午那一段只看得到它自己那一張。
+describe('掛號那一張屬於哪一段，照它的 slotIndexes', () => {
+  const COURSES = { 'c-rehab': { id: 'c-rehab', name: '門診', category: 'A' } };
+  const v = {
+    id: 'v1', customerId: 'c1', date: '2026-09-20', status: 'confirmed',
+    slots: [{ courseId: 'c-rehab', status: 'confirmed' }, { courseId: 'c-rehab', status: 'confirmed', startsAt: '15:00' }],
+  };
+  const tasks = [
+    { id: 'am', visitId: 'v1', kind: 'Examine', slotIndexes: [0], done: true },
+    { id: 'pm', visitId: 'v1', kind: 'Examine', slotIndexes: [1], done: false },
+  ];
+  const rows = (focusSlot) => todosForVisit(v, { tasks, coursesById: COURSES, focusSlot })
+    .filter((r) => r.kind === 'Examine');
+
+  test('點下午那一段 → 只有它自己那一張（還沒掛）', () => {
+    assert.deepEqual(rows(1).map((r) => [r.key, r.done]), [['pm', false]]);
+  });
+
+  test('點早上那一段 → 只有早上那一張（掛好了）', () => {
+    assert.deepEqual(rows(0).map((r) => [r.key, r.done]), [['am', true]]);
+  });
+});

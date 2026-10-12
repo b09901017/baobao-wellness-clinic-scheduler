@@ -30,6 +30,8 @@ const PATHS = {
   // 拍照帶入（issue 06）
   camera: '<path d="M4 8.5h3.2L9 6h6l1.8 2.5H20v10H4z"/><circle cx="12" cy="13.3" r="3.4"/>',
   images: '<rect x="3.5" y="5.5" width="14" height="12" rx="1.5"/><path d="M6.5 3.5h14v12"/><path d="M5.5 15l3.5-3.5 3 3 2-2 3.5 3.5"/>',
+  // 看照片時轉 90°（順時針的箭頭繞著一張直的紙）
+  turn: '<rect x="4" y="9" width="9" height="11.5" rx="1.5"/><path d="M11 3.5a8.5 8.5 0 018.5 8.5"/><path d="M17 9.5l2.5 2.5 2.5-2.5"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5M12 16h.01"/>',
   message: '<path d="M4 6.5h16v11H9l-5 3.5z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.4l3.4 2"/>',

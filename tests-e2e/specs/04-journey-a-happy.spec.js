@@ -116,6 +116,8 @@ test('J-A9+A10 確認 → confirmed，而且這時候才長出登記任務', asy
 
   // 打勾 → 抽屜把所有時段攤開
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   const drawer = await page.locator('.drawer').innerText();
   console.log('[J-A9] 確認抽屜 =\n' + drawer);
@@ -160,7 +162,9 @@ test('J-A10b A 類（門診）確認後才長出 Examine 與耀聖', async ({ ap
   await page.locator('[data-time]').first().click();
   // 門診要的是**醫師，不是空間**（她 2026-09-08）—— 診間那一排不再出現
   await expect(page.locator('[data-room]')).toHaveCount(0);
-  await page.locator('[data-doctor]').first().click();
+  // 復健科只有一位醫師（宋，2026-10-06 種子補了科別）→ 選額度那一下已經先選好他（ADR-0120）。
+  // 這裡以前是「點第一位醫師」；先選好之後再點同一顆是**取消**，會變成還沒選醫師
+  await expect(page.locator('[data-doctor="staff-dr-song"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-add]').click();
 
   const dialog = await app.dialogText();
@@ -173,6 +177,8 @@ test('J-A10b A 類（門診）確認後才長出 Examine 與耀聖', async ({ ap
 
   await app.go('/todo/confirm');
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2500);
@@ -194,6 +200,8 @@ test('J-A11 確認之後日曆、客戶詳情、進度追蹤三處同時變成�
 
   await app.go('/todo/confirm');
   await page.locator('[data-open="cust-a"]').first().click();
+  // 2026-09-24 起預設「還沒回」，每一段要按 ✓（ADR-0110）
+  await app.tickAll();
   await page.waitForTimeout(600);
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2500);

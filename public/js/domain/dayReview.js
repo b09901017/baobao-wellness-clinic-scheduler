@@ -209,11 +209,15 @@ const CUSTOMER_FIELDS = new Set(['flags', 'notes']);
 const KEEP_ALL = () => true;
 
 /** 頂端那一排摘要數字：哪幾段值得給一個數字。 */
+//
+// **沒有單位**（2026-10-07，ADR-0135）：每一個數字都是「底下那一段有幾列」，而②壓表底下一列是一則
+// 新增來訪（併進同一天的段落在最後一段、不印）—— 寫「段」的話數字就不等於底下的列數，
+// 寫「筆」是 ADR-0087 拿掉的那個字。不替每一種挑量詞，也就沒有對不上的那一個。
 const TILES = [
-  { id: 'book', label: '壓了', unit: '筆' },
-  { id: 'close', label: '簽了', unit: '張單' },
-  { id: 'register', label: '登記', unit: '筆' },
-  { id: 'calendar', label: '記了', unit: '件' },
+  { id: 'book', label: '壓了' },
+  { id: 'close', label: '簽了' },
+  { id: 'register', label: '登記' },
+  { id: 'calendar', label: '記了' },
 ];
 
 /**

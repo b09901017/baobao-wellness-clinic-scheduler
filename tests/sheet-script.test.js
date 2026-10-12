@@ -20,6 +20,136 @@ import {
   syncBundle, customerReport, READONLY_NOTICE, SYNC_FORMAT,
 } from '../public/js/domain/sheetReport.js';
 
+// ---------- 格式 7（`.scratch/abovee-and-master-2026-10-05/issues/15`） ----------
+//
+// 記一句上試算表是**逐額度**印的（那一筆額度、那一天那一格，格式 5）。沒有額度的段 ——
+// n返（ADR-0063）與不算次數的課（功醫門診，ADR-0121）—— 沒有那一列可以印，所以她在那種段上記的
+// 那一句試算表上看不到。她 2026-10-05：「好記上去」。印在**來訪紀錄那一段自己那一行的最後面**。
+
+describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
+  const FM = { id: 'fm', name: '功醫門診', uncounted: true };
+  const make = (slots, { status = 'done' } = {}) => syncBundle({
+    customers: [{ id: 'c1', name: '客戶A' }],
+    entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+    visitsBy: { c1: [{ id: 'v1', date: '2026-09-18', status, slots }] },
+    today: '2026-10-05',
+    master: { courses: [FM, { id: 'il', name: 'ILIB' }], staff: [{ id: 'd1', name: '夏', role: '醫師' }] },
+  });
+  const fm = (over = {}) => ({
+    entitlementId: null, courseId: 'fm', courseName: '功醫門診', startsAt: '15:00', endsAt: '15:30',
+    doctorId: 'd1', status: 'done', note: 'HRV 報告', ...over,
+  });
+  const ilib = (over = {}) => ({
+    entitlementId: 'e1', courseId: 'il', courseName: 'ILIB', startsAt: '10:00', endsAt: '11:00',
+    status: 'done', note: '她說下午比較好', ...over,
+  });
+  const render = (b) => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: b });
+    assert.equal(reply.ok, true, reply.error);
+    return app.ss.getSheetByName('客戶A');
+  };
+  const column = (sheet) => Array.from({ length: 90 }, (_, i) => sheet.at(`A${i + 1}`));
+  const everything = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
+    (_, c) => sheet.at(`${String.fromCharCode(65 + c)}${r + 1}`)).join('|')).join('\n');
+
+  test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
+    const { post } = loadAppsScript();
+    assert.equal(post({ token: 'secret', bundle: { ...make([fm()]), format: 6 } }).ok, false);
+    assert.equal(SYNC_FORMAT, 7);
+  });
+
+  test('功醫門診記了一句：來訪紀錄那一行的最後面看得到', () => {
+    const b = make([fm()]);
+    assert.equal(b.sheets[0].log[0].items[0].note, 'HRV 報告');
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師　記一句：HRV 報告'));
+  });
+
+  test('n返 那一段也是（它一樣沒有額度）', () => {
+    const b = make([fm({ courseId: 'fu', courseName: '三返', followupNth: 3, note: '報告看完了' })]);
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　三返　夏醫師　記一句：報告看完了'));
+  });
+
+  test('有額度的段照舊印在它那一筆額度底下那一格，來訪紀錄不印第二次', () => {
+    const b = make([ilib(), fm()]);
+    const [first, second] = b.sheets[0].log[0].items;
+    assert.equal(first.note, null, '有額度的那一段在來訪紀錄不帶記一句');
+    assert.equal(second.note, 'HRV 報告');
+    const text = everything(render(b));
+    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度底下那一格）');
+    assert.equal(text.split('HRV 報告').length - 1, 1);
+  });
+
+  test('沒記的不多印東西', () => {
+    const b = make([fm({ note: null })]);
+    assert.equal(b.sheets[0].log[0].items[0].note, null);
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師'));
+  });
+
+  test('取消掉的那一段不印（那一場沒發生）', () => {
+    const b = make([ilib({ note: null }), fm({ status: 'cancelled' })]);
+    assert.ok(!everything(render(b)).includes('HRV 報告'));
+  });
+
+  test('那一句有換行：收成一行（來訪紀錄一段一列，一格塞兩行常常只看得到第一行）', () => {
+    const b = make([fm({ note: 'HRV 報告\n下次帶舊的檢查' })]);
+    assert.equal(b.sheets[0].log[0].items[0].note, 'HRV 報告／下次帶舊的檢查');
+  });
+
+  test('舊資料：那一句還在整筆身上（visit.note）、只有一段沒有額度的 —— 照樣印得出來', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }], entitlementsBy: { c1: [] },
+      visitsBy: { c1: [{ id: 'v1', date: '2026-09-18', status: 'done', note: '整天那一句', slots: [fm({ note: null })] }] },
+      today: '2026-10-05', master: { courses: [FM] },
+    });
+    assert.equal(b.sheets[0].log[0].items[0].note, '整天那一句');
+  });
+
+  // n返 也在矩陣裡自己一列（2026-10-07，course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。
+  // 每一列的鍵沒有變，所以**現在這一份 `.gs` 直接畫得出來** —— 不升 `SYNC_FORMAT`、她不用重貼。
+  test('三返那一段：矩陣最下面多一列「三返（不算次數）」，那一天那一格有 ✓、「剩餘」沒有被塗紅；記的那一句照舊只印一次', () => {
+    const b = make([ilib({ note: null }), fm({ courseId: 'fu', courseName: '三返', followupNth: 3, note: '報告看完了' })]);
+    assert.equal(SYNC_FORMAT, 7, '格式沒有升');
+    const sheet = render(b);
+    const at = column(sheet).indexOf('三返（不算次數）') + 1;
+    assert.ok(at > 0, '那一列要畫出來');
+    assert.equal(at, column(sheet).indexOf('ILIB(60)') + 2, '接在額度列的下一列');
+    assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '✓']);
+    assert.notEqual(sheet.backgrounds.get(`E${at}`), '#FFCDD2', '一槓不是 0');
+    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
+    assert.equal(everything(sheet).split('報告看完了').length - 1, 1);
+  });
+
+  // 審查抓到的：`slotNoteOf()` 對每一段都退回整筆那一句。同一天還有一段有額度時，那一句已經印在
+  // 額度底下那一格了 —— 來訪紀錄再印一次就是同一句話出現兩次（判準第二條）。
+  test('舊資料：整筆那一句、同一天有一段有額度 —— 只印在額度那一格，來訪紀錄不印第二次', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+      visitsBy: { c1: [{
+        id: 'v1', date: '2026-09-18', status: 'done', note: '帶報告',
+        slots: [ilib({ note: null }), fm({ note: null, courseName: '三返', followupNth: 3 })],
+      }] },
+      today: '2026-10-05', master: { courses: [FM, { id: 'il', name: 'ILIB' }] },
+    });
+    assert.deepEqual(b.sheets[0].log[0].items.map((i) => i.note), [null, null]);
+    assert.equal(everything(render(b)).split('帶報告').length - 1, 1);
+  });
+
+  test('舊資料：整筆那一句、但有額度的那一段取消了 —— 額度那一格不印，所以來訪紀錄要印', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [{ id: 'e1', label: 'ILIB(60)', courseId: 'il', totalQty: 12 }] },
+      visitsBy: { c1: [{
+        id: 'v1', date: '2026-09-18', status: 'done', note: '帶報告',
+        slots: [ilib({ note: null, status: 'cancelled' }), fm({ note: null })],
+      }] },
+      today: '2026-10-05', master: { courses: [FM, { id: 'il', name: 'ILIB' }] },
+    });
+    assert.equal(everything(render(b)).split('帶報告').length - 1, 1);
+  });
+});
+
 const bundle = (overrides = {}) => ({
   ...syncBundle({
     customers: [{ id: 'c1', name: '客戶A', source: '0522 顧客會-8', flags: ['體內金屬'], notes: '目前只要SIS' }],
@@ -523,4 +653,178 @@ test('`.gs` 的 SUPPORTED_FORMAT 要跟 app 的 SYNC_FORMAT 一樣', () => {
     SYNC_FORMAT,
     '改了 SYNC_FORMAT 就要一起改 `.gs`，而且她要回試算表重新部署那份指令碼',
   );
+});
+
+// ---------- 同名客戶（prelaunch-audit-2026-09-23/issues/06） ----------
+//
+// 分頁名就是客戶名。新增頁對同名只提醒、照樣存得下去（ADR-0102），於是第二位的
+// resetSheet() 找到剛畫好的那一張、整張清掉重畫 —— 回報卻是 `sheets: 2`。
+
+describe('同名的客戶各自一張分頁', () => {
+  const twins = (customers) => syncBundle({
+    customers,
+    entitlementsBy: {}, visitsBy: {}, tasksBy: {},
+    today: '2026-08-10', generatedAt: 'x', master: {},
+  });
+
+  test('兩位同名 → 兩張分頁，推第二次兩張都還在', () => {
+    const b = twins([
+      { id: 'aaaa1111', name: '王小明', notes: '病歷號 1234' },
+      { id: 'bbbb2222', name: '王小明' },
+      { id: 'cccc3333', name: '客戶A' },
+    ]);
+    const app = loadAppsScript();
+    assert.equal(app.post({ token: 'secret', bundle: b }).ok, true);
+    const names = () => app.ss.getSheets().map((s) => s.name).filter((n) => !n.startsWith('_')).sort();
+    const first = names();
+    assert.equal(first.filter((n) => n.startsWith('王小明')).length, 2, first.join('、'));
+    assert.ok(first.includes('客戶A'), '只有一位叫那個名字：分頁名一個字都不變');
+
+    assert.equal(app.post({ token: 'secret', bundle: b }).ok, true);
+    assert.deepEqual(names(), first, '尾巴每次推都一樣，不會被當成過期的刪掉');
+  });
+
+  test('尾巴先用病歷號，沒有就用 id 的前幾碼', () => {
+    const b = twins([
+      { id: 'aaaa1111', name: '王小明', notes: '病歷號 1234' },
+      { id: 'bbbb2222', name: '王小明' },
+    ]);
+    assert.deepEqual(b.sheets.map((s) => s.name).sort(), ['王小明（1234）', '王小明（bbbb22）'].sort());
+  });
+});
+
+// ---------- 格式 6（`.scratch/asks-2026-09-24-evening/issues/03、04`） ----------
+
+describe('格式 6：來訪紀錄一段一行、買過什麼', () => {
+  const render = (b) => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: b });
+    assert.equal(reply.ok, true, reply.error);
+    return app.ss.getSheetByName('客戶A');
+  };
+  const rowOf = (sheet, text) => {
+    for (let r = 1; r <= 90; r += 1) if (sheet.at(`A${r}`) === text) return r;
+    return -1;
+  };
+
+  test('格式 5 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來，不是半套渲染', () => {
+    const { post } = loadAppsScript();
+    assert.equal(post({ token: 'secret', bundle: bundle({ format: 5 }) }).ok, false);
+  });
+
+  test('來訪紀錄：日期自己一行，底下每一段一行、前面是那一段的狀態', () => {
+    // 她：「能不能就是第一行是日期，然後換行後在寫每一段，這樣感覺就可以對齊了」
+    const b = bundle();
+    const sheet = render(b);
+    const day = b.sheets[0].log[0];
+    const r = rowOf(sheet, day.label);
+    assert.ok(r > 0, `日期「${day.label}」要自己一行`);
+    assert.equal(sheet.at(`A${r + 1}`), '　已完成　09:15–10:15　復能　治3　芝寧');
+    assert.equal(sheet.at(`A${r + 2}`), '　已完成　時間不詳　復能');
+    // 下一天緊接著，日期一樣自己一行
+    assert.equal(sheet.at(`A${r + 3}`), b.sheets[0].log[1].label);
+  });
+
+  test('買過什麼：一天一行，排在營養品上面', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: {
+        c1: [
+          { id: 'e1', label: 'ILIB(60)', totalQty: 12, purchasedAt: '2026-09-01' },
+          { id: 'p1', type: 'product', label: '夜態美', totalQty: 2, items: [{ productId: 'x1', name: '夜態美' }] },
+        ],
+      },
+      visitsBy: { c1: [] },
+      today: '2026-09-24',
+    });
+    const sheet = render(b);
+    const head = rowOf(sheet, '買過什麼');
+    assert.ok(head > 0, '要有「買過什麼」那一段');
+    assert.equal(sheet.at(`A${head + 1}`), '0901　ILIB(60)x12');
+    assert.ok(rowOf(sheet, '營養品') > head, '營養品排在它底下');
+  });
+
+  test('一筆都沒買過：那一段整個不畫', () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }], entitlementsBy: { c1: [] }, visitsBy: { c1: [] }, today: '2026-09-24',
+    });
+    assert.equal(rowOf(render(b), '買過什麼'), -1);
+  });
+});
+
+// ---------- 超用要紅（prelaunch-fixes-2026-10-08/18） ----------
+//
+// 以前上色問的是 `r.remaining === 0`：剛好用完的紅、做的比買的多（−1）反而沒顏色 ——
+// 她最該注意的那一列最不顯眼。改成「是數字而且 ≤ 0」。**一定要先問是不是數字**：
+// 沒有額度的那幾列「剩餘」是一槓（字串），而 JS 裡 `'' <= 0`、`null <= 0` 都是 true。
+
+describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () => {
+  const LOW = '#FFCDD2';
+  const done = (id, date, entitlementId) => ({
+    id, customerId: 'c1', date, status: 'done',
+    slots: [{ entitlementId, courseName: 'SIS', startsAt: '10:00', endsAt: '11:00', status: 'done' }],
+  });
+  const bundle = () => {
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [
+        { id: 'over', label: '超用', totalQty: 2 },
+        { id: 'zero', label: '剛好', totalQty: 1 },
+        { id: 'left', label: '還有', totalQty: 2 },
+      ] },
+      visitsBy: { c1: [
+        done('v1', '2026-09-01', 'over'), done('v2', '2026-09-08', 'over'), done('v3', '2026-09-15', 'over'),
+        done('v4', '2026-09-01', 'zero'), done('v5', '2026-09-08', 'left'),
+        { id: 'v6', customerId: 'c1', date: '2026-09-20', status: 'done',
+          slots: [{ entitlementId: null, courseId: 'fm', courseName: '功醫門診', startsAt: '15:00', endsAt: '15:30', status: 'done' }] },
+      ] },
+      today: '2026-10-08',
+      master: { courses: [{ id: 'fm', name: '功醫門診', uncounted: true }] },
+    });
+    // `.gs` 收的是 JSON：空字串與 null 兩種「沒有數字」也要擋得住
+    const rows = b.sheets[0].rows;
+    const like = rows.find((r) => r.label === '還有');
+    rows.push({ ...like, label: '空字串', remaining: '' }, { ...like, label: 'null', remaining: null });
+    return b;
+  };
+  const colours = () => {
+    const app = loadAppsScript();
+    const reply = app.post({ token: 'secret', bundle: bundle() });
+    assert.equal(reply.ok, true, reply.error);
+    const sheet = app.ss.getSheetByName('客戶A');
+    const at = (label) => {
+      for (let r = 1; r < 90; r += 1) if (sheet.at(`A${r}`) === label) return r;
+      return -1;
+    };
+    const of = (label) => {
+      const r = at(label);
+      assert.ok(r > 0, `${label} 那一列要畫出來`);
+      return { remaining: sheet.at(`E${r}`), bg: sheet.backgrounds.get(`E${r}`) ?? null };
+    };
+    return { of, sheet };
+  };
+
+  test('前提：三列的剩餘是 −1、0、1，不算次數那一列是一槓', () => {
+    const { of } = colours();
+    assert.deepEqual(['超用', '剛好', '還有', '功醫門診（不算次數）'].map((l) => of(l).remaining), [-1, 0, 1, '—']);
+  });
+
+  test('−1 紅、0 紅、1 不紅', () => {
+    const { of } = colours();
+    assert.equal(of('超用').bg, LOW);
+    assert.equal(of('剛好').bg, LOW);
+    assert.notEqual(of('還有').bg, LOW);
+  });
+
+  test('一槓、空字串、null 都不紅', () => {
+    const { of } = colours();
+    for (const label of ['功醫門診（不算次數）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
+  });
+
+  test('合計那一行照舊（它是一句字，不上色）；格式沒有升', () => {
+    const { sheet } = colours();
+    assert.match(String(sheet.at('C2')), /剩餘 -?\d+/);
+    assert.notEqual(sheet.backgrounds.get('C2'), LOW);
+    assert.equal(SYNC_FORMAT, 7);
+  });
 });

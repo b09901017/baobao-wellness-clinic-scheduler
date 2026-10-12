@@ -39,7 +39,8 @@ const view = { search: '' };
 
 async function load() {
   const [customers, master, sheets] = await Promise.all([
-    customersData.list(), config.loadAll(), sheetsData.listAll(),
+    // 主檔連已刪除的一起讀：比的是既有的來訪（刪掉的課程、器材名字照樣要印得出來）；確認層的選單自己濾掉刪除的
+    customersData.list(), config.loadAll({ includeDeleted: true }), sheetsData.listAll(),
   ]);
   return { customers, master, sheets };
 }
@@ -298,7 +299,7 @@ async function compareEveryone(el, data, button) {
   holder.innerHTML = '<p class="tsheets__empty">讀取中…</p>';
   try {
     const visits = await visitsData.listBetween(dates[0], dates[dates.length - 1]);
-    const people = compareAll(data.sheets, visits, data.master);
+    const people = compareAll(data.sheets, visits, data.master, data.customers);
     holder.innerHTML = people.length
       ? `<p class="tsheets__label tsheets__label--look">比對：有要你看的 ${people.length} 位</p><ul class="tsheets__people tsheets__people--look">${people.map((p) => `
           <li><a class="tsheets__person" href="#/settings/treatment-sheets/${encodeURIComponent(p.customerId)}" data-sheet-look="${esc(p.customerId)}">

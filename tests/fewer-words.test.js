@@ -28,7 +28,7 @@ import { join } from 'node:path';
 
 import { fromRoot, toPosix } from './helpers/paths.js';
 
-const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note'];
+const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note', 'hcard__why'];
 
 /**
  * 欄位說明（`components/form.js` 的 `hint` 參數）2026-09-12 起畫成標籤旁邊
@@ -75,16 +75,17 @@ const KEEP = {
   'ui/views/customersBulk.js': 2,
   // 「客戶自己填的，看過沒問題就按下去」＋筆數 —— 空狀態與資料
   'ui/views/formInbox.js': 1,
-  // 十段：今天沒有待辦（空狀態）、還沒簽的筆數、她壓表時記的那一句、
-  // 「次數只扣打勾的那幾段」與「哪一段客人說不行就點它一下」（兩句都是
-  // 寫進去的東西 —— 沒看到就會整批確認）、那一天現在還是什麼狀態…
-  'ui/views/home.js': 10,
+  // 七段：今天沒有待辦（空狀態）、還沒問的位數、還沒結案的天數、簽療程單那一句（「請客人
+  // 簽療程單（N 段）」是資料）、她壓表時記的那一句、壓表登記那兩句（資料）。
+  // 2026-09-24 收掉三段（ADR-0110）：兩張抽屜上「哪一段…就點它一下」—— 換成 ✓／✗
+  // 兩顆圖示之後按鈕自己講完了；「這一天到現在還是『待確認』」收進 `?`（她：「太占版面了」）
+  'ui/views/home.js': 7,
+  // 資料健檢有事的那一項卡片上那一句「這是什麼事」（ADR-0136，她看過圖點頭）。沒事的項目連名字都收起來了，
+  // 有事的那一句就是她要的資訊 —— 收進 `?` 等於要她點開才知道那一張卡在講什麼
+  'ui/views/health.js': 1,
   // 五段：沒有剩餘次數了（空狀態）、月份讀不出來（錯誤）、去記時間那顆按鈕、
   // 「併進同一天」（紅線 5）
   'ui/views/schedule.js': 5,
-  // 「不逐課程設定」那一句長在一摺 `<details>` 底下 —— 展開才看得到，
-  // 本來就不是常駐說明，而 `<summary>` 是互動元素，裡面放不了 `tip()`
-  'ui/views/settings.js': 1,
 };
 
 /**
@@ -115,13 +116,13 @@ const MUTED_DIM_KEEP = {
  * 抽樣而不是全列：全列等於把每一句話抄兩份，而抄錯的那一份會安靜地放行。
  */
 const MOVED = [
-  ['ui/views/settings.js', '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。'],
+  ['ui/views/settings.js', '診間與治療師都在這裡自己加。'],
   ['ui/views/health.js', '發現的問題只會顯示出來。'],
   ['ui/views/bulkCancel.js', '出國或請假的時候，一次把那幾段收掉。'],
   ['ui/views/eventEditor.js', '不綁客戶、不產生任務、不扣次數。'],
   ['ui/views/audit.js', '每一次寫入都會留下一筆，改不掉也刪不掉。'],
   ['ui/views/trash.js', '系統從不真的刪除資料。'],
-  ['ui/views/preferences.js', '分數 = w1×限制 + w2×喜好 + w3×急迫 + w4×間隔。'],
+  ['ui/views/preferences.js', '四個數字是每一項的份量：越大，那一項越能把客戶排到前面。'],
   ['ui/views/report.js', '把資料排成試算表的樣子'],
 ];
 

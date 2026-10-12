@@ -448,15 +448,18 @@ describe('畫出來的那幾排', () => {
 });
 
 describe('「＋ 新增…」那一款', () => {
-  const master = () => ({ products: [{ id: 'p-1', name: '夜態美' }] });
+  const master = () => ({ ...MASTER, products: [{ id: 'p-1', name: '夜態美' }] });
+  /** 一張存得下去的營養品草稿：按了「營養品」、開著「＋ 新增…」打了 Q10。 */
   const draft = (over = {}) => ({
-    type: 'product', items: [], newProduct: true, newProductName: 'Q10', label: '', ...over,
+    ...from(buy.PRODUCT_PICK), totalQty: 1, items: [], newProduct: true, newProductName: 'Q10', label: '', ...over,
   });
+  const commit = async (d, m = master(), create = async () => 'p-new') =>
+    (await buy.commitNewProduct(d, m, create)).draft;
 
   test('寫進主檔並且選起來', async () => {
     const m = master();
     const created = [];
-    const out = await buy.commitNewProduct(draft(), m, async (row) => {
+    const out = await commit(draft(), m, async (row) => {
       created.push(row);
       return 'p-new';
     });
@@ -469,24 +472,21 @@ describe('「＋ 新增…」那一款', () => {
   });
 
   test('原本選好的那幾款留著', async () => {
-    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }] });
-    const out = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    const out = await commit(draft({ items: [{ productId: 'p-1', name: '夜態美' }] }));
     assert.deepEqual(out.items.map((x) => x.productId), ['p-1', 'p-new']);
   });
 
   test('同名的已經有了就用既有那一筆 —— 不要長出第二個「夜態美」', async () => {
     let called = 0;
-    const out = await buy.commitNewProduct(
-      draft({ newProductName: ' 夜態美 ' }), master(), async () => { called += 1; return 'x'; },
-    );
+    const out = await commit(draft({ newProductName: ' 夜態美 ' }), master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
     assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
   });
 
   test('沒有要新增就不寫主檔，一次 IO 都不會發生', async () => {
     let called = 0;
-    const d = draft({ newProduct: false, items: [{ productId: 'p-1', name: '夜態美' }] });
-    const out = await buy.commitNewProduct(d, master(), async () => { called += 1; return 'x'; });
+    const d = draft({ newProduct: false, items: [{ productId: 'p-1', name: '夜態美' }], label: '營養品（夜態美）' });
+    const out = await commit(d, master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
     assert.deepEqual(out, d);
   });
@@ -496,27 +496,64 @@ describe('「＋ 新增…」那一款', () => {
   // 而那一份會蓋掉 `afterDetail()` 補好的。名字沒了之後顯示名稱、
   // 提醒那一句與交付面板會一起變空白（`issues/08`）。
   test('沒有要新增也要把名字從主檔補齊', async () => {
-    const out = await buy.commitNewProduct(
-      draft({ newProduct: false, items: [{ productId: 'p-1', name: '' }] }),
-      master(),
-      async () => 'x',
-    );
+    const out = await commit(draft({ newProduct: false, items: [{ productId: 'p-1', name: '' }] }));
     assert.deepEqual(out.items, [{ productId: 'p-1', name: '夜態美' }]);
   });
 
   test('主檔認不出來的那一筆留著 id，名字不變 —— 不要弄成 undefined', async () => {
-    const out = await buy.commitNewProduct(
-      draft({ newProduct: false, items: [{ productId: 'gone', name: '' }] }),
-      master(),
-      async () => 'x',
-    );
+    const out = await commit(draft({ newProduct: false, items: [{ productId: 'gone', name: '' }] }));
     assert.deepEqual(out.items, [{ productId: 'gone', name: '' }]);
   });
 
   test('名字留白也不新增', async () => {
     let called = 0;
-    await buy.commitNewProduct(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
+    await commit(draft({ newProductName: '   ' }), master(), async () => { called += 1; return 'x'; });
     assert.equal(called, 0);
+  });
+
+  // ---- 2026-10-07（verified-bugs issues/03）：先驗證再建、名字重算 ----
+
+  test('(a) 只打新的一款、一顆既有的都沒勾：存得下去，名字帶著它', async () => {
+    const { draft: out, errors } = await buy.commitNewProduct(draft(), master(), async () => 'p-new');
+    assert.deepEqual(errors, []);
+    assert.equal(out.label, '營養品（Q10）');
+  });
+
+  test('(a) 表單把名稱那一格的空字串蓋上來也一樣（客戶詳情那一條路）', async () => {
+    const { draft: out, errors } = await buy.commitNewProduct(draft({ label: '' }), master(), async () => 'p-new');
+    assert.deepEqual(errors, []);
+    assert.ok(out.label.includes('Q10'), out.label);
+  });
+
+  test('(b) 勾一款＋新增一款：名字兩款都有，跟 items 講的是同一組', async () => {
+    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }], amountTwd: 3000, label: '營養品 3,000（夜態美）' });
+    const { draft: out } = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    assert.equal(out.label, '營養品 3,000（夜態美＋Q10）');
+    assert.deepEqual(out.items.map((x) => x.name), ['夜態美', 'Q10']);
+  });
+
+  test('(b) 她自己打過的名字不重算', async () => {
+    const d = draft({ items: [{ productId: 'p-1', name: '夜態美' }], label: '王太太的保養組' });
+    const { draft: out } = await buy.commitNewProduct(d, master(), async () => 'p-new');
+    assert.equal(out.label, '王太太的保養組');
+  });
+
+  test('(c) 驗證沒過：一次 IO 都不發生，主檔不多一筆，她打的字留著', async () => {
+    let called = 0;
+    const m = master();
+    const d = draft({ totalQty: 0 });
+    const { draft: out, errors } = await buy.commitNewProduct(d, m, async () => { called += 1; return 'p-new'; });
+    assert.equal(called, 0);
+    assert.equal(m.products.length, 1);
+    assert.deepEqual(errors, ['總次數必須是大於 0 的整數'], '只講真的錯的那一件，不多講「要選至少一種營養品」');
+    assert.equal(out.newProduct, true);
+    assert.equal(out.newProductName, 'Q10');
+    assert.deepEqual(out.items, []);
+  });
+
+  test('沒有要新增時也回驗證結果（三個入口不用各自再驗一次）', async () => {
+    const { errors } = await buy.commitNewProduct(draft({ newProduct: false, newProductName: '' }), master(), async () => 'x');
+    assert.deepEqual(errors, ['要選至少一種營養品']);
   });
 });
 
@@ -708,5 +745,185 @@ describe('到期日：選填，預設不到期', () => {
 
   test('那一排不在畫面上時一個欄位都不回報', () => {
     assert.deepEqual(buy.read({ elements: {} }, { expiryPreset: '2027-03-12' }), {});
+  });
+});
+
+// ---------- 2026-10-06（issue 07）：先分類再項目 ----------
+//
+// 她的原話：
+//
+// > 可以參考課程種類與項目.md去分層，不論是新增一個/一群客戶的加購，客戶詳情的加購…都可以參考去分層丸子選
+// > 當然，像是復能(有分三選一四選一)，ILIB，EECP等等 有選時間的或是健檢可以選幾萬的，營養品等等
+// > 已經設計過的就不用動沒關係…只是新加入的那些我也不常用的課程可以去分層，就不會有好多課程然後都滑不到想要的
+//
+// 第一排是分類；**只有一門的分類那一顆直接就是那一門**（她最常按的幾顆一下就到、底下那幾排一個像素都不變），
+// 兩門以上的按了才露出第二排「哪一門」。
+
+import { SEED } from '../public/js/domain/seed.js';
+
+const SEEDED = {
+  courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts, products: SEED.products,
+};
+
+/** 一排丸子：值、字、按著沒有。 */
+const chipsIn = (html, name) => [...html.matchAll(
+  new RegExp(`data-chip="${name}"\\s+data-chip-value="([^"]*)"\\s+aria-pressed="(true|false)"[^>]*>\\s*([^<]*)`, 'g'),
+)].map((m) => ({ value: m[1], pressed: m[2] === 'true', label: m[3].trim() }));
+
+const pressedIn = (html, name) => chipsIn(html, name).filter((c) => c.pressed).map((c) => c.label);
+
+/** 從一張空白草稿依序按幾顆（第一排或第二排都行，跟 `wire()` 走同一條分流）。 */
+const tap = (master, ...values) => values.reduce(
+  (e, v) => buy.afterTap(v, e, {}, master), buy.blank(),
+);
+
+describe('加購那一排：先分類再項目', () => {
+  test('第一排照分類的順序；只有一門的分類那一顆就是那一門，最後照舊是營養品', () => {
+    const top = chipsIn(buy.fields(buy.blank(), SEEDED), 'buy');
+    assert.deepEqual(top.map((c) => c.label),
+      ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '健檢', '物理治療師諮詢', '營養品']);
+    const valueOf = (label) => top.find((c) => c.label === label).value;
+    assert.equal(valueOf('復能'), buy.POOL_PICK, '復能照舊是擇一池那一顆');
+    assert.equal(valueOf('ILIB'), 'course-iv-laser');
+    assert.equal(valueOf('健檢'), 'course-checkup');
+    assert.equal(valueOf('營養點滴'), 'course-iv-drip');
+    assert.equal(valueOf('物理治療師諮詢'), 'course-pt-consult', '「其他」只有一門時字是那一門的名字');
+    assert.ok(buy.isGroupPick(valueOf('醫師門診')));
+    assert.equal(chipsIn(buy.fields(buy.blank(), SEEDED), 'buyItem').length, 0, '還沒按分類就沒有第二排');
+  });
+
+  test('按「醫師門診」：第二排是那幾門（不算次數的不列），課程先清掉、一顆都沒按', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'));
+    assert.equal(e.courseId, null);
+    assert.equal(e.type, 'single');
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    const items = chipsIn(html, 'buyItem');
+    assert.deepEqual(items.map((c) => c.label),
+      ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
+    assert.ok(items.every((c) => !c.pressed));
+  });
+
+  test('開著分類、還沒選哪一門就按儲存：只講一句', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'));
+    assert.deepEqual(buy.validate(e, SEEDED), ['還要選「醫師門診」裡的哪一門']);
+  });
+
+  test('第二排選一門：那一門是課程，第一排照樣亮著那一類', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup');
+    assert.equal(e.courseId, 'course-followup');
+    assert.equal(e.label, '二返');
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['二返']);
+    assert.deepEqual(buy.validate(e, SEEDED), []);
+  });
+
+  test('醫師門診 → 二返 → 再按「復能」：第二排收掉、名字換成復能那一種、她打的次數還在', () => {
+    const picked = { ...tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup'), totalQty: 7 };
+    const e = buy.afterTap(buy.POOL_PICK, picked, { totalQty: 7 }, SEEDED);
+    assert.equal(e.type, 'pool');
+    assert.equal(e.totalQty, 7);
+    assert.match(e.label, /^復能-三選一/);
+    assert.equal(chipsIn(buy.fields(e, SEEDED), 'buyItem').length, 0);
+  });
+
+  test('她自己改過顯示名稱：換分類、換項目都不蓋掉', () => {
+    const e1 = { ...tap(SEEDED, 'course-iv-laser'), label: '雷射特價' };
+    const e2 = buy.afterTap(buy.groupPick('醫師門診'), e1, { label: '雷射特價' }, SEEDED);
+    assert.equal(e2.label, '雷射特價');
+    const e3 = buy.afterTap('course-rehab', e2, { label: '雷射特價' }, SEEDED);
+    assert.equal(e3.label, '雷射特價');
+  });
+
+  test('打開一筆既有的 EECP體驗：第一排亮 EECP、第二排亮 EECP體驗', () => {
+    const e = { ...buy.blank(), courseId: 'course-eecp-trial', label: 'EECP體驗' };
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['EECP']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['EECP體驗']);
+  });
+
+  test('按已經亮著的那一類：選好的那一門不被清掉', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-followup');
+    assert.equal(buy.afterTap(buy.groupPick('醫師門診'), e, {}, SEEDED).courseId, 'course-followup');
+  });
+
+  test('營養品 → 醫師門診：營養品那幾排收掉', () => {
+    const e = tap(SEEDED, buy.PRODUCT_PICK, buy.groupPick('醫師門診'));
+    assert.equal(e.type, 'single');
+    assert.ok(!buy.fields(e, SEEDED).includes('哪幾種'));
+  });
+
+  test('這張表現在選著一門不算次數的課：它照樣列在它那一類裡、按著', () => {
+    const e = { ...buy.blank(), courseId: 'course-fm', label: '功醫門診' };
+    const html = buy.fields(e, SEEDED);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['功醫門診']);
+  });
+
+  test('ILIB 被搬到只有它一門的分類：照舊接回復能後面；搬進兩門以上的分類就跟著那一類', () => {
+    const moved = (group) => ({
+      ...SEEDED,
+      courses: SEEDED.courses.map((c) => (c.id === 'course-iv-laser' ? { ...c, group } : c)),
+    });
+    const alone = chipsIn(buy.fields(buy.blank(), moved('雷射')), 'buy').map((c) => c.label);
+    assert.equal(alone.indexOf('ILIB'), alone.indexOf('復能') + 1, alone.join('/'));
+
+    const withEecp = moved('EECP');
+    const top = chipsIn(buy.fields(buy.blank(), withEecp), 'buy').map((c) => c.label);
+    assert.ok(!top.includes('ILIB'), top.join('/'));
+    const inside = chipsIn(buy.fields(tap(withEecp, buy.groupPick('EECP')), withEecp), 'buyItem');
+    assert.deepEqual(inside.map((c) => c.label), ['ILIB', 'EECP', 'EECP體驗']);
+  });
+
+  test('開合狀態不會漏進存下去的額度', () => {
+    const e = tap(SEEDED, buy.groupPick('醫師門診'), 'course-rehab');
+    assert.ok(!('buyGroup' in buy.payload(e)));
+    assert.ok(!Object.values(buy.payload(e)).some((v) => String(v).startsWith('__group__')));
+  });
+
+  test('舊資料（沒有分類、全部落在「其他」）：一排平的，跟以前一模一樣', () => {
+    const top = chipsIn(buy.fields(buy.blank(), MASTER), 'buy');
+    assert.ok(top.every((c) => !buy.isGroupPick(c.value)));
+    assert.deepEqual(top.map((c) => c.label), ['復健科醫師門診', '健檢', '營養點滴', '復能', 'ILIB', '營養品']);
+  });
+
+  test('接線：第二排跟第一排走同一條分流（`afterTap()`），不是當成細節（`DETAIL_CHIPS`）', () => {
+    const src = readFileSync(fromRoot('public/js/ui/components/buy.js'), 'utf8');
+    const detail = src.slice(src.indexOf('const DETAIL_CHIPS'), src.indexOf(';', src.indexOf('const DETAIL_CHIPS')));
+    assert.ok(!detail.includes('buyItem'), '第二排是選課程：放進 DETAIL_CHIPS 的話 pick() 不會跑');
+    assert.match(src, /closest\('\[data-chip="buy"\], \[data-chip="buyItem"\]'\)/);
+  });
+});
+
+// 換一門課，時長不可以從上一門帶過來（course-form-and-sheet-2026-10-06 的 issue 15）。
+// 「進階設定」那一格時長只在沒有「幾分鐘」那一排時才畫，所以：上一顆有那一排 → 那個數字是那一排的。
+describe('換了「買了什麼」之後的時長', () => {
+  const typed = (e, durationMin) => ({ ...e, durationMin });
+  const then = (e, value) => ({ ...e, ...buy.pick(value, e, MASTER) });
+
+  test('先點 ILIB（自動帶 60）再點健檢：健檢不可以存成 60 分', () => {
+    assert.equal(from('c-ilib', 'c-checkup').durationMin, null);
+    assert.equal(buy.payload(from('c-ilib', 'c-checkup')).durationMin, null);
+  });
+
+  test('先點復能再點營養點滴：一樣不帶', () => {
+    assert.equal(from(buy.POOL_PICK, 'c-drip').durationMin, null);
+  });
+
+  test('她在進階設定自己打的時長，換到另一門沒有那一排的課照舊留著', () => {
+    assert.equal(then(typed(from('c-checkup'), 90), 'c-rehab').durationMin, 90);
+  });
+
+  test('換到有「幾分鐘」那一排的課：不在名單上的數字回課程預設，那一排有一顆按著', () => {
+    const ilib = then(typed(from('c-checkup'), 90), 'c-ilib');
+    assert.equal(ilib.durationMin, 60);
+    assert.equal(ilib.label, 'ILIB(60)');
+    assert.equal(then(typed(from('c-checkup'), 90), buy.POOL_PICK).durationMin, 60);
+  });
+
+  test('兩邊名單上都有的數字留著（ILIB 30 → 復能 30）', () => {
+    assert.equal(then(typed(from('c-ilib'), 30), buy.POOL_PICK).durationMin, 30);
+    assert.equal(then(typed(from(buy.POOL_PICK), 30), 'c-ilib').durationMin, 30);
   });
 });

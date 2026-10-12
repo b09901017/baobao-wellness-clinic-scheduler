@@ -64,33 +64,29 @@ test('T2 Escape 關得掉，而且焦點回到那一顆', async ({ app, page }) 
   await expect(dot, '鍵盤使用者關掉之後要回到原本的位置').toBeFocused();
 });
 
-test('T3 資料健檢：那一句只印一次；點標題裡的 ? 不會順便展開；一次只有一張', async ({ app, page }) => {
+// 2026-10-07 以前這一條在資料健檢上量（每一項的 `?` 長在 `<summary>` 裡）。那一頁重新設計之後
+// 沒事的項目收成一行、有事的那一句直接印在卡片上（issue 18），全站再也沒有 `?` 長在 `<summary>` 裡 ——
+// 剩下「一次只有一張」這一件，換到設定首頁量。
+test('T3 一次只有一張：開第二顆時第一張收掉', async ({ app, page }) => {
   await app.seed([...masterDocs()]);
-  await app.signIn('/settings/health');
+  await app.signIn('/settings');
   await app.settled();
 
-  const cards = page.locator('details[data-check]');
-  await expect(cards.first()).toBeVisible();
-  // 同一句說明以前印了兩次：上面的磚塊一次、展開的那一塊一次
-  await expect(page.locator('.check__note'), '磚塊那一排只剩數字與名稱').toHaveCount(0);
-
-  const first = cards.nth(0);
-  const second = cards.nth(1);
+  const dots = page.locator('#view .tip');
+  const first = dots.nth(0);
+  const second = dots.nth(1);
   // 先捲好再開：捲動會把泡泡收掉（位置是打開那一刻量的）
   await first.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-  const wasOpen = await first.evaluate((d) => d.open);
-
-  await first.locator('summary .tip').click();
+  await first.click();
   await expect(bubble(page)).toHaveCount(1);
-  expect(await first.evaluate((d) => d.open), '點 ? 不可以順便把那一塊展開或收起來').toBe(wasOpen);
 
   // 第二顆可能正好被第一張泡泡蓋住，而真的去點的話 Playwright 會先捲動、
   // 捲動又會把第一張收掉 —— 那樣就算「一次只有一張」壞了這一條也照樣綠。
   // 所以直接對它發 click：這一條問的是「開第二張會不會先收掉第一張」。
-  await second.locator('summary .tip').dispatchEvent('click');
+  await second.dispatchEvent('click');
   await expect(bubble(page), '一次只有一張').toHaveCount(1);
-  await expect(first.locator('summary .tip')).toHaveAttribute('aria-expanded', 'false');
-  await expect(second.locator('summary .tip')).toHaveAttribute('aria-expanded', 'true');
+  await expect(first).toHaveAttribute('aria-expanded', 'false');
+  await expect(second).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('T4 開了馬上關（還沒長出來就收）也要真的拿掉 —— 不可以留一張看不見的在 body 上', async ({ app, page }) => {

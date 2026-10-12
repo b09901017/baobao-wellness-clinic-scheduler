@@ -217,7 +217,9 @@ describe('決定檔', () => {
       { date: '2026-09-23', title: '9／22生理假', skip: '跟 9/22 的休是同一件事' },
     ],
   };
-  const r = run(sheets, events, { decisions });
+  // 「今天」放在這幾筆事件之前：這一段在驗決定怎麼套，而今天以前的雜事現在一律不匯（她 2026-09-28，
+  // `calendar-merge-0928.test.js` 盯著那一條）。
+  const r = run(sheets, events, { decisions, today: '2026-06-01' });
   const json = importJson(r);
   const A = json.customers.find((c) => c.sheetName === '客戶A');
   const B = json.customers.find((c) => c.sheetName === '客戶B');

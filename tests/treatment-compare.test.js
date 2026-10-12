@@ -161,6 +161,17 @@ describe('畫面上那一行與全部比對一次', () => {
     assert.deepEqual(out[0].sheets.map((s) => s.sheetId), ['s9']);
   });
 
+  test('compareAll：印客戶本人現在的名字，照它排（改名之後不留舊名字，issues/23）', () => {
+    const off = (id, customerId, customerName) => ({ ...recovery([row('2026-07-15', { equipmentIds: ['eq-sis'] })]), id, customerId, customerName });
+    const sheets = [off('s1', 'c1', '客戶A'), off('s2', 'c2', '客戶B')];
+    const visits = [visit('2026-07-15', [indiba()]), visit('2026-07-15', [indiba()], { customerId: 'c2' })];
+    const customers = [{ id: 'c1', name: '客戶C' }, { id: 'c2', name: '客戶B' }];
+    const out = compareAll(sheets, visits, MASTER, customers);
+    assert.deepEqual(out.map((p) => p.customerName), ['客戶B', '客戶C']);
+    assert.equal(compareAll([off('s3', 'gone', '客戶D')], [visit('2026-07-15', [indiba()], { customerId: 'gone' })], MASTER, customers)[0].customerName,
+      '客戶D', '查不到本人才退回快照');
+  });
+
   test('每一件講一句：她要做什麼一看就知道', () => {
     assert.equal(issueSentence({ kind: 'missing', date: '2026-08-13', courseId: 'course-recovery', sheetEquipmentIds: ['eq-sis'] }, MASTER),
       '8/13(四) 簽了 SIS，app 沒有這一段');

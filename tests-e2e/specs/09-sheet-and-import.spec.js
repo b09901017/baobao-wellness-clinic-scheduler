@@ -279,3 +279,126 @@ test('J-C13 合併檔 v3：單買一台的池匯得進去、時長照檔案、�
     .some((s) => s.entitlementId === pool.id && s.equipmentId === 'eq-sis'),
   { timeout: 20_000 }).toBe(true);
 });
+
+// 2026-10-05（abovee-and-master/13）：功醫門診不算次數（ADR-0121），合併檔那一段沒有 `entitlementKey`。
+// 寫入那一道以前是「有一段沒有額度就整位擋下來」—— 規則在 `tests/merge-functional-clinic.test.js`，
+// 這一支盯只有真的寫一次才看得到的：**整位照樣進得去、那一段不指任何額度、次數一格都沒動**。
+test('J-C14 合併檔 v5：功醫門診那一段沒有額度照樣匯得進來，客戶身上的次數一格都沒動', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+
+  const v5 = mergeFile({
+    format: 'baobao-merge/v5', eventCandidates: [],
+    // 以後的預約（預設勾起來）：一樣沒有額度可以扣
+    futureVisits: [{
+      customerName: '王小明', date: addDays(TODAY, 12), status: 'confirmed',
+      courseName: '功醫門診', startsAt: '09:30', evidence: '9.王小明HRV', include: false,
+    }],
+  });
+  // 做過的那一天：ILIB 之外多一段功醫門診
+  v5.customers[0].visits[0].slots.push({
+    courseName: '功醫門診', entitlementKey: null, startsAt: '15:00', endsAt: '15:30',
+  });
+
+  await page.locator('[data-json]').fill(JSON.stringify(v5));
+  await page.locator('[data-load]').click();
+  await app.settled();
+  expect(await app.text(), '不算次數的課沒有額度不是問題').not.toContain('對不到任何一筆額度');
+
+  await page.locator('[data-run]').click();
+  if (await app.dialog().count()) await app.ok();
+  await expect.poll(async () => (await app.readAll('visits')).filter((v) => !v.deletedAt).length,
+    { timeout: 20_000 }).toBe(3);
+
+  const [c] = (await app.readAll('customers')).filter((x) => !x.deletedAt);
+  const visits = (await app.readAll('visits')).filter((v) => !v.deletedAt);
+  const fm = visits.flatMap((v) => (v.slots ?? []).map((s) => ({ ...s, date: v.date, visitStatus: v.status })))
+    .filter((s) => s.courseId === 'course-fm');
+  expect(fm.map((s) => [s.date, s.entitlementId, s.startsAt, s.endsAt]).sort()).toEqual([
+    [addDays(TODAY, -20), null, '15:00', '15:30'],
+    [addDays(TODAY, 12), null, '09:30', '10:00'],
+  ].sort());
+  expect(fm.find((s) => s.date > TODAY).visitStatus, '以後的那一筆不可以是已完成').not.toBe('done');
+
+  // 次數：ILIB 做了一次、排了一次，跟沒有功醫門診時一樣
+  const [ilib] = await app.readAll(`customers/${c.id}/entitlements`);
+  expect([ilib.doneCount, ilib.bookedCount]).toEqual([1, 1]);
+
+  // 資料健檢：沒有額度的那兩段不是孤兒、次數對得上
+  await app.go('/settings/health');
+  await expect(page.locator('#view [data-check="counts"]')).toContainText('沒問題');
+  await expect(page.locator('#view [data-check="orphans"]')).toContainText('沒問題');
+});
+
+// 試算表的次數拿全部過去的來訪算（course-form-and-sheet-2026-10-06 的 issue 13，ADR-0132）。
+// 以前只讀今天前後 400 天：超過的那一次不算進去，報表上的「已完成」比 app 少。
+test('J-C15 報表：500 天前做過的那一次也算進去，那一天也有一欄', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-vein', label: '靜脈', type: 'single', courseId: 'course-iv-laser',
+      totalQty: 20, doneCount: 2, bookedCount: 0, durationMin: 60,
+    }),
+    ...[-500, -10].map((days, i) => visit({
+      id: `v-done-${i}`, customerId: 'cust-a', customerName: '客戶A',
+      date: addDays(TODAY, days), status: 'done',
+      slots: [slot({
+        courseId: 'course-iv-laser', entitlementId: 'ent-vein',
+        startsAt: '14:00', endsAt: '15:00', roomId: 'room-iv10', attended: true,
+      })],
+    })),
+  ]);
+  await app.signIn('/settings/report');
+
+  const cells = (row) => row.locator('th, td').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+  const head = await cells(page.locator('table.sheet tr', { hasText: '療程項目' }).first());
+  const row = await cells(page.locator('table.sheet tr', { hasText: '靜脈' }).first());
+
+  // 療程項目｜應有｜已完成｜已排未上｜剩餘｜日期…
+  expect(row.slice(1, 5), '兩次都算進去：以前 500 天前那一次不算，已完成是 1、剩餘是 19').toEqual(['20', '2', '0', '18']);
+  expect(head.length - 5, '兩天各一欄').toBe(2);
+  expect(row.slice(5)).toEqual(['✓', '✓']);
+  // issue 19：500 天前那一欄不是今年的 → 抬頭帶兩位數年份；10 天前那一欄照舊
+  expect(head[5]).toMatch(/^\d{2}\/\d{1,2}\/\d{1,2}\(.\)$/);
+  expect(head[6]).toMatch(/^\d{1,2}\/\d{1,2}\(.\)$/);
+});
+
+// 三返在矩陣裡自己一列（course-form-and-sheet-2026-10-06 的 issue 14，ADR-0131）。
+// 以前只做三返的那一天那一欄整欄是空的 —— 它沒有額度，而列只從額度來。
+test('J-C16 報表：只做三返的那一天，「三返（不算次數）」那一列有符號；健檢那一欄底下那一行照舊', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-a', name: '客戶A' }),
+    entitlement('cust-a', {
+      id: 'ent-chk', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1, doneCount: 1, tier: '8萬',
+    }),
+    entitlement('cust-a', {
+      id: 'ent-fu', label: '二返（8萬健檢）', courseId: 'course-followup', totalQty: 1,
+      followupForEntitlementId: 'ent-chk',
+    }),
+    visit({
+      id: 'v-exam', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -30), status: 'done',
+      slots: [slot({ courseId: 'course-checkup', entitlementId: 'ent-chk', startsAt: '09:00', endsAt: '11:00', attended: true })],
+    }),
+    visit({
+      id: 'v-3rd', customerId: 'cust-a', customerName: '客戶A', date: addDays(TODAY, -5), status: 'done',
+      slots: [slot({
+        courseId: 'course-followup', entitlementId: null, followupNth: 3, followupForVisitId: 'v-exam',
+        startsAt: '14:00', endsAt: '14:30', attended: true,
+      })],
+    }),
+  ]);
+  await app.signIn('/settings/report');
+
+  const cells = (row) => row.locator('th, td').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+  const rowOf = (label) => cells(page.locator('table.sheet tr', { hasText: label }).first());
+
+  // 療程項目｜應有｜已完成｜已排未上｜剩餘｜健檢那一天｜三返那一天
+  expect(await rowOf('三返（不算次數）')).toEqual(['三返（不算次數）', '—', '1', '0', '—', '', '✓']);
+  expect((await rowOf('二返（8萬健檢）')).slice(1), '三返不算進二返那一筆').toEqual(['1', '0', '0', '1', '', '']);
+  // 健檢那一欄底下那一行（她：「要留」）：二返還沒約是空括號，三返接在它下面
+  const body = await app.text();
+  expect(body).toContain('二返()');
+  expect(body).toMatch(/\d+\/\d+ 三返\(\)/);
+});

@@ -9,7 +9,7 @@
 // 顯示成不同狀態，她不會知道哪個算數。
 
 import { monthRange } from './scheduling.js';
-import { isActive, slotStatus } from './visits.js';
+import { isActive, slotStatus, isLiveSlot } from './visits.js';
 import { slotName } from './naming.js';
 import { isValidDate } from './dates.js';
 import { isValidTime, toMinutes } from './visitTime.js';
@@ -17,8 +17,9 @@ import { isValidTime, toMinutes } from './visitTime.js';
 /**
  * 這一頁畫得出來的狀態，照流程排。
  *
- * 取消不在裡面：時段已經還回去了，日曆上也不畫（`isActive()` 濾掉），
- * 這一頁跟著同一個規矩 —— 兩邊看到的東西要一樣多。
+ * 取消不在裡面：時段已經還回去了。整天取消的由 `isActive()` 濾掉，只取消其中一段的由
+ * `dayFor()` 濾掉（ADR-0134）—— 這一頁問的是「這個月實際上做了多少」。
+ * 日曆上照樣看得到暗掉的那一段（ADR-0061），那是另一個問題。
  */
 export const PROGRESS_STATUSES = ['pending_confirm', 'confirmed', 'done', 'no_show'];
 
@@ -58,19 +59,22 @@ export function buildProgress({ customers = [], visits = [], month, master = {} 
   const idle = [];
 
   for (const customer of alive) {
-    const mine = byCustomer.get(customer.id) ?? [];
-    if (!mine.length) {
+    const row = rowFor(customer, byCustomer.get(customer.id) ?? [], false, master);
+    byCustomer.delete(customer.id);
+    // **問的是「畫得出幾天」，不是「有幾筆來訪」**（ADR-0134）：這個月唯一的那一段取消了，
+    // 他就是這個月沒有排。
+    if (!row.days.length) {
       idle.push({ id: customer.id, name: customer.name ?? '（沒有名字）' });
       continue;
     }
-    rows.push(rowFor(customer, mine, false, master));
-    byCustomer.delete(customer.id);
+    rows.push(row);
   }
 
   // 來訪指到一位不存在（或已刪除）的客戶。孤兒資料資料健檢會報，
   // 但這一頁不能因此把那幾段吞掉 —— 看不見的壞資料比看得見的難修。
   for (const [customerId, mine] of byCustomer) {
-    rows.push(rowFor({ id: customerId, name: mine[0]?.customerName ?? null }, mine, true, master));
+    const row = rowFor({ id: customerId, name: mine[0]?.customerName ?? null }, mine, true, master);
+    if (row.days.length) rows.push(row);
   }
 
   rows.sort(byName);
@@ -83,7 +87,10 @@ function rowFor(customer, visits, orphan = false, master = {}) {
   const days = visits
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((v) => dayFor(v, master));
+    .map((v) => dayFor(v, master))
+    // 每一段都取消的那一天不留一個空的日期抬頭。正常情況下整筆會被推成已取消、
+    // 上面 `isActive()` 就濾掉了；這裡擋的是整筆那個推導值還沒跟上的舊資料。
+    .filter((day) => day.slots.length);
 
   const tally = emptyTally();
   let slotCount = 0;
@@ -141,6 +148,13 @@ function dayFor(visit, master = {}) {
         endsAt: slot.endsAt ?? null,
         status: slotStatus(visit, slot),
       }))
+      // **取消的那一段不畫、不算**（ADR-0134）。她 2026-10-07：「這個頁面的核心目的是回答
+      // 『這個人這個月實際上做了多少』，而取消的段實際上並未發生」。以前只濾整天取消的
+      // （`isActive()`），逐段取消（ADR-0081）之後一天裡取消一段時它照樣算進「N 段」，
+      // 而 ○△✓✗ 沒有它那一格 —— 兩邊加不起來。未到的照畫：那一段發生過（人沒來）。
+      // `status` 已經過 `slotStatus()`（整天取消的舊資料也認得），所以問 `isLiveSlot()` 就對。
+      // **先 map 再濾**：`index` 是它在 `visit.slots` 裡的位置，畫面拿它開那一段。
+      .filter(isLiveSlot)
       .sort(byStart),
   };
 }

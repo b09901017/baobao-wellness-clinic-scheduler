@@ -8,7 +8,6 @@ import * as backup from '../../data/backup.js';
 import * as aiUsage from '../../data/aiUsage.js';
 import * as sheetsData from '../../data/treatmentSheets.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
-import { CATEGORY_OPTIONS, describeCategory } from '../../domain/taskRules.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { formatUsd, monthKey } from '../../domain/aiUsage.js';
 import { esc } from '../components/form.js';
@@ -63,7 +62,7 @@ export async function render(el) {
   el.innerHTML = `
     <div class="page">
       <h1 class="page__title">設定${tip(
-        '診間與治療師都在這裡自己加，沒有寫死在程式碼裡。')}</h1>
+        '診間與治療師都在這裡自己加。')}</h1>
     </div>
 
     ${empty ? seedCard() : ''}
@@ -78,7 +77,8 @@ export async function render(el) {
     </section>
 
     <section class="card card--flat">
-      <h2 class="card__title">規則${tip('改了會影響之後產生的東西。')}</h2>
+      <h2 class="card__title">規則${tip(
+        '改了會影響之後產生的東西。一門課壓哪幾個系統、長哪些待辦，在 主檔 → 課程 那一門自己勾。')}</h2>
       <div class="tilegrid">
         ${tile('#/settings/preferences', '排序權重', '誰先看、時段間隔、幾天沒回覆算久')}
         ${tile('#/settings/templates', 'LINE 回覆模板',
@@ -88,15 +88,6 @@ export async function render(el) {
                `tests/ui-copy.test.js` 有一條盯著它不會長回來。 */''}
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
       </div>
-      <details style="margin-top: var(--space-3)">
-        ${/* 同 `backfill.js`：`<summary>` 是互動元素，裡面不可以放 `tip()`，
-               而這一段本來就在一摺底下。 */''}
-        <summary class="muted">任務規則綁在課程的類別上</summary>
-        <ul class="muted" style="margin-top: var(--space-2)">
-          ${CATEGORY_OPTIONS.map((o) => `<li>${esc(describeCategory(o.value))}</li>`).join('')}
-        </ul>
-        <p class="card__note">不逐課程設定。要改某個課程產生哪些任務，去改它的類別。</p>
-      </details>
     </section>
 
     <section class="card card--flat">
@@ -170,7 +161,7 @@ function seedCard() {
   return `
     <section class="card">
       <h2 class="card__title">還沒有任何主檔${tip(
-        '可以先載入 SPEC 裡已知的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
+        '可以先載入預設的診間、治療師、器材、課程與兩個方案範本，之後每一筆都能改。')}</h2>
       <p><button class="btn btn--primary" type="button" data-seed>載入種子資料</button></p>
     </section>`;
 }
@@ -179,7 +170,7 @@ async function runSeed(el) {
   const ok = await confirmAction({
     title: '載入種子資料',
     consequences: [
-      '建立 SPEC 第 12 節列出的診間、治療師、器材、營養點滴品項、營養品、課程與兩個方案範本',
+      '建立預設的診間、治療師、器材、營養點滴品項、營養品、課程與兩個方案範本',
       '已經存在的一律跳過，不會覆蓋你改過的內容',
       '之後每一筆都能在這裡修改或刪除',
     ],

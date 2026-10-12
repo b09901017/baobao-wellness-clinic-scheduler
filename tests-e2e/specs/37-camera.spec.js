@@ -160,3 +160,82 @@ test('C6 Abovee 最多兩張：選三張只收兩張並講出來，快門變灰'
   await page.locator('[data-cam-remove]').first().click();
   await expect(page.locator('.cam__thumb')).toHaveCount(1);
 });
+
+// ---------------------------------------------------------------------------
+// 看照片可以轉 90°（`.scratch/asks-2026-09-18/issues/05`）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-09-18：「有時候我的照片是橫的，我想要直得看比較方便」。
+// 五個入口共用 `openPhoto()`，所以直接從 app 裡 import 它打開一張橫的。
+// **CSS 轉，照片本身不動**；不記住（她同意），收起再打開是原本的方向。
+
+/** 橫的一張（800×400），畫在 canvas 上變成 blob 網址 —— 跟 app 裡的照片同一種東西。 */
+function openLandscape(page) {
+  return page.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = 800;
+    c.height = 400;
+    const g = c.getContext('2d');
+    g.fillStyle = '#c33';
+    g.fillRect(0, 0, 800, 400);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg'));
+    const url = URL.createObjectURL(blob);
+    const { openPhoto } = await import('/js/ui/components/seen.js');
+    openPhoto(url, '');
+    return url;
+  });
+}
+
+/** 照片畫出來的框（算上旋轉）與捲動區。 */
+const measureView = (page) => page.evaluate(() => {
+  const img = document.querySelector('.seenview__img').getBoundingClientRect();
+  const s = document.querySelector('.seenview__scroll');
+  const box = s.getBoundingClientRect();
+  return {
+    w: img.width, h: img.height,
+    inside: img.left >= box.left - 1 && img.right <= box.right + 1 && img.top >= box.top - 1 && img.bottom <= box.bottom + 1,
+    scrolls: s.scrollWidth > s.clientWidth + 1 || s.scrollHeight > s.clientHeight + 1,
+  };
+});
+
+test('C7 看照片：轉 90° 之後橫的變直的、整張在畫面裡；轉四次回原樣；收起再打開是原本的方向', async ({ app, page }) => {
+  await app.signIn('/');
+  const url = await openLandscape(page);
+  await expect(page.locator('.seenview img')).toBeVisible();
+
+  const flat = await measureView(page);
+  expect(flat.w, '一開始是橫的').toBeGreaterThan(flat.h);
+
+  const turn = page.locator('[data-seenview-turn]');
+  await turn.click();
+  await expect.poll(async () => {
+    const m = await measureView(page);
+    return m.h > m.w;
+  }, '轉一次變直的').toBe(true);
+  const upright = await measureView(page);
+  expect(upright.inside, '整張都在畫面裡').toBe(true);
+  expect(upright.scrolls, '不多出一塊可以捲的空白').toBe(false);
+  expect(upright.h, '直的時候比橫著看大（她要的就是這個）').toBeGreaterThan(flat.w * 0.99);
+
+  // 轉過之後點兩下不理 —— 跳回橫的會讓她以為轉壞了（放大交給兩指）
+  await page.locator('.seenview__img').dblclick();
+  const still = await measureView(page);
+  expect(Math.abs(still.w - upright.w) < 2 && Math.abs(still.h - upright.h) < 2, '點兩下之後還是直的、大小不變')
+    .toBe(true);
+
+  await turn.click();
+  await turn.click();
+  await turn.click();
+  await expect.poll(async () => {
+    const m = await measureView(page);
+    return Math.abs(m.w - flat.w) < 2 && Math.abs(m.h - flat.h) < 2;
+  }, '轉四次回原樣').toBe(true);
+
+  await turn.click();
+  await page.locator('[data-seenview-close]').click();
+  await expect(page.locator('.seenview')).toHaveCount(0);
+  await page.evaluate(async (u) => (await import('/js/ui/components/seen.js')).openPhoto(u, ''), url);
+  await expect(page.locator('.seenview img')).toBeVisible();
+  const again = await measureView(page);
+  expect(again.w, '不記住：再打開是原本橫的').toBeGreaterThan(again.h);
+});

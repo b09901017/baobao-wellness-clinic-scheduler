@@ -36,6 +36,9 @@ export const TRANSCRIPT_FIELDS = Object.freeze({
     columns: ['string'],
     rows: [['string']],
     pageText: 'string',
+    // 畫面上方的「預約日期(起)／(訖)」（ADR-0129）：照抄，`aboveeImport.js` 的 `photoSpan()` 讀
+    dateFromText: 'string',
+    dateToText: 'string',
   },
   treatmentSheet: {
     title: 'string',
@@ -60,7 +63,7 @@ export const TRANSCRIPT_FIELDS = Object.freeze({
 
 export const TRANSCRIPT_KINDS = Object.freeze(Object.keys(TRANSCRIPT_FIELDS));
 
-/** Abovee 列表只抄這九欄（照片上沒有的那一欄不會出現在 `columns`）。 */
+/** Abovee 列表只抄這十欄（照片上沒有的那一欄不會出現在 `columns`）。「合併扣課」2026-10-05 加的。 */
 export const ABOVEE_COLUMNS = Object.freeze([
-  '預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '診間', '服務資源', '取消原因',
+  '預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '合併扣課', '診間', '服務資源', '取消原因',
 ]);

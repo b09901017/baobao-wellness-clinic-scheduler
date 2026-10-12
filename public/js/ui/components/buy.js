@@ -33,6 +33,7 @@ import {
 } from '../../domain/entitlements.js';
 import { followupCourseIdOf } from '../../domain/followups.js';
 import { itemsOf, productLabel } from '../../domain/products.js';
+import { isUncounted, groupCourses } from '../../domain/masterData.js';
 import { addMonths, isValidDate, todayISO } from '../../domain/dates.js';
 
 // **這兩支 2026-09-16 搬進 `domain/entitlements.js`**（規則不是畫面，ADR-0095）。
@@ -48,10 +49,16 @@ export { autoLabel, keptLabel };
  */
 export const POOL_PICK = '__pool__';
 
-/** 「哪一種」那一排裡的兩顆整組。其餘每一台器材各一顆，值就是器材 id。 */
+/**
+ * 「買了什麼」那一排裡**代表一個分類**的那一顆（2026-10-06，issue 07）。它不是課程 ——
+ * 按了只露出第二排「哪一門」，課程還沒選。值是這個前綴加上分類的名字。
+ */
+const GROUP_PICK = '__group__:';
+export const groupPick = (group) => `${GROUP_PICK}${group}`;
+export const isGroupPick = (value) => String(value ?? '').startsWith(GROUP_PICK);
+const groupOfPick = (value) => String(value).slice(GROUP_PICK.length);
 
-
-/** 同上，代表營養品的那一顆。選了它才會冒出「哪一種」那一排。 */
+/** 代表營養品的那一顆。選了它才會冒出「哪一種」那一排。 */
 export const PRODUCT_PICK = '__product__';
 
 /** 「幾萬的」那一排裡的「其他…」。它不是一個等級，是一顆展開輸入框的鈕。 */
@@ -96,10 +103,13 @@ export function blank() {
     // 開合狀態存在草稿上，畫的時候就決定，不必另外接一段。
     newProduct: false,
     newProductName: '',
+    // 第一排按著哪一個分類、第二排還沒選（issue 07）。跟 `tierOther`、`newProduct` 同一種作法：
+    // 一格只活在草稿上的開合狀態。`payload()` 是白名單，所以它不會漏進存下去的額度
+    buyGroup: null,
   };
 }
 
-/** 「買了什麼」那一排現在按著的是哪一顆。 */
+/** 「買了什麼」那一排現在按著的是哪一顆（課程、擇一池或營養品那一顆；分類那一顆不算）。 */
 export function picked(e) {
   if (e?.type === 'product') return PRODUCT_PICK;
   if (e?.type === 'pool') return POOL_PICK;
@@ -107,72 +117,160 @@ export function picked(e) {
 }
 
 /**
- * 這一張表的全部欄位：買了什麼、（哪一種／幾萬的）、幾次。
+ * 這一張表的全部欄位：買了什麼、（哪一門）、（哪一種／幾萬的）、幾次。
  *
  * @param {object} e 草稿（額度的形狀）
  * @param {{courses:object[], equipment:object[], ivProducts:object[], products:object[]}} master
  */
 export function fields(e, master) {
+  const rows = buyRows(master, e.courseId ?? null);
+  const top = topValue(e, rows);
   return `
     ${f.chips({
       name: 'buy',
       label: '買了什麼',
-      value: picked(e),
+      value: top,
       options: [
-        ...courseChips(master),
+        ...rows.top,
         // 營養品放最後一顆，而且前面隔一條線 —— 它不是課程。一排十幾顆要滑，
         // 滑到底才看到的那一顆如果是另一種東西，得先說一聲。
         { value: PRODUCT_PICK, label: '營養品', lead: '商品' },
       ],
     })}
+    ${itemRow(e, rows, top)}
 
     ${detailRow(e, master)}
     ${qtyField(e)}`;
 }
 
 /**
- * 「買了什麼」那一排的課程那一段。
+ * 「買了什麼」那一排：**先分類再項目**（2026-10-06，issue 07）。她的原話：
+ *
+ * > …只是新加入的那些我也不常用的課程可以去分層，就不會有好多課程然後都滑不到想要的
+ *
+ * - 第一排一個分類一顆，照 `courseGroupNames()` 的順序；**只有一門的分類那一顆直接就是那一門**
+ *   （值是那一門、字是那一門的名字）。復能、ILIB、營養點滴、健檢現在都是這樣 ——
+ *   她最常按的那幾顆一下就到，底下原本那幾排（哪一種、幾分鐘、幾萬的、品項）一個像素都不變
+ * - 兩門以上的分類：按了露出第二排「哪一門」（`itemRow()`）
+ * - **只有一個分類**（舊資料沒填分類、全部落在「其他」）：一排平的，跟以前一模一樣 ——
+ *   一顆「其他」包住全部只是多按一下
+ *
+ * 哪一門在哪一類、順序只問 `masterData.js` 的 `groupCourses()`，這裡不讀 `group`。
+ *
+ * @returns {{top: object[], inside: Map<string, object[]>, homeOf: Map<string, string>}}
+ *   `inside`：分類那一顆 → 第二排；`homeOf`：每一門的值 → 它在第一排是哪一顆
+ */
+function buyRows(master, keepId = null) {
+  // **不算次數的課不列**（ADR-0121）：它不用加購就排得進去，買一筆不扣次數的東西
+  // 沒有意義。只是不列 —— 額度本身不擋（方案範本、拍訂購單、批次建立照樣建得出來）。
+  // 這張表現在選著的那一門留著：畫面上不可以是「一排都沒選」，它那一類也因此出現
+  const eligible = (master.courses ?? []).filter((c) => !isUncounted(c) || c.id === keepId);
+  const groups = groupCourses(eligible)
+    .map(({ group, courses }) => ({ name: group, items: courseChips(courses) }))
+    .filter(({ items }) => items.length);
+  const flat = groups.length <= 1;
+
+  const top = [];
+  const inside = new Map();
+  const homeOf = new Map();
+  for (const { name, items } of groups) {
+    if (flat || items.length === 1) {
+      top.push(...items);
+      for (const it of items) homeOf.set(it.value, it.value);
+      continue;
+    }
+    const home = groupPick(name);
+    top.push({ value: home, label: name, note: '▾' });
+    inside.set(home, items);
+    for (const it of items) homeOf.set(it.value, home);
+  }
+  return { top: besidePool(top, homeOf, master), inside, homeOf };
+}
+
+/**
+ * 一類裡的課程那幾顆。
  *
  * **要選器材的課程換成擇一池那一顆，而且留在它原本的位置上。**
  * 那一筆額度要帶著「可以用哪幾台」（`poolChoices()`），買成 `single` 的話
- * 排班時沒有池可以選器材。
- *
- * 留在原位是刻意的：這一排橫著捲，而她最常買的就是復能 ——
- * 接在最後面等於每一次都要滑到底。
- *
+ * 排班時沒有池可以選器材。只換第一門（同一張表上不會有兩顆擇一池）。
+ */
+function courseChips(courses) {
+  const out = [];
+  for (const c of courses) {
+    if (!c.requiresEquipment) out.push({ value: c.id, label: c.name });
+    else if (!out.some((x) => x.value === POOL_PICK)) out.push({ value: POOL_PICK, label: c.name });
+  }
+  return out;
+}
+
+/**
  * **復能與 ILIB 一定並排**（2026-09-07 她指名的）：
  *
  * > 我希望復能和ILIB這兩個丸子可以在隔壁
  *
- * 它們是同一個分類底下的兩個課程（`CONTEXT.md` 的「物理賦能課程」），
- * 而她每一次加購都是先看這兩顆。判準**不是名字**：接在復能後面的是
- * 「擁有四選一裡那幾台器材、但自己不是復能」的課程，也就是 ADR-0075 那條
- * 推導的另一端。她之後多接一台新器材、指到一個新課程，那個課程也會自己
- * 跟過來 —— 一行程式都不用改。
+ * 判準**不是名字**：接在復能後面的是「擁有四選一裡那幾台器材、但自己不是復能」的課程
+ * （`poolSiblingCourseIds()`，ADR-0075 那條推導的另一端）。預設的分類順序本來就相鄰；
+ * 這一支管的是她把 ILIB 搬到一個只有它一門的分類 —— 照樣接回擇一池那一顆後面。
+ * 只搬第一排上**自己就是那一門**的那幾顆：她把 ILIB 搬進一個兩門以上的分類，就跟著那個分類走（那是她搬的）。
+ * 擇一池那一顆在一個分類裡的話，接在那個分類那一顆後面。
  */
-function courseChips(master) {
-  const out = [];
-  let pooled = false;
-  let poolAt = -1;
-  for (const c of master.courses ?? []) {
-    if (!c.requiresEquipment) {
-      out.push({ value: c.id, label: c.name });
-    } else if (!pooled) {
-      pooled = true;
-      poolAt = out.length;
-      out.push({ value: POOL_PICK, label: c.name });
-    }
-  }
-  if (poolAt < 0) return out;
-
+function besidePool(top, homeOf, master) {
+  const home = homeOf.get(POOL_PICK);
+  if (!home) return top;
   const siblings = poolSiblingCourseIds(master);
-  if (!siblings.size) return out;
-
-  const moved = out.filter((x, i) => i !== poolAt && siblings.has(x.value));
-  if (!moved.length) return out;
-  const rest = out.filter((x, i) => i === poolAt || !siblings.has(x.value));
-  const at = rest.findIndex((x) => x.value === POOL_PICK);
+  if (!siblings.size) return top;
+  const moved = top.filter((x) => x.value !== home && siblings.has(x.value));
+  if (!moved.length) return top;
+  const rest = top.filter((x) => !moved.includes(x));
+  const at = rest.findIndex((x) => x.value === home);
   return [...rest.slice(0, at + 1), ...moved, ...rest.slice(at + 1)];
+}
+
+/**
+ * 第一排亮哪一顆。選了一門 → 那一門在第一排的那一顆（它在一個分類裡就是那個分類）；
+ * 開著一個分類、第二排還沒選 → 那個分類。打開一筆既有的 EECP體驗，第一排亮 EECP。
+ */
+function topValue(e, rows) {
+  if (e?.type === 'product') return PRODUCT_PICK;
+  const p = picked(e);
+  if (p) return rows.homeOf.get(p) ?? p;
+  const open = e?.buyGroup ? groupPick(e.buyGroup) : null;
+  return open && rows.inside.has(open) ? open : null;
+}
+
+/** 第一排現在亮的那一顆（`afterTap()` 用來認「按了已經亮著的那一類」）。 */
+export const buyTopOf = (e, master) => topValue(e, buyRows(master, e?.courseId ?? null));
+
+/**
+ * 第二排「哪一門」。**它是選課程，不是細節**：點了走 `afterTap()` → `pick()`
+ * （重設型態、等級、品項、時長），跟第一排同一條。
+ */
+function itemRow(e, rows, top) {
+  const items = rows.inside.get(top);
+  if (!items) return '';
+  return f.chips({ name: 'buyItem', label: '哪一門', value: picked(e), options: items });
+}
+
+/** 這一張草稿的「幾分鐘」問哪一門課：擇一池問復能，其餘問它自己。 */
+const durationCourseOf = (e, master) => (e?.type === 'pool'
+  ? poolCourseOf(master)
+  : (master.courses ?? []).find((c) => c.id === e?.courseId) ?? null);
+
+/**
+ * 換了「買了什麼」之後的時長。**上一門的數字不可以跟著過來**（2026-10-07，issue 15）：
+ * 先點 ILIB（自動帶 60）再點健檢，存下去的健檢額度是 60 分 —— 而排那一段時先問額度
+ * （`slotMinutes()`），健檢就排成 60 分不是 120。
+ *
+ * - 新的那一門**有**「幾分鐘」那一排：上一個數字在它的名單上就留著（ILIB 30 → 復能 30），
+ *   不在就回課程預設 —— 不然那一排一顆都沒按、存下去的卻是那個數字
+ * - **沒有**那一排：上一顆有那一排 → 那個數字是那一排的（自動帶的或她按的），清掉、跟著課程走；
+ *   上一顆也沒有 → 那是她在客戶詳情「進階設定」自己打的（那一格只在沒有那一排時才畫），留著
+ */
+function minutesAfterPick(e, course, master) {
+  const choices = durationChoicesOf(course);
+  const prev = e.durationMin ?? null;
+  if (choices.length) return choices.includes(Number(prev)) ? prev : (course?.durationMin ?? null);
+  return durationChoicesOf(durationCourseOf(e, master)).length ? null : prev;
 }
 
 /**
@@ -189,6 +287,7 @@ export function pick(value, e, master) {
     const course = poolCourseOf(master);
     const next = {
       type: 'pool',
+      buyGroup: null,
       courseId: null,
       productId: null,
       ivProductId: null,
@@ -197,7 +296,7 @@ export function pick(value, e, master) {
       // 預設是**整組那一顆**（方案裡的那一項就是它），不是全部器材 ——
       // 她最常買的就是三選一，先幫她按好。
       optionEquipmentIds: choices.sets[0]?.ids ?? equipment.map((x) => x.id),
-      durationMin: e.durationMin ?? course?.durationMin ?? null,
+      durationMin: minutesAfterPick(e, course, master),
     };
     return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
   }
@@ -205,6 +304,7 @@ export function pick(value, e, master) {
   if (value === PRODUCT_PICK) {
     const next = {
       type: 'product',
+      buyGroup: null,
       courseId: null,
       optionEquipmentIds: [],
       ivProductId: null,
@@ -228,6 +328,7 @@ export function pick(value, e, master) {
   const tier = followupCourseIdOf(course) ? (e.tier ?? null) : null;
   const next = {
     type: 'single',
+    buyGroup: null,
     courseId: course?.id ?? null,
     productId: null,
     items: [],
@@ -240,9 +341,7 @@ export function pick(value, e, master) {
     ivProductId: course?.requiresIvProduct ? (e.ivProductId ?? null) : null,
     // 有「可選時長」的課程（ILIB）先幫她按好預設那一顆 —— 不然她要多點一下
     // 才存得下去，而那一下的答案永遠是課程本身的時長。
-    durationMin: durationChoicesOf(course).length
-      ? (e.durationMin ?? course?.durationMin ?? null)
-      : (e.durationMin ?? null),
+    durationMin: minutesAfterPick(e, course, master),
   };
   return { ...next, label: keptLabel(e, master) ?? autoLabel({ ...e, ...next }, master) };
 }
@@ -270,6 +369,23 @@ export function retitle(prev, next, master) {
 export function afterPick(value, draft, typed, master) {
   const prev = typed && 'label' in typed ? { ...draft, label: typed.label } : draft;
   return { ...draft, ...typed, ...pick(value, prev, master) };
+}
+
+/**
+ * 點了第一排或第二排的某一顆之後的**整張**草稿（`wire()` 走這一支）。
+ *
+ * - 分類那一顆：**課程先清掉**（`courseId: null`），第二排露出來、一顆都沒按。不清的話畫面上開著
+ *   「醫師門診」、存下去的卻是上一顆選的 EECP —— 畫面講的跟存的不一樣。存檔前 `validate()` 擋
+ * - **按的是已經亮著的那一類**：什麼都不變（選好的那一門不可以被一下點擊清掉）
+ * - 其餘（一門課、擇一池、營養品）：照 `afterPick()`
+ *
+ * 換分類跟換課程一樣保住她打的字（`typed`），「她自己改過名稱嗎」照舊拿換之前那一版問。
+ */
+export function afterTap(value, draft, typed, master) {
+  if (!isGroupPick(value)) return afterPick(value, draft, typed, master);
+  if (buyTopOf(draft, master) === value) return { ...draft, ...typed };
+  const prev = typed && 'label' in typed ? { ...draft, label: typed.label } : draft;
+  return { ...draft, ...typed, ...pick(null, prev, master), buyGroup: groupOfPick(value) };
 }
 
 /**
@@ -374,6 +490,8 @@ export function read(form, v, master = {}) {
  * 兩句話講同一件事，而且第一句用的是她不會用的詞。這裡先攔下來。
  */
 export function validate(e, master) {
+  // 開著一個分類、第二排還沒選：只講這一句（不然會掉進 `validateEntitlement()` 吐兩句）
+  if (e?.buyGroup && !picked(e)) return [`還要選「${e.buyGroup}」裡的哪一門`];
   if (!picked(e)) return ['先選一個「買了什麼」'];
   // 「復能」那一顆只是分類，還要說是哪一種。這句話比
   // `validateEntitlement()` 的「要挑至少一種器材」好懂 —— 她看到的畫面上
@@ -495,10 +613,7 @@ function poolKindRow(e, master) {
  * 沒填的課程整排不出現 —— 健檢那一格永遠不會被按的丸子只是噪音。
  */
 function durationRow(e, master) {
-  const course = e.type === 'pool'
-    ? poolCourseOf(master)
-    : (master.courses ?? []).find((c) => c.id === e.courseId) ?? null;
-  const choices = durationChoicesOf(course);
+  const choices = durationChoicesOf(durationCourseOf(e, master));
   if (choices.length < 2) return '';
 
   return `
@@ -686,36 +801,49 @@ function qtyField(e) {
     </div>`;
 }
 
+/** 還沒建的那一款在驗證時站著的暫時 id。只活在 `commitNewProduct()` 裡，回傳之前一定換成真的。 */
+const NEW_PRODUCT_ID = '__new-product__';
+
 /**
- * **存檔前的最後一站。** 做兩件事：
+ * **存檔前的最後一站。** 做四件事，順序不能換：
  *
- *   1. 她在「＋ 新增…」那一格打的那一款，寫進主檔並選起來
- *   2. **把 `items` 上的名字從主檔補齊**（`withItemNames()`）
+ *   1. **把 `items` 上的名字從主檔補齊**（`withItemNames()`）
+ *   2. 她在「＋ 新增…」那一格打的那一款先**當成已經在裡面**，把顯示名稱重算一次
+ *   3. **驗證**
+ *   4. 驗證過了才把那一款寫進主檔
  *
- * 第二件事看起來多餘 —— `afterDetail()` 已經補過了。但那一份會被存檔那一下的
+ * 第一件事看起來多餘 —— `afterDetail()` 已經補過了。但那一份會被存檔那一下的
  * `values(form)` 蓋掉：表單只送得回 id（`read()` 給的 `name` 一律是空字串）。
  * 於是寫進 Firestore 的是一排沒有名字的 `items`，而三個地方會一起壞：
  * 顯示名稱少了那幾款、提醒那一句變成「給營養品：營養品」、
  * 交付面板每一列都是空白（`issues/08`）。
  *
- * **三個入口共用同一支**，理由跟 `wire()` 一樣：三邊各寫一次的話，遲早有一邊
- * 忘了把新建的那一筆選進 `items`，於是她打了名字、存下去，那一款卻不在裡面。
+ * **2026-10-07 以前這一支先建主檔、才把草稿交回去給呼叫端驗證**（verified-bugs issues/03），三個毛病是同一個根：
+ *   - 驗證沒過，主檔照樣多一筆
+ *   - 新的那一款加進 `items` 了，名字卻是加進去之前算的 —— 額度叫「營養品 3,000（GABA）」，提醒寫「GABA＋新的那款」
+ *   - 只打新的一款時 `items` 本來是空的、名字算不出來 →「額度名稱不可空白」，而那一格藏在進階設定裡
  *
- * 存檔前叫一次。沒有要新增就只補名字，一次 IO 都不會發生。
+ * 名字走 `retitle()`：**她自己打過的不覆蓋**，「改過沒有」拿加進去之前那一版問。
+ *
+ * **三個入口共用同一支，驗證也在這裡**（客戶詳情、`buySheet.js`、批次建立）：各自再驗一次的話，
+ * 沒過的那一次她會多看到一句「要選至少一種營養品」—— 那一款她明明打了，只是還沒建。
  *
  * **寫入那一下是呼叫端傳進來的**，這一支不 import `/data` ——
  * `tests/buy.test.js` 直接載入這個檔案，而 `data/config.js` 那條路會一路
  * import 到 Firebase SDK（一個 `https:` 網址），Node 載不動。
  *
  * @param {object} draft
- * @param {{products?: object[]}} master 呼叫端手上的主檔（會被就地補一筆）
+ * @param {{courses?: object[], equipment?: object[], products?: object[]}} master
+ *   呼叫端手上的主檔。驗證要課程與器材；`products` 建了新的一款會被**就地**補一筆
  * @param {(data: {name: string}) => Promise<string>} createProduct 回新的 id
- * @returns {Promise<object>} 換掉之後的草稿
+ * @returns {Promise<{draft: object, errors: string[]}>} 有 `errors` 時 `draft` 是原本那一張
+ *   （她打的字留在那一格），而且一次 IO 都沒有發生
  */
 export async function commitNewProduct(draft, master = {}, createProduct) {
+  const filled = withItemNames(draft, master);
   const name = String(draft?.newProductName ?? '').trim();
   if (!draft?.newProduct || !name || typeof createProduct !== 'function') {
-    return withItemNames(draft, master);
+    return { draft: filled, errors: validate(filled, master) };
   }
 
   // 同名的已經有了就用既有那一筆，不要長出第二個「Q10」——
@@ -723,16 +851,27 @@ export async function commitNewProduct(draft, master = {}, createProduct) {
   const existing = (master.products ?? []).find(
     (p) => !p.deletedAt && String(p.name).trim() === name,
   );
-  const id = existing?.id ?? await createProduct({ name });
-  if (!existing) (master.products ??= []).push({ id, name });
+  const one = existing ?? { id: NEW_PRODUCT_ID, name };
+  const withOne = existing ? master : { ...master, products: [...(master.products ?? []), one] };
 
-  const items = [...(draft.items ?? [])];
-  if (!items.some((x) => x.productId === id)) items.push({ productId: id, name });
+  const items = [...(filled.items ?? [])];
+  if (!items.some((x) => x.productId === one.id)) items.push({ productId: one.id, name });
+  const staged = withItemNames({ ...filled, items, newProduct: false, newProductName: '' }, withOne);
+  const next = { ...staged, label: retitle(filled, staged, withOne) };
 
-  return withItemNames(
-    { ...draft, items, newProduct: false, newProductName: '', label: draft.label },
-    master,
-  );
+  const errors = validate(next, withOne);
+  if (errors.length) return { draft: filled, errors };
+  if (existing) return { draft: next, errors: [] };
+
+  const id = await createProduct({ name });
+  (master.products ??= []).push({ id, name });
+  return {
+    draft: {
+      ...next,
+      items: next.items.map((x) => (x.productId === NEW_PRODUCT_ID ? { ...x, productId: id } : x)),
+    },
+    errors: [],
+  };
 }
 
 // ---------- 底下是三個入口共用的那一份接線 ----------
@@ -790,9 +929,10 @@ export function wire(root, { form, draft, master, typed = (box) => values(box, m
     const box = form();
     if (!box) return;
 
-    const chosen = ev.target.closest('[data-chip="buy"]');
+    // 第一排與第二排（issue 07）走同一條：第二排是選課程，不是細節（不可以放進 `DETAIL_CHIPS`）
+    const chosen = ev.target.closest('[data-chip="buy"], [data-chip="buyItem"]');
     if (chosen) {
-      onChange(afterPick(chosen.dataset.chipValue, draft(), typed(box), master), { repaint: true });
+      onChange(afterTap(chosen.dataset.chipValue, draft(), typed(box), master), { repaint: true });
       return;
     }
 

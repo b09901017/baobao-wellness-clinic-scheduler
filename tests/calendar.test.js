@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { statusClass } from '../public/js/domain/visits.js';
 
 import {
-  weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf,
+  weekStart, weekDays, monthWeeks, rangeOf, moveBy, titleOf, newItemDate,
   agendaFor, summaryByDate, monthBars, WEEKDAY_HEADERS, VIEWS,
 } from '../public/js/domain/calendar.js';
 
@@ -97,6 +97,36 @@ describe('翻頁', () => {
 
   test('月底翻月不會跳過月份', () => {
     assert.equal(moveBy('month', '2026-01-31', 1), '2026-02-28');
+  });
+});
+
+// 她 2026-09-18：「在月檢視誤點了某一天 → 開的抽屜關掉、沒存 → 切回日檢視看另一天（例如今天）
+// →按「+」→「新增來訪」→ 挑客戶。結果彈出的表單抬頭寫著先前誤點的那個舊日期」
+// （`.scratch/asks-2026-09-18/issues/02`）
+describe('懸浮鈕的「新增」帶哪一天', () => {
+  test('日檢視：永遠是畫面上那一天，不管之前點開過哪一天', () => {
+    assert.equal(newItemDate('day', '2026-08-29', '2026-08-05'), '2026-08-29');
+    assert.equal(newItemDate('day', '2026-08-29', '2026-08-29'), '2026-08-29');
+  });
+
+  test('週檢視：點過的那天在這一週就用它，不在就用畫面那一週', () => {
+    assert.equal(newItemDate('week', '2026-09-18', '2026-09-16'), '2026-09-16');
+    assert.equal(newItemDate('week', '2026-09-18', '2026-09-09'), '2026-09-18');
+  });
+
+  test('月檢視：還標著的那一格照樣算數（她同意的）；翻到別的月就不算', () => {
+    assert.equal(newItemDate('month', '2026-08-29', '2026-08-05'), '2026-08-05');
+    assert.equal(newItemDate('month', '2026-09-29', '2026-08-05'), '2026-09-29');
+  });
+
+  test('沒點過任何一天：畫面那一天', () => {
+    for (const view of VIEWS) assert.equal(newItemDate(view, '2026-09-18', null), '2026-09-18');
+  });
+
+  test('三顆「新增」都走這一支，沒有人再自己寫 state.day ?? state.date', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/calendar.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /state\.day\s*\?\?\s*state\.date/);
+    assert.equal((src.match(/newItemDate\(/g) ?? []).length, 1, '算一次、三顆共用');
   });
 });
 
@@ -289,6 +319,14 @@ describe('每天的摘要', () => {
     assert.equal(summary['2026-09-18'].pending, 1);
   });
 
+  // 週檢視右上角那個數字＝底下沒被劃掉的列數（ADR-0135）：一天裡取消的那一段畫成灰的、不算
+  test('一段取消了，時段數不算它', () => {
+    const summary = summaryByDate([
+      visit({ slots: [{ startsAt: '09:00', status: 'confirmed' }, { startsAt: '10:30', status: 'cancelled' }] }),
+    ]);
+    assert.equal(summary['2026-09-18'].slots, 1);
+  });
+
   test('取消與刪除的不算，沒有那天就是沒有那個鍵', () => {
     const summary = summaryByDate([
       visit({ status: 'cancelled' }),
@@ -394,7 +432,8 @@ describe('點一列＝點那一段', () => {
   // 而每一段自己是一列），細節在 `tests/read-card-one-slot.test.js`。
   test('讀取卡片收得到 focusSlot，而且沒帶就是全部', () => {
     const src = read('js/ui/views/calendar.js');
-    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null\)/);
+    // 第三格是一張待辦講的那幾段（issues/08），沒帶照舊是全部
+    assert.match(src, /slotsToShow\(visit, data\?\.focusSlot \?\? null, data\?\.only \?\? null\)/);
     assert.match(src, /const tappable = !focused && slots\.length > 1;/,
       '沒指定哪一段的時候，每一段要是可以點的一列');
   });

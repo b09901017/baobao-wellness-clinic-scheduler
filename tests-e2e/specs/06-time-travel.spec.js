@@ -235,6 +235,7 @@ test('T10+T11 追蹤報告死線跨月正確；約二返的死線從勾掉那天
 
   await page.locator('[data-open="v-exam"]').click();
   await page.waitForTimeout(600);
+  await app.tickAll();
   await page.locator('[data-apply]').click();
   await page.waitForTimeout(2200);
 

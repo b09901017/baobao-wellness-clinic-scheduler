@@ -13,10 +13,17 @@
 serviceAccountKey.json
 *serviceAccount*.json
 keys/
+# 改過名的金鑰（`staging-sa.json`、`prod-sa.json`）：上面三條認的是 Console 下載下來的檔名，
+# 她照 docs/STAGING.md 改短之後、又沒放進 keys/ 的那一把只有這一條擋得到
+*-sa.json
 
 # 含真實客戶健康資訊的匯出檔與備份
 /backups/
 /exports/
+# app 的設定頁匯出的備份檔：全部客戶、健康資訊，還有試算表的密鑰。
+# **前面沒有斜線＝任何一層都擋** —— 下載下來隨手一放就是 repo 最外層，
+# 而這個 repo 是 public，一次 `git add .` 就收不回來。`tests/backup-files-ignored.test.js` 真的跑 check-ignore。
+排課系統備份-*.json
 
 # 環境變數（Firebase 前端 config 不是密鑰，可以直接 commit，不需要放這裡）
 .env*

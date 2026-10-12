@@ -38,7 +38,7 @@ import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
 import {
-  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor,
+  describeStatus, statusClass, isActive, visitCourseLabel, statusForCard, focusFor, dayStatusBadges,
 } from '../../domain/visits.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { buildProgress } from '../../domain/progress.js';
@@ -65,11 +65,13 @@ import {
   deliveryState, monthsOf, nextDeliveryDate, productActions, existingReminder,
   deliveryNoteFor, undelivered,
 } from '../../domain/products.js';
-import { confirmAction } from '../components/dialog.js';
+import { confirmAction, confirmReview } from '../components/dialog.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
-import { back, popScreens, pushScreen } from '../nav.js';
+import { openFor as openBulkCancel } from './bulkCancel.js';
+import { taskLine, taskSlots } from '../../domain/todoFlow.js';
+import { back, popScreens, pushScreen, whenSettled } from '../nav.js';
 
 const esc = f.esc;
 
@@ -280,7 +282,7 @@ function paint(ctx) {
           .map((v) => visitRow(v, master)).join('')}</ul>
         ${visits.length > RECENT_VISITS
           ? `<p style="margin: var(--space-2) 0 0">
-               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 筆</button></p>`
+               <button class="btn btn--sm" type="button" data-all-visits>看全部 ${visits.length} 天</button></p>`
           : ''}` : '')}
 
     <div class="section">
@@ -344,7 +346,7 @@ function wire(ctx, { today, marks }) {
 
     const toVisit = e.target.closest('[data-task-visit]');
     if (toVisit) {
-      openVisitCard(ctx, toVisit.dataset.taskVisit);
+      openVisitCard(ctx, toVisit.dataset.taskVisit, null, toVisit.dataset.tasklistTask);
       return;
     }
 
@@ -437,7 +439,7 @@ function wire(ctx, { today, marks }) {
   el.querySelector('[data-all-visits]')?.addEventListener('click', () => {
     const sheet = openSheet({
       title: '全部來訪',
-      note: `${visits.length} 筆，新的在上面。`,
+      note: `${visits.length} 天，新的在上面。`,
       body: `<ul class="link-list">${visits.map((v) => visitRow(v, master)).join('')}</ul>`,
     });
     sheet.el.querySelectorAll('[data-visit]').forEach((btn) =>
@@ -668,7 +670,8 @@ function openDanger(ctx) {
     body: `<p class="muted">刪除是標記，資料不會消失，可以在設定 → 已刪除項目 還原。</p>`,
     actions: `
       <button class="btn" type="button" data-toggle-active>${disabled ? '重新啟用' : '停用'}</button>
-      <button class="btn btn--danger" type="button" data-delete>刪除</button>`,
+      <button class="btn btn--danger" type="button" data-delete>刪除</button>
+      <button class="btn" type="button" data-sheet-close>先不要，回去</button>`,
   });
 
   sheet.el.querySelector('[data-toggle-active]').addEventListener('click', async () => {
@@ -699,11 +702,51 @@ function openDanger(ctx) {
   });
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
+    // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`
+    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
+    if (block.visits.length || block.tasks.length || block.notes.length) {
+      const master = liveMaster(ctx);
+      const lineOf = (t) => {
+        const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
+        return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
+      };
+      const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
+        n.date ? `・${shortDate(n.date)}` : ''}`;
+      // 「去批次取消」打開**今天以後最早**那一天的月份（issues/17）。已經過了、還沒結案的
+      // 那幾筆該去簽療程單 —— 擋著的全部都是那種時，這一顆本身就是錯的路
+      const ahead = block.visits.map((v) => v.date).filter((d) => d >= todayISO()).sort()[0];
+      const goCancel = await confirmAction({
+        title: `「${customer.name}」還刪不掉`,
+        consequences: [
+          ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
+          ...block.tasks.map(lineOf),
+          ...block.notes.map(noteOf),
+          ...(block.visits.length
+            ? ['那幾段在 Abovee 上還壓著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
+            : []),
+          ...(block.tasks.length ? ['待辦做完勾掉'] : []),
+          ...(block.notes.length ? ['隨手記勾掉或刪掉'] : []),
+          '都收掉之後再回來刪',
+        ],
+        confirmLabel: ahead ? '去批次取消' : '知道了',
+        cancelLabel: '先不要',
+      });
+      if (goCancel && ahead) {
+        // 確認框收掉時排的那一趟 history.go() 回來之前換頁，會被它退掉（`whenSettled()`）
+        closeSheet();
+        await whenSettled();
+        openBulkCancel(ctx.id, ahead.slice(0, 7));
+        go('/schedule/cancel');
+      }
+      return;
+    }
+
     const ok = await confirmAction({
       title: `刪除「${customer.name}」？`,
       consequences: [
         '這是標記刪除，資料不會真的消失',
-        `他底下的 ${ctx.entitlements.length} 筆額度與 ${ctx.visits.length} 筆來訪都不會被修改`,
+        `他底下的 ${ctx.entitlements.length} 筆額度與 ${ctx.visits.length} 天的來訪都不會被修改`,
         '客戶清單上不再顯示，壓表時也不會出現',
         '可以在設定 → 已刪除項目 還原',
       ],
@@ -985,7 +1028,11 @@ function visitRow(v, master = null) {
       <span class="link-list__label num">${esc(shortDate(v.date))}
         <span class="muted">${esc(visitCourseLabel(v, master))}</span>
       </span>
-      <span class="badge ${statusClass(v.status)}">${esc(describeStatus(v.status))}</span>
+      ${/* 每一段不一樣時一段一個符號（`dayStatusBadges()`，issues/13）—— 整筆那一個是推導的，
+             一段已確認、一段未到時它寫「已確認」，看起來整天都談定了 */''}
+      <span class="daymarks">${dayStatusBadges(v).map((b) => `
+        <span class="badge ${statusClass(b.status)}" title="${esc(describeStatus(b.status))}"
+              aria-label="${esc(describeStatus(b.status))}">${esc(b.text)}</span>`).join('')}</span>
     </button></li>`;
 }
 
@@ -1019,15 +1066,9 @@ function taskBlock(tasks, visits = [], master = null) {
 
     ${/* 一筆任務都沒有的時候連那一排都不畫 —— 兩個空格子看起來像壞掉的東西 */''}
     ${!tasks.length
-      // ADR-0027 與 ADR-0066：任務現在有**兩個**時機。這是 CLAUDE.md 點名的
-      // 那幾句之一，改「什麼時候產生」的規則時要一起改。
-      // 用她的詞，不要寫「系統登記」。
-      //
-      // 2026-09-10：那三行收進一顆 `?`（issue 09）。**「還沒有任務。」自己留著** ——
-      // 空狀態是這一塊唯一的內容，藏起來就變成一片空白；要收的只有底下的說明。
-      ? `<p class="muted" style="margin: 0">還沒有任務。${tip(
-          '勾掉待辦上那一張「跟客人確認時間」之後，要去 Examine、耀聖掛號的那幾張才會長出來；'
-          + '要寫紀錄的那幾種（二返、營養師諮詢）則是那一場簽完療程單之後才長。')}</p>`
+      // **「還沒有任務。」自己留著** —— 空狀態是這一塊唯一的內容，藏起來就變成一片空白。
+      // 旁邊那一顆 `?`（「勾掉…之後才長出來」）2026-09-10 收起來、2026-09-24 晚拿掉（ADR-0114）。
+      ? '<p class="muted" style="margin: 0">還沒有任務。</p>'
       : `
         <div class="seg" role="group" style="margin-bottom: var(--space-3)">
           <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
@@ -1319,8 +1360,22 @@ function paintEdit(ctx) {
     f.showErrors(el, errors);
     if (errors.length) return;
 
+    // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
+    // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
+    // 規則在 `renameTargets()`
+    const renamed = changes.name !== (ctx.customer.name ?? '');
+    if (renamed) {
+      const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;
+      if (said && !await confirmReview([said])) return;
+    }
+
     try {
-      await toast.withSaveState(() => data.update(ctx.id, changes), {
+      await toast.withSaveState(async () => {
+        const targets = renamed
+          ? rules.renameTargets(await ownSnapshots(ctx.id), todayISO(), changes.name)
+          : [];
+        await data.updateWithSnapshots(ctx.id, changes, targets);
+      }, {
         success: '已儲存', key: `customer:update:${ctx.id}`,
       });
       reload(ctx);
@@ -1328,6 +1383,16 @@ function paintEdit(ctx) {
       /* 已處理 */
     }
   });
+}
+
+/** 這位客戶身上帶著名字快照的那幾份（改名時要跟著換哪幾份由 `renameTargets()` 決定）。 */
+async function ownSnapshots(customerId) {
+  const [visits, tasks, notes] = await Promise.all([
+    visitsData.listByCustomer(customerId),
+    tasksData.listByCustomer(customerId),
+    notesData.listByCustomer(customerId),
+  ]);
+  return { visits, tasks, notes };
 }
 
 // ---------- 額度編輯 ----------
@@ -1628,17 +1693,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    // 「＋ 新增…」打的那一款先寫進主檔，換回一張指得到它的草稿。
-    // 沒有要新增就原樣回來，一次 IO 都不會發生（三個入口共用同一支）。
-    const next = await buy.commitNewProduct(
+    // 存檔前的最後一站（三個入口共用同一支）：補名字、驗證，**過了才**把「＋ 新增…」打的那一款
+    // 寫進主檔，換回一張指得到它的草稿。沒過就一次 IO 都不會發生。
+    const { draft: next, errors } = await buy.commitNewProduct(
       { ...live, ...readEntitlement(form, master) },
-      { products: ctx.products },
+      { courses: ctx.courses, equipment: ctx.equipment, products: ctx.products },
       (row) => config.create('products', row),
     );
-
-    const errors = buy.validate(next, {
-      courses: ctx.courses, equipment: ctx.equipment, products: ctx.products,
-    });
     f.showErrors(el, errors);
     if (errors.length) return;
 
@@ -1758,9 +1819,13 @@ function wireEntitlementDanger(ctx, record) {
  * 卡片本身共用日曆那一支 `visitReadHtml()` —— 同一筆來訪在兩個畫面上
  * 長得不一樣，她會以為是兩種東西。
  */
-function openVisitCard(ctx, visitId, slotIndex = null) {
+function openVisitCard(ctx, visitId, slotIndex = null, taskId = null) {
   const visit = ctx.visits.find((v) => v.id === visitId);
   if (!visit) return;
+
+  // 從一張待辦點進來：**只開它講的那幾段**（`taskSlots()`，issues/08）—— 一段就直接是那一段
+  const task = taskId ? (ctx.tasks ?? []).find((t) => t.id === taskId) : null;
+  const only = task ? taskSlots(task, visit, byId(ctx.courses ?? [])) : null;
 
   // 她點到哪一段了。「這個月」那一塊一段一顆按鈕（2026-09-12），所以這裡
   // 多半是個整數；來訪紀錄那一列與任務列的「詳情」沒有段落，進來是 null。
@@ -1770,7 +1835,7 @@ function openVisitCard(ctx, visitId, slotIndex = null) {
   //
   // 那一天只有一段時，那一段就是那一天（`focusFor()`）—— 不然來訪紀錄那一列
   // 點下去會是一張只有一列的空目錄。
-  let focus = focusFor(visit, slotIndex);
+  let focus = focusFor(visit, slotIndex, only);
 
   // **這一頁不走 `fillMirror()`**：這位客戶的全部任務手上本來就有，
   // 為了同一份資料再打一次網路沒有道理（她常常在大樓裡用行動網路）。
@@ -1784,11 +1849,15 @@ function openVisitCard(ctx, visitId, slotIndex = null) {
     // 「這一段扣的是哪一筆」（ADR-0077）。這一頁的額度本來就在手上，
     // 不必像日曆那樣點開才去讀那一位。
     entitlementsById: byId(ctx.entitlements ?? []),
+    // 卡片最上面那一排警示。這一頁不走 `fillMirror()`，所以自己傳
+    customer: ctx.customer ?? null,
+    clinicalFlags: ctx.clinicalFlags ?? [],
     tasks: ctx.tasks ?? [],
     today: todayISO(),
     // **她點的那一段**（ADR-0080）。沒帶的那幾條路（來訪紀錄那一列、
     // 任務列的「詳情」）進來的是一張目錄：只列那幾段讓她點。
     focusSlot: focus,
+    only,
   });
 
   // 整筆那一個是**推導出來的**：加一段沒問過客人的進去就會退回「待確認」，
@@ -1831,6 +1900,11 @@ function openAllTasks(ctx) {
       sheet.close();
       toggleTask(ctx, btn.dataset.task);
     }),
+  );
+  // 「詳情 ›」以前在這張面板上**畫了卻沒接**（點了沒反應，2026-09-24 排查時找到、她說接上）。
+  // 卡片疊在面板上面、不先收面板 —— 同依客戶抽屜那一顆，返回鍵回到這一份清單
+  sheet.el.querySelectorAll('[data-task-visit]').forEach((btn) =>
+    btn.addEventListener('click', () => openVisitCard(ctx, btn.dataset.taskVisit, null, btn.dataset.tasklistTask)),
   );
 }
 

@@ -11,21 +11,24 @@ import { MARK_COLORS, DEFAULT_MARK_COLOR, MAX_MARK_LENGTH, MAX_MARKS, colorToken
 import { icon } from '../icons.js';
 import { esc } from './form.js';
 
-/** 一顆唯讀的備註丸子。詳情頁抬頭與壓表卡片都用它。 */
-export function chip(mark, { large = false } = {}) {
+/**
+ * 一顆唯讀的備註丸子。詳情頁抬頭與壓表卡片都用它。
+ * `clip`：截成一行加「…」（客戶清單的卡片，issue 16）；其餘換行顯示全文。
+ */
+export function chip(mark, { large = false, clip = false } = {}) {
   const m = normalizeMark(mark);
-  return `<span class="mark ${large ? 'mark--lg' : ''}" style="--mark: var(${colorToken(m.color)})">
-    <span class="mark__dot"></span>${esc(m.text)}</span>`;
+  return `<span class="mark ${large ? 'mark--lg' : ''} ${clip ? 'mark--clip' : ''}" style="--mark: var(${colorToken(m.color)})">
+    <span class="mark__dot"></span><span class="mark__text">${esc(m.text)}</span></span>`;
 }
 
 /** 一整排唯讀的備註。超過 max 則收成「+N」，不要把整張卡撐開。 */
-export function row(marks, { max = Infinity, large = false } = {}) {
+export function row(marks, { max = Infinity, large = false, clip = false } = {}) {
   const list = (marks ?? []).map(normalizeMark).filter((m) => m.text);
   if (!list.length) return '';
   const shown = list.slice(0, max);
   const rest = list.length - shown.length;
   return `<div class="marks">
-    ${shown.map((m) => chip(m, { large })).join('')}
+    ${shown.map((m) => chip(m, { large, clip })).join('')}
     ${rest ? `<span class="mark mark--empty">還有 ${rest} 則</span>` : ''}
   </div>`;
 }

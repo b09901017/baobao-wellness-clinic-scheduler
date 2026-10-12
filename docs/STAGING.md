@@ -8,7 +8,7 @@
 | Firebase 專案 | `wellness-clinic-scheduler` | `wellness-clinic-staging` |
 | 網址 | `wellness-clinic-scheduler.web.app` | `wellness-clinic-staging.web.app` |
 | 上線方式 | push 到 `main` | push 到 `develop` |
-| 資料 | 真的客戶 | 合成的假資料 |
+| 資料 | 真的客戶 | **真資料的預演**（2026-10-05 起，ADR-0118）：切換那天不搬 |
 | 畫面上 | 沒有橫幅 | 頂端一條橘色的「測試環境」 |
 
 **一份原始碼跑兩個環境。** 沒有 build 步驟、沒有環境變數 ——
@@ -83,8 +83,11 @@ npx firebase-tools@15 deploy \
 `--project staging` 認得出來是因為 `.firebaserc` 有這個別名：
 
 ```json
-{ "projects": { "default": "…scheduler", "prod": "…scheduler", "staging": "…staging" } }
+{ "projects": { "default": "…staging", "prod": "…scheduler", "staging": "…staging" } }
 ```
+
+**預設是 staging**（2026-10-08 起）：漏打 `--project` 的指令落在 staging，不是正式站。
+這份文件裡每一條指令照舊把 `--project` 寫出來 —— 要上正式就寫 `--project prod`，不要靠預設值。
 
 第一次會叫你登入（`npx firebase-tools@15 login`）。
 
@@ -119,16 +122,44 @@ npx firebase-tools@15 deploy --only hosting --project staging
 
 ---
 
-## 二、放一份假資料進去
+## 二、清空重來（每一次預演之前）
+
+**2026-10-05 起 staging 放的是真資料的預演**（ADR-0118）：她把合併檔貼進去看長什麼樣，
+切換那天正式站重新匯一次，staging 上記的東西不搬。所以 staging 上的資料是**可以整份丟掉重來的** ——
+每拿到一份新的合併檔，就是「清空 → 貼進去 → 看」。
 
 ```bash
-# 需要一把 staging 的服務帳號金鑰，見下面第三節
+# 1. 先看每一類有幾筆（一筆都不刪）
 GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
-  npm run seed:staging -- --project staging --yes
+  npm run staging:reset -- --project staging
+
+# 2. 真的清
+GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
+  npm run staging:reset -- --project staging --yes
+
+# 3. 打開 staging 的 app → 設定 → 舊資料匯入 → 貼合併檔
 ```
 
-- 二十位假客戶（王小明、李小華…），六個月份的來訪、額度、任務、可用性
-- **一個真名都沒有**，全部是合成的
+- 清的範圍跟備份一樣（客戶與額度、可用性、療程單、來訪、任務、壓表清單、隨手記、行事備註、表單、備忘錄），
+  外加 Storage 上療程單的照片
+- **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔
+- 正式專案一律拒絕，沒有放行的旗標
+
+**staging 的畫面上有真名。** 在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶；
+會寫入資料的驗收步驟改在本機模擬器走（第六節）。
+
+### 假資料只種在本機模擬器
+
+`npm run seed:staging` 會把種子主檔**整份寫回去**（不只是加二十位假客戶），所以它**只准跑在
+本機模擬器上** —— 對著 staging 一律拒絕（清空之後也一樣：那正是貼合併檔的前一步）：
+
+```bash
+npm run emulators          # 另一個終端機
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  npm run seed:staging -- --project demo-scheduler --yes
+```
+
+- 二十位假客戶（客戶A、客戶B…），六個月份的來訪、額度、任務、可用性，**一個真名都沒有**
 - 可重現（同樣的參數跑出同樣的資料），而且會先清掉上一輪種出來的東西
 - 種完到 `#/settings/health` 跑資料健檢，**應該一條都不報** ——
   這樣之後任何一條 finding 都一定是你改出來的
@@ -216,8 +247,9 @@ gcloud projects add-iam-policy-binding wellness-clinic-scheduler \
 為什麼長這樣：[ADR-0100](./adr/0100-the-first-server-code-and-its-five-locks.md)（防護與上限）、
 [ADR-0101](./adr/0101-photos-and-privacy.md)（照片與隱私）。這一節只講怎麼做。
 
-staging 2026-09-17 做過一次。**正式環境在拍照功能要合進 `main` 之前照同樣的步驟再做一次**，
-把 `PROJECT` 換成 `wellness-clinic-scheduler`。
+staging 2026-09-17 做過一次，**正式環境 2026-10-12 做了**（除了第 5 步的預算警示，那一步只有帳單的主人設得了）。
+正式那一次不是照下面的指令打的：這台電腦的 `gcloud` 被防毒擋著，改用同一份登入打 REST ——
+做的事一樣，下面的指令留著當作「每一步在做什麼」。換一個新專案時 `PROJECT` 換成那一個。
 
 ### 一次性設定（每個專案一次）
 
@@ -267,8 +299,19 @@ done
    CI 那把服務帳號（`firebase-adminsdk-…`）沒有那個權限的話，那一步 403、整個 deploy job 紅
    （Hosting 與 Firestore Rules 已經推上去了，只有照片的 Rules 沒更新）。
    2026-09-17 查的：**staging 那把有**（`roles/editor`），**正式那把沒有**。
-   所以正式環境要補一個角色 —— Google Cloud Console → IAM → 找 `firebase-adminsdk` 那一個 →
-   編輯 → 新增角色「Service Usage Consumer」（`roles/serviceusage.serviceUsageConsumer`）
+   所以正式環境要補**兩個**角色（2026-10-12 補了）—— Google Cloud Console → IAM → 找 `firebase-adminsdk` 那一個 →
+   編輯 → 新增角色：
+   - 「Service Usage Consumer」（`roles/serviceusage.serviceUsageConsumer`）：過得了上面那個「API 開了沒」
+   - 「Firebase Storage Viewer」（`roles/firebasestorage.viewer`）：下一步它要問「預設 bucket 是哪一個」
+     （`firebasestorage.defaultBucket.get`）。只補第一個的話，那一步換一個地方 403
+6c. **讓 Storage 的 Rules 讀得到 Firestore 的白名單**。`storage.rules` 用 `firestore.exists()` 問
+   `allowedUsers`，那要 Google 自己的 Storage 服務代理（`service-<專案編號>@gcp-sa-firebasestorage…`）
+   有「Firebase Rules Firestore Service Agent」（`roles/firebaserules.firestoreServiceAgent`）。
+   **沒有的話每一次存照片、看照片都是沒有權限，而 Rules 本身推得上去、看起來是好的。**
+   firebase-tools 第一次推這種規則時會問「Grant the new role?」，但**非互動模式（CI、沒有終端機的工具）
+   它直接跳過不問** —— 6b 那一步不是自己在終端機裡打的話，這個角色就沒有人給。
+   查：IAM 那一頁勾「包含 Google 提供的角色授權」→ 找 `gcp-sa-firebasestorage` 那一列有沒有這個角色。
+   正式 2026-10-12 補了；**staging 同一天查到沒有**（9/18 療程單存照片 403 很可能就是它），補了之後把這一句拿掉
 7. **關掉 Gemini 的記憶體快取**（ADR-0101「Google 那一側」）。預設會把照片與抄出來的字在
    記憶體裡留 24 小時，關掉之後不留：
 
@@ -337,7 +380,7 @@ PR → CI 跑 npm test 與 npm run test:rules
       ↓
 合進 develop → 自動上 staging
       ↓
-在 staging 上用假資料實際點過那條路
+會寫入的路在本機模擬器點過；staging（真資料的預演）給她點
       ↓
 PR develop → main → 自動上正式
 ```
@@ -352,27 +395,28 @@ PR develop → main → 自動上正式
 備份如果沒有被還原過，它只是一個 JSON 檔。
 
 ```bash
-# 1. app 的設定頁 → 匯出備份（不用勾稽核）
-# 2. 先看它打算做什麼
-node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project staging --dry-run
+# 1. app 的設定頁 → 匯出備份（不用勾稽核），下載下來的檔案搬到 .local/references/
+# 2. 開模擬器（另一個終端機）
+npm run emulators
 
-# 3. 真的還原到 staging
-GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
-  node scripts/restore-backup.mjs 排課系統備份-2026-09-02.json --project staging --wipe --yes
+# 3. 先看它打算做什麼，再真的還原到模擬器
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --dry-run
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  node scripts/restore-backup.mjs .local/references/排課系統備份-2026-09-02.json --project demo-scheduler --wipe --yes
 ```
+
+**備份檔放 `.local/references/`，不要放在程式資料夾的最外層。** 它裡面是全部客戶、健康資訊與試算表的密鑰，
+而這個 repo 是公開的。`.gitignore` 現在任何一層的 `排課系統備份-*.json` 都擋（改了檔名就擋不到），
+`.local/` 是整個資料夾都擋 —— 放那裡不用記得檔名長怎樣。
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
 
 **療程單的照片不在備份裡**（ADR-0101）：還原的是抄出來的列，照片檔要是原本那個專案的
 Storage 裡還在就看得到，不在的那一張卡會寫「照片不在備份裡」—— 那是預期的，有紙本正本。
 
-想先不碰 staging 的話，對著模擬器演練也一樣算數：
-
-```bash
-npm run emulators          # 另一個終端機
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
-  node scripts/restore-backup.mjs 備份.json --project demo-scheduler --wipe --yes
-```
+**2026-10-05 起演練只對著模擬器**（ADR-0118）：staging 上放的是她的預演資料，
+`--wipe` 會把備份裡沒有的那幾筆標成已刪除 —— 演練一次就把預演弄亂了。
 
 三條寫死的安全規則：
 
@@ -406,24 +450,78 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 ## 七、上線前檢查表
 
-完整版在 `.scratch/PRODUCTION_AUDIT.md` 的 §3.4。最容易漏的四件：
+每一次合進 `main` 都要看的（2026-09-01 的舊版在 `.scratch/PRODUCTION_AUDIT.md` §3.4，那一份不再更新）：
 
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一了嗎**
       （測試只盯 SHELL 清單，不盯版號）
 - [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
-- [ ] 部署後在正式環境跑一次 `#/settings/health`，**findings 數量跟部署前一樣**
-      （突然多出一堆＝新版寫壞了東西）
+- [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
+- [ ] 部署後確認新版真的在跑：`curl -sI https://<那個站>.web.app/js/app.js | grep -i cache-control` 與 `/` 都是 `no-cache`
+      （2026-10-08 起，`firebase.json`；以前是一小時，「明明部署了卻沒變」可能是這個）。連推兩次時 Actions 上第二次是「等待中」
+- [ ] 部署後在那個環境跑一次 `#/settings/health`，**跟部署前比**：多出來的是不是這一輪的「種子有、你沒有」那幾列（主檔在跟上新版，由上往下按完）？
+      其他的多出一堆＝新版寫壞了東西。**切換那天例外**：主檔是剛載的種子，主檔那幾列應該都是 0
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**
       有沒有寫進 [操作手冊](./操作手冊.md) 的最後一節
-- [ ] 拍照功能第一次進 `main` → 正式環境照「三之三」做完了嗎：尤其 **6 建 bucket、6b 推一次
-      Storage Rules、CI 那把補 Service Usage Consumer** —— 少一樣，`deploy` job 的
-      「部署 Storage Rules」那一步會紅，療程單在正式環境存不了照片
-- [ ] 同一次還有兩件 CI 不會替你做的：**4 的正式金鑰填進 `firebase-config.js` 的
-      `APP_CHECK_SITE_KEYS.prod`**（現在是 `null`）、**從本機部署一次 Function**
-      （「部署那一支 Function」，`--project` 換成正式）。少一樣的話正式站的相機按鈕照樣看得到，
-      但每一次辨識都被擋 —— 沒有金鑰是「驗證不過」，沒有 Function 是「辨識失敗」
+- [ ] 改了 `functions/` → **從本機部署一次 Function**（「部署那一支 Function」，`--project` 換成正式）——
+      CI 不會替你做。沒部署的話正式站跑的是上一版的提示詞與防護，而畫面上看不出來
+- [ ] 正式環境的「三之三」2026-10-12 做完了（API、服務帳號、bucket、Storage Rules、CI 那把的兩個角色、
+      Storage 服務代理的角色、App Check 金鑰、關快取、Function）。**只剩第 5 步的預算警示**
 
+### 切換那天（2026-10-09 決定：正式站連主檔一起刪掉、重新載入種子）
+
+這一天連主檔一起刪掉、重新載入現在的種子。為什麼這樣刪、為什麼留那三類見 [ADR-0143](./adr/0143-cutover-day-deletes-production-with-firebase-tools.md)。
+**挑一天收工之後做**：合併檔裡今天以前與今天的來訪匯進來直接是**已完成**（ADR-0029），
+今天還沒來的客人會被記成來過。當天沒來的那幾段匯完自己去日曆改成未到。
+
+0. **先確定正式站已經是這一版**（這一輪合進 `main`、Actions 上「測試與部署」三個部署步驟全綠）：
+   `curl -sI https://wellness-clinic-scheduler.web.app/js/app.js | grep -i cache-control` 是 `no-cache`；
+   設定 → 舊資料匯入 那個框裡的灰字寫著 `baobao-merge/v6`。**還是舊版就先不要往下做** —— 舊版的「載入種子資料」載的是舊種子，也收不下 v6 的合併檔。
+1. **備份**：正式站 設定 → 匯出備份（**勾「含稽核紀錄」**，因為等一下稽核會刪掉），檔案搬到 `.local/references/`，
+   `git check-ignore -v .local/references/<檔名>` 確認擋住。順手打開檔案看一眼客戶數與來訪數，之後對帳用。
+2. **刪之前抄下來**（刪掉就只剩備份裡有，合併檔不會帶回來）：設定 → LINE 回覆模板裡你改過的那幾則、排序權重那一頁的**每一個數字**（四個權重＋四個天數／分鐘，共八格）、
+   試算表報表的網址與密鑰、AI 用量的每月上限與「暫停」有沒有開，以及**你自己在正式站加的主檔**（方案範本、營養品、合作機構、警示 —— 種子上沒有的那幾筆）。
+3. **刪**：用本機的 firebase-tools（她本人的登入，`npx firebase login`），**一類一類點名**，不用 `--all-collections`。
+   刪之前先到主控台的 Firestore 看一眼每一類各有幾筆，跟第 1 步的備份對一下。
+   **下面每一行都是真的刪**，一行一類、十行，一行一行貼（每一行會問一次「確定嗎」）：
+   ```bash
+   npx firebase firestore:delete customers --recursive --project prod
+   npx firebase firestore:delete visits --recursive --project prod
+   npx firebase firestore:delete tasks --recursive --project prod
+   npx firebase firestore:delete batches --recursive --project prod
+   npx firebase firestore:delete notes --recursive --project prod
+   npx firebase firestore:delete events --recursive --project prod
+   npx firebase firestore:delete formInvites --recursive --project prod
+   npx firebase firestore:delete formResponses --recursive --project prod
+   npx firebase firestore:delete audit --recursive --project prod
+   npx firebase firestore:delete config --recursive --project prod
+   ```
+   - 每一行問「確定嗎」的時候，**看清楚專案是 `wellness-clinic-scheduler` 再按 y**（不加 `--force`）
+   - `--recursive` 會連子集合一起刪：客戶底下的額度、可用性、療程單；`config` 底下的主檔（`config/app/<種類>`）、設定（`config/app`）與 AI 上限（`config/ai`）
+   - **不刪的三類**：`allowedUsers`（白名單）、`aiUsage`（AI 的帳本）、`playbooks`（備忘錄）—— 上面那十行裡沒有它們，不要自己加
+   - 療程單的照片在 Storage：正式站還沒存過照片（「三之三」6、6b 做完之前存不了），有的話到主控台 Storage 刪 `treatmentSheets/`
+4. **載入種子**：打開正式站 → 設定 → 頁面上「還沒有任何主檔」那一張 →「載入種子資料」。載完跑一次 `#/settings/health`：
+   主檔那幾列（器材、診間、課程、品項、人員「少了／跟建議的不一樣」）**應該都是 0**。不是 0 就停下來，先不要匯入。
+5. **重填設定**（第 2 步抄下來的，沒填的那一格是預設值，而且畫面上看不出來）：
+   - 設定 → 排序權重：w1～w4、來訪內時段間隔、幾天沒回覆就跳紅色、健檢做完幾天內要問到報告、拿到報告幾天內要寄給醫師並約好二返
+   - 設定 → LINE 回覆模板：你改過的那幾則
+   - 設定 → 試算表報表：網址與密鑰（「讓它自己推」那一張）
+   - 設定 → AI 用量：每月上限、「暫停」有沒有開（正式站拍照開通之後才用得到）
+   - 你自己加的主檔：照第 2 步的清單在設定頁一筆一筆建回來
+6. **匯入**：產一份帶人員名單的合併檔（`merge.mjs … --staff-names .local/references/staff-names.json --today <那一天>`，見
+   `.claude/skills/calendar-sheet-merge/SKILL.md`）→ 設定 → 舊資料匯入 → 貼上 →「讀進來」：
+   「會寫進去什麼」第二行是「人員：N 位會改成全名」—— **人員的名字跟著這一份一起改好**，不用先去設定頁改
+   （ADR-0141）。確認數字跟第 1 步的備份對得上再按「開始匯入」。
+7. **試算表**：正式站接的那一份 Google 試算表重貼 `.gs` 並重新部署（`sheets/README.md`「升版之後」）—— 這一輪多了「做的比買的多，剩餘標紅」，
+   不重貼的話照舊只有剛好 0 的那一格紅。
+
+> **2026-10-05 那一輪**：`SYNC_FORMAT` 從 6 跳到 7（沒有額度的段 —— n返、功醫門診 —— 的記一句印在來訪紀錄那一行），
+> staging 與正式各自接的那一份試算表都要**重貼 `.gs` 並重新部署**，同下面那一輪的步驟。
+>
+> **2026-09-24 那一輪**：`SYNC_FORMAT` 從 5 跳到 6（來訪紀錄一段一行帶狀態、多一段「買過什麼」），
+> staging 與正式各自接的那一份試算表都要**重貼 `.gs` 並重新部署**（步驟在 `sheets/README.md`「升版之後」）。
+> 沒重貼的那一份會整包拒收，設定 → 試算表報表那一張卡會講出來。
+>
 > **2026-09-06 那一輪**：`SYNC_FORMAT` 從 3 跳到 4（試算表多了「這一天用了哪一台」
 > 的註記），所以 `.gs` **一定要重貼並重新部署**。另外還有三步要她自己做一次
 > （課程改名、器材選課程、資料健檢按兩列），列在

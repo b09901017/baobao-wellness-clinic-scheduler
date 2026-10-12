@@ -41,7 +41,7 @@
 //
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
-import { followupCourseIdOf } from './followups.js';
+import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -70,6 +70,15 @@ export function nthLabel(n) {
   const num = Number(n);
   if (!Number.isInteger(num) || num < SECOND || num > MAX_NTH) return null;
   return `${NUMERALS[num]}返`;
+}
+
+/**
+ * 一場回訪（二返或 n返）在一句話裡叫什麼：n返 講返數（`三返`），二返講主檔上那門課的名字，主檔查不到才退回快照。
+ * 確認框與資料健檢講「10/24 那一場＿＿」用。直接印 `slot.courseName` 的話，課程改名之後句子還在講舊名字
+ * （它是快照不是顯示名稱）；這裡沒有整份主檔可以問 `slotName()`，而且要的是課程那一半、不帶分鐘。
+ */
+export function followupName(slot, coursesById = {}) {
+  return nthLabel(nthOf(slot)) ?? coursesById[slot?.courseId]?.name ?? slot?.courseName ?? '二返';
 }
 
 /** 這一段的返數。不是 n返 就回 `null`（**二返也回 null** —— 它走額度那條路）。 */
@@ -121,7 +130,8 @@ export function isExamVisit(visit, examIds) {
  * 可以接 n返 的健檢來訪，**日期舊的在前**（回訪是照順序約掉的）。
  *
  * **只有已完成的算**：沒做完的健檢沒有報告可以再聽一次。這一條跟二返
- *（`domain/followups.js` 的 `doneVisitsFor()`）是同一個判斷。
+ *（`domain/followups.js` 的 `usedAndDone()`）是同一個判斷 —— **問健檢那一段**，
+ * 不問整筆（ADR-0112：健檢取消了、同一天 SIS 做了時整筆是已完成）。
  *
  * @param {object[]} entitlements 這位客戶的額度
  * @param {Record<string, object>} coursesById 課程主檔，含已刪除的
@@ -132,7 +142,7 @@ export function examVisits(entitlements = [], coursesById = {}, visits = []) {
   if (!examIds.size) return [];
 
   return (visits ?? [])
-    .filter((v) => v && !v.deletedAt && v.status === 'done' && isExamVisit(v, examIds))
+    .filter((v) => examDoneIn(v, examIds))
     .slice()
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -170,7 +180,7 @@ export function courseIdForNth(examVisit, entitlements = [], coursesById = {}) {
  * - **二返**：時段扣掉那一筆二返額度（`entitlementId`），返數固定是 2
  * - **n返**：時段身上有 `followupNth`，沒有額度
  *
- * 已取消／已刪除的來訪不算 —— 那一場沒發生（同 `claimedExams()` 的判斷）。
+ * 取消、未到的那一段不算 —— 那一場沒發生（同 `claimedExams()` 的判斷，`holdsExam()`）。
  *
  * @param {string} examVisitId 那一次健檢的來訪 id
  * @param {object[]} visits 這位客戶的全部來訪
@@ -182,9 +192,8 @@ export function followupsOfExam(examVisitId, visits = [], followupEntitlementIds
   const out = [];
 
   for (const v of visits ?? []) {
-    if (!v || v.deletedAt || v.status === 'cancelled') continue;
-    for (const slot of v.slots ?? []) {
-      if (slot?.followupForVisitId !== examVisitId) continue;
+    for (const slot of v?.slots ?? []) {
+      if (slot?.followupForVisitId !== examVisitId || !holdsExam(v, slot)) continue;
 
       if (isNthSlot(slot)) {
         const nth = nthOf(slot);
@@ -233,12 +242,16 @@ export function nextNthFor(examVisitId, visits = [], followupEntitlementIds = []
  *
  * 已經有幾返的照樣標出來（`nths`）—— 她要對照的正是這個。
  *
+ * 每一次都列、標狀態；**排著的與做完的按得下去、取消與未到按不下去**（`pickable`）—— 跟二返那一排同一條
+ * （`PICKABLE_EXAM`；她 2026-09-24「跟二返一樣」、2026-10-09「放寬」，ADR-0145）。
+ * 「＋ n返」那一顆畫不畫問的是這裡有沒有按得下去的（`slotOptions.js`）；`examVisits()`（只有做完的）照舊給客戶詳情的健檢卡。
+ *
  * @param {object} ctx
  * @param {object[]} ctx.entitlements 這位客戶的額度
  * @param {Record<string, object>} ctx.coursesById 課程主檔，含已刪除的
  * @param {object[]} ctx.visits 這位客戶的全部來訪
  * @param {string} [ctx.excludeVisitId] 正在編輯的那一筆（它自己的那幾段不算數）
- * @returns {{visitId:string, date:string, nths:number[], note:string}[]}
+ * @returns {{visitId:string, date:string, status:string|null, pickable:boolean, nths:number[], note:string}[]}
  *   日期舊的在前
  */
 export function examChoicesForNth({
@@ -246,18 +259,26 @@ export function examChoicesForNth({
 } = {}) {
   const second = secondFollowupIds(entitlements);
   const others = (visits ?? []).filter((v) => v.id !== excludeVisitId);
+  const examIds = examEntitlementIds(entitlements, coursesById);
+  if (!examIds.size) return [];
 
-  return examVisits(entitlements, coursesById, visits).map((v) => {
-    const nths = nthsBookedFor(v.id, others, second);
-    return {
-      visitId: v.id,
-      date: v.date,
-      nths,
-      // 空字串代表「這一次還沒有任何回訪」。**不要寫成「還沒約」** ——
-      // 二返那一排用的就是那三個字，兩個地方講不同的事會讓她以為是同一件。
-      note: nths.length ? nths.map((n) => nthLabel(n)).filter(Boolean).join('・') : '',
-    };
-  });
+  return (visits ?? [])
+    .filter((v) => v && !v.deletedAt && isExamVisit(v, examIds))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .map((v) => {
+      const nths = nthsBookedFor(v.id, others, second);
+      const status = examStatusIn(v, examIds);
+      return {
+        visitId: v.id,
+        date: v.date,
+        status,
+        pickable: PICKABLE_EXAM.has(status),
+        nths,
+        // 空字串代表「這一次還沒有任何回訪」。**不要寫成「還沒約」** ——
+        // 二返那一排用的就是那三個字，兩個地方講不同的事會讓她以為是同一件。
+        note: nths.length ? nths.map((n) => nthLabel(n)).filter(Boolean).join('・') : '',
+      };
+    });
 }
 
 /**

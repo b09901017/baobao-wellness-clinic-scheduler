@@ -172,13 +172,17 @@ test('V2 存那一段，沒畫出來的那幾段一個欄位都不動', async ({
 
   await page.locator('input[name="s1-start"]').fill('14:00');
   await page.locator('button[type="submit"]').first().click();
+  // 改了時間＝取消＋重新排（ADR-0108）：先講要回去做什麼
+  await app.ok();
   await app.saved();
 
   const saved = await app.readDoc('visits', 'v-three');
 
-  expect(saved.slots, '三段都要還在').toHaveLength(3);
-  expect(saved.slots[1].startsAt, '她改的那一段').toBe('14:00');
-  expect(saved.slots[1].endsAt, '結束時間跟著時長重算').toBe('14:30');
+  expect(saved.slots, '三段都還在，新的時間接在尾巴').toHaveLength(4);
+  expect(saved.slots[1].status, '她改的那一段取消了').toBe('cancelled');
+  expect(saved.slots[3].startsAt, '新的那一段').toBe('14:00');
+  expect(saved.slots[3].endsAt, '結束時間跟著時長重算').toBe('14:30');
+  expect(saved.slots[3].status, '要再問客人一次').toBe('pending_confirm');
 
   // 第一段：一個字都不該動
   expect(saved.slots[0].startsAt).toBe('09:00');
@@ -328,7 +332,7 @@ test('V4e 從空的那一天新增、把日期改到他已經有一段的那一�
 
   // **先講，再做。** 這一句是紅線（它講的是按下去會寫成什麼），
   // 所以它常駐在畫面上，不收進 tip()。
-  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).toContainText('存下去會加進那一天。');
 
   await page.locator('button[type="submit"]').first().click();
 
@@ -361,12 +365,12 @@ test('V4f 日期改回一個空的日子，那一句話要跟著消失', async (
 
   await page.locator('input[name="date"]').fill(DAY);
   await app.settled();
-  await expect(page.locator('body')).toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).toContainText('存下去會加進那一天。');
 
   // 挑錯一天不可以把她卡住 —— 日期照樣改得動
   await page.locator('input[name="date"]').fill(addDays(DAY, 3));
   await app.settled();
-  await expect(page.locator('body')).not.toContainText('存下去會加進那一天的那一筆');
+  await expect(page.locator('body')).not.toContainText('存下去會加進那一天。');
 });
 
 // **2026-09-16 修好了**（`.scratch/prelaunch-fixes-2026-09-16/issues/08`）。
@@ -496,4 +500,177 @@ test('V8 打一句話存下去，寫在那一段身上，不是整筆', async ({
   expect(saved.slots[1].note, '記在她點的那一段身上').toBe('下次改約下午');
   expect(saved.slots[0].note ?? null, '別的段不該跟著長出一句').toBeNull();
   expect(saved.slots[2].note ?? null, '別的段不該跟著長出一句').toBeNull();
+});
+
+// ---------- 換到點滴那一筆額度：買的那一款要選好（`.scratch/asks-2026-09-18/issues/03`） ----------
+//
+// 她 2026-09-18：「系統會自動幫她選好『護心抗老』這款品項…但結束時間卻算成 120 分（課程預設），
+// 要她手動再點一次那顆已經選好的品項按鈕，時間才會跳成正確的 180 分。壓表入口沒這問題」。
+//
+// 切換額度的那一下，品項那一排還沒畫出來，`readDraft()` 讀到空的。壓表選額度那一刻會把
+// 品項重設成買的那一款；這一頁沒有。兩筆不同品項的點滴額度 A → B 更糟：那一排本來就畫著 A，
+// 照讀的話一段扣著 B 的來訪帶著 A 的品項與時長**存得進去**（只多一句提醒，ADR-0002）。
+
+function seedTwoDrips() {
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-d', name: '客戶D' }),
+    entitlement('cust-d', { id: 'ent-a-rec', label: '復能', courseId: 'course-recovery' }),
+    entitlement('cust-d', {
+      id: 'ent-b-snow', label: '營養點滴-雪顏亮彩', courseId: 'course-iv-drip', ivProductId: 'iv-snow',
+    }),
+    entitlement('cust-d', {
+      id: 'ent-c-heart', label: '營養點滴-護心抗老', courseId: 'course-iv-drip', ivProductId: 'iv-heart',
+    }),
+  ];
+}
+
+async function newVisitFor(app, page, customerId) {
+  await app.signIn('/calendar');
+  await openDay(app, page, addDays(DAY, 3));
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator(`[data-pick="${customerId}"]`).click();
+  await app.layer('.slotcard');
+}
+
+const ivPicked = (page) => page.locator('[data-chip="s0-iv"][aria-pressed="true"]');
+
+test('V9 從復能切到點滴那一筆：買的那一款已經選好，結束時間照品項算（不用多點一下）', async ({ app, page }) => {
+  await app.seed(seedTwoDrips());
+  await newVisitFor(app, page, 'cust-d');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-c-heart"]').click();
+  await expect(ivPicked(page), '買的是護心抗老').toHaveAttribute('data-chip-value', 'iv-heart');
+  await expect(page.locator('.slothead__end').first(), '09:00 ＋ 180 分').toHaveText('12:00');
+
+  await page.locator('button[type="submit"]').first().click();
+  // 先是 `confirmReview()` 的提醒（這一段沒選診間，不擋），接著才是 Abovee 那一道
+  await expect(app.dialog()).toContainText('還沒選診間');
+  await app.ok();
+  await expect(app.dialog()).toContainText('Abovee');
+  await app.ok();
+  await app.saved();
+  const [saved] = await app.readAll('visits');
+  expect(saved.slots[0].ivProductId).toBe('iv-heart');
+  expect(saved.slots[0].endsAt).toBe('12:00');
+});
+
+test('V9b 兩筆點滴額度 A → B：品項跟著換成 B 買的那一款，不是留在 A', async ({ app, page }) => {
+  await app.seed(seedTwoDrips());
+  await newVisitFor(app, page, 'cust-d');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-b-snow"]').click();
+  await expect(ivPicked(page)).toHaveAttribute('data-chip-value', 'iv-snow');
+  await expect(page.locator('.slothead__end').first()).toHaveText('11:00');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-c-heart"]').click();
+  await expect(ivPicked(page), '扣的是護心抗老那一筆，品項就是護心抗老').toHaveAttribute('data-chip-value', 'iv-heart');
+  await expect(page.locator('.slothead__end').first()).toHaveText('12:00');
+});
+
+test('V9c 沒換額度、她在「換一款」裡挑了別的：改時間之後還是她挑的那一款', async ({ app, page }) => {
+  await app.seed(seedTwoDrips());
+  await newVisitFor(app, page, 'cust-d');
+
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-c-heart"]').click();
+  await expect(ivPicked(page)).toHaveAttribute('data-chip-value', 'iv-heart');
+  await page.locator('.slotcard [data-chip-more]').first().click();
+  await page.locator('[data-chip="s0-iv"][data-chip-value="iv-liver"]').click();
+  await expect(ivPicked(page)).toHaveAttribute('data-chip-value', 'iv-liver');
+
+  await page.locator('input[name="s0-start"]').fill('10:00');
+  await page.locator('input[name="s0-start"]').dispatchEvent('change');
+  await expect(page.locator('.slothead__end').first(), '護肝排毒跟著課程走 120 分').toHaveText('12:00');
+  await expect(ivPicked(page), '不可以被買的那一款蓋回去').toHaveAttribute('data-chip-value', 'iv-liver');
+});
+
+test('V9d 匯入的舊資料沒有品項：改個時間不會被靜默補上買的那一款', async ({ app, page }) => {
+  await app.seed([
+    ...seedTwoDrips(),
+    visit({
+      id: 'v-old', customerId: 'cust-d', customerName: '客戶D', date: DAY, status: 'confirmed',
+      importedFrom: 'legacy',
+      slots: [slot({ courseId: 'course-iv-drip', entitlementId: 'ent-c-heart', startsAt: '09:00', endsAt: '11:00' })],
+    }),
+  ]);
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditorForSlot(app, page, 'v-old', 0);
+  await expect(page.locator('[data-chip="s0-iv"]').first()).toBeVisible();
+  await expect(ivPicked(page), '舊資料本來就沒有品項').toHaveCount(0);
+
+  await page.locator('input[name="s0-start"]').fill('10:00');
+  await page.locator('input[name="s0-start"]').dispatchEvent('change');
+  await expect(page.locator('.slothead__end').first()).toHaveText('12:00');
+  await expect(ivPicked(page), '畫出來但空著的是真的空著 —— 不替她挑').toHaveCount(0);
+});
+
+// ---------- 改期＝取消＋重新排（prelaunch-audit-2026-09-23/issues/13，ADR-0108） ----------
+//
+// 她 2026-09-23：「我希望會提醒回 Abovee／Examine／耀聖改時間以及回去取消已經掛好的號等等」
+
+function seedSettledRehab() {
+  const registered = (id, kind) => ({
+    path: 'tasks', id,
+    data: {
+      customerId: 'cust-r', customerName: '王小明', kind, dueDate: addDays(DAY, -1), visitId: 'v-r',
+      done: true, doneAt: addDays(DAY, -1), autoGenerated: true, note: null, slotIndexes: [0],
+    },
+  });
+  return [
+    ...masterDocs(),
+    customer({ id: 'cust-r', name: '王小明' }),
+    entitlement('cust-r', {
+      id: 'ent-rehab', label: '復健科醫師門診', type: 'single', courseId: 'course-rehab', totalQty: 6, bookedCount: 1, durationMin: 30,
+    }),
+    visit({
+      id: 'v-r', customerId: 'cust-r', customerName: '王小明', date: DAY, status: 'confirmed', confirmedAt: DAY,
+      slots: [{
+        ...slot({ courseId: 'course-rehab', entitlementId: 'ent-rehab', startsAt: '14:00', endsAt: '14:30', doctorId: 'staff-dr-xia' }),
+        status: 'confirmed',
+      }],
+    }),
+    registered('t-ex', 'Examine'),
+    registered('t-yao', '耀聖'),
+  ];
+}
+
+test('V12 已談定、掛好號的那一段改時間 → 先講要回去做什麼，存完舊的取消、新的待確認', async ({ app, page }) => {
+  await app.seed(seedSettledRehab());
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditorForSlot(app, page, 'v-r', 0);
+
+  await page.locator('input[name="s0-start"]').fill('16:00');
+  await page.locator('button[type="submit"]').first().click();
+
+  const said = await app.dialogText();
+  for (const k of ['取消 Abovee', '取消 Examine', '取消 耀聖', '再問客人']) expect(said, k).toContain(k);
+  await app.ok();
+  await app.saved();
+
+  const saved = await app.readDoc('visits', 'v-r');
+  expect(saved.slots.map((s) => [s.startsAt, s.status])).toEqual([['14:00', 'cancelled'], ['16:00', 'pending_confirm']]);
+  expect(saved.status, '新的那一段還沒問客人').toBe('pending_confirm');
+  const open = (await app.readAll('tasks')).filter((t) => !t.deletedAt && !t.done).map((t) => t.kind).sort();
+  expect(open).toEqual(['取消 Abovee', '取消 Examine', '取消 耀聖'].sort());
+});
+
+test('V13 只記一句話 → 一道確認都不多跳、一張待辦都不多長', async ({ app, page }) => {
+  await app.seed(seedSettledRehab());
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditorForSlot(app, page, 'v-r', 0);
+
+  await page.locator('[data-slotnote-toggle="s0-note"]').click();
+  await page.locator('textarea[name="s0-note"]').fill('客人說會晚到');
+  await page.locator('button[type="submit"]').first().click();
+  await app.saved();
+  await expect(app.dialog()).toHaveCount(0);
+
+  const saved = await app.readDoc('visits', 'v-r');
+  expect(saved.slots.map((s) => [s.startsAt, s.status, s.note])).toEqual([['14:00', 'confirmed', '客人說會晚到']]);
+  expect((await app.readAll('tasks')).filter((t) => !t.deletedAt && !t.done)).toEqual([]);
 });

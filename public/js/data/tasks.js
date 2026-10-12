@@ -76,6 +76,17 @@ export function listByCustomer(customerId) {
 }
 
 /**
+ * 某位客戶的全部任務，**連軟刪除的一起**。健檢鏈比對用的那一份
+ * （`data/visits.js` 的 `followupOps()`／`chainPlans()`），理由同 `listByVisitForSync()`：
+ * 她清掉已完成的「約二返」之後，那一次健檢的二返照樣是約過了（ADR-0106）。
+ *
+ * **只給比對用。**
+ */
+export function listByCustomerForSync(customerId) {
+  return repo.listWithDeleted(PATH, { wheres: [where('customerId', '==', customerId)] });
+}
+
+/**
  * 報表要的那些任務。試算表報表與 `#/settings/report` 的 TODO / FINISHED 兩塊用。
  *
  * 不逐位客戶查：一次要畫二十幾位，那是二十幾次讀取。

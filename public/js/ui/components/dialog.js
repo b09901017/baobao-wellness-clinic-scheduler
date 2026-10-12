@@ -44,8 +44,15 @@ export async function confirmReview(warnings) {
   });
 }
 
+/**
+ * 不要了、回去的那一顆預設寫什麼。**不寫「取消」**（2026-10-07，verified-bugs issues/10）：
+ * 取消一段的確認框上，它旁邊那一顆叫「取消這一段」—— 兩顆都是「取消」而意思相反。
+ * 跟長按選單、兩張待辦抽屜的那一顆同一句。全站每一道沒自己給 `cancelLabel` 的確認框都是它。
+ */
+const BACK_LABEL = '先不要，回去';
+
 export function confirmAction({
-  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false,
+  title, consequences, confirmLabel = '確定', cancelLabel = BACK_LABEL, danger = false,
 }) {
   return ask({
     title,
@@ -54,9 +61,45 @@ export function confirmAction({
       { key: 'cancel', label: cancelLabel, attr: 'data-cancel', cls: 'btn' },
       { key: 'ok', label: confirmLabel, attr: 'data-ok', cls: `btn ${danger ? 'btn--danger' : 'btn--primary'}` },
     ],
-    // 預設焦點在「取消」：按 Enter 不可以誤觸破壞性操作
+    // 預設焦點在「先不要，回去」那一顆：按 Enter 不可以誤觸破壞性操作
     focus: 'cancel',
   }).then(({ key }) => key === 'ok');
+}
+
+/**
+ * 「確定」之外**再多一條路**的確認框（ADR-0146：另約一次健檢時多一顆「順便把那一場二返接到這一次」）。
+ *
+ * 跟 `chooseAction()` 不一樣的地方：主要那一顆與「先不要，回去」照 `confirmAction()` 的樣子
+ * （`data-ok`、`data-cancel`、預設焦點在「先不要，回去」）—— 這一道本來就是 `confirmAction()` 那一道，
+ * 只是在某些時候多一顆；按原本那一顆要跟沒有多那一顆時一模一樣。多的那一顆排在兩顆中間。
+ *
+ * 三顆在手機上橫排放不下，所以直排（`ask()`：三顆以上加 `dialog__actions--stack`）：
+ * 主要那一顆在最上面、「先不要，回去」在最下面。
+ *
+ * @param {object} o
+ * @param {string} o.title
+ * @param {string[]} o.consequences
+ * @param {string} [o.confirmLabel]
+ * @param {string} [o.cancelLabel]
+ * @param {{key: string, label: string}} o.option 多的那一顆
+ * @returns {Promise<string|null>} 按了主要那一顆是 `'ok'`、多的那一顆是它的 `key`；不要了、關掉都是 `null`
+ */
+export function confirmWithOption({
+  title, consequences, confirmLabel = '確定', cancelLabel = BACK_LABEL, option,
+}) {
+  if (!option?.key || !option?.label || option.key === 'ok' || option.key === 'cancel') {
+    throw new Error('confirmWithOption 要一顆有 key 與 label 的 option（key 不可以是 ok／cancel）—— 沒有多的那一顆就用 confirmAction');
+  }
+  return ask({
+    title,
+    consequences,
+    buttons: [
+      { key: 'cancel', label: cancelLabel, attr: 'data-cancel', cls: 'btn' },
+      { key: option.key, label: option.label, attr: `data-option="${esc(option.key)}"`, cls: 'btn' },
+      { key: 'ok', label: confirmLabel, attr: 'data-ok', cls: 'btn btn--primary' },
+    ],
+    focus: 'cancel',
+  }).then(({ key }) => (key === 'ok' || key === option.key ? key : null));
 }
 
 /**
@@ -116,7 +159,7 @@ export function chooseAction({ title, consequences, choices = [] }) {
  * @returns {Promise<{ok: boolean, reason: string|null}>}
  */
 export function confirmWithReason({
-  title, consequences, confirmLabel = '確定', cancelLabel = '取消', danger = false, field,
+  title, consequences, confirmLabel = '確定', cancelLabel = BACK_LABEL, danger = false, field,
 }) {
   return ask({
     title,
@@ -180,7 +223,7 @@ function ask({ title, consequences, buttons, focus, field = null }) {
             <input type="text" data-dialog-field maxlength="${Number(field.maxlength)}"
                    placeholder="${esc(field.placeholder ?? '')}" />
           </label>` : ''}
-        <div class="dialog__actions">
+        <div class="dialog__actions${buttons.length > 2 ? ' dialog__actions--stack' : ''}">
           ${buttons.map((b) => `
             <button class="${b.cls}" type="button" ${b.attr} data-key="${esc(b.key)}">
               ${esc(b.label)}

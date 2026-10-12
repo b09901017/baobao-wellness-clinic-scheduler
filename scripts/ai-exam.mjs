@@ -3,6 +3,7 @@
 //
 //   node scripts/ai-exam.mjs --thinking low
 //   node scripts/ai-exam.mjs --thinking medium --only orderForm
+//   node scripts/ai-exam.mjs --only aboveeList --resolution ultra_high
 //
 // - 照片：`.local/references/images/`；答案：`.local/references/ai-exam/answers.json`（人訂的，不是模型的輸出）
 // - 縮圖跟 app 一樣：長邊 2000px、JPEG 0.85、照 EXIF 轉正（`ui/components/camera.js`）
@@ -33,6 +34,8 @@ const arg = (name, fallback) => {
 };
 const THINKING = arg('--thinking', 'low').toUpperCase();
 const ONLY = arg('--only', '').split(',').filter(Boolean);
+// 照片解析度（low／medium／high／ultra_high）；沒給＝上線的預設
+const RESOLUTION = arg('--resolution', '').toUpperCase();
 const PROJECT = arg('--project', 'wellness-clinic-staging');
 // 一次一張：同時送三張時四成被 429 擋下（2026-09-17 第一次考試），app 那一側也是一張一張送
 const CONCURRENCY = Number(arg('--concurrency', '1'));
@@ -162,6 +165,11 @@ function scoreAbovee(ans, got, s) {
     }
   });
   if (ans.pageText) s.add('頁數', squash(got.pageText) === squash(ans.pageText));
+  // 畫面上方的「預約日期(起)／(訖)」（ADR-0129）。答案寫 null ＝ 照片上看不到那兩格：抄出任何字都算錯（不可以猜）
+  for (const [field, label] of [['dateFromText', '預約日期(起)'], ['dateToText', '預約日期(訖)']]) {
+    if (!(field in ans)) continue;
+    s.add(label, ans[field] === null ? !squash(got[field]) : readMonthDay(got[field]) === readMonthDay(ans[field]));
+  }
 }
 
 function scorePlanFlyer(ans, got, s) {
@@ -206,9 +214,11 @@ async function pool(items, n, fn) {
 async function main() {
   const { items } = JSON.parse(readFileSync(`${EXAM}answers.json`, 'utf8'));
   const todo = items.filter((it) => !ONLY.length || ONLY.includes(it.kind));
-  const model = makeGeminiModel({ project: PROJECT, thinkingLevel: THINKING });
+  const model = makeGeminiModel({
+    project: PROJECT, thinkingLevel: THINKING, mediaResolution: RESOLUTION ? `MEDIA_RESOLUTION_${RESOLUTION}` : undefined,
+  });
 
-  console.log(`考 ${todo.length} 張，thinking ${THINKING}`);
+  console.log(`考 ${todo.length} 張，thinking ${THINKING}${RESOLUTION ? `，解析度 ${RESOLUTION}` : ''}`);
   const started = Date.now();
 
   const results = await pool(todo, CONCURRENCY, async (it, i) => {
@@ -258,8 +268,8 @@ async function main() {
 
   mkdirSync(EXAM, { recursive: true });
   const day = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-  const out = `${EXAM}result-${day}-${THINKING.toLowerCase()}${ONLY.length ? `-${ONLY.join('+')}` : ''}.json`;
-  writeFileSync(out, JSON.stringify({ day, thinking: THINKING, usd, summary, results }, null, 2));
+  const out = `${EXAM}result-${day}-${THINKING.toLowerCase()}${RESOLUTION ? `-${RESOLUTION.toLowerCase()}` : ''}${ONLY.length ? `-${ONLY.join('+')}` : ''}.json`;
+  writeFileSync(out, JSON.stringify({ day, thinking: THINKING, resolution: RESOLUTION || null, usd, summary, results }, null, 2));
   console.log(`\n結果寫在 .local/references/ai-exam/（有真名，不進版控）`);
 }
 

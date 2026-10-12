@@ -5,7 +5,8 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
-import { clinicalTerms } from './masterData.js';
+import { clinicalTerms, normalizeAlias } from './masterData.js';
+import { acceptsMoreSlots } from './visits.js';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -18,6 +19,34 @@ export const MAX_PRIORITY = 5;
 export const EXPIRING_SOON_DAYS = 30;
 
 const isBlank = (v) => v == null || String(v).trim() === '';
+
+/**
+ * 名字裡有沒有她打的那幾個字。**找人只有這一種比法**：同認人（`normalizeAlias()`，`identify.js` 的
+ * `normalizeName()` 就是它）—— 去空白、全形半形一致、英文不分大小寫，名字**含**那幾個字就算。
+ * 一個字都沒打回 true（每一位都算）。
+ *
+ * 六個找人的框都走它：拍 Abovee 的「換一位」與療程單的「是誰」（經 `searchCustomers()`）、
+ * 日曆新增的「要幫誰排？」、批次取消（她 2026-10-05：「好 ! 可以修改」）、壓表牆上的搜尋、
+ * 客戶清單的搜尋（2026-10-06：「好」；那一格連電話、LINE、購買通路一起比，一格一格問這一支）。
+ * 以前後四個各自 `includes(q)` —— 名字中間有空白的那一位，在一個框找得到、另一個框找不到。
+ * **「列誰」不在這一支裡**（停用的要不要列、沒打字時列不列，每一個框各有各的道理）。
+ */
+export const nameHas = (name, query) => normalizeAlias(name).includes(normalizeAlias(query));
+
+/**
+ * 打幾個字找客戶（拍 Abovee 每一列的「換一位」、療程單的「是誰」）。
+ *
+ * 比法只有 `nameHas()`。停用與刪掉的不列。打空白回空的 ——
+ * 一個字都沒打就把全部列出來，等於一排看不完的丸子。
+ *
+ * @returns {object[]} 最多 `limit` 位，照主檔原本的順序
+ */
+export function searchCustomers(customers = [], query = '', { limit = 6 } = {}) {
+  if (!normalizeAlias(query)) return [];
+  return (customers ?? [])
+    .filter((c) => c && !c.deletedAt && c.active !== false && nameHas(c.name, query))
+    .slice(0, limit);
+}
 
 /**
  * 會籍到期日 = 購買日 + 會籍月數。
@@ -194,5 +223,61 @@ export function splitFlags(customer, clinicalFlags = []) {
   return {
     alerts: flags.filter((f) => known.has(f)),
     others: flags.filter((f) => !known.has(f)),
+  };
+}
+
+/**
+ * 改名時，哪幾份**名字快照**要跟著換（prelaunch-audit-2026-09-23/issues/09）。
+ *
+ * 來訪、任務、隨手記身上存的是當時的名字（`customerName`）。只改客戶本人那一份的話，
+ * 日曆與待辦上還是舊名字 —— 同名的兩位，她改其中一位的名字想分開他們，
+ * 日曆上照樣撞在一起。她 2026-09-23 選的：
+ *
+ * - **今天以後的來訪、還沒做的任務、還沒勾的隨手記**一起換
+ * - 過去的來訪與做完的留著當時的名字（那是歷史）
+ *
+ * **過去的來訪還掛著沒做完的事就不算歷史**（她 2026-09-23，issues/16）：還沒結案（待確認、已確認），
+ * 或身上有一張還沒做的任務。不換的話，那一筆一結案 `syncTasksForVisit()` 就把任務的名字
+ * 對齊來訪身上那一份 —— 待辦變回舊名字，新長的「寫紀錄」也是舊名字。
+ *
+ * 壓表批次的卡片不在這裡：它畫的時候就拿客戶本人的名字蓋掉佇列上那一份（`mergeIntoQueue()`）。
+ *
+ * @param {{visits?: object[], tasks?: object[], notes?: object[]}} own 這位客戶的
+ * @param {string} today
+ * @param {string} name 新名字
+ * @returns {{path: string, id: string}[]}
+ */
+export function renameTargets({ visits = [], tasks = [], notes = [] } = {}, today, name) {
+  const stale = (x) => !x.deletedAt && (x.customerName ?? null) !== name;
+  const openWork = new Set(tasks.filter((t) => !t.done && !t.deletedAt).map((t) => t.visitId));
+  const live = (v) => v.date >= today || acceptsMoreSlots(v.status) || openWork.has(v.id);
+  return [
+    ...visits.filter((v) => stale(v) && live(v)).map((v) => ({ path: 'visits', id: v.id })),
+    ...tasks.filter((t) => stale(t) && !t.done).map((t) => ({ path: 'tasks', id: t.id })),
+    ...notes.filter((n) => stale(n) && !n.done).map((n) => ({ path: 'notes', id: n.id })),
+  ];
+}
+
+/**
+ * 刪掉這位客戶之前，還掛著他的哪幾件事（prelaunch-audit-2026-09-23/issues/08）。
+ *
+ * 刪除只寫客戶本人那一份。來訪、任務是頂層集合，讀的時候不問客戶還在不在 ——
+ * 日曆、跟客人確認時間、簽療程單、掛號待辦上會留著一個點進去是「找不到這位客戶」的人，
+ * 而那幾格在 Abovee 上還佔著、撞期也照樣算他。她 2026-09-23 選的：**還掛著東西就先擋**，
+ * 列出來請她先收掉（每一步都看得到、給得出復原），不替她一次收一大批。
+ *
+ * - 還沒結案的來訪：待確認、已確認（已完成／未到／已取消是歷史，不擋）
+ * - 還沒做的待辦
+ * - 還沒勾的隨手記，不管有沒有日期（她 2026-09-23，issues/17）：有日期的就是日曆上「待辦」
+ *   那一類（ADR-0044）與營養品提醒，沒日期的在隨手記那一頁掛著他的名字
+ *
+ * @returns {{visits: object[], tasks: object[], notes: object[]}}
+ */
+export function deleteBlockers({ visits = [], tasks = [], notes = [] } = {}) {
+  const open = (x) => !x.deletedAt && !x.done;
+  return {
+    visits: visits.filter((v) => !v.deletedAt && acceptsMoreSlots(v.status)),
+    tasks: tasks.filter(open),
+    notes: notes.filter(open),
   };
 }

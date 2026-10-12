@@ -89,7 +89,9 @@ describe('進度追蹤那一列（客戶詳情的「這個月」共用同一支�
       courseId: 'c-recovery', courseName: '三返', followupNth: 3,
       startsAt: '09:00', endsAt: '09:30',
     }]);
-    assert.equal(s.name, '三返');
+    // 名字讀快照（三返，不是主檔那門課的名字）；分鐘照那門課有沒有兩種規格接（ADR-0122）——
+    // 這一份假資料借的是復能，它有 30／60 兩種
+    assert.equal(s.name, '三返(30)');
   });
 
   test('沒帶主檔的呼叫端退回快照，不會吐空字串', () => {
@@ -152,7 +154,8 @@ const SPOTS = [
   },
   {
     file: 'js/ui/views/schedule.js',
-    from: 'const said = bookingConsequences(', to: 'confirmLabel: \'已確認，記錄\'',
+    // 終點本來是寫死的「已確認，記錄」；那一顆的字 2026-10-06 改由 domain 給（ADR-0126）
+    from: 'const said = bookingConsequences(', to: 'confirmLabel: said.confirmLabel',
     must: 'slotName(', mustNot: 'course.name',
     what: '壓表存檔前那道確認的第一行',
   },
@@ -209,7 +212,7 @@ describe('她自己看的那幾處走的是 slotName()，不是快照', () => {
 describe('拿得到主檔才算得出名字', () => {
   test('待辦任務列第二行要把 master 傳給 taskLine()', () => {
     const body = region(read('js/ui/views/home.js'), 'function fillVisitInfo(', 'let followupBookings');
-    assert.match(body, /taskLine\(\{\}, visit, taskVisits\.master\)/,
+    assert.match(body, /taskLine\(task, visit, taskVisits\.master\)/,
       'taskLine() 第三個參數沒傳，那一行會讀快照');
   });
 

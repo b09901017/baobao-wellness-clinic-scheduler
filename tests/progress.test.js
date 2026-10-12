@@ -220,3 +220,55 @@ describe('和其他畫面對得上', () => {
     assert.ok(!PROGRESS_STATUSES.includes('cancelled'));
   });
 });
+
+// 2026-10-07（verified-bugs issues/05，ADR-0134）。她：
+// 「這個頁面的核心目的是回答『這個人這個月實際上做了多少』，而取消的段實際上並未發生」
+describe('只取消其中一段時，那一段不畫也不算', () => {
+  const TWO = () => visit({
+    status: 'confirmed',
+    slots: [
+      slot({ startsAt: '09:00', endsAt: '10:00', status: 'cancelled' }),
+      slot({ startsAt: '11:00', endsAt: '12:00', status: 'confirmed' }),
+    ],
+  });
+
+  test('「N 段」等於四個狀態加起來', () => {
+    const { rows, totals } = build([cus('c1', '客戶A')], [TWO()]);
+    assert.equal(rows[0].slotCount, 1);
+    assert.equal(rows[0].days[0].slots.length, 1);
+    const sum = PROGRESS_STATUSES.reduce((n, s) => n + rows[0].tally[s], 0);
+    assert.equal(sum, rows[0].slotCount);
+    assert.equal(totals.slots, 1);
+  });
+
+  test('畫出來的那一列指的還是它在來訪裡原本的位置', () => {
+    const { rows } = build([cus('c1', '客戶A')], [TWO()]);
+    assert.equal(rows[0].days[0].slots[0].index, 1);
+  });
+
+  test('未到的段照畫 —— 那一段發生過（人沒來）', () => {
+    const v = visit({
+      status: 'confirmed',
+      slots: [slot({ status: 'no_show' }), slot({ startsAt: '11:00', endsAt: '12:00', status: 'confirmed' })],
+    });
+    const { rows } = build([cus('c1', '客戶A')], [v]);
+    assert.equal(rows[0].slotCount, 2);
+    assert.equal(rows[0].tally.no_show, 1);
+  });
+
+  test('每一段都取消、整筆那個推導值卻還沒跟上：不畫空的一天，那一位算這個月沒有排', () => {
+    const stale = visit({
+      status: 'confirmed',
+      slots: [slot({ status: 'cancelled' }), slot({ startsAt: '11:00', endsAt: '12:00', status: 'cancelled' })],
+    });
+    const { rows, idle } = build([cus('c1', '客戶A')], [stale]);
+    assert.equal(rows.length, 0);
+    assert.deepEqual(idle.map((x) => x.id), ['c1']);
+  });
+
+  test('同一位另一天還有段時，取消光的那一天不算進「N 天」', () => {
+    const gone = visit({ id: 'v2', date: '2026-08-12', status: 'confirmed', slots: [slot({ status: 'cancelled' })] });
+    const { rows } = build([cus('c1', '客戶A')], [visit(), gone]);
+    assert.equal(rows[0].days.length, 1);
+  });
+});

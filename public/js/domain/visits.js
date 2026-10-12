@@ -14,9 +14,13 @@
 import { overlaps, isValidTime, toMinutes } from './visitTime.js';
 import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
-import { isValidDate, daysBetween } from './dates.js';
-import { roomsForCourse, picksDoctor, DOCTOR_ROLE } from './masterData.js';
-import { slotName } from './naming.js';
+import { isValidDate, daysBetween, shortDate } from './dates.js';
+import {
+  roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
+} from './masterData.js';
+// 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
+import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
+import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
   followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
@@ -128,13 +132,38 @@ export function shortStatus(status) {
   return STATUS_VIEW[status]?.short ?? String(status ?? '？');
 }
 
+/**
+ * 一天那一列右邊要印的狀態（客戶詳情「來訪紀錄」，`.scratch/asks-2026-09-24/issues/13`）。
+ *
+ * 整筆那一個是推導的（ADR-0081）：一段已確認、一段未到時它是「已確認」，看起來整天都談定了。
+ * 所以**每一段不一樣時一段一個符號**（跟進度追蹤同一組 `markFor()`）；**全部一樣就印一個字**
+ * （單段那一天、整天都做完 —— 那時候整筆那一個就是事實）。取消的那一段沒有符號，印短字：
+ * 那一列的課程名連取消的那一段也列（`visitCourseLabel()`），少一顆會對不上。
+ *
+ * @returns {{status: string|null, text: string}[]} 照 `visit.slots` 的順序
+ */
+export function dayStatusBadges(visit) {
+  const each = (visit?.slots ?? []).map((slot) => slotStatus(visit, slot));
+  if (new Set(each).size <= 1) {
+    const status = each[0] ?? visit?.status ?? null;
+    return [{ status, text: describeStatus(status) }];
+  }
+  return each.map((status) => ({ status, text: markFor(status) || shortStatus(status) }));
+}
+
 
 // 改期不是改日期，是取消 + 重新排（SPEC 第 7 節規則 10），所以 cancelled 是終點。
 // done 也是終點，要改必須走更正流程（SPEC 第 6.4 節）。
+//
+// **未到只剩一條回頭路：退回去重新結案**（ADR-0111）。她 2026-09-24：「未到可以改成
+// 退回簽療程單之類的，或可以改成其實有到這樣」。`no_show → confirmed` 就是那一條 ——
+// 那一段回到簽療程單的清單上，「其實有到」在那裡打勾。長按選單上它叫「退回簽療程單」，
+// **不叫「客戶說可以」**（那是給還沒問過客人的段的）。
+// `no_show → cancelled` 2026-09-24 拿掉了：人沒來是已經發生的事；真的要取消，先退回再取消。
 const TRANSITIONS = {
   pending_confirm: ['confirmed', 'done', 'no_show', 'cancelled'],
   confirmed: ['done', 'no_show', 'cancelled'],
-  no_show: ['confirmed', 'cancelled'],
+  no_show: ['confirmed'],
   done: [],
   cancelled: [],
 };
@@ -155,6 +184,17 @@ export function canTransition(from, to) {
 /** 已完成的來訪是唯讀鎖定區，要改必須填理由走更正流程。SPEC 第 6.4 節。 */
 export function isLocked(status) {
   return status === 'done';
+}
+
+/**
+ * 她正在改的那一段鎖著嗎。**問那一段，不問整筆**（2026-09-24，`.scratch/asks-2026-09-24/issues/03`）。
+ *
+ * 整筆的狀態是推導的：一段已完成、一段已確認時整筆是已確認 —— 以前問整筆，
+ * 已完成那一段照樣改得動、不用填更正理由；而逐段結案（ADR-0110）之後
+ * 「一天只結一半」是常態。沒指名哪一段（網址那條整天的路）照整筆。
+ */
+export function lockedAt(visit, slotIndex = null) {
+  return isLocked(statusForCard(visit, slotIndex));
 }
 
 /**
@@ -331,6 +371,44 @@ export function withExtraSlot(visit, slot) {
   };
 }
 
+/**
+ * **改期＝取消＋重新排**（SPEC 第 7 節規則 10，ADR-0108）。
+ *
+ * 「改這一段」改了一段**待確認或已確認**的開始時間或課程時：舊那一段標成取消（它在 Abovee
+ * 上壓過，掛過號的話 Examine／耀聖上也有），新的時間接在尾巴一段**待確認**（要再問客人一次）。
+ * 以前是原地改掉，狀態照樣「已確認」，而沒有任何一張待辦叫她回 Abovee 改時間、
+ * 回 Examine／耀聖把舊的號取消（prelaunch-audit-2026-09-23/issues/13）。
+ *
+ * 取消掉的那一段會長「取消 X」、新的那一段談定了會長新的掛號 —— 兩條路都是既有的
+ * （`cancelTasksFor()`、`newRegistrations()`），這一支一條任務規則都不加。
+ * 接在尾巴走 `withExtraSlot()`（段落的位置穩得住，ADR-0091）。
+ *
+ * **只有開始時間與課程算**（器材推出來的課程也是課程）。治療師、醫師、診間、記一句
+ * 不影響外面那幾個系統，原地改（她 2026-09-08：「如果沒有就可以不用提醒」）。
+ * 已完成／未到／已取消的那一段是更正，不是改期。
+ *
+ * **不要改走 `applyStatus(…, 'cancelled', { slotIndex })`**（審查建議過，2026-09-23 實跑過）：
+ * 一天只有一段時它會先把整筆推成「已取消」，接上來的新那一段跟著變成死的。直接標那一段
+ * 再 `withExtraSlot()`，整筆的狀態才會等於 `visitStatusFrom()`（`tests/consequences.test.js` 釘著四種）。
+ *
+ * @param {object} before 存下去之前那一筆
+ * @param {number} index 她改的是哪一段
+ * @param {object} next 那一段改完之後的樣子
+ * @returns {object|null} 要存的那一筆；不用改期就回 null（照原地改）
+ */
+export function rebookSlot(before, index, next) {
+  const old = before?.slots?.[index];
+  if (!old || !next) return null;
+  if (!acceptsMoreSlots(slotStatus(before, old))) return null;
+  if ((old.startsAt ?? null) === (next.startsAt ?? null) && old.courseId === next.courseId) return null;
+
+  const marked = {
+    ...before,
+    slots: before.slots.map((s, i) => (i === index ? { ...s, status: 'cancelled' } : s)),
+  };
+  return withExtraSlot(marked, { ...next, status: INITIAL_STATUS }).visit;
+}
+
 // ---------- 收尾（客人來了沒、療程單簽了沒） ----------
 
 /**
@@ -344,6 +422,9 @@ export function withExtraSlot(visit, slot) {
  * 日子還沒到的不列 —— 客人還沒來就不可能勾。
  * `pending_confirm` 也列：那天已經過了卻還沒問過客人，那更需要收尾。
  *
+ * **一段還開著就還在**（ADR-0110）：她可以先結幾段、其餘留著，整筆那個推導出來的
+ * 狀態會停在已確認（`visitStatusFrom()`）直到最後一段結掉。
+ *
  * @returns {object[]} 日期舊的排前面（拖最久的最上面）
  */
 export function visitsToClose(visits = [], today) {
@@ -351,18 +432,39 @@ export function visitsToClose(visits = [], today) {
     .filter((v) => !v.deletedAt
       && (v.status === 'confirmed' || v.status === 'pending_confirm')
       && isValidDate(v.date)
-      && v.date <= today)
+      && v.date <= today
+      && slotsToClose(v).length)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date)
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
+}
+
+/** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。資料健檢第 33 項也問它。 */
+export const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
+
+/**
+ * 簽療程單那一頁要列哪幾段。**只有還開著的段**（ADR-0110）。
+ *
+ * 她 2026-09-24：「而且我發現已經取消的還可以簽療程單?」—— 以前卡片與抽屜列的是
+ * `visit.slots` 全部：取消掉的、**已經結案的**都在，而且預設「做了」。一天一段已經未到、
+ * 一段還已確認時那天回到清單上，按下去未到那段被蓋成已完成、扣次數。
+ *
+ * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
+ *   呼叫端拿它去組 `closeVisit()` 的 `attended`，重編號的話會記到別段
+ */
+export function slotsToClose(visit) {
+  if (!visit || visit.deletedAt) return [];
+  return (visit.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => isOpenStatus(slotStatus(visit, slot)));
 }
 
 /**
  * 這個課程當天要不要請客人簽療程單。
  *
  * 療程單是**扣掉那一次的憑據** —— 客人事後對次數有疑問時，拿得出來的就是它
- *（`CONTEXT.md`）。所以幾乎每一種都要簽，只有二返不用：那一次是回院聽報告，
- * 沒有療程可以扣（2026-08-23 使用者確認）。
+ *（`CONTEXT.md`）。所以幾乎每一種都要簽。**要不要簽記在課程上**，她關掉的目前是二返
+ *（回院聽報告，沒有療程可以扣，2026-08-23）與功醫門診（2026-10-05）。
  *
  * **認不得的課程當成要簽**，沒有欄位的舊資料也一樣。少簽一張單是實際損失，
  * 多問她一次不是。
@@ -451,17 +553,26 @@ export function visitCourseLabel(visit, master = null) {
  * 2. **指到一個不存在的段落也退回全部。** 畫成空白的話她會以為那一筆壞了，
  *    而畫太多只是回到修好之前的樣子。兩種錯法的代價差很多。
  *
+ * ## 一張待辦的詳情只列它那幾段（2026-09-24，`.scratch/asks-2026-09-24/issues/08`）
+ *
+ * `only` 是一份名單（`todoFlow.js` 的 `taskSlots()`）：沒指名哪一段時，目錄只列名單上那幾段。
+ * 名單是空的、或一段都指不到 → 退回全部（同上面第 2 條）。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot] 要單獨看的那一段，從 0 起算
+ * @param {number[]|null} [only] 目錄只列這幾段
  * @returns {{slots: {slot: object, index: number}[], hidden: number, focused: boolean}}
  *   `hidden` 是「這一天還有幾段沒畫」。**現在沒有人畫它** —— 2026-09-08
  *   那一行連同「看全部」一起拿掉了（她：「純粹且僅呈現該時段課程的資訊」）。
  *   留著是因為它是這一支的答案的一部分：呼叫端問「你只給了我一段嗎」，
  *   `focused` 回是，而 `hidden` 回「另外幾段被收起來了」。
  */
-export function slotsToShow(visit, focusSlot = null) {
+export function slotsToShow(visit, focusSlot = null, only = null) {
   const all = (visit?.slots ?? []).map((slot, index) => ({ slot, index }));
-  const every = { slots: all, hidden: 0, focused: false };
+  const listed = Array.isArray(only) ? all.filter(({ index }) => only.includes(index)) : [];
+  const every = listed.length
+    ? { slots: listed, hidden: all.length - listed.length, focused: false }
+    : { slots: all, hidden: 0, focused: false };
 
   // `Number.isInteger()` 一次擋掉 null、undefined、NaN、'1' 與 1.5
   if (!Number.isInteger(focusSlot)) return every;
@@ -488,13 +599,18 @@ export function slotsToShow(visit, focusSlot = null) {
  * 四個畫面的讀取卡片都走這一支（日曆、客戶詳情、待辦中心、進度追蹤）。
  * 各寫一份的話遲早有一頁把單段那一天畫成一張空目錄。
  *
+ * **一張待辦的詳情**（`only`，issues/08）：名單上剛好一段 → 直接是那一段；兩段以上 → 目錄。
+ *
  * @param {{slots?: object[]}|null} visit
  * @param {number|null} [focusSlot]
+ * @param {number[]|null} [only] 那一張待辦講的是哪幾段（`taskSlots()`）
  * @returns {number|null}
  */
-export function focusFor(visit, focusSlot = null) {
+export function focusFor(visit, focusSlot = null, only = null) {
   const slots = visit?.slots ?? [];
   if (Number.isInteger(focusSlot) && slots[focusSlot]) return focusSlot;
+  const listed = Array.isArray(only) ? only.filter((i) => slots[i]) : [];
+  if (listed.length === 1) return listed[0];
   return slots.length === 1 ? 0 : null;
 }
 
@@ -601,6 +717,8 @@ export function visitStatusFrom(visit) {
  */
 function stampSlot(slot, to) {
   if (to !== 'cancelled' && slot?.status === 'cancelled') return slot;
+  // 退回還開著（未到 → 已確認）時「沒做」那一格一起清掉，同逐段那一條路
+  if (to === 'pending_confirm' || to === 'confirmed') return { ...slot, status: to, attended: null };
   return { ...slot, status: to };
 }
 
@@ -627,6 +745,33 @@ export function visitsToConfirm(visits = [], today) {
 }
 
 /**
+ * 這一筆來訪裡**還沒問過客人**的那幾段，帶著它們在 `visit.slots` 裡的位置。
+ *
+ * 她 2026-09-16：「我這邊確認了某個時段客戶已確認後 待辦那邊的這個時段就可以
+ * 收掉」。日曆上確認得掉單獨一段之後（ADR-0097），那一天還留在
+ * `visitsToConfirm()` 裡是對的 —— 另一段還沒問。要收掉的是待辦那一頁列出來的那幾列。
+ *
+ * **回的是索引不是重編號的陣列。** `applyConfirm()` 把畫面上的 key 換成
+ * `applyConfirmation()` 要的段落編號，而那個編號是對**原本那個陣列**算的 ——
+ * 濾掉之後重編號的話，她點「客人說不行」的會是別段（同 `cancellableSlots()`
+ * 與 `progressDayHtml()` 的 `data-slot`）。
+ */
+export function pendingSlotsOf(visit) {
+  return (visit?.slots ?? [])
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => slotStatus(visit, slot) === 'pending_confirm');
+}
+
+/**
+ * 只留還沒問過的那幾段的一份複本。**只給顯示與訊息用** —— 索引在這裡不成立。
+ * 待辦中心「跟客人確認時間」那一張與客戶詳情的 LINE 確認訊息共用（issues/12）：
+ * 各寫一份的話，一邊只問下午那一段、另一邊連早就談定的早上那一段也問一次。
+ */
+export function asPending(visit) {
+  return { ...visit, slots: pendingSlotsOf(visit).map(({ slot }) => slot) };
+}
+
+/**
  * 客人說「可以」之後，最後成立的是哪幾段。
  *
  * 她按下「確認 N 段，加進日曆」的那一刻是這條動線唯一一次不可逆的寫入
@@ -640,17 +785,26 @@ export function visitsToConfirm(visits = [], today) {
  * 會變成「確認 1 段」按下去、卡片寫「已確認 2 段」；而早就取消掉的那一段
  * 列進來是在說一段不會發生的已經確認了。
  *
+ * **沒按的那幾段不算**（2026-09-24，ADR-0110）：`asked` 給了就只講有按的，其餘數成 `waiting`
+ * （還沒回，留在清單上）。沒給＝每一段都問過了（跟以前一樣）。
+ *
  * @param {object[]} visits 這位客戶還在等回覆的那幾筆（寫入之前的）
  * @param {Set<string>} rejected 被退掉的那幾段，key 是 `${visit.id}:${索引}`
- * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number}}
+ * @param {Set<string>|null} [asked] 有按 ✓ 或 ✗ 的那幾段，key 同上
+ * @returns {{name: string, rows: {date:string, slot:object}[], rejected: number, waiting: number}}
  */
-export function describeConfirmed(visits = [], rejected = new Set()) {
+export function describeConfirmed(visits = [], rejected = new Set(), asked = null) {
   const rows = [];
   let dropped = 0;
+  let waiting = 0;
 
   for (const v of visits ?? []) {
     (v.slots ?? []).forEach((slot, i) => {
       if (slotStatus(v, slot) !== 'pending_confirm') return;
+      if (asked && !asked.has(`${v.id}:${i}`)) {
+        waiting += 1;
+        return;
+      }
       if (rejected.has(`${v.id}:${i}`)) {
         dropped += 1;
         return;
@@ -666,6 +820,7 @@ export function describeConfirmed(visits = [], rejected = new Set()) {
     name: (visits ?? []).find((v) => v.customerName)?.customerName ?? '',
     rows,
     rejected: dropped,
+    waiting,
   };
 }
 
@@ -702,6 +857,20 @@ export function withSlotStatuses(visit) {
     : { ...slot, status: slotStatus(visit, slot) ?? visit?.status ?? INITIAL_STATUS }));
   return { ...visit, slots };
 }
+
+/**
+ * 改狀態之前先把每一段的狀態補齊。**三支轉移的入口都先過這一支**
+ * （`applyStatus()`、`applyConfirmation()`、`closeVisit()`）。
+ *
+ * 她 2026-09-24：「一旦把這段改成客戶以確認 整天的未到還有其他的都會變成客戶已確認？
+ * 但好像只有有時候會這樣？」—— 「有時候」就是時段身上沒有自己 status 的那幾筆
+ * （2026-09-08 之前建、之後沒再存過的）。那時候沒被動到的段靠整筆推，而 `save()`
+ * 補空格是在**改完之後**（`withSlotStatuses()`）：整筆已經被推成已確認了，
+ * 另外兩段就一起被補成已確認。先補再改，補的就是它們原本的樣子。
+ *
+ * 新形狀的資料每一段都有 status，這一支原封不動（`withSlotStatuses()` 只補空的）。
+ */
+const materialize = (visit) => (visit ? withSlotStatuses(visit) : visit);
 
 /**
  * 這一段要顯示哪一句話。**讀法只有這一支。**
@@ -777,26 +946,35 @@ export function withSlotNotes(visit) {
  * @param {object} visit 還在等回覆的那一筆
  * @param {Set<number>} rejected 客人說不行的是第幾段（從 0 起算）
  * @param {string} at ISO 時間
+ * @param {Set<number>|null} [asked] 抽屜上問過的是第幾段。**套在剛讀回來的那一份上時要給**
+ *   （prelaunch-audit-2026-09-23/issues/19）：另一台在抽屜打開之後接在尾巴的那一段
+ *   她沒問過客人，不給的話它會被一起標成談定。沒給＝每一段都問過了
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
-export function applyConfirmation(visit, rejected = new Set(), at = new Date().toISOString()) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
+export function applyConfirmation(
+  visit, rejected = new Set(), at = new Date().toISOString(), asked = null,
+) {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const slots = (materialize(visit)?.slots ?? []).map((slot, i) => {
     // 之前就取消掉的維持取消 —— 確認救不回一個已經定案的決定
     if (slot?.status === 'cancelled') return slot;
+    if (asked && !asked.has(i)) return slot;
     return { ...slot, status: rejected.has(i) ? 'cancelled' : 'confirmed' };
   });
 
+  const status = visitStatusFrom({ ...visit, slots }) ?? visit?.status ?? null;
   const next = {
     ...visit,
     slots,
     // 「禮拜一再問問」是「還在等回覆」那一段的東西。這一筆走出去了就收掉，
     // 留著只會在別的畫面變成一句過期的話。改動留在稽核紀錄裡，沒有真的消失。
-    followupNote: null,
-    followupAt: null,
+    //
+    // **還有段在等時留著**（2026-09-24，ADR-0110）：她可以先確認幾段、其餘還沒回，
+    // 那一句講的正是還沒回的那幾段 —— 以前一定是整批走出去，所以一律清掉。
+    ...(status === 'pending_confirm' ? {} : { followupNote: null, followupAt: null }),
     statusAt: at,
   };
 
-  const status = visitStatusFrom(next) ?? visit?.status ?? null;
   if (status === 'cancelled') {
     return {
       ...next,
@@ -824,34 +1002,49 @@ export function applyConfirmation(visit, rejected = new Set(), at = new Date().t
  * 一次來訪一定至少有一個時段（`validateVisit()` 與 `firestore.rules` 兩層都擋），
  * 所以不會出現「沒有時段可以勾，於是被當成未到」的情況。
  *
+ * ## 一段一段來（2026-09-24，ADR-0110）
+ *
+ * 她：「預設先不結做了打勾未到打叉」。所以 `attended[i]` 只有 `true`／`false` 才動那一段，
+ * **`null` 或沒給＝先不結，一個字都不動**。以前少傳的補成「有做」—— 畫面上沒問到的
+ * 那一段被替她決定了、還扣了次數；現在沒問到的就是沒決定。
+ *
+ * **已經結案或取消的那一段永遠不動**（R2）：一天一段已經未到、一段還已確認時，
+ * 這一支以前會把未到那段蓋成已完成。
+ *
+ * 整筆的狀態走 `visitStatusFrom()` 推：一段做了、一段還開著 → 已確認（那一天留在
+ * 簽療程單的清單上）；全部結掉 → 有一段做了就是已完成，一段都沒做就是未到。
+ *
+ * **帶了 `guard`（這位客戶的額度與全部來訪）就自己擋**（ADR-0145、ADR-0111 的形狀：改狀態的那一支動手前自己問）：
+ * 一場二返／n返接的那一次健檢還沒做完，那一段的 ✓ 當成先不結（`followups.js` 的 `closeBlocks()`）。
+ * 抽屜那一列本來就按不下去；這一道擋的是之後多出來的路。
+ *
  * @param {object} visit
- * @param {boolean[]} attended 逐段：這一段做了沒。長度不足的補成有做 ——
- *   少傳的那幾段是「畫面上沒問到」，當成沒做會無聲扣掉她的次數。
+ * @param {(boolean|null)[]} attended 逐段：`true` 做了、`false` 沒來、`null` 先不結
  * @param {string} at ISO 時間
+ * @param {{entitlements:object[], visits:object[]}|null} [guard]
  */
-export function closeVisit(visit, attended = [], at = new Date().toISOString()) {
-  const slots = (visit?.slots ?? []).map((slot, i) => {
-    // **取消掉的那一段不參與收尾** —— 那天它本來就不會發生（ADR-0081）。
-    // 蓋過去的話它會被算成「沒來」，而未到是會被她看到的一個數字。
-    if (slot?.status === 'cancelled') return slot;
-    const did = attended[i] ?? true;
+export function closeVisit(visit, attended = [], at = new Date().toISOString(), guard = null) {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const base = materialize(visit);
+  const blocked = guard ? closeBlocks(base, attended, guard) : new Map();
+  let touched = false;
+  const slots = (base?.slots ?? []).map((slot, i) => {
+    const did = blocked.has(i) ? null : attended[i];
+    if (did !== true && did !== false) return slot;
+    // 取消的、已經結案的不動 —— 取消掉的那一段那天本來就不會發生（ADR-0081），
+    // 蓋過去的話它會被算成「沒來」
+    if (!isOpenStatus(slotStatus(base, slot))) return slot;
+    touched = true;
     // 兩個欄位一起寫：`attended` 是 ADR-0025 的，既有資料與對帳讀它；
     // `status` 是 ADR-0081 的。少寫一邊就會有一個畫面講另一句話。
     return { ...slot, attended: did, status: did ? 'done' : 'no_show' };
   });
 
-  const live = slots.filter((s) => s?.status !== 'cancelled');
-  // 每一段都先取消掉了才走到這裡：那一天就是取消，不是未到
-  if (!live.length) return { ...visit, slots, status: 'cancelled', statusAt: at };
-
-  const anyAttended = live.some((s) => s.attended);
-
-  return {
-    ...visit,
-    slots,
-    status: anyAttended ? 'done' : 'no_show',
-    statusAt: at,
-  };
+  const next = { ...base, slots };
+  const status = visitStatusFrom(next) ?? base?.status ?? null;
+  if (!touched && status === base?.status) return visit;
+  // 整筆沒變就不蓋時間戳（同 `settle()`）：只結一半時整筆還是已確認，那一刻沒有狀態轉換
+  return status === base?.status ? { ...next, status } : { ...next, status, statusAt: at };
 }
 
 // ---------- 換一個狀態 ----------
@@ -874,8 +1067,10 @@ export function closeVisit(visit, attended = [], at = new Date().toISOString()) 
  * @returns {object} 新的那一筆（原本那一份一個字都不動）
  */
 export function applyStatus(
-  visit, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
+  original, to, { at = new Date().toISOString(), reason = null, slotIndex = null } = {},
 ) {
+  // 動手之前先補齊（`materialize()` 的說明）
+  const visit = materialize(original);
   const slots = visit?.slots ?? [];
 
   // ---------- 只動一段（ADR-0081） ----------
@@ -891,9 +1086,16 @@ export function applyStatus(
   // 她按的是一列，而那一下會取消掉整天。同 `slotsToShow()` 的判斷：
   // 兩種錯法的代價差很多。
   if (Number.isInteger(slotIndex)) {
-    if (!slots[slotIndex]) return visit;
+    // 指到一個不存在的段落、或那一段自己不准這個轉移（狀態機只有這一道門，ADR-0006）：
+    // 什麼都不做
+    if (!slots[slotIndex] || !canTransition(slotStatus(visit, slots[slotIndex]), to)) return original;
+    // 退回簽療程單（未到 → 已確認，ADR-0111）時「沒做」那一格一起清掉 ——
+    // 那一段現在還沒結案，留著 `attended: false` 就是一句過期的話
+    const reopened = (s) => (to === 'pending_confirm' || to === 'confirmed'
+      ? { ...s, status: to, attended: null }
+      : { ...s, status: to });
     return settle(
-      { ...visit, slots: slots.map((s, i) => (i === slotIndex ? { ...s, status: to } : s)) },
+      { ...visit, slots: slots.map((s, i) => (i === slotIndex ? reopened(s) : s)) },
       { at, reason },
     );
   }
@@ -948,53 +1150,39 @@ function settle(visit, { at, reason = null }) {
  *
  * @param {object} visit
  * @param {{today: string}} o
- * @returns {{id:string, label:string, icon?:string, tone?:string}[]}
+ * @returns {{id:string, to?:string, label:string, icon?:string, tone?:string}[]}
+ *   `to` 是那一顆要換成哪一個狀態（改狀態的那幾顆才有）—— 「退回簽療程單」的 id 不是狀態，
+ *   畫面自己對應的話就是第二份清單
  */
 export function visitActions(visit, { today, slotIndex = null } = {}) {
-  const next = nextStatuses(visit?.status);
   const out = [];
 
-  // **她長按的是一列，而一列就是一段**（ADR-0081）。以前這裡有兩顆：
-  // 「取消這一段」與「取消一整天（N 段）」。
-  //
-  // **整天那一顆 2026-09-12 拿掉了**（ADR-0089）。她的原話：「也不要取消
-  // 一整天，畢竟如果我真的要取消一整天，我可以從壓表那邊刪」——
-  // 那條路是批次取消（ADR-0082），而它本來就是為了這件事開的門。
-  //
-  // 所以只剩一顆，而且**不再問「那一天有幾段」**：一天只有一段時，
-  // 取消那一段就是取消那一天（最後一段取消掉時 `settle()` 會把整筆推成
-  // cancelled，`cancelledAt` 與 `released` 都設得對）。少了這一句的話，
-  // 單段那一天會變成一顆取消都沒有。
+  // **她長按的是一列，而一列就是一段**（ADR-0081）。整天那幾顆 2026-09-12 拿掉了
+  // （ADR-0089：「如果我真的要取消一整天，我可以從壓表那邊刪」）。
   const slots = visit?.slots ?? [];
   const one = Number.isInteger(slotIndex) ? slots[slotIndex] : null;
 
-  // **狀態那幾顆問的是她長按的那一段**（ADR-0097）。她 2026-09-16：
-  // 「能不能我那個時段說確認就那個時段確認就好」。
+  // **每一顆都問她長按的那一段**（ADR-0097 起確認這一族，2026-09-24 起全部，ADR-0111）。
+  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），拿它問會答錯：
+  //   - 一段已經談定、另一段還沒問時整筆是「待確認」→ 談定那一段身上長出「客戶說可以」
+  //   - 一段取消、一段已確認、日子過了 → 長按取消的那一段還有「去簽療程單」「改這一段」
+  //     （她 2026-09-24：「而且我發現已經取消的還可以簽療程單?」）
   //
-  // 整筆那個 `status` 是推導出來的（`visitStatusFrom()`），所以拿它問「這一段
-  // 能不能確認」會答錯兩次：一段已經談定、另一段還沒問時整筆是「待確認」，
-  // 於是**談定那一段身上也長出一顆「客戶說可以」**；而一段已完成、另一段還在
-  // 等回覆時整筆也是「待確認」，那一顆會出現在一個 `TRANSITIONS` 不准的轉移上。
+  // **整筆那一層交集 2026-09-24 拿掉了。** 它擋的是「客人做了一段就走的那一天（整筆已完成），
+  // 長按沒做的那一段按下去會把已完成的那一天退回已確認」。現在那一段唯一的一顆是
+  // 「退回簽療程單」而且只動它自己：已完成那一段原封不動、照樣鎖著（`isLocked()` 問那一段），
+  // 次數照樣扣著 —— 那正是她要的「其實有到」的那條路。
   //
   // 認不出是哪一段時退回整筆 —— `visitActions()` 是匯出的，而沒有 `slotIndex`
   // 的呼叫端問的本來就是那一天。
-  //
-  // **兩層都要准**（同 `cancellableSlots()`）：那一段自己准、**整筆也准**。
-  // 只問那一段的話，客人做了一段就走的那一天（一段已完成、一段未到，整筆
-  // 已完成）長按沒做的那一段會長出「客戶說可以」與「取消這一段」——
-  // `no_show` 自己准那兩個轉移，但整筆已經是唯讀鎖定區（SPEC 第 6.4 節），
-  // 按下去會把已完成的那一天退回已確認，而且不用填更正理由。
-  const ownNext = one
-    ? nextStatuses(slotStatus(visit, one)).filter((to) => next.includes(to))
-    : next;
+  const own = one ? slotStatus(visit, one) : visit?.status;
+  const next = nextStatuses(own);
+  const open = isOpenStatus(own);
 
-  // 取消那一顆也走同一份（`nextStatuses('cancelled')` 是空的，所以
-  // 「已經取消掉的那一段不再給」是它自己就答得出來的，不用再比一次 `status`）。
-  const canCancelOne = Boolean(one) && ownNext.includes('cancelled');
-
-  if (ownNext.includes('confirmed')) {
+  if (own === 'pending_confirm') {
     out.push({
       id: 'confirmed',
+      to: 'confirmed',
       label: '客戶說可以',
       note: `改成「${describeStatus('confirmed')}」`,
       icon: 'check',
@@ -1002,10 +1190,24 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     });
   }
 
-  // 日子到了才有。還沒到的那一筆點進去只會看到一張空的收尾抽屜
-  // （`visitsToClose()` 撈的是 `date <= today`）。
-  if (today && typeof visit?.date === 'string' && visit.date <= today
-      && (visit.status === 'pending_confirm' || visit.status === 'confirmed')) {
+  // **未到只剩一條回頭路**（ADR-0111）：退回去重新結案。「其實有到」在簽療程單那邊打勾。
+  // 它寫進去的是 `confirmed`（`TRANSITIONS.no_show`），但**不叫「客戶說可以」**——
+  // 那一天已經過了，她要做的是重新記一次那一段有沒有做，不是再問一次客人。
+  // 那一段**不一定問過客人**（從沒確認過就在簽療程單按了 ✗ 的也是未到）—— 所以退回之後
+  // 不長掛號待辦是日期那一道擋的（`registrationClosed()`，ADR-0113），不是靠「早就掛過了」。
+  if (own === 'no_show' && next.includes('confirmed')) {
+    out.push({
+      id: 'reopen',
+      to: 'confirmed',
+      label: '退回簽療程單',
+      note: '重新記這一段有沒有來',
+      icon: 'todo',
+    });
+  }
+
+  // 日子到了、而且**那一段還開著**才有。還沒到的點進去只會看到一張空的收尾抽屜
+  // （`visitsToClose()` 撈的是 `date <= today`）；已經結案或取消的那一段在抽屜上本來就不列。
+  if (today && typeof visit?.date === 'string' && visit.date <= today && open) {
     out.push({
       id: 'close',
       label: '客人來了，去簽療程單',
@@ -1014,17 +1216,18 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
     });
   }
 
-  if (!isLocked(visit?.status) && visit?.status !== 'cancelled' && one) {
-    // **改得動的只有一段**（ADR-0089）。以前沒帶 slotIndex 時這一顆是
-    // 「改這一天」，開的是整天那一張（日期、狀態卡、刪除）——
-    // 那一張 2026-09-12 整個收掉了，所以認不出是哪一段時就不給這一顆。
+  // **改得動的只有一段**（ADR-0089），而且那一段要還開著。已完成那一段鎖著
+  // （SPEC 第 6.4 節，要改走讀取卡片的鉛筆＋更正理由）；取消的是終點；未到先退回。
+  if (one && open) {
     out.push({ id: 'edit', label: '改這一段', icon: 'pencil' });
   }
 
-  // 最常按的在最上面（這一支既有的規矩）：她點的就是這一段
-  if (canCancelOne) {
+  // 一天只有一段時照樣給 —— 取消那一段就是取消那一天（`settle()` 會把整筆推成
+  // cancelled）。少了這一顆，單段那一天會一顆取消都沒有。
+  if (one && canCancelSlot(visit, slotIndex)) {
     out.push({
       id: 'cancel-slot',
+      to: 'cancelled',
       label: '取消這一段',
       // 那一天只有一段時就別說「剩下的」—— 沒有剩下的。
       // **走 `liveSlots()`**：「哪幾段還算數」全站只有那一支（`isLiveSlot()` 的
@@ -1049,18 +1252,31 @@ export function visitActions(visit, { today, slotIndex = null } = {}) {
  *
  *   整筆   `canTransition(visit.status, 'cancelled')` —— 已完成、未到、
  *          已取消的那一天已經發生過了，不給
- *   逐段   已經取消掉的那一段不再給（ADR-0081：那是終點）
+ *   逐段   **那一段自己還開著**（待確認／已確認）。取消的是終點（ADR-0081）；
+ *          已完成、未到的是已經發生的事 —— 整天已確認裡面一段已經未到的，
+ *          2026-09-24 之前會出現在這一頁的清單上（ADR-0111）
  *
  * @returns {{slot: object, index: number}[]} 帶著**原本那一格的索引** ——
  *   呼叫端拿它去 `applyStatus(v, 'cancelled', { slotIndex })`，
  *   濾掉之後重編號的話會取消到別段。
  */
 export function cancellableSlots(visit) {
-  if (!visit || visit.deletedAt) return [];
-  if (!canTransition(visit.status, 'cancelled')) return [];
-  return (visit.slots ?? [])
+  return (visit?.slots ?? [])
     .map((slot, index) => ({ slot, index }))
-    .filter(({ slot }) => isLiveSlot(slot));
+    .filter(({ index }) => canCancelSlot(visit, index));
+}
+
+/**
+ * 這一段現在取消得掉嗎。**批次取消、長按選單、來訪編輯器那顆 × 都問這一支**，
+ * `applyStatus()` 自己也問一次（Rules 不擋狀態機，ADR-0006）。
+ *
+ * 審查抓到的：未到那一段從編輯器的 × 還取消得掉 —— 那顆 × 只問「是不是已經取消了」，
+ * 而 `applyStatus()` 以前不看轉移准不准（ADR-0111：人沒來是已經發生的事）。
+ */
+export function canCancelSlot(visit, index) {
+  const slot = visit?.slots?.[index];
+  if (!slot || visit.deletedAt) return false;
+  return canTransition(visit.status, 'cancelled') && canTransition(slotStatus(visit, slot), 'cancelled');
 }
 
 /**
@@ -1127,6 +1343,26 @@ export const picksEquipment = (entitlement, course) =>
   entitlement?.type === 'pool' || Boolean(course?.requiresEquipment);
 
 /**
+ * **換了額度之後，那一段的器材是哪一台**（2026-10-07，verified-bugs issues/02）。
+ *
+ * - 新的額度的擇一池只有一台 → 就是那一台（單買一台的 `復能-SIS(60)`；她沒有別的可以選）
+ * - 上一台剛好也在新的池裡 → 留著（三選一 ↔ 四選一，她選的那一台還是對的）
+ * - 其餘 → `null`，她重選。不是擇一池的額度一律 `null`
+ *
+ * 來訪編輯器（`readDraft()`、`blankSlot()`）與拍 Abovee（`pickOption()`）共用。以前編輯器照讀器材那一排的舊值：
+ * 先點三選一 → INDIBA、再點單台 SIS，抬頭還寫 IN(60)、SIS 沒選上、存檔被擋而畫面上已經看不到 INDIBA。
+ *
+ * **壓表不走這一支**（照舊清掉，`resetCourseBoundPicks()`）：那一頁的丸子再點一次是**取消選取**，
+ * 先替她選好的話，她照習慣點那一台反而把它點掉。
+ */
+export function equipmentAfterSwitch(entitlement, previousId = null) {
+  if (entitlement?.type !== 'pool') return null;
+  const pool = entitlement.optionEquipmentIds ?? [];
+  if (pool.length === 1) return pool[0];
+  return previousId && pool.includes(previousId) ? previousId : null;
+}
+
+/**
  * 這一段在畫面上要不要印診間。
  *
  * 她 2026-09-08 把健檢、體適能、身體組成、營養諮詢、門診與二返六個課程改成
@@ -1167,7 +1403,14 @@ function minutesOrNull(v) {
  * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
  * 那邊要多一個時間」。
  *
- * 順序是 **品項 → 額度 → 課程 → 60**，而品項排在額度前面是刻意的：
+ * 順序是 **這一段選的 → 品項 → 額度 → 課程 → 60**。
+ *
+ * **最前面那一層是 2026-10-05 加的**（ADR-0122）：二返與 n返 約的時候選 30 或 60。
+ * 它只在**那門課有 `bookingMinutes`、而且值在裡面**時才算數 —— 復能是買的時候分的
+ * （兩筆不同的額度），一段復能(30) 身上帶著一個 `minutes: 60` 也不可以蓋過額度。
+ * 沒有這一格的舊資料照舊走後面那幾層，`endsAt` 一個都不會變。
+ *
+ * 品項排在額度前面是刻意的：
  * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
  * 是 `entitlementDoc()`（匯入）與 `buy.js`（加購）建額度時抄課程預設值抄進去的。
  * 排在後面的話，改了主檔既有額度照樣是舊的那個數字，而她看不出為什麼。
@@ -1178,16 +1421,38 @@ function minutesOrNull(v) {
  *
  * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
  * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
+ * 匯入與補登沒有「這一段選了幾分」這個資訊，不傳 `minutes` —— 那幾段照預設。
  *
- * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null}} o
+ * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null,
+ *          minutes?: number|string|null}} o `minutes` 是這一段她選的（`slot.minutes`，或畫面上那一排）
  * @returns {number} 分鐘
  */
-export function slotMinutes({ entitlement = null, course = null, ivProduct = null } = {}) {
+export function slotMinutes({
+  entitlement = null, course = null, ivProduct = null, minutes = null,
+} = {}) {
+  const picked = minutesOrNull(minutes);
+  const fromPick = picked != null && bookingMinutesOf(course).includes(picked) ? picked : null;
   const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
-  return fromProduct
+  return fromPick
+    ?? fromProduct
     ?? minutesOrNull(entitlement?.durationMin)
     ?? minutesOrNull(course?.durationMin)
     ?? 60;
+}
+
+/**
+ * 要存進時段的那一格 `minutes`（ADR-0122）：**這門課約的時候可以選、而且這一段算出來的
+ * 那個數字在名單上**才存，其餘是 `null`。
+ *
+ * 存的是「這一段現在多長」而不是「她有沒有動那一排」：沒動的話就是預設那一顆（二返 30），
+ * 打開編輯器時那一顆是按著的。**組時段與讀表單都走這一支** —— 一邊存一邊不存的話，
+ * 同一段從壓表記的沒有這一格、從日曆改過一次就有了。
+ */
+export function slotMinutesField(o = {}) {
+  const choices = bookingMinutesOf(o.course);
+  if (!choices.length) return null;
+  const n = slotMinutes(o);
+  return choices.includes(n) ? n : null;
 }
 
 /**
@@ -1269,9 +1534,28 @@ export function validateVisit(visit, ctx) {
   };
 }
 
+/**
+ * 提醒與錯誤裡那一段**預設**叫什麼：它在要存的那一筆裡的位置。
+ *
+ * 畫面上列的不一定是整筆（2026-10-07，verified-bugs issues/07）：日曆新增時那一天原本的段刻意不列（ADR-0083）、
+ * 壓表只有她正在加的那一段、「改這一段」只有她點的那一段（ADR-0085）—— 畫面上只有一段卻寫「第 2 個時段」。
+ * 所以呼叫端可以在 `ctx.slotLabel` 自己說每一段叫什麼（`(i) => '這一段'`）；不說就是這一支，一個字都不變。
+ * 「畫面上是哪幾段」只有呼叫端知道，這一支檔案不猜。
+ */
+const defaultSlotLabel = (i) => `第 ${i + 1} 個時段`;
+
+/**
+ * 一段**不在畫面上**（或沒有編號可以指）時怎麼叫它：`09:00 的 SIS(60)`。
+ * 給 `ctx.slotLabel` 用 —— 「跟 09:00 的 SIS(60) 時間重疊」她看得懂，「第 1 與第 3 個時段時間重疊」指到一段看不到的。
+ */
+export function slotSay(slot, master = {}) {
+  const name = slotName(slot ?? {}, master, 'short');
+  return [isValidTime(slot?.startsAt) ? `${slot.startsAt} 的` : '', name].filter(Boolean).join(' ') || '那一段';
+}
+
 function visitErrors(visit, {
   customer, courses = [], equipment = [], entitlements = [], ivProducts = [], staff = [],
-  customerVisits = [],
+  customerVisits = [], slotLabel = defaultSlotLabel,
 }) {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
@@ -1292,9 +1576,11 @@ function visitErrors(visit, {
   // 哪幾筆額度是健檢。n返 指到的那一筆來訪要靠它驗（判斷跟
   // `domain/followups.js` 走同一條路：課程主檔上設了 followupCourseId 的）。
   const examIds = examEntitlementIds(entitlements, coursesById);
+  // 存著的那一份（改既有的一天時才有）—— 二返的連結是新接上的、還是本來就在，靠它分（issues/11）
+  const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
-    const at = `第 ${i + 1} 個時段`;
+    const at = slotLabel(i);
 
     const ent = entsById[slot.entitlementId];
 
@@ -1303,9 +1589,13 @@ function visitErrors(visit, {
     //
     // 反過來也要擋：帶著 `followupNth` **又**指了一筆額度，那一段會同時
     // 被算進那筆額度的次數、又被畫成一場 n返。兩種身分只能挑一種。
+    //
+    // **不算次數的課是第二種**（ADR-0121）：課程主檔上勾了「不算次數」，沒有額度也放行。
+    // 它**可以**不用額度，不是**不准**有 —— 有額度的那一段照舊扣、照舊驗（她之後會自己
+    // 勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     if (!slot.entitlementId) {
-      if (!nth) errors.push(`${at}：要選一個額度`);
+      if (!nth && !isUncounted(coursesById[slot.courseId])) errors.push(`${at}：要選一個額度`);
     } else if (nth) {
       errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
     } else if (!ent) {
@@ -1371,14 +1661,15 @@ function visitErrors(visit, {
       const doctor = staffById[slot.doctorId];
       if (!doctor) errors.push(`${at}：指定的醫師不存在或已刪除`);
       else if (doctor.role !== DOCTOR_ROLE) {
-        errors.push(`${at}：${doctor.name} 不是醫師，是${doctor.role ?? '別的角色'}`);
+        errors.push(`${at}：${fullNameOf(doctor)} 不是醫師，是${doctor.role ?? '別的角色'}`);
       }
     }
 
     // 擇一池的次數是共用的，選了池外的器材就會扣到不屬於它的東西上
     if (ent?.type === 'pool' && slot.equipmentId
         && !(ent.optionEquipmentIds ?? []).includes(slot.equipmentId)) {
-      errors.push(`${at}：這個器材不在「${ent.label}」的擇一池裡`);
+      // 講出是哪一台：畫面上那一排列的是池裡的器材，池外的那一台她看不到
+      errors.push(`${at}：${equipById[slot.equipmentId]?.name ?? '這個器材'} 不在「${ent.label}」的擇一池裡`);
     }
 
     // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
@@ -1386,17 +1677,49 @@ function visitErrors(visit, {
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
     if (slot.followupForVisitId) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
+      // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
+      // 兩種都要是**同一種段**（同一筆二返額度，或都是 n返）。以前問「存著的那一份這一天有沒有任何一段指著它」：
+      // 取消掉的段、n返 都算，那一天再加一場接同一次的二返時底下兩道都跳過（10/9 審查）
+      const was = stored?.slots ?? [];
+      const same = (s) => s?.followupForVisitId === slot.followupForVisitId
+        && (s.entitlementId ?? null) === (slot.entitlementId ?? null);
+      const carried = same(was[i]) || was.some((s, j) => j !== i && same(s)
+        && slotStatus(stored, s) !== 'cancelled' && slots[j] && slotStatus(visit, slots[j]) === 'cancelled');
       if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
       // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
       // 試算表會把二返註記寫到一個不相干的日期底下。
       else if (ent?.followupForEntitlementId
           && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
-        errors.push(`${at}：指定的那一筆來訪裡沒有「${ent.label}」對應的健檢`);
+        errors.push(`${at}：指定的那一天裡沒有「${ent.label}」對應的健檢`);
       }
-      // n返 沒有額度可以比，所以改問「那一筆是不是一次已完成的健檢」。
-      // 沒做完的健檢沒有報告可以再聽一次（同二返的 `examChoicesFor()`）。
-      else if (nth && !(exam.status === 'done' && isExamVisit(exam, examIds))) {
-        errors.push(`${at}：指定的那一筆不是一次已完成的健檢`);
+      // n返 沒有額度可以比，所以改問「那一筆是不是一次健檢」—— 每一次都驗（那是資料對不對）。
+      else if (nth && !isExamVisit(exam, examIds)) {
+        errors.push(`${at}：指定的那一天沒有健檢`);
+      }
+      // 接得上哪幾次跟二返同一條（`PICKABLE_EXAM`，ADR-0145：排著的與做完的；以前只准做完的）、
+      // **也只驗新接上的連結**：以前 n返 每一次都驗，放寬之後健檢被取消，那一天別段改一個字都存不回去。
+      // 狀態問健檢那一段（`examStatusIn()`，ADR-0112）—— 跟候選清單同一支，不然列得出來的存不下去
+      else if (nth && !carried && !PICKABLE_EXAM.has(examStatusIn(exam, examIds))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, examIds))}」，不會有報告`);
+      }
+      // **二返接得上排著的與做完的健檢，取消、未到的接不上**（ADR-0145；9/24 起只准已完成，issues/11）——
+      // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
+      // **只擋這一次新接上、或換過的連結**（`carried`）：那一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
+      // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去
+      else if (ent?.followupForEntitlementId && !carried
+          && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
+      }
+      // **一次健檢配一場二返**（ADR-0022：額度成對、次數一樣）—— 以前只靠畫面那一排把被佔走的那一顆關掉，
+      // 而壓表那一排讀的來訪只到目標月份月底：佔走它的那一場約在更後面時那一顆照樣按得下去。
+      // 這裡拿全部來訪驗（`customerVisits`），只驗新接上的（兩場本來就接同一次的是舊資料，資料健檢列）
+      else if (ent?.followupForEntitlementId && !carried) {
+        const by = followupHolding(slot.followupForVisitId, ent.id, visit, i, customerVisits);
+        if (by) {
+          errors.push(`${at}：指定的那一次健檢已經接了 ${isValidDate(by.date) ? shortDate(by.date) : '另一天'} 那一場${course?.name ?? '二返'}`
+            + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
+        }
       }
     } else if (nth) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
@@ -1410,17 +1733,74 @@ function visitErrors(visit, {
   return errors;
 }
 
+/**
+ * 那一次健檢已經被**別場活著的二返**接走了嗎（`holdsExam()`：取消、未到的不算）。別筆來訪問 `claimedExams()`，
+ * 同一筆裡別段自己看（同一天兩段二返接同一次是同一件事）。正在驗的這一筆在 `customerVisits` 裡的舊版本不算。
+ *
+ * @returns {object|null} 接走它的那一筆來訪
+ */
+function followupHolding(examVisitId, followupEntitlementId, visit, index, customerVisits) {
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const elsewhere = claimedExams(followupEntitlementId, others).get(examVisitId);
+  if (elsewhere) return elsewhere;
+  const here = (visit.slots ?? []).some((s, j) => j !== index && s?.entitlementId === followupEntitlementId
+    && s.followupForVisitId === examVisitId && holdsExam(visit, s));
+  return here ? visit : null;
+}
+
+/**
+ * 存檔前的提醒。**只講還算數的段**（2026-10-05 她答應修的：改期之後舊那一段已經取消，
+ * 第一道確認還在跳「第 1 個時段：二返 還沒選醫師」）—— 取消掉的那一段不會發生，
+ * 它還沒選醫師、跟新的那一段重疊、撞到別人都不是事。每一圈自己跳過，**編號照原本的位置**
+ *（濾掉再編號就指錯了）。那一段在訊息裡叫什麼走 `ctx.slotLabel`（見 `defaultSlotLabel`）。
+ */
 function visitWarnings(visit, ctx) {
+  return warningDetails(visit, ctx).map((w) => w.text);
+}
+
+/**
+ * 同一份提醒，每一句多帶兩件事：**它從哪一圈來**（`source`）、**講的是哪幾段**（`slots`，那一筆來訪裡的位置）。
+ * `validateVisit().warnings` 就是這一份的 `text`，順序一樣 —— 句子只有一份（prelaunch-fixes/12，ADR-0138）。
+ *
+ * 拍 Abovee 的確認層一列一段、預設收著：它要知道哪一句是哪一列的、哪幾句不點開也要看得到（`mustSee()`）。
+ * **照來源分，不比字眼** —— 句子改了字，分類不會跟著壞。
+ *
+ * | source | 那一圈 |
+ * |---|---|
+ * | `notice` | 選到的那一台對這位客戶的警示要注意（ADR-0074）|
+ * | `overlap` | 同一筆裡自己跟自己重疊 |
+ * | `entitlement` | 排完會超過總次數、排在到期之後（講的是用到那一筆額度的每一段）|
+ * | `ivMismatch` | 品項跟買的不一樣 |
+ * | `assign` | 還沒選／不需要醫師、診間、治療師；一般排在別間；二返還沒接到健檢 |
+ * | `nth` | 同一次健檢底下已經有同樣的返數 |
+ * | `conflict` | 跟那一天別的來訪撞診間、治療師、同一位客戶（ADR-0094、0133）|
+ * | `frequency` | 每季一次那種限制（講的是那門課的每一段）|
+ *
+ * @returns {{text: string, source: string, slots: number[]}[]}
+ */
+export function warningDetails(visit, ctx) {
+  const from = (source, list) => list.map((w) => ({ text: w.text, source: w.source ?? source, slots: w.slots }));
   return [
-    ...equipmentNoticeWarnings(visit, ctx),
-    ...overlapWarnings(visit),
-    ...entitlementWarnings(visit, ctx),
-    ...assignmentWarnings(visit, ctx),
-    ...nthWarnings(visit, ctx),
-    ...conflictWarnings(visit, ctx),
-    ...frequencyWarnings(visit, ctx),
+    ...from('notice', equipmentNoticeWarnings(visit, ctx)),
+    ...from('overlap', overlapWarnings(visit, ctx)),
+    ...from('entitlement', entitlementWarnings(visit, ctx)),
+    ...from('assign', assignmentWarnings(visit, ctx)),
+    ...from('nth', nthWarnings(visit, ctx)),
+    ...from('conflict', conflictWarnings(visit, ctx)),
+    ...from('frequency', frequencyWarnings(visit, ctx)),
   ];
 }
+
+/**
+ * **會改變寫入結果的提醒** —— 收在要點開才看得到的地方就等於沒講（`CLAUDE.md`「畫面上一段常駐的說明」的紅線）：
+ * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪。
+ *
+ * 其餘照舊點開才看：「還沒選治療師／診間／醫師」那一類幾乎每一列都有（合併檔匯進來的、服務資源認不出來的），
+ * 全部攤開等於把真的要看的淹掉（她 2026-09-10：「非常占版面…會視覺疲勞」）。
+ * 哪幾種算只寫在這裡；畫面與確認框讀同一份。
+ */
+const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict']);
+export const mustSee = (warning) => MUST_SEE.has(warning?.source);
 
 /**
  * 選到的那一台對這位客戶要提醒。
@@ -1433,10 +1813,11 @@ function visitWarnings(visit, ctx) {
  * 她那天說「只要儀器不要在金屬的上方或附近」就做得了，而那件事 app 看不到。
  * 見 ADR-0074。
  */
-function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
+function equipmentNoticeWarnings(visit, { customer, equipment = [], slotLabel = defaultSlotLabel }) {
   const equipById = byId(equipment);
   return equipmentNotices(customer, visit.slots ?? [], equipById)
-    .map((n) => `第 ${n.slotIndex + 1} 個時段：${n.message}`);
+    .filter((n) => isLiveSlot(visit.slots[n.slotIndex]))
+    .map((n) => ({ text: `${slotLabel(n.slotIndex)}：${n.message}`, slots: [n.slotIndex] }));
 }
 
 /**
@@ -1446,19 +1827,19 @@ function equipmentNoticeWarnings(visit, { customer, equipment = [] }) {
  * 那兩筆會同時存在一下下；她也可能真的要在同一次健檢底下約兩場三返
  * （客人第一場沒來，重約一場）。擋下來的話她會卡在一個存不進去的畫面上。
  */
-function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
+function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel = defaultSlotLabel }) {
   const out = [];
   const second = secondFollowupIds(entitlements);
   const others = (customerVisits ?? []).filter((v) => v.id !== visit.id);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const nth = nthOf(slot);
-    if (!nth || !slot.followupForVisitId) return;
+    if (!nth || !slot.followupForVisitId || !isLiveSlot(slot)) return;
 
     const same = followupsOfExam(slot.followupForVisitId, others, second)
       .filter((f) => f.nth === nth);
     if (same.length) {
-      out.push(`第 ${i + 1} 個時段：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`);
+      out.push({ text: `${slotLabel(i)}：這一次健檢的${nthLabel(nth)}已經約在 ${same[0].visit.date} 了`, slots: [i] });
     }
   });
 
@@ -1466,13 +1847,21 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [] }) {
 }
 
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
-function overlapWarnings(visit) {
+function overlapWarnings(visit, { slotLabel = null } = {}) {
   const out = [];
-  const slots = (visit.slots ?? []).filter((s) => isValidTime(s.startsAt) && isValidTime(s.endsAt));
+  // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
+  const slots = (visit.slots ?? []).map((s, at) => ({ s, at }))
+    .filter(({ s }) => isLiveSlot(s) && isValidTime(s.startsAt) && isValidTime(s.endsAt));
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
-      if (overlaps(slots[i], slots[j])) {
-        out.push(`第 ${i + 1} 與第 ${j + 1} 個時段時間重疊`);
+      if (overlaps(slots[i].s, slots[j].s)) {
+        // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟 這一段 時間重疊」）；沒給就照舊那一句
+        out.push({
+          text: slotLabel
+            ? `${slotLabel(slots[i].at)} 跟 ${slotLabel(slots[j].at)} 時間重疊`
+            : `第 ${slots[i].at + 1} 與第 ${slots[j].at + 1} 個時段時間重疊`,
+          slots: [slots[i].at, slots[j].at],
+        });
       }
     }
   }
@@ -1490,17 +1879,19 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
   for (const slot of visit.slots ?? []) {
     const ent = entsById[slot.entitlementId];
-    if (!ent || used.has(ent.id)) continue;
+    if (!ent || used.has(ent.id) || !isLiveSlot(slot)) continue;
     used.add(ent.id);
+    // 這兩句講的是那一筆額度，不是哪一段 —— 用到它、還算數的每一段都算（`warningDetails()`）
+    const slots = (visit.slots ?? []).map((s, i) => (s.entitlementId === ent.id && isLiveSlot(s) ? i : -1)).filter((i) => i >= 0);
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
-      out.push(`「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`);
+      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots });
     }
 
     if (ent.expiresAt && isValidDate(ent.expiresAt) && isValidDate(visit.date)
         && daysBetween(ent.expiresAt, visit.date) > 0) {
-      out.push(`「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`);
+      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots });
     }
   }
 
@@ -1509,57 +1900,67 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
 /** 該指派的沒指派、指派了不該指派的、診間不在課程允許的範圍內。 */
 function assignmentWarnings(visit, {
-  courses = [], rooms = [], entitlements = [], ivProducts = [],
+  courses = [], rooms = [], entitlements = [], ivProducts = [], customerVisits = [],
+  slotLabel = defaultSlotLabel,
 }) {
-  const out = [];
+  const found = [];
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
   const ivById = byId(ivProducts);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
-    if (!course) return;
-    const at = `第 ${i + 1} 個時段`;
+    if (!course || !isLiveSlot(slot)) return;
+    const at = slotLabel(i);
+    // 這一圈每一句都是這一段的（`warningDetails()` 要知道是哪一段）；品項那一句自己另算一種來源
+    const say = (text, source) => found.push({ text, slots: [i], ...(source ? { source } : {}) });
 
     // 二返沒指到健檢。**只提醒不擋** —— 舊資料一筆都沒有這個欄位（ADR-0011 的
     // 同一條原則），而且她可能就是還沒決定要接哪一次。
     // 「這一段是二返嗎」看額度上的 `followupForEntitlementId`，不看課程名字。
-    if (entsById[slot.entitlementId]?.followupForEntitlementId && !slot.followupForVisitId) {
-      out.push(`${at}：${course.name} 還沒指定是哪一次健檢的`);
+    const followup = entsById[slot.entitlementId];
+    if (followup?.followupForEntitlementId && !slot.followupForVisitId) {
+      say(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
+    // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
+    const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
+    if (ahead) say(`${at}：${nthLabel(nthOf(slot)) ?? course.name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
-    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（A 類一律選得到，
-    // 其餘看課程上的旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
+    // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
+    // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
     // 而症狀是「壓表選得到、來訪編輯器說不需要」。
     //
     // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
     if (picksDoctor(course) && !slot.doctorId) {
-      out.push(`${at}：${course.name} 還沒選醫師`);
+      say(`${at}：${course.name} 還沒選醫師`);
     }
     if (!picksDoctor(course) && slot.doctorId) {
-      out.push(`${at}：${course.name} 不需要指定醫師`);
+      say(`${at}：${course.name} 不需要指定醫師`);
     }
 
     if (course.assigns === 'room') {
-      if (!slot.roomId) out.push(`${at}：${course.name} 還沒選診間`);
+      if (!slot.roomId) say(`${at}：${course.name} 還沒選診間`);
       else {
         const allowed = roomsForCourse(course, rooms);
-        if (allowed.length && !allowed.some((r) => r.id === slot.roomId)) {
-          out.push(
+        // **停用的那一間不是「別間」**（ADR-0127）：問的是它的類型排不排得進這門課（`roomFitsCourse()`），
+        // 不是它還選不選得到 —— 點滴8 停用之後照舊是點滴室。刪掉的那一間主檔上沒有了，照舊算別間
+        const mine = (rooms ?? []).find((r) => r.id === slot.roomId && !r.deletedAt) ?? null;
+        if (allowed.length && !allowed.some((r) => r.id === slot.roomId) && !roomFitsCourse(course, mine)) {
+          say(
             `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
           );
         }
       }
-      if (slot.therapistId) out.push(`${at}：${course.name} 不需要指派治療師`);
+      if (slot.therapistId) say(`${at}：${course.name} 不需要指派治療師`);
     }
 
     if (course.assigns === 'therapist') {
-      if (!slot.therapistId) out.push(`${at}：${course.name} 還沒選治療師`);
-      if (slot.roomId) out.push(`${at}：${course.name} 不佔診間`);
+      if (!slot.therapistId) say(`${at}：${course.name} 還沒選治療師`);
+      if (slot.roomId) say(`${at}：${course.name} 不佔診間`);
     }
 
     if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
-      out.push(`${at}：${course.name} 不需要診間也不需要治療師`);
+      say(`${at}：${course.name} 不需要診間也不需要治療師`);
     }
 
     // 排的品項不是她買的那一款。2026-09-04 她問的：「我營養點滴如果一開始
@@ -1574,11 +1975,62 @@ function assignmentWarnings(visit, {
     const bought = entsById[slot.entitlementId]?.ivProductId ?? null;
     if (bought && slot.ivProductId && slot.ivProductId !== bought) {
       const name = ivById[bought]?.name ?? '（已刪除的品項）';
-      out.push(`${at}：這一段的品項跟買的不一樣（買的是 ${name}）`);
+      // 跟「還沒選治療師」不是同一種：這一句會改變扣到哪一款（`mustSee()`）
+      say(`${at}：這一段的品項跟買的不一樣（買的是 ${name}）`, 'ivMismatch');
     }
   });
 
-  return out;
+  return found;
+}
+
+/**
+ * 這一段（二返或 n返）排在它接的那一次健檢**之前**嗎（ADR-0145）。別天比日期，同一天比開始時間（健檢那一段還活著的第一段）。
+ * 二返問它配的那一筆健檢、n返 問每一筆健檢額度。認不出的（接的那一次不在手上、日期壞了）就不講。
+ *
+ * @returns {object|null} 接的那一次健檢（排在它之前時）
+ */
+function examAfter(visit, slot, { customerVisits = [], entitlements = [], coursesById = {} }) {
+  const exam = slot.followupForVisitId === visit.id ? visit
+    : (customerVisits ?? []).find((v) => v && !v.deletedAt && v.id === slot.followupForVisitId) ?? null;
+  if (!exam || !isValidDate(exam.date) || !isValidDate(visit.date)) return null;
+  if (exam.date !== visit.date) return exam.date > visit.date ? exam : null;
+  const ent = (entitlements ?? []).find((e) => e.id === slot.entitlementId);
+  const sources = ent?.followupForEntitlementId ? new Set([ent.followupForEntitlementId]) : examEntitlementIds(entitlements, coursesById);
+  const first = (exam.slots ?? []).find((s) => sources.has(s?.entitlementId) && isLiveSlot(s) && isValidTime(s.startsAt));
+  return first && isValidTime(slot.startsAt) && toMinutes(slot.startsAt) < toMinutes(first.startsAt) ? exam : null;
+}
+
+/**
+ * 一段二返沒接到健檢時，那一句的後半 —— **講得出為什麼**（2026-10-07，verified-bugs issues/01）。
+ *
+ * 她 2026-10-07：「排定二返時：在日曆／壓表存檔時，若沒有連結到已完成的健檢就觸發。+僅提醒，仍可繼續操作」。
+ * 提醒本來就有，但一律是「還沒指定是哪一次健檢的」—— 同一天排健檢＋二返時，「這是哪一次健檢的」那一排
+ * 一顆都按不下去（當天那一次還沒做完），她看到這一句會以為是自己漏按，也看不出之後簽療程單照樣扣一次二返。
+ * 2026-10-09 起排著的健檢也按得下去（ADR-0145），選不到的理由只剩：還沒存的這一筆、都被別場佔走、只有取消或沒來的、一次都沒約過。
+ *
+ * **有哪幾次、各是什麼狀態問 `examChoicesFor()`** —— 三個入口那一排丸子就是它畫的，
+ * 這裡自己再判一次的話丸子說「已完成」而這一句說「還沒做完」。
+ * **她正在存的這一筆也算進去**：`customerVisits` 是存檔前讀回來的，同一筆裡剛加的那一段健檢還不在裡面。
+ *
+ * 後果那半句是真的會發生的事（ADR-0070）：結案扣的是二返那一筆額度，不問它接到健檢了沒。
+ * **只對還開著的段講** —— 已完成、未到的舊二返（匯入的沒有連結）被解鎖更正、或同一天改別段時，
+ * 「簽療程單時照樣會扣」是一件已經過去的事。配對的那一筆健檢額度查不到時不猜原因，退回原本那一句。
+ */
+function unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, name) {
+  const source = entsById[followup.followupForEntitlementId] ?? null;
+  if (!source) return '還沒指定是哪一次健檢的';
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit.id);
+  const choices = examChoicesFor({ source, followup }, [...others, visit], { excludeVisitId: visit.id });
+
+  // 排著的也按得下去了（ADR-0145）。**還沒存的這一筆選不到**（沒有 id）：同一筆裡剛加的那一段健檢要先存好
+  if (choices.some((c) => c.pickable && c.visitId)) return '還沒指定是哪一次健檢的';
+
+  let why = '這位客戶還沒有約過健檢';
+  if (choices.some((c) => !c.visitId && PICKABLE_EXAM.has(c.status))) why = '這一天的健檢存好之後才接得上';
+  else if (choices.some((c) => c.taken)) why = `接得上的健檢都已經約了${name}`;
+  else if (choices.length) why = '約過的健檢都取消或沒來';
+  const open = ['pending_confirm', 'confirmed'].includes(slotStatus(visit, slot));
+  return `還沒接到健檢 —— ${why}${open ? `。可以先記；客人來了簽療程單時照樣會扣一次${name}` : ''}`;
 }
 
 /**
@@ -1587,15 +2039,24 @@ function assignmentWarnings(visit, {
  *
  * **醫師刻意不比。** 她看不到醫師的班表（那在 Abovee 上），
  * 用看不到的資料去提示只會提示錯 —— ADR-0002 的同一條判準。
+ *
+ * **同一位客戶自己的另一筆來訪也比**（ADR-0133，2026-10-07）：不同診間、不同治療師也講一句。
+ * 資料健檢的「衝突殘留」（`checkConflicts()`）刻意不列這一種 —— 那是允許的排法，列了就是一列按不掉的提醒。
  */
-function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] }) {
-  const out = [];
+function conflictWarnings(visit, {
+  sameDayVisits = [], rooms = [], staff = [], courses = [], equipment = [], ivProducts = [],
+  slotLabel = defaultSlotLabel,
+}) {
+  const found = [];
+  const master = { courses, equipment, ivProducts };
   const roomName = (id) => rooms.find((r) => r.id === id)?.name ?? '某診間';
-  const staffName = (id) => staff.find((s) => s.id === id)?.name ?? '某治療師';
+  const staffName = (id) => fullNameOf(staff.find((s) => s.id === id)) || '某治療師';
 
   for (const [i, slot] of (visit.slots ?? []).entries()) {
-    if (!isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
-    const at = `第 ${i + 1} 個時段`;
+    if (!isLiveSlot(slot) || !isValidTime(slot.startsAt) || !isValidTime(slot.endsAt)) continue;
+    const at = slotLabel(i);
+    // 這一圈每一句都是這一段的（`warningDetails()`）
+    const say = (text) => found.push({ text, slots: [i] });
 
     // 那一天別人排的、跟這一段撞在一起的每一格
     const clashes = [];
@@ -1609,6 +2070,9 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
       }
     }
     if (!clashes.length) continue;
+
+    // 這一格已經被底下哪一句講過了。同一位客戶那一句只補**沒講過的**（ADR-0133）
+    const said = new Set();
 
     const whoOf = ({ other }) => (other.customerId === visit.customerId
       ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
@@ -1628,7 +2092,9 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
       const capacity = roomCapacityOf(room);
       if (inRoom.length + 1 > capacity) {
         const names = [...new Set(inRoom.map(whoOf))].join('、');
-        out.push(capacity > 1
+        // 裝得下好幾位的那一間把每一位都點名；只裝一位的只講第一格
+        for (const c of (capacity > 1 ? inRoom : inRoom.slice(0, 1))) said.add(c);
+        say(capacity > 1
           ? `${at}：${roomName(slot.roomId)} ${slot.startsAt}–${slot.endsAt} 這個時間`
             + `已經有 ${inRoom.length} 位（最多 ${capacity} 位）：${names}`
           : `${at}：${roomName(slot.roomId)} ${inRoom[0].theirs.startsAt}–`
@@ -1640,15 +2106,34 @@ function conflictWarnings(visit, { sameDayVisits = [], rooms = [], staff = [] })
     if (slot.therapistId) {
       for (const c of clashes) {
         if (c.theirs.therapistId !== slot.therapistId) continue;
-        out.push(
+        said.add(c);
+        say(
           `${at}：${staffName(slot.therapistId)} ${c.theirs.startsAt}–${c.theirs.endsAt} `
           + `已經排了 ${whoOf(c)}`,
         );
       }
     }
+
+    // ---------- 同一位客戶：一個人同一個時間排了兩段（ADR-0133） ----------
+    //
+    // 她 2026-10-07：「同一位客戶同一天時間撞在一起是有可能發生的，只是很少見，所以不用擋，但要提醒
+    // （也許會在同個診間一隻手打針一隻手做eecp之類的 但我通常不會這樣排）」。
+    //
+    // 那一天已完成之後再加一段會另開一筆來訪（ADR-0083），所以這兩段不在同一筆裡 ——
+    // `overlapWarnings()` 只比同一筆，上面兩句只在同診間／同治療師時講。兩段都不佔診間
+    // 也不派治療師時（功醫門診），以前一句都沒有。
+    //
+    // **上面已經因為這一格講過話的不再講**：同一件事不出兩句（那是我方的建議，她回「照你的建議」）。
+    for (const c of clashes) {
+      if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
+      say(
+        `${at}：這位客戶 ${c.theirs.startsAt}–${c.theirs.endsAt} 已經有另一段`
+        + `（${slotName(c.theirs, master, 'short')}・${shortStatus(slotStatus(c.other, c.theirs))}）`,
+      );
+    }
   }
 
-  return out;
+  return found;
 }
 
 /**
@@ -1679,19 +2164,22 @@ function frequencyWarnings(visit, { courses = [], entitlements = [], customerVis
     const course = coursesById[slot.courseId];
     const ent = entsById[slot.entitlementId];
     const rule = ent?.frequencyRule ?? course?.frequencyRule;
-    if (!rule || !course || seen.has(course.id)) continue;
+    if (!rule || !course || seen.has(course.id) || !isLiveSlot(slot)) continue;
     seen.add(course.id);
 
     const previous = customerVisits
       .filter((v) => v.id !== visit.id && isActive(v) && isValidDate(v.date) && v.date < visit.date)
-      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id))
+      // 「上次」是真的做了的那一次：那一天取消掉的那一段不算
+      .filter((v) => (v.slots ?? []).some((s) => s.courseId === course.id && isLiveSlot(s)))
       .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 
     if (!previous) continue;
-    out.push(
-      `${course.name} 有「${rule}」的限制，上次是 ${previous.date}，`
-      + `距這次 ${daysBetween(previous.date, visit.date)} 天`,
-    );
+    out.push({
+      text: `${course.name} 有「${rule}」的限制，上次是 ${previous.date}，`
+        + `距這次 ${daysBetween(previous.date, visit.date)} 天`,
+      // 講的是那門課，不是哪一段 —— 那門課還算數的每一段都算
+      slots: (visit.slots ?? []).map((s, i) => (s.courseId === course.id && isLiveSlot(s) ? i : -1)).filter((i) => i >= 0),
+    });
   }
 
   return out;

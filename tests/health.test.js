@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { runHealthCheck, healthBadge, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
+import { runHealthCheck, CHECKS, SEVERITIES } from '../public/js/domain/health.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const TODAY = '2026-09-15';
@@ -27,7 +27,7 @@ const MASTER = {
   ],
   rooms: [{ id: 'r-3', name: '治3' }],
   staff: [{ id: 's-1', name: '治療師甲' }],
-  equipment: [{ id: 'eq-indiba', name: 'INDIBA', shortName: 'IN' }],
+  equipment: [{ id: 'eq-indiba', name: 'INDIBA', shortName: 'IN', aboveeNames: ['IN'] }],
   ivProducts: [{ id: 'iv-1', name: '護肝排毒' }, { id: 'iv-2', name: '美白' }],
 };
 
@@ -157,7 +157,7 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
     assert.ok(trial, 'EECP體驗 要列得出來');
     assert.equal(trial.fix.kind, 'addCourse');
     assert.equal(trial.fix.data.name, 'EECP體驗');
-    assert.equal(trial.fix.data.durationMin, 30);
+    assert.equal(trial.fix.data.durationMin, 20);
     assert.equal(trial.fix.data.active, true);
     assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
   });
@@ -189,10 +189,109 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
   });
 });
 
+// 加購換課程時把上一門的時長帶了過來（course-form-and-sheet-2026-10-06 的 issue 15）。修好之前存下去的那幾筆
+// 分不出是她自己設的還是帶過來的，所以只列不修。
+describe('額度上記著的時長跟課程不一樣', () => {
+  const single = (over = {}) => ent({
+    id: 'e-s', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 1, ...over,
+  });
+  const timed = { id: 'c-ilib', name: 'ILIB', durationMin: 60, durationChoices: [30, 60] };
+  const found = (entitlements, master = MASTER) => findingsOf(run({ entitlements, master }), 'entitlementMinutes');
+
+  test('健檢的額度記著 60、課程是 120 → 列出來，兩個數字都講，沒有按鈕', () => {
+    const rows = found([single({ durationMin: 60 })]);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /客戶一・健檢/);
+    assert.match(rows[0].detail, /60 分/);
+    assert.match(rows[0].detail, /120 分/);
+    assert.equal(rows[0].fix, null, '分不出是她自己設的還是帶過來的 —— 不可以有按鈕');
+    assert.equal(rows[0].severity, 'attention');
+  });
+
+  test('跟課程一樣、或那一格是空的 → 不列', () => {
+    assert.deepEqual(found([single({ durationMin: 120 }), single({ id: 'e-2', durationMin: null })]), []);
+  });
+
+  test('營養點滴不列 —— 排的時候品項的時長排在額度前面，那一格是建額度時抄的舊數字', () => {
+    assert.deepEqual(found([single({ label: '營養點滴', courseId: 'c-iv', durationMin: 120 })]), []);
+  });
+
+  test('有「買的時候可選」的課：名單上有的不列，名單上沒有的列', () => {
+    const master = { ...MASTER, courses: [...MASTER.courses, timed] };
+    assert.deepEqual(found([single({ label: 'ILIB(30)', courseId: 'c-ilib', durationMin: 30 })], master), []);
+    const rows = found([single({ label: 'ILIB', courseId: 'c-ilib', durationMin: 90 })], master);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].detail, /90 分/);
+    assert.match(rows[0].detail, /30／60/);
+  });
+
+  test('擇一池、營養品、已刪除的、找不到課程的都不列', () => {
+    assert.deepEqual(found([
+      ent({ durationMin: 45 }),
+      single({ id: 'e-p', type: 'product', courseId: null, durationMin: 45 }),
+      single({ id: 'e-d', durationMin: 60, deletedAt: '2026-09-01' }),
+      single({ id: 'e-x', courseId: 'c-gone', durationMin: 60 }),
+    ]), []);
+  });
+});
+
+// 照錯的時長排出去的那幾段（course-form-and-sheet-2026-10-06 的 issue 20）。她 2026-10-06：「排錯長度的舊來訪要不要多一列資料健檢：要」。
+// 第 32 項列額度；照那個數字排出去的段結束時間已經存下去了，不會自己變長。**只列不修**（ADR-0056：來訪改得動的地方只有日曆）
+describe('照錯的時長排出去的那幾段', () => {
+  const exam = (over = {}) => ent({
+    id: 'e-x', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 1, durationMin: 60, ...over,
+  });
+  const examSlot = (over = {}) => slot({
+    entitlementId: 'e-x', courseId: 'c-checkup', equipmentId: null, therapistId: null,
+    startsAt: '09:00', endsAt: '10:00', status: 'confirmed', ...over,
+  });
+  const found = ({ entitlements = [exam()], slots = [examSlot()], status = 'confirmed' } = {}) => findingsOf(run({
+    entitlements, visits: [visit({ date: '2026-09-20', status, slots })],
+  }), 'slotMinutes');
+
+  test('健檢額度記著 60、一段已確認的健檢排成 09:00–10:00 → 列，講排了 60、應該是 120，沒有按鈕', () => {
+    const rows = found();
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].title, /客戶一/);
+    assert.match(rows[0].title, /09:00–10:00/);
+    assert.match(rows[0].detail, /排了 60 分/);
+    assert.match(rows[0].detail, /應該是 120 分/);
+    assert.match(rows[0].detail, /改這一段/);
+    // 審查查到的：她在「進階設定」自己設 60 的那一筆照它排出去的段也長這樣 —— 分不出來，所以同第 32 項講一句
+    assert.match(rows[0].detail, /是你自己設的就不用理它/);
+    assert.equal(rows[0].fix, null);
+    assert.equal(rows[0].severity, 'attention');
+  });
+
+  test('待確認的也列', () => {
+    assert.equal(found({ slots: [examSlot({ status: 'pending_confirm' })], status: 'pending_confirm' }).length, 1);
+  });
+
+  test('已完成（鎖著，改不了）、取消的 → 不列', () => {
+    assert.deepEqual(found({ slots: [examSlot({ status: 'done' })], status: 'done' }), []);
+    assert.deepEqual(found({ slots: [examSlot({ status: 'cancelled' })], status: 'cancelled' }), []);
+  });
+
+  test('那一段自己選了「排多久」→ 不列（那是她選的）；長度不是 60（她在日曆改過）→ 不列', () => {
+    assert.deepEqual(found({ slots: [examSlot({ minutes: 60 })] }), []);
+    assert.deepEqual(found({ slots: [examSlot({ endsAt: '10:30' })] }), []);
+  });
+
+  test('額度沒問題（空的或跟課程一樣）→ 一段都不列', () => {
+    assert.deepEqual(found({ entitlements: [exam({ durationMin: null })] }), []);
+    assert.deepEqual(found({ entitlements: [exam({ durationMin: 120 })], slots: [examSlot({ endsAt: '11:00' })] }), []);
+  });
+
+  test('營養點滴不看（同第 32 項：品項排在額度前面）', () => {
+    const iv = exam({ id: 'e-iv', label: '營養點滴', courseId: 'c-iv', durationMin: 120 });
+    assert.deepEqual(found({ entitlements: [iv], slots: [examSlot({ entitlementId: 'e-iv', courseId: 'c-iv', endsAt: '11:00' })] }), []);
+  });
+});
+
 describe('形狀', () => {
-  test('二十八項檢查都在，順序固定', () => {
+  test('三十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 28);
+    assert.equal(result.checks.length, 35);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -207,7 +306,6 @@ describe('形狀', () => {
       }],
     });
     assert.equal(result.totals.findings, 0, JSON.stringify(result.checks, null, 2));
-    assert.equal(healthBadge(result), null);
   });
 
   test('沒有資料也不會爆，也不會憑空報東西', () => {
@@ -758,7 +856,7 @@ describe('資料過期', () => {
 });
 
 describe('摘要', () => {
-  test('兩種嚴重度分開數，徽章講人話', () => {
+  test('兩種嚴重度分開數', () => {
     const result = run({
       entitlements: [ent({ doneCount: 5 })],
       tasks: [task({ visitId: null, done: false, dueDate: '2026-09-01' })],
@@ -769,7 +867,6 @@ describe('摘要', () => {
     });
     assert.equal(result.totals.mismatch, 1);
     assert.equal(result.totals.attention, 1);
-    assert.equal(healthBadge(result), '1 筆資料對不起來・1 筆要處理');
   });
 });
 
@@ -1315,15 +1412,16 @@ describe('診間清單跟建議的不一樣', () => {
   });
 
   test('新清單上沒有的那幾間列出來，而且刪得掉', () => {
-    const withOld = [...SEED.rooms, { id: 'room-t7', name: '治7', type: '治療室' }];
+    // 治7 2026-10-05 回到清單上了（ADR-0124，`tests/master-catch-up.test.js`）；治9／治10／ILIB4 照舊
+    const withOld = [...SEED.rooms, { id: 'room-t9', name: '治9', type: '治療室' }];
     const [f] = go(withOld);
-    assert.equal(f.title, '治7');
+    assert.equal(f.title, '治9');
     assert.equal(f.fix.mode, 'drop');
-    assert.equal(f.fix.roomId, 'room-t7');
+    assert.equal(f.fix.roomId, 'room-t9');
   });
 
   test('她把那一間改名拿去當別的用了就不動', () => {
-    const renamed = [...SEED.rooms, { id: 'room-t7', name: '儲藏室', type: '治療室' }];
+    const renamed = [...SEED.rooms, { id: 'room-t9', name: '儲藏室', type: '治療室' }];
     assert.deepEqual(go(renamed), []);
   });
 
@@ -1609,5 +1707,55 @@ describe('衝突殘留：取消掉的那一段不算', () => {
     };
     assert.deepEqual(runHealthCheck(snapshot({ visits: [mine, theirs] }), TODAY)
       .checks.find((c) => c.id === 'conflicts').findings, []);
+  });
+});
+
+// ---------- 二返接的健檢對不上、同一次健檢接了兩場二返（ADR-0145，只列不修）----------
+
+describe('二返接的健檢對不上（ADR-0145）', () => {
+  const ents = [
+    ent({ id: 'e-exam', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),
+    ent({ id: 'e-fu', type: 'single', label: '二返', courseId: 'c-followup', totalQty: 2, followupForEntitlementId: 'e-exam' }),
+  ];
+  const exam = (id, date, status) => visit({ id, date, status, slots: [{
+    entitlementId: 'e-exam', courseId: 'c-checkup', startsAt: '09:00', endsAt: '11:00', status }] });
+  const second = (id, date, status, to) => visit({ id, date, status, slots: [{
+    entitlementId: 'e-fu', courseId: 'c-followup', courseName: '二返', startsAt: '14:00', endsAt: '14:30', status, followupForVisitId: to }] });
+  const links = (visits) => findingsOf(run({ entitlements: ents, visits }), 'followupLinks');
+  const doubles = (visits) => findingsOf(run({ entitlements: ents, visits }), 'followupDouble');
+
+  test('接在取消、未到的健檢上：列出來、講兩天、只列不修、帶是哪一位', () => {
+    for (const st of ['cancelled', 'no_show']) {
+      const [f, ...rest] = links([exam('B', '2026-10-01', st), second('F', '2026-10-24', 'confirmed', 'B')]);
+      assert.deepEqual(rest, [], st);
+      assert.equal(f.fix, null);
+      assert.equal(f.whoId, 'cus-1');
+      assert.match(f.detail, /2026-10-01/);
+      assert.match(f.title, /2026-10-24/);
+    }
+  });
+
+  test('退回簽療程單之後（健檢回到已確認）那一列自己消失', () => {
+    assert.deepEqual(links([exam('B', '2026-10-01', 'confirmed'), second('F', '2026-10-24', 'confirmed', 'B')]), []);
+  });
+
+  test('二返已經做了、接的那一次還沒做完：也列', () => {
+    const [f] = links([exam('B', '2026-10-30', 'confirmed'), second('F', '2026-10-24', 'done', 'B')]);
+    assert.match(f.detail, /還沒做完/);
+  });
+
+  test('二返自己取消了、沒連結的舊資料：一列都不多', () => {
+    assert.deepEqual(links([exam('B', '2026-10-01', 'cancelled'), second('F', '2026-10-24', 'cancelled', 'B')]), []);
+    assert.deepEqual(links([exam('B', '2026-10-01', 'cancelled'), second('F', '2026-10-24', 'confirmed', null)]), []);
+  });
+
+  test('同一次健檢接了兩場活著的二返：列出來；其中一場取消就消失', () => {
+    const B = exam('B', '2026-10-01', 'done');
+    const [f, ...rest] = doubles([B, second('F1', '2026-10-24', 'confirmed', 'B'), second('F2', '2026-11-05', 'confirmed', 'B')]);
+    assert.deepEqual(rest, []);
+    assert.equal(f.fix, null);
+    assert.match(f.detail, /2026-10-24/);
+    assert.match(f.detail, /2026-11-05/);
+    assert.deepEqual(doubles([B, second('F1', '2026-10-24', 'confirmed', 'B'), second('F2', '2026-11-05', 'cancelled', 'B')]), []);
   });
 });

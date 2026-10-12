@@ -39,6 +39,22 @@ export async function list() {
 
 export const get = (id) => repo.getOne(PATH, id);
 export const update = (id, changes) => repo.update(PATH, id, changes);
+
+/**
+ * 改基本資料，**連同要跟著換名字的那幾份快照**（`domain/customers.js` 的 `renameTargets()`，
+ * prelaunch-audit-2026-09-23/issues/09）。同一個 commit：不會出現「客戶改好了、日曆還是舊名字」。
+ *
+ * 一個 commit 最多 250 筆（Firestore 一批 500 個寫入，每筆連稽核兩個），一次切 240 筆留一點餘裕
+ * —— 一位客戶的快照多過那個數字才分批，
+ * 分批的那一次給不出復原（`repo.withUndo()` 自己會判斷）。
+ */
+export async function updateWithSnapshots(id, changes, targets = []) {
+  const ops = [
+    { op: 'update', path: PATH, id, changes },
+    ...targets.map((t) => ({ op: 'update', path: t.path, id: t.id, changes: { customerName: changes.name } })),
+  ];
+  for (let i = 0; i < ops.length; i += 240) await repo.commit(ops.slice(i, i + 240));
+}
 export const remove = (id, reason) => repo.softDelete(PATH, id, reason);
 export const restore = (id) => repo.restore(PATH, id);
 

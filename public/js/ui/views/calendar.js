@@ -28,17 +28,19 @@ import * as notesData from '../../data/notes.js';
 import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
+import { nameHas } from '../../domain/customers.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
 import {
   VIEWS, VIEW_LABELS, WEEKDAY_HEADERS,
-  rangeOf, moveBy, titleOf, weekDays, weekStart, weekOfMonth, monthWeeks, agendaFor, summaryByDate, monthBars,
+  rangeOf, moveBy, titleOf, newItemDate, weekDays, weekStart, weekOfMonth, monthWeeks, agendaFor, summaryByDate, monthBars,
 } from '../../domain/calendar.js';
 import { layoutMonth, dayEvents, countByDate, describeCategory, spanLabel } from '../../domain/events.js';
 import { givableBags } from '../../domain/products.js';
+import { chargesEntitlement } from '../../domain/entitlements.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
-  slotNoteOf,
+  slotNoteOf, liveSlots,
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
@@ -46,8 +48,10 @@ import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js'
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { slotName, nameOf } from '../../domain/naming.js';
+import { clinicalTerms } from '../../domain/masterData.js';
 import * as note from '../components/note.js';
 import { hintHtml } from '../components/playbookHint.js';
+import * as flagsUi from '../components/flags.js';
 import { playbooksForVisit } from '../../domain/playbook.js';
 import { mirrorHtml, fillMirror } from '../components/taskMirror.js';
 import { cancelConsequences } from '../../domain/consequences.js';
@@ -57,6 +61,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
+import { leaveFor, whenSettled } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 
@@ -64,7 +69,9 @@ import { tip } from '../components/tip.js';
 // day 是「剛剛打開過哪一天」，關掉面板之後那一格還會標著 —— 她才知道自己看到哪裡。
 // `data` 是最後一次畫出來的那一份。長按改完狀態之後要重讀再把同一天重開 ——
 // 而 `openDay()` 需要一份新的資料（ADR-0020：她的下一個動作八成是看同一天的別筆）。
-const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null };
+// `openDay`：開著的那一天抽屜（`{ date, refresh }`，`openDay()` 設、那一張關掉時清）。比的是物件本身
+// 不是日期 —— 抽屜收起來的動畫播完才叫 `onClose`，那時候同一天的新抽屜可能已經開了。
+const state = { view: 'month', date: null, day: null, hidden: new Set(), fab: false, data: null, openDay: null };
 
 /**
  * 從別的畫面指定「進日曆時停在哪一天」（那一格標著）。拍 Abovee 那一層的「對不上」連過來用
@@ -105,6 +112,11 @@ export async function render(el) {
     return;
   }
   paint(el, result.value);
+  // **重畫的時候那一天的抽屜還開著**（按了 toast 上的「復原」→ `router.reload()`、
+  // 讀取卡片收掉時）：抽屜手上那一份 `data` 是打開那一刻傳進去的，不換掉的話長按選單
+  // 還以為那一段是復原之前的樣子（prelaunch-audit-2026-09-23/issues/10）。
+  // 就地換、就地重畫 —— 不收掉重開（那會重播滑上來的動畫、捲回最上面，也會蓋掉她正在填的表單）
+  state.openDay?.refresh(state.data);
 }
 
 /**
@@ -116,7 +128,7 @@ async function load() {
   const to = rangeOf(state.view, moveBy(state.view, state.date, 1));
   try {
     const [visits, events, notes, rooms, staff, courses, equipment, ivProducts,
-      playbooks, customers] =
+      playbooks, customers, clinicalFlags] =
       await Promise.all([
       visitsData.listBetween(from.from, to.to),
       eventsData.listInRange(from.from, to.to),
@@ -143,6 +155,10 @@ async function load() {
       // 那一塊會在卡片畫好之後才跳出來，看起來像壞掉。
       // 讀不到就當沒有：那一塊不畫就是了（`playbooksFor()` 的退路）。
       customersData.list().catch(() => []),
+      // 警示主檔：讀取卡片最上面那一排（`visitReadHtml()`）。**跟客戶同一趟拿** ——
+      // 日曆是她最常點開卡片的地方，等 `fillMirror()` 補讀回來才畫的話那一排會晚一拍跳出來、把底下往下推。
+      // 讀不到就當沒有：那一排不畫，`fillMirror()` 補讀時還會再試一次
+      config.listAll('clinicalFlags').catch(() => []),
     ]);
     return {
       ok: true,
@@ -158,6 +174,7 @@ async function load() {
         // 並存不是重複：那一張回答「這個 id 是誰」，這一份回答「怎麼唸」。
         master: { courses, equipment, ivProducts },
         customersById: Object.fromEntries(customers.map((c) => [c.id, c])),
+        clinicalFlags,
       },
     };
   } catch (err) {
@@ -272,8 +289,10 @@ function countLine(data, date) {
   // **取消的不算。** 這一行回答的是「那段時間有幾件事要做」，而取消的那一筆
   // 已經沒事要做了 —— 算進去會讓她以為那幾天排滿了（ADR-0061）。
   // 它們照樣畫得出來（月檢視的色條、抽屜裡暗掉的那一列），只是不算數。
-  const visits = shows('visit')
-    ? data.visits.filter((v) => inRange(v.date) && isActive(v)).length
+  // **數段不數筆**（ADR-0135）：一天裡取消的那一段也不算（`liveSlots()`）
+  const slots = shows('visit')
+    ? data.visits.filter((v) => inRange(v.date) && isActive(v))
+      .reduce((n, v) => n + liveSlots(v).length, 0)
     : 0;
   const events = data.events.filter(
     (e) => shows(e.category) && e.startDate <= range.to && e.endDate >= range.from,
@@ -282,7 +301,7 @@ function countLine(data, date) {
     ? (data.notes ?? []).filter((n) => inRange(n.date)).length
     : 0;
   const parts = [];
-  if (visits) parts.push(`${visits} 筆來訪`);
+  if (slots) parts.push(`${slots} 段來訪`);
   if (notes) parts.push(`${notes} 件待辦`);
   if (events) parts.push(`${events} 筆行事備註`);
   return parts.join('・') || '這段時間沒有東西';
@@ -377,9 +396,10 @@ function weekHtml(data, date, today) {
           : [];
         const { allDay, timed } = dayEvents(data.events.filter((e) => shows(e.category)), d);
         const todos = notesOn(data, d);
-        // `summaryByDate()` 已經濾掉取消的，所以這個數字天生就不含它們 ——
-        // 跟頂端那一行講同一句話（ADR-0061）。
-        const total = (day?.visits ?? 0) + (eventCounts[d] ?? 0) + todos.length;
+        // ＝底下**沒被劃掉的列數**（ADR-0135）：還算數的段＋行事備註＋待辦。取消的段畫成灰的、
+        // 不算（ADR-0061，`summaryByDate()` 的 `slots` 已經濾掉）；勾掉的待辦照算 —— 那一列還在。
+        // 三種混在一起，所以單位寫「項」。
+        const total = (day?.slots ?? 0) + (eventCounts[d] ?? 0) + todos.length;
         const weekend = [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
         // 一天一段，段裡面是跟日檢視一模一樣的列。卡片留在「一天」這一層
@@ -401,7 +421,7 @@ function weekHtml(data, date, today) {
                 /* 七欄時「週」字收掉（`.weekday__pre`）：`10/12 週一` 在九十幾像素裡會斷行 */''
               }<span class="weekday__pre">週</span>${weekdayLabel(d)}</span>
               <span class="app__spacer"></span>
-              <span class="num muted">${total ? `${total} 筆` : ''}</span>
+              <span class="num muted">${total ? `${total} 項` : ''}</span>
             </button>
 
             ${pinned || timeline ? `
@@ -532,13 +552,14 @@ function dayHtml(data, date, today) {
   // 走空狀態 —— 有了 `includeCancelled` 之後 `merged` 本來就非空。
   // （用「還算數的那幾筆」去問會把 ADR-0061 做反：畫面又變回什麼都沒有。）
   if (!merged.length && !allDay.length && !todos.length) {
-    return '<p class="muted" style="margin: 0">這天還沒有東西。</p>';
+    return '<p class="muted" style="margin: 0" data-daylist>這天還沒有東西。</p>';
   }
 
   const pinned = [...todos.map(noteLine), ...allDay.map(eventLine)].join('');
 
+  // `data-daylist`：抽屜現在畫的是這一天的清單（不是被編輯器接走了），見 `openDay()` 的 `refresh()`
   return `
-    <div class="timeline">
+    <div class="timeline" data-daylist>
       ${pinned}
       ${pinned && merged.length ? '<hr class="timeline__split" />' : ''}
       ${merged.map((item) => (item.kind === 'visit'
@@ -733,9 +754,21 @@ function openDay(el, data, date) {
     // 空的那一天要講的那句話搬進 dayHtml() 的空狀態裡。
     body: dayHtml(data, date, today),
     tools: addMenuHtml(),
-    onClose: closeCard,
+    onClose: () => {
+      if (state.openDay === mine) state.openDay = null;
+      closeCard();
+    },
     onMount: wireRows,
   });
+  const mine = {
+    date,
+    refresh(fresh) {
+      data = fresh;
+      // 抽屜被編輯器接走了（點一筆 → 鉛筆）就不重畫 —— 蓋掉的會是她正在填的表單
+      if (sheet.el.querySelector('[data-daylist]')) repaint();
+    },
+  };
+  state.openDay = mine;
 
   /**
    * 那一天就地重畫。**讀的是抽屜手上那一份 `data`**，不是 `state.data`
@@ -903,7 +936,8 @@ function openDetail(el, data, hit, date, repaint) {
 
   // SOP 那一塊**只浮她點的那一段的**（2026-09-12）。整天那一張一份都不浮 ——
   // 那一張只是目錄：只列那幾段讓她點，待辦與 SOP 都等她點進去才出現。
-  const paint = () => visitReadHtml(visit, { ...data, ...extra, tasks, focusSlot: focus })
+  // `customer`：手上那一份先畫（警示那一排不用等），`fillMirror()` 補讀回來的在 `extra` 裡、蓋過它
+  const paint = () => visitReadHtml(visit, { ...data, customer, ...extra, tasks, focusSlot: focus })
     + (Number.isInteger(focus)
       ? hintHtml({ playbooks: data.playbooks ?? [], visit, customer, focusSlot: focus })
       : '');
@@ -1116,7 +1150,36 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   if (action === 'close') {
     // 收尾是**逐段**的（ADR-0025：客人做了兩段就走是會發生的事，而次數就是
     // 跟著它扣的）。所以這一顆不自己標，通到待辦中心那張逐段的抽屜。
+    //
+    // **直接開她長按的那一天**（2026-10-07，verified-bugs issues/13）：以前只換頁，她要在清單裡
+    // 再找一次那個人。長按選單收掉時排了一趟 `history.go()`，等它回來再換頁 —— 不然那一趟晚到，
+    // 會把換頁退掉、或把那一頁剛開的抽屜收掉（`whenSettled()`）
+    leaveFor('todo/close', visit.id);
+    await whenSettled();
     go('/todo/close');
+    return;
+  }
+
+  // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
+  //
+  // **套在剛讀回來的那一份上，不是抽屜手上那一份**（prelaunch-audit-2026-09-23/issues/19）：
+  // 另一台在抽屜打開之後加的段接在尾巴（ADR-0091），`slotIndex` 指的還是同一段，
+  // 而整筆寫回去時那一段才不會被蓋掉。**套之前再問一次准不准** —— 那一段在
+  // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
+  // 在確認框**之前**讀：確認框講的後果與真的寫下去的是同一份（ADR-0070）；
+  // 框開著的那幾秒被別台搶先，`ifUpdatedAt` 會擋下來、底下重讀。
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listByCustomer(visit.customerId);
+  } catch (err) {
+    toast.failed(`讀不到最新的資料：${err.message}`);
+    return;
+  }
+  const fresh = customerVisits.find((v) => v.id === visit.id);
+  const picked = fresh && visitActions(fresh, { today: todayISO(), slotIndex }).find((i) => i.id === action);
+  if (!picked) {
+    toast.info(`${Number.isInteger(slotIndex) ? '這一段' : '這一天'}剛剛在別的地方改過了，換成最新的樣子`);
+    await refreshAfterAction(el, backDate);
     return;
   }
 
@@ -1137,7 +1200,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 讀不到就少講那兩句，不要擋住她取消（同 `confirmUntick()` 的判斷）。
     let tasks = [];
     try {
-      tasks = await tasksData.listByVisit(visit.id);
+      tasks = await tasksData.listByVisitForSync(visit.id);
     } catch {
       /* 少講兩句，不擋 */
     }
@@ -1145,12 +1208,16 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     // 整天狀態卡上，而那一塊整個拿掉了 —— 不搬的話 `cancelReason` 會變成
     // 一個再也沒有人寫得進去的欄位，稽核紀錄上從此只看得到「取消了」。
     const said = await confirmWithReason({
-      title: `取消${visit.customerName ?? ''}這一段？`,
+      title: `取消${fresh.customerName ?? ''}這一段？`,
       consequences: cancelConsequences({
-        visit,
+        visit: fresh,
         coursesById: data.coursesById ?? {},
         tasks,
         slotIndex,
+        // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+        customerVisits,
+        // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
+        chain: await visitsData.chainInputs(fresh.customerId, data.coursesById ?? {}),
       }),
       confirmLabel: '取消這一段',
       danger: true,
@@ -1161,8 +1228,6 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   }
 
   try {
-    // `save()` 要這位客戶的全部來訪才算得出額度的計數（`recount()`）。
-    const customerVisits = await visitsData.listByCustomer(visit.customerId);
     // **每一顆都只動她長按的那一段**（ADR-0097）。2026-09-16 之前只有取消
     // 那一條帶了 `slotIndex`，於是「客戶說可以」走下面那一行、
     // `applyStatus()` 的整天分支把那一天每一段都蓋成已確認 —— 她的原話：
@@ -1170,7 +1235,11 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
     //
     // 認不出是哪一段時退回整筆：`visitActions()` 在那時候給的本來就只有
     // 不必挑段的那幾顆。
-    const next = applyStatus(visit, onlyOne ? 'cancelled' : action, {
+    //
+    // 要換成哪一個狀態**由那一顆自己帶著**（`visitActions()` 的 `to`）——「退回簽療程單」
+    // 寫進去的是已確認（ADR-0111），而它的 id 不是一個狀態。
+    const { to } = picked;
+    const next = applyStatus(fresh, to, {
       ...(Number.isInteger(slotIndex) ? { slotIndex } : {}),
       reason,
     });
@@ -1183,12 +1252,15 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
       // 而她剛剛按的那一列也只有那一段。認不出是哪一段的那條路才是整天。
       success: onlyOne
         ? '這一段取消了'
-        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}改成「${describeStatus(action)}」`,
+        : `${Number.isInteger(slotIndex) ? '這一段' : '這一天'}${action === 'reopen'
+          ? '退回簽療程單了'
+          : `改成「${describeStatus(to)}」`}`,
       key: `visit:save:${visit.id}`,
     });
     await refreshAfterAction(el, backDate);
-  } catch {
-    /* 已處理 */
+  } catch (err) {
+    // toast 已經講了；兩次讀之間的空檔被別台搶先時，把抽屜換成新的那一份
+    if (err?.name === 'StaleWriteError') await refreshAfterAction(el, backDate);
   }
 }
 
@@ -1523,11 +1595,32 @@ function openNoteEditor(el, data, spec) {
  * 整筆那一個是推導出來的（ADR-0085）。
  *
  * @param {object} visit
+ * ## 最上面那一排：這位客人的警示（2026-10-08）
+ *
+ * `SPEC.md` 4.3：永久限制在任何畫面都必須跟著客戶名字顯示。壓表、來訪編輯器、拍 Abovee 都接了，
+ * 這一支漏了 —— 而它是四個畫面共用的，所以四處一起漏（她在日曆點一段，卡片上只有名字，
+ * 同一位客人在編輯畫面上有紅色的「體內金屬」）。
+ *
+ * **畫在這裡，不畫在卡片的抬頭**：抬頭（名字那一行）是五個呼叫端各自的 `openCard({ title })`，
+ * 五份遲早漏一份。只畫警示那一層（`flags.js` 的 `alertChips()`，跟壓表卡片牆同一支）；
+ * 其他限制與合作機構不在這裡。**整張只畫一次**，目錄那一張也不逐列重複。
+ * 沒有警示、或呼叫端還沒拿到這位客戶時一個像素都不佔。
+ *
+ * @param {object} visit
  * @param {{roomsById:object, staffById:object, tasks?:object[],
- *          coursesById?:object, today?:string, focusSlot?:number|null}} data
+ *          coursesById?:object, today?:string, focusSlot?:number|null, only?:number[]|null,
+ *          customer?:object|null, clinicalFlags?:object[]}} data
+ *   `customer`／`clinicalFlags`：這位客戶與警示主檔。日曆、待辦、進度由 `fillMirror()` 補讀
+ *   （`...extra`），客戶詳情手上本來就有。`tests/read-card-alerts.test.js` 盯著每一個呼叫端。
  */
 export function visitReadHtml(visit, data) {
-  const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null);
+  // `only`：從一張待辦點「詳情」進來時，目錄只列那一張講的那幾段（`taskSlots()`，issues/08）
+  const { slots, focused } = slotsToShow(visit, data?.focusSlot ?? null, data?.only ?? null);
+  const alerts = flagsUi.alertChips({
+    flags: data?.customer?.flags ?? [],
+    alerts: clinicalTerms(data?.clinicalFlags ?? []),
+    rows: data?.clinicalFlags ?? [],
+  });
   // **她已經指名那一段的時候，那一列點不下去**：卡片上就是那一段，
   // 再點一次只會重開一張一模一樣的。同一天只有一段的時候也一樣 ——
   // 那時候「這一天」與「這一段」是同一件事（`visitStatusFrom()` 直接抄它），
@@ -1538,6 +1631,7 @@ export function visitReadHtml(visit, data) {
   // 會退回全部，而自己推的那一份會以為只有一段。
   const tappable = !focused && slots.length > 1;
   return `
+    ${alerts ? `<div class="readalerts">${alerts}</div>` : ''}
     ${slots.map(({ slot: s, index }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
       // 這一張卡片也是「她自己看」的地方。沒設簡寫就退回全名。
@@ -1547,7 +1641,7 @@ export function visitReadHtml(visit, data) {
       const room = showsRoom(s, data.master?.courses ?? null) && data.roomsById[s.roomId]
         ? nameOf(data.roomsById[s.roomId], 'short')
         : null;
-      const therapist = data.staffById[s.therapistId]?.name ?? null;
+      const therapist = data.staffById[s.therapistId] ? nameOf(data.staffById[s.therapistId], 'short') : null;
       const where = [room ? `${room}${s.bed ?? ''}` : null, therapist].filter(Boolean).join('・');
       // 點得下去的那一種畫成按鈕，`data-open` 的格式跟日／週那一列**一模一樣**
       // —— 接線那一側走的是同一支 `parseOpen()`（`wireReadSlots()`），
@@ -1565,7 +1659,7 @@ export function visitReadHtml(visit, data) {
                 四個畫面共用這一支，所以四頁一起改（ADR-0018、0056）。 */''}
           <span class="readslot__what">${esc(slotName(s, data.master ?? {}, 'short') || '（沒有課程）')}${
             where ? `・${esc(where)}` : ''}</span>
-          ${fromLine(s, data)}
+          ${fromLine(visit, s, data)}
           ${/* **目錄那一張上，那一句話長在自己那一列裡**（2026-09-12）。
                 底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
                 單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
@@ -1622,12 +1716,15 @@ export function visitReadHtml(visit, data) {
  *
  * n返沒有額度（ADR-0063），所以它本來就不會有這一行。
  */
-function fromLine(slot, data) {
+function fromLine(visit, slot, data) {
   const label = slot?.entitlementId
     ? String(data?.entitlementsById?.[slot.entitlementId]?.label ?? '').trim()
     : '';
   if (!label) return '';
-  return `<span class="readslot__from">扣 ${esc(label)}</span>`;
+  // **取消與未到的那一段沒有扣**（`chargesEntitlement()`，2026-10-07）。名字留著 ——
+  // 她還是看得出那一段原本是哪一筆額度的。以前一律寫「扣」，那是在講一件沒發生的事（ADR-0070）
+  const word = chargesEntitlement(visit, slot) ? '扣' : '沒扣';
+  return `<span class="readslot__from">${word} ${esc(label)}</span>`;
 }
 
 /**
@@ -1703,7 +1800,9 @@ function mountEditor(el, data, sheet, spec) {
     },
     onCancel: () => {
       closeSheet();
-      if (backDate) openDay(el, data, backDate);
+      // 讀 `state.data` 不讀掛上編輯器那一刻的 `data`（prelaunch-audit-2026-09-23/issues/20）：
+      // 編輯器開著時按了復原，`render()` 換掉的是 `state.data`，手上這一份還是舊的
+      if (backDate) openDay(el, state.data ?? data, backDate);
     },
   };
 
@@ -1755,7 +1854,8 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
         const q = String(search?.value ?? '').trim();
         const rows = customers
           .filter((c) => c.active !== false)
-          .filter((c) => !q || String(c.name).includes(q))
+          // 比法同拍 Abovee 的「換一位」（`nameHas()`：空白、全形半形不算）；沒打字照舊列出來
+          .filter((c) => nameHas(c.name, q))
           .slice(0, 40);
 
         box.innerHTML = rows.length
@@ -1973,24 +2073,27 @@ function wire(el, data) {
     paint(el, data);
   });
 
+  // 懸浮鈕上的「新增」沒有指定哪一天，就用她現在看著的那一天 —— 剛點開過的那一天
+  // 只有還在畫面上才算數（domain 的 newItemDate，issue 02）。三顆共用這一個。
+  const dateForNew = () => newItemDate(state.view, state.date, state.day);
+
   el.querySelector('[data-new-event]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
-    openEditor(el, data, { kind: 'event', date: state.day ?? state.date });
+    openEditor(el, data, { kind: 'event', date: dateForNew() });
   });
 
   el.querySelector('[data-new-note]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
-    openNoteEditor(el, data, { date: state.day ?? state.date });
+    openNoteEditor(el, data, { date: dateForNew() });
   });
 
   el.querySelector('[data-new-visit]')?.addEventListener('click', () => {
     state.fab = false;
     paint(el, data);
-    // 懸浮鈕上的「新增」沒有指定哪一天，就用她現在看著的那一天
     const sheet = openSheet({ title: '', body: '', onClose: closeCard });
-    pickCustomer(el, data, sheet, state.day ?? state.date);
+    pickCustomer(el, data, sheet, dateForNew());
   });
 
   wireSwipe(el, data);

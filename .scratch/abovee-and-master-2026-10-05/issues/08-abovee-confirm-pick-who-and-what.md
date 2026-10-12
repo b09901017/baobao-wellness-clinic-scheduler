@@ -1,0 +1,83 @@
+# 拍 Abovee 確認層：每一列都能換人、選要做什麼
+
+Status: done
+來源：`../spec.md` 一、第一段 h
+動工前先讀：`ui/components/aboveeConfirm.js` 全部、`domain/aboveeImport.js` 全部、05 的 `slotOptionsFor()`、
+`ui/views/calendar.js` 的 `pickCustomer()`（第 1785 行，日曆新增那個找人的框）、`domain/consequences.js` 的 `aboveeConsequences()`、
+ADR-0103、ADR-0104、ADR-0116、`CLAUDE.md` 連動表「拍 Abovee 記很多段」那一列
+Blocked by: 04、05、06、07、12（功醫門診那一門課；測試可以先用夾具）
+
+## 她要的
+
+> **一、拍 Abovee 要能代替壓表。** 我只想拍一張照，再補充或修正需要的，就記好了。
+> - 現在辨識錯了就錯了：不能改是誰、不能選課程。認不出課程時只叫我去壓表手動記。
+> - 治療師常常沒認出來（Abovee 寫全名）。我要可以像壓表那樣直接選。
+
+> 1. …拍照時照 Abovee 那一格（二返60 就記 60）
+
+> 6. 拍照時「三返」一律認成 n返，預先選三返，你可以改成四返以後
+
+## 為什麼會這樣
+
+`aboveeConfirm.js` 的 `detailHtml()`：
+
+- **換人**：只有 `!item.who.customer && item.who.candidates.length` 才畫「是誰」那一排 —— 認得的人換不掉；`none`（app 裡沒有）一排都沒有
+- **課程**：`entitlementChoices(customerId, course, ctx)` 拿照片認出來的課程去篩額度，**認不出課程就是空的** → 畫一句「到壓表那張卡上手動記這一段」（第 341 行）
+- **治療師**：其實有那一排（`assigns === 'therapist'` 時），但它跟在課程後面 —— 課程認不出來時整排不見
+- **二返排在健檢旁邊**（h）：`entitlementChoices()` 只照「有沒有剩」排，沒走 `followupsLast()`（她 2026-09-24：跟健檢並排一指就約錯）
+- n返、不算次數的課、約的時候選的時長：這一層都沒有
+
+## 談定的做法
+
+1. **每一列都能「換一位」**（還沒記好的列，種類不限）：打名字找，候選照日曆新增那個框同一種比法（抽成一支 `domain/customers.js` 的 `searchCustomers()`，日曆那一處改用它）。
+   換了人整列重算（`resolveItem()`，已經會）。**她自己選的人不自動勾**（現在的規則，留著）。app 裡真的沒有這位 → 一句「先去新增客戶」，這一層不建客戶
+2. **「要做什麼」那一排**＝ 05 的 `slotOptionsFor(…, { includeUsedUp: true })`：這位客戶的額度（二返排最後）、＋n返、不算次數的課。
+   照片認得的那一顆先按好（07 的 `courseFrom()`：器材對得上的池、品項、時長一樣的那一筆、`三返` → n返 ＋返數 3、`功醫門診` → 那一顆）。
+   用完的額度也列（Abovee 上已經約了），選了照舊有「會超過次數」的 warning（`validateVisit()`）。拿掉「到壓表手動記」那一句
+3. **接著那幾排照原本的順序**：器材（擇一池）→ 品項（照片上的那一款先選；跟買的不一樣照舊只多一句提醒，ADR-0002）→ 接哪一次健檢（二返、n返）→
+   第幾返（n返，預選三返、可改）→ 時長（有 `bookingMinutes` 的課，照照片上的數字）→ 診間／治療師（`assignsFor()`）→ 醫師（04 的 `doctorChoicesFor()`，照片認得的人先選）
+4. **組時段**：`picksOf()` 帶上 `isNth`、`nth`、`uncountedCourseId`、`minutes` —— 照舊只有 `slotFromPicks()` 一條路（壓表同一支）
+5. **存檔前那一道**（`aboveeConsequences()`）：有不算次數的段講一句（同 05）；n返 照舊講不扣次數
+6. **ADR-0123**（這一支先寫 08 那一段；09–11 補）：延伸 ADR-0104 —— 確認層從「挑額度」變成「選要做什麼」，跟壓表同一份；
+   不推翻 ADR-0056／0116（這一支只動新的列）
+
+## 牽連
+
+- **認人**（ADR-0103）：「對不上不自動挑人」不變 —— 換一位是她挑的
+- **已經記了／對不上那幾列**換了人：重算之後可能變成新的 —— 那就是新的（她換的）
+- **壓表那一頁**改用 `slotOptionsFor()`（05 做），這一層跟它長得一樣
+- **`queueMarksAfter()`**（標壓完）照記好的那幾位算 —— 換了人就是換過之後那一位
+- **記住寫法**（`aliasWrites()`）：只在服務資源那一格認不出來、她選了人時寫 —— 換課程不寫任何寫法
+- 屬性名一律 `data-abl-*`（共用元件不用頁面身上的名字，`tests/slot-note.test.js` 掃 `components/`）
+- 換一位的搜尋框：打字不重畫整列（ADR-0038 的精神：重畫會丟掉游標與輸入法的組字狀態）
+
+## 判準
+
+- 照片上認不出課程的一列：點開有「要做什麼」那一排，選了就能勾、能記，**不用去壓表**？
+- 認得但認錯人的一列：點「換一位」、打兩個字、選對的人 → 那一列照新的人重算額度？
+- 二返和健檢都在那一排時，二返排在最後？
+- `三返60` 那一列：n返 那一顆按好、返數三返、時長 60、要選接哪一次健檢？
+- `功醫門診` 那一列（沒有任何額度的客戶）：「功醫門診 · 不扣次數」按好，記得進去？
+- 一筆額度已經用完、照片上又約了一次：那一顆照樣按得下去，點開看得到「會超過次數」？
+- 存下去的那一段跟同樣選法在壓表存的那一段，欄位一模一樣（同一支 `slotFromPicks()`）？
+
+## 審查之後補的（2026-10-05，subagent 對著程式碼查過；跟上面衝突的地方以這一節為準）
+
+- **品項被額度蓋掉**：`resolveItem()` 用額度上的品項蓋掉照片上的（`aboveeImport.js` 第 275 行 `next.ivProductId = ent?.ivProductId`），點額度那一下也一樣（`aboveeConfirm.js` 第 480 行）。
+  **照片上認得的品項優先**；挑額度時**品項對得上的那一筆優先**（同時有腸道修復×5 與護肝排毒×5 的客戶，現在會預選錯的那一筆 —— `entitlementChoices()` 只照有沒有剩排）
+- **換一位的搜尋**從 `ui/components/sheetConfirm.js` 第 211 行一帶抽（它用 `normalizeName()`，比日曆那一份好）；日曆、批次取消、療程單各寫各的 —— 這一支先抽成一支、這一層與療程單用它，日曆與批次取消要不要換寫進 PR 讓她決定（不在這一支硬改）
+- **n返 不自動選接哪一次健檢**：`schedule.js` 第 1450 行一帶寫明的規則（「n返 是她特地要加的一場，替她決定接哪一次健檢會讓她漏看」）。原本第 3 點「預選」那一句只適用二返
+
+## 做完時留下的
+
+- **找人一支**：`domain/customers.js` 的 `searchCustomers(customers, query, { limit })`（比法 `normalizeAlias()`、停用與刪掉的不列、空字串回空的）。
+  拍 Abovee 的「換一位」與療程單的「是誰」用它；**日曆新增的「要幫誰排？」與批次取消還是 `String(name).includes(q)`** —— 沒換，問她
+- **按一顆 → 這一列變成什麼**只有一支：`aboveeImport.js` 的 `pickOption(item, value, ctx)`（值＝`slotOptionsFor()` 那一排上的：額度 id、`NTH_PICK`、`uncountedPick()`），
+  `optionValueOf(item)` 反過來。`resolveItem()` 預選那一顆也走 `pickOption()`。照片上的時長、診間、治療師、醫師不跟著這一排動
+- `slotFromPicks()` **課程推得出來、卡在後面那幾道時照樣交回 `course`／`assigns`**（`slot` 是 null）—— 確認層靠它畫 n返 還沒選健檢時的醫師、排多久那幾排。
+  壓表與來訪編輯器只讀 `slot`／`errors`（查過），不受影響
+- 確認層（`aboveeConfirm.js`）：`whoHtml()`／`whoChips()`（打字只換 `[data-abl-found]`，Esc 在框裡有字時是清字不是收層）、`optionsFor()`、`nthRows()`；
+  新的屬性 `data-abl-find`、`data-abl-query`、`data-abl-opt`、`data-abl-nth`、`data-abl-min`。`entitlementChoices()` 只剩 `resolveItem()` 預選時用（篩照片上的課程）
+- 存檔前那一道：n返「加約的」、不算次數的課「數字一個都不會變」，**只講這一次新加的段**（併進那一天原本就有的三返不講）
+- ADR-0123 寫了 08 那一段（09–11 接在後面）
+- `sw.js` v151。E2E `51-abovee-picks` 加 N2；新的假抄字 `aboveeList-picks.json`

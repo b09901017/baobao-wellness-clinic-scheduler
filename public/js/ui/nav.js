@@ -209,6 +209,56 @@ export function pushLayer(onPop) {
   };
 }
 
+// ---------- 換頁時留一句話給下一頁 ----------
+//
+// 「進去就開這一筆」那一種（日曆長按「客人來了，去簽療程單」→ 待辦那一頁直接開那一天的抽屜）。
+// **不進網址**：那是看法不是位置，重新整理不該又彈一次。也不讓兩支畫面互相 import ——
+// 待辦那一頁本來就 import 日曆（讀取卡片），反過來再 import 一次就繞成一圈。
+const handoffs = new Map();
+
+/**
+ * 給下一頁留一句話。只活到被 `takeFor()` 拿走那一次 —— **或再換一次頁**：那一頁沒拿走
+ * （讀取失敗）的話，不丟掉就會在之後哪一天點進那一頁時自己彈出一張舊的。
+ * 第一次換頁是要去的那一頁，第二次才丟。
+ */
+export function leaveFor(key, value) {
+  handoffs.set(key, value);
+  let moves = 0;
+  const expire = () => {
+    moves += 1;
+    if (moves < 2) return;
+    window.removeEventListener('hashchange', expire);
+    if (handoffs.get(key) === value) handoffs.delete(key);
+  };
+  window.addEventListener('hashchange', expire);
+}
+
+/** 拿走留給這一頁的那一句話（拿了就沒有了）。沒有就是 `undefined`。 */
+export function takeFor(key) {
+  const value = handoffs.get(key);
+  handoffs.delete(key);
+  return value;
+}
+
+/**
+ * 等收層那一趟 `history.go()` 回來。
+ *
+ * 確認框按下去之後**馬上**換頁的話，確認框收掉時排的那一趟 go 會晚到、把換頁退掉
+ * （刪客戶被擋下來時「去批次取消」那一顆，prelaunch-audit-2026-09-23/issues/08）。
+ * 中間有一次寫入的那幾條路（存完才換頁）本來就等到了。最多等一秒，不會卡住。
+ */
+export function whenSettled() {
+  const until = Date.now() + 1000;
+  return new Promise((resolve) => {
+    const check = () => {
+      if ((goTarget === null && !scheduled && physical === stack.length) || Date.now() > until) resolve();
+      else setTimeout(check, 16);
+    };
+    // 對帳排在微任務裡（`schedule()`），先讓它跑
+    queueMicrotask(check);
+  });
+}
+
 /** `router.go()` 每推一筆路由就叫一次。 */
 export function noteRoutePush() {
   routeDepth += 1;

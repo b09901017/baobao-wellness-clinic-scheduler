@@ -415,6 +415,79 @@ export function detachPhoto(groups = [], key, url) {
   return [...groups.slice(0, at), rest, alone, ...groups.slice(at + 1)];
 }
 
+// ---------- 同一張拍了兩次（prelaunch-fixes/14）----------
+//
+// 名字一樣的兩張照設計是同一位的兩次購買（`mergeTranscripts()`：同一個方案兩張就是兩套）。
+// 重拍時忘了把第一張拿掉、兩張都辨識成功的話，確認卡上寫「方案×2（照片上 1、1）」，健檢、加購也各兩筆 ——
+// 一按建立這位客人就多了一整套次數，沒有人問過「這兩張是不是根本同一張」。
+
+/**
+ * 一張訂購單「買了什麼」—— **翻譯之後**跟購買有關的那幾格，不是原字：同一張辨識兩次，
+ * 原字可能差一點（「—」與「1」、多一個空白），翻出來一樣。每一張各自過一次 `orderDraftFrom()`。
+ * 認不出來的那幾項只比種類與幾項（原字兩次常常不一樣）。備註、尾款不比 —— 那不是買的東西。
+ */
+function purchasePrint(transcript, master) {
+  const { draft, unresolved } = orderDraftFrom(transcript, master);
+  const extra = (x) => [
+    x.type, x.courseId, [...(x.optionEquipmentIds ?? [])].sort().join('+'), x.ivProductId, x.productId,
+    x.tier, x.durationMin, x.totalQty, x.amountTwd, squash(x.label),
+  ].map((v) => v ?? '').join('|');
+  return {
+    date: draft.purchasedAt ?? null,
+    bought: JSON.stringify([
+      draft.planId ? [draft.planId, String(draft.quantity)] : null,
+      draft.extras.map(extra).sort(),
+      unresolved.map((u) => u.kind).sort(),
+    ]),
+    // 便利貼特寫那一張什麼都沒買 —— 兩張都空的不會讓任何東西變兩份
+    empty: !draft.planId && !draft.extras.length && !unresolved.length,
+  };
+}
+
+/**
+ * 同一位底下的幾張照片裡，**哪幾張看起來是前面某一張重拍的**：方案與套數、每一筆加購（健檢也是加購）都一樣，
+ * 而且日期一樣 —— **其中一張沒抄到日期也算**（寧可多問一次，她點一下就過）。
+ *
+ * 同一個月真的買兩次（日期不同，或內容不同）不在裡面：那條路一道都不多。
+ *
+ * @param {{transcript: object}[]} photos 一張卡的那幾張（照拍的順序；掛上來的那幾張也算）
+ * @returns {{at: number, of: number}[]} 第 `at` 張像前面的第 `of` 張（都從 0 起算）
+ */
+export function repeatedPhotos(photos = [], master = {}) {
+  const prints = (photos ?? []).map((p) => purchasePrint(p?.transcript, master));
+  const same = (a, b) => !a.empty && !b.empty && a.bought === b.bought && (!a.date || !b.date || a.date === b.date);
+  const out = [];
+  prints.forEach((p, at) => {
+    const of = prints.slice(0, at).findIndex((q) => same(q, p));
+    if (of >= 0) out.push({ at, of });
+  });
+  return out;
+}
+
+/**
+ * 確認卡上那一句：是哪幾張。**常駐**（不處理就按不下「建立」，而按下去會多一整套次數）。
+ * 她點了「真的買了兩次」之後那一句還在 —— 看得出她按過什麼。沒有重拍的就是空字串。
+ */
+export function repeatSay(card) {
+  const repeats = card?.repeats ?? [];
+  if (!repeats.length) return '';
+  const which = [...new Set(repeats.flatMap((r) => [r.of, r.at]))].sort((a, b) => a - b).map((i) => i + 1).join('、');
+  return `第 ${which} 張看起來是同一張訂購單（日期、方案、加購都一樣）。重拍的話拿掉一張；真的買了兩次就點「真的買了兩次」。`;
+}
+
+/**
+ * 這一張不要了（重拍時留下的那一張）：從那一位身上拿掉。**只剩一張時不給拿** —— 那是「這一位不建」，
+ * 不是這一顆的事。跟 `detachPhoto()`（拆成另一位）是兩件事：這一張的東西不會建到任何人身上。
+ */
+export function removePhoto(groups = [], key, url) {
+  const at = groups.findIndex((g) => g.key === key);
+  const group = groups[at];
+  if (!group || group.photos.length < 2 || !group.photos.some((p) => p.url === url)) return groups;
+  // 拿掉的是帶名字的那一張時，剩下的第一張（原本掛上來的）變成這一位自己的
+  const photos = group.photos.filter((p) => p.url !== url).map((p, i) => (i === 0 ? { ...p, attached: false } : p));
+  return [...groups.slice(0, at), { ...group, photos }, ...groups.slice(at + 1)];
+}
+
 // ---------- 確認卡 ----------
 
 /** 既有客戶裡同名的那幾位（停用的也算 —— 回來加購的常常是很久沒來的人）。 */
@@ -432,8 +505,10 @@ const quantityFilled = (q) => String(q ?? '').trim() !== '' && Number.isInteger(
  * - **名字一定要她點過**（考試 9/16）：沒有同名的點「名字對」，有同名的兩顆**都不預選**
  * - 方案選了、幾套讀不出來 → 要她填
  * - 認不出來的每一項要她選或拿掉 —— 安靜地少建一筆，比按不下去糟
+ * - **同一張拍了兩次**（`repeatedPhotos()`，prelaunch-fixes/14）→ 拿掉一張，或她點「真的買了兩次」（`twiceOk`）
  *
- * @param {{draft: object, unresolved: object[], nameOk: boolean, who: string|null}} card
+ * @param {{draft: object, unresolved: object[], nameOk: boolean, who: string|null,
+ *          repeats?: {at: number, of: number}[], twiceOk?: boolean}} card
  */
 export function blockersOf(card, existing = []) {
   const out = [];
@@ -447,6 +522,7 @@ export function blockersOf(card, existing = []) {
   // 「幾套」那一項上一行講過了，不算兩次
   const open = card.unresolved.filter((u) => u.kind !== 'quantity');
   if (open.length) out.push(`還有 ${open.length} 項認不出來：選一個或拿掉`);
+  if ((card.repeats ?? []).length && !card.twiceOk) out.push('有兩張看起來是同一張訂購單：拿掉一張，或點「真的買了兩次」');
   return out;
 }
 

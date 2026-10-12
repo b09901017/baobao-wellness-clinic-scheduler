@@ -392,6 +392,19 @@ export const test = base.extend({
         await expect(page.locator(selector).first()).toBeVisible({ timeout });
       },
 
+      /**
+       * 確認抽屜與簽療程單抽屜：每一段都按 ✓（ADR-0110）。
+       *
+       * 兩張抽屜 2026-09-24 起**預設都沒按**（還沒回／先不結）。不只一段時上面有一顆
+       * 「全部 ✓」；只有一段時那一顆不畫，就按那一段自己的 ✓。「全部 ✓」排在列的前面，
+       * 所以 `.first()` 拿到的一定是它。
+       */
+      async tickAll() {
+        const first = page.locator('[data-pick-all], [data-pick][data-to="1"]').first();
+        await expect(first).toBeVisible({ timeout: 15_000 });
+        await first.click();
+      },
+
       /** 重新整理整個 app（測跨日、測快取用）。 */
       async reload() {
         await page.reload();

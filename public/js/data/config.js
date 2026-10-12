@@ -14,7 +14,7 @@ import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-
 import { getDb } from './firebase.js';
 import * as repo from './repo.js';
 import { MASTER_TYPES } from '../domain/masterData.js';
-import { SEED, DEFAULT_SETTINGS } from '../domain/seed.js';
+import { SEED, DEFAULT_SETTINGS, seedData } from '../domain/seed.js';
 import { toStored } from '../domain/messageTemplates.js';
 
 const pathFor = (type) => `config/app/${type}`;
@@ -26,13 +26,21 @@ export function listAll(type, { includeDeleted = false } = {}) {
 export const get = (type, id) => repo.getOne(pathFor(type), id);
 export const create = (type, data, id = null) => repo.create(pathFor(type), data, id);
 export const update = (type, id, changes) => repo.update(pathFor(type), id, changes);
+/**
+ * 同一件事，但回的是**還沒寫的操作** —— 要跟別的寫入放進同一個 commit 時用
+ * （存課程連同它讓哪幾張待辦跟著變，`data/visits.js` 的 `saveCourseWithTasks()`）。
+ */
+export const updateOp = (type, id, changes) => ({ op: 'update', path: pathFor(type), id, changes });
 export const remove = (type, id, reason) => repo.softDelete(pathFor(type), id, reason);
 export const restore = (type, id) => repo.restore(pathFor(type), id);
 
-/** 一次把所有主檔讀出來。設定頁與之後的排班畫面都需要全部。 */
-export async function loadAll() {
+/**
+ * 一次把所有主檔讀出來。設定頁與之後的排班畫面都需要全部。
+ * 拿來印**既有資料**的名字（試算表）要帶 `includeDeleted` —— 刪掉的治療師、器材、健檢做過的那幾次照樣要印得出來。
+ */
+export async function loadAll({ includeDeleted = false } = {}) {
   const entries = await Promise.all(
-    MASTER_TYPES.map(async (type) => [type, await listAll(type)]),
+    MASTER_TYPES.map(async (type) => [type, await listAll(type, { includeDeleted })]),
   );
   return Object.fromEntries(entries);
 }
@@ -125,8 +133,8 @@ export async function loadSeed() {
         skipped += 1;
         continue;
       }
-      const { id, ...data } = row;
-      await repo.create(pathFor(type), { ...data, active: true }, id);
+      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的那一間（ADR-0127）
+      await repo.create(pathFor(type), seedData(row), row.id);
       created += 1;
       madeHere += 1;
     }

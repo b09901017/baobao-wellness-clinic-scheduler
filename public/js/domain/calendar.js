@@ -14,7 +14,7 @@
 import { addDays, addMonths, isValidDate, lastDayOf, shortDate, weekdayOf, weekdayLabel } from './dates.js';
 import { overlaps, toMinutes, isValidTime, timeLabel } from './visitTime.js';
 import { slotName, nameOf } from './naming.js';
-import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf } from './visits.js';
+import { isActive, statusClass, showsRoom, slotStatus, slotNoteOf, liveSlots } from './visits.js';
 
 export const VIEWS = ['day', 'week', 'month'];
 
@@ -79,6 +79,22 @@ export function rangeOf(view, date) {
   }
   const weeks = monthWeeks(date.slice(0, 7));
   return weeks.length ? { from: weeks[0][0].date, to: weeks[weeks.length - 1][6].date } : null;
+}
+
+/**
+ * 懸浮鈕上的「新增」（來訪、行事備註、待辦）帶哪一天。
+ *
+ * `day` 是她剛剛點開過的那一天 —— 關掉面板之後那一格還標著，所以它**刻意不清**。
+ * 但換檢視、左右滑、按「今天」都只動 `date`，於是它可能是好幾頁以前的事：
+ * 她 2026-09-18 在月檢視誤點 8/5、關掉、切到日檢視的今天按「＋」，帶進來的是 8/5，
+ * 而且一句提示都沒有（`.scratch/asks-2026-09-18/issues/02`）。
+ *
+ * 所以點過的那一天**只有在畫面現在畫得出來的範圍裡**才算數。日檢視的範圍只有一天，
+ * 等於永遠是畫面上那一天；月檢視裡還標著的那一格照樣算（她同意的）。
+ */
+export function newItemDate(view, date, day) {
+  const range = rangeOf(view, date);
+  return day && range && day >= range.from && day <= range.to ? day : date;
 }
 
 /** 上一頁／下一頁。日是一天、週是七天、月是一個月。 */
@@ -204,7 +220,7 @@ export function agendaFor(
           ? nameOf(roomsById[slot.roomId], 'short')
           : null,
         bed: slot.bed ?? null,
-        therapist: staffById[slot.therapistId]?.name ?? null,
+        therapist: staffById[slot.therapistId] ? nameOf(staffById[slot.therapistId], 'short') : null,
         roomId: slot.roomId ?? null,
         therapistId: slot.therapistId ?? null,
         // 這一筆底下有沒有她自己打的字（來訪編輯器的「記的話」）。
@@ -345,7 +361,9 @@ export function summaryByDate(visits) {
     if (!isActive(visit) || !isValidDate(visit.date)) continue;
     const day = (out[visit.date] ??= { visits: 0, slots: 0, names: [], pending: 0 });
     day.visits += 1;
-    day.slots += (visit.slots ?? []).length;
+    // **還算數的段**（2026-10-07，ADR-0135）：週檢視右上角那個數字＝底下沒被劃掉的列數，
+    // 取消的段畫成灰的、劃線，不算（ADR-0061）
+    day.slots += liveSlots(visit).length;
     day.names.push(visit.customerName ?? '（沒有名字）');
     // **逐段數**（ADR-0085）。整筆那一個是推導出來的，一段沒問過就整筆
     // 待確認 —— 那會讓月檢視頂端寫「3 待確認」而底下只有一條琥珀色條。

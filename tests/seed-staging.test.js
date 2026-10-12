@@ -14,7 +14,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeCustomer, fakeName } from '../scripts/seed-staging.mjs';
+import { makeCustomer, fakeName, registrationTasks, refuseReason } from '../scripts/seed-staging.mjs';
 import { RULE_KINDS, dayStatus } from '../public/js/domain/availability.js';
 import { RETIRED_KINDS } from '../public/js/domain/todoFlow.js';
 import { TASK_KINDS } from '../public/js/domain/taskRules.js';
@@ -73,6 +73,19 @@ describe('任務', () => {
   test('產生出來的都是現在還在用的那幾種', () => {
     const kinds = [...new Set(every((p) => p.tasks).map((t) => t.data.kind))];
     for (const k of kinds) assert.ok(TASK_KINDS.includes(k), `不該出現的種類：${k}`);
+  });
+
+  test('登記任務逐段、帶 slotIndexes（ADR-0107）—— 不然改期之後新那一段一張都不長', () => {
+    // 種子現在只種復能／ILIB（C 類，不長登記），所以拿一筆 A 類的直接問那一支
+    const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
+    const rehab = (status) => ({ courseId: 'course-rehab', entitlementId: 'e1', startsAt: '10:00', endsAt: '10:30', status });
+    const data = {
+      customerId: 'c1', customerName: '客戶A', date: TODAY, status: 'pending_confirm',
+      slots: [rehab('confirmed'), rehab('pending_confirm')],
+    };
+    const tasks = registrationTasks('v1', data, coursesById);
+    assert.ok(tasks.length, '談定的那一段要長登記');
+    for (const t of tasks) assert.deepEqual(t.data.slotIndexes, [0], t.data.kind);
   });
 
   test('只有已確認的來訪才有登記任務（ADR-0027）', () => {
@@ -192,5 +205,48 @@ describe('資料健檢一條都不報', () => {
     const dirty = result.checks.filter((c) => c.findings.length)
       .map((c) => `${c.label}：${c.findings.length} 項（${c.findings[0].title}）`);
     assert.deepEqual(dirty, [], dirty.join(' / '));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// staging 從 2026-10-05 起放的是真資料的預演（ADR-0118）
+// ---------------------------------------------------------------------------
+//
+// 這一支每跑一次會把種子主檔整份 `batch.set` 回去（不只是加客戶）——
+// 她在 staging 上改過的主檔會被蓋回種子的樣子。所以只准跑在模擬器上。
+describe('只准跑在模擬器上（ADR-0118）', () => {
+  test('staging 清空之後（一位客戶都沒有）也拒絕 —— 清空正是貼合併檔的前一步，那時候蓋掉主檔最糟', () => {
+    const why = refuseReason({ projectId: 'wellness-clinic-staging', emulator: null, customerIds: [] });
+    assert.ok(why, '要拒絕');
+    assert.match(why, /模擬器/);
+    assert.match(why, /主檔/);
+  });
+
+  test('staging 上全是種子客戶也拒絕', () => {
+    assert.ok(refuseReason({
+      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'seed-cus-020'],
+    }));
+  });
+
+  test('有真客戶時講出有幾位', () => {
+    const why = refuseReason({
+      projectId: 'wellness-clinic-staging', emulator: null, customerIds: ['seed-cus-001', 'Xq3kLmNoPq1234567890'],
+    });
+    assert.match(why, /1 位/);
+  });
+
+  test('不帶客戶清單也拒絕（連任何東西之前就擋，dry run 也一樣）', () => {
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-staging', emulator: null }));
+  });
+
+  test('模擬器不擋（那是本機自己的資料）', () => {
+    assert.equal(refuseReason({
+      projectId: 'demo-scheduler', emulator: '127.0.0.1:8080', customerIds: ['Xq3kLmNoPq1234567890'],
+    }), null);
+  });
+
+  test('正式專案一律拒絕，連模擬器旗標都救不了', () => {
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-scheduler', emulator: null, customerIds: [] }));
+    assert.ok(refuseReason({ projectId: 'wellness-clinic-scheduler', emulator: '127.0.0.1:8080', customerIds: [] }));
   });
 });

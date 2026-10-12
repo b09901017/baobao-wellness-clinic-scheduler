@@ -34,8 +34,9 @@ import { isConfigured } from '../../data/sheetSync.js';
 import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
-import { cancelConsequences } from '../../domain/consequences.js';
-import { slotName, nameOf } from '../../domain/naming.js';
+import { cancelConsequences, cancelChainLines } from '../../domain/consequences.js';
+import { nameHas } from '../../domain/customers.js';
+import { slotName, nameOf, fullNameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { todayISO, addMonths, shortDate, monthLabel } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
@@ -46,6 +47,7 @@ import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import * as toast from '../toast.js';
+import { saveEach } from '../saveEach.js';
 
 /** 她挑的那一位、在看哪個月、選了哪幾段。換人就整個重來。 */
 const state = {
@@ -61,6 +63,18 @@ const state = {
 };
 
 let ctx = null;
+
+/**
+ * 從別的畫面帶著一位客戶、一個月份進來。刪客戶被擋下來時用（`customerDetail.js`，
+ * prelaunch-audit-2026-09-23/issues/08）—— 她要去收的就是那一位那幾天。
+ */
+export function openFor(customerId, month) {
+  state.customerId = customerId;
+  state.month = month;
+  state.mode = 'list';
+  state.picked.clear();
+  state.openDay = null;
+}
 
 /**
  * 多選那一層。**畫面上多出來一層東西，就多一筆返回鍵退得掉的紀錄**
@@ -80,7 +94,8 @@ export async function render(el) {
   try {
     const [customers, master] = await Promise.all([
       customersData.list(),
-      config.loadAll(),
+      // 連已刪除的一起讀：列的是既有的來訪，刪掉的治療師、診間、課程名字照樣要印得出來
+      config.loadAll({ includeDeleted: true }),
     ]);
     ctx = { el, customers, master, visits: [], settings: await config.getSettings() };
   } catch (err) {
@@ -145,7 +160,8 @@ function slotLine(row) {
   const { slot } = row;
   const room = ctx.master.rooms?.find((r) => r.id === slot.roomId);
   const who = ctx.master.staff?.find((s) => s.id === slot.therapistId);
-  const where = [room ? nameOf(room, 'short') : null, who?.name].filter(Boolean).join('・');
+  // 人印全名（ADR-0141：簡寫只在日／週那一列、讀取卡片、試算表）
+  const where = [room ? nameOf(room, 'short') : null, fullNameOf(who)].filter(Boolean).join('・');
   const what = slotName(slot, ctx.master, 'short') || '（沒有課程）';
   return `${timeLabel(slot)}　${what}${where ? `・${where}` : ''}`;
 }
@@ -182,7 +198,9 @@ function paint() {
 function searchHtml() {
   const q = (ctx.q ?? '').trim();
   const hits = q
-    ? ctx.customers.filter((c) => !c.deletedAt && String(c.name ?? '').includes(q)).slice(0, 20)
+    // 比法同拍 Abovee 的「換一位」（`nameHas()`）。**停用的照舊找得到** —— 他身上可能還有要取消的來訪，
+    // 所以不直接用 `searchCustomers()`（那一支不列停用的）
+    ? ctx.customers.filter((c) => !c.deletedAt && nameHas(c.name, q)).slice(0, 20)
     : [];
 
   return `
@@ -545,8 +563,23 @@ function toggleDay(date) {
  * （SPEC 第 6.9 節）。
  */
 async function run() {
-  const picked = rowsOfMonth().filter((r) => state.picked.has(r.key));
-  if (!picked.length) return;
+  const wanted = rowsOfMonth().filter((r) => state.picked.has(r.key)).map((r) => r.key);
+  if (!wanted.length) return;
+
+  // **套在剛讀回來的那一份上**（同日曆長按，prelaunch-audit-2026-09-23/issues/19）：另一台在
+  // 這一頁打開之後替同一天加的段接在尾巴（ADR-0091），整筆寫回去時才不會被蓋掉。在確認框
+  // 之前讀，確認框講的與寫下去的是同一份（ADR-0070）。她選的某一段在新的那一份裡已經
+  // 取消不掉了（別的地方取消或結案了）→ 不寫，講一句、換成新的樣子。讀不到就照手上那一份，
+  // `ifUpdatedAt` 照樣擋得住
+  const fresh = await visitsData.listByCustomer(state.customerId).catch(() => null);
+  if (fresh) ctx.visits = fresh;
+  const picked = rowsOfMonth().filter((r) => wanted.includes(r.key));
+  if (picked.length !== wanted.length) {
+    for (const key of wanted) if (!picked.some((r) => r.key === key)) state.picked.delete(key);
+    toast.info('有幾段剛剛在別的地方改過了，換成最新的樣子');
+    paint();
+    return;
+  }
 
   const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
 
@@ -560,7 +593,7 @@ async function run() {
   // 會被收掉哪幾張要問那幾筆的任務。**點下去才讀**，讀不到就少講那幾句。
   let tasks = [];
   try {
-    tasks = (await Promise.all([...byVisit.keys()].map((id) => tasksData.listByVisit(id)))).flat();
+    tasks = (await Promise.all([...byVisit.keys()].map((id) => tasksData.listByVisitForSync(id)))).flat();
   } catch {
     /* 少講幾句，不擋 */
   }
@@ -579,15 +612,25 @@ async function run() {
   for (const { visit, at } of byVisit.values()) {
     const lines = cancelConsequences({
       visit, coursesById, tasks, slotIndex: at, sheetSyncOn: isConfigured(ctx.settings),
+      // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
+      customerVisits: ctx.visits,
     });
     for (const line of lines) said.add(line);
   }
+  // 健檢那條鏈（「約二返」、還接在被取消的健檢後面的二返）：**全部套上去之後算一次**（`cancelChainLines()`）
+  const first = [...byVisit.values()][0]?.visit;
+  for (const line of cancelChainLines({
+    customer: { id: state.customerId, name: first?.customerName ?? null },
+    visits: ctx.visits,
+    cancels: [...byVisit.values()],
+    chain: await visitsData.chainInputs(state.customerId, coursesById),
+    coursesById,
+  })) said.add(line);
 
   const ok = await confirmAction({
     title: `取消這 ${picked.length} 段？`,
     consequences: [
       ...picked.map((r) => `${shortDate(r.visit.date)}　${slotLine(r)}`),
-      '——',
       ...said,
     ],
     confirmLabel: `取消這 ${picked.length} 段`,
@@ -595,19 +638,17 @@ async function run() {
   });
   if (!ok) return;
 
-  let done = 0;
+  // 存好的那幾筆，toast 的重試跳過（`saveEach()`，prelaunch-audit-2026-09-23/issues/18）
+  const saved = new Set();
   try {
-    await toast.withSaveState(async () => {
-      for (const { visit, at } of byVisit.values()) {
-        // 逐段套用，整筆的狀態由 `applyStatus()` 自己推（ADR-0081）
-        let next = visit;
-        for (const slotIndex of at) next = applyStatus(next, 'cancelled', { slotIndex });
-        // 手上那一份要跟著更新：下一筆算次數時讀的就是它
-        ctx.visits = [...ctx.visits.filter((v) => v.id !== next.id), next];
-        await visitsData.save(next, ctx.visits);
-        done += 1;
-      }
-    }, {
+    await toast.withSaveState(() => saveEach([...byVisit.values()], async ({ visit, at }) => {
+      // 逐段套用，整筆的狀態由 `applyStatus()` 自己推（ADR-0081）
+      let next = visit;
+      for (const slotIndex of at) next = applyStatus(next, 'cancelled', { slotIndex });
+      // 手上那一份要跟著更新：下一筆算次數時讀的就是它
+      ctx.visits = [...ctx.visits.filter((v) => v.id !== next.id), next];
+      await visitsData.save(next, ctx.visits);
+    }, saved), {
       success: `取消了 ${picked.length} 段`,
       // 跨多個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）
       undoable: false,
@@ -616,7 +657,8 @@ async function run() {
     state.picked.clear();
   } catch {
     // 已經成功的那幾筆**留著**，講出還剩幾筆
-    if (done) toast.info(`取消了 ${done} 筆來訪，還有 ${byVisit.size - done} 筆沒成功，再試一次`);
+    // 一筆來訪就是一天（ADR-0083）—— 畫面上的單位只有段與天（ADR-0087）
+    if (saved.size) toast.info(`取消了 ${saved.size} 天，還有 ${byVisit.size - saved.size} 天沒成功，再試一次`);
   }
 
   await loadVisits();
