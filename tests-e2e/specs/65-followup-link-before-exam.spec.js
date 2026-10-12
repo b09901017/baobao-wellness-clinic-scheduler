@@ -381,3 +381,124 @@ test('L8 簽療程單：二返接的那一次健檢已經取消 —— ✓ 一�
   await expect(page.locator('.drawer [data-pick="0"][data-to="1"]')).toBeDisabled();
   await expect(page.locator('.drawer [data-pick="0"][data-to="0"]'), '✗ 照樣按得下去').toBeEnabled();
 });
+
+// ---------- 13 另約一次健檢時多一顆「順便把那一場二返接到這一次」（ADR-0146）----------
+//
+// 她 2026-10-12：「確認框多一顆『順便把那一場接到這一次』。你按了才改，仍然不是自動搬」。
+// L4 走的是原本那一顆（只講不改、一個字都不變）；這兩條走多的那一顆，兩個入口各一次。
+
+/**
+ * 健檢（明天）取消了，二返（後天）還接在它上面 —— L4 那一份種子，額度上的次數快取照取消之後的樣子
+ * （真的取消時存檔會重算；壓表那一排讀的是快取，健檢那一筆寫著「已排 1」的話它就不在那一排上）。
+ */
+const seedStranded = () => seedLinked().map((d) => {
+  if (d.id === 'v-exam') {
+    return { ...d, data: { ...d.data, status: 'cancelled', slots: d.data.slots.map((s) => ({ ...s, status: 'cancelled' })) } };
+  }
+  if (d.id === 'ent-exam') return { ...d, data: { ...d.data, doneCount: 1, bookedCount: 0 } };
+  if (d.id === 'ent-second') return { ...d, data: { ...d.data, doneCount: 0, bookedCount: 1 } };
+  return d;
+});
+
+/** 提醒那一道（還沒選醫師之類）先按掉，停在有「順便接過來」那一顆的那一道。 */
+async function untilOption(app, page) {
+  const option = page.locator('.dialog-backdrop [data-option="relink"]');
+  for (let i = 0; i < 3; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await expect(app.dialog()).toBeVisible();
+    // eslint-disable-next-line no-await-in-loop
+    if (await option.isVisible()) break;
+    // eslint-disable-next-line no-await-in-loop
+    const before = await app.dialogText();
+    // eslint-disable-next-line no-await-in-loop
+    await app.ok();
+    // 下一道接著就開（節點數一直是 1）：等框裡換了字
+    // eslint-disable-next-line no-await-in-loop
+    await expect.poll(async () => (await app.dialog().innerText({ timeout: 500 }).catch(() => before)) !== before).toBe(true);
+  }
+  await expect(option, '有「順便接過來」那一顆').toBeVisible();
+  return option;
+}
+
+/** 接過來之後：只有那一格變了；健檢是新的那一筆；資料健檢那一項消失。 */
+async function expectRelinked(app, page, before) {
+  const fresh = () => app.readAll('visits').then((rows) => rows.find(
+    (v) => v.customerId === 'cust-a' && v.date === TODAY && !v.deletedAt
+      && v.slots.some((s) => s.entitlementId === 'ent-exam'),
+  ));
+  await expect.poll(async () => (await fresh())?.id ?? null, { message: '新的健檢記好了' }).not.toBeNull();
+  const exam = await fresh();
+  await expect.poll(
+    async () => (await app.readDoc('visits', 'v-second')).slots[0].followupForVisitId,
+    { message: '那一場二返接到剛存好的那一次健檢上' },
+  ).toBe(exam.id);
+  await expect(page.locator('#toast')).toContainText('那一場二返接到');
+  await app.saved();
+
+  const after = await app.readDoc('visits', 'v-second');
+  expect({ ...after.slots[0], followupForVisitId: 'v-exam' }, '那一段只有「這是哪一次健檢的」那一格變了').toEqual(before.slots[0]);
+  expect(after.status, '整天的狀態沒動').toBe(before.status);
+  expect(after.date).toBe(before.date);
+  expect(exam.slots[0].status, '新的健檢照舊是待確認').toBe('pending_confirm');
+
+  await app.go('/settings/health');
+  await app.settled();
+  await expect(page.locator('#view .hcard[data-check="followupLinks"]'), '資料健檢「二返接的健檢對不上」那一項消失').toHaveCount(0);
+}
+
+test('L9 日曆新增另約一次健檢：確認框多一顆「順便把那一場二返接到這一次」—— 三顆直排放得下；按了才改、只動那一格', async ({ app, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.seed(seedStranded());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  await page.locator('[data-addmenu-toggle]').click();
+  await page.locator('[data-add="visit"]').click();
+  await app.layer('[data-pick]');
+  await page.locator('[data-pick="cust-a"]').click();
+  await app.layer('[data-chip="s0-ent"]');
+  await page.locator('[data-chip="s0-ent"][data-chip-value="ent-exam"]').click();
+  await page.click('button[type="submit"]');
+
+  const option = await untilOption(app, page);
+  await expect(option).toHaveText(/記錄，順便把那一場二返接到這一次/);
+  const said = await app.dialogText();
+  expect(said).toContain('那一場二返還接在「已取消」的');
+  expect(said, '那一句把那一顆的字講出來').toContain('按「順便把那一場二返接到這一次」');
+  expect(said, '去日曆改的路照樣講').toContain('去日曆點那一場二返改「這是哪一次健檢的」');
+  expect(said, '二返在這一次健檢之後：不講「排在之前」').not.toContain('接過來之後');
+
+  // 三顆直排：主要那一顆在最上面、「先不要，回去」在最下面，每一顆都在卡片裡
+  const box = async (sel) => page.locator(`.dialog-backdrop ${sel}`).boundingBox();
+  const [card, ok, mid, back] = await Promise.all([box('.dialog'), box('[data-ok]'), box('[data-option="relink"]'), box('[data-cancel]')]);
+  expect(ok.y, '主要那一顆在最上面').toBeLessThan(mid.y);
+  expect(mid.y, '「先不要，回去」在最下面').toBeLessThan(back.y);
+  for (const b of [ok, mid, back]) {
+    expect(b.x, '左邊沒有超出卡片').toBeGreaterThanOrEqual(card.x);
+    expect(b.x + b.width, '右邊沒有超出卡片').toBeLessThanOrEqual(card.x + card.width + 0.5);
+  }
+
+  const before = await app.readDoc('visits', 'v-second');
+  await option.click();
+  await expectRelinked(app, page, before);
+});
+
+test('L10 壓表另約一次健檢：同一顆、同一支 —— 按了才改、只動那一格', async ({ app, page }) => {
+  await app.seed(seedStranded());
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await page.locator('[data-pick="cust-a"]').first().click();
+  await app.layer('[data-deck] [data-day]');
+  await page.locator(`[data-deck] [data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-ent]');
+  await page.locator('[data-ent="ent-exam"]').click();
+  await page.locator('[data-time]').first().click();
+  await page.locator('[data-add]').click();
+
+  const option = await untilOption(app, page);
+  const before = await app.readDoc('visits', 'v-second');
+  await option.click();
+  await expectRelinked(app, page, before);
+});

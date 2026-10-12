@@ -44,7 +44,8 @@ import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
 import { tip } from '../components/tip.js';
-import { confirmAction, confirmReview } from '../components/dialog.js';
+import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
+import { relinkAfterSave } from '../relinkFollowup.js';
 import * as toast from '../toast.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
@@ -1311,6 +1312,8 @@ async function submit(ctx, draft) {
   // 抬頭與後果由 `domain/consequences.js` 算：這裡以前寫死「Abovee」，
   // 而健檢壓的是 Examine ——「在哪壓」早就答得出來（`bookingSystemOf()`），
   // 只是沒有人用它。壓表那一頁走的是同一支。
+  /** 她按了「順便把那一場二返接到這一次」的那一場（ADR-0146）；沒按就是 null */
+  let relink = null;
   if (rebooked) {
     // 要回 Abovee／Examine／耀聖做什麼，由真的會長出來的那幾張推（`rebookConsequences()`）
     const said = rebookConsequences({
@@ -1345,7 +1348,7 @@ async function submit(ctx, draft) {
       customerVisits: ctx.customerVisits,
       entitlements: ctx.entitlements,
     });
-    const ok = await confirmAction({
+    const asked = {
       title: said.title,
       consequences: [
         // **只列這一次新加的那幾段。** 併進既有那一天時，前面那幾段她早就
@@ -1362,8 +1365,14 @@ async function submit(ctx, draft) {
       ],
       // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給
       confirmLabel: said.confirmLabel,
-    });
-    if (!ok) return;
+    };
+    // 新加的段裡有一段健檢、剛好一場二返還接在取消／未到的那一次上：多一顆「順便把那一場接到這一次」
+    // （ADR-0146）。有沒有那一顆、它的字只問 `said.relink`（壓表同一支）；按原本那一顆跟以前一模一樣
+    const pick = said.relink
+      ? await confirmWithOption({ ...asked, option: { key: 'relink', label: said.relink.label } })
+      : ((await confirmAction(asked)) ? 'ok' : null);
+    if (!pick) return;
+    if (pick === 'relink') relink = said.relink;
   }
 
   const payload = ctx.unlockReason
@@ -1378,6 +1387,10 @@ async function submit(ctx, draft) {
         : (hasNewSlots(ctx, draft) ? '已記錄' : '已儲存'),
       key: `visit:save:${payload.id ?? `${payload.customerId}:${payload.date}`}`,
     });
+    // 她按了「順便把那一場二返接到這一次」：健檢存好了才接（`ui/relinkFollowup.js`，壓表同一支）
+    if (relink) {
+      await relinkAfterSave(relink, { id, date: payload.date }, { customer, entitlements, master: all });
+    }
     leave(ctx);
     return id;
   } catch {

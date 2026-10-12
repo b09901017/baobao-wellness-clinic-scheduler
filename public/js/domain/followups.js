@@ -496,6 +496,86 @@ export function strandedFollowups(entitlements = [], coursesById = {}, visits = 
   return out;
 }
 
+// ---------- 另約一次健檢時，順便把那一場二返接過來（ADR-0146）----------
+//
+// 她 2026-10-12：「另約健檢時，如果剛好只有一場二返還接在被取消的那一次上，確認框多一顆『順便把那一場接到這一次』。
+// 你按了才改，仍然不是自動搬」。ADR-0145「不自動搬」照舊 —— 沒有任何一筆資料記著「這一次是那一次改期來的」。
+// 多的是**她按了才改**的一顆；這裡只回答兩件事：有沒有一場講得清楚是哪一場、接過來存得下去的（`relinkOffer()`），
+// 與按了之後那一筆長什麼樣（`relinkSlot()`，只動那一格）。
+
+/**
+ * 這一次新加的段裡有一段健檢時，可以「順便接過來」的那一場二返。沒有就是 `null`（照舊只講那一句）。
+ *
+ * 少一條就沒有那一顆：
+ *
+ * - 這位客戶**剛好一場**還佔著、卻接在接不上（取消、未到）的健檢上的回訪（`strandedFollowups()`，二返與 n返 一起數 ——
+ *   兩場的話「那一場」是誰講不清楚，替她挑一場就是 ADR-0145 說不做的那件事）
+ * - 那一場是**二返**（她說的是二返；n返 沒有額度）、扣的那一筆二返額度配的就是**這一次新加的那一段健檢**的額度 ——
+ *   配別筆健檢的接過來存不下去（`validateVisit()`：「指定的那一天裡沒有對應的健檢」）
+ * - **還開著**（待確認／已確認）：做完的鎖著，更正走日曆
+ * - **不在正要存的這一筆裡**：同一筆裡的連結去日曆改（那一筆還沒存好）
+ *
+ * `ahead`：接過來之後它會排在這一次健檢**之前**（別天比日期、同一天比開始時間）—— 存檔前那一道要先講：
+ * 健檢簽成做了之前它簽不了療程單（`cannotClose()`）。
+ *
+ * @param {object} o
+ * @param {object} o.visit 要存下去的那一筆（已經含新加的段；新的一筆還沒有 id）
+ * @param {number[]|null} [o.added] 這次新加的是第幾段（沒給＝每一段）
+ * @param {object[]} o.entitlements 這位客戶的額度
+ * @param {Record<string, object>} o.coursesById
+ * @param {object[]} o.customerVisits 這位客戶的全部來訪（存之前的）
+ * @returns {{visitId:string, slotIndex:number, date:string, entitlementId:string,
+ *            fromVisitId:string, fromDate:string, fromStatus:string|null, ahead:boolean}|null}
+ */
+export function relinkOffer({ visit, added = null, entitlements = [], coursesById = {}, customerVisits = [] } = {}) {
+  const slots = visit?.slots ?? [];
+  const fresh = added ?? slots.map((_, i) => i);
+  const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
+  const stranded = strandedFollowups(entitlements, coursesById, [...others, visit]);
+  if (stranded.length !== 1) return null;
+
+  const [{ visit: held, slot, slotIndex, exam, status }] = stranded;
+  if (held === visit || !isOpenStatus(slotStatus(held, slot))) return null;
+  const ent = (entitlements ?? []).find((e) => e && !e.deletedAt && e.id === slot.entitlementId) ?? null;
+  if (!ent?.followupForEntitlementId) return null;
+
+  // 這一次新加的、扣著它配的那一筆健檢額度、還算數的那一段
+  const mine = fresh.map((i) => slots[i])
+    .find((s) => s?.entitlementId === ent.followupForEntitlementId && PICKABLE_EXAM.has(slotStatus(visit, s)));
+  if (!mine) return null;
+
+  const ahead = Boolean(held.date && visit.date) && (held.date < visit.date
+    || (held.date === visit.date && Boolean(slot.startsAt && mine.startsAt) && slot.startsAt < mine.startsAt));
+  return {
+    visitId: held.id, slotIndex, date: held.date, entitlementId: ent.id,
+    fromVisitId: exam.id, fromDate: exam.date, fromStatus: status, ahead,
+  };
+}
+
+/**
+ * 把那一場接到另一次健檢上：**只動那一段的 `followupForVisitId`**。回新的那一筆；不該動就回 `null`。
+ *
+ * **拿剛讀回來的那一份來套**（呼叫端）：那一段在她按下去之前可能在別的地方被改過 —— 連結已經換了、取消了、結案了、
+ * 換了額度，都不動（她在確認框上看到的不是現在的樣子）。跟拍 Abovee「改成 Abovee 的」同一個作法（`adoptAbovee()`）。
+ * 存不存得下去由呼叫端照常問 `validateVisit()`（那一次健檢接不接得上、有沒有被別場接走）—— 這一支不重寫那幾條。
+ *
+ * @param {object[]} visits 這位客戶剛讀回來的全部來訪
+ * @param {ReturnType<typeof relinkOffer>} offer 確認框那一刻算的那一場
+ * @param {string|null} toVisitId 剛存好的那一次健檢的來訪 id
+ * @returns {object|null}
+ */
+export function relinkSlot(visits = [], offer = null, toVisitId = null) {
+  if (!offer || !toVisitId) return null;
+  const visit = (visits ?? []).find((v) => v && !v.deletedAt && v.id === offer.visitId) ?? null;
+  const slot = visit?.slots?.[offer.slotIndex];
+  if (!slot || slot.entitlementId !== offer.entitlementId || slot.followupForVisitId !== offer.fromVisitId) return null;
+  if (!isOpenStatus(slotStatus(visit, slot))) return null;
+  return {
+    ...visit,
+    slots: visit.slots.map((s, i) => (i === offer.slotIndex ? { ...s, followupForVisitId: toVisitId } : s)),
+  };
+}
+
 /**
  * 已經做完、接的那一次健檢卻還沒做完（待確認、已確認）的二返與 n返 —— 簽療程單擋住之前就存在的那幾筆（ADR-0145）。
  * 那一次健檢做完時追蹤健檢報告不會長（「二返做完了才不追」，ADR-0139）。資料健檢列出來，只列不修。

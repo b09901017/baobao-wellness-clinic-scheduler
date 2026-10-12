@@ -523,6 +523,8 @@ export const COVERAGE = {
     'public/js/domain/consequences.js', 'public/js/domain/health.js', 'public/js/domain/aboveeImport.js',
     'public/js/ui/views/visitEditor.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/home.js',
     'public/js/ui/views/customerDetail.js', 'public/js/ui/components/aboveeConfirm.js',
+    // 13：另約健檢時多一顆「順便把那一場二返接到這一次」（ADR-0146）—— 三顆的確認框、兩個入口共用的那一支
+    'public/js/ui/components/dialog.js', 'public/js/ui/relinkFollowup.js',
   ],
 };
 

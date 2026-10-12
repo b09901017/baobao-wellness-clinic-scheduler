@@ -75,7 +75,8 @@ import {
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
-import { confirmAction, confirmReview } from '../components/dialog.js';
+import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
+import { relinkAfterSave } from '../relinkFollowup.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 import { chip as markChip } from '../components/marks.js';
@@ -2222,7 +2223,7 @@ async function addSlot() {
     coursesById,
   }) : [];
 
-  const ok = await confirmAction({
+  const asked = {
     title: said.title,
     consequences: [
       // 這道確認是她自己在看的，印的是那天做了什麼（`SIS(30)`）不是課程全名
@@ -2234,14 +2235,27 @@ async function addSlot() {
     ],
     // 新加的這一段不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給
     confirmLabel: said.confirmLabel,
-  });
-  if (!ok) return;
+  };
+  // 這一段是新的健檢、剛好一場二返還接在取消／未到的那一次上：多一顆「順便把那一場接到這一次」（ADR-0146）。
+  // 有沒有那一顆、它的字只問 `said.relink`；按原本那一顆跟以前一模一樣
+  const pick = said.relink
+    ? await confirmWithOption({ ...asked, option: { key: 'relink', label: said.relink.label } })
+    : ((await confirmAction(asked)) ? 'ok' : null);
+  if (!pick) return;
 
   try {
-    await toast.withSaveState(() => visitsData.save(visit, customerVisits), {
+    const savedId = await toast.withSaveState(() => visitsData.save(visit, customerVisits), {
       success: '記好了',
       key: `visit:save:${visit.id ?? `${visit.customerId}:${visit.date}`}`,
     });
+    // 健檢存好了才接：那一場二返要接的是剛存好的那一筆的 id（`ui/relinkFollowup.js`，日曆新增同一支）
+    if (pick === 'relink') {
+      await relinkAfterSave(said.relink, { id: savedId, date: visit.date }, {
+        customer: { id: selected.customerId, flags: selected.flags ?? [] },
+        entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
+        master: all,
+      });
+    }
     // 記完把時段相關的選擇清掉，日期留著 —— 同一天常常要連記兩三段
     view.startsAt = null;
     view.entitlementId = null;
