@@ -125,12 +125,13 @@ export const firebaseConfig = PROJECTS[ENV];
  * App Check 的 reCAPTCHA Enterprise 網站金鑰（ADR-0100 防護第 3 道）。**不是密鑰**：
  * 它本來就會出現在每個人的瀏覽器裡，擋人的是 Google 那一側綁定的網域。
  *
- * 正式環境還沒建（她照 `docs/STAGING.md` 建好之後填進來）。沒有金鑰的環境不初始化
- * App Check，拍照辨識會被 Function 擋下來 —— 那是對的：少一道防護時寧可用不了。
+ * 兩個環境各一把，各自只收自己那兩個網域（正式那一把 2026-10-12 建的，見 `docs/STAGING.md`
+ * 「三之三」）。沒有金鑰的環境不初始化 App Check，拍照辨識會被 Function 擋下來 ——
+ * 那是對的：少一道防護時寧可用不了。
  * 模擬器不用金鑰，`data/ai.js` 塞一個假的憑證（模擬器不驗簽章）。
  */
 const APP_CHECK_SITE_KEYS = {
-  prod: null,
+  prod: '6LfXI-stAAAAALrWOfRC3PKTCBrpYk0Ynxgg_dyT',
   staging: '6LeQF8AtAAAAAA6e57ZUvuVk83gjRpZozCf13q7A',
   emulator: null,
 };
