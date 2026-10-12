@@ -5090,6 +5090,21 @@ body:has(.deck) > .toast > .btn {
   justify-content: flex-end;
 }
 
+/* 三顆以上直排（ADR-0146：另約健檢時多一顆「順便把那一場二返接到這一次」）。
+   橫排在 390px 的手機上放不下三顆 —— 那一張卡片裡只有 310px 左右。
+   DOM 的順序是「先不要，回去 → 多的那一顆 → 主要那一顆」，倒過來排：主要那一顆在最上面、
+   「先不要，回去」在最下面。兩顆的確認框沒有這個 class，一個像素都不變。 */
+.dialog__actions--stack {
+  flex-direction: column-reverse;
+  align-items: stretch;
+}
+
+/* 那一顆的字比較長（帶著課程名），放不下時換行而不是撐出卡片 */
+.dialog__actions--stack .btn {
+  padding-block: var(--space-2);
+  text-align: center;
+}
+
 /* ---------- 額度 ---------- */
 
 /* 一個時段。移除那顆叉叉絕對定位在右上角，所以它不吃抬頭那一列的寬度 ——

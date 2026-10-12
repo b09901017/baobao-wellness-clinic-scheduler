@@ -34,7 +34,7 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, strandedFollowups,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
@@ -44,6 +44,9 @@ import { timeLabel } from './visitTime.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
+
+/** 句子裡的那一天。日期壞掉時不印一個看不懂的字。 */
+const dayWord = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
 
 /**
  * **這幾段談定了，掛號待辦會多哪幾種。** 把那幾段假設成已確認，去問存檔時真的在跑的
@@ -207,11 +210,13 @@ export function reviewWarnings(warnings = []) {
  * @param {string|null} [o.today] 補登過去那一天時，「跟客人確認時間」與掛號那兩句都不講（ADR-0113）
  * @param {object[]} [o.customerVisits] 這位客戶的全部來訪、`entitlements` 額度 —— 這一次存一段新的健檢時，
  *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`，ADR-0145）；沒給就不講
- * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[]}}
+ * @returns {{title: string, lines: string[], confirmLabel: string, toBook: number[], free: number[], relink: object|null}}
  *   抬頭與確認鈕的字一起回 —— 新加的每一段都不用壓時兩個都要換（ADR-0126），畫面不自己寫死。
  *   `toBook`／`free`：這一次新加的段裡**哪幾段要壓、哪幾段不用**（那一筆來訪裡的位置）。
  *   抬頭問的是「在 X 壓好了嗎」，所以它底下只能列 `toBook` —— 以前呼叫端把新加的每一段都列上去，
- *   功醫門診＋HRV 一起存時讀起來像在問「HRV 在 Abovee 壓好了嗎」（2026-10-07）。名字由呼叫端組
+ *   功醫門診＋HRV 一起存時讀起來像在問「HRV 在 Abovee 壓好了嗎」（2026-10-07）。名字由呼叫端組。
+ *   `relink`：這一道要不要多一顆「順便把那一場二返接到這一次」（ADR-0146，`followups.js` 的 `relinkOffer()` 加上名字與那一顆的字）；
+ *   沒有就是 `null`。**有沒有那一顆只問這一格** —— 壓表與日曆新增共用，畫面不自己判斷
  */
 export function bookingConsequences({
   visit, coursesById = {}, merge = null, sheetSyncOn = false, added = null, tasks = [], today = null,
@@ -256,7 +261,13 @@ export function bookingConsequences({
   for (const name of uncountedNames(visit, coursesById, added)) {
     lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
   }
-  lines.push(...strandedOnNewExamLines({ visit, added: fresh, entitlements, coursesById, customerVisits }));
+  // 剛好一場接得過來的二返：多一顆「順便接過來」（ADR-0146）。那一句跟著改講那一顆，去日曆改的路照樣講
+  const relink = relinkChoice({ visit, added: fresh, entitlements, coursesById, customerVisits });
+  lines.push(...strandedOnNewExamLines({ visit, added: fresh, entitlements, coursesById, customerVisits, offer: relink }));
+  if (relink?.ahead) {
+    lines.push(`接過來之後，${dayWord(relink.date)} 那一場${relink.name}排在這一次健檢（${dayWord(visit?.date)}）之前`
+      + ' —— 健檢簽成做了之前它簽不了療程單，記得改期');
+  }
 
   if (sheetSyncOn) lines.push(SHEET_LINE);
 
@@ -264,8 +275,40 @@ export function bookingConsequences({
   const toBook = live.filter((i) => bookingSystemOf(coursesById[visit.slots[i].courseId]));
   const free = live.filter((i) => !toBook.includes(i));
 
-  if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free };
-  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free };
+  if (!where) return { ...nothingToBook(fresh.length), lines, toBook, free, relink };
+  return { title: `已經在 ${where} 壓好表了嗎？`, lines, confirmLabel: '已確認，記錄', toBook, free, relink };
+}
+
+/**
+ * 存檔前那一道要不要多一顆「順便把那一場二返接到這一次」（ADR-0146）：`followups.js` 的 `relinkOffer()`
+ * 加上那一場叫什麼（`followupName()`）與那一顆的字。壓表與日曆新增經 `bookingConsequences()` 拿；**拍 Abovee 不給**
+ * （那一道一次問很多位，而且健檢不壓在 Abovee）。
+ *
+ * @returns {(ReturnType<typeof relinkOffer> & {name: string, label: string})|null}
+ */
+function relinkChoice({ visit, added, entitlements, coursesById, customerVisits }) {
+  const offer = relinkOffer({ visit, added, entitlements, coursesById, customerVisits });
+  if (!offer) return null;
+  const held = (customerVisits ?? []).find((v) => v?.id === offer.visitId);
+  const name = followupName(held?.slots?.[offer.slotIndex], coursesById);
+  return { ...offer, name, label: `記錄，順便把那一場${name}接到這一次` };
+}
+
+/** 按了那一顆、接好之後那一句（存完的 toast）。 */
+export function relinkedSay(relink, examDate) {
+  return `${dayWord(relink?.date)} 那一場${relink?.name ?? '二返'}接到 ${dayWord(examDate)} 這一次健檢了`;
+}
+
+/**
+ * 按了那一顆、卻沒有接過來時那一句：健檢照樣記好了，所以要講出這一半沒做（ADR-0070）。
+ * `errors`：存檔驗證擋下來的理由（那一次已經被別場接走之類）；沒有就是那一場在這之間被改過了。
+ */
+export function notRelinkedSay(relink, errors = []) {
+  // 開頭先講健檢那一半記好了：她按的那一顆是「記錄，順便…」，只講沒接過來會以為兩件事都沒成
+  const which = `健檢記好了；${dayWord(relink?.date)} 那一場${relink?.name ?? '二返'}沒有接過來`;
+  return errors?.length
+    ? `${which}：${errors[0]} —— 去日曆點那一場改「這是哪一次健檢的」`
+    : `${which} —— 它剛剛在別的地方改過，去日曆看那一天`;
 }
 
 /**
@@ -279,18 +322,26 @@ export function bookingConsequences({
  * @param {number[]|null} o.added 這次新加的是第幾段（沒給＝每一段）
  * @param {object[]} o.entitlements 這位客戶的額度
  * @param {object[]} o.customerVisits 這位客戶的全部來訪（存之前的）
+ * @param {{visitId: string, slotIndex: number}|null} [o.offer] 這一道有「順便接過來」那一顆的那一場（ADR-0146，`relinkChoice()`）：
+ *   那一句的後半改講那一顆 —— 照舊叫她「存好之後去日曆改」的話，底下卻有一顆現在就能接，兩邊講的不一樣
  * @returns {string[]}
  */
-export function strandedOnNewExamLines({ visit, added = null, entitlements = [], coursesById = {}, customerVisits = [] }) {
+export function strandedOnNewExamLines({
+  visit, added = null, entitlements = [], coursesById = {}, customerVisits = [], offer = null,
+}) {
   const examIds = examEntitlementIds(entitlements, coursesById);
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
   if (!fresh.some((i) => isLiveSlot(visit?.slots?.[i]) && examIds.has(visit.slots[i].entitlementId))) return [];
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
-  return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, exam, status }) => {
+  return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, slotIndex, exam, status }) => {
     const name = followupName(slot, coursesById);
+    const offered = Boolean(offer) && offer.visitId === v.id && offer.slotIndex === slotIndex;
     return `${day(v.date)} 那一場${name}還接在「${shortStatus(status)}」的 ${day(exam.date)} 健檢上 —— `
-      + `要接到這一次的話，存好之後去日曆點那一場${name}改「這是哪一次健檢的」`;
+      // 有那一顆時把它的字講出來（三顆直排，「下面那一顆」指不到是哪一顆）；去日曆改的那一條路照樣講
+      + (offered
+        ? `要接到這一次的話，按「順便把那一場${name}接到這一次」；或存好之後去日曆點那一場${name}改「這是哪一次健檢的」`
+        : `要接到這一次的話，存好之後去日曆點那一場${name}改「這是哪一次健檢的」`);
   });
 }
 
