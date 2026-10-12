@@ -11,9 +11,14 @@ import { getAuthInstance, getDb } from './firebase.js';
 
 const provider = new GoogleAuthProvider();
 
+// 裝到主畫面的那幾種。manifest 寫的是 `fullscreen`（ADR-0147）：Android 照做，
+// iOS 不認得、退回 `standalone` —— 兩種都要問，只問 standalone 的話 Android 上裝好的那一顆
+// 會被當成瀏覽器分頁，登入從 redirect 悄悄換成 popup。`tests/immersive-display.test.js` 盯著。
+const INSTALLED = '(display-mode: fullscreen), (display-mode: standalone)';
+
 // iOS 加到主畫面後的 standalone 模式關不掉 popup，會卡住。那裡改用 redirect。
 function prefersRedirect() {
-  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  return window.matchMedia(INSTALLED).matches || window.navigator.standalone === true;
 }
 
 export async function signIn() {
