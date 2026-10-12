@@ -8,6 +8,12 @@ import { watchOffline } from './net.js';
 import { envBanner } from '../firebase-config.js';
 
 /**
+ * app 叫什麼。登入畫面的抬頭與分頁標題讀它；主畫面圖示底下那個名字在
+ * `manifest.webmanifest` 與 `index.html`（那兩支讀不到 JS），改名三個地方一起改。
+ */
+const APP_NAME = '暴富日常';
+
+/**
  * 「這裡不是正式環境」那一條。正式環境回空字串 —— **一個元素都不畫**，
  * 所以它不佔高度、也不需要在正式環境上驗證任何排版。
  *
@@ -44,7 +50,7 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut, onRet
       <h2 class="card__title">還沒設定 Firebase</h2>
       <p class="muted">把 Firebase Console 的前端 config 填進 <code>public/js/firebase-config.js</code>。那串不是密鑰，可以直接 commit。</p>`,
     signedOut: `
-      <h2 class="card__title">排課系統</h2>
+      <h2 class="card__title">${APP_NAME}</h2>
       <p class="muted">請先登入。</p>
       <p><button class="btn btn--primary" type="button" data-signin>使用 Google 登入</button></p>`,
     notAllowed: `
@@ -130,7 +136,7 @@ export function renderShell(root, { onSignOut }) {
     // 分頁標題也帶上環境。橫幅在螢幕上，但**切分頁**的時候只看得到標題 ——
     // 而「兩個分頁開著、按錯那一個」正是這個安排最容易出的事。
     const env = envBanner();
-    document.title = `${env ? `[${env.label}] ` : ''}${title} · 排課系統`;
+    document.title = `${env ? `[${env.label}] ` : ''}${title} · ${APP_NAME}`;
     const view = freshView(root);
     navEl.innerHTML = navHtml(activeNavPath(path));
     // render 可能是 async，錯誤要看得見，不能靜默失敗
