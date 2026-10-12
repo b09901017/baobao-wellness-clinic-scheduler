@@ -89,7 +89,7 @@ svg {
    也就是螢幕最上面 —— 她一打開就看到，不用捲。
    正式環境**完全不畫這個元素**，所以不佔任何高度（ui/shell.js 的 envBarHtml）。
 
-   safe-area 的補償從 .app__main 手上接過來：有這條的時候，瀏海底下的是它。 */
+   safe-area 的補償從 .app__body 手上接過來：有這條的時候，瀏海底下的是它。 */
 .envbar {
   order: 0;
   display: flex;
@@ -153,18 +153,25 @@ svg {
   .netbar__hint { display: none; }
 }
 
-/* 有橫幅的時候，主內容區不用再自己讓瀏海 */
-.app:has(.envbar) .app__main,
-.app:has(.netbar:not([hidden])) .app__main {
-  padding-top: var(--space-3);
-}
+/* 全螢幕（manifest 的 `display: fullscreen`，ADR-0147）時系統的狀態列收起來了，畫面一路畫到
+   螢幕最上緣 —— 前鏡頭那個洞也在裡面，`safe-area-inset-top` 就是它的高度（沒有洞、或不是
+   全螢幕時是 0，這一條不佔任何高度）。
 
+   **讓在這一層，不是捲動區（.app__main）的內距**：寫成捲動區的內距的話，內容往上捲的時候會
+   從鏡頭底下穿過去，釘在最上面的那幾條（`position: sticky; top: 0`）也會停在鏡頭底下。 */
 .app__body {
   order: 1;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  padding-top: env(safe-area-inset-top);
+}
+
+/* 有橫幅的時候，鏡頭底下的是橫幅（它自己讓過了），內容不用再讓一次 */
+.app:has(.envbar) .app__body,
+.app:has(.netbar:not([hidden])) .app__body {
+  padding-top: 0;
 }
 
 .app__main {
@@ -173,7 +180,7 @@ svg {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--gutter);
-  padding-top: max(var(--space-3), env(safe-area-inset-top));
+  padding-top: var(--space-3);
   /* 底下要讓得出導覽列的位置，否則最後一張卡永遠被蓋住 */
   padding-bottom: var(--space-7);
 }
@@ -264,6 +271,8 @@ svg {
     border-right: 1px solid var(--border);
     width: 82px;
     padding: var(--space-4) var(--space-2);
+    /* 側邊那一欄從螢幕最上緣開始，全螢幕時第一顆要自己讓開前鏡頭 */
+    padding-top: max(var(--space-4), env(safe-area-inset-top));
   }
 
   .app__nav a {
@@ -4391,6 +4400,7 @@ button.mark::after {
   justify-content: center;
   gap: var(--space-4);
   padding: var(--space-5);
+  padding-top: max(var(--space-5), env(safe-area-inset-top));
   text-align: center;
 }
 

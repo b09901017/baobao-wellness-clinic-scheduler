@@ -526,6 +526,10 @@ export const COVERAGE = {
     // 13：另約健檢時多一顆「順便把那一場二返接到這一次」（ADR-0146）—— 三顆的確認框、兩個入口共用的那一支
     'public/js/ui/components/dialog.js', 'public/js/ui/relinkFollowup.js',
   ],
+  // 全螢幕（ADR-0147）：最上面那一條（前鏡頭的洞）裡不可以有東西 —— 殼、橫幅、蓋住整頁的那幾層
+  '66-immersive-top-inset': [
+    'public/css/', 'public/manifest.webmanifest', 'public/js/ui/components/camera.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
