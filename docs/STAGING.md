@@ -247,8 +247,9 @@ gcloud projects add-iam-policy-binding wellness-clinic-scheduler \
 為什麼長這樣：[ADR-0100](./adr/0100-the-first-server-code-and-its-five-locks.md)（防護與上限）、
 [ADR-0101](./adr/0101-photos-and-privacy.md)（照片與隱私）。這一節只講怎麼做。
 
-staging 2026-09-17 做過一次。**正式環境在拍照功能要合進 `main` 之前照同樣的步驟再做一次**，
-把 `PROJECT` 換成 `wellness-clinic-scheduler`。
+staging 2026-09-17 做過一次，**正式環境 2026-10-12 做了**（除了第 5 步的預算警示，那一步只有帳單的主人設得了）。
+正式那一次不是照下面的指令打的：這台電腦的 `gcloud` 被防毒擋著，改用同一份登入打 REST ——
+做的事一樣，下面的指令留著當作「每一步在做什麼」。換一個新專案時 `PROJECT` 換成那一個。
 
 ### 一次性設定（每個專案一次）
 
@@ -298,8 +299,19 @@ done
    CI 那把服務帳號（`firebase-adminsdk-…`）沒有那個權限的話，那一步 403、整個 deploy job 紅
    （Hosting 與 Firestore Rules 已經推上去了，只有照片的 Rules 沒更新）。
    2026-09-17 查的：**staging 那把有**（`roles/editor`），**正式那把沒有**。
-   所以正式環境要補一個角色 —— Google Cloud Console → IAM → 找 `firebase-adminsdk` 那一個 →
-   編輯 → 新增角色「Service Usage Consumer」（`roles/serviceusage.serviceUsageConsumer`）
+   所以正式環境要補**兩個**角色（2026-10-12 補了）—— Google Cloud Console → IAM → 找 `firebase-adminsdk` 那一個 →
+   編輯 → 新增角色：
+   - 「Service Usage Consumer」（`roles/serviceusage.serviceUsageConsumer`）：過得了上面那個「API 開了沒」
+   - 「Firebase Storage Viewer」（`roles/firebasestorage.viewer`）：下一步它要問「預設 bucket 是哪一個」
+     （`firebasestorage.defaultBucket.get`）。只補第一個的話，那一步換一個地方 403
+6c. **讓 Storage 的 Rules 讀得到 Firestore 的白名單**。`storage.rules` 用 `firestore.exists()` 問
+   `allowedUsers`，那要 Google 自己的 Storage 服務代理（`service-<專案編號>@gcp-sa-firebasestorage…`）
+   有「Firebase Rules Firestore Service Agent」（`roles/firebaserules.firestoreServiceAgent`）。
+   **沒有的話每一次存照片、看照片都是沒有權限，而 Rules 本身推得上去、看起來是好的。**
+   firebase-tools 第一次推這種規則時會問「Grant the new role?」，但**非互動模式（CI、沒有終端機的工具）
+   它直接跳過不問** —— 6b 那一步不是自己在終端機裡打的話，這個角色就沒有人給。
+   查：IAM 那一頁勾「包含 Google 提供的角色授權」→ 找 `gcp-sa-firebasestorage` 那一列有沒有這個角色。
+   正式 2026-10-12 補了；**staging 同一天查到沒有**（9/18 療程單存照片 403 很可能就是它），補了之後把這一句拿掉
 7. **關掉 Gemini 的記憶體快取**（ADR-0101「Google 那一側」）。預設會把照片與抄出來的字在
    記憶體裡留 24 小時，關掉之後不留：
 
@@ -451,13 +463,10 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
       其他的多出一堆＝新版寫壞了東西。**切換那天例外**：主檔是剛載的種子，主檔那幾列應該都是 0
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**
       有沒有寫進 [操作手冊](./操作手冊.md) 的最後一節
-- [ ] 拍照功能第一次進 `main` → 正式環境照「三之三」做完了嗎：尤其 **6 建 bucket、6b 推一次
-      Storage Rules、CI 那把補 Service Usage Consumer** —— 少一樣，`deploy` job 的
-      「部署 Storage Rules」那一步會紅，療程單在正式環境存不了照片
-- [ ] 同一次還有兩件 CI 不會替你做的：**4 的正式金鑰填進 `firebase-config.js` 的
-      `APP_CHECK_SITE_KEYS.prod`**（現在是 `null`）、**從本機部署一次 Function**
-      （「部署那一支 Function」，`--project` 換成正式）。少一樣的話正式站的相機按鈕照樣看得到，
-      但每一次辨識都被擋 —— 沒有金鑰是「驗證不過」，沒有 Function 是「辨識失敗」
+- [ ] 改了 `functions/` → **從本機部署一次 Function**（「部署那一支 Function」，`--project` 換成正式）——
+      CI 不會替你做。沒部署的話正式站跑的是上一版的提示詞與防護，而畫面上看不出來
+- [ ] 正式環境的「三之三」2026-10-12 做完了（API、服務帳號、bucket、Storage Rules、CI 那把的兩個角色、
+      Storage 服務代理的角色、App Check 金鑰、關快取、Function）。**只剩第 5 步的預算警示**
 
 ### 切換那天（2026-10-09 決定：正式站連主檔一起刪掉、重新載入種子）
 
