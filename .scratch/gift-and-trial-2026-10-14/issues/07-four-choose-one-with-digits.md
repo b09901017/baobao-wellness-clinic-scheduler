@@ -1,6 +1,6 @@
 # 舊表與拍訂購單：「復能4選一(30)」「3選一」（阿拉伯數字）也認得
 
-Status: todo
+Status: done
 Blocked by: —（合併檔基準比對照 07 → 05 → 08 的順序跑，所以排在 05 前面）
 動工前先讀：`domain/legacyImport.js` 的 `rowShape()`（檔頭那張寫法表）、同一支另外兩處讀幾選一的（`.replace(/…|三選一|四選一/g, '')` 那一行、「B2 字裡寫了幾選一」那一段）；
 `domain/photoPlan.js` 的 `shapeOf()`；CLAUDE.md「拍訂購單翻成客戶」那一列（**重用舊表那一份**）
@@ -30,3 +30,15 @@ Blocked by: —（合併檔基準比對照 07 → 05 → 08 的順序跑，所�
 - 拍訂購單：品項寫 `4選一(30)` → 四選一的擇一池
 - 既有的舊表匯入測試與 `tests/abovee.test.js` 那張 353 筆寫法的表一筆都沒變
 - 真檔比對：差的只有那兩位的第 11 列
+
+## 做完時留下的
+
+- 「幾選一」只有一份：`legacyImport.js` 的 `THREE_OF`／`FOUR_OF`／`CHOOSE_ONE`（國字、阿拉伯數字、全形數字）與 `chooseOneSet()`。
+  三處都讀它：`rowShape()` 的正規式（改成 `new RegExp()` 組）、`looseName()`（B2 字裡的加購跟那一列比對）、B2 字裡寫的幾選一（`planForSheet()` 那一段）
+- 拍訂購單沒有改：`photoPlan.js` 的 `shapeOf()` 本來就吃 `rowShape()`，`4選一(30)`、`3選一`＋60 分跟著認得（測試釘著）
+- 產檔那側 `merge.mjs` 沒有自己的幾選一，也是吃 `rowShape()`
+- 新測試：`tests/legacy-new-shapes.test.js` 最後一段（rowShape 七種寫法、那一列寫 4選一、B2 寫 4選一、拍訂購單）
+- **真檔比對**（`.local/references/merge-baseline-2026-10-06/baseline.mjs`，在 01–04 之上、只差這一支：`gt-pre07` → `gt-07`）：
+  額度 153 → 155、來訪 131 → 132、時段 201 → 203（復能 68 → 70）—— **只有那兩位**（報告上第 17、18 位）的額度不一樣、第 17 位多一天。
+  其餘一格都沒變（`purchaseProblems` 照舊 2）。**05 拿 `gt-07` 當基準比**
+- 相關 E2E：00、09、38、40（跟 05 一起跑的那一輪，全過）

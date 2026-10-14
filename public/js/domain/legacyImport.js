@@ -116,6 +116,19 @@ export const SHEET_COURSE_ALIASES = Object.freeze({
 /** 這一列是擇一池，不是單一課程。舊表寫「復能(1小時)」。 */
 const POOL_LABELS = ['復能(1小時)', '復能（1小時）', '復能'];
 
+// 「幾選一」的寫法只有這一份（2026-10-14，gift-and-trial 07）：國字、阿拉伯數字、全形數字。
+// 讀它的三處（`rowShape()`、`looseName()`、B2 字裡寫的幾選一）都問這裡 —— 以前三處各寫一次國字，
+// 舊表有人寫「復能4選一(30)」，那一列整列讀不到、B2 那一條也組不成四台
+const THREE_OF = '[三3３]選一';
+const FOUR_OF = '[四4４]選一';
+const CHOOSE_ONE = `${THREE_OF}|${FOUR_OF}`;
+
+/** 字裡寫的幾選一 → 那一筆擇一池是哪一組（四選一 `'all'`、三選一 `'home'`）；沒寫就是 `null`。 */
+function chooseOneSet(text) {
+  if (new RegExp(FOUR_OF).test(text ?? '')) return 'all';
+  return new RegExp(THREE_OF).test(text ?? '') ? 'home' : null;
+}
+
 /**
  * 帶時長、帶器材的列名長什麼樣子。2026-09-14 那一批多出來的寫法
  * （`.scratch/merge-answers-2026-09-14/issues/01`）：
@@ -124,6 +137,7 @@ const POOL_LABELS = ['復能(1小時)', '復能（1小時）', '復能'];
  * |---|---|
  * | `復能(1小時)`、`復能(30分）`、`復能(30min)` | 復能擇一池，沒寫幾選一就是三選一 |
  * | `復能四選一(30)`、`復能三選一(60)` | 照寫的 |
+ * | `復能4選一(30)`、`3選一(60)`（阿拉伯數字，全形也算） | 同上（2026-10-14，gift-and-trial 07：切換那天兩位寫成這樣，整列讀不到） |
  * | `任選(30min)` | 擇一池，**沒寫幾選一** —— 她 9/15：之後個別問 |
  * | `SIS(60min)`、`INDIBA(30)`、`高能(60)` | 只有那一台的池（ADR-0075：單買一台就是一台的池） |
  * | `ILIB 30`、`ILIB (60mins)`、`ILIB 60mins` | ILIB 那個課程 |
@@ -141,13 +155,13 @@ export function rowShape(label) {
     return { kind: 'pool', course: '復能', only: null, set: null, undecided: false, durationMin: null };
   }
 
-  const pool = /^(復能|賦能)?\s*(任選)?\s*(三選一|四選一)?\s*\(\s*(\d+)\s*(小時|mins?|分鐘?)?\s*\)$/i.exec(s);
+  const pool = new RegExp(`^(復能|賦能)?\\s*(任選)?\\s*(${CHOOSE_ONE})?\\s*\\(\\s*(\\d+)\\s*(小時|mins?|分鐘?)?\\s*\\)$`, 'i').exec(s);
   if (pool && (pool[1] || pool[2] || pool[3])) {
     return {
       kind: 'pool',
       course: '復能',
       only: null,
-      set: { 四選一: 'all', 三選一: 'home' }[pool[3]] ?? null,
+      set: chooseOneSet(pool[3]),
       undecided: Boolean(pool[2]) && !pool[3],
       durationMin: /小時/.test(pool[5] ?? '') ? Number(pool[4]) * 60 : Number(pool[4]),
     };
@@ -725,7 +739,7 @@ function legacyPlanFor(parsed, purchase) {
 const looseName = (v) => String(v ?? '').toLowerCase()
   // 「任選」是她講擇一池的說法（`復能任選(30)` 那一列叫 `復能(30min)`，2026-09-13 真檔上看到的）。
   // 幾選一也拿掉：B2 寫 `復能四選一(30)`、那一列只寫 `復能(30min)`（2026-09-14）—— 幾選一另外讀
-  .replace(/mins?|分鐘|分|堂|only|任選|三選一|四選一/g, '')
+  .replace(new RegExp(`mins?|分鐘|分|堂|only|任選|${CHOOSE_ONE}`, 'g'), '')
   .replace(/[\s()（）\-_]/g, '');
 
 // ---------- 一張工作表 → 要寫進去的東西 ----------
@@ -1044,7 +1058,7 @@ export function planForSheet(parsed, {
     mentioned.add(row.row);
     // B2 字裡寫了幾選一、那一列沒寫：照 B2 組池（`復能四選一(30)x10` 對 `復能(30min)`，2026-09-14）
     const made = byRow.get(row.row);
-    const set = /四選一/.test(extra.text) ? 'all' : /三選一/.test(extra.text) ? 'home' : null;
+    const set = chooseOneSet(extra.text);
     if (made?.kind === 'pool' && set && !made.shape?.set && !made.shape?.only) {
       const ids = poolIdsFor({ set }, made.course, { equipment, courses });
       for (const e of entitlements.filter((x) => made.keys.includes(x.key))) e.doc.optionEquipmentIds = ids;
