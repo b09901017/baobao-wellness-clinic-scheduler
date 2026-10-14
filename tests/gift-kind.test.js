@@ -17,7 +17,7 @@ import {
 } from '../public/js/domain/masterData.js';
 import {
   validateVisit, withGiftKinds, minuteChoicesFor, equipmentChoicesFor, slotMinutes, slotMinutesField,
-  INITIAL_STATUS,
+  INITIAL_STATUS, visitCourseLabel,
 } from '../public/js/domain/visits.js';
 import { slotFromPicks } from '../public/js/domain/slotDraft.js';
 import { giftPick, giftCourseIdOf, NTH_PICK } from '../public/js/domain/slotOptions.js';
@@ -73,6 +73,18 @@ describe('那一格與它的讀法', () => {
     assert.equal(giftKindOf({ courseId: 'course-followup', entitlementId: null, followupNth: 3 }, BY_ID), null, 'n返 不是');
     assert.equal(giftKindOf({ courseId: 'course-recovery', entitlementId: null }, BY_ID), null, '要算次數的課不猜');
     assert.equal(giftKindOf(null, BY_ID), null);
+  });
+
+  test('兩種身分都有的壞資料照額度／n返 讀：名字、試算表、編輯器講同一件事（審查；驗證另外看那一格擋）', () => {
+    assert.equal(giftKindOf({ courseId: 'course-cardio', entitlementId: 'e1', giftKind: 'trial' }, BY_ID), null);
+    assert.equal(giftKindOf({ courseId: 'course-followup', followupNth: 3, giftKind: 'gift' }, BY_ID), null);
+    assert.equal(slotName({ courseId: 'course-cardio', courseName: '心臟科評估', entitlementId: 'e1', giftKind: 'trial' }, MASTER, 'short'),
+      '心臟科評估');
+  });
+
+  test('沒帶主檔的那一種名字（稽核那一句）也接「(體驗)」「(送的)」，讀那一段記著的那一格', () => {
+    assert.equal(visitCourseLabel({ slots: [{ courseName: '心臟科評估', giftKind: 'gift' }, { courseName: 'SIS(60)', giftKind: null }] }),
+      '心臟科評估(送的)、SIS(60)');
   });
 
   test('看不懂的值不算（驗證另外擋）', () => {

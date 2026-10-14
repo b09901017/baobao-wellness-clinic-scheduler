@@ -183,8 +183,10 @@ export const GIFT_LABELS = Object.freeze({ trial: '體驗', gift: '送的' });
 /**
  * 這一段是體驗、送的，還是都不是。**讀一律走這一支。**
  *
+ * - **扣著額度或是 n返 的段一律不是**（兩格都有值的壞資料照額度讀 —— 名字、試算表、編輯器講同一件事；
+ *   `validateVisit()` 另外看那一格原本的值擋下來）
  * - 有那一格就照那一格（`null` 也算 —— 存過一次就寫實了，不再猜）
- * - **沒有那一格的舊資料**：沒有額度、不是 n返、課程勾了不算次數 → 體驗（同 `slotStatus()` 的退路）。
+ * - **沒有那一格的舊資料**：課程勾了不算次數 → 體驗（同 `slotStatus()` 的退路）。
  *   她下一次存那一筆時 `withGiftKinds()` 把它寫實；之後她把那門課的「不算次數」拿掉，那一段照樣存得下去
  * - 看不懂的值回 `null`（`validateVisit()` 另外擋）
  *
@@ -197,9 +199,9 @@ export const GIFT_LABELS = Object.freeze({ trial: '體驗', gift: '送的' });
  */
 export function giftKindOf(slot, coursesById = {}) {
   if (!slot) return null;
-  if (slot.giftKind !== undefined) return GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
   if (slot.entitlementId) return null;
   if (slot.followupNth != null && slot.followupNth !== '') return null;
+  if (slot.giftKind !== undefined) return GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
   return isUncounted(coursesById?.[slot.courseId]) ? 'trial' : null;
 }
 

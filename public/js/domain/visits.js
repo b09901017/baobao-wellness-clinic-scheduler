@@ -489,6 +489,12 @@ export function formSlotIndexes(visit, coursesById = {}) {
     .filter((i) => i >= 0);
 }
 
+/** 沒帶主檔時一段叫什麼：快照，後面接那一段身上記著的「(體驗)」「(送的)」（不問主檔）。 */
+const snapshotName = (slot) => {
+  const gift = giftLabel(giftKindOf(slot));
+  return slot.courseName && `${slot.courseName}${gift ? `(${gift})` : ''}`;
+};
+
 /**
  * 這一筆來訪那天做什麼，講成一句話。
  *
@@ -504,7 +510,8 @@ export function formSlotIndexes(visit, coursesById = {}) {
  *
  * **沒帶就退回快照**，所以既有呼叫端一個字都不用改。稽核紀錄刻意不帶
  *（`domain/audit.js`）：那一份記的是**當時寫下去的字**，主檔之後改名，
- * 歷史紀錄不該跟著變。
+ * 歷史紀錄不該跟著變。快照後面照樣接那一段記著的「(體驗)」「(送的)」（gift-and-trial：她要「來訪…還是要標註」，
+ * 稽核那一句也帶）—— 讀的是那一段身上寫下去的那一格，不問主檔。
  *
  * **一個時段都認不出來時退回「N 段」**，不要回空字串：她在「跟客人確認時間」
  * 那一排丸子上看到空白，會以為那顆丸子壞了。
@@ -515,7 +522,7 @@ export function formSlotIndexes(visit, coursesById = {}) {
 export function visitCourseLabel(visit, master = null) {
   const slots = visit?.slots ?? [];
   const names = [...new Set(
-    slots.map((s) => (master ? slotName(s, master, 'short') : s.courseName)).filter(Boolean),
+    slots.map((s) => (master ? slotName(s, master, 'short') : snapshotName(s))).filter(Boolean),
   )];
   return names.join('、') || `${slots.length} 段`;
 }
@@ -1661,13 +1668,15 @@ function visitErrors(visit, {
     // 有額度的那一段照舊扣、照舊驗（不算次數的課也一樣：她之後會自己勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     const gift = giftKindOf(slot, coursesById);
-    if (slot.giftKind != null && !GIFT_KINDS.includes(slot.giftKind)) {
+    // 兩種身分都有的壞資料 `giftKindOf()` 照額度／n返 讀（回 null），所以這兩句看那一格原本的值
+    const marked = GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
+    if (slot.giftKind != null && !marked) {
       errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
     }
-    if (gift && slot.entitlementId) {
-      errors.push(`${at}：${giftLabel(gift)}的段不扣任何次數，不可以同時指定額度`);
-    } else if (gift && nth) {
-      errors.push(`${at}：n返 不可以同時是${giftLabel(gift)}的`);
+    if (marked && slot.entitlementId) {
+      errors.push(`${at}：${giftLabel(marked)}的段不扣任何次數，不可以同時指定額度`);
+    } else if (marked && nth) {
+      errors.push(`${at}：n返 不可以同時是${giftLabel(marked)}的`);
     } else if (!slot.entitlementId) {
       if (!nth && !gift) errors.push(`${at}：要選一個額度`);
     } else if (nth) {

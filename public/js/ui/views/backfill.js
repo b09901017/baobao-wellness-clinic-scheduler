@@ -207,6 +207,8 @@ function resultHtml({ candidates, excluded, course, endsAt }, ctx) {
     endsAt,
     courseId: course.id,
     courseName: course.name,
+    // 補登扣的是額度，不是送的／體驗（少了這一格，預設體驗的課抬頭會印「(體驗)」）
+    giftKind: null,
   };
 
   return `

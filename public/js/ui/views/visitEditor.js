@@ -252,6 +252,13 @@ const giftOf = (slot, all) => (isNthSlot(slot) || slot?.entitlementId
   : giftKindOf(slot, Object.fromEntries((all.courses ?? []).map((c) => [c.id, c]))));
 
 /**
+ * 這一段現在排多久：她選過的（`slot.minutes`），沒有就是起訖算出來的。「排多久」那一排按著的那一顆照它 ——
+ * 匯進來的段沒有 `minutes`（合併檔、補登不傳），照課程預設畫的話，一段 IN 30 體驗只改治療師存回去就變 60 分
+ */
+const minutesNow = (slot) => slot.minutes ?? (isValidTime(slot.startsAt) && isValidTime(slot.endsAt)
+  ? toMinutes(slot.endsAt) - toMinutes(slot.startsAt) : null);
+
+/**
  * @param {object|undefined} entitlement 預設扣哪一筆額度
  * @param {object|null} [freeCourse] 沒有額度時，預設哪一門不算次數的課（ADR-0121）
  */
@@ -902,7 +909,7 @@ function minutesField(ent, course, slot, i, giftKind = null) {
   // 送的／體驗的段多收那門課買的時候分的那幾種（`minuteChoicesFor()`，gift-and-trial 02）
   const choices = minuteChoicesFor({ entitlement: ent, course, giftKind });
   if (!choices.length) return '';
-  const now = slotMinutesField({ entitlement: ent, course, minutes: slot.minutes, giftKind });
+  const now = slotMinutesField({ entitlement: ent, course, minutes: minutesNow(slot), giftKind });
   return f.chips({
     name: `s${i}-min`, label: '排多久', value: now == null ? null : String(now),
     options: choices.map((n) => ({ value: String(n), label: `${n} 分` })),
@@ -1133,9 +1140,6 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const pickedEq = key(v, `s${i}-equip`, slot.equipmentId ?? null);
   const equipmentId = equipmentChoicesFor(null, course, all.equipment, { keep: courseChanged ? null : slot.equipmentId })
     .some((e) => e.id === pickedEq) ? pickedEq : null;
-  // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）
-  const lengthNow = isValidTime(slot.startsAt) && isValidTime(slot.endsAt)
-    ? toMinutes(slot.endsAt) - toMinutes(slot.startsAt) : null;
   const { slot: made } = slotFromPicks({
     giftCourseId: courseId,
     giftKind,
@@ -1149,7 +1153,8 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
     // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
     doctorId: v[`s${i}-doc`] ?? (switched ? doctorChoicesFor(course, all.staff).preselect : null),
     // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
-    minutes: courseChanged ? null : key(v, `s${i}-min`, slot.minutes ?? lengthNow),
+    // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）
+    minutes: courseChanged ? null : key(v, `s${i}-min`, minutesNow(slot)),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
   }, {
     courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,

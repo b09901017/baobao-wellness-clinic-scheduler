@@ -383,7 +383,7 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         continue;
       }
       if (gift && !canBeGift(course, courses)) {
-        problem(`${v.date} ${s.courseName}`, s.giftKind, `${course.name}沒有體驗／送的（要加約走 n返），這個時段沒有匯入`);
+        problem(`${v.date} ${s.courseName}`, s.giftKind, `健檢與二返沒有體驗／送的（${course.name}），這個時段沒有匯入`);
         continue;
       }
       slots.push({

@@ -132,11 +132,11 @@ describe('產檔那一側：送的／體驗', () => {
     assert.deepEqual(slotOn(r, '2026-09-21').map((s) => [s.entitlementKey, s.giftKind]), [[null, 'gift']]);
   });
 
-  test('時長不在那門課選得到的名單上（45）→ 照課程的時長（跟 app 的 slotMinutes() 同一支）', () => {
+  test('她決定的時長照寫，跟扣額度的段一樣（審查：以前照課程，她決定「功醫門診 60 分」會變回 30 分）', () => {
     const r = run(SHEETS, EVENTS, { decisions: add('2026-09-20', { course: '復能', startsAt: '10:00', durationMin: 45, free: '體驗' }) });
-    const recovery = SEED.courses.find((c) => c.name === '復能');
-    const [h, m] = slotOn(r, '2026-09-20')[0].endsAt.split(':').map(Number);
-    assert.equal(h * 60 + m - 600, recovery.durationMin);
+    assert.equal(slotOn(r, '2026-09-20')[0].endsAt, '10:45');
+    const fm = run(SHEETS, EVENTS, { decisions: add('2026-09-20', { course: '功醫門診', startsAt: '10:00', durationMin: 60 }) });
+    assert.deepEqual(slotOn(fm, '2026-09-20').map((s) => [s.giftKind, s.endsAt]), [['trial', '11:00']]);
   });
 
   test('健檢、二返沒有體驗：那一段不加，進 ⓪d', () => {
@@ -212,7 +212,7 @@ describe('app 那一側：匯進來', () => {
   test('健檢帶 giftKind：那一段不匯，problem 講得出為什麼', () => {
     const plan = planForCustomer(entry([{ ...blank, courseName: '健檢', entitlementKey: null, giftKind: 'trial' }]), CTX);
     assert.deepEqual(plan.visits, []);
-    assert.match(plan.problems[0].why, /健檢沒有體驗／送的/);
+    assert.match(plan.problems[0].why, /健檢與二返沒有體驗／送的/);
   });
 
   test('v5、v6 的功醫門診（沒有額度、沒有 giftKind）→ 照舊放行、寫實成 trial', () => {

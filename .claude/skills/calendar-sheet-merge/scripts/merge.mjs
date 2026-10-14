@@ -38,8 +38,6 @@ const { SEED } = await repoModule('public/js/domain/seed.js');
 const { toCustomerFields } = await repoModule('public/js/domain/customerMarks.js');
 // 「這門課算不算次數」只有這一支（ADR-0121）—— 這裡再比一次 `uncounted` 就是第二份判斷
 const { isUncounted, bedRoomOf, canBeGift } = await repoModule('public/js/domain/masterData.js');
-// 送的／體驗的段排多久（v7）跟 app 那一側同一支（ADR-0098、0122：約的時候選得到的時長才算數）
-const { slotMinutes } = await repoModule('public/js/domain/visits.js');
 const { idsForPoolKind, POOL_SET_HOME, POOL_SET_ALL } = await repoModule('public/js/domain/entitlements.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
@@ -1074,7 +1072,7 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
         const gift = a.free == null ? null : GIFT_WORDS[String(a.free).trim()];
         if (gift === undefined) { stale(`${where}：「${a.free}」看不懂（只認「體驗」「送的」），要加的那一段沒有加`); continue; }
         if (gift && !canBeGift(seedCourse(a.course), SEED.courses)) {
-          stale(`${where}：${a.course}沒有體驗／送的（要加約走 n返），要加的那一段沒有加`); continue;
+          stale(`${where}：健檢與二返沒有體驗／送的（${a.course}），要加的那一段沒有加`); continue;
         }
         // **不算次數的課不用額度**（ADR-0121，功醫門診）：那一段的 `entitlementKey` 是 null（合併檔 v5）。
         // 她身上剛好有一筆那門課的額度就照舊扣那一筆。主檔看不到她的，照種子的認（同這一支其餘的地方）
@@ -1348,12 +1346,11 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
   // 營養點滴沒有可選時長，所以額度上那一格從來不是她挑的 —— 是建額度時抄課程
   // 預設值抄進去的。兩邊不一樣的話，匯進去之後那一段的長度會跟她在 app 裡
   // 重存一次之後不一樣，而畫面上看不出為什麼。
-  const endOf = (start, courseName, minutes = null, ivName = null, giftKind = null) => {
+  // **送的／體驗的段（v7）同一條**：行事曆或她的決定寫了幾分鐘就是幾分鐘（跟扣額度的段一樣）——
+  // 拿 app 的「約的時候選得到的時長」去濾的話，她決定「功醫門診 60 分」會被改回課程的 30 分
+  const endOf = (start, courseName, minutes = null, ivName = null) => {
     if (!start) return null;
     const course = courseByName.get(courseName);
-    // 送的／體驗的段（v7）沒有額度：直接問 app 那一支 —— 約的時候選得到的時長（`durationChoices`）才算數，
-    // 不然照課程（IN 30 體驗是 30、寫了 45 照課程）
-    if (giftKind) return addMin(start, slotMinutes({ course, ivProduct: ivByName.get(ivName) ?? null, minutes, giftKind }));
     const fromIv = course?.requiresIvProduct ? ivByName.get(ivName)?.durationMin : null;
     return addMin(start, fromIv ?? minutes ?? course?.durationMin ?? 60);
   };
@@ -1444,7 +1441,7 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
             courseName: f.slot.courseName,
             startsAt: f.match?.startsAt ?? null,
             endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName,
-              f.match?.durationMin ?? minutesOf.get(f.slot.entitlementKey), ivProductName, giftKind),
+              f.match?.durationMin ?? minutesOf.get(f.slot.entitlementKey), ivProductName),
             roomName: f.match?.room ?? null,
             therapistName: f.match?.therapistName ?? null,
             // 併進四選一的那一列（ILIB）記成選了那一台，蓋過行事曆上讀到的

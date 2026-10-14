@@ -122,6 +122,28 @@ test('G3 改一段體驗的時間（取消＋重新排）：取消的那一段�
   ]);
 });
 
+test('G11 匯進來的 IN 30 體驗（沒有 minutes 那一格）只換治療師：還是 30 分（審查：以前照課程預設畫成 60、存回去就變 60）', async ({ app, page }) => {
+  // 合併檔與補登不傳 `minutes` —— 切換那天匯進來的 SIS 30／IN 30 體驗都長這樣
+  await app.seed([...masterDocs(), ...poolCustomer(), giftVisit({
+    ...slot({
+      courseId: 'course-recovery', entitlementId: null, startsAt: '10:00', endsAt: '10:30',
+      equipmentId: 'eq-indiba', therapistId: 'staff-tw',
+    }),
+    giftKind: 'trial',
+  })]);
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditor(app, page);
+
+  await expect(page.locator('[data-chip="s0-min"][data-chip-value="30"]'), '按著的是它現在的長度').toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-chip="s0-staff"][data-chip-value="staff-zn"]').click();
+  await page.locator('button[type="submit"]').first().click();
+  await app.saved();
+
+  const saved = await app.readDoc('visits', 'v-g');
+  expect(saved.slots.map((s) => [s.endsAt, s.giftKind, s.therapistId])).toEqual([['10:30', 'trial', 'staff-zn']]);
+});
+
 // ---------- 04：送的／體驗收在最後一顆「送的／體驗…」，按了才展開 ----------
 //
 // > 然後我希望這種不算次數的，在壓表或是新增來訪那邊可以先預設不出現先收合或是擺到底下，畢竟不常用
