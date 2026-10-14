@@ -167,9 +167,63 @@ export const isUncounted = (course) => course?.uncounted === true;
  */
 export const isProvisional = (course) => course?.provisional === true;
 
-/** 主檔裡不算次數、還在用的課。「這一段可以做什麼」那一排上每一門一顆（`slotOptions.js`）。 */
-export function uncountedCourses(courses = []) {
-  return (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false && isUncounted(c));
+/**
+ * 一段可以是**體驗**或**送的**（2026-10-14，gift-and-trial 01）。她的原話：
+ *
+ * > 那能不能把HRV和心臟門診都和EECP 體驗都變成不算次數，畢竟這個都是送，或是體驗的的不會需要買，
+ * > 就是如果有標註體驗的就直接送不算次數，就不會被沒有額度檔，畢竟是送的，但是來訪以及試算表還是要標註(送的)、(體驗)
+ *
+ * 時段上的 `giftKind`：`'trial'`／`'gift'`／`null`。有值的那一段不扣任何一筆額度（`entitlementId` 一定是 null），
+ * **就算身上有那門課的額度也不扣**（她選的）。不叫 `free`：`bookingConsequences()` 的 `free` 是「不用壓的段」。
+ */
+export const GIFT_KINDS = Object.freeze(['trial', 'gift']);
+
+export const GIFT_LABELS = Object.freeze({ trial: '體驗', gift: '送的' });
+
+/**
+ * 這一段是體驗、送的，還是都不是。**讀一律走這一支。**
+ *
+ * - **扣著額度或是 n返 的段一律不是**（兩格都有值的壞資料照額度讀 —— 名字、試算表、編輯器講同一件事；
+ *   `validateVisit()` 另外看那一格原本的值擋下來）
+ * - 有那一格就照那一格（`null` 也算 —— 存過一次就寫實了，不再猜）
+ * - **沒有那一格的舊資料**：課程勾了不算次數 → 體驗（同 `slotStatus()` 的退路）。
+ *   她下一次存那一筆時 `withGiftKinds()` 把它寫實；之後她把那門課的「不算次數」拿掉，那一段照樣存得下去
+ * - 看不懂的值回 `null`（`validateVisit()` 另外擋）
+ *
+ * 住在這裡（不是 `visits.js`）：`naming.js` 要問它，而 `visits.js` import `naming.js`。
+ * 「是不是 n返」照 `naming.js` 的做法直接看 `followupNth` 那一格（`nthFollowup.js` 會繞回這裡）。
+ *
+ * @param {object|null} slot
+ * @param {Object<string, object>} [coursesById] 只有舊資料的退路要它
+ * @returns {'trial'|'gift'|null}
+ */
+export function giftKindOf(slot, coursesById = {}) {
+  if (!slot) return null;
+  if (slot.entitlementId) return null;
+  if (slot.followupNth != null && slot.followupNth !== '') return null;
+  if (slot.giftKind !== undefined) return GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
+  return isUncounted(coursesById?.[slot.courseId]) ? 'trial' : null;
+}
+
+/** `'trial'` → `體驗`。不是那兩種回 `null`。 */
+export const giftLabel = (kind) => GIFT_LABELS[kind] ?? null;
+
+/**
+ * 這門課可以是體驗／送的嗎。**健檢與二返不可以**，其餘任何一門都可以。判斷只有這一支 ——
+ * 驗證、組時段、「別的課當體驗」那一排、拍 Abovee、合併檔全部問它。
+ *
+ * 健檢＝自己有 `followupCourseId`、二返＝是某一門課的 `followupCourseId`（同 `followups.js` 的
+ * `followupCourseIdOf()`／`isFollowupCourse()`；那一支經 `visits.js` 繞回這裡，所以這裡直接看那一格）。
+ * 那兩門牽著二返那條線，而 `followups.js` 全部以額度為軸 —— 要多約一場二返走 n返。
+ * 刪掉的課也算進「誰的二返」：寧可多擋一次。
+ *
+ * @param {object|null} course
+ * @param {object[]} courses 課程主檔（認二返要看別門課）
+ */
+export function canBeGift(course, courses = []) {
+  if (!course) return false;
+  if (course.followupCourseId) return false;
+  return !(courses ?? []).some((c) => c?.followupCourseId === course.id);
 }
 
 // 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
@@ -840,7 +894,7 @@ const validators = {
     // 不算次數（ADR-0121）。沒有這個欄位就是要算。同上面兩格只擋型別 ——
     // `isUncounted()` 只認 `true`，存成字串會安靜地被當成要算
     if (r.uncounted !== undefined && r.uncounted !== null && typeof r.uncounted !== 'boolean') {
-      errors.push('「不算次數」只能是是或否');
+      errors.push('「預設體驗」只能是是或否');
     }
 
     // 設定暫定（2026-10-06）。只畫小標、沒有規則讀它；同上只擋型別（`isProvisional()` 只認 `true`）

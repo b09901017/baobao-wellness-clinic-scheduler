@@ -117,13 +117,15 @@ function rehabRows(master) {
   }
 
   // 三～五：單買一台。改得動的是器材的**別稱**（月曆那一格）。
+  // 這一頁的預覽段都帶 `giftKind: null`：講的是名字本身，不加「(體驗)」（沒有那一格會被當成舊資料，
+  // 預設體驗的課就印成「功醫門診(體驗)」）
   for (const one of singles) {
     const eq = equipment.find((x) => x.id === one.value) ?? null;
     if (!eq) continue;
     rows.push({
       key: `equipment:${eq.id}`,
       title: poolName([eq.id], equipment, courses),
-      slot: { courseId: home.id, courseName: home.name, equipmentId: eq.id },
+      slot: { courseId: home.id, courseName: home.name, equipmentId: eq.id, giftKind: null },
       type: 'equipment',
       id: eq.id,
       hasLine: false,
@@ -137,7 +139,7 @@ function rehabRows(master) {
     rows.push({
       key: `courses:${course.id}`,
       title: course.name,
-      slot: { courseId: course.id, courseName: course.name },
+      slot: { courseId: course.id, courseName: course.name, giftKind: null },
       type: 'courses',
       id: course.id,
       hasLine: true,
@@ -187,7 +189,7 @@ function paint(ctx) {
         type: 'courses',
         row: c,
         hasLine: true,
-        slot: { courseId: c.id, courseName: c.name },
+        slot: { courseId: c.id, courseName: c.name, giftKind: null },
         master,
         editing: open === `courses:${c.id}`,
       })).join('')}
@@ -466,6 +468,6 @@ function repaintPreviews(root, ctx, master) {
 
   for (const course of otherCourses(master)) {
     paint(`courses:${course.id}`,
-      previewText({ courseId: course.id, courseName: course.name }, master));
+      previewText({ courseId: course.id, courseName: course.name, giftKind: null }, master));
   }
 }

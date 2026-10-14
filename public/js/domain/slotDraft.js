@@ -17,7 +17,7 @@ import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
   sameDayVisitFor, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
-import { picksDoctor, isUncounted } from './masterData.js';
+import { picksDoctor, canBeGift, GIFT_KINDS } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 
@@ -31,9 +31,10 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {object} picks
  * @param {string|null} picks.entitlementId 選了哪一筆額度（n返 沒有額度，給 null）
  * @param {boolean} [picks.isNth] 選的是「＋ n返」那一顆
- * @param {string|null} [picks.uncountedCourseId] 選的是一門不算次數的課的「不扣次數」那一顆
- *   （ADR-0121）：課程就是它、`entitlementId` 是 null、返數不碰。那門課要真的是不算次數的 ——
- *   這一條路是唯一不靠額度也不靠健檢就組得出一段的地方，不可以拿來排要算次數的課
+ * @param {string|null} [picks.giftCourseId] 選的是「送的／體驗」那一門（gift-and-trial 01，延伸 ADR-0121）：
+ *   課程就是它（擇一池那門課照器材重推，ADR-0075）、`entitlementId` 是 null、返數不碰。
+ *   **任何一門課都可以，健檢與二返除外**（`canBeGift()`）—— 這一條路是唯一不靠額度也不靠健檢就組得出一段的地方
+ * @param {'trial'|'gift'} [picks.giftKind] 體驗還是送的；沒給（或看不懂）就是體驗（她：「四門都寫體驗」）
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -55,7 +56,7 @@ import { endOf, isValidTime } from './visitTime.js';
  */
 export function slotFromPicks(picks, ctx) {
   const {
-    entitlementId = null, isNth = false, uncountedCourseId = null,
+    entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial',
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null, minutes = null,
@@ -82,12 +83,21 @@ export function slotFromPicks(picks, ctx) {
     course = fallback && entitlement.type === 'pool'
       ? (coursesById[courseForEquipment(equipmentId, equipment, fallback.id)] ?? fallback)
       : fallback;
-  } else if (uncountedCourseId) {
-    // 不算次數的課（ADR-0121）：沒有額度，課程就是她按的那一顆。**額度那一條排在前面** ——
-    // 兩個都給了的話照額度（那一段會扣），兩種身分只挑一種
-    const wanted = coursesById[uncountedCourseId] ?? null;
-    course = isUncounted(wanted) && !wanted.deletedAt ? wanted : null;
+  } else if (giftCourseId) {
+    // 送的／體驗：沒有額度，課程就是她按的那一顆。**額度那一條排在前面** ——
+    // 兩個都給了的話照額度（那一段會扣），兩種身分只挑一種。
+    // **擇一池那門課（要選器材的，復能）照器材重推**（ADR-0075）：不然存得出「課程是復能、器材是 ILIB、指派治療師」。
+    // 只有那一門重推 —— 別的課身上殘留一台器材（畫面上上一顆的），不可以把心臟科評估換成復能
+    const wanted = coursesById[giftCourseId] ?? null;
+    const home = wanted && !wanted.deletedAt && canBeGift(wanted, courses) ? wanted : null;
+    const derived = home?.requiresEquipment
+      ? (coursesById[courseForEquipment(equipmentId, equipment, home.id)] ?? home)
+      : home;
+    course = derived && canBeGift(derived, courses) ? derived : null;
   }
+  const gift = !entitlement && !isNth && giftCourseId && course
+    ? (GIFT_KINDS.includes(giftKind) ? giftKind : 'trial')
+    : null;
 
   if (!course) return fail('先選要做什麼');
   const assigns = assignsFor(entitlement, course, equipmentId);
@@ -107,9 +117,9 @@ export function slotFromPicks(picks, ctx) {
     equipmentId: picksEquipment(entitlement, course) ? (equipmentId ?? null) : null,
     ivProductId: course.requiresIvProduct ? (ivProductId ?? null) : null,
     startsAt,
-    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct, minutes })),
+    endsAt: endOf(startsAt, slotMinutes({ entitlement, course, ivProduct, minutes, giftKind: gift })),
     // 她選的時長跟著這一段走（改期、只改醫師都不掉）。不給選的課是 null
-    minutes: slotMinutesField({ entitlement, course, ivProduct, minutes }),
+    minutes: slotMinutesField({ entitlement, course, ivProduct, minutes, giftKind: gift }),
     roomId: assigns === 'room' ? (roomId || null) : null,
     bed: assigns === 'room' ? (bed || null) : null,
     therapistId: assigns === 'therapist' ? (therapistId ?? null) : null,
@@ -118,6 +128,8 @@ export function slotFromPicks(picks, ctx) {
     // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下
     followupForVisitId: entitlement?.followupForEntitlementId ? (followupForVisitId ?? null) : null,
     attended: null,
+    // 送的／體驗（gift-and-trial 01）。一般的段寫 null —— 不寫 undefined（Firestore 不收）
+    giftKind: gift,
     // n返 覆蓋掉上面那幾樣（沒有額度、返數、哪一次健檢）。**放在最後不是隨便放的** ——
     // 上面那一份是「一段普通的來訪」的形狀，這一份只換掉真的不一樣的三樣
     ...(isNth ? nthSlotFields({

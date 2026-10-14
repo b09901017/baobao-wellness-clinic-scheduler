@@ -275,11 +275,16 @@ export const SEED = {
     },
     {
       // SPEC 第 7 節規則 3：心臟科評估不佔診間
+      //
+      // **不算次數**（2026-10-14，gift-and-trial 05）。她：「那能不能把HRV和心臟門診都和EECP 體驗都變成不算次數，
+      // 畢竟這個都是送，或是體驗的的不會需要買」。排的時候不用額度、預設寫體驗；身上還有這門課額度的照舊扣
+      // （ADR-0121：可以不用額度，不是不准有）。加購那一排從此不列它（`buy.js`）。
       id: 'course-cardio', name: '心臟科評估', group: '醫師門診', category: 'A',
       systems: ['Abovee', 'Examine', '耀聖'], durationMin: 30, aboveeNames: ['心臟門診'],
       assigns: 'none', allowedRoomTypes: [], allowedRoomIds: [],
       doctorPick: '心臟科',
       requiresEquipment: false, frequencyRule: null,
+      uncounted: true,
     },
     {
       // 要醫師、哪一科讀 `doctorPick`（ADR-0120）；`requiresDoctor` 存檔時跟著寫，讀的那一側只認 `doctorRuleOf()`。
@@ -463,6 +468,8 @@ export const SEED = {
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
+      // 不算次數（2026-10-14，gift-and-trial 05，同心臟科評估那一段她的原話）：體驗本來就不會買
+      uncounted: true,
     },
     {
       // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）

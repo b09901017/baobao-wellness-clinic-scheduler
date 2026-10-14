@@ -94,7 +94,7 @@ const FIELD_LABELS = {
   allowedRoomIds: '只能排在這幾間',
   systems: '壓哪幾個系統',
   doctorPick: '要哪一科的醫師',
-  uncounted: '不算次數',
+  uncounted: '預設體驗',
   provisional: '設定暫定',
   bookingMinutes: '約的時候選時長',
   specialties: '科別',

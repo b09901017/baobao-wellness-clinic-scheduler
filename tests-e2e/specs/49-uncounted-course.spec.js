@@ -40,10 +40,10 @@ const fmVisit = (over = {}) => visit({
 const liveTasks = async (app, visitId) => (await app.readAll('tasks'))
   .filter((t) => t.visitId === visitId && !t.deletedAt).map((t) => t.kind).sort();
 
-test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自己再勾一門也存得下去', async ({ app, page }) => {
+test('U1 設定 → 課程：種子的功醫門診看得出預設體驗（2026-10-14 以前叫不算次數）；她自己再勾一門也存得下去', async ({ app, page }) => {
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
-  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('不算次數');
+  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('預設體驗');
 
   // 她之後自己加的那一種（種子沒有建的一門。這裡本來用「回測報告」，2026-10-06 種子補了它，換一個名字）
   await page.locator('[data-new]').click();
@@ -59,7 +59,7 @@ test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自
   expect(made.uncounted).toBe(true);
   expect(made.needsTreatmentForm).toBe(false);
   expect(made.provisional ?? null, '她自己建的不會被標成暫定').toBeNull();
-  await expect(page.locator('[data-course]').filter({ hasText: '減重門診' })).toContainText('不算次數');
+  await expect(page.locator('[data-course]').filter({ hasText: '減重門診' })).toContainText('預設體驗');
 });
 
 test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已經選好、存得下去、日曆上看得到', async ({ app, page }) => {
@@ -86,7 +86,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
   await page.click('button[type="submit"]');
   await expect(app.dialog()).toBeVisible();
   const said = await app.dialogText();
-  expect(said, '她最會擔心的那一句').toContain('功醫門診不算次數');
+  expect(said, '她最會擔心的那一句').toContain('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   expect(said, '三個系統都壓：等客人說可以之後長 Examine、耀聖').toMatch(/Examine/);
   await app.ok();
   await app.saved();
@@ -95,6 +95,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
   expect(v.slots).toHaveLength(1);
   expect(v.slots[0].entitlementId, '不扣任何額度').toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
   expect(v.slots[0].doctorId).toBe('staff-dr-xia');
   expect(v.status).toBe('pending_confirm');
 
@@ -121,6 +122,9 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
   // 她身上的額度那一顆照樣在
   await expect(page.locator('[data-ent="ent-pool"]')).toContainText('剩 9');
 
+  // 有額度的客戶：送的／體驗收在最後一顆後面（gift-and-trial 04）
+  await expect(chip).toBeHidden();
+  await page.locator('[data-giftfold-more]').click();
   await chip.click();
   await app.layer('[data-doctor]');
   // 不扣額度的那一段沒有器材、沒有治療師那兩排（照課程自己的設定）
@@ -130,13 +134,14 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
   await page.locator('[data-doctor="staff-dr-xu"]').click();
   await page.locator('[data-add]').click();
   await expect(app.dialog()).toBeVisible();
-  expect(await app.dialogText()).toContain('功醫門診不算次數');
+  expect(await app.dialogText()).toContain('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   await app.ok();
   await app.saved();
 
   const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-p');
   expect(v.slots[0].entitlementId).toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
 
   const ent = await app.readDoc('customers/cust-p/entitlements', 'ent-pool');
   expect([ent.doneCount, ent.bookedCount], '次數不多不少').toEqual([2, 1]);
@@ -199,6 +204,9 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   await expect(ent).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-chip="s0-equip"]').first()).toBeVisible();
 
+  // 收在「送的／體驗…」後面（gift-and-trial 04）
+  await expect(fm).toBeHidden();
+  await page.locator('[data-giftfold-more]').click();
   await fm.click();
   await expect(fm).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.slothead__what')).toContainText('功醫門診');
@@ -209,6 +217,8 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   await expect(page.locator('[data-chip="s0-equip"]').first()).toBeVisible();
   await expect(page.locator('[data-chip="s0-doc"]')).toHaveCount(0);
 
+  // 換回扣額度那一下重畫，那一組又收起來了
+  await page.locator('[data-giftfold-more]').click();
   await fm.click();
   await page.locator('[data-chip="s0-doc"]', { hasText: '李' }).click();
   await page.click('button[type="submit"]');
@@ -220,6 +230,7 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   expect(v.slots).toHaveLength(1);
   expect(v.slots[0].entitlementId, '換回來是 null').toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
   expect(v.slots[0].equipmentId ?? null).toBeNull();
   expect(v.slots[0].doctorId).toBe('staff-dr-li');
   const stored = await app.readDoc('customers/cust-p/entitlements', 'ent-pool');

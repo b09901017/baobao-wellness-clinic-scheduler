@@ -107,6 +107,8 @@ test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診�
   expect(values.indexOf('w-fu')).toBeGreaterThan(values.indexOf('w-exam'));
   expect(values.indexOf('w-fu')).toBeGreaterThan(values.indexOf('w-pool'));
   expect(values).toContain('__course__:course-fm');
+  // 身上有還有剩的額度：送的／體驗收在最後一顆「送的／體驗…」後面（gift-and-trial 04）
+  await expect(row(page, 'a0').locator('[data-giftfold]')).toHaveAttribute('data-giftfold', 'closed');
   await row(page, 'a0').locator('[data-abl-opt="w-pool"]').click();
   await row(page, 'a0').locator('[data-abl-eq="eq-sis"]').click();
   await row(page, 'a0').locator('[data-abl-therapist="staff-zn"]').click();
@@ -126,6 +128,8 @@ test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診�
   const fm = row(page, 'a2').locator('[data-abl-opt="__course__:course-fm"]');
   await expect(fm).toHaveAttribute('aria-pressed', 'true');
   await expect(fm).toContainText('不扣次數');
+  await expect(fm, '沒有額度：那一組一打開就是展開的（gift-and-trial 04）').toBeVisible();
+  await expect(row(page, 'a2').locator('[data-abl-gift="trial"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(row(page, 'a2').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
 
   // a3：認成李小華，其實是王小明 → 換一位、打兩個字、選 → 照新的人重算；她選的人不自動勾
@@ -138,7 +142,7 @@ test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診�
 
   await page.locator('[data-abl-save]').click();
   await expect(app.dialog()).toContainText('三返是加約的');
-  await expect(app.dialog()).toContainText('功醫門診不算次數');
+  await expect(app.dialog()).toContainText('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   await app.ok();
   await app.saved();
 

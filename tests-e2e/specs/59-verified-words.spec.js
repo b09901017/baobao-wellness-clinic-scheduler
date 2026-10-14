@@ -119,7 +119,7 @@ test('W3 功醫門診＋HRV 一起存：抬頭問 Abovee，底下只列功醫門
   await expect(app.dialog()).toBeVisible();
   const said = await app.dialogText();
   expect(said).toContain('已經在 Abovee 壓好表了嗎？');
-  expect(said).toContain('HRV 不用壓表，會一起記下來');
+  expect(said).toContain('HRV(體驗) 不用壓表，會一起記下來');
   await expect(app.dialog().locator('li', { hasText: /^\d\d:\d\d.*功醫門診/ }), '要壓的那一段列在底下').toHaveCount(1);
   await expect(app.dialog().locator('li', { hasText: /^\d\d:\d\d.*HRV/ }), 'HRV 不列在「壓好了嗎」底下').toHaveCount(0);
   await app.ok();

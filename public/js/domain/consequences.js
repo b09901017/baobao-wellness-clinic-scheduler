@@ -38,7 +38,7 @@ import {
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { isUncounted } from './masterData.js';
+import { giftKindOf, giftLabel } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel } from './visitTime.js';
 
@@ -257,9 +257,9 @@ export function bookingConsequences({
   for (const nth of nthLabels(visit)) {
     lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   }
-  // 不算次數的課是同一種擔心（ADR-0121）：一段「不用先加購」的來訪看起來像會偷扣一次
-  for (const name of uncountedNames(visit, coursesById, added)) {
-    lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+  // 送的／體驗是同一種擔心（ADR-0121、gift-and-trial 01）：一段「不用先加購」的來訪看起來像會偷扣一次
+  for (const name of giftNames(visit, coursesById, added)) {
+    lines.push(`${name} —— 客戶身上的數字一個都不會變`);
   }
   // 剛好一場接得過來的二返：多一顆「順便接過來」（ADR-0146）。那一句跟著改講那一顆，去日曆改的路照樣講
   const relink = relinkChoice({ visit, added: fresh, entitlements, coursesById, customerVisits });
@@ -423,7 +423,7 @@ export function aboveeConsequences({
   ));
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
 
-  // n返 與不算次數的課：同壓表那一道（`bookingConsequences()`）—— 一段「不用先加購」的來訪
+  // n返 與送的／體驗：同壓表那一道（`bookingConsequences()`）—— 一段「不用先加購」的來訪
   // 看起來像會偷扣一次。**只講這一次新加的段**：併進的那一天原本就有的三返不是這一次的事
   const nths = new Set();
   const free = new Set();
@@ -433,10 +433,10 @@ export function aboveeConsequences({
       const label = nthLabel(nthOf(g.visit?.slots?.[i]));
       if (label) nths.add(label);
     }
-    for (const name of uncountedNames(g.visit, coursesById, added)) free.add(name);
+    for (const name of giftNames(g.visit, coursesById, added)) free.add(name);
   }
   for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
-  for (const name of free) lines.push(`${name}不算次數 —— 客戶身上的數字一個都不會變`);
+  for (const name of free) lines.push(`${name} —— 客戶身上的數字一個都不會變`);
   // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
   const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
     visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? [], coursesById,
@@ -468,18 +468,22 @@ function nthLabels(visit) {
 }
 
 /**
- * 這次新加的段裡，**沒有扣任何額度**的不算次數的課叫什麼（去重）。
+ * 這次新加的段裡，**送的／體驗**的那幾段叫什麼（去重）：`心臟科評估(體驗)`、`復能(送的)`。
  *
- * 同一門課但扣著額度的那一段不算 —— 那一段會扣，講「一個都不會變」就是假話（ADR-0070）。
+ * 數的是 `giftKindOf()` 有值的段（gift-and-trial 01）—— 同一門課但扣著額度的那一段不算：
+ * 那一段會扣，講「一個都不會變」就是假話（ADR-0070）。名字用課程（不是器材）：這一句講的是「不扣」，
+ * 扣不扣跟哪一台無關。
  */
-function uncountedNames(visit, coursesById = {}, added = null) {
+function giftNames(visit, coursesById = {}, added = null) {
   const slots = visit?.slots ?? [];
   const seen = new Set();
   for (const i of added ?? slots.map((_, at) => at)) {
     const slot = slots[i];
     if (!slot || slot.entitlementId || isNthSlot(slot)) continue;
-    const course = coursesById[slot.courseId];
-    if (isUncounted(course)) seen.add(course.name);
+    const label = giftLabel(giftKindOf(slot, coursesById));
+    if (!label) continue;
+    const name = coursesById[slot.courseId]?.name ?? slot.courseName ?? '這一段';
+    seen.add(`${name}(${label})`);
   }
   return [...seen];
 }

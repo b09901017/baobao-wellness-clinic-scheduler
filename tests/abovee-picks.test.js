@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { optionValueOf, pickOption, picksOf, planAbovee, readAbovee } from '../public/js/domain/aboveeImport.js';
-import { NTH_PICK, slotOptionsFor, uncountedPick } from '../public/js/domain/slotOptions.js';
+import { NTH_PICK, slotOptionsFor, giftPick } from '../public/js/domain/slotOptions.js';
 import { slotFromPicks } from '../public/js/domain/slotDraft.js';
 import { readFileSync } from 'node:fs';
 import { searchCustomers, nameHas } from '../public/js/domain/customers.js';
@@ -57,13 +57,13 @@ describe('「要做什麼」那一排跟壓表同一份', () => {
     assert.ok(ids.includes('w-exam'), '用完的健檢也列（Abovee 上已經約了）');
     assert.ok(ids.indexOf('w-fu') > ids.indexOf('w-pool') && ids.indexOf('w-fu') > ids.indexOf('w-exam'), '二返排在額度最後');
     assert.ok(ids.includes(NTH_PICK));
-    assert.ok(ids.includes(uncountedPick('course-fm')));
+    assert.ok(ids.includes(giftPick('course-fm')));
   });
 
   test('翻譯時先按好的那一顆，就是那一排上的值（optionValueOf）', () => {
     assert.equal(optionValueOf(read('SIS 60')), 'w-pool');
     assert.equal(optionValueOf(read('三返30')), NTH_PICK);
-    assert.equal(optionValueOf(read('功醫門診', '客戶A', '')), uncountedPick('course-fm'));
+    assert.equal(optionValueOf(read('功醫門診', '客戶A', '')), giftPick('course-fm'));
     assert.equal(optionValueOf(read('XYZ 60')), null);
   });
 });
@@ -73,7 +73,7 @@ describe('按一顆 → 這一列變成什麼（pickOption）', () => {
     const item = read('XYZ 60');
     assert.equal(item.entitlementId, null);
     const next = pickOption(item, 'w-pool', ctx());
-    assert.deepEqual([next.entitlementId, next.equipmentId, next.isNth, next.uncountedCourseId], ['w-pool', null, false, null]);
+    assert.deepEqual([next.entitlementId, next.equipmentId, next.isNth, next.giftCourseId], ['w-pool', null, false, null]);
     const picked = { ...pickOption(item, 'w-pool', ctx()), equipmentId: 'eq-sis' };
     const { groups, problems } = planAbovee([picked], ctx());
     assert.deepEqual(problems, {});
@@ -91,8 +91,8 @@ describe('按一顆 → 這一列變成什麼（pickOption）', () => {
   });
 
   test('不算次數的那一顆 → 沒有額度、課程是那一門', () => {
-    const next = pickOption(read('SIS 60'), uncountedPick('course-fm'), ctx());
-    assert.deepEqual([next.entitlementId, next.uncountedCourseId, next.isNth], [null, 'course-fm', false]);
+    const next = pickOption(read('SIS 60'), giftPick('course-fm'), ctx());
+    assert.deepEqual([next.entitlementId, next.giftCourseId, next.isNth], [null, 'course-fm', false]);
     const slot = slotFromPicks(picksOf(next), {
       courses: COURSES, equipment: SEED.equipment, ivProducts: SEED.ivProducts, entitlements: ENTS['c-wang'], visits: [EXAM],
     }).slot;
@@ -119,7 +119,7 @@ describe('按一顆 → 這一列變成什麼（pickOption）', () => {
 
   test('照片上的時長、診間、治療師不跟著這一排動', () => {
     const item = { ...read('二返60'), therapistId: 'staff-zn', roomId: 'room-t5' };
-    const next = pickOption(item, uncountedPick('course-fm'), ctx());
+    const next = pickOption(item, giftPick('course-fm'), ctx());
     assert.deepEqual([next.minutes, next.therapistId, next.roomId], [60, 'staff-zn', 'room-t5']);
   });
 });
@@ -197,8 +197,8 @@ describe('找人只有一種比法（nameHas）', () => {
   });
 });
 
-describe('存檔前那一道：n返 與不算次數的課講一句（同壓表）', () => {
-  test('三返講「加約的」、功醫門診講「不算次數」；扣著額度的段不講', () => {
+describe('存檔前那一道：n返 與送的／體驗講一句（同壓表）', () => {
+  test('三返講「加約的」、功醫門診講「(體驗)」；扣著額度的段不講', () => {
     const items = [
       { ...pickOption(read('三返30'), NTH_PICK, ctx()), followupForVisitId: 'v-exam', checked: true },
       { ...read('功醫門診', '客戶A', ''), checked: true },
@@ -210,8 +210,8 @@ describe('存檔前那一道：n返 與不算次數的課講一句（同壓表�
       groups, coursesById: Object.fromEntries(COURSES.map((c) => [c.id, c])), today: '2026-09-01',
     });
     assert.ok(lines.includes('三返是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變'), lines.join('\n'));
-    assert.ok(lines.includes('功醫門診不算次數 —— 客戶身上的數字一個都不會變'), lines.join('\n'));
-    assert.equal(lines.filter((l) => l.includes('不算次數')).length, 1);
+    assert.ok(lines.includes('功醫門診(體驗) —— 客戶身上的數字一個都不會變'), lines.join('\n'));
+    assert.equal(lines.filter((l) => l.includes('一個都不會變')).length, 2, '三返一句、功醫門診一句，SIS 不講');
   });
 
   test('併進那一天原本就有的三返不算這一次的事', () => {

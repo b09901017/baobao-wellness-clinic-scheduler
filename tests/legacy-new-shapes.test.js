@@ -11,6 +11,7 @@ import {
 } from '../public/js/domain/legacyImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { MAX_MARK_LENGTH } from '../public/js/domain/customerMarks.js';
+import { shapeOf } from '../public/js/domain/photoPlan.js';
 
 const CTX = {
   courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts, plans: SEED.plans,
@@ -240,5 +241,45 @@ describe('警示與合作機構自動帶（她 9/7；否定句不算）', () => 
     const c = planOf({}).customer;
     assert.deepEqual(c.flags, []);
     assert.deepEqual(c.partners, []);
+  });
+});
+
+describe('幾選一寫成阿拉伯數字（gift-and-trial 07）', () => {
+  // 切換那天產合併檔時查到：舊表有兩位寫「復能4選一(30)」×10，整列讀不到、那兩位一筆額度都沒有
+  test('rowShape：4選一、3選一、全形數字都認得；國字照舊', () => {
+    const shape = (t) => { const s = rowShape(t); return s && [s.kind, s.set, s.durationMin]; };
+    assert.deepEqual(shape('復能4選一(30)'), ['pool', 'all', 30]);
+    assert.deepEqual(shape('復能3選一(60)'), ['pool', 'home', 60]);
+    assert.deepEqual(shape('復能４選一(30)'), ['pool', 'all', 30]);
+    assert.deepEqual(shape('復能３選一（60）'), ['pool', 'home', 60]);
+    assert.deepEqual(shape('4選一(30)'), ['pool', 'all', 30]);
+    assert.deepEqual(shape('復能四選一(30)'), ['pool', 'all', 30]);
+    assert.deepEqual(shape('復能三選一(60)'), ['pool', 'home', 60]);
+  });
+
+  test('那一列寫 復能4選一(30)：四台、30 分', () => {
+    const plan = planOf({ rows: [{ label: '復能4選一(30)', qty: 10 }] });
+    const e = ent(plan, '復能4選一(30)');
+    assert.ok(e, '那一列讀得到');
+    assert.deepEqual(sorted(e.doc.optionEquipmentIds), idsOf('INDIBA', 'SIS', '高能量雷射', 'ILIB'));
+    assert.equal(e.doc.durationMin, 30);
+  });
+
+  test('B2 寫 復能4選一(30)x10、那一列只寫 復能(30min)：照 B2 組成四台（跟國字那一條一樣）', () => {
+    const plan = planOf({
+      b2: '0821新 - 顧客會-8+復能4選一(30)x10堂', d: [4, 6, 4, 4, 4, 12, 20],
+      rows: [{ label: '復能(30min)', qty: 10 }],
+    });
+    assert.deepEqual(sorted(ent(plan, '復能(30min)').doc.optionEquipmentIds), idsOf('INDIBA', 'SIS', '高能量雷射', 'ILIB'));
+    assert.doesNotMatch(said(plan), /找不到/);
+    assert.doesNotMatch(said(plan), /三選一還是四選一/);
+  });
+
+  test('拍訂購單：品項寫 4選一(30) → 四選一的擇一池（重用舊表那一份）', () => {
+    const master = { courses: SEED.courses, equipment: SEED.equipment, ivProducts: SEED.ivProducts };
+    const four = shapeOf('4選一(30)', null, master);
+    assert.equal(four?.type, 'pool');
+    assert.deepEqual(sorted(four.optionEquipmentIds), idsOf('INDIBA', 'SIS', '高能量雷射', 'ILIB'));
+    assert.deepEqual(sorted(shapeOf('3選一', 60, master)?.optionEquipmentIds), idsOf('INDIBA', 'SIS', '高能量雷射'));
   });
 });

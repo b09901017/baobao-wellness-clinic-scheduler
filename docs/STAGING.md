@@ -476,7 +476,7 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 0. **先確定正式站已經是這一版**（這一輪合進 `main`、Actions 上「測試與部署」三個部署步驟全綠）：
    `curl -sI https://wellness-clinic-scheduler.web.app/js/app.js | grep -i cache-control` 是 `no-cache`；
-   設定 → 舊資料匯入 那個框裡的灰字寫著 `baobao-merge/v6`。**還是舊版就先不要往下做** —— 舊版的「載入種子資料」載的是舊種子，也收不下 v6 的合併檔。
+   設定 → 舊資料匯入 那個框裡的灰字寫著 `baobao-merge/v7`。**還是舊版就先不要往下做** —— 舊版的「載入種子資料」載的是舊種子，也收不下 v7 的合併檔（電話、送的／體驗那一格）。
 1. **備份**：正式站 設定 → 匯出備份（**勾「含稽核紀錄」**，因為等一下稽核會刪掉），檔案搬到 `.local/references/`，
    `git check-ignore -v .local/references/<檔名>` 確認擋住。順手打開檔案看一眼客戶數與來訪數，之後對帳用。
 2. **刪之前抄下來**（刪掉就只剩備份裡有，合併檔不會帶回來）：設定 → LINE 回覆模板裡你改過的那幾則、排序權重那一頁的**每一個數字**（四個權重＋四個天數／分鐘，共八格）、
@@ -508,10 +508,11 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
    - 設定 → 試算表報表：網址與密鑰（「讓它自己推」那一張）
    - 設定 → AI 用量：每月上限、「暫停」有沒有開（正式站拍照開通之後才用得到）
    - 你自己加的主檔：照第 2 步的清單在設定頁一筆一筆建回來
-6. **匯入**：產一份帶人員名單的合併檔（`merge.mjs … --staff-names .local/references/staff-names.json --today <那一天>`，見
-   `.claude/skills/calendar-sheet-merge/SKILL.md`）→ 設定 → 舊資料匯入 → 貼上 →「讀進來」：
+6. **匯入**：產一份帶人員名單與電話名單的合併檔（`merge.mjs … --chart-numbers .local/references/chart-numbers.json
+   --staff-names .local/references/staff-names.json --phones .local/references/phones.json --today <那一天>`；電話名單先用
+   `phones.mjs` 從最新的 Abovee 擷取結果建，見 `.claude/skills/calendar-sheet-merge/SKILL.md`）→ 設定 → 舊資料匯入 → 貼上 →「讀進來」：
    「會寫進去什麼」第二行是「人員：N 位會改成全名」—— **人員的名字跟著這一份一起改好**，不用先去設定頁改
-   （ADR-0141）。確認數字跟第 1 步的備份對得上再按「開始匯入」。
+   （ADR-0141）；下面一行「N 位帶電話」。確認數字跟第 1 步的備份對得上再按「開始匯入」。
 7. **試算表**：正式站接的那一份 Google 試算表重貼 `.gs` 並重新部署（`sheets/README.md`「升版之後」）—— 這一輪多了「做的比買的多，剩餘標紅」，
    不重貼的話照舊只有剛好 0 的那一格紅。
 

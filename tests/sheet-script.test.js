@@ -62,7 +62,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
   test('功醫門診記了一句：來訪紀錄那一行的最後面看得到', () => {
     const b = make([fm()]);
     assert.equal(b.sheets[0].log[0].items[0].note, 'HRV 報告');
-    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師　記一句：HRV 報告'));
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診(體驗)　夏醫師　記一句：HRV 報告'));
   });
 
   test('n返 那一段也是（它一樣沒有額度）', () => {
@@ -83,7 +83,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
   test('沒記的不多印東西', () => {
     const b = make([fm({ note: null })]);
     assert.equal(b.sheets[0].log[0].items[0].note, null);
-    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診　夏醫師'));
+    assert.ok(column(render(b)).includes('　已完成　15:00–15:30　功醫門診(體驗)　夏醫師'));
   });
 
   test('取消掉的那一段不印（那一場沒發生）', () => {
@@ -806,7 +806,7 @@ describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () =>
 
   test('前提：三列的剩餘是 −1、0、1，不算次數那一列是一槓', () => {
     const { of } = colours();
-    assert.deepEqual(['超用', '剛好', '還有', '功醫門診（不算次數）'].map((l) => of(l).remaining), [-1, 0, 1, '—']);
+    assert.deepEqual(['超用', '剛好', '還有', '功醫門診（體驗）'].map((l) => of(l).remaining), [-1, 0, 1, '—']);
   });
 
   test('−1 紅、0 紅、1 不紅', () => {
@@ -818,7 +818,7 @@ describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () =>
 
   test('一槓、空字串、null 都不紅', () => {
     const { of } = colours();
-    for (const label of ['功醫門診（不算次數）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
+    for (const label of ['功醫門診（體驗）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
   });
 
   test('合計那一行照舊（它是一句字，不上色）；格式沒有升', () => {
