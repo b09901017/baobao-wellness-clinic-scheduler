@@ -450,13 +450,13 @@ describe('試算表：次數那幾格一格都沒動，來訪紀錄那一天有�
     assert.deepEqual(after.rows[0].marks.filter(Boolean), [], '那一天不算在任何一筆額度上');
     assert.deepEqual(
       after.rows.filter((r) => r.extra).map((r) => [r.label, r.total, r.done, r.remaining, r.marks]),
-      [['功醫門診（不算次數）', '—', 1, '—', ['✓']]],
+      [['功醫門診（體驗）', '—', 1, '—', ['✓']]],
       '那一天在它自己那一列（她：「當天的日期會全是空的 ?」）',
     );
 
     assert.equal(after.log.length, 1);
     assert.equal(after.log[0].date, '2026-10-01');
-    assert.equal(after.log[0].items[0].course, '功醫門診');
+    assert.equal(after.log[0].items[0].course, '功醫門診(體驗)', '沒有 giftKind 的舊段照退路讀成體驗（gift-and-trial 03）');
     assert.equal(after.log[0].items[0].doctor, '夏');
   });
 });

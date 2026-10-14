@@ -1,6 +1,6 @@
 # 試算表：送的／體驗的段那一列寫「（體驗）」「（送的）」，來訪紀錄那一行也寫
 
-Status: todo
+Status: done
 Blocked by: 01
 動工前先讀：`spec.md`「標記看得到」；`domain/sheetReport.js` 的 `extraRows()`、來訪紀錄那一段（`course: slot.courseName ?? …`）與檔頭格式 7；ADR-0131（n返 自己一列）；
 CLAUDE.md「試算表的註記」與「試算表的 `SYNC_FORMAT`」兩列
@@ -35,3 +35,18 @@ CLAUDE.md「試算表的註記」與「試算表的 `SYNC_FORMAT`」兩列
 - 來訪紀錄那一行：`心臟科評估(體驗)`；扣額度的段一個字都沒變
 - 三返那一列一個字都沒變；`tests/sheet-rows-without-entitlement.test.js` 的不變量（每一個日期欄至少一格有符號）照樣成立
 - 舊資料（沒有 `giftKind` 的功醫門診）那一列寫 `功醫門診（體驗）`（退路）
+
+## 做完時留下的
+
+- `extraRows()` 多收 `equipment`（兩條路都傳：`customerReport()` 的 `equipment`、`syncBundle()` 的 `master.equipment`）。
+  每一段先分種類（`kindOf()`：`nth`／`trial`／`gift`／`gone`／`free`），鑰匙是 `種類|課程[|eq:器材]`。**只有 `requiresEquipment` 的那門課（復能）照器材分**，
+  名字用 `fullNameOf(器材)`；器材主檔沒帶或那一台不在主檔上 → 退回課程名。營養點滴不照品項分、同一台 30／60 分同一列
+- 列名：`（體驗）`／`（送的）`（`giftLabel()`）；n返 與 `free` 照舊 `（不算次數）`、`gone` 照舊 `（額度已刪除）`。
+  `free` ＝沒有額度、不是 n返、`giftKindOf()` 也是 null —— 照規則存不下去，只有舊資料（例如課程從主檔被刪了、退路判斷不了）會有
+- 先後：n返 → 體驗 → 送的 → `free` → 額度被刪的；同一種照名字（`localeCompare(…, 'zh-TW')`：**中文排在英文前面**，`心臟科評估（體驗）` 在 `INDIBA（體驗）` 前面）
+- 來訪紀錄那一行（`syncBundle()` 的 `log[].items[].course`）：快照後面接 `(體驗)`／`(送的)`（同 `slotName()` 的寫法）。**手動貼上那一條路本來就沒有來訪紀錄**，只有矩陣那一列
+- 沒升 `SYNC_FORMAT`（`.gs` 只檢查 `format === 7`、`it.course` 照字印、不比對「（不算次數）」）—— **她不用重貼 `.gs`**
+- **舊資料照退路讀**：沒有 `giftKind` 的功醫門診、HRV 那幾列從「（不算次數）」變成「（體驗）」（她 staging 上已經記的那幾段也是）。釘著舊字的單元測試改了：
+  `sheet-rows-without-entitlement`、`sheet-script`（含 `.gs` 畫出來那一行 `功醫門診(體驗)`）、`uncounted-courses`
+- `docs/常見問題.md`「試算表最下面多了一列…」那一題改了（看到什麼、為什麼）。**09 要補的**：CLAUDE.md「試算表的註記」那一列還寫「不算次數的課一門一列」
+- 新測試：`tests/sheet-gift-rows.test.js`（矩陣兩種、器材全名、合計不動、送的與體驗兩列、先後、舊資料、每一欄至少一格、貼上那一條路、來訪紀錄）
