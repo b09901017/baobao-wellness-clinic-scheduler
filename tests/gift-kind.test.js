@@ -17,7 +17,7 @@ import {
 } from '../public/js/domain/masterData.js';
 import {
   validateVisit, withGiftKinds, minuteChoicesFor, equipmentChoicesFor, slotMinutes, slotMinutesField,
-  INITIAL_STATUS, visitCourseLabel,
+  INITIAL_STATUS,
 } from '../public/js/domain/visits.js';
 import { slotFromPicks } from '../public/js/domain/slotDraft.js';
 import { giftPick, giftCourseIdOf, NTH_PICK } from '../public/js/domain/slotOptions.js';
@@ -80,11 +80,6 @@ describe('那一格與它的讀法', () => {
     assert.equal(giftKindOf({ courseId: 'course-followup', followupNth: 3, giftKind: 'gift' }, BY_ID), null);
     assert.equal(slotName({ courseId: 'course-cardio', courseName: '心臟科評估', entitlementId: 'e1', giftKind: 'trial' }, MASTER, 'short'),
       '心臟科評估');
-  });
-
-  test('沒帶主檔的那一種名字（稽核那一句）也接「(體驗)」「(送的)」，讀那一段記著的那一格', () => {
-    assert.equal(visitCourseLabel({ slots: [{ courseName: '心臟科評估', giftKind: 'gift' }, { courseName: 'SIS(60)', giftKind: null }] }),
-      '心臟科評估(送的)、SIS(60)');
   });
 
   test('看不懂的值不算（驗證另外擋）', () => {

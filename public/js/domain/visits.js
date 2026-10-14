@@ -489,12 +489,6 @@ export function formSlotIndexes(visit, coursesById = {}) {
     .filter((i) => i >= 0);
 }
 
-/** 沒帶主檔時一段叫什麼：快照，後面接那一段身上記著的「(體驗)」「(送的)」（不問主檔）。 */
-const snapshotName = (slot) => {
-  const gift = giftLabel(giftKindOf(slot));
-  return slot.courseName && `${slot.courseName}${gift ? `(${gift})` : ''}`;
-};
-
 /**
  * 這一筆來訪那天做什麼，講成一句話。
  *
@@ -510,8 +504,7 @@ const snapshotName = (slot) => {
  *
  * **沒帶就退回快照**，所以既有呼叫端一個字都不用改。稽核紀錄刻意不帶
  *（`domain/audit.js`）：那一份記的是**當時寫下去的字**，主檔之後改名，
- * 歷史紀錄不該跟著變。快照後面照樣接那一段記著的「(體驗)」「(送的)」（gift-and-trial：她要「來訪…還是要標註」，
- * 稽核那一句也帶）—— 讀的是那一段身上寫下去的那一格，不問主檔。
+ * 歷史紀錄不該跟著變。
  *
  * **一個時段都認不出來時退回「N 段」**，不要回空字串：她在「跟客人確認時間」
  * 那一排丸子上看到空白，會以為那顆丸子壞了。
@@ -522,7 +515,7 @@ const snapshotName = (slot) => {
 export function visitCourseLabel(visit, master = null) {
   const slots = visit?.slots ?? [];
   const names = [...new Set(
-    slots.map((s) => (master ? slotName(s, master, 'short') : snapshotName(s))).filter(Boolean),
+    slots.map((s) => (master ? slotName(s, master, 'short') : s.courseName)).filter(Boolean),
   )];
   return names.join('、') || `${slots.length} 段`;
 }
