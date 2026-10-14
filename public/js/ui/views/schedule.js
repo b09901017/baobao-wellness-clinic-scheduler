@@ -2123,7 +2123,7 @@ async function addSlot() {
     entitlementId: picked?.entitlement?.id ?? null,
     isNth: Boolean(picked?.isNth),
     // 不算次數的課：沒有額度，課程就是她按的那一顆（ADR-0121）
-    uncountedCourseId: picked?.isUncounted ? picked.course.id : null,
+    giftCourseId: picked?.isUncounted ? picked.course.id : null,
     // 器材與營養點滴品項存在同一格（`onDeckClick()` 的對照表）
     equipmentId: view.equipmentId ?? null,
     ivProductId: view.equipmentId ?? null,

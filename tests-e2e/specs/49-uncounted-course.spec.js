@@ -86,7 +86,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
   await page.click('button[type="submit"]');
   await expect(app.dialog()).toBeVisible();
   const said = await app.dialogText();
-  expect(said, '她最會擔心的那一句').toContain('功醫門診不算次數');
+  expect(said, '她最會擔心的那一句').toContain('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   expect(said, '三個系統都壓：等客人說可以之後長 Examine、耀聖').toMatch(/Examine/);
   await app.ok();
   await app.saved();
@@ -130,7 +130,7 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
   await page.locator('[data-doctor="staff-dr-xu"]').click();
   await page.locator('[data-add]').click();
   await expect(app.dialog()).toBeVisible();
-  expect(await app.dialogText()).toContain('功醫門診不算次數');
+  expect(await app.dialogText()).toContain('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   await app.ok();
   await app.saved();
 

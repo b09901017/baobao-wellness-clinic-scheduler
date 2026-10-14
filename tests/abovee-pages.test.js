@@ -55,7 +55,7 @@ describe('同一張照片裡的列永遠不互相去掉', () => {
 
   test('同人同時兩門課：兩列都在，各自的預設跟只送那一張時一樣', () => {
     const pick = (items) => items.filter((i) => i.date === '2026-07-02')
-      .map((i) => [i.row.course, i.kind, i.checked, i.entitlementId, i.uncountedCourseId, repeatSay(i)]);
+      .map((i) => [i.row.course, i.kind, i.checked, i.entitlementId, i.giftCourseId, repeatSay(i)]);
     const alone = pick(readAbovee([page1], ctx()).items);
     const both = pick(readAbovee([page1, page2], ctx()).items);
     assert.equal(both.length, 2);

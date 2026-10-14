@@ -138,7 +138,7 @@ test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診�
 
   await page.locator('[data-abl-save]').click();
   await expect(app.dialog()).toContainText('三返是加約的');
-  await expect(app.dialog()).toContainText('功醫門診不算次數');
+  await expect(app.dialog()).toContainText('功醫門診(體驗) —— 客戶身上的數字一個都不會變');
   await app.ok();
   await app.saved();
 

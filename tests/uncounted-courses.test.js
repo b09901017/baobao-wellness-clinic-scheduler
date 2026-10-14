@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 
 import { isUncounted, uncountedCourses, validate } from '../public/js/domain/masterData.js';
 import {
-  slotOptionsFor, NTH_PICK, uncountedPick, uncountedCourseIdOf,
+  slotOptionsFor, NTH_PICK, giftPick, giftCourseIdOf,
 } from '../public/js/domain/slotOptions.js';
 import { slotFromPicks, visitWithSlot } from '../public/js/domain/slotDraft.js';
 import {
@@ -104,15 +104,15 @@ describe('這一段可以做什麼（slotOptionsFor）', () => {
     assert.equal(fm.isUncounted, true);
     assert.equal(fm.entitlement, null);
     assert.equal(fm.remaining, '—', '0 看起來像「用完了」，而它根本沒有次數');
-    assert.equal(fm.entitlementId, uncountedPick('fm'));
-    assert.equal(uncountedCourseIdOf(fm.entitlementId), 'fm');
+    assert.equal(fm.entitlementId, giftPick('fm'));
+    assert.equal(giftCourseIdOf(fm.entitlementId), 'fm');
   });
 
   test('那一顆的值撞不到額度的 id，也不是 n返 那一顆', () => {
-    assert.notEqual(uncountedPick('fm'), NTH_PICK);
-    assert.equal(uncountedCourseIdOf('e-rec'), null);
-    assert.equal(uncountedCourseIdOf(NTH_PICK), null);
-    assert.equal(uncountedCourseIdOf(null), null);
+    assert.notEqual(giftPick('fm'), NTH_PICK);
+    assert.equal(giftCourseIdOf('e-rec'), null);
+    assert.equal(giftCourseIdOf(NTH_PICK), null);
+    assert.equal(giftCourseIdOf(null), null);
   });
 
   test('額度照原本那一排的順序在前面，不算次數的課接在後面', () => {
@@ -154,9 +154,9 @@ describe('這一段可以做什麼（slotOptionsFor）', () => {
   });
 });
 
-describe('組時段（slotFromPicks 的 uncountedCourseId）', () => {
+describe('組時段（slotFromPicks 的 giftCourseId）', () => {
   const pick = (over = {}) => slotFromPicks(
-    { uncountedCourseId: 'fm', startsAt: '10:00', doctorId: 'd1', ...over }, ctxOf([ent()]),
+    { giftCourseId: 'fm', startsAt: '10:00', doctorId: 'd1', ...over }, ctxOf([ent()]),
   );
 
   test('課程就是它、沒有額度、返數不碰、新的一段待確認', () => {
@@ -173,15 +173,19 @@ describe('組時段（slotFromPicks 的 uncountedCourseId）', () => {
     assert.equal(slot.doctorId, 'd1', '醫師照 `doctorRuleOf()`');
   });
 
-  test('指到一門要算次數的課：組不出來（那一條路只給不算次數的）', () => {
-    const { slot, errors } = pick({ uncountedCourseId: 'rec' });
-    assert.equal(slot, null);
-    assert.ok(errors.length);
+  test('指到一門要算次數的課：照樣組得出來，標成體驗（任何課都可以，gift-and-trial 01）；健檢不行', () => {
+    const { slot } = pick({ giftCourseId: 'rec', therapistId: 't1' });
+    assert.equal(slot.courseId, 'rec');
+    assert.equal(slot.entitlementId, null);
+    assert.equal(slot.giftKind, 'trial');
+    const exam = pick({ giftCourseId: 'chk' });
+    assert.equal(exam.slot, null);
+    assert.ok(exam.errors.length);
   });
 
   test('同時給了額度：額度贏（兩種身分只挑一種，照她按的那一顆）', () => {
     const { slot } = slotFromPicks(
-      { entitlementId: 'e-rec', uncountedCourseId: 'fm', startsAt: '10:00' }, ctxOf([ent()]),
+      { entitlementId: 'e-rec', giftCourseId: 'fm', startsAt: '10:00' }, ctxOf([ent()]),
     );
     assert.equal(slot.entitlementId, 'e-rec');
     assert.equal(slot.courseId, 'rec');
@@ -307,16 +311,17 @@ describe('健檢那條鏈：不會被當成二返', () => {
 describe('名字：讀主檔，不讀快照', () => {
   test('功醫門診在主檔改了名字，日曆上跟著改（n返 才讀快照）', () => {
     const master = { courses: [{ ...FM, name: '功能醫學門診' }], equipment: [], ivProducts: [] };
-    assert.equal(slotName(fmSlot(), master, 'short'), '功能醫學門診');
+    // 沒有 giftKind 的舊段照退路讀成體驗（gift-and-trial 01）—— 她要看得出是體驗
+    assert.equal(slotName(fmSlot(), master, 'short'), '功能醫學門診(體驗)');
   });
 });
 
 describe('確認框只講真的會發生的事（ADR-0070）', () => {
   const said = (lines) => lines.join('／');
 
-  test('新增：多一句「不算次數 —— 客戶身上的數字一個都不會變」', () => {
+  test('新增：多一句「功醫門診(體驗) —— 客戶身上的數字一個都不會變」', () => {
     const { lines } = bookingConsequences({ visit: visit([fmSlot()]), coursesById: BY_ID, today: TODAY });
-    assert.match(said(lines), /功醫門診不算次數 —— 客戶身上的數字一個都不會變/);
+    assert.ok(lines.includes('功醫門診(體驗) —— 客戶身上的數字一個都不會變'), said(lines));
   });
 
   test('新增：不算次數的課但扣著額度的那一段不講那一句（它會扣）', () => {

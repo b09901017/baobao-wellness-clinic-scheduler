@@ -436,7 +436,10 @@ async function expectRelinked(app, page, before) {
   await app.saved();
 
   const after = await app.readDoc('visits', 'v-second');
-  expect({ ...after.slots[0], followupForVisitId: 'v-exam' }, '那一段只有「這是哪一次健檢的」那一格變了').toEqual(before.slots[0]);
+  // `giftKind: null` 是 `save()` 存一次就寫實的那一格（gift-and-trial 01，同 `withSlotStatuses()` 補 `status`）——
+  // 讀起來跟沒有那一格一樣（`giftKindOf()` 都是 null），不算她改了什麼
+  expect({ ...after.slots[0], followupForVisitId: 'v-exam' }, '那一段只有「這是哪一次健檢的」那一格變了')
+    .toEqual({ ...before.slots[0], giftKind: null });
   expect(after.status, '整天的狀態沒動').toBe(before.status);
   expect(after.date).toBe(before.date);
   expect(exam.slots[0].status, '新的健檢照舊是待確認').toBe('pending_confirm');

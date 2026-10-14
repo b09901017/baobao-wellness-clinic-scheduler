@@ -102,7 +102,7 @@ test('N2 日曆排一段不用壓的課：不問壓好了嗎；客人說可以�
   expect(said, '抬頭').toContain('記錄這一段？');
   expect(said, '沒有東西要她先去壓').not.toMatch(/Abovee|Examine|耀聖|壓好/);
   expect(said, '其餘的後果照講').toContain('待辦會多一張「跟客人確認時間」');
-  expect(said).toContain('體驗檢測不算次數');
+  expect(said).toContain('體驗檢測(體驗) —— 客戶身上的數字一個都不會變');
   await expect(page.locator('.dialog-backdrop [data-ok]')).toHaveText('記錄');
   await app.ok();
   await app.saved();
@@ -207,7 +207,7 @@ test('N4 種子的 HRV：日曆新增 →「做什麼」那一排按 HRV → 抬
   await expect(app.dialog()).toBeVisible();
   const said = await app.dialogText();
   expect(said).toContain('記錄這一段？');
-  expect(said).toContain('HRV不算次數');
+  expect(said).toContain('HRV(體驗) —— 客戶身上的數字一個都不會變');
   expect(said, '不用壓：不問任何系統').not.toMatch(/Abovee|Examine|耀聖|壓好/);
   await expect(page.locator('.dialog-backdrop [data-ok]')).toHaveText('記錄');
   await app.ok();

@@ -1,6 +1,6 @@
 # 核心（domain）：一段可以是「體驗」或「送的」—— 存在那一段身上、任何課（健檢與二返除外）、不扣任何額度
 
-Status: todo
+Status: done
 Blocked by: —（第一支）
 動工前先讀：`spec.md`「談定的策略」前兩節；ADR-0121（不算次數的課）、ADR-0063（n返 不是額度）、ADR-0122（約的時候選的時長）、ADR-0075（器材決定課程）；
 `domain/visits.js` 的 `visitErrors()`（「要選一個額度」那一行）、`slotMinutes()`／`slotMinutesField()`、`picksEquipment()`、`courseForEquipment()`；
@@ -97,3 +97,34 @@ Blocked by: —（第一支）
 
 - 單元測試裡寫死 `uncountedPick`、`uncountedCourseId`、`（不算次數）`、`不算次數 ——` 的那幾支
 - 舊資料退路的代價（她在舊的那幾段被存過之前就把某門課的勾拿掉，名字與驗證會跟著翻）：正式站切換那天整份重匯、合併檔 v7 帶著那一格，所以只剩 staging；09 的 ADR 寫明接受
+
+## 做完時留下的
+
+- **住在哪**：`masterData.js` 的 `GIFT_KINDS`、`GIFT_LABELS`、`giftLabel()`、`giftKindOf(slot, coursesById)`、`canBeGift(course, courses)`
+  （`naming.js` 與 `visits.js` 都讀得到、不繞圈；`canBeGift()` 直接看 `followupCourseId` 那一格，連刪掉的課也算進「誰的二返」）。
+  `visits.js` 的 `minuteChoicesFor({ entitlement, course, giftKind })`、`equipmentChoicesFor(entitlement, course, equipment, { keep })`、
+  `withGiftKinds(visit, coursesById)`；`slotMinutes()`／`slotMinutesField()` 多收 `giftKind`（沒傳＝一般的段，跟以前一模一樣）
+- `giftKindOf()`：**有那一格就照那一格，`null` 也算**（寫實過就不再猜）；`undefined` 才走舊資料的退路。看不懂的值回 `null`，驗證另外擋
+- `slotFromPicks()`：`giftCourseId` ＋ `giftKind`（沒給或看不懂＝`'trial'`）。**只有 `requiresEquipment` 的那門課照器材重推**（復能＋ILIB → ILIB、指派診間、器材清成 null）；
+  別的課身上殘留一台器材不會被換成復能。額度或 n返 同時給了 → 那兩條贏，`giftKind: null`。**每一段都寫 `giftKind`**（一般的段 `null`）
+- `equipmentChoicesFor()` 沒有擇一池時走 `equipmentForCourse()`：**一台都沒有 `courseId` 的舊主檔照舊退回全部器材**（那一支原本的退路）。
+  `keep` 是給編輯器與拍 Abovee 用的：停用的那一台照樣列在最後
+- **存檔寫實**：`data/visits.js` 的 `save()` 先讀課程（含刪掉的）→ `withGiftKinds(withSlotNotes(withSlotStatuses(...)))`，`taskOps()` 收同一份 `courses` 不再讀第二次。
+  `remove()`／`restore()` 不經過它（不改時段）。**不經過 `save()` 的寫入**：資料健檢的 `clearBeds`／`moveBedToRoom`（直接寫整包 `slots`，沒有那一格就照退路讀，沒事）、
+  匯入的 `importPlan()`（08 在 `planForCustomer()`／`addExtraVisits()` 寫好）
+- **改名（呼叫端是機械式改的，02 才改語意）**：`uncountedPick()` → `giftPick()`、`uncountedCourseIdOf()` → `giftCourseIdOf()`、
+  `slotFromPicks()` 的 `uncountedCourseId` → `giftCourseId`、拍 Abovee 那一列的 `item.uncountedCourseId` → `item.giftCourseId`。
+  **那一排上的值的字串沒改**（`__course__:`）—— E2E 49、51 拿它找丸子。`slotOptionsFor()` 每一顆的 `isUncounted` 旗子**沒改名**（04 重排那一排時再決定）
+- 確認框那一句：`giftNames()`（`consequences.js`）→ `心臟科評估(體驗) —— 客戶身上的數字一個都不會變`，名字用**課程**（不是器材：講的是扣不扣）。
+  壓表／日曆新增（`bookingConsequences()`）與拍 Abovee（`aboveeConsequences()`）兩處都換了。結案「扣掉次數」、取消「次數也會還回來」本來就只數 `entitlementId`，沒動
+- `slotName(…, 'short')` 接法：`withMinutes()` 之後再接，所以是 `IN(30)(體驗)`、`功醫門診(體驗)`。**稽核那一句不會帶**：`audit.js` 的 `visitCourseLabel(d)` 不傳主檔、讀 `courseName` 快照（那是刻意的：歷史記當時寫下去的字）
+- **02 要接的（現在畫面上還是舊的行為）**：編輯器 `readFreeSlot()` 沒傳 `giftKind` → 一段「送的」改一個字存回去會變體驗；`readDraft()` 一般那一條 `...slot` 留著 `giftKind`；
+  三個入口「排多久」那一排還是 `bookingMinutesOf()`、器材那一排沒有額度時列全部器材；`slotMinutes()`／`slotMinutesField()` 的呼叫端（壓表 :1390、編輯器 `blankSlot()`／`readDraft()`／`minutesField()`、拍 Abovee :555）都還沒傳 `giftKind`
+- E2E 改了字：49（U2、U3）、51（N2）、52（N4）的「X不算次數」→「X(體驗) —— 客戶身上的數字一個都不會變」；58 的撞期句 `功醫門診(體驗)・已完成`；59 的 `HRV(體驗) 不用壓表`
+- `sw.js` **v192**（這一輪唯一的一次，02 之後不要再升）
+- 新測試：`tests/gift-kind.test.js`（36 條，用種子的課程與器材）
+- **`save()` 寫實會讓「只動一格」的寫入多出 `giftKind: null`**（E2E 65 的 L9／L10 抓到：另約健檢順便接二返，那一段多了這一格）。讀起來一模一樣
+  （`giftKindOf()` 都是 null），斷言改成允許它。之後寫「這一段只變了某一格」的測試，比的時候要把 `giftKind: null` 算進去
+- E2E 52 的 N2（`體驗檢測不算次數` → `體驗檢測(體驗) —— 客戶身上的數字一個都不會變`）也是這一支改到的字
+- **產檔那側 `merge.mjs` 的 `endOf()` 沒動**：合併檔要到 08 才帶 `giftKind`，「送的／體驗的段選得到買的時候分的時長」那一條在產檔那側還碰不到。08 加的時候對一次順序
+- 01 的相關 E2E（45 支，`--base HEAD~1`）：328 過、3 紅（就是上面那三條，都是釘著舊字或舊形狀），改完之後在 02 那一輪一起重跑

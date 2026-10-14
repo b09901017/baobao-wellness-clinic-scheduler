@@ -54,7 +54,7 @@
 // **貼給客人的那一句不變**：那裡只講課程（ADR-0077），品項跟器材一樣
 // 是她自己要認的東西。
 
-import { durationChoicesOf, bookingMinutesOf } from './masterData.js';
+import { durationChoicesOf, bookingMinutesOf, giftKindOf, giftLabel } from './masterData.js';
 import { toMinutes, isValidTime } from './visitTime.js';
 
 const trimmed = (v) => String(v ?? '').trim();
@@ -116,6 +116,10 @@ export const fullNameOf = (row) => trimmed(row?.name);
  *    （ADR-0011）與被刪掉的課程都還印得出名字。
  * 4. **認不得的情境退回她自己看的那一種**，不要吐空字串 ——
  *    漏改一個呼叫端的症狀會是「那一列整個沒有名字」，那比多印幾個字糟得多。
+ * 5. **送的／體驗的段，她自己看的那一種後面接 `(體驗)`／`(送的)`**（gift-and-trial 01）：
+ *    她：「但是來訪以及試算表還是要標註(送的)、(體驗)」。`short` 用到的地方全部跟著帶
+ *    （月曆、日／週那一列、讀取卡片、待辦那一行、提醒句、撞期句…）—— 一處帶一處不帶她會以為是兩種東西。
+ *    **貼給客人的那一句不加**。沒有那一格的舊資料照 `giftKindOf()` 的退路讀（課程勾了不算次數 → 體驗）
  *
  * 2026-09-08 之前這裡還有一種「課程全名(器材別稱)」的接法（`復能(SIS)`）。
  * 她明確不要，所以那一段連同它的 `sameThing()` 一起拿掉了 ——
@@ -174,7 +178,9 @@ export function slotName(
     || (course ? nameOf(course, 'short', { as: 'course' }) : '')
     || snapshot;
 
-  return base ? withMinutes(base, slot, course) : '';
+  if (!base) return '';
+  const gift = giftLabel(giftKindOf(slot, course ? { [course.id]: course } : {}));
+  return `${withMinutes(base, slot, course)}${gift ? `(${gift})` : ''}`;
 }
 
 /**

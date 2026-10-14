@@ -31,7 +31,7 @@ import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff,
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
-import { NTH_PICK, uncountedCourseIdOf, uncountedPick } from './slotOptions.js';
+import { NTH_PICK, giftCourseIdOf, giftPick } from './slotOptions.js';
 import { MIN_NTH, nthOf } from './nthFollowup.js';
 import { slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
@@ -468,7 +468,7 @@ export function resolveItem(item, customerId, ctx, items = null) {
   const next = {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
-    isNth: false, nth: null, uncountedCourseId: null, minutes: null,
+    isNth: false, nth: null, giftCourseId: null, minutes: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
@@ -518,7 +518,7 @@ export function resolveItem(item, customerId, ctx, items = null) {
     // 不算次數的課（ADR-0121）：身上還有那門課的額度就照舊扣；沒有剩的才不扣
     const left = choices.filter((c) => c.remaining > 0);
     const ent = obviousEntitlement(course?.uncounted ? left : choices, course);
-    value = ent?.id ?? (course?.uncounted && !left.length ? uncountedPick(course.courseId) : null);
+    value = ent?.id ?? (course?.uncounted && !left.length ? giftPick(course.courseId) : null);
   }
   // 按好之後那幾排（器材、品項、接哪一次健檢）跟她自己按那一顆走同一支
   Object.assign(next, pickOption(next, value, ctx, items));
@@ -536,12 +536,12 @@ export function resolveItem(item, customerId, ctx, items = null) {
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
   if (item?.isNth) return NTH_PICK;
-  if (item?.uncountedCourseId) return uncountedPick(item.uncountedCourseId);
+  if (item?.giftCourseId) return giftPick(item.giftCourseId);
   return item?.entitlementId ?? null;
 }
 
 /**
- * 「要做什麼」那一排按了一顆（`slotOptionsFor()` 的值：額度 id、`NTH_PICK`、`uncountedPick()`）→
+ * 「要做什麼」那一排按了一顆（`slotOptionsFor()` 的值：額度 id、`NTH_PICK`、`giftPick()`）→
  * 這一列變成什麼（abovee-and-master/08）。翻譯時先按好的那一顆（`resolveItem()`）也走這一支 ——
  * 兩條路各寫一份的話，她自己按一次跟翻譯按好的那一列會長得不一樣。
  *
@@ -558,13 +558,13 @@ export function optionValueOf(item) {
 export function pickOption(item, value, ctx, items = null) {
   const base = {
     ...item,
-    entitlementId: null, isNth: false, nth: null, uncountedCourseId: null,
+    entitlementId: null, isNth: false, nth: null, giftCourseId: null,
     equipmentId: null, followupForVisitId: null, noExam: false,
     ivProductId: item.course?.ivProductId ?? null,
   };
   if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
-  const courseId = uncountedCourseIdOf(value);
-  if (courseId) return { ...base, uncountedCourseId: courseId };
+  const courseId = giftCourseIdOf(value);
+  if (courseId) return { ...base, giftCourseId: courseId };
 
   const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
   if (!ent) return base;
@@ -691,7 +691,7 @@ export function refreshNoExam(items, ctx) {
 const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
-  isNth: false, nth: null, uncountedCourseId: null, minutes: null,
+  isNth: false, nth: null, giftCourseId: null, minutes: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   kind: 'recorded', checked: false, existing, ...extra,
 });
@@ -1026,7 +1026,7 @@ function looksMerged(a, b, ctx) {
  */
 export function mergeRows(items, ctx, { hasColumn = false } = {}) {
   const pool = (items ?? []).filter((i) => i.kind === 'new' && !i.cancelled && i.customerId && i.date && i.startsAt
-    && !i.isNth && !i.uncountedCourseId && i.course)
+    && !i.isNth && !i.giftCourseId && i.course)
     .slice()
     .sort((a, b) => `${a.customerId}|${a.date}|${a.startsAt}`.localeCompare(`${b.customerId}|${b.date}|${b.startsAt}`));
   const pairs = new Map();
@@ -1406,7 +1406,7 @@ export function picksOf(item) {
   return {
     entitlementId: item.isNth ? null : item.entitlementId,
     isNth: Boolean(item.isNth),
-    uncountedCourseId: item.uncountedCourseId ?? null,
+    giftCourseId: item.giftCourseId ?? null,
     equipmentId: item.equipmentId,
     ivProductId: item.ivProductId,
     startsAt: item.startsAt,

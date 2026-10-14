@@ -37,7 +37,7 @@ import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
   THERAPIST_ROLE, isUncounted, uncountedCourses, bookingMinutesOf,
 } from '../../domain/masterData.js';
-import { NTH_PICK, uncountedPick, uncountedCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
+import { NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
@@ -592,7 +592,7 @@ function slotCard(ctx, draft, slot, i) {
 
       ${f.chips({
         name: `s${i}-ent`, label: '額度',
-        value: nth ? NTH_PICK : (free ? uncountedPick(slot.courseId) : slot.entitlementId),
+        value: nth ? NTH_PICK : (free ? giftPick(slot.courseId) : slot.entitlementId),
         // **順序問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08；小標 issue 16 拿掉了）—— 壓表與拍 Abovee 同一支：
         // 照分類、類裡照名字、二返那一組最後而且另起一行。「剩幾次」照舊這裡自己算（把草稿也算進去）
         options: arrangeSlotOptions([
@@ -614,7 +614,7 @@ function slotCard(ctx, draft, slot, i) {
           // 這一段現在指著的那一門就算被停用了也要列，不然那一排一顆都沒按
           ...[...new Set([...uncountedCourses(all.courses), ...(free ? [course] : [])])]
             .map((c) => ({
-              entitlementId: uncountedPick(c.id), label: c.name, entitlement: null, course: c, isUncounted: true,
+              entitlementId: giftPick(c.id), label: c.name, entitlement: null, course: c, isUncounted: true,
             })),
         ], all.courses).map((o) => ({
           value: o.entitlementId,
@@ -950,7 +950,7 @@ function readDraft(ctx, form, draft) {
     // 那一排沒畫出來時（`key()` 的退路）要認得出這一段原本是哪一種：n返、不扣次數、還是一筆額度
     const wasFree = !slot.entitlementId && isUncounted(coursesById[slot.courseId]);
     const entitlementId = key(v, `s${i}-ent`, isNthSlot(slot) ? NTH_PICK
-      : (wasFree ? uncountedPick(slot.courseId) : slot.entitlementId));
+      : (wasFree ? giftPick(slot.courseId) : slot.entitlementId));
 
     // n返 走另一條路：沒有額度、沒有課程可以挑（借二返那個），
     // 但多了返數與「哪一次健檢的」。形狀由 `nthSlotFields()` 給，
@@ -961,7 +961,7 @@ function readDraft(ctx, form, draft) {
     }
 
     // 不算次數的課（ADR-0121）也是另一條路：沒有額度，課程就是她按的那一顆
-    const freeCourseId = uncountedCourseIdOf(entitlementId);
+    const freeCourseId = giftCourseIdOf(entitlementId);
     if (freeCourseId) return readFreeSlot({ v, i, slot, ctx, courseId: freeCourseId });
 
     const ent = entitlements.find((x) => x.id === entitlementId) ?? null;
@@ -1082,7 +1082,7 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const switched = courseId !== slot.courseId || Boolean(slot.entitlementId);
   const room = readRoom(v, i, slot);
   const { slot: made } = slotFromPicks({
-    uncountedCourseId: courseId,
+    giftCourseId: courseId,
     startsAt: v[`s${i}-start`] || slot.startsAt,
     equipmentId: v[`s${i}-equip`] ?? null,
     // 那一排沒畫出來才退回原本那一款（同上面那一條 `key()`）

@@ -11,7 +11,7 @@
 // （不扣額度）建得起來卻排不進去。n返 是後來塞進去的第一個例外，寫在壓表的畫面裡。
 //
 // **後兩種的時段 `entitlementId` 都是 null**，所以它們在同一排上的值不能是額度的 id ——
-// `NTH_PICK` 與 `uncountedPick()` 給的那兩種字都帶著底線前綴，Firestore 的自動 id
+// `NTH_PICK` 與 `giftPick()` 給的那兩種字都帶著底線前綴，Firestore 的自動 id
 // （20 個 [A-Za-z0-9] 字元）撞不到。那兩個值只活在畫面上，組時段時換回課程
 // （`slotDraft.js` 的 `slotFromPicks()`）。
 
@@ -25,11 +25,15 @@ export const NTH_PICK = '__nth__';
 
 const COURSE_PICK = '__course__:';
 
-/** 一門不算次數的課在那一排上的值。 */
-export const uncountedPick = (courseId) => `${COURSE_PICK}${courseId}`;
+/**
+ * 「送的／體驗」那一門在那一排上的值（gift-and-trial 01，以前叫 `uncountedPick()`）。
+ * 值只有課程：體驗還是送的另外一排選（`slotFromPicks()` 的 `giftKind`）。
+ * 字串的前綴沒改（`__course__:`）—— 它只活在畫面上，E2E 拿它找丸子。
+ */
+export const giftPick = (courseId) => `${COURSE_PICK}${courseId}`;
 
-/** 那一排上的值 → 不算次數的那門課的 id。不是那一種就回 `null`。 */
-export function uncountedCourseIdOf(value) {
+/** 那一排上的值 → 送的／體驗的那門課的 id。不是那一種就回 `null`。 */
+export function giftCourseIdOf(value) {
   return typeof value === 'string' && value.startsWith(COURSE_PICK)
     ? value.slice(COURSE_PICK.length)
     : null;
@@ -40,7 +44,7 @@ export function uncountedCourseIdOf(value) {
  *
  * 每一顆的形狀一樣，畫面不用分三種畫：
  *
- *   entitlementId  那一排上的值（額度 id、`NTH_PICK`、或 `uncountedPick()`）
+ *   entitlementId  那一排上的值（額度 id、`NTH_PICK`、或 `giftPick()`）
  *   label          丸子上的字
  *   remaining      剩幾次；不扣次數的兩種是 `'—'`（0 看起來像「用完了」）
  *   course         這一段預設算哪一門課（擇一池挑了器材之後會換，ADR-0075）
@@ -107,7 +111,7 @@ export function slotOptionsFor(
 
   for (const course of uncountedCourses(courses)) {
     out.push({
-      entitlementId: uncountedPick(course.id),
+      entitlementId: giftPick(course.id),
       label: course.name,
       remaining: '—',
       durationMin: course.durationMin ?? 60,
