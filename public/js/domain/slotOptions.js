@@ -5,7 +5,15 @@
 //
 //   額度            她買的，排了就扣（`customerPools()`，二返排最後）
 //   ＋ n返          加約的，不扣（ADR-0063，`domain/nthFollowup.js`）
-//   不算次數的課    不用加購就排得進去，排了也不扣（課程主檔上的 `uncounted`，ADR-0121）
+//   送的／體驗      不扣任何一筆額度（時段上的 `giftKind`，gift-and-trial 01）：不算次數的課
+//                   （課程主檔上的 `uncounted`，ADR-0121）與「別的課當體驗」（健檢、二返除外）
+//
+// **送的／體驗那幾顆一律收在最後**（`folded`，gift-and-trial 04）。她的原話：
+//
+// > 然後我希望這種不算次數的，在壓表或是新增來訪那邊可以先預設不出現先收合或是擺到底下，畢竟不常用
+//
+// 收起來是畫面的事（`ui/components/giftFold.js` 畫最後那一顆「送的／體驗…」），**哪幾顆收、
+// 什麼順序、要不要一打開就展開只在這一支**（`folded`、`arrangeSlotOptions()`、`foldOpen()`）。
 //
 // 2026-10-05 之前這一排是從額度長出來的：沒有額度就沒有那一顆，所以功醫門診
 // （不扣額度）建得起來卻排不進去。n返 是後來塞進去的第一個例外，寫在壓表的畫面裡。
@@ -18,7 +26,7 @@
 import { customerPools } from './scheduling.js';
 import { coursesForEntitlement } from './visits.js';
 import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
-import { uncountedCourses, groupByCourse } from './masterData.js';
+import { isUncounted, canBeGift, groupByCourse } from './masterData.js';
 
 /** 「＋ n返」那一顆的值。**不是任何一筆額度的 id。** */
 export const NTH_PICK = '__nth__';
@@ -49,10 +57,11 @@ export function giftCourseIdOf(value) {
  *   remaining      剩幾次；不扣次數的兩種是 `'—'`（0 看起來像「用完了」）
  *   course         這一段預設算哪一門課（擇一池挑了器材之後會換，ADR-0075）
  *   entitlement    那一筆額度；不扣次數的兩種是 `null`
- *   isNth／isUncounted
+ *   isNth／isGift  n返、送的／體驗（`giftOptions()`）
+ *   folded         收在「送的／體驗…」後面（送的／體驗那幾顆都是）
  *
- * **不算次數的課一定有那一顆** —— 這位客戶身上如果還有那門課的額度，額度那一顆照樣在，
- * 她選哪一顆就扣不扣（她之後會自己勾營養諮詢，而既有客戶身上有它的額度）。
+ * **送的／體驗那一組每一門課都有一顆**（健檢、二返除外）—— 這位客戶身上如果還有那門課的額度，
+ * 額度那一顆照樣在，她選哪一顆就扣不扣（她：「就算他身上有買那門課也不扣」）。
  *
  * @param {object} ctx
  * @param {object[]} ctx.entitlements 這位客戶的額度
@@ -109,19 +118,55 @@ export function slotOptionsFor(
     }
   }
 
-  for (const course of uncountedCourses(courses)) {
-    out.push({
-      entitlementId: giftPick(course.id),
-      label: course.name,
-      remaining: '—',
-      durationMin: course.durationMin ?? 60,
-      course,
-      entitlement: null,
-      isUncounted: true,
-    });
-  }
+  return arrangeSlotOptions([...out, ...giftOptions(courses)], courses);
+}
 
-  return arrangeSlotOptions(out, courses);
+/**
+ * 送的／體驗那一組（gift-and-trial 04）：每一門還在用、可以當體驗的課一顆（`canBeGift()`：健檢、二返除外）。
+ *
+ * - 不算次數的課（`other: false`）：她最常按的那幾門，展開之後第一排
+ * - 其餘（`other: true`）：「別的課當體驗」，畫面上照分類 → 課程兩步
+ *
+ * 順序不在這裡，在 `arrangeSlotOptions()`（呼叫端不用自己排）。
+ *
+ * @param {object[]} courses 主檔
+ * @param {{keep?: object|null}} [o] 這一段現在指著的那一門：停用了也要列，不然那一排一顆都沒按
+ */
+export function giftOptions(courses = [], { keep = null } = {}) {
+  const alive = (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false);
+  const list = keep && !alive.some((c) => c.id === keep.id) ? [...alive, keep] : alive;
+  return list.filter((c) => canBeGift(c, courses)).map((course) => ({
+    entitlementId: giftPick(course.id),
+    label: course.name,
+    remaining: '—',
+    durationMin: course.durationMin ?? 60,
+    course,
+    entitlement: null,
+    isGift: true,
+    folded: true,
+    other: !isUncounted(course),
+  }));
+}
+
+/**
+ * 「送的／體驗…」那一組要不要一打開就展開（gift-and-trial 04）：
+ * 這一排沒有任何一顆**還有剩的**額度（拍 Abovee 列的用完那幾顆不算），不然上面那一排是空的；
+ * 或這一段現在就是送的／體驗（收起來的話畫面上是「一顆都沒按」）。
+ *
+ * @param {object[]} options 那一排（每一顆至少有 `entitlement`、`remaining`）
+ * @param {string|null} value 現在按著的那一顆
+ */
+export function foldOpen(options = [], value = null) {
+  if (giftCourseIdOf(value)) return true;
+  return !(options ?? []).some((o) => !o.folded && o.entitlement && Number(o.remaining) > 0);
+}
+
+/**
+ * 沒有額度可以預設時，新的一段預設哪一門（來訪編輯器）：送的／體驗那一組展開之後第一排的第一顆 ——
+ * **照舊是功醫門診**（`GIFT_FIRST`）。一門不算次數的課都沒有就是 `null`。
+ */
+export function defaultGiftCourse(courses = []) {
+  return arrangeSlotOptions(giftOptions(courses), courses).find((o) => !o.other)?.course ?? null;
 }
 
 /** 二返與 n返 那一組叫什麼（每一顆的 `group`）。它不是課程的分類 —— 那一組永遠排在最後。 */
@@ -129,8 +174,20 @@ export const FOLLOWUP_GROUP = '二返・n返';
 
 const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForEntitlementId);
 
-/** 一類裡：先額度（照名字）、再不算次數的課（照主檔）、最後 n返。 */
-const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
+/** 一類裡：先額度（照名字）、最後 n返。 */
+const kindRank = (o) => (o.isNth ? 1 : 0);
+
+/**
+ * 送的／體驗那一組展開之後第一排的先後（gift-and-trial 04）：同一類裡照這一份，其餘照名字。
+ * 種子的 id —— **不靠主檔讀回來的順序**：Firestore 照文件 id 排，心臟科評估（course-cardio）會排到
+ * 功醫門診（course-fm）前面，而沒有額度的客戶新的一段預設的就是第一顆（`defaultGiftCourse()`）。
+ */
+const GIFT_FIRST = ['course-fm', 'course-hrv', 'course-cardio', 'course-eecp-trial'];
+
+const giftRank = (o) => {
+  const i = GIFT_FIRST.indexOf(o.course?.id);
+  return i < 0 ? GIFT_FIRST.length : i;
+};
 
 /**
  * 那一排的**順序**（2026-10-06，issue 08）。三個入口都照這一支：壓表（`slotOptionsFor()` 回的就是排好的）、
@@ -145,6 +202,9 @@ const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
  * 3. **二返與 n返 一律最後一組**（她 2026-09-24：「跟健檢並排一指就約錯」），不跟著「醫師門診」走；
  *    而且**那一組另起一行**（`breakBefore`）—— 照分類排之後健檢是最後一類，只隔一條線的話兩顆實體上還是隔壁
  *
+ * 4. **送的／體驗那幾顆（`folded`）一律在最後**（gift-and-trial 04，推翻上面 1 的「類裡再那一類不算次數的課」）：
+ *    先不算次數的課、再「別的課當體驗」；兩組各自照分類，同一類裡照 `GIFT_FIRST` → 名字
+ *
  * 每一顆多兩格：`group`（那一類的名字）、`breakBefore`（二返那一組的第一顆，前面還有別的時）。
  *
  * **小標 2026-10-07 拿掉了**（issue 16）。她在 staging 試完：
@@ -154,21 +214,30 @@ const kindRank = (o) => (o.isNth ? 2 : o.isUncounted ? 1 : 0);
  *
  * 這一排列的是這位客戶有的，本來就沒幾顆。順序不變；加購那一排（列全部課程）的分類照舊。
  *
- * @param {object[]} options 每一顆至少有 `{ label, course, entitlement, isNth?, isUncounted? }`
+ * @param {object[]} options 每一顆至少有 `{ label, course, entitlement, isNth?, folded?, other? }`
  * @param {object[]} courses 主檔（分類的順序要認得她自己開的分類）
  */
 export function arrangeSlotOptions(options = [], courses = []) {
   const byName = (a, b) => kindRank(a) - kindRank(b)
     || (kindRank(a) === 0 ? String(a.label).localeCompare(String(b.label), 'zh-TW') : 0);
+  const shown = options.filter((o) => !o.folded);
   const groups = [
-    ...groupByCourse(options.filter((o) => !isFollowupOption(o)), (o) => o.course, courses),
-    { group: FOLLOWUP_GROUP, items: options.filter(isFollowupOption) },
+    ...groupByCourse(shown.filter((o) => !isFollowupOption(o)), (o) => o.course, courses),
+    { group: FOLLOWUP_GROUP, items: shown.filter(isFollowupOption) },
   ].filter((g) => g.items.length)
     .map(({ group, items }) => ({ group, items: items.slice().sort(byName) }));
 
-  return groups.flatMap(({ group, items }, at) => items.map((o, i) => ({
-    ...o,
-    group,
-    breakBefore: group === FOLLOWUP_GROUP && at > 0 && i === 0,
-  })));
+  const byGift = (a, b) => giftRank(a) - giftRank(b) || String(a.label).localeCompare(String(b.label), 'zh-TW');
+  const folded = (list) => groupByCourse(list, (o) => o.course, courses)
+    .flatMap(({ group, items }) => items.slice().sort(byGift).map((o) => ({ ...o, group, breakBefore: false })));
+
+  return [
+    ...groups.flatMap(({ group, items }, at) => items.map((o, i) => ({
+      ...o,
+      group,
+      breakBefore: group === FOLLOWUP_GROUP && at > 0 && i === 0,
+    }))),
+    ...folded(options.filter((o) => o.folded && !o.other)),
+    ...folded(options.filter((o) => o.folded && o.other)),
+  ];
 }

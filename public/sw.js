@@ -95,6 +95,7 @@ const SHELL = [
   '/js/ui/components/note.js',
   '/js/ui/components/planTweak.js',
   '/js/ui/components/slotNote.js',
+  '/js/ui/components/giftFold.js',
   '/js/ui/components/tasklist.js',
   '/js/ui/components/actions.js',
   '/js/ui/components/flags.js',

@@ -399,6 +399,7 @@ export const COVERAGE = {
     'public/js/domain/visits.js', 'public/js/domain/consequences.js', 'public/js/domain/taskRules.js',
     'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js', 'public/js/ui/components/buy.js',
+    'public/js/ui/components/giftFold.js',
   ],
   // 約的時候選時長（2026-10-05，ADR-0122）：設定那一格、壓表與來訪編輯器的「排多久」、月曆上的 二返(60)
   '50-booking-minutes': [
@@ -412,13 +413,14 @@ export const COVERAGE = {
     'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js',
     'public/js/domain/seed.js', 'public/js/domain/customers.js', 'public/js/domain/consequences.js',
     'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/views/masterList.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/components/giftFold.js',
   ],
   // 一門課可以哪個系統都不用壓（2026-10-06，ADR-0126）：設定頁三個都不勾、排一段不問壓好了嗎、取消不長取消 Abovee
   '52-book-nowhere': [
     'public/js/domain/taskRules.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
     'public/js/domain/scheduling.js', 'public/js/domain/todoFlow.js',
     'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
-    'public/js/ui/views/calendar.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/components/giftFold.js',
   ],
   // 床位那四間是各自的診間（2026-10-06，ADR-0127）：資料健檢建六間＋停用兩間＋床位搬家、壓表選 8A／8B、停用的那一間編輯時不被清掉
   '53-bed-rooms': [
@@ -445,7 +447,7 @@ export const COVERAGE = {
   '56-what-to-do-by-group': [
     'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/scheduling.js',
     'public/js/domain/seed.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
-    'public/js/ui/components/form.js', 'public/css/',
+    'public/js/ui/components/form.js', 'public/js/ui/components/giftFold.js', 'public/css/',
   ],
   // 拍 Abovee：「app 有、這次照片上沒有」（2026-10-06，course-form-and-sheet/09，ADR-0129）：那一塊、抬頭的數字、那一顆按鈕
   '57-abovee-absent': [
@@ -530,12 +532,14 @@ export const COVERAGE = {
   '66-immersive-top-inset': [
     'public/css/', 'public/manifest.webmanifest', 'public/js/ui/components/camera.js',
   ],
-  // 送的／體驗（gift-and-trial）：來訪編輯器存回去那一格不會被留錯或蓋掉、器材與時長那兩排、名字帶標記
+  // 送的／體驗（gift-and-trial）：來訪編輯器存回去那一格不會被留錯或蓋掉、器材與時長那兩排、名字帶標記；
+  // 04：收在「送的／體驗…」後面（壓表、來訪編輯器）、「體驗｜送的」那一排、不整頁重畫、手機寬度
   '67-gift-and-trial': [
     'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
     'public/js/domain/masterData.js', 'public/js/domain/naming.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',
-    'public/js/domain/calendar.js',
+    'public/js/domain/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/ui/components/giftFold.js',
+    'public/css/',
   ],
 };
 

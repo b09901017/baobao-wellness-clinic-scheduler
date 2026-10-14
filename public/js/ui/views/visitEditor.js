@@ -35,14 +35,17 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
-  THERAPIST_ROLE, uncountedCourses, giftKindOf,
+  THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
-import { NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
+import {
+  NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse,
+} from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
+import * as giftFold from '../components/giftFold.js';
 import { tip } from '../components/tip.js';
 import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
 import { relinkAfterSave } from '../relinkFollowup.js';
@@ -232,8 +235,11 @@ const inRowOrder = (entitlements, all) => arrangeSlotOptions(entitlements.map((e
   course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
 })), all.courses).map((o) => o.entitlement);
 
-/** 沒有額度可以預設時，新的一段預設哪一門不算次數的課。沒有就是 `null`。 */
-const freeCourseOf = (all) => uncountedCourses(all.courses)[0] ?? null;
+/**
+ * 沒有額度可以預設時，新的一段預設哪一門不算次數的課（照舊是功醫門診）。沒有就是 `null`。
+ * 順序問 `slotOptions.js`（gift-and-trial 04）—— 照主檔讀回來的順序的話，心臟科評估會排到前面。
+ */
+const freeCourseOf = (all) => defaultGiftCourse(all.courses);
 
 /**
  * 這一段是送的／體驗的話是哪一種（gift-and-trial 02）。讀法只有 `giftKindOf()`：有那一格照那一格，
@@ -449,6 +455,8 @@ function paint(ctx, draft) {
   f.wireChips(form);
   // 展開那一句話。`form` 每次 `paint()` 都被換掉，所以不必給 signal。
   slotNote.wire(form);
+  // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫
+  form.addEventListener('click', giftFold.toggle);
 
   form.addEventListener('change', async (e) => {
     // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
@@ -554,7 +562,7 @@ function sameDayNote(ctx, draft) {
  * —— 改了左邊右邊就動，那是看得出來的。
  */
 function slotCard(ctx, draft, slot, i) {
-  const { entitlements, all, customerVisits, customer, embedded } = ctx;
+  const { entitlements, all, customer, embedded } = ctx;
   const nth = isNthSlot(slot);
   const ent = nth ? null : (entitlements.find((x) => x.id === slot.entitlementId) ?? null);
   // n返 借二返那個課程，所以課程那一排不用出現（只有一個選項，而且她選不了別的）
@@ -605,45 +613,12 @@ function slotCard(ctx, draft, slot, i) {
           這一段取消了 —— 時段退回去了${slot.entitlementId ? '，次數也還回來了' : ''}。那一天剩下的照舊。
         </p>` : ''}
 
-      ${f.chips({
-        name: `s${i}-ent`, label: '額度',
-        value: nth ? NTH_PICK : (free ? giftPick(slot.courseId) : slot.entitlementId),
-        // **順序問 `slotOptions.js` 的 `arrangeSlotOptions()`**（issue 08；小標 issue 16 拿掉了）—— 壓表與拍 Abovee 同一支：
-        // 照分類、類裡照名字、二返那一組最後而且另起一行。「剩幾次」照舊這裡自己算（把草稿也算進去）
-        options: arrangeSlotOptions([
-          ...entitlements.map((e) => ({
-            entitlementId: e.id, label: e.label, entitlement: e,
-            course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
-          })),
-          // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
-          // 它排在同一排是因為她在這裡問的是「這一段是什麼」，而那一排就是
-          // 回答那個問題的地方。它跟二返同一組（最後那一組）。
-          //
-          // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
-          // 一顆永遠按不下去的丸子只會讓她每次都試一下。
-          ...(nthExams.some((c) => c.pickable)
-            ? [{ entitlementId: NTH_PICK, label: '＋ n返', entitlement: null, course: null, isNth: true }]
-            : []),
-          // **不算次數的課也不是一筆額度**（ADR-0121）：不用加購就排得進去，排了不扣。
-          // 這位客戶身上如果有那門課的額度，那一顆照樣在 —— 她選哪一顆就扣不扣。
-          // 這一段現在指著的那一門就算被停用了也要列，不然那一排一顆都沒按
-          ...[...new Set([...uncountedCourses(all.courses), ...(free ? [course] : [])])]
-            .map((c) => ({
-              entitlementId: giftPick(c.id), label: c.name, entitlement: null, course: c, isUncounted: true,
-            })),
-        ], all.courses).map((o) => ({
-          value: o.entitlementId,
-          label: o.label,
-          // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
-          // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
-          // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
-          // 兩個地方會給出不一樣的數字。
-          note: o.entitlement
-            ? `剩 ${countsWithDraft(o.entitlement, customerVisits, draft, o.entitlement.id).remaining}`
-            : '不扣次數',
-          ...(o.breakBefore ? { breakBefore: true } : {}),
-        })),
-      })}
+      ${entRow(ctx, draft, slot, i, { nth, free, course, nthExams })}
+      ${gift ? f.chips({
+        // 「體驗｜送的」（gift-and-trial 04）：預設體驗（她：「四門都寫體驗」）。選了重畫 —— 抬頭那一行跟著寫
+        name: `s${i}-gift`, label: '體驗或送的', value: gift,
+        options: GIFT_KINDS.map((k) => ({ value: k, label: giftLabel(k) })),
+      }) : ''}
 
       ${nth ? nthFields(ctx, draft, slot, i, nthExams) : ''}
 
@@ -689,6 +664,55 @@ function slotCard(ctx, draft, slot, i) {
       ${picksDoctor(course) ? doctorField(all, course, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
     </section>`;
+}
+
+/**
+ * 「額度」那一排（這一段扣哪一筆、還是 n返、還是送的／體驗）。
+ *
+ * **哪幾顆、順序、哪幾顆收在「送的／體驗…」後面問 `slotOptions.js`**（issue 08、gift-and-trial 04）——
+ * 壓表與拍 Abovee 同一支：照分類、類裡照名字、二返那一組最後而且另起一行、送的／體驗收在最後一顆。
+ * 「剩幾次」照舊這裡自己算（把草稿也算進去）。畫法是 `giftFold.html()`；每一顆照 `f.chips()` 的樣子
+ * （`data-chip` ＋ 同名的 hidden input），按下去走 `f.wireChips()` 原本那一條路。
+ */
+function entRow(ctx, draft, slot, i, { nth, free, course, nthExams }) {
+  const { entitlements, all, customerVisits } = ctx;
+  const name = `s${i}-ent`;
+  const value = nth ? NTH_PICK : (free ? giftPick(slot.courseId) : slot.entitlementId);
+  const options = arrangeSlotOptions([
+    ...entitlements.map((e) => ({
+      entitlementId: e.id, label: e.label, entitlement: e,
+      course: coursesForEntitlement(e, all.courses, all.equipment)[0] ?? null,
+      // **把手上這一份草稿也算進去**（她 2026-09-08）：她只有 1 堂
+      // INDIBA 卻在同一張表單裡排了兩段時，第二顆丸子要寫「剩 0」。
+      // 走的是跟 `entitlementWarnings()` 同一支 —— 各組一次的話
+      // 兩個地方會給出不一樣的數字。
+      remaining: countsWithDraft(e, customerVisits, draft, e.id).remaining,
+    })),
+    // **n返 不是一筆額度**（`domain/nthFollowup.js` 的檔頭）——
+    // 它排在同一排是因為她在這裡問的是「這一段是什麼」，而那一排就是
+    // 回答那個問題的地方。它跟二返同一組（最後那一組）。
+    //
+    // **一個健檢都沒有時整顆不畫**，不是畫成 disabled ——
+    // 一顆永遠按不下去的丸子只會讓她每次都試一下。
+    ...(nthExams.some((c) => c.pickable)
+      ? [{ entitlementId: NTH_PICK, label: '＋ n返', entitlement: null, course: null, isNth: true }]
+      : []),
+    // **送的／體驗也不是一筆額度**（ADR-0121、gift-and-trial 01）：不扣。這位客戶身上如果有那門課的額度，
+    // 那一顆照樣在 —— 她選哪一顆就扣不扣。這一段現在指著的那一門就算被停用了也要列（`keep`）
+    ...giftOptions(all.courses, { keep: free ? course : null }),
+  ], all.courses);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">額度</span>
+      ${giftFold.html({
+        options, value, open: foldOpen(options, value),
+        chip: (o) => `
+          <button class="chip" type="button" data-chip="${name}" data-chip-value="${esc(o.entitlementId)}"
+                  aria-pressed="${o.entitlementId === value}">
+            ${esc(o.label)}<span class="chip__note">${o.entitlement ? `剩 ${o.remaining}` : '不扣次數'}</span></button>`,
+      })}
+      <input type="hidden" name="${name}" value="${value == null ? '__null__' : esc(value)}" />
+    </div>`;
 }
 
 /**
@@ -1100,8 +1124,10 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const switched = courseChanged || Boolean(slot.entitlementId);
   const room = readRoom(v, i, slot);
   // **送的還是體驗跟著這一段走**（gift-and-trial 02）：這裡每次都重組，不帶的話一段「送的」只改治療師
-  // 存回去會安靜地變成體驗（`slotFromPicks()` 沒給就是體驗）。從扣額度換過來的是體驗
-  const giftKind = giftOf(slot, all) ?? 'trial';
+  // 存回去會安靜地變成體驗（`slotFromPicks()` 沒給就是體驗）。從扣額度換過來的是體驗。
+  // 「體驗｜送的」那一排（04）畫出來了就照她按的；沒畫出來（剛從扣額度換過來）就照原本的
+  const pickedKind = v[`s${i}-gift`];
+  const giftKind = GIFT_KINDS.includes(pickedKind) ? pickedKind : (giftOf(slot, all) ?? 'trial');
   // 器材：那一排上按著的那一台**屬於這門課**才留（`equipmentChoicesFor()`）—— 從四選一的 ILIB 換成體驗的復能，
   // 照讀的話 `slotFromPicks()` 會照 ILIB 把課程推回 ILIB，她按的明明是復能
   const pickedEq = key(v, `s${i}-equip`, slot.equipmentId ?? null);

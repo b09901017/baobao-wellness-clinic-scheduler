@@ -167,11 +167,6 @@ export const isUncounted = (course) => course?.uncounted === true;
  */
 export const isProvisional = (course) => course?.provisional === true;
 
-/** 主檔裡不算次數、還在用的課。「這一段可以做什麼」那一排上每一門一顆（`slotOptions.js`）。 */
-export function uncountedCourses(courses = []) {
-  return (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false && isUncounted(c));
-}
-
 /**
  * 一段可以是**體驗**或**送的**（2026-10-14，gift-and-trial 01）。她的原話：
  *

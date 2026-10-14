@@ -964,6 +964,24 @@ textarea {
 
 [data-tuck='open'] .chip--more { display: none; }
 
+/* 「做什麼」那一排最後那一顆「送的／體驗…」（`ui/components/giftFold.js`，gift-and-trial 04）。
+   同上：按了才露出底下那一塊、收不回去；換分類只改 `hidden`。 */
+[data-giftfold='closed'] .giftfold { display: none; }
+[data-giftfold='open'] [data-giftfold-more] { display: none; }
+
+.giftfold {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.giftfold__lead {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
 /* 「換一款」自己不是一個選項，所以不長得像選項：虛線、淡字。 */
 .chip--more {
   border-style: dashed;

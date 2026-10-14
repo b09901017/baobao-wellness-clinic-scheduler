@@ -160,6 +160,8 @@ test('N3 壓表：那一天已經有一段壓在 Abovee 的，再加一段不用
   await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
   await app.layer('[data-ent]');
 
+  // 有額度的客戶：送的／體驗收在最後一顆後面（gift-and-trial 04）
+  await page.locator('[data-giftfold-more]').click();
   await page.locator(`[data-ent="${TRIAL_PICK}"]`).click();
   await app.layer('[data-time]');
   await page.locator('[data-time]').first().click();

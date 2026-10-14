@@ -103,10 +103,12 @@ describe('排得進去嗎', () => {
     assert.ok(values(options()).includes(giftPick('course-hrv')));
   });
 
-  test('其餘五門：沒買就沒有那一顆', () => {
-    const got = JSON.stringify(options());
+  test('其餘五門：沒買就只在「別的課當體驗」裡（gift-and-trial 04，收在「送的／體驗…」後面）', () => {
+    const out = options();
     for (const id of NEW.filter((x) => x !== 'course-hrv')) {
-      assert.ok(!got.includes(id), `${id} 不可以出現在沒買的人那一排`);
+      const hits = out.filter((o) => o.course?.id === id);
+      assert.ok(hits.length, `${id} 當體驗排得進去`);
+      assert.ok(hits.every((o) => o.folded && o.other), `${id} 不可以出現在沒買的人那一排上面`);
     }
   });
 });

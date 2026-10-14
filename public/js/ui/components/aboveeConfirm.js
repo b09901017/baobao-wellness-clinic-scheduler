@@ -33,11 +33,11 @@ import {
   equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
-import { slotOptionsFor } from '../../domain/slotOptions.js';
+import { slotOptionsFor, foldOpen } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
 import { searchCustomers } from '../../domain/customers.js';
 import {
-  THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
+  THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
@@ -49,6 +49,7 @@ import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
 import { tip } from './tip.js';
 import { seenChip, wireSeen } from './seen.js';
+import * as giftFold from './giftFold.js';
 
 const TAGS = {
   new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消',
@@ -497,7 +498,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rows.unshift(`<button class="btn btn--sm" type="button" data-abl-day="${esc(item.date)}">
         去日曆 ${esc(shortDate(item.date))} 改期（照片不會留著）</button>`);
     }
-    // 「要做什麼」那一排跟壓表同一份（`slotOptionsFor()`，ADR-0121）：額度（二返排最後）、＋n返、不算次數的課。
+    // 「要做什麼」那一排跟壓表同一份（`slotOptionsFor()`，ADR-0121）：額度（二返排最後）、＋n返、送的／體驗。
     // **用完的額度也列** —— Abovee 上已經約了，那一段是既成事實；選了照舊有「會超過次數」的提醒
     const options = optionsFor(item);
     const value = optionValueOf(item);
@@ -505,13 +506,20 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，也沒有不算次數的課 —— 先去加購再回來記。</p>');
     } else {
       if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
-      // 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）
-      rows.push(chipRow('要做什麼', options.map((o) => ({
-        value: o.entitlementId, label: o.label,
-        sub: o.isNth || o.isUncounted ? '不扣次數' : `剩 ${o.remaining}`,
-        on: o.entitlementId === value, attr: 'data-abl-opt',
-        brk: o.breakBefore,
-      }))));
+      // 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）；
+      // 送的／體驗收在最後一顆「送的／體驗…」後面（gift-and-trial 04，壓表與來訪編輯器同一支）
+      rows.push(`
+        <div class="abl-row__pick">
+          <span class="abl-row__picklabel">要做什麼</span>
+          ${giftFold.html({
+            options, value, open: foldOpen(options, value), cls: 'abl-row__chips', sm: true,
+            chip: (o) => chipHtml({
+              value: o.entitlementId, label: o.label,
+              sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
+              on: o.entitlementId === value, attr: 'data-abl-opt',
+            }),
+          })}
+        </div>`);
       if (item.isNth && !options.some((o) => o.isNth)) {
         rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。</p>');
       }
@@ -522,6 +530,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const course = built?.course ?? null;
     // 送的／體驗的那一段（gift-and-trial 02）：沒有額度，「排多久」那一排多收那門課買的時候分的那幾種
     const giftKind = item.giftCourseId ? (item.giftKind ?? 'trial') : null;
+    // 「體驗｜送的」（gift-and-trial 04）：預設體驗（她：「四門都寫體驗」）
+    if (giftKind) {
+      rows.push(chipRow('體驗或送的', GIFT_KINDS.map((k) => ({
+        value: k, label: giftLabel(k), on: k === giftKind, attr: 'data-abl-gift',
+      }))));
+    }
     // **要不要記器材問 `picksEquipment()`，列哪幾台問 `equipmentChoicesFor()`**（壓表、來訪編輯器同兩支）——
     // 以前只有擇一池才畫這一排：一段體驗的復能停在「先選上面那一台」，而上面一台都沒有
     if (course && picksEquipment(ent, course)) {
@@ -734,6 +748,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   wireSeen(root);
 
   root.addEventListener('click', (e) => {
+    // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）
+    if (giftFold.toggle(e)) return;
     const t = e.target.closest('button');
     if (!t || t.disabled || !root.contains(t)) return;
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
@@ -782,6 +798,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
     if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
+    if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
     if (t.dataset.ablIv) { set({ ...item, ivProductId: t.dataset.ablIv }); return; }
     if (t.dataset.ablExam) { set({ ...item, followupForVisitId: t.dataset.ablExam }); return; }

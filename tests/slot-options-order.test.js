@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  slotOptionsFor, arrangeSlotOptions, FOLLOWUP_GROUP, NTH_PICK,
+  slotOptionsFor, arrangeSlotOptions, giftOptions, FOLLOWUP_GROUP, NTH_PICK,
 } from '../public/js/domain/slotOptions.js';
 import { followupsLast } from '../public/js/domain/scheduling.js';
 import { coursesForEntitlement } from '../public/js/domain/visits.js';
@@ -52,7 +52,9 @@ const BIG = [
   ent('e-cardio', 'course-cardio', '心臟科評估', { totalQty: 1 }),
 ];
 
-const options = (entitlements, visits = []) => slotOptionsFor({ entitlements, visits, ...master });
+const all = (entitlements, visits = []) => slotOptionsFor({ entitlements, visits, ...master });
+// 送的／體驗那幾顆收在最後一顆「送的／體驗…」後面（gift-and-trial 04，`tests/gift-fold.test.js`）；這一支看上面那一排
+const options = (entitlements, visits = []) => all(entitlements, visits).filter((o) => !o.folded);
 const groups = (out) => [...new Set(out.map((o) => o.group))];
 
 describe('照分類排，一個小標都不畫', () => {
@@ -62,7 +64,7 @@ describe('照分類排，一個小標都不畫', () => {
       ['復能', 'ILIB', '醫師門診', '運動區', '營養點滴', '健檢', FOLLOWUP_GROUP]);
     assert.deepEqual(out.map((o) => o.label), [
       '復能-三選一(60)', 'ILIB(60)',
-      '心臟科評估', '功醫門診', 'HRV',
+      '心臟科評估',
       '身體組成分析', '營養點滴 - 雪顏亮采', '8萬健檢',
       '二返(8萬健檢)',
     ]);
@@ -70,7 +72,7 @@ describe('照分類排，一個小標都不畫', () => {
   });
 
   test('每一顆都沒有小標（她：「就和之前一樣一次呈現所有的丸子就好不需要灰色小標」）', () => {
-    for (const list of [options(BIG), options([BIG[0]]), options(BIG, [{
+    for (const list of [all(BIG), all([BIG[0]]), all(BIG, [{
       id: 'v-chk', customerId: 'c1', date: '2026-09-01', status: 'done',
       slots: [{ entitlementId: 'e-chk', courseId: 'course-checkup', status: 'done', attended: true }],
     }])]) {
@@ -79,21 +81,22 @@ describe('照分類排，一個小標都不畫', () => {
     }
   });
 
-  test('不算次數的課接在它那一類的額度後面（功醫門診與 HRV 在醫師門診那一組）', () => {
-    const out = options(BIG);
-    const doctor = out.filter((o) => o.group === '醫師門診');
-    assert.deepEqual(doctor.map((o) => [o.label, Boolean(o.isUncounted)]),
-      [['心臟科評估', false], ['功醫門診', true], ['HRV', true]]);
+  test('不算次數的課不再夾在它那一類的額度中間（gift-and-trial 04 推翻 issue 08 那一句）：全部在最後', () => {
+    const out = all(BIG);
+    const doctor = out.filter((o) => o.group === '醫師門診' && !o.folded);
+    assert.deepEqual(doctor.map((o) => o.label), ['心臟科評估']);
+    const tail = out.slice(out.findIndex((o) => o.folded));
+    assert.ok(tail.every((o) => o.folded));
+    assert.deepEqual(tail.filter((o) => !o.other).map((o) => o.label), ['功醫門診', 'HRV']);
   });
 
-  test('只買了復能的客戶：仍然有醫師門診那一組（功醫門診、HRV）', () => {
+  test('只買了復能的客戶：上面那一排只有復能', () => {
     const out = options([BIG[0]]);
-    assert.deepEqual(groups(out), ['復能', '醫師門診']);
+    assert.deepEqual(groups(out), ['復能']);
   });
 
   test('整排只有一類：不另起一行', () => {
-    const noFree = { ...master, courses: SEED.courses.map((c) => ({ ...c, uncounted: false })) };
-    const out = slotOptionsFor({ entitlements: [BIG[0]], ...noFree });
+    const out = options([BIG[0]]);
     assert.equal(out.length, 1);
     assert.equal(out[0].breakBefore, false);
   });
@@ -103,7 +106,7 @@ describe('照分類排，一個小標都不畫', () => {
       ent('e-b', 'course-rehab', '復健科醫師門診', { totalQty: 10 }),
       ent('e-a', 'course-cardio', '心臟科評估', { totalQty: 1 }),
     ];
-    const labels = options(two).filter((o) => !o.isUncounted).map((o) => o.label);
+    const labels = options(two).map((o) => o.label);
     const byName = ['復健科醫師門診', '心臟科評估'].sort((a, b) => a.localeCompare(b, 'zh-TW'));
     assert.deepEqual(labels, byName);
   });
@@ -139,9 +142,7 @@ describe('二返照舊一律排最後，而且不跟健檢緊鄰', () => {
   });
 
   test('只有二返那一組（沒有別的可以排）：不另起一行', () => {
-    const noFree = { ...master, courses: SEED.courses.map((c) => ({ ...c, uncounted: false })) };
-    const out = slotOptionsFor({ entitlements: [BIG[3]], ...noFree });
-    assert.deepEqual(out.map((o) => o.breakBefore), [false]);
+    assert.deepEqual(options([BIG[3]]).map((o) => o.breakBefore), [false]);
   });
 
   test('followupsLast() 一個字都沒改', () => {
@@ -153,17 +154,17 @@ describe('二返照舊一律排最後，而且不跟健檢緊鄰', () => {
 describe('兩個入口都有的那幾顆，相對順序一樣', () => {
   test('來訪編輯器的組法（讀回來的順序＋followupsLast、列用完的）排出來跟壓表的相對順序一樣', () => {
     const used = ent('e-used', 'course-rehab', '復健科醫師門診', { totalQty: 1, doneCount: 1 });
-    const board = options([...BIG, used]);
+    const board = all([...BIG, used]);
     // 來訪編輯器：自己的那一份（全部額度、讀回來的順序）＋ 不算次數的課，交給同一支排
     const editorInput = [...BIG, used].slice().reverse().sort(followupsLast).map((e) => ({
       entitlementId: e.id, label: e.label, entitlement: e,
       course: coursesForEntitlement(e, SEED.courses, SEED.equipment)[0] ?? null,
     }));
-    const free = SEED.courses.filter((c) => c.uncounted === true && c.active !== false)
-      .map((c) => ({ entitlementId: `free:${c.id}`, label: c.name, course: c, entitlement: null, isUncounted: true }));
-    const editor = arrangeSlotOptions([...editorInput, ...free], SEED.courses);
+    const editor = arrangeSlotOptions([...editorInput, ...giftOptions(SEED.courses)], SEED.courses);
 
-    const shared = (list) => list.filter((o) => board.some((b) => b.label === o.label)).map((o) => [o.label, o.group, o.breakBefore]);
+    // 照值比，不照字比：「別的課當體驗」裡也有一顆叫「復健科醫師門診」（gift-and-trial 04）
+    const shared = (list) => list.filter((o) => board.some((b) => b.entitlementId === o.entitlementId))
+      .map((o) => [o.entitlementId, o.group, o.breakBefore]);
     assert.deepEqual(shared(editor), shared(board));
     assert.ok(editor.some((o) => o.entitlementId === 'e-used'), '編輯器照舊列用完的');
   });
@@ -177,9 +178,11 @@ describe('三個入口都照同一支排', () => {
   });
 
   test('三個入口都另起一行、都不畫小標', () => {
+    // 另起一行畫在共用的那一支（`giftFold.html()`，gift-and-trial 04）
+    assert.match(read('ui/components/giftFold.js'), /\.breakBefore\b/);
     for (const rel of ['ui/views/schedule.js', 'ui/components/aboveeConfirm.js', 'ui/views/visitEditor.js']) {
       const src = read(rel);
-      assert.match(src, /\.breakBefore\b/, `${rel} 要另起一行`);
+      assert.match(src, /giftFold\.html\(/, `${rel} 要另起一行`);
       assert.doesNotMatch(src, /\b[oc]\.lead\b/, `${rel} 不畫小標了（issue 16）`);
       assert.doesNotMatch(src, /chips__head/, `${rel} 不畫小標了（issue 16）`);
     }

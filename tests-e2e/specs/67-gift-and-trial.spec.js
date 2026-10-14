@@ -10,9 +10,12 @@
 // 器材那一排選得到 ILIB、時長那一排沒有 30。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, entitlement, visit, slot, TODAY } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
 
 const DAY = TODAY;
+const MONTH = TODAY.slice(0, 7);
+/** 壓表那個月裡還沒過的一天（月底那幾天就用今天）。 */
+const PICK_DAY = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY;
 
 const poolCustomer = () => [
   customer({ id: 'cust-g', name: '王小明' }),
@@ -116,4 +119,158 @@ test('G3 改一段體驗的時間（取消＋重新排）：取消的那一段�
     ['10:00', 'cancelled', 'trial'],
     ['14:00', 'pending_confirm', 'trial'],
   ]);
+});
+
+// ---------- 04：送的／體驗收在最後一顆「送的／體驗…」，按了才展開 ----------
+//
+// > 然後我希望這種不算次數的，在壓表或是新增來訪那邊可以先預設不出現先收合或是擺到底下，畢竟不常用
+//
+// 哪幾顆收、順序、要不要一打開就展開在 `tests/gift-fold.test.js`；這幾條量只有瀏覽器看得到的：
+// 看不看得到、按下去存了什麼、有沒有整塊重畫、手機寬度。
+
+/** 壓表 → 這個月 → 那一位 → 那一天。 */
+async function openScheduleDay(app, page, customerId = 'cust-g') {
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await page.locator(`[data-pick="${customerId}"]`).first().click();
+  await app.layer('[data-day]');
+  await page.locator(`[data-day="${PICK_DAY}"]`).first().click();
+  await app.layer('[data-ent]');
+}
+
+const shownEnts = (page) => page.locator('[data-ent]').evaluateAll((els) => els
+  .filter((el) => el.offsetParent !== null).map((el) => el.dataset.ent));
+
+test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…」；別的課當體驗 → 復能 → INDIBA → 30 分 → 一段 IN(30) 體驗、不扣，那一排沒有重畫', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...poolCustomer()]);
+  await app.signIn('/');
+  await openScheduleDay(app, page);
+
+  expect(await shownEnts(page), '收著的那幾顆看不到').toEqual(['ent-pool']);
+  const fold = page.locator('[data-giftfold]');
+  await expect(fold).toHaveAttribute('data-giftfold', 'closed');
+
+  // 記住那一排的節點 —— 展開、選一顆都不可以整塊重畫、捲回最上面（ADR-0038）
+  const card = page.locator('.deck__card:not(.deck__card--peek)');
+  await fold.evaluate((el) => { el.dataset.e2eMark = 'same'; });
+
+  await page.locator('[data-giftfold-more]').click();
+  await expect(fold).toHaveAttribute('data-giftfold', 'open');
+  await expect(page.locator('[data-ent="__course__:course-fm"]')).toBeVisible();
+  await expect(page.locator('[data-ent="__course__:course-hrv"]')).toBeVisible();
+  await expect(page.locator('[data-ent="__course__:course-checkup"]'), '健檢不能當體驗').toHaveCount(0);
+  await expect(page.locator('[data-ent="__course__:course-followup"]'), '二返也不能').toHaveCount(0);
+  // 兩門以上的分類按了才露出那幾門
+  await expect(page.locator('[data-ent="__course__:course-rehab"]')).toBeHidden();
+  await page.locator('[data-giftfold-group]', { hasText: '醫師門診' }).click();
+  await expect(page.locator('[data-ent="__course__:course-rehab"]')).toBeVisible();
+
+  // 復能那一類只有一門：那一顆直接就是復能。按之前量卡片捲到哪（按那幾顆時 Playwright 會先往下捲到看得到）
+  const recovery = page.locator('[data-ent="__course__:course-recovery"]');
+  await recovery.scrollIntoViewIfNeeded();
+  const before = await card.evaluate((el) => el.scrollTop);
+  expect(before, '卡片已經捲下去了（不然量不出捲回最上面）').toBeGreaterThan(0);
+  await recovery.click();
+  await expect(page.locator('[data-giftkind="trial"]'), '預設體驗').toHaveAttribute('aria-pressed', 'true');
+  await expect(fold, '那一排沒有整塊重畫').toHaveAttribute('data-e2e-mark', 'same');
+  expect(await card.evaluate((el) => el.scrollTop), '沒有捲回最上面').toBeGreaterThanOrEqual(before - 1);
+
+  await expect(page.locator('[data-equipment="eq-ilib"]'), '體驗的復能：器材只有復能那三台').toHaveCount(0);
+  await page.locator('[data-equipment="eq-indiba"]').click();
+  await page.locator('[data-minutes="30"]').click();
+  await page.locator('[data-time="10:00"]').click();
+  await page.locator('[data-therapist="staff-tw"]').click();
+  await page.locator('[data-add]').click();
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText()).toContain('(體驗) —— 客戶身上的數字一個都不會變');
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-g');
+  expect(v.slots[0]).toMatchObject({
+    courseId: 'course-recovery', equipmentId: 'eq-indiba', entitlementId: null, giftKind: 'trial',
+    startsAt: '10:00', endsAt: '10:30', therapistId: 'staff-tw',
+  });
+  const ent = await app.readDoc('customers/cust-g/entitlements', 'ent-pool');
+  expect([ent.doneCount, ent.bookedCount], '那一筆三選一一次都沒扣').toEqual([2, 0]);
+});
+
+test('G5 壓表：功醫門診 → 換成「送的」→ 存下去是送的', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...poolCustomer()]);
+  await app.signIn('/');
+  await openScheduleDay(app, page);
+
+  await page.locator('[data-giftfold-more]').click();
+  await page.locator('[data-ent="__course__:course-fm"]').click();
+  await page.locator('[data-giftkind="gift"]').click();
+  await expect(page.locator('[data-giftkind="gift"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-giftkind="trial"]')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('[data-time="10:00"]').click();
+  await page.locator('[data-doctor]').first().click();
+  await page.locator('[data-add]').click();
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-g');
+  expect([v.slots[0].courseId, v.slots[0].entitlementId, v.slots[0].giftKind]).toEqual(['course-fm', null, 'gift']);
+});
+
+test('G6 來訪編輯器：什麼都沒買的客戶 —— 那一組一打開就是展開的、預設功醫門診體驗；換成送的存下去', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-n', name: '王小明' })]);
+  await app.signIn('/');
+  await app.go(`/visits/new/cust-n/${PICK_DAY}`);
+  await app.layer('[data-chip="s0-ent"]');
+
+  await expect(page.locator('[data-giftfold]')).toHaveAttribute('data-giftfold', 'open');
+  await expect(page.locator('[data-chip="s0-ent"][data-chip-value="__course__:course-fm"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-chip="s0-gift"][data-chip-value="trial"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.slothead__what')).toHaveText('功醫門診(體驗)');
+
+  await page.locator('[data-chip="s0-gift"][data-chip-value="gift"]').click();
+  await expect(page.locator('.slothead__what')).toHaveText('功醫門診(送的)');
+  // 第一顆是「還沒定」—— 指名一位，不然存檔前多一道「還沒選醫師」
+  await page.locator('[data-chip="s0-doc"]', { hasText: '夏' }).click();
+  await page.locator('button[type="submit"]').first().click();
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText()).toContain('功醫門診(送的) —— 客戶身上的數字一個都不會變');
+  await app.ok();
+  await app.saved();
+
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-n');
+  expect([v.slots[0].courseId, v.slots[0].entitlementId, v.slots[0].giftKind]).toEqual(['course-fm', null, 'gift']);
+});
+
+test('G7 來訪編輯器：打開一段舊的功醫門診（沒有那一格）—— 那一組展開、功醫門診按著、「體驗」按著', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...poolCustomer(), giftVisit({
+    ...slot({ courseId: 'course-fm', entitlementId: null, startsAt: '10:00', endsAt: '10:30', doctorId: 'staff-dr-jian' }),
+  })]);
+  await app.signIn('/calendar');
+  await openDay(app, page);
+  await openEditor(app, page);
+
+  await expect(page.locator('[data-giftfold]')).toHaveAttribute('data-giftfold', 'open');
+  await expect(page.locator('[data-chip="s0-ent"][data-chip-value="__course__:course-fm"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-chip="s0-gift"][data-chip-value="trial"]')).toHaveAttribute('aria-pressed', 'true');
+  // 她身上有還有剩的額度，但這一段本來就是體驗：照樣展開（不然畫面上是「一顆都沒按」）
+  await expect(page.locator('[data-chip="s0-ent"][data-chip-value="ent-pool"]')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('G8 手機寬度（360px）：展開之後那一排不撐出橫向捲動（壓表、來訪編輯器）', async ({ app, page }) => {
+  await page.setViewportSize({ width: 360, height: 760 });
+  await app.seed([...masterDocs(), ...poolCustomer()]);
+  await app.signIn('/');
+  await openScheduleDay(app, page);
+  await page.locator('[data-giftfold-more]').click();
+  await page.locator('[data-giftfold-group]', { hasText: '運動區' }).click();
+  const card = page.locator('.deck__card:not(.deck__card--peek)');
+  const [sw, cw] = await card.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+  expect(sw, '壓表那張卡').toBeLessThanOrEqual(cw + 1);
+
+  await app.go(`/visits/new/cust-g/${PICK_DAY}`);
+  await app.layer('[data-chip="s0-ent"]');
+  await page.locator('[data-giftfold-more]').click();
+  await page.locator('[data-giftfold-group]', { hasText: '醫師門診' }).click();
+  const [msw, mcw] = await page.locator('.app__main').evaluate((el) => [el.scrollWidth, el.clientWidth]);
+  expect(msw, '來訪編輯器（捲的是 .app__main）').toBeLessThanOrEqual(mcw + 1);
 });

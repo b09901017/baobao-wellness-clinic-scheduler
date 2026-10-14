@@ -17,9 +17,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { isUncounted, uncountedCourses, validate } from '../public/js/domain/masterData.js';
+import { isUncounted, validate } from '../public/js/domain/masterData.js';
 import {
-  slotOptionsFor, NTH_PICK, giftPick, giftCourseIdOf,
+  slotOptionsFor, NTH_PICK, giftPick, giftCourseIdOf, giftOptions,
 } from '../public/js/domain/slotOptions.js';
 import { slotFromPicks, visitWithSlot } from '../public/js/domain/slotDraft.js';
 import {
@@ -81,11 +81,12 @@ describe('哪些課不算次數', () => {
   });
 
   test('名單只收還在用的', () => {
-    assert.deepEqual(uncountedCourses([
+    // 「送的／體驗…」展開之後第一排（gift-and-trial 04 起由 `giftOptions()` 列，`other: false` 的那幾顆）
+    assert.deepEqual(giftOptions([
       FM, RECOVERY,
       { id: 'x', name: '停用的', uncounted: true, active: false },
       { id: 'y', name: '刪掉的', uncounted: true, deletedAt: 'z' },
-    ]).map((c) => c.id), ['fm']);
+    ]).filter((o) => !o.other).map((o) => o.course.id), ['fm']);
   });
 
   test('驗證：只能是是或否', () => {
@@ -101,7 +102,8 @@ describe('這一段可以做什麼（slotOptionsFor）', () => {
     const out = slotOptionsFor(ctxOf([]));
     const fm = out.find((o) => o.course.id === 'fm');
     assert.ok(fm, '不用加購就排得進去');
-    assert.equal(fm.isUncounted, true);
+    assert.equal(fm.isGift, true);
+    assert.equal(fm.folded, true, '收在「送的／體驗…」後面（gift-and-trial 04）');
     assert.equal(fm.entitlement, null);
     assert.equal(fm.remaining, '—', '0 看起來像「用完了」，而它根本沒有次數');
     assert.equal(fm.entitlementId, giftPick('fm'));
@@ -117,7 +119,8 @@ describe('這一段可以做什麼（slotOptionsFor）', () => {
 
   test('額度照原本那一排的順序在前面，不算次數的課接在後面', () => {
     const ents = [ent(), ent({ id: 'e-used', label: '用完的', totalQty: 2, doneCount: 2 })];
-    const out = slotOptionsFor(ctxOf(ents));
+    // 「別的課當體驗」（gift-and-trial 04）另外驗，這裡只看不算次數的那幾顆
+    const out = slotOptionsFor(ctxOf(ents)).filter((o) => !o.other);
     assert.deepEqual(out.map((o) => o.label), ['復能(60)', '功醫門診', '營養師諮詢']);
     assert.equal(out[0].remaining, 10);
     assert.equal(out[0].entitlement.id, 'e-rec');
@@ -411,7 +414,7 @@ describe('三個入口都走同一支', () => {
 
   test('來訪編輯器組不算次數的那一段走 slotFromPicks()（新規則不在畫面裡重寫一次）', () => {
     const src = read('ui/views/visitEditor.js');
-    assert.match(src, /uncountedCourses\(/);
+    assert.match(src, /giftOptions\(/);
     assert.match(src, /slotFromPicks\(/);
   });
 

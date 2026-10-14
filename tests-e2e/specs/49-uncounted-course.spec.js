@@ -122,6 +122,9 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
   // 她身上的額度那一顆照樣在
   await expect(page.locator('[data-ent="ent-pool"]')).toContainText('剩 9');
 
+  // 有額度的客戶：送的／體驗收在最後一顆後面（gift-and-trial 04）
+  await expect(chip).toBeHidden();
+  await page.locator('[data-giftfold-more]').click();
   await chip.click();
   await app.layer('[data-doctor]');
   // 不扣額度的那一段沒有器材、沒有治療師那兩排（照課程自己的設定）
@@ -201,6 +204,9 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   await expect(ent).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-chip="s0-equip"]').first()).toBeVisible();
 
+  // 收在「送的／體驗…」後面（gift-and-trial 04）
+  await expect(fm).toBeHidden();
+  await page.locator('[data-giftfold-more]').click();
   await fm.click();
   await expect(fm).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.slothead__what')).toContainText('功醫門診');
@@ -211,6 +217,8 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   await expect(page.locator('[data-chip="s0-equip"]').first()).toBeVisible();
   await expect(page.locator('[data-chip="s0-doc"]')).toHaveCount(0);
 
+  // 換回扣額度那一下重畫，那一組又收起來了
+  await page.locator('[data-giftfold-more]').click();
   await fm.click();
   await page.locator('[data-chip="s0-doc"]', { hasText: '李' }).click();
   await page.click('button[type="submit"]');
