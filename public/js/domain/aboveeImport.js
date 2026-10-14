@@ -22,11 +22,12 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot } from './slotDraft.js';
 import {
-  assignsFor, coursesForEntitlement, equipmentAfterSwitch, isActive, isLiveSlot, lockedAt, mustSee, sameDayState, shortStatus, slotStatus,
+  assignsFor, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor, isActive, isLiveSlot, lockedAt, mustSee, sameDayState,
+  shortStatus, slotStatus,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
-import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff,
+import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
@@ -468,7 +469,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
   const next = {
     ...item, customerId: customerId ?? null,
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
-    isNth: false, nth: null, giftCourseId: null, minutes: null,
+    // 送的／體驗也是上一位的（gift-and-trial 02）：換一個人重算，留著的話她剛換的那一位會被記成送的
+    isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著
@@ -558,13 +560,13 @@ export function optionValueOf(item) {
 export function pickOption(item, value, ctx, items = null) {
   const base = {
     ...item,
-    entitlementId: null, isNth: false, nth: null, giftCourseId: null,
+    entitlementId: null, isNth: false, nth: null, giftCourseId: null, giftKind: null,
     equipmentId: null, followupForVisitId: null, noExam: false,
     ivProductId: item.course?.ivProductId ?? null,
   };
   if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
   const courseId = giftCourseIdOf(value);
-  if (courseId) return { ...base, giftCourseId: courseId };
+  if (courseId) return { ...base, ...giftRow(item, courseId, ctx) };
 
   const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
   if (!ent) return base;
@@ -579,6 +581,24 @@ export function pickOption(item, value, ctx, items = null) {
   // 這一列換成剛選的樣子再問：它原本接著的那一次不可以把自己擋住
   const batch = items ? items.map((i) => (i.key === row.key ? row : i)) : null;
   return { ...row, followupForVisitId: onlyOpen(examChoices(row.customerId, ent, ctx, batch, row)) };
+}
+
+/**
+ * 「送的／體驗」那一顆按下去，這一列多哪幾格（gift-and-trial 02）。
+ *
+ * - **體驗還是送的**：這一列原本就是送的／體驗就照舊（換一門送的課還是送的）；其餘是體驗（她：「四門都寫體驗」）
+ * - **照片上那一台器材留著**，只要它屬於這門課（`equipmentChoicesFor()`：復能那三台）—— 以前這一條直接回 `base`，
+ *   照片上寫的 INDIBA 被丟掉，確認層又只有擇一池才畫器材那一排，停在「先選上面那一台」、沒有東西可以按
+ */
+function giftRow(item, courseId, ctx) {
+  const course = (ctx.master?.courses ?? []).find((c) => c.id === courseId) ?? null;
+  const wanted = item.course?.equipmentId ?? null;
+  const fits = Boolean(wanted) && equipmentChoicesFor(null, course, ctx.master?.equipment ?? []).some((e) => e.id === wanted);
+  return {
+    giftCourseId: courseId,
+    giftKind: item.giftCourseId && GIFT_KINDS.includes(item.giftKind) ? item.giftKind : 'trial',
+    equipmentId: fits ? wanted : null,
+  };
 }
 
 /**
@@ -691,7 +711,7 @@ export function refreshNoExam(items, ctx) {
 const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
-  isNth: false, nth: null, giftCourseId: null, minutes: null,
+  isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   kind: 'recorded', checked: false, existing, ...extra,
 });
@@ -1407,6 +1427,8 @@ export function picksOf(item) {
     entitlementId: item.isNth ? null : item.entitlementId,
     isNth: Boolean(item.isNth),
     giftCourseId: item.giftCourseId ?? null,
+    // 沒有 giftCourseId 的列這一格不算數（`slotFromPicks()` 只在走送的／體驗那一條時讀它）
+    giftKind: item.giftCourseId ? (item.giftKind ?? 'trial') : null,
     equipmentId: item.equipmentId,
     ivProductId: item.ivProductId,
     startsAt: item.startsAt,

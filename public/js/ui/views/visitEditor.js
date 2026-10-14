@@ -19,7 +19,7 @@ import {
   coursesForEntitlement, courseForEquipment, picksEquipment, equipmentAfterSwitch, assignsFor,
   sameDayState, sameDayVisitFor, editorTarget, withExtraSlot, slotNoteOf,
   applyStatus, slotMinutes, slotMinutesField, NOTE_MAX,
-  rebookSlot, slotSay,
+  rebookSlot, slotSay, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
@@ -35,11 +35,11 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
-  THERAPIST_ROLE, isUncounted, uncountedCourses, bookingMinutesOf,
+  THERAPIST_ROLE, uncountedCourses, giftKindOf,
 } from '../../domain/masterData.js';
 import { NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
-import { endOf, nextStart, isValidTime, timeLabel, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
+import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
@@ -236,6 +236,16 @@ const inRowOrder = (entitlements, all) => arrangeSlotOptions(entitlements.map((e
 const freeCourseOf = (all) => uncountedCourses(all.courses)[0] ?? null;
 
 /**
+ * 這一段是送的／體驗的話是哪一種（gift-and-trial 02）。讀法只有 `giftKindOf()`：有那一格照那一格，
+ * 沒有的舊資料退回「課程勾了不算次數 → 體驗」。n返 一律不是。
+ * **扣著額度的段一律不是** —— 兩格都有值的壞資料（只有直接寫進去的才會有）照額度那一顆畫：
+ * 照送的畫的話，她只改一個字存回去，那一筆額度就被安靜地拿掉了（扣額度那一條會把 `giftKind` 清掉）
+ */
+const giftOf = (slot, all) => (isNthSlot(slot) || slot?.entitlementId
+  ? null
+  : giftKindOf(slot, Object.fromEntries((all.courses ?? []).map((c) => [c.id, c]))));
+
+/**
  * @param {object|undefined} entitlement 預設扣哪一筆額度
  * @param {object|null} [freeCourse] 沒有額度時，預設哪一門不算次數的課（ADR-0121）
  */
@@ -252,12 +262,15 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
   // 買的時候就定下來的那一款先選好 —— 不選存不下去，而只有一個正確答案的
   // 時候讓她多點一下沒有任何意義（`ivChoicesFor()`）。
   const ivProductId = course?.requiresIvProduct ? (entitlement?.ivProductId ?? null) : null;
+  // 沒有額度、預設的是那門不算次數的課：那一段是體驗（她：「四門都寫體驗」，gift-and-trial 02）
+  const giftKind = !entitlement && freeCourse ? 'trial' : null;
   // **那一針要打多久由品項說了算**（`slotMinutes()`，ADR-0098）：一般 120 分、
   // 護心抗老 180 分。這裡自己算一份的話，畫面上寫 180、存進去 120。
   const durationMin = slotMinutes({
     entitlement,
     course,
     ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
+    giftKind,
   });
   return {
     entitlementId: entitlement?.id ?? null,
@@ -268,7 +281,8 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
     startsAt,
     endsAt: endOf(startsAt, durationMin),
     // 約的時候選的時長（ADR-0122）：新的一段是預設那一顆；不給選的課是 null
-    minutes: slotMinutesField({ entitlement, course }),
+    minutes: slotMinutesField({ entitlement, course, giftKind }),
+    giftKind,
     roomId: null,
     bed: null,
     therapistId: null,
@@ -552,8 +566,9 @@ function slotCard(ctx, draft, slot, i) {
   const course = all.courses.find((c) => c.id === slot.courseId) ?? null;
   const assigns = assignsFor(ent, course, slot.equipmentId);
   const nthExams = nthExamChoices(ctx, draft);
-  // 這一段是「不扣次數」那一種：沒有額度，而那門課不算次數（ADR-0121）
-  const free = !nth && !slot.entitlementId && isUncounted(course);
+  // 這一段是送的／體驗（gift-and-trial 01）：記在那一段身上，沒有的舊資料照課程推（`giftKindOf()`）
+  const gift = nth ? null : giftOf(slot, all);
+  const free = Boolean(gift);
 
   return `
     <section class="card slotcard ${embedded ? 'card--bare' : ''}">
@@ -649,8 +664,8 @@ function slotCard(ctx, draft, slot, i) {
             options: courseChoices.map((c) => ({ value: c.id, label: c.name })),
           })}
 
-      ${minutesField(ent, course, slot, i)}
-      ${picksEquipment(ent, course) ? equipmentField(customer, ent, all, slot, i) : ''}
+      ${minutesField(ent, course, slot, i, gift)}
+      ${picksEquipment(ent, course) ? equipmentField(customer, ent, course, all, slot, i) : ''}
       ${course?.requiresIvProduct ? ivField(ent, all, slot, i) : ''}
 
       ${/* 要治療師還是治療室，由她挑的那一台器材推出來（ADR-0075）。挑之前
@@ -834,12 +849,10 @@ function ivField(ent, all, slot, i) {
  * 那一句走 `flagsUi.noticeBlock()`，跟壓表的記錄面板共用同一支。
  * 這一頁換丸子會整張重畫，所以不用另外接一段就地換字。
  */
-function equipmentField(customer, ent, all, slot, i) {
-  const options = ent?.type === 'pool'
-    ? (ent.optionEquipmentIds ?? [])
-      .map((id) => all.equipment.find((e) => e.id === id))
-      .filter(Boolean)
-    : all.equipment;
+function equipmentField(customer, ent, course, all, slot, i) {
+  // 擇一池照池、其餘那門課自己的器材（`equipmentChoicesFor()`，三個入口同一支）。以前沒有額度時列全部器材 ——
+  // 一段體驗的復能選得到 ILIB。這一段現在指著的那一台停用了照樣列（`keep`），不然一存就被清掉
+  const options = equipmentChoicesFor(ent, course, all.equipment, { keep: slot.equipmentId });
 
   return `
     ${f.chips({
@@ -861,10 +874,11 @@ function equipmentField(customer, ent, all, slot, i) {
  * （`slotMinutesField()`：她選過就是她選的，沒選過就是預設那一顆）。**不是 `quiet`** ——
  * 選了要重畫，抬頭那一格的結束時間與名字（`二返(60)`）才會跟著變。
  */
-function minutesField(ent, course, slot, i) {
-  const choices = bookingMinutesOf(course);
+function minutesField(ent, course, slot, i, giftKind = null) {
+  // 送的／體驗的段多收那門課買的時候分的那幾種（`minuteChoicesFor()`，gift-and-trial 02）
+  const choices = minuteChoicesFor({ entitlement: ent, course, giftKind });
   if (!choices.length) return '';
-  const now = slotMinutesField({ entitlement: ent, course, minutes: slot.minutes });
+  const now = slotMinutesField({ entitlement: ent, course, minutes: slot.minutes, giftKind });
   return f.chips({
     name: `s${i}-min`, label: '排多久', value: now == null ? null : String(now),
     options: choices.map((n) => ({ value: String(n), label: `${n} 分` })),
@@ -947,8 +961,8 @@ function readDraft(ctx, form, draft) {
     // 所以整段回原本那一個物件，不是「小心地重組一份一樣的」。
     if (!isEditable(ctx, i)) return slot;
 
-    // 那一排沒畫出來時（`key()` 的退路）要認得出這一段原本是哪一種：n返、不扣次數、還是一筆額度
-    const wasFree = !slot.entitlementId && isUncounted(coursesById[slot.courseId]);
+    // 那一排沒畫出來時（`key()` 的退路）要認得出這一段原本是哪一種：n返、送的／體驗、還是一筆額度
+    const wasFree = Boolean(giftOf(slot, all));
     const entitlementId = key(v, `s${i}-ent`, isNthSlot(slot) ? NTH_PICK
       : (wasFree ? giftPick(slot.courseId) : slot.entitlementId));
 
@@ -1053,6 +1067,9 @@ function readDraft(ctx, form, draft) {
       // 又被畫成一場三返 —— 存檔時 `validateVisit()` 會擋（「不可以同時指定
       // 額度」），但她看到的是一個莫名其妙的錯誤訊息。清乾淨是這裡的事。
       followupNth: null,
+      // **她把一段送的／體驗改回扣額度了**（gift-and-trial 02）：同一個坑 —— `...slot` 會把 `giftKind` 帶過來，
+      // 存檔時被「不可以同時指定額度」擋下來。扣額度的段一律 null
+      giftKind: null,
     };
   });
 
@@ -1079,12 +1096,25 @@ function readDraft(ctx, form, draft) {
 function readFreeSlot({ v, i, slot, ctx, courseId }) {
   const { all, entitlements, customerVisits } = ctx;
   const course = all.courses.find((c) => c.id === courseId) ?? null;
-  const switched = courseId !== slot.courseId || Boolean(slot.entitlementId);
+  const courseChanged = courseId !== slot.courseId;
+  const switched = courseChanged || Boolean(slot.entitlementId);
   const room = readRoom(v, i, slot);
+  // **送的還是體驗跟著這一段走**（gift-and-trial 02）：這裡每次都重組，不帶的話一段「送的」只改治療師
+  // 存回去會安靜地變成體驗（`slotFromPicks()` 沒給就是體驗）。從扣額度換過來的是體驗
+  const giftKind = giftOf(slot, all) ?? 'trial';
+  // 器材：那一排上按著的那一台**屬於這門課**才留（`equipmentChoicesFor()`）—— 從四選一的 ILIB 換成體驗的復能，
+  // 照讀的話 `slotFromPicks()` 會照 ILIB 把課程推回 ILIB，她按的明明是復能
+  const pickedEq = key(v, `s${i}-equip`, slot.equipmentId ?? null);
+  const equipmentId = equipmentChoicesFor(null, course, all.equipment, { keep: courseChanged ? null : slot.equipmentId })
+    .some((e) => e.id === pickedEq) ? pickedEq : null;
+  // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）
+  const lengthNow = isValidTime(slot.startsAt) && isValidTime(slot.endsAt)
+    ? toMinutes(slot.endsAt) - toMinutes(slot.startsAt) : null;
   const { slot: made } = slotFromPicks({
     giftCourseId: courseId,
+    giftKind,
     startsAt: v[`s${i}-start`] || slot.startsAt,
-    equipmentId: v[`s${i}-equip`] ?? null,
+    equipmentId,
     // 那一排沒畫出來才退回原本那一款（同上面那一條 `key()`）
     ivProductId: switched ? null : key(v, `s${i}-iv`, slot.ivProductId ?? null),
     roomId: room.roomId,
@@ -1093,7 +1123,7 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
     // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
     doctorId: v[`s${i}-doc`] ?? (switched ? doctorChoicesFor(course, all.staff).preselect : null),
     // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
-    minutes: switched ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+    minutes: courseChanged ? null : key(v, `s${i}-min`, slot.minutes ?? lengthNow),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
   }, {
     courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,
@@ -1105,7 +1135,7 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   if (!made) {
     return {
       ...slot, entitlementId: null, courseId, courseName: course?.name ?? null,
-      followupNth: null, followupForVisitId: null,
+      followupNth: null, followupForVisitId: null, giftKind,
     };
   }
   const { status, attended, ...picked } = made;
@@ -1156,6 +1186,8 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
       : { roomId: null, bed: null }),
     therapistId: null,
     doctorId: picksDoctor(course) ? (v[`s${i}-doc`] ?? null) : null,
+    // n返 不是送的／體驗（兩種身分只挑一種）—— `...slot` 帶過來的那一格清掉
+    giftKind: null,
   };
 }
 

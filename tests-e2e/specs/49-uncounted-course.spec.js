@@ -95,6 +95,7 @@ test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已
   expect(v.slots).toHaveLength(1);
   expect(v.slots[0].entitlementId, '不扣任何額度').toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
   expect(v.slots[0].doctorId).toBe('staff-dr-xia');
   expect(v.status).toBe('pending_confirm');
 
@@ -137,6 +138,7 @@ test('U3 壓表：佇列裡的客戶那一排有「功醫門診 不扣次數」�
   const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-p');
   expect(v.slots[0].entitlementId).toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
 
   const ent = await app.readDoc('customers/cust-p/entitlements', 'ent-pool');
   expect([ent.doneCount, ent.bookedCount], '次數不多不少').toEqual([2, 1]);
@@ -220,6 +222,7 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   expect(v.slots).toHaveLength(1);
   expect(v.slots[0].entitlementId, '換回來是 null').toBeNull();
   expect(v.slots[0].courseId).toBe('course-fm');
+  expect(v.slots[0].giftKind, '不算次數的課那一顆排的是體驗（gift-and-trial 02）').toBe('trial');
   expect(v.slots[0].equipmentId ?? null).toBeNull();
   expect(v.slots[0].doctorId).toBe('staff-dr-li');
   const stored = await app.readDoc('customers/cust-p/entitlements', 'ent-pool');

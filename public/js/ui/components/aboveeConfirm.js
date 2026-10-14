@@ -30,13 +30,14 @@ import {
 import { aliasWrites } from '../../domain/abovee.js';
 import {
   validateVisit, warningDetails, mustSee, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes,
+  equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
 import { searchCustomers } from '../../domain/customers.js';
 import {
-  THERAPIST_ROLE, bookingMinutesOf, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
+  THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole,
 } from '../../domain/masterData.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
@@ -519,9 +520,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const ent = item.isNth ? null
       : ((ctx.entitlementsBy[item.customerId] ?? []).find((e) => e.id === item.entitlementId) ?? null);
     const course = built?.course ?? null;
-    if (ent?.type === 'pool') {
-      rows.push(chipRow('器材', (ent.optionEquipmentIds ?? [])
-        .map((id) => ctx.master.equipment.find((e) => e.id === id)).filter(Boolean)
+    // 送的／體驗的那一段（gift-and-trial 02）：沒有額度，「排多久」那一排多收那門課買的時候分的那幾種
+    const giftKind = item.giftCourseId ? (item.giftKind ?? 'trial') : null;
+    // **要不要記器材問 `picksEquipment()`，列哪幾台問 `equipmentChoicesFor()`**（壓表、來訪編輯器同兩支）——
+    // 以前只有擇一池才畫這一排：一段體驗的復能停在「先選上面那一台」，而上面一台都沒有
+    if (course && picksEquipment(ent, course)) {
+      rows.push(chipRow('器材', equipmentChoicesFor(ent, course, ctx.master.equipment, { keep: item.equipmentId })
         .map((e) => ({ value: e.id, label: e.name, on: item.equipmentId === e.id, attr: 'data-abl-eq' }))));
     }
     if (course?.requiresIvProduct) {
@@ -548,11 +552,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       }
     }
     // 約的時候選時長（ADR-0122）：照片上的數字先按好（二返60 → 60），沒寫就是預設那一顆
-    const minutes = bookingMinutesOf(course);
+    const minutes = minuteChoicesFor({ entitlement: ent, course, giftKind });
     if (minutes.length) {
       const ivProduct = course.requiresIvProduct
         ? (ctx.master.ivProducts.find((p) => p.id === item.ivProductId) ?? null) : null;
-      const now = slotMinutes({ entitlement: ent, course, ivProduct, minutes: item.minutes });
+      const now = slotMinutes({ entitlement: ent, course, ivProduct, minutes: item.minutes, giftKind });
       rows.push(chipRow('排多久', minutes.map((n) => ({
         value: String(n), label: `${n} 分`, on: n === now, attr: 'data-abl-min',
       }))));

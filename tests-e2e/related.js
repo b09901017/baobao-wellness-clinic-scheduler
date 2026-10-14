@@ -530,6 +530,13 @@ export const COVERAGE = {
   '66-immersive-top-inset': [
     'public/css/', 'public/manifest.webmanifest', 'public/js/ui/components/camera.js',
   ],
+  // 送的／體驗（gift-and-trial）：來訪編輯器存回去那一格不會被留錯或蓋掉、器材與時長那兩排、名字帶標記
+  '67-gift-and-trial': [
+    'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
+    'public/js/domain/masterData.js', 'public/js/domain/naming.js', 'public/js/domain/consequences.js',
+    'public/js/data/visits.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/calendar.js',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
