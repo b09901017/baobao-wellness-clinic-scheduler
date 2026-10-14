@@ -156,7 +156,8 @@ describe('產檔那一側：她決定「有做，補這一段」—— 不算次
 
   test('要算次數的課照舊：沒有額度就加不進去，而且進 ⓪d', () => {
     const bad = {
-      customers: { 王小明: { slots: [{ date: '2026-09-18', add: { course: '心臟科評估', fromEvent: '2.30王小明HRV' } }] } },
+      // 心臟科評估 2026-10-14 起不算次數（gift-and-trial 05）—— 拿一門還算次數的課驗
+      customers: { 王小明: { slots: [{ date: '2026-09-18', add: { course: '復健科醫師門診', fromEvent: '2.30王小明HRV' } }] } },
     };
     const r2 = run(WANG, [ILIB_DAY, ['2026-09-18', '14:30', '2.30王小明HRV']], { decisions: bad });
     assert.equal(r2.decisionLog.stale.length, 1);
@@ -211,17 +212,17 @@ describe('產檔那一側：新的 7 款點滴認得，而且「營養」兩個�
   });
 });
 
-describe('契約：baobao-merge/v6（v5 起不算次數的課沒有額度）', () => {
+describe('契約：baobao-merge/v7（v5 起不算次數的課沒有額度）', () => {
   test('兩側同一版', () => {
-    assert.equal(FORMAT, 'baobao-merge/v6');
+    assert.equal(FORMAT, 'baobao-merge/v7');
     assert.equal(importJson(run(WANG, [ILIB_DAY])).format, FORMAT);
   });
 
   test('v4 以前的照樣貼得進來；認不得的版本整份擋', () => {
-    for (const v of ['v1', 'v2', 'v3', 'v4', 'v5', 'v6']) assert.ok(FORMATS.includes(`baobao-merge/${v}`), v);
+    for (const v of ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7']) assert.ok(FORMATS.includes(`baobao-merge/${v}`), v);
     const file = importJson(run(WANG, [ILIB_DAY]));
     assert.deepEqual(validateFile({ ...file, format: 'baobao-merge/v4' }).errors, []);
-    assert.equal(validateFile({ ...file, format: 'baobao-merge/v7' }).errors.length, 1);
+    assert.equal(validateFile({ ...file, format: 'baobao-merge/v8' }).errors.length, 1);
   });
 });
 
@@ -308,7 +309,8 @@ describe('app 那一側：候選清單補的功醫門診', () => {
 
   test('要算次數的課沒有額度：照舊補不進去、講得出為什麼', () => {
     const p = plans();
-    const problems = addExtraVisits(p, [extra({ courseName: '心臟科評估' })], CTX);
+    // 心臟科評估 2026-10-14 起不算次數（gift-and-trial 05）—— 拿一門還算次數的課驗
+    const problems = addExtraVisits(p, [extra({ courseName: '復健科醫師門診' })], CTX);
     assert.match(problems[0].why, /沒有這個課程的額度/);
     assert.equal(p[0].visits.length, 0);
   });

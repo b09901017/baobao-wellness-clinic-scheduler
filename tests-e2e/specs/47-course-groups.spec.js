@@ -49,7 +49,7 @@ test('G1 清單先分類：復能底下是復能＋三台器材、ILIB 底下是
   const hrv = page.locator('[data-course="course-hrv"]');
   await expect(hrv.locator('[data-provisional]')).toHaveText('設定暫定');
   await expect(hrv).toContainText('不用壓');
-  await expect(hrv).toContainText('不算次數');
+  await expect(hrv).toContainText('預設體驗');
   await expect(page.locator('[data-course="course-fm"] [data-provisional]'), '她答過的那幾門不標').toHaveCount(0);
   expect(await cardsIn(page, '健檢')).toEqual(['course-checkup']);
   expect(await cardsIn(page, '其他'), '她：物理治療師諮詢先放「其他」').toEqual(['course-pt-consult']);

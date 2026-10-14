@@ -210,7 +210,9 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
       if (d.path.endsWith('/courses')) {
         const { group, doctorPick, bookingMinutes, aboveeNames, ...rest } = d.data;
         const eecp = d.id.startsWith('course-eecp') ? { allowedRoomIds: OLD_ROOMS, preferredRoomIds: OLD_ROOMS } : {};
-        return { ...d, data: { ...rest, ...eecp, ...(d.id === 'course-eecp-trial' ? { durationMin: 30 } : {}) } };
+        // 心臟科評估、EECP體驗 那時候還算次數（2026-10-14 才不算，gift-and-trial 05）
+        const counted = ['course-cardio', 'course-eecp-trial'].includes(d.id) ? { uncounted: false } : {};
+        return { ...d, data: { ...rest, ...eecp, ...counted, ...(d.id === 'course-eecp-trial' ? { durationMin: 30 } : {}) } };
       }
       if (d.path.endsWith('/equipment') || d.path.endsWith('/ivProducts')) {
         const { aboveeNames, ...rest } = d.data;
@@ -256,7 +258,8 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
   expect(eecp.allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
   expect(eecp.group).toBe('EECP');
   const trial = await app.readDoc('config/app/courses', 'course-eecp-trial');
-  expect([trial.durationMin, trial.aboveeNames]).toEqual([20, ['EECP20']]);
+  expect([trial.durationMin, trial.aboveeNames, trial.uncounted]).toEqual([20, ['EECP20'], true]);
+  expect((await app.readDoc('config/app/courses', 'course-cardio')).uncounted, '心臟科評估勾起不算次數').toBe(true);
   expect((await app.readDoc('config/app/equipment', 'eq-laser')).aboveeNames).toEqual(['高能量']);
   expect((await app.readDoc('config/app/ivProducts', 'iv-snow')).aboveeNames).toEqual(['雪顏亮采']);
   const followup = await app.readDoc('config/app/courses', 'course-followup');

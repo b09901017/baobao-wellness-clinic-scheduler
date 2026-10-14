@@ -16,7 +16,8 @@ import { equipmentNotices } from './contraindications.js';
 import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
-  roomsForCourse, roomFitsCourse, picksDoctor, isUncounted, bookingMinutesOf, DOCTOR_ROLE,
+  roomsForCourse, roomFitsCourse, picksDoctor, bookingMinutesOf, durationChoicesOf, equipmentForCourse, DOCTOR_ROLE,
+  giftKindOf, giftLabel, canBeGift, GIFT_KINDS,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
@@ -859,6 +860,25 @@ export function withSlotStatuses(visit) {
 }
 
 /**
+ * 每一段的 `giftKind` 寫實（gift-and-trial 01）。跟 `withSlotStatuses()` 同一個路口（`data/visits.js` 的 `save()`）。
+ *
+ * 沒有那一格的舊資料，讀的時候 `giftKindOf()` 退回去猜（課程勾了不算次數 → 體驗）—— 那個猜法靠課程主檔，
+ * 她之後把那門課的「不算次數」拿掉，名字與驗證就跟著翻。存過一次就寫死：猜出來的值寫進去，
+ * 一般的段寫 `null`（**不寫 `undefined`**：Firestore 不收，`public/js` 沒開 `ignoreUndefinedProperties`）。
+ *
+ * **已經有那一格的不動**（送的不會被猜成體驗）。冪等：寫過之後再跑一次一模一樣。
+ *
+ * @param {object} visit
+ * @param {Object<string, object>} coursesById 課程主檔（含刪掉的 —— 舊段的課可能被刪了）
+ */
+export function withGiftKinds(visit, coursesById = {}) {
+  const slots = (visit?.slots ?? []).map((slot) => (slot && slot.giftKind === undefined
+    ? { ...slot, giftKind: giftKindOf(slot, coursesById) }
+    : slot));
+  return { ...visit, slots };
+}
+
+/**
  * 改狀態之前先把每一段的狀態補齊。**三支轉移的入口都先過這一支**
  * （`applyStatus()`、`applyConfirmation()`、`closeVisit()`）。
  *
@@ -1391,6 +1411,48 @@ export function showsRoom(slot, courses = []) {
   return course ? course.assigns === 'room' : true;
 }
 
+/**
+ * 這一段**約的時候**選得到哪幾個分鐘。三個入口「排多久」那一排都畫它，`slotMinutes()` 的第一層也問它。
+ *
+ * - 一般的段：那門課的 `bookingMinutes`（ADR-0122，二返的 30／60）
+ * - **送的／體驗的段**（gift-and-trial 01）：再加那門課「買的時候分的」（`durationChoices`）——
+ *   扣額度的復能(30) 是額度說了算，一段 INDIBA 30 分體驗沒有額度，只能這一段自己選
+ *
+ * **不改 `durationChoicesOf()`**：額度的名字、加購那一排、拍訂購單、資料健檢都讀那一支（CLAUDE.md「一段來訪要排多久」）。
+ * 帶著額度的段不算送的（兩種身分只挑一種，驗證另外擋）。
+ *
+ * @param {{entitlement?: object|null, course?: object|null, giftKind?: string|null}} o
+ * @returns {number[]} 由小到大
+ */
+export function minuteChoicesFor({ entitlement = null, course = null, giftKind = null } = {}) {
+  const booking = bookingMinutesOf(course);
+  const gift = GIFT_KINDS.includes(giftKind) && !entitlement;
+  return gift ? [...new Set([...booking, ...durationChoicesOf(course)])].sort((a, b) => a - b) : booking;
+}
+
+/**
+ * 這一段的器材那一排列哪幾台。三個入口（壓表、來訪編輯器、拍 Abovee）都畫它。
+ *
+ * - 擇一池的額度 → 池裡那幾台（ADR-0075）
+ * - 其餘（送的／體驗的復能、舊資料的單買）→ **那門課自己的器材**（`equipmentForCourse()`：還在用的、
+ *   `courseId` 是它的）。以前沒有額度時列全部器材 —— ILIB 也在，選了存成「復能＋ILIB＋治療師」
+ *
+ * `keep`：這一段現在指著的那一台。停用了照樣列在最後，不然一存檔器材就被清掉（同 `orderedRoomSlots()` 的 `keep`）。
+ *
+ * @param {object|null} entitlement
+ * @param {object|null} course
+ * @param {object[]} equipment 器材主檔
+ * @param {{keep?: string|null}} [o]
+ */
+export function equipmentChoicesFor(entitlement, course, equipment = [], { keep = null } = {}) {
+  const rows = entitlement?.type === 'pool'
+    ? (entitlement.optionEquipmentIds ?? []).map((id) => (equipment ?? []).find((e) => e.id === id)).filter(Boolean)
+    : equipmentForCourse(course?.id ?? null, equipment);
+  if (!keep || rows.some((e) => e.id === keep)) return rows;
+  const kept = (equipment ?? []).find((e) => e.id === keep);
+  return kept ? [...rows, kept] : rows;
+}
+
 /** 大於 0 的整數分鐘才算數；空的、0、負的、看不懂的一律當成沒填。 */
 function minutesOrNull(v) {
   const n = Number(v);
@@ -1409,6 +1471,8 @@ function minutesOrNull(v) {
  * 它只在**那門課有 `bookingMinutes`、而且值在裡面**時才算數 —— 復能是買的時候分的
  * （兩筆不同的額度），一段復能(30) 身上帶著一個 `minutes: 60` 也不可以蓋過額度。
  * 沒有這一格的舊資料照舊走後面那幾層，`endsAt` 一個都不會變。
+ * **送的／體驗的段多收「買的時候分的」那幾種**（`minuteChoicesFor()`，gift-and-trial 01）：
+ * 一段 INDIBA 30 分體驗沒有額度可以說它是 30 分，只能這一段自己選。
  *
  * 品項排在額度前面是刻意的：
  * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
@@ -1428,10 +1492,10 @@ function minutesOrNull(v) {
  * @returns {number} 分鐘
  */
 export function slotMinutes({
-  entitlement = null, course = null, ivProduct = null, minutes = null,
+  entitlement = null, course = null, ivProduct = null, minutes = null, giftKind = null,
 } = {}) {
   const picked = minutesOrNull(minutes);
-  const fromPick = picked != null && bookingMinutesOf(course).includes(picked) ? picked : null;
+  const fromPick = picked != null && minuteChoicesFor({ entitlement, course, giftKind }).includes(picked) ? picked : null;
   const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
   return fromPick
     ?? fromProduct
@@ -1449,7 +1513,7 @@ export function slotMinutes({
  * 同一段從壓表記的沒有這一格、從日曆改過一次就有了。
  */
 export function slotMinutesField(o = {}) {
-  const choices = bookingMinutesOf(o.course);
+  const choices = minuteChoicesFor(o);
   if (!choices.length) return null;
   const n = slotMinutes(o);
   return choices.includes(n) ? n : null;
@@ -1590,12 +1654,24 @@ function visitErrors(visit, {
     // 反過來也要擋：帶著 `followupNth` **又**指了一筆額度，那一段會同時
     // 被算進那筆額度的次數、又被畫成一場 n返。兩種身分只能挑一種。
     //
-    // **不算次數的課是第二種**（ADR-0121）：課程主檔上勾了「不算次數」，沒有額度也放行。
-    // 它**可以**不用額度，不是**不准**有 —— 有額度的那一段照舊扣、照舊驗（她之後會自己
-    // 勾營養諮詢，而既有的每一段都帶著額度）。
+    // **送的／體驗是第二種**（gift-and-trial 01，延伸 ADR-0121）：那一段身上記著（`giftKind`），
+    // 任何一門課都可以（健檢與二返除外）、就算身上有那門課的額度也不扣。**記在那一段身上，不是推導的** ——
+    // 以前問「課程勾了不算次數」，她一把那一格拿掉，既有那幾段下一次存檔就被擋。
+    // 沒有那一格的舊資料由 `giftKindOf()` 退回去讀（課程勾了不算次數 → 體驗）。
+    // 有額度的那一段照舊扣、照舊驗（不算次數的課也一樣：她之後會自己勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
-    if (!slot.entitlementId) {
-      if (!nth && !isUncounted(coursesById[slot.courseId])) errors.push(`${at}：要選一個額度`);
+    const gift = giftKindOf(slot, coursesById);
+    // 兩種身分都有的壞資料 `giftKindOf()` 照額度／n返 讀（回 null），所以這兩句看那一格原本的值
+    const marked = GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
+    if (slot.giftKind != null && !marked) {
+      errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
+    }
+    if (marked && slot.entitlementId) {
+      errors.push(`${at}：${giftLabel(marked)}的段不扣任何次數，不可以同時指定額度`);
+    } else if (marked && nth) {
+      errors.push(`${at}：n返 不可以同時是${giftLabel(marked)}的`);
+    } else if (!slot.entitlementId) {
+      if (!nth && !gift) errors.push(`${at}：要選一個額度`);
     } else if (nth) {
       errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
     } else if (!ent) {
@@ -1619,6 +1695,10 @@ function visitErrors(visit, {
     const course = coursesById[slot.courseId];
     if (!slot.courseId) errors.push(`${at}：要選一個課程`);
     else if (!course) errors.push(`${at}：指定的課程不存在或已刪除`);
+    // 健檢與二返牽著二返那條線（`followups.js` 全部以額度為軸），不可以是送的／體驗（`canBeGift()`）
+    else if (gift && !canBeGift(course, courses)) {
+      errors.push(`${at}：健檢與二返沒有體驗或送的 —— 要扣額度；二返要多約一場請選「＋ n返」`);
+    }
 
     // 匯入的來訪允許整個時間不詳（兩邊都 null）。只填一半仍然是錯的 ——
     // 那是打字打到一半，不是「舊表就沒有」。

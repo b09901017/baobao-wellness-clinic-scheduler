@@ -69,9 +69,9 @@ const rowOf = (sheet, label) => sheet.rows.find((r) => r.label === label);
 const markOn = (sheet, label, date) => rowOf(sheet, label)?.marks[sheet.dates.indexOf(date)];
 
 describe('不算次數的課：自己一列', () => {
-  test('那一天只做功醫門診：那一欄在「功醫門診（不算次數）」那一列有 ✓', () => {
+  test('那一天只做功醫門診：那一欄在「功醫門診（體驗）」那一列有 ✓', () => {
     const sheet = build([day('2026-10-01', [free('fm')])]);
-    assert.equal(markOn(sheet, '功醫門診（不算次數）', '2026-10-01'), '✓');
+    assert.equal(markOn(sheet, '功醫門診（體驗）', '2026-10-01'), '✓');
   });
 
   test('「應有」「剩餘」是一槓、「已完成」「已排未上」是實際的次數', () => {
@@ -80,7 +80,7 @@ describe('不算次數的課：自己一列', () => {
       day('2026-10-08', [free('fm', { status: 'confirmed' })], { status: 'confirmed' }),
       day('2026-10-15', [free('fm', { status: 'pending_confirm' })], { status: 'pending_confirm' }),
     ]);
-    const row = rowOf(sheet, '功醫門診（不算次數）');
+    const row = rowOf(sheet, '功醫門診（體驗）');
     assert.deepEqual(
       { total: row.total, done: row.done, booked: row.booked, remaining: row.remaining },
       { total: '—', done: 1, booked: 2, remaining: '—' },
@@ -99,18 +99,18 @@ describe('不算次數的課：自己一列', () => {
   test('同一天 SIS（有額度）＋功醫門診：兩個符號各在各的列、各一次', () => {
     const sheet = build([day('2026-10-01', [pool(), free('fm')])]);
     assert.equal(markOn(sheet, '復能-二選一(60)', '2026-10-01'), '✓');
-    assert.equal(markOn(sheet, '功醫門診（不算次數）', '2026-10-01'), '✓');
+    assert.equal(markOn(sheet, '功醫門診（體驗）', '2026-10-01'), '✓');
   });
 
   test('一門課一列：HRV 與功醫門診各自一列，接在所有額度列的後面（照名字排，跟那一天誰先做無關）', () => {
     const sheet = build([day('2026-10-01', [free('hrv', { startsAt: '14:30' }), free('fm')])]);
-    assert.deepEqual(sheet.rows.map((r) => r.label), ['復能-二選一(60)', '功醫門診（不算次數）', 'HRV（不算次數）']);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['復能-二選一(60)', '功醫門診（體驗）', 'HRV（體驗）']);
     assert.deepEqual(sheet.rows.map((r) => Boolean(r.extra)), [false, true, true]);
   });
 
   test('一筆額度都沒有的客戶（邀來體驗的）：矩陣只有那兩列、合計四個 0', () => {
     const sheet = build([day('2026-10-01', [free('hrv'), free('fm')])], []);
-    assert.deepEqual(sheet.rows.map((r) => r.label), ['功醫門診（不算次數）', 'HRV（不算次數）']);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['功醫門診（體驗）', 'HRV（體驗）']);
     assert.deepEqual(sheet.totals, { total: 0, done: 0, booked: 0, remaining: 0 });
   });
 
@@ -123,7 +123,7 @@ describe('不算次數的課：自己一列', () => {
 
   test('未到的那一段印 ✗，不算已完成也不算已排未上', () => {
     const sheet = build([day('2026-10-01', [free('fm', { status: 'no_show' })], { status: 'no_show' })]);
-    const row = rowOf(sheet, '功醫門診（不算次數）');
+    const row = rowOf(sheet, '功醫門診（體驗）');
     assert.deepEqual(row.marks, ['✗']);
     assert.deepEqual([row.done, row.booked], [0, 0]);
   });
@@ -133,8 +133,8 @@ describe('不算次數的課：自己一列', () => {
       day('2026-10-01', [free('fm', { courseName: '功能醫學門診' })]),
       day('2026-10-08', [free('fm')]),
     ]);
-    assert.deepEqual(sheet.rows.filter((r) => r.extra).map((r) => r.label), ['功醫門診（不算次數）']);
-    assert.equal(rowOf(sheet, '功醫門診（不算次數）').done, 2);
+    assert.deepEqual(sheet.rows.filter((r) => r.extra).map((r) => r.label), ['功醫門診（體驗）']);
+    assert.equal(rowOf(sheet, '功醫門診（體驗）').done, 2);
   });
 
   test('主檔找不到那門課：退回那一段身上的快照', () => {
@@ -148,7 +148,7 @@ describe('這一行會不會讓一段不算次數的被算進某一筆額度，�
   // 選那一筆額度排的照舊扣，選「不扣次數」那一顆排的不扣。
   const viaEnt = { entitlementId: 'e-nc', courseId: 'nc', courseName: '營養師諮詢', startsAt: '09:00', status: 'done' };
 
-  test('選額度排的在額度那一列（照扣）、選不扣那一顆排的在「（不算次數）」那一列', () => {
+  test('選額度排的在額度那一列（照扣）、選不扣那一顆排的在「（體驗）」那一列', () => {
     const sheet = build([
       day('2026-10-01', [viaEnt]),
       day('2026-10-08', [free('nc')]),
@@ -158,7 +158,7 @@ describe('這一行會不會讓一段不算次數的被算進某一筆額度，�
     assert.deepEqual([counted.total, counted.done, counted.remaining], [4, 1, 3]);
     assert.deepEqual(counted.marks, ['✓', '']);
 
-    const uncounted = rowOf(sheet, '營養師諮詢（不算次數）');
+    const uncounted = rowOf(sheet, '營養師諮詢（體驗）');
     assert.deepEqual([uncounted.total, uncounted.done, uncounted.remaining], ['—', 1, '—']);
     assert.deepEqual(uncounted.marks, ['', '✓']);
   });
@@ -177,7 +177,7 @@ describe('額度被刪掉的那幾段', () => {
   test('不算次數的那幾列排在額度被刪的那幾列前面', () => {
     const orphan = { entitlementId: 'e-deleted', courseId: 'il', courseName: 'ILIB', status: 'done' };
     const sheet = build([day('2026-10-01', [orphan, free('fm')])]);
-    assert.deepEqual(sheet.rows.filter((r) => r.extra).map((r) => r.label), ['功醫門診（不算次數）', 'ILIB（額度已刪除）']);
+    assert.deepEqual(sheet.rows.filter((r) => r.extra).map((r) => r.label), ['功醫門診（體驗）', 'ILIB（額度已刪除）']);
   });
 });
 
@@ -234,7 +234,7 @@ describe('n返 也自己一列（issue 14，ADR-0131；健檢底下那一行照�
       day('2026-09-22', [{ entitlementId: 'e-deleted', courseId: 'il', courseName: 'ILIB', status: 'done' }]),
     ], [E_EXAM, E_FU]);
     assert.deepEqual(sheet.rows.map((r) => r.label),
-      ['健檢', '二返', '三返（不算次數）', '功醫門診（不算次數）', 'ILIB（額度已刪除）']);
+      ['健檢', '二返', '三返（不算次數）', '功醫門診（體驗）', 'ILIB（額度已刪除）']);
   });
 
   test('手動貼上那條路：同一列，接在額度列後面', () => {
@@ -264,8 +264,8 @@ describe('手動貼上那條路長得一樣', () => {
       visits: [day('2026-10-01', [pool(), free('fm')])],
       courses: COURSES, equipment: MASTER.equipment,
     });
-    const at = rows.findIndex((r) => r[0] === '功醫門診（不算次數）');
-    assert.deepEqual(rows[at], ['功醫門診（不算次數）', '—', '1', '0', '—', '✓']);
+    const at = rows.findIndex((r) => r[0] === '功醫門診（體驗）');
+    assert.deepEqual(rows[at], ['功醫門診（體驗）', '—', '1', '0', '—', '✓']);
     assert.ok(at > rows.findIndex((r) => r[0] === '復能-二選一(60)'));
   });
 
@@ -276,7 +276,7 @@ describe('手動貼上那條路長得一樣', () => {
     });
     const none = rows.findIndex((r) => r[0] === '（還沒有額度）');
     assert.ok(none > 0);
-    assert.equal(rows[none + 1][0], '功醫門診（不算次數）');
+    assert.equal(rows[none + 1][0], '功醫門診（體驗）');
   });
 });
 
@@ -298,7 +298,7 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
     // 第 5 列是表頭、第 6 列是那一筆額度、第 7 列是多的那一列
     assert.deepEqual(
       ['A7', 'B7', 'C7', 'D7', 'E7', 'F7'].map((a) => sheet.at(a)),
-      ['功醫門診（不算次數）', '—', 1, 0, '—', '✓'],
+      ['功醫門診（體驗）', '—', 1, 0, '—', '✓'],
     );
   });
 
@@ -317,8 +317,8 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
 
   test('一筆額度都沒有的客戶：畫得出來，不出錯', () => {
     const sheet = render(bundleOf([day('2026-10-01', [free('hrv'), free('fm')])], []));
-    assert.equal(sheet.at('A6'), '功醫門診（不算次數）');
-    assert.equal(sheet.at('A7'), 'HRV（不算次數）');
+    assert.equal(sheet.at('A6'), '功醫門診（體驗）');
+    assert.equal(sheet.at('A7'), 'HRV（體驗）');
   });
 
   // n返 那一列（issue 14）：同一種列，同一份 `.gs` 畫

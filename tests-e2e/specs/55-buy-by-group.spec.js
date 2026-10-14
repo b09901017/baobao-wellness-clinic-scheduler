@@ -27,9 +27,10 @@ test('B1 客戶詳情 → 加購：按「醫師門診」露出第二排；沒選
   await expect(item(page)).toHaveCount(0);
 
   await top(page).filter({ hasText: '醫師門診' }).click();
-  // 一類裡的順序照主檔清單（app 照文件 id 排），這一支只管有哪幾門
+  // 一類裡的順序照主檔清單（app 照文件 id 排），這一支只管有哪幾門。
+  // 心臟科評估 2026-10-14 起不算次數（gift-and-trial 05，她：「不會需要買」）—— 不列
   expect((await labels(item(page))).sort()).toEqual(
-    ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP'].sort());
+    ['復健科醫師門診', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP'].sort());
   await expect(page.locator('[data-chip="buyItem"][aria-pressed="true"]')).toHaveCount(0);
 
   await page.click('button[type="submit"]');
@@ -64,19 +65,21 @@ test('B2 只有一門的分類一下就到：健檢直接出「幾萬的」、�
   await expect(item(page)).toHaveCount(0);
 });
 
-test('B3 新增客戶 →「＋ 加一項」：同一張表，EECP → EECP體驗 加進名單', async ({ app, page }) => {
+test('B3 新增客戶 →「＋ 加一項」：同一張表，醫師門診 → 羊膜 加進名單；EECP 那一類只剩一門、一下就到', async ({ app, page }) => {
   await app.seed([...masterDocs()]);
   await app.signIn('/customers/new');
 
   await page.locator('[data-cf-addextra]').click();
   await app.layer('[data-chip="buy"]');
+  // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）：EECP 那一類只剩 EECP，那一顆直接就是它
   await top(page).filter({ hasText: 'EECP' }).click();
-  expect((await labels(item(page))).sort()).toEqual(['EECP', 'EECP體驗']);
-  await item(page).filter({ hasText: 'EECP體驗' }).click();
-  await expect(page.locator('[data-chip="buy"][aria-pressed="true"]')).toContainText('EECP');
+  await expect(item(page)).toHaveCount(0);
+  await top(page).filter({ hasText: '醫師門診' }).click();
+  await item(page).filter({ hasText: '羊膜' }).click();
+  await expect(page.locator('[data-chip="buy"][aria-pressed="true"]')).toContainText('醫師門診');
   await page.locator('[data-addbuy]').click();
 
-  await expect(page.locator('[data-cf-form] .roster__name')).toHaveText(['EECP體驗']);
+  await expect(page.locator('[data-cf-form] .roster__name')).toHaveText(['羊膜']);
 });
 
 // 換一門課，上一門的時長不可以跟著過來（issue 15）。規則在 `tests/buy.test.js`；這一條盯的是真的接到了那一張表上

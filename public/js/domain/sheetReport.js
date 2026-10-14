@@ -28,7 +28,8 @@ import { chartNosOf } from './identify.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
-import { nameOf as variantName } from './naming.js';
+import { nameOf as variantName, fullNameOf } from './naming.js';
+import { giftKindOf, giftLabel } from './masterData.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
@@ -109,7 +110,7 @@ export function customerReport({
 
   // 沒有額度的那幾段自己一列（`extraRows()`）。「（還沒有額度）」那一句照舊在 ——
   // 這位客戶真的沒有買東西，底下那幾列是她來做了什麼。
-  for (const row of extraRows({ scheduled, visits: used, dates, coursesById })) {
+  for (const row of extraRows({ scheduled, visits: used, dates, coursesById, equipment })) {
     rows.push([
       row.label, String(row.total), String(row.done), String(row.booked), String(row.remaining), ...row.marks,
     ]);
@@ -231,8 +232,17 @@ const ownedBy = (entitlementId) => (slot) => slot.entitlementId === entitlementI
 /** 沒有那兩個數字（應有、剩餘）的那一格印什麼。**不是 0** —— 0 是「用完了」。 */
 const NO_NUMBER = '—';
 
-/** `extraRows()` 那幾列的先後：n返 → 不算次數的課 → 額度被刪的。 */
-const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
+/**
+ * `extraRows()` 那幾列的先後：n返 → 體驗 → 送的 → 額度被刪的（gift-and-trial 03）。
+ * `free` 是剩下那一種：沒有額度、不是 n返、也不是送的／體驗 —— 照規則存不下去（`validateVisit()` 擋「要選一個額度」），
+ * 只有規則之前就在的舊資料會有，排在送的後面、照舊寫「（不算次數）」。
+ */
+const RANK = { nth: 0, trial: 1, gift: 2, free: 3, gone: 4 };
+const rank = (group) => RANK[group.kind] ?? RANK.free;
+
+/** 那一列名字後面接什麼。 */
+const SUFFIX = { nth: '（不算次數）', free: '（不算次數）', gone: '（額度已刪除）' };
+const suffixOf = (kind) => SUFFIX[kind] ?? `（${giftLabel(kind)}）`;
 
 /**
  * 沒有任何一列可以打符號的那幾段，在矩陣最下面自己一列（2026-10-06）。她的原話：
@@ -244,8 +254,18 @@ const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
  * 沒有任何一列。三種段會這樣：
  *
  *   n返            `entitlementId` 是空的、帶著返數（ADR-0063）  → `三返（不算次數）`
- *   不算次數的課   `entitlementId` 是空的（ADR-0121）            → `功醫門診（不算次數）`
+ *   送的／體驗     `giftKind` 有值（gift-and-trial 01）           → `心臟科評估（體驗）`、`INDIBA（送的）`
  *   額度被刪了     指著一筆這位客戶畫不出來的額度                 → `ILIB（額度已刪除）`
+ *
+ * **送的／體驗照「課程＋哪一種」分列**（2026-10-14，gift-and-trial 03）。她：「但是來訪以及試算表還是要標註(送的)、(體驗)」。
+ * 以前那一種叫「不算次數的課」、一門課一列寫 `功醫門診（不算次數）`；01 之後**任何課**都可能是體驗 ——
+ * 一段 INDIBA 30 分體驗會落在 `復能（不算次數）`，看不出是哪一台、也看不出是體驗。所以：
+ * - 同一門課一段送的、一段體驗是**兩列**（先體驗再送的）
+ * - **擇一池那門課（`requiresEquipment`，復能）再照器材分**，名字是器材的**全名**（`INDIBA（體驗）`，不是別稱 `IN` ——
+ *   這一欄是額度那一種字，額度寫的也是全名，ADR-0078）。同一台 30 與 60 分是同一列（名字不帶分鐘）。
+ *   器材主檔沒帶進來就退回課程名
+ * - 營養點滴不照品項分
+ * 讀「是不是送的／體驗」只走 `giftKindOf()`：沒有那一格的舊資料（功醫門診）照退路讀成體驗
  *
  * **一門課一列**，名字讀主檔（她之後改名也還是一列），主檔找不到才退回那一段身上的快照。
  * 額度被刪的那一種只能用課程名：自動推送那條路讀不到已刪除的額度（`repo.listGroup()` 濾掉了），
@@ -280,16 +300,29 @@ const rank = (group) => (group.nth ? 0 : group.gone ? 2 : 1);
  * @returns {{label: string, total: string, done: number, booked: number, remaining: string,
  *            marks: string[], extra: true}[]}
  */
-export function extraRows({ scheduled = [], visits = [], dates = [], coursesById = {} }) {
+export function extraRows({ scheduled = [], visits = [], dates = [], coursesById = {}, equipment = [] }) {
   const drawn = new Set(scheduled.map((e) => e.id));
+  const equipmentById = Object.fromEntries((equipment ?? []).map((e) => [e.id, e]));
+
+  /** 這一段是哪一種：`nth`、`trial`、`gift`、`gone`、`free`。有自己那一列（額度）的回 `null`。 */
+  const kindOf = (slot) => {
+    if (nthOf(slot)) return 'nth';
+    const id = slot?.entitlementId ?? null;
+    if (id) return drawn.has(id) ? null : 'gone';
+    return giftKindOf(slot, coursesById) ?? 'free';
+  };
+
+  /** 送的／體驗的擇一池那門課照器材分：那一台在主檔上才算（不然退回課程）。 */
+  const eqOf = (slot, kind) => (kind === 'trial' || kind === 'gift')
+    && coursesById[slot?.courseId]?.requiresEquipment ? (equipmentById[slot?.equipmentId] ?? null) : null;
 
   /** 這一段屬於哪一列。有自己那一列（額度）的回 `null`。 */
   const keyOf = (slot) => {
-    const nth = nthOf(slot);
-    if (nth) return `nth|${nth}`;
-    const id = slot?.entitlementId ?? null;
-    if (id && drawn.has(id)) return null;
-    return `${id ? 'gone' : 'free'}|${slot?.courseId ?? `name:${slot?.courseName ?? ''}`}`;
+    const kind = kindOf(slot);
+    if (!kind) return null;
+    if (kind === 'nth') return `nth|${nthOf(slot)}`;
+    const eq = eqOf(slot, kind);
+    return `${kind}|${slot?.courseId ?? `name:${slot?.courseName ?? ''}`}${eq ? `|eq:${eq.id}` : ''}`;
   };
 
   const groups = new Map();
@@ -302,11 +335,14 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
       if (!outcome) continue;
 
       const nth = nthOf(slot);
+      const kind = kindOf(slot);
+      const eq = eqOf(slot, kind);
       const group = groups.get(key) ?? {
         key,
         nth,
-        gone: !nth && Boolean(slot.entitlementId),
-        name: nth ? nthLabel(nth) : coursesById[slot.courseId]?.name ?? slot.courseName ?? '（沒有名稱）',
+        kind,
+        name: nth ? nthLabel(nth)
+          : (eq ? fullNameOf(eq) : '') || (coursesById[slot.courseId]?.name ?? slot.courseName ?? '（沒有名稱）'),
         done: 0,
         booked: 0,
       };
@@ -317,11 +353,11 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
   }
 
   return [...groups.values()]
-    // n返 最前面（接在額度列的二返後面看，照返數）、再不算次數的課（那是她排的）、
-    // 額度被刪的排最後（那是要她回去看的）；後兩種各自照名字
+    // n返 最前面（接在額度列的二返後面看，照返數）、再體驗、送的（那是她排的）、
+    // 額度被刪的排最後（那是要她回去看的）；同一種照名字
     .sort((a, b) => rank(a) - rank(b) || (a.nth ?? 0) - (b.nth ?? 0) || a.name.localeCompare(b.name, 'zh-TW'))
     .map((group) => ({
-      label: `${group.name}${group.gone ? '（額度已刪除）' : '（不算次數）'}`,
+      label: `${group.name}${suffixOf(group.kind)}`,
       total: NO_NUMBER,
       done: group.done,
       booked: group.booked,
@@ -541,7 +577,7 @@ export function syncBundle({
 
     // 沒有額度的那幾段自己一列（不算次數的課、額度被刪的段）。**接在額度列後面、不進合計** ——
     // 底下的 `totals` 與兩份註記的 `rowIndex` 都只看 `rows`（額度那幾列）。
-    const extras = extraRows({ scheduled, visits, dates, coursesById });
+    const extras = extraRows({ scheduled, visits, dates, coursesById, equipment: master.equipment ?? [] });
 
     // 「這一天用了哪一台」（格式 4 起）。一筆額度一列，畫在它那一列的正下方 ——
     // 帶 `label` 是因為一位客戶可能同時有四選一與三選一，兩列都要註記時
@@ -635,7 +671,10 @@ export function syncBundle({
           .map(({ v, slot }) => ({
             // 字跟日曆、客戶詳情同一組（`STATUS_VIEW` 的 short）
             status: shortStatus(slotStatus(v, slot)),
-            course: slot.courseName ?? nameOf('courses', slot.courseId) ?? '',
+            // 送的／體驗接在課程後面（gift-and-trial 03，跟日曆那一種名字 `slotName()` 同一種寫法：`心臟科評估(體驗)`）。
+            // 讀的是快照不是 `slotName()`，所以要自己接；`.gs` 照字印、不比對這一格（不用升 `SYNC_FORMAT`）
+            course: `${slot.courseName ?? nameOf('courses', slot.courseId) ?? ''}${
+              giftLabel(giftKindOf(slot, coursesById)) ? `(${giftLabel(giftKindOf(slot, coursesById))})` : ''}`,
             time: timeLabel(slot),
             equipment: nameOf('equipment', slot.equipmentId),
             ivProduct: nameOf('ivProducts', slot.ivProductId),

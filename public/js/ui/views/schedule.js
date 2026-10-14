@@ -50,10 +50,10 @@ import { blockedDates, coversDate, isLeave } from '../../domain/events.js';
 import {
   validateVisit, slotSay, isActive, courseForEquipment,
   picksEquipment, assignsFor, slotMinutes, NOTE_MAX,
-  acceptsMoreSlots, sameDayVisitFor,
+  acceptsMoreSlots, sameDayVisitFor, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
-import { slotOptionsFor, NTH_PICK } from '../../domain/slotOptions.js';
+import { slotOptionsFor, foldOpen, NTH_PICK } from '../../domain/slotOptions.js';
 import { bookingConsequences, closedDayLine, settledDayLine, followupBookingLines } from '../../domain/consequences.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
@@ -66,7 +66,7 @@ import * as banUi from '../components/ban.js';
 import { WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import {
   orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, clinicalTerms, ivChoicesFor,
-  bookingMinutesOf, THERAPIST_ROLE,
+  THERAPIST_ROLE, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
 import { splitFlags, nameHas } from '../../domain/customers.js';
 import { isValidTime, timeLabel, nextStart, toMinutes, toHHMM } from '../../domain/visitTime.js';
@@ -75,6 +75,7 @@ import {
 } from '../../domain/dates.js';
 import * as f from '../components/form.js';
 import * as slotNote from '../components/slotNote.js';
+import * as giftFold from '../components/giftFold.js';
 import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
 import { relinkAfterSave } from '../relinkFollowup.js';
 import { icon } from '../icons.js';
@@ -108,6 +109,8 @@ const view = {
   equipmentId: null,
   therapistId: null,
   roomKey: null,
+  // 送的／體驗那一顆按下去之後是哪一種（「體驗｜送的」那一排，gift-and-trial 04）。`null`＝還沒選過＝體驗（`pickedGiftKind()`）
+  giftKind: null,
 };
 
 /**
@@ -154,7 +157,7 @@ function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
     equipmentId: null, therapistId: null, roomKey: null, doctorId: null,
-    followupForVisitId: null, nth: null, minutes: null,
+    followupForVisitId: null, nth: null, minutes: null, giftKind: null,
   });
 }
 
@@ -171,7 +174,23 @@ function resetCourseBoundPicks() {
     followupForVisitId: null, nth: null,
     // 約的時候選的時長也是綁著課程的（ADR-0122）：換一門課就回到那門課的預設
     minutes: null,
+    // 送的還是體驗也是（gift-and-trial 02）：換成扣額度的那一顆，留著的話那一段會同時是兩種身分
+    giftKind: null,
   });
+}
+
+/**
+ * 她現在按著的那一顆（「做什麼」那一排上的，連收在「送的／體驗…」後面的）。**查找只有這一支** ——
+ * 以前四個地方各自 `courseOptions(row).find(…)`；「別的課當體驗」（04）選出來的那一門要每一處都找得到，
+ * 不然「加這一段」一直是灰的。
+ */
+function pickedOption(row) {
+  return row ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null) : null;
+}
+
+/** 按著的那一顆是送的／體驗的話是哪一種；不是就是 `null`。沒選過＝體驗（她：「四門都寫體驗」）。 */
+function pickedGiftKind(picked) {
+  return picked?.isGift ? (view.giftKind ?? 'trial') : null;
 }
 
 export async function render(el) {
@@ -1249,7 +1268,7 @@ function timeChoices() {
  */
 function dayPanel(row) {
   const options = courseOptions(row);
-  const picked = options.find((o) => o.entitlementId === view.entitlementId) ?? null;
+  const picked = pickedOption(row);
   const sameDay = sameDayVisit(row, view.day);
   const closed = sameDayClosed(row, view.day);
 
@@ -1264,19 +1283,22 @@ function dayPanel(row) {
 
       <div class="fieldgroup" style="margin-top: var(--space-4)">
         <span class="fieldgroup__label">做什麼</span>
-        <div class="chips">
-          ${/* 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）——
-               順序是 `slotOptionsFor()` 排好的，這裡只畫 */''}
-          ${options.length
-            ? options.map((o) => `${o.breakBefore ? '<span class="chips__break"></span>' : ''}
-                  <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
-                          data-ent="${esc(o.entitlementId)}">${esc(o.label)}
-                    ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
-                          0 看起來像「用完了」，而它根本不是一筆額度 */''}
-                    ${o.isNth || o.isUncounted ? '<span class="chip__note">不扣次數</span>'
-                              : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`).join('')
-            : '<span class="muted">這位客戶身上沒有還有剩的課程了。</span>'}
-        </div>
+        ${/* 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）；
+             送的／體驗收在最後一顆「送的／體驗…」後面（gift-and-trial 04）——
+             順序與要不要展開是 `slotOptions.js` 的，這裡只畫 */''}
+        ${giftFold.html({
+          options,
+          value: view.entitlementId,
+          open: foldOpen(options, view.entitlementId),
+          empty: '<p class="muted" style="margin: 0 0 var(--space-2)">這位客戶身上沒有還有剩的額度了。</p>',
+          chip: (o) => `
+            <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
+                    data-ent="${esc(o.entitlementId)}">${esc(o.label)}
+              ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
+                    0 看起來像「用完了」，而它根本不是一筆額度 */''}
+              ${o.isNth || o.isGift ? '<span class="chip__note">不扣次數</span>'
+                : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`,
+        })}
       </div>
 
       <div data-entfields>${entFields(row, picked)}</div>
@@ -1388,7 +1410,7 @@ function pickedMinutes(picked) {
     : null;
   // `view.minutes` 是她在「排多久」那一排選的（ADR-0122）；那門課不給選時它不算數
   return slotMinutes({
-    entitlement: picked?.entitlement ?? null, course, ivProduct, minutes: view.minutes,
+    entitlement: picked?.entitlement ?? null, course, ivProduct, minutes: view.minutes, giftKind: pickedGiftKind(picked),
   });
 }
 
@@ -1400,7 +1422,10 @@ function pickedMinutes(picked) {
  * 選了只換 `aria-pressed` 與「幾點開始　N 分鐘」那一句，不重畫（ADR-0038）。
  */
 function minutesField(picked) {
-  const choices = bookingMinutesOf(effectiveCourse(picked));
+  // 送的／體驗的段多收那門課買的時候分的那幾種（`minuteChoicesFor()`，gift-and-trial 02）
+  const choices = minuteChoicesFor({
+    entitlement: picked?.entitlement ?? null, course: effectiveCourse(picked), giftKind: pickedGiftKind(picked),
+  });
   if (!choices.length) return '';
   const now = pickedMinutes(picked);
   return `
@@ -1459,6 +1484,7 @@ function entFields(row, picked) {
       </label>
     </div>
 
+    ${giftKindField(picked)}
     ${minutesField(picked)}
     ${picksEquipment(picked.entitlement, course) ? equipmentField(row, picked) : ''}
     ${course.requiresIvProduct ? ivField(all, picked) : ''}
@@ -1471,6 +1497,24 @@ function entFields(row, picked) {
     ${assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all, course) : ''}
     ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
+}
+
+/**
+ * 「體驗｜送的」那一排（gift-and-trial 04）：送的／體驗那幾顆按下去才有，預設體驗（她：「四門都寫體驗」）。
+ * 選了只換 `aria-pressed`（ADR-0038）—— 排多久、器材、指派都不跟著它變。
+ */
+function giftKindField(picked) {
+  const now = pickedGiftKind(picked);
+  if (!now) return '';
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">體驗或送的</span>
+      <div class="chips">
+        ${GIFT_KINDS.map((k) => `
+          <button class="chip" type="button" aria-pressed="${k === now}"
+                  data-giftkind="${k}">${esc(giftLabel(k))}</button>`).join('')}
+      </div>
+    </div>`;
 }
 
 /**
@@ -1518,14 +1562,14 @@ function nthFields(row) {
 }
 
 /**
- * 這位客戶這一段可以做什麼：還有剩的額度、「＋ n返」、不算次數的課。
+ * 這位客戶這一段可以做什麼：還有剩的額度、「＋ n返」、送的／體驗（收在最後一顆後面）。
  *
  * 四選一會推出兩個課程（復能與 ILIB），那一顆帶的是第一個，當**還沒選器材時**的預設 ——
  * 她一挑器材就由 `effectiveCourse()` 換掉。
  */
 function courseOptions(row) {
-  // **那一排有哪幾顆只寫在 `domain/slotOptions.js`**（ADR-0121）：額度（還有剩的）、
-  // 「＋ n返」、每一門不算次數的課一顆。來訪編輯器與拍 Abovee 問的是同一支。
+  // **那一排有哪幾顆只寫在 `domain/slotOptions.js`**（ADR-0121、gift-and-trial 04）：額度（還有剩的）、
+  // 「＋ n返」、送的／體驗（不算次數的課＋別的課當體驗）。來訪編輯器與拍 Abovee 問的是同一支。
   return slotOptionsFor({
     entitlements: ctx.queueInput.entitlementsBy[row.customerId] ?? [],
     visits: ctx.queueInput.visitsBy[row.customerId] ?? [],
@@ -1579,16 +1623,16 @@ function equipmentField(row, picked) {
  */
 function effectiveCourse(picked) {
   if (!picked?.course) return null;
-  if (picked.entitlement?.type !== 'pool') return picked.course;
+  // 送的／體驗的復能也是器材說了算（`slotFromPicks()` 的 `giftCourseId` 同一條）
+  const derives = picked.entitlement?.type === 'pool' || (pickedGiftKind(picked) && picked.course.requiresEquipment);
+  if (!derives) return picked.course;
   const id = courseForEquipment(view.equipmentId, ctx.all.equipment, picked.course.id);
   return ctx.all.courses.find((c) => c.id === id) ?? picked.course;
 }
 
+/** 器材那一排列哪幾台：擇一池照池、其餘那門課自己的（`equipmentChoicesFor()`，三個入口同一支）。 */
 function equipmentOptionsFor(picked) {
-  const ids = picked?.entitlement?.optionEquipmentIds ?? [];
-  return ids.length
-    ? ids.map((id) => ctx.all.equipment.find((e) => e.id === id)).filter(Boolean)
-    : ctx.all.equipment;
+  return equipmentChoicesFor(picked?.entitlement ?? null, picked?.course ?? null, ctx.all.equipment);
 }
 
 /**
@@ -1890,6 +1934,17 @@ function onDeckClick(e) {
     return null;
   }
 
+  // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性，不重畫（ADR-0038）
+  if (giftFold.toggle(e)) return null;
+
+  // 體驗還是送的：只換那一排的 aria-pressed（一定有一顆按著，再點同一顆不取消）
+  const kind = e.target.closest('[data-giftkind]');
+  if (kind) {
+    view.giftKind = kind.dataset.giftkind;
+    press('[data-giftkind]', 'giftkind', view.giftKind);
+    return null;
+  }
+
   // 「換一款」：只改一個屬性，整排不重畫（同 f.chips() 的 wireChips）
   const more = e.target.closest('[data-chip-more]');
   if (more) {
@@ -1941,9 +1996,7 @@ function pickOne(attr, key, value) {
   // 換器材前先記住「這一段現在算哪一個課程、要指派什麼」——
   // 那兩件事任何一件變了都要重畫整塊，沒變就只換一句話。
   const row = attr === 'equipment' ? selectedRow() : null;
-  const picked = row
-    ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null)
-    : null;
+  const picked = pickedOption(row);
   const before = picked ? assignKeyOf(picked) : null;
 
   view[key] = view[key] === value ? null : value;
@@ -1960,10 +2013,7 @@ function pickOne(attr, key, value) {
 function refreshSlotMins() {
   const host = deckEl()?.querySelector('[data-slotmins]');
   if (!host) return;
-  const row = selectedRow();
-  const picked = row
-    ? (courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null)
-    : null;
+  const picked = pickedOption(selectedRow());
   host.textContent = picked ? minsLabel(picked) : '';
 }
 
@@ -2018,6 +2068,7 @@ function pickTime(value, { fromInput = false } = {}) {
 
 /** 換課程只重畫跟著課程走的那幾欄，她打到一半的備註留著。 */
 function pickCourse(entitlementId) {
+  const kind = view.giftKind;
   view.entitlementId = view.entitlementId === entitlementId ? null : entitlementId;
   resetCourseBoundPicks();
   press('[data-ent]', 'ent', view.entitlementId);
@@ -2026,7 +2077,9 @@ function pickCourse(entitlementId) {
   const fields = deckEl()?.querySelector('[data-entfields]');
   if (!row || !fields) return;
 
-  const picked = courseOptions(row).find((o) => o.entitlementId === view.entitlementId) ?? null;
+  const picked = pickedOption(row);
+  // 換一門送的課還是送的（來訪編輯器與拍 Abovee 同一條，gift-and-trial 02）
+  if (picked?.isGift) view.giftKind = kind;
   // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
   if (picked?.isNth) pickDefaultNth(row);
   else pickExamIfObvious(row, picked);
@@ -2110,7 +2163,7 @@ async function addSlot() {
   if (!selected || !view.day) return;
 
   const { all } = ctx;
-  const picked = courseOptions(selected).find((o) => o.entitlementId === view.entitlementId);
+  const picked = pickedOption(selected);
   const [roomId, bed] = String(view.roomKey ?? '').split('|');
 
   // **組一段時段只有一支**（`domain/slotDraft.js`，issue 10）：課程由器材決定、指派誰、
@@ -2122,8 +2175,9 @@ async function addSlot() {
     // 額度那一排上沒有這一顆（用完了、n返 沒有健檢可接）就等於沒選
     entitlementId: picked?.entitlement?.id ?? null,
     isNth: Boolean(picked?.isNth),
-    // 不算次數的課：沒有額度，課程就是她按的那一顆（ADR-0121）
-    uncountedCourseId: picked?.isUncounted ? picked.course.id : null,
+    // 送的／體驗：沒有額度，課程就是她按的那一顆（ADR-0121、gift-and-trial 01）
+    giftCourseId: picked?.isGift ? picked.course.id : null,
+    giftKind: pickedGiftKind(picked),
     // 器材與營養點滴品項存在同一格（`onDeckClick()` 的對照表）
     equipmentId: view.equipmentId ?? null,
     ivProductId: view.equipmentId ?? null,

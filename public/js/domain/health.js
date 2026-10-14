@@ -23,6 +23,7 @@ import { contraindicationTerms } from './contraindications.js';
 import { SEED, seedData } from './seed.js';
 import {
   clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
+  isUncounted,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import {
@@ -1906,6 +1907,16 @@ function checkSeedBlanks(ctx) {
           push(type, mine, {
             what: '要哪一科的醫師', to: row.doctorPick, changes: { doctorPick: row.doctorPick },
             why: '排這門課時那一科的醫師排前面，其餘收在「其他醫師」後面 —— 是順序不是限制',
+          });
+        }
+        // 預設體驗（`uncounted`，2026-10-14，gift-and-trial 05：心臟科評估、EECP體驗；那一格 09 改名）。**連 `false` 也報**：設定頁每存一次課程
+        // 都寫 `uncounted: !!v.uncounted`，存過的課就是 false —— 分不出刻意取消與從來沒勾過，代價是她之後刻意取消時
+        // 這一列會一直在。改過名字的不報（那已經是她的課了）。不用走 ADR-0140 的重算：待辦不讀這一格
+        if (isUncounted(row) && !isUncounted(mine) && mine.name === row.name) {
+          push(type, mine, {
+            what: '預設體驗', to: '勾起來', changes: { uncounted: true },
+            detail: '勾起「預設體驗」',
+            why: '排這門課不用額度、預設寫體驗，客戶身上的數字一個都不會變；身上還有這門課額度的照舊扣。加購那一排不再列它',
           });
         }
         const booking = bookingMinutesOf(row);

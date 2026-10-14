@@ -9,6 +9,7 @@
 // > 我覺得壓表或是新增來訪的地方就不用每一類前面有灰色小標…就和之前一樣一次呈現所有的丸子就好不需要灰色小標
 //
 // 順序的規則在 `tests/slot-options-order.test.js`（`arrangeSlotOptions()`）。
+// 送的／體驗收在最後一顆「送的／體驗…」後面（gift-and-trial 04）：這一支只量看得到的那幾顆，收著的那一組在 `67`。
 // 這一支量的是只有畫面上看得到的那一件：**健檢與二返實體上不是隔壁**。
 // 只掃字串的測試在這種事上騙過人（`CLAUDE.md`「貼在畫面底部的東西」那一列）—— 所以量位置。
 
@@ -60,8 +61,9 @@ test('W1 壓表：照分類排、一個小標都沒有；二返那一組另起�
   await app.layer('[data-ent]');
 
   await expect(page.locator('.chips .chiprow__lead'), '這一排不畫小標了（issue 16）').toHaveCount(0);
-  // 醫師門診那一組：額度在前、不算次數的課接在後面
-  const order = await page.locator('.chips [data-ent]').evaluateAll((els) => els.map((el) => el.dataset.ent));
+  // 看得到的那幾顆（送的／體驗收著）：照分類、二返最後
+  const order = await page.locator('.chips [data-ent]').evaluateAll((els) => els
+    .filter((el) => el.offsetParent !== null).map((el) => el.dataset.ent));
   expect(order.slice(0, 2)).toEqual(['e-pool', 'e-cardio']);
   expect(order.at(-2)).toBe('e-chk');
   expect(order.at(-1), '二返照舊排最後').toBe('e-fu');
@@ -76,10 +78,10 @@ test('W2 來訪編輯器：同一個順序、一個小標都沒有；二返在�
 
   const row = page.locator('.fieldgroup').filter({ has: page.locator('[data-chip="s0-ent"]') });
   await expect(row.locator('.chiprow__lead'), '這一排不畫小標了（issue 16）').toHaveCount(0);
-  const order = await row.locator('[data-chip="s0-ent"]').evaluateAll((els) => els.map((el) => el.dataset.chipValue));
+  const order = await row.locator('[data-chip="s0-ent"]').evaluateAll((els) => els
+    .filter((el) => el.offsetParent !== null).map((el) => el.dataset.chipValue));
   expect(order.slice(0, 2)).toEqual(['e-pool', 'e-cardio']);
   expect(order.slice(-2), '健檢是最後一類，二返照舊排最後').toEqual(['e-chk', 'e-fu']);
-  await expect(row.locator('.chiprow--next [data-chip-value="e-fu"]')).toHaveCount(1);
   await below(page, '[data-chip="s0-ent"][data-chip-value="e-chk"]', '[data-chip="s0-ent"][data-chip-value="e-fu"]');
 
   // 新的一段預設扣的是那一排最左邊那一顆（不是讀回來的第一筆）

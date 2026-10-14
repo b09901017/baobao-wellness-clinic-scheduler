@@ -138,7 +138,7 @@ test('P4 那一天已完成之後再加一段、時間一樣：第一道確認�
 
   await expect(app.dialog()).toBeVisible();
   expect(await app.dialogText(), '同一個人同一個時間排了兩段')
-    .toContain('這位客戶 09:00–09:30 已經有另一段（功醫門診・已完成）');
+    .toContain('這位客戶 09:00–09:30 已經有另一段（功醫門診(體驗)・已完成）');
   await app.ok();
   // 第二道：在哪裡壓好了嗎
   await expect(app.dialog()).toBeVisible();

@@ -116,6 +116,19 @@ app 匯入時把那幾位改成全名、原本的名字變成簡寫（摘要卡�
 合併檔裡每一段寫的照舊是種子上的名字 —— app 那一側名字對不到時比簡寫，所以改名前後匯都對得到。
 終端機只印幾位、幾位種子上沒有那個名字。沒帶這個參數時，合併檔除了 `format` 那一行一個位元都不變（沒有 `staff` 這個鍵）。
 
+**客人的電話**（2026-10-14 起，合併檔 v7，gift-and-trial 08）：舊表沒有電話，她的 Abovee 截圖有。先從擷取結果
+（`pixel-exact-screenshot-extraction` 產的 JSON，`rows[]` 每一列有 `chartNo`、`name`、`phone`）建名單：
+
+```
+node .claude/skills/calendar-sheet-merge/scripts/phones.mjs <擷取結果.json> [<另一份.json> …] --out .local/references/phones.json
+```
+
+（**有真名與電話，只准寫進 `.local/`**；終端機只印幾列、幾位、不只一支的幾位。）產檔時 `--phones .local/references/phones.json`
+（`{ "<病歷號或名字>": "<電話>" | ["<電話>", …] }`）：**先照病歷號對**（舊表的、`--chart-numbers` 補上的），對不到才比名字；
+寫法不同的同一支（空白、破折號）不算不一樣。**同一位不只一支、或照名字對而舊表上同名兩位 → 不寫**，進報告 ⓪b（決定頁照舊是一項），
+匯完到客戶詳情填。報告上多一行「電話名單：寫了 N 位、名單上沒有 N 位、不只一支沒寫 N 位」。
+沒帶這個參數時合併檔沒有 `phone` 這個鍵。2026-10-14 拿她的真檔跑（5～10 月的擷取結果、帶病歷號名單）：32 位裡 28 位有電話、4 位名單上沒有、0 位不只一支。
+
 產出兩個檔：`report.txt`（給她看的對帳報告）與 `import.json`（貼進 app 的合併檔，
 格式見下面）。兩個都要交給她（容器裡用 SendUserFile，本機放 `.local/references/`）。
 
@@ -156,7 +169,8 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
       "slots": [
         { "date": "2026-06-18", "course": "ILIB", "nth": 1, "set": { "fromEvent": "<行事曆原文>", "startsAt": "09:30", "room": "點滴10", "equipment": "SIS", "therapist": "…", "iv": "…", "entitlement": "r7:2", "durationMin": 30 } },
         { "date": "2026-09-16", "course": "復能", "clear": true },
-        { "date": "2026-08-05", "add": { "course": "二返", "fromEvent": "<行事曆原文>", "entitlement": "r9-followup" } }
+        { "date": "2026-08-05", "add": { "course": "二返", "fromEvent": "<行事曆原文>", "entitlement": "r9-followup" } },
+        { "date": "2026-09-20", "add": { "course": "復能", "fromEvent": "<行事曆原文>", "equipment": "INDIBA", "durationMin": 30, "free": "體驗" } }
       ],
       "skipEvents": [{ "date": "2026-09-10", "title": "<行事曆原文>" }],
       "notes": { "add": [{ "text": "…", "color": "red" }], "drop": ["<備註原文>"] },
@@ -173,6 +187,9 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 
 - 對人用**分頁名**、對事件用**日期＋行事曆原文**、對時段用**日期＋課程＋第幾段**。`_why` 開頭的欄位是給人看的，程式不讀
 - 拆出來的額度 key 是 `r<列>:2`、`r<列>:3`；配出來的二返是 `r<健檢那一列>-followup`（app 匯入時會配出同一個 key）
+- 「加一段」的 `free: "體驗"|"送的"`（v7）：那一段**不扣任何一筆**（就算身上有那門課的額度）、合併檔寫 `giftKind`，**任何課都可以，健檢與二返除外**
+  （寫了進 ⓪d、那一段不加；要加約走 n返）。不寫 `free`、沒有額度、課程不算次數（功醫門診）的照舊放行，合併檔寫 `giftKind: "trial"`。
+  **不要再替體驗的客人加一筆「送的」額度**（`entitlements` 的 `add`）—— 那是 v7 之前的做法
 - **額度的決定在配對之前套、時段的決定在配對之後套**：併掉的那一列，它底下的時段要先指到新的那一筆
 - **對不到對象的決定排在報告 ⓪d 最前面**。下一批她改過舊表之後最容易發生，
   而一條安靜失效的決定跟沒有決定長得一模一樣 —— 重新問她，不要刪掉那一條就算了
@@ -242,10 +259,12 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v6'          （app 也收 v1～v5：少的那幾格退回以前的值；v4 的候選多了 decided；
-                                    v5 不算次數的課那一段沒有 entitlementKey；v6 多一段選填的 staff。一律寫 v6）
+format: 'baobao-merge/v7'          （app 也收 v1～v6：少的那幾格退回以前的值；v4 的候選多了 decided；
+                                    v5 不算次數的課那一段沒有 entitlementKey；v6 多一段選填的 staff；
+                                    v7 客戶多 phone、每一段多 giftKind。一律寫 v7）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
+               phone,                                 （v7，選填：只有帶 --phones 才有這個鍵。字串或 null）
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
                purchaseProblems[]: string,            （v2：B2 拿應有次數驗過、對不上的那幾條）
                flags[]: string, partners[]: string,   （v3：金屬類／血管類與合作機構名自動帶，否定句不算，ADR-0092）
@@ -255,6 +274,8 @@ customers[]: { sheetName, name, source, purchasedAt, notes,
                                  purchaseKey },       （v2：同一次購買同一個 key；v3：durationMin，30 分與 60 分是兩種東西）
                visits[]:       { date, status:'done',
                                  slots[]: { entitlementKey（v5：不算次數的課是 null）, courseName,
+                                            giftKind,     （v7，選填：'trial'|'gift'，有值就沒有 entitlementKey；一般的段沒有這個鍵。
+                                                           候選清單不帶 —— app 補的時候照課程推）
                                             startsAt, endsAt, roomName, therapistName,
                                             equipmentName, ivProductName,
                                             confidence:'high'|'low'|null, evidence } } }

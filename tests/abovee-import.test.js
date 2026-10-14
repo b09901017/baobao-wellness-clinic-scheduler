@@ -436,7 +436,7 @@ describe('07 分流與品項', () => {
   test('功醫門診（沒有任何額度的客戶）：不扣次數那一顆、勾著、記得進去', () => {
     const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '功醫門診']);
     assert.equal(item.entitlementId, null);
-    assert.equal(item.uncountedCourseId, 'course-fm');
+    assert.equal(item.giftCourseId, 'course-fm');
     assert.equal(item.checked, true);
     const { groups, problems } = planAbovee([item], c7());
     assert.deepEqual(problems, {});
@@ -447,7 +447,7 @@ describe('07 分流與品項', () => {
     const bought = { id: 'a-fm', type: 'single', label: '功醫門診', courseId: 'course-fm', totalQty: 2 };
     const item = read(['確認前往', '2026-09-20', '09:00 - 10:15', '客戶A', '', '功醫門診'], c7({ 'c-a': [...ENTS['c-a'], bought] }));
     assert.equal(item.entitlementId, 'a-fm');
-    assert.equal(item.uncountedCourseId, null);
+    assert.equal(item.giftCourseId, null);
   });
 
   test('照片上寫哪一款就是那一款，同時買了兩款時扣對的那一筆', () => {

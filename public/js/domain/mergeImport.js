@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { DOCTOR_ROLE, hasAlias, isUncounted, validate } from './masterData.js';
+import { DOCTOR_ROLE, GIFT_KINDS, canBeGift, giftKindOf, hasAlias, isUncounted, validate } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
 /**
@@ -36,13 +36,17 @@ import { slotMinutes } from './visits.js';
  * - **v6（2026-10-09）** 多一段選填的 `staff`：`[{ match, name, shortName }]`，人員的全名跟著合併檔進來（ADR-0141）。
  *   **一律寫 v6**（版本講的是格式，不是內容）—— 沒帶人員名單的檔案也是 v6。v5 的 app 讀到會拒收，不會安靜地吃掉那一段
  *
+ * - **v7（2026-10-14）** 客戶多一格選填的 `phone`（產檔那側 `--phones`）、每一段多一格選填的 `giftKind`
+ *   （`'trial'`／`'gift'`，gift-and-trial 08）：有值的那一段不扣任何一筆額度，**任何課**（健檢、二返除外）。
+ *   v6 的 app 讀到會照扣、沒有額度就整段丟掉 —— 所以升版
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v6';
+export const FORMAT = 'baobao-merge/v7';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
-  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', FORMAT,
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6', FORMAT,
 ]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
@@ -185,6 +189,8 @@ export function validateFile(json) {
   for (const [i, c] of (json.customers ?? []).entries()) {
     const at = `第 ${i + 1} 位（${c?.name || '沒有名字'}）`;
     if (!norm(c?.name)) errors.push(`${at}：沒有名字`);
+    // v7 的兩格（選填）：形狀不對整份拒收，同 `staff`
+    if (c?.phone != null && typeof c.phone !== 'string') errors.push(`${at}：電話的格式不對`);
     if (!Array.isArray(c?.entitlements)) errors.push(`${at}：少了 entitlements`);
     if (!Array.isArray(c?.visits)) errors.push(`${at}：少了 visits`);
     for (const v of c?.visits ?? []) {
@@ -197,6 +203,7 @@ export function validateFile(json) {
         if (half) errors.push(`${at} ${v.date}：時間只填了一半（${s.startsAt ?? '無'}–${s.endsAt ?? '無'}）`);
         if (s?.startsAt != null && !isValidTime(s.startsAt)) errors.push(`${at} ${v.date}：開始時間不合法（${s.startsAt}）`);
         if (s?.endsAt != null && !isValidTime(s.endsAt)) errors.push(`${at} ${v.date}：結束時間不合法（${s.endsAt}）`);
+        if (s?.giftKind != null && !GIFT_KINDS.includes(s.giftKind)) errors.push(`${at} ${v.date}：送的／體驗那一格看不懂（${s.giftKind}）`);
       }
     }
   }
@@ -361,9 +368,12 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     const slots = [];
     for (const s of v.slots ?? []) {
       const course = byName(courses, s.courseName);
+      // **送的／體驗的段不扣任何一筆**（v7）：檔案上寫了就照寫，任何課都可以（健檢、二返除外）。
       // **不算次數的課可以沒有額度**（ADR-0121，合併檔 v5）：檔案上那一格是空的、而且那門課在**她的主檔**上
-      // 勾了不算次數才放行。寫了一把對不到的鑰匙照舊擋 —— 那是壞掉的檔案，不是「沒有額度」。
-      const free = s.entitlementKey == null && isUncounted(course);
+      // 勾了不算次數才放行 —— 寫實成體驗（匯入不走 `save()`，不寫就永遠是推導的）。
+      // 寫了一把對不到的鑰匙照舊擋 —— 那是壞掉的檔案，不是「沒有額度」。
+      const gift = GIFT_KINDS.includes(s.giftKind) ? s.giftKind : null;
+      const free = Boolean(gift) || (s.entitlementKey == null && isUncounted(course));
       if (!free && !keys.has(s.entitlementKey)) {
         problem(`${v.date} ${s.courseName}`, s.entitlementKey ?? '', '這個時段對不到任何一筆額度，沒有匯入');
         continue;
@@ -372,8 +382,13 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         problem(`${v.date} ${s.courseName}`, s.courseName, '主檔裡沒有這個課程，這個時段沒有匯入');
         continue;
       }
+      if (gift && !canBeGift(course, courses)) {
+        problem(`${v.date} ${s.courseName}`, s.giftKind, `健檢與二返沒有體驗／送的（${course.name}），這個時段沒有匯入`);
+        continue;
+      }
       slots.push({
         entitlementKey: free ? null : s.entitlementKey,
+        giftKind: free ? gift ?? 'trial' : null,
         courseId: course.id,
         courseName: course.name,
         ...resolveAssignments(s, { equipment, ivProducts, rooms, staff }, problem, `${v.date} ${s.courseName}`),
@@ -394,7 +409,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     skip: null,
     customer: {
       name,
-      phone: null,
+      // v7：產檔那側從 Abovee 的擷取結果帶過來的（`--phones`）。v6 以前沒有就是 null
+      phone: typeof entry.phone === 'string' && norm(entry.phone) ? norm(entry.phone) : null,
       lineId: null,
       source: entry.source || null,
       purchasedAt: entry.purchasedAt ?? null,
@@ -594,6 +610,8 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     const status = statusFor(x.status, x.date, today);
     const slot = {
       entitlementKey: free ? null : hits[0].key,
+      // 行事曆上的雜事分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
+      giftKind: free ? 'trial' : null,
       courseId: course.id,
       courseName: course.name,
       equipmentId: null,
@@ -626,7 +644,8 @@ export function addExtraVisits(plans, extras, ctx = {}) {
 }
 
 /**
- * 寫入之前那一道：哪幾段「該有額度卻沒有」。**不算次數的課沒有額度是對的**（ADR-0121），其餘都算 ——
+ * 寫入之前那一道：哪幾段「該有額度卻沒有」。**送的／體驗的段沒有額度是對的**（v7 的 `giftKind`；
+ * 沒有那一格的是不算次數的課，ADR-0121 —— 讀法只有 `giftKindOf()`），其餘都算 ——
  * 課程查不到的那一段也算（認不得的東西不放行）。
  *
  * 住在這裡而不是 `data/legacyImport.js`：那一支連著 Firestore，測不到；而這一條放錯了的下場是
@@ -637,7 +656,7 @@ export function addExtraVisits(plans, extras, ctx = {}) {
  */
 export function slotsMissingEntitlement(visits, coursesById = {}) {
   return (visits ?? []).flatMap((v) => v.slots ?? [])
-    .filter((s) => !s.entitlementId && !isUncounted(coursesById[s.courseId]));
+    .filter((s) => !s.entitlementId && !giftKindOf(s, coursesById));
 }
 
 function addMinutes(hhmm, min) {
@@ -997,6 +1016,8 @@ export function summarize(plans) {
   const live = plans.filter((p) => !p.skip);
   return {
     customers: live.length,
+    // v7：帶著電話的那幾位（只數字，摘要卡印）
+    phones: live.filter((p) => p.customer?.phone).length,
     skipped: plans.filter((p) => p.skip).map((p) => ({ customerName: p.customerName, why: p.skip })),
     entitlements: live.reduce((n, p) => n + p.counts.entitlements, 0),
     // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。

@@ -11,7 +11,9 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import * as tasksData from './tasks.js';
 import * as customersData from './customers.js';
-import { touchedEntitlementIds, recount, withSlotNotes, withSlotStatuses } from '../domain/visits.js';
+import {
+  touchedEntitlementIds, recount, withSlotNotes, withSlotStatuses, withGiftKinds,
+} from '../domain/visits.js';
 import { syncTasksForVisit, changedTaskKinds, tasksAfterCourseChange } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS, pairsOf,
@@ -151,9 +153,13 @@ export async function save(visit, customerVisits = []) {
   // **每一段都補上狀態**（ADR-0081）。寫入是唯一的路口，補在這裡就不會有
   // 哪個呼叫端忘了 —— 而少補的那一筆之後逐段取消時，其他段要靠整筆的狀態
   // 去猜，偏偏整筆的狀態正在被改。
-  // 兩件「她存過一次就補齊」的事走同一個路口：每一段補上狀態（ADR-0081）、
-  // 舊資料那一句話搬到第一段（ADR-0084）。補在這裡就不會有哪個呼叫端忘了。
-  const next = withSlotNotes(withSlotStatuses({ ...visit, id }));
+  // 三件「她存過一次就補齊」的事走同一個路口：每一段補上狀態（ADR-0081）、
+  // 舊資料那一句話搬到第一段（ADR-0084）、送的／體驗寫實（gift-and-trial 01：沒有那一格的舊段
+  // 讀的時候照課程猜，存一次就寫死 —— 之後她把那門課的「不算次數」拿掉，那一段照樣存得下去）。
+  // 補在這裡就不會有哪個呼叫端忘了。**寫實要課程主檔**，所以課程在這裡先讀（`taskOps()` 接著用同一份）
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  const next = withGiftKinds(withSlotNotes(withSlotStatuses({ ...visit, id })), coursesById);
   const after = [...customerVisits.filter((v) => v.id !== id), next];
 
   const ops = [
@@ -163,7 +169,7 @@ export async function save(visit, customerVisits = []) {
       ? { op: 'update', path: PATH, id, changes: payloadOf(next), ifUpdatedAt: visit.updatedAt ?? null }
       : { op: 'create', path: PATH, id, data: payloadOf(next) },
     ...countOps(visit.customerId, [previous, next], after),
-    ...(await taskOps(next, { isNew: !previous, visitsAfter: after })),
+    ...(await taskOps(next, { isNew: !previous, visitsAfter: after, courses })),
   ];
 
   await repo.commit(ops);
@@ -224,10 +230,10 @@ export async function restore(visit, customerVisits = []) {
  * 那幾張是軟刪除，而比對問的是「這件事有沒有人做過」—— 看不到它們的話，
  * 同一筆來訪再存一次就會把已經做過的登記與取消重新長一次。
  */
-async function taskOps(visit, { isNew = false, visitsAfter = null } = {}) {
+async function taskOps(visit, { isNew = false, visitsAfter = null, courses: known = null } = {}) {
   const [existing, courses] = await Promise.all([
     isNew ? [] : tasksData.listByVisitForSync(visit.id),
-    config.listAll('courses', { includeDeleted: true }),
+    known ?? config.listAll('courses', { includeDeleted: true }),
   ]);
 
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
