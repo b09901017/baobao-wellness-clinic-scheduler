@@ -377,3 +377,38 @@ describe('每一種新的修正：寫得下去、畫面上有文案', () => {
     assert.match(view, /restore: '還原'/);
   });
 });
+
+describe('資料健檢：心臟科評估、EECP體驗 勾起「不算次數」（gift-and-trial 05）', () => {
+  // 她（2026-10-14）：「那能不能把HRV和心臟門診都和EECP 體驗都變成不算次數，畢竟這個都是送，或是體驗的的不會需要買」
+  const rows = (m) => of(run(m), 'seedBlanks').filter((f) => 'uncounted' in (f.fix.changes ?? {}));
+  const both = (fn) => master({ courses: (cs) => cs.map((c) => (['course-cardio', 'course-eecp-trial'].includes(c.id) ? fn(c) : c)) });
+
+  test('新的資料庫：種子上兩門都不算次數', () => {
+    assert.equal(isUncounted(course('course-cardio')), true);
+    assert.equal(isUncounted(course('course-eecp-trial')), true);
+    assert.deepEqual(rows(master()), []);
+  });
+
+  test('舊種子（沒有那一格）→ 兩列，按了寫 uncounted: true，而且寫完設定頁存得回去', () => {
+    const found = rows(both((c) => without(c, 'uncounted')));
+    assert.deepEqual(found.map((f) => f.title).sort(), ['EECP體驗', '心臟科評估']);
+    for (const f of found) {
+      assert.deepEqual([f.fix.kind, f.fix.type, f.fix.changes], ['setMasterFields', 'courses', { uncounted: true }]);
+      assert.deepEqual(validate('courses', { ...course(f.fix.id), ...f.fix.changes }), []);
+    }
+  });
+
+  test('設定頁存過的（false）也報 —— 分不出刻意取消與從來沒勾過', () => {
+    assert.equal(rows(both((c) => ({ ...c, uncounted: false }))).length, 2);
+  });
+
+  test('她改過名字的不報（那已經是她的課了）', () => {
+    const m = master({ courses: patch('course-cardio', (r) => ({ ...without(r, 'uncounted'), name: '心臟門診' })) });
+    assert.deepEqual(rows(m).map((f) => f.title), []);
+  });
+
+  test('一個種子 id 都沒有的資料庫不念', () => {
+    const m = master({ courses: (cs) => cs.map((c) => ({ ...without(c, 'uncounted'), id: `mine-${c.id}` })) });
+    assert.deepEqual(rows(m), []);
+  });
+});

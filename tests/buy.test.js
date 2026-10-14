@@ -799,8 +799,9 @@ describe('加購那一排：先分類再項目', () => {
     const html = buy.fields(e, SEEDED);
     assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
     const items = chipsIn(html, 'buyItem');
+    // 心臟科評估 2026-10-14 起不算次數（gift-and-trial 05，她：「不會需要買」）—— 加購那一排不列它
     assert.deepEqual(items.map((c) => c.label),
-      ['復健科醫師門診', '心臟科評估', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
+      ['復健科醫師門診', '二返', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
     assert.ok(items.every((c) => !c.pressed));
   });
 
@@ -873,7 +874,8 @@ describe('加購那一排：先分類再項目', () => {
     const top = chipsIn(buy.fields(buy.blank(), withEecp), 'buy').map((c) => c.label);
     assert.ok(!top.includes('ILIB'), top.join('/'));
     const inside = chipsIn(buy.fields(tap(withEecp, buy.groupPick('EECP')), withEecp), 'buyItem');
-    assert.deepEqual(inside.map((c) => c.label), ['ILIB', 'EECP', 'EECP體驗']);
+    // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）—— 加購那一排不列它
+    assert.deepEqual(inside.map((c) => c.label), ['ILIB', 'EECP']);
   });
 
   test('開合狀態不會漏進存下去的額度', () => {

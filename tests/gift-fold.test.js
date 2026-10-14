@@ -17,8 +17,8 @@ import {
 import { SEED } from '../public/js/domain/seed.js';
 import * as giftFold from '../public/js/ui/components/giftFold.js';
 
-// 05 之後的種子：心臟科評估、EECP體驗 也不算次數。這一支先自己勾，05 之前就驗得到順序
-const COURSES = SEED.courses.map((c) => (['course-cardio', 'course-eecp-trial'].includes(c.id) ? { ...c, uncounted: true } : c));
+// 種子：功醫門診、HRV、心臟科評估、EECP體驗 不算次數（心臟科評估與 EECP體驗 是 gift-and-trial 05）
+const COURSES = SEED.courses;
 const master = { courses: COURSES, equipment: SEED.equipment };
 
 const ent = (id, courseId, label, over = {}) => ({

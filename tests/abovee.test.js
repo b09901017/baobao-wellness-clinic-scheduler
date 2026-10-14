@@ -202,7 +202,8 @@ describe('07 課程那一格：品項、Abovee 寫法、三返、任選', () => 
   };
 
   test('EECP20 → EECP 體驗（整格比對、在拆分鐘之前）；EECP60 → EECP', () => {
-    assert.deepEqual(at('EECP20'), ['course-eecp-trial', null, null, null, null, false]);
+    // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）
+    assert.deepEqual(at('EECP20'), ['course-eecp-trial', null, null, null, null, true]);
     assert.deepEqual(at('EECP60'), ['course-eecp', null, null, 60, null, false]);
   });
 

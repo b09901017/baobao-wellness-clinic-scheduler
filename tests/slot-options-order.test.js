@@ -87,7 +87,8 @@ describe('照分類排，一個小標都不畫', () => {
     assert.deepEqual(doctor.map((o) => o.label), ['心臟科評估']);
     const tail = out.slice(out.findIndex((o) => o.folded));
     assert.ok(tail.every((o) => o.folded));
-    assert.deepEqual(tail.filter((o) => !o.other).map((o) => o.label), ['功醫門診', 'HRV']);
+    // 心臟科評估、EECP體驗 2026-10-14 起也不算次數（gift-and-trial 05）；身上那一筆心臟科評估的額度照樣在上面
+    assert.deepEqual(tail.filter((o) => !o.other).map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP體驗']);
   });
 
   test('只買了復能的客戶：上面那一排只有復能', () => {
