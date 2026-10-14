@@ -3,7 +3,7 @@
 // 她 2026-09-17：「拍壓表的電腦畫面（Abovee）→ 一口氣新增很多來訪…可以說辯識到什麼…
 // 必須要能夠主次分明一目瞭然」「讓我一次上傳兩張圖片，也接受上傳一張」「直接標成壓完」。
 //
-// AI 只抄字（`functions/transcripts/aboveeList.js`：九欄、照照片的順序），這一支：
+// AI 只抄字（`functions/transcripts/aboveeList.js`：十一欄、照照片的順序），這一支：
 //
 // 1. **兩張怎麼對**（`mergeAboveePhotos()`）：Abovee 列表二十幾欄塞不進一個畫面，右半邊沒有姓名、
 //    日期、時段 —— 兩張只能照「第幾列」對上，**列數不一樣就不對**。兩張都有姓名（兩頁、同一頁拍兩次）
@@ -27,7 +27,7 @@ import {
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
-import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS,
+import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { toMinutes } from './visitTime.js';
@@ -38,20 +38,20 @@ import { slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
 import { bookingSystemOf } from './taskRules.js';
 
-/** 照片上的欄名 → 列上的欄位。只有這十欄（`ABOVEE_COLUMNS`）。 */
+/** 照片上的欄名 → 列上的欄位。只有這十一欄（`ABOVEE_COLUMNS`）。 */
 export const ABOVEE_KEYS = Object.freeze({
   預約狀態: 'status', 預約日期: 'date', 預約時段: 'time', 姓名: 'name', 病歷號: 'chartNo',
-  課程: 'course', 合併扣課: 'merged', 診間: 'room', 服務資源: 'resource', 取消原因: 'cancelReason',
+  課程: 'course', 合併扣課: 'merged', 預約來源: 'source', 診間: 'room', 服務資源: 'resource', 取消原因: 'cancelReason',
 });
 
 /**
  * 右半邊那幾格：左右兩張配對時才從右半補進來。「合併扣課」在 Abovee 上緊跟著課程（左半），
  * 但她拍的那一半切在哪不一定 —— 左半那一格空著、右半有的話照樣補（左半有字的不會被蓋掉）。
  */
-const RIGHT_KEYS = ['room', 'resource', 'cancelReason', 'merged'];
+const RIGHT_KEYS = ['room', 'resource', 'cancelReason', 'merged', 'source'];
 
 /**
- * 交界上的那三欄：**兩張都有字時取比較長的那一個**（prelaunch-fixes/13）。
+ * 交界上的那幾欄：**兩張都有字時取比較長的那一個**（prelaunch-fixes/13）。「預約來源」也在交界（gift-and-trial 06）。
  *
  * Abovee 的列表太寬，她拍左右兩張；「診間」剛好在交界，左半張常切到一半。10/5 那次考試 AI 把被切掉的字
  * 照抄成「治療」—— 以前「左半那一格空著才用右半的」，右半完整的「治療室5」就被丟掉；EECP 的服務資源寫的是
@@ -60,7 +60,7 @@ const RIGHT_KEYS = ['room', 'resource', 'cancelReason', 'merged'];
  * 不寫成「右半有字就用右半」：右半從那一欄中間開始拍時，右半那一格只有後半個字，反過來蓋掉左半完整的。
  * **被切掉的一定比完整的短**，取長的兩個方向都對。「合併扣課」不在這裡 —— 它屬於左半，照舊左半有字就不動。
  */
-const EDGE_KEYS = ['room', 'resource', 'cancelReason'];
+const EDGE_KEYS = ['room', 'resource', 'cancelReason', 'source'];
 
 /** 兩張上同一格取哪一個：只有一邊有字就用那一邊；都有字取比較長的；一樣長取 `tie`。 */
 function fullerCell(first, second, tie = 'first') {
@@ -96,6 +96,12 @@ export function aboveeEnd(text) {
   if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
   return `${m[1].padStart(2, '0')}:${m[2]}`;
 }
+
+/**
+ * 這一列 Abovee 寫的是體驗嗎（gift-and-trial 06）：「預約來源」那一格去空白後含「體驗」。**只有這一支。**
+ * 抄字沒有那一欄（Function 還沒重新部署）就是空的 → 不是體驗，跟以前一模一樣。
+ */
+export const isTrialRow = (row) => clean(row?.source).replace(/\s/g, '').includes('體驗');
 
 /** 「合併扣課」那一格有沒有勾。Abovee 上寫「是」；抄成勾勾也算。 */
 export function mergedMark(text) {
@@ -164,7 +170,7 @@ function joinPages(base, incoming) {
     taken.add(at);
     const merged = { ...base[at], photos: [...base[at].photos, ...row.photos] };
     for (const key of Object.values(ABOVEE_KEYS)) if (!merged[key] && row[key]) merged[key] = row[key];
-    // 交界上那三欄可能有一張切到一半（13）：兩張都有字就取比較長的，一樣長留第一張的
+    // 交界上那幾欄可能有一張切到一半（13）：兩張都有字就取比較長的，一樣長留第一張的
     for (const key of EDGE_KEYS) if (base[at][key] && row[key]) merged[key] = fullerCell(base[at][key], row[key]);
     rows[at] = merged;
   }
@@ -201,7 +207,7 @@ export function mergeAboveePhotos(transcripts = []) {
   const rows = left.rows.map((row, i) => {
     const out = { ...row, photos: [...row.photos, right.photo] };
     for (const key of RIGHT_KEYS) if (!out[key] && right.rows[i][key]) out[key] = right.rows[i][key];
-    // 交界上那三欄：左半切到一半的不可以蓋掉右半完整的（一樣長取右半 —— 那幾欄本來就在右半）
+    // 交界上那幾欄：左半切到一半的不可以蓋掉右半完整的（一樣長取右半 —— 那幾欄本來就在右半）
     for (const key of EDGE_KEYS) {
       if (row[key] && right.rows[i][key]) out[key] = fullerCell(row[key], right.rows[i][key], 'second');
     }
@@ -514,7 +520,11 @@ export function resolveItem(item, customerId, ctx, items = null) {
   // 「要做什麼」那一排先按好哪一顆。**n返 與不算次數的課在挑額度之前就走自己的路**：`三返` 認出來的
   // 課程是二返那一門，照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
   let value = null;
+  const courses = ctx.master?.courses ?? [];
   if (course?.nth) value = NTH_PICK;
+  // Abovee 寫體驗（06）：那門課的體驗，**不看身上有沒有額度**（她選的：「就算他身上有買那門課也不扣」）。
+  // 健檢、二返沒有體驗 → 照下面挑額度，那一列多一句（`trialSay()`）
+  else if (isTrialRow(next.row) && canBeGift(courses.find((c) => c.id === course?.courseId), courses)) value = giftPick(course.courseId);
   else {
     const choices = entitlementChoices(next.customerId, course, ctx);
     // 不算次數的課（ADR-0121）：身上還有那門課的額度就照舊扣；沒有剩的才不扣
@@ -1066,7 +1076,8 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
   return (items ?? []).flatMap((i) => {
     if (pairs.has(i.key)) return [pairs.get(i.key)];
     if (used.has(i.key)) return [];
-    if (hasColumn && i.kind === 'new' && !i.cancelled && mergedMark(i.row?.merged)) {
+    // 送的／體驗的列不扣，沒有「扣兩次」的風險 —— 不標（06）
+    if (hasColumn && i.kind === 'new' && !i.cancelled && !i.giftCourseId && mergedMark(i.row?.merged)) {
       return [{ ...i, mergeOrphan: true, checked: false }];
     }
     return [i];
@@ -1554,25 +1565,40 @@ export function visitsForCheck(groups, group, ctx) {
  *
  * - `all`：點開那一列看到的（每一種都在）
  * - `mustSee`：不點開也要看得到的（`visits.js` 的 `mustSee()`：器材對警示、重疊、超用、品項不一樣、撞到別人），
- *   是 `all` 的子集、同一句。合併扣課另一台的提醒（`mergedNotices()`）也算 —— 那是同一種「器材對警示要注意」
+ *   是 `all` 的子集、同一句。合併扣課另一台的提醒（`mergedNotices()`）也算 —— 那是同一種「器材對警示要注意」；
+ *   Abovee 寫體驗卻照扣的那一句（`trialSay()`）也算
  *
  * @param {{items: object[], at: Record<string, number>}} group `planAbovee()` 的一組
  * @param {{text: string, source: string, slots: number[]}[]} details `warningDetails(group.visit, …)`
- * @param {{customer?: object, equipment?: object[]}} [o] 合併扣課第二台要問的：這位客戶的警示、器材主檔
+ * @param {{customer?: object, equipment?: object[], courses?: object[]}} [o] 合併扣課第二台要問的：這位客戶的警示、器材主檔；
+ *   體驗那一句要問的：課程主檔
  * @returns {Record<string, {all: string[], mustSee: string[]}>}
  */
-export function warningsByRow(group, details = [], { customer = null, equipment = [] } = {}) {
+export function warningsByRow(group, details = [], { customer = null, equipment = [], courses = [] } = {}) {
   const out = {};
   for (const item of group?.items ?? []) {
     const at = group.at?.[item.key];
     const mine = (details ?? []).filter((w) => (w.slots ?? []).includes(at));
-    const second = mergedNotices(item, customer, equipment);
+    const second = [...mergedNotices(item, customer, equipment), ...trialSay(item, courses)];
     out[item.key] = {
       all: [...mine.map((w) => w.text), ...second],
       mustSee: [...mine.filter(mustSee).map((w) => w.text), ...second],
     };
   }
   return out;
+}
+
+/**
+ * Abovee 寫體驗、這一段卻扣了一次額度（06）：健檢與二返沒有體驗（`canBeGift()`），或她自己按了一筆額度。
+ * **收著也看得到**（`warningsByRow()` 放進 `mustSee`）—— 她沒點開就扣了一次。
+ */
+function trialSay(item, courses = []) {
+  if (!isTrialRow(item?.row) || !item?.entitlementId) return [];
+  const course = (courses ?? []).find((c) => c.id === item.course?.courseId);
+  // 課程認不出來的那一列不知道是不是健檢：講她自己選了扣額度那一句
+  return [course && !canBeGift(course, courses)
+    ? 'Abovee 上寫體驗 —— 健檢、二返沒有體驗，這一段照扣一次'
+    : 'Abovee 上寫體驗，這裡選了扣額度 —— 照扣一次'];
 }
 
 /** 收著的那一行最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句）。 */

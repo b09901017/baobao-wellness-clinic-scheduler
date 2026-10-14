@@ -1,6 +1,6 @@
 # 拍 Abovee：多抄「預約來源」，寫「體驗」的那一列自動標體驗、不用額度
 
-Status: todo
+Status: done
 Blocked by: 04（預選要畫在 04 那一排）、05（判準的心臟門診那兩條靠種子）
 動工前先讀：`spec.md`「拍 Abovee 認體驗」；ADR-0099（抄字格式不長 id 與狀態）、ADR-0100（考試結果、重考）、ADR-0101（照片不存）、ADR-0123；
 `functions/transcripts/aboveeList.js` 檔頭與 schema（寫死「十欄」「十個」那幾處）；`public/js/domain/transcripts.js`；
@@ -48,3 +48,24 @@ CLAUDE.md「AI 的抄字格式」與「拍 Abovee 記很多段」兩列；`docs/
 - 抄字沒有預約來源那一欄（舊 Function）：每一列的預選跟改之前一模一樣
 - 一列健檢、預約來源「體驗」：照扣、那一句收著也看得到
 - 重考分數不比 10/9 那一次低（ADR-0100 有數字）
+
+## 做完時留下的
+
+- 抄字：兩份 `ABOVEE_COLUMNS` 多「預約來源」（排在合併扣課與診間之間，照 Abovee 上的順序）；提示詞那一欄「照畫面寫（例：體驗、正式課、顧客會）」，
+  寫死「十欄」「十個」的地方都改成十一。**沒有任何翻譯欄**（ADR-0099）。`tests/abovee-halves-room.test.js` 那一條改名（「十一欄、五格」）
+- `aboveeImport.js`：`ABOVEE_KEYS` 多 `預約來源: 'source'`，**`RIGHT_KEYS` 與 `EDGE_KEYS` 都加了**（左半沒有從右半補、兩邊都有取比較長的）。
+  `isTrialRow(row)` 是唯一的判斷（那一格去空白後含「體驗」）
+- `resolveItem()`：n返 → 寫體驗而且 `canBeGift()` → `giftPick(那門課)`（`giftRow()` 給 `trial`、照片上那一台屬於這門課才留）→ 其餘照舊。
+  **不看身上有沒有額度**。「換一位」照樣是體驗（`next` 不清 `row`）
+- 健檢、二返寫體驗：照舊挑額度，`warningsByRow()` 多一句 `trialSay()`（**進 `mustSee`**，收著也看得到、存檔前那一道也數到）：
+  `Abovee 上寫體驗 —— 健檢、二返沒有體驗，這一段照扣一次`；她自己在寫體驗的那一列改按扣額度時是 `Abovee 上寫體驗，這裡選了扣額度 —— 照扣一次`。
+  `warningsByRow()` 多收 `courses`（確認層傳 `ctx.master.courses`）；課程那一格認不出來的那一列不知道是不是健檢 → 講「這裡選了扣額度」那一句（09 自己審查時補的）
+- 合併扣課：`mergeRows()` 的 pool 本來就跳過 `giftCourseId`；`mergeOrphan` 也跳過送的／體驗的列（不扣，沒有扣兩次的風險）
+- 確認層「照片上寫的是」那一排多一顆預約來源（`seenChip(r.source)`）—— 她看得到為什麼被選成體驗
+- **重考**（ADR-0100 寫了）：答案卷 2 張沒有退步（服務資源 9/10、其餘照舊），預約來源拿擷取檔對 10/10、10/10；
+  她的 7 張手機照片考兩次，預約來源 18/18、15/15，那一列真的體驗兩次都抄到、沒有一列被抄出假的「體驗」。花 US$0.11。
+  `.local/references/ai-exam/abovee-photos-exam.mjs` 多考預約來源、輸出檔名照 `EXAM_DAY`
+- **staging 的 Function 10/14 部署了**（`--project staging`，沒登入叫不動驗過）。**正式的上 main 那天部署**（09 的清單）
+- 新測試：`tests/abovee-trial-source.test.js`（18 條：欄位、`isTrialRow`、判準每一條、左右兩半、舊 Function、合併扣課）；
+  E2E `67` 的 G9（假抄字 `aboveeList-trial.json`），`related.js` 把 `aboveeImport.js`、`aboveeConfirm.js`、`transcripts.js`、`functions/transcripts/`、那一份假抄字登記給 `67`
+- 相關 E2E（`--related --base 5ca5d7f`，13 支、74 條，無頭）：**全過**（8.9 分）

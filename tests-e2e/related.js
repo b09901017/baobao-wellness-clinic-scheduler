@@ -533,8 +533,11 @@ export const COVERAGE = {
     'public/css/', 'public/manifest.webmanifest', 'public/js/ui/components/camera.js',
   ],
   // 送的／體驗（gift-and-trial）：來訪編輯器存回去那一格不會被留錯或蓋掉、器材與時長那兩排、名字帶標記；
-  // 04：收在「送的／體驗…」後面（壓表、來訪編輯器）、「體驗｜送的」那一排、不整頁重畫、手機寬度
+  // 04：收在「送的／體驗…」後面（壓表、來訪編輯器）、「體驗｜送的」那一排、不整頁重畫、手機寬度；
+  // 06：拍 Abovee 讀「預約來源」寫體驗的那一列（確認層、翻譯、抄字格式、假抄字）
   '67-gift-and-trial': [
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/transcripts.js',
+    'functions/transcripts/', 'tests-e2e/fixtures/ai/aboveeList-trial.json',
     'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/slotOptions.js',
     'public/js/domain/masterData.js', 'public/js/domain/naming.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/calendar.js',

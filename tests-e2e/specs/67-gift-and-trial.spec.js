@@ -11,6 +11,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement, visit, slot, TODAY, addDays } from '../fixtures/data.js';
+import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
 
 const DAY = TODAY;
 const MONTH = TODAY.slice(0, 7);
@@ -273,4 +274,59 @@ test('G8 手機寬度（360px）：展開之後那一排不撐出橫向捲動（
   await page.locator('[data-giftfold-group]', { hasText: '醫師門診' }).click();
   const [msw, mcw] = await page.locator('.app__main').evaluate((el) => [el.scrollWidth, el.clientWidth]);
   expect(msw, '來訪編輯器（捲的是 .app__main）').toBeLessThanOrEqual(mcw + 1);
+});
+
+// ---------- 06：拍 Abovee 讀「預約來源」 ----------
+
+test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能、INDIBA、不扣；寫體驗的健檢照扣、收著也看得到那一句', async ({ app, page }) => {
+  const month = '2026-09';
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    entitlement('cust-wang', {
+      id: 'w-pool', type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'],
+      durationMin: 60, totalQty: 12,
+    }),
+    entitlement('cust-wang', { id: 'w-exam', label: '健檢', courseId: 'course-checkup', totalQty: 1 }),
+    {
+      path: 'batches', id: 'b-sep',
+      data: {
+        targetMonth: month, status: 'active', cursor: null, lastDeviceHint: null,
+        queue: [{ customerId: 'cust-wang', customerName: '', state: 'pending', skippedReason: null }],
+      },
+    },
+  ]);
+  await app.signIn('/schedule');
+  await page.locator(`[data-month="${month}"]`).click();
+  await app.settled();
+  await queueAi(['aboveeList-trial']);
+  await page.locator('[data-abovee]').click();
+  await page.locator('[data-cam-album-input]').setInputFiles([await fakePhoto('aboveeList-trial.jpg', { width: 1600, height: 900 })]);
+  await expect(page.locator('.cam__thumb')).toHaveCount(1);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  const row = (key) => page.locator(`[data-abl-row="${key}"]`);
+  await expect(row('a0')).toBeVisible();
+
+  // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣的那一句不點開也看得到（mustSee）
+  await expect(row('a1').locator('.abl-row__hint--warn')).toContainText('健檢、二返沒有體驗');
+
+  await row('a0').locator('[data-abl-open]').click();
+  await expect(row('a0').locator('[data-abl-opt="__course__:course-recovery"]'), '身上有復能池也預選體驗').toHaveAttribute('aria-pressed', 'true');
+  await expect(row('a0').locator('[data-abl-gift="trial"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('a0').locator('[data-abl-eq="eq-indiba"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('a0').locator('.abl-row__seen')).toContainText('體驗');
+  await row('a0').locator('[data-abl-therapist="staff-zn"]').click();
+  await expect(row('a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+
+  await page.locator('[data-abl-save]').click();
+  await app.ok();
+  await app.saved();
+
+  const added = await app.readAll('visits');
+  const at = (date) => added.find((v) => v.date === date)?.slots ?? [];
+  expect(at('2026-09-10').map((s) => [s.courseId, s.equipmentId, s.entitlementId, s.giftKind, s.endsAt])).toEqual([
+    ['course-recovery', 'eq-indiba', null, 'trial', '10:30'],
+  ]);
+  expect(at('2026-09-11').map((s) => [s.courseId, s.entitlementId, s.giftKind])).toEqual([['course-checkup', 'w-exam', null]]);
 });

@@ -236,7 +236,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const check = checkCtx(groups, g);
       const { errors } = validateVisit(g.visit, check);
       // 合併扣課只記第一台，第二台要提醒的事接在後面（`warningsByRow()` 自己問 `mergedNotices()`）
-      const byRow = warningsByRow(g, warningDetails(g.visit, check), { customer: check.customer, equipment: ctx.master.equipment });
+      const byRow = warningsByRow(g, warningDetails(g.visit, check), {
+        customer: check.customer, equipment: ctx.master.equipment, courses: ctx.master.courses,
+      });
       for (const item of g.items) {
         if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
         warningsBy[item.key] = byRow[item.key].all;
@@ -463,6 +465,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${seenChip(r.time, { photo: left })}
         ${seenChip([r.name, r.chartNo].filter(Boolean).join(' '), { photo: left })}
         ${seenChip(r.course, { photo: left })}
+        ${seenChip(r.source, { photo: right })}
         ${seenChip(r.room, { photo: right })}
         ${seenChip(r.resource, { photo: right })}
         ${seenChip(r.cancelReason, { photo: right })}
