@@ -330,3 +330,40 @@ test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能�
   ]);
   expect(at('2026-09-11').map((s) => [s.courseId, s.entitlementId, s.giftKind])).toEqual([['course-checkup', 'w-exam', null]]);
 });
+
+// ---------- 08：合併檔 v7 ----------
+
+test('G10 合併檔 v7：摘要卡講幾位帶電話 → 匯入 → 客戶身上有電話；一段 IN 30 體驗不扣那一池、30 分', async ({ app, page }) => {
+  await app.seed(masterDocs());
+  await app.signIn('/settings/merge');
+  const day = addDays(TODAY, -20);
+  const file = {
+    format: 'baobao-merge/v7',
+    calendar: { file: 'timetree.ics' },
+    eventCandidates: [],
+    customers: [{
+      sheetName: '客戶A', name: '客戶A', phone: '0900-000-001',
+      entitlements: [{ key: 'r1', type: 'pool', label: '復能', totalQty: 12, courseName: null, optionEquipmentNames: ['INDIBA', 'SIS'] }],
+      visits: [{
+        date: day, status: 'done',
+        slots: [{ entitlementKey: null, giftKind: 'trial', courseName: '復能', startsAt: '10:00', endsAt: '10:30', equipmentName: 'INDIBA' }],
+      }],
+    }],
+  };
+  await page.locator('[data-json]').fill(JSON.stringify(file));
+  await page.locator('[data-load]').click();
+  await app.settled();
+  await expect(page.locator('main')).toContainText('1 位帶電話');
+
+  await page.locator('[data-run]').click();
+  await app.ok();
+  await expect(page.locator('#toast')).toContainText('客戶都匯進去了', { timeout: 20_000 });
+
+  const [cust] = (await app.readAll('customers')).filter((c) => c.name === '客戶A');
+  expect(cust.phone).toBe('0900-000-001');
+  const [v] = (await app.readAll('visits')).filter((x) => x.date === day);
+  expect(v.slots.map((s) => [s.courseId, s.equipmentId, s.entitlementId, s.giftKind, s.endsAt]))
+    .toEqual([['course-recovery', 'eq-indiba', null, 'trial', '10:30']]);
+  const [pool] = await app.readAll(`customers/${cust.id}/entitlements`);
+  expect([pool.doneCount, pool.bookedCount], '那一池一次都沒扣').toEqual([0, 0]);
+});
