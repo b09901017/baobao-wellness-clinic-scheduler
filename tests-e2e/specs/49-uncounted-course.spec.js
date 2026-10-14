@@ -40,10 +40,10 @@ const fmVisit = (over = {}) => visit({
 const liveTasks = async (app, visitId) => (await app.readAll('tasks'))
   .filter((t) => t.visitId === visitId && !t.deletedAt).map((t) => t.kind).sort();
 
-test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自己再勾一門也存得下去', async ({ app, page }) => {
+test('U1 設定 → 課程：種子的功醫門診看得出預設體驗（2026-10-14 以前叫不算次數）；她自己再勾一門也存得下去', async ({ app, page }) => {
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/courses');
-  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('不算次數');
+  await expect(page.locator('[data-course]').filter({ hasText: '功醫門診' })).toContainText('預設體驗');
 
   // 她之後自己加的那一種（種子沒有建的一門。這裡本來用「回測報告」，2026-10-06 種子補了它，換一個名字）
   await page.locator('[data-new]').click();
@@ -59,7 +59,7 @@ test('U1 設定 → 課程：種子的功醫門診看得出不算次數；她自
   expect(made.uncounted).toBe(true);
   expect(made.needsTreatmentForm).toBe(false);
   expect(made.provisional ?? null, '她自己建的不會被標成暫定').toBeNull();
-  await expect(page.locator('[data-course]').filter({ hasText: '減重門診' })).toContainText('不算次數');
+  await expect(page.locator('[data-course]').filter({ hasText: '減重門診' })).toContainText('預設體驗');
 });
 
 test('U2 一位沒有任何額度的客戶：日曆 → 新增，功醫門診已經選好、存得下去、日曆上看得到', async ({ app, page }) => {

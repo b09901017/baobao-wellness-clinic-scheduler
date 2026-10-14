@@ -167,7 +167,7 @@ function provisionalBar(r) {
     <div class="provbar" data-provbar>
       <p class="provbar__head"><span class="badge badge--tea">設定暫定</span>
         <span>這門課的設定是照同一類的課先猜的${tip(
-          '壓哪幾個系統、要不要醫師、算不算次數、時長都是先猜的。它只是提醒你這門課還沒看過 —— '
+          '壓哪幾個系統、要不要醫師、是不是預設體驗、時長都是先猜的。它只是提醒你這門課還沒看過 —— '
           + '排班、次數、待辦都照現在填的那幾格算。看過、改好了就勾右邊那一個。')}</span></p>
       ${f.toggle({ name: 'provisionalDone', label: '這些設定我確認過了', inline: true })}
     </div>`;
@@ -639,7 +639,7 @@ const editors = {
     // 以前印 `assigns`，醫師的課寫「都不用」。
     summary: (r) =>
       `${r.durationMin} 分 · ${assignSummaryOf(r)} · ${describeSystems(r)}`
-      + `${r.needsRecord ? ' · 要寫紀錄' : ''}${r.uncounted === true ? ' · 不算次數' : ''}`,
+      + `${r.needsRecord ? ' · 要寫紀錄' : ''}${r.uncounted === true ? ' · 預設體驗' : ''}`,
     fields: (r, all) => {
       const kind = assignKindOf(r);
       return [
@@ -726,11 +726,11 @@ const editors = {
             hint: '客人走了之後要補一份紀錄。目前是二返與營養師諮詢。來訪標成已完成之後，待辦上會長出一張'
               + '「寫紀錄」，死線就是來訪那一天。跟療程單是兩件事，兩個都要就兩個都勾。',
           })}
-          ${/* 不算次數（ADR-0121）。功醫門診是第一門；她之後自己勾別的。
-               2026-10-14 起它的意思是「預設是體驗、不用額度就排得進去」（gift-and-trial 04）——
-               名字要不要改留到 09 問她，這裡先把提示句講對 */''}
+          ${/* `uncounted`（ADR-0121）。功醫門診是第一門；她之後自己勾別的。
+               2026-10-14 起它的意思是「預設是體驗、不用額度就排得進去」（gift-and-trial 04、ADR-0148），
+               名字跟著改成「預設體驗」（09，她選的）。欄位名 `uncounted` 沒改：資料上的鍵一改就要搬既有的每一門課 */''}
           ${f.toggle({
-            name: 'uncounted', label: '不算次數', inline: true,
+            name: 'uncounted', label: '預設體驗', inline: true,
             value: r.uncounted === true,
             hint: '不用加購就排得進去：排的時候在「做什麼」那一排最後一顆「送的／體驗…」裡，按了就是一段體驗'
               + '（可以改成送的），不扣任何次數。已經買了這門課的客戶，選他那一筆額度排的照舊扣。'
@@ -1308,7 +1308,7 @@ function paintCourseList(el, all) {
         <button class="btn btn--primary" type="button" data-new aria-expanded="false">新增</button>
       </p>
       ${provisional ? `<p class="muted" data-provisional-count>還有 ${provisional} 門的設定是暫定的${tip(
-        '標著「設定暫定」的那幾門是照同一類的課先猜的（壓哪幾個系統、要不要醫師、算不算次數、時長）。'
+        '標著「設定暫定」的那幾門是照同一類的課先猜的（壓哪幾個系統、要不要醫師、是不是預設體驗、時長）。'
         + '它只是提醒你這門課還沒看過 —— 排班、次數、待辦都照現在填的那幾格算。')}</p>` : ''}
       <div class="fieldgroup" data-grouppick hidden>
         <span class="fieldgroup__label">放在哪一組${tip(

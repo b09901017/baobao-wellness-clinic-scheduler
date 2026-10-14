@@ -424,8 +424,8 @@ describe('三個入口都走同一支', () => {
     }
   });
 
-  test('稽核不印英文欄位名', () => {
-    assert.equal(fieldLabel('uncounted'), '不算次數');
+  test('稽核不印英文欄位名（2026-10-14 那一格改名「預設體驗」，gift-and-trial 09）', () => {
+    assert.equal(fieldLabel('uncounted'), '預設體驗');
   });
 });
 

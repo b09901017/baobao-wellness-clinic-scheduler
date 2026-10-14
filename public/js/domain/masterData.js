@@ -892,7 +892,7 @@ const validators = {
     // 不算次數（ADR-0121）。沒有這個欄位就是要算。同上面兩格只擋型別 ——
     // `isUncounted()` 只認 `true`，存成字串會安靜地被當成要算
     if (r.uncounted !== undefined && r.uncounted !== null && typeof r.uncounted !== 'boolean') {
-      errors.push('「不算次數」只能是是或否');
+      errors.push('「預設體驗」只能是是或否');
     }
 
     // 設定暫定（2026-10-06）。只畫小標、沒有規則讀它；同上只擋型別（`isProvisional()` 只認 `true`）

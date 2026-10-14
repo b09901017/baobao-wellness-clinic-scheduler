@@ -506,7 +506,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const options = optionsFor(item);
     const value = optionValueOf(item);
     if (!options.length) {
-      rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，也沒有不算次數的課 —— 先去加購再回來記。</p>');
+      rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，主檔上也沒有可以當體驗的課 —— 先去加購再回來記。</p>');
     } else {
       if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
       // 照分類排、二返那一組另起一行（`arrangeSlotOptions()`，issue 08；小標 issue 16 拿掉了）；
