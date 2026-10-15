@@ -181,15 +181,15 @@ describe('整張照片沒拍到「預約狀態」那一欄 ≠ 讀不出來', ()
   });
 });
 
-describe('客戶失約：這一支還沒拿它去改任何東西（04 才改）', () => {
-  // 釘著 01 之後它被當成什麼 —— 跟 app 上已確認的同一段比：照舊「已經記了」（以前就是這樣，`aboveeState()` 回 booked）
-  test('app 上同一段已確認、照片寫客戶失約 → 照舊是「已經記了」', () => {
+describe('客戶失約（04 起照片為準）', () => {
+  // 9/11 在這一支的「今天」（9/9）之後：還沒到就寫失約 → 只提醒、不改（過去的改成未到在 `abovee-existing-slots-photo-status.test.js`）
+  test('app 上同一段已確認、照片寫客戶失約（還沒到）→ 只提醒「還沒到就寫失約了」', () => {
     const visit = {
       id: 'v1', customerId: 'c-b', date: '2026-09-11', status: 'confirmed',
       slots: [{ startsAt: '09:00', endsAt: '10:00', status: 'confirmed', entitlementId: 'b-pool', courseId: 'course-recovery', equipmentId: 'eq-sis' }],
     };
     const { items } = readAbovee([{ ...withStatus, rows: [LINES[2]] }], ctx({ visitsBy: { 'c-b': [visit] } }));
-    assert.deepEqual(items.map((i) => [i.kind, i.photoStatus, i.checked]), [['recorded', 'no_show', false]]);
+    assert.deepEqual(items.map((i) => [i.kind, i.reason, i.photoStatus, i.checked]), [['mismatch', 'futureNoShow', 'no_show', false]]);
   });
 
   test('app 裡沒有、照片寫客戶失約（未來）→ 新的一段、不預設勾（03 改的：還沒到就寫失約了）', () => {

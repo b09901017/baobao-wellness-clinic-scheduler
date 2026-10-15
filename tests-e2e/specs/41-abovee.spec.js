@@ -283,7 +283,7 @@ test('A5 有勾起來還沒記的，點「對不上」那一列的去日曆 → 
   await expect(page.locator('.dialog-backdrop')).toHaveCount(0);
 });
 
-test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新的一段但不先勾、Abovee 上取消了的排進要你看', async ({ app, page }) => {
+test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新的一段但不先勾；Abovee 上取消了、app 上還活著的照片要改成已取消（04）', async ({ app, page }) => {
   // 她 2026-09-24 晚：「拍 Abovee上面也有標已取消等等的標記…其實也可以當作某一方面的交叉驗證?」
   const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null, note: null };
   const sis = (over) => ({
@@ -304,7 +304,8 @@ test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新�
   await openBatch(app, page);
   await photograph(page, ['aboveeList-left', 'aboveeList-right']);
 
-  await expect(page.locator('.abl__sum')).toContainText('要你看 2 段');
+  // a7 不再是要你看：照片為準（04），那一段要改成已取消 —— 「要改的」那一塊是 07
+  await expect(page.locator('.abl__sum')).toContainText('要你看 1 段');
 
   // 她 2026-10-09（ADR-0144）：「要改成算新的一段…如果這段原本是取消那預設不勾並提醒已取消過」。
   // 以前這一列是「對不上」、勾不起來 —— 取消之後在同一格重約的那一段這一層記不了
@@ -317,7 +318,7 @@ test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新�
   await row(page, 'a0').locator('[data-abl-check]').click();
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
 
-  await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('對不上');
+  await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('已取消');
   await row(page, 'a7').locator('[data-abl-open]').click();
-  await expect(row(page, 'a7').locator('.abl-row__say')).toContainText('Abovee 上取消了，app 上還是「已確認」');
+  await expect(row(page, 'a7').locator('.abl-row__say')).toContainText('照 Abovee 改成「已取消」');
 });

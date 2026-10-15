@@ -89,15 +89,16 @@ describe('取消之後在同一格重約', () => {
     });
   }
 
+  // app 上那一段已完成：照片寫已取消改不回來，只提醒（04 的 appDoneStays）
   test('照片上只有取消的那一列（沒有重約）：照舊喊對不上', () => {
     const [only] = readAbovee([photo([CANCEL_THEN_REBOOK[0]])], ctx({ 'c-lee': [done] }, '2026-10-08')).items;
-    assert.deepEqual([only.kind, only.reason], ['mismatch', 'aboveeCancelled']);
+    assert.deepEqual([only.kind, only.reason], ['mismatch', 'appDoneStays']);
   });
 
   test('重約的是別的課（同一格）：取消的那一列照舊喊對不上 —— 那不是它的重約', () => {
     const rows = [CANCEL_THEN_REBOOK[0], ['確認前往', '2026-07-15', '14:00 - 15:15', '李小華', '00005678', 'EECP60']];
     const [gone] = readAbovee([photo(rows)], ctx({ 'c-lee': [done] }, '2026-10-08')).items;
-    assert.deepEqual([gone.kind, gone.reason], ['mismatch', 'aboveeCancelled']);
+    assert.deepEqual([gone.kind, gone.reason], ['mismatch', 'appDoneStays']);
   });
 
   test('她把取消的那一列換成別人：不再當成重約（那是另一位的事）', () => {
@@ -105,7 +106,7 @@ describe('取消之後在同一格重約', () => {
     const other = { id: 'v2', customerId: 'c-wang', date: '2026-07-15', status: 'done',
       slots: [{ entitlementId: 'w-ilib', courseId: 'course-iv-laser', startsAt: '14:00', endsAt: '15:00', status: 'done' }] };
     const moved = resolveItem(gone, 'c-wang', ctx({ 'c-lee': [done], 'c-wang': [other] }, '2026-10-08'));
-    assert.deepEqual([moved.kind, moved.reason], ['mismatch', 'aboveeCancelled']);
+    assert.deepEqual([moved.kind, moved.reason], ['mismatch', 'appDoneStays']);
   });
 });
 

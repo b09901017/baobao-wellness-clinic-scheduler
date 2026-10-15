@@ -1,6 +1,6 @@
 # app 裡已經有的那一段：照照片改狀態（取消、完成、未到）
 
-Status: todo
+Status: done
 Blocked by: 01、03（整筆狀態的推導 —— 改完一段之後整筆怎麼推，跟 03 同一套）
 動工前先讀：`spec.md`「app 裡已經有同一段」「次數」兩節；ADR-0116（這一支推翻它的「只講不改」）、ADR-0056、ADR-0111、ADR-0145、ADR-0110、ADR-0144；
 `domain/aboveeImport.js` 的 `existingAt()`、`crossCheck()`、`resolveItem()`（`:474-546`，含重設清單 `:475-491`）、`asRecorded()`（`:721-727`）、`claimHalves()`（`:748-775`）、`claimTimeless()`（`:777-796`）、
@@ -80,3 +80,43 @@ Blocked by: 01、03（整筆狀態的推導 —— 改完一段之後整筆怎�
 - 她把一列換一位：那一列不再帶著上一位的「要改什麼」
 - 每一條次數判準都拿 `counts()` 算改之前與改之後
 - 同一張照片拍兩次：第二次全部是「已經記了」，一段都不再改
+
+## 做完時留下的（10/15 段二）
+
+**做成的樣子**（全部在 `domain/aboveeImport.js`）：
+
+- `crossCheck(item, found, sameCourse, today)` 照 spec 那張 5×5 表：
+  - 要改的 → `{ kind: 'recorded', statusChange: { from, to } }`（app 已經有這一段、照片要它換狀態）。`resolveItem()` 給它 **`adoptStatus: true`**（預設打勾；
+    讀不到這位的全部來訪時 `false` ＋ `partialHistory`），`existing` 是她看到的那一段 `{ visitId, date, slotIndex, startsAt, courseId, status }`
+  - 只提醒的 → 對不上，理由：`aboveeNotDone`、`aboveeNotNoShow`、`bothOpen`（過去、兩邊都還沒結案）、`futureDone`、`futureNoShow`、`appDoneStays`（已完成改不回來）、
+    `noShowStays`（未到取消不掉）、`appCancelled`（app 已取消、照片失約）、`photosDiffer`；後處理再加 `closeBlocked`、`halvesDiffer`、`timeless`。句子全在 `mismatchSay()`
+  - 拿不準的不比：`photoStatus` 是 null、讀不出來 → 已經記了；兩張照片不一樣 → `photosDiffer`
+  - 已經是同一個狀態 → 已經記了。同一個時間同一門課兩段時先找狀態已經一樣的那一段
+  - 舊的三個理由（`aboveeCancelled`、`notClosed`、`appNoShow`）拿掉了（再也不會長出來）
+- **重約的豁免**：`rebookedHere()` 照舊；`resolveItem()` 改成在比之前就判（照片已取消＋app 上那一格活著、同一門課＋照片同一格另有一列還掛著）→ 不拿去比，照新的、已取消的走
+- **治療師／診間**（11）：每一個對到活著那一段的（要改的、只提醒的）都比；**照片要改成已取消的那一段不比**
+- `joinPages()` 記 `statusConflict`（兩張都讀得出、翻出來不一樣 → 兩個原字），`photoStatusOf()` 帶到列上。新的那一列（03）不預設勾、`photoRowSays()` 講；既有的 → `photosDiffer`
+- `claimHalves()`：前一列只要對到 app 上活著的那一段就算（`existing.slotIndex`；已經記了、要改的、只提醒的），**後一半寫已取消也認領**；兩列的狀態不一樣 → 前一列改成 `halvesDiffer`（不改）
+- `claimTimeless()`：先讓沒取消的列認領，已取消的列只認剩下的、**還開著的**舊段；照片要改它的 → `timeless`（只提醒、不改）
+- `applyPhotoStatus(visit, items, { at, guard })`（export）：照 `adoptAbovee()` 的形狀。核對 `slotIndex`／開始時間／課程／狀態跟她看到的一樣（不一樣 → `missed`，`missedWhy: 'stale'`）；
+  已完成與未到一次交給 `closeVisit()`（帶 guard）；未到 → 已完成先 `applyStatus(…, 'confirmed')` 退回再結，**閘門拿退回之後的那一份問、擋到就一格都不動**（`closeBlocked`，帶 `closeBlock`）；
+  取消走 `applyStatus(…, 'cancelled', { slotIndex, reason: 照片上的取消原因 })`（issue 11：理由記在那一段上；整天都取消時整筆那一格也寫）。回 `freed`（改成已取消的那幾段）。
+  一段都沒改成就回原本那一個物件
+- `gateStatusChanges()`（`readAbovee()` 的後處理，排在 `linkBatchExams()` 之後、`flagCloseBlocks()` 之前）：二返／n返 要改成已完成、接的那一次健檢**記完之後**還是沒做完 → `closeBlocked`。
+  「記完之後」是 `afterPhoto()`：存著的來訪套上照片要改的狀態（不帶閘門）＋這一次要記的那幾組（暫時 id）—— 03 的 `blockedInGroups()` 也換成它（照片上同一批改成已完成的健檢算數）
+- `countDeltas(entitlements, before, after)`（export）：每一筆額度「改之後 − 改之前」（`remaining`／`done`／`booked`／`noShow`），只回有變的。`photoChangeDelta(item, ctx)`（export）：一列的試算，套的是寫入那一支
+- `recordedSay()` 多一句「照 Abovee 改成「X」」；`flagCloseBlocks()`／`refreshCloseBlocks()` 只管新的列（不清掉 04 記在對不上那一列的 `closeBlock`）
+
+**次數（每一條都拿 `counts()` 驗，`tests/abovee-existing-slots-photo-status.test.js`）**：已確認 → 已取消 還 1、已確認 → 未到 還 1、待確認 → 已完成 不變、未到 → 已完成 扣 1、
+合併扣課兩列都取消 還 1（不是 2）、二返被閘門擋 一格都不動（差 0）、同一張照片拍兩次第二次一段都不改。
+
+**改了的既有測試**（都對過 spec 的表）：`abovee-import`（已取消／還開著那一段 → 要改的；未來的完成 → `futureDone`）、`abovee-pages`（app 已完成、照片已取消 → `appDoneStays`）、
+`abovee-recorded-shapes`（前一列要改成已完成、後一半照樣被認領；沒有時間的舊段 → `timeless`）、`abovee-absent`、`abovee-six-statuses`（未來的失約 → `futureNoShow`）、
+E2E `41` 的 A6（`a7` 從「對不上」變成「已取消」＋「照 Abovee 改成「已取消」」、要你看 2 → 1 —— **07 會整個換成「要改的」那一塊**）
+
+**給段三（06）**：
+- **確認層現在的畫面不會套 `statusChange`**：`record()` 只寫新的那幾組與「改成 Abovee 的」。要改的那幾列現在看起來是「已經記了／已取消」、按記錄什麼都不改 —— 06 接
+- **寫入的時候閘門要拿「改完之後」的那一份**：`applyPhotoStatus()` 的 `guard.visits` 拿改之前的話，跨天的二返（健檢那一天這一次也從照片改成已完成）會被擋（測試釘著兩種）。
+  `record()` 現在存的時候重組的那一份只有那一天的新列（`planAbovee(d.items…)`），**看不到 04 要改的與別天的新列** —— 03 的閘門在那裡會跟確認層講的不一樣。06 的「一位一天一份計畫」要從整批算一次
+- `freed`：`applyPhotoStatus()` 回的與 `planAbovee()` 每一組的 `freed` 都要帶進 `save()`；`registrationDropLines()`（issue 10）拿改完之後的那一筆講
+- 她在確認層拿掉一列健檢的「要改成已完成」：二返那一列讀照片那一下判的「要改」不會跟著變成擋 —— 寫的時候 `missed` 會接住（`closeBlocked`），06 要講出來；07 要不要即時重算再說

@@ -142,11 +142,11 @@ describe('拍一個月內的一個人', () => {
 });
 
 describe('照片上的列跟 app 上那一段對得上的時候', () => {
-  test('Abovee 那一列標已取消、app 上活著 → 照舊是「對不上」，這裡不重複', () => {
+  test('Abovee 那一列標已取消、app 上活著 → 照片要把它改成已取消（04），這裡不重複', () => {
     const c = ctx({ 'c-wang': { '2026-10-02': [sis('10:00')], '2026-10-09': [sis('10:00')], '2026-10-16': [sis('10:00')] } });
     const rows = [row(['10-02', '10:00', '王小明']), row(['10-09', '10:00', '王小明'], 'SIS 60', '已取消'), row(['10-16', '10:00', '王小明'])];
     const { items, gone } = check([photo(rows, { pageText: '3筆第1/1頁' })], c);
-    assert.equal(items[1].kind, 'mismatch');
+    assert.deepEqual([items[1].kind, items[1].statusChange?.to], ['recorded', 'cancelled']);
     assert.deepEqual(goneAt(gone), []);
   });
 

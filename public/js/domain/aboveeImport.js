@@ -25,11 +25,11 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
-  INITIAL_STATUS, assignsFor, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor, isActive, isLiveSlot, lockedAt, mustSee,
-  sameDayState, shortStatus, slotStatus,
+  INITIAL_STATUS, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor, isActive,
+  isLiveSlot, isOpenStatus, lockedAt, mustSee, sameDayState, shortStatus, slotStatus, withSlotStatuses,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
-import { cannotClose, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
+import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
 } from './masterData.js';
@@ -162,6 +162,10 @@ function sameRow(a, b) {
  *
  * **一列只配一次、只跟前面那幾張的列比**：這一張自己的列是等整張比完才接上去的，所以同一張照片裡的兩列
  * 永遠不互相去掉。`photoSpan()` 數「不重複的列」也走這一支 —— 兩邊數的是同一份列。
+ *
+ * **兩張都讀得出預約狀態、讀出來的不一樣**（同一頁拍兩次、中間在 Abovee 上改過）：記下兩個原字（`statusConflict`）——
+ * 以前先傳的那一張贏、差異安靜地沒了（段一中途發現 3）。照片的狀態拿來寫之後，那一列不改、不預設勾、講一句
+ *（abovee-status-follows-photo 04 第 4 點）。`sameRow()` 只分取消／沒取消，所以會併起來的是「課程完成」與「確認前往」那一種。
  */
 function joinPages(base, incoming) {
   const taken = new Set();
@@ -179,9 +183,20 @@ function joinPages(base, incoming) {
     for (const key of Object.values(ABOVEE_KEYS)) if (!merged[key] && row[key]) merged[key] = row[key];
     // 交界上那幾欄可能有一張切到一半（13）：兩張都有字就取比較長的，一樣長留第一張的
     for (const key of EDGE_KEYS) if (base[at][key] && row[key]) merged[key] = fullerCell(base[at][key], row[key]);
+    const conflict = statusConflictOf(base[at], row);
+    if (conflict) merged.statusConflict = conflict;
     rows[at] = merged;
   }
   return { rows: [...rows, ...extra], extra };
+}
+
+/** 兩張上同一列的預約狀態：兩張都拍到那一欄、都讀得出來、翻出來的不一樣 → 兩個原字（照上傳的順序）；不然 null。 */
+function statusConflictOf(a, b) {
+  if (a.statusConflict) return a.statusConflict;
+  if (!a.statusSeen || !b.statusSeen) return null;
+  const [sa, sb] = [statusFromAbovee(a.status), statusFromAbovee(b.status)];
+  if (sa.unread || sb.unread || sa.status === sb.status) return null;
+  return [clean(a.status), clean(b.status)];
 }
 
 /**
@@ -544,35 +559,71 @@ export function photoRowSays(item, block = item?.closeBlock ?? null) {
 }
 
 /**
- * 同一格上 app 那一段跟 Abovee 那一格比一次（ADR-0116）。**只講不改**：回的是這一列是什麼，
- * 不是要改成什麼。回 `null` ＝ 那不是同一段，照新的一段走。
+ * 同一格上 app 那一段跟 Abovee 那一格比一次。**照片為準**（abovee-status-follows-photo 04，推翻 ADR-0116 的「只講不改」）：
+ * 她是先在 Abovee 上改好才拍的（她 10/15：「如果是本來app上還沒取消的客拍照拍到已取消了，那也幫我把這堂課的狀態改成已取消」）。
+ * 回 `null` ＝ 那不是同一段，照新的一段走。
  *
- * **課程不一樣的不算同一段**：Abovee 上 10:00 的 ILIB 取消了、app 上 10:00 是 SIS —— 那是兩段不同的東西。
- * 反過來 app 上 10:00 那一段取消了、Abovee 上同一格還掛著（**不管課程一不一樣**，2026-10-09，ADR-0144）：照新的一段走，
- * **但不預設打勾**（`resolveItem()` 的 `appCancelledHere`）—— 可能是取消之後重新約了、她在 Abovee 上換了課程、
- * 課程那一格抄錯了，也可能只是她還沒回 Abovee 放掉。打勾是她的事。
+ * | Abovee ↓ ／ app → | 待確認 | 已確認 | 已完成 | 未到 |
+ * |---|---|---|---|---|
+ * | 待確認三種 | 不動（過去的日子 ⚠ `bothOpen`） | 不動，**不退回待確認**（同左） | ⚠ `aboveeNotDone` | ⚠ `aboveeNotNoShow` |
+ * | 課程完成 | **改成已完成** | **改成已完成** | 不動 | **改成已完成** |
+ * | 客戶失約 | **改成未到** | **改成未到** | ⚠ `appDoneStays` | 不動 |
+ * | 已取消 | **改成已取消** | **改成已取消** | ⚠ `appDoneStays` | ⚠ `noShowStays` |
  *
- * 照片上的客戶失約、待確認那三種、沒拍到那一欄（`null`）：當成還掛著（跟只認兩個字的時候一樣）。
+ * 「改成已完成／未到」只在今天或過去，還沒到的只提醒（`futureDone`／`futureNoShow`）；「改成已取消」不看日期。
+ * 要改的那一列是 `{ kind: 'recorded', statusChange: { from, to } }`（app 已經有這一段了，照片要它換狀態）；
+ * 只提醒的是對不上（`kind: 'mismatch'`，進「要你看」，句子在 `mismatchSay()`）。**這裡只判表上那一格** ——
+ * 二返簽不簽得成（`cannotClose()`）、讀不讀得到全部來訪、合併扣課兩列一不一樣、沒有時間的舊段，由呼叫端與後處理那幾步再收。
  *
- * @param {'done'|'pending_confirm'|'cancelled'|'no_show'|null} aboveeSays 那一列的 `photoStatus`（`statusFromAbovee()`）
+ * - **課程不一樣的不算同一段**：Abovee 上 10:00 的 ILIB 取消了、app 上 10:00 是 SIS —— 那是兩段不同的東西
+ * - app 上 10:00 那一段取消了、Abovee 上同一格還掛著（**不管課程一不一樣**，ADR-0144）：照新的一段走、不預設打勾。
+ *   Abovee 上也是已取消 → 兩邊都取消、已經記了；Abovee 上是客戶失約 → 只提醒（`appCancelled`）
+ * - 拿不準的不比：那一張沒拍到那一欄（`photoStatus` 是 null）、那一格讀不出來 → 已經記了；兩張照片寫的不一樣 → 只提醒（`photosDiffer`）
+ *
+ * @param {object} item 那一列（`photoStatus`、`statusUnread`、`statusConflict`、`date`）
  * @param {{live: boolean, slots: object[]}} found `existingAt()`
  * @param {object[]} sameCourse `found.slots` 裡課程（與器材）跟這一列一樣的那幾段
+ * @param {string} today 拍照那一刻的日期（`todayISO()`）
+ * @returns {null|{kind: 'recorded', statusChange?: {from: string, to: string}, hit?: object}
+ *   |{kind: 'mismatch', reason: string, appStatus?: string, hit?: object}}  `hit`：比的是 app 上哪一段
  */
-function crossCheck(aboveeSays, found, sameCourse) {
+function crossCheck(item, found, sameCourse, today) {
+  const said = item.statusUnread ? null : item.photoStatus;
   if (!found.live) {
-    // app 上那一段取消了、Abovee 上同一格還掛著：**照新的一段走、不預設打勾**（ADR-0144，推翻 ADR-0116 表上那一格）。
+    if (!sameCourse.length) return null;
     // 取消之後在同一格重約的那一段要記得進去；她沒重約、只是還沒回 Abovee 放掉的那一種，那一句照樣講（`newRowSay()`）
-    return sameCourse.length && aboveeSays === 'cancelled' ? { kind: 'recorded' } : null;
+    if (said === 'cancelled') return { kind: 'recorded' };
+    if (said === 'no_show' && !item.statusConflict) return { kind: 'mismatch', reason: 'appCancelled', appStatus: 'cancelled' };
+    return null;
   }
-  if (!sameCourse.length) return aboveeSays === 'cancelled' ? null : { kind: 'mismatch', reason: 'course' };
-  const statuses = sameCourse.map((x) => x.status);
-  if (aboveeSays === 'cancelled') return { kind: 'mismatch', reason: 'aboveeCancelled', appStatus: statuses[0] };
-  if (aboveeSays === 'done' && !statuses.includes('done')) {
-    return statuses.includes('no_show')
-      ? { kind: 'mismatch', reason: 'appNoShow', appStatus: 'no_show' }
-      : { kind: 'mismatch', reason: 'notClosed', appStatus: statuses[0] };
+  if (!sameCourse.length) return said === 'cancelled' ? null : { kind: 'mismatch', reason: 'course' };
+  // 同一個時間同一門課有兩段（少見）：先找狀態已經一樣的那一段 —— 有的話就是已經記了
+  const hit = sameCourse.find((x) => x.status === said) ?? sameCourse[0];
+  const app = hit.status;
+  const remind = (reason) => ({ kind: 'mismatch', reason, appStatus: app, hit });
+  if (item.statusConflict) return remind('photosDiffer');
+  if (!said) return { kind: 'recorded', hit };
+  const change = (to) => ({ kind: 'recorded', statusChange: { from: app, to }, hit });
+  // 今天或過去才改得成已完成／未到（`todayISO()`；沒給今天就當成看不出來 → 只提醒）
+  const happened = Boolean(today) && Boolean(item.date) && item.date <= today;
+
+  if (said === 'pending_confirm') {
+    if (app === 'done') return remind('aboveeNotDone');
+    if (app === 'no_show') return remind('aboveeNotNoShow');
+    // app 待確認或已確認、Abovee 待確認：不動 —— **不退回待確認**（app 的「已確認」是她問過客人，Abovee 那一格可能只是沒改）。
+    // 日子過了兩邊都還沒結案才講
+    return today && item.date && item.date < today ? remind('bothOpen') : { kind: 'recorded', hit };
   }
-  return { kind: 'recorded' };
+  if (app === said) return { kind: 'recorded', hit };
+  if (said === 'done') return happened ? change('done') : remind('futureDone');
+  if (said === 'no_show') {
+    if (app === 'done') return remind('appDoneStays');
+    return happened ? change('no_show') : remind('futureNoShow');
+  }
+  // 已取消：不看日期。已完成的鎖著、未到取消不掉（ADR-0111）
+  if (app === 'done') return remind('appDoneStays');
+  if (app === 'no_show') return remind('noShowStays');
+  return change('cancelled');
 }
 
 /**
@@ -616,13 +667,30 @@ export function nearSay(item) {
  */
 export function mismatchSay(item) {
   const app = item?.appStatus ? shortStatus(item.appStatus) : '';
+  const photo = `Abovee 上是「${item?.statusText || '？'}」`;
   switch (item?.reason) {
-    case 'aboveeCancelled': return `Abovee 上取消了，app 上還是「${app}」。`;
-    case 'appNoShow': return `Abovee 上是「${item.statusText}」，app 上記「${app}」。`;
-    case 'notClosed': return `Abovee 上是「${item.statusText}」，app 上還是「${app}」—— 還沒簽療程單。`;
+    // 只提醒、不改的那幾格（04 的表上 ⚠ 那幾格）。改了的那幾種不在這裡 —— 它們是「已經記了」＋要改成什麼
+    case 'aboveeNotDone': return `${photo}，app 上已經是「${app}」—— Abovee 上還沒改成課程完成。`;
+    case 'aboveeNotNoShow': return `${photo}，app 上記「${app}」—— Abovee 上還沒改成客戶失約。`;
+    case 'bothOpen': return `日子過了，${photo}、app 上還是「${app}」—— 兩邊都還沒結案。`;
+    case 'futureDone': return `還沒到就寫完成了（${photo}），app 上照舊是「${app}」。`;
+    case 'futureNoShow': return `還沒到就寫失約了（${photo}），app 上照舊是「${app}」。`;
+    case 'appDoneStays': return `${photo}，app 上已經是「已完成」—— 已完成的改不回來，要更正去日曆。`;
+    case 'noShowStays': return `${photo}，app 上記「未到」—— 未到取消不掉，要取消先在日曆「退回簽療程單」。`;
+    case 'appCancelled': return `${photo}，app 上這一段已經取消了 —— 沒有改。`;
+    case 'photosDiffer':
+      return `兩張照片上這一段的預約狀態不一樣（${(item.statusConflict ?? []).map((t) => `「${t}」`).join('、')}），`
+        + `app 上是「${app}」—— 沒有改，照 Abovee 現在的樣子再拍一次或去日曆改。`;
+    case 'closeBlocked': return `${item.closeBlock ? closeBlockSay(item.closeBlock) : '接的那一次健檢還沒做完'}；${photo}，app 這一段先不改。`;
+    case 'halvesDiffer': return `合併扣課兩列的預約狀態不一樣（${halvesTexts(item)}），app 上是「${app}」—— 沒有改，去日曆看那一段。`;
+    case 'timeless':
+      return `app 上這一天的這一段沒有時間（匯入的舊資料），${photo}、app 上是「${app}」—— 沒有自動改，去日曆改。`;
     default: return 'app 裡已經有一段，但做的不一樣。';
   }
 }
+
+/** 合併扣課那一對（照片兩列、app 一段）兩列的原字：`「課程完成」＋「確認前往」`。 */
+const halvesTexts = (item) => (item?.halfTexts ?? []).map((t) => `「${t || '空的'}」`).join('＋');
 
 /**
  * 認得人之後（或她選了人之後）才算得出來的那幾格：種類、預選的額度／器材／品項／健檢、要不要勾。
@@ -636,8 +704,9 @@ export function resolveItem(item, customerId, ctx, items = null) {
     isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
-    // 換一個人重算時，上一位的比對結果不可以留著
+    // 換一個人重算時，上一位的比對結果不可以留著 —— 「照片要把這一段改成什麼」（04）也是：留著的話換成的那一位被改狀態
     reason: null, appStatus: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
+    statusChange: null, adoptStatus: false, halfTexts: null,
     // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
     repeatOf: null,
     // 「合併扣課的後一半」「沒有時間的舊段」也是整張一起看才認領的（`asRecorded()`）—— 換了人就不是那一段了，
@@ -658,16 +727,31 @@ export function resolveItem(item, customerId, ctx, items = null) {
     const course = next.course;
     const same = at.slots.filter(({ slot }) => Boolean(course) && slot.courseId === course.courseId
       && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
-    // 預約狀態也比一次（ADR-0116）。對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
-    const verdict = crossCheck(next.photoStatus, at, same);
     // 10：取消之後在同一格重約 —— 照片上這一格另有一列還掛著（`rebookedHere()`），app 上活著的那一段是那一列的。
-    // 取消的這一列不拿去喊「Abovee 上取消了，app 上還是已完成」：照新的、已取消的走（不打勾、不進要你看）。
+    // 取消的這一列**不拿去比**（不然 04 會把重約的那一段取消掉）：照新的、已取消的走（不打勾、不進要你看）。
     // 記著的是「替哪一位看的」—— 她把這一列換成別人就不算了
-    const rebooked = verdict?.reason === 'aboveeCancelled' && Boolean(item.rebookedFor) && item.rebookedFor === next.customerId;
-    if (verdict && !rebooked) {
-      const out = { ...next, ...verdict, existing: { visitId: at.visit.id, date: at.visit.date }, checked: false };
-      // 11：已經記了的那一段，治療師或診間跟 Abovee 不一樣 → 講出來，她按了才改
-      return verdict.kind === 'recorded' && at.live ? { ...out, ...aboveeDiffs(next, at.visit, same, ctx) } : out;
+    const rebooked = next.photoStatus === 'cancelled' && at.live && same.length > 0
+      && Boolean(item.rebookedFor) && item.rebookedFor === next.customerId;
+    // 預約狀態照照片（04，`crossCheck()` 的表）：要改的那一列是「已經記了」＋`statusChange`、只提醒的是對不上
+    const verdict = rebooked ? null : crossCheck(next, at, same, ctx.today);
+    if (verdict) {
+      const { hit, ...said } = verdict;
+      // 比的是 app 上哪一段、那一段她在這一層看到的是什麼（寫之前再比一次，`applyPhotoStatus()`）
+      const existing = hit
+        ? { visitId: at.visit.id, date: at.visit.date, slotIndex: hit.index, startsAt: hit.slot.startsAt ?? null,
+          courseId: hit.slot.courseId ?? null, status: hit.status }
+        : { visitId: at.visit.id, date: at.visit.date };
+      const out = { ...next, ...said, existing, checked: false };
+      if (said.statusChange) {
+        // 照片要改這一段的狀態：**預設打勾**（她第 3 題）；這一位的全部來訪讀不到時不勾（次數拿不準）
+        const partialHistory = historyPartial(ctx, next.customerId);
+        Object.assign(out, { adoptStatus: !partialHistory, partialHistory });
+      }
+      // 11：app 上那一段（還活著、同一門課）的治療師或診間跟 Abovee 不一樣 → 講出來。狀態只提醒的那幾種也比
+      //（那一段照樣在，她可能只想換診間）；**照片上已經取消的那一段不比**（spec 07：被取消的那一段不再列治療師／診間）
+      if (!hit || said.statusChange?.to === 'cancelled') return out;
+      const diffs = aboveeDiffs(next, at.visit, same, ctx);
+      return diffs.diffs ? { ...out, ...diffs, existing: { ...existing, ...diffs.existing } } : out;
     }
     // app 上這個時間有一段取消了（課程一樣或不一樣）：照新的一段走，**不預設打勾**（見 `crossCheck()`）。
     // 哪一種要講的那一句不一樣，所以記著課程一不一樣
@@ -825,7 +909,8 @@ export function readAbovee(transcripts, ctx) {
   // 二返接哪一次健檢 → 二返照片寫完成、接的那一次還沒做完（要知道接哪一次，排在最後）
   const paired = mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn });
   const linked = linkBatchExams(flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)), ctx);
-  return { pairing, counts: sizes, noStatusColumn, items: flagCloseBlocks(linked, ctx) };
+  // 二返簽不簽得成已完成：既有的那幾段先（要改的 → 對不上），新的那幾列看「記完之後」的健檢
+  return { pairing, counts: sizes, noStatusColumn, items: flagCloseBlocks(gateStatusChanges(linked, ctx), ctx) };
 }
 
 /**
@@ -833,9 +918,10 @@ export function readAbovee(transcripts, ctx) {
  * `statusUnread`（拍到了、但那一格空的或認不出來）、`cancelled`（＝照片上已取消；失約不算取消）。
  */
 function photoStatusOf(row) {
-  if (!row.statusSeen) return { photoStatus: null, statusUnread: false, cancelled: false };
+  if (!row.statusSeen) return { photoStatus: null, statusUnread: false, cancelled: false, statusConflict: null };
   const { status, unread } = statusFromAbovee(row.status);
-  return { photoStatus: status, statusUnread: unread, cancelled: status === 'cancelled' };
+  // 兩張寫的不一樣（`joinPages()`）：`photoStatus` 照先傳的那一張（畫面印得出來），但拿不準 —— 不寫、不改（04）
+  return { photoStatus: status, statusUnread: unread, cancelled: status === 'cancelled', statusConflict: row.statusConflict ?? null };
 }
 
 // ---------- 二返接哪一次健檢：整張一起看（ADR-0145）----------
@@ -888,7 +974,9 @@ function closeBlockedKeys(items, ctx) {
  */
 function flagCloseBlocks(items, ctx) {
   const blocked = closeBlockedKeys(items, ctx);
+  // 只管新的列：既有那一段的（04，`gateStatusChanges()`）是對不上的理由，不在這裡清
   return items.map((i) => {
+    if (i.kind !== 'new') return i;
     if (blocked.has(i.key)) return { ...i, closeBlock: blocked.get(i.key), checked: false };
     return i.closeBlock ? { ...i, closeBlock: null } : i;
   });
@@ -901,6 +989,7 @@ function flagCloseBlocks(items, ctx) {
 export function refreshCloseBlocks(items, ctx) {
   const blocked = closeBlockedKeys(items, ctx);
   return items.map((i) => {
+    if (i.kind !== 'new') return i;
     const why = blocked.get(i.key) ?? null;
     return (why === null && !i.closeBlock) ? i : { ...i, closeBlock: why };
   });
@@ -941,7 +1030,7 @@ const asRecorded = (item, existing, extra = {}) => ({
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
   isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
-  closeBlock: null,
+  closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null,
   kind: 'recorded', checked: false, existing, ...extra,
 });
 
@@ -961,54 +1050,81 @@ const covers = (slot, from, to) => Boolean(slot?.startsAt && slot?.endsAt)
  *
  * - 少了「蓋得住」那一條：app 上真的只記了前一半（30 分的一段）時，後一半會被吞掉
  * - 照片上**有**「合併扣課」那一欄時另外要求這一列勾了；**沒有**那一欄時上面那幾條就夠
- * - 前一列是「還沒簽療程單／未到」的對不上也算（那一段在，只是狀態講不一樣 —— 那一句前一列講了，這一列不再喊一次）
+ * - 前一列**對到 app 上那一段還活著的都算**：已經記了、照片要改它的狀態（04）、狀態只提醒的對不上（那一段在，只是狀態講不一樣 ——
+ *   那一句前一列講了，這一列不再喊一次）。**新的種類或理由沒算進來的話，後一半變成新的一段、預設打勾 → 多扣一次**；
+ *   課程不一樣的對不上不算（那不是同一段，`existing` 上也沒有 `slotIndex`）
+ * - 後一半寫已取消也認領（04：兩列都寫已取消 → 那一段改成已取消，後一半不可以變成一段新的已取消）
+ * - **兩列的預約狀態不一樣 → 前一列不改、只提醒**（`halvesDiffer`）：照片兩列、app 一段，改成哪一個都是猜的
  * - 這一列**不給「改成 Abovee 的」**：那一段的治療師／診間由前一列比（`aboveeDiffs()`），兩列各比一次會指到同一段兩次
  */
 function claimHalves(items, ctx, { hasColumn = false } = {}) {
-  const held = items.filter((a) => !a.cancelled && a.existing && a.course && a.startsAt
-    && (a.kind === 'recorded' || (a.kind === 'mismatch' && ['notClosed', 'appNoShow'].includes(a.reason))));
+  const held = items.filter((a) => Number.isInteger(a.existing?.slotIndex) && a.course && a.startsAt
+    && (a.kind === 'recorded' || a.kind === 'mismatch'));
   if (!held.length) return items;
-  return items.map((b) => {
-    if (b.kind !== 'new' || b.cancelled || !b.customerId || !b.date || !b.startsAt || !b.course) return b;
-    if (hasColumn && !mergedMark(b.row?.merged)) return b;
+  const firstOf = new Map();
+  for (const b of items) {
+    if (b.kind !== 'new' || !b.customerId || !b.date || !b.startsAt || !b.course) continue;
+    if (hasColumn && !mergedMark(b.row?.merged)) continue;
     const end = aboveeEnd(b.row?.time);
-    if (!end) return b;
+    if (!end) continue;
     const first = held.find((a) => a.customerId === b.customerId && a.date === b.date
       && aboveeEnd(a.row?.time) === b.startsAt && a.course.courseId === b.course.courseId
       && covers(appSlotOf(a, ctx), b.startsAt, end));
-    return first
-      ? asRecorded(b, { visitId: first.existing.visitId, date: first.existing.date }, { halfOf: first.startsAt })
-      : b;
+    if (first) firstOf.set(b.key, first);
+  }
+  if (!firstOf.size) return items;
+  // 前一列 → 後一列的原字（兩列的狀態不一樣時前一列要講）
+  const differ = new Map([...firstOf].filter(([key, a]) => statusesDiffer(a, items.find((b) => b.key === key)))
+    .map(([key, a]) => [a.key, [a.statusText, items.find((b) => b.key === key).statusText]]));
+  return items.map((x) => {
+    const first = firstOf.get(x.key);
+    if (first) return asRecorded(x, { visitId: first.existing.visitId, date: first.existing.date }, { halfOf: first.startsAt });
+    if (!differ.has(x.key) || x.kind === 'mismatch') return x;
+    return {
+      ...x, kind: 'mismatch', reason: 'halvesDiffer', appStatus: x.existing.status ?? null,
+      statusChange: null, adoptStatus: false, halfTexts: differ.get(x.key),
+    };
   });
 }
+
+/** 合併扣課那一對兩列的預約狀態一不一樣（拿不準的也算不一樣：讀不出來、兩張照片不一樣）。 */
+const statusesDiffer = (a, b) => (a?.photoStatus ?? null) !== (b?.photoStatus ?? null)
+  || Boolean(a?.statusUnread) !== Boolean(b?.statusUnread) || Boolean(a?.statusConflict || b?.statusConflict);
 
 /**
  * 沒有開始時間的舊段：找不到同一個開始時間時，再找「那一天、同一位、同一門課、**沒有開始時間**、還算數」的段。
  *
- * - **Abovee 上已取消的列不認領** —— 不然拿取消的那一列去對，會喊「Abovee 上取消了，app 上還是已完成」，
- *   而真的那一列反而變成新的
+ * - **先讓沒取消的列認領**，Abovee 上已取消的列只認剩下的、**還開著的**那一段 —— 不然拿取消的那一列去對，
+ *   會喊「Abovee 上取消了，app 上還是已完成」，而真的那一列反而變成新的（同一天取消一段、另一段做完了）
  * - **一段舊的只蓋一列**：同一天同一門課真的做了兩次時，第二列照舊是新的。所以要整張一起看（跟 `flagMoved()` 同一層）
  * - 「同一門課」比的是認出來的課程（`sameCourse()`）：擇一池那一列是器材推出來的課程，舊段上有記器材就要同一台，
  *   沒記（匯入的常常沒有）就只比課程
- * - 預約狀態照樣對一次（`crossCheck()`）：Abovee 寫完成、app 那一段還沒結案 → 對不上
+ * - 預約狀態照樣對一次（`crossCheck()`），但**只提醒、不改**（04，spec「我自己定」）：照時間找不到它，照位置找又拿不準是哪一段 ——
+ *   照片要改它的話是對不上（`timeless`），去日曆改
  * - **不給「改成 Abovee 的」**：`adoptAbovee()` 靠開始時間找那一段，這一段沒有；匯入的舊段本來就沒有治療師與診間（ADR-0011）
  */
 function claimTimeless(items, ctx) {
   const taken = new Set();
-  return items.map((item) => {
-    if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) return item;
+  const claim = (item, { openOnly = false } = {}) => {
+    if (!item.customerId || !item.date || !item.course) return null;
     for (const visit of ctx.visitsBy?.[item.customerId] ?? []) {
       if (!visit || visit.deletedAt || visit.date !== item.date || !isActive(visit)) continue;
       const index = (visit.slots ?? []).findIndex((s, i) => isLiveSlot(s) && !s.startsAt && !taken.has(`${visit.id}:${i}`)
+        && (!openOnly || isOpenStatus(slotStatus(visit, s)))
         && sameCourse({ courseId: s.courseId, equipmentId: s.equipmentId, nth: nthOf(s) }, item.course));
       if (index < 0) continue;
       taken.add(`${visit.id}:${index}`);
       const hit = { slot: visit.slots[index], index, status: slotStatus(visit, visit.slots[index]) };
-      const verdict = crossCheck(item.photoStatus, { live: true, slots: [hit] }, [hit]);
-      return asRecorded(item, { visitId: visit.id, date: visit.date }, { ...verdict, timeless: true });
+      const verdict = crossCheck(item, { live: true, slots: [hit] }, [hit], ctx.today);
+      const said = verdict.statusChange
+        ? { kind: 'mismatch', reason: 'timeless', appStatus: hit.status }
+        : { kind: verdict.kind, reason: verdict.reason ?? null, appStatus: verdict.appStatus ?? null };
+      return asRecorded(item, { visitId: visit.id, date: visit.date }, { ...said, timeless: true });
     }
-    return item;
-  });
+    return null;
+  };
+  const first = items.map((item) => (item.kind === 'new' && !item.cancelled ? claim(item) ?? item : item));
+  return first.map((item) => (item.kind === 'new' && item.cancelled ? claim(item, { openOnly: true }) ?? item : item));
 }
 
 /**
@@ -1016,8 +1132,11 @@ function claimTimeless(items, ctx) {
  */
 export function recordedSay(item) {
   if (item?.kind !== 'recorded') return '';
-  if (item.cancelled) return '兩邊都是取消的，不用記。';
   if (item.halfOf) return `這是合併扣課的後一半 —— app 上 ${item.halfOf} 那一段已經包著它，不用再記。`;
+  if (item.statusChange) {
+    return `這一段 app 裡已經有了（「${shortStatus(item.statusChange.from)}」）—— 照 Abovee 改成「${shortStatus(item.statusChange.to)}」。`;
+  }
+  if (item.cancelled) return '兩邊都是取消的，不用記。';
   if (item.timeless) return 'app 上這一天已經有這一段了（匯入的舊資料，沒有時間），不用再記。';
   return '這一段 app 裡已經有了，不用再記。';
 }
@@ -1191,6 +1310,152 @@ export function adoptAbovee(visit, items = []) {
     slots[at] = next;
   }
   return { visit: { ...visit, slots }, missed };
+}
+
+// ---------- 照片要改既有那一段的狀態（abovee-status-follows-photo 04）----------
+//
+// 她 10/15：「如果是本來app上還沒取消的客拍照拍到已取消了，那也幫我把這堂課的狀態改成已取消」
+// 「打勾就只是改狀態那些等等，不要多記或少記次數! 次數不能弄錯這很重要 ! !」
+// 要改成什麼是 `crossCheck()` 判的（`statusChange`），這一段只管「怎麼套上去」與「差幾次」。
+
+/**
+ * 照片要改的狀態套到**剛讀回來的那一份**來訪上。純函式，照 `adoptAbovee()` 的形狀：她在這一層看到的跟現在不一樣就不蓋。
+ *
+ * - 套哪幾列：指到這一筆的、有 `statusChange`、勾著的（`adoptStatus`）
+ * - 找那一段照 `existing.slotIndex`，再核對開始時間、課程、狀態跟她看到的一樣 —— 不一樣 → 不改（`stale`：剛在別的地方改過）
+ * - 一律走既有的那幾支，**不另寫一份轉移表**：取消走 `applyStatus(…, 'cancelled', { slotIndex, reason })`
+ *  （照片上的「取消原因」記在那一段上，issue 11；那一天全部取消時整筆那一格也寫）；已完成與未到**一次**交給 `closeVisit()`
+ *  （`attended: true/false`，跟簽療程單同一個形狀）—— 同一天健檢與二返都要改成已完成時，同一份 `attended` 裡打勾的健檢才算數
+ * - **未到 → 已完成**：先退回簽療程單（`applyStatus(…, 'confirmed')`，ADR-0111 唯一的路）再結。二返／n返 接的那一次健檢
+ *   還沒做完（`cannotClose()`，ADR-0145）→ **一格都不動**（`closeBlocked`）—— 停在半路的已確認會多扣一次、又回到簽療程單
+ * - 每一步都問狀態機（`applyStatus()`／`closeVisit()` 自己問 `canTransition()`），沒有轉成的是 `refused`
+ *
+ * @param {object} visit 剛讀回來的那一筆
+ * @param {object[]} items 照片上的列（只看指到這一筆的）
+ * @param {{at?: string, guard?: {entitlements: object[], visits: object[]}|null}} [o]
+ *   `guard`：這位客戶的額度與全部來訪（`closeVisit()` 那一份）—— 二返要看接的那一次健檢。**跨天的時候那一份要是改完之後的**
+ *  （別天的健檢這一次也從照片改成已完成）。沒給就不擋（只拿來試算）
+ * @returns {{visit: object, missed: object[], freed: number[]}}
+ *   `missed`：沒改成的那幾列，多一格 `missedWhy`（`stale`／`closeBlocked`（`closeBlock` 是為什麼）／`refused`）；
+ *   `freed`：改成已取消的那幾段（位置）—— 存的時候交給 `save()` 的 `freed`，「取消 Abovee」一出生就勾好（02）
+ */
+export function applyPhotoStatus(visit, items = [], { at = new Date().toISOString(), guard = null } = {}) {
+  const mine = (items ?? []).filter((i) => i?.statusChange && i.adoptStatus && visit?.id && i.existing?.visitId === visit.id);
+  const missed = [];
+  const freed = [];
+  if (!mine.length) return { visit, missed, freed };
+  const miss = (item, missedWhy, extra = {}) => missed.push({ ...item, missedWhy, ...extra });
+  const seen = withSlotStatuses(visit);
+  const ok = mine.filter((item) => {
+    const want = item.existing;
+    const slot = seen.slots?.[want.slotIndex];
+    const same = visit.date === want.date && Boolean(slot) && (slot.startsAt ?? null) === (want.startsAt ?? null)
+      && slot.courseId === want.courseId && slotStatus(seen, slot) === want.status;
+    if (!same) miss(item, 'stale');
+    return same;
+  });
+
+  // 已完成與未到：一次交給 `closeVisit()`。未到 → 已完成的先退回簽療程單
+  const closing = ok.filter((i) => i.statusChange.to === 'done' || i.statusChange.to === 'no_show');
+  const picks = [];
+  for (const i of closing) picks[i.existing.slotIndex] = i.statusChange.to === 'done';
+  const back = closing.filter((i) => i.existing.status === 'no_show');
+  const reopen = (v, list) => list.reduce((x, i) => applyStatus(x, 'confirmed', { slotIndex: i.existing.slotIndex, at }), v);
+  // 閘門拿「退回之後」的那一份問：同一天的健檢也是未到 → 已完成時，它要先開著才算「同一份裡打勾」
+  const blocked = guard ? closeBlocks(reopen(seen, back), picks, guard) : new Map();
+  for (const i of closing) {
+    if (!blocked.has(i.existing.slotIndex)) continue;
+    miss(i, 'closeBlocked', { closeBlock: blocked.get(i.existing.slotIndex) });
+    picks[i.existing.slotIndex] = null;
+  }
+  let next = reopen(seen, back.filter((i) => !blocked.has(i.existing.slotIndex)));
+  if (picks.some((p) => p === true || p === false)) next = closeVisit(next, picks, at, guard);
+  for (const i of closing) {
+    if (!blocked.has(i.existing.slotIndex) && slotStatus(next, next.slots[i.existing.slotIndex]) !== i.statusChange.to) miss(i, 'refused');
+  }
+
+  for (const i of ok.filter((x) => x.statusChange.to === 'cancelled')) {
+    const after = applyStatus(next, 'cancelled', { slotIndex: i.existing.slotIndex, reason: i.row?.cancelReason ?? null, at });
+    if (after === next || slotStatus(after, after.slots[i.existing.slotIndex]) !== 'cancelled') {
+      miss(i, 'refused');
+      continue;
+    }
+    next = after;
+    freed.push(i.existing.slotIndex);
+  }
+  return { visit: missed.length === mine.length ? visit : next, missed, freed };
+}
+
+/**
+ * 這一次記完之後這一位的全部來訪（**閘門還沒擋的樣子**）：存著的那幾筆套上照片要改的狀態（`applyPhotoStatus()`）、
+ * 加上這一次要記的那幾組（暫時 id，`plannedId()`）。二返簽不簽得成已完成要看接的那一次健檢**記完之後**是什麼 ——
+ * 那一次可能這一次才從照片改成已完成（04），也可能是同一張照片上新記的（03）。
+ * 擋的依據只有健檢那幾段（健檢不會被擋），所以「沒擋的樣子」就是健檢記完之後的樣子。
+ */
+function afterPhoto(customerId, groups, items, ctx) {
+  const planned = (groups ?? []).filter((g) => g.customerId === customerId && g.visit).map((g) => ({ ...g.visit, id: plannedId(g) }));
+  const replaced = new Set(planned.map((v) => v.id));
+  return [...(ctx.visitsBy?.[customerId] ?? []).filter((v) => v && !replaced.has(v.id)), ...planned]
+    .map((v) => applyPhotoStatus(v, items).visit);
+}
+
+/**
+ * 讀照片那一下：照片要把哪一段二返／n返 改成已完成、接的那一次健檢**記完之後**還是沒做完的（`cannotClose()`，ADR-0145）→
+ * 不改、對不上（`closeBlocked`，`mismatchSay()` 講 `closeBlockSay()` 那一句）。spec：「簽不成已完成 → 只提醒」。
+ * 她之後拿掉健檢那一列的勾：寫的時候 `applyPhotoStatus()` 的 guard 再擋一次（`missed`）。
+ */
+function gateStatusChanges(items, ctx) {
+  const wanted = items.filter((i) => i.statusChange?.to === 'done' && i.customerId);
+  if (!wanted.length) return items;
+  const { groups } = planAbovee(items, ctx);
+  const blocked = new Map();
+  for (const customerId of new Set(wanted.map((i) => i.customerId))) {
+    const visits = afterPhoto(customerId, groups, items, ctx);
+    const entitlements = ctx.entitlementsBy?.[customerId] ?? [];
+    for (const i of wanted.filter((x) => x.customerId === customerId)) {
+      const visit = visits.find((v) => v.id === i.existing.visitId);
+      const why = visit ? cannotClose(visit, i.existing.slotIndex, [], { entitlements, visits }) : null;
+      if (why) blocked.set(i.key, why);
+    }
+  }
+  if (!blocked.size) return items;
+  return items.map((i) => (blocked.has(i.key)
+    ? { ...i, kind: 'mismatch', reason: 'closeBlocked', appStatus: i.existing.status, closeBlock: blocked.get(i.key),
+      statusChange: null, adoptStatus: false }
+    : i));
+}
+
+/**
+ * 改之前與改之後，每一筆額度差幾次（04 第 7 點）：同一份來訪各跑一次 `counts()` 相減 —— **跟寫入同一份輸入**，
+ * 不在畫面上照表推（ADR-0070、lessons 五）。營養品不算（排不進來訪）。只回有變的那幾筆，每一格是「改之後 − 改之前」：
+ * 已確認 → 已完成是 `done +1、booked −1、remaining 0`（次數不變）；已確認 → 已取消是 `remaining +1`（還 1 次）。
+ *
+ * @returns {{entitlementId: string, remaining: number, done: number, booked: number, noShow: number}[]}
+ */
+export function countDeltas(entitlements = [], before = [], after = []) {
+  return (entitlements ?? []).filter((e) => e && !e.deletedAt && !isProduct(e)).map((e) => {
+    const [was, now] = [counts(e, before, e.id), counts(e, after, e.id)];
+    return {
+      entitlementId: e.id,
+      remaining: now.remaining - was.remaining,
+      done: now.done - was.done,
+      booked: now.booked - was.booked,
+      noShow: now.noShow - was.noShow,
+    };
+  }).filter((d) => d.remaining || d.done || d.booked || d.noShow);
+}
+
+/**
+ * 這一列（照片要改既有那一段的狀態）改了之後那一筆額度差幾次 —— 給「要改的」那一塊的括號（07）與確認框加總。
+ * 拿手上這一位的全部來訪試算，套的是寫入那一支（`applyPhotoStatus()`，帶閘門）。
+ */
+export function photoChangeDelta(item, ctx) {
+  const visits = ctx.visitsBy?.[item?.customerId] ?? [];
+  const visit = visits.find((v) => v?.id === item?.existing?.visitId);
+  if (!visit || !item?.statusChange) return [];
+  const entitlements = ctx.entitlementsBy?.[item.customerId] ?? [];
+  const { visit: after } = applyPhotoStatus(visit, [{ ...item, adoptStatus: true }], { guard: { entitlements, visits } });
+  return countDeltas(entitlements, visits, visits.map((v) => (v === visit ? after : v)));
 }
 
 // ---------- Abovee 改了時間、app 還沒改（10）----------
@@ -1703,7 +1968,7 @@ export function picksOf(item) {
  */
 export function planAbovee(items, ctx) {
   const first = composeGroups(items, ctx, new Map());
-  const blocked = blockedInGroups(first.groups, ctx);
+  const blocked = blockedInGroups(first.groups, items, ctx);
   const { groups, problems } = blocked.size ? composeGroups(items, ctx, blocked) : first;
   for (const g of groups) {
     g.blocked = Object.fromEntries(g.items.filter((i) => blocked.has(i.key)).map((i) => [i.key, blocked.get(i.key)]));
@@ -1763,11 +2028,11 @@ function composeGroups(items, ctx, blocked) {
 
 /**
  * 組好的那幾組裡，照片寫課程完成、記成已完成的二返／n返，接的那一次健檢還沒做完（`cannotClose()`，ADR-0145）。
- * 那一次健檢拿**連這一次別組要記的一起**的那一份找（`visitsForCheck()`）。
+ * 那一次健檢拿**記完之後**的那一份找（`afterPhoto()`：連這一次別組要記的、照片要改的狀態一起）。
  *
  * @returns {Map<string, {examVisitId: string, examDate: string, status: string|null}>}
  */
-function blockedInGroups(groups, ctx) {
+function blockedInGroups(groups, items, ctx) {
   const out = new Map();
   for (const g of groups) {
     const entitlements = ctx.entitlementsBy?.[g.customerId] ?? [];
@@ -1776,8 +2041,10 @@ function blockedInGroups(groups, ctx) {
       const index = g.at[item.key];
       const slot = g.visit.slots[index];
       if (slot?.status !== 'done' || !slot.followupForVisitId) continue;
-      visits ??= visitsForCheck(groups, g, ctx).customerVisits;
-      const why = cannotClose(g.visit, index, [], { entitlements, visits });
+      // 記完之後的樣子（`afterPhoto()`）：接的那一次健檢可能這一次才從照片改成已完成（04）
+      visits ??= afterPhoto(g.customerId, groups, items, ctx);
+      const visit = visits.find((v) => v.id === plannedId(g)) ?? g.visit;
+      const why = cannotClose(visit, index, [], { entitlements, visits });
       if (why) out.set(item.key, why);
     }
   }

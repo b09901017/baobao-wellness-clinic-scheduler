@@ -83,12 +83,13 @@ describe('合併扣課記好之後，同一頁再拍一次', () => {
     assert.deepEqual(brief(items), ['10:30 recorded', '11:00 new']);
   });
 
-  test('前一列是「還沒簽療程單」的對不上：後一半照樣不是新的（那一句前一列已經講了）', () => {
+  // 04：前一列不再是對不上 —— 照片要把那一段改成已完成（`statusChange`）；後一半照樣被認領，不多扣一次
+  test('前一列是照片要改成已完成的那一段：後一半照樣不是新的', () => {
     const photo = { ...withColumn, rows: HALVES.map(([time, course]) => row('課程完成', '2026-10-01', time, course, '是')) };
     const saved = { id: 'v1', customerId: 'c1', date: '2026-10-01', status: 'confirmed',
       slots: [{ entitlementId: 'P', courseId: 'course-recovery', equipmentId: 'eq-indiba', startsAt: '10:30', endsAt: '11:30', status: 'confirmed' }] };
     const items = readAbovee([photo], ctx([saved])).items;
-    assert.deepEqual(items.map((i) => [i.kind, i.reason ?? null]), [['mismatch', 'notClosed'], ['recorded', null]]);
+    assert.deepEqual(items.map((i) => [i.kind, i.statusChange?.to ?? null, Boolean(i.halfOf)]), [['recorded', 'done', false], ['recorded', null, true]]);
   });
 
   // 2026-10-09 審查：「後一半」「沒有時間的舊段」是整張一起看才認領的。她在那一列按「換一位」之後
@@ -169,11 +170,12 @@ describe('合併檔匯進來、沒有開始時間的舊段', () => {
     assert.equal(items[1].timeless, true);
   });
 
-  test('預約狀態照樣對一次：Abovee 寫完成、app 那一段還沒結案 → 對不上（還沒簽療程單）', () => {
+  // 04：沒有時間的舊段只提醒、不改（照時間找不到它，照位置找又拿不準是哪一段）
+  test('預約狀態照樣對一次：Abovee 寫完成、app 那一段還沒結案 → 對不上（只提醒、不改）', () => {
     const open = imported({ status: 'confirmed' }, { status: 'confirmed' });
     const [item] = readAbovee([photo(SIS)], ctx([open])).items;
-    assert.deepEqual([item.kind, item.reason], ['mismatch', 'notClosed']);
-    assert.match(mismatchSay(item), /還沒簽療程單/);
+    assert.deepEqual([item.kind, item.reason, item.statusChange ?? null], ['mismatch', 'timeless', null]);
+    assert.match(mismatchSay(item), /沒有時間.*去日曆改/);
   });
 
   test('還沒到的那一天也一樣：那一列不再是新的、不預設打勾（以前勾下去那一天就存不了）', () => {
