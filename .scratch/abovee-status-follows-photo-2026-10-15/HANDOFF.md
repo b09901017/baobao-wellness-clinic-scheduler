@@ -92,7 +92,7 @@ docs/agents/lessons.md（尤其一、二、四、五）；CLAUDE.md「一段來�
 段一的「中途發現」裡她說要修的：3（兩張狀態不一樣）併進 04；2（只取消一段時沒勾的 Examine／耀聖安靜收掉）她說修的話另開一支 issue、照規矩做。
 photoStatus 是 null（那一張沒拍到那一欄）的列：03 照舊的預設勾、04 一律不比。
 次數是她最在意的：每一條次數判準都拿 counts() 算改之前與改之後，不看畫面上的字。
-動手前用 grep／graphify 找 slotFromPicks、visitWithSlot、withExtraSlot、INITIAL_STATUS、resolveItem、asRecorded、planAbovee、crossCheck、claimHalves、claimTimeless、applyStatus、closeVisit、cannotClose 的所有呼叫端。
+動手前用 grep／graphify 找 photoStatus、statusUnread、statusFromAbovee、joinPages、slotFromPicks、visitWithSlot、withExtraSlot、INITIAL_STATUS、resolveItem、asRecorded、planAbovee、crossCheck、claimHalves、claimTimeless、applyStatus、closeVisit、cannotClose 的所有呼叫端。
 過程中發現她沒發現的關聯問題或類似的問題，先記進 HANDOFF「中途發現」、繼續做；這一段做完一次列給她，問要不要修（修的時候注意會不會牽連別的地方）。
 
 每支：紅燈測試 → 綠 → npm run verify → 一個 commit → Status: done ＋ issue 底下寫「做完時留下的」。
