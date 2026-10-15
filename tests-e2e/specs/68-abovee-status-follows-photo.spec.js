@@ -295,3 +295,38 @@ test('S5 健檢與接著它的二返，照片都寫課程完成：存完沒有�
   const report = (await app.readAll('tasks')).filter((t) => t.kind === '追蹤健檢報告' && !t.done && !t.deletedAt);
   expect(report).toEqual([]);
 });
+
+test('S6 同一張照片把今天結掉、又有一段新的：記成同一次來訪（10/16 她：一天一次）', async ({ app, page }) => {
+  const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null };
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    entitlement('cust-wang', { id: 'w-pool', ...POOL3, bookedCount: 1 }),
+    entitlement('cust-wang', { id: 'w-rehab', label: '復健科醫師門診', courseId: 'course-rehab', totalQty: 3 }),
+    visit({ id: 'v-today', customerId: 'cust-wang', customerName: '王小明', date: '2026-08-29', status: 'confirmed', ...base,
+      slots: [{ ...slot({ courseId: 'course-recovery', entitlementId: 'w-pool', equipmentId: 'eq-sis', startsAt: '10:00', endsAt: '11:00', therapistId: 'staff-zn' }), status: 'confirmed' }] }),
+    {
+      path: 'batches', id: 'b-sep',
+      data: { targetMonth: MONTH, status: 'active', cursor: null, lastDeviceHint: null,
+        queue: [{ customerId: 'cust-wang', customerName: '', state: 'pending', skippedReason: null }] },
+    },
+  ]);
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-same-day');
+
+  await expect(page.locator('[data-abl-change="adoptStatus"][data-abl-for="a0"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄 1 段、改 1 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).not.toContainText('另開一次新的來訪');
+  await app.ok();
+  await app.saved();
+
+  const today = (await app.readAll('visits')).filter((v) => v.customerId === 'cust-wang' && v.date === '2026-08-29' && !v.deletedAt);
+  expect(today.map((v) => v.id)).toEqual(['v-today']);
+  expect(today[0].slots.map((x) => [x.startsAt, x.status])).toEqual([['10:00', 'done'], ['15:00', 'pending_confirm']]);
+  // 客戶詳情「來訪紀錄」那一天一列
+  await app.go('/customers/cust-wang');
+  await page.locator('[data-toggle-visits]').click();
+  await expect(page.locator('.link-list [data-visit]', { hasText: '8/29' })).toHaveCount(1);
+});
