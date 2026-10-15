@@ -1669,8 +1669,16 @@ describe('同一位客戶同一天有兩筆來訪', () => {
     const rows = findingsOf(run({ visits: two }), 'sameDayVisits');
     assert.equal(rows.length, 1);
     assert.match(rows[0].title, /王小明・2026-09-15/);
-    assert.match(rows[0].detail, /2 筆/);
+    assert.match(rows[0].detail, /2 次來訪/);
     assert.match(rows[0].detail, /3 段/);
+  });
+
+  test('不說「這是舊資料」：那一天結案之後再排一段本來就會另開一次（10/16 她：那一句不對）', () => {
+    const rows = findingsOf(run({ visits: two }), 'sameDayVisits');
+    assert.doesNotMatch(rows[0].detail, /舊資料/);
+    assert.match(rows[0].detail, /結案.*之後再排/);
+    const check = CHECKS.find((c) => c.id === 'sameDayVisits');
+    assert.doesNotMatch(check.hint, /舊資料/);
   });
 
   test('一天一筆不列', () => {
