@@ -463,9 +463,12 @@ export function photoTimeSays(status, date, today) {
   if (!date || !today) return '';
   if (date > today && status === 'done') return '還沒到就寫完成了';
   if (date > today && status === 'no_show') return '還沒到就寫失約了';
-  if (date < today && status === 'pending_confirm') return '日子過了還沒結案';
+  if (date < today && status === 'pending_confirm') return PAST_OPEN;
   return '';
 }
+
+/** 照片上日子過了、Abovee 上還是待確認那三種的那一句（`photoTimeSays()`）。 */
+const PAST_OPEN = '日子過了還沒結案';
 
 /**
  * 這一列的預約狀態要講的那一句：那一格讀不出來就講讀不出來（不再拿它去比時間 —— 不知道 Abovee 上寫什麼），
@@ -560,19 +563,30 @@ function photoWantsChecked(item, today) {
  * @returns {string[]}
  */
 export function photoRowSays(item, block = item?.closeBlock ?? null) {
-  if (item?.kind !== 'new' || item.cancelled) return [];
+  const why = photoRowReason(item, block);
+  return why ? [why.text] : [];
+}
+
+/**
+ * `photoRowSays()` 那一句是哪一種（`code`）＋那一句。**要問「是哪一種」的問 `code`，不要比句子**（10/16 審查：
+ * 「要你看」底下收起來那一組以前拿句子的開頭比，句子一改就安靜地不收了）。只回最前面那一種。
+ *
+ * @returns {{code: 'photosDiffer'|'unread'|'halvesDiffer'|'closeBlock'|'pastOpen'|'time', text: string}|null}
+ */
+function photoRowReason(item, block = item?.closeBlock ?? null) {
+  if (item?.kind !== 'new' || item.cancelled) return null;
   if (item.statusConflict) {
-    return [`兩張照片上這一段的預約狀態不一樣（${item.statusConflict.map((t) => `「${t}」`).join('、')}）—— 記成待確認，照 Abovee 現在的樣子確定再勾`];
+    return { code: 'photosDiffer', text: `兩張照片上這一段的預約狀態不一樣（${item.statusConflict.map((t) => `「${t}」`).join('、')}）—— 記成待確認，照 Abovee 現在的樣子確定再勾` };
   }
-  if (item.statusUnread) return [`${photoStatusSay(item, null)} —— 記成待確認，確定再勾`];
+  if (item.statusUnread) return { code: 'unread', text: `${photoStatusSay(item, null)} —— 記成待確認，確定再勾` };
   if (mergedStatusesDiffer(item)) {
     const texts = item.merged.parts.map((p) => `「${p.statusText || '空的'}」`).join('＋');
-    return [`合併扣課兩列的預約狀態不一樣（${texts}）—— 記成待確認，確定再勾`];
+    return { code: 'halvesDiffer', text: `合併扣課兩列的預約狀態不一樣（${texts}）—— 記成待確認，確定再勾` };
   }
-  if (block) return [`${closeBlockSay(block)}；Abovee 上寫課程完成，這一段先記成待確認`];
-  if (item.photoTime === '日子過了還沒結案') return ['日子過了還沒結案 —— Abovee 上還不是完成、取消或失約；勾了記成待確認'];
-  if (item.photoTime) return [`${item.photoTime} —— 勾了記成待確認`];
-  return [];
+  if (block) return { code: 'closeBlock', text: `${closeBlockSay(block)}；Abovee 上寫課程完成，這一段先記成待確認` };
+  if (item.photoTime === PAST_OPEN) return { code: 'pastOpen', text: `${PAST_OPEN} —— Abovee 上還不是完成、取消或失約；勾了記成待確認` };
+  if (item.photoTime) return { code: 'time', text: `${item.photoTime} —— 勾了記成待確認` };
+  return null;
 }
 
 /**
@@ -1893,7 +1907,7 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
  */
 export const pastStillOpen = (item) => (item?.kind === 'mismatch' && item.reason === 'bothOpen' && !item.closeBlock)
   || (item?.kind === 'new' && !item.cancelled && !newRowSay(item)
-    && (photoRowSays(item)[0] ?? '').startsWith('日子過了還沒結案'));
+    && photoRowReason(item)?.code === 'pastOpen');
 
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
 export function aboveeDatesIn(transcripts = []) {
