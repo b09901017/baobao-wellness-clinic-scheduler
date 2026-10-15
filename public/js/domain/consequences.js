@@ -26,7 +26,7 @@
 
 import {
   bookingSystemOf, isCancelKind, cancelTasksFor, cancelsBooking,
-  newRegistrations,
+  newRegistrations, syncTasksForVisit, TASK_KINDS, cancelKindFor,
 } from './taskRules.js';
 import {
   shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -917,9 +917,13 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @returns {string[]}
  */
 export function cancelConsequences({
-  visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
+  visit, coursesById = {}, tasks: given = [], removing = false, sheetSyncOn = false, slotIndex = null,
   customerVisits = [], chain = null,
 }) {
+  // **只拿這一筆自己的任務**（abovee-status-follows-photo 10）：批次取消把好幾天的任務攤成一份傳進來，
+  // 而 `cancelTasksFor()` 不看 `visitId` —— A 那一天勾掉的 Examine 會讓 B 那一天講「會多一張取消 Examine」，
+  // 真的寫下去卻不長。沒有 `visitId` 的照留
+  const tasks = (given ?? []).filter((t) => !t?.visitId || !visit?.id || t.visitId === visit.id);
   const customer = { id: visit?.customerId ?? null, name: visit?.customerName ?? null };
   const others = (customerVisits ?? []).filter((v) => v.id !== visit?.id);
   // 健檢那條鏈那幾句（`cancelChainLines()`）：取消這幾段（`at` 空的＝整天）
@@ -978,6 +982,8 @@ export function cancelConsequences({
       slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
     };
     lines.push(...cancelTaskLines(after, tasks, coursesById));
+    // 那幾段還沒勾的 Examine／耀聖會被收掉（或拿掉這一段）—— 她其實掛了只是忘了勾的話，取消之後沒有人提醒她回去收
+    lines.push(...registrationDropLines(after, tasks, coursesById));
     lines.push(...chainSaid([...picked]));
 
     lines.push('改期不是改日期，是取消後重新排一次');
@@ -1017,6 +1023,9 @@ export function cancelConsequences({
   if (ownKinds.length) {
     lines.push(`還沒做完的${ownKinds.map((k) => `「${k}」`).join('、')}會被收掉`);
   }
+  // 其中有掛號那一族的話，講下一步（同只取消幾段那一條，10）
+  const unticked = TASK_KINDS.filter((k) => ownKinds.includes(k));
+  if (unticked.length) lines.push(untickedNextLine(unticked));
 
   // 健檢那條鏈：那一場沒發生，沒有東西要追（`keepsOpen()` 的 `stillDone`）
   const chainKinds = [...new Set(live.filter((t) => CHAIN_KINDS.includes(t.kind)).map((t) => t.kind))];
@@ -1069,6 +1078,8 @@ export function rebookConsequences({
     `新的那一段（${timeLabel(fresh)}）接在後面，標成「${shortStatus(INITIAL_STATUS)}」`
       + (settled ? ' —— 原本談定過了，要再問客人一次' : ''),
     ...cancelTaskLines(after, tasks, coursesById),
+    // 舊那一段還沒勾的 Examine／耀聖會被收掉 —— 取消那一道同一句（10）
+    ...registrationDropLines(after, tasks, coursesById),
   ];
   // 新那一段談定之後真的會長的（`registrationsWhenSettled()`）—— 舊的掛號待辦沒有
   // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
@@ -1103,6 +1114,46 @@ export function cancelTaskLines(after, tasks, coursesById, { freed = [] } = {}) 
     ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
     // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
     : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
+}
+
+/**
+ * 取消（或改期取消掉舊的）之後，那幾段**還沒勾**的掛號待辦（Examine、耀聖）會怎樣（abovee-status-follows-photo 10）。
+ *
+ * 她 10/15 問「忘記勾 Examine／耀聖的掛號待辦，會被當成沒做嗎？」—— 會：那一張被收掉（或蓋著好幾段時拿掉這一段），
+ * `cancelTasksFor()` 第 2 條只收勾過的，所以也不長「取消 Examine」。她其實掛了只是忘了勾的話，沒有人提醒她回去收 ——
+ * 所以講出來，而且講下一步。
+ *
+ * **拿 `syncTasksForVisit()` 算**（`remove` 與 `update.slotIndexes`，ADR-0070），不照規則在這裡推。只算掛號那一族（`TASK_KINDS`）。
+ * 拍 Abovee 的確認框（照片改成已取消的段）也要講同一句 —— 句子只有這一支。
+ *
+ * @param {object} after 取消之後的那一筆
+ * @param {object[]} tasks 這一筆自己的任務（連軟刪除的，`listByVisitForSync()`）
+ * @returns {string[]}
+ */
+export function registrationDropLines(after, tasks, coursesById) {
+  const own = tasks ?? [];
+  const byId = new Map(own.map((t) => [t.id, t]));
+  const { remove, update } = syncTasksForVisit(after, own, { coursesById });
+  const ofKind = (id) => (TASK_KINDS.includes(byId.get(id)?.kind) ? byId.get(id).kind : null);
+  const goneKinds = new Set(remove.map((r) => ofKind(r.id)).filter(Boolean));
+  const shrunk = update.filter((u) => u.changes?.slotIndexes && ofKind(u.id) && !goneKinds.has(ofKind(u.id)));
+  const shrunkKinds = new Set(shrunk.map((u) => ofKind(u.id)));
+  const list = (kinds) => TASK_KINDS.filter((k) => kinds.has(k)).map((k) => `「${k}」`).join('、');
+  const lines = [];
+  if (goneKinds.size) lines.push(`還沒勾的${list(goneKinds)}會被收掉`);
+  if (shrunkKinds.size) {
+    const many = shrunk.some((u) => (byId.get(u.id)?.slotIndexes?.length ?? 0) - u.changes.slotIndexes.length > 1);
+    lines.push(`還沒勾的${list(shrunkKinds)}會拿掉${many ? '這幾段' : '這一段'}（還在的段照舊）`);
+  }
+  const kinds = TASK_KINDS.filter((k) => goneKinds.has(k) || shrunkKinds.has(k));
+  if (kinds.length) lines.push(untickedNextLine(kinds));
+  return lines;
+}
+
+/** 掛號那一族還沒勾、要被收掉時的下一步。勾了再取消，`cancelTasksFor()` 第 2 條才會長「取消 X」。 */
+function untickedNextLine(kinds) {
+  return `已經在 ${kinds.join('、')} 掛了、只是還沒勾的話，先去待辦勾掉${kinds.length > 1 ? '' : '它'}`
+    + ` —— 這樣才會長${kinds.map((k) => `「${cancelKindFor(k)}」`).join('、')}提醒你回去收`;
 }
 
 // ---------- 存課程之前：談定的那幾天要跟著變（ADR-0140）----------
