@@ -398,12 +398,16 @@ export function withExtraSlot(visit, slot, { at = new Date().toISOString() } = {
  * 一天只有一段時它會先把整筆推成「已取消」，接上來的新那一段跟著變成死的。直接標那一段
  * 再 `withExtraSlot()`，整筆的狀態才會等於 `visitStatusFrom()`（`tests/consequences.test.js` 釘著四種）。
  *
+ * **拍 Abovee 照片為準改期時新的那一段照照片**（abovee-status-follows-photo 05）：`status` 帶課程完成／客戶失約，
+ * `attended` 照 `closeVisit()` 的形狀一起寫。日曆那條路不帶，一個字都不變（ADR-0108）。
+ *
  * @param {object} before 存下去之前那一筆
  * @param {number} index 她改的是哪一段
  * @param {object} next 那一段改完之後的樣子
+ * @param {{status?: string, at?: string}} [o] 新的那一段的狀態（沒給就是待確認）、整筆換狀態時蓋的時間
  * @returns {object|null} 要存的那一筆；不用改期就回 null（照原地改）
  */
-export function rebookSlot(before, index, next) {
+export function rebookSlot(before, index, next, { status = INITIAL_STATUS, at } = {}) {
   const old = before?.slots?.[index];
   if (!old || !next) return null;
   if (!acceptsMoreSlots(slotStatus(before, old))) return null;
@@ -413,7 +417,8 @@ export function rebookSlot(before, index, next) {
     ...before,
     slots: before.slots.map((s, i) => (i === index ? { ...s, status: 'cancelled' } : s)),
   };
-  return withExtraSlot(marked, { ...next, status: INITIAL_STATUS }).visit;
+  const closed = status === 'done' || status === 'no_show' ? { attended: status === 'done' } : {};
+  return withExtraSlot(marked, { ...next, status, ...closed }, { at }).visit;
 }
 
 // ---------- 收尾（客人來了沒、療程單簽了沒） ----------

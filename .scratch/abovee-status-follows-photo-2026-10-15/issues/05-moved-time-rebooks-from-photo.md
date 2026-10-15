@@ -1,6 +1,6 @@
 # Abovee 上改了時間：照片為準，直接幫她改期
 
-Status: todo
+Status: done
 Blocked by: 01（狀態對照）、03（`withExtraSlot()` 與整筆狀態推導 —— `rebookSlot()` 走它）、04（改狀態那一支的形狀，改期照同一個形狀、`freed`）
 動工前先讀：`spec.md`「Abovee 改了時間」；ADR-0108（改期＝取消＋重新排）、ADR-0129（app 有、這次照片上沒有；`photoSpan()`）、ADR-0123 第 10 段（`flagMoved()` 為什麼不替她做，`docs/adr/0123-…:93-104`）；
 `domain/aboveeImport.js` 的 `flagMoved()`、`movedSlot()`、`timesOf()`、`photoSpan()`、`absentFromPhoto()`、`newRowSay()`（`movedFrom` 那一句）；
@@ -49,3 +49,31 @@ Blocked by: 01（狀態對照）、03（`withExtraSlot()` 與整筆狀態推導 
 - 改期之後「app 有、這次照片上沒有」那一塊不再列 10:00 那一段
 - 日曆上的改期（`rebookSlot()` 不帶狀態）：新段照舊是待確認（既有測試全綠）
 - 同一張照片再拍一次：11:00 是已經記了，什麼都不改
+
+## 做完時留下的（10/15 段三）
+
+**做成的樣子**：
+
+- `visits.js` 的 `rebookSlot(before, index, next, { status, at })`：`status` 沒給就是待確認（日曆那條路一個字都不變）；給了已完成／未到，`attended` 照 `closeVisit()` 的形狀一起寫
+- `aboveeImport.js`
+  - **範圍一支**：`photoBounds(transcripts, items)`（export）→ `{ customerId, ranges, why }`。`absentFromPhoto()` 改走它；改期用同一份（`inPhoto()`）
+  - `flagMoved(items, ctx, bounds)`：先找每一列對得到 app 上哪幾段（`movedSlots()`：同一天、還活著、同一門課、照片上沒有那個時間），
+    **拿得準**＝這一列有開始時間、只對得到一段、那一段也只被這一列對到、那一段還開著（`acceptsMoreSlots()`）、舊的時間在照片範圍裡。
+    拿得準 → `asRecorded()`（**kind 是 `recorded`**，所以 `planAbovee()`／`linkBatchExams()`／`examChoices()` 都不會再當成新的一段）＋
+    `move: { slot: 新的那幾格, status: photoSlotStatus() }`、`adoptMove`（預設勾：照片狀態那一張表 `photoWantsChecked()`、讀得到全部來訪、新的時間 app 上沒取消過）、
+    `existing`（她看到的舊那一段：visitId／date／slotIndex／startsAt／courseId／status）、**`movedFrom` 照留**（`absentFromPhoto()` 靠它不再列舊時間）。
+    拿不準 → 照舊（新的、`movedFrom`、不勾、`newRowSay()` 那一句、去日曆）
+  - `movedSlotFields()`：新的時間、**時長照舊**（照片上的結束時間常常多算了準備時間，額度沒變）、治療師／醫師照照片（認不出來的留原本的）、
+    診間只比要診間的課（同 `aboveeDiffs()`，換了清 `bed`）
+  - `applyPhotoMove(visit, items, { at, guard })`（export）：照 `applyPhotoStatus()` 的形狀 —— 核對她看到的（`stale`）、走 `rebookSlot()`、
+    回 `freed`（舊時間那幾段，給 02）、`blocked`（二返照片寫完成、接的健檢還沒做完 → **照樣改期、新的那一段記成待確認**，同 03 的新列）
+  - `checkMoves()`（`readAbovee()` 最後一步）：預設勾著的改期套上去之後驗一次 —— `validateVisit()` 的錯誤、`mustSee()` 的提醒（撞期、重疊…，只看講到新那一段的）、
+    二返簽不成 → **不預設勾**，`moveWarnings`／`closeBlock` 記著。**撞期是不先勾、不是不准改**（app 裡撞期從來不擋，ADR-0094）—— 跟 issue「不改、講出來」的差別要跟她講一聲
+  - `afterPhoto()` 也套改期（`gateStatusChanges()`、`blockedInGroups()` 的閘門看得到改期之後的健檢）
+  - `checkCtxFor()`（export）：`validateVisit()` 要的那一份，從 `aboveeConfirm.js` 搬到 domain（畫面那一支改成一行叫它）
+  - `recordedSay()` 多改期那一句：「app 上 10:00 那一段 SIS(60)，Abovee 上改到 11:00 —— 照 Abovee 改期（…取消、…接上）」，沒先勾的接理由＋「確定再勾」
+  - `resolveItem()` 的重設清單、`asRecorded()` 多 `move`／`adoptMove`／`moveWarnings`
+
+**還沒接**：寫入（`record()` 還不認 `move`）與確認框 —— 06；畫面上「要改的」那一塊 —— 07（現在那一列看起來是「已經記了」＋那一句）。
+
+測試：`tests/abovee-moved-rebook.test.js`（18 條：判準每一條、日曆的改期不變、同一張再拍一次不改、別的裝置改過不改）。`npm test` 4621 全綠。

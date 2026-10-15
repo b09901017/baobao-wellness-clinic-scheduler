@@ -25,11 +25,11 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  recordedSay, repeatSay, resolveItem, summarizeAbovee, visitsForCheck, warningsByRow, resolveSaved, plannedId, refreshNoExam, stuckLinks,
+  recordedSay, repeatSay, resolveItem, summarizeAbovee, checkCtxFor, warningsByRow, resolveSaved, plannedId, refreshNoExam, stuckLinks,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
-  validateVisit, warningDetails, mustSee, slotSay, picksEquipment, assignsFor, shortStatus, slotMinutes,
+  validateVisit, warningDetails, mustSee, picksEquipment, assignsFor, shortStatus, slotMinutes,
   equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
@@ -191,28 +191,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   // ---------- 畫 ----------
 
-  /**
-   * `validateVisit()` 要的那一份（這位客戶、那一天）。
-   *
-   * **每一段用時間與名字叫**（`slotSay()`，issue 07）：這一層一列一段，沒有「第幾個時段」可以指 ——
-   * 而整筆的提醒會原樣掛到那一組的每一列上。
-   *
-   * **來訪那兩份連這一次別組要記的一起算**（`visitsForCheck()`，2026-10-09 審查）：同一張照片上同一位客人
-   * 別天的那幾段、別人同一天的那一段。只看資料庫裡的話，只買 1 次、照片上三天各一段時三列都不講超用。
-   *
-   * @param {object[]} groups 這一次要記的每一組（`planAbovee()`）
-   * @param {{customerId: string, date: string, visit: object}} group 正在驗的那一組
-   */
-  function checkCtx(groups, group) {
-    return {
-      slotLabel: (i) => slotSay(group.visit?.slots?.[i], ctx.master),
-      customer: { flags: ctx.customers.find((c) => c.id === group.customerId)?.flags ?? [] },
-      entitlements: ctx.entitlementsBy[group.customerId] ?? [],
-      courses: ctx.master.courses, equipment: ctx.master.equipment, rooms: ctx.master.rooms,
-      staff: ctx.master.staff, ivProducts: ctx.master.ivProducts,
-      ...visitsForCheck(groups, group, ctx),
-    };
-  }
+  /** `validateVisit()` 要的那一份（這位客戶、那一天）—— 規則在 domain（`checkCtxFor()`），改期那一天也走它。 */
+  const checkCtx = (groups, group) => checkCtxFor(groups, group, ctx);
 
   function plan() {
     const { groups, problems } = planAbovee(items, ctx);

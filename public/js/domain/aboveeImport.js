@@ -25,8 +25,9 @@ import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from '
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
-  INITIAL_STATUS, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor, isActive,
-  isLiveSlot, isOpenStatus, lockedAt, mustSee, sameDayState, shortStatus, slotStatus, withSlotStatuses,
+  INITIAL_STATUS, acceptsMoreSlots, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor,
+  isActive, isLiveSlot, isOpenStatus, lockedAt, mustSee, rebookSlot, sameDayState, shortStatus, slotSay, slotStatus, validateVisit,
+  warningDetails, withSlotStatuses,
 } from './visits.js';
 import { counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
@@ -34,7 +35,7 @@ import { closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
-import { toMinutes } from './visitTime.js';
+import { endOf, toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
 import { NTH_PICK, giftCourseIdOf, giftPick } from './slotOptions.js';
 import { MIN_NTH, nthOf } from './nthFollowup.js';
@@ -707,6 +708,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
     // 換一個人重算時，上一位的比對結果不可以留著 —— 「照片要把這一段改成什麼」（04）也是：留著的話換成的那一位被改狀態
     reason: null, appStatus: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
     statusChange: null, adoptStatus: false, halfTexts: null,
+    // 照片為準改期（05）也是整張一起看的（`flagMoved()`）—— 換了人就不是那一位的段了
+    move: null, adoptMove: false, moveWarnings: null,
     // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
     repeatOf: null,
     // 「合併扣課的後一半」「沒有時間的舊段」也是整張一起看才認領的（`asRecorded()`）—— 換了人就不是那一段了，
@@ -907,10 +910,15 @@ export function readAbovee(transcripts, ctx) {
   // 整張一起看才知道的事，照這個順序：合併扣課的後一半（要趕在 `mergeRows()` 把它標成找不到另一半之前）→
   // 合併扣課 → 沒有時間的舊段（一對先合成一列，才對得到那一段舊的）→ 搬了時間 → 看起來是同一段 →
   // 二返接哪一次健檢 → 二返照片寫完成、接的那一次還沒做完（要知道接哪一次，排在最後）
-  const paired = mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn });
-  const linked = linkBatchExams(flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)), ctx);
-  // 二返簽不簽得成已完成：既有的那幾段先（要改的 → 對不上），新的那幾列看「記完之後」的健檢
-  return { pairing, counts: sizes, noStatusColumn, items: flagCloseBlocks(gateStatusChanges(linked, ctx), ctx) };
+  const paired = claimTimeless(mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn }), ctx);
+  // 改期要知道這張照片看得到哪一段時間（跟「app 有、這次照片上沒有」同一支，05）
+  const moved = flagMoved(paired, ctx, photoBounds(transcripts, paired));
+  const linked = linkBatchExams(flagRepeats(moved), ctx);
+  // 二返簽不簽得成已完成：既有的那幾段先（要改的 → 對不上），新的那幾列看「記完之後」的健檢；
+  // 改期的那一天最後驗一次（撞到別人、二返簽不成 → 不先勾）
+  return {
+    pairing, counts: sizes, noStatusColumn, items: checkMoves(flagCloseBlocks(gateStatusChanges(linked, ctx), ctx), ctx),
+  };
 }
 
 /**
@@ -1030,7 +1038,7 @@ const asRecorded = (item, existing, extra = {}) => ({
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
   isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
-  closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null,
+  closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null, move: null, adoptMove: false, moveWarnings: null,
   kind: 'recorded', checked: false, existing, ...extra,
 });
 
@@ -1135,6 +1143,14 @@ export function recordedSay(item) {
   if (item.halfOf) return `這是合併扣課的後一半 —— app 上 ${item.halfOf} 那一段已經包著它，不用再記。`;
   if (item.statusChange) {
     return `這一段 app 裡已經有了（「${shortStatus(item.statusChange.from)}」）—— 照 Abovee 改成「${shortStatus(item.statusChange.to)}」。`;
+  }
+  if (item.move) {
+    const to = item.move.status === INITIAL_STATUS ? '' : `、記成「${shortStatus(item.move.status)}」`;
+    const said = `app 上 ${item.existing.startsAt} 那一段 ${item.movedFrom?.name ?? ''}，Abovee 上改到 ${item.move.slot.startsAt}`
+      + ` —— 照 Abovee 改期（${item.existing.startsAt} 那一段取消、${item.move.slot.startsAt} 接上${to}）。`;
+    // 讀完整張才知道的那兩種不先勾（`checkMoves()`）：講出來
+    const why = item.closeBlock ? closeBlockSay(item.closeBlock) : (item.moveWarnings ?? [])[0];
+    return why ? `${said}${why} —— 確定再勾。` : said;
   }
   if (item.cancelled) return '兩邊都是取消的，不用記。';
   if (item.timeless) return 'app 上這一天已經有這一段了（匯入的舊資料，沒有時間），不用再記。';
@@ -1396,7 +1412,7 @@ function afterPhoto(customerId, groups, items, ctx) {
   const planned = (groups ?? []).filter((g) => g.customerId === customerId && g.visit).map((g) => ({ ...g.visit, id: plannedId(g) }));
   const replaced = new Set(planned.map((v) => v.id));
   return [...(ctx.visitsBy?.[customerId] ?? []).filter((v) => v && !replaced.has(v.id)), ...planned]
-    .map((v) => applyPhotoStatus(v, items).visit);
+    .map((v) => applyPhotoMove(applyPhotoStatus(v, items).visit, items).visit);
 }
 
 /**
@@ -1461,35 +1477,174 @@ export function photoChangeDelta(item, ctx) {
 // ---------- Abovee 改了時間、app 還沒改（10）----------
 
 /**
- * Abovee 上把 10:00 的 SIS 改到 11:00、app 上還沒改：11:00 那一列找不到同一個時間的段，以前當成新的而且
- * 預設打勾 → 那一天兩段都佔次數。現在照舊是新的，但**不預設打勾**、講一句、給一顆去日曆（abovee-and-master/10）；
- * 勾了就是她確定是另一段。改期在 app 裡是取消＋重新排（ADR-0108），會動待辦 —— 這一層不替她做。
+ * Abovee 上把 10:00 的 SIS 改到 11:00、app 上還沒改：11:00 那一列找不到同一個時間的段。
  *
+ * **拿得準的那一對 → 照片為準改期**（abovee-status-follows-photo 05，她 10/15：「我都在abovee改好了，不用再叫我去取消和重排啊」）：
+ * 那一列變成「已經記了」＋`move`（不再是新的一段 —— 不然舊的沒取消、新的多一段，多扣一次；`planAbovee()`、
+ * `linkBatchExams()`、`examChoices()` 都只收新的列），預設打勾（`adoptMove`）。拿得準＝
+ * - **剛好一對**：這一列只對得到 app 上一段、那一段也只被這一列對到（兩段對一列、一段對兩列都拿不準）
+ * - 舊的那個時間**落在這張照片的範圍裡**（`photoBounds()`，跟「app 有、這次照片上沒有」同一支）—— 照片從 10:30 才開始拍的話，
+ *   10:00 那一段可能在上一頁
+ * - 舊的那一段還開著（待確認／已確認 —— 已完成、未到不搬，`rebookSlot()` 本來就不搬）、照片上這一列不是已取消（已取消的不叫改期）
+ *
+ * **拿不準的照舊**（abovee-and-master/10）：新的、不預設打勾、講一句、給一顆去日曆；勾了就是她確定是另一段。
  * 不判成「對不上」：`planAbovee()` 只收新的列，判成對不上的話照片只拍到同一天的第二段（真的是另一段）時就記不了。
+ *
+ * **不同天的改期不在這裡**（只看同一天）：舊的那一段留在「app 有、這次照片上沒有」、新的那一列照新列的規則。
  */
-function flagMoved(items, ctx) {
-  return items.map((item) => {
-    if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) return item;
+function flagMoved(items, ctx, bounds) {
+  const olds = new Map();
+  for (const item of items) {
+    if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) continue;
     // 照片上這一位這一天出現過的每一個時間都算「有人對到了」（取消的列也算）—— 先把同一個時間的配完，
     // 再看剩下的：同一天上午、下午各一段 SIS 時兩列各對各的，不會互相搶
     const seen = new Set(items.filter((o) => o.customerId === item.customerId && o.date === item.date).flatMap(timesOf));
-    const from = movedSlot(item, seen, ctx);
-    return from ? { ...item, movedFrom: from, checked: false } : item;
+    const found = movedSlots(item, seen, ctx);
+    if (found.length) olds.set(item.key, found);
+  }
+  const claims = new Map();
+  for (const found of olds.values()) for (const o of found) claims.set(o.id, (claims.get(o.id) ?? 0) + 1);
+
+  return items.map((item) => {
+    const found = olds.get(item.key);
+    if (!found) return item;
+    const [old] = found;
+    const movedFrom = { startsAt: old.slot.startsAt, name: slotName(old.slot, ctx.master ?? {}, 'short') };
+    // 照片上這一列讀不出時間就不知道改到哪裡 —— 照舊
+    const sure = Boolean(item.startsAt) && found.length === 1 && claims.get(old.id) === 1 && acceptsMoreSlots(old.status)
+      && inPhoto(bounds, item.date, old.slot.startsAt);
+    if (!sure) return { ...item, movedFrom, checked: false };
+    const existing = {
+      visitId: old.visit.id, date: old.visit.date, slotIndex: old.index,
+      startsAt: old.slot.startsAt, courseId: old.slot.courseId, status: old.status,
+    };
+    const partialHistory = historyPartial(ctx, item.customerId);
+    return asRecorded(item, existing, {
+      movedFrom,
+      move: { slot: movedSlotFields(item, old, ctx), status: photoSlotStatus(item, ctx.today) },
+      // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
+      // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
+      adoptMove: photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere,
+      partialHistory,
+    });
   });
 }
 
-/** app 上那一天還活著、同一個課程（器材對得上、返數一樣）、照片上沒有那個時間的那一段。 */
-function movedSlot(item, seen, ctx) {
+/** app 上那一天還活著、同一個課程（器材對得上、返數一樣）、照片上沒有那個時間的那幾段。 */
+function movedSlots(item, seen, ctx) {
   const { courseId, equipmentId, nth = null } = item.course;
+  const out = [];
   for (const visit of ctx.visitsBy?.[item.customerId] ?? []) {
     if (!visit || visit.deletedAt || visit.date !== item.date || !isActive(visit)) continue;
-    const slot = (visit.slots ?? []).find((s) => isLiveSlot(s) && s.courseId === courseId
-      && (!equipmentId || !s.equipmentId || s.equipmentId === equipmentId)
-      && (nthOf(s) ?? null) === nth
-      && s.startsAt && !seen.has(s.startsAt));
-    if (slot) return { startsAt: slot.startsAt, name: slotName(slot, ctx.master ?? {}, 'short') };
+    (visit.slots ?? []).forEach((slot, index) => {
+      if (isLiveSlot(slot) && slot.courseId === courseId
+        && (!equipmentId || !slot.equipmentId || slot.equipmentId === equipmentId)
+        && (nthOf(slot) ?? null) === nth
+        && slot.startsAt && !seen.has(slot.startsAt)) {
+        out.push({ id: `${visit.id}:${index}`, visit, index, slot, status: slotStatus(visit, slot) });
+      }
+    });
   }
-  return null;
+  return out;
+}
+
+/**
+ * 改期之後新的那一段跟舊的不一樣的那幾格：時間（**時長照舊** —— 額度沒變，Abovee 那一格的結束時間常常多算了準備的時間）、
+ * 治療師、醫師、診間照照片（照片上認不出來的那一格留著原本的；診間只比要診間的課，同 `aboveeDiffs()`，換了清 `bed`）。
+ * 額度、器材、品項、接哪一次健檢照舊那一段 —— 換了就不是改期了。
+ */
+function movedSlotFields(item, old, ctx) {
+  const { slot } = old;
+  const span = slot.startsAt && slot.endsAt ? toMinutes(slot.endsAt) - toMinutes(slot.startsAt) : null;
+  const course = (ctx.master?.courses ?? []).find((c) => c.id === slot.courseId);
+  const ent = liveEnts(ctx, item.customerId).find((e) => e.id === slot.entitlementId) ?? null;
+  const assigns = course ? assignsFor(ent, course, slot.equipmentId) : null;
+  const roomOf = (id) => (ctx.master?.rooms ?? []).find((r) => r.id === id) ?? null;
+  const room = assigns === 'room' && item.roomId && item.roomId !== slot.roomId
+    && !isBedlessOf(roomOf(item.roomId), roomOf(slot.roomId)) ? item.roomId : null;
+  return {
+    startsAt: item.startsAt,
+    endsAt: span > 0 ? endOf(item.startsAt, span) : (aboveeEnd(item.row?.time) ?? slot.endsAt ?? null),
+    therapistId: item.therapistId ?? slot.therapistId ?? null,
+    doctorId: item.doctorId ?? slot.doctorId ?? null,
+    ...(room ? { roomId: room, bed: null } : {}),
+  };
+}
+
+/**
+ * 照片為準改期，套到**剛讀回來的那一份**來訪上（05）。純函式，照 `applyPhotoStatus()` 的形狀：她在這一層看到的跟現在不一樣就不改。
+ *
+ * - 套哪幾列：指到這一筆的、有 `move`、勾著的（`adoptMove`）
+ * - 舊的那一段照 `existing.slotIndex` 找，核對開始時間、課程、狀態跟她看到的一樣 —— 不一樣 → 不改（`stale`）
+ * - 一律走 `rebookSlot()`（ADR-0108：舊的取消、新的接在尾巴），新的那一段的狀態照照片（`move.status`）
+ * - 照片寫課程完成的二返／n返，接的那一次健檢還沒做完（`cannotClose()`，ADR-0145）→ 照樣改期、**新的那一段記成待確認**（同 03 的新列），
+ *   回在 `blocked`。閘門拿 `guard`（這位客戶記完之後的全部來訪）問；沒給就不擋（只拿來試算）
+ *
+ * @returns {{visit: object, missed: object[], freed: number[], blocked: Record<string, object>}}
+ *   `freed`：取消掉的舊時間那幾段 —— 存的時候交給 `save()` 的 `freed`，「取消 Abovee」一出生就勾好（02）
+ */
+export function applyPhotoMove(visit, items = [], { at = new Date().toISOString(), guard = null } = {}) {
+  const mine = (items ?? []).filter((i) => i?.move && i.adoptMove && visit?.id && i.existing?.visitId === visit.id);
+  const missed = [];
+  const freed = [];
+  const blocked = {};
+  let next = visit;
+  for (const item of mine) {
+    const want = item.existing;
+    const seen = withSlotStatuses(next);
+    const old = seen.slots?.[want.slotIndex];
+    const same = next.date === want.date && Boolean(old) && (old.startsAt ?? null) === (want.startsAt ?? null)
+      && old.courseId === want.courseId && slotStatus(seen, old) === want.status;
+    if (!same) {
+      missed.push({ ...item, missedWhy: 'stale' });
+      continue;
+    }
+    const moved = { ...old, ...item.move.slot };
+    let after = rebookSlot(next, want.slotIndex, moved, { status: item.move.status, at });
+    const why = after && item.move.status === 'done' && guard
+      ? cannotClose(after, after.slots.length - 1, [], guard) : null;
+    if (why) {
+      blocked[item.key] = why;
+      after = rebookSlot(next, want.slotIndex, moved, { at });
+    }
+    if (!after) {
+      missed.push({ ...item, missedWhy: 'refused' });
+      continue;
+    }
+    next = after;
+    freed.push(want.slotIndex);
+  }
+  return { visit: next, missed, freed, blocked };
+}
+
+/**
+ * 讀照片的最後一步（05）：拿得準、預設打勾的改期，**套上去之後**那一天驗一次（`validateVisit()` 與 `warningDetails()`）——
+ * 新的時間撞到別人（同一間診間、同一位治療師）、跟同一天別段重疊、二返簽不成已完成 → **不預設打勾、講出來**（`moveWarnings`／`closeBlock`）。
+ * 勾了照樣改（撞期在 app 裡從來不擋，ADR-0094）；有錯誤的照片上的計畫會擋（06）。驗證拿這一次記完之後的全部來訪（`afterPhoto()`）。
+ */
+function checkMoves(items, ctx) {
+  const wanted = items.filter((i) => i.move && i.adoptMove);
+  if (!wanted.length) return items;
+  const { groups } = planAbovee(items, ctx);
+  const notes = new Map();
+  for (const item of wanted) {
+    const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing.visitId);
+    if (!visit) continue;
+    const guard = { entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: afterPhoto(item.customerId, groups, items, ctx) };
+    const { visit: after, blocked } = applyPhotoMove(visit, [item], { guard });
+    if (blocked[item.key]) {
+      notes.set(item.key, { adoptMove: false, closeBlock: blocked[item.key] });
+      continue;
+    }
+    const check = checkCtxFor(groups, { customerId: item.customerId, date: after.date, visit: after }, ctx);
+    const at = after.slots.length - 1;
+    const said = [
+      ...validateVisit(after, check).errors,
+      ...warningDetails(after, check).filter((w) => mustSee(w) && w.slots.includes(at)).map((w) => w.text),
+    ];
+    if (said.length) notes.set(item.key, { adoptMove: false, moveWarnings: said });
+  }
+  return items.map((i) => (notes.has(i.key) ? { ...i, ...notes.get(i.key) } : i));
 }
 
 // ---------- 合併扣課 ----------
@@ -1806,6 +1961,24 @@ function within(range, date, startsAt) {
 }
 
 /**
+ * 這一次照片看得到哪幾段時間（`photoSpan()` → `boundsOf()`）。**「app 有、這次照片上沒有」（ADR-0129）與
+ * 「Abovee 改了時間」（`flagMoved()`，abovee-status-follows-photo 05）共用這一支** —— 各算一次的話，
+ * 一邊把 10:00 喊成沒拍到、另一邊卻當成拍到了去改期。照片上每一列都認出來、而且是同一位 → `customerId` 是他（放寬到整個月的那一條要它）。
+ *
+ * @returns {{customerId: string|null, ranges: {lo: object, hi: object}[], why: null|'noDates'|'unsorted'}}
+ */
+export function photoBounds(transcripts, items) {
+  const span = photoSpan(transcripts);
+  if (span.why) return { customerId: null, ranges: [], why: span.why };
+  const ids = new Set((items ?? []).map((i) => i.customerId ?? null));
+  const customerId = ids.size === 1 && !ids.has(null) ? [...ids][0] : null;
+  return { customerId, ranges: span.segments.map((seg) => boundsOf(seg, span, Boolean(customerId))), why: null };
+}
+
+/** 那一天那個時間落不落在這張照片看得到的範圍裡（`photoBounds()`）。 */
+const inPhoto = (bounds, date, startsAt) => (bounds?.ranges ?? []).some((r) => within(r, date, startsAt));
+
+/**
  * app 上有、這次照片上沒有的那幾段（ADR-0129）。確認層每畫一次就算一次 —— 她換了某一列是誰，結果跟著變。
  *
  * **對象**：照片上每一列都認出來、而且是同一位 → 那一位（「一個月內的一個人」）；否則範圍裡 app 上有來訪的每一位。
@@ -1823,12 +1996,8 @@ function within(range, date, startsAt) {
 export function absentFromPhoto(transcripts, items, ctx) {
   const list = items ?? [];
   if (!list.length) return { checked: null, why: null, slots: [] };
-  const span = photoSpan(transcripts);
-  if (span.why) return { checked: null, why: span.why, slots: [] };
-
-  const ids = new Set(list.map((i) => i.customerId ?? null));
-  const customerId = ids.size === 1 && !ids.has(null) ? [...ids][0] : null;
-  const ranges = span.segments.map((seg) => boundsOf(seg, span, Boolean(customerId)));
+  const { customerId, ranges, why } = photoBounds(transcripts, list);
+  if (why) return { checked: null, why, slots: [] };
   const courses = new Map((ctx.master?.courses ?? []).map((c) => [c.id, c]));
   const nameOf = (id, visit) => (ctx.customers ?? []).find((c) => c.id === id)?.name ?? visit?.customerName ?? '';
 
@@ -1850,7 +2019,7 @@ export function absentFromPhoto(transcripts, items, ctx) {
       (visit.slots ?? []).forEach((slot, index) => {
         if (!isLiveSlot(slot)) return;
         if (bookingSystemOf(courses.get(slot.courseId) ?? null) !== 'Abovee') return;
-        if (!ranges.some((r) => within(r, visit.date, slot.startsAt))) return;
+        if (!inPhoto({ ranges }, visit.date, slot.startsAt)) return;
         if (onPhoto(who, visit.date, slot)) return;
         slots.push({
           key: `${visit.id}:${index}`,
@@ -2085,6 +2254,27 @@ export function visitsForCheck(groups, group, ctx) {
       ...stored(Object.values(ctx.visitsBy ?? {}).flat()),
       ...planned,
     ].filter((v) => v.date === group.date),
+  };
+}
+
+/**
+ * `validateVisit()` 要的那一份（這位客戶、那一天）。確認層每一組、改期那一天（`checkMoves()`）共用 —— 以前寫在畫面裡。
+ *
+ * **每一段用時間與名字叫**（`slotSay()`，issue 07）：這一層一列一段，沒有「第幾個時段」可以指。
+ * **來訪那兩份連這一次別組要記的一起算**（`visitsForCheck()`，2026-10-09 審查）。
+ *
+ * @param {object[]} groups 這一次要記的每一組（`planAbovee()`）
+ * @param {{customerId: string, date: string, visit: object}} group 正在驗的那一組（或改期那一天）
+ */
+export function checkCtxFor(groups, group, ctx) {
+  const master = ctx.master ?? {};
+  return {
+    slotLabel: (i) => slotSay(group.visit?.slots?.[i], master),
+    customer: { flags: (ctx.customers ?? []).find((c) => c.id === group.customerId)?.flags ?? [] },
+    entitlements: ctx.entitlementsBy?.[group.customerId] ?? [],
+    courses: master.courses ?? [], equipment: master.equipment ?? [], rooms: master.rooms ?? [],
+    staff: master.staff ?? [], ivProducts: master.ivProducts ?? [],
+    ...visitsForCheck(groups, group, ctx),
   };
 }
 
