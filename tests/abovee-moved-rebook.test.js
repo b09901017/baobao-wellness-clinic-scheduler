@@ -192,6 +192,20 @@ describe('拿不準的照舊（新的、不預設勾、去日曆）', () => {
   });
 });
 
+describe('日曆上改了時間、Abovee 還沒改，再拍那一頁（邊界測試清單 M12，中途發現 17，她 10/16：修）', () => {
+  // app：10:00 取消、11:00 待確認（日曆的改期）；照片上還是 10:00。照片範圍包到 11:00 時（讀得出第 1／1 頁），
+  // 以前 `flagMoved()` 把它認成「Abovee 把 11:00 改回 10:00」—— 方向講反了，ADR-0144 那一句也不見了
+  const c = ctx([visitOf([sis('10:00', { status: 'cancelled' }), sis('11:00', { status: 'pending_confirm' })])]);
+
+  for (const extra of [WHOLE, {}]) {
+    test(`照 ADR-0144：新的、不預設勾、講「app 上這一段取消過」（${extra.pageText ? '讀得出第 1／1 頁' : '沒有頁數'}）`, () => {
+      const [item] = read([r('10:00 - 11:15')], c, extra);
+      assert.deepEqual([item.kind, item.checked, item.appCancelledHere, item.move ?? null], ['new', false, true, null]);
+      assert.match(newRowSay(item), /取消過/);
+    });
+  }
+});
+
 describe('新的時間撞到別人：不預設改、講出來', () => {
   test('同一位治療師 11:00 已經有別的客人', () => {
     const therapistId = SEED.staff[0].id;

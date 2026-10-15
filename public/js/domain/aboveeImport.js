@@ -1616,6 +1616,9 @@ function flagMoved(items, ctx, bounds) {
   const olds = new Map();
   for (const item of items) {
     if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.course) continue;
+    // app 上這個時間有一段取消了（ADR-0144）：常常是日曆上先改了時間、Abovee 還沒改 —— 那不是 Abovee 改了時間，
+    // 照 ADR-0144 走（新的、不預設勾、「app 上這一段取消過」）。以前會被認成「Abovee 把 11:00 改回 10:00」（中途發現 17）
+    if (item.appCancelledHere) continue;
     // 照片上這一位這一天出現過的每一個時間都算「有人對到了」（取消的列也算）—— 先把同一個時間的配完，
     // 再看剩下的：同一天上午、下午各一段 SIS 時兩列各對各的，不會互相搶
     const seen = new Set(items.filter((o) => o.customerId === item.customerId && o.date === item.date).flatMap(timesOf));
