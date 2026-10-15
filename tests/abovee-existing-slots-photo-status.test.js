@@ -10,8 +10,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  applyPhotoStatus, countDeltas, mismatchSay, needsAttention, photoChangeDelta, photoRowSays, planAbovee, readAbovee,
-  recordedSay, resolveItem,
+  applyPhotoStatus, changeLines, countDeltas, mismatchSay, needsAttention, photoChangeDelta, photoRowSays, planAbovee, readAbovee,
+  photoDayPlan, recordedSay, resolveItem,
 } from '../public/js/domain/aboveeImport.js';
 import { slotCancelReasonOf, visitStatusFrom } from '../public/js/domain/visits.js';
 import { syncTasksForVisit, RECORD_TASK_KIND } from '../public/js/domain/taskRules.js';
@@ -388,6 +388,20 @@ describe('換一位、讀不到全部來訪、拍兩次', () => {
     const other = resolveItem(item, 'c-wang', c);
     assert.equal(other.statusChange, null);
     assert.equal(other.adoptStatus, false);
+  });
+
+  test('照片上的人認不出來、她自己選了那一位：照樣列出要改什麼，但不預設打勾（10/16 審查：新的列本來就是這樣）', () => {
+    const visit = dayA('2026-09-12', [sis()]);
+    const c = ctx({ 'c-a': [visit] });
+    const [unknown] = read([['已取消', '2026-09-12', '09:00 - 10:00', '陳大文', '', 'SIS 60']], c);
+    assert.equal(unknown.kind, 'unknown');
+    const picked = resolveItem(unknown, 'c-a', c);
+    assert.deepEqual([picked.kind, picked.statusChange?.to, picked.adoptStatus], ['recorded', 'cancelled', false]);
+    const { lines } = changeLines([picked], photoDayPlan([picked], c), c);
+    assert.match(lines[0].text, /（不改 —— 人是你選的/);
+    // 她勾了才改：還 1 次
+    const on = { ...picked, adoptStatus: true };
+    assert.deepEqual(photoDayPlan([on], c).rows.map((r) => [r.kind, r.charge]), [['status', -1]]);
   });
 
   test('讀不到這位的全部來訪：照樣列出要改什麼，但不預設打勾', () => {

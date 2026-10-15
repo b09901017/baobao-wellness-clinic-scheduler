@@ -740,6 +740,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
       ? photoTimeSays(item.photoStatus, item.date, ctx.today) : '',
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
+  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）
+  const recognized = !pickedByHand({ ...item, customerId: next.customerId });
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
@@ -760,16 +762,16 @@ export function resolveItem(item, customerId, ctx, items = null) {
         : { visitId: at.visit.id, date: at.visit.date };
       const out = { ...next, ...said, existing, checked: false };
       if (said.statusChange) {
-        // 照片要改這一段的狀態：**預設打勾**（她第 3 題）；這一位的全部來訪讀不到時不勾（次數拿不準）
+        // 照片要改這一段的狀態：**預設打勾**（她第 3 題）；這一位的全部來訪讀不到時不勾（次數拿不準）、人是她選的不勾
         const partialHistory = historyPartial(ctx, next.customerId);
-        Object.assign(out, { adoptStatus: !partialHistory, partialHistory });
+        Object.assign(out, { adoptStatus: recognized && !partialHistory, partialHistory });
       }
       // 11：app 上那一段（還活著、同一門課）的治療師或診間跟 Abovee 不一樣 → 講出來。狀態只提醒的那幾種也比
       //（那一段照樣在，她可能只想換診間）；**照片上已經取消的那一段不比**（spec 07：被取消的那一段不再列治療師／診間）
       if (!hit || said.statusChange?.to === 'cancelled') return out;
       const diffs = aboveeDiffs(next, at.visit, same, ctx);
       // 07：治療師／診間預設照 Abovee 改（推翻 ADR-0123 的「她按了才改」）—— 已完成的鎖著，不勾
-      return diffs.diffs ? { ...out, ...diffs, adopt: !diffs.locked, existing: { ...existing, ...diffs.existing } } : out;
+      return diffs.diffs ? { ...out, ...diffs, adopt: recognized && !diffs.locked, existing: { ...existing, ...diffs.existing } } : out;
     }
     // app 上這個時間有一段取消了（課程一樣或不一樣）：照新的一段走，**不預設打勾**（見 `crossCheck()`）。
     // 哪一種要講的那一句不一樣，所以記著課程一不一樣
@@ -800,15 +802,16 @@ export function resolveItem(item, customerId, ctx, items = null) {
   Object.assign(next, pickOption(next, value, ctx, items));
 
   // 照照片上的狀態決定（03，`photoWantsChecked()`：過去的完成與失約勾、過去的待確認不勾、未來的完成與失約不勾、
-  // 已取消不勾；那一張沒拍到那一欄照舊 ADR-0030 的「還沒到的勾」）；
-  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）
-  const recognized = item.who?.customer?.id === next.customerId;
+  // 已取消不勾；那一張沒拍到那一欄照舊 ADR-0030 的「還沒到的勾」）；她自己選的人不自動勾（上面的 `recognized`）
   // 09：這一位的全部來訪讀不到 → 上面的預選是拿不完整的那一份算的，不替她勾（`partialSay()` 講出來）
   const partialHistory = historyPartial(ctx, next.customerId);
   const checked = recognized && !next.cancelled && photoWantsChecked(next, ctx.today)
     && !next.appCancelledHere && !partialHistory;
   return { ...next, kind: 'new', checked, partialHistory };
 }
+
+/** 這一列的人是她自己選的（照片上的名字與病歷號沒認出這一位）。 */
+const pickedByHand = (item) => Boolean(item?.customerId) && item.who?.customer?.id !== item.customerId;
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
@@ -1354,7 +1357,8 @@ export function changeLines(items, plan, ctx) {
     return problem ? `還差一步：${problem}` : '';
   };
   const offWhy = (item) => (item.closeBlock ? closeBlockSay(item.closeBlock)
-    : (item.moveWarnings ?? [])[0] ?? (item.partialHistory ? '這一位過去的來訪沒有讀到全部，次數拿不準' : ''));
+    : (item.moveWarnings ?? [])[0] ?? (item.partialHistory ? '這一位過去的來訪沒有讀到全部，次數拿不準'
+      : pickedByHand(item) ? '人是你選的，確定再勾' : ''));
   const tail = (item, kind, on, slot) => {
     if (!on) {
       const why = offWhy(item);
