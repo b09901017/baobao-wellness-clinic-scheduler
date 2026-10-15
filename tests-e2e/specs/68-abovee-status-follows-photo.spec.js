@@ -81,10 +81,17 @@ test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊�
   const before = await app.readAll('visits');
   await photograph(app, page, 'aboveeList-status');
 
-  // 抬頭：新的 5 段（已取消的那一列不算）、要改 5 段（3 行＋補上 2 段）、要你看 2 段（過去的待確認、未來的完成）
+  // 抬頭：新的 5 段（已取消的那一列不算）、要改 5 段（3 行＋補上 2 段）、要你看 1 段（未來的完成）、
+  // 過了還沒結案 1 段（過去的待確認 —— 收起來，中途發現 5）
   await expect(page.locator('.abl__sum')).toContainText('新的 5 段');
   await expect(page.locator('.abl__sum')).toContainText('要改 5 段');
-  await expect(page.locator('.abl__sum')).toContainText('要你看 2 段');
+  await expect(page.locator('.abl__sum')).toContainText('要你看 1 段');
+  await expect(page.locator('.abl__sum')).toContainText('過了還沒結案 1 段');
+  await expect(page.locator('.abl__group--look [data-abl-row="a8"]')).toHaveCount(1);
+  await expect(page.locator('.abl__later')).not.toHaveAttribute('open', '');
+  await expect(page.locator('.abl__later [data-abl-row="a1"]')).toBeHidden();
+  await page.locator('.abl__later > summary').click();
+  await expect(page.locator('.abl__later [data-abl-row="a1"]')).toBeVisible();
 
   // 「要改的」那一塊：一行一件事、預設勾、括號是次數
   const block = page.locator('.abl__group--change');
@@ -137,6 +144,9 @@ test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊�
   await expect(app.dialog()).toContainText('照 Abovee 改成「已取消」1 段（還 1 次）');
   await expect(app.dialog()).toContainText('「取消 Abovee」直接勾好');
   await expect(app.dialog()).toContainText('補上 2 段的治療師（app 上原本空著）');
+  await expect(app.dialog()).toContainText('照 Abovee 改成「已完成」1 段（次數不變）');
+  // 照片上寫聯繫中的那一段不被說成確認前往（中途發現 15）
+  await expect(app.dialog()).toContainText('「聯繫中」');
   // 確認框上的次數加總＝存完之後的差
   const lines = await app.dialog().innerText();
   const said = [...lines.matchAll(/（(扣|還) (\d+) 次）/g)].reduce((sum, m) => sum + (m[1] === '扣' ? 1 : -1) * Number(m[2]), 0);

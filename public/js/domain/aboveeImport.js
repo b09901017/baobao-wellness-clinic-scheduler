@@ -1883,6 +1883,15 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
   || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
 
+/**
+ * 「要你看」裡面收起來的那一種（中途發現 5，她 10/15：「應該不常發生…用收合的就好」）：**日子過了、Abovee 上還是待確認那三種**，
+ * app 上沒有（新的那一列只剩「日子過了還沒結案」那一句）或 app 上也還沒結案（`bothOpen`）。拍一張比較舊的頁面時一次好幾列，
+ * 排在最上面會把真的要決定的擠下去。別的理由也在的（二返簽不成、找不到另一半、取消過…）不收。
+ */
+export const pastStillOpen = (item) => (item?.kind === 'mismatch' && item.reason === 'bothOpen' && !item.closeBlock)
+  || (item?.kind === 'new' && !item.cancelled && !newRowSay(item)
+    && (photoRowSays(item)[0] ?? '').startsWith('日子過了還沒結案'));
+
 /** 照片上讀得到的每一個日期（`aboveeDate()` 的讀法，排好、不重複）。確認層靠它補讀那幾天的來訪。 */
 export function aboveeDatesIn(transcripts = []) {
   const cells = (transcripts ?? []).flatMap((t) => (t?.rows ?? []).flatMap((r) => (Array.isArray(r) ? r : [])));
@@ -1902,7 +1911,9 @@ export function summarizeAbovee(items = [], absent = []) {
     // 兩邊都取消的那一列不算「已經記了」—— 它是已取消（ADR-0116）；要改的那幾段另外數（07）
     recorded: count((i) => i.kind === 'recorded' && !i.cancelled && !offersChange(i)),
     changes: count(offersChange),
-    attention: count(needsAttention) + (absent ?? []).length,
+    // 收起來的那幾列（`pastStillOpen()`）另外數，不算進「要你看」—— 抬頭的數字要跟攤開的那一組一樣
+    attention: count((i) => needsAttention(i) && !pastStillOpen(i)) + (absent ?? []).length,
+    pastOpen: count((i) => needsAttention(i) && pastStillOpen(i)),
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),
   };

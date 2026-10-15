@@ -412,9 +412,18 @@ export function aboveeConsequences({
   // 新的段記成什麼（03）
   const fresh = groups.flatMap((g) => addedIn(g).map((i) => ({ g, i, status: slotStatus(g.visit, g.visit?.slots?.[i]) })));
   const allPending = fresh.every((s) => s.status === INITIAL_STATUS);
+  // 照片上那幾段待確認寫的是哪幾個字（「確認前往」「聯繫中」「待確認」）—— 以前寫死「確認前往」，照片上寫聯繫中的也被說成確認前往。
+  // 讀不出來、還沒到就寫完成那幾種記成待確認的不算（那不是 Abovee 上的待確認）；沒有預約狀態那一欄的舊呼叫照舊講「確認前往」
+  const itemAt = (g, i) => (g.items ?? []).find((it) => g.at?.[it.key] === i) ?? null;
+  const pendingItems = fresh.filter((x) => x.status === INITIAL_STATUS).map(({ g, i }) => itemAt(g, i)).filter(Boolean);
+  const words = [...new Set(pendingItems.filter((it) => it.photoStatus === INITIAL_STATUS && !it.statusUnread && it.statusText)
+    .map((it) => String(it.statusText).trim()))];
+  const sawStatus = pendingItems.some((it) => it.photoStatus);
+  const notAsked = words.length ? `Abovee 上寫的${words.map((w) => `「${w}」`).join('、')}不等於問過客人`
+    : sawStatus ? '還沒問過客人' : 'Abovee 上寫的「確認前往」不等於問過客人';
   const lines = n ? [`${people} 位・${groups.length} 天・${n} 段`] : [];
   if (n && allPending && !reshaped) {
-    lines.push('每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人');
+    lines.push(`每一段都記成「待確認」—— ${notAsked}`);
   } else if (n) {
     const charged = plan ? sumCharge(rows.filter((r) => r.kind === 'new'))
       : fresh.filter(({ g, i }) => chargesEntitlement(g.visit, g.visit.slots[i])).length;
@@ -423,16 +432,17 @@ export function aboveeConsequences({
       .map(([s, k]) => `「${shortStatus(s)}」${k} 段`);
     lines.push(`新的 ${n} 段照 Abovee 記：${parts.join('、')}${timesSay(charged) || '（不扣次數）'}`);
     const waiting = fresh.filter((x) => x.status === INITIAL_STATUS).length;
-    if (waiting) lines.push(`「${shortStatus(INITIAL_STATUS)}」的 ${waiting} 段 —— Abovee 上寫的「確認前往」不等於問過客人`);
+    if (waiting) lines.push(`「${shortStatus(INITIAL_STATUS)}」的 ${waiting} 段 —— ${notAsked}`);
   }
   // 照片要改既有的段（04、05）：一種一句，括號是那幾段讓次數差幾次
   for (const to of ['done', 'no_show', 'cancelled']) {
     const list = changes.filter((r) => r.kind === 'status' && r.to === to);
-    if (list.length) lines.push(`照 Abovee 改成「${shortStatus(to)}」${list.length} 段${timesSay(sumCharge(list))}`);
+    // 次數不變也寫出來（「要改的」那一塊那一行同一句，`changeLines()`）—— 她最在意的就是這一格
+    if (list.length) lines.push(`照 Abovee 改成「${shortStatus(to)}」${list.length} 段${timesSay(sumCharge(list)) || '（次數不變）'}`);
   }
   const moves = changes.filter((r) => r.kind === 'move');
   if (moves.length) {
-    lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${timesSay(sumCharge(moves))}`);
+    lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${timesSay(sumCharge(moves)) || '（次數不變）'}`);
   }
 
   // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次

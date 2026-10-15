@@ -24,7 +24,8 @@ import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
-  markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, photoDayPlan, photoRowSays,
+  markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
+  photoRowSays,
   pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
 } from '../../domain/aboveeImport.js';
@@ -84,6 +85,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   /** 那一行點開了沒 —— 按一個勾會整片重畫，不記的話每按一下就收回去 */
   let fillOpen = false;
   let attention = new Set();
+  /** 「要你看」裡收起來的那幾列（`pastStillOpen()`：日子過了、Abovee 上還沒結案），跟 `attention` 同一個時機定 */
+  let later = new Set();
+  /** 收起來的那一組點開了沒（整片重畫時不收回去） */
+  let laterOpen = false;
   let openKey = null;
   let batches = [];
   let running = false;
@@ -165,6 +170,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     ({ pairing, counts: sizes, items, noStatusColumn } = readAbovee(transcripts, ctx));
     // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
     attention = new Set(items.filter(needsAttention).map((i) => i.key));
+    later = new Set(items.filter((i) => needsAttention(i) && pastStillOpen(i)).map((i) => i.key));
     paintBody();
   }
 
@@ -222,6 +228,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       s.changes ? `要改 ${s.changes} 段` : '',
       s.recorded ? `已經記了 ${s.recorded} 段` : '',
       s.attention ? `要你看 ${s.attention} 段` : '',
+      s.pastOpen ? `過了還沒結案 ${s.pastOpen} 段` : '',
     ].filter(Boolean);
     root.querySelector('[data-abl-sum]').textContent = bits.join('・') || '照片上沒有讀到預約';
   }
@@ -229,7 +236,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   function paintBody() {
     const body = root.querySelector('[data-abl-body]');
     const p = plan();
-    const look = items.filter((i) => attention.has(i.key));
+    const look = items.filter((i) => attention.has(i.key) && !later.has(i.key));
+    const stale = items.filter((i) => later.has(i.key));
     const rest = items.filter((i) => !attention.has(i.key))
       .slice()
       .sort((a, b) => `${a.date}|${a.startsAt}`.localeCompare(`${b.date}|${b.startsAt}`));
@@ -254,6 +262,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         <section class="abl__group abl__group--look" aria-label="要你看">
           <h3 class="abl__day">要你看</h3>
           <ol class="abl__rows">${look.map((i) => rowHtml(i, p)).join('')}</ol>
+        </section>` : ''}
+      ${/* 中途發現 5：日子過了、Abovee 上還沒結案的那幾列收起來 —— 拍一張比較舊的頁面時一次好幾列，攤開會擠掉真的要決定的 */''}
+      ${stale.length ? `
+        <section class="abl__group abl__group--later" aria-label="日子過了、Abovee 上還沒結案">
+          <details class="abl__later" ${laterOpen ? 'open' : ''}>
+            <summary class="abl__day">日子過了、Abovee 上還沒結案的 ${stale.length} 段</summary>
+            <ol class="abl__rows">${stale.map((i) => rowHtml(i, p)).join('')}</ol>
+          </details>
         </section>` : ''}
       <div data-abl-absent>${absentHtml(gone, p)}</div>
       ${days.map((d) => `
@@ -444,6 +460,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${repeatSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(repeatSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
+        ${/* 中途發現 12：狀態對不上（只提醒）、治療師／診間照 Abovee 改的那一段 —— 留在要你看，這一行講治療師那一件在哪裡勾 */''}
+        ${item.kind === 'mismatch' && offersChange(item) && !open && !savedKeys.has(item.key)
+          ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))} —— ${item.adopt
+            ? '照 Abovee 改（勾在最上面「要改的」那一塊）' : '最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
@@ -756,7 +776,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   wireSeen(root);
   // `toggle` 不冒泡 —— 用 capture 接
-  root.addEventListener('toggle', (e) => { if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open; }, true);
+  root.addEventListener('toggle', (e) => {
+    if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open;
+    if (e.target.matches?.('.abl__later')) laterOpen = e.target.open;
+  }, true);
 
   root.addEventListener('click', (e) => {
     // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）

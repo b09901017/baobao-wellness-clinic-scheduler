@@ -9,7 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  changeLines, needsAttention, offersChange, photoDayPlan, readAbovee, summarizeAbovee, wantsWrite,
+  changeLines, needsAttention, offersChange, pastStillOpen, photoDayPlan, readAbovee, summarizeAbovee, wantsWrite,
 } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { visitStatusFrom } from '../public/js/domain/visits.js';
@@ -110,4 +110,35 @@ test('沒有要改的 → 沒有一行（畫面上那一塊一個像素都不佔
   const c = ctx([visit('v16', '2026-09-16', [sis('10:00', '11:00', 'confirmed', { therapistId: 'staff-zn' })])]);
   const items = read([row('確認前往', '2026-09-16', '10:00 - 11:00', 'SIS 60', '芝寧')], c);
   assert.deepEqual(changeLines(items, photoDayPlan(items, c), c), { lines: [], fill: null });
+});
+
+describe('段四她回的（中途發現 5、14、15）', () => {
+  // 今天 9/12：9/8 照片寫確認前往、app 上沒有；9/9 照片寫聯繫中、app 上已確認（兩邊都還沒結案）；9/20 聯繫中（新的、勾著）
+  const visits = [visit('v09', '2026-09-09', [sis('10:00', '11:00', 'confirmed', { therapistId: 'staff-zn' })])];
+  const c = ctx(visits);
+  const items = read([
+    row('確認前往', '2026-09-08', '09:00 - 10:00', 'SIS 60', '芝寧'),
+    row('聯繫中', '2026-09-09', '10:00 - 11:00', 'SIS 60', '芝寧'),
+    row('聯繫中', '2026-09-20', '10:00 - 11:00', 'SIS 60', '芝寧'),
+  ], c);
+
+  test('5：日子過了、Abovee 上還沒結案的兩種（新的、兩邊都開著）收起來，不算進「要你看」', () => {
+    assert.deepEqual(items.map((i) => [i.kind, i.reason ?? null, pastStillOpen(i)]),
+      [['new', null, true], ['mismatch', 'bothOpen', true], ['new', null, false]]);
+    const s = summarizeAbovee(items);
+    assert.deepEqual([s.attention, s.pastOpen], [0, 2]);
+  });
+
+  test('15：確認框講照片上寫的那幾個字，不把聯繫中說成確認前往', () => {
+    const { lines } = aboveeConsequences({ plan: photoDayPlan(items, c), coursesById, today: TODAY });
+    assert.ok(lines.includes('每一段都記成「待確認」—— Abovee 上寫的「聯繫中」不等於問過客人'), lines.join('\n'));
+  });
+
+  test('14：照 Abovee 改狀態、次數不變的也寫括號', () => {
+    const v10 = [visit('v10', '2026-09-10', [sis('10:00', '11:00', 'pending_confirm', { therapistId: 'staff-zn' })])];
+    const cc = ctx(v10);
+    const done = read([row('課程完成', '2026-09-10', '10:00 - 11:00', 'SIS 60', '芝寧')], cc);
+    const { lines } = aboveeConsequences({ plan: photoDayPlan(done, cc), coursesById, today: TODAY });
+    assert.ok(lines.includes('照 Abovee 改成「已完成」1 段（次數不變）'), lines.join('\n'));
+  });
 });

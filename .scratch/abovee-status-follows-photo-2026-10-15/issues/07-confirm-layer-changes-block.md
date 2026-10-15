@@ -80,3 +80,11 @@ issue 列的其餘幾支（pages、recorded-shapes、absent、moved、consequenc
 測試：`tests/abovee-change-lines.test.js`（6 條：判準那一張照片 3 行＋補上 2 段、要改 5 段、不在要你看；句子與括號；拿掉一個勾／拿掉補上；確認框；不扣額度的「本來就不扣次數」；沒有要改的）。
 E2E `68-abovee-status-follows-photo`（S1 整條路＋次數：確認框加總＝前後差、額度快取＝現算、客戶詳情剩餘；S2 390px 不橫捲、記錄點得到；S3 沒有要改的那一塊是空的）。
 `npm test` 4645 全綠；`related.js` 挑出來的 31 支全跑（拍 Abovee 七支 41 條＋其餘 24 支 190 條）全綠，最後一次小改之後 41、51 重跑綠。本機模擬器 390px 點過、截圖看過（假名）。
+
+**同一個 session、她回了中途發現之後加做的**（HANDOFF「她回的（10/15 段四結束後）」）：
+- 5：`pastStillOpen()`＋「要你看」底下收起來的一組（`.abl__later`，`laterOpen` 記著點開了沒）；`summarizeAbovee()` 多 `pastOpen`、`attention` 不數它
+- 12：對不上的那一列收著多一行治療師／診間照 Abovee 改（勾在「要改的」）
+- 14：確認框改狀態、改期次數不變寫「（次數不變）」
+- 15：確認框「Abovee 上寫的『…』不等於問過客人」照照片上真的那幾個字
+- 測試：`abovee-change-lines` 多 3 條（9 條）；E2E 68 多看收起來那一組與確認框那兩句。`npm test` 4648 全綠；拍 Abovee 七支＋43 共 44 條全綠
+  （其餘 24 支 related 沒有重跑：這一次只動 `aboveeConsequences()` 與 `.abl` 底下的 CSS，前一次全跑是綠的）
