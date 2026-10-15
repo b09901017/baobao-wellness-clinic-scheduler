@@ -94,7 +94,7 @@ docs/agents/lessons.md（尤其一、四、五、七）；CLAUDE.md「拍 Abovee
 接手「拍 Abovee 照片上的預約狀態為準」這一輪的段二。
 分支 claude/abovee-status-follows-photo（只在本機）。先 git fetch，origin/develop 往前走了就 rebase。
 
-先讀：.scratch/abovee-status-follows-photo-2026-10-15/HANDOFF.md（段一做成什麼樣子、中途發現）、spec.md、issues/01 與 02 的「做完時留下的」、issues/03、issues/04；
+先讀：.scratch/abovee-status-follows-photo-2026-10-15/HANDOFF.md（段一做成什麼樣子、中途發現）、spec.md、issues/01、02、10、11 的「做完時留下的」、issues/03、issues/04；
 docs/agents/lessons.md（尤其一、二、四、五）；CLAUDE.md「一段來訪的狀態」「一筆來訪改得動的地方」「新增一個會建立時段的入口」「次數的算法」「健檢與二返的關係」「拍 Abovee 記很多段」各列；/kickoff skill 的第三段。
 
 這一段只做 03（app 沒有的列照照片狀態記；visitWithSlot／withExtraSlot 照新段狀態推整筆；同一組的段不可以掉；預設勾的新規則）與 04（app 已經有的段照照片改狀態；不弄壞 claimHalves／claimTimeless／rebookedHere）。
