@@ -1,6 +1,6 @@
 # app 裡還沒有的那一列：照照片上的狀態記，整筆狀態跟著推，預設勾照新的規則
 
-Status: todo
+Status: done
 Blocked by: 01（狀態對照、時間合不合理）
 動工前先讀：`spec.md`「app 裡還沒有這一段」「次數」兩節；ADR-0104、ADR-0030、ADR-0081（時段是原子單位、整筆是推導的）、ADR-0083（一天一筆）、ADR-0144、ADR-0145、ADR-0066（寫紀錄）、ADR-0113；
 `domain/aboveeImport.js` 的 `resolveItem()`（`checked` 那幾行）、`planAbovee()`（`:1471-1512`）、`picksOf()`、`newRowSay()`、`warningsByRow()`／`mustSee`、`visitsForCheck()`、`mergedItem()`；
@@ -72,3 +72,36 @@ CLAUDE.md「新增一個會建立時段的入口」「一段來訪的狀態」�
 - 送的／體驗、n返 寫完成：已完成、不扣任何一筆額度
 - 讀不到這位的全部來訪：照舊一列都不預設勾
 - 壓表、來訪編輯器、日曆新增、`rebookSlot()` 的新段**照舊是待確認**、整筆照舊（既有測試全綠）
+
+## 做完時留下的（10/15 段二）
+
+**做成的樣子**：
+
+- `slotDraft.js`
+  - `slotFromPicks()` 多收 `status`（只認 `NEW_SLOT_STATUSES`：待確認／已完成／未到／已取消，其餘當成沒給 → `INITIAL_STATUS`）與 `cancelReason`。
+    已完成、未到照 `closeVisit()` 的形狀寫 `attended: true/false`；已取消的段才多 `cancelReason` 那一格（issue 11 的 `slot.cancelReason`）——
+    **沒給狀態的段一個字都不變**（壓表、來訪編輯器、日曆新增）
+  - `visitWithSlot(…, { at })`：新開的那一筆整筆照時段推（`newVisitWith()` → `visits.js` 的 `settle()`，**`settle()` export 了**）——
+    待確認的新一筆跟以前一模一樣（`statusAt: null`）；已完成／未到蓋 `statusAt`；全部取消寫 `cancelledAt`／`cancelReason`（那幾段的理由）／`released: false`
+  - 新的 `withPlannedSlot(visit, slot)`：同一組接下來的段。併進既有那一筆的（有 id）走 `withExtraSlot()`；這一次才組的新一筆照時段重推一次（取消的三格不會留在一筆已完成的身上）
+- `visits.js` 的 `withExtraSlot(visit, slot, { at })`：**只有新加的那一段是待確認時**才退回待確認（`reopened`），其餘 `settle()` 照推導（沒變就不蓋時間戳）
+- `aboveeImport.js`
+  - `photoSlotStatus(item, today)`（export）：新的一列記成什麼。拿不準的（讀不出來、兩張照片不一樣、合併扣課兩列不一樣 —— `photoUnsure()`）與還沒到的完成／失約 → 待確認；
+    已取消不看日期；那一張沒拍到那一欄 → 待確認
+  - `photoWantsChecked()`：spec 那張表（過去完成、失約勾；過去待確認不勾；未來完成、失約不勾；已取消不勾；拿不準的不勾；**`photoStatus` 是 null → 照舊 ADR-0030**）。
+    `resolveItem()` 的 `checked` 拿它換掉 `future`，其餘不勾的條件一條都沒拿掉
+  - 列上多 `photoTime`（`photoTimeSays()` 的核心字，`resolveItem()` 算）與 `closeBlock`（二返簽不成已完成的為什麼）；兩格都在重設清單與 `asRecorded()` 裡
+  - `planAbovee()` 拆成 `composeGroups()` 兩圈：第一圈照照片組；`blockedInGroups()` 拿**整批**問 `cannotClose()`（連這一次別組要記的，`visitsForCheck()` 那一份 —— 04 把它換成 `afterPhoto()`）；
+    擋到的那幾列記成待確認、整批重組一次。每一組多 `blocked`（列的 key → 為什麼）與 **`freed`（記成已取消的那幾段的位置 —— 06 帶進 `save()` 的 `freed`）**。
+    **同一組的段一律接進這一組自己那一筆**（第一段才問要不要併進那一天既有的那一筆）
+  - `readAbovee()` 最後一步 `flagCloseBlocks()`：照片寫完成、會記成已完成的新的二返／n返，**當成勾著整批組一次**看接的那一次健檢做完了沒；擋到 → 不預設勾、`closeBlock`。
+    `refreshCloseBlocks(items, ctx)`（export，只動記號）給 07 在她勾起／拿掉一列之後重算（同 `refreshNoExam()`）
+  - `photoRowSays(item, block)`（export）：新的一列照片那幾句（兩張不一樣、讀不出來、合併扣課兩列不一樣、二返簽不成（`closeBlockSay()` 那一句）、還沒到就寫完成／失約、日子過了還沒結案），
+    **勾不勾都看得到**：`needsAttention()` 有它就進「要你看」；`warningsByRow()` 把它放進 `all` 與 `mustSee`（勾著的列用那一組的 `blocked`，不看讀照片那一下記的）
+- 測試：`tests/abovee-new-rows-photo-status.test.js`（29 條）；改了三支的預期：`abovee-six-statuses`（未來的失約不再預設勾）、`abovee-import`（檔頭與一條的標題）、`slot-note`（掃 `slotDraft.js` 那一條的寫法）
+
+**給 06／07**：
+- 存的時候（`record()`）`planAbovee()` 重組的那一份每一組都有 `freed` —— **還沒傳進 `save()`**（06）；記成已取消的那幾段也還會標壓完（`doneNow`，06）
+- 確認框（`aboveeConsequences()`）還在講「每一段都記成待確認」（06）
+- 畫面還沒畫 `photoRowSays()`（不勾的列）與 `statusColumnSay()`；`refreshCloseBlocks()` 還沒接（07）。`warningsByRow()` 已經會把那幾句放進 `mustSee`，所以勾著的列收起來那一行現在就看得到
+- 驗證（`validateVisit()`）沒有一條擋「新的一段一開始就是已完成」（測試釘著）

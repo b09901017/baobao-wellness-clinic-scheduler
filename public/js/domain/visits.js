@@ -344,32 +344,38 @@ export function editorTarget({ existing = null, open = null } = {}) {
  * **那一句話跟著時段走**（ADR-0084），所以這一支不再收 `note` ——
  * 整筆那一格只留給還沒被搬過的舊資料，一個呼叫端都不會再寫它。
  *
+ * **新加的那一段不是待確認時，整筆照推導**（abovee-status-follows-photo 03）：拍 Abovee 記得進一段照片上已經
+ * 「課程完成」「客戶失約」「已取消」的段 —— 那一段沒有要問客人的事，退回「待確認」的話那一天會出現在
+ * 「跟客人確認時間」卻一段都問不到，而整筆那一格跟 `visitStatusFrom()` 對不上（資料健檢會報）。
+ * 壓表、日曆新增、`rebookSlot()` 的新段都是待確認，走的還是上面那一條，一個字都不變。
+ *
  * @param {object} visit 同一天已經有的那一筆
  * @param {object} slot 要加上去的時段（自己帶著 `note`）
+ * @param {{at?: string}} [o] 整筆換狀態時蓋的時間
  * @returns {{visit: object, reopened: boolean}} reopened = 有沒有退回等客戶回覆
  */
-export function withExtraSlot(visit, slot) {
-  const reopened = visit.status === 'confirmed';
-  return {
-    reopened,
-    visit: {
-      ...visit,
-      note: visit.note ?? null,
-      // **既有那幾段先把自己現在的狀態落下來**（ADR-0081）：整筆退回「待確認」
-      // 之後，沒有 `slot.status` 的舊時段會跟著退回去 —— 而她其實已經跟客人
-      // 談定那兩段了。落下來之後確認動線只會問新加的這一段。
-      slots: [
-        ...(visit.slots ?? []).map((s) => ({ ...s, status: slotStatus(visit, s) ?? visit.status })),
-        // 新加的這一段還沒問過客人 —— 整筆退回「待確認」就是這樣推出來的
-        { ...slot, status: slot?.status ?? INITIAL_STATUS },
-      ],
-      ...(reopened
-        // confirmedAt 一起清掉 —— 留著的話詳情頁會寫「客戶已確認」的時間戳，
-        // 而那一筆現在是待確認的。
-        ? { status: INITIAL_STATUS, confirmedAt: null, statusAt: new Date().toISOString() }
-        : {}),
-    },
+export function withExtraSlot(visit, slot, { at = new Date().toISOString() } = {}) {
+  const added = slot?.status ?? INITIAL_STATUS;
+  const reopened = visit.status === 'confirmed' && added === INITIAL_STATUS;
+  const next = {
+    ...visit,
+    note: visit.note ?? null,
+    // **既有那幾段先把自己現在的狀態落下來**（ADR-0081）：整筆退回「待確認」
+    // 之後，沒有 `slot.status` 的舊時段會跟著退回去 —— 而她其實已經跟客人
+    // 談定那兩段了。落下來之後確認動線只會問新加的這一段。
+    slots: [
+      ...(visit.slots ?? []).map((s) => ({ ...s, status: slotStatus(visit, s) ?? visit.status })),
+      // 新加的這一段沒寫狀態就是還沒問過客人 —— 整筆退回「待確認」就是這樣推出來的
+      { ...slot, status: added },
+    ],
   };
+  if (reopened) {
+    // confirmedAt 一起清掉 —— 留著的話詳情頁會寫「客戶已確認」的時間戳，
+    // 而那一筆現在是待確認的。
+    return { reopened, visit: { ...next, status: INITIAL_STATUS, confirmedAt: null, statusAt: at } };
+  }
+  // 其餘照推導（`settle()`：沒變就不蓋時間戳）
+  return { reopened, visit: settle(next, { at }) };
 }
 
 /**
@@ -1155,8 +1161,11 @@ export function applyStatus(
  * **沒變就不要蓋時間戳**：三段取消掉第一段時整筆還是「已確認」，
  * 而那一刻沒有任何狀態轉換發生 —— 蓋上去的話稽核紀錄會多一筆
  * 「狀態從已確認改成已確認」，而她在找的是真正變過的那幾次。
+ *
+ * 匯出給 `slotDraft.js`：拍 Abovee 組的新一筆照時段推出整筆時，整筆那幾格（`statusAt`、取消的三格）
+ * 照這裡的形狀寫（abovee-status-follows-photo 03）—— 另寫一份的話兩邊遲早差一格。
  */
-function settle(visit, { at, reason = null }) {
+export function settle(visit, { at, reason = null }) {
   const derived = visitStatusFrom(visit) ?? visit.status ?? null;
   if (derived === visit.status) return visit;
 

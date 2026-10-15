@@ -1,7 +1,8 @@
 // 拍 Abovee → 一次新增很多來訪（issue 13）。`domain/aboveeImport.js`。
 //
 // **這一支有沒有任何一行，讓 Abovee 上的「確認前往」變成 app 的「已確認」？** —— 沒有：
-// 預約狀態只照原字印，新段一律 INITIAL_STATUS（ADR-0027、0099）。
+// 「確認前往」那三種的新段一律 INITIAL_STATUS（ADR-0027、0099）。課程完成、客戶失約、已取消照照片記
+//（abovee-status-follows-photo 03，`tests/abovee-new-rows-photo-status.test.js`）。
 // **有沒有任何一條路，讓「對不上」的那一列在這一層被改掉？** —— 沒有：那一列勾不了（ADR-0056）。
 //
 // 例子一律假名、1234。
@@ -172,7 +173,7 @@ describe('每一列分成四種', () => {
     assert.equal(picked.checked, false, '選了人才能勾，勾是她自己勾');
   });
 
-  test('已經過了的新段 → 不勾（ADR-0030 的做法）', () => {
+  test('已經過了、照片還是確認前往的新段 → 不勾（日子過了還沒結案，03 換掉了 ADR-0030 的做法）', () => {
     const [only] = readAbovee([left], ctx({ today: '2026-09-11' })).items;
     assert.equal(only.kind, 'new');
     assert.equal(only.checked, false);

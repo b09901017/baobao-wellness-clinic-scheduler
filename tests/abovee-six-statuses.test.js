@@ -192,8 +192,8 @@ describe('客戶失約：這一支還沒拿它去改任何東西（04 才改）'
     assert.deepEqual(items.map((i) => [i.kind, i.photoStatus, i.checked]), [['recorded', 'no_show', false]]);
   });
 
-  test('app 裡沒有、照片寫客戶失約 → 照舊是新的一段、未來的照舊預設勾（03 才改）', () => {
+  test('app 裡沒有、照片寫客戶失約（未來）→ 新的一段、不預設勾（03 改的：還沒到就寫失約了）', () => {
     const { items } = readAbovee([{ ...withStatus, rows: [LINES[2]] }], ctx());
-    assert.deepEqual(items.map((i) => [i.kind, i.cancelled, i.checked]), [['new', false, true]]);
+    assert.deepEqual(items.map((i) => [i.kind, i.cancelled, i.checked]), [['new', false, false]]);
   });
 });
