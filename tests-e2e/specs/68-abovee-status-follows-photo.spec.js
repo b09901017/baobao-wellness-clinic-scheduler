@@ -222,3 +222,39 @@ test('S3 照片上一段要改的都沒有 →「要改的」那一塊不畫', a
   await expect(page.locator('[data-abl-changes]')).toBeEmpty();
   await expect(page.locator('.abl__sum')).not.toContainText('要改');
 });
+
+test('S4 照片上的人認不出來、她自己選了那一位：要改的那一行不預設勾，勾了才改、還 1 次（10/16 審查）', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/');
+  const before = { ...(await app.readDoc('customers/cust-wang/entitlements', 'w-pool')), id: 'w-pool' };
+  const stored = await app.readAll('visits');
+  await photograph(app, page, 'aboveeList-picked');
+
+  await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('已取消');
+  await row(page, 'a0').locator('[data-abl-open]').click();
+  await row(page, 'a0').locator('[data-abl-query]').fill('王小');
+  await row(page, 'a0').locator('[data-abl-who="cust-wang"]').click();
+
+  // 9/2 10:00 那一段在 app 上是已確認：照片要它改成已取消 ——「要改的」那一行在，但沒勾、講為什麼；那一顆按不下去
+  const change = page.locator('[data-abl-change="adoptStatus"][data-abl-for="a0"]');
+  await expect(change).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('.abl__group--change')).toContainText('人是你選的，確定再勾');
+  await expect(page.locator('[data-abl-save]')).toBeDisabled();
+
+  await change.click();
+  await expect(change).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.abl__group--change')).toContainText('已確認 → 已取消（還 1 次）');
+  await expect(page.locator('[data-abl-save]')).toHaveText('改這 1 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('照 Abovee 改成「已取消」1 段（還 1 次）');
+  await app.ok();
+  await app.saved();
+
+  const v = await app.readDoc('visits', 'v-w02');
+  expect(v.slots[0].status).toBe('cancelled');
+  const visits = await app.readAll('visits');
+  expect(remainingOf(before, visits) - remainingOf(before, stored), '還 1 次').toBe(1);
+  const cache = await app.readDoc('customers/cust-wang/entitlements', 'w-pool');
+  const real = counts(before, visits, 'w-pool');
+  expect([cache.doneCount, cache.bookedCount]).toEqual([real.done, real.booked]);
+});
