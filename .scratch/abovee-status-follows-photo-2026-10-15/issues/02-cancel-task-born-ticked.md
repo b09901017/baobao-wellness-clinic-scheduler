@@ -1,6 +1,6 @@
 # 照片上已經取消的段：「取消 Abovee」那一張一出生就勾好
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`spec.md`「『取消 Abovee』一出生就勾好」；ADR-0091（取消待辦逐段）、ADR-0106（勾過的才算做過）、ADR-0126（不用壓的課）、ADR-0119；
 `domain/taskRules.js` 的 `cancelTasksFor()`、`seenTasks()`、`cancelSlotsOf()`、`syncTasksForVisit()`；`data/visits.js` 的 `save()`、`taskOps()`；
@@ -47,3 +47,26 @@ Blocked by: —
 - 不用壓的課（HRV 那種 `systems: []`）：一張都不長
 - `cancelTaskLines()` 帶同一個 `freed`：不講「會多一張取消 Abovee」
 - 不帶 `freed` 的每一條路（日曆長按、批次取消、來訪編輯器的 ×）行為一個字都不變（既有測試全綠）
+
+## 做完時留下的（10/15 段一）
+
+**做成的樣子**：
+
+- `taskRules.js` 的 `cancelTasksFor(visit, existing, coursesById, today, { freed = [], at = 現在 })`：
+  `freed` 是照片上已經放掉的段（`visit.slots` 裡的位置）；只留**壓在 Abovee** 的那幾段（`bookingSystemOf()`）。
+  每一種照舊算出「還沒被蓋到的段」（`left`），**「取消 Abovee」那一種**再拆成兩張：`freed` 的那幾段一張 `done: true`、`doneAt: at`，其餘一張沒勾。
+  Examine／耀聖一律沒勾（照第 2 條長）。`freed` 指到還活著的段：不長（它不在 `dead` 裡）
+- 已勾那一張的說明：`9/10 有一段取消了 —— 拍 Abovee 時那個時段已經是已取消，不用再去放`（整天取消是「的來訪取消了」）
+- `syncTasksForVisit(visit, existing, { coursesById, today, freed, at })`：兩個呼叫 `cancelTasksFor()` 的地方都傳
+- `data/visits.js` 的 `save(visit, customerVisits, { freed })` → `taskOps(…, { freed })` → `syncTasksForVisit(…, { freed })`。**只傳、不判**
+- `consequences.js` 的 `cancelTaskLines(after, tasks, coursesById, { freed })`：**export 了**（06 的 `aboveeConsequences()` 要用），濾掉 `done` 的那幾張 ——
+  「已經勾好了」那一句由拍 Abovee 的確認框自己整批講一次（06／07）。既有的三個呼叫端（`cancelConsequences()` 兩處、`rebookConsequences()`）不傳，一個字都沒變
+- 稽核：一出生就勾好的那一張是 `tasks.create`、`done: true` → 「勾掉 … 取消 Abovee」，「今天做了什麼」落在 ④ 登記掛號 —— 跟 spec「我自己定」講的一樣，測試釘著
+
+**呼叫端還沒有**：03（記成已取消的新段）、04（從照片改成已取消）、05（改期的舊時間）回 `freed`，06 帶進 `save()`。
+
+**一個要記得的**（寫在 `cancelTasksFor()` 的註解裡）：只有拍 Abovee 那一條路會傳 `freed`，而那一條路不給復原（`undoable: false`）。
+給了復原的話，復原把這一張軟刪除之後它還是 `done: true`，`seenTasks()` 當成做過 —— 那一段之後在日曆上再取消一次，一張都不長。
+
+測試：`tests/cancel-task-freed.test.js`（18 條：機制、存兩次不多長、日曆之後再取消另一段照長、Examine 照長、壓在 Examine 的不勾、拆張、HRV 不長、確認框那一句、稽核那一句、`data/visits.js` 只傳不改）。
+`npm test` 4511 全綠；相關 E2E 28 支 218 條全綠，2 條 flaky（`11-todo-drawer` 的 D3、D4，10 秒逾時 —— 那一支還有 `waitForTimeout(1500)`，單獨重跑 5/5 過；那條路不傳 `freed`）。

@@ -1092,10 +1092,14 @@ export function rebookConsequences({
  *
  * 壓表登記與確認後的登記是兩句話：前者是「那個時段放掉」，後者是「那一段的登記取消掉」。
  *
+ * **照片上已經放掉的段（`freed`）跟寫入那一支收同一個參數**（abovee-status-follows-photo 02）：那幾張一出生就勾好，
+ * 不是「會多一張要去做的」—— 不講。要講「已經勾好了」的是拍 Abovee 的確認框自己（整批講一次）。
+ *
  * @param {object} after 取消之後的那一筆來訪
+ * @param {{freed?: number[]}} [opts]
  */
-function cancelTaskLines(after, tasks, coursesById) {
-  return cancelTasksFor(after, tasks ?? [], coursesById).map((t) => (cancelsBooking(after, t, coursesById)
+export function cancelTaskLines(after, tasks, coursesById, { freed = [] } = {}) {
+  return cancelTasksFor(after, tasks ?? [], coursesById, null, { freed }).filter((t) => !t.done).map((t) => (cancelsBooking(after, t, coursesById)
     ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
     // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
     : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
