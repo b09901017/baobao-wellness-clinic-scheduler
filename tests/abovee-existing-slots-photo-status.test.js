@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  applyPhotoStatus, changeLines, countDeltas, mismatchSay, needsAttention, photoChangeDelta, photoRowSays, planAbovee, readAbovee,
+  applyPhotoStatus, changeLines, countDeltas, mismatchSay, needsAttention, photoRowSays, planAbovee, readAbovee,
   photoDayPlan, recordedSay, resolveItem,
 } from '../public/js/domain/aboveeImport.js';
 import { slotCancelReasonOf, visitStatusFrom } from '../public/js/domain/visits.js';
@@ -84,7 +84,8 @@ describe('app 已確認、照片已取消', () => {
   test('counts()：還 1 次', () => {
     const after = applied([item], [visit]);
     assert.deepEqual(countDeltas([POOL], [visit], after), [{ entitlementId: 'a-pool', remaining: 1, done: 0, booked: -1, noShow: 0 }]);
-    assert.deepEqual(photoChangeDelta(item, c), countDeltas([POOL], [visit], after));
+    // 確認框與「要改的」那一塊讀的那一份計畫（`photoDayPlan()`）講的是同一個數
+    assert.deepEqual(photoDayPlan([item], c).deltas['c-a'], countDeltas([POOL], [visit], after));
   });
 });
 

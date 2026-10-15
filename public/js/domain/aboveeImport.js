@@ -1578,19 +1578,6 @@ export function countDeltas(entitlements = [], before = [], after = []) {
   }).filter((d) => d.remaining || d.done || d.booked || d.noShow);
 }
 
-/**
- * 這一列（照片要改既有那一段的狀態）改了之後那一筆額度差幾次 —— 給「要改的」那一塊的括號（07）與確認框加總。
- * 拿手上這一位的全部來訪試算，套的是寫入那一支（`applyPhotoStatus()`，帶閘門）。
- */
-export function photoChangeDelta(item, ctx) {
-  const visits = ctx.visitsBy?.[item?.customerId] ?? [];
-  const visit = visits.find((v) => v?.id === item?.existing?.visitId);
-  if (!visit || !item?.statusChange) return [];
-  const entitlements = ctx.entitlementsBy?.[item.customerId] ?? [];
-  const { visit: after } = applyPhotoStatus(visit, [{ ...item, adoptStatus: true }], { guard: { entitlements, visits } });
-  return countDeltas(entitlements, visits, visits.map((v) => (v === visit ? after : v)));
-}
-
 // ---------- Abovee 改了時間、app 還沒改（10）----------
 
 /**
