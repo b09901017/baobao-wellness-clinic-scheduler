@@ -31,7 +31,7 @@ import {
 } from './visits.js';
 import { chargesEntitlement, counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
-import { closeBlockSay } from './consequences.js';
+import { changeChargeSay, closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
@@ -1327,13 +1327,6 @@ function assignName(field, id, { staff = [], rooms = [] } = {}) {
 }
 const ASSIGN_LABEL = { therapistId: '治療師', roomId: '診間' };
 
-/** 次數那一個括號：拿計畫那一列的 `charge`（扣 +1、還 −1，`photoDayPlan()` 拿寫入那一份算的），不在這裡推。 */
-function chargeSay(charge, slot) {
-  if (charge > 0) return `（扣 ${charge} 次）`;
-  if (charge < 0) return `（還 ${-charge} 次）`;
-  return slot?.entitlementId ? '（次數不變）' : '（本來就不扣次數）';
-}
-
 /**
  * 「要改的」那一塊每一行（07）。**一行一件事**，`field` 是勾的那一格（`adoptStatus`／`adoptMove`／`adopt`），勾了只改那一件。
  * 句子：`客戶A 9/16 09:00 SIS(60)：已確認 → 已取消（還 1 次）`。括號讀計畫（`plan.rows`）：勾著而計畫裡沒有那一列 ＝ 這一次改不成，
@@ -1364,13 +1357,14 @@ export function changeLines(items, plan, ctx) {
     const why = stuck(item.key, FIELD_OF[kind]);
     return why ? `（這一次改不成 —— ${why}）` : '';
   };
-  const tail = (item, kind, on, slot) => {
+  const tail = (item, kind, on) => {
     if (!on) {
       const why = offWhy(item);
       return `（不改${why ? ` —— ${why}` : ''}）`;
     }
+    // 次數那一個括號：拿計畫那一列的 `charge`（扣 +1、還 −1，`photoDayPlan()` 拿寫入那一份算的），不在這裡推；確認框同一支
     const row = rowOf(item.key, kind);
-    return row ? chargeSay(row.charge, slot) : notNow(item, kind);
+    return row ? changeChargeSay(row.charge, { free: row.free }) : notNow(item, kind);
   };
 
   const lines = [];
@@ -1385,12 +1379,12 @@ export function changeLines(items, plan, ctx) {
     if (item.statusChange) {
       const { from, to } = item.statusChange;
       lines.push({ key: item.key, field: 'adoptStatus', on: Boolean(item.adoptStatus),
-        text: `${head}：${shortStatus(from)} → ${shortStatus(to)}${tail(item, 'status', item.adoptStatus, slot)}` });
+        text: `${head}：${shortStatus(from)} → ${shortStatus(to)}${tail(item, 'status', item.adoptStatus)}` });
     }
     if (item.move) {
       const to = item.move.status === INITIAL_STATUS ? '' : `、記成「${shortStatus(item.move.status)}」`;
       lines.push({ key: item.key, field: 'adoptMove', on: Boolean(item.adoptMove),
-        text: `${head}：${ex.startsAt} → ${item.move.slot.startsAt}${to}${tail(item, 'move', item.adoptMove, slot)}` });
+        text: `${head}：${ex.startsAt} → ${item.move.slot.startsAt}${to}${tail(item, 'move', item.adoptMove)}` });
     }
     if ((item.diffs?.length ?? 0) > 0 && !item.locked) {
       const said = item.diffs.map((d) => (d.app
@@ -2538,12 +2532,14 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       for (const kind of kinds) {
         const base = { key, customerId: w.customerId, date: w.date, kind };
         if (kind === 'adopt') rows.push({ ...base, charge: 0, fields: item.diffs.map((d) => d.field), filled: item.diffs.every((d) => !d.app) });
+        // `free`：那一段本來就沒扣任何一筆額度（送的／體驗、n返）—— 括號寫「本來就不扣次數」不寫「次數不變」
+        const free = !w.before?.slots?.[old]?.entitlementId;
         if (kind === 'status') {
-          rows.push({ ...base, to: item.statusChange.to, charge: charge(w.visit, old) - charge(w.before, old) });
+          rows.push({ ...base, to: item.statusChange.to, charge: charge(w.visit, old) - charge(w.before, old), free });
         }
         if (kind === 'move') {
           const fresh = w.touch.at[key];
-          rows.push({ ...base, to: slotStatus(w.visit, w.visit.slots[fresh]), charge: charge(w.visit, old) - charge(w.before, old) + charge(w.visit, fresh) });
+          rows.push({ ...base, to: slotStatus(w.visit, w.visit.slots[fresh]), charge: charge(w.visit, old) - charge(w.before, old) + charge(w.visit, fresh), free });
         }
       }
     }

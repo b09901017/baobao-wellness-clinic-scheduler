@@ -355,6 +355,12 @@ const timesSay = (n) => (n > 0 ? `（扣 ${n} 次）` : n < 0 ? `（還 ${-n} �
 const sumCharge = (rows) => rows.reduce((sum, r) => sum + (r.charge ?? 0), 0);
 
 /**
+ * 拍 Abovee 改既有那一段的次數括號（確認框與「要改的」那一塊同一支，10/16 審查：以前一邊寫「次數不變」、一邊寫「本來就不扣次數」）。
+ * `free`：那幾段本來就沒扣任何一筆額度（送的／體驗、n返）。
+ */
+export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charge) || (free ? '（本來就不扣次數）' : '（次數不變）');
+
+/**
  * 拍 Abovee 存檔前那一道確認（ADR-0104 第 2 點：十幾段只問一次，一次講完）。
  *
  * 以前這幾句寫在 `ui/components/aboveeConfirm.js` 裡，於是壓表與日曆新增後來跟上的兩件它都沒跟上：
@@ -438,11 +444,11 @@ export function aboveeConsequences({
   for (const to of ['done', 'no_show', 'cancelled']) {
     const list = changes.filter((r) => r.kind === 'status' && r.to === to);
     // 次數不變也寫出來（「要改的」那一塊那一行同一句，`changeLines()`）—— 她最在意的就是這一格
-    if (list.length) lines.push(`照 Abovee 改成「${shortStatus(to)}」${list.length} 段${timesSay(sumCharge(list)) || '（次數不變）'}`);
+    if (list.length) lines.push(`照 Abovee 改成「${shortStatus(to)}」${list.length} 段${changeChargeSay(sumCharge(list), { free: list.every((r) => r.free) })}`);
   }
   const moves = changes.filter((r) => r.kind === 'move');
   if (moves.length) {
-    lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${timesSay(sumCharge(moves)) || '（次數不變）'}`);
+    lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${changeChargeSay(sumCharge(moves), { free: moves.every((r) => r.free) })}`);
   }
 
   // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次

@@ -104,6 +104,9 @@ test('不扣額度的那一段（功醫門診，體驗）改成已取消 → 「
   const items = read([row('已取消', '2026-09-16', '10:00 - 10:30', '功醫門診')], c);
   const { lines } = changeLines(items, photoDayPlan(items, c), c);
   assert.match(lines[0].text, /：已確認 → 已取消（本來就不扣次數）$/);
+  // 確認框同一句（10/16 審查：以前確認框寫「次數不變」）
+  const said = aboveeConsequences({ plan: photoDayPlan(items, c), coursesById, today: TODAY }).lines;
+  assert.ok(said.includes('照 Abovee 改成「已取消」1 段（本來就不扣次數）'), said.join(' / '));
 });
 
 test('沒有要改的 → 沒有一行（畫面上那一塊一個像素都不佔）', () => {
