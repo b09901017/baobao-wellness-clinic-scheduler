@@ -49,3 +49,9 @@ If the concept you need isn't in the glossary yet, that's a signal — either yo
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
+
+## 推翻一支舊 ADR 時（這個 repo 的慣例，2026-10-15 定）
+
+- **舊的那一支一個字都不改，連「狀態：」那一行也不加「已被推翻」的註記**（ADR-0088 被推翻時加過、ADR-0116 被 0144 推翻一部分時沒加 —— 從 ADR-0149 起一律不加）
+- 新的那一支開頭寫「推翻：」一段，**指名哪一支的哪一點**（一支只推翻一部分的很常見，整支標成被推翻會誤導）
+- 讀舊 ADR 的人要知道它還算不算數：`grep -l "ADR-0116" docs/adr/` 找誰提到它

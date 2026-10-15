@@ -17,7 +17,7 @@ import {
 import { syncTasksForVisit, changedTaskKinds, tasksAfterCourseChange } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS, pairsOf,
-  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND,
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, chainLeftovers,
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
 
@@ -145,9 +145,12 @@ function payloadOf(visit) {
  *
  * @param {object} visit 要存的內容，沒有 id 就是新增
  * @param {object[]} customerVisits 這位客戶現有的全部來訪（含這一筆的舊版本）
+ * @param {{freed?: number[]}} [opts] `freed`：拍 Abovee 時照片上已經放掉的那幾段（位置）——
+ *   那幾段的「取消 Abovee」一出生就勾好。**規則在 `taskRules.js` 的 `cancelTasksFor()`**，這裡只負責傳下去
+ *   （在這裡事後把任務改成已勾的話，確認框算不到，ADR-0070）
  * @returns {Promise<string>} 來訪 id
  */
-export async function save(visit, customerVisits = []) {
+export async function save(visit, customerVisits = [], { freed = [] } = {}) {
   const id = visit.id ?? repo.newId(PATH);
   const previous = customerVisits.find((v) => v.id === id) ?? null;
   // **每一段都補上狀態**（ADR-0081）。寫入是唯一的路口，補在這裡就不會有
@@ -169,7 +172,7 @@ export async function save(visit, customerVisits = []) {
       ? { op: 'update', path: PATH, id, changes: payloadOf(next), ifUpdatedAt: visit.updatedAt ?? null }
       : { op: 'create', path: PATH, id, data: payloadOf(next) },
     ...countOps(visit.customerId, [previous, next], after),
-    ...(await taskOps(next, { isNew: !previous, visitsAfter: after, courses })),
+    ...(await taskOps(next, { isNew: !previous, visitsAfter: after, courses, freed })),
   ];
 
   await repo.commit(ops);
@@ -230,7 +233,7 @@ export async function restore(visit, customerVisits = []) {
  * 那幾張是軟刪除，而比對問的是「這件事有沒有人做過」—— 看不到它們的話，
  * 同一筆來訪再存一次就會把已經做過的登記與取消重新長一次。
  */
-async function taskOps(visit, { isNew = false, visitsAfter = null, courses: known = null } = {}) {
+async function taskOps(visit, { isNew = false, visitsAfter = null, courses: known = null, freed = [] } = {}) {
   const [existing, courses] = await Promise.all([
     isNew ? [] : tasksData.listByVisitForSync(visit.id),
     known ?? config.listAll('courses', { includeDeleted: true }),
@@ -241,6 +244,7 @@ async function taskOps(visit, { isNew = false, visitsAfter = null, courses: know
   const { create, update, remove: gone } = syncTasksForVisit(visit, existing, {
     coursesById,
     today: todayISO(),
+    freed,
   });
 
   return [
@@ -301,6 +305,28 @@ export async function chainInputs(customerId, coursesById = {}) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 拍 Abovee 一位的那幾筆**全部存完之後**，收掉中途長出來、最後的樣子用不到的健檢鏈待辦（規則在 `followups.js` 的 `chainLeftovers()`）。
+ * `known`：存之前就有的那幾張的 id（確認層第一次按「記錄」時讀的 `chainInputs()`）。收掉是軟刪除、沒勾過 —— `seenTasks()` 當成沒有過。
+ * 讀不到、寫不進去就算了（多一張可以勾掉），不擋已經記好的來訪。
+ *
+ * @returns {Promise<number>} 收掉幾張
+ */
+export async function dropChainLeftovers(customerId, known, coursesById = {}) {
+  if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return 0;
+  const [entitlements, tasks, visits] = await Promise.all([
+    customersData.listEntitlements(customerId),
+    tasksData.listByCustomerForSync(customerId),
+    listByCustomer(customerId),
+  ]);
+  const extra = chainLeftovers({ customer: { id: customerId }, entitlements, visits, tasks, known, coursesById });
+  if (!extra.length) return 0;
+  await repo.commit(extra.map((t) => ({
+    op: 'softDelete', path: TASK_PATH, id: t.id, reason: '拍 Abovee 一次記好幾段，存到一半時長出來、存完用不到',
+  })));
+  return extra.length;
 }
 
 /**

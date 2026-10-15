@@ -95,7 +95,7 @@ export const CHECKS = [
   {
     id: 'sameDayVisits',
     label: '同一天有兩筆來訪',
-    hint: '同一位客戶同一天記了兩筆 —— 現在只會有一筆，這是舊資料',
+    hint: '同一位客戶同一天有兩次來訪 —— 那一天結案之後再排一段會另開一次，那是正常的；兩次都還開著的才要看',
   },
   {
     id: 'overused',
@@ -2113,10 +2113,10 @@ function checkSameDayVisits(ctx) {
       who: who,
       whoId: customerId,
       title: `${who}・${rows[0].date}`,
-      detail: `這一天記了 ${rows.length} 筆來訪（共 ${
+      detail: `這一天有 ${rows.length} 次來訪（共 ${
         rows.reduce((n, v) => n + (v.slots ?? []).length, 0)
-      } 段）。現在同一天只會有一筆，這是舊資料 —— 只列出來，不自動合併`
-        + '（其中一筆可能是刻意分開的）。',
+      } 段）。那一天結案（已完成、未到）之後再排的一段會另開一次，那是正常的；兩次都還開著的才要去看一眼 —— 只列出來，不自動合併`
+        + '（其中一次可能是刻意分開的）。',
       link: null,
       fix: null,
     });

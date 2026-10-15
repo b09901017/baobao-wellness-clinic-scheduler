@@ -427,7 +427,7 @@ export function seenTasks(tasks = []) {
  * @returns {{create: object[], update: {id:string, changes:object}[],
  *            remove: {id:string, reason:string}[]}}
  */
-export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {}, today } = {}) {
+export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {}, today, freed = [], at } = {}) {
   const create = [];
   const update = [];
   const remove = [];
@@ -464,7 +464,7 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
     for (const t of auto) {
       if (!t.done && !t.deletedAt) remove.push({ id: t.id, reason: '來訪已取消' });
     }
-    create.push(...cancelTasksFor(visit, existingTasks, coursesById, today));
+    create.push(...cancelTasksFor(visit, existingTasks, coursesById, today, { freed, at }));
     return { create, update, remove };
   }
 
@@ -552,7 +552,7 @@ export function syncTasksForVisit(visit, existingTasks = [], { coursesById = {},
   // **這一段不可以搬到上面 `gone` 那一段裡去。** 那一段跑的時候每一段都是
   // `cancelled`（`applyStatus()` 整天取消會逐段標），而這裡問的是
   // 「整筆還活著時哪幾段沒了」—— 兩個問題的答案在整筆取消時剛好相反。
-  create.push(...cancelTasksFor(visit, existingTasks, coursesById, today));
+  create.push(...cancelTasksFor(visit, existingTasks, coursesById, today, { freed, at }));
 
   return { create, update, remove };
 }
@@ -785,11 +785,27 @@ export function newRegistrations(visit, existingTasks = [], coursesById = {}, to
  *
  * **確認框講的那一句也走這一支**（`consequences.js` 的 `cancelConsequences()`，ADR-0070）。
  *
+ * ## 照片上已經放掉的段（`freed`，abovee-status-follows-photo 02）
+ *
+ * 拍 Abovee 時那一列就是「已取消」：Abovee 上那一格她已經放掉了，叫她回去放是叫她做一件做完的事。
+ * **不能只是這一次不長** —— 每存一次那一天這裡都重算，沒有一張看過的（`seenTasks()`）蓋住那一段，下一次就補長。
+ * 所以長一張**已經勾掉的**（ADR-0106：勾過的才算做過），跟那一次存檔同一個 commit：
+ *
+ * - **只有壓在 Abovee 的那幾段**（`bookingSystemOf()`）—— 照片只證明 Abovee 上那一格。壓在別的系統的課照長、不勾
+ * - Examine／耀聖的取消照第 2 條長、不勾 —— 照片看不出她在那邊收了沒
+ * - 同一種裡有放掉的段、也有沒被蓋到的別段（例如那一段的「取消 Abovee」被復原過）→ **拆兩張**，不一起勾
+ * - 名字不叫 `released`：時段上的 `released` 是「已釋出遞補」
+ * - **只有拍 Abovee 那一條路傳它，而那一條路不給復原**（`aboveeConfirm.js` 的 `undoable: false`）。
+ *   給了復原的話，復原把這一張軟刪除之後它還是勾著的，`seenTasks()` 會把它當成做過 —— 那一段之後在日曆上
+ *   再取消一次，一張都不長。新增一條會傳 `freed` 的路要先想這一條
+ *
  * @param {object} visit 存檔後的來訪
  * @param {object[]} existingTasks 這一筆來訪現有的任務
+ * @param {{freed?: number[], at?: string}} [opts] `freed`：照片上已經放掉的那幾段（`visit.slots` 裡的位置）；
+ *   `at`：那幾張的 `doneAt`（那一刻）
  * @returns {object[]} 要新建的取消類任務（帶 `slotIndexes`）
  */
-export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, today = null) {
+export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, today = null, { freed = [], at = new Date().toISOString() } = {}) {
   const slots = visit?.slots ?? [];
   const whole = Boolean(visit?.deletedAt) || visit?.status === 'cancelled';
   const dead = slots
@@ -834,14 +850,28 @@ export function cancelTasksFor(visit, existingTasks = [], coursesById = {}, toda
     }
   }
 
+  // 照片上已經放掉的那幾段（`freed`）：Abovee 那一格已經放掉了 —— 只有壓在 Abovee 的段才算
+  const aboveeKind = cancelKindFor('Abovee');
+  const freedHere = new Set((freed ?? []).filter((i) => bookingSystemOf(coursesById[slots[i]?.courseId]) === 'Abovee'));
+
   const out = [];
-  for (const [kind, at] of wanted) {
+  for (const [kind, want] of wanted) {
     const covered = new Set(
       seen.filter((t) => t.kind === kind).flatMap((t) => cancelSlotsOf(t, visit)),
     );
-    const left = [...at].filter((i) => !covered.has(i)).sort((a, b) => a - b);
+    const left = [...want].filter((i) => !covered.has(i)).sort((a, b) => a - b);
     if (!left.length) continue;
-    out.push(cancelTask(visit, kind, cancelNote(visit, kind, { whole, coursesById, at: left }), today, left));
+    // 同一種裡放掉的與沒放掉的拆兩張：沒被蓋到的別段（復原過的那一張）不可以跟著一起勾掉
+    const gone = kind === aboveeKind ? left.filter((i) => freedHere.has(i)) : [];
+    const rest = left.filter((i) => !gone.includes(i));
+    if (rest.length) out.push(cancelTask(visit, kind, cancelNote(visit, kind, { whole, coursesById, at: rest }), today, rest));
+    if (gone.length) {
+      out.push({
+        ...cancelTask(visit, kind, cancelNote(visit, kind, { whole, coursesById, at: gone, freed: true }), today, gone),
+        done: true,
+        doneAt: at,
+      });
+    }
   }
   return out;
 }
@@ -860,9 +890,12 @@ export function cancelsBooking(visit, task, coursesById = {}) {
   );
 }
 
-/** 那一張的說明。 */
-function cancelNote(visit, kind, { whole, coursesById, at }) {
+/** 那一張的說明。照片上已經放掉的（`freed`）講為什麼一出生就勾好了，不叫她回去放。 */
+function cancelNote(visit, kind, { whole, coursesById, at, freed = false }) {
   const system = systemOfCancelKind(kind);
+  if (freed) {
+    return `${visit.date} ${whole ? '的來訪取消了' : '有一段取消了'} —— 拍 ${system} 時那個時段已經是已取消，不用再去放`;
+  }
   const booked = cancelsBooking(visit, { kind, slotIndexes: at }, coursesById);
   if (whole) {
     return booked

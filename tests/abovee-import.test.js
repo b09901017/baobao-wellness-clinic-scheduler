@@ -1,8 +1,10 @@
 // 拍 Abovee → 一次新增很多來訪（issue 13）。`domain/aboveeImport.js`。
 //
 // **這一支有沒有任何一行，讓 Abovee 上的「確認前往」變成 app 的「已確認」？** —— 沒有：
-// 預約狀態只照原字印，新段一律 INITIAL_STATUS（ADR-0027、0099）。
+// 「確認前往」那三種的新段一律 INITIAL_STATUS（ADR-0027、0099）。課程完成、客戶失約、已取消照照片記
+//（abovee-status-follows-photo 03，`tests/abovee-new-rows-photo-status.test.js`）。
 // **有沒有任何一條路，讓「對不上」的那一列在這一層被改掉？** —— 沒有：那一列勾不了（ADR-0056）。
+// 照片要改的狀態（04）不是對不上：是「已經記了」＋`statusChange`（`tests/abovee-existing-slots-photo-status.test.js`）。
 //
 // 例子一律假名、1234。
 
@@ -128,8 +130,10 @@ describe('每一列分成四種', () => {
   const { items } = readAbovee([left, right], ctx());
   const byLine = (i) => items[i];
 
-  test('新的 5 段、已經記了 3 段、已取消的 2 列淡掉沒勾', () => {
-    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 3, attention: 0, cancelled: 2, checked: 5 });
+  test('新的 5 段、已經記了 3 段（其中 2 段要補上診間）、已取消的 2 列淡掉沒勾', () => {
+    // 07：9/12、9/15 那兩段 ILIB app 上沒有診間、照片上有 →「要改的」那一塊補上（`changes`），不再算進「已經記了」
+    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 1, changes: 2, attention: 0, pastOpen: 0, cancelled: 2, checked: 5 });
+    assert.deepEqual([5, 6].map((i) => [byLine(i).diffs.every((d) => !d.app), byLine(i).adopt]), [[true, true], [true, true]]);
     assert.deepEqual([2, 7].map((i) => [byLine(i).cancelled, byLine(i).checked]), [[true, false], [true, false]]);
     assert.deepEqual([4, 5, 6].map((i) => byLine(i).kind), ['recorded', 'recorded', 'recorded']);
   });
@@ -172,7 +176,7 @@ describe('每一列分成四種', () => {
     assert.equal(picked.checked, false, '選了人才能勾，勾是她自己勾');
   });
 
-  test('已經過了的新段 → 不勾（ADR-0030 的做法）', () => {
+  test('已經過了、照片還是確認前往的新段 → 不勾（日子過了還沒結案，03 換掉了 ADR-0030 的做法）', () => {
     const [only] = readAbovee([left], ctx({ today: '2026-09-11' })).items;
     assert.equal(only.kind, 'new');
     assert.equal(only.checked, false);
@@ -268,9 +272,9 @@ test('照片上讀得到的日期：跟 aboveeDate() 同一種讀法（民國年
   assert.deepEqual(aboveeDatesIn([]), []);
 });
 
-describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => {
+describe('08 預約狀態跟 app 對一次（ADR-0116；狀態那一部分 10/15 起照片為準，04）', () => {
   // 她 2026-09-24 晚：「其實拍 Abovee上面也有標已取消等等的標記…其實也可以當作某一方面的交叉驗證?」
-  // Abovee 那一欄三種字：課程完成、確認前往、已取消。**這一層一段都不改**（ADR-0056）
+  // 10/15 她講清楚了是先在 Abovee 改好才拍（04）：要改的那一段是「已經記了」＋`statusChange`，只提醒的才是對不上
   const ilibSlot = (over) => ({ entitlementId: 'ch-ilib', courseId: 'course-iv-laser', startsAt: '09:00', endsAt: '10:00', ...over });
   const withChen = (...visits) => ctx({ visitsBy: { ...VISITS, 'c-chen': [...VISITS['c-chen'], ...visits] } });
   const read = (row, c = ctx()) => readAbovee([{ ...left, rows: [row] }], c).items[0];
@@ -329,12 +333,13 @@ describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => 
     assert.equal(item.kind, 'recorded');
   });
 
-  test('Abovee 上已取消、app 上還活著：以前整列跳過，現在要你看', () => {
+  // 04（她 10/15：「app上還沒取消的客拍照拍到已取消了，那也幫我把這堂課的狀態改成已取消」）推翻 ADR-0116 的「只講不改」
+  test('Abovee 上已取消、app 上還活著：照片要把它改成已取消（預設打勾，不是要你看）', () => {
     const item = read(['已取消', '2026-09-15', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60']);
-    assert.equal(item.kind, 'mismatch');
-    assert.equal(item.reason, 'aboveeCancelled');
-    assert.equal(needsAttention(item), true);
-    assert.equal(mismatchSay(item), 'Abovee 上取消了，app 上還是「待確認」。');
+    assert.equal(item.kind, 'recorded');
+    assert.deepEqual(item.statusChange, { from: 'pending_confirm', to: 'cancelled' });
+    assert.equal(item.adoptStatus, true);
+    assert.equal(needsAttention(item), false);
   });
 
   test('兩邊都取消：一致，不排進要你看', () => {
@@ -346,18 +351,21 @@ describe('08 預約狀態跟 app 對一次，只講不改（ADR-0116）', () => 
     assert.equal(summarizeAbovee([item]).recorded, 0, '「已經記了 N 段」不算取消的');
   });
 
-  test('Abovee 上課程完成、app 上還開著：講還沒簽療程單', () => {
+  test('Abovee 上課程完成、app 上還開著：日子還沒到 → 只提醒「還沒到就寫完成了」；過了 → 改成已完成', () => {
     const item = read(['課程完成', '2026-09-12', '11:00 - 12:15', '陳大文', '00009999', 'ILIB 60']);
-    assert.equal(item.reason, 'notClosed');
-    assert.equal(mismatchSay(item), 'Abovee 上是「課程完成」，app 上還是「已確認」—— 還沒簽療程單。');
+    assert.equal(item.reason, 'futureDone');
+    assert.equal(mismatchSay(item), '還沒到就寫完成了（Abovee 上是「課程完成」），app 上照舊是「已確認」。');
+    const later = read(['課程完成', '2026-09-12', '11:00 - 12:15', '陳大文', '00009999', 'ILIB 60'], ctx({ today: '2026-09-13' }));
+    assert.deepEqual(later.statusChange, { from: 'confirmed', to: 'done' });
   });
 
-  test('Abovee 上課程完成、app 上記未到', () => {
+  test('Abovee 上課程完成、app 上記未到：日子還沒到 → 只提醒；過了 → 改成已完成', () => {
     const c = withChen({ id: 'v-ch22', customerId: 'c-chen', date: '2026-09-22', status: 'no_show',
       slots: [ilibSlot({ status: 'no_show' })] });
     const item = read(['課程完成', '2026-09-22', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], c);
-    assert.equal(item.reason, 'appNoShow');
-    assert.match(mismatchSay(item), /app 上記「未到」/);
+    assert.equal(item.reason, 'futureDone');
+    const later = read(['課程完成', '2026-09-22', '09:00 - 10:15', '陳大文', '00009999', 'ILIB 60'], { ...c, today: '2026-09-23' });
+    assert.deepEqual(later.statusChange, { from: 'no_show', to: 'done' });
   });
 
   test('確認前往不拿來比：app 上待確認是常態，已經記了', () => {

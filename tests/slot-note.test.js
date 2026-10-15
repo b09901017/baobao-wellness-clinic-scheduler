@@ -184,7 +184,8 @@ describe('那一句話搬到時段之後，四個地方要跟著改', () => {
     assert.match(read('ui/views/schedule.js'), /note: deckEl\(\)\?\.querySelector\('\[name="note"\]'\)/);
     const draft = read('domain/slotDraft.js').replace(/\r\n/g, '\n');
     assert.match(draft, /\n    note,\n/);
-    assert.match(draft, /note: null,\n      slots: \[slot\],/);
+    // 新的一筆整筆那一格是 null（2026-10-15 起由 `newVisitWith()` 組，時段由呼叫端給）
+    assert.match(draft, /note: null,\n\s+slots(: \[slot\])?,/);
   });
 
   test('日曆那一列的夾板逐段算，而且讀法只有一支', () => {
