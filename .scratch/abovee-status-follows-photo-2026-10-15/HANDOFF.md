@@ -8,7 +8,7 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 零 | 談、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/15 |
-| 一 | 01 六種狀態、02「取消 Abovee」一出生就勾好 | high | 還沒開始 |
+| 一 | 01 六種狀態、02「取消 Abovee」一出生就勾好 | high | ✅ 10/15（01 `8295384`、02 `f06854e`） |
 | 二 | 03 新的一列照狀態記（含整筆狀態推導）、04 既有的段照照片改狀態 | xhigh | 還沒開始 |
 | 三 | 05 改期、06 一位一天一份計畫（驗證／確認框／寫入只算一次、存檔迴圈、確認框的句子） | xhigh | 還沒開始 |
 | 四 | 07 確認層「要改的」那一塊、E2E 68、改 41／51 與單元測試的預期 | high | 還沒開始 |
@@ -24,14 +24,34 @@
 提示詞只在 `functions/` 一份、`claimHalves()` 只認兩種對不上理由、`rebookedHere()` 的豁免靠 `aboveeCancelled` 認。
 它最擔心的「驗證、確認框、寫入三邊各算一份」→ 拆出 06（一位一天一份計畫，三邊只讀它）。其餘每一條都已經寫進對應的 issue。
 
+## 段一做成什麼樣子（細節在 issues/01、02 的「做完時留下的」）
+
+- 01：`statusFromAbovee()` 一支（`aboveeState()` 拿掉）；每一列 `photoStatus`（**沒拍到那一欄是 `null`**，不是待確認）、`statusUnread`；
+  `readAbovee()` 多回 `noStatusColumn`（`null`／`'some'`／`'all'`）；句子 `photoTimeSays()`／`photoStatusSay()`／`statusColumnSay()` 在 domain、畫面還沒畫。
+  `crossCheck()` 照舊只比取消與完成 —— 失約、待確認、`null` 當成還掛著（04 改）
+- 02：`cancelTasksFor(…, today, { freed, at })`、`syncTasksForVisit(…, { freed, at })`、`save(visit, customerVisits, { freed })`、
+  `cancelTaskLines(after, tasks, coursesById, { freed })`（**export 了**，06 的 `aboveeConsequences()` 用）。還沒有任何呼叫端傳 `freed`（03～06 接）
+
 ## 中途發現（段落結束時一次列給她，問要不要修）
 
-- （第零段）**一天只取消其中一段時，取消理由記不下來**：app 的取消理由是整筆的（`settle()`），日曆那邊也一樣。已經問她要不要另外補
+1. （第零段）**一天只取消其中一段時，取消理由記不下來** —— 她回了：另開一小支、不擋這一輪 → `.scratch/slot-cancel-reason/issues/01`（開好了、沒做）。
+   清查時多發現：**取消理由在畫面上哪裡都看不到**，連整天取消的也只在稽核裡 —— 那一支先問她要在哪裡看到
+2. （段一）**只取消其中一段時，那一段還沒勾的 Examine／耀聖待辦被安靜收掉，確認框不講**。整天取消的確認框講「還沒做完的「Examine」會被收掉」，
+   只取消一段那一條（`cancelConsequences()` 的 `picked` 那一段）沒有這一句。她其實掛了、只是忘了勾的話：待辦收掉、也不長「取消 Examine」，沒有人提醒她回 Examine 收。
+   拍 Abovee 改成已取消（04）走同一條。建議：只取消一段的確認框補同一句，並說「已經掛了的話先去勾掉它，取消時才會提醒你回去收」
+3. （段一）**同一頁拍了兩張、同一列兩張的預約狀態不一樣時，先傳的那一張贏、安靜地**（`joinPages()` 只在第一張那一格空著才補）。
+   01 之前沒差（狀態不拿來寫），03／04 之後它決定寫成什麼。spec 04 寫了「同一段在照片上有兩列、狀態不一樣 → 不自動改」，但兩列在進 04 之前就被併成一列、差異沒了。
+   建議：段二做 04 時 `joinPages()` 記一個「兩張的狀態不一樣」（兩張都讀得出來、`photoStatus` 不同），04 不改、03 不預設勾、講一句
+4. （段一，只記著、不用修）「一出生就勾好」的那一張被**復原**的話會變成「勾過又刪掉」，`seenTasks()` 當成做過。現在只有拍 Abovee 會傳 `freed`，
+   而那一條路不給復原（`undoable: false`）—— 寫在 `cancelTasksFor()` 的註解裡，新增一條傳 `freed` 的路要先想這一條
 
-## 她還沒回的
+## 她回的（10/15 段一開場）
 
-- 每一段自己的取消理由要不要補（見上）
-- 08 重考要花一點 Gemini 費用（上一次 US$0.11）—— 第五段跑之前再確認一次
+- 每一段自己的取消理由：另開一小支，注意牽連，不擋這一輪（見中途發現 1）
+- 08 重考的 Gemini 費用（約 US$0.1）：**可以**
+- 「Abovee 待確認／聯繫中、app 已確認 → 不退回待確認」：同意
+- 「Examine／耀聖的取消待辦照長」：同意。她問「忘記勾 Examine／耀聖的掛號待辦，會被當成沒做還是一直留著？」—— 段一查了：
+  **當成沒做**，取消那一段時那一張被系統收掉（不會一直留著），也不長「取消 Examine」（見中途發現 2）
 
 ---
 
@@ -69,6 +89,8 @@ docs/agents/lessons.md（尤其一、二、四、五）；CLAUDE.md「一段來�
 
 這一段只做 03（app 沒有的列照照片狀態記；visitWithSlot／withExtraSlot 照新段狀態推整筆；同一組的段不可以掉；預設勾的新規則）與 04（app 已經有的段照照片改狀態；不弄壞 claimHalves／claimTimeless／rebookedHere）。
 05、06、07 不要碰（存檔迴圈與確認框是 06、畫面是 07）。判準只到 domain：拿 planAbovee 組出來的那一筆、整筆狀態、counts() 驗。
+段一的「中途發現」裡她說要修的：3（兩張狀態不一樣）併進 04；2（只取消一段時沒勾的 Examine／耀聖安靜收掉）她說修的話另開一支 issue、照規矩做。
+photoStatus 是 null（那一張沒拍到那一欄）的列：03 照舊的預設勾、04 一律不比。
 次數是她最在意的：每一條次數判準都拿 counts() 算改之前與改之後，不看畫面上的字。
 動手前用 grep／graphify 找 slotFromPicks、visitWithSlot、withExtraSlot、INITIAL_STATUS、resolveItem、asRecorded、planAbovee、crossCheck、claimHalves、claimTimeless、applyStatus、closeVisit、cannotClose 的所有呼叫端。
 過程中發現她沒發現的關聯問題或類似的問題，先記進 HANDOFF「中途發現」、繼續做；這一段做完一次列給她，問要不要修（修的時候注意會不會牽連別的地方）。
