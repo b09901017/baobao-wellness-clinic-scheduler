@@ -40,7 +40,7 @@ import { givableBags } from '../../domain/products.js';
 import { chargesEntitlement } from '../../domain/entitlements.js';
 import {
   describeStatus, statusClass, shortStatus, isActive, STATUS_VIEW_ORDER, statusForCard,
-  slotNoteOf, liveSlots,
+  slotNoteOf, slotCancelReasonOf, liveSlots,
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
@@ -1664,6 +1664,8 @@ export function visitReadHtml(visit, data) {
                 底下那一列「記的話」是合起來印的，兩段兩句話在那裡分不出誰是誰。
                 單段那一張不印在這裡 —— 那時候底下那一列講的就是它。 */''}
           ${tappable ? slotNoteLine(visit, s) : ''}
+          ${/* 取消掉的那一段為什麼取消（11）：跟記一句同一種畫法，長在自己那一列裡 */''}
+          ${tappable ? slotCancelLine(visit, s) : ''}
         </${tag}>`;
     }).join('') || '<p class="muted">這一天沒有任何時段。</p>'}
 
@@ -1685,6 +1687,17 @@ export function visitReadHtml(visit, data) {
         <div class="readrow">
           <span class="readrow__k">記的話</span>
           <span class="readrow__v">${lines.map((t) => esc(t)).join('<br />')}</span>
+        </div>` : '';
+    })()}
+
+    ${/* **那一段為什麼取消**（abovee-status-follows-photo 11）：她 10/15「就像記的話那樣」。
+           只有那一段自己的（`slotCancelReasonOf()`，整天取消的那一格先不畫）；目錄那一張已經長在每一列裡了 */''}
+    ${(() => {
+      const why = tappable ? [] : [...new Set(slots.map(({ slot: s }) => slotCancelReasonOf(visit, s)).filter(Boolean))];
+      return why.length ? `
+        <div class="readrow">
+          <span class="readrow__k">取消理由</span>
+          <span class="readrow__v">${why.map((t) => esc(t)).join('<br />')}</span>
         </div>` : '';
     })()}
 
@@ -1739,6 +1752,15 @@ function slotNoteLine(visit, slot) {
   const text = String(slotNoteOf(visit, slot) ?? '').trim();
   if (!text) return '';
   return `<span class="readslot__note">${esc(text)}</span>`;
+}
+
+/**
+ * 目錄那一張上，取消掉的那一段為什麼取消（11）。跟 `slotNoteLine()` 同一種樣子、同一條規矩：沒有字就一個像素都不佔。
+ */
+function slotCancelLine(visit, slot) {
+  const text = slotCancelReasonOf(visit, slot);
+  if (!text) return '';
+  return `<span class="readslot__note" data-cancel-why>取消理由：${esc(text)}</span>`;
 }
 
 function eventReadHtml(event) {

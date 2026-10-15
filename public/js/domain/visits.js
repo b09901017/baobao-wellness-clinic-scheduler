@@ -909,6 +909,18 @@ export function slotNoteOf(visit, slot) {
 }
 
 /**
+ * 這一段為什麼取消（abovee-status-follows-photo 11）。**讀法只有這一支。**
+ *
+ * 只取消一段時理由記在那一段上（`applyStatus()` 帶 `slotIndex`）。**不退回整筆那一格** ——
+ * 她 10/15：「整天取消就先不用顯示沒關係，看的到每一段自己的取消理由就好」。
+ * 那一段沒取消（身上殘留的字）、沒有字：`null`。讀取卡片照「記的話」的畫法畫它（`visitReadHtml()`）。
+ */
+export function slotCancelReasonOf(visit, slot) {
+  if (!slot || slotStatus(visit, slot) !== 'cancelled') return null;
+  return String(slot.cancelReason ?? '').trim() || null;
+}
+
+/**
  * 舊資料那一句「記的話」搬到第一段。
  *
  * 她 2026-09-09：「不要是一整天的…我希望是每一筆都可以有他的記一句。」
@@ -1111,9 +1123,14 @@ export function applyStatus(
     if (!slots[slotIndex] || !canTransition(slotStatus(visit, slots[slotIndex]), to)) return original;
     // 退回簽療程單（未到 → 已確認，ADR-0111）時「沒做」那一格一起清掉 ——
     // 那一段現在還沒結案，留著 `attended: false` 就是一句過期的話
-    const reopened = (s) => (to === 'pending_confirm' || to === 'confirmed'
-      ? { ...s, status: to, attended: null }
-      : { ...s, status: to });
+    //
+    // **取消一段時理由記在那一段上**（abovee-status-follows-photo 11）：整筆那一格只在整天都取消時寫（`settle()`），
+    // 那一天還有別段活著時她打的那一句以前一個字都沒存。讀只走 `slotCancelReasonOf()`
+    const reopened = (s) => {
+      if (to === 'pending_confirm' || to === 'confirmed') return { ...s, status: to, attended: null };
+      if (to === 'cancelled') return { ...s, status: to, cancelReason: String(reason ?? '').trim() || null };
+      return { ...s, status: to };
+    };
     return settle(
       { ...visit, slots: slots.map((s, i) => (i === slotIndex ? reopened(s) : s)) },
       { at, reason },

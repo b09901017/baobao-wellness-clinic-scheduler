@@ -657,6 +657,8 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // | 'done' | 'no_show' | 'cancelled'
                               // 沒有 draft：app 裡不存在還沒壓表的來訪（第 4.1 節）
   confirmedAt, cancelledAt, cancelReason,
+                              // cancelReason：整天都取消時才寫。**只取消一段時理由記在那一段上**
+                              // （底下的 slot.cancelReason，2026-10-15）；畫面上只畫那一段的
   note,                       // **舊資料才有，不再寫入**（ADR-0084）。
                               // 2026-09-09 之前是「這一天的一句話」，現在
                               // 每一段自己有（上面的 `slot.note`）。她下次
@@ -716,10 +718,13 @@ audit/{eventId}                   // append-only 稽核紀錄
                             // **狀態的原子單位是這裡**，整筆那一個是推導出來
                             // 又存起來的。舊來訪身上沒有這一格，`slotStatus()`
                             // 會退回整筆 + `attended` —— 一個字都不用遷移
-      note }                // 這一段記的一句話（ADR-0084，上限 NOTE_MAX）。
+      note,                 // 這一段記的一句話（ADR-0084，上限 NOTE_MAX）。
                             // **2026-09-09 之前這一句掛在整筆上**（底下的
                             // `note`），她下次存那一筆時由 `withSlotNotes()`
                             // 搬到第一段
+      cancelReason }        // 只取消這一段時她在確認框打的「為什麼」（2026-10-15）。
+                            // 讀取卡片照「記的話」的畫法畫（slotCancelReasonOf()）；
+                            // 整天取消只寫整筆那一格、先不畫（她：「整天取消就先不用顯示沒關係」）
   ],
   createdBy, createdAt, updatedAt, deletedAt
 }
