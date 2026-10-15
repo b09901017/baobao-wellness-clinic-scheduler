@@ -8,14 +8,14 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 零 | 談、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/15 |
-| 一 | 01 六種狀態、02「取消 Abovee」一出生就勾好 | high | ✅ 10/15（01 `8295384`、02 `f06854e`） |
+| 一 | 01 六種狀態、02「取消 Abovee」一出生就勾好；她回了中途發現之後加做 10、11 | high | ✅ 10/15（01 `8295384`、02 `f06854e`、10 `1ef4906`、11 `d35c407`） |
 | 二 | 03 新的一列照狀態記（含整筆狀態推導）、04 既有的段照照片改狀態 | xhigh | 還沒開始 |
 | 三 | 05 改期、06 一位一天一份計畫（驗證／確認框／寫入只算一次、存檔迴圈、確認框的句子） | xhigh | 還沒開始 |
 | 四 | 07 確認層「要改的」那一塊、E2E 68、改 41／51 與單元測試的預期 | high | 還沒開始 |
 | 五 | 08 提示詞重考與部署 staging、09 文件與 ADR-0149、全量 E2E、開 PR | medium | 還沒開始 |
 | 六 | `/matt-code-review`、照建議修、CI 綠了合進 develop | xhigh | 還沒開始 |
 
-編號：ADR-0149、E2E spec 68、`sw.js` v193。
+編號：ADR-0149、E2E spec 68、`sw.js` v193（**11 已經升到 v193 了** —— 同一支 PR，段四不用再升）。
 
 ## 過目（10/15，唯讀 subagent）抓到、已經改進 issue 的
 
@@ -31,19 +31,29 @@
   `crossCheck()` 照舊只比取消與完成 —— 失約、待確認、`null` 當成還掛著（04 改）
 - 02：`cancelTasksFor(…, today, { freed, at })`、`syncTasksForVisit(…, { freed, at })`、`save(visit, customerVisits, { freed })`、
   `cancelTaskLines(after, tasks, coursesById, { freed })`（**export 了**，06 的 `aboveeConsequences()` 用）。還沒有任何呼叫端傳 `freed`（03～06 接）
+- 10（她說修的中途發現 2）：`consequences.js` 的 `registrationDropLines(after, tasks, coursesById)`（**export**）—— 取消掉的段身上還沒勾的 Examine／耀聖會被收掉／拿掉這一段，
+  講出來＋下一步。只取消幾段、整天、改期（`rebookConsequences()`）三道都接了；`cancelConsequences()` 只拿這一筆的任務（批次取消攤平的那一份以前會漏進別天的）。
+  **06 的 `aboveeConsequences()` 也要叫它**（照片改成已取消的段同一個情況）
+- 11（第零段那一條，她說了要在哪看到）：只取消一段時 `applyStatus(…, { slotIndex, reason })` 把理由寫在 `slot.cancelReason`；讀只走 `slotCancelReasonOf()`（不退回整筆）；
+  讀取卡片照「記的話」的畫法畫。**04 的照片「取消原因」就交給 `applyStatus()` 的 `reason`，自然記在那一段上**（issue 04 第 6 點改過了）。`sw.js` 升到 v193
 
 ## 中途發現（段落結束時一次列給她，問要不要修）
 
-1. （第零段）**一天只取消其中一段時，取消理由記不下來** —— 她回了：另開一小支、不擋這一輪 → `.scratch/slot-cancel-reason/issues/01`（開好了、沒做）。
-   清查時多發現：**取消理由在畫面上哪裡都看不到**，連整天取消的也只在稽核裡 —— 那一支先問她要在哪裡看到
-2. （段一）**只取消其中一段時，那一段還沒勾的 Examine／耀聖待辦被安靜收掉，確認框不講**。整天取消的確認框講「還沒做完的「Examine」會被收掉」，
+1. ✅（第零段）**一天只取消其中一段時，取消理由記不下來** —— 她 10/15：「可以就像記的話那樣，如果取消的話就顯示取消理由，整天取消先不用顯示」→ **issue 11 做完**
+2. ✅（段一，她：「修」→ **issue 10 做完**）**只取消其中一段時，那一段還沒勾的 Examine／耀聖待辦被安靜收掉，確認框不講**。整天取消的確認框講「還沒做完的「Examine」會被收掉」，
    只取消一段那一條（`cancelConsequences()` 的 `picked` 那一段）沒有這一句。她其實掛了、只是忘了勾的話：待辦收掉、也不長「取消 Examine」，沒有人提醒她回 Examine 收。
    拍 Abovee 改成已取消（04）走同一條。建議：只取消一段的確認框補同一句，並說「已經掛了的話先去勾掉它，取消時才會提醒你回去收」
-3. （段一）**同一頁拍了兩張、同一列兩張的預約狀態不一樣時，先傳的那一張贏、安靜地**（`joinPages()` 只在第一張那一格空著才補）。
+3. ➡ 段二（她：「好照你的建議」→ **寫進 issue 04 第 4 點**）**同一頁拍了兩張、同一列兩張的預約狀態不一樣時，先傳的那一張贏、安靜地**（`joinPages()` 只在第一張那一格空著才補）。
    01 之前沒差（狀態不拿來寫），03／04 之後它決定寫成什麼。spec 04 寫了「同一段在照片上有兩列、狀態不一樣 → 不自動改」，但兩列在進 04 之前就被併成一列、差異沒了。
    建議：段二做 04 時 `joinPages()` 記一個「兩張的狀態不一樣」（兩張都讀得出來、`photoStatus` 不同），04 不改、03 不預設勾、講一句
 4. （段一，只記著、不用修）「一出生就勾好」的那一張被**復原**的話會變成「勾過又刪掉」，`seenTasks()` 當成做過。現在只有拍 Abovee 會傳 `freed`，
    而那一條路不給復原（`undoable: false`）—— 寫在 `cancelTasksFor()` 的註解裡，新增一條傳 `freed` 的路要先想這一條
+
+## 她回的（10/15 段一結束後）
+
+- 中途發現 1（每一段的取消理由）：「可以就像記的話那樣，如果取消的話，就可以顯示取消理由，整天取消就先不用顯示沒關係」→ issue 11
+- 中途發現 2：「修」→ issue 10
+- 中途發現 3：「好照你的建議」→ issue 04 第 4 點
 
 ## 她回的（10/15 段一開場）
 
@@ -89,7 +99,8 @@ docs/agents/lessons.md（尤其一、二、四、五）；CLAUDE.md「一段來�
 
 這一段只做 03（app 沒有的列照照片狀態記；visitWithSlot／withExtraSlot 照新段狀態推整筆；同一組的段不可以掉；預設勾的新規則）與 04（app 已經有的段照照片改狀態；不弄壞 claimHalves／claimTimeless／rebookedHere）。
 05、06、07 不要碰（存檔迴圈與確認框是 06、畫面是 07）。判準只到 domain：拿 planAbovee 組出來的那一筆、整筆狀態、counts() 驗。
-段一的「中途發現」裡她說要修的：3（兩張狀態不一樣）併進 04；2（只取消一段時沒勾的 Examine／耀聖安靜收掉）她說修的話另開一支 issue、照規矩做。
+段一的中途發現 3（同一頁拍兩張、兩張的狀態不一樣）她說照建議 → 已經寫進 issue 04 第 4 點，跟 04 一起做。段一另外做完了 10、11（見 HANDOFF「段一做成什麼樣子」）：
+04 的照片「取消原因」交給 applyStatus() 的 reason 就會記在那一段上（issue 11），04 的確認句子要講的「還沒勾的 Examine 會被收掉」是 registrationDropLines()（issue 10，06 接）。
 photoStatus 是 null（那一張沒拍到那一欄）的列：03 照舊的預設勾、04 一律不比。
 次數是她最在意的：每一條次數判準都拿 counts() 算改之前與改之後，不看畫面上的字。
 動手前用 grep／graphify 找 photoStatus、statusUnread、statusFromAbovee、joinPages、slotFromPicks、visitWithSlot、withExtraSlot、INITIAL_STATUS、resolveItem、asRecorded、planAbovee、crossCheck、claimHalves、claimTimeless、applyStatus、closeVisit、cannotClose 的所有呼叫端。
@@ -111,6 +122,7 @@ docs/agents/lessons.md（尤其一、二、三、五）；CLAUDE.md「拍 Abovee
 這一段只做 05（Abovee 改了時間 → 照片為準改期；rebookSlot 多收狀態、範圍跟 absentFromPhoto 共用一支、改期那一列不再被當新段）與
 06（一位一天一份計畫：plan()、aboveeConsequences()、record() 三邊只讀它；record() 每存一筆換進手上那一份、失敗重按不重複；確認框的句子照實講；健檢那條鏈整批算一次）。
 畫面上「要改的」那一塊是 07，不要做。判準：確認框的次數加總＝存完之後每一筆額度前後的差（counts() 與額度上的 doneCount／bookedCount 都驗）。
+確認框（aboveeConsequences）照片改成已取消的段，還沒勾的 Examine／耀聖會被收掉那一句叫段一的 registrationDropLines()（issue 10），已經勾好的「取消 Abovee」用 cancelTaskLines(…, { freed })。
 動手前用 grep／graphify 找 flagMoved、movedFrom、rebookSlot、boundsOf、within、absentFromPhoto、plan(、record(、visitsForCheck、aboveeConsequences、registrationsWhenSettled、settledDayLine、chainInputs 的所有呼叫端與畫面上的字。
 過程中發現她沒發現的關聯問題或類似的問題，先記進 HANDOFF「中途發現」、繼續做；這一段做完一次列給她，問要不要修（修的時候注意會不會牽連別的地方）。
 
