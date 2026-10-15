@@ -10,7 +10,7 @@
 | 零 | 談、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/15 |
 | 一 | 01 六種狀態、02「取消 Abovee」一出生就勾好；她回了中途發現之後加做 10、11 | high | ✅ 10/15（01 `8295384`、02 `f06854e`、10 `1ef4906`、11 `d35c407`） |
 | 二 | 03 新的一列照狀態記（含整筆狀態推導）、04 既有的段照照片改狀態 | xhigh | ✅ 10/15（03 `56264c0`、04 `ab65ff9`） |
-| 三 | 05 改期、06 一位一天一份計畫（驗證／確認框／寫入只算一次、存檔迴圈、確認框的句子） | xhigh | 還沒開始 |
+| 三 | 05 改期、06 一位一天一份計畫（驗證／確認框／寫入只算一次、存檔迴圈、確認框的句子） | xhigh | ✅ 10/15（05 `56988e1`、06 `e078695`） |
 | 四 | 07 確認層「要改的」那一塊、E2E 68、改 41／51 與單元測試的預期 | high | 還沒開始 |
 | 五 | 08 提示詞重考與部署 staging、09 文件與 ADR-0149、全量 E2E、開 PR | medium | 還沒開始 |
 | 六 | `/matt-code-review`、照建議修、CI 綠了合進 develop | xhigh | 還沒開始 |
@@ -176,13 +176,14 @@ docs/agents/lessons.md（尤其一、二、三、五）；CLAUDE.md「拍 Abovee
 接手「拍 Abovee 照片上的預約狀態為準」這一輪的段四。
 分支 claude/abovee-status-follows-photo（只在本機）。先 git fetch，origin/develop 往前走了就 rebase。
 
-先讀：.scratch/abovee-status-follows-photo-2026-10-15/HANDOFF.md、spec.md、issues/01～06 的「做完時留下的」、issues/07；
+先讀：.scratch/abovee-status-follows-photo-2026-10-15/HANDOFF.md（段三做成什麼樣子、中途發現 7～11）、spec.md、issues/01～06 的「做完時留下的」（**06 最後一段「給段四（07）」**）、issues/07；
 docs/agents/lessons.md（尤其一、五）；CLAUDE.md「畫面上一段常駐的說明」「貼在畫面底部的東西」「蓋住整頁的一層」「共用元件身上的屬性名字」「拍 Abovee 記很多段」各列、「測試怎麼跑」那一節；/kickoff skill 的第三段。
 
-這一段只做 07：確認層「要改的」那一塊（一列一件事、預設勾、補治療師診間收成一行、從「要你看」拿掉治療師診間那一條）、抬頭與「記錄」的數字、
+這一段只做 07：確認層「要改的」那一塊（一列一件事、預設勾、補治療師診間收成一行、從「要你看」拿掉治療師診間那一條；改狀態 adoptStatus、改期 adoptMove 現在預設勾著、按記錄就寫，但畫面上沒有勾可以拿掉 —— 這一塊要給）、
+括號的次數讀 photoDayPlan() 的 rows（不在畫面上推）、抬頭與「記錄」的數字（現在 N 含要改的那幾列，確認框分開講「記錄 N、改 M」）、refreshCloseBlocks() 接上（中途發現 7）、
 E2E spec 68（假抄字六種狀態、8/29 以前／當天／以後、不用真名、登記 related.js、不用 waitForTimeout）、改 41 的 A6 與 51 的 N5 和 issue 列的那幾支單元測試的預期（改之前先確認新結果是 spec 表上要的）、sw.js v193。
 畫面要在本機模擬器真的點過（npm run emulators；同時只開一組模擬器＋一個瀏覽器，她的筆電會過熱；換 worktree 前依 port 停掉殘留的模擬器）。
-動手前用 grep／graphify 找 adopt、adoptHtml、needsAttention、summarizeAbovee、pendingCount、diffSay 的所有呼叫端與畫面上的字（「改成 Abovee 的」）。
+動手前用 grep／graphify 找 adopt、adoptStatus、adoptMove、wantsWrite、adoptHtml、needsAttention、summarizeAbovee、pendingCount、diffSay、recordedSay 的所有呼叫端與畫面上的字（「改成 Abovee 的」）。
 過程中發現她沒發現的關聯問題或類似的問題，先記進 HANDOFF「中途發現」、繼續做；這一段做完一次列給她，問要不要修（修的時候注意會不會牽連別的地方）。
 
 做完：一個 commit、Status: done ＋「做完時留下的」、npm run verify、相關 E2E 本機跑；更新 HANDOFF 進度，列中途發現，把段五的開場（HANDOFF 裡，effort medium）貼給她，停。

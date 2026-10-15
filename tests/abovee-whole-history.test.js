@@ -157,7 +157,7 @@ describe('確認層餵給翻譯的來訪（掃原始碼）', () => {
     const write = src.slice(src.indexOf('const write = async () =>'));
     assert.match(write, /const fresh = await visitsData\.listByCustomer\(customerId\)/);
     // 重讀的那一份拿去重算計畫（06）—— 不是拿打開時那一份寫
-    const again = write.slice(write.indexOf('photoDayPlan('), write.indexOf('writePhotoPlan('));
+    const again = write.slice(write.indexOf('planToWrite('), write.indexOf('writePhotoPlan('));
     assert.ok(again.includes('[customerId]: fresh }'), again);
   });
 

@@ -2403,6 +2403,16 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
 export const pressedDays = (plan) => (plan?.writes ?? []).filter((w) => w.pressed).map((w) => ({ customerId: w.customerId, date: w.date }));
 
+/**
+ * 存的那一下要寫的那一份（`record()`：一位重讀之後叫它，再交給 `writePhotoPlan()`）。
+ * 接著同一批別天那一次健檢的列：**那一次已經存好了**（上一次按「記錄」、`savedIds` 有它）才先換成真的 id（`resolveSaved()`）；
+ * 還沒存的留著暫時 id —— 那一天在這一份計畫裡的話會先存（`writes` 的先後），`writePhotoPlan()` 存好就換；不在的話換不到、不接。
+ * 以前每一列先 `resolveSaved()`：兩天都還沒存時二返的連結在算計畫之前就被清成空的（E2E `65` 的 L6）。
+ */
+export function planToWrite(items, ctx, savedIds = new Map()) {
+  return photoDayPlan((items ?? []).map((i) => (savedIds.has(i.followupForVisitId) ? resolveSaved(i, savedIds) : i)), ctx);
+}
+
 /** 那一筆身上接著同一批還沒存的那一次健檢的段（暫時 id）→ 換成先存好的真的 id；換不到就不接（同 `resolveSaved()`）。 */
 function withSavedLinks(visit, savedIds) {
   if (!(visit?.slots ?? []).some((s) => isPlannedId(s.followupForVisitId))) return visit;

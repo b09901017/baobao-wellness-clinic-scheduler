@@ -84,6 +84,9 @@ CLAUDE.md「存一筆來訪時手上那一份是舊的」「一句『按下去�
     `before`／`after`（每一位）、`deltas`（`countDeltas()`）
 - `wantsWrite(item)`：會寫進去的列（勾著的新的、按著的改成 Abovee 的、打勾的改狀態與改期）。確認層的「記錄這 N 段」、還差一步、離開前那一句都問它
 - `writePhotoPlan(plan, { hand, save, savedIds, onWrite })`：一筆一筆存、**存一筆換進手上那一份**（`save()` 的額度快取看得到前一筆）、新的一筆記住真的 id、後面接著它的二返換成真的（`withSavedLinks()`）。`save` 由呼叫端給（測試用假的，照 `countOps()` 算快取）
+- `planToWrite(items, ctx, savedIds)`：存的那一下（一位重讀之後）算的那一份 —— 接著同一批別天那一次健檢的列，**那一次已經存好了**才先換成真的 id，
+  還沒存的留著暫時 id 讓 `writePhotoPlan()` 存好就換。**E2E `65` 的 L6 抓到的**：一開始照舊每一列先 `resolveSaved()`，兩天都還沒存時二返的連結在算計畫之前就被清成空的
+  （以前一天一天重組才碰巧對）。那一次健檢這一次沒要記、也沒存過的話，那一列本來就存不下去（「指定的健檢來訪不存在」，確認層的「還差一步」）
 - `pressedDays(plan)`：標壓完只算那一天有一段活著的新段（整組照片上已取消的不算）
 - `missedSay(missed)`：沒改成的那一句照理由講（取代寫死的「治療師／診間剛在別的裝置上改過」）
 - `examChoices(…, items)` 改看 `afterPhoto()`（**這一條 issue 沒寫，是做判準「10:00 二返取消＋11:00 新的二返」時發現的**：驗證放行了，但「接哪一次健檢」那一排還把那一次當成被 10:00 佔走、按不下去）
@@ -108,5 +111,5 @@ CLAUDE.md「存一筆來訪時手上那一份是舊的」「一句『按下去�
 - 「記錄這 N 段」的 N 現在含要改的那幾列（`wantsWrite()`）；確認框的抬頭分開講「記錄 N、改 M」—— 07 決定按鈕上要不要也分開
 - `refreshCloseBlocks()` 還沒接（中途發現 7）；她拿掉健檢那一列的勾之後，存的時候 `missed` 會接住、`missedSay()` 會講
 
-測試：`tests/abovee-day-plan.test.js`（16 條：一位一天三種改動＋另開一筆的次數加總＝前後的差（`counts()` 與快取都驗）、存到一半失敗再按一次、驗證拿改完之後的、二返接同一張照片上的健檢（兩種順序）、標壓完、確認框照實講六條、`missedSay()`）。
-改了兩支掃原始碼的測試的寫法（`abovee-warnings-in-sight`：提醒搬進 domain；`abovee-whole-history`：重讀改成一位一次）。`npm test` 4637 全綠。
+測試：`tests/abovee-day-plan.test.js`（18 條：一位一天三種改動＋另開一筆的次數加總＝前後的差（`counts()` 與快取都驗）、存到一半失敗再按一次、驗證拿改完之後的、二返接同一張照片上的健檢（兩種順序、存的那一下重算的那一份 `planToWrite()`）、標壓完、確認框照實講六條、`missedSay()`）。
+改了兩支掃原始碼的測試的寫法（`abovee-warnings-in-sight`：提醒搬進 domain；`abovee-whole-history`：重讀改成一位一次）。`npm test` 4639 全綠。

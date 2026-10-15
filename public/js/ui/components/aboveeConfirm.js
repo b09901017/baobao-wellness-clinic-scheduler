@@ -25,7 +25,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, photoDayPlan, pickOption, picksOf,
-  pressedDays, queueMarksAfter, readAbovee, recordedSay, repeatSay, resolveItem, summarizeAbovee, resolveSaved, refreshNoExam, wantsWrite,
+  planToWrite, pressedDays, queueMarksAfter, readAbovee, recordedSay, repeatSay, resolveItem, summarizeAbovee, refreshNoExam, wantsWrite,
   writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -910,8 +910,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         if (!mine.length) continue;
         // eslint-disable-next-line no-await-in-loop
         const fresh = await visitsData.listByCustomer(customerId);
-        // 接著同一批別天那一次健檢的，換成它存好的 id（跨好幾次按「記錄」，`resolveSaved()`）
-        const again = photoDayPlan(mine.map((i) => resolveSaved(i, savedIds)), { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: fresh } });
+        // 同一支再算一次；接著同一批別天那一次健檢的，存好了的換成真的 id（跨好幾次按「記錄」，`planToWrite()`）
+        const again = planToWrite(mine, { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: fresh } }, savedIds);
         // eslint-disable-next-line no-await-in-loop
         await writePhotoPlan(again, {
           hand: fresh,

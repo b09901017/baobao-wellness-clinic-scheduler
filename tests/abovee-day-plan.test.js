@@ -13,7 +13,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  countDeltas, missedSay, photoDayPlan, pressedDays, readAbovee, resolveSaved, wantsWrite, writePhotoPlan, planAbovee,
+  countDeltas, missedSay, photoDayPlan, planToWrite, pressedDays, readAbovee, resolveSaved, wantsWrite, writePhotoPlan, planAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { counts } from '../public/js/domain/entitlements.js';
@@ -176,6 +176,28 @@ describe('二返接同一張照片上的健檢、兩段都寫完成（過去）'
     assert.equal(fu.slots[0].followupForVisitId, exam.id);
     assert.deepEqual([slotStatus(exam, exam.slots[0]), slotStatus(fu, fu.slots[0])], ['done', 'done']);
     assert.equal(resolveSaved(items[1], savedIds).followupForVisitId, exam.id, '跨好幾次按「記錄」也接得上');
+  });
+
+  test('存的那一下（重讀之後再算一次，`planToWrite()`）：兩天都還沒存時二返照樣接得上（E2E 65 的 L6 抓到的）', async () => {
+    const c = ctx([]);
+    const items = read([row('確認前往', '2026-09-15', '09:00 - 12:00', '健檢'), row('確認前往', '2026-09-24', '10:00 - 10:30', '二返')], c);
+    assert.equal(items[1].followupForVisitId, 'abovee:c-wang|2026-09-15');
+    const { db, save } = fakeDb([]);
+    const savedIds = new Map();
+    await writePhotoPlan(planToWrite(items, c, savedIds), { hand: [], save, savedIds });
+    const exam = db.visits.find((v) => v.date === '2026-09-15');
+    assert.equal(db.visits.find((v) => v.date === '2026-09-24').slots[0].followupForVisitId, exam.id);
+  });
+
+  test('存的那一下：接的那一次健檢上一次按「記錄」就存好了 → 換成真的 id；這一次沒有要記、也沒存過 → 那一列存不下去（不會接到一個不存在的）', () => {
+    const c = ctx([]);
+    const items = read([row('確認前往', '2026-09-15', '09:00 - 12:00', '健檢'), row('確認前往', '2026-09-24', '10:00 - 10:30', '二返')], c);
+    const saved = visit('v-real', '2026-09-15', [slot('course-checkup', 'w-exam', '09:00', '12:00', 'pending_confirm')]);
+    const before = planToWrite([items[1]], ctx([saved]), new Map([['abovee:c-wang|2026-09-15', 'v-real']]));
+    assert.equal(before.writes[0].visit.slots[0].followupForVisitId, 'v-real');
+    const lost = planToWrite([items[1]], c, new Map());
+    assert.deepEqual(lost.writes, []);
+    assert.match(lost.problems[items[1].key][0], /健檢來訪不存在/);
   });
 
   test('倒過來排在照片上（二返先、健檢後）：照樣健檢那一天先存', () => {
