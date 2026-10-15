@@ -543,11 +543,16 @@ export function aboveeConsequences({
   }
 
   // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
-  if (adopted.length) {
-    const fields = new Set(adopted.flatMap((r) => r.fields ?? []));
-    const what = [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
-    lines.push(`改 ${adopted.length} 段的${what}成 Abovee 上的${reshaped ? '' : ' —— 只動這兩格，時間、狀態、待辦都不變'}`);
-  }
+  // 07：app 上空著、照片上有的那幾段是「補上」（合併檔匯進來的都空著，ADR-0011），跟真的換掉一個人分開講
+  const whatOf = (list) => {
+    const fields = new Set(list.flatMap((r) => r.fields ?? []));
+    return [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
+  };
+  const swapped = adopted.filter((r) => !r.filled);
+  const filled = adopted.filter((r) => r.filled);
+  const only = reshaped ? '' : ' —— 只動這兩格，時間、狀態、待辦都不變';
+  if (swapped.length) lines.push(`改 ${swapped.length} 段的${whatOf(swapped)}成 Abovee 上的${filled.length ? '' : only}`);
+  if (filled.length) lines.push(`補上 ${filled.length} 段的${whatOf(filled)}（app 上原本空著）${only}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);

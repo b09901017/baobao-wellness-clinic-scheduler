@@ -1,6 +1,6 @@
 # 確認層「要改的」那一塊（畫面、勾選、E2E 68）
 
-Status: todo
+Status: done
 Blocked by: 06
 動工前先讀：`spec.md`「確認層『要改的』那一塊」；ADR-0104、ADR-0123、ADR-0138（收著也看得到的提醒）；
 `ui/components/aboveeConfirm.js` 整支（`tagOf()`、`rowHtml()`、`adoptHtml()`（`:634`）、「要你看」那一塊（`:294`）、勾選、`pendingCount()`（`:257`）、抬頭（`:264`）、「記錄」那顆的數字（`:738`、`:875`））；
@@ -49,3 +49,34 @@ Blocked by: 06
 - 手機寬度（390px）那一塊不橫捲、字不被裁掉；底部的「記錄」照舊點得到（CLAUDE.md「貼在畫面底部的東西」）
 - 沒有任何要改的 → 那一塊一個像素都不佔
 - 本機模擬器真的點過一次（截圖不帶真名）
+
+## 做完時留下的（10/15 段四）
+
+**做成的樣子**：
+
+- `domain/aboveeImport.js`
+  - `offersChange(item)`：這一列有沒有要改 app 上既有那一段的事（`statusChange`、`move`、沒鎖著的 `diffs`）。抬頭「要改 N 段」（`summarizeAbovee()` 的 `changes`）問它；`recorded` 不再數這幾列
+  - `changeLines(items, plan, ctx)` → `{ lines, fill }`：一行一件事（`field` 是勾的那一格：`adoptStatus`／`adoptMove`／`adopt`）。句子 `王小明 9/2(三) 10:00 SIS(60)：已確認 → 已取消（還 1 次）`、`…：14:00 → 15:00（次數不變）`、`…：治療師 某甲 → 某乙`。
+    括號讀 `plan.rows` 的 `charge`：扣 N／還 N／0 時那一段有額度寫「次數不變」、沒有寫「本來就不扣次數」；治療師與診間不寫括號（不動次數）。
+    沒勾 →「（不改 —— 為什麼沒先勾）」；勾著而計畫裡沒有那一列 →「（這一次改不成 —— …）」（`plan.missed`／`plan.problems`：二返簽不成、別的裝置改過、還差一步）。
+    治療師／診間「app 空著、照片上有」收成 `fill` 一行（`另外 N 段補上治療師／診間`），`details` 是哪幾段
+  - `resolveItem()`：有 `diffs` 的那一列 `adopt` 預設 `!locked`（推翻 ADR-0123 的「她按了才改」）
+  - `needsAttention()`：治療師／診間只剩**鎖著（已完成）而且 app 上有值**的那幾種（只能提醒）；改得了的不再排進「要你看」
+- `domain/consequences.js`：「改 N 段的治療師與診間」拆成「改…」與「補上 N 段的…（app 上原本空著）」（`rows` 的 `filled`）
+- `ui/components/aboveeConfirm.js`
+  - 「要改的」那一塊（`changesHtml()`，`<div data-abl-changes>`）放在照片底下、「要你看」前面；沒有要改的就是空的 div。勾是 `data-abl-change` ＋ `data-abl-for`、`data-abl-fill`（**不用 `data-abl-row`**：`repaintRow()` 會拿那一列的樣子把它換掉）。
+    按一個勾 → `flip()`：換那一格、`refreshCloseBlocks()`、整片重畫、焦點放回那一個勾；補上那一行點開了沒記在 `fillOpen`
+  - 那一列自己：照片要改狀態／改期的標「要改」、點開多一句「要不要改，勾在最上面…」／「…沒勾 —— 這一次不改」；「改成 Abovee 的」那一顆拿掉（點開只列不一樣）；收著的不一樣那一行只剩鎖著的
+  - 新的列沒勾的時候畫 `photoRowSays()`（03 的那幾句；勾著的照舊在 mustSee 那幾行）
+  - 抬頭多「要改 N 段」；沒拍到預約狀態那一欄 → 照片底下一句 `statusColumnSay()`（常駐，會改變寫進去的東西）
+  - 「記錄」那顆：`記錄 N 段、改 M 段`／`記錄這 N 段`／`改這 M 段`（跟確認框的抬頭同一種說法；M 是段數，補上那一行算 N 段）
+  - 中途發現 7 接上：勾起／拿掉一列、換一位之後 `refreshCloseBlocks()`；既有那一段二返的改不成由計畫講（`changeLines()` 讀 `plan.missed`）
+
+**我自己定的**（交付時講一聲）：那一塊放在「要你看」前面；沒勾的那一行寫「不改」不寫次數；治療師與診間同一段**一個勾**（`adopt` 一格管兩樣，要拆開得動 `adoptAbovee()`）；已完成鎖著的治療師不一樣照舊在「要你看」。
+
+**改了的既有測試**（都對過 spec）：`abovee-import`（9/12、9/15 兩段 ILIB 補上診間 → `changes: 2`、`recorded: 1`）、`abovee-adopt`（預設勾、不在要你看）；E2E `41` 的 A6（a7 標「要改」、那一塊一行預設勾（還 1 次））、`51` 的 N5（a1 在那一塊預設勾、拿掉就不能存、沒有第二顆按鈕）。
+issue 列的其餘幾支（pages、recorded-shapes、absent、moved、consequences）不用改：它們看的是 kind／reason，沒看畫面的分法。
+
+測試：`tests/abovee-change-lines.test.js`（6 條：判準那一張照片 3 行＋補上 2 段、要改 5 段、不在要你看；句子與括號；拿掉一個勾／拿掉補上；確認框；不扣額度的「本來就不扣次數」；沒有要改的）。
+E2E `68-abovee-status-follows-photo`（S1 整條路＋次數：確認框加總＝前後差、額度快取＝現算、客戶詳情剩餘；S2 390px 不橫捲、記錄點得到；S3 沒有要改的那一塊是空的）。
+`npm test` 4645 全綠；`related.js` 挑出來的 31 支全跑（拍 Abovee 七支 41 條＋其餘 24 支 190 條）全綠，最後一次小改之後 41、51 重跑綠。本機模擬器 390px 點過、截圖看過（假名）。

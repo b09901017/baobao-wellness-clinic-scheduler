@@ -130,8 +130,10 @@ describe('每一列分成四種', () => {
   const { items } = readAbovee([left, right], ctx());
   const byLine = (i) => items[i];
 
-  test('新的 5 段、已經記了 3 段、已取消的 2 列淡掉沒勾', () => {
-    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 3, attention: 0, cancelled: 2, checked: 5 });
+  test('新的 5 段、已經記了 3 段（其中 2 段要補上診間）、已取消的 2 列淡掉沒勾', () => {
+    // 07：9/12、9/15 那兩段 ILIB app 上沒有診間、照片上有 →「要改的」那一塊補上（`changes`），不再算進「已經記了」
+    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 1, changes: 2, attention: 0, cancelled: 2, checked: 5 });
+    assert.deepEqual([5, 6].map((i) => [byLine(i).diffs.every((d) => !d.app), byLine(i).adopt]), [[true, true], [true, true]]);
     assert.deepEqual([2, 7].map((i) => [byLine(i).cancelled, byLine(i).checked]), [[true, false], [true, false]]);
     assert.deepEqual([4, 5, 6].map((i) => byLine(i).kind), ['recorded', 'recorded', 'recorded']);
   });

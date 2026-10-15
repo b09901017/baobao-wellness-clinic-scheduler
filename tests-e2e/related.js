@@ -545,6 +545,14 @@ export const COVERAGE = {
     'public/js/domain/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/ui/components/giftFold.js',
     'public/css/',
   ],
+  // 拍 Abovee 照片上的預約狀態為準（.scratch/abovee-status-follows-photo-2026-10-15）：六種狀態、「要改的」那一塊、
+  // 一位一天一份計畫寫進去的狀態與次數、「取消 Abovee」一出生就勾好
+  '68-abovee-status-follows-photo': [
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/consequences.js',
+    'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/taskRules.js',
+    'public/js/data/visits.js', 'public/js/domain/entitlements.js', 'tests-e2e/fixtures/ai/aboveeList-status.json',
+    'public/css/',
+  ],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

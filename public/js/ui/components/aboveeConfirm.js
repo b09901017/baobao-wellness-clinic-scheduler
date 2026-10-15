@@ -23,10 +23,10 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
-  markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, photoDayPlan, pickOption, picksOf,
-  planToWrite, pressedDays, queueMarksAfter, readAbovee, recordedSay, repeatSay, resolveItem, summarizeAbovee, refreshNoExam, wantsWrite,
-  writePhotoPlan,
+  aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
+  markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, photoDayPlan, photoRowSays,
+  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
+  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -53,7 +53,7 @@ import { seenChip, wireSeen } from './seen.js';
 import * as giftFold from './giftFold.js';
 
 const TAGS = {
-  new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消',
+  new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消', change: '要改',
 };
 
 /** 認不得人的那幾種，畫面上講一句為什麼（ADR-0103）。 */
@@ -77,6 +77,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let items = [];
   let pairing = 'single';
   let sizes = null;
+  /** 有沒有哪一張沒拍到「預約狀態」那一欄（`readAbovee()` 的 `noStatusColumn`，01） */
+  let noStatusColumn = null;
+  /** 「要改的」那一塊「補上治療師／診間」那一行管的是哪幾列（畫的時候記著，按那一個勾時一起換） */
+  let fillKeys = [];
+  /** 那一行點開了沒 —— 按一個勾會整片重畫，不記的話每按一下就收回去 */
+  let fillOpen = false;
   let attention = new Set();
   let openKey = null;
   let batches = [];
@@ -156,7 +162,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     await loadHistory(customersOnPhoto(transcripts, ctx.customers));
     if (closed) return;
 
-    ({ pairing, counts: sizes, items } = readAbovee(transcripts, ctx));
+    ({ pairing, counts: sizes, items, noStatusColumn } = readAbovee(transcripts, ctx));
     // 打開時要看的那幾列排在最前面，之後不跟著跳（她選了人，那一列不會突然換位置）
     attention = new Set(items.filter(needsAttention).map((i) => i.key));
     paintBody();
@@ -213,6 +219,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const bits = [
       savedCount ? `記好了 ${savedCount} 段` : '',
       s.new ? `新的 ${s.new} 段` : '',
+      s.changes ? `要改 ${s.changes} 段` : '',
       s.recorded ? `已經記了 ${s.recorded} 段` : '',
       s.attention ? `要你看 ${s.attention} 段` : '',
     ].filter(Boolean);
@@ -242,6 +249,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${pairingNote()}
       </div>
       ${items.length ? '' : '<p class="abl__empty">照片上沒有讀到任何一列預約。拍含「姓名」那幾欄的那一半試試。</p>'}
+      <div data-abl-changes>${changesHtml(p)}</div>
       ${look.length ? `
         <section class="abl__group abl__group--look" aria-label="要你看">
           <h3 class="abl__day">要你看</h3>
@@ -255,6 +263,32 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         </section>`).join('')}`;
     paintSummary(gone);
     paintBar(p);
+  }
+
+  /**
+   * 「要改的」那一塊（abovee-status-follows-photo 07）：照片要改 app 上既有那一段的事，一行一件、預設勾、勾了只改那一件。
+   * 句子與次數那一個括號都在 domain（`changeLines()` 讀計畫的 `rows`），這裡只畫。沒有要改的就一個像素都不佔。
+   * 屬性用自己的（`data-abl-change`／`data-abl-for`／`data-abl-fill`）—— 不可以是 `data-abl-row`：`repaintRow()` 會拿那一列的樣子把它換掉。
+   */
+  function changesHtml(p) {
+    const { lines, fill } = changeLines(items.filter((i) => !savedKeys.has(i.key)), p, ctx);
+    fillKeys = fill?.keys ?? [];
+    if (!lines.length && !fill) return '';
+    const check = (on, attrs, label) => `<button class="abl-row__check" type="button" role="checkbox" ${attrs}
+      aria-checked="${on}" aria-label="${esc(label)}" ${running ? 'disabled' : ''}>${icon('check', { size: 15, width: 2.6 })}</button>`;
+    return `
+      <section class="abl__group abl__group--change" aria-label="要改的">
+        <h3 class="abl__day">要改的</h3>
+        <ul class="abl__rows">
+          ${lines.map((l) => `<li class="abl-chg">
+            ${check(l.on, `data-abl-change="${esc(l.field)}" data-abl-for="${esc(l.key)}"`, '改這一件')}
+            <span class="abl-chg__say">${esc(l.text)}</span></li>`).join('')}
+          ${fill ? `<li class="abl-chg">
+            ${check(fill.on, 'data-abl-fill', '補上這幾段')}
+            <details class="abl-chg__more" ${fillOpen ? 'open' : ''}><summary class="abl-chg__say">${esc(fill.text)}</summary>
+              <ul class="abl-row__diffs">${fill.details.map((d) => `<li>${esc(d)}</li>`).join('')}</ul></details></li>` : ''}
+        </ul>
+      </section>`;
   }
 
   /**
@@ -318,6 +352,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       el.replaceWith(holder.content.firstElementChild);
     }
     // 換了某一列是誰、勾了一列：「app 有、這次照片上沒有」與那一顆按鈕的字跟著變
+    const changes = root.querySelector('[data-abl-changes]');
+    if (changes) changes.innerHTML = changesHtml(p);
     const gone = absentNow();
     const absent = root.querySelector('[data-abl-absent]');
     if (absent) absent.innerHTML = absentHtml(gone, p);
@@ -327,6 +363,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   /** 左右兩張怎麼對上的 —— **常駐**，不收進 ?（會改變寫進去的東西）。 */
   function pairingNote() {
+    // 沒拍到「預約狀態」那一欄：看不出完成或取消，照舊記成待確認（01）—— 會改變寫進去的東西，常駐
+    const status = statusColumnSay({ noStatusColumn });
+    const say = status ? `<p class="abl__pairing abl__pairing--warn">${esc(status)}</p>` : '';
+    return say + pairingKind();
+  }
+
+  function pairingKind() {
     if (pairing === 'halves') {
       return '<p class="abl__pairing">右半邊的診間、服務資源是<b>照列的順序</b>對上的，點開一列對照看看。</p>';
     }
@@ -353,6 +396,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (savedKeys.has(item.key)) return 'saved';
     // 對不上排在已取消前面：Abovee 上取消了、app 上還活著的那一列要看得出來（ADR-0116）
     if (item.kind === 'mismatch') return 'mismatch';
+    // 照片要改狀態、改期的那一段（04、05）：勾在「要改的」那一塊
+    if (item.statusChange || item.move) return 'change';
     if (item.cancelled) return 'cancelled';
     return item.kind;
   }
@@ -391,13 +436,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${open ? '' : briefWarnings(must).map((w) => `<p class="abl-row__hint abl-row__hint--warn">${esc(w)}</p>`).join('')}
         ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
+        ${/* 照片上的狀態為什麼沒先勾（03：還沒到就寫完成、日子過了還沒結案、讀不出來、二返簽不成）—— 勾著的在上面那幾行（mustSee） */''}
+        ${wantsWrite(item) || savedKeys.has(item.key) ? '' : photoRowSays(item).map((w) => `<p class="abl-row__hint">${esc(w)}</p>`).join('')}
         ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 —— 收起來也看得到 */''}
         ${partialSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(partialSay(item))}</p>` : ''}
         ${/* 跟另一張照片上的那一列看起來是同一段（10）：所以沒有先勾好 —— 收起來也看得到 */''}
         ${repeatSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(repeatSay(item))}</p>` : ''}
         ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
-        ${item.kind === 'recorded' && item.diffs?.length && !open
+        ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
       </li>`;
@@ -428,7 +475,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const who = whoHtml(item);
     if (item.kind === 'recorded') {
       // 是哪一種已經記了（同一個時間、合併扣課的後一半、沒有時間的舊段）那一句在 domain（`recordedSay()`，11）
-      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${who}</div>`;
+      // 上面那一句講的是照片要它改成什麼；這一次會不會改看「要改的」那一塊的勾
+      const where = !offersChange(item) ? ''
+        : `<p class="abl-row__say">${wantsWrite(item) ? '要不要改，勾在最上面「要改的」那一塊。' : '最上面「要改的」那一塊沒勾 —— 這一次不改。'}</p>`;
+      return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${where}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
       // 那一句在 domain（`mismatchSay()`，ADR-0116）：課程不一樣、或兩邊的預約狀態講不一樣
@@ -582,15 +632,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </div>`;
   }
 
-  /** 11：「app 是 A、Abovee 是 B」＋一顆「改成 Abovee 的」（按著／放開）。已完成的鎖著，不給按。 */
+  /**
+   * 11：「app 是 A、Abovee 是 B」。勾不勾在「要改的」那一塊（07）—— 這裡只列，不再有一顆按鈕（兩個地方都能按就是各記一份）。
+   * 已完成的鎖著。
+   */
   function adoptHtml(item, warnings) {
     if (!item.diffs?.length) return '';
     return `
       <ul class="abl-row__diffs">${item.diffs.map((d) => `<li>${esc(diffSay(d, ctx.master))}</li>`).join('')}</ul>
-      ${item.locked
-        ? '<p class="abl-row__say">已完成的鎖著 —— 要改去日曆那一天。</p>'
-        : `<span class="abl-row__chips"><button class="chip chip--sm abl-chip" type="button" data-abl-adopt
-             aria-pressed="${Boolean(item.adopt)}">改成 Abovee 的</button></span>`}
+      ${item.locked ? '<p class="abl-row__say">已完成的鎖著 —— 要改去日曆那一天。</p>' : ''}
       ${item.adopt && warnings.length
         ? `<ul class="abl-row__warnings">${warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`;
   }
@@ -688,6 +738,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const wanted = pending();
     const stuck = wanted.filter((i) => p.problems[i.key]);
     const n = wanted.length;
+    // 記新的與改既有的分開數（確認框的抬頭同一種說法，`aboveeConsequences()`）
+    const fresh = wanted.filter((i) => i.kind === 'new').length;
+    const changed = n - fresh;
+    const label = !n ? '記錄' : fresh && changed ? `記錄 ${fresh} 段、改 ${changed} 段` : fresh ? `記錄這 ${fresh} 段` : `改這 ${changed} 段`;
     const say = failure
       ? `記好了 ${savedCount} 段；${failure.name} 那一天沒記：${failure.message}。再按一次記剩下的。`
       : stuck.length ? `勾起來的有 ${stuck.length} 段還差一步，點開補上`
@@ -695,12 +749,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     bar.innerHTML = `
       ${say ? `<p class="abl__why" role="status">${esc(say)}</p>` : ''}
       <button class="btn btn--primary abl__save" type="button" data-abl-save
-              ${!n || stuck.length || running ? 'disabled' : ''}>${running ? '記錄中…' : (n ? `記錄這 ${n} 段` : '記錄')}</button>`;
+              ${!n || stuck.length || running ? 'disabled' : ''}>${running ? '記錄中…' : label}</button>`;
   }
 
   // ---------- 接線 ----------
 
   wireSeen(root);
+  // `toggle` 不冒泡 —— 用 capture 接
+  root.addEventListener('toggle', (e) => { if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open; }, true);
 
   root.addEventListener('click', (e) => {
     // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）
@@ -711,6 +767,18 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.matches('[data-abl-save]')) { save(); return; }
     if (t.dataset.ablDay) { leaveTo(t.dataset.ablDay); return; }
     if (t.dataset.ablGone) { goSee(t.dataset.ablGone); return; }
+    // 「要改的」那一塊（07）：勾了只改那一件；補上治療師／診間那一行一次換那幾列
+    if (t.dataset.ablChange) {
+      const was = items.find((i) => i.key === t.dataset.ablFor);
+      const field = t.dataset.ablChange;
+      if (was) flip([was.key], field, !was[field], `[data-abl-change="${field}"][data-abl-for="${CSS.escape(was.key)}"]`);
+      return;
+    }
+    if (t.matches('[data-abl-fill]')) {
+      const on = fillKeys.every((k) => items.find((i) => i.key === k)?.adopt);
+      flip(fillKeys, 'adopt', !on, '[data-abl-fill]');
+      return;
+    }
 
     const key = t.closest('[data-abl-row]')?.dataset.ablRow;
     const at = items.findIndex((i) => i.key === key);
@@ -721,13 +789,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // 勾起／拿掉一列（多半是健檢那一列）、或換了接哪一次：同一位的二返那一排與「先去約健檢」那一句跟著變（ADR-0145）
       if (next.checked !== item.checked || next.followupForVisitId !== item.followupForVisitId) {
         refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
+        // 二返簽不簽得成已完成跟著同一批的健檢勾不勾變（03，中途發現 7）
+        refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });
         for (const x of items) if (x.customerId === next.customerId && x.key !== key) repaintRow(x.key);
       }
       repaintRow(key);
     };
 
     if (t.matches('[data-abl-check]')) { set({ ...item, checked: !item.checked }); return; }
-    if (t.matches('[data-abl-adopt]')) { set({ ...item, adopt: !item.adopt }); return; }
     if (t.matches('[data-abl-split]')) {
       // 拆開成兩段：換回原本那兩列（一般的兩段，各扣各的）。不再合 —— 她拆的
       items.splice(at, 1, ...item.merged.parts.map((p) => ({ ...p, checked: item.checked && p.checked })));
@@ -783,6 +852,20 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (found) found.innerHTML = whoChips(item);
   });
 
+  /**
+   * 「要改的」那一塊按了一個勾：那幾列的那一格換掉。照片上那一次健檢不改成已完成的話，同一位的二返跟著簽不成 ——
+   * 新的列重算記號（`refreshCloseBlocks()`），既有那一段的由計畫講（`changeLines()` 讀 `plan.missed`）。整片重畫、焦點放回那一個勾。
+   */
+  function flip(keys, field, value, focus) {
+    for (const key of keys) {
+      const at = items.findIndex((i) => i.key === key);
+      if (at >= 0) items[at] = { ...items[at], [field]: value };
+    }
+    refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });
+    paintBody();
+    root.querySelector(focus)?.focus({ preventScroll: true });
+  }
+
   function rowEl(key) {
     return [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key) ?? null;
   }
@@ -803,6 +886,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     items[at] = markRepeat(resolveItem(items[at], customerId, ctx, items), items);
     // 換成的這一位有沒有接得上的健檢（「先去約健檢」那一句）連同這一批重算
     refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
+    refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });
     repaintRow(key, { was });
   }
 

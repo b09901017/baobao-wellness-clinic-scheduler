@@ -318,7 +318,12 @@ test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新�
   await row(page, 'a0').locator('[data-abl-check]').click();
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
 
-  await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('已取消');
+  // 07：「要改的」那一塊一行、預設勾、括號是次數；那一列自己標「要改」、點開講勾在哪
+  const change = page.locator('.abl__group--change .abl-chg').filter({ hasText: '客戶A' }).filter({ hasText: '已確認 → 已取消' });
+  await expect(change).toContainText('（還 1 次）');
+  await expect(change.locator('[data-abl-change="adoptStatus"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('要改');
   await row(page, 'a7').locator('[data-abl-open]').click();
-  await expect(row(page, 'a7').locator('.abl-row__say')).toContainText('照 Abovee 改成「已取消」');
+  await expect(row(page, 'a7').locator('.abl-row__say').first()).toContainText('照 Abovee 改成「已取消」');
+  await expect(row(page, 'a7')).toContainText('勾在最上面「要改的」那一塊');
 });

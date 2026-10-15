@@ -39,7 +39,7 @@ import { endOf, toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
 import { NTH_PICK, giftCourseIdOf, giftPick } from './slotOptions.js';
 import { MIN_NTH, nthOf } from './nthFollowup.js';
-import { slotName } from './naming.js';
+import { fullNameOf, slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
 import { bookingSystemOf } from './taskRules.js';
 
@@ -753,7 +753,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
       //（那一段照樣在，她可能只想換診間）；**照片上已經取消的那一段不比**（spec 07：被取消的那一段不再列治療師／診間）
       if (!hit || said.statusChange?.to === 'cancelled') return out;
       const diffs = aboveeDiffs(next, at.visit, same, ctx);
-      return diffs.diffs ? { ...out, ...diffs, existing: { ...existing, ...diffs.existing } } : out;
+      // 07：治療師／診間預設照 Abovee 改（推翻 ADR-0123 的「她按了才改」）—— 已完成的鎖著，不勾
+      return diffs.diffs ? { ...out, ...diffs, adopt: !diffs.locked, existing: { ...existing, ...diffs.existing } } : out;
     }
     // app 上這個時間有一段取消了（課程一樣或不一樣）：照新的一段走，**不預設打勾**（見 `crossCheck()`）。
     // 哪一種要講的那一句不一樣，所以記著課程一不一樣
@@ -1292,6 +1293,107 @@ export function diffSay(diff, { staff = [], rooms = [] } = {}) {
     : `${label}：app 上還沒選、Abovee 是 ${name(diff.abovee)}`;
 }
 
+// ---------- 確認層「要改的」那一塊（abovee-status-follows-photo 07）----------
+//
+// 她 10/15：「如果是修改的，可以區分開來…就是寫的簡短，誰的什麼時候的甚麼改了，打勾就只是改狀態那些等等，
+// 不要多記或少記次數! 次數不能弄錯這很重要 ! !」
+
+/** 這一列有沒有要改 app 上既有那一段的事：狀態（04）、改期（05）、治療師／診間（11，鎖著的不算）。抬頭的「要改 N 段」也問它。 */
+export const offersChange = (item) => Boolean(item?.customerId)
+  && Boolean(item.statusChange || item.move || ((item.diffs?.length ?? 0) > 0 && !item.locked));
+
+/** 治療師／診間那一格的名字（人員走全名，CLAUDE.md「人員的全名與簡寫」）。 */
+function assignName(field, id, { staff = [], rooms = [] } = {}) {
+  if (field === 'roomId') return (rooms ?? []).find((r) => r.id === id)?.name ?? '（已刪除）';
+  return fullNameOf((staff ?? []).find((x) => x.id === id)) || '（已刪除）';
+}
+const ASSIGN_LABEL = { therapistId: '治療師', roomId: '診間' };
+
+/** 次數那一個括號：拿計畫那一列的 `charge`（扣 +1、還 −1，`photoDayPlan()` 拿寫入那一份算的），不在這裡推。 */
+function chargeSay(charge, slot) {
+  if (charge > 0) return `（扣 ${charge} 次）`;
+  if (charge < 0) return `（還 ${-charge} 次）`;
+  return slot?.entitlementId ? '（次數不變）' : '（本來就不扣次數）';
+}
+
+/**
+ * 「要改的」那一塊每一行（07）。**一行一件事**，`field` 是勾的那一格（`adoptStatus`／`adoptMove`／`adopt`），勾了只改那一件。
+ * 句子：`客戶A 9/16 09:00 SIS(60)：已確認 → 已取消（還 1 次）`。括號讀計畫（`plan.rows`）：勾著而計畫裡沒有那一列 ＝ 這一次改不成，
+ * 講為什麼（`plan.missed`／`plan.problems`）；沒勾的寫「不改」（＋為什麼沒先勾）。
+ * 治療師／診間「app 上空著、照片上有」收成一行（`fill`）—— 合併檔匯進來的都空著（ADR-0011），一列一列攤開會把要看的淹掉。
+ *
+ * @param {object[]} items 還沒記的列
+ * @param {object} plan 那一份 `photoDayPlan()`
+ * @param {{customers, visitsBy, master}} ctx
+ * @returns {{lines: {key: string, field: string, on: boolean, text: string}[],
+ *            fill: {keys: string[], on: boolean, text: string, details: string[]}|null}}
+ */
+export function changeLines(items, plan, ctx) {
+  const rowOf = (key, kind) => (plan?.rows ?? []).find((r) => r.key === key && r.kind === kind) ?? null;
+  const stuck = (key) => {
+    const m = (plan?.missed ?? []).find((x) => x.key === key);
+    if (m?.missedWhy === 'closeBlocked') return m.closeBlock ? closeBlockSay(m.closeBlock) : '接的那一次健檢還沒做完';
+    if (m?.missedWhy === 'stale') return '那一段剛在別的地方改過';
+    if (m?.missedWhy === 'refused') return '那一段現在的狀態不准這樣改';
+    const problem = plan?.problems?.[key]?.[0];
+    return problem ? `還差一步：${problem}` : '';
+  };
+  const offWhy = (item) => (item.closeBlock ? closeBlockSay(item.closeBlock)
+    : (item.moveWarnings ?? [])[0] ?? (item.partialHistory ? '這一位過去的來訪沒有讀到全部，次數拿不準' : ''));
+  const tail = (item, kind, on, slot) => {
+    if (!on) {
+      const why = offWhy(item);
+      return `（不改${why ? ` —— ${why}` : ''}）`;
+    }
+    const row = rowOf(item.key, kind);
+    if (row) return chargeSay(row.charge, slot);
+    const why = stuck(item.key);
+    return why ? `（這一次改不成 —— ${why}）` : '';
+  };
+
+  const lines = [];
+  const filling = [];
+  for (const item of (items ?? []).filter(offersChange)) {
+    const ex = item.existing ?? {};
+    const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === ex.visitId);
+    const slot = visit?.slots?.[ex.slotIndex] ?? null;
+    const who = (ctx.customers ?? []).find((c) => c.id === item.customerId)?.name ?? '';
+    const head = [who, ex.date ? shortDate(ex.date) : '', ex.startsAt ?? '', slot ? slotName(slot, ctx.master ?? {}, 'short') : '']
+      .filter(Boolean).join(' ');
+    if (item.statusChange) {
+      const { from, to } = item.statusChange;
+      lines.push({ key: item.key, field: 'adoptStatus', on: Boolean(item.adoptStatus),
+        text: `${head}：${shortStatus(from)} → ${shortStatus(to)}${tail(item, 'status', item.adoptStatus, slot)}` });
+    }
+    if (item.move) {
+      const to = item.move.status === INITIAL_STATUS ? '' : `、記成「${shortStatus(item.move.status)}」`;
+      lines.push({ key: item.key, field: 'adoptMove', on: Boolean(item.adoptMove),
+        text: `${head}：${ex.startsAt} → ${item.move.slot.startsAt}${to}${tail(item, 'move', item.adoptMove, slot)}` });
+    }
+    if ((item.diffs?.length ?? 0) > 0 && !item.locked) {
+      const said = item.diffs.map((d) => (d.app
+        ? `${ASSIGN_LABEL[d.field]} ${assignName(d.field, d.app, ctx.master)} → ${assignName(d.field, d.abovee, ctx.master)}`
+        : `${ASSIGN_LABEL[d.field]} ${assignName(d.field, d.abovee, ctx.master)}`)).join('、');
+      // 治療師與診間不動次數 —— 不寫括號（她：「不會動到次數的，就是寫的簡短」）
+      const off = item.adopt ? '' : '（不改）';
+      if (item.diffs.every((d) => !d.app)) filling.push({ item, text: `${head}：${said}${off}` });
+      else lines.push({ key: item.key, field: 'adopt', on: Boolean(item.adopt), text: `${head}：${said}${off}` });
+    }
+  }
+  if (!filling.length) return { lines, fill: null };
+  const fields = new Set(filling.flatMap(({ item }) => item.diffs.map((d) => ASSIGN_LABEL[d.field])));
+  const on = filling.every(({ item }) => item.adopt);
+  return {
+    lines,
+    fill: {
+      keys: filling.map(({ item }) => item.key),
+      on,
+      text: `${lines.length ? '另外 ' : ''}${filling.length} 段補上${['治療師', '診間'].filter((x) => fields.has(x)).join('／')}${on ? '' : '（不補）'}`,
+      details: filling.map(({ text }) => text),
+    },
+  };
+}
+
 /**
  * 「改成 Abovee 的」：她按著的那幾列，把 app 上那一段的治療師／診間換成 Abovee 上的。
  *
@@ -1771,9 +1873,9 @@ export function mergedNotices(item, customer, equipment = []) {
  * 不會排進來喊。
  */
 export const needsAttention = (item) => item?.kind === 'mismatch'
-  // 11：真的不一樣（app 上有值、跟 Abovee 不同）才要你看。app 上還沒選的只是可以補 ——
-  // 合併檔匯進來的來訪都沒有治療師與診間（ADR-0011），全排進來會把真的要看的淹掉
-  || (item?.kind === 'recorded' && (item?.diffs ?? []).some((d) => d.app))
+  // 治療師／診間不一樣：改得了的在「要改的」那一塊（07，`changeLines()`），不再排進來 —— 同一列兩邊都出現就是兩個地方各記一份。
+  // 已完成鎖著、改不了的照舊要你看（只能提醒）
+  || (item?.kind === 'recorded' && Boolean(item?.locked) && (item?.diffs ?? []).some((d) => d.app))
   // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
   || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam))
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
@@ -1797,8 +1899,9 @@ export function summarizeAbovee(items = [], absent = []) {
   return {
     total: items.length,
     new: count((i) => i.kind === 'new' && !i.cancelled),
-    // 兩邊都取消的那一列不算「已經記了」—— 它是已取消（ADR-0116）
-    recorded: count((i) => i.kind === 'recorded' && !i.cancelled),
+    // 兩邊都取消的那一列不算「已經記了」—— 它是已取消（ADR-0116）；要改的那幾段另外數（07）
+    recorded: count((i) => i.kind === 'recorded' && !i.cancelled && !offersChange(i)),
+    changes: count(offersChange),
     attention: count(needsAttention) + (absent ?? []).length,
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),

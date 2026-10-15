@@ -9842,6 +9842,7 @@ body.has-abl {
 
 /* 已經記了、已取消、記好了：退到背景，一眼略過 */
 .abl-row--recorded .abl-row__main,
+.abl-row--change .abl-row__main,
 .abl-row--cancelled .abl-row__main,
 .abl-row--saved .abl-row__main {
   opacity: 0.55;
@@ -9949,6 +9950,42 @@ body.has-abl {
   font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--text);
+}
+
+/* 07：「要改的」那一塊 —— 一行一件事、一個勾；字長就換行（手機寬度不橫捲） */
+.abl-chg {
+  display: grid;
+  grid-template-columns: var(--tap-min) minmax(0, 1fr);
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.abl-chg__say {
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.abl-chg__more > summary {
+  min-height: 0;
+  cursor: pointer;
+}
+
+/* 全站的 summary 是 flex（`::marker` 不畫）—— 自己補一個收合記號 */
+.abl-chg__more > summary::after {
+  content: '▾';
+  color: var(--text-mute);
+}
+
+.abl-chg__more:not([open]) > summary::after {
+  content: '▸';
+}
+
+.abl-chg__more .abl-row__diffs {
+  margin-bottom: var(--space-2);
+  color: var(--text-dim);
 }
 
 /* 「是誰」那一排：認得的那一位只是一行字，旁邊一顆「換一位」 */
