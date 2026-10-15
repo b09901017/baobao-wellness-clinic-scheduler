@@ -373,7 +373,8 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * 照片上的狀態（03）、改狀態（04）、改期（05）、「取消 Abovee」一出生就勾好（02）都在裡面。句子**只講真的會發生的**（ADR-0070）：
  * 「每一段都記成待確認」只在真的每一段都是時講；「會出現在確認時間／簽療程單」「之後會多一張 Examine」只數新的、待確認的段；
  * 次數那幾個括號是 `rows` 的 `charge` 加起來（`counts()` 一段一段的差）—— **加總＝存完之後每一筆額度前後的差**。
- * 沒有 `plan` 的呼叫（`groups`／`adopts`，舊的那一條）照舊：沒有改狀態、改期時兩條講的一模一樣。
+ * 沒有 `plan` 的呼叫（`groups`／`adopts`，只剩測試在用）先換成同一種形狀（`planOfGroups()`）再往下走 ——
+ * **底下只有一條路**（10/16 審查：以前兩條路各數一次次數，畫面走的那一條跟測試走的那一條不一樣，lessons 一）。
  *
  * **合起來講**，不是一組一段 —— 十幾段各講三句她會閉著眼睛按。掛號照種類合計。
  *
@@ -386,7 +387,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @param {Record<string, object[]>} [o.tasksByVisit] 會改到的既有那幾筆身上現有的任務（`listByVisitForSync()`）——
  *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
  * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
- *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**
+ *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**照存的先後一筆一筆算**（`chainAsWritten()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
@@ -400,17 +401,13 @@ export function aboveeConsequences({
   plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
   entitlementsBy = {}, visitsBy = {}, chainBy = {},
 }) {
-  // 新的段一律接在尾巴：沒有 `at` 的那一組（舊的呼叫）新加的是最後那幾段
-  const addedIn = (g) => (g.at ? Object.values(g.at)
-    : Array.from({ length: g.items?.length ?? 0 }, (_, i) => (g.visit?.slots ?? []).length - 1 - i));
-  const writes = plan ? plan.writes : given.map((g) => ({
-    customerId: g.customerId, customerName: g.customerName, date: g.date, visit: g.visit, adds: g, freed: g.freed ?? [], touch: null,
-  }));
+  const p = plan ?? planOfGroups(given, adopts, visitsBy);
+  const writes = p.writes;
   const groups = writes.filter((w) => w.adds).map((w) => ({ ...w.adds, visit: w.visit }));
-  const rows = plan?.rows ?? [];
+  const rows = p.rows ?? [];
   const changes = rows.filter((r) => r.kind !== 'new');
-  const adopted = plan ? rows.filter((r) => r.kind === 'adopt') : adopts.map((i) => ({ fields: (i.diffs ?? []).map((d) => d.field) }));
-  const changedKeys = plan ? new Set(changes.map((r) => r.key)).size : adopts.length;
+  const adopted = rows.filter((r) => r.kind === 'adopt');
+  const changedKeys = new Set(changes.map((r) => r.key)).size;
   const reshaped = changes.some((r) => r.kind === 'status' || r.kind === 'move');
 
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
@@ -431,8 +428,7 @@ export function aboveeConsequences({
   if (n && allPending && !reshaped) {
     lines.push(`每一段都記成「待確認」—— ${notAsked}`);
   } else if (n) {
-    const charged = plan ? sumCharge(rows.filter((r) => r.kind === 'new'))
-      : fresh.filter(({ g, i }) => chargesEntitlement(g.visit, g.visit.slots[i])).length;
+    const charged = sumCharge(rows.filter((r) => r.kind === 'new'));
     const parts = ['done', 'no_show', 'cancelled', INITIAL_STATUS]
       .map((s) => [s, fresh.filter((x) => x.status === s).length]).filter(([, k]) => k)
       .map(([s, k]) => `「${shortStatus(s)}」${k} 段`);
@@ -502,10 +498,8 @@ export function aboveeConsequences({
       for (const l of cancelTaskLines(w.visit, tasks, coursesById, { freed: w.freed })) cancels.add(l);
       for (const l of registrationDropLines(w.visit, tasks, coursesById)) cancels.add(l);
     }
-    if (plan) {
-      records.push(...syncTasksForVisit(w.visit, tasks, { coursesById, today, freed: w.freed }).create
-        .filter((t) => t.kind === RECORD_TASK_KIND));
-    }
+    records.push(...syncTasksForVisit(w.visit, tasks, { coursesById, today, freed: w.freed }).create
+      .filter((t) => t.kind === RECORD_TASK_KIND));
   }
   if (ticked) lines.push(`照片上已經放掉的 ${ticked} 段，待辦的「取消 Abovee」直接勾好 —— 不用再去 Abovee 放`);
   lines.push(...cancels);
@@ -531,29 +525,27 @@ export function aboveeConsequences({
   // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
   const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
     visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? chainBy[g.customerId]?.entitlements ?? [], coursesById,
-    customerVisits: plan?.after?.[g.customerId] ?? visitsBy[g.customerId] ?? [],
+    customerVisits: p.after?.[g.customerId] ?? visitsBy[g.customerId] ?? [],
   }).map((line) => `${g.customerName} ${line}`)));
   lines.push(...stranded);
   // 健檢那條鏈：**照存的先後一筆一筆跑**（`chainAsWritten()`）—— 存檔那一下每存一筆就跑一次 `syncFollowupTasks()`
-  if (plan) {
-    for (const customerId of new Set(writes.map((w) => w.customerId))) {
-      const chain = chainBy[customerId];
-      if (!chain) continue;
-      const name = writes.find((w) => w.customerId === customerId)?.customerName ?? '';
-      const after = plan.after?.[customerId] ?? [];
-      const sync = chainAsWritten(plan, customerId, { name, chain, coursesById });
-      const day = (id) => dayWord(after.find((v) => v.id === id)?.date);
-      const chainLines = [
-        ...sync.create.filter((t) => t.kind === REPORT_TASK_KIND)
-          .map((t) => `待辦會多一張「${REPORT_TASK_KIND}」—— ${day(t.visitId)} 健檢做完要等報告出來`),
-        ...bookingLinesOf(sync, after, chain.tasks),
-        ...strandedFollowupLines({
-          before: plan.before?.[customerId] ?? [], after, entitlements: chain.entitlements ?? [], coursesById,
-          verb: (status) => (status === 'no_show' ? '改成未到' : '取消'),
-        }),
-      ];
-      lines.push(...chainLines.map((l) => `${name} ${l}`));
-    }
+  for (const customerId of new Set(writes.map((w) => w.customerId))) {
+    const chain = chainBy[customerId];
+    if (!chain) continue;
+    const name = writes.find((w) => w.customerId === customerId)?.customerName ?? '';
+    const after = p.after?.[customerId] ?? [];
+    const sync = chainAsWritten(p, customerId, { name, chain, coursesById });
+    const day = (id) => dayWord(after.find((v) => v.id === id)?.date);
+    const chainLines = [
+      ...sync.create.filter((t) => t.kind === REPORT_TASK_KIND)
+        .map((t) => `待辦會多一張「${REPORT_TASK_KIND}」—— ${day(t.visitId)} 健檢做完要等報告出來`),
+      ...bookingLinesOf(sync, after, chain.tasks),
+      ...strandedFollowupLines({
+        before: p.before?.[customerId] ?? [], after, entitlements: chain.entitlements ?? [], coursesById,
+        verb: (status) => (status === 'no_show' ? '改成未到' : '取消'),
+      }),
+    ];
+    lines.push(...chainLines.map((l) => `${name} ${l}`));
   }
 
   // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
@@ -573,6 +565,37 @@ export function aboveeConsequences({
 
   const title = n && changedKeys ? `記錄這 ${n} 段、改 ${changedKeys} 段？` : n ? `記錄這 ${n} 段？` : `改這 ${changedKeys} 段？`;
   return { title, lines };
+}
+
+/** 那一組這一次新加的是哪幾段（`planAbovee()` 的 `at`）。沒有 `at` 的那一組（測試手組的）新加的是最後那幾段 —— 新的段一律接在尾巴 */
+const addedIn = (g) => (g.at ? Object.values(g.at)
+  : Array.from({ length: g.items?.length ?? 0 }, (_, i) => (g.visit?.slots ?? []).length - 1 - i));
+
+/**
+ * 沒有 `plan` 的呼叫（`groups`／`adopts`）→ 跟 `photoDayPlan()` 同一種形狀（`writes`、`rows`、`before`、`after`），
+ * 讓 `aboveeConsequences()` 底下只有一條路。新的段的 `charge` 一段一段問 `chargesEntitlement()`（`photoDayPlan()` 同一個定義）；
+ * `adopts` 是舊的「改成 Abovee 的」那幾列（一律當成換掉，不是補上）。
+ */
+function planOfGroups(groups = [], adopts = [], visitsBy = {}) {
+  const writes = groups.map((g) => ({
+    id: g.visit?.id, customerId: g.customerId, customerName: g.customerName, date: g.date, visit: g.visit,
+    adds: g, freed: g.freed ?? [], touch: null, keys: (g.items ?? []).map((i) => i.key),
+  }));
+  const rows = [
+    ...groups.flatMap((g) => addedIn(g).map((i, n) => ({
+      key: g.items?.[n]?.key ?? `${g.customerId}|${g.date}|${i}`, customerId: g.customerId, date: g.date, kind: 'new',
+      to: slotStatus(g.visit, g.visit?.slots?.[i]), charge: chargesEntitlement(g.visit, g.visit?.slots?.[i]) ? 1 : 0,
+    }))),
+    ...adopts.map((i, n) => ({ key: i.key ?? `adopt:${n}`, kind: 'adopt', charge: 0, fields: (i.diffs ?? []).map((d) => d.field), filled: false })),
+  ];
+  const people = new Set(writes.map((w) => w.customerId));
+  const before = Object.fromEntries([...people].map((c) => [c, visitsBy[c] ?? []]));
+  const after = Object.fromEntries([...people].map((c) => {
+    const mine = writes.filter((w) => w.customerId === c);
+    const replaced = new Set(mine.map((w) => w.id).filter(Boolean));
+    return [c, [...before[c].filter((v) => !replaced.has(v?.id)), ...mine.map((w) => w.visit)]];
+  }));
+  return { writes, rows, before, after };
 }
 
 /**
