@@ -27,7 +27,7 @@ import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
   INITIAL_STATUS, acceptsMoreSlots, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor,
   isActive, isLiveSlot, isOpenStatus, lockedAt, mustSee, rebookSlot, sameDayState, shortStatus, slotSay, slotStatus, validateVisit,
-  warningDetails, withSlotStatuses,
+  warningDetails, withExtraSlot, withSlotStatuses,
 } from './visits.js';
 import { chargesEntitlement, counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
@@ -2316,7 +2316,8 @@ function composeGroups(items, ctx, blocked) {
     // 第一段才問那一天有沒有收得下的那一筆；接下來的段接進這一組自己那一筆（`withPlannedSlot()`）
     const step = group.visit
       ? withPlannedSlot(group.visit, slot)
-      : visitWithSlot({ customerId: item.customerId, customerName }, item.date, slot, ctx.visitsBy?.[item.customerId] ?? []);
+      : intoDayClosedByPhoto(ctx, key, slot)
+        ?? visitWithSlot({ customerId: item.customerId, customerName }, item.date, slot, ctx.visitsBy?.[item.customerId] ?? []);
     // 這一組的第一段沒有併進任何一筆、而那一天有結案的 → 另開一次（同一組接下來的段併進剛開的那一筆）
     if (!group.visit && !step.merged) {
       group.afterClosed = sameDayState(ctx.visitsBy?.[item.customerId] ?? [], item.customerId, item.date).closed.length > 0;
@@ -2331,6 +2332,33 @@ function composeGroups(items, ctx, blocked) {
   }
 
   return { groups: [...groups.values()], problems };
+}
+
+/**
+ * **拍照之前還開著、被這一張照片結掉（改成已完成／未到／已取消）的那一天**，新的段照樣併進那一次（10/16 審查，她：「好，可以改」）。
+ *
+ * `photoDayPlan()` 先套照片要改的、再組新的段（要不要併、那一天結案了沒看改完之後的）—— 只看改完之後的話，
+ * 「今天 10:00 照片寫課程完成、15:00 新約了一段」會另開一次來訪：客戶詳情、進度追蹤那一天兩列、待辦中心的確認／簽療程單分兩列、
+ * 資料健檢「同一天有兩筆來訪」列出來。拍照之前那一天還開著，就照一天一次（ADR-0083）；拍照之前就結案了的照舊另開一次。
+ *
+ * `ctx.openBefore`：`客戶|日期` → 拍照之前那一天開著的那一筆（id、當時的整筆狀態），只有 `photoDayPlan()` 給。沒有、或那一筆改完還開著 → `null`（照 `visitWithSlot()`）。
+ * 整天原本談定的（已確認）接一段待確認的，照 `withExtraSlot()` 的說法算 `reopened`（確認框講 `settledDayLine()`）；
+ * 整天被照片取消、接了一段活著的之後不再是取消：整天身上取消的那幾格清掉。
+ */
+function intoDayClosedByPhoto(ctx, key, slot) {
+  const was = ctx.openBefore?.get(key);
+  if (!was) return null;
+  const [customerId] = key.split('|');
+  const day = (ctx.visitsBy?.[customerId] ?? []).find((v) => v?.id === was.id);
+  if (!day || acceptsMoreSlots(day.status)) return null;
+  // 整天被照片取消、接的這一段是活著的：**整天先不是取消**（`slotStatus()` 遇到整筆取消會把每一段都當成取消 ——
+  // 新接的這一段也會被蓋掉），每一段落下自己的狀態、整天取消的那幾格清掉，再接上去照時段推
+  const base = day.status === 'cancelled' && slot.status !== 'cancelled'
+    ? { ...day, slots: (day.slots ?? []).map((x) => ({ ...x, status: slotStatus(day, x) })), status: INITIAL_STATUS,
+      cancelledAt: null, cancelReason: null, released: null }
+    : day;
+  const { visit } = withExtraSlot(base, slot);
+  return { merged: { visit, reopened: was.status === 'confirmed' && slot.status === INITIAL_STATUS }, visit };
 }
 
 /**
@@ -2455,7 +2483,11 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     });
   }
 
-  const after = { ...ctx, visitsBy };
+  // 拍照之前開著、被照片結掉的那一天：新的段照樣併進那一次（`intoDayClosedByPhoto()`）
+  const openBefore = new Map([...touched.values()]
+    .filter((t) => acceptsMoreSlots(t.before.status))
+    .map((t) => [`${t.customerId}|${t.before.date}`, { id: t.before.id, status: t.before.status }]));
+  const after = { ...ctx, visitsBy, openBefore };
   // 打開之後才在別的地方記了的那一段不再記一次（`alreadyInApp()`，問的是重讀的那一份、改之前的樣子）——
   // 先拿掉再組，同一天別的新列照記
   const already = list.filter((i) => i.checked && alreadyInApp(i, ctx));

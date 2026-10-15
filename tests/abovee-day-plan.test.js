@@ -86,17 +86,17 @@ describe('一位一天：照片取消一段、改期一段、多一段新的課�
     assert.equal(items[2].move?.status, 'done');
   });
 
-  test('計畫：那一天改完是已完成 → 新的那一段另開一筆；兩筆都在 writes 裡、舊時間那兩段放掉', () => {
+  test('計畫：拍照之前那一天還開著 → 新的那一段併進同一次（一天一次來訪，她 10/16）；舊時間那兩段放掉', () => {
     const p = photoDayPlan(items, c);
     assert.deepEqual(p.missed, []);
-    assert.equal(p.writes.length, 2);
-    const [changed, fresh] = p.writes;
-    assert.equal(changed.id, 'v1');
-    assert.deepEqual(changed.visit.slots.map((s) => [s.startsAt, s.status]), [['10:00', 'cancelled'], ['16:00', 'cancelled'], ['17:00', 'done']]);
-    assert.deepEqual(changed.freed, [0, 1]);
-    assert.equal(fresh.visit.id, undefined);
-    assert.deepEqual(fresh.visit.slots.map((s) => [s.startsAt, s.status]), [['14:00', 'done']]);
-    assert.equal(fresh.adds.afterClosed, true);
+    assert.equal(p.writes.length, 1);
+    const [day] = p.writes;
+    assert.equal(day.id, 'v1');
+    assert.deepEqual(day.visit.slots.map((s) => [s.startsAt, s.status]),
+      [['10:00', 'cancelled'], ['16:00', 'cancelled'], ['17:00', 'done'], ['14:00', 'done']]);
+    assert.equal(day.visit.status, 'done');
+    assert.deepEqual(day.freed, [0, 1]);
+    assert.equal(day.adds.afterClosed, false);
   });
 
   test('確認框的次數加總 ＝ 存完之後的差（counts() 與額度快取都驗）', async () => {
@@ -113,7 +113,7 @@ describe('一位一天：照片取消一段、改期一段、多一段新的課�
     assert.deepEqual(db.freed, ['v1:0', 'v1:1']);
   });
 
-  test('確認框照實講：不講「每一段都記成待確認」、講改成已取消（還 1 次）、改期、新的那一段已完成（扣 1 次）、另開一次', () => {
+  test('確認框照實講：不講「每一段都記成待確認」、講改成已取消（還 1 次）、改期、新的那一段已完成（扣 1 次）、不另開一次', () => {
     const p = photoDayPlan(items, c);
     const { title, lines } = aboveeConsequences({ plan: p, coursesById, today: TODAY });
     assert.equal(title, '記錄這 1 段、改 2 段？');
@@ -121,27 +121,76 @@ describe('一位一天：照片取消一段、改期一段、多一段新的課�
     assert.ok(lines.includes('照 Abovee 改成「已取消」1 段（還 1 次）'), lines.join('\n'));
     assert.ok(lines.some((l) => l.startsWith('照 Abovee 改期 1 段')), lines.join('\n'));
     assert.ok(lines.some((l) => l.startsWith('新的 1 段照 Abovee 記：「已完成」1 段（扣 1 次）')), lines.join('\n'));
-    assert.ok(lines.some((l) => l.includes('另開一次新的來訪')));
+    assert.ok(!lines.some((l) => l.includes('另開一次新的來訪')), '同一天併進同一次');
     assert.ok(!lines.some((l) => l.includes('跟客人確認時間') || l.includes('簽療程單')), '沒有一段是待確認');
     assert.ok(lines.some((l) => l.includes('「取消 Abovee」直接勾好')), lines.join('\n'));
   });
 
-  test('存到第二筆失敗、再按一次：第一筆不重複、第二筆補上', async () => {
-    const { db, save } = fakeDb([v1]);
+  test('存到第二筆失敗、再按一次：第一筆不重複、第二筆補上（兩天各一筆）', async () => {
+    const one = visit('v1', '2026-09-08', [sis('10:00', '11:00')]);
+    const two = read([row('已取消', '2026-09-08', '10:00 - 11:00', 'SIS 60'), row('課程完成', '2026-09-09', '14:00 - 15:00', 'SIS 60')], ctx([one]));
+    const { db, save } = fakeDb([one]);
     db.failAt = 2;
     const savedKeys = new Set();
-    const p = photoDayPlan(items, c);
-    await assert.rejects(writePhotoPlan(p, { hand: [v1], save, onWrite: (w) => w.keys.forEach((k) => savedKeys.add(k)) }));
-    assert.deepEqual([...savedKeys].sort(), [items[0].key, items[2].key].sort());
+    const p = photoDayPlan(two, ctx([one]));
+    assert.equal(p.writes.length, 2);
+    await assert.rejects(writePhotoPlan(p, { hand: [one], save, onWrite: (w) => w.keys.forEach((k) => savedKeys.add(k)) }));
+    assert.deepEqual([...savedKeys], [two[0].key]);
     // 再按一次：重讀之後只拿還沒存的那幾列重算
-    const again = photoDayPlan(items.filter((i) => !savedKeys.has(i.key)), ctx(db.visits));
+    const again = photoDayPlan(two.filter((i) => !savedKeys.has(i.key)), ctx(db.visits));
     assert.deepEqual(again.missed, []);
     assert.equal(again.writes.length, 1);
     await writePhotoPlan(again, { hand: db.visits, save });
     const all = db.visits.flatMap((v) => v.slots.map((s) => `${v.date} ${s.startsAt} ${s.status}`)).sort();
-    assert.deepEqual(all, ['2026-09-08 10:00 cancelled', '2026-09-08 14:00 done', '2026-09-08 16:00 cancelled', '2026-09-08 17:00 done']);
+    assert.deepEqual(all, ['2026-09-08 10:00 cancelled', '2026-09-09 14:00 done']);
     const real = counts(POOL, db.visits, POOL.id);
     assert.deepEqual(db.cache[POOL.id], { doneCount: real.done, bookedCount: real.booked });
+  });
+});
+
+describe('同一天：照片把那一天結掉、又有一段新的 → 併進同一次（她 10/16：「好，可以改」）', () => {
+  // 以前新的那一段拿「改完之後」的那一天去併，那一天改完就結案了 → 另開一次來訪：客戶詳情、進度追蹤那一天兩列、
+  // 待辦中心的確認／簽療程單分兩列、資料健檢「同一天有兩筆來訪」列出來。拍照之前那一天還開著，就照一天一次（ADR-0083）
+  test('今天 10:00 照片寫課程完成、15:00 新約了復健科 → 一次來訪；次數：復能不變、門診扣 1', async () => {
+    const v1 = visit('v1', TODAY, [sis('10:00', '11:00')]);
+    const c = ctx([v1]);
+    const items = read([row('課程完成', TODAY, '10:00 - 11:00', 'SIS 60'), row('確認前往', TODAY, '15:00 - 16:00', '復健科醫師門診')], c);
+    const p = photoDayPlan(items, c);
+    assert.equal(p.writes.length, 1);
+    assert.deepEqual(p.writes[0].visit.slots.map((s) => [s.startsAt, s.status]), [['10:00', 'done'], ['15:00', 'pending_confirm']]);
+    assert.equal(p.writes[0].visit.status, 'pending_confirm');
+    const { lines } = aboveeConsequences({ plan: p, coursesById, today: TODAY });
+    assert.ok(!lines.some((l) => l.includes('另開一次新的來訪')), lines.join(' / '));
+    assert.ok(lines.some((l) => l.includes('那一天原本談定的段不動')), '原本談定的那一天加一段待確認：講一句');
+    const { db, save } = fakeDb([v1]);
+    await writePhotoPlan(p, { hand: [v1], save });
+    const ents = [POOL, REHAB, EXAM, FU];
+    assert.equal(said(lines), used(ents, db.visits) - used(ents, [v1]));
+    assert.deepEqual(countDeltas(ents, [v1], db.visits), p.deltas['c-wang']);
+    assert.equal(db.visits.filter((v) => v.date === TODAY).length, 1);
+  });
+
+  test('唯一那一段照片已取消、同一天新的時間確認前往 → 一次來訪、整天不是取消、取消的那幾格不留在整天身上', () => {
+    const v1 = visit('v1', '2026-09-20', [sis('10:00', '11:00')]);
+    const c = ctx([v1]);
+    const items = read([row('已取消', '2026-09-20', '10:00 - 11:00', 'SIS 60'), row('確認前往', '2026-09-20', '14:00 - 15:00', 'INDIBA 60')], c);
+    const p = photoDayPlan(items, c);
+    assert.equal(p.writes.length, 1);
+    const [w] = p.writes;
+    assert.deepEqual(w.visit.slots.map((s) => [s.startsAt, s.status]), [['10:00', 'cancelled'], ['14:00', 'pending_confirm']]);
+    assert.equal(w.visit.status, 'pending_confirm');
+    assert.deepEqual([w.visit.cancelledAt ?? null, w.visit.cancelReason ?? null], [null, null]);
+    assert.deepEqual(w.freed, [0]);
+  });
+
+  test('拍照之前那一天就已經結案了：照舊另開一次（ADR-0083）', () => {
+    const v1 = visit('v1', '2026-09-08', [sis('10:00', '11:00', 'done', { attended: true })]);
+    const c = ctx([v1]);
+    const items = read([row('課程完成', '2026-09-08', '10:00 - 11:00', 'SIS 60'), row('課程完成', '2026-09-08', '14:00 - 15:00', '復健科醫師門診')], c);
+    const p = photoDayPlan(items, c);
+    assert.equal(p.writes.length, 1);
+    assert.equal(p.writes[0].visit.id, undefined);
+    assert.equal(p.writes[0].adds.afterClosed, true);
   });
 });
 
