@@ -112,4 +112,4 @@ CLAUDE.md「存一筆來訪時手上那一份是舊的」「一句『按下去�
 - `refreshCloseBlocks()` 還沒接（中途發現 7）；她拿掉健檢那一列的勾之後，存的時候 `missed` 會接住、`missedSay()` 會講
 
 測試：`tests/abovee-day-plan.test.js`（18 條：一位一天三種改動＋另開一筆的次數加總＝前後的差（`counts()` 與快取都驗）、存到一半失敗再按一次、驗證拿改完之後的、二返接同一張照片上的健檢（兩種順序、存的那一下重算的那一份 `planToWrite()`）、標壓完、確認框照實講六條、`missedSay()`）。
-改了兩支掃原始碼的測試的寫法（`abovee-warnings-in-sight`：提醒搬進 domain；`abovee-whole-history`：重讀改成一位一次）。`npm test` 4639 全綠。
+改了兩支掃原始碼的測試的寫法（`abovee-warnings-in-sight`：提醒搬進 domain；`abovee-whole-history`：重讀改成一位一次）。`npm test` 4639 全綠；相關 E2E 18 支 145 條：144 綠、`65` 的 L6 紅（上面 `planToWrite()` 那一條，修了）→ 修完重跑拍 Abovee 那六支（41、51、57、62、65、67）38 條全綠。
