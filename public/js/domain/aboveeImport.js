@@ -399,6 +399,23 @@ function existingAt(customerId, date, startsAt, ctx) {
   return gone;
 }
 
+/** `existingAt()` 找到的那幾段裡，跟照片上這一門課一樣的（有一邊沒寫器材就不比器材）。 */
+const sameCourseHere = (at, course) => (at?.slots ?? []).filter(({ slot }) => Boolean(course) && slot.courseId === course.courseId
+  && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
+
+/**
+ * 勾著的新的那一列，app 上那一天那個時間**已經有一段活著的同一門課**了（10/16 審查）。
+ * 打開確認層時沒有（不然 `resolveItem()` 就認成「已經記了」）—— 有，就是那之後在別的地方記了，
+ * 或上一次按「記錄」那一趟其實寫進去了、只是沒收到回應。照記的話同一天另開一筆、同一段多扣一次。
+ */
+function alreadyInApp(item, ctx) {
+  // 照片上已取消的那一列不算：取消之後同一格重約的那一種（`rebookedHere()`）app 上活著的那一段是另一列的
+  if (item.kind !== 'new' || item.cancelled || !item.customerId || !item.date || !item.startsAt) return false;
+  const at = existingAt(item.customerId, item.date, item.startsAt, ctx);
+  return Boolean(at?.live) && sameCourseHere(at, item.course).length > 0;
+}
+export const ALREADY_IN_APP = 'app 上已經有這一段了（剛在別的地方記了）—— 不用再記，把勾拿掉';
+
 /** Abovee 上「還沒結案」的那三種字。整格一模一樣才算（`statusFromAbovee()`）。 */
 const PENDING_WORDS = Object.freeze(['待確認', '聯繫中', '確認前往']);
 
@@ -726,9 +743,7 @@ export function resolveItem(item, customerId, ctx, items = null) {
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
-    const course = next.course;
-    const same = at.slots.filter(({ slot }) => Boolean(course) && slot.courseId === course.courseId
-      && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
+    const same = sameCourseHere(at, next.course);
     // 10：取消之後在同一格重約 —— 照片上這一格另有一列還掛著（`rebookedHere()`），app 上活著的那一段是那一列的。
     // 取消的這一列**不拿去比**（不然 04 會把重約的那一段取消掉）：照新的、已取消的走（不打勾、不進要你看）。
     // 記著的是「替哪一位看的」—— 她把這一列換成別人就不算了
@@ -2407,7 +2422,11 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
   }
 
   const after = { ...ctx, visitsBy };
-  const { groups: composed, problems } = planAbovee(list, after);
+  // 打開之後才在別的地方記了的那一段不再記一次（`alreadyInApp()`，問的是重讀的那一份、改之前的樣子）——
+  // 先拿掉再組，同一天別的新列照記
+  const already = list.filter((i) => i.checked && alreadyInApp(i, ctx));
+  const { groups: composed, problems } = planAbovee(list.filter((i) => !already.includes(i)), after);
+  for (const i of already) problems[i.key] = [ALREADY_IN_APP];
   const warningsBy = {};
   const mustSeeBy = {};
   const { courses = [], equipment = [] } = ctx.master ?? {};

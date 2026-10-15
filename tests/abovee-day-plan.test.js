@@ -296,3 +296,41 @@ describe('改不成的那一句照理由講', () => {
     assert.equal(missedSay([]), '');
   });
 });
+
+describe('存的那一下重讀：同一段剛在別的地方記了（10/16 審查）', () => {
+  // 打開確認層時 9/8 10:00 的 SIS 還沒在 app 裡（新的、勾著）；按「記錄」之前別的裝置（或上一次沒收到回應的那一趟）已經記進去了。
+  // 以前存的那一下只靠 `savedKeys` 擋重複，重讀之後不再問「app 上有沒有這一段」→ 同一天另開一筆、同一段多扣一次。
+  const c0 = ctx([]);
+  const items = read([
+    row('課程完成', '2026-09-08', '10:00 - 11:00', 'SIS 60'),
+    row('課程完成', '2026-09-08', '14:00 - 15:00', '復健科醫師門診'),
+  ], c0);
+  const already = visit('v-x', '2026-09-08', [sis('10:00', '11:00', 'done', { attended: true })]);
+
+  test('打開時兩列都是新的、勾著', () => {
+    assert.deepEqual(items.map((i) => [i.kind, i.checked]), [['new', true], ['new', true]]);
+  });
+
+  test('重讀之後那一列不再記、講為什麼；另一列照記；SIS 的次數不變', async () => {
+    const again = planToWrite(items.filter(wantsWrite), ctx([already]));
+    assert.match((again.problems[items[0].key] ?? []).join(''), /已經有這一段/);
+    assert.deepEqual(again.writes.flatMap((w) => w.keys), [items[1].key]);
+    const { db, save } = fakeDb([already]);
+    await writePhotoPlan(again, { hand: [already], save });
+    assert.equal(counts(POOL, db.visits, POOL.id).done, 1, '同一段不可以扣兩次');
+    assert.equal(counts(REHAB, db.visits, REHAB.id).done, 1);
+    assert.equal(said(aboveeConsequences({ plan: again, coursesById, today: TODAY }).lines), 1);
+  });
+
+  test('app 上同一個時間是另一門課、或那一段取消了：照記（那不是同一段）', () => {
+    const other = visit('v-x', '2026-09-08', [indiba('10:00', '11:00', 'done', { attended: true })]);
+    assert.equal(planToWrite(items.filter(wantsWrite), ctx([other])).problems[items[0].key], undefined);
+    const gone = visit('v-x', '2026-09-08', [sis('10:00', '11:00', 'cancelled')]);
+    assert.equal(planToWrite(items.filter(wantsWrite), ctx([gone])).problems[items[0].key], undefined);
+  });
+
+  test('照片上已取消、她自己勾起來的那一列：app 上同一格活著的那一段是重約的那一列的，不擋', () => {
+    const cancelled = { ...items[0], cancelled: true, photoStatus: 'cancelled', checked: true };
+    assert.equal(planToWrite([cancelled], ctx([already])).problems[cancelled.key], undefined);
+  });
+});
