@@ -380,6 +380,15 @@ describe('寫之前比對她看到的值', () => {
   });
 });
 
+describe('既有的那一段、照片上的預約狀態讀不出來（10/16 審查）', () => {
+  test('不比、不改，那一列講讀不出來（spec 01：讀不出來的那一列要講）', () => {
+    const visit = dayA('2026-09-12', [sis()]);
+    const [item] = read([rowA('確認前往X', '2026-09-12')], ctx({ 'c-a': [visit] }));
+    assert.deepEqual([item.kind, item.statusChange ?? null, item.statusUnread], ['recorded', null, true]);
+    assert.match(recordedSay(item), /讀不出預約狀態（照片上是「確認前往X」） —— 狀態沒有拿來比/);
+  });
+});
+
 describe('換一位、讀不到全部來訪、拍兩次', () => {
   test('她把一列換一位：那一列不再帶著上一位的「要改什麼」', () => {
     const visit = dayA('2026-09-12', [sis()]);

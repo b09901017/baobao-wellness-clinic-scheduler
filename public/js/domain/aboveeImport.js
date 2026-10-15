@@ -1186,6 +1186,8 @@ export function recordedSay(item) {
   }
   if (item.cancelled) return '兩邊都是取消的，不用記。';
   if (item.timeless) return 'app 上這一天已經有這一段了（匯入的舊資料，沒有時間），不用再記。';
+  // 照片上那一格讀不出來：不比、不改（`crossCheck()`），但要講（spec 01）—— 不然她以為狀態對過了
+  if (item.statusUnread) return `這一段 app 裡已經有了，不用再記。${photoStatusSay(item, null)} —— 狀態沒有拿來比。`;
   return '這一段 app 裡已經有了，不用再記。';
 }
 
