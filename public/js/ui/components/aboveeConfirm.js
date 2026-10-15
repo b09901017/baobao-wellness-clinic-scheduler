@@ -23,13 +23,14 @@ import * as config from '../../data/config.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, adoptAbovee, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
-  markRepeat, mismatchSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, pickOption, picksOf, planAbovee, queueMarksAfter, readAbovee,
-  recordedSay, repeatSay, resolveItem, summarizeAbovee, checkCtxFor, warningsByRow, resolveSaved, plannedId, refreshNoExam, stuckLinks,
+  aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
+  markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, optionValueOf, partialSay, photoDayPlan, pickOption, picksOf,
+  pressedDays, queueMarksAfter, readAbovee, recordedSay, repeatSay, resolveItem, summarizeAbovee, resolveSaved, refreshNoExam, wantsWrite,
+  writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
-  validateVisit, warningDetails, mustSee, picksEquipment, assignsFor, shortStatus, slotMinutes,
+  picksEquipment, assignsFor, shortStatus, slotMinutes,
   equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
@@ -191,50 +192,21 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   // ---------- 畫 ----------
 
-  /** `validateVisit()` 要的那一份（這位客戶、那一天）—— 規則在 domain（`checkCtxFor()`），改期那一天也走它。 */
-  const checkCtx = (groups, group) => checkCtxFor(groups, group, ctx);
-
+  /**
+   * 這一次還沒記的列記完之後長什麼樣（`photoDayPlan()`，abovee-status-follows-photo 06）：驗證與提醒（每一列底下那幾行、「還差一步」）、
+   * 存檔前那一道、真的寫入三邊讀同一份 —— 以前這裡自己組一次、確認框與寫入又各組一次。
+   * 記好的那幾列不算（`savedKeys`）：它們已經在 `ctx.visitsBy` 裡了（`record()` 存一筆換一筆）。
+   */
   function plan() {
-    const { groups, problems } = planAbovee(items, ctx);
-    /** 點開那一列看到的提醒（每一種都在）。**只有這一列自己的** —— 歸到哪一列照段落的位置，不比字 */
-    const warningsBy = {};
-    /** 其中不點開也要看得到的那幾句（`mustSee()`，ADR-0138）。收著的那一行與存檔前那一道讀同一份 */
-    const mustSeeBy = {};
-    // 11：按了「改成 Abovee 的」的那一段，改完照樣跑一次（換了診間可能撞到別人，`conflictWarnings()`）
-    for (const item of items.filter((i) => i.adopt && !savedKeys.has(i.key))) {
-      const visit = (ctx.visitsBy[item.customerId] ?? []).find((v) => v.id === item.existing?.visitId);
-      if (!visit) continue;
-      const adopted = adoptAbovee(visit, [item]).visit;
-      // 只留講到她按的那一段的（`warningDetails()` 的 `slots`）—— 以前拿「這一段」開頭的字去挑
-      const at = item.existing.slotIndex;
-      const check = checkCtx(groups, { customerId: item.customerId, date: visit.date, visit: adopted });
-      const mine = warningDetails(adopted, check).filter((w) => w.slots.includes(at));
-      warningsBy[item.key] = mine.map((w) => w.text);
-      mustSeeBy[item.key] = mine.filter(mustSee).map((w) => w.text);
-    }
-    for (const g of groups) {
-      const check = checkCtx(groups, g);
-      const { errors } = validateVisit(g.visit, check);
-      // 合併扣課只記第一台，第二台要提醒的事接在後面（`warningsByRow()` 自己問 `mergedNotices()`）
-      const byRow = warningsByRow(g, warningDetails(g.visit, check), {
-        customer: check.customer, equipment: ctx.master.equipment, courses: ctx.master.courses,
-      });
-      for (const item of g.items) {
-        if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
-        warningsBy[item.key] = byRow[item.key].all;
-        mustSeeBy[item.key] = byRow[item.key].mustSee;
-      }
-    }
-    // 接的那一次健檢那一天記不進去的，這一列也先不記（`stuckLinks()`）—— 照樣存就是安靜地沒接上
-    for (const [key, say] of Object.entries(stuckLinks(groups, problems, ctx))) problems[key] = [...(problems[key] ?? []), say];
-    return { groups: groups.filter((g) => g.items.every((i) => !problems[i.key])), problems, warningsBy, mustSeeBy };
+    return photoDayPlan(items.filter((i) => !savedKeys.has(i.key)), ctx);
   }
 
   /** 「app 有、這次照片上沒有」（ADR-0129）。每畫一次算一次 —— 她換了某一列是誰，結果跟著變。 */
   const absentNow = () => absentFromPhoto(transcripts, items, ctx);
 
-  /** 勾起來（或按了「改成 Abovee 的」）還沒記的幾段。 */
-  const pendingCount = () => items.filter((i) => (i.checked || i.adopt) && !savedKeys.has(i.key)).length;
+  /** 這一次會寫進去、還沒記的那幾列（勾起來的新的、改成 Abovee 的、照片要改狀態與改期的，`wantsWrite()`）。 */
+  const pending = () => items.filter((i) => wantsWrite(i) && !savedKeys.has(i.key));
+  const pendingCount = () => pending().length;
 
   function paintSummary(gone = absentNow()) {
     const s = summarizeAbovee(items.filter((i) => !savedKeys.has(i.key)), gone.slots);
@@ -296,8 +268,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (!say) return '';
     if (!gone.slots.length) return `<p class="abl__absentsay">${esc(say)}</p>`;
     const first = gone.slots[0].date;
-    const pending = pendingCount();
-    const stuck = items.some((i) => i.checked && !savedKeys.has(i.key) && p.problems[i.key]);
+    const waiting = pendingCount();
+    const stuck = pending().some((i) => p.problems[i.key]);
     return `
       <section class="abl__group abl__group--gone" aria-label="app 有、這次照片上沒有">
         <h3 class="abl__day">app 有、這次照片上沒有</h3>
@@ -315,7 +287,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             </div>
           </li>`).join('')}</ol>
         ${onOpenDay ? `<button class="btn btn--sm abl__gone" type="button" data-abl-gone="${esc(first)}"
-          ${running || stuck ? 'disabled' : ''}>${esc(goneButtonSay(pending, first))}</button>` : ''}
+          ${running || stuck ? 'disabled' : ''}>${esc(goneButtonSay(waiting, first))}</button>` : ''}
       </section>`;
   }
 
@@ -392,10 +364,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const built = slotOf(item);
     const what = built?.slot ? slotName(built.slot, ctx.master, 'short') : (item.row.course || '？');
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
-    const problems = item.checked ? (p.problems[item.key] ?? []) : [];
+    const problems = wantsWrite(item) ? (p.problems[item.key] ?? []) : [];
     const near = nearSay(item);
     // 不點開也要看得到的提醒（ADR-0138）。只有會寫進去的那幾列才算得出來：勾著的、按了「改成 Abovee 的」的
-    const must = (item.checked || item.adopt) && !savedKeys.has(item.key) ? (p.mustSeeBy[item.key] ?? []) : [];
+    const must = wantsWrite(item) && !savedKeys.has(item.key) ? (p.mustSeeBy[item.key] ?? []) : [];
 
     return `
       <li class="abl-row abl-row--${tag}${open ? ' is-open' : ''}${problems.length ? ' has-problem' : ''}" data-abl-row="${esc(item.key)}">
@@ -712,10 +684,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function paintBar(p = plan()) {
     const bar = root.querySelector('[data-abl-bar]');
-    const checked = items.filter((i) => i.checked && !savedKeys.has(i.key));
-    const stuck = checked.filter((i) => p.problems[i.key]);
-    // 11：按了「改成 Abovee 的」的那幾列跟新的那幾段一起在「記錄」那一下寫
-    const n = checked.length + items.filter((i) => i.adopt && !savedKeys.has(i.key)).length;
+    // 新的、改成 Abovee 的（11）、照片要改狀態與改期的（04、05）都在「記錄」那一下寫
+    const wanted = pending();
+    const stuck = wanted.filter((i) => p.problems[i.key]);
+    const n = wanted.length;
     const say = failure
       ? `記好了 ${savedCount} 段；${failure.name} 那一天沒記：${failure.message}。再按一次記剩下的。`
       : stuck.length ? `勾起來的有 ${stuck.length} 段還差一步，點開補上`
@@ -850,13 +822,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   /** @param {{then?: string}} [o] `then`：全部記好之後去日曆那一天（「app 有、這次照片上沒有」那一顆） */
   async function save({ then = null } = {}) {
     const p = plan();
-    const groups = p.groups.filter((g) => g.items.every((i) => !savedKeys.has(i.key)));
-    const adopts = items.filter((i) => i.adopt && !savedKeys.has(i.key));
-    const n = groups.reduce((sum, g) => sum + g.items.length, 0) + adopts.length;
+    const n = new Set(p.writes.flatMap((w) => w.keys)).size;
     if (!n || running || asking) return;
     asking = true;
     try {
-      await record(groups, adopts, n, then, p.mustSeeBy);
+      await record(p, n, then);
     } finally {
       asking = false;
     }
@@ -871,36 +841,44 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     await save({ then: date });
   }
 
-  /** 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。 */
-  async function record(groups, adopts, n, then = null, mustSeeBy = {}) {
+  /**
+   * 問一次（ADR-0104）、按下去才寫。`save()` 已經擋掉連點與空的。
+   *
+   * **確認框與寫入讀同一份計畫**（`photoDayPlan()`，abovee-status-follows-photo 06）：框講的是 `p`；寫的時候一位一位**重讀**
+   * 之後拿同一支再算一次（她在別的裝置上剛改過的話不蓋掉 —— 沒改成的回在 `missed`，照理由講）。
+   * 一位的那幾筆照計畫的先後存（被接著的健檢那一天先存），**存一筆換一筆**（`writePhotoPlan()`）：額度快取看得到前一筆、
+   * 那幾列記進 `savedKeys`。存到一半失敗再按一次：記好的那幾列不再算，剩下的拿重讀的那一份再組 —— 不重複。
+   */
+  async function record(p, n, then = null) {
     const aliases = aliasWrites(
       items.filter((i) => i.staffPickText && (i.therapistId || i.doctorId) && i.checked)
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
       ctx.master.staff,
     );
-    const marks = queueMarksAfter(groups.map((g) => ({ customerId: g.customerId, date: g.date })), batches);
+    const marks = queueMarksAfter(pressedDays(p), batches);
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
+    const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
+    const people = [...new Set(p.writes.map((w) => w.customerId))];
 
-    // 句子一個字都不在這裡組（`consequences.js`，asks-2026-09-24-evening/issues/07）——
-    // 以前在這裡，壓表與日曆新增後來跟上的「會多幾張掛號」「補登過去那一天」它都沒跟上。
-    // 這裡只把 id 換成名字交過去。併進既有那一天的，先讀那一筆身上的任務（同壓表那一道，
-    // `schedule.js` 的 `listByVisitForSync()`）—— 舊任務蓋住整天，不讀的話會講一張不會長的
-    const merging = groups.map((g) => g.visit?.id).filter(Boolean);
-    const tasksByVisit = Object.fromEntries(await Promise.all(merging.map(async (id) => (
-      [id, await tasksData.listByVisitForSync(id).catch(() => [])]))));
+    // 句子一個字都不在這裡組（`consequences.js`，asks-2026-09-24-evening/issues/07）。這裡只讀它要的那幾份：
+    // 會改到的既有那幾筆身上的任務（舊任務蓋住整天，不讀的話會講一張不會長的；照片放掉的段那一句也要它）、
+    // 每一位健檢那條鏈的額度與任務（`chainInputs()`，跟存檔時算的同一份）
+    const known = [...new Set(p.writes.map((w) => w.visit.id).filter(Boolean))];
+    const [tasksByVisit, chainBy] = await Promise.all([
+      Promise.all(known.map(async (id) => [id, await tasksData.listByVisitForSync(id).catch(() => [])])).then(Object.fromEntries),
+      Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById)])).then(Object.fromEntries),
+    ]);
     if (closed) return;
     // 這一次真的要寫的那幾列身上，不點開也要看得到的提醒（ADR-0138）。沒勾的列不會寫進去，不算
-    const flagged = [
-      ...groups.flatMap((g) => g.items.map((i) => ({ customerName: g.customerName, date: g.date, texts: mustSeeBy[i.key] ?? [] }))),
-      ...adopts.map((a) => ({ customerName: nameOf(a.customerId), date: a.existing.date, texts: mustSeeBy[a.key] ?? [] })),
-    ].filter((f) => f.texts.length);
+    const flagged = p.writes.flatMap((w) => w.keys.map((key) => ({ customerName: w.customerName, date: w.date, texts: p.mustSeeBy[key] ?? [] })))
+      .filter((f) => f.texts.length);
     const said = aboveeConsequences({
-      groups,
+      plan: p,
       flagged,
-      coursesById: Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c])),
+      coursesById,
       today: ctx.today,
       tasksByVisit,
-      adopts,
+      chainBy,
       // 存一段新的健檢、還有一場二返接在取消的那一次上（ADR-0145）
       entitlementsBy: ctx.entitlementsBy,
       visitsBy: ctx.visitsBy,
@@ -921,61 +899,40 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     failure = null;
     paintBody();
     let current = null;
-    const doneNow = [];
-
-    // 一位一天一個 commit：新的段與「改成 Abovee 的」（11）併在同一個「重讀之後重組」裡
-    const days = new Map();
-    for (const g of groups) {
-      days.set(`${g.customerId}|${g.date}`, { customerId: g.customerId, customerName: g.customerName, date: g.date, items: g.items, adopts: [], planned: plannedId(g) });
-    }
-    for (const a of adopts) {
-      const k = `${a.customerId}|${a.existing.date}`;
-      const day = days.get(k) ?? { customerId: a.customerId, customerName: nameOf(a.customerId), date: a.existing.date, items: [], adopts: [] };
-      day.adopts.push(a);
-      days.set(k, day);
-    }
-    /** 寫的時候發現別的裝置剛改過、沒改成的那幾列（她看到的不是現在的值） */
-    const stale = [];
-
-    // **被同一批的二返接著的那幾天先存**（ADR-0145）：二返那一列接的是那一天的暫時 id，要等它有真的 id。
-    // 併進既有那一天的健檢也先存（那一天的 id 是真的，`plannedId()`）：二返先存的話，它接的那一筆上還沒有健檢
-    const wanted = new Set(groups.flatMap((g) => g.items.map((i) => i.followupForVisitId)).filter(Boolean));
-    const order = [...days.values()].sort((a, b) => Number(wanted.has(b.planned)) - Number(wanted.has(a.planned)));
+    /** 寫的時候沒改成的那幾列（她看到的不是現在的值、二返簽不成、存不下去） */
+    const missed = [];
 
     // **重試只會記一次**：先到的那一趟記好的，另一趟看到 savedKeys 就跳過
     const write = async () => {
-      for (const d of order) {
-        if ([...d.items, ...d.adopts].every((i) => savedKeys.has(i.key))) continue;
-        current = d;
-        const fresh = await visitsData.listByCustomer(d.customerId);
-        // 用剛讀回來的那一份重組一次：她在別的裝置上剛改過那一天的話，不可以蓋掉。
-        // 接著同一批還沒存的那一次健檢的，換成它存好的 id（換不到就不接，`resolveSaved()`）
-        const [again] = d.items.length
-          ? planAbovee(d.items.map((i) => resolveSaved(i, savedIds)), { ...ctx, visitsBy: { ...ctx.visitsBy, [d.customerId]: fresh } }).groups : [];
-        const toSave = new Map();
-        if (again) toSave.set(again.visit.id ?? '(new)', again.visit);
-        const missedHere = [];
-        for (const a of d.adopts) {
-          const base = toSave.get(a.existing.visitId) ?? fresh.find((v) => v.id === a.existing.visitId);
-          const out = base ? adoptAbovee(base, [a]) : { visit: null, missed: [a] };
-          missedHere.push(...out.missed);
-          if (!out.missed.length) toSave.set(a.existing.visitId, out.visit);
-        }
-        for (const visit of toSave.values()) {
-          // eslint-disable-next-line no-await-in-loop
-          const id = await visitsData.save(visit, fresh);
-          if (again && visit === again.visit) savedIds.set(d.planned, id);
-        }
-        [...d.items, ...d.adopts].forEach((i) => savedKeys.add(i.key));
-        stale.push(...missedHere);
-        savedCount += d.items.length + d.adopts.length - missedHere.length;
-        if (d.items.length) {
-          doneNow.push({ customerId: d.customerId, date: d.date });
-          savedDays.push({ customerId: d.customerId, date: d.date });
+      for (const customerId of people) {
+        current = { customerName: nameOf(customerId) };
+        const mine = items.filter((i) => i.customerId === customerId && wantsWrite(i) && !savedKeys.has(i.key));
+        if (!mine.length) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const fresh = await visitsData.listByCustomer(customerId);
+        // 接著同一批別天那一次健檢的，換成它存好的 id（跨好幾次按「記錄」，`resolveSaved()`）
+        const again = photoDayPlan(mine.map((i) => resolveSaved(i, savedIds)), { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: fresh } });
+        // eslint-disable-next-line no-await-in-loop
+        await writePhotoPlan(again, {
+          hand: fresh,
+          save: visitsData.save,
+          savedIds,
+          onWrite: (w, id, hand) => {
+            w.keys.forEach((k) => savedKeys.add(k));
+            savedCount += w.keys.length;
+            if (w.pressed) savedDays.push({ customerId, date: w.date });
+            // 手上那一份換成存好之後的 —— 之後再按一次、或下一位的驗證，看得到這一筆
+            ctx = { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: hand } };
+          },
+        });
+        missed.push(...again.missed);
+        // 重讀之後組不進去的（那一天驗證沒過）：沒寫、講出來
+        for (const i of mine.filter((x) => !savedKeys.has(x.key) && !again.missed.some((m) => m.key === x.key))) {
+          missed.push({ ...i, missedWhy: 'invalid', errors: again.problems[i.key] ?? [] });
         }
         if (!closed) paintBody();
       }
-      return doneNow.length + adopts.length;
+      return savedCount;
     };
 
     try {
@@ -989,7 +946,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // 而且**寫好一次就更新手上那一份** —— 再按一次時是拿它算的：沒更新的話，寫回去的整份
     // queue／aboveeNames 是打開這一層時讀的那一份，上一次標好的壓完會被蓋回「還沒壓」。
     // 已經寫過的算出來是空的（`aliasWrites()`、`queueMarksAfter()` 都跳過），沒寫成的下一次補
-    const missed = new Set();
+    const unsent = new Set();
     for (const a of aliasWrites(
       items.filter((i) => savedKeys.has(i.key) && i.staffPickText && (i.therapistId || i.doctorId))
         .map((i) => ({ text: i.staffPickText, staffId: i.therapistId ?? i.doctorId })),
@@ -1001,7 +958,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         const staff = ctx.master.staff.map((s) => (s.id === a.id ? { ...s, ...a.changes } : s));
         ctx = { ...ctx, master: { ...ctx.master, staff } };
       } catch {
-        missed.add('治療師在 Abovee 上的寫法');
+        unsent.add('治療師在 Abovee 上的寫法');
       }
     }
     for (const m of queueMarksAfter(savedDays, batches)) {
@@ -1010,26 +967,28 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         await batchesData.saveProgress(m.batchId, m.queue, m.cursor);
         batches = batches.map((b) => (b.id === m.batchId ? { ...b, queue: m.queue } : b));
       } catch {
-        missed.add('壓表清單上的壓完');
+        unsent.add('壓表清單上的壓完');
       }
     }
 
     running = false;
-    // 來訪已經記好了，這兩件沒寫成不擋 —— 但**要講**：確認框上說了會做
-    const missedLine = (missed.size ? `；${[...missed].join('、')}沒記上，到壓表那一頁手動補` : '')
-      + (stale.length ? `；${stale.length} 段的治療師／診間剛在別的裝置上改過，這裡沒改 —— 去日曆看那一天` : '');
-    // 11 沒改成的那幾段：她看到的不是現在的值。講出來、那一列不再寫「已經記進日曆了」
-    for (const i of stale) {
+    // 來訪已經記好了，這兩件沒寫成不擋 —— 但**要講**：確認框上說了會做。
+    // 沒改成的那幾列照理由講（`missedSay()`）—— 以前寫死「治療師／診間剛在別的裝置上改過」
+    const why = missedSay(missed);
+    const missedLine = (unsent.size ? `；${[...unsent].join('、')}沒記上，到壓表那一頁手動補` : '') + (why ? `；${why}` : '');
+    // 沒改成的那幾列：那一列不再寫「已經記進日曆了」，要改的那幾個勾拿掉（她看到的不是現在的值，不再送一次）
+    for (const i of missed) {
       const at = items.findIndex((x) => x.key === i.key);
       savedKeys.delete(i.key);
-      if (at >= 0) items[at] = { ...items[at], adopt: false, diffs: null };
+      if (at >= 0 && i.missedWhy !== 'invalid') {
+        items[at] = { ...items[at], adopt: false, diffs: i.missedWhy === 'stale' ? null : items[at].diffs, adoptStatus: false, adoptMove: false };
+      }
     }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
       return;
     }
-    const left = items.some((i) => (i.checked || i.adopt) && !savedKeys.has(i.key));
-    if (!failure && !left) {
+    if (!failure && !pendingCount()) {
       // 「先記勾起來的，再去日曆」：換頁收掉這一層（hashchange），不先退紀錄。
       // 確認框收掉時排的那一趟 history.go 要先回來，不然它會把換頁退掉（`whenSettled()`）
       if (then) await whenSettled();
@@ -1059,10 +1018,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       close({ fromBack: true });
       return true;
     }
-    const pending = items.filter((i) => (i.checked || i.adopt) && !savedKeys.has(i.key)).length;
-    if (pending && !running) {
+    const left = pendingCount();
+    if (left && !running) {
       const pick = await chooseAction({
-        title: `還有 ${pending} 段沒記`,
+        title: `還有 ${left} 段沒記`,
         consequences: ['照片與辨識出來的字都不會留著，離開之後要重拍。'],
         choices: [
           { key: 'leave', label: '離開' },

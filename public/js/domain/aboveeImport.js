@@ -29,7 +29,7 @@ import {
   isActive, isLiveSlot, isOpenStatus, lockedAt, mustSee, rebookSlot, sameDayState, shortStatus, slotSay, slotStatus, validateVisit,
   warningDetails, withSlotStatuses,
 } from './visits.js';
-import { counts, isProduct } from './entitlements.js';
+import { chargesEntitlement, counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
@@ -324,10 +324,9 @@ export function examChoices(customerId, entitlement, ctx, items = null, row = nu
   const stored = ctx.visitsBy?.[customerId] ?? [];
   if (!items) return examChoicesFor(pair, stored);
   const groups = planAbovee(items, ctx).groups.filter((g) => g.customerId === customerId);
-  const planned = groups.map((g) => ({ ...g.visit, id: plannedId(g) }));
-  const replaced = new Set(planned.map((v) => v.id));
-  const choices = examChoicesFor(pair, [...stored.filter((v) => !replaced.has(v.id)), ...planned],
-    { selected: row?.followupForVisitId ?? null });
+  // 記完之後的樣子（`afterPhoto()`，06）：照片取消掉的那一場二返不再佔著那一次健檢、照片改成已完成的健檢照樣接得上 ——
+  // 只看存著的那一份的話，驗證放行（`photoDayPlan()`）的那一次在這一排卻按不下去
+  const choices = examChoicesFor(pair, afterPhoto(customerId, groups, items, ctx), { selected: row?.followupForVisitId ?? null });
   const own = row ? groups.find((g) => g.date === row.date) : null;
   if (!own) return choices;
   const ownId = plannedId(own);
@@ -1580,14 +1579,16 @@ function movedSlotFields(item, old, ctx) {
  * - 照片寫課程完成的二返／n返，接的那一次健檢還沒做完（`cannotClose()`，ADR-0145）→ 照樣改期、**新的那一段記成待確認**（同 03 的新列），
  *   回在 `blocked`。閘門拿 `guard`（這位客戶記完之後的全部來訪）問；沒給就不擋（只拿來試算）
  *
- * @returns {{visit: object, missed: object[], freed: number[], blocked: Record<string, object>}}
- *   `freed`：取消掉的舊時間那幾段 —— 存的時候交給 `save()` 的 `freed`，「取消 Abovee」一出生就勾好（02）
+ * @returns {{visit: object, missed: object[], freed: number[], blocked: Record<string, object>, at: Record<string, number>}}
+ *   `at`：列的 key → 新的那一段在這一筆裡的位置；`freed`：取消掉的舊時間那幾段 —— 存的時候交給 `save()` 的 `freed`，「取消 Abovee」一出生就勾好（02）
  */
 export function applyPhotoMove(visit, items = [], { at = new Date().toISOString(), guard = null } = {}) {
   const mine = (items ?? []).filter((i) => i?.move && i.adoptMove && visit?.id && i.existing?.visitId === visit.id);
   const missed = [];
   const freed = [];
   const blocked = {};
+  /** 列的 key → 新的那一段在這一筆裡的位置（提醒、次數歸到這一列，06） */
+  const where = {};
   let next = visit;
   for (const item of mine) {
     const want = item.existing;
@@ -1613,8 +1614,9 @@ export function applyPhotoMove(visit, items = [], { at = new Date().toISOString(
     }
     next = after;
     freed.push(want.slotIndex);
+    where[item.key] = after.slots.length - 1;
   }
-  return { visit: next, missed, freed, blocked };
+  return { visit: next, missed, freed, blocked, at: where };
 }
 
 /**
@@ -2218,6 +2220,241 @@ function blockedInGroups(groups, items, ctx) {
     }
   }
   return out;
+}
+
+// ---------- 一位一天一份計畫（abovee-status-follows-photo 06）----------
+//
+// 「拍完、記錄之後那一天長什麼樣」只算一次：確認層的驗證與提醒（`plan()`）、確認框（`aboveeConsequences()`）、
+// 真的寫入（`record()` → `writePhotoPlan()`）**三邊都只讀 `photoDayPlan()`**。以前三邊各算一份 —— 照片上「舊時間已取消＋
+// 新時間的二返」、合併扣課的後一半、同一天兩筆的那一天，三邊講三種結果（lessons 一、五）。
+
+/** 這一列這一次會寫進去嗎：勾著的新的、按著的「改成 Abovee 的」、打著勾的改狀態（04）與改期（05）。 */
+export const wantsWrite = (item) => Boolean(item?.customerId) && (
+  (item.kind === 'new' && Boolean(item.checked))
+  || (Boolean(item.adopt) && (item.diffs?.length ?? 0) > 0)
+  || (Boolean(item.statusChange) && Boolean(item.adoptStatus))
+  || (Boolean(item.move) && Boolean(item.adoptMove)));
+
+/** 那一段現在扣不扣著它的額度（1／0）。`counts()` 一段一段加起來就是它（`slotOutcome()`）。 */
+const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots?.[index]) ? 1 : 0);
+
+/**
+ * 這一批勾著的列記完之後，每一位每一天長什麼樣。**組法**：重讀的那一份 → 「改成 Abovee 的」（`adoptAbovee()`）→
+ * 照片的狀態（`applyPhotoStatus()`）→ 改期（`applyPhotoMove()`）→ 新的段（`planAbovee()`，**拿改完之後的那一份組** ——
+ * 要不要併進那一天、那一天結案了沒，看的是改完之後的）。閘門（二返簽不成已完成）拿記完之後的全部來訪問（`afterPhoto()`）。
+ *
+ * **驗證拿改完之後的那一天**：取消掉的那一段不再佔著那一次健檢、不再算進超用。新的段的錯誤照舊擋那一組（`problems`）；
+ * 改期那一段的錯誤擋那一列（那一筆不寫）；改狀態與換治療師／診間只拿提醒（舊資料本來就可能驗不過，不可以因此改不了狀態）。
+ *
+ * @param {object[]} items 這一次還沒記的列（她看到的那一份）
+ * @param {{customers, entitlementsBy, visitsBy, master, today, partial?}} ctx `visitsBy` 是讀回來的全部來訪
+ * @param {{at?: string}} [o]
+ * @returns {{
+ *   groups: object[], problems: Record<string, string[]>, warningsBy: Record<string, string[]>, mustSeeBy: Record<string, string[]>,
+ *   writes: {id: string, customerId: string, customerName: string, date: string, visit: object, before: object|null,
+ *            freed: number[], keys: string[], adds: object|null, touch: object|null, pressed: boolean}[],
+ *   missed: object[], rows: {key: string, customerId: string, date: string, kind: 'new'|'status'|'move'|'adopt', to?: string,
+ *                            charge: number, fields?: string[]}[],
+ *   before: Record<string, object[]>, after: Record<string, object[]>, deltas: Record<string, object[]>,
+ * }}
+ *   `writes`：要存的每一筆，**照存的先後**（被接著的那幾筆先存，ADR-0145）；`id` 是 `plannedId()`（新的一筆是暫時的）、
+ *   `freed` 給 `save()`（「取消 Abovee」一出生就勾好，02）、`keys` 是這一筆寫進去的那幾列、`pressed` 是那一天有沒有一段活著的新段（標壓完）。
+ *   `rows`：每一列做了什麼、那一筆額度因此差幾次（`charge`：扣 +1、還 −1；跟 `counts()` 一段一段加起來同一個數）。
+ *   `deltas`：每一位每一筆額度前後的差（`countDeltas()`）—— `rows` 的 `charge` 加起來就是它的 `remaining` 的負數
+ */
+export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {}) {
+  const list = items ?? [];
+  const changes = list.filter((i) => i.kind !== 'new' && i.existing?.visitId && wantsWrite(i));
+  const visitsBy = { ...(ctx.visitsBy ?? {}) };
+  const touched = new Map();
+  const missed = [];
+  for (const customerId of new Set(changes.map((i) => i.customerId))) {
+    const guard = { entitlements: ctx.entitlementsBy?.[customerId] ?? [], visits: afterPhoto(customerId, [], list, ctx) };
+    visitsBy[customerId] = (ctx.visitsBy?.[customerId] ?? []).map((v) => {
+      const mine = changes.filter((i) => i.customerId === customerId && i.existing.visitId === v?.id);
+      if (!mine.length) return v;
+      const adopts = mine.filter((i) => i.adopt && i.diffs?.length);
+      const adopted = adoptAbovee(v, adopts);
+      const status = applyPhotoStatus(adopted.visit, mine, { at, guard });
+      const moved = applyPhotoMove(status.visit, mine, { at, guard });
+      missed.push(...adopted.missed.map((m) => ({ ...m, missedWhy: 'stale' })), ...status.missed, ...moved.missed);
+      const lost = (from, key) => from.some((m) => m.key === key);
+      const done = {};
+      for (const i of adopts) if (!lost(adopted.missed, i.key)) (done[i.key] ??= []).push('adopt');
+      for (const i of mine.filter((x) => x.statusChange && x.adoptStatus)) if (!lost(status.missed, i.key)) (done[i.key] ??= []).push('status');
+      for (const i of mine.filter((x) => x.move && x.adoptMove)) if (!lost(moved.missed, i.key)) (done[i.key] ??= []).push('move');
+      if (!Object.keys(done).length) return v;
+      const slotAt = Object.fromEntries(mine.map((i) => [i.key, moved.at[i.key] ?? i.existing.slotIndex]));
+      touched.set(v.id, {
+        customerId, before: v, visit: moved.visit, done, at: slotAt, freed: [...status.freed, ...moved.freed], blocked: moved.blocked,
+      });
+      return moved.visit;
+    });
+  }
+
+  const after = { ...ctx, visitsBy };
+  const { groups: composed, problems } = planAbovee(list, after);
+  const warningsBy = {};
+  const mustSeeBy = {};
+  const { courses = [], equipment = [] } = ctx.master ?? {};
+  // 改過的那一筆裡，改了的那幾段身上的提醒；改期那一段有錯誤就擋那一列
+  const onTouched = (t, details, errors) => {
+    for (const key of Object.keys(t.done)) {
+      const mine = details.filter((w) => (w.slots ?? []).includes(t.at[key]));
+      warningsBy[key] = mine.map((w) => w.text);
+      mustSeeBy[key] = mine.filter(mustSee).map((w) => w.text);
+      if (errors.length && t.done[key].includes('move')) problems[key] = [...(problems[key] ?? []), ...errors];
+    }
+  };
+  for (const g of composed) {
+    const check = checkCtxFor(composed, g, after);
+    const { errors } = validateVisit(g.visit, check);
+    const details = warningDetails(g.visit, check);
+    // 合併扣課第二台、體驗、照片的狀態那幾句（`warningsByRow()`）
+    const byRow = warningsByRow(g, details, { customer: check.customer, equipment, courses });
+    for (const item of g.items) {
+      if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
+      warningsBy[item.key] = byRow[item.key].all;
+      mustSeeBy[item.key] = byRow[item.key].mustSee;
+    }
+    if (g.visit.id && touched.has(g.visit.id)) onTouched(touched.get(g.visit.id), details, errors);
+  }
+  const merged = new Set(composed.map((g) => g.visit.id).filter(Boolean));
+  for (const [id, t] of touched) {
+    if (merged.has(id)) continue;
+    const check = checkCtxFor(composed, { customerId: t.customerId, date: t.visit.date, visit: t.visit }, after);
+    onTouched(t, warningDetails(t.visit, check), validateVisit(t.visit, check).errors);
+  }
+  // 接的那一次健檢那一天記不進去的，這一列也先不記（`stuckLinks()`）—— 照樣存就是安靜地沒接上
+  for (const [key, say] of Object.entries(stuckLinks(composed, problems, after))) problems[key] = [...(problems[key] ?? []), say];
+
+  const groups = composed.filter((g) => g.items.every((i) => !problems[i.key]));
+  const nameOf = (id) => (ctx.customers ?? []).find((c) => c.id === id)?.name ?? '';
+  const storedOf = (customerId, id) => (ctx.visitsBy?.[customerId] ?? []).find((v) => v?.id === id) ?? null;
+  const groupWrites = [];
+  const usedTouch = new Set();
+  for (const g of groups) {
+    const t = g.visit.id ? touched.get(g.visit.id) : null;
+    if (t && Object.keys(t.done).some((k) => problems[k])) continue;
+    if (t) usedTouch.add(g.visit.id);
+    groupWrites.push({
+      id: plannedId(g), customerId: g.customerId, customerName: g.customerName, date: g.date, visit: g.visit,
+      before: t?.before ?? (g.visit.id ? storedOf(g.customerId, g.visit.id) : null),
+      freed: [...(t?.freed ?? []), ...g.freed], keys: [...Object.keys(t?.done ?? {}), ...g.items.map((i) => i.key)],
+      adds: g, touch: t ?? null,
+      // 標壓完：那一天有一段新的是活著的（整組都是照片上已取消的不算 —— 那不是壓好了）
+      pressed: g.items.some((i) => g.visit.slots[g.at[i.key]]?.status !== 'cancelled'),
+    });
+  }
+  // 只改既有那一筆的排前面（照片的順序），新的段接在後面
+  const writes = [];
+  for (const [id, t] of touched) {
+    if (usedTouch.has(id) || Object.keys(t.done).some((k) => problems[k])) continue;
+    writes.push({
+      id, customerId: t.customerId, customerName: nameOf(t.customerId), date: t.visit.date, visit: t.visit, before: t.before,
+      freed: t.freed, keys: Object.keys(t.done), adds: null, touch: t, pressed: false,
+    });
+  }
+  writes.push(...groupWrites);
+  // **被接著的那幾筆先存**（ADR-0145）：二返接的是那一天的暫時 id，要等它有真的 id；照片同一批改成已完成的健檢也先存 ——
+  // 二返先存、健檢那一筆失敗的話，資料庫裡就是一場做完的二返接在一次還沒做完的健檢上
+  const linked = new Set(writes.flatMap((w) => (w.visit.slots ?? []).map((s) => s.followupForVisitId)).filter(Boolean));
+  writes.sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)));
+
+  // 每一列做了什麼、差幾次（拿寫進去的那一份一段一段算，`counts()` 同一個定義）
+  const rows = [];
+  const byKey = new Map(list.map((i) => [i.key, i]));
+  for (const w of writes) {
+    for (const [key, kinds] of Object.entries(w.touch?.done ?? {})) {
+      const item = byKey.get(key);
+      const old = item.existing.slotIndex;
+      for (const kind of kinds) {
+        const base = { key, customerId: w.customerId, date: w.date, kind };
+        if (kind === 'adopt') rows.push({ ...base, charge: 0, fields: item.diffs.map((d) => d.field), filled: item.diffs.every((d) => !d.app) });
+        if (kind === 'status') {
+          rows.push({ ...base, to: item.statusChange.to, charge: charge(w.visit, old) - charge(w.before, old) });
+        }
+        if (kind === 'move') {
+          const fresh = w.touch.at[key];
+          rows.push({ ...base, to: slotStatus(w.visit, w.visit.slots[fresh]), charge: charge(w.visit, old) - charge(w.before, old) + charge(w.visit, fresh) });
+        }
+      }
+    }
+    for (const item of w.adds?.items ?? []) {
+      const index = w.adds.at[item.key];
+      rows.push({ key: item.key, customerId: w.customerId, date: w.date, kind: 'new', to: w.visit.slots[index]?.status, charge: charge(w.visit, index) });
+    }
+  }
+
+  const before = {};
+  const afterAll = {};
+  const deltas = {};
+  for (const customerId of new Set(writes.map((w) => w.customerId))) {
+    const stored = ctx.visitsBy?.[customerId] ?? [];
+    const mine = writes.filter((w) => w.customerId === customerId);
+    const replaced = new Set(mine.map((w) => w.id));
+    before[customerId] = stored;
+    afterAll[customerId] = [...stored.filter((v) => !replaced.has(v?.id)), ...mine.map((w) => ({ ...w.visit, id: w.id }))];
+    deltas[customerId] = countDeltas(ctx.entitlementsBy?.[customerId] ?? [], stored, afterAll[customerId]);
+  }
+  return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
+}
+
+/** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
+export const pressedDays = (plan) => (plan?.writes ?? []).filter((w) => w.pressed).map((w) => ({ customerId: w.customerId, date: w.date }));
+
+/** 那一筆身上接著同一批還沒存的那一次健檢的段（暫時 id）→ 換成先存好的真的 id；換不到就不接（同 `resolveSaved()`）。 */
+function withSavedLinks(visit, savedIds) {
+  if (!(visit?.slots ?? []).some((s) => isPlannedId(s.followupForVisitId))) return visit;
+  return {
+    ...visit,
+    slots: visit.slots.map((s) => (isPlannedId(s.followupForVisitId)
+      ? { ...s, followupForVisitId: savedIds.get(s.followupForVisitId) ?? null } : s)),
+  };
+}
+
+/**
+ * 照計畫一筆一筆存（06）。`save(visit, customerVisits, { freed })` 是 `data/visits.js` 的 `save()`（測試換成假的）。
+ *
+ * - **每存一筆就換進手上那一份**：`save()` 重算額度快取（`doneCount`／`bookedCount`）用的是手上那一份換掉自己之後的樣子 ——
+ *   同一天存兩筆時，第二筆以前看不到第一筆，快取寫錯
+ * - 新的一筆存好之後記住真的 id（`savedIds`：暫時 id → 真的 id），後面接著它的二返換成真的（`withSavedLinks()`）
+ * - `onWrite(write, id, hand)` 每存好一筆叫一次：呼叫端記住那幾列存過了（失敗重按不重複，lessons 三）
+ *
+ * 一次只交一位的計畫（手上那一份是那一位的全部來訪）。存到一半丟出來的錯照樣往外丟。
+ *
+ * @returns {Promise<object[]>} 存完之後手上那一份
+ */
+export async function writePhotoPlan(plan, { hand = [], save, savedIds = new Map(), onWrite = () => {} } = {}) {
+  let mine = [...(hand ?? [])];
+  for (const w of plan?.writes ?? []) {
+    const visit = withSavedLinks(w.visit, savedIds);
+    // eslint-disable-next-line no-await-in-loop
+    const id = await save(visit, mine, { freed: w.freed });
+    if (!w.visit.id) savedIds.set(w.id, id);
+    mine = [...mine.filter((v) => v.id !== id), { ...visit, id }];
+    onWrite(w, id, mine);
+  }
+  return mine;
+}
+
+/**
+ * 寫的時候沒改成的那幾列，一句話講完（`record()` 的 toast）。以前寫死「治療師／診間剛在別的裝置上改過」——
+ * 狀態、改期也會沒改成，理由也不只一種（lessons 五：一道擋有幾種原因，就要有幾句下一步）。
+ */
+export function missedSay(missed = []) {
+  const of = (why) => (missed ?? []).filter((m) => m.missedWhy === why);
+  const out = [];
+  const stale = of('stale');
+  if (stale.length) out.push(`${stale.length} 段剛在別的地方改過，這裡沒改 —— 去日曆看那一天`);
+  for (const m of of('closeBlocked')) {
+    out.push(`${m.existing?.date ? `${shortDate(m.existing.date)} ` : ''}沒改成已完成：${m.closeBlock ? closeBlockSay(m.closeBlock) : '接的那一次健檢還沒做完'}`);
+  }
+  const refused = of('refused');
+  if (refused.length) out.push(`${refused.length} 段這裡改不了（那一段現在的狀態不准這樣改）—— 去日曆看那一天`);
+  const invalid = of('invalid');
+  if (invalid.length) out.push(`${invalid.length} 段存不下去：${invalid[0].errors?.[0] ?? '那一天驗證沒過'}`);
+  return out.join('；');
 }
 
 // ---------- 驗證一組時拿哪些來訪（2026-10-09 審查）----------

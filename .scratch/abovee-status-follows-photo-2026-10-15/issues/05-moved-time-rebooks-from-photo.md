@@ -76,4 +76,4 @@ Blocked by: 01（狀態對照）、03（`withExtraSlot()` 與整筆狀態推導 
 
 **還沒接**：寫入（`record()` 還不認 `move`）與確認框 —— 06；畫面上「要改的」那一塊 —— 07（現在那一列看起來是「已經記了」＋那一句）。
 
-測試：`tests/abovee-moved-rebook.test.js`（18 條：判準每一條、日曆的改期不變、同一張再拍一次不改、別的裝置改過不改）。`npm test` 4621 全綠。
+測試：`tests/abovee-moved-rebook.test.js`（18 條：判準每一條、日曆的改期不變、同一張再拍一次不改、別的裝置改過不改）。`npm test` 4621 全綠；相關 E2E 26 支 204 條全綠（32 分）。

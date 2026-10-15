@@ -1,6 +1,6 @@
 # 一位一天一份計畫：驗證、確認框、寫入只算一次（含存檔迴圈與確認框的句子）
 
-Status: todo
+Status: done
 Blocked by: 02、03、04、05
 動工前先讀：`spec.md`「一位一天一份計畫」「次數」兩節；ADR-0070（後果只講真的會發生的）、ADR-0104 第 5 點（一位一天一個 commit、存之前重讀）、ADR-0138、ADR-0142、ADR-0145；
 `ui/components/aboveeConfirm.js` 的 `plan()`、`record()`（`:895-1000`：`fresh`、`savedDays`、`:962-963` 排序、`:973-976` 重讀後再跑 `planAbovee()`、`:984-988` 連存、`:1040-1046` 改不成那一句與重設）；
@@ -69,3 +69,44 @@ CLAUDE.md「存一筆來訪時手上那一份是舊的」「一句『按下去�
 - 確認框不講「每一段都記成『待確認』」除非真的每一段都是；已完成的新段不被說成「之後會多一張 Examine」
 - 新的健檢記成未到：不講「要接到這一次」
 - 沒有任何改狀態、改期的照片（只有新的、未來的確認前往）：確認框與寫入結果跟改之前一模一樣（既有 `tests/abovee-*.test.js`、`tests/consequences.test.js` 照樣綠，除了 07 列出要改預期的那幾條）
+
+## 做完時留下的（10/15 段三）
+
+**做成的樣子**（`domain/aboveeImport.js`，三邊只讀它）：
+
+- `photoDayPlan(items, ctx, { at })`（export）：組法＝重讀的那一份 → `adoptAbovee()` → `applyPhotoStatus()` → `applyPhotoMove()`（閘門拿 `afterPhoto(…, [], items)`）
+  → **拿改完之後的那一份** `planAbovee()`（要不要併進那一天、那一天結案了沒看改完之後的）→ 每一筆驗一次（`checkCtxFor()`，`visitsForCheck()` 拿的也是改完之後的）。回：
+  - `groups`／`problems`／`warningsBy`／`mustSeeBy`：確認層畫的那一份（以前 `plan()` 自己組）。新的段的錯誤擋那一組；改期那一段的錯誤擋那一列；改狀態、換治療師診間只拿提醒（舊資料驗不過不可以因此改不了狀態）
+  - `writes`：要存的每一筆，**照存的先後**（只改既有的排前面、新的段接後面，**被接著的那幾筆一律先存** —— 二返接的暫時 id 要等它；照片同一批改成已完成的健檢先存）。
+    每一筆 `{ id（plannedId）, customerId, customerName, date, visit, before, freed, keys, adds（planAbovee 那一組，沒有就 null）, touch（改既有那一筆的 done／at／freed）, pressed }`。
+    **欄位叫 `adds` 不叫 `group`**：`tests/course-groups.test.js` 掃 `.group` 當成 `course.group`
+  - `missed`（`missedWhy`：`stale`／`closeBlocked`／`refused`）、`rows`（每一列做了什麼、`charge` ＝ 那一筆額度差幾次，一段一段 `chargesEntitlement()` 前後相減 —— `counts()` 的同一個定義）、
+    `before`／`after`（每一位）、`deltas`（`countDeltas()`）
+- `wantsWrite(item)`：會寫進去的列（勾著的新的、按著的改成 Abovee 的、打勾的改狀態與改期）。確認層的「記錄這 N 段」、還差一步、離開前那一句都問它
+- `writePhotoPlan(plan, { hand, save, savedIds, onWrite })`：一筆一筆存、**存一筆換進手上那一份**（`save()` 的額度快取看得到前一筆）、新的一筆記住真的 id、後面接著它的二返換成真的（`withSavedLinks()`）。`save` 由呼叫端給（測試用假的，照 `countOps()` 算快取）
+- `pressedDays(plan)`：標壓完只算那一天有一段活著的新段（整組照片上已取消的不算）
+- `missedSay(missed)`：沒改成的那一句照理由講（取代寫死的「治療師／診間剛在別的裝置上改過」）
+- `examChoices(…, items)` 改看 `afterPhoto()`（**這一條 issue 沒寫，是做判準「10:00 二返取消＋11:00 新的二返」時發現的**：驗證放行了，但「接哪一次健檢」那一排還把那一次當成被 10:00 佔走、按不下去）
+
+`domain/consequences.js` 的 `aboveeConsequences({ plan, chainBy, … })`：沒有 `plan` 的舊呼叫（`groups`／`adopts`）照舊 —— 只有新的、待確認的段時兩條講的一模一樣（測試釘著）。有 `plan` 時：
+- 「每一段都記成待確認」只在真的每一段都是、又沒有改狀態改期時講；否則「新的 N 段照 Abovee 記：「已完成」a 段、…（扣 X 次）」＋待確認那幾段的「確認前往不等於問過客人」
+- 「照 Abovee 改成「已取消」N 段（還 N 次）」「…「未到」…」「…「已完成」…」「照 Abovee 改期 N 段 —— …（還／扣）」：括號是 `rows` 的 `charge` 加起來 —— **所有括號加起來＝存完之後每一筆額度前後的差**
+- 「跟客人確認時間／簽療程單」「等客人說可以之後會再多…」只數新的、待確認的段（含改期新的那一段）
+- 照片放掉的段：「照片上已經放掉的 N 段，待辦的「取消 Abovee」直接勾好」＋`cancelTaskLines(…, { freed })`（Examine／耀聖沒勾的那幾張）＋`registrationDropLines()`（10）
+- 記成已完成會長的「寫紀錄」（她第 1 題：照長）；健檢那條鏈每一位**全部套上去之後算一次**（`syncFollowupTasks()`：追蹤健檢報告、約二返長出來／收掉、`strandedFollowupLines()` 換動詞 —— `verb` 可以給一支，取消的「取消」、未到的「改成未到」）
+- 「改 N 段的治療師與診間成 Abovee 上的 —— 只動這兩格，時間、狀態、待辦都不變」後半只在這一次沒有改狀態改期時講
+- 抬頭：「記錄這 N 段、改 M 段？」／「記錄這 N 段？」／「改這 M 段？」
+- `strandedOnNewExamLines()`：新的健檢是未到、已取消時不講「要接到這一次」（問 `PICKABLE_EXAM`，不問 `isLiveSlot()`）
+
+`ui/components/aboveeConfirm.js`：`plan()` 一行叫 `photoDayPlan()`（只拿還沒記的列；記好的已經換進 `ctx.visitsBy`）。`record(p, n)`：讀每一筆的任務、每一位的 `chainInputs()` →
+確認框 → **一位一位**：重讀 → `photoDayPlan()`（同一支）→ `writePhotoPlan()`（`onWrite` 記 `savedKeys`、`savedDays`、把手上那一份換進 `ctx`）→ 沒改成的收進 `missed`、重讀之後組不進去的是 `invalid`。
+沒改成的那幾列拿掉要改的勾（她看到的不是現在的值，不再送一次）。
+
+**給段四（07）**：
+- 「要改的」那一塊要畫的都在 `rows`（`kind`／`to`／`charge`／`fields`／`filled`）與列上的 `statusChange`／`move`／`diffs`；括號讀 `rows` 的 `charge`
+- 現在畫面上要改的那幾列還是「已經記了」＋那一句、**沒有勾可以拿掉**（`adoptStatus`／`adoptMove` 預設勾，存的時候就會寫）—— 07 要給勾
+- 「記錄這 N 段」的 N 現在含要改的那幾列（`wantsWrite()`）；確認框的抬頭分開講「記錄 N、改 M」—— 07 決定按鈕上要不要也分開
+- `refreshCloseBlocks()` 還沒接（中途發現 7）；她拿掉健檢那一列的勾之後，存的時候 `missed` 會接住、`missedSay()` 會講
+
+測試：`tests/abovee-day-plan.test.js`（16 條：一位一天三種改動＋另開一筆的次數加總＝前後的差（`counts()` 與快取都驗）、存到一半失敗再按一次、驗證拿改完之後的、二返接同一張照片上的健檢（兩種順序）、標壓完、確認框照實講六條、`missedSay()`）。
+改了兩支掃原始碼的測試的寫法（`abovee-warnings-in-sight`：提醒搬進 domain；`abovee-whole-history`：重讀改成一位一次）。`npm test` 4637 全綠。
