@@ -1,6 +1,6 @@
 # Abovee 的六種預約狀態對到 app 的狀態，加上「這個時間點合不合理」
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`spec.md`「六種狀態 → app」；`.local/references/圖片辨識參考/編輯預約欄位結構.md` 第一節（六種，**有真名，只在 `.local/`、一個字都不抄進 repo**）；
 ADR-0116、ADR-0104 第 3 點；`domain/aboveeImport.js` 的 `aboveeState()` 與它的每一個呼叫端（`grep -n "aboveeState\|\.cancelled\|statusText"`）；
@@ -46,3 +46,26 @@ ADR-0116、ADR-0104 第 3 點；`domain/aboveeImport.js` 的 `aboveeState()` 與
 - 拿 `.local/references/abovee-m5-m10/擷取/abovee-m5-m10.json`（353 列）跑一次：四種字（課程完成 207、已取消 77、客戶失約 3、確認前往 66）全部認得、沒有一列落到「讀不出來」（腳本只印數字；待確認、聯繫中這份裡 0 列，靠單元測試釘）
 - 改完之後**既有的 `tests/abovee-*.test.js` 全綠** —— 這一支只加認得的字，不改任何一列的種類或預設勾（失約那 3 種情況除外：寫一支測試釘著它現在被當成什麼）
 - 「時間合不合理」：未來完成、未來失約、過去待確認各一條；今天的三種都不講
+
+## 做完時留下的（10/15 段一）
+
+**做成的樣子**（`domain/aboveeImport.js`，`aboveeState()` 拿掉了，只剩一份判斷）：
+
+- `statusFromAbovee(text)` → `{ status, unread }`：先判失約、取消、完成（字裡有沒有），再判待確認那三種（去掉每一個空白後整格一模一樣）；其餘 → `pending_confirm` ＋ `unread: true`
+- 每一列多三格（`photoStatusOf()`）：
+  - `photoStatus`：`'done'|'pending_confirm'|'cancelled'|'no_show'`，**那一張沒拍到那一欄是 `null`**（看不出來 —— 不是待確認。04 拿它比 app 時 `null` 要當成「不比」，不然會對沒拍到那一欄的列喊「Abovee 上還沒改成課程完成」）
+  - `statusUnread`：拍到了、那一格空的或認不出來
+  - `cancelled`：＝ `photoStatus === 'cancelled'`（失約不算取消；`sameRow()` 的 `gone`、`claimHalves()`、`claimTimeless()`、`rebookedHere()`、`needsAttention()`、`summarizeAbovee()` 問的都還是它，語意沒變）
+- 「這一張有沒有拍到那一欄」是 `tableOf()` 在每一列記的 `row.statusSeen`；兩頁併成一列時有一張拍到就算（`joinPages()`）
+- `readAbovee()` 多回 `noStatusColumn`：`null`／`'some'`／`'all'`；抬頭那一句是 `statusColumnSay(read)`（07 畫）
+- `photoTimeSays(status, date, today)`：未來完成「還沒到就寫完成了」、未來失約「還沒到就寫失約了」、過去待確認「日子過了還沒結案」；今天與已取消不講。**回的是核心那幾個字，不帶「確定再勾」那種下一步** —— 03（新列）與 04（既有的段）要講的下一步不一樣
+- `photoStatusSay(item, today)`：讀不出來 →「讀不出預約狀態（照片上是「X」）」／「…那一格是空的」；讀得出來 → `photoTimeSays()`；`photoStatus` 是 `null` → 空字串
+- `crossCheck()` 收 `photoStatus`：只比 `cancelled` 與 `done`，**失約、待確認、`null` 照舊當成還掛著**（＝以前的 booked）。所以 app 已完成＋照片失約照舊是「已經記了」—— 04 才改，`tests/abovee-six-statuses.test.js` 最後一組釘著現在的樣子
+
+**畫面一個字都沒改**（`aboveeConfirm.js` 沒動）：讀不出來那一句是 03 畫在新列上、抬頭那一句是 07。
+
+**語料**：353 列 → done 207、cancelled 77、no_show 3、pending_confirm 66，讀不出來 0。
+
+**給段二**：合併扣課的那一列（`mergedItem()`）只帶第一列的 `photoStatus`；第二列的在 `merged.parts[1].photoStatus`（04「兩列的狀態要一樣才改」拿它）。另見 HANDOFF「中途發現」的 `joinPages()` 那一條。
+
+測試：`tests/abovee-six-statuses.test.js`（25 條）；`npm test` 4493 全綠；相關 E2E 7 支 43 條全綠（00、41、51、57、62、65、67）。

@@ -15,8 +15,9 @@
 // 3. **組成來訪**（`planAbovee()`）：一律走 10 的 `slotFromPicks()`／`visitWithSlot()`
 // 4. **直接標成壓完**（`queueMarksAfter()`）
 //
-// **Abovee 上的預約狀態只照原字留著**（`statusText`）。「確認前往」是客人跟 Abovee 說的，
-// 不是她問過的那一句 —— 新段一律 `INITIAL_STATUS`（ADR-0027、0097、0099）。
+// **Abovee 上的預約狀態**（「預約狀態」那一格）：原字留著（`statusText`，畫面照印），翻成 app 的哪一種只有
+// `statusFromAbovee()` 一支（六種，abovee-status-follows-photo 01）→ 每一列的 `photoStatus`。
+// 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
 import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
 import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
@@ -114,11 +115,13 @@ export function mergedMark(text) {
 
 function tableOf(transcript, photo) {
   const keys = (transcript?.columns ?? []).map((c) => ABOVEE_KEYS[clean(c)] ?? null);
+  // 這一張有沒有拍到「預約狀態」那一欄（01）：沒拍到的列狀態是「看不出來」，不是「那一格讀不出來」
+  const statusSeen = keys.includes('status');
   return {
     photo,
     hasName: keys.includes('name'),
     rows: (transcript?.rows ?? []).map((cells, line) => {
-      const row = { photos: [photo], line };
+      const row = { photos: [photo], line, statusSeen };
       keys.forEach((key, j) => { if (key) row[key] = clean(cells?.[j]); });
       return row;
     }),
@@ -133,7 +136,7 @@ const hasWho = (r) => Boolean(clean(r.name) || clean(r.chartNo));
  * - **是誰**：兩列都有病歷號就比病歷號（AI 抄名字會錯一個字，號碼考試時 10/10 全對），不然比名字
  * - 同一天、同一個開始時間
  * - **課程**與**取消了沒**也要一樣：同一位同一個時間可以有兩門課（ILIB＋復健門診）、可以取消之後在同一格重約 ——
- *   那是兩列。狀態只分取消／沒取消（`aboveeState()`），不比原字
+ *   那是兩列。狀態只分取消／沒取消（`statusFromAbovee()`），不比原字
  * - **某一張沒有那一欄（那一格空著）時，那一格不參加比較** —— 不然第二張沒拍到課程欄，每一段都變成兩列
  *
  * 以前的鑰匙是「名字原字＋病歷號＋日期＋開始時間」而且連同一張裡的列一起去重：少記一段（同一格的第二列）、
@@ -145,7 +148,7 @@ function sameRow(a, b) {
   if (aboveeDate(a.date) !== aboveeDate(b.date) || aboveeStart(a.time) !== aboveeStart(b.time)) return false;
   const [ca, cb] = [normalizeAlias(a.course), normalizeAlias(b.course)];
   if (ca && cb && ca !== cb) return false;
-  const gone = (r) => aboveeState(r.status) === 'cancelled';
+  const gone = (r) => statusFromAbovee(r.status).status === 'cancelled';
   if (clean(a.status) && clean(b.status) && gone(a) !== gone(b)) return false;
   return true;
 }
@@ -168,7 +171,8 @@ function joinPages(base, incoming) {
       continue;
     }
     taken.add(at);
-    const merged = { ...base[at], photos: [...base[at].photos, ...row.photos] };
+    // 兩張有一張拍到「預約狀態」那一欄就算拍到了（狀態從那一張補，底下那一圈）
+    const merged = { ...base[at], photos: [...base[at].photos, ...row.photos], statusSeen: base[at].statusSeen || row.statusSeen };
     for (const key of Object.values(ABOVEE_KEYS)) if (!merged[key] && row[key]) merged[key] = row[key];
     // 交界上那幾欄可能有一張切到一半（13）：兩張都有字就取比較長的，一樣長留第一張的
     for (const key of EDGE_KEYS) if (base[at][key] && row[key]) merged[key] = fullerCell(base[at][key], row[key]);
@@ -377,15 +381,77 @@ function existingAt(customerId, date, startsAt, ctx) {
   return gone;
 }
 
+/** Abovee 上「還沒結案」的那三種字。整格一模一樣才算（`statusFromAbovee()`）。 */
+const PENDING_WORDS = Object.freeze(['待確認', '聯繫中', '確認前往']);
+
 /**
- * Abovee 那一格（「預約狀態」）講的是哪一種。**只認兩個字**：取消、完成；其餘（確認前往…）都是還掛著。
- * 「確認前往」不拿來比 —— 那是客人跟 Abovee 說的，不是她問過的那一句（ADR-0104 第 3 點）。
+ * Abovee「預約狀態」那一格 → app 的哪一種狀態（abovee-status-follows-photo 01）。**判那一格的只有這一支。**
+ *
+ * Abovee 上有六種（她 10/5 給的欄位結構）：
+ *
+ * | Abovee | app |
+ * |---|---|
+ * | 課程完成 | `done` |
+ * | 待確認、聯繫中、確認前往 | `pending_confirm` |
+ * | 已取消 | `cancelled` |
+ * | 客戶失約 | `no_show` |
+ *
+ * - **先判失約、取消、完成**（字裡有沒有那兩個字），**再判待確認那三種**（整格一模一樣）——
+ *   「待確認」「確認前往」都含「確認」，拿「確認」當鑰匙會互相吃掉
+ * - 空的、認不出來的（抄壞的「確認前往X」、近似的「聯絡中」）→ 待確認＋`unread`：**不猜成完成或取消**，那一列要講一句
+ * - 比之前去掉每一個空白（`clean()` 已經把全形換成半形）
+ * - 整張照片沒拍到這一欄不歸這裡（`readAbovee()` 那一列的 `photoStatus` 是 `null`）—— 那不是讀不出來，是沒拍到
+ *
+ * 9/24 的 `aboveeState()` 只認「取消」「完成」兩個字（從當時的截圖歸納的，ADR-0116）：客戶失約被當成還排著。
+ *
+ * @returns {{status: 'done'|'pending_confirm'|'cancelled'|'no_show', unread: boolean}}
  */
-export function aboveeState(statusText) {
-  const text = clean(statusText);
-  if (/取消/.test(text)) return 'cancelled';
-  if (/完成/.test(text)) return 'done';
-  return 'booked';
+export function statusFromAbovee(statusText) {
+  const text = clean(statusText).replace(/\s/g, '');
+  if (/失約/.test(text)) return { status: 'no_show', unread: false };
+  if (/取消/.test(text)) return { status: 'cancelled', unread: false };
+  if (/完成/.test(text)) return { status: 'done', unread: false };
+  return { status: 'pending_confirm', unread: !PENDING_WORDS.includes(text) };
+}
+
+/**
+ * 照片上這個狀態，在**那一天**看來合不合理（01）。她 10/15：「不合理的（例如未來的完成了或是過去的沒取消也沒完成）也提醒」。
+ *
+ * - 還沒到的完成、還沒到的失約 → 講
+ * - 過了的待確認（三種都算）→ 講
+ * - 今天的什麼都不講；已取消不看日期
+ *
+ * `today` 是拍照那一刻的日期，由呼叫端傳（`todayISO()`，lessons 七）—— 這裡不 `new Date()`。
+ * 回的是那一句的核心，要不要勾、勾了記成什麼是呼叫端的事。沒有要講的就是空字串。
+ */
+export function photoTimeSays(status, date, today) {
+  if (!date || !today) return '';
+  if (date > today && status === 'done') return '還沒到就寫完成了';
+  if (date > today && status === 'no_show') return '還沒到就寫失約了';
+  if (date < today && status === 'pending_confirm') return '日子過了還沒結案';
+  return '';
+}
+
+/**
+ * 這一列的預約狀態要講的那一句：那一格讀不出來就講讀不出來（不再拿它去比時間 —— 不知道 Abovee 上寫什麼），
+ * 讀得出來就照 `photoTimeSays()`。那一張沒拍到那一欄（`photoStatus` 是 `null`）不在這裡講 —— 抬頭講一次（`statusColumnSay()`）。
+ */
+export function photoStatusSay(item, today) {
+  if (!item?.photoStatus) return '';
+  if (item.statusUnread) {
+    return item.statusText ? `讀不出預約狀態（照片上是「${item.statusText}」）` : '讀不出預約狀態（照片上那一格是空的）';
+  }
+  return photoTimeSays(item.photoStatus, item.date, today);
+}
+
+/**
+ * 確認層抬頭那一句：照片沒拍到「預約狀態」那一欄（01）。**整張講一次**，不是每一列各講一次。
+ * `read` 是 `readAbovee()` 回的那一份（看它的 `noStatusColumn`）。
+ */
+export function statusColumnSay(read) {
+  if (read?.noStatusColumn === 'all') return '這張照片沒拍到「預約狀態」那一欄 —— 看不出哪幾段完成或取消了，照舊記成待確認。';
+  if (read?.noStatusColumn === 'some') return '有一張照片沒拍到「預約狀態」那一欄 —— 只在那一張上的列看不出完成或取消，照舊記成待確認。';
+  return '';
 }
 
 /**
@@ -397,7 +463,9 @@ export function aboveeState(statusText) {
  * **但不預設打勾**（`resolveItem()` 的 `appCancelledHere`）—— 可能是取消之後重新約了、她在 Abovee 上換了課程、
  * 課程那一格抄錯了，也可能只是她還沒回 Abovee 放掉。打勾是她的事。
  *
- * @param {'cancelled'|'done'|'booked'} aboveeSays `aboveeState()`
+ * 照片上的客戶失約、待確認那三種、沒拍到那一欄（`null`）：當成還掛著（跟只認兩個字的時候一樣）。
+ *
+ * @param {'done'|'pending_confirm'|'cancelled'|'no_show'|null} aboveeSays 那一列的 `photoStatus`（`statusFromAbovee()`）
  * @param {{live: boolean, slots: object[]}} found `existingAt()`
  * @param {object[]} sameCourse `found.slots` 裡課程（與器材）跟這一列一樣的那幾段
  */
@@ -497,7 +565,7 @@ export function resolveItem(item, customerId, ctx, items = null) {
     const same = at.slots.filter(({ slot }) => Boolean(course) && slot.courseId === course.courseId
       && (!course.equipmentId || !slot.equipmentId || slot.equipmentId === course.equipmentId));
     // 預約狀態也比一次（ADR-0116）。對不上的那一列**這裡不改**（ADR-0056：改得了來訪的只有日曆）
-    const verdict = crossCheck(aboveeState(next.statusText), at, same);
+    const verdict = crossCheck(next.photoStatus, at, same);
     // 10：取消之後在同一格重約 —— 照片上這一格另有一列還掛著（`rebookedHere()`），app 上活著的那一段是那一列的。
     // 取消的這一列不拿去喊「Abovee 上取消了，app 上還是已完成」：照新的、已取消的走（不打勾、不進要你看）。
     // 記著的是「替哪一位看的」—— 她把這一列換成別人就不算了
@@ -621,6 +689,9 @@ function giftRow(item, courseId, ctx) {
 export function readAbovee(transcripts, ctx) {
   const { rows, pairing, counts: sizes } = mergeAboveePhotos(transcripts);
   const { rooms = [], staff = [] } = ctx.master ?? {};
+  // 照片沒拍到「預約狀態」那一欄的列有幾列（01）：整張講一次（`statusColumnSay()`），不每一列各講
+  const unseen = rows.filter((r) => !r.statusSeen).length;
+  const noStatusColumn = !unseen ? null : unseen === rows.length ? 'all' : 'some';
 
   const bases = rows.map((row, i) => {
     const who = identifyCustomer({ name: row.name, chartNo: row.chartNo }, ctx.customers);
@@ -634,7 +705,7 @@ export function readAbovee(transcripts, ctx) {
       date: aboveeDate(row.date),
       startsAt: aboveeStart(row.time),
       statusText: clean(row.status),
-      cancelled: aboveeState(row.status) === 'cancelled',
+      ...photoStatusOf(row),
       who,
       course,
       roomId: roomFrom(row.room, row.resource, rooms)?.id ?? null,
@@ -657,7 +728,17 @@ export function readAbovee(transcripts, ctx) {
   // 整張一起看才知道的事，照這個順序：合併扣課的後一半（要趕在 `mergeRows()` 把它標成找不到另一半之前）→
   // 合併扣課 → 沒有時間的舊段（一對先合成一列，才對得到那一段舊的）→ 搬了時間 → 看起來是同一段
   const paired = mergeRows(claimHalves(items, ctx, { hasColumn }), ctx, { hasColumn });
-  return { pairing, counts: sizes, items: linkBatchExams(flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)), ctx) };
+  return { pairing, counts: sizes, noStatusColumn, items: linkBatchExams(flagRepeats(flagMoved(claimTimeless(paired, ctx), ctx)), ctx) };
+}
+
+/**
+ * 一列的預約狀態那三格（01）：`photoStatus`（app 的哪一種；**那一張沒拍到那一欄是 `null`**）、
+ * `statusUnread`（拍到了、但那一格空的或認不出來）、`cancelled`（＝照片上已取消；失約不算取消）。
+ */
+function photoStatusOf(row) {
+  if (!row.statusSeen) return { photoStatus: null, statusUnread: false, cancelled: false };
+  const { status, unread } = statusFromAbovee(row.status);
+  return { photoStatus: status, statusUnread: unread, cancelled: status === 'cancelled' };
 }
 
 // ---------- 二返接哪一次健檢：整張一起看（ADR-0145）----------
@@ -785,7 +866,7 @@ function claimTimeless(items, ctx) {
       if (index < 0) continue;
       taken.add(`${visit.id}:${index}`);
       const hit = { slot: visit.slots[index], index, status: slotStatus(visit, visit.slots[index]) };
-      const verdict = crossCheck(aboveeState(item.statusText), { live: true, slots: [hit] }, [hit]);
+      const verdict = crossCheck(item.photoStatus, { live: true, slots: [hit] }, [hit]);
       return asRecorded(item, { visitId: visit.id, date: visit.date }, { ...verdict, timeless: true });
     }
     return item;
