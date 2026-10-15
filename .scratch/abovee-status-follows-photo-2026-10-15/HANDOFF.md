@@ -242,7 +242,7 @@ E2E spec 68（假抄字六種狀態、8/29 以前／當天／以後、不用真�
 先讀：.scratch/abovee-status-follows-photo-2026-10-15/HANDOFF.md、spec.md（「推翻的決定」「我自己定、交付時要跟她講一聲的」）、issues/01～07 的「做完時留下的」、issues/08、issues/09；
 docs/agents/lessons.md（尤其八、九、十）；CLAUDE.md「AI 的抄字格式」「拍照那一支 Function」兩列與「文件分工」；docs/STAGING.md「部署那一支 Function」；/kickoff skill 的第三、四段。
 
-這一段做 08（提示詞列六種狀態＋一條測試；重考前先問她要不要花那一點 Gemini 費用；改了 functions/ 跑 E2E 前重開模擬器；部署 staging 的 Function，正式的不要）
+這一段做 08（提示詞列六種狀態＋一條測試；重考（費用她已經說可以）；改了 functions/ 跑 E2E 前重開模擬器；部署 staging 的 Function，正式的不要）
 與 09（ADR-0149、SPEC、CLAUDE.md 那張表的那幾列、操作手冊、常見問題、邊界測試清單、課程與待辦對照表、README、domain.md 的推翻註記慣例）。
 ADR-0149 要寫進：治療師／診間預設照 Abovee 改（推翻 ADR-0123 第 11 段「她按了才改」）、「要改的」那一塊、日子過了還沒結案的收起來（中途發現 5）。
 CLAUDE.md「拍 Abovee 記很多段」那一列裡「她按了才 adoptAbovee()」「app 上還沒選的只是可以補，不進要你看」那幾句要跟著改；「一筆來訪改得動的地方」那一列的「她按了『改成 Abovee 的』才改」也是。
