@@ -19,6 +19,7 @@ import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { counts } from '../public/js/domain/entitlements.js';
 import { recount, slotStatus, touchedEntitlementIds, visitStatusFrom, withSlotStatuses } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
+import { syncFollowupTasks } from '../public/js/domain/followups.js';
 
 const TODAY = '2026-09-12';
 const COLS = ['預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程'];
@@ -332,5 +333,34 @@ describe('存的那一下重讀：同一段剛在別的地方記了（10/16 審�
   test('照片上已取消、她自己勾起來的那一列：app 上同一格活著的那一段是重約的那一列的，不擋', () => {
     const cancelled = { ...items[0], cancelled: true, photoStatus: 'cancelled', checked: true };
     assert.equal(planToWrite([cancelled], ctx([already])).problems[cancelled.key], undefined);
+  });
+});
+
+describe('健檢那條鏈：確認框照存的先後算（10/16 審查）', () => {
+  // 健檢、二返兩段都在 app 上、照片都寫課程完成。存的時候健檢那一筆先存（二返接著它，ADR-0145）——
+  // 那一下二返還沒做完，「追蹤健檢報告」長出來；二返存完它照留（開著的待辦不替她收）。
+  // 以前確認框拿兩筆都存完的樣子算一次，一句都沒講。
+  const ex = visit('v-ex', '2026-09-01', [slot('course-checkup', 'w-exam', '09:00', '12:00')]);
+  const fu = visit('v-fu', '2026-09-05', [slot('course-followup', 'w-fu', '10:00', '10:30', 'confirmed', { followupForVisitId: 'v-ex' })]);
+  const c = ctx([ex, fu]);
+  const items = read([row('課程完成', '2026-09-01', '09:00 - 12:00', '健檢'), row('課程完成', '2026-09-05', '10:00 - 10:30', '二返')], c);
+
+  test('確認框講的「追蹤健檢報告」＝照存的先後一筆一筆跑出來的', async () => {
+    const p = photoDayPlan(items, c);
+    assert.deepEqual(p.writes.map((w) => w.id), ['v-ex', 'v-fu'], '健檢那一筆先存');
+    const { lines } = aboveeConsequences({ plan: p, coursesById, today: TODAY, chainBy: { 'c-wang': { entitlements: [EXAM, FU], tasks: [] } } });
+    // 存的那一下：每存一筆跑一次（同 data/visits.js 的 followupOps()，手上那一份換掉自己）
+    let tasks = [];
+    const save = async (v, hand) => {
+      const id = v.id;
+      const s = syncFollowupTasks({ customer: { id: 'c-wang', name: '王小明' }, entitlements: [EXAM, FU],
+        visits: [...hand.filter((x) => x.id !== id), { ...v, id }], tasks, coursesById });
+      tasks = [...tasks.filter((t) => !s.remove.some((r) => r.id === t.id)), ...s.create.map((t, i) => ({ ...t, id: `t-${tasks.length + i}` }))];
+      return id;
+    };
+    await writePhotoPlan(p, { hand: [ex, fu], save });
+    const made = tasks.filter((t) => t.kind === '追蹤健檢報告').length;
+    assert.equal(made, 1, '照現在的規則會長一張');
+    assert.equal(lines.filter((l) => l.includes('「追蹤健檢報告」')).length, made, lines.join('\n'));
   });
 });
