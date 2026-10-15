@@ -258,3 +258,40 @@ test('S4 照片上的人認不出來、她自己選了那一位：要改的那�
   const real = counts(before, visits, 'w-pool');
   expect([cache.doneCount, cache.bookedCount]).toEqual([real.done, real.booked]);
 });
+
+test('S5 健檢與接著它的二返，照片都寫課程完成：存完沒有一張用不到的「追蹤健檢報告」，確認框也不講（10/16 審查）', async ({ app, page }) => {
+  const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null };
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    entitlement('cust-wang', { id: 'w-exam', label: '健檢', courseId: 'course-checkup', totalQty: 1, bookedCount: 1 }),
+    entitlement('cust-wang', { id: 'w-fu', label: '二返', courseId: 'course-followup', totalQty: 1, bookedCount: 1, followupForEntitlementId: 'w-exam' }),
+    visit({ id: 'v-ex', customerId: 'cust-wang', customerName: '王小明', date: '2026-08-20', status: 'confirmed', ...base,
+      slots: [{ ...slot({ courseId: 'course-checkup', entitlementId: 'w-exam', startsAt: '09:00', endsAt: '11:00' }), status: 'confirmed' }] }),
+    visit({ id: 'v-fu', customerId: 'cust-wang', customerName: '王小明', date: '2026-08-25', status: 'confirmed', ...base,
+      slots: [{ ...slot({ courseId: 'course-followup', entitlementId: 'w-fu', startsAt: '14:00', endsAt: '14:30' }), status: 'confirmed', followupForVisitId: 'v-ex' }] }),
+    {
+      path: 'batches', id: 'b-sep',
+      data: { targetMonth: MONTH, status: 'active', cursor: null, lastDeviceHint: null,
+        queue: [{ customerId: 'cust-wang', customerName: '', state: 'pending', skippedReason: null }] },
+    },
+  ]);
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-exam-done-pair');
+
+  for (const key of ['a0', 'a1']) {
+    await expect(page.locator(`[data-abl-change="adoptStatus"][data-abl-for="${key}"]`)).toHaveAttribute('aria-checked', 'true');
+  }
+  await expect(page.locator('[data-abl-save]')).toHaveText('改這 2 段');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('照 Abovee 改成「已完成」2 段（次數不變）');
+  await expect(app.dialog()).not.toContainText('追蹤健檢報告');
+  await app.ok();
+  await app.saved();
+
+  expect((await app.readDoc('visits', 'v-ex')).slots[0].status).toBe('done');
+  expect((await app.readDoc('visits', 'v-fu')).slots[0].status).toBe('done');
+  // 健檢那一筆先存的那一下二返還沒做完，會長一張；這一位全部存完之後收掉（`dropChainLeftovers()`）
+  const report = (await app.readAll('tasks')).filter((t) => t.kind === '追蹤健檢報告' && !t.done && !t.deletedAt);
+  expect(report).toEqual([]);
+});

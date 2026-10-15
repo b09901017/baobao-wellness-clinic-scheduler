@@ -387,7 +387,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @param {Record<string, object[]>} [o.tasksByVisit] 會改到的既有那幾筆身上現有的任務（`listByVisitForSync()`）——
  *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
  * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
- *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**照存的先後一筆一筆算**（`chainAsWritten()`）
+ *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**（中途長出來的存完收掉，`chainLeftovers()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
@@ -528,13 +528,16 @@ export function aboveeConsequences({
     customerVisits: p.after?.[g.customerId] ?? visitsBy[g.customerId] ?? [],
   }).map((line) => `${g.customerName} ${line}`)));
   lines.push(...stranded);
-  // 健檢那條鏈：**照存的先後一筆一筆跑**（`chainAsWritten()`）—— 存檔那一下每存一筆就跑一次 `syncFollowupTasks()`
+  // 健檢那條鏈：這一位每一件改動都套上去之後算一次（`syncFollowupTasks()`）。存檔是一筆一筆存的，中途長出來、
+  // 最後用不到的那幾張存完之後收掉（`followups.js` 的 `chainLeftovers()`），所以存完的樣子就是這裡講的
   for (const customerId of new Set(writes.map((w) => w.customerId))) {
     const chain = chainBy[customerId];
     if (!chain) continue;
     const name = writes.find((w) => w.customerId === customerId)?.customerName ?? '';
     const after = p.after?.[customerId] ?? [];
-    const sync = chainAsWritten(p, customerId, { name, chain, coursesById });
+    const sync = syncFollowupTasks({
+      customer: { id: customerId, name }, entitlements: chain.entitlements ?? [], visits: after, tasks: chain.tasks ?? [], coursesById,
+    });
     const day = (id) => dayWord(after.find((v) => v.id === id)?.date);
     const chainLines = [
       ...sync.create.filter((t) => t.kind === REPORT_TASK_KIND)
@@ -596,38 +599,6 @@ function planOfGroups(groups = [], adopts = [], visitsBy = {}) {
     return [c, [...before[c].filter((v) => !replaced.has(v?.id)), ...mine.map((w) => w.visit)]];
   }));
   return { writes, rows, before, after };
-}
-
-/**
- * 拍 Abovee 存完之後健檢那條鏈多了、收了哪幾張（10/16 審查）。**照 `plan.writes` 的先後一筆一筆跑 `syncFollowupTasks()`**，
- * 跟存檔那一下一樣（`writePhotoPlan()` 每存一筆，`data/visits.js` 的 `followupOps()` 就拿「到這一筆為止」的樣子跑一次）。
- *
- * 以前拿全部存完的樣子算一次：健檢、二返兩段照片都寫完成時，健檢那一筆先存（二返接著它），那一下二返還沒做完 ——
- * 「追蹤健檢報告」長出來，二返存完它照留（開著的待辦不替她收，ADR-0042），確認框一句都沒講。
- * 中途長出來又收掉的不算；收掉的只算本來就在的。
- *
- * @returns {{create: object[], remove: object[]}} 跟 `syncFollowupTasks()` 同一種形狀（給 `bookingLinesOf()`）
- */
-function chainAsWritten(plan, customerId, { name, chain, coursesById }) {
-  let visits = plan.before?.[customerId] ?? [];
-  let tasks = chain.tasks ?? [];
-  const created = new Map();
-  const removed = [];
-  let n = 0;
-  for (const w of (plan.writes ?? []).filter((x) => x.customerId === customerId)) {
-    visits = [...visits.filter((v) => v?.id !== w.id), { ...w.visit, id: w.id }];
-    const s = syncFollowupTasks({ customer: { id: customerId, name }, entitlements: chain.entitlements ?? [], visits, tasks, coursesById });
-    const gone = new Set((s.remove ?? []).map((r) => r.id));
-    for (const r of s.remove ?? []) {
-      if (created.has(r.id)) created.delete(r.id);
-      else removed.push(r);
-    }
-    const changes = new Map((s.update ?? []).map((u) => [u.id, u.changes]));
-    const made = (s.create ?? []).map((t) => ({ ...t, id: `chain:${n++}` }));
-    for (const t of made) created.set(t.id, t);
-    tasks = [...tasks.filter((t) => !gone.has(t.id)).map((t) => (changes.has(t.id) ? { ...t, ...changes.get(t.id) } : t)), ...made];
-  }
-  return { create: [...created.values()], remove: removed };
 }
 
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */

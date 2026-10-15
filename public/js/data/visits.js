@@ -17,7 +17,7 @@ import {
 import { syncTasksForVisit, changedTaskKinds, tasksAfterCourseChange } from '../domain/taskRules.js';
 import {
   syncFollowupTasks, DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS, pairsOf,
-  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND,
+  FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, chainLeftovers,
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
 
@@ -305,6 +305,28 @@ export async function chainInputs(customerId, coursesById = {}) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 拍 Abovee 一位的那幾筆**全部存完之後**，收掉中途長出來、最後的樣子用不到的健檢鏈待辦（規則在 `followups.js` 的 `chainLeftovers()`）。
+ * `known`：存之前就有的那幾張的 id（確認層第一次按「記錄」時讀的 `chainInputs()`）。收掉是軟刪除、沒勾過 —— `seenTasks()` 當成沒有過。
+ * 讀不到、寫不進去就算了（多一張可以勾掉），不擋已經記好的來訪。
+ *
+ * @returns {Promise<number>} 收掉幾張
+ */
+export async function dropChainLeftovers(customerId, known, coursesById = {}) {
+  if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return 0;
+  const [entitlements, tasks, visits] = await Promise.all([
+    customersData.listEntitlements(customerId),
+    tasksData.listByCustomerForSync(customerId),
+    listByCustomer(customerId),
+  ]);
+  const extra = chainLeftovers({ customer: { id: customerId }, entitlements, visits, tasks, known, coursesById });
+  if (!extra.length) return 0;
+  await repo.commit(extra.map((t) => ({
+    op: 'softDelete', path: TASK_PATH, id: t.id, reason: '拍 Abovee 一次記好幾段，存到一半時長出來、存完用不到',
+  })));
+  return extra.length;
 }
 
 /**

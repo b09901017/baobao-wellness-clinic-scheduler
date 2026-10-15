@@ -104,6 +104,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const savedIds = new Map();
   /** 這一層記好的每一位每一天（跨好幾次按「記錄」）。標壓完照它算。 */
   const savedDays = [];
+  /**
+   * 每一位第一次按「記錄」時就有的健檢鏈待辦（id）。那一位全部存完之後，這幾張以外、中途長出來、最後用不到的收掉
+   *（`dropChainLeftovers()`，10/16 審查）。**跨好幾次按「記錄」**：上一次存到一半長出來的，下一次存完照樣認得出來
+   */
+  const chainKnown = new Map();
   let savedCount = 0;
   const showAllRooms = new Set();
   /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
@@ -974,6 +979,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById)])).then(Object.fromEntries),
     ]);
     if (closed) return;
+    for (const id of people) {
+      if (chainBy[id] && !chainKnown.has(id)) chainKnown.set(id, new Set((chainBy[id].tasks ?? []).map((t) => t.id)));
+    }
     // 這一次真的要寫的那幾列身上，不點開也要看得到的提醒（ADR-0138）。沒勾的列不會寫進去，不算
     const flagged = p.writes.flatMap((w) => w.keys.map((key) => ({ customerName: w.customerName, date: w.date, texts: p.mustSeeBy[key] ?? [] })))
       .filter((f) => f.texts.length);
@@ -1030,6 +1038,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             ctx = { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: hand } };
           },
         });
+        // 這一位全部存完了：中途長出來、最後用不到的健檢鏈待辦收掉（確認框講的是最後的樣子）。
+        // 存到一半丟出來的錯會跳過這一行 —— 那時候那一張還是對的；收不掉就算了（多一張可以勾掉）
+        if (chainKnown.has(customerId)) {
+          // eslint-disable-next-line no-await-in-loop
+          await visitsData.dropChainLeftovers(customerId, chainKnown.get(customerId), coursesById).catch(() => 0);
+        }
         missed.push(...again.missed);
         // 重讀之後組不進去的（那一天驗證沒過）：沒寫、講出來
         for (const i of mine.filter((x) => !savedKeys.has(x.key) && !again.missed.some((m) => m.key === x.key))) {
