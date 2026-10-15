@@ -2368,6 +2368,30 @@ export const wantsWrite = (item) => Boolean(item?.customerId) && (
   || (Boolean(item.statusChange) && Boolean(item.adoptStatus))
   || (Boolean(item.move) && Boolean(item.adoptMove)));
 
+/**
+ * 底下那一顆要數的（10/16 審查）：她勾著的那幾列（`wanted`，`wantsWrite()` 的）裡，**這一份計畫真的會寫的**記新的幾段、改既有的幾段；
+ * 還差一步的（`problems`）與這一次改不成的（不在任何一筆 `writes` 裡，例：她看到的那一段剛在別的地方改過、二返簽不成）。
+ * 以前那一顆數的是勾著的：每一件都改不成時照樣寫「改這 1 段」、按得下去，按了什麼都沒發生。
+ */
+export function recordBar(wanted = [], plan = {}) {
+  const going = new Set((plan.writes ?? []).flatMap((w) => w.keys));
+  const will = wanted.filter((i) => going.has(i.key));
+  const fresh = will.filter((i) => i.kind === 'new').length;
+  return {
+    fresh,
+    changed: will.length - fresh,
+    stuck: wanted.filter((i) => plan.problems?.[i.key]).length,
+    cannot: wanted.filter((i) => !going.has(i.key) && !plan.problems?.[i.key]).length,
+  };
+}
+
+/** 那一顆上面那一句（還差一步、這一次改不成、還沒勾）。 */
+export function recordBarSay({ fresh = 0, changed = 0, stuck = 0, cannot = 0 } = {}) {
+  if (stuck) return `勾起來的有 ${stuck} 段還差一步，點開補上`;
+  if (cannot) return `勾起來的有 ${cannot} 段這一次改不成（「要改的」那一塊寫著為什麼）`;
+  return fresh + changed ? '' : '勾起要記的那幾段';
+}
+
 /** 那一段現在扣不扣著它的額度（1／0）。`counts()` 一段一段加起來就是它（`slotOutcome()`）。 */
 const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots?.[index]) ? 1 : 0);
 

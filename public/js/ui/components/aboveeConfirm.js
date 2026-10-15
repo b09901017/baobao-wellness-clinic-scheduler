@@ -26,7 +26,7 @@ import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
-  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
+  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -754,22 +754,20 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function paintBar(p = plan()) {
     const bar = root.querySelector('[data-abl-bar]');
-    // 新的、改成 Abovee 的（11）、照片要改狀態與改期的（04、05）都在「記錄」那一下寫
-    const wanted = pending();
-    const stuck = wanted.filter((i) => p.problems[i.key]);
-    const n = wanted.length;
+    // 新的、改成 Abovee 的（11）、照片要改狀態與改期的（04、05）都在「記錄」那一下寫。
+    // 數的是**這一份計畫真的會寫的**（`recordBar()`）—— 勾著卻改不成的不算進去
+    const counted = recordBar(pending(), p);
+    const { fresh, changed, stuck } = counted;
+    const n = fresh + changed;
     // 記新的與改既有的分開數（確認框的抬頭同一種說法，`aboveeConsequences()`）
-    const fresh = wanted.filter((i) => i.kind === 'new').length;
-    const changed = n - fresh;
     const label = !n ? '記錄' : fresh && changed ? `記錄 ${fresh} 段、改 ${changed} 段` : fresh ? `記錄這 ${fresh} 段` : `改這 ${changed} 段`;
     const say = failure
       ? `記好了 ${savedCount} 段；${failure.name} 那一天沒記：${failure.message}。再按一次記剩下的。`
-      : stuck.length ? `勾起來的有 ${stuck.length} 段還差一步，點開補上`
-        : n ? '' : '勾起要記的那幾段';
+      : recordBarSay(counted);
     bar.innerHTML = `
       ${say ? `<p class="abl__why" role="status">${esc(say)}</p>` : ''}
       <button class="btn btn--primary abl__save" type="button" data-abl-save
-              ${!n || stuck.length || running ? 'disabled' : ''}>${running ? '記錄中…' : label}</button>`;
+              ${!n || stuck || running ? 'disabled' : ''}>${running ? '記錄中…' : label}</button>`;
   }
 
   // ---------- 接線 ----------

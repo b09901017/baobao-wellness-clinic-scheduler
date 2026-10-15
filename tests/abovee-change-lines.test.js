@@ -9,7 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  changeLines, needsAttention, offersChange, pastStillOpen, photoDayPlan, readAbovee, summarizeAbovee, wantsWrite,
+  changeLines, needsAttention, offersChange, pastStillOpen, photoDayPlan, readAbovee, recordBar, recordBarSay, summarizeAbovee, wantsWrite,
 } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { visitStatusFrom } from '../public/js/domain/visits.js';
@@ -140,5 +140,25 @@ describe('段四她回的（中途發現 5、14、15）', () => {
     const done = read([row('課程完成', '2026-09-10', '10:00 - 11:00', 'SIS 60', '芝寧')], cc);
     const { lines } = aboveeConsequences({ plan: photoDayPlan(done, cc), coursesById, today: TODAY });
     assert.ok(lines.includes('照 Abovee 改成「已完成」1 段（次數不變）'), lines.join('\n'));
+  });
+});
+
+describe('底下那一顆數的是真的會寫的（10/16 審查）', () => {
+  // 要改的每一件這一次都改不成時（她看到的那一段剛在別的地方改過、二返簽不成…），以前那一顆照樣寫「改這 1 段」、按得下去，
+  // 按了什麼都沒發生（`save()` 看到一筆都不寫就安靜地回去）
+  const v16 = visit('v16', '2026-09-16', [sis('10:00', '11:00', 'confirmed')]);
+  const c = ctx([v16]);
+  const [item] = read([row('已取消', '2026-09-16', '10:00 - 11:00', 'SIS 60')], c);
+
+  test('改得成：改 1 段、沒有要講的', () => {
+    assert.deepEqual(recordBar([item], photoDayPlan([item], c)), { fresh: 0, changed: 1, stuck: 0, cannot: 0 });
+  });
+
+  test('她看到的那一段剛在別的地方改過：0 段、1 段改不成', () => {
+    const stale = { ...item, existing: { ...item.existing, status: 'pending_confirm' } };
+    const p = photoDayPlan([stale], c);
+    assert.equal(p.writes.length, 0);
+    assert.deepEqual(recordBar([stale], p), { fresh: 0, changed: 0, stuck: 0, cannot: 1 });
+    assert.match(recordBarSay(recordBar([stale], p)), /1 段這一次改不成/);
   });
 });
