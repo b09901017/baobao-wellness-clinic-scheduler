@@ -162,3 +162,25 @@ describe('底下那一顆數的是真的會寫的（10/16 審查）', () => {
     assert.match(recordBarSay(recordBar([stale], p)), /1 段這一次改不成/);
   });
 });
+
+describe('同一列一件改成了、一件沒改成（10/16 審查）', () => {
+  // 9/10 那一段：照片寫課程完成、治療師也不一樣。治療師那一格她看到之後在別的地方又改過（stale），狀態照改。
+  // 沒改成的那一件要記著是哪一格 —— 以前存完整列的勾都拿掉、那一列變回沒記，狀態那一行寫「不改」，其實已經改了
+  const v10 = visit('v10', '2026-09-10', [sis('10:00', '11:00', 'pending_confirm', { therapistId: 'staff-zn' })]);
+  const c = ctx([v10]);
+  const [item] = read([row('課程完成', '2026-09-10', '10:00 - 11:00', 'SIS 60', '騰崴')], c);
+
+  test('那一列兩件都要改、都預設勾', () => {
+    assert.deepEqual([item.statusChange?.to, item.adoptStatus, item.diffs?.[0]?.field, item.adopt], ['done', true, 'therapistId', true]);
+  });
+
+  test('治療師沒改成：missed 記著是 adopt 那一格；狀態照改', () => {
+    const seen = { ...item, diffs: item.diffs.map((d) => ({ ...d, app: 'staff-tw' })) };
+    const p = photoDayPlan([seen], c);
+    assert.deepEqual(p.missed.map((m) => [m.key, m.missedWhy, m.missedField]), [[item.key, 'stale', 'adopt']]);
+    assert.deepEqual(p.rows.map((r) => r.kind), ['status']);
+    const { lines } = changeLines([seen], p, c);
+    assert.match(lines.find((l) => l.field === 'adoptStatus').text, /（次數不變）/);
+    assert.match(lines.find((l) => l.field === 'adopt').text, /這一次改不成 —— 那一段剛在別的地方改過/);
+  });
+});

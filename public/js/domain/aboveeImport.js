@@ -1348,8 +1348,8 @@ function chargeSay(charge, slot) {
  */
 export function changeLines(items, plan, ctx) {
   const rowOf = (key, kind) => (plan?.rows ?? []).find((r) => r.key === key && r.kind === kind) ?? null;
-  const stuck = (key) => {
-    const m = (plan?.missed ?? []).find((x) => x.key === key);
+  const stuck = (key, field) => {
+    const m = (plan?.missed ?? []).find((x) => x.key === key && (!x.missedField || x.missedField === field));
     if (m?.missedWhy === 'closeBlocked') return m.closeBlock ? closeBlockSay(m.closeBlock) : '接的那一次健檢還沒做完';
     if (m?.missedWhy === 'stale') return '那一段剛在別的地方改過';
     if (m?.missedWhy === 'refused') return '那一段現在的狀態不准這樣改';
@@ -1359,15 +1359,18 @@ export function changeLines(items, plan, ctx) {
   const offWhy = (item) => (item.closeBlock ? closeBlockSay(item.closeBlock)
     : (item.moveWarnings ?? [])[0] ?? (item.partialHistory ? '這一位過去的來訪沒有讀到全部，次數拿不準'
       : pickedByHand(item) ? '人是你選的，確定再勾' : ''));
+  const FIELD_OF = { status: 'adoptStatus', move: 'adoptMove', adopt: 'adopt' };
+  const notNow = (item, kind) => {
+    const why = stuck(item.key, FIELD_OF[kind]);
+    return why ? `（這一次改不成 —— ${why}）` : '';
+  };
   const tail = (item, kind, on, slot) => {
     if (!on) {
       const why = offWhy(item);
       return `（不改${why ? ` —— ${why}` : ''}）`;
     }
     const row = rowOf(item.key, kind);
-    if (row) return chargeSay(row.charge, slot);
-    const why = stuck(item.key);
-    return why ? `（這一次改不成 —— ${why}）` : '';
+    return row ? chargeSay(row.charge, slot) : notNow(item, kind);
   };
 
   const lines = [];
@@ -1393,8 +1396,8 @@ export function changeLines(items, plan, ctx) {
       const said = item.diffs.map((d) => (d.app
         ? `${ASSIGN_LABEL[d.field]} ${assignName(d.field, d.app, ctx.master)} → ${assignName(d.field, d.abovee, ctx.master)}`
         : `${ASSIGN_LABEL[d.field]} ${assignName(d.field, d.abovee, ctx.master)}`)).join('、');
-      // 治療師與診間不動次數 —— 不寫括號（她：「不會動到次數的，就是寫的簡短」）
-      const off = item.adopt ? '' : '（不改）';
+      // 治療師與診間不動次數 —— 不寫括號（她：「不會動到次數的，就是寫的簡短」）；勾著卻改不成的講為什麼
+      const off = !item.adopt ? '（不改）' : plan && !rowOf(item.key, 'adopt') ? notNow(item, 'adopt') : '';
       if (item.diffs.every((d) => !d.app)) filling.push({ item, text: `${head}：${said}${off}` });
       else lines.push({ key: item.key, field: 'adopt', on: Boolean(item.adopt), text: `${head}：${said}${off}` });
     }
@@ -2434,7 +2437,10 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       const adopted = adoptAbovee(v, adopts);
       const status = applyPhotoStatus(adopted.visit, mine, { at, guard });
       const moved = applyPhotoMove(status.visit, mine, { at, guard });
-      missed.push(...adopted.missed.map((m) => ({ ...m, missedWhy: 'stale' })), ...status.missed, ...moved.missed);
+      // 記著沒改成的是哪一格（`missedField`）：同一列一件改成了、一件沒改成時，存完只拿掉那一個勾（10/16 審查）
+      const tag = (list, field) => list.map((m) => ({ ...m, missedField: field }));
+      missed.push(...tag(adopted.missed.map((m) => ({ ...m, missedWhy: 'stale' })), 'adopt'),
+        ...tag(status.missed, 'adoptStatus'), ...tag(moved.missed, 'adoptMove'));
       const lost = (from, key) => from.some((m) => m.key === key);
       const done = {};
       for (const i of adopts) if (!lost(adopted.missed, i.key)) (done[i.key] ??= []).push('adopt');

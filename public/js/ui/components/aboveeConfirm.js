@@ -1081,13 +1081,18 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // 沒改成的那幾列照理由講（`missedSay()`）—— 以前寫死「治療師／診間剛在別的裝置上改過」
     const why = missedSay(missed);
     const missedLine = (unsent.size ? `；${[...unsent].join('、')}沒記上，到壓表那一頁手動補` : '') + (why ? `；${why}` : '');
-    // 沒改成的那幾列：那一列不再寫「已經記進日曆了」，要改的那幾個勾拿掉（她看到的不是現在的值，不再送一次）
+    // 沒改成的那幾列：那一列不再寫「已經記進日曆了」，沒改成的那一個勾拿掉（她看到的不是現在的值，不再送一次）。
+    // **同一列一件改成了、一件沒改成**（`missedField`，10/16 審查）：改成的那一件是真的寫進去了 —— 那一列照樣算記好了，
+    // 只拿掉沒改成的那一個勾（以前整列的勾都拿掉、變回沒記，狀態那一行寫「不改」，其實已經改了）
     for (const i of missed) {
       const at = items.findIndex((x) => x.key === i.key);
-      savedKeys.delete(i.key);
-      if (at >= 0 && i.missedWhy !== 'invalid') {
-        items[at] = { ...items[at], adopt: false, diffs: i.missedWhy === 'stale' ? null : items[at].diffs, adoptStatus: false, adoptMove: false };
-      }
+      const partly = savedKeys.has(i.key) && Boolean(i.missedField);
+      if (!partly) savedKeys.delete(i.key);
+      if (at < 0 || i.missedWhy === 'invalid') continue;
+      const stale = i.missedWhy === 'stale' ? { diffs: null } : {};
+      items[at] = i.missedField
+        ? { ...items[at], [i.missedField]: false, ...(i.missedField === 'adopt' ? stale : {}) }
+        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false };
     }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);
