@@ -15,7 +15,7 @@
 
 import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
-  sameDayVisitFor, settle, slotMinutes, slotMinutesField, withExtraSlot,
+  sameDayVisitFor, settle, slotCancelReasonOf, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
 import { picksDoctor, canBeGift, GIFT_KINDS } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
@@ -214,7 +214,8 @@ export function withPlannedSlot(visit, slot, { at = new Date().toISOString() } =
  * 理由是那幾段自己的 —— 只有一段的那一天跟只取消一段時一樣，兩邊都有）。
  */
 function newVisitWith({ customerId, customerName }, date, slots, { at }) {
-  const reasons = [...new Set(slots.map((s) => s?.cancelReason).filter(Boolean))];
+  // 讀那一段的理由只走 `slotCancelReasonOf()`（CLAUDE.md「一段來訪身上那一句話」）
+  const reasons = [...new Set(slots.map((s) => slotCancelReasonOf({ status: INITIAL_STATUS, slots }, s)).filter(Boolean))];
   return settle({
     customerId,
     customerName,
