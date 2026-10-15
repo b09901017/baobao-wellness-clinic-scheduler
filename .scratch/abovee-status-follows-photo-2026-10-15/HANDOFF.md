@@ -1,6 +1,6 @@
 # 交接：拍 Abovee 照片上的預約狀態為準
 
-分支：`claude/abovee-status-follows-photo`（10/15 從 origin/develop `8ead80d` 開）。**10/16 推了，PR #157 → develop（還沒合）**。
+分支：`claude/abovee-status-follows-photo`（10/15 從 origin/develop `8ead80d` 開）。**PR #157 10/16 已合進 develop（`0bb92f5`，head `3614de4`）**；staging 自動部署了（run 38787955865，`sw.js` v193、最後一條修正在線上）。08 那一次 staging 的 Function 10/15 部署過、這一段沒改 `functions/`；**正式的 Function 與上 main 不在這一輪**。
 全貌與她的原話在 `spec.md`；每一支的細節在 `issues/`。流程照 `/kickoff`（`.claude/skills/kickoff/SKILL.md`）的第三、四段。
 
 ## 進度
@@ -13,7 +13,7 @@
 | 三 | 05 改期、06 一位一天一份計畫（驗證／確認框／寫入只算一次、存檔迴圈、確認框的句子） | xhigh | ✅ 10/15（05 `56988e1`、06 `e078695`＋修正 `e9bf82f`） |
 | 四 | 07 確認層「要改的」那一塊、E2E 68、改 41／51 與單元測試的預期 | high | ✅ 10/15（07 `9c9c451`、她回中途發現之後 5／12／14／15 見下一個 commit） |
 | 五 | 08 提示詞重考與部署 staging、09 文件與 ADR-0149、全量 E2E、開 PR | medium | ✅ 10/16（08 `fde4291`、09 `3e68de1`；**PR #157**；CI 全量 run 38768289145 三片全綠） |
-| 六 | `/matt-code-review`、照建議修、CI 綠了合進 develop | xhigh | 🟡 10/16 審查做完、修了 13 條；她回了五題、做完 1／2／4／5（見「段六：審查」）；CI 綠了就合 |
+| 六 | `/matt-code-review`、照建議修、CI 綠了合進 develop | xhigh | ✅ 10/16 審查修了 13 條＋她回的 1／2／4／5、E2E 68 S4～S6；CI 全量綠（run 38786391523）；**已合進 develop（`0bb92f5`）** |
 
 編號：ADR-0149、E2E spec 68、`sw.js` v193（**11 已經升到 v193 了** —— 同一支 PR，段四不用再升）。
 
