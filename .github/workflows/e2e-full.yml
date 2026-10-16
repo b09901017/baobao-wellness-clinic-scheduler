@@ -26,30 +26,38 @@ permissions:
 
 jobs:
   e2e-full:
-    # **CI 上開三台機器，一台跑三分之一。**
+    # **CI 上開六台機器，一台跑六分之一。**
     #
     # `workers: 1` 在本機還解不掉（見 `playwright.config.js` 的檔頭：真正的瓶頸
     # 是那一顆 Firestore 模擬器與每個測試都重載一次 Firebase SDK），但 CI 上
-    # 不需要解那個問題 —— 三個 job 是三台各自獨立的機器，各有自己的模擬器，
+    # 不需要解那個問題 —— 每個 job 是一台各自獨立的機器，各有自己的模擬器，
     # 所以 `workers` 一個字都不用動。
     #
+    # **為什麼是六**（2026-10-16，.scratch/e2e-speed/issues/09）：9/9 開三台時全套 193 條、
+    # 8 分鐘；10/15 長到 504 條，三台要 13～14 分鐘（每一條其實變快了，是條數翻了 2.6 倍）。
+    # 拿 10/15 那一次每一支的秒數算：四台 10.6、五台 9.6、六台 8.5 分鐘（三台算出來 12.8，
+    # 跟實際對得上）。每多一台只多付約 70 秒的開機（setup 45 秒＋模擬器 25 秒），
+    # 而 repo 是 public，機器時間不收錢。地板是「開機＋最大那一支 spec（`25` 約 74 秒）」，
+    # 還遠。要再加之前先看最慢那一台是不是別人的兩倍 —— 是的話加台沒用，要拆那支肥的。
+    #
     # 切法是 Playwright 內建的 `--shard=i/N`，**照測試數量切**（`fullyParallel: false`
-    # 之下實際是照檔案切）。193 支切出來是 70／60／63，**加起來要等於 193**——
-    # 某一份寫錯參數而跑了 0 支的話三個 job 照樣全綠，**這是這件事唯一會靜默
+    # 之下實際是照檔案切）。505 條切出來是 85／102／70／84／82／82，**加起來要等於全部**——
+    # 某一份寫錯參數而跑了 0 支的話每個 job 照樣全綠，**這是這件事唯一會靜默
     # 出錯的地方**。要驗的話本機就問得到，不用等 CI：
     #
-    #     for i in 1 2 3; do npx playwright test --project=phone --shard=$i/3 --list | tail -1; done
+    #     for i in 1 2 3 4 5 6; do npx playwright test --project=phone --shard=$i/6 --list | tail -1; done
     #
-    # 三份不會一樣長（`07-chaos` 一支就佔全套 13%），先接受不平均。
+    # 不會一樣長：第一份永遠最重（00～10 是最早那幾支整條動線的，每一條都長），先接受不平均。
+    # 改台數要改三個地方：`shard` 那一排、`name`、跑的那一行的 `/6`。
     strategy:
-      # **不要漏。** 沒有它，第一份紅掉時另外兩份會被取消，
+      # **不要漏。** 沒有它，第一份紅掉時另外幾份會被取消，
       # 而你會誤以為問題只有一個。
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    name: 全量 E2E (${{ matrix.shard }}/3)
+        shard: [1, 2, 3, 4, 5, 6]
+    name: 全量 E2E (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
-    # 本機全量 21.5 分鐘，三份之後一份估 8~10 分鐘；CI 這台機器核心少，留兩倍餘裕。
+    # 一份估 6～8 分鐘；留三倍餘裕（CI 的機器偶爾慢一倍）。
     # 沒有這一行的話卡住會吃滿 GitHub 預設的 6 小時。
     timeout-minutes: 25
     steps:
@@ -68,7 +76,7 @@ jobs:
       # 拍照辨識那一支 Function 的套件（ADR-0100）。它有自己的 package.json，根目錄的 `npm ci` 裝不到
       - run: npm --prefix functions ci
 
-      - name: 全量端對端（第 ${{ matrix.shard }} 份，共 3 份）
+      - name: 全量端對端（第 ${{ matrix.shard }} 份，共 6 份）
         env:
           CI: '1'
         # 用 `npm ci` 裝好的那一支 firebase-tools（devDependency 的 ^15），
@@ -84,7 +92,7 @@ jobs:
           npx firebase emulators:exec \
             --project demo-scheduler \
             --only auth,firestore,functions,hosting,storage \
-            "npx playwright test --project=phone --shard=${{ matrix.shard }}/3"
+            "npx playwright test --project=phone --shard=${{ matrix.shard }}/6"
 
       # **失敗才留。** trace 裡有每一步的畫面、DOM、console 與網路，
       # 下載回來 `npx playwright show-trace` 就能一步一步倒帶。
