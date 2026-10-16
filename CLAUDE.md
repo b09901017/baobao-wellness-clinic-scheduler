@@ -44,9 +44,11 @@ staging 上被點過 —— 只有急件這樣做。
 
 ## 測試怎麼跑
 
-日常驗收 `npm run verify`（單元測試 ＋ 這次改動相關的那幾支 E2E）。**不要每次全跑 E2E** —— 無頭 24 分鐘、headed 25 分鐘，而她在等。全量交給 CI 與上線前。
+日常驗收 `npm run verify`（單元測試 ＋ 這次改動相關的那幾支 E2E）。**不要每次全跑 E2E** —— 本機 10/14 量的是 47 支就 34 分鐘，而她在等、電腦會熱。全量交給 CI（`gh workflow run e2e-full.yml --ref <分支>`，六台）與上線前。
 
-哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去（`tests/e2e-related.test.js` 盯著）。認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。
+「這次改動」是**上一次 verify 全綠之後動過的**，而且只跑跟 develop 也不一樣的那幾支（`scripts/e2e-changes.mjs`，2026-10-16 以前是整條分支，一輪後段每次都幾乎全跑）。要整條分支重驗一次：`node scripts/e2e.mjs --related --base develop`。
+
+哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去、**新增一個被追蹤的檔案也要**（`tests/e2e-related.test.js` 盯著；只被別人 import 的進 `FOLLOWS`）。`pick()` 認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。
 
 E2E 的 app 是模擬器 hosting（`127.0.0.1:5000`）在服務的，而**它服務的是啟動它的那個目錄的 `public/`**，跑完不會自己關，E2E 也不會幫你開。所以換一個 worktree 跑之前要先依 port 停掉殘留的那一組，再從**這一組自己的目錄**起 —— 不然測到的是別的分支的程式碼，而症狀是「明明改好了卻還是紅」。
 
