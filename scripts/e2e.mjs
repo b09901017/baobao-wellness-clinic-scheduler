@@ -5,18 +5,24 @@
 // 「'HEADLESS' 不是內部或外部命令」）。所以由 node 來 spawn。
 //
 //   node scripts/e2e.mjs                 全部，無頭
-//   node scripts/e2e.mjs --related       只跑跟 develop 的差異相關的那幾支
-//   node scripts/e2e.mjs --related --base HEAD~1
+//   node scripts/e2e.mjs --related       只跑上一次全綠之後動過、而且跟 develop 不一樣的那幾支
+//   node scripts/e2e.mjs --related --base develop   整條分支重驗一次（不看上一次全綠）
 //   node scripts/e2e.mjs --smoke         只跑 00-smoke
 //   node scripts/e2e.mjs --watch         headed + slowMo（要親眼看的時候）
 //   node scripts/e2e.mjs 05 20           自己指定（Playwright 的檔名 filter）
 //   node scripts/e2e.mjs --related --dry 只印出會跑哪幾支，不真的跑
 //
+// 「上一次全綠」怎麼記、為什麼可以只看那之後動過的，見 `scripts/e2e-changes.mjs` 的檔頭。
+//
 // **模擬器要先跑起來**（`npm run emulators`），這支不會幫你開。
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 import { pick } from '../tests-e2e/related.js';
+import {
+  changedFiles, combine, filesBetween, greenSide, readStamp, recordsGreen, repoRoot, snapshotTree, stampTime,
+  writeStamp,
+} from './e2e-changes.mjs';
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
@@ -29,7 +35,8 @@ const WATCH = has('--watch');
 const DRY = has('--dry');
 const RELATED = has('--related');
 const SMOKE = has('--smoke');
-const BASE = valueOf('--base', 'develop');
+const EXPLICIT_BASE = has('--base') ? valueOf('--base', null) : null;
+const BASE = EXPLICIT_BASE ?? 'develop';
 
 /** 把 flag 與它們的值剝掉，剩下的當成 Playwright 的 filter。 */
 const passthrough = (() => {
@@ -43,38 +50,36 @@ const passthrough = (() => {
   return out;
 })();
 
-/** 跟 base 比出來的變更檔案清單。base 不存在時退回「跟上一個 commit 比」。 */
-function changedFiles(base) {
-  // **`-c core.quotepath=false` 一定要帶。** 預設 git 會把非 ASCII 的路徑
-  // 轉成 `"docs/\345\270\270..."` 那種八進位跳脫，而這個 repo 的 `docs/`
-  // 底下幾乎都是中文檔名 —— 對不上任何一條規則，於是每次都退回全跑，
-  // 而畫面上只會寫「沒有登記在 related.js」，看起來像對照表漏了。
-  const tryDiff = (args) => {
-    const r = spawnSync('git', ['-c', 'core.quotepath=false', ...args], { encoding: 'utf8' });
-    return r.status === 0 ? r.stdout.split('\n').filter(Boolean) : null;
-  };
-  const known = spawnSync('git', ['rev-parse', '--verify', '--quiet', base], { encoding: 'utf8' });
-  const ref = known.status === 0 ? base : 'HEAD~1';
-  if (ref !== base) {
-    console.log(`⚠  找不到 ${base}，改跟 ${ref} 比。`);
-  }
-  // 已 commit 的 + 還沒 commit 的（工作區）都算 —— 只看 commit 的話
-  // 剛改完還沒 commit 的那幾個檔案不會被挑到，而那正是日常最常見的狀態。
-  const committed = tryDiff(['diff', '--name-only', `${ref}...HEAD`]) ?? [];
-  const working = tryDiff(['diff', '--name-only', 'HEAD']) ?? [];
-  const untracked = tryDiff(['ls-files', '--others', '--exclude-standard']) ?? [];
-  return [...new Set([...committed, ...working, ...untracked])];
-}
+const ROOT = repoRoot();
+
+const STAMPS = recordsGreen({ related: RELATED, smoke: SMOKE, named: passthrough });
+// 現在的工作區，**跑之前**拍。跑到一半才改的檔案不算在這一次裡，下一次會被挑到。
+const tree = STAMPS ? snapshotTree(ROOT) : null;
 
 let filters = passthrough;
 
 if (SMOKE) {
   filters = ['00-smoke'];
 } else if (RELATED) {
-  const files = changedFiles(BASE);
-  const { specs, all, rules, why } = pick(files);
+  const { ref, files } = changedFiles(BASE, ROOT);
+  if (ref !== BASE) console.log(`⚠  找不到 ${BASE}，改跟 ${ref} 比。`);
+  const base = pick(files);
 
-  console.log(`\n跟 ${BASE} 相比動了 ${files.length} 個檔案。`);
+  const stamp = EXPLICIT_BASE ? null : readStamp(ROOT);
+  const sinceGreen = stamp && tree ? filesBetween(ROOT, stamp.tree, tree) : null;
+  const side = greenSide({ explicitBase: EXPLICIT_BASE, stamp, sinceGreen });
+  const green = side.files ? pick(side.files) : null;
+  const { specs, all, why } = combine(base, green);
+  const { rules } = base;
+
+  const count = (r) => (r.all ? '全部' : `${r.specs.length} 支`);
+  console.log(`\n跟 ${ref} 相比動了 ${files.length} 個檔案 → ${count(base)}。`);
+  if (green) {
+    console.log(`上一次全綠（${stampTime(stamp.at)}）之後動了 ${side.files.length} 個檔案 → ${count(green)}。`);
+    console.log('兩邊都要跑的才跑。');
+  } else {
+    console.log(`（${side.note}）`);
+  }
   for (const line of why) console.log(`   ${line}`);
 
   if (all) {
@@ -97,7 +102,9 @@ if (DRY) {
   process.exit(0);
 }
 
-const args = ['playwright', 'test', '--project=phone', ...filters];
+// `--forbid-only`：要記「全綠」的那一次，誰留了一個 `test.only` 就只跑了那一條 ——
+// 綠的，而且記下來之後下一次就不會再跑其他的。讓它大聲地紅。
+const args = ['playwright', 'test', '--project=phone', ...(STAMPS ? ['--forbid-only'] : []), ...filters];
 const env = { ...process.env };
 if (WATCH) delete env.HEADLESS; else env.HEADLESS = '1';
 
@@ -106,4 +113,10 @@ const child = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', args, {
   env,
   shell: process.platform === 'win32',
 });
-child.on('exit', (code) => process.exit(code ?? 1));
+child.on('exit', (code) => {
+  if (code === 0 && STAMPS && tree) {
+    writeStamp(ROOT, { tree, at: new Date().toISOString(), ran: filters.length ? filters : 'all' });
+    console.log('\n✓ 記下這一次全綠：下一次 --related 只看這之後動過的檔案。');
+  }
+  process.exit(code ?? 1);
+});
