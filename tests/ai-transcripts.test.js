@@ -178,6 +178,14 @@ describe('Function 回傳前照格式重組', () => {
     assert.match(promptFor('aboveeList'), /預約日期\(起\)/);
   });
 
+  // abovee-status-follows-photo/08（ADR-0149）：只舉三種時字小的「待確認」容易被抄成「確認前往」。
+  // 提示詞只在 functions/ 這一份（public/ 那一份只有欄位形狀），所以不比兩份
+  test('Abovee 的提示詞把六種預約狀態都列出來，照 Abovee 畫面上的順序', () => {
+    const p = promptFor('aboveeList');
+    const six = ['待確認', '聯繫中', '確認前往', '已取消', '客戶失約', '課程完成'];
+    assert.ok(p.includes(six.map((s) => `「${s}」`).join('')), '六種沒有照順序列在同一句');
+  });
+
   test('Abovee 列裡有一格是 null → 換成空字串，不是被濾掉（濾掉一樣會錯位）', () => {
     const out = sanitize('aboveeList', {
       readable: true, unreadable: [], columns: ['姓名', '病歷號', '課程'], rows: [['王小明', null, 'SIS 60'], 'x'],

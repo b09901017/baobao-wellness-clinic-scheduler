@@ -36,13 +36,13 @@ const r = (time, course, room, resource) => ['確認前往', '2026-09-10', time,
 const read = (rows, c) => readAbovee([{ columns: COLS, rows }], c).items;
 
 describe('寫出不一樣', () => {
-  test('app 上 10:00 SIS 治療師騰崴、照片上寫小芳 → 已經記了、那一行、要你看、還沒按', () => {
+  test('app 上 10:00 SIS 治療師騰崴、照片上寫小芳 → 已經記了、那一行、預設勾、不在要你看（07：在「要改的」那一塊）', () => {
     const c = ctx([sis()]);
     const [item] = read([r('10:00 - 11:15', 'SIS 60', '', '陳小芳')], c);
     assert.equal(item.kind, 'recorded');
     assert.deepEqual(item.diffs, [{ field: 'therapistId', app: 'staff-tw', abovee: 's-fang' }]);
     assert.equal(diffSay(item.diffs[0], c.master), '治療師：app 是 騰崴、Abovee 是 小芳');
-    assert.deepEqual([item.adopt, item.locked, needsAttention(item)], [false, false, true]);
+    assert.deepEqual([item.adopt, item.locked, needsAttention(item)], [true, false, false]);
   });
 
   test('ILIB 那一段比診間、不比治療師；app 上還沒選的講「還沒選」', () => {

@@ -9,9 +9,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { COVERAGE, CORE, GLOBAL, pick } from '../tests-e2e/related.js';
+import { COVERAGE, CORE, FOLLOWS, GLOBAL, pick } from '../tests-e2e/related.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SPEC_DIR = new URL('../tests-e2e/specs/', import.meta.url);
@@ -99,5 +100,40 @@ test('「今天做了什麼」的分段與抄字格式那一份有登記，不�
   for (const file of ['public/js/domain/dayReview.js', 'public/js/domain/transcripts.js']) {
     const r = pick([file]);
     assert.equal(r.all, false, r.why.join('、'));
+  }
+});
+
+// 2026-10-16：`data/audit.js`、`data/batches.js`、`data/events.js`、`domain/lineText.js`、`public/icons/`
+// 一直沒登記，改一行就全跑 69 支 —— 而 `pick()` 退回全跑只在那一次 verify 的畫面上講一句，
+// 沒有任何測試紅。所以改成在這裡紅：**被追蹤的每一個檔案都要認得出來**。
+test('被追蹤的每一個檔案都認得出來（不會因為沒登記而退回全跑）', () => {
+  const tracked = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n').map((s) => s.trim()).filter(Boolean);
+  const unknown = tracked.filter((f) => pick([f]).why.some((w) => w.includes('沒有登記')));
+  assert.deepEqual(
+    unknown, [],
+    `這幾個檔案沒有登記在 tests-e2e/related.js，改到就會全跑：\n  ${unknown.join('\n  ')}\n`
+    + '有畫面的加進那幾支 spec 的 COVERAGE；只被別人 import 的加進 FOLLOWS（跟著 import 它的人走）；'
+    + '摸不到 app 的加進 IGNORED。',
+  );
+});
+
+test('FOLLOWS 兩邊的路徑都在，而且每一條都挑得到至少一支（不是只剩 CORE、也不是全跑）', () => {
+  const at = (p) => existsSync(new URL(p, `file://${ROOT.replace(/\\/g, '/')}`));
+  const bad = [];
+  for (const [src, targets] of Object.entries(FOLLOWS)) {
+    if (!at(src)) bad.push(`${src} 不存在`);
+    for (const t of targets) if (!at(t)) bad.push(`${src} → ${t} 不存在`);
+    const sample = src.endsWith('/') ? `${src}x.png` : src;
+    const r = pick([sample]);
+    if (r.all || r.specs.length <= CORE.length) bad.push(`${src} 挑到的是 ${r.all ? '全部' : r.specs.join('、')}`);
+  }
+  assert.deepEqual(bad, [], bad.join('\n'));
+});
+
+test('跟著別人走的檔案：挑到的就是 import 它的那幾頁的 spec', () => {
+  const events = pick(['public/js/data/events.js']).specs;
+  for (const page of FOLLOWS['public/js/data/events.js']) {
+    for (const s of pick([page]).specs) assert.ok(events.includes(s), `${page} 的 ${s} 沒有被 data/events.js 挑到`);
   }
 });

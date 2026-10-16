@@ -348,3 +348,51 @@ test('S6 鉛筆開的那一張沒有整天的狀態卡與刪除', async ({ app, 
   await expect(page.locator('[data-status]'), '整天的狀態卡不在了').toHaveCount(0);
   await expect(page.locator('[data-delete]'), '刪除這一天沒有路了').toHaveCount(0);
 });
+
+// ---------- 每一段自己的取消理由（abovee-status-follows-photo-2026-10-15/11） ----------
+//
+// 她 10/15：「每一段自己的取消理由，可以就像記的話那樣，如果取消的話，就可以顯示取消理由，
+// 整天取消就先不用顯示沒關係」。以前那一天還有別段活著時，她打的那一句一個字都沒存。
+
+test('S7 只取消其中一段、打了理由：記在那一段上，讀取卡片看得到（目錄那一列、點進那一段）', async ({ app, page }) => {
+  await app.seed(seedTwoCourses());
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${DAY}"]`).first().click();
+  await app.layer('[data-open="visit:v-two:1"]');
+
+  const row = page.locator('[data-open="visit:v-two:1"]').first();
+  await row.scrollIntoViewIfNeeded();
+  const box = await row.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+
+  await page.locator('.actionrow', { hasText: '取消這一段' }).click();
+  await expect(app.dialog()).toBeVisible();
+  await page.locator('[data-dialog-field]').fill('客人要改時間');
+  await app.ok();
+  await app.saved();
+
+  const v = await app.readDoc('visits', 'v-two');
+  expect(v.slots[1].status).toBe('cancelled');
+  expect(v.slots[1].cancelReason, '那一句記在那一段上').toBe('客人要改時間');
+  expect(v.slots[0].cancelReason ?? null, '另一段沒有').toBeNull();
+  expect(v.cancelReason ?? null, '那一天還有別段活著 —— 不是整天取消').toBeNull();
+
+  // 客戶詳情的來訪紀錄 → 目錄那一張：取消的那一列看得到，另一段沒有
+  await app.go('/customers/cust-x');
+  await page.locator('[data-toggle-visits]').click();
+  await page.locator('button.row-link[data-visit="v-two"]').click();
+  await app.layer('.popcard');
+  const rows = page.locator('.popcard .readslot');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1).locator('[data-cancel-why]')).toHaveText('取消理由：客人要改時間');
+  await expect(rows.nth(0).locator('[data-cancel-why]'), '沒取消的那一段不畫').toHaveCount(0);
+
+  // 點那一段 → 底下那一列「取消理由」，跟「記的話」同一種樣子
+  await page.locator('.popcard .readslot[data-open]').nth(1).click();
+  await app.layer('.popcard');
+  await expect(page.locator('.popcard .readslot')).toHaveCount(1);
+  await expect(page.locator('.popcard .readrow', { hasText: '取消理由' })).toContainText('客人要改時間');
+});

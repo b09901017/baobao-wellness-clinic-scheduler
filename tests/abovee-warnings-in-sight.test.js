@@ -280,12 +280,16 @@ describe('aboveeConfirm.js：收著的列與確認框', () => {
     assert.ok(hintAt > 0 && hintAt < detailAt, '那一行畫在展開那一塊之前（收著也在）');
   });
 
-  test('句子不是在畫面裡另外寫的：plan() 走 warningDetails() 與 warningsByRow()', () => {
+  test('句子不是在畫面裡另外寫的：plan() 走 photoDayPlan()，那一支走 warningDetails() 與 warningsByRow()', () => {
+    // 2026-10-15（abovee-status-follows-photo 06）：驗證、確認框、寫入三邊讀同一份計畫 —— 提醒搬進 domain
     const plan = src.slice(src.indexOf('function plan()'), src.indexOf('const absentNow'));
-    assert.ok(plan.includes('warningDetails('));
-    assert.ok(plan.includes('warningsByRow('));
-    assert.ok(plan.includes('mustSee'));
-    assert.ok(!/startsWith\('這一段'\)/.test(plan), '歸到哪一列照段落的位置，不比字');
+    assert.ok(plan.includes('photoDayPlan('));
+    const domain = readFileSync(new URL('../public/js/domain/aboveeImport.js', import.meta.url), 'utf8');
+    const body = domain.slice(domain.indexOf('export function photoDayPlan('), domain.indexOf('export const pressedDays'));
+    assert.ok(body.includes('warningDetails('));
+    assert.ok(body.includes('warningsByRow('));
+    assert.ok(body.includes('mustSee'));
+    assert.ok(!/startsWith\('這一段'\)/.test(body), '歸到哪一列照段落的位置，不比字');
   });
 
   test('確認框拿到的是這一次真的要寫的那幾列的提醒（flagged）', () => {

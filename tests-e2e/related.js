@@ -59,6 +59,8 @@ export const IGNORED = [
   // 模擬器的每一條指令都自己帶 `demo-` 專案（`tests/deploy-config.test.js` 盯著），
   // 所以預設專案與「哪些檔案不進版控」都摸不到 E2E
   '.firebaserc', '.gitignore',
+  // 換行符（checkout 出來的樣子）與 skill 的版本鎖，app 一個字都不讀
+  '.gitattributes', 'skills-lock.json',
 ];
 
 /**
@@ -545,9 +547,48 @@ export const COVERAGE = {
     'public/js/domain/calendar.js', 'public/js/ui/views/schedule.js', 'public/js/ui/components/giftFold.js',
     'public/css/',
   ],
+  // 拍 Abovee 照片上的預約狀態為準（.scratch/abovee-status-follows-photo-2026-10-15）：六種狀態、「要改的」那一塊、
+  // 一位一天一份計畫寫進去的狀態與次數、「取消 Abovee」一出生就勾好
+  '68-abovee-status-follows-photo': [
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/consequences.js',
+    'public/js/domain/visits.js', 'public/js/domain/slotDraft.js', 'public/js/domain/taskRules.js',
+    'public/js/data/visits.js', 'public/js/domain/entitlements.js', 'tests-e2e/fixtures/ai/aboveeList-status.json',
+    'public/css/',
+  ],
+};
+
+/**
+ * **自己沒有畫面、只被別的檔案 import 的那幾支：跟著 import 它的人走。**
+ *
+ * 判準跟 `COVERAGE` 一樣（「它壞了，哪一支會紅？」），而答案就是「用到它的那幾頁會紅」——
+ * 把它一支一支抄進二三十份名單裡，下一次有人新增一個 import 它的畫面就會漏一份。
+ * 所以只寫「它跟著誰」，挑到的是**任何一份名單上有那幾個檔案**的 spec。
+ *
+ * 2026-10-16 以前這幾支沒登記，改到就退回全跑（`data/events.js` 一改就是 69 支）。
+ * 右邊每一條都要至少挑得到一支（`tests/e2e-related.test.js` 盯著）。
+ */
+export const FOLLOWS = {
+  'public/js/data/audit.js': [
+    'public/js/domain/dayReview.js', 'public/js/ui/views/audit.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
+  ],
+  'public/js/data/batches.js': ['public/js/ui/views/schedule.js', 'public/js/ui/components/aboveeConfirm.js'],
+  'public/js/data/events.js': [
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/eventEditor.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/trash.js',
+  ],
+  'public/js/domain/lineText.js': ['public/js/ui/views/playbook.js'],
+  // 圖示只在兩個地方被讀：`manifest.webmanifest`（裝到主畫面）與 `index.html` 的 `<link rel="icon">`。
+  // 後者是共用底座，但它載不到圖示的症狀是一句 console error —— `00-smoke`（CORE）本來就在抓那個
+  'public/icons/': ['public/manifest.webmanifest'],
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
+
+/** 名單上有這個檔案的那幾支。 */
+const coveredBy = (file) => Object.entries(COVERAGE)
+  .filter(([, paths]) => hits(file, paths))
+  .map(([spec]) => spec);
 
 /**
  * 改了這些檔案，要跑哪幾支。
@@ -585,12 +626,12 @@ export function pick(files = []) {
     if (own) { specs.add(own[1]); continue; }
 
     // Rules 的測試、start-emulators 之類的，不影響 app 行為。
+    // （`project-id.mjs` 只有 start-emulators.sh 讀；它算錯的話每一支都紅在 `sameNamespace()`，很大聲）
     if (file.startsWith('tests-e2e/rules/') || file.startsWith('tests-e2e/start-emulators')
-      || file === 'tests-e2e/related.js') continue;
+      || file === 'tests-e2e/project-id.mjs' || file === 'tests-e2e/related.js') continue;
 
-    const matched = Object.entries(COVERAGE)
-      .filter(([, paths]) => hits(file, paths))
-      .map(([spec]) => spec);
+    const follows = Object.entries(FOLLOWS).find(([src]) => hits(file, [src]))?.[1] ?? [];
+    const matched = [...new Set([file, ...follows].flatMap(coveredBy))];
 
     if (matched.length) { for (const s of matched) specs.add(s); continue; }
 

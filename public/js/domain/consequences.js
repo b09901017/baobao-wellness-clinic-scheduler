@@ -26,7 +26,7 @@
 
 import {
   bookingSystemOf, isCancelKind, cancelTasksFor, cancelsBooking,
-  newRegistrations,
+  newRegistrations, syncTasksForVisit, TASK_KINDS, cancelKindFor,
 } from './taskRules.js';
 import {
   shortStatus, INITIAL_STATUS, formSlotIndexes, isLiveSlot,
@@ -37,6 +37,7 @@ import {
   examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
+import { chargesEntitlement } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
 import { giftKindOf, giftLabel } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
@@ -331,7 +332,8 @@ export function strandedOnNewExamLines({
 }) {
   const examIds = examEntitlementIds(entitlements, coursesById);
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
-  if (!fresh.some((i) => isLiveSlot(visit?.slots?.[i]) && examIds.has(visit.slots[i].entitlementId))) return [];
+  // 新的健檢記成未到、已取消（拍 Abovee 照照片的狀態記，abovee-status-follows-photo 06）接不上 —— 不講「要接到這一次」
+  if (!fresh.some((i) => PICKABLE_EXAM.has(slotStatus(visit, visit?.slots?.[i])) && examIds.has(visit.slots[i].entitlementId))) return [];
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
   return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, slotIndex, exam, status }) => {
@@ -348,6 +350,16 @@ export function strandedOnNewExamLines({
 /** 拍 Abovee 那一道最多列幾句提醒。再多她也不會逐句讀 —— 剩下的指回那幾列。 */
 const FLAGGED_MAX = 6;
 
+/** 「（扣 N 次）」「（還 N 次）」—— 拿 `photoDayPlan()` 的 `rows` 加起來（`counts()` 同一個定義）。0 就不講。 */
+const timesSay = (n) => (n > 0 ? `（扣 ${n} 次）` : n < 0 ? `（還 ${-n} 次）` : '');
+const sumCharge = (rows) => rows.reduce((sum, r) => sum + (r.charge ?? 0), 0);
+
+/**
+ * 拍 Abovee 改既有那一段的次數括號（確認框與「要改的」那一塊同一支，10/16 審查：以前一邊寫「次數不變」、一邊寫「本來就不扣次數」）。
+ * `free`：那幾段本來就沒扣任何一筆額度（送的／體驗、n返）。
+ */
+export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charge) || (free ? '（本來就不扣次數）' : '（次數不變）');
+
 /**
  * 拍 Abovee 存檔前那一道確認（ADR-0104 第 2 點：十幾段只問一次，一次講完）。
  *
@@ -357,37 +369,84 @@ const FLAGGED_MAX = 6;
  * 會多哪幾張借 `registrationsWhenSettled()`、併進談定那一天借 `settledDayLine()`、那一天已經結案借 `closedDayLine()`
  *（`.scratch/asks-2026-09-24-evening/issues/07`）。
  *
+ * **讀 `aboveeImport.js` 的 `photoDayPlan()`**（abovee-status-follows-photo 06）：驗證、這一道、真的寫入三邊同一份計畫 ——
+ * 照片上的狀態（03）、改狀態（04）、改期（05）、「取消 Abovee」一出生就勾好（02）都在裡面。句子**只講真的會發生的**（ADR-0070）：
+ * 「每一段都記成待確認」只在真的每一段都是時講；「會出現在確認時間／簽療程單」「之後會多一張 Examine」只數新的、待確認的段；
+ * 次數那幾個括號是 `rows` 的 `charge` 加起來（`counts()` 一段一段的差）—— **加總＝存完之後每一筆額度前後的差**。
+ * 沒有 `plan` 的呼叫（`groups`／`adopts`，只剩測試在用）先換成同一種形狀（`planOfGroups()`）再往下走 ——
+ * **底下只有一條路**（10/16 審查：以前兩條路各數一次次數，畫面走的那一條跟測試走的那一條不一樣，lessons 一）。
+ *
  * **合起來講**，不是一組一段 —— 十幾段各講三句她會閉著眼睛按。掛號照種類合計。
  *
  * @param {object} o
- * @param {{customerId: string, customerName: string, date: string, visit: object,
- *          items: object[], reopened: boolean}[]} o.groups `planAbovee()` 的那幾組（還沒記的）
+ * @param {object|null} [o.plan] 這一次要記的那一份計畫（`photoDayPlan()`）
+ * @param {object[]} [o.groups] 沒有 `plan` 時：`planAbovee()` 的那幾組（還沒記的）
+ * @param {object[]} [o.adopts] 沒有 `plan` 時：按了「改成 Abovee 的」的那幾列
  * @param {Record<string, object>} o.coursesById
  * @param {string|null} o.today
- * @param {Record<string, object[]>} [o.tasksByVisit] 併進既有那一天的那幾筆身上現有的任務（`listByVisitForSync()`）——
+ * @param {Record<string, object[]>} [o.tasksByVisit] 會改到的既有那幾筆身上現有的任務（`listByVisitForSync()`）——
  *   沒帶 `slotIndexes` 的舊任務蓋住整天，少了它會講一張不會長的「會再多一張 X」（ADR-0070）
+ * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
+ *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**（中途長出來的存完收掉，`chainLeftovers()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
- *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`aboveeImport.js` 的 `warningsByRow()` 的 `mustSee`）。
+ *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`photoDayPlan()` 的 `mustSeeBy`）。
  *   每一列預設收著、預設打勾，這一道是她一定會經過的地方（ADR-0138）。句子是 `validateVisit()` 那幾句，這裡不重寫
  * @param {Record<string, object[]>} [o.entitlementsBy] 每一位的額度、`visitsBy` 每一位的全部來訪 —— 存一段新的健檢時，
- *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`）；沒給就不講
+ *   還接在取消／未到的健檢上的二返要講（`strandedOnNewExamLines()`）；沒給就不講。有 `plan` 時來訪讀 `plan.after`
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  groups = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
-  entitlementsBy = {}, visitsBy = {},
+  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  entitlementsBy = {}, visitsBy = {}, chainBy = {},
 }) {
+  const p = plan ?? planOfGroups(given, adopts, visitsBy);
+  const writes = p.writes;
+  const groups = writes.filter((w) => w.adds).map((w) => ({ ...w.adds, visit: w.visit }));
+  const rows = p.rows ?? [];
+  const changes = rows.filter((r) => r.kind !== 'new');
+  const adopted = rows.filter((r) => r.kind === 'adopt');
+  const changedKeys = new Set(changes.map((r) => r.key)).size;
+  const reshaped = changes.some((r) => r.kind === 'status' || r.kind === 'move');
+
   const n = groups.reduce((sum, g) => sum + (g.items?.length ?? 0), 0);
   const people = new Set(groups.map((g) => g.customerId)).size;
-  const ahead = groups.filter((g) => !pastDay(g.visit, today));
-  const past = groups.length - ahead.length;
+  // 新的段記成什麼（03）
+  const fresh = groups.flatMap((g) => addedIn(g).map((i) => ({ g, i, status: slotStatus(g.visit, g.visit?.slots?.[i]) })));
+  const allPending = fresh.every((s) => s.status === INITIAL_STATUS);
+  // 照片上那幾段待確認寫的是哪幾個字（「確認前往」「聯繫中」「待確認」）—— 以前寫死「確認前往」，照片上寫聯繫中的也被說成確認前往。
+  // 讀不出來、還沒到就寫完成那幾種記成待確認的不算（那不是 Abovee 上的待確認）；沒有預約狀態那一欄的舊呼叫照舊講「確認前往」
+  const itemAt = (g, i) => (g.items ?? []).find((it) => g.at?.[it.key] === i) ?? null;
+  const pendingItems = fresh.filter((x) => x.status === INITIAL_STATUS).map(({ g, i }) => itemAt(g, i)).filter(Boolean);
+  const words = [...new Set(pendingItems.filter((it) => it.photoStatus === INITIAL_STATUS && !it.statusUnread && it.statusText)
+    .map((it) => String(it.statusText).trim()))];
+  const sawStatus = pendingItems.some((it) => it.photoStatus);
+  const notAsked = words.length ? `Abovee 上寫的${words.map((w) => `「${w}」`).join('、')}不等於問過客人`
+    : sawStatus ? '還沒問過客人' : 'Abovee 上寫的「確認前往」不等於問過客人';
+  const lines = n ? [`${people} 位・${groups.length} 天・${n} 段`] : [];
+  if (n && allPending && !reshaped) {
+    lines.push(`每一段都記成「待確認」—— ${notAsked}`);
+  } else if (n) {
+    const charged = sumCharge(rows.filter((r) => r.kind === 'new'));
+    const parts = ['done', 'no_show', 'cancelled', INITIAL_STATUS]
+      .map((s) => [s, fresh.filter((x) => x.status === s).length]).filter(([, k]) => k)
+      .map(([s, k]) => `「${shortStatus(s)}」${k} 段`);
+    lines.push(`新的 ${n} 段照 Abovee 記：${parts.join('、')}${timesSay(charged) || '（不扣次數）'}`);
+    const waiting = fresh.filter((x) => x.status === INITIAL_STATUS).length;
+    if (waiting) lines.push(`「${shortStatus(INITIAL_STATUS)}」的 ${waiting} 段 —— ${notAsked}`);
+  }
+  // 照片要改既有的段（04、05）：一種一句，括號是那幾段讓次數差幾次
+  for (const to of ['done', 'no_show', 'cancelled']) {
+    const list = changes.filter((r) => r.kind === 'status' && r.to === to);
+    // 次數不變也寫出來（「要改的」那一塊那一行同一句，`changeLines()`）—— 她最在意的就是這一格
+    if (list.length) lines.push(`照 Abovee 改成「${shortStatus(to)}」${list.length} 段${changeChargeSay(sumCharge(list), { free: list.every((r) => r.free) })}`);
+  }
+  const moves = changes.filter((r) => r.kind === 'move');
+  if (moves.length) {
+    lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${changeChargeSay(sumCharge(moves), { free: moves.every((r) => r.free) })}`);
+  }
 
-  const lines = n ? [
-    `${people} 位・${groups.length} 天・${n} 段`,
-    '每一段都記成「待確認」—— Abovee 上寫的「確認前往」不等於問過客人',
-  ] : [];
   // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次
   //（兩列扣同一筆、合起來才超用時那一句兩列都有）；太多就列前幾句 —— 每一項一句話，不塞分隔線
   if (flagged.length) {
@@ -403,6 +462,14 @@ export function aboveeConsequences({
     const minutes = [...new Set(merges.map((i) => i.merged.minutes).filter(Boolean))];
     lines.push(`其中 ${merges.length} 組合併扣課，各記成一段${minutes.length === 1 ? ` ${minutes[0]} 分` : ''}、扣一次`);
   }
+  // 「跟客人確認時間」「簽療程單」：只數這一次多了一段待確認的那幾天（新的段、改期新的那一段）
+  const pendingAt = (w) => [
+    ...(w.adds ? addedIn(w.adds) : []),
+    ...Object.entries(w.touch?.done ?? {}).filter(([, kinds]) => kinds.includes('move')).map(([key]) => w.touch.at[key]),
+  ].filter((i) => slotStatus(w.visit, w.visit?.slots?.[i]) === INITIAL_STATUS);
+  const settling = writes.map((w) => ({ w, at: pendingAt(w) })).filter((x) => x.at.length);
+  const ahead = settling.filter((x) => !pastDay(x.w.visit, today));
+  const past = settling.length - ahead.length;
   if (ahead.length) lines.push(`今天起的 ${ahead.length} 天會出現在待辦的「跟客人確認時間」`);
   if (past) lines.push(`已經過了的 ${past} 天，待辦上直接出現在「簽療程單」`);
   for (const g of groups.filter((x) => x.reopened)) {
@@ -413,15 +480,33 @@ export function aboveeConsequences({
     lines.push(`${g.customerName} ${shortDate(g.date)}：${closedDayLine(g.items?.length ?? 1)}`);
   }
 
-  // 新加的段一律接在尾巴（`withExtraSlot()`），所以這一組新加的是最後那幾段
-  const addedIn = (g) => {
-    const count = (g.visit?.slots ?? []).length;
-    return Array.from({ length: g.items?.length ?? 0 }, (_, i) => count - 1 - i);
-  };
-  const later = ahead.flatMap((g) => registrationsWhenSettled(
-    g.visit, addedIn(g), tasksByVisit[g.visit?.id] ?? [], coursesById, today,
-  ));
+  const later = ahead.flatMap(({ w, at }) => registrationsWhenSettled(w.visit, at, tasksByVisit[w.visit?.id] ?? [], coursesById, today));
   if (later.length) lines.push(`等客人說可以之後，待辦會再多${moreTasks(later)}`);
+
+  // 照片上已經放掉的段（02）：「取消 Abovee」一出生就勾好 —— 講一句；Examine／耀聖照長（沒勾的那幾張照常講）、
+  // 還沒勾的掛號會被收掉（10）。拿寫入那一支算（`cancelTasksFor()`／`syncTasksForVisit()`，同一份 `freed`）
+  let ticked = 0;
+  const cancels = new Set();
+  const records = [];
+  for (const w of writes) {
+    const tasks = tasksByVisit[w.visit?.id] ?? [];
+    const wasDead = (i) => Boolean(w.before?.slots?.[i]) && slotStatus(w.before, w.before.slots[i]) === 'cancelled';
+    const died = (w.visit?.slots ?? []).some((s, i) => slotStatus(w.visit, s) === 'cancelled' && !wasDead(i));
+    if (died) {
+      ticked += cancelTasksFor(w.visit, tasks, coursesById, null, { freed: w.freed }).filter((t) => t.done)
+        .reduce((sum, t) => sum + (t.slotIndexes?.length ?? 1), 0);
+      for (const l of cancelTaskLines(w.visit, tasks, coursesById, { freed: w.freed })) cancels.add(l);
+      for (const l of registrationDropLines(w.visit, tasks, coursesById)) cancels.add(l);
+    }
+    records.push(...syncTasksForVisit(w.visit, tasks, { coursesById, today, freed: w.freed }).create
+      .filter((t) => t.kind === RECORD_TASK_KIND));
+  }
+  if (ticked) lines.push(`照片上已經放掉的 ${ticked} 段，待辦的「取消 Abovee」直接勾好 —— 不用再去 Abovee 放`);
+  lines.push(...cancels);
+  // 照片寫課程完成的二返、營養師諮詢那一種：客人走了之後要補的紀錄照長（她第 1 題：「照長」）
+  if (records.length) {
+    lines.push(`待辦會多${moreTasks(records.map((t) => t.kind))} —— 記成「${shortStatus('done')}」的那幾段，客人走了之後要補的那一份`);
+  }
 
   // n返 與送的／體驗：同壓表那一道（`bookingConsequences()`）—— 一段「不用先加購」的來訪
   // 看起來像會偷扣一次。**只講這一次新加的段**：併進的那一天原本就有的三返不是這一次的事
@@ -439,22 +524,81 @@ export function aboveeConsequences({
   for (const name of free) lines.push(`${name} —— 客戶身上的數字一個都不會變`);
   // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
   const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
-    visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? [], coursesById,
-    customerVisits: visitsBy[g.customerId] ?? [],
+    visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? chainBy[g.customerId]?.entitlements ?? [], coursesById,
+    customerVisits: p.after?.[g.customerId] ?? visitsBy[g.customerId] ?? [],
   }).map((line) => `${g.customerName} ${line}`)));
   lines.push(...stranded);
+  // 健檢那條鏈：這一位每一件改動都套上去之後算一次（`syncFollowupTasks()`）。存檔是一筆一筆存的，中途長出來、
+  // 最後用不到的那幾張存完之後收掉（`followups.js` 的 `chainLeftovers()`），所以存完的樣子就是這裡講的
+  for (const customerId of new Set(writes.map((w) => w.customerId))) {
+    const chain = chainBy[customerId];
+    if (!chain) continue;
+    const name = writes.find((w) => w.customerId === customerId)?.customerName ?? '';
+    const after = p.after?.[customerId] ?? [];
+    const sync = syncFollowupTasks({
+      customer: { id: customerId, name }, entitlements: chain.entitlements ?? [], visits: after, tasks: chain.tasks ?? [], coursesById,
+    });
+    const day = (id) => dayWord(after.find((v) => v.id === id)?.date);
+    const chainLines = [
+      ...sync.create.filter((t) => t.kind === REPORT_TASK_KIND)
+        .map((t) => `待辦會多一張「${REPORT_TASK_KIND}」—— ${day(t.visitId)} 健檢做完要等報告出來`),
+      ...bookingLinesOf(sync, after, chain.tasks),
+      ...strandedFollowupLines({
+        before: p.before?.[customerId] ?? [], after, entitlements: chain.entitlements ?? [], coursesById,
+        verb: (status) => (status === 'no_show' ? '改成未到' : '取消'),
+      }),
+    ];
+    lines.push(...chainLines.map((l) => `${name} ${l}`));
+  }
 
   // 11：她按了「改成 Abovee 的」的那幾段。講清楚只動那兩格 —— 她最怕的是改了一格、別的跟著跑
-  if (adopts.length) {
-    const fields = new Set(adopts.flatMap((i) => (i.diffs ?? []).map((d) => d.field)));
-    const what = [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
-    lines.push(`改 ${adopts.length} 段的${what}成 Abovee 上的 —— 只動這兩格，時間、狀態、待辦都不變`);
-  }
+  // 07：app 上空著、照片上有的那幾段是「補上」（合併檔匯進來的都空著，ADR-0011），跟真的換掉一個人分開講
+  const whatOf = (list) => {
+    const fields = new Set(list.flatMap((r) => r.fields ?? []));
+    return [fields.has('therapistId') ? '治療師' : '', fields.has('roomId') ? '診間' : ''].filter(Boolean).join('與');
+  };
+  const swapped = adopted.filter((r) => !r.filled);
+  const filled = adopted.filter((r) => r.filled);
+  const only = reshaped ? '' : ' —— 只動這兩格，時間、狀態、待辦都不變';
+  if (swapped.length) lines.push(`改 ${swapped.length} 段的${whatOf(swapped)}成 Abovee 上的${filled.length ? '' : only}`);
+  if (filled.length) lines.push(`補上 ${filled.length} 段的${whatOf(filled)}（app 上原本空著）${only}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
-  return { title: n ? `記錄這 ${n} 段？` : `改這 ${adopts.length} 段？`, lines };
+  const title = n && changedKeys ? `記錄這 ${n} 段、改 ${changedKeys} 段？` : n ? `記錄這 ${n} 段？` : `改這 ${changedKeys} 段？`;
+  return { title, lines };
+}
+
+/** 那一組這一次新加的是哪幾段（`planAbovee()` 的 `at`）。沒有 `at` 的那一組（測試手組的）新加的是最後那幾段 —— 新的段一律接在尾巴 */
+const addedIn = (g) => (g.at ? Object.values(g.at)
+  : Array.from({ length: g.items?.length ?? 0 }, (_, i) => (g.visit?.slots ?? []).length - 1 - i));
+
+/**
+ * 沒有 `plan` 的呼叫（`groups`／`adopts`）→ 跟 `photoDayPlan()` 同一種形狀（`writes`、`rows`、`before`、`after`），
+ * 讓 `aboveeConsequences()` 底下只有一條路。新的段的 `charge` 一段一段問 `chargesEntitlement()`（`photoDayPlan()` 同一個定義）；
+ * `adopts` 是舊的「改成 Abovee 的」那幾列（一律當成換掉，不是補上）。
+ */
+function planOfGroups(groups = [], adopts = [], visitsBy = {}) {
+  const writes = groups.map((g) => ({
+    id: g.visit?.id, customerId: g.customerId, customerName: g.customerName, date: g.date, visit: g.visit,
+    adds: g, freed: g.freed ?? [], touch: null, keys: (g.items ?? []).map((i) => i.key),
+  }));
+  const rows = [
+    ...groups.flatMap((g) => addedIn(g).map((i, n) => ({
+      key: g.items?.[n]?.key ?? `${g.customerId}|${g.date}|${i}`, customerId: g.customerId, date: g.date, kind: 'new',
+      to: slotStatus(g.visit, g.visit?.slots?.[i]), charge: chargesEntitlement(g.visit, g.visit?.slots?.[i]) ? 1 : 0,
+    }))),
+    ...adopts.map((i, n) => ({ key: i.key ?? `adopt:${n}`, kind: 'adopt', charge: 0, fields: (i.diffs ?? []).map((d) => d.field), filled: false })),
+  ];
+  const people = new Set(writes.map((w) => w.customerId));
+  const before = Object.fromEntries([...people].map((c) => [c, visitsBy[c] ?? []]));
+  const after = Object.fromEntries([...people].map((c) => {
+    const mine = writes.filter((w) => w.customerId === c);
+    const replaced = new Set(mine.map((w) => w.id).filter(Boolean));
+    return [c, [...before[c].filter((v) => !replaced.has(v?.id)), ...mine.map((w) => w.visit)]];
+  }));
+  return { writes, rows, before, after };
 }
 
 /** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */
@@ -716,7 +860,8 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
  * @param {object[]} o.after  改之後的全部來訪
  * @param {object[]} o.entitlements 這位客戶的額度（認得哪幾段是健檢）
  * @param {Record<string, object>} o.coursesById
- * @param {string} [o.verb] 「不會跟著＿＿」
+ * @param {string|((status: string|null) => string)} [o.verb] 「不會跟著＿＿」；給一支的話照那一次健檢現在的狀態講
+ *   （拍 Abovee 一次改好幾段：取消的「取消」、未到的「改成未到」）
  * @returns {string[]}
  */
 export function strandedFollowupLines({ before = [], after = [], entitlements = [], coursesById = {}, verb = '取消' }) {
@@ -725,9 +870,9 @@ export function strandedFollowupLines({ before = [], after = [], entitlements = 
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   return strandedFollowups(entitlements, coursesById, (after ?? []).filter(Boolean))
     .filter(({ exam }) => PICKABLE_EXAM.has(examStatusIn(was.get(exam.id), examIds)))
-    .map(({ visit, slot, exam }) => {
+    .map(({ visit, slot, exam, status }) => {
       const name = followupName(slot, coursesById);
-      return `${day(visit.date)} 那一場${name}接在 ${day(exam.date)} 那一次健檢後面 —— 不會跟著${verb}；`
+      return `${day(visit.date)} 那一場${name}接在 ${day(exam.date)} 那一次健檢後面 —— 不會跟著${typeof verb === 'function' ? verb(status) : verb}；`
         + `重新約好健檢之後，回到那一場${name}換「這是哪一次健檢的」`;
     });
 }
@@ -917,9 +1062,13 @@ const CHAIN_KINDS = [REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND
  * @returns {string[]}
  */
 export function cancelConsequences({
-  visit, coursesById = {}, tasks = [], removing = false, sheetSyncOn = false, slotIndex = null,
+  visit, coursesById = {}, tasks: given = [], removing = false, sheetSyncOn = false, slotIndex = null,
   customerVisits = [], chain = null,
 }) {
+  // **只拿這一筆自己的任務**（abovee-status-follows-photo 10）：批次取消把好幾天的任務攤成一份傳進來，
+  // 而 `cancelTasksFor()` 不看 `visitId` —— A 那一天勾掉的 Examine 會讓 B 那一天講「會多一張取消 Examine」，
+  // 真的寫下去卻不長。沒有 `visitId` 的照留
+  const tasks = (given ?? []).filter((t) => !t?.visitId || !visit?.id || t.visitId === visit.id);
   const customer = { id: visit?.customerId ?? null, name: visit?.customerName ?? null };
   const others = (customerVisits ?? []).filter((v) => v.id !== visit?.id);
   // 健檢那條鏈那幾句（`cancelChainLines()`）：取消這幾段（`at` 空的＝整天）
@@ -978,6 +1127,8 @@ export function cancelConsequences({
       slots: all.map((sl, i) => (picked.has(i) ? { ...sl, status: 'cancelled' } : sl)),
     };
     lines.push(...cancelTaskLines(after, tasks, coursesById));
+    // 那幾段還沒勾的 Examine／耀聖會被收掉（或拿掉這一段）—— 她其實掛了只是忘了勾的話，取消之後沒有人提醒她回去收
+    lines.push(...registrationDropLines(after, tasks, coursesById));
     lines.push(...chainSaid([...picked]));
 
     lines.push('改期不是改日期，是取消後重新排一次');
@@ -1017,6 +1168,9 @@ export function cancelConsequences({
   if (ownKinds.length) {
     lines.push(`還沒做完的${ownKinds.map((k) => `「${k}」`).join('、')}會被收掉`);
   }
+  // 其中有掛號那一族的話，講下一步（同只取消幾段那一條，10）
+  const unticked = TASK_KINDS.filter((k) => ownKinds.includes(k));
+  if (unticked.length) lines.push(untickedNextLine(unticked));
 
   // 健檢那條鏈：那一場沒發生，沒有東西要追（`keepsOpen()` 的 `stillDone`）
   const chainKinds = [...new Set(live.filter((t) => CHAIN_KINDS.includes(t.kind)).map((t) => t.kind))];
@@ -1069,6 +1223,8 @@ export function rebookConsequences({
     `新的那一段（${timeLabel(fresh)}）接在後面，標成「${shortStatus(INITIAL_STATUS)}」`
       + (settled ? ' —— 原本談定過了，要再問客人一次' : ''),
     ...cancelTaskLines(after, tasks, coursesById),
+    // 舊那一段還沒勾的 Examine／耀聖會被收掉 —— 取消那一道同一句（10）
+    ...registrationDropLines(after, tasks, coursesById),
   ];
   // 新那一段談定之後真的會長的（`registrationsWhenSettled()`）—— 舊的掛號待辦沒有
   // `slotIndexes` 時當成蓋住整天，新那一段就一張都不長，這一句也不講
@@ -1092,13 +1248,57 @@ export function rebookConsequences({
  *
  * 壓表登記與確認後的登記是兩句話：前者是「那個時段放掉」，後者是「那一段的登記取消掉」。
  *
+ * **照片上已經放掉的段（`freed`）跟寫入那一支收同一個參數**（abovee-status-follows-photo 02）：那幾張一出生就勾好，
+ * 不是「會多一張要去做的」—— 不講。要講「已經勾好了」的是拍 Abovee 的確認框自己（整批講一次）。
+ *
  * @param {object} after 取消之後的那一筆來訪
+ * @param {{freed?: number[]}} [opts]
  */
-function cancelTaskLines(after, tasks, coursesById) {
-  return cancelTasksFor(after, tasks ?? [], coursesById).map((t) => (cancelsBooking(after, t, coursesById)
+export function cancelTaskLines(after, tasks, coursesById, { freed = [] } = {}) {
+  return cancelTasksFor(after, tasks ?? [], coursesById, null, { freed }).filter((t) => !t.done).map((t) => (cancelsBooking(after, t, coursesById)
     ? `待辦會多一張「${t.kind}」—— 回去把那個時段放掉`
     // 「那一段」不是「那一筆」：畫面上的單位只有段與天（ADR-0087）
     : `待辦會多一張「${t.kind}」—— 回去把那一段的登記取消掉`));
+}
+
+/**
+ * 取消（或改期取消掉舊的）之後，那幾段**還沒勾**的掛號待辦（Examine、耀聖）會怎樣（abovee-status-follows-photo 10）。
+ *
+ * 她 10/15 問「忘記勾 Examine／耀聖的掛號待辦，會被當成沒做嗎？」—— 會：那一張被收掉（或蓋著好幾段時拿掉這一段），
+ * `cancelTasksFor()` 第 2 條只收勾過的，所以也不長「取消 Examine」。她其實掛了只是忘了勾的話，沒有人提醒她回去收 ——
+ * 所以講出來，而且講下一步。
+ *
+ * **拿 `syncTasksForVisit()` 算**（`remove` 與 `update.slotIndexes`，ADR-0070），不照規則在這裡推。只算掛號那一族（`TASK_KINDS`）。
+ * 拍 Abovee 的確認框（照片改成已取消的段）也要講同一句 —— 句子只有這一支。
+ *
+ * @param {object} after 取消之後的那一筆
+ * @param {object[]} tasks 這一筆自己的任務（連軟刪除的，`listByVisitForSync()`）
+ * @returns {string[]}
+ */
+export function registrationDropLines(after, tasks, coursesById) {
+  const own = tasks ?? [];
+  const byId = new Map(own.map((t) => [t.id, t]));
+  const { remove, update } = syncTasksForVisit(after, own, { coursesById });
+  const ofKind = (id) => (TASK_KINDS.includes(byId.get(id)?.kind) ? byId.get(id).kind : null);
+  const goneKinds = new Set(remove.map((r) => ofKind(r.id)).filter(Boolean));
+  const shrunk = update.filter((u) => u.changes?.slotIndexes && ofKind(u.id) && !goneKinds.has(ofKind(u.id)));
+  const shrunkKinds = new Set(shrunk.map((u) => ofKind(u.id)));
+  const list = (kinds) => TASK_KINDS.filter((k) => kinds.has(k)).map((k) => `「${k}」`).join('、');
+  const lines = [];
+  if (goneKinds.size) lines.push(`還沒勾的${list(goneKinds)}會被收掉`);
+  if (shrunkKinds.size) {
+    const many = shrunk.some((u) => (byId.get(u.id)?.slotIndexes?.length ?? 0) - u.changes.slotIndexes.length > 1);
+    lines.push(`還沒勾的${list(shrunkKinds)}會拿掉${many ? '這幾段' : '這一段'}（還在的段照舊）`);
+  }
+  const kinds = TASK_KINDS.filter((k) => goneKinds.has(k) || shrunkKinds.has(k));
+  if (kinds.length) lines.push(untickedNextLine(kinds));
+  return lines;
+}
+
+/** 掛號那一族還沒勾、要被收掉時的下一步。勾了再取消，`cancelTasksFor()` 第 2 條才會長「取消 X」。 */
+function untickedNextLine(kinds) {
+  return `已經在 ${kinds.join('、')} 掛了、只是還沒勾的話，先去待辦勾掉${kinds.length > 1 ? '' : '它'}`
+    + ` —— 這樣才會長${kinds.map((k) => `「${cancelKindFor(k)}」`).join('、')}提醒你回去收`;
 }
 
 // ---------- 存課程之前：談定的那幾天要跟著變（ADR-0140）----------

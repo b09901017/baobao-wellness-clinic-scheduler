@@ -238,7 +238,7 @@ function compareSeed() {
   ];
 }
 
-test('N5（10、11）搬了時間的不預設打勾、講得出 app 上是幾點；診間不一樣按了才改、只改那一格；已完成的鎖著', async ({ app, page }) => {
+test('N5（10、11、07）搬了時間的不預設打勾、講得出 app 上是幾點；診間不一樣在「要改的」那一塊預設勾、只改那一格；已完成的鎖著', async ({ app, page }) => {
   await app.seed(compareSeed());
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-compare');
@@ -251,14 +251,24 @@ test('N5（10、11）搬了時間的不預設打勾、講得出 app 上是幾點
   await row(page, 'a0').locator('[data-abl-open]').click();
   await expect(row(page, 'a0').locator('[data-abl-day="2026-09-10"]')).toBeVisible();
 
-  // a1：已經記了、診間不一樣 → 寫出來，按了才算
+  // a1：已經記了、診間不一樣 →「要改的」那一塊一行、預設勾（07 推翻 ADR-0123 的「按了才改」）；拿掉就不改
   await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('已經記了');
-  await expect(row(page, 'a1').locator('.abl-row__hint')).toContainText('診間：app 是 治5、Abovee 是 治8');
+  const a1 = () => page.locator('[data-abl-change="adopt"][data-abl-for="a1"]');
+  await expect(page.locator('.abl__group--change')).toContainText('李小華');
+  await expect(page.locator('.abl__group--change')).toContainText('診間 治5 → 治8');
+  await expect(a1()).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('.abl__group--look [data-abl-row="a1"]'), '同一列不會兩邊都出現').toHaveCount(0);
+  await expect(page.locator('[data-abl-save]')).toHaveText('改這 1 段');
+  await a1().click();
+  await expect(a1()).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('.abl__group--change')).toContainText('（不改）');
   await expect(page.locator('[data-abl-save]')).toBeDisabled();
+  await a1().click();
+  await expect(page.locator('[data-abl-save]')).toHaveText('改這 1 段');
+  // 那一列點開只列不一樣、沒有第二顆按鈕
   await row(page, 'a1').locator('[data-abl-open]').click();
-  await row(page, 'a1').locator('[data-abl-adopt]').click();
-  await expect(row(page, 'a1').locator('[data-abl-adopt]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 1 段');
+  await expect(row(page, 'a1').locator('.abl-row__diffs')).toContainText('診間：app 是 治5、Abovee 是 治8');
+  await expect(row(page, 'a1').locator('[data-abl-adopt]')).toHaveCount(0);
 
   // a2：已完成的那一段 → 寫出不一樣，沒有按鈕
   await row(page, 'a2').locator('[data-abl-open]').click();
