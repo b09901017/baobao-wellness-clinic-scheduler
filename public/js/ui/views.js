@@ -25,6 +25,7 @@ import * as calendar from './views/calendar.js';
 import * as report from './views/report.js';
 import * as mergeImport from './views/mergeImport.js';
 import * as playbook from './views/playbook.js';
+import * as longNotes from './views/longNotes.js';
 import * as aiUsage from './views/aiUsage.js';
 import * as treatmentSheets from './views/treatmentSheets.js';
 import { MASTER_LABELS } from '../domain/masterData.js';
@@ -53,6 +54,12 @@ register('/customers/bulk', {
 // 註冊在 /customers/:id 前面。router 先試完全相符再試樣板，所以順序其實不影響，
 // 但擺在一起看得出「progress 不是某位客戶的 id」。
 register('/customers/progress', { title: '進度追蹤', nav: false, render: progress.render });
+// 長備註：全部的人的，一疊左右滑的卡（ADR-0156）。`:key` 是「這一疊開在那一張」（同 `/playbook/:id`）
+register('/customers/notes', { title: '長備註', nav: false, render: longNotes.render });
+register('/customers/notes/:key', {
+  title: '長備註', nav: false,
+  render: (el, key) => longNotes.render(el, key),
+});
 register('/customers/:id', {
   title: '客戶詳情', nav: false,
   render: (el, id) => customerDetail.render(el, id),

@@ -1,6 +1,6 @@
 # 客戶頁上面多一個「長備註」：一疊左右滑的卡、搜尋人、選人寫
 
-Status: todo
+Status: done（10/19，段七）
 Blocked by: 13、14（資料形狀由 14 定）
 段：七（high）
 動工前先讀：13 的原型與她的回覆；14 的「做完時留下的」（存在哪、讀哪一支）；`ui/views/playbook.js` 整支（`render()`、`stageHtml()`、`visibleRows()`、`watchDeck()`、`focusCard()`、`enterEdit()`、`mountEditor()`、`saveEditing()`、`isDirty()`／`leaveEdit()`）、`domain/playbook.js`；
@@ -39,4 +39,15 @@ Blocked by: 13、14（資料形狀由 14 定）
 
 ## 做完時留下的
 
-（做完寫）
+- 新的一頁 `ui/views/longNotes.js`，路由 `#/customers/notes` 與 `#/customers/notes/:key`（`<客戶>:<那一則>`，「這一疊開在那一張」）；客戶頁上面那一排第三顆「長備註」（360px 量過放得下：E2E `74` 的 L1）
+- **共用了什麼**：左右滑那一疊的三件事（停在哪一張、滑到某一張、丸子與圓點跟著亮）抽成 `ui/components/deck.js`，**備忘錄也改用它**（`playbook.js` 少了自己那一份）；
+  卡片、丸子、圓點、搜尋列、懸浮鈕是同一份 CSS。**共用不了的**：編輯、存、刪 —— 備忘錄一份是一筆文件，長備註是客戶身上的一格（`withLongNote()`／`withoutLongNote()`），所以沒有複製 858 行
+- 這一疊照 `longNoteRows()`：在服務中的在前、停用的在後（卡上「已停用」）、同一位照他詳情的順序、刪掉的客戶不列；搜尋 `matchesLongNote()`（人名走 `nameHas()`、標題、內文）
+- ＋ →「寫給誰？」：**第七個打字找客戶的框**，`nameHas(c.name, q)`；停用的也列（標「已停用」）、沒打字時列全部；那一位已經 20 則就講一句不開
+- 從客戶詳情中間那張卡：「改這一則」在那張卡上直接改（14）、「在長備註那一疊看」換到這一頁那一張（`await whenSettled()` 之後 `go()`）
+- **返回鍵**：編輯中推一層（`editLayer`，問 `.active`），按返回先問（同備忘錄的三選一）；關掉那道框＝繼續改、那一層補推回來。**備忘錄那一頁沒有這一條**（按返回直接離開、打的字沒了）—— 見 HANDOFF 中途發現
+- 刪一則：垃圾桶按一次變紅寫「再按一次刪掉」，3 秒沒按收回（原型那一種）；刪掉是改那位客戶的 `longNotes`，**不進「已刪除項目」**（稽核紀錄看得到刪之前的）
+- **390px 走的時候抓到一個**：垃圾桶按第一下時整疊重畫 → `.pbdeck` 的橫向捲動回到第一張，正在改的那一張滑走了。改成只換那一顆（`paintArmed()`，ADR-0038），
+  L6 多量一次那一張還在畫面上（先等它停下來再按 —— 還在動的時候 Playwright 自己會把按鈕捲進來）
+- 測試：E2E `74` 的 L1–L7（**寫在接線之後**，沒有先看它紅）；`tests/abovee-picks.test.js` 補一條掃原始碼（第七個框走 `nameHas()`）
+- 文件：`docs/操作手冊.md`「七之一、備註與長備註」、SPEC 8.5 總覽、CLAUDE.md「打字找客戶的框」六 → 七、`domain/customers.js` 的註解

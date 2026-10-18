@@ -222,3 +222,169 @@ test('N10 減少動態效果：卡片只淡入，不從那一顆長出來', asyn
     .some((a) => a.effect?.target?.classList?.contains('lncard__bg')));
   expect(grows).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// 15 客戶頁上面的「長備註」：一疊左右滑的卡
+// ---------------------------------------------------------------------------
+
+function twoClients() {
+  return [
+    customer({
+      id: 'cust-a', name: '客戶A',
+      longNotes: [{ id: 'a1', title: '家人與接送', body: '週二女兒載' }, { id: 'a2', title: '打點滴前', body: '右手比較好打' }],
+    }),
+    customer({
+      id: 'cust-c', name: '客戶C', active: false,
+      longNotes: [{ id: 'c1', title: '停用前的狀況', body: '搬去外縣市' }, { id: 'c2', title: '聯絡', body: '傳 LINE' }],
+    }),
+    customer({ id: 'cust-b', name: '客戶B', marks: [{ text: '週三不行', color: 'grey' }] }),
+  ];
+}
+
+const deckKeys = (page) => page.locator('[data-deck] [data-card]').evaluateAll((els) => els.map((el) => el.dataset.card));
+
+test('L1 客戶頁上面那一排有「長備註」；那一頁四張卡、在服務中的在前、停用的標「已停用」；360px 那一排放得下', async ({ app, page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers');
+
+  const row = page.locator('.page__row');
+  const fits = await row.evaluate((r) => r.scrollWidth <= r.clientWidth);
+  expect(fits).toBe(true);
+  const link = page.locator('.footlinks--inline a.footlink', { hasText: '長備註' });
+  const box = await link.boundingBox();
+  expect(box.x + box.width).toBeLessThanOrEqual(360);
+
+  await link.click();
+  await app.settled();
+  expect(page.url()).toContain('#/customers/notes');
+  expect(await deckKeys(page)).toEqual(['cust-a:a1', 'cust-a:a2', 'cust-c:c1', 'cust-c:c2']);
+  await expect(page.locator('[data-card="cust-c:c1"] .badge')).toHaveText('已停用');
+  await expect(page.locator('.pbchips [data-goto]')).toHaveCount(4);
+
+  // 丸子點了跳到那一張
+  await page.locator('[data-goto="cust-c:c2"]').click();
+  await expect(page.locator('[data-goto="cust-c:c2"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('L2 搜尋：人名只剩他的兩張；標題的一個字找得到；內文的字也找得到', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers/notes');
+
+  await page.locator('[data-search-toggle]').click();
+  await page.locator('[data-search]').fill('客戶 A');
+  expect(await deckKeys(page)).toEqual(['cust-a:a1', 'cust-a:a2']);
+  await page.locator('[data-search]').fill('停用前');
+  expect(await deckKeys(page)).toEqual(['cust-c:c1']);
+  await page.locator('[data-search]').fill('右手');
+  expect(await deckKeys(page)).toEqual(['cust-a:a2']);
+});
+
+test('L3 ＋ 選客戶B、寫一則 → 存在客戶B身上 → 他的詳情備註那一段看得到（同一份資料）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers/notes');
+
+  await page.locator('[data-new]').click();
+  await app.layer('[data-pick-list]');
+  await page.locator('[data-pick-search]').fill('客戶B');
+  await page.locator('[data-pick-customer="cust-b"]').click();
+  await app.layer('.pbcard--edit');
+  await page.locator('.pbcard--edit [data-title]').fill('喜歡聊園藝');
+  await page.locator('.pbcard--edit [data-body]').fill('陽台種了很多香草');
+  await page.locator('.pbcard--edit [data-save]').click();
+  await app.saved();
+
+  const doc = await app.readDoc('customers', 'cust-b');
+  expect(doc.longNotes.map((n) => n.title)).toEqual(['喜歡聊園藝']);
+  expect(doc.marks.map((m) => m.text)).toEqual(['週三不行']);
+  const key = `cust-b:${doc.longNotes[0].id}`;
+  expect(await deckKeys(page)).toContain(key);
+
+  // 卡上的客戶名點了到他的詳情
+  await page.locator(`[data-card="${key}"] [data-who]`).click();
+  await app.settled();
+  expect(page.url()).toContain('#/customers/cust-b');
+  await expect(page.locator('[data-notesblock] [data-notes-long]')).toContainText('喜歡聊園藝');
+});
+
+test('L4 這一頁改一則的內文 → 客戶詳情中間那張卡看到的是改過的', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers/notes');
+
+  await page.locator('[data-edit="cust-a:a1"]').click();
+  await app.layer('.pbcard--edit');
+  await page.locator('.pbcard--edit [data-body]').fill('改成兒子載');
+  await page.locator('.pbcard--edit [data-save]').click();
+  await app.saved();
+
+  await app.go('/customers/cust-a');
+  await page.locator('[data-notes-long="a1"]').click();
+  await app.layer('.lncard');
+  await expect(page.locator('.lncard__body')).toHaveText('改成兒子載');
+});
+
+test('L5 編輯中按返回 → 先問；關掉那道框是繼續改；「不要了」才收', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers');
+  await app.go('/customers/notes');
+
+  await page.locator('[data-edit="cust-a:a1"]').click();
+  await app.layer('.pbcard--edit');
+  await page.locator('.pbcard--edit [data-body]').fill('打到一半');
+  await page.goBack();
+  await app.layer('.dialog');
+  expect(page.url()).toContain('#/customers/notes');
+  // 關掉那道框（Escape）＝繼續改
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.dialog')).toHaveCount(0);
+  await expect(page.locator('.pbcard--edit [data-body]')).toHaveValue('打到一半');
+
+  // 再按一次返回 → 還是先問（那一層補回來了）
+  await page.goBack();
+  await app.layer('.dialog');
+  await page.locator('.dialog button', { hasText: '不要了' }).click();
+  await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+  expect(page.url()).toContain('#/customers/notes');
+  const doc = await app.readDoc('customers', 'cust-a');
+  expect(doc.longNotes[0].body).toBe('週二女兒載');
+});
+
+test('L6 刪一則要按兩次；第一次只是變紅', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers/notes');
+
+  await page.locator('[data-edit="cust-a:a2"]').click();
+  await app.layer('.pbcard--edit');
+  // 等那一張停在畫面中間再按（還在動的時候 Playwright 會自己把按鈕捲進來，量到的是它捲的）
+  let last = null;
+  await expect.poll(async () => {
+    const at = (await page.locator('.pbcard--edit').boundingBox())?.x;
+    const same = at === last && at >= 0;
+    last = at;
+    return same;
+  }, { intervals: [100, 100, 200] }).toBe(true);
+  await page.locator('.pbcard--edit [data-del]').click();
+  await expect(page.locator('.pbcard--edit [data-del]')).toContainText('再按一次刪掉');
+  // 那一張還在畫面上（以前按一下整疊重畫、橫向捲動回到第一張，正在改的那一張就滑走了）
+  const card = await page.locator('.pbcard--edit').boundingBox();
+  expect(card.x).toBeGreaterThanOrEqual(0);
+  expect(card.x + card.width).toBeLessThanOrEqual(390);
+  expect((await app.readDoc('customers', 'cust-a')).longNotes).toHaveLength(2);
+  await page.locator('.pbcard--edit [data-del]').click();
+  await app.saved();
+  expect((await app.readDoc('customers', 'cust-a')).longNotes.map((n) => n.id)).toEqual(['a1']);
+  expect(await deckKeys(page)).toEqual(['cust-a:a1', 'cust-c:c1', 'cust-c:c2']);
+});
+
+test('L7 客戶詳情中間那張卡「在長備註那一疊看」→ 這一疊開在那一張', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers/cust-a');
+
+  await page.locator('[data-notes-long="a2"]').click();
+  await app.layer('.lncard');
+  await page.locator('[data-notecard-deck]').click();
+  await app.settled();
+  expect(page.url()).toContain('#/customers/notes/cust-a');
+  await expect(page.locator('.lnov')).toHaveCount(0);
+  await expect(page.locator('[data-goto="cust-a:a2"]')).toHaveAttribute('aria-pressed', 'true');
+});

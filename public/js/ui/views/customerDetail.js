@@ -622,6 +622,11 @@ function openLongNote(ctx, noteId) {
     source,
     eyebrow: ctx.customer.name,
     note,
+    // 換頁前等那一層收掉時排的 history.go() 回來（CLAUDE.md「從一頁帶人到另一頁」）
+    onDeck: async () => {
+      await whenSettled();
+      go(`/customers/notes/${encodeURIComponent(`${ctx.id}:${noteId}`)}`);
+    },
     onSave: async (next) => {
       const fields = withLongNote(ctx.customer, next);
       await toast.withSaveState(() => data.update(ctx.id, fields), {

@@ -176,7 +176,7 @@ export const COVERAGE = {
   ],
   '15-playbook': [
     'public/js/domain/playbook.js', 'public/js/data/playbooks.js',
-    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js',
+    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js', 'public/js/ui/components/deck.js',
     'public/js/ui/views/trash.js', 'public/js/ui/views/home.js',
   ],
   '16-record-task': [
@@ -585,6 +585,7 @@ export const COVERAGE = {
     'public/js/ui/components/noteReorder.js', 'public/js/ui/components/notesEditor.js',
     'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
     'public/js/data/customers.js', 'public/css/',
+    'public/js/ui/views/longNotes.js', 'public/js/ui/components/deck.js', 'public/js/ui/views/customers.js',
   ],
 };
 
