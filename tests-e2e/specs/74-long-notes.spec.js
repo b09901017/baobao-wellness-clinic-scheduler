@@ -380,14 +380,11 @@ test('L6 刪一則要按兩次；第一次只是變紅', async ({ app, page }) =
 
   await page.locator('[data-edit="cust-a:a2"]').click();
   await app.layer('.pbcard--edit');
-  // 等那一張停在畫面中間再按（還在動的時候 Playwright 會自己把按鈕捲進來，量到的是它捲的）
-  let last = null;
-  await expect.poll(async () => {
-    const at = (await page.locator('.pbcard--edit').boundingBox())?.x;
-    const same = at === last && at >= 0;
-    last = at;
-    return same;
-  }, { intervals: [100, 100, 200] }).toBe(true);
+  // 等那一張的進場動畫（`pbcard-in`，往上浮 8px）播完再按。還在動的時候 Playwright 判「不穩」、
+  // 重試時自己捲一次，橫向那一疊被它捲走 78px —— 量到的是它捲的，不是 app（10/19 審查時查到：
+  // 以前只等「x 不動」，動畫在 y 上，一半的回合紅；手指點不會捲）
+  await page.locator('.pbcard--edit').evaluate((el) =>
+    Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
   await page.locator('.pbcard--edit [data-del]').click();
   await expect(page.locator('.pbcard--edit [data-del]')).toContainText('再按一次刪掉');
   // 那一張還在畫面上（以前按一下整疊重畫、橫向捲動回到第一張，正在改的那一張就滑走了）
