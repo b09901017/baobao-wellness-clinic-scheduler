@@ -11,10 +11,12 @@ import { masterDocs, customer, TODAY } from '../fixtures/data.js';
 /** 等那一個停下來（抽屜滑上來的過場還在走的時候量到的是半路的位置）。 */
 async function steady(loc) {
   let last = null;
+  // x 與 y 都要停：toast 往左拖了之後彈回去是橫的（只看 y 的話量到過場的半路）
   await expect.poll(async () => {
-    const y = (await loc.boundingBox())?.y ?? null;
-    const same = y !== null && y === last;
-    last = y;
+    const b = await loc.boundingBox();
+    const at = b ? `${b.x},${b.y}` : null;
+    const same = at !== null && at === last;
+    last = at;
     return same;
   }, { intervals: [50, 100, 100, 200] }).toBe(true);
 }

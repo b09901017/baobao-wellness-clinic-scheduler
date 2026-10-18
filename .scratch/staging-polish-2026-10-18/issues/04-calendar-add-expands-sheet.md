@@ -1,6 +1,6 @@
 # 日曆：那一天的抽屜按「＋」先拉到全高，選單才不會被擋住
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`ui/views/calendar.js` 的 `addMenuHtml()`、`wireAddMenu()`（約 `:815-875`）與 `openDay()` 那一段（`openSheet({ … tools: addMenuHtml() })`）；
@@ -32,4 +32,8 @@ CLAUDE.md「存起來的 `pushLayer()` handle」（拉到全高不是多一層�
 
 ## 做完時留下的
 
-（做完寫）
+- `sheet.js` 的 `expand(after)` 多收一個「到位之後」的 callback（已經在全高就馬上叫；`settleAt(0, after)`）。另外兩個呼叫端（`calendar.js:1424`、`:1814`）不帶參數，行為不變
+- `calendar.js` 的 `wireAddMenu()`：打開時 `sheet.expand(() => setOpen(true))` —— 等抽屜停好才開選單，所以畫面上不會看到選單先被切掉；收起選單走 `setOpen(false)`、抽屜不動
+- 不推 history（P4 量 `history.length` 前後一樣）
+- E2E `69` 的 P4：390×844 半高 → 按「＋」→ 三顆的下緣 ≤ 844、`elementFromPoint` 點得到最下面那一顆（`event`）、抽屜上緣比半高時高；收起選單之後抽屜的位置不變。紅的時候第一顆就在 857px
+- 既有用到 `addmenu` 的 E2E（`13`、`22`、`25`…）在 verify 裡全綠 —— 選單晚 ~0.3 秒才出來，Playwright 會等

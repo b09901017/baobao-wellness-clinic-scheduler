@@ -1,6 +1,6 @@
 # 復原那一條：往左或往下滑掉、停 12 秒
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`ui/toast.js` 整支（`show()`、`saved()` 的 `UNDO_MS`、`failed()`、`queued()`、`saving()`）；`public/css/app.css` 的 `.toast`（`--toast-lift`、`body:has(.deck) > .toast`、`.drawer-backdrop` 那幾條）；
@@ -40,4 +40,15 @@ E2E `24-layout-reach`（F1–F6）、`10-offline`、以及讀 `data-undo` 的那
 
 ## 做完時留下的
 
-（做完寫）
+- 純的那一支：`public/js/ui/toastSwipe.js`（`UNDO_MS` 12000、`TAP_SLOP_PX` 8、`DISMISS_PX` 72、`FLICK_PX_PER_MS` 0.6、`FLICK_MIN_PX` 32、
+  `swipeable(kind)`、`pull()`、`isDrag()`、`release()`、`fadeAt()`）；單元測試 `tests/toast-swipe.test.js`（含 toast.js 那三種真的帶不給滑的 kind、SPEC 6.3 的字）
+- `toast.js`：`show()` 多收 `kind`，每一種呼叫都帶（saving／queued／retry 不給滑，其餘給）；手勢用 pointer 事件掛在 `#toast` 上一次（`swipeWired`）。
+  手指一動超過 8px 就 `setPointerCapture`、停掉自己收的計時；放開時 `release()` 判收或彈回（彈回就從頭再算一次那一條的時間）。
+  拖過之後那一下 click 在捕獲階段吃掉 —— 從「復原」上拖走不會復原
+- 位移用 CSS 的 `translate` 不用 `transform`（iPad 那一條靠 `transform: translateX(-50%)` 置中）；減少動態時拖的時候不位移、收掉不滑出去
+- **`.toast[data-swipe]` 要 `user-select: none`**：E2E 抓到的 —— 第一次拖會把「已建立」三個字選起來，第二次從選起來的字上拖變成瀏覽器的拖放（`pointercancel`），那一條就收不掉。手指長按也選得起字，不只是測試的事
+- 「拖不遠但甩得快」也收，但至少要甩 32px —— 不然手指在「復原」上滑一下就沒了；也讓 Playwright 那種瞬間的 20px 拖不會被當成甩
+- SPEC 6.3 改成「停 12 秒，可以往左或往下滑掉」
+- E2E `69` 的 P5：往左拖 20px 彈回原處、拖 120px 收掉、從「復原」往下拖走收掉而且兩位客戶都還在、點一下「復原」照舊復原。重跑 4 次全綠。
+  `steady()` 改成 x、y 都要停（只看 y 的話量到橫的過場半路）
+- E2E `24` 的 F1–F6、`10-offline` 在 verify 裡全綠（位置規則沒動）

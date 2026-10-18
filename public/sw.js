@@ -77,6 +77,7 @@ const SHELL = [
   '/js/ui/nav.js',
   '/js/ui/views.js',
   '/js/ui/toast.js',
+  '/js/ui/toastSwipe.js',
   '/js/ui/saveEach.js',
   '/js/ui/relinkFollowup.js',
   '/js/ui/net.js',
