@@ -27,6 +27,15 @@ export function mount(container, { items, onChange }) {
   let tab = 'mark';
   let colour = [...list].reverse().find((it) => it.kind === 'mark')?.mark.color ?? DEFAULT_MARK_COLOR;
   let seq = 0;
+  // 兩格打到一半的字。`paint()` 整塊重畫（切「短的／長的」、刪一則），重畫前先收起來、畫的時候帶回去 ——
+  // 不然她打了一大段長的、手滑點到「加一則短的」再點回來就沒了。按了「加入」那一格才清空。
+  const drafts = { mark: '', title: '', body: '' };
+  const stash = () => {
+    const read = (sel) => container.querySelector(sel)?.value;
+    drafts.mark = read('[data-notesed-mark]') ?? drafts.mark;
+    drafts.title = read('[data-notesed-long-title]') ?? drafts.title;
+    drafts.body = read('[data-notesed-long-body]') ?? drafts.body;
+  };
 
   const count = (kind) => list.filter((it) => it.kind === kind).length;
 
@@ -61,6 +70,7 @@ export function mount(container, { items, onChange }) {
         </div>
         <div class="edadd">
           <input type="text" data-notesed-mark maxlength="${MAX_MARK_LENGTH}" placeholder="例：喜歡下午、指定女治療師"
+                 value="${esc(drafts.mark)}"
                  aria-label="新的短備註" autocomplete="off" />
           <button class="btn" type="button" data-notesed-add-mark>加入</button>
         </div>`;
@@ -69,14 +79,16 @@ export function mount(container, { items, onChange }) {
     return `
       <div class="edlong">
         <input type="text" data-notesed-long-title maxlength="${MAX_LONG_TITLE}" placeholder="標題，例：家人與接送"
+               value="${esc(drafts.title)}"
                aria-label="長備註的標題" autocomplete="off" />
         <textarea data-notesed-long-body maxlength="${MAX_LONG_BODY}" rows="5" placeholder="想寫多長都可以"
-                  aria-label="長備註的內文"></textarea>
+                  aria-label="長備註的內文">${esc(drafts.body)}</textarea>
         <button class="btn" type="button" data-notesed-add-long>加入</button>
       </div>`;
   };
 
   const paint = (focus) => {
+    stash();
     container.innerHTML = `
       ${list.length
         ? `<div class="edlist">${list.map(rowHtml).join('')}</div>`
@@ -105,6 +117,7 @@ export function mount(container, { items, onChange }) {
       seq += 1;
       list = [...list, { key: `mark:new${seq}`, kind: 'mark', mark: { text, color: colour } }];
     }
+    input.value = '';
     commit('[data-notesed-mark]');
     return null;
   };
@@ -120,6 +133,8 @@ export function mount(container, { items, onChange }) {
     if (count('long') >= MAX_LONG_NOTES) return `長備註最多 ${MAX_LONG_NOTES} 則`;
     const note = { id: newLongNoteId(), title, body };
     list = [...list, { key: `long:${note.id}`, kind: 'long', note }];
+    container.querySelector('[data-notesed-long-title]').value = '';
+    container.querySelector('[data-notesed-long-body]').value = '';
     commit('[data-notesed-long-title]');
     return null;
   };

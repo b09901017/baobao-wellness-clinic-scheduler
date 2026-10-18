@@ -190,6 +190,37 @@ test('N8 編輯：刪掉第 2 則短備註、加一則長的 → 其餘的位置
   expect(doc.longNotes.map((n) => n.title)).toEqual(['家人與接送', '打點滴前']);
 });
 
+const TWO_LINES = ['右手比較好打', '左手血管細'].join(String.fromCharCode(10));
+
+test('N13 編輯：打到一半切去另一種、刪一則 → 兩格打的字都還在（段八審查 b）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA()]);
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-notes-edit]').click();
+  await app.layer('[data-notes-editor] .edlist');
+  await page.locator('[data-notesed-tab="long"]').click();
+  await page.locator('[data-notesed-long-title]').fill('打點滴前');
+  await page.locator('[data-notesed-long-body]').fill(TWO_LINES);
+  // 手滑點到「加一則短的」、打幾個字，再點回來
+  await page.locator('[data-notesed-tab="mark"]').click();
+  await page.locator('[data-notesed-mark]').fill('怕冷');
+  await page.locator('[data-notesed-tab="long"]').click();
+  await expect(page.locator('[data-notesed-long-title]')).toHaveValue('打點滴前');
+  await expect(page.locator('[data-notesed-long-body]')).toHaveValue(TWO_LINES);
+
+  // 刪一則也是整塊重畫
+  await page.locator('[data-notesed-del="mark:0"]').click();
+  await expect(page.locator('[data-notesed-long-body]')).toHaveValue(TWO_LINES);
+  await page.locator('[data-notesed-tab="mark"]').click();
+  await expect(page.locator('[data-notesed-mark]')).toHaveValue('怕冷');
+
+  // 按了「加入」的那一格才清空
+  await page.locator('[data-notesed-add-mark]').click();
+  await expect(page.locator('[data-notesed-mark]')).toHaveValue('');
+  await page.locator('[data-notesed-tab="long"]').click();
+  await expect(page.locator('[data-notesed-long-title]')).toHaveValue('打點滴前');
+});
+
 test('N9 按住電話是複製，不是撥號', async ({ app, page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await app.seed([...masterDocs(), clientA()]);
