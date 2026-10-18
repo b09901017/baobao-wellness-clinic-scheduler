@@ -93,6 +93,7 @@ WIP 那一個沒有拆，訊息寫得清楚、後面接著收完的兩個 commit
 |---|---|---|
 | 07 | `60fe684` | 單元 4736 全綠；E2E `70 01 16 17 11 24 56` 56 條全綠 |
 | 08 | `b42326a` | 單元 4742 全綠；E2E `70 01 07 11 16 19 29 34 56` 83 條全綠 |
+| 中途發現 1（回復預設值） | 見 git log「回復預設值」 | 單元 4744 全綠；E2E `70 17` 23 條全綠 |
 
 **`npm run verify` 這一段沒有跑完**：07 新增一頁要在 `ui/views.js` 登記路由，而 `views.js` 是「共用底座」→ `--related` 退回全跑（47 支、本機 30 分鐘以上）。
 跑了 10 分鐘我把它停掉，改成單元全跑＋手挑跟首頁／待辦／設定有關的那幾支（上表）。全量交給段九的 CI。
@@ -133,12 +134,15 @@ WIP 那一個沒有拆，訊息寫得清楚、後面接著收完的兩個 commit
   當初寫 `\b` 時 Bash 吃掉一個反斜線，留下一個看不見的退格字元（0x08）；原始碼裡永遠不會有那個字元，所以 `doesNotMatch` 永遠綠。
   我自己在 03 也踩到一次（`giftFold.js` 的 `/<button\b/`），單元測試抓到才發現。建議：修那一行，**再加一條測試掃全部被追蹤的 .js 不准有 0x08**
   （一行的事，以後同一個坑會大聲）。這一段沒動，等她說
-- **段二 1｜設定 → 排序權重 的「回復預設值」會清掉試算表自動推送的網址與密鑰、還有她改過的 LINE 模板**（段二做 07 時發現，沒動）：
+- ✅ 修了（她 10/18：「Fix it」，commit 見段二那張表）—— **段二 1｜設定 → 排序權重 的「回復預設值」會清掉試算表自動推送的網址與密鑰、還有她改過的 LINE 模板**（段二做 07 時發現，沒動）：
   `ui/views/preferences.js` 那一顆是 `config.saveSettings(DEFAULT_SETTINGS)` —— 整份預設值蓋上去，而 `DEFAULT_SETTINGS` 裡有 `sheetSync: { url: '', token: '' }` 與 `messageTemplates: {}`。
   她按一下想把四個權重改回來，試算表就安靜地不再推（畫面上不會講），改過的 LINE 模板全部回到預設。
-  建議：那一顆只送那一頁上的五格（`sortWeights`、`slotGapMin`、`noReplyDays`、`reportDueDays`、`followupDueDays`）＋一條單元測試。這一段刻意沒把 `todoRows` 放進 `DEFAULT_SETTINGS`，就是為了不擴大它
-- **段二 2｜新增任何一頁都會讓 `npm run verify` 退回本機全跑**（開發流程，不是她看得到的）：`ui/views.js` 是共用底座，多一行 `register()` 就全跑 47 支、30 分鐘以上。
-  建議（段九或另開一支）：`scripts/e2e-changes.mjs` 認得「`views.js` 只多了 `import`／`register()` 那幾行」→ 只跑登記那一頁的 spec
+  做法：`seed.js` 的 `PREFERENCE_KEYS`／`preferenceDefaults()`，那一顆只存那五格；`tests/preferences-reset.test.js`（也掃沒有任何一頁 `saveSettings(DEFAULT_SETTINGS)`）、E2E `70` P1（先看它紅過：密鑰被清掉）。
+  **段九**：CLAUDE.md 連動表補一句「排序權重那一頁多一格 → 加進 `PREFERENCE_KEYS`」
+- ⏭ 段九做（她 10/18：「看你的建議」）—— **段二 2｜新增任何一頁都會讓 `npm run verify` 退回本機全跑**（開發流程，不是她看得到的）：`ui/views.js` 是共用底座，多一行 `register()` 就全跑 47 支、30 分鐘以上。
+  建議（段九或另開一支）：`scripts/e2e-changes.mjs` 認得「`views.js` 只多了 `import`／`register()` 那幾行」→ 只跑登記那一頁的 spec。
+  沒有現在做的理由：`pick()` 只拿得到檔名、拿不到 diff，要從 `e2e.mjs` 一路接下去，而那一支的整個設計是「寧可多跑、不可安靜地少跑」—— 不在段中間趕。
+  **段七也會新增一頁（15 長備註）**：那一段的 verify 一樣會退回全跑 → 照段二的做法，單元全跑＋手挑相關的 spec，全量留給段九的 CI
 - 03 的設計（我自己定的）：「送的／體驗」那一顆展開之後**照樣看得到**、寫「送的／體驗 ▾ 收起來」（以前展開就藏起來）；
   收著、選著底下一顆時寫「那一門 送的／體驗 ▸」而且是按下去的樣子；壓表換一顆額度不動她收起來的那一組（開或收只在換一位、記完一段時回預設）
 
@@ -286,7 +290,7 @@ CLAUDE.md：「客戶身上的標記」「備忘錄編輯那張卡的版面」�
 動工前 grep `\.marks\b`（21 處讀它）—— marks 的形狀一個字都不改。
 
 這一段做：14 → 15。不做：審查（段八）。
-每一支：紅 → 綠 → npm run verify → 一支一個 commit → Status: done ＋「做完時留下的」。編號：ADR-0156；新 E2E spec 用 74；新檔登記 sw.js SHELL 與 tests-e2e/related.js；firestore.rules 補型別檢查、npm run test:rules。
+每一支：紅 → 綠 → npm run verify（15 新增一頁會讓它退回全跑 —— 照 HANDOFF 段二的做法手挑相關 spec，全量留給段九）→ 一支一個 commit → Status: done ＋「做完時留下的」。編號：ADR-0156；新 E2E spec 用 74；新檔登記 sw.js SHELL 與 tests-e2e/related.js；firestore.rules 補型別檢查、npm run test:rules。
 
 這一段結束時：更新 HANDOFF、中途發現一次列給她問、把段八（審查，xhigh，單獨一段）的開場貼給她，停。
 ```
@@ -312,8 +316,10 @@ CLAUDE.md：「客戶身上的標記」「備忘錄編輯那張卡的版面」�
 段一～段八做完了（審查修完）。這是最後一段：文件、全量 E2E、手動驗收清單、PR B、合進 develop。
 
 先讀 HANDOFF.md、spec.md。
+0. 中途發現「段二 2」：scripts/e2e-changes.mjs／tests-e2e/related.js 的 pick() 認得「ui/views.js 只多了 import／register() 那幾行」→ 只跑那一頁的 spec，
+   不要退回全跑（紅 → 綠：tests/e2e-related.test.js 補一條；寧可多跑、不可安靜地少跑 —— 有刪掉或改到別行一律照舊全跑）
 1. 文件總檢查：每一個拿掉／改名的字 grep docs/ SPEC.md CONTEXT.md（「資料過期」「EECP體驗」「點滴8」「VIP7」「5–10 秒」「三個入口共用一張」…）；
-   CLAUDE.md 連動表補新長出來的連動（待辦首頁的設定、今天／明天的組成、體驗排幾分、拍 Abovee 對誰、合併檔 v8、備註那一段的順序、第七個找客戶的框）、改寫被推翻的（診間那一列、送的／體驗那一列、方案的微調那一列）；lessons.md 有新坑就補
+   CLAUDE.md 連動表補新長出來的連動（待辦首頁的設定、今天／明天的組成、排序權重那一頁多一格要加進 PREFERENCE_KEYS、體驗排幾分、拍 Abovee 對誰、合併檔 v8、備註那一段的順序、第七個找客戶的框）、改寫被推翻的（診間那一列、送的／體驗那一列、方案的微調那一列）；lessons.md 有新坑就補
 2. 全量 E2E 丟 CI：gh workflow run e2e-full.yml --ref claude/staging-polish-1018
 3. 手動驗收清單：她可以照順序點的路，你自己在本機模擬器 390px 走過（截圖遮字）；照「她點得到的入口」寫，不是「我修好了什麼」
 4. PR 開向 develop（標題、內文、commit 訊息一個真名都不帶），內文附手動驗收清單與「我自己定的」

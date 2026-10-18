@@ -587,3 +587,15 @@ export const DEFAULT_SETTINGS = {
   // 這樣之後改預設值時，她沒動過的那幾則會跟著更新。
   messageTemplates: {},
 };
+
+/**
+ * 設定 → 排序權重 那一頁上的那幾格。「回復預設值」**只回復這幾格**（2026-10-18）：
+ * 以前是 `saveSettings(DEFAULT_SETTINGS)` 整份蓋上去，而 `DEFAULT_SETTINGS` 裡有空的 `sheetSync`
+ * 與 `messageTemplates` —— 按一下試算表就安靜地不再推、她改過的 LINE 模板全部回到預設。
+ * 那一頁多一格就加進這裡（`tests/preferences-reset.test.js` 盯著）。
+ */
+export const PREFERENCE_KEYS = ['sortWeights', 'slotGapMin', 'noReplyDays', 'reportDueDays', 'followupDueDays'];
+
+/** 「回復預設值」要存的那一份：只有 `PREFERENCE_KEYS` 那幾格的預設值。 */
+export const preferenceDefaults = () =>
+  Object.fromEntries(PREFERENCE_KEYS.map((k) => [k, structuredClone(DEFAULT_SETTINGS[k])]));

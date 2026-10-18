@@ -193,3 +193,25 @@ test('B4 簽療程單那一列設成不顯示：三顆數字照算它', async ({
   await expect(tileN(page, 'overdue')).toHaveText('1');
   await expect(tileN(page, 'today')).toHaveText('3');
 });
+
+// ---------------------------------------------------------------------------
+// 段二中途發現 1：設定 → 排序權重「回復預設值」只回復那一頁上的那幾格
+// ---------------------------------------------------------------------------
+
+test('P1 排序權重「回復預設值」：權重回到預設，試算表推送、LINE 模板、待辦首頁的設定都還在', async ({ app, page }) => {
+  await app.seed(masterDocs({
+    sortWeights: { w1: 2, w2: 2, w3: 2, w4: 2 },
+    sheetSync: { url: 'https://example.invalid/exec', token: 'secret-token' },
+    messageTemplates: { ask: '她自己改過的字' },
+    todoRows: { 寫紀錄: 'always' },
+  }));
+  await app.signIn('/settings/preferences');
+  await page.locator('[data-reset]').click();
+  await app.saved();
+
+  const s = await app.readDoc('config', 'app');
+  expect(s.sortWeights.w1, '權重回到預設').toBe(1);
+  expect(s.sheetSync, '試算表的網址與密鑰不可以被清掉').toEqual({ url: 'https://example.invalid/exec', token: 'secret-token' });
+  expect(s.messageTemplates, '她改過的 LINE 模板不可以被清掉').toEqual({ ask: '她自己改過的字' });
+  expect(s.todoRows).toEqual({ 寫紀錄: 'always' });
+});
