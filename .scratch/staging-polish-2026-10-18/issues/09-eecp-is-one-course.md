@@ -1,6 +1,6 @@
 # EECP 只有一門：約的時候 60／20，20 ⇔ 體驗；「EECP體驗」從種子刪掉
 
-Status: todo
+Status: done
 Blocked by: 03（同一個「送的／體驗…」開關；03 先改好收得回去，這一支的「選 20 → 跳到體驗」要看得到跳過去）
 段：四（xhigh，這一段只做這一支）
 動工前先讀：`domain/seed.js` 的 `course-eecp`、`course-eecp-trial`（約 `:436-475`，三次改動的原話都在註解裡）與 `course-followup` 的 `bookingMinutes`；
@@ -88,4 +88,52 @@ CLAUDE.md「一段來訪要排多久」「送的／體驗、預設體驗的課�
 
 ## 做完時留下的
 
-（做完寫）
+commit `2815811`（一個 commit）。單元 4811 全綠（新的 `tests/eecp-one-course.test.js` 53 條，先看它紅過）；
+E2E 點名跑：`72 03 51 55 67 50 49 47 54 17 41 68 69 25 60 21` ＋ `22 57 63 30 42`，全綠（`67` G2、`47` G7 改了期望值，見下）。
+`pick()` 給的是 57 支（visits.js／masterData.js／種子幾乎每支都讀），其餘 36 支留給段九的 CI。
+
+**我自己定的**
+- 欄位名 `trialMinutes`、設定頁的字「體驗的時候排幾分」（收在「其他設定」，錯誤字眼「排幾分」加進 `MORE_WORDS`）
+- EECP `bookingMinutes: [20, 60]`（由小到大，跟二返一樣；issue 寫 [60, 20]）
+- 壓表按 20 換成體驗時**診間、治療師、醫師留著**（課程沒變；`pickCourse()` 會清，所以存起來再放回去）
+- `defaultGiftCourse()` 只挑**預設體驗**的課：EECP 排第一排，但沒有額度的新的一段不預設成 EECP 體驗（照舊功醫門診）
+- 拍 Abovee「扣法不一樣」**兩個方向都做**：照片是體驗、app 扣額度 → 改成體驗；照片清楚是正式課（`EECP60`，只認「那門課有 trialMinutes、照片分鐘不是它」）、app 是體驗 → 改成扣（挑得出一筆還有剩的額度才先勾）。別的課沒拍到預約來源看不出來 → 照舊不比
+- 預約來源寫體驗、app 那一段扣著額度（不限 EECP）也算「要改的」—— 同一個機制，ADR-0148「沒做的」那一條順手補上
+- 確認框「不扣」那一句照課程講 `EECP(體驗) —— 客戶身上的數字…`（`giftNames()` 原本的寫法，同功醫門診(體驗)），上面那一行才印 `EECP(20)(體驗)`
+- 資料健檢沒有東西擋著時**一列一顆按鈕**（改段＋刪那一門同一批）；有擋著時「沒扣額度的段一位一列」＋「擋著的一位一列（只列）」。EECP 還沒有 trialMinutes 時只列、叫她先按「主檔有幾格還沒跟上」—— 那一列把約的時候選時長與體驗排幾分**同一列一起補**（分開按的話課程存不回去）
+- 健檢搬過去的段一律 20 分（issue 第 11 點），送的照舊是送的
+
+**`slotMinutes()` 呼叫端那一張表**（`grep -rn "slotMinutes(" public/js .claude/skills`）
+
+| 呼叫端 | giftKind | 說明 |
+|---|---|---|
+| `domain/slotDraft.js` `slotFromPicks()` | 傳（`gift`） | 壓表 `addSlot()`、來訪編輯器 `readFreeSlot()`、拍 Abovee `planAbovee()` 都經過它 |
+| `domain/visits.js` `slotMinutesField()` | 傳（同一個 o） | |
+| `ui/views/schedule.js` `pickedMinutes()` | 傳 `pickedGiftKind()` | 「幾點開始　N 分鐘」與「排多久」那一排 |
+| `ui/views/visitEditor.js` `blankSlot()` | 傳 | |
+| `ui/views/visitEditor.js` `readDraft()` 扣額度那一條 | **這一次補** `null` | |
+| `ui/views/visitEditor.js` `readNthSlot()`（`slotMinutesField`） | **這一次補** `null` | |
+| `ui/components/aboveeConfirm.js` 排多久那一排 | 傳 | |
+| `domain/aboveeImport.js` `applyPhotoCharge()` | 傳 | 新的 |
+| `domain/mergeImport.js` `addExtraVisits()` | **這一次補**（`free ? 'trial' : null`） | 候選帶 `giftKind` 是 11 的事；那之前 `free` 只認預設體驗的課 |
+| `ui/views/backfill.js`（時段反查）`endOfSlot()` | **這一次補** `null` | 這一頁只看額度（issue 叫它「補登」，其實是時段反查；它不建段） |
+| `domain/health.js` `checkSlotMinutes()` | **這一次補** `null` | 只收扣額度的段 |
+| `domain/mergeImport.js` 主路徑 | —— | 寫檔案上的 `endsAt`，11 負責讓檔案上的數字是對的 |
+| `.claude/skills/calendar-sheet-merge/scripts/merge.mjs` `endOf()` | —— | 第二份，11 要補「體驗排幾分」那一層 |
+
+**留給段五（11）的**
+- `tests/calendar-merge.test.js` 加了 `PENDING_ISSUE_11 = new Set(['EECP體驗'])`：`TOKENS` 那一條還寫 `EECP體驗`（主檔上沒有了）。**11 做完要把那一行拿掉**
+- `legacyImport.js:109`（`'EECP體驗': 'EECP體驗'`）還對到一門不存在的課 → 11
+- 現在拿舊合併檔（v7）匯：`EECP體驗` 那一段對不到主檔（匯不進去）—— 她切換之前一定是 11 重產的那一份
+
+**E2E 改了期望值的**
+- `67` G2：來訪編輯器把一段體驗的復能改回扣三選一，現在多一道「改了扣法」的確認框（`chargeSwitchConsequences()`）
+- `47` G7：種子少一門，課程數 21 → 20
+- `03` H9：「10/5 之前的主檔」多一門舊的 EECP體驗（30 分）、EECP 拿掉 bookingMinutes／trialMinutes；最後多按一項「EECP體驗 那一門還在」
+- `51` N1：預填寫法的例子從 `EECP20` 換成身體組成
+
+**沒做的**
+- 拍 Abovee「改期」與「扣法不一樣」同時發生（Abovee 上改了時間又改成 EECP20）：改期照舊整段抄舊的扣法，新的那一段不會順便改成體驗
+- 兩張照片同一個時間一張 `EECP20`、一張 `EECP60`：現在是同一門課 → 被當成「看起來是同一段」只留一列先勾（以前是兩門課、兩列都記）。寫進 ADR 後果
+- 她自己的方案範本裡如果有 `course-eecp-trial`，資料健檢不擋刪那一門（快照沒讀方案範本）—— 刪了之後那一份範本在設定頁存不回去
+
