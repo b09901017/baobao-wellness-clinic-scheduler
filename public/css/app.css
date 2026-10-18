@@ -1308,6 +1308,21 @@ textarea {
   font-weight: 500;
 }
 
+/* 設成「一直顯示」、現在 0 件的那一列（ADR-0151）。淡一級，數字也淡 —— 還是點得進去，
+   那一頁的「已完成」是她把勾掉的勾回來的入口。 */
+.grouprow--empty .grouprow__label,
+.grouprow--empty .grouprow__n {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* 總覽最底下那一行小字：連到 設定 → 待辦首頁。 */
+.flowfoot {
+  margin: var(--space-2) 0 0;
+  text-align: right;
+  font-size: var(--text-xs);
+}
+
 /* 分類清單。一列一個數字加一句話，點進去才是完整內容。 */
 .groups {
   background: var(--surface);
@@ -10774,4 +10789,22 @@ body.has-abl {
 .subrow > svg {
   flex: none;
   color: var(--text-mute);
+}
+
+/* ---------- 設定 → 待辦首頁（ADR-0151） ----------
+   一列一個名字、底下一排三選一。名字與三顆並排在 390px 上放不下（四個字 × 3 ＋ 名字），
+   所以上下兩行。 */
+.todorows__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+.todorows__row + .todorows__row {
+  border-top: 1px solid var(--border);
+}
+
+.todorows__label {
+  font-weight: 600;
 }

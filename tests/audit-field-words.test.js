@@ -17,7 +17,7 @@ const HERS = [
   'preferredRoomIds', 'durationChoices', 'needsRecord', 'needsTreatmentForm', 'assigns',
   'allowedRoomTypes', 'lineName', 'followupCourseId',
   'capacity', 'contraindications', 'color', 'fill', 'hint',
-  'messageTemplates', 'sortWeights', 'slotGapMin', 'sheetSync',
+  'messageTemplates', 'sortWeights', 'slotGapMin', 'sheetSync', 'todoRows',
   // 審查補的：已完成那一天的更正、額度上買的那一款點滴、AI 用量的設定
   'lastCorrection', 'ivProductId', 'monthlyCapUsd', 'paused',
 ];

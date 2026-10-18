@@ -6,6 +6,7 @@ import * as masterList from './views/masterList.js';
 import * as trash from './views/trash.js';
 import * as preferences from './views/preferences.js';
 import * as templates from './views/templates.js';
+import * as todoRows from './views/todoRows.js';
 import * as home from './views/home.js';
 import * as schedule from './views/schedule.js';
 import * as bulkCancel from './views/bulkCancel.js';
@@ -109,6 +110,7 @@ register('/settings/audit', { title: '稽核紀錄', nav: false, render: audit.r
 register('/settings/merge', { title: '舊資料匯入', nav: false, render: mergeImport.render });
 register('/settings/preferences', { title: '排序權重', nav: false, render: preferences.render });
 register('/settings/templates', { title: 'LINE 回覆模板', nav: false, render: templates.render });
+register('/settings/todo-rows', { title: '待辦首頁', nav: false, render: todoRows.render });
 register('/settings/ai', { title: 'AI 用量', nav: false, render: aiUsage.render });
 // 療程單（issue 14）。三段的那一條不會跟 `/settings/:type` 撞（`router.js` 先比段數）
 register('/settings/treatment-sheets', { title: '療程單', nav: false, render: treatmentSheets.render });

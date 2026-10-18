@@ -120,6 +120,91 @@ export function groupByStage(rows = []) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// 首頁上有哪幾列、每一列畫不畫（ADR-0151）
+// ---------------------------------------------------------------------------
+
+/**
+ * 首頁上**她設定得到**的那幾列，順序就是 `FLOW` 的順序（她做事的順序）。
+ *
+ * 已經拿掉的種類（`RETIRED_KINDS`）與她手動加的種類**不在這裡**：有舊資料就照舊
+ * 畫在那一段最後面，等於永遠「有才顯示」—— 給一個會自己消失的東西一格設定，
+ * 那一格之後就是一顆按了沒反應的按鈕。
+ */
+const ROW_LABELS = {
+  ask: '問這輪的時間',
+  forms: '客戶填好的時間',
+  book: '壓表登記',
+  confirm: '跟客人確認時間',
+  close: '簽療程單',
+  cancel: '改時間／取消',
+};
+export const HOME_ROWS = FLOW.map(([id]) => ({ id, label: ROW_LABELS[id] ?? id }));
+
+/** 一直顯示／有才顯示（以前的行為）／不顯示。 */
+export const ROW_SHOWS = ['always', 'auto', 'hidden'];
+
+/**
+ * 預設藏起來的那兩列：她 10/18「問時間和壓表現在不是我必須做的事……首頁這樣太多東西了」。
+ * 其餘照舊有才顯示。**沒存的一律照這一份**，所以之後改預設，她沒動過的那幾列會跟著。
+ */
+const DEFAULT_ROW_SHOWS = { ask: 'hidden', book: 'hidden' };
+
+const isHomeRow = (id) => HOME_ROWS.some((r) => r.id === id);
+const defaultShowOf = (id) => DEFAULT_ROW_SHOWS[id] ?? 'auto';
+
+/**
+ * 這一列現在是哪一種。名單上沒有的（舊種類、她手動加的）一律有才顯示。
+ *
+ * @param {string} id 列的 id 或任務種類
+ * @param {object} [settings] `config/app`（讀 `todoRows`）
+ */
+export function rowShowOf(id, settings) {
+  if (!isHomeRow(id)) return 'auto';
+  const v = settings?.todoRows?.[id];
+  return ROW_SHOWS.includes(v) ? v : defaultShowOf(id);
+}
+
+/**
+ * 這一列畫不畫、畫成什麼樣。**首頁只問這一支**（`tests/todo-home-rows.test.js` 掃原始碼）。
+ *
+ * - 不顯示 → null（**三顆大數字照算它**，她：「藏起來的是那一列，不是那件事」）
+ * - 有才顯示 → 沒東西就 null
+ * - 一直顯示 → 沒東西也畫，`empty: true`（淡的一列；點進去是那一種的「已完成」可以勾回來）
+ *
+ * @param {number|null} n 現在幾件。**null ＝ 還沒載完**：哪一種都先不畫，資料回來再補
+ * @returns {{empty: boolean}|null}
+ */
+export function rowView(id, n, settings) {
+  if (n == null) return null;
+  const show = rowShowOf(id, settings);
+  if (show === 'hidden') return null;
+  if (n > 0) return { empty: false };
+  return show === 'always' ? { empty: true } : null;
+}
+
+/** 首頁等資料回來才補的那三列。 */
+const LOADED_ROWS = ['ask', 'forms', 'book'];
+
+/**
+ * 首頁要多讀哪幾份。設成不顯示的那一列**連資料都不讀** —— 每一列各多讀三四份，
+ * 而首頁她一天開十幾次。
+ *
+ * @returns {string[]} `LOADED_ROWS` 的子集，順序不變
+ */
+export function homeLoaders(settings) {
+  return LOADED_ROWS.filter((id) => rowShowOf(id, settings) !== 'hidden');
+}
+
+/**
+ * 要存進 `config/app` 的 `todoRows`：**只存跟預設不一樣的**（同 `messageTemplates` 的作法）。
+ * 名單上沒有的、看不懂的值都不存。
+ */
+export function storedRowShows(shows = {}) {
+  return Object.fromEntries(Object.entries(shows ?? {})
+    .filter(([id, v]) => isHomeRow(id) && ROW_SHOWS.includes(v) && v !== defaultShowOf(id)));
+}
+
 /**
  * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。
  *

@@ -565,6 +565,12 @@ export const COVERAGE = {
     'public/js/domain/health.js', 'public/js/ui/views/health.js',
     'public/css/',
   ],
+  // 待辦首頁：每一列三種顯示（07）、今天／明天／逾期的組成（08）
+  '70-todo-home': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/ui/views/todoRows.js',
+    'public/js/ui/views/settings.js', 'public/js/data/config.js', 'public/js/domain/notes.js',
+    'public/js/ui/components/note.js', 'public/js/domain/visits.js',
+  ],
 };
 
 /**

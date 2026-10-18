@@ -155,6 +155,7 @@ const FIELD_LABELS = {
   sortWeights: '排序權重',
   slotGapMin: '來訪內時段間隔（分鐘）',
   sheetSync: '試算表自動推送',
+  todoRows: '待辦首頁顯示哪幾列',
   lastCorrection: '更正理由',
   ivProductId: '買的是哪一款點滴',
   monthlyCapUsd: '每月上限（美元）',

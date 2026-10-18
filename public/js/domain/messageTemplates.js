@@ -49,7 +49,7 @@ export const TEMPLATES = [
   {
     id: 'ask',
     label: '問這一輪的時間',
-    where: '待辦中心「問這輪的時間」、客戶詳情',
+    where: '待辦中心「問這輪的時間」（設定 → 待辦首頁 打開那一列）、客戶詳情',
     vars: ['name', 'month'],
     text: '{name}大哥/姐姐\n'
       + '即將幫您安排 {month} 月的課程\n'

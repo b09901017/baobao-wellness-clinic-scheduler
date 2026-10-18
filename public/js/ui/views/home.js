@@ -34,6 +34,7 @@ import {
 } from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
+  HOME_ROWS, rowView, homeLoaders,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -194,9 +195,9 @@ export async function render(el) {
 
   const ctx = { el, tasks, pending, unclosed, notes, settings, today };
   paint(ctx);
-  loadAsk(ctx);
-  loadInbox(ctx);
-  loadBook(ctx);
+  // 設成不顯示的那幾列**連資料都不讀**（ADR-0151）：各多讀三四份，而這一頁她一天開十幾次
+  const loaders = { ask: loadAsk, forms: loadInbox, book: loadBook };
+  for (const id of homeLoaders(settings)) loaders[id](ctx);
 }
 
 /**
@@ -247,7 +248,7 @@ async function loadBook(ctx) {
   }
 
   const slot = ctx.el.querySelector('[data-book]');
-  if (slot) slot.innerHTML = bookGroupRow(ctx.today);
+  if (slot) slot.innerHTML = bookGroupRow(ctx.settings);
   markNext(ctx.el);
 }
 
@@ -281,7 +282,7 @@ async function loadAsk(ctx) {
   // 她可能已經切到「依客戶」那個看法了，那時候沒有這個位置可以填。
   // 不用補救：切回來會重畫，那時 askRows 已經有了。
   const slot = ctx.el.querySelector('[data-ask]');
-  if (slot) slot.innerHTML = askGroupRow();
+  if (slot) slot.innerHTML = askGroupRow(ctx.settings);
   markNext(ctx.el);
 }
 
@@ -299,7 +300,7 @@ async function loadInbox(ctx) {
   }
 
   const slot = ctx.el.querySelector('[data-inbox]');
-  if (slot) slot.innerHTML = inboxGroupRow();
+  if (slot) slot.innerHTML = inboxGroupRow(ctx.settings);
   markNext(ctx.el);
 }
 
@@ -747,8 +748,9 @@ function markNext(el) {
   for (const g of groups) g.classList.remove('flowgroup--next');
   // **提醒不算「下一步」。** 她的下一步不會是一件永遠做不完的事 ——
   // 壓表那一段身上永遠有人，標成下一步等於那顆標記永遠停在同一個地方。
+  // 一直顯示、現在 0 件的那幾列（ADR-0151）也不算：那一段沒有事要做。
   groups
-    .find((g) => g.querySelector('.grouprow:not(.grouprow--reminder)'))
+    .find((g) => g.querySelector('.grouprow:not(.grouprow--reminder):not(.grouprow--empty)'))
     ?.classList.add('flowgroup--next');
 }
 
@@ -787,34 +789,47 @@ function longDate(iso) {
  * 段落先在那裡，補進來才有位置放，而且不必為了它重畫整塊。
  */
 function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
-  const { tasks } = ctx;
+  const { tasks, settings } = ctx;
   const cancels = tasks.filter((t) => isCancelKind(t.kind));
-  const kinds = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))];
+
+  // 一列畫不畫、畫成什麼樣只問 `rowView()`（ADR-0151）：不顯示的不畫、一直顯示的 0 件畫成淡的。
+  // **三顆大數字照算藏起來的那幾列** —— 她：「藏起來的是那一列，不是那件事」。
+  const counted = (id, n, opts) => {
+    const view = rowView(id, n, settings);
+    return view ? groupRow({ ...opts, n, empty: view.empty }) : '';
+  };
+  const kindRow = (k) => counted(k, tasks.filter((t) => t.kind === k).length, {
+    href: `#/todo/${encodeURIComponent(k)}`,
+    label: k,
+    // 已經取消的種類：一整句換成一顆小丸子。一顆丸子講的是「這一列跟別列
+    // 不同」，一整行講的是「讓我解釋給你聽」—— 她要的是前者，完整版在
+    // 點進去那一頁的第一句（`renderGroup()` 的 `meta.lead`）。
+    tag: isRetired(k) ? '舊資料' : '',
+    faded: isRetired(k),
+  });
+
+  // 名單上的任務種類一律問一次（一直顯示的 0 件也要畫）；名單上沒有、身上卻有的
+  //（已經拿掉的、她手動加的）照舊有才顯示，`groupByStage()` 把它們排在那一段最後面。
+  const derived = new Set(['ask', 'forms', 'book', 'confirm', 'close', 'cancel']);
+  const listed = HOME_ROWS.map((r) => r.id).filter((id) => !derived.has(id));
+  const extra = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))]
+    .filter((k) => !listed.includes(k));
 
   // 每一列先算出來，順序由 STAGES 決定，不是由這裡的寫法決定。
   const rows = [
-    { id: 'ask', html: `<div data-ask>${askGroupRow()}</div>` },
-    { id: 'forms', html: `<div data-inbox>${inboxGroupRow()}</div>` },
-    { id: 'book', html: `<div data-book>${bookGroupRow()}</div>` },
-    { id: 'confirm', html: waiting.size ? groupRow({
-      href: '#/todo/confirm', label: '跟客人確認時間', n: waiting.size,
-    }) : '' },
-    { id: 'close', html: toClose.length ? groupRow({
-      href: '#/todo/close', label: '簽療程單', n: toClose.length,
-    }) : '' },
-    ...kinds.map((k) => ({ id: k, html: groupRow({
-      href: `#/todo/${encodeURIComponent(k)}`,
-      label: k,
-      // 已經取消的種類：一整句換成一顆小丸子。一顆丸子講的是「這一列跟別列
-      // 不同」，一整行講的是「讓我解釋給你聽」—— 她要的是前者，完整版在
-      // 點進去那一頁的第一句（`renderGroup()` 的 `meta.lead`）。
-      tag: isRetired(k) ? '舊資料' : '',
-      n: tasks.filter((t) => t.kind === k).length,
-      faded: isRetired(k),
-    }) })),
-    { id: 'cancel', html: cancels.length ? groupRow({
-      href: '#/todo/cancel', label: '改時間／取消', n: cancels.length, danger: true,
-    }) : '' },
+    { id: 'ask', html: `<div data-ask>${askGroupRow(settings)}</div>` },
+    { id: 'forms', html: `<div data-inbox>${inboxGroupRow(settings)}</div>` },
+    { id: 'book', html: `<div data-book>${bookGroupRow(settings)}</div>` },
+    { id: 'confirm', html: counted('confirm', waiting.size, {
+      href: '#/todo/confirm', label: '跟客人確認時間',
+    }) },
+    { id: 'close', html: counted('close', toClose.length, {
+      href: '#/todo/close', label: '簽療程單',
+    }) },
+    ...[...listed, ...extra].map((k) => ({ id: k, html: kindRow(k) })),
+    { id: 'cancel', html: counted('cancel', cancels.length, {
+      href: '#/todo/cancel', label: '改時間／取消', danger: true,
+    }) },
   ];
 
   return `
@@ -832,17 +847,19 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
           <span class="flowgroup__next">下一步</span>
         </h2>
         <div class="groups">${mine.map((r) => r.html).join('')}</div>
-      </section>`).join('')}`;
+      </section>`).join('')}
+
+    <p class="flowfoot"><a class="muted" href="#/settings/todo-rows" data-todo-rows>調整顯示哪幾列</a></p>`;
 }
 
 /**
  * 她流程的**第一步**：問客戶下個月哪幾天方便。壓表之前的事。
  *
- * 還沒載完（null）與沒有人要問（空）都不畫：一列寫著 0 的提醒，
- * 在一頁專講「現在有幾件事」的畫面上只是雜訊。
+ * 還沒載完（null）不畫；沒有人要問時照設定（ADR-0151，預設這一列不顯示）。
  */
-function askGroupRow() {
-  if (!askRows?.length) return '';
+function askGroupRow(settings) {
+  const view = rowView('ask', askRows?.length ?? null, settings);
+  if (!view) return '';
 
   // 數字**不減掉**已經發出連結的那幾位：這一輪的時間確實還沒問到，
   // 把數字做小會讓她以為進度比實際好（ADR-0033）。
@@ -856,6 +873,7 @@ function askGroupRow() {
     href: '#/todo/ask',
     label: '問這輪的時間',
     n: askRows.length,
+    empty: view.empty,
   });
 }
 
@@ -865,15 +883,17 @@ function askGroupRow() {
  * 排在「問這輪的時間」上面：客戶已經回了的比還沒開口問的急 ——
  * 一份是等著她處理，另一份是等著她開口。
  *
- * 一樣，0 的時候整列不畫。
+ * 一樣，0 的時候照設定（預設有才顯示）。
  */
-function inboxGroupRow() {
-  if (!inboxRows?.length) return '';
+function inboxGroupRow(settings) {
+  const view = rowView('forms', inboxRows?.length ?? null, settings);
+  if (!view) return '';
 
   return groupRow({
     href: '#/todo/forms',
     label: '客戶填好的時間',
     n: inboxRows.length,
+    empty: view.empty,
   });
 }
 
@@ -890,13 +910,16 @@ function inboxGroupRow() {
  *
  * 「其中 N 位是健檢」也一起拿掉：想知道有誰就點進去，那一頁本來就分兩區。
  */
-function bookGroupRow() {
-  if (!bookRows?.length) return '';
+function bookGroupRow(settings) {
+  // 預設不顯示（ADR-0151）。一直顯示、沒有人時照舊沒有數字，只是淡一級
+  const view = rowView('book', bookRows?.length ?? null, settings);
+  if (!view) return '';
 
   return groupRow({
     href: '#/todo/book',
     label: '壓表登記',
     reminder: true,
+    empty: view.empty,
   });
 }
 
@@ -936,10 +959,15 @@ function tile(id, n, label, cls) {
  * **沒有 `note` 這個參數，這是刻意的**（2026-09-04，ADR-0072）。留著它就是
  * 留著一條路，而這一頁就是這樣長出十三句說明的。`tag` 收不下一整句
  *（它是一顆小丸子），那個限制本身就是護欄。
+ *
+ * `empty`：設成一直顯示、現在 0 件的那一列（ADR-0151）。淡一級、數字寫 0、照樣點得進去 ——
+ * 點進去那一頁的「已完成」就是她要的「把勾掉的勾回來」的入口。
  */
-function groupRow({ href, label, tag = '', n, danger = false, faded = false, reminder = false }) {
+function groupRow({
+  href, label, tag = '', n, danger = false, faded = false, reminder = false, empty = false,
+}) {
   return `
-    <a class="grouprow ${faded ? 'grouprow--faded' : ''} ${reminder ? 'grouprow--reminder' : ''}"
+    <a class="grouprow ${faded ? 'grouprow--faded' : ''} ${reminder ? 'grouprow--reminder' : ''} ${empty ? 'grouprow--empty' : ''}"
        href="${href}">
       <span class="grouprow__main">
         <span class="grouprow__label" ${danger ? 'style="color: var(--overdue)"' : ''}>${esc(label)}</span>
