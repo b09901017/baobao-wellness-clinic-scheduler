@@ -18,7 +18,7 @@
 | 五 | 10 沒床位的兩間拿掉、11 合併檔 v8 一開始就對＋**重產她那一份**（本機、真資料） | xhigh | ✅ 10/19 做完（見下面「段五做完了」）；她回了中途發現，`staging:reset --master` 也做了 |
 | 六 | 13 長備註與備註那一段的**原型**（設計 skill、假名字、發 Artifact）→ **停，等她回** | high | ✅ 10/19 原型發了、**她回了**：1 全部是丸子、2 從那一則長出來、3 線條（見下面「段六做完了」） |
 | 七 | 14 備註那一段一起排順序＋聯絡方式＋中間那張卡、15 長備註那一頁 | high | ✅ 10/19 做完（見下面「段七做完了」）；她回了中途發現（1 修了、2 3 不做） |
-| 八 | `/matt-code-review`（從 `cd71d34` 比，含已經合進去的段一）、照建議修 | xhigh | ⬜ |
+| 八 | `/matt-code-review`（從 `cd71d34` 比，含已經合進去的段一）、照建議修 | xhigh | 🟡 10/19 清晨：審查跑完、修了 6 支（見下面「段八停在哪」）；**還剩兩件小的**，併進段九第 0 步（額度快用完先收尾） |
 | 九 | 文件總檢查、全量 E2E（CI）、手動驗收清單、**PR B、合進 develop** | medium | ⬜ |
 
 段三（12）不依賴別支，排在 09 前面是因為她每壓完一位就拍一次，這一條天天撞到；09 也動 `aboveeImport.js`，先後做比較不會互相蓋。
@@ -286,6 +286,42 @@ commit 見 git log「staging:reset 多一個 --master」。`scripts/reset-stagin
 手動驗收清單多一步（她回 1 之後）：
 12. 待辦 → 右上角備忘錄 → 一張卡的鉛筆 → 打幾個字 → 按手機的返回鍵 → 跳一道框（存起來／不要了）、**還在備忘錄那一頁** → 點框外面把框關掉 → 打的字還在
 
+## 段八停在哪（10/19 清晨，5 小時額度到 85% 先收尾）
+
+`/matt-code-review` 從 `cd71d34` 比（31 個 commit、146 個檔）。兩軸各一支 subagent，主控另外自己讀段七那幾支（`customerNotes.js`、`noteCard.js`、`noteReorder.js`、`notesEditor.js`、`longNotes.js`、`customerDetail.js` 備註那一段、`marks.js`、`deck.js`、CSS、Rules、每一個寫 `marks` 的入口）。
+**兩軸都獨立抓到同一條最重的**（下表 1）。工作目錄是乾淨的、模擬器關了。
+
+### 修了的（每一支紅 → 綠 → verify → commit）
+
+| # | 哪一軸 | 什麼 | commit | verify |
+|---|---|---|---|---|
+| 1 | 兩軸＋主控 | **長備註、備忘錄改到一半點底下那一排換頁 → 「這一則改到一半」那一道框留在日曆上**：按「存起來」存舊草稿、還把長備註那一頁畫回日曆上面；關掉框則把那一層補推到日曆上。CLAUDE.md 那一列（換頁先來一下 popstate、網址換了就不要問）兩支 `editLayer` 都沒照做（段七新的那一層、`88a7811` 備忘錄那一層）。照拍 Abovee 的 `openedAt` | `7f47930` | E2E 74 L5b、15 P8g 先紅；00 08 15 18 24 74 全綠 |
+| 2 | 主控 | **E2E 74 L6 時紅時綠**（verify 時 flaky 一次）：查到是測試 —— 卡片的進場動畫在 y 上，Playwright 判「不穩」、重試時自己 scroll into view 把那一疊捲走 78px（暫時腳本逐回合量：app 沒叫任何捲動 API；等動畫播完 8/8 不動）。改成等 `getAnimations()` 播完 | `b3e8174` | 74、15 全綠 |
+| 3 | 兩軸 | **電話、LINE 撐開的觸控區跨進上一排 2px**（`inset: -8px 0`，排距 6px）：排過順序後電話在 DOM 裡在後面，點長備註的下緣變撥號。改 `-3px`（點得到 40px） | `ad23287` | E2E 74 N11 先紅（`elementFromPoint`）；74 24 08 00 全綠 |
+| 4 | 兩軸 | **Rules 的 `noteOrder` 40 格在 domain 沒有名字**：`MAX_NOTE_ORDER`、單元比 `firestore.rules` 兩個上限、R14.5；CLAUDE.md 備註那一列補一句。她的合併檔每位最多 12 則短的（只印數字查的）→ 超過 40 現在到不了，所以**沒有**加畫面上的句子 | `598faaa` | 單元先紅；Rules 115 全綠 |
+| 5 | Spec | **issue 14 判準「各一個測試」只有一條**：補壓表卡片牆、壓表登記、試算表（單元）、客戶清單卡片（E2E 74 N12）。行為本來就對，所以一開始就綠 | `2b3a231` | 單元 4885、74 N12 |
+| 6 | Standards | **首頁那幾列的名字寫兩份**（段二的 `ROW_LABELS` 給設定頁、`home.js` 自己十一處＋自己列哪幾列不是任務種類）→ `rowLabel()`、`NON_TASK_ROWS`，字沒變 | `8543405` | 單元先紅；E2E 70 11 12 19 34 00 全綠（pick 26 支，其餘段九 CI） |
+
+### 還沒做的（段九第 0 步）
+
+- **a｜常駐說明兩段躲過了棘輪**（Standards 8）：`notesEditor.js` 電話／LINE 那兩列的 `.edrow__note`（「在『編輯』客戶資料裡改」）、`noteReorder.js` 的 `.reorder__hint`（「按住一則上下拖，放開就排好」）。
+  `tests/fewer-words.test.js` 只數 `CLASSES` 那六種 class 與手寫的 `field__hint`，所以沒紅；CLAUDE.md「畫面上一段常駐的說明」說先想能不能收進 `tip()`，而 `KEEP`「只准往下」。
+  我傾向：`.reorder__hint` 只在排序模式出現（一個模式的操作說明）→ 收進「調整順序」旁邊一顆 `tip()` 或拿掉；`.edrow__note` 改成那一列尾巴一顆 `tip()`（同一句）。兩個 class 都加進 `CLASSES` 讓棘輪看得到。**原型她看過這兩句** —— 改了在手動清單講一句
+  （`openNotesEditor()` 的 `note:` 是 `drawer__note`，已經在棘輪裡、`customerDetail.js` 的 5 沒變，那一句不用動）
+- **b｜「編輯」那一張切「加一則短的／長的」會把另一格打到一半的字清掉**（主控讀到的，沒寫測試）：`notesEditor.js` 的 `paint()` 整塊重畫，切分頁時沒先讀輸入框。她打了一大段長的、手滑點到「加一則短的」再點回來 → 沒了。
+  修法：切分頁前把兩格的字存在閉包（`drafts`），`addHtml()` 帶回去；`flush()` 照舊只收現在那一格。E2E 74 加一條（先紅）
+
+### 提過、沒改的（理由）
+
+- **editLayer「推一層＋改過才問＋finally 補推」寫了三份**（`longNotes.js`、`playbook.js`、`noteCard.js`，Standards 3）：三份的狀態各在不同地方（兩頁的 `ctx`、卡片的閉包），抽一支共用的要再穿三個 callback；這一次的修正兩份照同一個樣子改完了。等第四個入口出現再抽
+- **`notesEditor.js` 重寫了 `marks.js` `mount()` 的色票、上限句、同一句擋重複**（Standards 4）：`mount()` 只管短備註、新增客戶那一頁在用；`notesEditor` 管整串（電話、LINE、長的）。合成一支要改新增客戶那一頁 —— 不在這一輪。`flush()` 只有 `notesEditor` 有：新增客戶那一頁「打完沒按加入直接存」本來就是那樣（段七以前），沒變
+- **`noteCard.js:102` 從整份文件找 `.is-source[data-notes-long]`**（Standards 6）：只有一個呼叫端，查過是多餘的保險（`source()` 已經收得掉），留著不影響
+- **新的一則長備註每按一次「存起來」換一個 id → `withSaveState` 的 key 擋不住連按**（Standards 9）：兩次寫的都是同一份舊快照＋新的一則，第二次蓋掉第一次 —— 結果一樣是一則，所以沒修
+- `matchesLongNote` 用 `normalizeAlias()`（名字像 Abovee 專用）、`reset-staging.mjs` 的 `writeSeed()` 照抄 `seed-staging` 的 `writeAll()`（它的註解自己講了）：判斷題，不動
+- **主控另外看到的小事**：客戶詳情「調整順序」到一半離開、再回到同一位客戶，還停在排序模式（`notesOrder` 只在換人時清；資料不會錯 —— 回來時新加的短備註照樣接在最後）。沒動
+- **查過、沒問題的**：`noteOrder` 佔位對每一個寫 `marks` 的入口都成立（拍訂購單「尾款」接在最後、資料健檢病歷號原地改、合併檔只建新客戶、客戶編輯表單不碰 `marks`、`readMarks()` 退回 `notes` 那一條兩邊都經過它）；
+  返回鍵的卡片與長備註頁編輯（`nav.js` 在微任務對帳，同一圈先 pop 再 push 不會打架）；屬性前綴；`.lnov` 的安全區與關閉鈕；長按電話吃掉接著的 click；SHELL／VERSION v195、`related.js` 登記
+
 ## 段一停在哪（10/18 中午，她臨時有事、要關網路，叫我先收尾）—— 留著當紀錄
 
 | issue | 狀態 |
@@ -525,9 +561,12 @@ noteOrder 佔位在「別的入口改了 marks」時對不對（orderForm 的尾
 
 ```
 這一輪在做她 10/18 在 staging 點出來的優化（.scratch/staging-polish-2026-10-18/）。分支 claude/staging-polish-1018。
-段一～段八做完了（審查修完）。這是最後一段：文件、全量 E2E、手動驗收清單、PR B、合進 develop。
+段一～段八做完了（審查修了 6 支，見 HANDOFF「段八停在哪」）。這是最後一段：段八剩的兩件、文件、全量 E2E、手動驗收清單、PR B、合進 develop。
 
-先讀 HANDOFF.md、spec.md。
+先 git fetch；develop 往前走了就 rebase。先讀 HANDOFF.md（「段八停在哪」整段）、spec.md。
+0a. 段八剩的 a：常駐說明 .edrow__note、.reorder__hint 收進 tip()（或拿掉），兩個 class 加進 tests/fewer-words.test.js 的 CLASSES（先紅）；她看過原型上這兩句，手動清單講一句
+0b. 段八剩的 b：notesEditor.js 切「加一則短的／長的」會清掉另一格打到一半的字 → 存在閉包帶回去；E2E 74 先紅
+   （兩件各自紅 → 綠 → 單元＋點名 E2E → commit；npm run verify 會退回全跑，照 HANDOFF 段三的做法問 pick()）
 0. 中途發現「段二 2」：scripts/e2e-changes.mjs／tests-e2e/related.js 的 pick() 認得「ui/views.js 只多了 import／register() 那幾行」→ 只跑那一頁的 spec，
    不要退回全跑（紅 → 綠：tests/e2e-related.test.js 補一條；寧可多跑、不可安靜地少跑 —— 有刪掉或改到別行一律照舊全跑）
 1. 文件總檢查：每一個拿掉／改名的字 grep docs/ SPEC.md CONTEXT.md（「資料過期」「EECP體驗」「點滴8」「VIP7」「5–10 秒」「三個入口共用一張」…）；
