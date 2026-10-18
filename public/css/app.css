@@ -9914,7 +9914,15 @@ body.has-abl {
   gap: var(--space-1) var(--space-2);
 }
 
-.abl-row__seenlabel,
+/* 「照片上寫的」那一行（staging-polish 02）：收起來的一段，長相照 `.foldout`。 */
+.abl-row__seenfold {
+  margin: 0 0 var(--space-1);
+}
+
+.abl-row__seenfold > .abl-row__seen {
+  padding-bottom: var(--space-2);
+}
+
 .abl-row__picklabel {
   width: 100%;
   font-size: var(--text-2xs);

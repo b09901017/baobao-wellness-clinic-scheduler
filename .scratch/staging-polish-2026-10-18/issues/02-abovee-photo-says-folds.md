@@ -1,6 +1,6 @@
 # 拍 Abovee：「照片上寫的是」預設收起來、收得回去
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`ui/components/aboveeConfirm.js` 畫一列細節那一段（`abl-row__seen`、`seenChip()`，約 `:483-498`）與確認層的閉包狀態（哪幾列展開著、怎麼重畫）；
@@ -34,4 +34,10 @@ CLAUDE.md「畫面上一段常駐的說明」（`mustSee()` 的提醒是紅線�
 
 ## 做完時留下的
 
-（做完寫）
+- 用 app 既有的 `<details class="foldout">`（› 轉 90°），不是另做一顆按鈕：`<details class="foldout abl-row__seenfold" data-abl-seen="<列的 key>">`，
+  `<summary>照片上寫的</summary>` 底下才是那一排原字丸子（`.abl-row__seen` 照舊）。原生 details 給的是展開／收合的語意，螢幕閱讀器念得出來
+- 開過的那幾列記在確認層閉包的 `seenOpen`（`Set`，列的 key），接的是跟 `fillOpen`／`laterOpen` 同一個 `toggle` capture —— 重畫照記的畫；關掉確認層就沒了。
+  「已經記進日曆了」那一種列走同一段 `seen`，所以一樣
+- 收的只有原字那一排；`mustSee()` 的提醒、`photoRowSays()`、對不上的理由都在 details 外面，一個字沒動
+- `.abl-row__seenlabel` 沒人用了，CSS 拿掉
+- E2E：`41` 的 A1 改成先點開再讀原字，並且補「重畫之後照樣開著、再點收回」；`67` 的 G9 讀 `.abl-row__seen` 的 `toContainText`（textContent）收著也讀得到，不用改

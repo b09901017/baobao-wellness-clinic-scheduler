@@ -125,8 +125,17 @@ test('A1 左右兩張：新的 5 段勾好、已經記了 3 段、已取消 2 �
 
   // 王小明 SIS 那一列：服務資源的全名認不出來 → 點開、看得到原字、選芝寧 → 會記住
   await row(page, 'a0').locator('[data-abl-open]').click();
+  // 「照片上寫的」預設收著、點了才攤開（staging-polish 02，她：「先預設收合，需要的時候在展開」）
+  const seen = row(page, 'a0').locator('[data-abl-seen]');
+  await expect(seen.locator('summary')).toContainText('照片上寫的');
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' })).toBeHidden();
+  await seen.locator('summary').click();
   await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' })).toBeVisible();
   await row(page, 'a0').locator('[data-abl-therapist="staff-zn"]').click();
+  // 選一位治療師整列會重畫：打開過的照樣開著
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' }), '重畫之後照樣開著').toBeVisible();
+  await row(page, 'a0').locator('[data-abl-seen] summary').click();
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' }), '再點一次收回去').toBeHidden();
   await expect(row(page, 'a0').locator('.abl-row__learn')).toContainText('「陳美玲」都認成 芝寧');
 
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 5 段');

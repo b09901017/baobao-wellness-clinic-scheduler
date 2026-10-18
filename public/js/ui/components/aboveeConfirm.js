@@ -89,6 +89,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let later = new Set();
   /** 收起來的那一組點開了沒（整片重畫時不收回去） */
   let laterOpen = false;
+  /**
+   * 「照片上寫的」打開過的那幾列（staging-polish 02）。預設收著：那是對照用的原字，她要的時候才看。
+   * 按一顆「要做什麼」整列會重畫，所以記在這裡、重畫時照記的畫；關掉確認層就忘了。
+   */
+  const seenOpen = new Set();
   let openKey = null;
   let batches = [];
   let running = false;
@@ -481,9 +486,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const left = urlOf(item.photos[0]);
     const right = urlOf(item.photos[1] ?? item.photos[0]);
     const r = item.row;
+    // 收的只有原字這一排 —— `mustSee()` 的提醒、對不上的理由都在外面，一個字都不收（ADR-0138）
     const seen = `
-      <div class="abl-row__seen">
-        <span class="abl-row__seenlabel">照片上寫的是</span>
+      <details class="foldout abl-row__seenfold" data-abl-seen="${esc(item.key)}" ${seenOpen.has(item.key) ? 'open' : ''}>
+        <summary>照片上寫的</summary>
+        <div class="abl-row__seen">
         ${seenChip(item.statusText, { photo: left })}
         ${seenChip(r.date, { photo: left })}
         ${seenChip(r.time, { photo: left })}
@@ -493,7 +500,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${seenChip(r.room, { photo: right })}
         ${seenChip(r.resource, { photo: right })}
         ${seenChip(r.cancelReason, { photo: right })}
-      </div>`;
+        </div>
+      </details>`;
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
     // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
@@ -782,6 +790,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   root.addEventListener('toggle', (e) => {
     if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open;
     if (e.target.matches?.('.abl__later')) laterOpen = e.target.open;
+    if (e.target.matches?.('[data-abl-seen]')) {
+      if (e.target.open) seenOpen.add(e.target.dataset.ablSeen);
+      else seenOpen.delete(e.target.dataset.ablSeen);
+    }
   }, true);
 
   root.addEventListener('click', (e) => {
