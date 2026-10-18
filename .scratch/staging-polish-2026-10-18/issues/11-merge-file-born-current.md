@@ -1,6 +1,6 @@
 # 合併檔一開始就是新的：EECP體驗 → EECP＋20 分＋體驗；沒床位的 .8／VIP7 不給診間；重產她那一份
 
-Status: todo
+Status: done
 Blocked by: 09、10（種子先變，產檔那側才知道要對到哪一門、哪一間）
 段：五（xhigh，跟 10 一起）
 動工前先讀：`.claude/skills/calendar-sheet-merge/SKILL.md`（決定檔、`--board`、`record.mjs`）；`scripts/merge.mjs` 的 `TOKENS`（`:62-72`，`EECP體驗` 與 `EECP` 兩條）、`startOf()`、`endOf()`、`roomOf()`、`applySlotDecisions()`（決定檔「加一段」的 `free: '體驗'|'送的'`）；
@@ -58,4 +58,30 @@ app 這側 `addExtraVisits()` 判「扣不扣」只問 `isUncounted(course)`（`
 
 ## 做完時留下的
 
-（做完寫）
+一個 commit（見 git log「合併檔一開始就是新的」）。單元 4845 全綠（新的 `tests/merge-v8-gift-candidates.test.js` 18 條：產檔那側的先拿 10 那一版的 `merge.mjs` 跑過、14 條紅；
+app 那側先紅 7 條）；E2E 跑 `pick()` 給的 7 支（`00 09 38 40 61 64 67`）48 條全綠（5.7 分）。`tests/calendar-merge.test.js` 的 `PENDING_ISSUE_11` 拿掉了。
+
+**我自己定的**
+- `TOKENS` 那一條多第四格 `'trial'`，課程寫 EECP；**體驗的 token 不吃舊表 EECP 那一格的勾**（`sameSlot()`，六個比課程的地方都換成它）——
+  以前兩門課自然配不上，合成之後配上的話那一天的體驗會被當成扣額度的那一次。issue 沒寫這一條，是改 `TOKENS` 時看到的
+- `endOf()` 改成跟 app 的 `slotMinutes()` 同一個順序：她的決定寫了幾分 → 體驗的時候排幾分 → 品項 → 額度 → 課程 → 60。
+  以前是「品項 → 決定／額度 → 課程」—— 營養點滴的段她決定了分鐘時，現在照她的（她的真檔一段都沒有這種，輸出沒變）
+- 決定檔「加一段」還寫著 `course: 'EECP體驗'` 的：照 `TOKENS` 認成 EECP 的體驗（`renamedCourse()`，不另寫一份對照表）；
+  指名主檔沒有的課：以前落到「找不到要扣哪一份額度」那一句（講錯原因），現在先講「主檔沒有『X』這一門課」
+- 舊表有一列叫「EECP體驗」：**不猜**，那一列不匯、⓪b 講它合成進 EECP 了（`legacyImport.js` 的 `RETIRED_ROWS`；以前那一句叫她「先去主檔把課程建起來」）。
+  issue 寫「對照改成 EECP＋體驗、purchaseProblems 收一句」—— 一列體驗是買來的什麼只有她知道，照扣 EECP 也是猜。她的舊表數過一列都沒有（只在第 14 列當註記）
+- app 那側：候選的 `giftKind` 形狀不對整份拒收（同段）；候選寫了送的／體驗 → 不扣任何一筆、健檢與二返不補（`master: false` —— 那不是主檔的事）
+
+**重產她那一份**（本機，只印數字）
+- 流程照舊：`run-merge.mjs --today 2026-10-17 --tag 1019` → `overlay.mjs --tag 1019` → `validate.mjs` → `emu-import.mjs`。
+  `--today` 跟 10/17 那一份一樣，才比得出只差什麼
+- overlay（`.local`，不進 repo）改了兩處：體驗多認「分鐘＝體驗的時候排幾分」（`isTrialMinutes()`；`EECP20` 10/18 起是 EECP＋20 分）、
+  `overrides.json` 那一條 `course: "EECP體驗"` → `"EECP"`。改之前各留一份（`overlay.1017.mjs`、`overrides.1017b.json`）
+- 跟 10/17 的 `import-final.json` 比：**只差 1 段**（`courseName` EECP體驗 → EECP；體驗、20 分、狀態都一樣）＋格式 v7 → v8，其餘每一格一樣（34 位、218 天、312 段）。
+  10 那一支讓 overlay 之前 5 段 `.8` 的診間變成空的，overlay 照舊從 Abovee 補上（最後一段沒床位的都沒有）
+- `validate.mjs`（app 的匯入＋新種子）：新的一份 0 對不到主檔、送的 3／體驗 9；**舊的 10/17 那一份拿新種子匯是 1 處對不到**（就是那一段）—— 切換一定要用新的
+- 新檔：`.local/references/import-2026-10-19.json`（`git check-ignore` 擋著）
+- 模擬器 w5 整份匯一次（`emu-import.mjs`，27 秒）：匯入前資料健檢 0 項有事；34 位、218 天（已確認 48／已完成 170）、隨手記 9、行事備註 21、0 個畫面錯誤；匯入後 1 項有事 —— 「狀態異常」2 筆，是 10/17 那兩段已確認、今天 10/19 過了還沒簽（她說週一確認有來再去簽）。`emu-verify.mjs`：超用 0。那一段在模擬器上是 `EECP(20)(體驗)`、不扣任何一筆；沒有任何一段指著 EECP體驗 那一門或點滴8／VIP7
+- **staging 的路**（`staging:reset` 只清資料、**不清主檔**）：拿 `c732350` 那一份種子當 staging 的主檔、照資料健檢按到沒事 ——第一輪「診間清單」×2、「主檔有幾格還沒跟上」×1、「EECP體驗那一門還在」×1（等前一項）；第二輪 EECP體驗 那一項按得下去；第三輪沒事，**跟現在的種子逐格比 0 格不一樣**。所以她在 staging 上是：reset → 資料健檢按那三項 → 貼新的合併檔
+
+**文件**：ADR-0155 的後半（合併檔 v8）、SKILL.md 的格式那一段、`references/answers.md`（家屬體驗那一條）、SPEC 合併檔那一節、`docs/STAGING.md` 切換那天第 0 步（灰字是 v8）、CLAUDE.md「舊表 B2」那一列

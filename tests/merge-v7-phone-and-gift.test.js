@@ -61,9 +61,10 @@ const CHARTS = { 王小明: '00001234' };
 // ---------- 產檔那一側 ----------
 
 describe('產檔那一側：--phones', () => {
-  test('沒帶名單：每一位都沒有 phone 這個鍵；格式寫 v7', () => {
+  // 2026-10-18 起寫 v8（候選帶 giftKind，`tests/merge-v8-gift-candidates.test.js`）—— v7 的兩格照舊在
+  test('沒帶名單：每一位都沒有 phone 這個鍵；格式寫最新的那一版', () => {
     const file = importJson(run(SHEETS, EVENTS), { generatedAt: 'fixed', calendar: 'fixed' });
-    assert.equal(file.format, 'baobao-merge/v7');
+    assert.equal(file.format, FORMAT);
     assert.ok(file.customers.every((c) => !('phone' in c)));
   });
 
@@ -169,8 +170,7 @@ const blank = { startsAt: '10:00', endsAt: '10:30', roomName: null, therapistNam
 const FM = SEED.courses.find((c) => c.name === '功醫門診');
 
 describe('契約：baobao-merge/v7', () => {
-  test('兩側同一版；v1～v6 照收', () => {
-    assert.equal(FORMAT, 'baobao-merge/v7');
+  test('兩側同一版；v1～v7 照收（v8 是 2026-10-18 的）', () => {
     for (const v of [1, 2, 3, 4, 5, 6, 7]) assert.ok(FORMATS.includes(`baobao-merge/v${v}`), `v${v}`);
     assert.equal(importJson(run(SHEETS, EVENTS)).format, FORMAT);
   });

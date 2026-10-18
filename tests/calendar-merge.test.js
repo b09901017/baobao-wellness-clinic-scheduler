@@ -389,11 +389,8 @@ describe('簡寫表吐出來的名字對得上主檔', () => {
   const courseNames = new Set(SEED.courses.map((c) => c.name));
   const equipNames = new Set(SEED.equipment.map((e) => e.name));
 
-  // **「EECP體驗」那一條是已知的一處**：那一門 2026-10-18 合成進 EECP、種子上刪了（ADR-0154，staging-polish 09）；
-  // 產檔那側改成 EECP＋體驗、升合併檔 v8 是 staging-polish 11（段五）—— 那一支做完要把這一行拿掉
-  const PENDING_ISSUE_11 = new Set(['EECP體驗']);
   test('每一條的課程名都在課程主檔上', () => {
-    const bad = TOKENS.map(([, course]) => course).filter((c) => !courseNames.has(c) && !PENDING_ISSUE_11.has(c));
+    const bad = TOKENS.map(([, course]) => course).filter((c) => !courseNames.has(c));
     assert.deepEqual([...new Set(bad)], [],
       '這幾個課程名主檔上沒有 —— 匯進去的時候整筆額度會被丟掉');
   });
