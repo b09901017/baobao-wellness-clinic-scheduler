@@ -42,6 +42,7 @@ import * as f from '../components/form.js';
 import { confirmAction, chooseAction } from '../components/dialog.js';
 import { wireLongPress } from '../components/actions.js';
 import * as deck from '../components/deck.js';
+import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
 
@@ -62,6 +63,26 @@ const NEW_ID = '__new__';
  * 少了這一格就會連跳兩道一模一樣的框。
  */
 let leaving = false;
+
+/**
+ * 編輯中推的那一層：**按返回鍵先問**（同點外面、Escape），不是直接離開這一頁。
+ * 2026-10-19 她：「好，讓備忘錄也照這樣補上」—— 以前只有返回鍵不問，打的字就沒了
+ * （長備註那一頁先做了這一條，ADR-0156）。handle 問 `.active`，不要問它是不是 null（換頁會清掉 stack）。
+ */
+let editLayer = null;
+
+function pushEditLayer() {
+  if (editLayer?.active) return;
+  editLayer = pushLayer(() => {
+    editLayer = null;
+    leaveEdit();
+  });
+}
+
+function dropEditLayer() {
+  if (editLayer?.active) editLayer.pop();
+  editLayer = null;
+}
 
 // ---------------------------------------------------------------------------
 // 進場
@@ -491,6 +512,7 @@ function enterEdit(id) {
   ctx.activeId = id;
   repaintStage();
   focusCard(id, 'auto');
+  pushEditLayer();
 }
 
 function addOne() {
@@ -506,6 +528,7 @@ function addOne() {
   repaintStage();
   focusCard(NEW_ID, 'auto');
   ctx.el.querySelector('[data-title]')?.focus();
+  pushEditLayer();
 }
 
 /**
@@ -695,6 +718,7 @@ async function saveEditing() {
 
 function cancelEdit() {
   ctx.editing = null;
+  dropEditLayer();
   repaintStage();
   if (ctx.activeId === NEW_ID) ctx.activeId = null;
   const back = activeId(visibleRows());
@@ -756,6 +780,8 @@ async function leaveEdit() {
     // null：她把框關掉了 —— 繼續改，什麼都不動
   } finally {
     leaving = false;
+    // 還在改（把框關掉、或存失敗）：返回鍵那一層補回來
+    if (ctx?.editing) pushEditLayer();
   }
 }
 
@@ -817,6 +843,7 @@ async function removeOne(id) {
 /** 存完／刪完重讀一次，停在指定的那一張。 */
 async function reload(focusId) {
   ctx.editing = null;
+  dropEditLayer();
   try {
     ctx.rows = deckOrder(await playbooksData.list({ fresh: true }));
   } catch {
