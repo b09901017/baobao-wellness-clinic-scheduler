@@ -462,8 +462,9 @@ function paint(ctx, draft) {
   f.wireChips(form);
   // 展開那一句話。`form` 每次 `paint()` 都被換掉，所以不必給 signal。
   slotNote.wire(form);
-  // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫
-  form.addEventListener('click', giftFold.toggle);
+  // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫。
+  // 開著還是收著記在 ctx 上、照第幾段記（staging-polish 03）：改時間、換治療師都會重畫，收起來的要撐得過去
+  form.addEventListener('click', (e) => giftFold.toggle(e, (key, open) => { (ctx.giftOpen ??= {})[key] = open; }));
 
   form.addEventListener('change', async (e) => {
     // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
@@ -498,6 +499,8 @@ function paint(ctx, draft) {
     btn.addEventListener('click', () => {
       const next = readDraft(ctx, form, draft);
       next.slots.splice(Number(btn.dataset.delSlot), 1);
+      // 照第幾段記的開或收對不上了 —— 全部回到預設
+      ctx.giftOpen = {};
       paint(ctx, next);
     }),
   );
@@ -712,7 +715,7 @@ function entRow(ctx, draft, slot, i, { nth, free, course, nthExams }) {
     <div class="fieldgroup">
       <span class="fieldgroup__label">額度</span>
       ${giftFold.html({
-        options, value, open: foldOpen(options, value),
+        options, value, key: String(i), open: ctx.giftOpen?.[i] ?? foldOpen(options, value),
         chip: (o) => `
           <button class="chip" type="button" data-chip="${name}" data-chip-value="${esc(o.entitlementId)}"
                   aria-pressed="${o.entitlementId === value}">

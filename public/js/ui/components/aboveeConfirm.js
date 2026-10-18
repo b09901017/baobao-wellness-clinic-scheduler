@@ -94,6 +94,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    * 按一顆「要做什麼」整列會重畫，所以記在這裡、重畫時照記的畫；關掉確認層就忘了。
    */
   const seenOpen = new Set();
+  /** 「送的／體驗…」那一組她按成開著還是收著（staging-polish 03），照列的 key 記；沒記過照 `foldOpen()` */
+  const giftOpen = new Map();
   let openKey = null;
   let batches = [];
   let running = false;
@@ -550,7 +552,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         <div class="abl-row__pick">
           <span class="abl-row__picklabel">要做什麼</span>
           ${giftFold.html({
-            options, value, open: foldOpen(options, value), cls: 'abl-row__chips', sm: true,
+            options, value, key: item.key, open: giftOpen.get(item.key) ?? foldOpen(options, value),
+            cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
               sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
@@ -798,7 +801,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   root.addEventListener('click', (e) => {
     // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）
-    if (giftFold.toggle(e)) return;
+    if (giftFold.toggle(e, (key, open) => giftOpen.set(key, open))) return;
     const t = e.target.closest('button');
     if (!t || t.disabled || !root.contains(t)) return;
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
@@ -922,6 +925,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const was = items[at].customerId ?? null;
     // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
     items[at] = markRepeat(resolveItem(items[at], customerId, ctx, items), items);
+    // 換了一位：那一排是他的額度了，開或收回到預設
+    giftOpen.delete(key);
     // 換成的這一位有沒有接得上的健檢（「先去約健檢」那一句）連同這一批重算
     refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
     refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });

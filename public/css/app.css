@@ -976,9 +976,9 @@ textarea {
 [data-tuck='open'] .chip--more { display: none; }
 
 /* 「做什麼」那一排最後那一顆「送的／體驗…」（`ui/components/giftFold.js`，gift-and-trial 04）。
-   同上：按了才露出底下那一塊、收不回去；換分類只改 `hidden`。 */
+   按了才露出底下那一塊、再按一次收回去（staging-polish 03）；換分類只改 `hidden`。
+   收著而且選著底下一顆時那一顆是按下去的樣子、寫那一門（`.chip[aria-pressed]` 比 `.chip--more` 具體）。 */
 [data-giftfold='closed'] .giftfold { display: none; }
-[data-giftfold='open'] [data-giftfold-more] { display: none; }
 
 .giftfold {
   display: grid;

@@ -1,6 +1,6 @@
 # 「送的／體驗…」展開之後收得回去（三個入口）
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`ui/components/giftFold.js` 整支（檔頭那一段「**收不回去** … 選著一顆送的／體驗時收起來，看起來會像取消選取」）；
@@ -45,4 +45,20 @@ Blocked by: —
 
 ## 做完時留下的
 
-（做完寫）
+- `giftFold.js`：`toggle(e, onFold)` 開／收都行，`onFold(key, open)` 讓呼叫端記；`html()` 多收 `key`（`data-giftfold-key`）；
+  新的 `sync(root)`（不重畫的入口用）與 `foldLabel(open, picked)`（開關上的三種字：`送的／體驗…`、`<那一門> 送的／體驗 ▸`（按下去的樣子）、`送的／體驗 ▾ 收起來`）。
+  收起來的每一顆帶 `data-giftfold-name`（從呼叫端的 `chip(o)` 第一個 `<button` 塞進去）—— `sync()` 從畫面上讀選著的是哪一門，所以它不用知道 options
+- 展開之後開關**照樣在**（以前 `[data-giftfold='open'] [data-giftfold-more] { display: none }`，那一條 CSS 拿掉）
+- 三個呼叫端記開或收：壓表 `view.giftOpen`（`resetPicks()` 與記完一段時清掉；換日期、換一顆額度不動）、
+  來訪編輯器 `ctx.giftOpen[第幾段]`（拿掉一段時整份清掉 —— 位置對不上了）、拍 Abovee 閉包的 `giftOpen`（`Map`，列的 key；「換一位」時那一列清掉）。
+  畫的時候 `記著的 ?? foldOpen(...)` —— `foldOpen()` 只剩「第一次畫」的預設
+- 壓表 `pickCourse()` 按完一顆叫 `giftFold.sync(deckEl())`
+- 檔頭那一段改寫成新的理由（收起來時開關寫選了哪一門）
+- 測試：`tests/gift-fold.test.js` 補開關的三種字、`aria-pressed`、`data-giftfold-name`、`key`、三個呼叫端記著的優先（掃原始碼）、壓表叫 `sync()`；
+  E2E `67` 補 G12（壓表：收回、開關寫功醫門診、按額度那一顆不重畫也變回來）、G13（來訪編輯器：改時間＋選醫師重畫還是收著、存下去是功醫門診體驗）、
+  G14（拍 Abovee：換治療師重畫還是收著、再按展開）。G9 的開場抽成 `openTrialPhoto()` 給 G14 共用
+- 既有 E2E 只有一處要改：`49` 那一步「換回扣額度那一下重畫，那一組又收起來了」—— 現在是她打開過的照樣開著，改成斷言還開著。
+  其餘按 `[data-giftfold-more]` 的那幾步當下都是收著的（`49`、`51`、`52`、`67` 跑過全綠），所以沒加「沒展開才按」的 fixture
+  —— 動 `tests-e2e/fixtures/` 會讓本機 verify 全跑
+- **E2E 先寫紅那一步沒有單獨跑**：G12–G14 是改完才寫的。舊的 `toggle()` 只會設成 open，三條的第一個「收回」斷言在舊程式上不可能過；單元測試的開關字在舊的 `html()` 上也不可能過
+- 「換一款」同一個形狀，沒動（HANDOFF 中途發現）

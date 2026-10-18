@@ -217,8 +217,8 @@ test('U6 來訪編輯器：功醫門診換成一筆額度、再換回來，存�
   await expect(page.locator('[data-chip="s0-equip"]').first()).toBeVisible();
   await expect(page.locator('[data-chip="s0-doc"]')).toHaveCount(0);
 
-  // 換回扣額度那一下重畫，那一組又收起來了
-  await page.locator('[data-giftfold-more]').click();
+  // 換回扣額度那一下重畫：她打開過的那一組照樣開著（staging-polish 03 —— 開或收是她決定的，撐得過重畫）
+  await expect(page.locator('[data-giftfold]')).toHaveAttribute('data-giftfold', 'open');
   await fm.click();
   await page.locator('[data-chip="s0-doc"]', { hasText: '李' }).click();
   await page.click('button[type="submit"]');
