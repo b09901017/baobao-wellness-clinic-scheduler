@@ -34,7 +34,7 @@ import {
 } from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
-  HOME_ROWS, rowView, homeLoaders, todoBuckets, bucketCount, taskBucket, BUCKETS,
+  HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, bucketCount, taskBucket, BUCKETS,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -812,7 +812,7 @@ function overviewHtml(ctx, { buckets, waiting, toClose }) {
 
   // 名單上的任務種類一律問一次（一直顯示的 0 件也要畫）；名單上沒有、身上卻有的
   //（已經拿掉的、她手動加的）照舊有才顯示，`groupByStage()` 把它們排在那一段最後面。
-  const derived = new Set(['ask', 'forms', 'book', 'confirm', 'close', 'cancel']);
+  const derived = new Set(NON_TASK_ROWS);
   const listed = HOME_ROWS.map((r) => r.id).filter((id) => !derived.has(id));
   const extra = [...new Set(tasks.filter((t) => !isCancelKind(t.kind)).map((t) => t.kind))]
     .filter((k) => !listed.includes(k));
@@ -823,14 +823,14 @@ function overviewHtml(ctx, { buckets, waiting, toClose }) {
     { id: 'forms', html: `<div data-inbox>${inboxGroupRow(settings)}</div>` },
     { id: 'book', html: `<div data-book>${bookGroupRow(settings)}</div>` },
     { id: 'confirm', html: counted('confirm', waiting.size, {
-      href: '#/todo/confirm', label: '跟客人確認時間',
+      href: '#/todo/confirm', label: rowLabel('confirm'),
     }) },
     { id: 'close', html: counted('close', toClose.length, {
-      href: '#/todo/close', label: '簽療程單',
+      href: '#/todo/close', label: rowLabel('close'),
     }) },
     ...[...listed, ...extra].map((k) => ({ id: k, html: kindRow(k) })),
     { id: 'cancel', html: counted('cancel', cancels.length, {
-      href: '#/todo/cancel', label: '改時間／取消', danger: true,
+      href: '#/todo/cancel', label: rowLabel('cancel'), danger: true,
     }) },
   ];
 
@@ -873,7 +873,7 @@ function askGroupRow(settings) {
   // 同一件事在 `docs/常見問題.md` 也有一條。
   return groupRow({
     href: '#/todo/ask',
-    label: '問這輪的時間',
+    label: rowLabel('ask'),
     n: askRows.length,
     empty: view.empty,
   });
@@ -893,7 +893,7 @@ function inboxGroupRow(settings) {
 
   return groupRow({
     href: '#/todo/forms',
-    label: '客戶填好的時間',
+    label: rowLabel('forms'),
     n: inboxRows.length,
     empty: view.empty,
   });
@@ -919,7 +919,7 @@ function bookGroupRow(settings) {
 
   return groupRow({
     href: '#/todo/book',
-    label: '壓表登記',
+    label: rowLabel('book'),
     reminder: true,
     empty: view.empty,
   });
@@ -1045,14 +1045,14 @@ function whoRows(ctx, waiting, toClose = []) {
 
   for (const [id, visits] of waiting) {
     const row = at(id, visits[0].customerName);
-    row.whats.add('跟客人確認時間');
+    row.whats.add(rowLabel('confirm'));
     row.confirm.push(...visits);
     row.n += visits.length;
   }
 
   for (const v of toClose ?? []) {
     const row = at(v.customerId, v.customerName);
-    row.whats.add('簽療程單');
+    row.whats.add(rowLabel('close'));
     row.close.push(v);
     row.n += 1;
   }
@@ -1137,13 +1137,13 @@ function whoBodyHtml(ctx) {
 
   const ways = [
     ...(d.row.confirm.length ? [wayRow({
-      label: '跟客人確認時間',
+      label: rowLabel('confirm'),
       count: d.row.confirm.length,
       note: d.row.confirm.map((v) => shortDate(v.date)).join('、'),
       href: '#/todo/confirm',
     })] : []),
     ...(d.row.close.length ? [wayRow({
-      label: '簽療程單',
+      label: rowLabel('close'),
       count: d.row.close.length,
       note: d.row.close.map((v) => shortDate(v.date)).join('、'),
       href: '#/todo/close',
@@ -1777,16 +1777,16 @@ async function addNote(ctx, form) {
 // 逾期／今天／明天／改時間取消／確認／簽療程單那幾頁**標題旁邊沒有 `?`**：
 // 「死線已經過去了」「死線是今天」是在重講標題，她 2026-09-24 晚說多餘（ADR-0114）。
 const GROUPS = {
-  confirm: { title: '跟客人確認時間' },
-  close: { title: '簽療程單' },
+  confirm: { title: rowLabel('confirm') },
+  close: { title: rowLabel('close') },
   overdue: { title: '逾期的' },
   today: { title: '今天要做的' },
   tomorrow: { title: '明天要做的' },
-  cancel: { title: '改時間／取消' },
+  cancel: { title: rowLabel('cancel') },
   notes: { title: '隨手記', lead: '客人臨時說的小要求。沒有死線，所以它不是任務。' },
-  ask: { title: '問這輪的時間' },
-  forms: { title: '客戶填好的時間' },
-  book: { title: '壓表登記' },
+  ask: { title: rowLabel('ask') },
+  forms: { title: rowLabel('forms') },
+  book: { title: rowLabel('book') },
 };
 
 /** 網址列與 app 標題用。認不得的當成任務種類原樣顯示。 */
@@ -2137,7 +2137,7 @@ const blockHead = (label, n) => `<p class="donegroup">${esc(label)} ${n}</p>`;
 function closeBlock(ctx) {
   if (!ctx.close.length) return '';
   return `
-    ${blockHead('簽療程單', ctx.close.length)}
+    ${blockHead(rowLabel('close'), ctx.close.length)}
     <div class="stack">${ctx.close.map((v) => `
       <button class="card row" type="button" data-close-go="${esc(v.id)}">
         <span class="row__main">

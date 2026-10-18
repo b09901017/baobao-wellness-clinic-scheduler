@@ -142,7 +142,17 @@ const ROW_LABELS = {
   close: '簽療程單',
   cancel: '改時間／取消',
 };
-export const HOME_ROWS = FLOW.map(([id]) => ({ id, label: ROW_LABELS[id] ?? id }));
+
+/**
+ * 首頁那一列（與點進去那一頁的抬頭）叫什麼。任務種類就是它自己的名字。
+ * **名字只寫在這裡一份**：設定 → 待辦首頁 與首頁讀同一份，改了一邊兩頁不會叫兩種名字。
+ */
+export const rowLabel = (id) => ROW_LABELS[id] ?? id;
+
+/** 不是任務種類的那幾列（等資料回來才補的、或從來訪推出來的）—— 首頁自己畫，不從任務收集。 */
+export const NON_TASK_ROWS = Object.keys(ROW_LABELS);
+
+export const HOME_ROWS = FLOW.map(([id]) => ({ id, label: rowLabel(id) }));
 
 /** 一直顯示／有才顯示（以前的行為）／不顯示。 */
 export const ROW_SHOWS = ['always', 'auto', 'hidden'];

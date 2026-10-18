@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   HOME_ROWS, ROW_SHOWS, rowShowOf, rowView, homeLoaders, storedRowShows, STAGES, stageOf, orderOf,
+  NON_TASK_ROWS, rowLabel,
 } from '../public/js/domain/todoFlow.js';
 
 test('名單照流程的順序、每一列都在某一段裡', () => {
@@ -80,6 +81,18 @@ test('畫面不自己比 todoRows：home.js 只問 rowView／homeLoaders', () =>
   assert.doesNotMatch(src, /todoRows/);
   assert.match(src, /rowView\(/);
   assert.match(src, /homeLoaders\(/);
+});
+
+test('首頁那幾列的名字只寫在 todoFlow.js 一份：home.js 不自己寫字、不自己列哪幾列不是任務種類', () => {
+  // 設定 → 待辦首頁 讀 HOME_ROWS 的名字；首頁自己再寫一份的話，改了一邊兩頁就叫不同的名字
+  const src = readFileSync(new URL('../public/js/ui/views/home.js', import.meta.url), 'utf8');
+  for (const id of NON_TASK_ROWS) {
+    const label = HOME_ROWS.find((r) => r.id === id).label;
+    assert.ok(!src.includes(`'${label}'`), `home.js 自己寫了「${label}」`);
+  }
+  assert.ok(!src.includes("new Set(['ask'"), 'home.js 自己列了哪幾列不是任務種類');
+  assert.equal(rowLabel('close'), '簽療程單');
+  assert.equal(rowLabel('寫紀錄'), '寫紀錄');
 });
 
 test('「待辦首頁顯示哪幾列」在稽核上是中文', async () => {
