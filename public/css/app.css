@@ -4536,6 +4536,18 @@ body:has(.deck) > .toast > .btn {
   }
 }
 
+/* 滑得掉的那幾種（staging-polish 05，`ui/toastSwipe.js`）：手指在上面時頁面不捲，放開彈回去或滑出去有過場。
+   用 `translate` 不用 `transform` —— iPad 那一條靠 `transform: translateX(-50%)` 置中，兩個疊得起來。
+   減少動態時底部那一段 `*` 規則會把過場壓成 0。 */
+.toast[data-swipe] {
+  touch-action: none;
+  transition: translate 0.18s ease, opacity 0.18s ease;
+}
+
+.toast--drag {
+  transition: none;
+}
+
 /* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
 .toast > .btn {
   flex: none;

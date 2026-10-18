@@ -11,7 +11,7 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 零 | 談、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/18 |
-| 一 | 01 加購按鈕、02 照片上寫的收合、03 送的／體驗收得回去、04 日曆＋拉到全高、05 復原滑掉 12 秒、06 資料健檢的提醒 → **PR A、合進 develop** | high | ⬜ |
+| 一 | 01 加購按鈕、02 照片上寫的收合、03 送的／體驗收得回去、04 日曆＋拉到全高、05 復原滑掉 12 秒、06 資料健檢的提醒 → **PR A、合進 develop** | high | 🟡 10/18 中斷（她臨時要關網路）：01–04 commit 了、05 做到一半、06 只寫了測試。見下面「段一停在哪」 |
 | 二 | 07 待辦首頁每一列三種顯示、08 今天／明天／逾期的組成 | high | ⬜ |
 | 三 | 12 拍 Abovee「app 有、照片上沒有」只對照片上的人 | high | ⬜ |
 | 四 | 09 EECP 一門（「體驗排幾分」、20 ⇔ 體驗、拍 Abovee 認得扣法不一樣、資料健檢保險） | xhigh | ⬜ |
@@ -54,6 +54,20 @@
   還是當成**改課程**（舊的那一段取消、長一張「取消 Abovee」、新的一段重新待確認，ADR-0108 那一條）？建議原地改 —— 她多半是 Abovee 先改好了才來 app 改
   - **她 10/18 回：照建議，原地改**（「照你的建議 : Edit it in place … the confirm dialog says "This slot becomes a trial, no package charge — remember to change it to EECP20 in Abovee too."」）
     → 確認框講「這一段改成體驗、不扣額度，Abovee 上記得改成 EECP20」；不取消、不長「取消 Abovee」、不退回待確認
+
+## 段一停在哪（10/18 中午，她臨時有事、要關網路，叫我先收尾）
+
+| issue | 狀態 |
+|---|---|
+| 01 | ✅ commit `af51278`；verify 全綠（單元 4706、E2E 48 支 340 條，01–03 一起跑的） |
+| 02 | ✅ commit `e5e2bbb`；同上 |
+| 03 | ✅ commit `3e5940f`；同上 |
+| 04 | ✅ commit `f4b267d`；E2E `69` 的 P4 綠，**整份 verify 還沒跑**（跟 05、06 一起跑） |
+| 05 | 🟡 WIP commit（訊息開頭「WIP 05/06」）：`ui/toastSwipe.js`（純的，12 秒、門檻）＋單元測試 `tests/toast-swipe.test.js` 綠；`toast.js` 接好手勢、每一種 toast 帶 `kind`；SPEC 6.3 改好。**E2E `69` 的 P5 紅兩處**，接手先修這兩個：<br>① 拖 20px 彈回：x 差 0.76px —— `steady()` 量的是 boundingBox，`translate` 的 0.18s 過場還在走；改成等 `style.translate === ''` 之後再 steady，或 `toBeCloseTo` 放寬到 1px<br>② 往左拖 120px 之後 `#toast` 還看得到 —— 還沒查。先懷疑：Playwright 滑鼠的 pointermove 在 `setPointerCapture` 之前就離開了 toast（mouse.move 6 步、第一步就超過 8px）、或 `dismiss()` 的 180ms 之後 `hide()` 被下一個 `show()` 蓋掉。在本機模擬器開 P5 `--watch` 看一次 |
+| 06 | 🟡 只有測試（同一個 WIP commit）：`tests/health.test.js` 補「只是提醒的那兩項」（紅）、E2E `60` 改 H2、加 H3（紅）；ADR-0150 寫好了；SPEC 的表改好。**`domain/health.js`（`notice: true`、改名、`detail` 的字）與 `ui/views/health.js`（「提醒」那一段、結論只數不是提醒的）還沒動** —— 照 issue 06 與 ADR-0150 做 |
+
+接手的順序：`npm run emulators` → 修 P5 → 做 06 → `npm run verify`（04–06 一起）→ 把 WIP commit 拆回 05、06 兩個 commit（或照舊一支一個 commit 往上疊、WIP 那一個留著也行，PR 是 squash 不是重點）→ 收尾那五步（CI 全量、手動驗收清單、PR、HANDOFF、段二開場）。
+**05、06 的 issue 還是 Status: todo**，「做完時留下的」還沒寫。
 
 ## 中途發現
 

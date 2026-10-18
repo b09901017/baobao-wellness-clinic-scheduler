@@ -792,7 +792,7 @@ describe('逾期任務', () => {
   });
 });
 
-describe('資料過期', () => {
+describe('還沒問這輪方便的時間（以前叫「資料過期」）', () => {
   const ents = [ent({ totalQty: 12 })];
 
   test('最近一份已過有效期就報', () => {
@@ -804,7 +804,7 @@ describe('資料過期', () => {
       }],
     });
     const [f] = findingsOf(result, 'staleAvailability');
-    assert.match(f.detail, /已過有效期/);
+    assert.match(f.detail, /上一次問的已經過了/);
     assert.match(f.detail, /還有 12 次沒排/);
   });
 
@@ -824,7 +824,7 @@ describe('資料過期', () => {
     assert.equal(findingsOf(noRemaining, 'staleAvailability').length, 0);
 
     const neverCollected = run({ entitlements: ents });
-    assert.match(findingsOf(neverCollected, 'staleAvailability')[0].detail, /從來沒收集過/);
+    assert.match(findingsOf(neverCollected, 'staleAvailability')[0].detail, /從來沒問過/);
   });
 
   test('已停用與已刪除的客戶不報', () => {
@@ -852,6 +852,38 @@ describe('資料過期', () => {
       ],
     });
     assert.match(findingsOf(mixed, 'staleAvailability')[0].detail, /還有 12 次沒排/);
+  });
+});
+
+// staging-polish 06（ADR-0150）：她 10/18 ——「這兩個問題是不用解決的對吧…只要提醒就好，但是不要展開這麼多人」
+describe('只是提醒的那兩項', () => {
+  const byId = (id) => CHECKS.find((c) => c.id === id);
+
+  test('只有「還沒問這輪方便的時間」與「匯進來的額度還叫舊表的名字」是提醒', () => {
+    assert.deepEqual(CHECKS.filter((c) => c.notice).map((c) => c.id), ['staleAvailability', 'importedLabel']);
+  });
+
+  test('改名：她指名「還沒問這輪方便的時間」，整項沒有「可用性」三個字', () => {
+    const c = byId('staleAvailability');
+    assert.equal(c.label, '還沒問這輪方便的時間');
+    assert.doesNotMatch(c.hint, /可用性/);
+    const never = run({ entitlements: [ent()] });
+    const stale = run({
+      entitlements: [ent()],
+      availability: [{
+        id: 'a1', customerId: 'cus-1', collectedAt: '2026-08-01',
+        validFrom: '2026-08-01', validTo: '2026-08-31', rawText: '八月', rules: [],
+      }],
+    });
+    for (const f of [...findingsOf(never, 'staleAvailability'), ...findingsOf(stale, 'staleAvailability')]) {
+      assert.doesNotMatch(f.detail, /可用性/);
+      // 段二（issue 07）會把待辦的「問這輪的時間」那一列預設藏起來 —— 不叫她去一列看不到的
+      assert.doesNotMatch(f.detail, /問這輪的時間/);
+    }
+  });
+
+  test('匯進來的舊表名字：說明是白話的「要改再去客戶頁改」', () => {
+    assert.match(byId('importedLabel').hint, /要改再到客戶頁/);
   });
 });
 

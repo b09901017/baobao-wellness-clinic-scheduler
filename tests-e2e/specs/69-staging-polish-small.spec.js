@@ -104,3 +104,61 @@ test('P4 390×844：半高的那一天按「＋」→ 抽屜拉到全高、三�
   expect((await drawer.boundingBox()).y).toBe(tallTop);
 });
 
+// ---------------------------------------------------------------------------
+// 05 復原那一條滑得掉（12 秒、「哪幾種給滑」在 tests/toast-swipe.test.js）
+// ---------------------------------------------------------------------------
+
+/** 從 (x, y) 拖 (dx, dy) 放開。Playwright 的滑鼠送出的是 pointer 事件，跟手指走同一條路。 */
+async function drag(page, { x, y }, dx, dy) {
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 6 });
+  await page.mouse.up();
+}
+
+const centerOf = async (loc) => {
+  const b = await loc.boundingBox();
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+};
+
+/** 建一位客戶 → 「已建立 復原」那一條。 */
+async function savedToast(app, page, name) {
+  await app.go('/customers/new');
+  await page.locator('[data-cf-form] input[name="name"]').fill(name);
+  await page.locator('[data-cf-form] input[name="phone"]').fill('0911111111');
+  await page.locator('.cform__bar button[type="submit"]').click();
+  await app.saved();
+  await expect(page.locator('#toast [data-undo]')).toBeVisible();
+  return page.locator('#toast');
+}
+
+test('P5 復原那一條：往左拖 120px 收掉；拖 20px 彈回原處；從「復原」上往下拖走 → 收掉、沒有復原', async ({ app, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.seed([...masterDocs()]);
+  await app.signIn('/');
+
+  // 往左拖 20px 放開：還在、回到原處
+  let toast = await savedToast(app, page, '客戶A');
+  const home = await toast.boundingBox();
+  const text = await centerOf(toast.locator('span').first());
+  await drag(page, text, -20, 0);
+  await expect(toast).toBeVisible();
+  await steady(toast);
+  expect((await toast.boundingBox()).x, '彈回原處').toBeCloseTo(home.x, 0);
+
+  // 往左拖 120px 放開：收掉
+  await drag(page, text, -120, 0);
+  await expect(toast).toBeHidden();
+
+  // 從「復原」那顆按下去、往下拖走：收掉，而且沒有觸發復原（她：「比較不會誤按」）
+  toast = await savedToast(app, page, '客戶B');
+  await drag(page, await centerOf(toast.locator('[data-undo]')), 0, 100);
+  await expect(toast).toBeHidden();
+  const names = (await app.readAll('customers')).filter((c) => !c.deletedAt).map((c) => c.name).sort();
+  expect(names, '兩位都還在 —— 拖走那一下不是按「復原」').toEqual(['客戶A', '客戶B']);
+
+  // 點一下「復原」照舊復原
+  toast = await savedToast(app, page, '客戶C');
+  await toast.locator('[data-undo]').click();
+  await expect(toast).toContainText('已復原');
+});
