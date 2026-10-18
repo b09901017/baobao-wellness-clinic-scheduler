@@ -1948,13 +1948,8 @@ function onDeckClick(e) {
     return null;
   }
 
-  // 「換一款」：只改一個屬性，整排不重畫（同 f.chips() 的 wireChips）
-  const more = e.target.closest('[data-chip-more]');
-  if (more) {
-    more.setAttribute('aria-expanded', 'true');
-    more.closest('[data-tuck]')?.setAttribute('data-tuck', 'open');
-    return;
-  }
+  // 「換一款」「其他醫師」：展開、再按收回，只改屬性、整排不重畫（同 f.chips() 的 wireChips）
+  if (f.toggleTuck(e)) return null;
 
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
     ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],

@@ -973,7 +973,9 @@ textarea {
   animation: chip-in var(--motion-base) var(--ease-out) both;
 }
 
-[data-tuck='open'] .chip--more { display: none; }
+/* 展開之後「換一款」那一顆還在、寫「收起來」，再按收回去（2026-10-18）。
+   收回時選著的那一顆照樣看得到 —— 壓表不重畫，她剛按的那一顆身上還帶著 `chip--tucked` */
+.chip--tucked[aria-pressed='true'] { display: inline-flex; }
 
 /* 「做什麼」那一排最後那一顆「送的／體驗…」（`ui/components/giftFold.js`，gift-and-trial 04）。
    按了才露出底下那一塊、再按一次收回去（staging-polish 03）；換分類只改 `hidden`。
