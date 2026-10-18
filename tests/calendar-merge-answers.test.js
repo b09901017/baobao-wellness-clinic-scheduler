@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  roomOf, coursesOf, ivProductOf, classifyEvent, reconcile, importJson, reportText,
+  roomOf, bedlessRoomOf, coursesOf, ivProductOf, classifyEvent, reconcile, importJson, reportText,
 } from '../.claude/skills/calendar-sheet-merge/scripts/merge.mjs';
 import { SEED } from '../public/js/domain/seed.js';
 import { FORMAT } from '../public/js/domain/mergeImport.js';
@@ -49,7 +49,9 @@ const slotsOf = (r, sheet) => r.plans.find((x) => x.sheetName === sheet).days
 describe('點滴室：`.N` 就是點滴 N（她 9/15）', () => {
   test('前面不是數字的 `.N`', () => {
     assert.equal(roomOf('3.30客戶A  .5雪'), '點滴5');
-    assert.equal(roomOf('10.客戶A.8（躺）給35'), '點滴8');
+    // 點滴8 拆成 8A／8B 之後沒寫哪一床就不給診間（ADR-0155）—— 認得是點滴8 那一句在 `bedlessRoomOf()`
+    assert.equal(roomOf('10.客戶A.8（躺）給35'), null);
+    assert.equal(bedlessRoomOf('10.客戶A.8（躺）給35'), '點滴8');
     assert.equal(roomOf('2.客戶A.雪顏.2'), '點滴2');
     assert.equal(roomOf('2：30客戶A IL(.10)'), '點滴10');
   });

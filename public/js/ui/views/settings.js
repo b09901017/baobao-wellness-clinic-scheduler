@@ -87,6 +87,7 @@ export async function render(el) {
                現在只有月曆與 LINE 兩種，這一句留著就是在講一個不存在的東西。
                `tests/ui-copy.test.js` 有一條盯著它不會長回來。 */''}
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
+        ${tile('#/settings/todo-rows', '待辦首頁', '每一列一直顯示、有才顯示或不顯示')}
       </div>
     </section>
 

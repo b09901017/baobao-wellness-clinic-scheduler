@@ -37,7 +37,7 @@ const { chartNosOf, normalizeChartNo, normalizeName } = await repoModule('public
 const { SEED } = await repoModule('public/js/domain/seed.js');
 const { toCustomerFields } = await repoModule('public/js/domain/customerMarks.js');
 // 「這門課算不算次數」只有這一支（ADR-0121）—— 這裡再比一次 `uncounted` 就是第二份判斷
-const { isUncounted, bedRoomOf, canBeGift } = await repoModule('public/js/domain/masterData.js');
+const { isUncounted, bedRoomOf, canBeGift, trialMinutesOf } = await repoModule('public/js/domain/masterData.js');
 const { idsForPoolKind, POOL_SET_HOME, POOL_SET_ALL } = await repoModule('public/js/domain/entitlements.js');
 // 日期算術借 app 那一份（全部走 Date.UTC）。在這裡再寫一次，
 // 「整天事件的 DTEND 要減一天」就會有兩個實作，而其中一個遲早在時區上出事。
@@ -52,7 +52,7 @@ const { KIND_LABEL } = await repoModule('public/js/domain/mergeImport.js');
 /** 同一個字的不同寫法。左邊是正規形，右邊會被換成左邊。 */
 export const VARIANTS = [['啟', '啓'], ['惠', '慧'], ['崴', '威'], ['喩', '喻'], ['珮', '佩']];
 
-/** 簡寫 → [課程, 器材]。由上到下比，一句話可以命中好幾個。 */
+/** 簡寫 → [課程, 器材, 送的／體驗]。由上到下比，一句話可以命中好幾個。 */
 //
 // **課程與器材那兩格都要跟主檔上的全名一字不差。** `mergeImport.js` 的
 // `byName()` 是精確比對、不做模糊 —— 對不上的時候課程那一格會讓**整筆額度與
@@ -65,10 +65,12 @@ export const TOKENS = [
   [/SIS|超磁/i, '復能', 'SIS'],
   [/高\s*能|高\s*60|雷射/i, '復能', '高能量雷射'],
   [/復能|賦能/, '復能', null],
-  // **體驗課排在正式課前面，而且正式課那一條要排除它。** 第 88 行收的是
+  // **體驗課排在正式課前面，而且正式課那一條要排除它。** `coursesOf()` 收的是
   // **全部**命中的 token，`EECP體驗` 同時命中兩條的話那一天會長出兩段。
-  // 2026-09-16 起體驗是一門自己的課程（2026-10-05 起 20 分，正式課 60 分；長度讀種子，不寫在這裡）。
-  [/EECP\s*體驗/i, 'EECP體驗', null],
+  // 2026-10-18 起 EECP 只有一門（ADR-0154）：她寫「EECP體驗」的那一段是 **EECP 的體驗**（第四格，合併檔的 `giftKind`），
+  // 長度照種子上 EECP 的「體驗的時候排幾分」（`endOf()`）。**體驗的 token 不吃舊表 EECP 那一格的勾**（`sameSlot()`）——
+  // 以前是兩門課、自然配不上；配上的話那一天的體驗會被當成扣額度的那一次
+  [/EECP\s*體驗/i, 'EECP', null, 'trial'],
   [/EECP(?!\s*體驗)/i, 'EECP', null],
   // `功能醫學` 是照以前「二返正式名稱為功能醫學門診」寫的。她 2026-10-05 說功醫門診跟二返不同 ——
   // 但這四個字在她的行事曆與舊表上**一次都沒出現過**（2026-10-05 數過），沒有任何一句可以拿來
@@ -108,8 +110,14 @@ export const normVariant = (s) => VARIANTS.reduce((acc, [a, b]) => acc.split(b).
 
 export function coursesOf(summary) {
   const s = normVariant(summary);
-  return TOKENS.filter(([re]) => re.test(s)).map(([, course, equip]) => ({ course, equip }));
+  return TOKENS.filter(([re]) => re.test(s)).map(([, course, equip, giftKind = null]) => ({ course, equip, giftKind }));
 }
+
+/**
+ * 行事曆的這一個 token 是不是舊表的這一段：課程一樣，**而且一邊是送的／體驗、另一邊不是的不算**
+ * （`EECP體驗` 不吃舊表 EECP 那一格的勾，ADR-0154 —— 以前那是兩門課，自然配不上）。
+ */
+const sameSlot = (token, slot) => SAME(token.course, slot.courseName) && !token.giftKind === !slot.giftKind;
 
 /**
  * 她在標題最前面自己寫的時間。**這個比行事曆的時間欄準** ——
@@ -244,10 +252,22 @@ export function ivProductOf(summary, products = []) {
  *
  * **房號後面接床位**（`.8A`、`點滴8床B`、`IL.8b`）→ 那一間（點滴8A／8B 是各自的診間，ADR-0127）。
  * 只在主檔真的有那一間時才帶（`.5A` 照舊是點滴5）；字母後面還接著字母的不是床位（`.8BIL`）。
- * 只寫 `.8` 照舊是點滴8 —— 停用、「沒選床位」的那一間（她：「沒選床位就寫 .8，VIP7 等等不要留空」）。
- * 她 523 句行事曆裡一句都沒寫過床位（2026-10-06 數過），所以這一條現在不改任何輸出。
+ * **只寫 `.8`（沒寫哪一床）→ 沒有診間**（`null`）：種子上「沒選床位」的點滴8 2026-10-18 刪掉了（ADR-0155），
+ * 猜 8A 還是 8B 都是替她決定。報告講一句（`bedlessSlots()`），匯完她到日曆選。
+ * 她 523 句行事曆裡一句都沒寫過床位（2026-10-06 數過）。
  */
 export function roomOf(summary) {
+  const room = roomIn(summary);
+  return typeof room === 'string' ? room : null;
+}
+
+/** 這一句寫了一間拆成 A／B、卻沒寫哪一床的點滴室 → 那一間的名字（`點滴8`）；其餘 null。報告那一句用 */
+export function bedlessRoomOf(summary) {
+  return roomIn(summary)?.bedless ?? null;
+}
+
+/** 房間的名字，或 `{ bedless: '點滴8' }`（沒寫哪一床，`dripRoom()`） */
+function roomIn(summary) {
   const s = String(summary).replace(/\s+/g, '');
   const t = /治(\d{1,2})/.exec(s);
   if (t) return `治${t[1]}`;
@@ -267,11 +287,14 @@ const IL_ROOM = withBed(/(?:ILIB|IL)[（(]?[.．]?(\d{1,2})/, 'i');
 const DRIP_ROOM = withBed(/點滴?[.．]?(\d{1,2})/);
 const BARE_ROOM = withBed(/(?<!\d)[.．](\d{1,2})(?!\d)/);
 
-/** 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N） */
+/**
+ * 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N）。
+ * 種子上沒有點滴 N、卻有點滴 N A（拆成兩間了，ADR-0155）而這一句沒寫床 → `{ bedless: '點滴N' }`
+ */
 const dripRoom = (n, bed) => {
   const name = `點滴${Number(n)}`;
-  if (!bed) return name;
   const room = SEED.rooms.find((r) => r.name === name) ?? { name };
+  if (!bed) return !SEED.rooms.some((r) => r.name === name) && bedRoomOf(room, 'A', SEED.rooms) ? { bedless: name } : name;
   return bedRoomOf(room, String(bed).normalize('NFKC'), SEED.rooms)?.name ?? name;
 };
 
@@ -691,7 +714,7 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
 
   const used = new Set();
   const filled = visit.slots.map((slot) => {
-    const hit = pool.find((c) => !used.has(c) && c.courses.some((x) => SAME(x.course, slot.courseName)));
+    const hit = pool.find((c) => !used.has(c) && c.courses.some((x) => sameSlot(x, slot)));
     if (!hit) return { slot, match: null };
     used.add(hit);
     return {
@@ -700,7 +723,7 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
         confidence: 'high',
         startsAt: hit.start,
         room: roomOf(hit.e.summary),
-        equipmentName: hit.courses.find((x) => SAME(x.course, slot.courseName))?.equip ?? null,
+        equipmentName: hit.courses.find((x) => sameSlot(x, slot))?.equip ?? null,
         // 客戶自己的名字先拿掉：姓林的客戶不是林醫師（`withoutNames()`）
         therapistName: therapistOf(withoutNames(hit.e.summary, forms, { surname: hit.surname }), master.staff ?? []),
         ivProductName: /點滴/.test(slot.courseName) ? ivProductOf(hit.e.summary, master.ivProducts ?? []) : null,
@@ -729,12 +752,12 @@ export function matchDay(visit, forms, dayEvents, othersForms = [], therapists =
 
   // (2) 她只寫了療程沒寫名字（`9：30復能`、`10.IL治2`）
   for (const open of filled.filter((x) => !x.match)) {
-    const hit = nameless.find((c) => c.courses.some((x) => SAME(x.course, open.slot.courseName)));
+    const hit = nameless.find((c) => c.courses.some((x) => sameSlot(x, open.slot)));
     if (!hit) continue;
     nameless.splice(nameless.indexOf(hit), 1);
     open.match = {
       confidence: 'low', startsAt: hit.time?.start ?? hit.e.clock, room: roomOf(hit.e.summary),
-      equipmentName: hit.courses.find((x) => SAME(x.course, open.slot.courseName))?.equip ?? null,
+      equipmentName: hit.courses.find((x) => sameSlot(x, open.slot))?.equip ?? null,
       evidence: hit.e.summary, clock: hit.e.clock,
       why: '事件上沒寫是誰，但那天只有她勾了這個療程',
     };
@@ -1053,6 +1076,16 @@ function decidedMatch(e, courseName, spec, staff, base = null, forms = []) {
 
 /** 決定檔「加一段」的 `free` 那一格 → 那一段的 `giftKind`（v7）。 */
 const GIFT_WORDS = { 體驗: 'trial', 送的: 'gift' };
+const GIFT_LABEL = { trial: '體驗', gift: '送的' };
+
+/**
+ * 主檔上已經沒有的課名 → 現在是哪一門的哪一種（`EECP體驗` → EECP 的體驗）。只認 `TOKENS` 裡帶著送的／體驗的那幾條、
+ * 剛好一條、那一門在種子上 —— 其餘回 null（主檔沒有那一門，那一條決定進 ⓪d）。
+ */
+function renamedCourse(name) {
+  const hits = coursesOf(name);
+  return hits.length === 1 && hits[0].giftKind && seedCourse(hits[0].course) ? hits[0] : null;
+}
 
 /** 時段的決定：改、清成不詳、加一段。**在配對之後做**，蓋過配對推出來的結果。 */
 function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff }, log) {
@@ -1065,9 +1098,12 @@ function applySlotDecisions(customers, decisions, { byDate, usedSummaries, staff
       const stale = (text) => missed(log, text, { sheet: c.sheetName, section: 'slots', op });
 
       if (op.add) {
-        const a = op.add;
+        // 舊的課名（「EECP體驗」2026-10-18 合成進 EECP，ADR-0154）照 `TOKENS` 認：那一條寫著它現在是哪一門、是不是體驗
+        const renamed = seedCourse(op.add.course) ? null : renamedCourse(op.add.course);
+        const a = renamed ? { ...op.add, course: renamed.course, free: op.add.free ?? GIFT_LABEL[renamed.giftKind] } : op.add;
         const e = a.fromEvent ? eventOf(a.fromEvent) : null;
         if (a.fromEvent && !e) { stale(`${where}：行事曆那天找不到「${a.fromEvent}」，要加的那一段沒有加`); continue; }
+        if (!seedCourse(a.course)) { stale(`${where}：主檔沒有「${a.course}」這一門課，要加的那一段沒有加`); continue; }
         // **送的／體驗**（v7，`free: '體驗'|'送的'`）：任何課都可以、不扣任何一筆（就算身上有那門課的額度），健檢與二返除外
         const gift = a.free == null ? null : GIFT_WORDS[String(a.free).trim()];
         if (gift === undefined) { stale(`${where}：「${a.free}」看不懂（只認「體驗」「送的」），要加的那一段沒有加`); continue; }
@@ -1193,7 +1229,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
         const want = coursesOf(evidence);
         const rivals = customers.filter((o) => o !== c
           && (o.forms ?? []).some((form) => form.length >= 2 && form[0] === ch)
-          && (o.days ?? []).some((od) => od.date === d.date && od.filled.some((g) => want.some((x) => SAME(x.course, g.slot.courseName))
+          && (o.days ?? []).some((od) => od.date === d.date && od.filled.some((g) => want.some((x) => sameSlot(x, g.slot))
             && (!g.match || (g.match.surname && g.match.evidence === evidence)))));
         if (!rivals.length) continue;
         const key = `${d.date}|${evidence}`;
@@ -1270,7 +1306,7 @@ export function reconcile({ sheetsDir, icsPath, year, aliases = {}, therapists =
       .filter((x) => x.hit >= 2).sort((a, b) => b.hit - a.hit)[0];
     const courses = coursesOf(e.summary);
     if (!who || !courses.length || NOT_A_VISIT.test(e.summary)) { leftover.personal.push(e); continue; }
-    const row = { event: e, customer: who.c.name, course: courses[0].course, sheetHasThatDay: who.c.dates.has(e.date) };
+    const row = { event: e, customer: who.c.name, course: courses[0].course, giftKind: courses[0].giftKind, sheetHasThatDay: who.c.dates.has(e.date) };
     if (today && e.date > today) leftover.future.push(row);
     else leftover.calendarOnly.push(row);
   }
@@ -1348,11 +1384,14 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
   // 重存一次之後不一樣，而畫面上看不出為什麼。
   // **送的／體驗的段（v7）同一條**：行事曆或她的決定寫了幾分鐘就是幾分鐘（跟扣額度的段一樣）——
   // 拿 app 的「約的時候選得到的時長」去濾的話，她決定「功醫門診 60 分」會被改回課程的 30 分
-  const endOf = (start, courseName, minutes = null, ivName = null) => {
+  // 順序跟 app 的 `slotMinutes()` 一樣（CLAUDE.md「一段來訪要排多久」，ADR-0098、0122、0154），少「約的時候選的」那一層：
+  // 她的決定寫了幾分 → 體驗的時候排幾分（送的／體驗的段；EECP 20）→ 品項 → 額度 → 課程 → 60
+  const endOf = (start, courseName, { decided = null, entitlement = null, ivName = null, giftKind = null } = {}) => {
     if (!start) return null;
     const course = courseByName.get(courseName);
+    const fromTrial = giftKind ? trialMinutesOf(course) : null;
     const fromIv = course?.requiresIvProduct ? ivByName.get(ivName)?.durationMin : null;
-    return addMin(start, fromIv ?? minutes ?? course?.durationMin ?? 60);
+    return addMin(start, decided ?? fromTrial ?? fromIv ?? entitlement ?? course?.durationMin ?? 60);
   };
   const ivNameOf = (id) => SEED.ivProducts.find((x) => x.id === id)?.name ?? null;
   // 候選清單靠名字認人（`addExtraVisits()` 拿它去找那位客戶的計畫），
@@ -1370,7 +1409,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // v6（2026-10-09）：多一段選填的 `staff`（人員的全名，ADR-0141）。**一律寫 v6** —— 版本講的是格式，不是內容。
     // **只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格**，而畫面看起來跟匯好了一樣。
     // v7（2026-10-14）：客戶多一格 `phone`（只有帶 `--phones` 才有）、送的／體驗的段多一格 `giftKind`（gift-and-trial 08）
-    format: 'baobao-merge/v7',
+    // v8（2026-10-18）：**候選**（`futureVisits`／`missingFromSheet`）送的／體驗的那幾筆也帶 `giftKind`（一般的沒有這個鍵，同段，ADR-0155）。
+    //   v7 的 app 照課程判扣不扣 —— 「EECP體驗」合成進 EECP 之後，一筆體驗的候選會扣掉那位唯一一筆 EECP 額度
+    format: 'baobao-merge/v8',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },
@@ -1440,8 +1481,9 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
             ...(giftKind ? { giftKind } : {}),
             courseName: f.slot.courseName,
             startsAt: f.match?.startsAt ?? null,
-            endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName,
-              f.match?.durationMin ?? minutesOf.get(f.slot.entitlementKey), ivProductName),
+            endsAt: endOf(f.match?.startsAt ?? null, f.slot.courseName, {
+              decided: f.match?.durationMin ?? null, entitlement: minutesOf.get(f.slot.entitlementKey) ?? null, ivName: ivProductName, giftKind,
+            }),
             roomName: f.match?.room ?? null,
             therapistName: f.match?.therapistName ?? null,
             // 併進四選一的那一列（ILIB）記成選了那一台，蓋過行事曆上讀到的
@@ -1457,11 +1499,11 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // 已確認、還沒來 —— 所以是 confirmed 不是 done，會算進「已排未上」
     futureVisits: r.leftover.future.map((x) => ({
       customerName: nameOf(x.customer), date: x.event.date, status: 'confirmed',
-      courseName: x.course, startsAt: startOf(x.event, x.course),
+      courseName: x.course, ...(x.giftKind ? { giftKind: x.giftKind } : {}), startsAt: startOf(x.event, x.course),
       evidence: x.event.summary, include: false,
     })),
     missingFromSheet: r.leftover.calendarOnly.map((x) => ({
-      customerName: nameOf(x.customer), date: x.event.date, courseName: x.course,
+      customerName: nameOf(x.customer), date: x.event.date, courseName: x.course, ...(x.giftKind ? { giftKind: x.giftKind } : {}),
       startsAt: startOf(x.event, x.course), evidence: x.event.summary,
       sheetHasThatDay: x.sheetHasThatDay, include: false,
     })),
@@ -1536,6 +1578,15 @@ export function sheetProblems(r) {
   })));
 }
 
+/**
+ * 行事曆那一句寫了點滴8、沒寫哪一床的那幾段（ADR-0155）：`roomOf()` 不給診間，匯完她到日曆選 8A 或 8B。
+ * 她明寫了診間的（決定檔的 `room`）不算。報告上一行數字，不是一段要她決定的（沒有決定頁的那一項）。
+ */
+export function bedlessSlots(r) {
+  return (r.plans ?? []).flatMap((p) => (p.days ?? []).flatMap((d) => d.filled ?? []))
+    .filter((f) => f.match && !f.match.room && f.match.evidence && bedlessRoomOf(f.match.evidence));
+}
+
 /** B2 驗證對不上的那幾條，攤平成一列一筆。 */
 export function purchaseProblems(r) {
   return (r.plans ?? []).flatMap((p) => (p.purchaseProblems ?? []).map((why) => ({
@@ -1554,7 +1605,7 @@ export function orphansOf(r) {
       const open = d.filled.filter((x) => !x.match);
       if (!open.length) continue;
       const alt = r.leftover.calendarOnly.filter((x) => x.event.date === d.date
-        && open.some((o) => SAME(x.course, o.slot.courseName)));
+        && open.some((o) => sameSlot(x, o.slot)));
       out.push({ sheet: p.sheetName, name: p.customerName, date: d.date, courses: open.map((o) => o.slot.courseName), alt });
     }
   }
@@ -1604,6 +1655,12 @@ export function reportText(r) {
   // 帶了電話名單才有這一行。不只一支的那幾位在 ⓪b 裡
   if (r.phoneLog) {
     L.push(`   電話名單：寫了 ${r.phoneLog.added} 位、名單上沒有 ${r.phoneLog.missing} 位、不只一支沒寫 ${r.phoneLog.differ} 位（在 ⓪b）`);
+  }
+  // 沒有這種段的時候報告一個字都不變
+  const bedless = bedlessSlots(r);
+  if (bedless.length) {
+    const rooms = [...new Set(bedless.map((f) => bedlessRoomOf(f.match.evidence)))].join('、');
+    L.push(`   沒寫哪一床的${rooms}　${bedless.length} 段（診間留空，匯完到日曆選 A 或 B）`);
   }
   if (purchaseProblems(r).length) L.push(`   ⓪c 購買名稱對不上的　${purchaseProblems(r).length}　← 合併時逐條問她`);
   if (r.decisionLog?.misses.length) L.push(`   ⓪d 找不到對象的決定　${r.decisionLog.misses.length}　← 舊表多半改過了，要重新問她`);

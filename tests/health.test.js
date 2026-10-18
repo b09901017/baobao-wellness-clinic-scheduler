@@ -153,13 +153,15 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
       ],
     });
     const rows = findingsOf(r, 'seedCourse');
-    const trial = rows.find((f) => f.fix.courseId === 'course-eecp-trial');
-    assert.ok(trial, 'EECP體驗 要列得出來');
-    assert.equal(trial.fix.kind, 'addCourse');
-    assert.equal(trial.fix.data.name, 'EECP體驗');
-    assert.equal(trial.fix.data.durationMin, 20);
-    assert.equal(trial.fix.data.active, true);
-    assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
+    // 以前拿 EECP體驗 當例子；那一門 2026-10-18 合成進 EECP、種子上刪了（ADR-0154）—— 換功醫門診
+    const fm = rows.find((f) => f.fix.courseId === 'course-fm');
+    assert.ok(fm, '功醫門診 要列得出來');
+    assert.equal(fm.fix.kind, 'addCourse');
+    assert.equal(fm.fix.data.name, '功醫門診');
+    assert.equal(fm.fix.data.durationMin, SEED.courses.find((c) => c.id === 'course-fm').durationMin);
+    assert.equal(fm.fix.data.active, true);
+    assert.ok(!('id' in fm.fix.data), 'id 是另外給的，不可以留在 data 裡');
+    assert.ok(!rows.some((f) => f.fix.courseId === 'course-eecp-trial'), '種子上沒有那一門了，不可以再建回來');
   });
 
   // 自己從零建主檔、一個種子 id 都沒有的資料庫（測試夾具就是）不可以被念 ——
@@ -291,7 +293,7 @@ describe('照錯的時長排出去的那幾段', () => {
 describe('形狀', () => {
   test('三十五項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 35);
+    assert.equal(result.checks.length, 36);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 

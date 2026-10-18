@@ -90,6 +90,10 @@ test('G2 一段體驗的復能：器材只有復能那三台、排多久有 30�
   await page.locator('[data-chip="s0-ent"][data-chip-value="ent-pool"]').click();
   await expect(page.locator('.slothead__what'), '扣額度的段不帶標記').toHaveText('IN(60)');
   await page.locator('button[type="submit"]').first().click();
+  // 既有那一段改了扣法（體驗 → 扣額度）：原地改、存之前講一句（2026-10-18，ADR-0154）
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText()).toContain('改成扣「復能-三選一(60)」（扣 1 次）');
+  await app.ok();
   await app.saved();
 
   const saved = await app.readDoc('visits', 'v-g');

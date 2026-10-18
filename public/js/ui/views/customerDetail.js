@@ -28,7 +28,10 @@ import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
-import { readMarks, toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { validateMarks } from '../../domain/customerMarks.js';
+import {
+  LINE_HINT, noteItems, notesFields, sectionCount, validateLongNotes, withLongNote, readLongNotes,
+} from '../../domain/customerNotes.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
   poolCourseOf,
@@ -53,6 +56,9 @@ import { formLink, inviteState } from '../../domain/availabilityForm.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as f from '../components/form.js';
 import * as marksUi from '../components/marks.js';
+import * as notesEditor from '../components/notesEditor.js';
+import { openNoteCard, closeNoteCard } from '../components/noteCard.js';
+import { reorderHtml, wireReorder } from '../components/noteReorder.js';
 import * as buy from '../components/buy.js';
 import * as planTweak from '../components/planTweak.js';
 import { openBuySheet } from '../components/buySheet.js';
@@ -100,6 +106,12 @@ let detailMonth = null;
  */
 let taskTab = 'open';
 
+/**
+ * 備註那一段正在調整順序（`{ customerId, order: key[] }`），沒有就是 null。**換人就收掉**；
+ * 同一位重讀（存完別的東西）不收 —— 排到一半去勾一筆任務，回來還在排。
+ */
+let notesOrder = null;
+
 /** 上一次畫的是誰。只給 `taskTab` 用，判斷這次是換人還是同一個人重讀。 */
 let shownCustomerId = null;
 
@@ -128,7 +140,11 @@ export async function render(el, id) {
   // 換人才重設任務那一格；**同一位客戶重讀不重設** —— 勾掉一筆任務會走
   // `reload()`（就是這一支），而她在「已完成」點回一筆之後應該還停在
   // 「已完成」，不是被彈回「未完成」。
-  if (shownCustomerId !== id) taskTab = 'open';
+  if (shownCustomerId !== id) {
+    taskTab = 'open';
+    notesOrder = null;
+  }
+  closeNoteCard({ instant: true });
   shownCustomerId = id;
   el.innerHTML = '<p class="muted">載入中…</p>';
 
@@ -202,7 +218,6 @@ function paint(ctx) {
   };
   const flags = rules.splitFlags(customer, clinicalFlags);
   const partners = rules.partnersOf(customer);
-  const marks = readMarks(customer);
   const openNotes = sortNotes(notes).filter((n) => !n.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
   // 而營養品永遠是滿的 —— 沒有任何一筆來訪扣得掉它。
@@ -233,15 +248,7 @@ function paint(ctx) {
         </div>` : ''}
     </div>
 
-    <div class="section">
-      <h2 class="section__title">備註</h2>
-      ${marks.length ? `<span class="section__n">${marks.length}</span>` : ''}
-      <button class="section__more" type="button" data-marks>
-        ${marks.length ? '編輯' : '加一則'}</button>
-    </div>
-    ${marks.length
-      ? marksUi.row(marks, { large: true })
-      : '<p class="muted" style="margin: 0">還沒有備註。客戶臨時提的小事記在這裡，顏色自己分。</p>'}
+    <div data-notesblock>${remarksBlock(ctx)}</div>
 
     <div data-monthblock>${monthBlock(visits, today, master)}</div>
 
@@ -304,10 +311,10 @@ function paint(ctx) {
     </div>
     </div>`;
 
-  wire(ctx, { today, marks });
+  wire(ctx, { today });
 }
 
-function wire(ctx, { today, marks }) {
+function wire(ctx, { today }) {
   const { el, entitlements, visits } = ctx;
   const master = {
     courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [],
@@ -370,7 +377,7 @@ function wire(ctx, { today, marks }) {
     if (task) toggleTask(ctx, task.dataset.task);
   });
 
-  el.querySelector('[data-marks]').addEventListener('click', () => openMarks(ctx, marks));
+  wireNotes(ctx);
 
   el.querySelectorAll('[data-ent]').forEach((btn) =>
     btn.addEventListener('click', () =>
@@ -494,35 +501,181 @@ function monthBlock(visits, today, master = {}) {
 }
 
 // ---------- 備註 ----------
+//
+// 電話、LINE、長備註、短備註一起排順序（ADR-0156）。那一串只有 `noteItems()` 一支在讀，
+// 平常全部是丸子（她 2026-10-19 選的），「調整順序」時才變成一列一列、在這一頁原地拖 ——
+// 抽屜自己有直向拖曳，兩個會搶同一個手勢。
 
-function openMarks(ctx, current) {
-  let draft = current;
+/** 那一段的 HTML。換順序、存完一則長備註只重畫這一塊（ADR-0038）。 */
+function remarksBlock(ctx) {
+  const { customer } = ctx;
+  const items = noteItems(customer);
+  const n = sectionCount(customer);
+  const sorting = notesOrder?.customerId === ctx.id;
+  const byKey = new Map(items.map((it) => [it.key, it]));
+
+  return `
+    <div class="section">
+      <h2 class="section__title">備註${sorting ? tip('按住一則上下拖，放開就排好') : ''}</h2>
+      ${n ? `<span class="section__n">${n}</span>` : ''}
+      ${sorting
+        ? `<button class="section__more section__more--quiet" type="button" data-notes-sort-cancel>取消</button>
+           <button class="section__more" type="button" data-notes-sort-done>完成</button>`
+        : `${items.length > 1 ? '<button class="section__more" type="button" data-notes-sort>調整順序</button>' : ''}
+           <button class="section__more" type="button" data-notes-edit>${n ? '編輯' : '加一則'}</button>`}
+    </div>
+    ${sorting
+      ? reorderHtml(notesOrder.order.map((k) => byKey.get(k)).filter(Boolean))
+      : (items.length
+        ? marksUi.notesRow(items)
+        : '<p class="muted" style="margin: 0">還沒有備註。客戶臨時提的小事記在這裡，長的寫成長備註。</p>')}`;
+}
+
+function repaintNotes(ctx) {
+  const box = ctx.el.querySelector('[data-notesblock]');
+  if (!box) return;
+  box.innerHTML = remarksBlock(ctx);
+  if (notesOrder?.customerId === ctx.id) wireReorder(box.querySelector('[data-reorder-box]'), notesOrder);
+}
+
+/**
+ * 那一段的接線。委派掛在 `[data-notesblock]` 上 —— 它跟著整頁重畫換掉，不會愈掛愈多；
+ * 只重畫這一塊時換的是它的內容，監聽還在。
+ */
+function wireNotes(ctx) {
+  const box = ctx.el.querySelector('[data-notesblock]');
+  if (!box) return;
+  if (notesOrder?.customerId === ctx.id) wireReorder(box.querySelector('[data-reorder-box]'), notesOrder);
+
+  box.addEventListener('click', async (e) => {
+    const long = e.target.closest('[data-notes-long]');
+    if (long) {
+      openLongNote(ctx, long.dataset.notesLong);
+      return;
+    }
+    // 電話：一個號碼都認不出來的那一顆不是連結，點了講一句（按住照樣複製）
+    const phone = e.target.closest('span[data-notes-phone]');
+    if (phone) {
+      toast.info('這一格認不出號碼，撥不出去；按住可以複製');
+      return;
+    }
+    if (e.target.closest('[data-notes-edit]')) {
+      openNotesEditor(ctx);
+      return;
+    }
+    if (e.target.closest('[data-notes-sort]')) {
+      notesOrder = { customerId: ctx.id, order: noteItems(ctx.customer).map((it) => it.key) };
+      repaintNotes(ctx);
+      return;
+    }
+    if (e.target.closest('[data-notes-sort-cancel]')) {
+      notesOrder = null;
+      repaintNotes(ctx);
+      return;
+    }
+    if (e.target.closest('[data-notes-sort-done]')) await saveNotesOrder(ctx);
+  });
+
+  // 電話按住＝複製（ADR-0156）。**這是捷徑**（ADR-0060）：號碼本身印在那一顆上，
+  // 也在「編輯」客戶資料那一格裡選得起來複製 —— 那是點得到的那一條路。
+  wireLongPress(box, '[data-notes-phone]', () => copyPhone(ctx.customer.phone));
+  // 按住連結時 iOS／Android 會跳自己的預覽或選單，跟複製搶
+  box.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('[data-notes-phone]')) e.preventDefault();
+  });
+}
+
+async function copyPhone(phone) {
+  const text = String(phone ?? '').trim();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.info(`已複製 ${text}`);
+  } catch {
+    toast.info(`複製不了，電話是 ${text}`);
+  }
+}
+
+async function saveNotesOrder(ctx) {
+  const byKey = new Map(noteItems(ctx.customer).map((it) => [it.key, it]));
+  const ordered = notesOrder.order.map((k) => byKey.get(k)).filter(Boolean);
+  // 排序中別的地方改過（同一位、另一台裝置）：沒排到的接在最後，一則都不丟
+  for (const it of byKey.values()) if (!ordered.includes(it)) ordered.push(it);
+  const fields = notesFields(ordered);
+  try {
+    await toast.withSaveState(() => data.update(ctx.id, fields), {
+      success: '順序排好了', key: `customer:notes-order:${ctx.id}`,
+    });
+  } catch {
+    return; // 已處理；留在排序裡，她再按一次「完成」
+  }
+  ctx.customer = { ...ctx.customer, ...fields };
+  notesOrder = null;
+  repaintNotes(ctx);
+}
+
+/** 點一則長備註：中間那張卡，從那一顆長出來。 */
+function openLongNote(ctx, noteId) {
+  const note = readLongNotes(ctx.customer).find((n) => n.id === noteId);
+  if (!note) return;
+  const source = () => ctx.el.querySelector(`[data-notesblock] [data-notes-long="${CSS.escape(noteId)}"]`);
+  openNoteCard({
+    source,
+    eyebrow: ctx.customer.name,
+    note,
+    // 換頁前等那一層收掉時排的 history.go() 回來（CLAUDE.md「從一頁帶人到另一頁」）
+    onDeck: async () => {
+      await whenSettled();
+      go(`/customers/notes/${encodeURIComponent(`${ctx.id}:${noteId}`)}`);
+    },
+    onSave: async (next) => {
+      const fields = withLongNote(ctx.customer, next);
+      await toast.withSaveState(() => data.update(ctx.id, fields), {
+        success: '記下來了', key: `customer:long-note:${ctx.id}:${next.id}`,
+      });
+      ctx.customer = { ...ctx.customer, ...fields };
+      repaintNotes(ctx);
+    },
+  });
+}
+
+/** 「編輯」：整串一則一列可以刪、加短的或長的。一次存 `marks`、`longNotes`、`noteOrder`。 */
+function openNotesEditor(ctx) {
+  let draft = noteItems(ctx.customer);
+  let editor = null;
 
   const sheet = openSheet({
     title: '備註',
-    note: '客戶臨時提的、你要記得的事。顏色只給你自己分類用，系統不會因為顏色做任何事。',
-    body: '<div data-marks-editor></div>',
+    note: '短的是一眼看完的小事，顏色只給你自己分類用；長的有標題，點開看全文。',
+    body: '<div data-notes-editor></div>',
     actions: `
       <button class="btn" type="button" data-sheet-close>取消</button>
       <button class="btn btn--primary" type="button" data-save>儲存</button>`,
     onMount: (drawer) => {
-      const box = drawer.querySelector('[data-marks-editor]');
+      const box = drawer.querySelector('[data-notes-editor]');
       if (box && !box.dataset.mounted) {
         box.dataset.mounted = '1';
-        marksUi.mount(box, { marks: current, onChange: (list) => { draft = list; } });
+        editor = notesEditor.mount(box, { items: draft, onChange: (list) => { draft = list; } });
+        box.addEventListener('notesed:say', (e) => toast.info(e.detail));
       }
     },
   });
 
   sheet.el.querySelector('[data-save]').addEventListener('click', async () => {
-    const errors = validateMarks(draft);
+    // 打完直接按「儲存」：輸入框裡的那一則一起收進去
+    const said = editor?.flush();
+    if (said) {
+      toast.info(said);
+      return;
+    }
+    const fields = notesFields(draft);
+    const errors = [...validateMarks(fields.marks), ...validateLongNotes(fields.longNotes)];
     if (errors.length) {
       toast.info(errors[0]);
       return;
     }
     try {
-      await toast.withSaveState(() => data.update(ctx.id, toCustomerFields(draft)), {
-        success: '記下來了',
+      await toast.withSaveState(() => data.update(ctx.id, fields), {
+        success: '記下來了', key: `customer:notes:${ctx.id}`,
       });
       reload(ctx);
     } catch {
@@ -1299,7 +1452,7 @@ function paintEdit(ctx) {
       <form data-form>
         ${f.text({ name: 'name', label: '姓名', value: customer.name })}
         ${f.text({ name: 'phone', label: '電話', value: customer.phone ?? '' })}
-        ${f.text({ name: 'lineId', label: 'LINE', value: customer.lineId ?? '' })}
+        ${f.text({ name: 'lineId', label: 'LINE', value: customer.lineId ?? '', hint: LINE_HINT })}
         ${f.text({ name: 'source', label: '購買通路', value: customer.source ?? '' })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(customer.priority ?? 0),

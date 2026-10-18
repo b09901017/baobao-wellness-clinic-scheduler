@@ -13,6 +13,9 @@
 // 所以點滴8 與 VIP7 留在主檔上當**「沒選床位」的那一間**：停用（新排的選不到），
 // 但舊來訪照樣印得出 `.8`、拍 Abovee 沒寫床時認得到它 —— 不留空。
 //
+// **2026-10-18 那兩間從種子刪掉了**（ADR-0155，`tests/bedless-rooms-gone.test.js`）。這裡留著的是
+// 「主檔上還有那兩間」的資料庫（10/6～10/18 那一代，`ROOMS`）—— 搬床位、拍 Abovee 比診間照樣要對。
+//
 // **這不是把床位那一層加回來**（ADR-0079 照舊）：那四個本來就是四間，時段上的 `bed` 照舊不寫。
 //
 // 盯這幾件：
@@ -36,14 +39,19 @@ import { runHealthCheck } from '../public/js/domain/health.js';
 import { readAbovee, diffSay } from '../public/js/domain/aboveeImport.js';
 
 const TODAY = '2026-10-06';
-const room = (id) => SEED.rooms.find((r) => r.id === id);
 const live = (rooms) => rooms.filter((r) => r.active !== false && !r.deletedAt);
 const NEW = ['room-t6', 'room-vip1', 'room-iv8a', 'room-iv8b', 'room-vip7a', 'room-vip7b'];
-const PARENTS = ['room-iv8', 'room-vip7'];
+/** 10/6～10/18 種子上那兩間（停用、沒選床位）。2026-10-18 起種子上沒有了（ADR-0155） */
+const PARENT_ROWS = [
+  { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2, active: false },
+  { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7', active: false },
+];
+/** 照建議清單都建好、兩間都停用了的那一份（10/6～10/18 的種子） */
+const ROOMS = [...SEED.rooms, ...PARENT_ROWS];
+const room = (id) => ROOMS.find((r) => r.id === id);
 /** 2026-10-06 之前的診間主檔：沒有那六間，點滴8 與 VIP7 還開著。 */
-const oldRooms = () => SEED.rooms.filter((r) => !NEW.includes(r.id)).map(({ active, ...rest }) => rest);
-/** 照建議清單都建好、兩間都停用了的那一份（＝種子） */
-const newRooms = () => SEED.rooms.map((r) => ({ ...r }));
+const oldRooms = () => ROOMS.filter((r) => !NEW.includes(r.id)).map(({ active, ...rest }) => rest);
+const newRooms = () => ROOMS.map((r) => ({ ...r }));
 
 describe('種子：22 間排得到的，跟 Abovee 的診間清單一樣', () => {
   test('治療室 6、點滴室 9、VIP 室 7', () => {
@@ -64,16 +72,6 @@ describe('種子：22 間排得到的，跟 Abovee 的診間清單一樣', () =>
     assert.equal(fullNameOf(room('room-iv8a')), '點滴8A');
   });
 
-  test('點滴8 與 VIP7 還在種子上，停用 —— 它們是「沒選床位」的那一間', () => {
-    for (const id of PARENTS) {
-      assert.ok(room(id), id);
-      assert.equal(room(id).active, false, id);
-    }
-    assert.equal(room('room-iv8').shortName, '.8');
-    assert.equal(room('room-vip7').shortName, 'vip7');
-    assert.equal(SEED.rooms.length, 24);
-  });
-
   test('每一間都存得下去', () => {
     for (const r of SEED.rooms) {
       assert.deepEqual(validate('rooms', r, { existing: SEED.rooms.filter((x) => x.id !== r.id) }), [], r.name);
@@ -82,6 +80,7 @@ describe('種子：22 間排得到的，跟 Abovee 的診間清單一樣', () =>
 
   test('載入種子：沒寫的就是啟用，寫了停用的照寫的（`seedData()`）', () => {
     assert.equal(seedData(room('room-iv8a')).active, true);
+    // 種子上現在沒有停用的列（ADR-0155）；寫了的話照寫的
     assert.equal(seedData(room('room-iv8')).active, false);
     assert.ok(!('id' in seedData(room('room-iv8a'))));
     // 載入種子與資料健檢「建起來」都走這一支，不各自寫 `active: true`
@@ -91,8 +90,8 @@ describe('種子：22 間排得到的，跟 Abovee 的診間清單一樣', () =>
 });
 
 describe('排班時選得到哪幾間', () => {
-  test('那一排有 8A 與 8B，沒有點滴8 與 VIP7', () => {
-    const labels = roomSlots(SEED.rooms).map((s) => s.label);
+  test('那一排有 8A 與 8B，沒有點滴8 與 VIP7（主檔上停用著的也不列）', () => {
+    const labels = roomSlots(ROOMS).map((s) => s.label);
     assert.ok(labels.includes('點滴8A') && labels.includes('點滴8B'));
     assert.ok(labels.includes('VIP7A') && labels.includes('VIP7B'));
     assert.ok(!labels.includes('點滴8') && !labels.includes('VIP7'));
@@ -110,17 +109,17 @@ describe('排班時選得到哪幾間', () => {
   // 她只改記一句存一次，診間就安靜地沒了（`docs/邊界測試清單.md` C11-7）
   test('這一段現在指著的那一間就算停用也列出來，標得出是停用的', () => {
     const drip = SEED.courses.find((c) => c.id === 'course-iv-drip');
-    const without = orderedRoomSlots(drip, SEED.rooms);
+    const without = orderedRoomSlots(drip, ROOMS);
     assert.ok(!without.some((s) => s.roomId === 'room-iv8'));
 
-    const kept = orderedRoomSlots(drip, SEED.rooms, { keep: 'room-iv8' });
+    const kept = orderedRoomSlots(drip, ROOMS, { keep: 'room-iv8' });
     const mine = kept.find((s) => s.roomId === 'room-iv8');
     assert.deepEqual([mine.label, mine.retired], ['點滴8', true]);
     assert.equal(kept.length, without.length + 1);
     // 還開著的那一間、認不得的 id、已刪除的：都不多一顆
-    assert.equal(orderedRoomSlots(drip, SEED.rooms, { keep: 'room-iv5' }).length, without.length);
-    assert.equal(orderedRoomSlots(drip, SEED.rooms, { keep: 'room-gone' }).length, without.length);
-    const deleted = SEED.rooms.map((r) => (r.id === 'room-iv8' ? { ...r, deletedAt: 'x' } : r));
+    assert.equal(orderedRoomSlots(drip, ROOMS, { keep: 'room-iv5' }).length, without.length);
+    assert.equal(orderedRoomSlots(drip, ROOMS, { keep: 'room-gone' }).length, without.length);
+    const deleted = ROOMS.map((r) => (r.id === 'room-iv8' ? { ...r, deletedAt: 'x' } : r));
     assert.equal(orderedRoomSlots(drip, deleted, { keep: 'room-iv8' }).length, without.length);
   });
 
@@ -138,6 +137,8 @@ describe('「沒選床位的那一間」與它拆出來的那幾間（`bedRoomOf
     assert.equal(bedRoomOf(room('room-vip7'), 'b', SEED.rooms)?.id, 'room-vip7b');
     assert.equal(bedRoomOf(room('room-iv5'), 'A', SEED.rooms), null);
     assert.equal(bedRoomOf(room('room-iv8'), 'C', SEED.rooms), null);
+    // 那一間本身不在主檔上也照名字認（合併檔、拍 Abovee 拿 `{ name: '點滴8' }` 問，ADR-0155）
+    assert.equal(bedRoomOf({ name: '點滴8' }, 'A', SEED.rooms)?.id, 'room-iv8a');
     assert.equal(bedRoomOf(room('room-iv8'), 'A', oldRooms()), null, '8A 還沒建');
   });
 
@@ -183,7 +184,7 @@ describe('撞期：8A 與 8B 各是一間', () => {
 describe('停用的那一間不是「別間」', () => {
   const ENT = { id: 'e1', customerId: 'c1', type: 'single', label: '營養點滴', courseId: 'course-iv-drip', ivProductId: 'iv-liver', totalQty: 10 };
   const EECP = { id: 'e2', customerId: 'c1', type: 'single', label: 'EECP', courseId: 'course-eecp', totalQty: 10 };
-  const warn = (slot, rooms = SEED.rooms) => validateVisit({
+  const warn = (slot, rooms = ROOMS) => validateVisit({
     id: 'v1', customerId: 'c1', customerName: '客戶A', date: '2026-10-10', status: 'pending_confirm',
     slots: [{ startsAt: '10:00', endsAt: '12:00', bed: null, status: 'pending_confirm', ...slot }],
   }, {
@@ -207,18 +208,18 @@ describe('停用的那一間不是「別間」', () => {
   });
 
   test('她自己停用的一間點滴室（不是床位那一種）也一樣不算別間', () => {
-    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv5' ? { ...r, active: false } : r));
+    const rooms = ROOMS.map((r) => (r.id === 'room-iv5' ? { ...r, active: false } : r));
     assert.deepEqual(warn(drip('room-iv5'), rooms), []);
   });
 
   test('刪掉的那一間照舊算別間（主檔上已經沒有它了）', () => {
-    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv5' ? { ...r, deletedAt: 'x' } : r));
+    const rooms = ROOMS.map((r) => (r.id === 'room-iv5' ? { ...r, deletedAt: 'x' } : r));
     assert.equal(warn(drip('room-iv5'), rooms).length, 1);
   });
 });
 
 describe('拍 Abovee 認診間', () => {
-  const at = (roomText, resource, rooms = SEED.rooms) => roomFrom(roomText, resource, rooms)?.id ?? null;
+  const at = (roomText, resource, rooms = ROOMS) => roomFrom(roomText, resource, rooms)?.id ?? null;
 
   test('帶著床位的認成那一間', () => {
     assert.equal(at('點滴室8床A', ''), 'room-iv8a');
@@ -229,6 +230,7 @@ describe('拍 Abovee 認診間', () => {
     assert.equal(at('', '4樓休7b'), 'room-vip7b', '小寫的床位也認');
   });
 
+  // 主檔上還有那兩間（停用著）的資料庫。種子上沒有了之後是空著＋一句（`tests/bedless-rooms-gone.test.js`）
   test('沒寫床的認成「沒選床位」那一間（停用的也認）—— 不留空', () => {
     assert.equal(at('點滴室8', ''), 'room-iv8');
     assert.equal(at('', '點滴8'), 'room-iv8');
@@ -252,7 +254,7 @@ describe('拍 Abovee 認診間', () => {
   });
 
   test('還開著的排在停用的前面：她把點滴8 重新啟用、又另外停用了 8A', () => {
-    const rooms = SEED.rooms.map((r) => {
+    const rooms = ROOMS.map((r) => {
       if (r.id === 'room-iv8') return { ...r, active: true };
       if (r.id === 'room-iv8a') return { ...r, active: false };
       return r;
@@ -261,13 +263,13 @@ describe('拍 Abovee 認診間', () => {
   });
 
   test('刪掉的不認：她真的把點滴8 刪了，沒寫床的那一格就是認不得', () => {
-    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv8' ? { ...r, deletedAt: 'x' } : r));
+    const rooms = ROOMS.map((r) => (r.id === 'room-iv8' ? { ...r, deletedAt: 'x' } : r));
     assert.equal(at('點滴室8', '', rooms), null);
     assert.equal(at('點滴室8床A', '', rooms), 'room-iv8a');
   });
 
   test('她記在主檔上的寫法照舊最優先', () => {
-    const rooms = SEED.rooms.map((r) => (r.id === 'room-iv9' ? { ...r, aboveeNames: ['點滴室8床A'] } : r));
+    const rooms = ROOMS.map((r) => (r.id === 'room-iv9' ? { ...r, aboveeNames: ['點滴室8床A'] } : r));
     assert.equal(at('點滴室8床A', '', rooms), 'room-iv9');
   });
 
@@ -293,7 +295,7 @@ describe('拍 Abovee：已經記了的那一段，診間「不一樣」嗎', () 
       id: 'v1', customerId: 'c-wang', date: '2026-09-10', status: 'pending_confirm', updatedAt: 't1',
       slots: [{ entitlementId: 'w-ilib', courseId: 'course-iv-laser', startsAt: '14:00', endsAt: '15:00', roomId, bed: null, status: 'pending_confirm' }],
     }] },
-    master: { courses: SEED.courses, equipment: SEED.equipment, rooms: SEED.rooms, staff: SEED.staff, ivProducts: SEED.ivProducts },
+    master: { courses: SEED.courses, equipment: SEED.equipment, rooms: ROOMS, staff: SEED.staff, ivProducts: SEED.ivProducts },
     today: '2026-09-01',
   });
   const read = (roomText, roomId) => {
@@ -322,12 +324,16 @@ describe('拍 Abovee：已經記了的那一段，診間「不一樣」嗎', () 
 });
 
 describe('資料健檢：診間清單跟建議的不一樣', () => {
-  const go = (rooms) => runHealthCheck({
-    customers: [], entitlements: [], visits: [], tasks: [], availability: [],
+  // 那兩間上面各排著一段（停用不停用、刪不刪看它，ADR-0155）
+  const ON_PARENTS = ['room-iv8', 'room-vip7'].map((roomId, i) => ({
+    id: `v${i}`, customerId: 'c1', date: '2026-09-10', status: 'done', slots: [{ courseId: 'course-iv-drip', roomId, status: 'done' }],
+  }));
+  const go = (rooms, visits = ON_PARENTS) => runHealthCheck({
+    customers: [], entitlements: [], visits, tasks: [], availability: [],
     master: { ...SEED, rooms },
   }, TODAY).checks.find((c) => c.id === 'roomList').findings;
 
-  test('種子那一份（都建好、兩間停用）一列都不報', () => {
+  test('都建好、兩間停用（10/6～10/18 那一份）、上面還有段：一列都不報', () => {
     assert.deepEqual(go(newRooms()), []);
   });
 
@@ -364,6 +370,7 @@ describe('資料健檢：診間清單跟建議的不一樣', () => {
   test('她的主檔上沒有點滴8：不會被「建」一間停用的', () => {
     const rows = go(oldRooms().filter((r) => r.id !== 'room-iv8'));
     assert.ok(!rows.some((f) => f.fix.roomId === 'room-iv8'));
+    assert.ok(!go(SEED.rooms).some((f) => f.fix.roomId === 'room-iv8'), '種子上也沒有了');
   });
 
   test('她自己已經建了一間同名的 點滴8A：不再建', () => {

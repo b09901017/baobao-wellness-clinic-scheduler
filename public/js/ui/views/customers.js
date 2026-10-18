@@ -106,6 +106,7 @@ export async function render(el) {
           <button class="footlink" type="button" data-inactive
                   aria-pressed="${view.showInactive}">
             ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
+          <a class="footlink" href="#/customers/notes">長備註</a>
         </span>
       </div>
     </div>

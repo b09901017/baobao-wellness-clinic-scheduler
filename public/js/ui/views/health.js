@@ -411,7 +411,15 @@ const FIX_COPY = {
           '跟 設定 → 已刪除項目 裡按「還原」是同一件事',
         ],
       },
-      drop: {
+      // 沒寫哪一床的點滴8、VIP7（ADR-0155）：只在一段都沒排在上面時才給刪
+      drop: fix.bedless ? {
+        title: `刪掉「${fix.label}」？`,
+        lines: [
+          `沒寫哪一床的那一間：${fix.label}A、${fix.label}B 是各自的診間`,
+          '沒有任何一段排在它上面',
+          '它會進「已刪除項目」，之後還原得回來',
+        ],
+      } : {
         title: `刪掉「${fix.label}」？`,
         lines: [
           '新的診間清單上沒有這一間了',
@@ -432,7 +440,7 @@ const FIX_COPY = {
         lines: [
           `新的清單上它拆成 ${fix.label}A、${fix.label}B 兩間各自的診間`,
           '停用之後排班時選不到它；不是刪掉 —— 已經排在那一間的來訪一個字都不動，照樣印得出診間',
-          '沒選床位的就是它：舊來訪、拍 Abovee 那一格沒寫床時照樣認得到',
+          '沒選床位的就是它：排在上面的那幾段、拍 Abovee 那一格沒寫床時照樣認得到',
           '之後想讓它重新選得到，到 設定 → 診間 把它啟用',
         ],
       },
@@ -442,7 +450,7 @@ const FIX_COPY = {
       lines: fixes.map((fix) => ({
         add: `新增 ${fix.label}`,
         restore: `還原 ${fix.label}`,
-        drop: `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
+        drop: fix.bedless ? `刪掉 ${fix.label}（沒有任何一段排在上面）` : `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
         short: `${fix.label} 的簡寫填成 ${fix.shortName}`,
         retire: `停用 ${fix.label}（不刪；排在那一間的來訪照樣印得出來）`,
       }[fix.mode])),
@@ -652,6 +660,24 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label} → ${fix.durationChoices.join('、')} 分鐘`),
     }),
   },
+  // 「EECP體驗」那一門還在（ADR-0154）。兩種形狀：沒有東西擋著 → 那幾段改好、那一門刪掉；有擋著 → 只改那一位的段
+  eecpTrialCourse: {
+    button: (fix) => (fix?.kind === 'retireTrialCourse' ? (fix.slots ? '改好那幾段、刪掉這一門' : '刪掉這一門') : '改成 EECP 的體驗'),
+    all: (n) => `一次改這 ${n} 位`,
+    one: (fix) => ({
+      title: fix.kind === 'retireTrialCourse' ? `刪掉「${fix.label}」這一門？` : `把「${fix.label}」那幾段改成 ${fix.eecpName} 的體驗？`,
+      lines: [
+        ...(fix.slots ? [`${fix.slots} 段改成 ${fix.eecpName}、體驗、${fix.trial} 分 —— 不扣任何次數，狀態一格都不動（已完成的也一樣）`] : []),
+        ...(fix.kind === 'retireTrialCourse'
+          ? [`接著刪掉「${fix.label}」—— 進「已刪除項目」，還原得回來`, `${fix.eecpName} 只剩一門：約的時候選 ${fix.trial} 分就是體驗`]
+          : ['那一門先留著：還有額度扣著它，要改成什麼你決定']),
+      ],
+    }),
+    many: (fixes) => ({
+      title: `一次改這 ${fixes.length} 位的「EECP體驗」那幾段？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.slots} 段改成 ${fix.eecpName} 的體驗`),
+    }),
+  },
   chartNo: {
     button: () => '改成「病歷號」',
     all: (n) => `一次改這 ${n} 筆`,
@@ -693,6 +719,8 @@ const KIND_TO_CHECK = {
   applyRoom: 'roomList',
   clearBeds: 'slotBeds',
   moveBedToRoom: 'slotBeds',
+  trialSlotsToCourse: 'eecpTrialCourse',
+  retireTrialCourse: 'eecpTrialCourse',
 };
 
 /**

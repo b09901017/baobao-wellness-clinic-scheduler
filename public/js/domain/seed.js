@@ -11,9 +11,9 @@ import { DEFAULT_FOLLOWUP_DUE_DAYS, DEFAULT_REPORT_DUE_DAYS } from './followups.
 /**
  * 種子的一列 → 要寫進主檔的那一份（id 另外給）。
  *
- * **沒寫 `active` 的就是啟用；寫了停用的照寫的**（點滴8、VIP7 是「沒選床位」的那一間，ADR-0127）。
- * 載入種子（`data/config.js` 的 `loadSeed()`）與資料健檢「建起來」的那幾列都走這一支 ——
- * 各自寫一份 `{ ...data, active: true }` 的話，種子上停用的那兩間一載入就又選得到了。
+ * **沒寫 `active` 的就是啟用；寫了停用的照寫的。** 載入種子（`data/config.js` 的 `loadSeed()`）與資料健檢
+ * 「建起來」的那幾列都走這一支。種子上現在一列停用的都沒有（點滴8、VIP7 那兩間 2026-10-18 刪掉了，ADR-0155）——
+ * 這一支留著：哪天又有一列停用的，各自寫一份 `{ ...data, active: true }` 的話它一載入就又選得到了。
  */
 export const seedData = ({ id, ...data }) => ({ active: true, ...data });
 
@@ -42,11 +42,10 @@ export const SEED = {
   // **這不是把床位那一層加回來**：Abovee 的診間下拉裡本來就沒有單獨的「點滴室8」，只有床 A、床 B ——
   // 那四個本來就是四間。時段上的 `bed` 照舊不寫（ADR-0079），一間照舊一個人（8A、8B 都沒填 `capacity`）。
   //
-  // **點滴8 與 VIP7 留在這裡、停用（`active: false`）**：它們是「沒選床位」的那一間。她：
-  //「可舊來訪以及abovee辨識可以不選床位，沒選床位就寫.8，VIP7等等不要留空」。所以新排的選不到它
-  // （`roomSlots()` 不列停用的），但舊來訪照樣印得出 `.8`、拍 Abovee 那一格沒寫床時認得到它
-  // （`abovee.js` 的 `roomByText()`）、舊行事曆只寫 `.8` 的那幾段匯進來也對得到。
-  // 她想讓它重新選得到，在 設定 → 診間 把它啟用就好。
+  // **點滴8 與 VIP7（沒選床位的那兩間）2026-10-18 刪掉了**（ADR-0155，推翻 ADR-0127 的「留著、停用」）。她：
+  //「包含你說的點滴8，vip7還多少，一樣，沒有舊資料的問題，刪掉之後幫我合併檔更新就好」。
+  // 只寫點滴8、沒寫哪一床的（拍 Abovee、合併檔）→ **診間留空、講一句請她選**，不猜一間。
+  // 還留著那兩間的資料庫由資料健檢「診間清單跟建議的不一樣」收（沒有任何一段排在上面就刪）。
   //
   // 2026-08-19 她確認過「治7、治9、治10、點滴2、點滴8、ILIB4 也都還在」，
   // 2026-09-08 這一輪把治7／治9／治10／ILIB4 拿掉了（ILIB4 有個 4）。
@@ -66,9 +65,6 @@ export const SEED = {
     { id: 'room-iv5', name: '點滴5', type: '點滴室', shortName: '.5' },
     { id: 'room-iv6', name: '點滴6', type: '點滴室', shortName: '.6' },
     { id: 'room-iv7', name: '點滴7', type: '點滴室', shortName: '.7' },
-    // **沒選床位的那一間，停用**（2026-10-06，ADR-0127，見上面）。`capacity: 2` 留著（ADR-0094）：
-    // 舊來訪裡同一個時間兩位都記在「點滴8」的不算撞 —— 她 2026-09-16 那一句「都寫 .8」的那幾筆。
-    { id: 'room-iv8', name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2, active: false },
     { id: 'room-iv8a', name: '點滴8A', type: '點滴室', shortName: '.8A' },
     { id: 'room-iv8b', name: '點滴8B', type: '點滴室', shortName: '.8B' },
     { id: 'room-iv9', name: '點滴9', type: '點滴室', shortName: '.9' },
@@ -78,8 +74,6 @@ export const SEED = {
     { id: 'room-vip3', name: 'VIP3', type: 'VIP室', shortName: 'vip3' },
     { id: 'room-vip5', name: 'VIP5', type: 'VIP室', shortName: 'vip5' },
     { id: 'room-vip6', name: 'VIP6', type: 'VIP室', shortName: 'vip6' },
-    // 同點滴8：沒選床位的那一間，停用
-    { id: 'room-vip7', name: 'VIP7', type: 'VIP室', shortName: 'vip7', active: false },
     { id: 'room-vip7a', name: 'VIP7A', type: 'VIP室', shortName: 'vip7A' },
     { id: 'room-vip7b', name: 'VIP7B', type: 'VIP室', shortName: 'vip7B' },
   ],
@@ -439,37 +433,19 @@ export const SEED = {
       // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
       //
       // **2026-09-16 從 30 分改成 60 分。** 她：「體驗30正式課60」。
-      // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
-      // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
+      //
+      // **2026-10-18 合成一門**（ADR-0154，staging-polish 09）：9/16 起另有一門「EECP體驗」（20 分、預設體驗），
+      // 她 10/18：「EECP只有一個EECP 不用EECP 體驗」「EECP可以選60 20，以及可以選體驗/送的」
+      // 「預設是60分鐘 ，不選體驗/送的，然後如果選20就預設是體驗」「我希望他直接不要」——
+      // 所以那一門從種子刪掉（不留停用的），這一門約的時候選 20／60、體驗的時候排 20。
+      // Abovee 上的 `EECP20` 拆成「EECP＋20 分」→ 分鐘＝體驗的時候排幾分 → 體驗（`abovee.js` 的 `courseFrom()`、
+      // `aboveeImport.js` 的 `resolveItem()`）。既有資料庫上那一門由資料健檢最後一項收掉。
       id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C',
       systems: ['Abovee'], durationMin: 60, aboveeNames: ['EECP'],
+      bookingMinutes: [20, 60], trialMinutes: 20,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
-    },
-    {
-      // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
-      // 預設30分鐘，這樣匯入的也可以對應到了」。
-      //
-      // **名字要跟舊表寫的一字不差**（`EECP體驗`，舊表第 14 列）——
-      // `legacyImport.js` 的 `resolveCourse()` 是精確比對，對不上的話那一段
-      // 匯不進來。`SPEC.md` 第 4.4 節她自己記的實際紀錄也是這四個字
-      //（`14:45–15:15  EECP 體驗`）。
-      //
-      // 同一批機器，所以限制與順序跟正式課一模一樣。
-      //
-      // **2026-10-05 從 30 分改成 20 分**：Abovee 上這門課就叫 `EECP20`
-      //（她：「EECP20 就是 EECP 體驗」）。9/16 她說的是 30；Abovee 上實際排的是 20，
-      // 而她這一輪定的是「時間跟 Abovee 不一樣時以 Abovee 為準」。
-      id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C',
-      // Abovee 寫 `EECP20`（她 2026-10-05：「EECP20 就是 EECP 體驗」）。整格比對、在拆分鐘之前 ——
-      // 拆了就是「EECP＋20 分」，認成正式課（`abovee.js` 的 `courseFrom()`）
-      systems: ['Abovee'], durationMin: 20, aboveeNames: ['EECP20'],
-      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
-      preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
-      requiresEquipment: false, frequencyRule: null,
-      // 不算次數（2026-10-14，gift-and-trial 05，同心臟科評估那一段她的原話）：體驗本來就不會買
-      uncounted: true,
     },
     {
       // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）
@@ -587,3 +563,15 @@ export const DEFAULT_SETTINGS = {
   // 這樣之後改預設值時，她沒動過的那幾則會跟著更新。
   messageTemplates: {},
 };
+
+/**
+ * 設定 → 排序權重 那一頁上的那幾格。「回復預設值」**只回復這幾格**（2026-10-18）：
+ * 以前是 `saveSettings(DEFAULT_SETTINGS)` 整份蓋上去，而 `DEFAULT_SETTINGS` 裡有空的 `sheetSync`
+ * 與 `messageTemplates` —— 按一下試算表就安靜地不再推、她改過的 LINE 模板全部回到預設。
+ * 那一頁多一格就加進這裡（`tests/preferences-reset.test.js` 盯著）。
+ */
+export const PREFERENCE_KEYS = ['sortWeights', 'slotGapMin', 'noReplyDays', 'reportDueDays', 'followupDueDays'];
+
+/** 「回復預設值」要存的那一份：只有 `PREFERENCE_KEYS` 那幾格的預設值。 */
+export const preferenceDefaults = () =>
+  Object.fromEntries(PREFERENCE_KEYS.map((k) => [k, structuredClone(DEFAULT_SETTINGS[k])]));

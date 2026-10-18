@@ -10,8 +10,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RESET_SECTIONS, KEEP, targetOf, parseArgs } from '../scripts/reset-staging.mjs';
+import { RESET_SECTIONS, KEEP, targetOf, parseArgs, masterSeedPlan, MASTER_PATHS } from '../scripts/reset-staging.mjs';
 import { SECTIONS } from '../scripts/restore-backup.mjs';
+import { SEED, seedData } from '../public/js/domain/seed.js';
+import { MASTER_TYPES } from '../public/js/domain/masterData.js';
 
 describe('清的範圍', () => {
   test('備份裡的每一類都清 —— 跟 restore-backup.mjs 的 SECTIONS 同一份', () => {
@@ -67,5 +69,30 @@ describe('指令列', () => {
     assert.equal(parseArgs(['--project', 'staging']).yes, false);
     assert.equal(parseArgs(['--project', 'staging', '--yes']).yes, true);
     assert.equal(parseArgs(['--project=staging']).project, 'staging');
+  });
+});
+
+// 2026-10-19（她：「好」）：`staging:reset` 只清資料、不清主檔 —— reset 之後主檔還是上一代的（還有 EECP體驗、點滴8），
+// 要先按三項資料健檢才貼得上一份「一開始就是好的」合併檔。`--master` 跟正式站切換那天同一個做法（ADR-0143）：主檔也清掉、照現在的種子重載
+describe('--master：主檔也照現在的種子重來', () => {
+  test('沒寫就不碰主檔；寫了才碰', () => {
+    assert.equal(parseArgs(['--project', 'staging', '--yes']).master, false);
+    assert.equal(parseArgs(['--project', 'staging', '--yes', '--master']).master, true);
+  });
+
+  test('清的是 config/app 底下每一種主檔，不是 config 整個（排序權重、試算表密鑰、LINE 模板、AI 上限留著）', () => {
+    assert.deepEqual(MASTER_PATHS, MASTER_TYPES.map((t) => `config/app/${t}`));
+    assert.ok(!MASTER_PATHS.includes('config/app') && !MASTER_PATHS.includes('config/ai'));
+  });
+
+  test('重載的就是種子的每一筆，照 seedData() 寫（沒寫的是啟用）', () => {
+    const plan = masterSeedPlan();
+    const want = Object.entries(SEED).flatMap(([type, rows]) => rows.map((row) => ({ path: `config/app/${type}`, id: row.id, data: seedData(row) })));
+    assert.deepEqual(plan, want);
+    for (const { path } of plan) assert.ok(MASTER_PATHS.includes(path), path);
+  });
+
+  test('種子的每一種都是主檔的一種（多一種沒登記的話那一種清不掉也重載不了）', () => {
+    for (const type of Object.keys(SEED)) assert.ok(MASTER_TYPES.includes(type), type);
   });
 });

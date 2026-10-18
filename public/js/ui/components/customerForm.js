@@ -14,6 +14,7 @@
 import * as rules from '../../domain/customers.js';
 import { expandPlan } from '../../domain/entitlements.js';
 import { toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { LINE_HINT } from '../../domain/customerNotes.js';
 import { confirmReview } from './dialog.js';
 import * as f from './form.js';
 import * as marksUi from './marks.js';
@@ -139,7 +140,7 @@ export function mountCustomerForm(host, opts) {
               <span class="field__label">電話<span data-cf-warn="contact">${warnTip(warn.contact)}</span></span>
               <input type="tel" name="phone" value="${esc(draft.phone)}" inputmode="tel" autocomplete="off" />
             </label>
-            ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId })}
+            ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId, hint: LINE_HINT })}
           </div>
         </section>`}
 

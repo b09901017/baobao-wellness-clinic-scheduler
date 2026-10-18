@@ -131,7 +131,8 @@ describe('拍 Abovee 認得課程那一格', () => {
     const SEEN = {
       復健門診: 'course-rehab', 心臟門診: 'course-cardio', 功醫門診: 'course-fm', 羊膜: 'course-amnion',
       體適能: 'course-fitness', 身體組成: 'course-inbody', 營養諮詢: 'course-nutrition-consult',
-      二返30: 'course-followup', EECP20: 'course-eecp-trial', EECP60: 'course-eecp',
+      // EECP20 2026-10-18 起是 EECP＋20 分（合成一門，ADR-0154）
+      二返30: 'course-followup', EECP20: 'course-eecp', EECP60: 'course-eecp',
     };
     for (const [text, id] of Object.entries(SEEN)) assert.equal(at(text), id, text);
   });

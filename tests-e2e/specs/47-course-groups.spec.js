@@ -251,7 +251,7 @@ test('G7 舊資料：沒有分類的課程全部落在「其他」，一門都�
   await app.signIn('/settings/courses');
 
   expect(await heads(page)).toEqual(['其他']);
-  await expect(page.locator('[data-course]')).toHaveCount(21);
+  await expect(page.locator('[data-course]')).toHaveCount(20);
   // 器材與品項照樣掛在它們的課程底下
   await expect(page.locator('[data-course="course-recovery"] .subrow')).toHaveCount(3);
 

@@ -1,6 +1,6 @@
 # 待辦首頁：每一列「一直顯示／有才顯示／不顯示」，在設定裡選
 
-Status: todo
+Status: done
 Blocked by: —
 段：二（high）
 動工前先讀：`domain/todoFlow.js` 的 `STAGES`、`FLOW`、`groupByStage()`、`RETIRED_KINDS`；`ui/views/home.js` 的 `overviewHtml()`、`groupRow()`、`askGroupRow()`／`inboxGroupRow()`／`bookGroupRow()`、`markNext()`、`renderGroup()`（點進去那一頁的「已完成」分頁）；
@@ -50,4 +50,12 @@ Blocked by: —
 
 ## 做完時留下的
 
-（做完寫）
+- domain：`todoFlow.js` 的 `HOME_ROWS`（從 `FLOW` 推，順序一樣）、`ROW_SHOWS`、`rowShowOf()`、`rowView()`、`homeLoaders()`、`storedRowShows()`；預設只寫在 `DEFAULT_ROW_SHOWS`（ask、book＝hidden）
+- **`todoRows` 沒有放進 `seed.js` 的 `DEFAULT_SETTINGS`**（`rowShowOf()` 認得 undefined）：設定 → 排序權重 的「回復預設值」是 `saveSettings(DEFAULT_SETTINGS)` 整份蓋，
+  放進去的話按那一顆會順手把待辦首頁的設定清掉（同一顆現在已經會清掉試算表的密鑰與 LINE 模板 → 中途發現）
+- 畫面：`home.js` 的 `overviewHtml()` 每一列問 `rowView()`、名單上的任務種類一律問一次（一直顯示的 0 件也畫）、名單外的照舊有才顯示；`groupRow({ empty })` → `.grouprow--empty`；`markNext()` 跳過 empty
+- 新的一頁 `ui/views/todoRows.js`（`#/settings/todo-rows`）：照段列、每列三選一、按一顆就整份存；設定頁「規則」多一格；總覽最底下「調整顯示哪幾列」
+- 稽核：`FIELD_LABELS.todoRows = '待辦首頁顯示哪幾列'` → 「改了 待辦首頁顯示哪幾列」；備份與還原本來就整份帶 `config/app`（`restore-backup.mjs` 382 行 merge）
+- 叫她去「問這輪的時間」的地方：操作手冊步驟 3 補一段怎麼打開、LINE 模板那一則的 `where` 補一句；資料健檢那一句段一已經改掉
+- 測試：`tests/todo-home-rows.test.js`（名單、預設、三種 × 有沒有 × 還沒載完、loaders、只存改過的、home.js 不自己比）、E2E `70` R1–R4
+- 文件：ADR-0151、SPEC 8.1、操作手冊步驟 3

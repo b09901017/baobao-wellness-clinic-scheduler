@@ -3,7 +3,7 @@
 // 權重做成可調是刻意的：一開始沒人知道對的值，讓她用兩週後自己微調。
 
 import * as config from '../../data/config.js';
-import { DEFAULT_SETTINGS } from '../../domain/seed.js';
+import { DEFAULT_SETTINGS, preferenceDefaults } from '../../domain/seed.js';
 import * as f from '../components/form.js';
 import * as toast from '../toast.js';
 import { icon } from '../icons.js';
@@ -108,7 +108,8 @@ export async function render(el) {
 
   el.querySelector('[data-reset]').addEventListener('click', async () => {
     try {
-      await toast.withSaveState(() => config.saveSettings(DEFAULT_SETTINGS), {
+      // 只回復這一頁上的那幾格 —— 整份 `DEFAULT_SETTINGS` 會連試算表的密鑰與 LINE 模板一起清掉
+      await toast.withSaveState(() => config.saveSettings(preferenceDefaults()), {
         success: '已回復預設值',
       });
       render(el);

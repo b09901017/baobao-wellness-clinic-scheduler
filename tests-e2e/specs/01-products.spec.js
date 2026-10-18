@@ -257,7 +257,7 @@ test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一�
       date: DRIP_DAY, status: 'pending_confirm',
       slots: [slot({
         courseId: 'course-iv-drip', entitlementId: 'ent-i-drip',
-        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8', bed: 'A',
+        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8a',
         ivProductId: 'iv-liver',
       })],
     }),

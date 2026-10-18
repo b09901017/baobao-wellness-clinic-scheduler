@@ -1,6 +1,6 @@
 # 拍 Abovee「app 有、這次照片上沒有」：照片上有幾位就只對那幾位（3 位以上才對大家）
 
-Status: todo
+Status: done
 Blocked by: —
 段：三（high，這一段只做這一支）
 動工前先讀：`domain/aboveeImport.js` 的 `photoSpan()`、`boundsOf()`、`photoBounds()`、`absentFromPhoto()`、`absentSay()`（約 `:2003-2230`）；`flagMoved()`（**也讀 `photoBounds()`**，改了對象要想它跟不跟）；
@@ -55,4 +55,19 @@ ADR-0129（整支，尤其「對象」那一段與「已知的限制」）；CLA
 
 ## 做完時留下的
 
-（做完寫）
+10/18（段三）。ADR-0153。
+
+- **domain**（`aboveeImport.js`）：`photoPeople()`（照片上的字分幾位：病歷號先、沒有病歷號的名字一樣或 `oneCharOff()` 併進去、都空的不算）、
+  `photoWho()`（1～2 位 → 認出來的那幾位＋`unknown`；3 位以上或 0 位 → `customerIds: null`）、`EVERYONE_FROM = 3`。
+  `absentFromPhoto(…, { everyone })` 的對象改問 `photoWho()`；`checked` 從 `{ customerId, ranges }` 變成 `{ customerIds, unknown, ranges }`（`null` ＝ 每一位）。
+  `absentSay()` 講一位／兩位（「、」接）／每一位，有 `unknown` 接「照片上的 ○○ 還沒認出是誰，先沒對。」；一位都沒認出來時只講那一句、不對。
+- **範圍一個字都沒動**：`photoBounds()` 的 `customerId`（放寬到整個月那一條）照舊嚴的判準，只在註解寫清楚它不管對誰。`flagMoved()` 不受影響（`tests/abovee-moved-rebook.test.js` 照舊綠）
+- **畫面沒改**：`aboveeConfirm.js` 只讀 `absentSay()` 與 `gone.slots`，句子在 domain
+- **月底對帳**：`reconcile.mjs` 傳 `{ everyone: true }`；`tests/month-end-reconciliation.test.js` 加一條（Abovee 只有王小明、app 上客戶甲做完一段 → 照樣講 `extra`）—— **先看它紅過**（不加選項時是 `[]`），既有九條沒改預期
+- **測試**：新 `tests/abovee-absent-who.test.js`（14 條，判準每一條各一個；先紅：exports 不存在）。
+  `tests/abovee-absent.test.js`：「很多人」那幾條的照片原本只有王小明、客戶甲兩位 → 新規則下只對那兩位，**加一位客戶丁進照片**讓它們照舊測「對大家」的範圍；`checked.customerId` → `customerIds`
+- **E2E**：沒開 71（瀏覽器看得到的只有那一句，句子在 domain）。`41` 的 A3 照片上兩位（客戶A、認不出的王曉名）→ 改預期：`要你看 2 段`、沒有那一塊的列、那一句講「照片上的 王曉名 還沒認出是誰，先沒對」；選了王小明之後那一句變「對過 客戶A、王小明 …」。
+  **「對大家」那一條現在沒有任何 E2E 走到**（41 A3 是唯一一支），只剩單元測試 —— 段八審查時可以想要不要補
+- 文件：ADR-0153、SPEC（拍照那一段多一行）、`docs/操作手冊.md`（那一塊上面一行）、`docs/常見問題.md`（新一條「列出一大堆別人的段」）、`docs/邊界測試清單.md` N7、
+  CLAUDE.md「拍 Abovee 記很多段」（對誰另外問 `photoWho()`、跟範圍是兩件事）與「月底對帳 skill」那一列（一定傳 `everyone`）、skill 的 SKILL.md
+- 「先沒對」那一句刻意不寫「他」：照片上的原字是誰都有可能

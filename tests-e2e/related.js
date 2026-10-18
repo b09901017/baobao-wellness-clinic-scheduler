@@ -176,7 +176,7 @@ export const COVERAGE = {
   ],
   '15-playbook': [
     'public/js/domain/playbook.js', 'public/js/data/playbooks.js',
-    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js',
+    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js', 'public/js/ui/components/deck.js',
     'public/js/ui/views/trash.js', 'public/js/ui/views/home.js',
   ],
   '16-record-task': [
@@ -564,6 +564,28 @@ export const COVERAGE = {
     'public/js/ui/views/calendar.js', 'public/js/ui/components/sheet.js', 'public/js/ui/toast.js',
     'public/js/domain/health.js', 'public/js/ui/views/health.js',
     'public/css/',
+  ],
+  // 待辦首頁：每一列三種顯示（07）、今天／明天／逾期的組成（08）
+  '70-todo-home': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/ui/views/todoRows.js',
+    'public/js/ui/views/settings.js', 'public/js/data/config.js', 'public/js/domain/notes.js',
+    'public/js/ui/components/note.js', 'public/js/domain/visits.js',
+  ],
+  // EECP 只有一門（staging-polish 09，ADR-0154）：壓表與來訪編輯器按 20 → 體驗、編輯器原地改扣法的確認框、設定頁那一格
+  '72-eecp-one-course': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/visits.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/seed.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/giftFold.js',
+  ],
+  // 長備註與備註那一段的順序（staging-polish 14、15，ADR-0156）
+  '74-long-notes': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/customerMarks.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteCard.js',
+    'public/js/ui/components/noteReorder.js', 'public/js/ui/components/notesEditor.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
+    'public/js/data/customers.js', 'public/css/',
+    'public/js/ui/views/longNotes.js', 'public/js/ui/components/deck.js', 'public/js/ui/views/customers.js',
   ],
 };
 

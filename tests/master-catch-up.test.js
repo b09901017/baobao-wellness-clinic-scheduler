@@ -70,18 +70,19 @@ describe('種子：跟 Abovee 一樣的那幾樣', () => {
     assert.equal(mins(iv('元氣活力')), 120);
   });
 
-  test('治7 回來了，EECP 與體驗課可以排治5／治7／治8', () => {
+  test('治7 回來了，EECP 可以排治5／治7／治8', () => {
     const t7 = SEED.rooms.find((r) => r.id === 'room-t7');
     assert.deepEqual([t7?.name, t7?.type], ['治7', '治療室']);
-    for (const id of ['course-eecp', 'course-eecp-trial']) {
+    for (const id of ['course-eecp']) {
       assert.deepEqual(roomsForCourse(course(id), SEED.rooms).map((r) => r.name), ['治5', '治7', '治8'], id);
       assert.deepEqual(orderedRoomsForCourse(course(id), SEED.rooms).map((r) => r.name), ['治5', '治7', '治8'], id);
     }
   });
 
-  test('EECP 體驗 20 分（Abovee 的 EECP20）', () => {
-    assert.equal(course('course-eecp-trial').durationMin, 20);
+  test('EECP 一門：60 分，體驗的時候 20 分（Abovee 的 EECP20；2026-10-18 合成一門，ADR-0154）', () => {
+    assert.equal(course('course-eecp-trial'), undefined);
     assert.equal(course('course-eecp').durationMin, 60);
+    assert.equal(course('course-eecp').trialMinutes, 20);
   });
 
   test('功醫門診：不算次數、三個系統、功能／二返的醫師、不簽療程單、不寫紀錄、不用指派、30 分', () => {
@@ -244,10 +245,10 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
   const blanks = (m) => of(run(m), 'seedBlanks');
   const OLD = ['room-t5', 'room-t8'];
 
-  test('EECP 還是舊的那一份（治5、治8）→ 建議加上治7；體驗課一樣', () => {
+  test('EECP 還是舊的那一份（治5、治8）→ 建議加上治7', () => {
     const old = (r) => ({ ...r, allowedRoomIds: [...OLD], preferredRoomIds: [...OLD] });
     const rows = blanks(master({ courses: (cs) => cs.map((c) => (c.id.startsWith('course-eecp') ? old(c) : c)) }));
-    assert.deepEqual(rows.map((f) => f.title).sort(), ['EECP', 'EECP體驗']);
+    assert.deepEqual(rows.map((f) => f.title).sort(), ['EECP']);
     const fix = rows.find((f) => f.title === 'EECP').fix;
     assert.equal(fix.kind, 'setMasterFields');
     assert.deepEqual([fix.type, fix.id], ['courses', 'course-eecp']);
@@ -303,7 +304,7 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
 
   test('Abovee 上的寫法：課程、器材、品項空著才補；她自己填過的不動', () => {
     const m = master({
-      courses: patch('course-eecp-trial', (r) => without(r, 'aboveeNames')),
+      courses: patch('course-inbody', (r) => without(r, 'aboveeNames')),
       equipment: patch('eq-laser', (r) => ({ ...r, aboveeNames: [] })),
       ivProducts: (rows) => rows.map((r) => {
         if (r.id === 'iv-snow') return without(r, 'aboveeNames');
@@ -312,7 +313,7 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
     });
     const rows = blanks(m);
     assert.deepEqual(rows.map((f) => [f.fix.type, f.fix.id, f.fix.changes]), [
-      ['courses', 'course-eecp-trial', { aboveeNames: ['EECP20'] }],
+      ['courses', 'course-inbody', { aboveeNames: ['身體組成'] }],
       ['equipment', 'eq-laser', { aboveeNames: ['高能量'] }],
       ['ivProducts', 'iv-snow', { aboveeNames: ['雪顏亮采'] }],
     ]);
@@ -323,8 +324,8 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
 
   test('那個寫法已經是她另一筆的了：不補（補了兩筆都存不下去）', () => {
     const m = master({
-      courses: (rows) => [...rows.map((r) => (r.id === 'course-eecp-trial' ? without(r, 'aboveeNames') : r)),
-        { id: 'mine', name: '我的體驗課', durationMin: 20, assigns: 'none', aboveeNames: ['EECP 20'] }],
+      courses: (rows) => [...rows.map((r) => (r.id === 'course-eecp' ? without(r, 'aboveeNames') : r)),
+        { id: 'mine', name: '我的 EECP', durationMin: 60, assigns: 'none', aboveeNames: ['EECP'] }],
     });
     assert.deepEqual(blanks(m), []);
   });
@@ -346,10 +347,10 @@ describe('資料健檢：主檔有幾格還沒跟上', () => {
 });
 
 describe('既有那幾列跟著種子走', () => {
-  test('EECP 體驗還是 30 分 → 課程的時長那一列報 30 → 20', () => {
-    const rows = of(run(master({ courses: patch('course-eecp-trial', (r) => ({ ...r, durationMin: 30 })) })), 'courseDuration');
+  test('EECP 還是 30 分 → 課程的時長那一列報 30 → 60', () => {
+    const rows = of(run(master({ courses: patch('course-eecp', (r) => ({ ...r, durationMin: 30 })) })), 'courseDuration');
     assert.equal(rows.length, 1);
-    assert.match(rows[0].detail, /30 分.*20 分/);
+    assert.match(rows[0].detail, /30 分.*60 分/);
   });
 });
 
@@ -378,20 +379,21 @@ describe('每一種新的修正：寫得下去、畫面上有文案', () => {
   });
 });
 
-describe('資料健檢：心臟科評估、EECP體驗 勾起「不算次數」（gift-and-trial 05）', () => {
+describe('資料健檢：心臟科評估勾起「不算次數」（gift-and-trial 05）', () => {
   // 她（2026-10-14）：「那能不能把HRV和心臟門診都和EECP 體驗都變成不算次數，畢竟這個都是送，或是體驗的的不會需要買」
+  // EECP體驗 那一門 2026-10-18 合成進 EECP、種子上刪了（ADR-0154）—— 這一列只剩心臟科評估
   const rows = (m) => of(run(m), 'seedBlanks').filter((f) => 'uncounted' in (f.fix.changes ?? {}));
-  const both = (fn) => master({ courses: (cs) => cs.map((c) => (['course-cardio', 'course-eecp-trial'].includes(c.id) ? fn(c) : c)) });
+  const both = (fn) => master({ courses: (cs) => cs.map((c) => (['course-cardio'].includes(c.id) ? fn(c) : c)) });
 
-  test('新的資料庫：種子上兩門都不算次數', () => {
+  test('新的資料庫：種子上心臟科評估不算次數；EECP 不是（正式課要扣，體驗是按 20）', () => {
     assert.equal(isUncounted(course('course-cardio')), true);
-    assert.equal(isUncounted(course('course-eecp-trial')), true);
+    assert.equal(isUncounted(course('course-eecp')), false);
     assert.deepEqual(rows(master()), []);
   });
 
-  test('舊種子（沒有那一格）→ 兩列，按了寫 uncounted: true，而且寫完設定頁存得回去', () => {
+  test('舊種子（沒有那一格）→ 一列，按了寫 uncounted: true，而且寫完設定頁存得回去', () => {
     const found = rows(both((c) => without(c, 'uncounted')));
-    assert.deepEqual(found.map((f) => f.title).sort(), ['EECP體驗', '心臟科評估']);
+    assert.deepEqual(found.map((f) => f.title).sort(), ['心臟科評估']);
     for (const f of found) {
       assert.deepEqual([f.fix.kind, f.fix.type, f.fix.changes], ['setMasterFields', 'courses', { uncounted: true }]);
       assert.deepEqual(validate('courses', { ...course(f.fix.id), ...f.fix.changes }), []);
@@ -399,7 +401,7 @@ describe('資料健檢：心臟科評估、EECP體驗 勾起「不算次數」�
   });
 
   test('設定頁存過的（false）也報 —— 分不出刻意取消與從來沒勾過', () => {
-    assert.equal(rows(both((c) => ({ ...c, uncounted: false }))).length, 2);
+    assert.equal(rows(both((c) => ({ ...c, uncounted: false }))).length, 1);
   });
 
   test('她改過名字的不報（那已經是她的課了）', () => {

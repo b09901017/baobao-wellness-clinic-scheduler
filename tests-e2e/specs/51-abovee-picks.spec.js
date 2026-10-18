@@ -20,8 +20,9 @@ test('N1（07）設定頁四種主檔都有「Abovee 上的寫法」：種子預
   await app.signIn('/settings/courses');
 
   // 種子預填的（非人名）：課程、器材、品項那一張打開就看得到
-  await page.locator('[data-edit="course-eecp-trial"]').click();
-  await expect(page.locator('input[name="aboveeNames"]')).toHaveValue('EECP20');
+  // EECP20 2026-10-18 起不是一個寫法（EECP 合成一門，20 是體驗的時候排幾分，ADR-0154）—— 換一門種子預填的課
+  await page.locator('[data-edit="course-inbody"]').click();
+  await expect(page.locator('input[name="aboveeNames"]')).toHaveValue('身體組成');
   await page.locator('[data-back]').click();
   await page.locator('[data-child-id="eq-laser"]').click();
   await expect(page.locator('input[name="aboveeNames"]')).toHaveValue('高能量');

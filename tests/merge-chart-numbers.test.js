@@ -103,13 +103,14 @@ describe('行事曆寫了床位（11 第二節，ADR-0127）', () => {
     assert.equal(roomOf('10.客戶A IL.8b'), '點滴8B');
   });
 
-  test('只寫 .8 → 照舊點滴8（沒選床位的那一間，她：「不要留空」）', () => {
-    assert.equal(roomOf('10.客戶A.8（躺）給35'), '點滴8');
+  // 2026-10-18 起沒選床位的那一間刪掉了（ADR-0155）：不猜 8A 還是 8B，報告講一句（`tests/bedless-rooms-gone.test.js`）
+  test('只寫 .8 → 沒有診間', () => {
+    assert.equal(roomOf('10.客戶A.8（躺）給35'), null);
   });
 
   test('主檔沒有那一床的（.5A）→ 只認房間；字母後面還接著字母的不是床位', () => {
     assert.equal(roomOf('10.客戶A.5A'), '點滴5');
-    assert.equal(roomOf('10.客戶A.8BIL'), '點滴8');
+    assert.equal(roomOf('10.客戶A.8BIL'), null, '不是床位 → 沒寫哪一床（ADR-0155）');
   });
 });
 
@@ -125,7 +126,7 @@ describe('人員名單（--staff-names）', () => {
     const r = run(SHEETS);
     const plain = importJson(r, { generatedAt: 'fixed', calendar: 'fixed' });
     const withStaff = importJson(r, { generatedAt: 'fixed', calendar: 'fixed', staffNames: NAMES });
-    assert.equal(plain.format, 'baobao-merge/v7');
+    assert.equal(plain.format, 'baobao-merge/v8');
     assert.ok(!('staff' in plain));
     const { staff, ...rest } = withStaff;
     assert.equal(JSON.stringify(rest), JSON.stringify(plain));

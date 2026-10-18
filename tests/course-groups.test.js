@@ -67,7 +67,8 @@ describe('清單怎麼分組（coursesByGroup）', () => {
     assert.deepEqual(find('健檢').courses.map((c) => c.course.name), ['健檢']);
     assert.deepEqual(find('醫師門診').courses.map((c) => c.course.name),
       ['復健科醫師門診', '心臟科評估', '二返', '功醫門診', 'HRV', '羊膜', '回測報告', 'HA-PRP', 'PRP']);
-    assert.deepEqual(find('EECP').courses.map((c) => c.course.name), ['EECP', 'EECP體驗']);
+    // 2026-10-18 EECP 合成一門（ADR-0154）：體驗是約的時候按 20，不是另一門課
+    assert.deepEqual(find('EECP').courses.map((c) => c.course.name), ['EECP']);
     assert.deepEqual(find('運動區').courses.map((c) => c.course.name),
       ['身體組成分析', '體適能檢查分析', '營養師諮詢', 'MOTI', '運動']);
   });

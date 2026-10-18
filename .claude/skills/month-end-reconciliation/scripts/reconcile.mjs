@@ -118,7 +118,8 @@ const transcript = {
 
 // readAbovee() 每一列帶 `key: a<第幾列>`，跟這裡的 rows 同一個順序
 const { items } = readAbovee([transcript], ctx);
-const absent = absentFromPhoto([transcript], items, ctx);
+// 一整個月、每一位都要對：明說 `everyone` —— 不說的話照片上只有一兩位時只對那幾位（拍 Abovee 的規則，ADR-0153）
+const absent = absentFromPhoto([transcript], items, ctx, { everyone: true });
 
 // ---------- 一段算進哪一格（「桶」）----------
 

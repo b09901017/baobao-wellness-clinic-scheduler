@@ -97,6 +97,7 @@ const FIELD_LABELS = {
   uncounted: '預設體驗',
   provisional: '設定暫定',
   bookingMinutes: '約的時候選時長',
+  trialMinutes: '體驗的時候排幾分',
   specialties: '科別',
   kind: '任務種類',
   dueDate: '死線',
@@ -132,6 +133,9 @@ const FIELD_LABELS = {
   courseIds: '掛哪些課程',
   note: '這一次記一句',
   marks: '備註',
+  // ADR-0156。順序是她拖過的 —— 講「改了 備註的順序」才誠實，所以不進 QUIET_IN_SENTENCE
+  longNotes: '長備註',
+  noteOrder: '備註的順序',
   attended: '有沒有做',
   customerName: '客戶',
   // 她改得到、2026-10-07 以前印英文的那幾格（issue 14）。字照設定頁那一格寫。
@@ -155,6 +159,7 @@ const FIELD_LABELS = {
   sortWeights: '排序權重',
   slotGapMin: '來訪內時段間隔（分鐘）',
   sheetSync: '試算表自動推送',
+  todoRows: '待辦首頁顯示哪幾列',
   lastCorrection: '更正理由',
   ivProductId: '買的是哪一款點滴',
   monthlyCapUsd: '每月上限（美元）',

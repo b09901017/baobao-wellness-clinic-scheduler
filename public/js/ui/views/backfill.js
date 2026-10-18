@@ -129,7 +129,8 @@ function hintFor(date, today) {
 function endOfSlot(course) {
   const start = form?.startsAt;
   if (!isValidTime(start) || !course?.durationMin) return null;
-  return endOf(start, slotMinutes({ course }));
+  // 這一格是扣額度的（候選照額度排序），不是體驗 —— `giftKind` 照樣交下去（ADR-0154：每一個呼叫端都要交）
+  return endOf(start, slotMinutes({ course, giftKind: null }));
 }
 
 async function search(el, ctx) {

@@ -235,6 +235,64 @@ test.describe('備忘錄／SOP', () => {
     await expect(page.locator('.pbcard__body')).toContainText('改成四樓');
   });
 
+  // 2026-10-19 她：「好，讓備忘錄也照這樣補上」（staging-polish 段七中途發現 1）。
+  // 以前按返回鍵（Android 那一顆、iPhone 從左邊滑）直接離開這一頁，打的字沒了 —— 點外面、Escape 都會問，只有它不問。
+  test('P8e 改到一半按返回鍵 → 先問、還在這一頁；關掉框＝繼續改；再按一次照樣問', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/settings');
+    await app.go('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await page.fill('[data-body]', '還在打的這一句');
+    await page.goBack();
+    await expect(app.dialog()).toBeVisible();
+    expect(page.url()).toContain('#/playbook');
+
+    await page.keyboard.press('Escape');
+    await expect(app.dialog()).toHaveCount(0);
+    await expect(page.locator('[data-body]')).toHaveValue('還在打的這一句');
+
+    await page.goBack();
+    await expect(app.dialog()).toBeVisible();
+    await page.locator('.dialog-backdrop [data-choice="discard"]').click();
+    await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+    expect(page.url()).toContain('#/playbook');
+  });
+
+  test('P8f 沒改過按返回鍵 → 收掉編輯、還在這一頁；再按一次才離開', async ({ app, page }) => {
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/settings');
+    await app.go('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await expect(page.locator('.pbcard--edit')).toBeVisible();
+    await page.goBack();
+    await expect(page.locator('.pbcard--edit')).toHaveCount(0);
+    await expect(app.dialog()).toHaveCount(0);
+    expect(page.url()).toContain('#/playbook');
+  });
+
+  test('P8g 改到一半點底下的「日曆」→ 換到日曆、不在那一頁上問；回來按返回不會再問', async ({ app, page }) => {
+    // 換 hash 時瀏覽器先發 popstate，編輯那一層的 onPop 會被叫到：網址已經換了就不要問（CLAUDE.md）
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/settings');
+    await app.go('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await page.fill('[data-body]', '還在打的這一句');
+    await page.locator('.app__nav a[href="#/calendar"]').click();
+    await app.settled();
+    expect(page.url()).toContain('#/calendar');
+    await expect(page.locator('.app__nav a[aria-current="page"]')).toContainText('日曆');
+    await expect(app.dialog()).toHaveCount(0);
+    await expect(page.locator('.pbdeck')).toHaveCount(0);
+
+    await page.goBack();
+    await app.settled();
+    expect(page.url()).toContain('#/playbook');
+    await expect(app.dialog()).toHaveCount(0);
+  });
+
   test('P9 放大鏡 → 卡牌與丸子兩邊一起篩，收起來就還原', async ({ app, page }) => {
     await app.seed([...masterDocs(), DRIP, REHAB, LAB]);
     await app.signIn('/playbook');
@@ -348,7 +406,7 @@ test.describe('備忘錄自己浮出來', () => {
         id: 'v-drip', customerId: 'cust-a', customerName: '客戶A', date, status,
         slots: [slot({
           courseId: 'course-iv-drip', entitlementId: 'ent-a-drip',
-          startsAt: '10:30', endsAt: '11:30', roomId: 'room-iv8', bed: 'A',
+          startsAt: '10:30', endsAt: '11:30', roomId: 'room-iv8a',
           ivProductId: 'iv-liver',
         })],
       }),

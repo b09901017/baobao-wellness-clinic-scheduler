@@ -34,6 +34,45 @@ export function row(marks, { max = Infinity, large = false, clip = false } = {})
 }
 
 /**
+ * 客戶詳情備註那一整串（ADR-0156）：電話、LINE、長備註、短備註，**全部是丸子**、照她排的順序
+ * 一排流下去（她 2026-10-19 選的）。項目由 `domain/customerNotes.js` 的 `noteItems()` 給，這裡只畫。
+ *
+ * - 電話：話筒＋號碼，點了撥號（`tel:`），按住複製（接線在呼叫端）
+ * - LINE：對話泡泡＋「LINE」，點了開他的 LINE（新分頁）
+ * - 長備註：茶色那一顆（便條＋標題＋›）—— 看得出「點開有全文」
+ *
+ * 屬性一律 `data-notes-*`：共用元件不可以用頁面身上的名字（CLAUDE.md 那一列）。
+ */
+export function notesRow(items) {
+  const list = (items ?? []).filter(Boolean);
+  if (!list.length) return '';
+  return `<div class="marks" data-notes-row>${list.map(noteChip).join('')}</div>`;
+}
+
+const glyph = (name) =>
+  `<span class="mark__glyph mark__glyph--${name}">${icon(name, { size: 15, width: 1.8 })}</span>`;
+
+function noteChip(it) {
+  if (it.kind === 'mark') return chip(it.mark, { large: true });
+  if (it.kind === 'phone') {
+    const inner = `${glyph('phone')}<span class="mark__text mark__num">${esc(it.text)}</span>`;
+    // 一個號碼都認不出來的那一格（「請打給女兒」）照樣畫，點了不撥 —— 按住照樣複製
+    return it.href
+      ? `<a class="mark mark--lg mark--contact" href="${esc(it.href)}" data-notes-phone
+            aria-label="撥給 ${esc(it.text)}（按住複製）">${inner}</a>`
+      : `<span class="mark mark--lg mark--contact" data-notes-phone tabindex="0">${inner}</span>`;
+  }
+  if (it.kind === 'line') {
+    return `<a class="mark mark--lg mark--contact" href="${esc(it.href)}" target="_blank"
+               rel="noopener noreferrer" data-notes-line aria-label="打開他的 LINE">${glyph('line')}
+              <span class="mark__text">LINE</span></a>`;
+  }
+  return `<button class="mark mark--lg mark--long" type="button" data-notes-long="${esc(it.note.id)}"
+                  aria-label="長備註「${esc(it.note.title)}」，點開看全文">${glyph('note')}
+            <span class="mark__text">${esc(it.note.title)}</span>${icon('right', { size: 14, width: 2.2 })}</button>`;
+}
+
+/**
  * 可編輯的那一份。掛進一個容器，改動時呼叫 onChange。
  *
  * 狀態由呼叫端持有（傳進來的陣列會被換掉，不是就地改）——

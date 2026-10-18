@@ -22,7 +22,7 @@ import {
   rebookSlot, slotSay, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -35,10 +35,10 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
-  THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel,
+  THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel, trialMinutesOf,
 } from '../../domain/masterData.js';
 import {
-  NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse,
+  NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse, trialFromMinutes,
 } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
@@ -1008,6 +1008,15 @@ function readDraft(ctx, form, draft) {
       return readNthSlot({ v, i, slot, ctx, coursesById });
     }
 
+    // **按了「體驗的時候排幾分」那一顆**（ADR-0154：扣著 EECP 額度的段按 20）→ 換成那門課的體驗，三個入口同一支。
+    // 只在她這一下按的是時長、而且跟這一段現在的長度不一樣時才算 —— 改時間、換治療師的那幾次那一排照舊是原本的數字
+    const pressed = v[`s${i}-min`];
+    const toTrial = slot.entitlementId && entitlementId === slot.entitlementId && pressed != null
+      && Number(pressed) !== minutesNow(slot)
+      ? trialFromMinutes({ value: entitlementId, course: coursesById[slot.courseId] ?? null, minutes: pressed, courses: all.courses })
+      : null;
+    if (toTrial) return readFreeSlot({ v, i, slot, ctx, courseId: giftCourseIdOf(toTrial.value) });
+
     // 不算次數的課（ADR-0121）也是另一條路：沒有額度，課程就是她按的那一顆
     const freeCourseId = giftCourseIdOf(entitlementId);
     if (freeCourseId) return readFreeSlot({ v, i, slot, ctx, courseId: freeCourseId });
@@ -1057,12 +1066,15 @@ function readDraft(ctx, form, draft) {
         : key(v, `s${i}-iv`, bought);
     // **約的時候選的時長跟著這一段走**（ADR-0122）：那一排沒畫出來、或她沒動它時保留
     // 原本的 `minutes`（`key()`）—— 打開一段二返(60) 只改醫師，不可以被清回 30。
-    // 換了課程就回到那門課的預設（那一排上原本的數字是上一門課的）。
+    // 換了課程、**或換了額度**（含從體驗換回扣額度，ADR-0154：EECP 體驗 20 按額度那一顆 → 60）就回到預設 ——
+    // 那一排上原本的數字是上一顆的（壓表的 `resetCourseBoundPicks()` 同一個時機）。
     const timing = {
       entitlement: ent,
       course,
       ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
-      minutes: courseId !== slot.courseId ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+      minutes: courseId !== slot.courseId || switched ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+      // 扣額度的這一條不是送的／體驗（`slotMinutes()` 每一個呼叫端都交 `giftKind`，ADR-0154）
+      giftKind: null,
     };
     const durationMin = slotMinutes(timing);
 
@@ -1156,8 +1168,9 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
     // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
     doctorId: v[`s${i}-doc`] ?? (switched ? doctorChoicesFor(course, all.staff).preselect : null),
     // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
-    // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）
-    minutes: courseChanged ? null : key(v, `s${i}-min`, minutesNow(slot)),
+    // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）——
+    // **那門課有「體驗的時候排幾分」、剛從扣額度換過來**（ADR-0154：EECP 60 → 體驗）就是那個數字（她：「選體驗 → 預設 20」）
+    minutes: courseChanged || (slot.entitlementId && trialMinutesOf(course) != null) ? null : key(v, `s${i}-min`, minutesNow(slot)),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
   }, {
     courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,
@@ -1202,7 +1215,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   // 她沒得選的時候**不走 `slotMinutes()` 的退路**：它借二返那個課程，身上沒有額度也沒有品項
   // （`domain/nthFollowup.js`），而那一支答不出來時退的是 60，這裡要的是 30。
   const minutes = slotMinutesField({
-    course, minutes: isNthSlot(slot) ? key(v, `s${i}-min`, slot.minutes ?? null) : null,
+    course, minutes: isNthSlot(slot) ? key(v, `s${i}-min`, slot.minutes ?? null) : null, giftKind: null,
   });
   const durationMin = minutes ?? course?.durationMin ?? 30;
 
@@ -1371,6 +1384,14 @@ async function submit(ctx, draft) {
   // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
   // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
   if (!await confirmReview(warnings)) return;
+
+  // **改了存過那幾段的扣法**（ADR-0154：EECP 60 扣額度 → 20 體驗，或反過來）：原地改（開始時間與課程沒變，不是改期），
+  // 但要講 —— 不扣了（還幾次）、Abovee 上記得改成 EECP20。她 10/18 選的。次數由 domain 拿 `counts()` 試算
+  const switched = !rebooked && ctx.stored ? chargeSwitchConsequences({
+    before: ctx.stored, after: toSave, coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
+    entitlements, customerVisits, master: all, sheetSyncOn: isConfigured(ctx.settings),
+  }) : null;
+  if (switched && !await confirmAction({ title: switched.title, consequences: switched.lines, confirmLabel: switched.confirmLabel })) return;
 
   // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。

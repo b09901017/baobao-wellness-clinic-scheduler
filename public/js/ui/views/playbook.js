@@ -41,6 +41,8 @@ import {
 import * as f from '../components/form.js';
 import { confirmAction, chooseAction } from '../components/dialog.js';
 import { wireLongPress } from '../components/actions.js';
+import * as deck from '../components/deck.js';
+import { pushLayer } from '../nav.js';
 import { icon } from '../icons.js';
 import * as toast from '../toast.js';
 
@@ -61,6 +63,33 @@ const NEW_ID = '__new__';
  * 少了這一格就會連跳兩道一模一樣的框。
  */
 let leaving = false;
+
+/**
+ * 編輯中推的那一層：**按返回鍵先問**（同點外面、Escape），不是直接離開這一頁。
+ * 2026-10-19 她：「好，讓備忘錄也照這樣補上」—— 以前只有返回鍵不問，打的字就沒了
+ * （長備註那一頁先做了這一條，ADR-0156）。handle 問 `.active`，不要問它是不是 null（換頁會清掉 stack）。
+ */
+let editLayer = null;
+
+function pushEditLayer() {
+  if (editLayer?.active) return;
+  const openedAt = window.location.hash;
+  editLayer = pushLayer(() => {
+    editLayer = null;
+    // 點底下那一排換頁時瀏覽器也先發一下 popstate（CLAUDE.md「存起來的 pushLayer() handle」）：
+    // 網址已經換了就不問 —— 問的話那一道框留在下一頁上
+    if (window.location.hash !== openedAt) {
+      ctx.editing = null;
+      return;
+    }
+    leaveEdit();
+  });
+}
+
+function dropEditLayer() {
+  if (editLayer?.active) editLayer.pop();
+  editLayer = null;
+}
 
 // ---------------------------------------------------------------------------
 // 進場
@@ -464,50 +493,19 @@ function repaintStage() {
 const deckEl = () => ctx?.el.querySelector('[data-deck]');
 const cardEl = (id) => ctx?.el.querySelector(`[data-card="${CSS.escape(id)}"]`);
 
+// 停在哪一張、滑到某一張、丸子與圓點跟著亮：`components/deck.js`（長備註那一疊也用它，ADR-0156）。
+
 function focusCard(id, behavior = 'smooth') {
-  const card = cardEl(id);
-  if (!card) return;
-  ctx.activeId = id;
-  markActive(id);
-  card.scrollIntoView({ behavior, inline: 'center', block: 'nearest' });
+  if (deck.focusCard(ctx.el, id, behavior)) ctx.activeId = id;
 }
 
-/** 丸子與圓點只改屬性，整塊不重畫（ADR-0038）。 */
-function markActive(id) {
-  for (const b of ctx.el.querySelectorAll('[data-goto]')) {
-    b.setAttribute('aria-pressed', String(b.dataset.goto === id));
-  }
-  for (const d of ctx.el.querySelectorAll('[data-dot]')) {
-    d.setAttribute('data-on', String(d.dataset.dot === id));
-  }
-}
-
-/**
- * 認「現在停在第幾張」。
- *
- * 用 `IntersectionObserver` 不用 scroll 事件：scroll 在 iOS 上捲動時會被節流，
- * 而圓點跟不上手指的話，那一排看起來就是壞的。
- */
 function watchDeck() {
   spy?.disconnect();
-  spy = null;
-
-  const deck = deckEl();
-  if (!deck) return;
-
-  spy = new IntersectionObserver((entries) => {
-    // 一次可能有兩張同時越線（一張進一張出），挑露出最多的那一張
-    const best = entries
-      .filter((x) => x.isIntersecting)
-      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (!best) return;
-    const id = best.target.dataset.card;
-    if (!id || id === ctx.activeId) return;
+  spy = deck.watchDeck(deckEl(), (id) => {
+    if (id === ctx.activeId) return;
     ctx.activeId = id;
-    markActive(id);
-  }, { root: deck, threshold: [0.55, 0.85] });
-
-  for (const card of deck.querySelectorAll('[data-card]')) spy.observe(card);
+    deck.markActive(ctx.el, id);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +519,7 @@ function enterEdit(id) {
   ctx.activeId = id;
   repaintStage();
   focusCard(id, 'auto');
+  pushEditLayer();
 }
 
 function addOne() {
@@ -536,6 +535,7 @@ function addOne() {
   repaintStage();
   focusCard(NEW_ID, 'auto');
   ctx.el.querySelector('[data-title]')?.focus();
+  pushEditLayer();
 }
 
 /**
@@ -725,6 +725,7 @@ async function saveEditing() {
 
 function cancelEdit() {
   ctx.editing = null;
+  dropEditLayer();
   repaintStage();
   if (ctx.activeId === NEW_ID) ctx.activeId = null;
   const back = activeId(visibleRows());
@@ -786,6 +787,8 @@ async function leaveEdit() {
     // null：她把框關掉了 —— 繼續改，什麼都不動
   } finally {
     leaving = false;
+    // 還在改（把框關掉、或存失敗）：返回鍵那一層補回來
+    if (ctx?.editing) pushEditLayer();
   }
 }
 
@@ -847,6 +850,7 @@ async function removeOne(id) {
 /** 存完／刪完重讀一次，停在指定的那一張。 */
 async function reload(focusId) {
   ctx.editing = null;
+  dropEditLayer();
   try {
     ctx.rows = deckOrder(await playbooksData.list({ fresh: true }));
   } catch {

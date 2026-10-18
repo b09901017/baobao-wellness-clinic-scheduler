@@ -40,13 +40,18 @@ import { slotMinutes } from './visits.js';
  *   （`'trial'`／`'gift'`，gift-and-trial 08）：有值的那一段不扣任何一筆額度，**任何課**（健檢、二返除外）。
  *   v6 的 app 讀到會照扣、沒有額度就整段丟掉 —— 所以升版
  *
+ * - **v8（2026-10-18）** 候選（`futureVisits`／`missingFromSheet`）送的／體驗的那幾筆也帶 `giftKind`（staging-polish 11，ADR-0155）。
+ *   「EECP體驗」合成進 EECP 之後（ADR-0154）候選寫的是 EECP —— v7 的 app 照課程判扣不扣，勾一筆體驗的候選
+ *   會扣掉那位唯一一筆 EECP 額度
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v7';
+export const FORMAT = 'baobao-merge/v8';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
-  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6', FORMAT,
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6',
+  'baobao-merge/v7', FORMAT,
 ]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
@@ -205,6 +210,13 @@ export function validateFile(json) {
         if (s?.endsAt != null && !isValidTime(s.endsAt)) errors.push(`${at} ${v.date}：結束時間不合法（${s.endsAt}）`);
         if (s?.giftKind != null && !GIFT_KINDS.includes(s.giftKind)) errors.push(`${at} ${v.date}：送的／體驗那一格看不懂（${s.giftKind}）`);
       }
+    }
+  }
+
+  // 候選的送的／體驗（v8，選填）：形狀不對整份拒收，同時段那一格
+  for (const x of [...(json.futureVisits ?? []), ...(json.missingFromSheet ?? [])]) {
+    if (x?.giftKind != null && !GIFT_KINDS.includes(x.giftKind)) {
+      errors.push(`候選 ${x?.date ?? ''} ${x?.courseName ?? ''}：送的／體驗那一格看不懂（${x.giftKind}）`);
     }
   }
 
@@ -562,7 +574,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
  * 客戶建好了、補的來訪失敗，會留下一份看起來完整、其實少了幾筆的資料。
  *
  * @param {object[]} plans      planForCustomer() 的結果
- * @param {object[]} extras     { customerName, date, courseName, startsAt, status }
+ * @param {object[]} extras     { customerName, date, courseName, startsAt, status, giftKind? }（`giftKind` 是 v8）
  * @param {object} ctx          { courses, today }
  */
 export function addExtraVisits(plans, extras, ctx = {}) {
@@ -587,11 +599,20 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       problems.push({ where: `${x.date} ${x.customerName}`, raw: x.courseName, why: '主檔裡沒有這個課程，這一筆沒有補進去' });
       continue;
     }
+    // **候選寫了送的／體驗**（v8）：不扣任何一筆，就算身上有那門課的額度（同時段的 `giftKind`），健檢與二返除外
+    const gift = GIFT_KINDS.includes(x.giftKind) ? x.giftKind : null;
+    if (gift && !canBeGift(course, courses)) {
+      problems.push({
+        where: `${x.date} ${x.customerName}`, raw: x.courseName,
+        why: `健檢與二返沒有體驗／送的（${course.name}），這一筆沒有補進去`, master: false,
+      });
+      continue;
+    }
     // 一筆補的來訪要扣哪一份額度：課程對得上的那一筆。對到不只一筆就不猜。
-    const hits = plan.entitlements.filter((e) => e.doc.courseId === course.id
+    const hits = gift ? [] : plan.entitlements.filter((e) => e.doc.courseId === course.id
       || (e.doc.type === 'pool' && course.requiresEquipment));
-    // 不算次數的課（ADR-0121）：身上沒有那門課的額度就不扣任何一筆；剛好有一筆的照舊扣那一筆
-    const free = !hits.length && isUncounted(course);
+    // 不算次數的課（ADR-0121）：身上沒有那門課的額度就不扣任何一筆；剛好有一筆的照舊扣那一筆（v7 以前沒有 `giftKind` 的檔案）
+    const free = Boolean(gift) || (!hits.length && isUncounted(course));
     if (hits.length !== 1 && !free) {
       problems.push({
         where: `${x.date} ${x.customerName}`,
@@ -608,10 +629,11 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     // 同一條規則要套在這裡，否則她從 missingFromSheet 勾一筆未來的，
     // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
     const status = statusFor(x.status, x.date, today);
+    // 候選沒寫的（v7 以前）分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
+    const giftKind = free ? gift ?? 'trial' : null;
     const slot = {
       entitlementKey: free ? null : hits[0].key,
-      // 行事曆上的雜事分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
-      giftKind: free ? 'trial' : null,
+      giftKind,
       courseId: course.id,
       courseName: course.name,
       equipmentId: null,
@@ -620,9 +642,9 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       therapistId: null,
       startsAt: start,
       // 候選清單補的那幾段只知道「哪一天、哪個課程」（ADR-0011），沒有品項 ——
-      // 所以 `slotMinutes()` 在這裡就是課程那一格。照樣走它是因為全站只有
-      // 那一支（ADR-0098）。
-      endsAt: start ? addMinutes(start, slotMinutes({ course })) : null,
+      // 所以 `slotMinutes()` 在這裡就是課程那一格（體驗的段是「體驗的時候排幾分」，ADR-0154 —— `giftKind` 一定要交下去）。
+      // 照樣走它是因為全站只有那一支（ADR-0098）。
+      endsAt: start ? addMinutes(start, slotMinutes({ course, giftKind })) : null,
       bed: null,
       attended: status !== 'confirmed',
     };

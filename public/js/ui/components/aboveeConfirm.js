@@ -26,7 +26,7 @@ import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
-  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
+  pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -621,7 +621,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');
     } else if (assigns === 'room') {
-      // 認到的是停用的那一間（照片上沒寫床 → 點滴8，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
+      // 認到的是停用的那一間（她主檔上停用的診間，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
       const slots = orderedRoomSlots(course, ctx.master.rooms, { keep: item.roomId });
       const usual = slots.filter((s) => s.usual || s.retired);
       const shown = showAllRooms.has(item.key) || !usual.length ? slots : usual;
@@ -862,7 +862,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
-    if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
+    // 按到那門課的「體驗的時候排幾分」→ 換成體驗（ADR-0154，壓表、來訪編輯器同一支 `trialFromMinutes()`）
+    if (t.dataset.ablMin) { set(pickMinutes(item, Number(t.dataset.ablMin), ctx, items)); return; }
     if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
     if (t.dataset.ablIv) { set({ ...item, ivProductId: t.dataset.ablIv }); return; }
@@ -1123,7 +1124,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const stale = i.missedWhy === 'stale' ? { diffs: null } : {};
       items[at] = i.missedField
         ? { ...items[at], [i.missedField]: false, ...(i.missedField === 'adopt' ? stale : {}) }
-        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false };
+        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false, adoptCharge: false };
     }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);

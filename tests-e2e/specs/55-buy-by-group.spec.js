@@ -71,7 +71,7 @@ test('B3 新增客戶 →「＋ 加一項」：同一張表，醫師門診 → �
 
   await page.locator('[data-cf-addextra]').click();
   await app.layer('[data-chip="buy"]');
-  // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）：EECP 那一類只剩 EECP，那一顆直接就是它
+  // EECP 那一類只有 EECP 一門（2026-10-18 合成一門，ADR-0154），那一顆直接就是它
   await top(page).filter({ hasText: 'EECP' }).click();
   await expect(item(page)).toHaveCount(0);
   await top(page).filter({ hasText: '醫師門診' }).click();

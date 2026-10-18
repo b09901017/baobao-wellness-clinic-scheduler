@@ -37,11 +37,12 @@ import {
   examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
-import { chargesEntitlement } from './entitlements.js';
+import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { giftKindOf, giftLabel } from './masterData.js';
+import { giftKindOf, giftLabel, bookingMinutesOf } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
-import { timeLabel } from './visitTime.js';
+import { timeLabel, isValidTime, toMinutes } from './visitTime.js';
+import { slotName } from './naming.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -445,6 +446,11 @@ export function aboveeConsequences({
   const moves = changes.filter((r) => r.kind === 'move');
   if (moves.length) {
     lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${changeChargeSay(sumCharge(moves), { free: moves.every((r) => r.free) })}`);
+  }
+  // 扣法跟 Abovee 不一樣（ADR-0154：EECP20 對上 app 上扣額度的 EECP 60，或反過來）
+  for (const [to, what] of [['trial', '體驗、不扣次數'], ['counted', '扣額度']]) {
+    const list = changes.filter((r) => r.kind === 'charge' && r.to === to);
+    if (list.length) lines.push(`照 Abovee 改成${what} ${list.length} 段${changeChargeSay(sumCharge(list))}`);
   }
 
   // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次
@@ -1239,6 +1245,69 @@ export function rebookConsequences({
   return {
     title: where ? `新的時間在 ${where} 壓好了嗎？` : '改到新的時間？',
     lines,
+  };
+}
+
+/**
+ * 來訪編輯器改了既有那幾段的**扣法**（staging-polish 09，ADR-0154）：扣額度 ⇔ 體驗／送的。她 10/18 選的是**原地改**
+ * （不取消、不長「取消 Abovee」、不退回待確認）—— 開始時間與課程都沒變，不是 ADR-0108 的改期；Abovee 上那一格還在，
+ * 只是要改成 EECP20（或預約來源改成體驗）。她的話：
+ *
+ * > the confirm dialog says "This slot becomes a trial, no package charge — remember to change it to EECP20 in Abovee too."
+ *
+ * 次數拿 `counts()` 試算前後的差（ADR-0070：講真的會發生的事，不照狀態推）。**沒有一段的扣法變了就回 `null`**（不跳這一道）——
+ * 只改時長、治療師、記一句的照舊一道都不多跳。只看存過的那幾段（新加的那幾段由「在 X 壓好了嗎」那一道講）。
+ *
+ * @param {object} o
+ * @param {object} o.before 打開編輯器那一刻的那一筆（存過的）
+ * @param {object} o.after 要存下去的那一筆
+ * @param {Record<string, object>} o.coursesById
+ * @param {object[]} [o.entitlements] 這位客戶的額度（名字與次數）
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪（試算次數用）
+ * @param {{courses?: object[], equipment?: object[], ivProducts?: object[]}|null} [o.master] 名字（`slotName()`）
+ * @param {boolean} [o.sheetSyncOn]
+ * @returns {{title: string, lines: string[], confirmLabel: string}|null}
+ */
+export function chargeSwitchConsequences({
+  before, after, coursesById = {}, entitlements = [], customerVisits = [], master = null, sheetSyncOn = false,
+}) {
+  const paid = (s) => Boolean(s?.entitlementId);
+  const switched = (before?.slots ?? []).map((old, i) => ({ old, now: after?.slots?.[i] }))
+    .filter(({ old, now }) => now && isLiveSlot(now) && paid(old) !== paid(now)
+      && (Boolean(giftKindOf(old, coursesById)) || Boolean(giftKindOf(now, coursesById))));
+  if (!switched.length) return null;
+
+  const names = master ?? { courses: Object.values(coursesById) };
+  const others = (customerVisits ?? []).filter((v) => v?.id !== before?.id);
+  const was = [...others, before];
+  const will = [...others, after];
+  const used = (e, visits) => {
+    const c = counts(e, visits, e.id);
+    return c.done + c.booked;
+  };
+  const lines = [];
+  for (const { old, now } of switched) {
+    const ent = (entitlements ?? []).find((e) => e.id === (old.entitlementId || now.entitlementId)) ?? null;
+    const delta = ent ? used(ent, will) - used(ent, was) : 0;
+    const kind = giftKindOf(now, coursesById);
+    const what = paid(now) ? `改成扣「${ent?.label ?? '額度'}」` : `改成${giftLabel(kind)}、不扣${ent ? `「${ent.label}」` : '次數'}`;
+    lines.push(`${slotName(now, names, 'short')} —— ${what}${timesSay(delta)}`);
+    const course = coursesById[now.courseId] ?? null;
+    if (bookingSystemOf(course) !== 'Abovee') continue;
+    // Abovee 上 EECP 的體驗就叫 EECP20（名字＋分鐘，她 10/5）；別的課是預約來源那一欄
+    const minutes = isValidTime(now.startsAt) && isValidTime(now.endsAt) ? toMinutes(now.endsAt) - toMinutes(now.startsAt) : null;
+    const spelled = course.aboveeNames?.[0] ?? course.name;
+    lines.push(bookingMinutesOf(course).length > 1 && minutes
+      ? `Abovee 上記得改成 ${spelled}${minutes}`
+      : `Abovee 上記得把預約來源改成${paid(now) ? '正式課' : giftLabel(kind)}`);
+  }
+  lines.push('只改扣法 —— 時間、狀態、待辦都不動');
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  const one = switched.length === 1 ? switched[0].now : null;
+  return {
+    title: one ? `這一段改成${paid(one) ? '扣額度' : giftLabel(giftKindOf(one, coursesById))}？` : `改 ${switched.length} 段的扣法？`,
+    lines,
+    confirmLabel: '照這樣存',
   };
 }
 

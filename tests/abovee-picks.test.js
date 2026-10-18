@@ -224,3 +224,11 @@ describe('存檔前那一道：n返 與送的／體驗講一句（同壓表）',
     assert.equal(lines.some((l) => l.includes('三返')), false, lines.join('\n'));
   });
 });
+
+describe('第七個找人的框：長備註那一頁的「寫給誰？」（staging-polish 15）', () => {
+  test('走 nameHas()，不自己比', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/longNotes.js', import.meta.url), 'utf8');
+    assert.match(src, /nameHas\(c\.name, q\)/);
+    assert.doesNotMatch(src, /\.includes\(q\)/);
+  });
+});

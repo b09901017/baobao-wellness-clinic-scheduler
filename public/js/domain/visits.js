@@ -17,7 +17,7 @@ import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, bookingMinutesOf, durationChoicesOf, equipmentForCourse, DOCTOR_ROLE,
-  giftKindOf, giftLabel, canBeGift, GIFT_KINDS,
+  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
@@ -1496,7 +1496,7 @@ function minutesOrNull(v) {
  * 她 2026-09-16：「這個要改，一般120分，護心抗老180分，所以可能點滴品項設定
  * 那邊要多一個時間」。
  *
- * 順序是 **這一段選的 → 品項 → 額度 → 課程 → 60**。
+ * 順序是 **這一段選的 → 體驗的時候排幾分 → 品項 → 額度 → 課程 → 60**。
  *
  * **最前面那一層是 2026-10-05 加的**（ADR-0122）：二返與 n返 約的時候選 30 或 60。
  * 它只在**那門課有 `bookingMinutes`、而且值在裡面**時才算數 —— 復能是買的時候分的
@@ -1504,6 +1504,8 @@ function minutesOrNull(v) {
  * 沒有這一格的舊資料照舊走後面那幾層，`endsAt` 一個都不會變。
  * **送的／體驗的段多收「買的時候分的」那幾種**（`minuteChoicesFor()`，gift-and-trial 01）：
  * 一段 INDIBA 30 分體驗沒有額度可以說它是 30 分，只能這一段自己選。
+ * **第二層是 2026-10-18 加的**（ADR-0154）：送的／體驗的段、那門課有「體驗的時候排幾分」→ 那個數字。
+ * EECP 合成一門之後，約的時候 20／60、預設 60，體驗沒選的時候要是 20 —— 不是課程的 60。她選了 60 就是 60（第一層）。
  *
  * 品項排在額度前面是刻意的：
  * 營養點滴沒有 `durationChoices`，所以額度上那一格**從來不是她挑的** ——
@@ -1514,12 +1516,15 @@ function minutesOrNull(v) {
  * 身上永遠沒有 `ivProduct`，多問一句不會錯，但寫死「只有點滴」讓讀的人知道
  * 這一條規則的範圍。
  *
- * 五個呼叫端共用：來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表組時段、
- * 匯入補的那幾段、補登。各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。
- * 匯入與補登沒有「這一段選了幾分」這個資訊，不傳 `minutes` —— 那幾段照預設。
+ * 呼叫端共用（表在 `.scratch/staging-polish-2026-10-18/issues/09` 的「做完時留下的」）：組時段（`slotFromPicks()`）、
+ * 來訪編輯器的 `blankSlot()` 與 `readDraft()`、壓表與拍 Abovee 畫「排多久」那一排、匯入補的那幾段、時段反查、資料健檢。
+ * 各算一份的話會出現「畫面上寫 180 分、存進去 120 分」。**每一個都要傳 `giftKind`**（不是體驗就傳 `null`）——
+ * 漏了的那一個，體驗的 EECP 照課程排成 60 分。
+ * 匯入與時段反查沒有「這一段選了幾分」這個資訊，不傳 `minutes` —— 那幾段照預設。
  *
  * @param {{entitlement?: object|null, course?: object|null, ivProduct?: object|null,
- *          minutes?: number|string|null}} o `minutes` 是這一段她選的（`slot.minutes`，或畫面上那一排）
+ *          minutes?: number|string|null, giftKind?: 'trial'|'gift'|null}} o `minutes` 是這一段她選的（`slot.minutes`，或畫面上那一排）；
+ *   `giftKind` 是這一段是不是送的／體驗（`giftKindOf()`）
  * @returns {number} 分鐘
  */
 export function slotMinutes({
@@ -1527,8 +1532,11 @@ export function slotMinutes({
 } = {}) {
   const picked = minutesOrNull(minutes);
   const fromPick = picked != null && minuteChoicesFor({ entitlement, course, giftKind }).includes(picked) ? picked : null;
+  // 送的／體驗的段、那門課有「體驗的時候排幾分」（EECP 20，ADR-0154）。帶著額度的段不是送的（同 `minuteChoicesFor()`）
+  const fromTrial = GIFT_KINDS.includes(giftKind) && !entitlement ? trialMinutesOf(course) : null;
   const fromProduct = course?.requiresIvProduct ? minutesOrNull(ivProduct?.durationMin) : null;
   return fromPick
+    ?? fromTrial
     ?? fromProduct
     ?? minutesOrNull(entitlement?.durationMin)
     ?? minutesOrNull(course?.durationMin)
