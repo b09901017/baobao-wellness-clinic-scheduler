@@ -255,11 +255,10 @@ test('S11 常用診間存得下去、讀得回來，而且只列得出排得進�
   await app.signIn('/settings/courses');
 
   // 營養點滴：`allowedRoomTypes` 是點滴室，所以候選只有點滴室那幾間。
-  // 2026-10-06 多了 8A、8B（ADR-0127）；fixture 把種子每一筆都寫成啟用的，所以「沒選床位」的點滴8 也在 → 十間
-  // （她的資料庫按完資料健檢、點滴8 停用之後是九間）
+  // 2026-10-06 多了 8A、8B（ADR-0127）；「沒選床位」的點滴8 2026-10-18 從種子刪掉了（ADR-0155）→ 九間
   await page.locator('[data-edit="course-iv-drip"]').click();
   const boxes = page.locator('input[name="preferredRoomIds"]');
-  await expect(boxes).toHaveCount(10);
+  await expect(boxes).toHaveCount(9);
   await expect(page.locator('input[name="preferredRoomIds"][value="room-t2"]'),
     '治療室排不進營養點滴，不該列得出來').toHaveCount(0);
 
@@ -292,7 +291,7 @@ test('S13 診間的「同時幾位」：留空是 1，填 2 存得下去也讀�
   await app.seed([...masterDocs()]);
   await app.signIn('/settings/rooms');
 
-  await page.locator('[data-edit="room-iv8"]').click();
+  await page.locator('[data-edit="room-iv8a"]').click();
   await expect(page.locator('input[name="capacity"]')).toBeVisible();
 
   // `min="1" step="1"`：2 是合法的（踩過三次的那個坑，見檔頭）
@@ -304,10 +303,10 @@ test('S13 診間的「同時幾位」：留空是 1，填 2 存得下去也讀�
   // —— `tests/e2e-waits.test.js` 盯著，而且固定等待兩邊都錯。
   await app.saved();
 
-  const saved = await app.readDoc('config/app/rooms', 'room-iv8');
+  const saved = await app.readDoc('config/app/rooms', 'room-iv8a');
   expect(saved.capacity, '存進去的是數字不是字串').toBe(2);
 
-  await page.locator('[data-edit="room-iv8"]').click();
+  await page.locator('[data-edit="room-iv8a"]').click();
   await expect(page.locator('input[name="capacity"]')).toHaveValue('2');
 });
 

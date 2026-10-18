@@ -175,7 +175,7 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
       date: addDays(TODAY, -2), status: 'done',
       slots: [slot({
         courseId: 'course-iv-drip', entitlementId: 'ent-i-drip',
-        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8', bed: 'A',
+        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8a',
         ivProductId: 'iv-heart', attended: true,
       })],
     }),

@@ -348,7 +348,7 @@ test.describe('備忘錄自己浮出來', () => {
         id: 'v-drip', customerId: 'cust-a', customerName: '客戶A', date, status,
         slots: [slot({
           courseId: 'course-iv-drip', entitlementId: 'ent-a-drip',
-          startsAt: '10:30', endsAt: '11:30', roomId: 'room-iv8', bed: 'A',
+          startsAt: '10:30', endsAt: '11:30', roomId: 'room-iv8a',
           ivProductId: 'iv-liver',
         })],
       }),

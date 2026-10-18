@@ -244,10 +244,22 @@ export function ivProductOf(summary, products = []) {
  *
  * **房號後面接床位**（`.8A`、`點滴8床B`、`IL.8b`）→ 那一間（點滴8A／8B 是各自的診間，ADR-0127）。
  * 只在主檔真的有那一間時才帶（`.5A` 照舊是點滴5）；字母後面還接著字母的不是床位（`.8BIL`）。
- * 只寫 `.8` 照舊是點滴8 —— 停用、「沒選床位」的那一間（她：「沒選床位就寫 .8，VIP7 等等不要留空」）。
- * 她 523 句行事曆裡一句都沒寫過床位（2026-10-06 數過），所以這一條現在不改任何輸出。
+ * **只寫 `.8`（沒寫哪一床）→ 沒有診間**（`null`）：種子上「沒選床位」的點滴8 2026-10-18 刪掉了（ADR-0155），
+ * 猜 8A 還是 8B 都是替她決定。報告講一句（`bedlessSlots()`），匯完她到日曆選。
+ * 她 523 句行事曆裡一句都沒寫過床位（2026-10-06 數過）。
  */
 export function roomOf(summary) {
+  const room = roomIn(summary);
+  return typeof room === 'string' ? room : null;
+}
+
+/** 這一句寫了一間拆成 A／B、卻沒寫哪一床的點滴室 → 那一間的名字（`點滴8`）；其餘 null。報告那一句用 */
+export function bedlessRoomOf(summary) {
+  return roomIn(summary)?.bedless ?? null;
+}
+
+/** 房間的名字，或 `{ bedless: '點滴8' }`（沒寫哪一床，`dripRoom()`） */
+function roomIn(summary) {
   const s = String(summary).replace(/\s+/g, '');
   const t = /治(\d{1,2})/.exec(s);
   if (t) return `治${t[1]}`;
@@ -267,11 +279,14 @@ const IL_ROOM = withBed(/(?:ILIB|IL)[（(]?[.．]?(\d{1,2})/, 'i');
 const DRIP_ROOM = withBed(/點滴?[.．]?(\d{1,2})/);
 const BARE_ROOM = withBed(/(?<!\d)[.．](\d{1,2})(?!\d)/);
 
-/** 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N） */
+/**
+ * 點滴 N ＋床位 → 那一間。床位與診間的關係只問 app 那一支 `bedRoomOf()`（種子沒有那一床就是點滴 N）。
+ * 種子上沒有點滴 N、卻有點滴 N A（拆成兩間了，ADR-0155）而這一句沒寫床 → `{ bedless: '點滴N' }`
+ */
 const dripRoom = (n, bed) => {
   const name = `點滴${Number(n)}`;
-  if (!bed) return name;
   const room = SEED.rooms.find((r) => r.name === name) ?? { name };
+  if (!bed) return !SEED.rooms.some((r) => r.name === name) && bedRoomOf(room, 'A', SEED.rooms) ? { bedless: name } : name;
   return bedRoomOf(room, String(bed).normalize('NFKC'), SEED.rooms)?.name ?? name;
 };
 
@@ -1536,6 +1551,15 @@ export function sheetProblems(r) {
   })));
 }
 
+/**
+ * 行事曆那一句寫了點滴8、沒寫哪一床的那幾段（ADR-0155）：`roomOf()` 不給診間，匯完她到日曆選 8A 或 8B。
+ * 她明寫了診間的（決定檔的 `room`）不算。報告上一行數字，不是一段要她決定的（沒有決定頁的那一項）。
+ */
+export function bedlessSlots(r) {
+  return (r.plans ?? []).flatMap((p) => (p.days ?? []).flatMap((d) => d.filled ?? []))
+    .filter((f) => f.match && !f.match.room && f.match.evidence && bedlessRoomOf(f.match.evidence));
+}
+
 /** B2 驗證對不上的那幾條，攤平成一列一筆。 */
 export function purchaseProblems(r) {
   return (r.plans ?? []).flatMap((p) => (p.purchaseProblems ?? []).map((why) => ({
@@ -1604,6 +1628,12 @@ export function reportText(r) {
   // 帶了電話名單才有這一行。不只一支的那幾位在 ⓪b 裡
   if (r.phoneLog) {
     L.push(`   電話名單：寫了 ${r.phoneLog.added} 位、名單上沒有 ${r.phoneLog.missing} 位、不只一支沒寫 ${r.phoneLog.differ} 位（在 ⓪b）`);
+  }
+  // 沒有這種段的時候報告一個字都不變
+  const bedless = bedlessSlots(r);
+  if (bedless.length) {
+    const rooms = [...new Set(bedless.map((f) => bedlessRoomOf(f.match.evidence)))].join('、');
+    L.push(`   沒寫哪一床的${rooms}　${bedless.length} 段（診間留空，匯完到日曆選 A 或 B）`);
   }
   if (purchaseProblems(r).length) L.push(`   ⓪c 購買名稱對不上的　${purchaseProblems(r).length}　← 合併時逐條問她`);
   if (r.decisionLog?.misses.length) L.push(`   ⓪d 找不到對象的決定　${r.decisionLog.misses.length}　← 舊表多半改過了，要重新問她`);

@@ -20,7 +20,7 @@
 // 而畫面上看起來是認得的（同 ADR-0103 的判斷）。
 
 import {
-  DOCTOR_ROLE, THERAPIST_ROLE, hasAlias, isUncounted, normalizeAlias, oneCharOff, picksDoctor,
+  DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf, hasAlias, isUncounted, normalizeAlias, oneCharOff, picksDoctor,
 } from './masterData.js';
 import { SHEET_COURSE_ALIASES, rowShape } from './legacyImport.js';
 import { EQUIPMENT_ALIASES, FLYER_COURSE_ALIASES } from './photoPlan.js';
@@ -151,6 +151,12 @@ const ROOM_WORDS = [
 /** 房號後面的床位（`點滴室8床A`、`點滴8B`、`4樓休7a`）。 */
 const BED = /^(.*\d)床?([AB])$/i;
 
+/** Abovee 的叫法 → 主檔的名字（`點滴室8` → `點滴8`）。認不得的原樣回去。 */
+const word = (s) => {
+  for (const [re, to] of ROOM_WORDS) if (re.test(s)) return s.replace(re, to);
+  return s;
+};
+
 /**
  * 一格房間的字 → 診間。
  *
@@ -158,9 +164,12 @@ const BED = /^(.*\d)床?([AB])$/i;
  *
  * 1. 她記在主檔上的寫法（`aboveeNames`）—— 照舊最優先
  * 2. **帶著床位比**：`點滴室8床A`／`點滴8A` → 點滴8A
- * 3. 對不到才**拿掉床位**再比：還沒按資料健檢、主檔上只有「點滴8」的資料庫照舊認得；別間寫了床位的也是
- * 4. 還是沒有 → **停用的那幾間**裡找（不含刪掉的）。點滴8、VIP7 是「沒選床位」的那一間，
- *    她：「abovee辨識可以不選床位，沒選床位就寫.8，VIP7等等不要留空」—— 那一格沒寫床時認成它，不是 null
+ * 3. 對不到才**拿掉床位**再比：別間寫了床位的（`點滴室5床A` → 點滴5）、主檔上還有「點滴8」的資料庫；
+ *    沒寫床位的每一間（`治療室5`）也是靠這一步認的
+ * 4. 還是沒有 → **停用的那幾間**裡找（不含刪掉的）：她自己停用的診間，舊來訪、舊照片用得到
+ *
+ * 種子上沒有「點滴8」「VIP7」了（ADR-0155）：`點滴室8` 四步都對不到 → `null`，**診間留空**、
+ * 確認層講一句請她選（`bedMissingIn()`）—— 不猜 8A 還是 8B。
  */
 function roomByText(text, rooms) {
   const raw = squash(text);
@@ -170,10 +179,6 @@ function roomByText(text, rooms) {
   const byAlias = pool.filter((r) => hasAlias(r, raw));
   if (byAlias.length) return byAlias.length === 1 ? byAlias[0] : null;
 
-  const word = (s) => {
-    for (const [re, to] of ROOM_WORDS) if (re.test(s)) return s.replace(re, to);
-    return s;
-  };
   const named = (list, s) => list.find((r) => same(r.name, s) || (r.shortName && same(r.shortName, s))) ?? null;
   const m = raw.match(BED);
   const bare = word(m ? m[1] : raw);
@@ -196,6 +201,21 @@ export function roomFrom(roomText, resourceText, rooms = []) {
   const m = squash(resourceText).match(/^I\d+(點|治)(\d+)$/i);
   if (m) return roomByText(`${m[1] === '點' ? '點滴' : '治'}${m[2]}`, rooms);
   return roomByText(resourceText, rooms);
+}
+
+/**
+ * 照片上寫了房號、沒寫哪一床，而主檔上那一間拆成了 A／B（`點滴室8` 之於點滴8A／8B，ADR-0155）→ 照片上的原字；其餘 `null`。
+ * 認出一間（`roomFrom()` 有回）時不講 —— 她的主檔上還有「點滴8」那一間就是它。
+ * 確認層那一列講「沒寫哪一床 —— 點開選一間」（`aboveeImport.js` 的 `nearSay()`），診間留空。
+ */
+export function bedMissingIn(roomText, resourceText, rooms = []) {
+  if (roomFrom(roomText, resourceText, rooms)) return null;
+  for (const text of [roomText, resourceText]) {
+    const raw = squash(text);
+    if (!raw || BED.test(raw)) continue;
+    if (bedRoomOf({ name: word(raw) }, 'A', live(rooms))) return String(text).trim();
+  }
+  return null;
 }
 
 // ---------- 課程 ----------

@@ -180,7 +180,7 @@ export const CHECKS = [
   {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
-    hint: '建議的診間清單改過幾次（多了 VIP 室、治6、治7、VIP1，點滴8 與 VIP7 拆成 A／B 各自一間）。原本的點滴8、VIP7 停用不刪 —— 沒選床位的舊來訪照樣印得出來',
+    hint: '建議的診間清單改過幾次（多了 VIP 室、治6、治7、VIP1，點滴8 與 VIP7 拆成 A／B 各自一間）。原本的點滴8、VIP7 沒有任何一段排在上面就刪掉；還有段排在上面的先停用，那幾段照樣印得出來',
   },
   {
     id: 'slotBeds',
@@ -1242,7 +1242,7 @@ function checkEquipmentCourse(ctx) {
 
 // 種子的一列 → 要建起來的那一份（去掉 id、啟不啟用照種子寫的）：`seed.js` 的 `seedData()`。
 // 這裡以前有一支只去掉 id 的 `withoutId()`，每一個呼叫端再自己補 `active: true` ——
-// 種子有了停用的列（點滴8、VIP7，ADR-0127）之後那樣寫會把它們建成啟用的。
+// 種子有了停用的列（點滴8、VIP7，ADR-0127；2026-10-18 刪掉了，ADR-0155）之後那樣寫會把它們建成啟用的。
 
 /**
  * 她還開著的那幾筆裡，有沒有一筆叫這個名字（**id 不是種子的也算**）。
@@ -1278,6 +1278,15 @@ const LEGACY_ROOMS = [
 const RETURNED_ROOMS = ['room-t7'];
 
 /**
+ * 2026-10-06～10-18 種子上停用的那兩間：「沒選床位」的點滴8、VIP7（ADR-0127）。2026-10-18 從種子刪掉了（ADR-0155）。
+ * 她：「沒有舊資料的問題，刪掉之後幫我合併檔更新就好」—— 正路是合併檔重匯；還留著它們的資料庫走這一份（保險）。
+ */
+const BEDLESS_ROOMS = [
+  { id: 'room-iv8', name: '點滴8' },
+  { id: 'room-vip7', name: 'VIP7' },
+];
+
+/**
  * 十五、診間清單跟建議的不一樣。
  *
  * 四種形狀，一種一個 `mode`：
@@ -1286,11 +1295,14 @@ const RETURNED_ROOMS = ['room-t7'];
  *   restore  種子有、她照建議刪掉了     → 還原（只有治7）
  *   drop     種子拿掉了、她還開著       → 刪掉（治9／治10／ILIB4）
  *   short    種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
- *   retire   種子上停用、她還開著       → **停用，不刪**（點滴8、VIP7，ADR-0127）
  *
- * `retire` 那一種：點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，原本那兩間是「沒選床位」的那一間。
- * **不可以放進 `LEGACY_ROOMS`**（那一份走的是刪掉）—— 既有來訪還指著它，她要的是照樣印得出 `.8`。
- * 排在「建起來」的後面：一次全按時新的那幾間同一個 commit 建好。種子上停用的那一間她主檔上沒有時不建。
+ * 沒選床位的點滴8、VIP7（`BEDLESS_ROOMS`，ADR-0155）另外兩種，排在「建起來」的後面（一次全按時 8A／8B 同一個 commit 建好）：
+ *
+ *   drop     **沒有任何一段排在它上面** → 刪掉（8A、8B 是各自的診間，它不用再在了）
+ *   retire   有段排在上面、她還開著     → **停用，不刪**：新排的選不到，那幾段照樣印得出 `.8`
+ *
+ * 有段排在上面、已經停用的不報（ADR-0127 那一代的樣子，沒有要做的事 —— 已完成的那幾段也改不了診間）。
+ * **不可以放進 `LEGACY_ROOMS`**（那一份不看有沒有段排在上面就刪）。
  *
  * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
  * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
@@ -1308,12 +1320,11 @@ function checkRoomList(ctx) {
   // 會一次冒出十七列。同 `checkSeedEquipment()` 那道護欄的判斷。
   const seeded = (SEED.rooms ?? []).some((row) => byId[row.id]);
 
-  const retire = [];
-
   for (const row of SEED.rooms ?? []) {
     const mine = byId[row.id];
     // 她自己另外建了一間同名的 → 那一間就是它，不建也不還原第二間
     const twin = sameNamed(ctx.rooms, row.name);
+    // 種子上停用的那一列她主檔上沒有時不建（現在沒有這種列，ADR-0155；`seedData()` 那一套留著）
     const retired = row.active === false;
     if (!mine) {
       if (!seeded || twin || retired) continue;
@@ -1343,18 +1354,6 @@ function checkRoomList(ctx) {
       continue;
     }
 
-    // 種子上停用的那一間（點滴8、VIP7）：她還開著、名字也還是原樣才請她停用。
-    // 改過名字就是拿去當別的用了；已經停用的不念
-    if (retired && mine.active !== false && fullNameOf(mine) === row.name) {
-      retire.push({
-        severity: 'attention',
-        title: mine.name,
-        detail: `新的清單上它拆成 ${row.name}A、${row.name}B 兩間各自的診間。停用之後排班時選不到「${row.name}」，`
-          + '已經排在那一間的來訪一個字都不動、照樣印得出來（沒選床位的就是它）',
-        link: '#/settings/rooms',
-        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
-      });
-    }
 
     // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
     const short = String(mine.shortName ?? '').trim();
@@ -1372,7 +1371,34 @@ function checkRoomList(ctx) {
     }
   }
 
-  out.push(...retire);
+  // 沒選床位的那兩間（ADR-0155）。改過名字就是拿去當別的用了，不念
+  const onIt = (id) => (ctx.visits ?? []).filter((v) => !v.deletedAt)
+    .reduce((n, v) => n + (v.slots ?? []).filter((slot) => slot?.roomId === id).length, 0);
+  for (const row of BEDLESS_ROOMS) {
+    const mine = byId[row.id];
+    if (!mine || mine.deletedAt || fullNameOf(mine) !== row.name) continue;
+    const n = onIt(row.id);
+    const split = `${row.name}A、${row.name}B 是各自的診間`;
+    if (!n) {
+      out.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `沒寫哪一床的那一間 —— ${split}，沒有任何一段排在它上面了，刪掉`,
+        link: '#/settings/rooms',
+        // `bedless`：確認框不講「排在那一間的來訪會印不出診間」—— 一段都沒有
+        fix: { kind: 'applyRoom', mode: 'drop', roomId: row.id, label: mine.name, bedless: true },
+      });
+    } else if (mine.active !== false) {
+      out.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `沒寫哪一床的那一間 —— ${split}。還有 ${n} 段排在它上面，先停用：排班時選不到「${row.name}」，`
+          + '那幾段一個字都不動、照樣印得出來',
+        link: '#/settings/rooms',
+        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
+      });
+    }
+  }
 
   for (const row of LEGACY_ROOMS) {
     const mine = byId[row.id];

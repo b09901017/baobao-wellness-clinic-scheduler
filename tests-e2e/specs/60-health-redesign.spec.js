@@ -7,11 +7,10 @@ import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement } from '../fixtures/data.js';
 
 /**
- * 一個「全部沒事」的資料庫。`masterDocs()` 把每一筆都寫成啟用的，而種子上點滴8、VIP7 是停用的
- * （`CLAUDE.md` 診間那一列）—— 照寫的話「診間清單」那一項會要她停用那兩間。
+ * 一個「全部沒事」的資料庫。`masterDocs()` 把每一筆都寫成啟用的 —— 種子上停用的點滴8、VIP7 2026-10-18 刪掉了
+ *（ADR-0155），所以現在就是種子本身。
  */
-const cleanDocs = () => masterDocs().map((d) => (['room-iv8', 'room-vip7'].includes(d.id)
-  ? { ...d, data: { ...d.data, active: false } } : d));
+const cleanDocs = () => masterDocs();
 
 test('H1 全部沒事：一個畫面看得完；沒問題的收成一行，點開列得出每一項的名字', async ({ app, page }) => {
   await page.setViewportSize({ width: 393, height: 852 });

@@ -476,7 +476,7 @@ async function main() {
   const plan = [];
   for (const [type, rows] of Object.entries(SEED)) {
     for (const row of rows) {
-      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的「沒選床位」那一間（ADR-0127）
+      // 啟不啟用照種子寫的（`seedData()`）—— 種子上寫了停用的那一列照寫的（現在沒有，ADR-0155）
       plan.push({ path: `config/app/${type}`, id: row.id, data: seedData(row) });
     }
   }

@@ -621,7 +621,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');
     } else if (assigns === 'room') {
-      // 認到的是停用的那一間（照片上沒寫床 → 點滴8，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
+      // 認到的是停用的那一間（她主檔上停用的診間，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
       const slots = orderedRoomSlots(course, ctx.master.rooms, { keep: item.roomId });
       const usual = slots.filter((s) => s.usual || s.retired);
       const shown = showAllRooms.has(item.key) || !usual.length ? slots : usual;

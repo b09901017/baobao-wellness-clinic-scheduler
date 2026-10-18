@@ -133,7 +133,7 @@ export async function loadSeed() {
         skipped += 1;
         continue;
       }
-      // 啟不啟用照種子寫的（`seedData()`）：點滴8、VIP7 是停用的那一間（ADR-0127）
+      // 啟不啟用照種子寫的（`seedData()`）—— 種子上寫了停用的那一列照寫的（現在沒有，ADR-0155）
       await repo.create(pathFor(type), seedData(row), row.id);
       created += 1;
       madeHere += 1;

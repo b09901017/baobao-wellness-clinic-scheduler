@@ -22,7 +22,7 @@
 // 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
 import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
-import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
+import { bedMissingIn, courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
   INITIAL_STATUS, acceptsMoreSlots, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor,
@@ -704,6 +704,8 @@ export function newRowSay(item) {
  * 認得、但不是一字不差的那幾格（ADR-0128）：病歷號對上而名字差一個字、課程那一格差一個字。
  * 收起來也看得到 —— **不是安靜地當成完全吻合**。名字那一句只在這一列還是認人那一次認的那一位時講
  *（她換了人就不是那一次的事了）。沒有就是空字串。
+ *
+ * 照片上寫了點滴8、沒寫哪一床的那一格也在這裡講（ADR-0155）：診間空著，**她選了一間就不講了**。
  */
 export function nearSay(item) {
   const out = [];
@@ -711,6 +713,7 @@ export function nearSay(item) {
   if (who) out.push(who);
   const near = item?.course?.near;
   if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
+  if (item?.bedless && !item.roomId) out.push(`照片上寫「${item.bedless}」，沒寫哪一床 —— 點開選一間`);
   return out.join('；');
 }
 
@@ -972,6 +975,8 @@ export function readAbovee(transcripts, ctx) {
       who,
       course,
       roomId: roomFrom(row.room, row.resource, rooms)?.id ?? null,
+      // 照片上寫了點滴8、沒寫哪一床（ADR-0155）：診間留空、那一列講一句（`nearSay()`）
+      bedless: bedMissingIn(row.room, row.resource, rooms),
       therapistId: person?.role === THERAPIST_ROLE ? person.id : null,
       doctorId: person?.role === DOCTOR_ROLE ? person.id : null,
       // 服務資源那一格有沒有認出人。她選了人時，認不出來的那個寫法才記住（`aliasWrites()`）
@@ -1364,8 +1369,9 @@ function aboveeDiffs(item, visit, same, ctx) {
   if (assigns === 'therapist' && item.therapistId && item.therapistId !== slot.therapistId) {
     diffs.push({ field: 'therapistId', app: slot.therapistId ?? null, abovee: item.therapistId });
   }
-  // **Abovee 那一格沒寫床、app 上已經選了床的不算不一樣**（ADR-0127）：`點滴室8` 認成「沒選床位」的點滴8，
-  // 而 app 上是點滴8A —— 那只是照片上比較不精確，按「改成 Abovee 的」會把她選好的床弄丟
+  // **Abovee 那一格沒寫床、app 上已經選了床的不算不一樣**（ADR-0127）：主檔上還有「點滴8」那一間時 `點滴室8` 認成它，
+  // 而 app 上是點滴8A —— 那只是照片上比較不精確，照 Abovee 改會把她選好的床弄丟。種子上沒有那一間了（ADR-0155）：
+  // `點滴室8` 認不出來（`item.roomId` 是 null）就不比；這一行留給她自己的主檔上還有那一間的資料庫
   const roomOf = (id) => (ctx.master?.rooms ?? []).find((r) => r.id === id) ?? null;
   if (assigns === 'room' && item.roomId && item.roomId !== slot.roomId
       && !isBedlessOf(roomOf(item.roomId), roomOf(slot.roomId))) {
