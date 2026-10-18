@@ -17,7 +17,7 @@
 | 四 | 09 EECP 一門（「體驗排幾分」、20 ⇔ 體驗、拍 Abovee 認得扣法不一樣、資料健檢保險） | xhigh | ✅ 10/18 深夜做完（見下面「段四做完了」）；中途發現三件等她回 |
 | 五 | 10 沒床位的兩間拿掉、11 合併檔 v8 一開始就對＋**重產她那一份**（本機、真資料） | xhigh | ✅ 10/19 做完（見下面「段五做完了」）；她回了中途發現，`staging:reset --master` 也做了 |
 | 六 | 13 長備註與備註那一段的**原型**（設計 skill、假名字、發 Artifact）→ **停，等她回** | high | ✅ 10/19 原型發了、**她回了**：1 全部是丸子、2 從那一則長出來、3 線條（見下面「段六做完了」） |
-| 七 | 14 備註那一段一起排順序＋聯絡方式＋中間那張卡、15 長備註那一頁 | high | ⬜ |
+| 七 | 14 備註那一段一起排順序＋聯絡方式＋中間那張卡、15 長備註那一頁 | high | ✅ 10/19 做完（見下面「段七做完了」）；中途發現三件等她回 |
 | 八 | `/matt-code-review`（從 `cd71d34` 比，含已經合進去的段一）、照建議修 | xhigh | ⬜ |
 | 九 | 文件總檢查、全量 E2E（CI）、手動驗收清單、**PR B、合進 develop** | medium | ⬜ |
 
@@ -243,22 +243,45 @@ commit 見 git log「staging:reset 多一個 --master」。`scripts/reset-stagin
 → 1 選的**不是**我建議的那一個：那一串全部是丸子（`.marks` 一排流下去），調整順序模式下才變成一列一列。上表「客戶詳情那一串」那一列照丸子做；「從那一列長出來」改成從那一顆長出來（丸子比列小，縮放比例更大 —— 字等底那一層長好再淡進來，原型裡看過不會糊）。
 原話已貼進 14、15 的「她要的」，14 的「要做的」改好了。
 
-## 段七停在哪（10/19 凌晨，5 小時額度用完前收尾）—— 還沒動任何檔案
+## 段七做完了（10/19）
 
-讀完了 HANDOFF、spec、13–15、lessons 一／三／八，也看過 customerMarks.js、marks.js、customerDetail.js 的備註那一段與 `openMarks()`、playbook.js 整支、firestore.rules 的 `validCustomer()`、audit.js 的 `FIELD_LABELS`、nav.js 的 `pushLayer()`、actions.js 的 `wireLongPress()`。**一行程式都還沒寫、沒有 commit**；develop 沒有往前走（`c732350` 是這條分支的祖先），不用 rebase。
+上一個 session 在額度用完前只讀完背景（那時候寫的「段七停在哪」已經照做，這一段取代它）。她回了那一題：
+**拖過順序之後短備註本身也照新的先後重排、卡片牆的前幾則跟著變 —— 「沒關係，我同意這樣處理」**（寫進 ADR-0156）。
 
-- **原型那一個 Artifact 讀不回來**（`read` 回「not found」）。原始檔還在上一個 session 的 scratchpad：
-  `C:\Users\DELL\AppData\Local\Temp\claude\c--Users-DELL-Desktop-baobao-wellness-clinic-scheduler\cdcccc41-d937-4441-975e-0b7681b54ed3\scratchpad\long-notes-prototype.html`
-  （CSS 在 205–440 行：`.mark--contact`／`.mark--long`／`.nglyph`／`.rrow`／`.lnov`／`.lncard`；JS：`chipFor()` 767、`reorderHtml()`／`wireReorder()` 788–872、`openOverlay()`／`closeOverlay()` 914–985、`openNotesEditor()` 1026、`openPicker()` 1122、`deckRows()` 1153、電話按住複製 1268–1281、圖示路徑 phone／line／note／grip 在 512–520）
-- 讀 `marks` 的地方實際 grep 出來：會**寫** marks 的只有 `orderForm.js:543`（接在最後）、`mergeImport.js:549`、`customerForm.js:50`（新增客戶）、`health.js:871`（原地改字）—— 跟 issue 14 寫的一樣
-- LINE 那一格有**兩個**表單：`customerForm.js:142`（新增）與 `customerDetail.js:1302`（編輯），`hint` 兩邊都要加
-- Rules 測試裡**還沒有任何一條客戶的**（`tests-e2e/rules/firestore-rules.test.js` 的 R1–R13）→ 開一組 R14
-- `audit-field-words.test.js` 的 `HERS` 要補 `longNotes`、`noteOrder`
+| issue | commit | verify |
+|---|---|---|
+| 14 | `0e2b860` | 單元 4879 全綠（新的 `tests/customer-notes.test.js` 30 條先紅：模組不存在）；E2E 點名 22 支 175 條全綠（14.2 分）；Rules 114 條全綠（含新的 R14） |
+| 15 | `0922095` | 單元 4880 全綠；E2E 點名 15 支 144 條全綠（9.9 分）＋改完垃圾桶之後 `74` 再跑一次 17 條全綠 |
 
-我打算的做法（還沒寫，下一段可以照做或改）：
-- 新的 domain `domain/customerNotes.js`（import `readMarks()`）：`readLongNotes()`、`noteItems(customer)`（key：`phone`／`line`／`mark:<n>`／`long:<id>`；`noteOrder` 裡短備註只存 `'mark'` 佔位；**沒排過的預設順序 = 電話、LINE、長備註、短備註**（她的原話「最上面一行電話，長備註，原本的短備註」）；不在順序裡的電話／LINE 放最前面，長備註、短備註接在最後 —— 所以「尾款」照判準出現在最後）、`notesFields(items)` → `{ marks, notes, longNotes, noteOrder }`（**拖過順序之後 marks 本身也照新的先後重排**：形狀一個字不變、只有先後，卡片牆前三則會跟著變 —— 寫進 ADR-0156）、`validateLongNotes()`（標題必填、40／5000 字，同備忘錄的 `MAX_TITLE`／`MAX_BODY`；則數上限要定 —— 文件大小 1MB，5000 字×則數要算）、`lineHref()`（網址原樣補 `https://`；`@` 開頭的 → `/R/ti/p/@…`；其餘 `~ID`）、`telHref()`
-- 長備註那一頁只寫 `longNotes`（與 `noteOrder` —— 有排過才動），不碰 `marks`
-- 稽核：`longNotes: '長備註'`、`noteOrder: '備註的順序'`，**都不進** `QUIET_IN_SENTENCE`（她真的拖過，講出來才誠實）
+**`npm run verify` 兩支都退回全跑**（`icons.js`、`views.js` 是 GLOBAL）→ 照段三的做法拿改的檔案問 `pick()`（拿掉那兩支）點名跑。全量留給段九的 CI。
+**E2E `74` 是接線之後才寫的**（N1–N10、L1–L7），沒有先看它紅；單元測試是先紅的。
+
+細節在 issue 14、15 的「做完時留下的」。重點：
+- 形狀：`customer.longNotes`、`customer.noteOrder`（短備註只佔位置）；`marks` 一個字沒動形狀，21 處讀它的一個都沒改
+- 新檔：`domain/customerNotes.js`、`ui/components/noteCard.js`、`noteReorder.js`、`notesEditor.js`、`deck.js`（備忘錄也改用它）、`ui/views/longNotes.js`；icons 多四顆（phone、line、note、grip）
+- 原型那一個 Artifact 讀不回來（`read` 回 not found）；改讀上一個 session scratchpad 裡的原始檔照抄
+- 390px 自己走過一次（淺色、深色，假客戶 A～C，截圖看過）：抓到垃圾桶第一下整疊重畫、正在改的那一張滑走 → 修了（見 15）
+
+### 手動驗收清單（段七；staging 合進去之後她點）
+
+1. 客戶 → 點一位有填電話的客戶 → 名字底下「備註」那一段：最前面是電話那一顆（話筒＋號碼），有填 LINE 的話接著是「LINE」那一顆，後面是原本的彩色小丸
+2. 點電話那一顆 → 跳出撥號；回來，**按住**電話那一顆不放 → 底下出現「已複製 09…」
+3. 點「LINE」那一顆 → 打開 LINE（填的是 ID、對方沒開放 ID 搜尋時 LINE 會說找不到 —— 那時候到「編輯」把那一格換成他的 LINE 連結，旁邊的 `?` 有寫）
+4. 備註那一行右邊「編輯」→ 底下滑出來那一張 → 「加一則長的」→ 打標題、打一大段內文 →「儲存」→ 備註那一排多一顆茶色的（便條＋標題＋›）
+5. 點那一顆茶色的 → 畫面中間浮出一張卡（從那一顆長出來）→ 往下捲看全文 → 按手機的返回鍵 → 卡收起來、**還在客戶詳情**
+6. 再點開 → 「改這一則」→ 改幾個字 → 右上角「存起來」→ 卡上是新的字 → 按 × 關掉
+7. 備註那一行「調整順序」→ 每一則變成一列 → 按住電話那一列拖到最下面、按住一則短的拖到最上面 →「完成」→ 重新整理 → 照你排的
+8. 客戶 → 上面那一排最右邊「長備註」→ 一疊卡，左右滑得動；上面那一排丸子點一顆跳到那一張；放大鏡打一個客戶的名字 → 只剩他的
+9. 右下角 ＋ → 「寫給誰？」打一個名字 → 點他 → 打標題、內文 → 右上角打勾 → 點卡片最上面的客戶名 → 到他的詳情，備註那一段有那一顆
+10. 回長備註那一頁 → 一張卡的鉛筆 → 垃圾桶按一下（變紅、寫「再按一次刪掉」）→ 再按一下 → 那一張不見了
+11. 壓表 → 這個月 → 卡片牆上那位客戶身上**沒有**長備註（只有短備註與警示）
+
+**我在本機模擬器 390px 走過的**：1、2（E2E N9 量複製）、4–10（E2E `74` ＋ 一支暫時的走路腳本截圖，淺色深色各一次）；
+3 的「打開 LINE」與 2 的撥號只看了連結（`href`），沒有真的開 —— 要手機上點；11 是單元測試（`readMarks()` 前後一樣）
+
+### 段七中途發現（要問她）
+
+見下面「中途發現」的「段七 1～3」。
 
 ## 段一停在哪（10/18 中午，她臨時有事、要關網路，叫我先收尾）—— 留著當紀錄
 
@@ -319,6 +342,11 @@ commit 見 git log「staging:reset 多一個 --master」。`scripts/reset-stagin
 - **段五 4｜我讀她的 `.local` 檔案時，終端機印出了幾個真名與病歷號**（兩次：`overrides.json` 的幾行、`overlay-report.txt` 開頭那一段「沒有建的人」）。
   只在這一次 session 的對話紀錄裡，**沒有進任何檔案、commit、PR**。之後每一次讀 `.local` 都過一支遮名字的濾網（客戶、別名、人員全名、Abovee 擷取上的每一位、病歷號），資料一律寫成只印數字的小腳本
 - 段四 2 的後續：種子的方案範本從來沒有指著 `course-eecp-trial`（`c732350` 那一份查過）—— 只有她自己建的範本會，staging 與正式站都一樣
+- **段七 1｜備忘錄那一頁改到一半按返回鍵，直接離開、打的字沒了**（段七做 15 時發現，沒動）：長備註那一頁編輯中推一層、按返回先問（存起來／不要了／關掉那道框＝繼續改）；
+  備忘錄點外面、按 Escape 都會問，**只有返回鍵（Android 那一顆、iPhone 從左邊滑）不問**。建議：備忘錄照長備註那一頁的做法補一層（`pushLayer()`，問 `.active`），一支小 issue
+- **段七 2｜刪掉的長備註回不來**（我自己定的，沒動）：它是客戶身上的一格，不是一筆文件，所以不進「設定 → 已刪除項目」；稽核紀錄看得到刪之前的字（要自己抄回去）。
+  所以那一頁的垃圾桶要按兩次（第一下只變紅）、編輯那一張的 × 要按「儲存」才算。短備註一直都是這樣。建議先不做還原；她覺得要的話再做
+- **段七 3｜客戶清單的搜尋不找長備註裡的字**（沒動）：那一格比名字、電話、LINE、購買通路；長備註的字要到長備註那一頁的放大鏡找。建議不加（打一個字會冒出一堆長備註裡剛好有那個字的人）
 - 03 的設計（我自己定的）：「送的／體驗」那一顆展開之後**照樣看得到**、寫「送的／體驗 ▾ 收起來」（以前展開就藏起來）；
   收著、選著底下一顆時寫「那一門 送的／體驗 ▸」而且是按下去的樣子；壓表換一顆額度不動她收起來的那一組（開或收只在換一位、記完一段時回預設）
 
@@ -479,7 +507,10 @@ CLAUDE.md：「客戶身上的標記」「備忘錄編輯那張卡的版面」�
 段一～段七做完了。這是第八段：審查，單獨一段。
 
 先 git fetch；develop 往前走了就 rebase。
-先讀 HANDOFF.md、spec.md、issues/ 全部的「做完時留下的」。
+先讀 HANDOFF.md（含「段七做完了」與段七中途發現她回了什麼）、spec.md、issues/ 全部的「做完時留下的」；docs/agents/lessons.md 全部。
+段七是全新的互動（長備註、調整順序、中間那張卡），E2E 74 是接線之後才寫的 —— 審查時特別看：返回鍵與 pushLayer 那幾條路（卡片、長備註那一頁的編輯）、
+noteOrder 佔位在「別的入口改了 marks」時對不對（orderForm 的尾款、health 的病歷號、合併檔匯入）、Rules 的 20／40 上限跟 domain 對不對得上、
+共用元件的屬性前綴（data-notes-*、data-notecard-*、data-notesed-*、data-reorder-*）、觸控區撐開貼在自己身上（CLAUDE.md 那一列）。
 跑 /matt-code-review，從這一輪的基準點 cd71d34 比（段一已經合進 develop，照樣一起審）。照建議修；提過沒改的寫理由進 HANDOFF。
 修的每一條照一支 issue 的規矩：紅 → 綠 → npm run verify → commit。
 
