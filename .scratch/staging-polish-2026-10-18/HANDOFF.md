@@ -57,6 +57,9 @@
 
 ## 段一做完了（10/18 下午）
 
+**PR A = #163，10/18 合進 develop（`c732350`），staging 自動部署（v194）。** 全量 E2E（CI 六台）全綠、PR 的 test／rules／e2e 全綠。
+段二開工前：`git fetch` → `git merge origin/develop`（這條分支已經有那幾個 commit，合進來只多一個 merge commit）。
+
 中間她臨時關網路一次（中午），接手之後做完。commit：
 
 | issue | commit | verify |
