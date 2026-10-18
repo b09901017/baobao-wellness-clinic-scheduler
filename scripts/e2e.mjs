@@ -20,8 +20,8 @@ import { spawn } from 'node:child_process';
 
 import { pick } from '../tests-e2e/related.js';
 import {
-  changedFiles, combine, filesBetween, greenSide, readStamp, recordsGreen, repoRoot, snapshotTree, stampTime,
-  writeStamp,
+  changedFiles, combine, filesBetween, greenSide, mergeBase, readStamp, recordsGreen, repoRoot, snapshotTree,
+  stampTime, withViewsNarrowed, writeStamp,
 } from './e2e-changes.mjs';
 
 const argv = process.argv.slice(2);
@@ -63,12 +63,14 @@ if (SMOKE) {
 } else if (RELATED) {
   const { ref, files } = changedFiles(BASE, ROOT);
   if (ref !== BASE) console.log(`⚠  找不到 ${BASE}，改跟 ${ref} 比。`);
-  const base = pick(files);
+  // `views.js` 只多了一頁的登記 → 換成那一頁（`e2e-changes.mjs` 的 `narrowViews()`）
+  const from = mergeBase(ref, ROOT);
+  const base = pick(from ? withViewsNarrowed(files, ROOT, from) : files);
 
   const stamp = EXPLICIT_BASE ? null : readStamp(ROOT);
   const sinceGreen = stamp && tree ? filesBetween(ROOT, stamp.tree, tree) : null;
   const side = greenSide({ explicitBase: EXPLICIT_BASE, stamp, sinceGreen });
-  const green = side.files ? pick(side.files) : null;
+  const green = side.files ? pick(withViewsNarrowed(side.files, ROOT, stamp.tree, tree)) : null;
   const { specs, all, why } = combine(base, green);
   const { rules } = base;
 
