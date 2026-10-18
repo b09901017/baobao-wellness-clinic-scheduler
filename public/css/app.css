@@ -578,6 +578,17 @@ svg {
   inset: -6px 0;
 }
 
+/* 「＋ 加一項」：清單的最後一列，不是另一顆送出鈕（2026-10-18，她：「加一項和加購的按鈕有點擠」）。
+   虛線、淡字跟「換一款」同一種長相；底下留一段空，跟送出那一排分開。三個入口共用。 */
+.addrow {
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.btn--addrow {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
 .btn--ghost {
   background: transparent;
   border-color: transparent;
@@ -962,12 +973,14 @@ textarea {
   animation: chip-in var(--motion-base) var(--ease-out) both;
 }
 
-[data-tuck='open'] .chip--more { display: none; }
+/* 展開之後「換一款」那一顆還在、寫「收起來」，再按收回去（2026-10-18）。
+   收回時選著的那一顆照樣看得到 —— 壓表不重畫，她剛按的那一顆身上還帶著 `chip--tucked` */
+.chip--tucked[aria-pressed='true'] { display: inline-flex; }
 
 /* 「做什麼」那一排最後那一顆「送的／體驗…」（`ui/components/giftFold.js`，gift-and-trial 04）。
-   同上：按了才露出底下那一塊、收不回去；換分類只改 `hidden`。 */
+   按了才露出底下那一塊、再按一次收回去（staging-polish 03）；換分類只改 `hidden`。
+   收著而且選著底下一顆時那一顆是按下去的樣子、寫那一門（`.chip[aria-pressed]` 比 `.chip--more` 具體）。 */
 [data-giftfold='closed'] .giftfold { display: none; }
-[data-giftfold='open'] [data-giftfold-more] { display: none; }
 
 .giftfold {
   display: grid;
@@ -4525,6 +4538,22 @@ body:has(.deck) > .toast > .btn {
   }
 }
 
+/* 滑得掉的那幾種（staging-polish 05，`ui/toastSwipe.js`）：手指在上面時頁面不捲，放開彈回去或滑出去有過場。
+   用 `translate` 不用 `transform` —— iPad 那一條靠 `transform: translateX(-50%)` 置中，兩個疊得起來。
+   減少動態時底部那一段 `*` 規則會把過場壓成 0。
+   **字選不起來**：拖第一次會把「已建立」選起來，第二次從選起來的字上拖就變成瀏覽器自己的拖放
+   （`pointercancel`，那一條就收不掉了）—— 手指長按也選得起字。 */
+.toast[data-swipe] {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: translate 0.18s ease, opacity 0.18s ease;
+}
+
+.toast--drag {
+  transition: none;
+}
+
 /* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
 .toast > .btn {
   flex: none;
@@ -6437,7 +6466,8 @@ summary {
 
 .hrow[open] > .hrow__sum::after,
 .hmore[open] > .hmore__sum::after,
-.hok[open] > .hok__sum::after {
+.hok[open] > .hok__sum::after,
+.hnote[open] > .hok__sum::after {
   transform: rotate(90deg);
 }
 
@@ -6465,6 +6495,17 @@ summary {
 .hok__sum {
   font-weight: 600;
   color: var(--text-dim);
+}
+
+/* 只是提醒的那一項（ADR-0150）：長得跟「沒問題的」那一行一樣，收著；點開是名字清單 */
+.hnote__n {
+  font-weight: 400;
+}
+
+.hnote__why {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
 }
 
 .hok__list {
@@ -9903,7 +9944,15 @@ body.has-abl {
   gap: var(--space-1) var(--space-2);
 }
 
-.abl-row__seenlabel,
+/* 「照片上寫的」那一行（staging-polish 02）：收起來的一段，長相照 `.foldout`。 */
+.abl-row__seenfold {
+  margin: 0 0 var(--space-1);
+}
+
+.abl-row__seenfold > .abl-row__seen {
+  padding-bottom: var(--space-2);
+}
+
 .abl-row__picklabel {
   width: 100%;
   font-size: var(--text-2xs);

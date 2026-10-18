@@ -847,9 +847,13 @@ function wireAddMenu(sheet, handlers) {
     toggle.setAttribute('aria-expanded', String(open));
   };
 
+  // 打開之前先把抽屜拉到全高（staging-polish 04，她：「如果我點加 那應該要自動往上滑展開 不然會遮住」）——
+  // 選單往下長，停在半高時底下那兩顆會被螢幕底部切掉。等抽屜到位才打開；收起選單不退回半高。
+  // 拉高不是多一層，不推 history。
   toggle.addEventListener('click', (e) => {
     e.stopPropagation();
-    setOpen(list.hidden);
+    if (!list.hidden) { setOpen(false); return; }
+    sheet.expand(() => setOpen(true));
   });
 
   // 點面板上任何其他地方就收起來。掛在抽屜上而不是 document 上 ——

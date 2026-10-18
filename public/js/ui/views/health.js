@@ -60,7 +60,9 @@ function paint(el, result) {
   // 同一筆額度可能在不同檢查裡各出現一次，光靠 id 分不出來。
   indexFixes(result);
 
-  const bad = result.checks.filter((c) => c.count > 0);
+  // **只是提醒的那幾項不算要你看**（ADR-0150）：有東西、但沒有要她做的事 —— 收成一行、預設收著
+  const bad = result.checks.filter((c) => c.count > 0 && !c.notice);
+  const notices = result.checks.filter((c) => c.count > 0 && c.notice);
   const clean = result.checks.filter((c) => c.count === 0);
   // 嚴重度記在每一筆 finding 上：有任何一筆是「資料自己對不起來」就排進前面那一組
   const hard = (c) => c.findings.some((x) => x.severity === 'mismatch');
@@ -79,8 +81,11 @@ function paint(el, result) {
     <section class="card hsum ${tone}">
       <p class="hsum__head">${bad.length
         ? `有 ${bad.length} 項要你看`
-        : `${result.checks.length} 項都沒問題`}</p>
-      ${bad.length ? `<p class="hsum__rest">其餘 ${clean.length} 項沒問題</p>` : ''}
+        : notices.length ? '沒有要處理的' : `${result.checks.length} 項都沒問題`}</p>
+      ${bad.length || notices.length ? `<p class="hsum__rest">${[
+        notices.length ? `${notices.length} 項提醒` : '',
+        `其餘 ${clean.length} 項沒問題`,
+      ].filter(Boolean).join('・')}</p>` : ''}
       <p class="hsum__scan">
         <button class="btn btn--sm" type="button" data-rescan>重新掃描</button>
         <span>掃描於 ${esc(new Date().toLocaleString('zh-TW'))}</span>
@@ -89,6 +94,9 @@ function paint(el, result) {
 
     ${groupHtml('資料對不起來', bad.filter(hard))}
     ${groupHtml('要處理', bad.filter((c) => !hard(c)))}
+    ${notices.length ? `
+      <h2 class="hgroup__title">提醒</h2>
+      ${notices.map(noticeHtml).join('')}` : ''}
 
     <details class="card hok">
       <summary class="hok__sum">${bad.length ? `沒問題的 ${clean.length} 項` : `看檢查了哪 ${clean.length} 項`}</summary>
@@ -115,6 +123,24 @@ function groupHtml(title, checks) {
   return `
     <h2 class="hgroup__title">${esc(title)}</h2>
     ${checks.map(checkCard).join('')}`;
+}
+
+/**
+ * 只是提醒的那一項（ADR-0150）：一行（名字＋幾位／幾筆），點開才是名字清單 —— **名字底下不印說明**
+ * （她 10/18：「不要展開這麼多人然後每個人底下又有說明」）。那一項的說明一句放在清單最上面。
+ */
+function noticeHtml(check) {
+  const ids = check.findings.map((f) => f.whoId).filter(Boolean);
+  const byPerson = ids.length === check.findings.length && new Set(ids).size === ids.length;
+  const names = [...new Set(check.findings.map((f) => f.title))];
+  return `
+    <details class="card hnote" data-check="${esc(check.id)}">
+      <summary class="hok__sum"><span>${esc(check.label)}<span class="hnote__n">・${check.count} ${byPerson ? '位' : '筆'}</span></span></summary>
+      <p class="hnote__why">${esc(check.hint)}</p>
+      <ul class="hok__list hnote__list">
+        ${names.map((n) => `<li>${esc(n)}</li>`).join('')}
+      </ul>
+    </details>`;
 }
 
 function checkCard(check) {

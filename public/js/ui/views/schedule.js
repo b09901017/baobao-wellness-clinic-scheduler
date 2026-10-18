@@ -111,6 +111,9 @@ const view = {
   roomKey: null,
   // 送的／體驗那一顆按下去之後是哪一種（「體驗｜送的」那一排，gift-and-trial 04）。`null`＝還沒選過＝體驗（`pickedGiftKind()`）
   giftKind: null,
+  // 「送的／體驗…」那一組她按成開著還是收著（staging-polish 03）。`null`＝還沒按過＝照 `foldOpen()`。
+  // 換一位客戶、記完一段才回到預設 —— 換日期、換一顆額度都不動（每畫一次都問 `foldOpen()` 的話，選著體驗時收不起來）
+  giftOpen: null,
 };
 
 /**
@@ -157,7 +160,7 @@ function resetPicks() {
   Object.assign(view, {
     day: null, entitlementId: null, startsAt: null,
     equipmentId: null, therapistId: null, roomKey: null, doctorId: null,
-    followupForVisitId: null, nth: null, minutes: null, giftKind: null,
+    followupForVisitId: null, nth: null, minutes: null, giftKind: null, giftOpen: null,
   });
 }
 
@@ -1289,7 +1292,7 @@ function dayPanel(row) {
         ${giftFold.html({
           options,
           value: view.entitlementId,
-          open: foldOpen(options, view.entitlementId),
+          open: view.giftOpen ?? foldOpen(options, view.entitlementId),
           empty: '<p class="muted" style="margin: 0 0 var(--space-2)">這位客戶身上沒有還有剩的額度了。</p>',
           chip: (o) => `
             <button class="chip" type="button" aria-pressed="${o.entitlementId === view.entitlementId}"
@@ -1935,7 +1938,7 @@ function onDeckClick(e) {
   }
 
   // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性，不重畫（ADR-0038）
-  if (giftFold.toggle(e)) return null;
+  if (giftFold.toggle(e, (_, open) => { view.giftOpen = open; })) return null;
 
   // 體驗還是送的：只換那一排的 aria-pressed（一定有一顆按著，再點同一顆不取消）
   const kind = e.target.closest('[data-giftkind]');
@@ -1945,13 +1948,8 @@ function onDeckClick(e) {
     return null;
   }
 
-  // 「換一款」：只改一個屬性，整排不重畫（同 f.chips() 的 wireChips）
-  const more = e.target.closest('[data-chip-more]');
-  if (more) {
-    more.setAttribute('aria-expanded', 'true');
-    more.closest('[data-tuck]')?.setAttribute('data-tuck', 'open');
-    return;
-  }
+  // 「換一款」「其他醫師」：展開、再按收回，只改屬性、整排不重畫（同 f.chips() 的 wireChips）
+  if (f.toggleTuck(e)) return null;
 
   for (const [attr, key] of [['equipment', 'equipmentId'], ['ivproduct', 'equipmentId'],
     ['therapist', 'therapistId'], ['room', 'roomKey'], ['doctor', 'doctorId'],
@@ -2072,6 +2070,8 @@ function pickCourse(entitlementId) {
   view.entitlementId = view.entitlementId === entitlementId ? null : entitlementId;
   resetCourseBoundPicks();
   press('[data-ent]', 'ent', view.entitlementId);
+  // 那一排沒重畫：「送的／體驗…」那一顆上的字與按下去的樣子跟著換（收著時它寫的是選了哪一門）
+  giftFold.sync(deckEl());
 
   const row = selectedRow();
   const fields = deckEl()?.querySelector('[data-entfields]');
@@ -2313,6 +2313,7 @@ async function addSlot() {
     // 記完把時段相關的選擇清掉，日期留著 —— 同一天常常要連記兩三段
     view.startsAt = null;
     view.entitlementId = null;
+    view.giftOpen = null;
     resetCourseBoundPicks();
 
     // 重讀之後只換掉這張卡的內容：她捲到哪裡就留在哪裡

@@ -89,6 +89,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let later = new Set();
   /** 收起來的那一組點開了沒（整片重畫時不收回去） */
   let laterOpen = false;
+  /**
+   * 「照片上寫的」打開過的那幾列（staging-polish 02）。預設收著：那是對照用的原字，她要的時候才看。
+   * 按一顆「要做什麼」整列會重畫，所以記在這裡、重畫時照記的畫；關掉確認層就忘了。
+   */
+  const seenOpen = new Set();
+  /** 「送的／體驗…」那一組她按成開著還是收著（staging-polish 03），照列的 key 記；沒記過照 `foldOpen()` */
+  const giftOpen = new Map();
   let openKey = null;
   let batches = [];
   let running = false;
@@ -481,9 +488,11 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const left = urlOf(item.photos[0]);
     const right = urlOf(item.photos[1] ?? item.photos[0]);
     const r = item.row;
+    // 收的只有原字這一排 —— `mustSee()` 的提醒、對不上的理由都在外面，一個字都不收（ADR-0138）
     const seen = `
-      <div class="abl-row__seen">
-        <span class="abl-row__seenlabel">照片上寫的是</span>
+      <details class="foldout abl-row__seenfold" data-abl-seen="${esc(item.key)}" ${seenOpen.has(item.key) ? 'open' : ''}>
+        <summary>照片上寫的</summary>
+        <div class="abl-row__seen">
         ${seenChip(item.statusText, { photo: left })}
         ${seenChip(r.date, { photo: left })}
         ${seenChip(r.time, { photo: left })}
@@ -493,7 +502,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${seenChip(r.room, { photo: right })}
         ${seenChip(r.resource, { photo: right })}
         ${seenChip(r.cancelReason, { photo: right })}
-      </div>`;
+        </div>
+      </details>`;
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
     // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
@@ -542,7 +552,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         <div class="abl-row__pick">
           <span class="abl-row__picklabel">要做什麼</span>
           ${giftFold.html({
-            options, value, open: foldOpen(options, value), cls: 'abl-row__chips', sm: true,
+            options, value, key: item.key, open: giftOpen.get(item.key) ?? foldOpen(options, value),
+            cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
               sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
@@ -782,11 +793,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   root.addEventListener('toggle', (e) => {
     if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open;
     if (e.target.matches?.('.abl__later')) laterOpen = e.target.open;
+    if (e.target.matches?.('[data-abl-seen]')) {
+      if (e.target.open) seenOpen.add(e.target.dataset.ablSeen);
+      else seenOpen.delete(e.target.dataset.ablSeen);
+    }
   }, true);
 
   root.addEventListener('click', (e) => {
     // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）
-    if (giftFold.toggle(e)) return;
+    if (giftFold.toggle(e, (key, open) => giftOpen.set(key, open))) return;
     const t = e.target.closest('button');
     if (!t || t.disabled || !root.contains(t)) return;
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
@@ -910,6 +925,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const was = items[at].customerId ?? null;
     // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
     items[at] = markRepeat(resolveItem(items[at], customerId, ctx, items), items);
+    // 換了一位：那一排是他的額度了，開或收回到預設
+    giftOpen.delete(key);
     // 換成的這一位有沒有接得上的健檢（「先去約健檢」那一句）連同這一批重算
     refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
     refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });

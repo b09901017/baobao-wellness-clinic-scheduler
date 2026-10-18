@@ -300,7 +300,8 @@ test('G8 手機寬度（360px）：展開之後那一排不撐出橫向捲動（
 
 // ---------- 06：拍 Abovee 讀「預約來源」 ----------
 
-test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能、INDIBA、不扣；寫體驗的健檢照扣、收著也看得到那一句', async ({ app, page }) => {
+/** 王小明（復能池＋健檢）在九月那一批；拍一張預約來源寫體驗的 Abovee，等確認層出來。 */
+async function openTrialPhoto(app, page) {
   const month = '2026-09';
   await app.seed([
     ...masterDocs(),
@@ -329,6 +330,11 @@ test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能�
   await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
   const row = (key) => page.locator(`[data-abl-row="${key}"]`);
   await expect(row('a0')).toBeVisible();
+  return row;
+}
+
+test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能、INDIBA、不扣；寫體驗的健檢照扣、收著也看得到那一句', async ({ app, page }) => {
+  const row = await openTrialPhoto(app, page);
 
   // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣的那一句不點開也看得到（mustSee）
   await expect(row('a1').locator('.abl-row__hint--warn')).toContainText('健檢、二返沒有體驗');
@@ -351,6 +357,85 @@ test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能�
     ['course-recovery', 'eq-indiba', null, 'trial', '10:30'],
   ]);
   expect(at('2026-09-11').map((s) => [s.courseId, s.entitlementId, s.giftKind])).toEqual([['course-checkup', 'w-exam', null]]);
+});
+
+// ---------- staging-polish 03：「送的／體驗…」收得回去 ----------
+//
+// > 我希望送的/體驗這個，也可以展開之後再縮合回去，當然不只app拍照壓表這邊，而是其他有這種送的/體驗這個，都可以展開，收合回去
+//
+// 收起來時選著的那一門寫在開關上、是按下去的樣子；開或收是她決定的，撐得過重畫。
+
+const more = (scope) => scope.locator('[data-giftfold-more]');
+
+test('G12 壓表：展開 → 選功醫門診 → 收回（開關寫著功醫門診、按著）→ 按額度那一顆（不重畫也變回來）→ 存下去是額度', async ({ app, page }) => {
+  await app.seed([...masterDocs(), ...poolCustomer()]);
+  await app.signIn('/');
+  await openScheduleDay(app, page);
+  const fold = page.locator('[data-giftfold]');
+
+  await more(page).click();
+  await expect(fold).toHaveAttribute('data-giftfold', 'open');
+  await expect(more(page), '展開時開關還在、按得回去').toBeVisible();
+  await expect(more(page)).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('[data-ent="__course__:course-fm"]').click();
+
+  await more(page).click();
+  await expect(fold).toHaveAttribute('data-giftfold', 'closed');
+  await expect(page.locator('[data-ent="__course__:course-fm"]')).toBeHidden();
+  await expect(more(page), '收起來時寫出選了哪一門').toContainText('功醫門診');
+  await expect(more(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-ent="__course__:course-fm"]'), '選擇沒有被收起來吃掉').toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('[data-ent="ent-pool"]').click();
+  await expect(more(page), '換成額度：開關變回原本的字').toHaveText('送的／體驗…');
+  await expect(more(page)).toHaveAttribute('aria-pressed', 'false');
+  await expect(fold, '換一顆額度不動她收起來的').toHaveAttribute('data-giftfold', 'closed');
+});
+
+test('G13 來訪編輯器：一打開就展開的那一組收得回去，改開始時間、選醫師（整張重畫）之後還是收著；存下去照樣是功醫門診體驗', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-n', name: '王小明' })]);
+  await app.signIn('/');
+  await app.go(`/visits/new/cust-n/${PICK_DAY}`);
+  await app.layer('[data-chip="s0-ent"]');
+  const fold = page.locator('[data-giftfold]');
+  await expect(fold, 'foldOpen() 照舊：什麼都沒買 → 一打開就展開').toHaveAttribute('data-giftfold', 'open');
+
+  await more(page).click();
+  await expect(fold).toHaveAttribute('data-giftfold', 'closed');
+  await expect(more(page)).toContainText('功醫門診');
+  await expect(more(page)).toHaveAttribute('aria-pressed', 'true');
+
+  await page.locator('input[name="s0-start"]').fill('14:00');
+  await page.locator('input[name="s0-start"]').dispatchEvent('change');
+  await page.locator('[data-chip="s0-doc"]', { hasText: '夏' }).click();
+  await expect(page.locator('[data-chip="s0-doc"]', { hasText: '夏' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(fold, '重畫之後還是收著').toHaveAttribute('data-giftfold', 'closed');
+
+  await page.locator('button[type="submit"]').first().click();
+  await app.ok();
+  await app.saved();
+  const [v] = (await app.readAll('visits')).filter((x) => x.customerId === 'cust-n');
+  expect([v.slots[0].courseId, v.slots[0].entitlementId, v.slots[0].giftKind]).toEqual(['course-fm', null, 'trial']);
+});
+
+test('G14 拍 Abovee：預選體驗的那一列展開著 → 收回 → 換治療師（整列重畫）還是收著 → 再按一次展開', async ({ app, page }) => {
+  const row = await openTrialPhoto(app, page);
+  await row('a0').locator('[data-abl-open]').click();
+  const fold = row('a0').locator('[data-giftfold]');
+  await expect(fold).toHaveAttribute('data-giftfold', 'open');
+
+  await more(row('a0')).click();
+  await expect(fold).toHaveAttribute('data-giftfold', 'closed');
+  await expect(more(row('a0'))).toContainText('復能');
+  await expect(more(row('a0'))).toHaveAttribute('aria-pressed', 'true');
+
+  await row('a0').locator('[data-abl-therapist="staff-zn"]').click();
+  await expect(row('a0').locator('[data-abl-therapist="staff-zn"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row('a0').locator('[data-giftfold]'), '重畫之後還是收著').toHaveAttribute('data-giftfold', 'closed');
+
+  await more(row('a0')).click();
+  await expect(row('a0').locator('[data-giftfold]')).toHaveAttribute('data-giftfold', 'open');
+  await expect(row('a0').locator('[data-abl-opt="__course__:course-recovery"]')).toHaveAttribute('aria-pressed', 'true');
 });
 
 // ---------- 08：合併檔 v7 ----------

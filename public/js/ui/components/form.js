@@ -251,6 +251,27 @@ export function chips({
 }
 
 /**
+ * 「換一款」／「其他醫師」那一顆：按一次展開、再按一次收回（2026-10-18，她：「換一款」也要收得回去）。
+ * 只改屬性、不重畫（ADR-0038）。展開時那一顆寫「收起來」；收回時選著的那一顆照樣看得到
+ * （`.chip--tucked[aria-pressed='true']`，CSS）—— 收起來看起來像取消選取，是當初收不回去的理由。
+ * 壓表那兩排是自己畫的（`schedule.js`），接在它自己的 click 委派裡，走同一支。
+ *
+ * @param {Event} e
+ * @returns {boolean} 是這一顆就回 true
+ */
+export function toggleTuck(e) {
+  const more = e.target.closest?.('[data-chip-more]');
+  if (!more) return false;
+  const box = more.closest('[data-tuck]');
+  const open = box?.getAttribute('data-tuck') !== 'open';
+  box?.setAttribute('data-tuck', open ? 'open' : 'closed');
+  more.setAttribute('aria-expanded', String(open));
+  more.dataset.chipMoreLabel ??= more.textContent.trim();
+  more.textContent = open ? '收起來' : more.dataset.chipMoreLabel;
+  return true;
+}
+
+/**
  * 把一排丸子接起來。事件委派掛在 root 上，所以任何一塊重畫之後都不必重掛。
  *
  * `quiet` 的那幾組選了**不派 change**，只改 `aria-pressed` 與那個 hidden input ——
@@ -262,13 +283,8 @@ export function chips({
  */
 export function wireChips(root, { signal } = {}) {
   root.addEventListener('click', (e) => {
-    // 「換一款」：只改一個屬性，整排不重畫（ADR-0038）。
-    const more = e.target.closest('[data-chip-more]');
-    if (more) {
-      more.setAttribute('aria-expanded', 'true');
-      more.closest('[data-tuck]')?.setAttribute('data-tuck', 'open');
-      return;
-    }
+    // 「換一款」：只改屬性，整排不重畫（ADR-0038）
+    if (toggleTuck(e)) return;
 
     const chip = e.target.closest('[data-chip]');
     if (!chip || chip.getAttribute('aria-disabled') === 'true') return;
