@@ -65,6 +65,9 @@ import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
  * **`who`／`whoId`（選填）是那一筆講的是哪一位客戶**（名字與 id，2026-10-07，issue 18）：畫面照 `whoId`
  * 把同一位的好幾筆收成一列、抬頭印 `who`。只有講得出是哪一位的那幾種才帶；沒有它的照舊一筆一列。
  *
+ * **`notice: true`（選填）是「只是提醒」**（ADR-0150）：那一項有東西、但沒有要她做的事 —— 畫面收成一行、
+ * 預設收著、不算「有 N 項要你看」。它不改那幾筆的 `severity`、`fix`，只管畫在哪、算不算數。
+ *
  * 檢查的順序就是畫面上的順序：先資料對不起來的，再輪到要她處理的事（畫面上照嚴重度再分兩組）。
  * id 會出現在網址與稽核訊息裡，不要改。
  *
@@ -114,8 +117,11 @@ export const CHECKS = [
   },
   {
     id: 'staleAvailability',
-    label: '資料過期',
-    hint: '本輪可用性已過有效期，排序會失真',
+    // 她 10/18 指名的字（「不要說麼可用性甚麼的，看不懂」）；以前叫「資料過期」
+    label: '還沒問這輪方便的時間',
+    hint: '還有次數沒排、這一輪方便的時間還沒問過（或上一次問的已經過了）—— 壓表那一頁先壓誰會比較不準，知道就好',
+    // **只是提醒**（ADR-0150）：知道就好、沒有要做的事 —— 收成一行、預設收著、不算「有 N 項要你看」
+    notice: true,
   },
   {
     id: 'duplicateAvailability',
@@ -151,8 +157,8 @@ export const CHECKS = [
   {
     id: 'importedLabel',
     label: '匯進來的額度還叫舊表的名字',
-    hint: '匯入時算不出 app 的寫法（健檢的金額與部位、營養針、EECP體驗），'
-      + '所以原字留著等你自己改 —— 改一筆少一列',
+    hint: '匯入時照舊表原字留著的額度名字（健檢的金額與部位、營養針那一類）。要改再到客戶頁改那一筆額度，不改也沒關係',
+    notice: true,
   },
   {
     id: 'alertTerm',
@@ -751,7 +757,7 @@ function checkOverdueTasks(ctx) {
     }));
 }
 
-// ---------- 八、資料過期 ----------
+// ---------- 八、還沒問這輪方便的時間（以前叫「資料過期」）----------
 //
 // 過期的可用性不會擋任何事，但會讓壓表的排序失真 ——
 // 「可用天數最少的優先」建立在那份資料還有效的前提上。
@@ -780,9 +786,10 @@ function checkStaleAvailability(ctx) {
       who: customer.name,
       whoId: customer.id,
       title: customer.name,
+      // 不叫她去待辦的「問這輪的時間」—— 那一列之後預設藏起來（同一輪 issue 07）
       detail: collections.length
-        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`
-        : `從來沒收集過可用性，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`,
+        ? `上一次問的已經過了，還有 ${remaining} 次沒排`
+        : `從來沒問過，還有 ${remaining} 次沒排`,
       link: null,
       fix: null,
     });

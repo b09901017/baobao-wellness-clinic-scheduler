@@ -6464,7 +6464,8 @@ summary {
 
 .hrow[open] > .hrow__sum::after,
 .hmore[open] > .hmore__sum::after,
-.hok[open] > .hok__sum::after {
+.hok[open] > .hok__sum::after,
+.hnote[open] > .hok__sum::after {
   transform: rotate(90deg);
 }
 
@@ -6492,6 +6493,17 @@ summary {
 .hok__sum {
   font-weight: 600;
   color: var(--text-dim);
+}
+
+/* 只是提醒的那一項（ADR-0150）：長得跟「沒問題的」那一行一樣，收著；點開是名字清單 */
+.hnote__n {
+  font-weight: 400;
+}
+
+.hnote__why {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
 }
 
 .hok__list {

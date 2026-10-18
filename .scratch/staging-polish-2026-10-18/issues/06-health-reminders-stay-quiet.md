@@ -1,6 +1,6 @@
 # 資料健檢：「還沒問這輪方便的時間」與「額度還叫舊表的名字」只是提醒，收成一行
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`domain/health.js` 的 `CHECKS`（`staleAvailability` 約 `:116`、`importedLabel` 約 `:152`）、`checkStaleAvailability()`（約 `:754`）、`checkImportedLabels()`（約 `:1078`）、`totalsOf()`；
@@ -45,4 +45,13 @@ ADR-0136 把這一頁分成「有事的」與「沒事的」兩種，沒有第�
 
 ## 做完時留下的
 
-（做完寫）
+- `CHECKS` 上選填的 `notice: true`，只給 `staleAvailability`、`importedLabel`（id、順序、總數 35 不動；`severity`、`fix` 不動 —— 理由在 ADR-0150「沒有選的」）
+- 改名「還沒問這輪方便的時間」；`hint` 與每一筆的 `detail` 都不寫「可用性」，`detail` 不再叫她去待辦的「問這輪的時間」（「從來沒問過，還有 N 次沒排」「上一次問的已經過了，還有 N 次沒排」）。
+  `importedLabel` 的 `hint` 改白話（「要改再到客戶頁改那一筆額度，不改也沒關係」）
+- 畫面（`ui/views/health.js`）：`bad` 不含提醒；結論只剩提醒時寫「沒有要處理的」，底下一行「N 項提醒・其餘 M 項沒問題」；顏色照舊（只有提醒＝綠的）。
+  「提醒」一組排在「要處理」之後、「沒問題的」之前：一項一個 `<details class="card hnote" data-check>`（長相借 `.hok__sum`），一行「名字・N 位」（每一筆一位就寫位、不然寫筆），
+  點開是那一項的說明一句＋名字清單（名字底下沒有說明）。`hnote` 不能跟 `hok` 同一個 class —— E2E `60` 用 `details.hok` 找「沒問題的」那一行
+- `totalsOf()` 沒分（畫面上沒有人讀那個數字）
+- 測試：`tests/health.test.js`「只是提醒的那兩項」三條；E2E `60` 的 H2 改成「有 1 項要你看」、組名「資料對不起來／提醒」、修完之後「沒有要處理的」＋「1 項提醒」；新的 H3（六位只有提醒：沒有大卡、點開之前看不到名字、名字底下沒有說明、整頁沒有「可用性」）
+- 文件：ADR-0150、SPEC 資料健檢那張表與底下一句。`docs/` 裡寫「資料過期」的只剩 ADR-0007、0057（歷史紀錄，不改）
+- 段二做 07 時再對一次：`detail` 已經不靠「問這輪的時間」那一列
