@@ -16,7 +16,7 @@
 | 三 | 12 拍 Abovee「app 有、照片上沒有」只對照片上的人 | high | ✅ 10/18 做完（見下面「段三做完了」）；中途發現一件（併進「段二 2」） |
 | 四 | 09 EECP 一門（「體驗排幾分」、20 ⇔ 體驗、拍 Abovee 認得扣法不一樣、資料健檢保險） | xhigh | ✅ 10/18 深夜做完（見下面「段四做完了」）；中途發現三件等她回 |
 | 五 | 10 沒床位的兩間拿掉、11 合併檔 v8 一開始就對＋**重產她那一份**（本機、真資料） | xhigh | ✅ 10/19 做完（見下面「段五做完了」）；她回了中途發現，`staging:reset --master` 也做了 |
-| 六 | 13 長備註與備註那一段的**原型**（設計 skill、假名字、發 Artifact）→ **停，等她回** | high | ⬜ |
+| 六 | 13 長備註與備註那一段的**原型**（設計 skill、假名字、發 Artifact）→ **停，等她回** | high | ✅ 10/19 原型發了（見下面「段六做完了」）；**等她回三題** |
 | 七 | 14 備註那一段一起排順序＋聯絡方式＋中間那張卡、15 長備註那一頁 | high | ⬜ |
 | 八 | `/matt-code-review`（從 `cd71d34` 比，含已經合進去的段一）、照建議修 | xhigh | ⬜ |
 | 九 | 文件總檢查、全量 E2E（CI）、手動驗收清單、**PR B、合進 develop** | medium | ⬜ |
@@ -194,6 +194,49 @@ commit 見 git log「staging:reset 多一個 --master」。`scripts/reset-stagin
 5. 設定 → 資料健檢 → 「診間清單跟建議的不一樣」「『EECP體驗』那一門還在」都在「沒問題」那一行裡
 
 **這幾條我沒有在瀏覽器裡親手走**（模擬器 w5 上是她的真資料，畫面有真名）：1 是讀 w5 匯完的那一份、用 `slotName()` 算的；2、3 是 E2E `17` S11 與 `53` R2；4 是單元測試（`tests/bedless-rooms-gone.test.js`）；5 是 E2E `60` H1 ＋上面那一段 staging 的模擬。**段九走手動驗收清單時用假資料在模擬器上走一次**
+
+## 段六做完了（10/19）
+
+**原型：https://claude.ai/artifact/2s61b9DohyzQ2V2f3WWFKF**（私人的 Artifact，她自己的帳號打得開；假資料：客戶A～D，一個真名都沒有）。
+原始檔在 session 的 scratchpad（`long-notes-prototype.html`），**不進 repo**；要改就重發同一個連結（從別的 session 改：Artifact `read` 那個網址再 `publish` 帶 `url`）。
+這一段沒有動 app 的程式。設計 skill 用 `frontend-design`；顏色、字、圓角全部是 `tokens.css` 的值（淺色深色兩份），卡片、丸子、抽屜照 app 的 class 抄。
+交付前在本機無頭 Chromium 390px 淺色深色各走一次五件事（0 個 console 錯誤、沒有橫向捲動），截圖看過。
+
+### 要她選的三題（原型最上面「要你選的 3 題」，切了畫面跟著變；「複製我選的」把答案複製起來貼回來）
+
+| 題 | A（建議） | B |
+|---|---|---|
+| 1. 備註那一串長什麼樣 | **一列一列**：電話、LINE、長備註各一列，連在一起的短備註照舊收成一排丸子 | **全部是丸子**：一排流下去；長備註是茶色那一顆（摺角便條＋›） |
+| 2. 點開長備註，中間那張卡怎麼出來 | **從那一則長出來**：從她點的那一列放大到中間、關掉縮回去（那一列在卡打開時隱形） | **從下面浮上來**：不管點哪一則，都從中間偏下浮上來 |
+| 3. 電話、LINE 的圖示 | **線條**：跟導覽列、鉛筆同一種淡線條 | **圓底小章**：圖示放在淡色圓裡，LINE 是實心綠 |
+
+### 我先定的（原型裡就是這樣，她沒說不要就照做）
+
+- 長備註那一列：上緣一道茶色（備忘錄卡片的黏邊）、底下墊一張紙的邊、副標是內文第一行 —— 「點開有全文」的記號
+- 備註抬頭的數字 = 短備註＋長備註（電話、LINE 不算）
+- 長備註那一頁：在服務中的客戶排前面、停用的排後面（卡上「已停用」小標）；同一位照她在詳情排的順序；卡上客戶名點了到他的詳情
+- 那一頁刪一則：編輯中左上角紅色垃圾桶，按一次變「再按一次刪掉」（3 秒沒按就收回）
+- 電話：點了撥號、**按住複製**；客戶頁上面那一排的「長備註」在原型裡是茶色的（為了讓她找得到），**app 裡跟另外兩顆一樣**
+
+### 原型的每一個互動在 app 裡要對到哪一支（段七照這張做）
+
+| 原型裡 | app 裡 | 會不會打架、要注意的 |
+|---|---|---|
+| 客戶頁上面多一顆「長備註」 | `ui/views/customers.js` 的 `.footlinks--inline` 多一個 `<a class="footlink" href="#/customers/notes">`；`ui/views.js` 登記新頁（會讓 verify 退回全跑，見中途發現「段二 2」） | 390px 三顆＋「客戶」量過放得下（`nowrap`）；更窄的手機會被擠 —— 段七量一次 360px |
+| 長備註那一頁：一疊左右滑的卡、丸子、圓點、放大鏡、＋ | 照 `ui/views/playbook.js`：原生 `scroll-snap`、`IntersectionObserver` 認停在哪張、`.pbsearch` 的 grid 0fr→1fr、`.pbcard`／`.pbdots`、`.fab` | 左右滑是 `.pbdeck` 自己的原生橫向捲動，跟 `.app__main` 的直向捲動不衝突（`overscroll-behavior-x: contain` 已經擋著回上一頁的手勢）。能共用的抽出來（卡的 CSS、`watchDeck()`、搜尋列），不要複製 858 行 |
+| 卡片上直接改（取消／存起來在卡片頂端、內文吃剩下的高度） | 同備忘錄的就地編輯：`.pbcard--edit > * { flex: none }`、內文 `flex: 1 1 0`、`.pbdeck[data-editing]` 給死高度 | CLAUDE.md「備忘錄編輯那張卡的版面」那個坑原樣適用 |
+| ＋ → 「寫給誰？」→ 卡片接在最後、直接在編輯 | 抽屜（`openSheet()`）＋ `domain/customers.js` 的 `searchCustomers()`（停用的也列、標「已停用」） | 抽屜本身可以拖著收；名單在 `.drawer__body` 裡捲，跟抽屜的拖曳是既有的同一套，不用新接 |
+| 客戶詳情那一串（電話、LINE、長備註、短備註照她排的順序） | 一支 domain（issue 14 的 `noteItems()`）→ `customerDetail.js` 備註那一段畫；連在一起的短備註收成一個 `.marks`（`marksUi.row()`） | 共用元件的屬性用 `data-notes-*`（原型裡用了 `data-long`／`data-phone`，那是原型的名字） |
+| 電話點了撥號、按住複製 | `tel:` 連結；按住走 `ui/components/actions.js` 的 `wireLongPress()` 收事件，但**直接複製**、不開選單 | **ADR-0060：長按是捷徑，要另外有一條點得到的路** —— 號碼本身在編輯客戶的表單裡可以選取複製，段七在 ADR-0156 寫一句這就是那一條路（或在 toast 上給一顆「複製」）。按住的時候不可以觸發 iOS 的連結預覽（`-webkit-touch-callout: none`） |
+| LINE 點了打開 | `href` 照 issue 14（網址原樣、ID → `https://line.me/R/ti/p/~ID`），`target="_blank" rel="noopener"` | — |
+| 點長備註 → 中間那張卡（A：從那一列長出來） | 新元件（例如 `ui/components/noteCard.js`）。**WAAPI `element.animate()`**：卡片底下那一層從那一列的 `getBoundingClientRect()` 位移＋縮放到整張（`transform-origin: 0 0`），字等 190ms 再淡進來；那一列在開著時 `opacity: 0`，關掉時縮回那一列（那一列不在畫面上了就改淡出） | **`app.css` 底部那條 reduced-motion 規則管不到 WAAPI** —— 要自己問 `matchMedia('(prefers-reduced-motion: reduce)')`，是就只淡入淡出（原型就是這樣做）。返回鍵關：`pushLayer()`，handle 存成變數、問 `.active`（CLAUDE.md 那一列）。它蓋住整頁 → 上緣要讓 `env(safe-area-inset-top)`（全螢幕，ADR-0147）。卡裡的內文自己捲（`overscroll-behavior: contain`），不會帶動底下那一頁 |
+| 中間那張卡上「改這一則」 | 就地變成標題＋內文＋取消／存起來（同一個元件），存檔走 issue 14 那一支（`data.update()` 一次寫 `longNotes`） | 卡片編輯時給死高度（原型 `.lncard--edit`），鍵盤上來時才不會把按鈕擠出去 |
+| 中間那張卡上「在長備註那一疊看」 | 換頁到 `#/customers/notes/<客戶>:<那一則>`（照備忘錄 `#/playbook/:id` 那一招：網址指「這一疊開在那一張」） | 換頁前 `await whenSettled()`（那一層收掉時排的 `history.go()`，CLAUDE.md「從一頁帶人到另一頁」） |
+| 調整順序（按住上下拖、放開吸附、完成／取消） | **在詳情頁原地做，不在抽屜裡做** —— 抽屜自己有直向的拖曳（拖著收），兩個搶同一個手勢。pointer events ＋ `setPointerCapture()`；只有排序模式下每一列 `touch-action: none`；每一列固定高（原型 50px＋間距 8px）用 `translateY` 排，被拖的那一列跟著手指、其餘的滑開，放開用 `--ease-pop` 吸到位；`navigator.vibrate()` 輕輕一下（Android 有、iOS 沒有）；鍵盤上下鍵也排得動 | **原型沒做「拖到畫面邊緣自動捲」**：最多 12 則短的＋長的＋電話＋LINE，一列 58px 會超過一個畫面 —— 段七要在 `.app__main` 上接（拖到上下 60px 內就捲）。排序模式下整列都可以拖，所以那幾列上沒辦法直向捲頁面 —— 有自動捲就夠 |
+| 「編輯」→ 底下的面板：每一則一列可刪；分段「加一則短的／加一則長的」 | 擴充現在的 `openMarks()`（`ui/components/marks.js` 的 `mount()`）；電話、LINE 那兩列只寫「在『編輯』客戶資料裡改」 | 取消就是取消（草稿在呼叫端，跟現在一樣） |
+| 沒有任何備註時那一句 | 原型寫「還沒有備註。客戶臨時提的小事記在這裡，長的寫成長備註。」 | 那一句在 `tests/fewer-words.test.js` 的 `KEEP` 裡 —— 改字要一起改那一條 |
+
+**她回了之後**：把她的原話逐字貼進 14、15 的「她要的」，選的寫進 14 的「要做的」（改了形狀就寫回那裡），再把段七的開場（high）貼給她。
 
 ## 段一停在哪（10/18 中午，她臨時有事、要關網路，叫我先收尾）—— 留著當紀錄
 
