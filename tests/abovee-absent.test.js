@@ -21,8 +21,10 @@ const PEOPLE = [
   { id: 'c-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] },
   { id: 'c-a', name: '客戶甲', marks: [{ text: '病歷號 2222', color: 'grey' }] },
   { id: 'c-b', name: '客戶乙', marks: [{ text: '病歷號 3333', color: 'grey' }] },
+  // 「很多人」的照片要 3 位以上才對大家（ADR-0153）—— 只有王小明與客戶甲的照片現在只對那兩位
+  { id: 'c-d', name: '客戶丁', marks: [{ text: '病歷號 5555', color: 'grey' }] },
 ];
-const CHART = { 王小明: '00001234', 客戶甲: '00002222', 客戶乙: '00003333' };
+const CHART = { 王小明: '00001234', 客戶甲: '00002222', 客戶乙: '00003333', 客戶丁: '00005555' };
 
 const end = (t) => `${String(Number(t.slice(0, 2)) + 1).padStart(2, '0')}:${t.slice(3)}`;
 const sis = (startsAt, extra = {}) => ({
@@ -76,7 +78,7 @@ describe('拍一個月內的一個人', () => {
     assert.deepEqual(goneAt(gone), ['c-wang 10-30 10:00']);
     assert.equal(gone.slots[0].name, 'SIS(60)');
     assert.equal(gone.slots[0].status, 'confirmed');
-    assert.equal(gone.checked.customerId, 'c-wang');
+    assert.deepEqual(gone.checked.customerIds, ['c-wang']);
   });
 
   test('月底那一段是健檢（壓 Examine）→ 不列；是 HRV（不用壓）→ 不列；app 上取消了 → 不列', () => {
@@ -131,7 +133,7 @@ describe('拍一個月內的一個人', () => {
 
   test('第一列與最後一列那個時間不算（翻頁常常切在同一天的中間）', () => {
     // 同一個時間有別人的一段：可能在上一頁／下一頁。那個時間之後、之前的照樣算
-    const rows = [row(['10-02', '10:00', '王小明']), row(['10-09', '10:00', '客戶甲']), row(['10-16', '10:00', '王小明'])];
+    const rows = [row(['10-02', '10:00', '王小明']), row(['10-09', '10:00', '客戶甲']), row(['10-09', '12:00', '客戶丁']), row(['10-16', '10:00', '王小明'])];
     const c = ctx({
       'c-wang': { '2026-10-02': [sis('10:00')], '2026-10-16': [sis('10:00')] },
       'c-a': { '2026-10-09': [sis('10:00')] },
@@ -176,10 +178,10 @@ describe('照片上的列跟 app 上那一段對得上的時候', () => {
 });
 
 describe('拍某段時間內的很多人', () => {
-  // 第一頁：10/9 09:00 到 10/14 10:00，照片上只有王小明與客戶甲
+  // 第一頁：10/9 09:00 到 10/14 10:00，照片上有王小明、客戶甲、客戶丁（3 位 → 對大家，ADR-0153）
   const page1 = [
     row(['10-09', '09:00', '王小明']), row(['10-09', '11:00', '客戶甲']), row(['10-11', '10:00', '王小明']),
-    row(['10-14', '10:00', '客戶甲']),
+    row(['10-12', '12:00', '客戶丁']), row(['10-14', '10:00', '客戶甲']),
   ];
 
   test('第一頁（「75筆第1/8頁」）：10/14 14:00 那一段不列（在下一頁）；照片上沒出現的客戶乙在範圍裡那一段 → 列', () => {
@@ -190,7 +192,7 @@ describe('拍某段時間內的很多人', () => {
     });
     const { gone } = check([photo(page1, { pageText: '75筆第1/8頁' })], c);
     assert.deepEqual(goneAt(gone), ['c-b 10-10 15:00']);
-    assert.equal(gone.checked.customerId, null, '很多人：對象是範圍裡每一位');
+    assert.equal(gone.checked.customerIds, null, '很多人：對象是範圍裡每一位');
   });
 
   test('第一頁、「起」沒讀到：第一列之前的不列（不知道 Abovee 上的篩選從哪一天開始）；第一列那個時間算', () => {

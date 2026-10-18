@@ -2102,6 +2102,8 @@ function within(range, date, startsAt) {
  * 這一次照片看得到哪幾段時間（`photoSpan()` → `boundsOf()`）。**「app 有、這次照片上沒有」（ADR-0129）與
  * 「Abovee 改了時間」（`flagMoved()`，abovee-status-follows-photo 05）共用這一支** —— 各算一次的話，
  * 一邊把 10:00 喊成沒拍到、另一邊卻當成拍到了去改期。照片上每一列都認出來、而且是同一位 → `customerId` 是他（放寬到整個月的那一條要它）。
+ * **這個 `customerId` 只管範圍放不放寬，不管對誰**（ADR-0153）—— 對誰是 `photoWho()`，判準比這裡寬（一列沒認出來不退回對大家）；
+ * 拿寬的那一個來放寬的話，很多人的列表最後一頁剛好只剩一兩位時會被放寬到整個月，`flagMoved()` 也跟著變。
  *
  * @returns {{customerId: string|null, ranges: {lo: object, hi: object}[], why: null|'noDates'|'unsorted'}}
  */
@@ -2113,13 +2115,68 @@ export function photoBounds(transcripts, items) {
   return { customerId, ranges: span.segments.map((seg) => boundsOf(seg, span, Boolean(customerId))), why: null };
 }
 
+/** 照片上有幾位以上就當成「拍大家」（ADR-0153）：1～2 位只對那幾位。 */
+export const EVERYONE_FROM = 3;
+
+/**
+ * 照片上有幾位（ADR-0153）：**看照片上的字，不看認不認得出來** —— 認人（`identifyCustomer()`）對不上時不挑人，
+ * 拿它來數的話一列抄錯一個字就多一位「沒認出來的」。
+ * 先照病歷號分組（補零、空白一樣）；沒有病歷號的那一列，名字跟某一組一樣或差一個字（`oneCharOff()`）→ 併進那一組，都不像 → 自己一組。
+ * 拿不準的當成不同的兩位（寧可多算一位 —— 多算的代價是多對大家一次）。名字與病歷號都空的那一列不算人。
+ *
+ * @param {object[]} items `readAbovee()` 的那幾列（讀 `row.name`／`row.chartNo`，照片上的原字）
+ * @returns {{label: string, chartNo: string, names: string[], items: object[]}[]} `label` 是照片上的原字（講的時候用）
+ */
+export function photoPeople(items = []) {
+  const groups = [];
+  const rows = (items ?? []).map((item) => ({
+    item,
+    no: normalizeChartNo(item?.row?.chartNo),
+    name: normalizeName(item?.row?.name),
+    text: clean(item?.row?.name),
+    noText: clean(item?.row?.chartNo),
+  })).filter((r) => r.no || r.name);
+  const add = (g, r) => {
+    if (r.name && !g.names.includes(r.name)) g.names.push(r.name);
+    if (!g.label && r.text) g.label = r.text;
+    g.items.push(r.item);
+  };
+  for (const r of rows.filter((x) => x.no)) {
+    let g = groups.find((x) => x.chartNo === r.no);
+    if (!g) groups.push(g = { label: '', chartNo: r.no, noText: r.noText, names: [], items: [] });
+    add(g, r);
+  }
+  for (const r of rows.filter((x) => !x.no)) {
+    let g = groups.find((x) => x.names.some((n) => n === r.name || oneCharOff(n, r.name)));
+    if (!g) groups.push(g = { label: '', chartNo: '', noText: '', names: [], items: [] });
+    add(g, r);
+  }
+  return groups.map(({ noText, ...g }) => ({ ...g, label: g.label || `病歷號 ${g.chartNo}` }));
+}
+
+/**
+ * 「app 有、這次照片上沒有」對誰（ADR-0153，補 ADR-0129 的「對象」）。照片上（`photoPeople()`）1～2 位 → 只對那幾位：
+ * 那幾列**認出來的人**（她「換一位」之後照她換的 —— 照片上一位、她說了是兩個人，認出來的為準）；
+ * 其中一位一列都沒認出來 → 那一位先不對、講一句（`unknown`），**不退回對大家**。3 位以上（或一位都數不出來）→ 對大家（`customerIds: null`）。
+ *
+ * @returns {{customerIds: string[]|null, unknown: string[]}}
+ */
+export function photoWho(items = []) {
+  const people = photoPeople(items);
+  if (!people.length || people.length >= EVERYONE_FROM) return { customerIds: null, unknown: [] };
+  const customerIds = [...new Set((items ?? []).map((i) => i?.customerId).filter(Boolean))];
+  const unknown = people.filter((g) => !g.items.some((i) => i.customerId)).map((g) => g.label);
+  return { customerIds, unknown };
+}
+
 /** 那一天那個時間落不落在這張照片看得到的範圍裡（`photoBounds()`）。 */
 const inPhoto = (bounds, date, startsAt) => (bounds?.ranges ?? []).some((r) => within(r, date, startsAt));
 
 /**
  * app 上有、這次照片上沒有的那幾段（ADR-0129）。確認層每畫一次就算一次 —— 她換了某一列是誰，結果跟著變。
  *
- * **對象**：照片上每一列都認出來、而且是同一位 → 那一位（「一個月內的一個人」）；否則範圍裡 app 上有來訪的每一位。
+ * **對象**（`photoWho()`，ADR-0153）：照片上 1～2 位 → 只對那幾位（認出來的人）；3 位以上 → 範圍裡 app 上有來訪的每一位。
+ * `everyone` → 不看照片上幾位、對每一位（月底對帳：一整個月、每一位都要對）。**範圍**照舊只看 `photoBounds()`。
  * **哪幾段算 app 有**：來訪還在、那一段還活著（未到也算 —— Abovee 上失約的那一列還在）、**那門課壓在 Abovee**
  *（`bookingSystemOf()`：健檢壓 Examine、HRV 不用壓，都不算；認不得的課照它的猜法算 Abovee）。
  * **哪幾段算照片上有**：同一位、同一天，而且開始時間一樣（合併扣課的另一半也算）；那一段沒有開始時間的話，
@@ -2129,13 +2186,16 @@ const inPhoto = (bounds, date, startsAt) => (bounds?.ranges ?? []).some((r) => w
  * @param {object[]} transcripts 那一次的抄字（`photoSpan()` 讀）
  * @param {object[]} items `readAbovee()` 的那幾列（她改過之後的）
  * @param {{customers, visitsBy, master}} ctx
- * @returns {{checked: {customerId: string|null, ranges: object[]}|null, why: null|'noDates'|'unsorted', slots: object[]}}
+ * @param {{everyone?: boolean}} [opts]
+ * @returns {{checked: {customerIds: string[]|null, unknown: string[], ranges: object[]}|null, why: null|'noDates'|'unsorted', slots: object[]}}
+ *   `customerIds: null` ＝ 對每一位
  */
-export function absentFromPhoto(transcripts, items, ctx) {
+export function absentFromPhoto(transcripts, items, ctx, { everyone = false } = {}) {
   const list = items ?? [];
   if (!list.length) return { checked: null, why: null, slots: [] };
-  const { customerId, ranges, why } = photoBounds(transcripts, list);
+  const { ranges, why } = photoBounds(transcripts, list);
   if (why) return { checked: null, why, slots: [] };
+  const { customerIds, unknown } = everyone ? { customerIds: null, unknown: [] } : photoWho(list);
   const courses = new Map((ctx.master?.courses ?? []).map((c) => [c.id, c]));
   const nameOf = (id, visit) => (ctx.customers ?? []).find((c) => c.id === id)?.name ?? visit?.customerName ?? '';
 
@@ -2150,7 +2210,7 @@ export function absentFromPhoto(transcripts, items, ctx) {
   };
 
   const slots = [];
-  const people = customerId ? [customerId] : Object.keys(ctx.visitsBy ?? {});
+  const people = customerIds ?? Object.keys(ctx.visitsBy ?? {});
   for (const who of people) {
     for (const visit of ctx.visitsBy?.[who] ?? []) {
       if (!visit || visit.deletedAt || !isActive(visit) || !visit.date) continue;
@@ -2174,14 +2234,15 @@ export function absentFromPhoto(transcripts, items, ctx) {
     }
   }
   slots.sort((a, b) => `${a.date}|${a.startsAt ?? ''}|${a.customerName}`.localeCompare(`${b.date}|${b.startsAt ?? ''}|${b.customerName}`));
-  return { checked: { customerId, ranges }, why: null, slots };
+  return { checked: { customerIds, unknown, ranges }, why: null, slots };
 }
 
 const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const pointSay = (p) => (p.time ? `${md(p.date)} ${p.time}` : md(p.date));
 
 /**
- * 那一塊上面那一句：對了誰、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
+ * 那一塊上面那一句：對了誰（一位、兩位、每一位，ADR-0153）、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
+ * 照片上有一位還沒認出是誰（`unknown`）→ 接一句「照片上的 ○○ 還沒認出是誰，先沒對」（名字照照片上的原字）。
  * 沒有對的時候講為什麼（不然她分不出沒列出來是「沒有」還是「沒檢查」）。照片上一列都沒有就不講。
  *
  * @param {ReturnType<typeof absentFromPhoto>} result
@@ -2193,12 +2254,15 @@ export function absentSay(result, customers = []) {
   }
   if (result?.why === 'noDates') return '照片上讀不到日期 —— 沒有對「app 有、這次照片上沒有」。';
   if (!result?.checked) return '';
-  const { customerId, ranges } = result.checked;
+  const { customerIds, unknown = [], ranges } = result.checked;
+  const notYet = unknown.length ? `照片上的 ${unknown.join('、')} 還沒認出是誰` : '';
+  if (customerIds && !customerIds.length) return `${notYet} —— 沒有對「app 有、這次照片上沒有」。`;
   const when = ranges.map(({ lo, hi }) => `${pointSay(lo)}–${pointSay(hi)}`).join('、');
-  const name = customerId ? ((customers ?? []).find((c) => c.id === customerId)?.name ?? '') : '';
-  const scope = customerId ? `對過 ${name} ${when} 在 app 上的段` : `對過 ${when} 每一位在 app 上的段`;
+  const names = (customerIds ?? []).map((id) => (customers ?? []).find((c) => c.id === id)?.name ?? '').filter(Boolean).join('、');
+  const scope = customerIds ? `對過 ${names} ${when} 在 app 上的段` : `對過 ${when} 每一位在 app 上的段`;
   const n = result.slots.length;
-  return n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
+  const said = n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
+  return notYet ? `${said}${notYet}，先沒對。` : said;
 }
 
 /**

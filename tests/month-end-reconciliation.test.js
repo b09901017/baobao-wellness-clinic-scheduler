@@ -104,6 +104,11 @@ describe('月底對帳', () => {
     assert.deepEqual(types(r), ['10-23 extra']);
   });
 
+  test('Abovee 這個月只有王小明、app 上客戶甲做完一段 → 照樣講（月底對每一位，不照照片上幾位猜，ADR-0153）', () => {
+    const r = reconcile({ ...CLEAN, 'c-a': { '2026-10-12': 'done' } }, THREE);
+    assert.deepEqual(types(r), ['10-12 extra']);
+  });
+
   test('Abovee 取消了、app 還排著 → 「app 還排著」', () => {
     const r = reconcile({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-30': 'confirmed' } }, [...THREE, ['10-30', '王小明', '已取消']]);
     assert.deepEqual(types(r), ['10-30 stillBooked']);

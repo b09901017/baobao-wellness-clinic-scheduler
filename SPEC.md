@@ -1922,6 +1922,7 @@ serviceAccountKey.json
 - 照片送不送 AI、存不存、療程單照片什麼時候真的刪：[ADR-0101](docs/adr/0101-photos-and-privacy.md)
 - 照片上的人：病歷號對上、名字只差一個字（三個字以上）算認得，畫面一定講出來；課程那一格差一個字也認，診間不放寬：[ADR-0128](docs/adr/0128-a-matching-chart-number-forgives-one-character.md)
 - 拍 Abovee 也講「app 有、這次照片上沒有」：範圍只到照片上第一列與最後一列之間（讀得出第一頁／最後一頁才放寬），只算壓在 Abovee 的課，只講不改：[ADR-0129](docs/adr/0129-abovee-photo-checks-what-is-missing.md)
+- 那一塊對誰看照片上有幾位（照片上的病歷號與名字，差一個字算同一位）：1～2 位只對那幾位（認出來的人；還沒認出的那一位講一句、先不對），3 位以上對大家；範圍放不放寬照舊：[ADR-0153](docs/adr/0153-abovee-absent-checks-people-on-photo.md)
 - 一段可以是體驗或送的：存在段上（`giftKind`）、任何課（健檢與二返除外）、就算有額度也不扣；課程上那一格變成「預設體驗」；不扣的那幾顆收在「做什麼」那一排最後一顆；拍 Abovee 預約來源寫「體驗」的那一列自動是體驗：[ADR-0148](docs/adr/0148-a-slot-can-be-a-trial-or-a-gift.md)
 - 拍 Abovee 的每一列預設收著、打著勾：會改變寫入結果的提醒（器材對警示、時間重疊、超過總次數、品項跟買的不一樣、撞到別的來訪）收著的那一行與存檔前那一道都講，不擋；「還沒選治療師」那一類照舊點開才看：[ADR-0138](docs/adr/0138-abovee-warnings-show-on-collapsed-rows.md)
 - 拍 Abovee 照片上的預約狀態為準（2026-10-15）：六種字對到四種狀態；新的一列照那個狀態記、日子對不上的不先勾；

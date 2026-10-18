@@ -29,6 +29,7 @@ description: >
 
 「哪一列對到 app 的哪一段、算不算對不上」**一律用 app 自己的函式**（拍 Abovee 用的 `readAbovee()`、`absentFromPhoto()`；
 次數 `counts()`）。不要在這支 skill 裡另寫一套規則 —— 兩套遲早有一套落後，而月底對帳要檢查的正是 app。
+唯一的差別寫成選項：`absentFromPhoto(…, { everyone: true })` —— 拍 Abovee 照片上只有一兩位時只對那幾位（ADR-0153），月底要對每一位。
 
 ## 四條鐵則
 
