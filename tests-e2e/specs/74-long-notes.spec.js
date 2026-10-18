@@ -223,6 +223,28 @@ test('N10 減少動態效果：卡片只淡入，不從那一顆長出來', asyn
   expect(grows).toBe(false);
 });
 
+test('N11 電話排在長備註底下那一排：點長備註的下緣開的是長備註，不是撥號（撐開的觸控區不跨到上一排）', async ({ app, page }) => {
+  // 丸子一排 34px、上下兩排之間 6px。電話撐開的觸控區比那 6px 的一半還多的話，
+  // 疊到上一排那一顆的下緣，而它在 DOM 裡排在後面 —— 疊到的那一段由它贏（CLAUDE.md「一顆小圖示按鈕的觸控區」）
+  await app.seed([...masterDocs(), clientA({
+    longNotes: [{ id: 'n1', title: '家人與接送還有停車的地方', body: LONG_BODY }],
+    noteOrder: ['long:n1', 'phone', 'line', 'mark', 'mark'],
+  })]);
+  await app.signIn('/customers/cust-n');
+
+  const long = await page.locator('[data-notesblock] [data-notes-long]').boundingBox();
+  const phone = await page.locator('[data-notesblock] [data-notes-phone]').boundingBox();
+  expect(phone.y).toBeGreaterThan(long.y + long.height); // 電話真的在下一排
+  const x = Math.max(long.x, phone.x) + 4;
+  for (const y of [long.y + long.height - 1, long.y + long.height - 0.5]) {
+    const hit = await page.evaluate(([px, py]) => {
+      const el = document.elementFromPoint(px, py);
+      return el?.closest('[data-notes-long]') ? 'long' : el?.closest('[data-notes-phone]') ? 'phone' : el?.className ?? null;
+    }, [x, y]);
+    expect(hit).toBe('long');
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 15 客戶頁上面的「長備註」：一疊左右滑的卡
 // ---------------------------------------------------------------------------

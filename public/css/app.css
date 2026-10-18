@@ -1620,12 +1620,14 @@ button.mark::after {
   user-select: none;
 }
 
-/* 觸控區撐開貼在自己身上（`.mark` 本來就是 position: relative） */
+/* 觸控區撐開貼在自己身上（`.mark` 本來就是 position: relative）。
+   **上下只撐 `.marks` 那 6px 排距的一半**：多撐的話跨進上一排那一顆的下緣，
+   而電話在 DOM 裡排在後面、疊到的那一段由它贏 —— 點長備註的下緣變成撥號（E2E 74 N11 量著） */
 a.mark--contact::after,
 span.mark--contact::after {
   content: '';
   position: absolute;
-  inset: -8px 0;
+  inset: -3px 0;
 }
 
 .mark--contact.is-pressing,
