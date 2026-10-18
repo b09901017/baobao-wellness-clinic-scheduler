@@ -1804,13 +1804,22 @@ function flagMoved(items, ctx, bounds) {
       startsAt: old.slot.startsAt, courseId: old.slot.courseId, status: old.status,
     };
     const partialHistory = historyPartial(ctx, item.customerId);
-    return asRecorded(item, existing, {
+    // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
+    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
+    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere;
+    // 扣法也不一樣（ADR-0154，staging-polish 16：Abovee 上改了時間、也改成 EECP20）→ 同一列多一件「要改的」。
+    // 拿照片這一列跟 app 上**舊的那一段**比（同一個時間對到時是 `resolveItem()` 那一條比的，改期那一列不經過它）。
+    // 預設勾跟著改期：改期沒先勾就不先勾 —— 只改舊時間那一段的扣法、不搬，對不上照片上任何一列
+    const charged = chargeChangeOf(item, old.visit, { slot: old.slot, index: old.index }, ctx);
+    return asRecorded(item, charged ? { ...existing, entitlementId: old.slot.entitlementId ?? null } : existing, {
       movedFrom,
       move: { slot: movedSlotFields(item, old, ctx), status: photoSlotStatus(item, ctx.today) },
-      // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
-      // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
-      adoptMove: photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere,
+      adoptMove,
       partialHistory,
+      ...(charged ? {
+        chargeChange: charged.change, chargeLocked: charged.locked,
+        adoptCharge: adoptMove && charged.adoptable && !pickedByHand(item),
+      } : {}),
     });
   });
 }
@@ -1886,7 +1895,12 @@ export function applyPhotoMove(visit, items = [], { at = new Date().toISOString(
       missed.push({ ...item, missedWhy: 'stale' });
       continue;
     }
-    const moved = { ...old, ...item.move.slot };
+    // 時長照**現在**這一段（扣法那一步套過的話是改過的時長，staging-polish 16）—— `move.slot.endsAt` 是讀照片那一刻照舊的時長算的
+    const span = old.startsAt && old.endsAt ? toMinutes(old.endsAt) - toMinutes(old.startsAt) : null;
+    const moved = {
+      ...old, ...item.move.slot,
+      ...(span > 0 && item.move.slot.startsAt ? { endsAt: endOf(item.move.slot.startsAt, span) } : {}),
+    };
     let after = rebookSlot(next, want.slotIndex, moved, { status: item.move.status, at });
     const why = after && item.move.status === 'done' && guard
       ? cannotClose(after, after.slots.length - 1, [], guard) : null;
@@ -1919,9 +1933,11 @@ function checkMoves(items, ctx) {
     const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing.visitId);
     if (!visit) continue;
     const guard = { entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: afterPhoto(item.customerId, groups, items, ctx) };
-    const { visit: after, blocked } = applyPhotoMove(visit, [item], { guard });
+    // 扣法勾著的話先套（staging-polish 16）：不然拿舊的時長去驗撞期與重疊
+    const charged = item.adoptCharge ? applyPhotoCharge(visit, [item], ctx).visit : visit;
+    const { visit: after, blocked } = applyPhotoMove(charged, [item], { guard });
     if (blocked[item.key]) {
-      notes.set(item.key, { adoptMove: false, closeBlock: blocked[item.key] });
+      notes.set(item.key, { adoptMove: false, adoptCharge: false, closeBlock: blocked[item.key] });
       continue;
     }
     const check = checkCtxFor(groups, { customerId: item.customerId, date: after.date, visit: after }, ctx);
@@ -1930,7 +1946,8 @@ function checkMoves(items, ctx) {
       ...validateVisit(after, check).errors,
       ...warningDetails(after, check).filter((w) => mustSee(w) && w.slots.includes(at)).map((w) => w.text),
     ];
-    if (said.length) notes.set(item.key, { adoptMove: false, moveWarnings: said });
+    // 改期不先勾，扣法也不先勾（理由同 `flagMoved()`）
+    if (said.length) notes.set(item.key, { adoptMove: false, adoptCharge: false, moveWarnings: said });
   }
   return items.map((i) => (notes.has(i.key) ? { ...i, ...notes.get(i.key) } : i));
 }

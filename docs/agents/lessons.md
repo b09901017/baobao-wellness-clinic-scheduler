@@ -148,6 +148,19 @@
 
 ---
 
+## 十二、`--related` 比的是本機那一份 `develop`
+
+`scripts/e2e.mjs --related` 拿 **本機的 `develop` 分支**比（`BASE = 'develop'`），不是 `origin/develop`。
+`git fetch` 只移動 `origin/develop`；一直待在功能分支上的話，本機 `develop` 停在開分支前的那一格，`verify` 每一次都拿整輪的差異在挑 ——
+看起來像「這一輪動太多所以全跑」，其實是基準點舊了。
+
+10/19 找到：staging-polish 那一輪從頭到尾本機 `develop` 都停在 `cd71d34`；PR #164 合進去之後開下一支，`verify` 說「動了 154 個檔案 → 全跑」，
+對齊之後是 7 個檔案、9 支。
+
+> `verify` 說全跑、而這一次只改了一兩個檔案？先 `git log -1 develop` 對一下 `origin/develop`，舊了就 `git branch -f develop origin/develop`（不在 develop 上時）。
+
+---
+
 ## 查的方法（給之後做健檢或驗證的 session）
 
 - **測試全綠不代表沒事**：掃原始碼的測試只看得到它認得的寫法（save-guards 只掃 `withSaveState`；E2E U8 量按鈕外框，量不到被 `overflow` 裁掉的感應範圍 —— 要用 `elementFromPoint` 量）
