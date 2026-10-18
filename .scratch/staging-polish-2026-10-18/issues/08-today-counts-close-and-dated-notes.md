@@ -1,6 +1,6 @@
 # 待辦首頁：今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的
 
-Status: todo
+Status: done
 Blocked by: 07（同一頁、同一段；07 先把「哪幾列」的名單放進 domain）
 段：二（high）
 動工前先讀：`ui/views/home.js` 的 `paint()`（`overdue`／`dueToday`／`tomorrow` 三個 filter）、`tile()`、`renderGroup()` 的 `filters`（`overdue`／`today`／`tomorrow`）、`paintTasks()`、`renderClose()`／`openCloseDrawer()`（簽療程單那一頁與抽屜）、`notesCard()`、`toggleNote()`；
@@ -47,4 +47,13 @@ ADR-0044（「日期不是死線」那張表：隨手記「不進任何數字」
 
 ## 做完時留下的
 
-（做完寫）
+- domain：`todoFlow.js` 的 `BUCKETS`、`taskBucket()`（任務落哪一格；「已完成」那一格也照它切）、`todoBuckets()`（三格各是哪幾件：tasks／close／notes）、`bucketCount()`。
+  簽療程單直接叫 `visitsToClose()`、隨手記問 `notes.js` 的 `isOpen()` —— 沒有循環 import（`notes.js` 只 import `dates.js`）
+- 首頁 `paint()`：三顆數字＝`bucketCount()`；「今天沒有待辦」多問掛今天／明天的隨手記
+- `renderGroup()` 的逾期／今天／明天：多讀 `listUnclosed(today)` 與 `notesData.listOpen()`（只有這三頁讀）；`ctx.close`、`ctx.notes`；
+  「未完成 N」＝三塊加起來；只有任務時長得跟以前一樣（不加小標），有別的塊就每一塊一個小標（`.donegroup`）
+- 簽療程單那一列：`data-close-go` → `leaveFor('todo/close', id)` → `whenSettled()` → `go('/todo/close')`（同日曆長按那一條）；列上寫「N 段還沒簽」
+- 隨手記那一塊：`note.row()`，點一下走 `note.prepareToggle(row, noteDeps())`、長按走 `wireNoteLongPress()`，勾完重畫那一頁
+- 測試：`tests/todo-buckets.test.js`（判準那一組、昨天的隨手記哪一格都不在、明天不算簽療程單、home.js 讀同一支）；E2E `70` B1–B4
+- 文件：ADR-0152、SPEC 8.1 那張表、CONTEXT「隨手記」、常見問題兩題（「寫紀錄那一列不見了」也一起寫了，屬 07）
+- 「依客戶」那一頁的數字沒動

@@ -5,7 +5,7 @@
 
 import { test, expect } from '../fixtures/app.js';
 import {
-  masterDocs, customer, entitlement, task, TODAY, addDays,
+  masterDocs, customer, entitlement, task, visit, slot, note, scenarioProducts, TODAY, addDays,
 } from '../fixtures/data.js';
 
 /** 首頁上某一列（照標題找）。 */
@@ -105,4 +105,91 @@ test('R4 設定頁：改了存起來、重新整理還在，首頁跟著變，�
 
   await app.go('/settings/audit');
   await expect(page.locator('#view')).toContainText('待辦首頁顯示哪幾列');
+});
+
+// ---------------------------------------------------------------------------
+// 08
+// ---------------------------------------------------------------------------
+
+const YESTERDAY = addDays(TODAY, -1);
+const TOMORROW = addDays(TODAY, 1);
+
+/** issue 08 的判準那一組：逾期 1、今天 3、明天 1。 */
+const bucketScenario = (settings = {}) => [
+  ...masterDocs(settings),
+  customer({ id: 'cust-a', name: '客戶A' }),
+  customer({ id: 'cust-b', name: '客戶B' }),
+  entitlement('cust-a', { id: 'ent-a', label: '靜脈', type: 'single', courseId: 'course-iv-laser', totalQty: 20, bookedCount: 1, durationMin: 60 }),
+  entitlement('cust-b', { id: 'ent-b', label: '靜脈', type: 'single', courseId: 'course-iv-laser', totalQty: 20, bookedCount: 1, durationMin: 60 }),
+  visit({
+    id: 'v-today', customerId: 'cust-a', customerName: '客戶A', date: TODAY, status: 'confirmed',
+    slots: [{ ...slot({ courseId: 'course-iv-laser', entitlementId: 'ent-a', startsAt: '10:00', endsAt: '11:00' }), status: 'confirmed' }],
+  }),
+  visit({
+    id: 'v-yday', customerId: 'cust-b', customerName: '客戶B', date: YESTERDAY, status: 'confirmed',
+    slots: [{ ...slot({ courseId: 'course-iv-laser', entitlementId: 'ent-b', startsAt: '10:00', endsAt: '11:00' }), status: 'confirmed' }],
+  }),
+  note({ id: 'n-today', text: '今天要記得的事', date: TODAY }),
+  note({ id: 'n-today-done', text: '今天已經做完的', date: TODAY, done: true, doneAt: `${TODAY}T01:00:00.000Z` }),
+  note({ id: 'n-tom', text: '明天要記得的事', date: TOMORROW }),
+  note({ id: 'n-yday', text: '昨天沒勾的', date: YESTERDAY }),
+  task({ id: 't-ex', customerId: 'cust-a', customerName: '客戶A', kind: 'Examine', dueDate: TODAY, visitId: 'v-today' }),
+];
+
+const tileN = (page, id) => page.locator(`[data-tile="${id}"] .tile__n`);
+
+test('B1 三顆數字算進簽療程單與有日期的隨手記；昨天沒勾的隨手記哪一格都不在', async ({ app, page }) => {
+  await app.seed(bucketScenario());
+  await app.signIn('/');
+  await expect(tileN(page, 'overdue')).toHaveText('1');
+  await expect(tileN(page, 'today')).toHaveText('3');
+  await expect(tileN(page, 'tomorrow')).toHaveText('1');
+
+  // 今天那一頁：三塊、件數＝數字；勾掉隨手記 → 回首頁今天變 2
+  await page.locator('[data-tile="today"]').click();
+  await app.settled();
+  await expect(page.locator('[data-task-tab="open"]')).toHaveText('未完成 3');
+  await expect(page.locator('[data-task="t-ex"]')).toBeAttached();
+  await expect(page.locator('[data-close-go="v-today"]')).toBeVisible();
+  await expect(page.locator('[data-notes] [data-note="n-today"]')).toBeVisible();
+  await expect(page.locator('#view')).not.toContainText('昨天沒勾的');
+  await page.locator('[data-notes] [data-note="n-today"]').click();
+  await app.saved();
+  expect((await app.readDoc('notes', 'n-today')).done).toBe(true);
+
+  await app.go('/');
+  await expect(tileN(page, 'today')).toHaveText('2');
+});
+
+test('B2 逾期那一頁的簽療程單 → 換到簽療程單那一頁、開的是昨天那一天的抽屜', async ({ app, page }) => {
+  await app.seed(bucketScenario());
+  await app.signIn('/todo/overdue');
+  await page.locator('[data-close-go="v-yday"]').click();
+  await expect(page).toHaveURL(/#\/todo\/close$/);
+  // 上一頁的面板也是 `.drawer`：等的是這一天的抽屜裡寫著那位客戶
+  const drawer = page.locator('.drawer').filter({ hasText: '客戶B' });
+  await expect(drawer).toBeVisible();
+  await expect(page.locator('.drawer').filter({ hasText: '客戶A' })).toHaveCount(0);
+});
+
+test('B3 掛今天的營養品提醒：算進今天；在今天那一頁勾掉 → 問「給了哪些」、寫進交付', async ({ app, page }) => {
+  await app.seed(scenarioProducts({ giveDate: TODAY }));
+  await app.signIn('/');
+  // 那一位那天的來訪也還沒簽：今天＝簽療程單 1 ＋ 提醒 1
+  await expect(tileN(page, 'today')).toHaveText('2');
+  await page.locator('[data-tile="today"]').click();
+  await page.locator('[data-notes] [data-note="note-c-give"]').click();
+  await app.layer('[data-give-ok]');
+  await page.locator('[data-give-ok]').click();
+  await app.saved();
+  const ent = await app.readDoc('customers/cust-c/entitlements', 'ent-c-prod');
+  expect(ent.deliveries, '交付要寫進額度，不是只把隨手記勾掉').toHaveLength(1);
+});
+
+test('B4 簽療程單那一列設成不顯示：三顆數字照算它', async ({ app, page }) => {
+  await app.seed(bucketScenario({ todoRows: { close: 'hidden' } }));
+  await app.signIn('/');
+  await expect(homeRow(page, '簽療程單')).toHaveCount(0);
+  await expect(tileN(page, 'overdue')).toHaveText('1');
+  await expect(tileN(page, 'today')).toHaveText('3');
 });

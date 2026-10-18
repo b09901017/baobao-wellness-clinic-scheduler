@@ -34,7 +34,7 @@ import {
 } from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
-  HOME_ROWS, rowView, homeLoaders,
+  HOME_ROWS, rowView, homeLoaders, todoBuckets, bucketCount, taskBucket, BUCKETS,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -68,7 +68,7 @@ import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
-import { pushLayer, takeFor } from '../nav.js';
+import { pushLayer, takeFor, leaveFor, whenSettled } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
@@ -307,13 +307,15 @@ async function loadInbox(ctx) {
 function paint(ctx) {
   const { el, tasks, pending, unclosed, notes, today } = ctx;
 
-  const overdue = tasks.filter((t) => urgency(t.dueDate, today) === 'overdue');
-  const dueToday = tasks.filter((t) => t.dueDate === today);
-  const tomorrow = tasks.filter((t) => daysBetween(today, t.dueDate) === 1);
+  // 三顆大數字的組成只在 `todoBuckets()`（ADR-0152）：任務＋簽療程單＋有日期的隨手記，
+  // 點進去那一頁讀同一支 —— 數字＝那一頁列出來的件數
+  const buckets = todoBuckets({ tasks, unclosed, notes, today });
   const waiting = byCustomer(visitsToConfirm(pending, today));
   const toClose = visitsToClose(unclosed ?? [], today);
 
-  const nothing = !tasks.length && !waiting.size && !toClose.length;
+  // 掛今天／明天、還沒勾的隨手記也是事（ADR-0152）；過了的不算（它不進逾期）
+  const nothing = !tasks.length && !waiting.size && !toClose.length
+    && !buckets.today.notes.length && !buckets.tomorrow.notes.length;
 
   el.innerHTML = `
     <div class="page">
@@ -333,7 +335,7 @@ function paint(ctx) {
       <button class="seg__item" type="button" aria-pressed="${tab === 'who'}" data-tab="who">依客戶</button>
     </div>
 
-    ${tab === 'all' ? overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose })
+    ${tab === 'all' ? overviewHtml(ctx, { buckets, waiting, toClose })
                     : byCustomerHtml(ctx, waiting, toClose)}
 
     ${notesCard(notes)}
@@ -788,7 +790,7 @@ function longDate(iso) {
  * 有兩三列是等資料回來才補進去的（`data-ask` / `data-inbox` / `data-book`），
  * 段落先在那裡，補進來才有位置放，而且不必為了它重畫整塊。
  */
-function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
+function overviewHtml(ctx, { buckets, waiting, toClose }) {
   const { tasks, settings } = ctx;
   const cancels = tasks.filter((t) => isCancelKind(t.kind));
 
@@ -834,9 +836,9 @@ function overviewHtml(ctx, { overdue, dueToday, tomorrow, waiting, toClose }) {
 
   return `
     <div class="tiles">
-      ${tile('overdue', overdue.length, '逾期', 'tile--overdue')}
-      ${tile('today', dueToday.length, '今天', 'tile--soon')}
-      ${tile('tomorrow', tomorrow.length, '明天', '')}
+      ${tile('overdue', bucketCount(buckets.overdue), '逾期', 'tile--overdue')}
+      ${tile('today', bucketCount(buckets.today), '今天', 'tile--soon')}
+      ${tile('tomorrow', bucketCount(buckets.tomorrow), '明天', '')}
     </div>
 
     ${groupByStage(rows).map(({ stage, rows: mine }) => `
@@ -1816,16 +1818,21 @@ export async function renderGroup(el, group) {
     taskTabGroup = group;
   }
 
-  const [open, done] = await Promise.all([tasksData.listOpen(), tasksData.listDone()]);
   const today = todayISO();
+  // 逾期／今天／明天那三頁多列兩塊：簽療程單與有日期的隨手記（ADR-0152）。
+  // 三塊都從 `todoBuckets()` 來 —— 首頁那顆數字讀的是同一支
+  const isBucket = BUCKETS.includes(group);
+  const [open, done, unclosed, notes] = await Promise.all([
+    tasksData.listOpen(),
+    tasksData.listDone(),
+    isBucket ? visitsData.listUnclosed(today) : [],
+    isBucket ? notesData.listOpen() : [],
+  ]);
 
-  const filters = {
-    overdue: (t) => urgency(t.dueDate, today) === 'overdue',
-    today: (t) => t.dueDate === today,
-    tomorrow: (t) => daysBetween(today, t.dueDate) === 1,
-    cancel: (t) => isCancelKind(t.kind),
-  };
-  const match = filters[group] ?? ((t) => t.kind === group);
+  const match = isBucket
+    ? (t) => taskBucket(t.dueDate, today) === group
+    : group === 'cancel' ? (t) => isCancelKind(t.kind) : (t) => t.kind === group;
+  const bucket = isBucket ? todoBuckets({ tasks: open, unclosed, notes, today })[group] : null;
   const meta = GROUPS[group] ?? {
     title: group,
     // 已經拿掉的種類（ADR-0041）。列還在是因為那是她真的還沒做的事 ——
@@ -1840,8 +1847,11 @@ export async function renderGroup(el, group) {
   // 在已完成那一格也是照死線切的。她在那三頁問的是「這個死線的事情做完了沒」。
   const ctx = {
     el, group, today, meta,
-    open: open.filter(match),
+    open: bucket ? bucket.tasks : open.filter(match),
     done: done.filter(match),
+    // 簽療程單與隨手記那兩塊（只有逾期／今天／明天才有）
+    close: bucket?.close ?? [],
+    notes: bucket?.notes ?? [],
   };
   paintTasks(ctx);
   loadTaskVisits(ctx);
@@ -2011,7 +2021,8 @@ window.addEventListener('hashchange', () => { taskTabGroup = null; });
 
 function paintTasks(ctx) {
   const { el, today, meta } = ctx;
-  const rows = taskTab === 'done' ? ctx.done : ctx.open;
+  // 「未完成 N」＝底下三塊加起來（ADR-0152）：首頁那顆數字點進來，看到的件數要一樣
+  const openCount = ctx.open.length + ctx.close.length + ctx.notes.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -2021,7 +2032,7 @@ function paintTasks(ctx) {
 
     <div class="seg" role="group" style="margin-bottom: var(--space-4)">
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
-              data-task-tab="open">未完成${ctx.open.length ? ` ${ctx.open.length}` : ''}</button>
+              data-task-tab="open">未完成${openCount ? ` ${openCount}` : ''}</button>
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
               data-task-tab="done">已完成${ctx.done.length ? ` ${ctx.done.length}` : ''}</button>
     </div>
@@ -2077,12 +2088,89 @@ function paintTasks(ctx) {
   syncMarkButton(el);
   fillVisitInfo(el);
   fillBookingStates(el);
+  wireBucketBlocks(ctx);
+}
+
+/**
+ * 逾期／今天／明天那三頁另外兩塊的接線（ADR-0152）。
+ *
+ * - 簽療程單那一列：**帶她去 `#/todo/close` 並直接開那一天的抽屜**（`leaveFor()`，同日曆長按
+ *   「客人來了，去簽療程單」），不在這一頁拿別人的 ctx 開抽屜
+ * - 隨手記：直接勾，走 `note.prepareToggle()`（營養品的提醒要先問「給了哪些」，四個入口共用）
+ */
+function wireBucketBlocks(ctx) {
+  const { el } = ctx;
+  el.querySelectorAll('[data-close-go]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      leaveFor('todo/close', btn.dataset.closeGo);
+      await whenSettled();
+      go('/todo/close');
+    }),
+  );
+
+  if (!ctx.notes.length) return;
+  const again = () => renderGroup(el, ctx.group);
+  el.querySelectorAll('[data-notes] [data-note]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const row = ctx.notes.find((n) => n.id === btn.dataset.note);
+      if (!row) return;
+      const plan = await note.prepareToggle(row, noteDeps());
+      if (!plan) return;
+      try {
+        await toast.withSaveState(plan.run, { success: plan.success });
+        await again();
+      } catch {
+        /* 已處理 */
+      }
+    }),
+  );
+  wireNoteLongPress(el, ctx.notes, again);
+}
+
+/**
+ * 一塊的小標。只有任務時不印（跟別的分類頁長得一樣）；簽療程單或隨手記有東西時每一塊都印 ——
+ * 她要知道那幾件是哪一種，而三種勾法不一樣。
+ */
+const blockHead = (label, n) => `<p class="donegroup">${esc(label)} ${n}</p>`;
+
+/** 逾期／今天／明天那一頁的「簽療程單」那一塊。一列一位一天。 */
+function closeBlock(ctx) {
+  if (!ctx.close.length) return '';
+  return `
+    ${blockHead('簽療程單', ctx.close.length)}
+    <div class="stack">${ctx.close.map((v) => `
+      <button class="card row" type="button" data-close-go="${esc(v.id)}">
+        <span class="row__main">
+          <span class="row__title">${esc(v.customerName ?? '（沒有名字）')}</span>
+          <span class="muted">${esc(shortDate(v.date))}・${slotsToClose(v).length} 段還沒簽</span>
+        </span>
+        ${icon('right', { size: 18 })}
+      </button>`).join('')}</div>`;
+}
+
+/** 逾期／今天／明天那一頁的「隨手記」那一塊（只會出現在今天與明天）。 */
+function notesBlock(ctx) {
+  if (!ctx.notes.length) return '';
+  return `
+    ${blockHead('隨手記', ctx.notes.length)}
+    <div class="groups" data-notes>${sortNotes(ctx.notes).map((n) => note.row(n, { today: ctx.today })).join('')}</div>`;
 }
 
 function openList(ctx, today) {
   const { open, meta } = ctx;
-  if (!open.length) return '<p class="muted">這裡是空的。</p>';
+  const others = closeBlock(ctx) + notesBlock(ctx);
+  if (!open.length && !others) return '<p class="muted">這裡是空的。</p>';
+  // 只有任務（其餘頁、或這三頁剛好只有任務）：照舊，不加小標
+  if (!others) return taskBlock(ctx, today);
 
+  return `
+    ${open.length ? `${blockHead('待辦', open.length)}${taskBlock(ctx, today)}` : ''}
+    ${closeBlock(ctx)}
+    ${notesBlock(ctx)}`;
+}
+
+function taskBlock(ctx, today) {
+  const { open, meta } = ctx;
   return `
     ${meta.retired ? `
       <div class="form__actions" style="margin-bottom: var(--space-3)">

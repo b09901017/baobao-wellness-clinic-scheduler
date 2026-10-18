@@ -11,13 +11,16 @@
 
 import {
   isCancelKind, bookingSystemOf, tasksForCourse, systemOfCancelKind,
-  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed, recordSlots,
+  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed, recordSlots, urgency,
 } from './taskRules.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
-import { dayOf, shortDate } from './dates.js';
-import { formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel } from './visits.js';
+import { dayOf, shortDate, daysBetween } from './dates.js';
+import {
+  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose,
+} from './visits.js';
+import { isOpen as isOpenNote } from './notes.js';
 import { timeLabel } from './visitTime.js';
 
 /**
@@ -204,6 +207,63 @@ export function storedRowShows(shows = {}) {
   return Object.fromEntries(Object.entries(shows ?? {})
     .filter(([id, v]) => isHomeRow(id) && ROW_SHOWS.includes(v) && v !== defaultShowOf(id)));
 }
+
+// ---------------------------------------------------------------------------
+// 三顆大數字：逾期／今天／明天（ADR-0152）
+// ---------------------------------------------------------------------------
+
+/** 三顆大數字的 id，也是點進去那一頁的網址（`#/todo/overdue`…）。 */
+export const BUCKETS = ['overdue', 'today', 'tomorrow'];
+
+/**
+ * 一張任務落在哪一顆。死線過了＝逾期、今天、明天；更後面的哪一顆都不在。
+ * 「已完成」那一格也照這一支切（她在那三頁問的是「這個死線的事情做完了沒」）。
+ */
+export function taskBucket(dueDate, today) {
+  if (!dueDate) return null;
+  if (urgency(dueDate, today) === 'overdue') return 'overdue';
+  if (dueDate === today) return 'today';
+  return daysBetween(today, dueDate) === 1 ? 'tomorrow' : null;
+}
+
+/**
+ * 三顆大數字各是哪幾件。**首頁的數字與點進去那一頁的清單只讀這一支** —— 各算一次的話
+ * 數字跟清單會差一件（ADR-0070 那一種）。
+ *
+ * | | 任務 | 簽療程單（`visitsToClose()`，一位一天一件） | 有日期、還沒勾的隨手記 |
+ * |---|---|---|---|
+ * | 逾期 | 死線過了 | 日子過了、還有段開著（她：「算逾期」） | **不算**（她：「今天沒勾也沒關係，他不算逾期」） |
+ * | 今天 | 死線今天 | 今天的 | 掛今天的 |
+ * | 明天 | 死線明天 | 不算（明天的來訪還簽不了） | 掛明天的 |
+ *
+ * 營養品的提醒也是一筆有日期的隨手記（ADR-0059），所以它也進今天／明天 —— 那天要交付。
+ * 跟客人確認時間不在這裡：它沒有日子（ADR-0001），首頁那一列自己有數字。
+ *
+ * @param {{tasks?: object[], unclosed?: object[], notes?: object[], today: string}} input
+ *   `tasks` 還沒做的任務；`unclosed` 還沒結案的來訪（`listUnclosed()`）；`notes` 還沒勾的隨手記
+ * @returns {Record<'overdue'|'today'|'tomorrow', {tasks: object[], close: object[], notes: object[]}>}
+ */
+export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
+  const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], notes: [] }]));
+
+  for (const t of tasks ?? []) {
+    if (t?.done || t?.deletedAt) continue;
+    const b = taskBucket(t.dueDate, today);
+    if (b) out[b].tasks.push(t);
+  }
+  for (const v of visitsToClose(unclosed ?? [], today)) {
+    out[v.date < today ? 'overdue' : 'today'].close.push(v);
+  }
+  for (const n of notes ?? []) {
+    if (!isOpenNote(n) || !n.date) continue;
+    if (n.date === today) out.today.notes.push(n);
+    else if (daysBetween(today, n.date) === 1) out.tomorrow.notes.push(n);
+  }
+  return out;
+}
+
+/** 一顆大數字上的數字＝那一頁列出來的件數。 */
+export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ?? 0) + (b?.notes?.length ?? 0);
 
 /**
  * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。
