@@ -349,8 +349,16 @@ function openPicker() {
 
 function pushEditLayer() {
   if (editLayer?.active) return;
+  const openedAt = window.location.hash;
   editLayer = pushLayer(() => {
     editLayer = null;
+    // 點底下那一排換頁時瀏覽器也先發一下 popstate（CLAUDE.md「存起來的 pushLayer() handle」）：
+    // 網址已經換了就不問 —— 問的話那一道框留在下一頁上，按「存起來」還會把這一頁畫回去
+    if (window.location.hash !== openedAt) {
+      ctx.editing = null;
+      ctx.armed = null;
+      return;
+    }
     leaveEdit();
   });
 }

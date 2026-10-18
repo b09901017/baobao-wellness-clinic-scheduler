@@ -272,6 +272,27 @@ test.describe('備忘錄／SOP', () => {
     expect(page.url()).toContain('#/playbook');
   });
 
+  test('P8g 改到一半點底下的「日曆」→ 換到日曆、不在那一頁上問；回來按返回不會再問', async ({ app, page }) => {
+    // 換 hash 時瀏覽器先發 popstate，編輯那一層的 onPop 會被叫到：網址已經換了就不要問（CLAUDE.md）
+    await app.seed([...masterDocs(), REHAB]);
+    await app.signIn('/settings');
+    await app.go('/playbook');
+
+    await page.click('[data-edit="pb-rehab"]');
+    await page.fill('[data-body]', '還在打的這一句');
+    await page.locator('.app__nav a[href="#/calendar"]').click();
+    await app.settled();
+    expect(page.url()).toContain('#/calendar');
+    await expect(page.locator('.app__nav a[aria-current="page"]')).toContainText('日曆');
+    await expect(app.dialog()).toHaveCount(0);
+    await expect(page.locator('.pbdeck')).toHaveCount(0);
+
+    await page.goBack();
+    await app.settled();
+    expect(page.url()).toContain('#/playbook');
+    await expect(app.dialog()).toHaveCount(0);
+  });
+
   test('P9 放大鏡 → 卡牌與丸子兩邊一起篩，收起來就還原', async ({ app, page }) => {
     await app.seed([...masterDocs(), DRIP, REHAB, LAB]);
     await app.signIn('/playbook');

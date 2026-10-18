@@ -349,6 +349,31 @@ test('L5 編輯中按返回 → 先問；關掉那道框是繼續改；「不要
   expect(doc.longNotes[0].body).toBe('週二女兒載');
 });
 
+test('L5b 改到一半點底下的「日曆」→ 換到日曆、不在那一頁上問；回來按返回不會再問', async ({ app, page }) => {
+  // 換 hash 時瀏覽器先發 popstate，編輯那一層的 onPop 會被叫到（CLAUDE.md「存起來的 pushLayer() handle」
+  // 的最後一句）：網址已經換了就不要問，不然那一道框留在日曆上、存的是舊的草稿、還會把這一頁畫回日曆上面
+  await app.seed([...masterDocs(), ...twoClients()]);
+  await app.signIn('/customers');
+  await app.go('/customers/notes');
+
+  await page.locator('[data-edit="cust-a:a1"]').click();
+  await app.layer('.pbcard--edit');
+  await page.locator('.pbcard--edit [data-body]').fill('打到一半');
+  await page.locator('.app__nav a[href="#/calendar"]').click();
+  await app.settled();
+  expect(page.url()).toContain('#/calendar');
+  await expect(page.locator('.app__nav a[aria-current="page"]')).toContainText('日曆');
+  await expect(page.locator('.dialog')).toHaveCount(0);
+  await expect(page.locator('[data-page] .pbdeck')).toHaveCount(0);
+  expect((await app.readDoc('customers', 'cust-a')).longNotes[0].body).toBe('週二女兒載');
+
+  // 日曆上按返回：回長備註那一頁，沒有一道從上一頁留下來的框
+  await page.goBack();
+  await app.settled();
+  expect(page.url()).toContain('#/customers/notes');
+  await expect(page.locator('.dialog')).toHaveCount(0);
+});
+
 test('L6 刪一則要按兩次；第一次只是變紅', async ({ app, page }) => {
   await app.seed([...masterDocs(), ...twoClients()]);
   await app.signIn('/customers/notes');
