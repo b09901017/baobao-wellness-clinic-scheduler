@@ -45,10 +45,9 @@ function label(it) {
     <span class="rrow__text">${esc(it.mark.text)}</span>`;
 }
 
-/** 排序那一塊的 HTML。`items` 已經照 `order` 排好。 */
+/** 排序那一塊的 HTML。`items` 已經照 `order` 排好。怎麼拖那一句是抬頭旁邊的 `tip()`（呼叫端畫）。 */
 export function reorderHtml(items) {
   return `
-    <p class="reorder__hint">${icon('grip', { size: 14 })}按住一則上下拖，放開就排好</p>
     <div class="reorder" data-reorder-box role="list" aria-label="備註的順序"
          style="height: ${items.length * STEP - GAP}px">
       ${items.map((it, i) => `

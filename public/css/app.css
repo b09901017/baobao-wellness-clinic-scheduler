@@ -1655,15 +1655,6 @@ span.mark--contact::after {
 .mark.is-source { opacity: 0; }
 
 /* ---------- 調整順序：只有排的時候變成一列一列 ---------- */
-.reorder__hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--text-mute);
-}
-
 .reorder {
   position: relative;
   touch-action: none;
@@ -1817,13 +1808,6 @@ span.mark--contact::after {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.edrow__note {
-  flex: none;
-  padding-right: 8px;
-  font-size: var(--text-2xs);
-  color: var(--text-mute);
 }
 
 .edrow__x {

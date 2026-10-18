@@ -516,7 +516,7 @@ function remarksBlock(ctx) {
 
   return `
     <div class="section">
-      <h2 class="section__title">備註</h2>
+      <h2 class="section__title">備註${sorting ? tip('按住一則上下拖，放開就排好') : ''}</h2>
       ${n ? `<span class="section__n">${n}</span>` : ''}
       ${sorting
         ? `<button class="section__more section__more--quiet" type="button" data-notes-sort-cancel>取消</button>

@@ -28,7 +28,10 @@ import { join } from 'node:path';
 
 import { fromRoot, toPosix } from './helpers/paths.js';
 
-const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note', 'hcard__why'];
+// `reorder__hint`、`edrow__note`：備註那一段（ADR-0156）的兩句操作說明，2026-10-19 收進 `tip()`
+// —— 段八審查發現它們躲過了這一支（只數上面那幾種 class），所以一起盯
+const CLASSES = ['page__lead', 'card__note', 'drawer__note', 'wayrow__hint', 'note__note', 'hcard__why',
+  'reorder__hint', 'edrow__note'];
 
 /**
  * 欄位說明（`components/form.js` 的 `hint` 參數）2026-09-12 起畫成標籤旁邊
@@ -124,6 +127,8 @@ const MOVED = [
   ['ui/views/trash.js', '系統從不真的刪除資料。'],
   ['ui/views/preferences.js', '四個數字是每一項的份量：越大，那一項越能把客戶排到前面。'],
   ['ui/views/report.js', '把資料排成試算表的樣子'],
+  ['ui/components/notesEditor.js', '在「編輯」客戶資料裡改'],
+  ['ui/views/customerDetail.js', '按住一則上下拖，放開就排好'],
 ];
 
 const counts = (classes = CLASSES) => {

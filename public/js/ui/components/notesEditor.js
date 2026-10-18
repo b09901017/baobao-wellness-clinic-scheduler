@@ -14,6 +14,7 @@ import {
 } from '../../domain/customerNotes.js';
 import { icon } from '../icons.js';
 import { esc } from './form.js';
+import { tip } from './tip.js';
 
 /**
  * @param {HTMLElement} container
@@ -34,7 +35,7 @@ export function mount(container, { items, onChange }) {
       return `<div class="edrow">
         <span class="edrow__glyph">${icon(it.kind, { size: 15 })}</span>
         <span class="edrow__text ${it.kind === 'phone' ? 'mark__num' : ''}">${esc(it.kind === 'phone' ? it.text : 'LINE')}</span>
-        <span class="edrow__note">在「編輯」客戶資料裡改</span></div>`;
+        ${tip('在「編輯」客戶資料裡改', { label: '怎麼改' })}</div>`;
     }
     const text = it.kind === 'long' ? it.note.title : it.mark.text;
     const lead = it.kind === 'long'
