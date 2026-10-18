@@ -37,6 +37,13 @@ export const MAX_LONG_BODY = 5000;
  */
 export const MAX_LONG_NOTES = 20;
 
+/**
+ * 順序（`noteOrder`）最多幾格 —— `firestore.rules` 擋的就是這個數字（`tests/customer-notes.test.js` 盯著）。
+ * 正常最多是電話＋LINE＋12 則短的＋20 則長的＝34；多留幾格給舊表匯入沒截掉的短備註
+ * （`legacyImport.js` 超過 12 則只提醒）與拍訂購單接在後面的「尾款」。
+ */
+export const MAX_NOTE_ORDER = 40;
+
 const trimmed = (v) => String(v ?? '').trim();
 
 /** 這位客戶的長備註。形狀不對的、沒有 id 的丟掉（id 是順序裡認它的唯一方法）。 */

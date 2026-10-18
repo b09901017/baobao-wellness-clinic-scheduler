@@ -681,6 +681,13 @@ describe('R14 客戶身上的長備註與備註的順序（validCustomer，ADR-0
     await assertFails(setDoc(doc(allowed, 'customers', 'c2'), stamped({ ...base, longNotes: many(MAX_LONG_NOTES + 1) })));
   });
 
+  test('R14.5 順序超過 40 格被擋（MAX_NOTE_ORDER）', async () => {
+    const { MAX_NOTE_ORDER } = await import('../../public/js/domain/customerNotes.js');
+    const order = (n) => Array.from({ length: n }, () => 'mark');
+    await assertSucceeds(setDoc(doc(allowed, 'customers', 'c1'), stamped({ ...base, noteOrder: order(MAX_NOTE_ORDER) })));
+    await assertFails(setDoc(doc(allowed, 'customers', 'c2'), stamped({ ...base, noteOrder: order(MAX_NOTE_ORDER + 1) })));
+  });
+
   test('R14.4 沒有這兩格的舊客戶照樣寫得進去', async () => {
     await assertSucceeds(setDoc(doc(allowed, 'customers', 'c1'), stamped(base)));
   });

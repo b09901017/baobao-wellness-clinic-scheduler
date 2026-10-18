@@ -4,13 +4,14 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
-  MAX_LONG_TITLE, MAX_LONG_BODY, MAX_LONG_NOTES,
+  MAX_LONG_TITLE, MAX_LONG_BODY, MAX_LONG_NOTES, MAX_NOTE_ORDER,
   readLongNotes, noteItems, notesFields, validateLongNotes, telHref, lineHref,
   withLongNote, withoutLongNote, longNoteRows, matchesLongNote, firstLine, sectionCount,
 } from '../public/js/domain/customerNotes.js';
-import { readMarks, toCustomerFields } from '../public/js/domain/customerMarks.js';
+import { readMarks, toCustomerFields, MAX_MARKS } from '../public/js/domain/customerMarks.js';
 
 const marks = (...texts) => texts.map((text) => ({ text, color: 'grey' }));
 const keys = (c) => noteItems(c).map((it) => it.key);
@@ -252,5 +253,19 @@ describe('長備註那一頁：一疊卡', () => {
     assert.deepEqual(hit('接送'), ['a:a1']);
     assert.deepEqual(hit('右手'), ['a:a2']);
     assert.deepEqual(hit(''), ['a:a2', 'a:a1', 'c:c1']);
+  });
+});
+
+describe('Rules 的兩個上限跟 domain 講同一個數字', () => {
+  const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+
+  test('長備註 20 則：Rules 擋的就是 MAX_LONG_NOTES', () => {
+    assert.ok(rules.includes(`d.longNotes.size() <= ${MAX_LONG_NOTES})`), 'firestore.rules 的長備註上限跟 MAX_LONG_NOTES 不一樣');
+  });
+
+  test('順序 40 格：Rules 擋的就是 MAX_NOTE_ORDER，而且裝得下電話＋LINE＋12 則短的＋20 則長的', () => {
+    assert.ok(rules.includes(`d.noteOrder.size() <= ${MAX_NOTE_ORDER})`), 'firestore.rules 的順序上限跟 MAX_NOTE_ORDER 不一樣');
+    assert.ok(MAX_NOTE_ORDER >= 2 + MAX_MARKS + MAX_LONG_NOTES,
+      `${MAX_NOTE_ORDER} 格裝不下 2 + ${MAX_MARKS} + ${MAX_LONG_NOTES}`);
   });
 });
