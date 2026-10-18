@@ -221,6 +221,43 @@ test('N13 編輯：打到一半切去另一種、刪一則 → 兩格打的字�
   await expect(page.locator('[data-notesed-long-title]')).toHaveValue('打點滴前');
 });
 
+test('N14 編輯：兩格都打了、停在「短的」那一頁按儲存 → 兩則都存進去（看得到還在的字不可以存不下去）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA()]);
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-notes-edit]').click();
+  await app.layer('[data-notes-editor] .edlist');
+  await page.locator('[data-notesed-tab="long"]').click();
+  await page.locator('[data-notesed-long-title]').fill('打點滴前');
+  await page.locator('[data-notesed-long-body]').fill('右手比較好打');
+  await page.locator('[data-notesed-tab="mark"]').click();
+  await page.locator('[data-notesed-mark]').fill('怕冷');
+  await page.locator('.drawer [data-save]').click();
+  await app.saved();
+
+  const doc = await app.readDoc('customers', 'cust-n');
+  expect(doc.marks.map((m) => m.text)).toEqual(['喜歡下午', '指定女治療師', '怕冷']);
+  expect(doc.longNotes.map((n) => n.title)).toEqual(['家人與接送', '打點滴前']);
+});
+
+test('N15 編輯：長的那一格只打了內文、停在「短的」那一頁按儲存 → 不存、切到長的那一頁講要有標題', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA()]);
+  await app.signIn('/customers/cust-n');
+
+  await page.locator('[data-notes-edit]').click();
+  await app.layer('[data-notes-editor] .edlist');
+  await page.locator('[data-notesed-tab="long"]').click();
+  await page.locator('[data-notesed-long-body]').fill('右手比較好打');
+  await page.locator('[data-notesed-tab="mark"]').click();
+  await page.locator('.drawer [data-save]').click();
+
+  await expect(page.locator('[data-notesed-tab="long"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-notesed-long-body]')).toHaveValue('右手比較好打');
+  await expect(page.locator('[data-notesed-long-title]')).toBeFocused();
+  const doc = await app.readDoc('customers', 'cust-n');
+  expect(doc.longNotes.map((n) => n.title)).toEqual(['家人與接送']);
+});
+
 test('N9 按住電話是複製，不是撥號', async ({ app, page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await app.seed([...masterDocs(), clientA()]);

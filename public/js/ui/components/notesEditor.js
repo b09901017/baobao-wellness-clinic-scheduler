@@ -19,16 +19,17 @@ import { tip } from './tip.js';
 /**
  * @param {HTMLElement} container
  * @param {{items: object[], onChange?: Function}} opts `items` 是 `noteItems()` 的形狀
- * @returns {{value: object[], flush: () => string|null}} `flush()`：把輸入框裡還沒按「加入」的字
- *   收進去（她打完直接按「儲存」）；收不進去回一句話
+ * @returns {{value: object[], flush: () => string|null}} `flush()`：把兩格裡還沒按「加入」的字
+ *   都收進去（她打完直接按「儲存」—— 切過去的那一格還看得到，存不下去就是假的）；收不進去回一句話
  */
 export function mount(container, { items, onChange }) {
   let list = [...(items ?? [])];
   let tab = 'mark';
   let colour = [...list].reverse().find((it) => it.kind === 'mark')?.mark.color ?? DEFAULT_MARK_COLOR;
   let seq = 0;
-  // 兩格打到一半的字。`paint()` 整塊重畫（切「短的／長的」、刪一則），重畫前先收起來、畫的時候帶回去 ——
-  // 不然她打了一大段長的、手滑點到「加一則短的」再點回來就沒了。按了「加入」那一格才清空。
+  // 兩格打到一半的字。`paint()` 整塊重畫（切「短的／長的」、刪一則），畫的時候帶回去 ——
+  // 不然她打了一大段長的、手滑點到「加一則短的」再點回來就沒了。**重畫或收進去之前先 `stash()`**；
+  // 收進去了那一格才清空。`flush()` 兩格都收：看得到還在的字，按「儲存」不可以存不下去。
   const drafts = { mark: '', title: '', body: '' };
   const stash = () => {
     const read = (sel) => container.querySelector(sel)?.value;
@@ -88,7 +89,6 @@ export function mount(container, { items, onChange }) {
   };
 
   const paint = (focus) => {
-    stash();
     container.innerHTML = `
       ${list.length
         ? `<div class="edlist">${list.map(rowHtml).join('')}</div>`
@@ -106,10 +106,9 @@ export function mount(container, { items, onChange }) {
     onChange?.(list);
   };
 
-  /** 短的那一格加進去。回一句收不進去的理由，或 null。 */
+  /** 短的那一格加進去（讀 `drafts`，呼叫前先 `stash()`）。回一句收不進去的理由，或 null。 */
   const addMark = () => {
-    const input = container.querySelector('[data-notesed-mark]');
-    const text = String(input?.value ?? '').trim();
+    const text = drafts.mark.trim();
     if (!text) return null;
     if (count('mark') >= MAX_MARKS) return `短備註最多 ${MAX_MARKS} 則`;
     // 同一句話加第二次多半是手滑，不是真的想要兩則
@@ -117,37 +116,48 @@ export function mount(container, { items, onChange }) {
       seq += 1;
       list = [...list, { key: `mark:new${seq}`, kind: 'mark', mark: { text, color: colour } }];
     }
-    input.value = '';
-    commit('[data-notesed-mark]');
+    drafts.mark = '';
     return null;
   };
 
+  /** 長的那一格加進去（同上）。沒有標題時切到那一頁、游標放在標題。 */
   const addLong = () => {
-    const title = String(container.querySelector('[data-notesed-long-title]')?.value ?? '').trim();
-    const body = String(container.querySelector('[data-notesed-long-body]')?.value ?? '');
+    const title = drafts.title.trim();
+    const { body } = drafts;
     if (!title && !body.trim()) return null;
     if (!title) {
-      container.querySelector('[data-notesed-long-title]')?.focus();
+      tab = 'long';
+      paint('[data-notesed-long-title]');
       return '長備註要有標題';
     }
     if (count('long') >= MAX_LONG_NOTES) return `長備註最多 ${MAX_LONG_NOTES} 則`;
     const note = { id: newLongNoteId(), title, body };
     list = [...list, { key: `long:${note.id}`, kind: 'long', note }];
-    container.querySelector('[data-notesed-long-title]').value = '';
-    container.querySelector('[data-notesed-long-body]').value = '';
-    commit('[data-notesed-long-title]');
+    drafts.title = '';
+    drafts.body = '';
     return null;
+  };
+
+  /** 按「加入」：只收那一格；收進去了才重畫。 */
+  const addOne = (add, focus) => {
+    stash();
+    const n = list.length;
+    const said = add();
+    if (list.length !== n || !said) commit(focus);
+    return said;
   };
 
   container.addEventListener('click', (e) => {
     const del = e.target.closest('[data-notesed-del]');
     if (del) {
+      stash();
       list = list.filter((it) => it.key !== del.dataset.notesedDel);
       commit();
       return;
     }
     const tb = e.target.closest('[data-notesed-tab]');
     if (tb) {
+      stash();
       tab = tb.dataset.notesedTab;
       paint(tab === 'mark' ? '[data-notesed-mark]' : '[data-notesed-long-title]');
       return;
@@ -160,8 +170,8 @@ export function mount(container, { items, onChange }) {
       return;
     }
     let said = null;
-    if (e.target.closest('[data-notesed-add-mark]')) said = addMark();
-    if (e.target.closest('[data-notesed-add-long]')) said = addLong();
+    if (e.target.closest('[data-notesed-add-mark]')) said = addOne(addMark, '[data-notesed-mark]');
+    if (e.target.closest('[data-notesed-add-long]')) said = addOne(addLong, '[data-notesed-long-title]');
     if (said) container.dispatchEvent(new CustomEvent('notesed:say', { detail: said, bubbles: true }));
   });
 
@@ -169,7 +179,7 @@ export function mount(container, { items, onChange }) {
   container.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.matches('[data-notesed-mark]')) return;
     e.preventDefault();
-    const said = addMark();
+    const said = addOne(addMark, '[data-notesed-mark]');
     if (said) container.dispatchEvent(new CustomEvent('notesed:say', { detail: said, bubbles: true }));
   });
 
@@ -179,7 +189,11 @@ export function mount(container, { items, onChange }) {
   return {
     get value() { return list; },
     flush() {
-      return (tab === 'mark' ? addMark() : addLong());
+      stash();
+      const said = addMark() ?? addLong();
+      if (!said) commit();
+      else onChange?.(list); // 短的那一則收進去了、長的那一則缺標題：呼叫端的那一份也要有短的
+      return said;
     },
   };
 }
