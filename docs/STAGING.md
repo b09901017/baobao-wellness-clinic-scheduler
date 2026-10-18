@@ -137,12 +137,22 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
 GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
   npm run staging:reset -- --project staging --yes
 
-# 3. 打開 staging 的 app → 設定 → 舊資料匯入 → 貼合併檔
+# 2'. 種子改過的話（拿掉一門課、一間診間……）：主檔也照現在的種子重來
+GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
+  npm run staging:reset -- --project staging --yes --master
+
+# 3. 打開 staging 的 app（重新整理一次）→ 設定 → 舊資料匯入 → 貼合併檔
 ```
+
+**`--master` 什麼時候加**：這一輪改過種子（`public/js/domain/seed.js`）就加 —— 不加的話 reset 之後主檔還是上一代的，
+一份「一開始就是好的」合併檔貼上去會對不到主檔，要先到資料健檢一項一項把主檔對上。加了就跟正式站切換那天同一個做法
+（[ADR-0143](./adr/0143-cutover-day-deletes-production-with-firebase-tools.md)：連主檔一起刪、重新載入種子）。
+**代價**：你在 staging 上自己加或改的主檔（方案範本、警示、課程設定、拍 Abovee 記住的人員寫法）一起沒了 ——
+先跑一次不加 `--yes` 的，它會數「其中 N 筆不是種子上的」給你看。設定那一份（排序權重、試算表網址與密鑰、LINE 模板、待辦首頁）與 AI 上限不動。
 
 - 清的範圍跟備份一樣（客戶與額度、可用性、療程單、來訪、任務、壓表清單、隨手記、行事備註、表單、備忘錄），
   外加 Storage 上療程單的照片
-- **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔
+- **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔（加 `--master` 的話主檔照現在的種子重來，其餘照舊不清）
 - 正式專案一律拒絕，沒有放行的旗標
 
 **staging 的畫面上有真名。** 在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶；
