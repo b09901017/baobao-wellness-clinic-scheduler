@@ -555,6 +555,16 @@ export const COVERAGE = {
     'public/js/data/visits.js', 'public/js/domain/entitlements.js', 'tests-e2e/fixtures/ai/aboveeList-status.json',
     'public/css/',
   ],
+  // 10/18 staging 上點出來的六個小畫面（.scratch/staging-polish-2026-10-18 的 01～06）：「＋ 加一項」的距離、
+  // 「照片上寫的」收合、「送的／體驗…」收得回去、日曆那一天按＋先拉高、復原那一條滑得掉、資料健檢的提醒
+  '69-staging-polish-small': [
+    'public/js/ui/components/planTweak.js', 'public/js/ui/components/customerForm.js', 'public/js/ui/views/customersBulk.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotOptions.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/components/sheet.js', 'public/js/ui/toast.js',
+    'public/js/domain/health.js', 'public/js/ui/views/health.js',
+    'public/css/',
+  ],
 };
 
 /**

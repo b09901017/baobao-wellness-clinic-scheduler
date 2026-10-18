@@ -578,6 +578,17 @@ svg {
   inset: -6px 0;
 }
 
+/* 「＋ 加一項」：清單的最後一列，不是另一顆送出鈕（2026-10-18，她：「加一項和加購的按鈕有點擠」）。
+   虛線、淡字跟「換一款」同一種長相；底下留一段空，跟送出那一排分開。三個入口共用。 */
+.addrow {
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.btn--addrow {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
 .btn--ghost {
   background: transparent;
   border-color: transparent;

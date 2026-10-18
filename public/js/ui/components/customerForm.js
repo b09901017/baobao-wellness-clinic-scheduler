@@ -316,6 +316,6 @@ function extrasHtml(extras) {
                       aria-label="拿掉">${icon('close', { size: 15, width: 2 })}</button>
             </li>`).join('')}
         </ul>` : ''}
-      <button class="btn btn--sm" type="button" data-cf-addextra>＋ 加一項</button>
+      <p class="addrow"><button class="btn btn--sm btn--addrow" type="button" data-cf-addextra>＋ 加一項</button></p>
     </div>`;
 }

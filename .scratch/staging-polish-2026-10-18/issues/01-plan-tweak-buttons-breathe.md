@@ -1,6 +1,6 @@
 # 加購方案那一張：「＋ 加一項」跟「加購／取消」太擠
 
-Status: todo
+Status: done
 Blocked by: —
 段：一（high，先單獨一支 PR）
 動工前先讀：`ui/components/planTweak.js` 的 `fields()`（「＋ 加一項」那一段，約 `:159-161`）；`ui/views/customerDetail.js` 加購方案那一頁（`:1427` 叫 `planTweak.fields()`、底下 `form__actions`）；
@@ -33,4 +33,9 @@ Blocked by: —
 
 ## 做完時留下的
 
-（做完寫）
+- 三個「＋ 加一項」都包成 `<p class="addrow">` ＋ `btn--addrow`（`app.css`：上 `--space-3`、下 `--space-5`；虛線、淡字，跟「換一款」`.chip--more` 同一種長相）。
+  按鈕的字、屬性（`data-addextra`／`data-cf-addextra`）、行為一個字都沒動
+- 量出來的（390px，E2E `69` 的 P1）：客戶詳情那一張本來就是擠的（紅在這一張）；新增客戶（到下一段的標題）與批次建立「微調」（到「好了」）本來就不擠，
+  為了三處長得一樣也套同一個 class，三處都量 ≥ 22px
+- 批次建立那一張是抽屜：量之前要等它滑完（`steady()`），不然量到半路的位置（-3px）
+- CLAUDE.md「方案的微調…三個入口共用一張」那一句還沒改（HANDOFF 中途發現，段九）

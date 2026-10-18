@@ -507,7 +507,7 @@ function tuneHtml({ draft, adding }) {
             <button class="btn" type="button" data-cancelbuy>取消</button>
           </div>
         </div>`
-      : '<button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>'}
+      : '<p class="addrow"><button class="btn btn--sm btn--addrow" type="button" data-addextra>＋ 加一項</button></p>'}
     </div>`;
 }
 
