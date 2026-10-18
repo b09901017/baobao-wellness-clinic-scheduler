@@ -657,3 +657,31 @@ describe('R12 白名單與 domain 對得上', () => {
     );
   });
 });
+
+describe('R14 客戶身上的長備註與備註的順序（validCustomer，ADR-0156）', () => {
+  const base = { name: '客戶A', marks: [{ text: '喜歡下午', color: 'green' }] };
+
+  test('R14.1 長備註與順序是陣列：寫得進去', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'customers', 'c1'), stamped({
+      ...base,
+      longNotes: [{ id: 'n1', title: '家人與接送', body: '週二女兒載' }],
+      noteOrder: ['phone', 'long:n1', 'mark'],
+    })));
+  });
+
+  test('R14.2 不是陣列被擋', async () => {
+    await assertFails(setDoc(doc(allowed, 'customers', 'c1'), stamped({ ...base, longNotes: '一大段' })));
+    await assertFails(setDoc(doc(allowed, 'customers', 'c1'), stamped({ ...base, noteOrder: 'phone' })));
+  });
+
+  test('R14.3 長備註超過 20 則被擋（MAX_LONG_NOTES）', async () => {
+    const { MAX_LONG_NOTES } = await import('../../public/js/domain/customerNotes.js');
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `n${i}`, title: 't', body: '' }));
+    await assertSucceeds(setDoc(doc(allowed, 'customers', 'c1'), stamped({ ...base, longNotes: many(MAX_LONG_NOTES) })));
+    await assertFails(setDoc(doc(allowed, 'customers', 'c2'), stamped({ ...base, longNotes: many(MAX_LONG_NOTES + 1) })));
+  });
+
+  test('R14.4 沒有這兩格的舊客戶照樣寫得進去', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'customers', 'c1'), stamped(base)));
+  });
+});

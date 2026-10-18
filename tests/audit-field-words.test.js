@@ -22,6 +22,8 @@ const HERS = [
   'lastCorrection', 'ivProductId', 'monthlyCapUsd', 'paused',
   // 2026-10-18 EECP 合成一門（ADR-0154）：設定 → 課程 的「體驗的時候排幾分」
   'trialMinutes',
+  // 2026-10-19 長備註與備註那一段的順序（ADR-0156）
+  'longNotes', 'noteOrder',
 ];
 
 /** 系統自己記的：她沒有改它，那一則紀錄講的也不是它。 */

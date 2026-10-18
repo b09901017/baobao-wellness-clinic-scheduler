@@ -1,6 +1,6 @@
 # 客戶詳情的備註那一段：電話、LINE、長備註、短備註一起排順序；長備註點開是中間那張卡
 
-Status: todo
+Status: done（10/19，段七）
 Blocked by: 13（她看過原型）
 段：七（high）
 動工前先讀：13 的「做完時留下的」與她對原型的回覆；`domain/customerMarks.js` 整支（`readMarks()`、`validateMarks()`、`toCustomerFields()`、`marksToText()`；`customer.notes` 是 `marks` 的純文字鏡像，ADR-0019）；
@@ -59,4 +59,23 @@ CLAUDE.md「客戶身上的標記」「共用元件身上的屬性名字」「�
 
 ## 做完時留下的
 
-（做完寫）
+- **形狀**：`customer.longNotes: [{ id, title, body }]`（標題 40、內文 5000、最多 20 則 —— Rules 也擋 20）、`customer.noteOrder: string[]`
+  （`'phone'`／`'line'`／`'mark'`／`'long:<id>'`，Rules 擋 40 格）。**`marks` 一個字沒動形狀**；拖過順序之後短備註照新的先後重排（她 10/19：「沒關係，我同意這樣處理」）
+- **domain**：新的一支 `domain/customerNotes.js`（不是塞進 `customerMarks.js`：那一支的檔頭講的是短備註為什麼長那樣，這一支講順序與長的那種）——
+  `noteItems()`（唯一讀那一串的）、`notesFields()`（唯一存回去的）、`readLongNotes()`、`validateLongNotes()`、`withLongNote()`／`withoutLongNote()`（給 15 用：不碰 `marks`）、
+  `telHref()`／`lineHref()`、`sectionCount()`、`firstLine()`、`longNoteRows()`／`matchesLongNote()`（15 的那一疊）、`LINE_HINT`
+- **沒排過的預設順序**：電話、LINE、長備註、短備註（她的原話）。不在順序裡的電話／LINE 放最前面（排的時候還沒填）、長備註與短備註接在最後
+- **畫面**：`marks.js` 的 `notesRow()`（全部是丸子）、`ui/components/noteCard.js`（中間那張卡）、`noteReorder.js`（原地拖、拖到邊緣自己捲 `.app__main`、鍵盤上下鍵、放回原位也收得掉 `is-settling`）、
+  `notesEditor.js`（「編輯」那一張；打完沒按「加入」直接按「儲存」也收進去 —— `flush()`）。新增客戶那一頁照舊 `marks.js` 的 `mount()`
+- **我自己定的**：
+  - LINE 那一格存的不是 LINE 的網址（`javascript:`、別的網站）→ 當成 ID 包進 `line.me/R/ti/p/~…`，不當網址開；`@` 開頭的（官方帳號）不帶 `~`
+  - 電話一格寫兩支 → 撥第一支；一個號碼都認不出來（「請打給女兒」）→ 照樣畫那一顆，點了講一句、按住照樣複製
+  - 中間那張卡改的時候，取消／存起來在卡片**頂端**（原型在底下）—— 跟備忘錄的編輯卡同一個理由：手機鍵盤推不走它
+  - 改到一半按返回／點外面 → `chooseAction()` 三選一（同備忘錄 `leaveEdit()`；關掉那道框＝繼續改，返回鍵那一層補推回來）
+  - 卡片 z-index 21：高於抽屜（20）、低於確認框（22）與 toast（25）
+  - 存完一則（卡片上改、調整順序）只重畫備註那一塊、不重讀整頁（ADR-0038；重讀會把那張卡的來源那一顆換掉）；「編輯」那一張存完照舊 `reload()`
+  - 稽核：`longNotes`「長備註」、`noteOrder`「備註的順序」，都**不進** `QUIET_IN_SENTENCE`
+- **ADR-0060 那一條點得到的路**：號碼印在丸子上，也在「編輯」客戶資料那一格選得起來 —— 寫進 ADR-0156
+- **測試**：`tests/customer-notes.test.js` 30 條（先紅：模組不存在）；E2E `74` 的 N1–N10（**寫在接線之後**，沒有先看它紅）；Rules R14.1–R14.4（`firestore-rules.test.js` 第一次有客戶的一組）
+- **文件**：ADR-0156（14、15 共用一支）、CONTEXT「長備註」＋「備註」補一句、SPEC 5.x 客戶欄位與 8.5 詳情第 2 點、CLAUDE.md 新一列「備註那一段的順序、長備註」
+- 21 處讀 `marks` 的：一個都沒改（`grep -rn "\.marks\b" public/js` 前後一樣）；`customerForm.js` 只多了 LINE 那一格的 `hint`

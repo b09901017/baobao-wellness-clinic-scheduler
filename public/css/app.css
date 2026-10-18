@@ -1586,6 +1586,425 @@ button.mark::after {
   inset: -11px -8px -11px -4px;
 }
 
+/* ---------- 客戶詳情備註那一串：電話、LINE、長備註（ADR-0156） ----------
+   全部是丸子（她 2026-10-19 選的），照她排的順序一排流下去。
+   圖示是跟導覽列同一種淡線條（她選的「線條」，不加圓底）。 */
+.mark__glyph {
+  width: 22px;
+  height: 22px;
+  margin-left: -3px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.mark__glyph--line { color: var(--accent); }
+.mark__glyph--note { color: var(--tea); }
+
+/* 號碼：等寬數字，一眼對得上 */
+.mark__num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 電話、LINE 是連結，長備註是按鈕。按住電話要複製：不准 iOS 跳連結預覽、不准選字 */
+.mark--contact,
+.mark--long {
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 觸控區撐開貼在自己身上（`.mark` 本來就是 position: relative） */
+a.mark--contact::after,
+span.mark--contact::after {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
+
+.mark--contact.is-pressing,
+.mark--long.is-pressing { background: var(--surface-2); }
+
+/* 長備註那一顆：茶色底、茶色框、便條＋標題＋› —— 看得出「點開有全文」 */
+.mark--long {
+  border-color: var(--tea);
+  background: var(--tea-soft);
+  font-weight: 600;
+  padding-right: 8px;
+}
+
+.mark--long > svg:last-child {
+  flex: none;
+  margin-left: -2px;
+  color: var(--tea);
+}
+
+/* 抬頭那兩顆（調整順序／編輯、取消／完成）並排靠右，中間留 16px：44px 的感應範圍才不會疊 */
+[data-notesblock] .section__more + .section__more { margin-left: var(--space-4); }
+.section__more--quiet { color: var(--text-mute); }
+
+/* 中間那張卡開著的時候，它是從這一顆長出來的 */
+.mark.is-source { opacity: 0; }
+
+/* ---------- 調整順序：只有排的時候變成一列一列 ---------- */
+.reorder__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+}
+
+.reorder {
+  position: relative;
+  touch-action: none;
+}
+
+/* 一列固定 50px、間距 8px（`noteReorder.js` 的 ROW_H／GAP，兩邊要一樣） */
+.rrow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  animation: rrow-in 260ms var(--ease-out) both;
+}
+
+@keyframes rrow-in {
+  from { opacity: 0.4; scale: 0.97; }
+  to { opacity: 1; scale: 1; }
+}
+
+.rrow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rrow.is-lifted {
+  z-index: 3;
+  cursor: grabbing;
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-3);
+  transition: box-shadow 160ms var(--ease-out);
+}
+
+.rrow.is-lifted .rrow__grip { color: var(--accent); }
+
+.rrow.is-settling {
+  z-index: 2;
+  transition: transform 340ms var(--ease-pop), box-shadow 340ms var(--ease-out);
+}
+
+.rrow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.rrow__text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rrow__kind {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.rrow__glyph {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.rrow__glyph--line { color: var(--accent); }
+.rrow__glyph--note { color: var(--tea); }
+.rrow__dot { margin: 0 7px 0 8px; }
+
+.rrow__grip {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--text-mute);
+}
+
+/* ---------- 「編輯」那一張：一則一列可以刪 ---------- */
+.edlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+}
+
+.edrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.edrow--long { border-color: var(--tea); background: var(--tea-soft); }
+
+.edrow__glyph {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.edrow__glyph--long { color: var(--tea); }
+.edrow__dot { margin: 0 7px; }
+
+.edrow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.edrow__text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edrow__sub {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edrow__note {
+  flex: none;
+  padding-right: 8px;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.edrow__x {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.edrow__x::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.edadd {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.edadd input { flex: 1; min-width: 0; }
+
+.edlong {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.edlong textarea { min-height: 120px; }
+.edlong .btn { align-self: flex-end; }
+
+/* ---------- 中間那張卡（`ui/components/noteCard.js`） ----------
+   蓋住整頁：上緣自己讓開鏡頭那一塊（全螢幕，ADR-0147）。
+   高於抽屜（20）、低於確認框（22）與 toast（25）—— 改到一半關掉時問的那一道要蓋得住它。 */
+.lnov {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  display: grid;
+  place-items: center;
+  padding: max(28px, calc(env(safe-area-inset-top) + 12px)) 16px
+    max(28px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+.lnov__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(36 31 26 / 45%);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.lncard {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: min(80dvh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 改的時候給死高度：鍵盤上來才不會把按鈕擠出去 */
+.lncard--edit { height: min(80dvh, 640px); }
+
+/* 從那一顆長出來的是這一層（`transform-origin: 0 0`），字在它上面 */
+.lncard__bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  transform-origin: 0 0;
+}
+
+/* 上緣一道茶色：備忘錄卡片的黏邊 */
+.lncard__bg::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--tea);
+}
+
+.lncard > :not(.lncard__bg) { position: relative; }
+
+.lncard__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px 14px 0 18px;
+}
+
+.lncard__head > div { flex: 1; min-width: 0; }
+
+.lncard__eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--tea);
+}
+
+.lncard__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.35;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+/* 內文自己捲，不帶動底下那一頁 */
+.lncard__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 12px 0 0;
+  padding: 12px 18px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+  line-height: 1.85;
+}
+
+.lncard__foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.lncard__foot .grow { flex: 1; }
+
+/* 改的時候：取消／存起來在頂端（同備忘錄的編輯卡，鍵盤推不走它） */
+.lncard__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 0 18px;
+}
+
+.lncard__bar .lncard__eyebrow { flex: 1; min-width: 0; margin: 0; }
+
+.lncard__edit {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 18px;
+}
+
+/* 同 `.pbcard--edit > *`：除了內文那一格每一項都 flex: none，不然會被壓扁 */
+.lncard__edit > * { flex: none; }
+
+.lncard__edit textarea {
+  flex: 1 1 0;
+  min-height: 120px;
+  font-size: var(--text-md);
+  resize: none;
+}
+
+.lncard__err {
+  margin: -4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--overdue);
+}
+
 /* 挑顏色。六顆實心圓，選中的加一圈。 */
 .swatches {
   display: flex;

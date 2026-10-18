@@ -133,6 +133,9 @@ const FIELD_LABELS = {
   courseIds: '掛哪些課程',
   note: '這一次記一句',
   marks: '備註',
+  // ADR-0156。順序是她拖過的 —— 講「改了 備註的順序」才誠實，所以不進 QUIET_IN_SENTENCE
+  longNotes: '長備註',
+  noteOrder: '備註的順序',
   attended: '有沒有做',
   customerName: '客戶',
   // 她改得到、2026-10-07 以前印英文的那幾格（issue 14）。字照設定頁那一格寫。

@@ -578,6 +578,14 @@ export const COVERAGE = {
     'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
     'public/js/ui/components/giftFold.js',
   ],
+  // 長備註與備註那一段的順序（staging-polish 14、15，ADR-0156）
+  '74-long-notes': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/customerMarks.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteCard.js',
+    'public/js/ui/components/noteReorder.js', 'public/js/ui/components/notesEditor.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
+    'public/js/data/customers.js', 'public/css/',
+  ],
 };
 
 /**

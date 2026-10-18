@@ -243,6 +243,23 @@ commit 見 git log「staging:reset 多一個 --master」。`scripts/reset-stagin
 → 1 選的**不是**我建議的那一個：那一串全部是丸子（`.marks` 一排流下去），調整順序模式下才變成一列一列。上表「客戶詳情那一串」那一列照丸子做；「從那一列長出來」改成從那一顆長出來（丸子比列小，縮放比例更大 —— 字等底那一層長好再淡進來，原型裡看過不會糊）。
 原話已貼進 14、15 的「她要的」，14 的「要做的」改好了。
 
+## 段七停在哪（10/19 凌晨，5 小時額度用完前收尾）—— 還沒動任何檔案
+
+讀完了 HANDOFF、spec、13–15、lessons 一／三／八，也看過 customerMarks.js、marks.js、customerDetail.js 的備註那一段與 `openMarks()`、playbook.js 整支、firestore.rules 的 `validCustomer()`、audit.js 的 `FIELD_LABELS`、nav.js 的 `pushLayer()`、actions.js 的 `wireLongPress()`。**一行程式都還沒寫、沒有 commit**；develop 沒有往前走（`c732350` 是這條分支的祖先），不用 rebase。
+
+- **原型那一個 Artifact 讀不回來**（`read` 回「not found」）。原始檔還在上一個 session 的 scratchpad：
+  `C:\Users\DELL\AppData\Local\Temp\claude\c--Users-DELL-Desktop-baobao-wellness-clinic-scheduler\cdcccc41-d937-4441-975e-0b7681b54ed3\scratchpad\long-notes-prototype.html`
+  （CSS 在 205–440 行：`.mark--contact`／`.mark--long`／`.nglyph`／`.rrow`／`.lnov`／`.lncard`；JS：`chipFor()` 767、`reorderHtml()`／`wireReorder()` 788–872、`openOverlay()`／`closeOverlay()` 914–985、`openNotesEditor()` 1026、`openPicker()` 1122、`deckRows()` 1153、電話按住複製 1268–1281、圖示路徑 phone／line／note／grip 在 512–520）
+- 讀 `marks` 的地方實際 grep 出來：會**寫** marks 的只有 `orderForm.js:543`（接在最後）、`mergeImport.js:549`、`customerForm.js:50`（新增客戶）、`health.js:871`（原地改字）—— 跟 issue 14 寫的一樣
+- LINE 那一格有**兩個**表單：`customerForm.js:142`（新增）與 `customerDetail.js:1302`（編輯），`hint` 兩邊都要加
+- Rules 測試裡**還沒有任何一條客戶的**（`tests-e2e/rules/firestore-rules.test.js` 的 R1–R13）→ 開一組 R14
+- `audit-field-words.test.js` 的 `HERS` 要補 `longNotes`、`noteOrder`
+
+我打算的做法（還沒寫，下一段可以照做或改）：
+- 新的 domain `domain/customerNotes.js`（import `readMarks()`）：`readLongNotes()`、`noteItems(customer)`（key：`phone`／`line`／`mark:<n>`／`long:<id>`；`noteOrder` 裡短備註只存 `'mark'` 佔位；**沒排過的預設順序 = 電話、LINE、長備註、短備註**（她的原話「最上面一行電話，長備註，原本的短備註」）；不在順序裡的電話／LINE 放最前面，長備註、短備註接在最後 —— 所以「尾款」照判準出現在最後）、`notesFields(items)` → `{ marks, notes, longNotes, noteOrder }`（**拖過順序之後 marks 本身也照新的先後重排**：形狀一個字不變、只有先後，卡片牆前三則會跟著變 —— 寫進 ADR-0156）、`validateLongNotes()`（標題必填、40／5000 字，同備忘錄的 `MAX_TITLE`／`MAX_BODY`；則數上限要定 —— 文件大小 1MB，5000 字×則數要算）、`lineHref()`（網址原樣補 `https://`；`@` 開頭的 → `/R/ti/p/@…`；其餘 `~ID`）、`telHref()`
+- 長備註那一頁只寫 `longNotes`（與 `noteOrder` —— 有排過才動），不碰 `marks`
+- 稽核：`longNotes: '長備註'`、`noteOrder: '備註的順序'`，**都不進** `QUIET_IN_SENTENCE`（她真的拖過，講出來才誠實）
+
 ## 段一停在哪（10/18 中午，她臨時有事、要關網路，叫我先收尾）—— 留著當紀錄
 
 | issue | 狀態 |
