@@ -571,6 +571,13 @@ export const COVERAGE = {
     'public/js/ui/views/settings.js', 'public/js/data/config.js', 'public/js/domain/notes.js',
     'public/js/ui/components/note.js', 'public/js/domain/visits.js',
   ],
+  // EECP 只有一門（staging-polish 09，ADR-0154）：壓表與來訪編輯器按 20 → 體驗、編輯器原地改扣法的確認框、設定頁那一格
+  '72-eecp-one-course': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/visits.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/seed.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/giftFold.js',
+  ],
 };
 
 /**

@@ -608,10 +608,11 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     // 同一條規則要套在這裡，否則她從 missingFromSheet 勾一筆未來的，
     // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
     const status = statusFor(x.status, x.date, today);
+    // 行事曆上的雜事分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
+    const giftKind = free ? 'trial' : null;
     const slot = {
       entitlementKey: free ? null : hits[0].key,
-      // 行事曆上的雜事分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
-      giftKind: free ? 'trial' : null,
+      giftKind,
       courseId: course.id,
       courseName: course.name,
       equipmentId: null,
@@ -620,9 +621,9 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       therapistId: null,
       startsAt: start,
       // 候選清單補的那幾段只知道「哪一天、哪個課程」（ADR-0011），沒有品項 ——
-      // 所以 `slotMinutes()` 在這裡就是課程那一格。照樣走它是因為全站只有
-      // 那一支（ADR-0098）。
-      endsAt: start ? addMinutes(start, slotMinutes({ course })) : null,
+      // 所以 `slotMinutes()` 在這裡就是課程那一格（體驗的段是「體驗的時候排幾分」，ADR-0154 —— `giftKind` 一定要交下去）。
+      // 照樣走它是因為全站只有那一支（ADR-0098）。
+      endsAt: start ? addMinutes(start, slotMinutes({ course, giftKind })) : null,
       bed: null,
       attended: status !== 'confirmed',
     };

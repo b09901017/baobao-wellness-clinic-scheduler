@@ -326,7 +326,7 @@ function opFor(fix) {
     };
   }
 
-  // 種子資料裡有、主檔沒有的那一門課（`EECP體驗`，2026-09-16）。
+  // 種子資料裡有、主檔沒有的那一門課（第一個是 2026-09-16 的 `EECP體驗`；那一門 2026-10-18 合成進 EECP、種子上刪了）。
   // **id 用種子上的那一個**（同 `addEquipment`）—— 隨機生一個的話下一次健檢
   // 還是會說少一門，而且會再建出第二門。
   if (fix?.kind === 'addCourse') {
@@ -397,6 +397,23 @@ function opFor(fix) {
       data: fix.data,
       note: '資料健檢：補上種子資料裡有、主檔沒有的器材',
     };
+  }
+
+  // 「EECP體驗」那一門還在（ADR-0154）。**整包 slots 寫回去**（同 `clearBeds`：時段是內嵌陣列，Firestore 沒辦法只改一格）——
+  // `checkEecpTrialCourse()` 算好的那一份只有指著舊那一門、沒扣額度的那幾段換成 EECP 的體驗，其餘原封不動；不經
+  // `visitsData.save()`、不問鎖（資料修正，已完成的也搬）。沒有東西擋著時同一批接著把那一門軟刪除（「已刪除項目」還原得回來）
+  if (fix?.kind === 'trialSlotsToCourse' || fix?.kind === 'retireTrialCourse') {
+    return [
+      ...(fix.visits ?? []).map((v) => ({
+        op: 'update', path: 'visits', id: v.visitId, changes: { slots: v.slots },
+        note: `資料健檢：「${fix.label}」那幾段改成 ${fix.eecpName} 的體驗`,
+      })),
+      ...(fix.kind === 'retireTrialCourse' ? [{
+        op: 'softDelete', path: 'config/app/courses', id: fix.courseId,
+        reason: '資料健檢：EECP 合成一門，這一門不要了',
+        note: `資料健檢：刪掉「${fix.label}」這一門`,
+      }] : []),
+    ];
   }
 
   if (fix?.kind === 'recount') {

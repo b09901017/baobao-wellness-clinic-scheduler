@@ -53,7 +53,7 @@ import {
   acceptsMoreSlots, sameDayVisitFor, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
-import { slotOptionsFor, foldOpen, NTH_PICK } from '../../domain/slotOptions.js';
+import { slotOptionsFor, foldOpen, NTH_PICK, trialFromMinutes } from '../../domain/slotOptions.js';
 import { bookingConsequences, closedDayLine, settledDayLine, followupBookingLines } from '../../domain/consequences.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
@@ -1930,12 +1930,7 @@ function onDeckClick(e) {
 
   // 排多久（ADR-0122）：一定有一顆按著，所以再點同一顆不取消
   const mins = e.target.closest('[data-minutes]');
-  if (mins) {
-    view.minutes = Number(mins.dataset.minutes);
-    press('[data-minutes]', 'minutes', mins.dataset.minutes);
-    refreshSlotMins();
-    return null;
-  }
+  if (mins) return pickMinutes(Number(mins.dataset.minutes));
 
   // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性，不重畫（ADR-0038）
   if (giftFold.toggle(e, (_, open) => { view.giftOpen = open; })) return null;
@@ -2090,6 +2085,31 @@ function pickCourse(entitlementId) {
   const add = deckEl()?.querySelector('[data-add]');
   if (add) add.disabled = !picked;
   showErrors([]);
+}
+
+/**
+ * 「排多久」按了一個數字（ADR-0122）。**按的是那門課的「體驗的時候排幾分」、這一段扣著那門課的額度 → 換成那門課的體驗**
+ * （ADR-0154：EECP 按 20；三個入口同一支 `trialFromMinutes()`）—— 選擇跳到「送的／體驗…」那一顆（收著時那一顆寫出 EECP）。
+ * 課程沒變，所以時間、診間、治療師、醫師留著（`pickCourse()` 會清掉那幾格）；時長回到體驗的預設（20）。
+ * 其餘照舊：只換 `aria-pressed` 與「幾點開始　N 分鐘」那一句，不重畫（ADR-0038）。
+ */
+function pickMinutes(n) {
+  const row = selectedRow();
+  const picked = pickedOption(row);
+  const toTrial = trialFromMinutes({ value: view.entitlementId, course: effectiveCourse(picked), minutes: n, courses: ctx.all.courses });
+  if (!toTrial) {
+    view.minutes = n;
+    press('[data-minutes]', 'minutes', String(n));
+    refreshSlotMins();
+    return null;
+  }
+  const kept = { therapistId: view.therapistId, roomKey: view.roomKey, doctorId: view.doctorId };
+  pickCourse(toTrial.value);
+  view.giftKind = toTrial.giftKind;
+  Object.assign(view, kept);
+  const fields = deckEl()?.querySelector('[data-entfields]');
+  if (fields) fields.innerHTML = entFields(row, pickedOption(row));
+  return null;
 }
 
 /** 選第幾返。跟別的丸子一樣只改 aria-pressed，不重畫（ADR-0038）。 */

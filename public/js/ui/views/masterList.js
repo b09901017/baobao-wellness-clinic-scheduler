@@ -155,7 +155,7 @@ const GROUP_NEW = '__new__';
  * domain 的驗證講到「其他設定」裡那幾格時，那一段要自己打開（`onErrors`）。
  * 比的是錯誤訊息裡的字：課程驗證講到時長、器材、品項、頻率、後續課程的，全部是收起來的那幾格。
  */
-const MORE_WORDS = ['時長', '器材', '品項', '頻率', '後續課程'];
+const MORE_WORDS = ['時長', '器材', '品項', '頻率', '後續課程', '排幾分'];
 
 /**
  * 設定暫定的那幾門（03 的 `provisional`）：最上面一條＋一個開關。勾了「確認過了」存成 `false`
@@ -271,6 +271,7 @@ function moreSummary(r, all) {
     r.durationMin ? `${r.durationMin} 分` : '還沒填時長',
     r.durationChoices?.length ? `買的時候選 ${r.durationChoices.join('／')}` : null,
     r.bookingMinutes?.length ? `約的時候選 ${r.bookingMinutes.join('／')}` : null,
+    r.trialMinutes ? `體驗 ${r.trialMinutes} 分` : null,
     r.requiresEquipment ? '要選器材' : null,
     r.requiresIvProduct ? '要選品項' : null,
     r.frequencyRule ? `頻率：${r.frequencyRule}` : null,
@@ -307,6 +308,13 @@ function moreFields(r, all) {
           hint: '分鐘，用頓號分隔。約的時候選：填了之後排這門課時會多一排丸子，每一段自己挑要排多久'
             + '（二返 30 或 60），扣的是同一筆額度；預設是時長那一格。'
             + '跟「買的時候可選」只能填一格。',
+        })}
+        ${/* 體驗的時候排幾分（ADR-0154，EECP 20）。約的時候在「排多久」按到這個數字 → 那一段換成體驗（`trialFromMinutes()`）。
+             step 是 1，理由同時長那一格 */''}
+        ${f.number({
+          name: 'trialMinutes', label: '體驗的時候排幾分', value: r.trialMinutes ?? '', min: 1, step: 1,
+          hint: '分鐘，選填。這門課當體驗（送的／體驗）時預設排這麼久；約的時候在「排多久」按到這個數字，'
+            + '那一段就換成體驗、不扣次數（EECP 填 20）。要在「約的時候可選」裡，而且不可以跟時長一樣。',
         })}
       </div>
       <div class="choices choices--inline">
@@ -628,6 +636,7 @@ const editors = {
       needsRecord: false,
       uncounted: false,
       bookingMinutes: [],
+      trialMinutes: null,
       frequencyRule: null,
       followupCourseId: null,
       durationChoices: [],
@@ -769,6 +778,8 @@ const editors = {
           .map(Number).filter((n) => Number.isInteger(n) && n > 0),
         bookingMinutes: f.parseList(v.bookingMinutes)
           .map(Number).filter((n) => Number.isInteger(n) && n > 0),
+        // 空著是 null（`readForm()` 把空的 number 讀成 null）；看不懂的由 `validate()` 擋
+        trialMinutes: v.trialMinutes ?? null,
         category: v.category,
         // 存的順序固定（Abovee、Examine、耀聖），不照她勾的先後
         systems: SYSTEMS.filter((s) => (v.systems ?? []).includes(s)),

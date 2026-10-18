@@ -226,6 +226,31 @@ export function canBeGift(course, courses = []) {
   return !(courses ?? []).some((c) => c?.followupCourseId === course.id);
 }
 
+/**
+ * 這門課**體驗的時候**排幾分（`course.trialMinutes`，設定頁的字「體驗的時候排幾分」；staging-polish 09，ADR-0154）。
+ * EECP：正式課 60、體驗 20。她 10/18：
+ *
+ * > 所以只要留一個EECP就好，預設是60分鐘 ，不選體驗/送的，然後如果選20就預設是體驗這樣可以嗎
+ *
+ * **讀只有這一支**。沒填、看不懂的回 `null`（體驗照那門課自己的時長，跟以前一樣）。
+ * 只在可以當體驗的課上有意義 —— 健檢、二返填了存不下去（`validate()` 擋），所以這裡不再問 `canBeGift()`。
+ * 用在兩個地方：`visits.js` 的 `slotMinutes()`（體驗的段排多久）、`isTrialMinutes()`（按 20 → 體驗、照片上的 `EECP20`）。
+ */
+export const trialMinutesOf = (course) => (positiveInt(course?.trialMinutes) ? Number(course.trialMinutes) : null);
+
+/**
+ * 按下去（或照片上寫著）的那個分鐘是不是這門課的「體驗的時候排幾分」。**這一條規則只有這一支**：
+ * 三個入口按「排多久」那一下（`slotOptions.js` 的 `trialFromMinutes()`）與拍 Abovee 讀課程那一格（`EECP20`）都問它。
+ *
+ * @param {object|null} course
+ * @param {number|string|null} minutes
+ * @param {object[]} courses 課程主檔（認二返要看別門課，`canBeGift()`）
+ */
+export function isTrialMinutes(course, minutes, courses = []) {
+  const trial = trialMinutesOf(course);
+  return trial != null && minutes != null && minutes !== '' && Number(minutes) === trial && canBeGift(course, courses);
+}
+
 // 課程要指派什麼。復能三器材選治療師，其餘含 ILIB 選診間，心臟科評估都不用。
 export const ASSIGNS = ['therapist', 'room', 'none'];
 
@@ -843,6 +868,21 @@ const validators = {
       if (Array.isArray(choices) && choices.length) {
         errors.push('「可選時長」與「約的時候選時長」只能填一格：'
           + '一個是買的時候分成兩筆額度，一個是同一筆額度每一段自己挑');
+      }
+    }
+    // 體驗的時候排幾分（選填，ADR-0154：EECP 正式課 60、體驗 20）。填了要能用：
+    // - 可以當體驗的課才有（健檢、二返沒有體驗，`canBeGift()`）
+    // - **不可以等於預設時長**：等於的話，她重按一下預選好的那一顆就把一段扣額度的變成體驗（`trialFromMinutes()`）
+    // - 要在那一排按得到：體驗那一段「排多久」列的是約的時候選的＋買的時候分的（`minuteChoicesFor()`）
+    if (r.trialMinutes != null && r.trialMinutes !== '') {
+      const trial = Number(r.trialMinutes);
+      const offered = [...(Array.isArray(booking) ? booking : []), ...(Array.isArray(choices) ? choices : [])].map(Number);
+      if (!positiveInt(r.trialMinutes)) errors.push('體驗的時候排幾分必須是大於 0 的整數分鐘');
+      else if (!canBeGift(r, existing)) errors.push('健檢與二返沒有體驗 ——「體驗的時候排幾分」留空');
+      else if (trial === Number(r.durationMin)) {
+        errors.push('體驗的時候排幾分不可以跟預設時長一樣 —— 一樣的話，按一下預設那一顆，扣額度的就變成體驗了');
+      } else if (!offered.includes(trial)) {
+        errors.push('體驗的時候排幾分要在「約的時候可選」裡 —— 那一排才按得到它');
       }
     }
     if (!ASSIGNS.includes(r.assigns)) errors.push('請選擇要指派治療師還是診間');

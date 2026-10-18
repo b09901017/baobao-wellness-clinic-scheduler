@@ -17,7 +17,7 @@ import {
 import { SEED } from '../public/js/domain/seed.js';
 import * as giftFold from '../public/js/ui/components/giftFold.js';
 
-// 種子：功醫門診、HRV、心臟科評估、EECP體驗 不算次數（心臟科評估與 EECP體驗 是 gift-and-trial 05）
+// 種子：功醫門診、HRV、心臟科評估 預設體驗（心臟科評估是 gift-and-trial 05）；EECP 有「體驗的時候排幾分」（2026-10-18 合成一門，ADR-0154）
 const COURSES = SEED.courses;
 const master = { courses: COURSES, equipment: SEED.equipment };
 
@@ -47,9 +47,9 @@ describe('收起來的是哪幾顆', () => {
     assert.ok(out.slice(firstFolded).every((o) => o.folded && o.isGift && o.entitlement === null));
   });
 
-  test('展開之後第一排：功醫門診 → HRV → 心臟科評估 → EECP體驗（她最常按的那幾門）', () => {
+  test('展開之後第一排：功醫門診 → HRV → 心臟科評估 → EECP（她最常按的那幾門）', () => {
     const first = options(THREE).filter((o) => o.folded && !o.other);
-    assert.deepEqual(first.map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP體驗']);
+    assert.deepEqual(first.map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP']);
   });
 
   test('「別的課當體驗」：每一門還在用的課，健檢與二返不列、不算次數的那幾門不重複', () => {
@@ -66,7 +66,8 @@ describe('收起來的是哪幾顆', () => {
 
   test('「別的課當體驗」照分類排（加購那一排的順序）', () => {
     const groups = [...new Set(options(THREE).filter((o) => o.other).map((o) => o.group))];
-    assert.deepEqual(groups, ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '其他']);
+    // EECP 在第一排（有「體驗的時候排幾分」，ADR-0154），不在「別的課當體驗」
+    assert.deepEqual(groups, ['復能', 'ILIB', '醫師門診', '運動區', '營養點滴', '其他']);
   });
 
   test('停用的課不列；這一段現在指著的那一門停用了照樣列（keep）', () => {
@@ -104,7 +105,7 @@ describe('順序跟主檔讀回來的順序無關', () => {
     assert.equal(defaultGiftCourse(COURSES).id, 'course-fm');
   });
 
-  test('一門不算次數的課都沒有：沒有預設', () => {
+  test('一門不算次數的課都沒有：沒有預設（EECP 排在第一排也不是預設 —— 它不是預設體驗的課）', () => {
     assert.equal(defaultGiftCourse(COURSES.map((c) => ({ ...c, uncounted: false }))), null);
   });
 

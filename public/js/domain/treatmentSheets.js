@@ -146,7 +146,7 @@ function courseWords(courses) {
   return words.filter(([w]) => squash(w).length >= CONTAINS_MIN);
 }
 
-/** 一串字裡出現了哪幾個；**被更長的那一個包住的不算**（`EECP體驗` 裡的 `EECP`）。 */
+/** 一串字裡出現了哪幾個；**被更長的那一個包住的不算**（以前的 `EECP體驗` 裡的 `EECP` —— 那一門 2026-10-18 合成進 EECP 了，她自己的主檔上可能還有這種）。 */
 function wordsIn(text, words) {
   const t = squash(text);
   const hits = words.filter(([w]) => t.includes(squash(w)));

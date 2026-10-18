@@ -89,7 +89,7 @@ describe('那一格與它的讀法', () => {
   test('健檢與二返不可以；其餘任何課都可以', () => {
     assert.equal(canBeGift(BY_ID['course-checkup'], COURSES), false, '健檢牽著二返那條線');
     assert.equal(canBeGift(BY_ID['course-followup'], COURSES), false, '二返是某一門課的 followupCourseId');
-    for (const id of ['course-recovery', 'course-cardio', 'course-fm', 'course-iv-laser', 'course-rehab', 'course-eecp-trial']) {
+    for (const id of ['course-recovery', 'course-cardio', 'course-fm', 'course-iv-laser', 'course-rehab', 'course-eecp']) {
       assert.equal(canBeGift(BY_ID[id], COURSES), true, id);
     }
     assert.equal(canBeGift(null, COURSES), false);

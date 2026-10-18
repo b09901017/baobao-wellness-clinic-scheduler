@@ -439,37 +439,19 @@ export const SEED = {
       // 限制是硬的、順序是軟的，她之後在設定裡放寬限制時順序還在。
       //
       // **2026-09-16 從 30 分改成 60 分。** 她：「體驗30正式課60」。
-      // 2026-09-16 早上那個 30 是暫定值（「這個先保留先當作30分鐘」），
-      // 而她當天稍晚給了真正的答案 —— 30 分那一種是底下那一門體驗課。
+      //
+      // **2026-10-18 合成一門**（ADR-0154，staging-polish 09）：9/16 起另有一門「EECP體驗」（20 分、預設體驗），
+      // 她 10/18：「EECP只有一個EECP 不用EECP 體驗」「EECP可以選60 20，以及可以選體驗/送的」
+      // 「預設是60分鐘 ，不選體驗/送的，然後如果選20就預設是體驗」「我希望他直接不要」——
+      // 所以那一門從種子刪掉（不留停用的），這一門約的時候選 20／60、體驗的時候排 20。
+      // Abovee 上的 `EECP20` 拆成「EECP＋20 分」→ 分鐘＝體驗的時候排幾分 → 體驗（`abovee.js` 的 `courseFrom()`、
+      // `aboveeImport.js` 的 `resolveItem()`）。既有資料庫上那一門由資料健檢最後一項收掉。
       id: 'course-eecp', name: 'EECP', group: 'EECP', category: 'C',
       systems: ['Abovee'], durationMin: 60, aboveeNames: ['EECP'],
+      bookingMinutes: [20, 60], trialMinutes: 20,
       assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
       requiresEquipment: false, frequencyRule: null,
-    },
-    {
-      // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
-      // 預設30分鐘，這樣匯入的也可以對應到了」。
-      //
-      // **名字要跟舊表寫的一字不差**（`EECP體驗`，舊表第 14 列）——
-      // `legacyImport.js` 的 `resolveCourse()` 是精確比對，對不上的話那一段
-      // 匯不進來。`SPEC.md` 第 4.4 節她自己記的實際紀錄也是這四個字
-      //（`14:45–15:15  EECP 體驗`）。
-      //
-      // 同一批機器，所以限制與順序跟正式課一模一樣。
-      //
-      // **2026-10-05 從 30 分改成 20 分**：Abovee 上這門課就叫 `EECP20`
-      //（她：「EECP20 就是 EECP 體驗」）。9/16 她說的是 30；Abovee 上實際排的是 20，
-      // 而她這一輪定的是「時間跟 Abovee 不一樣時以 Abovee 為準」。
-      id: 'course-eecp-trial', name: 'EECP體驗', group: 'EECP', category: 'C',
-      // Abovee 寫 `EECP20`（她 2026-10-05：「EECP20 就是 EECP 體驗」）。整格比對、在拆分鐘之前 ——
-      // 拆了就是「EECP＋20 分」，認成正式課（`abovee.js` 的 `courseFrom()`）
-      systems: ['Abovee'], durationMin: 20, aboveeNames: ['EECP20'],
-      assigns: 'room', allowedRoomTypes: [], allowedRoomIds: ['room-t5', 'room-t7', 'room-t8'],
-      preferredRoomIds: ['room-t5', 'room-t7', 'room-t8'],
-      requiresEquipment: false, frequencyRule: null,
-      // 不算次數（2026-10-14，gift-and-trial 05，同心臟科評估那一段她的原話）：體驗本來就不會買
-      uncounted: true,
     },
     {
       // 每次施打的品項可能不同，所以來訪時要記錄用了哪一個（見 CONTEXT.md 營養點滴品項）

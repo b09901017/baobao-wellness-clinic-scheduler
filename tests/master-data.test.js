@@ -593,7 +593,7 @@ describe('種子資料', () => {
   // 種子改錯一格，她建的新資料庫就會在壓表時問她一個不該問的問題。
   //
   //   物理治療師  復能（多選一選到 INDIBA／SIS／高能量雷射 時也算）
-  //   治療室      營養點滴、EECP（含體驗課）、ILIB
+  //   治療室      營養點滴、EECP、ILIB
   //   醫師        門診類（A 類一律選得到）
   //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
   test('每一個課程要指派什麼', () => {
@@ -602,9 +602,7 @@ describe('種子資料', () => {
       'course-pt-consult': 'therapist',
       'course-iv-drip': 'room',
       'course-eecp': 'room',
-      // 2026-09-16 多的那一門（她：「預設資料裡面要多一門EECP體驗課」）。
-      // 機器就那兩間，所以跟正式課同一組限制。
-      'course-eecp-trial': 'room',
+      // 2026-09-16 多的那一門「EECP體驗」2026-10-18 合成進 EECP（ADR-0154）：體驗是約的時候按 20
       'course-iv-laser': 'room',
       'course-checkup': 'none',
       'course-fitness': 'none',
@@ -628,17 +626,14 @@ describe('種子資料', () => {
     assert.deepEqual(got, want);
   });
 
-  // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
-  // 預設30分鐘，這樣匯入的也可以對應到了」。2026-09-16 早上那個 30 是暫定值。
-  // 2026-10-05：體驗課從 30 改成 20 —— Abovee 上這門課叫 EECP20。
-  test('EECP 正式課 60 分、體驗課 20 分，兩門同一組診間限制', () => {
+  // 她 2026-09-16：「體驗30正式課60」—— 那時候體驗另外一門課；2026-10-05 體驗改成 20（Abovee 上叫 EECP20）。
+  // 2026-10-18 合成一門（ADR-0154）：她「EECP只有一個EECP 不用EECP 體驗」「EECP可以選60 20」。
+  test('EECP 一門：正式課 60 分、約的時候選 20／60、體驗的時候 20 分', () => {
     const by = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
     assert.equal(by['course-eecp'].durationMin, 60);
-    assert.equal(by['course-eecp-trial'].durationMin, 20);
-    // 名字要跟舊表一字不差，`resolveCourse()` 是精確比對
-    assert.equal(by['course-eecp-trial'].name, 'EECP體驗');
-    assert.deepEqual(by['course-eecp-trial'].allowedRoomIds, by['course-eecp'].allowedRoomIds);
-    assert.deepEqual(by['course-eecp-trial'].preferredRoomIds, by['course-eecp'].preferredRoomIds);
+    assert.deepEqual(by['course-eecp'].bookingMinutes, [20, 60]);
+    assert.equal(by['course-eecp'].trialMinutes, 20);
+    assert.equal(by['course-eecp-trial'], undefined);
   });
 
   // `validate('courses')` 擋著「不選診間的課程不該設定診間限制」——

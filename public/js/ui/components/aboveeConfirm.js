@@ -26,7 +26,7 @@ import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
-  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
+  pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -862,7 +862,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
-    if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
+    // 按到那門課的「體驗的時候排幾分」→ 換成體驗（ADR-0154，壓表、來訪編輯器同一支 `trialFromMinutes()`）
+    if (t.dataset.ablMin) { set(pickMinutes(item, Number(t.dataset.ablMin), ctx, items)); return; }
     if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
     if (t.dataset.ablIv) { set({ ...item, ivProductId: t.dataset.ablIv }); return; }
@@ -1123,7 +1124,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const stale = i.missedWhy === 'stale' ? { diffs: null } : {};
       items[at] = i.missedField
         ? { ...items[at], [i.missedField]: false, ...(i.missedField === 'adopt' ? stale : {}) }
-        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false };
+        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false, adoptCharge: false };
     }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);

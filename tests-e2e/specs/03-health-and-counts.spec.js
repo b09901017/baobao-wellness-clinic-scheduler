@@ -197,7 +197,7 @@ test('H8 已經存進去的品項錯配列得出來，而且不自動改', async
 // 2026-10-05（abovee-and-master/12，ADR-0124）：種子補到跟 Abovee 一樣，而 `loadSeed()` 只建不覆蓋 ——
 // 既有資料庫只能靠這一頁補。這一支拿一份「10/5 之前的主檔」把每一顆新的修正真的按下去：
 // 規則在 `tests/master-catch-up.test.js`，這裡盯的是**寫得下去、寫完那一筆在設定頁還存得回去**。
-test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、空格補上，按完整頁沒有一項亮著', async ({ app, page }) => {
+test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、空格補上、EECP體驗 收掉，按完整頁沒有一項亮著', async ({ app, page }) => {
   const NEW = ['iv-vitality', 'iv-immune', 'iv-slim', 'iv-guard', 'iv-heal', 'iv-sleep', 'iv-shingles', 'course-fm', 'course-amnion',
     // 2026-10-06 補的六門（設定暫定）
     'course-hrv', 'course-retest', 'course-ha-prp', 'course-prp', 'course-moti', 'course-exercise'];
@@ -208,11 +208,11 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
       // 9/08 照這一頁的建議刪掉的那一間
       if (d.id === 'room-t7') return { ...d, data: { ...d.data, deletedAt: new Date('2026-09-08T10:00:00+08:00') } };
       if (d.path.endsWith('/courses')) {
-        const { group, doctorPick, bookingMinutes, aboveeNames, ...rest } = d.data;
+        const { group, doctorPick, bookingMinutes, trialMinutes, aboveeNames, ...rest } = d.data;
         const eecp = d.id.startsWith('course-eecp') ? { allowedRoomIds: OLD_ROOMS, preferredRoomIds: OLD_ROOMS } : {};
-        // 心臟科評估、EECP體驗 那時候還算次數（2026-10-14 才不算，gift-and-trial 05）
-        const counted = ['course-cardio', 'course-eecp-trial'].includes(d.id) ? { uncounted: false } : {};
-        return { ...d, data: { ...rest, ...eecp, ...counted, ...(d.id === 'course-eecp-trial' ? { durationMin: 30 } : {}) } };
+        // 心臟科評估那時候還算次數（2026-10-14 才不算，gift-and-trial 05）
+        const counted = ['course-cardio'].includes(d.id) ? { uncounted: false } : {};
+        return { ...d, data: { ...rest, ...eecp, ...counted } };
       }
       if (d.path.endsWith('/equipment') || d.path.endsWith('/ivProducts')) {
         const { aboveeNames, ...rest } = d.data;
@@ -220,7 +220,15 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
       }
       return d;
     });
-  await app.seed(old);
+  // 那時候還有一門「EECP體驗」（9/16 建的、30 分；2026-10-18 合成進 EECP、種子上刪了，ADR-0154）
+  const oldTrial = {
+    path: 'config/app/courses', id: 'course-eecp-trial',
+    data: {
+      name: 'EECP體驗', category: 'C', systems: ['Abovee'], durationMin: 30, assigns: 'room', allowedRoomTypes: [],
+      allowedRoomIds: OLD_ROOMS, preferredRoomIds: OLD_ROOMS, requiresEquipment: false, frequencyRule: null, active: true,
+    },
+  };
+  await app.seed([...old, oldTrial]);
   await app.signIn('/settings/health');
 
   const card = (id) => page.locator(`#view [data-check="${id}"]`);
@@ -240,8 +248,9 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
   await fix('roomList', '還原');
   await fix('seedIvProduct', '元氣活力');
   await fix('seedCourse', '功醫門診');
-  await fix('courseDuration', '20 分');
   await fix('seedBlanks', 'Abovee 上的寫法');
+  // EECP 補上「體驗的時候排幾分」之後，舊的那一門才收得掉（一段都沒指著它 → 只刪那一門）
+  await fix('eecpTrialCourse', '刪掉「EECP體驗」');
 
   expect((await app.readDoc('config/app/rooms', 'room-t7')).deletedAt, '治7 回來了').toBeNull();
   const iv = (await app.readAll('config/app/ivProducts')).filter((x) => !x.deletedAt);
@@ -257,8 +266,8 @@ test('H9 10/5 之前的主檔：治7 還原、少的點滴與新課建起來、�
   const eecp = await app.readDoc('config/app/courses', 'course-eecp');
   expect(eecp.allowedRoomIds).toEqual(['room-t5', 'room-t7', 'room-t8']);
   expect(eecp.group).toBe('EECP');
-  const trial = await app.readDoc('config/app/courses', 'course-eecp-trial');
-  expect([trial.durationMin, trial.aboveeNames, trial.uncounted]).toEqual([20, ['EECP20'], true]);
+  expect([eecp.bookingMinutes, eecp.trialMinutes], 'EECP 約的時候 20／60、體驗 20').toEqual([[20, 60], 20]);
+  expect((await app.readDoc('config/app/courses', 'course-eecp-trial')).deletedAt, 'EECP體驗 那一門收掉了').toBeTruthy();
   expect((await app.readDoc('config/app/courses', 'course-cardio')).uncounted, '心臟科評估勾起不算次數').toBe(true);
   expect((await app.readDoc('config/app/equipment', 'eq-laser')).aboveeNames).toEqual(['高能量']);
   expect((await app.readDoc('config/app/ivProducts', 'iv-snow')).aboveeNames).toEqual(['雪顏亮采']);

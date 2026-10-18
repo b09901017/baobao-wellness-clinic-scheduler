@@ -97,6 +97,7 @@ const FIELD_LABELS = {
   uncounted: '預設體驗',
   provisional: '設定暫定',
   bookingMinutes: '約的時候選時長',
+  trialMinutes: '體驗的時候排幾分',
   specialties: '科別',
   kind: '任務種類',
   dueDate: '死線',

@@ -20,6 +20,8 @@ const HERS = [
   'messageTemplates', 'sortWeights', 'slotGapMin', 'sheetSync', 'todoRows',
   // 審查補的：已完成那一天的更正、額度上買的那一款點滴、AI 用量的設定
   'lastCorrection', 'ivProductId', 'monthlyCapUsd', 'paused',
+  // 2026-10-18 EECP 合成一門（ADR-0154）：設定 → 課程 的「體驗的時候排幾分」
+  'trialMinutes',
 ];
 
 /** 系統自己記的：她沒有改它，那一則紀錄講的也不是它。 */
