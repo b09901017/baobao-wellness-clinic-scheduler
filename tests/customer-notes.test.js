@@ -12,6 +12,8 @@ import {
   withLongNote, withoutLongNote, longNoteRows, matchesLongNote, firstLine, sectionCount,
 } from '../public/js/domain/customerNotes.js';
 import { readMarks, toCustomerFields, MAX_MARKS } from '../public/js/domain/customerMarks.js';
+import { buildCustomerQueue, customersToBook } from '../public/js/domain/scheduling.js';
+import { syncBundle } from '../public/js/domain/sheetReport.js';
 
 const marks = (...texts) => texts.map((text) => ({ text, color: 'grey' }));
 const keys = (c) => noteItems(c).map((it) => it.key);
@@ -192,6 +194,39 @@ describe('長備註不會被算成短備註（21 處讀 marks 的那一側）', 
     const after = { ...c, ...withLongNote(c, { id: 'n1', title: '很長的一則', body: '一大段' }) };
     assert.deepEqual(readMarks(after), before.marks);
     assert.equal(notesFields(noteItems(after)).notes, before.notes);
+  });
+
+  // issue 14 判準「各一個測試」：同一位客戶加了長備註（而且排在最前面）之前之後，每一個讀的那一側一模一樣。
+  // 客戶清單的卡片是畫面，在 E2E 74 的 N12
+  const plain = { id: 'c1', name: '客戶A', marks: marks('喜歡下午', '指定女治療師'), notes: '喜歡下午\n指定女治療師' };
+  const withLong = {
+    ...plain,
+    longNotes: [{ id: 'n1', title: '家人與接送', body: '週二女兒載' }],
+    noteOrder: ['long:n1', 'phone', 'mark', 'mark'],
+  };
+  const ent = { id: 'e1', type: 'single', label: 'X', courseId: 'x', totalQty: 4 };
+
+  test('壓表卡片牆（buildCustomerQueue）', () => {
+    const row = (c) => buildCustomerQueue({
+      customers: [c], entitlementsBy: { c1: [ent] }, targetMonth: '2026-11', today: '2026-10-19',
+    })[0];
+    assert.deepEqual(row(plain).marks.map((m) => m.text), ['喜歡下午', '指定女治療師']);
+    assert.deepEqual(row(withLong).marks, row(plain).marks);
+  });
+
+  test('待辦「壓表登記」那一列（customersToBook）', () => {
+    const row = (c) => customersToBook({
+      customers: [c], entitlementsBy: { c1: [ent] }, visitsBy: {},
+      coursesById: { x: { id: 'x', category: 'C', systems: ['Examine'] } }, targetMonth: '2026-11',
+    })[0];
+    assert.deepEqual(row(plain).marks.map((m) => m.text), ['喜歡下午', '指定女治療師']);
+    assert.deepEqual(row(withLong).marks, row(plain).marks);
+  });
+
+  test('試算表（syncBundle 那一位的備註）', () => {
+    const sheet = (c) => syncBundle({ customers: [c], today: '2026-10-19' }).sheets[0];
+    assert.equal(sheet(plain).notes, '喜歡下午\n指定女治療師');
+    assert.deepEqual(sheet(withLong), sheet(plain));
   });
 });
 

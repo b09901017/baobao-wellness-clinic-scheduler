@@ -245,6 +245,16 @@ test('N11 電話排在長備註底下那一排：點長備註的下緣開的是�
   }
 });
 
+test('N12 客戶清單的卡片：長備註排在最前面也只畫短備註（issue 14 判準：讀 marks 的那一側一個字都不變）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA({ noteOrder: ['long:n1', 'phone', 'line', 'mark', 'mark'] })]);
+  await app.signIn('/customers');
+
+  const card = page.locator('a.card[href="#/customers/cust-n"]');
+  await expect(card).toContainText('喜歡下午');
+  await expect(card).toContainText('指定女治療師');
+  await expect(card).not.toContainText('家人與接送');
+});
+
 // ---------------------------------------------------------------------------
 // 15 客戶頁上面的「長備註」：一疊左右滑的卡
 // ---------------------------------------------------------------------------
