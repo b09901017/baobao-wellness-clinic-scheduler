@@ -986,6 +986,7 @@ export function chainCountLines(plans = []) {
 /**
  * 存完之後 toast 接在「已儲存」後面的那半句（before-golive-2026-10-19 issue 17）：改了二返的次數那一張表**沒有確認框**
  *（她常改，多一道框煩），重算出來的那幾張待辦（ADR-0159）不講的話，待辦上安靜地多一張、少一張。
+ * issue 19 起其他沒有講到鏈的確認框的路也接（加購、拍訂購單加購、改購買日、還原、「把計數欄位改成重算值」）。
  * 讀寫入那一支真的算的那一份（`chainAfterEntitlements()` 的 `plan`）；沒有動到就是空字串。
  *
  * @param {{plan?: {create?: object[], remove?: {id: string}[]}, tasks?: object[]}|null} chain

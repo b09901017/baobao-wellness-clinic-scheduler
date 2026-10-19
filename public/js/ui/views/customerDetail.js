@@ -1184,7 +1184,8 @@ async function fixCounts(ctx, entId) {
         bookedCount: rec.actual.booked,
         lastReconciledAt: new Date().toISOString(),
       }),
-      { success: '已修正' },
+      // 計數改了，健檢那條鏈可能跟著動（ADR-0159）—— 這一道確認框沒講到，存完講一句（issue 19）
+      { success: (chain) => `已修正${chainSavedSay(chain)}` },
     );
     reload(ctx);
   } catch {
@@ -1673,7 +1674,8 @@ function wirePlanPurchase(el, ctx, d, { plans, master }) {
     });
     await toast.withSaveState(
       () => data.addEntitlements(ctx.id, rows, { customer: ctx.customer }),
-      { success: `已加購 ${rows.length} 筆`, key: `plan:add:${ctx.id}` },
+      // 方案裡有健檢或二返時待辦那條鏈重算了（ADR-0159）—— 沒有確認框，存完講一句（issue 19）
+      { success: (chain) => `已加購 ${rows.length} 筆${chainSavedSay(chain)}`, key: `plan:add:${ctx.id}` },
     );
     ctx.back();
   });
@@ -1910,7 +1912,7 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
             },
           ),
           // 連點兩下就是兩筆額度，而額度是「還能上幾次」的來源
-          { success: '已加購', key: `entitlement:create:${ctx.id}` },
+          { success: (chain) => `已加購${chainSavedSay(chain)}`, key: `entitlement:create:${ctx.id}` },
         );
       } else {
         await toast.withSaveState(

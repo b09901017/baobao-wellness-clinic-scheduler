@@ -165,14 +165,15 @@ describe('原始碼：改到健檢或二返額度的每一條路都重算', () =
       const start = customers.search(new RegExp(`export (?:async )?function ${name}\\(`));
       assert.ok(start >= 0, `${name} 要是一支 function（不是一行箭頭）`);
       const body = customers.slice(start, customers.indexOf('\n}\n', start));
-      // updateEntitlement() 直接叫 chainAfterEntitlements()：它要把那一份 plan 回給 toast 講（issue 17）
-      assert.match(body, /chainOps\(|chainAfterEntitlements\(/);
+      // 每一支都把那一份 plan 回給 toast 講（issue 17、19），所以拿的是整條鏈（`chainOf()`），不只 ops
+      assert.match(body, /chainOf\(/);
     });
   }
 
   test('那一支小幫手真的叫寫入那一支（chainAfterEntitlements()）', () => {
-    const start = customers.indexOf('async function chainOps(');
-    assert.match(customers.slice(start, customers.indexOf('\n}\n', start)), /chainAfterEntitlements\(/);
+    const start = customers.indexOf('const chainOf = ');
+    assert.ok(start >= 0);
+    assert.match(customers.slice(start, customers.indexOf('\n', start)), /chainAfterEntitlements\(/);
   });
 
   test('資料健檢的「補上二返額度」（不經過 entitlementWrites()）', () => {

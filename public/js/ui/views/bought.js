@@ -32,6 +32,7 @@ import {
   purchaseDays, productsOf, dateChangePatch, describeDateChange, purchaseDayLabel,
 } from '../../domain/purchases.js';
 import { unitOf } from '../components/buy.js';
+import { chainSavedSay } from '../../domain/consequences.js';
 import { deliveryState } from '../../domain/products.js';
 import { esc, showErrors } from '../components/form.js';
 import { icon } from '../icons.js';
@@ -237,7 +238,8 @@ function wire(ctx) {
 
     await toast.withSaveState(
       () => data.updateEntitlements(ctx.id, patches),
-      { success: '購買日期改好了', key: `purchase:date:${ctx.id}:${key}` },
+      // 購買日改了，到期日跟著動、健檢那條鏈可能跟著重算（ADR-0159）—— 存完講一句（issue 19）
+      { success: (chain) => `購買日期改好了${chainSavedSay(chain)}`, key: `purchase:date:${ctx.id}:${key}` },
     );
     render(ctx.el, ctx.id);
   });

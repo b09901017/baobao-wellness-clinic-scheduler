@@ -21,6 +21,7 @@ import * as data from '../../data/customers.js';
 import * as rules from '../../domain/customers.js';
 import { validateMarks } from '../../domain/customerMarks.js';
 import { expandPlan } from '../../domain/entitlements.js';
+import { chainSavedSay } from '../../domain/consequences.js';
 import { purchaseHeadline } from '../../domain/purchases.js';
 import { shortDate } from '../../domain/dates.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
@@ -607,11 +608,13 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
 
     // **重試只會建一次**：失敗時 toast 上有「重試」、卡上有「再試一次」，兩條路走的都是這一支，
     // 先到的那一趟建好之後，另一趟一進來就看到 `customerId` 已經有了
+    // 加購到既有的那一位時健檢那條鏈動了什麼（ADR-0159）：存完的 toast 接半句（issue 19）
+    let chain = null;
     const write = async () => {
       if (c.customerId) return c.customerId;
       if (target) {
         // 額度、二返、那一位身上的備註與警示：同一個 commit
-        await data.addEntitlements(target.id, rows, { customer: target, customerChanges: changes });
+        chain = await data.addEntitlements(target.id, rows, { customer: target, customerChanges: changes });
         c.customerId = target.id;
         c.message = '已加購';
       } else {
@@ -631,7 +634,7 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
 
     try {
       await toast.withSaveState(write, {
-        success: target ? `已加購到 ${target.name}` : `已建立 ${customer.name}`,
+        success: () => (target ? `已加購到 ${target.name}${chainSavedSay(chain)}` : `已建立 ${customer.name}`),
         key: `orderform:${c.key}`,
         // 復原會讓卡上的章與資料庫對不上；建錯了到客戶詳情刪
         undoable: false,

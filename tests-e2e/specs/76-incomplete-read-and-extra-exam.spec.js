@@ -206,10 +206,8 @@ function seedExtraExam() {
 const liveTasks = async (app) => alive(await app.readAll('tasks')).filter((t) => t.customerId === 'cust-x');
 const kindsOf = (tasks) => tasks.map((t) => `${t.kind}:${t.visitId}:${t.done}`).sort();
 
-test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不長約二返；客戶詳情把二返的次數改成 2 → 約二返當場出現', async ({ app, page }) => {
-  await app.seed(seedExtraExam());
-  await app.signIn('/');
-
+/** ①② 簽掉多做的那一次、勾掉報告 —— I3、I4 都從這裡出發。 */
+async function closeExtraExamAndTickReport(app, page) {
   // ① 簽療程單結掉多做的那一次
   await app.go('/todo/close');
   await expect(page.locator('#view')).toContainText('客戶X');
@@ -230,6 +228,12 @@ test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不�
   await app.saved();
   await expect.poll(async () => kindsOf(await liveTasks(app)))
     .toEqual(['寄報告給醫師:v-x-exam2:false', '追蹤健檢報告:v-x-exam2:true']);
+}
+
+test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不長約二返；客戶詳情把二返的次數改成 2 → 約二返當場出現', async ({ app, page }) => {
+  await app.seed(seedExtraExam());
+  await app.signIn('/');
+  await closeExtraExamAndTickReport(app, page);
 
   // ③ 補額度：客戶詳情 → 二返那一筆「調整」→ 總次數 2 → 儲存。不存任何來訪，約二返當場在待辦上
   const visitsBefore = (await app.readAll('visits')).map((v) => `${v.id}:${v.updatedAt?.seconds ?? v.updatedAt}`).sort();
@@ -258,4 +262,30 @@ test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不�
   await expect(page.locator('#toast')).toContainText('1 張「約二返」收起來了');
   await expect.poll(async () => kindsOf(await liveTasks(app)), '二返的次數不夠了，約二返收起來')
     .toEqual(['寄報告給醫師:v-x-exam2:false', '追蹤健檢報告:v-x-exam2:true']);
+});
+
+// ── I4（before-golive-2026-10-19/19，她：「講，在 toast 後面接，不加確認框」）──
+// 改額度的其他幾條路也重算那一條鏈（ADR-0159），還原那一道確認框只講「它會重新出現在清單上」——
+// 還原一筆二返額度之後待辦上多了一張「約二返」，toast 以前只講「已還原」。
+
+test('I4 健檢超用：從已刪除項目還原一筆二返額度 → 約二返當場出現、toast 講待辦多一張', async ({ app, page }) => {
+  await app.seed(seedExtraExam());
+  await app.signIn('/');
+  await closeExtraExamAndTickReport(app, page);
+
+  // 二返額度其實買了 2 次、被誤刪了（刪掉的那一下就是 I3 ④ 那種收起來，這裡直接寫成刪掉之後的樣子）
+  await app.seed([entitlement('cust-x', {
+    id: 'ent-x-second', label: '二返（8萬健檢）', courseId: 'course-followup',
+    totalQty: 2, doneCount: 1, followupForEntitlementId: 'ent-x-exam', durationMin: 30,
+    deletedAt: new Date(`${TODAY}T10:00:00+08:00`),
+  })]);
+  await app.go('/settings/trash');
+  await expect(page.locator('#view')).toContainText('二返（8萬健檢）');
+  await page.locator('[data-restore]').click();
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+  await expect(page.locator('#toast')).toContainText('已還原 —— 待辦多 1 張「約二返」');
+  await expect.poll(async () => kindsOf(await liveTasks(app)), '還原了二返額度，約二返不用等下一次存來訪')
+    .toEqual(['寄報告給醫師:v-x-exam2:false', '約二返:v-x-exam2:false', '追蹤健檢報告:v-x-exam2:true']);
 });

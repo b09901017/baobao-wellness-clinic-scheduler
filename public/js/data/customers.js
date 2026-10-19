@@ -160,9 +160,13 @@ async function entitlementWrites(customerId, dataList, { customer = null, delive
  * 健檢那條鏈要跟著這一下的額度一起寫的那幾筆（ADR-0159）。動到的不是健檢或二返、或讀不完整，就是空的 ——
  * 額度照寫（`data/visits.js` 的 `chainAfterEntitlements()`）。
  */
-async function chainOps(customerId, change, name = null) {
-  return (await chainAfterEntitlements(customerId, change, { name }))?.ops ?? [];
-}
+const chainOf = (customerId, change, name = null) => chainAfterEntitlements(customerId, change, { name });
+
+/**
+ * 那一條鏈動了什麼，回給畫面（issue 17、19）：改額度的路都沒有講到鏈的確認框，存完的 toast 接半句
+ *（`consequences.js` 的 `chainSavedSay()`）。`null`＝沒動到那條鏈、或讀不完整沒重算。
+ */
+const chainSaid = (chain) => (chain ? { plan: chain.plan, tasks: chain.tasks } : null);
 
 /**
  * 加一筆額度，需要的話連它的二返額度與交付提醒一起建。
@@ -173,9 +177,9 @@ async function chainOps(customerId, change, name = null) {
  */
 export async function createEntitlement(customerId, data, opts = {}) {
   const { writes, created } = await entitlementWrites(customerId, [data], opts);
-  const chain = await chainOps(customerId, (list) => [...list, ...created], opts.customer?.name);
-  const [id] = await repo.commit([...writes, ...chain]);
-  return id;
+  const chain = await chainOf(customerId, (list) => [...list, ...created], opts.customer?.name);
+  await repo.commit([...writes, ...(chain?.ops ?? [])]);
+  return chainSaid(chain);
 }
 
 /**
@@ -187,13 +191,14 @@ export async function createEntitlement(customerId, data, opts = {}) {
  */
 export async function addEntitlements(customerId, dataList = [], opts = {}) {
   const { customerChanges = null } = opts;
-  if (!dataList.length && !customerChanges) return [];
+  if (!dataList.length && !customerChanges) return null;
   const { writes, created } = await entitlementWrites(customerId, dataList, opts);
   // 拍訂購單加購到既有客戶（issue 09）：尾款那則紅色備註、便利貼上的警示跟額度**同一個 commit** ——
   // 分開寫的話額度建好、備註失敗，她按重試就多一整份額度
   const also = customerChanges ? [{ op: 'update', path: PATH, id: customerId, changes: customerChanges }] : [];
-  const chain = created.length ? await chainOps(customerId, (list) => [...list, ...created], opts.customer?.name) : [];
-  return repo.commit([...writes, ...also, ...chain]);
+  const chain = created.length ? await chainOf(customerId, (list) => [...list, ...created], opts.customer?.name) : null;
+  await repo.commit([...writes, ...also, ...(chain?.ops ?? [])]);
+  return chainSaid(chain);
 }
 
 /**
@@ -201,10 +206,9 @@ export async function addEntitlements(customerId, dataList = [], opts = {}) {
  * 超用的那一次，補了額度「約二返」當場就在待辦上，不用等下一次存來訪。
  */
 export async function updateEntitlement(customerId, id, changes) {
-  const chain = await chainAfterEntitlements(customerId, (list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
+  const chain = await chainOf(customerId, (list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
   await repo.commit([{ op: 'update', path: entPath(customerId), id, changes }, ...(chain?.ops ?? [])]);
-  // 那一條鏈動了什麼（issue 17）：那一張表沒有確認框，存完的 toast 講一句（`consequences.js` 的 `chainSavedSay()`）
-  return chain ? { plan: chain.plan, tasks: chain.tasks } : null;
+  return chainSaid(chain);
 }
 
 /**
@@ -219,29 +223,31 @@ export async function updateEntitlement(customerId, id, changes) {
  */
 export async function updateEntitlements(customerId, patches = []) {
   const byId = new Map(patches.map((p) => [p.id, p.changes]));
-  const chain = await chainOps(customerId, (list) => list.map((e) => (byId.has(e.id) ? { ...e, ...byId.get(e.id) } : e)));
-  return repo.commit([
+  const chain = await chainOf(customerId, (list) => list.map((e) => (byId.has(e.id) ? { ...e, ...byId.get(e.id) } : e)));
+  await repo.commit([
     ...patches.map((p) => ({
       // **update 讀的是 `changes`，不是 `data`**（`repo.commit()`）。2026-09-06 到 09-13 這裡寫的是
       // `data:`，於是改購買日一次都沒存成功過：寫進去的只有 updatedAt，稽核那一筆還因為
       // `after: undefined` 整批被 Firestore 拒收（`tests/commit-ops.test.js` 盯著）。
       op: 'update', path: entPath(customerId), id: p.id, changes: p.changes,
     })),
-    ...chain,
+    ...(chain?.ops ?? []),
   ]);
+  return chainSaid(chain);
 }
 
 /** 刪掉一筆額度。刪的是健檢或二返時，健檢那條鏈同一個 commit 重算（ADR-0159：二返沒了，多出來的「約二返」收起來）。 */
 export async function removeEntitlement(customerId, id, reason) {
-  const chain = await chainOps(customerId, (list) => list.filter((e) => e.id !== id));
-  await repo.commit([{ op: 'softDelete', path: entPath(customerId), id, reason }, ...chain]);
+  const chain = await chainOf(customerId, (list) => list.filter((e) => e.id !== id));
+  await repo.commit([{ op: 'softDelete', path: entPath(customerId), id, reason }, ...(chain?.ops ?? [])]);
 }
 
 /** 從已刪除項目還原一筆額度。同上，健檢那條鏈跟著重算（ADR-0159）。 */
 export async function restoreEntitlement(customerId, id) {
   const row = (await repo.listWithDeleted(entPath(customerId))).find((e) => e.id === id);
-  const chain = row ? await chainOps(customerId, (list) => [...list, { ...row, deletedAt: null }]) : [];
-  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes: { deletedAt: null } }, ...chain]);
+  const chain = row ? await chainOf(customerId, (list) => [...list, { ...row, deletedAt: null }]) : null;
+  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes: { deletedAt: null } }, ...(chain?.ops ?? [])]);
+  return chainSaid(chain);
 }
 
 /**
