@@ -26,3 +26,11 @@ v8 的段沒有 `note`，舊表日期欄底下那一格只能寫成客戶短備�
 - v9 一段帶 `note: '遲到十五分鐘'` → 那一段 `slot.note === '遲到十五分鐘'`，其他段 `null`
 - `note` 201 個字、或是數字 → `validateFile()` 拒收
 - `tests/calendar-merge.test.js` 兩邊的版本字串一樣；寫死 v8 的那幾支（過目列的 merge-import／merge-functional-clinic／merge-v8-gift-candidates／merge-staff-roster／merge-chart-numbers）跟著升
+
+## 做完時留下的（2026-10-20）
+
+- 跟 issue 寫的一樣：`validateFile()` 驗 `note`（字串、去空白後 ≤ `NOTE_MAX`）、`planForCustomer()` 寫 `slot.note`（`textOf()`：去頭尾空白、空的是 `null`）
+- 摘要卡多一行「N 個時段帶著記一句（舊表那一天底下那一格）」—— `counts.slotNotes` → `summarize().slotNotes`；**確認框沒有加**（那一份已經很長，記一句不改變寫入的次數）
+- 寫死 v8 的五支舊測試升 v9；「認不得的版本」改拿 v10 試。`tests/e2e-related.test.js` 不用登記 `tests/merge-v9.test.js`（單元測試不在它的名單裡）
+- 測試的例子寫「遲到十五分鐘」：阿拉伯數字的「遲到15」被 `tests/no-secrets.test.js` 當成姓名黏著病歷號
+- `sw.js` v199（這一輪只升這一次）

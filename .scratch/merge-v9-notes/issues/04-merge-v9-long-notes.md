@@ -25,3 +25,9 @@ v8 只有 `marks`（短備註，一則 40 字、一位 12 則）。舊表 A 欄�
 - v8 的檔案匯出來沒有 `longNotes` 這一格（跟以前一樣），`readLongNotes()` 回 `[]`
 - v9 帶兩則 → `customer.longNotes` 兩則、id 不一樣、`noteItems()` 排在短備註前面
 - 標題 41 字、或 21 則 → `validateFile()` 拒收
+
+## 做完時留下的（2026-10-20）
+
+- `validateFile()`：形狀（陣列、`title` 是字串、`body` 是字串或沒有）不對講一句；形狀對的補暫時 id 交 `validateLongNotes()`
+- `longNotesOf()`：每一則 `newLongNoteId()`（同一位裡重複就再抽）、標題只去頭尾空白（同 `withLongNote()`）；空清單當沒寫、連鍵都沒有
+- 摘要卡「N 位帶長備註，一共 N 則」（`longNoteCustomers`、`longNotes`）；確認框沒有加

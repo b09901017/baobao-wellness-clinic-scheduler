@@ -40,3 +40,13 @@ v8 的來訪只有兩種：舊表勾了的（`done`）與還沒發生的（`conf
 - 一段 `no_show` → `counts()` 的 `noShow` 是 1、`remaining` 不少
 - `status: 'done'`、`'confirmed'` 或亂寫 → `validateFile()` 拒收（那兩種是整筆的事，不在段上寫）
 - v8 的檔案匯出來每一段的 `status` 跟以前一樣（整筆的）
+
+## 做完時留下的（2026-10-20）
+
+- `SLOT_STATUSES = ['cancelled', 'no_show']`；`validateFile()` 另外擋「取消理由寫在沒取消的段上」（含未到 —— 失約的理由是記一句）
+- `planForCustomer()` **每一段都寫實 `status`**（檔案沒寫的段寫整筆的 `statusFor()`），整筆是 `visitStatusFrom({ status, slots })`。取消／未到的段 `attended: false`，取消的段才有 `cancelReason` 那個鍵
+- `addExtraVisits()`：新的那一段寫實 `status`；併進同一天之後 `visitStatusFrom({ ...same, status: null })` —— **不帶舊的整筆狀態去推**，`slotStatus()` 看到整筆已取消會把每一段讀成取消
+- `importedTasksFor()`：先跑 `syncTasksForVisit()`，取消類的全部改成勾好的（`done: true`、`doneAt: at`、說明換成「匯進來的舊資料…不用再去放」）；已經發生的那一筆只回那幾張。**每一種取消類都勾**（不只 Abovee，跟 `freed` 不一樣 —— 理由在 ADR-0164）
+- `countNewTasks()` 只數沒勾的；新的 `countSettledTasks()` 數勾好的。匯入頁那一句是 `skippedSlotsLine(s, settled)`（摘要卡與確認框共用），`settled` 掛在 `paint()` 的 `s` 上
+- 「全部標成已完成」「其餘的標成已完成」「已經發生的來訪標成已完成」三處有取消／未到時改字
+- ADR-0164
