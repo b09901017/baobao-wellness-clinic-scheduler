@@ -161,6 +161,18 @@
 
 ---
 
+## 十三、手挑的「相關」與還沒 `git add` 的新檔案
+
+兩個「本機綠、CI 紅」的形狀，同一輪各踩一次（2026-10-19 上線前補的那一輪）：
+
+- **E2E 自己挑幾支跑**：段二改了客戶清單卡片，本機跑了自己想到的二十幾支，漏了登記著 `customers.js` 的 `30`（它量「卡片上不可以有電話」）—— 全量才紅。
+- **新的測試檔還沒 `git add`**：`tests/no-secrets.test.js` 只掃被追蹤的檔案，段三新的 `sheet-fingerprint.test.js` 裡有 `上午10:00:00`，
+  沒 add 之前掃不到、`npm test` 綠；commit 之後 HEAD 上就是紅的，段四才發現。
+
+> 要挑 E2E 時問的是 `related.js` 的 `pick()` 不是自己的記憶嗎？新增了檔案，`git add` 之後有沒有再跑一次 `npm test`？
+
+---
+
 ## 查的方法（給之後做健檢或驗證的 session）
 
 - **測試全綠不代表沒事**：掃原始碼的測試只看得到它認得的寫法（save-guards 只掃 `withSaveState`；E2E U8 量按鈕外框，量不到被 `overflow` 裁掉的感應範圍 —— 要用 `elementFromPoint` 量）
