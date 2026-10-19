@@ -2,8 +2,10 @@
 
 日期：2026-10-20
 狀態：已接受
-延伸：[ADR-0093](./0093-an-imported-visit-grows-no-tasks.md)（匯進來的來訪不長任務）、[ADR-0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md)
-（照片上已經放掉的段，「取消 Abovee」一出生就勾好）。不推翻：ADR-0106（勾過的才算做過）、ADR-0091（取消類逐段）。
+推翻：[ADR-0093](./0093-an-imported-visit-grows-no-tasks.md)「已經發生的那一筆一張任務都不長」的那一點 —— 有取消掉的段時，
+已經發生的那一筆也長取消類的任務（一出生就勾好）；其餘照 ADR-0093（要做的任務一張都不長）。
+延伸：[ADR-0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md)（照片上已經放掉的段，「取消 Abovee」一出生就勾好）。
+不推翻：ADR-0106（勾過的才算做過）、ADR-0091（取消類逐段）。
 
 ## 背景
 
