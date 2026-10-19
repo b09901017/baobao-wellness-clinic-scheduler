@@ -62,7 +62,7 @@
 先讀 .scratch/merge-v9-notes/HANDOFF.md、spec.md、issues/01～05（每一支底下有「做完時留下的」）、docs/agents/lessons.md、
 CLAUDE.md「舊表 B2…合併檔」「備註那一段的順序」「取消類的待辦」「一段來訪的狀態」四列、ADR-0163、ADR-0164。
 1. /matt-code-review，基準 origin/develop（50b5187）。重點：mergeImport.js 的 validateFile()／planForCustomer()／addExtraVisits()／
-   summarize()／skippedSlotsLine()、taskRules.js 的 importedTasksFor()、ui/views/mergeImport.js 的摘要卡與確認框、customerNotes.js 的 noteItems()。
+   summarize()／missedSlotsLine()、taskRules.js 的 importedTasksFor()、ui/views/mergeImport.js 的摘要卡與確認框、customerNotes.js 的 noteItems()。
    照建議修（修 bug 先寫失敗測試、一個 commit 一件事、npm test 全綠）；提過沒改的寫理由進 HANDOFF
 2. 改了 public/ 就 npm run verify（模擬器要從這個目錄起；E2E 74、77、09、61、64 是匯入與備註那幾支）
 3. 改了 mergeImport.js 的話，產檔那一側重跑一次：.local/references/cutover-2026-10-14/ 的

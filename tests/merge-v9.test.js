@@ -13,7 +13,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FORMAT, FORMATS, validateFile, planForCustomer, summarize, addExtraVisits, countNewTasks, countSettledTasks,
+  FORMAT, FORMATS, validateFile, planForCustomer, summarize, addExtraVisits, countNewTasks, countTickedTasks,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { recount, slotCancelReasonOf, slotStatus, validateVisit, withSlotStatuses } from '../public/js/domain/visits.js';
@@ -211,7 +211,7 @@ describe('取消類的待辦：一出生就勾好（issue 03、ADR-0164）', () 
   test('匯入頁的數字：countNewTasks 只數沒勾的（要做的事），勾好的另外數', () => {
     const plan = planOf([day('2026-10-16', [slot({ status: 'cancelled' })]), day('2026-10-17', [slot(), slot({ startsAt: '11:15', status: 'cancelled' })])]);
     assert.equal(countNewTasks([plan], { courses: SEED.courses, today: TODAY }), 0);
-    assert.equal(countSettledTasks([plan], { courses: SEED.courses, today: TODAY }), 2);
+    assert.equal(countTickedTasks([plan], { courses: SEED.courses, today: TODAY }), 2);
   });
 });
 

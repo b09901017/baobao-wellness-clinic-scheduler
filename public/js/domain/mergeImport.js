@@ -1032,7 +1032,7 @@ export function countNewTasks(plans, ctx = {}) {
  * 匯入時一出生就勾好的那幾張（v9：取消的段的「取消 X」，ADR-0164）。確認框另外講一句 ——
  * 待辦中心「已完成」那裡會多出這幾張，不講的話她會以為匯錯了。
  */
-export function countSettledTasks(plans, ctx = {}) {
+export function countTickedTasks(plans, ctx = {}) {
   return importedTasks(plans, ctx).filter((t) => t.done).length;
 }
 
@@ -1149,16 +1149,16 @@ export function extraPicksLeft(candidates, chosen, doneNames) {
  * 看起來每一段都做過了；確認框只寫「全部標成已完成」就是假話。**0 段時是空字串**（v8 的檔案一個字都不多）。
  *
  * @param {{cancelled?: number, noShow?: number}} s `summarize()` 的結果
- * @param {number} [settled] 一出生就勾好的「取消 X」（`countSettledTasks()`）
+ * @param {number} [ticked] 一出生就勾好的「取消 X」（`countTickedTasks()`）
  */
-export function skippedSlotsLine(s, settled = 0) {
+export function missedSlotsLine(s, ticked = 0) {
   const parts = [
     s?.cancelled ? `${s.cancelled} 段已取消` : '',
     s?.noShow ? `${s.noShow} 段未到` : '',
   ].filter(Boolean);
   if (!parts.length) return '';
   return `其中 ${parts.join('、')}（舊表沒勾、Abovee 上取消或失約的那幾天），不扣次數`
-    + (settled ? `；取消的那幾段各記一張已經勾好的「取消」待辦（一共 ${settled} 張）—— 舊系統上早就放掉了，不用再去放` : '');
+    + (ticked ? `；取消的那幾段各記一張已經勾好的「取消」待辦（一共 ${ticked} 張）—— 舊系統上早就放掉了，不用再去放` : '');
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */

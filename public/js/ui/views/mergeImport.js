@@ -12,7 +12,7 @@
 import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
-  summarize, countNewTasks, countSettledTasks, skippedSlotsLine, groupCandidates, defaultPicks, eventKind, canRun,
+  summarize, countNewTasks, countTickedTasks, missedSlotsLine, groupCandidates, defaultPicks, eventKind, canRun,
   importCaveats, looseLeft, extraPicksLeft, staffRenames, staffAfterRenames, writesLoose,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
@@ -131,8 +131,8 @@ function paint(el, ctx) {
   const { plans = [], extraProblems = [] } = file
     ? plansOf({ ...ctx, staff: staffAfterRenames(ctx.staff, renames.changes) }) : {};
   const tasks = file ? countNewTasks(plans, { courses: ctx.courses, today: todayISO() }) : 0;
-  // v9：取消的段一出生就勾好的「取消 X」（ADR-0164）。摘要卡與確認框那一句（`skippedSlotsLine()`）要講
-  const s = file ? { ...summarize(plans), settled: countSettledTasks(plans, { courses: ctx.courses, today: todayISO() }) } : null;
+  // v9：取消的段一出生就勾好的「取消 X」（ADR-0164）。摘要卡與確認框那一句（`missedSlotsLine()`）要講
+  const s = file ? { ...summarize(plans), ticked: countTickedTasks(plans, { courses: ctx.courses, today: todayISO() }) } : null;
   // 對不到主檔幾處、同名跳過幾位：摘要卡、確認框、完成那一張讀同一份
   const caveats = file ? importCaveats(plans, extraProblems) : null;
 
@@ -330,7 +330,7 @@ function summaryCard(s, plans, { problems, unplaced, skipped }, renames) {
       ${s.phones ? `<p class="muted"><b>${s.phones}</b> 位帶電話。</p>` : ''}
       ${s.longNotes ? `<p class="muted"><b>${s.longNoteCustomers}</b> 位帶長備註，一共 <b>${s.longNotes}</b> 則（舊表左邊那一大段整體備註）。</p>` : ''}
       ${s.slotNotes ? `<p class="muted"><b>${s.slotNotes}</b> 個時段帶著記一句（舊表那一天底下那一格）。</p>` : ''}
-      ${skippedSlotsLine(s, s.settled) ? `<p class="muted" data-import-skipped-slots>${esc(skippedSlotsLine(s, s.settled))}。</p>` : ''}
+      ${missedSlotsLine(s, s.ticked) ? `<p class="muted" data-import-missed-slots>${esc(missedSlotsLine(s, s.ticked))}。</p>` : ''}
       ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成
         <b>已確認</b> —— 那是「已經約好、還沒來」：算進已排未上，次數還不會扣。
         其餘的標成已完成${s.cancelled || s.noShow ? '（檔案上寫了已取消、未到的那幾段照寫）' : ''}。</p>` : ''}
@@ -621,7 +621,7 @@ function runCard(s, tasks, renames) {
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
         （算進已排未上，次數還不會扣）${s.cancelled || s.noShow ? '；檔案上寫了已取消、未到的那幾段照寫' : ''}。</p>
       <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
-        那些掛號與紀錄在舊系統早就做完了${s.settled ? '（取消的那幾段的「取消」待辦一建好就勾掉了）' : ''}。${noTaskWhy(s, tasks)}</p>
+        那些掛號與紀錄在舊系統早就做完了${s.ticked ? '（取消的那幾段的「取消」待辦一建好就勾掉了）' : ''}。${noTaskWhy(s, tasks)}</p>
     </section>`;
 }
 
@@ -678,7 +678,7 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
           ? `${s.future} 筆的日期在今天之後，建成「已確認」（算進已排未上，次數還不會扣）`
           : `沒有日期在今天之後的來訪，${s.cancelled || s.noShow ? '已取消、未到的那幾段以外都' : '全部'}標成已完成`,
         // v9：已取消、未到的段。0 段時這裡一項都不多
-        ...(skippedSlotsLine(s, s.settled) ? [skippedSlotsLine(s, s.settled)] : []),
+        ...(missedSlotsLine(s, s.ticked) ? [missedSlotsLine(s, s.ticked)] : []),
         ...(s.followups ? [`額度裡有 ${s.followups} 筆二返是系統配的（買幾次健檢就有幾次二返）`] : []),
         extras ? `另外補 ${extras} 筆你勾起來的來訪` : '沒有勾任何要補的來訪',
         ...(loose ? [
