@@ -191,7 +191,9 @@ const BUSY = '剛剛叫過 MacroDroid 了：等它跑完（幾秒）再按一次
 const NO_NAME = '還沒填 LINE 名字：客戶詳情 → 名字旁邊的「編輯」→「LINE 名字」那一格';
 // 叫不到的三個原因都講：被拒的那一下分不出是哪一種
 const UNREACHED = '叫不到 MacroDroid（它要開著、連接埠要跟它的一樣、Chrome 要允許「區域網路」）。';
-const NO_REPLY = 'MacroDroid 沒回應：觸發條件的「傳送回應（Send Response）」有勾嗎？';
+// 沒回應也有兩個原因：Chrome 那個框還停著（第一次最常見），或手機那一側收到了卻不回
+const NO_REPLY = 'MacroDroid 沒回應：Chrome 有跳「允許存取區域網路」嗎？按允許再試一次。'
+  + '沒有跳的話，看觸發條件的「傳送回應（Send Response）」有沒有勾。';
 
 /** 退路：開 LINE 的聊天清單＋複製。剪貼簿先叫（按下去的那一刻還在），開視窗緊接著，不等剪貼簿。 */
 async function fallback(d, name, msg, msgCopied, lead = '') {

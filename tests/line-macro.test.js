@@ -169,6 +169,9 @@ describe('打開他的對話', () => {
     assert.equal(await openLineChat({ name: '王小明', notify: (m) => said.push(m), deps }), 'no-reply');
     assert.deepEqual(log, []);
     assert.match(said[0], /沒回應/);
+    // 兩個原因都講：那個框還開著（逾時的那一刻最常見的就是這個）、或觸發條件沒勾傳送回應
+    assert.match(said[0], /區域網路/);
+    assert.match(said[0], /Send Response/);
   });
 
   test('退路開不了新視窗（被擋）：句子照講，不假裝開了', async () => {
