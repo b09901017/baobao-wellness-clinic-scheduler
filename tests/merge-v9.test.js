@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 
 import {
   FORMAT, FORMATS, validateFile, planForCustomer, summarize, addExtraVisits, countNewTasks, countTickedTasks,
+  missedSlotsLine, newTasksLine,
 } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 import { recount, slotCancelReasonOf, slotStatus, validateVisit, withSlotStatuses } from '../public/js/domain/visits.js';
@@ -242,6 +243,33 @@ describe('候選併進同一天（addExtraVisits）＋摘要卡（issue 03）', 
     const s = summarize([plan]);
     assert.equal(s.cancelled, 1);
     assert.equal(s.noShow, 1);
+  });
+
+  // 審查（10/20）：同一天幾段一起取消的收成一張（`cancelTasksFor()` 一種一張），寫「各記一張」就是講錯張數
+  test('那一句的張數：同一天兩段一起取消是一張，不寫「各記一張」', () => {
+    const plan = planForCustomer(entry({ visits: [
+      day('2026-10-16', [slot({ status: 'cancelled' }), slot({ startsAt: '11:15', status: 'cancelled' })]),
+    ] }), CTX);
+    const ticked = countTickedTasks([plan], { courses: SEED.courses, today: TODAY });
+    assert.equal(ticked, 1);
+    const line = missedSlotsLine(summarize([plan]), ticked);
+    assert.ok(line.includes('2 段已取消'));
+    assert.ok(line.includes('1 張'));
+    assert.ok(!line.includes('各記一張'), line);
+    assert.equal(missedSlotsLine({ cancelled: 0, noShow: 0 }, 0), '', 'v8 的檔案一個字都不多');
+  });
+
+  // 審查（10/20）：確認框上面那一句才講了「會記幾張勾好的取消」，最後那一句還寫「不會產生任何待辦任務」（ADR-0070：只講真的會發生的事）
+  test('確認框講任務的那一句：有一出生就勾好的那幾張時講「要做的」、講張數；沒有時一個字都不變', () => {
+    assert.equal(newTasksLine({ future: 0 }, 0), '不會產生任何待辦任務 —— 這次沒有還沒發生的來訪');
+    assert.equal(newTasksLine({ future: 2 }, 0), '不會產生任何待辦任務 —— 還沒發生的那 2 筆都是不用另外掛號的課程');
+    assert.equal(newTasksLine({ future: 2 }, 3), '還沒發生的那幾筆會產生 3 筆登記待辦；已經發生的一筆都不會長');
+    for (const [s, tasks] of [[{ future: 0, ticked: 2 }, 0], [{ future: 2, ticked: 2 }, 3]]) {
+      const line = newTasksLine(s, tasks);
+      assert.ok(!line.startsWith('不會產生任何待辦任務'), line);
+      assert.ok(!line.includes('一筆都不會長'), line);
+      assert.ok(line.includes('要做的') && line.includes('2 張'), line);
+    }
   });
 });
 

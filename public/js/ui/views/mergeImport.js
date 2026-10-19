@@ -12,7 +12,7 @@
 import * as importer from '../../data/legacyImport.js';
 import {
   FORMAT, validateFile, planForCustomer, addExtraVisits, looseDocs, looseTally,
-  summarize, countNewTasks, countTickedTasks, missedSlotsLine, groupCandidates, defaultPicks, eventKind, canRun,
+  summarize, countNewTasks, countTickedTasks, missedSlotsLine, newTasksLine, groupCandidates, defaultPicks, eventKind, canRun,
   importCaveats, looseLeft, extraPicksLeft, staffRenames, staffAfterRenames, writesLoose,
   CALENDAR_KINDS, KIND_LABEL,
 } from '../../domain/mergeImport.js';
@@ -596,11 +596,13 @@ function noTaskWhy(s, tasks) {
   if (tasks) {
     return `還沒發生的那些會，這次是 <b>${tasks}</b> 筆：那幾件登記與確認是真的還沒做。`;
   }
+  // v9：取消的段那幾張一出生就勾好（ADR-0164）—— 那時候講「要做的」，不然跟上面那一句打架
+  const todo = s.ticked ? '要做的' : '';
   if (s.future) {
     return `還沒發生的那 <b>${s.future}</b> 筆都是不用另外掛號的課程，`
-      + '所以這次一筆待辦也不會長出來。';
+      + `所以這次一筆${todo}待辦也不會長出來。`;
   }
-  return '這次沒有還沒發生的來訪，所以一筆待辦都不會長出來。';
+  return `這次沒有還沒發生的來訪，所以一筆${todo}待辦都不會長出來。`;
 }
 
 function runCard(s, tasks, renames) {
@@ -620,8 +622,8 @@ function runCard(s, tasks, renames) {
       <p class="muted">每一筆都會標上來源，之後查得出是從哪一次合併進來的。
         已經發生的來訪標成<b>已完成</b>，日期在今天之後的建成<b>已確認</b>
         （算進已排未上，次數還不會扣）${s.cancelled || s.noShow ? '；檔案上寫了已取消、未到的那幾段照寫' : ''}。</p>
-      <p class="muted">已經發生的那些<b>不會產生任何待辦任務</b> ——
-        那些掛號與紀錄在舊系統早就做完了${s.ticked ? '（取消的那幾段的「取消」待辦一建好就勾掉了）' : ''}。${noTaskWhy(s, tasks)}</p>
+      <p class="muted">已經發生的那些<b>不會產生任何${s.ticked ? '要做的' : '待辦'}任務</b> ——
+        那些掛號與紀錄在舊系統早就做完了${s.ticked ? '（取消的那幾段的「取消」任務一建好就勾掉了）' : ''}。${noTaskWhy(s, tasks)}</p>
     </section>`;
 }
 
@@ -688,11 +690,7 @@ async function run(el, ctx, plans, s, tasks, caveats, renames) {
           ? [`勾著的 ${picks.events.size} 筆雜事這一趟不寫 —— 它們上一次就寫進去了，再寫就是每一筆多一份`]
           : [])),
         s.low ? `${s.low} 個時段的時間是推測的，匯完可以再改` : '沒有推測來的時間',
-        tasks
-          ? `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；已經發生的一筆都不會長`
-          : `不會產生任何待辦任務 —— ${s.future
-            ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
-            : '這次沒有還沒發生的來訪'}`,
+        newTasksLine(s, tasks),
         '每位客戶各自寫入，一位失敗不影響其他人',
       ],
       confirmLabel: '匯入',

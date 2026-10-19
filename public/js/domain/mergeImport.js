@@ -1157,8 +1157,29 @@ export function missedSlotsLine(s, ticked = 0) {
     s?.noShow ? `${s.noShow} 段未到` : '',
   ].filter(Boolean);
   if (!parts.length) return '';
+  // 張數不是段數：同一天幾段一起取消的收成一張（`cancelTasksFor()` 一種一張）
   return `其中 ${parts.join('、')}（舊表沒勾、Abovee 上取消或失約的那幾天），不扣次數`
-    + (ticked ? `；取消的那幾段各記一張已經勾好的「取消」待辦（一共 ${ticked} 張）—— 舊系統上早就放掉了，不用再去放` : '');
+    + (ticked ? `；取消的那幾段記成 ${ticked} 張已經勾好的「取消」任務（同一天的收成一張）—— 舊系統上早就放掉了，不用再去放` : '');
+}
+
+/**
+ * 確認框講任務的那一句（ADR-0093：已經發生的不長要做的任務）。**有一出生就勾好的「取消」時**（v9，ADR-0164）
+ * 講「要做的」、講那幾張 —— 上面那一句（`missedSlotsLine()`）才講了會記幾張勾好的，這裡再寫「不會產生任何待辦任務」
+ * 就是兩句打架（ADR-0070：只講真的會發生的事）。沒有勾好的那幾張時一個字都不變。
+ *
+ * @param {{future?: number, ticked?: number}} s `summarize()` 的結果＋`ticked`（`countTickedTasks()`）
+ * @param {number} tasks 要做的那幾張（`countNewTasks()`）
+ */
+export function newTasksLine(s, tasks) {
+  const ticked = s?.ticked ?? 0;
+  const done = ticked ? `（取消的那幾段那 ${ticked} 張「取消」任務一建好就勾掉了）` : '';
+  if (tasks) {
+    return `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；`
+      + (ticked ? `已經發生的不會長要做的任務${done}` : '已經發生的一筆都不會長');
+  }
+  return `不會產生任何${ticked ? '要做的' : '待辦'}任務${done} —— ${s?.future
+    ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
+    : '這次沒有還沒發生的來訪'}`;
 }
 
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */
