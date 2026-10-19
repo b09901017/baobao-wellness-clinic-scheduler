@@ -2,7 +2,7 @@
 
 > **2026-10-09：v6 被人員名單用掉了**（prelaunch-fixes-2026-10-08/20，ADR-0141）。這一支開工時順延成 `baobao-merge/v7`，底下寫 v6 的地方都讀成 v7。
 
-Status: todo
+Status: 不做（她 2026-10-17：只做過體驗、不是她客人的人不建 —— 那 7 次 HRV 的人就是這一種；切換那一份合併檔照這句產。2026-10-19 清查時改的狀態）
 來源：11 第四節拆出來的（她：「11 第四節要升合併檔 baobao-merge/v6（帶得進沒有舊表分頁的人），太大就拆成自己的一段，先跟我說」）
 動工前先讀：`issues/11` 第四節與第四節之一（原本的規劃、當時的分析）、上一輪 `.scratch/abovee-and-master-2026-10-05/issues/13` 最下面「拿她的真檔跑過」、
 `.claude/skills/calendar-sheet-merge/SKILL.md`（第 4b、5 步、合併檔那一節）、`merge.mjs`（`TOKENS` 的 `/功醫|HRV/i`、`startOf()`、`importJson()`）、

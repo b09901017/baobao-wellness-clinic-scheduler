@@ -1,6 +1,6 @@
 # 試算表只看前後 400 天的來訪
 
-Status: 暫緩（她 2026-09-23：「這個暫時沒關係，但是可以在試算表標註起來或是用 tooltip 標註等等，暫時先沒關係」）
+Status: done（2026-10-07 ADR-0132：試算表改讀過去的全部來訪、往後 400 天 —— `data/visits.js` 的 `listForSheet()`，`tests/sheet-all-history.test.js` 盯著；2026-10-19 清查時改的狀態）
 來源：`../spec.md`
 動工前先讀：`data/sheetSync.js` 的 `buildBundle()`（`LOOKBACK_DAYS = 400`）、`domain/sheetReport.js` 的 `syncBundle()`
 
