@@ -37,7 +37,7 @@ import {
   poolCourseOf,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs } from '../../domain/followups.js';
-import { chainPlanLines } from '../../domain/consequences.js';
+import { chainPlanLines, chainSavedSay } from '../../domain/consequences.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
@@ -1915,7 +1915,8 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
       } else {
         await toast.withSaveState(
           () => data.updateEntitlement(ctx.id, record.id, buy.payload(next)),
-          { success: '已儲存', key: `entitlement:update:${record.id}` },
+          // 改了健檢或二返的次數，待辦那條鏈重算了（ADR-0159）—— 沒有確認框，存完講一句（issue 17）
+          { success: (chain) => `已儲存${chainSavedSay(chain)}`, key: `entitlement:update:${record.id}` },
         );
       }
       reload(ctx);

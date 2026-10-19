@@ -239,6 +239,8 @@ test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不�
   await page.locator('[name="totalQty"]').fill('2');
   await page.click('button[type="submit"]');
   await app.saved();
+  // 那一張表沒有確認框：存完的 toast 講待辦多了什麼（before-golive-2026-10-19/17）
+  await expect(page.locator('#toast')).toContainText('已儲存 —— 待辦多 1 張「約二返」');
 
   await expect.poll(async () => kindsOf(await liveTasks(app)), '補了額度，約二返不用等下一次存來訪')
     .toEqual(['寄報告給醫師:v-x-exam2:false', '約二返:v-x-exam2:false', '追蹤健檢報告:v-x-exam2:true']);
@@ -253,6 +255,7 @@ test('I3 健檢超用：簽療程單 → 長報告；勾掉 → 寄報告、不�
   await page.locator('[name="totalQty"]').fill('1');
   await page.click('button[type="submit"]');
   await app.saved();
+  await expect(page.locator('#toast')).toContainText('1 張「約二返」收起來了');
   await expect.poll(async () => kindsOf(await liveTasks(app)), '二返的次數不夠了，約二返收起來')
     .toEqual(['寄報告給醫師:v-x-exam2:false', '追蹤健檢報告:v-x-exam2:true']);
 });

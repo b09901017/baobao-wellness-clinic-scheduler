@@ -241,7 +241,8 @@ const inFlight = new Map();
  * 所有寫入都應該經過這裡，這樣就不會有人忘記處理失敗，也不用逐個記得接復原。
  *
  * @param {() => Promise<T>} fn
- * @param {{pending?:string, success?:string, undoable?:boolean, key?:string|null}} [options]
+ * @param {{pending?:string, success?:string|((result: T) => string), undoable?:boolean, key?:string|null}} [options]
+ *   `success` 可以是一支函式：拿寫入回來的值組那一句（改二返的次數之後講待辦多了幾張，issue 17）。
  *   undoable 預設為真。寫了好幾批的動作 repo 會自己判斷給不出復原，這裡不用管。
  *
  *   `key` 給**同一下不可以做兩次**的動作用（建客戶、存來訪、加額度這種
@@ -286,7 +287,7 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
       const { result, undo } = await withUndo(fn);
       settled = true;
       clearTimeout(timer);
-      saved(success, undoable ? undo : null);
+      saved(typeof success === 'function' ? success(result) : success, undoable ? undo : null);
       return result;
     } catch (err) {
       settled = true;

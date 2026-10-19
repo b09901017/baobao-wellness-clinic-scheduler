@@ -201,8 +201,10 @@ export async function addEntitlements(customerId, dataList = [], opts = {}) {
  * 超用的那一次，補了額度「約二返」當場就在待辦上，不用等下一次存來訪。
  */
 export async function updateEntitlement(customerId, id, changes) {
-  const chain = await chainOps(customerId, (list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
-  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes }, ...chain]);
+  const chain = await chainAfterEntitlements(customerId, (list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
+  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes }, ...(chain?.ops ?? [])]);
+  // 那一條鏈動了什麼（issue 17）：那一張表沒有確認框，存完的 toast 講一句（`consequences.js` 的 `chainSavedSay()`）
+  return chain ? { plan: chain.plan, tasks: chain.tasks } : null;
 }
 
 /**

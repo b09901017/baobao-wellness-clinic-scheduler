@@ -984,6 +984,32 @@ export function chainCountLines(plans = []) {
 }
 
 /**
+ * 存完之後 toast 接在「已儲存」後面的那半句（before-golive-2026-10-19 issue 17）：改了二返的次數那一張表**沒有確認框**
+ *（她常改，多一道框煩），重算出來的那幾張待辦（ADR-0159）不講的話，待辦上安靜地多一張、少一張。
+ * 讀寫入那一支真的算的那一份（`chainAfterEntitlements()` 的 `plan`）；沒有動到就是空字串。
+ *
+ * @param {{plan?: {create?: object[], remove?: {id: string}[]}, tasks?: object[]}|null} chain
+ * @returns {string} 例：` —— 待辦多 1 張「約二返」`
+ */
+export function chainSavedSay(chain) {
+  const plan = chain?.plan;
+  if (!plan) return '';
+  const grow = new Map();
+  const drop = new Map();
+  for (const t of plan.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+  for (const r of plan.remove ?? []) {
+    const kind = (chain.tasks ?? []).find((x) => x.id === r.id)?.kind;
+    if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  const parts = [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」收起來了`),
+  ];
+  return parts.length ? ` —— ${parts.join('、')}` : '';
+}
+
+/**
  * 這一筆照 `picks` 結掉之後，存檔那一下健檢那條鏈會怎麼動（`syncFollowupTasks()` 的 `create`／`remove`），
  * 連同試算用的那一份來訪（講日期用）。沒有配得到二返的健檢額度就是 `null`。
  *

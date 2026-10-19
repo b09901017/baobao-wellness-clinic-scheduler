@@ -165,7 +165,8 @@ describe('原始碼：改到健檢或二返額度的每一條路都重算', () =
       const start = customers.search(new RegExp(`export (?:async )?function ${name}\\(`));
       assert.ok(start >= 0, `${name} 要是一支 function（不是一行箭頭）`);
       const body = customers.slice(start, customers.indexOf('\n}\n', start));
-      assert.match(body, /chainOps\(/);
+      // updateEntitlement() 直接叫 chainAfterEntitlements()：它要把那一份 plan 回給 toast 講（issue 17）
+      assert.match(body, /chainOps\(|chainAfterEntitlements\(/);
     });
   }
 
