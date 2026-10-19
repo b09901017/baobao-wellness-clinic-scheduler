@@ -1513,7 +1513,8 @@ const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) =
  * `save()` 的 `ifUpdatedAt` 照樣擋。要重讀的是打開那一刻讀到快取的那一種 —— 沿用它的話永遠存不進去。
  */
 async function refreshCustomerVisits(ctx) {
-  if (visitsData.isWholeList(ctx.customerVisits) && !isOffline()) return true;
+  // 陣列是伺服器那一份、**而且這一位最近一次讀到的也是**（`save()` 問的是後者；別處從快取讀過一次就換掉了）
+  if (visitsData.isWholeList(ctx.customerVisits) && visitsData.lastReadWhole(ctx.customer.id) && !isOffline()) return true;
   try {
     ctx.customerVisits = await visitsData.listWhole(ctx.customer.id, ctx.customer.name);
     return true;

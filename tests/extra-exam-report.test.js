@@ -181,9 +181,44 @@ describe('原始碼：改到健檢或二返額度的每一條路都重算', () =
     assert.match(health.slice(start, health.indexOf('\n}\n', start)), /chainAfterEntitlements\(/);
   });
 
+  // 段四審查：沒傳名字的那幾條路（改次數、刪掉、還原、補一筆、資料健檢）以前拿最新那一筆來訪上的名字快照 ——
+  // 客人改過名、最新那一筆是已經結案的過去來訪（`renameTargets()` 不換它）時，待辦上的新名字被改回舊的（CLAUDE.md「客戶改名」）
+  test('重算那一串時待辦上的名字讀客戶本人，不讀來訪上的快照', () => {
+    const visits = read('public/js/data/visits.js');
+    const start = visits.indexOf('export async function chainAfterEntitlements(');
+    const body = visits.slice(start, visits.indexOf('\n}\n', start));
+    assert.match(body, /customersData\.get\(customerId\)/);
+    assert.doesNotMatch(body, /visits\.find\(\(v\) => v\.customerName\)/);
+  });
+
   test('客戶詳情「補一筆二返額度」那一道不再寫死「健檢標成已完成才會長出約二返」', () => {
     const src = read('public/js/ui/views/customerDetail.js');
     assert.doesNotMatch(src, /健檢標成已完成才會長出/);
     assert.match(src, /chainPlanLines\(/);
+  });
+});
+
+// 段四審查：刪掉那一筆二返額度（配對沒了）—— 「健檢還是已完成的」以前只問配得到二返的健檢，
+// 刪掉的那一刻開著的報告與寄報告一起被收掉、理由寫「那一筆健檢不是已完成了」（刪除確認框也照印），
+// 「約二返」的理由寫「二返已經約好了」。報告不吃二返額度（ADR-0159 第一段），刪掉二返額度也一樣
+describe('刪掉二返額度：報告與寄報告照留，約二返講真的理由', () => {
+  const tasks = [
+    task({ id: 'rep-A', visitId: 'vA', kind: REPORT_TASK_KIND }),
+    reportTicked('vB'),
+    task({ id: 'send-B', visitId: 'vB', kind: SEND_REPORT_TASK_KIND }),
+    task({ id: 'book-B', visitId: 'vB', kind: FOLLOWUP_TASK_KIND }),
+  ];
+  const plan = sync({ entitlements: [checkup({ totalQty: 2 })], visits: [A, B], tasks });
+
+  test('還沒勾的報告、寄報告不收', () => {
+    const gone = plan.remove.map((r) => r.id);
+    assert.ok(!gone.includes('rep-A'), '報告那一張不吃二返額度');
+    assert.ok(!gone.includes('send-B'), '寄報告也不吃');
+  });
+
+  test('約二返收起來，理由是二返的次數不夠（不是「約好了」、不是「健檢不是已完成了」）', () => {
+    const book = plan.remove.find((r) => r.id === 'book-B');
+    assert.ok(book);
+    assert.match(book.reason, /二返的次數不夠/);
   });
 });

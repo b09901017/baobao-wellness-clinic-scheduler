@@ -171,6 +171,15 @@ describe('原始碼：commit 之前都問過（data 層）', () => {
     assert.ok(check > 0 && check < apply.indexOf('repo.commit('), 'applyFixes 要在 repo.commit( 之前擋 recount');
   });
 
+  // 段四審查：設定 → 課程 存檔以前只問 `isOffline()` —— 網路不穩、SDK 退回快取時 `onLine` 還是 true，
+  // 照快取裡剛好有的那幾筆算待辦，而課程本身寫在最後一個 commit：「這門課變了沒」從此是否，少算的那幾天再也補不回來
+  test('課程改了「壓在哪」／「寫紀錄」重算待辦（courseTaskPlan）：讀到快取就丟，試算與寫入都是', () => {
+    const body = bodyOf(visits, 'courseTaskPlan');
+    assert.match(body, /incompleteFor\(|readsIncomplete\(/);
+    assert.match(body, /IncompleteReadError/);
+    assert.match(bodyOf(visits, 'saveCourseWithTasks'), /courseTaskPlan\(/);
+  });
+
   test('repo 記得「讀回來的是不是快取」與「送出了幾次寫入」', () => {
     const repo = read('public/js/data/repo.js');
     assert.match(repo, /metadata\.fromCache/);
@@ -192,6 +201,16 @@ describe('原始碼：畫面那一側', () => {
     assert.match(bodyOf(src, 'loadHistory'), /listWhole\(/);
   });
 
+  // 段四審查：簽療程單抽屜那幾句健檢鏈（`chainAfterClose()`）以前讀 `listByCustomer()` —— 讀到快取照講，
+  // 而真的存的那一下拿伺服器那一份寫：講的跟發生的不一樣（ADR-0070）。讀到快取就少講那幾句
+  test('簽療程單抽屜那幾句健檢鏈：讀到快取就當讀不到（listWhole／chainInputs）', () => {
+    const src = read('public/js/ui/views/home.js');
+    const body = bodyOf(src, 'openCloseDrawer');
+    assert.match(body, /listWhole\(/);
+    assert.match(body, /chainInputs\(/);
+    assert.doesNotMatch(body, /listByCustomer\(/);
+  });
+
   test('客戶詳情的「修正」次數：按下去時重讀全部（不拿打開那一刻的那一份）', () => {
     const src = read('public/js/ui/views/customerDetail.js');
     assert.match(bodyOf(src, 'fixCounts'), /listWhole\(/);
@@ -202,6 +221,9 @@ describe('原始碼：畫面那一側', () => {
     assert.match(bodyOf(src, 'refreshCustomerVisits'), /listWhole\(/);
     // 打開時讀到的就是伺服器那一份（同一個陣列）才不重讀 —— 確認框不晚一拍
     assert.match(bodyOf(src, 'refreshCustomerVisits'), /isWholeList\(ctx\.customerVisits\)/);
+    // 段四審查：而且這一位最近一次讀到的也是伺服器的 —— `save()` 問的是那一格（`visitsRead`），
+    // 只看陣列的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（兩份真相）
+    assert.match(bodyOf(src, 'refreshCustomerVisits'), /lastReadWhole\(ctx\.customer\.id\)/);
     for (const name of ['submit', 'cancelOneSlot']) {
       const body = bodyOf(src, name);
       const at = body.indexOf('refreshCustomerVisits(');

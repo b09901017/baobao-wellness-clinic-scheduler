@@ -847,7 +847,11 @@ export function syncFollowupTasks({
   const wantedReport = new Map();
 
   for (const pair of pairsOf(entitlements, coursesById)) {
-    if (!pair.followup) continue;
+    // 二返那一筆不在了（刪掉了）：「約二返」沒有額度可以約 —— 收起來的理由講真的（段四審查；以前講「約好了」）
+    if (!pair.followup) {
+      for (const v of visits ?? []) if (examDoneIn(v, [pair.source.id])) noQuota.add(v.id);
+      continue;
+    }
 
     for (const visit of examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled, chainSeen })) {
       wantedReport.set(visit.id, reportStation(visit, reportDueDays));
@@ -920,8 +924,10 @@ export function syncFollowupTasks({
   }
 
   const visitById = new Map((visits ?? []).map((v) => [v.id, v]));
-  // 「那一筆健檢還是已完成的」問**健檢那一段**（`usedAndDone()`，ADR-0112），不問整筆
-  const sources = pairsOf(entitlements, coursesById).filter((p) => p.followup).map((p) => p.source.id);
+  // 「那一筆健檢還是已完成的」問**健檢那一段**（`usedAndDone()`，ADR-0112），不問整筆。
+  // **每一筆健檢額度都算，配不配得到二返都一樣**（報告不吃二返額度，ADR-0159）：以前只收配得到的，
+  // 刪掉二返那一筆的那一刻，開著的報告與寄報告被當成「健檢不是已完成了」一起收掉（段四審查）
+  const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
   const examDone = (visit) => examDoneIn(visit, sources);
 
   // ---------- 第二圈：寄報告給醫師 ----------

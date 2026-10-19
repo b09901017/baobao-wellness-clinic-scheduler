@@ -318,9 +318,9 @@ function paint(ctx) {
   const waiting = byCustomer(visitsToConfirm(pending, today));
   const toClose = visitsToClose(unclosed ?? [], today);
 
-  // 掛今天／明天、還沒勾的隨手記也是事（ADR-0152）；過了的不算（它不進逾期）
+  // 掛今天／明天、還沒勾的隨手記也是事（ADR-0152）；過了的不算（它不進逾期）。明天來的那幾位也是（ADR-0162）
   const nothing = !tasks.length && !waiting.size && !toClose.length
-    && !buckets.today.notes.length && !buckets.tomorrow.notes.length;
+    && !buckets.today.notes.length && !buckets.tomorrow.notes.length && !buckets.tomorrow.coming.length;
 
   el.innerHTML = `
     <div class="page">
@@ -724,6 +724,8 @@ function syncLine(settings) {
     dirty: sheetSync.isDirty(),
     error: failure?.error ?? null,
     skipped: sheetSync.lastSkipped()?.names ?? [],
+    // 讀到快取、這一趟沒推（ADR-0161）：不是失敗 —— 設定頁講「上次沒推」，這裡同一句（段四審查）
+    partial: Boolean(failure?.partial),
   });
 
   const SAY = {
@@ -3535,16 +3537,18 @@ async function openCloseDrawer(ctx, visitId) {
     const entitlements = await customersData.listEntitlements(visit.customerId);
     // 沒有配得到二返的健檢就不可能有那一句 —— 大多數人到這裡為止，不多讀那兩份
     const chained = pairsOf(entitlements, ctx.coursesById).some((p) => p.followup);
-    // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份
-    const [customerVisits, customerTasks] = chained
+    // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份（`chainInputs()`）。
+    // **讀到快取就當讀不到**（ADR-0158，段四審查）：少講那幾句，不講錯的 —— 真的存的那一下拿伺服器那一份寫
+    const [customerVisits, chain] = chained
       ? await Promise.all([
-        visitsData.listByCustomer(visit.customerId),
-        tasksData.listByCustomerForSync(visit.customerId),
+        visitsData.listWhole(visit.customerId),
+        visitsData.chainInputs(visit.customerId, ctx.coursesById),
       ])
-      : [[], []];
+      : [[], null];
+    if (chained && !chain) return;
     // 等的時候她換了一位（或收掉了）：這三份是上一位的，不要放進去
     if (drawer?.visitId !== visit.id) return;
-    Object.assign(ctx, { entitlements, customerVisits, customerTasks });
+    Object.assign(ctx, { entitlements, customerVisits, customerTasks: chain?.tasks ?? [] });
   } catch {
     return; // 讀不到就少一句話，不是少一頁
   }

@@ -51,6 +51,12 @@ const wholeLists = new WeakSet();
  */
 export const isWholeList = (list) => Array.isArray(list) && wholeLists.has(list);
 
+/**
+ * 這一台最近一次讀這位客戶的全部來訪，是從伺服器來的嗎 —— `save()` 問的就是這一格。打開時讀一次就沿用的畫面要連它一起問：
+ * 只看陣列（`isWholeList()`）的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（段四審查）
+ */
+export const lastReadWhole = (customerId) => visitsRead.get(customerId) === 'server';
+
 const offlineNow = () => globalThis.navigator?.onLine === false;
 
 /** 從 `since`（那時候 `repo.cacheReads()` 的值）到現在，有沒有任何一次讀取是快取來的 */
@@ -421,15 +427,18 @@ export async function chainAfterEntitlements(customerId, change, { name = null }
   const touched = [...new Set([...was.keys(), ...now.keys()])].filter((id) => was.get(id) !== now.get(id));
   if (!touched.some((id) => chainIds.has(id))) return null;
 
-  const [visits, tasks, settings] = await Promise.all([
+  // 待辦上印的名字讀客戶本人（段四審查）：來訪上的是快照 —— 改過名、最新那一筆是已經結案的過去來訪時（`renameTargets()` 不換它），
+  // 拿它的話這一次重算會把待辦上已經換好的新名字改回舊的
+  const [visits, tasks, settings, customer] = await Promise.all([
     listByCustomer(customerId),
     tasksData.listByCustomerForSync(customerId),
     config.getSettings(),
+    name ? null : customersData.get(customerId),
   ]);
   if (incompleteFor(customerId, since)) return null;
 
   const plan = syncFollowupTasks({
-    customer: { id: customerId, name: name ?? visits.find((v) => v.customerName)?.customerName ?? null },
+    customer: { id: customerId, name: name ?? customer?.name ?? null },
     entitlements: after,
     visits,
     tasks,
@@ -664,6 +673,9 @@ export async function courseTaskPlan(before, changes) {
 
   const uses = (v) => !v?.deletedAt && (v?.slots ?? []).some((s) => s?.courseId === after.id);
 
+  // 讀到快取就不算（ADR-0158，段四審查）：網路不穩時 SDK 退回快取、`navigator.onLine` 還是 true —— 照快取裡剛好有的那幾筆算，
+  // 而課程本身寫在最後一個 commit：「這門課變了沒」從此是否，少算的那幾天再也沒有人補
+  const since = repo.cacheReads();
   const [confirmed, pending, openTasks, courses] = await Promise.all([
     listByStatus('confirmed'),
     listByStatus('pending_confirm'),
@@ -680,8 +692,13 @@ export async function courseTaskPlan(before, changes) {
   const coursesById = { ...Object.fromEntries(courses.map((c) => [c.id, c])), [after.id]: after };
   const today = todayISO();
 
-  const rows = await Promise.all([...visits.values()].map(async (visit) => {
-    const existing = await tasksData.listByVisitForSync(visit.id);
+  const existingBy = new Map(await Promise.all([...visits.keys()].map(async (id) => [id, await tasksData.listByVisitForSync(id)])));
+  if (readsIncomplete({ offline: offlineNow(), sources: [readSource(cachedSince(since))] })) {
+    throw new IncompleteReadError('', '網路不穩，讀不到全部已經排好的來訪 —— 課程先不存，連上之後再存一次');
+  }
+
+  const rows = [...visits.values()].map((visit) => {
+    const existing = existingBy.get(visit.id);
     const plan = tasksAfterCourseChange(visit, existing, { before, after, coursesById, today });
     // 收掉的是哪一種 —— 確認框要講得出來，而 `remove` 身上只有 id 與理由
     const kindOf = new Map(existing.map((t) => [t.id, t.kind]));
@@ -690,7 +707,7 @@ export async function courseTaskPlan(before, changes) {
       ...plan,
       remove: plan.remove.map((r) => ({ ...r, kind: kindOf.get(r.id) })),
     };
-  }));
+  });
 
   return { rows: rows.filter((r) => r.create.length + r.update.length + r.remove.length > 0) };
 }

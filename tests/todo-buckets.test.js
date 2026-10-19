@@ -115,3 +115,12 @@ test('首頁與點進去那一頁讀同一支：home.js 不再自己照 dueDate 
   // 點進去那一頁勾隨手記也走 `prepareToggle()`（營養品的提醒要問「給了哪些」）
   assert.match(src, /note\.prepareToggle\(/);
 });
+
+// 段四審查：首頁那一句「今天沒有待辦。」算了明天的隨手記，沒算明天來的那幾位（ADR-0162 加的 `coming`）——
+// 只剩明天一段時，畫面寫「沒有待辦」、旁邊「明天」那一顆卻是 1
+test('首頁「今天沒有待辦。」也看明天來的那幾位', () => {
+  const src = readFileSync(new URL('../public/js/ui/views/home.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const at = src.indexOf('const nothing =');
+  const line = src.slice(at, src.indexOf(';', at));
+  assert.match(line, /buckets\.tomorrow\.coming\.length/);
+});
