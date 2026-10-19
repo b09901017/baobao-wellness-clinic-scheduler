@@ -44,4 +44,4 @@ Blocked by: 02
 - `wire()` 讀**按下去那一刻**那一格的字（`[data-msg="<id>"]` 的 `value`）→ `openLineChat()`
 - home.js 兩張卡：`line: customer ? { name: customer.lineId ?? '' } : null`（讀不到客戶不畫）
 - 單元：`tests/line-macro.test.js` 最後一組（沒給沒有、給了有、空名字照畫）；E2E `75` 的 M1（改過的字＋換行、剪貼簿同一段）、M2（還沒填）、M3（問這輪的時間產生連結之後）
-- M1 比剪貼簿前拿掉 ``：Windows 的 Chromium 寫系統剪貼簿時換成 CRLF（本機才看得到）
+- M1 比剪貼簿前拿掉 CR（`\r`）：Windows 的 Chromium 寫系統剪貼簿時換成 CRLF（本機才看得到）
