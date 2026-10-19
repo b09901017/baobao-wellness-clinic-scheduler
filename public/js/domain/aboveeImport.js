@@ -2864,6 +2864,30 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
   return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
 }
 
+/**
+ * 點開一列**沒勾的新的**：她勾起來的話，那一列會有哪幾句提醒、存不存得下去（before-golive-2026-10-19/09）。
+ *
+ * 她：「沒勾的列，點開看不到提醒。(好，修)」—— 提醒是拿勾著的那幾列組出來的來訪算的（`planAbovee()` 只收勾著的），
+ * 沒勾的那一列不在任何一組裡。**把那一列當成勾起來、整張重跑同一支 `photoDayPlan()`，只讀那一列**：
+ * 跨天的超用要靠別組（`visitsForCheck()`）、同一天撞診間要靠別人那一天 —— 只組這一位這一天會漏。
+ * 勾起來那一下 UI 還會重算的兩個旗標（`refreshNoExam()`、`refreshCloseBlocks()`）也照套，兩條路才講同一件事。
+ *
+ * **不寫回她的勾**：回的是一份新的，`items` 一個字都不動 —— 所以確認框的「其中 N 段有提醒」、收著的那幾行不多一列。
+ *
+ * @param {object[]} items 這一次還沒記的列（同 `photoDayPlan()`）
+ * @param {string} key 點開的那一列
+ * @returns {{problems: string[], warnings: string[]}|null} 不是沒勾的新的（已經記了、對不上、認不得人、本來就勾著）→ `null`
+ */
+export function whatIfChecked(items, key, ctx, o = {}) {
+  const list = items ?? [];
+  const item = list.find((i) => i.key === key);
+  if (!item || item.kind !== 'new' || !item.customerId || item.checked) return null;
+  let next = list.map((i) => (i.key === key ? { ...i, checked: true } : i));
+  next = refreshCloseBlocks(refreshNoExam(next, ctx), ctx);
+  const p = photoDayPlan(next, ctx, o);
+  return { problems: p.problems[key] ?? [], warnings: p.warningsBy[key] ?? [] };
+}
+
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
 export const pressedDays = (plan) => (plan?.writes ?? []).filter((w) => w.pressed).map((w) => ({ customerId: w.customerId, date: w.date }));
 

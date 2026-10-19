@@ -1,6 +1,6 @@
 # 拍 Abovee：點開沒勾的那一列，看得到「勾起來的話」會有的提醒
 
-Status: todo
+Status: done
 段：三（high）
 動工前先讀：`domain/aboveeImport.js` 的 `warningsByRow()`（3003 行）、組提醒的那一圈（約 2740–2780 行：`planAbovee()` → `validateVisit()` → `warningDetails()` → `warningsByRow()`，`warningsBy`／`mustSeeBy`）、`photoDayPlan()`、`visitsForCheck()`、`mustSee()`；`ui/components/aboveeConfirm.js`（列點開時畫什麼、勾起／拿掉一列重算哪些 —— `refreshNoExam()` 那種「只重算旗標」）；`.scratch/prelaunch-fixes-2026-10-08/issues/12`（第 95 行「沒勾的列點開看不到任何提醒（以前就這樣）」）；ADR-0138；`CLAUDE.md`「拍 Abovee 記很多段」「畫面上一段常駐的說明」（`abl-row__hint--warn` 是紅線）兩列
 
@@ -34,3 +34,15 @@ Status: todo
 - 例：只買 1 次 ILIB、照片上三天各一段、只勾前兩列 → 點開第三列：「勾起來的話：超過總次數…」；勾起來 → 跟現在一樣的那一行
 - 已經記了、對不上、認不得人的那幾種列（本來就勾不起來或不該算的）點開不畫「勾起來的話」
 - 一張 30 列的照片，點開一列的反應時間沒有明顯變慢（E2E 不量時間，自己在模擬器點一次）
+
+## 做完時留下的（10/19，段三）
+
+- `domain/aboveeImport.js` 的 `whatIfChecked(items, key, ctx)`：照「過目改的」做 —— 那一列當成勾起來、套勾起來那一下 UI 也會重算的兩個旗標
+  （`refreshNoExam()` → `refreshCloseBlocks()`）、整張重跑 `photoDayPlan()`、回 `{ problems, warnings }`（那一列的）；不是沒勾的新的
+  （已經記了、對不上、認不得人、沒認出是誰、本來就勾著）回 `null`。**`items` 一個字都不動**
+- `aboveeConfirm.js`：點開的那一列才算（`whatIfOf()`，只在 `rowHtml()` 畫展開那一塊時叫）；畫在展開那一塊最後面的 `[data-abl-whatif]`
+  （「勾起來的話：」、錯誤前面接「存不下去 —— 」、提醒照原字）、虛線左框（`.abl-row__whatif`）。收著的那幾行、`mustSee`、確認框不動
+- `repaintRow()` 多重畫點開著的那一列（`other.key === openKey`）—— 別人別天的列勾起來時它也照當下勾著的重算
+- 成本：同時只開一列，重畫一次多跑一次 `photoDayPlan()`；E2E W1 那一張三列，沒量 30 列（**手動驗收清單要加一條**：在模擬器拍一張多列的點開一列看反應）
+- 測試：`tests/abovee-what-if-checked.test.js`（先紅，5 條）；E2E `78` W1（收著不畫 → 點開「已排 3 次」→ 別列拿掉變 2 次 → 確認框不講有提醒 → 勾起來換成平常那幾行）。
+  本機跑過 41、51、57、62、65、68、78 全綠；`app.css` 動了 → 全量交給段末的 CI

@@ -29,7 +29,7 @@ import {
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
-  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
+  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -375,7 +375,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     for (const other of items) {
       if (other.key === key) continue;
       const sameWho = Boolean(other.customerId) && [item?.customerId, was].includes(other.customerId);
-      if (!sameWho && other.date !== item?.date) continue;
+      // 點開著的那一列（沒勾的話畫著「勾起來的話」）照當下勾著的算 —— 別列勾起或拿掉，它也要重算（09）
+      if (!sameWho && other.date !== item?.date && other.key !== openKey) continue;
       const el = [...root.querySelectorAll('[data-abl-row]')].find((x) => x.dataset.ablRow === other.key);
       if (!el) continue;
       const holder = document.createElement('template');
@@ -481,13 +482,33 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             ? '照 Abovee 改（勾在最上面「要改的」那一塊）' : '最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
-        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
+        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? [], whatIfOf(item)) : ''}
       </li>`;
+  }
+
+  /**
+   * 點開的那一列**沒勾**：勾起來的話會怎樣（before-golive-2026-10-19/09）。只在點開時算（同時只開一列，`openKey`），
+   * 收著不畫 —— 沒勾的那幾列多半是刻意不勾的；也不進收著的那幾行與確認框的「其中 N 段有提醒」（ADR-0138 的紅線只管會寫進去的）。
+   */
+  function whatIfOf(item) {
+    if (savedKeys.has(item.key)) return null;
+    return whatIfChecked(items.filter((i) => !savedKeys.has(i.key)), item.key, ctx);
+  }
+
+  /** 「勾起來的話：」那一塊。字跟勾起來之後那幾行一模一樣（同一支算的），錯誤講「存不下去」。 */
+  function whatIfHtml(w) {
+    if (!w || (!w.problems.length && !w.warnings.length)) return '';
+    return `
+      <div class="abl-row__whatif" data-abl-whatif>
+        <p class="abl-row__say">勾起來的話：</p>
+        ${w.problems.length ? `<ul class="abl-row__problems">${w.problems.map((x) => `<li>存不下去 —— ${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${w.warnings.length ? `<ul class="abl-row__warnings">${w.warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      </div>`;
   }
 
   // ---------- 展開的那一列 ----------
 
-  function detailHtml(item, built, problems, warnings) {
+  function detailHtml(item, built, problems, warnings, whatIf = null) {
     const left = urlOf(item.photos[0]);
     const right = urlOf(item.photos[1] ?? item.photos[0]);
     const r = item.row;
@@ -657,6 +678,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${learn}
         ${problems.length ? `<ul class="abl-row__problems">${problems.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${warnings.length ? `<ul class="abl-row__warnings">${warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${whatIfHtml(whatIf)}
       </div>`;
   }
 

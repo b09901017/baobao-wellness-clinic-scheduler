@@ -1,5 +1,6 @@
 // 上線前補的那一輪，段三（.scratch/before-golive-2026-10-19/ 的 09、10、11）。
 //
+// 09：拍 Abovee 點開沒勾的那一列，看得到「勾起來的話」（她：「沒勾的列，點開看不到提醒。(好，修)」）。
 // 11：待辦首頁「明天」也算明天要簽的療程單（ADR-0162，推翻 ADR-0152 那一格）。她：「但我想要今天和明天是一樣的誒，
 //     就是納入簽療程單」—— 點下去開讀取卡片，**不開簽單抽屜**（「免得還沒做就被簽成做完」）。
 
@@ -7,6 +8,70 @@ import { test, expect } from '../fixtures/app.js';
 import {
   masterDocs, customer, entitlement, visit, slot, note, TODAY, addDays,
 } from '../fixtures/data.js';
+import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
+
+// ---------------------------------------------------------------------------
+// 09
+// ---------------------------------------------------------------------------
+
+const MONTH = '2026-09';
+const POOL3 = { type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60 };
+
+/** 壓表頁 → 那一批 → 右下角相機 → 相簿選一張 → 送出 → 確認層（同 `62`）。 */
+async function photographAbovee(app, page, fixture) {
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await queueAi([fixture]);
+  await page.locator('[data-abovee]').click();
+  await expect(page.locator('.cam')).toBeVisible();
+  await page.locator('[data-cam-album-input]').setInputFiles([await fakePhoto(`${fixture}-0.jpg`, { width: 1600, height: 900 })]);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.cam')).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.locator('[data-abl-row]').first()).toBeVisible();
+}
+
+const ablRow = (page, key) => page.locator(`[data-abl-row="${key}"]`);
+
+test('W1 只買 1 次、照片上三天、拿掉第三列的勾 → 點開它看得到「勾起來的話」；收著不畫、確認框不算它', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-b', name: '客戶B' }),
+    entitlement('cust-b', { id: 'b-pool', ...POOL3, totalQty: 1 }),
+    { path: 'batches', id: 'b-sep', data: {
+      targetMonth: MONTH, status: 'active', cursor: null, lastDeviceHint: null,
+      queue: [{ customerId: 'cust-b', customerName: '', state: 'pending', skippedReason: null }],
+    } },
+  ]);
+  await app.signIn('/');
+  await photographAbovee(app, page, 'aboveeList-days');
+
+  await ablRow(page, 'a2').locator('[data-abl-check]').click();
+  await expect(ablRow(page, 'a2').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  // 收著：沒勾的那一列一行提醒都不畫；勾著的兩列照舊講已排 2 次
+  await expect(ablRow(page, 'a2').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(ablRow(page, 'a0').locator('.abl-row__hint--warn')).toContainText('已排 2 次');
+
+  // 點開：勾起來的話 → 三次
+  await ablRow(page, 'a2').locator('[data-abl-open]').click();
+  const whatIf = ablRow(page, 'a2').locator('[data-abl-whatif]');
+  await expect(whatIf).toContainText('勾起來的話');
+  await expect(whatIf).toContainText('排完這次會超過總次數（共 1 次，已排 3 次）');
+
+  // 開著的時候別列拿掉勾 → 照當下勾著的重算
+  await ablRow(page, 'a1').locator('[data-abl-check]').click();
+  await expect(whatIf).toContainText('已排 2 次');
+
+  // 確認框只算勾著的那一列（剛好 1 次、不超用）—— 沒勾的「勾起來的話」不進「其中 N 段有提醒」
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).not.toContainText('有提醒');
+  await app.cancelDialog();
+
+  // 勾起來 → 那一塊不見，換成平常那幾行（同一句）
+  await ablRow(page, 'a2').locator('[data-abl-check]').click();
+  await expect(ablRow(page, 'a2').locator('[data-abl-whatif]')).toHaveCount(0);
+  await expect(ablRow(page, 'a2').locator('.abl-row__warnings')).toContainText('已排 2 次');
+});
 
 // ---------------------------------------------------------------------------
 // 11
