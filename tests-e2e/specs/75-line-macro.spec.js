@@ -8,6 +8,7 @@
 // 不攔又會打到模擬器、回一個看起來像成功的 404。這裡一律 18080，只攔那一個。
 
 import { test, expect } from '../fixtures/app.js';
+import { masterDocs, customer } from '../fixtures/data.js';
 
 const PORT = 18080;
 const MACRO = `http://127.0.0.1:${PORT}/**`;
@@ -85,5 +86,50 @@ test.describe('設定頁「打開 LINE 對話」', () => {
     await port.dispatchEvent('change');
     await expect(toast(page)).toContainText('1 到 65535');
     await expect(port).toHaveValue(String(PORT));
+  });
+});
+
+test.describe('客戶詳情點 LINE（巨集停在打開對話）', () => {
+  const seedOne = (app) => app.seed([...masterDocs(), customer({ id: 'cust-l', name: '客戶A', lineId: '王小明' })]);
+
+  test('D1 這一台勾了：敲本機的門，name 是 LINE 名字、msg 有那個鍵但是空的；不開 line.me', async ({ app, page, context }) => {
+    const { calls, opened } = await fakeMacro(context);
+    await macroOn(page);
+    await seedOne(app);
+    await app.signIn('/customers/cust-l');
+
+    await page.locator('[data-notesblock] [data-notes-line]').click();
+    await expect(toast(page)).toContainText('已經叫 MacroDroid 打開「王小明」的對話');
+    expect(calls).toEqual([{ path: '/line', name: '王小明', msg: '' }]);
+    expect(opened).toEqual([]);
+  });
+
+  test('D2 這一台沒勾（iPad）：不敲門；複製名字、打開 LINE 的聊天清單', async ({ app, page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const { calls, opened } = await fakeMacro(context);
+    await seedOne(app);
+    await app.signIn('/customers/cust-l');
+
+    await page.locator('[data-notesblock] [data-notes-line]').click();
+    await expect(toast(page)).toContainText('已複製「王小明」');
+    expect(calls).toEqual([]);
+    await expect.poll(() => opened).toEqual(['https://line.me/R/nv/chat']);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('王小明');
+  });
+
+  test('D3 勾了但 MacroDroid 沒開（連線被拒）：講叫不到，走同一條退路', async ({ app, page, context }) => {
+    // 連線被拒時瀏覽器自己會印一句「Failed to load resource」—— 那正是這一條要的情境
+    test.info().annotations.push({ type: 'allow-console-errors', description: '刻意讓 MacroDroid 的連線被拒' });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const { calls, opened } = await fakeMacro(context, { answer: false });
+    await macroOn(page);
+    await seedOne(app);
+    await app.signIn('/customers/cust-l');
+
+    await page.locator('[data-notesblock] [data-notes-line]').click();
+    await expect(toast(page)).toContainText('叫不到 MacroDroid');
+    await expect(toast(page)).toContainText('已複製「王小明」');
+    expect(calls).toHaveLength(1);
+    await expect.poll(() => opened).toEqual(['https://line.me/R/nv/chat']);
   });
 });
