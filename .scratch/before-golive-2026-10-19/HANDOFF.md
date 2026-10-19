@@ -28,9 +28,9 @@
 - **03 沒動**。照 issue 03 做（`describePair()` 只剩客戶詳情一個呼叫端；`customerDetail.js` 的 `followupLine()` 還在 import 它）
 - `public/` 動過，`sw.js` 已經是 v198（01 升的），02、03 不用再升
 - 模擬器是從這個目錄起的（`npm run emulators`），可能還開著；換目錄跑要先依 port 停掉
-- `issues/11-tomorrow-counts-tomorrows-close.md` 是另一個對話寫的（段三），**還沒 commit、不要動它**
+- `issues/11-tomorrow-counts-tomorrows-close.md` 是另一個對話寫的（段三），10/19 傍晚由那個對話 commit 進來（`她答了點下去不開簽單抽屜`）；**段三的開場以這一份 HANDOFF 底下「段三的開場」為準（含 11）**
 | 二 | 04 病歷號一格、05 病歷號在畫面上（icon C）、06 照片認人沒病歷號不先勾、07 客戶清單卡片前四個、08 「客戶」被壓成直的 | high | todo |
-| 三 | 09 拍 Abovee 沒勾的列看得到「勾起來的話」、10 試算表只重畫有變的（＋整份重畫、抬頭病歷號、`SYNC_FORMAT` 8） | high | todo |
+| 三 | 09 拍 Abovee 沒勾的列看得到「勾起來的話」、10 試算表只重畫有變的（＋整份重畫、抬頭病歷號、`SYNC_FORMAT` 8）、11 待辦首頁「明天」也算明天要簽的療程單（她 10/19 另外提的） | high | todo |
 | 四 | `/matt-code-review`（從 `995e9f1` 比）、照建議修 | xhigh | todo |
 | 五 | 文件總檢查、全量 E2E（CI）、手動驗收清單、PR、合進 develop | medium | todo |
 
@@ -44,7 +44,7 @@
 |---|---|---|---|
 | 一 | 0158 讀不完整時不存（推翻 SPEC 第 1 節「寫入排隊重試」對這一種寫入）、0159 健檢超用也追報告（延伸 0139） | 76 | **v198**（第一個動 `public/` 的那一段升，後面的不用再升） |
 | 二 | 0160 病歷號是一格（推翻 ADR-0050 的「是一則備註」）＋客戶清單卡片讀前四個（推翻 0156 那一半；可以寫在同一支） | 77 | |
-| 三 | 0161 試算表那一側記指紋（延伸 0013） | 78 | |
+| 三 | 0161 試算表那一側記指紋（延伸 0013）、0162 明天也算簽療程單（推翻 ADR-0152 那一格） | 78 | |
 
 資料健檢新的一項（04）接在 `CHECKS` 最後面 → `health.test.js`、`seed-staff.test.js` 寫死的總數跟著改。
 
@@ -130,15 +130,15 @@ node .local/references/redact.mjs）。測試與 issue 裡的病歷號一律 123
 /kickoff 上線前補的那一輪，段三。
 
 分支 claude/before-golive-1019。先 git fetch、git pull，develop 往前走了就 rebase。
-先讀：.scratch/before-golive-2026-10-19/HANDOFF.md、spec.md、issues/09、10；.scratch/followup-and-products/issues/08（8/27 的回答，
+先讀：.scratch/before-golive-2026-10-19/HANDOFF.md、spec.md、issues/09、10、11；.scratch/followup-and-products/issues/08（8/27 的回答，
 「手機記指紋」那一支不照做，理由在 issues/10）；docs/agents/lessons.md；CLAUDE.md 的「拍 Abovee 記很多段」「畫面上一段常駐的說明」
 「試算表的 SYNC_FORMAT」「試算表要讀哪些來訪」「試算表的註記」那幾列。
 
 這一段做 09（拍 Abovee 點開沒勾的列看得到「勾起來的話」）、10（試算表那一側記指紋、只重畫有變的、沒變的只改產生時間、
-設定頁「整份重畫」、抬頭那一行加病歷號、SYNC_FORMAT 8）。
+設定頁「整份重畫」、抬頭那一行加病歷號、SYNC_FORMAT 8）、11（待辦首頁「明天」也算明天要簽的療程單，點下去不開簽單抽屜；推翻 ADR-0152 那一格）。
 
 10 改了 .gs：她要重貼 staging 與正式各一次 —— 寫進手動驗收清單與 docs/STAGING.md。能抽成純函式的 .gs 邏輯在 node 裡測。
-編號：ADR 0161；E2E spec 78。
+編號：ADR 0161、0162；E2E spec 78。
 
 每支：紅燈 → 綠 → npm run verify → 一支一個 commit → Status: done、「做完時留下的」。
 做完：HANDOFF 進度、中途發現一次列給她問、段四的開場（xhigh，/matt-code-review 從 995e9f1 比）貼給她，停。
