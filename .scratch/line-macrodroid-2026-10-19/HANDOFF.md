@@ -53,13 +53,13 @@
 ```
 這一輪在做「LINE 用 MacroDroid 打開對話」：客戶的 LINE 那一格改存 LINE 上的名字，
 客戶詳情點 LINE、確認時間／問這輪的時間的「打開 LINE」叫手機上的 MacroDroid（本機 HTTP Server）。
-分支 claude/line-macrodroid，段一（01～05 實作與文件）做完了。
+分支 claude/line-macrodroid，段一（01～06 實作與文件）做完了、已推，PR 還沒開。
 
-先讀：.scratch/line-macrodroid-2026-10-19/HANDOFF.md、spec.md、issues/01～05 的「做完時留下的」、
+先讀：.scratch/line-macrodroid-2026-10-19/HANDOFF.md、spec.md、issues/01～06 的「做完時留下的」、
 docs/agents/lessons.md、CLAUDE.md「客戶的 LINE 那一格、打開 LINE 對話」那一列與「共用元件身上的屬性名字」。
 
 這一段做：
-1. git fetch；develop 往前走了就 rebase（不要重做）
+1. git fetch；develop 往前走了就 rebase（不要重做）。看 HANDOFF 的 CI 結果（e2e-full run 39209761841，06 之後那一次）
 2. /matt-code-review，基準是 origin/develop
 3. 照建議修（一條一個 commit，修 bug 先寫紅燈測試）；提過沒改的把理由寫進 HANDOFF
 4. npm run verify
