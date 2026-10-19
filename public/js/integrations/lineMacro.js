@@ -189,7 +189,8 @@ async function knockOnce(d, url) {
 const BUSY = '剛剛叫過 MacroDroid 了：等它跑完（幾秒）再按一次';
 
 const NO_NAME = '還沒填 LINE 名字：客戶詳情 → 名字旁邊的「編輯」→「LINE 名字」那一格';
-const UNREACHED = '叫不到 MacroDroid（它要開著，Chrome 要允許「區域網路」）。';
+// 叫不到的三個原因都講：被拒的那一下分不出是哪一種
+const UNREACHED = '叫不到 MacroDroid（它要開著、連接埠要跟它的一樣、Chrome 要允許「區域網路」）。';
 const NO_REPLY = 'MacroDroid 沒回應：觸發條件的「傳送回應（Send Response）」有勾嗎？';
 
 /** 退路：開 LINE 的聊天清單＋複製。剪貼簿先叫（按下去的那一刻還在），開視窗緊接著，不等剪貼簿。 */
@@ -273,7 +274,7 @@ export async function testLineMacro({ name, notify = () => {}, deps } = {}) {
   } else if (got === 'no-reply') {
     notify(NO_REPLY);
   } else {
-    notify(`${UNREACHED}連接埠是 ${prefs.port}，跟 MacroDroid 的設定一樣嗎？`);
+    notify(`${UNREACHED}這一台填的連接埠是 ${prefs.port}。`);
   }
   return got;
 }

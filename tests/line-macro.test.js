@@ -155,6 +155,10 @@ describe('打開他的對話', () => {
     assert.deepEqual(log, [['copy', '王小明'], ['open', LINE_CHATS_URL]]);
     assert.match(said[0], /叫不到 MacroDroid/);
     assert.match(said[0], /已複製「王小明」/);
+    // 三個原因都講（邊界測試清單 P2）：MacroDroid 沒開、連接埠不一樣、Chrome 擋了區域網路
+    assert.match(said[0], /開著/);
+    assert.match(said[0], /連接埠/);
+    assert.match(said[0], /區域網路/);
   });
 
   test('沒回應（逾時）：只講一句、不開 LINE —— Chrome 那個「區域網路」的框可能正開著等她按', async () => {
