@@ -128,11 +128,14 @@ export function listByStatus(status) {
  * 哪幾筆真的要收尾由 `domain/visits.js` 的 `visitsToClose()` 決定，
  * 這裡只負責把可能的那些撈回來 —— 規則不寫在 /data。
  */
-export function listUnclosed(today) {
+export function listUnclosed(today, { tomorrow = false } = {}) {
+  // `tomorrow`：待辦首頁「明天」那一格要明天的（issue 11，ADR-0162）。只多撈一天 ——
+  // 拿去簽的那幾處照舊過 `visitsToClose()`（`date <= today`），明天的不會被簽成做了
+  const through = tomorrow ? addDays(today, 1) : today;
   return Promise.all(
     ['confirmed', 'pending_confirm'].map((status) =>
       repo.list(PATH, {
-        wheres: [where('status', '==', status), where('date', '<=', today)],
+        wheres: [where('status', '==', status), where('date', '<=', through)],
         order: ['date', 'asc'],
       }),
     ),

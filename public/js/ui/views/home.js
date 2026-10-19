@@ -186,7 +186,8 @@ export async function render(el) {
     [tasks, pending, unclosed, notes, settings] = await Promise.all([
       tasksData.listOpen(),
       visitsData.listByStatus('pending_confirm'),
-      visitsData.listUnclosed(today),
+      // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
+      visitsData.listUnclosed(today, { tomorrow: true }),
       notesData.listOpen(),
       config.getSettings(),
     ]);
@@ -1832,7 +1833,7 @@ export async function renderGroup(el, group) {
   const [open, done, unclosed, notes] = await Promise.all([
     tasksData.listOpen(),
     tasksData.listDone(),
-    isBucket ? visitsData.listUnclosed(today) : [],
+    isBucket ? visitsData.listUnclosed(today, { tomorrow: true }) : [],
     isBucket ? notesData.listOpen() : [],
   ]);
 
@@ -1858,10 +1859,12 @@ export async function renderGroup(el, group) {
     done: done.filter(match),
     // 簽療程單與隨手記那兩塊（只有逾期／今天／明天才有）
     close: bucket?.close ?? [],
+    // 明天來的那幾天（只有「明天」那一頁有，issue 11）：點下去開讀取卡片，不開簽單抽屜
+    coming: bucket?.coming ?? [],
     notes: bucket?.notes ?? [],
   };
   paintTasks(ctx);
-  loadTaskVisits(ctx);
+  taskVisitsLoading = loadTaskVisits(ctx);
   loadFollowupBookings(ctx);
 }
 
@@ -1874,7 +1877,9 @@ export async function renderGroup(el, group) {
  * 任務身上沒有時段數，也不該有（那會是第二份會對不起來的資料）。
  */
 async function loadTaskVisits(ctx) {
-  const ids = [...ctx.open, ...ctx.done].map((t) => t.visitId).filter(Boolean);
+  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）
+  const ids = [...[...ctx.open, ...ctx.done].map((t) => t.visitId), ...(ctx.coming ?? []).map((v) => v.id)]
+    .filter(Boolean);
   if (!ids.length) return;
 
   try {
@@ -2019,6 +2024,11 @@ function fillBookingStates(el) {
  * （換分頁、勾一筆），而重畫不該把已經讀回來的東西丟掉。
  */
 let taskVisits = null;
+/**
+ * 讀 `taskVisits` 那一趟。點「詳情」或明天來的那一列時先等它 —— 明天那一塊沒有「N 項」那種
+ * 讀回來才露出來的東西，畫好就點得到；不等的話她第一下點到的是「還在讀，等一下再按一次」（issue 11）。
+ */
+let taskVisitsLoading = null;
 
 const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 
@@ -2036,7 +2046,7 @@ window.addEventListener('hashchange', () => { taskTabGroup = null; });
 function paintTasks(ctx) {
   const { el, today, meta } = ctx;
   // 「未完成 N」＝底下三塊加起來（ADR-0152）：首頁那顆數字點進來，看到的件數要一樣
-  const openCount = ctx.open.length + ctx.close.length + ctx.notes.length;
+  const openCount = ctx.open.length + ctx.close.length + ctx.coming.length + ctx.notes.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -2070,7 +2080,10 @@ function paintTasks(ctx) {
   );
 
   el.querySelectorAll('[data-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit, btn.dataset.taskId)),
+    btn.addEventListener('click', async () => {
+      await taskVisitsLoading;
+      openTaskVisit(btn.dataset.visit, btn.dataset.taskId);
+    }),
   );
 
   el.querySelectorAll('[data-book-followup]').forEach((btn) =>
@@ -2162,6 +2175,27 @@ function closeBlock(ctx) {
       </button>`).join('')}</div>`;
 }
 
+/**
+ * 「明天」那一頁的「簽療程單・明天來」那一塊（issue 11，ADR-0162）。一列一位一天。
+ *
+ * **點下去開讀取卡片（`data-visit`），不開簽單抽屜** —— 人還沒來，她：「免得還沒做就被簽成做完」。
+ * 那一行只印還開著那幾段的開始時間：名字要主檔（`slotName()`），讀取卡片裡就有。
+ */
+function comingBlock(ctx) {
+  if (!ctx.coming.length) return '';
+  return `
+    ${blockHead(`${rowLabel('close')}・明天來`, ctx.coming.length)}
+    <div class="stack" data-coming>${ctx.coming.map((v) => `
+      <button class="card row" type="button" data-visit="${esc(v.id)}">
+        <span class="row__main">
+          <span class="row__title">${esc(v.customerName ?? '（沒有名字）')}</span>
+          <span class="muted">${esc(shortDate(v.date))}・${esc(slotsToClose(v)
+            .map(({ slot }) => slot.startsAt).filter(Boolean).sort().join('、') || `${slotsToClose(v).length} 段`)}</span>
+        </span>
+        ${icon('right', { size: 18 })}
+      </button>`).join('')}</div>`;
+}
+
 /** 逾期／今天／明天那一頁的「隨手記」那一塊（只會出現在今天與明天）。 */
 function notesBlock(ctx) {
   if (!ctx.notes.length) return '';
@@ -2172,7 +2206,7 @@ function notesBlock(ctx) {
 
 function openList(ctx, today) {
   const { open, meta } = ctx;
-  const others = closeBlock(ctx) + notesBlock(ctx);
+  const others = closeBlock(ctx) + comingBlock(ctx) + notesBlock(ctx);
   if (!open.length && !others) return '<p class="muted">這裡是空的。</p>';
   // 只有任務（其餘頁、或這三頁剛好只有任務）：照舊，不加小標
   if (!others) return taskBlock(ctx, today);
@@ -2180,6 +2214,7 @@ function openList(ctx, today) {
   return `
     ${open.length ? `${blockHead('待辦', open.length)}${taskBlock(ctx, today)}` : ''}
     ${closeBlock(ctx)}
+    ${comingBlock(ctx)}
     ${notesBlock(ctx)}`;
 }
 

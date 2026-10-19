@@ -1,6 +1,6 @@
 # 待辦首頁「明天」也算明天要簽的療程單
 
-Status: todo
+Status: done
 段：三（high）—— **不在段一做**：段一正在改 `data/visits.js`（`listUnclosed()` 也在那一支）
 動工前先讀：`domain/todoFlow.js` 的 `todoBuckets()`（檔頭那張表：明天「不算（明天的來訪還簽不了）」）、`taskBucket()`、`bucketCount()`；`domain/visits.js` 的 `visitsToClose()`（`v.date <= today`）；`data/visits.js` 的 `listUnclosed(today)`（`date <= today`）與它的三個呼叫端 `ui/views/home.js:189`、`:1833`、`:3441`；`home.js` 逾期／今天／明天那三頁畫「簽療程單」那一塊與點下去走 `leaveFor('todo/close', id)` 那一條；ADR-0152；`CLAUDE.md`「待辦首頁的『逾期／今天／明天』」那一列；`tests/todo-buckets.test.js`
 
@@ -36,3 +36,14 @@ ADR-0152（10/18）：「明天＝死線明天的任務＋掛明天、還沒勾�
 ## 連動
 
 - `CLAUDE.md`「待辦首頁的『逾期／今天／明天』」那一列（「明天不算簽療程單（人還沒來）」改掉）、`todoBuckets()` 檔頭那張表、`SPEC.md` 待辦首頁那一節、`docs/操作手冊.md`
+
+## 做完時留下的（10/19，段三）
+
+- `domain/visits.js` 的 `visitsComingTomorrow(visits, today)`：跟 `visitsToClose()` 共用 `stillOpenDays()`，只換日子（`daysBetween === 1`）
+- `todoBuckets()` 每一格多一個 **`coming`**（只有明天有東西）；`bucketCount()` 算進去。`close` 一個字都沒改
+- `data/visits.js` 的 `listUnclosed(today, { tomorrow: true })`：只有 `home.js` 首頁（`render()`）與點進去那三頁（`renderGroup()`）傳；簽療程單那一頁（`renderClose` 那一支）照舊 `listUnclosed(today)`
+- 畫面：明天那一頁多一塊「簽療程單・明天來 N」（`comingBlock()`，`[data-coming]`），一列印名字＋還開著那幾段的開始時間；
+  點下去走既有的 `[data-visit]` → `openTaskVisit()`（讀取卡片、`.popcard`，只給看）。`loadTaskVisits()` 也讀那幾筆
+- 順手：`[data-visit]` 點下去先等 `taskVisitsLoading`（讀回來之前點的話以前是 toast「還在讀，等一下再按一次」）
+- ADR-0162；SPEC 待辦首頁那張表、常見問題「首頁的今天比底下多」、CLAUDE.md「逾期／今天／明天」那一列
+- 測試：`tests/todo-buckets.test.js` 多四條（先紅）；E2E `78` 的 T1、T2（新的 spec，登記進 `related.js`）

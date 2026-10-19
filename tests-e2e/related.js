@@ -611,6 +611,11 @@ export const COVERAGE = {
     'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
     'public/js/ui/components/sheetConfirm.js',
   ],
+  // 上線前補的那一輪段三（before-golive-2026-10-19/09–11）：待辦首頁「明天」算明天來的（11，ADR-0162）
+  '78-before-golive-seg3': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js',
+  ],
 };
 
 /**
