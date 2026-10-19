@@ -33,3 +33,11 @@ test('13 刪客戶：按下去那一刻讀 ownWhole()，拿它問 deleteBlockers
   assert.ok(handler.indexOf('ownWhole(') < handler.indexOf('rules.deleteBlockers('));
   assert.match(handler, /readFailed/);
 });
+
+test('14 改名：順手換的快照是 ownWhole() 讀的、在寫之前讀；不再走 listByCustomer() 那一條', () => {
+  const src = read('public/js/ui/views/customerDetail.js');
+  const fn = body(src, 'function paintEdit(');
+  assert.match(fn, /renameTargets\(own,/);
+  assert.ok(fn.indexOf('ownWhole(') > 0 && fn.indexOf('ownWhole(') < fn.indexOf('updateWithSnapshots('));
+  assert.doesNotMatch(src, /ownSnapshots/);
+});

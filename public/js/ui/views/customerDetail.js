@@ -1556,11 +1556,23 @@ function paintEdit(ctx) {
       if (said.length && !await confirmReview(said)) return;
     }
 
+    // 改名要順手換的那幾份快照：**按下去那一刻讀全部**（issue 14）。快取裡剛好有的那幾筆的話，漏掉的那幾張待辦、
+    // 那幾筆來訪留著舊名字 —— 讀不完整就先不改名
+    let own = null;
+    if (renamed) {
+      try {
+        own = await data.ownWhole(ctx.id, ctx.customer.name, {
+          say: `網路不穩，讀不到 ${ctx.customer.name} 的全部紀錄 —— 先不改名，連上之後再存一次`,
+        });
+      } catch (err) {
+        toast.readFailed(err);
+        return;
+      }
+    }
+
     try {
       await toast.withSaveState(async () => {
-        const targets = renamed
-          ? rules.renameTargets(await ownSnapshots(ctx.id), todayISO(), changes.name)
-          : [];
+        const targets = own ? rules.renameTargets(own, todayISO(), changes.name) : [];
         await data.updateWithSnapshots(ctx.id, changes, targets);
       }, {
         success: '已儲存', key: `customer:update:${ctx.id}`,
@@ -1570,16 +1582,6 @@ function paintEdit(ctx) {
       /* 已處理 */
     }
   });
-}
-
-/** 這位客戶身上帶著名字快照的那幾份（改名時要跟著換哪幾份由 `renameTargets()` 決定）。 */
-async function ownSnapshots(customerId) {
-  const [visits, tasks, notes] = await Promise.all([
-    visitsData.listByCustomer(customerId),
-    tasksData.listByCustomer(customerId),
-    notesData.listByCustomer(customerId),
-  ]);
-  return { visits, tasks, notes };
 }
 
 // ---------- 額度編輯 ----------
