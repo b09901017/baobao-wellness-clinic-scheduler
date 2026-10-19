@@ -61,7 +61,7 @@ export function wire(el, notify) {
   el.querySelectorAll('[data-msg-line]').forEach((btn) =>
     btn.addEventListener('click', () => openLineChat({
       name: btn.dataset.msgLineName,
-      msg: el.querySelector(`[data-msg="${CSS.escape(btn.dataset.msgLine)}"]`)?.value ?? '',
+      msg: areaOf(el, btn.dataset.msgLine)?.value ?? '',
       notify,
     })),
   );
@@ -78,6 +78,8 @@ export function wire(el, notify) {
  *   問這輪的時間切到另一個分段時那一張不在畫面上，切回來還要在
  * - `restore(el)`：畫完之後叫。**那一則本來的樣子變了就不帶**（新產生的 ≠ 記下的那一份）而且丟掉：
  *   她確認了其中一段、訊息少了一段，她改的是舊的那一段 —— 帶回來就是把一段已經談定的時間又問一次
+ * - `paint(el, html)`：整頁重畫就叫這一支（記 → 換掉 → 帶回去）。重畫之前會先換成「載入中…」的，
+ *   在換之前另外 `keep()` 一次（那一下畫面上的訊息框就沒了）
  *
  * 一頁一份，**從待辦中心點進來時換一份新的**（呼叫端管）：昨天沒送的那一段，今天不該自己跑回來。
  */
@@ -97,7 +99,7 @@ export function editStore() {
     },
     restore(el) {
       kept.forEach(({ base, value, open }, id) => {
-        const area = el?.querySelector(`textarea[data-msg="${CSS.escape(id)}"]`);
+        const area = el && areaOf(el, id);
         if (!area) return;
         if (area.defaultValue !== base) {
           kept.delete(id);
@@ -108,11 +110,21 @@ export function editStore() {
         if (wrap && open) wrap.open = true;
       });
     },
+    paint(el, html) {
+      this.keep(el);
+      el.innerHTML = html;
+      this.restore(el);
+    },
   };
 }
 
+/** 一則訊息的那一格（`box()` 畫的 `data-msg`）。 */
+function areaOf(el, id) {
+  return el.querySelector(`textarea[data-msg="${CSS.escape(id)}"]`);
+}
+
 async function copy(el, id, notify) {
-  const area = el.querySelector(`[data-msg="${CSS.escape(id)}"]`);
+  const area = areaOf(el, id);
   const text = area?.value ?? '';
   if (!text) return;
 

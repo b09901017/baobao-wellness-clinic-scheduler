@@ -2615,10 +2615,8 @@ function paintAsk(ctx) {
   const { el, rows, invites, responses, month, today, focus, slide } = ctx;
   const groups = splitByMonth({ rows, invites, responses, month, today });
   const label = monthLabel(`${month}-01`);
-  // 換分段那種直接重畫的在這裡記（從 `renderAsk()` 來的，畫面上只剩「載入中…」，那一側已經記過了）
-  msgEdits.keep(el);
-
-  el.innerHTML = `
+  // 她改過的訊息跨重畫留著（line-macrodroid 06）。從 `renderAsk()` 來的那一次畫面上只剩「載入中…」，那一側先記過了
+  msgEdits.paint(el, `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">問這輪的時間${tip(
@@ -2655,9 +2653,8 @@ function paintAsk(ctx) {
 
       ${doneBlock(groups.done, label)}`
       : '<p class="muted">還沒有客戶。</p>'}
-    </div>`;
+    </div>`);
 
-  msgEdits.restore(el);
   message.wire(el, toast.info);
   wireAsk(ctx);
 
@@ -2921,10 +2918,8 @@ function paintConfirm(ctx) {
   const groups = [...byCustomer(pending).entries()]
     .filter(([, visits]) => visits.some((v) => pendingSlotsOf(v).length));
   const noReplyDays = settings.noReplyDays ?? 3;
-  // 開抽屜、關抽屜、每按一下都整頁重畫：她改過的訊息先記下來（line-macrodroid 06）
-  msgEdits.keep(el);
-
-  el.innerHTML = `
+  // 開抽屜、關抽屜、每按一下都整頁重畫：她改過的訊息跨重畫留著（line-macrodroid 06）
+  msgEdits.paint(el, `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">跟客人確認時間</h1>
@@ -2941,9 +2936,8 @@ function paintConfirm(ctx) {
       </div>`
       : '<p class="muted">都問過了。</p>'}
 
-    ${drawer ? drawerHtml(ctx) : ''}`;
+    ${drawer ? drawerHtml(ctx) : ''}`);
 
-  msgEdits.restore(el);
   wireConfirm(ctx);
 }
 
