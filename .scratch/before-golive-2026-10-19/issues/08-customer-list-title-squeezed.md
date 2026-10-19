@@ -32,4 +32,4 @@ Status: done
   （16px＝兩顆 `.footlink::after` 上下各撐 8px，排距再小就疊）
 - 360px 上客戶清單那一排變兩排（看這個月的進度、看已停用的 ／ 長備註），靠右；390px 以上一排（截圖看過）
 - E2E 77 C11（360／390／768：h1 高度 < 1.5 倍 line-height、三顆都在畫面裡、兩排交界 `elementFromPoint`）—— 換回舊 CSS 跑過 360 是紅的；
-  C12（待辦首頁、壓表 360px 標題一行）。`bulkCancel.js` 那一列沒有 `.footlinks--inline`，同一條 `.page__title` 規則管到它
+  C12（待辦首頁、壓表 360px 標題一行）。`bulkCancel.js` 那一列沒有 `.footlinks--inline`，~~同一條 `.page__title` 規則管到它~~（段四審查：不對 —— 它的標題是 `h2.card__title`，那一條規則管不到它；它那一列本來就沒有會擠的東西，所以沒事）
