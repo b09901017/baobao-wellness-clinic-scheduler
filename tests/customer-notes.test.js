@@ -6,9 +6,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import * as notesModule from '../public/js/domain/customerNotes.js';
+
 import {
   MAX_LONG_TITLE, MAX_LONG_BODY, MAX_LONG_NOTES, MAX_NOTE_ORDER,
-  readLongNotes, noteItems, notesFields, validateLongNotes, telHref, lineHref,
+  readLongNotes, noteItems, notesFields, validateLongNotes, telHref,
   withLongNote, withoutLongNote, longNoteRows, matchesLongNote, firstLine, sectionCount,
 } from '../public/js/domain/customerNotes.js';
 import { readMarks, toCustomerFields, MAX_MARKS } from '../public/js/domain/customerMarks.js';
@@ -239,27 +241,17 @@ describe('電話與 LINE 的連結', () => {
     assert.equal(telHref(''), null);
   });
 
-  test('LINE：網址原樣（補 https）、ID 開加好友那一頁、@ 開頭的是官方帳號', () => {
-    assert.equal(lineHref('https://line.me/ti/p/abcDEF'), 'https://line.me/ti/p/abcDEF');
-    assert.equal(lineHref('line.me/ti/p/~kehu-a'), 'https://line.me/ti/p/~kehu-a');
-    assert.equal(lineHref('https://lin.ee/xyz'), 'https://lin.ee/xyz');
-    assert.equal(lineHref('abc123'), 'https://line.me/R/ti/p/~abc123');
-    assert.equal(lineHref(' abc123 '), 'https://line.me/R/ti/p/~abc123');
-    assert.equal(lineHref('@shop'), 'https://line.me/R/ti/p/%40shop');
-    assert.equal(lineHref(''), null);
-    assert.equal(lineHref(null), null);
-  });
-
-  test('LINE：不是 LINE 的網址不當網址開（javascript: 之類）', () => {
-    assert.equal(lineHref('javascript:alert(1)'), 'https://line.me/R/ti/p/~javascript%3Aalert(1)');
-    assert.equal(lineHref('http://evil.example/line.me/'), 'https://line.me/R/ti/p/~http%3A%2F%2Fevil.example%2Fline.me%2F');
-  });
-
-  test('noteItems 帶著連結', () => {
-    const [phone, line] = noteItems({ phone: '0912-345-678', lineId: 'abc' });
+  test('LINE 那一格存的是她 LINE 好友清單上的名字：不是連結（ADR-0157）', () => {
+    const [phone, line] = noteItems({ phone: '0912-345-678', lineId: ' 王小明 ' });
     assert.equal(phone.href, 'tel:0912345678');
     assert.equal(phone.text, '0912-345-678');
-    assert.equal(line.href, 'https://line.me/R/ti/p/~abc');
+    assert.deepEqual(line, { key: 'line', kind: 'line', text: '王小明' });
+  });
+
+  test('打開加好友網址的那條路整個拿掉了', () => {
+    assert.equal('lineHref' in notesModule, false);
+    const src = readFileSync(new URL('../public/js/domain/customerNotes.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /line\.me\/R\/ti/);
   });
 
   test('電話寫了字卻撥不出去：照樣畫（看得到號碼），只是沒有 tel: 連結', () => {

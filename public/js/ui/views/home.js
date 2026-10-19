@@ -152,6 +152,10 @@ let askTab = 'todo';
 // **換月份要重新讀資料**（那一頁三份資料都是照月份挑的），而換分段不用。
 let askMonth = null;
 
+// 確認時間、問這輪的時間兩頁的訊息框裡她改過的字（line-macrodroid 06）。兩頁都是整頁重畫，
+// 跨重畫留著；**從待辦中心點進來時換一份新的**（`renderGroup()`）—— 昨天沒送的那一段不該自己跑回來。
+let msgEdits = message.editStore();
+
 // ---------- 總覽 ----------
 
 export async function render(el) {
@@ -1796,6 +1800,7 @@ export function groupTitle(group) {
 
 export async function renderGroup(el, group) {
   el.innerHTML = '<p class="muted">載入中…</p>';
+  msgEdits = message.editStore();
   picked = new Set();
   closeDrawer();
   taskVisits = null;
@@ -2565,6 +2570,8 @@ async function renderAsk(el, { focus = null, slide = null } = {}) {
   // 她要有地方記；想提早開始問十月也一樣。以前這一行是寫死的。
   askMonth ??= addMonths(today, 1).slice(0, 7);
 
+  // 她改過的訊息：「載入中…」會把它們換掉，所以在那之前記（line-macrodroid 06）
+  msgEdits.keep(el);
   el.innerHTML = '<p class="muted">載入中…</p>';
 
   const [customers, entitlementsBy, availabilityBy, invites, responses, templates] =
@@ -2608,8 +2615,8 @@ function paintAsk(ctx) {
   const { el, rows, invites, responses, month, today, focus, slide } = ctx;
   const groups = splitByMonth({ rows, invites, responses, month, today });
   const label = monthLabel(`${month}-01`);
-
-  el.innerHTML = `
+  // 她改過的訊息跨重畫留著（line-macrodroid 06）。從 `renderAsk()` 來的那一次畫面上只剩「載入中…」，那一側先記過了
+  msgEdits.paint(el, `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">問這輪的時間${tip(
@@ -2646,7 +2653,7 @@ function paintAsk(ctx) {
 
       ${doneBlock(groups.done, label)}`
       : '<p class="muted">還沒有客戶。</p>'}
-    </div>`;
+    </div>`);
 
   message.wire(el, toast.info);
   wireAsk(ctx);
@@ -2729,6 +2736,8 @@ function askCard(row, { byId, month, templates = {} }) {
           text: askAvailabilityMessage(customer ?? { name }, { month, link, templates }),
           collapsed: true,
           buttonLabel: '複製 LINE 訊息',
+          // 讀不到那位客戶就不畫「打開 LINE」（講「還沒填 LINE 名字」是假話）
+          line: customer ? { name: customer.lineId ?? '' } : null,
         })}
         <p style="margin: var(--space-1) 0 0">
           <button class="btn btn--sm" type="button"
@@ -2909,8 +2918,8 @@ function paintConfirm(ctx) {
   const groups = [...byCustomer(pending).entries()]
     .filter(([, visits]) => visits.some((v) => pendingSlotsOf(v).length));
   const noReplyDays = settings.noReplyDays ?? 3;
-
-  el.innerHTML = `
+  // 開抽屜、關抽屜、每按一下都整頁重畫：她改過的訊息跨重畫留著（line-macrodroid 06）
+  msgEdits.paint(el, `
     ${backLink()}
     <div class="page">
       <h1 class="page__title">跟客人確認時間</h1>
@@ -2927,7 +2936,7 @@ function paintConfirm(ctx) {
       </div>`
       : '<p class="muted">都問過了。</p>'}
 
-    ${drawer ? drawerHtml(ctx) : ''}`;
+    ${drawer ? drawerHtml(ctx) : ''}`);
 
   wireConfirm(ctx);
 }
@@ -2975,6 +2984,8 @@ function confirmCard(
         text: confirmMessage({ name }, pending, { templates, master }),
         collapsed: true,
         buttonLabel: '複製 LINE 確認訊息',
+        // 讀不到客戶時（那一份讀失敗退回空的）`customer` 是 null：不畫「打開 LINE」
+        line: customer ? { name: customer.lineId ?? '' } : null,
       })}
     </div>`;
 }

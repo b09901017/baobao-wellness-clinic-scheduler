@@ -54,7 +54,7 @@ const COLLECTION_LABELS = {
 const FIELD_LABELS = {
   name: '姓名',
   phone: '電話',
-  lineId: 'LINE',
+  lineId: 'LINE 名字',
   source: '購買通路',
   priority: '喜好程度',
   flags: '永久限制',

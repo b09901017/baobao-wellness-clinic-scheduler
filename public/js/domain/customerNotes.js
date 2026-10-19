@@ -20,6 +20,8 @@
 // ## 電話、LINE 只是位置
 //
 // 值照舊是 `customer.phone`／`customer.lineId`（在編輯客戶的表單裡改），沒填就不畫、不佔位。
+// **`lineId` 存的是她 LINE 好友清單上看到的名字**，不是 ID 也不是網址（ADR-0157，推翻 ADR-0156 的
+// 「點了開加好友那一頁」）：點了交給手機上的 MacroDroid 去 LINE 搜尋那個名字（`integrations/lineMacro.js`）。
 //
 // **讀這一串只有 `noteItems()` 一支**，畫面不自己拼。
 
@@ -86,30 +88,14 @@ export function telHref(phone) {
   return `tel:${digits}`;
 }
 
-/** 編輯客戶那一格 LINE 旁邊的 `?`（新增客戶與編輯兩張表共用）。 */
-export const LINE_HINT = '貼他的 LINE 連結最穩（他在 LINE 的「加入好友 → 行動條碼」可以複製連結傳給你）。'
-  + '只寫 ID 的話，他要開著「允許利用 ID 加入好友」才打得開。';
-
-/** 是 LINE 自己的網址嗎（加好友那一頁「複製連結」來的）。別的網址一律不當網址開。 */
-const LINE_URL = /^(https?:\/\/)?(line\.me|lin\.ee|liff\.line\.me)(\/|$)/i;
-
 /**
- * 點了打開他的 LINE。
+ * 編輯客戶那一格 LINE 名字旁邊的 `?`（新增客戶與編輯兩張表共用）。
  *
- * - 那一格存的是 **LINE 的網址** → 原樣開（沒寫 `https://` 的補上）
- * - 是 **LINE ID** → 開 `https://line.me/R/ti/p/~<ID>`（對方要開放 ID 搜尋才找得到，打不開時 LINE 自己會講）；
- *   `@` 開頭的是官方帳號，網址不帶 `~`
- *
- * 不是 LINE 的網址（`javascript:`、別的網站）**不當網址開**，當成 ID 包進 LINE 的網址裡 ——
- * 這一格是她打的字，不是她的程式。
+ * 手機上的 MacroDroid 拿這幾個字去 LINE 的搜尋框找人、點「一模一樣」的那一個 ——
+ * 少一個字、多一個空白都找不到，所以這一句講的是「照抄」。
  */
-export function lineHref(lineId) {
-  const raw = trimmed(lineId);
-  if (!raw) return null;
-  if (LINE_URL.test(raw)) return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  if (raw.startsWith('@')) return `https://line.me/R/ti/p/${encodeURIComponent(raw)}`;
-  return `https://line.me/R/ti/p/~${encodeURIComponent(raw)}`;
-}
+export const LINE_HINT = '打你 LINE 好友清單上看到的名字，一個字都不能差：'
+  + '手機會拿它去 LINE 搜尋、打開他的對話。';
 
 // ---------------------------------------------------------------------------
 // 那一串
@@ -120,7 +106,7 @@ export function lineHref(lineId) {
  *
  * 每一項：
  * - `{ key: 'phone', kind: 'phone', text, href }`
- * - `{ key: 'line', kind: 'line', text, href }`
+ * - `{ key: 'line', kind: 'line', text }`（`text` 是她 LINE 上的那個名字；沒有連結，點了做什麼是畫面的事）
  * - `{ key: 'long:<id>', kind: 'long', note }`
  * - `{ key: 'mark:<n>', kind: 'mark', index, mark }`（`n` 是 `readMarks()` 裡的位置）
  *
@@ -135,7 +121,7 @@ export function noteItems(customer) {
   const line = trimmed(customer?.lineId);
 
   const phoneItem = phone ? { key: 'phone', kind: 'phone', text: phone, href: telHref(phone) } : null;
-  const lineItem = line ? { key: 'line', kind: 'line', text: line, href: lineHref(line) } : null;
+  const lineItem = line ? { key: 'line', kind: 'line', text: line } : null;
   const longItem = (n) => ({ key: `long:${n.id}`, kind: 'long', note: n });
   const markItem = (mark, index) => ({ key: `mark:${index}`, kind: 'mark', index, mark });
 

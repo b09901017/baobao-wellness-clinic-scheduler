@@ -14,7 +14,7 @@ function clientA(extra = {}) {
     id: 'cust-n',
     name: '客戶A',
     phone: '0912-345-678',
-    lineId: 'kehu-a',
+    lineId: '王小明',
     marks: [{ text: '喜歡下午', color: 'green' }, { text: '指定女治療師', color: 'blue' }],
     longNotes: [{ id: 'n1', title: '家人與接送', body: LONG_BODY }],
     ...extra,
@@ -31,15 +31,17 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test('N1 沒排過：電話、LINE、長備註、短備註一排丸子；撥號與 LINE 的連結；抬頭數字不算電話與 LINE', async ({ app, page }) => {
+test('N1 沒排過：電話、LINE、長備註、短備註一排丸子；撥號是連結、LINE 是按鈕；抬頭數字不算電話與 LINE', async ({ app, page }) => {
   await app.seed([...masterDocs(), clientA()]);
   await app.signIn('/customers/cust-n');
 
   expect(await chipTexts(page)).toEqual(['0912-345-678', 'LINE', '家人與接送', '喜歡下午', '指定女治療師']);
   await expect(page.locator('[data-notesblock] [data-notes-phone]')).toHaveAttribute('href', 'tel:0912345678');
   const line = page.locator('[data-notesblock] [data-notes-line]');
-  await expect(line).toHaveAttribute('href', 'https://line.me/R/ti/p/~kehu-a');
-  await expect(line).toHaveAttribute('target', '_blank');
+  // 那一格是她 LINE 上的名字，不是網址（ADR-0157）：點了交給手機上的 MacroDroid，見 75
+  await expect(line).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(line).not.toHaveAttribute('href', /./);
+  await expect(line).toHaveAttribute('aria-label', '打開 王小明 的 LINE 對話');
   await expect(page.locator('[data-notesblock] .section__n')).toHaveText('3');
 
   // 390px 沒有橫向捲動（捲的是 .app__main）
@@ -509,4 +511,25 @@ test('L7 客戶詳情中間那張卡「在長備註那一疊看」→ 這一疊�
   expect(page.url()).toContain('#/customers/notes/cust-a');
   await expect(page.locator('.lnov')).toHaveCount(0);
   await expect(page.locator('[data-goto="cust-a:a2"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('N13 LINE 排在長備註底下那一排：LINE 改成按鈕之後，點長備註的下緣照樣開長備註（ADR-0157）', async ({ app, page }) => {
+  // `button.mark::after` 上下撐 8px；LINE 從 <a> 換成 <button> 之後要吃的是 -3px 那一條（N11 的同一個形狀）
+  await app.seed([...masterDocs(), clientA({
+    longNotes: [{ id: 'n1', title: '家人與接送還有停車的地方都要先問過女兒', body: LONG_BODY }],
+    noteOrder: ['long:n1', 'line', 'phone', 'mark', 'mark'],
+  })]);
+  await app.signIn('/customers/cust-n');
+
+  const long = await page.locator('[data-notesblock] [data-notes-long]').boundingBox();
+  const line = await page.locator('[data-notesblock] [data-notes-line]').boundingBox();
+  expect(line.y).toBeGreaterThan(long.y + long.height); // LINE 真的在下一排
+  const x = Math.max(long.x, line.x) + 4;
+  for (const y of [long.y + long.height - 1, long.y + long.height - 0.5]) {
+    const hit = await page.evaluate(([px, py]) => {
+      const el = document.elementFromPoint(px, py);
+      return el?.closest('[data-notes-long]') ? 'long' : el?.closest('[data-notes-line]') ? 'line' : el?.className ?? null;
+    }, [x, y]);
+    expect(hit).toBe('long');
+  }
 });

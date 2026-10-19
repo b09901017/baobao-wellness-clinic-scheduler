@@ -114,7 +114,7 @@ export async function render(el) {
     <label class="field" style="margin-bottom: var(--space-2)">
       <span class="visually-hidden">搜尋客戶</span>
       <input type="text" data-search value="${esc(view.search)}" style="width: 100%"
-             placeholder="找人：姓名、電話、LINE、購買通路" />
+             placeholder="找人：姓名、電話、LINE 名字、購買通路" />
     </label>
 
     <div class="chiprow noscroll-bar" role="group" aria-label="先看誰">

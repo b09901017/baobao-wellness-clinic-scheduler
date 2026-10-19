@@ -329,7 +329,7 @@ describe('一句話講完一則稽核', () => {
     const line = describeEvent(ev('customers.update',
       { name: '客戶A', phone: '02', lineId: 'a' },
       { phone: '03', lineId: 'b' }, 'customers/c1'));
-    assert.equal(line, '改了 客戶A・電話、LINE');
+    assert.equal(line, '改了 客戶A・電話、LINE 名字');
   });
 
   test('改了一大片就只講幾個欄位 —— 列出十個欄位名等於沒講', () => {

@@ -43,7 +43,8 @@ const codeOf = (src) => src
   .filter((l) => !l.trim().startsWith('//'))
   .join(NL);
 
-const FILES = walk(UI).map((path) => ({
+// `integrations/`（ADR-0157）：打開 LINE 對話那幾句 toast 從那裡講，也是畫得出來的字
+const FILES = [...walk(UI), ...walk(fromRoot('public/js/integrations'))].map((path) => ({
   path: toPosix(path).split('public/js/')[1],
   code: codeOf(readFileSync(path, 'utf8')),
 }));

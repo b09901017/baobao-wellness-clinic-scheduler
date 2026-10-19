@@ -38,7 +38,7 @@ export function row(marks, { max = Infinity, large = false, clip = false } = {})
  * 一排流下去（她 2026-10-19 選的）。項目由 `domain/customerNotes.js` 的 `noteItems()` 給，這裡只畫。
  *
  * - 電話：話筒＋號碼，點了撥號（`tel:`），按住複製（接線在呼叫端）
- * - LINE：對話泡泡＋「LINE」，點了開他的 LINE（新分頁）
+ * - LINE：對話泡泡＋「LINE」，點了打開他的 LINE 對話（接線在呼叫端：手機上的 MacroDroid，ADR-0157）
  * - 長備註：茶色那一顆（便條＋標題＋›）—— 看得出「點開有全文」
  *
  * 屬性一律 `data-notes-*`：共用元件不可以用頁面身上的名字（CLAUDE.md 那一列）。
@@ -63,9 +63,10 @@ function noteChip(it) {
       : `<span class="mark mark--lg mark--contact" data-notes-phone tabindex="0">${inner}</span>`;
   }
   if (it.kind === 'line') {
-    return `<a class="mark mark--lg mark--contact" href="${esc(it.href)}" target="_blank"
-               rel="noopener noreferrer" data-notes-line aria-label="打開他的 LINE">${glyph('line')}
-              <span class="mark__text">LINE</span></a>`;
+    // 那一格是她 LINE 上的名字，不是網址 —— 是按鈕不是連結（ADR-0157）
+    return `<button class="mark mark--lg mark--contact" type="button" data-notes-line
+               aria-label="打開 ${esc(it.text)} 的 LINE 對話">${glyph('line')}
+              <span class="mark__text">LINE</span></button>`;
   }
   return `<button class="mark mark--lg mark--long" type="button" data-notes-long="${esc(it.note.id)}"
                   aria-label="長備註「${esc(it.note.title)}」，點開看全文">${glyph('note')}

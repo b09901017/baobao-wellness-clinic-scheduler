@@ -16,6 +16,8 @@ const under = (dir) => readdirSync(new URL(`../public/js/${dir}`, import.meta.ur
 
 const FILES = [
   ...under('ui/views'), ...under('ui/components'),
+  // 打開 LINE 對話那幾句 toast 是從這裡講的（ADR-0157）
+  ...under('integrations'),
   'domain/messageTemplates.js', 'domain/aiUsage.js',
   // 資料健檢那一頁的字幾乎都從這一支來（每一項的名字、說明、每一列的那一句；issue 18）
   'domain/health.js',

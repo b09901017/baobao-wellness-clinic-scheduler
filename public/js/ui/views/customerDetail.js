@@ -78,6 +78,7 @@ import { go } from '../router.js';
 import { openFor as openBulkCancel } from './bulkCancel.js';
 import { taskLine, taskSlots } from '../../domain/todoFlow.js';
 import { back, popScreens, pushScreen, whenSettled } from '../nav.js';
+import { openLineChat } from '../../integrations/lineMacro.js';
 
 const esc = f.esc;
 
@@ -551,6 +552,11 @@ function wireNotes(ctx) {
     const long = e.target.closest('[data-notes-long]');
     if (long) {
       openLongNote(ctx, long.dataset.notesLong);
+      return;
+    }
+    // LINE：那一格是她 LINE 上的名字，交給手機上的 MacroDroid 打開對話、停在那裡（不貼訊息，ADR-0157）
+    if (e.target.closest('[data-notes-line]')) {
+      openLineChat({ name: ctx.customer.lineId, msg: '', notify: toast.info });
       return;
     }
     // 電話：一個號碼都認不出來的那一顆不是連結，點了講一句（按住照樣複製）
@@ -1452,7 +1458,7 @@ function paintEdit(ctx) {
       <form data-form>
         ${f.text({ name: 'name', label: '姓名', value: customer.name })}
         ${f.text({ name: 'phone', label: '電話', value: customer.phone ?? '' })}
-        ${f.text({ name: 'lineId', label: 'LINE', value: customer.lineId ?? '', hint: LINE_HINT })}
+        ${f.text({ name: 'lineId', label: 'LINE 名字', value: customer.lineId ?? '', hint: LINE_HINT })}
         ${f.text({ name: 'source', label: '購買通路', value: customer.source ?? '' })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(customer.priority ?? 0),
