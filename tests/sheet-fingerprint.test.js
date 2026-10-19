@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 
 import { loadAppsScript } from './helpers/appsScriptStub.js';
 import {
-  syncBundle, sheetFingerprint, SYNC_FORMAT, READONLY_NOTICE, customerReport, describeSync, pushedSay,
+  syncBundle, sheetFingerprint, SYNC_FORMAT, READONLY_NOTICE, customerReport, describeSync, pushedSay, skippedPushSay,
 } from '../public/js/domain/sheetReport.js';
 import { MARK_LEGEND } from '../public/js/domain/visits.js';
 
@@ -144,6 +144,18 @@ describe('.gs：沒變的那幾頁只改產生時間', () => {
     assert.match(sheetOf(app, '客戶A').at('A1'), /系統自動產生/);
   });
 
+  // 段四審查：以前每一次推送整頁重畫，所以 onEdit 那一句「下次同步就會被蓋掉」一定成立。現在沒變的那一頁不重畫 ——
+  // 她選一塊格子按刪除（多格編輯沒有 oldValue，onEdit 只能清成空的）、或刪了幾列，那一頁會一直停在改壞的樣子
+  test('她在沒變的那一頁手動改過（onEdit）→ 下一次推送那一頁照樣重畫', () => {
+    const app = loadAppsScript();
+    push(app, syncBundle(base()));
+    const sheet = sheetOf(app, '客戶A');
+    // 多格編輯：Apps Script 給的事件沒有 oldValue
+    app.context.onEdit({ range: sheet.getRange(6, 2), source: { getActiveSheet: () => sheet } });
+    const reply = push(app, syncBundle(base()));
+    assert.deepEqual([reply.sheets, reply.kept], [1, 1], '改過的那一頁重畫、另一頁照舊沒變');
+  });
+
   test('整份重畫（force）＝以前的行為：每一頁都重畫', () => {
     const app = loadAppsScript();
     push(app, syncBundle(base()));
@@ -214,7 +226,7 @@ test('.gs 的程式碼改了，LAYOUT_VERSION 要跟著加一（然後換掉這�
     .replace(/var LAYOUT_VERSION = \d+;/, '')
     .replace(/\s+/g, ' ');
   const hash = createHash('sha256').update(code).digest('hex').slice(0, 12);
-  assert.deepEqual({ version, hash }, { version: 1, hash: '692592e1b8ad' },
+  assert.deepEqual({ version, hash }, { version: 1, hash: '9f20527f7294' },
     '改了 sheets/readonly-report.gs：畫法變了的話 LAYOUT_VERSION 加一；兩種都把這裡換成新的 version 與 hash');
 });
 
@@ -264,4 +276,24 @@ describe('sheetSync.js（原始碼）', () => {
     assert.match(src, /inFlight = \{ at, force, promise \}/);
     assert.match(src, /force \? \{ token, bundle, force: true \}/);
   });
+});
+
+// 段四審查：讀到快取、這一趟沒推（中途發現 2）—— 設定頁講「上次沒推」，首頁那一行沒傳 `partial`，照樣紅字「上次推失敗了」。
+// 同一件事兩個入口（lessons 一）：每一個叫 `describeSync()` 的畫面都要傳
+test('每一個叫 describeSync() 的畫面都傳 partial', () => {
+  for (const rel of ['public/js/ui/views/home.js', 'public/js/ui/views/report.js']) {
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+    const calls = [...src.matchAll(/describeSync\(\{[^}]*\}\)/g)].map((m) => m[0]);
+    assert.ok(calls.length > 0, rel);
+    for (const call of calls) assert.match(call, /partial:/, rel);
+  }
+});
+
+// 段四審查：有幾張沒更新時那一句以前只讀 `sheets` —— 其他分頁都沒變的時候講「推好了 0 張，但有 1 張沒有更新」
+test('skippedPushSay()：沒變的那幾頁也講出來，再講哪幾張沒更新', () => {
+  const say = skippedPushSay({ sheets: 0, kept: 30, skipped: ['王小明'] });
+  assert.doesNotMatch(say, /推好了 0 張/);
+  assert.match(say, /30 張分頁都沒變/);
+  assert.match(say, /1 張沒有更新：王小明/);
+  assert.match(skippedPushSay({ sheets: 2, kept: null, skipped: ['王小明'] }), /更新了 2 張分頁.*1 張沒有更新/);
 });

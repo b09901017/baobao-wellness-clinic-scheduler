@@ -1111,3 +1111,14 @@ export function pushedSay({ sheets = null, kept = null } = {}) {
   if (!drawn) return `推好了，${kept} 張分頁都沒變（只改了產生時間）`;
   return `推好了：重畫了 ${drawn} 張分頁${kept ? `、${kept} 張沒變（只改了產生時間）` : ''}`;
 }
+
+/**
+ * 推好了、但有幾張沒有更新（`.gs` 認不出那幾張是系統畫的，不敢清空重畫）。前半句跟 `pushedSay()` 同一句 ——
+ * 以前只讀 `sheets`，其他分頁都沒變的時候講「推好了 0 張，但有 1 張沒有更新」（段四審查）。
+ * 「更新了 19 張」和「更新了 19 張，另外 2 位沒動」在畫面上不可以長得一樣：後者那兩位的次數是舊的。
+ */
+export function skippedPushSay(result = {}) {
+  const names = result.skipped ?? [];
+  return `${pushedSay(result)}，但有 ${names.length} 張沒有更新：${names.join('、')}。`
+    + '那幾張試算表認不出來是系統畫的，不敢清空重畫。';
+}

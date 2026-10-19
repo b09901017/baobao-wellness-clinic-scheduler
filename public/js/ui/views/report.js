@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as configData from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
-import { customerReport, toTSV, toCSV, describeSync, pushedSay } from '../../domain/sheetReport.js';
+import { customerReport, toTSV, toCSV, describeSync, pushedSay, skippedPushSay } from '../../domain/sheetReport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
@@ -228,10 +228,7 @@ async function pushNow(el, data, { force = false } = {}) {
   } else if (!result.ok) {
     toast.failed(result.error ?? '推不出去');
   } else if (result.skipped?.length) {
-    // 「更新了 19 張」和「更新了 19 張，另外 2 位沒動」在畫面上不可以長得一樣 ——
-    // 後者代表那兩位的次數是舊的。
-    toast.failed(`推好了 ${result.sheets ?? ''} 張，但有 ${result.skipped.length} 張沒有更新：`
-      + `${result.skipped.join('、')}。那幾張試算表認不出來是系統畫的，不敢清空重畫。`);
+    toast.failed(skippedPushSay(result));
   } else {
     toast.info(pushedSay(result));
   }

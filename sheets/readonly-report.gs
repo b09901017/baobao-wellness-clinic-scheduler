@@ -785,10 +785,18 @@ function unprotect(sheet) {
  */
 function onEdit(e) {
   if (!e || !e.range) return;
-  if (e.source.getActiveSheet().getName() === DATA_SHEET) return;
+  var name = e.source.getActiveSheet().getName();
+  if (name === DATA_SHEET) return;
 
   var previous = typeof e.oldValue === 'undefined' ? '' : e.oldValue;
   e.range.setValue(previous);
+  // 還原不了的那幾種（選一塊格子按刪除、貼上一整塊 —— 多格編輯沒有 oldValue；刪列不會叫這一支）要靠下一次推送畫回來。
+  // 格式 8 起沒變的那幾頁不重畫（ADR-0161），所以改過的那一頁拿掉指紋：下一次推送它照樣重畫，上面那一句才是真的
+  try {
+    PropertiesService.getDocumentProperties().deleteProperty(FP_PREFIX + name);
+  } catch (err) {
+    // 拿不掉就算了：最壞是那一頁等到它的資料變了、或她按「整份重畫」
+  }
   SpreadsheetApp.getActiveSpreadsheet().toast(
     '這張表由 app 自動產生，改了也不會回到 app，而且下次同步就會被蓋掉。請回 app 修改。',
     '已還原',
