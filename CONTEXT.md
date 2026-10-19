@@ -537,6 +537,10 @@ _Avoid_: 特殊狀況、標籤、tag、註記
 見 `docs/adr/0156-long-notes-and-the-notes-order.md`。
 _Avoid_: 筆記、便條、長筆記
 
+**LINE 名字**:
+客戶身上的一格：她 LINE 好友清單上看到的那位客人的名字（她幫好友改過名字的，照改過的）。手機上的 MacroDroid 拿它去 LINE 搜尋、打開對話。跟課程的「LINE 名」是兩件事 —— 那個是貼給客人的那一句裡課程叫什麼（`靜脈雷射`）。見 `docs/adr/0157-line-field-is-the-name-macrodroid-opens-the-chat.md`。
+_Avoid_: LINE ID、LINE 帳號、加好友連結
+
 **合作機構**:
 跟她一起服務同一位客戶的另一家，目前只有**自然美**。客戶身上打得上這個標記，
 **有標記的人壓完表之後，她要跟對方的專員說一聲**。

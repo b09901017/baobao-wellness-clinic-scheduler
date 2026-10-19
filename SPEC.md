@@ -545,7 +545,7 @@ audit/{eventId}                   // append-only 稽核紀錄
 
 // customers/{id}
 {
-  name, phone, lineId,
+  name, phone, lineId,       // lineId：她 LINE 好友清單上看到的名字（不是 ID、不是網址；代號沒換，ADR-0157）
   source,                    // 購買名稱，例：'0522 顧客會-8'
   purchasedAt,
   membershipExpiresAt,       // 留著讀舊資料，畫面上已經不再顯示也不再填（ADR-0019）
@@ -1890,6 +1890,7 @@ score = w1 × (1 − 可用天數 / 當月天數)        // 限制越多越優�
 /data     Firestore 存取層 —— 只有這裡能碰 firestore SDK
 /domain   業務規則（禁忌、衝突、額度、排序、任務產生）—— 純函式，不碰 IO
 /ui       畫面 —— 只呼叫 /data 和 /domain，不直接寫 query
+/integrations  她手機上別的 app 的接口（MacroDroid 打開 LINE 對話，ADR-0157）—— 只被 /ui 叫，不 import /ui
 ```
 
 **規則絕不寫在 UI 事件處理器裡。** `/domain` 是純函式，方便單獨測試——這是這個專案唯一真的需要測試的地方（算錯次數、漏擋禁忌都是實際傷害）。

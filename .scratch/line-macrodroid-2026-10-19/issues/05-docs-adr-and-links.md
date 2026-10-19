@@ -1,6 +1,6 @@
 # 文件：ADR-0157、手機上的 MacroDroid 設定、CLAUDE.md 連動表、SPEC／CONTEXT／操作手冊／常見問題
 
-Status: todo
+Status: done（10/19，段一）
 Blocked by: 01、02、03、04
 動工前先讀：CLAUDE.md「文件分工」那張表（新文件要登記）、`docs/agents/domain.md`（ADR 慣例）、ADR-0156（**不改它**，新的那一支推翻它 LINE 那一條）；
 `SPEC.md` 的 `customers/{id}` 那一段（548 附近）；`CONTEXT.md` 的備註／長備註那一段（530 附近）；`docs/操作手冊.md` 的「七之一、備註與長備註」與確認時間、問這輪的時間那兩節；`docs/常見問題.md` 的格式；README 的開發狀態表
@@ -34,4 +34,9 @@ Blocked by: 01、02、03、04
 
 ## 做完時留下的
 
-（做完寫）
+- ADR-0157（`docs/adr/0157-line-field-is-the-name-macrodroid-opens-the-chat.md`），推翻 0156 的 LINE 那一條（0156 沒動）；Gemini 不做寫在「後果」
+- `docs/MacroDroid設定.md`：觸發條件、兩個變數、十三步（第一個等待 1500ms、`msg` 空的停、點輸入框、貼上勾「直接設定文字」、Click Result、不送出）、省電、Chrome 的「區域網路」、試一次、沒裝的裝置
+- CLAUDE.md：文件分工登記那一份；連動表新一列「客戶的 LINE 那一格、打開 LINE 對話」；第 70 行（備註那一列）「連結只走 `telHref()`／`lineHref()`」改成指到新那一列
+- SPEC：`lineId` 註解、§10 分層補 `/integrations`；CONTEXT：「LINE 名字」一條（跟課程的「LINE 名」分開）
+- 操作手冊：七之一 LINE 那一行、步驟 6 確認時間一段、問這輪的時間「發連結」那一列；常見問題最後一條（照跳出來的那一句分六種）；邊界測試清單 P1～P5（只能在她手機上點）
+- README 開發狀態 41c
