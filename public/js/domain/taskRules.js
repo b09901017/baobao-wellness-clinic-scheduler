@@ -676,15 +676,34 @@ export function tasksAfterCourseChange(visit, existingTasks = [], { before, afte
  *
  * 見 `docs/adr/0093-an-imported-visit-grows-no-tasks.md`。
  *
- * @param {object} visit 匯進來的那一筆（狀態已經由 `statusFor()` 判好）
- * @param {{coursesById?: Record<string, object>, today?: string}} ctx
+ * ## 取消掉的段：「取消 X」一出生就勾好（合併檔 v9，ADR-0164）
+ *
+ * v9 起匯進來的段可以是已取消（舊表沒勾、Abovee 那天取消的那一列）。那個時段在舊系統上**早就放掉了**，
+ * 叫她回去放是叫她做一件做完的事。**不能只是不長**：之後任何一次存那一天，`cancelTasksFor()` 找不到
+ * 看過的一張（`seenTasks()`）蓋住那一段就補長 —— 一段做完、一段取消的那一天就是這樣（整筆已完成，
+ * 匯入時這裡一張都不長）。所以照 ADR-0149 的 `freed` 長一張**已經勾掉的**，跟來訪同一個 commit。
+ * 跟 `freed` 不一樣的是**每一種取消類都勾**（不只 Abovee）：匯進來的段沒有任何一張掛號待辦，
+ * 長得出來的只有「壓在哪」那一種，而那一格在舊系統上一樣早就放掉了。
+ *
+ * 匯入這條路不給復原（`freed` 那一條的顧慮）：沒有一顆按鈕會把這幾張軟刪除。
+ *
+ * @param {object} visit 匯進來的那一筆（狀態已經由 `statusFor()` 判好、整筆照段推過）
+ * @param {{coursesById?: Record<string, object>, today?: string, at?: string}} ctx `at`：勾好的那幾張的 `doneAt`
  * @returns {object[]} 要建立的任務
  */
-export function importedTasksFor(visit, { coursesById = {}, today } = {}) {
+export function importedTasksFor(visit, { coursesById = {}, today, at = new Date().toISOString() } = {}) {
+  const grown = syncTasksForVisit(visit, [], { coursesById, today }).create;
+  const settled = grown.filter((t) => isCancelKind(t.kind)).map((t) => ({
+    ...t,
+    done: true,
+    doneAt: at,
+    note: `${visit.date} ${visit.status === 'cancelled' ? '的來訪取消了' : '有一段取消了'} —— 匯進來的舊資料，`
+      + `${systemOfCancelKind(t.kind)} 上那個時段早就放掉了，不用再去放`,
+  }));
   // 「這一場已經發生了嗎」跟「那一場做完了嗎」在匯進來的資料上是同一個問題，
   // 而那個判斷只有一份 —— 借它，不要在這裡再寫一次 `=== 'done'`。
-  if (acceptsRecordTasks(visit?.status)) return [];
-  return syncTasksForVisit(visit, [], { coursesById, today }).create;
+  if (acceptsRecordTasks(visit?.status)) return settled;
+  return [...grown.filter((t) => !isCancelKind(t.kind)), ...settled];
 }
 
 /**

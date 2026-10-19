@@ -1,6 +1,6 @@
 # 合併檔 v9：已取消／未到的段＋取消理由
 
-Status: todo
+Status: done
 Blocked by: 02
 動工前先讀：`domain/taskRules.js` 的 `cancelTasksFor()`（`freed`）、ADR-0149、0106；`domain/mergeImport.js` 的 `planForCustomer()`、`visitDoc()`、`statusFor()`、`slotsMissingEntitlement()`、`summarize()`／`countNewTasks()`；`data/legacyImport.js` 的 `importPlan()`（`withSlotStatuses()`、`recount()`、`importedTasksFor()`）；`domain/visits.js` 的 `visitStatusFrom()`、`slotCancelReasonOf()`；`domain/entitlements.js` 的 `slotOutcome()`；`domain/taskRules.js` 的 `importedTasksFor()`、`cancelTasksFor()`；ADR-0081、0093（匯進來的來訪不長任務）、0029；CLAUDE.md「一段來訪的狀態、或它算不算數」「一段來訪身上那一句話」兩列
 
