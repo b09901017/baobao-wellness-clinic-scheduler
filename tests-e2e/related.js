@@ -612,10 +612,11 @@ export const COVERAGE = {
     'public/js/ui/components/sheetConfirm.js',
   ],
   // 上線前補的那一輪段三（before-golive-2026-10-19/09–11）：拍 Abovee 沒勾的列點開看得到「勾起來的話」（09）、
-  // 待辦首頁「明天」算明天來的（11，ADR-0162）
+  // 試算表只重畫有變的、整份重畫、讀到快取這一趟不推（10，ADR-0161）、待辦首頁「明天」算明天來的（11，ADR-0162）
   '78-before-golive-seg3': [
     'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
     'public/js/data/visits.js', 'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/data/sheetSync.js', 'public/js/domain/sheetReport.js', 'public/js/ui/views/report.js',
   ],
 };
 

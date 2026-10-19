@@ -1,6 +1,6 @@
 # 試算表只重畫有變的那幾頁（指紋記在試算表那一側）＋「整份重畫」＋抬頭的病歷號
 
-Status: todo
+Status: done
 段：三（high）
 Blocked by: 04（抬頭的病歷號要 `chartNo`）
 動工前先讀：`.scratch/followup-and-products/issues/08`（8/27 的回答 —— **它寫的「手機記指紋」這一支不照做**，理由見下）；`data/sheetSync.js`（`buildBundle()`、`push()`、`run()`、`schedule()`、`QUIET_MS`）；`domain/sheetReport.js` 的 `syncBundle()`（每一頁的資料長什麼樣、bundle 層的 `generatedAt`／`legend`／`notice`）；`sheets/readonly-report.gs` 全部（`doPost()`、`render()`、`stashRawData()`、`renderCustomer()` 第 2–3 列、`resetSheet()`、`removeStaleSheets()`、`protectEverything()`、`onEdit()`）；`ui/views/report.js`（設定 → 試算表報表：手動貼上那一條）、設定頁試算表那張卡；ADR-0010、0013、0024、0115、0132；`CLAUDE.md`「試算表的 `SYNC_FORMAT`」「試算表要讀哪些來訪」「試算表的註記」三列；`tests/sheet-script.test.js`
@@ -60,3 +60,24 @@ Blocked by: 04（抬頭的病歷號要 `chartNo`）
 
 - ADR（推翻 8/27 那一支的作法、延伸 ADR-0013「整包是冪等的」：還是整包送、冪等照舊成立）
 - `SPEC.md` 試算表那一節、`docs/STAGING.md`（重貼 `.gs`）、`docs/操作手冊.md`（整份重畫那一顆）、`CLAUDE.md`「試算表的 `SYNC_FORMAT`」那一列
+
+## 做完時留下的（10/19，段三；連中途發現 2 一起）
+
+- **app**：`sheetReport.js` 的 `sheetFingerprint(sheet, { format, notice, legend })`（兩個種子的 cyrb53 接起來，base36）；`syncBundle()` 每一頁多 `chartNo`
+  （`chartNosOf(c)[0]`）與 `fingerprint`（算的是那一頁不含指紋的整份資料＋提醒＋符號說明＋格式，**不含產生時間**）；`SYNC_FORMAT` 8。
+  手動貼上（`customerReport()`）在「客戶」底下多一列「病歷號」
+- **`.gs`**：`SUPPORTED_FORMAT` 8、`LAYOUT_VERSION = 1`、指紋記在 `PropertiesService.getDocumentProperties()`（鍵 `fp:分頁名`，值「指紋｜排版版號」）。
+  `render(ss, bundle, force)`：每一頁問純函式 `sheetPlan({ force, exists, ours, stored, mark })`（拿不準一律 `draw`）；`keep` → 只 `setValue` 第三列（`stampLine()`，
+  跟重畫時同一支）、放進 `keep`；`draw` → 先刪舊指紋 → `renderCustomer()` → **`protectSheet()` 那一頁** → 記指紋。`protectEverything()` 換成 `protectSheet()`（`_data` 每次鎖、
+  沒變的那幾頁不重鎖 —— **她自己開的分頁不再被順手鎖起來**，以前每一次推都會鎖全部分頁；onEdit 照舊還原任何人的手改）。
+  `forgetStale()` 拿掉不在這一包的指紋。回報多 `kept`；`infoLine()` 第一段「病歷號 1234」
+- **推送**：`sheetSync.push({ force })`（整份重畫不被去重併掉：路上那一份不是 force 就等它回來再推一份 force；一般推送可以搭 force 的便車）；
+  body 多 `force: true`；回傳多 `kept`。**中途發現 2**：`buildBundle()` 看 `repo.cacheReads()` 前後與 `navigator.onLine`，讀不完整丟 `IncompleteReadError`（`PARTIAL_READ_SAY`）；
+  `run()` 接住 → `noteFailure(…, { partial: true })`（留待推標記）、回 `partial: true`
+- **設定頁**（`report.js`）：「整份重畫」一顆（`[data-sync-redraw]`，旁邊一顆 `?`）；推好了那一句走 `pushedSay()`（重畫幾張／沒變幾張）；`describeSync({ partial })` 講「上次沒推」、
+  不講「被拒絕」；partial 的 toast 是 info 不是 failed。**沒有走 `withSaveState()`**：跟旁邊「立刻推一次」同一個樣子（`toast.saving` → 讀回傳值），同時只一份在路上靠 `push()` 的 `inFlight`
+- **文件**：ADR-0161；SPEC 4.8；CLAUDE.md「SYNC_FORMAT」「試算表要讀哪些來訪」兩列；`docs/STAGING.md`（10/19 那一輪要重貼）、`sheets/README.md`（格式 8、`LAYOUT_VERSION`）、操作手冊（整份重畫）
+- **測試**：`tests/sheet-fingerprint.test.js`（30 條：指紋、病歷號、兩台交替推、刪一位、她刪／清一頁、force、排版版號、逾時接著畫、她自己的同名分頁、抬頭、`sheetPlan()`、`.gs` 程式碼雜湊、
+  `pushedSay()`、partial 的字、手動貼上的病歷號、`sheetSync.js` 原始碼）；`appsScriptStub.js` 多文件屬性與 `clears`；`sheet-script.test.js`「自己產生過的分頁照樣清空重畫」改成 force；
+  格式 7 的幾條釘值改 8。E2E `78` S1（兩顆按鈕的 body 與字）、S2（離線這一趟不推、一個請求都沒有）；09、45 照跑全綠
+- **沒做到、要她做的**：判準「沒有資料變動時推一次，`.gs` 執行時間比整份重畫短」要在 staging 重貼 `.gs` 之後看 Apps Script 執行紀錄 → 寫進手動驗收清單

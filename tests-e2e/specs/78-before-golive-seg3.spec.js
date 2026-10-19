@@ -1,6 +1,8 @@
 // 上線前補的那一輪，段三（.scratch/before-golive-2026-10-19/ 的 09、10、11）。
 //
 // 09：拍 Abovee 點開沒勾的那一列，看得到「勾起來的話」（她：「沒勾的列，點開看不到提醒。(好，修)」）。
+// 10：試算表只重畫有變的那幾頁（ADR-0161）：設定頁「整份重畫」送 force、回報分得出重畫幾頁／沒變幾頁、
+//     讀到的不是全部（離線）就這一趟不推（中途發現 2）。`.gs` 那一側在 node 裡測（`tests/sheet-fingerprint.test.js`）。
 // 11：待辦首頁「明天」也算明天要簽的療程單（ADR-0162，推翻 ADR-0152 那一格）。她：「但我想要今天和明天是一樣的誒，
 //     就是納入簽療程單」—— 點下去開讀取卡片，**不開簽單抽屜**（「免得還沒做就被簽成做完」）。
 
@@ -71,6 +73,65 @@ test('W1 只買 1 次、照片上三天、拿掉第三列的勾 → 點開它看
   await ablRow(page, 'a2').locator('[data-abl-check]').click();
   await expect(ablRow(page, 'a2').locator('[data-abl-whatif]')).toHaveCount(0);
   await expect(ablRow(page, 'a2').locator('.abl-row__warnings')).toContainText('已排 2 次');
+});
+
+// ---------------------------------------------------------------------------
+// 10
+// ---------------------------------------------------------------------------
+
+const SHEET_URL = 'https://script.example.test/exec';
+const sheetSeed = () => [
+  ...masterDocs({ sheetSync: { url: SHEET_URL, token: 'test-token' } }),
+  customer({ id: 'cust-a', name: '客戶A', chartNo: '1234' }),
+  customer({ id: 'cust-b', name: '客戶B' }),
+];
+
+test('S1 立刻推一次／整份重畫：送的包每一頁有指紋與病歷號；整份重畫才帶 force；回報講得出重畫幾頁、幾頁沒變', async ({ app, page }) => {
+  const posts = [];
+  await page.route(`${SHEET_URL}**`, async (route) => {
+    const body = JSON.parse(route.request().postData());
+    posts.push(body);
+    const n = body.bundle.sheets.length;
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify(body.force ? { ok: true, sheets: n, kept: 0, skipped: [] } : { ok: true, sheets: 0, kept: n, skipped: [] }),
+    });
+  });
+  await app.seed(sheetSeed());
+  await app.signIn('/settings/report');
+
+  await page.locator('[data-sync-now]').click();
+  await expect(page.locator('#toast')).toContainText('2 張分頁都沒變（只改了產生時間）');
+  const plain = posts.at(-1);
+  expect(plain.force).toBeUndefined();
+  expect(plain.bundle.format).toBe(8);
+  const a = plain.bundle.sheets.find((s) => s.name === '客戶A');
+  expect(a.chartNo).toBe('1234');
+  expect(a.fingerprint).toMatch(/^[0-9a-z]{12,}$/);
+
+  await page.locator('[data-sync-redraw]').click();
+  await expect(page.locator('#toast')).toContainText('重畫了 2 張分頁');
+  expect(posts.at(-1).force).toBe(true);
+});
+
+test('S2 離線時按立刻推一次：這一趟不推（一個請求都沒有）、講「這一趟先不推」，卡片不說被拒絕', async ({ app, page }) => {
+  test.info().annotations.push({ type: 'allow-console-errors', description: '這一支刻意斷線' });
+  const posts = [];
+  await page.route(`${SHEET_URL}**`, async (route) => {
+    posts.push(route.request().postData());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: 2, kept: 0, skipped: [] }) });
+  });
+  await app.seed(sheetSeed());
+  await app.signIn('/settings/report');
+  await app.settled();
+
+  await page.context().setOffline(true);
+  await page.locator('[data-sync-now]').click();
+  await expect(page.locator('#toast')).toContainText('這一趟先不推');
+  await expect(page.locator('#view')).toContainText('上次沒推');
+  await expect(page.locator('#view')).not.toContainText('被拒絕');
+  expect(posts).toHaveLength(0);
+  await page.context().setOffline(false);
 });
 
 // ---------------------------------------------------------------------------

@@ -123,6 +123,8 @@ class FakeSheet {
     this.maxRows = 1000;
     this.maxCols = 26;
     this.hidden = false;
+    /** 清空重畫了幾次（格式 8：沒變的那幾頁不重畫，測試數它） */
+    this.clears = 0;
   }
 
   set(row, col, value) {
@@ -152,7 +154,7 @@ class FakeSheet {
     return [...this.cells.keys()].reduce((max, key) => Math.max(max, Number(key.replace(/^[A-Z]+/, ''))), 0);
   }
 
-  clear() { this.cells.clear(); this.backgrounds.clear(); }
+  clear() { this.cells.clear(); this.backgrounds.clear(); this.clears += 1; }
   clearConditionalFormatRules() {}
 
   addMerge(row, col, rows, cols) {
@@ -226,6 +228,8 @@ class FakeSpreadsheet {
  */
 export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true } = {}) {
   const ss = new FakeSpreadsheet(sheetNames);
+  // 文件屬性（格式 8 記每一頁的指紋）。同一個替身裡推好幾次都留著 —— 跟真的試算表一樣
+  const docProps = new Map();
   const source = readFileSync(new URL('../../sheets/readonly-report.gs', import.meta.url), 'utf8');
 
   const context = createContext({
@@ -240,6 +244,12 @@ export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true 
     },
     PropertiesService: {
       getScriptProperties: () => ({ getProperty: () => token }),
+      getDocumentProperties: () => ({
+        getProperty: (k) => (docProps.has(k) ? docProps.get(k) : null),
+        setProperty: (k, v) => { docProps.set(k, String(v)); },
+        deleteProperty: (k) => { docProps.delete(k); },
+        getProperties: () => Object.fromEntries(docProps),
+      }),
     },
     LockService: {
       getScriptLock: () => ({ tryLock: () => lock, releaseLock() {} }),
@@ -258,5 +268,5 @@ export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true 
   });
 
   runInContext(source, context, { filename: 'readonly-report.gs' });
-  return { ss, context, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
+  return { ss, context, docProps, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
 }

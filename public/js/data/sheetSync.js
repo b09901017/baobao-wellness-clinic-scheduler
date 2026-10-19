@@ -15,6 +15,7 @@ import * as tasksData from './tasks.js';
 import * as repo from './repo.js';
 import { syncBundle } from '../domain/sheetReport.js';
 import { todayISO } from '../domain/dates.js';
+import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
 
 /**
  * 寫入之後等多久才推。
@@ -82,9 +83,10 @@ export const lastSkipped = () => readJson(SKIPPED_KEY);
  * 網路差的時候跳 toast 會把她洗版，然後她就學會忽略它，那比不說還糟。
  * 待推標記照舊留著，下次寫入或下次開 app 會補推（ADR-0013）。
  */
-function noteFailure(error) {
+function noteFailure(error, { partial = false } = {}) {
   write(DIRTY_KEY, '1');
-  write(ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), error }));
+  // `partial`：不是被拒絕，是讀到的不是全部、這一趟沒推（設定頁那張卡照它換一種講法）
+  write(ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), error, ...(partial ? { partial: true } : {}) }));
   return { ok: false, error };
 }
 
@@ -93,12 +95,20 @@ export function isConfigured(settings) {
   return Boolean(settings?.sheetSync?.url && settings?.sheetSync?.token);
 }
 
+/** 讀到的不是全部時那一句（設定頁那張卡印它）。不是「失敗」：資料好好的在 app 裡，這一趟只是先不推。 */
+export const PARTIAL_READ_SAY = '網路不穩，讀到的不是全部的資料 —— 這一趟先不推，下一次存檔或下一次打開 app 再推';
+
 /**
  * 整包資料。**整包**是刻意的：漏推一次下一次會補回來，
  * 不需要在兩邊維護「哪些變了」—— 那種帳一定會對不起來。
+ *
+ * **讀到快取（或確定離線）就丟 `IncompleteReadError`**（before-golive-2026-10-19 中途發現 2，ADR-0158 同一個形狀）：
+ * Firestore 開著本機快取，網路不穩時讀回來的是快取裡剛好有的那幾筆 —— 拿它推上去，試算表上的次數少算，
+ * 而畫面上看起來推好了。`run()` 接住它、這一趟不推、留著待推標記。
  */
 export async function buildBundle() {
   const today = todayISO();
+  const since = repo.cacheReads();
   const [customers, entitlementsBy, visits, tasks, master] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
@@ -108,6 +118,11 @@ export async function buildBundle() {
     // 連已刪除的一起讀，跟 #/settings/report 一樣 —— 少帶的話刪掉治療師之後只有自動這一份的名字與二返註記消失
     config.loadAll({ includeDeleted: true }),
   ]);
+
+  if (readsIncomplete({
+    offline: globalThis.navigator?.onLine === false,
+    sources: [readSource(repo.cacheReads() !== since)],
+  })) throw new IncompleteReadError('', PARTIAL_READ_SAY);
 
   const visitsBy = {};
   for (const v of visits) (visitsBy[v.customerId] ??= []).push(v);
@@ -132,27 +147,38 @@ export async function buildBundle() {
  * **不 throw。** 失敗是回傳值，而且一定會被 noteFailure() 記下來 ——
  * 自動推送那條路沒有人在看回傳值，只有痕跡留得住。
  *
- * @returns {Promise<{ok: boolean, off?: boolean, error?: string,
- *                    at?: string, sheets?: number|null, skipped?: string[]}>}
+ * `force`（設定頁「整份重畫」，ADR-0161）：試算表忽略指紋、每一頁都重畫。**它不被一般推送的去重併掉** ——
+ * 路上那一份是一般的推送時，等它回來再推一份整份重畫的；反過來，一般的推送可以搭整份重畫那一份的便車。
+ *
+ * @param {{force?: boolean}} [o]
+ * @returns {Promise<{ok: boolean, off?: boolean, partial?: boolean, error?: string,
+ *                    at?: string, sheets?: number|null, kept?: number|null, skipped?: string[]}>}
  */
-export function push() {
-  if (inFlight?.at === version) return inFlight.promise;
-  // **路上那一份是這幾筆寫入之前打包的**：等它回來再推一次，不要拿它的結果當這一次的。
+export function push({ force = false } = {}) {
+  if (inFlight?.at === version && (inFlight.force || !force)) return inFlight.promise;
+  // **路上那一份是這幾筆寫入之前打包的**（或它不是整份重畫）：等它回來再推一次，不要拿它的結果當這一次的。
   // 以前直接回 inFlight，而它成功之後還把待推標記清掉 —— 後來那筆要等下一次寫入才上得去。
-  if (inFlight) return inFlight.promise.then(() => push());
+  if (inFlight) return inFlight.promise.then(() => push({ force }));
   const at = version;
-  const promise = run(at).finally(() => { inFlight = null; });
-  inFlight = { at, promise };
+  const promise = run(at, { force }).finally(() => { inFlight = null; });
+  inFlight = { at, force, promise };
   return promise;
 }
 
-async function run(packedAt) {
+async function run(packedAt, { force = false } = {}) {
   const settings = await config.getSettings();
   // 「沒有開」不是失敗，不留失敗痕跡 —— 那張卡本來就會說它沒開。
   if (!isConfigured(settings)) return { ok: false, off: true, error: '還沒設定試算表的網址與密鑰' };
 
   const { url, token } = settings.sheetSync;
-  const bundle = await buildBundle();
+  let bundle;
+  try {
+    bundle = await buildBundle();
+  } catch (err) {
+    // 讀到的不是全部（中途發現 2）：這一趟不推。待推標記與那一句照留 —— 下一次寫入或下一次開 app 再推
+    if (err?.name === 'IncompleteReadError') return { ...noteFailure(err.message, { partial: true }), partial: true };
+    throw err;
+  }
 
   let res;
   try {
@@ -161,7 +187,7 @@ async function run(packedAt) {
       // 刻意用 text/plain：換成 application/json 會觸發 CORS 預檢，
       // 而 Apps Script 的網頁應用程式不回應 OPTIONS，預檢一送就整個失敗。
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token, bundle }),
+      body: JSON.stringify(force ? { token, bundle, force: true } : { token, bundle }),
       redirect: 'follow',
     });
   } catch (err) {
@@ -191,7 +217,8 @@ async function run(packedAt) {
   if (version === packedAt) write(DIRTY_KEY, null);
   write(ERROR_KEY, null);
   write(SKIPPED_KEY, skipped.length ? JSON.stringify({ at, names: skipped }) : null);
-  return { ok: true, at, sheets: reply.sheets ?? null, skipped };
+  // `kept`：沒變、只改了產生時間的幾頁（格式 8，ADR-0161）
+  return { ok: true, at, sheets: reply.sheets ?? null, kept: reply.kept ?? null, skipped };
 }
 
 /** 安靜 QUIET_MS 之後推一次。連續存十幾筆只會換來一次推送。 */
