@@ -43,5 +43,3 @@ LINE 沒有「用名字打開跟某位好友的對話」的網址。她自己設
 - 名字要跟她 LINE 上的寫法一字不差（她幫好友改過名字的，照改過的打）。表單那一格的 `?` 講這一句
 - `no-cors` 拿不到狀態碼：手機上任何伺服器回應都算「叫到了」（path 打錯也算）。所以設定頁有「試一次」，app 叫到時也講一句，她回到 app 看得到「app 以為叫到了」
 - 巨集的 path（`line`）、兩個變數（`name`、`msg`）是 app 與她手機之間的約定，寫在 `docs/MacroDroid設定.md` 與 `integrations/lineMacro.js` 兩處
-- **Gemini 語音記隨手記這一輪不做**（她 10/19：「Gemini 那個功能就先不用做」）：第三方 app 接 Gemini 要走原生 Android 的 AppFunctions（2026/5 仍是 private preview）；
-  繞 Google Tasks 的話說法要記得帶關鍵字、而且有「Gemini 說建好了其實沒有」的回報。理由在 `.scratch/line-macrodroid-2026-10-19/spec.md`
