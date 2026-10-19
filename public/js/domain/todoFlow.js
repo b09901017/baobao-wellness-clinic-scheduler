@@ -18,7 +18,7 @@ import {
 } from './followups.js';
 import { dayOf, shortDate, daysBetween } from './dates.js';
 import {
-  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose,
+  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose, visitsComingTomorrow,
 } from './visits.js';
 import { isOpen as isOpenNote } from './notes.js';
 import { timeLabel } from './visitTime.js';
@@ -244,17 +244,20 @@ export function taskBucket(dueDate, today) {
  * |---|---|---|---|
  * | 逾期 | 死線過了 | 日子過了、還有段開著（她：「算逾期」） | **不算**（她：「今天沒勾也沒關係，他不算逾期」） |
  * | 今天 | 死線今天 | 今天的 | 掛今天的 |
- * | 明天 | 死線明天 | 不算（明天的來訪還簽不了） | 掛明天的 |
+ * | 明天 | 死線明天 | 明天還開著的那幾天（`coming`，`visitsComingTomorrow()`） | 掛明天的 |
  *
+ * 明天那幾天 2026-10-19 加的（issue 11，ADR-0162，推翻 ADR-0152 那一格）—— 她：「但我想要今天和明天是一樣的誒，
+ * 就是納入簽療程單」。**放在 `coming` 不放 `close`**：人還沒來，點下去開讀取卡片、不開簽單抽屜
+ * （她：「免得還沒做就被簽成做完」）。
  * 營養品的提醒也是一筆有日期的隨手記（ADR-0059），所以它也進今天／明天 —— 那天要交付。
  * 跟客人確認時間不在這裡：它沒有日子（ADR-0001），首頁那一列自己有數字。
  *
  * @param {{tasks?: object[], unclosed?: object[], notes?: object[], today: string}} input
- *   `tasks` 還沒做的任務；`unclosed` 還沒結案的來訪（`listUnclosed()`）；`notes` 還沒勾的隨手記
- * @returns {Record<'overdue'|'today'|'tomorrow', {tasks: object[], close: object[], notes: object[]}>}
+ *   `tasks` 還沒做的任務；`unclosed` 還沒結案的來訪（`listUnclosed(today, { tomorrow: true })`）；`notes` 還沒勾的隨手記
+ * @returns {Record<'overdue'|'today'|'tomorrow', {tasks: object[], close: object[], coming: object[], notes: object[]}>}
  */
 export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
-  const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], notes: [] }]));
+  const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], coming: [], notes: [] }]));
 
   for (const t of tasks ?? []) {
     if (t?.done || t?.deletedAt) continue;
@@ -264,6 +267,7 @@ export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
   for (const v of visitsToClose(unclosed ?? [], today)) {
     out[v.date < today ? 'overdue' : 'today'].close.push(v);
   }
+  out.tomorrow.coming = visitsComingTomorrow(unclosed ?? [], today);
   for (const n of notes ?? []) {
     if (!isOpenNote(n) || !n.date) continue;
     if (n.date === today) out.today.notes.push(n);
@@ -273,7 +277,8 @@ export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
 }
 
 /** 一顆大數字上的數字＝那一頁列出來的件數。 */
-export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ?? 0) + (b?.notes?.length ?? 0);
+export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ?? 0)
+  + (b?.coming?.length ?? 0) + (b?.notes?.length ?? 0);
 
 /**
  * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。

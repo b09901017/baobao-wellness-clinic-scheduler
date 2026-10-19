@@ -2230,10 +2230,20 @@ async function addSlot() {
   // **順手問一次人還在不在**（2026-10-08）：她正開著這位的卡片、另一台裝置把他刪了，
   // 存下去就是一筆沒有主人的來訪（日曆上看得到，點名字是「找不到這位客戶」）。
   // `undefined`＝這一下讀不到（網路）：不知道就不擋，照舊往下存
-  const [customerVisits, owner] = await Promise.all([
-    visitsData.listByCustomer(selected.customerId),
-    customersData.get(selected.customerId).catch(() => undefined),
-  ]);
+  //
+  // **全部來訪讀不完整就停在這裡**（ADR-0158）：離線、或讀到的是快取裡剛好有的那幾筆 —— 拿它驗、算次數就是少算。
+  // 擋在確認框之前（不要讓她答完一道框才說存不了）；卡片上選好的一個都不清
+  let customerVisits;
+  let owner;
+  try {
+    [customerVisits, owner] = await Promise.all([
+      visitsData.listWhole(selected.customerId, selected.customerName),
+      customersData.get(selected.customerId).catch(() => undefined),
+    ]);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
   if (owner === null) {
     toast.info(`${selected.customerName ?? '這位客戶'}已經被刪掉了，這一段沒有存。要排他的話先到設定 → 已刪除項目把他還原`);
     if (await reload()) return;

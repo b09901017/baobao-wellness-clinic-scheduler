@@ -21,7 +21,7 @@
 // `statusFromAbovee()` 一支（六種，abovee-status-follows-photo 01）→ 每一列的 `photoStatus`。
 // 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
-import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
+import { identifyCustomer, nearNameSay, chartNoSay, chartNoWrites, normalizeChartNo, normalizeName } from './identify.js';
 import { bedMissingIn, courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
@@ -711,6 +711,8 @@ export function nearSay(item) {
   const out = [];
   const who = nearNameSay(item?.who, item?.row?.name, item?.customerId ?? null);
   if (who) out.push(who);
+  const chart = chartNoSay(item?.who, item?.row?.chartNo, item?.customerId ?? null);
+  if (chart) out.push(chart);
   const near = item?.course?.near;
   if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
   if (item?.bedless && !item.roomId) out.push(`照片上寫「${item.bedless}」，沒寫哪一床 —— 點開選一間`);
@@ -781,8 +783,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
       ? photoTimeSays(item.photoStatus, item.date, ctx.today) : '',
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
-  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）
-  const recognized = !pickedByHand({ ...item, customerId: next.customerId });
+  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）。
+  // **只有名字對上、沒用號碼核對過的也不勾**（`nameNoChart`，ADR-0160）：app 那一位沒有病歷號、照片上有 ——
+  // 照片上可能是另一個同名的人。她勾了，存的時候順便把號碼記上（`chartNoWrites()`）
+  const recognized = !pickedByHand({ ...item, customerId: next.customerId }) && !unverified({ ...item, customerId: next.customerId });
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
@@ -865,6 +869,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
 
 /** 這一列的人是她自己選的（照片上的名字與病歷號沒認出這一位）。 */
 const pickedByHand = (item) => Boolean(item?.customerId) && item.who?.customer?.id !== item.customerId;
+
+/** 名字對上、照片上有號碼、app 那一位沒有（ADR-0160）—— 那一列還是認人那一次那一位時才算。 */
+export const unverified = (item) => item?.who?.how === 'nameNoChart' && Boolean(item?.customerId)
+  && item.who.customer?.id === item.customerId;
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
@@ -1805,8 +1813,9 @@ function flagMoved(items, ctx, bounds) {
     };
     const partialHistory = historyPartial(ctx, item.customerId);
     // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
-    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
-    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere;
+    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）。
+    // 名字對上、沒用號碼核對過的也不先勾（`unverified()`，ADR-0160）：這一條不經過 `resolveItem()` 的 `recognized`
+    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere && !unverified(item);
     // 扣法也不一樣（ADR-0154，staging-polish 16：Abovee 上改了時間、也改成 EECP20）→ 同一列多一件「要改的」。
     // 拿照片這一列跟 app 上**舊的那一段**比（同一個時間對到時是 `resolveItem()` 那一條比的，改期那一列不經過它）。
     // 預設勾跟著改期：改期沒先勾就不先勾 —— 只改舊時間那一段的扣法、不搬，對不上照片上任何一列
@@ -2084,7 +2093,9 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
   // 合併扣課兩列不一樣、二返簽不成已完成 —— 這幾種都沒先勾好，要她決定（`photoRowSays()` 講為什麼）
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
-  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
+  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none')
+  // 名字對上、app 那一位沒有病歷號（ADR-0160）：沒先勾，要她看是不是同一個人
+  || (!item?.cancelled && item?.kind !== 'unknown' && unverified(item));
 
 /**
  * 「要你看」裡面收起來的那一種（中途發現 5，她 10/15：「應該不常發生…用收合的就好」）：**日子過了、Abovee 上還是待確認那三種**，
@@ -2646,6 +2657,16 @@ export const wantsWrite = (item) => Boolean(item?.customerId) && (
   || (Boolean(item.move) && Boolean(item.adoptMove)));
 
 /**
+ * 確認框那一句「病歷號記成 …」（ADR-0160）：`items` 裡這一次會寫的那幾列（`wantsWrite()` —— 新的一段，也連「要改的」那幾行：
+ * 改狀態、改期、扣法、治療師／診間）。寫入那一側記的是記好的那幾列（`savedKeys`），而會被記好的就是這幾列 ——
+ * 以前確認框只數勾著的新列，改期那一列存下去照樣記上號碼、框上一句都沒講（段四審查）。
+ */
+export function photoChartNos(items, customers) {
+  return chartNoWrites((items ?? []).filter(wantsWrite)
+    .map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId })), customers);
+}
+
+/**
  * 底下那一顆要數的（10/16 審查）：她勾著的那幾列（`wanted`，`wantsWrite()` 的）裡，**這一份計畫真的會寫的**記新的幾段、改既有的幾段；
  * 還差一步的（`problems`）與這一次改不成的（不在任何一筆 `writes` 裡，例：她看到的那一段剛在別的地方改過、二返簽不成）。
  * 以前那一顆數的是勾著的：每一件都改不成時照樣寫「改這 1 段」、按得下去，按了什麼都沒發生。
@@ -2852,6 +2873,30 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     deltas[customerId] = countDeltas(ctx.entitlementsBy?.[customerId] ?? [], stored, afterAll[customerId]);
   }
   return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
+}
+
+/**
+ * 點開一列**沒勾的新的**：她勾起來的話，那一列會有哪幾句提醒、存不存得下去（before-golive-2026-10-19/09）。
+ *
+ * 她：「沒勾的列，點開看不到提醒。(好，修)」—— 提醒是拿勾著的那幾列組出來的來訪算的（`planAbovee()` 只收勾著的），
+ * 沒勾的那一列不在任何一組裡。**把那一列當成勾起來、整張重跑同一支 `photoDayPlan()`，只讀那一列**：
+ * 跨天的超用要靠別組（`visitsForCheck()`）、同一天撞診間要靠別人那一天 —— 只組這一位這一天會漏。
+ * 勾起來那一下 UI 還會重算的兩個旗標（`refreshNoExam()`、`refreshCloseBlocks()`）也照套，兩條路才講同一件事。
+ *
+ * **不寫回她的勾**：回的是一份新的，`items` 一個字都不動 —— 所以確認框的「其中 N 段有提醒」、收著的那幾行不多一列。
+ *
+ * @param {object[]} items 這一次還沒記的列（同 `photoDayPlan()`）
+ * @param {string} key 點開的那一列
+ * @returns {{problems: string[], warnings: string[]}|null} 不是沒勾的新的（已經記了、對不上、認不得人、本來就勾著）→ `null`
+ */
+export function whatIfChecked(items, key, ctx, o = {}) {
+  const list = items ?? [];
+  const item = list.find((i) => i.key === key);
+  if (!item || item.kind !== 'new' || !item.customerId || item.checked) return null;
+  let next = list.map((i) => (i.key === key ? { ...i, checked: true } : i));
+  next = refreshCloseBlocks(refreshNoExam(next, ctx), ctx);
+  const p = photoDayPlan(next, ctx, o);
+  return { problems: p.problems[key] ?? [], warnings: p.warningsBy[key] ?? [] };
 }
 
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */

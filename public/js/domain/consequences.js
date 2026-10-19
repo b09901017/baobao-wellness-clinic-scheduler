@@ -305,9 +305,11 @@ export function relinkedSay(relink, examDate) {
  * 按了那一顆、卻沒有接過來時那一句：健檢照樣記好了，所以要講出這一半沒做（ADR-0070）。
  * `errors`：存檔驗證擋下來的理由（那一次已經被別場接走之類）；沒有就是那一場在這之間被改過了。
  */
-export function notRelinkedSay(relink, errors = []) {
+export function notRelinkedSay(relink, errors = [], { unread = false } = {}) {
   // 開頭先講健檢那一半記好了：她按的那一顆是「記錄，順便…」，只講沒接過來會以為兩件事都沒成
   const which = `健檢記好了；${dayWord(relink?.date)} 那一場${relink?.name ?? '二返'}沒有接過來`;
+  // 重讀那一下沒讀成、或讀到的不是全部（離線、快取，ADR-0158）：不是別的地方改過
+  if (unread) return `${which} —— 網路不穩，讀不到全部的紀錄；連上之後去日曆點那一場改「這是哪一次健檢的」`;
   return errors?.length
     ? `${which}：${errors[0]} —— 去日曆點那一場改「這是哪一次健檢的」`
     : `${which} —— 它剛剛在別的地方改過，去日曆看那一天`;
@@ -390,6 +392,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
  *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**（中途長出來的存完收掉，`chainLeftovers()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
+ * @param {{name: string, chartNo: string}[]} [o.chartNos] 會順便記上的病歷號（`identify.js` 的 `chartNoWrites()`，ADR-0160）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
  *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`photoDayPlan()` 的 `mustSeeBy`）。
@@ -399,7 +402,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], chartNos = [], marks = [], adopts = [], flagged = [],
   entitlementsBy = {}, visitsBy = {}, chainBy = {},
 }) {
   const p = plan ?? planOfGroups(given, adopts, visitsBy);
@@ -570,6 +573,7 @@ export function aboveeConsequences({
   if (filled.length) lines.push(`補上 ${filled.length} 段的${whatOf(filled)}（app 上原本空著）${only}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
+  for (const c of chartNos) lines.push(`${c.name} 的病歷號記成 ${c.chartNo}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
   const title = n && changedKeys ? `記錄這 ${n} 段、改 ${changedKeys} 段？` : n ? `記錄這 ${n} 段？` : `改這 ${changedKeys} 段？`;
@@ -926,6 +930,84 @@ function bookingLinesOf({ create = [], remove = [] }, visits, tasks) {
     if (t?.kind === FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${FOLLOWUP_TASK_KIND}」會收起來 —— ${r.reason}`);
   }
   return lines;
+}
+
+/**
+ * 改了健檢或二返的額度（補一筆、刪掉、資料健檢補上）之後，健檢那條鏈三種待辦各會怎麼動 —— 一位客戶、一張一行（ADR-0159）。
+ *
+ * `plan` 是寫入那一支真的在算的那一份（`data/visits.js` 的 `chainAfterEntitlements()` → `syncFollowupTasks()`），
+ * 這裡只翻成話（ADR-0070）。「約二返」那幾張的字跟取消那一道同一支（`bookingLinesOf()`）。
+ *
+ * @param {{create?:object[], remove?:{id:string, reason:string}[]}} plan
+ * @param {object[]} visits 這位客戶的全部來訪（講日期用）
+ * @param {object[]} tasks 這位客戶現有的任務（收起來的那幾張是哪一種）
+ * @returns {string[]}
+ */
+export function chainPlanLines(plan = {}, visits = [], tasks = []) {
+  const examDay = (id) => {
+    const date = (visits ?? []).find((v) => v.id === id)?.date;
+    return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+  };
+  const lines = [];
+  for (const t of plan.create ?? []) {
+    if (t.kind === REPORT_TASK_KIND) lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— ${examDay(t.visitId)}做完了，報告還沒追`);
+    if (t.kind === SEND_REPORT_TASK_KIND) lines.push(`待辦會多一張「${SEND_REPORT_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了`);
+  }
+  for (const r of plan.remove ?? []) {
+    const t = (tasks ?? []).find((x) => x.id === r.id);
+    if (t && t.kind !== FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${t.kind}」會收起來 —— ${r.reason}`);
+  }
+  return [...lines, ...bookingLinesOf(plan, visits, tasks)];
+}
+
+/**
+ * 好幾位一起（資料健檢一次補好幾筆二返額度）：照種類數，一種一行（ADR-0159）。逐張講的話二十幾位會是一長串。
+ *
+ * @param {{create?:object[], remove?:object[], tasks?:object[]}[]} plans 每一位一份；`tasks` 給了才數得出收起來的是哪一種
+ * @returns {string[]}
+ */
+export function chainCountLines(plans = []) {
+  const grow = new Map();
+  const drop = new Map();
+  for (const p of plans ?? []) {
+    for (const t of p?.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+    for (const r of p?.remove ?? []) {
+      const kind = (p.tasks ?? []).find((x) => x.id === r.id)?.kind;
+      if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+    }
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  return [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦會多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」會收起來`),
+  ];
+}
+
+/**
+ * 存完之後 toast 接在「已儲存」後面的那半句（before-golive-2026-10-19 issue 17）：改了二返的次數那一張表**沒有確認框**
+ *（她常改，多一道框煩），重算出來的那幾張待辦（ADR-0159）不講的話，待辦上安靜地多一張、少一張。
+ * issue 19 起其他沒有講到鏈的確認框的路也接（加購、拍訂購單加購、改購買日、還原、「把計數欄位改成重算值」）。
+ * 讀寫入那一支真的算的那一份（`chainAfterEntitlements()` 的 `plan`）；沒有動到就是空字串。
+ *
+ * @param {{plan?: {create?: object[], remove?: {id: string}[]}, tasks?: object[]}|null} chain
+ * @returns {string} 例：` —— 待辦多 1 張「約二返」`
+ */
+export function chainSavedSay(chain) {
+  const plan = chain?.plan;
+  if (!plan) return '';
+  const grow = new Map();
+  const drop = new Map();
+  for (const t of plan.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+  for (const r of plan.remove ?? []) {
+    const kind = (chain.tasks ?? []).find((x) => x.id === r.id)?.kind;
+    if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  const parts = [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」收起來了`),
+  ];
+  return parts.length ? ` —— ${parts.join('、')}` : '';
 }
 
 /**

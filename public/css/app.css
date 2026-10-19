@@ -349,6 +349,13 @@ svg {
   gap: var(--space-3);
 }
 
+/* 標題不縮（before-golive-2026-10-19/08）：右邊那一排多一顆連結（長備註）之後，「客戶」被擠到一個字寬、
+   一字一行。放不下的是右邊那一排 —— 它換行（`.footlinks--inline`） */
+.page__row > .page__title {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* 段落標題。取代「每一段都包一張白卡」—— 一頁疊七張白卡看起來像七件事，
    其實是同一個人的七個面向。細標題加一條髮絲線就夠分段了。 */
 .section {
@@ -1633,6 +1640,22 @@ button.mark--contact::after {
 
 .mark--contact.is-pressing,
 .mark--long.is-pressing { background: var(--surface-2); }
+
+/* 客戶清單卡片上那一排（`notesPreview()`）：只看的，點了是點卡片。圖示跟著小一號的丸子縮 */
+.mark--static {
+  cursor: inherit;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+.mark--static .mark__glyph {
+  width: 18px;
+  height: 18px;
+  margin-left: -2px;
+}
+.mark--static .mark__glyph svg {
+  width: 13px;
+  height: 13px;
+}
 
 /* 長備註那一顆：茶色底、茶色框、便條＋標題＋› —— 看得出「點開有全文」 */
 .mark--long {
@@ -3573,8 +3596,13 @@ button.mark--contact::after {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-  flex-wrap: nowrap;
-  flex: 0 0 auto;
+  /* 放不下就換行、靠右（08）。兩排之間至少 16px：每一顆的觸控區上下各撐 8px（`.footlink::after`），
+     排距小於 16 的話兩排的感應範圍疊在一起，疊到的那一段由後面那一顆贏 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 16px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .footlink--danger {
@@ -7139,6 +7167,15 @@ summary {
   font-weight: 700;
 }
 
+.roster__chart {
+  flex: none;
+  width: 5.5em;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roster__warn[hidden] { display: none; }
+
 .roster__warn {
   display: inline-flex;
   align-items: flex-start;
@@ -10596,6 +10633,14 @@ body.has-abl {
 
 .abl-row__warnings {
   color: var(--soon);
+}
+
+/* 沒勾的那一列點開：「勾起來的話：」（before-golive 09）—— 虛線標出它是假設，不是會寫進去的那幾行 */
+.abl-row__whatif {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 2px dashed var(--border);
 }
 
 .abl__bar {

@@ -121,9 +121,9 @@ export function wayRow({ label, note = '', href, count = null }) {
  *
  * ## 讀不到就放行
  *
- * 網路不通的時候擋住她「拿回來」沒有道理 —— 那個動作本身在離線時照樣寫得進
- * 本機快取（`ui/toast.js` 的檔頭）。問不出後果就不問，不要變成一道
- * 「網路不好就做不了事」的閘門。
+ * 問不出後果就不問，不要在這裡多一道閘門。鏈上那兩種讀到快取時（ADR-0158）`previewTaskChange()` 丟
+ * `IncompleteReadError`、這裡放行，接著寫入那一下（`followupOpsAfterTaskChange()`）照樣擋、講那一句 ——
+ * 不是「離線照樣寫得進本機快取」了（那只剩非鏈上的那幾種）。
  *
  * @param {object} task 那一張待辦（勾選之前的樣子）
  * @param {boolean} done 要變成什麼。`true`（勾掉）一律放行 —— 這一支只管拿回來

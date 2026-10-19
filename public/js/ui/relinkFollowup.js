@@ -29,12 +29,13 @@ import * as toast from './toast.js';
 export async function relinkAfterSave(relink, exam, { customer, entitlements = [], master = {} } = {}) {
   if (!relink || !exam?.id || !customer?.id) return false;
 
-  // **套在剛讀回來的那一份上**：確認框開著的時候，那一場可能在別的地方被改過（`relinkSlot()` 會認出來）
+  // **套在剛讀回來的那一份上**：確認框開著的時候，那一場可能在別的地方被改過（`relinkSlot()` 會認出來）。
+  // 讀不完整（離線、讀到快取）也走「沒接過來」那一句（ADR-0158）：健檢記好了，這一格之後去日曆接
   let fresh;
   try {
-    fresh = await visitsData.listByCustomer(customer.id);
+    fresh = await visitsData.listWhole(customer.id);
   } catch {
-    toast.info(notRelinkedSay(relink));
+    toast.info(notRelinkedSay(relink, [], { unread: true }));
     return false;
   }
   const next = relinkSlot(fresh, relink, exam.id);

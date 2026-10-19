@@ -71,6 +71,8 @@ export function customerReport({
   const rows = [
     [READONLY_NOTICE],
     ['客戶', customer?.name ?? ''],
+    // 病歷號從備註搬成一格之後（ADR-0160）備註那一區就不再印它 —— 跟自動推送的抬頭那一行一樣補在這裡（ADR-0161）
+    ['病歷號', chartNosOf(customer ?? {})[0] ?? ''],
     ['購買通路', customer?.source ?? ''],
     ['會籍到期', customer?.membershipExpiresAt ?? ''],
     ['永久限制', (customer?.flags ?? []).join('、')],
@@ -482,8 +484,41 @@ function csvCell(value) {
  * 所以她在一段三返或功醫門診上記的那一句試算表上看不到。她：「好記上去」
  *（`.scratch/abovee-and-master-2026-10-05/issues/15`）。有額度的段照舊印在那一格，這裡是 null ——
  * 兩個地方都印的話同一句話在一張表上出現兩次。
+ *
+ * 8（2026-10-19）：每一頁多 `fingerprint`（`sheetFingerprint()`）—— `.gs` 記在試算表那一側，沒變的那幾頁只改第三列的產生時間
+ *（ADR-0161）；每一頁多 `chartNo`（抬頭那一行印「病歷號 1234」，ADR-0160 之後備註那一區不再印它）。她：「試算表改成只推有改動的分頁，
+ * 我覺得這可以做，但一樣要確保是正確的喔」「試算表每一頁的抬頭那一行要加『病歷號 1234』」。
  */
-export const SYNC_FORMAT = 7;
+export const SYNC_FORMAT = 8;
+
+/**
+ * 一頁的指紋（ADR-0161）：那一頁會畫出來的每一樣 —— 那一頁的整份資料、第一列的提醒、第三列的符號說明、格式版本 ——
+ * 雜湊成一串。**不含產生時間**（每一次都換）。`.gs` 只比字串，不算。
+ *
+ * 那一頁的資料是同一支 `syncBundle()` 照固定順序組的，所以 `JSON.stringify()` 的鍵順序每一次都一樣。
+ * 雜湊是兩個種子的 cyrb53 接起來（約 106 位元）：兩頁內容不同、指紋剛好一樣的機會可以不管。
+ *
+ * @param {object} sheet `syncBundle()` 的一頁（不含 `fingerprint`）
+ * @param {{format: number, notice: string, legend: string}} ctx
+ */
+export function sheetFingerprint(sheet, { format, notice, legend }) {
+  const text = JSON.stringify({ format, notice, legend, sheet });
+  return `${cyrb53(text, 1).toString(36)}${cyrb53(text, 2).toString(36)}`;
+}
+
+/** cyrb53（公開的 53 位元字串雜湊）。只有 `sheetFingerprint()` 用。 */
+function cyrb53(str, seed = 0) {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i += 1) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
 
 /**
  * 每一位客戶在試算表上那一張分頁叫什麼。**只有真的撞名的那幾位加尾巴**，其餘一個字都不變。
@@ -605,6 +640,8 @@ export function syncBundle({
 
     return {
       name: tabName.get(customer.id),
+      // 抬頭那一行的「病歷號 1234」（格式 8）：那一格與還沒搬的短備註都認（`chartNosOf()`）
+      chartNo: chartNosOf(customer)[0] ?? null,
       source: customer.source ?? '',
       membershipExpiresAt: customer.membershipExpiresAt ?? '',
       flags: customer.flags ?? [],
@@ -693,13 +730,15 @@ export function syncBundle({
     };
   });
 
+  // 每一頁的指紋（格式 8，ADR-0161）：`.gs` 拿它跟那一頁上次畫的比，一樣就只改產生時間
+  const look = { format: SYNC_FORMAT, notice: READONLY_NOTICE, legend: MARK_LEGEND };
   return {
     format: SYNC_FORMAT,
     generatedAt,
     today,
     notice: READONLY_NOTICE,
     legend: MARK_LEGEND,
-    sheets,
+    sheets: sheets.map((sheet) => ({ ...sheet, fingerprint: sheetFingerprint(sheet, look) })),
   };
 }
 
@@ -1019,7 +1058,7 @@ const VERSION_HINT = /格式版本|只認得/;
 
 export function describeSync({
   configured = false, lastAtLabel = null, dirty = false,
-  error = null, errorAtLabel = null, skipped = [],
+  error = null, errorAtLabel = null, skipped = [], partial = false,
 } = {}) {
   if (!configured) {
     return { tone: 'off', lines: ['沒有開。網址與密鑰兩個欄位都填了才會開始推。'] };
@@ -1028,7 +1067,11 @@ export function describeSync({
   const lines = [`上次同步 ${lastAtLabel ?? '還沒推過'}`];
   let tone = 'ok';
 
-  if (error) {
+  if (error && partial) {
+    // 讀到的不是全部、這一趟沒推（ADR-0161 那一節）：不是被拒絕，下一次會自己再推
+    tone = 'waiting';
+    lines.push(`上次沒推${errorAtLabel ? `（${errorAtLabel}）` : ''}：${error}`);
+  } else if (error) {
     tone = 'failed';
     lines.push(`上次推送被拒絕${errorAtLabel ? `（${errorAtLabel}）` : ''}：${error}`);
     // 這一句是為了擋掉「那我剛剛存的東西是不是也沒進去」那個念頭。
@@ -1054,4 +1097,28 @@ export function describeSync({
   }
 
   return { tone, lines };
+}
+
+/**
+ * 推好了之後那一句（設定頁「立刻推一次」「整份重畫」）。格式 8 起分得出重畫了幾頁、幾頁沒變（ADR-0161）——
+ * 「沒變」的那幾頁只改了第三列的產生時間，跟推好了一樣是對的。
+ *
+ * @param {{sheets?: number|null, kept?: number|null}} result `sheetSync.push()` 回的
+ */
+export function pushedSay({ sheets = null, kept = null } = {}) {
+  const drawn = sheets ?? 0;
+  if (kept === null || kept === undefined) return `推好了，試算表更新了 ${drawn} 張分頁`;
+  if (!drawn) return `推好了，${kept} 張分頁都沒變（只改了產生時間）`;
+  return `推好了：重畫了 ${drawn} 張分頁${kept ? `、${kept} 張沒變（只改了產生時間）` : ''}`;
+}
+
+/**
+ * 推好了、但有幾張沒有更新（`.gs` 認不出那幾張是系統畫的，不敢清空重畫）。前半句跟 `pushedSay()` 同一句 ——
+ * 以前只讀 `sheets`，其他分頁都沒變的時候講「推好了 0 張，但有 1 張沒有更新」（段四審查）。
+ * 「更新了 19 張」和「更新了 19 張，另外 2 位沒動」在畫面上不可以長得一樣：後者那兩位的次數是舊的。
+ */
+export function skippedPushSay(result = {}) {
+  const names = result.skipped ?? [];
+  return `${pushedSay(result)}，但有 ${names.length} 張沒有更新：${names.join('、')}。`
+    + '那幾張試算表認不出來是系統畫的，不敢清空重畫。';
 }

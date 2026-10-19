@@ -186,7 +186,8 @@ export async function render(el) {
     [tasks, pending, unclosed, notes, settings] = await Promise.all([
       tasksData.listOpen(),
       visitsData.listByStatus('pending_confirm'),
-      visitsData.listUnclosed(today),
+      // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
+      visitsData.listUnclosed(today, { tomorrow: true }),
       notesData.listOpen(),
       config.getSettings(),
     ]);
@@ -317,9 +318,9 @@ function paint(ctx) {
   const waiting = byCustomer(visitsToConfirm(pending, today));
   const toClose = visitsToClose(unclosed ?? [], today);
 
-  // 掛今天／明天、還沒勾的隨手記也是事（ADR-0152）；過了的不算（它不進逾期）
+  // 掛今天／明天、還沒勾的隨手記也是事（ADR-0152）；過了的不算（它不進逾期）。明天來的那幾位也是（ADR-0162）
   const nothing = !tasks.length && !waiting.size && !toClose.length
-    && !buckets.today.notes.length && !buckets.tomorrow.notes.length;
+    && !buckets.today.notes.length && !buckets.tomorrow.notes.length && !buckets.tomorrow.coming.length;
 
   el.innerHTML = `
     <div class="page">
@@ -723,6 +724,8 @@ function syncLine(settings) {
     dirty: sheetSync.isDirty(),
     error: failure?.error ?? null,
     skipped: sheetSync.lastSkipped()?.names ?? [],
+    // 讀到快取、這一趟沒推（ADR-0161）：不是失敗 —— 設定頁講「上次沒推」，這裡同一句（段四審查）
+    partial: Boolean(failure?.partial),
   });
 
   const SAY = {
@@ -1224,10 +1227,12 @@ async function loadWhoDetails(ctx) {
   const mine = d.tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.visitId);
   if (mine.length) {
     try {
+      // 二返在不在要看**全部**來訪（issue 15）：快取裡剛好有的那幾筆少了它就講「還沒約」，她照著去多約一場 ——
+      // 讀不完整（`listWhole()` 丟）就不畫那一顆
       const [courses, entitlements, hers] = await Promise.all([
         config.listAll('courses', { includeDeleted: true }),
         customersData.listEntitlements(d.customerId),
-        visitsData.listByCustomer(d.customerId),
+        visitsData.listWhole(d.customerId),
       ]);
       if (whoDrawer !== d) return;
       const coursesById = byId(courses);
@@ -1830,7 +1835,7 @@ export async function renderGroup(el, group) {
   const [open, done, unclosed, notes] = await Promise.all([
     tasksData.listOpen(),
     tasksData.listDone(),
-    isBucket ? visitsData.listUnclosed(today) : [],
+    isBucket ? visitsData.listUnclosed(today, { tomorrow: true }) : [],
     isBucket ? notesData.listOpen() : [],
   ]);
 
@@ -1856,10 +1861,12 @@ export async function renderGroup(el, group) {
     done: done.filter(match),
     // 簽療程單與隨手記那兩塊（只有逾期／今天／明天才有）
     close: bucket?.close ?? [],
+    // 明天來的那幾天（只有「明天」那一頁有，issue 11）：點下去開讀取卡片，不開簽單抽屜
+    coming: bucket?.coming ?? [],
     notes: bucket?.notes ?? [],
   };
   paintTasks(ctx);
-  loadTaskVisits(ctx);
+  taskVisitsLoading = loadTaskVisits(ctx);
   loadFollowupBookings(ctx);
 }
 
@@ -1872,7 +1879,9 @@ export async function renderGroup(el, group) {
  * 任務身上沒有時段數，也不該有（那會是第二份會對不起來的資料）。
  */
 async function loadTaskVisits(ctx) {
-  const ids = [...ctx.open, ...ctx.done].map((t) => t.visitId).filter(Boolean);
+  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）
+  const ids = [...[...ctx.open, ...ctx.done].map((t) => t.visitId), ...(ctx.coming ?? []).map((v) => v.id)]
+    .filter(Boolean);
   if (!ids.length) return;
 
   try {
@@ -1975,10 +1984,17 @@ async function loadFollowupBookings(ctx) {
     const coursesById = byId(courses);
 
     await Promise.all([...byCust.entries()].map(async ([customerId, tasks]) => {
-      const [entitlements, visits] = await Promise.all([
-        customersData.listEntitlements(customerId),
-        visitsData.listByCustomer(customerId),
-      ]);
+      // 全部來訪（issue 15）：讀不完整的那一位不畫（`listWhole()` 丟），別位照畫
+      let entitlements;
+      let visits;
+      try {
+        [entitlements, visits] = await Promise.all([
+          customersData.listEntitlements(customerId),
+          visitsData.listWhole(customerId),
+        ]);
+      } catch {
+        return;
+      }
       for (const t of tasks) {
         const state = bookingStateForTask(t, { entitlements, coursesById, visits });
         // 算不出來的不寫進去 —— 那一列就照舊什麼都不說。斷言「還沒約」
@@ -2010,6 +2026,11 @@ function fillBookingStates(el) {
  * （換分頁、勾一筆），而重畫不該把已經讀回來的東西丟掉。
  */
 let taskVisits = null;
+/**
+ * 讀 `taskVisits` 那一趟。點「詳情」或明天來的那一列時先等它 —— 明天那一塊沒有「N 項」那種
+ * 讀回來才露出來的東西，畫好就點得到；不等的話她第一下點到的是「還在讀，等一下再按一次」（issue 11）。
+ */
+let taskVisitsLoading = null;
 
 const byId = (rows) => Object.fromEntries((rows ?? []).map((r) => [r.id, r]));
 
@@ -2027,7 +2048,7 @@ window.addEventListener('hashchange', () => { taskTabGroup = null; });
 function paintTasks(ctx) {
   const { el, today, meta } = ctx;
   // 「未完成 N」＝底下三塊加起來（ADR-0152）：首頁那顆數字點進來，看到的件數要一樣
-  const openCount = ctx.open.length + ctx.close.length + ctx.notes.length;
+  const openCount = ctx.open.length + ctx.close.length + ctx.coming.length + ctx.notes.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -2061,7 +2082,10 @@ function paintTasks(ctx) {
   );
 
   el.querySelectorAll('[data-visit]').forEach((btn) =>
-    btn.addEventListener('click', () => openTaskVisit(btn.dataset.visit, btn.dataset.taskId)),
+    btn.addEventListener('click', async () => {
+      await taskVisitsLoading;
+      openTaskVisit(btn.dataset.visit, btn.dataset.taskId);
+    }),
   );
 
   el.querySelectorAll('[data-book-followup]').forEach((btn) =>
@@ -2153,6 +2177,27 @@ function closeBlock(ctx) {
       </button>`).join('')}</div>`;
 }
 
+/**
+ * 「明天」那一頁的「簽療程單・明天來」那一塊（issue 11，ADR-0162）。一列一位一天。
+ *
+ * **點下去開讀取卡片（`data-visit`），不開簽單抽屜** —— 人還沒來，她：「免得還沒做就被簽成做完」。
+ * 那一行只印還開著那幾段的開始時間：名字要主檔（`slotName()`），讀取卡片裡就有。
+ */
+function comingBlock(ctx) {
+  if (!ctx.coming.length) return '';
+  return `
+    ${blockHead(`${rowLabel('close')}・明天來`, ctx.coming.length)}
+    <div class="stack" data-coming>${ctx.coming.map((v) => `
+      <button class="card row" type="button" data-visit="${esc(v.id)}">
+        <span class="row__main">
+          <span class="row__title">${esc(v.customerName ?? '（沒有名字）')}</span>
+          <span class="muted">${esc(shortDate(v.date))}・${esc(slotsToClose(v)
+            .map(({ slot }) => slot.startsAt).filter(Boolean).sort().join('、') || `${slotsToClose(v).length} 段`)}</span>
+        </span>
+        ${icon('right', { size: 18 })}
+      </button>`).join('')}</div>`;
+}
+
 /** 逾期／今天／明天那一頁的「隨手記」那一塊（只會出現在今天與明天）。 */
 function notesBlock(ctx) {
   if (!ctx.notes.length) return '';
@@ -2163,7 +2208,7 @@ function notesBlock(ctx) {
 
 function openList(ctx, today) {
   const { open, meta } = ctx;
-  const others = closeBlock(ctx) + notesBlock(ctx);
+  const others = closeBlock(ctx) + comingBlock(ctx) + notesBlock(ctx);
   if (!open.length && !others) return '<p class="muted">這裡是空的。</p>';
   // 只有任務（其餘頁、或這三頁剛好只有任務）：照舊，不加小標
   if (!others) return taskBlock(ctx, today);
@@ -2171,6 +2216,7 @@ function openList(ctx, today) {
   return `
     ${open.length ? `${blockHead('待辦', open.length)}${taskBlock(ctx, today)}` : ''}
     ${closeBlock(ctx)}
+    ${comingBlock(ctx)}
     ${notesBlock(ctx)}`;
 }
 
@@ -3244,8 +3290,14 @@ async function applyConfirm(ctx) {
   const askedIn = (v) => pendingSlotsOf(v).map(({ index }) => index).filter((i) => asked.has(`${v.id}:${i}`));
 
   // **在確認框之前讀**：框講的與寫下去的是同一份（ADR-0070），而且「那一天還剩下什麼」要看得到
-  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）
-  let customerVisits = await visitsData.listByCustomer(opened.customerId);
+  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）。讀不完整（離線、讀到快取）就停在這裡，她按的 ✓✗ 留著（ADR-0158）
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listWhole(opened.customerId, visits[0]?.customerName);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
 
   // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
@@ -3485,16 +3537,18 @@ async function openCloseDrawer(ctx, visitId) {
     const entitlements = await customersData.listEntitlements(visit.customerId);
     // 沒有配得到二返的健檢就不可能有那一句 —— 大多數人到這裡為止，不多讀那兩份
     const chained = pairsOf(entitlements, ctx.coursesById).some((p) => p.followup);
-    // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份
-    const [customerVisits, customerTasks] = chained
+    // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份（`chainInputs()`）。
+    // **讀到快取就當讀不到**（ADR-0158，段四審查）：少講那幾句，不講錯的 —— 真的存的那一下拿伺服器那一份寫
+    const [customerVisits, chain] = chained
       ? await Promise.all([
-        visitsData.listByCustomer(visit.customerId),
-        tasksData.listByCustomerForSync(visit.customerId),
+        visitsData.listWhole(visit.customerId),
+        visitsData.chainInputs(visit.customerId, ctx.coursesById),
       ])
-      : [[], []];
+      : [[], null];
+    if (chained && !chain) return;
     // 等的時候她換了一位（或收掉了）：這三份是上一位的，不要放進去
     if (drawer?.visitId !== visit.id) return;
-    Object.assign(ctx, { entitlements, customerVisits, customerTasks });
+    Object.assign(ctx, { entitlements, customerVisits, customerTasks: chain?.tasks ?? [] });
   } catch {
     return; // 讀不到就少一句話，不是少一頁
   }
@@ -3788,7 +3842,14 @@ async function applyClose(ctx) {
   const visit = ctx.rows.find((v) => v.id === opened.visitId);
   if (!visit || !opened.picks.size) return;
 
-  const customerVisits = await visitsData.listByCustomer(visit.customerId);
+  // 讀不完整（離線、讀到快取）就停在這裡，她按的 ✓✗ 留著（ADR-0158）
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listWhole(visit.customerId, visit.customerName);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
   // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。她按了的那幾段
   // 在別的地方已經結案或取消了 —— 這張抽屜就是舊的：不寫，重畫。沒按的段、別台剛接上的段
   // 本來就不會被動到（`closeVisit()` 只動 true／false）。

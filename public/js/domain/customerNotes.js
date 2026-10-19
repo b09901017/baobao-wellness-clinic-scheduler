@@ -17,9 +17,11 @@
 // **拖過順序之後短備註本身也照新的先後重排**（形狀不變、只有先後；她 2026-10-19 同意）：
 // 第 n 個佔位要指到第 n 則，換位置就是換陣列裡的先後。卡片牆上的前三則會跟著變。
 //
-// ## 電話、LINE 只是位置
+// ## 電話、LINE、病歷號只是位置
 //
-// 值照舊是 `customer.phone`／`customer.lineId`（在編輯客戶的表單裡改），沒填就不畫、不佔位。
+// 值照舊是 `customer.phone`／`customer.lineId`／`customer.chartNo`（在編輯客戶的表單裡改），沒填就不畫、不佔位。
+// **病歷號是 2026-10-19 加的**（ADR-0160）：以前是一則「病歷號 1234」短備註，現在是一格 ——
+// 她：「她一樣在備註阿，只是多了個icon」，所以它照樣在這一串裡。舊的那一則由 `chartNoMove()` 搬進來。
 // **`lineId` 存的是她 LINE 好友清單上看到的名字**，不是 ID 也不是網址（ADR-0157，推翻 ADR-0156 的
 // 「點了開加好友那一頁」）：點了交給手機上的 MacroDroid 去 LINE 搜尋那個名字（`integrations/lineMacro.js`）。
 //
@@ -28,6 +30,7 @@
 import { readMarks, toCustomerFields, normalizeMark } from './customerMarks.js';
 import { nameHas } from './customers.js';
 import { normalizeAlias } from './masterData.js';
+import { chartNoInMark, normalizeChartNo, sameChartNo } from './identify.js';
 
 /** 標題與內文上限：跟備忘錄同一級（`domain/playbook.js` 的 `MAX_TITLE`／`MAX_BODY`）。 */
 export const MAX_LONG_TITLE = 40;
@@ -41,7 +44,7 @@ export const MAX_LONG_NOTES = 20;
 
 /**
  * 順序（`noteOrder`）最多幾格 —— `firestore.rules` 擋的就是這個數字（`tests/customer-notes.test.js` 盯著）。
- * 正常最多是電話＋LINE＋12 則短的＋20 則長的＝34；多留幾格給舊表匯入沒截掉的短備註
+ * 正常最多是電話＋LINE＋病歷號＋12 則短的＋20 則長的＝35；多留幾格給舊表匯入沒截掉的短備註
  * （`legacyImport.js` 超過 12 則只提醒）與拍訂購單接在後面的「尾款」。
  */
 export const MAX_NOTE_ORDER = 40;
@@ -67,7 +70,7 @@ export function firstLine(body) {
   return String(body ?? '').split('\n').map((s) => s.trim()).find(Boolean) ?? '';
 }
 
-/** 抬頭那個數字：短備註＋長備註。電話、LINE 不算（那是聯絡方式，不是她記的事）。 */
+/** 抬頭那個數字：短備註＋長備註。電話、LINE、病歷號不算（那是聯絡方式與號碼，不是她記的事）。 */
 export function sectionCount(customer) {
   return readMarks(customer).length + readLongNotes(customer).length;
 }
@@ -97,6 +100,9 @@ export function telHref(phone) {
 export const LINE_HINT = '打你 LINE 好友清單上看到的名字，一個字都不能差：'
   + '手機會拿它去 LINE 搜尋、打開他的對話。';
 
+/** 病歷號那一格的 `?`（新增客戶與編輯兩張表共用，ADR-0160）。 */
+export const CHART_NO_HINT = '醫院系統的編號。拍 Abovee、療程單時拿它跟名字一起核對是誰；它會出現在備註那一段。';
+
 // ---------------------------------------------------------------------------
 // 那一串
 // ---------------------------------------------------------------------------
@@ -107,11 +113,12 @@ export const LINE_HINT = '打你 LINE 好友清單上看到的名字，一個字
  * 每一項：
  * - `{ key: 'phone', kind: 'phone', text, href }`
  * - `{ key: 'line', kind: 'line', text }`（`text` 是她 LINE 上的那個名字；沒有連結，點了做什麼是畫面的事）
+ * - `{ key: 'chartNo', kind: 'chartNo', text }`（她打的原字）
  * - `{ key: 'long:<id>', kind: 'long', note }`
  * - `{ key: 'mark:<n>', kind: 'mark', index, mark }`（`n` 是 `readMarks()` 裡的位置）
  *
  * 沒排過（沒有 `noteOrder`）：電話、LINE、長備註、短備註（她 2026-10-18：「最上面一行電話，
- * 長備註，原本的短備註」）。排過的照她排的；不在順序裡的電話／LINE 放最前面（排的時候還沒填），
+ * 長備註，原本的短備註」；病歷號接在 LINE 後面，2026-10-19）。排過的照她排的；不在順序裡的電話／LINE／病歷號放最前面（排的時候還沒填），
  * 長備註、短備註接在最後（別的入口加的 —— 拍訂購單的「尾款」照判準出現在最後）。
  */
 export function noteItems(customer) {
@@ -119,15 +126,17 @@ export function noteItems(customer) {
   const longs = readLongNotes(customer);
   const phone = trimmed(customer?.phone);
   const line = trimmed(customer?.lineId);
+  const chartNo = trimmed(customer?.chartNo);
 
   const phoneItem = phone ? { key: 'phone', kind: 'phone', text: phone, href: telHref(phone) } : null;
   const lineItem = line ? { key: 'line', kind: 'line', text: line } : null;
+  const chartItem = chartNo ? { key: 'chartNo', kind: 'chartNo', text: chartNo } : null;
   const longItem = (n) => ({ key: `long:${n.id}`, kind: 'long', note: n });
   const markItem = (mark, index) => ({ key: `mark:${index}`, kind: 'mark', index, mark });
 
   const order = Array.isArray(customer?.noteOrder) ? customer.noteOrder : null;
   if (!order) {
-    return [phoneItem, lineItem, ...longs.map(longItem), ...marks.map(markItem)].filter(Boolean);
+    return [phoneItem, lineItem, chartItem, ...longs.map(longItem), ...marks.map(markItem)].filter(Boolean);
   }
 
   const out = [];
@@ -143,6 +152,7 @@ export function noteItems(customer) {
     if (typeof token !== 'string') continue;
     if (token === 'phone') put(phoneItem);
     else if (token === 'line') put(lineItem);
+    else if (token === 'chartNo') put(chartItem);
     else if (token === 'mark') {
       if (nextMark < marks.length) put(markItem(marks[nextMark], nextMark));
       nextMark += 1;
@@ -152,7 +162,7 @@ export function noteItems(customer) {
     }
   }
 
-  const front = [phoneItem, lineItem].filter((it) => it && !placed.has(it.key));
+  const front = [phoneItem, lineItem, chartItem].filter((it) => it && !placed.has(it.key));
   const tail = [
     ...longs.map(longItem).filter((it) => !placed.has(it.key)),
     ...marks.map(markItem).filter((it) => !placed.has(it.key)),
@@ -167,7 +177,7 @@ const tokenOf = (it) => (it.kind === 'long' ? `long:${it.note.id}` : it.kind);
  * 整串存回去：`{ marks, notes, longNotes, noteOrder }`，**同一個 commit 一起寫**。
  *
  * 短備註照它們在這一串裡的先後重排（第 n 個佔位要指到第 n 則）；`marks` 與 `notes` 走
- * `toCustomerFields()`（永遠一起寫，ADR-0019）。電話、LINE 只寫位置。
+ * `toCustomerFields()`（永遠一起寫，ADR-0019）。電話、LINE、病歷號只寫位置。
  *
  * @param {object[]} items 照新順序的那一串（`noteItems()` 的形狀；編輯器加的新項目照同一個形狀）
  */
@@ -181,6 +191,47 @@ export function notesFields(items = []) {
     longNotes,
     noteOrder: list.map(tokenOf),
   };
+}
+
+/**
+ * 還寫成短備註的病歷號（「病歷號 1234」，舊的說法「姓名欄的編號：」也算）→ 病歷號那一格（ADR-0160）。
+ * **匯入（`mergeImport.js`）與資料健檢（`health.js`）都走這一支** —— 各搬一次的話遲早一邊往前錯一格。
+ *
+ * - 沒有那一則 → `null`（前綴後面不是號碼的不算：`病歷號要再問` 是她打的一句話）
+ * - 好幾則不一樣、或那一格已經是另一個號碼 → `{ blocked: true, nos }`（拿不準是哪一個，不搬，只列）
+ * - 其餘 → `{ chartNo, changes }`：`changes` 是要寫進客戶的那幾格。那一格空著就放那一則的原字、
+ *   已經是同一個號碼就留她打的；那幾則短備註一起拿掉（同一個號碼寫了兩則也是）
+ *
+ * **位置**：排過順序的，病歷號接在第一則原本的位置（第 n 個 `'mark'` 換成 `'chartNo'`、其餘的
+ * 跟著那幾則一起拿掉 —— 走 `notesFields()`），後面每一則短備註都不往前錯；沒排過的不寫順序，
+ * 照預設排在電話、LINE 後面。
+ */
+export function chartNoMove(customer) {
+  const marks = readMarks(customer);
+  // 只搬號碼（`病歷號要再問` 那種她自己打的話留在短備註裡）
+  const hits = marks.map((m, i) => ({ i, raw: chartNoInMark(m.text) }))
+    .filter((h) => h.raw != null && /^\d+$/.test(normalizeChartNo(h.raw)));
+  if (!hits.length) return null;
+
+  const field = trimmed(customer?.chartNo);
+  const nos = [...new Set(hits.map((h) => normalizeChartNo(h.raw)))];
+  if (nos.length > 1 || (field && !sameChartNo(field, hits[0].raw))) {
+    return { blocked: true, nos: field ? [...new Set([normalizeChartNo(field), ...nos])] : nos };
+  }
+
+  const chartNo = field || hits[0].raw;
+  const drop = new Set(hits.map((h) => h.i));
+  if (!Array.isArray(customer?.noteOrder)) {
+    return { chartNo, changes: { chartNo, ...toCustomerFields(marks.filter((_, i) => !drop.has(i))) } };
+  }
+
+  const first = hits[0].i;
+  const items = noteItems(customer).filter((it) => it.kind !== 'chartNo').flatMap((it) => {
+    if (it.kind !== 'mark' || !drop.has(it.index)) return [it];
+    return it.index === first ? [{ key: 'chartNo', kind: 'chartNo', text: chartNo }] : [];
+  });
+  const { longNotes, ...rest } = notesFields(items);
+  return { chartNo, changes: { chartNo, ...rest } };
 }
 
 /**

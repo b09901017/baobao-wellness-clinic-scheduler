@@ -4,11 +4,13 @@
 // 寫入成功後給一顆「復原」按鈕（SPEC 6.3）。手機單手操作最容易誤觸，
 // 而每一次寫入都留了 before，所以復原就是把它寫回去。
 
-import { withUndo } from '../data/repo.js';
+import { withUndo, commitsSent } from '../data/repo.js';
 import { reload } from './router.js';
 import { esc } from './components/form.js';
 // 復原那一條留多久（12 秒）、哪幾種給滑、拖多遠才收：純的那一支，單元測試量得到（staging-polish 05）
 import { UNDO_MS, swipeable, pull, isDrag, release, fadeAt } from './toastSwipe.js';
+// 失敗那一句、給不給重試、「已經存在這台裝置上了」什麼時候講：純的那一支（ADR-0158）
+import { failureOf, slowSayNow } from './saveFailure.js';
 
 const el = () => document.getElementById('toast');
 
@@ -24,6 +26,12 @@ const el = () => document.getElementById('toast');
  * 用行動網路。8 秒是「慢一點的 4G 存得完」與「她已經開始懷疑」之間。
  */
 const PENDING_MS = 8000;
+
+/**
+ * 到了 `PENDING_MS` 還沒送出任何一次寫入（還在讀）時，隔多久再看一次。
+ * 「已經存在這台裝置上了」只對送出去的寫入成立（`saveFailure.js` 的 `slowSayNow()`，ADR-0158）。
+ */
+const RECHECK_MS = 1000;
 
 let hideTimer = null;
 /** 這一條自己會收的時間。拖了沒收掉（彈回去）時從頭再算一次。 */
@@ -209,6 +217,15 @@ export function failed(message, onRetry) {
 }
 
 /**
+ * 按下去那一刻重讀這位客戶的全部來訪，沒讀成（`data/visits.js` 的 `listWhole()`，ADR-0158）。
+ * 讀不完整（離線、讀到快取）照講那一句（先不存、連上再按一次），其餘「讀不到最新的資料：…」。
+ * 不給重試鈕：她再按一次就是重讀。
+ */
+export function readFailed(err) {
+  failed(err?.name === 'IncompleteReadError' ? err.message : `讀不到最新的資料：${err?.message ?? '不知道為什麼'}`);
+}
+
+/**
  * 同一個 `key` 的動作正在飛的時候，那一趟的 Promise 放在這裡。
  *
  * 走二次確認的路徑本來就防得住連點 —— `confirmAction()` 一按下去就把整個
@@ -224,7 +241,8 @@ const inFlight = new Map();
  * 所有寫入都應該經過這裡，這樣就不會有人忘記處理失敗，也不用逐個記得接復原。
  *
  * @param {() => Promise<T>} fn
- * @param {{pending?:string, success?:string, undoable?:boolean, key?:string|null}} [options]
+ * @param {{pending?:string, success?:string|((result: T) => string), undoable?:boolean, key?:string|null}} [options]
+ *   `success` 可以是一支函式：拿寫入回來的值組那一句（改二返的次數之後講待辦多了幾張，issue 17）。
  *   undoable 預設為真。寫了好幾批的動作 repo 會自己判斷給不出復原，這裡不用管。
  *
  *   `key` 給**同一下不可以做兩次**的動作用（建客戶、存來訪、加額度這種
@@ -252,23 +270,32 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
     // 等太久就換一句話。**計時器不會取消那一趟寫入** —— 它還在飛，
     // 而且離線時它會一直飛到網路回來（見 PENDING_MS 的說明）。
     // 這裡換掉的只有畫面上那一句，因為「儲存中…」停在那裡三分鐘等於沒說話。
+    //
+    // **還沒送出任何一次寫入就再等**（ADR-0158）：網路不穩時讀取要十秒左右才退回快取，接著可能被擋下來不存 ——
+    // 那幾秒講「已經存在這台裝置上了」是假話。
     let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) queued(slow);
-    }, PENDING_MS);
+    const sentAtStart = commitsSent();
+    let timer;
+    const check = () => {
+      if (settled) return;
+      if (slowSayNow({ slow, sentAtStart, sentNow: commitsSent() })) queued(slow);
+      else timer = setTimeout(check, RECHECK_MS);
+    };
+    timer = setTimeout(check, PENDING_MS);
 
     try {
       const { result, undo } = await withUndo(fn);
       settled = true;
       clearTimeout(timer);
-      saved(success, undoable ? undo : null);
+      saved(typeof success === 'function' ? success(result) : success, undoable ? undo : null);
       return result;
     } catch (err) {
       settled = true;
       clearTimeout(timer);
-      // 別的地方剛改過（`repo.js` 的 `StaleWriteError`）：重試拿的還是同一份舊的，不給重試鈕
-      failed(`儲存失敗：${err.message}`, err?.name === 'StaleWriteError' ? undefined : () =>
-        withSaveState(fn, { pending, success, undoable, key, slow }));
+      // 讀不完整（`domain/incompleteRead.js`）與別的地方剛改過（`repo.js` 的 `StaleWriteError`）：
+      // 重試拿的還是同一份，不給重試鈕（`saveFailure.js` 的 `failureOf()`）
+      const { text, retry } = failureOf(err);
+      failed(text, retry ? () => withSaveState(fn, { pending, success, undoable, key, slow }) : undefined);
       throw err;
     }
   })();

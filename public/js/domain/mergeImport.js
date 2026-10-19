@@ -19,6 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
+import { chartNoMove } from './customerNotes.js';
 import { DOCTOR_ROLE, GIFT_KINDS, canBeGift, giftKindOf, hasAlias, isUncounted, validate } from './masterData.js';
 import { slotMinutes } from './visits.js';
 
@@ -435,6 +436,7 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       // v2 帶的是帶顏色的備註（有「尾款」的是紅色）。**marks 是真相，notes 是鏡像**（ADR-0019）。
       // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
       ...marksOf(entry),
+      ...chartNoFieldOf(entry),
       active: true,
       importedFrom: stamp,
     },
@@ -541,6 +543,17 @@ function visitDoc({ name, date, status, slots, stamp }) {
     slots,
     importedFrom: stamp,
   };
+}
+
+/**
+ * 病歷號那一格（ADR-0160）。合併檔照舊把病歷號寫成一則「病歷號 1234」短備註（v8 不升版：
+ * 一次性的切換，app 這一側轉就好）—— 建客戶時就搬進那一格，跟資料健檢走同一支 `chartNoMove()`。
+ * 好幾則不一樣的（拿不準是哪一個）照舊留在短備註裡，資料健檢會列出來。
+ */
+function chartNoFieldOf(entry) {
+  const move = chartNoMove(marksOf(entry));
+  if (!move || move.blocked) return { chartNo: null };
+  return move.changes;
 }
 
 /** v2 的備註。寫入的形狀只有 `toCustomerFields()` 一份；v1 沒有 marks 就只寫 notes。 */

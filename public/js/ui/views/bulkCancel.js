@@ -570,8 +570,17 @@ async function run() {
   // 這一頁打開之後替同一天加的段接在尾巴（ADR-0091），整筆寫回去時才不會被蓋掉。在確認框
   // 之前讀，確認框講的與寫下去的是同一份（ADR-0070）。她選的某一段在新的那一份裡已經
   // 取消不掉了（別的地方取消或結案了）→ 不寫，講一句、換成新的樣子。讀不到就照手上那一份，
-  // `ifUpdatedAt` 照樣擋得住
-  const fresh = await visitsData.listByCustomer(state.customerId).catch(() => null);
+  // `ifUpdatedAt` 照樣擋得住。**讀不完整（離線、讀到快取）就停在這裡**（ADR-0158）：照快取裡剛好有的那幾筆
+  // 取消，次數會少算 —— 講一句，勾好的那幾段留著
+  let fresh = null;
+  try {
+    fresh = await visitsData.listWhole(state.customerId, ctx.customers?.find((c) => c.id === state.customerId)?.name);
+  } catch (err) {
+    if (err?.name === 'IncompleteReadError') {
+      toast.readFailed(err);
+      return;
+    }
+  }
   if (fresh) ctx.visits = fresh;
   const picked = rowsOfMonth().filter((r) => wanted.includes(r.key));
   if (picked.length !== wanted.length) {

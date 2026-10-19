@@ -315,14 +315,15 @@ test('N11 電話排在長備註底下那一排：點長備註的下緣開的是�
   }
 });
 
-test('N12 客戶清單的卡片：長備註排在最前面也只畫短備註（issue 14 判準：讀 marks 的那一側一個字都不變）', async ({ app, page }) => {
+test('N12 客戶清單的卡片：照她排的順序前四個，長備註也算（推翻 issue 14 那一半，before-golive-2026-10-19/07，ADR-0160；量法在 77 C10）', async ({ app, page }) => {
   await app.seed([...masterDocs(), clientA({ noteOrder: ['long:n1', 'phone', 'line', 'mark', 'mark'] })]);
   await app.signIn('/customers');
 
   const card = page.locator('a.card[href="#/customers/cust-n"]');
+  await expect(card).toContainText('家人與接送');
   await expect(card).toContainText('喜歡下午');
-  await expect(card).toContainText('指定女治療師');
-  await expect(card).not.toContainText('家人與接送');
+  await expect(card).not.toContainText('指定女治療師');
+  await expect(card).toContainText('還有 1 則');
 });
 
 // ---------------------------------------------------------------------------

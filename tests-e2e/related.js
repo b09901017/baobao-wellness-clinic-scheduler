@@ -141,7 +141,7 @@ export const COVERAGE = {
     'sheets/',
   ],
   '10-offline': [
-    'public/js/ui/toast.js', 'public/js/ui/net.js', 'public/sw.js',
+    'public/js/ui/toast.js', 'public/js/ui/saveFailure.js', 'public/js/ui/net.js', 'public/sw.js',
     'public/js/ui/components/note.js',
   ],
   '11-todo-drawer': [
@@ -592,6 +592,31 @@ export const COVERAGE = {
     'public/js/integrations/', 'public/js/ui/views/settings.js', 'public/js/ui/components/message.js',
     'public/js/ui/components/marks.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
     'public/js/domain/customerNotes.js',
+  ],
+  // 讀不完整時，會動到次數或健檢鏈的存檔先不存（before-golive-2026-10-19/01，ADR-0158）；
+  // 健檢超用也追報告、改了二返額度那一串重算（同一輪 02，ADR-0159）
+  '76-incomplete-read-and-extra-exam': [
+    'public/js/domain/incompleteRead.js', 'public/js/ui/saveFailure.js', 'public/js/ui/toast.js',
+    'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/home.js', 'public/js/domain/followups.js',
+    'public/js/data/customers.js', 'public/js/data/health.js', 'public/js/ui/views/customerDetail.js',
+  ],
+  // 病歷號是一格、在備註那一段是一顆丸子（before-golive-2026-10-19/04–08，ADR-0160）
+  '77-chart-number': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/identify.js', 'public/js/domain/customers.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteReorder.js',
+    'public/js/ui/components/notesEditor.js', 'public/js/ui/components/customerForm.js',
+    'public/js/ui/components/form.js', 'public/js/ui/icons.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customers.js', 'public/css/',
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/ui/components/sheetConfirm.js',
+  ],
+  // 上線前補的那一輪段三（before-golive-2026-10-19/09–11）：拍 Abovee 沒勾的列點開看得到「勾起來的話」（09）、
+  // 試算表只重畫有變的、整份重畫、讀到快取這一趟不推（10，ADR-0161）、待辦首頁「明天」算明天來的（11，ADR-0162）
+  '78-before-golive-seg3': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/data/sheetSync.js', 'public/js/domain/sheetReport.js', 'public/js/ui/views/report.js',
   ],
 };
 

@@ -30,13 +30,14 @@ import * as rules from '../../domain/customers.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { validateMarks } from '../../domain/customerMarks.js';
 import {
-  LINE_HINT, noteItems, notesFields, sectionCount, validateLongNotes, withLongNote, readLongNotes,
+  LINE_HINT, CHART_NO_HINT, noteItems, notesFields, sectionCount, validateLongNotes, withLongNote, readLongNotes,
 } from '../../domain/customerNotes.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
   poolCourseOf,
 } from '../../domain/entitlements.js';
-import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import { pairsOf, missingPairs } from '../../domain/followups.js';
+import { chainPlanLines, chainSavedSay } from '../../domain/consequences.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
@@ -565,6 +566,7 @@ function wireNotes(ctx) {
       toast.info('這一格認不出號碼，撥不出去；按住可以複製');
       return;
     }
+    // 病歷號：點了不開任何東西（按住複製）—— 一句都不講，那一顆本來就只是給她看的
     if (e.target.closest('[data-notes-edit]')) {
       openNotesEditor(ctx);
       return;
@@ -584,20 +586,22 @@ function wireNotes(ctx) {
 
   // 電話按住＝複製（ADR-0156）。**這是捷徑**（ADR-0060）：號碼本身印在那一顆上，
   // 也在「編輯」客戶資料那一格裡選得起來複製 —— 那是點得到的那一條路。
-  wireLongPress(box, '[data-notes-phone]', () => copyPhone(ctx.customer.phone));
+  wireLongPress(box, '[data-notes-phone]', () => copyText(ctx.customer.phone, '電話'));
+  // 病歷號按住＝複製（ADR-0160）。號碼印在那一顆上、也在「編輯」那一格裡選得起來 —— 那是點得到的那一條路
+  wireLongPress(box, '[data-notes-chart]', () => copyText(ctx.customer.chartNo, '病歷號'));
   // 按住連結時 iOS／Android 會跳自己的預覽或選單，跟複製搶
   box.addEventListener('contextmenu', (e) => {
-    if (e.target.closest('[data-notes-phone]')) e.preventDefault();
+    if (e.target.closest('[data-notes-phone], [data-notes-chart]')) e.preventDefault();
   });
 }
 
-async function copyPhone(phone) {
-  const text = String(phone ?? '').trim();
+async function copyText(value, what) {
+  const text = String(value ?? '').trim();
   try {
     await navigator.clipboard.writeText(text);
     toast.info(`已複製 ${text}`);
   } catch {
-    toast.info(`複製不了，電話是 ${text}`);
+    toast.info(`複製不了，${what}是 ${text}`);
   }
 }
 
@@ -862,12 +866,22 @@ function openDanger(ctx) {
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
     // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
-    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`
-    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`。
+    // **按下去那一刻讀全部**（issue 13）：打開這一頁那一刻讀到的可能是快取裡剛好有的，少一筆待確認的來訪就放行了
+    let own;
+    try {
+      own = await data.ownWhole(ctx.id, customer.name, {
+        say: `網路不穩，讀不到 ${customer.name} 的全部紀錄 —— 先不刪，連上之後再按一次`,
+      });
+    } catch (err) {
+      toast.readFailed(err);
+      return;
+    }
+    const block = rules.deleteBlockers(own);
     if (block.visits.length || block.tasks.length || block.notes.length) {
       const master = liveMaster(ctx);
       const lineOf = (t) => {
-        const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
+        const l = taskLine(t, own.visits.find((v) => v.id === t.visitId), master);
         return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
       };
       const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
@@ -1038,9 +1052,10 @@ function reminderLine(gave, reminder) {
 }
 
 /**
- * 健檢那張卡片底下那一句「健檢做完 3 次，二返還欠 2 次」。
+ * 健檢那張卡片底下：加約過哪幾返（`nthLine()`），與沒有二返額度時那一句＋「補一筆二返額度」。
  *
- * 這一句只講事實，不講該怎麼辦 —— 什麼時候去約是她跟客戶談出來的（ADR-0002）。
+ * 以前還有一句「健檢做完 N 次：二返做完、約了、還沒約」—— 三個數字各講各的（「約了」含接在還沒做完的那一次上的），
+ * 寫在「健檢做完 N 次：」後面看起來在拆那 N 次。她 2026-10-19：「數字加起來對不上。那要不就不要呈現了，好像也沒必要」。
  * 真的要她動手的只有一種情況：這位客戶身上根本沒有二返額度。那是 2026-08 以前
  * 建立的客戶（含舊表匯進來的那 21 位）的共同狀態，額度展開之後跟範本脫鉤
  * （ADR-0003），所以只能一筆一筆補。見 GitHub issue #15 與 ADR-0022。
@@ -1058,14 +1073,11 @@ function followupLine(e, ctx, visits) {
         data-add-followup="${esc(e.id)}">補一筆二返額度</button></p>`;
   }
 
-  const line = describePair(pair, visits);
-  return `
-    ${line ? `<p class="muted">${esc(line.text)}</p>` : ''}
-    ${nthLine(e, ctx, visits)}`;
+  return nthLine(e, ctx, visits);
 }
 
 /**
- * 這一筆健檢底下加約過哪幾返。**接在二返那一句下面，同一個位置、同一個字級。**
+ * 這一筆健檢底下加約過哪幾返。**健檢那張卡片底下，同一個字級。**
  *
  * n返 沒有額度，所以它沒有自己的卡片可以掛（`domain/nthFollowup.js` 的檔頭）。
  * 掛在健檢那一張底下是對的：她問的是「這一次健檢後來聽了幾次報告」。
@@ -1095,12 +1107,15 @@ async function addFollowup(ctx, entId) {
   const miss = missingPairs(ctx.entitlements, coursesById).find((m) => m.source.id === entId);
   if (!miss) return;
 
+  // 補完當場重算健檢那條鏈（ADR-0159）：已經做完的那幾次要追的報告這一下就長 —— 拿寫入那一支試算（ADR-0070）。
+  // 以前這裡寫死一句「要等健檢做完才會長」，重算之後那是假話
+  const chain = await data.previewChain(ctx.id, (list) => [...list, { ...miss.draft, id: '補上的二返' }]);
   const ok = await confirmAction({
     title: `替「${miss.source.label}」補一筆二返額度？`,
     consequences: [
       `會新增「${miss.draft.label}」${miss.draft.totalQty} 次`,
       '次數跟健檢一樣多 —— 買幾次健檢就有幾次二返',
-      '補了之後，健檢標成已完成才會長出「約二返」的待辦',
+      ...(chain ? chainPlanLines(chain.plan, chain.visits, chain.tasks) : []),
       '這次新增會留在稽核紀錄裡，也可以復原',
     ],
     confirmLabel: '補上',
@@ -1140,7 +1155,15 @@ function kindText(e, ctx) {
 
 async function fixCounts(ctx, entId) {
   const e = ctx.entitlements.find((x) => x.id === entId);
-  const rec = reconcile(e, ctx.visits, entId);
+  // **按下去那一刻重讀全部**（ADR-0158）：打開這一頁那一刻讀到的可能是快取裡剛好有的那幾筆，照它改就是少算
+  let visits;
+  try {
+    visits = await visitsData.listWhole(ctx.id, ctx.customer?.name);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
+  const rec = reconcile(e, visits, entId);
 
   const ok = await confirmAction({
     title: `把「${e.label}」的計數欄位改成重算值？`,
@@ -1161,7 +1184,8 @@ async function fixCounts(ctx, entId) {
         bookedCount: rec.actual.booked,
         lastReconciledAt: new Date().toISOString(),
       }),
-      { success: '已修正' },
+      // 計數改了，健檢那條鏈可能跟著動（ADR-0159）—— 這一道確認框沒講到，存完講一句（issue 19）
+      { success: (chain) => `已修正${chainSavedSay(chain)}` },
     );
     reload(ctx);
   } catch {
@@ -1459,6 +1483,7 @@ function paintEdit(ctx) {
         ${f.text({ name: 'name', label: '姓名', value: customer.name })}
         ${f.text({ name: 'phone', label: '電話', value: customer.phone ?? '' })}
         ${f.text({ name: 'lineId', label: 'LINE 名字', value: customer.lineId ?? '', hint: LINE_HINT })}
+        ${f.text({ name: 'chartNo', label: '病歷號', value: customer.chartNo ?? '', hint: CHART_NO_HINT, inputmode: 'numeric' })}
         ${f.text({ name: 'source', label: '購買通路', value: customer.source ?? '' })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(customer.priority ?? 0),
@@ -1508,6 +1533,7 @@ function paintEdit(ctx) {
       name: v.name.trim(),
       phone: v.phone.trim() || null,
       lineId: v.lineId.trim() || null,
+      chartNo: v.chartNo.trim() || null,
       source: v.source.trim() || null,
       priority: Number(v.priority) || 0,
       flags,
@@ -1522,17 +1548,32 @@ function paintEdit(ctx) {
     // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
     // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
     // 規則在 `renameTargets()`
+    // 病歷號跟另一位一樣（ADR-0160）：同一道問、不擋。只在那一格改過時問 —— 本來就同號的那一位，改電話不必每次被問
     const renamed = changes.name !== (ctx.customer.name ?? '');
+    const chartChanged = (changes.chartNo ?? '') !== String(ctx.customer.chartNo ?? '').trim();
+    if (renamed || chartChanged) {
+      const w = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => []));
+      const said = [renamed ? w.name : null, chartChanged ? w.chartNo : null].filter(Boolean);
+      if (said.length && !await confirmReview(said)) return;
+    }
+
+    // 改名要順手換的那幾份快照：**按下去那一刻讀全部**（issue 14）。快取裡剛好有的那幾筆的話，漏掉的那幾張待辦、
+    // 那幾筆來訪留著舊名字 —— 讀不完整就先不改名
+    let own = null;
     if (renamed) {
-      const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;
-      if (said && !await confirmReview([said])) return;
+      try {
+        own = await data.ownWhole(ctx.id, ctx.customer.name, {
+          say: `網路不穩，讀不到 ${ctx.customer.name} 的全部紀錄 —— 先不改名，連上之後再存一次`,
+        });
+      } catch (err) {
+        toast.readFailed(err);
+        return;
+      }
     }
 
     try {
       await toast.withSaveState(async () => {
-        const targets = renamed
-          ? rules.renameTargets(await ownSnapshots(ctx.id), todayISO(), changes.name)
-          : [];
+        const targets = own ? rules.renameTargets(own, todayISO(), changes.name) : [];
         await data.updateWithSnapshots(ctx.id, changes, targets);
       }, {
         success: '已儲存', key: `customer:update:${ctx.id}`,
@@ -1542,16 +1583,6 @@ function paintEdit(ctx) {
       /* 已處理 */
     }
   });
-}
-
-/** 這位客戶身上帶著名字快照的那幾份（改名時要跟著換哪幾份由 `renameTargets()` 決定）。 */
-async function ownSnapshots(customerId) {
-  const [visits, tasks, notes] = await Promise.all([
-    visitsData.listByCustomer(customerId),
-    tasksData.listByCustomer(customerId),
-    notesData.listByCustomer(customerId),
-  ]);
-  return { visits, tasks, notes };
 }
 
 // ---------- 額度編輯 ----------
@@ -1643,7 +1674,8 @@ function wirePlanPurchase(el, ctx, d, { plans, master }) {
     });
     await toast.withSaveState(
       () => data.addEntitlements(ctx.id, rows, { customer: ctx.customer }),
-      { success: `已加購 ${rows.length} 筆`, key: `plan:add:${ctx.id}` },
+      // 方案裡有健檢或二返時待辦那條鏈重算了（ADR-0159）—— 沒有確認框，存完講一句（issue 19）
+      { success: (chain) => `已加購 ${rows.length} 筆${chainSavedSay(chain)}`, key: `plan:add:${ctx.id}` },
     );
     ctx.back();
   });
@@ -1880,12 +1912,13 @@ function wireEntitlement(el, ctx, record, e, { isNew, master }) {
             },
           ),
           // 連點兩下就是兩筆額度，而額度是「還能上幾次」的來源
-          { success: '已加購', key: `entitlement:create:${ctx.id}` },
+          { success: (chain) => `已加購${chainSavedSay(chain)}`, key: `entitlement:create:${ctx.id}` },
         );
       } else {
         await toast.withSaveState(
           () => data.updateEntitlement(ctx.id, record.id, buy.payload(next)),
-          { success: '已儲存', key: `entitlement:update:${record.id}` },
+          // 改了健檢或二返的次數，待辦那條鏈重算了（ADR-0159）—— 沒有確認框，存完講一句（issue 17）
+          { success: (chain) => `已儲存${chainSavedSay(chain)}`, key: `entitlement:update:${record.id}` },
         );
       }
       reload(ctx);
@@ -1941,11 +1974,14 @@ function entitlementDanger() {
 function wireEntitlementDanger(ctx, record) {
   ctx.el.querySelector('[data-del-ent]').addEventListener('click', async () => {
     const c = counts(record, ctx.visits, record.id);
+    // 刪的是健檢或二返：健檢那條鏈跟著重算（ADR-0159），會收起來的那幾張講出來（同一支試算，ADR-0070）
+    const chain = await data.previewChain(ctx.id, (list) => list.filter((x) => x.id !== record.id));
     const ok = await confirmAction({
       title: `刪除「${record.label}」這筆額度？`,
       consequences: [
         `這筆額度共 ${c.total} 次，已完成 ${c.done} 次、已排未上 ${c.booked} 次`,
         '已經排好的來訪不會被刪，但它們會指向一筆已刪除的額度',
+        ...(chain ? chainPlanLines(chain.plan, chain.visits, chain.tasks) : []),
         '這是標記刪除，可以在設定 → 已刪除項目 還原',
       ],
       confirmLabel: '刪除',

@@ -63,14 +63,41 @@ export async function withUndo(fn) {
   }
 }
 
+// ---------- 讀回來的是不是快取（ADR-0158）----------
+//
+// 開著本機快取時，離線（或網路不穩到 SDK 判定離線）的讀取**不會失敗**，回的是快取裡剛好有的那幾筆。
+// 會動到次數或健檢鏈的寫入要知道「算它的那幾份是不是全部」：每一次讀回來是快取的就記一筆，
+// 寫入那幾支在開始時記下這個數、commit 之前再看一次（`data/visits.js` 的 `guardWhole()`）。
+// 全站共用一個數 —— 同一段時間別的畫面讀到快取也算：那代表 SDK 這時候認為自己離線，寧可多擋。
+
+let cacheReadCount = 0;
+
+/** 到現在為止有幾次讀取是從本機快取回來的。 */
+export const cacheReads = () => cacheReadCount;
+
+function noted(snap) {
+  if (snap.metadata.fromCache) cacheReadCount += 1;
+  return snap;
+}
+
 /** 清單查詢一律排除已刪除的資料。呼叫端不需要自己記得加。 */
-export async function list(path, { wheres = [], order = null, limit = null } = {}) {
+export async function list(path, opts = {}) {
+  return (await listFrom(path, opts)).rows;
+}
+
+/**
+ * 同 `list()`，連「這一次是不是從本機快取回來的」一起回。**要拿去存的那幾份**問它
+ * （`data/visits.js` 的 `listByCustomer()`），其餘照舊用 `list()`。
+ *
+ * @returns {Promise<{rows: object[], fromCache: boolean}>}
+ */
+export async function listFrom(path, { wheres = [], order = null, limit = null } = {}) {
   const clauses = [where('deletedAt', '==', null), ...wheres];
   if (order) clauses.push(orderBy(order[0], order[1] ?? 'asc'));
   if (limit) clauses.push(fsLimit(limit));
 
-  const snap = await getDocs(query(collection(getDb(), path), ...clauses));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const snap = noted(await getDocs(query(collection(getDb(), path), ...clauses)));
+  return { rows: snap.docs.map((d) => ({ id: d.id, ...d.data() })), fromCache: snap.metadata.fromCache };
 }
 
 /**
@@ -86,12 +113,12 @@ export async function listWithDeleted(path, { wheres = [], order = null, limit =
   if (order) clauses.push(orderBy(order[0], order[1] ?? 'asc'));
   if (limit) clauses.push(fsLimit(limit));
 
-  const snap = await getDocs(query(collection(getDb(), path), ...clauses));
+  const snap = noted(await getDocs(query(collection(getDb(), path), ...clauses)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 export async function getOne(path, id) {
-  const snap = await getDoc(doc(getDb(), path, id));
+  const snap = noted(await getDoc(doc(getDb(), path, id)));
   if (!snap.exists()) return null;
   const data = { id: snap.id, ...snap.data() };
   return data.deletedAt ? null : data;
@@ -110,6 +137,10 @@ export class StaleWriteError extends Error {
     this.name = 'StaleWriteError';
   }
 }
+
+/** 到現在為止送出了幾次寫入（不管回來了沒）。 */
+let sent = 0;
+export const commitsSent = () => sent;
 
 /** 兩個 `updatedAt` 是不是同一刻。讀不到（舊資料、還沒回到伺服器的那一筆）就不擋。 */
 const sameStamp = (now, held) =>
@@ -184,6 +215,9 @@ export async function commit(ops) {
     });
   });
 
+  // **送出之前就記**：離線時 `batch.commit()` 一直等到網路回來，但寫入這時候已經在本機快取裡了 ——
+  // toast 那一句「已經存在這台裝置上了」問的就是這個數（`ui/saveFailure.js` 的 `slowSayNow()`）
+  sent += 1;
   await batch.commit();
   announceCommitted(ops);
 
@@ -255,7 +289,7 @@ export function newId(path) {
  * @returns {Promise<object[]>} 每筆多一個 parentId 欄位
  */
 export async function listGroup(collectionId, { includeDeleted = false } = {}) {
-  const snap = await getDocs(collectionGroup(getDb(), collectionId));
+  const snap = noted(await getDocs(collectionGroup(getDb(), collectionId)));
   return snap.docs
     .map((d) => ({ id: d.id, parentId: d.ref.parent.parent?.id ?? null, ...d.data() }))
     .filter((r) => includeDeleted || !r.deletedAt);

@@ -219,16 +219,28 @@ test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且�
   await expect(page.locator('[data-task]')).toHaveCount(1);
 });
 
-test('J-D4 買 2 次只做 1 次 → 只欠 1 次二返，不是 2 次', async ({ app, page }) => {
+test('J-D4 買 2 次只做 1 次 → 只欠 1 次二返，不是 2 次：報告勾掉之後「約二返」只有 1 張', async ({ app, page }) => {
   await app.seed(seedBeforeClose());
   await app.signIn('/customers/cust-b');
   await closeExam(app, page);
 
+  await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
+  await expect(page.locator('#view')).toContainText('客戶B');
+  await page.locator('[data-task]').first().check();
+  await page.locator('[data-mark]').click();
+  await expect(app.dialog()).toBeVisible();
+  await app.ok();
+  await app.saved();
+
+  // 鏈走得下去，而且照「做完幾次」欠，不照「買了幾次」
+  await expect.poll(async () => (await app.readAll('tasks'))
+    .filter((t) => t.kind === '約二返' && !t.deletedAt).map((t) => t.visitId))
+    .toEqual(['visit-b-exam1']);
+
+  // 客戶詳情那一句「健檢做完 N 次：二返做完、約了、還沒約」2026-10-19 拿掉了（她：「數字加起來對不上。那要不就不要呈現了」）
   await app.go('/customers/cust-b');
-  const body = await app.text();
-  expect(body).toMatch(/健檢做完\s*1\s*次/);
-  // 2026-10-09（ADR-0145）起是三個數字：做完、約了、還沒約
-  expect(body).toMatch(/還沒約\s*1\s*次/);
+  await expect(page.locator('[data-ent="ent-b-exam"]')).toBeVisible();
+  expect(await app.text()).not.toContain('健檢做完');
 });
 
 test('J-D9 沒有金額等級的 examine 不會被補一個猜的金額', async ({ app }) => {

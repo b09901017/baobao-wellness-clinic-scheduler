@@ -146,7 +146,7 @@ const NOT_VISITS = {
   'js/ui/views/customerDetail.js': [
     /^\$\{offCount\(pools, visits\)\} 筆對不起來$/, // 數的是額度
     /^\$\{ctx\.entitlements\.length\} 筆額度與 /, // 額度（同一句的來訪那一半寫「天」）
-    /^\$\{rows\.length\} 筆$/, // 「已加購 N 筆」：加了幾筆額度
+    /^\$\{rows\.length\} 筆(?:\$\{chainS)?$/, // 「已加購 N 筆」：加了幾筆額度（後面接 chainSavedSay()，issue 19）
   ],
 };
 

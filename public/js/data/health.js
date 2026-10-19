@@ -6,6 +6,29 @@
 import * as repo from './repo.js';
 import * as config from './config.js';
 import { runHealthCheck } from '../domain/health.js';
+import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import { chainAfterEntitlements } from './visits.js';
+
+/** 最近一次快照每一份都是伺服器的嗎（ADR-0158）。還沒讀過就是 false */
+let snapshotWhole = false;
+
+const RECOUNT_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 次數先不改，連上之後重新整理這一頁再按一次';
+
+/**
+ * 把快照那一刻的**整包 `slots`** 寫回去的那幾種修正（before-golive-2026-10-19 issue 12）。時段是內嵌陣列，只改得了整包 ——
+ * 快照是快取來的、或她按之前別台剛改過那一天，寫回去就把那一天新的段蓋掉。所以：快照不是全部就不寫（同 `recount`），
+ * 每一條 op 帶 `ifUpdatedAt`（`repo.commit()` 對不上丟 `StaleWriteError`，整批不寫）
+ */
+const SLOT_REWRITES = new Set(['clearBeds', 'moveBedToRoom', 'trialSlotsToCourse', 'retireTrialCourse']);
+const SLOTS_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 來訪先不改，連上之後重新整理這一頁再按一次';
+
+/**
+ * 同一個形狀的其餘幾種（段四審查）：快照那一刻算好、整格寫回去 —— 病歷號那兩種寫整包 `marks`／`notes`（排過的連 `noteOrder`；
+ * 別台剛加一則短備註就被蓋掉、順序錯一格）、整筆狀態照快照的時段推、補上二返額度（快照是快取的，「缺的那一筆」伺服器上可能已經有了 → 多建一筆）。
+ * 快照不是全部就不寫；前三種的 op 帶 `ifUpdatedAt`
+ */
+const SNAPSHOT_REWRITES = new Set(['restatVisit', 'renameChartNo', 'chartNoToField', 'addFollowup']);
+const SNAPSHOT_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 先不改，連上之後重新整理這一頁再按一次';
 
 /**
  * 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。
@@ -27,6 +50,7 @@ const FIX_CHUNK = 200;
  * 而「被軟刪除」與「根本不存在」是兩種不同的問題，讀不到刪掉的那些就分不出來。
  */
 export async function loadSnapshot() {
+  const since = repo.cacheReads();
   const [customers, entitlements, availability, visits, tasks, notes, master] = await Promise.all([
     repo.listWithDeleted('customers'),
     repo.listGroup('entitlements', { includeDeleted: true }),
@@ -40,6 +64,11 @@ export async function loadSnapshot() {
     repo.list('notes'),
     loadMaster(),
   ]);
+  // 「重算次數」那一顆寫的是這一份算出來的值（ADR-0158）：快取來的就不是全部來訪
+  snapshotWhole = !readsIncomplete({
+    offline: globalThis.navigator?.onLine === false,
+    sources: [readSource(repo.cacheReads() !== since)],
+  });
 
   return {
     customers,
@@ -66,6 +95,7 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
+ * - `chartNoToField`：短備註「病歷號 1234」放進病歷號那一格（ADR-0160），位置不變。
  * - `renamePool`：以前買的復能額度改成新的名字（`復能-三選一(60)`）。
  *   **只改 label**，而且只改得動認得出「歷代自動名字」的那幾筆。
  * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
@@ -85,7 +115,25 @@ export async function run(today) {
  * @returns {Promise<number>} 實際寫了幾筆
  */
 export async function applyFixes(fixes) {
+  // **重算次數的值是快照那一刻算的**：快照讀到的是快取時，那一份來訪不是全部，寫下去就是少算（ADR-0158）。
+  // 其餘的修正不吃全部來訪，照舊
+  if (!snapshotWhole && (fixes ?? []).some((f) => f?.kind === 'recount')) {
+    throw new IncompleteReadError('', RECOUNT_PARTIAL_SAY);
+  }
+  if (!snapshotWhole && (fixes ?? []).some((f) => SLOT_REWRITES.has(f?.kind))) {
+    throw new IncompleteReadError('', SLOTS_PARTIAL_SAY);
+  }
+  if (!snapshotWhole && (fixes ?? []).some((f) => SNAPSHOT_REWRITES.has(f?.kind))) {
+    throw new IncompleteReadError('', SNAPSHOT_PARTIAL_SAY);
+  }
   const ops = opsFor(fixes);
+  // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
+  // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
+  for (const [customerId, added] of addedFollowups(ops)) {
+    // eslint-disable-next-line no-await-in-loop
+    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]);
+    ops.push(...(chain?.ops ?? []));
+  }
 
   for (let i = 0; i < ops.length; i += FIX_CHUNK) {
     await repo.commit(ops.slice(i, i + FIX_CHUNK));
@@ -140,7 +188,21 @@ function opFor(fix) {
       path: 'customers',
       id: fix.customerId,
       changes: fix.changes,
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：備註的「姓名欄的編號」改成「病歷號」',
+    };
+  }
+
+  // 病歷號那一格（ADR-0160）：短備註「病歷號 1234」放進 `chartNo`，`marks`／`notes`（排過的連 `noteOrder`）
+  // 同一筆寫 —— `changes` 是 `customerNotes.js` 的 `chartNoMove()` 算好的。寫的是客戶本人，同 `renameChartNo`
+  if (fix?.kind === 'chartNoToField') {
+    return {
+      op: 'update',
+      path: 'customers',
+      id: fix.customerId,
+      changes: fix.changes,
+      ifUpdatedAt: fix.updatedAt ?? null,
+      note: '資料健檢：病歷號放進那一格',
     };
   }
 
@@ -219,6 +281,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { slots: fix.slots },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：清掉來訪上的床位',
     };
   }
@@ -233,6 +296,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { slots: fix.slots },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: `資料健檢：床位搬到自己的診間（${(fix.moves ?? []).join('、')}）`,
     };
   }
@@ -245,6 +309,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { status: fix.status },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：整筆的狀態照時段重推一次',
     };
   }
@@ -405,7 +470,7 @@ function opFor(fix) {
   if (fix?.kind === 'trialSlotsToCourse' || fix?.kind === 'retireTrialCourse') {
     return [
       ...(fix.visits ?? []).map((v) => ({
-        op: 'update', path: 'visits', id: v.visitId, changes: { slots: v.slots },
+        op: 'update', path: 'visits', id: v.visitId, changes: { slots: v.slots }, ifUpdatedAt: v.updatedAt ?? null,
         note: `資料健檢：「${fix.label}」那幾段改成 ${fix.eecpName} 的體驗`,
       })),
       ...(fix.kind === 'retireTrialCourse' ? [{
@@ -434,12 +499,42 @@ function opFor(fix) {
     return {
       op: 'create',
       path,
+      // id 先鑄好：健檢那條鏈要拿「補完之後」的整份額度重算（`addedFollowups()`，ADR-0159）
+      id: repo.newId(path),
       data: fix.draft,
       note: '資料健檢：補上這筆健檢對應的二返額度',
     };
   }
 
   return null;
+}
+
+/** 一批寫入裡新建的二返額度，照客戶分：customerId → 寫完之後多出來的那幾筆（帶 id） */
+function addedFollowups(ops) {
+  const out = new Map();
+  for (const op of ops) {
+    const m = op.op === 'create' && /^customers\/([^/]+)\/entitlements$/.exec(op.path ?? '');
+    if (!m || !op.data?.followupForEntitlementId) continue;
+    if (!out.has(m[1])) out.set(m[1], []);
+    out.get(m[1]).push({ ...op.data, id: op.id });
+  }
+  return out;
+}
+
+/**
+ * 「補上二返額度」按下去健檢那條鏈會怎麼動 —— **只看不寫**，確認框用（ADR-0070、0159）。
+ * 跟 `applyFixes()` 同一支（`chainAfterEntitlements()`）。讀不到的那一位就少講，不擋。
+ *
+ * @returns {Promise<{plan:object, visits:object[], tasks:object[]}[]>} 每一位一份，不會動到的不列
+ */
+export async function previewFollowupChains(fixes) {
+  const out = [];
+  for (const [customerId, added] of addedFollowups(opsFor(fixes))) {
+    // eslint-disable-next-line no-await-in-loop
+    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]).catch(() => null);
+    if (chain && (chain.plan.create.length || chain.plan.remove.length)) out.push(chain);
+  }
+  return out;
 }
 
 async function loadMaster() {

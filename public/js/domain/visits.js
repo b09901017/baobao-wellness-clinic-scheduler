@@ -440,11 +440,25 @@ export function rebookSlot(before, index, next, { status = INITIAL_STATUS, at } 
  * @returns {object[]} 日期舊的排前面（拖最久的最上面）
  */
 export function visitsToClose(visits = [], today) {
-  return visits
+  return stillOpenDays(visits, (date) => date <= today);
+}
+
+/**
+ * 明天還開著的那幾天（待確認／已確認、還有段開著）。待辦首頁「明天」那一格用（issue 11，ADR-0162）。
+ *
+ * 跟 `visitsToClose()` 同一個切法，只是日子換成明天 —— **它不是「要簽的」**：人還沒來，
+ * 簽療程單那一列與抽屜照舊只讀 `visitsToClose()`，這一份點下去開讀取卡片。
+ */
+export function visitsComingTomorrow(visits = [], today) {
+  return stillOpenDays(visits, (date) => daysBetween(today, date) === 1);
+}
+
+function stillOpenDays(visits, onDay) {
+  return (visits ?? [])
     .filter((v) => !v.deletedAt
       && (v.status === 'confirmed' || v.status === 'pending_confirm')
       && isValidDate(v.date)
-      && v.date <= today
+      && onDay(v.date)
       && slotsToClose(v).length)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date)

@@ -33,8 +33,19 @@ var DATA_SHEET = '_data';
  * 認得的資料格式版本。對不上就整包拒絕，不要半套渲染。
  * 6（2026-09-24）：來訪紀錄一段一行、帶狀態；多一段「買過什麼」。
  * 7（2026-10-05）：來訪紀錄那一行的最後面多「記一句：…」—— 沒有額度的段（n返、功醫門診）記的那一句。
+ * 8（2026-10-19）：每一頁多 `fingerprint`（沒變的那幾頁不重畫）與 `chartNo`（抬頭那一行印病歷號）；
+ *    請求多一個 `force`（設定頁「整份重畫」）。回報多 `kept`（沒變、只改了產生時間的幾頁）。
  */
-var SUPPORTED_FORMAT = 7;
+var SUPPORTED_FORMAT = 8;
+
+/**
+ * **這一份指令碼自己的排版版號**（ADR-0161）。指紋是 app 算的，app 不知道這一份指令碼畫得怎樣 ——
+ * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
+ * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
+ */
+var LAYOUT_VERSION = 1;
+/** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
+var FP_PREFIX = 'fp:';
 
 // ---------- 版面 ----------
 //
@@ -114,10 +125,12 @@ function doPost(e) {
     if (!lock.tryLock(30000)) return reply({ ok: false, error: '另一份同步還在進行中' });
 
     try {
-      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle);
+      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true);
       return reply({
         ok: true,
         sheets: result.sheets,
+        // 沒變、只改了第三列產生時間的那幾頁（ADR-0161）
+        kept: result.kept,
         // 跳過的要講出來，不然她會以為推好了而那幾位其實沒更新
         skipped: result.skipped,
       });
@@ -137,28 +150,98 @@ function reply(payload) {
 
 // ---------- 渲染 ----------
 
-function render(ss, bundle) {
+/**
+ * 畫整包。**沒變的那幾頁不重畫**（ADR-0161）：app 每一頁附一個指紋（那一頁會畫出來的每一樣），
+ * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改第三列的產生時間。
+ * 指紋只記在這一側：她有手機與 iPad 兩台，各記各的會安靜地錯（8/27 那一支不照做的理由）。
+ *
+ * 每畫好一頁就上鎖、記下指紋 —— Apps Script 一次最多跑 6 分鐘，逾時的話下一次推送從沒畫完的那一頁接著做。
+ * `force`（設定頁「整份重畫」）忽略指紋，等於以前的行為。
+ */
+function render(ss, bundle, force) {
   stashRawData(ss, bundle);
+  var props = PropertiesService.getDocumentProperties();
 
   // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
   var keep = {};
   keep[DATA_SHEET] = true;
+  protectSheet(ss.getSheetByName(DATA_SHEET));
 
   var made = 0;
+  var kept = 0;
   var skipped = [];
+  var stamp = stampLine(bundle);
   for (var i = 0; i < bundle.sheets.length; i++) {
-    var written = renderCustomer(ss, bundle.sheets[i], bundle);
-    if (written === null) {
-      skipped.push(bundle.sheets[i].name);
+    var data = bundle.sheets[i];
+    var name = sheetNameFor(data.name);
+    var mark = markOf(data);
+    var sheet = ss.getSheetByName(name);
+    var plan = sheetPlan({
+      force: force === true,
+      exists: Boolean(sheet),
+      ours: Boolean(sheet) && isOurs(sheet),
+      stored: props.getProperty(FP_PREFIX + name),
+      mark: mark,
+    });
+    if (plan === 'keep') {
+      sheet.getRange(3, 1).setValue(stamp);
+      keep[name] = true;
+      kept += 1;
       continue;
     }
+    // 先拿掉舊的指紋：畫到一半逾時的話，下一次不會把半張表當成畫好了
+    props.deleteProperty(FP_PREFIX + name);
+    var written = renderCustomer(ss, data, bundle);
+    if (written === null) {
+      skipped.push(data.name);
+      continue;
+    }
+    protectSheet(ss.getSheetByName(written));
+    if (mark) props.setProperty(FP_PREFIX + written, mark);
     keep[written] = true;
     made += 1;
   }
 
   removeStaleSheets(ss, keep);
-  protectEverything(ss);
-  return { sheets: made, skipped: skipped };
+  forgetStale(props, keep);
+  return { sheets: made, kept: kept, skipped: skipped };
+}
+
+/**
+ * 這一頁要不要重畫。**純函式**（node 裡測得到，`tests/sheet-fingerprint.test.js`）：
+ * 拿不準一律重畫 —— 分頁不在、第一列那句提醒不在（她清掉了、或不是我們畫的）、沒有指紋、指紋不一樣、按了整份重畫。
+ *
+ * @param {{force: boolean, exists: boolean, ours: boolean, stored: (string|null), mark: (string|null)}} o
+ * @returns {'keep'|'draw'}
+ */
+function sheetPlan(o) {
+  if (o.force || !o.exists || !o.ours || !o.mark || !o.stored) return 'draw';
+  return o.stored === o.mark ? 'keep' : 'draw';
+}
+
+/** 記下來的那一個：app 給的指紋＋這一份指令碼的排版版號。沒有指紋（舊版 app）→ null，一律重畫。 */
+function markOf(data) {
+  return data && data.fingerprint ? String(data.fingerprint) + '|' + LAYOUT_VERSION : null;
+}
+
+/** 第一列是那句提醒（「系統自動產生」）。不是的話：要嘛她清掉了、要嘛不是我們畫的 —— 都不可以當成沒變。 */
+function isOurs(sheet) {
+  return sheet.getLastRow() > 0 && String(sheet.getRange(1, 1).getValue()).indexOf('系統自動產生') !== -1;
+}
+
+/** 第三列那一行。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
+function stampLine(bundle) {
+  return '產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app'
+    + '　·　' + bundle.legend;
+}
+
+/** 分頁已經不在這一包裡的指紋拿掉 —— 留著的話，同名的分頁下次被她刪了又建回來時會被當成沒變。 */
+function forgetStale(props, keep) {
+  var all = props.getProperties();
+  for (var key in all) {
+    if (key.indexOf(FP_PREFIX) !== 0) continue;
+    if (!keep[key.slice(FP_PREFIX.length)]) props.deleteProperty(key);
+  }
 }
 
 /**
@@ -208,8 +291,7 @@ function renderCustomer(ss, data, bundle) {
     .setVerticalAlignment('middle').setWrap(true);
 
   sheet.getRange(3, 1, 1, width).merge()
-    .setValue('產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app'
-      + '　·　' + bundle.legend)
+    .setValue(stampLine(bundle))
     .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle');
 
   // 矩陣表頭
@@ -551,6 +633,8 @@ function noteBlock(sheet, top, width, title, lines) {
 
 function infoLine(data) {
   return [
+    // 病歷號（格式 8）：它從備註搬成一格之後（ADR-0160），備註那一區就不再印它
+    data.chartNo ? '病歷號 ' + data.chartNo : '',
     data.source ? '購買名稱：' + data.source : '',
     data.membershipExpiresAt ? '會籍到期：' + data.membershipExpiresAt : '',
     '合計　應有 ' + data.totals.total + '　已完成 ' + data.totals.done
@@ -663,27 +747,28 @@ function removeStaleSheets(ss, keep) {
 // 兩層。保護範圍讓別人改不動，onEdit 接住漏網的那一種
 // （擁有者自己編輯時保護範圍只會跳警告，不會真的擋下來）。
 
-function protectEverything(ss) {
+/**
+ * 鎖一張。**畫好一頁就鎖那一頁**（格式 8 以前是最後一次鎖全部）：沒變的那幾頁上一次畫的時候就鎖了，
+ * 而畫到一半逾時的話，已經畫好、記了指紋的那幾頁不可以停在沒鎖的樣子。
+ */
+function protectSheet(sheet) {
+  if (!sheet) return;
   var me = Session.getEffectiveUser();
   var myEmail = me.getEmail();
-  var sheets = ss.getSheets();
+  unprotect(sheet);
+  var p = sheet.protect().setDescription('由 app 產生，請勿手動編輯');
+  p.addEditor(me);
 
-  for (var i = 0; i < sheets.length; i++) {
-    unprotect(sheets[i]);
-    var p = sheets[i].protect().setDescription('由 app 產生，請勿手動編輯');
-    p.addEditor(me);
-
-    // 刻意**不用** setWarningOnly：那只會跳一句「你確定嗎」然後照樣讓人改。
-    // 對其他人是真的鎖住；對擁有者鎖不住（Google 不讓擁有者把自己鎖在門外），
-    // 所以擁有者那一種由下面的 onEdit 接住。
-    var others = [];
-    var editors = p.getEditors();
-    for (var j = 0; j < editors.length; j++) {
-      if (editors[j].getEmail() !== myEmail) others.push(editors[j].getEmail());
-    }
-    if (others.length) p.removeEditors(others);
-    if (p.canDomainEdit()) p.setDomainEdit(false);
+  // 刻意**不用** setWarningOnly：那只會跳一句「你確定嗎」然後照樣讓人改。
+  // 對其他人是真的鎖住；對擁有者鎖不住（Google 不讓擁有者把自己鎖在門外），
+  // 所以擁有者那一種由下面的 onEdit 接住。
+  var others = [];
+  var editors = p.getEditors();
+  for (var j = 0; j < editors.length; j++) {
+    if (editors[j].getEmail() !== myEmail) others.push(editors[j].getEmail());
   }
+  if (others.length) p.removeEditors(others);
+  if (p.canDomainEdit()) p.setDomainEdit(false);
 }
 
 function unprotect(sheet) {
@@ -700,10 +785,18 @@ function unprotect(sheet) {
  */
 function onEdit(e) {
   if (!e || !e.range) return;
-  if (e.source.getActiveSheet().getName() === DATA_SHEET) return;
+  var name = e.source.getActiveSheet().getName();
+  if (name === DATA_SHEET) return;
 
   var previous = typeof e.oldValue === 'undefined' ? '' : e.oldValue;
   e.range.setValue(previous);
+  // 還原不了的那幾種（選一塊格子按刪除、貼上一整塊 —— 多格編輯沒有 oldValue；刪列不會叫這一支）要靠下一次推送畫回來。
+  // 格式 8 起沒變的那幾頁不重畫（ADR-0161），所以改過的那一頁拿掉指紋：下一次推送它照樣重畫，上面那一句才是真的
+  try {
+    PropertiesService.getDocumentProperties().deleteProperty(FP_PREFIX + name);
+  } catch (err) {
+    // 拿不掉就算了：最壞是那一頁等到它的資料變了、或她按「整份重畫」
+  }
   SpreadsheetApp.getActiveSpreadsheet().toast(
     '這張表由 app 自動產生，改了也不會回到 app，而且下次同步就會被蓋掉。請回 app 修改。',
     '已還原',

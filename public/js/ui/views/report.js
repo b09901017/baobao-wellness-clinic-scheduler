@@ -15,7 +15,7 @@ import * as visitsData from '../../data/visits.js';
 import * as configData from '../../data/config.js';
 import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
-import { customerReport, toTSV, toCSV, describeSync } from '../../domain/sheetReport.js';
+import { customerReport, toTSV, toCSV, describeSync, pushedSay, skippedPushSay } from '../../domain/sheetReport.js';
 import { todayISO } from '../../domain/dates.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
@@ -136,6 +136,7 @@ function paint(el, data) {
 
   el.querySelector('[data-sync-save]')?.addEventListener('click', () => saveSync(el, data));
   el.querySelector('[data-sync-now]')?.addEventListener('click', () => pushNow(el, data));
+  el.querySelector('[data-sync-redraw]')?.addEventListener('click', () => pushNow(el, data, { force: true }));
 
   message.wire(el, toast.info);
 }
@@ -161,6 +162,7 @@ function syncCard({ settings }) {
     error: failure?.error ?? null,
     errorAtLabel: timeLabel(failure?.at),
     skipped: skipped?.names ?? [],
+    partial: Boolean(failure?.partial),
   });
 
   return `
@@ -193,6 +195,8 @@ function syncCard({ settings }) {
         <button class="btn" type="button" data-sync-save>儲存設定</button>
         <button class="btn btn--primary" type="button" data-sync-now
           ${on ? '' : 'disabled'}>立刻推一次</button>
+        <button class="btn" type="button" data-sync-redraw ${on ? '' : 'disabled'}>整份重畫</button>${tip(
+          '平常只重畫資料有變的那幾頁，沒變的只改產生時間。覺得試算表哪裡怪怪的就按這一顆：每一頁都清空重畫一次。')}
       </p>
     </section>`;
 }
@@ -213,19 +217,20 @@ async function saveSync(el, data) {
   paint(el, data);
 }
 
-async function pushNow(el, data) {
-  toast.saving('推送中…');
-  const result = await sheetSync.push();
+/** 「立刻推一次」與「整份重畫」（`force`，ADR-0161）。同時只一份在路上 —— 去重在 `sheetSync.push()` 裡。 */
+async function pushNow(el, data, { force = false } = {}) {
+  toast.saving(force ? '整份重畫中…' : '推送中…');
+  const result = await sheetSync.push({ force });
 
-  if (!result.ok) {
+  if (!result.ok && result.partial) {
+    // 讀到的不是全部：這一趟沒推，不是失敗（中途發現 2）
+    toast.info(result.error);
+  } else if (!result.ok) {
     toast.failed(result.error ?? '推不出去');
   } else if (result.skipped?.length) {
-    // 「更新了 19 張」和「更新了 19 張，另外 2 位沒動」在畫面上不可以長得一樣 ——
-    // 後者代表那兩位的次數是舊的。
-    toast.failed(`推好了 ${result.sheets ?? ''} 張，但有 ${result.skipped.length} 張沒有更新：`
-      + `${result.skipped.join('、')}。那幾張試算表認不出來是系統畫的，不敢清空重畫。`);
+    toast.failed(skippedPushSay(result));
   } else {
-    toast.info(`推好了，試算表更新了 ${result.sheets ?? ''} 張分頁`);
+    toast.info(pushedSay(result));
   }
 
   paint(el, data);
