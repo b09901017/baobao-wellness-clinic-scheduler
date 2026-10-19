@@ -473,6 +473,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       future: visits.filter((v) => v.status === 'confirmed').length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
       timed: visits.reduce((n, v) => n + v.slots.filter((s) => s.startsAt).length, 0),
+      // v9：帶著記一句的那幾段。摘要卡要講出來 —— 不講的話她對不了「舊表底下那幾格去哪了」
+      slotNotes: visits.reduce((n, v) => n + v.slots.filter((s) => s.note).length, 0),
       low: (entry.visits ?? []).reduce(
         (n, v) => n + (v.slots ?? []).filter((s) => s.confidence === 'low').length, 0,
       ),
@@ -587,7 +589,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     problems,
     purchaseProblems: [],
     contraindications: [],
-    counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
+    counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, slotNotes: 0, low: 0 },
   };
 }
 
@@ -1075,6 +1077,8 @@ export function summarize(plans) {
     future: live.reduce((n, p) => n + (p.counts.future ?? 0), 0),
     slots: live.reduce((n, p) => n + p.counts.slots, 0),
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
+    // v9：帶著記一句的段（舊表日期底下那一格）
+    slotNotes: live.reduce((n, p) => n + (p.counts.slotNotes ?? 0), 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
     // 會匯進去的那幾位身上、文字裡提到的警示。**跳過的那幾位不算** ——

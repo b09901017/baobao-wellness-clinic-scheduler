@@ -12,7 +12,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { FORMAT, FORMATS, validateFile, planForCustomer } from '../public/js/domain/mergeImport.js';
+import { FORMAT, FORMATS, validateFile, planForCustomer, summarize } from '../public/js/domain/mergeImport.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const TODAY = '2026-10-20';
@@ -36,10 +36,10 @@ describe('契約：baobao-merge/v9', () => {
 describe('段的「記一句」（issue 02）', () => {
   test('帶 note 的那一段寫進 slot.note（去頭尾空白），其他段 null', () => {
     const plan = planForCustomer(entry({
-      visits: [{ date: '2026-10-16', status: 'done', slots: [slot({ note: '  遲到15分鐘 ' }), slot({ startsAt: '11:15', endsAt: '12:15' })] }],
+      visits: [{ date: '2026-10-16', status: 'done', slots: [slot({ note: '  遲到十五分鐘 ' }), slot({ startsAt: '11:15', endsAt: '12:15' })] }],
     }), CTX);
     assert.deepEqual(plan.problems, []);
-    assert.equal(plan.visits[0].slots[0].note, '遲到15分鐘');
+    assert.equal(plan.visits[0].slots[0].note, '遲到十五分鐘');
     assert.equal(plan.visits[0].slots[1].note, null);
   });
 
@@ -54,5 +54,13 @@ describe('段的「記一句」（issue 02）', () => {
     assert.equal(bad(null).length, 0);
     assert.ok(bad(42).length);
     assert.ok(bad('字'.repeat(201)).length);
+  });
+
+  test('摘要卡數得到幾段帶記一句；同名跳過的那一位不算', () => {
+    const visits = [{ date: '2026-10-16', status: 'done', slots: [slot({ note: '遲到' }), slot({ startsAt: '11:15', endsAt: '12:15', note: '  ' })] }];
+    const kept = planForCustomer(entry({ visits }), CTX);
+    const skipped = planForCustomer(entry({ name: '李小華', visits }), { ...CTX, existingCustomers: [{ id: 'c1', name: '李小華' }] });
+    assert.equal(kept.counts.slotNotes, 1, '空白的那一格不算');
+    assert.equal(summarize([kept, skipped]).slotNotes, 1);
   });
 });

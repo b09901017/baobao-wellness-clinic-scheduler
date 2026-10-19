@@ -327,6 +327,7 @@ function summaryCard(s, plans, { problems, unplaced, skipped }, renames) {
       ${staffHtml(renames)}
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
       ${s.phones ? `<p class="muted"><b>${s.phones}</b> 位帶電話。</p>` : ''}
+      ${s.slotNotes ? `<p class="muted"><b>${s.slotNotes}</b> 個時段帶著記一句（舊表那一天底下那一格）。</p>` : ''}
       ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成
         <b>已確認</b> —— 那是「已經約好、還沒來」：算進已排未上，次數還不會扣。
         其餘的標成已完成。</p>` : ''}

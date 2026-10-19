@@ -1,6 +1,6 @@
 # 合併檔 v9：每一段可以帶「記一句」
 
-Status: todo
+Status: done
 動工前先讀：`domain/mergeImport.js` 的 `FORMAT`／`FORMATS`、`validateFile()`、`planForCustomer()`；`domain/visits.js` 的 `NOTE_MAX`；ADR-0084（記一句在段上）、SPEC 6.4（匯進來的已完成鎖著）；`.claude/skills/calendar-sheet-merge/scripts/merge.mjs` 的 `importJson()`（版本是一行字面值 `format: 'baobao-merge/v8'`，沒有常數）、`SKILL.md`「合併檔」那一節；`tests/calendar-merge.test.js`（兩邊版本字串）；CLAUDE.md「舊表 B2…合併檔」那一列
 
 ## 她要的
@@ -23,6 +23,6 @@ v8 的段沒有 `note`，舊表日期欄底下那一格只能寫成客戶短備�
 ## 判準
 
 - v8 的檔案（沒有 `note`）匯出來的每一段 `note` 都是 `null`（讀起來跟沒有那一格一樣：`slot.note` 的讀者都先 `?? ''`）
-- v9 一段帶 `note: '遲到15分鐘'` → 那一段 `slot.note === '遲到15分鐘'`，其他段 `null`
+- v9 一段帶 `note: '遲到十五分鐘'` → 那一段 `slot.note === '遲到十五分鐘'`，其他段 `null`
 - `note` 201 個字、或是數字 → `validateFile()` 拒收
 - `tests/calendar-merge.test.js` 兩邊的版本字串一樣；寫死 v8 的那幾支（過目列的 merge-import／merge-functional-clinic／merge-v8-gift-candidates／merge-staff-roster／merge-chart-numbers）跟著升
