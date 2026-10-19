@@ -1452,7 +1452,7 @@ function paintEdit(ctx) {
       <form data-form>
         ${f.text({ name: 'name', label: '姓名', value: customer.name })}
         ${f.text({ name: 'phone', label: '電話', value: customer.phone ?? '' })}
-        ${f.text({ name: 'lineId', label: 'LINE', value: customer.lineId ?? '', hint: LINE_HINT })}
+        ${f.text({ name: 'lineId', label: 'LINE 名字', value: customer.lineId ?? '', hint: LINE_HINT })}
         ${f.text({ name: 'source', label: '購買通路', value: customer.source ?? '' })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(customer.priority ?? 0),

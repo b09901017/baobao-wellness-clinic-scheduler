@@ -1,6 +1,6 @@
 # 客戶的 LINE 那一格改存「LINE 上的名字」
 
-Status: todo
+Status: done（10/19，段一）
 Blocked by: —
 動工前先讀：`domain/customerNotes.js` 的 `lineHref()`、`LINE_HINT`、`noteItems()`（`lineItem` 那一行）；`ui/components/marks.js` 的 `noteChip()` LINE 那一支；
 兩張編輯表單（`ui/components/customerForm.js:143`、`ui/views/customerDetail.js` 的 `paintEdit()` 那一格）；`domain/audit.js` 的 `FIELD_LABELS.lineId`；
@@ -43,4 +43,12 @@ LINE 沒有「用名字打開對話」的網址，所以那一格改存**她 LIN
 
 ## 做完時留下的
 
-（做完寫）
+- `lineHref()`、`LINE_URL` 刪掉；`noteItems()` 的 LINE 那一項是 `{ key: 'line', kind: 'line', text }`；`LINE_HINT` 換成「打你 LINE 好友清單上看到的名字，一個字都不能差：手機會拿它去 LINE 搜尋、打開他的對話。」
+- 丸子是 `<button class="mark mark--lg mark--contact" type="button" data-notes-line aria-label="打開 王小明 的 LINE 對話">`，丸子上照舊只印「LINE」（名字在 aria-label 與編輯表單裡）；
+  `button.mark--contact::after` 加進 -3px 那一條，E2E 74 補 **N13**（LINE 排在長備註底下，點長備註下緣照樣開長備註）
+- 標籤「LINE 名字」：兩張表單、稽核 `FIELD_LABELS`、客戶清單搜尋框的 placeholder
+- 測試：`customer-notes.test.js` 的 lineHref 三條換成兩條（名字、那條路拿掉了）；`audit.test.js:332`；E2E 74 N1 改量「是按鈕、沒有 href」、種子換成 `王小明`
+- `tests/no-secrets.test.js` 的 `NOT_A_NAME` 加「執行到第」（她的原話「執行到第11步」被當成姓名＋病歷號）
+- `sw.js` 的 `VERSION` → v197（整輪就這一個號）
+- **這一支之後點 LINE 什麼都不會發生**，03 接線（同一個 PR）
+- 沒另外補「客戶清單打 LINE 名字搜得到」的測試：`customers.js:275` 一個字沒動，那一格本來就在比

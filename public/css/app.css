@@ -1609,7 +1609,7 @@ button.mark::after {
   letter-spacing: 0.02em;
 }
 
-/* 電話、LINE 是連結，長備註是按鈕。按住電話要複製：不准 iOS 跳連結預覽、不准選字 */
+/* 電話是連結，LINE 與長備註是按鈕。按住電話要複製：不准 iOS 跳連結預覽、不准選字 */
 .mark--contact,
 .mark--long {
   text-decoration: none;
@@ -1624,7 +1624,8 @@ button.mark::after {
    **上下只撐 `.marks` 那 6px 排距的一半**：多撐的話跨進上一排那一顆的下緣，
    而電話在 DOM 裡排在後面、疊到的那一段由它贏 —— 點長備註的下緣變成撥號（E2E 74 N11 量著） */
 a.mark--contact::after,
-span.mark--contact::after {
+span.mark--contact::after,
+button.mark--contact::after {
   content: '';
   position: absolute;
   inset: -3px 0;

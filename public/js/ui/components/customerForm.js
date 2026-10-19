@@ -140,7 +140,7 @@ export function mountCustomerForm(host, opts) {
               <span class="field__label">電話<span data-cf-warn="contact">${warnTip(warn.contact)}</span></span>
               <input type="tel" name="phone" value="${esc(draft.phone)}" inputmode="tel" autocomplete="off" />
             </label>
-            ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId, hint: LINE_HINT })}
+            ${f.text({ name: 'lineId', label: 'LINE 名字', value: draft.lineId, hint: LINE_HINT })}
           </div>
         </section>`}
 
