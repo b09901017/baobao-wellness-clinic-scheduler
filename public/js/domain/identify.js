@@ -7,8 +7,10 @@
 // 所以兩樣一起比，**對不上的時候不挑一位** —— `numberOnly`、`conflict`、`ambiguous` 的 `customer`
 // 一律是 null，只給候選讓她選。挑一個「最像的」就是把一段時間記到別人身上，而畫面上看起來是認得的。
 //
-// 病歷號**不是一個欄位**，是客戶備註裡的一則「病歷號 1234」（`CHART_NO_PREFIX`，ADR-0050）。
-// 這一支從備註讀，不另開欄位。
+// 病歷號**是一格**（`customer.chartNo`，ADR-0160，2026-10-19 推翻 ADR-0050 的「是一則備註」）。
+// 畫面上它照樣在備註那一段（一顆丸子），資料上跟電話、LINE 一樣是客戶身上的一格。
+// **舊的「病歷號 1234」短備註照樣認**（`CHART_NO_PREFIX`）：還沒搬的資料庫、合併檔那一側（`merge.mjs`）
+// 都還是那個寫法 —— 搬家由匯入與資料健檢做（`customerNotes.js` 的 `chartNoMove()`）。
 
 import { readMarks } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
@@ -38,16 +40,29 @@ export const sameName = (a, b) => {
   return Boolean(x) && x === normalizeName(b);
 };
 
-/** 這位客戶身上記著哪幾個病歷號（已經正規化）。舊的說法「姓名欄的編號：」也認。 */
+/**
+ * 一則短備註裡的病歷號（前綴後面那幾個字，原字去掉頭尾空白）；不是那一種回 null。
+ * 舊的說法「姓名欄的編號：」也認。
+ */
+export function chartNoInMark(text) {
+  const t = String(text ?? '').trim();
+  const prefix = PREFIXES.find((p) => t.startsWith(p));
+  if (!prefix) return null;
+  return t.slice(prefix.length).trim() || null;
+}
+
+/**
+ * 這位客戶身上記著哪幾個病歷號（已經正規化）。**那一格排第一個**，接著是還寫成短備註的
+ * （兩種說法都認）—— 一樣的不重複。
+ */
 export function chartNosOf(customer) {
   const out = [];
-  for (const { text } of readMarks(customer)) {
-    const t = String(text ?? '').trim();
-    const prefix = PREFIXES.find((p) => t.startsWith(p));
-    if (!prefix) continue;
-    const no = normalizeChartNo(t.slice(prefix.length));
+  const add = (raw) => {
+    const no = raw == null ? '' : normalizeChartNo(raw);
     if (no && !out.includes(no)) out.push(no);
-  }
+  };
+  add(customer?.chartNo);
+  for (const { text } of readMarks(customer)) add(chartNoInMark(text));
   return out;
 }
 

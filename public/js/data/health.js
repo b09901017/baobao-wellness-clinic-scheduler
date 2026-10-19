@@ -79,6 +79,7 @@ export async function run(today) {
  *   見 docs/adr/0023-health-check-can-also-create-the-missing-followup.md。
  * - `renameChartNo`：備註的「姓名欄的編號：」改成「病歷號」，號碼一個字不動，
  *   見 docs/adr/0050-the-health-check-can-rename-an-imported-note.md。
+ * - `chartNoToField`：短備註「病歷號 1234」放進病歷號那一格（ADR-0160），位置不變。
  * - `renamePool`：以前買的復能額度改成新的名字（`復能-三選一(60)`）。
  *   **只改 label**，而且只改得動認得出「歷代自動名字」的那幾筆。
  * - `addAlert`：器材上登記的提醒詞補進警示主檔（ADR-0074）。少了它，
@@ -166,6 +167,18 @@ function opFor(fix) {
       id: fix.customerId,
       changes: fix.changes,
       note: '資料健檢：備註的「姓名欄的編號」改成「病歷號」',
+    };
+  }
+
+  // 病歷號那一格（ADR-0160）：短備註「病歷號 1234」放進 `chartNo`，`marks`／`notes`（排過的連 `noteOrder`）
+  // 同一筆寫 —— `changes` 是 `customerNotes.js` 的 `chartNoMove()` 算好的。寫的是客戶本人，同 `renameChartNo`
+  if (fix?.kind === 'chartNoToField') {
+    return {
+      op: 'update',
+      path: 'customers',
+      id: fix.customerId,
+      changes: fix.changes,
+      note: '資料健檢：病歷號放進那一格',
     };
   }
 

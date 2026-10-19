@@ -695,6 +695,22 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label}`),
     }),
   },
+  chartNoField: {
+    button: () => '放進病歷號那一格',
+    all: (n) => `一次放這 ${n} 位`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的病歷號放進那一格？`,
+      lines: [
+        `病歷號 ${fix.changes.chartNo} 照樣在備註那一段，位置不變，前面多一個病歷號的小圖`,
+        '那一則短備註拿掉：壓表卡片牆與試算表的備註不再畫它',
+        '號碼一個字都不會動，其餘的備註也不動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 位的病歷號都放進那一格？`,
+      lines: fixes.map((fix) => `${fix.label}：病歷號 ${fix.changes.chartNo}`),
+    }),
+  },
 };
 
 const KIND_TO_CHECK = {
@@ -705,6 +721,7 @@ const KIND_TO_CHECK = {
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',
+  chartNoToField: 'chartNoField',
   renamePool: 'poolLabel',
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',

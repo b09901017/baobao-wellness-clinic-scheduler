@@ -39,6 +39,7 @@ import {
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
+import { chartNoMove } from './customerNotes.js';
 
 /**
  * ## 「去看看」只剩指向主檔設定的那幾顆（2026-09-16）
@@ -273,6 +274,12 @@ export const CHECKS = [
     label: '「EECP體驗」那一門還在',
     hint: 'EECP 合成一門了：約的時候選 20 就是體驗。還指著舊的那一門的段改成 EECP 的體驗（20 分、狀態不動），'
       + '接著刪掉那一門；有額度扣著它的只列出來，要改成什麼你決定',
+  },
+  {
+    id: 'chartNoField',
+    label: '病歷號還寫成一則短備註',
+    hint: '病歷號現在有自己一格（編輯客戶資料裡填），在備註那一段是一顆病歷號的丸子 ——'
+      + ' 還寫成「病歷號 1234」短備註的，放進那一格之後位置不變；寫了兩個不一樣號碼的只列出來，你決定是哪一個',
   },
 ];
 
@@ -860,6 +867,9 @@ function checkChartNo(ctx) {
   const out = [];
 
   for (const customer of alive(ctx.customers)) {
+    // 搬得進病歷號那一格的那幾位由最後一項（`chartNoField`）收，連舊的說法一起 —— 兩項都給一顆的話，
+    // 同一批按下去兩筆都寫這一位的 `marks`，後寫的蓋掉先寫的
+    if (chartNoMove(customer)?.changes) continue;
     const marks = readMarks(customer);
     const stale = marks.filter((m) => m.text.startsWith(OLD_CHART_NO_PREFIX));
     if (!stale.length) continue;
@@ -2355,6 +2365,44 @@ function checkEecpTrialCourse(ctx) {
   return [...blocked, ...fixable];
 }
 
+/**
+ * 病歷號還寫成一則短備註（ADR-0160，2026-10-19）。
+ *
+ * 病歷號現在是一格（`customer.chartNo`）；舊表匯進來的寫成「病歷號 1234」短備註（ADR-0050）。
+ * 認人兩種都認（`identify.js` 的 `chartNosOf()`），所以這一項不是「認不出來」—— 是那一則還佔著一則短備註
+ * （壓表卡片牆、試算表的備註都畫它），而那一格空著。搬家只有 `chartNoMove()` 一支（匯入也是它）：
+ * 位置不變、其餘短備註的顏色與先後不變。**兩則不一樣、或那一格已經是另一個號碼 → 只列不修**。
+ */
+function checkChartNoField(ctx) {
+  const out = [];
+  for (const customer of alive(ctx.customers)) {
+    const move = chartNoMove(customer);
+    if (!move) continue;
+    const base = { severity: 'attention', who: customer.name, whoId: customer.id, title: customer.name, link: null };
+    if (move.blocked) {
+      out.push({
+        ...base,
+        detail: `記著 ${move.nos.length} 個不一樣的病歷號（${move.nos.join('、')}）—— 到這一位的客戶詳情，`
+          + '編輯客戶資料填對的那一個，再把備註裡的那幾則刪掉',
+        fix: null,
+      });
+      continue;
+    }
+    out.push({
+      ...base,
+      detail: `「${readMarks(customer).filter((m) => m.text !== move.changes.marks?.find((x) => x.text === m.text)?.text)
+        .map((m) => m.text).join('、')}」→ 病歷號 ${move.chartNo}`,
+      fix: {
+        kind: 'chartNoToField',
+        customerId: customer.id,
+        label: customer.name,
+        changes: move.changes,
+      },
+    });
+  }
+  return out;
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
   sameDayVisits: checkSameDayVisits,
@@ -2392,4 +2440,5 @@ const RUNNERS = {
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,
   eecpTrialCourse: checkEecpTrialCourse,
+  chartNoField: checkChartNoField,
 };

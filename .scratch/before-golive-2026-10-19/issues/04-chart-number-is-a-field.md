@@ -1,6 +1,6 @@
 # 病歷號變成一格（`customer.chartNo`）：資料、認人、搬家
 
-Status: todo
+Status: done
 段：二（high）
 Blocked by: —（05、06、07、10 等它）
 動工前先讀：`domain/identify.js`（檔頭那一段「病歷號不是一個欄位」、`chartNosOf()`、`identifyCustomer()`）；`domain/legacyImport.js` 的 `CHART_NO_PREFIX`／`OLD_CHART_NO_PREFIX`；`domain/customerNotes.js` 的 `noteItems()`、`notesFields()`、`MAX_NOTE_ORDER`（電話、LINE 怎麼當「只是位置」的 token）；`domain/customerMarks.js` 的 `readMarks()`；`domain/health.js` 的 `checkChartNo`（第 `chartNo` 項，舊說法「姓名欄的編號：」改名）與 `data/health.js` 的 `renameChartNo`；`domain/mergeImport.js`／`data/legacyImport.js` 的 `importPlan()`（客戶的 `marks` 從檔案寫進去的那一段）；`domain/sheetReport.js:515` 的 `firstNo`（同名分頁的尾巴）；`domain/audit.js` 的 `FIELD_LABELS`；`firestore.rules` 客戶那一段；`.claude/skills/calendar-sheet-merge/scripts/merge.mjs:982-1027`、`.claude/skills/month-end-reconciliation/scripts/vocab.mjs:26`（都 import `chartNosOf()`）；ADR-0050、0103、0128、0156、0157；`CLAUDE.md`「備註那一段的順序、長備註」「照片上的人是 app 裡的哪一位」「新增一個會寫進稽核的欄位」「`data/backup.js` 的 `exportAll()`」四列
@@ -57,3 +57,24 @@ Blocked by: —（05、06、07、10 等它）
 - ADR-0158 或之後的號碼：**病歷號是一格**（推翻 ADR-0050 的「病歷號是一則備註」、`identify.js` 檔頭那一句；舊的那一支不改）
 - `SPEC.md` 客戶資料那一節、`CONTEXT.md`（病歷號）、`CLAUDE.md`「備註那一段的順序」那一列（token 多一種）、「照片上的人」那一列
 - `tests/customer-notes.test.js`、`tests/identify*.test.js`、`tests/health.test.js` 與 `tests/seed-staff.test.js` 寫死的總數
+
+## 做完時留下的（10/19 段二）
+
+- **資料**：`customer.chartNo`（原字或 null）。`customerNotes.js` 的 `noteItems()` 多一種 `{ key: 'chartNo', kind: 'chartNo', text }`、順序 token `'chartNo'`；
+  沒排過／順序裡沒有它 → 電話 → LINE → **病歷號** → 長備註 → 短備註（`front` 也收它）。`notesFields()` 只寫位置
+- **認人**：`identify.js` 多 `chartNoInMark(text)`（前綴後面的原字、去頭尾空白）；`chartNosOf()` 先讀那一格、再讀短備註，一樣的不重複，形狀不變
+- **搬家只有 `customerNotes.js` 的 `chartNoMove(customer)`** → `null`｜`{ blocked: true, nos }`｜`{ chartNo, changes }`：
+  - **只搬號碼**（正規化之後全是數字）—— 「病歷號要再問」那種留著
+  - 那一格空著放第一則的原字；已經是同一個號碼留她打的；同號兩則一起拿掉
+  - **位置**：排過順序的走 `notesFields()`（第一則的位置換成 `'chartNo'`）；**沒排過的不寫 `noteOrder`**、照預設排到 LINE 後面（合併檔的病歷號本來是最後一則短備註 → 現在在前面那一組；她排得動）
+- **匯入**：`mergeImport.js` 的 `planForCustomer()` 建客戶時 `...chartNoFieldOf(entry)`（拿不準的照舊留在短備註、`chartNo: null`）。v1（只有 `notes`）的也搬，`marks` 會寫成陣列
+- **資料健檢**：`CHECKS` 最後一項 `chartNoField`「病歷號還寫成一則短備註」→ fix `chartNoToField`（`data/health.js`：寫客戶本人、`changes` 就是 `chartNoMove().changes`）；
+  拿不準的只列。舊的 `chartNo` 項**跳過 `chartNoMove()` 給得出 changes 的人**（不然同一批兩筆寫同一位的 `marks`）—— 那一項現在只剩「那一格是另一個號碼」那種
+  總數 36 → 37（`health.test.js`、`seed-staff.test.js`；`eecp-one-course.test.js` 的「接在最後面」改成最後兩項）
+- **稽核**：`FIELD_LABELS.chartNo = '病歷號'`（`audit-field-words.test.js` 只釘舊名單，不用改）
+- **Rules 不用改**（客戶身上的欄位不逐欄驗）；備份是客戶整份，`chartNo` 自動跟著
+- **量過**：`.local/references/before-golive-2026-10-19/chart-no-import.mjs`（node 裡跑 `planForCustomer()` ＋ `runHealthCheck()`，跟匯入頁同一支；沒進模擬器 —— 匯入頁寫的就是 `plan.customer`）：
+  34 位、34 位有病歷號 → 那一格 34、短備註裡剩 0 則、其餘短備註 106 → 106、資料健檢兩項 0、`chartNosOf()` 認得 34
+- **沒做、留給 10**：`sheetReport.js` 每位帶 `chartNo`（抬頭那一行）—— `customer.notes` 鏡像少了「病歷號 1234」那一行，手動貼上那條路也要靠 10 補
+- 文件：ADR-0160（07 那一半之後補進同一支）、SPEC 客戶資料與資料健檢兩處、CONTEXT「病歷號」、CLAUDE.md 兩列
+- 新測試：`tests/chart-no-field.test.js`

@@ -291,9 +291,9 @@ describe('照錯的時長排出去的那幾段', () => {
 });
 
 describe('形狀', () => {
-  test('三十五項檢查都在，順序固定', () => {
+  test('三十七項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 36);
+    assert.equal(result.checks.length, 37);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -393,9 +393,18 @@ describe('品項跟買的不一樣', () => {
 
 describe('備註寫著舊的說法（ADR-0050）', () => {
   const withMarks = (marks) => run({ customers: [customer({ marks })] });
+  // 搬得進病歷號那一格的由最後一項（`chartNoField`，ADR-0160）收；這一項只剩搬不了的那幾位
+  // （那一格已經是另一個號碼、或寫了兩個不一樣的）
+  const blocked = (marks) => run({ customers: [customer({ chartNo: '4321', marks })] });
+
+  test('搬得進那一格的不在這一項（由「病歷號還寫成一則短備註」收）', () => {
+    const result = withMarks([{ text: '姓名欄的編號：1234', color: 'grey' }]);
+    assert.equal(findingsOf(result, 'chartNo').length, 0);
+    assert.equal(findingsOf(result, 'chartNoField').length, 1);
+  });
 
   test('「姓名欄的編號：1234」列出來，而且給得出改成什麼', () => {
-    const result = withMarks([{ text: '姓名欄的編號：1234', color: 'grey' }]);
+    const result = blocked([{ text: '姓名欄的編號：1234', color: 'grey' }]);
     const [f] = findingsOf(result, 'chartNo');
     assert.ok(f, '應該要報');
     assert.equal(f.fix.kind, 'renameChartNo');
@@ -405,7 +414,7 @@ describe('備註寫著舊的說法（ADR-0050）', () => {
   });
 
   test('顏色與其他備註原封不動', () => {
-    const result = withMarks([
+    const result = blocked([
       { text: '喜歡下午', color: 'blue' },
       { text: '姓名欄的編號：9001', color: 'red' },
     ]);
@@ -1048,9 +1057,12 @@ describe('同一個月有兩份不能的時間', () => {
 });
 
 describe('畫面認得每一種修正', () => {
-  // 三種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法
+  // 四種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法（搬不了的那一位）、病歷號放進那一格
   const result = run({
-    customers: [customer({ marks: [{ text: '姓名欄的編號：1234', color: 'grey' }] })],
+    customers: [
+      customer({ chartNo: '4321', marks: [{ text: '姓名欄的編號：1234', color: 'grey' }] }),
+      customer({ id: 'cus-2', name: '客戶二', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    ],
     entitlements: [
       ent({ doneCount: 5 }),
       ent({ id: 'e-chk', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),
@@ -1062,8 +1074,8 @@ describe('畫面認得每一種修正', () => {
     result.checks.flatMap((c) => c.findings).map((f) => f.fix?.kind).filter(Boolean),
   )];
 
-  test('這份快照真的把三種修正都長出來了', () => {
-    assert.deepEqual(kinds.slice().sort(), ['addFollowup', 'recount', 'renameChartNo']);
+  test('這份快照真的把四種修正都長出來了', () => {
+    assert.deepEqual(kinds.slice().sort(), ['addFollowup', 'chartNoToField', 'recount', 'renameChartNo']);
   });
 
   test('每一種 fix.kind 在 KIND_TO_CHECK 與 FIX_COPY 都查得到', () => {
