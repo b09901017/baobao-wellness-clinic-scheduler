@@ -34,8 +34,8 @@ const file = (customers) => ({ format: FORMAT, calendar: { file: 'x', span: [], 
 const errorsOf = (c) => validateFile(file([c])).errors;
 
 describe('契約：baobao-merge/v9', () => {
-  test('一律寫 v9；v1～v8 照收', () => {
-    assert.equal(FORMAT, 'baobao-merge/v9');
+  test('一律寫 v10（v10 只多客戶的 LINE 名字）；v1～v9 照收', () => {
+    assert.equal(FORMAT, 'baobao-merge/v10');
     for (const v of [1, 2, 3, 4, 5, 6, 7, 8, 9]) assert.ok(FORMATS.includes(`baobao-merge/v${v}`), `v${v}`);
   });
 });

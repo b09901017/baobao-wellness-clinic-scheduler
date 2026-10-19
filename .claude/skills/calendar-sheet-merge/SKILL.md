@@ -259,13 +259,15 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v9'          （app 也收 v1～v8：少的那幾格退回以前的值；v4 的候選多了 decided；
+format: 'baobao-merge/v10'         （app 也收 v1～v9：少的那幾格退回以前的值；v4 的候選多了 decided；
                                     v5 不算次數的課那一段沒有 entitlementKey；v6 多一段選填的 staff；
                                     v7 客戶多 phone、每一段多 giftKind；v8 候選也帶 giftKind；
-                                    v9 段多 note／status／cancelReason、客戶多 longNotes。一律寫 v9）
+                                    v9 段多 note／status／cancelReason、客戶多 longNotes；v10 客戶多 lineId。一律寫 v10）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                phone,                                 （v7，選填：只有帶 --phones 才有這個鍵。字串或 null）
+               lineId,                                （v10，選填：她 LINE 好友清單上看到的名字（兩個字的叫法照寫，不換成全名）。
+                                                       字串或 null；merge.mjs 不產，切換那天的一次性腳本產）
                longNotes[]: { title, body },          （v9，選填：舊表 A 欄一大段的整體備註。標題 40 字、內文 5000 字、
                                                        最多 20 則；app 匯入時給 id、不寫順序）
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）

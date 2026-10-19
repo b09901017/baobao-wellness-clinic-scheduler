@@ -49,14 +49,17 @@ import { NOTE_MAX, slotMinutes, visitStatusFrom } from './visits.js';
  *   「記一句」）、`status`（只收 `'cancelled'`／`'no_show'`）＋`cancelReason`（已取消的段的理由）；客戶多一格選填的
  *   `longNotes`（`[{ title, body }]`）。v8 的 app 讀到會把取消的段當成做完的、記一句與長備註安靜地丟掉 —— 所以升版
  *
+ * - **v10（2026-10-20 晚）** 客戶多一格選填的 `lineId`（她 LINE 好友清單上看到的名字，ADR-0157；`.scratch/merge-v10-line-names/`）。
+ *   v9 的 app 建客戶時寫死 `lineId: null`，讀到會安靜地丟掉 —— 所以升版
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v9';
+export const FORMAT = 'baobao-merge/v10';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
   'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6',
-  'baobao-merge/v7', 'baobao-merge/v8', FORMAT,
+  'baobao-merge/v7', 'baobao-merge/v8', 'baobao-merge/v9', FORMAT,
 ]);
 
 /**
@@ -209,6 +212,8 @@ export function validateFile(json) {
     if (!norm(c?.name)) errors.push(`${at}：沒有名字`);
     // v7 的兩格（選填）：形狀不對整份拒收，同 `staff`
     if (c?.phone != null && typeof c.phone !== 'string') errors.push(`${at}：電話的格式不對`);
+    // v10：LINE 名字（選填）。同電話：形狀不對整份拒收
+    if (c?.lineId != null && typeof c.lineId !== 'string') errors.push(`${at}：LINE 名字的格式不對`);
     // v9：長備註（選填）。上限照長備註那一頁（`validateLongNotes()`：標題 40、內文 5000、最多 20 則 —— Rules 也是 20）。
     // 檔案上沒有 id（匯入時才給），先補暫時的再驗
     if (c?.longNotes != null) {
@@ -475,7 +480,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       name,
       // v7：產檔那側從 Abovee 的擷取結果帶過來的（`--phones`）。v6 以前沒有就是 null
       phone: typeof entry.phone === 'string' && norm(entry.phone) ? norm(entry.phone) : null,
-      lineId: null,
+      // v10：她 LINE 好友清單上看到的名字（ADR-0157）—— 兩個字的叫法照存，不換成全名（「打開 LINE 對話」照它找人）。
+      // 去頭尾空白、空的是 null，同客戶表單那一格。v9 以前沒有就是 null
+      lineId: textOf(entry.lineId),
       source: entry.source || null,
       purchasedAt: entry.purchasedAt ?? null,
       membershipExpiresAt: null,
@@ -1189,6 +1196,8 @@ export function summarize(plans) {
     customers: live.length,
     // v7：帶著電話的那幾位（只數字，摘要卡印）
     phones: live.filter((p) => p.customer?.phone).length,
+    // v10：帶 LINE 名字的幾位（摘要卡「N 位帶 LINE 名字」）
+    lines: live.filter((p) => p.customer?.lineId).length,
     skipped: plans.filter((p) => p.skip).map((p) => ({ customerName: p.customerName, why: p.skip })),
     entitlements: live.reduce((n, p) => n + p.counts.entitlements, 0),
     // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。
