@@ -67,6 +67,50 @@ export function wire(el, notify) {
   );
 }
 
+/**
+ * 她改過的訊息，跨整頁重畫留著（line-macrodroid 06）。
+ *
+ * 用到這個元件的兩頁（確認時間、問這輪的時間）每一次互動都整頁換掉，textarea 跟著回到產生的那一份 ——
+ * 她改了訊息、開一次抽屜，改的字就沒了，「打開 LINE」送出去的是沒改過的。
+ *
+ * - `keep(el)`：重畫之前叫。畫面上**改過的**（跟產生的時候不一樣）或**展開著的**那幾則記下來；
+ *   畫面上沒改、收著的那幾則拿掉（她改回去、收起來了）。**不在畫面上的照舊留著** ——
+ *   問這輪的時間切到另一個分段時那一張不在畫面上，切回來還要在
+ * - `restore(el)`：畫完之後叫。**那一則本來的樣子變了就不帶**（新產生的 ≠ 記下的那一份）而且丟掉：
+ *   她確認了其中一段、訊息少了一段，她改的是舊的那一段 —— 帶回來就是把一段已經談定的時間又問一次
+ *
+ * 一頁一份，**從待辦中心點進來時換一份新的**（呼叫端管）：昨天沒送的那一段，今天不該自己跑回來。
+ */
+export function editStore() {
+  /** @type {Map<string, {base: string, value: string, open: boolean}>} */
+  const kept = new Map();
+  return {
+    keep(el) {
+      el?.querySelectorAll('textarea[data-msg]').forEach((area) => {
+        const open = Boolean(area.closest('details')?.open);
+        if (area.value !== area.defaultValue || open) {
+          kept.set(area.dataset.msg, { base: area.defaultValue, value: area.value, open });
+        } else {
+          kept.delete(area.dataset.msg);
+        }
+      });
+    },
+    restore(el) {
+      kept.forEach(({ base, value, open }, id) => {
+        const area = el?.querySelector(`textarea[data-msg="${CSS.escape(id)}"]`);
+        if (!area) return;
+        if (area.defaultValue !== base) {
+          kept.delete(id);
+          return;
+        }
+        area.value = value;
+        const wrap = area.closest('details');
+        if (wrap && open) wrap.open = true;
+      });
+    },
+  };
+}
+
 async function copy(el, id, notify) {
   const area = el.querySelector(`[data-msg="${CSS.escape(id)}"]`);
   const text = area?.value ?? '';

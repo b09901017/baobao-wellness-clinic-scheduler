@@ -205,3 +205,92 @@ test.describe('確認時間、問這輪的時間的「打開 LINE」（巨集做
     expect(sent.length).toBeGreaterThan(0);
   });
 });
+
+test.describe('訊息框裡改過的字，整頁重畫之後還在（line-macrodroid 06）', () => {
+  function seedTwoSlots() {
+    return [
+      ...masterDocs(),
+      customer({ id: 'cust-r', name: '客戶A', lineId: '王小明' }),
+      entitlement('cust-r', { id: 'ent-r', label: '靜脈雷射', courseId: 'course-iv-laser', totalQty: 10 }),
+      visit({
+        id: 'v-r', customerId: 'cust-r', customerName: '客戶A', date: addDays(TODAY, 3), status: 'pending_confirm',
+        slots: [
+          slot({ courseId: 'course-iv-laser', entitlementId: 'ent-r', startsAt: '10:00', endsAt: '11:00' }),
+          slot({ courseId: 'course-iv-laser', entitlementId: 'ent-r', startsAt: '14:00', endsAt: '15:00' }),
+        ],
+      }),
+    ];
+  }
+
+  test('R1 確認時間：改字 → 開抽屜 → 關掉，那一格還是改過的、還展開著；打開 LINE 送的是改過的', async ({ app, page, context }) => {
+    const { calls } = await fakeMacro(context);
+    await macroOn(page);
+    await app.seed(seedTwoSlots());
+    await app.signIn('/todo/confirm');
+
+    await page.locator('[data-msg-wrap="cust-r"] summary').click();
+    const area = page.locator('[data-msg="cust-r"]');
+    await area.fill(`${await area.inputValue()}\n（改過）`);
+    const edited = await area.inputValue();
+
+    await page.locator('[data-open="cust-r"]').click();
+    await expect(page.locator('.drawer [data-apply]')).toBeVisible();
+    await page.locator('[data-close-drawer]').first().click();
+    await expect(page.locator('.drawer [data-apply]')).toHaveCount(0);
+
+    await expect(page.locator('[data-msg-wrap="cust-r"]')).toHaveJSProperty('open', true);
+    await expect(area).toHaveValue(edited);
+    await page.locator('[data-msg-line="cust-r"]').click();
+    await expect(toast(page)).toContainText('已經叫 MacroDroid');
+    expect(calls.map((c) => c.msg)).toEqual([edited]);
+  });
+
+  test('R2 確認時間：確認了其中一段、訊息跟著變 → 那一格是新產生的，不是改過的舊的那一段', async ({ app, page }) => {
+    await app.seed(seedTwoSlots());
+    await app.signIn('/todo/confirm');
+
+    await page.locator('[data-msg-wrap="cust-r"] summary').click();
+    const area = page.locator('[data-msg="cust-r"]');
+    expect(await area.inputValue()).toContain('14:00');
+    await area.fill(`${await area.inputValue()}\n（改過）`);
+
+    await page.locator('[data-open="cust-r"]').click();
+    await page.locator('.drawer [data-pick][data-to="1"]').first().click();
+    await page.locator('.drawer [data-apply]').click();
+    await app.saved();
+
+    await expect(area).not.toHaveValue(/改過/);
+    await expect(area).not.toHaveValue(/10:00/);
+    await expect(area).toHaveValue(/14:00/);
+  });
+
+  test('R3 問這輪的時間：改了 A 的訊息，再幫 B 產生連結（整頁重讀）→ A 的那一格還是改過的', async ({ app, page }) => {
+    await app.seed([
+      ...masterDocs(),
+      customer({ id: 'cust-a', name: '客戶A', lineId: '王小明' }),
+      entitlement('cust-a', { id: 'ent-a', label: '靜脈雷射', courseId: 'course-iv-laser', totalQty: 10 }),
+      customer({ id: 'cust-b', name: '客戶B' }),
+      entitlement('cust-b', { id: 'ent-b', label: '靜脈雷射', courseId: 'course-iv-laser', totalQty: 10 }),
+    ]);
+    await app.signIn('/todo/ask');
+
+    await page.locator('[data-makelink="cust-a"]').click();
+    await app.saved();
+    await app.settled(); // 存完之後整頁重讀；在那之前點的會被換掉
+    // 剛產生的那一則自己會展開（`paintAsk()` 的 focus）—— 再點一次 summary 反而收起來
+    await expect(page.locator('[data-msg-wrap="ask-cust-a"]')).toHaveJSProperty('open', true);
+    const area = page.locator('[data-msg="ask-cust-a"]');
+    await area.fill(`${await area.inputValue()}\n（改過）`);
+    const edited = await area.inputValue();
+
+    // 產生連結之後停在「已經發出」；B 在「還沒發連結」那一頁 —— 切分段也是一次整頁重畫
+    await page.locator('[data-asktab="todo"]').click();
+    await page.locator('[data-makelink="cust-b"]').click();
+    await app.saved();
+    await app.settled();
+    await expect(page.locator('[data-msg="ask-cust-b"]')).toHaveCount(1);
+
+    await expect(area).toHaveValue(edited);
+    await expect(page.locator('[data-msg-wrap="ask-cust-a"]')).toHaveJSProperty('open', true);
+  });
+});
