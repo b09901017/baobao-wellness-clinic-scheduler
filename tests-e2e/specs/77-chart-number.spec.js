@@ -5,7 +5,8 @@
 // 規則本身（搬家、認人、同號比對）在 `tests/chart-no-field.test.js`。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, entitlement } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement, visit, slot } from '../fixtures/data.js';
+import { seedDocs } from '../fixtures/emulator.js';
 import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
 
 const clientA = (extra = {}) => customer({
@@ -275,4 +276,25 @@ test('C12 待辦首頁與壓表那一列的標題照舊一行（同一條 CSS）
   await app.go('/schedule');
   await app.settled();
   expect((await titleOneLine(page)).oneLine).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// 13 刪客戶之前讀全部（中途發現第 1 條）
+// ---------------------------------------------------------------------------
+
+test('C13 打開客戶詳情之後別台才記了一段待確認 → 按刪除照樣「還刪不掉」（按下去那一刻重讀，不拿打開時那一份）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA()]);
+  await app.signIn('/customers/cust-c');
+  await expect(page.locator('[data-danger]')).toBeVisible();
+
+  await seedDocs([visit({
+    id: 'v-late', customerId: 'cust-c', customerName: '客戶A', date: '2099-01-05',
+    slots: [slot({ courseId: 'course-recovery', entitlementId: null, startsAt: '10:00', endsAt: '11:00' })],
+  })]);
+
+  await page.locator('[data-danger]').click();
+  await page.locator('[data-delete]').click();
+  await expect(app.dialog()).toContainText('還刪不掉');
+  await app.cancelDialog();
+  expect((await app.readDoc('customers', 'cust-c')).deletedAt ?? null).toBeNull();
 });

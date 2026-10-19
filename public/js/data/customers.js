@@ -10,7 +10,10 @@ import { expandPlan } from '../domain/entitlements.js';
 import { missingPairs } from '../domain/followups.js';
 import { deliveryNoteFor } from '../domain/products.js';
 // 循環 import（visits.js 也 import 這一支讀額度）：兩邊都只在函式裡用，模組載入時不碰
-import { chainAfterEntitlements } from './visits.js';
+import { chainAfterEntitlements, listWhole } from './visits.js';
+import * as tasksData from './tasks.js';
+import * as notesData from './notes.js';
+import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
 
 const PATH = 'customers';
 const entPath = (customerId) => `${PATH}/${customerId}/entitlements`;
@@ -58,6 +61,34 @@ export async function updateWithSnapshots(id, changes, targets = []) {
   for (let i = 0; i < ops.length; i += 240) await repo.commit(ops.slice(i, i + 240));
 }
 export const remove = (id, reason) => repo.softDelete(PATH, id, reason);
+
+/**
+ * 這位客戶身上的全部來訪、待辦、隨手記，**讀不完整就丟 `IncompleteReadError`**（before-golive-2026-10-19 issue 13、14，ADR-0158 同一個形狀）。
+ * 刪客戶（「還掛著什麼」）與改名（順手換快照）在按下去那一刻讀它 —— 拿快取裡剛好有的那幾筆，刪客戶會放過一筆沒看到的待確認來訪、
+ * 改名會漏換幾筆。來訪走 `listWhole()`（記著每一位的來源）；待辦與隨手記看這一趟有沒有讀到快取（`repo.cacheReads()`）。
+ *
+ * @param {string} customerId
+ * @param {string} [customerName]
+ * @param {{say?: string}} [o] 擋下來時那一句（沒給就是預設的「這一筆先不存」）
+ */
+export async function ownWhole(customerId, customerName = '', { say = null } = {}) {
+  const since = repo.cacheReads();
+  try {
+    const [visits, tasks, notes] = await Promise.all([
+      listWhole(customerId, customerName),
+      tasksData.listByCustomer(customerId),
+      notesData.listByCustomer(customerId),
+    ]);
+    if (readsIncomplete({
+      offline: globalThis.navigator?.onLine === false,
+      sources: [readSource(repo.cacheReads() !== since)],
+    })) throw new IncompleteReadError(customerName, say);
+    return { visits, tasks, notes };
+  } catch (err) {
+    if (err?.name === 'IncompleteReadError' && say) throw new IncompleteReadError(customerName, say);
+    throw err;
+  }
+}
 export const restore = (id) => repo.restore(PATH, id);
 
 /** 已刪除的客戶。設定頁的「已刪除項目」用。 */

@@ -866,12 +866,22 @@ function openDanger(ctx) {
 
   sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
     // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
-    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`
-    const block = rules.deleteBlockers({ visits: ctx.visits, tasks: ctx.tasks, notes: ctx.notes });
+    // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`。
+    // **按下去那一刻讀全部**（issue 13）：打開這一頁那一刻讀到的可能是快取裡剛好有的，少一筆待確認的來訪就放行了
+    let own;
+    try {
+      own = await data.ownWhole(ctx.id, customer.name, {
+        say: `網路不穩，讀不到 ${customer.name} 的全部紀錄 —— 先不刪，連上之後再按一次`,
+      });
+    } catch (err) {
+      toast.readFailed(err);
+      return;
+    }
+    const block = rules.deleteBlockers(own);
     if (block.visits.length || block.tasks.length || block.notes.length) {
       const master = liveMaster(ctx);
       const lineOf = (t) => {
-        const l = taskLine(t, ctx.visits.find((v) => v.id === t.visitId), master);
+        const l = taskLine(t, own.visits.find((v) => v.id === t.visitId), master);
         return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
       };
       const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
