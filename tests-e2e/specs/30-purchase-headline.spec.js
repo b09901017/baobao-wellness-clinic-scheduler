@@ -59,7 +59,9 @@ test('客戶頁的卡片：抬頭是買了什麼，沒有上次、下次、電�
   await expect(meta).toHaveText(HEADLINE);
   await expect(card, '她：「不用寫上次，下次麼時候來」').not.toContainText('上次');
   await expect(card).not.toContainText('下次');
-  await expect(card).not.toContainText(PHONE);
+  // 名字那一行與抬頭不印電話（2026-09-13）。底下備註那一排照她排的順序畫前四個（電話、LINE 也算，
+  // before-golive-2026-10-19/07，ADR-0160）—— 那一排印得出電話是她要的，所以只看上面那一塊
+  await expect(card.locator('.row').first()).not.toContainText(PHONE);
 });
 
 test('客戶詳情的抬頭：同一行，電話與 LINE 不上抬頭', async ({ app, page }) => {
