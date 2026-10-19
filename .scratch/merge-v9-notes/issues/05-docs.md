@@ -1,6 +1,6 @@
 # 文件：v9 與備註順序
 
-Status: todo
+Status: done
 Blocked by: 01, 02, 03, 04
 動工前先讀：CLAUDE.md「舊表 B2…合併檔」「備註那一段的順序、長備註」兩列；`.claude/skills/calendar-sheet-merge/SKILL.md`「合併檔（import.json）」那一節；`SPEC.md` 匯入那一節與備註順序那一句（過目：約 1529 行）；`docs/STAGING.md` 寫著 v8 的那一句（約 489 行）；`docs/操作手冊.md`／`docs/常見問題.md` 有沒有講到備註的順序
 
