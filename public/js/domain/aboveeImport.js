@@ -21,7 +21,7 @@
 // `statusFromAbovee()` 一支（六種，abovee-status-follows-photo 01）→ 每一列的 `photoStatus`。
 // 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
-import { identifyCustomer, nearNameSay, chartNoSay, normalizeChartNo, normalizeName } from './identify.js';
+import { identifyCustomer, nearNameSay, chartNoSay, chartNoWrites, normalizeChartNo, normalizeName } from './identify.js';
 import { bedMissingIn, courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
@@ -1813,8 +1813,9 @@ function flagMoved(items, ctx, bounds) {
     };
     const partialHistory = historyPartial(ctx, item.customerId);
     // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
-    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
-    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere;
+    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）。
+    // 名字對上、沒用號碼核對過的也不先勾（`unverified()`，ADR-0160）：這一條不經過 `resolveItem()` 的 `recognized`
+    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere && !unverified(item);
     // 扣法也不一樣（ADR-0154，staging-polish 16：Abovee 上改了時間、也改成 EECP20）→ 同一列多一件「要改的」。
     // 拿照片這一列跟 app 上**舊的那一段**比（同一個時間對到時是 `resolveItem()` 那一條比的，改期那一列不經過它）。
     // 預設勾跟著改期：改期沒先勾就不先勾 —— 只改舊時間那一段的扣法、不搬，對不上照片上任何一列
@@ -2654,6 +2655,16 @@ export const wantsWrite = (item) => Boolean(item?.customerId) && (
   || (Boolean(item.statusChange) && Boolean(item.adoptStatus))
   || (Boolean(item.chargeChange) && Boolean(item.adoptCharge))
   || (Boolean(item.move) && Boolean(item.adoptMove)));
+
+/**
+ * 確認框那一句「病歷號記成 …」（ADR-0160）：`items` 裡這一次會寫的那幾列（`wantsWrite()` —— 新的一段，也連「要改的」那幾行：
+ * 改狀態、改期、扣法、治療師／診間）。寫入那一側記的是記好的那幾列（`savedKeys`），而會被記好的就是這幾列 ——
+ * 以前確認框只數勾著的新列，改期那一列存下去照樣記上號碼、框上一句都沒講（段四審查）。
+ */
+export function photoChartNos(items, customers) {
+  return chartNoWrites((items ?? []).filter(wantsWrite)
+    .map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId })), customers);
+}
 
 /**
  * 底下那一顆要數的（10/16 審查）：她勾著的那幾列（`wanted`，`wantsWrite()` 的）裡，**這一份計畫真的會寫的**記新的幾段、改既有的幾段；

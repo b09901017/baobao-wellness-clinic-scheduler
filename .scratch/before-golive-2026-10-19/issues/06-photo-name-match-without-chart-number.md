@@ -47,7 +47,7 @@ Blocked by: 04
 - **一句**：`identify.js` 的 `chartNoSay(who, seenChartNo, pickedId, { then })` —— 拍 Abovee 經 `aboveeImport.js` 的 `nearSay()`（畫在 `.abl-row__hint--near`，收著也看得到）；
   療程單 `sheetConfirm.js` 的 `whoHtml()`（`then: '照常存'`：那一層沒有勾）
 - **不先勾**：`aboveeImport.js` 的 `resolveItem()` 裡 `recognized` 多 `&& !unverified(...)`（`unverified` 有 export）—— `checked`、`adoptStatus`、`adoptCharge`、`adopt` 一起；
-  `photoWantsChecked()` 沒動。`needsAttention()` 多一條（不是 `unknown`、`unverified`）。`adoptMove`（`flagMoved()`）走的是 `checked` 那一層之後 —— 沒另外擋，`flagMoved()` 只動 `recorded` 的列
+  `photoWantsChecked()` 沒動。`needsAttention()` 多一條（不是 `unknown`、`unverified`）。`adoptMove`（`flagMoved()`）~~走的是 `checked` 那一層之後 —— 沒另外擋，`flagMoved()` 只動 `recorded` 的列~~ —— **這句不對**（段四審查）：`flagMoved()` 收的是 `new` 的列、自己判預設勾，改期與扣法照樣先勾。段四補了 `!unverified(item)`；確認框那一句「病歷號記成」改數 `wantsWrite()` 的每一列（`photoChartNos()`）
 - **記上**：`identify.js` 的 `chartNoWrites(rows, customers)`（同 `aliasWrites()` 的形狀）。拍 Abovee：確認框 `aboveeConsequences({ chartNos })` 一行「王小明 的病歷號記成 1234」；
   存完在 `record()` 寫別名那一段旁邊寫（記好的那幾列、`customersData.update()`、寫好就換掉 `ctx.customers`、寫不成進 `unsent`）。
   療程單：存好那一張之後 `recordChartNo(card)`（toast 一句；寫不成不擋那一張）。**寫去掉前面 0 的**（照片上是 `00001234`，存 `1234`）

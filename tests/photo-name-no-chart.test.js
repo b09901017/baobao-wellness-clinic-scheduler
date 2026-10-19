@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { identifyCustomer, chartNoSay, chartNoWrites } from '../public/js/domain/identify.js';
-import { nearSay, readAbovee, needsAttention } from '../public/js/domain/aboveeImport.js';
+import { nearSay, readAbovee, needsAttention, photoChartNos } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { readSheet } from '../public/js/domain/treatmentSheets.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -105,6 +105,35 @@ describe('拍 Abovee：那一列不先勾、講一句、排進要你看', () => 
   test('照片上沒有號碼 → 照舊 nameOnly、照常勾', () => {
     const { items } = readAbovee(photo(''), ctx([bare('c1', '王小明')]));
     assert.deepEqual([items[0].who.how, items[0].checked], ['nameOnly', true]);
+  });
+
+  // 段四審查：改期與扣法的預設勾是 `flagMoved()` 自己判的，不經過 `resolveItem()` 的 `recognized` —— 也要管到
+  test('Abovee 上改了時間（app 10:00、照片 11:00）→ 已經記了＋改期，但改期與扣法都不先勾', () => {
+    const slot = {
+      entitlementId: 'w-pool', courseId: 'course-recovery', courseName: '復能', equipmentId: 'eq-sis',
+      startsAt: '10:00', endsAt: '11:00', status: 'confirmed', attended: null,
+    };
+    const c = { ...ctx([bare('c1', '王小明')]), visitsBy: { c1: [{ id: 'v1', customerId: 'c1', date: '2026-09-10', status: 'confirmed', slots: [slot] }] } };
+    const rows = (course) => [{ ...photo('00001234')[0], pageText: '1筆第1/1頁',
+      rows: [['確認前往', '2026-09-10', '11:00 - 12:15', '王小明', '00001234', course]] }];
+    const [moved] = readAbovee(rows('SIS 60'), c).items;
+    assert.deepEqual([moved.who.how, moved.kind, Boolean(moved.move)], ['nameNoChart', 'recorded', true]);
+    assert.equal(moved.adoptMove, false);
+    assert.equal(needsAttention(moved), true);
+    // 照片上同一列也改成體驗（扣法不一樣）：跟著改期不先勾
+    const [both] = readAbovee(rows('EECP20'), {
+      ...c, visitsBy: { c1: [{ id: 'v1', customerId: 'c1', date: '2026-09-10', status: 'confirmed',
+        slots: [{ ...slot, courseId: 'course-eecp', courseName: 'EECP', equipmentId: null, entitlementId: 'w-eecp' }] }] },
+      entitlementsBy: { c1: [POOL, { id: 'w-eecp', type: 'single', label: 'EECP(60)', courseId: 'course-eecp', totalQty: 10 }] },
+    }).items;
+    assert.equal(both.chargeChange?.to, 'trial');
+    assert.deepEqual([both.adoptMove, both.adoptCharge], [false, false]);
+
+    // 確認框那一句「病歷號記成 1234」數的是這一次會寫的每一列：她勾了改期那一行 → 存的時候會記上 → 框要講
+    const customers = [bare('c1', '王小明')];
+    assert.deepEqual(photoChartNos([moved], customers), [], '沒勾就不寫、不講');
+    assert.deepEqual(photoChartNos([{ ...moved, adoptMove: true }], customers),
+      [{ id: 'c1', name: '王小明', changes: { chartNo: '1234' } }]);
   });
 
   test('確認框講一句「病歷號記成 1234」', () => {

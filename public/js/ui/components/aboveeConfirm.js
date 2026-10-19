@@ -29,7 +29,7 @@ import {
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
-  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan, whatIfChecked,
+  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -1009,8 +1009,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       ctx.master.staff,
     );
     const marks = queueMarksAfter(pressedDays(p), batches);
-    // 名字對上、app 那一位沒有病歷號、她勾了（ADR-0160）→ 存的時候順便記上
-    const chartNos = chartNoWrites(chartNoRows(items.filter((i) => i.checked)), ctx.customers);
+    // 名字對上、app 那一位沒有病歷號、她勾了（ADR-0160）→ 存的時候順便記上。數的是這一次會寫的每一列（連「要改的」）
+    const chartNos = photoChartNos(items.filter((i) => !savedKeys.has(i.key)), ctx.customers);
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
     const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
     const people = [...new Set(p.writes.map((w) => w.customerId))];
