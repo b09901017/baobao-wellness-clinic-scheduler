@@ -593,11 +593,13 @@ export const COVERAGE = {
     'public/js/ui/components/marks.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
     'public/js/domain/customerNotes.js',
   ],
-  // 讀不完整時，會動到次數或健檢鏈的存檔先不存（before-golive-2026-10-19/01，ADR-0158）
-  '76-incomplete-read': [
+  // 讀不完整時，會動到次數或健檢鏈的存檔先不存（before-golive-2026-10-19/01，ADR-0158）；
+  // 健檢超用也追報告、改了二返額度那一串重算（同一輪 02，ADR-0159）
+  '76-incomplete-read-and-extra-exam': [
     'public/js/domain/incompleteRead.js', 'public/js/ui/saveFailure.js', 'public/js/ui/toast.js',
     'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/ui/views/schedule.js',
     'public/js/ui/views/home.js', 'public/js/domain/followups.js',
+    'public/js/data/customers.js', 'public/js/data/health.js', 'public/js/ui/views/customerDetail.js',
   ],
 };
 

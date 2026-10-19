@@ -1,6 +1,6 @@
 # 健檢做的比買的多：多出來那一次也長報告；補了額度之後那一串重算
 
-Status: todo
+Status: done
 段：一（xhigh）
 動工前先讀：`domain/followups.js` 的 `syncFollowupTasks()`、`examsAwaitingReport()`（`quota` 那一行）、`placeSeconds()`、`owedCounts()`（`cap` 那一行）、`pairsOf()`；`data/customers.js` 的 `entitlementWrites()`、`addEntitlement()`、`addEntitlements()`、`createWithPlan()`；`ui/views/customerDetail.js` 的 `data-add-followup`；ADR-0022、0065、0068、0139、0142、0145；`docs/課程與待辦對照表.md`；`CLAUDE.md`「健檢與二返的關係」「報告到手之後的那一站」兩列；`tests/followups.test.js` 最後那一條隨機定點
 
@@ -58,3 +58,16 @@ Blocked by: 01（「讀不完整就不重算」用 01 的判斷）
 
 - `docs/課程與待辦對照表.md`、`SPEC.md` 健檢鏈那一節、ADR（補一支 0159 或寫進 0139 的「後果」—— 推翻的是 0139 名額的上限，**補新的一支**）
 - `CLAUDE.md`「報告到手之後的那一站」補一句；「健檢與二返的關係」那一列講「補額度會重算」
+
+## 做完時留下的（10/19 段一，`8fb687a` 程式＋收尾那一個 commit）
+
+- **名額**：`examsAwaitingReport()` 不再被 `second.total` 蓋住（ADR-0159，0139 一個字沒改）。超出舊上限的那幾次，`isImported()` 而且 `chainSeen`（`seenTasks()` 那一份裡有沒有過這一次的鏈上待辦）沒有 → 不長。
+  「約二返」照舊 `owedCounts()` 的 `cap`；它多回一格 `short`（還欠、額度不夠），收掉時 `reasonFor()` 多一種「二返的次數不夠」
+- **重算**：`data/visits.js` 的 `chainAfterEntitlements(customerId, change, { name })` 回 `{ ops, plan, visits, tasks }`；動到的不是健檢或二返 → `null`（不讀）、讀不完整 → `null`（額度照寫）。
+  `data/customers.js` 的 `createEntitlement()`／`addEntitlements()`／`updateEntitlement()`／`updateEntitlements()`／`removeEntitlement()`／`restoreEntitlement()` 都把 `ops` 放進同一個 commit；`entitlementWrites()` 先鑄好二返那一筆的 id（`created`）。
+  `data/health.js` 的 `applyFixes()`（`addFollowup`）同樣；`createWithPlan()` 不用（還沒有來訪）
+- **確認框**：`data/customers.js` 的 `previewChain()`、`data/health.js` 的 `previewFollowupChains()` → `consequences.js` 的 `chainPlanLines()`／`chainCountLines()`。客戶詳情「補一筆二返額度」那一句寫死的「健檢標成已完成才會長」拿掉了；改次數那一張表沒有確認框，不講
+- **測試**：`tests/extra-exam-report.test.js`（新）；`tests/followups.test.js` 的上限那一條翻過來、隨機定點多了匯進來的健檢；`tests/consequences.test.js` 一條翻成「講」。
+  E2E `76` 改名 `76-incomplete-read-and-extra-exam.spec.js`（`related.js` 跟著改、多登記 `data/customers.js`、`data/health.js`、`customerDetail.js`）、加 I3：簽療程單結掉超用那一次 → 報告；勾掉 → 寄報告、不長約二返；客戶詳情二返那一筆總次數 1 → 2 → 約二返當場出現、一筆來訪都沒動；改回 1 → 收起來。**換回 `ad7e702` 的 `followups.js` 跑過：第一步就紅**
+- **合併檔量過**（`import-2026-10-19.json`，node 裡照 `importPlan()` 的形狀組好每一位，舊的 `followups.js` 與新的各跑一次 `syncFollowupTasks()`，只印數字）：34 位，改之前 1 張追蹤健檢報告、改之後 1 張，**差 0 位**；把 `importedFrom` 拿掉再跑一次也是 0 —— 她的資料裡沒有健檢做的比二返額度多的人，切換那天這一支一張都不多長
+- 文件：`CLAUDE.md`「健檢與二返的關係」「報告到手之後的那一站」、`SPEC.md` 健檢鏈兩處、`docs/課程與待辦對照表.md`、`docs/常見問題.md`「健檢多做的那一次，怎麼只有報告、沒有『約二返』？」
