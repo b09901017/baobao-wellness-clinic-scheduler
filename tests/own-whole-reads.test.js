@@ -41,3 +41,14 @@ test('14 改名：順手換的快照是 ownWhole() 讀的、在寫之前讀；�
   assert.ok(fn.indexOf('ownWhole(') > 0 && fn.indexOf('ownWhole(') < fn.indexOf('updateWithSnapshots('));
   assert.doesNotMatch(src, /ownSnapshots/);
 });
+
+test('15 待辦「約二返」那一顆約了沒：兩個入口都拿 listWhole() 算（讀不完整就不畫）', () => {
+  const src = read('public/js/ui/views/home.js');
+  for (const name of ['loadWhoDetails', 'loadFollowupBookings']) {
+    const fn = body(src, `async function ${name}(`);
+    const at = fn.indexOf('bookingStateForTask(');
+    assert.ok(at > 0, name);
+    assert.match(fn, /visitsData\.listWhole\(/, name);
+    assert.doesNotMatch(fn, /visitsData\.listByCustomer\(/, name);
+  }
+});

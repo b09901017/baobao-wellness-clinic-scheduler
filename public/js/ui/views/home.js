@@ -1224,10 +1224,12 @@ async function loadWhoDetails(ctx) {
   const mine = d.tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.visitId);
   if (mine.length) {
     try {
+      // 二返在不在要看**全部**來訪（issue 15）：快取裡剛好有的那幾筆少了它就講「還沒約」，她照著去多約一場 ——
+      // 讀不完整（`listWhole()` 丟）就不畫那一顆
       const [courses, entitlements, hers] = await Promise.all([
         config.listAll('courses', { includeDeleted: true }),
         customersData.listEntitlements(d.customerId),
-        visitsData.listByCustomer(d.customerId),
+        visitsData.listWhole(d.customerId),
       ]);
       if (whoDrawer !== d) return;
       const coursesById = byId(courses);
@@ -1975,10 +1977,17 @@ async function loadFollowupBookings(ctx) {
     const coursesById = byId(courses);
 
     await Promise.all([...byCust.entries()].map(async ([customerId, tasks]) => {
-      const [entitlements, visits] = await Promise.all([
-        customersData.listEntitlements(customerId),
-        visitsData.listByCustomer(customerId),
-      ]);
+      // 全部來訪（issue 15）：讀不完整的那一位不畫（`listWhole()` 丟），別位照畫
+      let entitlements;
+      let visits;
+      try {
+        [entitlements, visits] = await Promise.all([
+          customersData.listEntitlements(customerId),
+          visitsData.listWhole(customerId),
+        ]);
+      } catch {
+        return;
+      }
       for (const t of tasks) {
         const state = bookingStateForTask(t, { entitlements, coursesById, visits });
         // 算不出來的不寫進去 —— 那一列就照舊什麼都不說。斷言「還沒約」
