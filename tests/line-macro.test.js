@@ -35,8 +35,19 @@ function fakeDeps({ on = false, port = DEFAULT_PORT, fetch } = {}) {
       copy: (text) => { log.push(['copy', text]); return Promise.resolve(); },
       open: (url) => { log.push(['open', url]); return true; },
       timeoutMs: 50,
+      againMs: 0,
     },
   };
+}
+
+/** 一個自己決定什麼時候回應的 fetch。 */
+function heldFetch(log) {
+  let answer;
+  const fetch = (url) => {
+    log.push(['fetch', url]);
+    return new Promise((resolve) => { answer = () => resolve({ type: 'opaque' }); });
+  };
+  return { fetch, answer: () => answer() };
 }
 
 const params = (url) => Object.fromEntries(new URL(url).searchParams);
@@ -171,6 +182,60 @@ describe('打開他的對話', () => {
     await openLineChat({ name: '王小明', notify: (m) => said.push(m), deps });
     assert.ok(log.some(([k, u]) => k === 'open' && u === LINE_CHATS_URL));
     assert.match(said.join(''), /王小明/);
+  });
+});
+
+describe('按兩下（巨集跑兩次就是訊息貼兩次）', () => {
+  test('還在等 MacroDroid 回應時再按：不再敲門、講一句、剪貼簿不動', async () => {
+    const { log, deps } = fakeDeps({ on: true });
+    const held = heldFetch(log);
+    deps.fetch = held.fetch;
+    const said = [];
+    const first = openLineChat({ name: '王小明', msg: '明天見', notify: (m) => said.push(m), deps });
+    assert.equal(await openLineChat({ name: '客戶A', msg: '後天見', notify: (m) => said.push(m), deps }), 'busy');
+    assert.match(said[0], /剛剛叫過/);
+    held.answer();
+    assert.equal(await first, 'macro');
+    assert.deepEqual(log.map(([k]) => k), ['copy', 'fetch']);
+    assert.equal(log[0][1], '明天見');
+  });
+
+  test('剛叫到的那幾秒再按：照樣不敲門；過了就敲得到', async () => {
+    const { log, deps } = fakeDeps({ on: true });
+    deps.againMs = 30;
+    assert.equal(await openLineChat({ name: '王小明', notify: () => {}, deps }), 'macro');
+    assert.equal(await openLineChat({ name: '王小明', notify: () => {}, deps }), 'busy');
+    await new Promise((r) => setTimeout(r, 40));
+    deps.againMs = 0; // 不然這一下又鎖 30ms，鎖到下一條測試
+    assert.equal(await openLineChat({ name: '王小明', notify: () => {}, deps }), 'macro');
+    assert.equal(log.filter(([k]) => k === 'fetch').length, 2);
+  });
+
+  test('叫不到之後馬上再按：敲得到（她在重試，不是按兩下）', async () => {
+    const { log, deps } = fakeDeps({ on: true, fetch: async (url) => { log.push(['fetch', url]); throw new TypeError('x'); } });
+    deps.againMs = 10000;
+    await openLineChat({ name: '王小明', notify: () => {}, deps });
+    await openLineChat({ name: '王小明', notify: () => {}, deps });
+    assert.equal(log.filter(([k]) => k === 'fetch').length, 2);
+  });
+
+  test('「試一次」跟打開對話是同一個巨集：一邊還在等時另一邊不敲', async () => {
+    const { log, deps } = fakeDeps({ on: true });
+    const held = heldFetch(log);
+    deps.fetch = held.fetch;
+    const said = [];
+    const first = testLineMacro({ name: '王小明', notify: () => {}, deps });
+    assert.equal(await openLineChat({ name: '王小明', notify: (m) => said.push(m), deps }), 'busy');
+    held.answer();
+    await first;
+    assert.equal(log.filter(([k]) => k === 'fetch').length, 1);
+  });
+
+  test('這一台沒開（退路）不受影響：按兩下就是開兩次聊天清單，沒有巨集會跑兩次', async () => {
+    const { log, deps } = fakeDeps({ on: false });
+    await openLineChat({ name: '王小明', notify: () => {}, deps });
+    await openLineChat({ name: '王小明', notify: () => {}, deps });
+    assert.equal(log.filter(([k]) => k === 'open').length, 2);
   });
 });
 

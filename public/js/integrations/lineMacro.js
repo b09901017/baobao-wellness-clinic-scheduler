@@ -47,6 +47,12 @@ export const LINE_CHATS_URL = 'https://line.me/R/nv/chat';
 export const NO_REPLY_MS = 15000;
 
 /**
+ * 叫到之後這幾秒再按一次不再敲：MacroDroid 一收到就回應，巨集接著還要點好幾秒 ——
+ * 她以為沒按到又按一次的話，巨集跑兩次，訊息貼兩次（或兩串點擊交錯）。叫不到、沒回應的不算（她在重試）。
+ */
+export const AGAIN_MS = 3000;
+
+/**
  * 「試一次」送的訊息：**跟真的一樣長、有好幾段**。一次驗三件事 —— 叫得到、中文沒變亂碼、
  * 換行留著；也驗網址參數裝得下一則真的確認訊息那麼長的字。
  */
@@ -122,6 +128,7 @@ function browserDeps() {
       return Boolean(w);
     },
     timeoutMs: NO_REPLY_MS,
+    againMs: AGAIN_MS,
   };
 }
 
@@ -162,6 +169,25 @@ async function knock(d, url) {
   }
 }
 
+// 一支手機一個巨集：打開對話與「試一次」共用這一格
+let busy = false;
+
+/** `knock()`，但正在叫或剛叫到時回 `'busy'`、一次都不敲。 */
+async function knockOnce(d, url) {
+  if (busy) return 'busy';
+  busy = true;
+  let got;
+  try {
+    got = await knock(d, url);
+    return got;
+  } finally {
+    if (got === 'macro' && d.againMs > 0) setTimeout(() => { busy = false; }, d.againMs);
+    else busy = false;
+  }
+}
+
+const BUSY = '剛剛叫過 MacroDroid 了：等它跑完（幾秒）再按一次';
+
 const NO_NAME = '還沒填 LINE 名字：客戶詳情 → 名字旁邊的「編輯」→「LINE 名字」那一格';
 const UNREACHED = '叫不到 MacroDroid（它要開著，Chrome 要允許「區域網路」）。';
 const NO_REPLY = 'MacroDroid 沒回應：觸發條件的「傳送回應（Send Response）」有勾嗎？';
@@ -185,7 +211,7 @@ async function fallback(d, name, msg, msgCopied, lead = '') {
  * - `msg` 有字：巨集接著把它貼進輸入框、**不送出**（確認時間、問這輪的時間那兩張卡）；
  *   另外先複製一份到剪貼簿當備份 —— 巨集貼不上時她自己貼
  *
- * @returns {Promise<'no-name'|'fallback'|'macro'|'no-reply'>}
+ * @returns {Promise<'no-name'|'fallback'|'macro'|'no-reply'|'busy'>}
  */
 export async function openLineChat({ name, msg = '', notify = () => {}, deps } = {}) {
   const d = { ...browserDeps(), ...deps };
@@ -195,16 +221,21 @@ export async function openLineChat({ name, msg = '', notify = () => {}, deps } =
     notify(NO_NAME);
     return 'no-name';
   }
+  const prefs = readLineMacro(d.storage);
+  // 按第二下：剪貼簿也不動（裡面那一份是巨集正在貼的那一則的備份）
+  if (prefs.on && busy) {
+    notify(BUSY);
+    return 'busy';
+  }
 
   // 有訊息就先複製：這一行要在按下去的那一刻跑（剪貼簿要「使用者剛按了」，等完 fetch 可能就過了）
   const msgCopied = text ? copyText(d, text) : null;
-  const prefs = readLineMacro(d.storage);
   if (!prefs.on) {
     notify(await fallback(d, who, text, msgCopied));
     return 'fallback';
   }
 
-  const got = await knock(d, macroUrl({ port: prefs.port, name: who, msg: text }));
+  const got = await knockOnce(d, macroUrl({ port: prefs.port, name: who, msg: text }));
   if (got === 'macro') {
     notify(`已經叫 MacroDroid 打開「${who}」的對話${text ? '、貼上訊息（不會送出）' : ''}`);
     return 'macro';
@@ -220,7 +251,7 @@ export async function openLineChat({ name, msg = '', notify = () => {}, deps } =
 /**
  * 設定頁的「試一次」：拿一位好友的名字送 `TEST_MESSAGE`。**不走退路** —— 退路什麼都驗不到。
  *
- * @returns {Promise<'off'|'no-name'|'macro'|'unreached'|'no-reply'>}
+ * @returns {Promise<'off'|'no-name'|'macro'|'unreached'|'no-reply'|'busy'>}
  */
 export async function testLineMacro({ name, notify = () => {}, deps } = {}) {
   const d = { ...browserDeps(), ...deps };
@@ -234,8 +265,10 @@ export async function testLineMacro({ name, notify = () => {}, deps } = {}) {
     notify('先打一位好友的 LINE 名字（照你 LINE 好友清單上的寫法）');
     return 'no-name';
   }
-  const got = await knock(d, macroUrl({ port: prefs.port, name: who, msg: TEST_MESSAGE }));
-  if (got === 'macro') {
+  const got = await knockOnce(d, macroUrl({ port: prefs.port, name: who, msg: TEST_MESSAGE }));
+  if (got === 'busy') {
+    notify(BUSY);
+  } else if (got === 'macro') {
     notify(`送出去了：手機應該打開 LINE、找到「${who}」、貼上一則三段的測試訊息（不會送出）`);
   } else if (got === 'no-reply') {
     notify(NO_REPLY);
