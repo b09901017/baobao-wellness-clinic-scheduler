@@ -120,6 +120,7 @@
   **漏的原因**：本機那幾支 spec 是我手挑的，30 有登記 `customers.js`、我沒問 `related.js`。段三挑 spec 改用
   `node -e "import('./tests-e2e/related.js').then(m=>console.log(m.pick([<改到的檔案>])))"`
 - 全量 E2E 第二次（CI）：run `39251950375`（`59c265c`）—— **六台全綠**（10/19 晚）。76 I3 在 CI 上兩次都沒再出現那個逾時
+- 18 之後全量 E2E 第三次（CI）：run `39257598375`（`0ab24f3`）—— **六台全綠**
 
 ---
 
