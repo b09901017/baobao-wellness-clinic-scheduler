@@ -151,6 +151,20 @@ export function listBetween(from, to) {
   });
 }
 
+/**
+ * 同 `listBetween()`，**讀到的是快取（或離線）就丟 `IncompleteReadError`**（before-golive-2026-10-19 issue 16）。
+ * 療程單「全部比對一次」用：拿快取裡剛好有的那幾段去比，少了的會被列成「簽了沒記」。
+ */
+export async function listBetweenWhole(from, to) {
+  const since = repo.cacheReads();
+  const rows = await listBetween(from, to);
+  if (readsIncomplete({
+    offline: globalThis.navigator?.onLine === false,
+    sources: [readSource(repo.cacheReads() !== since)],
+  })) throw new IncompleteReadError('', '網路不穩，讀到的不是全部的來訪 —— 先不比，連上之後再按一次');
+  return rows;
+}
+
 /** 試算表往後看多遠的來訪（已排未上的那幾欄）。 */
 const SHEET_LOOKAHEAD_DAYS = 400;
 

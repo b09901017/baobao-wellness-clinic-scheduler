@@ -52,3 +52,17 @@ test('15 待辦「約二返」那一顆約了沒：兩個入口都拿 listWhole(
     assert.doesNotMatch(fn, /visitsData\.listByCustomer\(/, name);
   }
 });
+
+test('16 療程單比對：一位的那一頁讀 listWhole()、「全部比對一次」讀 listBetweenWhole()；讀不完整講「先不比」', () => {
+  const src = read('public/js/ui/views/treatmentSheets.js');
+  const person = body(src, 'export async function renderPerson(');
+  assert.match(person, /visitsData\.listWhole\(/);
+  assert.doesNotMatch(person, /visitsData\.listByCustomer\(/);
+  const all = body(src, 'async function compareEveryone(');
+  assert.match(all, /visitsData\.listBetweenWhole\(/);
+  assert.match(src, /先不比/);
+  const data = read('public/js/data/visits.js');
+  const fn = body(data, 'export async function listBetweenWhole(');
+  assert.match(fn, /cacheReads\(\)/);
+  assert.match(fn, /IncompleteReadError/);
+});
