@@ -7167,6 +7167,15 @@ summary {
   font-weight: 700;
 }
 
+.roster__chart {
+  flex: none;
+  width: 5.5em;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roster__warn[hidden] { display: none; }
+
 .roster__warn {
   display: inline-flex;
   align-items: flex-start;

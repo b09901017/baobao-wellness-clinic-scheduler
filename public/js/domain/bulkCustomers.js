@@ -17,6 +17,7 @@
 import { expandPlan, isProduct, validateEntitlement } from './entitlements.js';
 import { toCustomerFields } from './customerMarks.js';
 import { isValidDate } from './dates.js';
+import { fieldWarnings } from './customers.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -49,6 +50,8 @@ export function newRow(name, key) {
   return {
     key: key ?? `r${Math.random().toString(36).slice(2, 9)}`,
     name: trimmed(name),
+    // 病歷號（2026-10-19，ADR-0160）：她：「好啊，加一欄」。不必填；空字串＝沒填
+    chartNo: '',
     // null 代表「用整批的」。填了數字才是這一位自己的。
     quantity: null,
     usePlan: true,
@@ -162,6 +165,7 @@ export function extrasFor(row, shared) {
  * 這一位的客戶主檔欄位。
  *
  * 這一頁不填電話／LINE／喜好程度／永久限制／備註 —— 她說「其他的都不用」。
+ * **病歷號例外**（2026-10-19，ADR-0160）：照片認人要它，沒有的話拍 Abovee 那一位不先勾（她：「好啊，加一欄」）。
  * 那幾個欄位是一位一位認識客戶之後才會填的，建立當下她手上只有一張名單。
  * 會籍到期日一樣不在（ADR-0019）。
  */
@@ -170,6 +174,7 @@ export function customerFor(row, shared) {
     name: trimmed(row?.name),
     phone: null,
     lineId: null,
+    chartNo: trimmed(row?.chartNo) || null,
     source: trimmed(shared?.source) || null,
     purchasedAt: isValidDate(shared?.purchasedAt) ? shared.purchasedAt : null,
     membershipExpiresAt: null,
@@ -269,6 +274,9 @@ export function validateRoster(rows = [], shared = {}, ctx = {}) {
 export function rosterWarnings(rows = [], shared = {}, ctx = {}) {
   const out = [];
 
+  // 病歷號跟既有客戶或名單裡另一位一樣（ADR-0160）：同單建一位那一句，只提醒
+  out.push(...chartNoClashes(rows, ctx.existing ?? []).values());
+
   // 沒套方案又沒加購 = 這一位建出來身上是空的。
   // 不擋 —— `#/customers/new` 也允許「不選方案（之後單項加購）」，
   // 同一件事在兩頁一頁擋一頁不擋，比兩頁都不擋更糟。
@@ -283,5 +291,23 @@ export function rosterWarnings(rows = [], shared = {}, ctx = {}) {
     out.push('沒填購買通路。那是舊試算表 B2 那一欄，之後對帳會找不到這一批是哪一場');
   }
 
+  return out;
+}
+
+/**
+ * 名單上哪幾列的病歷號跟別人一樣（ADR-0160）：既有客戶（停用的也算，同 `fieldWarnings()`）或名單裡的另一位。
+ * 句子就是單建一位那一句（`domain/customers.js` 的 `fieldWarnings()`）—— 不擋。
+ *
+ * @returns {Map<string, string>} 列的 key → 那一句
+ */
+export function chartNoClashes(rows = [], existing = []) {
+  const out = new Map();
+  for (const row of rows ?? []) {
+    if (!trimmed(row?.chartNo)) continue;
+    const others = (rows ?? []).filter((r) => r !== row && trimmed(r?.chartNo))
+      .map((r) => ({ id: `row:${r.key}`, name: trimmed(r.name), chartNo: r.chartNo }));
+    const say = fieldWarnings({ id: `row:${row.key}`, name: row.name, chartNo: row.chartNo }, [...(existing ?? []), ...others]).chartNo;
+    if (say) out.set(row.key, say);
+  }
   return out;
 }

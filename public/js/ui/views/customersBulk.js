@@ -24,7 +24,7 @@ import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import {
   parseNames, newRow, isAdjusted, duplicatesOf, quantityFor,
-  extrasFor, customerFor, summarizeRoster, validateRoster, rosterWarnings,
+  extrasFor, customerFor, summarizeRoster, validateRoster, rosterWarnings, chartNoClashes,
 } from '../../domain/bulkCustomers.js';
 import { todayISO } from '../../domain/dates.js';
 import * as buy from '../components/buy.js';
@@ -220,17 +220,24 @@ function paintRoster() {
   }
 
   const dup = duplicatesOf(rows, state.existing);
-  box.innerHTML = `<ul class="roster">${rows.map((r) => rosterRow(r, dup.get(r.key))).join('')}</ul>`;
+  const clash = chartNoClashes(rows, state.existing);
+  box.innerHTML = `<ul class="roster">${rows.map((r) => rosterRow(r, dup.get(r.key), clash.get(r.key))).join('')}</ul>`;
 }
 
-function rosterRow(row, dup) {
+/** 同號那一句的 HTML（打字時只換這一格，不重畫名單）。 */
+const chartWarnHtml = (say) => (say ? `${icon('alert', { size: 13 })}${esc(say)}` : '');
+
+function rosterRow(row, dup, chartSay = '') {
   return `
     <li class="roster__row">
       <span class="roster__main">
         <span class="roster__name">${esc(row.name)}</span>
         ${isAdjusted(row) ? `<span class="roster__note">${esc(adjustedLabel(row))}</span>` : ''}
         ${dup ? `<span class="roster__warn">${icon('alert', { size: 13 })}${esc(dupText(dup))}</span>` : ''}
+        <span class="roster__warn" data-chartwarn="${esc(row.key)}"${chartSay ? '' : ' hidden'}>${chartWarnHtml(chartSay)}</span>
       </span>
+      <input class="roster__chart" type="text" inputmode="numeric" autocomplete="off" data-chart="${esc(row.key)}"
+             value="${esc(row.chartNo ?? '')}" placeholder="病歷號" aria-label="${esc(row.name)} 的病歷號" />
       <button class="chip chip--sm" type="button" data-tune="${esc(row.key)}"
               aria-pressed="${isAdjusted(row)}">微調</button>
       <button class="roster__x" type="button" data-drop="${esc(row.key)}"
@@ -273,7 +280,7 @@ function paintSummary() {
 
   const ctx = ctxOf();
   const s = summarizeRoster(rows, state.shared, ctx);
-  const warnings = rosterWarnings(rows, state.shared, ctx);
+  const warnings = rosterWarnings(rows, state.shared, { ...ctx, existing: state.existing });
   const run = state.run;
 
   box.innerHTML = `
@@ -359,6 +366,22 @@ function wirePage() {
     const tune = e.target.closest('[data-tune]');
     if (tune) return openTune(tune.dataset.tune);
     return null;
+  });
+
+  // 病歷號那一格（issue 18）：打字只改 state 與那幾句 ⚠，**不重畫名單**（游標與輸入法的組字狀態會被洗掉）
+  page.addEventListener('input', (e) => {
+    const key = e.target.dataset?.chart;
+    if (!key) return;
+    const row = state.rows.find((r) => r.key === key);
+    if (!row) return;
+    row.chartNo = e.target.value;
+    const clash = chartNoClashes(state.rows, state.existing);
+    for (const box of page.querySelectorAll('[data-chartwarn]')) {
+      const say = clash.get(box.dataset.chartwarn) ?? '';
+      box.hidden = !say;
+      box.innerHTML = chartWarnHtml(say);
+    }
+    paintSummary();
   });
 
   const input = page.querySelector('[data-name]');

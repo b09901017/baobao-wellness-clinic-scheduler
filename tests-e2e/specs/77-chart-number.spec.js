@@ -298,3 +298,35 @@ test('C13 打開客戶詳情之後別台才記了一段待確認 → 按刪除�
   await app.cancelDialog();
   expect((await app.readDoc('customers', 'cust-c')).deletedAt ?? null).toBeNull();
 });
+
+// ---------------------------------------------------------------------------
+// 18 批次建立：每一位一格病歷號（段二中途發現第 9 條）
+// ---------------------------------------------------------------------------
+
+test('C14 批次建立：兩位各填病歷號、同號一列 ⚠（打字不重畫名單）；建立 → 兩位身上都有那一格', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-w', name: '客戶B', chartNo: '4321' })]);
+  await app.signIn('/customers');
+  await app.go('/customers/bulk');
+  for (const n of ['客戶C', '客戶D']) {
+    await page.locator('[data-name]').fill(n);
+    await page.locator('[data-name]').press('Enter');
+  }
+  const boxes = page.locator('[data-chart]');
+  await expect(boxes).toHaveCount(2);
+  await expect(boxes.first()).toHaveAttribute('inputmode', 'numeric');
+
+  await boxes.nth(0).fill('432');
+  const first = await boxes.nth(0).elementHandle();
+  await boxes.nth(0).press('1');
+  await expect(page.locator('[data-chartwarn]').first()).toContainText('病歷號 4321 已經是客戶B的');
+  // 名單沒有被重畫：還是同一個節點、游標還在裡面
+  expect(await first.evaluate((el) => el.isConnected && document.activeElement === el)).toBe(true);
+
+  await boxes.nth(1).fill('1234');
+  await expect(page.locator('[data-chartwarn]').nth(1)).toBeHidden();
+
+  await page.locator('[data-create]').click();
+  await expect.poll(async () => (await app.readAll('customers'))
+    .filter((c) => ['客戶C', '客戶D'].includes(c.name)).map((c) => `${c.name}:${c.chartNo}`).sort(), { timeout: 20_000 })
+    .toEqual(['客戶C:4321', '客戶D:1234']);
+});
