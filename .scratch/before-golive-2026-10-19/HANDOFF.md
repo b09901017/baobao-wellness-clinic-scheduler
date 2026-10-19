@@ -199,7 +199,7 @@
 
 ### 中途發現（段四）—— 要問她
 
-15. **改額度的其他幾條路，待辦多一張／少一張也講一句嗎？**（加購一筆、加購一整個方案、拍訂購單加購、改購買日、從已刪除項目還原）
+15. 【她 10/19 深夜：講，在 toast 後面接，不加確認框，同意】**改額度的其他幾條路，待辦多一張／少一張也講一句嗎？**（加購一筆、加購一整個方案、拍訂購單加購、改購買日、從已刪除項目還原）
     跟 17 同一個形狀：她替一位健檢做多了的客人加購一筆二返 → 待辦上多了「約二返」，畫面上只講「已儲存」。
     建議：**講**（同 17 那半句，`chainSavedSay()`；那幾支要像 `updateEntitlement()` 一樣把 `plan` 回給畫面），不加確認框
 
@@ -222,7 +222,7 @@
   `gh run view 39280240825 --json conclusion,jobs --jq '{c: .conclusion, jobs: [.jobs[] | {n: .name, c: .conclusion}]}'`。
   綠的就把上面「全量 E2E（CI）」那一行補上「六台全綠」；紅的先修（最可能被這一段碰到的：76、02 健檢鏈；試算表 78；課程設定那幾支）
 - 段四的手動驗收**沒在模擬器走過**（上面那一節寫了），段五走
-- 中途發現 15 還沒問她
+- 中途發現 15 她答了「講，在 toast 後面接，不加確認框」—— **還沒做**（額度不夠，交給段五：開 issue 19 照 17 的規矩做）
 
 ---
 
@@ -321,8 +321,10 @@ npm run verify 在這條分支上一律退回全跑：日常是 npm test ＋ CI=
 ```
 /kickoff 上線前補的那一輪，段五（收尾）。
 
-分支 claude/before-golive-1019。先 git fetch、git pull。讀 HANDOFF.md 全部（段四那一節：修了什麼、提過沒改的、中途發現 15）。
-她答了中途發現 15 的話先照答案做（「講」＝那幾條改額度的路把 plan 回給畫面、toast 接 chainSavedSay()，同 issue 17；紅燈 → 綠 → commit）。
+分支 claude/before-golive-1019。先 git fetch、git pull。讀 HANDOFF.md 全部（段四那一節：修了什麼、提過沒改的、中途發現 15、段四停在哪）。
+第一件事：CI 全量 run 39280240825（af2fcc4）的結果補進 HANDOFF；紅的先修。
+中途發現 15 她答了「講，在 toast 後面接，不加確認框」：先開 issue 19 做 —— 加購一筆／一整個方案、拍訂購單加購、改購買日、從已刪除項目還原、客戶詳情「修正」次數，
+那幾支 data 函式像 updateEntitlement() 一樣把 plan 回給畫面、存完的 toast 接 chainSavedSay()（同 issue 17；grep 每一個呼叫端，紅燈 → 綠 → 跑 pick() 挑的 E2E → commit）。
 做：文件總檢查（CLAUDE.md 連動表補這一輪新長出來的關係、SPEC、CONTEXT、操作手冊、常見問題、STAGING.md 重貼 .gs、README 開發狀態表）、
 全量 E2E 丟 CI（gh workflow run e2e-full.yml --ref claude/before-golive-1019）、手動驗收清單（她照順序點得到的路，自己在模擬器走過）、
 手動驗收清單要收段三、段四那兩節（段四那幾條段四沒在模擬器走過，這一段自己走）；`.gs` 段四又改了一次（`onEdit`），她重貼的是最新那一版。
