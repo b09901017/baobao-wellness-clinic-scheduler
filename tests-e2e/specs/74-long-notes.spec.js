@@ -31,11 +31,11 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test('N1 沒排過：電話、LINE、長備註、短備註一排丸子；撥號是連結、LINE 是按鈕；抬頭數字不算電話與 LINE', async ({ app, page }) => {
+test('N1 沒排過：LINE、長備註、短備註、電話最後一排丸子（ADR-0163）；撥號是連結、LINE 是按鈕；抬頭數字不算電話與 LINE', async ({ app, page }) => {
   await app.seed([...masterDocs(), clientA()]);
   await app.signIn('/customers/cust-n');
 
-  expect(await chipTexts(page)).toEqual(['0912-345-678', 'LINE', '家人與接送', '喜歡下午', '指定女治療師']);
+  expect(await chipTexts(page)).toEqual(['LINE', '家人與接送', '喜歡下午', '指定女治療師', '0912-345-678']);
   await expect(page.locator('[data-notesblock] [data-notes-phone]')).toHaveAttribute('href', 'tel:0912345678');
   const line = page.locator('[data-notesblock] [data-notes-line]');
   // 那一格是她 LINE 上的名字，不是網址（ADR-0157）：點了交給手機上的 MacroDroid，見 75
@@ -116,7 +116,7 @@ test('N5 改到一半按返回 → 先問；「不要了」才丟掉', async ({ 
   expect(doc.longNotes[0].body).toBe(LONG_BODY);
 });
 
-test('N6 調整順序：把電話拖到最後、一則短備註拖到最前 → 完成 → 重新整理之後照她排的', async ({ app, page }) => {
+test('N6 調整順序：把 LINE 拖到最後、一則短備註拖到最前 → 完成 → 重新整理之後照她排的', async ({ app, page }) => {
   await app.seed([...masterDocs(), clientA()]);
   await app.signIn('/customers/cust-n');
 
@@ -136,16 +136,16 @@ test('N6 調整順序：把電話拖到最後、一則短備註拖到最前 → 
     await expect(row(key)).not.toHaveClass(/is-lifted/);
   };
 
-  // 起點：phone、line、long:n1、mark:0、mark:1
-  await drag('phone', 0, 4);
-  await drag('mark:1', 3, 0);
+  // 起點：line、long:n1、mark:0、mark:1、phone（ADR-0163）→ line 拖到最後之後：long:n1、mark:0、mark:1、phone、line
+  await drag('line', 0, 4);
+  await drag('mark:1', 2, 0);
   await page.locator('[data-notes-sort-done]').click();
   await app.saved();
 
-  const want = ['指定女治療師', 'LINE', '家人與接送', '喜歡下午', '0912-345-678'];
+  const want = ['指定女治療師', '家人與接送', '喜歡下午', '0912-345-678', 'LINE'];
   expect(await chipTexts(page)).toEqual(want);
   const doc = await app.readDoc('customers', 'cust-n');
-  expect(doc.noteOrder).toEqual(['mark', 'line', 'long:n1', 'mark', 'phone']);
+  expect(doc.noteOrder).toEqual(['mark', 'long:n1', 'mark', 'phone', 'line']);
   // 短備註本身照新的先後（她 10/19 同意），`notes` 鏡像跟著
   expect(doc.marks.map((m) => m.text)).toEqual(['指定女治療師', '喜歡下午']);
   expect(doc.notes).toBe('指定女治療師\n喜歡下午');
@@ -160,10 +160,10 @@ test('N7 調整順序按「取消」：什麼都沒寫', async ({ app, page }) =
   await page.locator('[data-notes-sort]').click();
   await app.layer('[data-reorder-box]');
   // 鍵盤也排得動
-  await page.locator('[data-reorder-key="phone"]').focus();
+  await page.locator('[data-reorder-key="line"]').focus();
   await page.keyboard.press('ArrowDown');
   await page.locator('[data-notes-sort-cancel]').click();
-  expect(await chipTexts(page)).toEqual(['0912-345-678', 'LINE', '家人與接送', '喜歡下午', '指定女治療師']);
+  expect(await chipTexts(page)).toEqual(['LINE', '家人與接送', '喜歡下午', '指定女治療師', '0912-345-678']);
   const doc = await app.readDoc('customers', 'cust-n');
   expect(doc.noteOrder).toBeUndefined();
 });

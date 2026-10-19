@@ -117,9 +117,9 @@ export const CHART_NO_HINT = '醫院系統的編號。拍 Abovee、療程單時�
  * - `{ key: 'long:<id>', kind: 'long', note }`
  * - `{ key: 'mark:<n>', kind: 'mark', index, mark }`（`n` 是 `readMarks()` 裡的位置）
  *
- * 沒排過（沒有 `noteOrder`）：電話、LINE、長備註、短備註（她 2026-10-18：「最上面一行電話，
- * 長備註，原本的短備註」；病歷號接在 LINE 後面，2026-10-19）。排過的照她排的；不在順序裡的電話／LINE／病歷號放最前面（排的時候還沒填），
- * 長備註、短備註接在最後（別的入口加的 —— 拍訂購單的「尾款」照判準出現在最後）。
+ * 沒排過（沒有 `noteOrder`）：病歷號、LINE、長備註、短備註、**電話最後**（她 2026-10-20：「病歷號最前面，然後有line的line第二個，
+ * 然後電話是在最後面」，ADR-0163 —— 推翻 10/18 的「最上面一行電話」）。排過的照她排的；不在順序裡的病歷號／LINE 放最前面
+ *（排的時候還沒填），長備註、短備註接在後面（別的入口加的 —— 拍訂購單的「尾款」），**電話照樣在整串的最後**。
  */
 export function noteItems(customer) {
   const marks = readMarks(customer);
@@ -136,7 +136,7 @@ export function noteItems(customer) {
 
   const order = Array.isArray(customer?.noteOrder) ? customer.noteOrder : null;
   if (!order) {
-    return [phoneItem, lineItem, chartItem, ...longs.map(longItem), ...marks.map(markItem)].filter(Boolean);
+    return [chartItem, lineItem, ...longs.map(longItem), ...marks.map(markItem), phoneItem].filter(Boolean);
   }
 
   const out = [];
@@ -162,10 +162,11 @@ export function noteItems(customer) {
     }
   }
 
-  const front = [phoneItem, lineItem, chartItem].filter((it) => it && !placed.has(it.key));
+  const front = [chartItem, lineItem].filter((it) => it && !placed.has(it.key));
   const tail = [
     ...longs.map(longItem).filter((it) => !placed.has(it.key)),
     ...marks.map(markItem).filter((it) => !placed.has(it.key)),
+    ...[phoneItem].filter((it) => it && !placed.has(it.key)),
   ];
   return [...front, ...out, ...tail];
 }
@@ -204,7 +205,7 @@ export function notesFields(items = []) {
  *
  * **位置**：排過順序的，病歷號接在第一則原本的位置（第 n 個 `'mark'` 換成 `'chartNo'`、其餘的
  * 跟著那幾則一起拿掉 —— 走 `notesFields()`），後面每一則短備註都不往前錯；沒排過的不寫順序，
- * 照預設排在電話、LINE 後面。
+ * 照預設排在最前面（ADR-0163）。
  */
 export function chartNoMove(customer) {
   const marks = readMarks(customer);

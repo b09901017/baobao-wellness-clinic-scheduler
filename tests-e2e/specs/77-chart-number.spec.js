@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test('C1 編輯客戶 → 病歷號打 1234 → 存：備註那一段多一顆（電話後面）；點了不開任何東西', async ({ app, page }) => {
+test('C1 編輯客戶 → 病歷號打 1234 → 存：備註那一段多一顆（最前面，ADR-0163）；點了不開任何東西', async ({ app, page }) => {
   await app.seed([...masterDocs(), clientA()]);
   await app.signIn('/customers/cust-c');
   await expect(page.locator('[data-notes-chart]')).toHaveCount(0);
@@ -38,7 +38,7 @@ test('C1 編輯客戶 → 病歷號打 1234 → 存：備註那一段多一顆�
   const chart = page.locator('[data-notesblock] [data-notes-chart]');
   await expect(chart).toHaveText('1234');
   await expect(chart.locator('.mark__glyph--chartNo svg')).toHaveCount(1);
-  expect(await chips(page)).toEqual(['0912-345-678', '1234', '喜歡下午']);
+  expect(await chips(page)).toEqual(['1234', '喜歡下午', '0912-345-678']);
   expect((await app.readDoc('customers', 'cust-c')).chartNo).toBe('1234');
 
   const url = page.url();
@@ -100,8 +100,8 @@ test('C5 調整順序拖得動病歷號；存完重新整理照舊', async ({ ap
 
   const box = await page.locator('[data-reorder-box]').boundingBox();
   const x = box.x + box.width - 20;
-  // 起點：phone、chartNo、mark:0 —— 病歷號拖到最後（一列 50＋8px）
-  await page.mouse.move(x, box.y + 1 * 58 + 25);
+  // 起點：chartNo、mark:0、phone（ADR-0163）—— 病歷號拖到最後（一列 50＋8px）
+  await page.mouse.move(x, box.y + 0 * 58 + 25);
   await page.mouse.down();
   await page.mouse.move(x, box.y + 2 * 58 + 25, { steps: 8 });
   await page.mouse.up();
@@ -109,9 +109,9 @@ test('C5 調整順序拖得動病歷號；存完重新整理照舊', async ({ ap
   await page.locator('[data-notes-sort-done]').click();
   await app.saved();
 
-  expect((await app.readDoc('customers', 'cust-c')).noteOrder).toEqual(['phone', 'mark', 'chartNo']);
+  expect((await app.readDoc('customers', 'cust-c')).noteOrder).toEqual(['mark', 'phone', 'chartNo']);
   await app.reload();
-  expect(await chips(page)).toEqual(['0912-345-678', '喜歡下午', '1234']);
+  expect(await chips(page)).toEqual(['喜歡下午', '0912-345-678', '1234']);
 });
 
 test('C6 客戶清單打號碼找得到（補零一樣），還寫成短備註的也找得到', async ({ app, page }) => {
@@ -131,7 +131,8 @@ test('C6 客戶清單打號碼找得到（補零一樣），還寫成短備註�
 });
 
 test('C7 病歷號跟電話並排：按在兩顆中間那一段不會按到隔壁（觸控區貼在自己身上）', async ({ app, page }) => {
-  await app.seed([...masterDocs(), clientA({ chartNo: '1234' })]);
+  // 預設順序電話在最後（ADR-0163）—— 排成並排的那一種來量
+  await app.seed([...masterDocs(), clientA({ chartNo: '1234', noteOrder: ['chartNo', 'phone', 'mark'] })]);
   await app.signIn('/customers/cust-c');
   const phone = await page.locator('[data-notesblock] [data-notes-phone]').boundingBox();
   const chart = await page.locator('[data-notesblock] [data-notes-chart]').boundingBox();

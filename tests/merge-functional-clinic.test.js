@@ -212,17 +212,17 @@ describe('產檔那一側：新的 7 款點滴認得，而且「營養」兩個�
   });
 });
 
-describe('契約：baobao-merge/v8（v5 起不算次數的課沒有額度）', () => {
+describe('契約：baobao-merge/v9（v5 起不算次數的課沒有額度）', () => {
   test('兩側同一版', () => {
-    assert.equal(FORMAT, 'baobao-merge/v8');
+    assert.equal(FORMAT, 'baobao-merge/v9');
     assert.equal(importJson(run(WANG, [ILIB_DAY])).format, FORMAT);
   });
 
   test('v4 以前的照樣貼得進來；認不得的版本整份擋', () => {
-    for (const v of ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']) assert.ok(FORMATS.includes(`baobao-merge/${v}`), v);
+    for (const v of ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9']) assert.ok(FORMATS.includes(`baobao-merge/${v}`), v);
     const file = importJson(run(WANG, [ILIB_DAY]));
     assert.deepEqual(validateFile({ ...file, format: 'baobao-merge/v4' }).errors, []);
-    assert.equal(validateFile({ ...file, format: 'baobao-merge/v9' }).errors.length, 1);
+    assert.equal(validateFile({ ...file, format: 'baobao-merge/v10' }).errors.length, 1);
   });
 });
 

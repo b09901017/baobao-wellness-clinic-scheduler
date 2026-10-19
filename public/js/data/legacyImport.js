@@ -63,6 +63,9 @@ export async function loadContext() {
  * 一出生就逾期的「寫紀錄」，而畫面上那句話寫著「已經發生的一筆都不會長」。
  * 見 `docs/adr/0093-an-imported-visit-grows-no-tasks.md`。
  *
+ * **取消掉的段（合併檔 v9）長一張已經勾好的「取消 X」**（ADR-0164）—— 舊系統上早就放掉了，
+ * 而只是不長的話，之後一存那一天就補長一張沒勾的。也是 `importedTasksFor()` 算的。
+ *
  * @param {ReturnType<import('../domain/legacyImport.js').planForSheet>} plan
  * @param {{coursesById?: Record<string, object>}} [opts] importAll() 讀一次往下傳，省往返
  * @returns {Promise<{customerId: string, entitlements: number, visits: number, tasks: number}>}

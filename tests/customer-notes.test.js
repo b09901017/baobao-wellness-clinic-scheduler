@@ -26,12 +26,12 @@ describe('那一串照什麼順序', () => {
     assert.deepEqual(keys(c), ['mark:0', 'mark:1']);
   });
 
-  test('沒排過：電話、LINE、長備註、短備註（她：「最上面一行電話，長備註，原本的短備註」）', () => {
+  test('沒排過：LINE、長備註、短備註、電話最後（她 2026-10-20：「病歷號最前面，然後有line的line第二個，然後電話是在最後面」）', () => {
     const c = {
-      phone: '0912-345-678', lineId: 'abc123', marks: marks('喜歡下午'),
+      phone: '0912-345-678', lineId: 'abc123', marks: marks('喜歡下午', '指定女治療師'),
       longNotes: [{ id: 'n1', title: '家人與接送', body: '週二女兒載' }],
     };
-    assert.deepEqual(keys(c), ['phone', 'line', 'long:n1', 'mark:0']);
+    assert.deepEqual(keys(c), ['line', 'long:n1', 'mark:0', 'mark:1', 'phone']);
   });
 
   test('電話、LINE 沒填就不畫、不佔位', () => {
@@ -64,9 +64,9 @@ describe('那一串照什麼順序', () => {
     assert.deepEqual(keys(c), ['mark:0']);
   });
 
-  test('排的時候沒有電話、後來才填 → 放最前面', () => {
-    const c = { phone: '0912', marks: marks('a', 'b'), noteOrder: ['mark', 'mark'] };
-    assert.deepEqual(keys(c), ['phone', 'mark:0', 'mark:1']);
+  test('排的時候沒有電話、後來才填 → 放整串的最後（ADR-0163）；沒排進去的 LINE、病歷號照舊放最前面', () => {
+    const c = { phone: '0912', lineId: 'x', chartNo: '12', marks: marks('a', 'b', '尾款 2 萬'), noteOrder: ['mark', 'mark'] };
+    assert.deepEqual(keys(c), ['chartNo', 'line', 'mark:0', 'mark:1', 'mark:2', 'phone']);
   });
 
   test('長備註不在順序裡（別的地方加的）→ 接在最後、在新的短備註前面', () => {
@@ -242,7 +242,7 @@ describe('電話與 LINE 的連結', () => {
   });
 
   test('LINE 那一格存的是她 LINE 好友清單上的名字：不是連結（ADR-0157）', () => {
-    const [phone, line] = noteItems({ phone: '0912-345-678', lineId: ' 王小明 ' });
+    const [line, phone] = noteItems({ phone: '0912-345-678', lineId: ' 王小明 ' });
     assert.equal(phone.href, 'tel:0912345678');
     assert.equal(phone.text, '0912-345-678');
     assert.deepEqual(line, { key: 'line', kind: 'line', text: '王小明' });
