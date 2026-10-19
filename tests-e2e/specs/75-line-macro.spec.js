@@ -59,7 +59,7 @@ test.describe('設定頁「打開 LINE 對話」', () => {
     expect(calls[0].path).toBe('/line');
     expect(calls[0].name).toBe('王小明');
     expect(calls[0].msg).toContain('\n\n第二段');
-    expect(calls[0].msg.length).toBeGreaterThan(150);
+    expect(calls[0].msg.length).toBeGreaterThan(200);
 
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scheduler.lineMacro')));
     expect(saved).toEqual({ on: true, port: PORT });

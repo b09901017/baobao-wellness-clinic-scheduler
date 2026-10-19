@@ -269,8 +269,11 @@ describe('設定頁的「試一次」', () => {
     await testLineMacro({ name: '王小明', notify: () => {}, deps });
     const sent = params(log.find(([k]) => k === 'fetch')[1]);
     assert.equal(sent.msg, TEST_MESSAGE);
-    assert.ok(TEST_MESSAGE.length >= 150, `測試訊息只有 ${TEST_MESSAGE.length} 字`);
-    assert.ok(TEST_MESSAGE.split('\n').filter(Boolean).length >= 3);
+    // 一則真的確認訊息：一個月排七八段就兩百多字，她再加一句就更長（issue 02：「兩三百字」）
+    assert.ok(TEST_MESSAGE.length >= 200, `測試訊息只有 ${TEST_MESSAGE.length} 字`);
+    assert.equal(TEST_MESSAGE.split('\n\n').length, 3, '三段，段與段之間空一行');
+    // 真的確認訊息是一段一行（單一個換行），那一種也要驗到
+    assert.ok(TEST_MESSAGE.split('\n\n')[1].split('\n').length >= 3);
   });
 });
 
