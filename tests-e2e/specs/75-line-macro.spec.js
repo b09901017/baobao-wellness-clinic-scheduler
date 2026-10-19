@@ -94,6 +94,21 @@ test.describe('設定頁「打開 LINE 對話」', () => {
 test.describe('客戶詳情點 LINE（巨集停在打開對話）', () => {
   const seedOne = (app) => app.seed([...masterDocs(), customer({ id: 'cust-l', name: '客戶A', lineId: '王小明' })]);
 
+  test('D0 客戶清單打 LINE 名字找得到他（名字跟 app 裡的不一樣也找得到）', async ({ app, page }) => {
+    await app.seed([
+      ...masterDocs(),
+      customer({ id: 'cust-l', name: '客戶A', lineId: '王小明' }),
+      customer({ id: 'cust-x', name: '客戶B', lineId: '陳某' }),
+    ]);
+    await app.signIn('/customers');
+
+    const card = (id) => page.locator(`[data-rows] a.card[href="#/customers/${id}"]`);
+    await expect(card('cust-x')).toBeVisible();
+    await page.fill('[data-search]', '王小明');
+    await expect(card('cust-l')).toBeVisible();
+    await expect(card('cust-x')).toHaveCount(0);
+  });
+
   test('D1 這一台勾了：敲本機的門，name 是 LINE 名字、msg 有那個鍵但是空的；不開 line.me', async ({ app, page, context }) => {
     const { calls, opened } = await fakeMacro(context);
     await macroOn(page);
