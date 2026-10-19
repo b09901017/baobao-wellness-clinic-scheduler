@@ -114,7 +114,10 @@
 - **合併檔量過**（04）：34 位、34 位的病歷號都進了那一格、短備註裡剩 0 則、其餘 106 則一則不少、資料健檢新舊兩項都 0 位（`.local/references/before-golive-2026-10-19/chart-no-import.mjs`，node 裡跑匯入頁同一支 `planForCustomer()`）
 - **10 要接住的**（04 留下的）：`customer.notes` 鏡像少了「病歷號 1234」那一行 → 試算表抬頭那一行補回來，手動貼上那條路（`sheetReport.js:70` 附近）也要；`sheetReport.js` 每位帶 `chartNo` 還沒做
 - ADR-0160 寫了五節（一格、認人、搬家、照片認人、客戶清單卡片前四個）；CLAUDE.md「備註那一段」「照片上的人」「健檢與二返的關係」三列補了
-- 全量 E2E（CI）：run `39250204880`（`d4dc14c`）—— 結果：（見下一行）
+- 全量 E2E（CI）：run `39250204880`（`d4dc14c`）—— 95＋…，**一支紅：30 的卡片「整張不可以有電話」**（07 之後備註那一排照她的順序印得出電話 —— 測試改成只看名字那一行與抬頭，`59c265c`）。
+  **漏的原因**：本機那幾支 spec 是我手挑的，30 有登記 `customers.js`、我沒問 `related.js`。段三挑 spec 改用
+  `node -e "import('./tests-e2e/related.js').then(m=>console.log(m.pick([<改到的檔案>])))"`
+- 全量 E2E 第二次（CI）：run `39251950375`（`59c265c`）—— **六台全綠**（10/19 晚）。76 I3 在 CI 上兩次都沒再出現那個逾時
 
 ---
 
@@ -187,6 +190,7 @@ HANDOFF「中途發現」第 2 條（推試算表讀到快取就這一趟不推�
 編號：ADR 0161、0162；E2E spec 78。
 
 npm run verify 在這條分支上一律退回全跑：日常是 npm test ＋ CI=1 npx playwright test <改到的那幾支 spec>，段三做完時全量丟 CI。
+「改到的那幾支」不要手挑（段二手挑漏了 30）：node -e "import('./tests-e2e/related.js').then(m=>console.log(m.pick(['public/js/…'])))" 問一次。
 
 每支：紅燈 → 綠 → 驗收 → 一支一個 commit → Status: done、「做完時留下的」。
 做完：HANDOFF 進度、中途發現一次列給她問、段四的開場（xhigh，/matt-code-review 從 995e9f1 比）貼給她，停。
