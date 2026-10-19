@@ -44,7 +44,7 @@ import { tip } from './tip.js';
 const ADVANCE_MS = 520;
 
 /** 草稿上的欄位（`customerForm.js` 的 `blankDraft()`）。表單送回來的其餘東西不收。 */
-const DRAFT_KEYS = ['name', 'phone', 'lineId', 'source', 'purchasedAt', 'priority', 'flags', 'partners',
+const DRAFT_KEYS = ['name', 'phone', 'lineId', 'chartNo', 'source', 'purchasedAt', 'priority', 'flags', 'partners',
   'marks', 'planId', 'quantity', 'extras'];
 
 const live = (rows) => (rows ?? []).filter((r) => r && !r.deletedAt);

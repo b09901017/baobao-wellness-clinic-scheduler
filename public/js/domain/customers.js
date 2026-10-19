@@ -7,6 +7,7 @@
 import { isValidDate, addMonths, daysBetween } from './dates.js';
 import { clinicalTerms, normalizeAlias } from './masterData.js';
 import { acceptsMoreSlots } from './visits.js';
+import { chartNosOf, normalizeChartNo } from './identify.js';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -33,6 +34,17 @@ const isBlank = (v) => v == null || String(v).trim() === '';
  * **「列誰」不在這一支裡**（停用的要不要列、沒打字時列不列，每一個框各有各的道理）。
  */
 export const nameHas = (name, query) => normalizeAlias(name).includes(normalizeAlias(query));
+
+/**
+ * 客戶清單的搜尋也找病歷號（2026-10-19，ADR-0160）：打幾個數字、這位的病歷號含著那幾個數字就算。
+ * 補零不算不一樣（`00001234` 跟 `1234`，`normalizeChartNo()`）；那一格與還寫成短備註的都認（`chartNosOf()`）。
+ * 沒打數字回 false（名字那一格由 `nameHas()` 問）。
+ */
+export function chartNoHas(customer, query) {
+  const q = normalizeChartNo(query);
+  if (!/^\d+$/.test(q)) return false;
+  return chartNosOf(customer).some((no) => no.includes(q));
+}
 
 /**
  * 打幾個字找客戶（拍 Abovee 每一列的「換一位」、療程單的「是誰」）。
@@ -117,8 +129,8 @@ export function validate(c) {
  * @returns {string[]}
  */
 export function warnings(c, existing = []) {
-  const { name, contact } = fieldWarnings(c, existing);
-  return [name, contact].filter(Boolean);
+  const { name, contact, chartNo } = fieldWarnings(c, existing);
+  return [name, contact, chartNo].filter(Boolean);
 }
 
 /**
@@ -126,7 +138,10 @@ export function warnings(c, existing = []) {
  * 收成那一格旁邊的一顆 ⚠，存檔前那一道再把 `warnings()` 整份講一次（ADR-0102）。
  * 兩份句子是同一支算的 —— 畫面上的 ⚠ 與存檔前講的不會是兩種說法。
  *
- * @returns {{name: string|null, contact: string|null}}
+ * **病歷號跟另一位一樣**（2026-10-19，ADR-0160）：在服務中、停用的都比（停用的那一位照片上照樣認得到），
+ * 補零與空白不算不一樣（`normalizeChartNo()`）。不擋 —— 兩位真的同號只可能是打錯，但哪一位打錯她才知道（ADR-0002）。
+ *
+ * @returns {{name: string|null, contact: string|null, chartNo: string|null}}
  */
 export function fieldWarnings(c, existing = []) {
   const name = String(c.name ?? '').trim();
@@ -140,7 +155,17 @@ export function fieldWarnings(c, existing = []) {
     contact: isBlank(c.phone) && isBlank(c.lineId)
       ? '沒有電話也沒有 LINE，之後問時間會找不到人'
       : null,
+    chartNo: chartNoClash(c, existing),
   };
+}
+
+function chartNoClash(c, existing) {
+  const no = normalizeChartNo(c.chartNo);
+  if (!no) return null;
+  const others = (existing ?? []).filter((e) => e && e.id !== c.id && !e.deletedAt && chartNosOf(e).includes(no));
+  if (!others.length) return null;
+  const names = others.map((e) => String(e.name ?? '').trim() || '（沒有名字）').join('、');
+  return `病歷號 ${String(c.chartNo).trim()} 已經是${names}的，確認沒有打錯嗎？`;
 }
 
 /**

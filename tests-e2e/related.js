@@ -601,6 +601,14 @@ export const COVERAGE = {
     'public/js/ui/views/home.js', 'public/js/domain/followups.js',
     'public/js/data/customers.js', 'public/js/data/health.js', 'public/js/ui/views/customerDetail.js',
   ],
+  // 病歷號是一格、在備註那一段是一顆丸子（before-golive-2026-10-19/04–08，ADR-0160）
+  '77-chart-number': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/identify.js', 'public/js/domain/customers.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteReorder.js',
+    'public/js/ui/components/notesEditor.js', 'public/js/ui/components/customerForm.js',
+    'public/js/ui/components/form.js', 'public/js/ui/icons.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customers.js', 'public/css/',
+  ],
 };
 
 /**

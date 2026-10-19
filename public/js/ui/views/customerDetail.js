@@ -30,7 +30,7 @@ import * as rules from '../../domain/customers.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { validateMarks } from '../../domain/customerMarks.js';
 import {
-  LINE_HINT, noteItems, notesFields, sectionCount, validateLongNotes, withLongNote, readLongNotes,
+  LINE_HINT, CHART_NO_HINT, noteItems, notesFields, sectionCount, validateLongNotes, withLongNote, readLongNotes,
 } from '../../domain/customerNotes.js';
 import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
@@ -566,6 +566,7 @@ function wireNotes(ctx) {
       toast.info('這一格認不出號碼，撥不出去；按住可以複製');
       return;
     }
+    // 病歷號：點了不開任何東西（按住複製）—— 一句都不講，那一顆本來就只是給她看的
     if (e.target.closest('[data-notes-edit]')) {
       openNotesEditor(ctx);
       return;
@@ -585,20 +586,22 @@ function wireNotes(ctx) {
 
   // 電話按住＝複製（ADR-0156）。**這是捷徑**（ADR-0060）：號碼本身印在那一顆上，
   // 也在「編輯」客戶資料那一格裡選得起來複製 —— 那是點得到的那一條路。
-  wireLongPress(box, '[data-notes-phone]', () => copyPhone(ctx.customer.phone));
+  wireLongPress(box, '[data-notes-phone]', () => copyText(ctx.customer.phone, '電話'));
+  // 病歷號按住＝複製（ADR-0160）。號碼印在那一顆上、也在「編輯」那一格裡選得起來 —— 那是點得到的那一條路
+  wireLongPress(box, '[data-notes-chart]', () => copyText(ctx.customer.chartNo, '病歷號'));
   // 按住連結時 iOS／Android 會跳自己的預覽或選單，跟複製搶
   box.addEventListener('contextmenu', (e) => {
-    if (e.target.closest('[data-notes-phone]')) e.preventDefault();
+    if (e.target.closest('[data-notes-phone], [data-notes-chart]')) e.preventDefault();
   });
 }
 
-async function copyPhone(phone) {
-  const text = String(phone ?? '').trim();
+async function copyText(value, what) {
+  const text = String(value ?? '').trim();
   try {
     await navigator.clipboard.writeText(text);
     toast.info(`已複製 ${text}`);
   } catch {
-    toast.info(`複製不了，電話是 ${text}`);
+    toast.info(`複製不了，${what}是 ${text}`);
   }
 }
 
@@ -1469,6 +1472,7 @@ function paintEdit(ctx) {
         ${f.text({ name: 'name', label: '姓名', value: customer.name })}
         ${f.text({ name: 'phone', label: '電話', value: customer.phone ?? '' })}
         ${f.text({ name: 'lineId', label: 'LINE 名字', value: customer.lineId ?? '', hint: LINE_HINT })}
+        ${f.text({ name: 'chartNo', label: '病歷號', value: customer.chartNo ?? '', hint: CHART_NO_HINT, inputmode: 'numeric' })}
         ${f.text({ name: 'source', label: '購買通路', value: customer.source ?? '' })}
         ${f.select({
           name: 'priority', label: '喜好程度', value: String(customer.priority ?? 0),
@@ -1518,6 +1522,7 @@ function paintEdit(ctx) {
       name: v.name.trim(),
       phone: v.phone.trim() || null,
       lineId: v.lineId.trim() || null,
+      chartNo: v.chartNo.trim() || null,
       source: v.source.trim() || null,
       priority: Number(v.priority) || 0,
       flags,
@@ -1532,10 +1537,13 @@ function paintEdit(ctx) {
     // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
     // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
     // 規則在 `renameTargets()`
+    // 病歷號跟另一位一樣（ADR-0160）：同一道問、不擋。只在那一格改過時問 —— 本來就同號的那一位，改電話不必每次被問
     const renamed = changes.name !== (ctx.customer.name ?? '');
-    if (renamed) {
-      const said = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => [])).name;
-      if (said && !await confirmReview([said])) return;
+    const chartChanged = (changes.chartNo ?? '') !== String(ctx.customer.chartNo ?? '').trim();
+    if (renamed || chartChanged) {
+      const w = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => []));
+      const said = [renamed ? w.name : null, chartChanged ? w.chartNo : null].filter(Boolean);
+      if (said.length && !await confirmReview(said)) return;
     }
 
     try {

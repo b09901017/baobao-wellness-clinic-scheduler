@@ -39,6 +39,7 @@ export function row(marks, { max = Infinity, large = false, clip = false } = {})
  *
  * - 電話：話筒＋號碼，點了撥號（`tel:`），按住複製（接線在呼叫端）
  * - LINE：對話泡泡＋「LINE」，點了打開他的 LINE 對話（接線在呼叫端：手機上的 MacroDroid，ADR-0157）
+ * - 病歷號：證件＋號碼，點了不開任何東西，按住複製（接線在呼叫端，ADR-0160）
  * - 長備註：茶色那一顆（便條＋標題＋›）—— 看得出「點開有全文」
  *
  * 屬性一律 `data-notes-*`：共用元件不可以用頁面身上的名字（CLAUDE.md 那一列）。
@@ -61,6 +62,11 @@ function noteChip(it) {
       ? `<a class="mark mark--lg mark--contact" href="${esc(it.href)}" data-notes-phone
             aria-label="撥給 ${esc(it.text)}（按住複製）">${inner}</a>`
       : `<span class="mark mark--lg mark--contact" data-notes-phone tabindex="0">${inner}</span>`;
+  }
+  if (it.kind === 'chartNo') {
+    return `<span class="mark mark--lg mark--contact" data-notes-chart tabindex="0"
+                  aria-label="病歷號 ${esc(it.text)}（按住複製）">${glyph('chartNo')}
+              <span class="mark__text mark__num">${esc(it.text)}</span></span>`;
   }
   if (it.kind === 'line') {
     // 那一格是她 LINE 上的名字，不是網址 —— 是按鈕不是連結（ADR-0157）

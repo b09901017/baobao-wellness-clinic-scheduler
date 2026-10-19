@@ -10,6 +10,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { chartNosOf, identifyCustomer, chartNoInMark } from '../public/js/domain/identify.js';
 import { noteItems, notesFields, chartNoMove } from '../public/js/domain/customerNotes.js';
@@ -212,4 +213,88 @@ describe('資料健檢：病歷號還寫成一則短備註', () => {
 
 test('稽核：chartNo 有中文名', () => {
   assert.equal(fieldLabel('chartNo'), '病歷號');
+});
+
+// ---------------------------------------------------------------------------
+// issue 05：畫面上（表單一格、備註那一段一顆、搜尋、同號提醒）
+// ---------------------------------------------------------------------------
+
+describe('同號提醒（不擋）', async () => {
+  const { fieldWarnings, warnings, chartNoHas } = await import('../public/js/domain/customers.js');
+  const others = [
+    { id: 'x', name: '王小明', chartNo: '1234' },
+    { id: 'y', name: '李小華', active: false, marks: [grey('病歷號 4321')] },
+    { id: 'z', name: '已刪的', chartNo: '5555', deletedAt: 1 },
+  ];
+
+  test('另一位已經是這個號碼 → 講是誰；補零一樣算', () => {
+    assert.match(fieldWarnings({ name: 'a', chartNo: '00001234' }, others).chartNo, /王小明/);
+    assert.ok(warnings({ name: 'a', phone: '1', chartNo: '1234' }, others).some((w) => w.includes('王小明')));
+  });
+
+  test('停用的也比、舊的短備註也比；刪掉的與自己不比', () => {
+    assert.match(fieldWarnings({ name: 'a', chartNo: '4321' }, others).chartNo, /李小華/);
+    assert.equal(fieldWarnings({ name: 'a', chartNo: '5555' }, others).chartNo, null);
+    assert.equal(fieldWarnings({ id: 'x', name: '王小明', chartNo: '1234' }, others).chartNo, null);
+  });
+
+  test('沒填不講', () => {
+    assert.equal(fieldWarnings({ name: 'a', chartNo: '' }, others).chartNo, null);
+  });
+
+  test('客戶清單的搜尋：數字找得到、補零一樣、短備註的也找得到；字不算', () => {
+    assert.equal(chartNoHas({ chartNo: '00001234' }, '1234'), true);
+    assert.equal(chartNoHas({ chartNo: '1234' }, '00001234'), true);
+    assert.equal(chartNoHas({ chartNo: '1234' }, '23'), true);
+    assert.equal(chartNoHas({ marks: [grey('病歷號 4321')] }, '4321'), true);
+    assert.equal(chartNoHas({ chartNo: '1234' }, '王'), false);
+    assert.equal(chartNoHas({ chartNo: '1234' }, ''), false);
+  });
+});
+
+describe('備註那一段的畫法', async () => {
+  const marksUi = await import('../public/js/ui/components/marks.js');
+  const { reorderHtml } = await import('../public/js/ui/components/noteReorder.js');
+  const { ICON_NAMES } = await import('../public/js/ui/icons.js');
+  const item = { key: 'chartNo', kind: 'chartNo', text: '1234' };
+
+  test('icon 叫 chartNo（她選的 C：證件・人像）', () => {
+    assert.ok(ICON_NAMES.includes('chartNo'));
+  });
+
+  test('一顆丸子：icon＋號碼、按住複製、不是連結也不是按鈕（點了不開任何東西）', () => {
+    const html = marksUi.notesRow([item]);
+    assert.match(html, /data-notes-chart/);
+    assert.match(html, /mark__glyph--chartNo/);
+    assert.match(html, /mark__num">1234</);
+    assert.match(html, /aria-label="病歷號 1234（按住複製）"/);
+    assert.doesNotMatch(html, /<a |<button/);
+    assert.doesNotMatch(html, /data-notes-phone/, '不要借電話那一條（會叫到複製電話）');
+  });
+
+  test('調整順序那一份有它一列', () => {
+    assert.match(reorderHtml([item]), /data-reorder-key="chartNo"[\s\S]*1234/);
+  });
+});
+
+test('表單：新增客戶與編輯客戶都有病歷號那一格，不是 type="number"', () => {
+  const src = (p) => readFileSync(new URL(`../public/js/${p}`, import.meta.url), 'utf8');
+  for (const p of ['ui/components/customerForm.js', 'ui/views/customerDetail.js']) {
+    const s = src(p);
+    assert.match(s, /name: 'chartNo'|name="chartNo"/, `${p} 少了病歷號那一格`);
+    assert.doesNotMatch(s, /type="number" name="chartNo"/);
+  }
+  assert.match(src('ui/components/customerForm.js'), /chartNo: String\(d\.chartNo/);
+});
+
+test('壓表卡片牆不畫病歷號（她：「對」）—— 那一格不在 marks 裡；搬完之後卡片上少的就是那一則', async () => {
+  const { buildCustomerQueue } = await import('../public/js/domain/scheduling.js');
+  const ent = { id: 'e1', type: 'single', label: 'X', courseId: 'x', totalQty: 4 };
+  const before = { id: 'c1', name: '客戶A', marks: [grey('病歷號 1234'), grey('喜歡下午')] };
+  const after = { ...before, ...chartNoMove(before).changes };
+  const row = (c) => buildCustomerQueue({
+    customers: [c], entitlementsBy: { c1: [ent] }, targetMonth: '2026-11', today: '2026-10-19',
+  })[0];
+  assert.deepEqual(row(after).marks.map((m) => m.text), ['喜歡下午']);
+  assert.deepEqual(row({ ...after, chartNo: '4321' }).marks.map((m) => m.text), ['喜歡下午']);
 });

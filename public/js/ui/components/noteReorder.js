@@ -38,6 +38,7 @@ function label(it) {
   const g = (name) => `<span class="rrow__glyph rrow__glyph--${name}">${icon(name, { size: 16 })}</span>`;
   if (it.kind === 'phone') return `${g('phone')}<span class="rrow__text mark__num">${esc(it.text)}</span>`;
   if (it.kind === 'line') return `${g('line')}<span class="rrow__text">LINE</span>`;
+  if (it.kind === 'chartNo') return `${g('chartNo')}<span class="rrow__text mark__num">${esc(it.text)}</span>`;
   if (it.kind === 'long') {
     return `${g('note')}<span class="rrow__text">${esc(it.note.title)}</span><span class="rrow__kind">長備註</span>`;
   }

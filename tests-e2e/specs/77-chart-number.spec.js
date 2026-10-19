@@ -1,0 +1,143 @@
+// 病歷號是一格、在備註那一段是一顆丸子（before-golive-2026-10-19 issue 05，ADR-0160）。
+//
+// 只有瀏覽器量得到的那幾件：編輯與新增兩張表都填得到、存完那一顆畫在備註那一段、點了不開任何東西、
+// 按住是複製、拖得動、同號那一句存檔前講、客戶清單打號碼找得到、390px 不撐寬、觸控區不跨到隔壁。
+// 規則本身（搬家、認人、同號比對）在 `tests/chart-no-field.test.js`。
+
+import { test, expect } from '../fixtures/app.js';
+import { masterDocs, customer } from '../fixtures/data.js';
+
+const clientA = (extra = {}) => customer({
+  id: 'cust-c', name: '客戶A', phone: '0912-345-678',
+  marks: [{ text: '喜歡下午', color: 'green' }],
+  ...extra,
+});
+
+const chips = (page) => page.locator('[data-notesblock] [data-notes-row] > *').evaluateAll((els) =>
+  els.map((el) => el.textContent.replace(/\s+/g, ' ').trim()));
+
+test.beforeEach(async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+});
+
+test('C1 編輯客戶 → 病歷號打 1234 → 存：備註那一段多一顆（電話後面）；點了不開任何東西', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA()]);
+  await app.signIn('/customers/cust-c');
+  await expect(page.locator('[data-notes-chart]')).toHaveCount(0);
+
+  await page.locator('[data-edit]').click();
+  const input = page.locator('[data-form] input[name="chartNo"]');
+  await expect(input).toHaveAttribute('inputmode', 'numeric');
+  await expect(input).toHaveAttribute('type', 'text');
+  await input.fill('1234');
+  await page.locator('[data-form] button[type="submit"]').click();
+  await app.saved();
+
+  const chart = page.locator('[data-notesblock] [data-notes-chart]');
+  await expect(chart).toHaveText('1234');
+  await expect(chart.locator('.mark__glyph--chartNo svg')).toHaveCount(1);
+  expect(await chips(page)).toEqual(['0912-345-678', '1234', '喜歡下午']);
+  expect((await app.readDoc('customers', 'cust-c')).chartNo).toBe('1234');
+
+  const url = page.url();
+  await chart.click();
+  await expect(page.locator('.lnov, .dialog, .drawer')).toHaveCount(0);
+  expect(page.url()).toBe(url);
+
+  const wide = await page.locator('.app__main').evaluate((m) => m.scrollWidth > m.clientWidth);
+  expect(wide).toBe(false);
+});
+
+test('C2 按住病歷號是複製', async ({ app, page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await app.seed([...masterDocs(), clientA({ chartNo: '1234' })]);
+  await app.signIn('/customers/cust-c');
+
+  const b = await page.locator('[data-notesblock] [data-notes-chart]').boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('#toast')).toContainText('已複製 1234', { timeout: 3000 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('1234');
+});
+
+test('C3 另一位已經是 1234 → 編輯存檔前講是誰；照樣存得進去', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA(), customer({ id: 'cust-w', name: '客戶B', chartNo: '00001234' })]);
+  await app.signIn('/customers/cust-c');
+  await page.locator('[data-edit]').click();
+  await page.locator('[data-form] input[name="chartNo"]').fill('1234');
+  await page.locator('[data-form] button[type="submit"]').click();
+  await expect(app.dialog()).toContainText('病歷號 1234 已經是客戶B的');
+  await app.ok();
+  await app.saved();
+  expect((await app.readDoc('customers', 'cust-c')).chartNo).toBe('1234');
+});
+
+test('C4 新增客戶：病歷號那一格、同號 ⚠、建好的人身上有那一格', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-w', name: '客戶B', chartNo: '4321' })]);
+  await app.signIn('/customers/new');
+  await page.locator('[data-cf-form] input[name="name"]').fill('客戶C');
+  await page.locator('[data-cf-form] input[name="phone"]').fill('0911111111');
+  const chart = page.locator('[data-cf-form] input[name="chartNo"]');
+  await chart.fill('4321');
+  await expect(page.locator('[data-cf-warn="chartNo"] .tip--warn')).toHaveCount(1);
+  await chart.fill('1234');
+  await expect(page.locator('[data-cf-warn="chartNo"] .tip--warn')).toHaveCount(0);
+  await page.locator('.cform__bar button[type="submit"]').click();
+  await app.saved();
+  const made = (await app.readAll('customers')).find((c) => c.name === '客戶C');
+  expect(made.chartNo).toBe('1234');
+});
+
+test('C5 調整順序拖得動病歷號；存完重新整理照舊', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA({ chartNo: '1234' })]);
+  await app.signIn('/customers/cust-c');
+  await page.locator('[data-notes-sort]').click();
+  await app.layer('[data-reorder-box]');
+  await expect(page.locator('[data-reorder-key="chartNo"]')).toContainText('1234');
+
+  const box = await page.locator('[data-reorder-box]').boundingBox();
+  const x = box.x + box.width - 20;
+  // 起點：phone、chartNo、mark:0 —— 病歷號拖到最後（一列 50＋8px）
+  await page.mouse.move(x, box.y + 1 * 58 + 25);
+  await page.mouse.down();
+  await page.mouse.move(x, box.y + 2 * 58 + 25, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('[data-reorder-key="chartNo"]')).not.toHaveClass(/is-lifted/);
+  await page.locator('[data-notes-sort-done]').click();
+  await app.saved();
+
+  expect((await app.readDoc('customers', 'cust-c')).noteOrder).toEqual(['phone', 'mark', 'chartNo']);
+  await app.reload();
+  expect(await chips(page)).toEqual(['0912-345-678', '喜歡下午', '1234']);
+});
+
+test('C6 客戶清單打號碼找得到（補零一樣），還寫成短備註的也找得到', async ({ app, page }) => {
+  await app.seed([...masterDocs(),
+    clientA({ chartNo: '00001234' }),
+    customer({ id: 'cust-o', name: '客戶D', marks: [{ text: '病歷號 4321', color: 'grey' }] }),
+  ]);
+  await app.signIn('/customers');
+  const search = page.locator('[data-search]');
+  await expect(search).toHaveAttribute('placeholder', /病歷號/);
+  await search.fill('1234');
+  await expect(page.locator('a.card[href="#/customers/cust-c"]')).toHaveCount(1);
+  await expect(page.locator('a.card[href="#/customers/cust-o"]')).toHaveCount(0);
+  await search.fill('4321');
+  await expect(page.locator('a.card[href="#/customers/cust-o"]')).toHaveCount(1);
+  await expect(page.locator('a.card[href="#/customers/cust-c"]')).toHaveCount(0);
+});
+
+test('C7 病歷號跟電話並排：按在兩顆中間那一段不會按到隔壁（觸控區貼在自己身上）', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA({ chartNo: '1234' })]);
+  await app.signIn('/customers/cust-c');
+  const phone = await page.locator('[data-notesblock] [data-notes-phone]').boundingBox();
+  const chart = await page.locator('[data-notesblock] [data-notes-chart]').boundingBox();
+  const y = chart.y + chart.height / 2;
+  const at = (px) => page.evaluate(([x, yy]) => {
+    const el = document.elementFromPoint(x, yy);
+    return el?.closest('[data-notes-chart]') ? 'chart' : el?.closest('[data-notes-phone]') ? 'phone' : null;
+  }, [px, y]);
+  expect(await at(chart.x + 2)).toBe('chart');
+  expect(await at(phone.x + phone.width - 2)).toBe('phone');
+});

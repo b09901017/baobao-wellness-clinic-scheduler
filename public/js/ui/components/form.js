@@ -24,12 +24,12 @@ const esc = (s) =>
 
 export { esc };
 
-export function text({ name, label, value = '', placeholder = '', hint = '', maxlength = null }) {
+export function text({ name, label, value = '', placeholder = '', hint = '', maxlength = null, inputmode = null }) {
   return `
     <label class="field">
       <span class="field__label">${esc(label)}${tip(hint)}</span>
       <input type="text" name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}"
-             ${maxlength ? `maxlength="${Number(maxlength)}"` : ''} />
+             ${maxlength ? `maxlength="${Number(maxlength)}"` : ''}${inputmode ? ` inputmode="${esc(inputmode)}" autocomplete="off"` : ''} />
     </label>`;
 }
 
