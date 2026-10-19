@@ -16,7 +16,7 @@ import * as rules from '../../domain/customers.js';
 import { summarize, isProduct } from '../../domain/entitlements.js';
 import { purchaseHeadline } from '../../domain/purchases.js';
 import { customerPools } from '../../domain/scheduling.js';
-import { readMarks } from '../../domain/customerMarks.js';
+import { noteItems } from '../../domain/customerNotes.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
@@ -339,7 +339,8 @@ function card(c, ctx) {
   const ents = ctx.entsBy[c.id] ?? [];
   const sum = summarize(ents);
   const flags = rules.splitFlags(c, ctx.clinicalFlags);
-  const marks = readMarks(c);
+  // 備註那一段照她排的順序的前四個（電話、LINE、病歷號、長備註都算；她 10/19，ADR-0160）
+  const notes = noteItems(c);
   // 名字底下那一行：買了什麼（ADR-0090）。上次／下次 2026-09-13 拿掉了，排序照樣靠 `byCustomer()`
   const meta = purchaseHeadline(c, ents, ctx.master);
   let { pools } = customerPools({ entitlements: ents });
@@ -367,8 +368,8 @@ function card(c, ctx) {
         ${icon('right', { size: 16 })}
       </div>
 
-      ${marks.length
-        ? `<div style="margin-top: var(--space-2)">${marksUi.row(marks, { max: 3, clip: true })}</div>`
+      ${notes.length
+        ? `<div style="margin-top: var(--space-2)">${marksUi.notesPreview(notes, { max: 4 })}</div>`
         : ''}
 
       ${shown.length

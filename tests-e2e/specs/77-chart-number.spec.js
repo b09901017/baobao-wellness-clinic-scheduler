@@ -188,3 +188,33 @@ test('C8 拍 Abovee：app 上的王小明沒有病歷號、照片上有 → 沒�
   await expect(page.locator('.abl')).toHaveCount(0);
   await expect.poll(async () => (await app.readDoc('customers', 'cust-wang')).chartNo).toBe('1234');
 });
+
+// ---------------------------------------------------------------------------
+// 07 客戶清單的卡片：照她排的順序前四個
+// ---------------------------------------------------------------------------
+
+test('C10 客戶清單卡片：病歷號、長備註、電話、短備註 → 這四個、這個順序；卡片裡沒有巢狀的連結或按鈕；長的截成一行', async ({ app, page }) => {
+  await app.seed([...masterDocs(), clientA({
+    chartNo: '1234', lineId: '客戶A的LINE',
+    longNotes: [{ id: 'n1', title: '家人與接送還有停車的地方還有一大串很長很長很長的字一直寫下去', body: '' }],
+    marks: [{ text: '喜歡下午', color: 'green' }, { text: '指定女治療師', color: 'blue' }],
+    noteOrder: ['chartNo', 'long:n1', 'phone', 'mark', 'line', 'mark'],
+  })]);
+  await app.signIn('/customers');
+
+  const card = page.locator('a.card[href="#/customers/cust-c"]');
+  const preview = card.locator('[data-notes-preview] > .mark:not(.mark--empty)');
+  expect(await preview.evaluateAll((els) => els.map((el) => el.textContent.replace(/\s+/g, ' ').trim())))
+    .toEqual(['1234', '家人與接送還有停車的地方還有一大串很長很長很長的字一直寫下去', '0912-345-678', '喜歡下午']);
+  await expect(card.locator('[data-notes-preview] .mark--empty')).toHaveText('還有 2 則');
+  expect(await card.evaluate((a) => a.querySelectorAll('a, button').length)).toBe(0);
+
+  // 長的那一顆截成一行：高度是一行、整欄不撐寬（捲的是 .app__main）
+  const long = card.locator('[data-notes-preview] .mark--long');
+  const h = await long.evaluate((el) => el.getBoundingClientRect().height);
+  expect(h).toBeLessThan(34);
+  expect(await page.locator('.app__main').evaluate((m) => m.scrollWidth > m.clientWidth)).toBe(false);
+
+  await card.click();
+  await expect(page).toHaveURL(/#\/customers\/cust-c$/);
+});

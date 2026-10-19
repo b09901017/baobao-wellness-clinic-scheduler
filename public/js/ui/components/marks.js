@@ -53,6 +53,34 @@ export function notesRow(items) {
 const glyph = (name) =>
   `<span class="mark__glyph mark__glyph--${name}">${icon(name, { size: 15, width: 1.8 })}</span>`;
 
+/**
+ * 客戶清單卡片上那一排（before-golive-2026-10-19/07，ADR-0160）：**她排的順序的前幾個**，電話、LINE、
+ * 病歷號、長備註、短備註都算（她：「不一定只能用短備註，就是我調好順序後的前四個」）。項目一樣是 `noteItems()` 給的。
+ *
+ * **只看的**：卡片本身是一個 `<a>`，裡面不可以有 `<a>`／`<button>` —— 每一顆都是 `<span>`、點了就是點卡片（進客戶詳情）。
+ * 截成一行加「…」（`clip`，issue 16），超過的收成「還有 N 則」（同 `row()`）。
+ */
+export function notesPreview(items, { max = 4 } = {}) {
+  const list = (items ?? []).filter(Boolean);
+  if (!list.length) return '';
+  const shown = list.slice(0, max);
+  const rest = list.length - shown.length;
+  return `<div class="marks" data-notes-preview>
+    ${shown.map(previewChip).join('')}
+    ${rest ? `<span class="mark mark--empty">還有 ${rest} 則</span>` : ''}
+  </div>`;
+}
+
+function previewChip(it) {
+  if (it.kind === 'mark') return chip(it.mark, { clip: true });
+  const span = (cls, lead, text, num = false) => `<span class="mark mark--clip mark--static ${cls}">${lead}
+    <span class="mark__text${num ? ' mark__num' : ''}">${esc(text)}</span></span>`;
+  if (it.kind === 'phone') return span('', glyph('phone'), it.text, true);
+  if (it.kind === 'line') return span('', glyph('line'), 'LINE');
+  if (it.kind === 'chartNo') return span('', glyph('chartNo'), it.text, true);
+  return span('mark--long', glyph('note'), it.note.title);
+}
+
 function noteChip(it) {
   if (it.kind === 'mark') return chip(it.mark, { large: true });
   if (it.kind === 'phone') {

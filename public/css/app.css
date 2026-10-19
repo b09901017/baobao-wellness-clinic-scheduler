@@ -1634,6 +1634,22 @@ button.mark--contact::after {
 .mark--contact.is-pressing,
 .mark--long.is-pressing { background: var(--surface-2); }
 
+/* 客戶清單卡片上那一排（`notesPreview()`）：只看的，點了是點卡片。圖示跟著小一號的丸子縮 */
+.mark--static {
+  cursor: inherit;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+.mark--static .mark__glyph {
+  width: 18px;
+  height: 18px;
+  margin-left: -2px;
+}
+.mark--static .mark__glyph svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* 長備註那一顆：茶色底、茶色框、便條＋標題＋› —— 看得出「點開有全文」 */
 .mark--long {
   border-color: var(--tea);

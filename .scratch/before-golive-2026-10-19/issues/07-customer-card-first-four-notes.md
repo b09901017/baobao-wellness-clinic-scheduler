@@ -1,6 +1,6 @@
 # 客戶清單的卡片：備註那一段照她排的順序，前四個
 
-Status: todo
+Status: done
 段：二（high）
 Blocked by: 04、05（病歷號那一種要畫得出來、icon 要在）
 動工前先讀：`ui/views/customers.js` 的 `card()`（現在是 `marksUi.row(marks, { max: 3, clip: true })`，只有短備註、最多 3 則）；`domain/customerNotes.js` 的 `noteItems()`；`ui/components/marks.js` 的 `row()`、`notesRow()`、`noteChip()`；`docs/adr/0156`（第 37 行：「它們照舊只看到短備註」—— 列了試算表、壓表卡片牆、讀取卡片）；`CLAUDE.md`「備註那一段的順序、長備註」那一列（`marks` 二十幾處讀它的名單，客戶清單卡片是其中一個）、「一顆小圖示按鈕的觸控區」
@@ -33,3 +33,13 @@ Blocked by: 04、05（病歷號那一種要畫得出來、icon 要在）
 
 - ADR：補一支（或寫進這一輪那一支）—— 推翻 ADR-0156「客戶清單卡片也只看短備註」那一半（舊的那一支不改）
 - `CLAUDE.md`「備註那一段的順序、長備註」那一列：讀 `marks` 的名單拿掉客戶清單卡片、補「客戶清單卡片讀 `noteItems()` 前四個」
+
+## 做完時留下的（10/19 段二）
+
+- `customers.js` 的 `card()` 讀 `noteItems(c)`（`readMarks` 那一個 import 拿掉了），畫 `marksUi.notesPreview(notes, { max: 4 })`
+- `marks.js` 的 `notesPreview()`／`previewChip()`：全部 `<span>`（短備註走原本的 `chip(…, { clip: true })`；電話、LINE、病歷號、長備註是 `.mark--clip.mark--static`＋小一號的 icon；
+  長備註帶 `.mark--long` 的茶色、不畫 `›`）。超過四個照 `row()` 的「還有 N 則」。外層 `data-notes-preview`
+- CSS：`.mark--static`（cursor 跟著卡片、可以選字）＋小一號 glyph（18px 框、13px 圖）
+- E2E：77 C10（順序、`還有 2 則`、卡片裡 `a, button` 是 0、長的高度 < 34px、`.app__main` 不撐寬、點了進詳情）；74 N12 翻過來（長備註排最前面 → 卡片上看得到）
+- 截圖看過（390px）
+- 文件：ADR-0160 第五節（推翻 ADR-0156 那一半）、CLAUDE.md「備註那一段」那一列、SPEC 總覽那一行
