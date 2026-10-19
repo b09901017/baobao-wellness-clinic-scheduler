@@ -305,9 +305,11 @@ export function relinkedSay(relink, examDate) {
  * 按了那一顆、卻沒有接過來時那一句：健檢照樣記好了，所以要講出這一半沒做（ADR-0070）。
  * `errors`：存檔驗證擋下來的理由（那一次已經被別場接走之類）；沒有就是那一場在這之間被改過了。
  */
-export function notRelinkedSay(relink, errors = []) {
+export function notRelinkedSay(relink, errors = [], { unread = false } = {}) {
   // 開頭先講健檢那一半記好了：她按的那一顆是「記錄，順便…」，只講沒接過來會以為兩件事都沒成
   const which = `健檢記好了；${dayWord(relink?.date)} 那一場${relink?.name ?? '二返'}沒有接過來`;
+  // 重讀那一下沒讀成、或讀到的不是全部（離線、快取，ADR-0158）：不是別的地方改過
+  if (unread) return `${which} —— 網路不穩，讀不到全部的紀錄；連上之後去日曆點那一場改「這是哪一次健檢的」`;
   return errors?.length
     ? `${which}：${errors[0]} —— 去日曆點那一場改「這是哪一次健檢的」`
     : `${which} —— 它剛剛在別的地方改過，去日曆看那一天`;

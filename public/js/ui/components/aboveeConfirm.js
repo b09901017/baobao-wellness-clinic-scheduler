@@ -45,7 +45,6 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
-import { isOffline } from '../net.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
@@ -192,15 +191,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    * 撞期那一份是把 `visitsBy` 攤平再濾日期（`visitsForCheck()`），照舊成立。
    *
    * **讀不到的不安靜地照算**：記進 `ctx.partial`，那一位的列不預設打勾、講一句（`partialSay()`）。
-   * 離線也算讀不到 —— Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆。
+   * 離線、或讀回來的是快取（網路不穩時 SDK 自己退回快取，`navigator.onLine` 照樣是 true）也算讀不到 ——
+   * Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆（`listWhole()` 兩種都丟，ADR-0158）。
    */
   async function loadHistory(ids) {
     const wanted = [...new Set(ids)].filter((id) => id && !whole.has(id));
     if (!wanted.length) return;
-    const offline = isOffline();
-    const got = await Promise.all(wanted.map((id) => (offline
-      ? [id, null]
-      : visitsData.listByCustomer(id).then((list) => [id, list], () => [id, null]))));
+    const got = await Promise.all(wanted.map((id) => visitsData.listWhole(id)
+      .then((list) => [id, list], () => [id, null])));
     // 等回來之後才拿手上那一份：同時有兩趟在讀時，後回來的不可以蓋掉先回來的
     const visitsBy = { ...ctx.visitsBy };
     const partial = new Set(ctx.partial ?? []);
@@ -1040,7 +1038,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         const mine = items.filter((i) => i.customerId === customerId && wantsWrite(i) && !savedKeys.has(i.key));
         if (!mine.length) continue;
         // eslint-disable-next-line no-await-in-loop
-        const fresh = await visitsData.listByCustomer(customerId);
+        // 讀不完整就停在這一位、講出來（ADR-0158；`save()` 也會擋，這裡先擋省得讀完其餘幾份）
+        const fresh = await visitsData.listWhole(customerId, nameOf(customerId));
         // 同一支再算一次；接著同一批別天那一次健檢的，存好了的換成真的 id（跨好幾次按「記錄」，`planToWrite()`）
         const again = planToWrite(mine, { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: fresh } }, savedIds);
         // eslint-disable-next-line no-await-in-loop

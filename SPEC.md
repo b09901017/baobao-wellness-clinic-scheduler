@@ -1865,7 +1865,7 @@ score = w1 × (1 − 可用天數 / 當月天數)        // 限制越多越優�
 | 層 | 選擇 | 說明 |
 |---|---|---|
 | 前端 | **原生 HTML / CSS / JS**，不用 React | 維護者只熟 HTML/CSS/JS，明確表示看不懂 React。不要引入 build pipeline。需要一點結構可用 Alpine.js。 |
-| 形態 | **PWA，觸控優先，響應式** | Android 手機與 iPad 各約一半。以容器寬度切三段版型（<600 / 600–899 / ≥900），不是偵測裝置型號 —— iPad Split View 會讓寬度改變。要有離線快取，訊號差時仍打得開（讀取用快取，寫入排隊重試）。 |
+| 形態 | **PWA，觸控優先，響應式** | Android 手機與 iPad 各約一半。以容器寬度切三段版型（<600 / 600–899 / ≥900），不是偵測裝置型號 —— iPad Split View 會讓寬度改變。要有離線快取，訊號差時仍打得開（讀取用快取，寫入排隊重試）。**會動到次數或健檢那一串待辦的寫入要讀得到完整的資料**：讀回來的是快取（離線、網路不穩）就先不存、講一句，連上再按一次（ADR-0158）。 |
 | 後端 | **Firebase**（Firestore + Auth + Security Rules + Hosting） | 使用者指定。Firestore 免費額度對此規模綽綽有餘。 |
 | 排程／背景工作 | 盡量放在 client（app 開啟時執行對帳） | 沒有定時觸發的伺服器程式。 |
 | 伺服器程式 | **只有一支 Cloud Function：拍照辨識**（`functions/`） | AI 要在伺服器叫，防護與上限見 [ADR-0100](docs/adr/0100-the-first-server-code-and-its-five-locks.md)；AI 能做到哪裡見 [ADR-0099](docs/adr/0099-ai-only-copies-the-words.md)。 |

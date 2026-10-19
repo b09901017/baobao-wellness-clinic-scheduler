@@ -1140,7 +1140,15 @@ function kindText(e, ctx) {
 
 async function fixCounts(ctx, entId) {
   const e = ctx.entitlements.find((x) => x.id === entId);
-  const rec = reconcile(e, ctx.visits, entId);
+  // **按下去那一刻重讀全部**（ADR-0158）：打開這一頁那一刻讀到的可能是快取裡剛好有的那幾筆，照它改就是少算
+  let visits;
+  try {
+    visits = await visitsData.listWhole(ctx.id, ctx.customer?.name);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
+  const rec = reconcile(e, visits, entId);
 
   const ok = await confirmAction({
     title: `把「${e.label}」的計數欄位改成重算值？`,

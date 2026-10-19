@@ -3244,8 +3244,14 @@ async function applyConfirm(ctx) {
   const askedIn = (v) => pendingSlotsOf(v).map(({ index }) => index).filter((i) => asked.has(`${v.id}:${i}`));
 
   // **在確認框之前讀**：框講的與寫下去的是同一份（ADR-0070），而且「那一天還剩下什麼」要看得到
-  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）
-  let customerVisits = await visitsData.listByCustomer(opened.customerId);
+  // 那一天已完成的另一筆（它不在 `ctx.pending` 裡）。讀不完整（離線、讀到快取）就停在這裡，她按的 ✓✗ 留著（ADR-0158）
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listWhole(opened.customerId, visits[0]?.customerName);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
 
   // **一段 ✓ 都沒有就是取消**（不是退回待確認），而這一下給不出復原（`undoable: false`）——
   // 先問一次（prelaunch-audit-2026-09-23/issues/12）。後果走 `cancelConsequences()`，
@@ -3788,7 +3794,14 @@ async function applyClose(ctx) {
   const visit = ctx.rows.find((v) => v.id === opened.visitId);
   if (!visit || !opened.picks.size) return;
 
-  const customerVisits = await visitsData.listByCustomer(visit.customerId);
+  // 讀不完整（離線、讀到快取）就停在這裡，她按的 ✓✗ 留著（ADR-0158）
+  let customerVisits;
+  try {
+    customerVisits = await visitsData.listWhole(visit.customerId, visit.customerName);
+  } catch (err) {
+    toast.readFailed(err);
+    return;
+  }
   // **套在剛讀回來的那一份上**（prelaunch-audit-2026-09-23/issues/19）。她按了的那幾段
   // 在別的地方已經結案或取消了 —— 這張抽屜就是舊的：不寫，重畫。沒按的段、別台剛接上的段
   // 本來就不會被動到（`closeVisit()` 只動 true／false）。

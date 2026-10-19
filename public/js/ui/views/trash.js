@@ -131,9 +131,9 @@ async function loadGroups() {
         name: `${v.date} ${v.customerName ?? ''}`.trim(),
         note: `${(v.slots ?? []).length} 個時段`,
         deletedAt: v.deletedAt,
-        // 還原會把次數也還原回去，所以要先知道這位客戶現在有哪些來訪
+        // 還原會把次數也還原回去，所以要先知道這位客戶現在有哪些來訪 —— **全部**的（讀不完整就丟，ADR-0158）
         restore: async () =>
-          visits.restore(v, await visits.listByCustomer(v.customerId)),
+          visits.restore(v, await visits.listWhole(v.customerId, v.customerName)),
       })),
     },
     {

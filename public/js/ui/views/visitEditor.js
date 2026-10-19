@@ -50,6 +50,7 @@ import { tip } from '../components/tip.js';
 import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
 import { relinkAfterSave } from '../relinkFollowup.js';
 import * as toast from '../toast.js';
+import { isOffline } from '../net.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
 
@@ -1354,8 +1355,11 @@ function mergedPayload(ctx, draft) {
 }
 
 async function submit(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
+  // **按下去那一刻重讀這位客戶的全部來訪**（ADR-0158）：打開時讀的那一份可能是快取裡剛好有的那幾筆 ——
+  // 拿它驗、拿它算次數就是少算；沿用的話那一次是快取的就永遠存不進去。讀不完整就講一句，畫面上的字留著
+  if (!await refreshCustomerVisits(ctx)) return null;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
 
   // **先算出真的會被寫下去的是哪一筆**（ADR-0083）。驗證與那兩道確認問的
   // 都要是它 —— 拿草稿去驗的話，併進去之後才會撞在一起的那幾段驗不出來。
@@ -1502,6 +1506,24 @@ function slotSummary(slot, all) {
 const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) => [c.id, c]));
 
 /**
+ * 這位客戶的全部來訪重讀一次、換進 `ctx`（ADR-0158）。讀不完整（離線、讀到快取）或讀不到就講一句、回 false ——
+ * 呼叫端不往下走，畫面上她打的字原封不動。
+ *
+ * **打開時讀到的就是伺服器的全部、現在也沒有確定離線**就不再讀：確認框不晚一拍；別台在那之後改了這一筆，
+ * `save()` 的 `ifUpdatedAt` 照樣擋。要重讀的是打開那一刻讀到快取的那一種 —— 沿用它的話永遠存不進去。
+ */
+async function refreshCustomerVisits(ctx) {
+  if (visitsData.isWholeList(ctx.customerVisits) && !isOffline()) return true;
+  try {
+    ctx.customerVisits = await visitsData.listWhole(ctx.customer.id, ctx.customer.name);
+    return true;
+  } catch (err) {
+    toast.readFailed(err);
+    return false;
+  }
+}
+
+/**
  * 這一筆來訪身上現有的任務。取消／刪除那兩道確認要它才講得出「哪幾張會被收掉」。
  *
  * **讀不到就少講那兩句，不要擋住她。** 那個動作在離線時照樣寫得進本機快取
@@ -1524,6 +1546,8 @@ async function visitTasks(draft) {
  */
 async function cancelOneSlot(ctx, draft, slotIndex) {
   if (!Number.isInteger(slotIndex) || !draft.slots[slotIndex]) return;
+  // 確認框講的「那一天還剩下什麼」與存檔的次數都吃全部來訪：按下去那一刻重讀（ADR-0158，同 `submit()`）
+  if (!await refreshCustomerVisits(ctx)) return;
 
   const ok = await confirmAction({
     // 叫法跟提醒同一支（`slotLabelFor()`）：畫面上只有她點的那一段時是「這一段」，不講它在整天裡的位置

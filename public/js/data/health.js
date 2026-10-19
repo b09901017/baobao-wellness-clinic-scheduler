@@ -6,6 +6,12 @@
 import * as repo from './repo.js';
 import * as config from './config.js';
 import { runHealthCheck } from '../domain/health.js';
+import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+
+/** 最近一次快照每一份都是伺服器的嗎（ADR-0158）。還沒讀過就是 false */
+let snapshotWhole = false;
+
+const RECOUNT_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 次數先不改，連上之後重新整理這一頁再按一次';
 
 /**
  * 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。
@@ -27,6 +33,7 @@ const FIX_CHUNK = 200;
  * 而「被軟刪除」與「根本不存在」是兩種不同的問題，讀不到刪掉的那些就分不出來。
  */
 export async function loadSnapshot() {
+  const since = repo.cacheReads();
   const [customers, entitlements, availability, visits, tasks, notes, master] = await Promise.all([
     repo.listWithDeleted('customers'),
     repo.listGroup('entitlements', { includeDeleted: true }),
@@ -40,6 +47,11 @@ export async function loadSnapshot() {
     repo.list('notes'),
     loadMaster(),
   ]);
+  // 「重算次數」那一顆寫的是這一份算出來的值（ADR-0158）：快取來的就不是全部來訪
+  snapshotWhole = !readsIncomplete({
+    offline: globalThis.navigator?.onLine === false,
+    sources: [readSource(repo.cacheReads() !== since)],
+  });
 
   return {
     customers,
@@ -85,6 +97,11 @@ export async function run(today) {
  * @returns {Promise<number>} 實際寫了幾筆
  */
 export async function applyFixes(fixes) {
+  // **重算次數的值是快照那一刻算的**：快照讀到的是快取時，那一份來訪不是全部，寫下去就是少算（ADR-0158）。
+  // 其餘的修正不吃全部來訪，照舊
+  if (!snapshotWhole && (fixes ?? []).some((f) => f?.kind === 'recount')) {
+    throw new IncompleteReadError('', RECOUNT_PARTIAL_SAY);
+  }
   const ops = opsFor(fixes);
 
   for (let i = 0; i < ops.length; i += FIX_CHUNK) {

@@ -1,6 +1,6 @@
 # 讀不完整時，會動到次數或健檢那一串待辦的存檔先不存
 
-Status: todo
+Status: done
 段：一（xhigh）
 動工前先讀：`data/repo.js` 的 `list()`／`listWithDeleted()`；`data/visits.js` 的 `save()`、`remove()`、`restore()`、`taskOps()`、`followupOps()`、`followupOpsAfterTaskChange()`、`chainPlans()`；`data/tasks.js` 的 `setDone()`；`ui/net.js`（`isOffline()` 的檔頭：它只是單向訊號）；`ui/components/aboveeConfirm.js` 的 `loadHistory()`（已經有「讀不到的不安靜地照算」）；`ui/views/masterList.js` 的 `saveCourse()`（ADR-0140：離線不存的先例）；`ui/toast.js` 的 `withSaveState()`、`StaleWriteError` 那一條；`SPEC.md` 第 1 節「形態」那一格（「讀取用快取，寫入排隊重試」）；ADR-0004、0070、0106、0140、0145；`CLAUDE.md`「算次數、驗證、預選額度要拿哪些來訪」「存一筆來訪時手上那一份是舊的」「寫入的等待與失敗文案」三列；`lessons.md` 全部（尤其「只讀一段期間的那一份」那種形狀）
 
@@ -63,3 +63,15 @@ Firestore 開著本機快取（`data/firebase.js` 的 `persistentLocalCache`）�
 - `CLAUDE.md` 三列（上面「動工前先讀」那三列）補一句；`docs/常見問題.md` 一條（「我按了記錄為什麼說網路不穩不存」）
 - `tests/save-guards.test.js` 會不會要多認一種錯
 - `public/sw.js` VERSION（段一第一個動 `public/` 的升 v198）
+
+## 做完時留下的（10/19 段一）
+
+- **擋不擋只有一支純的**：`domain/incompleteRead.js` 的 `readsIncomplete({ offline, sources })`（`sources` 裡 `null`＝這一台還沒讀過＝不完整）。`IncompleteReadError` 也在那裡（訊息「網路不穩，讀不到 客戶A 的全部紀錄 —— 這一筆先不存，連上之後再按一次」，可以自己給一句）
+- **data 層記兩件事**：`repo.js` 每一次讀回來是快取就 `cacheReads()` 加一（`list`／`listWithDeleted`／`getOne`／`listGroup` 都記；`listFrom()` 回 `{ rows, fromCache }`）、每送出一次寫入 `commitsSent()` 加一（在 `batch.commit()` **之前**）。`data/visits.js` 的 `visitsRead`（customerId → `'server'|'cache'`）由 `listByCustomer()` 寫
+- **守門**：`save()`／`remove()`／`restore()` 一進來問一次（確定離線、全部來訪最近讀到快取 → 不讀了）、commit 之前再問一次（`guardWhole()`）；`chainPlans()` 標 `whole`，`followupOpsAfterTaskChange()` 與 `previewTaskChange()` 看到 false 就丟（`confirmUntick()` 讀不到就放行，寫的那一下擋）；`dropChainLeftovers()` 讀不完整回 0；`chainInputs()` 讀到快取回 null（少講幾句）；`data/health.js` 記 `snapshotWhole`，`applyFixes()` 有 recount 而快照不完整就丟
+- **按下去那一刻重讀**：`visitsData.listWhole(customerId, name)`（離線馬上丟、讀到快取丟）—— 壓表、日曆長按、待辦確認與簽療程單兩張抽屜、批次取消、拍 Abovee 的 `loadHistory()` 與存的那一圈、另約健檢順便接二返、已刪除項目還原、客戶詳情「修正」次數、**來訪編輯器的存與取消一段**（以前打開時讀一次就沿用，現在 `refreshCustomerVisits()`）。讀不成走 `toast.readFailed(err)`
+- **toast**：失敗那一句與重試只問 `ui/saveFailure.js` 的 `failureOf()`（`IncompleteReadError` 照講、不給重試；`StaleWriteError` 不給重試）；「還沒送出去 —— 已經存在這台裝置上了」只在 `slowSayNow()` 說可以時講（送出過一次寫入，或呼叫端自己給了 `slow`），還在讀就每秒再看一次
+- `notRelinkedSay(relink, [], { unread: true })`：另約健檢存完、重讀沒讀成時講「網路不穩」，不講「別的地方改過」
+- **瀏覽器裡走過**：E2E `76` 的 I1（`setOffline(true)` 在壓表記一段 → 那一句、資料庫沒動、卡片選好的還在；連上再按 → 寫進去一次、200 天前那一次健檢的報告還在）、I2（擋掉模擬器 8080，`navigator.onLine` 是 true → 勾「追蹤健檢報告」→ 二十秒內講那一句、中間沒講過「這台裝置」、不給重試、資料庫沒動）。**舊程式在同一個情境下真的把報告收掉了**（暫時的 spec 跑過：連上之後 `tasks: []`）
+- `repo.js` 在 `related.js` 的 GLOBAL：本機只跑了 76、10、02、19、22、25、34、44、65、03；全量交給 CI（段一結束時一次跑）
+- 單元測試 `tests/incomplete-read.test.js`（純的兩支＋原始碼順序）；`tests/abovee-whole-history.test.js` 兩條改成認 `listWhole()`

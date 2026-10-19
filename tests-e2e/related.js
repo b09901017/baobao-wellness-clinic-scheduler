@@ -141,7 +141,7 @@ export const COVERAGE = {
     'sheets/',
   ],
   '10-offline': [
-    'public/js/ui/toast.js', 'public/js/ui/net.js', 'public/sw.js',
+    'public/js/ui/toast.js', 'public/js/ui/saveFailure.js', 'public/js/ui/net.js', 'public/sw.js',
     'public/js/ui/components/note.js',
   ],
   '11-todo-drawer': [
@@ -592,6 +592,12 @@ export const COVERAGE = {
     'public/js/integrations/', 'public/js/ui/views/settings.js', 'public/js/ui/components/message.js',
     'public/js/ui/components/marks.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
     'public/js/domain/customerNotes.js',
+  ],
+  // 讀不完整時，會動到次數或健檢鏈的存檔先不存（before-golive-2026-10-19/01，ADR-0158）
+  '76-incomplete-read': [
+    'public/js/domain/incompleteRead.js', 'public/js/ui/saveFailure.js', 'public/js/ui/toast.js',
+    'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/home.js', 'public/js/domain/followups.js',
   ],
 };
 
