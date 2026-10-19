@@ -7,8 +7,13 @@
 //
 // 訊息內容一律**可以改**：產生的是草稿不是定稿（domain/messages.js），
 // 她想加一句「不好意思這麼晚打擾」是很正常的事。
+//
+// 「打開 LINE」那一顆（`line`，ADR-0157）：跟客人確認時間、問這輪的時間那兩張卡有給。它送的是
+// **這一格現在的字**，交給手機上的 MacroDroid 打開那一位的對話、貼上（不送出）；怎麼叫、叫不到
+// 怎麼退都在 `integrations/lineMacro.js`。屬性用自己的前綴（`data-msg-line`），不用頁面的名字。
 
 import { esc } from './form.js';
+import { openLineChat } from '../../integrations/lineMacro.js';
 
 /**
  * @param {object} opts
@@ -18,8 +23,11 @@ import { esc } from './form.js';
  * @param {boolean} [opts.collapsed] 收起來，展開才看得到內容。
  *   一頁有很多則時（首頁一次十幾位客戶）用這個，不然整頁都是文字框。
  * @param {string} [opts.buttonLabel]
+ * @param {{name: string}} [opts.line] 給了就在「複製」旁邊多一顆「打開 LINE」：交給手機上的 MacroDroid
+ *   打開那一位的對話、把**這一格現在的字**貼上（不送出，ADR-0157）。`name` 是客戶身上的 LINE 名字，
+ *   空的照樣畫（按了講去哪裡填）；**讀不到那位客戶的時候不要給**（講「還沒填」是假話）
  */
-export function box({ id, text, label = '', collapsed = false, buttonLabel = '複製訊息' }) {
+export function box({ id, text, label = '', collapsed = false, buttonLabel = '複製訊息', line = null }) {
   const area = `
     <textarea class="msg" rows="3" data-msg="${esc(id)}">${esc(text)}</textarea>`;
 
@@ -31,7 +39,11 @@ export function box({ id, text, label = '', collapsed = false, buttonLabel = '�
              ${area}
            </details>`
         : `${label ? `<div class="field__label">${esc(label)}</div>` : ''}${area}`}
-      <p><button class="btn" type="button" data-copy="${esc(id)}">${esc(buttonLabel)}</button></p>
+      <p class="form__actions">
+        <button class="btn" type="button" data-copy="${esc(id)}">${esc(buttonLabel)}</button>
+        ${line ? `<button class="btn" type="button" data-msg-line="${esc(id)}"
+                          data-msg-line-name="${esc(line.name ?? '')}">打開 LINE</button>` : ''}
+      </p>
     </div>`;
 }
 
@@ -44,6 +56,14 @@ export function box({ id, text, label = '', collapsed = false, buttonLabel = '�
 export function wire(el, notify) {
   el.querySelectorAll('[data-copy]').forEach((btn) =>
     btn.addEventListener('click', () => copy(el, btn.dataset.copy, notify)),
+  );
+  // 送出去的是她改過之後的字（那一格本來就可以改），不是當初產生的那一份
+  el.querySelectorAll('[data-msg-line]').forEach((btn) =>
+    btn.addEventListener('click', () => openLineChat({
+      name: btn.dataset.msgLineName,
+      msg: el.querySelector(`[data-msg="${CSS.escape(btn.dataset.msgLine)}"]`)?.value ?? '',
+      notify,
+    })),
   );
 }
 

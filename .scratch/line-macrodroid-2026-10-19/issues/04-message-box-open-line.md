@@ -1,6 +1,6 @@
 # 「跟客人確認時間」「問這輪的時間」的訊息框旁多一顆「打開 LINE」（巨集做到第 11 步）
 
-Status: todo
+Status: done（10/19，段一）
 Blocked by: 02
 動工前先讀：`ui/components/message.js` 整支（`box()`、`wire()`、`copy()`）；`ui/views/home.js` 的 `confirmCard()`（`message.box` 在 2971 附近，`customer` 參數）與 `askCard()`（2727 附近，`byId[row.customerId]`）、兩處 `message.wire(el, toast.info)`；
 `message.box` 的其他呼叫端（`formInbox.js`、`backfill.js`、`customerDetail.js`）**不加**；CLAUDE.md「共用元件身上的屬性名字」「要貼給客戶的那幾句話」兩列
@@ -39,4 +39,9 @@ Blocked by: 02
 
 ## 做完時留下的
 
-（做完寫）
+- `message.box({ …, line })`：`line` 是 `{ name }` 或 `null`（預設）；有給才畫 `<button data-msg-line="<id>" data-msg-line-name="<名字>">打開 LINE</button>`，
+  兩顆包在 `<p class="form__actions">`（flex、gap 8px）。沒給的那幾處（表單收件匣、補登、邀約、試算表）一個字都沒變 —— 只是 `<p>` 多了 `form__actions` 這個 class
+- `wire()` 讀**按下去那一刻**那一格的字（`[data-msg="<id>"]` 的 `value`）→ `openLineChat()`
+- home.js 兩張卡：`line: customer ? { name: customer.lineId ?? '' } : null`（讀不到客戶不畫）
+- 單元：`tests/line-macro.test.js` 最後一組（沒給沒有、給了有、空名字照畫）；E2E `75` 的 M1（改過的字＋換行、剪貼簿同一段）、M2（還沒填）、M3（問這輪的時間產生連結之後）
+- M1 比剪貼簿前拿掉 ``：Windows 的 Chromium 寫系統剪貼簿時換成 CRLF（本機才看得到）

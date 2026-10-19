@@ -2729,6 +2729,8 @@ function askCard(row, { byId, month, templates = {} }) {
           text: askAvailabilityMessage(customer ?? { name }, { month, link, templates }),
           collapsed: true,
           buttonLabel: '複製 LINE 訊息',
+          // 讀不到那位客戶就不畫「打開 LINE」（講「還沒填 LINE 名字」是假話）
+          line: customer ? { name: customer.lineId ?? '' } : null,
         })}
         <p style="margin: var(--space-1) 0 0">
           <button class="btn btn--sm" type="button"
@@ -2975,6 +2977,8 @@ function confirmCard(
         text: confirmMessage({ name }, pending, { templates, master }),
         collapsed: true,
         buttonLabel: '複製 LINE 確認訊息',
+        // 讀不到客戶時（那一份讀失敗退回空的）`customer` 是 null：不畫「打開 LINE」
+        line: customer ? { name: customer.lineId ?? '' } : null,
       })}
     </div>`;
 }

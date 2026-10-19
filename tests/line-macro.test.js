@@ -201,3 +201,25 @@ describe('設定頁的「試一次」', () => {
     assert.ok(TEST_MESSAGE.split('\n').filter(Boolean).length >= 3);
   });
 });
+
+describe('訊息框的「打開 LINE」（line-macrodroid 04）', async () => {
+  const { box } = await import('../public/js/ui/components/message.js');
+
+  test('沒給 line：跟以前一模一樣，沒有那一顆（表單收件匣、補登、邀約、試算表那幾處）', () => {
+    const html = box({ id: 'c1', text: '你好', buttonLabel: '複製 LINE 確認訊息' });
+    assert.doesNotMatch(html, /data-msg-line/);
+    assert.match(html, /data-copy="c1"/);
+  });
+
+  test('給了 line：多一顆，帶著那一位的 LINE 名字（跳脫過）', () => {
+    const html = box({ id: 'c1', text: '你好', line: { name: '王"小明' } });
+    assert.match(html, /data-msg-line="c1"/);
+    assert.match(html, /data-msg-line-name="王&quot;小明"/);
+    assert.match(html, />打開 LINE</);
+  });
+
+  test('還沒填 LINE 名字：那一顆照樣畫（按了才講去哪裡填）', () => {
+    const html = box({ id: 'c1', text: '你好', line: { name: '' } });
+    assert.match(html, /data-msg-line="c1"/);
+  });
+});

@@ -8,7 +8,9 @@
 // 不攔又會打到模擬器、回一個看起來像成功的 404。這裡一律 18080，只攔那一個。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer } from '../fixtures/data.js';
+import {
+  masterDocs, customer, entitlement, visit, slot, TODAY, addDays,
+} from '../fixtures/data.js';
 
 const PORT = 18080;
 const MACRO = `http://127.0.0.1:${PORT}/**`;
@@ -131,5 +133,75 @@ test.describe('客戶詳情點 LINE（巨集停在打開對話）', () => {
     await expect(toast(page)).toContainText('已複製「王小明」');
     expect(calls).toHaveLength(1);
     await expect.poll(() => opened).toEqual(['https://line.me/R/nv/chat']);
+  });
+});
+
+test.describe('確認時間、問這輪的時間的「打開 LINE」（巨集做到貼上）', () => {
+  function seedPending({ lineId = '王小明' } = {}) {
+    return [
+      ...masterDocs(),
+      customer({ id: 'cust-m', name: '客戶A', lineId }),
+      entitlement('cust-m', { id: 'ent-m', label: '靜脈雷射', courseId: 'course-iv-laser', totalQty: 10 }),
+      visit({
+        id: 'v-m', customerId: 'cust-m', customerName: '客戶A', date: addDays(TODAY, 3), status: 'pending_confirm',
+        slots: [slot({ courseId: 'course-iv-laser', entitlementId: 'ent-m', startsAt: '10:00', endsAt: '11:00' })],
+      }),
+    ];
+  }
+
+  test('M1 確認時間：送出去的是她改過之後的那一段（含換行），剪貼簿也是那一段；name 是 LINE 名字', async ({ app, page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const { calls, opened } = await fakeMacro(context);
+    await macroOn(page);
+    await app.seed(seedPending());
+    await app.signIn('/todo/confirm');
+
+    // 訊息收在「先看一下訊息」底下；改一個字，中間不開抽屜（開抽屜整頁重畫，改過的字會不見）
+    await page.locator('[data-msg-wrap="cust-m"] summary').click();
+    const area = page.locator('[data-msg="cust-m"]');
+    await area.fill(`${await area.inputValue()}\n（改過）`);
+    const sent = await area.inputValue();
+
+    await page.locator('[data-msg-line="cust-m"]').click();
+    await expect(toast(page)).toContainText('貼上訊息（不會送出）');
+    expect(calls).toEqual([{ path: '/line', name: '王小明', msg: sent }]);
+    expect(sent).toContain('\n（改過）');
+    // Windows 上的 Chromium 寫進系統剪貼簿時把換行換成 CRLF（本機跑才看得到）—— 比的是字，不是平台
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clip.split(String.fromCharCode(13)).join('')).toBe(sent);
+    expect(opened).toEqual([]);
+  });
+
+  test('M2 確認時間、那一位還沒填 LINE 名字：那一顆在，按了講去哪裡填、不敲門', async ({ app, page, context }) => {
+    const { calls } = await fakeMacro(context);
+    await macroOn(page);
+    await app.seed(seedPending({ lineId: null }));
+    await app.signIn('/todo/confirm');
+
+    await page.locator('[data-msg-line="cust-m"]').click();
+    await expect(toast(page)).toContainText('還沒填 LINE 名字');
+    expect(calls).toEqual([]);
+  });
+
+  test('M3 問這輪的時間：產生連結之後那一則旁邊也有，送出去的是那一則', async ({ app, page, context }) => {
+    const { calls } = await fakeMacro(context);
+    await macroOn(page);
+    await app.seed([
+      ...masterDocs(),
+      customer({ id: 'cust-q', name: '客戶B', lineId: '王小明' }),
+      entitlement('cust-q', { id: 'ent-q', label: '靜脈雷射', courseId: 'course-iv-laser', totalQty: 10 }),
+    ]);
+    await app.signIn('/todo/ask');
+
+    await expect(page.locator('[data-msg-line="ask-cust-q"]')).toHaveCount(0); // 還沒有那一則
+    await page.locator('[data-makelink="cust-q"]').click();
+    await app.saved();
+    const area = page.locator('[data-msg="ask-cust-q"]');
+    const sent = await area.inputValue();
+
+    await page.locator('[data-msg-line="ask-cust-q"]').click();
+    await expect(toast(page)).toContainText('已經叫 MacroDroid');
+    expect(calls).toEqual([{ path: '/line', name: '王小明', msg: sent }]);
+    expect(sent.length).toBeGreaterThan(0);
   });
 });
