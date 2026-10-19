@@ -328,6 +328,7 @@ function summaryCard(s, plans, { problems, unplaced, skipped }, renames) {
       ${staffHtml(renames)}
       <p class="muted">其中 <b>${s.timed}</b> 個時段有時間，${s.slots - s.timed} 個時間不詳（行事曆上找不到，維持空白）。</p>
       ${s.phones ? `<p class="muted"><b>${s.phones}</b> 位帶電話。</p>` : ''}
+      ${s.longNotes ? `<p class="muted"><b>${s.longNoteCustomers}</b> 位帶長備註，一共 <b>${s.longNotes}</b> 則（舊表左邊那一大段整體備註）。</p>` : ''}
       ${s.slotNotes ? `<p class="muted"><b>${s.slotNotes}</b> 個時段帶著記一句（舊表那一天底下那一格）。</p>` : ''}
       ${skippedSlotsLine(s, s.settled) ? `<p class="muted" data-import-skipped-slots>${esc(skippedSlotsLine(s, s.settled))}。</p>` : ''}
       ${s.future ? `<p class="muted">來訪裡有 <b>${s.future}</b> 筆的日期在今天之後，會建成

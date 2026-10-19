@@ -19,7 +19,7 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
-import { chartNoMove } from './customerNotes.js';
+import { chartNoMove, newLongNoteId, validateLongNotes } from './customerNotes.js';
 import { DOCTOR_ROLE, GIFT_KINDS, canBeGift, giftKindOf, hasAlias, isUncounted, validate } from './masterData.js';
 import { NOTE_MAX, slotMinutes, visitStatusFrom } from './visits.js';
 
@@ -209,6 +209,16 @@ export function validateFile(json) {
     if (!norm(c?.name)) errors.push(`${at}：沒有名字`);
     // v7 的兩格（選填）：形狀不對整份拒收，同 `staff`
     if (c?.phone != null && typeof c.phone !== 'string') errors.push(`${at}：電話的格式不對`);
+    // v9：長備註（選填）。上限照長備註那一頁（`validateLongNotes()`：標題 40、內文 5000、最多 20 則 —— Rules 也是 20）。
+    // 檔案上沒有 id（匯入時才給），先補暫時的再驗
+    if (c?.longNotes != null) {
+      const shaped = Array.isArray(c.longNotes) && c.longNotes.every((n) => n && typeof n === 'object'
+        && typeof n.title === 'string' && (n.body == null || typeof n.body === 'string'));
+      if (!shaped) errors.push(`${at}：長備註的格式不對`);
+      else {
+        errors.push(...validateLongNotes(c.longNotes.map((n, k) => ({ ...n, id: `import${k}` }))).map((e) => `${at}：${e}`));
+      }
+    }
     if (!Array.isArray(c?.entitlements)) errors.push(`${at}：少了 entitlements`);
     if (!Array.isArray(c?.visits)) errors.push(`${at}：少了 visits`);
     for (const v of c?.visits ?? []) {
@@ -454,6 +464,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
     visits.push(visitDoc({ name, date: v.date, status: visitStatusFrom({ status, slots }) ?? status, slots, stamp }));
   }
 
+  const longs = longNotesOf(entry);
+
   return {
     sheetName: entry.sheetName ?? '',
     customerName: name,
@@ -476,6 +488,7 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
       ...marksOf(entry),
       ...chartNoFieldOf(entry),
+      ...longs,
       active: true,
       importedFrom: stamp,
     },
@@ -505,6 +518,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       // v9：已取消、未到的段（不扣次數）。「N 個時段」要講其中幾段沒做，不然看起來全部做過了
       cancelled: visits.reduce((n, v) => n + v.slots.filter((s) => s.status === 'cancelled').length, 0),
       noShow: visits.reduce((n, v) => n + v.slots.filter((s) => s.status === 'no_show').length, 0),
+      // v9：長備註幾則（摘要卡講「N 位帶長備註、共 N 則」）
+      longNotes: longs.longNotes?.length ?? 0,
       low: (entry.visits ?? []).reduce(
         (n, v) => n + (v.slots ?? []).filter((s) => s.confidence === 'low').length, 0,
       ),
@@ -600,6 +615,25 @@ function chartNoFieldOf(entry) {
   return move.changes;
 }
 
+/**
+ * v9 的長備註（舊表 A 欄一大段的整體備註，ADR-0156）。每一則給一個 id（`newLongNoteId()`，在這一位身上不重複）；
+ * **不寫 `noteOrder`** —— 沒排過的照預設排（病歷號 → LINE → 長備註 → 短備註 → 電話，ADR-0163）。
+ * 沒帶、或空的：連 `longNotes` 這個鍵都沒有（v8 的檔案一個位元都不變）。
+ */
+function longNotesOf(entry) {
+  if (!Array.isArray(entry.longNotes) || !entry.longNotes.length) return {};
+  const ids = new Set();
+  const idOf = () => {
+    let id = newLongNoteId();
+    while (ids.has(id)) id = newLongNoteId();
+    ids.add(id);
+    return id;
+  };
+  return {
+    longNotes: entry.longNotes.map((n) => ({ id: idOf(), title: String(n.title).trim(), body: String(n.body ?? '') })),
+  };
+}
+
 /** v2 的備註。寫入的形狀只有 `toCustomerFields()` 一份；v1 沒有 marks 就只寫 notes。 */
 function marksOf(entry) {
   if (!Array.isArray(entry.marks)) return { notes: entry.notes ?? '' };
@@ -620,7 +654,8 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     purchaseProblems: [],
     contraindications: [],
     counts: {
-      entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, slotNotes: 0, cancelled: 0, noShow: 0, low: 0,
+      entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, slotNotes: 0, cancelled: 0, noShow: 0,
+      longNotes: 0, low: 0,
     },
   };
 }
@@ -1148,6 +1183,9 @@ export function summarize(plans) {
     // v9：已取消、未到的段（不扣次數）。「N 個時段」裡有幾段沒做
     cancelled: live.reduce((n, p) => n + (p.counts.cancelled ?? 0), 0),
     noShow: live.reduce((n, p) => n + (p.counts.noShow ?? 0), 0),
+    // v9：長備註。幾位、一共幾則
+    longNoteCustomers: live.filter((p) => (p.counts.longNotes ?? 0) > 0).length,
+    longNotes: live.reduce((n, p) => n + (p.counts.longNotes ?? 0), 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
     // 會匯進去的那幾位身上、文字裡提到的警示。**跳過的那幾位不算** ——

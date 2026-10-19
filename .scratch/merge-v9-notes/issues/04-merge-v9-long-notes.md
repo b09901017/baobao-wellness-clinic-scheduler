@@ -1,6 +1,6 @@
 # 合併檔 v9：客戶的長備註
 
-Status: todo
+Status: done
 Blocked by: 02（03、04 都改 `planForCustomer()` 與摘要卡，一支一支做）
 動工前先讀：`domain/mergeImport.js` 的 `planForCustomer()`（`customer` 那一塊）、`marksOf()`、`chartNoFieldOf()`；`domain/customerNotes.js` 的 `readLongNotes()`、`newLongNoteId()`、`validateLongNotes()`、`MAX_LONG_NOTES`、`MAX_LONG_TITLE`、`MAX_LONG_BODY`；ADR-0156；`firestore.rules` 客戶的 `longNotes`（R14.3）
 

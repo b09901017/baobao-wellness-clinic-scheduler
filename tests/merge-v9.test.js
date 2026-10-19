@@ -19,6 +19,7 @@ import { SEED } from '../public/js/domain/seed.js';
 import { recount, slotCancelReasonOf, slotStatus, validateVisit, withSlotStatuses } from '../public/js/domain/visits.js';
 import { importedTasksFor, isCancelKind, syncTasksForVisit } from '../public/js/domain/taskRules.js';
 import { counts } from '../public/js/domain/entitlements.js';
+import { noteItems, readLongNotes, validateLongNotes } from '../public/js/domain/customerNotes.js';
 
 const TODAY = '2026-10-20';
 const CTX = {
@@ -241,5 +242,63 @@ describe('候選併進同一天（addExtraVisits）＋摘要卡（issue 03）', 
     const s = summarize([plan]);
     assert.equal(s.cancelled, 1);
     assert.equal(s.noShow, 1);
+  });
+});
+
+// ---------- issue 04：客戶的長備註 ----------
+//
+// 她 10/20：「A B 底下放的都是這個客戶的整體備註 … 如果有你判斷是長備註，也可以幫我變成長備註」。
+// v8 只有短備註（一則 40 字、一位 12 則）：一大段被照句子切成好幾則，讀不懂、一位就超過上限。
+
+describe('長備註（issue 04）', () => {
+  const LONG = [
+    { title: '家族史', body: '父親高血壓。\n母親糖尿病。' },
+    { title: '營養諮詢筆記', body: '早餐多吃蛋白質' },
+  ];
+
+  test('v8 那種沒有 longNotes 的：客戶身上沒有那一格（跟以前一樣），讀起來是空的', () => {
+    const plan = planForCustomer(entry(), CTX);
+    assert.ok(!('longNotes' in plan.customer));
+    assert.deepEqual(readLongNotes(plan.customer), []);
+  });
+
+  test('帶兩則：寫進 customer.longNotes、各有一個不一樣的 id、不寫順序（照預設排在短備註前面）', () => {
+    const plan = planForCustomer(entry({ longNotes: LONG, marks: [{ text: '怕冷', color: null }] }), CTX);
+    const notes = plan.customer.longNotes;
+    assert.equal(notes.length, 2);
+    assert.deepEqual(notes.map((n) => [n.title, n.body]), LONG.map((n) => [n.title, n.body]));
+    assert.ok(notes.every((n) => n.id), '每一則都有 id');
+    assert.equal(new Set(notes.map((n) => n.id)).size, 2);
+    assert.ok(!('noteOrder' in plan.customer));
+    assert.deepEqual(validateLongNotes(notes), []);
+    const kinds = noteItems(plan.customer).map((x) => x.kind);
+    assert.ok(kinds.lastIndexOf('long') < kinds.indexOf('mark'), JSON.stringify(kinds));
+  });
+
+  test('標題去頭尾空白；空的清單當沒寫', () => {
+    const plan = planForCustomer(entry({ longNotes: [{ title: '  家族史 ', body: '父親高血壓' }] }), CTX);
+    assert.equal(plan.customer.longNotes[0].title, '家族史');
+    assert.ok(!('longNotes' in planForCustomer(entry({ longNotes: [] }), CTX).customer));
+  });
+
+  test('形狀不對整份拒收：標題 41 字、沒有標題、21 則、內文太長、不是陣列、標題不是字串', () => {
+    const bad = (longNotes) => errorsOf(entry({ longNotes }));
+    assert.equal(bad(LONG).length, 0);
+    assert.equal(bad(null).length, 0);
+    assert.ok(bad([{ title: '字'.repeat(41), body: '' }]).length);
+    assert.ok(bad([{ title: '  ', body: '有內文' }]).length);
+    assert.ok(bad(Array.from({ length: 21 }, (_, i) => ({ title: `第${i}則`, body: '' }))).length);
+    assert.ok(bad([{ title: '家族史', body: '字'.repeat(5001) }]).length);
+    assert.ok(bad({ title: '家族史', body: '' }).length);
+    assert.ok(bad([{ title: 42, body: '' }]).length);
+    assert.ok(bad([{ title: '家族史', body: 42 }]).length);
+  });
+
+  test('摘要卡：幾位帶長備註、一共幾則；同名跳過的不算', () => {
+    const kept = planForCustomer(entry({ longNotes: LONG }), CTX);
+    const skipped = planForCustomer(entry({ name: '李小華', longNotes: LONG }), { ...CTX, existingCustomers: [{ id: 'c1', name: '李小華' }] });
+    const s = summarize([kept, skipped, planForCustomer(entry({ name: '陳小美' }), CTX)]);
+    assert.equal(s.longNoteCustomers, 1);
+    assert.equal(s.longNotes, 2);
   });
 });
