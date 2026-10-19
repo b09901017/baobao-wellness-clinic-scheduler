@@ -23,6 +23,14 @@ const SLOT_REWRITES = new Set(['clearBeds', 'moveBedToRoom', 'trialSlotsToCourse
 const SLOTS_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 來訪先不改，連上之後重新整理這一頁再按一次';
 
 /**
+ * 同一個形狀的其餘幾種（段四審查）：快照那一刻算好、整格寫回去 —— 病歷號那兩種寫整包 `marks`／`notes`（排過的連 `noteOrder`；
+ * 別台剛加一則短備註就被蓋掉、順序錯一格）、整筆狀態照快照的時段推、補上二返額度（快照是快取的，「缺的那一筆」伺服器上可能已經有了 → 多建一筆）。
+ * 快照不是全部就不寫；前三種的 op 帶 `ifUpdatedAt`
+ */
+const SNAPSHOT_REWRITES = new Set(['restatVisit', 'renameChartNo', 'chartNoToField', 'addFollowup']);
+const SNAPSHOT_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 先不改，連上之後重新整理這一頁再按一次';
+
+/**
  * 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。
  *
  * `clinicalFlags` 是 2026-09-06 加的：「器材上的提醒詞不在警示名單裡」那一項
@@ -115,6 +123,9 @@ export async function applyFixes(fixes) {
   if (!snapshotWhole && (fixes ?? []).some((f) => SLOT_REWRITES.has(f?.kind))) {
     throw new IncompleteReadError('', SLOTS_PARTIAL_SAY);
   }
+  if (!snapshotWhole && (fixes ?? []).some((f) => SNAPSHOT_REWRITES.has(f?.kind))) {
+    throw new IncompleteReadError('', SNAPSHOT_PARTIAL_SAY);
+  }
   const ops = opsFor(fixes);
   // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
   // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
@@ -177,6 +188,7 @@ function opFor(fix) {
       path: 'customers',
       id: fix.customerId,
       changes: fix.changes,
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：備註的「姓名欄的編號」改成「病歷號」',
     };
   }
@@ -189,6 +201,7 @@ function opFor(fix) {
       path: 'customers',
       id: fix.customerId,
       changes: fix.changes,
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：病歷號放進那一格',
     };
   }
@@ -296,6 +309,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { status: fix.status },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：整筆的狀態照時段重推一次',
     };
   }

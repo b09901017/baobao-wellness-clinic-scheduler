@@ -54,3 +54,36 @@ test('applyFixes()：快照不是全部時，整包寫 slots 的那幾種也擋�
   assert.match(body, /SLOT_REWRITES/);
   assert.ok(body.search(/SLOT_REWRITES/) < body.indexOf('repo.commit('));
 });
+
+// 段四審查：同一個形狀還有幾種 —— 快照那一刻算好、整格寫回去：
+// - 病歷號搬進那一格（`chartNoToField`）、「姓名欄的編號」改成「病歷號」（`renameChartNo`）：整包 `marks`／`notes`（排過的連 `noteOrder`）
+//   —— 別台剛加一則短備註，按下去就被蓋掉、順序錯一格
+// - 整筆的狀態照時段重推（`restatVisit`）：照快照的時段推的，別台改過那一天就是舊的
+// - 補上二返額度（`addFollowup`）：快照是快取的，「缺的那一筆」伺服器上可能已經有了 → 多建一筆
+const SNAPSHOT_REWRITES = ['restatVisit', 'renameChartNo', 'chartNoToField', 'addFollowup'];
+
+test('病歷號那兩種、整筆狀態重推：帶著快照那一刻的 updatedAt', () => {
+  const src = read('public/js/domain/health.js');
+  for (const kind of ['renameChartNo', 'chartNoToField']) {
+    assert.match(src, new RegExp(`kind: '${kind}',[^}]*updatedAt: customer\\.updatedAt \\?\\? null`), kind);
+  }
+  assert.match(src, /kind: 'restatVisit',[^}]*updatedAt: visit\.updatedAt \?\? null/);
+});
+
+test('opFor()：那三種的 op 帶 ifUpdatedAt', () => {
+  const src = read('public/js/data/health.js');
+  for (const kind of ['renameChartNo', 'chartNoToField', 'restatVisit']) {
+    const start = src.indexOf(`if (fix?.kind === '${kind}')`);
+    assert.ok(start >= 0, kind);
+    assert.match(src.slice(start, src.indexOf('\n  }\n', start)), /ifUpdatedAt: fix\.updatedAt \?\? null/, kind);
+  }
+});
+
+test('applyFixes()：快照不是全部時，那四種也擋（在 repo.commit( 之前）', () => {
+  const src = read('public/js/data/health.js');
+  const start = src.indexOf('export async function applyFixes(');
+  const body = src.slice(start, src.indexOf('\n}\n', start));
+  for (const kind of SNAPSHOT_REWRITES) assert.ok(src.includes(`'${kind}'`), kind);
+  assert.match(body, /SNAPSHOT_REWRITES/);
+  assert.ok(body.search(/SNAPSHOT_REWRITES/) < body.indexOf('repo.commit('));
+});

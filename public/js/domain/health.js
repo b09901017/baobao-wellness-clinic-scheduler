@@ -889,6 +889,8 @@ function checkChartNo(ctx) {
       fix: {
         kind: 'renameChartNo',
         customerId: customer.id,
+        // 寫回去的是整包 `marks`／`notes`：別台在快照之後改過這一位的備註就不蓋（段四審查，同 issue 12）
+        updatedAt: customer.updatedAt ?? null,
         label: customer.name,
         // **兩個欄位一起寫。** `notes` 是那幾則備註接起來的純文字，
         // 試算表報表與壓表卡片讀的是它 —— 只改 marks 會讓兩邊從此對不起來。
@@ -1690,6 +1692,8 @@ function checkVisitStatusDerived(ctx) {
         fix: {
           kind: 'restatVisit',
           visitId: visit.id,
+          // 狀態是照快照的時段推的：別台在那之後改過那一天就不寫（段四審查，同 issue 12）
+          updatedAt: visit.updatedAt ?? null,
           label: `${who}・${visit.date}`,
           status: want,
           fromLabel: describeStatus(visit.status),
@@ -2396,6 +2400,7 @@ function checkChartNoField(ctx) {
       fix: {
         kind: 'chartNoToField',
         customerId: customer.id,
+        updatedAt: customer.updatedAt ?? null,
         label: customer.name,
         changes: move.changes,
       },
