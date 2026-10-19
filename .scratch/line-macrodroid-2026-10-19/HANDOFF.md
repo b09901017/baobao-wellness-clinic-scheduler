@@ -8,7 +8,7 @@
 | 段 | 做什麼 | effort | 狀態 |
 |---|---|---|---|
 | 一 | 01～05 實作與文件（她 10/19：「可以」—— 這一輪小，同一個 session 做完） | high | **done**（10/19） |
-| 二 | `/matt-code-review` 審這一輪全部改動，照建議修；手動測試清單；開 PR 進 develop、CI 全綠、合併 | xhigh | todo |
+| 二 | `/matt-code-review` 審這一輪全部改動，照建議修；手動測試清單；開 PR 進 develop、CI 全綠、合併 | xhigh | **done**（10/19，PR #166 已合進 develop 5a09c5f） |
 
 **01 與 03 必須同一個 PR**（只改了存名字、點下去沒接線的狀態是壞的）—— 整輪一個 PR。
 
@@ -38,7 +38,7 @@
 - 驗證：`npm test` 4922 全綠；本機 E2E 跑了 74、75、17、12、15、34（全過）；**全量交給 CI**（`e2e-full.yml`，run 39207395709）—— `--related` 挑到 54 支（動了 `public/css/` 與 `home.js`），本機跑太重
 - 06 done：訊息框裡改過的字跨整頁重畫留著（確認時間、問這輪的時間），E2E 75 R1～R3；本機 75、12、34、11 全過
 - CI 全量：01～05 那一版（run 39207395709）、06 之後（run 39209761841）都**六台全綠**
-- 分支已推（`origin/claude/line-macrodroid`），**PR 還沒開**（段二審查完再開）
+- **PR #166 已合進 develop（5a09c5f，10/19）** —— staging 跟著部署；沒進 main
 
 ## 中途發現
 
@@ -87,7 +87,8 @@ develop 沒動（merge-base 還是 eaa7279），不用 rebase。`/matt-code-revi
 
 ### CI
 
-（推上去之後補）
+- PR #166 的檢查（單元、Rules、三支 E2E）全過
+- 全量 E2E（`e2e-full.yml` 在這條分支 dispatch，run 39212901837，段二全部改動之後那一版）**六台全綠**
 
 ### 手動驗收清單（給她，照順序點）
 
