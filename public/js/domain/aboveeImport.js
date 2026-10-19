@@ -21,7 +21,7 @@
 // `statusFromAbovee()` 一支（六種，abovee-status-follows-photo 01）→ 每一列的 `photoStatus`。
 // 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
-import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
+import { identifyCustomer, nearNameSay, chartNoSay, normalizeChartNo, normalizeName } from './identify.js';
 import { bedMissingIn, courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
@@ -711,6 +711,8 @@ export function nearSay(item) {
   const out = [];
   const who = nearNameSay(item?.who, item?.row?.name, item?.customerId ?? null);
   if (who) out.push(who);
+  const chart = chartNoSay(item?.who, item?.row?.chartNo, item?.customerId ?? null);
+  if (chart) out.push(chart);
   const near = item?.course?.near;
   if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
   if (item?.bedless && !item.roomId) out.push(`照片上寫「${item.bedless}」，沒寫哪一床 —— 點開選一間`);
@@ -781,8 +783,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
       ? photoTimeSays(item.photoStatus, item.date, ctx.today) : '',
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
-  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）
-  const recognized = !pickedByHand({ ...item, customerId: next.customerId });
+  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）。
+  // **只有名字對上、沒用號碼核對過的也不勾**（`nameNoChart`，ADR-0160）：app 那一位沒有病歷號、照片上有 ——
+  // 照片上可能是另一個同名的人。她勾了，存的時候順便把號碼記上（`chartNoWrites()`）
+  const recognized = !pickedByHand({ ...item, customerId: next.customerId }) && !unverified({ ...item, customerId: next.customerId });
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
@@ -865,6 +869,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
 
 /** 這一列的人是她自己選的（照片上的名字與病歷號沒認出這一位）。 */
 const pickedByHand = (item) => Boolean(item?.customerId) && item.who?.customer?.id !== item.customerId;
+
+/** 名字對上、照片上有號碼、app 那一位沒有（ADR-0160）—— 那一列還是認人那一次那一位時才算。 */
+export const unverified = (item) => item?.who?.how === 'nameNoChart' && Boolean(item?.customerId)
+  && item.who.customer?.id === item.customerId;
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
@@ -2084,7 +2092,9 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
   // 合併扣課兩列不一樣、二返簽不成已完成 —— 這幾種都沒先勾好，要她決定（`photoRowSays()` 講為什麼）
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
-  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
+  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none')
+  // 名字對上、app 那一位沒有病歷號（ADR-0160）：沒先勾，要她看是不是同一個人
+  || (!item?.cancelled && item?.kind !== 'unknown' && unverified(item));
 
 /**
  * 「要你看」裡面收起來的那一種（中途發現 5，她 10/15：「應該不常發生…用收合的就好」）：**日子過了、Abovee 上還是待確認那三種**，

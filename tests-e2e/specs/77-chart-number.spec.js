@@ -5,7 +5,8 @@
 // 規則本身（搬家、認人、同號比對）在 `tests/chart-no-field.test.js`。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer } from '../fixtures/data.js';
+import { masterDocs, customer, entitlement } from '../fixtures/data.js';
+import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
 
 const clientA = (extra = {}) => customer({
   id: 'cust-c', name: '客戶A', phone: '0912-345-678',
@@ -140,4 +141,50 @@ test('C7 病歷號跟電話並排：按在兩顆中間那一段不會按到隔�
   }, [px, y]);
   expect(await at(chart.x + 2)).toBe('chart');
   expect(await at(phone.x + phone.width - 2)).toBe('phone');
+});
+
+// ---------------------------------------------------------------------------
+// 06 照片認人：名字對上、app 那一位沒有病歷號 → 不先勾、講一句；她勾了存的時候記上
+// ---------------------------------------------------------------------------
+
+test('C8 拍 Abovee：app 上的王小明沒有病歷號、照片上有 → 沒勾、講一句；勾了記錄 → 那一格記成 1234', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(),
+    customer({ id: 'cust-wang', name: '王小明' }),
+    entitlement('cust-wang', {
+      id: 'w-pool', type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-laser', 'eq-sis', 'eq-indiba'], durationMin: 60, totalQty: 12,
+    }),
+    {
+      path: 'batches', id: 'b-sep',
+      data: {
+        targetMonth: '2026-09', status: 'active', cursor: null, lastDeviceHint: null,
+        queue: [{ customerId: 'cust-wang', customerName: '王小明', state: 'pending', skippedReason: null }],
+      },
+    },
+  ]);
+  await app.signIn('/');
+  await app.go('/schedule');
+  await page.locator('[data-month="2026-09"]').click();
+  await app.settled();
+
+  await queueAi(['aboveeList-no-chart']);
+  await page.locator('[data-abovee]').click();
+  await page.locator('[data-cam-album-input]').setInputFiles([await fakePhoto('no-chart.jpg', { width: 1600, height: 900 })]);
+  await page.locator('[data-cam-send]').click();
+  await expect(page.locator('.abl')).toBeVisible({ timeout: 60_000 });
+
+  const r = page.locator('[data-abl-row="a0"]');
+  await expect(r.locator('.abl-row__tag')).toHaveText('新的');
+  const check = r.locator('[data-abl-check]');
+  await expect(check).toHaveAttribute('aria-checked', 'false');
+  await expect(r.locator('.abl-row__hint--near')).toContainText('app 上這一位還沒有病歷號，照片上是 1234');
+
+  await check.click();
+  await expect(check).toHaveAttribute('aria-checked', 'true');
+  await page.locator('[data-abl-save]').click();
+  await expect(app.dialog()).toContainText('王小明 的病歷號記成 1234');
+  await app.ok();
+  await app.saved();
+  await expect(page.locator('.abl')).toHaveCount(0);
+  await expect.poll(async () => (await app.readDoc('customers', 'cust-wang')).chartNo).toBe('1234');
 });

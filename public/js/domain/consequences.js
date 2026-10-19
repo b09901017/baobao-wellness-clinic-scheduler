@@ -392,6 +392,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
  *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**（中途長出來的存完收掉，`chainLeftovers()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
+ * @param {{name: string, chartNo: string}[]} [o.chartNos] 會順便記上的病歷號（`identify.js` 的 `chartNoWrites()`，ADR-0160）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
  *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`photoDayPlan()` 的 `mustSeeBy`）。
@@ -401,7 +402,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], chartNos = [], marks = [], adopts = [], flagged = [],
   entitlementsBy = {}, visitsBy = {}, chainBy = {},
 }) {
   const p = plan ?? planOfGroups(given, adopts, visitsBy);
@@ -572,6 +573,7 @@ export function aboveeConsequences({
   if (filled.length) lines.push(`補上 ${filled.length} 段的${whatOf(filled)}（app 上原本空著）${only}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
+  for (const c of chartNos) lines.push(`${c.name} 的病歷號記成 ${c.chartNo}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
   const title = n && changedKeys ? `記錄這 ${n} 段、改 ${changedKeys} 段？` : n ? `記錄這 ${n} 段？` : `改這 ${changedKeys} 段？`;

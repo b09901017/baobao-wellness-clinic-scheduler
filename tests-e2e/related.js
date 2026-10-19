@@ -608,6 +608,8 @@ export const COVERAGE = {
     'public/js/ui/components/notesEditor.js', 'public/js/ui/components/customerForm.js',
     'public/js/ui/components/form.js', 'public/js/ui/icons.js',
     'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customers.js', 'public/css/',
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/ui/components/sheetConfirm.js',
   ],
 };
 

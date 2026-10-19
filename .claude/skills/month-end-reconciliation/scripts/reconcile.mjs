@@ -273,7 +273,7 @@ for (const item of items) {
     const how = item.who?.how;
     if (how === 'conflict' || how === 'ambiguous') {
       push('fix', 'unknown', base, how === 'conflict' ? '名字跟病歷號在 app 裡對到不同的人' : 'app 裡同名的不只一位，病歷號也沒對上',
-        '去客戶清單看這位的病歷號（備註裡的「病歷號」）');
+        '去客戶清單看這位的病歷號（備註那一段那一顆病歷號，「編輯」客戶資料裡改）');
     } else if (ps !== 'cancelled') {
       const k = `${item.row?.name ?? ''}|${item.row?.chartNo ?? ''}`;
       const who = strangers.get(k) ?? { name: item.row?.name ?? '', chartNo: item.row?.chartNo ?? '', rows: [], maybe: new Map() };

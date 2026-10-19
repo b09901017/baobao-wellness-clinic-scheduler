@@ -41,8 +41,14 @@ describe('六種答案', () => {
     assert.deepEqual(r.candidates.map((c) => c.id), ['c-wang']);
   });
 
-  test('nameOnly：名字對上、那位身上沒有病歷號 → 認得', () => {
+  test('nameNoChart：名字對上、照片上有號碼、那位身上沒有病歷號 → 認得，但講得出沒用號碼核對過（ADR-0160）', () => {
     const r = identifyCustomer({ name: '李小華', chartNo: '9999' }, customers);
+    assert.equal(r.how, 'nameNoChart');
+    assert.equal(r.customer.id, 'c-lee');
+  });
+
+  test('nameOnly：名字對上、照片上沒有號碼 → 認得', () => {
+    const r = identifyCustomer({ name: '李小華' }, customers);
     assert.equal(r.how, 'nameOnly');
     assert.equal(r.customer.id, 'c-lee');
   });

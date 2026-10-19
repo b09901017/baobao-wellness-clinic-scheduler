@@ -20,6 +20,8 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
+import * as customersData from '../../data/customers.js';
+import { chartNoWrites } from '../../domain/identify.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
@@ -55,6 +57,9 @@ import * as giftFold from './giftFold.js';
 const TAGS = {
   new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消', change: '要改',
 };
+
+/** 要拿去 `chartNoWrites()` 的那幾列：認人那一次的結果、照片上的號碼、現在是誰。 */
+const chartNoRows = (list) => list.map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId }));
 
 /** 認不得人的那幾種，畫面上講一句為什麼（ADR-0103）。 */
 const WHY_UNKNOWN = {
@@ -982,6 +987,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       ctx.master.staff,
     );
     const marks = queueMarksAfter(pressedDays(p), batches);
+    // 名字對上、app 那一位沒有病歷號、她勾了（ADR-0160）→ 存的時候順便記上
+    const chartNos = chartNoWrites(chartNoRows(items.filter((i) => i.checked)), ctx.customers);
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
     const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
     const people = [...new Set(p.writes.map((w) => w.customerId))];
@@ -1012,6 +1019,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       entitlementsBy: ctx.entitlementsBy,
       visitsBy: ctx.visitsBy,
       aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
+      chartNos: chartNos.map((c) => ({ name: c.name, chartNo: c.changes.chartNo })),
       marks: marks.map((m) => ({
         names: m.customerIds.map(nameOf),
         month: monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? ''),
@@ -1095,6 +1103,16 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ctx = { ...ctx, master: { ...ctx.master, staff } };
       } catch {
         unsent.add('治療師在 Abovee 上的寫法');
+      }
+    }
+    // 病歷號同一條（ADR-0160）：記好的那幾列才寫、寫好一次就換掉手上那一份（再按一次算出來是空的）
+    for (const c of chartNoWrites(chartNoRows(items.filter((i) => savedKeys.has(i.key))), ctx.customers)) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await customersData.update(c.id, c.changes);
+        ctx = { ...ctx, customers: ctx.customers.map((x) => (x.id === c.id ? { ...x, ...c.changes } : x)) };
+      } catch {
+        unsent.add('客戶的病歷號');
       }
     }
     for (const m of queueMarksAfter(savedDays, batches)) {
