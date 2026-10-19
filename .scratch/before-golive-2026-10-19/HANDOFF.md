@@ -1,0 +1,134 @@
+# 交接：上線前補的那一輪（2026-10-19）
+
+分支：`claude/before-golive-1019`（10/19 從 origin/develop `995e9f1` 開）。**這一輪的基準點是 `995e9f1`**（審查那一段從這裡比）。
+全貌與她的原話在 `spec.md`；每一支的細節在 `issues/`。流程照 `/kickoff`（`.claude/skills/kickoff/SKILL.md`）的第三、四段。
+**她決定等這一輪做完再上線**（「我今天應該會做完」）—— 每一段都不要拖：做完、交開場、停。
+
+## 進度
+
+| 段 | issue | effort | 狀態 |
+|---|---|---|---|
+| 零 | 談、清查過時的 issue（`11b3893`）、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/19 |
+| 一 | 01 讀不完整時不存 → 02 健檢超用也長報告＋補額度重算（Blocked by 01）、03 拿掉客戶詳情那一句 | xhigh | todo |
+| 二 | 04 病歷號一格、05 病歷號在畫面上（icon C）、06 照片認人沒病歷號不先勾、07 客戶清單卡片前四個、08 「客戶」被壓成直的 | high | todo |
+| 三 | 09 拍 Abovee 沒勾的列看得到「勾起來的話」、10 試算表只重畫有變的（＋整份重畫、抬頭病歷號、`SYNC_FORMAT` 8） | high | todo |
+| 四 | `/matt-code-review`（從 `995e9f1` 比）、照建議修 | xhigh | todo |
+| 五 | 文件總檢查、全量 E2E（CI）、手動驗收清單、PR、合進 develop | medium | todo |
+
+段一先做：01 是她說「好 修」裡唯一會讓資料錯的；02、03 都在健檢鏈那一塊，同一段的腦子。
+段二整段是「客戶這一頁」：04 是資料形狀，05–07 都等它；08 是 CSS 小事，順手。
+段三的 10 要 04 的 `chartNo`；09 跟別支不搶檔案。
+
+## 編號（先分好）
+
+| 段 | ADR | E2E spec | `sw.js` VERSION |
+|---|---|---|---|
+| 一 | 0158 讀不完整時不存（推翻 SPEC 第 1 節「寫入排隊重試」對這一種寫入）、0159 健檢超用也追報告（延伸 0139） | 76 | **v198**（第一個動 `public/` 的那一段升，後面的不用再升） |
+| 二 | 0160 病歷號是一格（推翻 ADR-0050 的「是一則備註」）＋客戶清單卡片讀前四個（推翻 0156 那一半；可以寫在同一支） | 77 | |
+| 三 | 0161 試算表那一側記指紋（延伸 0013） | 78 | |
+
+資料健檢新的一項（04）接在 `CHECKS` 最後面 → `health.test.js`、`seed-staff.test.js` 寫死的總數跟著改。
+
+## 過目（subagent）抓到、已經改進 issue 的
+
+唯讀 subagent 逐支對了程式碼；主控自己對過最重的三條（02 的上限是 ADR-0139 的技術選擇、`tests/followups.test.js:1354` 釘著；01 的陣列旗標會被 `.filter()` 弄丟；04 的匯入在 `mergeImport.js` 的 `marksOf()`）。每一支底下「過目改的」那一段就是結果，**跟原本的「做法」衝突時以那一段為準**。重點：
+
+- **02**：拿掉二返總數那一層之後，切換那天匯進來的超用舊健檢會長一出生就逾期的報告 → 要擋；「補一筆二返額度」那顆按鈕走不到超用的人 → 重算掛在改次數、資料健檢 `addFollowup`、刪除／還原額度、加購每一條路上；Blocked by 01
+- **01**：data 層自己記「這位最近一次讀是不是快取」、判斷抽成純函式、在 commit 之前判（`PENDING_MS` 8 秒 vs SDK 10 秒）、不給重試鈕；範圍補四處；三個同形狀的（刪客戶、推試算表、匯入判同名）記中途發現
+- **04**：匯入沒有 `noteOrder` → 一律 `noteItems()` → `notesFields()`；沒排過順序時病歷號的預設位置要定（建議電話 → LINE → 病歷號）；兩項資料健檢會撞；`noteReorder.js`、`notesEditor.js` 會報錯
+- **06**：原因的例子寫錯（同名兩位是 `conflict`／`ambiguous`）；不先勾改 `recognized` 那一層，不改 `photoWantsChecked()`；`sheetConfirm.js:186`
+- **09**：不能只組這一位這一天 → 把那一列當成勾起來整張重跑、只讀那一列
+- **10**：`notice`、`.gs` 自己的排版版號、沒變的放進 `keep`、每畫一頁存一次指紋、`force` 會被 `push()` 去重吃掉、`today` 那一條判準改寫
+- 共通：新的 E2E spec 登記進 `related.js`、新檔案進 `SHELL`；spec.md 拿掉公司名
+
+## 中途發現
+
+（做的時候發現她沒發現的關聯問題或同一個形狀的另一個 bug：哪裡、什麼情境會錯、建議。**不要當場岔出去修**，一段結束時一次列給她問。）
+
+---
+
+## 段一的開場（xhigh）
+
+```
+/kickoff 上線前補的那一輪，段一。
+
+分支 claude/before-golive-1019（已經開了、推了沒有看 git status）。先 git fetch，develop 往前走了就 rebase。
+先讀：.scratch/before-golive-2026-10-19/HANDOFF.md、spec.md、issues/01、02、03；docs/agents/lessons.md；
+CLAUDE.md 的「算次數、驗證、預選額度要拿哪些來訪」「存一筆來訪時手上那一份是舊的」「寫入的等待與失敗文案」
+「健檢與二返的關係」「報告到手之後的那一站」「一句『按下去會發生什麼』」那幾列。
+
+這一段做 01（讀不完整時，會動到次數或健檢鏈的存檔先不存）、02（健檢超用也長報告與寄報告、約二返照二返額度、補額度之後重算）、
+03（拿掉客戶詳情那一句）。不做 04 以後。
+
+動手前用 grep 找每一個要改的函式的所有呼叫端與畫面上的字（01 尤其：每一個 listByCustomer( 的呼叫端都要看讀回來是不是拿去存）。
+中途發現她沒發現的關聯問題，先記進 HANDOFF 的「中途發現」、繼續做別的。
+編號：ADR 0158、0159；E2E spec 76；sw.js v198。
+
+每支：先寫紅燈測試 → 綠 → npm run verify → 一支一個 commit → Status: done、「做完時留下的」。
+做完：HANDOFF 進度、中途發現一次列給她問、段二的開場（high）貼給她，停。
+```
+
+## 段二的開場（high）
+
+```
+/kickoff 上線前補的那一輪，段二。
+
+分支 claude/before-golive-1019。先 git fetch、git pull（段一做完的在上面），develop 往前走了就 rebase。
+先讀：.scratch/before-golive-2026-10-19/HANDOFF.md（段一做完了的與中途發現）、spec.md（icon C 的 path、她說「她一樣在備註阿」）、
+issues/04、05、06、07、08；docs/agents/lessons.md；CLAUDE.md 的「備註那一段的順序、長備註」「照片上的人是 app 裡的哪一位」
+「打字找客戶的框」「新增一個會寫進稽核的欄位」「畫面上一段常駐的說明」「一顆小圖示按鈕的觸控區」「資料健檢那一頁的版面」那幾列。
+
+這一段做 04（病歷號一格：資料、認人、匯入時轉、資料健檢搬家）→ 05（表單、備註丸子 icon C、排序、搜尋、同號提醒）→
+06（照片認人：名字對上、app 那一位沒有病歷號 → 不先勾、她勾了存時記上）→ 07（客戶清單卡片照她的順序前四個）→ 08（「客戶」被壓成直的）。
+不做 09、10。
+
+04 匯入時轉那一段要拿她的合併檔量一次（.local/references/import-2026-10-19.json，模擬器 w5 命名空間，只印數字；讀 .local 一律過
+node .local/references/redact.mjs）。測試與 issue 裡的病歷號一律 1234／4321。
+編號：ADR 0160；E2E spec 77；sw.js 段一升過就不用再升。
+
+每支：紅燈 → 綠 → npm run verify → 一支一個 commit → Status: done、「做完時留下的」。
+做完：HANDOFF 進度、中途發現一次列給她問、段三的開場（high）貼給她，停。
+```
+
+## 段三的開場（high）
+
+```
+/kickoff 上線前補的那一輪，段三。
+
+分支 claude/before-golive-1019。先 git fetch、git pull，develop 往前走了就 rebase。
+先讀：.scratch/before-golive-2026-10-19/HANDOFF.md、spec.md、issues/09、10；.scratch/followup-and-products/issues/08（8/27 的回答，
+「手機記指紋」那一支不照做，理由在 issues/10）；docs/agents/lessons.md；CLAUDE.md 的「拍 Abovee 記很多段」「畫面上一段常駐的說明」
+「試算表的 SYNC_FORMAT」「試算表要讀哪些來訪」「試算表的註記」那幾列。
+
+這一段做 09（拍 Abovee 點開沒勾的列看得到「勾起來的話」）、10（試算表那一側記指紋、只重畫有變的、沒變的只改產生時間、
+設定頁「整份重畫」、抬頭那一行加病歷號、SYNC_FORMAT 8）。
+
+10 改了 .gs：她要重貼 staging 與正式各一次 —— 寫進手動驗收清單與 docs/STAGING.md。能抽成純函式的 .gs 邏輯在 node 裡測。
+編號：ADR 0161；E2E spec 78。
+
+每支：紅燈 → 綠 → npm run verify → 一支一個 commit → Status: done、「做完時留下的」。
+做完：HANDOFF 進度、中途發現一次列給她問、段四的開場（xhigh，/matt-code-review 從 995e9f1 比）貼給她，停。
+```
+
+## 段四的開場（xhigh）
+
+```
+/matt-code-review 995e9f1
+
+這一輪是「上線前補的那一輪」（分支 claude/before-golive-1019）。先 git fetch、git pull。
+Spec 軸讀 .scratch/before-golive-2026-10-19/spec.md 與 issues/01–10（每一支的「她要的」與「判準」、「做完時留下的」）。
+照建議修（每一條：紅燈 → 綠 → verify → commit），提過沒改的寫理由進 HANDOFF。用量到八成先收尾、寫「段四停在哪」。
+做完給她段五的開場（medium）。
+```
+
+## 段五的開場（medium）
+
+```
+/kickoff 上線前補的那一輪，段五（收尾）。
+
+分支 claude/before-golive-1019。先 git fetch、git pull。讀 HANDOFF.md 全部。
+做：文件總檢查（CLAUDE.md 連動表補這一輪新長出來的關係、SPEC、CONTEXT、操作手冊、常見問題、STAGING.md 重貼 .gs、README 開發狀態表）、
+全量 E2E 丟 CI（gh workflow run e2e-full.yml --ref claude/before-golive-1019）、手動驗收清單（她照順序點得到的路，自己在模擬器走過）、
+PR 開向 develop（推之前看一眼：公開 repo，一個真名、病歷號都不帶）、CI 全綠合進 develop、HANDOFF 記合進去的 commit。
+進 main 不在這一段 —— 她說了才做（她要切換：先進 main，再照 .local/references/cutover-2026-10-14/ 的清單切）。
+```
