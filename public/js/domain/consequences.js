@@ -931,6 +931,57 @@ function bookingLinesOf({ create = [], remove = [] }, visits, tasks) {
 }
 
 /**
+ * 改了健檢或二返的額度（補一筆、刪掉、資料健檢補上）之後，健檢那條鏈三種待辦各會怎麼動 —— 一位客戶、一張一行（ADR-0159）。
+ *
+ * `plan` 是寫入那一支真的在算的那一份（`data/visits.js` 的 `chainAfterEntitlements()` → `syncFollowupTasks()`），
+ * 這裡只翻成話（ADR-0070）。「約二返」那幾張的字跟取消那一道同一支（`bookingLinesOf()`）。
+ *
+ * @param {{create?:object[], remove?:{id:string, reason:string}[]}} plan
+ * @param {object[]} visits 這位客戶的全部來訪（講日期用）
+ * @param {object[]} tasks 這位客戶現有的任務（收起來的那幾張是哪一種）
+ * @returns {string[]}
+ */
+export function chainPlanLines(plan = {}, visits = [], tasks = []) {
+  const examDay = (id) => {
+    const date = (visits ?? []).find((v) => v.id === id)?.date;
+    return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+  };
+  const lines = [];
+  for (const t of plan.create ?? []) {
+    if (t.kind === REPORT_TASK_KIND) lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— ${examDay(t.visitId)}做完了，報告還沒追`);
+    if (t.kind === SEND_REPORT_TASK_KIND) lines.push(`待辦會多一張「${SEND_REPORT_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了`);
+  }
+  for (const r of plan.remove ?? []) {
+    const t = (tasks ?? []).find((x) => x.id === r.id);
+    if (t && t.kind !== FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${t.kind}」會收起來 —— ${r.reason}`);
+  }
+  return [...lines, ...bookingLinesOf(plan, visits, tasks)];
+}
+
+/**
+ * 好幾位一起（資料健檢一次補好幾筆二返額度）：照種類數，一種一行（ADR-0159）。逐張講的話二十幾位會是一長串。
+ *
+ * @param {{create?:object[], remove?:object[], tasks?:object[]}[]} plans 每一位一份；`tasks` 給了才數得出收起來的是哪一種
+ * @returns {string[]}
+ */
+export function chainCountLines(plans = []) {
+  const grow = new Map();
+  const drop = new Map();
+  for (const p of plans ?? []) {
+    for (const t of p?.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+    for (const r of p?.remove ?? []) {
+      const kind = (p.tasks ?? []).find((x) => x.id === r.id)?.kind;
+      if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+    }
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  return [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦會多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」會收起來`),
+  ];
+}
+
+/**
  * 這一筆照 `picks` 結掉之後，存檔那一下健檢那條鏈會怎麼動（`syncFollowupTasks()` 的 `create`／`remove`），
  * 連同試算用的那一份來訪（講日期用）。沒有配得到二返的健檢額度就是 `null`。
  *

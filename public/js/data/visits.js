@@ -372,6 +372,58 @@ async function followupOps(visit, visitsAfter, coursesById) {
 }
 
 /**
+ * 健檢或二返的額度變了（加購、補一筆、改次數、刪掉、還原、資料健檢補上）：健檢那條鏈的待辦跟著重算（ADR-0159）。
+ *
+ * 以前只有存來訪、勾鏈上待辦的那一下才算 —— 補了二返額度之後，那一次健檢的「約二返」要等她下一次存這位客人的某一筆來訪
+ * 才長出來；把次數改少，多出來的那一張一直掛著。**寫入與確認框都叫這一支**：寫的那一下把 `ops` 跟額度放進同一個 commit，
+ * 確認框拿 `plan` 講（`consequences.js` 的 `chainPlanLines()`，ADR-0070）。
+ *
+ * - **動到的不是健檢或二返就不讀、不算**（`null`）：加購營養品、改復能的次數跟這一條鏈無關，不多打四次讀取
+ * - **讀不完整就不算**（`null`，ADR-0158 反過來用）：寫額度本身不吃來訪，額度照寫；那一串等下一次存來訪再算
+ *
+ * @param {string} customerId
+ * @param {(before: object[]) => object[]} change 讀回來的額度（沒刪掉的）→ 寫完之後的樣子。新建的那幾筆要先有 id
+ * @param {{name?: string|null}} [o] 待辦上印的客戶名字
+ * @returns {Promise<{ops: object[], plan: object, visits: object[], tasks: object[]}|null>}
+ */
+export async function chainAfterEntitlements(customerId, change, { name = null } = {}) {
+  if (!customerId || offlineNow()) return null;
+  const since = repo.cacheReads();
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  if (!Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
+
+  const before = await customersData.listEntitlements(customerId);
+  const after = change(before);
+  // 這一下動到的那幾筆（新的、刪掉的、內容變了的）裡有沒有健檢或二返
+  const inChain = (list) => new Set(pairsOf(list, coursesById).filter((p) => p.followup)
+    .flatMap((p) => [p.source.id, p.followup.id]));
+  const chainIds = new Set([...inChain(before), ...inChain(after)]);
+  const was = new Map(before.map((e) => [e.id, JSON.stringify(e)]));
+  const now = new Map(after.map((e) => [e.id, JSON.stringify(e)]));
+  const touched = [...new Set([...was.keys(), ...now.keys()])].filter((id) => was.get(id) !== now.get(id));
+  if (!touched.some((id) => chainIds.has(id))) return null;
+
+  const [visits, tasks, settings] = await Promise.all([
+    listByCustomer(customerId),
+    tasksData.listByCustomerForSync(customerId),
+    config.getSettings(),
+  ]);
+  if (incompleteFor(customerId, since)) return null;
+
+  const plan = syncFollowupTasks({
+    customer: { id: customerId, name: name ?? visits.find((v) => v.customerName)?.customerName ?? null },
+    entitlements: after,
+    visits,
+    tasks,
+    coursesById,
+    dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+    reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
+  });
+  return { ops: toOps(plan), plan, visits, tasks };
+}
+
+/**
  * 確認框要試算健檢那條鏈時讀的那兩份：這位客戶的額度、任務（連清掉的，ADR-0106）——
  * 跟存檔時 `followupOps()` 讀的是同一份（ADR-0070）。**沒有健檢配二返就回 `null`**，不多讀任務；讀不到也是 `null`（少講幾句，不擋）。
  * 用的是 `consequences.js` 的 `cancelConsequences({ chain })` 與 `followupBookingLines()`。

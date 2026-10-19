@@ -37,6 +37,7 @@ import {
   poolCourseOf,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import { chainPlanLines } from '../../domain/consequences.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
@@ -1095,12 +1096,15 @@ async function addFollowup(ctx, entId) {
   const miss = missingPairs(ctx.entitlements, coursesById).find((m) => m.source.id === entId);
   if (!miss) return;
 
+  // 補完當場重算健檢那條鏈（ADR-0159）：已經做完的那幾次要追的報告這一下就長 —— 拿寫入那一支試算（ADR-0070）。
+  // 以前這裡寫死一句「要等健檢做完才會長」，重算之後那是假話
+  const chain = await data.previewChain(ctx.id, (list) => [...list, { ...miss.draft, id: '補上的二返' }]);
   const ok = await confirmAction({
     title: `替「${miss.source.label}」補一筆二返額度？`,
     consequences: [
       `會新增「${miss.draft.label}」${miss.draft.totalQty} 次`,
       '次數跟健檢一樣多 —— 買幾次健檢就有幾次二返',
-      '補了之後，健檢標成已完成才會長出「約二返」的待辦',
+      ...(chain ? chainPlanLines(chain.plan, chain.visits, chain.tasks) : []),
       '這次新增會留在稽核紀錄裡，也可以復原',
     ],
     confirmLabel: '補上',
@@ -1949,11 +1953,14 @@ function entitlementDanger() {
 function wireEntitlementDanger(ctx, record) {
   ctx.el.querySelector('[data-del-ent]').addEventListener('click', async () => {
     const c = counts(record, ctx.visits, record.id);
+    // 刪的是健檢或二返：健檢那條鏈跟著重算（ADR-0159），會收起來的那幾張講出來（同一支試算，ADR-0070）
+    const chain = await data.previewChain(ctx.id, (list) => list.filter((x) => x.id !== record.id));
     const ok = await confirmAction({
       title: `刪除「${record.label}」這筆額度？`,
       consequences: [
         `這筆額度共 ${c.total} 次，已完成 ${c.done} 次、已排未上 ${c.booked} 次`,
         '已經排好的來訪不會被刪，但它們會指向一筆已刪除的額度',
+        ...(chain ? chainPlanLines(chain.plan, chain.visits, chain.tasks) : []),
         '這是標記刪除，可以在設定 → 已刪除項目 還原',
       ],
       confirmLabel: '刪除',

@@ -7,6 +7,7 @@ import * as repo from './repo.js';
 import * as config from './config.js';
 import { runHealthCheck } from '../domain/health.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import { chainAfterEntitlements } from './visits.js';
 
 /** 最近一次快照每一份都是伺服器的嗎（ADR-0158）。還沒讀過就是 false */
 let snapshotWhole = false;
@@ -103,6 +104,13 @@ export async function applyFixes(fixes) {
     throw new IncompleteReadError('', RECOUNT_PARTIAL_SAY);
   }
   const ops = opsFor(fixes);
+  // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
+  // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
+  for (const [customerId, added] of addedFollowups(ops)) {
+    // eslint-disable-next-line no-await-in-loop
+    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]);
+    ops.push(...(chain?.ops ?? []));
+  }
 
   for (let i = 0; i < ops.length; i += FIX_CHUNK) {
     await repo.commit(ops.slice(i, i + FIX_CHUNK));
@@ -451,12 +459,42 @@ function opFor(fix) {
     return {
       op: 'create',
       path,
+      // id 先鑄好：健檢那條鏈要拿「補完之後」的整份額度重算（`addedFollowups()`，ADR-0159）
+      id: repo.newId(path),
       data: fix.draft,
       note: '資料健檢：補上這筆健檢對應的二返額度',
     };
   }
 
   return null;
+}
+
+/** 一批寫入裡新建的二返額度，照客戶分：customerId → 寫完之後多出來的那幾筆（帶 id） */
+function addedFollowups(ops) {
+  const out = new Map();
+  for (const op of ops) {
+    const m = op.op === 'create' && /^customers\/([^/]+)\/entitlements$/.exec(op.path ?? '');
+    if (!m || !op.data?.followupForEntitlementId) continue;
+    if (!out.has(m[1])) out.set(m[1], []);
+    out.get(m[1]).push({ ...op.data, id: op.id });
+  }
+  return out;
+}
+
+/**
+ * 「補上二返額度」按下去健檢那條鏈會怎麼動 —— **只看不寫**，確認框用（ADR-0070、0159）。
+ * 跟 `applyFixes()` 同一支（`chainAfterEntitlements()`）。讀不到的那一位就少講，不擋。
+ *
+ * @returns {Promise<{plan:object, visits:object[], tasks:object[]}[]>} 每一位一份，不會動到的不列
+ */
+export async function previewFollowupChains(fixes) {
+  const out = [];
+  for (const [customerId, added] of addedFollowups(opsFor(fixes))) {
+    // eslint-disable-next-line no-await-in-loop
+    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]).catch(() => null);
+    if (chain && (chain.plan.create.length || chain.plan.remove.length)) out.push(chain);
+  }
+  return out;
 }
 
 async function loadMaster() {

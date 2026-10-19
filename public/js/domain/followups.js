@@ -29,7 +29,7 @@ import { addDays, dayOf, shortDate } from './dates.js';
 import { seenTasks } from './taskRules.js';
 // 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
 // visits.js 也 import 這一支（`examStatusIn()`、`PICKABLE_EXAM`）—— 兩邊都只在函式裡用，載入時不互相讀
-import { slotStatus, shortStatus, isOpenStatus } from './visits.js';
+import { slotStatus, shortStatus, isOpenStatus, isImported } from './visits.js';
 
 /**
  * 「約二返」的任務種類。
@@ -279,6 +279,9 @@ function owedCounts(pair, visits = []) {
   return {
     owed: Math.max(0, cap - (c.done + c.booked - early)),
     counted: Math.max(0, cap - (c.done + c.booked)),
+    // **還欠、但額度不夠**（ADR-0159）：做完的健檢比二返額度多，而做完／約了的二返還沒蓋住每一次 ——
+    // 「約二返」收起來的理由要講這個，不是「二返已經約好了」
+    short: c.total < doneCheckups && c.done + c.booked - early < doneCheckups,
   };
 }
 
@@ -831,6 +834,12 @@ export function syncFollowupTasks({
     mine.filter((t) => t.done && t.kind === FOLLOWUP_TASK_KIND).map((t) => t.visitId),
   );
 
+  // 這一次健檢有沒有過任何一張鏈上待辦（含勾過又清掉的 —— `mine` 是 `seenTasks()` 那一份）。
+  // 超出二返額度、匯進來的那一次靠它判斷要不要補報告（ADR-0159）
+  const chainSeen = new Set(mine.map((t) => t.visitId));
+  // 「約二返」收起來時，那一次是不是因為**二返額度不夠**（不是約好了）—— 理由要講真的（ADR-0159）
+  const noQuota = new Set();
+
   // visitId → { kind, dueDate }。跨全部配對算完再一次比對，這樣「健檢被取消了、
   // 待辦還掛在那裡」也會被收掉 —— 那筆來訪不會再出現在任何配對的清單裡。
   const wanted = new Map();
@@ -840,7 +849,7 @@ export function syncFollowupTasks({
   for (const pair of pairsOf(entitlements, coursesById)) {
     if (!pair.followup) continue;
 
-    for (const visit of examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled })) {
+    for (const visit of examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled, chainSeen })) {
       wantedReport.set(visit.id, reportStation(visit, reportDueDays));
     }
 
@@ -849,7 +858,11 @@ export function syncFollowupTasks({
     // 它排出來的站裡也有「追蹤健檢報告」（還欠二返的那幾次）。留著不拆是因為「約二返」的收與留
     // 都問它：`keepsOpen()` 問這一次健檢現在站在哪、`reasonFor()` 靠「它現在該是報告那一站」
     // 講出「報告那一張被拿回來了」。兩邊排到的報告最後併在一起長（`stations`）。
-    const { owed: want, counted } = owedCounts(pair, visits);
+    const { owed: want, counted, short } = owedCounts(pair, visits);
+    const { exams, linked, open, covered } = placeSeconds(pair, visits, settled);
+    if (short) {
+      for (const v of exams) if (!linked.done.has(v.id) && !linked.booked.has(v.id)) noQuota.add(v.id);
+    }
     if (!want) continue;
 
     // 候選＝做完、沒被有連結的二返佔著（**連結那一層帶來的精準度**：`owed()` 算的是**幾張**不是**哪幾張**，
@@ -872,7 +885,6 @@ export function syncFollowupTasks({
     //
     // 同一層裡新的在前：二返是照順序約掉的，還欠的是最後那幾次。已經有待辦的排前面，是為了不要每存一次檔
     // 就把待辦刪掉重建一張 —— 那會在稽核紀錄裡刷出一整排沒有意義的變更。
-    const { open, covered } = placeSeconds(pair, visits, settled);
     const behind = new Set(covered.map((v) => v.id));
     const has = (v) => openReport.has(v.id) || doneReport.has(v.id) || openBooking.has(v.id)
       || wantedReport.has(v.id);
@@ -990,7 +1002,7 @@ export function syncFollowupTasks({
     const visit = visitById.get(t.visitId);
     const stillDone = examDone(visit);
     if (keepsOpen(t, { stillDone, wanted, wantedSend, openReport })) continue;
-    remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone, wanted.get(t.visitId)?.kind) });
+    remove.push({ id: t.id, reason: reasonFor(t.kind, stillDone, wanted.get(t.visitId)?.kind, noQuota.has(t.visitId)) });
   }
 
   return { create, update, remove };
@@ -1154,9 +1166,15 @@ function placeSeconds(pair, visits, settled) {
  * | 沒有連結（舊資料、健檢還沒做完時就先約好的那一場） | 照位置，見下 |
  *
  * **照位置**：二返是照順序做的，所以沒有連結、做完的那幾場先配給**最舊**的那幾次健檢，
- * 剩下的才是還沒做完的。名額是 `min(做完的健檢, 二返總次數) − 做完的二返 − 先定案的`
- * （上限跟 `owed()` 同一個）；名額不夠分時「已經有待辦的排前面、其餘新到舊」
+ * 剩下的才是還沒做完的。名額是 `做完的健檢 − 做完的二返 − 先定案的`
+ * —— **不被二返額度的總次數蓋住**（ADR-0159，推翻 ADR-0139 那一句「上限跟 `owed()` 同一個」：
+ * 她 10/19「健檢做的次數比買的多，多出來那一次不會長報告那一串待辦。 好 修」；「約二返」照舊受 `owed()` 管）。
+ * 排的時候「已經有待辦的排前面、其餘新到舊」
  * （第一圈 2026-10-09 起多了幾層，ADR-0142；這裡沒有跟 —— 報告那一張不搶「約二返」的名額）。
+ *
+ * **超出二返額度的那幾次（排在舊的上限之後）、是匯進來的、從來沒有過任何一張鏈上待辦 → 不長**（ADR-0159）：
+ * 切換那天匯進來的舊健檢，報告那一段在舊系統裡早就走完了，長出來只是一張一出生就逾期的紅字。
+ * 只看「從來沒有過待辦」不夠 —— 在 app 裡做完的超出那一次在這一支之前也從來沒有過（被上限擋著）。
  * 少了「先配給最舊的」那一步，一次報告已經勾過的舊健檢會佔掉名額，新的那一次就不長。
  * 勾過「約二返」的那幾次不進名單（第一圈也是），**但照樣佔位置**（`placeSeconds()`）。
  *
@@ -1168,7 +1186,7 @@ function placeSeconds(pair, visits, settled) {
  *
  * @returns {object[]} 健檢來訪
  */
-function examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled }) {
+function examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking, settled, chainSeen = new Set() }) {
   const { exams, linked, second, open } = placeSeconds(pair, visits, settled);
   if (!exams.length) return [];
 
@@ -1176,16 +1194,20 @@ function examsAwaitingReport(pair, visits, { openReport, doneReport, openBooking
   const exam = counts(pair.source, visits, pair.source.id);
   const has = (v) => openReport.has(v.id) || doneReport.has(v.id) || openBooking.has(v.id);
   const byPosition = [...open.filter(has), ...open.filter((v) => !has(v))];
-  const quota = Math.max(0, Math.min(exam.done, second.total) - second.done - definite.length);
+  const quota = Math.max(0, exam.done - second.done - definite.length);
+  // 二返額度蓋得到的那幾個（ADR-0139 原本的名額）。排在它之後的是超出的那幾次
+  const withinTotal = Math.max(0, Math.min(exam.done, second.total) - second.done - definite.length);
+  const oldImport = (v, i) => i >= withinTotal && isImported(v) && !chainSeen.has(v.id);
 
   const pastReport = (v) => doneReport.has(v.id)
     || settled.has(v.id)
     || (openBooking.has(v.id) && !openReport.has(v.id));
 
-  return [...definite, ...byPosition.slice(0, quota)].filter((v) => !pastReport(v));
+  const positional = byPosition.slice(0, quota).filter((v, i) => !oldImport(v, i));
+  return [...definite, ...positional].filter((v) => !pastReport(v));
 }
 
-function reasonFor(kind, stillDone, wantedKind) {
+function reasonFor(kind, stillDone, wantedKind, short = false) {
   if (!stillDone) return '那一筆健檢不是已完成了';
   // 追蹤報告只剩一種收掉的理由：同一筆健檢底下有兩張，留下另一張。
   // 這裡以前寫的是「報告拿到了」，而那是一句**從來沒有成立過的話** ——
@@ -1196,6 +1218,8 @@ function reasonFor(kind, stillDone, wantedKind) {
   if (kind === SEND_REPORT_TASK_KIND) return '報告那一張被拿回來了';
   // 退回上一站：她把「追蹤健檢報告」那一張拿回來了，所以還不到約二返。
   if (wantedKind === REPORT_TASK_KIND) return '報告那一張被拿回來了';
+  // 二返額度改少了（或刪掉了一筆）：還欠，只是沒有額度可以約（ADR-0159）。講「約好了」是假話
+  if (short) return '二返的次數不夠 —— 補了二返額度才會再長';
   return '二返已經約好了';
 }
 

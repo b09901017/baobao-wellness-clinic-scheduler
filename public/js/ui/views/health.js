@@ -16,6 +16,7 @@
 
 import * as healthData from '../../data/health.js';
 import { todayISO } from '../../domain/dates.js';
+import { chainPlanLines, chainCountLines } from '../../domain/consequences.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
@@ -749,8 +750,19 @@ async function fixOne(el, result, index) {
   const { title, lines } = copyFor(finding.fix).one(finding.fix);
   await applyAndReload(el, [finding.fix], {
     title,
-    consequences: [...lines, '這次修正會留在稽核紀錄裡，也可以復原'],
+    consequences: [...lines, ...(await chainLines([finding.fix])), '這次修正會留在稽核紀錄裡，也可以復原'],
   });
+}
+
+/**
+ * 「補上二返額度」按下去健檢那條鏈會怎麼動（ADR-0159）：拿寫入那一支試算（ADR-0070）。一位逐張講、好幾位照種類數。
+ * 其餘的修正不碰那條鏈，一次讀取都不多打。
+ */
+async function chainLines(fixes) {
+  if (!fixes.some((f) => f?.kind === 'addFollowup')) return [];
+  const chains = await healthData.previewFollowupChains(fixes).catch(() => []);
+  if (fixes.length === 1) return chains[0] ? chainPlanLines(chains[0].plan, chains[0].visits, chains[0].tasks) : [];
+  return chainCountLines(chains.map((c) => ({ ...c.plan, tasks: c.tasks })));
 }
 
 async function fixAll(el, result, checkId) {
@@ -763,6 +775,7 @@ async function fixAll(el, result, checkId) {
     consequences: [
       ...lines.slice(0, 5),
       ...(lines.length > 5 ? [`還有 ${lines.length - 5} 筆`] : []),
+      ...(await chainLines(fixes)),
       '每一筆都會留一則稽核紀錄，整批可以一起復原',
     ],
   });
