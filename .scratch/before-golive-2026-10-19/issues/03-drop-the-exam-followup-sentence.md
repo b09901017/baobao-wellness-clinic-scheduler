@@ -1,6 +1,6 @@
 # 客戶詳情健檢那一句「健檢做完 N 次：二返做完…」拿掉
 
-Status: todo
+Status: done
 段：一（xhigh 那一段順手做；這一支本身是 medium）
 動工前先讀：`ui/views/customerDetail.js` 的 `followupLine()`、`nthLine()`；`domain/followups.js` 的 `describePair()`；E2E `02-examine-chain.spec.js:229`；`tests/followup-link-before-exam.test.js` 的「09 客戶詳情」那一組、`tests/followups.test.js` 裡讀 `describePair` 的；`docs/操作手冊.md`、`docs/常見問題.md` 有沒有講到那一句
 
@@ -29,3 +29,11 @@ E2E `02` 的 J-D4 改成量「報告勾掉之後『約二返』有 1 張」（�
 - 客戶詳情的健檢額度卡底下沒有「健檢做完」這幾個字；三返那幾行、沒有二返額度那一句照舊在
 - E2E `02` 那一條改成量別的（或拿掉那一行斷言），**不是改成 `not.toContain` 就算了** —— 看那支 spec 原本想證明什麼（健檢做完之後次數對），換一個還看得到的地方量
 - `grep -rn "describePair\|健檢做完" public/ tests/ tests-e2e/ docs/` 只剩該留的
+
+## 做完時留下的（10/19 段一）
+
+- `customerDetail.js` 的 `followupLine()` 只剩兩件：沒有二返額度那一句＋「補一筆二返額度」、`nthLine()`（加約過哪幾返）。檔頭註解改了、寫著為什麼拿掉
+- `followups.js` 的 `describePair()` 刪了（只有這一個呼叫端）；`owed()`、`counts()`、`slotOutcome()`、`shortDate()` 照舊有別人用
+- 單元測試：`tests/followups.test.js` 與 `tests/followup-link-before-exam.test.js` 讀 `describePair` 的那兩組改成直接量 `owed()`（「接在還沒做完的健檢上的二返不算約掉」那一個事實留著），日期最多列三個那一條拿掉
+- E2E `02` 的 J-D4：原本要證明「買 2 次只做 1 次 → 只欠 1 次」，改成勾掉報告之後「約二返」只有那一張（`visit-b-exam1`），再看客戶詳情沒有「健檢做完」。先跑過是紅的（那一句還在）
+- `entitlements.js` 的 `sortPools()` 註解、`tests/domain.test.js` 一行註解、`SPEC.md` 客戶詳情那一段、`CLAUDE.md`「健檢與二返的關係」改成「不講、不要加回來」。`docs/` 沒有講到那一句

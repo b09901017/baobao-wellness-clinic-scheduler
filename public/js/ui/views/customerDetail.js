@@ -36,7 +36,7 @@ import {
   counts, reconcile, isOverused, sortPools, offCount, isProduct, durationChoicesOf,
   poolCourseOf,
 } from '../../domain/entitlements.js';
-import { pairsOf, missingPairs, describePair } from '../../domain/followups.js';
+import { pairsOf, missingPairs } from '../../domain/followups.js';
 import { chainPlanLines } from '../../domain/consequences.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
@@ -1039,9 +1039,10 @@ function reminderLine(gave, reminder) {
 }
 
 /**
- * 健檢那張卡片底下那一句「健檢做完 3 次，二返還欠 2 次」。
+ * 健檢那張卡片底下：加約過哪幾返（`nthLine()`），與沒有二返額度時那一句＋「補一筆二返額度」。
  *
- * 這一句只講事實，不講該怎麼辦 —— 什麼時候去約是她跟客戶談出來的（ADR-0002）。
+ * 以前還有一句「健檢做完 N 次：二返做完、約了、還沒約」—— 三個數字各講各的（「約了」含接在還沒做完的那一次上的），
+ * 寫在「健檢做完 N 次：」後面看起來在拆那 N 次。她 2026-10-19：「數字加起來對不上。那要不就不要呈現了，好像也沒必要」。
  * 真的要她動手的只有一種情況：這位客戶身上根本沒有二返額度。那是 2026-08 以前
  * 建立的客戶（含舊表匯進來的那 21 位）的共同狀態，額度展開之後跟範本脫鉤
  * （ADR-0003），所以只能一筆一筆補。見 GitHub issue #15 與 ADR-0022。
@@ -1059,14 +1060,11 @@ function followupLine(e, ctx, visits) {
         data-add-followup="${esc(e.id)}">補一筆二返額度</button></p>`;
   }
 
-  const line = describePair(pair, visits);
-  return `
-    ${line ? `<p class="muted">${esc(line.text)}</p>` : ''}
-    ${nthLine(e, ctx, visits)}`;
+  return nthLine(e, ctx, visits);
 }
 
 /**
- * 這一筆健檢底下加約過哪幾返。**接在二返那一句下面，同一個位置、同一個字級。**
+ * 這一筆健檢底下加約過哪幾返。**健檢那張卡片底下，同一個字級。**
  *
  * n返 沒有額度，所以它沒有自己的卡片可以掛（`domain/nthFollowup.js` 的檔頭）。
  * 掛在健檢那一張底下是對的：她問的是「這一次健檢後來聽了幾次報告」。

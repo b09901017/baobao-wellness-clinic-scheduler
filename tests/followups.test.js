@@ -21,7 +21,6 @@ import {
   followupDraft,
   owed,
   syncFollowupTasks,
-  describePair,
   claimedExams,
   examChoicesFor,
   bookingForExam,
@@ -644,27 +643,19 @@ describe('報告那一張被拿回來', () => {
   });
 });
 
-// 2026-10-09（ADR-0145）起是三個數字：做完、約了、還沒約（她：「二返完成才算」）
-describe('客戶詳情頁那一句', () => {
-  test('欠的時候講還沒約幾次', () => {
+// 客戶詳情那一句「健檢做完 N 次：二返做完、約了、還沒約」2026-10-19 拿掉了（before-golive 03）；它讀的 `owed()` 照舊
+describe('還欠幾次（owed）', () => {
+  test('做完一次健檢、二返還沒約 → 欠 1 次', () => {
     const pair = { source: checkup(), followup: followup() };
-    const line = describePair(pair, [visit('v1', '2026-08-01', 'ent-checkup')]);
-    assert.equal(line.owed, 1);
-    assert.match(line.text, /還沒約 1 次/);
+    assert.equal(owed(pair, [visit('v1', '2026-08-01', 'ent-checkup')]), 1);
   });
 
-  test('約了還沒做的講「約了」，不算做完', () => {
+  test('二返約了（健檢已經做完）→ 算約掉', () => {
     const pair = { source: checkup(), followup: followup() };
-    const line = describePair(pair, [
+    assert.equal(owed(pair, [
       visit('v1', '2026-08-01', 'ent-checkup'),
       visit('v2', '2026-08-10', 'ent-followup', { status: 'confirmed' }),
-    ]);
-    assert.equal(line.owed, 0);
-    assert.match(line.text, /二返做完 0 次、約了 1 次（8\/10\(一\)）、還沒約 0 次/);
-  });
-
-  test('沒配對就沒有這一句', () => {
-    assert.equal(describePair({ source: checkup(), followup: null }, []), null);
+    ]), 0);
   });
 });
 
