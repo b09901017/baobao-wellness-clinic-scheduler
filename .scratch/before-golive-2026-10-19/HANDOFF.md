@@ -9,9 +9,19 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 零 | 談、清查過時的 issue（`11b3893`）、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/19 |
-| 一 | 01 讀不完整時不存 → 02 健檢超用也長報告＋補額度重算（Blocked by 01）、03 拿掉客戶詳情那一句 | xhigh | **進行中**：01 ✅ `ad7e702`；02 程式＋單元測試 `8fb687a`（收尾見下面「段一停在哪」）；03 沒動 |
+| 一 | 01 讀不完整時不存 → 02 健檢超用也長報告＋補額度重算（Blocked by 01）、03 拿掉客戶詳情那一句 | xhigh | ✅ 10/19：01 `ad7e702`；02 `8fb687a`＋收尾 `f767799`；03 `1f87c01`；全量 E2E（CI）見下 |
 
-### 段一停在哪（10/19 傍晚，額度到八成五收尾）
+### 段一做完（10/19 晚，第二個 session）
+
+- **02 收尾**：E2E `76` 改名 `76-incomplete-read-and-extra-exam.spec.js`、加 I3（換回 `ad7e702` 的 `followups.js` 跑過是紅的）；
+  合併檔照 `importPlan()` 的形狀在 node 裡跑新舊兩版 `syncFollowupTasks()`：**34 位、差 0 位**（拿掉 `importedFrom` 再跑也是 0 —— 她的資料裡沒有健檢做的比二返額度多的人）；文件四處
+- **03**：`describePair()` 刪了，J-D4 改量「報告勾掉之後約二返只有 1 張」＋那一句不在（先紅）
+- **全量 E2E**：CI run `39236608315`（`1f87c01`）—— 結果寫在下面「段一全量」那一行
+- 段一全量：**六台全綠**（10/19 18:19–18:29，`1f87c01`）
+- **`npm run verify` 在這條分支上一律退回全跑**（`repo.js` 跟 develop 不一樣 → 共用底座）—— 本機 34 分鐘、她的電腦會熱。
+  段二、段三的日常驗收改成：`npm test` ＋ `CI=1 npx playwright test <這一支改到的那幾支 spec>`，全量照舊丟 CI
+
+### 段一停在哪（10/19 傍晚，額度到八成五收尾）—— 第二個 session 已經全部做完，留著是紀錄
 
 - **01 做完**（`ad7e702`）：issue 01 的「做完時留下的」寫好了。本機跑過 E2E 76、10、02、19、22、25、34、44、65、03 全綠；
   `repo.js` 在 `related.js` 的 GLOBAL，**全量還沒跑** → 段一做完時 `gh workflow run e2e-full.yml --ref claude/before-golive-1019`
@@ -79,6 +89,12 @@
 6. **客戶改名順手換快照**（`customerDetail.js` 的 `ownSnapshots()`）：讀到快取時漏換幾筆，那幾筆待辦／來訪留著舊名字。建議：同 1，讀不完整就先不改名、講一句
 7. **資料健檢那幾顆整包寫 `slots` 的修正**（`clearBeds`、`moveBedToRoom`、`trialSlotsToCourse`）：寫回去的是快照那一刻的整包 `slots`、沒有帶 `ifUpdatedAt` —— 快照是快取（舊的）或按之前別台剛改過那一天，按下去會把那一天新的段蓋掉。01 只擋了 recount。建議：這三種也要 `snapshotWhole`，並帶 `ifUpdatedAt`（`repo.commit()` 已經會擋）
 
+段一第二個 session（02 收尾、03）看到的：
+
+8. **改二返的次數，待辦安靜地多一張／少一張**（02 的重算，`customerDetail.js` 改額度那一張表）：那一張表沒有確認框，存完 toast 只講「已儲存」——
+   她把二返從 1 改成 2，待辦上多了一張「約二返」，改回去又收起來，畫面上一個字都沒講（資料是對的，ADR-0159 刻意「沒有確認框的路就不講」）。
+   建議：存完的 toast 多半句（「已儲存 —— 待辦多一張約二返」），拿 `chainAfterEntitlements()` 回的 `plan` 數；不加確認框（改次數她常改，多一道框煩）
+
 ---
 
 ## 段一的開場（xhigh）
@@ -114,13 +130,18 @@ issues/04、05、06、07、08；docs/agents/lessons.md；CLAUDE.md 的「備註�
 
 這一段做 04（病歷號一格：資料、認人、匯入時轉、資料健檢搬家）→ 05（表單、備註丸子 icon C、排序、搜尋、同號提醒）→
 06（照片認人：名字對上、app 那一位沒有病歷號 → 不先勾、她勾了存時記上）→ 07（客戶清單卡片照她的順序前四個）→ 08（「客戶」被壓成直的）。
-不做 09、10。
+不做 09、10、11。HANDOFF「中途發現」裡標了「她：修」的，在 04–08 之後照一支 issue 的規矩做（issue 編號從 12 起，先 grep 會不會牽連別處）。
 
 04 匯入時轉那一段要拿她的合併檔量一次（.local/references/import-2026-10-19.json，模擬器 w5 命名空間，只印數字；讀 .local 一律過
 node .local/references/redact.mjs）。測試與 issue 裡的病歷號一律 1234／4321。
-編號：ADR 0160；E2E spec 77；sw.js 段一升過就不用再升。
+編號：ADR 0160；E2E spec 77；sw.js 段一升過就不用再升（v198）。
 
-每支：紅燈 → 綠 → npm run verify → 一支一個 commit → Status: done、「做完時留下的」。
+npm run verify 在這條分支上一律退回全跑（repo.js 跟 develop 不一樣）—— 不要在本機跑全量：日常是 npm test ＋
+CI=1 npx playwright test <改到的那幾支 spec>，段二做完時全量丟 CI（gh workflow run e2e-full.yml --ref claude/before-golive-1019）。
+模擬器可能還開著（從這個目錄起的）；換目錄跑要先依 port 停掉。
+用 python 改檔要 newline='' 或用 Edit 工具：這台的 python 文字模式會寫成 CRLF，heredoc 會吃反斜線（lessons 十一）。
+
+每支：紅燈 → 綠 → 驗收 → 一支一個 commit → Status: done、「做完時留下的」。
 做完：HANDOFF 進度、中途發現一次列給她問、段三的開場（high）貼給她，停。
 ```
 
