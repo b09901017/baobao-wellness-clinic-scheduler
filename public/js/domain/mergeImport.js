@@ -21,7 +21,7 @@ import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
 import { chartNoMove } from './customerNotes.js';
 import { DOCTOR_ROLE, GIFT_KINDS, canBeGift, giftKindOf, hasAlias, isUncounted, validate } from './masterData.js';
-import { slotMinutes } from './visits.js';
+import { NOTE_MAX, slotMinutes } from './visits.js';
 
 /**
  * 合併檔的格式。
@@ -45,14 +45,18 @@ import { slotMinutes } from './visits.js';
  *   「EECP體驗」合成進 EECP 之後（ADR-0154）候選寫的是 EECP —— v7 的 app 照課程判扣不扣，勾一筆體驗的候選
  *   會扣掉那位唯一一筆 EECP 額度
  *
+ * - **v9（2026-10-20）** 舊表的備註分到該去的地方（`.scratch/merge-v9-notes/`）：每一段多三格選填的 `note`（那一天那一段的
+ *   「記一句」）、`status`（只收 `'cancelled'`／`'no_show'`）＋`cancelReason`（已取消的段的理由）；客戶多一格選填的
+ *   `longNotes`（`[{ title, body }]`）。v8 的 app 讀到會把取消的段當成做完的、記一句與長備註安靜地丟掉 —— 所以升版
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v8';
+export const FORMAT = 'baobao-merge/v9';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
   'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6',
-  'baobao-merge/v7', FORMAT,
+  'baobao-merge/v7', 'baobao-merge/v8', FORMAT,
 ]);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
@@ -67,6 +71,8 @@ const stringList = (v) => (Array.isArray(v)
   : []);
 
 const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+/** 一句話：去頭尾空白，空的是 null（中間的換行照留 —— 那是她打的字） */
+const textOf = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const alive = (list) => (list ?? []).filter((x) => !x.deletedAt);
 
 /** 名字 → 主檔那一筆。對不到回 null，不做模糊比對。 */
@@ -210,6 +216,10 @@ export function validateFile(json) {
         if (s?.startsAt != null && !isValidTime(s.startsAt)) errors.push(`${at} ${v.date}：開始時間不合法（${s.startsAt}）`);
         if (s?.endsAt != null && !isValidTime(s.endsAt)) errors.push(`${at} ${v.date}：結束時間不合法（${s.endsAt}）`);
         if (s?.giftKind != null && !GIFT_KINDS.includes(s.giftKind)) errors.push(`${at} ${v.date}：送的／體驗那一格看不懂（${s.giftKind}）`);
+        // v9：那一段的「記一句」（選填）。上限跟畫面上那一格一樣（`NOTE_MAX`）—— 存得進來、改不回去的話，她一編輯那一天就卡住
+        if (s?.note != null && (typeof s.note !== 'string' || s.note.trim().length > NOTE_MAX)) {
+          errors.push(`${at} ${v.date}：記一句不是一句話、或超過 ${NOTE_MAX} 個字`);
+        }
       }
     }
   }
@@ -409,6 +419,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         endsAt: s.endsAt ?? null,
         bed: null,
         attended: status !== 'confirmed',
+        // v9：舊表日期欄底下那一格（ADR-0084：記一句在段上）。匯進來的已完成段鎖著（SPEC 6.4），所以在建立的同一次寫入就帶進去
+        note: textOf(s.note),
       });
     }
     if (!slots.length) continue;
