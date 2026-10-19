@@ -9,7 +9,26 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 零 | 談、清查過時的 issue（`11b3893`）、開 issue、subagent 過目、照過目改 issue | — | ✅ 10/19 |
-| 一 | 01 讀不完整時不存 → 02 健檢超用也長報告＋補額度重算（Blocked by 01）、03 拿掉客戶詳情那一句 | xhigh | todo |
+| 一 | 01 讀不完整時不存 → 02 健檢超用也長報告＋補額度重算（Blocked by 01）、03 拿掉客戶詳情那一句 | xhigh | **進行中**：01 ✅ `ad7e702`；02 程式＋單元測試 `8fb687a`（收尾見下面「段一停在哪」）；03 沒動 |
+
+### 段一停在哪（10/19 傍晚，額度到八成五收尾）
+
+- **01 做完**（`ad7e702`）：issue 01 的「做完時留下的」寫好了。本機跑過 E2E 76、10、02、19、22、25、34、44、65、03 全綠；
+  `repo.js` 在 `related.js` 的 GLOBAL，**全量還沒跑** → 段一做完時 `gh workflow run e2e-full.yml --ref claude/before-golive-1019`
+- **02 程式做完、單元測試全綠（4979）**（`8fb687a`，commit 標「進行中」）。設計寫在 `docs/adr/0159-an-extra-exam-still-gets-its-report.md`
+  （匯進來的超用健檢用 `importedFrom`＋從來沒有過鏈上待辦判；為什麼不用「死線過了」寫在 ADR 裡）。**還沒做的**：
+  1. E2E（建議加進 76，檔名改成涵蓋兩支）：簽療程單結掉一次超用的健檢 → 長「追蹤健檢報告」；勾掉 → 長「寄報告給醫師」、不長「約二返」；
+     客戶詳情點二返那一筆（`[data-ent="…"]`）改次數 1 → 2 存 → 「約二返」出現（不存任何來訪）。改次數那一張表的欄位是 `[name="totalQty"]`
+  2. 合併檔量一次：`.local/references/import-2026-10-19.json` 匯進模擬器 w5，報告／約二返張數改之前（`ad7e702`）與改之後只印數字比（讀 .local 過 `redact.mjs`）
+  3. 文件：`CLAUDE.md`「健檢與二返的關係」（補額度會重算、每一條改額度的路都走 `chainAfterEntitlements()`）與「報告到手之後的那一站」（報告不吃二返額度）、
+     `SPEC.md` 健檢鏈那一節、`docs/課程與待辦對照表.md`、`docs/常見問題.md`（「健檢超用那一次為什麼沒有約二返」）
+  4. issue 02 的 `Status: done` 與「做完時留下的」（要寫：`chainAfterEntitlements()` 回 `{ ops, plan, visits, tasks }`、`data/customers.js` 的 `previewChain()`、
+     `data/health.js` 的 `previewFollowupChains()`、`reasonFor()` 多一種「二返的次數不夠」、`tests/consequences.test.js` 一條翻成「講」、
+     `tests/followups.test.js` 的上限那一條翻過來、隨機定點多了匯進來的健檢）
+- **03 沒動**。照 issue 03 做（`describePair()` 只剩客戶詳情一個呼叫端；`customerDetail.js` 的 `followupLine()` 還在 import 它）
+- `public/` 動過，`sw.js` 已經是 v198（01 升的），02、03 不用再升
+- 模擬器是從這個目錄起的（`npm run emulators`），可能還開著；換目錄跑要先依 port 停掉
+- `issues/11-tomorrow-counts-tomorrows-close.md` 是另一個對話寫的（段三），**還沒 commit、不要動它**
 | 二 | 04 病歷號一格、05 病歷號在畫面上（icon C）、06 照片認人沒病歷號不先勾、07 客戶清單卡片前四個、08 「客戶」被壓成直的 | high | todo |
 | 三 | 09 拍 Abovee 沒勾的列看得到「勾起來的話」、10 試算表只重畫有變的（＋整份重畫、抬頭病歷號、`SYNC_FORMAT` 8） | high | todo |
 | 四 | `/matt-code-review`（從 `995e9f1` 比）、照建議修 | xhigh | todo |
