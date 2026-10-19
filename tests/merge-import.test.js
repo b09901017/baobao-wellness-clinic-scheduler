@@ -998,7 +998,7 @@ describe('合併檔 v2', () => {
     assert.deepEqual(validateFile(FILE()).errors, []);
     assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v1' }).errors, []);
     assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v2' }).errors, []);
-    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v10' }).errors.length);
+    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v11' }).errors.length);
   });
 
   test('客戶帶購買日、通路與帶顏色的備註；notes 是備註的鏡像', () => {

@@ -126,7 +126,7 @@ describe('人員名單（--staff-names）', () => {
     const r = run(SHEETS);
     const plain = importJson(r, { generatedAt: 'fixed', calendar: 'fixed' });
     const withStaff = importJson(r, { generatedAt: 'fixed', calendar: 'fixed', staffNames: NAMES });
-    assert.equal(plain.format, 'baobao-merge/v9');
+    assert.equal(plain.format, 'baobao-merge/v10');
     assert.ok(!('staff' in plain));
     const { staff, ...rest } = withStaff;
     assert.equal(JSON.stringify(rest), JSON.stringify(plain));

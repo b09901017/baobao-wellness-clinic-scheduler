@@ -1411,7 +1411,7 @@ export function importJson(r, { generatedAt = new Date().toISOString(), calendar
     // v7（2026-10-14）：客戶多一格 `phone`（只有帶 `--phones` 才有）、送的／體驗的段多一格 `giftKind`（gift-and-trial 08）
     // v8（2026-10-18）：**候選**（`futureVisits`／`missingFromSheet`）送的／體驗的那幾筆也帶 `giftKind`（一般的沒有這個鍵，同段，ADR-0155）。
     //   v7 的 app 照課程判扣不扣 —— 「EECP體驗」合成進 EECP 之後，一筆體驗的候選會扣掉那位唯一一筆 EECP 額度
-    format: 'baobao-merge/v9',
+    format: 'baobao-merge/v10',
     generatedAt,
     year: r.year,
     calendar: { file: calendar, span: r.span, events: r.events.length },

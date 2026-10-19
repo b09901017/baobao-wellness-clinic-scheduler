@@ -65,8 +65,8 @@ const slotsOn = (r, date) => fileOf(r).customers.find((c) => c.name === '王小�
 describe('產檔那一側', () => {
   // 2026-10-20 起寫 v9（段的記一句、已取消的段、長備註，`tests/merge-v9.test.js`）—— v8 的那一格照舊在
   test('格式寫最新的那一版，跟 app 的 FORMAT 一樣', () => {
-    assert.equal(fileOf(run(SHEETS, [EECP_DAY])).format, 'baobao-merge/v9');
-    assert.equal(FORMAT, 'baobao-merge/v9');
+    assert.equal(fileOf(run(SHEETS, [EECP_DAY])).format, 'baobao-merge/v10');
+    assert.equal(FORMAT, 'baobao-merge/v10');
   });
 
   test('「EECP體驗」→ EECP、體驗；「EECP」照舊是正式課（沒有第三格）', () => {
@@ -154,7 +154,7 @@ const master = { courses: SEED.courses, equipment: SEED.equipment, ivProducts: S
 describe('契約：baobao-merge/v8', () => {
   test('v1～v8 照收；不認得的版本整份拒收（不是安靜吃掉）', () => {
     for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) assert.ok(FORMATS.includes(`baobao-merge/v${v}`), `v${v}`);
-    const errors = validateFile({ format: 'baobao-merge/v10', customers: [] }).errors;
+    const errors = validateFile({ format: 'baobao-merge/v11', customers: [] }).errors;
     assert.equal(errors.length, 1);
     assert.match(errors[0], /格式不對/);
   });
