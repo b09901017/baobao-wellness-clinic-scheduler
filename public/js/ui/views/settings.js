@@ -10,7 +10,6 @@ import * as sheetsData from '../../data/treatmentSheets.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { formatUsd, monthKey } from '../../domain/aiUsage.js';
-import { esc } from '../components/form.js';
 import * as f from '../components/form.js';
 import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
@@ -20,6 +19,8 @@ import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
+
+const esc = f.esc;
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
