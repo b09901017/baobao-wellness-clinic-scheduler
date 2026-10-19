@@ -195,7 +195,13 @@ const UNREACHED = '叫不到 MacroDroid（它要開著、連接埠要跟它的�
 const NO_REPLY = 'MacroDroid 沒回應：Chrome 有跳「允許存取區域網路」嗎？按允許再試一次。'
   + '沒有跳的話，看觸發條件的「傳送回應（Send Response）」有沒有勾。';
 
-/** 退路：開 LINE 的聊天清單＋複製。剪貼簿先叫（按下去的那一刻還在），開視窗緊接著，不等剪貼簿。 */
+/**
+ * 退路：開 LINE 的聊天清單＋複製。剪貼簿先叫，開視窗緊接著，不等剪貼簿。
+ *
+ * 這一台沒開時兩件都在按下去的那一刻。**叫不到之後才走到這裡的那一次已經隔了一個 fetch**
+ * （複製名字、開視窗都在 `await` 之後；訊息那一份照舊是按下去就複製的）：被拒是幾毫秒的事，
+ * Chrome 的「剛按了」撐 5 秒 —— 而那條路只有勾了的 Android 手機走得到。真的被擋時那一句照實講。
+ */
 async function fallback(d, name, msg, msgCopied, lead = '') {
   const copied = msg ? msgCopied : copyText(d, name);
   const opened = d.open(LINE_CHATS_URL);
