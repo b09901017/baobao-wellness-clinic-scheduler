@@ -82,6 +82,7 @@ const SHELL = [
   '/js/ui/relinkFollowup.js',
   '/js/ui/net.js',
   '/js/ui/theme.js',
+  '/js/integrations/lineMacro.js',
   '/js/ui/icons.js',
   '/js/ui/session.js',
   '/js/ui/components/dialog.js',

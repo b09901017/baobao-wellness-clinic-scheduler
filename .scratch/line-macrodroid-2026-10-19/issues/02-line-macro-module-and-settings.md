@@ -1,6 +1,6 @@
 # `integrations/lineMacro.js`：叫手機上的 MacroDroid；設定頁「打開 LINE 對話」那一段
 
-Status: todo
+Status: done（10/19，段一）
 Blocked by: —
 動工前先讀：spec 的「策略」「查到但沒驗證的」；`ui/theme.js`（記在這一台裝置的寫法、`localStorage` 一律 try/catch，ADR-0055）；`ui/components/message.js` 的 `copy()`（剪貼簿被擋時的退路）；
 `ui/views/settings.js` 外觀那一段（不重畫整頁，ADR-0038）；`public/sw.js` 的 `SHELL`／`VERSION` 與 fetch 處理（跨網域一律不管 —— 已確認不會攔 `127.0.0.1`）；`tests-e2e/related.js`（新檔要登記）；
@@ -62,4 +62,13 @@ CLAUDE.md「`public/` 底下任何檔案」「寫入的等待與失敗文案」�
 
 ## 做完時留下的
 
-（做完寫）
+- `public/js/integrations/lineMacro.js`：`macroUrl()`（**`encodeURIComponent`、不用 `URLSearchParams`** —— 後者把空白編成 `+`，巨集那一側解不解沒把握）、`portOf()`、`readLineMacro()`／`saveLineMacro()`（key `scheduler.lineMacro`，`{ on, port }`）、
+  `openLineChat()` 回 `'no-name'|'fallback'|'macro'|'no-reply'`、`testLineMacro()` 回 `'off'|'no-name'|'macro'|'unreached'|'no-reply'`；`deps` 是 `{ storage, fetch, copy, open, timeoutMs }`
+- 順序：有 `msg` 就**一按下去先複製**（不等）→ 沒開走退路／開著敲門；退路是「剪貼簿先叫、緊接著開視窗、再等剪貼簿的結果」才講那一句（講的是真的有沒有複製到、有沒有開成）
+- `window.open` 不帶 `noopener`（帶了一律回 null、分不出被擋），開了再 `w.opener = null`
+- 逾時 15 秒（`NO_REPLY_MS`）只講「沒回應：傳送回應（Send Response）有勾嗎」、不開 LINE；**「傳送回應」是我猜的中文介面字**，文件（05）照英文與中文都寫
+- 成功時也講一句（「已經叫 MacroDroid 打開「王小明」的對話」）：`no-cors` 分不出 path 打錯，她回到 app 時看得到「app 以為叫到了」
+- 「試一次」的測試訊息三段、152 字，網址 1316 字元
+- 設定頁一段 `[data-linemacro]`（外觀底下）：勾選、`f.number` 連接埠（`min: 1, step: 1`，上限由 `portOf()` 擋、打錯講一句退回）、`f.text` 名字、「試一次」
+- 登記：`sw.js` 的 `SHELL`、`related.js` 的 `75-line-macro`（整個 `public/js/integrations/` 前綴）、`no-dev-words`／`ui-copy` 也掃 `integrations/`
+- E2E `75` 的 L1～L3（連接埠 18080，只攔那一個；`line.me` 用 `context.route` 擋掉）

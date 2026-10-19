@@ -587,6 +587,12 @@ export const COVERAGE = {
     'public/js/data/customers.js', 'public/css/',
     'public/js/ui/views/longNotes.js', 'public/js/ui/components/deck.js', 'public/js/ui/views/customers.js',
   ],
+  // 打開 LINE 對話交給手機上的 MacroDroid（line-macrodroid 02～04，ADR-0157）
+  '75-line-macro': [
+    'public/js/integrations/', 'public/js/ui/views/settings.js', 'public/js/ui/components/message.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
+    'public/js/domain/customerNotes.js',
+  ],
 };
 
 /**
