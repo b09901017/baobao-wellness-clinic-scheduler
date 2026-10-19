@@ -1503,7 +1503,7 @@ function checkSlotBeds(ctx) {
           title: label,
           detail: `${moved.join('、')}${cleared.length ? `；清掉床位 ${cleared.join('、')}` : ''}`,
           link: null,
-          fix: { kind: 'moveBedToRoom', visitId: visit.id, label, slots, moves: moved, cleared },
+          fix: { kind: 'moveBedToRoom', visitId: visit.id, updatedAt: visit.updatedAt ?? null, label, slots, moves: moved, cleared },
         };
       }
       return {
@@ -1511,7 +1511,8 @@ function checkSlotBeds(ctx) {
         title: label,
         detail: `清掉床位 ${cleared.join('、')}`,
         link: null,
-        fix: { kind: 'clearBeds', visitId: visit.id, label, slots },
+        // 寫回去的是整包 slots：帶著快照那一刻的 updatedAt，別台改過那一天就不蓋（`data/health.js`，issue 12）
+        fix: { kind: 'clearBeds', visitId: visit.id, updatedAt: visit.updatedAt ?? null, label, slots },
       };
     });
 }
@@ -2331,7 +2332,7 @@ function checkEecpTrialCourse(ctx) {
       ivProductId: null,
     };
   };
-  const rewrite = (v) => ({ visitId: v.id, slots: (v.slots ?? []).map((slot) => (freeSlot(slot) ? moved(slot) : slot)) });
+  const rewrite = (v) => ({ visitId: v.id, updatedAt: v.updatedAt ?? null, slots: (v.slots ?? []).map((slot) => (freeSlot(slot) ? moved(slot) : slot)) });
 
   if (!blocked.length) {
     const n = freeCount(withFree);

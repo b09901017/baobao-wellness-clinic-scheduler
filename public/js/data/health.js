@@ -15,6 +15,14 @@ let snapshotWhole = false;
 const RECOUNT_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 次數先不改，連上之後重新整理這一頁再按一次';
 
 /**
+ * 把快照那一刻的**整包 `slots`** 寫回去的那幾種修正（before-golive-2026-10-19 issue 12）。時段是內嵌陣列，只改得了整包 ——
+ * 快照是快取來的、或她按之前別台剛改過那一天，寫回去就把那一天新的段蓋掉。所以：快照不是全部就不寫（同 `recount`），
+ * 每一條 op 帶 `ifUpdatedAt`（`repo.commit()` 對不上丟 `StaleWriteError`，整批不寫）
+ */
+const SLOT_REWRITES = new Set(['clearBeds', 'moveBedToRoom', 'trialSlotsToCourse', 'retireTrialCourse']);
+const SLOTS_PARTIAL_SAY = '網路不穩，這一頁讀到的不是全部的紀錄 —— 來訪先不改，連上之後重新整理這一頁再按一次';
+
+/**
  * 孤兒檢查要分得出「指向已刪除的」與「指向不存在的」，所以主檔連刪掉的一起讀。
  *
  * `clinicalFlags` 是 2026-09-06 加的：「器材上的提醒詞不在警示名單裡」那一項
@@ -103,6 +111,9 @@ export async function applyFixes(fixes) {
   // 其餘的修正不吃全部來訪，照舊
   if (!snapshotWhole && (fixes ?? []).some((f) => f?.kind === 'recount')) {
     throw new IncompleteReadError('', RECOUNT_PARTIAL_SAY);
+  }
+  if (!snapshotWhole && (fixes ?? []).some((f) => SLOT_REWRITES.has(f?.kind))) {
+    throw new IncompleteReadError('', SLOTS_PARTIAL_SAY);
   }
   const ops = opsFor(fixes);
   // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
@@ -257,6 +268,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { slots: fix.slots },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：清掉來訪上的床位',
     };
   }
@@ -271,6 +283,7 @@ function opFor(fix) {
       path: 'visits',
       id: fix.visitId,
       changes: { slots: fix.slots },
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: `資料健檢：床位搬到自己的診間（${(fix.moves ?? []).join('、')}）`,
     };
   }
@@ -443,7 +456,7 @@ function opFor(fix) {
   if (fix?.kind === 'trialSlotsToCourse' || fix?.kind === 'retireTrialCourse') {
     return [
       ...(fix.visits ?? []).map((v) => ({
-        op: 'update', path: 'visits', id: v.visitId, changes: { slots: v.slots },
+        op: 'update', path: 'visits', id: v.visitId, changes: { slots: v.slots }, ifUpdatedAt: v.updatedAt ?? null,
         note: `資料健檢：「${fix.label}」那幾段改成 ${fix.eecpName} 的體驗`,
       })),
       ...(fix.kind === 'retireTrialCourse' ? [{
