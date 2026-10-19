@@ -59,13 +59,13 @@ describe('認人：三種寫法都認得', () => {
 });
 
 describe('備註那一段：病歷號只佔位置', () => {
-  test('沒排過：電話 → LINE → 病歷號 → 長備註 → 短備註', () => {
+  test('沒排過：病歷號 → LINE → 長備註 → 短備註 → 電話（ADR-0163）', () => {
     const c = {
       phone: '0912', lineId: '小明', chartNo: '1234',
       longNotes: [{ id: 'n1', title: '過敏', body: '' }],
       marks: [grey('喜歡下午')],
     };
-    assert.deepEqual(keys(c), ['phone', 'line', 'chartNo', 'long:n1', 'mark:0']);
+    assert.deepEqual(keys(c), ['chartNo', 'line', 'long:n1', 'mark:0', 'phone']);
     const it = noteItems(c).find((x) => x.kind === 'chartNo');
     assert.equal(it.text, '1234');
   });
