@@ -1,6 +1,6 @@
 # 客戶清單左上角「客戶」被壓成直的
 
-Status: todo
+Status: done
 段：二（high）
 動工前先讀：`ui/views/customers.js:102-111`（`.page__row` 裡一個 `h1.page__title` ＋ `span.footlinks.footlinks--inline` 三個連結）；`public/css/app.css` 的 `.page__row`（345 行）、`.page__title`（330 行）、`.footlinks--inline`（3572 行：`flex-wrap: nowrap; flex: 0 0 auto`）；另外三個用 `.page__row` 的畫面：`bulkCancel.js:238`、`home.js:326`、`schedule.js:270`
 
@@ -25,3 +25,11 @@ Status: todo
 - 360px、390px、iPad 直式：「客戶」兩個字在同一行（E2E 量 `h1` 的高度 ≈ 一行的 line-height，不是兩行）
 - 三個連結都看得到、點得到（44px 觸控區照舊）
 - `home.js`、`schedule.js`、`bulkCancel.js` 那一列的樣子沒變（截圖比一次，或量同樣的東西）
+
+## 做完時留下的（10/19 段二）
+
+- CSS 兩條：`.page__row > .page__title { flex: none; white-space: nowrap }`；`.footlinks--inline` 改成 `flex-wrap: wrap; justify-content: flex-end; row-gap: 16px; flex: 0 1 auto; min-width: 0`
+  （16px＝兩顆 `.footlink::after` 上下各撐 8px，排距再小就疊）
+- 360px 上客戶清單那一排變兩排（看這個月的進度、看已停用的 ／ 長備註），靠右；390px 以上一排（截圖看過）
+- E2E 77 C11（360／390／768：h1 高度 < 1.5 倍 line-height、三顆都在畫面裡、兩排交界 `elementFromPoint`）—— 換回舊 CSS 跑過 360 是紅的；
+  C12（待辦首頁、壓表 360px 標題一行）。`bulkCancel.js` 那一列沒有 `.footlinks--inline`，同一條 `.page__title` 規則管到它

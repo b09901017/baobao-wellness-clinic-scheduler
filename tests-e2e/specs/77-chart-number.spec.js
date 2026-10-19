@@ -218,3 +218,61 @@ test('C10 客戶清單卡片：病歷號、長備註、電話、短備註 → �
   await card.click();
   await expect(page).toHaveURL(/#\/customers\/cust-c$/);
 });
+
+// ---------------------------------------------------------------------------
+// 08 客戶清單左上角「客戶」被壓成直的
+// ---------------------------------------------------------------------------
+
+/** h1 是一行（高度 ≈ 一行的 line-height），右邊那一排每一顆都看得到。 */
+async function titleOneLine(page) {
+  return page.locator('.page__row').first().evaluate((row) => {
+    const h1 = row.querySelector('.page__title');
+    const line = parseFloat(getComputedStyle(h1).lineHeight);
+    const links = [...row.querySelectorAll('.footlink')].map((a) => a.getBoundingClientRect());
+    return {
+      oneLine: h1.getBoundingClientRect().height < line * 1.5,
+      allVisible: links.every((r) => r.width > 0 && r.right <= window.innerWidth + 0.5 && r.left >= -0.5),
+    };
+  });
+}
+
+for (const [w, h] of [[360, 780], [390, 844], [768, 1024]]) {
+  test(`C11 ${w}px：「客戶」兩個字在同一行、三顆連結都看得到；換行的話兩排的觸控區不疊`, async ({ app, page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await app.seed([...masterDocs(), clientA()]);
+    await app.signIn('/customers');
+    await expect(page.locator('.page__title')).toHaveText('客戶');
+    expect(await titleOneLine(page)).toEqual({ oneLine: true, allVisible: true });
+
+    // 兩排的話：交界上下那一點各是自己那一排的
+    const rows = await page.locator('.page__row .footlink').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    const tops = [...new Set(rows.map((t) => Math.round(t)))];
+    if (tops.length > 1) {
+      const [upper, lower] = await page.locator('.page__row .footlink').evaluateAll((els) => {
+        const r = els.map((e) => e.getBoundingClientRect());
+        const first = r[0];
+        const second = r.find((x) => x.top > first.bottom);
+        return [first, second];
+      });
+      const mid = (upper.bottom + lower.top) / 2;
+      const who = (y) => page.evaluate(([x, yy]) => document.elementFromPoint(x, yy)?.closest('.footlink')?.textContent.trim() ?? null,
+        [lower.left + 4, y]);
+      expect(await who(lower.top + 1)).not.toBeNull();
+      // 交界往上一點不可以按到下面那一排
+      const above = await who(mid - 1);
+      const lowerText = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('.footlink')?.textContent.trim(), [lower.left + 4, lower.top + 1]);
+      expect(above).not.toBe(lowerText);
+    }
+  });
+}
+
+test('C12 待辦首頁與壓表那一列的標題照舊一行（同一條 CSS）', async ({ app, page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await app.seed([...masterDocs()]);
+  await app.signIn('/');
+  await expect(page.locator('.page__row').first()).toBeVisible();
+  expect((await titleOneLine(page)).oneLine).toBe(true);
+  await app.go('/schedule');
+  await app.settled();
+  expect((await titleOneLine(page)).oneLine).toBe(true);
+});

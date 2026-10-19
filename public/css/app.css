@@ -349,6 +349,13 @@ svg {
   gap: var(--space-3);
 }
 
+/* 標題不縮（before-golive-2026-10-19/08）：右邊那一排多一顆連結（長備註）之後，「客戶」被擠到一個字寬、
+   一字一行。放不下的是右邊那一排 —— 它換行（`.footlinks--inline`） */
+.page__row > .page__title {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* 段落標題。取代「每一段都包一張白卡」—— 一頁疊七張白卡看起來像七件事，
    其實是同一個人的七個面向。細標題加一條髮絲線就夠分段了。 */
 .section {
@@ -3589,8 +3596,13 @@ button.mark--contact::after {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-  flex-wrap: nowrap;
-  flex: 0 0 auto;
+  /* 放不下就換行、靠右（08）。兩排之間至少 16px：每一顆的觸控區上下各撐 8px（`.footlink::after`），
+     排距小於 16 的話兩排的感應範圍疊在一起，疊到的那一段由後面那一顆贏 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 16px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .footlink--danger {
