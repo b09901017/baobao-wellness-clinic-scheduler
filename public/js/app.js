@@ -8,6 +8,13 @@ import * as sheetSync from './data/sheetSync.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
 import { install as installTips } from './ui/components/tip.js';
+import * as bootTiming from './ui/bootTiming.js';
+import { resolve } from './ui/router.js';
+
+// 量開機（after-golive 05）：走到這一行＝上面那一百多支程式檔全部到齊了。
+// 記在這一台、設定頁「打開要多久」讀它；**它一行都不擋開機**（每一步自己包 try）。
+// 是不是從首頁打開照路由認（認不得的網址也畫首頁）
+bootTiming.begin({ home: resolve().path === '/' });
 
 // 說明泡泡的委派掛在 document 上，**開機接一次就好** —— 每一頁、每一次重畫
 // 長出來的那幾顆 `?` 都不用各自接。各自接的話，漏接一頁就是「那一顆點了沒反應」。
@@ -50,6 +57,8 @@ function main() {
 
   let shellMounted = false;
   watchAuth(({ user, access }) => {
+    // 登入頁、連不上、沒有權限那三種不算一次正常開機（量開機那一張不記）
+    if (access !== 'allowed') bootTiming.drop();
     if (!user) {
       shellMounted = false;
       renderGate(root, { state: 'signedOut', onSignIn: handleSignIn });
@@ -80,13 +89,15 @@ function main() {
     // 已登入且在白名單內。auth 狀態每次刷新都會觸發，不要重畫整個殼。
     if (!shellMounted) {
       shellMounted = true;
+      bootTiming.mark('access');
       renderShell(root, { onSignOut: handleSignOut });
+      bootTiming.mark('shell');
       // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
       // 資料的真相在 Firestore（SPEC 第 4.8 節）。
       sheetSync.wire();
     }
     return booted();
-  });
+  }, { onUser: () => bootTiming.mark('auth') });
 }
 
 // `main()` 本身丟例外的話**不要**解除保險絲 —— 那正是它要接住的情況。

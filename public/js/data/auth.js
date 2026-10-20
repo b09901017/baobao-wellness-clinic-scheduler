@@ -60,9 +60,12 @@ export async function accessState(uid) {
 
 /**
  * @param {(state: {user: object|null, access: 'allowed'|'denied'|'unreachable'}) => void} cb
+ * @param {{onUser?: Function}} [o] `onUser`：Firebase 一回答是誰就叫（還沒問白名單）——
+ *   量開機那一張要分開「登入」與「權限」兩步（after-golive 05）
  */
-export function watchAuth(cb) {
+export function watchAuth(cb, { onUser } = {}) {
   return onAuthStateChanged(getAuthInstance(), async (user) => {
+    onUser?.(user);
     if (!user) return cb({ user: null, access: 'denied' });
     cb({ user, access: await accessState(user.uid) });
   });

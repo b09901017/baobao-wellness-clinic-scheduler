@@ -618,6 +618,11 @@ export const COVERAGE = {
     'public/js/data/visits.js', 'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
     'public/js/data/sheetSync.js', 'public/js/domain/sheetReport.js', 'public/js/ui/views/report.js',
   ],
+  // 量打開 app 每一步花多久（after-golive 05）：記在這一台、設定頁那一張讀它。
+  // 記的那幾個點在 app.js、auth.js（GLOBAL，改了本來就全跑）與首頁第一次畫出數字那一下
+  '79-boot-timing': [
+    'public/js/ui/bootTiming.js', 'public/js/ui/views/settings.js', 'public/js/ui/views/home.js',
+  ],
 };
 
 /**

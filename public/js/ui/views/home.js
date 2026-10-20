@@ -79,6 +79,7 @@ import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
+import * as bootTiming from '../bootTiming.js';
 
 const esc = f.esc;
 
@@ -192,6 +193,8 @@ export async function render(el) {
       config.getSettings(),
     ]);
   } catch (err) {
+    // 量開機那一張不記這一次（之後重畫出數字的那一下不是開機花的時間）
+    bootTiming.drop();
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
       <p class="muted">如果一直失敗，可能是 Firestore 的索引還沒建好 ——
       Console 的錯誤訊息裡會有一個建立索引的連結。</p></div>`;
@@ -200,6 +203,8 @@ export async function render(el) {
 
   const ctx = { el, tasks, pending, unclosed, notes, settings, today };
   paint(ctx);
+  // 從首頁打開的那一次，這一刻她看得到待辦的數字（量開機，after-golive 05）。之後每一次回到這一頁都不算
+  bootTiming.mark('data');
   // 設成不顯示的那幾列**連資料都不讀**（ADR-0151）：各多讀三四份，而這一頁她一天開十幾次
   const loaders = { ask: loadAsk, forms: loadInbox, book: loadBook };
   for (const id of homeLoaders(settings)) loaders[id](ctx);
