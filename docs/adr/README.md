@@ -51,12 +51,13 @@
 | [0143](./0143-cutover-day-deletes-production-with-firebase-tools.md) 切換那天正式站連主檔一起刪掉，用 firebase-tools 一類一類刪 | 不是推翻：切換做完了，實際做法跟它寫的步驟不一樣（記在 0165 與 STAGING.md） | [0165](./0165-after-cutover-production-is-the-only-copy.md) |
 | [0148](./0148-a-slot-can-be-a-trial-or-a-gift.md) 一段可以是體驗或送的 —— 存在段上，課程的那一格變成「預設體驗」 | 第一排順序的「EECP體驗」與「沒做的」第二條（扣法不一樣） | [0154](./0154-eecp-is-one-course.md) |
 | [0152](./0152-today-counts-close-and-dated-notes.md) 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 決定 1 的「明天」那一格 —— 明天要來的也算 | [0162](./0162-tomorrow-counts-tomorrows-visits.md) |
+| [0152](./0152-today-counts-close-and-dated-notes.md) 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 決定 4 的「『已完成』那一格照舊只有任務」—— 已完成照日子算，三種一起列 | [0166](./0166-bucket-done-is-counted-by-the-day.md) |
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 「LINE 點了開他的 LINE」—— 存名字、交給 MacroDroid | [0157](./0157-line-field-is-the-name-macrodroid-opens-the-chat.md) |
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 「客戶清單卡片只看短備註」 | [0160](./0160-chart-number-is-a-field.md) |
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 
-## 全部（165 支）
+## 全部（166 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -211,7 +212,7 @@
 | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) | 拍 Abovee 時，照片上的預約狀態就是要記的狀態 | 2026-10-15 | 現行 |
 | [0150](./0150-health-check-has-reminders.md) | 資料健檢多一種「提醒」—— 知道就好、沒有要做的事 | 2026-10-18 | 現行 |
 | [0151](./0151-she-picks-which-rows-the-todo-home-shows.md) | 待辦首頁畫哪幾列由她選 —— 一直顯示／有才顯示／不顯示 | 2026-10-18 | 現行 |
-| [0152](./0152-today-counts-close-and-dated-notes.md) | 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 2026-10-18 | 部分被推翻 → ADR-0162 |
+| [0152](./0152-today-counts-close-and-dated-notes.md) | 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 2026-10-18 | 部分被推翻 → ADR-0162、ADR-0166 |
 | [0153](./0153-abovee-absent-checks-people-on-photo.md) | 「app 有、這次照片上沒有」對誰，看照片上有幾位 | 2026-10-18 | 現行 |
 | [0154](./0154-eecp-is-one-course.md) | EECP 只有一門 —— 約的時候 20／60，20 就是體驗 | 2026-10-18 | 現行 |
 | [0155](./0155-bedless-rooms-go-and-the-merge-file-is-born-current.md) | 沒寫哪一床的點滴8、VIP7 拿掉；合併檔一開始就是新的 | 2026-10-18 | 現行 |
@@ -225,3 +226,4 @@
 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) | 備註沒排過的預設順序 —— 病歷號最前面、電話最後面 | 2026-10-20 | 現行 |
 | [0164](./0164-imported-cancelled-slots-settle-their-cancel-task.md) | 匯進來的取消段，「取消 X」一出生就勾好 | 2026-10-20 | 現行 |
 | [0165](./0165-after-cutover-production-is-the-only-copy.md) | 切換之後，正式站是唯一的一份 —— 不再整份重匯 | 2026-10-20 | 現行 |
+| [0166](./0166-bucket-done-is-counted-by-the-day.md) | 逾期／今天／明天的「已完成」照日子算，任務、簽療程單、隨手記一起列 | 2026-10-21 | 現行 |

@@ -34,7 +34,7 @@ import {
 } from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
-  HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, bucketCount, taskBucket, BUCKETS,
+  HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, doneBuckets, bucketCount, BUCKETS,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -43,7 +43,7 @@ import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
+  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel, startOfDayISO,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
@@ -1837,16 +1837,16 @@ export async function renderGroup(el, group) {
   // 逾期／今天／明天那三頁多列兩塊：簽療程單與有日期的隨手記（ADR-0152）。
   // 三塊都從 `todoBuckets()` 來 —— 首頁那顆數字讀的是同一支
   const isBucket = BUCKETS.includes(group);
-  const [open, done, unclosed, notes] = await Promise.all([
+  const [open, done, unclosed, notes, finished] = await Promise.all([
     tasksData.listOpen(),
-    tasksData.listDone(),
+    // 三頁的已完成不靠最近 200 張（`loadBucketDone()`，ADR-0166）
+    isBucket ? [] : tasksData.listDone(),
     isBucket ? visitsData.listUnclosed(today, { tomorrow: true }) : [],
     isBucket ? notesData.listOpen() : [],
+    isBucket ? loadBucketDone(group, today) : null,
   ]);
 
-  const match = isBucket
-    ? (t) => taskBucket(t.dueDate, today) === group
-    : group === 'cancel' ? (t) => isCancelKind(t.kind) : (t) => t.kind === group;
+  const match = group === 'cancel' ? (t) => isCancelKind(t.kind) : (t) => t.kind === group;
   const bucket = isBucket ? todoBuckets({ tasks: open, unclosed, notes, today })[group] : null;
   const meta = GROUPS[group] ?? {
     title: group,
@@ -1858,12 +1858,13 @@ export async function renderGroup(el, group) {
     retired: isRetired(group),
   };
 
-  // 「已完成」那一格用**同一個 match** —— 逾期／今天／明天那三種照死線切的分組，
-  // 在已完成那一格也是照死線切的。她在那三頁問的是「這個死線的事情做完了沒」。
+  // 分類頁的「已完成」用**同一個 match**；逾期／今天／明天那三頁另外算（`doneBuckets()`，ADR-0166）
   const ctx = {
     el, group, today, meta,
     open: bucket ? bucket.tasks : open.filter(match),
-    done: done.filter(match),
+    done: isBucket ? (finished?.tasks ?? []) : done.filter(match),
+    // 逾期／今天／明天那三頁的已完成三塊（任務、簽療程單、隨手記）。讀不到是 null
+    finished,
     // 簽療程單與隨手記那兩塊（只有逾期／今天／明天才有）
     close: bucket?.close ?? [],
     // 明天來的那幾天（只有「明天」那一頁有，issue 11）：點下去開讀取卡片，不開簽單抽屜
@@ -1873,6 +1874,37 @@ export async function renderGroup(el, group) {
   paintTasks(ctx);
   taskVisitsLoading = loadTaskVisits(ctx);
   loadFollowupBookings(ctx);
+}
+
+/**
+ * 逾期／今天／明天那一頁「已完成」那一側（ADR-0166）。哪幾件算只問 `doneBuckets()`，這裡只撈**那一頁**用得到的：
+ *
+ * | | 任務 | 來訪 | 隨手記 |
+ * |---|---|---|---|
+ * | 逾期 | 今天才勾的（`listDoneSince()`） | 今天才換過狀態的（`listStatusChangedSince()`） | — |
+ * | 今天／明天 | 死線那一天勾掉的（`listDoneDue()`，不靠最近 200 張） | 今天的（`listByDate()`；明天沒有） | 掛那一天的（`listBetween()`） |
+ *
+ * 「今天才」的起點是台灣 00:00 換成 UTC（`startOfDayISO()`）—— `doneAt`、`statusAt` 存的是 UTC。
+ * **讀不到回 `null`、不丟**：(deletedAt, statusAt) 索引部署之後要幾分鐘才建好、或離線 —— 未完成那一側照畫。
+ */
+async function loadBucketDone(group, today) {
+  const since = startOfDayISO(today);
+  const overdue = group === 'overdue';
+  const day = group === 'tomorrow' ? addDays(today, 1) : today;
+  const visitsFor = () => {
+    if (overdue) return visitsData.listStatusChangedSince(since);
+    return group === 'today' ? visitsData.listByDate(today) : [];
+  };
+  try {
+    const [tasks, visits, notes] = await Promise.all([
+      overdue ? tasksData.listDoneSince(since) : tasksData.listDoneDue(day, day),
+      visitsFor(),
+      overdue ? [] : notesData.listBetween(day, day),
+    ]);
+    return doneBuckets({ tasks, visits, notes, today })[group];
+  } catch {
+    return null;
+  }
 }
 
 /**

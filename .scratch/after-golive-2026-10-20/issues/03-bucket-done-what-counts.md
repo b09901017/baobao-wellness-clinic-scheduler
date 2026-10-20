@@ -1,6 +1,6 @@
 # 逾期／今天／明天的「已完成」各算哪幾件（domain＋讀資料）
 
-Status: todo
+Status: done
 段：二（xhigh）
 動工前先讀：`domain/todoFlow.js` 的 `BUCKETS`、`taskBucket()`、`todoBuckets()`（檔頭那張表）、`bucketCount()`、`groupByDoneDay()`；
 `domain/visits.js` 的 `visitsToClose()`、`visitsComingTomorrow()`、`stillOpenDays()`、`slotsToClose()`、`isOpenStatus()`、`closeVisit()`（`statusAt` 只在整筆狀態變的時候蓋）；
@@ -72,3 +72,19 @@ ADR-0152（決定 4「『已完成』那一格照舊只有任務」—— 這一
 - `CLAUDE.md`「待辦首頁的『逾期／今天／明天』」那一列（已完成那一側只在哪一支算）
 - `SPEC.md` 8.1 首頁那一節的那張表
 - `firestore.indexes.json`（`visits` 的 `deletedAt, statusAt`）：部署順序是 CI 先推索引再推 Hosting，但索引建好要幾分鐘 —— 上面那一條「讀失敗照樣畫未完成」就是為了這幾分鐘
+
+## 做完時留下的
+
+- 規則只在 `domain/todoFlow.js` 的 **`doneBuckets({ tasks, visits, notes, today })`**，回 `{ overdue, today, tomorrow }`、每一格 `{ tasks, close, notes }`、每一塊新做完的在前；
+  「已完成 N」照樣問 `bucketCount()`（那一格沒有 `coming`）。「這一天簽完了」是 `visits.js` 的 **`daySignedOff()`**（`visitsToClose()` 的另一半：一段都不開著、至少一段已完成或未到）
+- **一出生就做完的照 ADR-0166 決定 3 排除**：`createdAt` 與 `updatedAt` 是同一刻（`bornDone()`）。**量過**（本機 Firestore 模擬器，scratchpad 腳本）：
+  同一個 batch 裡兩格 `serverTimestamp()` 讀回來 20/20 一模一樣（跨文件也一樣），之後再寫一次就不一樣。
+  所以她勾的、簽的（另一次寫入）一定算；不用「隔幾秒」—— 她確認完一分鐘內就去掛號、勾掉是會發生的。三種今天會被算成「今天結的」的情形：
+  拍 Abovee 新記過去的已完成、一出生就勾好的任務 → 排除；取消掉最後一段開著的段 → 那一天本來在逾期裡、今天解決了 → 算（整天取消的除外）
+- 讀的那一側（`home.js` 的 `loadBucketDone()`，只撈那一頁用得到的）：`tasksData.listDoneDue(day, day)`（死線那一天，吃既有的 (deletedAt, done, dueDate) 索引）、
+  `listDoneSince(startOfDayISO(today))`（既有的 (deletedAt, done, doneAt desc)）、`visitsData.listStatusChangedSince()`（**新的 (deletedAt, statusAt) 索引**）、
+  `listByDate()`、`notesData.listBetween()`。讀不到回 `null`，`renderGroup()` 照畫未完成（那一塊的那一句在 04）
+- `dates.js` 多兩支：`startOfDayISO()`（裝置那一天 00:00 的 UTC ISO —— 刻意用本地時區，同 `dayOf()`）、`msOf()`（Timestamp／ISO／Date → 毫秒）
+- 這一支只接了讀的那一側：`ctx.done` 在三頁先換成 `finished.tasks`（舊的 `doneList()` 照畫任務），三塊與拿掉垃圾桶在 04
+- `tests/todo-bucket-done.test.js`（檔頭釘 `TZ=Asia/Taipei`）：issue 的判準每一條一個 test，加上「兩個查詢撈到同一張只算一次」「未完成那一側同一份資料一模一樣」
+- 文件：ADR-0166、`docs/adr/README.md`（0152 那一列「部分被推翻 → ADR-0162、ADR-0166」）、`CLAUDE.md`「待辦首頁的『逾期／今天／明天』」、SPEC 8.1 那張表與索引那一段

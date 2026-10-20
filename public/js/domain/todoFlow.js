@@ -16,11 +16,11 @@ import {
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
-import { dayOf, shortDate, daysBetween } from './dates.js';
+import { dayOf, shortDate, daysBetween, msOf } from './dates.js';
 import {
-  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose, visitsComingTomorrow,
+  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose, visitsComingTomorrow, daySignedOff,
 } from './visits.js';
-import { isOpen as isOpenNote } from './notes.js';
+import { isOpen as isOpenNote, isLive as isLiveNote, sortNotes } from './notes.js';
 import { timeLabel } from './visitTime.js';
 
 /**
@@ -227,7 +227,7 @@ export const BUCKETS = ['overdue', 'today', 'tomorrow'];
 
 /**
  * 一張任務落在哪一顆。死線過了＝逾期、今天、明天；更後面的哪一顆都不在。
- * 「已完成」那一格也照這一支切（她在那三頁問的是「這個死線的事情做完了沒」）。
+ * 「已完成」那一格也照這一支切，逾期那一顆另外只收今天才勾的（`doneBuckets()`，ADR-0166）。
  */
 export function taskBucket(dueDate, today) {
   if (!dueDate) return null;
@@ -276,9 +276,86 @@ export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
   return out;
 }
 
-/** 一顆大數字上的數字＝那一頁列出來的件數。 */
+/**
+ * 一顆大數字上的數字＝那一頁列出來的件數。點進去那一頁的「已完成 N」也用它（`doneBuckets()` 那一格沒有 `coming`）。
+ */
 export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ?? 0)
   + (b?.coming?.length ?? 0) + (b?.notes?.length ?? 0);
+
+/**
+ * 逾期／今天／明天那三頁的「已完成」各是哪幾件（after-golive-2026-10-20 issue 03，ADR-0166，推翻 ADR-0152 決定 4 的
+ * 「已完成那一格照舊只有任務」）。**跟 `todoBuckets()` 是同一張表的兩半**，所以寫在一起。
+ *
+ * 她 10/20：「我想要今天份的點進去後可以看到已完成和未完成，包含重其他地方點的完成也是放已完成」、
+ * 「到了明天後……已完成就會清空，但只是這邊呈現清空，再隨手記那邊或月曆其他地方不會被清掉」。
+ * 所以這一格**照日子算，不是一份要清的清單**：到了明天，昨天那幾件自然不再是「今天的」—— 一筆都不用刪。
+ *
+ * | | 勾掉的任務 | 簽療程單（一位一天一件，`daySignedOff()`） | 有日期、勾掉的隨手記 |
+ * |---|---|---|---|
+ * | 逾期 | 死線過了、**今天才勾的** | 日子過了、**今天才簽完的** | 沒有（隨手記不會逾期，ADR-0152 決定 2） |
+ * | 今天 | 死線今天（哪一天勾的都算） | 今天的 | 掛今天的 |
+ * | 明天 | 死線明天（提早勾的） | 沒有（明天的還簽不了） | 掛明天的 |
+ *
+ * - **逾期只收今天才做完的**：照死線切的話，所有做完的過期任務會永遠積在那一格
+ * - 「今天才」問 `dayOf(doneAt／statusAt)`：兩格存的是 UTC 的 ISO 字串，台灣 00:00–08:00 做的不可以算到昨天（lessons 七）。
+ *   `statusAt` 只在整筆狀態變的時候蓋（`closeVisit()`／`settle()`），一天最後一段結掉的那一下一定會變 —— 那一刻就是「簽完」
+ * - **一出生就做完的不算**（`bornDone()`）：照片放掉的「取消 Abovee」、拍 Abovee 新記一筆已完成的那一天 ——
+ *   它們從來不在未完成那一側，出現在已完成會變成「我沒做過這件事啊」（逾期那一格尤其是：上週的照片今天才記，
+ *   一整排從沒逾期過的出現在「今天才做完的逾期」）
+ * - 輸入可以重複（兩個查詢會撈到同一張：死線今天、今天勾的）—— 一件只算一次
+ * - **未完成那一側（`todoBuckets()`）一個字都沒改**；首頁三顆數字照舊只數未完成
+ *
+ * @param {{tasks?: object[], visits?: object[], notes?: object[], today: string}} input
+ *   `tasks` 勾掉的任務、`visits` 可能簽完的來訪、`notes` 有日期的隨手記（勾沒勾都可以）—— 多給的會被濾掉
+ * @returns {Record<'overdue'|'today'|'tomorrow', {tasks: object[], close: object[], notes: object[]}>}
+ *   每一塊新做完的在前（她 2026-09-05：「最上面的應該是我剛勾掉的」）
+ */
+export function doneBuckets({ tasks = [], visits = [], notes = [], today }) {
+  const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], notes: [] }]));
+
+  for (const t of uniqueById(tasks)) {
+    if (!t?.done || t.deletedAt || bornDone(t)) continue;
+    const b = taskBucket(t.dueDate, today);
+    if (!b || (b === 'overdue' && dayOf(t.doneAt) !== today)) continue;
+    out[b].tasks.push(t);
+  }
+  for (const v of uniqueById(visits)) {
+    if (!daySignedOff(v) || bornDone(v)) continue;
+    if (v.date === today) out.today.close.push(v);
+    else if (v.date < today && dayOf(v.statusAt) === today) out.overdue.close.push(v);
+  }
+  for (const n of uniqueById(notes)) {
+    if (!isLiveNote(n) || !n.done || !n.date) continue;
+    if (n.date === today) out.today.notes.push(n);
+    else if (daysBetween(today, n.date) === 1) out.tomorrow.notes.push(n);
+  }
+
+  const latest = (field) => (a, b) => String(b[field] ?? '').localeCompare(String(a[field] ?? ''));
+  for (const b of BUCKETS) {
+    out[b].tasks.sort(latest('doneAt'));
+    out[b].close.sort(latest('statusAt'));
+    out[b].notes = sortNotes(out[b].notes);
+  }
+  return out;
+}
+
+/**
+ * 建立的那一下就已經做完了、之後再也沒被寫過：`createdAt` 與 `updatedAt` 是同一刻。
+ *
+ * 兩格都是 `repo.commit()` 寫的伺服器時間，同一次寫入裡的伺服器時間是同一個值 —— 所以一出生就勾好的那一張
+ * 兩格一樣，而她勾的那一下是另一次寫入、`updatedAt` 一定換。**不是比「隔了幾秒」**：她確認完馬上去掛號、
+ * 一分鐘內就勾掉也是她做的。讀不出來（舊資料、還沒寫到伺服器的那一份）就當成不是 —— 寧可多列一件，不藏她勾的。
+ */
+function bornDone(row) {
+  const created = msOf(row?.createdAt);
+  return created !== null && created === msOf(row?.updatedAt);
+}
+
+function uniqueById(rows) {
+  const seen = new Map();
+  for (const r of rows ?? []) if (r && !seen.has(r.id)) seen.set(r.id, r);
+  return [...seen.values()];
+}
 
 /**
  * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。

@@ -194,6 +194,19 @@ export function listForSheet(today) {
   });
 }
 
+/**
+ * 整筆狀態從某一刻起換過的來訪。待辦「逾期」那一頁的已完成用：前幾天的、今天才簽完的那幾天（ADR-0166）。
+ *
+ * 規則（簽完了沒、是不是今天、是不是一出生就結案的）不寫在這裡 —— `domain/todoFlow.js` 的 `doneBuckets()` 判，
+ * 這裡只把可能的撈回來。`statusAt` 存的是 `toISOString()`（UTC），`since` 傳 `dates.js` 的 `startOfDayISO(today)`。
+ *
+ * 需要 (deletedAt, statusAt) 複合索引，已列在 firestore.indexes.json。**部署之後要幾分鐘才建好**，那幾分鐘裡
+ * 這一支會丟例外 —— 呼叫端要接住（待辦那一頁的未完成照畫，已完成那一塊講一句）。
+ */
+export function listStatusChangedSince(since) {
+  return repo.list(PATH, { wheres: [where('statusAt', '>=', since)] });
+}
+
 /** 某一天她自己排的全部來訪。診間與治療師的自撞提示要用。 */
 export function listByDate(date) {
   return repo.list(PATH, { wheres: [where('date', '==', date)] });
