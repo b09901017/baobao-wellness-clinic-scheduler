@@ -20,6 +20,10 @@
 //   GOOGLE_APPLICATION_CREDENTIALS=/path/to/staging-sa.json \
 //     npm run staging:reset -- --project staging --yes
 //
+//   # 主檔也照現在的種子重來（種子改過之後的預演：例 2026-10-18 拿掉 EECP體驗、點滴8）
+//   GOOGLE_APPLICATION_CREDENTIALS=/path/to/staging-sa.json \
+//     npm run staging:reset -- --project staging --yes --master
+//
 //   # 對著模擬器（不需要憑證）
 //   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
 //     node scripts/reset-staging.mjs --project demo-scheduler --yes
@@ -42,6 +46,12 @@
 // Rules 本來就寫不進去）、`audit`（稽核只追加，那是事情的經過）、`aiUsage`
 // （Function 的帳本，不是她的資料）。
 //
+// **`--master`：主檔也照現在的種子重來**（2026-10-19，她：「好」）。不帶的話 reset 之後主檔還是上一代的 ——
+// 種子改過（2026-10-18 拿掉 EECP體驗、點滴8）就得先按幾項資料健檢，才貼得上一份「一開始就是好的」合併檔。
+// 帶了就跟正式站切換那天同一個做法（ADR-0143：連主檔一起刪、重新載入種子）：`config/app` 底下**每一種主檔**
+// （`MASTER_TYPES`）整類清掉、照 `seedData()` 寫回種子的每一筆。**`config/app` 那一份設定**（排序權重、
+// 試算表網址與密鑰、LINE 模板、待辦首頁）與 `config/ai` 照舊不動。她在 staging 上自己加的主檔一起沒了 —— 只看的時候先數給她看。
+//
 // ---------------------------------------------------------------------------
 // 安全規則，刻意寫死
 // ---------------------------------------------------------------------------
@@ -56,9 +66,11 @@
 
 import { pathToFileURL } from 'node:url';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 import { SECTIONS } from './restore-backup.mjs';
+import { SEED, seedData } from '../public/js/domain/seed.js';
+import { MASTER_TYPES } from '../public/js/domain/masterData.js';
 
 const PROD_PROJECT = 'wellness-clinic-scheduler';
 const STAGING_PROJECT = 'wellness-clinic-staging';
@@ -80,10 +92,19 @@ export const RESET_SECTIONS = Object.freeze([
   { key: 'customers', group: false },
 ]);
 
+/** `--master` 清的那幾類：`config/app` 底下的每一種主檔。設定本身（`config/app` 那一份）不在裡面 */
+export const MASTER_PATHS = Object.freeze(MASTER_TYPES.map((type) => `config/app/${type}`));
+
+/** `--master` 寫回去的那一份：種子的每一筆，啟不啟用照種子寫的（`seedData()`，同 `loadSeed()`） */
+export function masterSeedPlan() {
+  return Object.entries(SEED).flatMap(([type, rows]) => rows.map((row) => ({ path: `config/app/${type}`, id: row.id, data: seedData(row) })));
+}
+
 export function parseArgs(argv) {
-  const out = { project: null, yes: false };
+  const out = { project: null, yes: false, master: false };
   for (const arg of argv) {
     if (arg === '--yes') out.yes = true;
+    else if (arg === '--master') out.master = true;
     else if (arg.startsWith('--project=')) out.project = arg.slice('--project='.length);
     else if (arg === '--project') out.project = '__next__';
     else if (out.project === '__next__') out.project = arg;
@@ -111,10 +132,11 @@ export function targetOf({ project, emulator }) {
 }
 
 const USAGE = `
-用法：node scripts/reset-staging.mjs --project staging [--yes]
+用法：node scripts/reset-staging.mjs --project staging [--yes] [--master]
 
   沒有 --yes   只印每一類有幾筆，一筆都不刪
   --yes        真的清（主檔、白名單、稽核、AI 用量不動）
+  --master     主檔也清掉、照現在的種子重載（設定、白名單、稽核、AI 用量照舊不動）
 
 憑證：
   模擬器   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080（不需要金鑰）
@@ -129,6 +151,30 @@ async function refsOf(db, section) {
     ? await db.collectionGroup(section.key).select().get()
     : await db.collection(section.key).select().get();
   return snap.docs.map((d) => d.ref);
+}
+
+/** 那幾類主檔現在有幾筆（含軟刪除的），其中幾筆不是種子上的（她在 staging 上自己加的，`--master` 會一起清掉） */
+async function masterCounts(db) {
+  const seedIds = new Set(masterSeedPlan().map((x) => `${x.path}/${x.id}`));
+  const out = [];
+  for (const path of MASTER_PATHS) {
+    const refs = (await db.collection(path).select().get()).docs.map((d) => d.ref);
+    out.push({ path, refs, own: refs.filter((ref) => !seedIds.has(`${path}/${ref.id}`)).length });
+  }
+  return out;
+}
+
+/** 種子寫回去：跟 `seed-staging.mjs` 的 `writeAll()` 同一個形狀（app 的 `list()` 只認 `deletedAt == null`，少了那一格就讀不到） */
+async function writeSeed(db, plan) {
+  for (let i = 0; i < plan.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    for (const { path, id, data } of plan.slice(i, i + BATCH_SIZE)) {
+      batch.set(db.collection(path).doc(id), {
+        deletedAt: null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), createdBy: 'reset-staging', ...data,
+      });
+    }
+    await batch.commit();
+  }
 }
 
 async function deleteAll(db, refs) {
@@ -177,15 +223,26 @@ async function main() {
   const plan = [];
   for (const section of RESET_SECTIONS) plan.push({ section, refs: await refsOf(db, section) });
   const photos = await storageFiles(projectId, emulator);
+  const master = args.master ? await masterCounts(db) : null;
+  const seedPlan = args.master ? masterSeedPlan() : [];
 
   const total = plan.reduce((n, p) => n + p.refs.length, 0);
   console.log(`
 目標專案　 ${projectId}${emulator ? `（模擬器 ${emulator}）` : ''}
-模式　　　 ${args.yes ? '**真的清**' : '只看'}
+模式　　　 ${args.yes ? '**真的清**' : '只看'}${args.master ? '（主檔也照種子重來）' : ''}
 `);
   for (const { section, refs } of plan) console.log(`  ${section.key.padEnd(16)} ${refs.length} 筆`);
   console.log(`  ${'照片'.padEnd(14)} ${photos.files.length} 張${photos.note ? `（${photos.note}）` : ''}`);
-  console.log(`\n  合計 ${total} 筆文件。不動：${KEEP.join('、')}\n`);
+  console.log(`\n  合計 ${total} 筆文件。不動：${KEEP.join('、')}${args.master ? '（config 裡的主檔除外）' : ''}\n`);
+  if (master) {
+    console.log('  主檔（清掉 → 照現在的種子重載）：');
+    for (const { path, refs, own } of master) {
+      const type = path.slice('config/app/'.length);
+      const want = seedPlan.filter((x) => x.path === path).length;
+      console.log(`    ${type.padEnd(14)} 現在 ${refs.length} 筆${own ? `（其中 ${own} 筆不是種子上的，會一起清掉）` : ''} → 種子 ${want} 筆`);
+    }
+    console.log('    設定（排序權重、試算表網址與密鑰、LINE 模板、待辦首頁）與 AI 上限不動\n');
+  }
 
   if (!args.yes) {
     console.log('沒有刪任何東西。加 --yes 真的清。\n');
@@ -198,6 +255,11 @@ async function main() {
   }
   for (const file of photos.files) await file.delete({ ignoreNotFound: true });
   if (photos.files.length) console.log(`  清掉照片 ${photos.files.length} 張`);
+  if (master) {
+    for (const { refs } of master) await deleteAll(db, refs);
+    await writeSeed(db, seedPlan);
+    console.log(`  主檔清掉 ${master.reduce((n, m) => n + m.refs.length, 0)} 筆、照種子寫回 ${seedPlan.length} 筆`);
+  }
 
   // 清完真的數一次。「說清好了」跟「真的空了」是兩件事
   const left = [];
@@ -205,15 +267,30 @@ async function main() {
     const n = (await refsOf(db, section)).length;
     if (n) left.push(`${section.key} 還有 ${n} 筆`);
   }
+  // 主檔也數一次：每一類剛好是種子那幾筆
+  if (master) {
+    for (const path of MASTER_PATHS) {
+      const n = (await db.collection(path).select().get()).size;
+      const want = seedPlan.filter((x) => x.path === path).length;
+      if (n !== want) left.push(`${path} 有 ${n} 筆、種子是 ${want} 筆`);
+    }
+  }
   if (left.length) {
     console.error(`\n沒清乾淨：${left.join('、')}\n`);
     process.exit(5);
   }
-  console.log(`
+  console.log(master ? `
+清好了，主檔照現在的種子重載了，設定都還在。接下來：
+
+  1. 打開 staging 的 app（重新整理一次，主檔有快取），到 設定 → 舊資料匯入 貼合併檔
+  2. 貼完到 設定 → 資料健檢 看一次
+` : `
 清好了，主檔與設定都還在。接下來：
 
   1. 打開 staging 的 app，到 設定 → 舊資料匯入 貼合併檔
   2. 貼完到 設定 → 資料健檢 看一次
+
+  種子改過的話（例：拿掉一門課、一間診間），主檔還是上一代的 —— 先加 --master 再跑一次，或先到資料健檢把主檔對上
 `);
 }
 

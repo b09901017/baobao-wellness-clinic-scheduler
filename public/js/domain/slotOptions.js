@@ -26,7 +26,7 @@
 import { customerPools } from './scheduling.js';
 import { coursesForEntitlement } from './visits.js';
 import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
-import { isUncounted, canBeGift, groupByCourse } from './masterData.js';
+import { isUncounted, canBeGift, groupByCourse, isTrialMinutes, trialMinutesOf } from './masterData.js';
 
 /** 「＋ n返」那一顆的值。**不是任何一筆額度的 id。** */
 export const NTH_PICK = '__nth__';
@@ -124,8 +124,11 @@ export function slotOptionsFor(
 /**
  * 送的／體驗那一組（gift-and-trial 04）：每一門還在用、可以當體驗的課一顆（`canBeGift()`：健檢、二返除外）。
  *
- * - 不算次數的課（`other: false`）：她最常按的那幾門，展開之後第一排
+ * - 預設體驗的課，與**有「體驗的時候排幾分」的課**（EECP，ADR-0154）（`other: false`）：她最常按的那幾門，展開之後第一排。
+ *   EECP 合成一門之後不再是預設體驗（正式課要扣），不放第一排的話她最常約的體驗要多按兩下（分類 → 課程）
  * - 其餘（`other: true`）：「別的課當體驗」，畫面上照分類 → 課程兩步
+ *
+ * 每一顆的 `durationMin` 是體驗那一段預設排多久：有「體驗的時候排幾分」就是它（EECP 20），不然照那門課。
  *
  * 順序不在這裡，在 `arrangeSlotOptions()`（呼叫端不用自己排）。
  *
@@ -139,13 +142,34 @@ export function giftOptions(courses = [], { keep = null } = {}) {
     entitlementId: giftPick(course.id),
     label: course.name,
     remaining: '—',
-    durationMin: course.durationMin ?? 60,
+    durationMin: trialMinutesOf(course) ?? course.durationMin ?? 60,
     course,
     entitlement: null,
     isGift: true,
     folded: true,
-    other: !isUncounted(course),
+    other: !isUncounted(course) && trialMinutesOf(course) == null,
   }));
+}
+
+/**
+ * 她在「排多久」那一排按了一個數字之後，這一段要不要換成體驗（staging-polish 09，ADR-0154）。**三個入口都叫這一支**：
+ * 壓表（`schedule.js` 按 `[data-minutes]` 那一下）、來訪編輯器（`readDraft()`）、拍 Abovee 的確認層（`aboveeImport.js` 的 `pickMinutes()`）。
+ * 各寫一份的話，同一顆 20 在一個入口是體驗、在另一個入口照扣（lessons 一）。她 10/18：
+ *
+ * > 預設是60分鐘 ，不選體驗/送的，然後如果選20就預設是體驗這樣可以嗎
+ *
+ * 只有一種會換：**扣著那門課額度的段**、按的是那門課的「體驗的時候排幾分」（`isTrialMinutes()`）→ 那門課的體驗。
+ * - **反過來不自動**：體驗的段按 60 照樣是體驗 60（她說的是「選 20 就預設是體驗」）；要扣額度她按那一顆額度
+ * - n返（`NTH_PICK`）、還沒選、已經是送的／體驗的不換；那門課停用了也不換（那一顆不在「送的／體驗…」裡）
+ *
+ * @param {{value: string|null, course: object|null, minutes: number|string|null, courses: object[]}} o
+ *   `value` 是那一排上現在按著的那一顆（額度 id、`NTH_PICK`、`giftPick()`），`course` 是這一段現在算哪一門課
+ * @returns {{value: string, giftKind: 'trial'}|null} 要換成哪一顆；不用換是 `null`
+ */
+export function trialFromMinutes({ value = null, course = null, minutes = null, courses = [] } = {}) {
+  if (!value || value === NTH_PICK || giftCourseIdOf(value)) return null;
+  if (!course || course.deletedAt || course.active === false) return null;
+  return isTrialMinutes(course, minutes, courses) ? { value: giftPick(course.id), giftKind: 'trial' } : null;
 }
 
 /**
@@ -162,11 +186,12 @@ export function foldOpen(options = [], value = null) {
 }
 
 /**
- * 沒有額度可以預設時，新的一段預設哪一門（來訪編輯器）：送的／體驗那一組展開之後第一排的第一顆 ——
- * **照舊是功醫門診**（`GIFT_FIRST`）。一門不算次數的課都沒有就是 `null`。
+ * 沒有額度可以預設時，新的一段預設哪一門（來訪編輯器）：送的／體驗那一組展開之後第一排的第一門**預設體驗的課** ——
+ * **照舊是功醫門診**（`GIFT_FIRST`）。一門預設體驗的課都沒有就是 `null`。
+ * EECP 也排在第一排（有「體驗的時候排幾分」，ADR-0154），但它不是預設體驗的課（正式課要扣）—— 不拿它當預設。
  */
 export function defaultGiftCourse(courses = []) {
-  return arrangeSlotOptions(giftOptions(courses), courses).find((o) => !o.other)?.course ?? null;
+  return arrangeSlotOptions(giftOptions(courses), courses).find((o) => !o.other && isUncounted(o.course))?.course ?? null;
 }
 
 /** 二返與 n返 那一組叫什麼（每一顆的 `group`）。它不是課程的分類 —— 那一組永遠排在最後。 */
@@ -178,11 +203,11 @@ const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForE
 const kindRank = (o) => (o.isNth ? 1 : 0);
 
 /**
- * 送的／體驗那一組展開之後第一排的先後（gift-and-trial 04）：同一類裡照這一份，其餘照名字。
+ * 送的／體驗那一組展開之後第一排的先後（gift-and-trial 04；EECP 2026-10-18 合成一門，ADR-0154）：同一類裡照這一份，其餘照名字。
  * 種子的 id —— **不靠主檔讀回來的順序**：Firestore 照文件 id 排，心臟科評估（course-cardio）會排到
  * 功醫門診（course-fm）前面，而沒有額度的客戶新的一段預設的就是第一顆（`defaultGiftCourse()`）。
  */
-const GIFT_FIRST = ['course-fm', 'course-hrv', 'course-cardio', 'course-eecp-trial'];
+const GIFT_FIRST = ['course-fm', 'course-hrv', 'course-cardio', 'course-eecp'];
 
 const giftRank = (o) => {
   const i = GIFT_FIRST.indexOf(o.course?.id);

@@ -1,6 +1,6 @@
 # 日曆加一段進「已確認」的來訪，整筆狀態沒有重推
 
-Status: open
+Status: done（`62b0093`「issue 07、08：…併進去之後整筆的狀態跟著重推」；E2E `25` 的 V4b 的 `test.fail()` 已經拿掉；2026-10-19 清查時改的狀態）
 來源：2026-09-10，`tests-e2e/specs/25-visit-editor-one-slot.spec.js` 的 V4 第一次跑就紅
 動工前先讀：`docs/adr/0081`（時段才是原子單位）、`0083`（一人一天一筆）
 

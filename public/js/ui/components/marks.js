@@ -34,6 +34,80 @@ export function row(marks, { max = Infinity, large = false, clip = false } = {})
 }
 
 /**
+ * 客戶詳情備註那一整串（ADR-0156）：電話、LINE、長備註、短備註，**全部是丸子**、照她排的順序
+ * 一排流下去（她 2026-10-19 選的）。項目由 `domain/customerNotes.js` 的 `noteItems()` 給，這裡只畫。
+ *
+ * - 電話：話筒＋號碼，點了撥號（`tel:`），按住複製（接線在呼叫端）
+ * - LINE：對話泡泡＋「LINE」，點了打開他的 LINE 對話（接線在呼叫端：手機上的 MacroDroid，ADR-0157）
+ * - 病歷號：證件＋號碼，點了不開任何東西，按住複製（接線在呼叫端，ADR-0160）
+ * - 長備註：茶色那一顆（便條＋標題＋›）—— 看得出「點開有全文」
+ *
+ * 屬性一律 `data-notes-*`：共用元件不可以用頁面身上的名字（CLAUDE.md 那一列）。
+ */
+export function notesRow(items) {
+  const list = (items ?? []).filter(Boolean);
+  if (!list.length) return '';
+  return `<div class="marks" data-notes-row>${list.map(noteChip).join('')}</div>`;
+}
+
+const glyph = (name) =>
+  `<span class="mark__glyph mark__glyph--${name}">${icon(name, { size: 15, width: 1.8 })}</span>`;
+
+/**
+ * 客戶清單卡片上那一排（before-golive-2026-10-19/07，ADR-0160）：**她排的順序的前幾個**，電話、LINE、
+ * 病歷號、長備註、短備註都算（她：「不一定只能用短備註，就是我調好順序後的前四個」）。項目一樣是 `noteItems()` 給的。
+ *
+ * **只看的**：卡片本身是一個 `<a>`，裡面不可以有 `<a>`／`<button>` —— 每一顆都是 `<span>`、點了就是點卡片（進客戶詳情）。
+ * 截成一行加「…」（`clip`，issue 16），超過的收成「還有 N 則」（同 `row()`）。
+ */
+export function notesPreview(items, { max = 4 } = {}) {
+  const list = (items ?? []).filter(Boolean);
+  if (!list.length) return '';
+  const shown = list.slice(0, max);
+  const rest = list.length - shown.length;
+  return `<div class="marks" data-notes-preview>
+    ${shown.map(previewChip).join('')}
+    ${rest ? `<span class="mark mark--empty">還有 ${rest} 則</span>` : ''}
+  </div>`;
+}
+
+function previewChip(it) {
+  if (it.kind === 'mark') return chip(it.mark, { clip: true });
+  const span = (cls, lead, text, num = false) => `<span class="mark mark--clip mark--static ${cls}">${lead}
+    <span class="mark__text${num ? ' mark__num' : ''}">${esc(text)}</span></span>`;
+  if (it.kind === 'phone') return span('', glyph('phone'), it.text, true);
+  if (it.kind === 'line') return span('', glyph('line'), 'LINE');
+  if (it.kind === 'chartNo') return span('', glyph('chartNo'), it.text, true);
+  return span('mark--long', glyph('note'), it.note.title);
+}
+
+function noteChip(it) {
+  if (it.kind === 'mark') return chip(it.mark, { large: true });
+  if (it.kind === 'phone') {
+    const inner = `${glyph('phone')}<span class="mark__text mark__num">${esc(it.text)}</span>`;
+    // 一個號碼都認不出來的那一格（「請打給女兒」）照樣畫，點了不撥 —— 按住照樣複製
+    return it.href
+      ? `<a class="mark mark--lg mark--contact" href="${esc(it.href)}" data-notes-phone
+            aria-label="撥給 ${esc(it.text)}（按住複製）">${inner}</a>`
+      : `<span class="mark mark--lg mark--contact" data-notes-phone tabindex="0">${inner}</span>`;
+  }
+  if (it.kind === 'chartNo') {
+    return `<span class="mark mark--lg mark--contact" data-notes-chart tabindex="0"
+                  aria-label="病歷號 ${esc(it.text)}（按住複製）">${glyph('chartNo')}
+              <span class="mark__text mark__num">${esc(it.text)}</span></span>`;
+  }
+  if (it.kind === 'line') {
+    // 那一格是她 LINE 上的名字，不是網址 —— 是按鈕不是連結（ADR-0157）
+    return `<button class="mark mark--lg mark--contact" type="button" data-notes-line
+               aria-label="打開 ${esc(it.text)} 的 LINE 對話">${glyph('line')}
+              <span class="mark__text">LINE</span></button>`;
+  }
+  return `<button class="mark mark--lg mark--long" type="button" data-notes-long="${esc(it.note.id)}"
+                  aria-label="長備註「${esc(it.note.title)}」，點開看全文">${glyph('note')}
+            <span class="mark__text">${esc(it.note.title)}</span>${icon('right', { size: 14, width: 2.2 })}</button>`;
+}
+
+/**
  * 可編輯的那一份。掛進一個容器，改動時呼叫 onChange。
  *
  * 狀態由呼叫端持有（傳進來的陣列會被換掉，不是就地改）——

@@ -162,3 +162,115 @@ export function stampTime(iso) {
   }).formatToParts(d).map((p) => [p.type, p.value]));
   return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
 }
+
+// ---------------------------------------------------------------------------
+// `ui/views.js` 只多了一頁的登記
+// ---------------------------------------------------------------------------
+//
+// 它是共用底座（`related.js` 的 GLOBAL），改一個字就全跑。但一輪裡新增一頁只是多一行
+// import、一兩條 `register()`（staging-polish 中途發現「段二 2」：段二之後每一段的 verify 都全跑）。
+// `pick()` 只拿得到檔名，所以這一層在交給它之前**看 diff**，認得出來就把 `views.js` 換成那幾頁。
+//
+// 認得的只有一種形狀：**一行都沒刪**，加的每一行是空白、註解、`import * as X from './views/Y.js'`、
+// 或一條完整的 `register('…', { … });`（裡面點到的名字都要是 views 底下的 import）。
+// 其餘一律 null（照舊全跑）—— 寧可多跑、不可安靜地少跑。
+//
+// 新的網址撞得到既有的哪一條（`router.js` 照登記的順序比、先比到的贏），那一條的頁面也算進去：
+// `/customers/notes` 會搶走 id 剛好是 notes 的客戶詳情 —— 要跑的是客戶詳情那幾支。
+
+export const VIEWS = 'public/js/ui/views.js';
+
+const IMPORT_RE = /^\s*import \* as (\w+) from '\.\/views\/(\w+)\.js';\s*/;
+const REGISTER_RE = /^\s*register\(\s*'([^']+)'\s*,\s*\{([\s\S]*?)\}\s*\);\s*/;
+
+/** `import * as X from './views/Y.js'` → X → 檔案。 */
+const viewImports = (src) => new Map(
+  [...src.matchAll(/^import \* as (\w+) from '\.\/views\/(\w+)\.js';/gm)]
+    .map(([, name, file]) => [name, `public/js/ui/views/${file}.js`]),
+);
+
+/** 一段 `{ … }` 裡點到的名字（`longNotes.render` → longNotes）。 */
+const dotted = (body) => [...new Set([...body.matchAll(/\b([A-Za-z_]\w*)\.\w+/g)].map((m) => m[1]))];
+
+/** 兩條網址有沒有同一個路徑兩條都比得上。 */
+const overlaps = (a, b) => {
+  const x = a.split('/').filter(Boolean);
+  const y = b.split('/').filter(Boolean);
+  return x.length === y.length
+    && x.every((s, i) => s === y[i] || s.startsWith(':') || y[i].startsWith(':'));
+};
+
+/**
+ * @param {string} diff `git diff -U0` 在 `views.js` 上的結果（空字串＝沒動）
+ * @param {string} source 現在的 `views.js`
+ * @returns {string[] | null} 換成這幾個檔案；null ＝ 認不出來，照舊當成 `views.js` 動了
+ */
+export function narrowViews(diff, source) {
+  const added = [];
+  for (const line of String(diff ?? '').split('\n')) {
+    // `\ No newline at end of file` 那一行也略過
+    if (/^(diff |index |--- |\+\+\+ |@@|\\)/.test(line) || line === '') continue;
+    if (line.startsWith('-')) return null;
+    if (line.startsWith('+')) added.push(line.slice(1));
+    else return null; // -U0 不會有上下文行；有的話是別的形狀，不猜
+  }
+  let code = added.filter((l) => l.trim() && !l.trim().startsWith('//')).join('\n');
+
+  const imports = viewImports(source);
+  const files = new Set();
+  const newPaths = [];
+  while (code.trim()) {
+    const imp = code.match(IMPORT_RE);
+    if (imp) {
+      files.add(`public/js/ui/views/${imp[2]}.js`);
+      code = code.slice(imp[0].length);
+      continue;
+    }
+    const reg = code.match(REGISTER_RE);
+    // 物件裡只准是屬性：有 `;` 或 `{` 就是一段程式，不猜它做了什麼
+    if (!reg || /[;{]/.test(reg[2])) return null;
+    for (const name of dotted(reg[2])) {
+      if (!imports.has(name)) return null;
+      files.add(imports.get(name));
+    }
+    newPaths.push(reg[1]);
+    code = code.slice(reg[0].length);
+  }
+
+  // 既有的那幾條：誰撞得到新的
+  const fresh = new Set(newPaths);
+  for (const [, path, body] of source.matchAll(/^register\(\s*'([^']+)'\s*,\s*\{([\s\S]*?)\}\s*\);/gm)) {
+    if (fresh.has(path)) { fresh.delete(path); continue; } // 新的那一條自己（同一條只略過一次）
+    if (!newPaths.some((p) => overlaps(p, path))) continue;
+    const mine = dotted(body).filter((n) => imports.has(n));
+    if (!mine.length) return null; // 撞到一條看不出是哪一頁的 → 不猜
+    for (const n of mine) files.add(imports.get(n));
+  }
+  return [...files].sort();
+}
+
+/**
+ * 交給 `pick()` 之前：`files` 裡有 `views.js`、而且從 `from` 到現在只多了登記 → 換成那幾頁。
+ * `from` 是 tree 或 commit；`to` 省略＝工作區。git 讀不到就原樣回（照舊全跑）。
+ */
+export function withViewsNarrowed(files, root, from, to = null) {
+  if (!files?.includes(VIEWS)) return files;
+  const args = ['diff', '-U0', '--no-renames', from, ...(to ? [to] : []), '--', VIEWS];
+  const r = git(args, { cwd: root });
+  if (r.status !== 0) return files;
+  let source;
+  try {
+    source = readFileSync(join(root, VIEWS), 'utf8');
+  } catch {
+    return files;
+  }
+  const narrowed = narrowViews(r.stdout, source);
+  if (!narrowed) return files;
+  return [...new Set([...files.filter((f) => f !== VIEWS), ...narrowed])];
+}
+
+/** `changedFiles()` 比的那一邊從哪裡開始（`ref...HEAD` 的 merge-base）。 */
+export function mergeBase(ref, root) {
+  const r = git(['merge-base', ref, 'HEAD'], { cwd: root });
+  return r.status === 0 ? r.stdout.trim() : null;
+}

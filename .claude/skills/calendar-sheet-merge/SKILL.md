@@ -259,12 +259,17 @@ node .claude/skills/calendar-sheet-merge/scripts/record.mjs \
 所以這份格式兩邊都得認得。改欄位就是改契約，要同時改 app 那一側（`domain/mergeImport.js`）。
 
 ```
-format: 'baobao-merge/v7'          （app 也收 v1～v6：少的那幾格退回以前的值；v4 的候選多了 decided；
+format: 'baobao-merge/v10'         （app 也收 v1～v9：少的那幾格退回以前的值；v4 的候選多了 decided；
                                     v5 不算次數的課那一段沒有 entitlementKey；v6 多一段選填的 staff；
-                                    v7 客戶多 phone、每一段多 giftKind。一律寫 v7）
+                                    v7 客戶多 phone、每一段多 giftKind；v8 候選也帶 giftKind；
+                                    v9 段多 note／status／cancelReason、客戶多 longNotes；v10 客戶多 lineId。一律寫 v10）
 calendar: { file, span, events }
 customers[]: { sheetName, name, source, purchasedAt, notes,
                phone,                                 （v7，選填：只有帶 --phones 才有這個鍵。字串或 null）
+               lineId,                                （v10，選填：她 LINE 好友清單上看到的名字（兩個字的叫法照寫，不換成全名）。
+                                                       字串或 null；merge.mjs 不產，切換那天的一次性腳本產）
+               longNotes[]: { title, body },          （v9，選填：舊表 A 欄一大段的整體備註。標題 40 字、內文 5000 字、
+                                                       最多 20 則；app 匯入時給 id、不寫順序）
                marks[]: { text, color },             （v2：有「尾款」的是 red；notes 是它的鏡像）
                purchaseProblems[]: string,            （v2：B2 拿應有次數驗過、對不上的那幾條）
                flags[]: string, partners[]: string,   （v3：金屬類／血管類與合作機構名自動帶，否定句不算，ADR-0092）
@@ -274,13 +279,19 @@ customers[]: { sheetName, name, source, purchasedAt, notes,
                                  purchaseKey },       （v2：同一次購買同一個 key；v3：durationMin，30 分與 60 分是兩種東西）
                visits[]:       { date, status:'done',
                                  slots[]: { entitlementKey（v5：不算次數的課是 null）, courseName,
-                                            giftKind,     （v7，選填：'trial'|'gift'，有值就沒有 entitlementKey；一般的段沒有這個鍵。
-                                                           候選清單不帶 —— app 補的時候照課程推）
+                                            giftKind,     （v7，選填：'trial'|'gift'，有值就沒有 entitlementKey；一般的段沒有這個鍵）
+                                            note,         （v9，選填：那一天那一段的「記一句」，200 字以內）
+                                            status,       （v9，選填：只收 'cancelled'|'no_show'；已完成／已確認是整筆的事，
+                                                           照日期判。取消／未到的段照樣要有額度 —— 跟一般的段同一套規則）
+                                            cancelReason, （v9，選填：只寫在 status 'cancelled' 的段上；失約的理由寫 note）
                                             startsAt, endsAt, roomName, therapistName,
                                             equipmentName, ivProductName,
                                             confidence:'high'|'low'|null, evidence } } }
-futureVisits[]:    { customerName, date, status:'confirmed', courseName, startsAt, evidence, include:false }
-missingFromSheet[]:{ customerName, date, courseName, startsAt, evidence, sheetHasThatDay, include:false }
+futureVisits[]:    { customerName, date, status:'confirmed', courseName, giftKind, startsAt, evidence, include:false }
+missingFromSheet[]:{ customerName, date, courseName, giftKind, startsAt, evidence, sheetHasThatDay, include:false }
+                   （v8：giftKind 選填、同段 —— 行事曆寫「EECP體驗」的那一筆是 courseName 'EECP'＋giftKind 'trial'。
+                    一般的候選沒有這個鍵；沒有的 app 照課程推（預設體驗的課沒有額度才算體驗）。
+                    v7 的 app 照課程判扣不扣，一筆 EECP 體驗的候選會扣掉那位的 EECP 額度 —— 所以升版）
 eventCandidates[]: { title, startDate, endDate, allDay, startTime, endTime,
                      kind:'personal'|'leave'|'note', why, category, repeats,
                      include:false | decided:true+include:true }   （v4：她決定過要的）
@@ -288,6 +299,11 @@ ambiguous[]:       { date, evidence, course, who[] }
 staff[]:           { match, name, shortName }   （v6，選填：只有帶 --staff-names 才有。match＝種子上的名字、name＝全名、shortName＝match）
 unreadable[]:      { title, raw, why }
 ```
+
+**v9 那四格（`note`、`status`、`cancelReason`、`longNotes`）`merge.mjs` 自己不產** —— 它照舊把舊表日期底下那一格與
+A 欄的整體備註收進 `marks`，只升了版本字串。產它們的是切換那天的一次性腳本（`.local/`，有真名、不進 repo）：
+讀新表那幾格、對 Abovee 那天取消／失約的列，掛到最後那一份上（2026-10-20，`.scratch/merge-v9-notes/`）。
+取消的段 app 那一側長一張已經勾好的「取消 X」（ADR-0164）。
 
 `eventCandidates[].kind` 是**日曆上的哪一類**（ADR-0045 的四類扣掉來訪）。
 `classifyEvent()` 照標題判，三條規則：寫了休假詞而且沒寫到別人 → `leave`；

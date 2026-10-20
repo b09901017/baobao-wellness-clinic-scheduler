@@ -228,7 +228,7 @@ function besidePool(top, homeOf, master) {
 
 /**
  * 第一排亮哪一顆。選了一門 → 那一門在第一排的那一顆（它在一個分類裡就是那個分類）；
- * 開著一個分類、第二排還沒選 → 那個分類。打開一筆既有的 EECP體驗，第一排亮 EECP。
+ * 開著一個分類、第二排還沒選 → 那個分類。打開一筆既有的復健科醫師門診，第一排亮醫師門診。
  */
 function topValue(e, rows) {
   if (e?.type === 'product') return PRODUCT_PICK;

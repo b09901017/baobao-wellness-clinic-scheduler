@@ -153,13 +153,15 @@ describe('主檔跟不上種子的時長（ADR-0098、issue 06）', () => {
       ],
     });
     const rows = findingsOf(r, 'seedCourse');
-    const trial = rows.find((f) => f.fix.courseId === 'course-eecp-trial');
-    assert.ok(trial, 'EECP體驗 要列得出來');
-    assert.equal(trial.fix.kind, 'addCourse');
-    assert.equal(trial.fix.data.name, 'EECP體驗');
-    assert.equal(trial.fix.data.durationMin, 20);
-    assert.equal(trial.fix.data.active, true);
-    assert.ok(!('id' in trial.fix.data), 'id 是另外給的，不可以留在 data 裡');
+    // 以前拿 EECP體驗 當例子；那一門 2026-10-18 合成進 EECP、種子上刪了（ADR-0154）—— 換功醫門診
+    const fm = rows.find((f) => f.fix.courseId === 'course-fm');
+    assert.ok(fm, '功醫門診 要列得出來');
+    assert.equal(fm.fix.kind, 'addCourse');
+    assert.equal(fm.fix.data.name, '功醫門診');
+    assert.equal(fm.fix.data.durationMin, SEED.courses.find((c) => c.id === 'course-fm').durationMin);
+    assert.equal(fm.fix.data.active, true);
+    assert.ok(!('id' in fm.fix.data), 'id 是另外給的，不可以留在 data 裡');
+    assert.ok(!rows.some((f) => f.fix.courseId === 'course-eecp-trial'), '種子上沒有那一門了，不可以再建回來');
   });
 
   // 自己從零建主檔、一個種子 id 都沒有的資料庫（測試夾具就是）不可以被念 ——
@@ -289,9 +291,9 @@ describe('照錯的時長排出去的那幾段', () => {
 });
 
 describe('形狀', () => {
-  test('三十五項檢查都在，順序固定', () => {
+  test('三十七項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 35);
+    assert.equal(result.checks.length, 37);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -391,9 +393,18 @@ describe('品項跟買的不一樣', () => {
 
 describe('備註寫著舊的說法（ADR-0050）', () => {
   const withMarks = (marks) => run({ customers: [customer({ marks })] });
+  // 搬得進病歷號那一格的由最後一項（`chartNoField`，ADR-0160）收；這一項只剩搬不了的那幾位
+  // （那一格已經是另一個號碼、或寫了兩個不一樣的）
+  const blocked = (marks) => run({ customers: [customer({ chartNo: '4321', marks })] });
+
+  test('搬得進那一格的不在這一項（由「病歷號還寫成一則短備註」收）', () => {
+    const result = withMarks([{ text: '姓名欄的編號：1234', color: 'grey' }]);
+    assert.equal(findingsOf(result, 'chartNo').length, 0);
+    assert.equal(findingsOf(result, 'chartNoField').length, 1);
+  });
 
   test('「姓名欄的編號：1234」列出來，而且給得出改成什麼', () => {
-    const result = withMarks([{ text: '姓名欄的編號：1234', color: 'grey' }]);
+    const result = blocked([{ text: '姓名欄的編號：1234', color: 'grey' }]);
     const [f] = findingsOf(result, 'chartNo');
     assert.ok(f, '應該要報');
     assert.equal(f.fix.kind, 'renameChartNo');
@@ -403,7 +414,7 @@ describe('備註寫著舊的說法（ADR-0050）', () => {
   });
 
   test('顏色與其他備註原封不動', () => {
-    const result = withMarks([
+    const result = blocked([
       { text: '喜歡下午', color: 'blue' },
       { text: '姓名欄的編號：9001', color: 'red' },
     ]);
@@ -792,7 +803,7 @@ describe('逾期任務', () => {
   });
 });
 
-describe('資料過期', () => {
+describe('還沒問這輪方便的時間（以前叫「資料過期」）', () => {
   const ents = [ent({ totalQty: 12 })];
 
   test('最近一份已過有效期就報', () => {
@@ -804,7 +815,7 @@ describe('資料過期', () => {
       }],
     });
     const [f] = findingsOf(result, 'staleAvailability');
-    assert.match(f.detail, /已過有效期/);
+    assert.match(f.detail, /上一次問的已經過了/);
     assert.match(f.detail, /還有 12 次沒排/);
   });
 
@@ -824,7 +835,7 @@ describe('資料過期', () => {
     assert.equal(findingsOf(noRemaining, 'staleAvailability').length, 0);
 
     const neverCollected = run({ entitlements: ents });
-    assert.match(findingsOf(neverCollected, 'staleAvailability')[0].detail, /從來沒收集過/);
+    assert.match(findingsOf(neverCollected, 'staleAvailability')[0].detail, /從來沒問過/);
   });
 
   test('已停用與已刪除的客戶不報', () => {
@@ -852,6 +863,38 @@ describe('資料過期', () => {
       ],
     });
     assert.match(findingsOf(mixed, 'staleAvailability')[0].detail, /還有 12 次沒排/);
+  });
+});
+
+// staging-polish 06（ADR-0150）：她 10/18 ——「這兩個問題是不用解決的對吧…只要提醒就好，但是不要展開這麼多人」
+describe('只是提醒的那兩項', () => {
+  const byId = (id) => CHECKS.find((c) => c.id === id);
+
+  test('只有「還沒問這輪方便的時間」與「匯進來的額度還叫舊表的名字」是提醒', () => {
+    assert.deepEqual(CHECKS.filter((c) => c.notice).map((c) => c.id), ['staleAvailability', 'importedLabel']);
+  });
+
+  test('改名：她指名「還沒問這輪方便的時間」，整項沒有「可用性」三個字', () => {
+    const c = byId('staleAvailability');
+    assert.equal(c.label, '還沒問這輪方便的時間');
+    assert.doesNotMatch(c.hint, /可用性/);
+    const never = run({ entitlements: [ent()] });
+    const stale = run({
+      entitlements: [ent()],
+      availability: [{
+        id: 'a1', customerId: 'cus-1', collectedAt: '2026-08-01',
+        validFrom: '2026-08-01', validTo: '2026-08-31', rawText: '八月', rules: [],
+      }],
+    });
+    for (const f of [...findingsOf(never, 'staleAvailability'), ...findingsOf(stale, 'staleAvailability')]) {
+      assert.doesNotMatch(f.detail, /可用性/);
+      // 段二（issue 07）會把待辦的「問這輪的時間」那一列預設藏起來 —— 不叫她去一列看不到的
+      assert.doesNotMatch(f.detail, /問這輪的時間/);
+    }
+  });
+
+  test('匯進來的舊表名字：說明是白話的「要改再去客戶頁改」', () => {
+    assert.match(byId('importedLabel').hint, /要改再到客戶頁/);
   });
 });
 
@@ -1014,9 +1057,12 @@ describe('同一個月有兩份不能的時間', () => {
 });
 
 describe('畫面認得每一種修正', () => {
-  // 三種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法
+  // 四種 fix 一次全部長出來：計數對不上、缺二返額度、備註寫著舊的說法（搬不了的那一位）、病歷號放進那一格
   const result = run({
-    customers: [customer({ marks: [{ text: '姓名欄的編號：1234', color: 'grey' }] })],
+    customers: [
+      customer({ chartNo: '4321', marks: [{ text: '姓名欄的編號：1234', color: 'grey' }] }),
+      customer({ id: 'cus-2', name: '客戶二', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
+    ],
     entitlements: [
       ent({ doneCount: 5 }),
       ent({ id: 'e-chk', type: 'single', label: '健檢', courseId: 'c-checkup', totalQty: 2 }),
@@ -1028,8 +1074,8 @@ describe('畫面認得每一種修正', () => {
     result.checks.flatMap((c) => c.findings).map((f) => f.fix?.kind).filter(Boolean),
   )];
 
-  test('這份快照真的把三種修正都長出來了', () => {
-    assert.deepEqual(kinds.slice().sort(), ['addFollowup', 'recount', 'renameChartNo']);
+  test('這份快照真的把四種修正都長出來了', () => {
+    assert.deepEqual(kinds.slice().sort(), ['addFollowup', 'chartNoToField', 'recount', 'renameChartNo']);
   });
 
   test('每一種 fix.kind 在 KIND_TO_CHECK 與 FIX_COPY 都查得到', () => {

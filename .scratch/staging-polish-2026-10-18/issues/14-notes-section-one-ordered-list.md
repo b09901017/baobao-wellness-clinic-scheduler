@@ -1,0 +1,81 @@
+# 客戶詳情的備註那一段：電話、LINE、長備註、短備註一起排順序；長備註點開是中間那張卡
+
+Status: done（10/19，段七）
+Blocked by: 13（她看過原型）
+段：七（high）
+動工前先讀：13 的「做完時留下的」與她對原型的回覆；`domain/customerMarks.js` 整支（`readMarks()`、`validateMarks()`、`toCustomerFields()`、`marksToText()`；`customer.notes` 是 `marks` 的純文字鏡像，ADR-0019）；
+**讀 `customer.marks` 的 21 處**（`grep -rn "\.marks\b" public/js`：壓表卡片牆、客戶清單卡片、試算表、拍訂購單的「尾款」、合併檔匯入、確認框…）；`ui/components/marks.js`、`ui/views/customerDetail.js` 的備註那一段與 `openMarks()`；
+`data/customers.js` 的 `update()`；`domain/audit.js` 的 `FIELD_LABELS`／`QUIET_IN_SENTENCE`；`domain/identify.js`（病歷號從備註讀，`CHART_NO_PREFIX`）；
+CLAUDE.md「客戶身上的標記」「共用元件身上的屬性名字」「一顆小圖示按鈕的觸控區」「蓋住整頁的一層」「`tokens.css` 加一個顏色」幾列；ADR-0019、ADR-0067
+
+## 她要的
+
+（見 13 的「她要的」，四段原話都適用）
+
+她對原型的回覆（10/19，逐字）：
+
+> 長備註原型我選：1 全部是丸子、2 從那一則長出來、3 線條
+
+→ 一串**全部是丸子**（不是一列一列）、中間那張卡**從她點的那一顆長出來**、電話與 LINE 的圖示是**線條**（跟 `icons.js` 同一種，不加圓底）。其餘照原型與 HANDOFF「段六做完了」的「我先定的」。
+
+## 為什麼會這樣
+
+備註是 `customer.marks`：`{ text, color }` 的陣列，一則最多 40 字（`MAX_MARK_LENGTH`）、最多 12 則（`MAX_MARKS`）—— 設計成「掃一眼就懂的短標記」（ADR-0019），
+長的只能拆成好幾則（圖 3；10/18 切換前的檢查也真的抓到一則 51 字的）。電話與 LINE 是客戶身上另兩格（`phone`、`lineId`），**客戶詳情上一個地方都沒畫**（只有編輯表單裡有）。
+沒有排序：要換順序只能刪掉重打。
+
+## 要做的（形狀是建議，13 之後可以改；改了寫回這裡）
+
+- **長備註是備註的長版本**，不是第四種東西（ADR-0067 擋的就是「綁客戶的東西第四種」）：一則 = 標題＋一大塊字（上限照備忘錄的 `MAX_TITLE`／`MAX_BODY` 那一級）。**存在客戶身上**（例如 `longNotes: [{ id, title, body }]`）——
+  備份、稽核、刪客戶、改名全部自動跟著，不用新開集合、不用開 Rules 的洞
+- **`marks` 一個字都不改形狀**：21 處讀它的地方照舊只看到短備註，`customer.notes` 鏡像照舊只有短備註（**長備註不進試算表、不上壓表卡片牆**）
+- **順序另外存一份**（例如 `noteOrder`：`['phone', 'mark', 'long:<id>', 'mark', 'line']` 這種「第幾個位置放哪一種」）：
+  短備註在 `noteOrder` 裡只佔位置（第 n 個 `'mark'` = **`readMarks(customer)` 回來的第 n 則**，不是原始的 `customer.marks[n]` —— `readMarks()` 會丟掉空的、沒有 `marks` 時退回 `notes` 一行一則，`customerMarks.js:69-79`，過目查到），
+  所以**別的入口加了一則短備註**不會壞：過目查過其他寫 `marks` 的只會接在最後（拍訂購單的「尾款」，`orderForm.js:543`）或原地改字（資料健檢的病歷號，`health.js:871`）—— 沒有位置的接在最後；
+  順序裡指到不存在的東西就跳過。**讀這一串只有一支 domain**（例如 `customerMarks.js` 的 `noteItems(customer)` → `[{ kind: 'phone'|'line'|'long'|'mark', … }]`），畫面不自己拼
+- 電話、LINE **只是位置**：值照舊是 `customer.phone`／`customer.lineId`（編輯在客戶的編輯表單），沒填就不畫、不佔位
+- **電話**：`tel:` 連結；長按複製（`navigator.clipboard`，失敗講一句）
+- **LINE**：標題寫「LINE」；點了開他的 LINE —— 那一格存的是**網址**（`line.me/…`，加好友那一頁「複製連結」來的）就直接開；是 **LINE ID** 就開 `https://line.me/R/ti/p/~<ID>`（對方要開放 ID 搜尋才找得到，打不開時 LINE 自己會講）。
+  客戶編輯表單那一格的 `hint` 講一句「貼他的 LINE 連結最穩」（`form.js` 的 `hint` 參數，不手寫 `field__hint`）
+- **那一串全部是丸子**（她選的）：照她排的順序一排流下去（`.marks` 換行），電話、LINE、長備註、短備註都是同一種丸子 ——
+  電話是話筒線條圖示＋號碼（等寬數字）、LINE 是對話泡泡線條圖示＋「LINE」、短備註照舊色點＋字；**調整順序模式下才變成一列一列**（拖曳要固定高的列，原型就是這樣）
+- **長備註那一顆**：茶色底（`--tea-soft`）、茶色框、摺角便條的線條圖示＋標題＋「›」—— 看得出「點開有全文」；點了 → **畫面中間那張卡，從那一顆長出來**（她選的；做法見 HANDOFF 那張表；`prefers-reduced-motion` 時只淡入淡出 —— WAAPI 不吃 `app.css` 那條規則，要自己問）；那張卡可以捲、可以關（返回鍵也關 —— 推一層，`pushLayer()` 的 handle 存成變數、問 `.active`，CLAUDE.md 那一列）、可以進編輯
+- **編輯器**：`openMarks()` 那一張擴成整串的編輯器：加短備註（照舊）、加長備註（標題＋內文）、刪；**「調整順序」**：按了每一則出現把手、拖曳排（pointer events，手機與 iPad 都要；拖的時候不可以帶動抽屜本身的拖曳）；完成才存，一次存 `marks`、`longNotes`、`noteOrder`（同一個 commit）
+- 驗證：短備註照舊 40 字／12 則；長備註標題必填、內文上限；`validate` 在 domain
+- **`firestore.rules`**：客戶文件那一段照既有的型別檢查寫法（過目指 `firestore.rules:69` 那一種）補 `longNotes`（list）、`noteOrder`（list）；Rules 測試補一條（`npm run test:rules`）
+- 客戶詳情那一段抬頭的數字（`section__n` 現在數短備註）要不要把長備註算進去 —— 照原型；空狀態那一句「還沒有備註…」在 `tests/fewer-words.test.js` 的 `KEEP` 裡，改字要一起改那一條
+- 稽核：`FIELD_LABELS` 補「長備註」「備註的順序」（後者進 `QUIET_IN_SENTENCE`？—— 她拖過一次順序，稽核那一句講「調了備註的順序」比較誠實，這一段決定）
+- 共用元件的屬性用自己的前綴（`data-notes-*`），不要裸的 `data-open`
+- 文件：ADR **0156**（長備註是備註的長版本；備註那一段一起排順序；為什麼 `marks` 不改形狀）、`CONTEXT.md` 新增「長備註」（_Avoid_：筆記、便條）、「備註」那一條補一句、SPEC 客戶詳情那一節、CLAUDE.md 新一列（「備註那一段的順序」：只有一支在讀、`marks` 不改形狀的理由、21 處）
+
+## 判準
+
+- **這一行會不會讓一則長備註被算成短備註，或反過來？** 壓表卡片牆、客戶清單卡片、試算表、`customer.notes` 鏡像：加了長備註之後一個字都不變（各一個測試）
+- 拖：把電話拖到最後、一則短備註拖到最前 → 存 → 重新整理 → 順序照她排的；再從拍訂購單加一則「尾款」短備註 → 它出現在最後、原本的順序不亂
+- 刪掉一則短備註（第 2 則）→ 其餘的位置照舊（不是全部往前錯一格錯到別種東西的位置上）
+- 長備註點開：中間那張卡出現、全文看得到、按返回鍵關掉而不是離開客戶詳情
+- LINE：存網址 → `href` 是那個網址；存 `abc123` → `href` 是 `https://line.me/R/ti/p/~abc123`；沒填 → 那一列不畫
+- 沒有長備註、沒排過順序的舊客戶：那一段長得跟現在一樣（只多了電話／LINE 那一兩列，有填才有）
+
+## 做完時留下的
+
+- **形狀**：`customer.longNotes: [{ id, title, body }]`（標題 40、內文 5000、最多 20 則 —— Rules 也擋 20）、`customer.noteOrder: string[]`
+  （`'phone'`／`'line'`／`'mark'`／`'long:<id>'`，Rules 擋 40 格）。**`marks` 一個字沒動形狀**；拖過順序之後短備註照新的先後重排（她 10/19：「沒關係，我同意這樣處理」）
+- **domain**：新的一支 `domain/customerNotes.js`（不是塞進 `customerMarks.js`：那一支的檔頭講的是短備註為什麼長那樣，這一支講順序與長的那種）——
+  `noteItems()`（唯一讀那一串的）、`notesFields()`（唯一存回去的）、`readLongNotes()`、`validateLongNotes()`、`withLongNote()`／`withoutLongNote()`（給 15 用：不碰 `marks`）、
+  `telHref()`／`lineHref()`、`sectionCount()`、`firstLine()`、`longNoteRows()`／`matchesLongNote()`（15 的那一疊）、`LINE_HINT`
+- **沒排過的預設順序**：電話、LINE、長備註、短備註（她的原話）。不在順序裡的電話／LINE 放最前面（排的時候還沒填）、長備註與短備註接在最後
+- **畫面**：`marks.js` 的 `notesRow()`（全部是丸子）、`ui/components/noteCard.js`（中間那張卡）、`noteReorder.js`（原地拖、拖到邊緣自己捲 `.app__main`、鍵盤上下鍵、放回原位也收得掉 `is-settling`）、
+  `notesEditor.js`（「編輯」那一張；打完沒按「加入」直接按「儲存」也收進去 —— `flush()`）。新增客戶那一頁照舊 `marks.js` 的 `mount()`
+- **我自己定的**：
+  - LINE 那一格存的不是 LINE 的網址（`javascript:`、別的網站）→ 當成 ID 包進 `line.me/R/ti/p/~…`，不當網址開；`@` 開頭的（官方帳號）不帶 `~`
+  - 電話一格寫兩支 → 撥第一支；一個號碼都認不出來（「請打給女兒」）→ 照樣畫那一顆，點了講一句、按住照樣複製
+  - 中間那張卡改的時候，取消／存起來在卡片**頂端**（原型在底下）—— 跟備忘錄的編輯卡同一個理由：手機鍵盤推不走它
+  - 改到一半按返回／點外面 → `chooseAction()` 三選一（同備忘錄 `leaveEdit()`；關掉那道框＝繼續改，返回鍵那一層補推回來）
+  - 卡片 z-index 21：高於抽屜（20）、低於確認框（22）與 toast（25）
+  - 存完一則（卡片上改、調整順序）只重畫備註那一塊、不重讀整頁（ADR-0038；重讀會把那張卡的來源那一顆換掉）；「編輯」那一張存完照舊 `reload()`
+  - 稽核：`longNotes`「長備註」、`noteOrder`「備註的順序」，都**不進** `QUIET_IN_SENTENCE`
+- **ADR-0060 那一條點得到的路**：號碼印在丸子上，也在「編輯」客戶資料那一格選得起來 —— 寫進 ADR-0156
+- **測試**：`tests/customer-notes.test.js` 30 條（先紅：模組不存在）；E2E `74` 的 N1–N10（**寫在接線之後**，沒有先看它紅）；Rules R14.1–R14.4（`firestore-rules.test.js` 第一次有客戶的一組）
+- **文件**：ADR-0156（14、15 共用一支）、CONTEXT「長備註」＋「備註」補一句、SPEC 5.x 客戶欄位與 8.5 詳情第 2 點、CLAUDE.md 新一列「備註那一段的順序、長備註」
+- 21 處讀 `marks` 的：一個都沒改（`grep -rn "\.marks\b" public/js` 前後一樣）；`customerForm.js` 只多了 LINE 那一格的 `hint`

@@ -998,15 +998,17 @@ describe('合併檔 v2', () => {
     assert.deepEqual(validateFile(FILE()).errors, []);
     assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v1' }).errors, []);
     assert.deepEqual(validateFile({ ...FILE(), format: 'baobao-merge/v2' }).errors, []);
-    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v9' }).errors.length);
+    assert.ok(validateFile({ ...FILE(), format: 'baobao-merge/v11' }).errors.length);
   });
 
   test('客戶帶購買日、通路與帶顏色的備註；notes 是備註的鏡像', () => {
     const p = plan(V2());
     assert.equal(p.customer.purchasedAt, '2026-05-22');
     assert.equal(p.customer.source, '顧客會');
-    assert.deepEqual(p.customer.marks, [{ text: '病歷號 9001', color: 'grey' }, { text: '欠尾款3萬', color: 'red' }]);
-    assert.equal(p.customer.notes, '病歷號 9001\n欠尾款3萬');
+    // 病歷號那一則建客戶時就放進那一格（ADR-0160）；其餘的顏色與先後不變
+    assert.equal(p.customer.chartNo, '9001');
+    assert.deepEqual(p.customer.marks, [{ text: '欠尾款3萬', color: 'red' }]);
+    assert.equal(p.customer.notes, '欠尾款3萬');
   });
 
   test('額度帶購買日、方案名、套數，同一次購買同一個 purchaseId', () => {
@@ -1026,7 +1028,9 @@ describe('合併檔 v2', () => {
   test('v1 的客戶：沒有的欄位一律 null，備註從 notes 讀', () => {
     const p = plan(CUSTOMER());
     assert.equal(p.customer.purchasedAt, null);
-    assert.equal(p.customer.marks, undefined, 'v1 沒有 marks 就不寫 —— readMarks() 會從 notes 拆');
+    // v1 沒有 marks、備註從 notes 拆；病歷號那一行一樣放進那一格（ADR-0160），剩下的寫成 marks
+    assert.equal(p.customer.chartNo, '9001');
+    assert.deepEqual(p.customer.marks, []);
     assert.ok(p.entitlements.every((e) => e.doc.sourcePlanName === null && e.doc.purchasedAt === null));
     assert.deepEqual(p.purchaseProblems, []);
   });

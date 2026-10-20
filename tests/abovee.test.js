@@ -201,9 +201,8 @@ describe('07 課程那一格：品項、Abovee 寫法、三返、任選', () => 
     return r && [r.courseId, r.equipmentId, r.ivProductId, r.durationMin, r.nth, r.uncounted];
   };
 
-  test('EECP20 → EECP 體驗（整格比對、在拆分鐘之前）；EECP60 → EECP', () => {
-    // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）
-    assert.deepEqual(at('EECP20'), ['course-eecp-trial', null, null, null, null, true]);
+  test('EECP20 → EECP＋20 分（EECP 2026-10-18 合成一門，ADR-0154：20 是體驗的時候排幾分）；EECP60 → EECP', () => {
+    assert.deepEqual(at('EECP20'), ['course-eecp', null, null, 20, null, false]);
     assert.deepEqual(at('EECP60'), ['course-eecp', null, null, 60, null, false]);
   });
 

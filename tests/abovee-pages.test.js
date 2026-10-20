@@ -152,7 +152,8 @@ describe('同一頁拍了兩次', () => {
     ], ctx());
     assert.equal(two.length, 2, '兩張都有號碼、號碼不一樣 → 鑰匙認成兩列');
     assert.deepEqual(two.map((i) => i.customerId), ['c-a', 'c-a']);
-    assert.deepEqual(two.map((i) => i.checked), [true, false]);
+    // 陳大文在 app 上沒有病歷號、照片上有 → 兩列都只用名字認的（`nameNoChart`，ADR-0160），第一列也不先勾
+    assert.deepEqual(two.map((i) => i.checked), [false, false]);
     assert.match(repeatSay(two[1]), /看起來是同一段/);
   });
 

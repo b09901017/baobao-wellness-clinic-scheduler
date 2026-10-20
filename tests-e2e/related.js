@@ -141,7 +141,7 @@ export const COVERAGE = {
     'sheets/',
   ],
   '10-offline': [
-    'public/js/ui/toast.js', 'public/js/ui/net.js', 'public/sw.js',
+    'public/js/ui/toast.js', 'public/js/ui/saveFailure.js', 'public/js/ui/net.js', 'public/sw.js',
     'public/js/ui/components/note.js',
   ],
   '11-todo-drawer': [
@@ -176,7 +176,7 @@ export const COVERAGE = {
   ],
   '15-playbook': [
     'public/js/domain/playbook.js', 'public/js/data/playbooks.js',
-    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js',
+    'public/js/ui/components/playbookHint.js', 'public/js/ui/views/playbook.js', 'public/js/ui/components/deck.js',
     'public/js/ui/views/trash.js', 'public/js/ui/views/home.js',
   ],
   '16-record-task': [
@@ -555,6 +555,69 @@ export const COVERAGE = {
     'public/js/data/visits.js', 'public/js/domain/entitlements.js', 'tests-e2e/fixtures/ai/aboveeList-status.json',
     'public/css/',
   ],
+  // 10/18 staging 上點出來的六個小畫面（.scratch/staging-polish-2026-10-18 的 01～06）：「＋ 加一項」的距離、
+  // 「照片上寫的」收合、「送的／體驗…」收得回去、日曆那一天按＋先拉高、復原那一條滑得掉、資料健檢的提醒
+  '69-staging-polish-small': [
+    'public/js/ui/components/planTweak.js', 'public/js/ui/components/customerForm.js', 'public/js/ui/views/customersBulk.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotOptions.js', 'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/ui/views/calendar.js', 'public/js/ui/components/sheet.js', 'public/js/ui/toast.js',
+    'public/js/domain/health.js', 'public/js/ui/views/health.js',
+    'public/css/',
+  ],
+  // 待辦首頁：每一列三種顯示（07）、今天／明天／逾期的組成（08）
+  '70-todo-home': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/ui/views/todoRows.js',
+    'public/js/ui/views/settings.js', 'public/js/data/config.js', 'public/js/domain/notes.js',
+    'public/js/ui/components/note.js', 'public/js/domain/visits.js',
+  ],
+  // EECP 只有一門（staging-polish 09，ADR-0154）：壓表與來訪編輯器按 20 → 體驗、編輯器原地改扣法的確認框、設定頁那一格
+  '72-eecp-one-course': [
+    'public/js/domain/slotOptions.js', 'public/js/domain/masterData.js', 'public/js/domain/visits.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/seed.js',
+    'public/js/ui/views/schedule.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/masterList.js',
+    'public/js/ui/components/giftFold.js',
+  ],
+  // 長備註與備註那一段的順序（staging-polish 14、15，ADR-0156）
+  '74-long-notes': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/customerMarks.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteCard.js',
+    'public/js/ui/components/noteReorder.js', 'public/js/ui/components/notesEditor.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/components/customerForm.js',
+    'public/js/data/customers.js', 'public/css/',
+    'public/js/ui/views/longNotes.js', 'public/js/ui/components/deck.js', 'public/js/ui/views/customers.js',
+  ],
+  // 打開 LINE 對話交給手機上的 MacroDroid（line-macrodroid 02～04，ADR-0157）
+  '75-line-macro': [
+    'public/js/integrations/', 'public/js/ui/views/settings.js', 'public/js/ui/components/message.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',
+    'public/js/domain/customerNotes.js',
+  ],
+  // 讀不完整時，會動到次數或健檢鏈的存檔先不存（before-golive-2026-10-19/01，ADR-0158）；
+  // 健檢超用也追報告、改了二返額度那一串重算（同一輪 02，ADR-0159）
+  '76-incomplete-read-and-extra-exam': [
+    'public/js/domain/incompleteRead.js', 'public/js/ui/saveFailure.js', 'public/js/ui/toast.js',
+    'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/ui/views/schedule.js',
+    'public/js/ui/views/home.js', 'public/js/domain/followups.js',
+    'public/js/data/customers.js', 'public/js/data/health.js', 'public/js/ui/views/customerDetail.js',
+  ],
+  // 病歷號是一格、在備註那一段是一顆丸子（before-golive-2026-10-19/04–08，ADR-0160）
+  '77-chart-number': [
+    'public/js/domain/customerNotes.js', 'public/js/domain/identify.js', 'public/js/domain/customers.js',
+    'public/js/ui/components/marks.js', 'public/js/ui/components/noteReorder.js',
+    'public/js/ui/components/notesEditor.js', 'public/js/ui/components/customerForm.js',
+    'public/js/ui/components/form.js', 'public/js/ui/icons.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/customers.js', 'public/css/',
+    'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/ui/components/sheetConfirm.js',
+  ],
+  // 上線前補的那一輪段三（before-golive-2026-10-19/09–11）：拍 Abovee 沒勾的列點開看得到「勾起來的話」（09）、
+  // 試算表只重畫有變的、整份重畫、讀到快取這一趟不推（10，ADR-0161）、待辦首頁「明天」算明天來的（11，ADR-0162）
+  '78-before-golive-seg3': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/domain/aboveeImport.js', 'public/js/ui/components/aboveeConfirm.js',
+    'public/js/data/sheetSync.js', 'public/js/domain/sheetReport.js', 'public/js/ui/views/report.js',
+  ],
 };
 
 /**
@@ -568,6 +631,8 @@ export const COVERAGE = {
  * 右邊每一條都要至少挑得到一支（`tests/e2e-related.test.js` 盯著）。
  */
 export const FOLLOWS = {
+  // 底下那一條滑掉的門檻與 12 秒（staging-polish 05）：只有 toast.js import 它
+  'public/js/ui/toastSwipe.js': ['public/js/ui/toast.js'],
   'public/js/data/audit.js': [
     'public/js/domain/dayReview.js', 'public/js/ui/views/audit.js',
     'public/js/ui/views/customerDetail.js', 'public/js/ui/views/home.js',

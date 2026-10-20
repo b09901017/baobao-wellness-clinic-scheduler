@@ -56,7 +56,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
   test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
     const { post } = loadAppsScript();
     assert.equal(post({ token: 'secret', bundle: { ...make([fm()]), format: 6 } }).ok, false);
-    assert.equal(SYNC_FORMAT, 7);
+    assert.equal(SYNC_FORMAT, 8);
   });
 
   test('功醫門診記了一句：來訪紀錄那一行的最後面看得到', () => {
@@ -109,7 +109,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
   // 每一列的鍵沒有變，所以**現在這一份 `.gs` 直接畫得出來** —— 不升 `SYNC_FORMAT`、她不用重貼。
   test('三返那一段：矩陣最下面多一列「三返（不算次數）」，那一天那一格有 ✓、「剩餘」沒有被塗紅；記的那一句照舊只印一次', () => {
     const b = make([ilib({ note: null }), fm({ courseId: 'fu', courseName: '三返', followupNth: 3, note: '報告看完了' })]);
-    assert.equal(SYNC_FORMAT, 7, '格式沒有升');
+    assert.equal(SYNC_FORMAT, 8, '格式只因 ADR-0161 升到 8');
     const sheet = render(b);
     const at = column(sheet).indexOf('三返（不算次數）') + 1;
     assert.ok(at > 0, '那一列要畫出來');
@@ -396,10 +396,13 @@ describe('渲染', () => {
     assert.equal(reply.sheets, 0);
   });
 
-  test('自己產生過的分頁照樣清空重畫', () => {
+  // 格式 8（ADR-0161）起：同一包再推一次是「沒變」（只改產生時間）；整份重畫照舊清空重畫
+  test('自己產生過的分頁：按了整份重畫照樣清空重畫；沒變的只改產生時間', () => {
     const app = loadAppsScript();
     assert.equal(app.post({ token: 'secret', bundle: bundle() }).ok, true);
-    const again = app.post({ token: 'secret', bundle: bundle() });
+    const same = app.post({ token: 'secret', bundle: bundle() });
+    assert.deepEqual([same.ok, same.sheets, same.kept, same.skipped], [true, 0, 1, []]);
+    const again = app.post({ token: 'secret', bundle: bundle(), force: true });
     assert.equal(again.ok, true);
     assert.deepEqual(again.skipped, []);
     assert.equal(again.sheets, 1);
@@ -825,6 +828,6 @@ describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () =>
     const { sheet } = colours();
     assert.match(String(sheet.at('C2')), /剩餘 -?\d+/);
     assert.notEqual(sheet.backgrounds.get('C2'), LOW);
-    assert.equal(SYNC_FORMAT, 7);
+    assert.equal(SYNC_FORMAT, 8);
   });
 });

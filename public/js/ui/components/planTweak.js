@@ -156,8 +156,8 @@ export function fields(draft, plans) {
           </ul>
         </div>` : ''}
 
-      <p style="margin: var(--space-3) 0 0">
-        <button class="btn btn--sm" type="button" data-addextra>＋ 加一項</button>
+      <p class="addrow">
+        <button class="btn btn--sm btn--addrow" type="button" data-addextra>＋ 加一項</button>
         ${n ? `<span class="muted" style="margin-left: var(--space-2)">上面改過 ${n} 項</span>` : ''}
       </p>` : '<p class="muted">選一個方案，底下就會列出它會建立哪幾筆。</p>'}`;
 }

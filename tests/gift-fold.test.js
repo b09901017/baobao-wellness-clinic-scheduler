@@ -17,7 +17,7 @@ import {
 import { SEED } from '../public/js/domain/seed.js';
 import * as giftFold from '../public/js/ui/components/giftFold.js';
 
-// 種子：功醫門診、HRV、心臟科評估、EECP體驗 不算次數（心臟科評估與 EECP體驗 是 gift-and-trial 05）
+// 種子：功醫門診、HRV、心臟科評估 預設體驗（心臟科評估是 gift-and-trial 05）；EECP 有「體驗的時候排幾分」（2026-10-18 合成一門，ADR-0154）
 const COURSES = SEED.courses;
 const master = { courses: COURSES, equipment: SEED.equipment };
 
@@ -47,9 +47,9 @@ describe('收起來的是哪幾顆', () => {
     assert.ok(out.slice(firstFolded).every((o) => o.folded && o.isGift && o.entitlement === null));
   });
 
-  test('展開之後第一排：功醫門診 → HRV → 心臟科評估 → EECP體驗（她最常按的那幾門）', () => {
+  test('展開之後第一排：功醫門診 → HRV → 心臟科評估 → EECP（她最常按的那幾門）', () => {
     const first = options(THREE).filter((o) => o.folded && !o.other);
-    assert.deepEqual(first.map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP體驗']);
+    assert.deepEqual(first.map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP']);
   });
 
   test('「別的課當體驗」：每一門還在用的課，健檢與二返不列、不算次數的那幾門不重複', () => {
@@ -66,7 +66,8 @@ describe('收起來的是哪幾顆', () => {
 
   test('「別的課當體驗」照分類排（加購那一排的順序）', () => {
     const groups = [...new Set(options(THREE).filter((o) => o.other).map((o) => o.group))];
-    assert.deepEqual(groups, ['復能', 'ILIB', '醫師門診', 'EECP', '運動區', '營養點滴', '其他']);
+    // EECP 在第一排（有「體驗的時候排幾分」，ADR-0154），不在「別的課當體驗」
+    assert.deepEqual(groups, ['復能', 'ILIB', '醫師門診', '運動區', '營養點滴', '其他']);
   });
 
   test('停用的課不列；這一段現在指著的那一門停用了照樣列（keep）', () => {
@@ -104,7 +105,7 @@ describe('順序跟主檔讀回來的順序無關', () => {
     assert.equal(defaultGiftCourse(COURSES).id, 'course-fm');
   });
 
-  test('一門不算次數的課都沒有：沒有預設', () => {
+  test('一門不算次數的課都沒有：沒有預設（EECP 排在第一排也不是預設 —— 它不是預設體驗的課）', () => {
     assert.equal(defaultGiftCourse(COURSES.map((c) => ({ ...c, uncounted: false }))), null);
   });
 
@@ -180,6 +181,44 @@ describe('畫法（ui/components/giftFold.js）', () => {
     assert.doesNotMatch(out.slice(box, at), /hidden/);
   });
 
+  // staging-polish 03：收得回去 —— 收起來時開關寫出選了哪一門、按下去的樣子（不然看起來像取消選取）
+  const moreOf = (out) => out.match(/<button[^>]*data-giftfold-more[\s\S]*?<\/button>/)[0];
+
+  test('收著、選著底下一顆：開關寫那一門、aria-pressed 是 true', () => {
+    const out = html(options(THREE), giftPick('course-cardio'), false);
+    const btn = moreOf(out);
+    assert.match(out, /data-giftfold="closed"/);
+    assert.match(btn, /aria-pressed="true"/);
+    assert.match(btn, /心臟科評估/);
+    assert.match(btn, /aria-expanded="false"/);
+  });
+
+  test('收著、選著一般額度：開關照舊寫「送的／體驗…」、沒有按下去', () => {
+    const btn = moreOf(html(options(THREE), 'e-pool', false));
+    assert.match(btn, />送的／體驗…<\/button>/);
+    assert.match(btn, /aria-pressed="false"/);
+  });
+
+  test('展開：開關還在（按得回去），寫「收起來」、aria-expanded 是 true', () => {
+    const btn = moreOf(html(options(THREE), giftPick('course-cardio'), true));
+    assert.match(btn, /aria-expanded="true"/);
+    assert.match(btn, /aria-pressed="false"/);
+    assert.match(btn, /收起來/);
+  });
+
+  test('收起來的每一顆帶著名字（不重畫的入口從畫面上讀）、那一組帶著呼叫端給的 key', () => {
+    const out = giftFold.html({ options: options(THREE), value: null, open: false, chip, key: 's1' });
+    assert.match(out, /data-giftfold-key="s1"/);
+    assert.match(out, /<button data-giftfold-name="功醫門診" data-x="__course__:course-fm">/);
+    assert.doesNotMatch(out, /data-giftfold-name="復能-三選一\(60\)"/, '沒收起來的那幾顆不用');
+  });
+
+  test('foldLabel()：三種字', () => {
+    assert.equal(giftFold.foldLabel(false), '送的／體驗…');
+    assert.match(giftFold.foldLabel(false, 'EECP'), /^EECP<span class="chip__note">送的／體驗 ▸<\/span>$/);
+    assert.match(giftFold.foldLabel(true, 'EECP'), /▾ 收起來/);
+  });
+
   test('沒有任何送的／體驗那一顆時（主檔一門課都沒有）只畫上面那一排', () => {
     const out = giftFold.html({ options: options(THREE).filter((o) => !o.folded), value: null, open: false, chip });
     assert.doesNotMatch(out, /data-giftfold/);
@@ -195,7 +234,14 @@ describe('三個入口都畫同一支', () => {
       assert.match(src, /giftFold\.html\(/, `${rel} 要畫同一支`);
       assert.match(src, /foldOpen\(/, `${rel} 要問同一支要不要展開`);
       assert.match(src, /giftFold\.toggle/, `${rel} 要接展開那一顆`);
+      // 開或收記在呼叫端：`toggle()` 帶 onFold、畫的時候先問記著的（staging-polish 03）
+      assert.match(src, /giftFold\.toggle\(e, /, `${rel} 要記她按成開還是收`);
+      assert.match(src, /giftOpen[^\n]*\?\? foldOpen\(/, `${rel}：記著的優先，沒記過才問 foldOpen()`);
     }
+  });
+
+  test('壓表那一排不重畫：選了一顆之後叫 sync()，開關上的字才跟得上', () => {
+    assert.match(read('ui/views/schedule.js'), /giftFold\.sync\(/);
   });
 
   test('來訪編輯器的送的／體驗那幾顆來自 giftOptions()，不自己列', () => {

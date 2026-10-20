@@ -125,8 +125,17 @@ test('A1 左右兩張：新的 5 段勾好、已經記了 3 段、已取消 2 �
 
   // 王小明 SIS 那一列：服務資源的全名認不出來 → 點開、看得到原字、選芝寧 → 會記住
   await row(page, 'a0').locator('[data-abl-open]').click();
+  // 「照片上寫的」預設收著、點了才攤開（staging-polish 02，她：「先預設收合，需要的時候在展開」）
+  const seen = row(page, 'a0').locator('[data-abl-seen]');
+  await expect(seen.locator('summary')).toContainText('照片上寫的');
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' })).toBeHidden();
+  await seen.locator('summary').click();
   await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' })).toBeVisible();
   await row(page, 'a0').locator('[data-abl-therapist="staff-zn"]').click();
+  // 選一位治療師整列會重畫：打開過的照樣開著
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' }), '重畫之後照樣開著').toBeVisible();
+  await row(page, 'a0').locator('[data-abl-seen] summary').click();
+  await expect(row(page, 'a0').locator('.seen', { hasText: '陳美玲' }), '再點一次收回去').toBeHidden();
   await expect(row(page, 'a0').locator('.abl-row__learn')).toContainText('「陳美玲」都認成 芝寧');
 
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 5 段');
@@ -188,11 +197,13 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   await openBatch(app, page);
   await photograph(page, ['aboveeList-check']);
 
-  // 兩列＋「app 有、這次照片上沒有」的兩段（ADR-0129）：照片是 9/12 09:00 到 9/22 09:00 的很多人，
-  // 陳大文 9/12 11:00、9/15 那兩段在中間、卻不在照片上
-  await expect(page.locator('.abl__sum')).toHaveText('要你看 4 段');
-  await expect(page.locator('.abl__group--gone .abl-row')).toHaveCount(2);
-  await expect(page.locator('.abl__group--gone')).toContainText('陳大文');
+  // 「app 有、這次照片上沒有」（ADR-0129、0153）：照片上只有兩位（客戶A、病歷號 1234 的王曉名）→ 只對那兩位，
+  // 陳大文 9/12 11:00、9/15 那兩段在範圍中間也不列；王曉名還沒認出是誰 → 先沒對、講一句
+  await expect(page.locator('.abl__sum')).toHaveText('要你看 2 段');
+  await expect(page.locator('.abl__group--gone')).toHaveCount(0);
+  await expect(page.locator('.abl__absentsay')).toHaveText(
+    '對過 客戶A 9/12 09:00–9/22 09:00 在 app 上的段：都在這次的照片上。照片上的 王曉名 還沒認出是誰，先沒對。',
+  );
   await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('對不上');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toBeDisabled();
   await row(page, 'a0').locator('[data-abl-open]').click();
@@ -204,6 +215,8 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   await expect(row(page, 'a1')).toContainText('病歷號對上了，名字不一樣');
   await row(page, 'a1').locator('[data-abl-who="cust-wang"]').click();
   await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('新的');
+  // 選了人之後那一句跟著重算：對的是認出來的那兩位
+  await expect(page.locator('.abl__absentsay')).toHaveText('對過 客戶A、王小明 9/12 09:00–9/22 09:00 在 app 上的段：都在這次的照片上。');
   const check = row(page, 'a1').locator('[data-abl-check]');
   await expect(check).toHaveAttribute('aria-checked', 'false');
   await check.click();

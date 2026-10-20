@@ -16,7 +16,7 @@ import * as rules from '../../domain/customers.js';
 import { summarize, isProduct } from '../../domain/entitlements.js';
 import { purchaseHeadline } from '../../domain/purchases.js';
 import { customerPools } from '../../domain/scheduling.js';
-import { readMarks } from '../../domain/customerMarks.js';
+import { noteItems } from '../../domain/customerNotes.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import { isActive } from '../../domain/visits.js';
 import { icon } from '../icons.js';
@@ -106,6 +106,7 @@ export async function render(el) {
           <button class="footlink" type="button" data-inactive
                   aria-pressed="${view.showInactive}">
             ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
+          <a class="footlink" href="#/customers/notes">長備註</a>
         </span>
       </div>
     </div>
@@ -113,7 +114,7 @@ export async function render(el) {
     <label class="field" style="margin-bottom: var(--space-2)">
       <span class="visually-hidden">搜尋客戶</span>
       <input type="text" data-search value="${esc(view.search)}" style="width: 100%"
-             placeholder="找人：姓名、電話、LINE、購買通路" />
+             placeholder="找人：姓名、電話、LINE 名字、病歷號、購買通路" />
     </label>
 
     <div class="chiprow noscroll-bar" role="group" aria-label="先看誰">
@@ -272,7 +273,7 @@ function matches(customer, ctx) {
   // 比法同其他找人的框（`nameHas()`：空白、全形半形、大小寫不算；一個字都沒打就是每一位）。
   // **一格一格比** —— 接成一串再比的話，空白去掉之後名字的尾巴會跟電話的開頭連在一起
   const fields = [customer.name, customer.phone, customer.lineId, customer.source];
-  if (!fields.some((v) => rules.nameHas(v, view.search))) return false;
+  if (!fields.some((v) => rules.nameHas(v, view.search)) && !rules.chartNoHas(customer, view.search)) return false;
 
   if (view.showInactive) return customer.active === false;
   if (customer.active === false) return false;
@@ -338,7 +339,8 @@ function card(c, ctx) {
   const ents = ctx.entsBy[c.id] ?? [];
   const sum = summarize(ents);
   const flags = rules.splitFlags(c, ctx.clinicalFlags);
-  const marks = readMarks(c);
+  // 備註那一段照她排的順序的前四個（電話、LINE、病歷號、長備註都算；她 10/19，ADR-0160）
+  const notes = noteItems(c);
   // 名字底下那一行：買了什麼（ADR-0090）。上次／下次 2026-09-13 拿掉了，排序照樣靠 `byCustomer()`
   const meta = purchaseHeadline(c, ents, ctx.master);
   let { pools } = customerPools({ entitlements: ents });
@@ -366,8 +368,8 @@ function card(c, ctx) {
         ${icon('right', { size: 16 })}
       </div>
 
-      ${marks.length
-        ? `<div style="margin-top: var(--space-2)">${marksUi.row(marks, { max: 3, clip: true })}</div>`
+      ${notes.length
+        ? `<div style="margin-top: var(--space-2)">${marksUi.notesPreview(notes, { max: 4 })}</div>`
         : ''}
 
       ${shown.length

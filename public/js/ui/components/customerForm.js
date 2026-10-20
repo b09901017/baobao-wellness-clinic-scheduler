@@ -14,6 +14,7 @@
 import * as rules from '../../domain/customers.js';
 import { expandPlan } from '../../domain/entitlements.js';
 import { toCustomerFields, validateMarks } from '../../domain/customerMarks.js';
+import { LINE_HINT, CHART_NO_HINT } from '../../domain/customerNotes.js';
 import { confirmReview } from './dialog.js';
 import * as f from './form.js';
 import * as marksUi from './marks.js';
@@ -40,6 +41,7 @@ export function draftToCustomer(d) {
     name: String(d.name ?? '').trim(),
     phone: String(d.phone ?? '').trim() || null,
     lineId: String(d.lineId ?? '').trim() || null,
+    chartNo: String(d.chartNo ?? '').trim() || null,
     source: String(d.source ?? '').trim() || null,
     purchasedAt: d.purchasedAt || null,
     membershipExpiresAt: null,
@@ -70,7 +72,7 @@ export function purchaseOf(values, plans = []) {
 /** 一張空白的草稿。 */
 export function blankDraft(today) {
   return {
-    name: '', phone: '', lineId: '', source: '', purchasedAt: today, priority: 0,
+    name: '', phone: '', lineId: '', chartNo: '', source: '', purchasedAt: today, priority: 0,
     flags: [], partners: [], marks: [], planId: null, quantity: 1,
     // 方案之外多買的。建立之前都只是草稿，一個字都還沒寫進去。
     extras: [],
@@ -139,8 +141,12 @@ export function mountCustomerForm(host, opts) {
               <span class="field__label">電話<span data-cf-warn="contact">${warnTip(warn.contact)}</span></span>
               <input type="tel" name="phone" value="${esc(draft.phone)}" inputmode="tel" autocomplete="off" />
             </label>
-            ${f.text({ name: 'lineId', label: 'LINE', value: draft.lineId })}
+            ${f.text({ name: 'lineId', label: 'LINE 名字', value: draft.lineId, hint: LINE_HINT })}
           </div>
+          <label class="field">
+            <span class="field__label">病歷號${tip(CHART_NO_HINT)}<span data-cf-warn="chartNo">${warnTip(warn.chartNo)}</span></span>
+            <input type="text" name="chartNo" value="${esc(draft.chartNo ?? '')}" inputmode="numeric" autocomplete="off" />
+          </label>
         </section>`}
 
         <section class="cform__group" aria-labelledby="cf-bought">
@@ -216,11 +222,12 @@ export function mountCustomerForm(host, opts) {
       if (box && box.innerHTML !== html) box.innerHTML = html;
     };
     form.addEventListener('input', (e) => {
-      if (!['name', 'phone', 'lineId', 'quantity'].includes(e.target.name)) return;
+      if (!['name', 'phone', 'lineId', 'chartNo', 'quantity'].includes(e.target.name)) return;
       Object.assign(draft, readDraft());
       const w = rules.fieldWarnings(draftToCustomer(draft), existing);
       swapWarn('name', warnTip(w.name));
       swapWarn('contact', warnTip(w.contact));
+      swapWarn('chartNo', warnTip(w.chartNo));
       if (e.target.name === 'quantity') {
         const p = plans.find((x) => x.id === draft.planId) ?? null;
         const q = planQuantity(draft.quantity);
@@ -316,6 +323,6 @@ function extrasHtml(extras) {
                       aria-label="拿掉">${icon('close', { size: 15, width: 2 })}</button>
             </li>`).join('')}
         </ul>` : ''}
-      <button class="btn btn--sm" type="button" data-cf-addextra>＋ 加一項</button>
+      <p class="addrow"><button class="btn btn--sm btn--addrow" type="button" data-cf-addextra>＋ 加一項</button></p>
     </div>`;
 }

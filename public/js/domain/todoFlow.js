@@ -11,13 +11,16 @@
 
 import {
   isCancelKind, bookingSystemOf, tasksForCourse, systemOfCancelKind,
-  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed, recordSlots,
+  RECORD_TASK_KIND, tasksForVisit, recordTasksForVisit, registrationClosed, recordSlots, urgency,
 } from './taskRules.js';
 import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, followupCourseIdOf,
 } from './followups.js';
-import { dayOf, shortDate } from './dates.js';
-import { formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel } from './visits.js';
+import { dayOf, shortDate, daysBetween } from './dates.js';
+import {
+  formSlotIndexes, slotStatus, isLiveSlot, visitCourseLabel, visitsToClose, visitsComingTomorrow,
+} from './visits.js';
+import { isOpen as isOpenNote } from './notes.js';
 import { timeLabel } from './visitTime.js';
 
 /**
@@ -119,6 +122,163 @@ export function groupByStage(rows = []) {
       .sort((a, b) => orderOf(a.id) - orderOf(b.id)),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// 首頁上有哪幾列、每一列畫不畫（ADR-0151）
+// ---------------------------------------------------------------------------
+
+/**
+ * 首頁上**她設定得到**的那幾列，順序就是 `FLOW` 的順序（她做事的順序）。
+ *
+ * 已經拿掉的種類（`RETIRED_KINDS`）與她手動加的種類**不在這裡**：有舊資料就照舊
+ * 畫在那一段最後面，等於永遠「有才顯示」—— 給一個會自己消失的東西一格設定，
+ * 那一格之後就是一顆按了沒反應的按鈕。
+ */
+const ROW_LABELS = {
+  ask: '問這輪的時間',
+  forms: '客戶填好的時間',
+  book: '壓表登記',
+  confirm: '跟客人確認時間',
+  close: '簽療程單',
+  cancel: '改時間／取消',
+};
+
+/**
+ * 首頁那一列（與點進去那一頁的抬頭）叫什麼。任務種類就是它自己的名字。
+ * **名字只寫在這裡一份**：設定 → 待辦首頁 與首頁讀同一份，改了一邊兩頁不會叫兩種名字。
+ */
+export const rowLabel = (id) => ROW_LABELS[id] ?? id;
+
+/** 不是任務種類的那幾列（等資料回來才補的、或從來訪推出來的）—— 首頁自己畫，不從任務收集。 */
+export const NON_TASK_ROWS = Object.keys(ROW_LABELS);
+
+export const HOME_ROWS = FLOW.map(([id]) => ({ id, label: rowLabel(id) }));
+
+/** 一直顯示／有才顯示（以前的行為）／不顯示。 */
+export const ROW_SHOWS = ['always', 'auto', 'hidden'];
+
+/**
+ * 預設藏起來的那兩列：她 10/18「問時間和壓表現在不是我必須做的事……首頁這樣太多東西了」。
+ * 其餘照舊有才顯示。**沒存的一律照這一份**，所以之後改預設，她沒動過的那幾列會跟著。
+ */
+const DEFAULT_ROW_SHOWS = { ask: 'hidden', book: 'hidden' };
+
+const isHomeRow = (id) => HOME_ROWS.some((r) => r.id === id);
+const defaultShowOf = (id) => DEFAULT_ROW_SHOWS[id] ?? 'auto';
+
+/**
+ * 這一列現在是哪一種。名單上沒有的（舊種類、她手動加的）一律有才顯示。
+ *
+ * @param {string} id 列的 id 或任務種類
+ * @param {object} [settings] `config/app`（讀 `todoRows`）
+ */
+export function rowShowOf(id, settings) {
+  if (!isHomeRow(id)) return 'auto';
+  const v = settings?.todoRows?.[id];
+  return ROW_SHOWS.includes(v) ? v : defaultShowOf(id);
+}
+
+/**
+ * 這一列畫不畫、畫成什麼樣。**首頁只問這一支**（`tests/todo-home-rows.test.js` 掃原始碼）。
+ *
+ * - 不顯示 → null（**三顆大數字照算它**，她：「藏起來的是那一列，不是那件事」）
+ * - 有才顯示 → 沒東西就 null
+ * - 一直顯示 → 沒東西也畫，`empty: true`（淡的一列；點進去是那一種的「已完成」可以勾回來）
+ *
+ * @param {number|null} n 現在幾件。**null ＝ 還沒載完**：哪一種都先不畫，資料回來再補
+ * @returns {{empty: boolean}|null}
+ */
+export function rowView(id, n, settings) {
+  if (n == null) return null;
+  const show = rowShowOf(id, settings);
+  if (show === 'hidden') return null;
+  if (n > 0) return { empty: false };
+  return show === 'always' ? { empty: true } : null;
+}
+
+/** 首頁等資料回來才補的那三列。 */
+const LOADED_ROWS = ['ask', 'forms', 'book'];
+
+/**
+ * 首頁要多讀哪幾份。設成不顯示的那一列**連資料都不讀** —— 每一列各多讀三四份，
+ * 而首頁她一天開十幾次。
+ *
+ * @returns {string[]} `LOADED_ROWS` 的子集，順序不變
+ */
+export function homeLoaders(settings) {
+  return LOADED_ROWS.filter((id) => rowShowOf(id, settings) !== 'hidden');
+}
+
+/**
+ * 要存進 `config/app` 的 `todoRows`：**只存跟預設不一樣的**（同 `messageTemplates` 的作法）。
+ * 名單上沒有的、看不懂的值都不存。
+ */
+export function storedRowShows(shows = {}) {
+  return Object.fromEntries(Object.entries(shows ?? {})
+    .filter(([id, v]) => isHomeRow(id) && ROW_SHOWS.includes(v) && v !== defaultShowOf(id)));
+}
+
+// ---------------------------------------------------------------------------
+// 三顆大數字：逾期／今天／明天（ADR-0152）
+// ---------------------------------------------------------------------------
+
+/** 三顆大數字的 id，也是點進去那一頁的網址（`#/todo/overdue`…）。 */
+export const BUCKETS = ['overdue', 'today', 'tomorrow'];
+
+/**
+ * 一張任務落在哪一顆。死線過了＝逾期、今天、明天；更後面的哪一顆都不在。
+ * 「已完成」那一格也照這一支切（她在那三頁問的是「這個死線的事情做完了沒」）。
+ */
+export function taskBucket(dueDate, today) {
+  if (!dueDate) return null;
+  if (urgency(dueDate, today) === 'overdue') return 'overdue';
+  if (dueDate === today) return 'today';
+  return daysBetween(today, dueDate) === 1 ? 'tomorrow' : null;
+}
+
+/**
+ * 三顆大數字各是哪幾件。**首頁的數字與點進去那一頁的清單只讀這一支** —— 各算一次的話
+ * 數字跟清單會差一件（ADR-0070 那一種）。
+ *
+ * | | 任務 | 簽療程單（`visitsToClose()`，一位一天一件） | 有日期、還沒勾的隨手記 |
+ * |---|---|---|---|
+ * | 逾期 | 死線過了 | 日子過了、還有段開著（她：「算逾期」） | **不算**（她：「今天沒勾也沒關係，他不算逾期」） |
+ * | 今天 | 死線今天 | 今天的 | 掛今天的 |
+ * | 明天 | 死線明天 | 明天還開著的那幾天（`coming`，`visitsComingTomorrow()`） | 掛明天的 |
+ *
+ * 明天那幾天 2026-10-19 加的（issue 11，ADR-0162，推翻 ADR-0152 那一格）—— 她：「但我想要今天和明天是一樣的誒，
+ * 就是納入簽療程單」。**放在 `coming` 不放 `close`**：人還沒來，點下去開讀取卡片、不開簽單抽屜
+ * （她：「免得還沒做就被簽成做完」）。
+ * 營養品的提醒也是一筆有日期的隨手記（ADR-0059），所以它也進今天／明天 —— 那天要交付。
+ * 跟客人確認時間不在這裡：它沒有日子（ADR-0001），首頁那一列自己有數字。
+ *
+ * @param {{tasks?: object[], unclosed?: object[], notes?: object[], today: string}} input
+ *   `tasks` 還沒做的任務；`unclosed` 還沒結案的來訪（`listUnclosed(today, { tomorrow: true })`）；`notes` 還沒勾的隨手記
+ * @returns {Record<'overdue'|'today'|'tomorrow', {tasks: object[], close: object[], coming: object[], notes: object[]}>}
+ */
+export function todoBuckets({ tasks = [], unclosed = [], notes = [], today }) {
+  const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], coming: [], notes: [] }]));
+
+  for (const t of tasks ?? []) {
+    if (t?.done || t?.deletedAt) continue;
+    const b = taskBucket(t.dueDate, today);
+    if (b) out[b].tasks.push(t);
+  }
+  for (const v of visitsToClose(unclosed ?? [], today)) {
+    out[v.date < today ? 'overdue' : 'today'].close.push(v);
+  }
+  out.tomorrow.coming = visitsComingTomorrow(unclosed ?? [], today);
+  for (const n of notes ?? []) {
+    if (!isOpenNote(n) || !n.date) continue;
+    if (n.date === today) out.today.notes.push(n);
+    else if (daysBetween(today, n.date) === 1) out.tomorrow.notes.push(n);
+  }
+  return out;
+}
+
+/** 一顆大數字上的數字＝那一頁列出來的件數。 */
+export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ?? 0)
+  + (b?.coming?.length ?? 0) + (b?.notes?.length ?? 0);
 
 /**
  * 現在最該做的是哪一段。首頁那句「下一步是⋯⋯」用。

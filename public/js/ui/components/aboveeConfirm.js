@@ -20,14 +20,16 @@ import * as visitsData from '../../data/visits.js';
 import * as batchesData from '../../data/batches.js';
 import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
+import * as customersData from '../../data/customers.js';
+import { chartNoWrites } from '../../domain/identify.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays,
-  pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
-  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, writePhotoPlan,
+  pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
+  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -45,7 +47,6 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
-import { isOffline } from '../net.js';
 import * as toast from '../toast.js';
 import { chooseAction, confirmAction } from './dialog.js';
 import { esc } from './form.js';
@@ -56,6 +57,9 @@ import * as giftFold from './giftFold.js';
 const TAGS = {
   new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消', change: '要改',
 };
+
+/** 要拿去 `chartNoWrites()` 的那幾列：認人那一次的結果、照片上的號碼、現在是誰。 */
+const chartNoRows = (list) => list.map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId }));
 
 /** 認不得人的那幾種，畫面上講一句為什麼（ADR-0103）。 */
 const WHY_UNKNOWN = {
@@ -89,6 +93,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let later = new Set();
   /** 收起來的那一組點開了沒（整片重畫時不收回去） */
   let laterOpen = false;
+  /**
+   * 「照片上寫的」打開過的那幾列（staging-polish 02）。預設收著：那是對照用的原字，她要的時候才看。
+   * 按一顆「要做什麼」整列會重畫，所以記在這裡、重畫時照記的畫；關掉確認層就忘了。
+   */
+  const seenOpen = new Set();
+  /** 「送的／體驗…」那一組她按成開著還是收著（staging-polish 03），照列的 key 記；沒記過照 `foldOpen()` */
+  const giftOpen = new Map();
   let openKey = null;
   let batches = [];
   let running = false;
@@ -185,15 +196,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    * 撞期那一份是把 `visitsBy` 攤平再濾日期（`visitsForCheck()`），照舊成立。
    *
    * **讀不到的不安靜地照算**：記進 `ctx.partial`，那一位的列不預設打勾、講一句（`partialSay()`）。
-   * 離線也算讀不到 —— Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆。
+   * 離線、或讀回來的是快取（網路不穩時 SDK 自己退回快取，`navigator.onLine` 照樣是 true）也算讀不到 ——
+   * Firestore 離線時不會失敗，回的是快取裡剛好有的那幾筆（`listWhole()` 兩種都丟，ADR-0158）。
    */
   async function loadHistory(ids) {
     const wanted = [...new Set(ids)].filter((id) => id && !whole.has(id));
     if (!wanted.length) return;
-    const offline = isOffline();
-    const got = await Promise.all(wanted.map((id) => (offline
-      ? [id, null]
-      : visitsData.listByCustomer(id).then((list) => [id, list], () => [id, null]))));
+    const got = await Promise.all(wanted.map((id) => visitsData.listWhole(id)
+      .then((list) => [id, list], () => [id, null])));
     // 等回來之後才拿手上那一份：同時有兩趟在讀時，後回來的不可以蓋掉先回來的
     const visitsBy = { ...ctx.visitsBy };
     const partial = new Set(ctx.partial ?? []);
@@ -365,7 +375,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     for (const other of items) {
       if (other.key === key) continue;
       const sameWho = Boolean(other.customerId) && [item?.customerId, was].includes(other.customerId);
-      if (!sameWho && other.date !== item?.date) continue;
+      // 點開著的那一列（沒勾的話畫著「勾起來的話」）照當下勾著的算 —— 別列勾起或拿掉，它也要重算（09）
+      if (!sameWho && other.date !== item?.date && other.key !== openKey) continue;
       const el = [...root.querySelectorAll('[data-abl-row]')].find((x) => x.dataset.ablRow === other.key);
       if (!el) continue;
       const holder = document.createElement('template');
@@ -471,19 +482,41 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             ? '照 Abovee 改（勾在最上面「要改的」那一塊）' : '最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
-        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? []) : ''}
+        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? [], whatIfOf(item)) : ''}
       </li>`;
+  }
+
+  /**
+   * 點開的那一列**沒勾**：勾起來的話會怎樣（before-golive-2026-10-19/09）。只在點開時算（同時只開一列，`openKey`），
+   * 收著不畫 —— 沒勾的那幾列多半是刻意不勾的；也不進收著的那幾行與確認框的「其中 N 段有提醒」（ADR-0138 的紅線只管會寫進去的）。
+   */
+  function whatIfOf(item) {
+    if (savedKeys.has(item.key)) return null;
+    return whatIfChecked(items.filter((i) => !savedKeys.has(i.key)), item.key, ctx);
+  }
+
+  /** 「勾起來的話：」那一塊。字跟勾起來之後那幾行一模一樣（同一支算的），錯誤講「存不下去」。 */
+  function whatIfHtml(w) {
+    if (!w || (!w.problems.length && !w.warnings.length)) return '';
+    return `
+      <div class="abl-row__whatif" data-abl-whatif>
+        <p class="abl-row__say">勾起來的話：</p>
+        ${w.problems.length ? `<ul class="abl-row__problems">${w.problems.map((x) => `<li>存不下去 —— ${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${w.warnings.length ? `<ul class="abl-row__warnings">${w.warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      </div>`;
   }
 
   // ---------- 展開的那一列 ----------
 
-  function detailHtml(item, built, problems, warnings) {
+  function detailHtml(item, built, problems, warnings, whatIf = null) {
     const left = urlOf(item.photos[0]);
     const right = urlOf(item.photos[1] ?? item.photos[0]);
     const r = item.row;
+    // 收的只有原字這一排 —— `mustSee()` 的提醒、對不上的理由都在外面，一個字都不收（ADR-0138）
     const seen = `
-      <div class="abl-row__seen">
-        <span class="abl-row__seenlabel">照片上寫的是</span>
+      <details class="foldout abl-row__seenfold" data-abl-seen="${esc(item.key)}" ${seenOpen.has(item.key) ? 'open' : ''}>
+        <summary>照片上寫的</summary>
+        <div class="abl-row__seen">
         ${seenChip(item.statusText, { photo: left })}
         ${seenChip(r.date, { photo: left })}
         ${seenChip(r.time, { photo: left })}
@@ -493,7 +526,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${seenChip(r.room, { photo: right })}
         ${seenChip(r.resource, { photo: right })}
         ${seenChip(r.cancelReason, { photo: right })}
-      </div>`;
+        </div>
+      </details>`;
 
     if (savedKeys.has(item.key)) return `<div class="abl-row__detail">${seen}<p class="abl-row__say">已經記進日曆了。</p></div>`;
     // 「是誰」每一種都換得掉（還沒記好的列）：認錯人的那一列以前只能整列放棄
@@ -542,7 +576,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         <div class="abl-row__pick">
           <span class="abl-row__picklabel">要做什麼</span>
           ${giftFold.html({
-            options, value, open: foldOpen(options, value), cls: 'abl-row__chips', sm: true,
+            options, value, key: item.key, open: giftOpen.get(item.key) ?? foldOpen(options, value),
+            cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
               sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
@@ -610,7 +645,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');
     } else if (assigns === 'room') {
-      // 認到的是停用的那一間（照片上沒寫床 → 點滴8，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
+      // 認到的是停用的那一間（她主檔上停用的診間，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
       const slots = orderedRoomSlots(course, ctx.master.rooms, { keep: item.roomId });
       const usual = slots.filter((s) => s.usual || s.retired);
       const shown = showAllRooms.has(item.key) || !usual.length ? slots : usual;
@@ -643,6 +678,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${learn}
         ${problems.length ? `<ul class="abl-row__problems">${problems.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${warnings.length ? `<ul class="abl-row__warnings">${warnings.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${whatIfHtml(whatIf)}
       </div>`;
   }
 
@@ -782,11 +818,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   root.addEventListener('toggle', (e) => {
     if (e.target.matches?.('.abl-chg__more')) fillOpen = e.target.open;
     if (e.target.matches?.('.abl__later')) laterOpen = e.target.open;
+    if (e.target.matches?.('[data-abl-seen]')) {
+      if (e.target.open) seenOpen.add(e.target.dataset.ablSeen);
+      else seenOpen.delete(e.target.dataset.ablSeen);
+    }
   }, true);
 
   root.addEventListener('click', (e) => {
     // 「送的／體驗…」與「別的課當體驗」的分類：只改屬性、不重畫這一列（gift-and-trial 04）
-    if (giftFold.toggle(e)) return;
+    if (giftFold.toggle(e, (key, open) => giftOpen.set(key, open))) return;
     const t = e.target.closest('button');
     if (!t || t.disabled || !root.contains(t)) return;
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
@@ -847,7 +887,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
-    if (t.dataset.ablMin) { set({ ...item, minutes: Number(t.dataset.ablMin) }); return; }
+    // 按到那門課的「體驗的時候排幾分」→ 換成體驗（ADR-0154，壓表、來訪編輯器同一支 `trialFromMinutes()`）
+    if (t.dataset.ablMin) { set(pickMinutes(item, Number(t.dataset.ablMin), ctx, items)); return; }
     if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }
     if (t.dataset.ablEq) { set({ ...item, equipmentId: t.dataset.ablEq }); return; }
     if (t.dataset.ablIv) { set({ ...item, ivProductId: t.dataset.ablIv }); return; }
@@ -910,6 +951,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const was = items[at].customerId ?? null;
     // 換成的這一位，別張照片上可能已經有同一段了（同一頁拍了兩次、這一張名字抄錯）—— 再看一次（`markRepeat()`）
     items[at] = markRepeat(resolveItem(items[at], customerId, ctx, items), items);
+    // 換了一位：那一排是他的額度了，開或收回到預設
+    giftOpen.delete(key);
     // 換成的這一位有沒有接得上的健檢（「先去約健檢」那一句）連同這一批重算
     refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
     refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });
@@ -966,6 +1009,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       ctx.master.staff,
     );
     const marks = queueMarksAfter(pressedDays(p), batches);
+    // 名字對上、app 那一位沒有病歷號、她勾了（ADR-0160）→ 存的時候順便記上。數的是這一次會寫的每一列（連「要改的」）
+    const chartNos = photoChartNos(items.filter((i) => !savedKeys.has(i.key)), ctx.customers);
     const nameOf = (id) => ctx.customers.find((c) => c.id === id)?.name ?? '';
     const coursesById = Object.fromEntries((ctx.master.courses ?? []).map((c) => [c.id, c]));
     const people = [...new Set(p.writes.map((w) => w.customerId))];
@@ -996,6 +1041,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       entitlementsBy: ctx.entitlementsBy,
       visitsBy: ctx.visitsBy,
       aliases: aliases.flatMap((a) => a.changes.aboveeNames.slice(-1).map((text) => ({ text, name: a.name }))),
+      chartNos: chartNos.map((c) => ({ name: c.name, chartNo: c.changes.chartNo })),
       marks: marks.map((m) => ({
         names: m.customerIds.map(nameOf),
         month: monthLabel(batches.find((b) => b.id === m.batchId)?.targetMonth ?? ''),
@@ -1022,7 +1068,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         const mine = items.filter((i) => i.customerId === customerId && wantsWrite(i) && !savedKeys.has(i.key));
         if (!mine.length) continue;
         // eslint-disable-next-line no-await-in-loop
-        const fresh = await visitsData.listByCustomer(customerId);
+        // 讀不完整就停在這一位、講出來（ADR-0158；`save()` 也會擋，這裡先擋省得讀完其餘幾份）
+        const fresh = await visitsData.listWhole(customerId, nameOf(customerId));
         // 同一支再算一次；接著同一批別天那一次健檢的，存好了的換成真的 id（跨好幾次按「記錄」，`planToWrite()`）
         const again = planToWrite(mine, { ...ctx, visitsBy: { ...ctx.visitsBy, [customerId]: fresh } }, savedIds);
         // eslint-disable-next-line no-await-in-loop
@@ -1080,6 +1127,16 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         unsent.add('治療師在 Abovee 上的寫法');
       }
     }
+    // 病歷號同一條（ADR-0160）：記好的那幾列才寫、寫好一次就換掉手上那一份（再按一次算出來是空的）
+    for (const c of chartNoWrites(chartNoRows(items.filter((i) => savedKeys.has(i.key))), ctx.customers)) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await customersData.update(c.id, c.changes);
+        ctx = { ...ctx, customers: ctx.customers.map((x) => (x.id === c.id ? { ...x, ...c.changes } : x)) };
+      } catch {
+        unsent.add('客戶的病歷號');
+      }
+    }
     for (const m of queueMarksAfter(savedDays, batches)) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -1106,7 +1163,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       const stale = i.missedWhy === 'stale' ? { diffs: null } : {};
       items[at] = i.missedField
         ? { ...items[at], [i.missedField]: false, ...(i.missedField === 'adopt' ? stale : {}) }
-        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false };
+        : { ...items[at], adopt: false, ...stale, adoptStatus: false, adoptMove: false, adoptCharge: false };
     }
     if (closed) {
       if (missedLine) toast.failed(`記好了 ${savedCount} 段${missedLine}`);

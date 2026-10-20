@@ -23,7 +23,7 @@ import { contraindicationTerms } from './contraindications.js';
 import { SEED, seedData } from './seed.js';
 import {
   clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
-  isUncounted,
+  isUncounted, trialMinutesOf, giftKindOf,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import {
@@ -33,12 +33,13 @@ import { followupName } from './nthFollowup.js';
 import { urgency } from './taskRules.js';
 import { monthLabel } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
-import { overlaps, isValidTime, toMinutes } from './visitTime.js';
+import { overlaps, isValidTime, toMinutes, endOf } from './visitTime.js';
 import {
   VISIT_STATUSES, isActive, isOpenStatus, visitStatusFrom, describeStatus, roomCapacityOf, slotStatus, slotMinutes, shortStatus,
 } from './visits.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
 import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
+import { chartNoMove } from './customerNotes.js';
 
 /**
  * ## 「去看看」只剩指向主檔設定的那幾顆（2026-09-16）
@@ -64,6 +65,9 @@ import { CHART_NO_PREFIX, OLD_CHART_NO_PREFIX } from './legacyImport.js';
  *
  * **`who`／`whoId`（選填）是那一筆講的是哪一位客戶**（名字與 id，2026-10-07，issue 18）：畫面照 `whoId`
  * 把同一位的好幾筆收成一列、抬頭印 `who`。只有講得出是哪一位的那幾種才帶；沒有它的照舊一筆一列。
+ *
+ * **`notice: true`（選填）是「只是提醒」**（ADR-0150）：那一項有東西、但沒有要她做的事 —— 畫面收成一行、
+ * 預設收著、不算「有 N 項要你看」。它不改那幾筆的 `severity`、`fix`，只管畫在哪、算不算數。
  *
  * 檢查的順序就是畫面上的順序：先資料對不起來的，再輪到要她處理的事（畫面上照嚴重度再分兩組）。
  * id 會出現在網址與稽核訊息裡，不要改。
@@ -114,8 +118,11 @@ export const CHECKS = [
   },
   {
     id: 'staleAvailability',
-    label: '資料過期',
-    hint: '本輪可用性已過有效期，排序會失真',
+    // 她 10/18 指名的字（「不要說麼可用性甚麼的，看不懂」）；以前叫「資料過期」
+    label: '還沒問這輪方便的時間',
+    hint: '還有次數沒排、這一輪方便的時間還沒問過（或上一次問的已經過了）—— 壓表那一頁先壓誰會比較不準，知道就好',
+    // **只是提醒**（ADR-0150）：知道就好、沒有要做的事 —— 收成一行、預設收著、不算「有 N 項要你看」
+    notice: true,
   },
   {
     id: 'duplicateAvailability',
@@ -151,8 +158,8 @@ export const CHECKS = [
   {
     id: 'importedLabel',
     label: '匯進來的額度還叫舊表的名字',
-    hint: '匯入時算不出 app 的寫法（健檢的金額與部位、營養針、EECP體驗），'
-      + '所以原字留著等你自己改 —— 改一筆少一列',
+    hint: '匯入時照舊表原字留著的額度名字（健檢的金額與部位、營養針那一類）。要改再到客戶頁改那一筆額度，不改也沒關係',
+    notice: true,
   },
   {
     id: 'alertTerm',
@@ -174,7 +181,7 @@ export const CHECKS = [
   {
     id: 'roomList',
     label: '診間清單跟建議的不一樣',
-    hint: '建議的診間清單改過幾次（多了 VIP 室、治6、治7、VIP1，點滴8 與 VIP7 拆成 A／B 各自一間）。原本的點滴8、VIP7 停用不刪 —— 沒選床位的舊來訪照樣印得出來',
+    hint: '建議的診間清單改過幾次（多了 VIP 室、治6、治7、VIP1，點滴8 與 VIP7 拆成 A／B 各自一間）。原本的點滴8、VIP7 沒有任何一段排在上面就刪掉；還有段排在上面的先停用，那幾段照樣印得出來',
   },
   {
     id: 'slotBeds',
@@ -221,7 +228,7 @@ export const CHECKS = [
   {
     id: 'courseDuration',
     label: '課程的時長跟建議的不一樣',
-    hint: '主檔上的時長還是舊的（EECP 60 分、營養點滴 120 分、EECP體驗 20 分）—— 排出去的那一段會照舊的長度算',
+    hint: '主檔上的時長還是舊的（EECP 60 分、營養點滴 120 分）—— 排出去的那一段會照舊的長度算',
   },
   {
     id: 'seedIvProduct',
@@ -260,6 +267,19 @@ export const CHECKS = [
     id: 'followupDouble',
     label: '同一次健檢接了兩場二返',
     hint: '一次健檢配一場二返，要多約一場用「＋ n返」—— 只列出來，不自動改',
+  },
+  // 2026-10-18（ADR-0154）：接在最後，理由同上
+  {
+    id: 'eecpTrialCourse',
+    label: '「EECP體驗」那一門還在',
+    hint: 'EECP 合成一門了：約的時候選 20 就是體驗。還指著舊的那一門的段改成 EECP 的體驗（20 分、狀態不動），'
+      + '接著刪掉那一門；有額度扣著它的只列出來，要改成什麼你決定',
+  },
+  {
+    id: 'chartNoField',
+    label: '病歷號還寫成一則短備註',
+    hint: '病歷號現在有自己一格（編輯客戶資料裡填），在備註那一段是一顆病歷號的丸子 ——'
+      + ' 還寫成「病歷號 1234」短備註的，放進那一格之後位置不變；寫了兩個不一樣號碼的只列出來，你決定是哪一個',
   },
 ];
 
@@ -751,7 +771,7 @@ function checkOverdueTasks(ctx) {
     }));
 }
 
-// ---------- 八、資料過期 ----------
+// ---------- 八、還沒問這輪方便的時間（以前叫「資料過期」）----------
 //
 // 過期的可用性不會擋任何事，但會讓壓表的排序失真 ——
 // 「可用天數最少的優先」建立在那份資料還有效的前提上。
@@ -780,9 +800,10 @@ function checkStaleAvailability(ctx) {
       who: customer.name,
       whoId: customer.id,
       title: customer.name,
+      // 不叫她去待辦的「問這輪的時間」—— 那一列之後預設藏起來（同一輪 issue 07）
       detail: collections.length
-        ? `最近一份可用性收集已過有效期，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`
-        : `從來沒收集過可用性，還有 ${remaining} 次沒排。到「待辦」的「問這輪的時間」問這位客戶一次`,
+        ? `上一次問的已經過了，還有 ${remaining} 次沒排`
+        : `從來沒問過，還有 ${remaining} 次沒排`,
       link: null,
       fix: null,
     });
@@ -846,6 +867,9 @@ function checkChartNo(ctx) {
   const out = [];
 
   for (const customer of alive(ctx.customers)) {
+    // 搬得進病歷號那一格的那幾位由最後一項（`chartNoField`）收，連舊的說法一起 —— 兩項都給一顆的話，
+    // 同一批按下去兩筆都寫這一位的 `marks`，後寫的蓋掉先寫的
+    if (chartNoMove(customer)?.changes) continue;
     const marks = readMarks(customer);
     const stale = marks.filter((m) => m.text.startsWith(OLD_CHART_NO_PREFIX));
     if (!stale.length) continue;
@@ -865,6 +889,8 @@ function checkChartNo(ctx) {
       fix: {
         kind: 'renameChartNo',
         customerId: customer.id,
+        // 寫回去的是整包 `marks`／`notes`：別台在快照之後改過這一位的備註就不蓋（段四審查，同 issue 12）
+        updatedAt: customer.updatedAt ?? null,
         label: customer.name,
         // **兩個欄位一起寫。** `notes` 是那幾則備註接起來的純文字，
         // 試算表報表與壓表卡片讀的是它 —— 只改 marks 會讓兩邊從此對不起來。
@@ -994,7 +1020,8 @@ function checkSlotMinutes(ctx) {
       const length = toMinutes(slot.endsAt) - toMinutes(slot.startsAt);
       if (length !== Number(e.durationMin)) return;
       const course = ctx.coursesById[slot.courseId] ?? ctx.coursesById[e.courseId];
-      const should = slotMinutes({ entitlement: null, course, ivProduct: null, minutes: null });
+      // 只收扣著額度的段（上面那一行），所以不是體驗
+      const should = slotMinutes({ entitlement: null, course, ivProduct: null, minutes: null, giftKind: null });
       if (should === length) return;
 
       const who = visit.customerName ?? nameOf(ctx, visit.customerId);
@@ -1227,7 +1254,7 @@ function checkEquipmentCourse(ctx) {
 
 // 種子的一列 → 要建起來的那一份（去掉 id、啟不啟用照種子寫的）：`seed.js` 的 `seedData()`。
 // 這裡以前有一支只去掉 id 的 `withoutId()`，每一個呼叫端再自己補 `active: true` ——
-// 種子有了停用的列（點滴8、VIP7，ADR-0127）之後那樣寫會把它們建成啟用的。
+// 種子有了停用的列（點滴8、VIP7，ADR-0127；2026-10-18 刪掉了，ADR-0155）之後那樣寫會把它們建成啟用的。
 
 /**
  * 她還開著的那幾筆裡，有沒有一筆叫這個名字（**id 不是種子的也算**）。
@@ -1263,6 +1290,15 @@ const LEGACY_ROOMS = [
 const RETURNED_ROOMS = ['room-t7'];
 
 /**
+ * 2026-10-06～10-18 種子上停用的那兩間：「沒選床位」的點滴8、VIP7（ADR-0127）。2026-10-18 從種子刪掉了（ADR-0155）。
+ * 她：「沒有舊資料的問題，刪掉之後幫我合併檔更新就好」—— 正路是合併檔重匯；還留著它們的資料庫走這一份（保險）。
+ */
+const BEDLESS_ROOMS = [
+  { id: 'room-iv8', name: '點滴8' },
+  { id: 'room-vip7', name: 'VIP7' },
+];
+
+/**
  * 十五、診間清單跟建議的不一樣。
  *
  * 四種形狀，一種一個 `mode`：
@@ -1271,11 +1307,14 @@ const RETURNED_ROOMS = ['room-t7'];
  *   restore  種子有、她照建議刪掉了     → 還原（只有治7）
  *   drop     種子拿掉了、她還開著       → 刪掉（治9／治10／ILIB4）
  *   short    種子有簡寫、她那一格是空的 → 填上（`.2`、`vip2`）
- *   retire   種子上停用、她還開著       → **停用，不刪**（點滴8、VIP7，ADR-0127）
  *
- * `retire` 那一種：點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，原本那兩間是「沒選床位」的那一間。
- * **不可以放進 `LEGACY_ROOMS`**（那一份走的是刪掉）—— 既有來訪還指著它，她要的是照樣印得出 `.8`。
- * 排在「建起來」的後面：一次全按時新的那幾間同一個 commit 建好。種子上停用的那一間她主檔上沒有時不建。
+ * 沒選床位的點滴8、VIP7（`BEDLESS_ROOMS`，ADR-0155）另外兩種，排在「建起來」的後面（一次全按時 8A／8B 同一個 commit 建好）：
+ *
+ *   drop     **沒有任何一段排在它上面** → 刪掉（8A、8B 是各自的診間，它不用再在了）
+ *   retire   有段排在上面、她還開著     → **停用，不刪**：新排的選不到，那幾段照樣印得出 `.8`
+ *
+ * 有段排在上面、已經停用的不報（ADR-0127 那一代的樣子，沒有要做的事 —— 已完成的那幾段也改不了診間）。
+ * **不可以放進 `LEGACY_ROOMS`**（那一份不看有沒有段排在上面就刪）。
  *
  * 三種都**只在她那一格還是原樣的時候報**：她自己改過的名字、她自己加的診間、
  * 她自己填過的簡寫，一個都不動（同 `checkPoolLabels()` 那條）。
@@ -1293,12 +1332,11 @@ function checkRoomList(ctx) {
   // 會一次冒出十七列。同 `checkSeedEquipment()` 那道護欄的判斷。
   const seeded = (SEED.rooms ?? []).some((row) => byId[row.id]);
 
-  const retire = [];
-
   for (const row of SEED.rooms ?? []) {
     const mine = byId[row.id];
     // 她自己另外建了一間同名的 → 那一間就是它，不建也不還原第二間
     const twin = sameNamed(ctx.rooms, row.name);
+    // 種子上停用的那一列她主檔上沒有時不建（現在沒有這種列，ADR-0155；`seedData()` 那一套留著）
     const retired = row.active === false;
     if (!mine) {
       if (!seeded || twin || retired) continue;
@@ -1328,18 +1366,6 @@ function checkRoomList(ctx) {
       continue;
     }
 
-    // 種子上停用的那一間（點滴8、VIP7）：她還開著、名字也還是原樣才請她停用。
-    // 改過名字就是拿去當別的用了；已經停用的不念
-    if (retired && mine.active !== false && fullNameOf(mine) === row.name) {
-      retire.push({
-        severity: 'attention',
-        title: mine.name,
-        detail: `新的清單上它拆成 ${row.name}A、${row.name}B 兩間各自的診間。停用之後排班時選不到「${row.name}」，`
-          + '已經排在那一間的來訪一個字都不動、照樣印得出來（沒選床位的就是它）',
-        link: '#/settings/rooms',
-        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
-      });
-    }
 
     // 簡寫那一格是空的才補。她自己填過別的就是一個決定。
     const short = String(mine.shortName ?? '').trim();
@@ -1357,7 +1383,34 @@ function checkRoomList(ctx) {
     }
   }
 
-  out.push(...retire);
+  // 沒選床位的那兩間（ADR-0155）。改過名字就是拿去當別的用了，不念
+  const onIt = (id) => (ctx.visits ?? []).filter((v) => !v.deletedAt)
+    .reduce((n, v) => n + (v.slots ?? []).filter((slot) => slot?.roomId === id).length, 0);
+  for (const row of BEDLESS_ROOMS) {
+    const mine = byId[row.id];
+    if (!mine || mine.deletedAt || fullNameOf(mine) !== row.name) continue;
+    const n = onIt(row.id);
+    const split = `${row.name}A、${row.name}B 是各自的診間`;
+    if (!n) {
+      out.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `沒寫哪一床的那一間 —— ${split}，沒有任何一段排在它上面了，刪掉`,
+        link: '#/settings/rooms',
+        // `bedless`：確認框不講「排在那一間的來訪會印不出診間」—— 一段都沒有
+        fix: { kind: 'applyRoom', mode: 'drop', roomId: row.id, label: mine.name, bedless: true },
+      });
+    } else if (mine.active !== false) {
+      out.push({
+        severity: 'attention',
+        title: mine.name,
+        detail: `沒寫哪一床的那一間 —— ${split}。還有 ${n} 段排在它上面，先停用：排班時選不到「${row.name}」，`
+          + '那幾段一個字都不動、照樣印得出來',
+        link: '#/settings/rooms',
+        fix: { kind: 'applyRoom', mode: 'retire', roomId: row.id, label: mine.name },
+      });
+    }
+  }
 
   for (const row of LEGACY_ROOMS) {
     const mine = byId[row.id];
@@ -1452,7 +1505,7 @@ function checkSlotBeds(ctx) {
           title: label,
           detail: `${moved.join('、')}${cleared.length ? `；清掉床位 ${cleared.join('、')}` : ''}`,
           link: null,
-          fix: { kind: 'moveBedToRoom', visitId: visit.id, label, slots, moves: moved, cleared },
+          fix: { kind: 'moveBedToRoom', visitId: visit.id, updatedAt: visit.updatedAt ?? null, label, slots, moves: moved, cleared },
         };
       }
       return {
@@ -1460,7 +1513,8 @@ function checkSlotBeds(ctx) {
         title: label,
         detail: `清掉床位 ${cleared.join('、')}`,
         link: null,
-        fix: { kind: 'clearBeds', visitId: visit.id, label, slots },
+        // 寫回去的是整包 slots：帶著快照那一刻的 updatedAt，別台改過那一天就不蓋（`data/health.js`，issue 12）
+        fix: { kind: 'clearBeds', visitId: visit.id, updatedAt: visit.updatedAt ?? null, label, slots },
       };
     });
 }
@@ -1638,6 +1692,8 @@ function checkVisitStatusDerived(ctx) {
         fix: {
           kind: 'restatVisit',
           visitId: visit.id,
+          // 狀態是照快照的時段推的：別台在那之後改過那一天就不寫（段四審查，同 issue 12）
+          updatedAt: visit.updatedAt ?? null,
           label: `${who}・${visit.date}`,
           status: want,
           fromLabel: describeStatus(visit.status),
@@ -1684,7 +1740,7 @@ function checkCourseRecord(ctx) {
  * 那一門**一條路都沒有** —— 而症狀跟「本來就沒有那一種」長得一模一樣
  * （同 `checkSeedEquipment()` 檔頭講的 ILIB 那一台）。
  *
- * 2026-09-16 那一門 `EECP體驗` 就是第一個踩到的（ADR-0098 那一輪的 issue 06）。
+ * 2026-09-16 那一門 `EECP體驗` 就是第一個踩到的（ADR-0098 那一輪的 issue 06；2026-10-18 合成一門、種子上刪了，ADR-0154）。
  *
  * **護欄跟器材那一列同一個理由**：自己從零建主檔、一個種子 id 都沒有的資料庫
  * （測試夾具就是）不可以被念 —— 那時候缺的不是一門課，是整份主檔。
@@ -1831,12 +1887,12 @@ function checkSeedStaff(ctx) {
 }
 
 /**
- * 2026-10-05 之前種子上 EECP 那兩門課只准排的那兩間。治7 回來之後多一間（ADR-0124）。
+ * 2026-10-05 之前種子上 EECP 只准排的那兩間。治7 回來之後多一間（ADR-0124）。
+ * （那時候還有一門「EECP體驗」，2026-10-18 合成一門、種子上刪了 —— 既有資料庫上那一門由最後一項收掉，ADR-0154）
  * **她那一份還跟這個一模一樣才建議改** —— 她自己收窄或放寬過就是一個決定。
  */
 const LEGACY_ROOM_LIMITS = {
   'course-eecp': ['room-t5', 'room-t8'],
-  'course-eecp-trial': ['room-t5', 'room-t8'],
 };
 
 /**
@@ -1845,7 +1901,7 @@ const LEGACY_ROOM_LIMITS = {
  * 這一輪主檔多了好幾格（分類 02、要哪一科的醫師 04、約的時候選時長 06、Abovee 上的寫法 07），
  * 種子都填好了，而 `loadSeed()` 只建不覆蓋。每一格**讀的那一側都有退路**（沒填就照舊的算），
  * 所以既有資料庫不會壞 —— 但拍 Abovee 靠 `aboveeNames` 認字，空著就是認不得：
- * `高能量60`、`雪顏亮采` 認不出來，`EECP20` 拆成「EECP＋20 分」認成正式課。
+ * `高能量60`、`雪顏亮采` 認不出來（`EECP20` 2026-10-18 起本來就拆成「EECP＋20 分」→ 體驗，要的是 EECP 的「體驗的時候排幾分」，ADR-0154）。
  *
  * **一格一列**（她看得到補的是哪一格、補成什麼），修正一律只寫那一格。護欄：
  *
@@ -1909,7 +1965,7 @@ function checkSeedBlanks(ctx) {
             why: '排這門課時那一科的醫師排前面，其餘收在「其他醫師」後面 —— 是順序不是限制',
           });
         }
-        // 預設體驗（`uncounted`，2026-10-14，gift-and-trial 05：心臟科評估、EECP體驗；那一格 09 改名）。**連 `false` 也報**：設定頁每存一次課程
+        // 預設體驗（`uncounted`，2026-10-14，gift-and-trial 05：心臟科評估；那一格 09 改名）。**連 `false` 也報**：設定頁每存一次課程
         // 都寫 `uncounted: !!v.uncounted`，存過的課就是 false —— 分不出刻意取消與從來沒勾過，代價是她之後刻意取消時
         // 這一列會一直在。改過名字的不報（那已經是她的課了）。不用走 ADR-0140 的重算：待辦不讀這一格
         if (isUncounted(row) && !isUncounted(mine) && mine.name === row.name) {
@@ -1920,11 +1976,25 @@ function checkSeedBlanks(ctx) {
           });
         }
         const booking = bookingMinutesOf(row);
+        // 體驗的時候排幾分（ADR-0154，EECP 20）：要在「約的時候可選」裡、不等於預設時長才補得上（`validate()`）——
+        // 兩格都空著時**同一列一起補**：分兩列的話她只按了這一格，那門課在設定頁存不回去
+        const trial = trialMinutesOf(row);
+        const trialFits = (list) => trial != null && trialMinutesOf(mine) == null && mine.trialMinutes == null
+          && list.includes(trial) && trial !== Number(mine.durationMin);
         if (booking.length && empty(mine.bookingMinutes) && empty(mine.durationChoices)
             && booking.includes(Number(mine.durationMin))) {
+          const withTrial = trialFits(booking);
           push(type, mine, {
-            what: '約的時候選時長', to: `${booking.join('、')} 分`, changes: { bookingMinutes: booking },
-            why: `約的時候多一排「排多久」，預設 ${mine.durationMin} 分；已經排出去的不動`,
+            what: withTrial ? '約的時候選時長與體驗的時候排幾分' : '約的時候選時長',
+            to: `${booking.join('、')} 分${withTrial ? `、體驗 ${trial} 分` : ''}`,
+            changes: withTrial ? { bookingMinutes: booking, trialMinutes: trial } : { bookingMinutes: booking },
+            why: `約的時候多一排「排多久」，預設 ${mine.durationMin} 分；已經排出去的不動`
+              + (withTrial ? `。按 ${trial} 分那一顆就是體驗、不扣次數` : ''),
+          });
+        } else if (trialFits(bookingMinutesOf(mine))) {
+          push(type, mine, {
+            what: '體驗的時候排幾分', to: `${trial} 分`, changes: { trialMinutes: trial },
+            why: `約的時候按 ${trial} 分那一顆就是體驗、不扣次數；當體驗排的時候預設 ${trial} 分。已經排出去的不動`,
           });
         }
 
@@ -2180,6 +2250,165 @@ function checkFollowupDouble(ctx) {
   return out;
 }
 
+/**
+ * 三十六、「EECP體驗」那一門還在（2026-10-18，staging-polish 09，ADR-0154）。
+ *
+ * EECP 合成一門：約的時候 20／60、體驗的時候排 20。種子上那一門刪掉了（她：「我希望他直接不要」），
+ * **正路是合併檔一開始就對**（staging 合進去之後 `staging:reset` 重匯）；這一列是保險 —— 她 10/18：
+ * 「除了資料健檢多一列之外我希望下次我再匯入的時候就是最新的了」。
+ *
+ * - 指著那一門、**沒有扣額度**的段 → EECP 的體驗（送的照舊是送的）、排多久照「體驗的時候排幾分」、名字快照照 EECP；
+ *   **狀態一格都不動**（已完成的也搬：這是資料修正，同 `moveBedToRoom` 不問鎖）
+ * - **那一門身上有額度、或有段扣著額度** → 只列不修：那是當初買的，要變成什麼她決定（一位一列，講幾筆、幾段）
+ * - 沒有東西擋著 → **一列一顆按鈕**：那幾段改好、接著刪掉那一門（軟刪除，「已刪除項目」還原得回來）。
+ *   分成兩列的話「一次修正」會把同一筆來訪寫兩次，只按「刪掉那一門」又會留下幾段指著刪掉的課
+ * - 有東西擋著 → 那一門留著；沒扣額度的段一位一列照樣改得了（`trialSlotsToCourse`）
+ * - 主檔上的 EECP 還沒有「體驗的時候排幾分」→ 只列：先按「主檔有幾格還沒跟上」補那一格 ——
+ *   不然改過去的段下一次在日曆存檔，`slotMinutes()` 認不得那個 20，照課程排回 60 分
+ *
+ * 只認種子那個 id：她自己另外建的同名課不是種子那一門，名字也可能改過。
+ */
+const OLD_TRIAL_COURSE_ID = 'course-eecp-trial';
+
+function checkEecpTrialCourse(ctx) {
+  const old = ctx.coursesById[OLD_TRIAL_COURSE_ID];
+  if (!old || old.deletedAt) return [];
+  const eecpRow = ctx.coursesById['course-eecp'];
+  const eecp = eecpRow && !eecpRow.deletedAt ? eecpRow : null;
+  const trial = trialMinutesOf(eecp);
+  const oldName = old.name ?? 'EECP體驗';
+
+  const ents = ctx.entitlements.filter((e) => !e.deletedAt && e.courseId === OLD_TRIAL_COURSE_ID);
+  const entIds = new Set(ents.map((e) => e.id));
+  const onOld = (slot) => slot?.courseId === OLD_TRIAL_COURSE_ID;
+  const freeSlot = (slot) => onOld(slot) && !slot.entitlementId;
+  const paidSlot = (slot) => (onOld(slot) && Boolean(slot.entitlementId)) || entIds.has(slot?.entitlementId);
+  const visits = ctx.visits.filter((v) => !v.deletedAt);
+  const withFree = visits.filter((v) => (v.slots ?? []).some(freeSlot));
+  const freeCount = (list) => list.reduce((n, v) => n + (v.slots ?? []).filter(freeSlot).length, 0);
+  const coursesById = ctx.coursesById;
+
+  // 擋著的：一位一列（額度幾筆、扣著它的段幾段）
+  const blockers = new Map();
+  const bump = (id, field) => {
+    const row = blockers.get(id) ?? { ents: 0, slots: 0 };
+    row[field] += 1;
+    blockers.set(id, row);
+  };
+  for (const e of ents) bump(e.customerId, 'ents');
+  for (const v of visits) for (const slot of v.slots ?? []) if (paidSlot(slot)) bump(v.customerId, 'slots');
+  const blocked = [...blockers].map(([id, n]) => ({
+    severity: 'attention',
+    who: nameOf(ctx, id),
+    whoId: id,
+    title: `${nameOf(ctx, id)}・${oldName}`,
+    detail: [n.ents ? `身上有 ${n.ents} 筆額度是「${oldName}」` : '', n.slots ? `${n.slots} 段扣著它的額度` : '']
+      .filter(Boolean).join('、')
+      + ' —— 那是當初買的，要變成 EECP 的哪一種你決定（到客戶頁改那一筆額度、那幾段去日曆改）。這一門先留著',
+    link: null,
+    fix: null,
+  }));
+
+  if (!eecp || trial == null) {
+    const n = freeCount(withFree);
+    return [{
+      severity: 'attention',
+      title: oldName,
+      detail: (n ? `${n} 段要改成 EECP 的體驗 —— ` : '')
+        + (eecp
+          ? '先按上面「主檔有幾格還沒跟上」把 EECP 的「約的時候選時長」「體驗的時候排幾分」補上，這一列才改得了'
+          : '你的主檔上沒有 EECP 那一門，那幾段沒有地方可以搬'),
+      link: '#/settings/courses',
+      fix: null,
+    }, ...blocked];
+  }
+
+  const moved = (slot) => {
+    const giftKind = giftKindOf(slot, coursesById) ?? 'trial';
+    return {
+      ...slot,
+      courseId: eecp.id,
+      courseName: eecp.name,
+      giftKind,
+      minutes: trial,
+      endsAt: isValidTime(slot.startsAt) ? endOf(slot.startsAt, trial) : slot.endsAt,
+      equipmentId: null,
+      ivProductId: null,
+    };
+  };
+  const rewrite = (v) => ({ visitId: v.id, updatedAt: v.updatedAt ?? null, slots: (v.slots ?? []).map((slot) => (freeSlot(slot) ? moved(slot) : slot)) });
+
+  if (!blocked.length) {
+    const n = freeCount(withFree);
+    const people = new Set(withFree.map((v) => v.customerId)).size;
+    return [{
+      severity: 'attention',
+      title: oldName,
+      detail: (n ? `${people} 位・${n} 段改成 EECP 的體驗、${trial} 分（狀態不動）；接著刪掉「${oldName}」這一門` : `沒有任何一段或額度指著它了 —— 刪掉「${oldName}」這一門`)
+        + `。EECP 只剩一門，約的時候選 ${trial} 分就是體驗`,
+      link: '#/settings/courses',
+      fix: { kind: 'retireTrialCourse', label: oldName, courseId: OLD_TRIAL_COURSE_ID, eecpName: eecp.name, trial, slots: n,
+        visits: withFree.map(rewrite) },
+    }];
+  }
+
+  const byCustomer = new Map();
+  for (const v of withFree) byCustomer.set(v.customerId, [...(byCustomer.get(v.customerId) ?? []), v]);
+  const fixable = [...byCustomer].map(([id, list]) => {
+    const n = freeCount(list);
+    return {
+      severity: 'attention',
+      who: nameOf(ctx, id),
+      whoId: id,
+      title: `${nameOf(ctx, id)}・${oldName}`,
+      detail: `${n} 段改成 EECP 的體驗、${trial} 分（狀態不動）`,
+      link: null,
+      fix: { kind: 'trialSlotsToCourse', label: `${nameOf(ctx, id)}・${oldName}`, eecpName: eecp.name, trial, slots: n,
+        visits: list.map(rewrite) },
+    };
+  });
+  return [...blocked, ...fixable];
+}
+
+/**
+ * 病歷號還寫成一則短備註（ADR-0160，2026-10-19）。
+ *
+ * 病歷號現在是一格（`customer.chartNo`）；舊表匯進來的寫成「病歷號 1234」短備註（ADR-0050）。
+ * 認人兩種都認（`identify.js` 的 `chartNosOf()`），所以這一項不是「認不出來」—— 是那一則還佔著一則短備註
+ * （壓表卡片牆、試算表的備註都畫它），而那一格空著。搬家只有 `chartNoMove()` 一支（匯入也是它）：
+ * 位置不變、其餘短備註的顏色與先後不變。**兩則不一樣、或那一格已經是另一個號碼 → 只列不修**。
+ */
+function checkChartNoField(ctx) {
+  const out = [];
+  for (const customer of alive(ctx.customers)) {
+    const move = chartNoMove(customer);
+    if (!move) continue;
+    const base = { severity: 'attention', who: customer.name, whoId: customer.id, title: customer.name, link: null };
+    if (move.blocked) {
+      out.push({
+        ...base,
+        detail: `記著 ${move.nos.length} 個不一樣的病歷號（${move.nos.join('、')}）—— 到這一位的客戶詳情，`
+          + '編輯客戶資料填對的那一個，再把備註裡的那幾則刪掉',
+        fix: null,
+      });
+      continue;
+    }
+    out.push({
+      ...base,
+      detail: `「${readMarks(customer).filter((m) => m.text !== move.changes.marks?.find((x) => x.text === m.text)?.text)
+        .map((m) => m.text).join('、')}」→ 病歷號 ${move.chartNo}`,
+      fix: {
+        kind: 'chartNoToField',
+        customerId: customer.id,
+        updatedAt: customer.updatedAt ?? null,
+        label: customer.name,
+        changes: move.changes,
+      },
+    });
+  }
+  return out;
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
   sameDayVisits: checkSameDayVisits,
@@ -2216,4 +2445,6 @@ const RUNNERS = {
   seedBlanks: checkSeedBlanks,
   courseDuration: checkCourseDuration,
   ivProductDuration: checkIvProductDuration,
+  eecpTrialCourse: checkEecpTrialCourse,
+  chartNoField: checkChartNoField,
 };

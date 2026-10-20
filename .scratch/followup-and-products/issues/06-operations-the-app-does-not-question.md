@@ -1,6 +1,6 @@
 # 不合常理但沒有被擋、也沒有被提醒的操作（盤點，等她決定）
 
-Status: 等她決定
+Status: 結案（她 2026-10-19：1 取消理由不改成必填；2「客戶說可以」按錯不另開退回的路，先不用；3 過期的待確認先不移出「跟客人確認時間」；4–7 照舊）
 來源：使用者，2026-08-27（「我想要請你抓出類似這種不合常理不符合我設計app正常流程但是沒有被擋或是提醒或是處理起來會怪怪的操作，先幫我整理，可以詢問我怎麼辦」）
 動工前先讀：`docs/adr/0002-app-records-decisions-it-does-not-make-them.md`、
 `docs/adr/0006-status-transitions-are-not-enforced-in-rules.md`

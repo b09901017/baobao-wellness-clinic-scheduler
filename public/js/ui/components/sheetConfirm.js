@@ -19,7 +19,8 @@ import {
   MAX_PHOTO_BYTES, readSheet, rowsAdded, sheetFields, sheetLabel, validateSheet, withMatch,
 } from '../../domain/treatmentSheets.js';
 import { needsForm } from '../../domain/visits.js';
-import { nearNameSay } from '../../domain/identify.js';
+import { nearNameSay, chartNoSay, chartNoWrites } from '../../domain/identify.js';
+import * as customersData from '../../data/customers.js';
 import { searchCustomers } from '../../domain/customers.js';
 import { shortDate } from '../../domain/dates.js';
 import { icon } from '../icons.js';
@@ -188,10 +189,13 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
     // 病歷號對上、名字差一個字的那一種（ADR-0128）多一句 —— 照片存到他底下，認錯的代價比拍 Abovee 重
     if (who && !card.finding) {
       const near = nearNameSay(draft.who, card.photo.transcript?.customerName, draft.customerId);
+      // 名字對上、app 那一位沒有病歷號、照片上有（ADR-0160）：照片會存到他底下 —— 講一句，存的時候順便記上
+      const chart = chartNoSay(draft.who, card.photo.transcript?.customerNumber, draft.customerId, { then: '照常存' });
       return part('是誰', `
         <span class="tsc__line">${seen}
           <button class="btn btn--sm btn--ghost" type="button" data-tsc-find>換一位</button></span>
-        ${near ? `<p class="tsc__say tsc__say--near">${esc(near)}</p>` : ''}`);
+        ${near ? `<p class="tsc__say tsc__say--near">${esc(near)}</p>` : ''}
+        ${chart ? `<p class="tsc__say tsc__say--near">${esc(chart)}</p>` : ''}`);
     }
     return part('是誰', `
       <span class="tsc__line">${seen}</span>
@@ -465,6 +469,7 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
       }
       card.state = 'saved';
       savedCount += 1;
+      await recordChartNo(card);
       // 同一批裡的下一張可能是同一張紙：重讀一次，下一張的「同一張」才算得到這一張
       try {
         ctx.sheets = await sheetsData.listAll();
@@ -485,6 +490,26 @@ export function openSheetConfirm({ photos, release, ctx: given, onFinish }) {
       return;
     }
     paintAll();
+  }
+
+  /**
+   * 名字對上、app 那一位沒有病歷號（ADR-0160）：療程單存好了就順便把照片上的號碼記上（同拍 Abovee，`chartNoWrites()`）。
+   * 寫不成不擋那一張療程單（它已經存好了），講一句。
+   */
+  async function recordChartNo(card) {
+    const writes = chartNoWrites([{
+      who: card.draft.who, chartNo: card.photo.transcript?.customerNumber, customerId: card.draft.customerId,
+    }], ctx.customers);
+    for (const c of writes) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await customersData.update(c.id, c.changes);
+        ctx.customers = ctx.customers.map((x) => (x.id === c.id ? { ...x, ...c.changes } : x));
+        toast.info(`${c.name} 的病歷號記成 ${c.changes.chartNo}`);
+      } catch {
+        toast.info(`療程單存好了，${c.name} 的病歷號沒記上 —— 到他的客戶詳情「編輯」補`);
+      }
+    }
   }
 
   // ---------- 收起來 ----------

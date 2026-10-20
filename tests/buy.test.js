@@ -837,11 +837,12 @@ describe('加購那一排：先分類再項目', () => {
     assert.equal(e3.label, '雷射特價');
   });
 
-  test('打開一筆既有的 EECP體驗：第一排亮 EECP、第二排亮 EECP體驗', () => {
-    const e = { ...buy.blank(), courseId: 'course-eecp-trial', label: 'EECP體驗' };
+  // 以前拿 EECP體驗 當例子（EECP 那一類兩門）；2026-10-18 EECP 合成一門（ADR-0154），換一類還有兩門以上的
+  test('打開一筆既有的復健科醫師門診：第一排亮醫師門診、第二排亮那一門', () => {
+    const e = { ...buy.blank(), courseId: 'course-rehab', label: '復健科醫師門診' };
     const html = buy.fields(e, SEEDED);
-    assert.deepEqual(pressedIn(html, 'buy'), ['EECP']);
-    assert.deepEqual(pressedIn(html, 'buyItem'), ['EECP體驗']);
+    assert.deepEqual(pressedIn(html, 'buy'), ['醫師門診']);
+    assert.deepEqual(pressedIn(html, 'buyItem'), ['復健科醫師門診']);
   });
 
   test('按已經亮著的那一類：選好的那一門不被清掉', () => {
@@ -874,7 +875,7 @@ describe('加購那一排：先分類再項目', () => {
     const top = chipsIn(buy.fields(buy.blank(), withEecp), 'buy').map((c) => c.label);
     assert.ok(!top.includes('ILIB'), top.join('/'));
     const inside = chipsIn(buy.fields(tap(withEecp, buy.groupPick('EECP')), withEecp), 'buyItem');
-    // EECP體驗 2026-10-14 起不算次數（gift-and-trial 05）—— 加購那一排不列它
+    // EECP 那一類只有 EECP 一門（2026-10-18 合成一門，ADR-0154）
     assert.deepEqual(inside.map((c) => c.label), ['ILIB', 'EECP']);
   });
 

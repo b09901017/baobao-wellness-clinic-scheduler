@@ -62,7 +62,9 @@ test('T1 壓明天的來訪，跨到明天之後從「來訪前一天」移到�
   await app.go('/');
   const after = await app.text();
   expect(tileCount(after, '逾期'), '死線是昨天了').toBe(1);
-  expect(tileCount(after, '今天')).toBe(0);
+  // 今天那一顆也算還沒簽療程單的那一天（ADR-0152，2026-10-18 以前只數任務、是 0）：
+  // 就是上面那一句「移到簽療程單」
+  expect(tileCount(after, '今天'), '今天那一段還沒簽').toBe(1);
 
   await app.go('/todo/Examine');
   expect(await app.text()).toContain('逾期 1 天');

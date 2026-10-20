@@ -37,11 +37,12 @@ import {
   examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
 } from './followups.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
-import { chargesEntitlement } from './entitlements.js';
+import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { giftKindOf, giftLabel } from './masterData.js';
+import { giftKindOf, giftLabel, bookingMinutesOf } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
-import { timeLabel } from './visitTime.js';
+import { timeLabel, isValidTime, toMinutes } from './visitTime.js';
+import { slotName } from './naming.js';
 
 /** 十秒是 `data/sheetSync.js` 的 `QUIET_MS`。兩邊要一起改。 */
 const SHEET_LINE = '十秒後自動同步到試算表';
@@ -304,9 +305,11 @@ export function relinkedSay(relink, examDate) {
  * 按了那一顆、卻沒有接過來時那一句：健檢照樣記好了，所以要講出這一半沒做（ADR-0070）。
  * `errors`：存檔驗證擋下來的理由（那一次已經被別場接走之類）；沒有就是那一場在這之間被改過了。
  */
-export function notRelinkedSay(relink, errors = []) {
+export function notRelinkedSay(relink, errors = [], { unread = false } = {}) {
   // 開頭先講健檢那一半記好了：她按的那一顆是「記錄，順便…」，只講沒接過來會以為兩件事都沒成
   const which = `健檢記好了；${dayWord(relink?.date)} 那一場${relink?.name ?? '二返'}沒有接過來`;
+  // 重讀那一下沒讀成、或讀到的不是全部（離線、快取，ADR-0158）：不是別的地方改過
+  if (unread) return `${which} —— 網路不穩，讀不到全部的紀錄；連上之後去日曆點那一場改「這是哪一次健檢的」`;
   return errors?.length
     ? `${which}：${errors[0]} —— 去日曆點那一場改「這是哪一次健檢的」`
     : `${which} —— 它剛剛在別的地方改過，去日曆看那一天`;
@@ -389,6 +392,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @param {Record<string, {entitlements: object[], tasks: object[]}|null>} [o.chainBy] 每一位的 `chainInputs()` —— 健檢那條鏈
  *   （約二返長出來／收掉、追蹤健檢報告、還接在被取消或改成未到的健檢後面的二返）**這一位全部套上去之後算一次**（中途長出來的存完收掉，`chainLeftovers()`）
  * @param {{text: string, name: string}[]} [o.aliases] 會記住的寫法（`aliasWrites()`，畫面換好名字）
+ * @param {{name: string, chartNo: string}[]} [o.chartNos] 會順便記上的病歷號（`identify.js` 的 `chartNoWrites()`，ADR-0160）
  * @param {{names: string[], month: string}[]} [o.marks] 誰在哪個月的壓表清單上標成壓完
  * @param {{customerName: string, date: string, texts: string[]}[]} [o.flagged] **這一次真的要寫的段**裡，
  *   身上有會改變寫入結果的提醒的那幾段（一段一筆；`photoDayPlan()` 的 `mustSeeBy`）。
@@ -398,7 +402,7 @@ export const changeChargeSay = (charge, { free = false } = {}) => timesSay(charg
  * @returns {{title: string, lines: string[]}}
  */
 export function aboveeConsequences({
-  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], marks = [], adopts = [], flagged = [],
+  plan = null, groups: given = [], coursesById = {}, today = null, tasksByVisit = {}, aliases = [], chartNos = [], marks = [], adopts = [], flagged = [],
   entitlementsBy = {}, visitsBy = {}, chainBy = {},
 }) {
   const p = plan ?? planOfGroups(given, adopts, visitsBy);
@@ -445,6 +449,11 @@ export function aboveeConsequences({
   const moves = changes.filter((r) => r.kind === 'move');
   if (moves.length) {
     lines.push(`照 Abovee 改期 ${moves.length} 段 —— 原本的時間取消、新的時間接在後面${changeChargeSay(sumCharge(moves), { free: moves.every((r) => r.free) })}`);
+  }
+  // 扣法跟 Abovee 不一樣（ADR-0154：EECP20 對上 app 上扣額度的 EECP 60，或反過來）
+  for (const [to, what] of [['trial', '體驗、不扣次數'], ['counted', '扣額度']]) {
+    const list = changes.filter((r) => r.kind === 'charge' && r.to === to);
+    if (list.length) lines.push(`照 Abovee 改成${what} ${list.length} 段${changeChargeSay(sumCharge(list))}`);
   }
 
   // 提醒排在最前面（ADR-0138）：它是這一道裡唯一「不看就會記錯」的東西。同一天同一句只講一次
@@ -564,6 +573,7 @@ export function aboveeConsequences({
   if (filled.length) lines.push(`補上 ${filled.length} 段的${whatOf(filled)}（app 上原本空著）${only}`);
 
   for (const a of aliases) lines.push(`以後 Abovee 上的「${a.text}」都認成 ${a.name}`);
+  for (const c of chartNos) lines.push(`${c.name} 的病歷號記成 ${c.chartNo}`);
   for (const m of marks) lines.push(`${m.names.join('、')} 在 ${m.month}壓表清單上標成壓完`);
 
   const title = n && changedKeys ? `記錄這 ${n} 段、改 ${changedKeys} 段？` : n ? `記錄這 ${n} 段？` : `改這 ${changedKeys} 段？`;
@@ -923,6 +933,84 @@ function bookingLinesOf({ create = [], remove = [] }, visits, tasks) {
 }
 
 /**
+ * 改了健檢或二返的額度（補一筆、刪掉、資料健檢補上）之後，健檢那條鏈三種待辦各會怎麼動 —— 一位客戶、一張一行（ADR-0159）。
+ *
+ * `plan` 是寫入那一支真的在算的那一份（`data/visits.js` 的 `chainAfterEntitlements()` → `syncFollowupTasks()`），
+ * 這裡只翻成話（ADR-0070）。「約二返」那幾張的字跟取消那一道同一支（`bookingLinesOf()`）。
+ *
+ * @param {{create?:object[], remove?:{id:string, reason:string}[]}} plan
+ * @param {object[]} visits 這位客戶的全部來訪（講日期用）
+ * @param {object[]} tasks 這位客戶現有的任務（收起來的那幾張是哪一種）
+ * @returns {string[]}
+ */
+export function chainPlanLines(plan = {}, visits = [], tasks = []) {
+  const examDay = (id) => {
+    const date = (visits ?? []).find((v) => v.id === id)?.date;
+    return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+  };
+  const lines = [];
+  for (const t of plan.create ?? []) {
+    if (t.kind === REPORT_TASK_KIND) lines.push(`待辦會多一張「${REPORT_TASK_KIND}」—— ${examDay(t.visitId)}做完了，報告還沒追`);
+    if (t.kind === SEND_REPORT_TASK_KIND) lines.push(`待辦會多一張「${SEND_REPORT_TASK_KIND}」—— ${examDay(t.visitId)}的報告拿到了`);
+  }
+  for (const r of plan.remove ?? []) {
+    const t = (tasks ?? []).find((x) => x.id === r.id);
+    if (t && t.kind !== FOLLOWUP_TASK_KIND) lines.push(`${examDay(t.visitId)}的「${t.kind}」會收起來 —— ${r.reason}`);
+  }
+  return [...lines, ...bookingLinesOf(plan, visits, tasks)];
+}
+
+/**
+ * 好幾位一起（資料健檢一次補好幾筆二返額度）：照種類數，一種一行（ADR-0159）。逐張講的話二十幾位會是一長串。
+ *
+ * @param {{create?:object[], remove?:object[], tasks?:object[]}[]} plans 每一位一份；`tasks` 給了才數得出收起來的是哪一種
+ * @returns {string[]}
+ */
+export function chainCountLines(plans = []) {
+  const grow = new Map();
+  const drop = new Map();
+  for (const p of plans ?? []) {
+    for (const t of p?.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+    for (const r of p?.remove ?? []) {
+      const kind = (p.tasks ?? []).find((x) => x.id === r.id)?.kind;
+      if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+    }
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  return [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦會多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」會收起來`),
+  ];
+}
+
+/**
+ * 存完之後 toast 接在「已儲存」後面的那半句（before-golive-2026-10-19 issue 17）：改了二返的次數那一張表**沒有確認框**
+ *（她常改，多一道框煩），重算出來的那幾張待辦（ADR-0159）不講的話，待辦上安靜地多一張、少一張。
+ * issue 19 起其他沒有講到鏈的確認框的路也接（加購、拍訂購單加購、改購買日、還原、「把計數欄位改成重算值」）。
+ * 讀寫入那一支真的算的那一份（`chainAfterEntitlements()` 的 `plan`）；沒有動到就是空字串。
+ *
+ * @param {{plan?: {create?: object[], remove?: {id: string}[]}, tasks?: object[]}|null} chain
+ * @returns {string} 例：` —— 待辦多 1 張「約二返」`
+ */
+export function chainSavedSay(chain) {
+  const plan = chain?.plan;
+  if (!plan) return '';
+  const grow = new Map();
+  const drop = new Map();
+  for (const t of plan.create ?? []) grow.set(t.kind, (grow.get(t.kind) ?? 0) + 1);
+  for (const r of plan.remove ?? []) {
+    const kind = (chain.tasks ?? []).find((x) => x.id === r.id)?.kind;
+    if (kind) drop.set(kind, (drop.get(kind) ?? 0) + 1);
+  }
+  const order = [REPORT_TASK_KIND, SEND_REPORT_TASK_KIND, FOLLOWUP_TASK_KIND];
+  const parts = [
+    ...order.filter((k) => grow.has(k)).map((k) => `待辦多 ${grow.get(k)} 張「${k}」`),
+    ...order.filter((k) => drop.has(k)).map((k) => `${drop.get(k)} 張「${k}」收起來了`),
+  ];
+  return parts.length ? ` —— ${parts.join('、')}` : '';
+}
+
+/**
  * 這一筆照 `picks` 結掉之後，存檔那一下健檢那條鏈會怎麼動（`syncFollowupTasks()` 的 `create`／`remove`），
  * 連同試算用的那一份來訪（講日期用）。沒有配得到二返的健檢額度就是 `null`。
  *
@@ -1239,6 +1327,69 @@ export function rebookConsequences({
   return {
     title: where ? `新的時間在 ${where} 壓好了嗎？` : '改到新的時間？',
     lines,
+  };
+}
+
+/**
+ * 來訪編輯器改了既有那幾段的**扣法**（staging-polish 09，ADR-0154）：扣額度 ⇔ 體驗／送的。她 10/18 選的是**原地改**
+ * （不取消、不長「取消 Abovee」、不退回待確認）—— 開始時間與課程都沒變，不是 ADR-0108 的改期；Abovee 上那一格還在，
+ * 只是要改成 EECP20（或預約來源改成體驗）。她的話：
+ *
+ * > the confirm dialog says "This slot becomes a trial, no package charge — remember to change it to EECP20 in Abovee too."
+ *
+ * 次數拿 `counts()` 試算前後的差（ADR-0070：講真的會發生的事，不照狀態推）。**沒有一段的扣法變了就回 `null`**（不跳這一道）——
+ * 只改時長、治療師、記一句的照舊一道都不多跳。只看存過的那幾段（新加的那幾段由「在 X 壓好了嗎」那一道講）。
+ *
+ * @param {object} o
+ * @param {object} o.before 打開編輯器那一刻的那一筆（存過的）
+ * @param {object} o.after 要存下去的那一筆
+ * @param {Record<string, object>} o.coursesById
+ * @param {object[]} [o.entitlements] 這位客戶的額度（名字與次數）
+ * @param {object[]} [o.customerVisits] 這位客戶的全部來訪（試算次數用）
+ * @param {{courses?: object[], equipment?: object[], ivProducts?: object[]}|null} [o.master] 名字（`slotName()`）
+ * @param {boolean} [o.sheetSyncOn]
+ * @returns {{title: string, lines: string[], confirmLabel: string}|null}
+ */
+export function chargeSwitchConsequences({
+  before, after, coursesById = {}, entitlements = [], customerVisits = [], master = null, sheetSyncOn = false,
+}) {
+  const paid = (s) => Boolean(s?.entitlementId);
+  const switched = (before?.slots ?? []).map((old, i) => ({ old, now: after?.slots?.[i] }))
+    .filter(({ old, now }) => now && isLiveSlot(now) && paid(old) !== paid(now)
+      && (Boolean(giftKindOf(old, coursesById)) || Boolean(giftKindOf(now, coursesById))));
+  if (!switched.length) return null;
+
+  const names = master ?? { courses: Object.values(coursesById) };
+  const others = (customerVisits ?? []).filter((v) => v?.id !== before?.id);
+  const was = [...others, before];
+  const will = [...others, after];
+  const used = (e, visits) => {
+    const c = counts(e, visits, e.id);
+    return c.done + c.booked;
+  };
+  const lines = [];
+  for (const { old, now } of switched) {
+    const ent = (entitlements ?? []).find((e) => e.id === (old.entitlementId || now.entitlementId)) ?? null;
+    const delta = ent ? used(ent, will) - used(ent, was) : 0;
+    const kind = giftKindOf(now, coursesById);
+    const what = paid(now) ? `改成扣「${ent?.label ?? '額度'}」` : `改成${giftLabel(kind)}、不扣${ent ? `「${ent.label}」` : '次數'}`;
+    lines.push(`${slotName(now, names, 'short')} —— ${what}${timesSay(delta)}`);
+    const course = coursesById[now.courseId] ?? null;
+    if (bookingSystemOf(course) !== 'Abovee') continue;
+    // Abovee 上 EECP 的體驗就叫 EECP20（名字＋分鐘，她 10/5）；別的課是預約來源那一欄
+    const minutes = isValidTime(now.startsAt) && isValidTime(now.endsAt) ? toMinutes(now.endsAt) - toMinutes(now.startsAt) : null;
+    const spelled = course.aboveeNames?.[0] ?? course.name;
+    lines.push(bookingMinutesOf(course).length > 1 && minutes
+      ? `Abovee 上記得改成 ${spelled}${minutes}`
+      : `Abovee 上記得把預約來源改成${paid(now) ? '正式課' : giftLabel(kind)}`);
+  }
+  lines.push('只改扣法 —— 時間、狀態、待辦都不動');
+  if (sheetSyncOn) lines.push(SHEET_LINE);
+  const one = switched.length === 1 ? switched[0].now : null;
+  return {
+    title: one ? `這一段改成${paid(one) ? '扣額度' : giftLabel(giftKindOf(one, coursesById))}？` : `改 ${switched.length} 段的扣法？`,
+    lines,
+    confirmLabel: '照這樣存',
   };
 }
 

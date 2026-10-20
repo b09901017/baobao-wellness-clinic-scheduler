@@ -21,7 +21,6 @@ import {
   followupDraft,
   owed,
   syncFollowupTasks,
-  describePair,
   claimedExams,
   examChoicesFor,
   bookingForExam,
@@ -644,27 +643,19 @@ describe('報告那一張被拿回來', () => {
   });
 });
 
-// 2026-10-09（ADR-0145）起是三個數字：做完、約了、還沒約（她：「二返完成才算」）
-describe('客戶詳情頁那一句', () => {
-  test('欠的時候講還沒約幾次', () => {
+// 客戶詳情那一句「健檢做完 N 次：二返做完、約了、還沒約」2026-10-19 拿掉了（before-golive 03）；它讀的 `owed()` 照舊
+describe('還欠幾次（owed）', () => {
+  test('做完一次健檢、二返還沒約 → 欠 1 次', () => {
     const pair = { source: checkup(), followup: followup() };
-    const line = describePair(pair, [visit('v1', '2026-08-01', 'ent-checkup')]);
-    assert.equal(line.owed, 1);
-    assert.match(line.text, /還沒約 1 次/);
+    assert.equal(owed(pair, [visit('v1', '2026-08-01', 'ent-checkup')]), 1);
   });
 
-  test('約了還沒做的講「約了」，不算做完', () => {
+  test('二返約了（健檢已經做完）→ 算約掉', () => {
     const pair = { source: checkup(), followup: followup() };
-    const line = describePair(pair, [
+    assert.equal(owed(pair, [
       visit('v1', '2026-08-01', 'ent-checkup'),
       visit('v2', '2026-08-10', 'ent-followup', { status: 'confirmed' }),
-    ]);
-    assert.equal(line.owed, 0);
-    assert.match(line.text, /二返做完 0 次、約了 1 次（8\/10\(一\)）、還沒約 0 次/);
-  });
-
-  test('沒配對就沒有這一句', () => {
-    assert.equal(describePair({ source: checkup(), followup: null }, []), null);
+    ]), 0);
   });
 });
 
@@ -1351,13 +1342,15 @@ describe('報告那一張不等二返約了沒（ADR-0139）', () => {
       );
     });
 
-    test('二返的總次數是上限：只買 1 次二返、健檢做了兩次、二返做完一次 → 一張都不長', () => {
+    // ADR-0159 推翻了這裡原本那一條（「二返的總次數是上限 → 一張都不長」）：她 10/19「健檢做的次數比買的多，
+    // 多出來那一次不會長報告那一串待辦。 好 修」。報告不吃二返額度；「約二返」照舊吃（`owed()`）
+    test('二返的總次數不是報告的上限：只買 1 次二返、健檢做了兩次、二返做完一次 → 新的那一次（B）照樣追報告', () => {
       assert.deepEqual(
         grows({
           entitlements: [checkup(), followup({ totalQty: 1 })],
           visits: [A, B, second('s1', '2026-08-25', 'done')],
         }),
-        [],
+        [`${REPORT_TASK_KIND}@vB`],
       );
     });
   });
@@ -1483,11 +1476,11 @@ describe('清掉的鏈上任務照樣算做過', () => {
 });
 
 describe('健檢鏈比對讀連軟刪除的那一份', () => {
-  test('followupOps()、chainPlans()、確認框試算用的 chainInputs() 與拍 Abovee 存完收尾的 dropChainLeftovers() 都走 listByCustomerForSync()', async () => {
+  test('followupOps()、chainPlans()、確認框試算用的 chainInputs()、拍 Abovee 存完收尾的 dropChainLeftovers() 與改了額度之後的 chainAfterEntitlements()（ADR-0159）都走 listByCustomerForSync()', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('../public/js/data/visits.js', import.meta.url), 'utf8');
     assert.ok(!src.includes('tasksData.listByCustomer('), '不含軟刪除的那一支看不到清掉的約二返');
-    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 4);
+    assert.equal(src.split('tasksData.listByCustomerForSync(').length - 1, 5);
     const tasks = readFileSync(new URL('../public/js/data/tasks.js', import.meta.url), 'utf8');
     const at = tasks.indexOf('export function listByCustomerForSync(');
     assert.match(tasks.slice(at, at + 200), /repo\.listWithDeleted\(/);
@@ -1524,7 +1517,9 @@ describe('隨機情境：長出來、改、收掉的套回去再算一次，什�
       ];
       const visits = [];
       for (let i = 0; i < exams; i += 1) {
-        visits.push(visit(`x${i}`, day(i * 20 + Math.floor(rnd() * 10)), 'ent-checkup', { status: pick(STATUSES) }));
+        // 匯進來的舊健檢（ADR-0159：超出二返額度、從來沒有過鏈上待辦的那一次不追報告）也要一輪就到定點
+        const imported = rnd() < 0.3 ? { importedFrom: '舊表' } : {};
+        visits.push(visit(`x${i}`, day(i * 20 + Math.floor(rnd() * 10)), 'ent-checkup', { status: pick(STATUSES), ...imported }));
       }
       for (let i = 0; i < seconds; i += 1) {
         const link = rnd() < 0.5 && exams ? `x${Math.floor(rnd() * exams)}` : null;

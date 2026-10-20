@@ -22,7 +22,7 @@ import {
   rebookSlot, slotSay, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences, rebookConsequences } from '../../domain/consequences.js';
+import { bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences } from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -35,10 +35,10 @@ import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
-  THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel,
+  THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel, trialMinutesOf,
 } from '../../domain/masterData.js';
 import {
-  NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse,
+  NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse, trialFromMinutes,
 } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
@@ -50,6 +50,7 @@ import { tip } from '../components/tip.js';
 import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
 import { relinkAfterSave } from '../relinkFollowup.js';
 import * as toast from '../toast.js';
+import { isOffline } from '../net.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
 
@@ -462,8 +463,9 @@ function paint(ctx, draft) {
   f.wireChips(form);
   // 展開那一句話。`form` 每次 `paint()` 都被換掉，所以不必給 signal。
   slotNote.wire(form);
-  // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫
-  form.addEventListener('click', giftFold.toggle);
+  // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫。
+  // 開著還是收著記在 ctx 上、照第幾段記（staging-polish 03）：改時間、換治療師都會重畫，收起來的要撐得過去
+  form.addEventListener('click', (e) => giftFold.toggle(e, (key, open) => { (ctx.giftOpen ??= {})[key] = open; }));
 
   form.addEventListener('change', async (e) => {
     // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
@@ -498,6 +500,8 @@ function paint(ctx, draft) {
     btn.addEventListener('click', () => {
       const next = readDraft(ctx, form, draft);
       next.slots.splice(Number(btn.dataset.delSlot), 1);
+      // 照第幾段記的開或收對不上了 —— 全部回到預設
+      ctx.giftOpen = {};
       paint(ctx, next);
     }),
   );
@@ -712,7 +716,7 @@ function entRow(ctx, draft, slot, i, { nth, free, course, nthExams }) {
     <div class="fieldgroup">
       <span class="fieldgroup__label">額度</span>
       ${giftFold.html({
-        options, value, open: foldOpen(options, value),
+        options, value, key: String(i), open: ctx.giftOpen?.[i] ?? foldOpen(options, value),
         chip: (o) => `
           <button class="chip" type="button" data-chip="${name}" data-chip-value="${esc(o.entitlementId)}"
                   aria-pressed="${o.entitlementId === value}">
@@ -1005,6 +1009,15 @@ function readDraft(ctx, form, draft) {
       return readNthSlot({ v, i, slot, ctx, coursesById });
     }
 
+    // **按了「體驗的時候排幾分」那一顆**（ADR-0154：扣著 EECP 額度的段按 20）→ 換成那門課的體驗，三個入口同一支。
+    // 只在她這一下按的是時長、而且跟這一段現在的長度不一樣時才算 —— 改時間、換治療師的那幾次那一排照舊是原本的數字
+    const pressed = v[`s${i}-min`];
+    const toTrial = slot.entitlementId && entitlementId === slot.entitlementId && pressed != null
+      && Number(pressed) !== minutesNow(slot)
+      ? trialFromMinutes({ value: entitlementId, course: coursesById[slot.courseId] ?? null, minutes: pressed, courses: all.courses })
+      : null;
+    if (toTrial) return readFreeSlot({ v, i, slot, ctx, courseId: giftCourseIdOf(toTrial.value) });
+
     // 不算次數的課（ADR-0121）也是另一條路：沒有額度，課程就是她按的那一顆
     const freeCourseId = giftCourseIdOf(entitlementId);
     if (freeCourseId) return readFreeSlot({ v, i, slot, ctx, courseId: freeCourseId });
@@ -1054,12 +1067,15 @@ function readDraft(ctx, form, draft) {
         : key(v, `s${i}-iv`, bought);
     // **約的時候選的時長跟著這一段走**（ADR-0122）：那一排沒畫出來、或她沒動它時保留
     // 原本的 `minutes`（`key()`）—— 打開一段二返(60) 只改醫師，不可以被清回 30。
-    // 換了課程就回到那門課的預設（那一排上原本的數字是上一門課的）。
+    // 換了課程、**或換了額度**（含從體驗換回扣額度，ADR-0154：EECP 體驗 20 按額度那一顆 → 60）就回到預設 ——
+    // 那一排上原本的數字是上一顆的（壓表的 `resetCourseBoundPicks()` 同一個時機）。
     const timing = {
       entitlement: ent,
       course,
       ivProduct: (all.ivProducts ?? []).find((x) => x.id === ivProductId) ?? null,
-      minutes: courseId !== slot.courseId ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+      minutes: courseId !== slot.courseId || switched ? null : key(v, `s${i}-min`, slot.minutes ?? null),
+      // 扣額度的這一條不是送的／體驗（`slotMinutes()` 每一個呼叫端都交 `giftKind`，ADR-0154）
+      giftKind: null,
     };
     const durationMin = slotMinutes(timing);
 
@@ -1153,8 +1169,9 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
     // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
     doctorId: v[`s${i}-doc`] ?? (switched ? doctorChoicesFor(course, all.staff).preselect : null),
     // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
-    // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）
-    minutes: courseChanged ? null : key(v, `s${i}-min`, minutesNow(slot)),
+    // 時長：沒換課程就照這一段現在的長度（扣額度的復能(30) 換成體驗還是 30，那一排在換過來那一下還沒畫出來）——
+    // **那門課有「體驗的時候排幾分」、剛從扣額度換過來**（ADR-0154：EECP 60 → 體驗）就是那個數字（她：「選體驗 → 預設 20」）
+    minutes: courseChanged || (slot.entitlementId && trialMinutesOf(course) != null) ? null : key(v, `s${i}-min`, minutesNow(slot)),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
   }, {
     courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,
@@ -1199,7 +1216,7 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   // 她沒得選的時候**不走 `slotMinutes()` 的退路**：它借二返那個課程，身上沒有額度也沒有品項
   // （`domain/nthFollowup.js`），而那一支答不出來時退的是 60，這裡要的是 30。
   const minutes = slotMinutesField({
-    course, minutes: isNthSlot(slot) ? key(v, `s${i}-min`, slot.minutes ?? null) : null,
+    course, minutes: isNthSlot(slot) ? key(v, `s${i}-min`, slot.minutes ?? null) : null, giftKind: null,
   });
   const durationMin = minutes ?? course?.durationMin ?? 30;
 
@@ -1338,8 +1355,11 @@ function mergedPayload(ctx, draft) {
 }
 
 async function submit(ctx, draft) {
-  const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
   ctx.submitted = true;
+  // **按下去那一刻重讀這位客戶的全部來訪**（ADR-0158）：打開時讀的那一份可能是快取裡剛好有的那幾筆 ——
+  // 拿它驗、拿它算次數就是少算；沿用的話那一次是快取的就永遠存不進去。讀不完整就講一句，畫面上的字留著
+  if (!await refreshCustomerVisits(ctx)) return null;
+  const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
 
   // **先算出真的會被寫下去的是哪一筆**（ADR-0083）。驗證與那兩道確認問的
   // 都要是它 —— 拿草稿去驗的話，併進去之後才會撞在一起的那幾段驗不出來。
@@ -1368,6 +1388,14 @@ async function submit(ctx, draft) {
   // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
   // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
   if (!await confirmReview(warnings)) return;
+
+  // **改了存過那幾段的扣法**（ADR-0154：EECP 60 扣額度 → 20 體驗，或反過來）：原地改（開始時間與課程沒變，不是改期），
+  // 但要講 —— 不扣了（還幾次）、Abovee 上記得改成 EECP20。她 10/18 選的。次數由 domain 拿 `counts()` 試算
+  const switched = !rebooked && ctx.stored ? chargeSwitchConsequences({
+    before: ctx.stored, after: toSave, coursesById: Object.fromEntries(all.courses.map((c) => [c.id, c])),
+    entitlements, customerVisits, master: all, sheetSyncOn: isConfigured(ctx.settings),
+  }) : null;
+  if (switched && !await confirmAction({ title: switched.title, consequences: switched.lines, confirmLabel: switched.confirmLabel })) return;
 
   // SPEC 第 7 節規則 11：標記已壓表時要問這一句。app 看不到那幾個系統，
   // 這道確認就是她手寫的那兩個驚嘆號。
@@ -1478,6 +1506,25 @@ function slotSummary(slot, all) {
 const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) => [c.id, c]));
 
 /**
+ * 這位客戶的全部來訪重讀一次、換進 `ctx`（ADR-0158）。讀不完整（離線、讀到快取）或讀不到就講一句、回 false ——
+ * 呼叫端不往下走，畫面上她打的字原封不動。
+ *
+ * **打開時讀到的就是伺服器的全部、現在也沒有確定離線**就不再讀：確認框不晚一拍；別台在那之後改了這一筆，
+ * `save()` 的 `ifUpdatedAt` 照樣擋。要重讀的是打開那一刻讀到快取的那一種 —— 沿用它的話永遠存不進去。
+ */
+async function refreshCustomerVisits(ctx) {
+  // 陣列是伺服器那一份、**而且這一位最近一次讀到的也是**（`save()` 問的是後者；別處從快取讀過一次就換掉了）
+  if (visitsData.isWholeList(ctx.customerVisits) && visitsData.lastReadWhole(ctx.customer.id) && !isOffline()) return true;
+  try {
+    ctx.customerVisits = await visitsData.listWhole(ctx.customer.id, ctx.customer.name);
+    return true;
+  } catch (err) {
+    toast.readFailed(err);
+    return false;
+  }
+}
+
+/**
  * 這一筆來訪身上現有的任務。取消／刪除那兩道確認要它才講得出「哪幾張會被收掉」。
  *
  * **讀不到就少講那兩句，不要擋住她。** 那個動作在離線時照樣寫得進本機快取
@@ -1500,6 +1547,8 @@ async function visitTasks(draft) {
  */
 async function cancelOneSlot(ctx, draft, slotIndex) {
   if (!Number.isInteger(slotIndex) || !draft.slots[slotIndex]) return;
+  // 確認框講的「那一天還剩下什麼」與存檔的次數都吃全部來訪：按下去那一刻重讀（ADR-0158，同 `submit()`）
+  if (!await refreshCustomerVisits(ctx)) return;
 
   const ok = await confirmAction({
     // 叫法跟提醒同一支（`slotLabelFor()`）：畫面上只有她點的那一段時是「這一段」，不講它在整天裡的位置

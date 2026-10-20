@@ -118,7 +118,8 @@ const transcript = {
 
 // readAbovee() 每一列帶 `key: a<第幾列>`，跟這裡的 rows 同一個順序
 const { items } = readAbovee([transcript], ctx);
-const absent = absentFromPhoto([transcript], items, ctx);
+// 一整個月、每一位都要對：明說 `everyone` —— 不說的話照片上只有一兩位時只對那幾位（拍 Abovee 的規則，ADR-0153）
+const absent = absentFromPhoto([transcript], items, ctx, { everyone: true });
 
 // ---------- 一段算進哪一格（「桶」）----------
 
@@ -272,7 +273,7 @@ for (const item of items) {
     const how = item.who?.how;
     if (how === 'conflict' || how === 'ambiguous') {
       push('fix', 'unknown', base, how === 'conflict' ? '名字跟病歷號在 app 裡對到不同的人' : 'app 裡同名的不只一位，病歷號也沒對上',
-        '去客戶清單看這位的病歷號（備註裡的「病歷號」）');
+        '去客戶清單看這位的病歷號（備註那一段那一顆病歷號，「編輯」客戶資料裡改）');
     } else if (ps !== 'cancelled') {
       const k = `${item.row?.name ?? ''}|${item.row?.chartNo ?? ''}`;
       const who = strangers.get(k) ?? { name: item.row?.name ?? '', chartNo: item.row?.chartNo ?? '', rows: [], maybe: new Map() };

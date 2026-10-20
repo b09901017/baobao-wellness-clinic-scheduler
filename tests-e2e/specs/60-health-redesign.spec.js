@@ -7,11 +7,10 @@ import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement } from '../fixtures/data.js';
 
 /**
- * 一個「全部沒事」的資料庫。`masterDocs()` 把每一筆都寫成啟用的，而種子上點滴8、VIP7 是停用的
- * （`CLAUDE.md` 診間那一列）—— 照寫的話「診間清單」那一項會要她停用那兩間。
+ * 一個「全部沒事」的資料庫。`masterDocs()` 把每一筆都寫成啟用的 —— 種子上停用的點滴8、VIP7 2026-10-18 刪掉了
+ *（ADR-0155），所以現在就是種子本身。
  */
-const cleanDocs = () => masterDocs().map((d) => (['room-iv8', 'room-vip7'].includes(d.id)
-  ? { ...d, data: { ...d.data, active: false } } : d));
+const cleanDocs = () => masterDocs();
 
 test('H1 全部沒事：一個畫面看得完；沒問題的收成一行，點開列得出每一項的名字', async ({ app, page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
@@ -46,13 +45,13 @@ test('H2 有一項有事：它在最上面、同一位客戶的兩筆收成一�
   await app.signIn('/settings/health');
   await app.settled();
 
-  // 這位客戶還有次數、沒收過時間，所以「資料過期」那一項也會有（要處理，排在後面那一組）
-  await expect(page.locator('.hsum__head')).toHaveText('有 2 項要你看');
+  // 這位客戶還有次數、沒問過時間，所以「還沒問這輪方便的時間」也會有 —— 那一項只是提醒，不算要你看（ADR-0150）
+  await expect(page.locator('.hsum__head')).toHaveText('有 1 項要你看');
   await expect(page.locator('.hsum')).toContainText('其餘');
 
   const card = page.locator('#view .hcard').first();
   await expect(card, '有事的那一項在最上面').toHaveAttribute('data-check', 'counts');
-  await expect(page.locator('.hgroup__title')).toHaveText(['資料對不起來', '要處理']);
+  await expect(page.locator('.hgroup__title')).toHaveText(['資料對不起來', '提醒']);
   await expect(card.locator('.hcard__why')).toBeVisible();
 
   // 同一位客戶的兩筆收成一列，點了才展開；按鈕的數目跟以前一樣（兩筆各一顆、上面一次修正）
@@ -75,5 +74,42 @@ test('H2 有一項有事：它在最上面、同一位客戶的兩筆收成一�
   await app.ok();
   await app.saved();
   await expect(page.locator('#view [data-check="counts"]')).toContainText('沒問題');
-  await expect(page.locator('.hsum__head')).toHaveText('有 1 項要你看');
+  await expect(page.locator('.hsum__head')).toHaveText('沒有要處理的');
+  await expect(page.locator('.hsum')).toContainText('1 項提醒');
+});
+
+// staging-polish 06（ADR-0150）。她 10/18：
+// > 這兩個問題是不用解決的對吧，像是沒有收集可用性這點，我覺得沒關係，只要提醒就好，但是不要展開這麼多人然後每個人底下又有說明
+// > 然後我希望改名，資料過期，直接說是"還沒問這輪方便的時間"不要說麼可用性甚麼的，看不懂
+test('H3 只有提醒：最上面是「沒有要處理的」；提醒收成一行、點開才是名字、名字底下沒有說明；整頁沒有「可用性」', async ({ app, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const people = ['客戶A', '客戶B', '客戶C', '客戶D', '客戶E', '客戶F'];
+  await app.seed([
+    ...cleanDocs(),
+    ...people.flatMap((name, i) => [
+      customer({ id: `cust-${i}`, name }),
+      entitlement(`cust-${i}`, {
+        id: `ent-${i}`, label: '身體組成分析', type: 'single', courseId: 'course-inbody', totalQty: 4, doneCount: 0, bookedCount: 0,
+      }),
+    ]),
+  ]);
+  await app.signIn('/settings/health');
+  await app.settled();
+
+  await expect(page.locator('.hsum__head')).toHaveText('沒有要處理的');
+  await expect(page.locator('.hsum')).toContainText('1 項提醒');
+  await expect(page.locator('.hcard'), '提醒不畫成一張大卡').toHaveCount(0);
+
+  const line = page.locator('#view [data-check="staleAvailability"]');
+  await expect(line).toContainText('還沒問這輪方便的時間');
+  await expect(line).toContainText('6 位');
+  expect(await line.evaluate((d) => d.tagName === 'DETAILS' && !d.open), '預設收著').toBe(true);
+  await expect(page.getByText('客戶A', { exact: true }), '點開之前看不到名字').toBeHidden();
+
+  await line.locator('summary').click();
+  await expect(line.getByText('客戶A', { exact: true })).toBeVisible();
+  await expect(line.getByText('客戶F', { exact: true })).toBeVisible();
+  await expect(line.locator('.muted'), '名字底下不印說明').toHaveCount(0);
+
+  expect(await page.locator('#view').textContent(), '整頁沒有「可用性」').not.toContain('可用性');
 });

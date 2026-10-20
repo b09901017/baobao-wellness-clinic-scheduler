@@ -847,9 +847,13 @@ function wireAddMenu(sheet, handlers) {
     toggle.setAttribute('aria-expanded', String(open));
   };
 
+  // 打開之前先把抽屜拉到全高（staging-polish 04，她：「如果我點加 那應該要自動往上滑展開 不然會遮住」）——
+  // 選單往下長，停在半高時底下那兩顆會被螢幕底部切掉。等抽屜到位才打開；收起選單不退回半高。
+  // 拉高不是多一層，不推 history。
   toggle.addEventListener('click', (e) => {
     e.stopPropagation();
-    setOpen(list.hidden);
+    if (!list.hidden) { setOpen(false); return; }
+    sheet.expand(() => setOpen(true));
   });
 
   // 點面板上任何其他地方就收起來。掛在抽屜上而不是 document 上 ——
@@ -1168,11 +1172,12 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
   // 別的地方被取消或談定了，照舊套下去就是替她改了一件她沒看到的事。
   // 在確認框**之前**讀：確認框講的後果與真的寫下去的是同一份（ADR-0070）；
   // 框開著的那幾秒被別台搶先，`ifUpdatedAt` 會擋下來、底下重讀。
+  // 讀不完整（離線、讀到快取）也停在這裡、講一句（ADR-0158）：拿快取裡剛好有的那幾筆算次數就是少算
   let customerVisits;
   try {
-    customerVisits = await visitsData.listByCustomer(visit.customerId);
+    customerVisits = await visitsData.listWhole(visit.customerId, visit.customerName);
   } catch (err) {
-    toast.failed(`讀不到最新的資料：${err.message}`);
+    toast.readFailed(err);
     return;
   }
   const fresh = customerVisits.find((v) => v.id === visit.id);

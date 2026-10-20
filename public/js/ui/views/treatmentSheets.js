@@ -185,8 +185,15 @@ export async function renderPerson(el, customerId) {
     return;
   }
   const customer = data.customers.find((c) => c.id === customerId) ?? null;
-  // 比對要那一位的來訪。讀不到不擋整頁：卡片照畫，那一行講讀不到
-  const visits = await visitsData.listByCustomer(customerId).catch(() => null);
+  // 比對要那一位的**全部**來訪（issue 16）：快取裡剛好有的那幾筆拿去比，「簽了沒記」會整排假警報。
+  // 讀不到、讀不完整都不擋整頁：卡片照畫，那一行講為什麼沒比
+  let visits = null;
+  let partial = false;
+  try {
+    visits = await visitsData.listWhole(customerId, customer?.name ?? '');
+  } catch (err) {
+    partial = err?.name === 'IncompleteReadError';
+  }
   const sheets = data.sheets
     .filter((s) => s.customerId === customerId)
     .sort((a, b) => `${a.courseName}|${firstDate(a)}`.localeCompare(`${b.courseName}|${firstDate(b)}`, 'zh-TW'));
@@ -197,7 +204,7 @@ export async function renderPerson(el, customerId) {
     <div class="page">
       <h1 class="page__title">${esc(customer?.name ?? '找不到這位客戶')}</h1>
     </div>
-    ${sheets.length ? `<div class="tsheets__cards">${sheets.map((s) => cardHtml(s, data.master, visits)).join('')}</div>`
+    ${sheets.length ? `<div class="tsheets__cards">${sheets.map((s) => cardHtml(s, data.master, visits, partial)).join('')}</div>`
     : '<p class="tsheets__empty">這一位還沒有療程單。右下角的相機拍一張。</p>'}
     ${fab()}</div>`;
   const page = el.querySelector('[data-sheet-page]');
@@ -251,7 +258,7 @@ export async function renderPerson(el, customerId) {
 
 const firstDate = (sheet) => (sheet.rows ?? []).map((r) => r.date).filter(Boolean).sort()[0] ?? '';
 
-function cardHtml(sheet, master, visits) {
+function cardHtml(sheet, master, visits, partial = false) {
   const last = lastSignedDate(sheet);
   const taken = dayOf(sheet.photoAt);
   const first = firstDate(sheet);
@@ -265,7 +272,7 @@ function cardHtml(sheet, master, visits) {
   last ? `・最後簽名 ${esc(shortDate(last))}` : ''}</p>
         ${taken ? `<p class="tsheet__taken">照片是 ${esc(shortDate(taken))} 拍的</p>` : ''}
       </div>
-      <div class="tsheet__wide">${compareHtml(sheet, master, visits)}</div>
+      <div class="tsheet__wide">${compareHtml(sheet, master, visits, partial)}</div>
       <div class="tsheet__actions">
         <button class="btn btn--sm btn--ghost" type="button" data-sheet-delete="${esc(sheet.id)}">刪掉這一張</button>
       </div>
@@ -273,8 +280,12 @@ function cardHtml(sheet, master, visits) {
 }
 
 /** 卡片底下那一行，有要看的就是一顆按鈕、點開那幾件。 */
-function compareHtml(sheet, master, visits) {
-  if (!visits) return '<p class="tsheet__compare tsheet__compare--none">讀不到來訪，沒辦法比對</p>';
+function compareHtml(sheet, master, visits, partial = false) {
+  if (!visits) {
+    return `<p class="tsheet__compare tsheet__compare--none">${partial
+      ? '網路不穩，讀不到全部的來訪 —— 先不比，連上之後重新整理這一頁'
+      : '讀不到來訪，沒辦法比對'}</p>`;
+  }
   const result = compareSheet(sheet, visits, master);
   const line = compareLine(result);
   if (!result.issues.length) return `<p class="tsheet__compare${result.to ? ' tsheet__compare--ok' : ''}">${esc(line)}</p>`;
@@ -298,7 +309,8 @@ async function compareEveryone(el, data, button) {
   button.disabled = true;
   holder.innerHTML = '<p class="tsheets__empty">讀取中…</p>';
   try {
-    const visits = await visitsData.listBetween(dates[0], dates[dates.length - 1]);
+    // 讀到的是快取裡剛好有的就不比（issue 16）：少了的那幾段會被列成「簽了沒記」
+    const visits = await visitsData.listBetweenWhole(dates[0], dates[dates.length - 1]);
     const people = compareAll(data.sheets, visits, data.master, data.customers);
     holder.innerHTML = people.length
       ? `<p class="tsheets__label tsheets__label--look">比對：有要你看的 ${people.length} 位</p><ul class="tsheets__people tsheets__people--look">${people.map((p) => `
@@ -309,7 +321,9 @@ async function compareEveryone(el, data, button) {
           </a></li>`).join('')}</ul>`
       : '<p class="tsheets__allgood">每一張都對得上（各自比到最後一次簽名那一天）。</p>';
   } catch (err) {
-    holder.innerHTML = `<p class="tsheets__empty">讀不到來訪：${esc(err.message)}</p>`;
+    holder.innerHTML = err?.name === 'IncompleteReadError'
+      ? `<p class="tsheets__empty">${esc(err.message)}</p>`
+      : `<p class="tsheets__empty">讀不到來訪：${esc(err.message)}</p>`;
   } finally {
     button.disabled = false;
   }

@@ -9,7 +9,7 @@
 //
 // 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
 
-const VERSION = 'v193';
+const VERSION = 'v200';
 const CACHE = `shell-${VERSION}`;
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
@@ -42,6 +42,7 @@ const SHELL = [
   '/js/domain/slotDraft.js',
   '/js/domain/slotOptions.js',
   '/js/domain/identify.js',
+  '/js/domain/incompleteRead.js',
   '/js/domain/abovee.js',
   '/js/domain/aboveeImport.js',
   '/js/ui/components/aboveeConfirm.js',
@@ -77,10 +78,13 @@ const SHELL = [
   '/js/ui/nav.js',
   '/js/ui/views.js',
   '/js/ui/toast.js',
+  '/js/ui/toastSwipe.js',
   '/js/ui/saveEach.js',
+  '/js/ui/saveFailure.js',
   '/js/ui/relinkFollowup.js',
   '/js/ui/net.js',
   '/js/ui/theme.js',
+  '/js/integrations/lineMacro.js',
   '/js/ui/icons.js',
   '/js/ui/session.js',
   '/js/ui/components/dialog.js',
@@ -90,6 +94,10 @@ const SHELL = [
   '/js/ui/components/sheet.js',
   '/js/ui/components/card.js',
   '/js/ui/components/marks.js',
+  '/js/ui/components/deck.js',
+  '/js/ui/components/noteCard.js',
+  '/js/ui/components/noteReorder.js',
+  '/js/ui/components/notesEditor.js',
   '/js/ui/components/buy.js',
   '/js/ui/components/buySheet.js',
   '/js/ui/components/note.js',
@@ -108,13 +116,16 @@ const SHELL = [
   '/js/ui/views/trash.js',
   '/js/ui/views/preferences.js',
   '/js/ui/views/templates.js',
+  '/js/ui/views/todoRows.js',
   '/js/ui/views/playbook.js',
+  '/js/ui/views/longNotes.js',
   '/js/data/config.js',
   '/js/data/customers.js',
   '/js/data/visits.js',
   '/js/domain/dates.js',
   '/js/domain/customers.js',
   '/js/domain/customerMarks.js',
+  '/js/domain/customerNotes.js',
   '/js/domain/visits.js',
   '/js/domain/confirmations.js',
   '/js/domain/consequences.js',

@@ -127,11 +127,11 @@ describe('讀不到全部的那一位：不安靜地照算', () => {
 describe('確認層餵給翻譯的來訪（掃原始碼）', () => {
   const src = readFileSync(new URL('../public/js/ui/components/aboveeConfirm.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
-  test('全部來訪只有一支在讀：loadHistory() → listByCustomer()，讀不到的記進 partial', () => {
+  test('全部來訪只有一支在讀：loadHistory() → listWhole()，讀不到的記進 partial', () => {
     const body = src.slice(src.indexOf('async function loadHistory('), src.indexOf('// ---------- 畫 ----------'));
-    assert.match(body, /visitsData\.listByCustomer\(/);
+    // `listWhole()` 離線、讀到快取都丟（ADR-0158）—— 以前只問 `isOffline()`，網路不穩時 SDK 自己退回快取那一種漏掉
+    assert.match(body, /visitsData\.listWhole\(/, '離線或讀到快取時 Firestore 回的是快取裡剛好有的那幾筆，不算讀到全部');
     assert.match(body, /partial/);
-    assert.match(body, /isOffline\(\)/, '離線時 Firestore 回的是快取裡剛好有的那幾筆，不算讀到全部');
   });
 
   test('打開時：先替照片上認得的每一位讀全部，才翻譯', () => {
@@ -155,7 +155,7 @@ describe('確認層餵給翻譯的來訪（掃原始碼）', () => {
 
   test('存檔前那一次重讀還在（打開到存檔之間別台裝置可能動過）', () => {
     const write = src.slice(src.indexOf('const write = async () =>'));
-    assert.match(write, /const fresh = await visitsData\.listByCustomer\(customerId\)/);
+    assert.match(write, /const fresh = await visitsData\.listWhole\(customerId, /);
     // 重讀的那一份拿去重算計畫（06）—— 不是拿打開時那一份寫
     const again = write.slice(write.indexOf('planToWrite('), write.indexOf('writePhotoPlan('));
     assert.ok(again.includes('[customerId]: fresh }'), again);

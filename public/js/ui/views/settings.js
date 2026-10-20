@@ -10,7 +10,7 @@ import * as sheetsData from '../../data/treatmentSheets.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { TEMPLATES, isCustom } from '../../domain/messageTemplates.js';
 import { formatUsd, monthKey } from '../../domain/aiUsage.js';
-import { esc } from '../components/form.js';
+import * as f from '../components/form.js';
 import { tip } from '../components/tip.js';
 import { icon } from '../icons.js';
 import { signOutNow } from '../session.js';
@@ -18,6 +18,9 @@ import { saveText, dated } from '../components/download.js';
 import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
+import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
+
+const esc = f.esc;
 
 export async function render(el) {
   el.innerHTML = '<p class="muted">載入中…</p>';
@@ -87,6 +90,7 @@ export async function render(el) {
                現在只有月曆與 LINE 兩種，這一句留著就是在講一個不存在的東西。
                `tests/ui-copy.test.js` 有一條盯著它不會長回來。 */''}
         ${tile('#/settings/naming', '名稱怎麼寫', '月曆與 LINE 兩種寫法')}
+        ${tile('#/settings/todo-rows', '待辦首頁', '每一列一直顯示、有才顯示或不顯示')}
       </div>
     </section>
 
@@ -113,6 +117,8 @@ export async function render(el) {
                   aria-pressed="${readTheme() === c.value}">${esc(c.label)}</button>`).join('')}
       </div>
     </section>
+
+    ${lineMacroCard()}
 
     <section class="card">
       <h2 class="card__title">帳號${tip('登出之後資料都還在雲端，重新登入就看得到。')}</h2>
@@ -142,11 +148,63 @@ export async function render(el) {
       b.setAttribute('aria-pressed', String(b === btn)));
   });
 
+  wireLineMacro(el);
   el.querySelector('[data-seed]')?.addEventListener('click', () => runSeed(el));
   el.querySelector('[data-signout]')?.addEventListener('click', () => signOutNow());
   el.querySelector('[data-export]')?.addEventListener('click', () =>
     runExport(el.querySelector('[data-with-audit]')?.checked ?? false),
   );
+}
+
+/**
+ * 打開 LINE 對話（ADR-0157）。跟「外觀」一樣**記在這一台裝置上**：只有裝了 MacroDroid 的那支手機勾，
+ * 沒勾的裝置點 LINE 是複製＋打開 LINE 讓她自己搜尋。巨集怎麼設在 `docs/MacroDroid設定.md`。
+ */
+function lineMacroCard() {
+  const prefs = readLineMacro();
+  return `
+    <section class="card card--flat" data-linemacro>
+      <h2 class="card__title">打開 LINE 對話${tip(
+        '記在這一台裝置上。手機照「MacroDroid 設定」那份說明設好巨集之後勾起來：'
+        + '客戶詳情點 LINE、確認時間與問這輪的時間的「打開 LINE」就會直接打開他的對話（訊息貼上、不會送出）。'
+        + '沒勾的裝置改成複製，再打開 LINE 讓你自己搜尋。')}</h2>
+      <label class="choice choice--row">
+        <input type="checkbox" data-linemacro-on ${prefs.on ? 'checked' : ''} />
+        <span>這台手機裝了 MacroDroid</span>
+      </label>
+      ${f.number({
+        name: 'lineMacroPort', label: '連接埠', value: prefs.port, min: 1, step: 1,
+        hint: 'MacroDroid 的 HTTP 伺服器用的那一個，預設 8080。',
+      })}
+      ${f.text({ name: 'lineMacroTry', label: '用哪一位試', placeholder: 'LINE 好友的名字' })}
+      <p><button class="btn" type="button" data-linemacro-try>試一次</button></p>
+    </section>`;
+}
+
+/** 只存、不重畫（ADR-0038）。 */
+function wireLineMacro(el) {
+  const box = el.querySelector('[data-linemacro]');
+  if (!box) return;
+  const on = box.querySelector('[data-linemacro-on]');
+  const port = box.querySelector('[name="lineMacroPort"]');
+  const save = () => {
+    if (!saveLineMacro({ on: on.checked, port: portOf(port.value) ?? readLineMacro().port })) {
+      toast.info('這一台記不住設定（瀏覽器擋掉了網站資料），重新整理之後會回到沒勾');
+    }
+  };
+  on.addEventListener('change', save);
+  port.addEventListener('change', () => {
+    if (portOf(port.value) === null) {
+      toast.info('連接埠要是 1 到 65535 的整數');
+      port.value = String(readLineMacro().port);
+      return;
+    }
+    save();
+  });
+  box.querySelector('[data-linemacro-try]').addEventListener('click', () => testLineMacro({
+    name: box.querySelector('[name="lineMacroTry"]').value,
+    notify: toast.info,
+  }));
 }
 
 function tile(href, label, meta) {

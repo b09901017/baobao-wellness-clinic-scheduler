@@ -11,6 +11,7 @@ import * as notesData from '../../data/notes.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as sheetsData from '../../data/treatmentSheets.js';
 import { linesOf } from '../../domain/playbook.js';
+import { chainSavedSay } from '../../domain/consequences.js';
 import { MASTER_TYPES, MASTER_LABELS } from '../../domain/masterData.js';
 import { esc } from '../components/form.js';
 import { confirmAction } from '../components/dialog.js';
@@ -73,7 +74,8 @@ export async function render(el) {
       if (!ok) return;
       try {
         await toast.withSaveState(() => actions[Number(btn.dataset.restore)](), {
-          success: '已還原',
+          // 還原一筆健檢或二返額度時待辦那條鏈重算了（ADR-0159）；別種還原回的不是那一份，那半句是空的（issue 19）
+          success: (result) => `已還原${chainSavedSay(result)}`,
         });
         render(el);
       } catch {
@@ -131,9 +133,9 @@ async function loadGroups() {
         name: `${v.date} ${v.customerName ?? ''}`.trim(),
         note: `${(v.slots ?? []).length} 個時段`,
         deletedAt: v.deletedAt,
-        // 還原會把次數也還原回去，所以要先知道這位客戶現在有哪些來訪
+        // 還原會把次數也還原回去，所以要先知道這位客戶現在有哪些來訪 —— **全部**的（讀不完整就丟，ADR-0158）
         restore: async () =>
-          visits.restore(v, await visits.listByCustomer(v.customerId)),
+          visits.restore(v, await visits.listWhole(v.customerId, v.customerName)),
       })),
     },
     {

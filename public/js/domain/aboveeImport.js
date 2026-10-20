@@ -21,23 +21,24 @@
 // `statusFromAbovee()` 一支（六種，abovee-status-follows-photo 01）→ 每一列的 `photoStatus`。
 // 整張照片沒拍到那一欄時是 `null`（看不出來），跟「那一格讀不出來」（`statusUnread`）是兩件事。
 
-import { identifyCustomer, nearNameSay, normalizeChartNo, normalizeName } from './identify.js';
-import { courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
+import { identifyCustomer, nearNameSay, chartNoSay, chartNoWrites, normalizeChartNo, normalizeName } from './identify.js';
+import { bedMissingIn, courseFrom, roomFrom, staffFrom, staffRoleFor } from './abovee.js';
 import { slotFromPicks, visitWithSlot, withPlannedSlot } from './slotDraft.js';
 import {
   INITIAL_STATUS, acceptsMoreSlots, applyStatus, assignsFor, closeVisit, coursesForEntitlement, equipmentAfterSwitch, equipmentChoicesFor,
-  isActive, isLiveSlot, isOpenStatus, lockedAt, mustSee, rebookSlot, sameDayState, shortStatus, slotSay, slotStatus, validateVisit,
-  warningDetails, withExtraSlot, withSlotStatuses,
+  isActive, isLiveSlot, isOpenStatus, lockedAt, mustSee, picksEquipment, rebookSlot, sameDayState, shortStatus, slotMinutes,
+  slotMinutesField, slotSay, slotStatus, validateVisit, warningDetails, withExtraSlot, withSlotStatuses,
 } from './visits.js';
 import { chargesEntitlement, counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { changeChargeSay, closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
+  giftKindOf, isTrialMinutes, trialMinutesOf,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
-import { endOf, toMinutes } from './visitTime.js';
+import { endOf, isValidTime, toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
-import { NTH_PICK, giftCourseIdOf, giftPick } from './slotOptions.js';
+import { NTH_PICK, giftCourseIdOf, giftPick, trialFromMinutes } from './slotOptions.js';
 import { MIN_NTH, nthOf } from './nthFollowup.js';
 import { fullNameOf, slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
@@ -107,6 +108,27 @@ export function aboveeEnd(text) {
  * 抄字沒有那一欄（Function 還沒重新部署）就是空的 → 不是體驗，跟以前一模一樣。
  */
 export const isTrialRow = (row) => clean(row?.source).replace(/\s/g, '').includes('體驗');
+
+/**
+ * 照片上這一列是不是體驗：預約來源寫體驗（ADR-0148），**或**課程那一格的分鐘＝那門課的「體驗的時候排幾分」
+ * （`EECP20`，ADR-0154 —— Abovee 上 EECP 的體驗就叫這個，她 10/5：「EECP20 就是 EECP 體驗」）。只看照片，不看身上有沒有額度；
+ * 健檢、二返照舊不是（`canBeGift()`）。預選（`resolveItem()`）、扣法對不上（`chargeChangeOf()`）、那一句提醒（`trialSay()`）都問它。
+ */
+function photoSaysTrial(item, courses = []) {
+  const course = (courses ?? []).find((c) => c.id === item?.course?.courseId) ?? null;
+  if (!canBeGift(course, courses)) return false;
+  return isTrialRow(item?.row) || isTrialMinutes(course, item?.course?.durationMin, courses);
+}
+
+/**
+ * 照片上這一列**清楚是正式課**：那門課有「體驗的時候排幾分」、照片上寫著別的分鐘（`EECP60`）、預約來源沒寫體驗。
+ * 別的課看不出來（沒拍到預約來源那一欄、或那一欄空著，跟正式課長得一樣）—— 只有分鐘講得出來的才算（ADR-0154）。
+ */
+function photoSaysPaid(item, courses = []) {
+  const course = (courses ?? []).find((c) => c.id === item?.course?.courseId) ?? null;
+  const minutes = item?.course?.durationMin;
+  return trialMinutesOf(course) != null && minutes != null && !isTrialRow(item?.row) && !isTrialMinutes(course, minutes, courses);
+}
 
 /** 「合併扣課」那一格有沒有勾。Abovee 上寫「是」；抄成勾勾也算。 */
 export function mergedMark(text) {
@@ -682,13 +704,18 @@ export function newRowSay(item) {
  * 認得、但不是一字不差的那幾格（ADR-0128）：病歷號對上而名字差一個字、課程那一格差一個字。
  * 收起來也看得到 —— **不是安靜地當成完全吻合**。名字那一句只在這一列還是認人那一次認的那一位時講
  *（她換了人就不是那一次的事了）。沒有就是空字串。
+ *
+ * 照片上寫了點滴8、沒寫哪一床的那一格也在這裡講（ADR-0155）：診間空著，**她選了一間就不講了**。
  */
 export function nearSay(item) {
   const out = [];
   const who = nearNameSay(item?.who, item?.row?.name, item?.customerId ?? null);
   if (who) out.push(who);
+  const chart = chartNoSay(item?.who, item?.row?.chartNo, item?.customerId ?? null);
+  if (chart) out.push(chart);
   const near = item?.course?.near;
   if (near) out.push(`課程那一格照片上是「${near.seen}」，差一個字，認成「${near.as}」—— 不對的話點開選`);
+  if (item?.bedless && !item.roomId) out.push(`照片上寫「${item.bedless}」，沒寫哪一床 —— 點開選一間`);
   return out.join('；');
 }
 
@@ -738,6 +765,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
     // 換一個人重算時，上一位的比對結果不可以留著 —— 「照片要把這一段改成什麼」（04）也是：留著的話換成的那一位被改狀態
     reason: null, appStatus: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false,
     statusChange: null, adoptStatus: false, halfTexts: null,
+    // 扣法跟 app 那一段不一樣（ADR-0154）也是那一位的那一段：換了人重算
+    chargeChange: null, adoptCharge: false, chargeLocked: false,
     // 照片為準改期（05）也是整張一起看的（`flagMoved()`）—— 換了人就不是那一位的段了
     move: null, adoptMove: false, moveWarnings: null,
     // 「看起來跟另一列是同一段」是整張一起看的（`flagRepeats()`）；換了人由 `markRepeat()` 再看一次
@@ -754,8 +783,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
       ? photoTimeSays(item.photoStatus, item.date, ctx.today) : '',
   };
   if (!next.customerId) return { ...next, kind: 'unknown', checked: false };
-  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）
-  const recognized = !pickedByHand({ ...item, customerId: next.customerId });
+  // **她自己選的人不自動勾**（認人沒認出這一位 —— 選了才能勾，勾是她勾）：新的一段、改狀態、換治療師／診間都是（10/16 審查）。
+  // **只有名字對上、沒用號碼核對過的也不勾**（`nameNoChart`，ADR-0160）：app 那一位沒有病歷號、照片上有 ——
+  // 照片上可能是另一個同名的人。她勾了，存的時候順便把號碼記上（`chartNoWrites()`）
+  const recognized = !pickedByHand({ ...item, customerId: next.customerId }) && !unverified({ ...item, customerId: next.customerId });
 
   const at = next.date && next.startsAt ? existingAt(next.customerId, next.date, next.startsAt, ctx) : null;
   if (at) {
@@ -783,9 +814,20 @@ export function resolveItem(item, customerId, ctx, items = null) {
       // 11：app 上那一段（還活著、同一門課）的治療師或診間跟 Abovee 不一樣 → 講出來。狀態只提醒的那幾種也比
       //（那一段照樣在，她可能只想換診間）；**照片上已經取消的那一段不比**（spec 07：被取消的那一段不再列治療師／診間）
       if (!hit || said.statusChange?.to === 'cancelled') return out;
+      // 扣法不一樣（ADR-0154：照片是體驗、app 那一段扣著額度，或反過來）→ 要改的一行，預設勾；已完成的鎖著只提醒。
+      // 以前 EECP20 是另一門課、配不上；合成一門之後不比的話，那一段照舊扣額度、安安靜靜地「已經記了」
+      const charged = chargeChangeOf(next, at.visit, hit, ctx);
+      if (charged) {
+        Object.assign(out, {
+          chargeChange: charged.change, chargeLocked: charged.locked,
+          adoptCharge: recognized && charged.adoptable && !historyPartial(ctx, next.customerId),
+          // 寫之前比的那一格：那一段她看到的時候扣著哪一筆（`applyPhotoCharge()`）
+          existing: { ...out.existing, entitlementId: hit.slot.entitlementId ?? null },
+        });
+      }
       const diffs = aboveeDiffs(next, at.visit, same, ctx);
       // 07：治療師／診間預設照 Abovee 改（推翻 ADR-0123 的「她按了才改」）—— 已完成的鎖著，不勾
-      return diffs.diffs ? { ...out, ...diffs, adopt: recognized && !diffs.locked, existing: { ...existing, ...diffs.existing } } : out;
+      return diffs.diffs ? { ...out, ...diffs, adopt: recognized && !diffs.locked, existing: { ...out.existing, ...diffs.existing } } : out;
     }
     // app 上這個時間有一段取消了（課程一樣或不一樣）：照新的一段走，**不預設打勾**（見 `crossCheck()`）。
     // 哪一種要講的那一句不一樣，所以記著課程一不一樣
@@ -802,9 +844,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
   let value = null;
   const courses = ctx.master?.courses ?? [];
   if (course?.nth) value = NTH_PICK;
-  // Abovee 寫體驗（06）：那門課的體驗，**不看身上有沒有額度**（她選的：「就算他身上有買那門課也不扣」）。
+  // Abovee 寫體驗（06）、或課程那一格寫 EECP20（分鐘＝體驗的時候排幾分，ADR-0154；預約來源寫正式課也一樣 ——
+  // 她 10/5：「EECP20 就是 EECP 體驗」）：那門課的體驗，**不看身上有沒有額度**（她選的：「就算他身上有買那門課也不扣」）。
   // 健檢、二返沒有體驗 → 照下面挑額度，那一列多一句（`trialSay()`）
-  else if (isTrialRow(next.row) && canBeGift(courses.find((c) => c.id === course?.courseId), courses)) value = giftPick(course.courseId);
+  else if (photoSaysTrial(next, courses)) value = giftPick(course.courseId);
   else {
     const choices = entitlementChoices(next.customerId, course, ctx);
     // 不算次數的課（ADR-0121）：身上還有那門課的額度就照舊扣；沒有剩的才不扣
@@ -826,6 +869,10 @@ export function resolveItem(item, customerId, ctx, items = null) {
 
 /** 這一列的人是她自己選的（照片上的名字與病歷號沒認出這一位）。 */
 const pickedByHand = (item) => Boolean(item?.customerId) && item.who?.customer?.id !== item.customerId;
+
+/** 名字對上、照片上有號碼、app 那一位沒有（ADR-0160）—— 那一列還是認人那一次那一位時才算。 */
+export const unverified = (item) => item?.who?.how === 'nameNoChart' && Boolean(item?.customerId)
+  && item.who.customer?.id === item.customerId;
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
@@ -876,6 +923,19 @@ export function pickOption(item, value, ctx, items = null) {
 }
 
 /**
+ * 確認層「排多久」那一排按了一個數字（ADR-0122）。**按的是那門課的「體驗的時候排幾分」、這一列扣著那門課的額度 →
+ * 換成那門課的體驗**（ADR-0154：EECP 按 20），跟壓表、來訪編輯器同一支 `trialFromMinutes()`；換過去走她自己按那一顆的
+ * `pickOption()`（器材、診間、治療師照片上的照舊）。其餘只換分鐘。
+ */
+export function pickMinutes(item, minutes, ctx, items = null) {
+  const value = optionValueOf(item);
+  const ent = liveEnts(ctx, item.customerId).find((e) => e.id === value) ?? null;
+  const course = ent ? (coursesForEntitlement(ent, ctx.master?.courses ?? [], ctx.master?.equipment ?? [])[0] ?? null) : null;
+  const toTrial = trialFromMinutes({ value, course, minutes, courses: ctx.master?.courses ?? [] });
+  return { ...(toTrial ? pickOption(item, toTrial.value, ctx, items) : item), minutes: Number(minutes) };
+}
+
+/**
  * 「送的／體驗」那一顆按下去，這一列多哪幾格（gift-and-trial 02）。
  *
  * - **體驗還是送的**：這一列原本就是送的／體驗就照舊（換一門送的課還是送的）；其餘是體驗（她：「四門都寫體驗」）
@@ -923,6 +983,8 @@ export function readAbovee(transcripts, ctx) {
       who,
       course,
       roomId: roomFrom(row.room, row.resource, rooms)?.id ?? null,
+      // 照片上寫了點滴8、沒寫哪一床（ADR-0155）：診間留空、那一列講一句（`nearSay()`）
+      bedless: bedMissingIn(row.room, row.resource, rooms),
       therapistId: person?.role === THERAPIST_ROLE ? person.id : null,
       doctorId: person?.role === DOCTOR_ROLE ? person.id : null,
       // 服務資源那一格有沒有認出人。她選了人時，認不出來的那個寫法才記住（`aliasWrites()`）
@@ -1071,6 +1133,7 @@ const asRecorded = (item, existing, extra = {}) => ({
   isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null, move: null, adoptMove: false, moveWarnings: null,
+  chargeChange: null, adoptCharge: false, chargeLocked: false,
   kind: 'recorded', checked: false, existing, ...extra,
 });
 
@@ -1171,6 +1234,20 @@ function claimTimeless(items, ctx) {
  * 「已經記了」那一列點開之後那一句：是哪一種已經記了。句子在 domain（同 `mismatchSay()`、`newRowSay()`）。
  */
 export function recordedSay(item) {
+  const said = recordedBaseSay(item);
+  return said && item.chargeChange ? `${said}${chargeSay(item)}` : said;
+}
+
+/** 扣法跟 Abovee 不一樣的那一句（ADR-0154）。改得了的照 Abovee 改；已完成的鎖著，講去哪裡改。 */
+function chargeSay(item) {
+  const c = item.chargeChange;
+  const what = c.to === 'trial' ? '體驗、不扣次數' : '扣額度';
+  if (item.chargeLocked) return `扣法跟 Abovee 不一樣（Abovee 上是${c.to === 'trial' ? '體驗' : '正式課'}）—— 已完成的鎖著，要改去日曆點這一段（先解鎖）。`;
+  if (c.to === 'counted' && !c.entitlementId) return 'Abovee 上是正式課、app 記成體驗 —— 身上挑不出要扣哪一筆，要扣去日曆點這一段選。';
+  return `扣法跟 Abovee 不一樣 —— 照 Abovee 改成${what}。`;
+}
+
+function recordedBaseSay(item) {
   if (item?.kind !== 'recorded') return '';
   if (item.halfOf) return `這是合併扣課的後一半 —— app 上 ${item.halfOf} 那一段已經包著它，不用再記。`;
   if (item.statusChange) {
@@ -1300,8 +1377,9 @@ function aboveeDiffs(item, visit, same, ctx) {
   if (assigns === 'therapist' && item.therapistId && item.therapistId !== slot.therapistId) {
     diffs.push({ field: 'therapistId', app: slot.therapistId ?? null, abovee: item.therapistId });
   }
-  // **Abovee 那一格沒寫床、app 上已經選了床的不算不一樣**（ADR-0127）：`點滴室8` 認成「沒選床位」的點滴8，
-  // 而 app 上是點滴8A —— 那只是照片上比較不精確，按「改成 Abovee 的」會把她選好的床弄丟
+  // **Abovee 那一格沒寫床、app 上已經選了床的不算不一樣**（ADR-0127）：主檔上還有「點滴8」那一間時 `點滴室8` 認成它，
+  // 而 app 上是點滴8A —— 那只是照片上比較不精確，照 Abovee 改會把她選好的床弄丟。種子上沒有那一間了（ADR-0155）：
+  // `點滴室8` 認不出來（`item.roomId` 是 null）就不比；這一行留給她自己的主檔上還有那一間的資料庫
   const roomOf = (id) => (ctx.master?.rooms ?? []).find((r) => r.id === id) ?? null;
   if (assigns === 'room' && item.roomId && item.roomId !== slot.roomId
       && !isBedlessOf(roomOf(item.roomId), roomOf(slot.roomId))) {
@@ -1314,6 +1392,85 @@ function aboveeDiffs(item, visit, same, ctx) {
     // 已完成的鎖著（`lockedAt()` 問那一段）：照樣寫出不一樣，但不給按
     locked: lockedAt(visit, index),
   };
+}
+
+/**
+ * app 上那一段（同一個時間、同一門課、還活著）跟照片**扣法不一樣**（staging-polish 09，ADR-0154）。
+ *
+ * EECP 合成一門之前，`EECP20` 是另一門課、永遠配不上 app 上的 EECP 60；合成之後同一門課、同一個時間 —— 不比的話，
+ * 照片上的體驗對上 app 上扣額度的那一段，被認成安安靜靜的「已經記了」，**那一段照舊扣額度**。照 ADR-0149「照片為準」：
+ *
+ * - 照片是體驗（`photoSaysTrial()`）、app 那一段扣著額度 → 改成體驗（`to: 'trial'`）
+ * - 照片清楚是正式課（`photoSaysPaid()`：`EECP60`）、app 那一段是送的／體驗 → 改成扣額度：扣哪一筆照新的那一列挑額度那一套
+ *   （`entitlementChoices()`＋`obviousEntitlement()`，只看還有剩的）；挑不出來 → `entitlementId: null`、不先勾（`chargeSay()` 講為什麼）
+ * - 已完成的鎖著（`lockedAt()`）：照樣講出來，不給勾（「要你看」）
+ * - n返 不比（它借二返那門課，不會是體驗）；別的課沒拍到預約來源看不出是不是體驗 —— 照舊不比
+ *
+ * `minutes`：照片上的分鐘（沒寫是 null —— 改成體驗時照「體驗的時候排幾分」）。
+ *
+ * @returns {{change: {to: 'trial'|'counted', entitlementId: string|null, minutes: number|null}, locked: boolean, adoptable: boolean}|null}
+ */
+function chargeChangeOf(item, visit, hit, ctx) {
+  const courses = ctx.master?.courses ?? [];
+  const slot = hit?.slot;
+  if (!slot || !isLiveSlot(slot) || (slot.followupNth != null && slot.followupNth !== '')) return null;
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  const minutes = item.course?.durationMin ?? null;
+  let change = null;
+  if (slot.entitlementId && photoSaysTrial(item, courses)) change = { to: 'trial', entitlementId: null, minutes };
+  else if (!slot.entitlementId && giftKindOf(slot, coursesById) && photoSaysPaid(item, courses)) {
+    const left = entitlementChoices(item.customerId, item.course, ctx).filter((c) => c.remaining > 0);
+    change = { to: 'counted', entitlementId: obviousEntitlement(left, item.course)?.id ?? null, minutes };
+  }
+  if (!change) return null;
+  const locked = lockedAt(visit, hit.index);
+  return { change, locked, adoptable: !locked && (change.to === 'trial' || Boolean(change.entitlementId)) };
+}
+
+/**
+ * 照片要改的扣法（ADR-0154）套到**剛讀回來的那一份**上。照 `adoptAbovee()` 的形狀：只動那一段的
+ * `entitlementId`、`giftKind`、`minutes`、`endsAt`（與擇一池換成體驗之後還要不要記器材）—— 狀態、開始時間、診間、記一句一格都不碰，
+ * 不取消、不重排（開始時間與課程都沒變，不是 ADR-0108 的改期；來訪編輯器把扣額度改成體驗也是原地改，她 10/18 選的）。
+ *
+ * 找那一段照 `existing.slotIndex`，再核對開始時間、課程、**扣著哪一筆**跟她看到的一樣（`stale`）、沒鎖著（`refused`）。
+ * 時長：照片上寫了就照照片（`EECP20` → 20），沒寫照那一段的規則重算（體驗 → 體驗的時候排幾分、扣額度 → 額度／課程）。
+ *
+ * @returns {{visit: object, missed: object[]}}
+ */
+export function applyPhotoCharge(visit, items = [], ctx = {}) {
+  const mine = (items ?? []).filter((i) => i?.chargeChange && i.adoptCharge && visit?.id && i.existing?.visitId === visit.id);
+  const missed = [];
+  if (!mine.length) return { visit, missed };
+  const slots = [...(visit.slots ?? [])];
+  const { courses = [], ivProducts = [] } = ctx.master ?? {};
+  for (const item of mine) {
+    const want = item.existing;
+    const at = want.slotIndex;
+    const slot = slots[at];
+    const same = visit.date === want.date && Boolean(slot) && isLiveSlot(slot) && (slot.startsAt ?? null) === (want.startsAt ?? null)
+      && slot.courseId === want.courseId && (slot.entitlementId ?? null) === (want.entitlementId ?? null);
+    if (!same) { missed.push({ ...item, missedWhy: 'stale' }); continue; }
+    const change = item.chargeChange;
+    const entitlement = change.to === 'counted'
+      ? (liveEnts(ctx, item.customerId).find((e) => e.id === change.entitlementId) ?? null) : null;
+    if (lockedAt({ ...visit, slots }, at) || (change.to === 'counted' && !entitlement)) {
+      missed.push({ ...item, missedWhy: 'refused' });
+      continue;
+    }
+    const course = courses.find((c) => c.id === slot.courseId) ?? null;
+    const giftKind = change.to === 'trial' ? 'trial' : null;
+    const ivProduct = course?.requiresIvProduct ? (ivProducts.find((x) => x.id === slot.ivProductId) ?? null) : null;
+    const timing = { entitlement, course, ivProduct, minutes: change.minutes, giftKind };
+    slots[at] = {
+      ...slot,
+      entitlementId: entitlement?.id ?? null,
+      giftKind,
+      equipmentId: picksEquipment(entitlement, course) ? (slot.equipmentId ?? null) : null,
+      minutes: slotMinutesField(timing),
+      endsAt: isValidTime(slot.startsAt) ? endOf(slot.startsAt, slotMinutes(timing)) : slot.endsAt,
+    };
+  }
+  return { visit: missed.length === mine.length ? visit : { ...visit, slots }, missed };
 }
 
 /** 「治療師：app 是 A、Abovee 是 B」。名字問主檔；app 上那一格空著就說還沒選。 */
@@ -1334,7 +1491,8 @@ export function diffSay(diff, { staff = [], rooms = [] } = {}) {
 
 /** 這一列有沒有要改 app 上既有那一段的事：狀態（04）、改期（05）、治療師／診間（11，鎖著的不算）。抬頭的「要改 N 段」也問它。 */
 export const offersChange = (item) => Boolean(item?.customerId)
-  && Boolean(item.statusChange || item.move || ((item.diffs?.length ?? 0) > 0 && !item.locked));
+  && Boolean(item.statusChange || item.move || ((item.diffs?.length ?? 0) > 0 && !item.locked)
+    || (item.chargeChange && !item.chargeLocked));
 
 /** 治療師／診間那一格的名字（人員走全名，CLAUDE.md「人員的全名與簡寫」）。 */
 function assignName(field, id, { staff = [], rooms = [] } = {}) {
@@ -1368,14 +1526,14 @@ export function changeLines(items, plan, ctx) {
   const offWhy = (item) => (item.closeBlock ? closeBlockSay(item.closeBlock)
     : (item.moveWarnings ?? [])[0] ?? (item.partialHistory ? '這一位過去的來訪沒有讀到全部，次數拿不準'
       : pickedByHand(item) ? '人是你選的，確定再勾' : ''));
-  const FIELD_OF = { status: 'adoptStatus', move: 'adoptMove', adopt: 'adopt' };
+  const FIELD_OF = { status: 'adoptStatus', move: 'adoptMove', adopt: 'adopt', charge: 'adoptCharge' };
   const notNow = (item, kind) => {
     const why = stuck(item.key, FIELD_OF[kind]);
     return why ? `（這一次改不成 —— ${why}）` : '';
   };
-  const tail = (item, kind, on) => {
+  const tail = (item, kind, on, why0 = '') => {
     if (!on) {
-      const why = offWhy(item);
+      const why = why0 || offWhy(item);
       return `（不改${why ? ` —— ${why}` : ''}）`;
     }
     // 次數那一個括號：拿計畫那一列的 `charge`（扣 +1、還 −1，`photoDayPlan()` 拿寫入那一份算的），不在這裡推；確認框同一支
@@ -1396,6 +1554,18 @@ export function changeLines(items, plan, ctx) {
       const { from, to } = item.statusChange;
       lines.push({ key: item.key, field: 'adoptStatus', on: Boolean(item.adoptStatus),
         text: `${head}：${shortStatus(from)} → ${shortStatus(to)}${tail(item, 'status', item.adoptStatus)}` });
+    }
+    // 扣法（ADR-0154）：「改成體驗 20 分，不扣（還 1 次）」／「改成扣 EECP、60 分（扣 1 次）」。括號照樣讀計畫的 `charge`
+    if (item.chargeChange && !item.chargeLocked) {
+      const c = item.chargeChange;
+      const label = c.entitlementId
+        ? (ctx.entitlementsBy?.[item.customerId] ?? []).find((e) => e.id === c.entitlementId)?.label ?? '' : '';
+      const what = c.to === 'trial'
+        ? `改成體驗${c.minutes ? ` ${c.minutes} 分` : ''}，不扣`
+        : `改成扣${label ? `「${label}」` : '額度'}${c.minutes ? `、${c.minutes} 分` : ''}`;
+      const noEnt = c.to === 'counted' && !c.entitlementId ? '身上挑不出要扣哪一筆額度，要扣去日曆點這一段選' : '';
+      lines.push({ key: item.key, field: 'adoptCharge', on: Boolean(item.adoptCharge),
+        text: `${head}：${what}${tail(item, 'charge', item.adoptCharge, noEnt)}` });
     }
     if (item.move) {
       const to = item.move.status === INITIAL_STATUS ? '' : `、記成「${shortStatus(item.move.status)}」`;
@@ -1545,7 +1715,7 @@ function afterPhoto(customerId, groups, items, ctx) {
   const planned = (groups ?? []).filter((g) => g.customerId === customerId && g.visit).map((g) => ({ ...g.visit, id: plannedId(g) }));
   const replaced = new Set(planned.map((v) => v.id));
   return [...(ctx.visitsBy?.[customerId] ?? []).filter((v) => v && !replaced.has(v.id)), ...planned]
-    .map((v) => applyPhotoMove(applyPhotoStatus(v, items).visit, items).visit);
+    .map((v) => applyPhotoMove(applyPhotoStatus(applyPhotoCharge(v, items, ctx).visit, items).visit, items).visit);
 }
 
 /**
@@ -1642,13 +1812,23 @@ function flagMoved(items, ctx, bounds) {
       startsAt: old.slot.startsAt, courseId: old.slot.courseId, status: old.status,
     };
     const partialHistory = historyPartial(ctx, item.customerId);
-    return asRecorded(item, existing, {
+    // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
+    // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）。
+    // 名字對上、沒用號碼核對過的也不先勾（`unverified()`，ADR-0160）：這一條不經過 `resolveItem()` 的 `recognized`
+    const adoptMove = photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere && !unverified(item);
+    // 扣法也不一樣（ADR-0154，staging-polish 16：Abovee 上改了時間、也改成 EECP20）→ 同一列多一件「要改的」。
+    // 拿照片這一列跟 app 上**舊的那一段**比（同一個時間對到時是 `resolveItem()` 那一條比的，改期那一列不經過它）。
+    // 預設勾跟著改期：改期沒先勾就不先勾 —— 只改舊時間那一段的扣法、不搬，對不上照片上任何一列
+    const charged = chargeChangeOf(item, old.visit, { slot: old.slot, index: old.index }, ctx);
+    return asRecorded(item, charged ? { ...existing, entitlementId: old.slot.entitlementId ?? null } : existing, {
       movedFrom,
       move: { slot: movedSlotFields(item, old, ctx), status: photoSlotStatus(item, ctx.today) },
-      // 照片上的狀態那一張表（過去還寫確認前往、還沒到就寫完成……不勾）、讀不到全部來訪、app 上新的那個時間取消過 —— 不先勾。
-      // 撞到別人、二返簽不成已完成是讀完整張之後才知道的（`checkMoves()`）
-      adoptMove: photoWantsChecked(item, ctx.today) && !partialHistory && !item.appCancelledHere,
+      adoptMove,
       partialHistory,
+      ...(charged ? {
+        chargeChange: charged.change, chargeLocked: charged.locked,
+        adoptCharge: adoptMove && charged.adoptable && !pickedByHand(item),
+      } : {}),
     });
   });
 }
@@ -1724,7 +1904,12 @@ export function applyPhotoMove(visit, items = [], { at = new Date().toISOString(
       missed.push({ ...item, missedWhy: 'stale' });
       continue;
     }
-    const moved = { ...old, ...item.move.slot };
+    // 時長照**現在**這一段（扣法那一步套過的話是改過的時長，staging-polish 16）—— `move.slot.endsAt` 是讀照片那一刻照舊的時長算的
+    const span = old.startsAt && old.endsAt ? toMinutes(old.endsAt) - toMinutes(old.startsAt) : null;
+    const moved = {
+      ...old, ...item.move.slot,
+      ...(span > 0 && item.move.slot.startsAt ? { endsAt: endOf(item.move.slot.startsAt, span) } : {}),
+    };
     let after = rebookSlot(next, want.slotIndex, moved, { status: item.move.status, at });
     const why = after && item.move.status === 'done' && guard
       ? cannotClose(after, after.slots.length - 1, [], guard) : null;
@@ -1757,9 +1942,11 @@ function checkMoves(items, ctx) {
     const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing.visitId);
     if (!visit) continue;
     const guard = { entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: afterPhoto(item.customerId, groups, items, ctx) };
-    const { visit: after, blocked } = applyPhotoMove(visit, [item], { guard });
+    // 扣法勾著的話先套（staging-polish 16）：不然拿舊的時長去驗撞期與重疊
+    const charged = item.adoptCharge ? applyPhotoCharge(visit, [item], ctx).visit : visit;
+    const { visit: after, blocked } = applyPhotoMove(charged, [item], { guard });
     if (blocked[item.key]) {
-      notes.set(item.key, { adoptMove: false, closeBlock: blocked[item.key] });
+      notes.set(item.key, { adoptMove: false, adoptCharge: false, closeBlock: blocked[item.key] });
       continue;
     }
     const check = checkCtxFor(groups, { customerId: item.customerId, date: after.date, visit: after }, ctx);
@@ -1768,7 +1955,8 @@ function checkMoves(items, ctx) {
       ...validateVisit(after, check).errors,
       ...warningDetails(after, check).filter((w) => mustSee(w) && w.slots.includes(at)).map((w) => w.text),
     ];
-    if (said.length) notes.set(item.key, { adoptMove: false, moveWarnings: said });
+    // 改期不先勾，扣法也不先勾（理由同 `flagMoved()`）
+    if (said.length) notes.set(item.key, { adoptMove: false, adoptCharge: false, moveWarnings: said });
   }
   return items.map((i) => (notes.has(i.key) ? { ...i, ...notes.get(i.key) } : i));
 }
@@ -1898,12 +2086,16 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 治療師／診間不一樣：改得了的在「要改的」那一塊（07，`changeLines()`），不再排進來 —— 同一列兩邊都出現就是兩個地方各記一份。
   // 已完成鎖著、改不了的照舊要你看（只能提醒）
   || (item?.kind === 'recorded' && Boolean(item?.locked) && (item?.diffs ?? []).some((d) => d.app))
+  // 扣法跟 Abovee 不一樣、那一段已完成鎖著（ADR-0154）：改不了，只能提醒
+  || (item?.kind === 'recorded' && Boolean(item?.chargeChange) && Boolean(item?.chargeLocked))
   // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
   || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam))
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
   // 合併扣課兩列不一樣、二返簽不成已完成 —— 這幾種都沒先勾好，要她決定（`photoRowSays()` 講為什麼）
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
-  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none');
+  || (!item?.cancelled && item?.kind === 'unknown' && item?.who?.how !== 'none')
+  // 名字對上、app 那一位沒有病歷號（ADR-0160）：沒先勾，要她看是不是同一個人
+  || (!item?.cancelled && item?.kind !== 'unknown' && unverified(item));
 
 /**
  * 「要你看」裡面收起來的那一種（中途發現 5，她 10/15：「應該不常發生…用收合的就好」）：**日子過了、Abovee 上還是待確認那三種**，
@@ -2102,6 +2294,8 @@ function within(range, date, startsAt) {
  * 這一次照片看得到哪幾段時間（`photoSpan()` → `boundsOf()`）。**「app 有、這次照片上沒有」（ADR-0129）與
  * 「Abovee 改了時間」（`flagMoved()`，abovee-status-follows-photo 05）共用這一支** —— 各算一次的話，
  * 一邊把 10:00 喊成沒拍到、另一邊卻當成拍到了去改期。照片上每一列都認出來、而且是同一位 → `customerId` 是他（放寬到整個月的那一條要它）。
+ * **這個 `customerId` 只管範圍放不放寬，不管對誰**（ADR-0153）—— 對誰是 `photoWho()`，判準比這裡寬（一列沒認出來不退回對大家）；
+ * 拿寬的那一個來放寬的話，很多人的列表最後一頁剛好只剩一兩位時會被放寬到整個月，`flagMoved()` 也跟著變。
  *
  * @returns {{customerId: string|null, ranges: {lo: object, hi: object}[], why: null|'noDates'|'unsorted'}}
  */
@@ -2113,13 +2307,68 @@ export function photoBounds(transcripts, items) {
   return { customerId, ranges: span.segments.map((seg) => boundsOf(seg, span, Boolean(customerId))), why: null };
 }
 
+/** 照片上有幾位以上就當成「拍大家」（ADR-0153）：1～2 位只對那幾位。 */
+export const EVERYONE_FROM = 3;
+
+/**
+ * 照片上有幾位（ADR-0153）：**看照片上的字，不看認不認得出來** —— 認人（`identifyCustomer()`）對不上時不挑人，
+ * 拿它來數的話一列抄錯一個字就多一位「沒認出來的」。
+ * 先照病歷號分組（補零、空白一樣）；沒有病歷號的那一列，名字跟某一組一樣或差一個字（`oneCharOff()`）→ 併進那一組，都不像 → 自己一組。
+ * 拿不準的當成不同的兩位（寧可多算一位 —— 多算的代價是多對大家一次）。名字與病歷號都空的那一列不算人。
+ *
+ * @param {object[]} items `readAbovee()` 的那幾列（讀 `row.name`／`row.chartNo`，照片上的原字）
+ * @returns {{label: string, chartNo: string, names: string[], items: object[]}[]} `label` 是照片上的原字（講的時候用）
+ */
+export function photoPeople(items = []) {
+  const groups = [];
+  const rows = (items ?? []).map((item) => ({
+    item,
+    no: normalizeChartNo(item?.row?.chartNo),
+    name: normalizeName(item?.row?.name),
+    text: clean(item?.row?.name),
+    noText: clean(item?.row?.chartNo),
+  })).filter((r) => r.no || r.name);
+  const add = (g, r) => {
+    if (r.name && !g.names.includes(r.name)) g.names.push(r.name);
+    if (!g.label && r.text) g.label = r.text;
+    g.items.push(r.item);
+  };
+  for (const r of rows.filter((x) => x.no)) {
+    let g = groups.find((x) => x.chartNo === r.no);
+    if (!g) groups.push(g = { label: '', chartNo: r.no, noText: r.noText, names: [], items: [] });
+    add(g, r);
+  }
+  for (const r of rows.filter((x) => !x.no)) {
+    let g = groups.find((x) => x.names.some((n) => n === r.name || oneCharOff(n, r.name)));
+    if (!g) groups.push(g = { label: '', chartNo: '', noText: '', names: [], items: [] });
+    add(g, r);
+  }
+  return groups.map(({ noText, ...g }) => ({ ...g, label: g.label || `病歷號 ${g.chartNo}` }));
+}
+
+/**
+ * 「app 有、這次照片上沒有」對誰（ADR-0153，補 ADR-0129 的「對象」）。照片上（`photoPeople()`）1～2 位 → 只對那幾位：
+ * 那幾列**認出來的人**（她「換一位」之後照她換的 —— 照片上一位、她說了是兩個人，認出來的為準）；
+ * 其中一位一列都沒認出來 → 那一位先不對、講一句（`unknown`），**不退回對大家**。3 位以上（或一位都數不出來）→ 對大家（`customerIds: null`）。
+ *
+ * @returns {{customerIds: string[]|null, unknown: string[]}}
+ */
+export function photoWho(items = []) {
+  const people = photoPeople(items);
+  if (!people.length || people.length >= EVERYONE_FROM) return { customerIds: null, unknown: [] };
+  const customerIds = [...new Set((items ?? []).map((i) => i?.customerId).filter(Boolean))];
+  const unknown = people.filter((g) => !g.items.some((i) => i.customerId)).map((g) => g.label);
+  return { customerIds, unknown };
+}
+
 /** 那一天那個時間落不落在這張照片看得到的範圍裡（`photoBounds()`）。 */
 const inPhoto = (bounds, date, startsAt) => (bounds?.ranges ?? []).some((r) => within(r, date, startsAt));
 
 /**
  * app 上有、這次照片上沒有的那幾段（ADR-0129）。確認層每畫一次就算一次 —— 她換了某一列是誰，結果跟著變。
  *
- * **對象**：照片上每一列都認出來、而且是同一位 → 那一位（「一個月內的一個人」）；否則範圍裡 app 上有來訪的每一位。
+ * **對象**（`photoWho()`，ADR-0153）：照片上 1～2 位 → 只對那幾位（認出來的人）；3 位以上 → 範圍裡 app 上有來訪的每一位。
+ * `everyone` → 不看照片上幾位、對每一位（月底對帳：一整個月、每一位都要對）。**範圍**照舊只看 `photoBounds()`。
  * **哪幾段算 app 有**：來訪還在、那一段還活著（未到也算 —— Abovee 上失約的那一列還在）、**那門課壓在 Abovee**
  *（`bookingSystemOf()`：健檢壓 Examine、HRV 不用壓，都不算；認不得的課照它的猜法算 Abovee）。
  * **哪幾段算照片上有**：同一位、同一天，而且開始時間一樣（合併扣課的另一半也算）；那一段沒有開始時間的話，
@@ -2129,13 +2378,16 @@ const inPhoto = (bounds, date, startsAt) => (bounds?.ranges ?? []).some((r) => w
  * @param {object[]} transcripts 那一次的抄字（`photoSpan()` 讀）
  * @param {object[]} items `readAbovee()` 的那幾列（她改過之後的）
  * @param {{customers, visitsBy, master}} ctx
- * @returns {{checked: {customerId: string|null, ranges: object[]}|null, why: null|'noDates'|'unsorted', slots: object[]}}
+ * @param {{everyone?: boolean}} [opts]
+ * @returns {{checked: {customerIds: string[]|null, unknown: string[], ranges: object[]}|null, why: null|'noDates'|'unsorted', slots: object[]}}
+ *   `customerIds: null` ＝ 對每一位
  */
-export function absentFromPhoto(transcripts, items, ctx) {
+export function absentFromPhoto(transcripts, items, ctx, { everyone = false } = {}) {
   const list = items ?? [];
   if (!list.length) return { checked: null, why: null, slots: [] };
-  const { customerId, ranges, why } = photoBounds(transcripts, list);
+  const { ranges, why } = photoBounds(transcripts, list);
   if (why) return { checked: null, why, slots: [] };
+  const { customerIds, unknown } = everyone ? { customerIds: null, unknown: [] } : photoWho(list);
   const courses = new Map((ctx.master?.courses ?? []).map((c) => [c.id, c]));
   const nameOf = (id, visit) => (ctx.customers ?? []).find((c) => c.id === id)?.name ?? visit?.customerName ?? '';
 
@@ -2150,7 +2402,7 @@ export function absentFromPhoto(transcripts, items, ctx) {
   };
 
   const slots = [];
-  const people = customerId ? [customerId] : Object.keys(ctx.visitsBy ?? {});
+  const people = customerIds ?? Object.keys(ctx.visitsBy ?? {});
   for (const who of people) {
     for (const visit of ctx.visitsBy?.[who] ?? []) {
       if (!visit || visit.deletedAt || !isActive(visit) || !visit.date) continue;
@@ -2174,14 +2426,15 @@ export function absentFromPhoto(transcripts, items, ctx) {
     }
   }
   slots.sort((a, b) => `${a.date}|${a.startsAt ?? ''}|${a.customerName}`.localeCompare(`${b.date}|${b.startsAt ?? ''}|${b.customerName}`));
-  return { checked: { customerId, ranges }, why: null, slots };
+  return { checked: { customerIds, unknown, ranges }, why: null, slots };
 }
 
 const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const pointSay = (p) => (p.time ? `${md(p.date)} ${p.time}` : md(p.date));
 
 /**
- * 那一塊上面那一句：對了誰、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
+ * 那一塊上面那一句：對了誰（一位、兩位、每一位，ADR-0153）、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
+ * 照片上有一位還沒認出是誰（`unknown`）→ 接一句「照片上的 ○○ 還沒認出是誰，先沒對」（名字照照片上的原字）。
  * 沒有對的時候講為什麼（不然她分不出沒列出來是「沒有」還是「沒檢查」）。照片上一列都沒有就不講。
  *
  * @param {ReturnType<typeof absentFromPhoto>} result
@@ -2193,12 +2446,15 @@ export function absentSay(result, customers = []) {
   }
   if (result?.why === 'noDates') return '照片上讀不到日期 —— 沒有對「app 有、這次照片上沒有」。';
   if (!result?.checked) return '';
-  const { customerId, ranges } = result.checked;
+  const { customerIds, unknown = [], ranges } = result.checked;
+  const notYet = unknown.length ? `照片上的 ${unknown.join('、')} 還沒認出是誰` : '';
+  if (customerIds && !customerIds.length) return `${notYet} —— 沒有對「app 有、這次照片上沒有」。`;
   const when = ranges.map(({ lo, hi }) => `${pointSay(lo)}–${pointSay(hi)}`).join('、');
-  const name = customerId ? ((customers ?? []).find((c) => c.id === customerId)?.name ?? '') : '';
-  const scope = customerId ? `對過 ${name} ${when} 在 app 上的段` : `對過 ${when} 每一位在 app 上的段`;
+  const names = (customerIds ?? []).map((id) => (customers ?? []).find((c) => c.id === id)?.name ?? '').filter(Boolean).join('、');
+  const scope = customerIds ? `對過 ${names} ${when} 在 app 上的段` : `對過 ${when} 每一位在 app 上的段`;
   const n = result.slots.length;
-  return n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
+  const said = n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
+  return notYet ? `${said}${notYet}，先沒對。` : said;
 }
 
 /**
@@ -2397,7 +2653,18 @@ export const wantsWrite = (item) => Boolean(item?.customerId) && (
   (item.kind === 'new' && Boolean(item.checked))
   || (Boolean(item.adopt) && (item.diffs?.length ?? 0) > 0)
   || (Boolean(item.statusChange) && Boolean(item.adoptStatus))
+  || (Boolean(item.chargeChange) && Boolean(item.adoptCharge))
   || (Boolean(item.move) && Boolean(item.adoptMove)));
+
+/**
+ * 確認框那一句「病歷號記成 …」（ADR-0160）：`items` 裡這一次會寫的那幾列（`wantsWrite()` —— 新的一段，也連「要改的」那幾行：
+ * 改狀態、改期、扣法、治療師／診間）。寫入那一側記的是記好的那幾列（`savedKeys`），而會被記好的就是這幾列 ——
+ * 以前確認框只數勾著的新列，改期那一列存下去照樣記上號碼、框上一句都沒講（段四審查）。
+ */
+export function photoChartNos(items, customers) {
+  return chartNoWrites((items ?? []).filter(wantsWrite)
+    .map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId })), customers);
+}
 
 /**
  * 底下那一顆要數的（10/16 審查）：她勾著的那幾列（`wanted`，`wantsWrite()` 的）裡，**這一份計畫真的會寫的**記新的幾段、改既有的幾段；
@@ -2463,21 +2730,25 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       if (!mine.length) return v;
       const adopts = mine.filter((i) => i.adopt && i.diffs?.length);
       const adopted = adoptAbovee(v, adopts);
-      const status = applyPhotoStatus(adopted.visit, mine, { at, guard });
+      // 扣法（ADR-0154）排在狀態之前：狀態那一步核對的開始時間、課程、狀態它一格都不動
+      const charged = applyPhotoCharge(adopted.visit, mine, ctx);
+      const status = applyPhotoStatus(charged.visit, mine, { at, guard });
       const moved = applyPhotoMove(status.visit, mine, { at, guard });
       // 記著沒改成的是哪一格（`missedField`）：同一列一件改成了、一件沒改成時，存完只拿掉那一個勾（10/16 審查）
       const tag = (list, field) => list.map((m) => ({ ...m, missedField: field }));
       missed.push(...tag(adopted.missed.map((m) => ({ ...m, missedWhy: 'stale' })), 'adopt'),
-        ...tag(status.missed, 'adoptStatus'), ...tag(moved.missed, 'adoptMove'));
+        ...tag(charged.missed, 'adoptCharge'), ...tag(status.missed, 'adoptStatus'), ...tag(moved.missed, 'adoptMove'));
       const lost = (from, key) => from.some((m) => m.key === key);
       const done = {};
       for (const i of adopts) if (!lost(adopted.missed, i.key)) (done[i.key] ??= []).push('adopt');
+      for (const i of mine.filter((x) => x.chargeChange && x.adoptCharge)) if (!lost(charged.missed, i.key)) (done[i.key] ??= []).push('charge');
       for (const i of mine.filter((x) => x.statusChange && x.adoptStatus)) if (!lost(status.missed, i.key)) (done[i.key] ??= []).push('status');
       for (const i of mine.filter((x) => x.move && x.adoptMove)) if (!lost(moved.missed, i.key)) (done[i.key] ??= []).push('move');
       if (!Object.keys(done).length) return v;
       const slotAt = Object.fromEntries(mine.map((i) => [i.key, moved.at[i.key] ?? i.existing.slotIndex]));
       touched.set(v.id, {
-        customerId, before: v, visit: moved.visit, done, at: slotAt, freed: [...status.freed, ...moved.freed], blocked: moved.blocked,
+        customerId, before: v, charged: charged.visit, visit: moved.visit, done, at: slotAt,
+        freed: [...status.freed, ...moved.freed], blocked: moved.blocked,
       });
       return moved.visit;
     });
@@ -2567,17 +2838,20 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     for (const [key, kinds] of Object.entries(w.touch?.done ?? {})) {
       const item = byKey.get(key);
       const old = item.existing.slotIndex;
+      // 扣法那一步之後的樣子（ADR-0154）：狀態與改期的那幾列從它算起 —— 同一列兩件都改時，次數不重複算
+      const mid = w.touch.charged ?? w.before;
       for (const kind of kinds) {
         const base = { key, customerId: w.customerId, date: w.date, kind };
         if (kind === 'adopt') rows.push({ ...base, charge: 0, fields: item.diffs.map((d) => d.field), filled: item.diffs.every((d) => !d.app) });
+        if (kind === 'charge') rows.push({ ...base, to: item.chargeChange.to, charge: charge(mid, old) - charge(w.before, old), free: false });
         // `free`：那一段本來就沒扣任何一筆額度（送的／體驗、n返）—— 括號寫「本來就不扣次數」不寫「次數不變」
-        const free = !w.before?.slots?.[old]?.entitlementId;
+        const free = !w.before?.slots?.[old]?.entitlementId && !kinds.includes('charge');
         if (kind === 'status') {
-          rows.push({ ...base, to: item.statusChange.to, charge: charge(w.visit, old) - charge(w.before, old), free });
+          rows.push({ ...base, to: item.statusChange.to, charge: charge(w.visit, old) - charge(mid, old), free });
         }
         if (kind === 'move') {
           const fresh = w.touch.at[key];
-          rows.push({ ...base, to: slotStatus(w.visit, w.visit.slots[fresh]), charge: charge(w.visit, old) - charge(w.before, old) + charge(w.visit, fresh), free });
+          rows.push({ ...base, to: slotStatus(w.visit, w.visit.slots[fresh]), charge: charge(w.visit, old) - charge(mid, old) + charge(w.visit, fresh), free });
         }
       }
     }
@@ -2599,6 +2873,30 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     deltas[customerId] = countDeltas(ctx.entitlementsBy?.[customerId] ?? [], stored, afterAll[customerId]);
   }
   return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
+}
+
+/**
+ * 點開一列**沒勾的新的**：她勾起來的話，那一列會有哪幾句提醒、存不存得下去（before-golive-2026-10-19/09）。
+ *
+ * 她：「沒勾的列，點開看不到提醒。(好，修)」—— 提醒是拿勾著的那幾列組出來的來訪算的（`planAbovee()` 只收勾著的），
+ * 沒勾的那一列不在任何一組裡。**把那一列當成勾起來、整張重跑同一支 `photoDayPlan()`，只讀那一列**：
+ * 跨天的超用要靠別組（`visitsForCheck()`）、同一天撞診間要靠別人那一天 —— 只組這一位這一天會漏。
+ * 勾起來那一下 UI 還會重算的兩個旗標（`refreshNoExam()`、`refreshCloseBlocks()`）也照套，兩條路才講同一件事。
+ *
+ * **不寫回她的勾**：回的是一份新的，`items` 一個字都不動 —— 所以確認框的「其中 N 段有提醒」、收著的那幾行不多一列。
+ *
+ * @param {object[]} items 這一次還沒記的列（同 `photoDayPlan()`）
+ * @param {string} key 點開的那一列
+ * @returns {{problems: string[], warnings: string[]}|null} 不是沒勾的新的（已經記了、對不上、認不得人、本來就勾著）→ `null`
+ */
+export function whatIfChecked(items, key, ctx, o = {}) {
+  const list = items ?? [];
+  const item = list.find((i) => i.key === key);
+  if (!item || item.kind !== 'new' || !item.customerId || item.checked) return null;
+  let next = list.map((i) => (i.key === key ? { ...i, checked: true } : i));
+  next = refreshCloseBlocks(refreshNoExam(next, ctx), ctx);
+  const p = photoDayPlan(next, ctx, o);
+  return { problems: p.problems[key] ?? [], warnings: p.warningsBy[key] ?? [] };
 }
 
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
@@ -2770,7 +3068,11 @@ export function warningsByRow(group, details = [], { customer = null, equipment 
  * **收著也看得到**（`warningsByRow()` 放進 `mustSee`）—— 她沒點開就扣了一次。
  */
 function trialSay(item, courses = []) {
-  if (!isTrialRow(item?.row) || !item?.entitlementId) return [];
+  if (!item?.entitlementId) return [];
+  // 課程那一格寫的是體驗的分鐘（EECP20，ADR-0154）、她換成了扣額度
+  if (!isTrialRow(item?.row)) {
+    return photoSaysTrial(item, courses) ? [`Abovee 上是「${clean(item.row?.course)}」（體驗），這裡選了扣額度 —— 照扣一次`] : [];
+  }
   const course = (courses ?? []).find((c) => c.id === item.course?.courseId);
   // 課程認不出來的那一列不知道是不是健檢：講她自己選了扣額度那一句
   return [course && !canBeGift(course, courses)

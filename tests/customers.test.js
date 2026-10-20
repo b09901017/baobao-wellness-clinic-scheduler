@@ -140,7 +140,7 @@ describe('客戶提示（只提示不阻擋）', () => {
   });
 
   test('沒事的那一格是 null（畫面不佔位）', () => {
-    assert.deepEqual(fieldWarnings({ id: 'z', name: '新客戶', phone: '0900' }, existing), { name: null, contact: null });
+    assert.deepEqual(fieldWarnings({ id: 'z', name: '新客戶', phone: '0900' }, existing), { name: null, contact: null, chartNo: null });
   });
 });
 

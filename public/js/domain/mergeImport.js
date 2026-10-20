@@ -19,8 +19,9 @@ import { contraindicationHints } from './contraindications.js';
 import { normalize as normalizeNote } from './notes.js';
 import { importedTasksFor } from './taskRules.js';
 import { toCustomerFields } from './customerMarks.js';
+import { chartNoMove, newLongNoteId, validateLongNotes } from './customerNotes.js';
 import { DOCTOR_ROLE, GIFT_KINDS, canBeGift, giftKindOf, hasAlias, isUncounted, validate } from './masterData.js';
-import { slotMinutes } from './visits.js';
+import { NOTE_MAX, slotMinutes, visitStatusFrom } from './visits.js';
 
 /**
  * 合併檔的格式。
@@ -40,14 +41,32 @@ import { slotMinutes } from './visits.js';
  *   （`'trial'`／`'gift'`，gift-and-trial 08）：有值的那一段不扣任何一筆額度，**任何課**（健檢、二返除外）。
  *   v6 的 app 讀到會照扣、沒有額度就整段丟掉 —— 所以升版
  *
+ * - **v8（2026-10-18）** 候選（`futureVisits`／`missingFromSheet`）送的／體驗的那幾筆也帶 `giftKind`（staging-polish 11，ADR-0155）。
+ *   「EECP體驗」合成進 EECP 之後（ADR-0154）候選寫的是 EECP —— v7 的 app 照課程判扣不扣，勾一筆體驗的候選
+ *   會扣掉那位唯一一筆 EECP 額度
+ *
+ * - **v9（2026-10-20）** 舊表的備註分到該去的地方（`.scratch/merge-v9-notes/`）：每一段多三格選填的 `note`（那一天那一段的
+ *   「記一句」）、`status`（只收 `'cancelled'`／`'no_show'`）＋`cancelReason`（已取消的段的理由）；客戶多一格選填的
+ *   `longNotes`（`[{ title, body }]`）。v8 的 app 讀到會把取消的段當成做完的、記一句與長備註安靜地丟掉 —— 所以升版
+ *
+ * - **v10（2026-10-20 晚）** 客戶多一格選填的 `lineId`（她 LINE 好友清單上看到的名字，ADR-0157；`.scratch/merge-v10-line-names/`）。
+ *   v9 的 app 建客戶時寫死 `lineId: null`，讀到會安靜地丟掉 —— 所以升版
+ *
  * 只加欄位不升版的話，舊版 app 會安靜地吃掉那幾格，而畫面看起來跟匯好了一樣 —— 所以升版。
  */
-export const FORMAT = 'baobao-merge/v7';
+export const FORMAT = 'baobao-merge/v10';
 
 /** 還收得下的舊版。舊的檔案照舊匯得進去，少的那幾格一律退回以前的值。 */
 export const FORMATS = Object.freeze([
-  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6', FORMAT,
+  'baobao-merge/v1', 'baobao-merge/v2', 'baobao-merge/v3', 'baobao-merge/v4', 'baobao-merge/v5', 'baobao-merge/v6',
+  'baobao-merge/v7', 'baobao-merge/v8', 'baobao-merge/v9', FORMAT,
 ]);
+
+/**
+ * v9：檔案上一段可以自己寫的狀態。**只有這兩種** —— 已完成與已確認是整筆的事（照日期判，`statusFor()`），
+ * 寫在段上的話「今天之後的一段已完成」就進得來。
+ */
+const SLOT_STATUSES = Object.freeze(['cancelled', 'no_show']);
 
 /** 額度的時長：正整數才算數，其餘當沒寫。 */
 const minutesOf = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
@@ -61,6 +80,8 @@ const stringList = (v) => (Array.isArray(v)
   : []);
 
 const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+/** 一句話：去頭尾空白，空的是 null（中間的換行照留 —— 那是她打的字） */
+const textOf = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const alive = (list) => (list ?? []).filter((x) => !x.deletedAt);
 
 /** 名字 → 主檔那一筆。對不到回 null，不做模糊比對。 */
@@ -191,6 +212,18 @@ export function validateFile(json) {
     if (!norm(c?.name)) errors.push(`${at}：沒有名字`);
     // v7 的兩格（選填）：形狀不對整份拒收，同 `staff`
     if (c?.phone != null && typeof c.phone !== 'string') errors.push(`${at}：電話的格式不對`);
+    // v10：LINE 名字（選填）。同電話：形狀不對整份拒收
+    if (c?.lineId != null && typeof c.lineId !== 'string') errors.push(`${at}：LINE 名字的格式不對`);
+    // v9：長備註（選填）。上限照長備註那一頁（`validateLongNotes()`：標題 40、內文 5000、最多 20 則 —— Rules 也是 20）。
+    // 檔案上沒有 id（匯入時才給），先補暫時的再驗
+    if (c?.longNotes != null) {
+      const shaped = Array.isArray(c.longNotes) && c.longNotes.every((n) => n && typeof n === 'object'
+        && typeof n.title === 'string' && (n.body == null || typeof n.body === 'string'));
+      if (!shaped) errors.push(`${at}：長備註的格式不對`);
+      else {
+        errors.push(...validateLongNotes(c.longNotes.map((n, k) => ({ ...n, id: `import${k}` }))).map((e) => `${at}：${e}`));
+      }
+    }
     if (!Array.isArray(c?.entitlements)) errors.push(`${at}：少了 entitlements`);
     if (!Array.isArray(c?.visits)) errors.push(`${at}：少了 visits`);
     for (const v of c?.visits ?? []) {
@@ -204,7 +237,30 @@ export function validateFile(json) {
         if (s?.startsAt != null && !isValidTime(s.startsAt)) errors.push(`${at} ${v.date}：開始時間不合法（${s.startsAt}）`);
         if (s?.endsAt != null && !isValidTime(s.endsAt)) errors.push(`${at} ${v.date}：結束時間不合法（${s.endsAt}）`);
         if (s?.giftKind != null && !GIFT_KINDS.includes(s.giftKind)) errors.push(`${at} ${v.date}：送的／體驗那一格看不懂（${s.giftKind}）`);
+        // v9：那一段的「記一句」（選填）。上限跟畫面上那一格一樣（`NOTE_MAX`）—— 存得進來、改不回去的話，她一編輯那一天就卡住
+        if (s?.note != null && (typeof s.note !== 'string' || s.note.trim().length > NOTE_MAX)) {
+          errors.push(`${at} ${v.date}：記一句不是一句話、或超過 ${NOTE_MAX} 個字`);
+        }
+        // v9：那一段已取消／未到（選填）＋取消理由。理由只寫在已取消的段上 —— 失約的理由是記一句（她 10/20 選的），
+        // 寫在別的段上的是產檔那側寫錯了，安靜丟掉的話那一句就不見了
+        if (s?.status != null && !SLOT_STATUSES.includes(s.status)) {
+          errors.push(`${at} ${v.date}：那一段的狀態看不懂（${s.status}），只收已取消、未到`);
+        }
+        if (s?.cancelReason != null) {
+          if (typeof s.cancelReason !== 'string' || s.cancelReason.trim().length > NOTE_MAX) {
+            errors.push(`${at} ${v.date}：取消理由不是一句話、或超過 ${NOTE_MAX} 個字`);
+          } else if (s.cancelReason.trim() && s.status !== 'cancelled') {
+            errors.push(`${at} ${v.date}：取消理由只寫在已取消的段上`);
+          }
+        }
       }
+    }
+  }
+
+  // 候選的送的／體驗（v8，選填）：形狀不對整份拒收，同時段那一格
+  for (const x of [...(json.futureVisits ?? []), ...(json.missingFromSheet ?? [])]) {
+    if (x?.giftKind != null && !GIFT_KINDS.includes(x.giftKind)) {
+      errors.push(`候選 ${x?.date ?? ''} ${x?.courseName ?? ''}：送的／體驗那一格看不懂（${x.giftKind}）`);
     }
   }
 
@@ -386,6 +442,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         problem(`${v.date} ${s.courseName}`, s.giftKind, `健檢與二返沒有體驗／送的（${course.name}），這個時段沒有匯入`);
         continue;
       }
+      // v9：舊表沒勾、Abovee 那天取消或失約的那一段（她 10/20 選的）。**跟一般的段同一套額度規則**（上面那一道）——
+      // `validateVisit()` 每一段都要額度，沒有的話她之後編輯那一天就存不下去
+      const own = SLOT_STATUSES.includes(s.status) ? s.status : null;
       slots.push({
         entitlementKey: free ? null : s.entitlementKey,
         giftKind: free ? gift ?? 'trial' : null,
@@ -395,12 +454,22 @@ export function planForCustomer(entry, ctx = {}, json = null) {
         startsAt: s.startsAt ?? null,
         endsAt: s.endsAt ?? null,
         bed: null,
-        attended: status !== 'confirmed',
+        // **每一段寫實自己的狀態**（ADR-0081）：整筆是從段推的（底下），沒寫實的段讀的時候退回整筆 ——
+        // 只有一段取消的那一天整筆是已取消，別的段跟著被讀成取消
+        status: own ?? status,
+        attended: own ? false : status !== 'confirmed',
+        // v9：舊表日期欄底下那一格（ADR-0084：記一句在段上）。匯進來的已完成段鎖著（SPEC 6.4），所以在建立的同一次寫入就帶進去
+        note: textOf(s.note),
+        // 只取消一段時理由在那一段上（讀只走 `slotCancelReasonOf()`）—— 同 `applyStatus()` 帶 `slotIndex` 那條路
+        ...(own === 'cancelled' ? { cancelReason: textOf(s.cancelReason) } : {}),
       });
     }
     if (!slots.length) continue;
-    visits.push(visitDoc({ name, date: v.date, status, slots, stamp }));
+    // 整筆照段推（ADR-0081）：全部取消 → 已取消、只剩未到 → 未到
+    visits.push(visitDoc({ name, date: v.date, status: visitStatusFrom({ status, slots }) ?? status, slots, stamp }));
   }
+
+  const longs = longNotesOf(entry);
 
   return {
     sheetName: entry.sheetName ?? '',
@@ -411,7 +480,9 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       name,
       // v7：產檔那側從 Abovee 的擷取結果帶過來的（`--phones`）。v6 以前沒有就是 null
       phone: typeof entry.phone === 'string' && norm(entry.phone) ? norm(entry.phone) : null,
-      lineId: null,
+      // v10：她 LINE 好友清單上看到的名字（ADR-0157）—— 兩個字的叫法照存，不換成全名（「打開 LINE 對話」照它找人）。
+      // 去頭尾空白、空的是 null，同客戶表單那一格。v9 以前沒有就是 null
+      lineId: textOf(entry.lineId),
       source: entry.source || null,
       purchasedAt: entry.purchasedAt ?? null,
       membershipExpiresAt: null,
@@ -423,6 +494,8 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       // v2 帶的是帶顏色的備註（有「尾款」的是紅色）。**marks 是真相，notes 是鏡像**（ADR-0019）。
       // v1 沒有 marks 就不寫 —— `readMarks()` 會把 notes 逐行拆成灰色的。
       ...marksOf(entry),
+      ...chartNoFieldOf(entry),
+      ...longs,
       active: true,
       importedFrom: stamp,
     },
@@ -447,6 +520,13 @@ export function planForCustomer(entry, ctx = {}, json = null) {
       future: visits.filter((v) => v.status === 'confirmed').length,
       slots: visits.reduce((n, v) => n + v.slots.length, 0),
       timed: visits.reduce((n, v) => n + v.slots.filter((s) => s.startsAt).length, 0),
+      // v9：帶著記一句的那幾段。摘要卡要講出來 —— 不講的話她對不了「舊表底下那幾格去哪了」
+      slotNotes: visits.reduce((n, v) => n + v.slots.filter((s) => s.note).length, 0),
+      // v9：已取消、未到的段（不扣次數）。「N 個時段」要講其中幾段沒做，不然看起來全部做過了
+      cancelled: visits.reduce((n, v) => n + v.slots.filter((s) => s.status === 'cancelled').length, 0),
+      noShow: visits.reduce((n, v) => n + v.slots.filter((s) => s.status === 'no_show').length, 0),
+      // v9：長備註幾則（摘要卡講「N 位帶長備註、共 N 則」）
+      longNotes: longs.longNotes?.length ?? 0,
       low: (entry.visits ?? []).reduce(
         (n, v) => n + (v.slots ?? []).filter((s) => s.confidence === 'low').length, 0,
       ),
@@ -531,6 +611,36 @@ function visitDoc({ name, date, status, slots, stamp }) {
   };
 }
 
+/**
+ * 病歷號那一格（ADR-0160）。合併檔照舊把病歷號寫成一則「病歷號 1234」短備註（v8 不升版：
+ * 一次性的切換，app 這一側轉就好）—— 建客戶時就搬進那一格，跟資料健檢走同一支 `chartNoMove()`。
+ * 好幾則不一樣的（拿不準是哪一個）照舊留在短備註裡，資料健檢會列出來。
+ */
+function chartNoFieldOf(entry) {
+  const move = chartNoMove(marksOf(entry));
+  if (!move || move.blocked) return { chartNo: null };
+  return move.changes;
+}
+
+/**
+ * v9 的長備註（舊表 A 欄一大段的整體備註，ADR-0156）。每一則給一個 id（`newLongNoteId()`，在這一位身上不重複）；
+ * **不寫 `noteOrder`** —— 沒排過的照預設排（病歷號 → LINE → 長備註 → 短備註 → 電話，ADR-0163）。
+ * 沒帶、或空的：連 `longNotes` 這個鍵都沒有（v8 的檔案一個位元都不變）。
+ */
+function longNotesOf(entry) {
+  if (!Array.isArray(entry.longNotes) || !entry.longNotes.length) return {};
+  const ids = new Set();
+  const idOf = () => {
+    let id = newLongNoteId();
+    while (ids.has(id)) id = newLongNoteId();
+    ids.add(id);
+    return id;
+  };
+  return {
+    longNotes: entry.longNotes.map((n) => ({ id: idOf(), title: String(n.title).trim(), body: String(n.body ?? '') })),
+  };
+}
+
 /** v2 的備註。寫入的形狀只有 `toCustomerFields()` 一份；v1 沒有 marks 就只寫 notes。 */
 function marksOf(entry) {
   if (!Array.isArray(entry.marks)) return { notes: entry.notes ?? '' };
@@ -550,7 +660,10 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
     problems,
     purchaseProblems: [],
     contraindications: [],
-    counts: { entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, low: 0 },
+    counts: {
+      entitlements: 0, followups: 0, visits: 0, future: 0, slots: 0, timed: 0, slotNotes: 0, cancelled: 0, noShow: 0,
+      longNotes: 0, low: 0,
+    },
   };
 }
 
@@ -562,7 +675,7 @@ function emptyPlan(entry, { skip = null, problems = [] } = {}) {
  * 客戶建好了、補的來訪失敗，會留下一份看起來完整、其實少了幾筆的資料。
  *
  * @param {object[]} plans      planForCustomer() 的結果
- * @param {object[]} extras     { customerName, date, courseName, startsAt, status }
+ * @param {object[]} extras     { customerName, date, courseName, startsAt, status, giftKind? }（`giftKind` 是 v8）
  * @param {object} ctx          { courses, today }
  */
 export function addExtraVisits(plans, extras, ctx = {}) {
@@ -587,11 +700,20 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       problems.push({ where: `${x.date} ${x.customerName}`, raw: x.courseName, why: '主檔裡沒有這個課程，這一筆沒有補進去' });
       continue;
     }
+    // **候選寫了送的／體驗**（v8）：不扣任何一筆，就算身上有那門課的額度（同時段的 `giftKind`），健檢與二返除外
+    const gift = GIFT_KINDS.includes(x.giftKind) ? x.giftKind : null;
+    if (gift && !canBeGift(course, courses)) {
+      problems.push({
+        where: `${x.date} ${x.customerName}`, raw: x.courseName,
+        why: `健檢與二返沒有體驗／送的（${course.name}），這一筆沒有補進去`, master: false,
+      });
+      continue;
+    }
     // 一筆補的來訪要扣哪一份額度：課程對得上的那一筆。對到不只一筆就不猜。
-    const hits = plan.entitlements.filter((e) => e.doc.courseId === course.id
+    const hits = gift ? [] : plan.entitlements.filter((e) => e.doc.courseId === course.id
       || (e.doc.type === 'pool' && course.requiresEquipment));
-    // 不算次數的課（ADR-0121）：身上沒有那門課的額度就不扣任何一筆；剛好有一筆的照舊扣那一筆
-    const free = !hits.length && isUncounted(course);
+    // 不算次數的課（ADR-0121）：身上沒有那門課的額度就不扣任何一筆；剛好有一筆的照舊扣那一筆（v7 以前沒有 `giftKind` 的檔案）
+    const free = Boolean(gift) || (!hits.length && isUncounted(course));
     if (hits.length !== 1 && !free) {
       problems.push({
         where: `${x.date} ${x.customerName}`,
@@ -608,10 +730,11 @@ export function addExtraVisits(plans, extras, ctx = {}) {
     // 同一條規則要套在這裡，否則她從 missingFromSheet 勾一筆未來的，
     // 又會變回「已完成」—— 那正是 issues/03 要修的東西。
     const status = statusFor(x.status, x.date, today);
+    // 候選沒寫的（v7 以前）分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
+    const giftKind = free ? gift ?? 'trial' : null;
     const slot = {
       entitlementKey: free ? null : hits[0].key,
-      // 行事曆上的雜事分不出體驗還是送的：不扣的那一段照課程的預設寫實成體驗（同 `planForCustomer()`）
-      giftKind: free ? 'trial' : null,
+      giftKind,
       courseId: course.id,
       courseName: course.name,
       equipmentId: null,
@@ -620,16 +743,22 @@ export function addExtraVisits(plans, extras, ctx = {}) {
       therapistId: null,
       startsAt: start,
       // 候選清單補的那幾段只知道「哪一天、哪個課程」（ADR-0011），沒有品項 ——
-      // 所以 `slotMinutes()` 在這裡就是課程那一格。照樣走它是因為全站只有
-      // 那一支（ADR-0098）。
-      endsAt: start ? addMinutes(start, slotMinutes({ course })) : null,
+      // 所以 `slotMinutes()` 在這裡就是課程那一格（體驗的段是「體驗的時候排幾分」，ADR-0154 —— `giftKind` 一定要交下去）。
+      // 照樣走它是因為全站只有那一支（ADR-0098）。
+      endsAt: start ? addMinutes(start, slotMinutes({ course, giftKind })) : null,
       bed: null,
+      // 寫實自己的狀態（同 `planForCustomer()`）：併進一天整筆已取消的（v9），沒寫實的話讀的時候跟著整筆被讀成取消
+      status,
       attended: status !== 'confirmed',
     };
     // 同一天已經有來訪就併進去 —— 來訪的定義是「某人某天到院一次」（CONTEXT.md）
     const same = plan.visits.find((v) => v.date === x.date);
-    if (same) same.slots.push(slot);
-    else {
+    if (same) {
+      same.slots.push(slot);
+      // 整筆照段重推（ADR-0081）：那一天的段全部取消時是已取消，併進一段還沒來的就是已確認。
+      // **不帶舊的整筆狀態去推** —— `slotStatus()` 看到整筆已取消就把每一段讀成取消（舊資料那一條），而這裡每一段都寫實了
+      same.status = visitStatusFrom({ ...same, status: null }) ?? same.status;
+    } else {
       plan.visits.push(visitDoc({
         name: plan.customerName, date: x.date, status, slots: [slot],
         stamp: plan.customer.importedFrom,
@@ -901,13 +1030,24 @@ export function eventDocs(candidates, stamp = null) {
  * @param {object[]} plans
  * @param {{courses?: object[], today?: string|null}} ctx
  */
-export function countNewTasks(plans, { courses = [], today = null } = {}) {
+export function countNewTasks(plans, ctx = {}) {
+  // **只數沒勾的**：這個數字講的是「會多幾件要做的事」。v9 取消的段長的那幾張一出生就勾好（ADR-0164），不是要做的事
+  return importedTasks(plans, ctx).filter((t) => !t.done).length;
+}
+
+/**
+ * 匯入時一出生就勾好的那幾張（v9：取消的段的「取消 X」，ADR-0164）。確認框另外講一句 ——
+ * 待辦中心「已完成」那裡會多出這幾張，不講的話她會以為匯錯了。
+ */
+export function countTickedTasks(plans, ctx = {}) {
+  return importedTasks(plans, ctx).filter((t) => t.done).length;
+}
+
+function importedTasks(plans, { courses = [], today = null } = {}) {
   const coursesById = Object.fromEntries((courses ?? []).map((c) => [c.id, c]));
   return plans
     .filter((p) => !p.skip)
-    .reduce((n, p) => n + p.visits.reduce(
-      (m, v) => m + importedTasksFor(v, { coursesById, today }).length, 0,
-    ), 0);
+    .flatMap((p) => p.visits.flatMap((v) => importedTasksFor(v, { coursesById, today })));
 }
 
 /**
@@ -1011,6 +1151,44 @@ export function extraPicksLeft(candidates, chosen, doneNames) {
   return chosen.filter((i) => !done.has(norm(candidates?.[i]?.customerName)));
 }
 
+/**
+ * v9：「其中幾段已取消、幾段未到」那一句。摘要卡與確認框讀同一支 —— 「N 個時段」不講這一句的話，
+ * 看起來每一段都做過了；確認框只寫「全部標成已完成」就是假話。**0 段時是空字串**（v8 的檔案一個字都不多）。
+ *
+ * @param {{cancelled?: number, noShow?: number}} s `summarize()` 的結果
+ * @param {number} [ticked] 一出生就勾好的「取消 X」（`countTickedTasks()`）
+ */
+export function missedSlotsLine(s, ticked = 0) {
+  const parts = [
+    s?.cancelled ? `${s.cancelled} 段已取消` : '',
+    s?.noShow ? `${s.noShow} 段未到` : '',
+  ].filter(Boolean);
+  if (!parts.length) return '';
+  // 張數不是段數：同一天幾段一起取消的收成一張（`cancelTasksFor()` 一種一張）
+  return `其中 ${parts.join('、')}（舊表沒勾、Abovee 上取消或失約的那幾天），不扣次數`
+    + (ticked ? `；取消的那幾段記成 ${ticked} 張已經勾好的「取消」任務（同一天的收成一張）—— 舊系統上早就放掉了，不用再去放` : '');
+}
+
+/**
+ * 確認框講任務的那一句（ADR-0093：已經發生的不長要做的任務）。**有一出生就勾好的「取消」時**（v9，ADR-0164）
+ * 講「要做的」、講那幾張 —— 上面那一句（`missedSlotsLine()`）才講了會記幾張勾好的，這裡再寫「不會產生任何待辦任務」
+ * 就是兩句打架（ADR-0070：只講真的會發生的事）。沒有勾好的那幾張時一個字都不變。
+ *
+ * @param {{future?: number, ticked?: number}} s `summarize()` 的結果＋`ticked`（`countTickedTasks()`）
+ * @param {number} tasks 要做的那幾張（`countNewTasks()`）
+ */
+export function newTasksLine(s, tasks) {
+  const ticked = s?.ticked ?? 0;
+  const done = ticked ? `（取消的那幾段那 ${ticked} 張「取消」任務一建好就勾掉了）` : '';
+  if (tasks) {
+    return `還沒發生的那幾筆會產生 ${tasks} 筆登記待辦；`
+      + (ticked ? `已經發生的不會長要做的任務${done}` : '已經發生的一筆都不會長');
+  }
+  return `不會產生任何${ticked ? '要做的' : '待辦'}任務${done} —— ${s?.future
+    ? `還沒發生的那 ${s.future} 筆都是不用另外掛號的課程`
+    : '這次沒有還沒發生的來訪'}`;
+}
+
 /** 按下去之前的摘要。數字要跟報告上的對得起來，否則她會以為漏了東西。 */
 export function summarize(plans) {
   const live = plans.filter((p) => !p.skip);
@@ -1018,6 +1196,8 @@ export function summarize(plans) {
     customers: live.length,
     // v7：帶著電話的那幾位（只數字，摘要卡印）
     phones: live.filter((p) => p.customer?.phone).length,
+    // v10：帶 LINE 名字的幾位（摘要卡「N 位帶 LINE 名字」）
+    lines: live.filter((p) => p.customer?.lineId).length,
     skipped: plans.filter((p) => p.skip).map((p) => ({ customerName: p.customerName, why: p.skip })),
     entitlements: live.reduce((n, p) => n + p.counts.entitlements, 0),
     // 系統配出來的二返額度。合併檔上沒有這一項，所以要分開講一次。
@@ -1028,6 +1208,14 @@ export function summarize(plans) {
     future: live.reduce((n, p) => n + (p.counts.future ?? 0), 0),
     slots: live.reduce((n, p) => n + p.counts.slots, 0),
     timed: live.reduce((n, p) => n + p.counts.timed, 0),
+    // v9：帶著記一句的段（舊表日期底下那一格）
+    slotNotes: live.reduce((n, p) => n + (p.counts.slotNotes ?? 0), 0),
+    // v9：已取消、未到的段（不扣次數）。「N 個時段」裡有幾段沒做
+    cancelled: live.reduce((n, p) => n + (p.counts.cancelled ?? 0), 0),
+    noShow: live.reduce((n, p) => n + (p.counts.noShow ?? 0), 0),
+    // v9：長備註。幾位、一共幾則
+    longNoteCustomers: live.filter((p) => (p.counts.longNotes ?? 0) > 0).length,
+    longNotes: live.reduce((n, p) => n + (p.counts.longNotes ?? 0), 0),
     low: live.reduce((n, p) => n + p.counts.low, 0),
     problems: plans.reduce((n, p) => n + p.problems.length, 0),
     // 會匯進去的那幾位身上、文字裡提到的警示。**跳過的那幾位不算** ——

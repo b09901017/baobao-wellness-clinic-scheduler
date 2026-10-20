@@ -389,11 +389,17 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
     });
   }
 
-  function expand() {
-    if (detent === 'full') return;
+  /**
+   * 拉到全高。`after` 在到位之後才叫（已經在全高就馬上叫）—— 日曆那一天的「＋」等抽屜停好才打開選單，
+   * 不然選單先往下長、被螢幕底部切掉，再跟著抽屜跳上來（staging-polish 04）。
+   *
+   * @param {Function} [after]
+   */
+  function expand(after) {
+    if (detent === 'full') { after?.(); return; }
     goTall();
     detent = 'full';
-    requestAnimationFrame(() => settleAt(0));
+    requestAnimationFrame(() => settleAt(0, after));
   }
 
   // ---------- 一次手勢 ----------

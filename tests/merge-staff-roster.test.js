@@ -35,9 +35,9 @@ const ROSTER = [
 const apply = (staff, { changes }) => staffAfterRenames(staff, changes);
 
 describe('合併檔的版本', () => {
-  test('寫 v7；v1～v6 照收', () => {
-    assert.equal(FORMAT, 'baobao-merge/v7');
-    for (const v of [1, 2, 3, 4, 5, 6, 7]) assert.ok(FORMATS.includes(`baobao-merge/v${v}`), `v${v}`);
+  test('寫 v10；v1～v9 照收', () => {
+    assert.equal(FORMAT, 'baobao-merge/v10');
+    for (const v of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) assert.ok(FORMATS.includes(`baobao-merge/v${v}`), `v${v}`);
   });
 
   const file = (staff) => ({ format: FORMAT, customers: [], staff });

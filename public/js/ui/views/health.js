@@ -16,6 +16,7 @@
 
 import * as healthData from '../../data/health.js';
 import { todayISO } from '../../domain/dates.js';
+import { chainPlanLines, chainCountLines } from '../../domain/consequences.js';
 import { esc } from '../components/form.js';
 import { icon } from '../icons.js';
 import { confirmAction } from '../components/dialog.js';
@@ -60,7 +61,9 @@ function paint(el, result) {
   // 同一筆額度可能在不同檢查裡各出現一次，光靠 id 分不出來。
   indexFixes(result);
 
-  const bad = result.checks.filter((c) => c.count > 0);
+  // **只是提醒的那幾項不算要你看**（ADR-0150）：有東西、但沒有要她做的事 —— 收成一行、預設收著
+  const bad = result.checks.filter((c) => c.count > 0 && !c.notice);
+  const notices = result.checks.filter((c) => c.count > 0 && c.notice);
   const clean = result.checks.filter((c) => c.count === 0);
   // 嚴重度記在每一筆 finding 上：有任何一筆是「資料自己對不起來」就排進前面那一組
   const hard = (c) => c.findings.some((x) => x.severity === 'mismatch');
@@ -79,8 +82,11 @@ function paint(el, result) {
     <section class="card hsum ${tone}">
       <p class="hsum__head">${bad.length
         ? `有 ${bad.length} 項要你看`
-        : `${result.checks.length} 項都沒問題`}</p>
-      ${bad.length ? `<p class="hsum__rest">其餘 ${clean.length} 項沒問題</p>` : ''}
+        : notices.length ? '沒有要處理的' : `${result.checks.length} 項都沒問題`}</p>
+      ${bad.length || notices.length ? `<p class="hsum__rest">${[
+        notices.length ? `${notices.length} 項提醒` : '',
+        `其餘 ${clean.length} 項沒問題`,
+      ].filter(Boolean).join('・')}</p>` : ''}
       <p class="hsum__scan">
         <button class="btn btn--sm" type="button" data-rescan>重新掃描</button>
         <span>掃描於 ${esc(new Date().toLocaleString('zh-TW'))}</span>
@@ -89,6 +95,9 @@ function paint(el, result) {
 
     ${groupHtml('資料對不起來', bad.filter(hard))}
     ${groupHtml('要處理', bad.filter((c) => !hard(c)))}
+    ${notices.length ? `
+      <h2 class="hgroup__title">提醒</h2>
+      ${notices.map(noticeHtml).join('')}` : ''}
 
     <details class="card hok">
       <summary class="hok__sum">${bad.length ? `沒問題的 ${clean.length} 項` : `看檢查了哪 ${clean.length} 項`}</summary>
@@ -115,6 +124,24 @@ function groupHtml(title, checks) {
   return `
     <h2 class="hgroup__title">${esc(title)}</h2>
     ${checks.map(checkCard).join('')}`;
+}
+
+/**
+ * 只是提醒的那一項（ADR-0150）：一行（名字＋幾位／幾筆），點開才是名字清單 —— **名字底下不印說明**
+ * （她 10/18：「不要展開這麼多人然後每個人底下又有說明」）。那一項的說明一句放在清單最上面。
+ */
+function noticeHtml(check) {
+  const ids = check.findings.map((f) => f.whoId).filter(Boolean);
+  const byPerson = ids.length === check.findings.length && new Set(ids).size === ids.length;
+  const names = [...new Set(check.findings.map((f) => f.title))];
+  return `
+    <details class="card hnote" data-check="${esc(check.id)}">
+      <summary class="hok__sum"><span>${esc(check.label)}<span class="hnote__n">・${check.count} ${byPerson ? '位' : '筆'}</span></span></summary>
+      <p class="hnote__why">${esc(check.hint)}</p>
+      <ul class="hok__list hnote__list">
+        ${names.map((n) => `<li>${esc(n)}</li>`).join('')}
+      </ul>
+    </details>`;
 }
 
 function checkCard(check) {
@@ -385,7 +412,15 @@ const FIX_COPY = {
           '跟 設定 → 已刪除項目 裡按「還原」是同一件事',
         ],
       },
-      drop: {
+      // 沒寫哪一床的點滴8、VIP7（ADR-0155）：只在一段都沒排在上面時才給刪
+      drop: fix.bedless ? {
+        title: `刪掉「${fix.label}」？`,
+        lines: [
+          `沒寫哪一床的那一間：${fix.label}A、${fix.label}B 是各自的診間`,
+          '沒有任何一段排在它上面',
+          '它會進「已刪除項目」，之後還原得回來',
+        ],
+      } : {
         title: `刪掉「${fix.label}」？`,
         lines: [
           '新的診間清單上沒有這一間了',
@@ -406,7 +441,7 @@ const FIX_COPY = {
         lines: [
           `新的清單上它拆成 ${fix.label}A、${fix.label}B 兩間各自的診間`,
           '停用之後排班時選不到它；不是刪掉 —— 已經排在那一間的來訪一個字都不動，照樣印得出診間',
-          '沒選床位的就是它：舊來訪、拍 Abovee 那一格沒寫床時照樣認得到',
+          '沒選床位的就是它：排在上面的那幾段、拍 Abovee 那一格沒寫床時照樣認得到',
           '之後想讓它重新選得到，到 設定 → 診間 把它啟用',
         ],
       },
@@ -416,7 +451,7 @@ const FIX_COPY = {
       lines: fixes.map((fix) => ({
         add: `新增 ${fix.label}`,
         restore: `還原 ${fix.label}`,
-        drop: `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
+        drop: fix.bedless ? `刪掉 ${fix.label}（沒有任何一段排在上面）` : `刪掉 ${fix.label}（排在那一間的來訪會印不出診間）`,
         short: `${fix.label} 的簡寫填成 ${fix.shortName}`,
         retire: `停用 ${fix.label}（不刪；排在那一間的來訪照樣印得出來）`,
       }[fix.mode])),
@@ -626,6 +661,24 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label} → ${fix.durationChoices.join('、')} 分鐘`),
     }),
   },
+  // 「EECP體驗」那一門還在（ADR-0154）。兩種形狀：沒有東西擋著 → 那幾段改好、那一門刪掉；有擋著 → 只改那一位的段
+  eecpTrialCourse: {
+    button: (fix) => (fix?.kind === 'retireTrialCourse' ? (fix.slots ? '改好那幾段、刪掉這一門' : '刪掉這一門') : '改成 EECP 的體驗'),
+    all: (n) => `一次改這 ${n} 位`,
+    one: (fix) => ({
+      title: fix.kind === 'retireTrialCourse' ? `刪掉「${fix.label}」這一門？` : `把「${fix.label}」那幾段改成 ${fix.eecpName} 的體驗？`,
+      lines: [
+        ...(fix.slots ? [`${fix.slots} 段改成 ${fix.eecpName}、體驗、${fix.trial} 分 —— 不扣任何次數，狀態一格都不動（已完成的也一樣）`] : []),
+        ...(fix.kind === 'retireTrialCourse'
+          ? [`接著刪掉「${fix.label}」—— 進「已刪除項目」，還原得回來`, `${fix.eecpName} 只剩一門：約的時候選 ${fix.trial} 分就是體驗`]
+          : ['那一門先留著：還有額度扣著它，要改成什麼你決定']),
+      ],
+    }),
+    many: (fixes) => ({
+      title: `一次改這 ${fixes.length} 位的「EECP體驗」那幾段？`,
+      lines: fixes.map((fix) => `${fix.label}：${fix.slots} 段改成 ${fix.eecpName} 的體驗`),
+    }),
+  },
   chartNo: {
     button: () => '改成「病歷號」',
     all: (n) => `一次改這 ${n} 筆`,
@@ -642,6 +695,22 @@ const FIX_COPY = {
       lines: fixes.map((fix) => `${fix.label}`),
     }),
   },
+  chartNoField: {
+    button: () => '放進病歷號那一格',
+    all: (n) => `一次放這 ${n} 位`,
+    one: (fix) => ({
+      title: `把「${fix.label}」的病歷號放進那一格？`,
+      lines: [
+        `病歷號 ${fix.changes.chartNo} 照樣在備註那一段，位置不變，前面多一個病歷號的小圖`,
+        '那一則短備註拿掉：壓表卡片牆與試算表的備註不再畫它',
+        '號碼一個字都不會動，其餘的備註也不動',
+      ],
+    }),
+    many: (fixes) => ({
+      title: `把這 ${fixes.length} 位的病歷號都放進那一格？`,
+      lines: fixes.map((fix) => `${fix.label}：病歷號 ${fix.changes.chartNo}`),
+    }),
+  },
 };
 
 const KIND_TO_CHECK = {
@@ -652,6 +721,7 @@ const KIND_TO_CHECK = {
   recount: 'counts',
   addFollowup: 'followups',
   renameChartNo: 'chartNo',
+  chartNoToField: 'chartNoField',
   renamePool: 'poolLabel',
   addAlert: 'alertTerm',
   addEquipment: 'seedEquipment',
@@ -667,6 +737,8 @@ const KIND_TO_CHECK = {
   applyRoom: 'roomList',
   clearBeds: 'slotBeds',
   moveBedToRoom: 'slotBeds',
+  trialSlotsToCourse: 'eecpTrialCourse',
+  retireTrialCourse: 'eecpTrialCourse',
 };
 
 /**
@@ -695,8 +767,19 @@ async function fixOne(el, result, index) {
   const { title, lines } = copyFor(finding.fix).one(finding.fix);
   await applyAndReload(el, [finding.fix], {
     title,
-    consequences: [...lines, '這次修正會留在稽核紀錄裡，也可以復原'],
+    consequences: [...lines, ...(await chainLines([finding.fix])), '這次修正會留在稽核紀錄裡，也可以復原'],
   });
+}
+
+/**
+ * 「補上二返額度」按下去健檢那條鏈會怎麼動（ADR-0159）：拿寫入那一支試算（ADR-0070）。一位逐張講、好幾位照種類數。
+ * 其餘的修正不碰那條鏈，一次讀取都不多打。
+ */
+async function chainLines(fixes) {
+  if (!fixes.some((f) => f?.kind === 'addFollowup')) return [];
+  const chains = await healthData.previewFollowupChains(fixes).catch(() => []);
+  if (fixes.length === 1) return chains[0] ? chainPlanLines(chains[0].plan, chains[0].visits, chains[0].tasks) : [];
+  return chainCountLines(chains.map((c) => ({ ...c.plan, tasks: c.tasks })));
 }
 
 async function fixAll(el, result, checkId) {
@@ -709,6 +792,7 @@ async function fixAll(el, result, checkId) {
     consequences: [
       ...lines.slice(0, 5),
       ...(lines.length > 5 ? [`還有 ${lines.length - 5} 筆`] : []),
+      ...(await chainLines(fixes)),
       '每一筆都會留一則稽核紀錄，整批可以一起復原',
     ],
   });

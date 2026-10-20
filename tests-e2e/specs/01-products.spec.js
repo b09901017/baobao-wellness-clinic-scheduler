@@ -230,7 +230,23 @@ test('J-E10 壓表時品項預設就是她買的那一款，其餘要按「換�
   // 按下去才長出來
   await page.locator('[data-chip-more]').click();
   await expect(page.locator('[data-ivproduct="iv-heart"]')).toBeVisible();
-  await expect(page.locator('[data-chip-more]')).not.toBeVisible();
+
+  // 收得回去（staging-polish 段一，她 10/18：「換一款」也要收得回去）：展開之後那一顆還在、寫「收起來」
+  const more = page.locator('[data-chip-more]');
+  await expect(more).toBeVisible();
+  await expect(more).toHaveText('收起來');
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await more.click();
+  await expect(page.locator('[data-ivproduct="iv-heart"]')).not.toBeVisible();
+  await expect(more).toHaveText('換一款');
+
+  // 選了收在後面的那一款再收起來：選著的那一顆照樣看得到（不然看起來像一排都沒選）
+  await more.click();
+  await page.locator('[data-ivproduct="iv-heart"]').click();
+  await expect(page.locator('[data-ivproduct="iv-heart"]')).toHaveAttribute('aria-pressed', 'true');
+  await more.click();
+  await expect(page.locator('[data-ivproduct="iv-heart"]'), '選著的那一款收起來也看得到').toBeVisible();
+  await expect(page.locator('[data-ivproduct="iv-gut"]'), '其餘的收回去').not.toBeVisible();
 });
 
 test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一樣」', async ({ app, page }) => {
@@ -241,7 +257,7 @@ test('J-E11 真的換一款存得下去，但那一段會說「跟買的不一�
       date: DRIP_DAY, status: 'pending_confirm',
       slots: [slot({
         courseId: 'course-iv-drip', entitlementId: 'ent-i-drip',
-        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8', bed: 'A',
+        startsAt: '10:00', endsAt: '11:00', roomId: 'room-iv8a',
         ivProductId: 'iv-liver',
       })],
     }),

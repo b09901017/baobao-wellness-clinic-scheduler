@@ -349,6 +349,13 @@ svg {
   gap: var(--space-3);
 }
 
+/* 標題不縮（before-golive-2026-10-19/08）：右邊那一排多一顆連結（長備註）之後，「客戶」被擠到一個字寬、
+   一字一行。放不下的是右邊那一排 —— 它換行（`.footlinks--inline`） */
+.page__row > .page__title {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* 段落標題。取代「每一段都包一張白卡」—— 一頁疊七張白卡看起來像七件事，
    其實是同一個人的七個面向。細標題加一條髮絲線就夠分段了。 */
 .section {
@@ -576,6 +583,17 @@ svg {
   content: '';
   position: absolute;
   inset: -6px 0;
+}
+
+/* 「＋ 加一項」：清單的最後一列，不是另一顆送出鈕（2026-10-18，她：「加一項和加購的按鈕有點擠」）。
+   虛線、淡字跟「換一款」同一種長相；底下留一段空，跟送出那一排分開。三個入口共用。 */
+.addrow {
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.btn--addrow {
+  border-style: dashed;
+  color: var(--text-dim);
 }
 
 .btn--ghost {
@@ -962,12 +980,14 @@ textarea {
   animation: chip-in var(--motion-base) var(--ease-out) both;
 }
 
-[data-tuck='open'] .chip--more { display: none; }
+/* 展開之後「換一款」那一顆還在、寫「收起來」，再按收回去（2026-10-18）。
+   收回時選著的那一顆照樣看得到 —— 壓表不重畫，她剛按的那一顆身上還帶著 `chip--tucked` */
+.chip--tucked[aria-pressed='true'] { display: inline-flex; }
 
 /* 「做什麼」那一排最後那一顆「送的／體驗…」（`ui/components/giftFold.js`，gift-and-trial 04）。
-   同上：按了才露出底下那一塊、收不回去；換分類只改 `hidden`。 */
+   按了才露出底下那一塊、再按一次收回去（staging-polish 03）；換分類只改 `hidden`。
+   收著而且選著底下一顆時那一顆是按下去的樣子、寫那一門（`.chip[aria-pressed]` 比 `.chip--more` 具體）。 */
 [data-giftfold='closed'] .giftfold { display: none; }
-[data-giftfold='open'] [data-giftfold-more] { display: none; }
 
 .giftfold {
   display: grid;
@@ -1295,6 +1315,21 @@ textarea {
   font-weight: 500;
 }
 
+/* 設成「一直顯示」、現在 0 件的那一列（ADR-0151）。淡一級，數字也淡 —— 還是點得進去，
+   那一頁的「已完成」是她把勾掉的勾回來的入口。 */
+.grouprow--empty .grouprow__label,
+.grouprow--empty .grouprow__n {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* 總覽最底下那一行小字：連到 設定 → 待辦首頁。 */
+.flowfoot {
+  margin: var(--space-2) 0 0;
+  text-align: right;
+  font-size: var(--text-xs);
+}
+
 /* 分類清單。一列一個數字加一句話，點進去才是完整內容。 */
 .groups {
   background: var(--surface);
@@ -1556,6 +1591,428 @@ button.mark::after {
   content: '';
   position: absolute;
   inset: -11px -8px -11px -4px;
+}
+
+/* ---------- 客戶詳情備註那一串：電話、LINE、長備註（ADR-0156） ----------
+   全部是丸子（她 2026-10-19 選的），照她排的順序一排流下去。
+   圖示是跟導覽列同一種淡線條（她選的「線條」，不加圓底）。 */
+.mark__glyph {
+  width: 22px;
+  height: 22px;
+  margin-left: -3px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.mark__glyph--line { color: var(--accent); }
+.mark__glyph--note { color: var(--tea); }
+
+/* 號碼：等寬數字，一眼對得上 */
+.mark__num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 電話是連結，LINE 與長備註是按鈕。按住電話要複製：不准 iOS 跳連結預覽、不准選字 */
+.mark--contact,
+.mark--long {
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 觸控區撐開貼在自己身上（`.mark` 本來就是 position: relative）。
+   **上下只撐 `.marks` 那 6px 排距的一半**：多撐的話跨進上一排那一顆的下緣，
+   而電話在 DOM 裡排在後面、疊到的那一段由它贏 —— 點長備註的下緣變成撥號（E2E 74 N11 量著） */
+a.mark--contact::after,
+span.mark--contact::after,
+button.mark--contact::after {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+}
+
+.mark--contact.is-pressing,
+.mark--long.is-pressing { background: var(--surface-2); }
+
+/* 客戶清單卡片上那一排（`notesPreview()`）：只看的，點了是點卡片。圖示跟著小一號的丸子縮 */
+.mark--static {
+  cursor: inherit;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+.mark--static .mark__glyph {
+  width: 18px;
+  height: 18px;
+  margin-left: -2px;
+}
+.mark--static .mark__glyph svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 長備註那一顆：茶色底、茶色框、便條＋標題＋› —— 看得出「點開有全文」 */
+.mark--long {
+  border-color: var(--tea);
+  background: var(--tea-soft);
+  font-weight: 600;
+  padding-right: 8px;
+}
+
+.mark--long > svg:last-child {
+  flex: none;
+  margin-left: -2px;
+  color: var(--tea);
+}
+
+/* 抬頭那兩顆（調整順序／編輯、取消／完成）並排靠右，中間留 16px：44px 的感應範圍才不會疊 */
+[data-notesblock] .section__more + .section__more { margin-left: var(--space-4); }
+.section__more--quiet { color: var(--text-mute); }
+
+/* 中間那張卡開著的時候，它是從這一顆長出來的 */
+.mark.is-source { opacity: 0; }
+
+/* ---------- 調整順序：只有排的時候變成一列一列 ---------- */
+.reorder {
+  position: relative;
+  touch-action: none;
+}
+
+/* 一列固定 50px、間距 8px（`noteReorder.js` 的 ROW_H／GAP，兩邊要一樣） */
+.rrow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  animation: rrow-in 260ms var(--ease-out) both;
+}
+
+@keyframes rrow-in {
+  from { opacity: 0.4; scale: 0.97; }
+  to { opacity: 1; scale: 1; }
+}
+
+.rrow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rrow.is-lifted {
+  z-index: 3;
+  cursor: grabbing;
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-3);
+  transition: box-shadow 160ms var(--ease-out);
+}
+
+.rrow.is-lifted .rrow__grip { color: var(--accent); }
+
+.rrow.is-settling {
+  z-index: 2;
+  transition: transform 340ms var(--ease-pop), box-shadow 340ms var(--ease-out);
+}
+
+.rrow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.rrow__text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rrow__kind {
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-mute);
+}
+
+.rrow__glyph {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.rrow__glyph--line { color: var(--accent); }
+.rrow__glyph--note { color: var(--tea); }
+.rrow__dot { margin: 0 7px 0 8px; }
+
+.rrow__grip {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--text-mute);
+}
+
+/* ---------- 「編輯」那一張：一則一列可以刪 ---------- */
+.edlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+}
+
+.edrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.edrow--long { border-color: var(--tea); background: var(--tea-soft); }
+
+.edrow__glyph {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.edrow__glyph--long { color: var(--tea); }
+.edrow__dot { margin: 0 7px; }
+
+.edrow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.edrow__text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edrow__sub {
+  font-size: var(--text-xs);
+  color: var(--text-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edrow__x {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-mute);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.edrow__x::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.edadd {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.edadd input { flex: 1; min-width: 0; }
+
+.edlong {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.edlong textarea { min-height: 120px; }
+.edlong .btn { align-self: flex-end; }
+
+/* ---------- 中間那張卡（`ui/components/noteCard.js`） ----------
+   蓋住整頁：上緣自己讓開鏡頭那一塊（全螢幕，ADR-0147）。
+   高於抽屜（20）、低於確認框（22）與 toast（25）—— 改到一半關掉時問的那一道要蓋得住它。 */
+.lnov {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  display: grid;
+  place-items: center;
+  padding: max(28px, calc(env(safe-area-inset-top) + 12px)) 16px
+    max(28px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+.lnov__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(36 31 26 / 45%);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.lncard {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: min(80dvh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 改的時候給死高度：鍵盤上來才不會把按鈕擠出去 */
+.lncard--edit { height: min(80dvh, 640px); }
+
+/* 從那一顆長出來的是這一層（`transform-origin: 0 0`），字在它上面 */
+.lncard__bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  transform-origin: 0 0;
+}
+
+/* 上緣一道茶色：備忘錄卡片的黏邊 */
+.lncard__bg::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--tea);
+}
+
+.lncard > :not(.lncard__bg) { position: relative; }
+
+.lncard__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px 14px 0 18px;
+}
+
+.lncard__head > div { flex: 1; min-width: 0; }
+
+.lncard__eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--tea);
+}
+
+.lncard__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.35;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+/* 內文自己捲，不帶動底下那一頁 */
+.lncard__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 12px 0 0;
+  padding: 12px 18px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+  line-height: 1.85;
+}
+
+.lncard__foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.lncard__foot .grow { flex: 1; }
+
+/* 改的時候：取消／存起來在頂端（同備忘錄的編輯卡，鍵盤推不走它） */
+.lncard__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 0 18px;
+}
+
+.lncard__bar .lncard__eyebrow { flex: 1; min-width: 0; margin: 0; }
+
+.lncard__edit {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 18px;
+}
+
+/* 同 `.pbcard--edit > *`：除了內文那一格每一項都 flex: none，不然會被壓扁 */
+.lncard__edit > * { flex: none; }
+
+.lncard__edit textarea {
+  flex: 1 1 0;
+  min-height: 120px;
+  font-size: var(--text-md);
+  resize: none;
+}
+
+.lncard__err {
+  margin: -4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--overdue);
 }
 
 /* 挑顏色。六顆實心圓，選中的加一圈。 */
@@ -3139,8 +3596,13 @@ button.mark::after {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-  flex-wrap: nowrap;
-  flex: 0 0 auto;
+  /* 放不下就換行、靠右（08）。兩排之間至少 16px：每一顆的觸控區上下各撐 8px（`.footlink::after`），
+     排距小於 16 的話兩排的感應範圍疊在一起，疊到的那一段由後面那一顆贏 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 16px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .footlink--danger {
@@ -4523,6 +4985,22 @@ body:has(.deck) > .toast > .btn {
     left: calc(var(--gutter) + 38px + 16px);
     max-width: calc(100vw - 2 * var(--gutter) - 3 * 38px - var(--space-2) - 32px);
   }
+}
+
+/* 滑得掉的那幾種（staging-polish 05，`ui/toastSwipe.js`）：手指在上面時頁面不捲，放開彈回去或滑出去有過場。
+   用 `translate` 不用 `transform` —— iPad 那一條靠 `transform: translateX(-50%)` 置中，兩個疊得起來。
+   減少動態時底部那一段 `*` 規則會把過場壓成 0。
+   **字選不起來**：拖第一次會把「已建立」選起來，第二次從選起來的字上拖就變成瀏覽器自己的拖放
+   （`pointercancel`，那一條就收不掉了）—— 手指長按也選得起字。 */
+.toast[data-swipe] {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: translate 0.18s ease, opacity 0.18s ease;
+}
+
+.toast--drag {
+  transition: none;
 }
 
 /* 訊息長的時候縮的是字，不是按鈕 —— 「復原」被擠成兩行（復／原）就不像一顆按鈕了 */
@@ -6437,7 +6915,8 @@ summary {
 
 .hrow[open] > .hrow__sum::after,
 .hmore[open] > .hmore__sum::after,
-.hok[open] > .hok__sum::after {
+.hok[open] > .hok__sum::after,
+.hnote[open] > .hok__sum::after {
   transform: rotate(90deg);
 }
 
@@ -6465,6 +6944,17 @@ summary {
 .hok__sum {
   font-weight: 600;
   color: var(--text-dim);
+}
+
+/* 只是提醒的那一項（ADR-0150）：長得跟「沒問題的」那一行一樣，收著；點開是名字清單 */
+.hnote__n {
+  font-weight: 400;
+}
+
+.hnote__why {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
 }
 
 .hok__list {
@@ -6676,6 +7166,15 @@ summary {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
+
+.roster__chart {
+  flex: none;
+  width: 5.5em;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roster__warn[hidden] { display: none; }
 
 .roster__warn {
   display: inline-flex;
@@ -7763,6 +8262,95 @@ summary {
 
 .pbempty {
   margin: 0 var(--gutter);
+}
+
+/* ---------- 長備註那一疊（`views/longNotes.js`，ADR-0156） ----------
+   卡片、丸子、圓點、搜尋列都是備忘錄那一份；這裡只有長備註多的那幾樣。 */
+
+/* 卡片最上面的客戶名：點了到他的詳情。觸控區撐開貼在自己身上 */
+.pbcard__who {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--tea);
+  background: none;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pbcard__who::after {
+  content: '';
+  position: absolute;
+  inset: -10px -6px;
+}
+
+.pbcard__who svg { opacity: 0.7; }
+
+.pbcard__eyebrow {
+  margin: 0 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--tea);
+}
+
+/* 垃圾桶按第一下：變紅、寫「再按一次刪掉」，3 秒沒按就收回 */
+.pbedit__icon--del.pbedit__icon--armed {
+  width: auto;
+  gap: 4px;
+  padding: 0 10px;
+  color: var(--surface);
+  background: var(--overdue);
+  border-color: var(--overdue);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 「寫給誰？」那一張：一位一列 */
+.lnpick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.lnpick__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.lnpick__name {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.lnpick__n {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-mute);
 }
 
 /* ---- 自己浮出來的那一小塊（ui/components/playbookHint.js） ----
@@ -9903,7 +10491,15 @@ body.has-abl {
   gap: var(--space-1) var(--space-2);
 }
 
-.abl-row__seenlabel,
+/* 「照片上寫的」那一行（staging-polish 02）：收起來的一段，長相照 `.foldout`。 */
+.abl-row__seenfold {
+  margin: 0 0 var(--space-1);
+}
+
+.abl-row__seenfold > .abl-row__seen {
+  padding-bottom: var(--space-2);
+}
+
 .abl-row__picklabel {
   width: 100%;
   font-size: var(--text-2xs);
@@ -10037,6 +10633,14 @@ body.has-abl {
 
 .abl-row__warnings {
   color: var(--soon);
+}
+
+/* 沒勾的那一列點開：「勾起來的話：」（before-golive 09）—— 虛線標出它是假設，不是會寫進去的那幾行 */
+.abl-row__whatif {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 2px dashed var(--border);
 }
 
 .abl__bar {
@@ -10725,4 +11329,22 @@ body.has-abl {
 .subrow > svg {
   flex: none;
   color: var(--text-mute);
+}
+
+/* ---------- 設定 → 待辦首頁（ADR-0151） ----------
+   一列一個名字、底下一排三選一。名字與三顆並排在 390px 上放不下（四個字 × 3 ＋ 名字），
+   所以上下兩行。 */
+.todorows__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+.todorows__row + .todorows__row {
+  border-top: 1px solid var(--border);
+}
+
+.todorows__label {
+  font-weight: 600;
 }

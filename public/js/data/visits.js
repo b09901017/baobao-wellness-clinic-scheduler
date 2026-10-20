@@ -20,6 +20,7 @@ import {
   FOLLOWUP_TASK_KIND, REPORT_TASK_KIND, chainLeftovers,
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
+import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
 
 const PATH = 'visits';
 const TASK_PATH = 'tasks';
@@ -27,15 +28,85 @@ const entPath = (customerId) => `customers/${customerId}/entitlements`;
 
 export const get = (id) => repo.getOne(PATH, id);
 
+// ---------- 讀不完整就不存（ADR-0158）----------
+//
+// 存一筆來訪拿呼叫端傳進來的「這位客戶的全部來訪」重算次數、收健檢鏈的待辦。開著本機快取時，離線讀到的
+// 只是快取裡剛好有的那幾筆 —— 拿它去算就是少算、把不在手上的那一次健檢的待辦收掉。
+//
+// **記在這裡，不掛在陣列上**：呼叫端傳進來的常常是 `.filter()`、spread 過的（`[...visits.filter(…), next]`），
+// 陣列上的旗標一抄就掉，掉了等於「完整」放行 —— 錯的方向。所以每一次讀這位客戶的全部來訪都記下來源，
+// 寫入那幾支問「這一台最近一次讀到的是不是伺服器的」。**呼叫端要在按下去那一刻讀**（打開時讀一次就沿用的話，
+// 那一次是快取的就永遠存不進去）—— 要拿去存的那幾條路走 `listWhole()`。
+
+/** customerId → 最近一次讀全部來訪的來源（`'server'`／`'cache'`）。這一台還沒讀過的沒有這一格 */
+const visitsRead = new Map();
+
+/** 從伺服器讀回來的那幾份陣列本身（`isWholeList()`）。抄過、濾過的不在裡面 —— 那種當成不知道 */
+const wholeLists = new WeakSet();
+
 /**
- * 某位客戶的全部來訪，新的在前。
- * 需要 (deletedAt, customerId, date desc) 複合索引，已列在 firestore.indexes.json。
+ * 手上這一份**就是**一次從伺服器讀回來的全部來訪嗎（同一個陣列，沒抄過）。
+ * 打開時讀一次就沿用的畫面（來訪編輯器）拿它決定按下去要不要重讀：是的話不用（確認框不晚一拍），
+ * 不是（讀到的是快取、或不知道）才重讀（ADR-0158）。
  */
-export function listByCustomer(customerId) {
-  return repo.list(PATH, {
+export const isWholeList = (list) => Array.isArray(list) && wholeLists.has(list);
+
+/**
+ * 這一台最近一次讀這位客戶的全部來訪，是從伺服器來的嗎 —— `save()` 問的就是這一格。打開時讀一次就沿用的畫面要連它一起問：
+ * 只看陣列（`isWholeList()`）的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（段四審查）
+ */
+export const lastReadWhole = (customerId) => visitsRead.get(customerId) === 'server';
+
+const offlineNow = () => globalThis.navigator?.onLine === false;
+
+/** 從 `since`（那時候 `repo.cacheReads()` 的值）到現在，有沒有任何一次讀取是快取來的 */
+const cachedSince = (since) => repo.cacheReads() !== since;
+
+/** 這位客戶這一趟算得出「全部」嗎：確定離線、全部來訪最近一次讀到快取、或 `since` 之後讀的任何一份是快取 → 不完整 */
+function incompleteFor(customerId, since) {
+  return readsIncomplete({
+    offline: offlineNow(),
+    sources: [visitsRead.get(customerId), readSource(cachedSince(since))],
+  });
+}
+
+/** 不完整就丟（`ui/toast.js` 認得它：照講那一句、不給重試） */
+function guardWhole(customerId, customerName, since) {
+  if (incompleteFor(customerId, since)) throw new IncompleteReadError(customerName);
+}
+
+async function readCustomer(customerId) {
+  const { rows, fromCache } = await repo.listFrom(PATH, {
     wheres: [where('customerId', '==', customerId)],
     order: ['date', 'desc'],
   });
+  visitsRead.set(customerId, readSource(fromCache));
+  if (!fromCache) wholeLists.add(rows);
+  return rows;
+}
+
+/**
+ * 某位客戶的全部來訪，新的在前。
+ * 需要 (deletedAt, customerId, date desc) 複合索引，已列在 firestore.indexes.json。
+ *
+ * 讀到的是快取時照樣回（畫面照畫），但會記下來 —— 之後拿它存的那一下會被擋（ADR-0158）。
+ */
+export async function listByCustomer(customerId) {
+  return readCustomer(customerId);
+}
+
+/**
+ * 同 `listByCustomer()`，**讀不完整就丟 `IncompleteReadError`**（ADR-0158）。要拿去存的那幾條路在按下去那一刻用它：
+ * 擋在確認框之前（不要讓她答完幾道框才說存不了），也不用等 SDK 那十秒才發現離線。
+ *
+ * @param {string} customerId
+ * @param {string} [customerName] 那一句講的是誰
+ */
+export async function listWhole(customerId, customerName = '') {
+  if (offlineNow()) throw new IncompleteReadError(customerName);
+  const rows = await readCustomer(customerId);
+  if (visitsRead.get(customerId) !== 'server') throw new IncompleteReadError(customerName);
+  return rows;
 }
 
 /**
@@ -63,11 +134,14 @@ export function listByStatus(status) {
  * 哪幾筆真的要收尾由 `domain/visits.js` 的 `visitsToClose()` 決定，
  * 這裡只負責把可能的那些撈回來 —— 規則不寫在 /data。
  */
-export function listUnclosed(today) {
+export function listUnclosed(today, { tomorrow = false } = {}) {
+  // `tomorrow`：待辦首頁「明天」那一格要明天的（issue 11，ADR-0162）。只多撈一天 ——
+  // 拿去簽的那幾處照舊過 `visitsToClose()`（`date <= today`），明天的不會被簽成做了
+  const through = tomorrow ? addDays(today, 1) : today;
   return Promise.all(
     ['confirmed', 'pending_confirm'].map((status) =>
       repo.list(PATH, {
-        wheres: [where('status', '==', status), where('date', '<=', today)],
+        wheres: [where('status', '==', status), where('date', '<=', through)],
         order: ['date', 'asc'],
       }),
     ),
@@ -84,6 +158,20 @@ export function listBetween(from, to) {
     wheres: [where('date', '>=', from), where('date', '<=', to)],
     order: ['date', 'asc'],
   });
+}
+
+/**
+ * 同 `listBetween()`，**讀到的是快取（或離線）就丟 `IncompleteReadError`**（before-golive-2026-10-19 issue 16）。
+ * 療程單「全部比對一次」用：拿快取裡剛好有的那幾段去比，少了的會被列成「簽了沒記」。
+ */
+export async function listBetweenWhole(from, to) {
+  const since = repo.cacheReads();
+  const rows = await listBetween(from, to);
+  if (readsIncomplete({
+    offline: globalThis.navigator?.onLine === false,
+    sources: [readSource(repo.cacheReads() !== since)],
+  })) throw new IncompleteReadError('', '網路不穩，讀到的不是全部的來訪 —— 先不比，連上之後再按一次');
+  return rows;
 }
 
 /** 試算表往後看多遠的來訪（已排未上的那幾欄）。 */
@@ -151,6 +239,10 @@ function payloadOf(visit) {
  * @returns {Promise<string>} 來訪 id
  */
 export async function save(visit, customerVisits = [], { freed = [] } = {}) {
+  // **讀不完整就不存**（ADR-0158）：一進來先問一次（確定離線、這位客戶的全部來訪最近讀到的是快取 → 不讀了，馬上講），
+  // 底下自己讀的那幾份（課程、任務、額度）讀完、commit 之前再問一次
+  const since = repo.cacheReads();
+  guardWhole(visit.customerId, visit.customerName, since);
   const id = visit.id ?? repo.newId(PATH);
   const previous = customerVisits.find((v) => v.id === id) ?? null;
   // **每一段都補上狀態**（ADR-0081）。寫入是唯一的路口，補在這裡就不會有
@@ -175,6 +267,7 @@ export async function save(visit, customerVisits = [], { freed = [] } = {}) {
     ...(await taskOps(next, { isNew: !previous, visitsAfter: after, courses, freed })),
   ];
 
+  guardWhole(visit.customerId, visit.customerName, since);
   await repo.commit(ops);
   return id;
 }
@@ -205,22 +298,32 @@ export async function setFollowupNote(visitIds, note) {
 
 /** 軟刪除一筆來訪。次數要跟著還回去，任務也要跟著收掉。 */
 export async function remove(visit, customerVisits = [], reason = null) {
+  // 讀不完整就不寫（ADR-0158，同 `save()`）。現在沒有呼叫端，守門照樣放著
+  const since = repo.cacheReads();
+  guardWhole(visit.customerId, visit.customerName, since);
   const rest = customerVisits.filter((v) => v.id !== visit.id);
-  await repo.commit([
+  const ops = [
     { op: 'softDelete', path: PATH, id: visit.id, reason },
     ...countOps(visit.customerId, [visit], rest),
     ...(await taskOps({ ...visit, deletedAt: 'pending' }, { visitsAfter: rest })),
-  ]);
+  ];
+  guardWhole(visit.customerId, visit.customerName, since);
+  await repo.commit(ops);
 }
 
 export async function restore(visit, customerVisits = []) {
+  // 讀不完整就不寫（ADR-0158，同 `save()`）：還原會把次數一起還原回去
+  const since = repo.cacheReads();
+  guardWhole(visit.customerId, visit.customerName, since);
   const next = { ...visit, deletedAt: null };
   const after = [...customerVisits.filter((v) => v.id !== visit.id), next];
-  await repo.commit([
+  const ops = [
     { op: 'update', path: PATH, id: visit.id, changes: { deletedAt: null } },
     ...countOps(visit.customerId, [visit], after),
     ...(await taskOps(next, { visitsAfter: after })),
-  ]);
+  ];
+  guardWhole(visit.customerId, visit.customerName, since);
+  await repo.commit(ops);
 }
 
 /**
@@ -292,16 +395,75 @@ async function followupOps(visit, visitsAfter, coursesById) {
 }
 
 /**
+ * 健檢或二返的額度變了（加購、補一筆、改次數、刪掉、還原、資料健檢補上）：健檢那條鏈的待辦跟著重算（ADR-0159）。
+ *
+ * 以前只有存來訪、勾鏈上待辦的那一下才算 —— 補了二返額度之後，那一次健檢的「約二返」要等她下一次存這位客人的某一筆來訪
+ * 才長出來；把次數改少，多出來的那一張一直掛著。**寫入與確認框都叫這一支**：寫的那一下把 `ops` 跟額度放進同一個 commit，
+ * 確認框拿 `plan` 講（`consequences.js` 的 `chainPlanLines()`，ADR-0070）。
+ *
+ * - **動到的不是健檢或二返就不讀、不算**（`null`）：加購營養品、改復能的次數跟這一條鏈無關，不多打四次讀取
+ * - **讀不完整就不算**（`null`，ADR-0158 反過來用）：寫額度本身不吃來訪，額度照寫；那一串等下一次存來訪再算
+ *
+ * @param {string} customerId
+ * @param {(before: object[]) => object[]} change 讀回來的額度（沒刪掉的）→ 寫完之後的樣子。新建的那幾筆要先有 id
+ * @param {{name?: string|null}} [o] 待辦上印的客戶名字
+ * @returns {Promise<{ops: object[], plan: object, visits: object[], tasks: object[]}|null>}
+ */
+export async function chainAfterEntitlements(customerId, change, { name = null } = {}) {
+  if (!customerId || offlineNow()) return null;
+  const since = repo.cacheReads();
+  const courses = await config.listAll('courses', { includeDeleted: true });
+  const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
+  if (!Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
+
+  const before = await customersData.listEntitlements(customerId);
+  const after = change(before);
+  // 這一下動到的那幾筆（新的、刪掉的、內容變了的）裡有沒有健檢或二返
+  const inChain = (list) => new Set(pairsOf(list, coursesById).filter((p) => p.followup)
+    .flatMap((p) => [p.source.id, p.followup.id]));
+  const chainIds = new Set([...inChain(before), ...inChain(after)]);
+  const was = new Map(before.map((e) => [e.id, JSON.stringify(e)]));
+  const now = new Map(after.map((e) => [e.id, JSON.stringify(e)]));
+  const touched = [...new Set([...was.keys(), ...now.keys()])].filter((id) => was.get(id) !== now.get(id));
+  if (!touched.some((id) => chainIds.has(id))) return null;
+
+  // 待辦上印的名字讀客戶本人（段四審查）：來訪上的是快照 —— 改過名、最新那一筆是已經結案的過去來訪時（`renameTargets()` 不換它），
+  // 拿它的話這一次重算會把待辦上已經換好的新名字改回舊的
+  const [visits, tasks, settings, customer] = await Promise.all([
+    listByCustomer(customerId),
+    tasksData.listByCustomerForSync(customerId),
+    config.getSettings(),
+    name ? null : customersData.get(customerId),
+  ]);
+  if (incompleteFor(customerId, since)) return null;
+
+  const plan = syncFollowupTasks({
+    customer: { id: customerId, name: name ?? customer?.name ?? null },
+    entitlements: after,
+    visits,
+    tasks,
+    coursesById,
+    dueDays: settings.followupDueDays ?? DEFAULT_FOLLOWUP_DUE_DAYS,
+    reportDueDays: settings.reportDueDays ?? DEFAULT_REPORT_DUE_DAYS,
+  });
+  return { ops: toOps(plan), plan, visits, tasks };
+}
+
+/**
  * 確認框要試算健檢那條鏈時讀的那兩份：這位客戶的額度、任務（連清掉的，ADR-0106）——
  * 跟存檔時 `followupOps()` 讀的是同一份（ADR-0070）。**沒有健檢配二返就回 `null`**，不多讀任務；讀不到也是 `null`（少講幾句，不擋）。
  * 用的是 `consequences.js` 的 `cancelConsequences({ chain })` 與 `followupBookingLines()`。
  */
 export async function chainInputs(customerId, coursesById = {}) {
   if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
+  // 讀到快取的也當讀不到（ADR-0158）：少講幾句，不講錯的 —— 真的存的那一下會擋
+  const since = repo.cacheReads();
   try {
     const entitlements = await customersData.listEntitlements(customerId);
     if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
-    return { entitlements, tasks: await tasksData.listByCustomerForSync(customerId) };
+    const tasks = await tasksData.listByCustomerForSync(customerId);
+    if (readsIncomplete({ offline: offlineNow(), sources: [readSource(cachedSince(since))] })) return null;
+    return { entitlements, tasks };
   } catch {
     return null;
   }
@@ -316,11 +478,14 @@ export async function chainInputs(customerId, coursesById = {}) {
  */
 export async function dropChainLeftovers(customerId, known, coursesById = {}) {
   if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return 0;
+  const since = repo.cacheReads();
   const [entitlements, tasks, visits] = await Promise.all([
     customersData.listEntitlements(customerId),
     tasksData.listByCustomerForSync(customerId),
     listByCustomer(customerId),
   ]);
+  // 讀不完整就一張都不收（ADR-0158）：不在手上的那一次健檢會被當成「用不到」—— 多一張可以勾掉，收錯的沒人提醒
+  if (incompleteFor(customerId, since)) return 0;
   const extra = chainLeftovers({ customer: { id: customerId }, entitlements, visits, tasks, known, coursesById });
   if (!extra.length) return 0;
   await repo.commit(extra.map((t) => ({
@@ -350,6 +515,9 @@ export async function dropChainLeftovers(customerId, known, coursesById = {}) {
  */
 export async function followupOpsAfterTaskChange(changed = []) {
   const plans = await chainPlans(changed);
+  // 讀不完整就連勾選一起不寫（ADR-0158）：照快取算的鏈條會把不在手上的那一次健檢的待辦收掉
+  const partial = plans.find((p) => !p.whole);
+  if (partial) throw new IncompleteReadError(partial.customerName);
   return plans.flatMap((p) => toOps(p.plan));
 }
 
@@ -378,6 +546,8 @@ export async function previewTaskChange(task, done) {
   const plans = await chainPlans([after]);
   const mine = plans[0];
   if (!mine) return null;
+  // 照快取算的後果不講（ADR-0158）：呼叫端（`confirmUntick()`）讀不到就放行，真的寫的那一下會擋
+  if (!mine.whole) throw new IncompleteReadError(mine.customerName);
 
   return {
     create: mine.plan.create ?? [],
@@ -409,7 +579,10 @@ async function chainPlans(changed = []) {
   const rows = (changed ?? []).filter((t) => t?.customerId && chainKinds.includes(t.kind));
   // 勾一批 Examine 不該為了這件事多打好幾次往返。
   if (!rows.length) return [];
+  // 確定離線：鏈上那兩種的勾選要整位客戶的來訪才算得對（ADR-0158）—— 不讀了，馬上講（不等 SDK 那十秒）
+  if (offlineNow()) throw new IncompleteReadError(rows[0].customerName);
 
+  const since = repo.cacheReads();
   const courses = await config.listAll('courses', { includeDeleted: true });
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
   // 主檔裡沒有任何課程設了「做完還要再約一次」就不可能有配對（同 followupOps）。
@@ -437,18 +610,19 @@ async function chainPlans(changed = []) {
     const patched = new Map(mine.map((t) => [t.id, t]));
     const after = tasks.map((t) => (patched.has(t.id) ? { ...t, ...patched.get(t.id) } : t));
 
+    const customerName = mine.find((t) => t.customerName)?.customerName
+      ?? visits.find((v) => v.customerName)?.customerName ?? null;
     out.push({
       customerId,
+      customerName,
+      // 這一位的那幾份（課程、額度、任務、全部來訪）是不是都是伺服器的（ADR-0158）。寫入那一支看到 false 就丟
+      whole: !incompleteFor(customerId, since),
       tasksBefore: tasks,
       visits,
       entitlements,
       coursesById,
       plan: syncFollowupTasks({
-        customer: {
-          id: customerId,
-          name: mine.find((t) => t.customerName)?.customerName
-            ?? visits.find((v) => v.customerName)?.customerName ?? null,
-        },
+        customer: { id: customerId, name: customerName },
         entitlements,
         visits,
         tasks: after,
@@ -499,6 +673,9 @@ export async function courseTaskPlan(before, changes) {
 
   const uses = (v) => !v?.deletedAt && (v?.slots ?? []).some((s) => s?.courseId === after.id);
 
+  // 讀到快取就不算（ADR-0158，段四審查）：網路不穩時 SDK 退回快取、`navigator.onLine` 還是 true —— 照快取裡剛好有的那幾筆算，
+  // 而課程本身寫在最後一個 commit：「這門課變了沒」從此是否，少算的那幾天再也沒有人補
+  const since = repo.cacheReads();
   const [confirmed, pending, openTasks, courses] = await Promise.all([
     listByStatus('confirmed'),
     listByStatus('pending_confirm'),
@@ -515,8 +692,13 @@ export async function courseTaskPlan(before, changes) {
   const coursesById = { ...Object.fromEntries(courses.map((c) => [c.id, c])), [after.id]: after };
   const today = todayISO();
 
-  const rows = await Promise.all([...visits.values()].map(async (visit) => {
-    const existing = await tasksData.listByVisitForSync(visit.id);
+  const existingBy = new Map(await Promise.all([...visits.keys()].map(async (id) => [id, await tasksData.listByVisitForSync(id)])));
+  if (readsIncomplete({ offline: offlineNow(), sources: [readSource(cachedSince(since))] })) {
+    throw new IncompleteReadError('', '網路不穩，讀不到全部已經排好的來訪 —— 課程先不存，連上之後再存一次');
+  }
+
+  const rows = [...visits.values()].map((visit) => {
+    const existing = existingBy.get(visit.id);
     const plan = tasksAfterCourseChange(visit, existing, { before, after, coursesById, today });
     // 收掉的是哪一種 —— 確認框要講得出來，而 `remove` 身上只有 id 與理由
     const kindOf = new Map(existing.map((t) => [t.id, t.kind]));
@@ -525,7 +707,7 @@ export async function courseTaskPlan(before, changes) {
       ...plan,
       remove: plan.remove.map((r) => ({ ...r, kind: kindOf.get(r.id) })),
     };
-  }));
+  });
 
   return { rows: rows.filter((r) => r.create.length + r.update.length + r.remove.length > 0) };
 }

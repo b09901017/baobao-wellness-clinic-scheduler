@@ -452,16 +452,16 @@ describe('種子資料', () => {
 
   // 她 2026-09-08 給的清單。**都沒有 4 號**，而簡寫裡的數字就是房號。
   // 2026-10-06（ADR-0127）：補治6、VIP1；點滴8 拆成 8A／8B、VIP7 拆成 7A／7B 四間各自的診間，
-  // 原本那兩間留著、停用（沒選床位的那一間）—— 排得到的 22 間，細節在 `tests/bed-rooms.test.js`
+  // 原本那兩間（沒選床位的點滴8、VIP7）2026-10-18 刪掉了（ADR-0155）—— 細節在 `tests/bed-rooms.test.js`、`tests/bedless-rooms-gone.test.js`
   test('診間就是她列的那三種、那幾間', () => {
     const of = (type) => SEED.rooms.filter((r) => r.type === type).map((r) => r.name);
     // 治7 是 2026-10-05 加回來的（ADR-0124：Abovee 上 EECP 還排在治療室7）
     assert.deepEqual(of('治療室'), ['治2', '治3', '治5', '治6', '治7', '治8']);
     assert.deepEqual(of('點滴室'),
-      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8', '點滴8A', '點滴8B', '點滴9', '點滴10']);
-    assert.deepEqual(of('VIP室'), ['VIP1', 'VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7', 'VIP7A', 'VIP7B']);
-    assert.equal(SEED.rooms.length, 24);
-    assert.deepEqual(SEED.rooms.filter((r) => r.active === false).map((r) => r.name), ['點滴8', 'VIP7']);
+      ['點滴2', '點滴3', '點滴5', '點滴6', '點滴7', '點滴8A', '點滴8B', '點滴9', '點滴10']);
+    assert.deepEqual(of('VIP室'), ['VIP1', 'VIP2', 'VIP3', 'VIP5', 'VIP6', 'VIP7A', 'VIP7B']);
+    assert.equal(SEED.rooms.length, 22);
+    assert.deepEqual(SEED.rooms.filter((r) => r.active === false).map((r) => r.name), []);
   });
 
   test('一間 4 號都沒有', () => {
@@ -475,7 +475,7 @@ describe('種子資料', () => {
     const short = Object.fromEntries(SEED.rooms.map((r) => [r.name, r.shortName ?? r.name]));
     assert.equal(short['點滴2'], '.2');
     assert.equal(short['點滴10'], '.10');
-    assert.equal(short['VIP7'], 'vip7');
+    assert.equal(short['VIP7A'], 'vip7A');
     assert.equal(short['治8'], '治8', '治療室本來就夠短，不必有簡寫');
   });
 
@@ -593,7 +593,7 @@ describe('種子資料', () => {
   // 種子改錯一格，她建的新資料庫就會在壓表時問她一個不該問的問題。
   //
   //   物理治療師  復能（多選一選到 INDIBA／SIS／高能量雷射 時也算）
-  //   治療室      營養點滴、EECP（含體驗課）、ILIB
+  //   治療室      營養點滴、EECP、ILIB
   //   醫師        門診類（A 類一律選得到）
   //   都不用      體適能、身體組成分析、營養諮詢、健檢、門診
   test('每一個課程要指派什麼', () => {
@@ -602,9 +602,7 @@ describe('種子資料', () => {
       'course-pt-consult': 'therapist',
       'course-iv-drip': 'room',
       'course-eecp': 'room',
-      // 2026-09-16 多的那一門（她：「預設資料裡面要多一門EECP體驗課」）。
-      // 機器就那兩間，所以跟正式課同一組限制。
-      'course-eecp-trial': 'room',
+      // 2026-09-16 多的那一門「EECP體驗」2026-10-18 合成進 EECP（ADR-0154）：體驗是約的時候按 20
       'course-iv-laser': 'room',
       'course-checkup': 'none',
       'course-fitness': 'none',
@@ -628,17 +626,14 @@ describe('種子資料', () => {
     assert.deepEqual(got, want);
   });
 
-  // 她 2026-09-16：「體驗30正式課60，也就是預設資料裡面要多一門EECP體驗課，
-  // 預設30分鐘，這樣匯入的也可以對應到了」。2026-09-16 早上那個 30 是暫定值。
-  // 2026-10-05：體驗課從 30 改成 20 —— Abovee 上這門課叫 EECP20。
-  test('EECP 正式課 60 分、體驗課 20 分，兩門同一組診間限制', () => {
+  // 她 2026-09-16：「體驗30正式課60」—— 那時候體驗另外一門課；2026-10-05 體驗改成 20（Abovee 上叫 EECP20）。
+  // 2026-10-18 合成一門（ADR-0154）：她「EECP只有一個EECP 不用EECP 體驗」「EECP可以選60 20」。
+  test('EECP 一門：正式課 60 分、約的時候選 20／60、體驗的時候 20 分', () => {
     const by = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
     assert.equal(by['course-eecp'].durationMin, 60);
-    assert.equal(by['course-eecp-trial'].durationMin, 20);
-    // 名字要跟舊表一字不差，`resolveCourse()` 是精確比對
-    assert.equal(by['course-eecp-trial'].name, 'EECP體驗');
-    assert.deepEqual(by['course-eecp-trial'].allowedRoomIds, by['course-eecp'].allowedRoomIds);
-    assert.deepEqual(by['course-eecp-trial'].preferredRoomIds, by['course-eecp'].preferredRoomIds);
+    assert.deepEqual(by['course-eecp'].bookingMinutes, [20, 60]);
+    assert.equal(by['course-eecp'].trialMinutes, 20);
+    assert.equal(by['course-eecp-trial'], undefined);
   });
 
   // `validate('courses')` 擋著「不選診間的課程不該設定診間限制」——

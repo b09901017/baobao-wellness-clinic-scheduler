@@ -4,14 +4,15 @@
 // 寫入成功後給一顆「復原」按鈕（SPEC 6.3）。手機單手操作最容易誤觸，
 // 而每一次寫入都留了 before，所以復原就是把它寫回去。
 
-import { withUndo } from '../data/repo.js';
+import { withUndo, commitsSent } from '../data/repo.js';
 import { reload } from './router.js';
 import { esc } from './components/form.js';
+// 復原那一條留多久（12 秒）、哪幾種給滑、拖多遠才收：純的那一支，單元測試量得到（staging-polish 05）
+import { UNDO_MS, swipeable, pull, isDrag, release, fadeAt } from './toastSwipe.js';
+// 失敗那一句、給不給重試、「已經存在這台裝置上了」什麼時候講：純的那一支（ADR-0158）
+import { failureOf, slowSayNow } from './saveFailure.js';
 
 const el = () => document.getElementById('toast');
-
-/** 復原按鈕留多久。SPEC 6.3 要求 5–10 秒。 */
-const UNDO_MS = 8000;
 
 /**
  * 寫入等多久還沒回來，就換一句話。
@@ -26,24 +27,126 @@ const UNDO_MS = 8000;
  */
 const PENDING_MS = 8000;
 
-let hideTimer = null;
+/**
+ * 到了 `PENDING_MS` 還沒送出任何一次寫入（還在讀）時，隔多久再看一次。
+ * 「已經存在這台裝置上了」只對送出去的寫入成立（`saveFailure.js` 的 `slowSayNow()`，ADR-0158）。
+ */
+const RECHECK_MS = 1000;
 
-function show(html, { timeout = 3000 } = {}) {
+let hideTimer = null;
+/** 這一條自己會收的時間。拖了沒收掉（彈回去）時從頭再算一次。 */
+let shownFor = 0;
+
+/**
+ * @param {string} html
+ * @param {{timeout?: number, kind?: 'saving'|'retry'|'queued'|'failed'|'saved'|'undo'|'info'}} [opts]
+ *   `kind` 決定滑不滑得掉（`toastSwipe.js` 的 `swipeable()`）
+ */
+function show(html, { timeout = 3000, kind = 'info' } = {}) {
   const node = el();
   if (!node) return;
   clearTimeout(hideTimer);
+  resetDrag(node);
   node.innerHTML = html;
   node.hidden = false;
+  if (swipeable(kind)) node.dataset.swipe = '1';
+  else delete node.dataset.swipe;
+  wireSwipe(node);
+  shownFor = timeout;
   if (timeout) hideTimer = setTimeout(hide, timeout);
 }
 
 export function hide() {
   const node = el();
-  if (node) node.hidden = true;
+  if (!node) return;
+  node.hidden = true;
+  resetDrag(node);
+}
+
+// ---------- 滑掉（staging-polish 05）----------
+//
+// 她 10/18：「能不能左滑或是下滑關掉，不然每次都要等他自己消失…比較好滑，比較不會誤按」。
+// 往左或往下拖過門檻、或一甩就收；沒拖夠放開彈回去。**手指一動就是在滑**：
+// 從「復原」上按下去、拖走，那一下不算按「復原」（接在 click 的捕獲階段吃掉它）。
+
+function resetDrag(node) {
+  node.classList.remove('toast--drag', 'toast--gone');
+  node.style.translate = '';
+  node.style.opacity = '';
+}
+
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+function wireSwipe(node) {
+  if (node.dataset.swipeWired) return;
+  node.dataset.swipeWired = '1';
+  let g = null;
+  let eatClick = false;
+
+  node.addEventListener('pointerdown', (e) => {
+    if (node.dataset.swipe !== '1' || e.button > 0) return;
+    g = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), dragging: false };
+  });
+
+  node.addEventListener('pointermove', (e) => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x;
+    const dy = e.clientY - g.y;
+    if (!g.dragging) {
+      if (!isDrag(dx, dy)) return;
+      g.dragging = true;
+      // 拖著的時候不自己收
+      clearTimeout(hideTimer);
+      node.setPointerCapture?.(e.pointerId);
+      node.classList.add('toast--drag');
+    }
+    const { x, y } = pull(dx, dy);
+    if (!reducedMotion()) node.style.translate = `${x}px ${y}px`;
+    node.style.opacity = String(fadeAt(dx, dy));
+  });
+
+  const end = (e, cancelled = false) => {
+    if (!g || e.pointerId !== g.id) return;
+    const was = g;
+    g = null;
+    if (!was.dragging) return;
+    // 放開之後瀏覽器還會送一下 click（落在「復原」上就是按下去了）—— 吃掉那一下
+    eatClick = true;
+    setTimeout(() => { eatClick = false; }, 0);
+    node.classList.remove('toast--drag');
+    const dx = e.clientX - was.x;
+    const dy = e.clientY - was.y;
+    if (!cancelled && release({ dx, dy, ms: performance.now() - was.t }) === 'dismiss') {
+      dismiss(node, dx, dy);
+      return;
+    }
+    resetDrag(node);
+    if (shownFor) hideTimer = setTimeout(hide, shownFor);
+  };
+  node.addEventListener('pointerup', (e) => end(e));
+  node.addEventListener('pointercancel', (e) => end(e, true));
+
+  node.addEventListener('click', (e) => {
+    if (!eatClick) return;
+    eatClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+}
+
+/** 收掉：往拖的那個方向滑出去再藏（減少動態時直接藏）。收掉之後那顆復原就沒了，跟逾時一樣。 */
+function dismiss(node, dx, dy) {
+  clearTimeout(hideTimer);
+  if (reducedMotion()) { hide(); return; }
+  const { x, y } = pull(dx, dy);
+  node.classList.add('toast--gone');
+  node.style.translate = Math.abs(x) >= y ? `${x - 160}px 0px` : `0px ${y + 80}px`;
+  node.style.opacity = '0';
+  hideTimer = setTimeout(hide, 180);
 }
 
 export function saving(message = '儲存中…') {
-  show(`<span>${esc(message)}</span>`, { timeout: 0 });
+  show(`<span>${esc(message)}</span>`, { timeout: 0, kind: 'saving' });
 }
 
 /**
@@ -56,7 +159,7 @@ export function saving(message = '儲存中…') {
  * 也不給重試鈕，理由同上：要重試的不是她，是 SDK。
  */
 export function queued(message = '還沒送出去 —— 已經存在這台裝置上了，連上網路會自動補送') {
-  show(`<span>${esc(message)}</span>`, { timeout: 0 });
+  show(`<span>${esc(message)}</span>`, { timeout: 0, kind: 'queued' });
 }
 
 /**
@@ -65,12 +168,12 @@ export function queued(message = '還沒送出去 —— 已經存在這台裝�
  */
 export function saved(message = '已儲存', onUndo = null) {
   if (!onUndo) {
-    show(`<span>${esc(message)}</span>`);
+    show(`<span>${esc(message)}</span>`, { kind: 'saved' });
     return;
   }
 
   show(`<span>${esc(message)}</span><button class="btn" type="button" data-undo>復原</button>`, {
-    timeout: UNDO_MS,
+    timeout: UNDO_MS, kind: 'undo',
   });
 
   el()?.querySelector('[data-undo]')?.addEventListener('click', async () => {
@@ -78,7 +181,7 @@ export function saved(message = '已儲存', onUndo = null) {
     try {
       await onUndo();
       // 復原本身不再給復原鈕 —— 一直往回按會分不清現在是哪個版本
-      show('<span>已復原</span>');
+      show('<span>已復原</span>', { kind: 'saved' });
       reload();
     } catch (err) {
       failed(`復原失敗：${err.message}`);
@@ -103,7 +206,7 @@ export function failed(message, onRetry) {
   show(
     `<span>${esc(message)}</span>` +
       (onRetry ? '<button class="btn" type="button" data-retry>重試</button>' : ''),
-    { timeout: onRetry ? 0 : 5000 },
+    { timeout: onRetry ? 0 : 5000, kind: onRetry ? 'retry' : 'failed' },
   );
   if (onRetry) {
     el().querySelector('[data-retry]')?.addEventListener('click', () => {
@@ -111,6 +214,15 @@ export function failed(message, onRetry) {
       onRetry();
     });
   }
+}
+
+/**
+ * 按下去那一刻重讀這位客戶的全部來訪，沒讀成（`data/visits.js` 的 `listWhole()`，ADR-0158）。
+ * 讀不完整（離線、讀到快取）照講那一句（先不存、連上再按一次），其餘「讀不到最新的資料：…」。
+ * 不給重試鈕：她再按一次就是重讀。
+ */
+export function readFailed(err) {
+  failed(err?.name === 'IncompleteReadError' ? err.message : `讀不到最新的資料：${err?.message ?? '不知道為什麼'}`);
 }
 
 /**
@@ -129,7 +241,8 @@ const inFlight = new Map();
  * 所有寫入都應該經過這裡，這樣就不會有人忘記處理失敗，也不用逐個記得接復原。
  *
  * @param {() => Promise<T>} fn
- * @param {{pending?:string, success?:string, undoable?:boolean, key?:string|null}} [options]
+ * @param {{pending?:string, success?:string|((result: T) => string), undoable?:boolean, key?:string|null}} [options]
+ *   `success` 可以是一支函式：拿寫入回來的值組那一句（改二返的次數之後講待辦多了幾張，issue 17）。
  *   undoable 預設為真。寫了好幾批的動作 repo 會自己判斷給不出復原，這裡不用管。
  *
  *   `key` 給**同一下不可以做兩次**的動作用（建客戶、存來訪、加額度這種
@@ -157,23 +270,32 @@ export function withSaveState(fn, { pending, success, undoable = true, key = nul
     // 等太久就換一句話。**計時器不會取消那一趟寫入** —— 它還在飛，
     // 而且離線時它會一直飛到網路回來（見 PENDING_MS 的說明）。
     // 這裡換掉的只有畫面上那一句，因為「儲存中…」停在那裡三分鐘等於沒說話。
+    //
+    // **還沒送出任何一次寫入就再等**（ADR-0158）：網路不穩時讀取要十秒左右才退回快取，接著可能被擋下來不存 ——
+    // 那幾秒講「已經存在這台裝置上了」是假話。
     let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) queued(slow);
-    }, PENDING_MS);
+    const sentAtStart = commitsSent();
+    let timer;
+    const check = () => {
+      if (settled) return;
+      if (slowSayNow({ slow, sentAtStart, sentNow: commitsSent() })) queued(slow);
+      else timer = setTimeout(check, RECHECK_MS);
+    };
+    timer = setTimeout(check, PENDING_MS);
 
     try {
       const { result, undo } = await withUndo(fn);
       settled = true;
       clearTimeout(timer);
-      saved(success, undoable ? undo : null);
+      saved(typeof success === 'function' ? success(result) : success, undoable ? undo : null);
       return result;
     } catch (err) {
       settled = true;
       clearTimeout(timer);
-      // 別的地方剛改過（`repo.js` 的 `StaleWriteError`）：重試拿的還是同一份舊的，不給重試鈕
-      failed(`儲存失敗：${err.message}`, err?.name === 'StaleWriteError' ? undefined : () =>
-        withSaveState(fn, { pending, success, undoable, key, slow }));
+      // 讀不完整（`domain/incompleteRead.js`）與別的地方剛改過（`repo.js` 的 `StaleWriteError`）：
+      // 重試拿的還是同一份，不給重試鈕（`saveFailure.js` 的 `failureOf()`）
+      const { text, retry } = failureOf(err);
+      failed(text, retry ? () => withSaveState(fn, { pending, success, undoable, key, slow }) : undefined);
       throw err;
     }
   })();

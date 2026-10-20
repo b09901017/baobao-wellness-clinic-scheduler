@@ -8,8 +8,9 @@
 // 規則（認診間、搬床位、哪幾間排得到）在 domain，`tests/bed-rooms.test.js` 盯著。這一支從瀏覽器走：
 // 既有資料庫按資料健檢那兩列真的寫了什麼、停用的那一間在來訪編輯器裡不會被清掉、壓表選得到 8A 與 8B。
 //
-// **`masterDocs()` 把每一筆種子都寫成啟用的**（fixture 的寫法）—— 所以這裡的主檔上點滴8、VIP7 是開著的，
-// 就是既有資料庫還沒按資料健檢的樣子；要「停用了」的那一種，各測試自己蓋上去。
+// **2026-10-18 點滴8、VIP7 從種子刪掉了**（ADR-0155）：`masterDocs()` 裡沒有那兩間。這一支量的是**還留著它們的資料庫**
+//（10/6 之前開著的、10/6～10/18 停用的），所以那兩間由 `parentDocs()` 自己放進去。
+// 資料健檢那一列現在是：沒有任何一段排在上面 → 刪掉；有段排在上面、還開著 → 停用（R1 兩種都按）。
 
 import { test, expect } from '../fixtures/app.js';
 import { masterDocs, customer, entitlement, visit, slot, addDays, TODAY } from '../fixtures/data.js';
@@ -19,11 +20,15 @@ const PICK_DAY = addDays(TODAY, 1).startsWith(MONTH) ? addDays(TODAY, 1) : TODAY
 const PAST = addDays(TODAY, -7);
 
 const NEW_ROOMS = ['room-t6', 'room-vip1', 'room-iv8a', 'room-iv8b', 'room-vip7a', 'room-vip7b'];
+/** 10/6～10/18 種子上那兩間（沒選床位的那一間） */
+const parentDocs = (active) => [
+  { path: 'config/app/rooms', id: 'room-iv8', data: { name: '點滴8', type: '點滴室', shortName: '.8', capacity: 2, active } },
+  { path: 'config/app/rooms', id: 'room-vip7', data: { name: 'VIP7', type: 'VIP室', shortName: 'vip7', active } },
+];
 /** 2026-10-06 之前的診間主檔：沒有那六間，點滴8 與 VIP7 還開著。 */
-const oldRooms = () => masterDocs().filter((d) => !NEW_ROOMS.includes(d.id));
-/** 按完資料健檢之後：六間都在，點滴8 與 VIP7 停用。 */
-const retired = () => masterDocs().map((d) => (['room-iv8', 'room-vip7'].includes(d.id)
-  ? { ...d, data: { ...d.data, active: false } } : d));
+const oldRooms = () => [...masterDocs().filter((d) => !NEW_ROOMS.includes(d.id)), ...parentDocs(true)];
+/** 10/6～10/18 按完資料健檢的樣子：六間都在，點滴8 與 VIP7 停用。 */
+const retired = () => [...masterDocs(), ...parentDocs(false)];
 
 const dripCustomer = () => [
   customer({ id: 'cust-b', name: '王小明' }),
@@ -41,7 +46,7 @@ const dripSlot = (over = {}) => ({
   ...over,
 });
 
-test('R1 10/6 之前的診間：床位那一筆要先等診間建好；建六間＋停用兩間之後，床 A 搬到 點滴8A，其餘一個字都沒變', async ({ app, page }) => {
+test('R1 10/6 之前的診間：床位那一筆要先等診間建好；建六間、停用點滴8、刪 VIP7 之後床 A 搬到 點滴8A（其餘一個字都沒變），點滴8 接著刪得掉', async ({ app, page }) => {
   const done = dripSlot({ bed: 'A', status: 'done', attended: true, note: '左手' });
   await app.seed([
     ...oldRooms(), ...dripCustomer(),
@@ -56,7 +61,7 @@ test('R1 10/6 之前的診間：床位那一筆要先等診間建好；建六間
   await expect(card('slotBeds')).toContainText('診間清單');
   await expect(card('slotBeds').locator('[data-fix]')).toHaveCount(0);
 
-  // 診間清單：六間建起來、點滴8 與 VIP7 停用（不刪），一次按完
+  // 診間清單：六間建起來、點滴8 停用（還有一段排在上面）、VIP7 刪掉（一段都沒有，ADR-0155），一次按完
   await expect(card('roomList').locator('[data-fix]')).toHaveCount(8);
   await card('roomList').locator('[data-fix-all]').click();
   await expect(app.dialog()).toBeVisible();
@@ -67,7 +72,7 @@ test('R1 10/6 之前的診間：床位那一筆要先等診間建好；建六間
   const iv8 = await app.readDoc('config/app/rooms', 'room-iv8');
   expect([iv8.active, iv8.shortName, iv8.capacity, iv8.deletedAt ?? null], '停用：只動那一格，簡寫與同時幾位都還在')
     .toEqual([false, '.8', 2, null]);
-  expect((await app.readDoc('config/app/rooms', 'room-vip7')).active).toBe(false);
+  expect((await app.readDoc('config/app/rooms', 'room-vip7')).deletedAt, 'VIP7 上一段都沒有：刪掉').toBeTruthy();
   const iv8a = await app.readDoc('config/app/rooms', 'room-iv8a');
   expect([iv8a.name, iv8a.shortName, iv8a.active]).toEqual(['點滴8A', '.8A', true]);
 
@@ -91,6 +96,18 @@ test('R1 10/6 之前的診間：床位那一筆要先等診間建好；建六間
   // 設定 → 診間：點滴8 還在清單上、標著已停用
   await app.go('/settings/rooms');
   await expect(page.locator('.card.row').filter({ hasText: '點滴8' }).filter({ hasText: '已停用' })).toHaveCount(1);
+
+  // 那一段搬走之後點滴8 上一段都沒有了 → 資料健檢那一列變成「刪掉」
+  await app.go('/settings/health');
+  const drop = card('roomList').locator('[data-fix]');
+  await expect(drop).toHaveCount(1);
+  await drop.click();
+  await expect(app.dialog()).toBeVisible();
+  expect(await app.dialogText()).toContain('沒有任何一段排在它上面');
+  await app.ok();
+  await app.saved();
+  await expect(card('roomList')).toContainText('沒問題');
+  expect((await app.readDoc('config/app/rooms', 'room-iv8')).deletedAt).toBeTruthy();
 });
 
 test('R2 壓表：診間那一排有 8A 與 8B、沒有停用的點滴8；同一個時間一位 8A、一位 8B 不跳撞期', async ({ app, page }) => {
@@ -172,7 +189,7 @@ test('R3 來訪編輯器：還排在點滴8（停用了）的那一段，打開�
 // 還沒按資料健檢之前改了一筆「點滴8 床 A」的未來來訪，A 就沒了、之後搬不了家（`moveBedToRoom` 認的就是那個 A）。
 test('R4 來訪編輯器：沒換診間就留著床位；換了診間才清掉', async ({ app, page }) => {
   await app.seed([
-    ...masterDocs(), ...dripCustomer(),
+    ...masterDocs(), ...parentDocs(true), ...dripCustomer(),
     visit({
       id: 'v-bed', customerId: 'cust-b', customerName: '王小明', date: PICK_DAY, status: 'pending_confirm',
       slots: [{ ...dripSlot({ bed: 'A' }), status: 'pending_confirm' }],

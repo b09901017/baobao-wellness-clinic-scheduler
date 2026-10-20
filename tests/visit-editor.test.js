@@ -241,7 +241,7 @@ describe('日期那一格給不給改（報告 §1.2）', () => {
   test('條件問的是「這份文件是新的嗎」，不是「她按的是新增嗎」', () => {
     // `isNew: !existing` 對**併進同一天既有那一筆**也是 true —— 那條路
     // 改日期會把那一天原本那幾段一起搬走。
-    assert.doesNotMatch(SRC, /wholeVisit \|\| isNew/,
+    assert.doesNotMatch(SRC, /wholeVisit \|\| isNew\b/,
       '問 isNew 的話，併進既有那一天時日期欄照樣畫得出來');
     assert.match(SRC, /wholeVisit \|\| isNewDoc/);
   });
