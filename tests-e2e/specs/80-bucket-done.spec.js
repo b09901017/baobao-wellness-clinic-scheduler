@@ -176,7 +176,7 @@ test('D2 逾期：死線昨天、今天勾的在；上週、昨天勾的不在�
 // 點一列：隨手記拿回來（不接長按）、簽好的那一天開讀取卡片；分類頁照舊有垃圾桶
 // ---------------------------------------------------------------------------
 
-test('D3 已完成的隨手記：長按沒有選單、點一下拿回來；簽好的那一天開讀取卡片；Examine 那一頁照舊清得掉', async ({ app, page }) => {
+test('D3 已完成的隨手記：長按沒有選單、點一下拿回來；簽好的那一天（含今天拍照記進來的）開讀取卡片；Examine 那一頁照舊清得掉', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
     ...people(),
@@ -191,11 +191,17 @@ test('D3 已完成的隨手記：長按沒有選單、點一下拿回來；簽�
       id: 't-ex-done', customerId: 'cust-a', customerName: '客戶A', kind: 'Examine', dueDate: LAST_WEEK,
       done: true, doneAt: iso(`${LAST_WEEK}T10:00:00`),
     }), iso(`${LAST_WEEK}T10:00:00`)),
+    // 拍 Abovee 今天才記進來、照片上今天已經完成的那一天：一出生就結案，但它是今天的事 → 今天的已完成照收（她 10/21）
+    born(visit({
+      id: 'v-photo-today', customerId: 'cust-c', customerName: '客戶C', date: TODAY, status: 'done',
+      slots: [ivSlot('ent-c', 'done')], statusAt: iso(`${TODAY}T11:30:00`),
+    }), iso(`${TODAY}T11:30:00`)),
   ]);
   await app.signIn('/todo/today');
-  await expect(doneTab(page)).toHaveText('已完成 2');
+  await expect(doneTab(page)).toHaveText('已完成 3');
   await doneTab(page).click();
   await expect(page.locator('[data-visit="v-signed"]')).toContainText('1 段做了、1 段沒來');
+  await expect(page.locator('[data-visit="v-photo-today"]')).toContainText('1 段做了');
 
   // 按住已完成的那一則：長按根本沒接上（按下去那一刻就不會有按壓的回饋）；放開＝點一下＝拿回來
   const done = page.locator('[data-done-notes] [data-note="n-done"]');
@@ -206,7 +212,7 @@ test('D3 已完成的隨手記：長按沒有選單、點一下拿回來；簽�
   await page.mouse.up();
   await app.saved();
   expect((await app.readDoc('notes', 'n-done')).done).toBe(false);
-  await expect(doneTab(page)).toHaveText('已完成 1');
+  await expect(doneTab(page)).toHaveText('已完成 2');
 
   // 對照：回到未完成那一側的同一則，長按照舊有選單 —— 上面那一句「沒有按壓的回饋」量得到東西
   await openTab(page).click();

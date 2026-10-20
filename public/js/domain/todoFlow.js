@@ -299,9 +299,9 @@ export const bucketCount = (b) => (b?.tasks?.length ?? 0) + (b?.close?.length ??
  * - **逾期只收今天才做完的**：照死線切的話，所有做完的過期任務會永遠積在那一格
  * - 「今天才」問 `dayOf(doneAt／statusAt)`：兩格存的是 UTC 的 ISO 字串，台灣 00:00–08:00 做的不可以算到昨天（lessons 七）。
  *   `statusAt` 只在整筆狀態變的時候蓋（`closeVisit()`／`settle()`），一天最後一段結掉的那一下一定會變 —— 那一刻就是「簽完」
- * - **一出生就做完的不算**（`bornDone()`）：照片放掉的「取消 Abovee」、拍 Abovee 新記一筆已完成的那一天 ——
- *   它們從來不在未完成那一側，出現在已完成會變成「我沒做過這件事啊」（逾期那一格尤其是：上週的照片今天才記，
- *   一整排從沒逾期過的出現在「今天才做完的逾期」）
+ * - **逾期那一格不收一出生就做完的**（`bornDone()`）：拍 Abovee 新記一筆已完成的那一天、照片放掉的「取消 Abovee」——
+ *   上週的照片今天才記，一整排從沒逾期過的會出現在「今天才做完的逾期」。**今天、明天照收**（她 10/21：「好，那就順手幫我修」）：
+ *   今天拍照記進來、今天就做完的那一天，是今天的事 —— 她會期待在今天的已完成看到它
  * - 輸入可以重複（兩個查詢會撈到同一張：死線今天、今天勾的）—— 一件只算一次
  * - **未完成那一側（`todoBuckets()`）一個字都沒改**；首頁三顆數字照舊只數未完成
  *
@@ -314,15 +314,15 @@ export function doneBuckets({ tasks = [], visits = [], notes = [], today }) {
   const out = Object.fromEntries(BUCKETS.map((b) => [b, { tasks: [], close: [], notes: [] }]));
 
   for (const t of uniqueById(tasks)) {
-    if (!t?.done || t.deletedAt || bornDone(t)) continue;
+    if (!t?.done || t.deletedAt) continue;
     const b = taskBucket(t.dueDate, today);
-    if (!b || (b === 'overdue' && dayOf(t.doneAt) !== today)) continue;
+    if (!b || (b === 'overdue' && (dayOf(t.doneAt) !== today || bornDone(t)))) continue;
     out[b].tasks.push(t);
   }
   for (const v of uniqueById(visits)) {
-    if (!daySignedOff(v) || bornDone(v)) continue;
+    if (!daySignedOff(v)) continue;
     if (v.date === today) out.today.close.push(v);
-    else if (v.date < today && dayOf(v.statusAt) === today) out.overdue.close.push(v);
+    else if (v.date < today && dayOf(v.statusAt) === today && !bornDone(v)) out.overdue.close.push(v);
   }
   for (const n of uniqueById(notes)) {
     if (!isLiveNote(n) || !n.done || !n.date) continue;

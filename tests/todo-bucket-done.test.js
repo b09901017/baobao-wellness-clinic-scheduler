@@ -163,8 +163,14 @@ test('提早勾掉的明天那一張，到了明天就在今天的已完成', ()
 });
 
 // ---------------------------------------------------------------------------
-// 一出生就做完的不算（它從來不在未完成那一側）
+// 一出生就做完的：逾期那一格不收（它從來沒逾期過）；今天、明天照收（她 10/21：「好，那就順手幫我修」）
 // ---------------------------------------------------------------------------
+
+test('拍 Abovee 今天記進來、今天就已完成的那一天 → 在今天的已完成（是今天的事）', () => {
+  const now = at(`${TODAY}T18:00:00`);
+  const born = visit('v-photo-today', TODAY, [slot('done')], now, { createdAt: now, updatedAt: now });
+  assert.deepEqual(doneBuckets({ today: TODAY, visits: [born] }).today.close.map((v) => v.id), ['v-photo-today']);
+});
 
 test('拍 Abovee 今天新記一筆上週已完成的 → 不在逾期的已完成；之後她改過那一天 → 算', () => {
   const now = at(`${TODAY}T11:00:00`);
@@ -174,25 +180,27 @@ test('拍 Abovee 今天新記一筆上週已完成的 → 不在逾期的已完�
   assert.deepEqual(doneBuckets({ today: TODAY, visits: [touched] }).overdue.close.map((v) => v.id), ['v-photo']);
 });
 
-test('一出生就勾好的任務（照片放掉的「取消 Abovee」）不在已完成；她拿回來再勾 → 在', () => {
+test('一出生就勾好的任務（照片放掉的「取消 Abovee」）：死線過了的不在逾期；她拿回來再勾 → 在。死線今天的照收', () => {
   const now = at(`${TODAY}T11:00:00`);
-  const born = task('t-freed', TODAY, now, { kind: '取消 Abovee', createdAt: now, updatedAt: now });
-  assert.equal(doneBuckets({ today: TODAY, tasks: [born] }).today.tasks.length, 0);
+  const born = task('t-freed', YESTERDAY, now, { kind: '取消 Abovee', createdAt: now, updatedAt: now });
+  assert.equal(doneBuckets({ today: TODAY, tasks: [born] }).overdue.tasks.length, 0);
   const reticked = { ...born, doneAt: at(`${TODAY}T12:00:00`), updatedAt: at(`${TODAY}T12:00:00`) };
-  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [reticked] }).today.tasks.map((t) => t.id), ['t-freed']);
+  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [reticked] }).overdue.tasks.map((t) => t.id), ['t-freed']);
+  const dueToday = { ...born, id: 't-freed-today', dueDate: TODAY };
+  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [dueToday] }).today.tasks.map((t) => t.id), ['t-freed-today']);
 });
 
-test('Firestore 的 Timestamp 也認得：createdAt 與 updatedAt 同一刻 → 一出生就做完的', () => {
+test('Firestore 的 Timestamp 也認得：createdAt 與 updatedAt 同一刻 → 一出生就做完的（逾期不收）', () => {
   const ts = (ms) => ({ toMillis: () => ms, toDate: () => new Date(ms) });
   const ms = Date.parse(at(`${TODAY}T11:00:00`));
-  const born = task('t-ts', TODAY, at(`${TODAY}T11:00:00`), { createdAt: ts(ms), updatedAt: ts(ms) });
+  const born = task('t-ts', YESTERDAY, at(`${TODAY}T11:00:00`), { createdAt: ts(ms), updatedAt: ts(ms) });
   const ticked = { ...born, id: 't-ts2', updatedAt: ts(ms + 60_000) };
-  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [born, ticked] }).today.tasks.map((t) => t.id), ['t-ts2']);
+  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [born, ticked] }).overdue.tasks.map((t) => t.id), ['t-ts2']);
 });
 
 test('讀不出建立時間的（舊資料、還沒寫到伺服器的那一份）照樣算 —— 寧可多列一件，不藏她勾的', () => {
-  const b = doneBuckets({ today: TODAY, tasks: [task('t-old', TODAY, at(`${TODAY}T09:00:00`), { createdAt: null, updatedAt: null })] });
-  assert.equal(b.today.tasks.length, 1);
+  const b = doneBuckets({ today: TODAY, tasks: [task('t-old', YESTERDAY, at(`${TODAY}T09:00:00`), { createdAt: null, updatedAt: null })] });
+  assert.equal(b.overdue.tasks.length, 1);
 });
 
 // ---------------------------------------------------------------------------
