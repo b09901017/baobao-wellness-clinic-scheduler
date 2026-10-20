@@ -5,6 +5,7 @@
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   BOOT_KEY, KEEP, STEPS, begin, cleanBoots, drop, mark, missedData, readBoots, secs, stepsOf, withBoot, withoutBoot,
@@ -211,5 +212,13 @@ describe('這一次開機', () => {
     assert.equal(readBoots().list.length, 1);
     storage.set(BOOT_KEY, '[null,{}]');
     assert.deepEqual(readBoots(), { ok: true, list: [] });
+  });
+});
+
+describe('設定頁那一張', () => {
+  test('正式站不畫，staging 與模擬器照畫（她 10/21：量完先收起來，做 issue 09 時還要用）', () => {
+    const src = readFileSync(new URL('../public/js/ui/views/settings.js', import.meta.url), 'utf8');
+    const calls = src.match(/\$\{[^}]*bootTimesCard\(\)\}/g) ?? [];
+    assert.deepEqual(calls, ["${ENV === 'prod' ? '' : bootTimesCard()}"]);
   });
 });
