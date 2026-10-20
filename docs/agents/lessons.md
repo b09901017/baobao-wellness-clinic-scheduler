@@ -120,7 +120,8 @@
 
 ## 九、部署：看起來成功不等於成功
 
-- Firebase Hosting 預設 `Cache-Control: max-age=3600`（`/js/**`、`/css/**`、連 `/`）。service worker 是網路優先，但它抓檔也經過瀏覽器快取 → **「明明改好了卻沒變」可能是這個**，不一定是 `sw.js` 版號
+- Firebase Hosting 預設 `Cache-Control: max-age=3600`（`/js/**`、`/css/**`、連 `/`）。service worker 抓檔也經過瀏覽器快取 → **「明明改好了卻沒變」可能是這個**，不一定是 `sw.js` 版號
+  （10/8 起 `firebase.json` 全部 `no-cache`；10/21 起 `sw.js` 裝新版時帶 `cache: 'reload'` 不拿 HTTP 快取那一份 —— 下面那一條）
 - firebase-tools 只在互動模式補 Storage 跨服務 Rules 要的 IAM 角色；CI 與 agent 的 shell 都是非互動，**一聲不響地跳過** → 療程單照片 403
 - deploy job 三個步驟要全綠；Hosting 綠、Storage 紅看起來像部署好了（9/17）
 - 拍照的 Function 不歸 CI 部署；`.firebaserc` 預設是正式站，本機部署漏打 `--project` 就上正式（10/8 預設改成 staging；要上正式的指令自己帶 `--project prod`）
