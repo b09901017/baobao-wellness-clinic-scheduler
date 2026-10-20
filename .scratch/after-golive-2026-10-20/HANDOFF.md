@@ -15,7 +15,7 @@
 | 二 | 03 逾期／今天／明天的已完成算哪幾件（domain＋讀資料）、04 那三頁的已完成（Blocked by 03） | xhigh | ✅ 10/21（`d82baeb8`、`e4e65811`；不開 PR，跟段三一起進第二個 PR） |
 | 三 | 06 程式檔快取優先＋「有新版本」、07 先畫殼、08 首頁先用快取畫 | high | ✅ 10/21（`30d07729`、`161862cf`、`867519a0`＋P11；不開 PR） |
 | 四 | `/matt-code-review`（段二＋段三＋iPad 橫放＋issue 10：從段一合進 develop 的那一點 `0b2ce223` 比） | xhigh | ✅ 10/21（`6c19d12c` 文件、`c8fc2408` 審查之後補的，sw.js **v205**；不開 PR） |
-| 五 | 09（看 05 的數字決定做不做）、文件總檢查、全量 E2E（CI）、手動驗收清單、PR 合進 develop | medium（09 要做就 high） | ✅ 10/21（09 她說延到下一輪；只動文件、`public/` 沒動，sw.js 停在 v205；PR 見「段五交出去的」） |
+| 五 | 09（看 05 的數字決定做不做）、文件總檢查、全量 E2E（CI）、手動驗收清單、PR 合進 develop | medium（09 要做就 high） | ✅ 10/21（09 她說延到下一輪；只動文件、`public/` 沒動，sw.js 停在 v205；PR #176 合進 develop） |
 
 段一先做：拍照她現在就要用（「正式版的鴨表拍照功能不能用」），05 要先在她手機上量出「改之前」的數字，段三才有得比。
 段二整段是待辦首頁那三頁；段三整段是開機那條路。兩段不搶檔案（段二動 `home.js` 的 `renderGroup()` 那一帶、段三動 `home.js` 的 `render()` 與 `app.js`／`sw.js`／`repo.js`）——
@@ -275,7 +275,7 @@
 - 這一段沒動 `public/`（09 不做、文件總檢查沒找到要改的程式）→ sw.js 停在 **v205**
 - 文件總檢查：`grep -rn` docs/、SPEC、README 找「網路優先」「清掉這 N 筆」「垃圾桶」「`.app__nav`」—— 剩下的都是 Examine、耀聖那種分類頁（照舊有）或已經寫明「三頁沒有」；
   `CLAUDE.md`「打開 app 那一段」那一列對過程式（`renderGate()` → `unmountShell()`、`freshView()` 清 `data-*`、`watchSystemTheme()`、`authStateReady()`），對得上；README 補 41h
-- 驗收：`npm test` 5209 全綠；全量 CI 見 PR
+- 驗收：`npm test` 5209 全綠；全量 CI 六台全綠（run 39512369021，`890848ac`）；PR #176 的 test／rules／e2e 綠 → 合進 develop
 
 ## 下一輪要做的（這一包上 staging 之後）
 
