@@ -198,6 +198,21 @@ test('Firestore 的 Timestamp 也認得：createdAt 與 updatedAt 同一刻 → 
   assert.deepEqual(doneBuckets({ today: TODAY, tasks: [born, ticked] }).overdue.tasks.map((t) => t.id), ['t-ts2']);
 });
 
+test('Timestamp 比到奈秒：同一毫秒、不同奈秒的兩次寫入（離線排著一起送出去）不是一出生就做完的', () => {
+  // 照 Firestore 的 Timestamp：有 isEqual()，toMillis() 只到毫秒
+  const ts = (seconds, nanoseconds) => ({
+    seconds,
+    nanoseconds,
+    toMillis: () => seconds * 1000 + Math.floor(nanoseconds / 1e6),
+    toDate: () => new Date(seconds * 1000 + Math.floor(nanoseconds / 1e6)),
+    isEqual: (o) => o.seconds === seconds && o.nanoseconds === nanoseconds,
+  });
+  const sec = Date.parse(at(`${TODAY}T11:00:00`)) / 1000;
+  const sameMs = task('t-ms', YESTERDAY, at(`${TODAY}T11:00:00`), { createdAt: ts(sec, 1_000), updatedAt: ts(sec, 2_000) });
+  const born = task('t-born', YESTERDAY, at(`${TODAY}T11:00:00`), { createdAt: ts(sec, 1_000), updatedAt: ts(sec, 1_000) });
+  assert.deepEqual(doneBuckets({ today: TODAY, tasks: [sameMs, born] }).overdue.tasks.map((t) => t.id), ['t-ms']);
+});
+
 test('讀不出建立時間的（舊資料、還沒寫到伺服器的那一份）照樣算 —— 寧可多列一件，不藏她勾的', () => {
   const b = doneBuckets({ today: TODAY, tasks: [task('t-old', YESTERDAY, at(`${TODAY}T09:00:00`), { createdAt: null, updatedAt: null })] });
   assert.equal(b.overdue.tasks.length, 1);

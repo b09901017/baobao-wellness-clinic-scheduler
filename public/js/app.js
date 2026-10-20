@@ -58,7 +58,7 @@ function main() {
 
   // 殼是替誰畫的（null ＝現在不是殼）。auth 狀態每次刷新都會觸發，同一位就不要重畫整個殼
   let shellUid = null;
-  let synced = false;
+  let sheetSyncWired = false;
 
   const mountShell = (uid) => {
     shellUid = uid;
@@ -77,8 +77,8 @@ function main() {
   // 殼先畫之後，底下那一排在確認之前就出現了
   const confirmed = () => {
     root.dataset.access = 'allowed';
-    if (synced) return;
-    synced = true;
+    if (sheetSyncWired) return;
+    sheetSyncWired = true;
     // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
     // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡沒有寫入要推
     sheetSync.wire();

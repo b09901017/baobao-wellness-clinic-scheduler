@@ -81,10 +81,13 @@ export function setTheme(choice) {
 /**
  * 選「跟著系統」的時候，系統換了要跟著換。
  *
- * 只掛一次，掛在 app 啟動時（`ui/shell.js`）。她在 iPad 的控制中心切深色時
+ * 只掛一次（`ui/shell.js` 每畫一次殼叫一次 —— 殼可能畫第二次，ADR-0167）。她在 iPad 的控制中心切深色時
  * app 通常還開著，不重新整理就跟不上。
  */
+let watchingSystemTheme = false;
 export function watchSystemTheme() {
+  if (watchingSystemTheme) return;
+  watchingSystemTheme = true;
   globalThis.matchMedia?.('(prefers-color-scheme: dark)')
     ?.addEventListener?.('change', () => {
       if (readTheme() === 'system') applyTheme('system');

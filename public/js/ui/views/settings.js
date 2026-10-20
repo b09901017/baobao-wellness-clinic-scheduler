@@ -21,6 +21,7 @@ import * as toast from '../toast.js';
 import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
 import { missedData, readBoots, secs, stepsOf } from '../bootTiming.js';
 import * as swUpdate from '../swUpdate.js';
+import { isOffline } from '../net.js';
 import { dayOf, shortDate } from '../../domain/dates.js';
 
 const esc = f.esc;
@@ -163,9 +164,14 @@ export async function render(el) {
 
   wireLineMacro(el);
   el.querySelector('[data-redownload-go]')?.addEventListener('click', async () => {
+    // 離線時按下去：存的程式檔清掉、重新整理去打網路 —— 打不開，要等連上網路才回得來
+    if (isOffline()) {
+      toast.info('現在離線：重新下載要連上網路才做得了');
+      return;
+    }
     const ok = await confirmAction({
       title: '重新下載程式？',
-      consequences: ['畫面會重新整理一次', '資料不受影響'],
+      consequences: ['畫面會重新整理一次（要連著網路）', '資料不受影響'],
       confirmLabel: '重新下載',
     });
     if (ok) swUpdate.redownload();

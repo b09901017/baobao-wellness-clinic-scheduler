@@ -10,6 +10,7 @@
 //   P5～P8 先畫殼（07）：登入還沒回來殼就在、被移出白名單／登出換掉而且下次不閃、登入還在確認時寫入記的是她
 //   P9、P10 首頁先用手機裡的畫（08）：雲端還沒回來數字就在、一樣的話一個節點都不換、不算進 cacheReads()；
 //      別的地方改過 → 先畫舊的、雲端回來換成新的
+//   P12、P13 段四審查補的：快取先畫、雲端還沒回來就換頁 → 下一頁不帶那個記號；登出之後換網址不再照畫一頁
 //   P4 新的一版裝好了 → 跳「有新版本」、沒點之前跑的是舊的而且照常用得了 → 點 → 重新載入、跑的是新的；
 //      接著離線重新打開照樣打得開
 // 換了 VERSION 時清掉哪幾格、留哪幾格在 `tests/sw-cache.test.js`（Playwright 攔不到瀏覽器去比對 sw.js 的那一下）
@@ -78,11 +79,19 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     await expect(page.locator('.app__nav')).toHaveCount(0);
   });
 
-  test('P11 設定 → 程式 → 重新下載程式：清掉這一台的程式檔、重新整理，資料都在', async ({ app, page }) => {
+  test('P11 設定 → 程式 → 重新下載程式：清掉這一台的程式檔、重新整理，資料都在', async ({ app, page, context }) => {
     await app.seed(seed());
     await app.signIn('/settings');
     await controlled(page);
     await page.evaluate(() => caches.open('shell-e2e-old').then((c) => c.put('/x', new Response('x'))));
+
+    // 離線時不做（段四審查）：清掉之後重新整理要打網路，app 會打不開、等連上網路才回得來
+    await context.setOffline(true);
+    await page.locator('[data-redownload-go]').click();
+    await expect(page.locator('#toast')).toContainText('現在離線');
+    await expect(page.locator('.dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => caches.keys()), '離線時一格都沒清').toContain('shell-e2e-old');
+    await context.setOffline(false);
 
     await page.locator('[data-redownload-go]').click();
     await Promise.all([
@@ -281,5 +290,37 @@ test('P10 別的地方勾掉一件 → 重新打開先畫舊的數字，雲端�
   await expect(todayTile(page), '先畫手機裡的（舊的）').toHaveText('2');
   await expect(page.locator('#view[data-home-data="server"]')).toBeVisible({ timeout: 30_000 });
   await expect(todayTile(page), '雲端回來換成新的').toHaveText('1');
+});
+
+test('P12 首頁先用手機裡的畫好、雲端還沒回來就換頁 → 下一頁不帶著「快取」那個記號', async ({ app, page, context }) => {
+  await app.seed(twoNotesToday());
+  await app.signIn('/');
+  await expect(todayTile(page)).toHaveText('2');
+
+  await slowCloud(context);
+  await page.reload();
+  await expect(page.locator('#view[data-home-data="cache"]')).toBeVisible({ timeout: 15_000 });
+  // 換頁時 `#view` 是複製出來的新節點（`shell.js` 的 `freshView()`）—— 屬性照抄的話這一格跟過去，
+  // 首頁那一次已經畫進離開文件的節點、永遠不會換成「雲端」，`settled()` 等到逾時
+  await page.locator('.app__nav a[href="#/customers"]').click();
+  await expect(page.locator('#view')).toContainText('客戶A', { timeout: 30_000 });
+  expect(await page.locator('#view').getAttribute('data-home-data'), '上一頁的記號沒跟過來').toBeNull();
+});
+
+test('P13 登出之後在登入頁換網址（按返回）→ 不再照畫一頁（登入頁沒有 #view）', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/settings');
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.locator('[data-signout]').click();
+  await expect(page.locator('[data-signin]')).toBeVisible({ timeout: 15_000 });
+
+  // 換網址那一下的 hashchange 排在這一個監聽之前的都跑完了，才回來
+  await page.evaluate(() => new Promise((resolve) => {
+    window.addEventListener('hashchange', () => { setTimeout(resolve, 0); }, { once: true });
+    location.hash = '#/customers';
+  }));
+  expect(errors, '殼的路由拆掉了：登入頁換網址不會去畫一頁').toEqual([]);
+  await expect(page.locator('[data-signin]')).toBeVisible();
 });
 

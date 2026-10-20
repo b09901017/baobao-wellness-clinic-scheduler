@@ -345,10 +345,15 @@ export function doneBuckets({ tasks = [], visits = [], notes = [], today }) {
  * 兩格都是 `repo.commit()` 寫的伺服器時間，同一次寫入裡的伺服器時間是同一個值 —— 所以一出生就勾好的那一張
  * 兩格一樣，而她勾的那一下是另一次寫入、`updatedAt` 一定換。**不是比「隔了幾秒」**：她確認完馬上去掛號、
  * 一分鐘內就勾掉也是她做的。讀不出來（舊資料、還沒寫到伺服器的那一份）就當成不是 —— 寧可多列一件，不藏她勾的。
+ * 兩格都是 Firestore 的 Timestamp 時比到奈秒（`isEqual()`）：只比毫秒的話，離線排著的兩次寫入剛好落在同一毫秒會被當成同一次。
  */
 function bornDone(row) {
-  const created = msOf(row?.createdAt);
-  return created !== null && created === msOf(row?.updatedAt);
+  const { createdAt, updatedAt } = row ?? {};
+  if (typeof createdAt?.isEqual === 'function' && typeof updatedAt?.isEqual === 'function') {
+    return createdAt.isEqual(updatedAt);
+  }
+  const created = msOf(createdAt);
+  return created !== null && created === msOf(updatedAt);
 }
 
 function uniqueById(rows) {

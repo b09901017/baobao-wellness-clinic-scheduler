@@ -131,6 +131,9 @@ test('客戶填表那一頁、Google 登入轉回來那一頁、跨網域的 API
   for (const ev of [
     navigate('/form.html'),
     navigate('/__/auth/handler?x=1'),
+    // 登入那一頁自己載的程式、Firebase 保留的網址（authDomain 哪天改成同一個網域也不凍在手機裡）
+    get(`${ORIGIN}/__/auth/handler.js`),
+    get(`${ORIGIN}/__/firebase/init.json`),
     get('https://firestore.googleapis.com/v1/x'),
     { request: { method: 'POST', url: `${ORIGIN}/js/app.js`, mode: 'cors' } },
   ]) {

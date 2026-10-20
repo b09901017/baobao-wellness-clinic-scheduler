@@ -1,4 +1,4 @@
-import { navRoutes, activeNavPath, start } from './router.js';
+import { navRoutes, activeNavPath, start, stop as stopRouter } from './router.js';
 import { icon } from './icons.js';
 import { esc } from './components/form.js';
 import { back } from './nav.js';
@@ -11,6 +11,15 @@ import { onUpdateReady, applyUpdate } from './swUpdate.js';
 // 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號，ADR-0167）：上一個殼掛的通知先拆掉
 let stopUpdateWatch = null;
 let stopNetWatch = null;
+
+/** 殼換成登入頁（被登出、沒有權限、連不上）：殼掛在 `window` 上的那幾個一起拆 —— 登入頁沒有 `#view`、沒有那兩條。 */
+function unmountShell() {
+  stopRouter();
+  stopNetWatch?.();
+  stopNetWatch = null;
+  stopUpdateWatch?.();
+  stopUpdateWatch = null;
+}
 
 /**
  * app 叫什麼。登入畫面的抬頭與分頁標題讀它；主畫面圖示底下那個名字在
@@ -78,6 +87,7 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut, onRet
       <p><button class="btn" type="button" data-signout>換一個帳號</button></p>`,
   };
 
+  unmountShell();
   root.innerHTML = `${envBarHtml()}<div class="gate"><div class="card gate__box">${boxes[state]}</div></div>`;
   root.querySelector('[data-signin]')?.addEventListener('click', onSignIn);
   root.querySelector('[data-signout]')?.addEventListener('click', onSignOut);
@@ -196,6 +206,9 @@ function freshView(root) {
   const old = root.querySelector('#view');
   // cloneNode(false)：屬性照抄（id、class、tabindex），子節點與監聽都不抄。
   const next = old.cloneNode(false);
+  // 上一頁掛在自己身上的記號（`data-*`）也不抄：待辦首頁的 `data-home-data="cache"` 跟過來的話，
+  // 雲端還沒回來就換頁時下一頁一直帶著它（E2E 的 `settled()` 把它當成還沒畫完，等到逾時）
+  for (const key of Object.keys(next.dataset)) delete next.dataset[key];
   old.replaceWith(next);
   return next;
 }

@@ -44,7 +44,7 @@ import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel, startOfDayISO,
+  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel, startOfDayISO, msOf,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
@@ -269,7 +269,7 @@ async function cachedHomeData(today) {
 
 /** 畫出來的那一份跟雲端那一份是不是同一個樣子：每一筆的 id ＋ `updatedAt`，加上設定那一份。 */
 function homeStamp(d) {
-  const at = (t) => (t?.toMillis ? t.toMillis() : t?.seconds ?? t ?? '');
+  const at = (t) => msOf(t) ?? '';
   const rows = (list) => (list ?? []).map((r) => `${r.id}@${at(r.updatedAt)}`).join(',');
   return [rows(d.tasks), rows(d.pending), rows(d.unclosed), rows(d.notes), at(d.settings?.updatedAt)].join('|');
 }
