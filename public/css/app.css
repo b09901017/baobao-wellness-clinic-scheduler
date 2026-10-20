@@ -7031,6 +7031,27 @@ summary {
   line-height: 1.45;
 }
 
+/* 設定 → 打開要多久（after-golive 05）：一次開機一列，那幾步換到下一行 */
+.boottimes {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.boottimes__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.boottimes__steps {
+  flex-basis: 100%;
+}
+
 /* ---------- 試算表報表 ---------- */
 
 /* 報表本來就是寬的，讓它自己橫向捲，不要把整頁撐到要左右滑。 */

@@ -19,6 +19,7 @@ import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
+import { readBoots, secs, stepsOf } from '../bootTiming.js';
 
 const esc = f.esc;
 
@@ -120,6 +121,8 @@ export async function render(el) {
 
     ${lineMacroCard()}
 
+    ${bootTimesCard()}
+
     <section class="card">
       <h2 class="card__title">帳號${tip('登出之後資料都還在雲端，重新登入就看得到。')}</h2>
       <button class="btn" type="button" data-signout>登出</button>
@@ -179,6 +182,50 @@ function lineMacroCard() {
       ${f.text({ name: 'lineMacroTry', label: '用哪一位試', placeholder: 'LINE 好友的名字' })}
       <p><button class="btn" type="button" data-linemacro-try>試一次</button></p>
     </section>`;
+}
+
+/**
+ * 打開要多久（after-golive 05）。跟「外觀」一樣**記在這一台裝置上**：最近 10 次開機，每一步是第幾秒到的。
+ * 她手機上量出來的數字決定之後那幾招（先畫殼、程式檔先用手機裡的…）做不做、做完快了多少 —— 她截圖給我們看。
+ * 量法在 `ui/bootTiming.js`。
+ */
+function bootTimesCard() {
+  const { ok, list } = readBoots();
+  const latest = list[0];
+  const body = !ok ? '<p>這一台記不住（瀏覽器擋掉了網站資料）</p>'
+    : !latest ? '<p>還沒有紀錄。把 app 關掉再打開一次就有</p>'
+      : `<p class="boottimes__now">上一次：<strong class="num" data-boot-latest>${secs(stepsOf(latest).total)} 秒</strong>
+           ${latest.home ? '看到待辦的數字' : '看到畫面（從別頁打開）'}</p>
+         <ol class="boottimes">${list.map(bootRow).join('')}</ol>`;
+  return `
+    <section class="card card--flat" data-boottimes>
+      <h2 class="card__title">打開要多久${tip(
+        '記在這一台裝置上，最近 10 次。從按下圖示（瀏覽器開始載入）算起，每一步是第幾秒到的：'
+        + '程式＝程式檔都下載好、登入＝確認是你、權限＝確認這個帳號可以用、畫面＝底下那一排出來、資料＝待辦的數字出來。'
+        + '從別頁打開的只記到「畫面」；停在登入頁、沒有權限、連不上的那幾次不記。')}</h2>
+      ${body}
+    </section>`;
+}
+
+/** 一次開機一列：什麼時候、幾秒、那幾步。 */
+function bootRow(r) {
+  const { steps, total } = stepsOf(r);
+  const d = new Date(r.at);
+  const pad = (n) => String(n).padStart(2, '0');
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const tags = [
+    r.firstToday ? '今天第一次' : r.gapMin >= 60 ? `隔 ${Math.floor(r.gapMin / 60)} 小時` : '',
+    r.sw ? '' : '第一次載入',
+    r.home ? '' : '從別頁打開',
+  ].filter(Boolean);
+  return `
+    <li class="boottimes__row" data-boot data-boot-total="${total}">
+      <span class="num">${esc(when)}</span>
+      <strong class="num">${secs(total)} 秒</strong>
+      ${tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}
+      <span class="boottimes__steps muted num">${steps.map((s) =>
+        `<span data-step="${s.id}" data-ms="${s.ms}">${esc(s.label)} ${secs(s.ms)}</span>`).join(' → ')}</span>
+    </li>`;
 }
 
 /** 只存、不重畫（ADR-0038）。 */

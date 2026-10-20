@@ -79,6 +79,7 @@ import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
+import * as bootTiming from '../bootTiming.js';
 
 const esc = f.esc;
 
@@ -200,6 +201,8 @@ export async function render(el) {
 
   const ctx = { el, tasks, pending, unclosed, notes, settings, today };
   paint(ctx);
+  // 從首頁打開的那一次，這一刻她看得到待辦的數字（量開機，after-golive 05）。之後每一次回到這一頁都不算
+  bootTiming.mark('data');
   // 設成不顯示的那幾列**連資料都不讀**（ADR-0151）：各多讀三四份，而這一頁她一天開十幾次
   const loaders = { ask: loadAsk, forms: loadInbox, book: loadBook };
   for (const id of homeLoaders(settings)) loaders[id](ctx);

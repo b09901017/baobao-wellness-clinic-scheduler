@@ -1,6 +1,6 @@
 # 量打開 app 每一段花多久（記在這一台、設定頁看得到）
 
-Status: todo
+Status: done
 段：一（high）
 動工前先讀：`public/index.html`（「載入中…」、12 秒的保險絲 `__appBooted`）；`public/js/app.js`（`main()`、`watchAuth()` 的四種結果、`booted()`、註冊 `sw.js`）；
 `public/js/data/auth.js` 的 `watchAuth()`／`accessState()`；`public/js/data/firebase.js` 的 `initFirebase()`；`public/js/ui/shell.js` 的 `renderShell()`；
@@ -48,3 +48,19 @@ Status: todo
 
 - `sw.js` 的 `VERSION`（同一段 01 升過就不用再升）
 - 這一張卡是 06～09 的驗收工具：那幾支的判準都寫「她手機上改之前／改之後的數字」
+
+## 做完時留下的
+
+- 量法在 `public/js/ui/bootTiming.js`（`begin()`／`mark()`／`drop()`／`readBoots()`；純函式 `withBoot()`、`stepsOf()`、`secs()`）。記在 `localStorage` 的 `scheduler.bootTimes`，最近 10 次
+- 五個點：**程式** `app.js` 的 module 一開始跑（`begin()`）、**登入** `watchAuth()` 新的 `onUser` 鉤子（Firebase 一回答是誰、還沒問白名單）、
+  **權限** 問完白名單而且是 allowed、**畫面** `renderShell()` 回來、**資料** `home.js` 的 `render()` 第一次 `paint(ctx)` 之後。
+  時間點從 `performance.timeOrigin` 起算；卡上照先後排、最後一步就是總數（之後 07、08 各步重疊也成立）
+- 登入頁、沒有權限、連不上那三種：`watchAuth` 的 callback 一看到不是 allowed 就 `drop()`。從別頁網址打開的到「畫面」就記好、之後回首頁不算
+- 另外記：`sw`（這一次有沒有經過 service worker —— 卡上沒經過的標「第一次載入」）、`firstToday`、`gapMin`（隔幾分鐘；≥ 60 標「隔 N 小時」）
+- 設定頁「打開要多久」接在「打開 LINE 對話」後面：「上一次：X 秒 看到待辦的數字」＋每一次一列（時間・秒數・標籤・`程式 1.1 → 登入 2.0 → …`）。說明收在 `?`；沒用 `card__note`／`muted dim`
+- 保險絲（`booted()`／`__appBooted`）一個字都沒動
+- **E2E 量到的（本機無頭、沒有 service worker、Firebase SDK 從 CDN 載）**：程式 2.7～3.5 秒、登入／權限緊接在後、畫面 2.8、資料 2.9 —— 只是確認量得到，不是她手機上的數字
+- E2E `79`：B1 從首頁（reload 才是一次正常開機 —— `goto()` 到只差 hash 的同一頁不會重新載入）、B2 從別頁、B3 那一個 key 讀寫都丟例外照樣開機、卡上寫「記不住」。
+  **判準原本寫「`localStorage` 擋掉 → 照樣開機」做不到**：整個 `localStorage` 一碰就丟例外時 app 本身就開不起來（見 HANDOFF 中途發現），所以 B3 只擋這一張的 key
+- `app.js`、`auth.js` 在 `related.js` 的 GLOBAL：這一段的 `verify` 退回全跑 → 本機跑相關的幾支、全量丟 CI
+- **她手機上的數字還沒有**：驗收清單請她在 staging 關掉重開五次（含一次隔一小時以上）截圖
