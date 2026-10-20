@@ -491,3 +491,42 @@ test('G1 iPad 橫放：最上面那兩條橫跨整個寬度，側邊導覽與內
   await check('.netbar');
   await context.setOffline(false);
 });
+
+// ## 5. 重新整理之後底下那一排還在（after-golive 10）
+//
+// 她 2026-10-21：「只要我重新整理後，畫面就會少了最下面的導覽行，直到我把畫面往上滑到最底後，再往上滑才會又出現」。
+// 殼以前是 `height: 100dvh`：全螢幕的手機重新整理時 dvh 沒跟上，整頁比畫面高一截、底下那一排被擠出去。
+// **桌機重現不出來**（桌機的 dvh 永遠等於視窗），寫法由 `tests/full-height-units.test.js` 盯（改之前紅）；
+// 這一條是護欄：整頁不可以比畫面高（文件本身捲得動），之後誰加了一段把整頁撐高的東西會在這裡紅。
+
+/** 文件本身捲不捲得動、導覽列的底邊、正中間那一點摸到的是不是導覽。 */
+const navAtBottom = (page) => page.evaluate(() => {
+  const nav = document.querySelector('.app__nav').getBoundingClientRect();
+  const hit = document.elementFromPoint(nav.left + nav.width / 2, nav.top + nav.height / 2);
+  return {
+    docScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+    navBottom: Math.round(nav.bottom),
+    viewport: window.innerHeight,
+    navHit: !!hit?.closest('.app__nav'),
+  };
+});
+
+test('H1 手機重新整理之後：整頁不比畫面高、底下那一排貼著畫面底邊、按得到（五個分頁都一樣）', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/');
+  for (const hash of ['#/', '#/customers', '#/schedule', '#/calendar', '#/settings']) {
+    await app.go(hash);
+    await page.reload();
+    await page.waitForSelector('#root[data-access="allowed"]');
+    await app.settled();
+    const at = await navAtBottom(page);
+    expect(at.docScrolls, `${hash}：整頁比畫面高（文件本身捲得動）`).toBe(false);
+    expect(Math.abs(at.navBottom - at.viewport), `${hash}：底下那一排的底邊 ${at.navBottom}，畫面高 ${at.viewport}`).toBeLessThanOrEqual(1);
+    expect(at.navHit, `${hash}：底下那一排正中間按不到`).toBe(true);
+  }
+  // 設定頁很長：捲到底，底下那一排照樣在原地（捲的是內容那一格，不是整頁）
+  await page.locator('.app__main').evaluate((m) => { m.scrollTop = m.scrollHeight; });
+  const after = await navAtBottom(page);
+  expect(after.docScrolls).toBe(false);
+  expect(Math.abs(after.navBottom - after.viewport)).toBeLessThanOrEqual(1);
+});

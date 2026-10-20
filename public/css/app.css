@@ -26,15 +26,20 @@
   display: none !important;
 }
 
+/* 殼的高度是**這一頁排版真的用的大小（100%）**，不是 100dvh（after-golive 10）。
+   她 2026-10-21：「只要我重新整理後，畫面就會少了最下面的導覽行…有時候導覽行甚至只有一半」——
+   全螢幕（ADR-0147）裝在手機上的那一顆重新整理時，系統的那兩條收起來又出來，Chrome 的 dvh 沒跟上（要捲一下才重算），
+   整頁比畫面高一截、底下那一排被擠出去。100% 跟著畫面變（resize）。
+   以前寫 dvh 是因為 100vh 在 iOS Safari 會被工具列蓋住；100% 不是 vh，沒有那個問題。
+   **不加 overflow: hidden**：萬一還是差一截，至少捲得到。整頁高的地方一律不寫 100dvh（`tests/full-height-units.test.js`） */
 html {
-  /* 100vh 在 iOS Safari 不準（工具列會伸縮），用 dvh */
-  height: 100dvh;
+  height: 100%;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  height: 100dvh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   font-family: var(--font-sans);
@@ -9101,7 +9106,7 @@ summary {
   z-index: 60;
   display: grid;
   grid-template-rows: auto 1fr auto auto auto;
-  height: 100dvh;
+  /* 高度由 inset: 0 決定，不另外寫 100dvh：重新整理之後 dvh 會跟不上，快門被擠出畫面（after-golive 10） */
   padding-bottom: env(safe-area-inset-bottom);
   color: var(--camera-fg);
   background: var(--camera-bg);
@@ -9506,7 +9511,8 @@ body.has-cam {
    她 2026-10-20：「我可以橫的拍照嗎…中間那個綠色的對準框也可以變橫嗎?」—— Abovee 那張本來就是橫的，
    直拿時框只佔中間一條，橫拿撐滿。以前落在直式那一種：取景區被壓成 200px 高、紙的框剩 28px、寬框跑出畫面。
    **全螢幕時前鏡頭在左或右**（ADR-0147）：左右各讓 safe-area-inset-left／right。
-   框照高度算：取景區的高是 100dvh 扣上下兩個 12px 與底下那一條 */
+   框照取景區自己的大小算（`container-type: size` ＋ cqw／cqh）。以前拿 100dvh 扣一個數字去猜取景區多高，
+   重新整理之後 dvh 跟不上就猜錯（after-golive 10）；認不得 cq 的瀏覽器退回那一條猜的 */
 @media (orientation: landscape) and (max-height: 540px) {
   .cam {
     grid-template-columns: 1fr 200px;
@@ -9519,6 +9525,7 @@ body.has-cam {
     grid-column: 1;
     grid-row: 1 / -1;
     margin: var(--space-3) 0 var(--space-3) var(--space-3);
+    container-type: size;
   }
 
   /* 抬頭擠在右邊那一欄：收起與送出同一行，名字在底下一行 */
@@ -9549,8 +9556,15 @@ body.has-cam {
   .cam__controls [data-cam-album] { grid-column: 1; grid-row: 2; }
   .cam__controls [data-cam-system] { grid-column: 2; grid-row: 2; }
 
-  .cam__frame { width: min(78%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.88 * 0.707)); }
-  .cam__frame--wide { width: min(92%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.9 * 1.6)); }
+  .cam__frame {
+    width: min(78%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.88 * 0.707));
+    width: min(78cqw, 88cqh * 0.707);
+  }
+
+  .cam__frame--wide {
+    width: min(92%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.9 * 1.6));
+    width: min(92cqw, 90cqh * 1.6);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9601,7 +9615,6 @@ body.has-cam {
   z-index: 70;
   display: grid;
   grid-template-rows: 1fr auto;
-  height: 100dvh;
   color: var(--camera-fg);
   background: var(--camera-bg);
 }
@@ -10230,7 +10243,6 @@ body.has-cam {
   z-index: 20;
   display: grid;
   grid-template-rows: auto 1fr;
-  height: 100dvh;
   background: var(--bg);
   opacity: 0;
   transform: translateY(16px);
@@ -10303,7 +10315,6 @@ body.has-abl {
   z-index: 20;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  height: 100dvh;
   background: var(--bg);
   opacity: 0;
   transform: translateY(18px);
