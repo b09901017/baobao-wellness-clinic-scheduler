@@ -9415,33 +9415,36 @@ body.has-cam {
 }
 
 /* iPad 橫式：取景在左、控制在右。
-   **`min-height` 擋住手機橫放**：915 寬的手機橫放也超過 900，以前吃到這一條（after-golive 02），那種走底下手機那一條。
-   541 跟手機那一條的 540 接起來，兩條不重疊、中間也不漏 */
-@media (min-width: 900px) and (min-height: 541px) and (orientation: landscape) {
-  .cam {
-    grid-template-columns: 1fr 132px;
-    grid-template-rows: auto 1fr auto auto;
+   **高 ≤ 540 的不算**：915 寬的手機橫放也超過 900，以前吃到這一條（after-golive 02），那種走底下手機那一條。
+   裡面那一層寫成手機那一條的反面（`not all and`），兩條剛好互補 —— 寫成 `min-height: 541px` 的話
+   540.5 這種小數高度兩條都不吃，退回直式那一種 */
+@media (min-width: 900px) and (orientation: landscape) {
+  @media not all and (max-height: 540px) {
+    .cam {
+      grid-template-columns: 1fr 132px;
+      grid-template-rows: auto 1fr auto auto;
+    }
+
+    .cam__top { grid-column: 1 / -1; }
+    .cam__stage { grid-row: 2 / 5; margin-bottom: var(--space-4); }
+    .cam__say { grid-column: 2; grid-row: 3; margin: 0 var(--space-2); text-align: left; }
+    .cam__tray { grid-column: 2; grid-row: 4; flex-direction: column; overflow: auto; }
+
+    .cam__controls {
+      grid-column: 2;
+      grid-row: 2;
+      grid-template-rows: 1fr auto 1fr;
+      grid-template-columns: 1fr;
+      justify-items: center;
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+    }
+
+    .cam__frame { width: min(60%, calc((100dvh - 180px) * 0.707)); }
+
+    /* 寬框（Abovee）要寫在紙的算式**後面**：兩條特異度一樣，以前寫在前面的 `.cam__frame--wide` 被蓋成紙的寬度，只剩約 450px */
+    .cam__frame--wide { width: min(88%, calc((100dvh - 180px) * 1.6)); }
   }
-
-  .cam__top { grid-column: 1 / -1; }
-  .cam__stage { grid-row: 2 / 5; margin-bottom: var(--space-4); }
-  .cam__say { grid-column: 2; grid-row: 3; margin: 0 var(--space-2); text-align: left; }
-  .cam__tray { grid-column: 2; grid-row: 4; flex-direction: column; overflow: auto; }
-
-  .cam__controls {
-    grid-column: 2;
-    grid-row: 2;
-    grid-template-rows: 1fr auto 1fr;
-    grid-template-columns: 1fr;
-    justify-items: center;
-    gap: var(--space-4);
-    padding: var(--space-4) 0;
-  }
-
-  .cam__frame { width: min(60%, calc((100dvh - 180px) * 0.707)); }
-
-  /* 寬框（Abovee）要寫在紙的算式**後面**：兩條特異度一樣，以前寫在前面的 `.cam__frame--wide` 被蓋成紙的寬度，只剩約 450px */
-  .cam__frame--wide { width: min(88%, calc((100dvh - 180px) * 1.6)); }
 }
 
 /* 手機橫放：取景佔左邊整個高度，其餘收到右邊一欄（after-golive 02）。

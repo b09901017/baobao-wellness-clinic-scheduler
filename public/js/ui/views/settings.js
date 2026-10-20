@@ -19,7 +19,8 @@ import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
-import { readBoots, secs, stepsOf } from '../bootTiming.js';
+import { missedData, readBoots, secs, stepsOf } from '../bootTiming.js';
+import { dayOf, shortDate } from '../../domain/dates.js';
 
 const esc = f.esc;
 
@@ -192,17 +193,24 @@ function lineMacroCard() {
 function bootTimesCard() {
   const { ok, list } = readBoots();
   const latest = list[0];
-  const body = !ok ? '<p>這一台記不住（瀏覽器擋掉了網站資料）</p>'
-    : !latest ? '<p>還沒有紀錄。把 app 關掉再打開一次就有</p>'
-      : `<p class="boottimes__now">上一次：<strong class="num" data-boot-latest>${secs(stepsOf(latest).total)} 秒</strong>
-           ${latest.home ? '看到待辦的數字' : '看到畫面（從別頁打開）'}</p>
-         <ol class="boottimes">${list.map(bootRow).join('')}</ol>`;
+  let body;
+  try {
+    body = !ok ? '<p>這一台記不住（瀏覽器擋掉了網站資料）</p>'
+      : !latest ? '<p>還沒有紀錄。把 app 關掉再打開一次就有</p>'
+        : `<p class="boottimes__now">上一次：<strong class="num" data-boot-latest>${secs(stepsOf(latest).total)} 秒</strong>
+             ${missedData(latest) ? '沒等到待辦的數字' : latest.home ? '看到待辦的數字' : '看到畫面（從別頁打開）'}</p>
+           <ol class="boottimes">${list.map(bootRow).join('')}</ol>`;
+  } catch {
+    // 這一張是量東西的，不可以讓設定頁整頁畫不出來
+    body = '<p>讀不出來</p>';
+  }
   return `
     <section class="card card--flat" data-boottimes>
       <h2 class="card__title">打開要多久${tip(
         '記在這一台裝置上，最近 10 次。從按下圖示（瀏覽器開始載入）算起，每一步是第幾秒到的：'
         + '程式＝程式檔都下載好、登入＝確認是你、權限＝確認這個帳號可以用、畫面＝底下那一排出來、資料＝待辦的數字出來。'
-        + '從別頁打開的只記到「畫面」；停在登入頁、沒有權限、連不上的那幾次不記。')}</h2>
+        + '從別頁打開的只記到「畫面」；還在載入就關掉或換頁的那幾次標「沒等到數字」；'
+        + '停在登入頁、沒有權限、連不上的那幾次不記。')}</h2>
       ${body}
     </section>`;
 }
@@ -210,13 +218,12 @@ function bootTimesCard() {
 /** 一次開機一列：什麼時候、幾秒、那幾步。 */
 function bootRow(r) {
   const { steps, total } = stepsOf(r);
-  const d = new Date(r.at);
-  const pad = (n) => String(n).padStart(2, '0');
-  const when = `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const when = `${shortDate(dayOf(r.at))} ${new Date(r.at).toTimeString().slice(0, 5)}`;
   const tags = [
     r.firstToday ? '今天第一次' : r.gapMin >= 60 ? `隔 ${Math.floor(r.gapMin / 60)} 小時` : '',
     r.sw ? '' : '第一次載入',
     r.home ? '' : '從別頁打開',
+    missedData(r) ? '沒等到數字' : '',
   ].filter(Boolean);
   return `
     <li class="boottimes__row" data-boot data-boot-total="${total}">

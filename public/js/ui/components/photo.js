@@ -112,6 +112,9 @@ const TURNS = { 1: 0, 3: 180, 6: 90, 8: 270 };
  * 沒有那一格**，畫出來就是沒轉的 —— 那種只放行本來就不用轉的；其餘交給舊的兩條路（`<img>` 自己會轉）。
  * 長寬比對不上的也不放行（轉了但轉錯）。
  *
+ * **不自己在 canvas 上轉**：沒有 `rotation` 那一格、可是 `drawImage()` 照樣照著轉的瀏覽器會被轉兩次，
+ * 而桌機模擬不出那一種（刪掉那一格，Chrome 畫的時候照樣轉）—— 測不到的路不寫。
+ *
  * @param {{rotation?: number, flip?: boolean, displayWidth: number, displayHeight: number}} frame
  * @param {{width: number, height: number, orientation: number}} info
  */
@@ -143,9 +146,16 @@ export class PhotoDecodeError extends Error {
 
 // ---------- 瀏覽器 ----------
 
+/**
+ * 檔頭通常在前 256KB 裡。是 JPEG、可是那一段裡找不到大小（手機塞了很大的附加資料在前面）的，
+ * 再多讀到 4MB —— 讀不到大小就走不了解碼時就縮的那一條，1 億像素的照片又會整張解開。
+ */
 async function headInfo(blob) {
   try {
-    return jpegInfo(new Uint8Array(await blob.slice(0, 256 * 1024).arrayBuffer()));
+    const head = new Uint8Array(await blob.slice(0, 256 * 1024).arrayBuffer());
+    const info = jpegInfo(head);
+    if (info || head[0] !== 0xff || head[1] !== 0xd8 || blob.size <= head.length) return info;
+    return jpegInfo(new Uint8Array(await blob.slice(0, 4 * 1024 * 1024).arrayBuffer()));
   } catch {
     return null;
   }
@@ -239,6 +249,8 @@ export async function shrinkPhoto(file, { longEdge = LONG_EDGE, quality = QUALIT
 /** 第一條路。解不開、畫出來不是正的、或畫出一片空白都回 null，交給後面兩條。 */
 async function viaDecoder(file, info, target, longEdge, quality) {
   if (typeof ImageDecoder !== 'function' || typeof file.stream !== 'function') return null;
+  // 要轉的照片碰上不會報轉法的瀏覽器：解出來也會被 frameUpright() 退回，不白解一次
+  if (TURNS[info.orientation ?? 1] !== 0 && !('rotation' in (globalThis.VideoFrame?.prototype ?? {}))) return null;
   let decoder = null;
   let frame = null;
   try {

@@ -18,7 +18,11 @@
 //
 // 那是這一台的事，不是她的資料（同「外觀」）。最近 10 次。
 // **一行都不擋開機**：每一個碰瀏覽器的地方都包 `try`，記不住就不記。
-// 登入頁、沒有權限、連不上那三種畫面不記（`drop()`）—— 不然平均被拉歪。
+// 登入頁、沒有權限、連不上那三種畫面、首頁讀不到資料不記（`drop()`）—— 不然平均被拉歪。
+//
+// **每到一步就寫一次**（不是走完才寫）：她等不及、在「載入中」就把 app 關掉的那幾次正是最慢的，
+// 只記走完的，這一張就偏向快的。沒等到數字的那一筆卡上標出來（`missedData()`）。
+// 還沒走完就換頁（她點了底下那一排）：那一筆停在換頁之前，之後回首頁畫出數字不算進去。
 
 import { dayOf } from '../domain/dates.js';
 
@@ -36,31 +40,44 @@ export const STEPS = Object.freeze([
 
 const STEP_IDS = new Set(STEPS.map((s) => s.id));
 
-/** 從首頁打開的嗎（`#/`，或沒有 hash）。 */
-export const isHomeHash = (hash) => hash === '' || hash === '#' || hash === '#/';
-
 // ---------- 純函式（`tests/boot-timing.test.js`）----------
 
+/** 存著的那一份裡認得的紀錄。壞掉的、少了時間或步驟的略過 —— 設定頁不可以因為它畫不出來。 */
+export function cleanBoots(list) {
+  return Array.isArray(list)
+    ? list.filter((r) => r && typeof r === 'object' && Number.isFinite(r.at) && r.marks && typeof r.marks === 'object')
+    : [];
+}
+
 /**
- * 這一次開機記好了 → 要存回去的那一份清單（新的在最前面，最多 `KEEP` 筆）。
- * 跟上一次比：是不是今天第一次、隔了幾分鐘。
+ * 這一次開機到了某一步 → 要存回去的那一份清單（新的在最前面，最多 `KEEP` 筆）。
+ * 同一次開機（同一個 `at`）寫過就換掉那一筆。跟上一次比：是不是今天第一次、隔了幾分鐘。
  *
  * @param {object[]} list 存著的那一份
- * @param {{at: number, home: boolean, sw: boolean, marks: object}} boot
+ * @param {{at: number, home: boolean, sw: boolean, marks: object, done?: boolean}} boot
  */
 export function withBoot(list, boot) {
-  const prev = Array.isArray(list) ? list.filter((r) => r && Number.isFinite(r.at)) : [];
+  const prev = cleanBoots(list).filter((r) => r.at !== boot.at);
   const last = prev[0];
   const record = {
     at: boot.at,
     home: boot.home,
     sw: boot.sw,
+    done: !!boot.done,
     marks: { ...boot.marks },
     firstToday: !last || dayOf(last.at) !== dayOf(boot.at),
     gapMin: last ? Math.max(0, Math.round((boot.at - last.at) / 60000)) : null,
   };
   return [record, ...prev].slice(0, KEEP);
 }
+
+/** 拿掉這一次開機那一筆（`drop()`：寫過幾步之後才知道它不算）。 */
+export function withoutBoot(list, at) {
+  return cleanBoots(list).filter((r) => r.at !== at);
+}
+
+/** 從首頁打開、可是沒等到待辦的數字（還在載入就關掉，或先換了頁）。 */
+export const missedData = (record) => !!record?.home && !Number.isFinite(record?.marks?.data);
 
 /**
  * 一筆紀錄 → 卡上要畫的：到了的那幾步（照時間先後）、最後一步是幾毫秒。
@@ -79,21 +96,31 @@ export const secs = (ms) => (Math.round(ms / 100) / 10).toFixed(1);
 
 // ---------- 這一次開機 ----------
 
-/** @type {{at: number, home: boolean, sw: boolean, marks: object, state: 'open'|'done'|'dropped'}|null} */
+/** @type {{at: number, home: boolean, sw: boolean, marks: object, done: boolean, state: 'open'|'done'|'left'|'dropped'}|null} */
 let boot = null;
 
 const now = () => Math.round(performance.now());
 
-/** app.js 一開始跑就叫：開一筆、記下「程式」那一步。 */
-export function begin() {
+/**
+ * app.js 一開始跑就叫：開一筆、記下「程式」那一步。
+ *
+ * @param {{home: boolean}} o 這一次打開的是不是待辦首頁 —— **照路由認**（`router.resolve()`：認不得的網址也畫首頁），
+ *   不在這裡自己比 hash
+ */
+export function begin({ home } = {}) {
   try {
     boot = {
       at: Math.round(performance.timeOrigin || Date.now() - performance.now()),
-      home: isHomeHash(location.hash),
+      home: !!home,
       sw: !!navigator.serviceWorker?.controller,
       marks: {},
+      done: false,
       state: 'open',
     };
+    // 還沒走完就換頁：那一筆停在這裡
+    globalThis.addEventListener?.('hashchange', () => {
+      if (boot?.state === 'open') boot.state = 'left';
+    }, { once: true });
     mark('code');
   } catch {
     boot = null;
@@ -101,22 +128,32 @@ export function begin() {
 }
 
 /**
- * 到了哪一步。同一步只記第一次（登入每換一次 token 就回來一次）。
- * 「畫面」那一步：從別頁打開的到這裡就記好了；「資料」那一步記好整筆。
+ * 到了哪一步。同一步只記第一次（登入每換一次 token 就回來一次）。每到一步就寫一次。
+ * 「畫面」那一步：從別頁打開的到這裡就走完了；「資料」那一步走完整筆。
  */
 export function mark(id) {
   try {
     if (boot?.state !== 'open' || !STEP_IDS.has(id) || id in boot.marks) return;
     boot.marks[id] = now();
-    if (id === 'data' || (id === 'shell' && !boot.home)) finish();
+    if (id === 'data' || (id === 'shell' && !boot.home)) {
+      boot.state = 'done';
+      boot.done = true;
+    }
+    write((list) => withBoot(list, boot));
   } catch {
     /* 記不住就不記 */
   }
 }
 
-/** 這一次不是正常開機（登入頁、沒有權限、連不上）：整筆不記。 */
+/** 這一次不算一次正常開機（登入頁、沒有權限、連不上、首頁讀不到資料）：已經寫了的那幾步也拿掉。 */
 export function drop() {
-  if (boot?.state === 'open') boot.state = 'dropped';
+  try {
+    if (boot?.state !== 'open') return;
+    boot.state = 'dropped';
+    write((list) => withoutBoot(list, boot.at));
+  } catch {
+    /* 記不住就不記 */
+  }
 }
 
 function storage() {
@@ -127,23 +164,22 @@ function storage() {
   }
 }
 
-function finish() {
-  boot.state = 'done';
+/** 存著的那一份。**讀不到（網站資料被擋掉）照樣丟例外**，交給呼叫端；內容壞掉的當成空的。 */
+function readList(store) {
+  const raw = store.getItem(BOOT_KEY);
   try {
-    const store = storage();
-    if (!store) return;
-    store.setItem(BOOT_KEY, JSON.stringify(withBoot(readList(store), boot)));
+    return cleanBoots(JSON.parse(raw ?? '[]'));
   } catch {
-    /* 記不住就不記 */
+    return [];
   }
 }
 
-function readList(store) {
+function write(change) {
   try {
-    const list = JSON.parse(store.getItem(BOOT_KEY) ?? '[]');
-    return Array.isArray(list) ? list : [];
+    const store = storage();
+    if (store) store.setItem(BOOT_KEY, JSON.stringify(change(readList(store))));
   } catch {
-    return [];
+    /* 記不住就不記 */
   }
 }
 
@@ -153,12 +189,10 @@ function readList(store) {
  * @returns {{ok: boolean, list: object[]}}
  */
 export function readBoots() {
-  const store = storage();
-  if (!store) return { ok: false, list: [] };
   try {
-    store.getItem(BOOT_KEY);
+    const store = storage();
+    return store ? { ok: true, list: readList(store) } : { ok: false, list: [] };
   } catch {
     return { ok: false, list: [] };
   }
-  return { ok: true, list: readList(store) };
 }
