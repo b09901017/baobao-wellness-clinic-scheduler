@@ -74,7 +74,7 @@ commit `0ae20497`（2026-08-18 改成網路優先的理由：部署後打開先�
 - 忘了升版號的擋：`scripts/shell-snapshot.mjs`（`npm run shell:snapshot`）＋`tests/shell-version.snapshot.json`＋`tests/shell-version.test.js`。
   雜湊的是 `git ls-files public` 每一支（文字檔 CRLF → LF、`sw.js` 拿掉 VERSION 那一行）。**同一個 VERSION 只能對一份內容**，所以同一支 PR 裡第二次動 `public/` 也要再加一 ——
   `CLAUDE.md` 那一列的「後面的不用再升」改掉了。**這一段例外**：快照是這一段才有的、v202 還沒部署，07、08 的 commit 重產快照時先刪掉再跑（段四之後照新規矩加一）
-- 設定 →「程式」→ 重新下載程式（確認框）：unregister ＋ 清 `shell-*` ＋ 重新整理
+- 設定 →「程式」→ 重新下載程式（確認框）：unregister ＋ 清 `shell-*` ＋ 重新整理（E2E `81` P11：按下去、確認、重新整理、舊的那一格清掉、資料都在、又裝回來）
 - **E2E 攔不到瀏覽器去比對 `sw.js` 的那一下**（`context.route('**/sw.js')` 一次都沒被叫到，量過）。所以 `81` P4 用 `register('/sw.js?e2e=next')`
   造出「新的一版在等」（網址不一樣就是新的一版）、新版的 `index.html` 攔得到（service worker 自己去抓的那一下攔得到）。
   換 VERSION 時清哪幾格、留哪幾格、少一支整份不換：`tests/sw-cache.test.js` 拿假的 `caches` 跑 `sw.js` 本身（`vm`）

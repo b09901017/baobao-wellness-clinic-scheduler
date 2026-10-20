@@ -6,6 +6,7 @@
 //   P1 第二次打開：程式檔一支都沒有打到網路（service worker 自己去抓的那幾支也算）
 //   P2 第一次安裝（還沒有人管這一頁）→ 頁面不會自己重新載入
 //   P3 打開 /form.html → 拿到的是客戶填表那一頁，不是 app
+//   P11 設定 →「程式」→ 重新下載程式（萬一卡在舊版的逃生門）
 //   P5～P8 先畫殼（07）：登入還沒回來殼就在、被移出白名單／登出換掉而且下次不閃、登入還在確認時寫入記的是她
 //   P9、P10 首頁先用手機裡的畫（08）：雲端還沒回來數字就在、一樣的話一個節點都不換、不算進 cacheReads()；
 //      別的地方改過 → 先畫舊的、雲端回來換成新的
@@ -75,6 +76,25 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     await page.goto('http://127.0.0.1:5000/form.html');
     await expect(page).toHaveTitle('不方便的時間');
     await expect(page.locator('.app__nav')).toHaveCount(0);
+  });
+
+  test('P11 設定 → 程式 → 重新下載程式：清掉這一台的程式檔、重新整理，資料都在', async ({ app, page }) => {
+    await app.seed(seed());
+    await app.signIn('/settings');
+    await controlled(page);
+    await page.evaluate(() => caches.open('shell-e2e-old').then((c) => c.put('/x', new Response('x'))));
+
+    await page.locator('[data-redownload-go]').click();
+    await Promise.all([
+      page.waitForEvent('load'),
+      page.locator('.dialog [data-ok]').click(),
+    ]);
+    await expect(page.locator('#root[data-access="allowed"]')).toBeVisible({ timeout: 30_000 });
+    expect(await page.evaluate(() => caches.keys()), '舊的程式檔那一格清掉了').not.toContain('shell-e2e-old');
+    await app.go('#/customers');
+    await expect(page.locator('#view')).toContainText('客戶A');
+    // 重新註冊、裝回來（下次打開又是先用手機裡的）
+    await controlled(page);
   });
 
   test('P4 新的一版裝好了 → 跳「有新版本」、點了才換；換完離線照樣打得開', async ({ app, page, context }) => {
