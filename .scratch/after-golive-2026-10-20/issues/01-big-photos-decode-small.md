@@ -1,6 +1,6 @@
 # 1 億像素的照片改成用小尺寸解開
 
-Status: todo
+Status: done
 段：一（high）
 動工前先讀：`public/js/ui/components/photo.js`（檔頭的兩個坑、`shrinkPhoto()`、`drawTo()`、`looksBlank()`）；`public/js/ui/components/camera.js` 的 `addFiles()`（那一句「有一張照片讀不出來，換一張試試」）與 `shoot()`（`ImageCapture` 拍不到退回截一格）；
 `shrinkPhoto()` 的呼叫端（`grep -rn "shrinkPhoto" public/js`：`camera.js` 兩處、`sheetConfirm.js` 帶 `longEdge`／`quality` 再縮一次療程單要存的那一張）；
@@ -52,3 +52,21 @@ ADR-0101（重新編碼就丟掉 EXIF／GPS —— 新的路也要經過 canvas 
 - `docs/邊界測試清單.md` M1（寫的是「一億像素」—— 這一次的預期結果照舊；補一句要在 Android 手機上點）
 - `docs/常見問題.md`：有沒有一題講「照片讀不出來」？有就改，沒有就補一題（看到什麼、為什麼、怎麼辦）
 - `sw.js` 的 `VERSION`（這一段第一個動 `public/` 的升 v201）
+
+## 做完時留下的
+
+- `photo.js` 現在三條路：**`ImageDecoder` 帶尺寸提示**（新的，`viaDecoder()`）→ `createImageBitmap` 的 resize → `<img>`。前兩條失敗、畫出空白、或畫出來不是正的都退回下一條
+- **量到的**（scratchpad，只印數字）：她的原檔 12000×9000、14～19MB，新的路 0.19～0.22 秒、送出長邊 2000；舊的路桌機 0.53 秒（桌機本來就過）。
+  模擬「解出來超過 5000 萬像素就失敗、`createImageBitmap` 一律失敗」時新的路照樣 0.2 秒過
+- **EXIF 方向**：Chrome 151 的 `ImageDecoder` 吐出來的那一格帶 `rotation`（方向 6 → 90），`drawImage()` 照著轉 —— 量了合成照片的四個角。
+  **舊一點的 Chrome 沒有 `rotation`**：`frameUpright()` 只放行本來就不用轉的（方向 1），要轉的退回舊的兩條（她手機那幾張都是方向 1）。鏡像的四種方向不走新的路
+- 提示是**目標的兩倍、照沒轉之前的寬高**（`decodeHint()`）：Chromium 挑「不超過那個像素數的最大一階（1/8）」，兩倍一定解得比目標大（推過：目標比例 r、解出來 floor(16r)/8 —— r ≥ 1/8 時 floor(16r) > 16r−1 ≥ 8r；更小的時候最小一階 1/8 本來就比 r 大）；
+  兩倍已經比原圖大就不帶。方向 6 時照「沒轉之前」或「轉完」算，Chromium 解出來一樣（它看的是像素數）
+- 順手修了 issue 寫的洞：`createImageBitmap` 那一條的 `drawTo()` 沒有 `await`，畫出空白丟的 'blank' 不會退回 `<img>` —— 現在在 `try` 裡 `await`、`close()` 在 `finally`
+- 解不開時丟 `PhotoDecodeError`（`tooBig`：轉正後超過 `BIG_PIXELS`＝2000 萬像素），`camera.js` 照它講「太大＋按中間的快門或把照片大小調小」或「讀不出來（可能不是照片，或檔案壞了）」。
+  2000 萬是挑的：手機預設多半 1200 萬，那種解不開多半是檔案壞了
+- E2E `37`：C2 多四個角的顏色檢查（先在舊的路上綠過）；**P1**（模擬手機上限 1600 萬、照片 2000 萬 → 改之前紅「讀不出來」、改之後轉正的 1500×2000）、
+  **P2**（刪掉 `ImageDecoder` → 舊的兩條照樣轉正）、**P3**（三條都不通 → 講「太大」「快門」、不講「換一張」）。上限是 `addInitScript` 包 `createImageBitmap`／`Image`／`ImageDecoder.prototype.decode`
+- 呼叫端三處都沒改：`shoot()` 的 `ImageCapture.takePhoto()` 現在也走新的路（拍到原尺寸的話不會再安靜地退回截一格）；`sheetConfirm.js` 傳進來的已經縮過，兩倍比原圖大 → 不帶提示
+- 文件：`常見問題.md` 拍照帶入多一題；`邊界測試清單.md` M1 改成「在 Android 手機上、同一張三次」
+- **還沒驗的**：她手機上的 Chrome 版本有沒有 `rotation`（沒有的話方向 6 的照片走舊的路 —— 系統相機拍的直式照片可能是方向 6）；驗收清單請她三種方式各拍三次

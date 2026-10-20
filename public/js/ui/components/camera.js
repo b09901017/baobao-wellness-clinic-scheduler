@@ -179,8 +179,11 @@ export function openCamera({ kind, max = 10, onDone }) {
       try {
         // eslint-disable-next-line no-await-in-loop
         blobs.push((await shrinkPhoto(f)).blob);
-      } catch {
-        say('有一張照片讀不出來，換一張試試');
+      } catch (err) {
+        // 不叫她「換一張試試」：她相簿裡每一張都一樣大（after-golive 01）。講原因與怎麼辦
+        say(err?.tooBig
+          ? '有一張照片太大，這支手機解不開。改按中間的快門在 app 裡拍，或把相機的照片大小調小再拍'
+          : '有一張照片讀不出來（可能不是照片，或檔案壞了）。改按中間的快門在 app 裡拍');
       }
     }
     if (closed) return;
