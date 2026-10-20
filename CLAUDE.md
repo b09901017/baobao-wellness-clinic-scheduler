@@ -24,12 +24,17 @@
 
 ## 上線
 
-`main` 上正式，那裡有真客戶資料。`develop` 上 staging，**那裡是真資料的預演**（ADR-0118，2026-10-05 起）：
-她把合併檔貼進去看，切換那天正式站重新匯一次，staging 上記的不搬。所以：
+`main` 上正式。**2026-10-20 切換完成，正式站是唯一的一份真資料**（ADR-0165）：她每天記的只存在那裡。所以：
+
+- **永不整份重匯、不清空重來。** 錯的在 app 裡改；app 改不到、或一次很多筆，寫一支只動那幾筆的腳本，一律四步：**備份 → 試跑（只數不動）→ 寫 → 整份讀回來比對**
+- **改資料的形狀要帶著既有資料走**：配一列資料健檢（連動表「`domain/seed.js`」那一列），種子改了既有資料庫不會跟
+- **上 `main` 之前**請她在正式站 設定 → 匯出備份（放 `.local/references/`）
+
+`develop` 上 staging，**那裡是切換那天正式站的複本**（ADR-0118 的預演做完了；之後各走各的，staging 上記的不搬）。所以：
 
 - **staging 的畫面上有真名**：在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶
 - **會寫入的驗收步驟在本機模擬器走**（`npm run emulators` ＋ `seed:staging` 對模擬器）；staging 給她點
-- `npm run seed:staging` 只准跑在模擬器上（它會把主檔整份蓋回種子）；要重來一次預演用 `npm run staging:reset`（**這一輪改過種子就加 `--master`**：不加的話主檔還是上一代的，合併檔貼上去會對不到）
+- `npm run seed:staging` 只准跑在模擬器上（它會把主檔整份蓋回種子）。`npm run staging:reset` 會把 staging 上那份複本清掉 —— 要讓 staging 跟上正式站，用正式站的備份＋`scripts/restore-backup.mjs`
 
 **PR 的基底是 `develop`，不是 `main`。** 直接 PR 進 `main` 等於這段程式沒有在
 staging 上被點過 —— 只有急件這樣做。
