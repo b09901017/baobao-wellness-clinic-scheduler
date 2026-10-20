@@ -1,6 +1,6 @@
 # 手機橫放時拍照那一層有自己的排版
 
-Status: todo
+Status: done
 段：一（high）
 動工前先讀：`public/css/app.css` 的 `.cam` 那一段（`.cam__stage`、`.cam__frame`、`.cam__frame--wide`、iPad 橫放那一條 `@media (min-width: 900px) and (orientation: landscape)`）；
 `camera.js` 的 `LANDSCAPE`（只有 `aboveeList` 是寬框）與 `startStream()`（`getUserMedia` 要 3840×2160）；`manifest.webmanifest`（`orientation: any`、`display: fullscreen`）；
@@ -44,3 +44,17 @@ ADR-0147（全螢幕：抬頭要自己讓開前鏡頭 `safe-area-inset-top`；�
 
 - `docs/操作手冊.md` 拍 Abovee 那一段：補一句「橫著拍字比較大（手機要開自動旋轉）」—— 只講怎麼操作
 - `sw.js` 的 `VERSION`（同一段 01 升過就不用再升）
+
+## 做完時留下的
+
+- `app.css` 兩條：iPad 橫放加 `min-height: 541px`（915 寬的手機不再吃到它）、**手機橫放 `(orientation: landscape) and (max-height: 540px)`** 新的一條。
+  兩條接在 540／541，不重疊也不漏（中間的小數高度沒處理：手機橫放的高度不會落在 540～541）
+- 手機橫放的排法：取景佔左邊整個高度（上下各 12px），右邊一欄 200px：收起＋送出同一行、名字底下一行、那一句、縮圖、快門（正中）、相簿｜系統相機。
+  縮圖那一列是 `minmax(0, 1fr)`：欄太矮（780×360 又有四行的提醒）時縮的是縮圖，不是把快門擠出畫面（截圖看過）
+- 框照高度算（`100dvh` 扣上下 12px 與底下那一條）：寬框 `min(92%, 高 × 0.9 × 1.6)`、紙 `min(78%, 高 × 0.88 × 0.707)`。量到的：844×390 寬框 527×329（取景 632×366）、915×412 559×349、780×360 484×302；紙 228×322
+- iPad 橫放的洞修了：`.cam__frame--wide` 寫在紙的算式後面（`min(88%, (100dvh − 180px) × 1.6)`）。1180×820 從 452 變 901、1024×768 從 416 變 764；紙與快門位置不變
+- 前鏡頭：手機橫放那一條 `.cam` 左右各 `env(safe-area-inset-left／right)`（E2E 用 CDP 設 40px 量）
+- **改之前與改之後逐 px 比過**（scratchpad，`camLayout()` 量抬頭、取景、框、快門、相簿、系統相機、那一句）：390×844、414×896、820×1180 兩種單子**全部一樣**；1180×820、1024×768 只有 Abovee 的框變
+- E2E `37`：`fakeCamera()`（`canvas.captureStream()` 頂替 `getUserMedia`，不然無頭 Chromium 拿不到相機、框是收起來的）＋ **L1～L5**。L2～L5 在舊的 CSS 上是紅的、L1（直式的形狀）兩邊都綠
+- 沒動 JS 的取景邏輯。**拍出來的方向只有她手機上驗得到**（無頭沒有相機）：`ImageCapture.takePhoto()` 橫拿時給的照片方向、`shrinkFrame()` 截的那一格都要看縮圖是不是正的
+- 文件：`操作手冊.md` 拍照那一層與拍 Abovee 各一句

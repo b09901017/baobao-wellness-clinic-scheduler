@@ -380,3 +380,148 @@ test('C7 看照片：轉 90° 之後橫的變直的、整張在畫面裡；轉�
   const again = await measureView(page);
   expect(again.w, '不記住：再打開是原本橫的').toBeGreaterThan(again.h);
 });
+
+// ---------------------------------------------------------------------------
+// 手機橫放的拍照排版（`.scratch/after-golive-2026-10-20/issues/02`）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-10-20：「我可以橫的拍照嗎，那我橫了之後，中間那個綠色的對準框也可以變橫嗎?」
+// 以前只有直式與 iPad 橫放（寬度 ≥ 900）兩種排法：手機橫放落在直式那一種，取景區被壓扁、紙的框只剩 28px；
+// 915 寬的手機剛好吃到 iPad 那一條。**量的是畫出來的位置**（`getBoundingClientRect()`、`elementFromPoint()`），不是 CSS 字串。
+
+/** 無頭 Chromium 沒有相機：給一條 canvas 畫的影像，取景框才畫得出來（拿不到相機時框是收起來的）。 */
+function fakeCamera(page) {
+  return page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = document.createElement('canvas');
+      c.width = 1280;
+      c.height = 720;
+      const g = c.getContext('2d');
+      g.fillStyle = '#456';
+      g.fillRect(0, 0, c.width, c.height);
+      return c.captureStream(5);
+    };
+  });
+}
+
+/** 打開之後等進場動畫播完再量（`.cam--in` 有一段 transform）。 */
+async function openLive(page, opts) {
+  await openCam(page, opts);
+  await expect(page.locator('.cam.cam--live')).toHaveCount(1);
+  await page.evaluate(() => Promise.all(document.querySelector('.cam').getAnimations({ subtree: true })
+    .filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished)));
+}
+
+/** 拍照那一層畫出來的位置（四捨五入到整數 px）。`shutterHit`：快門正中央那一點摸到的是不是快門。 */
+const camLayout = (page) => page.evaluate(() => {
+  const box = (sel) => {
+    const b = document.querySelector(sel).getBoundingClientRect();
+    return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
+  };
+  const s = document.querySelector('[data-cam-shutter]').getBoundingClientRect();
+  const hit = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+  return {
+    viewport: [innerWidth, innerHeight],
+    top: box('.cam__top'),
+    stage: box('.cam__stage'),
+    frame: box('.cam__frame'),
+    shutter: box('[data-cam-shutter]'),
+    album: box('.cam__controls [data-cam-album]'),
+    system: box('.cam__controls [data-cam-system]'),
+    say: box('.cam__say'),
+    shutterHit: !!hit?.closest('[data-cam-shutter]'),
+  };
+});
+
+const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+const rightOf = (a, b) => a.x >= b.x + b.w;
+
+/** 開一次、量、收起來。 */
+async function layoutAt(page, [width, height], kind) {
+  await page.setViewportSize({ width, height });
+  await openLive(page, { kind, max: 2 });
+  const out = await camLayout(page);
+  await page.locator('[data-cam-close]').click();
+  await expect(page.locator('.cam')).toHaveCount(0);
+  return out;
+}
+
+// 直式手機、iPad 直放 2026-10-21 改之前與改之後逐 px 比過一樣（issue 02 的「做完時留下的」）；
+// 這裡釘的是那一種排法的形狀：取景在上、快門在底下正中間
+test('L1 直式手機與 iPad 直放：照舊是直的那一種（快門在取景底下正中間、框在取景裡）', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[390, 844], [820, 1180]]) {
+    for (const kind of ['aboveeList', 'orderForm']) {
+      const at = `${size.join('×')} ${kind}`;
+      const l = await layoutAt(page, size, kind);
+      expect(inside(l.frame, l.stage), `${at}：框跑出取景區`).toBe(true);
+      expect(l.shutter.y, `${at}：快門要在取景底下`).toBeGreaterThanOrEqual(l.stage.y + l.stage.h);
+      expect(Math.abs(l.shutter.x + l.shutter.w / 2 - size[0] / 2), `${at}：快門要在正中間`).toBeLessThanOrEqual(1);
+      expect(l.shutterHit, `${at}：快門按得到`).toBe(true);
+    }
+  }
+});
+
+test('L2 手機橫放（844×390、915×412、780×360）：Abovee 的框撐滿、快門在右邊那一欄按得到', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[844, 390], [915, 412], [780, 360]]) {
+    const at = size.join('×');
+    const l = await layoutAt(page, size, 'aboveeList');
+    expect(inside(l.frame, l.stage), `${at}：框的四個角要在取景區裡`).toBe(true);
+    expect(l.frame.w >= l.stage.w * 0.8 || l.frame.h >= l.stage.h * 0.8, `${at}：框沒有撐滿（${l.frame.w}×${l.frame.h}，取景 ${l.stage.w}×${l.stage.h}）`).toBe(true);
+    expect(l.stage.h, `${at}：取景要佔左邊整個高度`).toBeGreaterThanOrEqual(size[1] - 30);
+    // 915 寬的手機以前吃到 iPad 那一條（抬頭橫跨整個寬）
+    expect(rightOf(l.top, l.stage), `${at}：抬頭要收在右邊那一欄`).toBe(true);
+    expect(rightOf(l.shutter, l.stage), `${at}：快門要在右邊那一欄`).toBe(true);
+    expect(l.shutter.y + l.shutter.h, `${at}：快門要整顆在畫面裡`).toBeLessThanOrEqual(size[1]);
+    expect(l.shutterHit, `${at}：快門按得到`).toBe(true);
+    expect(l.album.y + l.album.h <= size[1] && l.system.y + l.system.h <= size[1], `${at}：相簿、系統相機要在畫面裡`).toBe(true);
+  }
+});
+
+test('L3 手機橫放拍訂購單：紙的框整個看得到、照高度撐開', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[844, 390], [780, 360]]) {
+    const l = await layoutAt(page, size, 'orderForm');
+    expect(inside(l.frame, l.stage), `${size.join('×')}：紙的框跑出取景區`).toBe(true);
+    expect(l.frame.h, `${size.join('×')}：紙的框太小（以前只剩 28px 寬）`).toBeGreaterThanOrEqual(l.stage.h * 0.8);
+    expect(l.frame.h).toBeGreaterThan(l.frame.w);
+  }
+});
+
+test('L4 iPad 橫放：控制在右邊那一欄、抬頭橫跨；Abovee 的寬框不再被紙的寬度蓋掉', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[1180, 820], [1024, 768]]) {
+    const at = size.join('×');
+    const wide = await layoutAt(page, size, 'aboveeList');
+    expect(wide.top.x, `${at}：iPad 吃到手機那一條了（抬頭要橫跨）`).toBe(0);
+    expect(rightOf(wide.shutter, wide.stage), `${at}：快門要在右邊那一欄`).toBe(true);
+    expect(inside(wide.frame, wide.stage)).toBe(true);
+    expect(wide.frame.w, `${at}：寬框被蓋成紙的寬度了（以前約 450px）`).toBeGreaterThanOrEqual(wide.stage.w * 0.8);
+    const paper = await layoutAt(page, size, 'orderForm');
+    expect(inside(paper.frame, paper.stage)).toBe(true);
+    expect(paper.frame.h).toBeGreaterThan(paper.frame.w);
+  }
+});
+
+test('L5 手機橫放、前鏡頭在左或右（全螢幕）：取景與右邊那一欄都讓開', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  const cdp = await page.context().newCDPSession(page);
+  for (const side of ['left', 'right']) {
+    const insets = { top: 0, bottom: 0, left: 0, right: 0, [side]: 40 };
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets });
+    const l = await layoutAt(page, [844, 390], 'aboveeList');
+    if (side === 'left') expect(l.stage.x, '取景要讓開左邊的鏡頭').toBeGreaterThanOrEqual(40);
+    else {
+      for (const k of ['top', 'shutter', 'album', 'system']) {
+        expect(l[k].x + l[k].w, `${k} 要讓開右邊的鏡頭`).toBeLessThanOrEqual(844 - 40);
+      }
+    }
+    expect(l.shutterHit).toBe(true);
+  }
+});

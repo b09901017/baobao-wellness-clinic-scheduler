@@ -9393,8 +9393,10 @@ body.has-cam {
   outline-offset: 2px;
 }
 
-/* iPad 橫式：取景在左、控制在右 */
-@media (min-width: 900px) and (orientation: landscape) {
+/* iPad 橫式：取景在左、控制在右。
+   **`min-height` 擋住手機橫放**：915 寬的手機橫放也超過 900，以前吃到這一條（after-golive 02），那種走底下手機那一條。
+   541 跟手機那一條的 540 接起來，兩條不重疊、中間也不漏 */
+@media (min-width: 900px) and (min-height: 541px) and (orientation: landscape) {
   .cam {
     grid-template-columns: 1fr 132px;
     grid-template-rows: auto 1fr auto auto;
@@ -9416,6 +9418,60 @@ body.has-cam {
   }
 
   .cam__frame { width: min(60%, calc((100dvh - 180px) * 0.707)); }
+
+  /* 寬框（Abovee）要寫在紙的算式**後面**：兩條特異度一樣，以前寫在前面的 `.cam__frame--wide` 被蓋成紙的寬度，只剩約 450px */
+  .cam__frame--wide { width: min(88%, calc((100dvh - 180px) * 1.6)); }
+}
+
+/* 手機橫放：取景佔左邊整個高度，其餘收到右邊一欄（after-golive 02）。
+   她 2026-10-20：「我可以橫的拍照嗎…中間那個綠色的對準框也可以變橫嗎?」—— Abovee 那張本來就是橫的，
+   直拿時框只佔中間一條，橫拿撐滿。以前落在直式那一種：取景區被壓成 200px 高、紙的框剩 28px、寬框跑出畫面。
+   **全螢幕時前鏡頭在左或右**（ADR-0147）：左右各讓 safe-area-inset-left／right。
+   框照高度算：取景區的高是 100dvh 扣上下兩個 12px 與底下那一條 */
+@media (orientation: landscape) and (max-height: 540px) {
+  .cam {
+    grid-template-columns: 1fr 200px;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    padding-right: env(safe-area-inset-right);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .cam__stage {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    margin: var(--space-3) 0 var(--space-3) var(--space-3);
+  }
+
+  /* 抬頭擠在右邊那一欄：收起與送出同一行，名字在底下一行 */
+  .cam__top {
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: var(--tap-min) 1fr;
+    padding: var(--space-2) var(--space-3) 0 var(--space-2);
+  }
+
+  .cam__title { grid-column: 1 / -1; grid-row: 2; font-size: var(--text-md); text-align: left; }
+  .cam__send { grid-column: 2; grid-row: 1; justify-self: end; }
+  .cam__say { grid-column: 2; grid-row: 2; margin: var(--space-1) var(--space-3) 0; text-align: left; }
+
+  /* 欄太矮時縮的是縮圖那一列，不是把快門擠出畫面 */
+  .cam__tray { grid-column: 2; grid-row: 3; align-self: start; max-height: 100%; margin: 0; }
+
+  .cam__controls {
+    grid-column: 2;
+    grid-row: 4;
+    grid-template-columns: 1fr 1fr;
+    justify-items: center;
+    row-gap: var(--space-1);
+    padding: var(--space-2) var(--space-2) var(--space-3);
+  }
+
+  .cam__shutter { grid-column: 1 / -1; grid-row: 1; }
+  .cam__controls [data-cam-album] { grid-column: 1; grid-row: 2; }
+  .cam__controls [data-cam-system] { grid-column: 2; grid-row: 2; }
+
+  .cam__frame { width: min(78%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.88 * 0.707)); }
+  .cam__frame--wide { width: min(92%, calc((100dvh - 24px - env(safe-area-inset-bottom)) * 0.9 * 1.6)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
