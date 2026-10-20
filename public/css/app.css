@@ -153,6 +153,43 @@ svg {
   .netbar__hint { display: none; }
 }
 
+/* 有新版本在等（ADR-0167，ui/swUpdate.js）。底部有導覽列、toast、懸浮鈕、釘住的條四樣在搶，這一條放在
+   內容區（.app__body）的最上面：手機上在離線那一條底下，iPad 橫放時在側邊那一欄右邊 —— 放在 .app 那一層的話
+   iPad 上 .app 是橫排，會變成一條直的。瀏海由 .app__body 讓過了，這一條不用再讓。
+   它在文件流裡（不是浮起來蓋住東西），出現時底下的內容往下讓。
+   整條是一顆按鈕（點哪裡都是更新），右邊那顆 × 收掉。綠底上的字用 --accent-text。 */
+.updatebar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.updatebar__go {
+  flex: 1;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.updatebar__x {
+  position: relative;
+  flex: none;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: inherit;
+}
+
 /* 全螢幕（manifest 的 `display: fullscreen`，ADR-0147）時系統的狀態列收起來了，畫面一路畫到
    螢幕最上緣 —— 前鏡頭那個洞也在裡面，`safe-area-inset-top` 就是它的高度（沒有洞、或不是
    全螢幕時是 0，這一條不佔任何高度）。

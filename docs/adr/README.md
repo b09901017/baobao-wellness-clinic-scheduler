@@ -227,3 +227,4 @@
 | [0164](./0164-imported-cancelled-slots-settle-their-cancel-task.md) | 匯進來的取消段，「取消 X」一出生就勾好 | 2026-10-20 | 現行 |
 | [0165](./0165-after-cutover-production-is-the-only-copy.md) | 切換之後，正式站是唯一的一份 —— 不再整份重匯 | 2026-10-20 | 現行 |
 | [0166](./0166-bucket-done-is-counted-by-the-day.md) | 逾期／今天／明天的「已完成」照日子算，任務、簽療程單、隨手記一起列 | 2026-10-21 | 現行 |
+| [0167](./0167-open-the-app-from-the-device-first.md) | 打開 app 先用手機裡的：程式檔（點「有新版本」才換）、先畫殼、首頁先用快取畫 | 2026-10-21 | 現行 |

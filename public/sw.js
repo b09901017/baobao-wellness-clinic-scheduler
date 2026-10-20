@@ -4,13 +4,23 @@
 // 資料完全不碰：Firestore 自己有離線快取，讀取走它的，寫入由它排隊重送。
 // SW 去插手資料只會製造兩份互相矛盾的快取。
 //
-// 策略：自己的檔案網路優先（逾時 3 秒退回快取），Firebase SDK 快取優先。
-// 網路優先是為了「部署完打開就是最新的」——快取優先會讓每次改版都慢一輪。
+// 策略（ADR-0167，推翻 2026-08-18 commit 0ae20497 的網路優先）：
 //
-// 改了 app 殼的檔案就把 VERSION 加一，舊快取會在啟用時被清掉。
+// - **自己的檔案先用手機裡的**：`SHELL` 照 `VERSION` 整份預先裝好，打開 app 一個都不問伺服器。
+//   以前每一支（一百多支）都先問一次「有沒有新的」，import 排好幾層 → 好幾趟來回才開始跑（她：「卡在載入中 5 6 秒」）
+// - **新版本在背景裝好、不自己接管**：瀏覽器打開時自己會去比這一支（`no-cache`），不一樣就裝新的那一份；
+//   裝好之後等著，畫面最上面跳一條「有新版本・點一下更新」（`ui/swUpdate.js`），她點了才換、重新載入。
+//   8/18 改成網路優先的理由是「部署後打開先看到舊版、要再重新整理一次」—— 那次缺的是這一條提示，不是快取優先本身
+// - **整份一起換**：`SHELL` 少一支沒下載到就不算裝好（`addAll()`），下次再試 —— 不會新舊混著
+// - Firebase SDK 與字體放自己的快取（`EXTERNAL`），**不跟著版號清**：網址帶版本、內容不變；
+//   以前跟 app 的檔案放同一格，換版時一起被刪掉 → 換版後第一次離線打開會開不起來
+//
+// **改了 `public/` 底下的檔案就把 VERSION 加一**，再跑 `npm run shell:snapshot`。
+// 忘了加的話（以前是慢一輪）現在是**永遠停在舊版** —— `tests/shell-version.test.js` 擋著。
 
 const VERSION = 'v202';
 const CACHE = `shell-${VERSION}`;
+const EXTERNAL = 'external-v1';
 
 // 這份清單必須涵蓋 public/ 底下所有 .js / .css / .html / .webmanifest，
 // 否則冷啟動離線會少檔案。tests/shell-cache.test.js 會盯著它。
@@ -85,6 +95,7 @@ const SHELL = [
   '/js/ui/net.js',
   '/js/ui/theme.js',
   '/js/ui/bootTiming.js',
+  '/js/ui/swUpdate.js',
   '/js/integrations/lineMacro.js',
   '/js/ui/icons.js',
   '/js/ui/session.js',
@@ -176,23 +187,66 @@ const SHELL = [
   '/js/ui/views/formInbox.js',
 ];
 
+// 打開 app 的那幾個網址（導覽請求）。**只有這兩個**回手機裡的 `index.html`：
+// `/form.html` 是客戶在 LINE 裡點開的那一頁（ADR-0031），`/__/auth/…` 是 Google 登入轉回來的那一頁 ——
+// 被這一條吃掉的話，一個打開成 app、一個登入轉不回來。其餘的導覽一律照舊走網路
+const APP_PAGES = new Set(['/', '/index.html']);
+
+/** Firebase SDK 與網頁字體（ADR-0016）：網址帶著版本或雜湊，同一個網址的內容永遠不變。 */
+function isExternal(url) {
+  return (url.origin === 'https://www.gstatic.com' && url.pathname.includes('/firebasejs/'))
+    || url.origin === 'https://fonts.googleapis.com'
+    || url.origin === 'https://fonts.gstatic.com';
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE)
-      // 個別失敗不要讓整個安裝掛掉
-      .then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url))))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(CACHE);
+      // **整份一起裝**：`addAll()` 少一支就整個失敗，這一版不算裝好、下次打開再試 —— 不會新舊混著。
+      // `cache: 'reload'`：不拿瀏覽器自己的 HTTP 快取那一份（lessons 九：那一份可能是舊的）
+      await cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })));
+      await adoptExternals();
+      // **不 `skipWaiting()`**：裝好就等著，她點「有新版本・點一下更新」才換（`message` 那一段）。
+      // 自己接管的話，她正在用的那一頁底下的程式檔會被換成新的 —— 新舊混著跑
+    })(),
   );
 });
+
+/**
+ * 舊版（v202 以前）把 SDK 與字體跟 app 的檔案放同一格，`activate` 一清就跟著不見。
+ * 換到這一版的那一次先搬過來，換版後第一次離線照樣打得開。
+ */
+async function adoptExternals() {
+  const external = await caches.open(EXTERNAL);
+  for (const key of await caches.keys()) {
+    if (!key.startsWith('shell-')) continue;
+    const old = await caches.open(key);
+    for (const request of await old.keys()) {
+      if (!isExternal(new URL(request.url)) || await external.match(request)) continue;
+      const response = await old.match(request);
+      if (response) await external.put(request, response);
+    }
+  }
+}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      // 只清舊版的 app 檔案；SDK 與字體那一格留著
+      .then((keys) => Promise.all(
+        keys.filter((k) => k.startsWith('shell-') && k !== CACHE).map((k) => caches.delete(k)),
+      ))
+      // 第一次安裝（這一頁還沒有人管）時接手。**頁面那一側不可以因為這一下就重新載入**
+      // （`ui/swUpdate.js` 只在她按了更新之後才重新載入）
       .then(() => self.clients.claim()),
   );
+});
+
+// 她按了「有新版本・點一下更新」（`ui/swUpdate.js` 的 `applyUpdate()`）
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -200,64 +254,40 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  const sameOrigin = url.origin === self.location.origin;
-  const isFirebaseSdk =
-    url.origin === 'https://www.gstatic.com' && url.pathname.includes('/firebasejs/');
-  // 網頁字體（ADR-0016）。第一次上線時抓下來收好，之後離線也還是那套字 ——
-  // 沒收到就退回系統內建，畫面照樣完整，只是長相回到以前。
-  const isWebFont =
-    url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com';
 
-  // 其他跨網域一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行。
-  if (!sameOrigin && !isFirebaseSdk && !isWebFont) return;
+  if (isExternal(url)) {
+    event.respondWith(cacheFirst(EXTERNAL, request));
+    return;
+  }
+  // 其他跨網域一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行
+  if (url.origin !== self.location.origin) return;
 
-  // 這兩種的網址都帶著版本或雜湊，同一個網址的內容永遠不變，可以放心快取優先。
-  if (isFirebaseSdk || isWebFont) {
-    event.respondWith(
-      caches.match(request).then((cached) => cached ?? fetchAndCache(request)),
-    );
+  if (request.mode === 'navigate') {
+    if (!APP_PAGES.has(url.pathname)) return;
+    event.respondWith(cacheFirst(CACHE, request, '/index.html'));
     return;
   }
 
-  // 自己的檔案一律網路優先。
-  //
-  // 之前用快取優先，結果每次部署後她都會先看到舊版，要再重新整理一次才會更新
-  // —— 那是會天天發生的困惑。app 的檔案總共才幾十 KB，網路優先的代價很小，
-  // 但「打開就是最新的」這件事很重要。
-  //
-  // 網路慢的時候不能一直等，超過 3 秒就先用快取，畫面照樣打得開。
-  event.respondWith(networkFirst(request));
+  event.respondWith(cacheFirst(CACHE, request));
 });
 
-const NETWORK_TIMEOUT_MS = 3000;
-
-function fetchAndCache(request) {
-  return fetch(request).then((response) => {
-    // 跨網域的樣式表回來的是 opaque，status 永遠是 0，用 response.ok 判斷會全部漏掉。
-    // 那種回應照樣存得起來也用得出去，只是我們看不到裡面 —— 字體就是走這條。
-    if (response.ok || response.type === 'opaque') {
-      const copy = response.clone();
-      caches.open(CACHE).then((cache) => cache.put(request, copy));
-    }
-    return response;
-  });
-}
-
-async function networkFirst(request) {
-  const cached = await caches.match(request);
-
-  try {
-    const response = await Promise.race([
-      fetchAndCache(request),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('network-timeout')), NETWORK_TIMEOUT_MS),
-      ),
-    ]);
-    return response;
-  } catch {
-    // 逾時或離線。有快取就用快取，沒有就讓瀏覽器自己報錯
-    // （index.html 的保險絲會把它變成看得見的訊息）。
-    if (cached) return cached;
-    return fetch(request);
+/**
+ * 手機裡有就用手機裡的；沒有才走網路，拿到了收進同一格（圖示那種不在 `SHELL` 裡的）。
+ * **讀的是指定的那一格**，不是全部快取一起找：新版裝好、還沒換的那段時間，舊的那一頁要拿到的是舊的那一份。
+ *
+ * @param {string} name 哪一格
+ * @param {Request} request
+ * @param {string} [key] 用哪個網址找（打開 app 的導覽一律找 `/index.html`）
+ */
+async function cacheFirst(name, request, key = request) {
+  const cache = await caches.open(name);
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  const response = await fetch(request);
+  // 跨網域的樣式表回來的是 opaque，status 永遠是 0，用 response.ok 判斷會全部漏掉。
+  // 那種回應照樣存得起來也用得出去，只是我們看不到裡面 —— 字體就是走這條。
+  if (response.ok || response.type === 'opaque') {
+    cache.put(key, response.clone()).catch(() => {});
   }
+  return response;
 }

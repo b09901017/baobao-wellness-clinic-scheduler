@@ -12,6 +12,7 @@
     "test:e2e:watch": "node scripts/e2e.mjs --watch",
     "verify": "node --test \"tests/*.test.js\" && node scripts/e2e.mjs --related",
     "emulators": "bash tests-e2e/start-emulators.sh",
+    "shell:snapshot": "node scripts/shell-snapshot.mjs",
     "restore": "node scripts/restore-backup.mjs",
     "seed:staging": "node scripts/seed-staging.mjs",
     "staging:reset": "node scripts/reset-staging.mjs"

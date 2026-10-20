@@ -126,6 +126,10 @@
 - 拍照的 Function 不歸 CI 部署；`.firebaserc` 預設是正式站，本機部署漏打 `--project` 就上正式（10/8 預設改成 staging；要上正式的指令自己帶 `--project prod`）
 - 本機模擬器**在 Windows 上不回 `firebase.json` 的 `headers`**（`glob-slasher` 把規則的 `/` 換成 `\`，一條都對不上）—— 她的機器上 `curl -sI 127.0.0.1:5000/…` 看不到 Cache-Control 不代表規則寫錯；CI（Linux）與真的 Hosting 才看得到
 
+- **2026-10-21 起程式檔先用手機裡的**（ADR-0167）：部署之後手機上要點一次「有新版本・點一下更新」才是新的。
+  「明明改好了卻沒變」多兩個原因：**沒點更新**，或**忘了升 `sw.js` 的 VERSION**（那一版永遠不會被裝 —— `tests/shell-version.test.js` 擋著）。
+  E2E 攔不到瀏覽器去比對 `sw.js` 的那一下（Playwright 的 route 一次都沒被叫到），換版那一段只在單元測試（`tests/sw-cache.test.js`）跑
+
 > 這一步在非互動模式下會不會被跳過？部署完我是怎麼確認新版真的在跑的？
 
 ## 十、文件跟著畫面走

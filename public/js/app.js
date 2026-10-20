@@ -10,6 +10,7 @@ import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
 import { install as installTips } from './ui/components/tip.js';
 import * as bootTiming from './ui/bootTiming.js';
 import { resolve } from './ui/router.js';
+import * as swUpdate from './ui/swUpdate.js';
 
 // 量開機（after-golive 05）：走到這一行＝上面那一百多支程式檔全部到齊了。
 // 記在這一台、設定頁「打開要多久」讀它；**它一行都不擋開機**（每一步自己包 try）。
@@ -100,15 +101,11 @@ function main() {
   }, { onUser: () => bootTiming.mark('auth') });
 }
 
+// Service worker 只快取 app 殼，資料一律走 Firestore 自己的離線快取。
+// 程式檔先用手機裡的、新版在背景裝好等她點「有新版本・點一下更新」（ADR-0167，`ui/swUpdate.js`）。
+// **排在 `main()` 之前**：`main()` 丟例外的那一版，修好的那一版照樣要裝得進來
+swUpdate.register();
+
 // `main()` 本身丟例外的話**不要**解除保險絲 —— 那正是它要接住的情況。
 // 12 秒後 index.html 會把「載入失敗」畫出來，而不是永遠停在「載入中…」。
 main();
-
-// Service worker 只快取 app 殼，資料一律走 Firestore 自己的離線快取。
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      /* 註冊失敗不影響使用，安靜略過 */
-    });
-  });
-}

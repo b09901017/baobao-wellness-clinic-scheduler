@@ -6,6 +6,10 @@ import { setSignOut } from './session.js';
 import { watchSystemTheme } from './theme.js';
 import { watchOffline } from './net.js';
 import { envBanner } from '../firebase-config.js';
+import { onUpdateReady, applyUpdate } from './swUpdate.js';
+
+// 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號）：上一個殼的那一條不要再收通知
+let stopUpdateWatch = null;
 
 /**
  * app 叫什麼。登入畫面的抬頭與分頁標題讀它；主畫面圖示底下那個名字在
@@ -116,6 +120,10 @@ export function renderShell(root, { onSignOut }) {
     </div>
     <nav class="app__nav" aria-label="主選單"></nav>
     <div class="app__body">
+      <div class="updatebar" data-updatebar hidden>
+        <button class="updatebar__go" type="button" data-update-go>有新版本・點一下更新</button>
+        <button class="updatebar__x" type="button" data-update-x aria-label="先不要">${icon('close', { size: 16 })}</button>
+      </div>
       <main class="app__main" id="view" tabindex="-1"></main>
     </div>
   `;
@@ -125,6 +133,22 @@ export function renderShell(root, { onSignOut }) {
   // 這一條也不擋任何操作：資料進得了本機快取，記得下來才是重點。
   const netBar = root.querySelector('.netbar');
   watchOffline((offline) => { netBar.hidden = !offline; });
+
+  // 有新版本在等（ADR-0167）。跟離線那一條同一個位置：底部已經有導覽列、toast、懸浮鈕、釘住的條四樣在搶。
+  // **不擋任何操作**；收掉之後這一次打開不再跳（下次打開還在等的話再跳）
+  const updateBar = root.querySelector('[data-updatebar]');
+  let dismissed = false;
+  stopUpdateWatch?.();
+  stopUpdateWatch = onUpdateReady(() => { if (!dismissed) updateBar.hidden = false; });
+  updateBar.querySelector('[data-update-go]').addEventListener('click', (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = '更新中…';
+    applyUpdate();
+  });
+  updateBar.querySelector('[data-update-x]').addEventListener('click', () => {
+    dismissed = true;
+    updateBar.hidden = true;
+  });
 
   const navEl = root.querySelector('.app__nav');
 
