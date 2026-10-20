@@ -211,3 +211,12 @@ export async function readAll(path) {
 export async function allowUser(uid) {
   await seedDocs([{ path: 'allowedUsers', id: uid, data: {} }]);
 }
+
+/** 把某個 uid 移出白名單（先畫殼之後被移出的那一條路，ADR-0167）。 */
+export async function revokeUser(uid) {
+  const e = await testEnv();
+  await e.withSecurityRulesDisabled(async (ctx) => {
+    const { deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(ctx.firestore(), 'allowedUsers', uid));
+  });
+}

@@ -70,10 +70,17 @@ export function go(path) {
 }
 
 let repaint = null;
+let onHash = null;
 
+/**
+ * 殼每畫一次叫一次。**殼可能畫第二次**（先畫的殼換成另一個帳號、被登出又登入，ADR-0167）——
+ * 上一次掛的那一個先拆掉，不然換一頁畫兩次（第一次畫進已經被丟掉的那個殼）。
+ */
 export function start(onChange) {
   repaint = onChange;
-  window.addEventListener('hashchange', () => onChange(resolve()));
+  if (onHash) window.removeEventListener('hashchange', onHash);
+  onHash = () => onChange(resolve());
+  window.addEventListener('hashchange', onHash);
   onChange(resolve());
 }
 

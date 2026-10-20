@@ -21,8 +21,15 @@ import {
 import { getDb, getAuthInstance } from './firebase.js';
 import { inverseOps } from '../domain/undo.js';
 
-function actorId() {
-  return getAuthInstance().currentUser?.uid ?? 'unknown';
+/**
+ * 稽核記的「誰」。**先等登入回答了**（ADR-0167）：這一台上次通過了就先畫殼、登入在背景確認，
+ * 那一兩秒裡她就按得到右下角的泡泡 —— 整批都是 create 的寫入不會先讀任何東西（Firestore 的讀取才會排隊等登入），
+ * 不等的話那一則稽核記的是 `unknown`。登入早就回答了的時候這一下馬上過。
+ */
+async function actorId() {
+  const auth = getAuthInstance();
+  await auth.authStateReady();
+  return auth.currentUser?.uid ?? 'unknown';
 }
 
 function newAuditRef() {
@@ -171,8 +178,8 @@ export async function commit(ops) {
     ops.map((o, i) => (o.op === 'create' ? null : getDoc(refs[i]))),
   );
 
+  const actor = await actorId();
   const batch = writeBatch(getDb());
-  const actor = actorId();
 
   ops.forEach((o, i) => {
     const ref = refs[i];

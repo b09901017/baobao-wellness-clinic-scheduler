@@ -126,3 +126,85 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     await context.setOffline(false);
   });
 });
+
+// ---------- 先畫殼（issue 07）----------
+
+/** 登入那一側（Auth 模擬器）的每一個請求都慢一點：手機上那一段是先載 iframe、再換 token（spec 第三節）。 */
+async function slowAuth(context, ms = 2500) {
+  await context.route('http://127.0.0.1:9099/**', async (route) => {
+    await new Promise((r) => { setTimeout(r, ms); });
+    await route.continue();
+  });
+}
+
+/** 這一頁有沒有出現過底下那一排（開機前就盯著，閃一下也算）。 */
+async function watchNav(page) {
+  await page.addInitScript(() => {
+    window.__sawNav = false;
+    new MutationObserver(() => {
+      if (document.querySelector('.app__nav')) window.__sawNav = true;
+    }).observe(document, { childList: true, subtree: true });
+  });
+}
+
+test('P5 這一台上次通過了 → 重新整理時登入還沒回來，殼就在了；確認之後照常', async ({ app, page, context }) => {
+  await app.seed(seed());
+  await app.signIn('/customers');
+  await slowAuth(context);
+  await page.reload();
+  await expect(page.locator('.app__nav'), '殼先畫出來').toBeVisible({ timeout: 10_000 });
+  expect(await page.locator('#root').getAttribute('data-access'), '這時候登入還沒確認').toBeNull();
+  await expect(page.locator('#root[data-access="allowed"]')).toBeVisible({ timeout: 30_000 });
+  await app.settled();
+  await expect(page.locator('#view')).toContainText('客戶A');
+});
+
+test('P6 被移出白名單 → 先看到殼、換成「沒有權限」；再打開直接是那一頁', async ({ app, page }) => {
+  test.info().annotations.push({ type: 'allow-console-errors', description: '移出白名單之後的讀取被 Rules 擋' });
+  await app.seed(seed());
+  await app.signIn('/');
+  const { revokeUser } = await import('../fixtures/emulator.js');
+  await revokeUser(app.uid);
+
+  await page.reload();
+  await expect(page.locator('.gate'), '確認出來沒有權限 → 換掉').toContainText('這個帳號還沒有權限', { timeout: 30_000 });
+  await expect(page.locator('.app__nav')).toHaveCount(0);
+
+  await watchNav(page);
+  await page.reload();
+  await expect(page.locator('.gate')).toContainText('這個帳號還沒有權限', { timeout: 30_000 });
+  expect(await page.evaluate(() => window.__sawNav), '記的那一筆清掉了：一下都沒畫殼').toBe(false);
+});
+
+test('P7 登出 → 重新打開直接是登入頁，沒有先閃一下殼', async ({ app, page, context }) => {
+  await app.seed(seed());
+  await app.signIn('/settings');
+  await page.locator('[data-signout]').click();
+  await expect(page.locator('[data-signin]')).toBeVisible({ timeout: 15_000 });
+
+  // **另開一頁**：fixture 每一次載入都把登入狀態寫回去（`primeAuth()` 是這一頁的 init script），
+  // 這一頁重新整理就又登入了。舊的那一頁先關掉：Firestore 的快取一次只給一頁用；
+  // 換到 about:blank 也不行 —— 那個 init script 在 about:blank 上開 IndexedDB 會丟錯
+  await page.close();
+  const fresh = await context.newPage();
+  await watchNav(fresh);
+  await fresh.goto('http://127.0.0.1:5000/');
+  await expect(fresh.locator('[data-signin]')).toBeVisible({ timeout: 30_000 });
+  expect(await fresh.evaluate(() => window.__sawNav), '一下都沒畫殼').toBe(false);
+  await fresh.close();
+});
+
+test('P8 登入還在確認時就寫入（整批都是新增的那種）→ 稽核記的是她，不是 unknown', async ({ app, page, context }) => {
+  await app.seed(seed());
+  await app.signIn('/customers');
+  await slowAuth(context);
+  await page.reload();
+  await expect(page.locator('.app__nav')).toBeVisible({ timeout: 10_000 });
+  expect(await page.locator('#root').getAttribute('data-access'), '這時候登入還沒確認').toBeNull();
+
+  // 畫面上每一個新增的入口都要先讀資料（讀取排隊等登入），所以直接叫隨手記那一支 —— 它整批都是 create、不先讀任何東西
+  const id = await page.evaluate(() => import('/js/data/notes.js')
+    .then((notes) => notes.create({ text: '登入還沒回來時記的' })));
+  const audit = (await app.readAll('audit')).find((a) => a.targetPath === `notes/${id}`);
+  expect(audit?.actor, '稽核記的是她（Rules 也只收她的 uid）').toBe(app.uid);
+});

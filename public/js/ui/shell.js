@@ -8,8 +8,9 @@ import { watchOffline } from './net.js';
 import { envBanner } from '../firebase-config.js';
 import { onUpdateReady, applyUpdate } from './swUpdate.js';
 
-// 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號）：上一個殼的那一條不要再收通知
+// 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號，ADR-0167）：上一個殼掛的通知先拆掉
 let stopUpdateWatch = null;
+let stopNetWatch = null;
 
 /**
  * app 叫什麼。登入畫面的抬頭與分頁標題讀它；主畫面圖示底下那個名字在
@@ -132,7 +133,8 @@ export function renderShell(root, { onSignOut }) {
   // 學會忽略它（同 `data/sheetSync.js` 對推送失敗的判斷）。
   // 這一條也不擋任何操作：資料進得了本機快取，記得下來才是重點。
   const netBar = root.querySelector('.netbar');
-  watchOffline((offline) => { netBar.hidden = !offline; });
+  stopNetWatch?.();
+  stopNetWatch = watchOffline((offline) => { netBar.hidden = !offline; });
 
   // 有新版本在等（ADR-0167）。跟離線那一條同一個位置：底部已經有導覽列、toast、懸浮鈕、釘住的條四樣在搶。
   // **不擋任何操作**；收掉之後這一次打開不再跳（下次打開還在等的話再跳）
@@ -213,6 +215,9 @@ function freshView(root) {
  * 是同一頁上的前一個畫面。
  */
 function wireBackLinks(root) {
+  // `#root` 換殼時不會換（只換裡面），**只接一次** —— 接兩次的話按一下回上一頁會退兩步
+  if (root.dataset.backlinks) return;
+  root.dataset.backlinks = '1';
   root.addEventListener('click', (e) => {
     const link = e.target.closest('a.backlink');
     if (!link || link.hasAttribute('data-back')) return;

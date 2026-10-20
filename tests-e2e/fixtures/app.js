@@ -33,10 +33,16 @@ import { TODAY } from './data.js';
  * **這一份是每個 worker 一份**（module 層變數），跟命名空間一樣。
  *
  * **壞掉會大聲。** 寫回去的格式不對（例如升了一版 firebase、key 變了）的話
- * app 會停在登入頁，而 `signIn()` 等的是 `.app__nav` —— 30 秒逾時，
+ * app 會停在登入頁，而 `signIn()` 等的是 `SIGNED_IN`（登入確認過了）—— 30 秒逾時，
  * 訊息看得懂。它不會安靜地變成「沒登入但測試照樣過」。
  */
 let authSnapshot = null;
+
+/**
+ * 「登入好了」。**不是 `.app__nav`**：這一台上次通過白名單時殼先畫（ADR-0167），底下那一排在登入確認之前就在了 ——
+ * 拿它當訊號的話，重新整理之後每一支都在登入還沒好的時候就開始點。確認通過之後 `app.js` 才在根節點掛這一格
+ */
+const SIGNED_IN = '#root[data-access="allowed"]';
 
 const AUTH_DB = 'firebaseLocalStorageDb';
 const AUTH_STORE = 'firebaseLocalStorage';
@@ -249,7 +255,7 @@ export const test = base.extend({
           await helpers.sameNamespace();
           // 寫回去的格式不對的話 app 會停在登入頁，這一行 30 秒逾時 ——
           // 看得懂的錯，不是靜默。
-          await page.waitForSelector('.app__nav', { timeout: 30_000 });
+          await page.waitForSelector(SIGNED_IN, { timeout: 30_000 });
           await page.waitForSelector('#view', { timeout: 10_000 });
           await helpers.settled();
           return helpers;
@@ -269,8 +275,8 @@ export const test = base.extend({
         // 而 waitForEvent 沒有預設逾時 —— 那會直接掛死整個測試。
         // 「登入成功」的判準是主畫面出現，不是彈窗消失。
 
-        // 登入成功 = 殼掛上來了（底部導覽出現）
-        await page.waitForSelector('.app__nav', { timeout: 30_000 });
+        // 登入成功 = 確認過了（不是底部導覽出現 —— 見 SIGNED_IN）
+        await page.waitForSelector(SIGNED_IN, { timeout: 30_000 });
         await page.waitForSelector('#view', { timeout: 10_000 });
         await helpers.settled();
 
@@ -408,7 +414,7 @@ export const test = base.extend({
       /** 重新整理整個 app（測跨日、測快取用）。 */
       async reload() {
         await page.reload();
-        await page.waitForSelector('.app__nav', { timeout: 30_000 });
+        await page.waitForSelector(SIGNED_IN, { timeout: 30_000 });
         await helpers.settled();
       },
 
