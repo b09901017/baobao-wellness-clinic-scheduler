@@ -58,16 +58,17 @@
 - **（段三）iPad 橫放時，最上面那一條（staging 的「本機模擬器／STAGING」、離線時的「目前離線」）變成左邊一整欄**：`.app` 在 ≥900px 是橫排（側邊導覽），
   `.envbar`／`.netbar` 是 `.app` 的直接子元素，於是變成一條很寬的直欄（截圖看到的；改之前就是這樣，跟這一段無關）。
   正式站沒有 env 那一條，只有離線時會碰到；staging 上 iPad 橫放每一次都是。「有新版本」那一條這一段放進 `.app__body` 裡，沒有這個問題。
-  **建議：修**（小）：兩條也搬進 `.app__body` 的最上面，或 ≥900px 時 `.app` 改 `flex-wrap` 讓兩條自己佔一整列
+  **建議：修**（小）：兩條也搬進 `.app__body` 的最上面，或 ≥900px 時 `.app` 改 `flex-wrap` 讓兩條自己佔一整列。
+  → **她 10/21：「好，修」—— 修了**：≥900px 時 `.app` 改成三列的格子（兩條各一列、橫跨整個寬度；登入頁那張卡照舊在正中間），E2E `24` G1 量著，sw.js **v203**
 - **（段三，06）「有新版本」那一條放在最上面，不是 issue 寫的底下**：底部有導覽列、toast、懸浮鈕、釘住的條四樣在搶；最上面已經是 staging／離線那兩條的位置。
   段五問她一句「位置可以嗎」就好
 - **（段三，06）同一個 VERSION 只能對一份內容**（忘了升版號的那一道擋）：以後同一支 PR 裡第二次動 `public/` 也要再加一（`CLAUDE.md` 那一列改了）。
-  **段四的修正動到 `public/` 就升 v203、跑 `npm run shell:snapshot`**（這一段沒升：快照是這一段才有的，v202 還沒部署，重產時先刪掉再跑）
+  **段四的修正動到 `public/` 就升 v204、跑 `npm run shell:snapshot`**（v203 是段三最後修 iPad 橫放那一次升的）
 - **（段三，08）被移出白名單的那一位，在白名單問完之前會看到自己上次在這一台看過的那一份**：快取先畫要先確認登入的是記著的那一位（擋住了「別人」），
   但同一位被移出白名單時，登入照樣是他、白名單那一趟還沒回來 —— 那一份本來就在這一台的 IndexedDB 裡，移出白名單從來不會清它。她只有一個帳號。
-  **建議：不修**（寫進 ADR-0167 決定三）
+  **建議：不修**（寫進 ADR-0167 決定三）→ **她 10/21：「不修，我目前只給自己用」**
 - **（段三，06）換版之後第一次離線打開，Firebase SDK 可能還不在**：第一次載入時 service worker 還沒接手，SDK 沒經過它；第二次打開之後就在了。改之前就是這樣。
-  **建議：不修**（要修是把 SDK 的網址列進 `install`，那一份會跟 `firebase.js` 的版本各寫一次）
+  **建議：不修**（要修是把 SDK 的網址列進 `install`，那一份會跟 `firebase.js` 的版本各寫一次）→ **她 10/21：「不修」**
 
 ## 段一交出去的（10/21）
 
@@ -149,6 +150,8 @@
   `app.js`／`auth.js`／`repo.js`／fixture 是 GLOBAL → **全量丟 CI：六台全綠**（run 39479924648，跑的是 `867519a0`；之後只多了 P11 一支測試，本機綠）
 - **E2E 的「登入好了」換了**：`#root[data-access="allowed"]`（fixture 的 `SIGNED_IN`），`settled()` 把首頁停在快取那一份算成還沒畫完。新的 spec 等登入要等這一格，不是 `.app__nav`
 - **E2E 攔不到瀏覽器去比對 `sw.js` 的那一下**：「換一個 VERSION」只在 `tests/sw-cache.test.js` 跑；`81` P4 用另一個網址註冊造出「新的一版在等」
+- **中途發現 1（iPad 橫放的直欄）她 10/21 說修、當天修了**：`app.css` ≥900px 的 `.app` 改格子、sw.js **v203**＋快照、E2E `24` G1（本機綠；`24`、`00`、`10`、`81` 34 支綠）。
+  **段四的修正動到 `public/` 就升 v204**
 - 部署之後：她手機上第一次打開，跑的是新的程式（舊的 service worker 是網路優先，會拿到新的檔案），最上面接著跳「有新版本」—— 點一下，之後就是新的這一套
 
 ### 本機模擬器上走一次（會寫入的）
@@ -193,7 +196,7 @@ docs/agents/lessons.md；docs/adr/README.md 的索引，再讀 ADR-0152、0158�
 
 提醒：
 - 動工前先 git fetch；develop 往前走了就 rebase，本機 develop 也對齊（lessons 十二）。
-- **修正動到 public/ 就把 sw.js 的 VERSION 升到 v203、跑 npm run shell:snapshot**（ADR-0167：同一個 VERSION 只能對一份內容，tests/shell-version.test.js 擋著）。
+- **修正動到 public/ 就把 sw.js 的 VERSION 升到 v204（v203 是段三最後修 iPad 橫放那一次用掉的）、跑 npm run shell:snapshot**（ADR-0167：同一個 VERSION 只能對一份內容，tests/shell-version.test.js 擋著）。
 - app.js、auth.js、repo.js、fixture 是 GLOBAL：日常驗收 npm test ＋ CI=1 npx playwright test <改到的那幾支>，全量丟 CI（gh workflow run e2e-full.yml --ref claude/after-golive-1020，gh 的 --jq）。
 - E2E 的「登入好了」是 #root[data-access="allowed"]，不是 .app__nav。
 - 中途發現先記進 HANDOFF、繼續做別的（段五一次問她）。

@@ -463,3 +463,31 @@ for (const vp of [{ width: 390, height: 844, label: '手機' }, { width: 1024, h
     }
   });
 }
+
+// ## 4. iPad 橫放時最上面那兩條
+//
+// 2026-10-21（after-golive 段三截圖看到、她說修）：≥900px 時 `.app` 是橫排（側邊導覽），
+// 「本機模擬器／STAGING」與「目前離線」那兩條也是 `.app` 的直接子元素 —— 變成左邊一整條很寬的直欄。
+// 模擬器上一定有 env 那一條，所以量得到。
+
+test('G1 iPad 橫放：最上面那兩條橫跨整個寬度，側邊導覽與內容在它們底下', async ({ app, page, context }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await app.signIn('/');
+  const check = async (sel) => {
+    const [bar, nav, body] = [await rectOf(page, sel), await rectOf(page, '.app__nav'), await rectOf(page, '.app__body')];
+    expect(bar, `${sel} 在畫面上`).not.toBeNull();
+    expect(bar.left, `${sel} 從最左邊開始`).toBeLessThanOrEqual(1);
+    expect(bar.right, `${sel} 一路到最右邊`).toBeGreaterThanOrEqual(1179);
+    expect(bar.bottom - bar.top, `${sel} 是一條、不是一欄`).toBeLessThan(80);
+    expect(nav.top, '側邊導覽在那一條底下').toBeGreaterThanOrEqual(bar.bottom - 1);
+    expect(body.top, '內容在那一條底下').toBeGreaterThanOrEqual(bar.bottom - 1);
+    expect(nav.right, '側邊導覽在內容左邊').toBeLessThanOrEqual(body.left + 1);
+  };
+  await check('.envbar');
+
+  test.info().annotations.push({ type: 'allow-console-errors', description: '這一段刻意斷線' });
+  await context.setOffline(true);
+  await expect(page.locator('.netbar')).toBeVisible();
+  await check('.netbar');
+  await context.setOffline(false);
+});

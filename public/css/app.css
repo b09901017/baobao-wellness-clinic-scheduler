@@ -295,8 +295,26 @@ svg {
     --gutter: 26px;
   }
 
+  /* 側邊導覽＋內容橫排。**最上面那兩條（.envbar、.netbar）照樣橫跨整個寬度**：以前這裡是 `flex-direction: row`，
+     那兩條也是 .app 的直接子元素，於是變成左邊一整條很寬的直欄（staging 上 iPad 橫放每一次都是，正式站離線時；
+     2026-10-21 段三截圖看到、她說修）。改成三列的格子：第一、二列給那兩條（沒有就是 0 高），第三列才是導覽＋內容 */
   .app {
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .app > .envbar { grid-area: 1 / 1 / 2 / -1; }
+  .app > .netbar { grid-area: 2 / 1 / 3 / -1; }
+  .app > .app__nav { grid-area: 3 / 1 / 4 / 2; }
+  .app > .app__body { grid-area: 3 / 2 / 4 / 3; }
+  /* 登入頁、沒有權限、連不上：那一張照舊在正中間 */
+  .app > .gate { grid-area: 3 / 1 / 4 / -1; }
+
+  /* 上面有一條的時候，鏡頭底下的是那一條（它自己讓過了），側邊那一欄不用再讓一次（同 .app__body 那一條） */
+  .app:has(.envbar) .app__nav,
+  .app:has(.netbar:not([hidden])) .app__nav {
+    padding-top: var(--space-4);
   }
 
   .app__nav {
