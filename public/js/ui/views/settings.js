@@ -23,6 +23,7 @@ import { missedData, readBoots, secs, stepsOf } from '../bootTiming.js';
 import * as swUpdate from '../swUpdate.js';
 import { isOffline } from '../net.js';
 import { dayOf, shortDate } from '../../domain/dates.js';
+import { ENV } from '../../firebase-config.js';
 
 const esc = f.esc;
 
@@ -124,7 +125,7 @@ export async function render(el) {
 
     ${lineMacroCard()}
 
-    ${bootTimesCard()}
+    ${ENV === 'prod' ? '' : bootTimesCard()}
 
     <section class="card card--flat" data-redownload>
       <h2 class="card__title">程式${tip(
@@ -212,6 +213,9 @@ function lineMacroCard() {
  * 打開要多久（after-golive 05）。跟「外觀」一樣**記在這一台裝置上**：最近 10 次開機，每一步是第幾秒到的。
  * 她手機上量出來的數字決定之後那幾招（先畫殼、程式檔先用手機裡的…）做不做、做完快了多少 —— 她截圖給我們看。
  * 量法在 `ui/bootTiming.js`。
+ *
+ * **正式站不畫**（2026-10-21 她：「量完先收起來，之後做 issue 09 還可以用」）：只在 staging 與模擬器畫，
+ * 開機照樣每一台都記（`app.js`，只存在這一台、一行都不擋開機）—— 要量的時候在 staging 上看。
  */
 function bootTimesCard() {
   const { ok, list } = readBoots();
