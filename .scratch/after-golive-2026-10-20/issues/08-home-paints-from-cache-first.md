@@ -1,6 +1,6 @@
 # 待辦首頁先用手機裡的資料畫，雲端回來有變再換
 
-Status: todo
+Status: done
 段：三（high）
 Blocked by: 07（殼要先在，這一支才看得出效果；程式上不依賴）
 動工前先讀：`ui/views/home.js` 的 `render()`（五份 `Promise.all`：`tasksData.listOpen()`、`visitsData.listByStatus('pending_confirm')`、`visitsData.listUnclosed(today, { tomorrow: true })`、`notesData.listOpen()`、`config.getSettings()` → `paint(ctx)` → `homeLoaders()`）；
@@ -45,3 +45,22 @@ Blocked by: 07（殼要先在，這一支才看得出效果；程式上不依賴
 
 - `CLAUDE.md`「算次數、驗證、預選額度要拿哪些來訪」那一列補一句：只拿來畫的快取讀取走另一支、不算進 `cacheReads()`
 - 新的 ADR（同 07 那一支或另一支）
+
+## 做完時留下的
+
+- **先量再寫**：`repo.listCached()`（`getDocsFromCache()`）不經過 `noted()`；E2E `81` P9 在快取先畫那一下之後從頁面上讀 `repo.cacheReads()` → 0
+  （走 `noted()` 的話每一份快取讀回來都會加一 —— 這一條沒有實際改成 `noted()` 量過紅燈）。ADR-0158 那幾條路（`listByCustomer()`、`visitsRead`、`listWhole()`）一個字沒動 —— 離線照舊擋
+- 五份的 `cacheOnly`：`tasks.listOpen()`、`notes.listOpen()`、`visits.listByStatus()`、`visits.listUnclosed()`、`config.getSettings()`（`getDocFromCache()`，不在手機裡就丟 → 當成快取是空的）
+- `home.js` 的 `render()`：雲端那一份一開始就去讀（`homeData()`），快取那一份（`cachedHomeData()`：**先問 `auth.confirmedAsRemembered()`** —— 快取不經過 Rules）
+  先回來而且雲端還沒回來才先畫；雲端回來比 `homeStamp()`（每一筆 id＋`updatedAt`、設定的 `updatedAt`），不一樣才重畫，**換同一個 `ctx` 的內容**；
+  抽屜（`drawer`／`whoDrawer`）開著時只換內容不重畫。雲端失敗但快取畫過了 → 留著、`toast.info()` 講一句。換頁之後才回來的不畫（`el.isConnected`）
+- `#view` 上掛 `data-home-data`（`cache`／`server`／`stale`）：E2E 分得出先畫的是哪一份（屬性換了不算換節點）。**fixture 的 `settled()` 把 `cache` 算成還沒畫完** ——
+  測試中途從模擬器改資料、回首頁讀一次數字的寫法才不會讀到這一台上次的
+- 首頁上每一條寫入拿的是哪一份（grep 過）：確認／簽療程單抽屜按下去重讀那位客戶的全部來訪（`listWhole()`）；勾待辦（`toggleWhoTask()` → `tasks.setDone()`）、
+  勾隨手記（`toggleNote()` → `note.prepareToggle()`）只寫 `done`／`doneAt`，健檢那一串在 `followupOpsAfterTaskChange()` 重讀；泡泡新增隨手記不吃任何一份。
+  快取那一份的 id 跟雲端那一份同一筆，只有「別台剛改過」那一兩秒會不一樣 —— 跟頁面開著一小時是同一種舊
+- 量開機：「資料」那一步是**第一次畫出數字**（快取那一次）。她手機上的「改之後」量的就是這個
+- E2E `81`：P9 雲端被攔慢 2.5 秒 → 先畫快取、`cacheReads()` 是 0、雲端回來一樣的話那一格還是同一個節點；P10 別台勾掉一件（從模擬器改、這一台的快取不知道）→ 先 2、雲端回來 1
+- 驗收：`npm test` 全綠；E2E `00`、`03`、`11`、`19`、`79`、`80`、`81` 本機 57 支綠。全量丟 CI
+- **只做了待辦首頁**。日曆、客戶清單要不要照做：等她手機上「資料」那一格的數字（段五）。照做的話同一套：`cacheOnly` 讀、先問 `confirmedAsRemembered()`、比了再換
+

@@ -9,7 +9,7 @@
 // （集合與文件必須交替出現）。這裡是最接近原意的合法寫法，
 // firestore.rules 的 match /config/{docId=**} 已經涵蓋。
 
-import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+import { doc, getDoc, getDocFromCache } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import { getDb } from './firebase.js';
 import * as repo from './repo.js';
@@ -47,8 +47,13 @@ export async function loadAll({ includeDeleted = false } = {}) {
 
 // ---------- 設定值 ----------
 
-export async function getSettings() {
-  const snap = await getDoc(doc(getDb(), 'config', 'app'));
+/**
+ * @param {{cacheOnly?: boolean}} [o] `cacheOnly`：只讀手機裡的（待辦首頁先畫那一下，ADR-0167）。
+ *   手機裡沒有這一份時**丟例外**（`getDocFromCache()`）—— 呼叫端當成「快取是空的」，照舊等雲端
+ */
+export async function getSettings({ cacheOnly = false } = {}) {
+  const ref = doc(getDb(), 'config', 'app');
+  const snap = await (cacheOnly ? getDocFromCache(ref) : getDoc(ref));
   return { ...DEFAULT_SETTINGS, ...(snap.exists() ? snap.data() : {}) };
 }
 

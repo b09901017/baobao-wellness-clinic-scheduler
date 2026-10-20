@@ -1,6 +1,6 @@
 # 程式檔先用手機裡的、背景下載新版、「有新版本・點一下更新」
 
-Status: todo
+Status: done
 段：三（high）
 動工前先讀：`public/sw.js` 全部（檔頭的策略、`SHELL`、`install` 的 `skipWaiting()`、`activate` 清舊快取＋`clients.claim()`、`networkFirst()` 的 3 秒逾時）；
 commit `0ae20497`（2026-08-18 改成網路優先的理由：部署後打開先看到舊版，要再重新整理一次）；`public/js/app.js` 最後註冊 `sw.js` 那一段；
@@ -59,3 +59,28 @@ commit `0ae20497`（2026-08-18 改成網路優先的理由：部署後打開先�
 - `lessons.md` 九：「明明改好了卻沒變」多一個原因（沒點更新、或忘了升版號）
 - `CLAUDE.md`「`public/` 底下任何檔案」那一列：忘了升 `VERSION` 的代價改了、有一道擋了
 - `sw.js` 的 `VERSION`（這個 PR 第一個動 `public/` 的升；跟段二搶的話照 `CLAUDE.md` 那一列：留大的）
+
+## 做完時留下的
+
+- `sw.js`：`SHELL` 照 `VERSION` 整份裝（`addAll()` ＋ `cache: 'reload'`，少一支整份不換）、**不 `skipWaiting()`**（`message` 收到 `skipWaiting` 才換）、
+  打開 app 的導覽只有 `/`、`/index.html` 回手機裡的（`APP_PAGES`；`/form.html` 與 `/__/auth/…` 照舊走網路 —— 後者是過目沒提到的：
+  Google 登入轉回來那一頁也在同一個網域）、讀的是**指定的那一格**（新版裝好、還沒換的那段時間舊的那一頁拿舊的）。
+  SDK 與字體在 `external-v1`，`activate` 只清 `shell-*`；換到這一版的那一次從舊的那一格搬過來（`adoptExternals()`）
+- 頁面那一側 `ui/swUpdate.js`：`register()`（排在 `main()` 之前 —— `main()` 壞掉的那一版，修好的那一版照樣要裝得進來）、`onUpdateReady()`、
+  `applyUpdate()`（按了才在 `controllerchange` 重新載入）、`redownload()`（設定頁）。回到 app（`visibilitychange`）時 `reg.update()`
+- **那一條放在最上面，不是底下**（跟方向第 3 點不一樣）：底部有導覽列、toast、懸浮鈕、釘住的條四樣在搶；放在 `.app__body` 的最上面
+  （手機在離線那一條底下、iPad 橫放在側邊那一欄右邊 —— 放在 `.app` 那一層的話 iPad 上 `.app` 是橫排，會變成一條直的），在文件流裡不蓋任何東西。
+  綠底（`--accent`）白字（`--accent-text`），整條是一顆按鈕、右邊 × 收掉。E2E `81` P4 用 `elementFromPoint()` 量點得到
+- 忘了升版號的擋：`scripts/shell-snapshot.mjs`（`npm run shell:snapshot`）＋`tests/shell-version.snapshot.json`＋`tests/shell-version.test.js`。
+  雜湊的是 `git ls-files public` 每一支（文字檔 CRLF → LF、`sw.js` 拿掉 VERSION 那一行）。**同一個 VERSION 只能對一份內容**，所以同一支 PR 裡第二次動 `public/` 也要再加一 ——
+  `CLAUDE.md` 那一列的「後面的不用再升」改掉了。**這一段例外**：快照是這一段才有的、v202 還沒部署，07、08 的 commit 重產快照時先刪掉再跑（段四之後照新規矩加一）
+- 設定 →「程式」→ 重新下載程式（確認框）：unregister ＋ 清 `shell-*` ＋ 重新整理（E2E `81` P11：按下去、確認、重新整理、舊的那一格清掉、資料都在、又裝回來）
+- **E2E 攔不到瀏覽器去比對 `sw.js` 的那一下**（`context.route('**/sw.js')` 一次都沒被叫到，量過）。所以 `81` P4 用 `register('/sw.js?e2e=next')`
+  造出「新的一版在等」（網址不一樣就是新的一版）、新版的 `index.html` 攔得到（service worker 自己去抓的那一下攔得到）。
+  換 VERSION 時清哪幾格、留哪幾格、少一支整份不換：`tests/sw-cache.test.js` 拿假的 `caches` 跑 `sw.js` 本身（`vm`）
+- 判準那幾條：P1 第二次打開 service worker 一支程式檔都沒打到網路（安裝時量得到 161 支，所以不是量不到）、P2 第一次安裝不重新載入、P3 `/form.html`、P4 那一條／點了才換／換完離線打得開
+- 「換版之後離線打開 → 改之前是紅的」沒有在 E2E 重現（造不出換 VERSION）；`sw-cache.test.js` 的「換版」那一條在舊的 `sw.js` 上會紅（舊的整格刪、而且 `skipWaiting()`）
+- 驗收：`npm test` 5197 全綠；E2E `00`、`10`、`79`、`81` 15 支全綠（`CI=1`）。`app.js`、`shell.js` 是 GLOBAL → 全量丟 CI（段三最後）
+- 第一次安裝之後**第一次離線打開**可能還是缺 SDK（第一次載入時 service worker 還沒接手，SDK 沒經過它）—— 改之前就是這樣、`10` 的 O3 兩種結果都收；
+  第二次打開之後就在了。沒有把 SDK 的網址列進 `install`（那一份會跟 `firebase.js` 的版本各寫一次）
+

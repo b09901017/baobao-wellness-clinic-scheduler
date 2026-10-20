@@ -623,6 +623,19 @@ export const COVERAGE = {
   '79-boot-timing': [
     'public/js/ui/bootTiming.js', 'public/js/ui/views/settings.js', 'public/js/ui/views/home.js',
   ],
+  // 逾期／今天／明天那三頁的「已完成」照日子算、三塊、只給看與拿回來（after-golive 03、04，ADR-0166）。
+  // 三個入口勾的都要算：日曆的待辦卡片、簽療程單那一頁
+  '80-bucket-done': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/domain/dates.js',
+    'public/js/domain/notes.js', 'public/js/ui/components/note.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 打開 app 先用手機裡的（after-golive 06、07、08，ADR-0167）：程式檔先用手機裡的＋「有新版本」那一條、
+  // 先畫殼、首頁先用快取畫。先畫殼那一半在 app.js／auth.js／repo.js（GLOBAL，改了本來就全跑）
+  '81-boot-from-device': [
+    'public/sw.js', 'public/js/ui/swUpdate.js', 'public/js/ui/views/home.js', 'public/js/ui/views/settings.js',
+    'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/data/visits.js', 'public/js/data/config.js',
+  ],
 };
 
 /**

@@ -1,6 +1,6 @@
 # 這一台上次通過了，就先畫殼，登入在背景確認
 
-Status: todo
+Status: done
 段：三（high）
 動工前先讀：`public/js/app.js`（`watchAuth()` 的四種結果：沒登入、`unreachable`、`denied`、`allowed`；`shellMounted`；`booted()` 與 `index.html` 的保險絲）；
 `public/js/data/auth.js`（`watchAuth()`、`accessState()` 的三種答案與它檔頭那段「連不上不是沒有權限」）；`public/js/ui/shell.js` 的 `renderGate()`／`renderShell()`；
@@ -48,3 +48,25 @@ Firestore 的離線快取是跟著登入的人走的（登入還沒確認之前�
 
 - 新的 ADR（跟 06、08 可以寫同一支「打開 app 先用手機裡的」，或各一支 —— 段裡決定）
 - `docs/常見問題.md`：「打開先看到畫面、過一下才跳登入頁」那一題（被登出時會這樣）
+
+## 做完時留下的
+
+- 記的那一筆：`data/auth.js` 的 `lastAllowedUid()`／`forgetAllowed()`（`localStorage` 的 `scheduler.allowedUid`），`watchAuth()` 裡白名單說可以就記、說不行或沒登入就清；
+  `signOut()` 先清再登出。08 用的 `confirmedAsRemembered()`（`authStateReady()` 之後，登入的就是記著的那一位）也在這裡
+- `app.js` 的 `main()`：記著 → `mountShell()`（`renderShell` ＋ 量「畫面」）＋`booted()`；之後 `watchAuth` 的四種結果走 `gate()`（清 `data-access`、`bootTiming.drop()`、`renderGate`）
+  或 `confirmed()`（掛 `#root[data-access="allowed"]`、第一次才 `sheetSync.wire()`）。**不同的一位整個殼重畫**（`shellUid !== user.uid`）
+- **`unreachable` 段裡決定：記著的就是這一位 → 留著殼**（寫進 ADR-0167）。不是這一位照舊「連不上」那一頁
+- 寫入：`repo.js` 的 `actorId()` 改成 `async`、先 `authStateReady()`。**過目寫的是「會記成 unknown」—— 其實更糟**：Rules 只收 `actor == request.auth.uid`，
+  記成 `unknown` 的那一批整批被擋（E2E `81` P8 在改之前會紅）
+- 殼畫第二次的接線：`router.start()` 先拆上一個 `hashchange`、`shell.js` 的 `watchOffline` 與「有新版本」那一條的通知先拆、
+  **`wireBackLinks()` 只接一次**（過目沒提到：`#root` 換殼時不換，接兩次的話按一下「回上一頁」退兩步 —— 被登出又登入時本來就會發生）
+- 量開機（05）跟著改：殼比登入早到之後，`bootTiming` 的**總數改成她等到的那一步**（首頁＝資料、別頁＝畫面），走完之後晚到的「登入」「權限」照樣記
+  （09 要看它們）；`drop()` 走完了也拿掉（先畫殼的那一次，登入回來才知道是登入頁）。`tests/boot-timing.test.js`、E2E `79` 的 B1、B2 跟著改
+- E2E fixture：「登入好了」從 `.app__nav` 換成 `#root[data-access="allowed"]`（`SIGNED_IN`，三處）；`emulator.js` 多 `revokeUser()`
+- E2E `81`：P5 登入被攔慢 2.5 秒 → 殼先出來、那時候還沒確認、確認之後照常；P6 移出白名單 → 換成「沒有權限」、再打開一下都沒畫殼；
+  P7 登出 → 另開一頁打開直接是登入頁（**fixture 的 `primeAuth()` 是那一頁的 init script，重新整理就又登入了**，所以另開一頁、舊的那一頁先關 ——
+  換到 about:blank 的話那個 init script 開 IndexedDB 會丟錯）；P8 登入還在確認時新增一則隨手記 → 稽核記的是她
+- 畫面上每一個新增的入口都要先讀資料（讀取排隊等登入），所以「登入還沒回來就按得到寫入」在畫面上幾乎碰不到；P8 是直接叫 `notes.create()`
+- **被移出白名單的那一下**：殼先畫、首頁的讀取被 Rules 擋（「讀取失敗」閃一下）、接著換成「沒有權限」。只有那一次，她碰不到（只有她一個帳號）
+- 驗收：`npm test` 全綠；E2E `00`、`10`、`15`、`19`、`24`、`79`、`81` 本機 77 支綠（P7 第一次寫法 flaky，改成關掉舊的那一頁之後連三次綠）。fixture 是 GLOBAL → 全量丟 CI（段三最後）
+

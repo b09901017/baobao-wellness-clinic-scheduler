@@ -1,4 +1,4 @@
-import { navRoutes, activeNavPath, start } from './router.js';
+import { navRoutes, activeNavPath, start, stop as stopRouter } from './router.js';
 import { icon } from './icons.js';
 import { esc } from './components/form.js';
 import { back } from './nav.js';
@@ -6,6 +6,20 @@ import { setSignOut } from './session.js';
 import { watchSystemTheme } from './theme.js';
 import { watchOffline } from './net.js';
 import { envBanner } from '../firebase-config.js';
+import { onUpdateReady, applyUpdate } from './swUpdate.js';
+
+// 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號，ADR-0167）：上一個殼掛的通知先拆掉
+let stopUpdateWatch = null;
+let stopNetWatch = null;
+
+/** 殼換成登入頁（被登出、沒有權限、連不上）：殼掛在 `window` 上的那幾個一起拆 —— 登入頁沒有 `#view`、沒有那兩條。 */
+function unmountShell() {
+  stopRouter();
+  stopNetWatch?.();
+  stopNetWatch = null;
+  stopUpdateWatch?.();
+  stopUpdateWatch = null;
+}
 
 /**
  * app 叫什麼。登入畫面的抬頭與分頁標題讀它；主畫面圖示底下那個名字在
@@ -73,6 +87,7 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut, onRet
       <p><button class="btn" type="button" data-signout>換一個帳號</button></p>`,
   };
 
+  unmountShell();
   root.innerHTML = `${envBarHtml()}<div class="gate"><div class="card gate__box">${boxes[state]}</div></div>`;
   root.querySelector('[data-signin]')?.addEventListener('click', onSignIn);
   root.querySelector('[data-signout]')?.addEventListener('click', onSignOut);
@@ -116,6 +131,10 @@ export function renderShell(root, { onSignOut }) {
     </div>
     <nav class="app__nav" aria-label="主選單"></nav>
     <div class="app__body">
+      <div class="updatebar" data-updatebar hidden>
+        <button class="updatebar__go" type="button" data-update-go>有新版本・點一下更新</button>
+        <button class="updatebar__x" type="button" data-update-x aria-label="先不要">${icon('close', { size: 16 })}</button>
+      </div>
       <main class="app__main" id="view" tabindex="-1"></main>
     </div>
   `;
@@ -124,7 +143,24 @@ export function renderShell(root, { onSignOut }) {
   // 學會忽略它（同 `data/sheetSync.js` 對推送失敗的判斷）。
   // 這一條也不擋任何操作：資料進得了本機快取，記得下來才是重點。
   const netBar = root.querySelector('.netbar');
-  watchOffline((offline) => { netBar.hidden = !offline; });
+  stopNetWatch?.();
+  stopNetWatch = watchOffline((offline) => { netBar.hidden = !offline; });
+
+  // 有新版本在等（ADR-0167）。跟離線那一條同一個位置：底部已經有導覽列、toast、懸浮鈕、釘住的條四樣在搶。
+  // **不擋任何操作**；收掉之後這一次打開不再跳（下次打開還在等的話再跳）
+  const updateBar = root.querySelector('[data-updatebar]');
+  let dismissed = false;
+  stopUpdateWatch?.();
+  stopUpdateWatch = onUpdateReady(() => { if (!dismissed) updateBar.hidden = false; });
+  updateBar.querySelector('[data-update-go]').addEventListener('click', (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = '更新中…';
+    applyUpdate();
+  });
+  updateBar.querySelector('[data-update-x]').addEventListener('click', () => {
+    dismissed = true;
+    updateBar.hidden = true;
+  });
 
   const navEl = root.querySelector('.app__nav');
 
@@ -170,6 +206,9 @@ function freshView(root) {
   const old = root.querySelector('#view');
   // cloneNode(false)：屬性照抄（id、class、tabindex），子節點與監聽都不抄。
   const next = old.cloneNode(false);
+  // 上一頁掛在自己身上的記號（`data-*`）也不抄：待辦首頁的 `data-home-data="cache"` 跟過來的話，
+  // 雲端還沒回來就換頁時下一頁一直帶著它（E2E 的 `settled()` 把它當成還沒畫完，等到逾時）
+  for (const key of Object.keys(next.dataset)) delete next.dataset[key];
   old.replaceWith(next);
   return next;
 }
@@ -189,6 +228,9 @@ function freshView(root) {
  * 是同一頁上的前一個畫面。
  */
 function wireBackLinks(root) {
+  // `#root` 換殼時不會換（只換裡面），**只接一次** —— 接兩次的話按一下回上一頁會退兩步
+  if (root.dataset.backlinks) return;
+  root.dataset.backlinks = '1';
   root.addEventListener('click', (e) => {
     const link = e.target.closest('a.backlink');
     if (!link || link.hasAttribute('data-back')) return;

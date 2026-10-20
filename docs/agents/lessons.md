@@ -120,11 +120,16 @@
 
 ## 九、部署：看起來成功不等於成功
 
-- Firebase Hosting 預設 `Cache-Control: max-age=3600`（`/js/**`、`/css/**`、連 `/`）。service worker 是網路優先，但它抓檔也經過瀏覽器快取 → **「明明改好了卻沒變」可能是這個**，不一定是 `sw.js` 版號
+- Firebase Hosting 預設 `Cache-Control: max-age=3600`（`/js/**`、`/css/**`、連 `/`）。service worker 抓檔也經過瀏覽器快取 → **「明明改好了卻沒變」可能是這個**，不一定是 `sw.js` 版號
+  （10/8 起 `firebase.json` 全部 `no-cache`；10/21 起 `sw.js` 裝新版時帶 `cache: 'reload'` 不拿 HTTP 快取那一份 —— 下面那一條）
 - firebase-tools 只在互動模式補 Storage 跨服務 Rules 要的 IAM 角色；CI 與 agent 的 shell 都是非互動，**一聲不響地跳過** → 療程單照片 403
 - deploy job 三個步驟要全綠；Hosting 綠、Storage 紅看起來像部署好了（9/17）
 - 拍照的 Function 不歸 CI 部署；`.firebaserc` 預設是正式站，本機部署漏打 `--project` 就上正式（10/8 預設改成 staging；要上正式的指令自己帶 `--project prod`）
 - 本機模擬器**在 Windows 上不回 `firebase.json` 的 `headers`**（`glob-slasher` 把規則的 `/` 換成 `\`，一條都對不上）—— 她的機器上 `curl -sI 127.0.0.1:5000/…` 看不到 Cache-Control 不代表規則寫錯；CI（Linux）與真的 Hosting 才看得到
+
+- **2026-10-21 起程式檔先用手機裡的**（ADR-0167）：部署之後手機上要點一次「有新版本・點一下更新」才是新的。
+  「明明改好了卻沒變」多兩個原因：**沒點更新**，或**忘了升 `sw.js` 的 VERSION**（那一版永遠不會被裝 —— `tests/shell-version.test.js` 擋著）。
+  E2E 攔不到瀏覽器去比對 `sw.js` 的那一下（Playwright 的 route 一次都沒被叫到），換版那一段只在單元測試（`tests/sw-cache.test.js`）跑
 
 > 這一步在非互動模式下會不會被跳過？部署完我是怎麼確認新版真的在跑的？
 

@@ -12,7 +12,9 @@
 //   權限　白名單問完了
 //   畫面　殼畫出來（底下那一排）
 //   資料　待辦首頁第一次畫出數字 —— **只有從首頁打開的那幾次才有**，從別頁網址打開的只記到「畫面」
-// 之後先畫殼、先用快取畫（07、08）各步會重疊，「加起來＝總數」就不成立 —— 所以記時間點、照先後排。
+// 先畫殼、先用快取畫（07、08，ADR-0167）之後各步會重疊（畫面、資料比登入、權限早到），「加起來＝總數」就不成立 ——
+// 所以記時間點、照先後排；**總數是她等到的那一步**（從首頁打開＝資料、從別頁＝畫面），不是最後到的那一步。
+// 走完之後晚到的「登入」「權限」照樣記（看 09 要不要做就是看它們），只是不算進總數。
 //
 // ## 為什麼記在 localStorage
 //
@@ -80,7 +82,8 @@ export function withoutBoot(list, at) {
 export const missedData = (record) => !!record?.home && !Number.isFinite(record?.marks?.data);
 
 /**
- * 一筆紀錄 → 卡上要畫的：到了的那幾步（照時間先後）、最後一步是幾毫秒。
+ * 一筆紀錄 → 卡上要畫的：到了的那幾步（照時間先後）、總數是幾毫秒。
+ * **總數是她等到的那一步**：從首頁打開＝「資料」、從別頁＝「畫面」；那一步沒到（還在載入就關掉）才退回最後到的那一步。
  * 認不得的步、不是數字的都略過。
  */
 export function stepsOf(record) {
@@ -88,7 +91,9 @@ export function stepsOf(record) {
   const steps = STEPS.filter((s) => Number.isFinite(marks[s.id]))
     .map((s) => ({ id: s.id, label: s.label, ms: marks[s.id] }))
     .sort((a, b) => a.ms - b.ms);
-  return { steps, total: steps.length ? steps[steps.length - 1].ms : null };
+  const end = record?.home === false ? marks.shell : marks.data;
+  const total = Number.isFinite(end) ? end : steps.length ? steps[steps.length - 1].ms : null;
+  return { steps, total };
 }
 
 /** 毫秒 → 「2.8」（秒，一位小數）。 */
@@ -127,13 +132,17 @@ export function begin({ home } = {}) {
   }
 }
 
+/** 走完之後還收的那兩步：先畫殼、先用快取畫之後它們常常比畫面、數字晚到（ADR-0167） */
+const LATE_OK = new Set(['auth', 'access']);
+
 /**
  * 到了哪一步。同一步只記第一次（登入每換一次 token 就回來一次）。每到一步就寫一次。
- * 「畫面」那一步：從別頁打開的到這裡就走完了；「資料」那一步走完整筆。
+ * 「畫面」那一步：從別頁打開的到這裡就走完了；「資料」那一步走完整筆。走完之後只再收「登入」「權限」。
  */
 export function mark(id) {
   try {
-    if (boot?.state !== 'open' || !STEP_IDS.has(id) || id in boot.marks) return;
+    const late = boot?.state === 'done' && LATE_OK.has(id);
+    if ((boot?.state !== 'open' && !late) || !STEP_IDS.has(id) || id in boot.marks) return;
     boot.marks[id] = now();
     if (id === 'data' || (id === 'shell' && !boot.home)) {
       boot.state = 'done';
@@ -145,10 +154,13 @@ export function mark(id) {
   }
 }
 
-/** 這一次不算一次正常開機（登入頁、沒有權限、連不上、首頁讀不到資料）：已經寫了的那幾步也拿掉。 */
+/**
+ * 這一次不算一次正常開機（登入頁、沒有權限、連不上、首頁讀不到資料）：已經寫了的那幾步也拿掉。
+ * **走完了也拿掉**：先畫殼的那一次（ADR-0167）畫面早就到了，登入回來才知道是登入頁
+ */
 export function drop() {
   try {
-    if (boot?.state !== 'open') return;
+    if (boot?.state !== 'open' && boot?.state !== 'done') return;
     boot.state = 'dropped';
     write((list) => withoutBoot(list, boot.at));
   } catch {

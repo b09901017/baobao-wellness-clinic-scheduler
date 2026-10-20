@@ -1,6 +1,6 @@
 # 逾期／今天／明天那三頁的「已完成」畫三塊、只給看與拿回來
 
-Status: todo
+Status: done
 段：二（xhigh）
 Blocked by: 03
 動工前先讀：`ui/views/home.js` 的 `renderGroup()`、`paintTasks()`（「未完成 N」＝三塊加起來）、`openList()` 與那三塊（`wireBucketBlocks()`、`[data-notes] [data-note]` → `note.prepareToggle()`、簽療程單那一列 `leaveFor('todo/close', id)`、明天那一塊 `comingBlock()` → `openTaskVisit()`）、
@@ -56,3 +56,20 @@ Blocked by: 03
 - `SPEC.md:1378`（長按「五個入口同一份」那一句）
 - `docs/操作手冊.md` 待辦首頁那一段
 - `sw.js` 的 `VERSION`（這個 PR 第一個動 `public/` 的那一支升；段一已經用了 v201 → 這裡 v202）
+
+## 做完時留下的
+
+- `home.js`：三頁的已完成走 **`bucketDoneList(ctx)`**（讀 03 的 `ctx.finished`），分類頁照舊 `doneList()`。三塊順序同未完成那一側、空的不畫、只有任務時不印小標（同 `openList()`）；
+  「已完成 N」＝`bucketCount(ctx.finished)`。讀不到（`finished` 是 `null`）講一句「現在讀不到已完成的那幾件」＋一顆「再讀一次」（重跑 `renderGroup()`），未完成照畫
+- **刪得掉的東西一個都沒有**：任務那一列 `doneRow(t, { trash: false })`、不畫「清掉這 N 筆」；隨手記那一塊的容器是 **`[data-done-notes]`**（不是 `[data-notes]`）——
+  `wireNoteLongPress()` 只接 `[data-notes]`，所以長按沒接上（對勾掉的那幾筆，長按選單有「刪掉」）。點一下走同一支 `prepareToggle()`（`wireNoteToggles()`，未完成與已完成兩塊共用；
+  以前 `wireBucketBlocks()` 沒有開著的隨手記就提早 return，已完成那一塊根本接不到）
+- 簽好的那一天：`signedRow()`，長得跟勾掉的任務、隨手記同一種（`note note--done`），底下一行「8/29(六)・1 段做了、1 段沒來」；
+  點下去走 `data-visit` → `openTaskVisit()`（同明天來的那一列）。**`loadTaskVisits()` 多收 `ctx.finished.close` 的 id** —— 不收的話只會跳「找不到這一天的來訪」
+- E2E **`80-bucket-done`**（登記進 `related.js`）：D1 今天那一頁勾任務、日曆勾隨手記、簽療程單那一頁簽 → 已完成 3、三塊各一件、沒有會刪東西的按鈕；`travelTo(明天)` → 空了、
+  隨手記頁／Examine 頁／資料照舊在。D2 逾期只收今天才做完的（含一出生就結案的那一天不收）。D3 長按已完成的隨手記沒有按壓回饋（對照：未完成那一則有、而且開得出選單）、
+  點一下拿回來、簽好的那一天開讀取卡片（沒有勾選框、沒有「找不到」）、Examine 那一頁的垃圾桶與「清掉」照舊。D4 明天提早做完 → 明天的已完成；`travelTo(明天)` → 今天的已完成
+- **種子的坑**（寫進 spec 的檔頭）：`seedDocs()` 補的 `createdAt`／`updatedAt` 是兩次 `new Date()`，常常同一毫秒 —— 在 app 眼裡就是「一出生就做完的」。種做完的資料一律自己給兩格（`touched()`／`born()`）
+- 文件：`docs/常見問題.md`「我勾掉的待辦不見了」分成分類頁與三頁、新的兩題（昨天勾的怎麼不見了、有一件我沒做過）、「首頁的今天比底下多」補一句已完成不算；
+  `docs/操作手冊.md` 第四節多「首頁上那三顆」；SPEC 8.1 分類頁那一條與長按「五個入口」補例外；`docs/邊界測試清單.md` F6 限定分類頁、多 F8（半夜勾）、F9（開著過午夜）
+- `tests/todo-bucket-done.test.js` 多兩條掃原始碼：`bucketDoneList()` 沒有 `data-clear-done`／`data-drop`／`[data-notes]`；`loadBucketDone()` 接住例外回 `null`

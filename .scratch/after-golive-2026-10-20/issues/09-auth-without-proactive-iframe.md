@@ -1,7 +1,7 @@
 # 登入不先載 Google 的 iframe（看 05 的數字決定做不做）
 
-Status: todo
-段：五（medium／high —— 看要不要做）
+Status: todo（2026-10-21 她：先量，下一輪再決定 —— 第二個 PR 上 staging 之後她量「改之後」，「登入」那一格還 > 0.5 秒才做）
+段：五（medium／high —— 看要不要做）→ 延到下一輪
 Blocked by: 05（她手機上的數字）、07
 動工前先讀：`public/js/data/firebase.js` 的 `initFirebase()`（`getAuth(app)`）；`public/js/data/auth.js` 的 `signIn()`（裝到主畫面的那一顆走 `signInWithRedirect`、瀏覽器分頁走 `signInWithPopup`）與 `prefersRedirect()`／`INSTALLED`；
 Firebase JS SDK 的 `getAuth()` 預設帶 `browserPopupRedirectResolver`，而它在**手機瀏覽器**上 `_shouldInitProactively` 為真 → 初始化時先載 `apis.google.com` 的腳本與 `authDomain` 的 iframe，載完才開始還原登入；

@@ -2,7 +2,7 @@
 //
 // 她 2026-10-20：「剛打開app的時候，會卡在載入中5 6 秒」。真正慢在哪只有她的手機量得到，
 // 所以這一支盯的不是快不快，是**量的那一張對不對、會不會擋開機**：
-//   B1 從首頁打開 → 設定頁那一張看得到五步、照先後遞增、最後一步＝總數
+//   B1 從首頁打開 → 設定頁那一張看得到五步、照先後排、總數＝「資料」那一步（先畫殼之後登入、權限可能比數字晚到，ADR-0167）
 //   B2 從別頁打開 → 只記到「畫面」
 //   B3 記不住（那一個 key 一碰就丟例外）→ 照樣開機、那一張寫「記不住」
 
@@ -19,12 +19,12 @@ async function latestRow(app, page) {
   }));
 }
 
-test('B1 從首頁打開 → 設定頁那一張：五步照先後遞增、最後一步就是總數', async ({ app, page }) => {
+test('B1 從首頁打開 → 設定頁那一張：五步照先後排、總數是「資料」那一步', async ({ app, page }) => {
   await app.signIn('/');
   // 第一次登入的那一趟可能走過登入頁（那一次不記）—— 重新打開一次，才是一次正常開機。
   // **要 reload**：`goto()` 到只差 hash 的同一頁不會重新載入
   await page.reload();
-  await expect(page.locator('.app__nav')).toBeVisible();
+  await expect(page.locator('#root[data-access="allowed"]')).toBeVisible();
   await app.settled();
 
   const { total, steps } = await latestRow(app, page);
@@ -33,8 +33,11 @@ test('B1 從首頁打開 → 設定頁那一張：五步照先後遞增、最後
   for (let i = 1; i < steps.length; i += 1) {
     expect(steps[i].ms, `${steps[i].text} 要在 ${steps[i - 1].text} 之後`).toBeGreaterThanOrEqual(steps[i - 1].ms);
   }
-  expect(steps.at(-1).id, '最後到的是待辦的數字').toBe('data');
-  expect(total).toBe(steps.at(-1).ms);
+  // 先畫殼（ADR-0167）：重新整理時這一台記著上一次通過了，畫面比登入早到
+  expect(steps[0].id, '程式最先').toBe('code');
+  const at = Object.fromEntries(steps.map((s) => [s.id, s.ms]));
+  expect(at.shell, '殼比登入早畫出來').toBeLessThanOrEqual(at.auth);
+  expect(total, '總數是她看到待辦數字的那一刻').toBe(at.data);
   // 抬頭那一句講的是同一個數字
   await expect(page.locator('[data-boot-latest]')).toHaveText(`${(Math.round(total / 100) / 10).toFixed(1)} 秒`);
   await expect(page.locator('[data-boottimes]')).toContainText('看到待辦的數字');
@@ -45,12 +48,12 @@ test('B1 從首頁打開 → 設定頁那一張：五步照先後遞增、最後
 test('B2 從別頁打開 → 只記到「畫面」，之後回首頁畫出數字不算進那一次', async ({ app, page }) => {
   await app.signIn('/customers');
   await page.reload();
-  await expect(page.locator('.app__nav')).toBeVisible();
+  await expect(page.locator('#root[data-access="allowed"]')).toBeVisible();
   await app.settled();
   await app.go('#/');
   const { total, steps } = await latestRow(app, page);
   expect(steps.map((s) => s.id).sort()).toEqual(['access', 'auth', 'code', 'shell']);
-  expect(total).toBe(Math.max(...steps.map((s) => s.ms)));
+  expect(total, '從別頁打開：總數是畫面那一步').toBe(steps.find((s) => s.id === 'shell').ms);
   await expect(page.locator('[data-boottimes]')).toContainText('從別頁打開');
 });
 
@@ -69,7 +72,7 @@ test('B3 這一台記不住（那一個 key 一讀一寫就丟例外）→ 照�
   }, 'scheduler.bootTimes');
   await app.signIn('/');
   await page.reload();
-  await expect(page.locator('.app__nav')).toBeVisible();
+  await expect(page.locator('#root[data-access="allowed"]')).toBeVisible();
   await app.settled();
   await app.go('#/settings');
   await expect(page.locator('[data-boottimes]')).toContainText('這一台記不住');

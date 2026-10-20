@@ -17,8 +17,9 @@ export const get = (id) => repo.getOne(PATH, id);
  * 還沒做完的任務，死線近的在前。待辦中心的主清單。
  * 需要 (deletedAt, done, dueDate asc) 複合索引，已列在 firestore.indexes.json。
  */
-export function listOpen() {
-  return repo.list(PATH, {
+export function listOpen({ cacheOnly = false } = {}) {
+  // `cacheOnly`：待辦首頁先用手機裡的畫（只拿來畫，`repo.listCached()`，ADR-0167）
+  return (cacheOnly ? repo.listCached : repo.list)(PATH, {
     wheres: [where('done', '==', false)],
     order: ['dueDate', 'asc'],
   });
@@ -38,6 +39,36 @@ export function listDone(limit = 200) {
     wheres: [where('done', '==', true)],
     order: ['doneAt', 'desc'],
     limit,
+  });
+}
+
+/**
+ * 勾掉的、死線落在這段日子裡的。待辦「今天」「明天」那兩頁的已完成用（ADR-0166）。
+ *
+ * **不可以拿 `listDone()` 那最近 200 筆來濾**：那一份照勾掉的時間取，這兩頁照死線選 —— 掛號那一類常常
+ * 來訪前幾週就勾掉了，之後又勾了兩百張別的，死線今天的那一張就不在裡面。
+ * 哪幾張真的算由 `domain/todoFlow.js` 的 `doneBuckets()` 判，這裡只撈可能的。
+ *
+ * 用的是 `listOpen()` 那一個 (deletedAt, done, dueDate asc) 複合索引。
+ */
+export function listDoneDue(from, to) {
+  return repo.list(PATH, {
+    wheres: [where('done', '==', true), where('dueDate', '>=', from), where('dueDate', '<=', to)],
+    order: ['dueDate', 'asc'],
+  });
+}
+
+/**
+ * 從某一刻起勾掉的。待辦「逾期」那一頁的已完成用：今天才勾掉的那幾張（ADR-0166）。
+ *
+ * `doneAt` 存的是 `toISOString()`（UTC），所以 `since` 也要是那個形狀 —— 傳 `dates.js` 的 `startOfDayISO(today)`，
+ * 不要傳 'YYYY-MM-DD'（台灣 00:00–08:00 勾的會漏）。
+ * 用的是 `listDone()` 那一個 (deletedAt, done, doneAt desc) 複合索引。
+ */
+export function listDoneSince(since) {
+  return repo.list(PATH, {
+    wheres: [where('done', '==', true), where('doneAt', '>=', since)],
+    order: ['doneAt', 'desc'],
   });
 }
 

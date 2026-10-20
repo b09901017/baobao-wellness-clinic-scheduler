@@ -58,10 +58,12 @@ describe('存回去的那一份', () => {
 });
 
 describe('卡上那一列', () => {
-  test('照時間先後排、最後一步就是總數（之後各步會重疊，不假設照順序到）', () => {
-    const { steps, total } = stepsOf({ marks: { code: 900, shell: 1000, auth: 1700, access: 2100, data: 1200 } });
+  test('照時間先後排；總數是她等到的那一步（首頁＝資料），不是最後到的那一步（先畫殼之後各步重疊）', () => {
+    const { steps, total } = stepsOf({ home: true, marks: { code: 900, shell: 1000, auth: 1700, access: 2100, data: 1200 } });
     assert.deepEqual(steps.map((s) => s.id), ['code', 'shell', 'data', 'auth', 'access']);
-    assert.equal(total, 2100);
+    assert.equal(total, 1200);
+    assert.equal(stepsOf({ home: false, marks: { code: 900, shell: 1000, auth: 1700, access: 2100 } }).total, 1000, '從別頁＝畫面');
+    assert.equal(stepsOf({ home: true, marks: { code: 900, shell: 1000, auth: 1700 } }).total, 1700, '沒等到數字：退回最後到的那一步');
   });
 
   test('從別頁打開的只到「畫面」；認不得的步、不是數字的略過', () => {
@@ -146,6 +148,19 @@ describe('這一次開機', () => {
     assert.equal(saved(storage)[0].done, true);
     mark('data');
     assert.equal(saved(storage)[0].marks.data, undefined);
+  });
+
+  test('先畫殼（ADR-0167）：走完之後晚到的「登入」「權限」照樣記，別的不收；之後才知道是登入頁也拿掉', () => {
+    const { storage } = fakeBrowser();
+    begin({ home: false });
+    mark('shell');
+    assert.equal(saved(storage)[0].done, true);
+    mark('auth');
+    mark('access');
+    mark('data');
+    assert.deepEqual(Object.keys(saved(storage)[0].marks), ['code', 'shell', 'auth', 'access']);
+    drop();
+    assert.deepEqual(saved(storage), []);
   });
 
   test('還沒走完就換頁：停在換頁之前（留著、標沒等到數字），之後回首頁不算', () => {

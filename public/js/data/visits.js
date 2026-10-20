@@ -114,8 +114,9 @@ export async function listWhole(customerId, customerName = '') {
  * 待辦中心用它抓「已壓表、還在等客戶回覆」的那些。
  * 需要 (deletedAt, status, date asc) 複合索引，已列在 firestore.indexes.json。
  */
-export function listByStatus(status) {
-  return repo.list(PATH, {
+export function listByStatus(status, { cacheOnly = false } = {}) {
+  // `cacheOnly`：待辦首頁先用手機裡的畫（只拿來畫，`repo.listCached()`，ADR-0167）—— 不碰 `visitsRead`
+  return (cacheOnly ? repo.listCached : repo.list)(PATH, {
     wheres: [where('status', '==', status)],
     order: ['date', 'asc'],
   });
@@ -134,13 +135,13 @@ export function listByStatus(status) {
  * 哪幾筆真的要收尾由 `domain/visits.js` 的 `visitsToClose()` 決定，
  * 這裡只負責把可能的那些撈回來 —— 規則不寫在 /data。
  */
-export function listUnclosed(today, { tomorrow = false } = {}) {
+export function listUnclosed(today, { tomorrow = false, cacheOnly = false } = {}) {
   // `tomorrow`：待辦首頁「明天」那一格要明天的（issue 11，ADR-0162）。只多撈一天 ——
   // 拿去簽的那幾處照舊過 `visitsToClose()`（`date <= today`），明天的不會被簽成做了
   const through = tomorrow ? addDays(today, 1) : today;
   return Promise.all(
     ['confirmed', 'pending_confirm'].map((status) =>
-      repo.list(PATH, {
+      (cacheOnly ? repo.listCached : repo.list)(PATH, {
         wheres: [where('status', '==', status), where('date', '<=', through)],
         order: ['date', 'asc'],
       }),
@@ -192,6 +193,19 @@ export function listForSheet(today) {
     wheres: [where('date', '<=', addDays(today, SHEET_LOOKAHEAD_DAYS))],
     order: ['date', 'asc'],
   });
+}
+
+/**
+ * 整筆狀態從某一刻起換過的來訪。待辦「逾期」那一頁的已完成用：前幾天的、今天才簽完的那幾天（ADR-0166）。
+ *
+ * 規則（簽完了沒、是不是今天、是不是一出生就結案的）不寫在這裡 —— `domain/todoFlow.js` 的 `doneBuckets()` 判，
+ * 這裡只把可能的撈回來。`statusAt` 存的是 `toISOString()`（UTC），`since` 傳 `dates.js` 的 `startOfDayISO(today)`。
+ *
+ * 需要 (deletedAt, statusAt) 複合索引，已列在 firestore.indexes.json。**部署之後要幾分鐘才建好**，那幾分鐘裡
+ * 這一支會丟例外 —— 呼叫端要接住（待辦那一頁的未完成照畫，已完成那一塊講一句）。
+ */
+export function listStatusChangedSince(since) {
+  return repo.list(PATH, { wheres: [where('statusAt', '>=', since)] });
 }
 
 /** 某一天她自己排的全部來訪。診間與治療師的自撞提示要用。 */
