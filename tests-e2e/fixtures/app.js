@@ -347,6 +347,9 @@ export const test = base.extend({
             if (!v) { st.same = 0; return false; }
             const t = v.textContent ?? '';
             if (!t.trim() || marks.some((m) => t.includes(m))) { st.same = 0; return false; }
+            // 待辦首頁先用手機裡的畫、雲端回來才是真的（ADR-0167）：停在快取那一份不算畫完 ——
+            // 測試中途從模擬器改了資料、回首頁讀一次數字的話，讀到的是這一台上次的
+            if (v.dataset.homeData === 'cache') { st.same = 0; return false; }
             const now = v.innerHTML.length;
             if (now === st.len) st.same += 1; else { st.len = now; st.same = 0; }
             return st.same >= 3;

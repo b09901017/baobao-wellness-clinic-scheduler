@@ -17,8 +17,9 @@ export const get = (id) => repo.getOne(PATH, id);
  * 還沒做完的任務，死線近的在前。待辦中心的主清單。
  * 需要 (deletedAt, done, dueDate asc) 複合索引，已列在 firestore.indexes.json。
  */
-export function listOpen() {
-  return repo.list(PATH, {
+export function listOpen({ cacheOnly = false } = {}) {
+  // `cacheOnly`：待辦首頁先用手機裡的畫（只拿來畫，`repo.listCached()`，ADR-0167）
+  return (cacheOnly ? repo.listCached : repo.list)(PATH, {
     wheres: [where('done', '==', false)],
     order: ['dueDate', 'asc'],
   });

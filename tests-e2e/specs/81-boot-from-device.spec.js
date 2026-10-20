@@ -6,12 +6,15 @@
 //   P1 第二次打開：程式檔一支都沒有打到網路（service worker 自己去抓的那幾支也算）
 //   P2 第一次安裝（還沒有人管這一頁）→ 頁面不會自己重新載入
 //   P3 打開 /form.html → 拿到的是客戶填表那一頁，不是 app
+//   P5～P8 先畫殼（07）：登入還沒回來殼就在、被移出白名單／登出換掉而且下次不閃、登入還在確認時寫入記的是她
+//   P9、P10 首頁先用手機裡的畫（08）：雲端還沒回來數字就在、一樣的話一個節點都不換、不算進 cacheReads()；
+//      別的地方改過 → 先畫舊的、雲端回來換成新的
 //   P4 新的一版裝好了 → 跳「有新版本」、沒點之前跑的是舊的而且照常用得了 → 點 → 重新載入、跑的是新的；
 //      接著離線重新打開照樣打得開
 // 換了 VERSION 時清掉哪幾格、留哪幾格在 `tests/sw-cache.test.js`（Playwright 攔不到瀏覽器去比對 sw.js 的那一下）
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer } from '../fixtures/data.js';
+import { masterDocs, customer, note, TODAY } from '../fixtures/data.js';
 
 const seed = () => [...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })];
 
@@ -208,3 +211,55 @@ test('P8 登入還在確認時就寫入（整批都是新增的那種）→ 稽�
   const audit = (await app.readAll('audit')).find((a) => a.targetPath === `notes/${id}`);
   expect(audit?.actor, '稽核記的是她（Rules 也只收她的 uid）').toBe(app.uid);
 });
+
+// ---------- 首頁先用手機裡的畫（issue 08）----------
+
+/** 雲端（Firestore 模擬器）的每一個請求都慢一點。只讀手機裡的那一份不經過網路，不受影響 */
+async function slowCloud(context, ms = 2500) {
+  await context.route('http://127.0.0.1:8080/**', async (route) => {
+    await new Promise((r) => { setTimeout(r, ms); });
+    await route.continue().catch(() => {});
+  });
+}
+
+const twoNotesToday = () => [
+  ...seed(),
+  note({ id: 'n-1', text: '今天的第一件', date: TODAY }),
+  note({ id: 'n-2', text: '今天的第二件', date: TODAY }),
+];
+const todayTile = (page) => page.locator('[data-tile="today"] .tile__n');
+
+test('P9 首頁先用手機裡的畫：雲端還沒回來數字就在了；一樣的話一個節點都不換；不算進「讀到快取」', async ({ app, page, context }) => {
+  await app.seed(twoNotesToday());
+  await app.signIn('/');
+  await expect(todayTile(page)).toHaveText('2');
+
+  await slowCloud(context);
+  await page.reload();
+  await expect(page.locator('#view[data-home-data="cache"]'), '先用手機裡的畫').toBeVisible({ timeout: 15_000 });
+  await expect(todayTile(page)).toHaveText('2');
+  const tile = await todayTile(page).elementHandle();
+  // ADR-0158：只拿來畫的那一下不可以讓接下來的存檔被擋成「讀不完整」
+  expect(await page.evaluate(() => import('/js/data/repo.js').then((r) => r.cacheReads())), '快取先畫那一下不算').toBe(0);
+
+  await expect(page.locator('#view[data-home-data="server"]'), '雲端回來了').toBeVisible({ timeout: 30_000 });
+  expect(await tile.evaluate((n) => n.isConnected), '一樣的話首頁一個節點都不換（不閃）').toBe(true);
+  await expect(todayTile(page)).toHaveText('2');
+});
+
+test('P10 別的地方勾掉一件 → 重新打開先畫舊的數字，雲端回來換成新的', async ({ app, page, context }) => {
+  await app.seed(twoNotesToday());
+  await app.signIn('/');
+  await expect(todayTile(page)).toHaveText('2');
+
+  // 別台勾掉了一件（這一台的快取不知道）
+  await app.seed([note({ id: 'n-1', text: '今天的第一件', date: TODAY, done: true, doneAt: `${TODAY}T03:00:00.000Z` })]);
+
+  await slowCloud(context);
+  await page.reload();
+  await expect(page.locator('#view[data-home-data="cache"]')).toBeVisible({ timeout: 15_000 });
+  await expect(todayTile(page), '先畫手機裡的（舊的）').toHaveText('2');
+  await expect(page.locator('#view[data-home-data="server"]')).toBeVisible({ timeout: 30_000 });
+  await expect(todayTile(page), '雲端回來換成新的').toHaveText('1');
+});
+

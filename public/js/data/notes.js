@@ -18,8 +18,9 @@ export const get = (id) => repo.getOne(PATH, id);
  * 還沒勾掉的，新的在前。首頁那一塊用。
  * 需要 (deletedAt, done, createdAt desc) 複合索引。
  */
-export function listOpen() {
-  return repo.list(PATH, {
+export function listOpen({ cacheOnly = false } = {}) {
+  // `cacheOnly`：待辦首頁先用手機裡的畫（只拿來畫，`repo.listCached()`，ADR-0167）
+  return (cacheOnly ? repo.listCached : repo.list)(PATH, {
     wheres: [where('done', '==', false)],
     order: ['createdAt', 'desc'],
   });

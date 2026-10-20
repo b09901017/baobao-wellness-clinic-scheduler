@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromCache,
   query,
   where,
   orderBy,
@@ -105,6 +106,26 @@ export async function listFrom(path, { wheres = [], order = null, limit = null }
 
   const snap = noted(await getDocs(query(collection(getDb(), path), ...clauses)));
   return { rows: snap.docs.map((d) => ({ id: d.id, ...d.data() })), fromCache: snap.metadata.fromCache };
+}
+
+/**
+ * 同 `list()`，但**只讀手機裡的快取、只拿來畫**（ADR-0167 決定三：待辦首頁先用手機裡的畫，雲端回來有變再換）。
+ *
+ * **不經過 `noted()`、不算進 `cacheReads()`**：ADR-0158 擋不擋看的是「這一次存檔開始到寫入之間」有沒有讀到快取 ——
+ * 她在快取那一份畫好、雲端還沒回來的那一兩秒按存檔，這一次就落在那一段裡，好好的存檔會被擋成「讀不完整」。
+ * 只拿來畫的讀取不代表 SDK 認為自己離線，不該算進去。**拿去算次數、驗證、存檔的一律不准用它**。
+ *
+ * 快取裡的東西不經過 Rules：呼叫端先問 `auth.js` 的 `confirmedAsRemembered()`（登入的就是這一台記著通過白名單的那一位）。
+ *
+ * @returns {Promise<object[]>} 快取裡剛好有的那幾筆（新裝置是空的）
+ */
+export async function listCached(path, { wheres = [], order = null, limit = null } = {}) {
+  const clauses = [where('deletedAt', '==', null), ...wheres];
+  if (order) clauses.push(orderBy(order[0], order[1] ?? 'asc'));
+  if (limit) clauses.push(fsLimit(limit));
+
+  const snap = await getDocsFromCache(query(collection(getDb(), path), ...clauses));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 /**

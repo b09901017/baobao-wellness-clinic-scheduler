@@ -114,8 +114,9 @@ export async function listWhole(customerId, customerName = '') {
  * 待辦中心用它抓「已壓表、還在等客戶回覆」的那些。
  * 需要 (deletedAt, status, date asc) 複合索引，已列在 firestore.indexes.json。
  */
-export function listByStatus(status) {
-  return repo.list(PATH, {
+export function listByStatus(status, { cacheOnly = false } = {}) {
+  // `cacheOnly`：待辦首頁先用手機裡的畫（只拿來畫，`repo.listCached()`，ADR-0167）—— 不碰 `visitsRead`
+  return (cacheOnly ? repo.listCached : repo.list)(PATH, {
     wheres: [where('status', '==', status)],
     order: ['date', 'asc'],
   });
@@ -134,13 +135,13 @@ export function listByStatus(status) {
  * 哪幾筆真的要收尾由 `domain/visits.js` 的 `visitsToClose()` 決定，
  * 這裡只負責把可能的那些撈回來 —— 規則不寫在 /data。
  */
-export function listUnclosed(today, { tomorrow = false } = {}) {
+export function listUnclosed(today, { tomorrow = false, cacheOnly = false } = {}) {
   // `tomorrow`：待辦首頁「明天」那一格要明天的（issue 11，ADR-0162）。只多撈一天 ——
   // 拿去簽的那幾處照舊過 `visitsToClose()`（`date <= today`），明天的不會被簽成做了
   const through = tomorrow ? addDays(today, 1) : today;
   return Promise.all(
     ['confirmed', 'pending_confirm'].map((status) =>
-      repo.list(PATH, {
+      (cacheOnly ? repo.listCached : repo.list)(PATH, {
         wheres: [where('status', '==', status), where('date', '<=', through)],
         order: ['date', 'asc'],
       }),

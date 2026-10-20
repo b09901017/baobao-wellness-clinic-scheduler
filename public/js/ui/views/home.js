@@ -14,6 +14,7 @@ import * as visitsData from '../../data/visits.js';
 import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
+import * as authData from '../../data/auth.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
@@ -178,21 +179,35 @@ export async function render(el) {
   reviewVisits = new Map();
 
   const today = todayISO();
-  let tasks;
-  let pending;
-  let unclosed;
-  let notes;
-  let settings;
+  // **先用手機裡的畫，雲端回來有變再換**（ADR-0167 決定三，after-golive 08；她：「數字閃一下」可以）。
+  // 雲端那一份一開始就去讀（跟快取那一份一起排隊等登入），快取那一份先回來而且雲端還沒回來才先畫
+  let fresh = null;
+  const fromServer = homeData(today).then((d) => { fresh = d; return d; });
+  fromServer.catch(() => {}); // 等快取那一下時先接著，失敗在下面講
+  const ctx = { el, today };
+  let painted = false;
+
+  const cached = await cachedHomeData(today);
+  if (cached && !fresh && el.isConnected) {
+    Object.assign(ctx, cached);
+    paint(ctx);
+    painted = true;
+    // 畫的是哪一份（E2E `81` 分得出快取先畫、雲端後到；屬性換了不算換節點）
+    el.dataset.homeData = 'cache';
+    // 從首頁打開的那一次，這一刻她看得到待辦的數字（量開機，after-golive 05）。之後每一次回到這一頁都不算
+    bootTiming.mark('data');
+  }
+
+  let data;
   try {
-    [tasks, pending, unclosed, notes, settings] = await Promise.all([
-      tasksData.listOpen(),
-      visitsData.listByStatus('pending_confirm'),
-      // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
-      visitsData.listUnclosed(today, { tomorrow: true }),
-      notesData.listOpen(),
-      config.getSettings(),
-    ]);
+    data = await fromServer;
   } catch (err) {
+    if (painted) {
+      // 畫好的不換成「讀取失敗」：那一份是這一台上次的，講一句就好
+      el.dataset.homeData = 'stale';
+      toast.info('讀不到最新的待辦，畫面上是這台裝置上次存的');
+      return;
+    }
     // 量開機那一張不記這一次（之後重畫出數字的那一下不是開機花的時間）
     bootTiming.drop();
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
@@ -200,14 +215,63 @@ export async function render(el) {
       Console 的錯誤訊息裡會有一個建立索引的連結。</p></div>`;
     return;
   }
+  // 她已經換到別頁了（`shell.js` 的 `freshView()`：這一頁畫進一個已經離開文件的節點）
+  if (!el.isConnected) return;
 
-  const ctx = { el, tasks, pending, unclosed, notes, settings, today };
-  paint(ctx);
-  // 從首頁打開的那一次，這一刻她看得到待辦的數字（量開機，after-golive 05）。之後每一次回到這一頁都不算
-  bootTiming.mark('data');
+  if (!painted) {
+    Object.assign(ctx, data);
+    paint(ctx);
+    bootTiming.mark('data');
+  } else if (homeStamp(ctx) !== homeStamp(data)) {
+    // 雲端回來不一樣才重畫。**換同一個 `ctx` 的內容、不換一個新的**：開著的抽屜握著這一份 ——
+    // 抽屜開著時只換內容不重畫（抽屜裡的每一個動作做完本來就會重畫，`paint()` 會連抽屜一起畫掉她正在點的那一列）
+    Object.assign(ctx, data);
+    if (!drawer && !whoDrawer) paint(ctx);
+  } else {
+    // 一模一樣：一個節點都不換（不閃），只把握著的那一份換成雲端的
+    Object.assign(ctx, data);
+  }
+  el.dataset.homeData = 'server';
   // 設成不顯示的那幾列**連資料都不讀**（ADR-0151）：各多讀三四份，而這一頁她一天開十幾次
   const loaders = { ask: loadAsk, forms: loadInbox, book: loadBook };
-  for (const id of homeLoaders(settings)) loaders[id](ctx);
+  for (const id of homeLoaders(ctx.settings)) loaders[id](ctx);
+}
+
+/**
+ * 首頁那五份。`cacheOnly`：只讀手機裡的（只拿來畫 —— 不算進 ADR-0158 的 `cacheReads()`，`repo.listCached()`）。
+ * **快取那一份只拿來畫**：首頁上每一條存檔路按下去都自己重讀（確認、簽療程單那兩張抽屜讀那位客戶的全部來訪；
+ * 勾待辦、勾隨手記只寫 `done`，健檢那一串在 `followupOpsAfterTaskChange()` 重讀）。
+ */
+function homeData(today, { cacheOnly = false } = {}) {
+  return Promise.all([
+    tasksData.listOpen({ cacheOnly }),
+    visitsData.listByStatus('pending_confirm', { cacheOnly }),
+    // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
+    visitsData.listUnclosed(today, { tomorrow: true, cacheOnly }),
+    notesData.listOpen({ cacheOnly }),
+    config.getSettings({ cacheOnly }),
+  ]).then(([tasks, pending, unclosed, notes, settings]) => ({ tasks, pending, unclosed, notes, settings }));
+}
+
+/**
+ * 手機裡的那一份（ADR-0167 決定三）。**畫不了就回 `null`**，照舊等雲端：
+ * - 登入的不是這一台記著通過白名單的那一位（或沒登入）—— 快取裡的東西不經過 Rules，上一個人留下的照樣讀得出來
+ * - 新裝置、清過資料：設定那一份不在手機裡（`getSettings({ cacheOnly })` 丟例外）
+ */
+async function cachedHomeData(today) {
+  try {
+    if (!(await authData.confirmedAsRemembered())) return null;
+    return await homeData(today, { cacheOnly: true });
+  } catch {
+    return null;
+  }
+}
+
+/** 畫出來的那一份跟雲端那一份是不是同一個樣子：每一筆的 id ＋ `updatedAt`，加上設定那一份。 */
+function homeStamp(d) {
+  const at = (t) => (t?.toMillis ? t.toMillis() : t?.seconds ?? t ?? '');
+  const rows = (list) => (list ?? []).map((r) => `${r.id}@${at(r.updatedAt)}`).join(',');
+  return [rows(d.tasks), rows(d.pending), rows(d.unclosed), rows(d.notes), at(d.settings?.updatedAt)].join('|');
 }
 
 /**
