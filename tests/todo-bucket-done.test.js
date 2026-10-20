@@ -256,6 +256,37 @@ test('msOf()：ISO、Date、Timestamp 都吃得下；認不出來回 null', () =
 });
 
 // ---------------------------------------------------------------------------
+// 畫面（issue 04）：三頁的已完成只給看與拿回來；讀不到時未完成照畫
+// ---------------------------------------------------------------------------
+
+const HOME = readFileSync(new URL('../public/js/ui/views/home.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const body = (name) => {
+  const at = HOME.indexOf(`function ${name}(`);
+  assert.ok(at >= 0, `找不到 ${name}()`);
+  return HOME.slice(at, HOME.indexOf('\n}\n', at));
+};
+
+test('三頁的已完成沒有任何一顆會刪東西：沒有「清掉這 N 筆」、沒有垃圾桶、隨手記不接長按', () => {
+  const list = body('bucketDoneList');
+  assert.doesNotMatch(list, /data-clear-done|data-drop|data-note-del/);
+  assert.match(list, /doneRow\(t, \{ trash: false \}\)/);
+  // 隨手記那一塊的容器不是 `[data-notes]` —— `wireNoteLongPress()` 只接那一個（長按選單對勾掉的有「刪掉」）
+  assert.doesNotMatch(list, /data-notes[ >"]/);
+  assert.match(list, /data-done-notes/);
+  // 「已完成 N」＝三塊加起來
+  assert.match(body('paintTasks'), /bucketCount\(ctx\.finished\)/);
+});
+
+test('已完成那一側讀不到時回 null、不丟 —— renderGroup() 的 Promise.all 照樣畫未完成', () => {
+  const load = body('loadBucketDone');
+  assert.match(load, /try \{/);
+  assert.match(load, /catch \{\s*return null;/);
+  assert.match(load, /doneBuckets\(/);
+  // 不靠最近 200 張
+  assert.doesNotMatch(load, /listDone\(\)/);
+});
+
+// ---------------------------------------------------------------------------
 // 讀的那一側
 // ---------------------------------------------------------------------------
 

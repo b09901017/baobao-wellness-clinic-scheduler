@@ -1916,9 +1916,13 @@ async function loadBucketDone(group, today) {
  * 任務身上沒有時段數，也不該有（那會是第二份會對不起來的資料）。
  */
 async function loadTaskVisits(ctx) {
-  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）
-  const ids = [...[...ctx.open, ...ctx.done].map((t) => t.visitId), ...(ctx.coming ?? []).map((v) => v.id)]
-    .filter(Boolean);
+  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）；
+  // 已完成那一側簽好的那幾天也是（ADR-0166）—— 不放進來的話點下去只會跳「找不到這一天的來訪」
+  const ids = [
+    ...[...ctx.open, ...ctx.done].map((t) => t.visitId),
+    ...(ctx.coming ?? []).map((v) => v.id),
+    ...(ctx.finished?.close ?? []).map((v) => v.id),
+  ].filter(Boolean);
   if (!ids.length) return;
 
   try {
@@ -2086,6 +2090,9 @@ function paintTasks(ctx) {
   const { el, today, meta } = ctx;
   // 「未完成 N」＝底下三塊加起來（ADR-0152）：首頁那顆數字點進來，看到的件數要一樣
   const openCount = ctx.open.length + ctx.close.length + ctx.coming.length + ctx.notes.length;
+  // 逾期／今天／明天那三頁的「已完成 N」也是三塊加起來（ADR-0166）；分類頁照舊只有任務
+  const bucketPage = BUCKETS.includes(ctx.group);
+  const doneCount = bucketPage ? bucketCount(ctx.finished) : ctx.done.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -2097,10 +2104,10 @@ function paintTasks(ctx) {
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
               data-task-tab="open">未完成${openCount ? ` ${openCount}` : ''}</button>
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
-              data-task-tab="done">已完成${ctx.done.length ? ` ${ctx.done.length}` : ''}</button>
+              data-task-tab="done">已完成${doneCount ? ` ${doneCount}` : ''}</button>
     </div>
 
-    ${taskTab === 'done' ? doneList(ctx) : openList(ctx, today)}`;
+    ${taskTab !== 'done' ? openList(ctx, today) : bucketPage ? bucketDoneList(ctx) : doneList(ctx)}`;
 
   el.querySelectorAll('[data-task-tab]').forEach((btn) =>
     btn.addEventListener('click', () => {
@@ -2163,6 +2170,8 @@ function paintTasks(ctx) {
  * - 簽療程單那一列：**帶她去 `#/todo/close` 並直接開那一天的抽屜**（`leaveFor()`，同日曆長按
  *   「客人來了，去簽療程單」），不在這一頁拿別人的 ctx 開抽屜
  * - 隨手記：直接勾，走 `note.prepareToggle()`（營養品的提醒要先問「給了哪些」，四個入口共用）
+ * - 已完成那一側（ADR-0166）：隨手記點一下拿回來（同一支 `prepareToggle()`，已勾的不問給了哪些），**不接長按** ——
+ *   長按選單對勾掉的那幾筆有「刪掉」，這一頁的已完成只給看與拿回來。簽好的那一天走 `data-visit`（`paintTasks()` 接）
  */
 function wireBucketBlocks(ctx) {
   const { el } = ctx;
@@ -2174,11 +2183,18 @@ function wireBucketBlocks(ctx) {
     }),
   );
 
-  if (!ctx.notes.length) return;
   const again = () => renderGroup(el, ctx.group);
-  el.querySelectorAll('[data-notes] [data-note]').forEach((btn) =>
+  el.querySelector('[data-done-retry]')?.addEventListener('click', again);
+  wireNoteToggles(el.querySelectorAll('[data-notes] [data-note]'), ctx.notes, again);
+  wireNoteToggles(el.querySelectorAll('[data-done-notes] [data-note]'), ctx.finished?.notes ?? [], again);
+  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again);
+}
+
+/** 點一列隨手記＝勾掉或拿回來。逾期／今天／明天那一頁的未完成與已完成兩塊共用。 */
+function wireNoteToggles(buttons, notes, again) {
+  buttons.forEach((btn) =>
     btn.addEventListener('click', async () => {
-      const row = ctx.notes.find((n) => n.id === btn.dataset.note);
+      const row = notes.find((n) => n.id === btn.dataset.note);
       if (!row) return;
       const plan = await note.prepareToggle(row, noteDeps());
       if (!plan) return;
@@ -2190,7 +2206,6 @@ function wireBucketBlocks(ctx) {
       }
     }),
   );
-  wireNoteLongPress(el, ctx.notes, again);
 }
 
 /**
@@ -2295,7 +2310,59 @@ function doneList(ctx) {
 
 const doneDayLabel = (day, today) => (day === today ? '今天' : shortDate(day));
 
-function doneRow(t) {
+/**
+ * 逾期／今天／明天那一頁的「已完成」（ADR-0166）：三塊，順序同未完成那一側（待辦／簽療程單／隨手記），空的不畫；
+ * 只有任務時不印小標（同 `openList()`）。哪幾件算只問 `doneBuckets()`（`loadBucketDone()` 讀回來的 `ctx.finished`）。
+ *
+ * **只給看與拿回來**：沒有「清掉這 N 筆」、沒有垃圾桶 —— 她 10/20：「到了明天後……已完成就會清空，
+ * 但只是這邊呈現清空，再隨手記那邊或月曆其他地方不會被清掉」。這一頁按下去真的把隨手記刪掉就跟她說的相反；
+ * 要刪去隨手記那一頁或分類頁。到了明天這一格自己就空了。
+ */
+function bucketDoneList(ctx) {
+  const f = ctx.finished;
+  // 讀不到（新的索引部署之後還在建、離線）：未完成那一側照常，這一塊講一句、給一顆再讀一次
+  if (!f) {
+    return `<p class="muted">現在讀不到已完成的那幾件。</p>
+      <p><button class="btn" type="button" data-done-retry>再讀一次</button></p>`;
+  }
+  if (!bucketCount(f)) return '<p class="muted">還沒有勾掉的。</p>';
+
+  const tasks = f.tasks.length
+    ? `<div class="notelist">${f.tasks.map((t) => doneRow(t, { trash: false })).join('')}</div>` : '';
+  const close = f.close.length ? `<div class="notelist">${f.close.map(signedRow).join('')}</div>` : '';
+  const notes = f.notes.length
+    ? `<div class="groups" data-done-notes>${f.notes.map((n) => note.row(n, { today: ctx.today })).join('')}</div>` : '';
+  if (!close && !notes) return tasks;
+
+  return `
+    ${tasks ? `${blockHead('待辦', f.tasks.length)}${tasks}` : ''}
+    ${close ? `${blockHead(rowLabel('close'), f.close.length)}${close}` : ''}
+    ${notes ? `${blockHead('隨手記', f.notes.length)}${notes}` : ''}`;
+}
+
+/**
+ * 已完成那一側的一天簽療程單（一位一天一件，ADR-0166）。**勾掉的樣子跟任務、隨手記同一種**（`note--done`）——
+ * 長得不一樣她會以為是另一種東西。點下去開讀取卡片（`data-visit`，同明天來的那一列）：簽好的段鎖著，不從這裡退回。
+ */
+function signedRow(v) {
+  const each = (v.slots ?? []).map((s) => slotStatus(v, s));
+  const did = each.filter((s) => s === 'done').length;
+  const missed = each.filter((s) => s === 'no_show').length;
+  const said = [did ? `${did} 段做了` : '', missed ? `${missed} 段沒來` : ''].filter(Boolean).join('、');
+  return `
+    <div class="noterow">
+      <button class="note note--done" type="button" data-visit="${esc(v.id)}">
+        <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
+        <span class="note__main">
+          <span class="note__text">${esc(v.customerName ?? NO_NAME)}</span>
+          <span class="note__lines">${esc(shortDate(v.date))}・${esc(said)}</span>
+        </span>
+      </button>
+    </div>`;
+}
+
+/** 一列勾掉的任務。點一下拿回來；`trash` 只在分類頁（逾期／今天／明天那三頁只給看與拿回來，ADR-0166）。 */
+function doneRow(t, { trash = true } = {}) {
   return `
     <div class="noterow">
       <button class="note note--done" type="button" data-untick="${esc(t.id)}">
@@ -2310,8 +2377,8 @@ function doneRow(t) {
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.id)}" hidden></span>` : ''}
         </span>
       </button>
-      <button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
-              aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>
+      ${trash ? `<button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
+              aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>` : ''}
     </div>`;
 }
 

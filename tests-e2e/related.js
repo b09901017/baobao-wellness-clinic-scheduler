@@ -623,6 +623,13 @@ export const COVERAGE = {
   '79-boot-timing': [
     'public/js/ui/bootTiming.js', 'public/js/ui/views/settings.js', 'public/js/ui/views/home.js',
   ],
+  // 逾期／今天／明天那三頁的「已完成」照日子算、三塊、只給看與拿回來（after-golive 03、04，ADR-0166）。
+  // 三個入口勾的都要算：日曆的待辦卡片、簽療程單那一頁
+  '80-bucket-done': [
+    'public/js/domain/todoFlow.js', 'public/js/ui/views/home.js', 'public/js/domain/visits.js',
+    'public/js/data/visits.js', 'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/domain/dates.js',
+    'public/js/domain/notes.js', 'public/js/ui/components/note.js', 'public/js/ui/views/calendar.js',
+  ],
 };
 
 /**
