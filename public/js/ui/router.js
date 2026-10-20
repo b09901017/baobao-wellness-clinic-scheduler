@@ -70,11 +70,28 @@ export function go(path) {
 }
 
 let repaint = null;
+let onHash = null;
 
+/**
+ * 殼每畫一次叫一次。**殼可能畫第二次**（先畫的殼換成另一個帳號、被登出又登入，ADR-0167）——
+ * 上一次掛的那一個先拆掉，不然換一頁畫兩次（第一次畫進已經被丟掉的那個殼）。
+ */
 export function start(onChange) {
+  stop();
   repaint = onChange;
-  window.addEventListener('hashchange', () => onChange(resolve()));
+  onHash = () => onChange(resolve());
+  window.addEventListener('hashchange', onHash);
   onChange(resolve());
+}
+
+/**
+ * 殼換成登入頁時拆掉（`ui/shell.js` 的 `renderGate()`）：登入頁沒有 `#view`，
+ * 留著的話她在登入頁按返回、換網址，照畫一頁就是一個只在 console 看得到的 TypeError。
+ */
+export function stop() {
+  if (onHash) window.removeEventListener('hashchange', onHash);
+  onHash = null;
+  repaint = null;
 }
 
 /**

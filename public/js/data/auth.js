@@ -28,7 +28,68 @@ export async function signIn() {
 }
 
 export function signOut() {
+  // 先忘掉再登出：登出到一半她重新整理的話，不可以先畫出上一個人的殼
+  forgetAllowed();
   return fbSignOut(getAuthInstance());
+}
+
+// ---------- 這一台上次通過了（ADR-0167，after-golive 07）----------
+//
+// 開機要等登入（手機上先載一個 iframe、換 token）＋白名單（讀一次伺服器）才畫殼，全部是網路來回，
+// 而她 99% 的打開都是「同一台、同一個帳號、還在白名單裡」。所以白名單說可以的時候在這一台記下 uid，
+// 下次打開先畫殼（`app.js`），登入在背景確認；確認出來不是同一位、或沒有權限、或被登出，才換掉。
+//
+// **只記 uid，不記任何資料**：殼本身一筆資料都沒有，資料要等 Firestore 讀 —— 而 Firestore 的讀取本來就排隊等登入，
+// 伺服器那一側由 Rules 擋。**唯一一條不經過 Rules 的路是只讀手機裡的快取**（`repo.listCached()`，首頁先畫那一下），
+// 那一條先問 `confirmedAsRemembered()`。
+//
+// 讀寫包 try：網站資料被擋掉時就是「沒記著」，照舊等登入。
+
+const ALLOWED_KEY = 'scheduler.allowedUid';
+
+function storage() {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 這一台上次通過白名單的是誰（沒有就 null）。 */
+export function lastAllowedUid() {
+  try {
+    return storage()?.getItem(ALLOWED_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberAllowed(uid) {
+  try {
+    storage()?.setItem(ALLOWED_KEY, uid);
+  } catch {
+    /* 記不住就下次照舊等登入 */
+  }
+}
+
+/** 登出、沒有權限、沒登入：忘掉，下次打開照舊等登入。 */
+export function forgetAllowed() {
+  try {
+    storage()?.removeItem(ALLOWED_KEY);
+  } catch {
+    /* 同上 */
+  }
+}
+
+/**
+ * 登入回答了（不管快慢），而且就是這一台記著通過白名單的那一位。
+ * **只讀快取的那一條路先問它**：快取裡的東西不經過 Rules —— 沒登入、換了一個帳號時，Firestore 照樣讀得出上一個人留下的。
+ */
+export async function confirmedAsRemembered() {
+  const auth = getAuthInstance();
+  await auth.authStateReady();
+  const uid = auth.currentUser?.uid;
+  return !!uid && uid === lastAllowedUid();
 }
 
 /**
@@ -60,10 +121,20 @@ export async function accessState(uid) {
 
 /**
  * @param {(state: {user: object|null, access: 'allowed'|'denied'|'unreachable'}) => void} cb
+ * @param {{onUser?: Function}} [o] `onUser`：Firebase 一回答是誰就叫（還沒問白名單）——
+ *   量開機那一張要分開「登入」與「權限」兩步（after-golive 05）
  */
-export function watchAuth(cb) {
+export function watchAuth(cb, { onUser } = {}) {
   return onAuthStateChanged(getAuthInstance(), async (user) => {
-    if (!user) return cb({ user: null, access: 'denied' });
-    cb({ user, access: await accessState(user.uid) });
+    onUser?.(user);
+    if (!user) {
+      forgetAllowed();
+      return cb({ user: null, access: 'denied' });
+    }
+    const access = await accessState(user.uid);
+    // 連不上不改記著的那一筆：不知道就不改（記著的是同一位時 app.js 留著殼）
+    if (access === 'allowed') rememberAllowed(user.uid);
+    else if (access === 'denied') forgetAllowed();
+    cb({ user, access });
   });
 }

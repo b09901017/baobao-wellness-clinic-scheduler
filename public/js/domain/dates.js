@@ -101,6 +101,35 @@ export function dayOf(ts) {
 }
 
 /**
+ * 同 `dayOf()` 吃得下的那幾種（Firestore 的 Timestamp、ISO 字串、Date），回毫秒。認不出來回 `null`。
+ *
+ * 比「兩個時間戳是不是同一刻」用（待辦已完成那一格的「一出生就做完的」，ADR-0166）——
+ * Timestamp 是物件，直接 `===` 永遠不相等。
+ */
+export function msOf(ts) {
+  if (!ts) return null;
+  let ms;
+  if (typeof ts.toMillis === 'function') ms = ts.toMillis();
+  else if (typeof ts.toDate === 'function') ms = ts.toDate().getTime();
+  else ms = new Date(ts).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * 裝置當地那一天 00:00 那一刻，寫成 ISO 字串（UTC）。認不出來的日子回 `null`。
+ * **刻意用本地時區**（檔頭那一條的例外，同 `dayOf()`／`todayISO()`）：問的是一個時間點，不是日曆上的日子。
+ *
+ * `doneAt`、`statusAt` 存的是 `toISOString()`（UTC），要查「今天才做完的」就拿這個去比
+ * （待辦「逾期」那一頁的已完成，ADR-0166）。拿 'YYYY-MM-DD' 直接跟它們比的話，
+ * 台灣 00:00–08:00 做完的那幾件會被當成昨天（`docs/agents/lessons.md` 七）。
+ */
+export function startOfDayISO(day) {
+  if (!isValidDate(day)) return null;
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d).toISOString();
+}
+
+/**
  * 裝置當地的今天。
  *
  * 這是 domain 裡唯一一個不純的函式，因為「今天」本來就不純。

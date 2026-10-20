@@ -14,6 +14,7 @@ import * as visitsData from '../../data/visits.js';
 import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
 import * as config from '../../data/config.js';
+import * as authData from '../../data/auth.js';
 import * as invitesData from '../../data/formInvites.js';
 import * as responsesData from '../../data/formResponses.js';
 import * as formInbox from './formInbox.js';
@@ -34,7 +35,7 @@ import {
 } from '../../domain/scheduling.js';
 import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
-  HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, bucketCount, taskBucket, BUCKETS,
+  HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, doneBuckets, bucketCount, BUCKETS,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
 import { slotName } from '../../domain/naming.js';
@@ -43,7 +44,7 @@ import { hintForVisits } from '../components/playbookHint.js';
 import * as flagsUi from '../components/flags.js';
 import { splitByMonth, formLink } from '../../domain/availabilityForm.js';
 import {
-  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel,
+  todayISO, shortDate, daysBetween, addDays, addMonths, monthLabel, weekdayLabel, startOfDayISO, msOf,
 } from '../../domain/dates.js';
 import { wireDrag, openSheet } from '../components/sheet.js';
 import {
@@ -79,6 +80,7 @@ import { go } from '../router.js';
 import * as scheduleView from './schedule.js';
 import { visitReadHtml, wireReadSlots } from './calendar.js';
 import { fillMirror } from '../components/taskMirror.js';
+import * as bootTiming from '../bootTiming.js';
 
 const esc = f.esc;
 
@@ -177,32 +179,99 @@ export async function render(el) {
   reviewVisits = new Map();
 
   const today = todayISO();
-  let tasks;
-  let pending;
-  let unclosed;
-  let notes;
-  let settings;
+  // **先用手機裡的畫，雲端回來有變再換**（ADR-0167 決定三，after-golive 08；她：「數字閃一下」可以）。
+  // 雲端那一份一開始就去讀（跟快取那一份一起排隊等登入），快取那一份先回來而且雲端還沒回來才先畫
+  let fresh = null;
+  const fromServer = homeData(today).then((d) => { fresh = d; return d; });
+  fromServer.catch(() => {}); // 等快取那一下時先接著，失敗在下面講
+  const ctx = { el, today };
+  let painted = false;
+
+  const cached = await cachedHomeData(today);
+  if (cached && !fresh && el.isConnected) {
+    Object.assign(ctx, cached);
+    paint(ctx);
+    painted = true;
+    // 畫的是哪一份（E2E `81` 分得出快取先畫、雲端後到；屬性換了不算換節點）
+    el.dataset.homeData = 'cache';
+    // 從首頁打開的那一次，這一刻她看得到待辦的數字（量開機，after-golive 05）。之後每一次回到這一頁都不算
+    bootTiming.mark('data');
+  }
+
+  let data;
   try {
-    [tasks, pending, unclosed, notes, settings] = await Promise.all([
-      tasksData.listOpen(),
-      visitsData.listByStatus('pending_confirm'),
-      // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
-      visitsData.listUnclosed(today, { tomorrow: true }),
-      notesData.listOpen(),
-      config.getSettings(),
-    ]);
+    data = await fromServer;
   } catch (err) {
+    if (painted) {
+      // 畫好的不換成「讀取失敗」：那一份是這一台上次的，講一句就好
+      el.dataset.homeData = 'stale';
+      toast.info('讀不到最新的待辦，畫面上是這台裝置上次存的');
+      return;
+    }
+    // 量開機那一張不記這一次（之後重畫出數字的那一下不是開機花的時間）
+    bootTiming.drop();
     el.innerHTML = `<div class="card"><p>讀取失敗：${esc(err.message)}</p>
       <p class="muted">如果一直失敗，可能是 Firestore 的索引還沒建好 ——
       Console 的錯誤訊息裡會有一個建立索引的連結。</p></div>`;
     return;
   }
+  // 她已經換到別頁了（`shell.js` 的 `freshView()`：這一頁畫進一個已經離開文件的節點）
+  if (!el.isConnected) return;
 
-  const ctx = { el, tasks, pending, unclosed, notes, settings, today };
-  paint(ctx);
+  if (!painted) {
+    Object.assign(ctx, data);
+    paint(ctx);
+    bootTiming.mark('data');
+  } else if (homeStamp(ctx) !== homeStamp(data)) {
+    // 雲端回來不一樣才重畫。**換同一個 `ctx` 的內容、不換一個新的**：開著的抽屜握著這一份 ——
+    // 抽屜開著時只換內容不重畫（抽屜裡的每一個動作做完本來就會重畫，`paint()` 會連抽屜一起畫掉她正在點的那一列）
+    Object.assign(ctx, data);
+    if (!drawer && !whoDrawer) paint(ctx);
+  } else {
+    // 一模一樣：一個節點都不換（不閃），只把握著的那一份換成雲端的
+    Object.assign(ctx, data);
+  }
+  el.dataset.homeData = 'server';
   // 設成不顯示的那幾列**連資料都不讀**（ADR-0151）：各多讀三四份，而這一頁她一天開十幾次
   const loaders = { ask: loadAsk, forms: loadInbox, book: loadBook };
-  for (const id of homeLoaders(settings)) loaders[id](ctx);
+  for (const id of homeLoaders(ctx.settings)) loaders[id](ctx);
+}
+
+/**
+ * 首頁那五份。`cacheOnly`：只讀手機裡的（只拿來畫 —— 不算進 ADR-0158 的 `cacheReads()`，`repo.listCached()`）。
+ * **快取那一份只拿來畫**：首頁上每一條存檔路按下去都自己重讀（確認、簽療程單那兩張抽屜讀那位客戶的全部來訪；
+ * 勾待辦、勾隨手記只寫 `done`，健檢那一串在 `followupOpsAfterTaskChange()` 重讀）。
+ */
+function homeData(today, { cacheOnly = false } = {}) {
+  return Promise.all([
+    tasksData.listOpen({ cacheOnly }),
+    visitsData.listByStatus('pending_confirm', { cacheOnly }),
+    // 多撈明天：三顆大數字的「明天」算明天還開著的那幾天（issue 11）。簽療程單那一列照舊過 `visitsToClose()`
+    visitsData.listUnclosed(today, { tomorrow: true, cacheOnly }),
+    notesData.listOpen({ cacheOnly }),
+    config.getSettings({ cacheOnly }),
+  ]).then(([tasks, pending, unclosed, notes, settings]) => ({ tasks, pending, unclosed, notes, settings }));
+}
+
+/**
+ * 手機裡的那一份（ADR-0167 決定三）。**畫不了就回 `null`**，照舊等雲端：
+ * - 登入的不是這一台記著通過白名單的那一位（或沒登入）—— 快取裡的東西不經過 Rules，上一個人留下的照樣讀得出來
+ * - 新裝置、清過資料：設定那一份不在手機裡（`getSettings({ cacheOnly })` 丟例外）
+ */
+async function cachedHomeData(today) {
+  try {
+    if (!(await authData.confirmedAsRemembered())) return null;
+    return await homeData(today, { cacheOnly: true });
+  } catch {
+    return null;
+  }
+}
+
+/** 畫出來的那一份跟雲端那一份是不是同一個樣子：每一筆的 id ＋ `updatedAt`，加上設定那一份。 */
+function homeStamp(d) {
+  const at = (t) => msOf(t) ?? '';
+  const rows = (list) => (list ?? []).map((r) => `${r.id}@${at(r.updatedAt)}`).join(',');
+  return [rows(d.tasks), rows(d.pending), rows(d.unclosed), rows(d.notes), at(d.settings?.updatedAt)].join('|');
 }
 
 /**
@@ -1832,16 +1901,16 @@ export async function renderGroup(el, group) {
   // 逾期／今天／明天那三頁多列兩塊：簽療程單與有日期的隨手記（ADR-0152）。
   // 三塊都從 `todoBuckets()` 來 —— 首頁那顆數字讀的是同一支
   const isBucket = BUCKETS.includes(group);
-  const [open, done, unclosed, notes] = await Promise.all([
+  const [open, done, unclosed, notes, finished] = await Promise.all([
     tasksData.listOpen(),
-    tasksData.listDone(),
+    // 三頁的已完成不靠最近 200 張（`loadBucketDone()`，ADR-0166）
+    isBucket ? [] : tasksData.listDone(),
     isBucket ? visitsData.listUnclosed(today, { tomorrow: true }) : [],
     isBucket ? notesData.listOpen() : [],
+    isBucket ? loadBucketDone(group, today) : null,
   ]);
 
-  const match = isBucket
-    ? (t) => taskBucket(t.dueDate, today) === group
-    : group === 'cancel' ? (t) => isCancelKind(t.kind) : (t) => t.kind === group;
+  const match = group === 'cancel' ? (t) => isCancelKind(t.kind) : (t) => t.kind === group;
   const bucket = isBucket ? todoBuckets({ tasks: open, unclosed, notes, today })[group] : null;
   const meta = GROUPS[group] ?? {
     title: group,
@@ -1853,12 +1922,13 @@ export async function renderGroup(el, group) {
     retired: isRetired(group),
   };
 
-  // 「已完成」那一格用**同一個 match** —— 逾期／今天／明天那三種照死線切的分組，
-  // 在已完成那一格也是照死線切的。她在那三頁問的是「這個死線的事情做完了沒」。
+  // 分類頁的「已完成」用**同一個 match**；逾期／今天／明天那三頁另外算（`doneBuckets()`，ADR-0166）
   const ctx = {
     el, group, today, meta,
     open: bucket ? bucket.tasks : open.filter(match),
-    done: done.filter(match),
+    done: isBucket ? (finished?.tasks ?? []) : done.filter(match),
+    // 逾期／今天／明天那三頁的已完成三塊（任務、簽療程單、隨手記）。讀不到是 null
+    finished,
     // 簽療程單與隨手記那兩塊（只有逾期／今天／明天才有）
     close: bucket?.close ?? [],
     // 明天來的那幾天（只有「明天」那一頁有，issue 11）：點下去開讀取卡片，不開簽單抽屜
@@ -1871,6 +1941,37 @@ export async function renderGroup(el, group) {
 }
 
 /**
+ * 逾期／今天／明天那一頁「已完成」那一側（ADR-0166）。哪幾件算只問 `doneBuckets()`，這裡只撈**那一頁**用得到的：
+ *
+ * | | 任務 | 來訪 | 隨手記 |
+ * |---|---|---|---|
+ * | 逾期 | 今天才勾的（`listDoneSince()`） | 今天才換過狀態的（`listStatusChangedSince()`） | — |
+ * | 今天／明天 | 死線那一天勾掉的（`listDoneDue()`，不靠最近 200 張） | 今天的（`listByDate()`；明天沒有） | 掛那一天的（`listBetween()`） |
+ *
+ * 「今天才」的起點是台灣 00:00 換成 UTC（`startOfDayISO()`）—— `doneAt`、`statusAt` 存的是 UTC。
+ * **讀不到回 `null`、不丟**：(deletedAt, statusAt) 索引部署之後要幾分鐘才建好、或離線 —— 未完成那一側照畫。
+ */
+async function loadBucketDone(group, today) {
+  const since = startOfDayISO(today);
+  const overdue = group === 'overdue';
+  const day = group === 'tomorrow' ? addDays(today, 1) : today;
+  const visitsFor = () => {
+    if (overdue) return visitsData.listStatusChangedSince(since);
+    return group === 'today' ? visitsData.listByDate(today) : [];
+  };
+  try {
+    const [tasks, visits, notes] = await Promise.all([
+      overdue ? tasksData.listDoneSince(since) : tasksData.listDoneDue(day, day),
+      visitsFor(),
+      overdue ? [] : notesData.listBetween(day, day),
+    ]);
+    return doneBuckets({ tasks, visits, notes, today })[group];
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 每一列上那個「N 項」與「詳情」那顆按鈕要的來訪。
  *
  * 跟 `loadAsk()` / `loadBook()` 同一個作法：**頁面先畫出來，這一段等資料回來
@@ -1879,9 +1980,13 @@ export async function renderGroup(el, group) {
  * 任務身上沒有時段數，也不該有（那會是第二份會對不起來的資料）。
  */
 async function loadTaskVisits(ctx) {
-  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）
-  const ids = [...[...ctx.open, ...ctx.done].map((t) => t.visitId), ...(ctx.coming ?? []).map((v) => v.id)]
-    .filter(Boolean);
+  // 明天來的那幾天也要：點下去開的是同一張讀取卡片（`openTaskVisit()`，issue 11）；
+  // 已完成那一側簽好的那幾天也是（ADR-0166）—— 不放進來的話點下去只會跳「找不到這一天的來訪」
+  const ids = [
+    ...[...ctx.open, ...ctx.done].map((t) => t.visitId),
+    ...(ctx.coming ?? []).map((v) => v.id),
+    ...(ctx.finished?.close ?? []).map((v) => v.id),
+  ].filter(Boolean);
   if (!ids.length) return;
 
   try {
@@ -2049,6 +2154,9 @@ function paintTasks(ctx) {
   const { el, today, meta } = ctx;
   // 「未完成 N」＝底下三塊加起來（ADR-0152）：首頁那顆數字點進來，看到的件數要一樣
   const openCount = ctx.open.length + ctx.close.length + ctx.coming.length + ctx.notes.length;
+  // 逾期／今天／明天那三頁的「已完成 N」也是三塊加起來（ADR-0166）；分類頁照舊只有任務
+  const bucketPage = BUCKETS.includes(ctx.group);
+  const doneCount = bucketPage ? bucketCount(ctx.finished) : ctx.done.length;
 
   el.innerHTML = `
     ${backLink()}
@@ -2060,10 +2168,10 @@ function paintTasks(ctx) {
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'open'}"
               data-task-tab="open">未完成${openCount ? ` ${openCount}` : ''}</button>
       <button class="seg__item" type="button" aria-pressed="${taskTab === 'done'}"
-              data-task-tab="done">已完成${ctx.done.length ? ` ${ctx.done.length}` : ''}</button>
+              data-task-tab="done">已完成${doneCount ? ` ${doneCount}` : ''}</button>
     </div>
 
-    ${taskTab === 'done' ? doneList(ctx) : openList(ctx, today)}`;
+    ${taskTab !== 'done' ? openList(ctx, today) : bucketPage ? bucketDoneList(ctx) : doneList(ctx)}`;
 
   el.querySelectorAll('[data-task-tab]').forEach((btn) =>
     btn.addEventListener('click', () => {
@@ -2126,6 +2234,8 @@ function paintTasks(ctx) {
  * - 簽療程單那一列：**帶她去 `#/todo/close` 並直接開那一天的抽屜**（`leaveFor()`，同日曆長按
  *   「客人來了，去簽療程單」），不在這一頁拿別人的 ctx 開抽屜
  * - 隨手記：直接勾，走 `note.prepareToggle()`（營養品的提醒要先問「給了哪些」，四個入口共用）
+ * - 已完成那一側（ADR-0166）：隨手記點一下拿回來（同一支 `prepareToggle()`，已勾的不問給了哪些），**不接長按** ——
+ *   長按選單對勾掉的那幾筆有「刪掉」，這一頁的已完成只給看與拿回來。簽好的那一天走 `data-visit`（`paintTasks()` 接）
  */
 function wireBucketBlocks(ctx) {
   const { el } = ctx;
@@ -2137,11 +2247,18 @@ function wireBucketBlocks(ctx) {
     }),
   );
 
-  if (!ctx.notes.length) return;
   const again = () => renderGroup(el, ctx.group);
-  el.querySelectorAll('[data-notes] [data-note]').forEach((btn) =>
+  el.querySelector('[data-done-retry]')?.addEventListener('click', again);
+  wireNoteToggles(el.querySelectorAll('[data-notes] [data-note]'), ctx.notes, again);
+  wireNoteToggles(el.querySelectorAll('[data-done-notes] [data-note]'), ctx.finished?.notes ?? [], again);
+  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again);
+}
+
+/** 點一列隨手記＝勾掉或拿回來。逾期／今天／明天那一頁的未完成與已完成兩塊共用。 */
+function wireNoteToggles(buttons, notes, again) {
+  buttons.forEach((btn) =>
     btn.addEventListener('click', async () => {
-      const row = ctx.notes.find((n) => n.id === btn.dataset.note);
+      const row = notes.find((n) => n.id === btn.dataset.note);
       if (!row) return;
       const plan = await note.prepareToggle(row, noteDeps());
       if (!plan) return;
@@ -2153,7 +2270,6 @@ function wireBucketBlocks(ctx) {
       }
     }),
   );
-  wireNoteLongPress(el, ctx.notes, again);
 }
 
 /**
@@ -2258,7 +2374,59 @@ function doneList(ctx) {
 
 const doneDayLabel = (day, today) => (day === today ? '今天' : shortDate(day));
 
-function doneRow(t) {
+/**
+ * 逾期／今天／明天那一頁的「已完成」（ADR-0166）：三塊，順序同未完成那一側（待辦／簽療程單／隨手記），空的不畫；
+ * 只有任務時不印小標（同 `openList()`）。哪幾件算只問 `doneBuckets()`（`loadBucketDone()` 讀回來的 `ctx.finished`）。
+ *
+ * **只給看與拿回來**：沒有「清掉這 N 筆」、沒有垃圾桶 —— 她 10/20：「到了明天後……已完成就會清空，
+ * 但只是這邊呈現清空，再隨手記那邊或月曆其他地方不會被清掉」。這一頁按下去真的把隨手記刪掉就跟她說的相反；
+ * 要刪去隨手記那一頁或分類頁。到了明天這一格自己就空了。
+ */
+function bucketDoneList(ctx) {
+  const f = ctx.finished;
+  // 讀不到（新的索引部署之後還在建、離線）：未完成那一側照常，這一塊講一句、給一顆再讀一次
+  if (!f) {
+    return `<p class="muted">現在讀不到已完成的那幾件。</p>
+      <p><button class="btn" type="button" data-done-retry>再讀一次</button></p>`;
+  }
+  if (!bucketCount(f)) return '<p class="muted">還沒有勾掉的。</p>';
+
+  const tasks = f.tasks.length
+    ? `<div class="notelist">${f.tasks.map((t) => doneRow(t, { trash: false })).join('')}</div>` : '';
+  const close = f.close.length ? `<div class="notelist">${f.close.map(signedRow).join('')}</div>` : '';
+  const notes = f.notes.length
+    ? `<div class="groups" data-done-notes>${f.notes.map((n) => note.row(n, { today: ctx.today })).join('')}</div>` : '';
+  if (!close && !notes) return tasks;
+
+  return `
+    ${tasks ? `${blockHead('待辦', f.tasks.length)}${tasks}` : ''}
+    ${close ? `${blockHead(rowLabel('close'), f.close.length)}${close}` : ''}
+    ${notes ? `${blockHead('隨手記', f.notes.length)}${notes}` : ''}`;
+}
+
+/**
+ * 已完成那一側的一天簽療程單（一位一天一件，ADR-0166）。**勾掉的樣子跟任務、隨手記同一種**（`note--done`）——
+ * 長得不一樣她會以為是另一種東西。點下去開讀取卡片（`data-visit`，同明天來的那一列）：簽好的段鎖著，不從這裡退回。
+ */
+function signedRow(v) {
+  const each = (v.slots ?? []).map((s) => slotStatus(v, s));
+  const did = each.filter((s) => s === 'done').length;
+  const missed = each.filter((s) => s === 'no_show').length;
+  const said = [did ? `${did} 段做了` : '', missed ? `${missed} 段沒來` : ''].filter(Boolean).join('、');
+  return `
+    <div class="noterow">
+      <button class="note note--done" type="button" data-visit="${esc(v.id)}">
+        <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>
+        <span class="note__main">
+          <span class="note__text">${esc(v.customerName ?? NO_NAME)}</span>
+          <span class="note__lines">${esc(shortDate(v.date))}・${esc(said)}</span>
+        </span>
+      </button>
+    </div>`;
+}
+
+/** 一列勾掉的任務。點一下拿回來；`trash` 只在分類頁（逾期／今天／明天那三頁只給看與拿回來，ADR-0166）。 */
+function doneRow(t, { trash = true } = {}) {
   return `
     <div class="noterow">
       <button class="note note--done" type="button" data-untick="${esc(t.id)}">
@@ -2273,8 +2441,8 @@ function doneRow(t) {
           ${t.visitId ? `<span class="notetag" data-slots="${esc(t.id)}" hidden></span>` : ''}
         </span>
       </button>
-      <button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
-              aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>
+      ${trash ? `<button class="noterow__trash" type="button" data-drop="${esc(t.id)}"
+              aria-label="刪掉這一筆">${icon('trash', { size: 15 })}</button>` : ''}
     </div>`;
 }
 

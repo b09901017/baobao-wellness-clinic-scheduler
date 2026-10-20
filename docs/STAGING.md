@@ -462,13 +462,14 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 每一次合進 `main` 都要看的（2026-09-01 的舊版在 `.scratch/PRODUCTION_AUDIT.md` §3.4，那一份不再更新）：
 
-- [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一了嗎**
-      （測試只盯 SHELL 清單，不盯版號）
+- [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一、`npm run shell:snapshot` 跑了嗎**
+      （`tests/shell-version.test.js` 擋著：程式檔先用手機裡的，忘了加一她的手機會永遠停在舊版，ADR-0167）
 - [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
 - [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
-- [ ] 部署後確認新版真的在跑：`curl -sI https://<那個站>.web.app/js/app.js | grep -i cache-control` 與 `/` 都是 `no-cache`
-      （2026-10-08 起，`firebase.json`；以前是一小時，「明明部署了卻沒變」可能是這個）。連推兩次時 Actions 上第二次是「等待中」
+- [ ] 部署後確認新版真的在跑：**手機上打開 app → 最上面跳「有新版本・點一下更新」→ 點**（2026-10-21 起程式檔先用手機裡的，
+      不點就是舊的那一份；剛部署完的第一次打開可能還沒裝好，關掉再開一次）。跳不出來：`curl -sI https://<那個站>.web.app/sw.js | grep -i cache-control` 是 `no-cache`，
+      `sw.js` 的 `VERSION` 真的變了；還是不行就 設定 →「程式」→ 重新下載程式。連推兩次時 Actions 上第二次是「等待中」
 - [ ] 部署後在那個環境跑一次 `#/settings/health`，**跟部署前比**：多出來的是不是這一輪的「種子有、你沒有」那幾列（主檔在跟上新版，由上往下按完）？
       其他的多出一堆＝新版寫壞了東西。**切換那天例外**：主檔是剛載的種子，主檔那幾列應該都是 0
 - [ ] 改了主檔的形狀（多一個欄位要她自己填）→ **她自己要做一次的那幾步**
@@ -479,6 +480,15 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
       Storage 服務代理的角色、App Check 金鑰、關快取、Function）。**只剩第 5 步的預算警示**
 
 ### 切換那天（2026-10-09 決定：正式站連主檔一起刪掉、重新載入種子）
+
+> **2026-10-20 做完了，之後不再切換**（[ADR-0165](./adr/0165-after-cutover-production-is-the-only-copy.md)）。正式與 staging 寫進同一份：
+> 現在的種子＋合併檔 v10（34 位客戶、174 筆額度、227 天來訪；10/20 以前的雜事只留兩筆休假）。
+> 實際做法跟下面的步驟不一樣（她放行之後由 Claude 做）：本機模擬器上讓 app 自己的匯入跑一次 →
+> 整份傾印 → 兩個專案清空（登入白名單、AI 用量帳本留著；稽核與試算表推送設定一起清掉）→ 寫進去 →
+> 整份讀回來逐欄比對（兩邊各 578 份，一模一樣）。腳本在 `.local/references/cutover-2026-10-14/`
+> （`emu-import.mjs`、`fresh-dump.mjs`、`fresh-write.mjs`），憑證是她本機的 ADC，不用服務帳號金鑰。
+> 匯完資料健檢只剩「狀態異常」：10/17、10/19 還是已確認的那幾天（簽療程單勾掉就好）。
+> 下面那幾步留著當紀錄。
 
 這一天連主檔一起刪掉、重新載入現在的種子。為什麼這樣刪、為什麼留那三類見 [ADR-0143](./adr/0143-cutover-day-deletes-production-with-firebase-tools.md)。
 **挑一天收工之後做**：合併檔裡今天以前與今天的來訪匯進來直接是**已完成**（ADR-0029），

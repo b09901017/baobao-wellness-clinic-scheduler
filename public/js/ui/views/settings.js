@@ -19,6 +19,11 @@ import { THEME_CHOICES, readTheme, setTheme } from '../theme.js';
 import { confirmAction } from '../components/dialog.js';
 import * as toast from '../toast.js';
 import { readLineMacro, saveLineMacro, testLineMacro, portOf } from '../../integrations/lineMacro.js';
+import { missedData, readBoots, secs, stepsOf } from '../bootTiming.js';
+import * as swUpdate from '../swUpdate.js';
+import { isOffline } from '../net.js';
+import { dayOf, shortDate } from '../../domain/dates.js';
+import { ENV } from '../../firebase-config.js';
 
 const esc = f.esc;
 
@@ -120,6 +125,16 @@ export async function render(el) {
 
     ${lineMacroCard()}
 
+    ${ENV === 'prod' ? '' : bootTimesCard()}
+
+    <section class="card card--flat" data-redownload>
+      <h2 class="card__title">程式${tip(
+        '程式檔存在這一台裝置上，打開才快。有新版本時畫面最上面會跳一條「有新版本・點一下更新」。'
+        + '按了更新之後畫面還是跟別台不一樣，按這一顆：清掉這一台存的程式檔、重新整理一次。'
+        + '資料不受影響。')}</h2>
+      <p><button class="btn" type="button" data-redownload-go>重新下載程式</button></p>
+    </section>
+
     <section class="card">
       <h2 class="card__title">帳號${tip('登出之後資料都還在雲端，重新登入就看得到。')}</h2>
       <button class="btn" type="button" data-signout>登出</button>
@@ -149,6 +164,19 @@ export async function render(el) {
   });
 
   wireLineMacro(el);
+  el.querySelector('[data-redownload-go]')?.addEventListener('click', async () => {
+    // 離線時按下去：存的程式檔清掉、重新整理去打網路 —— 打不開，要等連上網路才回得來
+    if (isOffline()) {
+      toast.info('現在離線：重新下載要連上網路才做得了');
+      return;
+    }
+    const ok = await confirmAction({
+      title: '重新下載程式？',
+      consequences: ['畫面會重新整理一次（要連著網路）', '資料不受影響'],
+      confirmLabel: '重新下載',
+    });
+    if (ok) swUpdate.redownload();
+  });
   el.querySelector('[data-seed]')?.addEventListener('click', () => runSeed(el));
   el.querySelector('[data-signout]')?.addEventListener('click', () => signOutNow());
   el.querySelector('[data-export]')?.addEventListener('click', () =>
@@ -179,6 +207,59 @@ function lineMacroCard() {
       ${f.text({ name: 'lineMacroTry', label: '用哪一位試', placeholder: 'LINE 好友的名字' })}
       <p><button class="btn" type="button" data-linemacro-try>試一次</button></p>
     </section>`;
+}
+
+/**
+ * 打開要多久（after-golive 05）。跟「外觀」一樣**記在這一台裝置上**：最近 10 次開機，每一步是第幾秒到的。
+ * 她手機上量出來的數字決定之後那幾招（先畫殼、程式檔先用手機裡的…）做不做、做完快了多少 —— 她截圖給我們看。
+ * 量法在 `ui/bootTiming.js`。
+ *
+ * **正式站不畫**（2026-10-21 她：「量完先收起來，之後做 issue 09 還可以用」）：只在 staging 與模擬器畫，
+ * 開機照樣每一台都記（`app.js`，只存在這一台、一行都不擋開機）—— 要量的時候在 staging 上看。
+ */
+function bootTimesCard() {
+  const { ok, list } = readBoots();
+  const latest = list[0];
+  let body;
+  try {
+    body = !ok ? '<p>這一台記不住（瀏覽器擋掉了網站資料）</p>'
+      : !latest ? '<p>還沒有紀錄。把 app 關掉再打開一次就有</p>'
+        : `<p class="boottimes__now">上一次：<strong class="num" data-boot-latest>${secs(stepsOf(latest).total)} 秒</strong>
+             ${missedData(latest) ? '沒等到待辦的數字' : latest.home ? '看到待辦的數字' : '看到畫面（從別頁打開）'}</p>
+           <ol class="boottimes">${list.map(bootRow).join('')}</ol>`;
+  } catch {
+    // 這一張是量東西的，不可以讓設定頁整頁畫不出來
+    body = '<p>讀不出來</p>';
+  }
+  return `
+    <section class="card card--flat" data-boottimes>
+      <h2 class="card__title">打開要多久${tip(
+        '記在這一台裝置上，最近 10 次。從按下圖示（瀏覽器開始載入）算起，每一步是第幾秒到的：'
+        + '程式＝程式檔都下載好、登入＝確認是你、權限＝確認這個帳號可以用、畫面＝底下那一排出來、資料＝待辦的數字出來。'
+        + '從別頁打開的只記到「畫面」；還在載入就關掉或換頁的那幾次標「沒等到數字」；'
+        + '停在登入頁、沒有權限、連不上的那幾次不記。')}</h2>
+      ${body}
+    </section>`;
+}
+
+/** 一次開機一列：什麼時候、幾秒、那幾步。 */
+function bootRow(r) {
+  const { steps, total } = stepsOf(r);
+  const when = `${shortDate(dayOf(r.at))} ${new Date(r.at).toTimeString().slice(0, 5)}`;
+  const tags = [
+    r.firstToday ? '今天第一次' : r.gapMin >= 60 ? `隔 ${Math.floor(r.gapMin / 60)} 小時` : '',
+    r.sw ? '' : '第一次載入',
+    r.home ? '' : '從別頁打開',
+    missedData(r) ? '沒等到數字' : '',
+  ].filter(Boolean);
+  return `
+    <li class="boottimes__row" data-boot data-boot-total="${total}">
+      <span class="num">${esc(when)}</span>
+      <strong class="num">${secs(total)} 秒</strong>
+      ${tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}
+      <span class="boottimes__steps muted num">${steps.map((s) =>
+        `<span data-step="${s.id}" data-ms="${s.ms}">${esc(s.label)} ${secs(s.ms)}</span>`).join(' → ')}</span>
+    </li>`;
 }
 
 /** 只存、不重畫（ADR-0038）。 */

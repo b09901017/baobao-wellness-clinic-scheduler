@@ -8,6 +8,8 @@
 //   4. 離線按送出 → 講的是「要連網路」，假模型沒被叫
 //   5. 暫停中 → 講的是「AI 暫停中」不是「辨識失敗」
 //   6. 張數上限講得出來
+//   7. 手機解不開整張的 1 億像素照片 → 解碼時就縮，照樣轉正送出（after-golive 01）
+//   8. 手機橫放時取景框撐滿、快門在右邊那一欄（after-golive 02）
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +19,7 @@ import sharp from 'sharp';
 import { test, expect } from '../fixtures/app.js';
 import { fakeAiCalls, queueAi } from '../fixtures/ai/index.js';
 import { dayKey } from '../../functions/lib/guard.js';
-import { jpegInfo } from '../../public/js/ui/components/photo.js';
+import { BIG_PIXELS, jpegInfo } from '../../public/js/ui/components/photo.js';
 
 // Function 記帳用真的時鐘；暫停那一條要讀同一個月的設定，所以瀏覽器也用真的今天
 test.use({ today: dayKey(new Date()) });
@@ -44,6 +46,88 @@ async function phonePhoto(name, { width = 3200, height = 2400 } = {}) {
     .toBuffer();
   writeFileSync(file, buf);
   return file;
+}
+
+/**
+ * 送出去那一張的四個角（紅、綠兩個值）。`phonePhoto()` 存的是 x → 紅、y → 綠，EXIF 說要轉 90 度（6）：
+ * 轉正之後左上是存著的左下（紅 0、綠 255）、右上是存著的左上（0、0），以此類推。
+ * **只比寬高的話沒轉正、被拉成 1500×2000 照樣綠**（after-golive 01）。
+ */
+async function expectUpright(bytes) {
+  const { data, info } = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
+  const at = (x, y) => {
+    const i = (y * info.width + x) * info.channels;
+    return [data[i], data[i + 1]];
+  };
+  const m = 8;
+  const right = info.width - 1 - m;
+  const bottom = info.height - 1 - m;
+  const seen = { tl: at(m, m), tr: at(right, m), bl: at(m, bottom), br: at(right, bottom) };
+  const want = { tl: [0, 255], tr: [0, 0], bl: [255, 255], br: [255, 0] };
+  for (const corner of Object.keys(want)) {
+    const off = Math.max(...want[corner].map((v, k) => Math.abs(v - seen[corner][k])));
+    expect(off, `${corner} 那個角的顏色不對（看到 ${seen[corner]}，要 ${want[corner]}）—— 沒轉正或轉反了`).toBeLessThan(40);
+  }
+}
+
+/** 攔下送 AI 的那一張，回它的位元組。 */
+async function sentPhoto(page) {
+  const request = page.waitForRequest((r) => r.url().includes('/asia-east1/extract'));
+  await page.locator('[data-cam-send]').click();
+  const body = JSON.parse((await request).postData());
+  return Buffer.from(body.data.image, 'base64');
+}
+
+/**
+ * 手機的解碼上限（after-golive 01）。桌機的 Chromium 沒有，所以 1 億像素的照片桌機照樣縮得過 —— 她手機上時好時壞。
+ * 這裡模擬那個上限：`createImageBitmap()` 與 `<img>` 遇到超過 `limit` 像素的圖就失敗（兩條都要先整張解開），
+ * `ImageDecoder` 解出來的那一格超過也失敗（帶了尺寸提示、解成小的就不會超過）。
+ */
+function phoneDecodeLimit(page, limit) {
+  return page.addInitScript((LIMIT) => {
+    const size = (b) => {
+      if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+      for (let i = 2; i + 9 < b.length;) {
+        const marker = b[i + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+          return ((b[i + 5] << 8) | b[i + 6]) * ((b[i + 7] << 8) | b[i + 8]);
+        }
+        i += 2 + ((b[i + 2] << 8) | b[i + 3]);
+      }
+      return null;
+    };
+    const tooBig = async (blob) => (size(new Uint8Array(await blob.slice(0, 256 * 1024).arrayBuffer())) ?? 0) > LIMIT;
+
+    const realBitmap = window.createImageBitmap;
+    window.createImageBitmap = async function createImageBitmap(src, ...rest) {
+      if (src instanceof Blob && await tooBig(src)) throw new DOMException('decode', 'InvalidStateError');
+      return realBitmap.call(this, src, ...rest);
+    };
+
+    const RealImage = window.Image;
+    window.Image = function Image(...a) {
+      const img = new RealImage(...a);
+      let onload = null;
+      Object.defineProperty(img, 'onload', { configurable: true, get: () => onload, set: (fn) => { onload = fn; } });
+      img.addEventListener('load', (e) => {
+        if (img.naturalWidth * img.naturalHeight > LIMIT) img.onerror?.(new Event('error'));
+        else onload?.call(img, e);
+      });
+      return img;
+    };
+
+    if (window.ImageDecoder) {
+      const realDecode = window.ImageDecoder.prototype.decode;
+      window.ImageDecoder.prototype.decode = async function decode(...a) {
+        const out = await realDecode.apply(this, a);
+        if (out.image.codedWidth * out.image.codedHeight > LIMIT) {
+          out.image.close();
+          throw new DOMException('decode', 'EncodingError');
+        }
+        return out;
+      };
+    }
+  }, limit);
 }
 
 async function openCam(page, { kind = 'planFlyer', max = 10 } = {}) {
@@ -77,10 +161,7 @@ test('C2 相簿選一張 3200×2400 帶 EXIF 的照片 → 送出去的是轉正
   await expect(page.locator('.cam__thumb')).toHaveCount(1);
   await expect(page.locator('[data-cam-send]')).toHaveText('送出 1 張');
 
-  const request = page.waitForRequest((r) => r.url().includes('/asia-east1/extract'));
-  await page.locator('[data-cam-send]').click();
-  const body = JSON.parse((await request).postData());
-  const bytes = Buffer.from(body.data.image, 'base64');
+  const bytes = await sentPhoto(page);
 
   expect(bytes[0]).toBe(0xff);
   expect(bytes[1]).toBe(0xd8);
@@ -88,6 +169,7 @@ test('C2 相簿選一張 3200×2400 帶 EXIF 的照片 → 送出去的是轉正
   expect(bytes.includes(Buffer.from('TestPhone'))).toBe(false);
   const info = jpegInfo(new Uint8Array(bytes));
   expect({ width: info.width, height: info.height }, '要照 EXIF 轉正、長邊 2000').toEqual({ width: 1500, height: 2000 });
+  await expectUpright(bytes);
 
   await expect(page.locator('.cam')).toHaveCount(0);
   const done = await page.evaluate(() => window.__camDone);
@@ -159,6 +241,65 @@ test('C6 Abovee 最多兩張：選三張只收兩張並講出來，快門變灰'
   // 拿掉一張 → 快門回來
   await page.locator('[data-cam-remove]').first().click();
   await expect(page.locator('.cam__thumb')).toHaveCount(1);
+});
+
+// ---------------------------------------------------------------------------
+// 1 億像素的照片（`.scratch/after-golive-2026-10-20/issues/01`）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-10-20：「會寫說有一張照片讀不出來，換一張試試，但我換了還是讀不出來?」
+// 手機原檔 12000×9000，整張解開約 430MB，Android 的 Chrome 解不開（時好時壞）。
+// 桌機沒有那個上限，所以這裡把上限設成 1600 萬像素、照片 2000 萬像素來模擬。
+
+test('P1 手機解不開整張的大照片 → 照樣送出轉正的 1500×2000（解碼時就縮）', async ({ app, page }) => {
+  await queueAi([]);
+  const file = await phonePhoto('huge.jpg', { width: 5200, height: 3900 });
+  await phoneDecodeLimit(page, 16_000_000);
+  await app.signIn('/');
+  await openCam(page);
+
+  await page.locator('[data-cam-album-input]').setInputFiles(file);
+  await expect(page.locator('.cam__thumb'), '手機上這一張會講「讀不出來」').toHaveCount(1);
+  await expect(page.locator('[data-cam-say]')).toHaveText('');
+
+  const bytes = await sentPhoto(page);
+  const info = jpegInfo(new Uint8Array(bytes));
+  expect({ width: info.width, height: info.height }).toEqual({ width: 1500, height: 2000 });
+  expect(bytes.subarray(0, 4096).includes(Buffer.from('Exif')), '送出去的 JPEG 還帶著 EXIF').toBe(false);
+  await expectUpright(bytes);
+});
+
+test('P2 沒有 ImageDecoder 的瀏覽器（Safari）照舊走原本那兩條：轉正、長邊 2000', async ({ app, page }) => {
+  await queueAi([]);
+  const file = await phonePhoto('nodecoder.jpg');
+  await page.addInitScript(() => { delete window.ImageDecoder; });
+  await app.signIn('/');
+  await openCam(page);
+  expect(await page.evaluate(() => typeof window.ImageDecoder)).toBe('undefined');
+
+  await page.locator('[data-cam-album-input]').setInputFiles(file);
+  await expect(page.locator('.cam__thumb')).toHaveCount(1);
+  const bytes = await sentPhoto(page);
+  const info = jpegInfo(new Uint8Array(bytes));
+  expect({ width: info.width, height: info.height }).toEqual({ width: 1500, height: 2000 });
+  await expectUpright(bytes);
+});
+
+test('P3 真的解不開時講原因與怎麼辦，不叫她「換一張試試」', async ({ app, page }) => {
+  expect(5200 * 3900, '這一張要大到講「太大」').toBeGreaterThan(BIG_PIXELS);
+  const file = await phonePhoto('toobig.jpg', { width: 5200, height: 3900 });
+  // 連 ImageDecoder 都沒有、又超過上限：三條路都走不通
+  await page.addInitScript(() => { delete window.ImageDecoder; });
+  await phoneDecodeLimit(page, 16_000_000);
+  await app.signIn('/');
+  await openCam(page);
+
+  await page.locator('[data-cam-album-input]').setInputFiles(file);
+  const say = page.locator('[data-cam-say]');
+  await expect(say).toContainText('太大');
+  await expect(say).toContainText('快門');
+  await expect(say).not.toContainText('換一張');
+  await expect(page.locator('.cam__thumb')).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -238,4 +379,149 @@ test('C7 看照片：轉 90° 之後橫的變直的、整張在畫面裡；轉�
   await expect(page.locator('.seenview img')).toBeVisible();
   const again = await measureView(page);
   expect(again.w, '不記住：再打開是原本橫的').toBeGreaterThan(again.h);
+});
+
+// ---------------------------------------------------------------------------
+// 手機橫放的拍照排版（`.scratch/after-golive-2026-10-20/issues/02`）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-10-20：「我可以橫的拍照嗎，那我橫了之後，中間那個綠色的對準框也可以變橫嗎?」
+// 以前只有直式與 iPad 橫放（寬度 ≥ 900）兩種排法：手機橫放落在直式那一種，取景區被壓扁、紙的框只剩 28px；
+// 915 寬的手機剛好吃到 iPad 那一條。**量的是畫出來的位置**（`getBoundingClientRect()`、`elementFromPoint()`），不是 CSS 字串。
+
+/** 無頭 Chromium 沒有相機：給一條 canvas 畫的影像，取景框才畫得出來（拿不到相機時框是收起來的）。 */
+function fakeCamera(page) {
+  return page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = document.createElement('canvas');
+      c.width = 1280;
+      c.height = 720;
+      const g = c.getContext('2d');
+      g.fillStyle = '#456';
+      g.fillRect(0, 0, c.width, c.height);
+      return c.captureStream(5);
+    };
+  });
+}
+
+/** 打開之後等進場動畫播完再量（`.cam--in` 有一段 transform）。 */
+async function openLive(page, opts) {
+  await openCam(page, opts);
+  await expect(page.locator('.cam.cam--live')).toHaveCount(1);
+  await page.evaluate(() => Promise.all(document.querySelector('.cam').getAnimations({ subtree: true })
+    .filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished)));
+}
+
+/** 拍照那一層畫出來的位置（四捨五入到整數 px）。`shutterHit`：快門正中央那一點摸到的是不是快門。 */
+const camLayout = (page) => page.evaluate(() => {
+  const box = (sel) => {
+    const b = document.querySelector(sel).getBoundingClientRect();
+    return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
+  };
+  const s = document.querySelector('[data-cam-shutter]').getBoundingClientRect();
+  const hit = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+  return {
+    viewport: [innerWidth, innerHeight],
+    top: box('.cam__top'),
+    stage: box('.cam__stage'),
+    frame: box('.cam__frame'),
+    shutter: box('[data-cam-shutter]'),
+    album: box('.cam__controls [data-cam-album]'),
+    system: box('.cam__controls [data-cam-system]'),
+    say: box('.cam__say'),
+    shutterHit: !!hit?.closest('[data-cam-shutter]'),
+  };
+});
+
+const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+const rightOf = (a, b) => a.x >= b.x + b.w;
+
+/** 開一次、量、收起來。 */
+async function layoutAt(page, [width, height], kind) {
+  await page.setViewportSize({ width, height });
+  await openLive(page, { kind, max: 2 });
+  const out = await camLayout(page);
+  await page.locator('[data-cam-close]').click();
+  await expect(page.locator('.cam')).toHaveCount(0);
+  return out;
+}
+
+// 直式手機、iPad 直放 2026-10-21 改之前與改之後逐 px 比過一樣（issue 02 的「做完時留下的」）；
+// 這裡釘的是那一種排法的形狀：取景在上、快門在底下正中間
+test('L1 直式手機與 iPad 直放：照舊是直的那一種（快門在取景底下正中間、框在取景裡）', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[390, 844], [820, 1180]]) {
+    for (const kind of ['aboveeList', 'orderForm']) {
+      const at = `${size.join('×')} ${kind}`;
+      const l = await layoutAt(page, size, kind);
+      expect(inside(l.frame, l.stage), `${at}：框跑出取景區`).toBe(true);
+      expect(l.shutter.y, `${at}：快門要在取景底下`).toBeGreaterThanOrEqual(l.stage.y + l.stage.h);
+      expect(Math.abs(l.shutter.x + l.shutter.w / 2 - size[0] / 2), `${at}：快門要在正中間`).toBeLessThanOrEqual(1);
+      expect(l.shutterHit, `${at}：快門按得到`).toBe(true);
+    }
+  }
+});
+
+test('L2 手機橫放（844×390、915×412、780×360）：Abovee 的框撐滿、快門在右邊那一欄按得到', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[844, 390], [915, 412], [780, 360]]) {
+    const at = size.join('×');
+    const l = await layoutAt(page, size, 'aboveeList');
+    expect(inside(l.frame, l.stage), `${at}：框的四個角要在取景區裡`).toBe(true);
+    expect(l.frame.w >= l.stage.w * 0.8 || l.frame.h >= l.stage.h * 0.8, `${at}：框沒有撐滿（${l.frame.w}×${l.frame.h}，取景 ${l.stage.w}×${l.stage.h}）`).toBe(true);
+    expect(l.stage.h, `${at}：取景要佔左邊整個高度`).toBeGreaterThanOrEqual(size[1] - 30);
+    // 915 寬的手機以前吃到 iPad 那一條（抬頭橫跨整個寬）
+    expect(rightOf(l.top, l.stage), `${at}：抬頭要收在右邊那一欄`).toBe(true);
+    expect(rightOf(l.shutter, l.stage), `${at}：快門要在右邊那一欄`).toBe(true);
+    expect(l.shutter.y + l.shutter.h, `${at}：快門要整顆在畫面裡`).toBeLessThanOrEqual(size[1]);
+    expect(l.shutterHit, `${at}：快門按得到`).toBe(true);
+    expect(l.album.y + l.album.h <= size[1] && l.system.y + l.system.h <= size[1], `${at}：相簿、系統相機要在畫面裡`).toBe(true);
+  }
+});
+
+test('L3 手機橫放拍訂購單：紙的框整個看得到、照高度撐開', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[844, 390], [780, 360]]) {
+    const l = await layoutAt(page, size, 'orderForm');
+    expect(inside(l.frame, l.stage), `${size.join('×')}：紙的框跑出取景區`).toBe(true);
+    expect(l.frame.h, `${size.join('×')}：紙的框太小（以前只剩 28px 寬）`).toBeGreaterThanOrEqual(l.stage.h * 0.8);
+    expect(l.frame.h).toBeGreaterThan(l.frame.w);
+  }
+});
+
+test('L4 iPad 橫放：控制在右邊那一欄、抬頭橫跨；Abovee 的寬框不再被紙的寬度蓋掉', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  for (const size of [[1180, 820], [1024, 768]]) {
+    const at = size.join('×');
+    const wide = await layoutAt(page, size, 'aboveeList');
+    expect(wide.top.x, `${at}：iPad 吃到手機那一條了（抬頭要橫跨）`).toBe(0);
+    expect(rightOf(wide.shutter, wide.stage), `${at}：快門要在右邊那一欄`).toBe(true);
+    expect(inside(wide.frame, wide.stage)).toBe(true);
+    expect(wide.frame.w, `${at}：寬框被蓋成紙的寬度了（以前約 450px）`).toBeGreaterThanOrEqual(wide.stage.w * 0.8);
+    const paper = await layoutAt(page, size, 'orderForm');
+    expect(inside(paper.frame, paper.stage)).toBe(true);
+    expect(paper.frame.h).toBeGreaterThan(paper.frame.w);
+  }
+});
+
+test('L5 手機橫放、前鏡頭在左或右（全螢幕）：取景與右邊那一欄都讓開', async ({ app, page }) => {
+  await fakeCamera(page);
+  await app.signIn('/');
+  const cdp = await page.context().newCDPSession(page);
+  for (const side of ['left', 'right']) {
+    const insets = { top: 0, bottom: 0, left: 0, right: 0, [side]: 40 };
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets });
+    const l = await layoutAt(page, [844, 390], 'aboveeList');
+    if (side === 'left') expect(l.stage.x, '取景要讓開左邊的鏡頭').toBeGreaterThanOrEqual(40);
+    else {
+      for (const k of ['top', 'shutter', 'album', 'system']) {
+        expect(l[k].x + l[k].w, `${k} 要讓開右邊的鏡頭`).toBeLessThanOrEqual(844 - 40);
+      }
+    }
+    expect(l.shutterHit).toBe(true);
+  }
 });

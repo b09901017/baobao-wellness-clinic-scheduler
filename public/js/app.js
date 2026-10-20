@@ -2,12 +2,20 @@
 // 業務規則不寫在這裡，也不寫在任何事件處理器裡 —— 那些都在 /domain。
 
 import { initFirebase, isConfigured } from './data/firebase.js';
-import { watchAuth, signIn, signOut } from './data/auth.js';
+import { watchAuth, signIn, signOut, lastAllowedUid } from './data/auth.js';
 import { renderGate, renderShell } from './ui/shell.js';
 import * as sheetSync from './data/sheetSync.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
 import { install as installTips } from './ui/components/tip.js';
+import * as bootTiming from './ui/bootTiming.js';
+import { resolve } from './ui/router.js';
+import * as swUpdate from './ui/swUpdate.js';
+
+// 量開機（after-golive 05）：走到這一行＝上面那一百多支程式檔全部到齊了。
+// 記在這一台、設定頁「打開要多久」讀它；**它一行都不擋開機**（每一步自己包 try）。
+// 是不是從首頁打開照路由認（認不得的網址也畫首頁）
+bootTiming.begin({ home: resolve().path === '/' });
 
 // 說明泡泡的委派掛在 document 上，**開機接一次就好** —— 每一頁、每一次重畫
 // 長出來的那幾顆 `?` 都不用各自接。各自接的話，漏接一頁就是「那一顆點了沒反應」。
@@ -48,18 +56,57 @@ function main() {
 
   initFirebase();
 
-  let shellMounted = false;
+  // 殼是替誰畫的（null ＝現在不是殼）。auth 狀態每次刷新都會觸發，同一位就不要重畫整個殼
+  let shellUid = null;
+  let sheetSyncWired = false;
+
+  const mountShell = (uid) => {
+    shellUid = uid;
+    delete root.dataset.access;
+    renderShell(root, { onSignOut: handleSignOut });
+    bootTiming.mark('shell');
+  };
+  const gate = (props) => {
+    shellUid = null;
+    delete root.dataset.access;
+    // 登入頁、連不上、沒有權限那三種不算一次正常開機（量開機那一張不記）
+    bootTiming.drop();
+    renderGate(root, props);
+  };
+  // 登入確認過了、殼是這一位的。**E2E 的「登入好了」等的是這一格**（`tests-e2e/fixtures/app.js`）——
+  // 殼先畫之後，底下那一排在確認之前就出現了
+  const confirmed = () => {
+    root.dataset.access = 'allowed';
+    if (sheetSyncWired) return;
+    sheetSyncWired = true;
+    // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
+    // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡沒有寫入要推
+    sheetSync.wire();
+  };
+
+  // 這一台上次通過了白名單（ADR-0167，after-golive 07）：**不等登入，先畫殼**。
+  // 各頁照常畫，它們的讀取會排隊等登入（畫面上是那一頁自己的「載入中」，殼與底下那一排已經在）；
+  // 寫入的稽核等登入回答了才記是誰（`data/repo.js` 的 `commit()`）
+  const remembered = lastAllowedUid();
+  if (remembered) {
+    mountShell(remembered);
+    booted();
+  }
+
   watchAuth(({ user, access }) => {
     if (!user) {
-      shellMounted = false;
-      renderGate(root, { state: 'signedOut', onSignIn: handleSignIn });
+      gate({ state: 'signedOut', onSignIn: handleSignIn });
       return booted();
     }
     // 連不上不是沒有權限（見 data/auth.js 的 accessState）。
-    // 這一頁給的是「等一下再試」，不是「去 Console 加白名單」。
+    // **殼已經是這一位的就留著**（記著他上次通過了，離線照樣用得了 —— 雲端那一側照舊由 Rules 擋）；
+    // 不是的話給「等一下再試」，不是「去 Console 加白名單」
     if (access === 'unreachable') {
-      shellMounted = false;
-      renderGate(root, {
+      if (shellUid === user.uid) {
+        confirmed();
+        return booted();
+      }
+      gate({
         state: 'unreachable',
         email: user.email,
         onRetry: () => location.reload(),
@@ -68,8 +115,7 @@ function main() {
       return booted();
     }
     if (access !== 'allowed') {
-      shellMounted = false;
-      renderGate(root, {
+      gate({
         state: 'notAllowed',
         email: user.email,
         uid: user.uid,
@@ -77,27 +123,19 @@ function main() {
       });
       return booted();
     }
-    // 已登入且在白名單內。auth 狀態每次刷新都會觸發，不要重畫整個殼。
-    if (!shellMounted) {
-      shellMounted = true;
-      renderShell(root, { onSignOut: handleSignOut });
-      // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
-      // 資料的真相在 Firestore（SPEC 第 4.8 節）。
-      sheetSync.wire();
-    }
+    bootTiming.mark('access');
+    // 不同的一位（記著的是上一個人）：**不可以拿上一個人的殼繼續** —— 整個重畫
+    if (shellUid !== user.uid) mountShell(user.uid);
+    confirmed();
     return booted();
-  });
+  }, { onUser: () => bootTiming.mark('auth') });
 }
+
+// Service worker 只快取 app 殼，資料一律走 Firestore 自己的離線快取。
+// 程式檔先用手機裡的、新版在背景裝好等她點「有新版本・點一下更新」（ADR-0167，`ui/swUpdate.js`）。
+// **排在 `main()` 之前**：`main()` 丟例外的那一版，修好的那一版照樣要裝得進來
+swUpdate.register();
 
 // `main()` 本身丟例外的話**不要**解除保險絲 —— 那正是它要接住的情況。
 // 12 秒後 index.html 會把「載入失敗」畫出來，而不是永遠停在「載入中…」。
 main();
-
-// Service worker 只快取 app 殼，資料一律走 Firestore 自己的離線快取。
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      /* 註冊失敗不影響使用，安靜略過 */
-    });
-  });
-}

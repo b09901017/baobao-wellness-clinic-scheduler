@@ -465,6 +465,19 @@ function stillOpenDays(visits, onDay) {
       || String(a.customerName ?? '').localeCompare(String(b.customerName ?? ''), 'zh-TW'));
 }
 
+/**
+ * 這一天簽完了：每一段都結了（沒有一段還開著）、而且至少一段已完成或未到。
+ *
+ * `visitsToClose()` 的另一半 —— 待辦逾期／今天那兩頁「已完成」那一格的簽療程單（ADR-0166）。
+ * **整天取消的不算**：那一天沒有療程單要簽，它也從來不在簽療程單那一列。
+ */
+export function daySignedOff(visit) {
+  if (!visit || visit.deletedAt || !isValidDate(visit.date)) return false;
+  const slots = visit.slots ?? [];
+  if (!slots.length || slotsToClose(visit).length) return false;
+  return slots.some((slot) => ['done', 'no_show'].includes(slotStatus(visit, slot)));
+}
+
 /** 還開著的段：待確認或已確認。已完成、未到、取消的都已經定案了。資料健檢第 33 項也問它。 */
 export const isOpenStatus = (status) => status === 'pending_confirm' || status === 'confirmed';
 
