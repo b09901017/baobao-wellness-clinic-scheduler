@@ -14,6 +14,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fromRoot } from './helpers/paths.js';
 
 const MANIFEST = JSON.parse(readFileSync(fromRoot('public/manifest.webmanifest'), 'utf8'));
+const STAGING_MANIFEST = JSON.parse(readFileSync(fromRoot('public/manifest-staging.webmanifest'), 'utf8'));
 const INDEX = readFileSync(fromRoot('public/index.html'), 'utf8');
 const SHELL = readFileSync(fromRoot('public/js/ui/shell.js'), 'utf8');
 const FORM = readFileSync(fromRoot('public/form.html'), 'utf8');
@@ -39,6 +40,20 @@ describe('app 的名字', () => {
   test('shell.js 裡沒有另外寫死一份', () => {
     const written = SHELL.split(inShell).length - 1;
     assert.equal(written, 1, `「${inShell}」在 shell.js 出現 ${written} 次，應該只有 APP_NAME 那一行`);
+  });
+
+  // staging 加到主畫面時要分得出來（她 2026-10-21）：那一份 manifest 只差名字，其餘跟著正式那一份
+  test('staging 的 manifest 只有名字不一樣，名字是 APP_NAME 加「-測試版」', () => {
+    const suffix = SHELL.match(/const STAGING_SUFFIX = '([^']+)';/)?.[1];
+    assert.ok(suffix, 'shell.js 找不到 STAGING_SUFFIX');
+    assert.equal(STAGING_MANIFEST.name, `${inShell}${suffix}`);
+    assert.equal(STAGING_MANIFEST.short_name, `${inShell}${suffix}`);
+    assert.deepEqual(
+      { ...STAGING_MANIFEST, name: MANIFEST.name, short_name: MANIFEST.short_name },
+      MANIFEST,
+      'manifest-staging.webmanifest 除了名字之外要跟 manifest.webmanifest 一模一樣',
+    );
+    assert.ok(SHELL.includes("'/manifest-staging.webmanifest'"), 'nameTheApp() 要把 manifest 換成 staging 那一份');
   });
 
   // 客戶在 LINE 裡點開的那一頁不是 app 的一部分（ADR-0031）：他不該看到 app 的名字與圖示

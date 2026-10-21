@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
-  envOf, ENV, firebaseConfig, usingEmulator, envBanner, projectIdFor,
+  envOf, ENV, firebaseConfig, usingEmulator, envBanner, projectIdFor, authDomainFor,
 } from '../public/js/firebase-config.js';
 
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
@@ -229,6 +229,38 @@ describe('模擬器的命名空間：三邊算的是同一支推導', () => {
       false,
       'start-emulators.sh 又把某一台機器的 JAVA_HOME 寫死了',
     );
+  });
+});
+
+describe('authDomainFor()：登入走哪一個網域（ADR-0168）', () => {
+  test('開在自己的網址上就用同一個網址 —— iPad 主畫面那一顆才登得進去', () => {
+    assert.equal(authDomainFor('prod', 'wellness-clinic-scheduler.web.app'), 'wellness-clinic-scheduler.web.app');
+    assert.equal(authDomainFor('staging', 'wellness-clinic-staging.web.app'), 'wellness-clinic-staging.web.app');
+    assert.equal(authDomainFor('staging', 'Wellness-Clinic-Staging.web.app'), 'wellness-clinic-staging.web.app');
+    assert.equal(
+      authDomainFor('prod', 'wellness-clinic-scheduler.firebaseapp.com'),
+      'wellness-clinic-scheduler.firebaseapp.com',
+    );
+  });
+
+  test('預覽頻道與認不得的網址退回 firebaseapp.com（重新導向 URI 登記不完）', () => {
+    assert.equal(
+      authDomainFor('prod', 'wellness-clinic-scheduler--pr-12-a1b2c3.web.app'),
+      'wellness-clinic-scheduler.firebaseapp.com',
+    );
+    assert.equal(authDomainFor('prod', ''), 'wellness-clinic-scheduler.firebaseapp.com');
+    assert.equal(authDomainFor('prod', 'example.com'), 'wellness-clinic-scheduler.firebaseapp.com');
+  });
+
+  test('不會拿另一個專案的網址當自己的', () => {
+    assert.equal(
+      authDomainFor('prod', 'wellness-clinic-staging.web.app'),
+      'wellness-clinic-scheduler.firebaseapp.com',
+    );
+  });
+
+  test('模擬器照舊', () => {
+    assert.equal(authDomainFor('emulator', '127.0.0.1'), 'localhost');
   });
 });
 
