@@ -29,6 +29,19 @@ Console → Authentication → Sign-in method → **Google** → 啟用。
 同一頁的 **Authorized domains** 要有 `wellness-clinic-staging.web.app`
 （建專案時通常自動就有）。少了它，登入彈窗會直接被擋掉。
 
+**還要在 Google Cloud 登記登入轉回來的那一頁**（ADR-0168：登入走 app 自己的網址，
+iPad 加到主畫面的那一顆才登得進去）：
+
+1. [Google Cloud Console](https://console.cloud.google.com/) 左上角先切到**這個專案**
+2. API 和服務 → 憑證 → 「OAuth 2.0 用戶端 ID」底下的
+   **Web client (auto created by Google Service)** → 點進去
+3. 「已授權的重新導向 URI」→ 新增 URI →
+   `https://wellness-clinic-staging.web.app/__/auth/handler`（正式那一邊是
+   `https://wellness-clinic-scheduler.web.app/__/auth/handler`）→ 儲存
+4. 生效要等幾分鐘
+
+**先登記、再部署。** 反過來的話，部署完那幾分鐘連瀏覽器分頁都登不進去（Google 回 `redirect_uri_mismatch`）。
+
 ### 1.5 補一個 IAM 角色（新專案幾乎一定要做這一步）
 
 Console 下載下來的服務帳號金鑰（`firebase-adminsdk-…`），預設只有讀寫
