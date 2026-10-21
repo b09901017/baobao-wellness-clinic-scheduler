@@ -18,7 +18,7 @@
 // **改了 `public/` 底下的檔案就把 VERSION 加一**，再跑 `npm run shell:snapshot`。
 // 忘了加的話（以前是慢一輪）現在是**永遠停在舊版** —— `tests/shell-version.test.js` 擋著。
 
-const VERSION = 'v207';
+const VERSION = 'v208';
 const CACHE = `shell-${VERSION}`;
 const EXTERNAL = 'external-v1';
 
@@ -33,6 +33,7 @@ const SHELL = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
+  '/manifest-staging.webmanifest',
   '/css/tokens.css',
   '/css/app.css',
   '/js/app.js',

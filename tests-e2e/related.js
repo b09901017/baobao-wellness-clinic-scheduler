@@ -532,7 +532,7 @@ export const COVERAGE = {
   ],
   // 全螢幕（ADR-0147）：最上面那一條（前鏡頭的洞）裡不可以有東西 —— 殼、橫幅、蓋住整頁的那幾層
   '66-immersive-top-inset': [
-    'public/css/', 'public/manifest.webmanifest', 'public/js/ui/components/camera.js',
+    'public/css/', 'public/manifest.webmanifest', 'public/manifest-staging.webmanifest', 'public/js/ui/components/camera.js',
   ],
   // 送的／體驗（gift-and-trial）：來訪編輯器存回去那一格不會被留錯或蓋掉、器材與時長那兩排、名字帶標記；
   // 04：收在「送的／體驗…」後面（壓表、來訪編輯器）、「體驗｜送的」那一排、不整頁重畫、手機寬度；

@@ -3,7 +3,7 @@
 
 import { initFirebase, isConfigured } from './data/firebase.js';
 import { watchAuth, signIn, signOut, lastAllowedUid } from './data/auth.js';
-import { renderGate, renderShell } from './ui/shell.js';
+import { renderGate, renderShell, nameTheApp } from './ui/shell.js';
 import * as sheetSync from './data/sheetSync.js';
 import * as toast from './ui/toast.js';
 import './ui/views.js'; // 註冊路由，必須在 renderShell 之前
@@ -49,6 +49,7 @@ function handleSignOut() {
 }
 
 function main() {
+  nameTheApp();
   if (!isConfigured()) {
     renderGate(root, { state: 'unconfigured' });
     return booted();

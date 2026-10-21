@@ -5,7 +5,7 @@ import { back } from './nav.js';
 import { setSignOut } from './session.js';
 import { watchSystemTheme } from './theme.js';
 import { watchOffline } from './net.js';
-import { envBanner } from '../firebase-config.js';
+import { envBanner, ENV } from '../firebase-config.js';
 import { onUpdateReady, applyUpdate } from './swUpdate.js';
 
 // 殼可能畫第二次（被登出又登入、先畫的殼換成另一個帳號，ADR-0167）：上一個殼掛的通知先拆掉
@@ -26,6 +26,26 @@ function unmountShell() {
  * `manifest.webmanifest` 與 `index.html`（那兩支讀不到 JS），改名三個地方一起改。
  */
 const APP_NAME = '暴富日常';
+
+/**
+ * staging 的名字多一個尾巴（她 2026-10-21：加到主畫面時兩顆分得出來）。
+ * 主畫面圖示底下那個名字要在加的那一刻就是對的，而 `index.html` 與 `manifest.webmanifest`
+ * 兩個環境是同一份，所以 staging 由 `nameTheApp()` 在打開時換掉（manifest 換成 `manifest-staging.webmanifest`）。
+ */
+const STAGING_SUFFIX = '-測試版';
+
+export const appName = () => (ENV === 'staging' ? `${APP_NAME}${STAGING_SUFFIX}` : APP_NAME);
+
+/**
+ * 主畫面圖示底下那個名字：iOS 讀 `apple-mobile-web-app-title`、Android 讀 manifest。
+ * **已經加到主畫面的那一顆不會跟著改** —— 名字是加的那一刻記下來的，要刪掉重加一次。
+ */
+export function nameTheApp(doc = globalThis.document) {
+  if (ENV !== 'staging' || !doc) return;
+  doc.title = appName();
+  doc.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', appName());
+  doc.querySelector('link[rel="manifest"]')?.setAttribute('href', '/manifest-staging.webmanifest');
+}
 
 /**
  * 「這裡不是正式環境」那一條。正式環境回空字串 —— **一個元素都不畫**，
@@ -64,7 +84,7 @@ export function renderGate(root, { state, email, uid, onSignIn, onSignOut, onRet
       <h2 class="card__title">還沒設定 Firebase</h2>
       <p class="muted">把 Firebase Console 的前端 config 填進 <code>public/js/firebase-config.js</code>。那串不是密鑰，可以直接 commit。</p>`,
     signedOut: `
-      <h2 class="card__title">${APP_NAME}</h2>
+      <h2 class="card__title">${appName()}</h2>
       <p class="muted">請先登入。</p>
       <p><button class="btn btn--primary" type="button" data-signin>使用 Google 登入</button></p>`,
     notAllowed: `
@@ -172,7 +192,7 @@ export function renderShell(root, { onSignOut }) {
     // 分頁標題也帶上環境。橫幅在螢幕上，但**切分頁**的時候只看得到標題 ——
     // 而「兩個分頁開著、按錯那一個」正是這個安排最容易出的事。
     const env = envBanner();
-    document.title = `${env ? `[${env.label}] ` : ''}${title} · ${APP_NAME}`;
+    document.title = `${env ? `[${env.label}] ` : ''}${title} · ${appName()}`;
     const view = freshView(root);
     navEl.innerHTML = navHtml(activeNavPath(path));
     // render 可能是 async，錯誤要看得見，不能靜默失敗
